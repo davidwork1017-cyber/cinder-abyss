@@ -923,7 +923,7 @@ async function main() {
     return '一秒转出 ' + r.pulses + ' 下，四周各受 ' + r.ringHit.join('/') + ' 伤害';
   });
 
-  await step('影步连斩：按住自动在敌人之间闪砍、落点不穿墙、单体换方位反复砍；没目标不出手；松手 / 翻滚 / 魔力耗尽即停；破绽精英直接处决', async () => {
+  await step('影步连斩：按住自动往怪堆里闪砍、落单的也轮得到、落点不穿墙、单体换方位反复砍；没目标不出手；松手 / 翻滚 / 魔力耗尽即停；破绽精英直接处决', async () => {
     const r = await ev(() => {
       T.arena();
       G.debug.god(true);
@@ -957,9 +957,11 @@ async function main() {
       try {
         const ctx = G.skillCtx('shadestep');
         out.cost = ctx.cost;
-        // 1. 三个敌人：按住一秒，自动在它们之间连跳，第一刀砍准星旁边的那个，每一跳都有位移，三个都挨了打
-        const mobs = [T.mob('husk', 4, 0), T.mob('husk', -3, 3), T.mob('husk', 0, -5)];
-        T.aim(mobs[1].x + 0.5, mobs[1].z);
+        // 1. 一侧三只挤成一堆、另一侧落单一只：第一刀砍准星旁边的落单那只，之后优先往怪堆里跳，
+        //    在堆里轮着砍（不会连砍三刀同一只），每一跳都有位移；一直按着，落单的那只也会再轮到
+        const mobs = [T.mob('husk', 4, 0), T.mob('husk', 5, 1), T.mob('husk', 5, -1), T.mob('husk', -2, 3)];
+        const lone = mobs[3];
+        T.aim(lone.x + 0.5, lone.z);
         const m0 = P.mana;
         inp.mouse.b[0] = true;
         hold(60);
@@ -967,10 +969,12 @@ async function main() {
         out.first = jumps.length ? mobs.indexOf(jumps[0].e) : -1;
         out.jumps = jumps.length;
         out.moves = jumps.slice(1).map((j, i) => +Math.hypot(j.x - jumps[i].x, j.z - jumps[i].z).toFixed(2));
-        out.round = jumps.slice(0, 3).map((j) => mobs.indexOf(j.e));
-        out.hit = mobs.map((e) => Math.round(e.maxHp - e.hp));
+        out.next = jumps.slice(1, 5).map((j) => mobs.indexOf(j.e)); // 落单之后的四刀
         out.spent = +(m0 - P.mana).toFixed(1);
         out.iframe = jumps.length > 1 ? +jumps[1].ifr.toFixed(3) : 0;
+        hold(420); // 一共按 8 秒
+        out.loneAgain = jumps.slice(1).filter((j) => j.e === lone).length;
+        out.hit = mobs.map((e) => Math.round(e.maxHp - e.hp));
         // 2. 松手：停下，动作不残留
         release();
         hold(30);
@@ -1062,9 +1066,11 @@ async function main() {
       T.arena();
       return out;
     });
-    assert(r.channel && r.jumps >= 4 && r.first === 1, '按住一秒应自动连跳至少 4 下、第一刀砍准星旁边的敌人：' + JSON.stringify(r));
-    assert(new Set(r.round).size === 3 && r.hit.every((d) => d > 0), '一轮里应先把几个敌人各砍一遍：' + JSON.stringify(r));
-    assert(r.moves.every((d) => d > 1), '每一跳都应有位移：' + JSON.stringify(r.moves));
+    assert(r.channel && r.jumps >= 4 && r.first === 3, '按住一秒应自动连跳至少 4 下、第一刀砍准星旁边的敌人：' + JSON.stringify(r));
+    assert(r.next.length === 4 && r.next.every((i) => i >= 0 && i <= 2) && new Set(r.next).size >= 2 && r.next.every((i, k) => k < 2 || i !== r.next[k - 1] || i !== r.next[k - 2]),
+      '之后应优先往怪堆里跳、在堆里轮着砍（不连砍三刀同一只）：' + JSON.stringify(r.next));
+    assert(r.loneAgain >= 1 && r.hit.every((d) => d > 0), '一直按着，落单的敌人也应再轮到：' + JSON.stringify(r));
+    assert(r.moves.every((d) => d > 0.3), '每一跳都应有位移：' + JSON.stringify(r.moves));
     assert(r.spent > r.cost * 3 && r.iframe > 0.05 && r.iframe < 0.15, '每刀应扣魔力、闪现给短暂无敌：' + JSON.stringify(r));
     assert(r.release && r.clipAfter === null, '松手应停下且不残留动作：' + JSON.stringify(r));
     assert(r.solo.n >= 5 && r.solo.same && r.solo.dmg > 0 && r.solo.turn.every((a) => a > 0.8) && r.solo.gap.every((g) => g > 0.5 && g < 1.3),
@@ -1075,7 +1081,7 @@ async function main() {
     assert(!r.wall1.cast && r.wall1.moved < 0.01 && r.wall1.hit === 0, '墙后的敌人不应能闪过去：' + JSON.stringify(r.wall1));
     assert(r.wall2.jumps >= 3 && r.wall2.front > 0 && r.wall2.behind === 0 && r.wall2.side > 0.4, '有墙时只砍墙这边、人不过墙：' + JSON.stringify(r.wall2));
     assert(r.exec.at >= 0 && r.exec.target && r.exec.firstHusk && r.exec.done === 1 && r.exec.dmg > 0, '连斩选中破绽中的精英应直接处决：' + JSON.stringify(r.exec));
-    return '一秒连跳 ' + r.jumps + ' 下，三个敌人各受 ' + r.hit.join('/') + '；单体 ' + r.solo.n + ' 刀';
+    return '一秒连跳 ' + r.jumps + ' 下，落单之后 ' + r.next.join('→') + '，八秒内落单的再挨 ' + r.loneAgain + ' 刀；单体 ' + r.solo.n + ' 刀';
   });
 
   await step('技能细节：魔力不足不能施放，冷却中不能再放，投射物会消失', async () => {

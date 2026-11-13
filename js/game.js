@@ -1199,7 +1199,7 @@
         comboReset();
         P.cast = {
           slot, id, t: 0, fired: false, aim: ang, step: -1, st: null, channel: true, flicker: true,
-          nextT: 0, strikeT: Infinity, pend: null, last: null, lastAng: 0, alt: false, hit: new Set(),
+          nextT: 0, strikeT: Infinity, pend: null, last: null, lastAng: 0, alt: false, hit: new Map(), // hit：这一轮每个敌人被砍过几次
           cancelT: Infinity, dur: Infinity, pulses: 0, move: sk.move || 0,
         };
         P.face = ang;
@@ -1366,48 +1366,47 @@
     return false;
   }
 
-  // 挑下一刀的目标和落点，写进 out；没有够得着的返回 false。
+  // 挑下一刀的目标和落点，写进 out；没有够得着的返回 false。R 是这一刀的波及半径（已乘范围加成）。
   // c 为空：第一刀——准星 5 格以内离准星最近的优先，没有就取离玩家最近的。
-  // 否则：这一轮还没砍过的里离当前位置最近的；都砍过了就清空记录重来（尽量不连砍刚砍过的那个）；
-  // 只剩一个目标时反复砍它，每次落点绕着它换一个方位
+  // 否则给 8 格内的候选打分，从高到低找第一个有落点的：身边 R 以内的敌人越多（这一刀能砍到几个）分越高；
+  // 这一轮每被砍过一次扣一些、刚砍过的那只再扣一点（不绝对排除；候选都砍过一遍算一轮，计数清零）；离当前位置远的略扣。
+  // 于是会一直往怪堆里跳，又在堆里轮着砍；堆打散了，落单的也轮得到。只剩一个目标时反复砍它，落点绕着它换方位
+  const FLICK_SCORE = { crowd: 1, hit: 0.3, last: 0.3, far: 0.05 };
   const _cand = [];
-  function flickerPick(sk, c, out) {
+  function flickerPick(sk, c, out, R) {
     const m = G.input.mouse;
     _cand.length = 0;
     for (const e of state.enemies) {
       if (e.dead || e.executed) continue;
       const dp = dist(e.x, e.z, P.x, P.z);
       if (dp - e.r > sk.range) continue;
-      let group, score;
+      let score = 0;
       if (!c) {
         const dm = dist(e.x, e.z, m.wx, m.wz);
-        group = dm - e.r <= 5 ? 0 : 1;
-        score = group === 0 ? dm : dp;
-      } else {
-        group = c.hit.has(e) ? 1 : 0;
-        score = dp;
+        score = dm - e.r <= 5 ? -dm : -1000 - dp;
       }
-      _cand.push({ e, group, score });
+      _cand.push({ e, dp, score });
     }
     if (!_cand.length) return false;
-    const tryList = (list) => {
-      list.sort((a, b) => a.group - b.group || a.score - b.score);
-      for (const it of list) {
+    if (c) {
+      // 候选全都砍过了：这一轮结束，计数清零
+      if (_cand.every((it) => c.hit.get(it.e) > 0)) c.hit.clear();
+      const S = FLICK_SCORE;
+      for (const it of _cand) {
         const e = it.e;
-        // 新目标从靠近自己的一侧切入；同一个目标换个方位
-        const ang0 = c && e === c.last ? c.lastAng + FLICK_TURN : Math.atan2(P.x - e.x, P.z - e.z);
-        if (flickerSpot(e, ang0, out)) return true;
+        let n = 0; // 以它为中心这一刀能砍到几个（含它自己）
+        for (const o of state.enemies) if (!o.dead && dist(o.x, o.z, e.x, e.z) - o.r <= R) n++;
+        it.score = n * S.crowd - (c.hit.get(e) || 0) * S.hit - (e === c.last ? S.last : 0) - it.dp * S.far;
       }
-      return false;
-    };
-    if (!c) return tryList(_cand);
-    // 先在还没砍过的里找
-    const fresh = _cand.filter((it) => it.group === 0);
-    if (fresh.length && tryList(fresh)) return true;
-    // 这一轮都砍过了：清空记录重来，刚砍过的那个排到最后
-    c.hit.clear();
-    for (const it of _cand) it.group = it.e === c.last && _cand.length > 1 ? 1 : 0;
-    return tryList(_cand);
+    }
+    _cand.sort((a, b) => b.score - a.score);
+    for (const it of _cand) {
+      const e = it.e;
+      // 新目标从靠近自己的一侧切入；同一个目标换个方位
+      const ang0 = c && e === c.last ? c.lastAng + FLICK_TURN : Math.atan2(P.x - e.x, P.z - e.z);
+      if (flickerSpot(e, ang0, out)) return true;
+    }
+    return false;
   }
 
   function updateFlicker(c, dt) {
@@ -1439,7 +1438,7 @@
       endChannel();
       return;
     }
-    if (!flickerPick(sk, c.last ? c : null, _fs)) {
+    if (!flickerPick(sk, c.last ? c : null, _fs, sk.radius * Math.sqrt(ctx.area))) {
       flickerNoTarget();
       endChannel();
       return;
@@ -1495,7 +1494,7 @@
     }
     const ang = Math.atan2(cx - P.x, cz - P.z);
     P.face = c.aim = ang;
-    c.hit.add(e);
+    c.hit.set(e, (c.hit.get(e) || 0) + 1);
     W.slash(P.x, P.z, ang, dist(cx, cz, P.x, P.z) + R * 0.75, 140, hex, { dir: c.alt ? 1 : -1, dur: 0.16 });
     G.sfx('swing', { step: c.alt ? 0 : 1 });
     const hits = enemiesIn(cx, cz, R);
