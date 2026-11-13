@@ -1,0 +1,12 @@
+{
+  "name": "cinder-abyss",
+  "private": true,
+  "version": "0.1.0",
+  "description": "烬渊：原创网页动作 RPG（Three.js）",
+  "scripts": {
+    "test": "node test/smoke.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.65.0"
+  }
+}

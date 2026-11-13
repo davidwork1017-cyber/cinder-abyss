@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>烬渊</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<canvas id="gl"></canvas>
+<canvas id="overlay"></canvas>
+
+<!-- 世界层界面：脚下的生命 / 魔力弧、敌人名牌、指向画面外目标的箭头（内容由 ui.js 生成） -->
+<div id="wui"></div>
+
+<!-- 受伤 / 濒死红晕；濒死时屏幕边缘随心跳脉动 -->
+<div id="vignette"></div>
+<div id="lowlife"></div>
+
+<!-- ============ HUD ============ -->
+<div id="hud">
+
+  <div id="zone-box">
+    <div id="zone-name"></div>
+    <div id="zone-sub"></div>
+    <div id="keyhints">
+      <button type="button" class="kh" tabindex="-1" data-open="inv"><kbd>I</kbd>背包<b id="kh-new"></b></button>
+      <button type="button" class="kh" tabindex="-1" data-open="skills"><kbd>G</kbd>技能</button>
+      <button type="button" class="kh" tabindex="-1" data-open="tree"><kbd>P</kbd>天赋</button>
+      <button type="button" class="kh" tabindex="-1" data-open="map"><kbd>M</kbd>地图</button>
+      <button type="button" class="kh" tabindex="-1" data-open="help"><kbd>H</kbd>帮助</button>
+    </div>
+  </div>
+
+  <div id="boss-box">
+    <div id="boss-ail"></div>
+    <div id="boss-name"></div>
+    <div class="boss-bar">
+      <div id="boss-trail"></div>
+      <div id="boss-fill"></div>
+      <div class="boss-ticks"></div>
+      <div id="boss-num"></div>
+    </div>
+    <!-- 架势条：打空即破绽，可处决 -->
+    <div class="boss-poise"><div id="boss-poise-fill"></div></div>
+    <div id="boss-break">破绽<kbd>F</kbd><span id="boss-break-txt">处决</span></div>
+  </div>
+
+  <!-- 连击计数 -->
+  <div id="combo"><b id="combo-n"></b><span class="cb-label">连击</span><div class="cb-bar"><i id="combo-bar"></i></div></div>
+
+  <!-- 拾取记录 -->
+  <div id="feed"></div>
+
+  <!-- 生命球 + 生命药剂 -->
+  <div class="orb-wrap left">
+    <div class="orb life">
+      <div class="orb-fill" id="life-fill"></div>
+      <div class="orb-gloss"></div>
+      <div class="orb-text"><b id="life-num"></b><span id="life-max"></span></div>
+    </div>
+    <div class="flask life" id="flask-life">
+      <div class="flask-body"><div class="pip"><i></i></div><div class="pip"><i></i></div><div class="pip"><i></i></div></div>
+      <kbd>1</kbd>
+    </div>
+  </div>
+
+  <!-- 魔力球 + 魔力药剂 -->
+  <div class="orb-wrap right">
+    <div class="flask mana" id="flask-mana">
+      <div class="flask-body"><div class="pip"><i></i></div><div class="pip"><i></i></div><div class="pip"><i></i></div></div>
+      <kbd>2</kbd>
+    </div>
+    <div class="orb mana">
+      <div class="orb-fill" id="mana-fill"></div>
+      <div class="orb-gloss"></div>
+      <div class="orb-text"><b id="mana-num"></b><span id="mana-max"></span></div>
+    </div>
+  </div>
+
+  <!-- 底部中央：天赋提醒、技能栏、经验条 -->
+  <div id="console">
+    <button type="button" id="pp-remind" tabindex="-1" data-open="tree"></button>
+    <div id="bar">
+      <div id="dodge">
+        <div class="d-icon"><span>翻</span><div class="d-cd"></div></div>
+        <div class="s-key">空格</div>
+      </div>
+      <div class="bar-sep"></div>
+      <div id="slots"></div>
+    </div>
+    <div id="xp">
+      <span id="xp-lv"></span>
+      <div class="xp-track"><div id="xp-fill"></div></div>
+      <span id="xp-pct"></span>
+    </div>
+  </div>
+</div>
+
+<!-- 死亡遮罩 -->
+<div id="death">
+  <div class="death-inner">
+    <div class="death-title">你倒下了</div>
+    <div class="death-rule"></div>
+    <div class="death-sub">余烬未冷 · 即将在区域入口重燃</div>
+  </div>
+</div>
+
+<!-- ============ 面板 ============ -->
+<div id="panel">
+  <div id="panel-win">
+    <div id="panel-head">
+      <div class="brand"><i></i>烬渊</div>
+      <div id="tabs"></div>
+      <button type="button" id="panel-close" tabindex="-1" data-act="close"><kbd>Esc</kbd>关闭</button>
+    </div>
+    <div id="panel-body"></div>
+  </div>
+  <div id="picker"></div>
+  <div id="confirm"></div>
+</div>
+
+<!-- 新手提示卡（面板打开时隐藏，由面板里的提示条接手） -->
+<div id="coach"><div class="co-tag">提示</div><div class="co-body"></div><div class="co-ok">做到了</div></div>
+
+<!-- 准星 -->
+<div id="reticle" class="off"></div>
+
+<!-- 开场卡片：首次进入时显示，游戏暂停 -->
+<div id="intro">
+  <div class="intro-card">
+    <div class="intro-title">烬渊</div>
+    <div class="intro-sub">大火烧尽之后，余烬里有东西在动。</div>
+    <div class="intro-keys">
+      <div><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span>移动</div>
+      <div><span><kbd>左键</kbd><kbd>右键</kbd></span>朝准星攻击</div>
+      <div><span><kbd>空格</kbd></span>翻滚闪避</div>
+    </div>
+    <p>沿着路一直向前，击败盘踞在尽头的首领。<br>装备、通货、宝石和天赋，会在用得上的时候再告诉你。</p>
+    <button type="button" id="intro-go" class="btn primary" tabindex="-1">开始<kbd>Enter</kbd></button>
+    <div class="intro-foot">随时按 <kbd>H</kbd> 查看完整帮助</div>
+  </div>
+</div>
+
+<div id="drag-ghost"></div>
+
+<div id="toasts"></div>
+<div id="tip"></div>
+
+<script src="vendor/three.min.js"></script>
+<script src="js/data.js"></script>
+<script src="js/items.js"></script>
+<script src="js/world.js"></script>
+<script src="js/game.js"></script>
+<script src="js/enemies.js"></script>
+<script src="js/icons.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

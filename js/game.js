@@ -1,0 +1,2495 @@
+'use strict';
+// 核心玩法：存档、属性、技能、伤害、投射物、预警圈、掉落、成长
+(function () {
+  const G = window.G;
+
+  const SAVE_KEY = 'cinder-abyss-save-v1';
+  const BAG_SIZE = (G.BAG_SIZE = 40);
+  const MAX_LEVEL = (G.MAX_LEVEL = 60);
+  const MAX_GEM_LEVEL = 20;
+  const PLAYER_PAD = 0.5; // 玩家与墙的距离
+  const TAU = Math.PI * 2;
+  const DEG = Math.PI / 180;
+  const TYPES = G.TYPES;
+  const GEM_COLOR = '#3fe0c8';
+  const SUP_COLOR = '#ffffff';
+
+  // ---------- 小工具 ----------
+  function angDiff(a, b) {
+    let d = (a - b) % TAU;
+    if (d > Math.PI) d -= TAU;
+    if (d < -Math.PI) d += TAU;
+    return d;
+  }
+  const hexOf = (css) => parseInt(css.slice(1), 16);
+  const dist = (ax, az, bx, bz) => Math.hypot(ax - bx, az - bz);
+
+  // 带节流的提示，避免同一条消息刷屏
+  const toastAt = {};
+  function toast(msg, color, key, gapMs) {
+    if (key) {
+      const now = Date.now();
+      if (now - (toastAt[key] || 0) < (gapMs || 1500)) return;
+      toastAt[key] = now;
+    }
+    G.ui.toast(msg, color);
+  }
+
+  // ---------- 运行时状态（对象本身永不替换，其他模块可以安全持有引用） ----------
+  const state = (G.state = {
+    time: 0, paused: false, zone: null, zoneIdx: 0, tier: 0,
+    enemies: [], projectiles: [], telegraphs: [], loot: [], timers: [],
+    boss: null, portal: null,
+    hover: null, // 准星正指着的敌人（界面层写入；world 据此不重复画名字）
+    // 战斗统计（新手提示与测试读取）：命中 / 暴击 / 终结技命中 / 击破 / 处决 / 击杀
+    stats: { hits: 0, crits: 0, finishers: 0, breaks: 0, execs: 0, kills: 0 },
+  });
+
+  const P = (G.player = {
+    x: 0, z: 0, face: 0, drawFace: 0,
+    life: 100, mana: 60, maxLife: 100, maxMana: 60, armour: 0,
+    res: { fire: 0, cold: 0, light: 0 },
+    speedMult: 1, moveSpeed: 7.2, lifeRegen: 0, manaRegen: 4,
+    S: {}, cast: null, cds: {}, cdMax: {},
+    roll: { t: 0, cd: 0, cdMax: 0.9, dx: 0, dz: 1 },
+    iframe: 0, flask: { life: 3, mana: 3 },
+    hot: { life: null, mana: null }, // 药剂的持续回复 {left, rate}
+    dead: false, deadT: 0, moving: false, ent: null, god: false, dustT: 0,
+    combo: { step: 0, t: 0 }, // 连段：下一次近战出第几段（0 起）；t 归零则从头再来
+    chain: { n: 0, t: 0, best: 0 }, // 连击计数：连续命中的次数，t 秒内没有新的命中就清零
+    exec: null, // 正在进行的处决 { e, t, x0, z0, hit }
+  });
+
+  // ---------- 时间流：顿帧与慢动作 ----------
+  // 两者都实现成「游戏时间倍率」：主循环每帧先问一次 G.flowStep(真实 dt)，再用缩放后的 dt 推进所有系统，
+  // 所以计时器、预警圈、冷却、动作之间不会错位；面板打开时主循环不推进，顿帧 / 慢动作也跟着停住。
+  // flow.act：只算顿帧的倍率（0 = 定格）。处决的时间轴按它走——世界放慢时玩家这一击照常利落。
+  const flow = (G.flow = { stop: 0, slow: 0, slowDur: 0, slowK: 1, k: 1, act: 1 });
+  G.flowStep = function (raw) {
+    let act = 1;
+    if (flow.stop > 0) {
+      if (flow.stop >= raw) {
+        flow.stop -= raw;
+        act = 0;
+      } else {
+        act = raw > 0 ? (raw - flow.stop) / raw : 0; // 顿帧在这一帧中途结束：剩下的时间照常推进
+        flow.stop = 0;
+      }
+    }
+    let k = 1;
+    if (flow.slow > 0) {
+      const out = flow.slowDur * 0.4; // 最后 40% 的时间里渐渐回到正常速度
+      k = flow.slow >= out ? flow.slowK : flow.slowK + (1 - flow.slowK) * (1 - flow.slow / out);
+      flow.slow -= raw * act;
+      if (flow.slow < 1e-6) flow.slow = 0;
+    }
+    flow.act = act;
+    flow.k = act * k;
+    return flow.k;
+  };
+  // 顿帧：整个世界定格 ms 毫秒（多次触发取最长的，不叠加）
+  G.hitStop = function (ms) {
+    flow.stop = Math.min(0.16, Math.max(flow.stop, ms / 1000));
+  };
+  // 慢动作：接下来 sec 秒（真实时间）里游戏时间按 k 倍流逝
+  G.slowMo = function (k, sec) {
+    flow.slowK = G.clamp(k, 0.05, 1);
+    flow.slow = flow.slowDur = sec;
+  };
+  function flowReset() {
+    flow.stop = flow.slow = 0;
+    flow.k = flow.act = 1;
+  }
+  G.BUFFER = 0.3; // 输入缓冲的下限（秒）：动作途中按下的攻击 / 技能 / 翻滚 / 处决，在这段时间内一旦能出手就出手
+  const BUFFER_PAD = 0.12; // 缓冲至少比「手上的动作还要多久才能接下一个」多出这么久
+  const BUFFER_MAX = 0.85; // 封顶：再长的动作，太早按下的输入也不会一直挂着
+
+  // =====================================================================
+  // 存档
+  // =====================================================================
+  G.newSave = function () {
+    const cur = {};
+    for (const id of G.CUR_IDS) cur[id] = 0;
+    cur.dust = 2;
+    return {
+      v: 1, level: 1, xp: 0, bag: [], equip: { weapon: G.rollItem(1, 0, 'weapon') }, cur,
+      skills: { cleave: 1, ember: 1 }, supports: [],
+      sockets: { cleave: [null, null, null], ember: [null, null, null] },
+      bar: ['cleave', 'ember', null, null],
+      passives: ['start'], cleared: {}, bossKills: {},
+      tier: 0, maxTier: 0, lastZone: 0,
+      // 选项：自动拾取普通物品 / 折叠普通物品的名牌 / 拾取时自动分解普通物品 / 一键分解是否包含魔法物品
+      opts: { autoWhite: false, hideNormal: false, autoSalvage: false, salvageMagic: false },
+      seenHelp: false,
+      tut: {}, // 已经看过的新手提示：{ 提示 id: 1 }（界面层维护）
+    };
+  };
+
+  // G.save 始终是同一个对象：换存档时原地覆盖内容
+  function setSave(s) {
+    G.saveEpoch = (G.saveEpoch || 0) + 1; // 换了一份存档（读档 / 删档）：界面层据此重新判断「是不是老角色」
+    if (G.save && G.save !== s) {
+      for (const k of Object.keys(G.save)) delete G.save[k];
+      Object.assign(G.save, s);
+    } else {
+      G.save = s;
+    }
+    return G.save;
+  }
+
+  const isObj = (o) => !!o && typeof o === 'object' && !Array.isArray(o);
+  const isNum = (v) => typeof v === 'number' && isFinite(v);
+  // 存档里的物品必须字段齐全、词缀都认识，否则 itemStats / itemLines 会直接抛错
+  const isItem = (it) =>
+    isObj(it) && G.SLOTS.indexOf(it.slot) >= 0 && typeof it.uid === 'string' &&
+    typeof it.name === 'string' && typeof it.baseName === 'string' &&
+    (it.rarity === 0 || it.rarity === 1 || it.rarity === 2) && isNum(it.ilvl) &&
+    (it.armour === undefined || isNum(it.armour)) &&
+    (it.imp == null || (isObj(it.imp) && typeof it.imp.stat === 'string' && isNum(it.imp.v))) &&
+    Array.isArray(it.affixes) &&
+    it.affixes.every((a) => isObj(a) && !!G.AFFIX_BY_ID[a.id] && isNum(a.v) && a.tier >= 0 && a.tier < G.TIER_ILVL.length && a.tier === Math.floor(a.tier));
+  const toInt = (v, lo, hi, def) => (typeof v === 'number' && isFinite(v) ? G.clamp(Math.floor(v), lo, hi) : def);
+
+  // 从 start 出发，在给定节点集合内能走到的节点
+  function reachable(ids) {
+    const set = new Set(ids);
+    const seen = new Set(['start']);
+    const stack = ['start'];
+    while (stack.length) {
+      const node = G.TREE[stack.pop()];
+      for (const l of node.links) {
+        if (set.has(l) && !seen.has(l)) {
+          seen.add(l);
+          stack.push(l);
+        }
+      }
+    }
+    return seen;
+  }
+
+  // 把读到的存档修成合法形状（字段缺失、被改动、旧数据都不该让游戏崩掉）
+  function sanitize(raw) {
+    const d = G.newSave();
+    if (!isObj(raw) || raw.v !== 1) return d;
+    const s = d;
+
+    s.level = toInt(raw.level, 1, MAX_LEVEL, 1);
+    s.xp = typeof raw.xp === 'number' && isFinite(raw.xp) && raw.xp > 0 ? raw.xp : 0;
+    s.bag = Array.isArray(raw.bag) ? raw.bag.filter(isItem) : [];
+    if (isObj(raw.equip)) {
+      s.equip = {};
+      for (const slot of G.SLOTS) {
+        const it = raw.equip[slot];
+        if (isItem(it) && it.slot === slot) s.equip[slot] = it;
+      }
+    }
+    if (isObj(raw.cur)) {
+      for (const id of G.CUR_IDS) s.cur[id] = toInt(raw.cur[id], 0, 1e9, 0);
+    }
+
+    if (isObj(raw.skills)) {
+      const skills = {};
+      for (const id of Object.keys(raw.skills)) {
+        if (G.SKILLS[id]) skills[id] = toInt(raw.skills[id], 1, MAX_GEM_LEVEL, 1);
+      }
+      if (Object.keys(skills).length) s.skills = skills;
+    }
+    s.supports = [];
+    if (Array.isArray(raw.supports)) {
+      for (const id of raw.supports) {
+        if (G.SUPPORTS[id] && s.supports.indexOf(id) < 0) s.supports.push(id);
+      }
+    }
+    // 镶嵌：每个已学技能 3 个孔；辅助必须已拥有、适配，且全局只能出现一次
+    const used = new Set();
+    const rawSockets = isObj(raw.sockets) ? raw.sockets : {};
+    s.sockets = {};
+    for (const id of Object.keys(s.skills)) {
+      const src = Array.isArray(rawSockets[id]) ? rawSockets[id] : [];
+      const arr = [null, null, null];
+      for (let i = 0; i < 3; i++) {
+        const sup = src[i];
+        if (sup && s.supports.indexOf(sup) >= 0 && !used.has(sup) && G.supportFits(id, sup)) {
+          arr[i] = sup;
+          used.add(sup);
+        }
+      }
+      s.sockets[id] = arr;
+    }
+    // 技能栏：4 格，技能必须已学，同一技能只占一格
+    const rawBar = Array.isArray(raw.bar) ? raw.bar : d.bar;
+    s.bar = [null, null, null, null];
+    for (let i = 0; i < 4; i++) {
+      const id = rawBar[i];
+      if (id && s.skills[id] && s.bar.indexOf(id) < 0) s.bar[i] = id;
+    }
+
+    // 天赋：只保留存在且与起点连通的节点
+    const pas = ['start'];
+    if (Array.isArray(raw.passives)) {
+      for (const id of raw.passives) {
+        if (G.TREE[id] && pas.indexOf(id) < 0) pas.push(id);
+      }
+    }
+    const ok = reachable(pas);
+    s.passives = pas.filter((id) => ok.has(id));
+
+    s.cleared = {};
+    if (isObj(raw.cleared)) {
+      for (const z of G.ZONES) {
+        if (typeof raw.cleared[z.id] === 'number') s.cleared[z.id] = toInt(raw.cleared[z.id], 0, 999, 0);
+      }
+    }
+    s.bossKills = {};
+    if (isObj(raw.bossKills)) {
+      for (const k of Object.keys(G.BOSSES)) if (raw.bossKills[k]) s.bossKills[k] = true;
+    }
+    s.maxTier = toInt(raw.maxTier, 0, 999, 0);
+    s.tier = toInt(raw.tier, 0, s.maxTier, 0);
+    s.lastZone = toInt(raw.lastZone, 0, G.ZONES.length - 1, 0);
+    const ro = isObj(raw.opts) ? raw.opts : {};
+    s.opts = { autoWhite: !!ro.autoWhite, hideNormal: !!ro.hideNormal, autoSalvage: !!ro.autoSalvage, salvageMagic: !!ro.salvageMagic };
+    s.seenHelp = !!raw.seenHelp;
+    s.tut = {};
+    if (isObj(raw.tut)) {
+      for (const k of Object.keys(raw.tut).slice(0, 64)) {
+        if (raw.tut[k] && /^[a-z][a-z0-9_]{0,23}$/i.test(k)) s.tut[k] = 1;
+      }
+    }
+    return s;
+  }
+
+  G.loadSave = function () {
+    let raw = null;
+    try {
+      const txt = window.localStorage.getItem(SAVE_KEY);
+      if (txt) raw = JSON.parse(txt);
+    } catch (err) {
+      raw = null;
+    }
+    return setSave(sanitize(raw));
+  };
+
+  G.persist = function () {
+    try {
+      window.localStorage.setItem(SAVE_KEY, JSON.stringify(G.save));
+      return true;
+    } catch (err) {
+      return false;
+    }
+  };
+
+  G.resetSave = function () {
+    try {
+      window.localStorage.removeItem(SAVE_KEY);
+    } catch (err) {
+      /* 存储不可用时也照常重置内存里的存档 */
+    }
+    setSave(G.newSave());
+    G.computeStats();
+    G.persist();
+    return G.save;
+  };
+
+  G.passivePoints = function () {
+    const save = G.save;
+    const total = save.level - 1 + 2 * Object.keys(save.bossKills).length;
+    const used = save.passives.length - 1;
+    return { total, used, free: total - used };
+  };
+
+  // =====================================================================
+  // 属性
+  // =====================================================================
+  G.computeStats = function () {
+    const save = G.save;
+    const S = {};
+    for (const k of Object.keys(G.STAT_FMT)) S[k] = 0;
+    const add = (stats) => {
+      for (const k in stats) S[k] = (S[k] || 0) + stats[k];
+    };
+    for (const slot of G.SLOTS) {
+      const it = save.equip[slot];
+      if (it) add(G.itemStats(it));
+    }
+    for (const id of save.passives) add(G.TREE[id].stats);
+    P.S = S;
+
+    const lv = save.level - 1;
+    P.maxLife = Math.max(1, Math.round((100 + 12 * lv + S.life) * (1 + S.incLife / 100) * (1 + S.moreLife / 100)));
+    P.maxMana = Math.max(0, Math.round((60 + 6 * lv + S.mana) * (1 + S.incMana / 100)));
+    P.armour = Math.max(0, Math.round(S.armour * (1 + S.incArmour / 100)));
+    P.res.fire = Math.min(75, S.resFire);
+    P.res.cold = Math.min(75, S.resCold);
+    P.res.light = Math.min(75, S.resLight);
+    P.speedMult = Math.max(0.2, 1 + S.speed / 100);
+    P.moveSpeed = 7.2 * Math.max(0.2, 1 + S.moveSpeed / 100);
+    P.lifeRegen = S.lifeRegen;
+    P.manaRegen = (2 + P.maxMana * 0.035) * (1 + S.manaRegen / 100);
+    P.life = Math.min(P.life, P.maxLife);
+    P.mana = Math.min(P.mana, P.maxMana);
+    if (P.ent) G.world.setPlayerGear(save.equip); // 手里的武器模型跟着装备走
+    return P;
+  };
+
+  G.supportFits = function (skillId, supId) {
+    const sk = G.SKILLS[skillId];
+    const sup = G.SUPPORTS[supId];
+    if (!sk || !sup) return false;
+    if (!sup.req) return true;
+    return sup.req.some((tag) => sk.tags.indexOf(tag) >= 0);
+  };
+
+  // 顿帧时长随攻击 / 施法速度的缩放：越快越短，但不低于六成（再短就没有顿挫感了）
+  const STOP_K = (speed) => G.clamp(1 / (speed > 0 ? speed : 1), 0.6, 1);
+
+  // 每次命中都要用到的技能上下文
+  G.skillCtx = function (id) {
+    const save = G.save;
+    const S = P.S;
+    const sk = G.SKILLS[id];
+    const lvl = save.skills[id] || 1;
+    const scale = 1 + 0.2 * (lvl - 1);
+
+    const base = {};
+    for (const t in sk.dmg) base[t] = [sk.dmg[t][0] * scale, sk.dmg[t][1] * scale];
+    for (const t of TYPES) {
+      const v = S['add' + G.CAP[t]] || 0;
+      if (v > 0) {
+        if (!base[t]) base[t] = [0, 0];
+        base[t][0] += v * 0.7;
+        base[t][1] += v * 1.3;
+      }
+    }
+
+    const inc = {};
+    const moreType = {};
+    for (const t of TYPES) {
+      inc[t] = (S.incAll || 0) + (t === 'phys' ? S.incPhys || 0 : (S.incElem || 0) + (S['inc' + G.CAP[t]] || 0));
+      moreType[t] = 1;
+    }
+
+    let more = 1 + (S.moreDmg || 0) / 100;
+    const extra = {};
+    let proj = 0, pierce = 0, chain = 0, area = S.area || 0, speedPct = 0;
+    let critFlat = 0, critMulti = 150 + (S.critMulti || 0);
+    let leech = 0, stun = 0, ailment = S.ailment || 0, echo = 0, cdr = 0, costMult = 1;
+
+    for (const supId of save.sockets[id] || []) {
+      const sup = supId && G.SUPPORTS[supId];
+      if (!sup) continue;
+      const e = sup.eff;
+      if (e.more) more *= 1 + e.more / 100;
+      if (e.moreType) for (const t in e.moreType) moreType[t] *= 1 + e.moreType[t] / 100;
+      if (e.extra) for (const t in e.extra) extra[t] = (extra[t] || 0) + e.extra[t];
+      if (e.proj) proj += e.proj;
+      if (e.pierce) pierce += e.pierce;
+      if (e.chain) chain += e.chain;
+      if (e.area) area += e.area;
+      if (e.speed) speedPct += e.speed;
+      if (e.critFlat) critFlat += e.critFlat;
+      if (e.critMulti) critMulti += e.critMulti;
+      if (e.leech) leech += e.leech;
+      if (e.stun) stun = Math.max(stun, e.stun);
+      if (e.ailment) ailment += e.ailment;
+      if (e.echo) echo += e.echo;
+      if (e.cdr) cdr += e.cdr;
+      costMult *= sup.cost;
+    }
+
+    const speed = P.speedMult * (1 + speedPct / 100);
+    let cost = sk.mana * (1 + 0.05 * (lvl - 1)) * costMult * (1 - Math.min(80, S.costReduce || 0) / 100);
+    cost = sk.mana > 0 ? Math.max(1, Math.round(cost)) : 0;
+
+    return {
+      id, sk, lvl, base, inc, moreType,
+      more: Math.max(0, more),
+      extra,
+      crit: G.clamp(5 * (1 + (S.crit || 0) / 100) + critFlat, 0, 100),
+      critMulti: Math.max(100, critMulti),
+      proj: 1 + proj,
+      pierce: (sk.pierce || 0) + pierce,
+      chain: (sk.chain || 0) + chain,
+      area: Math.max(0.1, 1 + area / 100),
+      speed,
+      time: sk.time / speed,
+      // 顿帧随出手速度缩短（下限 60%），stopAvg 是每次出手平均搭上的定格秒数——秒伤估算要把它算进去
+      stopK: STOP_K(speed),
+      stopAvg: ((sk.combo ? sk.comboStop : sk.stop || 0) / 1000) * STOP_K(speed),
+      cost,
+      cd: sk.cd * (1 - Math.min(80, cdr) / 100),
+      leech, stun, ailment, echo,
+    };
+  };
+
+  // 估算秒伤（技能卡、换装评估用）：平均击中 ÷ 每次出手实际占用的时间（含命中时的顿帧），受冷却限制
+  G.skillDps = function (ctx) {
+    return G.avgHit(ctx) / Math.max(ctx.time + ctx.stopAvg, ctx.cd || 0, 0.01);
+  };
+
+  // 每种伤害类型在暴击前的倍率
+  const typeMult = (ctx, t) => Math.max(0, 1 + (ctx.inc[t] || 0) / 100) * (ctx.moreType[t] === undefined ? 1 : ctx.moreType[t]);
+
+  G.calcHit = function (ctx, mult) {
+    const m = mult === undefined ? 1 : mult;
+    const parts = {};
+    let pre = 0;
+    for (const t in ctx.base) {
+      const b = ctx.base[t];
+      const v = G.rand(b[0], b[1]) * typeMult(ctx, t);
+      parts[t] = v;
+      pre += v;
+    }
+    // 额外伤害按暴击前的总伤害折算
+    for (const t in ctx.extra) parts[t] = (parts[t] || 0) + (pre * ctx.extra[t]) / 100;
+    const crit = Math.random() * 100 < ctx.crit;
+    const k = ctx.more * (crit ? ctx.critMulti / 100 : 1) * m;
+    let total = 0;
+    for (const t in parts) {
+      parts[t] *= k;
+      total += parts[t];
+    }
+    return { total, parts, crit };
+  };
+
+  G.avgHit = function (ctx) {
+    let pre = 0;
+    for (const t in ctx.base) pre += ((ctx.base[t][0] + ctx.base[t][1]) / 2) * typeMult(ctx, t);
+    let extraPct = 0;
+    for (const t in ctx.extra) extraPct += ctx.extra[t];
+    const critK = 1 + (ctx.crit / 100) * (ctx.critMulti / 100 - 1);
+    // 连击技能按三段的平均倍率折算（ctx.time 也是平均段长）
+    return pre * (1 + extraPct / 100) * ctx.more * critK * (ctx.sk.comboAvg || 1);
+  };
+
+  // 技能消耗：bloodMagic 时扣生命（不会降到 1 以下），否则扣魔力
+  G.canAfford = function (cost) {
+    if (cost <= 0) return true;
+    return P.S.bloodMagic ? P.life - cost >= 1 : P.mana >= cost;
+  };
+  function payCost(cost) {
+    if (cost <= 0) return;
+    if (P.S.bloodMagic) P.life = Math.max(1, P.life - cost);
+    else P.mana = Math.max(0, P.mana - cost);
+  }
+
+  // =====================================================================
+  // 战斗
+  // =====================================================================
+  function wake(e) {
+    e.awake = true;
+    if (e.pack === undefined || e.pack === null) return;
+    for (const o of state.enemies) if (o.pack === e.pack) o.awake = true;
+  }
+
+  // 圆内（算上敌人半径）还活着的敌人，返回新数组，方便边打边杀
+  function enemiesIn(x, z, R) {
+    const out = [];
+    for (const e of state.enemies) {
+      if (e.dead) continue;
+      if (dist(e.x, e.z, x, z) - e.r <= R) out.push(e);
+    }
+    return out;
+  }
+
+  const NO_INFO = {};
+  // 最近一次 G.hitEnemy 的结果（一次挥砍打到好几个敌人时，技能逻辑逐个读它来汇总）
+  const lastHit = (G.lastHit = { crit: false, type: 'phys', killed: false, total: 0 });
+  const KB_DECAY = (G.KB_DECAY = 7); // 击退速度每秒的衰减率：初速度 = 距离 × 衰减率（enemies.js 按同一个数衰减）
+  const CHAIN_KEEP = 2.5; // 连击计数：多久没有命中就清零
+
+  // 把敌人朝 ang 方向推开 dist（世界单位，按体重折算）；真正的位移在 updateEnemies 里带着撞墙检测做
+  function knock(e, ang, dist) {
+    if (!(dist > 0) || e.isBoss || e.dead) return;
+    // 砸地 / 引信蓄力中的怪钉在原地（预警圈的位置才对得上）；被打断的不在此列
+    if (e.state === 'fuse' || (e.state === 'windup' && e.def.ai === 'slam')) return;
+    let v = (dist * KB_DECAY) / (e.mass || 1);
+    if (e.freeze > 0 || e.brokenT > 0) v *= 0.35;
+    e.kvx += Math.sin(ang) * v;
+    e.kvz += Math.cos(ang) * v;
+    const m = Math.hypot(e.kvx, e.kvz), cap = 26;
+    if (m > cap) {
+      e.kvx *= cap / m;
+      e.kvz *= cap / m;
+    }
+  }
+
+  // info（可选）：{ ang 这一击行进的方向（缺省 = 从玩家指向敌人）, w 分量（0 轻 / 1 重 / 2 终结；缺省取技能数据）,
+  //   kb 击退距离, poise 削掉的架势, quiet 不单独出声（一次挥砍打到多个敌人时由技能统一出一声） }
+  G.hitEnemy = function (e, ctx, mult, info) {
+    if (!e || e.dead) return 0;
+    const W = G.world;
+    const sk = ctx.sk;
+    const inf = info || NO_INFO;
+    const PO = G.POISE;
+    const broken = e.brokenT > 0;
+    const m = (mult === undefined ? 1 : mult) * (e.shock > 0 ? 1.25 : 1) * (broken ? PO.taken : 1);
+    const hit = G.calcHit(ctx, m);
+    const hp0 = e.hp;
+    e.hp -= hit.total;
+
+    // 数字颜色 / 特效花样取占比最大的伤害类型
+    let top = 'phys';
+    let tv = -1;
+    for (const t in hit.parts) {
+      if (hit.parts[t] > tv) {
+        tv = hit.parts[t];
+        top = t;
+      }
+    }
+    const ang = inf.ang !== undefined ? inf.ang : Math.atan2(e.x - P.x, e.z - P.z);
+    const w = inf.w !== undefined ? inf.w : sk.w || 0;
+    const feel = Math.min(3, w + (hit.crit ? 1 : 0)); // 暴击的手感按重一级来
+    const h = e.height || 2;
+    const sn = Math.sin(ang);
+    const cs = Math.cos(ang);
+
+    // 数字：普通的小而快；暴击更大、换一套配色、沿抛物线甩出去；终结技最大
+    const shown = Math.max(1, Math.round(hit.total));
+    const tx = e.x + G.rand(-0.35, 0.35);
+    const tz = e.z + G.rand(-0.25, 0.25);
+    const ty = Math.min(2.6, h * 0.5); // 从胸口冒出来，升到头顶为止，不压住血条和名字
+    if (w >= 2) W.text(tx, tz, shown + (hit.crit ? '!' : ''), G.TYPE_COLOR[top], hit.crit ? 30 : 23, { kind: 'big', y: ty });
+    else if (hit.crit) W.text(tx, tz, shown + '!', G.TYPE_COLOR[top], 24, { kind: 'crit', y: ty });
+    else W.text(tx, tz, shown, G.TYPE_COLOR[top], 16, { y: ty });
+
+    W.flash(e.ent, 1 + feel * 0.7);
+    W.hitReact(e.ent, ang, 0.9 + feel * 0.4); // 顺着这一击的方向一仰
+    W.impact(e.x - sn * e.r * 0.7, h * 0.5, e.z - cs * e.r * 0.7, ang, top, feel, hit.crit);
+    if (!inf.quiet) {
+      // 投射物 / 法术逐个出声；暴击时镜头也轻轻一顶（近战由技能统一处理）
+      G.sfx('impact', { type: top, w, crit: hit.crit });
+      if (hit.crit) W.punch(ang, 0.12);
+    }
+    wake(e);
+
+    const st = state.stats;
+    st.hits++;
+    if (hit.crit) st.crits++;
+    const ch = P.chain;
+    ch.n++;
+    ch.t = CHAIN_KEEP;
+    if (ch.n > ch.best) ch.best = ch.n;
+
+    // 重击打断普通小怪的起手；所有命中都把小怪推开（首领不被推动）
+    if (!e.isBoss) {
+      if (w >= 1 && !e.elite) G.interruptEnemy(e, w >= 2 ? 0.45 : 0.3);
+      knock(e, ang, (inf.kb !== undefined ? inf.kb : sk.kb || 0) * (hit.crit ? 1.25 : 1));
+    }
+
+    // 异常状态
+    const roll = (pct) => Math.random() * 100 < pct;
+    if (hit.parts.fire > 0 && roll(20 + ctx.ailment)) {
+      if (!(e.burnT > 0)) e.burn = 0; // 上一次点燃已经烧完，旧数值作废
+      e.burn = Math.max(e.burn || 0, hit.parts.fire * 0.3);
+      e.burnT = 3;
+    }
+    if (hit.parts.cold > 0) {
+      e.chill = 2;
+      if (!e.isBoss && !broken && roll(8 + ctx.ailment * 0.5)) e.freeze = 1.2;
+    }
+    if (hit.parts.light > 0 && roll(20 + ctx.ailment)) e.shock = 4;
+    if (ctx.stun > 0 && !e.isBoss && !broken) e.stunT = Math.max(e.stunT || 0, ctx.stun);
+    if (ctx.leech > 0) G.healPlayer((hit.total * ctx.leech) / 100);
+
+    lastHit.crit = hit.crit;
+    lastHit.type = top;
+    lastHit.total = hit.total;
+    lastHit.killed = false;
+    if (e.hp <= 0) {
+      lastHit.killed = true;
+      // over：溢出的伤害相当于几倍最大生命——越多，尸体飞得越远、碎得越快
+      G.killEnemy(e, { ang, type: top, w, over: Math.min(2, (hit.total - hp0) / e.maxHp) });
+    } else if (e.poiseMax > 0 && !broken) {
+      // 削架势：打空即破绽
+      const pd = (inf.poise !== undefined ? inf.poise : sk.poise || 0) * (hit.crit ? PO.critMult : 1);
+      if (pd > 0) {
+        e.poise -= pd;
+        e.poiseT = PO.delay;
+        e.poiseHit = 0.12;
+        if (e.poise <= 0) G.breakEnemy(e, ang);
+      }
+    }
+    return hit.total;
+  };
+
+  // info（可选）：{ ang 致命一击行进的方向, type 致命伤害的类型, w 这一击的分量, over 过量击杀的程度 }
+  G.killEnemy = function (e, info) {
+    if (!e || e.dead) return;
+    const W = G.world;
+    const save = G.save;
+    const inf = info || NO_INFO;
+    e.dead = true;
+    e.deathT = 0.25;
+    e.hp = 0;
+    e.brokenT = 0;
+    e.execLock = false;
+    // 尸体顺着致命一击飞出去，按伤害类型碎裂 / 消散（world 接管；尸体照常在 deathT 后从列表里移除）
+    const ang = inf.ang !== undefined ? inf.ang : Math.atan2(e.x - P.x, e.z - P.z);
+    const kw = inf.w || 0;
+    const over = Math.max(0, inf.over || 0);
+    const type = inf.type || 'phys';
+    W.die(e.ent, {
+      ang, type, over: over + (kw >= 2 ? 0.6 : 0),
+      force: e.isBoss ? 0 : (4.5 + kw * 4 + over * 3) / Math.sqrt(e.mass || 1),
+    });
+    state.stats.kills++;
+    G.sfx('kill', { type, big: !!(e.elite || e.isBoss) });
+
+    // 经验：等级压制时衰减
+    let xp = G.mobXp(e.level) * (e.isBoss ? 20 : ((e.def && e.def.xp) || 1) * (e.elite ? 3 : 1));
+    if (save.level > e.level + 8) xp *= 0.1;
+    else if (save.level > e.level + 4) xp *= 0.5;
+
+    if (P.S.lifeOnKill > 0) G.healPlayer(P.S.lifeOnKill);
+    const charge = 0.12 + (e.elite ? 1 : 0) + (e.isBoss ? 3 : 0);
+    P.flask.life = Math.min(3, P.flask.life + charge);
+    P.flask.mana = Math.min(3, P.flask.mana + charge);
+
+    const hex = G.TYPE_HEX[e.elem] || 0xe6dfd0;
+    const mid = (e.height || 2) * 0.5;
+    if (e.isBoss) {
+      W.burst(e.x, mid, e.z, hex, 70, 9, 1.0);
+      W.burst(e.x, mid, e.z, 0xffffff, 30, 6, 0.7);
+      W.ring(e.x, e.z, 9, hex, 0.7);
+      W.shake(0.7);
+    } else {
+      W.burst(e.x, mid, e.z, hex, e.elite ? 26 : 12, e.elite ? 6 : 4.5, e.elite ? 0.6 : 0.45);
+      if (e.elite) W.ring(e.x, e.z, 2.6, hex, 0.35);
+    }
+
+    G.dropLoot(e);
+    G.gainXp(xp);
+
+    if (e.isBoss) {
+      const zone = state.zone;
+      const zid = zone.def.id;
+      const prev = save.cleared[zid];
+      save.cleared[zid] = prev === undefined ? state.tier : Math.max(prev, state.tier);
+      const kind = e.bossKind;
+      if (kind && !save.bossKills[kind]) {
+        save.bossKills[kind] = true;
+        toast('首次击败「' + e.name + '」：获得 2 点天赋点', '#ffd75e');
+      } else {
+        toast('「' + e.name + '」已被击败', '#ffb46a');
+      }
+      if (state.zoneIdx === G.ZONES.length - 1 && state.tier >= save.maxTier) {
+        save.maxTier = state.tier + 1;
+        toast('轮回层级 ' + save.maxTier + ' 已解锁', '#d98cff');
+      }
+      // 首领倒下后清掉敌方弹幕，再开传送门
+      for (let i = state.projectiles.length - 1; i >= 0; i--) {
+        if (state.projectiles[i].owner === 'e') removeProjectile(i);
+      }
+      if (!state.portal) {
+        const bp = zone.bossPos;
+        // 贴着场地中心打死首领时，传送门先不待命：走开再回来才打开地图，不打断击杀后的那一刻
+        state.portal = { x: bp.x, z: bp.z, mesh: W.makePortal(bp.x, bp.z), armed: dist(P.x, P.z, bp.x, bp.z) > 3.5 };
+      }
+      G.sfx('boss');
+      G.persist();
+    }
+  };
+
+  // 打断玩家手上的一切：施法、翻滚、处决、连段、连击计数、输入缓冲、顿帧 / 慢动作（倒下、重生、换区时用）
+  function resetAction() {
+    if (P.exec) {
+      if (P.exec.e) P.exec.e.execLock = false;
+      if (P.ent) G.world.stop(P.ent, 0);
+    }
+    P.exec = null;
+    P.cast = null;
+    P.roll.t = 0;
+    P.combo.step = 0;
+    P.combo.t = 0;
+    P.chain.n = 0;
+    P.chain.t = 0;
+    const inp = G.input;
+    if (inp) {
+      inp.tap[0] = inp.tap[1] = inp.tap[2] = inp.tap[3] = 0;
+      inp.tapDodge = inp.tapExec = 0;
+    }
+    flowReset();
+  }
+
+  // src（可选）：伤害的来源 { x, z }，决定受击后仰的方向
+  G.hurtPlayer = function (amount, dtype, src) {
+    if (P.dead || P.iframe > 0 || P.god) return false;
+    if (!(amount > 0)) return false;
+    const W = G.world;
+    let dmg = amount;
+    if (!dtype || dtype === 'phys') dmg *= 1 - Math.min(0.8, P.armour / (P.armour + 10 * amount));
+    else dmg *= 1 - (P.res[dtype] || 0) / 100;
+    dmg *= 1 - Math.min(90, P.S.lessTaken || 0) / 100;
+    dmg = Math.max(1, dmg);
+
+    P.life -= dmg;
+    W.text(P.x + G.rand(-0.3, 0.3), P.z, '-' + Math.round(dmg), '#ff5a4a', 17);
+    W.shake(Math.min(0.6, 0.18 + (dmg / P.maxLife) * 1.6));
+    G.ui.hurt();
+    const far = src && Math.hypot(P.x - src.x, P.z - src.z) > 0.05;
+    W.play(P.ent, 'hit', { strength: Math.min(1.6, 0.6 + (dmg / P.maxLife) * 4), ang: far ? Math.atan2(P.x - src.x, P.z - src.z) : undefined });
+    G.sfx('hurt');
+    P.chain.n = 0; // 挨打：连击中断
+    P.chain.t = 0;
+
+    if (P.life <= 0) {
+      P.life = 0;
+      P.dead = true;
+      P.deadT = 1.6;
+      P.respawnAt = G.bossDoor(); // 倒在首领战里：重生在竞技场门外，不用再从入口空跑一遍
+      resetAction(); // 缓冲着的输入、顿帧、慢动作都到此为止
+      P.hot.life = P.hot.mana = null;
+      P.moving = false;
+      W.die(P.ent); // 留下一具替身演倒地，本体照旧隐藏到重生
+      P.ent.group.visible = false;
+      W.burst(P.x, 1, P.z, 0xff5a4a, 40, 6, 0.9);
+      G.sfx('death');
+      toast('你倒下了……', '#ff6a5a');
+    }
+    return true;
+  };
+
+  G.healPlayer = function (v) {
+    if (P.dead || !(v > 0)) return;
+    P.life = Math.min(P.maxLife, P.life + v);
+  };
+
+  function refill() {
+    P.life = P.maxLife;
+    P.mana = P.maxMana;
+    P.flask.life = P.flask.mana = 3;
+    P.hot.life = P.hot.mana = null;
+  }
+
+  function clearProjectiles() {
+    const W = G.world;
+    for (const p of state.projectiles) W.removeMesh(p.mesh);
+    state.projectiles.length = 0;
+  }
+  function clearTelegraphs() {
+    const W = G.world;
+    for (const t of state.telegraphs) W.removeTelegraph(t.handle);
+    state.telegraphs.length = 0;
+  }
+
+  function placePlayer(x, z) {
+    P.x = x;
+    P.z = z;
+    resetAction();
+    P.moving = false;
+    P.drawFace = P.face;
+    G.world.setEnt(P.ent, P.x, P.z, P.drawFace);
+  }
+
+  // 首领醒着（正在打）时返回它竞技场门外的重生点：最后一段通道上、离场地中心 bossR + 2，
+  // 在首领的唤醒半径（bossR - 1）之外。其余情况返回 null，表示回区域入口。
+  G.bossDoor = function () {
+    const zone = state.zone;
+    const b = state.boss;
+    if (!zone || !b || b.dead || !b.awake) return null;
+    const cs = zone.circles;
+    const from = cs.length >= 2 ? cs[cs.length - 2] : zone.start;
+    const bp = zone.bossPos;
+    const dx = from.x - bp.x;
+    const dz = from.z - bp.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 1e-3) return null;
+    const x = bp.x + (dx / d) * (zone.bossR + 2);
+    const z = bp.z + (dz / d) * (zone.bossR + 2);
+    return G.world.walkable(x, z, PLAYER_PAD) ? { x, z } : null;
+  };
+
+  G.respawn = function () {
+    const at = P.respawnAt || state.zone.start;
+    P.respawnAt = null;
+    P.dead = false;
+    P.deadT = 0;
+    P.cds = {};
+    P.roll.cd = 0;
+    P.iframe = 1.0;
+    P.graceT = 2.5; // 门外可能还有没清掉的怪：给玩家一点站稳的时间，期间不会惊动它们（主动攻击仍会）
+    P.ent.group.visible = true;
+    // 先清计时器，再让敌人复位（首领延时招式不该在重生后才落下）
+    flowReset();
+    state.timers.length = 0;
+    clearProjectiles();
+    clearTelegraphs();
+    G.world.clearFx(); // 还在半空的陨石、冲击环等不该跟到重生之后
+    placePlayer(at.x, at.z);
+    refill();
+    G.resetEnemies();
+    if (state.portal) state.portal.armed = true;
+  };
+
+  // ---------- 预警圈 ----------
+  G.telegraph = function (spec) {
+    const t = spec;
+    if (!t.shape) t.shape = 'circle';
+    if (t.dur === undefined) t.dur = 1;
+    if (t.dmg === undefined) t.dmg = 0;
+    if (!t.dtype) t.dtype = 'phys';
+    if (t.owner === undefined) t.owner = null;
+    if (t.ang === undefined) t.ang = 0;
+    t.cancelIfOwnerDead = !!t.cancelIfOwnerDead;
+    t.friendly = !!t.friendly;
+    t.t = 0;
+    t.handle = G.world.makeTelegraph(t, t.friendly);
+    t.handle.setProgress(0);
+    state.telegraphs.push(t);
+    return t;
+  };
+
+  // 取消某个敌人名下所有还没结算的预警圈（起手被打断 / 被打出破绽）；它召来的落石一并消失
+  G.cancelTelegraphs = function (owner) {
+    const W = G.world;
+    const list = state.telegraphs;
+    let n = 0;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const t = list[i];
+      if (!t || t.owner !== owner || t.friendly) continue;
+      list.splice(i, 1);
+      W.removeTelegraph(t.handle);
+      if (t.meteor) W.cancelMeteor(t.meteor);
+      n++;
+    }
+    return n;
+  };
+
+  function insideTelegraph(t, x, z) {
+    const dx = x - t.x;
+    const dz = z - t.z;
+    if (t.shape === 'rect') {
+      const along = dx * Math.sin(t.ang) + dz * Math.cos(t.ang);
+      const perp = dx * Math.cos(t.ang) - dz * Math.sin(t.ang);
+      return Math.abs(along) <= t.len / 2 && Math.abs(perp) <= t.w / 2;
+    }
+    return Math.hypot(dx, dz) <= t.r;
+  }
+
+  G.updateTelegraphs = function (dt) {
+    const W = G.world;
+    const list = state.telegraphs;
+    // 倒序遍历：回调里新加的预警圈排在末尾，本帧不会被处理
+    for (let i = list.length - 1; i >= 0; i--) {
+      const t = list[i];
+      if (!t) continue;
+      if (t.cancelIfOwnerDead && t.owner && t.owner.dead) {
+        list.splice(i, 1);
+        W.removeTelegraph(t.handle);
+        continue;
+      }
+      // 主人被冻结 / 眩晕时预警圈跟着停住，解控后接着走（首领免疫，不受影响）。
+      // held 是 updateEnemies 本帧算出的「AI 没有运行」标记，和怪物自己的出手计时正好对齐
+      if (t.owner && !t.owner.isBoss && t.owner.held && !t.friendly) continue;
+      t.t += dt;
+      if (t.t < t.dur) {
+        t.handle.setProgress(t.dur > 0 ? t.t / t.dur : 1);
+        continue;
+      }
+      list.splice(i, 1);
+      W.removeTelegraph(t.handle);
+      if (!t.friendly && t.dmg > 0 && insideTelegraph(t, P.x, P.z)) G.hurtPlayer(t.dmg, t.dtype, t);
+      if (t.onFire) t.onFire(t);
+    }
+  };
+
+  // ---------- 投射物 ----------
+  G.spawnProjectile = function (p) {
+    const len = Math.hypot(p.dx, p.dz) || 1;
+    p.dx /= len;
+    p.dz /= len;
+    if (!p.owner) p.owner = 'e';
+    if (p.speed === undefined) p.speed = 10;
+    if (p.r === undefined) p.r = 0.3;
+    if (p.life === undefined) p.life = 2.5;
+    if (p.owner === 'p') {
+      if (!p.hit) p.hit = new Set();
+      p.pierce = p.pierce || 0;
+      p.chain = p.chain || 0;
+      p.explode = p.explode || 0;
+    } else {
+      if (!p.dtype) p.dtype = 'phys';
+      if (p.dmg === undefined) p.dmg = 0;
+    }
+    if (p.color === undefined) p.color = p.owner === 'p' ? 0xffffff : G.TYPE_HEX[p.dtype];
+    p.trailT = 0;
+    p.mesh = G.world.makeProjectile(p.color, p.r, p.owner !== 'p'); // 敌方弹丸换一套外形，和玩家的投射物分得开
+    p.mesh.position.set(p.x, 1.1, p.z);
+    state.projectiles.push(p);
+    return p;
+  };
+
+  const recentVolleys = []; // 最近伤到过玩家的齐射编号
+
+  function removeProjectile(i) {
+    const p = state.projectiles[i];
+    state.projectiles.splice(i, 1);
+    G.world.removeMesh(p.mesh);
+  }
+
+  // 爆炸：对范围内除 skip 以外的敌人各结算一次。
+  // 同一次施放里已经挨过直击或爆炸的敌人不再受伤：多重 / 贯穿 / 连锁带来的是覆盖面，不是对同一群怪的数倍伤害
+  function explodeAt(p, skip) {
+    const W = G.world;
+    const R = p.explode * Math.sqrt(p.ctx.area);
+    for (const e of enemiesIn(p.x, p.z, R)) {
+      if (e === skip) continue;
+      if (p.cast) {
+        if (p.cast.has(e)) continue;
+        p.cast.add(e);
+      }
+      G.hitEnemy(e, p.ctx, 1, { ang: Math.atan2(e.x - p.x, e.z - p.z) }); // 从爆心往外推
+    }
+    W.ring(p.x, p.z, R, p.color, 0.3);
+    W.burst(p.x, 1.0, p.z, p.color, 16, 6, 0.4);
+  }
+
+  // 玩家投射物命中一个敌人后的去留；返回 false 表示投射物消失
+  function afterPlayerHit(p, e) {
+    if (p.explode > 0) explodeAt(p, e);
+    if (p.chain > 0) {
+      let best = null;
+      let bd = 8;
+      for (const o of state.enemies) {
+        if (o.dead || p.hit.has(o) || (p.cast && p.cast.has(o))) continue;
+        const d = dist(o.x, o.z, p.x, p.z);
+        if (d <= bd) {
+          bd = d;
+          best = o;
+        }
+      }
+      if (best) {
+        p.chain--;
+        const len = bd || 1;
+        p.dx = (best.x - p.x) / len;
+        p.dz = (best.z - p.z) / len;
+        p.life = Math.max(p.life, 8 / p.speed + 0.15);
+        return true;
+      }
+    }
+    if (p.pierce > 0) {
+      p.pierce--;
+      return true;
+    }
+    return false;
+  }
+
+  G.updateProjectiles = function (dt) {
+    const W = G.world;
+    const list = state.projectiles;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const p = list[i];
+      if (!p) continue; // 命中回调里可能批量移除过投射物（首领死亡清弹幕）
+      p.life -= dt;
+      let alive = p.life > 0;
+      // 分小步前进，快的投射物不会穿过细小目标
+      const total = p.speed * dt;
+      const steps = Math.max(1, Math.ceil(total / 0.45));
+      const step = total / steps;
+      for (let s = 0; s < steps && alive; s++) {
+        p.x += p.dx * step;
+        p.z += p.dz * step;
+        if (!W.walkable(p.x, p.z, -0.4)) {
+          if (p.owner === 'p' && p.explode > 0) explodeAt(p, null);
+          else W.burst(p.x, 1.1, p.z, p.color, 5, 3, 0.25);
+          alive = false;
+          break;
+        }
+        if (p.owner === 'p') {
+          for (const e of state.enemies) {
+            if (e.dead || p.hit.has(e)) continue;
+            if (dist(e.x, e.z, p.x, p.z) > p.r + e.r) continue;
+            p.hit.add(e);
+            // 同一次施放的多枚投射物不叠加命中同一个敌人（多重投射打单体不会变成数倍伤害）；
+            // 后到的那枚照常消耗穿透 / 连锁 / 引爆，只是不再对它结算直击
+            if (!p.cast || !p.cast.has(e)) {
+              if (p.cast) p.cast.add(e);
+              G.hitEnemy(e, p.ctx, 1, { ang: Math.atan2(p.dx, p.dz) }); // 顺着弹道推
+            }
+            alive = afterPlayerHit(p, e);
+            break; // 每小步最多命中一个
+          }
+        } else if (!P.dead && dist(P.x, P.z, p.x, p.z) <= p.r + 0.5) {
+          // 同一轮齐射（volley 相同）只结算一次伤害：贴脸吃满一圈弹幕不该被瞬间打空
+          const v = p.volley;
+          const from = { x: p.x - p.dx, z: p.z - p.dz };
+          if (v === undefined || v === null) G.hurtPlayer(p.dmg, p.dtype, from);
+          else if (recentVolleys.indexOf(v) < 0 && G.hurtPlayer(p.dmg, p.dtype, from)) {
+            recentVolleys.push(v);
+            if (recentVolleys.length > 8) recentVolleys.shift();
+          }
+          W.burst(p.x, 1.1, p.z, p.color, 6, 3, 0.25);
+          alive = false;
+        }
+      }
+      if (!alive) {
+        // 到达射程尽头的爆炸弹也要炸开
+        if (p.life <= 0 && p.owner === 'p' && p.explode > 0) explodeAt(p, null);
+        const idx = list.indexOf(p);
+        if (idx >= 0) removeProjectile(idx);
+        continue;
+      }
+      p.mesh.position.set(p.x, 1.1, p.z);
+      p.trailT -= dt;
+      if (p.trailT <= 0) {
+        p.trailT = p.owner === 'p' ? 0.04 : 0.09;
+        W.burst(p.x, 1.1, p.z, p.color, 1, 0.6, 0.25);
+      }
+    }
+  };
+
+  // ---------- 计时器 ----------
+  G.after = function (sec, fn) {
+    const t = { t: sec, fn };
+    state.timers.push(t);
+    return t;
+  };
+
+  G.updateTimers = function (dt) {
+    const list = state.timers;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const t = list[i];
+      if (!t) continue; // 回调里清空过列表
+      t.t -= dt;
+      if (t.t <= 0) {
+        list.splice(i, 1);
+        t.fn();
+      }
+    }
+  };
+
+  // =====================================================================
+  // 玩家
+  // =====================================================================
+  // 键盘移动方向（单位向量），没按则为 null
+  function moveDir() {
+    const k = G.input.keys;
+    const mx = (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0);
+    const mz = (k.KeyS || k.ArrowDown ? 1 : 0) - (k.KeyW || k.ArrowUp ? 1 : 0);
+    if (!mx && !mz) return null;
+    const len = Math.hypot(mx, mz);
+    return { x: mx / len, z: mz / len };
+  }
+
+  // 从玩家指向鼠标落点
+  function aimInfo() {
+    const m = G.input.mouse;
+    const dx = m.wx - P.x;
+    const dz = m.wz - P.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 0.05) return { ang: P.face, dx: Math.sin(P.face), dz: Math.cos(P.face), dist: 0, tx: P.x, tz: P.z };
+    return { ang: Math.atan2(dx, dz), dx: dx / d, dz: dz / d, dist: d, tx: m.wx, tz: m.wz };
+  }
+
+  // 撞墙时依次尝试偏转这些角度，沿墙滑行
+  const SLIDE = [0.35, -0.35, 0.7, -0.7, 1.05, -1.05, 1.35, -1.35, 1.5, -1.5];
+
+  function movePlayer(dx, dz) {
+    const W = G.world;
+    const total = Math.hypot(dx, dz);
+    if (total < 1e-6) return;
+    // 万一站在不可走的位置（不该发生），朝最近的空地中心挪回去
+    if (!W.walkable(P.x, P.z, PLAYER_PAD)) {
+      let best = null;
+      let bd = Infinity;
+      for (const c of state.zone.circles) {
+        const d = dist(c.x, c.z, P.x, P.z);
+        if (d < bd) {
+          bd = d;
+          best = c;
+        }
+      }
+      if (best && bd > 1e-3) {
+        const k = Math.min(total, bd) / bd;
+        P.x += (best.x - P.x) * k;
+        P.z += (best.z - P.z) * k;
+      }
+      return;
+    }
+    const n = Math.ceil(total / 0.3);
+    const sx = dx / n;
+    const sz = dz / n;
+    for (let i = 0; i < n; i++) {
+      if (W.walkable(P.x + sx, P.z + sz, PLAYER_PAD)) {
+        P.x += sx;
+        P.z += sz;
+        continue;
+      }
+      let moved = false;
+      for (const a of SLIDE) {
+        const c = Math.cos(a);
+        const s = Math.sin(a);
+        const rx = (sx * c - sz * s) * c;
+        const rz = (sx * s + sz * c) * c;
+        if (W.walkable(P.x + rx, P.z + rz, PLAYER_PAD)) {
+          P.x += rx;
+          P.z += rz;
+          moved = true;
+          break;
+        }
+      }
+      if (!moved) break;
+    }
+  }
+
+  // 技能栏输入：0 左键，1 右键，2 Q，3 E；tap 是短暂的按键缓冲，轻点也不会丢
+  function slotHeld(slot) {
+    const inp = G.input;
+    if (inp.tap[slot] > 0) return true;
+    if (slot === 0) return inp.mouse.b[0];
+    if (slot === 1) return inp.mouse.b[2];
+    return !!inp.keys[slot === 2 ? 'KeyQ' : 'KeyE'];
+  }
+
+  // 同时按住时，键位技能优先于鼠标技能，这样按住左键普攻时仍能插入 Q / E
+  const CAST_ORDER = [2, 3, 1, 0];
+  const COMBO_WINDOW = 0.55; // 一段打完（可以接下一段）之后，多久之内再出手算接上
+  const LUNGE_KEEP = 1.0; // 连击踏步时与准星落点保持的最小距离
+
+  function comboReset() {
+    P.combo.step = 0;
+    P.combo.t = 0;
+  }
+
+  // 这次出手里占比最大的伤害类型（刀光用它的颜色）
+  function mainType(ctx) {
+    let top = 'phys';
+    let tv = -1;
+    for (const t in ctx.base) {
+      const v = (ctx.base[t][0] + ctx.base[t][1]) * typeMult(ctx, t);
+      if (v > tv) {
+        tv = v;
+        top = t;
+      }
+    }
+    return top;
+  }
+
+  // 开始一次施放。只在「能出手」的时刻被调用：手上没有动作，或者上一个动作已经过了可取消的时刻
+  function tryStartCast() {
+    const save = G.save;
+    const chan = P.cast && P.cast.channel ? P.cast : null;
+    for (const slot of CAST_ORDER) {
+      if (!slotHeld(slot)) continue;
+      const id = save.bar[slot];
+      if (!id || !save.skills[id] || !G.SKILLS[id]) continue;
+      if (chan && chan.slot === slot) continue; // 还按着正在转的那个键：接着转，不从头起
+      if (P.cds[id] > 0) continue;
+      const ctx = G.skillCtx(id);
+      if (!G.canAfford(ctx.cost)) {
+        const now = Date.now();
+        if (now - (toastAt.noCost || 0) > 1200) {
+          toastAt.noCost = now;
+          G.world.text(P.x, P.z, P.S.bloodMagic ? '生命不足' : '魔力不足', P.S.bloodMagic ? '#ff7a6a' : '#7fa8ff', 14);
+        }
+        continue;
+      }
+      const sk = ctx.sk;
+      const ang = aimInfo().ang;
+      // 近战键贴身按下、面前正好有露出破绽的敌人：直接处决
+      if (sk.kind === 'melee' || sk.kind === 'spin') {
+        const tgt = G.execTarget(G.POISE.execMelee, ang);
+        if (tgt && G.execute(tgt)) {
+          G.input.tap[slot] = 0;
+          return true;
+        }
+      }
+      G.input.tap[slot] = 0;
+      if (sk.kind === 'spin') {
+        // 持续施放：没有固定时长，按住就一直转。第一下很快出手，之后每 iv 秒一下；出手之后随时可以接别的动作
+        comboReset();
+        const iv = ctx.time;
+        P.cast = {
+          slot, id, t: 0, fired: false, aim: ang, step: -1, st: null, channel: true,
+          fireT: Math.min(0.12, iv * 0.4), nextT: Math.min(0.12, iv * 0.4), cancelT: Infinity, dur: Infinity, pulses: 0, move: sk.move || 0.6,
+        };
+        G.world.play(P.ent, 'spin', { loop: true, dur: iv * 1.2 });
+        G.world.setTrail(G.TYPE_HEX[mainType(ctx)]);
+        P.spinning = true;
+        P.face = ang;
+        return true;
+      }
+      // 连击技能：出当前这一段；其他技能：连段从头再来
+      let st = null;
+      let step = -1;
+      if (sk.combo) {
+        step = P.combo.step % sk.combo.length;
+        st = sk.combo[step];
+      } else {
+        comboReset();
+      }
+      const sp = ctx.speed;
+      // fireT：生效时刻；cancelT：之后可以接下一个动作（下一段 / 别的技能）；dur：没有后续输入时动作自然结束
+      const c = (P.cast = {
+        slot, id, t: 0, fired: false, aim: ang, step, st,
+        dur: st ? (st.time + st.tail) / sp : ctx.time,
+        fireT: st ? st.hit / sp : ctx.time * 0.5,
+        cancelT: st ? st.time / sp : ctx.time,
+      });
+      // 出手动作：连击三段各有各的挥法，其余按技能类型；命中帧对在生效的时刻
+      const kind = sk.kind;
+      const clip = st ? st.clip : kind === 'proj' ? 'throw' : kind === 'blink' ? 'blink' : kind === 'melee' ? 'attack1' : 'cast';
+      G.world.play(P.ent, clip, { dur: st ? c.dur + 0.1 : ctx.time * 1.3, contact: c.fireT });
+      if (st) {
+        G.world.setTrail(G.TYPE_HEX[mainType(ctx)]);
+        G.sfx('swing', { step });
+      }
+      P.face = ang;
+      return true;
+    }
+    return false;
+  }
+
+  // 连击段出手前朝准星踏出的一小步：加速冲出去，撞墙或贴到敌人身前就停
+  function lungeStep(c, t0) {
+    const st = c.st;
+    const a0 = c.fireT * 0.3;
+    const span = c.fireT - a0;
+    const f0 = G.clamp((t0 - a0) / span, 0, 1);
+    const f1 = G.clamp((c.t - a0) / span, 0, 1);
+    let d = (f1 * f1 - f0 * f0) * st.lunge;
+    if (d <= 0) return;
+    // 不越过准星：停在离落点 1 之外。否则准星贴身时这一步会冲过头，下一帧瞄准方向翻转，角色原地掉头
+    d = Math.min(d, Math.max(0, aimInfo().dist - LUNGE_KEEP));
+    if (d <= 0) return;
+    const sn = Math.sin(c.aim);
+    const cs = Math.cos(c.aim);
+    for (const e of state.enemies) {
+      if (e.dead) continue;
+      const dx = e.x - P.x;
+      const dz = e.z - P.z;
+      const along = dx * sn + dz * cs;
+      if (along <= 0 || along > st.lunge + e.r + 1.2) continue;
+      if (Math.abs(dx * cs - dz * sn) > e.r + 0.5) continue;
+      d = Math.min(d, Math.max(0, along - (e.r + 0.95)));
+    }
+    if (d > 0) movePlayer(sn * d, cs * d);
+  }
+
+  // 停下持续施放（松手、魔力不够、键位被换掉）：动作淡回站立 / 移动
+  function endChannel() {
+    P.cast = null;
+    P.spinning = false;
+    if (G.world.clipOf(P.ent) === 'spin') G.world.stop(P.ent, 0.16);
+  }
+
+  function updateChannel(c, dt) {
+    c.t += dt;
+    c.aim = aimInfo().ang;
+    P.face = c.aim;
+    const held = slotHeld(c.slot) && G.save.bar[c.slot] === c.id;
+    // 至少转出一下；之后一松手就停
+    if (c.pulses > 0 && !held) {
+      endChannel();
+      return;
+    }
+    if (c.t < c.nextT) return;
+    const ctx = G.skillCtx(c.id);
+    if (!G.canAfford(ctx.cost)) {
+      const now = Date.now();
+      if (now - (toastAt.noCost || 0) > 1200) {
+        toastAt.noCost = now;
+        G.world.text(P.x, P.z, P.S.bloodMagic ? '生命不足' : '魔力不足', P.S.bloodMagic ? '#ff7a6a' : '#7fa8ff', 14);
+      }
+      endChannel();
+      return;
+    }
+    payCost(ctx.cost);
+    c.fired = true;
+    c.cancelT = 0;
+    c.pulses++;
+    c.nextT += ctx.time; // 出手速度中途变了（迅捷、天赋）也按新的间隔走
+    G.execSkill(ctx);
+  }
+
+  function updateCast(dt) {
+    const c = P.cast;
+    if (c.channel) {
+      updateChannel(c, dt);
+      return;
+    }
+    const t0 = c.t;
+    c.t += dt;
+    if (!c.fired) {
+      c.aim = aimInfo().ang; // 出手前一直跟随鼠标
+      if (c.st && c.st.lunge > 0) lungeStep(c, t0);
+      if (c.t >= c.fireT) {
+        const ctx = G.skillCtx(c.id);
+        if (!G.canAfford(ctx.cost)) {
+          P.cast = null;
+          return;
+        }
+        payCost(ctx.cost);
+        if (ctx.cd > 0) {
+          P.cds[c.id] = ctx.cd;
+          P.cdMax[c.id] = ctx.cd;
+        }
+        c.fired = true;
+        if (c.st) {
+          // 这一段打出去了：下一次出下一段，窗口从「可以接下一段」的时刻算起
+          P.combo.step = (c.step + 1) % ctx.sk.combo.length;
+          P.combo.t = c.cancelT - c.fireT + COMBO_WINDOW;
+        } else {
+          G.sfx('cast');
+        }
+        G.execSkill(ctx, c.st);
+        for (let i = 1; i <= ctx.echo; i++) {
+          G.after(0.22 * i, () => {
+            if (!P.dead) G.execSkill(ctx);
+          });
+        }
+      }
+    }
+    if (P.cast === c) {
+      P.face = c.aim;
+      if (c.t >= c.dur) P.cast = null;
+    }
+  }
+
+  // ---------- 技能效果 ----------
+  const SKILL_FX = {
+    // st：连击的哪一段（缺省按第一段）
+    melee(ctx, a, st) {
+      const W = G.world;
+      const sk = ctx.sk;
+      if (!st) st = sk.combo ? sk.combo[0] : { shape: 'arc', range: sk.range, arc: sk.arc, mult: 1, dir: 1, w: 0, stop: 35, kb: sk.kb, poise: sk.poise };
+      const k = Math.sqrt(ctx.area);
+      const hex = hexOf(sk.color);
+      const R = st.range * k;
+      const hits = [];
+      if (st.shape === 'smash') {
+        // 跃起下劈：落点在身前 reach 处，砸出一个圆；贴身的敌人也躲不掉
+        const cx = P.x + a.dx * st.reach * k;
+        const cz = P.z + a.dz * st.reach * k;
+        for (const e of state.enemies) {
+          if (e.dead) continue;
+          if (dist(e.x, e.z, cx, cz) - e.r <= R || dist(e.x, e.z, P.x, P.z) <= e.r + 1.0) hits.push(e);
+        }
+        W.slash(P.x, P.z, a.ang, st.reach * k + R * 0.6, 46, hex, { dur: 0.2, inner: 0.02, y: 1.2 });
+        W.ring(cx, cz, R, hex, 0.34);
+        W.ring(cx, cz, R * 0.55, 0xffe2b0, 0.2);
+        W.decal(5, cx, cz, R * 0.95, Math.random() * TAU, 0xffc890, 2.6);
+        W.burst(cx, 0.3, cz, 0xcbbba6, 18, 6.5, 0.45);
+        W.shake(0.28);
+      } else {
+        const half = (st.arc / 2) * DEG;
+        for (const e of enemiesIn(P.x, P.z, R)) {
+          const d = dist(e.x, e.z, P.x, P.z);
+          // 贴脸的敌人必中；体型大的敌人放宽夹角
+          if (d > e.r + 0.6) {
+            const diff = Math.abs(angDiff(Math.atan2(e.x - P.x, e.z - P.z), a.ang));
+            if (diff > half + Math.asin(Math.min(1, e.r / d))) continue;
+          }
+          hits.push(e);
+        }
+        W.slash(P.x, P.z, a.ang, R, st.arc, hex, { dir: st.dir });
+      }
+      if (!hits.length) return;
+      let crit = false;
+      let top = 'phys';
+      for (const e of hits) {
+        // 击退方向：从玩家指向敌人；横斩再带一点顺着刀势的切向，两段的手感因此不同
+        let ang = Math.atan2(e.x - P.x, e.z - P.z);
+        if (st.shape !== 'smash') ang += (st.dir || 1) * 0.4;
+        G.hitEnemy(e, ctx, st.mult, { ang, w: st.w, kb: st.kb, poise: st.poise, quiet: true });
+        crit = crit || lastHit.crit;
+        top = lastHit.type;
+        if (!e.dead) W.shudder(e.ent, 0.05 + st.w * 0.03, (st.stop + 50) / 1000);
+      }
+      // 这一刀砍中了：顿帧、镜头顺势一顶、一声闷响；终结技再加一记推近
+      const stop = (st.stop + (crit ? 25 : 0)) * ctx.stopK;
+      G.hitStop(stop);
+      W.shudder(P.ent, 0.022, stop / 1000);
+      W.punch(a.ang, 0.16 + st.w * 0.2 + (crit ? 0.1 : 0));
+      W.shake(st.w >= 2 ? 0.5 : crit ? 0.22 : 0.1);
+      G.sfx('impact', { type: top, w: st.w, crit });
+      if (st.w >= 2) {
+        W.fovKick(2.6);
+        G.sfx('finisher');
+        state.stats.finishers++;
+      }
+    },
+
+    proj(ctx, a) {
+      const sk = ctx.sk;
+      const n = Math.max(1, ctx.proj);
+      const spread = Math.min(60, 12 * (n - 1)) * DEG;
+      const stepA = n > 1 ? spread / (n - 1) : 0;
+      const hex = hexOf(sk.color);
+      const cast = new Set(); // 这一次施放里已经受过伤（直击或爆炸）的敌人，所有投射物共用
+      for (let i = 0; i < n; i++) {
+        const ang = a.ang - spread / 2 + stepA * i;
+        const dx = Math.sin(ang);
+        const dz = Math.cos(ang);
+        G.spawnProjectile({
+          owner: 'p', x: P.x + dx * 0.7, z: P.z + dz * 0.7, dx, dz,
+          speed: sk.speed, r: sk.projR || 0.3, life: 30 / sk.speed, color: hex,
+          ctx, pierce: ctx.pierce, chain: ctx.chain, explode: sk.explode || 0, hit: new Set(), cast,
+        });
+      }
+    },
+
+    nova(ctx) {
+      const W = G.world;
+      const sk = ctx.sk;
+      const R = sk.radius * Math.sqrt(ctx.area);
+      const hex = hexOf(sk.color);
+      W.ring(P.x, P.z, R, hex, 0.35);
+      W.burst(P.x, 0.8, P.z, hex, 28, R * 2.2, 0.35);
+      for (const e of enemiesIn(P.x, P.z, R)) G.hitEnemy(e, ctx, 1);
+    },
+
+    chain(ctx, a) {
+      const W = G.world;
+      const sk = ctx.sk;
+      const hex = hexOf(sk.color);
+      // 首个目标：准星附近优先，其次是瞄准方向上最近的敌人
+      let first = null;
+      let bd = Infinity;
+      for (const e of state.enemies) {
+        if (e.dead) continue;
+        const dc = dist(e.x, e.z, a.tx, a.tz);
+        if (dc - e.r <= 5 && dist(e.x, e.z, P.x, P.z) - e.r <= sk.range && dc < bd) {
+          bd = dc;
+          first = e;
+        }
+      }
+      if (!first) {
+        for (const e of state.enemies) {
+          if (e.dead) continue;
+          const dp = dist(e.x, e.z, P.x, P.z);
+          if (dp - e.r > 12 || dp >= bd) continue;
+          const diff = Math.abs(angDiff(Math.atan2(e.x - P.x, e.z - P.z), a.ang));
+          if (dp > e.r + 0.6 && diff > 0.6 + Math.asin(Math.min(1, e.r / dp))) continue;
+          bd = dp;
+          first = e;
+        }
+      }
+      const pts = [{ x: P.x, z: P.z }];
+      if (!first) {
+        pts.push({ x: P.x + a.dx * 6, z: P.z + a.dz * 6 });
+        W.bolt(pts, hex);
+        return;
+      }
+      const hit = new Set();
+      let cur = first;
+      let jumps = ctx.chain;
+      let px = P.x;
+      let pz = P.z;
+      while (cur) {
+        hit.add(cur);
+        pts.push({ x: cur.x, z: cur.z });
+        const cx = cur.x;
+        const cz = cur.z;
+        G.hitEnemy(cur, ctx, 1, { ang: Math.atan2(cx - px, cz - pz) }); // 顺着电弧来的方向
+        px = cx;
+        pz = cz;
+        cur = null;
+        if (jumps-- <= 0) break;
+        let nd = 7;
+        for (const e of state.enemies) {
+          if (e.dead || hit.has(e)) continue;
+          const d = dist(e.x, e.z, cx, cz);
+          if (d <= nd) {
+            nd = d;
+            cur = e;
+          }
+        }
+      }
+      W.bolt(pts, hex);
+    },
+
+    meteor(ctx, a) {
+      const W = G.world;
+      const sk = ctx.sk;
+      const d = Math.min(sk.range, a.dist);
+      const x = P.x + a.dx * d;
+      const z = P.z + a.dz * d;
+      const R = sk.radius * Math.sqrt(ctx.area);
+      const hex = hexOf(sk.color);
+      W.meteorFall(x, z, sk.delay, hex);
+      G.telegraph({
+        shape: 'circle', x, z, r: R, dur: sk.delay, dmg: 0, friendly: true,
+        onFire() {
+          for (const e of enemiesIn(x, z, R)) G.hitEnemy(e, ctx, 1, { ang: Math.atan2(e.x - x, e.z - z) }); // 从落点往外炸开
+          W.decal(1, x, z, R * 0.95, Math.random() * TAU, hex, 5);
+          W.ring(x, z, R, hex, 0.45);
+          W.burst(x, 0.8, z, hex, 46, 9, 0.7);
+          W.burst(x, 0.5, z, 0xffe0a0, 16, 5, 0.5);
+          W.shake(0.5);
+          G.sfx('hit');
+        },
+      });
+    },
+
+    // 旋风斩的一下：身边一整圈。击退顺着旋转方向带一下（切向为主），敌人被卷着走而不是被推出圈外
+    spin(ctx) {
+      const W = G.world;
+      const sk = ctx.sk;
+      const R = sk.radius * Math.sqrt(ctx.area);
+      const hex = hexOf(sk.color);
+      const c = P.cast;
+      const n = c && c.channel ? c.pulses : 0;
+      W.slash(P.x, P.z, Math.random() * TAU, R, 360, hex, { dur: 0.2, inner: 0.6, y: 0.9 });
+      if (n % 2 === 1) W.burst(P.x, 0.25, P.z, 0xbfb3a0, 4, R * 0.9, 0.3); // 脚下扬起的尘
+      G.sfx('swing', { step: n % 2 });
+      const hits = enemiesIn(P.x, P.z, R);
+      if (!hits.length) return;
+      let crit = false;
+      let top = 'phys';
+      for (const e of hits) {
+        const ang = Math.atan2(e.x - P.x, e.z - P.z) + 1.15; // 旋转是逆时针（俯视），切向偏一点向外
+        G.hitEnemy(e, ctx, 1, { ang, w: 0, kb: sk.kb, poise: sk.poise, quiet: true });
+        crit = crit || lastHit.crit;
+        top = lastHit.type;
+      }
+      G.hitStop(((sk.stop || 0) + (crit ? 15 : 0)) * ctx.stopK);
+      W.shake(crit ? 0.14 : 0.06);
+      G.sfx('impact', { type: top, w: 0, crit });
+    },
+
+    blink(ctx, a) {
+      const W = G.world;
+      const sk = ctx.sk;
+      const hex = hexOf(sk.color);
+      const ox = P.x;
+      const oz = P.z;
+      // 从目标点往回退，直到落在可走的地方
+      let d = Math.min(sk.range, a.dist);
+      while (d > 0 && !W.walkable(ox + a.dx * d, oz + a.dz * d, 0.6)) d -= 0.4;
+      W.burst(ox, 1.0, oz, hex, 18, 4, 0.4);
+      if (d > 0) {
+        P.x = ox + a.dx * d;
+        P.z = oz + a.dz * d;
+        W.bolt([{ x: ox, z: oz }, { x: P.x, z: P.z }], hex);
+      }
+      P.roll.t = 0;
+      P.iframe = Math.max(P.iframe, 0.2);
+      const R = sk.radius * Math.sqrt(ctx.area);
+      W.burst(P.x, 1.0, P.z, hex, 24, 6, 0.45);
+      W.ring(P.x, P.z, R, hex, 0.3);
+      let n = 0;
+      let crit = false;
+      for (const e of enemiesIn(P.x, P.z, R)) {
+        G.hitEnemy(e, ctx, 1, { quiet: true });
+        crit = crit || lastHit.crit;
+        n++;
+      }
+      if (n) {
+        // 落地砸中：一记重击的顿帧
+        G.hitStop(((sk.stop || 70) + (crit ? 20 : 0)) * ctx.stopK);
+        W.punch(a.ang, 0.3);
+        W.shake(0.3);
+        G.sfx('impact', { type: lastHit.type, w: 1, crit });
+      }
+    },
+  };
+
+  // 以当前鼠标落点为目标执行一次技能效果（不扣消耗、不进冷却）
+  // st（可选）：连击技能的哪一段
+  G.execSkill = function (ctx, st) {
+    SKILL_FX[ctx.sk.kind](ctx, aimInfo(), st);
+  };
+
+  // 此刻按下的输入该缓冲多久。固定的 0.3 秒比终结技（0.62 秒后才能接招）和法术都短，
+  // 前半段轻点的按键会被悄悄吃掉——所以缓冲要活过手上这个动作：到它「可以接下一个动作」的时刻再多一点。
+  // kind：'cast' 技能栏输入 / 'dodge' 翻滚 / 'exec' 处决
+  G.bufferTime = function (kind) {
+    let wait = 0;
+    const x = P.exec;
+    if (kind === 'dodge') {
+      if (x && !x.hit) wait = EXEC.hit - x.t; // 处决命中之后才能翻滚取消
+    } else if (x) wait = EXEC.dur - x.t;
+    else if (P.roll.t > 0) wait = P.roll.t;
+    else if (kind === 'cast' && P.cast) wait = P.cast.cancelT - P.cast.t;
+    return G.clamp(wait + BUFFER_PAD, G.BUFFER, BUFFER_MAX);
+  };
+
+  G.dodge = function () {
+    if (P.dead || P.roll.t > 0 || P.roll.cd > 0) return false;
+    if (P.exec) {
+      if (!P.exec.hit) return false; // 处决出手前不能取消
+      endExec(false); // 处决命中之后的收招可以翻滚取消
+    }
+    const mv = moveDir();
+    let dx, dz;
+    if (mv) {
+      dx = mv.x;
+      dz = mv.z;
+    } else {
+      const a = aimInfo();
+      dx = a.dx;
+      dz = a.dz;
+    }
+    const r = P.roll;
+    r.t = 0.32;
+    G.world.play(P.ent, 'roll', { dur: 0.32 });
+    r.dx = dx;
+    r.dz = dz;
+    r.cdMax = 0.9 * (1 - Math.min(90, P.S.dodgeCd || 0) / 100);
+    r.cd = r.cdMax;
+    P.iframe = Math.max(P.iframe, 0.32);
+    P.cast = null; // 翻滚取消挥砍：没出手的起手直接作废，已出手的跳过收招
+    comboReset(); // 换了别的动作：连段从头再来
+    // 翻滚之前缓冲着的技能输入一并作废（玩家改了主意）；滚的途中再按的会留到滚完
+    const inp = G.input;
+    inp.tap[0] = inp.tap[1] = inp.tap[2] = inp.tap[3] = 0;
+    inp.tapDodge = 0;
+    P.face = Math.atan2(dx, dz);
+    G.world.burst(P.x, 0.3, P.z, 0xbfb3a0, 8, 2.5, 0.35);
+    G.sfx('roll');
+    return true;
+  };
+
+  // ---------- 处决 ----------
+  // 各阶段的时刻（秒，按不受慢动作影响的动作时间计）：dashA ~ dashB 冲到目标身前，hit 命中，dur 结束
+  const EXEC = { dashA: 0.05, dashB: 0.27, hit: 0.33, dur: 0.78 };
+  const _spot = { x: 0, z: 0 };
+
+  // 从 (x0, z0) 到 (x1, z1) 的直线是否一路可走（中间没有墙）
+  function pathClear(x0, z0, x1, z1) {
+    const W = G.world;
+    const dx = x1 - x0;
+    const dz = z1 - z0;
+    const n = Math.ceil(Math.hypot(dx, dz) / 0.4);
+    for (let i = 1; i <= n; i++) {
+      if (!W.walkable(x0 + (dx * i) / n, z0 + (dz * i) / n, PLAYER_PAD * 0.8)) return false;
+    }
+    return true;
+  }
+  // 处决时玩家站的位置：从 (x0, z0) 朝目标冲过去，停在它身前；本来就贴着的话原地不动
+  function execSpot(e, x0, z0, out) {
+    const dx = x0 - e.x;
+    const dz = z0 - e.z;
+    const d = Math.hypot(dx, dz);
+    const gap = e.r + 0.95;
+    if (d <= gap) {
+      out.x = x0;
+      out.z = z0;
+    } else {
+      out.x = e.x + (dx / d) * gap;
+      out.z = e.z + (dz / d) * gap;
+    }
+    return out;
+  }
+
+  // 找一个可以处决的目标：破绽中、离得够近（range 量到目标边缘）、中间没有墙。
+  // 给了 aim 时还要求它大致在瞄准方向上（贴身的不论）。有多个时取最近的
+  G.execTarget = function (range, aim) {
+    if (P.dead || P.exec) return null;
+    let best = null;
+    let bd = Infinity;
+    for (const e of state.enemies) {
+      if (e.dead || !(e.brokenT > 0) || e.executed) continue;
+      const d = dist(e.x, e.z, P.x, P.z);
+      if (d - e.r > range || d >= bd) continue;
+      if (aim !== undefined && d > e.r + 0.8 && Math.abs(angDiff(Math.atan2(e.x - P.x, e.z - P.z), aim)) > 1.25) continue;
+      execSpot(e, P.x, P.z, _spot);
+      if (!pathClear(P.x, P.z, _spot.x, _spot.z)) continue;
+      best = e;
+      bd = d;
+    }
+    return best;
+  };
+
+  // 这个破绽中的敌人此刻够不够得着（F 的距离以内、中间没有墙）。界面上的两处处决提示都用它，说法才一致
+  G.execReach = function (e) {
+    if (P.dead || !e || e.dead || !(e.brokenT > 0) || e.executed) return false;
+    if (dist(e.x, e.z, P.x, P.z) - e.r > G.POISE.execRange) return false;
+    execSpot(e, P.x, P.z, _spot);
+    return pathClear(P.x, P.z, _spot.x, _spot.z);
+  };
+
+  // 处决伤害的基数：技能栏上平均击中最高的那个技能
+  function execBase() {
+    const save = G.save;
+    let best = 0;
+    for (const id of save.bar) if (id && save.skills[id]) best = Math.max(best, G.avgHit(G.skillCtx(id)));
+    if (!best) for (const id in save.skills) best = Math.max(best, G.avgHit(G.skillCtx(id)));
+    return best;
+  }
+
+  // 对一个破绽中的敌人发动处决：短暂慢动作、冲到身前、一记重击；全程无敌。成功开始返回 true
+  G.execute = function (e) {
+    if (P.dead || P.exec || P.roll.t > 0) return false;
+    if (!e || e.dead || !(e.brokenT > 0) || e.executed || state.enemies.indexOf(e) < 0) return false;
+    execSpot(e, P.x, P.z, _spot);
+    if (!pathClear(P.x, P.z, _spot.x, _spot.z)) return false; // 隔着墙够不着
+    const W = G.world;
+    const ang = Math.atan2(e.x - P.x, e.z - P.z);
+    P.cast = null;
+    comboReset();
+    P.exec = { e, t: 0, x0: P.x, z0: P.z, hit: false };
+    P.face = P.drawFace = ang;
+    P.moving = false;
+    P.iframe = Math.max(P.iframe, EXEC.dur + 0.25);
+    e.execLock = true; // 处决途中破绽不会到点结束
+    e.kvx = e.kvz = 0;
+    G.input.tapExec = 0;
+    W.play(P.ent, 'execute', { dur: EXEC.dur + 0.1, contact: EXEC.hit });
+    W.setTrail(0xfff0c0);
+    W.fovKick(3);
+    G.slowMo(0.25, 0.5);
+    G.sfx('execstart');
+    return true;
+  };
+
+  // F 键：够得着的破绽目标就处决（正在翻滚时先记下，滚完立刻出手）。没有可处决的目标时返回 false
+  G.tryExecute = function () {
+    if (P.dead || P.exec) return false;
+    const e = G.execTarget(G.POISE.execRange);
+    if (!e) return false;
+    if (!G.execute(e)) G.input.tapExec = G.bufferTime('exec');
+    return true;
+  };
+
+  // aborted：目标中途没了——收手，不结算
+  function endExec(aborted) {
+    const x = P.exec;
+    if (!x) return;
+    P.exec = null;
+    if (x.e) x.e.execLock = false;
+    if (aborted) {
+      G.world.stop(P.ent);
+      P.iframe = Math.min(P.iframe, 0.25);
+      flow.slow = 0;
+    }
+  }
+
+  function execHit(e) {
+    const W = G.world;
+    const PO = G.POISE;
+    const ang = Math.atan2(e.x - P.x, e.z - P.z);
+    const base = execBase();
+    let dmg;
+    if (e.isBoss) {
+      // 首领：一大截，但按最大生命封顶
+      dmg = G.clamp(base * PO.execHits, e.maxHp * PO.execBossMin, e.maxHp * PO.execBossMax);
+    } else {
+      // 精英：至少四成最大生命；打完所剩无几的直接毙命
+      dmg = Math.max(base * PO.execHits, e.maxHp * PO.execEliteHp);
+      if (e.hp - dmg <= e.maxHp * PO.execEliteKill) dmg = Math.max(dmg, e.hp);
+    }
+    const hp0 = e.hp;
+    e.hp -= dmg;
+    e.awake = true;
+    e.execLock = false;
+    e.executed = true; // 一次破绽只能处决一次
+
+    const h = e.height || 2;
+    const sn = Math.sin(ang);
+    const cs = Math.cos(ang);
+    const hx = e.x - sn * e.r * 0.6;
+    const hz = e.z - cs * e.r * 0.6;
+    W.text(e.x, e.z, Math.round(dmg) + '!', '#ffd75e', 40, { kind: 'big', y: Math.min(3.8, h * 0.8 + 0.7) });
+    W.flash(e.ent, 3);
+    W.hitReact(e.ent, ang, 2.2);
+    W.impact(hx, h * 0.5, hz, ang, 'phys', 3, true);
+    W.impact(hx, h * 0.5, hz, ang + 0.5, G.state.zone.def.elem, 2, false);
+    W.ring(e.x, e.z, e.r + 3.4, 0xfff0c0, 0.4);
+    W.ring(e.x, e.z, e.r + 1.8, 0xffffff, 0.22);
+    W.burst(hx, h * 0.5, hz, 0xfff0c0, 34, 9, 0.6);
+    W.decal(5, e.x, e.z, e.r + 2.2, Math.random() * TAU, 0xffd28a, 3.2);
+    W.shake(0.8);
+    W.punch(ang, 0.75);
+    W.fovKick(5);
+    W.shudder(e.ent, 0.1, 0.18);
+    W.shudder(P.ent, 0.03, 0.13);
+    G.hitStop(130);
+    G.sfx('execute');
+
+    // 奖励：生命、魔力、药剂充能
+    G.healPlayer(P.maxLife * (e.isBoss ? PO.execLifeBoss : PO.execLife));
+    P.mana = Math.min(P.maxMana, P.mana + P.maxMana * PO.execMana);
+    const fl = e.isBoss ? PO.execFlaskBoss : PO.execFlaskElite;
+    P.flask.life = Math.min(3, P.flask.life + fl);
+    P.flask.mana = Math.min(3, P.flask.mana + fl);
+    W.burst(P.x, 1.1, P.z, 0xff6a5a, 10, 2.5, 0.6);
+    W.burst(P.x, 1.1, P.z, 0x6a9cff, 10, 2.5, 0.6);
+
+    const st = state.stats;
+    st.execs++;
+    st.hits++;
+    const ch = P.chain;
+    ch.n++;
+    ch.t = CHAIN_KEEP;
+    if (ch.n > ch.best) ch.best = ch.n;
+
+    if (e.hp <= 0) {
+      G.killEnemy(e, { ang, type: 'phys', w: 3, over: 1.2 });
+    } else {
+      // 没死：挣扎着爬起来（首领慢一些），架势回满
+      e.brokenT = Math.min(e.brokenT, e.isBoss ? 1.1 : 0.7);
+      if (!e.isBoss) {
+        const v = (2.2 * KB_DECAY) / (e.mass || 1);
+        e.kvx = sn * v;
+        e.kvz = cs * v;
+      }
+    }
+    return hp0 - Math.max(0, e.hp);
+  }
+
+  function updateExec(adt) {
+    const W = G.world;
+    const x = P.exec;
+    const e = x.e;
+    // 目标没了（被别的伤害打死、被清掉、破绽结束）：收手
+    if (!x.hit && (e.dead || !(e.brokenT > 0) || state.enemies.indexOf(e) < 0)) {
+      endExec(true);
+      return;
+    }
+    x.t += adt;
+    if (!x.hit) {
+      // 冲到目标身前：落点每帧按它现在的位置重算；下一步不可走就停在原地
+      execSpot(e, x.x0, x.z0, _spot);
+      const f = G.clamp((x.t - EXEC.dashA) / (EXEC.dashB - EXEC.dashA), 0, 1);
+      const s = f * f * (3 - 2 * f);
+      const nx = x.x0 + (_spot.x - x.x0) * s;
+      const nz = x.z0 + (_spot.z - x.z0) * s;
+      if ((nx !== P.x || nz !== P.z) && W.walkable(nx, nz, PLAYER_PAD * 0.8)) {
+        if (dist(nx, nz, P.x, P.z) > 0.05) W.dashFx(P.x, P.z, nx, nz, 0xfff0c0);
+        P.x = nx;
+        P.z = nz;
+      }
+      if (dist(e.x, e.z, P.x, P.z) > 0.1) P.face = Math.atan2(e.x - P.x, e.z - P.z);
+      if (x.t >= EXEC.hit) {
+        // 冲到一半被挡住、够不着了：收手，不结算
+        if (dist(e.x, e.z, P.x, P.z) > e.r + 2.4) {
+          endExec(true);
+          return;
+        }
+        x.hit = true;
+        execHit(e);
+      }
+    }
+    if (P.exec === x && x.t >= EXEC.dur) endExec(false);
+  }
+
+  G.useFlask = function (kind) {
+    if (P.dead) return false;
+    const isLife = kind === 'life';
+    const cur = isLife ? P.life : P.mana;
+    const max = isLife ? P.maxLife : P.maxMana;
+    if (cur >= max && !P.hot[kind]) return false; // 满的时候不浪费
+    if (P.flask[kind] < 1) {
+      toast(isLife ? '生命药剂已用尽，击杀敌人可补充' : '魔力药剂已用尽，击杀敌人可补充', '#c8b89a', 'flask-' + kind, 2000);
+      return false;
+    }
+    P.flask[kind] -= 1;
+    const amount = max * (isLife ? 0.45 : 0.5);
+    const left = (P.hot[kind] ? P.hot[kind].left : 0) + amount;
+    P.hot[kind] = { left, rate: left / 1.2 };
+    G.world.burst(P.x, 1.0, P.z, isLife ? 0xff5a5a : 0x5a8cff, 12, 2.5, 0.5);
+    G.sfx('pickup');
+    return true;
+  };
+
+  function tickFlask(kind, dt) {
+    const h = P.hot[kind];
+    if (!h) return;
+    const v = Math.min(h.left, h.rate * dt);
+    h.left -= v;
+    if (kind === 'life') P.life = Math.min(P.maxLife, P.life + v);
+    else P.mana = Math.min(P.maxMana, P.mana + v);
+    if (h.left <= 1e-6) P.hot[kind] = null;
+  }
+
+  // dt：游戏时间；adt（可选）：动作时间——不受慢动作影响（顿帧时照样为 0），输入缓冲和处决按它走
+  G.updatePlayer = function (dt, adt) {
+    const W = G.world;
+    const inp = G.input;
+    if (adt === undefined) adt = dt;
+
+    if (P.dead) {
+      P.deadT -= dt;
+      if (P.deadT <= 0) G.respawn();
+      return;
+    }
+
+    // 回复
+    P.life = Math.min(P.maxLife, P.life + P.lifeRegen * dt);
+    P.mana = Math.min(P.maxMana, P.mana + P.manaRegen * dt);
+    tickFlask('life', dt);
+    tickFlask('mana', dt);
+
+    // 各种计时
+    for (const id in P.cds) if (P.cds[id] > 0) P.cds[id] = Math.max(0, P.cds[id] - dt);
+    if (P.roll.cd > 0) P.roll.cd = Math.max(0, P.roll.cd - dt);
+    if (P.iframe > 0) P.iframe = Math.max(0, P.iframe - dt);
+    if (P.graceT > 0) P.graceT = Math.max(0, P.graceT - dt);
+    for (let i = 0; i < 4; i++) if (inp.tap[i] > 0) inp.tap[i] -= adt;
+    if (inp.tapDodge > 0) inp.tapDodge -= adt;
+    if (inp.tapExec > 0) inp.tapExec -= adt;
+    // 连击计数与连段窗口
+    const ch = P.chain;
+    if (ch.n > 0) {
+      ch.t -= dt;
+      if (ch.t <= 0) ch.n = 0;
+    }
+    if (P.combo.t > 0) {
+      P.combo.t -= dt;
+      if (P.combo.t <= 0) P.combo.step = 0;
+    }
+
+    const mv = moveDir();
+    if (P.exec) {
+      // 处决：位置和朝向都由处决自己管
+      updateExec(adt);
+      P.moving = false;
+    } else if (P.roll.t > 0) {
+      // 翻滚：固定方向冲刺，期间不施法（按下的技能留在缓冲里，滚完就出）
+      const step = Math.min(dt, P.roll.t);
+      P.roll.t -= dt;
+      const sp = P.moveSpeed * 2.6 * step;
+      movePlayer(P.roll.dx * sp, P.roll.dz * sp);
+      P.moving = true;
+      P.dustT -= dt;
+      if (P.dustT <= 0) {
+        P.dustT = 0.05;
+        W.burst(P.x, 0.25, P.z, 0xbfb3a0, 2, 1.2, 0.3);
+      }
+    } else {
+      // 缓冲着的处决 / 翻滚优先于施法：一旦能动就出手
+      let acted = false;
+      if (inp.tapExec > 0) {
+        const e = G.execTarget(G.POISE.execRange);
+        acted = !!e && G.execute(e);
+      }
+      if (!acted && inp.tapDodge > 0) acted = G.dodge();
+      if (acted) {
+        P.moving = P.roll.t > 0;
+      } else {
+        // 手上没有动作，或上一个动作已经过了可取消的时刻（连击段的收招）：可以开始下一个
+        if (!P.cast || (P.cast.fired && P.cast.t >= P.cast.cancelT)) tryStartCast();
+        if (P.exec) {
+          P.moving = false; // 近战键贴身触发了处决
+        } else {
+          if (P.cast) updateCast(dt);
+          if (mv) {
+            // 施法中走得慢；挥砍出手前几乎钉在原地（那一小步由连击自己迈）；旋风斩边转边走
+            const c = P.cast;
+            const k = !c ? 1 : c.channel ? c.move : c.st ? (c.fired ? 0.55 : 0.25) : 0.4;
+            const sp = P.moveSpeed * k * dt;
+            movePlayer(mv.x * sp, mv.z * sp);
+            if (!P.cast) P.face = Math.atan2(mv.x, mv.z);
+          }
+          P.moving = !!mv;
+        }
+      }
+    }
+
+    // 持续施放被别处打断（换区域、复活、改键位……）：转圈的动作别留着
+    if (P.spinning && !(P.cast && P.cast.channel)) {
+      P.spinning = false;
+      if (W.clipOf(P.ent) === 'spin') W.stop(P.ent, 0.16);
+    }
+
+    // 传送门：走近打开地图，离开后重新待命
+    const portal = state.portal;
+    if (portal) {
+      const d = dist(P.x, P.z, portal.x, portal.z);
+      if (portal.armed && d < 1.8) {
+        portal.armed = false;
+        G.ui.open('map');
+      } else if (!portal.armed && d > 3.5) {
+        portal.armed = true;
+      }
+    }
+
+    // 朝向做一点平滑，逻辑朝向仍是即时的
+    P.drawFace += angDiff(P.face, P.drawFace) * Math.min(1, (P.exec ? adt : dt) * 24);
+    W.setEnt(P.ent, P.x, P.z, P.drawFace);
+    W.animEnt(P.ent, P.exec ? adt : dt, P.moving, state.time); // 处决的动作按动作时间播，世界放慢时这一击照常利落
+  };
+
+  // =====================================================================
+  // 掉落与拾取
+  // =====================================================================
+  function gemLevel() {
+    return G.clamp(Math.round(state.zone.level * 0.75) + G.randInt(0, 1), 1, MAX_GEM_LEVEL);
+  }
+  // preferNew：挑玩家还没有的宝石的概率
+  function pickSkillGem(preferNew) {
+    const all = Object.keys(G.SKILLS);
+    const fresh = all.filter((id) => !G.save.skills[id]);
+    const id = fresh.length && Math.random() < preferNew ? G.pick(fresh) : G.pick(all);
+    return { id, lvl: gemLevel() };
+  }
+  function pickSupportGem(preferNew) {
+    const all = Object.keys(G.SUPPORTS);
+    const fresh = all.filter((id) => G.save.supports.indexOf(id) < 0);
+    return fresh.length && Math.random() < preferNew ? G.pick(fresh) : G.pick(all);
+  }
+
+  G.dropLoot = function (e) {
+    const save = G.save;
+    const ilvl = Math.max(1, e.level);
+    const rm = 1 + (P.S.rarity || 0) / 100;
+    const x = e.x;
+    const z = e.z;
+
+    if (e.isBoss) {
+      G.spawnLoot('item', G.rollItem(ilvl, 2), x, z);
+      for (let i = 0; i < 2; i++) G.spawnLoot('item', G.rollItem(ilvl, Math.max(1, G.rollRarity(rm))), x, z);
+      for (let i = 0; i < 4; i++) G.spawnLoot('cur', G.rollCurrency(), x, z);
+      G.spawnLoot('skill', pickSkillGem(1), x, z);
+      G.spawnLoot('support', pickSupportGem(1), x, z);
+      return;
+    }
+    if (e.elite) {
+      for (let i = 0; i < 2; i++) G.spawnLoot('item', G.rollItem(ilvl, G.rollRarity(rm * 2)), x, z);
+      G.spawnLoot('cur', G.rollCurrency(), x, z);
+      // 还没有任何辅助宝石时，第一只精英必掉一颗
+      const needFirst = save.supports.length === 0 && !state.loot.some((l) => l.kind === 'support');
+      if (needFirst) {
+        G.spawnLoot('support', pickSupportGem(1), x, z);
+      } else if (Math.random() < 0.15) {
+        if (Math.random() < 0.5) G.spawnLoot('skill', pickSkillGem(0.7), x, z);
+        else G.spawnLoot('support', pickSupportGem(0.7), x, z);
+      }
+      return;
+    }
+    if (Math.random() < 0.14) G.spawnLoot('item', G.rollItem(ilvl, G.rollRarity(rm)), x, z);
+    if (Math.random() < 0.09) G.spawnLoot('cur', G.rollCurrency(), x, z);
+    if (Math.random() < 0.012) G.spawnLoot('skill', pickSkillGem(0.7), x, z);
+    if (Math.random() < 0.01) G.spawnLoot('support', pickSupportGem(0.7), x, z);
+  };
+
+  G.spawnLoot = function (kind, data, x, z) {
+    const W = G.world;
+    // 在落点周围找一个可走、且尽量不与其他掉落重叠的位置
+    let bx = x;
+    let bz = z;
+    let bestScore = -1;
+    for (let i = 0; i < 10; i++) {
+      const a = Math.random() * TAU;
+      const r = G.rand(0.5, 2.4);
+      const cx = x + Math.sin(a) * r;
+      const cz = z + Math.cos(a) * r;
+      if (!W.walkable(cx, cz, 0.4)) continue;
+      let near = 4;
+      for (const l of state.loot) near = Math.min(near, dist(l.x, l.z, cx, cz));
+      if (near > bestScore) {
+        bestScore = near;
+        bx = cx;
+        bz = cz;
+      }
+      if (near >= 1.4) break;
+    }
+
+    let label, color, beam;
+    if (kind === 'item') {
+      label = data.name;
+      color = G.RARITY_COLOR[data.rarity];
+      beam = data.rarity >= 2;
+    } else if (kind === 'cur') {
+      label = G.CURRENCY[data].name;
+      color = G.CURRENCY[data].color;
+      beam = false;
+    } else if (kind === 'skill') {
+      label = '技能宝石：' + G.SKILLS[data.id].name + ' Lv ' + data.lvl;
+      color = GEM_COLOR;
+      beam = true;
+    } else {
+      label = '辅助宝石：' + G.SUPPORTS[data].name;
+      color = SUP_COLOR;
+      beam = true;
+    }
+    const loot = { kind, data, x: bx, z: bz, label, color, mesh: W.makeLoot(kind, hexOf(color), beam, bx, bz, kind === 'item' ? data : undefined), t: 0 };
+    state.loot.push(loot);
+    return loot;
+  };
+
+  function grantCurrency(id, n) {
+    G.save.cur[id] = (G.save.cur[id] || 0) + n;
+  }
+
+  G.pickup = function (loot) {
+    const W = G.world;
+    const save = G.save;
+    const idx = state.loot.indexOf(loot);
+    if (idx < 0 || P.dead) return false;
+    if (dist(loot.x, loot.z, P.x, P.z) > 7) {
+      toast('走近一点', '#c8b89a', 'far', 900);
+      return false;
+    }
+
+    // 选项「拾取时自动分解普通物品」：不进背包，直接化成通货（普通物品通常什么也分解不出）
+    const scrapped = loot.kind === 'item' && loot.data.rarity === 0 && !!save.opts.autoSalvage;
+    if (scrapped) {
+      const res = G.salvageResult(loot.data);
+      for (const id in res) grantCurrency(id, res[id]);
+      G.sfx('pickup');
+    } else if (loot.kind === 'item') {
+      if (save.bag.length >= BAG_SIZE) {
+        toast('背包已满', '#ff8a6a', 'bagfull', 2500);
+        return false;
+      }
+      save.bag.push(loot.data);
+      G.sfx('pickup');
+    } else if (loot.kind === 'cur') {
+      grantCurrency(loot.data, 1);
+      W.text(P.x, P.z, '+1 ' + G.CURRENCY[loot.data].name, loot.color, 13);
+      G.sfx('pickup');
+    } else if (loot.kind === 'skill') {
+      const id = loot.data.id;
+      const lvl = loot.data.lvl;
+      const name = G.SKILLS[id].name;
+      const have = save.skills[id];
+      if (!have) {
+        save.skills[id] = lvl;
+        save.sockets[id] = [null, null, null];
+        const free = save.bar.indexOf(null);
+        if (free >= 0) save.bar[free] = id;
+        toast('习得技能：' + name + ' Lv ' + lvl + (free >= 0 ? '' : '（按 G 绑定到技能栏）'), GEM_COLOR);
+      } else if (lvl > have) {
+        save.skills[id] = lvl;
+        toast(name + ' 升至 Lv ' + lvl, GEM_COLOR);
+      } else {
+        grantCurrency('dust', 1);
+        toast('重复的技能宝石化为 1 ' + G.CURRENCY.dust.name, G.CURRENCY.dust.color);
+      }
+      G.sfx('gem');
+      G.persist();
+    } else {
+      const id = loot.data;
+      if (save.supports.indexOf(id) < 0) {
+        save.supports.push(id);
+        toast('获得辅助宝石：' + G.SUPPORTS[id].name + '（按 G 镶嵌）', SUP_COLOR);
+      } else {
+        grantCurrency('augment', 1);
+        toast('重复的辅助宝石化为 1 ' + G.CURRENCY.augment.name, G.CURRENCY.augment.color);
+      }
+      G.sfx('gem');
+      G.persist();
+    }
+
+    state.loot.splice(idx, 1);
+    W.removeMesh(loot.mesh);
+    G.ui.onPickup(loot, scrapped); // 拾取记录（带图标）、背包里的「新」标记
+    return true;
+  };
+
+  // F 键：拾取 3.5 以内最近的掉落
+  G.pickupNearest = function () {
+    let best = null;
+    let bd = 3.5;
+    for (const l of state.loot) {
+      const d = dist(l.x, l.z, P.x, P.z);
+      if (d <= bd) {
+        bd = d;
+        best = l;
+      }
+    }
+    return best ? G.pickup(best) : false;
+  };
+
+  G.updateLoot = function (dt) {
+    const save = G.save;
+    const list = state.loot;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const l = list[i];
+      l.t += dt;
+      if (P.dead || l.t < 0.3) continue; // 刚落地的先让玩家看一眼
+      const d = dist(l.x, l.z, P.x, P.z);
+      if (l.noAuto) {
+        // 玩家自己丢下的东西：走开之前不自动捡回来（F 键 / 点名牌仍然可以）
+        if (d > 3.2) l.noAuto = false;
+        continue;
+      }
+      if (l.kind === 'item') {
+        if (d <= 1.6 && (l.data.rarity >= 1 || save.opts.autoWhite)) G.pickup(l);
+      } else if (d <= 2.2) {
+        G.pickup(l);
+      }
+    }
+  };
+
+  G.gainXp = function (v) {
+    const save = G.save;
+    if (!(v > 0) || save.level >= MAX_LEVEL) return;
+    save.xp += v;
+    let gained = 0;
+    while (save.level < MAX_LEVEL && save.xp >= G.xpNeed(save.level)) {
+      save.xp -= G.xpNeed(save.level);
+      save.level++;
+      gained++;
+    }
+    if (save.level >= MAX_LEVEL) save.xp = 0;
+    if (!gained) return;
+    G.computeStats();
+    if (!P.dead) {
+      P.life = P.maxLife;
+      P.mana = P.maxMana;
+    }
+    toast('等级提升：Lv ' + save.level + '（获得 ' + gained + ' 点天赋点）', '#ffd75e');
+    G.world.ring(P.x, P.z, 4.5, 0xffd75e, 0.6);
+    G.world.burst(P.x, 1.2, P.z, 0xffd75e, 30, 5, 0.8);
+    G.sfx('level');
+    G.persist();
+  };
+
+  // =====================================================================
+  // 背包 / 构筑操作（供 UI 调用）
+  // =====================================================================
+  function commit() {
+    G.computeStats();
+    G.persist();
+    return true;
+  }
+
+  function bagIndex(item) {
+    const bag = G.save.bag;
+    const i = bag.indexOf(item);
+    if (i >= 0 || !item) return i;
+    return bag.findIndex((b) => b.uid === item.uid);
+  }
+
+  G.equip = function (item) {
+    const save = G.save;
+    const i = bagIndex(item);
+    if (i < 0) return false;
+    const it = save.bag[i];
+    const old = save.equip[it.slot];
+    save.equip[it.slot] = it;
+    // 换下来的装备放回原格子，背包不会因此溢出
+    if (old) save.bag.splice(i, 1, old);
+    else save.bag.splice(i, 1);
+    return commit();
+  };
+
+  G.unequip = function (slot) {
+    const save = G.save;
+    const it = save.equip[slot];
+    if (!it) return false;
+    if (save.bag.length >= BAG_SIZE) return false; // 提示由背包页自己显示
+    delete save.equip[slot];
+    save.bag.push(it);
+    return commit();
+  };
+
+  function addResult(sum, res) {
+    for (const id in res) sum[id] = (sum[id] || 0) + res[id];
+  }
+  function resultText(sum) {
+    return Object.keys(sum).map((id) => G.CURRENCY[id].name + ' ×' + sum[id]).join('、');
+  }
+
+  G.salvage = function (item) {
+    const save = G.save;
+    const i = bagIndex(item);
+    if (i < 0) return false; // 只能分解背包里的物品
+    const it = save.bag[i];
+    save.bag.splice(i, 1);
+    const res = G.salvageResult(it);
+    for (const id in res) grantCurrency(id, res[id]);
+    const txt = resultText(res);
+    if (txt) toast('分解获得：' + txt, '#7fe0c0');
+    return commit();
+  };
+
+  G.salvageAllNormal = function () {
+    const save = G.save;
+    const keep = [];
+    const sum = {};
+    let n = 0;
+    for (const it of save.bag) {
+      if (it.rarity === 0) {
+        addResult(sum, G.salvageResult(it));
+        n++;
+      } else {
+        keep.push(it);
+      }
+    }
+    if (!n) return false;
+    save.bag = keep;
+    for (const id in sum) grantCurrency(id, sum[id]);
+    const txt = resultText(sum);
+    toast('分解了 ' + n + ' 件普通物品' + (txt ? '，获得：' + txt : ''), '#c8b89a');
+    return commit();
+  };
+
+  G.applyCurrency = function (item, curId) {
+    const save = G.save;
+    if (!item || !G.CURRENCY[curId] || !(save.cur[curId] > 0)) return false;
+    if (!G.canCraft(item, curId)) return false;
+    const r = G.craft(item, curId);
+    if (!r.ok) {
+      if (r.msg) toast(r.msg, '#ff8a6a');
+      return false;
+    }
+    save.cur[curId]--;
+    return commit();
+  };
+
+  // ---------- 背包整理（拖拽 / 排序 / 丢弃 / 批量分解） ----------
+  // 把背包里的物品挪到第 toIdx 格：那一格有东西就互换，否则排到末尾（背包是紧凑数组，顺序即存档顺序）
+  G.moveBagItem = function (item, toIdx) {
+    const bag = G.save.bag;
+    const i = bagIndex(item);
+    if (i < 0 || !(toIdx >= 0) || toIdx !== Math.floor(toIdx)) return false;
+    if (toIdx >= bag.length) {
+      bag.push(bag.splice(i, 1)[0]);
+    } else if (toIdx !== i) {
+      const other = bag[toIdx];
+      bag[toIdx] = bag[i];
+      bag[i] = other;
+    }
+    G.persist();
+    return true;
+  };
+
+  // 排序：部位 → 稀有度（高在前）→ 物品等级（高在前）→ 名称
+  G.sortBag = function () {
+    const order = {};
+    G.SLOTS.forEach((s, i) => (order[s] = i));
+    G.save.bag.sort((a, b) => order[a.slot] - order[b.slot] || b.rarity - a.rarity || b.ilvl - a.ilvl || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    G.persist();
+    return true;
+  };
+
+  // 把背包里的一件物品丢在玩家脚边；返回地上的掉落物，失败返回 null
+  G.dropItem = function (item) {
+    const save = G.save;
+    const i = bagIndex(item);
+    if (i < 0 || !state.zone) return null;
+    const it = save.bag.splice(i, 1)[0];
+    const loot = G.spawnLoot('item', it, P.x, P.z);
+    loot.noAuto = true;
+    G.persist();
+    return loot;
+  };
+
+  // 一键分解：稀有度不高于 maxRarity（0 普通，1 魔法）的背包物品。
+  // 返回 { n, byRarity: [普通件数, 魔法件数], gained: { 通货 id: 数量 } }，没有可分解的返回 null
+  G.salvageBulk = function (maxRarity) {
+    const save = G.save;
+    const cap = maxRarity >= 1 ? 1 : 0;
+    const keep = [];
+    const out = { n: 0, byRarity: [0, 0], gained: {} };
+    for (const it of save.bag) {
+      if (it.rarity <= cap) {
+        addResult(out.gained, G.salvageResult(it));
+        out.byRarity[it.rarity]++;
+        out.n++;
+      } else {
+        keep.push(it);
+      }
+    }
+    if (!out.n) return null;
+    save.bag = keep;
+    for (const id in out.gained) grantCurrency(id, out.gained[id]);
+    commit();
+    return out;
+  };
+
+  G.bindSkill = function (slot, skillId) {
+    const save = G.save;
+    if (!(slot >= 0 && slot < 4) || slot !== Math.floor(slot)) return false;
+    if (!skillId) {
+      save.bar[slot] = null;
+      return commit();
+    }
+    if (!save.skills[skillId]) return false;
+    // 一个技能只占一格：如果它原来在别的格子，就和目标格互换
+    const from = save.bar.indexOf(skillId);
+    if (from === slot) return true;
+    if (from >= 0) save.bar[from] = save.bar[slot];
+    save.bar[slot] = skillId;
+    if (P.cast && (P.cast.slot === slot || P.cast.slot === from) && !P.cast.fired) P.cast = null;
+    return commit();
+  };
+
+  G.socketSupport = function (skillId, idx, supId) {
+    const save = G.save;
+    if (!save.skills[skillId] || !(idx >= 0 && idx < 3) || idx !== Math.floor(idx)) return false;
+    let arr = save.sockets[skillId];
+    if (!Array.isArray(arr)) arr = save.sockets[skillId] = [null, null, null];
+    while (arr.length < 3) arr.push(null);
+    if (!supId) {
+      arr[idx] = null;
+      return commit();
+    }
+    if (save.supports.indexOf(supId) < 0 || !G.supportFits(skillId, supId)) return false;
+    // 一颗辅助宝石全局只能镶在一个孔里：先从别处取下
+    for (const k of Object.keys(save.sockets)) {
+      const a = save.sockets[k];
+      if (!Array.isArray(a)) continue;
+      for (let i = 0; i < a.length; i++) if (a[i] === supId) a[i] = null;
+    }
+    arr[idx] = supId;
+    return commit();
+  };
+
+  G.allocPassive = function (id) {
+    const save = G.save;
+    const node = G.TREE[id];
+    if (!node || save.passives.indexOf(id) >= 0) return false;
+    if (G.passivePoints().free <= 0) return false;
+    if (!node.links.some((l) => save.passives.indexOf(l) >= 0)) return false;
+    save.passives.push(id);
+    return commit();
+  };
+
+  G.refundPassive = function (id) {
+    const save = G.save;
+    if (id === 'start' || save.passives.indexOf(id) < 0) return false;
+    const rest = save.passives.filter((p) => p !== id);
+    if (reachable(rest).size !== rest.length) return false; // 提示由天赋页自己显示
+    save.passives = rest;
+    return commit();
+  };
+
+  G.resetPassives = function () {
+    G.save.passives = ['start'];
+    return commit();
+  };
+
+  // =====================================================================
+  // 区域
+  // =====================================================================
+  G.enterZone = function (idx, tier) {
+    P.graceT = 0;
+    resetAction(); // 顿帧 / 慢动作 / 处决 / 缓冲的输入都不带进下一个区域
+    const W = G.world;
+    const save = G.save;
+    idx = toInt(idx, 0, G.ZONES.length - 1, 0);
+    tier = toInt(tier, 0, 999, 0);
+    const def = G.ZONES[idx];
+
+    // 清掉上一个区域的所有运行时实体
+    G.clearEnemies();
+    clearProjectiles();
+    clearTelegraphs();
+    for (const l of state.loot) W.removeMesh(l.mesh);
+    state.loot.length = 0;
+    state.timers.length = 0;
+    if (state.portal) W.removeMesh(state.portal.mesh);
+    state.portal = null;
+    state.boss = null;
+
+    const level = def.level + tier * G.TIER_LEVELS;
+    state.zone = W.buildZone(def, level);
+    state.zoneIdx = idx;
+    state.tier = tier;
+    G.spawnZoneMobs(state.zone);
+
+    G.computeStats();
+    P.dead = false;
+    P.deadT = 0;
+    P.cds = {};
+    P.roll.cd = 0;
+    P.iframe = 0.6;
+    P.face = Math.PI; // 朝屏幕上方（世界 −z）
+    P.ent.group.visible = true;
+    placePlayer(state.zone.start.x, state.zone.start.z);
+    refill();
+
+    save.lastZone = idx;
+    save.tier = tier;
+    G.persist();
+    toast(def.name + (tier > 0 ? ' · 轮回 ' + tier : '') + '　怪物等级 ' + level, '#ffb46a');
+    return state.zone;
+  };
+})();
