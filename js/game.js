@@ -1187,6 +1187,24 @@
       }
       const sk = ctx.sk;
       const ang = aimInfo().ang;
+      if (sk.kind === 'flicker') {
+        // 影步连斩：附近没有够得着的敌人就不起手（不扣魔力、原地不动）；选中的第一个目标露出破绽则直接处决
+        if (!flickerPick(sk, null, _fs)) {
+          flickerNoTarget();
+          continue;
+        }
+        G.input.tap[slot] = 0;
+        if (_fs.e.brokenT > 0 && G.execute(_fs.e)) return true;
+        // 持续施放：第一下当帧闪过去（nextT = 0），lead 秒后落地出刀；之后每 time 秒一刀
+        comboReset();
+        P.cast = {
+          slot, id, t: 0, fired: false, aim: ang, step: -1, st: null, channel: true, flicker: true,
+          nextT: 0, strikeT: Infinity, pend: null, last: null, lastAng: 0, alt: false, hit: new Set(),
+          cancelT: Infinity, dur: Infinity, pulses: 0, move: sk.move || 0,
+        };
+        P.face = ang;
+        return true;
+      }
       // 近战键贴身按下、面前正好有露出破绽的敌人：直接处决
       if (sk.kind === 'melee' || sk.kind === 'spin') {
         const tgt = G.execTarget(G.POISE.execMelee, ang);
@@ -1303,10 +1321,205 @@
     G.execSkill(ctx);
   }
 
+  // ---------- 影步连斩 ----------
+  // 每一下分两拍：先闪到目标身边（闪现途中无敌），lead 秒后落地出刀（这一刻不无敌）
+  const _fs = { e: null, x: 0, z: 0, a: 0 };
+  const FLICK_TRY = [0, 0.6, -0.6, 1.2, -1.2, 1.8, -1.8, 2.5, -2.5, Math.PI]; // 落点从首选方位往两边依次偏开
+  const FLICK_TURN = 2.4; // 反复砍同一个目标时，每次落点绕着它转过的角度（约 137°，几刀下来落点散在四周）
+
+  function flickerNoTarget() {
+    const now = Date.now();
+    if (now - (toastAt.noTarget || 0) > 1200) {
+      toastAt.noTarget = now;
+      G.world.text(P.x, P.z, '没有目标', '#c9c2b4', 14);
+    }
+  }
+
+  // 敌人 e 身边贴着体型半径的落点：从 ang0 方位开始找，要求可走、从玩家这里直线过去不穿墙；
+  // 先找不和别的敌人挤在一起的，再放宽；贴身一圈都不行（比如它缩在墙角）就退远半步再找一圈（仍在刀够得着的距离内）
+  function flickerSpot(e, ang0, out) {
+    const W = G.world;
+    for (let pass = 0; pass < 3; pass++) {
+      const gap = e.r + (pass < 2 ? 0.9 : 1.5);
+      for (const da of FLICK_TRY) {
+        const a = ang0 + da;
+        const x = e.x + Math.sin(a) * gap;
+        const z = e.z + Math.cos(a) * gap;
+        if (!W.walkable(x, z, PLAYER_PAD) || !pathClear(P.x, P.z, x, z)) continue;
+        if (pass === 0) {
+          let crowd = false;
+          for (const o of state.enemies) {
+            if (o !== e && !o.dead && dist(o.x, o.z, x, z) < o.r + 0.45) {
+              crowd = true;
+              break;
+            }
+          }
+          if (crowd) continue;
+        }
+        out.e = e;
+        out.x = x;
+        out.z = z;
+        out.a = a;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // 挑下一刀的目标和落点，写进 out；没有够得着的返回 false。
+  // c 为空：第一刀——准星 5 格以内离准星最近的优先，没有就取离玩家最近的。
+  // 否则：这一轮还没砍过的里离当前位置最近的；都砍过了就清空记录重来（尽量不连砍刚砍过的那个）；
+  // 只剩一个目标时反复砍它，每次落点绕着它换一个方位
+  const _cand = [];
+  function flickerPick(sk, c, out) {
+    const m = G.input.mouse;
+    _cand.length = 0;
+    for (const e of state.enemies) {
+      if (e.dead || e.executed) continue;
+      const dp = dist(e.x, e.z, P.x, P.z);
+      if (dp - e.r > sk.range) continue;
+      let group, score;
+      if (!c) {
+        const dm = dist(e.x, e.z, m.wx, m.wz);
+        group = dm - e.r <= 5 ? 0 : 1;
+        score = group === 0 ? dm : dp;
+      } else {
+        group = c.hit.has(e) ? 1 : 0;
+        score = dp;
+      }
+      _cand.push({ e, group, score });
+    }
+    if (!_cand.length) return false;
+    const tryList = (list) => {
+      list.sort((a, b) => a.group - b.group || a.score - b.score);
+      for (const it of list) {
+        const e = it.e;
+        // 新目标从靠近自己的一侧切入；同一个目标换个方位
+        const ang0 = c && e === c.last ? c.lastAng + FLICK_TURN : Math.atan2(P.x - e.x, P.z - e.z);
+        if (flickerSpot(e, ang0, out)) return true;
+      }
+      return false;
+    };
+    if (!c) return tryList(_cand);
+    // 先在还没砍过的里找
+    const fresh = _cand.filter((it) => it.group === 0);
+    if (fresh.length && tryList(fresh)) return true;
+    // 这一轮都砍过了：清空记录重来，刚砍过的那个排到最后
+    c.hit.clear();
+    for (const it of _cand) it.group = it.e === c.last && _cand.length > 1 ? 1 : 0;
+    return tryList(_cand);
+  }
+
+  function updateFlicker(c, dt) {
+    c.t += dt;
+    if (c.pend) {
+      // 已经闪到目标身边：盯着它，到点出刀。魔力已经付过，这时松手也把这一刀砍完
+      const e = c.pend;
+      if (!e.dead) P.face = c.aim = Math.atan2(e.x - P.x, e.z - P.z);
+      if (c.t < c.strikeT) return;
+      c.pend = null;
+      c.pulses++;
+      flickerStrike(c, e);
+      return;
+    }
+    const held = slotHeld(c.slot) && G.save.bar[c.slot] === c.id;
+    if (!held && c.pulses > 0) {
+      endChannel();
+      return;
+    }
+    if (c.t < c.nextT) return;
+    const ctx = G.skillCtx(c.id);
+    const sk = ctx.sk;
+    if (!G.canAfford(ctx.cost)) {
+      const now = Date.now();
+      if (now - (toastAt.noCost || 0) > 1200) {
+        toastAt.noCost = now;
+        G.world.text(P.x, P.z, P.S.bloodMagic ? '生命不足' : '魔力不足', P.S.bloodMagic ? '#ff7a6a' : '#7fa8ff', 14);
+      }
+      endChannel();
+      return;
+    }
+    if (!flickerPick(sk, c.last ? c : null, _fs)) {
+      flickerNoTarget();
+      endChannel();
+      return;
+    }
+    const e = _fs.e;
+    if (e.brokenT > 0 && G.execute(e)) return; // 处决接管（P.cast 已清掉）；还按着的话处决完接着连斩
+    payCost(ctx.cost);
+    // 闪过去：原地留下一团散开的影子，路上一串往后飘的光屑
+    const W = G.world;
+    const hex = hexOf(sk.color);
+    const ox = P.x;
+    const oz = P.z;
+    P.x = _fs.x;
+    P.z = _fs.z;
+    W.burst(ox, 1.0, oz, 0x1c2238, 10, 2.2, 0.35);
+    W.burst(ox, 1.1, oz, hex, 8, 3, 0.25);
+    const dd = dist(ox, oz, P.x, P.z);
+    if (dd > 0.3) {
+      W.dashFx(ox, oz, P.x, P.z, hex);
+      W.decal(0, (ox + P.x) / 2, (oz + P.z) / 2, dd / 2, Math.atan2(P.x - ox, P.z - oz), hex, 0.3, 0.22); // 贴地一道擦痕
+    }
+    W.burst(P.x, 1.0, P.z, hex, 8, 2.4, 0.22);
+    const lead = Math.min(sk.lead[c.last ? 1 : 0], ctx.time * 0.55);
+    const leadNext = Math.min(sk.lead[1], ctx.time * 0.55);
+    P.iframe = Math.max(P.iframe, lead * 0.95); // 到出刀那一刻已经过期
+    c.fired = true;
+    c.cancelT = 0; // 闪出去之后随时可以接别的动作
+    c.pend = e;
+    c.last = e;
+    c.lastAng = _fs.a;
+    c.alt = !c.alt;
+    c.strikeT = c.t + lead;
+    c.nextT = c.strikeT + ctx.time - leadNext; // 两刀之间隔 time 秒（出手速度中途变了也按新的走）
+    P.face = c.aim = Math.atan2(e.x - P.x, e.z - P.z);
+    W.play(P.ent, c.alt ? 'flicker' : 'flicker2', { dur: lead + 0.17, contact: lead });
+    W.setTrail(G.TYPE_HEX[mainType(ctx)]);
+    G.sfx('roll');
+  }
+
+  // 落地出刀：砍中目标本身，外加目标身边 radius 以内的敌人（吃范围加成）
+  function flickerStrike(c, e) {
+    const W = G.world;
+    const ctx = G.skillCtx(c.id);
+    const sk = ctx.sk;
+    const hex = hexOf(sk.color);
+    const R = sk.radius * Math.sqrt(ctx.area);
+    // 目标还在刀够得着的地方就以它为中心；被别的伤害打死或推远了，就砍向面前
+    let cx = P.x + Math.sin(P.face) * 1.3;
+    let cz = P.z + Math.cos(P.face) * 1.3;
+    if (!e.dead && dist(e.x, e.z, P.x, P.z) - e.r <= 2.4) {
+      cx = e.x;
+      cz = e.z;
+    }
+    const ang = Math.atan2(cx - P.x, cz - P.z);
+    P.face = c.aim = ang;
+    c.hit.add(e);
+    W.slash(P.x, P.z, ang, dist(cx, cz, P.x, P.z) + R * 0.75, 140, hex, { dir: c.alt ? 1 : -1, dur: 0.16 });
+    G.sfx('swing', { step: c.alt ? 0 : 1 });
+    const hits = enemiesIn(cx, cz, R);
+    if (!hits.length) return;
+    let crit = false;
+    let top = 'phys';
+    for (const o of hits) {
+      G.hitEnemy(o, ctx, 1, { ang: Math.atan2(o.x - P.x, o.z - P.z), w: 0, kb: sk.kb, poise: sk.poise, quiet: true });
+      crit = crit || lastHit.crit;
+      top = lastHit.type;
+    }
+    const stop = ((sk.stop || 0) + (crit ? 15 : 0)) * ctx.stopK;
+    G.hitStop(stop);
+    W.shudder(P.ent, 0.02, stop / 1000);
+    W.punch(ang, 0.12 + (crit ? 0.08 : 0));
+    W.shake(crit ? 0.14 : 0.07);
+    G.sfx('impact', { type: top, w: 0, crit });
+  }
+
   function updateCast(dt) {
     const c = P.cast;
     if (c.channel) {
-      updateChannel(c, dt);
+      if (c.flicker) updateFlicker(c, dt);
+      else updateChannel(c, dt);
       return;
     }
     const t0 = c.t;
@@ -1966,7 +2179,9 @@
           P.moving = false; // 近战键贴身触发了处决
         } else {
           if (P.cast) updateCast(dt);
-          if (mv) {
+          // 影步连斩途中站定不走（位移全靠闪现）；连斩选中破绽目标时当帧转入处决，这一帧也不走
+          const still = !!P.exec || !!(P.cast && P.cast.flicker);
+          if (mv && !still) {
             // 施法中走得慢；挥砍出手前几乎钉在原地（那一小步由连击自己迈）；旋风斩边转边走
             const c = P.cast;
             const k = !c ? 1 : c.channel ? c.move : c.st ? (c.fired ? 0.55 : 0.25) : 0.4;
@@ -1974,7 +2189,7 @@
             movePlayer(mv.x * sp, mv.z * sp);
             if (!P.cast) P.face = Math.atan2(mv.x, mv.z);
           }
-          P.moving = !!mv;
+          P.moving = !!mv && !still;
         }
       }
     }

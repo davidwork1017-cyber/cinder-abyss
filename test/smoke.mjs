@@ -273,7 +273,7 @@ function cleanText(txt, where) {
   assert(!/undefined|NaN|\[object|\{[a-z]\}/.test(txt), where + ' 里出现了未格式化的文本：' + (txt.match(/.{0,20}(undefined|NaN|\[object|\{[a-z]\}).{0,20}/) || [''])[0]);
 }
 
-const SKILL_IDS = ['cleave', 'ember', 'blade', 'nova', 'arc', 'meteor', 'blink', 'whirl'];
+const SKILL_IDS = ['cleave', 'ember', 'blade', 'nova', 'arc', 'meteor', 'blink', 'whirl', 'shadestep'];
 const INPUT_NAME = ['左键', '右键', 'Q', 'E'];
 async function holdInput(slot, down) {
   if (slot === 0) await page.mouse[down ? 'down' : 'up']({ button: 'left' });
@@ -793,12 +793,12 @@ async function main() {
   });
 
   // ------------------------------------------------------------------ 技能
-  await step('learnAll：8 个技能与 15 个辅助宝石全部到手', async () => {
+  await step('learnAll：9 个技能与 15 个辅助宝石全部到手', async () => {
     const r = await ev(() => {
       G.debug.learnAll();
       return { skills: Object.keys(G.save.skills).length, sups: G.save.supports.length, bar: G.save.bar.slice() };
     });
-    assert(r.skills === 8 && r.sups === 15 && r.bar.every((b) => b), JSON.stringify(r));
+    assert(r.skills === 9 && r.sups === 15 && r.bar.every((b) => b), JSON.stringify(r));
   });
 
   for (let i = 0; i < SKILL_IDS.length; i++) {
@@ -921,6 +921,161 @@ async function main() {
     assert(r.interrupt === 'nova' && r.back, '按别的技能应打断旋转，放完继续转：' + JSON.stringify(r));
     assert(r.noMana, '魔力不足应停下：' + JSON.stringify(r));
     return '一秒转出 ' + r.pulses + ' 下，四周各受 ' + r.ringHit.join('/') + ' 伤害';
+  });
+
+  await step('影步连斩：按住自动在敌人之间闪砍、落点不穿墙、单体换方位反复砍；没目标不出手；松手 / 翻滚 / 魔力耗尽即停；破绽精英直接处决', async () => {
+    const r = await ev(() => {
+      T.arena();
+      G.debug.god(true);
+      const P = G.player, W = G.world, S = G.state, inp = G.input, out = {};
+      const bar0 = G.save.bar.slice();
+      const ow = W.walkable;
+      const sx = P.x, sz = P.z; // 起点：后面几段都从这里开始，免得撞上场地本来的墙
+      G.bindSkill(0, 'shadestep');
+      T.fix(0.5);
+      // 推进 n 帧，记下每一次闪现（落点、目标）
+      let jumps = [], lastS = -1;
+      const hold = (n, every) => {
+        for (let i = 0; i < n; i++) {
+          G.tick(1 / 60);
+          const c = P.cast;
+          if (c && c.flicker && c.pend && c.strikeT !== lastS) {
+            lastS = c.strikeT;
+            jumps.push({ x: P.x, z: P.z, e: c.pend, ifr: P.iframe });
+          }
+          if (every) every();
+        }
+      };
+      const release = () => {
+        inp.mouse.b[0] = false;
+        inp.tap[0] = 0;
+      };
+      const kill = (list) => {
+        for (const e of list) if (!e.dead) (e.hp = 0), G.killEnemy(e);
+        G.debug.step(0); // 让尸体离场
+      };
+      try {
+        const ctx = G.skillCtx('shadestep');
+        out.cost = ctx.cost;
+        // 1. 三个敌人：按住一秒，自动在它们之间连跳，第一刀砍准星旁边的那个，每一跳都有位移，三个都挨了打
+        const mobs = [T.mob('husk', 4, 0), T.mob('husk', -3, 3), T.mob('husk', 0, -5)];
+        T.aim(mobs[1].x + 0.5, mobs[1].z);
+        const m0 = P.mana;
+        inp.mouse.b[0] = true;
+        hold(60);
+        out.channel = !!(P.cast && P.cast.flicker);
+        out.first = jumps.length ? mobs.indexOf(jumps[0].e) : -1;
+        out.jumps = jumps.length;
+        out.moves = jumps.slice(1).map((j, i) => +Math.hypot(j.x - jumps[i].x, j.z - jumps[i].z).toFixed(2));
+        out.round = jumps.slice(0, 3).map((j) => mobs.indexOf(j.e));
+        out.hit = mobs.map((e) => Math.round(e.maxHp - e.hp));
+        out.spent = +(m0 - P.mana).toFixed(1);
+        out.iframe = jumps.length > 1 ? +jumps[1].ifr.toFixed(3) : 0;
+        // 2. 松手：停下，动作不残留
+        release();
+        hold(30);
+        out.release = !P.cast;
+        out.clipAfter = W.clipOf(P.ent);
+        // 3. 只剩一个目标：围着它反复砍，每次落点换一个方位
+        kill(mobs.slice(1));
+        const solo = mobs[0], hp1 = solo.hp;
+        jumps = [];
+        T.aim(solo.x, solo.z);
+        inp.mouse.b[0] = true;
+        hold(80);
+        const ang = jumps.map((j) => Math.atan2(j.x - solo.x, j.z - solo.z));
+        out.solo = {
+          n: jumps.length, same: jumps.every((j) => j.e === solo), dmg: Math.round(hp1 - solo.hp),
+          turn: ang.slice(1).map((a, i) => +Math.abs(Math.atan2(Math.sin(a - ang[i]), Math.cos(a - ang[i]))).toFixed(2)),
+          gap: jumps.map((j) => +(Math.hypot(j.x - solo.x, j.z - solo.z) - solo.r).toFixed(2)),
+        };
+        // 4. 翻滚打断；还按着的话滚完接着连斩
+        G.dodge();
+        out.roll = !P.cast && W.clipOf(P.ent) === 'roll';
+        hold(40);
+        out.resume = !!(P.cast && P.cast.flicker);
+        // 5. 魔力见底：停下（每帧都按回 0，不让自然回复把它又续上）
+        hold(30, () => (P.mana = 0));
+        out.noMana = !P.cast;
+        release();
+        hold(5);
+        // 6. 附近（8 格内）没有敌人：不出手、不扣魔力、原地不动
+        kill([solo]);
+        T.tp(sx, sz);
+        const far = T.mob('husk', 10.5, 0);
+        T.aim(far.x, far.z);
+        P.mana = P.maxMana;
+        let x0 = P.x, z0 = P.z;
+        jumps = [];
+        inp.mouse.b[0] = true;
+        hold(30);
+        out.none = { cast: !!P.cast, full: P.mana === P.maxMana, moved: +Math.hypot(P.x - x0, P.z - z0).toFixed(2), hit: far.maxHp - far.hp, jumps: jumps.length };
+        release();
+        kill([far]);
+        // 7. 隔着墙：墙后的敌人够不着（不起手）；墙这边有敌人时只砍这边，人始终不过墙
+        T.tp(sx, sz);
+        const wallX = P.x + 2.2;
+        W.walkable = function (x, z, pad) { return Math.abs(x - wallX) < 0.5 ? false : ow.call(W, x, z, pad); };
+        const behind = T.mob('husk', 5, 0);
+        T.aim(behind.x, behind.z);
+        x0 = P.x;
+        inp.mouse.b[0] = true;
+        hold(20);
+        out.wall1 = { cast: !!P.cast, moved: +Math.abs(P.x - x0).toFixed(2), hit: behind.maxHp - behind.hp };
+        const front = T.mob('husk', -3, 1);
+        let maxX = -Infinity;
+        jumps = [];
+        hold(60, () => (maxX = Math.max(maxX, P.x)));
+        out.wall2 = { jumps: jumps.length, front: Math.round(front.maxHp - front.hp), behind: behind.maxHp - behind.hp, side: +(wallX - maxX).toFixed(2) };
+        release();
+        hold(20);
+        W.walkable = ow;
+        kill([behind, front]);
+        // 8. 连斩途中选中露出破绽的精英：直接处决
+        T.tp(sx, sz);
+        const husk = T.mob('husk', 3, 0);
+        const elite = T.mob('brute', -4, 0, { elite: true });
+        G.breakEnemy(elite);
+        G.debug.step(0.3); // 击破的顿帧走完
+        P.iframe = 0;
+        P.mana = P.maxMana;
+        const execs0 = S.stats.execs, ehp = elite.hp;
+        T.aim(husk.x, husk.z);
+        jumps = [];
+        let execAt = -1;
+        inp.mouse.b[0] = true;
+        for (let i = 0; i < 60 && execAt < 0; i++) {
+          hold(1);
+          if (P.exec) execAt = i;
+        }
+        out.exec = { at: execAt, target: P.exec && P.exec.e === elite, firstHusk: jumps.length > 0 && jumps[0].e === husk };
+        release();
+        for (let i = 0; i < 120 && P.exec; i++) G.tick(1 / 60);
+        out.exec.done = S.stats.execs - execs0;
+        out.exec.dmg = Math.round(ehp - elite.hp);
+      } finally {
+        W.walkable = ow;
+        T.unfix();
+        release();
+        bar0.forEach((id, i) => G.bindSkill(i, id));
+      }
+      T.arena();
+      return out;
+    });
+    assert(r.channel && r.jumps >= 4 && r.first === 1, '按住一秒应自动连跳至少 4 下、第一刀砍准星旁边的敌人：' + JSON.stringify(r));
+    assert(new Set(r.round).size === 3 && r.hit.every((d) => d > 0), '一轮里应先把几个敌人各砍一遍：' + JSON.stringify(r));
+    assert(r.moves.every((d) => d > 1), '每一跳都应有位移：' + JSON.stringify(r.moves));
+    assert(r.spent > r.cost * 3 && r.iframe > 0.05 && r.iframe < 0.15, '每刀应扣魔力、闪现给短暂无敌：' + JSON.stringify(r));
+    assert(r.release && r.clipAfter === null, '松手应停下且不残留动作：' + JSON.stringify(r));
+    assert(r.solo.n >= 5 && r.solo.same && r.solo.dmg > 0 && r.solo.turn.every((a) => a > 0.8) && r.solo.gap.every((g) => g > 0.5 && g < 1.3),
+      '只剩一个目标时应围着它换方位反复砍：' + JSON.stringify(r.solo));
+    assert(r.roll && r.resume, '翻滚应打断连斩，还按着则滚完接着连：' + JSON.stringify(r));
+    assert(r.noMana, '魔力不足应停下：' + JSON.stringify(r));
+    assert(!r.none.cast && r.none.full && r.none.moved < 0.01 && r.none.hit === 0 && r.none.jumps === 0, '附近没有敌人时不应出手、扣魔力或移动：' + JSON.stringify(r.none));
+    assert(!r.wall1.cast && r.wall1.moved < 0.01 && r.wall1.hit === 0, '墙后的敌人不应能闪过去：' + JSON.stringify(r.wall1));
+    assert(r.wall2.jumps >= 3 && r.wall2.front > 0 && r.wall2.behind === 0 && r.wall2.side > 0.4, '有墙时只砍墙这边、人不过墙：' + JSON.stringify(r.wall2));
+    assert(r.exec.at >= 0 && r.exec.target && r.exec.firstHusk && r.exec.done === 1 && r.exec.dmg > 0, '连斩选中破绽中的精英应直接处决：' + JSON.stringify(r.exec));
+    return '一秒连跳 ' + r.jumps + ' 下，三个敌人各受 ' + r.hit.join('/') + '；单体 ' + r.solo.n + ' 刀';
   });
 
   await step('技能细节：魔力不足不能施放，冷却中不能再放，投射物会消失', async () => {
@@ -1156,7 +1311,7 @@ async function main() {
       };
     });
     assert(r.bad.length === 0 && r.uniq === r.n, '有图标没画出来或重复：' + JSON.stringify(r.bad) + ' ' + r.uniq + '/' + r.n);
-    assert(r.kinds === '31,7,8,15,5', '图标数量不对（装备 31 / 通货 7 / 技能 8 / 辅助 15 / 异常 5）：' + r.kinds);
+    assert(r.kinds === '31,7,9,15,5', '图标数量不对（装备 31 / 通货 7 / 技能 9 / 辅助 15 / 异常 5）：' + r.kinds);
     assert(r.cellIcons === 8 && r.cellOk && r.distinct === 8, '背包格图标不对：' + JSON.stringify(r));
     assert(r.minSize >= 44 && r.maxSize <= 64, '背包格图标应在 44–64 像素之间：' + r.minSize + '–' + r.maxSize);
     assert(r.eq === 8 && r.cur === 7 && r.craft === 7 && r.head && r.glyphLeft === 0, '装备栏 / 通货 / 改造按钮 / 详情没有全部换成图标：' + JSON.stringify(r));
@@ -1489,7 +1644,7 @@ async function main() {
     });
     await page.keyboard.press('KeyG');
     cleanText(await ev(() => T.bodyText()), '技能页');
-    assert((await ev(() => document.querySelectorAll('.skill-card').length)) === 8, '技能卡数量不对');
+    assert((await ev(() => document.querySelectorAll('.skill-card').length)) === 9, '技能卡数量不对');
     await page.click('[data-act="bind"][data-skill="nova"][data-slot="2"]');
     let r = await ev(() => ({ bar: G.save.bar.slice(), on: document.querySelector('[data-act="bind"][data-skill="nova"][data-slot="2"]').classList.contains('on') }));
     assert(r.bar[2] === 'nova' && r.on && r.bar.filter((b) => b === 'nova').length === 1, '界面绑定失败：' + r.bar);
@@ -1597,7 +1752,7 @@ async function main() {
     await dragTo(sup('multi'), sock('ember', 0), async () => {
       mid = await ev(() => ({ lit: document.querySelectorAll('.sock.drop-ok').length, dim: document.querySelectorAll('.sock.drop-no').length, cap: document.querySelector('#drag-ghost em').textContent }));
     });
-    assert(mid.lit === 6 && mid.dim === 18 && mid.cap === '镶进 掷焰', '拖辅助宝石时只有带「投射物」标签的技能的槽应亮起：' + JSON.stringify(mid));
+    assert(mid.lit === 6 && mid.dim === 21 && mid.cap === '镶进 掷焰', '拖辅助宝石时只有带「投射物」标签的技能的槽应亮起：' + JSON.stringify(mid));
     let r = await ev(() => ({ e: G.save.sockets.ember.slice(), proj: G.skillCtx('ember').proj }));
     assert(r.e[0] === 'multi' && r.proj === 3, '宝石没有镶上：' + JSON.stringify(r));
     await dragTo(sup('brutal'), sock('ember', 1), async () => {

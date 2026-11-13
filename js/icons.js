@@ -651,6 +651,31 @@
       solid(g, (p) => p.E(0, 0, 6.2).E(0, 0, 2.6), dark(col, 0.25), { rule: 'evenodd', bevel: 1.2, lw: 1.8 });
       spark(g, 0, 0, 5.6, '#ffffff');
     },
+    // 影步连斩：一柄朝左上斜指的直刃，往右上错开两道越来越小、越来越淡的影子（一闪一闪地换位），刃尖亮起
+    shadestep(g, col) {
+      const blade = (p) => p.P([0, -27, 3.3, -21, 3.3, 3, -3.3, 3, -3.3, -21]);
+      const hilt = (p) => p.R(-8.6, 3, 17.2, 3.6, 1.6).R(-2, 6.6, 4, 7.8, 1).E(0, 16.6, 2.5);
+      const A = -40, ca = Math.cos((A * Math.PI) / 180), sa = Math.sin((A * Math.PI) / 180);
+      // 剑身中点（局部 (0, -4)）落在 (qx, qy)，缩放 k
+      const at = (qx, qy, k) => rot(A, k, qx - 4 * k * sa, qy + 4 * k * ca);
+      const qx = -3.5, qy = 3;
+      // 影子：暗色剪影，边上透出一点本色的光
+      for (const [d, k, a] of [[23, 0.64, 0.42], [12.5, 0.8, 0.7]]) {
+        const m = at(qx + ca * d, qy + sa * d, k);
+        g.save();
+        g.globalAlpha = a;
+        glow(g, blade, col, { m, blur: 6, core: dark(col, 0.1) });
+        solid(g, (p) => { blade(p); return hilt(p); }, mix(col, '#141226', 0.6), { m, hi: 0.35, lo: 0.3, bevel: 0, lw: 1.5 });
+        g.restore();
+      }
+      const k = 0.94, m = at(qx, qy, k);
+      glow(g, blade, col, { m, blur: 9, core: col });
+      solid(g, blade, lite(col, 0.6), { m, hi: 0.7, lo: 0.25, lw: 2, bevel: 1.1 });
+      line(g, (p) => p.M(0, -20).L(0, 0.5), rgba(dark(col, 0.5), 0.7), 1.2, m);
+      solid(g, hilt, dark(col, 0.35), { m, hi: 0.4, lo: 0.4, lw: 1.9, bevel: 1 });
+      // 刃尖：局部 (0, -27)
+      spark(g, qx + 23 * k * sa, qy - 23 * k * ca, 6, '#ffffff');
+    },
   };
 
   // =====================================================================

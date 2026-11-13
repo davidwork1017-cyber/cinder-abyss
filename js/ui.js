@@ -1193,9 +1193,9 @@
       (sk.combo ? '<div class="sk-combo">' + sk.combo.map((c, i) => '<span' + (c.w >= 2 ? ' class="fin"' : '') + '>' + (c.w >= 2 ? '终结 ' : '第 ' + (i + 1) + ' 段 ') + '×' + c.mult + '</span>').join('<i></i>') + '</div>' : '') +
       '<div class="sk-nums">' +
       num('平均击中', fmtInt(avg), 'hl') +
-      num(sk.kind === 'spin' ? '每秒斩击' : '每秒施放', rate.toFixed(2)) +
+      num(sk.kind === 'spin' || sk.kind === 'flicker' ? '每秒斩击' : '每秒施放', rate.toFixed(2)) +
       num('估算秒伤', fmtInt(avg * rate)) +
-      num((blood ? '生命消耗' : '魔力消耗') + (sk.kind === 'spin' ? ' / 每下' : ''), ctx.cost > 0 ? fmt1(ctx.cost) : '无') +
+      num((blood ? '生命消耗' : '魔力消耗') + (sk.kind === 'spin' || sk.kind === 'flicker' ? ' / 每下' : ''), ctx.cost > 0 ? fmt1(ctx.cost) : '无') +
       num('冷却', ctx.cd > 0 ? fmt1(ctx.cd) + ' 秒' : '无') +
       num('暴击率', fmt1(ctx.crit) + '%') +
       '</div>' +
