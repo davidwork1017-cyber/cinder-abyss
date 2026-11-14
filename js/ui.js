@@ -312,6 +312,9 @@
     treeMsgBad: false,
     resetArmed: false,
     resetTimer: 0,
+    blankArm: null, // 无铭技能宝石：点了第一下、等着确认的技能 id（再点一次才真的用掉）
+    blankTimer: 0,
+    blankMsg: '', // 技能页顶部的一行结果（刚用无铭宝石学会 / 升级了什么）
     mapTier: 0,
     delArmed: false,
     tipEl: null,
@@ -1355,6 +1358,13 @@
           '<button type="button" tabindex="-1" class="sock' + (picking ? ' picking' : '') + '" data-act="socket" data-skill="' + id + '" data-idx="' + i + '"><i></i>空槽</button>';
       }
     }
+    // 手里有比当前等级高的无铭宝石：卡上给一个升级入口（点两下才用掉）
+    const best = G.blankBest();
+    const armed = ui.blankArm === id;
+    const blankUp = best > S.skills[id]
+      ? '<button type="button" tabindex="-1" class="blank-up' + (armed ? ' armed' : '') + '" data-act="blank" data-skill="' + id + '" data-tip="blank:' + id + '">' +
+        IC.blank() + (armed ? '确认升至 Lv ' + best + '？再点一次' : '升至 Lv ' + best) + '</button>'
+      : '';
     const num = (label, val, cls) => '<div class="sk-num' + (cls ? ' ' + cls : '') + '"><span>' + label + '</span><b>' + val + '</b></div>';
     let nums;
     let note = '';
@@ -1386,7 +1396,7 @@
     return (
       '<div class="skill-card" style="--c:' + sk.color + '">' +
       '<div class="sk-top"><div class="sk-icon" data-drag="skill:' + id + '" data-tip="skdrag:' + id + '">' + IC.skill(id) + '</div>' +
-      '<div class="sk-title"><div class="sk-name">' + sk.name + '<em>Lv ' + S.skills[id] + '</em></div>' +
+      '<div class="sk-title"><div class="sk-name">' + sk.name + '<em>Lv ' + S.skills[id] + '</em>' + blankUp + '</div>' +
       '<div class="sk-tags">' + cardTags(sk).map((t) => '<span>' + G.TAG_NAME[t] + '</span>').join('') + '</div></div>' +
       '<div class="sk-binds">' + binds + '</div></div>' +
       '<div class="sk-desc">' + sk.desc + '</div>' +
@@ -1401,12 +1411,39 @@
     const S = G.save;
     const known = Object.keys(G.SKILLS).filter((id) => S.skills[id]);
     const unknown = Object.keys(G.SKILLS).filter((id) => !S.skills[id]);
+    const B = G.BLANK_GEM;
+    const best = G.blankBest();
     let cards = known.map(skillCard).join('');
     if (unknown.length) {
+      // 有无铭宝石时，每个没学会的技能都能点：第一下只是选中，再点一次才用掉
+      const item = (id) => {
+        const c = G.SKILLS[id];
+        if (!best) return '<span style="--c:' + c.color + '">' + IC.skill(id) + c.name + '</span>';
+        const armed = ui.blankArm === id;
+        return (
+          '<button type="button" tabindex="-1" class="sm-learn' + (armed ? ' armed' : '') + '" style="--c:' + c.color + '" data-act="blank" data-skill="' + id + '" data-tip="blank:' + id + '">' +
+          IC.skill(id) + c.name + '<em>' + (armed ? '确认学会？再点一次' : '学会 · Lv ' + best) + '</em></button>'
+        );
+      };
       cards +=
-        '<div class="skill-more"><div class="sm-title">尚未获得的技能宝石</div><div class="sm-list">' +
-        unknown.map((id) => '<span style="--c:' + G.SKILLS[id].color + '">' + IC.skill(id) + G.SKILLS[id].name + '</span>').join('') +
-        '</div><div class="sm-note">技能宝石由怪物掉落，首领必定掉落一颗。重复拾取更高等级的宝石会提升技能等级。</div></div>';
+        '<div class="skill-more' + (best ? ' can-learn' : '') + '"><div class="sm-title">尚未获得的技能宝石' + (best ? '<span>点一个技能，用 Lv ' + best + ' 的' + B.short + '学会它</span>' : '') + '</div>' +
+        '<div class="sm-list">' + unknown.map(item).join('') + '</div>' +
+        '<div class="sm-note">技能宝石由怪物掉落，首领必定掉落一颗。重复拾取更高等级的宝石会提升技能等级。' + B.name + '可以在这里换成任意一个技能。</div></div>';
+    }
+    // 顶部：手里的无铭宝石（数量、最高等级、怎么用），以及刚才用掉一颗的结果
+    let blank = '';
+    const gems = S.blankGems;
+    if (gems.length || ui.blankMsg) {
+      const lv = gems.length
+        ? '<b>' + B.name + ' ×' + gems.length + '</b><span class="bk-lv">最高 Lv ' + best + '</span>' +
+          (gems.length > 1 ? '<span class="bk-all">' + gems.slice(0, 8).map((v) => 'Lv ' + v).join(' · ') + (gems.length > 8 ? ' …' : '') + '</span>' : '')
+        : '<b>' + B.name + '已用完</b>';
+      const how = gems.length
+        ? '在下方「尚未获得」里点一个技能学会它，或点技能卡上的「升至 Lv ' + best + '」。每次用最高等级的那颗，点两下才确认'
+        : '';
+      blank =
+        '<div class="blank-bar" style="--c:' + B.color + '">' + ibox(IC.blank(), 'gemb') + '<div class="bk-txt"><div class="bk-top">' + lv + '</div>' +
+        (ui.blankMsg ? '<div class="bk-msg">' + ui.blankMsg + '</div>' : how ? '<div class="bk-how">' + how + '</div>' : '') + '</div></div>';
     }
 
     // 技能栏：四个格子，可以把技能图标拖进来
@@ -1438,7 +1475,7 @@
 
     el.body.innerHTML =
       '<div class="skills">' +
-      '<div class="col col-main"><div class="sec-title">技能栏<span class="sec-note">把技能图标拖进格子，或点技能卡上的按键标签</span></div>' +
+      '<div class="col col-main">' + blank + '<div class="sec-title">技能栏<span class="sec-note">把技能图标拖进格子，或点技能卡上的按键标签</span></div>' +
       '<div class="barstrip">' + bar + '</div>' +
       '<div class="sec-title">技能<span class="sec-note">点击辅助槽选择宝石，或把右侧的宝石拖进来</span></div>' +
       '<div class="skill-list scroll" data-scroll="skills">' + cards + '</div></div>' +
@@ -1774,6 +1811,7 @@
       '</div>' +
       '<div class="col scroll" data-scroll="help2"><div class="sec-title">技能与辅助宝石</div>' +
       '<p>怪物会掉落<b class="c-teal">技能宝石</b>。学会的技能在「技能」页拖到技能栏的格子里（左键 / 右键 / Q / E），或点技能卡上的按键标签；再次拾到更高等级的同名宝石会直接升级。</p>' +
+      '<p><b class="c-blank">无铭技能宝石</b>没有刻下技能：每个首领第一次倒下时必掉一颗，精英和普通怪偶尔也会掉。在技能页里点一个没学会的技能就能用它学会，或把等级更低的已学技能升到它的等级；总是先用等级最高的那颗。</p>' +
       '<p>每个技能有 3 个辅助槽。<b>辅助宝石</b>不会单独生效，而是改变它所镶嵌的技能：多几枚投射物、范围更大、自动重复施放……代价是更高的魔力消耗。把宝石拖进辅助槽，或点击空槽挑选；点击已镶嵌的槽取下。</p>' +
       '<p>一颗辅助宝石同一时间只能镶在一个技能上，并且技能要带有它要求的标签。</p>' +
       helpSummon() +
@@ -1836,6 +1874,33 @@
   const tcHead = (icon, name, kind) =>
     '<div class="tc-head">' + icon + '<div><div class="tc-name">' + name + '</div>' + (kind ? '<div class="tc-kind">' + kind + '</div>' : '') + '</div></div>';
 
+  // 无铭技能宝石的说明卡；skillId 给出时说清楚对这个技能会发生什么、用的是哪一颗
+  function blankTip(skillId, lootLvl) {
+    const B = G.BLANK_GEM;
+    const S = G.save;
+    const gems = S.blankGems;
+    let state = '';
+    if (skillId && G.SKILLS[skillId]) {
+      const sk = G.SKILLS[skillId];
+      const best = G.blankBest();
+      const have = S.skills[skillId] || 0;
+      state = !best
+        ? '<div class="tc-state dup">手里没有' + B.short + '</div>'
+        : !have
+          ? '<div class="tc-state new">用掉 Lv ' + best + ' 的那颗，学会「' + sk.name + '」' + (S.bar.indexOf(null) >= 0 ? '，并放进技能栏的空格' : '') + '</div>'
+          : best > have
+            ? '<div class="tc-state new">用掉 Lv ' + best + ' 的那颗，「' + sk.name + '」Lv ' + have + ' → Lv ' + best + '</div>'
+            : '<div class="tc-state dup">最高的一颗是 Lv ' + best + '，不高于当前的 Lv ' + have + '</div>';
+      state += '<div class="tc-hint">点一下选中，再点一次确认</div>';
+    }
+    const kind = (lootLvl ? '技能宝石 · Lv ' + lootLvl + ' · ' : '') + '持有 ' + gems.length + ' 颗' + (gems.length ? ' · 最高 Lv ' + gems[0] : '');
+    return (
+      '<div class="tcard" style="--c:' + B.color + '">' + tcHead(ibox(IC.blank(), 'gemb'), B.name, kind) +
+      '<div class="tc-desc">' + B.desc + '。</div>' +
+      '<div class="tc-foot">学会的技能等级就是宝石的等级；同时有好几颗时，总是先用等级最高的那颗</div>' + state + '</div>'
+    );
+  }
+
   function tipHtml(kind, id) {
     if (kind === 'item') {
       const f = findItem(id);
@@ -1879,6 +1944,7 @@
         '<div class="tc-foot">这件物品（等级 ' + f.item.ilvl + '）最高可出现第 ' + (top + 1) + ' 阶</div></div>'
       );
     }
+    if (kind === 'blank') return blankTip(id);
     if (kind === 'txt') return '<div class="tcard slim"><div class="tc-desc">' + esc(id) + '</div></div>';
     if (kind === 'skdrag') {
       const sk = G.SKILLS[id];
@@ -2153,6 +2219,30 @@
       G.sfx('click');
       render();
     },
+    // 无铭技能宝石：第一下选中（按钮变成「再点一次」），几秒内再点同一个才真的用掉
+    blank(d) {
+      const id = d.skill;
+      const sk = G.SKILLS[id];
+      if (!sk) return;
+      clearTimeout(ui.blankTimer);
+      if (ui.blankArm !== id) {
+        ui.blankArm = id;
+        ui.blankMsg = '';
+        ui.blankTimer = setTimeout(() => {
+          ui.blankArm = null;
+          if (ui.isOpen && ui.tab === 'skills') render();
+        }, BLANK_ARM_MS);
+        G.sfx('click');
+        render();
+        return;
+      }
+      ui.blankArm = null;
+      const r = G.useBlankGem(id);
+      if (!r) ui.blankMsg = '<span class="bad">' + sk.name + '现在不能用' + G.BLANK_GEM.short + '：需要比当前等级更高的那颗</span>';
+      else if (r.from) ui.blankMsg = '「' + sk.name + '」从 Lv ' + r.from + ' 升到了 Lv ' + r.lvl;
+      else ui.blankMsg = '学会了「' + sk.name + '」Lv ' + r.lvl + (r.slot >= 0 ? '，已放进技能栏的 <kbd>' + KEY_LABEL[r.slot] + '</kbd>' : '，技能栏满了：点它卡片上的按键标签绑定');
+      render();
+    },
     pick(d) {
       const pk = ui.picker;
       if (!pk) return;
@@ -2236,9 +2326,12 @@
     },
   };
 
+  const BLANK_ARM_MS = 4000; // 无铭宝石的「再点一次确认」保持多久
   function disarmReset() {
     ui.resetArmed = false;
     clearTimeout(ui.resetTimer);
+    ui.blankArm = null;
+    clearTimeout(ui.blankTimer);
   }
 
   function onPanelClick(e) {
@@ -2339,6 +2432,7 @@
       ui.tutMsg = '';
       ui.treeMsg = '';
       ui.treeMsgBad = false;
+      ui.blankMsg = '';
       disarmReset();
       if (tab === 'map') ui.mapTier = G.clamp(G.state.tier || 0, 0, G.save.maxTier);
     }
@@ -2872,6 +2966,10 @@
       const have = save.skills[l.data.id];
       u.badge = !have || l.data.lvl > have ? '▲' : '';
       u.alt = !have ? '新技能' : l.data.lvl > have ? '升级 Lv ' + have + ' → ' + l.data.lvl : '已学会 · 化为微光尘';
+    } else if (l.kind === 'blank') {
+      const ok = G.blankUseful(l.data.lvl);
+      u.badge = ok ? '▲' : '';
+      u.alt = ok ? '任选一个技能 · 已有 ' + save.blankGems.length + ' 颗' : '用不上 · 化为微光尘';
     } else {
       const have = save.supports.indexOf(l.data) >= 0;
       u.badge = have ? '' : '▲';
@@ -2935,6 +3033,14 @@
         state + foot + '</div>'
       );
     }
+    if (l.kind === 'blank') {
+      const ok = G.blankUseful(l.data.lvl);
+      return blankTip(null, l.data.lvl).replace(/<\/div>$/, '') +
+        (ok
+          ? '<div class="tc-state new">拾取后存起来，到技能页（<kbd>G</kbd>）挑一个技能学会，或给 Lv ' + l.data.lvl + ' 以下的技能升级</div>'
+          : '<div class="tc-state dup">所有技能都已学会且不低于 Lv ' + l.data.lvl + ' · 拾取后化为 1 ' + G.CURRENCY.dust.name + '</div>') +
+        foot + '</div>';
+    }
     const sp = G.SUPPORTS[l.data];
     const have = save.supports.indexOf(l.data) >= 0;
     const fits = Object.keys(save.skills).filter((id) => G.supportFits(id, l.data)).map((id) => G.SKILLS[id].name);
@@ -2955,7 +3061,7 @@
       if (ui.groundLoot) hideTip();
       return;
     }
-    const sig = l.kind + '|' + (l.kind === 'item' ? l.data.uid + '|' + ((G.save.equip[l.data.slot] || {}).uid || '') : l.kind === 'cur' ? G.save.cur[l.data] : '') +
+    const sig = l.kind + '|' + (l.kind === 'item' ? l.data.uid + '|' + ((G.save.equip[l.data.slot] || {}).uid || '') : l.kind === 'cur' ? G.save.cur[l.data] : l.kind === 'blank' ? G.save.blankGems.length : '') +
       '|' + (Math.hypot(l.x - G.player.x, l.z - G.player.z) > 7 ? 1 : 0) + '|' + G.save.bag.length;
     const tip = el.tip;
     if (l !== ui.groundLoot || sig !== ui.groundSig) {
@@ -3241,6 +3347,9 @@
       const sk = G.SKILLS[loot.data.id];
       if (isSummon(loot.data.id)) summonPing();
       feedPush('s' + loot.data.id + loot.data.lvl, '<span class="ibox sk" style="--c:' + sk.color + '">' + IC.skill(loot.data.id) + '</span>', '技能宝石 · ' + sk.name + ' Lv ' + loot.data.lvl, '#3fe0c8');
+    } else if (loot.kind === 'blank') {
+      const B = G.BLANK_GEM;
+      feedPush('b' + loot.data.lvl, ibox(IC.blank(), 'gemb'), B.name + ' Lv ' + loot.data.lvl, B.color, '<em class="fd-note">共 ' + G.save.blankGems.length + ' 颗</em>');
     } else {
       feedPush('p' + loot.data, ibox(IC.sup(loot.data), 'gemb'), '辅助宝石 · ' + G.SUPPORTS[loot.data].name, '#f0f0f4');
     }
@@ -3376,6 +3485,13 @@
       panel: { tab: 'skills', html: '把宝石<b>拖进</b>左边某个技能的辅助槽（技能要带有它要求的标签）' },
     },
     {
+      id: 'blank', calm: true, max: 45,
+      html: '捡到了<b class="c-blank">无铭技能宝石</b>：按 <kbd>G</kbd> 打开技能页，<b>任选一个技能</b>用它学会，或给等级更低的技能升级',
+      when: () => G.save.blankGems.length > 0,
+      done: (b) => G.save.blankGems.length < b.blank,
+      panel: { tab: 'skills', html: '点左边「尚未获得」里的一个技能（或技能卡上的「升至 Lv」），<b>再点一次</b>确认，就会用掉等级最高的那颗无铭技能宝石' },
+    },
+    {
       id: 'passive', calm: true, max: 45,
       html: '有<b>天赋点</b>可用：按 <kbd>P</kbd> 打开天赋盘',
       when: () => G.passivePoints().free > 0,
@@ -3416,7 +3532,7 @@
     const cs = G.state.stats;
     coach.base = {
       bag: G.save.bag.length, cur: curTotal(), equip: equipSig(), passives: G.save.passives.length, flask: P.flask.life, zone: G.state.zone,
-      finishers: cs.finishers, breaks: cs.breaks, execs: cs.execs,
+      finishers: cs.finishers, breaks: cs.breaks, execs: cs.execs, blank: G.save.blankGems.length,
     };
     el.coachBody.innerHTML = h.html;
     el.coach.dataset.hint = h.id;

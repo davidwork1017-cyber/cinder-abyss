@@ -836,6 +836,37 @@
     g.fill();
   }
 
+  // 无铭技能宝石：素银的六棱晶柱套两道银箍，正面一圈还没刻字的虚线印记
+  function drawBlank(g) {
+    const col = G.BLANK_GEM ? G.BLANK_GEM.crystal : '#dfe6f0';
+    const body = [0, -27, 11, -16, 11, 12, 0, 24, -11, 12, -11, -16];
+    glow(g, (p) => p.P(body), '#e9e2ff', { blur: 8, core: col });
+    solid(g, (p) => p.P(body), col, { hi: 0.6, lo: 0.4, shine: 0.55 });
+    // 左右两个侧面压暗一点，中间是正面
+    g.save();
+    g.beginPath();
+    pen(g).P([0, -27, -11, -16, -11, 12, 0, 24, -4, 12, -4, -16]);
+    g.fillStyle = 'rgba(40,46,70,0.18)';
+    g.fill();
+    g.beginPath();
+    pen(g).P([0, -27, 11, -16, 11, 12, 0, 24, 4, 12, 4, -16]);
+    g.fillStyle = 'rgba(40,46,70,0.32)';
+    g.fill();
+    g.restore();
+    line(g, (p) => p.M(0, -27).L(-4, -16).L(-4, 12).L(0, 24).M(0, -27).L(4, -16).L(4, 12).L(0, 24), rgba('#ffffff', 0.55), 0.9);
+    // 两道银箍
+    // 两道银箍：带一点弧度，像是套在晶柱上
+    for (const y of [-10, 8]) solid(g, (p) => p.M(-12.6, y - 2).Q(0, y + 1.4, 12.6, y - 2).L(12.6, y + 1.2).Q(0, y + 4.6, -12.6, y + 1.2).Z(), C.silver, { hi: 0.5, lo: 0.5, bevel: 0.9, lw: 1.6 });
+    // 空着的印记：虚线小圆，透着一点珍珠色的光
+    glow(g, (p) => p.E(0, -0.6, 2.2), '#e2ccff', { blur: 4, core: rgba('#f4ecff', 0.7) });
+    line(g, (p) => p.E(0, -0.6, 3.6), rgba('#7b6fae', 0.95), 1.1, null, [1.5, 1.3]);
+    g.fillStyle = 'rgba(255,255,255,0.85)';
+    g.beginPath();
+    g.ellipse(-6.4, -12 - 6, 1.6, 3.4, 0.25, 0, TAU);
+    g.fill();
+    spark(g, 13.5, -20, 5, '#efe6ff');
+  }
+
   // =====================================================================
   // 生成与缓存
   // =====================================================================
@@ -879,6 +910,7 @@
       return s && SKILL_DRAW[k[1]] ? render((g) => SKILL_DRAW[k[1]](g, s.color)) : null;
     }
     if (k[0] === 'sup') return G.SUPPORTS[k[1]] ? render((g) => drawSupport(g, k[1])) : null;
+    if (k[0] === 'blank') return render((g) => { g.scale(1.08, 1.08); drawBlank(g); });
     if (k[0] === 'ail') {
       const a = AIL[k[1]];
       return a ? render((g) => drawGlyph(g, a[0], a[1], rot(0, 2.5, 0, 0), 1.9)) : null;
@@ -928,6 +960,7 @@
     for (const id of Object.keys(G.SKILLS)) out.push('sk-' + id);
     for (const id of Object.keys(G.SUPPORTS)) out.push('sup-' + id);
     for (const id of Object.keys(AIL)) out.push('ail-' + id);
+    out.push('blank');
     return out;
   }
 
@@ -969,6 +1002,7 @@
     skill: (id, extra) => html('sk-' + id, extra),
     sup: (id, extra) => html('sup-' + id, extra),
     ail: (id, extra) => html('ail-' + id, extra),
+    blank: (extra) => html('blank', extra), // 无铭技能宝石
     supColor: (id) => SUP_TINT[supKey(id)] || '#d8d8e0',
     ally: ALLY,
   };
