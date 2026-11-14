@@ -452,11 +452,14 @@
   // ---------- 小怪 AI ----------
   // volley：同一轮齐射共用一个编号，game.js 保证一轮齐射对玩家只结算一次伤害
   let volleySeq = 1;
+  // 敌弹的外形（只管样子）：喷吐者吐黏液弹，首领各有各的——霜织者冰棱、雷霆监察者雷球、熔渣巨像 / 烬渊之主火弹
+  const BOSS_SHOT = { weaver: 'shard', warden: 'spark', golem: 'firebolt', lord: 'firebolt' };
   function shoot(e, ang, speed, dmg, r, life, off, volley) {
     const dx = Math.sin(ang), dz = Math.cos(ang);
     G.spawnProjectile({
       owner: 'e', x: e.x + dx * off, z: e.z + dz * off, dx, dz, speed, r, life,
       color: hexOf(e), dmg, dtype: e.elem, volley,
+      vk: e.isBoss ? BOSS_SHOT[e.bossKind] : 'glob',
     });
   }
 
@@ -780,7 +783,7 @@
         if (!live(e, seq)) return;
         const p = G.player, a = Math.random() * TAU, d = i === 0 ? 0 : Math.sqrt(Math.random()) * 6;
         const x = p.x + Math.sin(a) * d, z = p.z + Math.cos(a) * d;
-        const meteor = W.meteorFall(x, z, 0.85, hex);
+        const meteor = W.meteorFall(x, z, 0.85, hex, true);
         G.telegraph({
           shape: 'circle', x, z, r: 2.7, dur: 0.85, dmg: e.dmg * 1.1, dtype: e.elem,
           owner: e, cancelIfOwnerDead: true, friendly: false, meteor, // 预警被取消时落石一起消失
