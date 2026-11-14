@@ -489,6 +489,7 @@
     initParticles();
     initHitFx();
     initSmoke();
+    initProjFx();
     initArrows();
     corpseRoot = new T.Group();
     scene.add(corpseRoot);
@@ -507,13 +508,14 @@
     poolGet(slashPool);
     boltGet();
     W.meteorFall(0, 0, 1, 0xffffff);
-    meteors[0].on = false;
-    meteors[0].mesh.visible = false;
+    meteors[0].mesh.position.set(0, 1, 2); // 摆进预热那一帧的画面里，岩石材质一并编译
     const warm = W.makeTelegraph({ shape: 'circle', x: 0, z: 0, r: 1 }, false);
     initAllyFx();
     initGhosts();
     warmEntities(); // 里面会真的渲染一帧，上面这些特效的着色器也一并编译
     W.removeTelegraph(warm);
+    meteorOff(meteors[0]);
+    clearRibbons();
   };
 
   W.resize = function () {
@@ -7195,7 +7197,7 @@
   };
 
   // ----- 闪电：预分配的带状网格 -----
-  const BOLT_MAXP = 96, BOLT_MAXIN = 24;
+  const BOLT_MAXP = 220, BOLT_MAXIN = 24, BOLT_LIFE = 0.34;
   const bolts = [];
   // minor：感电放出的小电弧。它们同时最多占 BOLT_MINOR 条，池满时先被顶掉，不会挤掉链雷自己的电弧
   const BOLT_POOL = 12, BOLT_MINOR = 4;
@@ -7237,13 +7239,14 @@
     mesh.visible = false;
     mesh.renderOrder = 5;
     scene.add(mesh);
-    const b = { mesh, mat, pos, on: false, t: 0, n: 0, inX: new Float32Array(BOLT_MAXIN), inZ: new Float32Array(BOLT_MAXIN), path: new Float32Array(BOLT_MAXP * 2), rejit: false, minor: false };
+    const b = { mesh, mat, pos, on: false, t: 0, n: 0, inX: new Float32Array(BOLT_MAXIN), inZ: new Float32Array(BOLT_MAXIN), path: new Float32Array(BOLT_MAXP * 2), wid: new Float32Array(BOLT_MAXP), jit: 0, minor: false, hex: 0 };
     bolts.push(b);
     return b;
   }
-  // 把输入折线细分成锯齿路径，再挤出成贴地朝上的带子
+  // 把输入折线细分成锯齿路径，再挤出成贴地朝上的带子；主干上再随机岔出几根渐细的分叉。
+  // 各段之间用零宽的顶点对隔开（连接处的四边形面积为零），主干和分叉共用一条带子、一次 draw call
   function boltBuild(b) {
-    const path = b.path;
+    const path = b.path, wid = b.wid, HW = 0.36;
     let np = 0;
     for (let i = 0; i < b.n - 1; i++) {
       const ax = b.inX[i], az = b.inZ[i], bx = b.inX[i + 1], bz = b.inZ[i + 1];
@@ -7251,27 +7254,60 @@
       const sub = Math.max(2, Math.min(10, Math.ceil(len / 1.0)));
       const nx = -dz / len, nz = dx / len;
       for (let k = 0; k < sub; k++) {
-        if (np >= BOLT_MAXP - 1) break;
+        if (np >= 120) break;
         const t = k / sub;
         const off = k === 0 ? 0 : rand(-0.5, 0.5) * Math.min(1, len * 0.25);
         path[np * 2] = ax + dx * t + nx * off;
         path[np * 2 + 1] = az + dz * t + nz * off;
+        wid[np] = HW * (k === 0 ? 1.15 : rand(0.75, 1.1)); // 粗细略有起伏，像在噼啪作响
         np++;
       }
     }
     path[np * 2] = b.inX[b.n - 1];
     path[np * 2 + 1] = b.inZ[b.n - 1];
+    wid[np] = HW;
     np++;
-    const pos = b.pos, HW = 0.36;
+    const main = np;
+    // 分叉：从主干上随机一点岔出去，偏开 0.5–1.1 弧度，3–4 折，越往外越细
+    const forks = b.minor ? (Math.random() < 0.5 ? 1 : 0) : Math.min(7, 2 + Math.floor(main / 4));
+    for (let f = 0; f < forks; f++) {
+      if (np + 8 > BOLT_MAXP) break;
+      const j = 1 + Math.floor(Math.random() * Math.max(1, main - 2));
+      const j1 = Math.min(main - 1, j + 1);
+      let tx = path[j1 * 2] - path[j * 2], tz = path[j1 * 2 + 1] - path[j * 2 + 1];
+      const tl = Math.hypot(tx, tz) || 1;
+      const ang = Math.atan2(tx / tl, tz / tl) + (Math.random() < 0.5 ? -1 : 1) * rand(0.5, 1.1);
+      const flen = b.minor ? rand(0.4, 0.9) : rand(0.9, 2.4), segs = 3 + (Math.random() < 0.5 ? 1 : 0);
+      let x = path[j * 2], z = path[j * 2 + 1];
+      // 零宽的隔断：上一段的末点、这一段的起点
+      path[np * 2] = path[(np - 1) * 2]; path[np * 2 + 1] = path[(np - 1) * 2 + 1]; wid[np] = 0; np++;
+      path[np * 2] = x; path[np * 2 + 1] = z; wid[np] = 0; np++;
+      path[np * 2] = x; path[np * 2 + 1] = z; wid[np] = HW * 0.55; np++;
+      let a = ang;
+      for (let k = 1; k <= segs; k++) {
+        a += rand(-0.45, 0.45);
+        x += Math.sin(a) * (flen / segs);
+        z += Math.cos(a) * (flen / segs);
+        path[np * 2] = x; path[np * 2 + 1] = z;
+        wid[np] = HW * 0.55 * (1 - k / segs) + 0.01;
+        np++;
+      }
+    }
+    const pos = b.pos;
+    let seg0 = 0;
     for (let i = 0; i < np; i++) {
-      const i0 = Math.max(0, i - 1), i1 = Math.min(np - 1, i + 1);
+      if (wid[i] === 0) seg0 = i + 1;
+      // 切线只在本段内取（不跨隔断）
+      const i0 = Math.max(seg0, i - 1);
+      let i1 = i + 1;
+      if (i1 >= np || wid[i1] === 0) i1 = i;
       let dx = path[i1 * 2] - path[i0 * 2], dz = path[i1 * 2 + 1] - path[i0 * 2 + 1];
       const l = Math.hypot(dx, dz) || 1;
       dx /= l;
       dz /= l;
-      const x = path[i * 2], z = path[i * 2 + 1], o = i * 6;
-      pos[o] = x - dz * HW; pos[o + 1] = 1.25; pos[o + 2] = z + dx * HW;
-      pos[o + 3] = x + dz * HW; pos[o + 4] = 1.25; pos[o + 5] = z - dx * HW;
+      const x = path[i * 2], z = path[i * 2 + 1], o = i * 6, w = wid[i];
+      pos[o] = x - dz * w; pos[o + 1] = 1.25; pos[o + 2] = z + dx * w;
+      pos[o + 3] = x + dz * w; pos[o + 4] = 1.25; pos[o + 5] = z - dx * w;
     }
     b.mesh.geometry.attributes.position.needsUpdate = true;
     b.mesh.geometry.setDrawRange(0, (np - 1) * 6);
@@ -7288,36 +7324,55 @@
     }
     b.on = true;
     b.t = 0;
-    b.rejit = false;
+    b.jit = 0;
+    b.hex = hex;
     b.mat.color.set(hex).lerp(_c2.set(0xffffff), 0.35).convertSRGBToLinear();
     b.mat.opacity = 1;
     boltBuild(b);
     b.mesh.visible = true;
-    // 每个落点炸一小撮火花
+    // 每个落点：一记亮闪 + 一小撮火花 + 一团慢慢熄掉的余辉
     _c.set(hex);
     for (let i = 1; i < b.n; i++) {
+      const x = b.inX[i], z = b.inZ[i];
       for (let k = 0; k < 5; k++) {
-        spawnP(b.inX[i], 1.2, b.inZ[i], rand(-4, 4), rand(0, 4), rand(-4, 4), rand(0.15, 0.35), 0.16, _c.r, _c.g, _c.b, 8, 2);
+        spawnP(x, 1.2, z, rand(-4, 4), rand(0, 4), rand(-4, 4), rand(0.15, 0.35), 0.16, _c.r, _c.g, _c.b, 8, 2);
+      }
+      if (!minor) {
+        flare(x, 1.25, z, hex, 1.9, 0.14);
+        spawnP(x, 1.2, z, 0, 0, 0, 0.32, 1.1, _c.r * 0.55, _c.g * 0.55, _c.b * 0.55, 0, 0);
+        for (let k = 0; k < 4; k++) {
+          const a = rand(0, TAU), v = rand(9, 15);
+          spawnP(x, 1.2, z, Math.sin(a) * v, rand(-2, 5), Math.cos(a) * v, rand(0.05, 0.12), 0.12, 1, 1, 0.85, 0, 6);
+        }
       }
     }
+    if (!minor) flare(b.inX[0], 1.25, b.inZ[0], hex, 1.1, 0.1);
     flashLight(b.inX[b.n - 1], 2.5, b.inZ[b.n - 1], hex, 1.4);
   };
+  const BOLT_JIT = [0.05, 0.15, 0.24], BOLT_JIT_MINOR = [0.07];
+  // 前 0.1 秒是亮的主闪（中途重抖一次），之后是一段忽明忽暗、越来越暗的余辉，期间电弧再跳两次
   function updateBolts(dt) {
     for (let i = 0; i < bolts.length; i++) {
       const b = bolts[i];
       if (!b.on) continue;
       b.t += dt;
-      if (b.t >= 0.17) {
+      const life = b.minor ? 0.17 : BOLT_LIFE;
+      if (b.t >= life) {
         b.on = false;
         b.mesh.visible = false;
         continue;
       }
-      if (!b.rejit && b.t > 0.07) {
-        // 中途重抖一次，像电弧在跳
-        b.rejit = true;
+      const JIT = b.minor ? BOLT_JIT_MINOR : BOLT_JIT;
+      if (b.jit < JIT.length && b.t > JIT[b.jit]) {
+        b.jit++;
         boltBuild(b);
       }
-      b.mat.opacity = 1 - (b.t / 0.17) * (b.t / 0.17);
+      const k = b.t / life;
+      if (b.minor || b.t < 0.1) b.mat.opacity = 1 - k * k;
+      else {
+        const fl = Math.random();
+        b.mat.opacity = Math.pow(1 - k, 1.4) * (fl < 0.2 ? 0.08 : 0.45 + fl * 0.55);
+      }
     }
   }
 
@@ -7333,8 +7388,21 @@
   function coreMat(hex) {
     return coreMats[hex] || (coreMats[hex] = new T.MeshBasicMaterial({ color: lin(mixHex(hex, 0xffffff, 0.6)), toneMapped: false, fog: false }));
   }
+  // 陨石：一块玄武岩（受光的岩体，贴着发光的熔岩裂纹，裂纹按陨石颜色着色），拖着火焰尾和黑烟落下；
+  // 落地时一道冲击环、碎石四溅、扬起尘土（首领召来的落石再留一块焦痕）
+  const meteorMats = Object.create(null);
+  function meteorMat(hex) {
+    return (
+      meteorMats[hex] ||
+      (meteorMats[hex] = new T.MeshStandardMaterial({
+        color: 0x5a524c, map: basaltTex(), emissiveMap: crackTex(), emissive: lin(mixHex(hex, 0xffffff, 0.08)), emissiveIntensity: 2.4,
+        roughness: 0.9, metalness: 0.05, flatShading: true,
+      }))
+    );
+  }
   const meteors = [];
-  W.meteorFall = function (x, z, delay, hex) {
+  // hostile（可选）：首领召来的落石
+  W.meteorFall = function (x, z, delay, hex, hostile) {
     let m = null;
     for (let i = 0; i < meteors.length; i++) if (!meteors[i].on) { m = meteors[i]; break; }
     if (!m && meteors.length >= 12) {
@@ -7342,36 +7410,48 @@
       for (let i = 1; i < meteors.length; i++) if (meteors[i].t / meteors[i].dur > m.t / m.dur) m = meteors[i];
     }
     if (!m) {
-      const mesh = new T.Mesh(gIco(1, 1), coreMat(0xffffff));
+      const mesh = new T.Mesh(rockGeo(1), meteorMat(0xffffff));
       const glow = new T.Sprite(spriteMat(0xffffff));
-      glow.scale.setScalar(6);
+      glow.scale.setScalar(5);
       mesh.add(glow);
-      mesh.scale.setScalar(0.6);
+      mesh.scale.setScalar(0.78);
       scene.add(mesh);
-      m = { mesh, glow, on: false, t: 0, dur: 1, x: 0, z: 0, r: 1, g: 1, b: 1, hex: 0, gen: 0 };
+      m = { mesh, glow, on: false, t: 0, dur: 1, x: 0, z: 0, r: 1, g: 1, b: 1, lr: 1, lg: 1, lb: 1, hex: 0, gen: 0, rib: -1, sm: 0, hostile: false };
       meteors.push(m);
     }
     m.gen++;
     const h = hexOf(hex);
-    m.mesh.material = coreMat(h);
+    m.mesh.material = meteorMat(h);
     m.glow.material = spriteMat(h);
     _c.set(h);
     m.r = _c.r; m.g = _c.g; m.b = _c.b;
+    _c.convertSRGBToLinear();
+    m.lr = _c.r; m.lg = _c.g; m.lb = _c.b;
     m.hex = h;
     m.x = x; m.z = z;
     m.t = 0;
     m.dur = Math.max(0.05, delay);
     m.on = true;
+    m.hostile = !!hostile;
+    m.sm = 0;
+    ribRelease(m.rib);
+    m.rib = ribGet(0.6, 0.14, m.r + (1 - m.r) * 0.55, m.g + (1 - m.g) * 0.55, m.b + (1 - m.b) * 0.55, m.r * 0.55, m.g * 0.4, m.b * 0.35);
     m.mesh.visible = true;
     m.mesh.position.set(x - 6, 26, z - 9);
+    m.mesh.rotation.set(rand(0, TAU), rand(0, TAU), 0);
     return { m, gen: m.gen };
   };
+  function meteorOff(m) {
+    m.on = false;
+    m.mesh.visible = false;
+    ribRelease(m.rib);
+    m.rib = -1;
+  }
   // 取消一颗还在半空的陨石（传入 meteorFall 的返回值）：首领被打出破绽时，它召来的落石一起消失
   W.cancelMeteor = function (tok) {
     if (!tok || !tok.m.on || tok.m.gen !== tok.gen) return;
     const m = tok.m;
-    m.on = false;
-    m.mesh.visible = false;
+    meteorOff(m);
     const p = m.mesh.position;
     for (let j = 0; j < 8; j++) spawnP(p.x, p.y, p.z, rand(-3, 3), rand(-1, 3), rand(-3, 3), rand(0.2, 0.5), rand(0.2, 0.4), m.r, m.g, m.b, 4, 1.5);
   };
@@ -7383,21 +7463,35 @@
       const k = Math.min(1, m.t / m.dur), e = k * k; // 越落越快
       const px = m.x - 6 * (1 - e), py = 0.5 + 25.5 * (1 - e), pz = m.z - 9 * (1 - e);
       m.mesh.position.set(px, py, pz);
-      m.mesh.rotation.x += dt * 9;
+      m.mesh.rotation.x += dt * 5;
+      m.mesh.rotation.z += dt * 3;
       for (let j = 0; j < 3; j++) {
         const w = Math.random() * 0.4;
         spawnP(px + rand(-0.3, 0.3), py + rand(-0.3, 0.3), pz + rand(-0.3, 0.3), rand(-1, 1), rand(0, 2), rand(-1, 1), rand(0.25, 0.55), rand(0.3, 0.6), m.r + (1 - m.r) * w, m.g + (1 - m.g) * w, m.b + (1 - m.b) * w, -1, 1);
       }
       if (k >= 1) {
-        m.on = false;
-        m.mesh.visible = false;
-        flashLight(m.x, 2.5, m.z, m.hex, 3);
-        for (let j = 0; j < 14; j++) {
-          const a = rand(0, TAU), sp = rand(3, 9);
-          spawnP(m.x, 0.3, m.z, Math.sin(a) * sp, rand(1, 6), Math.cos(a) * sp, rand(0.4, 0.9), rand(0.2, 0.4), m.r, m.g, m.b, 10, 1.2);
-        }
+        meteorOff(m);
+        meteorLand(m);
       }
     }
+  }
+  function meteorLand(m) {
+    const x = m.x, z = m.z;
+    flashLight(x, 2.5, z, m.hex, 3);
+    flare(x, 0.8, z, mixHex(m.hex, 0xffffff, 0.4), 2.6, 0.14);
+    W.ring(x, z, 2.6, mixHex(m.hex, 0xffffff, 0.65), 0.2); // 冲击环
+    for (let j = 0; j < 14; j++) {
+      const a = rand(0, TAU), sp = rand(3, 9);
+      spawnP(x, 0.3, z, Math.sin(a) * sp, rand(1, 6), Math.cos(a) * sp, rand(0.4, 0.9), rand(0.2, 0.4), m.r, m.g, m.b, 10, 1.2);
+    }
+    debrisBurst(x, z, m.hostile ? 7 : 11, m.hex, m.hostile ? 0.8 : 1);
+    // 尘土：贴地往外推的一圈灰黄色烟
+    for (let j = 0; j < 10; j++) {
+      const a = (j / 10) * TAU + rand(-0.2, 0.2), v = rand(2.5, 4.5);
+      spawnS(x + Math.sin(a) * 0.6, rand(0.2, 0.6), z + Math.cos(a) * 0.6, Math.sin(a) * v, rand(0.3, 1.2), Math.cos(a) * v, rand(0.7, 1.1), rand(1.0, 1.6), 0.3, 0.26, 0.21, 0.55);
+    }
+    smokeLive = 1.5;
+    if (m.hostile) W.decal(1, x, z, 1.7, rand(0, TAU), m.hex, 3);
   }
 
   // ---------- 元素异常的特效 ----------
@@ -7542,7 +7636,7 @@
   }
 
   // ----- 烟：第二套点精灵，普通混合（暗色的烟雾不能用加色） -----
-  const SN = 240;
+  const SN = 480;
   const sPos = new Float32Array(SN * 3), sCol = new Float32Array(SN * 4), sSize = new Float32Array(SN);
   const sVel = new Float32Array(SN * 3), sLife = new Float32Array(SN), sMax = new Float32Array(SN), sSz = new Float32Array(SN), sA = new Float32Array(SN);
   let sNext = 0, sGeo = null, sMat = null, sPts = null;
@@ -7955,28 +8049,10 @@
   }
   const _mFlip = new T.Matrix4().makeRotationX(Math.PI);
 
-  // ----- 秘弹：短杖的追踪小弹（由调用方移动；朝着移动方向，拖一道细尾） -----
-  W.makeSeeker = function (hex) {
-    const h = hexOf(hex);
-    const grp = new T.Group();
-    const core = new T.Mesh(gOct(1), coreMat(h));
-    core.scale.set(0.09, 0.09, 0.26);
-    grp.add(core);
-    const glow = new T.Sprite(spriteMat(h));
-    glow.scale.setScalar(0.9);
-    grp.add(glow);
-    _c.set(h);
-    const u = grp.userData;
-    u.kind = 'proj';
-    u.seek = true;
-    u.r = _c.r; u.g = _c.g; u.b = _c.b;
-    u.rad = 0.07;
-    u.acc = 0;
-    u.lx = NaN; u.lz = NaN;
-    grp.position.y = -50;
-    scene.add(grp);
-    projObjs.push(grp);
-    return grp;
+  // ----- 秘弹：短杖的追踪小弹（由调用方移动）：拉长的晶尖 + 两粒绕转的光点，拖一条元素色的细带（实例化外形 'dart'） -----
+  // opts（可选）：{ dx, dz } 出生时的飞行方向
+  W.makeSeeker = function (hex, opts) {
+    return W.makeProjectile(hex, 0.07, false, { kind: 'dart', dx: opts && opts.dx, dz: opts && opts.dz, tint: opts && opts.tint });
   };
   // 秘弹出膛 / 命中的一小下闪光
   W.seekerFx = function (x, y, z, hex) {
@@ -8121,6 +8197,7 @@
     u.ph = rand(0, TAU);
     u.age = 0;
     u.lx = NaN; u.lz = NaN;
+    u.rib = ribGet(0.2, 0.3, _c.r + (1 - _c.r) * 0.4, _c.g + (1 - _c.g) * 0.4, _c.b + (1 - _c.b) * 0.4, _c.r * 0.4, _c.g * 0.4, _c.b * 0.4); // 魂尾
     grp.position.y = -50;
     scene.add(grp);
     projObjs.push(grp);
@@ -8261,7 +8338,11 @@
       spawnS(0, 1, 2, 0, 0, 0, 0.5, 1, 0.2, 0.2, 0.2, 0.5);
       smokeLive = 1;
       updateSmoke(0.01);
-    } else clearWeaponFx();
+      warmProjFx(true);
+    } else {
+      clearWeaponFx();
+      warmProjFx(false);
+    }
   }
 
   // ---------- 光环：玩家脚下常驻的一圈淡淡的霜环 + 绕身飘的霜粒；每次脉冲有一道向外扩的细环 ----------
@@ -8389,7 +8470,8 @@
     for (const it of ringPool.items) { it.on = false; it.mesh.visible = false; }
     for (const it of slashPool.items) { it.on = false; it.mesh.visible = false; }
     for (const b of bolts) { b.on = false; b.mesh.visible = false; }
-    for (const m of meteors) { m.on = false; m.mesh.visible = false; }
+    for (const m of meteors) meteorOff(m);
+    clearProjFx();
     for (const t of texts) t.t = t.dur;
     clearDying();
     for (const d of decals) { d.on = false; d.mesh.visible = false; }
@@ -8418,44 +8500,1059 @@
   };
 
   // ---------- 投射物 / 掉落物 / 传送门 ----------
+  // =====================================================================
+  // 投射物外形 / 拖尾 / 命中（实例化绘制：每种零件一个 InstancedMesh，场上投射物再多 draw call 也是固定的）
+  // 每颗投射物本身只是一个空 Group（池化）：game.js 照旧设它的位置、用 W.removeMesh 移除；
+  // 每帧按它的种类（userData.vfx）把零件的矩阵 / 颜色写进各自的实例缓冲。
+  // 种类：玩家 ember 掷焰 / blade 飞刃 / dart 秘弹 / orb 通用光球；
+  //       敌方 glob 喷吐者的黏液弹 / shard 霜织者的冰棱 / spark 雷霆监察者的雷球 / firebolt 熔渣巨像与烬渊之主的火弹 / horb 通用敌弹。
+  // 敌方弹丸一律带那圈翻滚的红环 + 压暗的内核，玩家的投射物一律是亮白的核，两者从不混淆。
+  // =====================================================================
+  const PF = Object.create(null); // 零件名 → { mesh, n, cap }
+  const PF_LIST = [];
+  const _pm = new T.Matrix4(), _pq = new T.Quaternion(), _pq2 = new T.Quaternion(), _pqI = new T.Quaternion();
+  const _pv = new T.Vector3(), _ps = new T.Vector3(), _pc = new T.Color(), _pe = new T.Euler();
+  const _bx = new T.Vector3(), _by = new T.Vector3(), _bz = new T.Vector3();
+  const Z_AXIS = new T.Vector3(0, 0, 1);
+  const camB = new T.Vector3(), camQ = new T.Quaternion(); // 镜头朝向固定（只平移）：后向 = 指向镜头
+  const flameTex = () =>
+    tex('flame', () => {
+      // 火舌：上端圆润的亮头，往下拖成一条带流纹的细尾（白色，颜色由实例给）
+      const Wd = 64, H = 128, c = makeCanvas(Wd, H), g = c.getContext('2d'), img = g.createImageData(Wd, H), d = img.data;
+      for (let y = 0; y < H; y++) {
+        const v = y / (H - 1);
+        for (let x = 0; x < Wd; x++) {
+          const u = (x / (Wd - 1)) * 2 - 1;
+          let w;
+          if (v < 0.2) w = Math.sqrt(Math.max(0, 1 - ((0.2 - v) / 0.2) ** 2)) * 0.78;
+          else w = 0.78 * Math.pow(1 - (v - 0.2) / 0.8, 1.25);
+          const wig = Math.sin(v * 19 + u * 3) * 0.06 * v;
+          const e = w > 0.001 ? Math.abs(u + wig) / w : 9;
+          let a = e >= 1 ? 0 : Math.pow(1 - e, 1.4);
+          a *= Math.min(1, (1 - v) * 1.6) * (0.78 + 0.22 * Math.sin(u * 7 + v * 31) * Math.sin(v * 13));
+          a = Math.max(0, Math.min(1, a * 1.25 + (v < 0.22 ? (1 - e) * 0.2 : 0)));
+          const o = (y * Wd + x) * 4;
+          d[o] = d[o + 1] = d[o + 2] = 255;
+          d[o + 3] = Math.round(a * 255);
+        }
+      }
+      g.putImageData(img, 0, 0);
+      return new T.CanvasTexture(c);
+    });
+  const flameHardTex = () =>
+    tex('flameHard', () => {
+      // 实色火舌：轮廓清楚、边缘略带起伏的卡通火苗，中间亮、边上压暗一圈（乘上实例色就是亮橙芯 + 深红边）
+      const Wd = 64, H = 128, c = makeCanvas(Wd, H), g = c.getContext('2d'), img = g.createImageData(Wd, H), d = img.data;
+      for (let y = 0; y < H; y++) {
+        const v = y / (H - 1);
+        for (let x = 0; x < Wd; x++) {
+          const u = (x / (Wd - 1)) * 2 - 1;
+          let w;
+          if (v < 0.18) w = Math.sqrt(Math.max(0, 1 - ((0.18 - v) / 0.18) ** 2)) * 0.82;
+          else w = 0.82 * Math.pow(1 - (v - 0.18) / 0.82, 1.15) * (1 + 0.16 * Math.sin(v * 15));
+          const wig = Math.sin(v * 11 + 0.6) * 0.18 * v;
+          const e = w > 0.001 ? Math.abs(u + wig) / w : 9;
+          const a = e >= 1 ? 0 : Math.min(1, (1 - e) / 0.14) * (1 - Math.max(0, (v - 0.9) / 0.1));
+          const lum = 0.5 + 0.5 * Math.pow(Math.max(0, 1 - e), 0.8) * (1 - v * 0.4);
+          const o = (y * Wd + x) * 4;
+          d[o] = d[o + 1] = d[o + 2] = Math.round(lum * 255);
+          d[o + 3] = Math.round(Math.max(0, a) * 255);
+        }
+      }
+      g.putImageData(img, 0, 0);
+      return new T.CanvasTexture(c);
+    });
+  const swooshTex = () =>
+    tex('swoosh', () => {
+      // 飞刃的残影环：三道弧，前沿亮、往后渐隐
+      const S = 128, c = makeCanvas(S, S), g = c.getContext('2d'), img = g.createImageData(S, S), d = img.data;
+      for (let y = 0; y < S; y++) {
+        for (let x = 0; x < S; x++) {
+          const px = (x / (S - 1)) * 2 - 1, py = (y / (S - 1)) * 2 - 1, r = Math.hypot(px, py);
+          const an = (Math.atan2(px, py) + TAU) % TAU;
+          const loc = ((an * 3) / TAU) % 1;
+          const band = Math.max(0, 1 - Math.abs(r - 0.8) / 0.17);
+          const a = Math.pow(loc, 2.6) * band * band + Math.max(0, 1 - Math.abs(r - 0.93) / 0.04) * 0.25 * loc;
+          const o = (y * S + x) * 4;
+          d[o] = d[o + 1] = d[o + 2] = 255;
+          d[o + 3] = r > 1 ? 0 : Math.round(Math.min(1, a) * 255);
+        }
+      }
+      g.putImageData(img, 0, 0);
+      return new T.CanvasTexture(c);
+    });
+  const crackleTex = () =>
+    tex('crackle', () => {
+      // 雷球表面的电弧：一条从中心往外折的锯齿亮线
+      const Wd = 128, H = 32, c = makeCanvas(Wd, H), g = c.getContext('2d');
+      g.strokeStyle = '#fff';
+      g.lineCap = 'round';
+      g.shadowColor = '#fff';
+      g.shadowBlur = 5;
+      const pts = [[4, 16], [22, 9], [36, 21], [52, 7], [66, 22], [82, 10], [98, 20], [112, 12], [124, 16]];
+      for (const lw of [4, 1.6]) {
+        g.lineWidth = lw;
+        g.globalAlpha = lw > 2 ? 0.35 : 1;
+        g.beginPath();
+        pts.forEach((p, i) => (i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])));
+        g.stroke();
+      }
+      g.globalAlpha = 0.8;
+      g.lineWidth = 1.2;
+      g.beginPath();
+      g.moveTo(52, 7); g.lineTo(60, 2); g.moveTo(82, 10); g.lineTo(90, 27);
+      g.stroke();
+      return new T.CanvasTexture(c);
+    });
+  const basaltTex = () =>
+    tex('basalt', () => {
+      const Wd = 128, H = 64, c = makeCanvas(Wd, H), g = c.getContext('2d'), img = g.createImageData(Wd, H), d = img.data;
+      for (let y = 0; y < H; y++) for (let x = 0; x < Wd; x++) {
+        const n = vnoise(x * 0.11, y * 0.11) * 0.6 + vnoise(x * 0.37 + 9, y * 0.37) * 0.4;
+        const v = 30 + n * 46, o = (y * Wd + x) * 4;
+        d[o] = v * 1.04; d[o + 1] = v * 0.95; d[o + 2] = v * 0.9; d[o + 3] = 255;
+      }
+      g.putImageData(img, 0, 0);
+      return new T.CanvasTexture(c);
+    });
+  const crackTex = () =>
+    tex('lavaCrack', () => {
+      // 熔岩裂纹：黑底上若干条分叉的折线（发光贴图）
+      const Wd = 256, H = 128, c = makeCanvas(Wd, H), g = c.getContext('2d');
+      g.fillStyle = '#000';
+      g.fillRect(0, 0, Wd, H);
+      g.strokeStyle = '#fff';
+      g.lineCap = 'round';
+      g.lineJoin = 'round';
+      g.shadowColor = '#fff';
+      let s = 7;
+      const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+      const crack = (x, y, ang, len, w, depth) => {
+        g.lineWidth = w;
+        g.shadowBlur = w * 3;
+        g.beginPath();
+        g.moveTo(x, y);
+        for (let i = 0; i < len; i++) {
+          ang += (rnd() - 0.5) * 1.1;
+          x += Math.cos(ang) * 9;
+          y += Math.sin(ang) * 9;
+          g.lineTo(x, y);
+          if (depth > 0 && rnd() < 0.18) {
+            g.stroke();
+            crack(x, y, ang + (rnd() < 0.5 ? 1 : -1) * (0.6 + rnd()), Math.ceil(len * 0.5), w * 0.6, depth - 1);
+            g.lineWidth = w;
+            g.shadowBlur = w * 3;
+            g.beginPath();
+            g.moveTo(x, y);
+          }
+        }
+        g.stroke();
+      };
+      for (let i = 0; i < 9; i++) crack(rnd() * Wd, rnd() * H, rnd() * TAU, 9 + Math.floor(rnd() * 8), 2.6, 2);
+      return new T.CanvasTexture(c);
+    });
+  // 不规则的岩块：二十面体按顶点位置的哈希往里外推，再压扁一点（同一位置的顶点推得一样，表面不裂开）
+  function rockGeo(detail) {
+    return geo('rock' + detail, () => {
+      const g = new T.IcosahedronGeometry(1, detail);
+      const a = g.attributes.position;
+      for (let i = 0; i < a.count; i++) {
+        const x = a.getX(i), y = a.getY(i), z = a.getZ(i);
+        const h = hash2(Math.round(x * 997) + Math.round(y * 991) * 7, Math.round(z * 983) - Math.round(y * 977) * 3);
+        const k = 0.78 + 0.34 * h;
+        a.setXYZ(i, x * k * 1.05, y * k * 0.86, z * k);
+      }
+      g.computeVertexNormals();
+      return g;
+    });
+  }
+  // 给烘焙好的（非索引、带顶点色）几何体按面朝向做一遍假光照：不受光的材质也能看出棱面
+  function facetShade(g, lx, ly, lz, amb) {
+    const p = g.attributes.position, c = g.attributes.color;
+    const l = Math.hypot(lx, ly, lz);
+    lx /= l; ly /= l; lz /= l;
+    for (let i = 0; i + 2 < p.count; i += 3) {
+      _v.set(p.getX(i + 1) - p.getX(i), p.getY(i + 1) - p.getY(i), p.getZ(i + 1) - p.getZ(i));
+      _v2.set(p.getX(i + 2) - p.getX(i), p.getY(i + 2) - p.getY(i), p.getZ(i + 2) - p.getZ(i));
+      _v.cross(_v2).normalize();
+      const k = amb + (1 - amb) * Math.abs(_v.x * lx + _v.y * ly + _v.z * lz);
+      for (let j = 0; j < 3; j++) c.setXYZ(i + j, c.getX(i + j) * k, c.getY(i + j) * k, c.getZ(i + j) * k);
+    }
+    return g;
+  }
+  // 飞刃：中间一个铆钉轮毂，三片往后弯的刃。刃身是冷钢色，前沿一条亮白的刃口（顶点色，平躺在 XZ 面上，半径约 1）
+  function bladeGeo() {
+    return geo('flyBlade', () => {
+      const P = [], C = [];
+      const col = (r, g, b) => (_c.setRGB(r, g, b).convertSRGBToLinear(), [_c.r, _c.g, _c.b]);
+      const tri = (a, b, c, ca, cb, cc) => {
+        P.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
+        C.push(...ca, ...cb, ...cc);
+      };
+      const cL = col(1, 1, 1), cE = col(0.8, 0.86, 0.96), cM = col(0.55, 0.6, 0.7), cB = col(0.2, 0.22, 0.28);
+      const N = 10;
+      for (let k = 0; k < 3; k++) {
+        const base = (k / 3) * TAU;
+        const L = [], E = [], B = [];
+        for (let i = 0; i <= N; i++) {
+          const t = i / N, rho = 0.18 + 0.84 * t, th = base - 0.8 * Math.pow(t, 1.4);
+          const w = 0.5 * Math.pow(1 - t, 0.8) * (0.55 + 0.45 * Math.min(1, t * 4));
+          const cx = Math.sin(th) * rho, cz = Math.cos(th) * rho, nx = Math.cos(th), nz = -Math.sin(th);
+          L.push([cx + nx * w * 0.58, 0, cz + nz * w * 0.58]);
+          E.push([cx + nx * w * 0.3, 0, cz + nz * w * 0.3]);
+          B.push([cx - nx * w * 0.42, 0, cz - nz * w * 0.42]);
+        }
+        for (let i = 0; i < N; i++) {
+          tri(B[i], E[i], B[i + 1], cB, cM, cB);
+          tri(E[i], E[i + 1], B[i + 1], cM, cM, cB);
+          tri(E[i], L[i], E[i + 1], cE, cL, cE);
+          tri(L[i], L[i + 1], E[i + 1], cL, cL, cE);
+        }
+      }
+      const hubO = col(0.3, 0.32, 0.38), hubI = col(0.92, 0.94, 1);
+      for (let i = 0; i < 6; i++) {
+        const a0 = (i / 6) * TAU, a1 = ((i + 1) / 6) * TAU;
+        tri([0, 0.02, 0], [Math.sin(a0) * 0.27, 0.02, Math.cos(a0) * 0.27], [Math.sin(a1) * 0.27, 0.02, Math.cos(a1) * 0.27], hubI, hubO, hubO);
+      }
+      const g = new T.BufferGeometry();
+      g.setAttribute('position', new T.Float32BufferAttribute(P, 3));
+      g.setAttribute('color', new T.Float32BufferAttribute(C, 3));
+      return g;
+    });
+  }
+  // 冰棱：一根长的六棱冰锥（尖朝 +z）带两根小冰刺，按面朝向打上明暗
+  function shardGeo() {
+    return geo('iceShard', () => {
+      const cone = new T.ConeGeometry(1, 1, 6);
+      const g = bake('iceShardBake', [
+        [gOct(1), 0xd8f4ff, 0, 0, 0.3, 0, 0, 0, 0.3, 0.3, 1.25],
+        [gOct(1), 0xa8dcff, 0.22, 0.02, -0.35, 0, 0.45, 0, 0.13, 0.13, 0.6],
+        [gOct(1), 0xa8dcff, -0.22, -0.02, -0.3, 0, -0.45, 0, 0.12, 0.12, 0.55],
+        [cone, 0xffffff, 0, 0, 1.3, Math.PI / 2, 0, 0, 0.12, 0.4, 0.12],
+      ]);
+      cone.dispose();
+      return facetShade(g, 0.3, 1, 0.4, 0.45);
+    });
+  }
+  function pfPart(name, geom, mat, cap, order) {
+    const mesh = new T.InstancedMesh(geom, mat, cap);
+    mesh.instanceMatrix.setUsage(T.DynamicDrawUsage);
+    mesh.setColorAt(0, _pc.setRGB(1, 1, 1));
+    mesh.instanceColor.setUsage(T.DynamicDrawUsage);
+    mesh.frustumCulled = false;
+    mesh.count = 0;
+    mesh.visible = false;
+    mesh.renderOrder = order || 0;
+    scene.add(mesh);
+    const p = { mesh, n: 0, cap };
+    PF[name] = p;
+    PF_LIST.push(p);
+  }
+  // 用 _pm 作当前矩阵写一个实例；颜色是线性空间
+  function pfPut(name, r, g, b) {
+    const p = PF[name];
+    if (p.n >= p.cap) return;
+    p.mesh.setMatrixAt(p.n, _pm);
+    _pc.r = r; _pc.g = g; _pc.b = b;
+    p.mesh.setColorAt(p.n, _pc);
+    p.n++;
+  }
+  function mPose(x, y, z, q, sx, sy, sz) {
+    _pm.compose(_pv.set(x, y, z), q, _ps.set(sx, sy, sz));
+  }
+  function mBill(x, y, z, s) {
+    _pm.compose(_pv.set(x, y, z), camQ, _ps.set(s, s, s));
+  }
+  // 顺着速度拉长的公告板：面朝镜头，本地 +y 对准 (dx,dy,dz) 在屏幕上的投影
+  function mStretch(x, y, z, dx, dy, dz, sx, sy) {
+    _by.set(dx, dy, dz).addScaledVector(camB, -(dx * camB.x + dy * camB.y + dz * camB.z));
+    if (_by.lengthSq() < 1e-8) _by.set(0, 1, 0);
+    _by.normalize();
+    _bx.crossVectors(_by, camB);
+    _pm.makeBasis(_bx.multiplyScalar(sx), _by.multiplyScalar(sy), camB);
+    _pm.setPosition(x, y, z);
+  }
+  let pfSolid = null;
+  function initProjFx() {
+    const add = (map, side) => new T.MeshBasicMaterial({ map, transparent: true, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false, fog: false, side: side || T.FrontSide });
+    pfSolid = new T.MeshBasicMaterial({ toneMapped: false, fog: false });
+    const vc = new T.MeshBasicMaterial({ vertexColors: true, toneMapped: false, fog: false, side: T.DoubleSide });
+    const quad = geo('pfQuad', () => new T.PlaneGeometry(1, 1));
+    const flameQuad = geo('pfFlame', () => new T.PlaneGeometry(1, 1).translate(0, -0.4, 0));
+    pfPart('core', gIco(1, 1), pfSolid, 200, 0);
+    pfPart('dart', gOct(1), pfSolid, 64, 0);
+    pfPart('ring', geo('projRing', () => new T.TorusGeometry(1.75, 0.2, 5, 14)), pfSolid, 200, 0);
+    pfPart('blade', bladeGeo(), vc, 64, 0);
+    pfPart('shard', shardGeo(), vc, 64, 0);
+    pfPart('blur', gQuad(), add(swooshTex(), T.DoubleSide), 64, 4);
+    pfPart('glow', quad, add(glowTex()), 260, 5);
+    pfPart('flame', flameQuad, add(flameTex()), 320, 6);
+    // 普通混合的火舌：浅色地面（冰原、灰烬）上加色的火会被冲成一片白，垫一层实色的橙红火舌，火的形状和颜色才立得住
+    pfPart('flameN', flameQuad, new T.MeshBasicMaterial({ map: flameHardTex(), transparent: true, depthWrite: false, toneMapped: false, fog: false }), 240, 5);
+    pfPart('arc', quad, add(crackleTex()), 120, 6);
+    const rockMat = new T.MeshStandardMaterial({ map: basaltTex(), roughness: 0.92, metalness: 0.05, flatShading: true });
+    pfPart('debris', rockGeo(0), rockMat, 96, 0);
+    initRibbons();
+  }
+  // 调试 / 测试：各零件此刻的实例数、拖尾条数、池里闲置的投射物数
+  W.projFxInfo = function () {
+    const o = { parts: {}, ribbons: 0, pool: pfPool.length };
+    for (const k in PF) o.parts[k] = PF[k].mesh.count;
+    for (let s = 0; s < RIB_N; s++) if (rbOn[s]) o.ribbons++;
+    return o;
+  };
+  function pfBegin() {
+    camQ.copy(camera.quaternion);
+    camB.set(0, 0, 1).applyQuaternion(camQ);
+    for (let i = 0; i < PF_LIST.length; i++) PF_LIST[i].n = 0;
+  }
+  function pfEnd() {
+    for (let i = 0; i < PF_LIST.length; i++) {
+      const p = PF_LIST[i], m = p.mesh;
+      m.count = p.n;
+      m.visible = p.n > 0;
+      if (p.n) {
+        m.instanceMatrix.needsUpdate = true;
+        m.instanceColor.needsUpdate = true;
+      }
+    }
+  }
+
+  // ----- 拖尾带子：所有投射物的拖尾合在一个网格里（一次 draw call），每颗占一段，按时间采样、面朝镜头、越往后越细越暗 -----
+  const RIB_N = 128, RIB_S = 16, RIB_STEP = 0.02;
+  const rbX = new Float32Array(RIB_N * RIB_S), rbY = new Float32Array(RIB_N * RIB_S), rbZ = new Float32Array(RIB_N * RIB_S), rbA = new Float32Array(RIB_N * RIB_S);
+  const rbCnt = new Uint8Array(RIB_N), rbOn = new Uint8Array(RIB_N); // 0 空闲 1 跟着投射物 2 投射物没了、余下的淡出
+  const rbW = new Float32Array(RIB_N), rbLife = new Float32Array(RIB_N), rbAcc = new Float32Array(RIB_N), rbCol = new Float32Array(RIB_N * 6);
+  const rbPos = new Float32Array(RIB_N * RIB_S * 6), rbClr = new Float32Array(RIB_N * RIB_S * 6);
+  let rbMesh = null, rbNext = 0, rbLive = 0;
+  function initRibbons() {
+    const g = new T.BufferGeometry();
+    const side = new Float32Array(RIB_N * RIB_S * 2);
+    const idx = new Uint16Array(RIB_N * (RIB_S - 1) * 6);
+    let o = 0;
+    for (let s = 0; s < RIB_N; s++) {
+      for (let i = 0; i < RIB_S; i++) {
+        const v = (s * RIB_S + i) * 2;
+        side[v] = -1;
+        side[v + 1] = 1;
+        if (i < RIB_S - 1) {
+          idx[o++] = v; idx[o++] = v + 1; idx[o++] = v + 2;
+          idx[o++] = v + 1; idx[o++] = v + 3; idx[o++] = v + 2;
+        }
+      }
+    }
+    for (let i = 0; i < RIB_N * RIB_S * 2; i++) rbPos[i * 3 + 1] = -50;
+    g.setAttribute('position', new T.BufferAttribute(rbPos, 3).setUsage(T.DynamicDrawUsage));
+    g.setAttribute('aCol', new T.BufferAttribute(rbClr, 3).setUsage(T.DynamicDrawUsage));
+    g.setAttribute('aSide', new T.BufferAttribute(side, 1));
+    g.setIndex(new T.BufferAttribute(idx, 1));
+    const mat = new T.ShaderMaterial({
+      vertexShader: 'attribute vec3 aCol; attribute float aSide; varying vec3 vC; varying float vS;\nvoid main(){ vC = aCol; vS = aSide; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader:
+        'varying vec3 vC; varying float vS;\n' +
+        'void main(){ float e = 1.0 - abs(vS); float a = smoothstep(0.0, 0.85, e); float core = pow(e, 6.0);\n' +
+        ' gl_FragColor = vec4(vC * a + vec3(max(vC.r, max(vC.g, vC.b))) * core * 0.55, 1.0); }',
+      blending: T.AdditiveBlending, transparent: true, depthWrite: false, side: T.DoubleSide,
+    });
+    rbMesh = new T.Mesh(g, mat);
+    rbMesh.frustumCulled = false;
+    rbMesh.renderOrder = 5;
+    rbMesh.visible = false;
+    scene.add(rbMesh);
+  }
+  // 申请一条拖尾：w 半宽，life 每个采样点活多久，头 / 尾的颜色（0..1，加色）。池满时先顶掉正在淡出的，再不行就不要拖尾
+  function ribGet(w, life, r0, g0, b0, r1, g1, b1) {
+    let s = -1;
+    for (let i = 0; i < RIB_N; i++) {
+      const k = (rbNext + i) % RIB_N;
+      if (!rbOn[k]) { s = k; break; }
+    }
+    if (s < 0) for (let i = 0; i < RIB_N; i++) if (rbOn[i] === 2) { s = i; break; }
+    if (s < 0) return -1;
+    rbNext = (s + 1) % RIB_N;
+    rbOn[s] = 1;
+    rbCnt[s] = 0;
+    rbW[s] = w;
+    rbLife[s] = life;
+    rbAcc[s] = 0;
+    const c = s * 6;
+    rbCol[c] = r0; rbCol[c + 1] = g0; rbCol[c + 2] = b0; rbCol[c + 3] = r1; rbCol[c + 4] = g1; rbCol[c + 5] = b1;
+    rbLive = 1;
+    return s;
+  }
+  // 拖尾头跟到 (x,y,z)：每 RIB_STEP 秒留下一个采样点
+  function ribHead(s, x, y, z, dt) {
+    if (s < 0 || rbOn[s] !== 1) return;
+    rbLive = 1;
+    const o = s * RIB_S;
+    if (rbCnt[s] === 0) {
+      rbX[o] = x; rbY[o] = y; rbZ[o] = z; rbA[o] = 0;
+      rbX[o + 1] = x; rbY[o + 1] = y; rbZ[o + 1] = z; rbA[o + 1] = 0;
+      rbCnt[s] = 2;
+      return;
+    }
+    rbAcc[s] += dt;
+    if (rbAcc[s] >= RIB_STEP) {
+      rbAcc[s] = 0;
+      const n = Math.min(RIB_S - 1, rbCnt[s]);
+      rbX.copyWithin(o + 1, o, o + n);
+      rbY.copyWithin(o + 1, o, o + n);
+      rbZ.copyWithin(o + 1, o, o + n);
+      rbA.copyWithin(o + 1, o, o + n);
+      rbCnt[s] = n + 1;
+    }
+    rbX[o] = x; rbY[o] = y; rbZ[o] = z; rbA[o] = 0;
+  }
+  function ribRelease(s) {
+    if (s >= 0 && rbOn[s] === 1) rbOn[s] = 2;
+  }
+  function ribKill(s) {
+    rbOn[s] = 0;
+    rbCnt[s] = 0;
+    const v0 = s * RIB_S * 6;
+    for (let i = 0; i < RIB_S * 6; i += 3) {
+      rbPos[v0 + i] = 0; rbPos[v0 + i + 1] = -50; rbPos[v0 + i + 2] = 0;
+      rbClr[v0 + i] = rbClr[v0 + i + 1] = rbClr[v0 + i + 2] = 0;
+    }
+  }
+  function updateRibbons(dt) {
+    if (!rbLive) return;
+    let any = 0;
+    for (let s = 0; s < RIB_N; s++) {
+      if (!rbOn[s]) continue;
+      const o = s * RIB_S, life = rbLife[s];
+      let n = rbCnt[s];
+      for (let i = rbOn[s] === 1 ? 1 : 0; i < n; i++) rbA[o + i] += dt;
+      while (n > 1 && rbA[o + n - 1] >= life) n--;
+      if (rbOn[s] === 2 && (n <= 1 || rbA[o] >= life)) {
+        ribKill(s);
+        continue;
+      }
+      rbCnt[s] = n;
+      any = 1;
+      const c = s * 6, w = rbW[s], v0 = s * RIB_S * 6;
+      for (let i = 0; i < RIB_S; i++) {
+        const j = Math.min(i, n - 1), v = v0 + i * 6;
+        const i0 = o + Math.max(0, j - 1), i1 = o + Math.min(n - 1, j + 1);
+        let tx = rbX[i0] - rbX[i1], ty = rbY[i0] - rbY[i1], tz = rbZ[i0] - rbZ[i1];
+        // 侧向 = 切线 × 镜头后向（面朝镜头的带子）
+        let sx = ty * camB.z - tz * camB.y, sy = tz * camB.x - tx * camB.z, sz = tx * camB.y - ty * camB.x;
+        const sl = Math.hypot(sx, sy, sz);
+        const f = i >= n ? 1 : Math.min(1, rbA[o + j] / life);
+        const ww = sl > 1e-6 ? (w * Math.pow(1 - f, 0.7)) / sl : 0;
+        sx *= ww; sy *= ww; sz *= ww;
+        const x = rbX[o + j], y = rbY[o + j], z = rbZ[o + j];
+        rbPos[v] = x - sx; rbPos[v + 1] = y - sy; rbPos[v + 2] = z - sz;
+        rbPos[v + 3] = x + sx; rbPos[v + 4] = y + sy; rbPos[v + 5] = z + sz;
+        const a = (1 - f) * (1 - f);
+        const r = (rbCol[c] + (rbCol[c + 3] - rbCol[c]) * f) * a, g = (rbCol[c + 1] + (rbCol[c + 4] - rbCol[c + 1]) * f) * a, b = (rbCol[c + 2] + (rbCol[c + 5] - rbCol[c + 2]) * f) * a;
+        rbClr[v] = rbClr[v + 3] = r; rbClr[v + 1] = rbClr[v + 4] = g; rbClr[v + 2] = rbClr[v + 5] = b;
+      }
+    }
+    const ge = rbMesh.geometry;
+    ge.attributes.position.needsUpdate = true;
+    ge.attributes.aCol.needsUpdate = true;
+    rbMesh.visible = !!any;
+    if (!any) rbLive = 0;
+  }
+  // 换区 / 预热收尾：淡出中的拖尾直接收掉；还挂在投射物上的只清空采样（槽位仍归它，免得被别的投射物领走后两颗共用一条）
+  function clearRibbons() {
+    for (let s = 0; s < RIB_N; s++) {
+      if (rbOn[s] === 1) {
+        ribKill(s);
+        rbOn[s] = 1;
+      } else if (rbOn[s] || rbCnt[s]) ribKill(s);
+    }
+    if (rbMesh) {
+      rbMesh.geometry.attributes.position.needsUpdate = true;
+      rbMesh.geometry.attributes.aCol.needsUpdate = true;
+      rbMesh.visible = false;
+    }
+    rbLive = 0;
+  }
+
+  // ----- 投射物本体 -----
   const projObjs = [], lootObjs = [];
   let portalObj = null;
-
-  // 敌方弹丸专用：压暗的元素色内核 + 一圈翻滚的红环。玩家的投射物是亮白核的纯色光球，
-  // 两者靠明暗和轮廓就能分开，不依赖色相（火焰区里双方都是橙色）
-  const hostileCores = Object.create(null);
-  let hostileRing = null;
+  const pfPool = [];
   const HOSTILE_RED = 0xff2a22;
-  W.makeProjectile = function (hex, radius, hostile) {
-    const h = hexOf(hex);
-    let mesh;
-    if (hostile) {
-      if (!hostileRing) hostileRing = new T.MeshBasicMaterial({ color: lin(HOSTILE_RED), toneMapped: false, fog: false });
-      const core = hostileCores[h] || (hostileCores[h] = new T.MeshBasicMaterial({ color: lin(mixHex(h, 0x0a0204, 0.62)), toneMapped: false, fog: false }));
-      mesh = new T.Mesh(gIco(1, 0), core);
-      mesh.scale.setScalar(radius * 1.15);
-      mesh.add(new T.Mesh(geo('projRing', () => new T.TorusGeometry(1.75, 0.2, 5, 14)), hostileRing));
-      const glow = new T.Sprite(spriteMat(h));
-      glow.scale.setScalar(7);
-      mesh.add(glow);
-    } else {
-      mesh = new T.Mesh(gIco(1, 1), coreMat(h));
-      mesh.scale.setScalar(radius);
-      const glow = new T.Sprite(spriteMat(h));
-      glow.scale.setScalar(6.5);
-      mesh.add(glow);
-    }
-    _c.set(h);
-    const u = mesh.userData;
-    u.kind = 'proj';
-    u.r = _c.r; u.g = _c.g; u.b = _c.b;
-    u.rad = radius;
-    u.acc = 0;
-    mesh.position.y = -50; // 调用方下一行就会设置位置；先藏到地下，避免在原点闪一帧
-    scene.add(mesh);
-    projObjs.push(mesh);
-    return mesh;
+  // 每种外形的拖尾：[半宽, 寿命, 头色混白比例, 尾色亮度]（颜色从投射物的颜色算）
+  const RIB_DEF = {
+    ember: [0.24, 0.2], blade: [0.09, 0.1], dart: [0.12, 0.22], orb: [0.18, 0.15],
+    glob: [0.17, 0.15], shard: [0.15, 0.2], spark: [0.13, 0.12], firebolt: [0.28, 0.22], horb: [0.15, 0.12],
   };
+  const PF_HOSTILE = { glob: 1, shard: 1, spark: 1, firebolt: 1, horb: 1 };
+  // makeProjectile(hex, radius, hostile[, opts])：opts.kind 外形（缺省按敌我取 orb / horb），opts.dx/dz 出生时的飞行方向，
+  // opts.tint 注入的元素色（拖尾、光晕和命中往这个颜色偏一点）
+  W.makeProjectile = function (hex, radius, hostile, opts) {
+    const o = opts || {};
+    let kind = o.kind;
+    if (!PF_DRAW[kind] || !!PF_HOSTILE[kind] !== !!hostile) kind = hostile ? 'horb' : 'orb'; // 敌我外形不串用
+    const h = hexOf(hex);
+    const grp = pfPool.length ? pfPool.pop() : new T.Group();
+    const u = grp.userData;
+    u.kind = 'proj';
+    u.vfx = kind;
+    u.pooled = false;
+    u.hostile = !!hostile;
+    u.rad = radius;
+    u.hex = h;
+    _c.set(h);
+    u.r = _c.r; u.g = _c.g; u.b = _c.b; // sRGB（粒子 / 拖尾用）
+    _c.convertSRGBToLinear();
+    u.lr = _c.r; u.lg = _c.g; u.lb = _c.b; // 线性（实例颜色用）
+    if (o.tint !== undefined && o.tint !== null) {
+      _c.set(o.tint);
+      u.tr = _c.r; u.tg = _c.g; u.tb = _c.b; u.tinted = true;
+    } else {
+      u.tr = u.r; u.tg = u.g; u.tb = u.b; u.tinted = false;
+    }
+    u.age = 0;
+    u.ph = rand(0, TAU);
+    u.acc = 0;
+    u.acc2 = 0;
+    const dl = Math.hypot(o.dx || 0, o.dz || 0);
+    u.dx = dl > 0 ? o.dx / dl : 0;
+    u.dz = dl > 0 ? o.dz / dl : 1;
+    u.lx = NaN; u.lz = NaN;
+    u.trail = true; // world 自己画拖尾（game.js 不再每帧撒通用火花）
+    const rd = RIB_DEF[kind];
+    u.rib = ribForKind(kind, u, rd);
+    grp.position.set(0, -50, 0); // 调用方下一行就会设置位置；先藏到地下
+    scene.add(grp);
+    projObjs.push(grp);
+    return grp;
+  };
+  function ribForKind(kind, u, rd) {
+    // 拖尾颜色：头偏白、尾压暗；注入的元素色混进尾巴
+    let r0, g0, b0, r1, g1, b1;
+    const tk = u.tinted ? 0.55 : 0;
+    if (kind === 'ember') { r0 = 0.95; g0 = 0.55; b0 = 0.2; r1 = 0.7; g1 = 0.1; b1 = 0.02; }
+    else if (kind === 'blade') { r0 = 0.62; g0 = 0.68; b0 = 0.8; r1 = 0.22; g1 = 0.25; b1 = 0.32; }
+    else if (kind === 'shard') { r0 = 0.72; g0 = 0.92; b0 = 1; r1 = 0.15; g1 = 0.35; b1 = 0.6; }
+    else if (kind === 'spark') { r0 = 1; g0 = 0.95; b0 = 0.6; r1 = 0.55; g1 = 0.45; b1 = 0.1; }
+    else if (kind === 'firebolt') { r0 = 1; g0 = 0.45; b0 = 0.12; r1 = 0.55; g1 = 0.05; b1 = 0.02; }
+    else if (u.hostile) { r0 = u.r * 0.6; g0 = u.g * 0.6; b0 = u.b * 0.6; r1 = 0.45; g1 = 0.04; b1 = 0.03; }
+    else { r0 = u.r + (1 - u.r) * 0.45; g0 = u.g + (1 - u.g) * 0.45; b0 = u.b + (1 - u.b) * 0.45; r1 = u.r * 0.55; g1 = u.g * 0.55; b1 = u.b * 0.55; }
+    if (tk) {
+      r1 += (u.tr - r1) * tk; g1 += (u.tg - g1) * tk; b1 += (u.tb - b1) * tk;
+      r0 += (u.tr - r0) * tk * 0.4; g0 += (u.tg - g0) * tk * 0.4; b0 += (u.tb - b0) * tk * 0.4;
+    }
+    return ribGet(rd[0], rd[1], r0, g0, b0, r1, g1, b1);
+  }
+  // 线性空间里把投射物色往白 / 往暗混
+  function pfLight(u, k) {
+    _pc.setRGB(u.lr + (1 - u.lr) * k, u.lg + (1 - u.lg) * k, u.lb + (1 - u.lb) * k);
+    return _pc;
+  }
+  function pfDark(u, k) {
+    // 和旧的敌弹内核一样：元素色压向近黑的暗红（k 按 sRGB 的混合比例给，这里换算到线性）
+    const m = Math.pow(1 - k, 2.2);
+    _pc.setRGB(u.lr * m + 0.0033 * k, u.lg * m + 0.0006 * k, u.lb * m + 0.0012 * k);
+    return _pc;
+  }
+  const RED_L = new T.Color(HOSTILE_RED).convertSRGBToLinear();
+  function hostileRing(u, x, y, z, s) {
+    _pe.set(u.age * 7 + u.ph, u.age * 9, 0);
+    _pq.setFromEuler(_pe);
+    mPose(x, y, z, _pq, s, s, s);
+    pfPut('ring', RED_L.r, RED_L.g, RED_L.b);
+  }
+  function glowPut(u, x, y, z, s, k) {
+    let r = u.lr, g = u.lg, b = u.lb;
+    if (u.tinted) {
+      _c.setRGB(u.tr, u.tg, u.tb).convertSRGBToLinear();
+      r += (_c.r - r) * 0.4; g += (_c.g - g) * 0.4; b += (_c.b - b) * 0.4;
+    }
+    mBill(x, y, z, s);
+    pfPut('glow', r * k, g * k, b * k);
+  }
+  // 绕 y 轴转向飞行方向的四元数
+  function yawQ(u) {
+    return _pq.setFromAxisAngle(UP, Math.atan2(u.dx, u.dz));
+  }
+  // 一条火舌：从 (x,z) 往飞行反方向拖，ang 是相对飞行方向的偏角
+  function flameTongue(u, x, y, z, ang, w, len, r, g, b, part) {
+    const c = Math.cos(ang), s = Math.sin(ang);
+    const ex = u.dx * c + u.dz * s, ez = -u.dx * s + u.dz * c;
+    mStretch(x, y, z, ex, 0, ez, w, len);
+    pfPut(part || 'flame', r, g, b);
+  }
+  const PF_DRAW = {
+    // 掷焰：白热的核，一团内焰，三条左右摆动、长短闪烁的外焰舌；一路落下火星、拖一缕细烟
+    ember(u, x, y, z, dt) {
+      const r = u.rad, t = u.age, ph = u.ph;
+      mPose(x, y, z, _pqI, r * 0.45, r * 0.45, r * 0.45);
+      pfPut('core', 1, 0.82, 0.5);
+      const f1 = 1 + 0.16 * Math.sin(t * 37 + ph);
+      const tk = u.tinted ? 0.45 : 0;
+      _c.setRGB(u.tr, u.tg, u.tb).convertSRGBToLinear();
+      // 火球：短而胖的一团（贴图的圆头），再套一层拉长的内焰
+      mStretch(x + u.dx * r * 0.6, y, z + u.dz * r * 0.6, u.dx, 0, u.dz, r * 2.6 * (2 - f1), r * 2.2 * f1);
+      pfPut('flame', 0.5 + (_c.r - 0.5) * tk * 0.5, 0.17 + (_c.g - 0.17) * tk * 0.5, 0.03 + (_c.b - 0.03) * tk * 0.5);
+      const or = 0.8 + (_c.r - 0.8) * tk, og = 0.13 + (_c.g - 0.13) * tk, ob = 0.015 + (_c.b - 0.015) * tk;
+      // 外焰舌：实色的橙红，三条左右错开、各自摆动闪烁
+      const sr = 1 + (_c.r - 1) * tk, sg = 0.2 + (_c.g - 0.2) * tk, sb = 0.02 + (_c.b - 0.02) * tk;
+      for (let k = 0; k < 3; k++) {
+        const wob = Math.sin(t * 17 + ph + k * 2.1) * 0.35 + (k - 1) * 0.5;
+        const len = r * (4.4 + 1.6 * Math.sin(t * 23 + k * 1.7 + ph)) * (k === 1 ? 1.3 : 0.85);
+        const lat = (k - 1) * r * 0.55;
+        flameTongue(u, x + u.dx * r * 0.35 + u.dz * lat, y + (k - 1) * 0.03, z + u.dz * r * 0.35 - u.dx * lat, wob, r * (k === 1 ? 2.4 : 1.9), len, sr, sg, sb, 'flameN');
+      }
+      // 实色火舌里的亮芯
+      for (let k = 0; k < 2; k++) {
+        const wob = Math.sin(t * 19 + ph + k * 2.7) * 0.25 + (k - 0.5) * 0.3;
+        flameTongue(u, x + u.dx * r * 0.2, y + 0.04, z + u.dz * r * 0.2, wob, r * 1.0, r * (3 + Math.sin(t * 29 + k)), or * 0.8, og * 0.8, ob * 0.8);
+      }
+      glowPut(u, x, y, z, r * 6, 0.45);
+      u.acc += dt;
+      while (u.acc > 0.02) {
+        u.acc -= 0.02;
+        const wh = Math.random();
+        // 火星：小而亮，往上飘、往两侧散
+        spawnP(x - u.dx * r + rand(-0.12, 0.12), y + rand(-0.1, 0.12), z - u.dz * r + rand(-0.12, 0.12), rand(-1.2, 1.2) - u.dx * 1.5, rand(0.3, 1.8), rand(-1.2, 1.2) - u.dz * 1.5, rand(0.25, 0.5), rand(0.08, 0.14), 1, 0.65 + wh * 0.3, 0.2 + wh * 0.4, -1.5, 1.8);
+        // 尾焰的一团
+        spawnP(x - u.dx * r * 2, y, z - u.dz * r * 2, -u.dx * 2, rand(0.2, 0.8), -u.dz * 2, rand(0.12, 0.2), r * 1.3, 0.7 * (1 - tk) + u.tr * tk * 0.8, 0.2 * (1 - tk) + u.tg * tk * 0.8, 0.03 * (1 - tk) + u.tb * tk * 0.8, -1, 3);
+      }
+      u.acc2 += dt;
+      if (u.acc2 > 0.05) {
+        u.acc2 = 0;
+        spawnS(x - u.dx * r * 3, y + 0.1, z - u.dz * r * 3, rand(-0.2, 0.2), rand(0.5, 1.1), rand(-0.2, 0.2), rand(0.45, 0.7), rand(0.35, 0.5), 0.14, 0.12, 0.11, 0.4);
+        smokeLive = 1.2;
+      }
+    },
+    // 飞刃：三刃的旋转飞刃 + 跟着转的残影环，刃口随着转动一闪一闪
+    blade(u, x, y, z, dt) {
+      const r = u.rad, spin = u.age * 30 + u.ph;
+      _pq.setFromAxisAngle(UP, spin);
+      const k = 0.92 + 0.45 * Math.pow(0.5 + 0.5 * Math.sin(u.age * 11 + u.ph), 12);
+      mPose(x, y, z, _pq, r * 2.5, r * 2.5, r * 2.5);
+      pfPut('blade', k, k, k * 1.04);
+      _pq.setFromAxisAngle(UP, spin - 0.35);
+      mPose(x, y - 0.03, z, _pq, r * 3, 1, r * 3);
+      if (u.tinted) {
+        _c.setRGB(u.tr, u.tg, u.tb).convertSRGBToLinear();
+        pfPut('blur', 0.3 + _c.r * 0.35, 0.33 + _c.g * 0.35, 0.4 + _c.b * 0.35);
+      } else pfPut('blur', 0.42, 0.48, 0.6);
+      glowPut(u, x, y, z, r * 4.2, 0.3);
+    },
+    // 秘弹：拉长的晶尖 + 两粒绕着它转的光点，拖一条元素色的细带
+    dart(u, x, y, z, dt) {
+      yawQ(u);
+      const c = pfLight(u, 0.55);
+      mPose(x, y, z, _pq, 0.085, 0.085, 0.3);
+      pfPut('dart', c.r, c.g, c.b);
+      const sx = u.dz, sz = -u.dx; // 侧向
+      for (let k = 0; k < 2; k++) {
+        const a = u.age * 24 + k * Math.PI + u.ph, o = Math.cos(a) * 0.17;
+        mPose(x + sx * o - u.dx * 0.05, y + Math.sin(a) * 0.17, z + sz * o - u.dz * 0.05, _pqI, 0.035, 0.035, 0.035);
+        pfPut('core', c.r, c.g, c.b);
+      }
+      glowPut(u, x, y, z, 1.0, 0.85);
+      u.acc += dt;
+      if (u.acc > 0.035) {
+        u.acc = 0;
+        spawnP(x + rand(-0.06, 0.06), y + rand(-0.06, 0.06), z + rand(-0.06, 0.06), rand(-0.4, 0.4), rand(-0.2, 0.5), rand(-0.4, 0.4), rand(0.2, 0.35), 0.12, u.r + (1 - u.r) * 0.3, u.g + (1 - u.g) * 0.3, u.b + (1 - u.b) * 0.3, 0, 2);
+      }
+    },
+    // 通用光球（没有专门外形的玩家投射物）
+    orb(u, x, y, z, dt) {
+      const c = pfLight(u, 0.6);
+      mPose(x, y, z, _pqI, u.rad, u.rad, u.rad);
+      pfPut('core', c.r, c.g, c.b);
+      glowPut(u, x, y, z, u.rad * 6.5, 1);
+      pfSpray(u, x, y, z, dt);
+    },
+    // 喷吐者的黏液弹：一团压扁拉长、不停晃动的暗色黏液，表面一点湿亮的高光，后面甩着两滴，一路往下滴
+    glob(u, x, y, z, dt) {
+      const r = u.rad * 1.1, t = u.age, wob = Math.sin(t * 15 + u.ph);
+      yawQ(u);
+      const c = pfDark(u, 0.5);
+      const cr = c.r, cg = c.g, cb = c.b;
+      mPose(x, y, z, _pq, r * (1 - 0.1 * wob), r * (0.9 + 0.1 * wob), r * (1.2 + 0.12 * wob));
+      pfPut('core', cr, cg, cb);
+      const hl = pfLight(u, 0.7);
+      mPose(x - r * 0.28, y + r * 0.6, z + r * 0.18, _pqI, r * 0.3, r * 0.18, r * 0.26);
+      pfPut('core', hl.r, hl.g, hl.b);
+      const sx = u.dz, sz = -u.dx;
+      for (let k = 1; k <= 2; k++) {
+        const d = r * (1.35 + k * 0.85) + 0.05 * Math.sin(t * 20 + k), lat = Math.sin(t * 11 + k * 2 + u.ph) * 0.07, s = r * (0.5 - 0.15 * k);
+        mPose(x - u.dx * d + sx * lat, y - 0.04 * k, z - u.dz * d + sz * lat, _pqI, s, s, s);
+        pfPut('core', cr, cg, cb);
+      }
+      hostileRing(u, x, y, z, u.rad * 1.15);
+      glowPut(u, x, y, z, u.rad * 5.5, 0.85);
+      u.acc += dt;
+      if (u.acc > 0.06) {
+        u.acc = 0;
+        spawnP(x - u.dx * r + rand(-0.1, 0.1), y - r * 0.6, z - u.dz * r + rand(-0.1, 0.1), rand(-0.3, 0.3), rand(-0.5, 0), rand(-0.3, 0.3), rand(0.4, 0.6), rand(0.12, 0.17), u.r * 0.75, u.g * 0.75, u.b * 0.75, 16, 0.6);
+      }
+    },
+    // 霜织者的冰棱：尖朝前、绕自身轴滚转的冰锥，一路散着霜雾和冰晶闪点
+    shard(u, x, y, z, dt) {
+      const r = u.rad;
+      yawQ(u);
+      _pq.multiply(_pq2.setFromAxisAngle(Z_AXIS, u.age * 9 + u.ph));
+      const c = pfLight(u, 0.35);
+      mPose(x, y, z, _pq, r * 1.6, r * 1.6, r * 1.6);
+      pfPut('shard', c.r, c.g, c.b);
+      hostileRing(u, x, y, z, u.rad * 1.15);
+      glowPut(u, x, y, z, u.rad * 5, 0.65);
+      u.acc += dt;
+      if (u.acc > 0.035) {
+        u.acc = 0;
+        spawnP(x - u.dx * r + rand(-0.15, 0.15), y + rand(-0.1, 0.1), z - u.dz * r + rand(-0.15, 0.15), rand(-0.4, 0.4), rand(-0.2, 0.3), rand(-0.4, 0.4), rand(0.3, 0.5), rand(0.16, 0.26), 0.55, 0.75, 0.9, 0.5, 2.5);
+        if (Math.random() < 0.4) spawnP(x + rand(-0.2, 0.2), y + rand(-0.15, 0.15), z + rand(-0.2, 0.2), 0, 0, 0, 0.18, 0.13, 1, 1, 1, 0, 0);
+      }
+    },
+    // 雷霆监察者的雷球：暗色的球心，表面三道不停变换方向的电弧，往外乱迸的电火花
+    spark(u, x, y, z, dt) {
+      const r = u.rad, t = u.age;
+      // 一颗跳动的亮芯，外面压一圈暗色的「电壳」（只是一圈暗环，不挡住亮芯）
+      const pulse = 1 + 0.15 * Math.sin(t * 40 + u.ph);
+      mPose(x, y, z, _pqI, r * 0.42 * pulse, r * 0.42 * pulse, r * 0.42 * pulse);
+      pfPut('core', 1, 0.92, 0.6);
+      mBill(x, y, z, r * 3.2 * pulse);
+      pfPut('glow', 1, 0.85, 0.35);
+      const fr = Math.floor(t * 24);
+      for (let k = 0; k < 4; k++) {
+        const hsh = hash2(fr * 3 + k, k * 17 + Math.floor(u.ph * 100));
+        const ang = hsh * TAU, on = hash2(fr + 11, k) < 0.8 ? 1 : 0.3;
+        _pq.copy(camQ).multiply(_pq2.setFromAxisAngle(Z_AXIS, ang));
+        mPose(x, y, z, _pq, r * (3.2 + hsh * 1.8), r * 1.1, 1);
+        pfPut('arc', 1.2 * on, 1.05 * on, 0.5 * on);
+      }
+      hostileRing(u, x, y, z, u.rad * 1.15);
+      glowPut(u, x, y, z, u.rad * 6, 0.85);
+      u.acc += dt;
+      if (u.acc > 0.05) {
+        u.acc = 0;
+        const a = rand(0, TAU), v = rand(4, 8);
+        spawnP(x, y, z, Math.sin(a) * v, rand(-1, 3), Math.cos(a) * v, rand(0.06, 0.14), 0.12, 1, 1, 0.7, 0, 6);
+      }
+    },
+    // 熔渣巨像 / 烬渊之主的火弹：拉长的暗红焰心裹着深红的火舌，拖着黑烟
+    firebolt(u, x, y, z, dt) {
+      const r = u.rad, t = u.age, ph = u.ph;
+      yawQ(u);
+      mPose(x, y, z, _pq, r * 0.75, r * 0.75, r * 1.35);
+      pfPut('core', 0.1, 0.012, 0.006);
+      const f1 = 1 + 0.18 * Math.sin(t * 33 + ph);
+      mStretch(x + u.dx * r * 0.4, y, z + u.dz * r * 0.4, u.dx, 0, u.dz, r * 2.4, r * 3.6 * f1);
+      pfPut('flame', 0.85, 0.3, 0.05);
+      for (let k = 0; k < 3; k++) {
+        const wob = Math.sin(t * 15 + ph + k * 2.3) * 0.25 + (k - 1) * 0.35;
+        const len = r * (4.8 + 1.6 * Math.sin(t * 21 + k * 1.9 + ph));
+        // 敌方火弹：暗红实色火舌（比玩家的掷焰深一截），外面再罩一层淡淡的加色
+        flameTongue(u, x, y + (k - 1) * 0.04, z, wob, r * 2.2, len, 0.45, 0.03, 0.012, 'flameN');
+        if (k !== 1) flameTongue(u, x, y + 0.05, z, wob * 0.7, r * 1.3, len * 0.7, 0.55, 0.08, 0.02);
+      }
+      hostileRing(u, x, y, z, u.rad * 1.15);
+      glowPut(u, x, y, z, u.rad * 6, 0.75);
+      u.acc += dt;
+      while (u.acc > 0.03) {
+        u.acc -= 0.03;
+        spawnP(x - u.dx * r * 1.5 + rand(-0.1, 0.1), y + rand(-0.1, 0.1), z - u.dz * r * 1.5 + rand(-0.1, 0.1), rand(-1, 1), rand(0.3, 1.5), rand(-1, 1), rand(0.25, 0.45), rand(0.1, 0.15), 1, 0.4, 0.1, -1, 1.5);
+      }
+      u.acc2 += dt;
+      if (u.acc2 > 0.045) {
+        u.acc2 = 0;
+        spawnS(x - u.dx * r * 2.5, y + 0.05, z - u.dz * r * 2.5, rand(-0.2, 0.2), rand(0.4, 0.9), rand(-0.2, 0.2), rand(0.5, 0.8), rand(0.45, 0.6), 0.09, 0.06, 0.06, 0.55);
+        smokeLive = 1.2;
+      }
+    },
+    // 通用敌弹：压暗的内核 + 红环（和旧版一样的识别语言）
+    horb(u, x, y, z, dt) {
+      const c = pfDark(u, 0.62), s = u.rad * 1.15;
+      mPose(x, y, z, _pqI, s, s, s);
+      pfPut('core', c.r, c.g, c.b);
+      hostileRing(u, x, y, z, s);
+      glowPut(u, x, y, z, s * 7, 1);
+      pfSpray(u, x, y, z, dt);
+    },
+  };
+  function pfSpray(u, x, y, z, dt) {
+    u.acc += dt;
+    if (u.acc > 0.028) {
+      u.acc = 0;
+      spawnP(x + rand(-0.1, 0.1), y + rand(-0.1, 0.1), z + rand(-0.1, 0.1), rand(-0.6, 0.6), rand(-0.2, 0.8), rand(-0.6, 0.6), rand(0.2, 0.36), u.rad * 2.2, u.r * 0.8, u.g * 0.8, u.b * 0.8, -0.5, 1);
+    }
+  }
+  function pfDraw(m, u, p, dt) {
+    if (p.y < -10) return; // 还没摆到位置上
+    u.age += dt;
+    if (u.lx === u.lx) {
+      const mx = p.x - u.lx, mz = p.z - u.lz, l2 = mx * mx + mz * mz;
+      if (l2 > 1e-8) {
+        const l = Math.sqrt(l2);
+        u.dx = mx / l;
+        u.dz = mz / l;
+      }
+    }
+    u.lx = p.x;
+    u.lz = p.z;
+    if (u.rib >= 0) ribHead(u.rib, p.x, p.y, p.z, dt);
+    PF_DRAW[u.vfx](u, p.x, p.y, p.z, dt);
+  }
+
+  // ----- 命中 / 撞墙 / 爆炸：W.projImpact(mesh, x, z, how, R) -----
+  // how：'hit' 打中目标（可能继续飞）/ 'wall' 撞墙 / 'blast' 爆炸（R 为半径）。认得这种外形就画并返回 true，否则返回 false（调用方用通用火花）
+  W.projImpact = function (mesh, x, z, how, R) {
+    const u = mesh && mesh.userData;
+    const vk = u && u.vfx;
+    if (!vk) return false;
+    const y = 1.1;
+    if (vk === 'ember') {
+      if (how === 'hit') return true; // 掷焰打中后由爆炸那一下出特效
+      fireBurst(x, y, z, R || 1, u);
+      return true;
+    }
+    if (vk === 'blade') {
+      metalSparks(x, y, z, u.dx, u.dz, how === 'wall' ? 1.5 : 1, u);
+      if (how === 'wall') W.decal(0, x - u.dx * 0.3, z - u.dz * 0.3, 0.6, Math.atan2(u.dx, u.dz), 0xfff0d0, 0.3, 0.14);
+      return true;
+    }
+    if (vk === 'dart') {
+      if (how === 'hit') return true;
+      const h = u.hex, Rr = R || 0.8;
+      W.ring(x, z, Rr, h, 0.26);
+      W.ring(x, z, Rr * 0.45, mixHex(h, 0xffffff, 0.6), 0.16);
+      flare(x, y, z, h, 1.3, 0.1);
+      for (let i = 0; i < 14; i++) {
+        const a = rand(0, TAU), v = rand(2.5, 6) * Math.max(0.6, Rr * 0.6), wh = i % 3 === 0 ? 0.6 : 0.15;
+        spawnP(x, y, z, Math.sin(a) * v, rand(-0.5, 2.5), Math.cos(a) * v, rand(0.18, 0.35), rand(0.12, 0.2), u.r + (1 - u.r) * wh, u.g + (1 - u.g) * wh, u.b + (1 - u.b) * wh, 2, 3.5);
+      }
+      W.decal(3, x, z, Rr * 0.5, rand(0, TAU), h, 1.2);
+      return true;
+    }
+    if (vk === 'orb') {
+      if (how === 'hit') return false;
+      W.ring(x, z, R || 1, u.hex, 0.3);
+      W.burst(x, 1.0, z, u.hex, 16, 6, 0.4);
+      return true;
+    }
+    // 敌方弹丸：命中 / 撞墙都是一次就没了
+    if (vk === 'glob') {
+      // 溅开：一圈往外甩的黏液滴、地上一摊、一点带颜色的雾
+      for (let i = 0; i < 12; i++) {
+        const a = rand(0, TAU), v = rand(1.5, 4.5);
+        spawnP(x, y, z, Math.sin(a) * v, rand(0.5, 3.5), Math.cos(a) * v, rand(0.35, 0.6), rand(0.13, 0.22), u.r * 0.8, u.g * 0.8, u.b * 0.8, 14, 1);
+      }
+      W.smoke(x, y - 0.3, z, 0.2, 3, mixHex(u.hex, 0x101010, 0.6));
+      W.decal(4, x, z, 0.75, rand(0, TAU), u.hex, 1.6);
+      flare(x, y, z, u.hex, 0.8, 0.07);
+      return true;
+    }
+    if (vk === 'shard') {
+      // 碎冰：大块往下掉的冰碴 + 白雾 + 一小片霜痕
+      for (let i = 0; i < 12; i++) {
+        const a = rand(0, TAU), v = rand(2, 5.5);
+        spawnP(x, y, z, Math.sin(a) * v, rand(1, 4), Math.cos(a) * v, rand(0.35, 0.6), rand(0.16, 0.3), 0.82, 0.94, 1, 18, 1.4);
+      }
+      W.smoke(x, y - 0.2, z, 0.25, 3, 0xbfdcec);
+      W.decal(2, x, z, 0.9, rand(0, TAU), 0x9fdcff, 1.4);
+      flare(x, y, z, 0xcfefff, 1.0, 0.08);
+      return true;
+    }
+    if (vk === 'spark') {
+      for (let i = 0; i < 12; i++) {
+        const a = rand(0, TAU), v = rand(7, 14);
+        spawnP(x, y, z, Math.sin(a) * v, rand(-2, 6), Math.cos(a) * v, rand(0.06, 0.16), 0.13, 1, 1, 0.7, 0, 6);
+      }
+      flare(x, y, z, 0xfff3a0, 1.4, 0.1);
+      W.decal(3, x, z, 0.8, rand(0, TAU), 0xffe45e, 1.2);
+      flashLight(x, 2, z, 0xffe45e, 0.9);
+      return true;
+    }
+    if (vk === 'firebolt') {
+      for (let i = 0; i < 12; i++) {
+        const a = rand(0, TAU), v = rand(2, 5);
+        spawnP(x, y, z, Math.sin(a) * v, rand(0.5, 3), Math.cos(a) * v, rand(0.25, 0.5), rand(0.14, 0.24), 1, rand(0.25, 0.5), 0.06, 4, 2);
+      }
+      W.smoke(x, y, z, 0.25, 3, 0x1a1010);
+      W.decal(1, x, z, 0.7, rand(0, TAU), 0xff5a2a, 1.6);
+      flare(x, y, z, 0xff7a2c, 1.0, 0.08);
+      return true;
+    }
+    if (vk === 'horb') return false;
+    return false;
+  };
+  // 掷焰炸开：火球闪光、一圈火焰环、往外喷的火星和火团、一团黑烟、地上一块短暂的焦痕
+  function fireBurst(x, y, z, R, u) {
+    const tint = u && u.tinted ? (_c.setRGB(u.tr, u.tg, u.tb), _c.getHex()) : 0;
+    const h = tint ? mixHex(0xff7a2c, tint, 0.45) : 0xff7a2c;
+    W.ring(x, z, R, h, 0.3);
+    W.ring(x, z, R * 0.55, 0xffd7a0, 0.18);
+    flare(x, y, z, 0xffb060, 1.6 + R * 0.3, 0.12);
+    flashLight(x, 2, z, 0xff8a3c, 1.6);
+    _c.set(h);
+    const hr = _c.r, hg = _c.g, hb = _c.b;
+    for (let i = 0; i < 16; i++) {
+      // 火团：大、慢、往上翻
+      const a = rand(0, TAU), v = rand(1, 3.2) * R;
+      spawnP(x, y, z, Math.sin(a) * v, rand(0.5, 2.5), Math.cos(a) * v, rand(0.22, 0.4), rand(0.4, 0.65), hr, hg * 0.85, hb * 0.6, -2, 3.5);
+    }
+    for (let i = 0; i < 18; i++) {
+      // 火星：小、快、带重力
+      const a = rand(0, TAU), v = rand(4, 9) * Math.sqrt(R);
+      spawnP(x, y, z, Math.sin(a) * v, rand(1, 6), Math.cos(a) * v, rand(0.3, 0.6), rand(0.08, 0.14), 1, rand(0.7, 0.95), rand(0.3, 0.6), 12, 1.5);
+    }
+    W.smoke(x, y + 0.2, z, 0.35 * R, 5, 0x241a16);
+    W.decal(1, x, z, R * 0.7, rand(0, TAU), h, 1.8);
+  }
+  // 金属火花：顺着飞行方向喷出去的一把亮白火花
+  function metalSparks(x, y, z, dx, dz, k, u) {
+    const ang = Math.atan2(dx, dz);
+    for (let i = 0, n = Math.round(11 * k); i < n; i++) {
+      const a = ang + rand(-1, 1) * (i % 3 === 0 ? 1.8 : 0.8) + (k > 1 ? Math.PI : 0), v = rand(5, 12);
+      const wh = Math.random();
+      spawnP(x, y + rand(-0.1, 0.15), z, Math.sin(a) * v, rand(0.5, 4), Math.cos(a) * v, rand(0.1, 0.26), rand(0.07, 0.12), 1, 0.85 + wh * 0.15, 0.55 + wh * 0.4, 16, 3.5);
+    }
+    if (u && u.tinted) for (let i = 0; i < 5; i++) spawnP(x, y, z, rand(-3, 3), rand(0, 3), rand(-3, 3), rand(0.2, 0.35), 0.16, u.tr, u.tg, u.tb, 4, 3);
+    flare(x, y, z, 0xeef4ff, 0.75 * k, 0.06);
+  }
+
+  // ----- 陨石的火焰尾 / 落地的碎石（每帧在 updateProjFx 里写实例） -----
+  const DB_N = 96;
+  const dbX = new Float32Array(DB_N), dbY = new Float32Array(DB_N), dbZ = new Float32Array(DB_N);
+  const dbVX = new Float32Array(DB_N), dbVY = new Float32Array(DB_N), dbVZ = new Float32Array(DB_N);
+  const dbL = new Float32Array(DB_N), dbM = new Float32Array(DB_N), dbS = new Float32Array(DB_N), dbR = new Float32Array(DB_N), dbC = new Float32Array(DB_N * 3);
+  let dbNext = 0, dbLive = 0;
+  function debrisBurst(x, z, n, hex, sp) {
+    _c.set(hex);
+    for (let i = 0; i < n; i++) {
+      const k = dbNext;
+      dbNext = (dbNext + 1) % DB_N;
+      const a = rand(0, TAU), v = rand(3, 7.5) * sp;
+      dbX[k] = x + Math.sin(a) * 0.4; dbY[k] = 0.4; dbZ[k] = z + Math.cos(a) * 0.4;
+      dbVX[k] = Math.sin(a) * v; dbVY[k] = rand(4, 9) * sp; dbVZ[k] = Math.cos(a) * v;
+      dbL[k] = dbM[k] = rand(0.7, 1.1);
+      dbS[k] = rand(0.1, 0.22);
+      dbR[k] = rand(0, TAU);
+      dbC[k * 3] = _c.r; dbC[k * 3 + 1] = _c.g; dbC[k * 3 + 2] = _c.b;
+    }
+    dbLive = 1.2;
+  }
+  function updateDebris(dt) {
+    if (dbLive <= 0) return;
+    dbLive -= dt;
+    for (let k = 0; k < DB_N; k++) {
+      if (dbL[k] <= 0) continue;
+      dbL[k] -= dt;
+      if (dbL[k] <= 0) continue;
+      dbVY[k] -= 22 * dt;
+      dbX[k] += dbVX[k] * dt; dbY[k] += dbVY[k] * dt; dbZ[k] += dbVZ[k] * dt;
+      if (dbY[k] < dbS[k] * 0.6 && dbVY[k] < 0) {
+        // 落地弹一下，横向速度大幅衰减
+        dbY[k] = dbS[k] * 0.6;
+        dbVY[k] *= -0.3;
+        dbVX[k] *= 0.45;
+        dbVZ[k] *= 0.45;
+      }
+      dbR[k] += dt * 9;
+      const f = dbL[k] / dbM[k], s = dbS[k] * Math.min(1, f * 4);
+      _pe.set(dbR[k], dbR[k] * 0.7, 0);
+      _pq.setFromEuler(_pe);
+      mPose(dbX[k], dbY[k], dbZ[k], _pq, s, s, s);
+      pfPut('debris', 0.55, 0.5, 0.48);
+      // 刚飞出去的碎块带一点余烬
+      if (f > 0.55 && Math.random() < 0.35) spawnP(dbX[k], dbY[k], dbZ[k], 0, 0.3, 0, rand(0.15, 0.3), 0.12, dbC[k * 3], dbC[k * 3 + 1], dbC[k * 3 + 2], -0.5, 2);
+    }
+  }
+  function clearDebris() {
+    dbL.fill(0);
+    dbLive = 0;
+  }
+  // 陨石尾焰：顺着下落方向拉长的大火舌（陨石的位置在 updateMeteors 里算好）
+  function meteorFlames(dt) {
+    for (let i = 0; i < meteors.length; i++) {
+      const m = meteors[i];
+      if (!m.on) continue;
+      const p = m.mesh.position, t = m.t * 1.7 + i;
+      // 下落方向（常量）：(6, -25.5, 9)
+      const dx = 0.2159, dy = -0.9175, dz = 0.3238;
+      ribHead(m.rib, p.x, p.y, p.z, dt);
+      mStretch(p.x + dx * 0.3, p.y + dy * 0.3, p.z + dz * 0.3, dx, dy, dz, 1.3, 2.6 * (1 + 0.15 * Math.sin(t * 30)));
+      pfPut('flame', m.lr * 0.5 + 0.5, m.lg * 0.5 + 0.4, m.lb * 0.5 + 0.15);
+      for (let k = 0; k < 3; k++) {
+        const o = (k - 1) * 0.28;
+        mStretch(p.x + o, p.y + 0.1, p.z - o * 0.3, dx, dy, dz, 1.1, (3.6 + 1.2 * Math.sin(t * 23 + k * 2)) * (k === 1 ? 1.2 : 0.9));
+        pfPut('flame', m.lr, m.lg * 0.85, m.lb * 0.7);
+      }
+      m.sm += dt;
+      if (m.sm > 0.035) {
+        m.sm = 0;
+        spawnS(p.x - dx * 0.8 + rand(-0.2, 0.2), p.y - dy * 0.8, p.z - dz * 0.8 + rand(-0.2, 0.2), rand(-0.3, 0.3), rand(0, 0.6), rand(-0.3, 0.3), rand(0.5, 0.8), rand(0.6, 0.9), 0.1, 0.08, 0.07, 0.5);
+        smokeLive = 1.2;
+      }
+    }
+  }
+  // 没走实例化的投射物（魂灵）：头尾左右摇曳，拖一串往上浮的魂火屑和一条魂尾
+  function legacyProj(m, u, p, dt) {
+    if (u.seek) {
+      const dx = p.x - u.lx, dz = p.z - u.lz;
+      if (dx * dx + dz * dz > 1e-6) m.rotation.y = Math.atan2(dx, dz);
+      u.lx = p.x;
+      u.lz = p.z;
+    } else {
+      m.rotation.x += dt * 7;
+      m.rotation.y += dt * 9;
+    }
+    u.acc += dt;
+    if (u.wisp) {
+      // 刚放出时从幡头的高度落下来（前 0.3 秒），像是从幡上飞出去的
+      u.ph += dt * 13;
+      u.age += dt;
+      const lift = u.age < 0.3 ? (1 - u.age / 0.3) * (1 - u.age / 0.3) * 1.1 : 0;
+      u.wisp.rotation.y = Math.sin(u.ph) * 0.35;
+      u.wisp.position.y = lift + Math.sin(u.ph * 0.5) * 0.08;
+      if (p.y > -10 && u.rib >= 0) ribHead(u.rib, p.x, p.y + u.wisp.position.y, p.z, dt);
+      if (u.acc > 0.03 && p.y > -10) {
+        u.acc = 0;
+        const wh = Math.random() < 0.3 ? 0.5 : 0;
+        spawnP(p.x + rand(-0.08, 0.08), p.y + rand(-0.05, 0.1), p.z + rand(-0.08, 0.08), rand(-0.3, 0.3), rand(0.4, 1.4), rand(-0.3, 0.3), rand(0.3, 0.5), rand(0.14, 0.22), u.r + (1 - u.r) * wh, u.g + (1 - u.g) * wh, u.b + (1 - u.b) * wh, -1, 1.5);
+      }
+      return;
+    }
+    if (u.acc > 0.028 && p.y > -10) {
+      u.acc = 0;
+      spawnP(p.x + rand(-0.1, 0.1), p.y + rand(-0.1, 0.1), p.z + rand(-0.1, 0.1), rand(-0.6, 0.6), rand(-0.2, 0.8), rand(-0.6, 0.6), rand(0.2, 0.36), u.rad * 2.2, u.r * 0.8, u.g * 0.8, u.b * 0.8, -0.5, 1);
+    }
+  }
+  // 每帧：投射物本体 + 陨石尾焰 + 碎石，写进实例缓冲；拖尾带子重建
+  function updateProjFx(dt) {
+    pfBegin();
+    for (let i = 0; i < projObjs.length; i++) {
+      const m = projObjs[i], u = m.userData;
+      if (u.vfx) pfDraw(m, u, m.position, dt);
+      else legacyProj(m, u, m.position, dt);
+    }
+    meteorFlames(dt);
+    updateDebris(dt);
+    pfEnd();
+    updateRibbons(dt);
+  }
+  // 预热：每种零件各摆一个，让 warmEntities 那一帧把着色器编译掉
+  function warmProjFx(on) {
+    for (let i = 0; i < PF_LIST.length; i++) {
+      const p = PF_LIST[i];
+      p.n = on ? 1 : 0;
+      _pm.makeTranslation(0, 1, 2);
+      if (on) p.mesh.setMatrixAt(0, _pm);
+    }
+    if (on) {
+      camQ.copy(camera.quaternion);
+      camB.set(0, 0, 1).applyQuaternion(camQ);
+    }
+    pfEnd();
+    rbMesh.visible = on;
+  }
+  function clearProjFx() {
+    clearRibbons();
+    clearDebris();
+    for (let i = 0; i < PF_LIST.length; i++) PF_LIST[i].n = 0;
+    pfEnd();
+  }
 
   const lootMats = Object.create(null);
   function lootMat(hex) {
@@ -8530,6 +9627,15 @@
     if (kind === 'proj') {
       const i = projObjs.indexOf(mesh);
       if (i >= 0) projObjs.splice(i, 1);
+      const u = mesh.userData;
+      if (u.rib >= 0) {
+        ribRelease(u.rib); // 拖尾留在原地淡出
+        u.rib = -1;
+      }
+      if (u.vfx && !u.pooled) {
+        u.pooled = true;
+        pfPool.push(mesh);
+      }
     } else if (kind === 'loot') {
       const i = lootObjs.indexOf(mesh);
       if (i >= 0) lootObjs.splice(i, 1);
@@ -8865,40 +9971,8 @@
       }
     }
 
-    // 投射物：自转 + 拖尾
-    for (let i = 0; i < projObjs.length; i++) {
-      const m = projObjs[i], u = m.userData, p = m.position;
-      if (u.seek) {
-        // 秘弹：朝着移动方向
-        const dx = p.x - u.lx, dz = p.z - u.lz;
-        if (dx * dx + dz * dz > 1e-6) m.rotation.y = Math.atan2(dx, dz);
-        u.lx = p.x;
-        u.lz = p.z;
-      } else {
-        m.rotation.x += dt * 7;
-        m.rotation.y += dt * 9;
-      }
-      u.acc += dt;
-      if (u.wisp) {
-        // 魂灵：头尾左右摇曳，拖一串往上浮的魂火屑
-        // 刚放出时从幡头的高度落下来（前 0.3 秒），像是从幡上飞出去的
-        u.ph += dt * 13;
-        u.age += dt;
-        const lift = u.age < 0.3 ? (1 - u.age / 0.3) * (1 - u.age / 0.3) * 1.1 : 0;
-        u.wisp.rotation.y = Math.sin(u.ph) * 0.35;
-        u.wisp.position.y = lift + Math.sin(u.ph * 0.5) * 0.08;
-        if (u.acc > 0.03 && p.y > -10) {
-          u.acc = 0;
-          const wh = Math.random() < 0.3 ? 0.5 : 0;
-          spawnP(p.x + rand(-0.08, 0.08), p.y + rand(-0.05, 0.1), p.z + rand(-0.08, 0.08), rand(-0.3, 0.3), rand(0.4, 1.4), rand(-0.3, 0.3), rand(0.3, 0.5), rand(0.14, 0.22), u.r + (1 - u.r) * wh, u.g + (1 - u.g) * wh, u.b + (1 - u.b) * wh, -1, 1.5);
-        }
-        continue;
-      }
-      if (u.acc > 0.028 && p.y > -10) {
-        u.acc = 0;
-        spawnP(p.x + rand(-0.1, 0.1), p.y + rand(-0.1, 0.1), p.z + rand(-0.1, 0.1), rand(-0.6, 0.6), rand(-0.2, 0.8), rand(-0.6, 0.6), rand(0.2, 0.36), u.rad * 2.2, u.r * 0.8, u.g * 0.8, u.b * 0.8, -0.5, 1);
-      }
-    }
+    // 投射物：外形、拖尾、陨石尾焰、碎石（实例化，见 updateProjFx）
+    updateProjFx(dt);
 
     // 掉落物：落地弹出，然后悬浮旋转
     for (let i = 0; i < lootObjs.length; i++) {

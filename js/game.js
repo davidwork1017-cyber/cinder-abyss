@@ -1360,12 +1360,14 @@
     if (p.color === undefined) p.color = p.owner === 'p' ? 0xffffff : G.TYPE_HEX[p.dtype];
     p.trailT = 0;
     // 敌方弹丸换一套外形，和玩家的投射物分得开；秘弹连射的追踪弹有自己的样子（朝着飞行方向）
-    // 魂潮的魂火（p.wisp）优先用 world.makeWisp，没有时借追踪弹的样子
+    // 魂潮的魂火（p.wisp）优先用 world.makeWisp，没有时借追踪弹的样子。
+    // p.vk：外形（掷焰 ember、飞刃 blade、喷吐者 glob、霜织者 shard……，world 不认得的退回通用光球），p.tint：注入的元素色
     const W0 = G.world;
+    const look = { kind: p.vk, dx: p.dx, dz: p.dz, tint: p.tint };
     p.mesh =
       p.wisp && W0.makeWisp ? W0.makeWisp(p.color)
-      : (p.seeker || p.wisp) && W0.makeSeeker ? W0.makeSeeker(p.color)
-      : W0.makeProjectile(p.color, p.r, p.owner !== 'p');
+      : (p.seeker || p.wisp) && W0.makeSeeker ? W0.makeSeeker(p.color, look)
+      : W0.makeProjectile(p.color, p.r, p.owner !== 'p', look);
     p.mesh.position.set(p.x, 1.1, p.z);
     state.projectiles.push(p);
     return p;
@@ -1390,8 +1392,14 @@
         m.volley = v;
       }
       G.hurtMinion(m, p.dmg, p.dtype, { x: p.x - p.dx, z: p.z - p.dz });
-      G.world.burst(p.x, 1.1, p.z, p.color, 4, 3, 0.2);
+      if (!projFx(p, 'hit')) G.world.burst(p.x, 1.1, p.z, p.color, 4, 3, 0.2);
     }
+  }
+
+  // 投射物的命中 / 撞墙 / 爆炸特效：world 认得这种外形就由它画（返回 true），否则调用方用通用火花
+  function projFx(p, how, R) {
+    const W = G.world;
+    return !!(W.projImpact && W.projImpact(p.mesh, p.x, p.z, how, R || 0));
   }
 
   function removeProjectile(i) {
@@ -1415,7 +1423,7 @@
       G.hitEnemy(e, p.ctx, 1, { ang: Math.atan2(e.x - p.x, e.z - p.z) }); // 从爆心往外推
     }
     // 魂火炸开有自己的特效（world.wispBurst，可选）
-    if (!(p.wisp && fxOpt('wispBurst', p.x, p.z, R, p.color))) {
+    if (!(p.wisp && fxOpt('wispBurst', p.x, p.z, R, p.color)) && !projFx(p, 'blast', R)) {
       W.ring(p.x, p.z, R, p.color, 0.3);
       W.burst(p.x, 1.0, p.z, p.color, 16, 6, 0.4);
     }
@@ -1486,7 +1494,7 @@
             p.z -= p.dz * step;
           }
           if (p.owner === 'p' && p.explode > 0) explodeAt(p, null);
-          else W.burst(p.x, 1.1, p.z, p.color, 5, 3, 0.25);
+          else if (!projFx(p, 'wall')) W.burst(p.x, 1.1, p.z, p.color, 5, 3, 0.25);
           alive = false;
           break;
         }
@@ -1501,6 +1509,7 @@
               if (p.cast) p.cast.add(e);
               G.hitEnemy(e, p.ctx, 1, { ang: Math.atan2(p.dx, p.dz) }); // 顺着弹道推
             }
+            if (!p.explode) projFx(p, 'hit'); // 飞刃擦过敌人的金属火花（爆炸弹的特效在爆炸那一下）
             alive = afterPlayerHit(p, e);
             break; // 每小步最多命中一个
           }
@@ -1516,7 +1525,7 @@
             recentVolleys.push(v);
             if (recentVolleys.length > 8) recentVolleys.shift();
           }
-          W.burst(p.x, 1.1, p.z, p.color, 6, 3, 0.25);
+          if (!projFx(p, 'hit')) W.burst(p.x, 1.1, p.z, p.color, 6, 3, 0.25);
           alive = false;
         }
       }
@@ -1530,7 +1539,7 @@
       }
       p.mesh.position.set(p.x, 1.1, p.z);
       p.trailT -= dt;
-      if (p.trailT <= 0) {
+      if (p.trailT <= 0 && !p.mesh.userData.trail) {
         p.trailT = p.owner === 'p' ? 0.04 : 0.09;
         W.burst(p.x, 1.1, p.z, p.color, 1, 0.6, 0.25);
       }
@@ -1655,6 +1664,19 @@
   function comboReset() {
     P.combo.step = 0;
     P.combo.t = 0;
+  }
+
+  // 注入的元素色：镶着的注入里最强、又不是这次出手主元素的那一种（投射物的拖尾 / 命中往这个颜色偏）；没有返回 undefined
+  function infuseHex(ctx) {
+    const top = mainType(ctx);
+    let best = null;
+    let bv = 0;
+    for (const t in ctx.extra) {
+      if (t === top || t === 'phys' || !(ctx.extra[t] > bv)) continue;
+      bv = ctx.extra[t];
+      best = t;
+    }
+    return best ? G.TYPE_HEX[best] : undefined;
   }
 
   // 这次出手里占比最大的伤害类型（刀光用它的颜色）
@@ -2171,6 +2193,7 @@
       const stepA = n > 1 ? spread / (n - 1) : 0;
       const hex = hexOf(sk.color);
       const cast = new Set(); // 这一次施放里已经受过伤（直击或爆炸）的敌人，所有投射物共用
+      const tint = infuseHex(ctx);
       for (let i = 0; i < n; i++) {
         const ang = a.ang - spread / 2 + stepA * i;
         const dx = Math.sin(ang);
@@ -2179,6 +2202,7 @@
           owner: 'p', x: P.x + dx * 0.7, z: P.z + dz * 0.7, dx, dz,
           speed: sk.speed, r: sk.projR || 0.3, life: 30 / sk.speed, color: hex,
           ctx, pierce: ctx.pierce, chain: ctx.chain, explode: sk.explode || 0, hit: new Set(), cast,
+          vk: ctx.id, tint,
         });
       }
     },
@@ -2705,7 +2729,7 @@
         G.spawnProjectile({
           owner: 'p', x: P.x + dx * 0.6, z: P.z + dz * 0.6, dx, dz,
           speed: sk.speed, r: sk.projR, life: (sk.range + 4) / sk.speed, color: G.TYPE_HEX[t],
-          ctx, pierce: 0, chain: 0, explode: sk.explode || 0, hit: new Set(), home: e, turn: sk.turn, seeker: true,
+          ctx, pierce: 0, chain: 0, explode: sk.explode || 0, hit: new Set(), home: e, turn: sk.turn, seeker: true, vk: 'dart',
         });
         fxOpt('seekerFx', P.x + dx * 0.6, 1.1, P.z + dz * 0.6, G.TYPE_HEX[t]);
         G.sfx('cast');
