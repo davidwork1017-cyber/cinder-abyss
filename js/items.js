@@ -59,6 +59,8 @@
       if (def.id === excludeId) continue;
       if (def.slots.indexOf(item.slot) < 0) continue;
       if (def.type === 'prefix' ? !prefixRoom : !suffixRoom) continue;
+      if ((def.minIlvl && item.ilvl < def.minIlvl) || (def.rareOnly && rarity < 2)) continue; // 高阶稀有词缀
+      if (affixW(def, item) <= 0) continue;
       let dup = false;
       for (const af of item.affixes) if (af.id === def.id) dup = true;
       if (!dup) out.push(def);
@@ -78,9 +80,15 @@
     item.affixes.splice(at, 0, af);
   }
 
+  // 词缀在这件物品上的出现权重：baseW 按基底（BASES 下标）再乘一个系数
+  function affixW(def, item) {
+    const bw = def.baseW && def.baseW[item.slot];
+    return def.w * (bw && bw[item.baseIdx] !== undefined ? bw[item.baseIdx] : 1);
+  }
+
   function addFrom(item, list) {
     if (!list.length) return false;
-    insertAffix(item, G.weighted(list, (d) => d.w));
+    insertAffix(item, G.weighted(list, (d) => affixW(d, item)));
     G.updateItemName(item);
     return true;
   }

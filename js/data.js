@@ -27,6 +27,7 @@
   G.TAG_NAME = {
     attack: '攻击', spell: '法术', melee: '近战', projectile: '投射物', area: '范围',
     chaining: '连锁', phys: '物理', fire: '火焰', cold: '冰霜', light: '闪电', movement: '位移',
+    minion: '召唤物', summon: '召唤',
   };
 
   // ---------- 主动技能 ----------
@@ -84,6 +85,27 @@
       dmg: { phys: [6, 10] }, time: 0.3, mana: 2, cd: 0, radius: 3.0, move: 0.6, w: 0, kb: 0.18, poise: 6, stop: 12,
       desc: '按住持续旋转，不断斩击身边一圈的敌人，每一下都消耗少量魔力。转起来可以慢慢走动；松手、翻滚或施放别的技能就停下。',
     },
+    // 召唤：在准星处（最远 range，落在可走的地面上）唤起召唤物。召唤物不吃玩家自己的伤害属性，
+    // 只按宝石等级、「召唤物」类属性（minionDmg / minionLife / minionSpeed / minionCap）和镶在这个技能上的辅助宝石成长。
+    // dmg：召唤物每一击的基础伤害；life：基础生命；rate：两次出手的间隔（秒）；cap：数量上限；
+    // reach：近战够得着的距离（到目标边缘）；cleave / arc：仆从横斩额外带到的敌人数与扇面角度；move：移动速度；dr：自带的伤害减免（%）；kb / poise / w：每一击的击退、削架势、分量
+    thrall: {
+      name: '烬骸仆从', icon: '骸', color: '#4fe3c8', tags: ['spell', 'minion', 'summon', 'phys'], kind: 'summon', minion: 'thrall',
+      dmg: { phys: [11, 15] }, time: 0.6, mana: 12, cd: 0, range: 6,
+      cap: 3, life: 54, rate: 0.8, reach: 0.9, move: 7.4, dr: 0, w: 0, kb: 0.1, poise: 3,
+      cleave: 4, arc: 160, // 横斩：身前 160° 扇面里贴着的敌人再带到至多 4 个
+      hold: 2, // 同时最多牵制 2 只小怪（守像 4 只）；被围满后其余的怪会去找玩家
+      desc: '在准星处唤起一具烬骸仆从：迅捷的骸骨剑士，自动寻找敌人厮杀，横斩会带到身前贴着的敌人，优先攻击你最近打中的目标。基础上限 3 具，数量已满时替换受伤最重的那具。',
+    },
+    colossus: {
+      name: '石誓守像', icon: '像', color: '#c9a86a', tags: ['spell', 'minion', 'summon', 'phys', 'area'], kind: 'summon', minion: 'colossus',
+      dmg: { phys: [24, 36] }, time: 1.0, mana: 30, cd: 6, range: 6,
+      cap: 1, life: 220, rate: 2.5, reach: 1.6, move: 4.4, dr: 25, w: 1, kb: 1.1, poise: 9,
+      radius: 3.2, // 砸地半径（受扩域影响）
+      hold: 4,
+      taunt: { cd: 7, r: 6, dur: 3, boss: 0.8 }, // 嘲讽：冷却、半径、小怪被嘲讽的秒数、首领被嘲讽的秒数
+      desc: '在准星处立起一尊石誓守像：缓慢而坚不可摧，每隔几秒双拳砸地伤害一圈敌人，并不时怒吼嘲讽，迫使周围的敌人转而攻击它。只能存在 1 尊，再次施放会在新位置重铸。',
+    },
   };
   for (const id in G.SKILLS) {
     const sk = G.SKILLS[id];
@@ -112,7 +134,9 @@
   };
 
   // ---------- 辅助宝石 ----------
-  // req：技能需带有其中任一标签；eff：效果；cost：魔力消耗倍率
+  // req：技能需带有其中任一标签；no：带有其中任一标签的技能不能镶（可缺省）；eff：效果；cost：魔力消耗倍率。
+  // 镶在召唤技能上时，通用辅助作用在召唤物身上：迅捷也加快召唤物出手，注入 / 蛮力 / 致命 / 震慑 / 蚀染作用于召唤物的每一击，
+  // 扩域放大守像的砸地，节流照常减消耗和冷却；回响、汲生、投射物 / 连锁类镶不上
   G.SUPPORTS = {
     multi: { name: '多重投射', req: ['projectile'], cost: 1.3, eff: { proj: 2, more: -25 }, desc: '额外发射 2 个投射物，伤害减少 25%' },
     pierce: { name: '贯穿', req: ['projectile'], cost: 1.15, eff: { pierce: 3 }, desc: '投射物额外穿透 3 个敌人' },
@@ -124,11 +148,16 @@
     light: { name: '雷霆注入', req: null, cost: 1.2, eff: { extra: { light: 30 } }, desc: '获得相当于伤害 30% 的额外闪电伤害' },
     brutal: { name: '蛮力', req: ['phys'], cost: 1.2, eff: { moreType: { phys: 35 } }, desc: '物理伤害额外提高 35%' },
     precise: { name: '致命', req: null, cost: 1.15, eff: { critFlat: 8, critMulti: 40 }, desc: '暴击率 +8%，暴击伤害 +40%' },
-    leech: { name: '汲生', req: null, cost: 1.1, eff: { leech: 3 }, desc: '造成伤害的 3% 转化为生命' },
-    echo: { name: '回响', req: ['spell'], cost: 1.4, eff: { echo: 1, more: -30 }, desc: '法术自动重复施放一次，伤害减少 30%' },
-    stagger: { name: '震慑', req: ['attack'], cost: 1.15, eff: { stun: 0.7 }, desc: '击中时使非首领敌人眩晕 0.7 秒' },
+    leech: { name: '汲生', req: null, no: ['minion'], cost: 1.1, eff: { leech: 3 }, desc: '造成伤害的 3% 转化为生命' },
+    echo: { name: '回响', req: ['spell'], no: ['summon'], cost: 1.4, eff: { echo: 1, more: -30 }, desc: '法术自动重复施放一次，伤害减少 30%' },
+    stagger: { name: '震慑', req: ['attack', 'minion'], cost: 1.15, eff: { stun: 0.7 }, desc: '击中时使非首领敌人眩晕 0.7 秒' },
     ailment: { name: '蚀染', req: null, cost: 1.1, eff: { ailment: 35 }, desc: '点燃、冻结、感电的几率 +35%' },
     frugal: { name: '节流', req: null, cost: 0.6, eff: { cdr: 25 }, desc: '魔力消耗减少 40%，冷却时间缩短 25%' },
+    // 召唤物专用
+    dominion: { name: '驭灵', req: ['minion'], cost: 1.25, eff: { minionMore: 30 }, desc: '召唤物造成的伤害额外提高 30%' },
+    ossify: { name: '坚骨', req: ['minion'], cost: 1.15, eff: { minionLife: 40, minionDR: 15 }, desc: '召唤物最大生命提高 40%，受到的伤害减少 15%' },
+    horde: { name: '群聚', req: ['minion'], no: ['area'], cost: 1.3, eff: { minionCap: 1, minionMore: -15 }, desc: '烬骸仆从数量上限 +1，召唤物造成的伤害额外降低 15%' },
+    frenzy: { name: '狂怒', req: ['minion'], cost: 1.2, eff: { minionSpeed: 20 }, desc: '召唤物的攻击速度与移动速度提高 20%' },
   };
 
   // ---------- 属性显示 ----------
@@ -146,6 +175,9 @@
     area: '技能范围扩大 {v}%', ailment: '异常状态几率 +{v}%', costReduce: '技能消耗降低 {v}%',
     dodgeCd: '翻滚冷却缩短 {v}%', moreDmg: '总伤害额外 {s}{v}%', lessTaken: '受到的伤害减少 {v}%',
     moreLife: '最大生命额外 {s}{v}%', bloodMagic: '技能消耗生命而非魔力',
+    minionDmg: '召唤物伤害提高 {v}%', minionLife: '召唤物最大生命提高 {v}%',
+    minionSpeed: '召唤物攻击与移动速度提高 {v}%', minionCap: '烬骸仆从数量上限 +{v}',
+    minionMore: '召唤物总伤害额外 {s}{v}%', ownLess: '你自身（非召唤物）的总伤害额外 -{v}%',
   };
   G.fmtStat = function (stat, v) {
     const f = G.STAT_FMT[stat] || stat + ' {v}';
@@ -220,6 +252,11 @@
     A('manaRegen', 'suffix', '清明', 'manaRegen', 8, 14, 1.3, ['helm', 'weapon'].concat(JEW), 5),
     A('lifeOnKill', 'suffix', '嗜血', 'lifeOnKill', 1, 3, 1.4, ['weapon', 'gloves', 'ring'], 4),
     A('rarity', 'suffix', '寻宝', 'rarity', 5, 9, 1.25, ['helm', 'gloves', 'boots'].concat(JEW), 4),
+    // 召唤物词缀。baseW：按基底（BASES 里的下标）调整出现权重——杖类武器（木杖 / 骨杖）更容易出召唤物伤害；
+    // minIlvl / rareOnly：只在物品等级够高的稀有物品上出现
+    Object.assign(A('minionDmg', 'prefix', '统御', 'minionDmg', 6, 10, 1.35, ['weapon'].concat(JEW), 5), { baseW: { weapon: [0.4, 1.8, 1.8] } }),
+    A('minionLife', 'prefix', '骸固', 'minionLife', 8, 13, 1.3, ['helm', 'body', 'belt'], 5),
+    Object.assign(A('minionCap', 'suffix', '万骸', 'minionCap', 1, 1, 1, ['amulet'], 2), { minIlvl: 18, rareOnly: true }),
   ];
   G.AFFIX_BY_ID = {};
   for (const a of G.AFFIXES) G.AFFIX_BY_ID[a.id] = a;
@@ -259,7 +296,7 @@
         k: ['玻璃大炮', { moreDmg: 35, moreLife: -25 }],
       },
       {
-        key: 'i', color: '#6fb2ff', ang: 270,
+        key: 'i', color: '#6fb2ff', ang: 210,
         m: [['心智', { mana: 15 }], ['元素亲和', { incElem: 8 }], ['冥想', { manaRegen: 15 }], ['元素亲和', { incElem: 10 }], ['延展', { area: 8 }], ['博识', { incMana: 8 }]],
         l: [['元素亲和', { incElem: 8 }], ['侵蚀', { ailment: 8 }], ['元素使', { incElem: 25, ailment: 15 }]],
         r: [['心智', { mana: 15 }], ['精算', { costReduce: 5 }], ['奥能涌流', { mana: 40, manaRegen: 30, costReduce: 10 }]],
@@ -286,6 +323,20 @@
       add(arm, k + 'r1', 5.1, 22, k + 'r0', arm.r[1][0], arm.r[1][1]);
       add(arm, k + 'r2', 6.2, 22, k + 'r1', arm.r[2][0], arm.r[2][1], 'notable');
     }
+    // 统御（召唤物）支路：朝右上，和另外三支成「X」形四等分，基石同样落在外圈上。
+    // 主干 5 个节点 + 两条各 2 个节点的旁支，末端是基石「万骸之主」
+    const mArm = { key: 'm', color: '#4fe3c8', ang: 330 };
+    const mm = [['统御', { minionDmg: 10 }], ['骸骨坚韧', { minionLife: 15 }], ['统御', { minionDmg: 10 }], ['灵契', { minionDmg: 10, minionLife: 10 }], ['统御', { minionDmg: 8 }]];
+    let prev = 'start';
+    mm.forEach((n, i) => {
+      add(mArm, 'mm' + i, 1.35 + i * 1.2, 0, prev, n[0], n[1]);
+      prev = 'mm' + i;
+    });
+    add(mArm, 'mk', 7.7, 0, prev, '万骸之主', { minionCap: 1, minionMore: 25, ownLess: 30 }, 'keystone');
+    add(mArm, 'ml0', 3.3, -21, 'mm1', '迅令', { speed: 4, mana: 10 });
+    add(mArm, 'ml1', 4.4, -25, 'ml0', '亡者狂潮', { minionSpeed: 10, minionDmg: 8 }, 'notable');
+    add(mArm, 'mr0', 4.5, 19, 'mm2', '心智', { mana: 20 });
+    add(mArm, 'mr1', 5.6, 22, 'mr0', '骸军', { minionCap: 1, minionLife: 15 }, 'notable');
   })();
 
   // ---------- 区域 ----------

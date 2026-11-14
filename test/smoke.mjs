@@ -69,6 +69,7 @@ async function install() {
       },
       // 清空当前区域的敌人和杂物，玩家回到起点、满状态
       arena() {
+        G.clearMinions(); // 上一步召出来的召唤物不带进这一步
         G.clearEnemies();
         G.respawn();
         T.clearLoot();
@@ -273,7 +274,7 @@ function cleanText(txt, where) {
   assert(!/undefined|NaN|\[object|\{[a-z]\}/.test(txt), where + ' 里出现了未格式化的文本：' + (txt.match(/.{0,20}(undefined|NaN|\[object|\{[a-z]\}).{0,20}/) || [''])[0]);
 }
 
-const SKILL_IDS = ['cleave', 'ember', 'blade', 'nova', 'arc', 'meteor', 'blink', 'whirl'];
+const SKILL_IDS = ['cleave', 'ember', 'blade', 'nova', 'arc', 'meteor', 'blink', 'whirl', 'thrall', 'colossus'];
 const INPUT_NAME = ['左键', '右键', 'Q', 'E'];
 async function holdInput(slot, down) {
   if (slot === 0) await page.mouse[down ? 'down' : 'up']({ button: 'left' });
@@ -793,12 +794,12 @@ async function main() {
   });
 
   // ------------------------------------------------------------------ 技能
-  await step('learnAll：8 个技能与 15 个辅助宝石全部到手', async () => {
+  await step('learnAll：10 个技能与 19 个辅助宝石全部到手', async () => {
     const r = await ev(() => {
       G.debug.learnAll();
       return { skills: Object.keys(G.save.skills).length, sups: G.save.supports.length, bar: G.save.bar.slice() };
     });
-    assert(r.skills === 8 && r.sups === 15 && r.bar.every((b) => b), JSON.stringify(r));
+    assert(r.skills === 10 && r.sups === 19 && r.bar.every((b) => b), JSON.stringify(r));
   });
 
   for (let i = 0; i < SKILL_IDS.length; i++) {
@@ -969,6 +970,580 @@ async function main() {
     assert(r.cd1 && r.onlyOnce && r.cdDone, '冷却逻辑不对：' + JSON.stringify(r));
     assert(r.spawned && r.cleared, '投射物没有生成或没有被清理：' + JSON.stringify(r));
     assert(r.tele === 0, '友方预警圈没有清理');
+  });
+
+  // ------------------------------------------------------------------ 召唤
+  // 召唤步骤：进来时清场并记下构筑，结束时散掉召唤物、还原构筑与天赋（后面的步骤不该被召唤物打扰）
+  async function summonStep(name, fn) {
+    await step(name, async () => {
+      const snap = await ev(() => JSON.stringify({ b: T.buildSnap(), p: G.save.passives.slice(), lv: G.save.level }));
+      try {
+        return await fn();
+      } finally {
+        await ev((s) => {
+          const o = JSON.parse(s);
+          T.unfix();
+          G.clearMinions();
+          G.save.passives = o.p;
+          G.save.level = o.lv;
+          T.buildRestore(o.b);
+          G.clearEnemies();
+          G.input.keys.KeyQ = G.input.keys.KeyE = false;
+          G.input.mouse.b[0] = G.input.mouse.b[2] = false;
+          G.debug.god(false);
+        }, snap).catch(() => {});
+      }
+    });
+  }
+
+  await summonStep('召唤：在准星处唤起仆从（最远 6、落在可走的地面）；满 3 具时替换受伤最重的那具；守像只有 1 尊，重放即在新位置重铸', async () => {
+    const r = await ev(() => {
+      T.arena();
+      G.debug.god(true);
+      const P = G.player, S = G.state, out = {};
+      for (const id of Object.keys(G.save.sockets)) G.save.sockets[id] = [null, null, null];
+      G.computeStats();
+      G.bindSkill(2, 'thrall');
+      G.bindSkill(3, 'colossus');
+      const cast = (key, x, z) => {
+        for (let i = 0; i < 120 && P.cast; i++) G.tick(1 / 60);
+        T.aim(x, z);
+        P.mana = P.maxMana;
+        const m0 = P.mana;
+        G.input.tap[key === 'KeyQ' ? 2 : 3] = 0.3;
+        for (let i = 0; i < 90 && !(P.cast && P.cast.fired); i++) G.tick(1 / 60);
+        const spent = m0 - P.mana;
+        G.debug.step(0.4);
+        return spent;
+      };
+      out.cost = cast('KeyQ', P.x + 4, P.z);
+      const m1 = S.minions[0];
+      out.first = m1 ? { kind: m1.kind, d: Math.hypot(m1.x - (P.x + 4), m1.z - P.z), rising: m1.riseMax, clip: G.world.clipOf(m1.ent) } : null;
+      out.ctxCost = G.skillCtx('thrall').cost;
+      cast('KeyQ', P.x + 30, P.z + 2); // 远处：落点被限制在 6 以内
+      const m2 = S.minions[1];
+      out.farD = m2 ? Math.hypot(m2.x - P.x, m2.z - P.z) : -1;
+      out.farOk = m2 ? G.world.walkable(m2.x, m2.z, 0.3) : false;
+      cast('KeyQ', P.x, P.z + 4);
+      out.n3 = S.minions.filter((m) => m.kind === 'thrall').length;
+      // 第 2 具受了重伤：满编再放一具，替换掉的应是它
+      const hurt = S.minions[1];
+      hurt.hp = hurt.maxHp * 0.2;
+      S.minions[0].hp = S.minions[0].maxHp * 0.6;
+      cast('KeyQ', P.x - 4, P.z);
+      out.n4 = S.minions.filter((m) => m.kind === 'thrall').length;
+      out.replaced = hurt.dead && S.minions.indexOf(hurt) < 0;
+      out.keptHurt = S.minions.indexOf(m1) >= 0;
+      // 守像
+      cast('KeyE', P.x + 3, P.z + 3);
+      const c1 = S.minions.find((m) => m.kind === 'colossus');
+      out.cd = P.cds.colossus > 0;
+      P.cds.colossus = 0;
+      cast('KeyE', P.x - 3, P.z - 3);
+      const cs = S.minions.filter((m) => m.kind === 'colossus');
+      out.col = { n: cs.length, oldGone: !!c1 && c1.dead, moved: cs.length === 1 && Math.hypot(cs[0].x - (P.x - 3), cs[0].z - (P.z - 3)) < 1.5 };
+      const info = G.minionInfo('thrall');
+      out.info = { count: info.count, cap: info.cap, ok: info.dmgMin > 0 && info.dmgMax >= info.dmgMin && info.life > 0 && info.rate > 0 };
+      out.infoC = G.minionInfo('colossus').count;
+      out.fields = Object.keys(S.minions[0]).filter((k) => ['kind', 'skill', 'ent', 'x', 'z', 'hp', 'maxHp', 'dead', 'target', 'atkT', 'tauntCd', 'tauntCdMax'].includes(k)).length;
+      out.focusFn = typeof G.focusTarget === 'function' && G.focusTarget() === null;
+      return out;
+    });
+    assert(r.cost === r.ctxCost && r.cost > 0, '施放召唤应扣魔力：' + JSON.stringify(r));
+    assert(r.first && r.first.kind === 'thrall' && r.first.d < 1.2, '仆从应出现在准星处：' + JSON.stringify(r.first));
+    assert(r.farD > 0 && r.farD <= 6.3 && r.farOk, '远处的落点应限制在 6 以内的可走地面：' + r.farD);
+    assert(r.n3 === 3 && r.n4 === 3 && r.replaced && r.keptHurt, '满编时应替换受伤最重的那具：' + JSON.stringify(r));
+    assert(r.cd && r.col.n === 1 && r.col.oldGone && r.col.moved, '守像只有 1 尊，重放在新位置：' + JSON.stringify(r.col));
+    assert(r.info.count === 3 && r.info.cap === 3 && r.info.ok && r.infoC === 1, 'G.minionInfo 不对：' + JSON.stringify(r.info));
+    assert(r.fields === 12 && r.focusFn, 'G.state.minions 字段或 G.focusTarget 不对：' + r.fields);
+    return '仆从消耗 ' + r.cost + '，远处落点 ' + r.farD.toFixed(1);
+  });
+
+  await summonStep('召唤物：自动寻敌、走正常命中路径伤害敌人（不算玩家的连击）；小怪会转头打靠近它的召唤物', async () => {
+    const r = await ev(() => {
+      T.arena();
+      const P = G.player, S = G.state, out = {};
+      P.life = P.maxLife = 1e6;
+      const dummy = T.mob('brute', 6, 0);
+      for (let i = 0; i < 3; i++) G.summonMinion('thrall', P.x + 2, P.z + i - 1);
+      G.summonMinion('colossus', P.x - 2, P.z + 2);
+      const st0 = Object.assign({}, S.stats);
+      G.debug.step(4);
+      out.dummyDmg = dummy.maxHp - dummy.hp;
+      out.minionHits = (S.stats.minionHits || 0) - (st0.minionHits || 0);
+      out.playerHits = S.stats.hits - st0.hits;
+      out.chain = P.chain.n;
+      out.focus = G.focusTarget();
+      out.targets = S.minions.filter((m) => m.target === dummy).length;
+      // 敌人反击：一只真正会打的游魂离仆从比离玩家近得多
+      G.clearEnemies();
+      G.clearMinions();
+      T.tp(S.zone.circles[0].x - 5, S.zone.circles[0].z);
+      const t = G.summonMinion('thrall', P.x + 6, P.z);
+      G.debug.step(0.8);
+      const hp0 = t.hp;
+      t.hp = t.maxHp = 1e6;
+      const husk = G.spawnMob('husk', t.x + 2.5, t.z, 1, { awake: true });
+      husk.hp = husk.maxHp = 1e6;
+      const life0 = P.life;
+      G.debug.step(4);
+      out.huskFoe = husk.foe === t;
+      out.thrallHurt = t.maxHp - t.hp;
+      out.playerHurt = life0 - P.life;
+      out.hp0 = hp0;
+      return out;
+    });
+    assert(r.dummyDmg > 0 && r.minionHits >= 4, '召唤物应自己攻击敌人：' + JSON.stringify(r));
+    assert(r.playerHits === 0 && r.chain === 0 && !r.focus, '召唤物的命中不应算作玩家的连击或集火：' + JSON.stringify(r));
+    assert(r.targets >= 3, '召唤物应都盯上了唯一的敌人：' + r.targets);
+    assert(r.huskFoe && r.thrallHurt > 0 && r.playerHurt === 0, '靠近仆从的小怪应该打仆从：' + JSON.stringify(r));
+    return '4 秒造成 ' + Math.round(r.dummyDmg) + '（' + r.minionHits + ' 次命中），仆从挨了 ' + Math.round(r.thrallHurt);
+  });
+
+  await summonStep('集火：玩家亲手打中的敌人被标记（4 秒），召唤物优先攻击它', async () => {
+    const r = await ev(() => {
+      T.arena();
+      G.debug.god(true);
+      const P = G.player, S = G.state, W = G.world, out = {};
+      const marks = [];
+      const orig = W.focusMark;
+      W.focusMark = (ent) => { marks.push(ent); if (orig) orig(ent); };
+      try {
+        const near = T.mob('husk', 2.5, 0);
+        const far = T.mob('husk', -5, 2);
+        for (let i = 0; i < 3; i++) G.summonMinion('thrall', P.x + 2, P.z + i - 1);
+        G.debug.step(1.5);
+        out.before = S.minions.filter((m) => m.target === near).length;
+        G.hitEnemy(far, G.skillCtx('cleave'), 1);
+        out.focus = G.focusTarget() === far;
+        G.debug.step(0.1);
+        out.marked = marks.length > 0 && marks[marks.length - 1] === far.ent;
+        G.debug.step(2);
+        out.after = S.minions.filter((m) => m.target === far).length;
+        out.farHurt = far.maxHp - far.hp;
+        G.debug.step(3);
+        out.expired = G.focusTarget() === null && marks[marks.length - 1] === null;
+      } finally {
+        W.focusMark = orig;
+      }
+      return out;
+    });
+    assert(r.before >= 2, '没有集火目标时应先打最近的敌人：' + JSON.stringify(r));
+    assert(r.focus && r.marked, '玩家打中的敌人应成为集火目标并被标记：' + JSON.stringify(r));
+    assert(r.after === 3 && r.farHurt > 0, '召唤物应转去打集火目标：' + JSON.stringify(r));
+    assert(r.expired, '集火标记应在 4 秒后消失：' + JSON.stringify(r));
+  });
+
+  await summonStep('守像：砸地伤害一圈敌人；嘲讽让周围的小怪只打它（首领只被吸引片刻）', async () => {
+    const r = await ev(() => {
+      T.arena();
+      const P = G.player, S = G.state, out = {};
+      P.life = P.maxLife = 1e6;
+      const col = G.summonMinion('colossus', P.x + 4, P.z);
+      col.hp = col.maxHp = 1e6;
+      G.debug.step(1.1);
+      col.tauntCd = 1;
+      // 三只游魂都贴着玩家：平时它们打玩家
+      const pack = [0, 1, 2].map((i) => {
+        const e = G.spawnMob('husk', P.x + 1.2, P.z + (i - 1) * 1.2, 1, { awake: true });
+        e.hp = e.maxHp = 1e6;
+        return e;
+      });
+      G.debug.step(0.3);
+      out.foeBefore = pack.filter((e) => e.foe === null).length;
+      out.cdMax = col.tauntCdMax;
+      let t = 0;
+      while (t < 4 && !pack.every((e) => e.taunter === col)) {
+        G.debug.step(0.1);
+        t += 0.1;
+      }
+      out.tauntAt = t;
+      out.tauntT = Math.min.apply(null, pack.map((e) => e.tauntT));
+      out.cd = col.tauntCd;
+      const life0 = P.life, col0 = col.hp;
+      G.debug.step(1.6);
+      out.playerHurt = life0 - P.life;
+      out.colHurt = col0 - col.hp;
+      out.slam = pack.reduce((s, e) => s + (e.maxHp - e.hp), 0);
+      // 首领：嘲讽时间短
+      const boss = G.spawnBoss('golem', P.x - 6, P.z, 1);
+      out.bossT = G.tauntEnemy(boss, col, 3, 1.2) ? boss.tauntT : -1;
+      return out;
+    });
+    assert(r.foeBefore === 3, '嘲讽之前游魂应打玩家：' + JSON.stringify(r));
+    assert(r.tauntAt < 3 && r.tauntT > 2 && r.cdMax >= 6 && r.cd > 5, '守像应很快嘲讽周围的敌人：' + JSON.stringify(r));
+    assert(r.playerHurt === 0 && r.colHurt > 0, '被嘲讽的敌人应只打守像：' + JSON.stringify(r));
+    assert(r.slam > 0, '守像的砸地应伤到周围的敌人：' + JSON.stringify(r));
+    assert(r.bossT > 0 && r.bossT < 2, '首领被嘲讽的时间应更短：' + r.bossT);
+  });
+
+  await summonStep('敌方预警圈、首领招式与弹丸也会伤到召唤物；没有召唤物挡着的弹丸照常打中玩家', async () => {
+    const r = await ev(() => {
+      T.arena();
+      const P = G.player, S = G.state, out = {};
+      P.life = P.maxLife = 1e6;
+      const t = G.summonMinion('thrall', P.x + 5, P.z);
+      G.debug.step(0.8);
+      // 记下实际结算到这只仆从身上的伤害（生命上限每 0.5 秒按属性刷新，直接改 hp 再相减不可靠）
+      let dealt = 0;
+      const hm0 = G.hurtMinion;
+      G.hurtMinion = function (m, amount) {
+        if (m === t) dealt += amount;
+        return hm0.apply(this, arguments);
+      };
+      const took = () => { const d = dealt; dealt = 0; return d; };
+      t.hp = t.maxHp = 1e6;
+      G.telegraph({ shape: 'circle', x: t.x, z: t.z, r: 1.5, dur: 0.1, dmg: 40, dtype: 'fire' });
+      G.debug.step(0.2);
+      out.tele = took();
+      G.spawnProjectile({ owner: 'e', x: t.x, z: t.z - 3, dx: 0, dz: 1, speed: 12, dmg: 25, dtype: 'phys' });
+      G.debug.step(0.5);
+      out.proj = took();
+      const l0 = P.life;
+      G.spawnProjectile({ owner: 'e', x: P.x, z: P.z - 3, dx: 0, dz: 1, speed: 12, dmg: 25, dtype: 'phys' });
+      G.debug.step(0.5);
+      out.playerProj = l0 - P.life;
+      // 首领的砸地：落在仆从身上
+      const boss = G.spawnBoss('golem', t.x + 6, t.z, 1);
+      boss.awake = true;
+      t.hp = t.maxHp = 1e6;
+      G.telegraph({ shape: 'circle', x: t.x, z: t.z, r: 4.6, dur: 0.2, dmg: boss.dmg * 1.5, dtype: 'phys', owner: boss, cancelIfOwnerDead: true });
+      G.debug.step(0.3);
+      out.boss = took();
+      G.hurtMinion = hm0;
+      // 打死：倒地后从列表里移除
+      G.hurtMinion(t, 1e6, 'phys', boss);
+      out.dead = t.dead && S.minions.indexOf(t) < 0;
+      return out;
+    });
+    assert(r.tele >= 39 && r.tele <= 40.5, '预警圈应对召唤物结算伤害：' + JSON.stringify(r));
+    assert(r.proj > 0, '敌方弹丸应能打中召唤物：' + JSON.stringify(r));
+    assert(r.playerProj > 0, '没有召唤物挡着的弹丸仍应打中玩家：' + JSON.stringify(r));
+    assert(r.boss > 0 && r.dead, '首领的预警圈应伤到召唤物，打死后移除：' + JSON.stringify(r));
+  });
+
+  await summonStep('召唤物跟随：换区域、重生、离得太远都会回到玩家身边；不追离玩家太远的敌人', async () => {
+    const r = await ev(() => {
+      T.arena();
+      G.debug.god(true);
+      const P = G.player, S = G.state, out = {};
+      for (let i = 0; i < 3; i++) G.summonMinion('thrall', P.x + 3, P.z + i - 1);
+      G.summonMinion('colossus', P.x - 3, P.z);
+      G.debug.step(1.2);
+      // 走开一段：跟上来
+      const c = S.zone.circles[0];
+      T.tp(c.x, c.z - 5);
+      G.debug.step(3);
+      out.follow = S.minions.map((m) => Math.round(Math.hypot(m.x - P.x, m.z - P.z) * 10) / 10);
+      // 离得太远：直接回到身边
+      const cs = S.zone.circles, fc = cs.reduce((a, b) => (Math.hypot(b.x - P.x, b.z - P.z) > Math.hypot(a.x - P.x, a.z - P.z) ? b : a));
+      T.tp(fc.x, fc.z);
+      G.clearEnemies();
+      G.debug.step(0.1);
+      out.leash = S.minions.every((m) => Math.hypot(m.x - P.x, m.z - P.z) < 5 && m.rising > 0);
+      // 换区域
+      G.enterZone(G.state.zoneIdx, G.state.tier);
+      G.clearEnemies();
+      out.zone = { n: S.minions.length, near: S.minions.every((m) => Math.hypot(m.x - P.x, m.z - P.z) < 5 && !m.dead) };
+      G.debug.step(1.5);
+      // 重生
+      G.respawn();
+      G.clearEnemies();
+      out.respawn = S.minions.length === 4 && S.minions.every((m) => Math.hypot(m.x - P.x, m.z - P.z) < 5);
+      G.debug.step(1.2);
+      // 远处的敌人（离玩家 15）不去追
+      const far = T.mob('husk', 15, 0);
+      G.debug.step(1.5);
+      out.chaseFar = S.minions.filter((m) => m.target === far).length;
+      out.farHurt = far.maxHp - far.hp;
+      return out;
+    });
+    assert(r.follow.every((d) => d < 6.5), '召唤物应跟上玩家：' + JSON.stringify(r.follow));
+    assert(r.leash, '离得太远的召唤物应回到玩家身边重新现身');
+    assert(r.zone.n === 4 && r.zone.near, '换区域后召唤物应跟着出现在入口：' + JSON.stringify(r.zone));
+    assert(r.respawn, '重生后召唤物应回到重生点身边');
+    assert(r.chaseFar === 0 && r.farHurt === 0, '不应追离玩家太远的敌人：' + JSON.stringify(r));
+  });
+
+  await summonStep('辅助宝石：驭灵 / 坚骨 / 群聚 / 狂怒与通用辅助（迅捷、注入、蛮力、致命、震慑、扩域、节流）作用在召唤物上；回响、汲生、投射物类镶不上', async () => {
+    const r = await ev(() => {
+      T.arena();
+      G.debug.god(true);
+      const save = G.save, out = {};
+      for (const id of Object.keys(save.sockets)) save.sockets[id] = [null, null, null];
+      G.computeStats();
+      const fits = {};
+      for (const s of ['echo', 'leech', 'multi', 'pierce', 'chain', 'dominion', 'ossify', 'horde', 'frenzy', 'haste', 'fire', 'brutal', 'precise', 'stagger', 'ailment', 'frugal', 'expanse']) {
+        fits[s] = G.supportFits('thrall', s) ? 1 : 0;
+      }
+      out.fits = fits;
+      out.expanseC = G.supportFits('colossus', 'expanse');
+      out.hordeC = G.supportFits('colossus', 'horde'); // 守像只有 1 尊，群聚对它只有坏处
+      out.minionOnCleave = ['dominion', 'ossify', 'horde', 'frenzy'].some((s) => G.supportFits('cleave', s));
+      const base = G.minionInfo('thrall');
+      const baseC = G.minionInfo('colossus');
+      const baseCtx = G.skillCtx('thrall');
+      const sock = (sk, list) => list.forEach((s, i) => G.socketSupport(sk, i, s));
+      sock('thrall', ['dominion', 'horde', 'brutal']);
+      const a = G.minionInfo('thrall');
+      out.dmgK = a.dmgMin / base.dmgMin;
+      out.capA = a.cap;
+      sock('thrall', ['frenzy', 'haste', 'fire']);
+      const b = G.minionInfo('thrall');
+      const ctxB = G.skillCtx('thrall');
+      out.rateK = b.rate / base.rate;
+      out.castK = baseCtx.time / ctxB.time;
+      out.fireExtra = ctxB.extra.fire;
+      out.moveK = b.move / base.move;
+      sock('colossus', ['ossify', 'expanse', 'frugal']);
+      const c = G.minionInfo('colossus');
+      const ctxC = G.skillCtx('colossus');
+      out.lifeK = c.life / baseC.life;
+      out.dr = c.dr;
+      out.radiusK = c.radius / baseC.radius;
+      out.cdK = ctxC.cd / G.SKILLS.colossus.cd;
+      // 真实命中：震慑 + 致命（随机数钉死在必暴击），仆从的一击按 G.minionInfo 的数值结算并眩晕敌人
+      sock('thrall', ['stagger', 'precise', null]);
+      const info = G.minionInfo('thrall');
+      const ctx = G.skillCtx('thrall');
+      out.crit = ctx.crit;
+      const P = G.player;
+      const e = T.mob('husk', 2.5, 0);
+      G.summonMinion('thrall', P.x + 1.2, P.z);
+      G.debug.step(0.75);
+      T.fix(0);
+      const hp0 = e.hp;
+      let t = 0;
+      while (e.hp === hp0 && t < 3) { G.debug.step(1 / 60); t += 1 / 60; }
+      T.unfix();
+      out.hit = hp0 - e.hp;
+      out.want = info.dmgMin * (ctx.critMulti / 100); // 随机数钉在 0：取最低伤害、必暴击
+      out.stun = e.stunT > 0;
+      // 存档里也不允许镶不适配的
+      out.socketEcho = G.socketSupport('thrall', 2, 'echo');
+      return out;
+    });
+    const f = r.fits;
+    assert(!f.echo && !f.leech && !f.multi && !f.pierce && !f.chain, '回响 / 汲生 / 投射物类不应能镶在召唤技能上：' + JSON.stringify(f));
+    assert(f.dominion && f.ossify && f.horde && f.frenzy && f.haste && f.fire && f.brutal && f.precise && f.stagger && f.ailment && f.frugal && !f.expanse && r.expanseC && !r.hordeC, '召唤技能可镶的辅助不对：' + JSON.stringify(f));
+    assert(!r.minionOnCleave, '召唤物辅助不应能镶在非召唤技能上');
+    assert(Math.abs(r.dmgK - 1.3 * 0.85 * 1.35) < 1e-6 && r.capA === 4, '驭灵 / 群聚 / 蛮力：' + JSON.stringify(r));
+    assert(Math.abs(r.rateK - 1.2 * 1.25) < 1e-6 && Math.abs(r.castK - 1.25) < 1e-6 && r.fireExtra === 30 && Math.abs(r.moveK - 1.2) < 1e-6, '狂怒 / 迅捷 / 灼炎注入：' + JSON.stringify(r));
+    assert(Math.abs(r.lifeK - 1.4) < 0.01 && r.dr === 40 && Math.abs(r.radiusK - Math.sqrt(1.4)) < 1e-6 && Math.abs(r.cdK - 0.75) < 1e-6, '坚骨 / 扩域 / 节流：' + JSON.stringify(r));
+    assert(r.crit === 13 && Math.abs(r.hit - r.want) < 0.01 && r.stun, '仆从的命中应吃致命 / 震慑：' + JSON.stringify(r));
+    assert(r.socketEcho === false, '不能把回响镶在召唤技能上');
+  });
+
+  await summonStep('召唤物细节：仆从横斩带到身边的敌人、命中帧与伤害同帧；一只召唤物最多牵制几只怪，远程怪认准玩家；仆从闪开小怪的预警圈，首领的招式躲不开且更疼；友方统一青色', async () => {
+    const r = await ev(() => {
+      T.arena();
+      const P = G.player, S = G.state, W = G.world, out = {};
+      P.life = P.maxLife = 1e6;
+      for (const id of Object.keys(G.save.sockets)) G.save.sockets[id] = [null, null, null];
+      G.computeStats();
+      T.fix(0.5);
+      // 横斩：目标 + 身旁扇面里的一只被带到，身后的那只不受伤；命中帧落在攻击动作的 contact 上
+      const th = G.summonMinion('thrall', P.x + 3, P.z);
+      G.debug.step(0.8);
+      th.hp = th.maxHp = 1e6;
+      const tgt = T.mob('husk', 4.4, 0), side = T.mob('husk', 4.1, 0.9), back = T.mob('husk', 1.9, 0);
+      S.focus = tgt;
+      S.focusT = 10;
+      const contact = [];
+      const hit0 = G.hitEnemy;
+      G.hitEnemy = function (e, ctx, mult, info) {
+        if (info && info.minion === th && e === tgt) contact.push({ clip: W.clipOf(th.ent), t: th.ent.cT, c: th.ent.cContact });
+        return hit0.apply(this, arguments);
+      };
+      try {
+        G.debug.step(2.5);
+      } finally {
+        G.hitEnemy = hit0;
+      }
+      out.cleave = { tgt: tgt.maxHp - tgt.hp, side: side.maxHp - side.hp, back: back.maxHp - back.hp };
+      out.contact = contact.slice(0, 3);
+      out.cleaveN = G.skillCtx('thrall').minion.cleave;
+      // 牵制上限：三只游魂都离仆从比离玩家近得多，最多 2 只盯着仆从，第三只去找玩家；远程怪认准玩家
+      G.clearEnemies();
+      th.x = P.x + 6;
+      th.z = P.z;
+      const pack = [0, 1, 2].map((i) => {
+        const e = G.spawnMob('husk', th.x + 1.2, th.z + (i - 1) * 1.1, 1, { awake: true });
+        e.hp = e.maxHp = 1e6;
+        e.atkCd = 1e9;
+        e.speed = 0;
+        return e;
+      });
+      G.debug.step(1.2);
+      out.hold = G.skillCtx('thrall').minion.hold;
+      out.onThrall = pack.filter((e) => e.foe === th).length;
+      out.onPlayer = pack.filter((e) => e.foe === null).length;
+      // 远程怪：仆从贴在它跟前（比玩家近 3 以上），近战怪会转火仆从，喷吐者照样盯着玩家
+      G.clearEnemies();
+      const ax = th.x + (P.x - th.x) * 0.3, az = th.z + 1.2;
+      const sp = G.spawnMob('spitter', ax, az, 1, { awake: true });
+      const hk = G.spawnMob('husk', ax, az + 0.4, 1, { awake: true });
+      for (const e of [sp, hk]) {
+        e.hp = e.maxHp = 1e6;
+        e.atkCd = 1e9;
+        e.speed = 0;
+      }
+      G.debug.step(2 / 60);
+      out.foeGap = Math.hypot(P.x - ax, P.z - az) - (Math.hypot(th.x - ax, th.z - az) - th.r);
+      out.spitterFoe = sp.foe === null ? 'player' : 'minion';
+      out.huskFoe = hk.foe === th ? 'minion' : 'player';
+      // 小怪的预警圈：仆从看清后闪出去，一点不掉血
+      G.clearEnemies();
+      G.debug.step(2.5); // 回到玩家身边站定
+      const mob = { isBoss: false, dead: false, held: false }, boss = { isBoss: true, dead: false };
+      const x0 = th.x, z0 = th.z, h0 = th.hp;
+      G.telegraph({ shape: 'circle', x: x0, z: z0, r: 2.6, dur: 0.85, dmg: 50, dtype: 'phys', owner: mob, cancelIfOwnerDead: true });
+      G.debug.step(1);
+      out.dodged = { hurt: h0 - th.hp, moved: Math.hypot(th.x - x0, th.z - z0) };
+      // 首领的预警圈：不躲，伤害按 BOSS_VS_MINION 加重
+      // （召唤物的生命上限每 0.5 秒按属性刷新一次，所以这里记下实际结算的伤害，而不是看剩余生命）
+      G.debug.step(2.5);
+      let bossHit = 0;
+      const hm0 = G.hurtMinion;
+      G.hurtMinion = function (m, amount) {
+        if (m === th) bossHit += amount * (1 - (m.dr || 0) / 100);
+        return hm0.apply(this, arguments);
+      };
+      try {
+        G.telegraph({ shape: 'circle', x: th.x, z: th.z, r: 2.6, dur: 0.85, dmg: 50, dtype: 'phys', owner: boss, cancelIfOwnerDead: true });
+        G.debug.step(1);
+      } finally {
+        G.hurtMinion = hm0;
+      }
+      out.bossHit = bossHit;
+      out.bossK = G.BOSS_VS_MINION;
+      // 友方颜色：召唤物逻辑、界面 CSS、图标用的是同一种青
+      const css = getComputedStyle(document.documentElement).getPropertyValue('--ally').trim().toLowerCase();
+      out.ally = { hex: '#' + G.ALLY_HEX.toString(16).padStart(6, '0'), css, icon: (G.icons.ally || '').toLowerCase() };
+      return out;
+    });
+    assert(r.cleaveN > 0 && r.cleave.tgt > 0 && r.cleave.side > 0 && r.cleave.back === 0, '仆从横斩应带到身旁扇面里的敌人、不碰身后的：' + JSON.stringify(r));
+    assert(r.contact.length >= 2 && r.contact.every((c) => c.clip === 'attack' && c.c > 0 && Math.abs(c.t - c.c) <= 1.5 / 60), '仆从的伤害应落在攻击动作的命中帧上：' + JSON.stringify(r.contact));
+    assert(r.hold === 2 && r.onThrall === 2 && r.onPlayer === 1, '一具仆从最多牵制 2 只小怪，多出来的去找玩家：' + JSON.stringify(r));
+    assert(r.foeGap > 2.5 && r.huskFoe === 'minion' && r.spitterFoe === 'player', '近战小怪转火贴身的仆从，远程小怪应认准玩家：' + JSON.stringify(r));
+    assert(r.dodged.hurt === 0 && r.dodged.moved > 1, '仆从应闪开小怪的预警圈：' + JSON.stringify(r.dodged));
+    assert(r.bossK > 1 && Math.abs(r.bossHit - 50 * r.bossK) < 0.5, '首领的预警圈打在召唤物身上应加重、而且躲不开：' + JSON.stringify(r));
+    assert(r.ally.hex === r.ally.css && r.ally.css === r.ally.icon, '友方颜色应统一：' + JSON.stringify(r.ally));
+    return '横斩 ' + Math.round(r.cleave.tgt) + ' / ' + Math.round(r.cleave.side) + '，首领对召唤物 ×' + r.bossK;
+  });
+
+  await summonStep('统御支路与基石「万骸之主」：召唤物更强、仆从 +1，玩家自身（非召唤物）的伤害真的少 30%；天赋页完整显示这一支', async () => {
+    const r = await ev(() => {
+      T.arena();
+      G.debug.god(true);
+      const P = G.player, save = G.save, out = {};
+      for (const id of Object.keys(save.sockets)) save.sockets[id] = [null, null, null];
+      G.debug.setLevel(30);
+      G.resetPassives();
+      const e = T.mob('husk', 2, 0);
+      T.fix(0.5);
+      const hit = () => { const h = e.hp; G.hitEnemy(e, G.skillCtx('cleave'), 1); return h - e.hp; };
+      const own0 = hit();
+      const info0 = G.minionInfo('thrall');
+      const md0 = P.S.minionDmg, ml0 = P.S.minionLife; // 身上的装备可能也带召唤物词缀
+      const ids = ['mm0', 'mm1', 'mm2', 'mm3', 'mm4', 'mk'];
+      out.alloc = ids.map((id) => G.allocPassive(id));
+      const own1 = hit();
+      const info1 = G.minionInfo('thrall');
+      out.ownK = own1 / own0;
+      out.cap = [info0.cap, info1.cap];
+      // 召唤物：统御 10+10+8、灵契 10 的伤害提高（minionDmg 38%），基石总伤害 +25%
+      out.dmgK = info1.dmgMin / info0.dmgMin;
+      out.want = ((1 + P.S.minionDmg / 100) / (1 + md0 / 100)) * 1.25;
+      out.md = P.S.minionDmg - md0;
+      out.life = info1.life / info0.life;
+      out.lifeWant = (1 + P.S.minionLife / 100) / (1 + ml0 / 100);
+      // 仆从的真实一击不受「自身伤害少 30%」影响
+      G.summonMinion('thrall', P.x + 1, P.z);
+      G.debug.step(0.75);
+      T.fix(0.5);
+      const hp0 = e.hp;
+      let t = 0;
+      while (e.hp === hp0 && t < 3) { G.debug.step(1 / 60); t += 1 / 60; }
+      out.minionHit = hp0 - e.hp;
+      out.minionWant = (info1.dmgMin + info1.dmgMax) / 2;
+      T.unfix();
+      out.more = G.skillCtx('ember').more;
+      out.ml = ['ml0', 'ml1', 'mr0', 'mr1'].map((id) => G.allocPassive(id));
+      out.cap2 = G.minionInfo('thrall').cap;
+      out.S = { speed: P.S.speed, minionSpeed: P.S.minionSpeed, mana: P.S.mana };
+      out.nodes = Object.keys(G.TREE).filter((id) => G.TREE[id].arm === 'm').length;
+      return out;
+    });
+    assert(r.alloc.every(Boolean), '统御支路应能从起点一路点到基石：' + JSON.stringify(r.alloc));
+    assert(Math.abs(r.ownK - 0.7) < 1e-6 && Math.abs(r.more - 0.7) < 1e-9, '万骸之主：自身伤害应少 30%：' + JSON.stringify(r));
+    assert(r.cap[0] >= 3 && r.cap[1] === r.cap[0] + 1 && r.cap2 === r.cap[0] + 2, '万骸之主与「骸军」各 +1 仆从：' + JSON.stringify(r));
+    assert(r.md === 38 && Math.abs(r.dmgK - r.want) < 1e-6 && Math.abs(r.life - r.lifeWant) < 0.02 && r.life > 1.05, '召唤物伤害 / 生命加成不对：' + JSON.stringify(r));
+    assert(Math.abs(r.minionHit - r.minionWant) < 0.01, '召唤物的命中不应吃自身伤害惩罚：' + JSON.stringify(r));
+    assert(r.ml.every(Boolean) && r.S.speed >= 4 && r.S.minionSpeed >= 10 && r.S.mana >= 30, '旁支的施法速度 / 召唤物速度 / 魔力：' + JSON.stringify(r.S));
+    assert(r.nodes >= 8 && r.nodes <= 10, '统御支路应有 8–10 个节点：' + r.nodes);
+    // 天赋页：这一支的每个节点和名字都在画面里、不和别的节点重叠
+    await page.keyboard.press('KeyP');
+    const v = await ev(() => {
+      const svg = document.getElementById('tree-svg').getBoundingClientRect();
+      const box = (n) => n.getBoundingClientRect();
+      const inside = (b) => b.left >= svg.left - 1 && b.right <= svg.right + 1 && b.top >= svg.top - 1 && b.bottom <= svg.bottom + 1;
+      const ns = Array.from(document.querySelectorAll('#tree-svg .tn'));
+      const m = ns.filter((n) => G.TREE[n.dataset.node].arm === 'm');
+      const out = { n: m.length, out: m.filter((n) => !inside(box(n.querySelector('.shape')))).map((n) => n.dataset.node), overlap: [], labels: 0, labelOut: [] };
+      const ctr = (n) => { const b = box(n.querySelector('.shape')); return { x: (b.left + b.right) / 2, y: (b.top + b.bottom) / 2, r: b.width / 2 }; };
+      for (const a of m) for (const b of ns) {
+        if (a === b) continue;
+        const p = ctr(a), q = ctr(b);
+        if (Math.hypot(p.x - q.x, p.y - q.y) < (p.r + q.r) * 0.92) out.overlap.push(a.dataset.node + '/' + b.dataset.node);
+      }
+      for (const t of document.querySelectorAll('#tree-svg text.tl')) {
+        if (['万骸之主', '亡者狂潮', '骸军'].includes(t.textContent)) {
+          out.labels++;
+          if (!inside(box(t))) out.labelOut.push(t.textContent);
+        }
+      }
+      return out;
+    });
+    await closePanel();
+    assert(v.n === r.nodes && v.out.length === 0 && v.overlap.length === 0, '天赋页里统御支路显示不全或重叠：' + JSON.stringify(v));
+    assert(v.labels === 3 && v.labelOut.length === 0, '统御支路的核心 / 基石名字应完整显示：' + JSON.stringify(v));
+    return '自身伤害 ×' + r.ownK.toFixed(2) + '，仆从上限 ' + r.cap2;
+  });
+
+  await step('召唤物词缀：召唤物伤害出在武器 / 戒指 / 护符上（杖类更多），召唤物生命出在头盔 / 胸甲 / 腰带上，「仆从数量 +1」只在高物品等级的稀有护符上', async () => {
+    const r = await ev(() => {
+      const out = { dmgSlots: {}, lifeSlots: {}, cap: { rare20: 0, rare10: 0, magic20: 0, val: [] }, staff: 0, blade: 0, staffN: 0, bladeN: 0 };
+      for (let i = 0; i < 1600; i++) {
+        const slot = G.SLOTS[i % 8];
+        const it = G.rollItem(20, 2, slot);
+        for (const a of it.affixes) {
+          if (a.id === 'minionDmg') out.dmgSlots[slot] = 1;
+          if (a.id === 'minionLife') out.lifeSlots[slot] = 1;
+        }
+      }
+      for (let i = 0; i < 1500; i++) {
+        const w = G.rollItem(20, 2, 'weapon');
+        const has = w.affixes.some((a) => a.id === 'minionDmg');
+        if (w.baseIdx === 0) { out.bladeN++; out.blade += has ? 1 : 0; } else { out.staffN++; out.staff += has ? 1 : 0; }
+      }
+      for (let i = 0; i < 600; i++) {
+        const a = G.rollItem(20, 2, 'amulet').affixes.find((x) => x.id === 'minionCap');
+        if (a) { out.cap.rare20++; out.cap.val.push(a.v); }
+        if (G.rollItem(10, 2, 'amulet').affixes.some((x) => x.id === 'minionCap')) out.cap.rare10++;
+        if (G.rollItem(20, 1, 'amulet').affixes.some((x) => x.id === 'minionCap')) out.cap.magic20++;
+      }
+      out.cap.val = Array.from(new Set(out.cap.val));
+      out.fmt = [G.fmtStat('minionDmg', 12), G.fmtStat('minionLife', 20), G.fmtStat('minionSpeed', 10), G.fmtStat('minionCap', 1), G.fmtStat('minionMore', 25), G.fmtStat('ownLess', 30)];
+      out.tags = [G.TAG_NAME.minion, G.TAG_NAME.summon];
+      return out;
+    });
+    assert(Object.keys(r.dmgSlots).sort().join() === 'amulet,ring,weapon', '召唤物伤害词缀的部位不对：' + JSON.stringify(r.dmgSlots));
+    assert(Object.keys(r.lifeSlots).sort().join() === 'belt,body,helm', '召唤物生命词缀的部位不对：' + JSON.stringify(r.lifeSlots));
+    assert(r.staff / r.staffN > (r.blade / r.bladeN) * 2, '杖类武器应更容易出召唤物伤害：' + JSON.stringify(r));
+    assert(r.cap.rare20 > 0 && r.cap.rare10 === 0 && r.cap.magic20 === 0 && r.cap.val.join() === '1', '「仆从数量 +1」只应出在高等级稀有护符上：' + JSON.stringify(r.cap));
+    assert(r.fmt.every((s) => !/\{|undefined|NaN/.test(s)) && r.tags.every(Boolean), '召唤物属性 / 标签的文字不对：' + JSON.stringify(r));
+    return r.fmt.join('；');
   });
 
   // ------------------------------------------------------------------ 面板
@@ -1156,7 +1731,7 @@ async function main() {
       };
     });
     assert(r.bad.length === 0 && r.uniq === r.n, '有图标没画出来或重复：' + JSON.stringify(r.bad) + ' ' + r.uniq + '/' + r.n);
-    assert(r.kinds === '31,7,8,15,5', '图标数量不对（装备 31 / 通货 7 / 技能 8 / 辅助 15 / 异常 5）：' + r.kinds);
+    assert(r.kinds === '31,7,10,19,5', '图标数量不对（装备 31 / 通货 7 / 技能 10 / 辅助 19 / 异常 5）：' + r.kinds);
     assert(r.cellIcons === 8 && r.cellOk && r.distinct === 8, '背包格图标不对：' + JSON.stringify(r));
     assert(r.minSize >= 44 && r.maxSize <= 64, '背包格图标应在 44–64 像素之间：' + r.minSize + '–' + r.maxSize);
     assert(r.eq === 8 && r.cur === 7 && r.craft === 7 && r.head && r.glyphLeft === 0, '装备栏 / 通货 / 改造按钮 / 详情没有全部换成图标：' + JSON.stringify(r));
@@ -1489,7 +2064,7 @@ async function main() {
     });
     await page.keyboard.press('KeyG');
     cleanText(await ev(() => T.bodyText()), '技能页');
-    assert((await ev(() => document.querySelectorAll('.skill-card').length)) === 8, '技能卡数量不对');
+    assert((await ev(() => document.querySelectorAll('.skill-card').length)) === 10, '技能卡数量不对');
     await page.click('[data-act="bind"][data-skill="nova"][data-slot="2"]');
     let r = await ev(() => ({ bar: G.save.bar.slice(), on: document.querySelector('[data-act="bind"][data-skill="nova"][data-slot="2"]').classList.contains('on') }));
     assert(r.bar[2] === 'nova' && r.on && r.bar.filter((b) => b === 'nova').length === 1, '界面绑定失败：' + r.bar);
@@ -1597,7 +2172,7 @@ async function main() {
     await dragTo(sup('multi'), sock('ember', 0), async () => {
       mid = await ev(() => ({ lit: document.querySelectorAll('.sock.drop-ok').length, dim: document.querySelectorAll('.sock.drop-no').length, cap: document.querySelector('#drag-ghost em').textContent }));
     });
-    assert(mid.lit === 6 && mid.dim === 18 && mid.cap === '镶进 掷焰', '拖辅助宝石时只有带「投射物」标签的技能的槽应亮起：' + JSON.stringify(mid));
+    assert(mid.lit === 6 && mid.dim === 24 && mid.cap === '镶进 掷焰', '拖辅助宝石时只有带「投射物」标签的技能的槽应亮起：' + JSON.stringify(mid));
     let r = await ev(() => ({ e: G.save.sockets.ember.slice(), proj: G.skillCtx('ember').proj }));
     assert(r.e[0] === 'multi' && r.proj === 3, '宝石没有镶上：' + JSON.stringify(r));
     await dragTo(sup('brutal'), sock('ember', 1), async () => {
@@ -1912,7 +2487,7 @@ async function main() {
     await page.mouse.move(900, 450);
     await shown('move');
     let r = await hint();
-    assert(r.txt.includes('移动') && r.all.length === 14, '第一条提示应是移动：' + r.txt);
+    assert(r.txt.includes('移动') && r.all.length === 15, '第一条提示应是移动：' + r.txt);
     r = await ev(() => { const c = T.rect('#coach'), k = T.rect('#keyhints'), f = T.rect('.orb-wrap.left'); return { c, under: c.t >= k.b, aboveOrb: c.b <= f.t, pe: getComputedStyle(document.getElementById('coach')).pointerEvents }; });
     assert(r.under && r.aboveOrb && r.c.l >= 0 && r.pe === 'none', '提示卡的位置不对或挡住了操作：' + JSON.stringify(r));
     await page.keyboard.down('KeyD');
@@ -2058,6 +2633,7 @@ async function main() {
   await step('回响：法术自动重复一次，不再扣魔力', async () => {
     const r = await ev(() => {
       T.arena();
+      T.fix(0.5); // 身上随机装备的附加元素伤害可能点燃 / 感电靶子，多出几跳伤害：随机数钉死
       const P = G.player;
       T.dummy(3, 0);
       G.input.mouse.wx = 3;
@@ -2070,6 +2646,7 @@ async function main() {
       G.debug.step(0.3);
       const hp2 = T.d.hp;
       G.debug.step(1);
+      T.unfix();
       return { first: T.d.maxHp - hp1, second: hp1 - hp2, later: hp2 - T.d.hp, spent: P.maxMana - m1, cost };
     });
     assert(r.first > 0 && r.second > 0 && r.later === 0, '回响应正好多打一次：' + JSON.stringify(r));
@@ -2157,6 +2734,7 @@ async function main() {
       for (const k of Object.keys(G.save.sockets)) G.save.sockets[k] = [null, null, null];
       G.socketSupport('blade', 0, 'multi');
       G.bindSkill(1, 'blade');
+      T.fix(0.5); // 随机装备上的附加元素伤害可能让靶子感电 / 着火，多算伤害：随机数钉死
       T.dummy(2.2, 0); // 贴脸：3 枚飞刃都会碰到它
       G.input.mouse.wx = P.x + 2.2;
       G.input.mouse.wz = P.z;
@@ -2169,6 +2747,7 @@ async function main() {
         maxProj = Math.max(maxProj, S.projectiles.length);
       }
       const out = { proj: ctx.proj, maxProj, dmg: T.d.maxHp - T.d.hp, maxOne };
+      T.unfix();
       // 分散的目标：每个都会被打到
       G.clearEnemies();
       const ds = [];
