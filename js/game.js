@@ -136,8 +136,14 @@
       seenHelp: false,
       tut: {}, // 已经看过的新手提示：{ 提示 id: 1 }（界面层维护）
       blankGems: [], // 手里的无铭技能宝石：每颗的等级，从高到低排
+      autoSummon: autoSummonDefaults(), // 召唤技能的「自动召唤」开关：{ 技能 id: true / false }，默认关
     };
   };
+  function autoSummonDefaults() {
+    const o = {};
+    for (const id of Object.keys(G.SKILLS)) if (G.SKILLS[id].kind === 'summon') o[id] = false;
+    return o;
+  }
 
   // G.save 始终是同一个对象：换存档时原地覆盖内容
   function setSave(s) {
@@ -315,6 +321,9 @@
     s.blankGems = Array.isArray(raw.blankGems)
       ? raw.blankGems.filter(isNum).slice(0, BLANK_MAX).map((v) => G.clamp(Math.floor(v), 1, MAX_GEM_LEVEL)).sort((a, b) => b - a)
       : [];
+    // 自动召唤开关：只认召唤技能，旧存档没有这一项就保持默认（关）
+    const ra = isObj(raw.autoSummon) ? raw.autoSummon : {};
+    for (const id of Object.keys(s.autoSummon)) s.autoSummon[id] = ra[id] === true;
     return s;
   }
 
@@ -1243,6 +1252,7 @@
     refill();
     G.resetEnemies();
     if (G.regroupMinions) G.regroupMinions(); // 召唤物回到重生点身边
+    G.autoSummonDelay(); // 倒下的那些等它们现身之后再补
     if (state.portal) state.portal.armed = true;
   };
 
@@ -1696,6 +1706,9 @@
         }
         continue;
       }
+      // 召唤技能：按键本身是「自动召唤」开关（main.js 里直接切换，不进缓冲）；
+      // 只有 Shift + 按键留下的缓冲才是在准星处手动召唤一次，按住不放也不会连着召唤
+      if (G.SKILLS[id].kind === 'summon' && !(G.input.tap[slot] > 0)) continue;
       const ctx = G.skillCtx(id);
       if (!G.canAfford(ctx.cost)) {
         const now = Date.now();
@@ -2354,6 +2367,67 @@
   // 召唤：在准星处唤起召唤物（落点、数量上限与替换都由 minions.js 处理）
   SKILL_FX.summon = function (ctx, a) {
     if (G.summonMinion) G.summonMinion(ctx.id, a.tx, a.tz, ctx);
+  };
+
+  // ---------- 自动召唤 ----------
+  // 开关按技能存在 save.autoSummon 里；只对放在技能栏上的召唤技能生效（拿下来时保留开关，放回去接着补）。
+  // 开着时：数量没到上限、消耗付得起、冷却好了，就在玩家身边可走的地方召唤一只。正常扣消耗、进冷却。
+  // 玩家身上不播动作、不碰 P.cast 和输入缓冲：施法、连招、翻滚照常进行，只在落点出召唤特效，从玩家身上飘出一缕魂火。
+  // 处决途中、死亡时不补；面板打开时整个模拟暂停，自然也不补。换区域 / 重生时召唤物原样回到身边，数量没变，不会重复召唤
+  const AUTO_GAP = (G.AUTO_SUMMON_GAP = 0.5); // 两次自动召唤之间至少隔这么久
+  const AUTO_ENTER = 0.8; // 进入区域 / 重生后先等这么久再开始补（召唤物正在入口处重新现身）
+  const AUTO_BLOOD_KEEP = 0.4; // 以血为引时：付完消耗生命仍不低于这个比例才自动召唤（不替玩家把血抽干）
+  let autoT = 0;
+  G.autoSummonOn = (id) => !!(G.save && G.save.autoSummon && G.save.autoSummon[id]);
+  // 切换（on 缺省时取反）；quiet：不在玩家头顶飘字（技能页里点的）。返回切换后的状态
+  G.toggleAutoSummon = function (id, on, quiet) {
+    const sk = G.SKILLS[id];
+    if (!sk || sk.kind !== 'summon' || !G.save.skills[id]) return false;
+    if (!G.save.autoSummon) G.save.autoSummon = autoSummonDefaults();
+    const v = on === undefined ? !G.autoSummonOn(id) : !!on;
+    G.save.autoSummon[id] = v;
+    G.persist();
+    if (!quiet && G.world && P.ent) G.world.text(P.x, P.z, '自动召唤：' + (v ? '开' : '关'), v ? '#4fe3c8' : '#c9c2b4', 15);
+    G.sfx('click');
+    return v;
+  };
+  function autoSummonReady(id) {
+    if (!G.autoSummonOn(id) || !G.save.skills[id] || P.cds[id] > 0) return null;
+    const ctx = G.skillCtx(id);
+    if (!ctx.minion || G.minionCount(id) >= ctx.minion.cap) return null;
+    if (!G.canAfford(ctx.cost)) return null;
+    if (P.S.bloodMagic && ctx.cost > 0 && P.life - ctx.cost < P.maxLife * AUTO_BLOOD_KEEP) return null;
+    return ctx;
+  }
+  function updateAutoSummon(dt) {
+    if (autoT > 0) autoT -= dt;
+    if (autoT > 0 || P.dead || P.exec || !state.zone || !G.summonMinion || !G.minionCount) return;
+    const bar = G.save.bar;
+    for (let i = 0; i < bar.length; i++) {
+      const id = bar[i];
+      if (!id || !G.SKILLS[id] || G.SKILLS[id].kind !== 'summon') continue;
+      const ctx = autoSummonReady(id);
+      if (!ctx) continue;
+      // 落点：玩家身后两侧（不挡在身前的视线和准星上），由 minions.js 落到可走的地面
+      const r = ctx.minion.kind === 'colossus' ? 2.6 : 1.9;
+      const a = P.face + Math.PI + (Math.random() < 0.5 ? -1 : 1) * G.rand(0.5, 1.3);
+      const m = G.summonMinion(id, P.x + Math.sin(a) * r, P.z + Math.cos(a) * r, ctx);
+      if (!m) continue;
+      payCost(ctx.cost);
+      if (ctx.cd > 0) {
+        P.cds[id] = ctx.cd;
+        P.cdMax[id] = ctx.cd;
+      }
+      m.auto = true;
+      G.world.burst(P.x, 1.1, P.z, G.ALLY_HEX || 0x4fe3c8, 6, 1.4, 0.35);
+      state.stats.autoSummons = (state.stats.autoSummons || 0) + 1;
+      autoT = AUTO_GAP;
+      return;
+    }
+  }
+  // 进入区域 / 重生：等召唤物在身边重新现身之后再开始补
+  G.autoSummonDelay = function (t) {
+    autoT = Math.max(autoT, t === undefined ? AUTO_ENTER : t);
   };
 
   // =====================================================================
@@ -3214,6 +3288,7 @@
     // 各种计时
     for (const id in P.cds) if (P.cds[id] > 0) P.cds[id] = Math.max(0, P.cds[id] - dt);
     updateAuras(dt);
+    updateAutoSummon(dt);
     if (P.roll.cd > 0) P.roll.cd = Math.max(0, P.roll.cd - dt);
     if (P.iframe > 0) P.iframe = Math.max(0, P.iframe - dt);
     if (P.graceT > 0) P.graceT = Math.max(0, P.graceT - dt);
@@ -3855,6 +3930,7 @@
     state.focus = null;
     state.focusT = 0;
     if (G.regroupMinions) G.regroupMinions(); // 召唤物跟着进入新区域，在入口处重新现身
+    G.autoSummonDelay(); // 数量没变，不会重复召唤；缺的等它们现身之后再补
 
     save.lastZone = idx;
     save.tier = tier;

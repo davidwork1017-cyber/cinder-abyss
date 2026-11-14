@@ -2010,6 +2010,44 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
   0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 45%, transparent), 0 0 6px color-mix(in srgb, var(--c) 30%, transparent); }
   50% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 80%, transparent), 0 0 12px color-mix(in srgb, var(--c) 55%, transparent); }
 }
+/* 召唤技能开着自动召唤：图标外一圈缓慢转动的魂火青光弧，右下角「自动」角标；关掉时两者都隐藏 */
+@property --auto-a { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+.s-ring, .s-auto { display: none; }
+.slot.auto .s-ring {
+  display: block;
+  position: absolute;
+  left: -3px;
+  top: -3px;
+  width: 64px;
+  height: 64px;
+  padding: 2px;
+  box-sizing: border-box;
+  border-radius: 6px;
+  pointer-events: none;
+  background: conic-gradient(from var(--auto-a), transparent 0deg, color-mix(in srgb, var(--ally) 25%, transparent) 90deg, var(--ally) 170deg, transparent 200deg, transparent 270deg, color-mix(in srgb, var(--ally) 60%, transparent) 350deg, transparent 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--ally) 70%, transparent));
+  animation: slot-auto-spin 3.2s linear infinite;
+}
+@keyframes slot-auto-spin { to { --auto-a: 360deg; } }
+.slot.auto .s-auto {
+  display: block;
+  position: absolute;
+  right: -5px;
+  top: 45px;
+  padding: 0 3px;
+  font-size: 10px;
+  line-height: 13px;
+  letter-spacing: 1px;
+  color: #d6fff6;
+  background: #0b2a25;
+  border: 1px solid var(--ally);
+  border-radius: 2px;
+  box-shadow: 0 0 6px color-mix(in srgb, var(--ally) 45%, transparent);
+  pointer-events: none;
+}
 @keyframes slot-ready {
   0% { box-shadow: 0 0 0 2px #fff4dc, 0 0 22px 6px var(--c); filter: brightness(2.1); }
   100% { box-shadow: 0 0 0 0 transparent; filter: none; }
@@ -2535,6 +2573,33 @@ body.panel-open #coach { display: none; }
 .sk-num.full b { color: var(--ally); }
 .sk-mnote { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 11.5px; line-height: 16px; color: #8fb8b0; }
 .sk-mnote i { flex: none; width: 5px; height: 5px; background: var(--ally); transform: rotate(45deg); box-shadow: 0 0 6px var(--ally); }
+/* 召唤技能卡：自动召唤开关 */
+.sk-auto { display: flex; align-items: center; gap: 8px; margin-top: 7px; font-size: 11.5px; line-height: 16px; color: #8c8070; }
+.sk-auto > span { min-width: 0; }
+.sk-auto kbd { font-size: 10.5px; }
+.sk-auto-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px 3px 6px;
+  font: inherit;
+  font-size: 12px;
+  color: #b3a48b;
+  background: #140e0a;
+  border: 1px solid #4a3626;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.sk-auto-btn i { position: relative; width: 22px; height: 12px; border-radius: 6px; background: #2a1f17; border: 1px solid #4a3626; transition: background 0.15s, border-color 0.15s; }
+.sk-auto-btn i::after { content: ''; position: absolute; left: 1px; top: 1px; width: 8px; height: 8px; border-radius: 50%; background: #7d6f5c; transition: transform 0.15s, background 0.15s; }
+.sk-auto-btn b { min-width: 1em; font-weight: 700; color: #8c8070; }
+.sk-auto-btn:hover { border-color: #6b5038; color: #e6d6b8; }
+.sk-auto.on { color: #8fb8b0; }
+.sk-auto.on .sk-auto-btn { color: #d6fff6; border-color: var(--ally-d); background: #0c1f1b; box-shadow: 0 0 8px color-mix(in srgb, var(--ally) 25%, transparent); }
+.sk-auto.on .sk-auto-btn i { background: var(--ally-d); border-color: var(--ally); }
+.sk-auto.on .sk-auto-btn i::after { transform: translateX(10px); background: #e8fffa; }
+.sk-auto.on .sk-auto-btn b { color: var(--ally); }
 .sk-anote { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 11.5px; line-height: 16px; color: #a9c4d4; }
 .sk-anote.cd { color: #c8b38f; }
 .sk-anote i { flex: none; width: 5px; height: 5px; background: var(--c); transform: rotate(45deg); box-shadow: 0 0 6px var(--c); }

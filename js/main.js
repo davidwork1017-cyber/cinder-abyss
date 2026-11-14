@@ -27,6 +27,19 @@
     input.alt = false;
   }
 
+  // 按下技能栏的一格（0 左键 / 1 右键 / 2 Q / 3 E / 4 R）。召唤技能的格子：按一下切换它的「自动召唤」，
+  // 按住 Shift 再按才是在准星处手动召唤一次（走正常的施放与缓冲）；其他技能照常记进缓冲
+  function pressSlot(slot, shift) {
+    const id = slot < 4 ? G.save.bar[slot] : null;
+    const sk = id ? G.SKILLS[id] : null;
+    if (sk && sk.kind === 'summon' && G.save.skills[id] && !shift) {
+      G.toggleAutoSummon(id);
+      return;
+    }
+    input.tap[slot] = G.bufferTime('cast');
+  }
+  G.pressSlot = pressSlot;
+
   function refreshMouseWorld() {
     const g = W.screenToGround(input.mouse.x, input.mouse.y);
     input.mouse.wx = g.x;
@@ -68,9 +81,9 @@
         // 够得着露出破绽的敌人就处决，否则拾取
         if (!G.tryExecute()) G.pickupNearest();
       }
-      else if (code === 'KeyQ') input.tap[2] = G.bufferTime('cast');
-      else if (code === 'KeyE') input.tap[3] = G.bufferTime('cast');
-      else if (code === 'KeyR') input.tap[4] = G.bufferTime('cast'); // 武器技
+      else if (code === 'KeyQ') pressSlot(2, e.shiftKey);
+      else if (code === 'KeyE') pressSlot(3, e.shiftKey);
+      else if (code === 'KeyR') pressSlot(4, e.shiftKey); // 武器技
     });
 
     window.addEventListener('keyup', (e) => {
@@ -105,7 +118,7 @@
       }
       if (e.button >= 0 && e.button <= 2) input.mouse.b[e.button] = true;
       const slot = MOUSE_SLOT[e.button];
-      if (slot !== undefined) input.tap[slot] = G.bufferTime('cast');
+      if (slot !== undefined) pressSlot(slot, e.shiftKey);
     });
 
     window.addEventListener('mouseup', (e) => {

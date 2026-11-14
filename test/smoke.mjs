@@ -72,6 +72,7 @@ async function install() {
       // 前面的背包步骤会随机换装甚至卸下武器，战斗步骤的数值得有个固定的起点
       arena() {
         G.clearMinions(); // 上一步召出来的召唤物不带进这一步
+        for (const k in G.save.autoSummon || {}) G.save.autoSummon[k] = false; // 自动召唤也关掉，不然下一步一开始就补出来
         G.clearEnemies();
         G.respawn();
         T.clearLoot();
@@ -2264,6 +2265,7 @@ async function main() {
           const o = JSON.parse(s);
           T.unfix();
           G.clearMinions();
+          for (const k in G.save.autoSummon || {}) G.save.autoSummon[k] = false;
           G.save.passives = o.p;
           G.save.level = o.lv;
           T.buildRestore(o.b);
@@ -2338,6 +2340,300 @@ async function main() {
     assert(r.fields === 12 && r.focusFn, 'G.state.minions 字段或 G.focusTarget 不对：' + r.fields);
     return '仆从消耗 ' + r.cost + '，远处落点 ' + r.farD.toFixed(1);
   });
+
+  await summonStep('自动召唤：按召唤键切换开关（按技能存档，默认关）；开着时在身边补到上限、间隔 0.5 秒，倒下自动补，魔力不足暂停、回蓝继续，守像受冷却限制；不打断施法与翻滚、不吃输入缓冲；Shift + 按键在准星处手动召唤；技能卡和技能栏能看到并切换', async () => {
+    const face0 = await ev(() => G.player.face);
+    try {
+      return await autoSummonBody();
+    } finally {
+      // 这一步翻滚、转身过：朝向还原，后面的步骤（召唤物跟在身后的位置）不受影响
+      await ev((f) => { G.player.face = G.player.drawFace = f; G.player.roll.t = G.player.roll.cd = 0; }, face0).catch(() => {});
+    }
+  });
+  async function autoSummonBody() {
+    await ev(() => {
+      T.arena();
+      G.debug.hold(true);
+      G.debug.god(true);
+      for (const id of Object.keys(G.save.sockets)) G.save.sockets[id] = [null, null, null];
+      G.save.bar = G.save.bar.map((b) => (b === 'nova' ? null : b)); // 霜环保留魔力会干扰魔力的账
+      G.bindSkill(1, 'ember');
+      G.bindSkill(2, 'thrall');
+      G.bindSkill(3, 'colossus');
+      G.computeStats();
+      G.player.mana = G.player.maxMana;
+      G.debug.step(1); // 重生后的等待过去
+    });
+    // 开关：真按 Q（main.js 的输入路径），不进缓冲、不起手
+    const before = await ev(() => ({ def: JSON.stringify(G.newSave().autoSummon), cur: G.save.autoSummon.thrall }));
+    await page.keyboard.press('KeyQ');
+    const sw = await ev((KEY) => ({
+      on: G.save.autoSummon.thrall, col: G.save.autoSummon.colossus, tap: G.input.tap[2], cast: !!G.player.cast,
+      stored: JSON.parse(localStorage.getItem(KEY)).autoSummon, hud: document.querySelectorAll('#slots .slot')[2].classList.contains('auto'),
+    }), SAVE_KEY);
+    await ev(() => G.ui.update());
+    const hudOn = await ev(() => {
+      G.ui.update();
+      const n = document.querySelectorAll('#slots .slot')[2];
+      return { cls: n.classList.contains('auto'), ring: getComputedStyle(n.querySelector('.s-ring')).display, badge: getComputedStyle(n.querySelector('.s-auto')).display, txt: n.querySelector('.s-auto').textContent };
+    });
+    assert(before.def === '{"thrall":false,"colossus":false}' && before.cur === false, '自动召唤应默认关：' + JSON.stringify(before));
+    assert(sw.on === true && sw.col === false && sw.stored.thrall === true && !(sw.tap > 0) && !sw.cast, '按 Q 应切换仆从的自动召唤并写进存档，不起手、不留缓冲：' + JSON.stringify(sw));
+    assert(hudOn.cls && hudOn.ring === 'block' && hudOn.badge === 'block' && hudOn.txt === '自动', '技能栏格子应显示「自动」状态：' + JSON.stringify(hudOn));
+
+    const r = await ev(() => {
+      const P = G.player, S = G.state, out = {};
+      const cost = G.skillCtx('thrall').cost;
+      const thralls = () => S.minions.filter((m) => m.kind === 'thrall' && !m.dead);
+      T.aim(P.x + 5, P.z); // 准星在远处：自动召唤落在身边，不在准星处
+      // 补到上限：记下每一只出现的时刻、落点、那一帧扣掉的魔力
+      const ev0 = [];
+      let t = 0;
+      for (let i = 0; i < 240; i++) {
+        const n0 = thralls().length, m0 = P.mana;
+        G.tick(1 / 60);
+        t += 1 / 60;
+        if (thralls().length > n0) {
+          const m = thralls()[thralls().length - 1];
+          ev0.push({ t: +t.toFixed(3), d: +Math.hypot(m.x - P.x, m.z - P.z).toFixed(2), aimD: +Math.hypot(m.x - (P.x + 5), m.z - P.z).toFixed(2), spent: +(m0 - P.mana).toFixed(2), ok: G.world.walkable(m.x, m.z, 0.3) });
+        }
+      }
+      out.fill = ev0;
+      out.n = thralls().length;
+      out.cost = cost;
+      out.noCast = !P.cast;
+      // 死了一具：自动补上
+      G.hurtMinion(thralls()[0], 1e9, 'phys', null);
+      out.afterKill = thralls().length;
+      G.debug.step(0.6);
+      out.refill = thralls().length;
+      // 魔力不足：暂停；回蓝后继续
+      for (const m of thralls()) G.hurtMinion(m, 1e9, 'phys', null);
+      P.manaRegen = 0;
+      P.mana = cost - 1;
+      G.debug.step(1.5);
+      out.starved = { n: thralls().length, mana: +P.mana.toFixed(2) };
+      P.mana = cost + 0.5;
+      G.debug.step(0.3);
+      out.resumed = { n: thralls().length, mana: +P.mana.toFixed(2) };
+      G.debug.step(1.0);
+      out.oneOnly = thralls().length;
+      G.computeStats();
+      P.mana = P.maxMana;
+      G.debug.step(1.5);
+      out.full = thralls().length;
+      return out;
+    });
+    const gaps = r.fill.slice(1).map((e, i) => +(e.t - r.fill[i].t).toFixed(3));
+    assert(r.fill.length === 3 && r.n === 3 && r.fill[0].t < 0.1, '开着时应立刻开始、补到 3 具：' + JSON.stringify(r.fill));
+    assert(gaps.every((g) => g >= 0.49 && g < 0.6), '两次自动召唤之间应隔约 0.5 秒：' + JSON.stringify(gaps));
+    assert(r.fill.every((e) => e.d < 3.2 && e.aimD > 2 && e.ok), '自动召唤应落在玩家身边可走的地方，不在准星处：' + JSON.stringify(r.fill));
+    assert(r.fill.every((e) => Math.abs(e.spent - r.cost) < 0.3) && r.noCast, '每次自动召唤应扣一次魔力、不起手：' + JSON.stringify({ fill: r.fill, cost: r.cost }));
+    assert(r.afterKill === 2 && r.refill === 3, '召唤物死后应自动补上：' + JSON.stringify(r));
+    assert(r.starved.n === 0 && r.starved.mana === r.cost - 1, '魔力不足应暂停：' + JSON.stringify(r.starved));
+    assert(r.resumed.n === 1 && r.resumed.mana < 1 && r.oneOnly === 1 && r.full === 3, '回蓝后应继续补：' + JSON.stringify(r));
+
+    // 守像：真按 E 开启；受冷却限制
+    await page.keyboard.press('KeyE');
+    const c = await ev(() => {
+      const P = G.player, S = G.state, out = {};
+      const cols = () => S.minions.filter((m) => m.kind === 'colossus' && !m.dead);
+      out.on = G.save.autoSummon.colossus;
+      P.mana = P.maxMana;
+      G.debug.step(0.6);
+      out.n1 = cols().length;
+      out.cd = +(P.cds.colossus || 0).toFixed(2);
+      out.cdMax = G.skillCtx('colossus').cd;
+      G.hurtMinion(cols()[0], 1e9, 'phys', null);
+      G.debug.step(1.5);
+      out.waiting = { n: cols().length, cd: +(P.cds.colossus || 0).toFixed(2) };
+      P.cds.colossus = 0.2;
+      G.debug.step(0.4);
+      out.n2 = cols().length;
+      out.cd2 = P.cds.colossus > 0;
+      return out;
+    });
+    assert(c.on && c.n1 === 1 && c.cd > c.cdMax - 1 && c.cdMax > 0, '守像开启后应自动召唤并进冷却：' + JSON.stringify(c));
+    assert(c.waiting.n === 0 && c.waiting.cd > 0 && c.n2 === 1 && c.cd2, '守像倒下后应等冷却好了再补：' + JSON.stringify(c));
+
+    // 不打断：施法途中、翻滚途中照常补；施法不被换掉、缓冲着的下一次施法照常放出来
+    const a = await ev(() => {
+      const P = G.player, S = G.state, out = {};
+      const thralls = () => S.minions.filter((m) => m.kind === 'thrall' && !m.dead);
+      P.mana = P.maxMana;
+      P.cds = {};
+      G.debug.step(0.6); // 间隔走完
+      T.aim(P.x + 5, P.z);
+      G.input.tap[1] = 0.3;
+      G.tick(1 / 60);
+      const c1 = P.cast;
+      out.started = !!c1 && c1.id === 'ember' && !c1.fired;
+      G.hurtMinion(thralls()[0], 1e9, 'phys', null);
+      G.input.tap[1] = 0.6; // 施法途中又按了一下：缓冲着
+      const n0 = thralls().length;
+      G.tick(1 / 60);
+      out.summonedMidCast = thralls().length === n0 + 1;
+      out.sameCast = P.cast === c1;
+      out.bufKept = G.input.tap[1] > 0.5;
+      let fired = false, second = null;
+      for (let i = 0; i < 120; i++) {
+        G.tick(1 / 60);
+        if (c1.fired) fired = true;
+        if (P.cast && P.cast !== c1 && P.cast.id === 'ember') {
+          second = P.cast;
+          break;
+        }
+      }
+      out.fired = fired;
+      out.second = !!second;
+      for (let i = 0; i < 120 && P.cast; i++) G.tick(1 / 60);
+      // 翻滚
+      G.debug.step(0.6);
+      G.input.keys.KeyD = true;
+      const rolled = G.dodge();
+      G.input.keys.KeyD = false;
+      const x0 = P.x, z0 = P.z, rt = P.roll.t;
+      G.hurtMinion(thralls()[0], 1e9, 'phys', null);
+      const n1 = thralls().length;
+      G.tick(1 / 60);
+      out.roll = { rolled, summoned: thralls().length === n1 + 1, still: P.roll.t > 0 && P.roll.t < rt, moved: +Math.hypot(P.x - x0, P.z - z0).toFixed(3), cast: !!P.cast };
+      for (let i = 0; i < 60 && P.roll.t > 0; i++) G.tick(1 / 60);
+      out.roll.dist = +Math.hypot(P.x - x0, P.z - z0).toFixed(2);
+      return out;
+    });
+    assert(a.started && a.summonedMidCast && a.sameCast && a.fired, '施法途中应照常自动补、不打断施法：' + JSON.stringify(a));
+    assert(a.bufKept && a.second, '自动召唤不应吃掉玩家的输入缓冲：' + JSON.stringify(a));
+    assert(a.roll.rolled && a.roll.summoned && a.roll.still && a.roll.moved > 0 && !a.roll.cast, '翻滚途中应照常自动补、不打断翻滚：' + JSON.stringify(a.roll));
+
+    // 处决途中、死亡时不补；Shift + Q 在准星处手动召唤（满编时替换最弱的那具）
+    const x = await ev(() => {
+      const P = G.player, S = G.state, out = {};
+      const thralls = () => S.minions.filter((m) => m.kind === 'thrall' && !m.dead);
+      P.mana = P.maxMana;
+      G.debug.step(0.6);
+      out.full = thralls().length;
+      // 处决：真的处决一只露出破绽的靶子，途中倒下的仆从等处决结束再补
+      T.dummy(1.6, 0);
+      T.d.brokenT = 4;
+      out.exec = G.execute(T.d) && !!P.exec;
+      G.hurtMinion(thralls()[0], 1e9, 'phys', null);
+      let during = 0, frames = 0;
+      for (let i = 0; i < 240 && P.exec; i++) {
+        G.tick(1 / 60);
+        frames++;
+        during = Math.max(during, thralls().length);
+      }
+      out.execFrames = frames;
+      out.during = during;
+      G.debug.step(0.1);
+      out.afterExec = thralls().length;
+      // 死亡：不补；复活后接着补
+      G.hurtMinion(thralls()[0], 1e9, 'phys', null);
+      P.dead = true;
+      P.deadT = 99;
+      G.debug.step(0.6);
+      out.deadN = thralls().length;
+      P.dead = false;
+      P.deadT = 0;
+      G.debug.step(0.6); // 死着的时候间隔计时也停着
+      out.aliveN = thralls().length;
+      G.clearEnemies();
+      return out;
+    });
+    await ev(() => {
+      const st = G.state.zone.start;
+      T.tp(st.x, st.z); // 翻滚、处决挪过位置：回到入口的空地上，准星处一定是可走的地面
+      G.debug.step(0.5); // 召唤物跟回身边
+    });
+    await page.keyboard.down('Shift');
+    await page.keyboard.press('KeyQ');
+    await page.keyboard.up('Shift');
+    const m = await ev(() => {
+      const P = G.player, S = G.state, out = {};
+      out.stillOn = G.save.autoSummon.thrall;
+      out.tap = G.input.tap[2] > 0;
+      T.aim(P.x - 4, P.z + 1); // 渲染循环每帧按鼠标的屏幕位置刷新准星：要在推进的同一次调用里设
+      for (let i = 0; i < 90 && !(P.cast && P.cast.fired); i++) G.tick(1 / 60);
+      out.fired = !!(P.cast && P.cast.fired && P.cast.id === 'thrall');
+      out.aimOk = G.world.walkable(P.x - 4, P.z + 1, 0.6);
+      G.debug.step(0.3);
+      const near = S.minions.filter((mm) => mm.kind === 'thrall' && Math.hypot(mm.x - (P.x - 4), mm.z - (P.z + 1)) < 1.2);
+      out.atAim = near.length;
+      out.n = S.minions.filter((mm) => mm.kind === 'thrall').length;
+      return out;
+    });
+    assert(x.full === 3 && x.exec && x.execFrames > 5 && x.during === 2 && x.afterExec === 3, '处决途中不应自动补，处决完接着补：' + JSON.stringify(x));
+    assert(x.deadN === 2 && x.aliveN === 3, '死亡时不应自动补，复活后接着补：' + JSON.stringify(x));
+    assert(m.stillOn && m.tap && m.atAim === 1 && m.n === 3, 'Shift + Q 应在准星处手动召唤一次（不切换开关）：' + JSON.stringify(m));
+
+    // 技能卡：能看到并切换开关；关掉后不再补
+    await page.keyboard.press('KeyG');
+    await until(() => T.tab() === 'skills');
+    const card = await ev(() => {
+      const b = document.querySelector('.sk-auto-btn[data-skill="thrall"]');
+      return { has: !!b, on: b && b.closest('.sk-auto').classList.contains('on'), txt: b ? b.closest('.sk-auto').innerText : '', other: document.querySelectorAll('.sk-auto-btn').length };
+    });
+    await page.click('.sk-auto-btn[data-skill="thrall"]');
+    const card2 = await ev((KEY) => {
+      const b = document.querySelector('.sk-auto-btn[data-skill="thrall"]');
+      return { save: G.save.autoSummon.thrall, stored: JSON.parse(localStorage.getItem(KEY)).autoSummon.thrall, off: !b.closest('.sk-auto').classList.contains('on'), txt: b.innerText };
+    }, SAVE_KEY);
+    await closePanel();
+    const off = await ev(() => {
+      const P = G.player, S = G.state, out = {};
+      G.debug.hold(true);
+      G.ui.update();
+      out.hud = document.querySelectorAll('#slots .slot')[2].classList.contains('auto');
+      for (const mm of S.minions.filter((mm) => mm.kind === 'thrall')) G.hurtMinion(mm, 1e9, 'phys', null);
+      P.mana = P.maxMana;
+      G.debug.step(2);
+      out.n = S.minions.filter((mm) => mm.kind === 'thrall').length;
+      // 从技能栏拿下守像：不再补；开关保留，放回去接着补
+      for (const mm of S.minions.filter((mm) => mm.kind === 'colossus')) G.hurtMinion(mm, 1e9, 'phys', null);
+      P.cds = {};
+      G.bindSkill(3, null);
+      G.debug.step(1);
+      out.unbound = { n: S.minions.filter((mm) => mm.kind === 'colossus').length, kept: G.save.autoSummon.colossus };
+      G.bindSkill(0, 'colossus'); // 换到另一格：开关跟着技能走
+      G.debug.step(0.6);
+      out.rebound = S.minions.filter((mm) => mm.kind === 'colossus').length;
+      G.ui.update();
+      out.hud0 = document.querySelectorAll('#slots .slot')[0].classList.contains('auto');
+      return out;
+    });
+    assert(card.has && card.on && card.other === 2 && card.txt.includes('自动召唤') && card.txt.includes('Shift'), '召唤技能卡上应有自动召唤开关：' + JSON.stringify(card));
+    assert(card2.save === false && card2.stored === false && card2.off && card2.txt.includes('关'), '点技能卡上的开关应关掉并存档：' + JSON.stringify(card2));
+    assert(!off.hud && off.n === 0, '关掉后不应再补、技能栏的「自动」应消失：' + JSON.stringify(off));
+    assert(off.unbound.n === 0 && off.unbound.kept && off.rebound === 1 && off.hud0, '从技能栏拿下时不补、开关保留；换到别的格子照常：' + JSON.stringify(off));
+
+    // 存档：读回保留；旧存档补默认值；畸形值按关处理。
+    // 读档会让新手提示把当前（高等级）角色当成老角色：这里只测存档，读完把存档世代还原，提示系统察觉不到
+    const sv = await ev((KEY) => {
+      const out = {};
+      const epoch = G.saveEpoch;
+      G.save.autoSummon.thrall = true;
+      G.persist();
+      const keep = localStorage.getItem(KEY);
+      G.loadSave();
+      out.back = JSON.stringify(G.save.autoSummon);
+      const raw = JSON.parse(keep);
+      delete raw.autoSummon;
+      localStorage.setItem(KEY, JSON.stringify(raw));
+      G.loadSave();
+      out.old = JSON.stringify(G.save.autoSummon);
+      raw.autoSummon = { thrall: 'yes', colossus: 1, cleave: true, junk: true };
+      localStorage.setItem(KEY, JSON.stringify(raw));
+      G.loadSave();
+      out.bad = JSON.stringify(G.save.autoSummon);
+      localStorage.setItem(KEY, keep);
+      G.loadSave();
+      G.saveEpoch = epoch;
+      G.computeStats();
+      return out;
+    }, SAVE_KEY);
+    assert(sv.back === '{"thrall":true,"colossus":true}' && sv.old === '{"thrall":false,"colossus":false}' && sv.bad === '{"thrall":false,"colossus":false}', '自动召唤的存档不对：' + JSON.stringify(sv));
+    return '间隔 ' + gaps.join(' / ') + ' 秒，每次扣 ' + r.cost + ' 魔力';
+  }
 
   await summonStep('召唤物：自动寻敌、走正常命中路径伤害敌人（不算玩家的连击）；小怪会转头打靠近它的召唤物', async () => {
     const r = await ev(() => {

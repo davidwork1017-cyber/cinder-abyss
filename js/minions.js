@@ -1,7 +1,7 @@
 'use strict';
 // 召唤物：烬骸仆从（快速近战，最多 3 具起）与石誓守像（缓慢、坚固、砸地 + 嘲讽，只有 1 尊）。
 // 全自动：跟随玩家、自己挑目标，优先打玩家最近亲手打中的敌人（集火目标）；敌人也会转头打它们。
-// 召唤物不进存档：读档后需要重新召唤。数值来自 G.skillCtx(技能).minion（宝石等级、召唤物属性、镶在技能上的辅助）
+// 召唤物不进存档：读档后需要重新召唤（开着自动召唤的技能会自己补上，见 game.js 的 updateAutoSummon）。数值来自 G.skillCtx(技能).minion（宝石等级、召唤物属性、镶在技能上的辅助）
 (function () {
   const G = window.G;
   const TAU = Math.PI * 2;
@@ -121,6 +121,7 @@
     for (let i = 0; i < list.length; i++) if (!list[i].dead && list[i].skill === skill) n++;
     return n;
   }
+  G.minionCount = aliveOf; // 某个召唤技能现存的召唤物数量（自动召唤据此判断要不要补）
   // 受伤最重（生命比例最低）的那只；一样时取最早召唤的
   function weakestOf(skill) {
     let best = null;

@@ -401,6 +401,7 @@
       d.className = 'slot empty';
       d.innerHTML =
         '<div class="s-icon"><i class="s-img ico"></i><div class="s-cd"></div><span class="s-cdnum"></span></div>' +
+        '<i class="s-ring"></i><span class="s-auto">自动</span>' + // 召唤技能开着自动召唤：转动的光圈 + 角标
         '<div class="s-key">' + KEY_LABEL[i] + '</div><div class="s-bubble"></div><div class="s-combo"><i></i><i></i><i></i></div>';
       slotsEl.appendChild(d);
       hud.slots.push({
@@ -417,6 +418,7 @@
         numTxt: '',
         na: false,
         casting: false,
+        auto: false, // 自动召唤开着
         left: 0, // 上一帧的冷却剩余
         held: false, // 上一帧这个键是否按着
         fxT: -1e9, // 拒绝施放 / 冷却转好 的动画起点
@@ -625,7 +627,10 @@
       if (id && !P.dead) {
         if (s.left > 0 && s.left < 0.3 && left <= 0) slotFx(s, 'ready', '', now);
         if (held && !s.held) {
-          if (G.SKILLS[id].kind === 'aura') slotFx(s, 'ready', '', now); // 光环：按了也只是亮一下，提示它一直生效
+          const sk = G.SKILLS[id];
+          const shift = !!(G.input.keys.ShiftLeft || G.input.keys.ShiftRight);
+          if (sk.kind === 'aura') slotFx(s, 'ready', '', now); // 光环：按了也只是亮一下，提示它一直生效
+          else if (sk.kind === 'summon' && !shift) slotFx(s, 'ready', '', now); // 召唤：按键是自动召唤的开关，不是施放
           else if (left > 0.15) slotFx(s, 'deny', '冷却中', now);
           else if (na) slotFx(s, 'deny', blood ? '生命不足' : '魔力不足', now);
         }
@@ -655,6 +660,11 @@
       if (casting !== s.casting) {
         s.casting = casting;
         s.el.classList.toggle('casting', casting);
+      }
+      const auto = i !== W_SLOT && !!id && G.SKILLS[id].kind === 'summon' && G.autoSummonOn(id);
+      if (auto !== s.auto) {
+        s.auto = auto;
+        s.el.classList.toggle('auto', auto);
       }
     }
 
@@ -1602,6 +1612,21 @@
     return '<div class="wsk-card" style="--c:' + (id ? G.SKILLS[id].color : '#8c7f6d') + '">' + main + '<div class="wsk-row">' + row + '</div></div>';
   }
 
+  // 召唤技能卡上的「自动召唤」开关：点它切换；写明在技能栏上按哪个键也能切换、Shift 是手动召唤
+  function autoRow(id) {
+    const on = G.autoSummonOn(id);
+    const slot = G.save.bar.indexOf(id);
+    const k = slot >= 0 ? KEY_LABEL[slot] : '';
+    const how = slot < 0
+      ? '放进技能栏后生效'
+      : (on ? '数量不满时在你身边自动补上，魔力不够就暂停' : '开启后自动召唤到上限') + ' · 按 <kbd>' + k + '</kbd> 切换 · <kbd>Shift</kbd>+<kbd>' + k + '</kbd> 在准星处召唤一次';
+    return (
+      '<div class="sk-auto' + (on ? ' on' : '') + '">' +
+      '<button type="button" tabindex="-1" class="sk-auto-btn" data-act="autosum" data-skill="' + id + '" aria-pressed="' + on + '"><i></i>自动召唤<b>' + (on ? '开' : '关') + '</b></button>' +
+      '<span>' + how + '</span></div>'
+    );
+  }
+
   function skillCard(id) {
     const S = G.save;
     const sk = G.SKILLS[id];
@@ -1654,7 +1679,7 @@
       if (mi.radius > 0) bits.push('砸地半径 ' + fmt1(mi.radius));
       if (mi.taunt) bits.push('嘲讽 ' + fmt1(mi.taunt.cd) + ' 秒 / 半径 ' + fmt1(mi.taunt.r));
       if (mi.dps > 0) bits.push((mi.cap > 1 ? '满员秒伤约 ' : '秒伤约 ') + fmtInt(mi.dps));
-      note = '<div class="sk-mnote"><i></i>' + bits.join(' · ') + '</div>';
+      note = '<div class="sk-mnote"><i></i>' + bits.join(' · ') + '</div>' + autoRow(id);
     } else if (sk.kind === 'aura') {
       // 光环：没有施放，只有保留；卡片上是每一跳的伤害、每秒几跳和半径
       nums =
@@ -2063,8 +2088,9 @@
     const blocked = ['echo', 'leech', 'multi', 'pierce', 'chain'].filter((id) => G.SUPPORTS[id]).map((id) => G.SUPPORTS[id].name).join('、');
     return (
       '<div class="sec-title">召唤与集火</div>' +
-      '<p><b class="c-ally">' + name('thrall', '烬骸仆从') + '</b>在准星处唤起迅捷的骸骨剑士，数量满了再施放会替换伤得最重的那具；<b class="c-ally">' + name('colossus', '石誓守像') + '</b>只有一尊，缓慢而坚韧，会砸地伤害一圈敌人，并不时<b>嘲讽</b>，让周围的敌人转而攻击它。</p>' +
-      '<p>召唤物全自动：跟在你身边，自己挑身边的敌人打。你<b>亲手打中</b>的敌人会被标记几秒，召唤物优先<b>集火</b>它——想先清掉谁，就先打它一下。敌人也会还手：一具仆从最多缠住两只怪、守像四只，多出来的照样冲你来，远程怪和爆裂虫更是认准了你。仆从会闪开小怪的预警圈，却躲不开首领的招式，挨得也更重；倒下的召唤物需要重新施放。</p>' +
+      '<p>召唤技能的按键是<b class="c-ally">自动召唤</b>的开关（每个技能分别记住，技能页的卡片上也能切换）：开着时，只要数量没到上限、魔力够、冷却好了，就在你身边隔一小会儿召唤一只，倒下的也会自动补上，正常扣魔力、进冷却；魔力不够就暂停，回上来接着补（点了以血为引则扣生命，付完低于四成生命时不自动召唤）。自动召唤不播动作，不打断你的施法、连招和翻滚，处决途中暂停。想把召唤物放到指定位置，按住 <kbd>Shift</kbd> 再按那个键，就在准星处手动召唤一次。技能从技能栏上拿下时自动召唤不生效，放回去接着补。</p>' +
+      '<p><b class="c-ally">' + name('thrall', '烬骸仆从') + '</b>唤起迅捷的骸骨剑士，数量满了再手动召唤会替换伤得最重的那具；<b class="c-ally">' + name('colossus', '石誓守像') + '</b>只有一尊，缓慢而坚韧，会砸地伤害一圈敌人，并不时<b>嘲讽</b>，让周围的敌人转而攻击它。</p>' +
+      '<p>召唤物全自动：跟在你身边，自己挑身边的敌人打。你<b>亲手打中</b>的敌人会被标记几秒，召唤物优先<b>集火</b>它——想先清掉谁，就先打它一下。敌人也会还手：一具仆从最多缠住两只怪、守像四只，多出来的照样冲你来，远程怪和爆裂虫更是认准了你。仆从会闪开小怪的预警圈，却躲不开首领的招式，挨得也更重；倒下的召唤物没开自动召唤时需要重新施放。</p>' +
       '<p>召唤物<b>不吃你自己的伤害属性</b>，只随宝石等级、带「召唤物」字样的属性（装备词缀与<b class="c-ally">统御</b>支路的天赋）和镶在召唤技能上的辅助宝石成长。屏幕左下、生命球旁边的一排小图标是它们的血量，守像的嘲讽冷却也在那里；技能页的卡片上有每一击的伤害、生命与数量。</p>' +
       (gems ? '<div class="hc-list">' + gems + '</div>' : '') +
       '<p>通用辅助也能镶在召唤技能上：迅捷加快召唤物出手，注入、蛮力、致命、震慑、蚀染作用于召唤物的每一击，扩域放大守像的砸地，节流照常减少消耗与冷却。' + (blocked ? blocked + '镶不上召唤技能。' : '') + '</p>'
@@ -2565,6 +2591,10 @@
     },
 
     // ---- 技能 ----
+    autosum(d) {
+      G.toggleAutoSummon(d.skill, undefined, true);
+      render();
+    },
     bind(d) {
       const slot = +d.slot;
       G.bindSkill(slot, G.save.bar[slot] === d.skill ? null : d.skill);
@@ -3856,8 +3886,11 @@
         const bar = (G.save && G.save.bar) || [];
         let i = -1;
         for (let k = 0; k < bar.length && i < 0; k++) if (bar[k] && G.SKILLS[bar[k]] && G.SKILLS[bar[k]].kind === 'summon') i = k;
-        const how = i >= 0 && KEY_LABEL[i] ? '按 <kbd>' + KEY_LABEL[i] + '</kbd> 朝准星施放' : '朝准星施放';
-        return '学会了<b class="c-ally">召唤</b>：' + how + '，召唤物会自己寻敌厮杀。你<b>亲手打中</b>的敌人会被标记，召唤物优先<b>集火</b>它。召唤物的数值、辅助宝石在 <kbd>G</kbd> 技能页';
+        const k = i >= 0 && KEY_LABEL[i] ? KEY_LABEL[i] : '';
+        const how = k
+          ? '按 <kbd>' + k + '</kbd> 开关<b>自动召唤</b>：开着时召唤物在身边补到上限，倒下自动补，魔力不够就暂停；<kbd>Shift</kbd>+<kbd>' + k + '</kbd> 在准星处召唤一次'
+          : '放进技能栏，按它的键开关<b>自动召唤</b>';
+        return '学会了<b class="c-ally">召唤</b>：' + how + '。召唤物会自己寻敌厮杀，优先<b>集火</b>你亲手打中的敌人。数值与辅助宝石在 <kbd>G</kbd> 技能页';
       },
       when: () => coach.summonPing,
       done: () => minionCount() > 0 && !!focusNow(),
@@ -3972,6 +4005,7 @@
       coach.cast[P.cast.slot] = true;
       if (!coach.summonPing && isSummon(P.cast.id)) summonPing();
     }
+    if (!coach.summonPing && minionCount() > 0 && !G.save.tut.summon) summonPing(); // 自动召唤不经过 P.cast：看到召唤物就算第一次召唤
     if (coach.summonPing && G.save.tut.summon) coach.summonPing = false; // 已经看过（或测试里统一标成看过）
     if (P.roll.t > 0) coach.rolled = true;
     if (coach.cur0 < 0) coach.cur0 = curTotal();
