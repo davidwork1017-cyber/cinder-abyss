@@ -1789,12 +1789,28 @@
     }
   }
   function unflash(ent) {
+    if (ent.iced) return applyIce(ent); // 冻着的：闪白过后回到冰色
     const ms = ent.mats;
     for (let i = 0; i < ms.length; i++) {
       ms[i].emissive.copy(ms[i].userData.e0);
       ms[i].emissiveIntensity = ms[i].userData.ei0;
     }
   }
+  function applyIce(ent) {
+    const ms = ent.mats;
+    for (let i = 0; i < ms.length; i++) {
+      ms[i].emissive.setRGB(0.42, 0.78, 1);
+      ms[i].emissiveIntensity = ms[i].userData.fi * 0.5;
+    }
+  }
+  // 冻结：整个模型罩一层冰色（受击闪白照常，闪完回到冰色）；on = false 复原
+  W.frost = function (ent, on) {
+    if (!ent || ent.removed) return;
+    ent.iced = !!on;
+    if (ent.flashT > 0) return; // 正在闪白：闪完由 unflash 收尾
+    if (on) applyIce(ent);
+    else unflash(ent);
+  };
   W.setEntScale = function (ent, k) {
     if (ent.dying) return; // 尸体的消失由 W.die 接管
     ent.group.scale.setScalar(Math.max(0.001, k));
@@ -5804,14 +5820,25 @@
   // ----- 闪电：预分配的带状网格 -----
   const BOLT_MAXP = 96, BOLT_MAXIN = 24;
   const bolts = [];
-  function boltGet() {
-    for (let i = 0; i < bolts.length; i++) if (!bolts[i].on) return bolts[i];
-    if (bolts.length >= 10) {
-      // 池满了就顶掉最老的
-      let o = bolts[0];
-      for (let i = 1; i < bolts.length; i++) if (bolts[i].t > o.t) o = bolts[i];
-      return o;
+  // minor：感电放出的小电弧。它们同时最多占 BOLT_MINOR 条，池满时先被顶掉，不会挤掉链雷自己的电弧
+  const BOLT_POOL = 12, BOLT_MINOR = 4;
+  function boltGet(minor) {
+    let free = null, oldMinor = null, oldAny = null, minorN = 0;
+    for (let i = 0; i < bolts.length; i++) {
+      const b = bolts[i];
+      if (!b.on) {
+        if (!free) free = b;
+        continue;
+      }
+      if (b.minor) {
+        minorN++;
+        if (!oldMinor || b.t > oldMinor.t) oldMinor = b;
+      }
+      if (!oldAny || b.t > oldAny.t) oldAny = b;
     }
+    if (minor && minorN >= BOLT_MINOR) return oldMinor;
+    if (free) return free;
+    if (bolts.length >= BOLT_POOL) return minor ? oldMinor : oldMinor || oldAny; // 池满：先顶掉小电弧，再顶掉最老的
     const g = new T.BufferGeometry();
     const pos = new Float32Array(BOLT_MAXP * 6), uv = new Float32Array(BOLT_MAXP * 4);
     const idx = new Uint16Array((BOLT_MAXP - 1) * 6);
@@ -5833,7 +5860,7 @@
     mesh.visible = false;
     mesh.renderOrder = 5;
     scene.add(mesh);
-    const b = { mesh, mat, pos, on: false, t: 0, n: 0, inX: new Float32Array(BOLT_MAXIN), inZ: new Float32Array(BOLT_MAXIN), path: new Float32Array(BOLT_MAXP * 2), rejit: false };
+    const b = { mesh, mat, pos, on: false, t: 0, n: 0, inX: new Float32Array(BOLT_MAXIN), inZ: new Float32Array(BOLT_MAXIN), path: new Float32Array(BOLT_MAXP * 2), rejit: false, minor: false };
     bolts.push(b);
     return b;
   }
@@ -5872,9 +5899,11 @@
     b.mesh.geometry.attributes.position.needsUpdate = true;
     b.mesh.geometry.setDrawRange(0, (np - 1) * 6);
   }
-  W.bolt = function (points, hex) {
+  W.bolt = function (points, hex, minor) {
     if (points.length < 2) return;
-    const b = boltGet();
+    const b = boltGet(!!minor);
+    if (!b) return;
+    b.minor = !!minor;
     b.n = Math.min(points.length, BOLT_MAXIN);
     for (let i = 0; i < b.n; i++) {
       b.inX[i] = points[i].x;
@@ -5994,20 +6023,150 @@
     }
   }
 
+  // ---------- 元素异常的特效 ----------
+  // 冻结（首领是重度冰缓）：脚下一片霜痕、一圈冰晶碎屑
+  W.freezeFx = function (x, z, r, h, boss) {
+    W.decal(2, x, z, r + (boss ? 1.6 : 0.7), Math.random() * TAU, 0x9fdcff, boss ? 3 : 2);
+    W.ring(x, z, r + 1.4, 0xbfeaff, 0.35);
+    W.burst(x, h * 0.5, z, 0xd6f3ff, boss ? 26 : 16, 4, 0.5);
+    _c.set(0xd6f3ff);
+    for (let i = 0; i < 10; i++) {
+      const a = rand(0, TAU), d = rand(0.2, r + 0.4);
+      spawnP(x + Math.sin(a) * d, rand(0.2, h), z + Math.cos(a) * d, 0, rand(-0.4, 0.4), 0, rand(0.5, 0.9), rand(0.12, 0.22), _c.r, _c.g, _c.b, 1.5, 3);
+    }
+  };
+  // 爆燃：以敌人为中心的火焰爆炸
+  W.blastFx = function (x, z, R) {
+    W.ring(x, z, R, 0xff7a2c, 0.42);
+    W.ring(x, z, R * 0.6, 0xffd090, 0.26);
+    W.decal(1, x, z, R * 0.8, Math.random() * TAU, 0xff6a2a, 3);
+    W.burst(x, 0.9, z, 0xff7a2c, 34, 8, 0.55);
+    W.burst(x, 0.5, z, 0xffe0a0, 14, 5, 0.4);
+    W.shake(0.2);
+  };
+  // 感电的电弧：一道细小的闪电从 (x0,z0) 窜到 (x1,z1)，沿途带着往前飞的火花；self：没有别的目标，绕回自己身上
+  W.spark = function (x0, y0, z0, x1, y1, z1, self) {
+    if (self) {
+      const a = rand(0, TAU);
+      W.bolt([{ x: x1 + Math.sin(a) * 1.4, z: z1 + Math.cos(a) * 1.4 }, { x: x1, z: z1 }], 0xffe45e, true);
+    } else {
+      const mx = (x0 + x1) / 2 + rand(-0.6, 0.6), mz = (z0 + z1) / 2 + rand(-0.6, 0.6);
+      W.bolt([{ x: x0, z: z0 }, { x: mx, z: mz }, { x: x1, z: z1 }], 0xffe45e, true);
+    }
+    _c.set(0xfff3a0);
+    const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0;
+    for (let i = 0; i < 6; i++) {
+      const f = i / 6;
+      spawnP(x0 + dx * f, y0 + dy * f, z0 + dz * f, dx * 4, dy * 4 + rand(-1, 1), dz * 4, rand(0.08, 0.18), 0.14, _c.r, _c.g, _c.b, 0, 4);
+    }
+  };
+  // 光环打中的敌人身上飘几粒霜屑（不闪白，免得一圈敌人每半秒集体发亮）
+  W.frostSparkle = function (x, y, z, r) {
+    _c.set(0xcfeeff);
+    for (let i = 0; i < 3; i++) {
+      const a = rand(0, TAU), d = rand(0, r);
+      spawnP(x + Math.sin(a) * d, y + rand(-0.4, 0.5), z + Math.cos(a) * d, rand(-0.3, 0.3), rand(0.2, 0.8), rand(-0.3, 0.3), rand(0.3, 0.55), rand(0.08, 0.14), _c.r, _c.g, _c.b, -0.2, 1.5);
+    }
+  };
+
+  // ---------- 光环：玩家脚下常驻的一圈淡淡的霜环 + 绕身飘的霜粒；每次脉冲有一道向外扩的细环 ----------
+  const AURA_FRAG = [
+    'uniform vec3 uColor; uniform float uA; uniform float uPulse; uniform float uTime; varying vec2 vP;',
+    'void main(){',
+    '  float l = length(vP);',
+    '  if (l > 1.0) discard;',
+    '  float an = atan(vP.x, vP.y);',
+    '  float edge = 1.0 - smoothstep(0.0, 0.014, abs(l - 0.955));',
+    '  float ticks = pow(abs(sin(an * 12.0 + uTime * 0.5)), 40.0) * smoothstep(0.86, 0.94, l) * (1.0 - smoothstep(0.96, 1.0, l));',
+    '  float fill = smoothstep(0.55, 1.0, l) * 0.02;',
+    '  float rr = 0.55 + 0.43 * (1.0 - uPulse * uPulse);',
+    '  float wave = (1.0 - smoothstep(0.0, 0.03, abs(l - rr))) * uPulse * 0.16;',
+    // 亮的霜色细线两侧各垫一道深色描边（外侧那道更宽）：冰面这种浅色地面上也看得出圈在哪
+    '  float halo = max(1.0 - smoothstep(0.0, 0.03, abs(l - 0.985)), (1.0 - smoothstep(0.0, 0.016, abs(l - 0.925))) * 0.7) * (1.0 - edge);',
+    '  float aB = (edge * 0.7 + ticks * 0.3 + fill * 1.5 + wave * 1.6) * uA;',
+    '  float aD = halo * 0.42 * uA;',
+    '  float a = clamp(aB + aD, 0.0, 1.0);',
+    '  if (a < 0.002) discard;',
+    '  vec3 bright = mix(uColor, vec3(1.0), ticks * 0.35 + edge * 0.15);',
+    '  gl_FragColor = vec4((bright * aB + vec3(0.02, 0.07, 0.13) * aD) / max(a, 0.001), a);',
+    '}',
+  ].join('\n');
+  const aura = { mesh: null, u: null, r: 0, a: 0, pulse: 0, acc: 0 };
+  W.setAura = function (r) {
+    aura.r = r > 0 ? r : 0;
+    if (aura.r > 0 && !aura.mesh && scene) {
+      aura.u = { uColor: { value: new T.Color(0x86d8ff) }, uA: { value: 0 }, uPulse: { value: 0 }, uTime };
+      const mat = new T.ShaderMaterial({ uniforms: aura.u, vertexShader: FX_VERT, fragmentShader: AURA_FRAG, transparent: true, depthWrite: false, side: T.DoubleSide });
+      aura.mesh = new T.Mesh(gQuad(), mat);
+      aura.mesh.renderOrder = 3;
+      aura.mesh.visible = false;
+      scene.add(aura.mesh);
+    }
+  };
+  W.auraPulse = function (hit) {
+    aura.pulse = hit ? 1 : 0.55;
+  };
+  W.auraInfo = () => ({ r: aura.r, a: aura.a, visible: !!(aura.mesh && aura.mesh.visible) });
+  function updateAura(dt) {
+    const P = G.player;
+    const want = aura.r > 0 ? 1 : 0;
+    aura.a += (want - aura.a) * Math.min(1, dt * 6);
+    if (aura.a < 0.01 && !want) aura.a = 0;
+    if (!aura.mesh) return;
+    aura.mesh.visible = aura.a > 0;
+    if (!aura.mesh.visible) return;
+    if (aura.r > 0) aura.mesh.scale.set(aura.r, 1, aura.r);
+    aura.mesh.position.set(P.x, 0.06, P.z);
+    aura.pulse = Math.max(0, aura.pulse - dt * 2.6);
+    aura.u.uA.value = aura.a;
+    aura.u.uPulse.value = aura.pulse;
+    // 绕身飘的霜粒：在圈里慢慢升起、打转
+    if (want && P.ent && P.ent.group.visible) {
+      aura.acc += dt * 9;
+      _c.set(0xbfe8ff);
+      while (aura.acc > 1) {
+        aura.acc -= 1;
+        const a = rand(0, TAU), d = aura.r * Math.sqrt(rand(0.15, 1));
+        spawnP(P.x + Math.sin(a) * d, rand(0.1, 0.9), P.z + Math.cos(a) * d, Math.cos(a) * 0.5, rand(0.25, 0.7), -Math.sin(a) * 0.5, rand(1.0, 1.8), rand(0.07, 0.13), _c.r, _c.g, _c.b, -0.05, 0.4);
+      }
+    }
+  }
+
   // ---------- 飘字 ----------
   const TEXT_DUR = 0.8;
   const texts = [];
   // style（可选）：{ kind: 'crit' 暴击 | 'big' 终结 / 处决的大数字 | 'tag' 状态词（破绽、处决……）, y 起始高度（默认 2.1）, py 额外的屏幕像素偏移 }
+  // 池满时先顶掉谁：光环 / 电弧的淡数字最先，普通数字其次，暴击 / 终结 / 状态词（冻结、爆燃……）最后；
+  // 淡数字自己另有上限，而且永远顶不掉比它重要的字
+  const TEXT_MAX = 90, FAINT_MAX = 24;
+  const textRank = (k) => (k === 'faint' ? 0 : k ? 2 : 1);
   W.text = function (x, z, str, cssColor, sizePx, style) {
+    const kind = (style && style.kind) || '';
+    const rank = textRank(kind);
     let o = null;
-    for (let i = 0; i < texts.length; i++) if (texts[i].t >= texts[i].dur) { o = texts[i]; break; }
+    let oldFaint = null, faintN = 0;
+    for (let i = 0; i < texts.length; i++) {
+      const q = texts[i];
+      if (q.t >= q.dur) {
+        if (!o) o = q;
+      } else if (q.kind === 'faint') {
+        faintN++;
+        if (!oldFaint || q.t > oldFaint.t) oldFaint = q;
+      }
+    }
+    if (rank === 0 && faintN >= FAINT_MAX) o = oldFaint;
     if (!o) {
-      if (texts.length < 90) {
+      if (texts.length < TEXT_MAX) {
         o = { x: 0, z: 0, y: 2.1, str: '', color: '', size: 16, t: 0, dur: TEXT_DUR, ox: 0, oy: 0, vx: 0, kind: '', py: 0 };
         texts.push(o);
       } else {
-        o = texts[0];
-        for (let i = 1; i < texts.length; i++) if (texts[i].t > o.t) o = texts[i];
+        // 顶掉级别最低（同级里最老）的一条；没有不比自己重要的就不显示
+        for (let i = 0; i < texts.length; i++) {
+          const q = texts[i], r = textRank(q.kind);
+          if (r > rank) continue;
+          if (!o || r < textRank(o.kind) || (r === textRank(o.kind) && q.t > o.t)) o = q;
+        }
+        if (!o) return;
       }
     }
     o.x = x;
@@ -6016,11 +6175,11 @@
     o.color = cssColor || '#ffffff';
     o.size = sizePx || 16;
     o.t = 0;
-    o.kind = (style && style.kind) || '';
+    o.kind = kind;
     o.y = style && style.y !== undefined ? style.y : 2.1;
     o.py = (style && style.py) || 0; // 额外的屏幕像素偏移（「破绽」要让开头顶的处决提示）
     const arc = o.kind === 'crit' || o.kind === 'big';
-    o.dur = o.kind === 'big' ? 1.25 : o.kind === 'crit' ? 1.0 : o.kind === 'tag' ? 1.15 : TEXT_DUR;
+    o.dur = o.kind === 'big' ? 1.25 : o.kind === 'crit' ? 1.0 : o.kind === 'tag' ? 1.15 : o.kind === 'faint' ? 0.55 : TEXT_DUR;
     o.ox = o.kind === 'tag' ? 0 : rand(-18, 18);
     o.oy = o.kind === 'tag' ? 0 : rand(-8, 8);
     o.vx = arc ? (Math.random() < 0.5 ? -1 : 1) * rand(24, 52) : 0; // 暴击数字往一侧抛出去
@@ -6487,6 +6646,7 @@
     poolUpdate(ringPool, dt);
     poolUpdate(slashPool, dt);
     updateBolts(dt);
+    updateAura(dt);
     updateMeteors(dt);
     updateSummons(dt);
     updateFocus(raw);
@@ -6645,6 +6805,31 @@
     g.strokeRect(0.5, 0.5, S - 1, S - 1);
   }
 
+  // 敌人头顶血条下的异常值三小段；返回下一行的 y
+  const BU_CSS = { fire: '#ff8a3c', cold: '#86d8ff', light: '#ffe45e' };
+  const BU_DIM = { fire: 'rgba(255,138,60,0.22)', cold: 'rgba(134,216,255,0.22)', light: 'rgba(255,228,94,0.22)' };
+  function drawBuildUp(g, e, x, y, w) {
+    const b = e.bu;
+    if (!b) return y;
+    const on = { fire: e.blastT > 0, cold: e.freeze > 0 || e.bossChill > 0, light: e.shockT > 0 };
+    if (!(b.fire > 0.005 || b.cold > 0.005 || b.light > 0.005 || on.fire || on.cold || on.light)) return y;
+    const gap = 2, sw = (w - gap * 2) / 3;
+    g.fillStyle = 'rgba(0,0,0,0.72)';
+    g.fillRect(x - 1, y - 1, w + 2, 5);
+    const els = G.ELEMS;
+    for (let i = 0; i < 3; i++) {
+      const t = els[i], sx = x + i * (sw + gap);
+      g.fillStyle = BU_DIM[t];
+      g.fillRect(sx, y, sw, 3);
+      // 刚触发（冻结 / 重度冰缓 / 感电 / 爆燃之后）：整段亮着闪动；平时按累积量涨
+      const k = on[t] ? 1 : Math.max(0, Math.min(1, b[t]));
+      if (k <= 0) continue;
+      g.fillStyle = on[t] ? (Math.sin(wtime * 14) > 0 ? '#ffffff' : BU_CSS[t]) : BU_CSS[t];
+      g.fillRect(sx, y, sw * k, 3);
+    }
+    return y + 6;
+  }
+
   function drawOverlay() {
     const g = octx, st = G.state, P = G.player;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -6657,7 +6842,10 @@
     g.lineJoin = 'round';
     for (let i = 0; i < es.length; i++) {
       const e = es[i];
-      if (e.dead || e.isBoss || !e.awake || !(e.elite || e.hp < e.maxHp)) continue;
+      // 元素异常值不为空（或刚触发）的也画：满血的怪被光环 / 异常灌着的时候也看得见进度
+      const bu = e.bu;
+      const buOn = !!bu && (bu.fire > 0.005 || bu.cold > 0.005 || bu.light > 0.005 || e.freeze > 0 || e.shockT > 0 || e.blastT > 0);
+      if (e.dead || e.isBoss || !e.awake || !(e.elite || e.hp < e.maxHp || buOn)) continue;
       const p = projTo(e.x, e.height * (e.elite ? 1.3 : 1) + 0.35, e.z);
       if (!p.ok || p.x < -40 || p.x > vw + 40 || p.y < -20 || p.y > vh + 20) continue;
       const w = e.elite ? 60 : 40, h = e.elite ? 6 : 4;
@@ -6667,6 +6855,12 @@
       const k = Math.max(0, Math.min(1, e.hp / e.maxHp));
       g.fillStyle = e.freeze > 0 ? '#9fe2ff' : e.elite ? '#ffb53c' : '#d9412f';
       g.fillRect(x, y, w * k, h);
+      if (e.shockT > 0 && Math.sin(wtime * 30) > 0.2) {
+        // 感电：血条边上噼啪闪一下
+        g.fillStyle = 'rgba(255,228,94,0.85)';
+        g.fillRect(x - 1, y - 1, w + 2, 1);
+        g.fillRect(x - 1, y + h, w + 2, 1);
+      }
       g.fillStyle = 'rgba(255,255,255,0.22)';
       g.fillRect(x, y, w * k, 1);
       // 架势条（精英）：血条下面一道细白条；被打出破绽后变成一道闪动的金条，随破绽时间缩短
@@ -6683,12 +6877,9 @@
         }
         ay += 7;
       }
-      // 异常状态小方点
-      let sx = x;
-      if (e.burnT > 0 && e.burn > 0) { g.fillStyle = '#ff8a3c'; g.fillRect(sx, ay, 5, 3); sx += 7; }
-      if (e.chill > 0) { g.fillStyle = '#86d8ff'; g.fillRect(sx, ay, 5, 3); sx += 7; }
-      if (e.shock > 0) { g.fillStyle = '#ffe45e'; g.fillRect(sx, ay, 5, 3); sx += 7; }
-      if (e.stunT > 0) { g.fillStyle = '#ffffff'; g.fillRect(sx, ay, 5, 3); }
+      // 元素异常值：火 / 冰 / 雷三小段并排，各占三分之一宽，按累积量从左往右涨（有任何一段不为空时才画）
+      ay = drawBuildUp(g, e, x, ay, w);
+      if (e.stunT > 0) { g.fillStyle = '#ffffff'; g.fillRect(x, ay, 5, 3); }
       if (e.elite && e !== st.hover) {
         // 准星指着它时名字由界面层的名牌显示，这里不重复画
         g.font = '600 12px ' + FONT;
@@ -6824,9 +7015,15 @@
         x = p.x + o.ox;
         y = p.y + o.oy - (1 - (1 - k) * (1 - k)) * 46;
       }
-      g.globalAlpha = k > 0.7 ? 1 - (k - 0.7) / 0.3 : 1;
-      g.font = (o.kind ? '800 ' : '700 ') + Math.round(o.size * pop) + 'px "Trebuchet MS",' + FONT;
-      if (arc) {
+      g.globalAlpha = (k > 0.7 ? 1 - (k - 0.7) / 0.3 : 1) * (o.kind === 'faint' ? 0.6 : 1); // 光环 / 电弧的小数字淡一些
+      g.font = (o.kind && o.kind !== 'faint' ? '800 ' : '700 ') + Math.round(o.size * pop) + 'px "Trebuchet MS",' + FONT;
+      if (o.kind === 'faint') {
+        g.lineWidth = 2.5;
+        g.strokeText(o.str, x, y);
+        g.fillStyle = o.color;
+        g.fillText(o.str, x, y);
+        g.lineWidth = 3.5;
+      } else if (arc) {
         // 暴击：黑描边 + 一圈伤害类型色的细边，字心用亮金白，和普通数字一眼分得开
         g.lineWidth = 6.5;
         g.strokeStyle = 'rgba(0,0,0,0.9)';

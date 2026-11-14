@@ -44,6 +44,8 @@
     </div>
     <!-- 架势条：打空即破绽，可处决 -->
     <div class="boss-poise"><div id="boss-poise-fill"></div></div>
+    <!-- 元素异常值：火 / 冰 / 雷，满了触发爆燃 / 冰缓 / 感电 -->
+    <div class="boss-bu"><i class="fire"><b></b></i><i class="cold"><b></b></i><i class="light"><b></b></i></div>
     <div id="boss-break">破绽<kbd>F</kbd><span id="boss-break-txt">处决</span></div>
   </div>
 
@@ -57,6 +59,7 @@
   <div class="orb-wrap left">
     <div class="orb life">
       <div class="orb-fill" id="life-fill"></div>
+      <div class="orb-res" id="life-res"></div>
       <div class="orb-gloss"></div>
       <div class="orb-text"><b id="life-num"></b><span id="life-max"></span></div>
     </div>
@@ -74,6 +77,7 @@
     </div>
     <div class="orb mana">
       <div class="orb-fill" id="mana-fill"></div>
+      <div class="orb-res" id="mana-res"></div>
       <div class="orb-gloss"></div>
       <div class="orb-text"><b id="mana-num"></b><span id="mana-max"></span></div>
     </div>
