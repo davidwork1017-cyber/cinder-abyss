@@ -1563,7 +1563,8 @@ async function main() {
     // 穿插的收益：每个冷却周期多出一次大伤害，少放（施放时间 ÷ 主力出手间隔）下主力技能
     const gain = (cd, main) => (cd.avg / cd.cd - main.dps * (cd.cd > 0 ? (cd.id === 'blink' ? 0.2 : 0.6) / cd.cd : 0)) / main.dps;
     const gm = gain(m, r.ember), gb = gain(Object.assign({ id: 'blink' }, b), r.cleave);
-    assert(gm > 0.12 && gm < 0.3 && gb > 0.12 && gb < 0.3, '穿插冷却技能的秒伤收益应在 12%–30% 之间（目标约 15%–25%）：' + JSON.stringify({ gm, gb }));
+    // 陨火冷却 5 秒（用户定的）：每次伤害高、冷却也不长，穿插收益比闪袭大
+    assert(gm > 0.2 && gm < 0.6 && gb > 0.12 && gb < 0.3, '穿插冷却技能的秒伤收益不对（陨火 20%–60%，闪袭 12%–30%）：' + JSON.stringify({ gm, gb }));
     assert(r.card.includes('每次伤害') && r.card.includes('冷却技能') && r.card.includes(String(m.cd)), '陨火的技能卡应写每次伤害和冷却：' + r.card);
     return '陨火每次 ' + Math.round(m.avg) + '（掷焰 ' + Math.round(r.ember.avg) + '），穿插收益约 ' + Math.round(gm * 100) + '%；闪袭约 ' + Math.round(gb * 100) + '%';
   });

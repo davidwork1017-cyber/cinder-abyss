@@ -74,7 +74,7 @@
     meteor: {
       name: '陨火', icon: '陨', color: '#ff5a2c', tags: ['spell', 'area', 'fire'], kind: 'meteor',
       // 冷却 + 延迟落地（会被走开躲掉）：每一次的伤害要明显高过主力技能，穿插着放才划算
-      dmg: { fire: [56, 78] }, time: 0.6, mana: 22, cd: 9, radius: 3.6, delay: 0.75, range: 15, w: 2, kb: 2.4, poise: 45,
+      dmg: { fire: [56, 78] }, time: 0.6, mana: 22, cd: 5, radius: 3.6, delay: 0.75, range: 15, w: 2, kb: 2.4, poise: 45,
       desc: '在鼠标位置召来一颗陨石，短暂延迟后轰然落地，造成巨量火焰伤害。冷却较长，适合穿插在主力技能之间。',
     },
     blink: {
