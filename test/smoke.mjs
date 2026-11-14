@@ -810,7 +810,12 @@ async function main() {
       const s = await ev(([id, slot, dist]) => {
         T.arena();
         G.debug.god(true);
+        // 霜环是光环：在技能栏上就一直打身边的靶子。测别的技能时先取下，免得伤害算成光环的
+        if (id !== 'nova') G.save.bar = G.save.bar.map((b) => (b === 'nova' ? null : b));
         const ok = G.bindSkill(slot, id);
+        // 取下霜环后保留没了、上限回升：先补满，「不耗魔的技能不扣魔力」才比得出来
+        G.computeStats();
+        G.player.mana = G.player.maxMana;
         T.dummy(dist, 0);
         T.settle();
         G.debug.hold(false);
@@ -824,7 +829,7 @@ async function main() {
         await until(() => T.d.hp < T.d.maxHp);
         r = await ev((id) => ({
           dmg: T.d.maxHp - T.d.hp, mana: G.player.mana, max: G.player.maxMana, cdMax: G.player.cdMax[id] || 0,
-          px: G.player.x, awake: T.d.awake, chill: T.d.chill,
+          px: G.player.x, awake: T.d.awake, aura: G.auraOn(id), res: G.player.reserved,
         }), id);
       } finally {
         await holdInput(slot, false);
@@ -835,7 +840,7 @@ async function main() {
       else assert(r.mana === r.max, '不耗魔的技能扣了魔力');
       if (s.cd > 0) assert(r.cdMax > 0, '没有进入冷却');
       if (id === 'blink') assert(r.px > 2, '闪袭没有位移：x=' + r.px);
-      if (id === 'nova') assert(r.chill > 0, '霜环没有施加冰缓');
+      if (id === 'nova') assert(r.aura && r.res > 0, '霜环应作为光环常驻生效并保留魔力：' + JSON.stringify(r));
       return '伤害 ' + Math.round(r.dmg) + '，消耗 ' + s.cost;
     });
   }
@@ -847,7 +852,7 @@ async function main() {
       const P = G.player, W = G.world, inp = G.input, out = {};
       const bar0 = G.save.bar.slice();
       G.bindSkill(0, 'whirl');
-      G.bindSkill(2, 'nova');
+      G.bindSkill(2, 'arc');
       T.fix(0.5);
       try {
         const ring = [0, 1, 2, 3].map((i) => T.mob('husk', Math.sin((i * Math.PI) / 2) * 2.2, Math.cos((i * Math.PI) / 2) * 2.2));
@@ -897,7 +902,7 @@ async function main() {
         inp.keys.KeyQ = false;
         inp.tap[2] = 0;
         for (let i = 0; i < 60; i++) G.tick(1 / 60);
-        out.back = !!(P.cast && P.cast.channel); // 左键一直按着：放完霜环又转起来
+        out.back = !!(P.cast && P.cast.channel); // 左键一直按着：放完链雷又转起来
         // 6. 魔力见底：转不动就停（每帧都按回 0，不让自然回复把它又转起来）
         for (let i = 0; i < 30; i++) {
           P.mana = 0;
@@ -919,7 +924,7 @@ async function main() {
     assert(r.stillSpin && r.moved > r.full * 0.35 && r.moved < r.full * 0.8, '旋转中应能慢慢走动：' + JSON.stringify(r));
     assert(r.release && r.clipAfter !== 'spin', '松手应立刻停下：' + JSON.stringify(r));
     assert(r.restart && r.roll && r.resume, '翻滚应打断旋转，还按着则滚完接着转：' + JSON.stringify(r));
-    assert(r.interrupt === 'nova' && r.back, '按别的技能应打断旋转，放完继续转：' + JSON.stringify(r));
+    assert(r.interrupt === 'arc' && r.back, '按别的技能应打断旋转，放完继续转：' + JSON.stringify(r));
     assert(r.noMana, '魔力不足应停下：' + JSON.stringify(r));
     return '一秒转出 ' + r.pulses + ' 下，四周各受 ' + r.ringHit.join('/') + ' 伤害';
   });
@@ -1112,7 +1117,7 @@ async function main() {
       G.debug.step(1.2);
       out.onlyOnce = P.mana >= m1; // 冷却期间按住也不会再扣魔力
       G.input.keys.KeyQ = false;
-      G.debug.step(3);
+      G.debug.step(G.SKILLS.meteor.cd);
       out.cdDone = P.cds.meteor === 0;
       // 投射物飞出场外后被清掉
       G.clearEnemies();
@@ -1131,6 +1136,333 @@ async function main() {
     assert(r.cd1 && r.onlyOnce && r.cdDone, '冷却逻辑不对：' + JSON.stringify(r));
     assert(r.spawned && r.cleared, '投射物没有生成或没有被清理：' + JSON.stringify(r));
     assert(r.tele === 0, '友方预警圈没有清理');
+  });
+
+  // ------------------------------------------------------------------ 光环与元素异常值
+  // 这几步借用 summonStep：进来时记下构筑，结束时还原构筑、清场
+  await summonStep('霜环光环：绑在技能栏上即生效、保留 25% 魔力（节流按消耗倍率降低）；按键只提示；定时脉冲伤害一圈敌人（不算连击、不扣魔力）；回响 / 投射物类镶不上；取下即失效', async () => {
+    const r = await ev(() => {
+      T.arena();
+      G.debug.god(true);
+      const P = G.player, W = G.world, S = G.state, out = {};
+      G.save.sockets.nova = [null, null, null];
+      G.save.bar = ['cleave', 'ember', null, null];
+      G.computeStats();
+      P.mana = P.maxMana;
+      out.off = { raw: P.maxManaRaw, max: P.maxMana, res: P.reserved, on: G.auraOn('nova') };
+      G.bindSkill(2, 'nova');
+      out.on = { raw: P.maxManaRaw, max: P.maxMana, res: P.reserved, pct: P.reservePct, on: G.auraOn('nova'), mana: P.mana };
+      G.socketSupport('nova', 0, 'frugal');
+      out.frugal = { pct: P.reservePct, max: P.maxMana, ctx: G.skillCtx('nova').reserve };
+      G.socketSupport('nova', 0, null);
+      out.fit = ['echo', 'multi', 'pierce', 'chain'].map((id) => G.supportFits('nova', id));
+      out.fitOk = ['expanse', 'haste', 'cold', 'ailment', 'frugal', 'precise'].map((id) => G.supportFits('nova', id));
+      // 脉冲：圈内的挨打，圈外的不挨；数字是小号的淡数字，不闪白
+      T.fix(0.5);
+      const ctx = G.skillCtx('nova');
+      const near = T.mob('husk', 3, 0), far = T.mob('husk', 3 + ctx.sk.radius + 1.5, 0);
+      near.freeze = far.freeze = 1e9; // 冻着不累积冰霜异常值，只看伤害
+      const per = G.calcHit(ctx).total;
+      const texts = [], flashes = [], ot = W.text, of = W.flash;
+      W.text = function (x, z, str, col, size, style) { texts.push({ str: String(str), size, kind: style && style.kind }); return ot.apply(W, arguments); };
+      W.flash = function () { flashes.push(1); return of.apply(W, arguments); };
+      const h0 = near.hp, m0 = P.mana, hits0 = S.stats.hits;
+      P.chain.n = 0;
+      // 轻点光环的键：不施放，只提示
+      G.input.tap[2] = 0.3;
+      G.tick(1 / 60);
+      out.cast = P.cast ? P.cast.id : null;
+      out.tap = G.input.tap[2];
+      out.hint = texts.some((t) => t.str === '光环常驻生效');
+      for (let i = 0; i < 119; i++) G.tick(1 / 60);
+      W.text = ot;
+      W.flash = of;
+      out.pulses = (h0 - near.hp) / per;
+      out.far = far.maxHp - far.hp;
+      out.spent = m0 - P.mana;
+      out.chain = P.chain.n;
+      out.hits = S.stats.hits - hits0;
+      out.small = texts.filter((t) => t.kind === 'faint').length;
+      out.big = texts.filter((t) => t.kind !== 'faint' && /^\d+$/.test(t.str)).length;
+      out.flashes = flashes.length;
+      out.ring = W.auraInfo();
+      out.time = ctx.time;
+      G.socketSupport('nova', 0, 'haste');
+      G.socketSupport('nova', 1, 'expanse');
+      const c2 = G.skillCtx('nova');
+      out.haste = c2.time;
+      out.R = [G.auraRadius(ctx), G.auraRadius(c2)];
+      // 取下：保留解除，脉冲停止
+      G.bindSkill(2, null);
+      const h1 = near.hp;
+      G.debug.step(1);
+      out.after = { res: P.reserved, max: P.maxMana, raw: P.maxManaRaw, on: G.auraOn('nova'), dmg: h1 - near.hp, ring: W.auraInfo().r, regen: P.manaRegen };
+      // 从地上捡起霜环：自动绑进空格，保留当场生效（不用等别的操作来重算属性）；保留的那部分魔力也不再回复
+      const lvl0 = G.save.skills.nova || 1;
+      delete G.save.skills.nova;
+      G.save.bar = ['cleave', 'ember', null, null];
+      G.computeStats();
+      G.pickup(G.spawnLoot('skill', { id: 'nova', lvl: lvl0 }, P.x, P.z));
+      out.pick = { on: G.auraOn('nova'), bar: G.save.bar.slice(), res: P.reserved, max: P.maxMana, raw: P.maxManaRaw, regen: P.manaRegen };
+      // 以血为引：光环改为保留生命，魔力不受影响
+      const bm = Object.keys(G.TREE).find((id) => G.TREE[id].stats && G.TREE[id].stats.bloodMagic);
+      G.save.passives.push(bm);
+      G.computeStats();
+      out.blood = { res: P.reserved, life: P.maxLife, lifeRaw: P.maxLifeRaw, max: P.maxMana, raw: P.maxManaRaw, card: (G.ui.open('skills'), document.getElementById('panel').innerText.includes('生命保留')) };
+      G.ui.close();
+      G.save.passives.pop();
+      G.computeStats();
+      T.unfix();
+      return out;
+    });
+    assert(!r.off.on && r.off.res === 0 && r.off.max === r.off.raw, '没绑光环时不应保留魔力：' + JSON.stringify(r.off));
+    assert(r.on.on && r.on.pct === 25 && r.on.res === Math.round(r.on.raw * 0.25) && r.on.max === r.on.raw - r.on.res && r.on.mana <= r.on.max, '绑上霜环应保留 25% 最大魔力并压住当前魔力：' + JSON.stringify(r.on));
+    assert(Math.abs(r.frugal.pct - 15) < 1e-9 && Math.abs(r.frugal.ctx - 15) < 1e-9 && r.frugal.max > r.on.max, '节流应把保留降到 15%：' + JSON.stringify(r.frugal));
+    assert(r.fit.every((f) => !f) && r.fitOk.every((f) => f), '光环可镶的辅助不对：' + JSON.stringify([r.fit, r.fitOk]));
+    assert(r.cast === null && r.tap === 0 && r.hint, '按光环的键不应施放，只提示「光环常驻生效」：' + JSON.stringify(r));
+    assert(r.pulses > 3.5 && r.pulses < 4.6 && r.far === 0, '两秒应脉冲约 4 次、只打圈内：' + JSON.stringify(r));
+    assert(r.spent <= 0 && r.chain === 0 && r.hits === 0, '光环脉冲不扣魔力、不算连击：' + JSON.stringify(r));
+    assert(r.small >= 3 && r.big === 0 && r.flashes === 0, '光环的数字应是小号淡数字、不闪白：' + JSON.stringify(r));
+    assert(r.ring.r > 4 && r.ring.visible, '脚下应有常驻的霜环：' + JSON.stringify(r.ring));
+    assert(Math.abs(r.haste - r.time / 1.25) < 1e-9 && r.R[1] > r.R[0] * 1.1, '迅捷加快脉冲、扩域扩大半径：' + JSON.stringify(r));
+    assert(!r.after.on && r.after.res === 0 && r.after.max === r.after.raw && r.after.dmg === 0 && r.after.ring === 0, '取下光环后应解除保留、停止脉冲：' + JSON.stringify(r.after));
+    assert(r.pick.on && r.pick.bar[2] === 'nova' && r.pick.res === Math.round(r.pick.raw * 0.25) && r.pick.max === r.pick.raw - r.pick.res, '捡起霜环自动绑上技能栏后应立刻保留魔力：' + JSON.stringify(r.pick));
+    assert(r.pick.regen < r.after.regen, '保留的魔力不应再回复（回复按保留后的上限算）：' + JSON.stringify([r.pick, r.after]));
+    assert(r.blood.res === Math.round(r.blood.lifeRaw * 0.25) && r.blood.life === r.blood.lifeRaw - r.blood.res && r.blood.max === r.blood.raw && r.blood.card, '以血为引时光环应改为保留生命：' + JSON.stringify(r.blood));
+    // 技能卡：保留、每跳伤害、秒伤
+    await ev(() => { G.bindSkill(2, 'nova'); G.ui.open('skills'); });
+    const txt = await ev(() => { const c = Array.from(document.querySelectorAll('.skill-card')).find((n) => n.querySelector('.sk-name').textContent.startsWith('霜环')); return c ? c.innerText : ''; });
+    await ev(() => G.ui.close());
+    assert(txt.includes('魔力保留') && txt.includes('25%') && txt.includes('每跳伤害') && txt.includes('每秒脉冲') && txt.includes('估算秒伤') && txt.includes('生效中') && !txt.includes('魔力消耗'), '霜环的技能卡应写魔力保留和每跳伤害：' + txt);
+    return '两秒脉冲 ' + r.pulses.toFixed(1) + ' 次，半径 ' + r.R[0].toFixed(1) + '，保留 ' + r.on.res + ' 魔力';
+  });
+
+  await summonStep('元素异常值：按每种元素的伤害累积（物理不算），阈值随生命 / 精英 / 首领而定，异常累积速度加快累积，几秒没挨打后回落；冰霜异常值带来轻度冰缓', async () => {
+    const r = await ev(() => {
+      T.arena();
+      const P = G.player, B = G.BUILDUP, out = {};
+      const mk = (type, elite) => {
+        const e = T.mob(type, 4, 0, { elite });
+        e.maxHp = 200; // 阈值按最大生命：200 → 普通 100
+        G.initBuildUp(e);
+        e.hp = e.maxHp = 1e6;
+        return e;
+      };
+      const e = mk('brute');
+      out.th = G.buThreshold(e, 'cold');
+      G.addBuildUp(e, { cold: 30, phys: 500 }, 0);
+      out.cold1 = e.bu.cold;
+      out.phys = e.bu.fire + e.bu.light;
+      G.addBuildUp(e, { cold: 20 }, 100); // 异常累积速度 +100%：翻倍
+      out.cold2 = e.bu.cold;
+      G.tick(1 / 60);
+      out.slowK = e.slowK;
+      G.debug.step(B.hold - 0.2);
+      out.held = e.bu.cold;
+      G.debug.step(0.7);
+      out.decayed = e.bu.cold;
+      G.debug.step(4);
+      out.gone = e.bu.cold;
+      // 真实命中：掷焰的火焰伤害按 伤害 ÷ 阈值 × (1 + 异常累积速度%) 累积
+      T.fix(0.5);
+      G.socketSupport('ember', 0, 'ailment');
+      const ctx = G.skillCtx('ember');
+      const e2 = mk('brute');
+      const fire = G.calcHit(ctx, 1).parts.fire; // 随机数钉死：和下面这一击的数值相同
+      G.hitEnemy(e2, ctx, 1);
+      out.fire = { bu: e2.bu.fire, want: (fire / G.buThreshold(e2, 'fire')) * (1 + ctx.ailment / 100), ail: ctx.ailment };
+      T.unfix();
+      // 阈值：精英更高，首领最高
+      const el = T.mob('husk', 4, 2, { elite: true }), nm = T.mob('husk', 4, -2);
+      const boss = G.spawnBoss('golem', P.x + 12, P.z, 1);
+      out.ratio = { normal: nm.buTh / G.MOBS.husk.hp, elite: el.buTh / (G.MOBS.husk.hp * 4.5), boss: boss.buTh / boss.maxHp };
+      return out;
+    });
+    const B = await ev(() => G.BUILDUP);
+    assert(Math.abs(r.th - 100) < 1e-6 && Math.abs(r.cold1 - 0.3) < 1e-9 && r.phys === 0, '冰霜伤害 30 / 阈值 100 应累积 0.3，物理不累积：' + JSON.stringify(r));
+    assert(Math.abs(r.cold2 - 0.7) < 1e-9, '异常累积速度 +100% 应让累积翻倍：' + JSON.stringify(r));
+    assert(Math.abs(r.slowK - (1 - 0.7 * B.chill)) < 0.01, '冰霜异常值应带来按比例的轻度冰缓：' + JSON.stringify(r));
+    assert(Math.abs(r.held - 0.7) < 1e-9 && r.decayed < 0.7 - 0.15 && r.decayed > 0.3 && r.gone === 0, '异常值应在几秒后开始回落直到清空：' + JSON.stringify(r));
+    assert(r.fire.bu > 0 && Math.abs(r.fire.bu - r.fire.want) < 1e-6 && r.fire.ail >= 35, '掷焰命中应按公式累积火焰异常值：' + JSON.stringify(r.fire));
+    assert(Math.abs(r.ratio.normal - B.th) < 0.02 && Math.abs(r.ratio.elite - B.th * B.elite) < 0.02 && Math.abs(r.ratio.boss - B.boss) < 1e-6 && B.th * B.elite * 4.5 > B.th, '阈值比例不对：' + JSON.stringify(r.ratio));
+  });
+
+  await summonStep('异常触发：冰霜满 → 冻结（精英更短，冻结中不再累积）；火焰满 → 爆燃波及周围且不连锁；闪电满 → 感电，挨打时向附近敌人射电弧（不连锁、有节流，身边没人则打回自己）', async () => {
+    const r = await ev(() => {
+      T.arena();
+      const P = G.player, W = G.world, S = G.state, B = G.BUILDUP, out = {};
+      const texts = [], ot = W.text;
+      W.text = function (x, z, str) { texts.push(String(str)); return ot.apply(W, arguments); };
+      T.fix(0.5);
+      try {
+        const mk = (type, dx, dz, elite) => {
+          const e = T.mob(type, dx, dz, { elite });
+          e.maxHp = 200;
+          G.initBuildUp(e);
+          e.hp = e.maxHp = 1e6;
+          return e;
+        };
+        // 冻结
+        const f = mk('husk', 4, 0), fe = mk('husk', 4, 3, true);
+        G.addBuildUp(f, { cold: G.buThreshold(f, 'cold') }, 0);
+        G.addBuildUp(fe, { cold: G.buThreshold(fe, 'cold') }, 0);
+        out.freeze = { n: f.freeze, e: fe.freeze, bu: f.bu.cold, text: texts.includes('冻结'), stat: S.stats.freezes };
+        G.addBuildUp(f, { cold: 50 }, 0);
+        out.freeze.locked = f.bu.cold;
+        G.tick(1 / 60);
+        out.freeze.iced = !!f.ent.iced;
+        G.clearEnemies();
+        // 爆燃：中心那只灌满；旁边的挨爆炸，但自己的火焰异常值不涨（不连锁）；远处的不受波及
+        const c = mk('husk', 5, 0), n1 = mk('husk', 6.5, 0), n2 = mk('husk', 5, 1.8), farE = mk('husk', 5 + B.blastR + 4, 0);
+        n1.bu.fire = 0.99;
+        const th = G.buThreshold(c, 'fire');
+        const nh0 = n2.hp, bl0 = S.stats.blasts || 0;
+        G.hitEnemy(c, { sk: { w: 0, kb: 0, poise: 0 }, base: { fire: [th, th] }, inc: {}, moreType: {}, more: 1, extra: {}, crit: 0, critMulti: 100, ailment: 0, stun: 0, leech: 0 }, 1, { quiet: true });
+        out.blast = { stat: S.stats.blasts - bl0, n1bu: n1.bu.fire, n1blast: n1.blastT, n2dmg: nh0 - n2.hp, want: Math.min(th * B.blast, c.buTh * B.blastCap), far: farE.maxHp - farE.hp, cbu: c.bu.fire, text: texts.includes('爆燃'), mark: c.blastT > 0 };
+        G.clearEnemies();
+        // 爆燃跟着你的火焰伤害走：同一只怪，每击火焰越高 / 异常累积速度越快，炸得越狠（不是只看怪的生命）
+        const fctx = (v, ail) => ({ sk: { w: 0, kb: 0, poise: 0 }, base: { fire: [v, v] }, inc: {}, moreType: {}, more: 1, extra: {}, crit: 0, critMulti: 100, ailment: ail, stun: 0, leech: 0 });
+        const blastOf = (v, ail) => {
+          const src = mk('husk', 5, 0), nb = mk('husk', 6.5, 0);
+          const h0 = nb.hp, b0 = S.stats.blasts || 0;
+          for (let i = 0; i < 400 && (S.stats.blasts || 0) === b0; i++) G.hitEnemy(src, fctx(v, ail), 1, { quiet: true });
+          const d = h0 - nb.hp;
+          G.clearEnemies();
+          return Math.round(d * 10) / 10;
+        };
+        out.scale = { small: blastOf(5, 0), bigger: blastOf(15, 0), ail: blastOf(5, 100), capped: blastOf(1000, 0), cap: 100 * B.blastCap };
+        // 感电的敌人被同一击灌满火焰：紧跟着的爆燃也打到它，但这一击只放一次电弧
+        const ds = mk('husk', 5, 0), dn = mk('husk', 7, 0);
+        ds.shockT = 4;
+        ds.bu.fire = 0.99;
+        const db0 = S.stats.bolts || 0;
+        G.hitEnemy(ds, fctx(50, 0), 1, { quiet: true });
+        out.dbl = { bolts: (S.stats.bolts || 0) - db0, blasts: ds.blastT > 0 };
+        G.clearEnemies();
+        // 感电
+        const s0 = mk('brute', 5, 0), a = mk('husk', 7, 0), b = mk('husk', 5, 2.5), c2 = mk('husk', 7, 2.5), far2 = mk('husk', 5 + B.shockR + 4, 0);
+        G.addBuildUp(s0, { light: G.buThreshold(s0, 'light') }, 0);
+        a.shockT = 4; // 电弧打在感电的敌人身上也不会再放电弧
+        out.shock = { t: s0.shockT, bu: s0.bu.light, text: texts.includes('感电') };
+        const ctx = G.skillCtx('cleave');
+        const hp = () => [a, b, c2, far2].map((e) => e.maxHp - e.hp);
+        const bolts0 = S.stats.bolts || 0;
+        const sh0 = s0.hp;
+        G.hitEnemy(s0, ctx, 1, { quiet: true });
+        const dealt = sh0 - s0.hp;
+        out.shock.d1 = hp();
+        out.shock.bolts = (S.stats.bolts || 0) - bolts0;
+        out.shock.want = dealt * B.bolt;
+        out.shock.lightBu = [a, b, c2].map((e) => e.bu.light);
+        G.hitEnemy(s0, ctx, 1, { quiet: true }); // 节流：紧接着再挨一下不放电弧
+        out.shock.d2 = hp();
+        G.debug.step(B.shockGap + 0.05);
+        G.hitEnemy(s0, ctx, 1, { quiet: true });
+        out.shock.d3 = hp();
+        G.debug.step(B.shock);
+        const b1 = S.stats.bolts;
+        G.hitEnemy(s0, ctx, 1, { quiet: true });
+        out.shock.expired = S.stats.bolts - b1;
+        G.clearEnemies();
+        // 身边没有别的敌人：电弧打回它自己
+        const solo = mk('brute', 5, 0);
+        solo.shockT = 4;
+        const so0 = solo.hp;
+        const sb0 = S.stats.bolts;
+        G.hitEnemy(solo, ctx, 1, { quiet: true });
+        out.solo = { bolts: S.stats.bolts - sb0, dmg: so0 - solo.hp };
+        out.solo.base = G.calcHit(ctx, 1).total;
+      } finally {
+        W.text = ot;
+        T.unfix();
+      }
+      return out;
+    });
+    const B = await ev(() => G.BUILDUP);
+    assert(r.freeze.n === B.freeze && r.freeze.e === B.freezeElite && r.freeze.bu === 0 && r.freeze.text && r.freeze.stat >= 2, '冰霜灌满应冻结（精英更短）并清空：' + JSON.stringify(r.freeze));
+    assert(r.freeze.locked === 0 && r.freeze.iced, '冻结中不再累积冰霜异常值，模型罩上冰色：' + JSON.stringify(r.freeze));
+    assert(r.blast.stat === 1 && r.blast.text && r.blast.mark && r.blast.cbu === 0, '火焰灌满应爆燃一次：' + JSON.stringify(r.blast));
+    assert(Math.abs(r.blast.n2dmg - r.blast.want) < r.blast.want * 0.05 + 0.5 && r.blast.far === 0, '爆燃应按灌满的火焰伤害波及周围：' + JSON.stringify(r.blast));
+    assert(r.blast.n1bu === 0.99 && !(r.blast.n1blast > 0), '爆燃不应累积火焰异常值（不连锁）：' + JSON.stringify(r.blast));
+    const sc = r.scale;
+    assert(Math.abs(sc.small - 5 * B.blast) < 0.6 && Math.abs(sc.bigger - 15 * B.blast) < 0.6 && Math.abs(sc.ail - 10 * B.blast) < 0.6 && Math.abs(sc.capped - sc.cap) < 0.6, '爆燃应按平均每击的火焰伤害 × (1 + 异常累积速度%) 算、按阈值封顶：' + JSON.stringify(sc));
+    assert(r.dbl.blasts && r.dbl.bolts === 1, '同一击触发的爆燃再打到感电的敌人，也只放一次电弧：' + JSON.stringify(r.dbl));
+    assert(r.shock.t === B.shock && r.shock.bu === 0 && r.shock.text, '闪电灌满应感电 ' + B.shock + ' 秒：' + JSON.stringify(r.shock));
+    const d1 = r.shock.d1;
+    assert(r.shock.bolts === B.shockN && d1.filter((d) => d > 0).length === B.shockN && d1[3] === 0, '感电挨打应向最近的 ' + B.shockN + ' 个敌人射电弧，远处的不挨：' + JSON.stringify(r.shock));
+    assert(d1.filter((d) => d > 0).every((d) => Math.abs(d - r.shock.want) < r.shock.want * 0.02 + 0.2), '每道电弧应是这一击的 ' + B.bolt * 100 + '%：' + JSON.stringify(r.shock));
+    assert(r.shock.lightBu.every((v) => v === 0), '电弧不应累积闪电异常值：' + JSON.stringify(r.shock));
+    assert(JSON.stringify(r.shock.d2) === JSON.stringify(d1) && r.shock.d3.some((d, i) => d > d1[i]), '同一个敌人 ' + B.shockGap + ' 秒内最多放一次电弧：' + JSON.stringify(r.shock));
+    assert(r.shock.expired === 0, '感电结束后不再放电弧');
+    assert(r.solo.bolts === 1 && Math.abs(r.solo.dmg - r.solo.base * (1 + B.bolt)) < r.solo.base * 0.03, '身边没有别的敌人时只有一道电弧打回它自己：' + JSON.stringify(r.solo));
+  });
+
+  await summonStep('首领与异常：不会被冻结，冰霜灌满是重度冰缓（移动与出手放慢）；每触发一次阈值就提高（封顶），不会被永久控住；首领血条下有三段异常值', async () => {
+    const r = await ev(() => {
+      T.arena();
+      G.debug.god(true);
+      const P = G.player, B = G.BUILDUP, out = {};
+      const b = G.spawnBoss('golem', P.x, P.z - 9, 1);
+      b.awake = true;
+      const th = [];
+      for (let i = 0; i < 8; i++) {
+        th.push(G.buThreshold(b, 'cold'));
+        b.bossChill = 0;
+        G.addBuildUp(b, { cold: G.buThreshold(b, 'cold') }, 0);
+      }
+      out.th = th.map((v) => Math.round((v / th[0]) * 100) / 100);
+      out.fireTh = G.buThreshold(b, 'fire') / th[0]; // 各元素分开成长
+      out.freeze = b.freeze;
+      out.chill = b.bossChill;
+      G.addBuildUp(b, { cold: 1e6 }, 0);
+      out.locked = b.bu.cold;
+      G.tick(1 / 60);
+      out.slowK = b.slowK;
+      G.debug.step(B.bossChill + 0.1);
+      out.slowAfter = b.slowK;
+      out.freezeAfter = b.freeze;
+      // 首领血条下的异常值条按累积量涨
+      b.bu.fire = 0.5;
+      b.buT.fire = 1e9; // 别让它在等界面的时候回落
+      G.debug.hold(false);
+      return out;
+    });
+    await until(() => { const f = document.querySelector('.boss-bu .fire b'); return document.getElementById('boss-box').classList.contains('on') && f && /scaleX\(0\.5\)/.test(f.style.transform); }).catch(() => {
+      throw new Error('首领血条下的火焰异常值没有按累积量显示');
+    });
+    await ev(() => G.debug.hold(true));
+    const B = await ev(() => G.BUILDUP);
+    assert(r.freeze === 0 && r.chill === B.bossChill && r.locked === 0, '首领不应被冻结，冰霜灌满应是重度冰缓（期间不再累积）：' + JSON.stringify(r));
+    assert(Math.abs(r.slowK - (1 - B.bossSlow)) < 1e-6 && r.slowAfter > 0.99 && r.freezeAfter === 0, '重度冰缓应放慢 ' + B.bossSlow * 100 + '% 并按时结束：' + JSON.stringify(r));
+    assert(r.th[1] === 1 + B.bossGrow && r.th[2] === 1 + 2 * B.bossGrow && r.th[7] === B.bossGrowMax && r.fireTh === 1, '首领阈值应每次提高、封顶，各元素分开：' + JSON.stringify(r.th));
+  });
+
+  await step('冷却 / 延迟技能：每次的伤害明显高于主力技能的一下；单独按冷却循环的秒伤打不过主力技能；技能卡写「每次伤害」并说明冷却', async () => {
+    const r = await ev(() => {
+      const out = {};
+      const one = (id) => { const c = G.skillCtx(id); return { avg: G.avgHit(c), dps: G.skillDps(c), cd: c.cd, rate: G.skillRate(c) }; };
+      out.meteor = one('meteor');
+      out.blink = one('blink');
+      out.ember = one('ember');
+      out.cleave = one('cleave');
+      out.arc = one('arc');
+      G.ui.open('skills');
+      const card = (name) => { const c = Array.from(document.querySelectorAll('.skill-card')).find((n) => n.querySelector('.sk-name').textContent.startsWith(name)); return c ? c.innerText : ''; };
+      out.card = card('陨火');
+      G.ui.close();
+      return out;
+    });
+    const m = r.meteor, b = r.blink;
+    assert(Math.abs(m.rate - 1 / m.cd) < 1e-9 && Math.abs(b.rate - 1 / b.cd) < 1e-9, '冷却技能的出手频率应按冷却算：' + JSON.stringify(r));
+    assert(m.avg > r.ember.avg * 4 && m.avg > r.arc.avg * 4, '陨火每次的伤害应是掷焰 / 链雷一下的 4 倍以上：' + JSON.stringify(r));
+    assert(b.avg > (r.cleave.avg / 1.3) * 2.5, '闪袭每次的伤害应明显高于裂石击的一刀：' + JSON.stringify(r));
+    assert(m.dps < r.ember.dps && m.dps < r.arc.dps && b.dps < r.cleave.dps, '单独按冷却循环施放不应打过主力技能：' + JSON.stringify(r));
+    // 穿插的收益：每个冷却周期多出一次大伤害，少放（施放时间 ÷ 主力出手间隔）下主力技能
+    const gain = (cd, main) => (cd.avg / cd.cd - main.dps * (cd.cd > 0 ? (cd.id === 'blink' ? 0.2 : 0.6) / cd.cd : 0)) / main.dps;
+    const gm = gain(m, r.ember), gb = gain(Object.assign({ id: 'blink' }, b), r.cleave);
+    assert(gm > 0.12 && gm < 0.3 && gb > 0.12 && gb < 0.3, '穿插冷却技能的秒伤收益应在 12%–30% 之间（目标约 15%–25%）：' + JSON.stringify({ gm, gb }));
+    assert(r.card.includes('每次伤害') && r.card.includes('冷却技能') && r.card.includes(String(m.cd)), '陨火的技能卡应写每次伤害和冷却：' + r.card);
+    return '陨火每次 ' + Math.round(m.avg) + '（掷焰 ' + Math.round(r.ember.avg) + '），穿插收益约 ' + Math.round(gm * 100) + '%；闪袭约 ' + Math.round(gb * 100) + '%';
   });
 
   // ------------------------------------------------------------------ 召唤
@@ -2232,6 +2564,12 @@ async function main() {
     await until(() => document.querySelectorAll('#slots .slot')[2].dataset.skill === 'nova').catch(() => {
       throw new Error('HUD 技能栏没有同步');
     });
+    // 霜环是光环：一绑上就保留魔力，魔力球顶上出现保留的那一截，技能格带「光环」的样式
+    r = await ev(() => ({ res: G.player.reserved, pct: G.player.reservePct, max: G.player.maxMana, raw: G.player.maxManaRaw, band: document.getElementById('mana-res').classList.contains('on'), aura: document.querySelectorAll('#slots .slot')[2].classList.contains('aura') }));
+    assert(r.pct === 25 && r.res > 0 && r.max === r.raw - r.res && r.aura, '绑上霜环应保留 25% 魔力：' + JSON.stringify(r));
+    await until(() => document.getElementById('mana-res').classList.contains('on')).catch(() => {
+      throw new Error('魔力球上没有显示光环保留');
+    });
 
     const base = await ev(() => { const c = G.skillCtx('ember'); return { proj: c.proj, cost: c.cost, more: c.more }; });
     const sock = (i) => '[data-act="socket"][data-skill="ember"][data-idx="' + i + '"]';
@@ -2261,11 +2599,13 @@ async function main() {
     assert(r.b[1] === null && r.pb === 1, '取下辅助宝石后 skillCtx 没有还原：' + JSON.stringify(r));
     const misc = await ev(() => ({
       unfit: G.socketSupport('ember', 1, 'brutal'),
-      echo: (G.socketSupport('nova', 0, 'echo'), G.skillCtx('nova').echo),
+      echo: (G.socketSupport('arc', 0, 'echo'), G.skillCtx('arc').echo),
+      auraEcho: G.socketSupport('nova', 0, 'echo'), // 光环不施放：回响镶不上
       area: (G.socketSupport('nova', 1, 'expanse'), G.skillCtx('nova').area),
       cdr: (G.socketSupport('meteor', 0, 'frugal'), G.skillCtx('meteor').cd),
+      cdExp: G.SKILLS.meteor.cd * 0.75,
     }));
-    assert(misc.unfit === false && misc.echo === 1 && Math.abs(misc.area - 1.4) < 1e-9 && Math.abs(misc.cdr - 2.25) < 1e-9, '辅助效果不对：' + JSON.stringify(misc));
+    assert(misc.unfit === false && misc.echo === 1 && misc.auraEcho === false && Math.abs(misc.area - 1.4) < 1e-9 && Math.abs(misc.cdr - misc.cdExp) < 1e-9, '辅助效果不对：' + JSON.stringify(misc));
     await ev(() => G.ui.refresh());
     cleanText(await ev(() => T.bodyText()), '镶嵌后的技能页');
 
@@ -2417,7 +2757,7 @@ async function main() {
     r = await hover('cur');
     assert(r.txt.includes('点金石') && r.txt.includes('把普通物品升为稀有物品') && r.txt.includes('拖到一件物品上'), '通货的地面提示不对');
     r = await hover('skill');
-    assert(r.txt.includes('霜环') && r.txt.includes('冰缓周围所有敌人') && r.txt.includes('新技能') && r.txt.includes('基础伤害'), '技能宝石的地面提示应说明它做什么');
+    assert(r.txt.includes('霜环') && r.txt.includes('光环') && r.txt.includes('魔力保留 25%') && r.txt.includes('新技能') && r.txt.includes('每跳基础伤害'), '技能宝石的地面提示应说明它做什么：' + r.txt.slice(0, 200));
     r = await hover('sup');
     assert(r.txt.includes('多重投射') && r.txt.includes('额外发射 2 个投射物') && r.txt.includes('可镶嵌') && r.txt.includes('掷焰'), '辅助宝石的地面提示应说明它做什么');
     await page.mouse.move(1000, 620);
@@ -2481,10 +2821,9 @@ async function main() {
       const bar = G.save.bar.slice();
       const e = G.spawnMob('brute', 3.5, -1.5, 3, { awake: true, elite: true });
       e.hp = e.maxHp * 0.6;
-      e.freeze = 1e9;
-      e.shock = 1e9;
-      e.burn = 0.001;
-      e.burnT = 1e9;
+      e.freeze = 1e9; // 元素异常值触发后的三种状态：冻结、感电、刚爆燃过
+      e.shockT = 1e9;
+      e.blastT = 1e9;
       e.hp = e.maxHp = 1e7;
       const f1 = G.spawnMob('husk', 0, -6, 1, { awake: true, elite: true });
       f1.freeze = 1e9;
@@ -2521,7 +2860,7 @@ async function main() {
       throw new Error('指着敌人时准星 / 名牌没有反应');
     });
     r = await ev(() => ({ txt: document.getElementById('nameplate').innerText, cls: document.getElementById('nameplate').className, icons: document.querySelectorAll('#nameplate .ail .ico').length, box: T.rect('#nameplate'), w: innerWidth }));
-    assert(r.cls.includes('elite') && r.txt.includes('精英巨躯') && r.txt.includes('Lv 3') && r.txt.includes('精英') && r.txt.includes('点燃') && r.txt.includes('冻结') && r.txt.includes('感电') && r.icons === 3, '名牌内容不对：' + r.txt);
+    assert(r.cls.includes('elite') && r.txt.includes('精英巨躯') && r.txt.includes('Lv 3') && r.txt.includes('精英') && r.txt.includes('爆燃') && r.txt.includes('冻结') && r.txt.includes('感电') && r.icons === 3, '名牌内容不对：' + r.txt);
     assert(r.box.t >= 0 && r.box.l >= 0 && r.box.r <= r.w, '名牌超出屏幕');
     await page.mouse.move(1000, 620);
     await until(() => document.getElementById('reticle').className === 'aim' && !document.getElementById('nameplate').classList.contains('on')).catch(() => {
@@ -2588,14 +2927,17 @@ async function main() {
       G.clearEnemies();
       const b = G.spawnBoss('golem', G.player.x, G.player.z - 9, 1);
       b.awake = true;
-      b.chill = 1e9; // 首领不会被冻结，用冰缓
-      b.shock = 1e9;
-      b.burn = 0.001;
-      b.burnT = 1e9;
+      b.bossChill = 1e9; // 首领不会被冻结，冰霜异常值满了是重度冰缓
+      b.shockT = 1e9;
+      b.blastT = 1e9;
       b.hp = b.maxHp = 1e7;
     });
     await until(() => document.getElementById('boss-box').classList.contains('on') && document.querySelectorAll('#boss-ail .ail .ico').length === 3).catch(() => {
       throw new Error('首领血条上没有异常状态图标');
+    });
+    // 血条下的三段元素异常值：触发中整段亮着
+    await until(() => document.querySelectorAll('.boss-bu i.on').length === 3).catch(() => {
+      throw new Error('首领的元素异常值条没有跟着触发状态亮起');
     });
     r = await ev(() => ({ ail: T.rect('#boss-ail'), box: T.rect('#boss-box'), name: T.rect('#boss-name'), cls: Array.from(document.querySelectorAll('#boss-ail .ail')).map((n) => n.className.replace('ail ', '')).join() }));
     assert(r.cls === 'burn,chill,shock' && r.ail.r <= r.box.r + 1 && r.ail.l >= r.box.l && r.ail.b <= r.box.b, '首领异常图标的位置不对：' + JSON.stringify(r));
@@ -2797,13 +3139,14 @@ async function main() {
   await step('回响：法术自动重复一次，不再扣魔力', async () => {
     const r = await ev(() => {
       T.arena();
-      T.fix(0.5); // 身上随机装备的附加元素伤害可能点燃 / 感电靶子，多出几跳伤害：随机数钉死
+      T.fix(0.5); // 随机数钉死：伤害取中值、不暴击
       const P = G.player;
-      T.dummy(3, 0);
-      G.input.mouse.wx = 3;
-      G.input.mouse.wz = 0;
+      G.bindSkill(2, 'arc'); // 链雷（镶着回响）放到 Q 上，顶掉霜环
       P.mana = P.maxMana;
-      const cost = G.skillCtx('nova').cost;
+      T.dummy(3, 0); // 两下链雷灌不满闪电异常值（阈值是靶子生命的一半），不会多出电弧
+      G.input.mouse.wx = T.d.x;
+      G.input.mouse.wz = T.d.z;
+      const cost = G.skillCtx('arc').cost;
       G.input.tap[2] = 0.25; // 轻点一次 Q
       G.debug.step(0.31);
       const hp1 = T.d.hp, m1 = P.mana;
@@ -2816,7 +3159,7 @@ async function main() {
     assert(r.first > 0 && r.second > 0 && r.later === 0, '回响应正好多打一次：' + JSON.stringify(r));
     assert(r.spent <= r.cost && r.spent > r.cost - 3, '回响不应额外扣魔力：' + JSON.stringify(r));
     await ev(() => {
-      G.socketSupport('nova', 0, null);
+      G.socketSupport('arc', 0, null);
       G.socketSupport('nova', 1, null);
       G.socketSupport('meteor', 0, null);
     });
@@ -2931,9 +3274,9 @@ async function main() {
       G.bindSkill(1, 'ember');
       const hitEnemy = G.hitEnemy;
       const hits = [];
-      G.hitEnemy = function (e, c, m) {
-        hits.push(e);
-        return hitEnemy(e, c, m);
+      G.hitEnemy = function (e, c, m, inf) {
+        if (!(inf && inf.proc)) hits.push(e); // 爆燃 / 电弧是异常值触发的额外伤害，不算这次施放的命中
+        return hitEnemy(e, c, m, inf);
       };
       out.ember = {};
       for (const sups of [[], ['multi'], ['pierce'], ['chain'], ['multi', 'pierce', 'chain']]) {
@@ -3139,7 +3482,7 @@ async function main() {
       G.debug.god(true);
       G.bindSkill(0, 'cleave');
       G.bindSkill(1, 'ember');
-      G.bindSkill(2, 'nova');
+      G.bindSkill(2, 'arc');
       G.bindSkill(3, null);
       for (const k of Object.keys(G.save.sockets)) G.save.sockets[k] = [null, null, null];
       G.computeStats();
@@ -3147,7 +3490,7 @@ async function main() {
       T.settle();
     });
     await aim();
-    // 1. 挥砍途中按 Q：收招一到可取消的时刻就放出霜环
+    // 1. 挥砍途中按 Q：收招一到可取消的时刻就放出链雷
     await page.mouse.click(...Object.values(await ev(() => { const p = T.scr(G.player.x + 4, G.player.z); return { x: Math.round(p.x), y: Math.round(p.y) }; })));
     let r = await ev(() => { for (let i = 0; i < 6; i++) G.tick(1 / 60); const c = G.player.cast; return { id: c && c.id, step: c && c.step, t: c && c.t, cancelT: c && c.cancelT, fireT: c && c.fireT }; });
     assert(r.id === 'cleave' && r.step === 0 && r.t < r.fireT, '点击左键没有开始第一段：' + JSON.stringify(r));
@@ -3156,12 +3499,12 @@ async function main() {
       const P = G.player;
       const c0 = P.cast, tap = G.input.tap[2];
       let at = -1, mana0 = P.mana;
-      for (let i = 0; i < 60 && at < 0; i++) { G.tick(1 / 60); if (P.cast && P.cast.id === 'nova') at = c0.t; }
+      for (let i = 0; i < 60 && at < 0; i++) { G.tick(1 / 60); if (P.cast && P.cast.id === 'arc') at = c0.t; }
       for (let i = 0; i < 40; i++) G.tick(1 / 60);
       return { tap, at, cancelT: c0.cancelT, dur: c0.dur, spent: mana0 - P.mana, held: !!G.input.keys.KeyQ };
     });
     assert(b.tap > 0.2 && !b.held, '按下 Q 应记入缓冲：' + JSON.stringify(b));
-    assert(b.at >= b.cancelT - 1e-6 && b.at < b.cancelT + 0.06 && b.at < b.dur - 0.05 && b.spent > 5, '缓冲的霜环应在挥砍可取消的那一刻（' + b.cancelT.toFixed(2) + ' 秒）放出，实际 ' + b.at.toFixed(2) + '：' + JSON.stringify(b));
+    assert(b.at >= b.cancelT - 1e-6 && b.at < b.cancelT + 0.06 && b.at < b.dur - 0.05 && b.spent > 5, '缓冲的链雷应在挥砍可取消的那一刻（' + b.cancelT.toFixed(2) + ' 秒）放出，实际 ' + b.at.toFixed(2) + '：' + JSON.stringify(b));
     // 2. 终结技刚起手（+0.05 秒）就轻点 Q：缓冲要活到终结技可以接招的那一刻（0.62 秒）。
     //    回归：缓冲曾是固定的 0.3 秒，终结技和法术前半段轻点的按键会被悄悄吃掉
     r = await ev(() => {
@@ -3178,12 +3521,12 @@ async function main() {
       const P = G.player;
       const c0 = P.cast, tap = G.input.tap[2], m0 = P.mana;
       let at = -1;
-      for (let i = 0; i < 90 && at < 0; i++) { G.tick(1 / 60); if (P.cast && P.cast.id === 'nova') at = c0.t; }
+      for (let i = 0; i < 90 && at < 0; i++) { G.tick(1 / 60); if (P.cast && P.cast.id === 'arc') at = c0.t; }
       for (let i = 0; i < 40; i++) G.tick(1 / 60);
       return { tap, at, cancelT: c0.cancelT, spent: m0 - P.mana, want: G.bufferTime('cast') };
     });
     assert(r.tap > r.cancelT - 0.06 && r.tap < 0.9, '终结技途中按下的输入，缓冲应覆盖到它可以接招为止：' + JSON.stringify(r));
-    assert(r.at >= r.cancelT - 1e-6 && r.at < r.cancelT + 0.06 && r.spent > 5, '终结技起手时轻点的霜环应在可接招的那一刻放出：' + JSON.stringify(r));
+    assert(r.at >= r.cancelT - 1e-6 && r.at < r.cancelT + 0.06 && r.spent > 5, '终结技起手时轻点的链雷应在可接招的那一刻放出：' + JSON.stringify(r));
     assert(Math.abs(r.want - 0.3) < 1e-6, '手上没有动作时缓冲应回到 0.3 秒：' + r.want);
     //    掷焰（法术）途中轻点 Q 也一样
     await ev(() => { G.debug.step(1); G.player.mana = G.player.maxMana; });
@@ -3191,12 +3534,12 @@ async function main() {
     r = await ev(() => { for (let i = 0; i < 2; i++) G.tick(1 / 60); const c = G.player.cast; return { id: c && c.id, t: c && c.t }; });
     assert(r.id === 'ember' && r.t < 0.06, '右键没有开始掷焰：' + JSON.stringify(r));
     await page.keyboard.press('KeyQ');
-    r = await ev(() => { const P = G.player; let nova = false; for (let i = 0; i < 70; i++) { G.tick(1 / 60); if (P.cast && P.cast.id === 'nova') nova = true; } return { nova }; });
-    assert(r.nova, '掷焰起手时轻点的霜环被吃掉了');
+    r = await ev(() => { const P = G.player; let nova = false; for (let i = 0; i < 70; i++) { G.tick(1 / 60); if (P.cast && P.cast.id === 'arc') nova = true; } return { nova }; });
+    assert(r.nova, '掷焰起手时轻点的链雷被吃掉了');
     //    等不到的输入照样过期：技能还在冷却、离转好还远
-    await ev(() => { const P = G.player; G.debug.step(1); P.mana = P.maxMana; P.cds.nova = 2; P.cdMax.nova = 2; });
+    await ev(() => { const P = G.player; G.debug.step(1); P.mana = P.maxMana; P.cds.arc = 2; P.cdMax.arc = 2; });
     await page.keyboard.press('KeyQ');
-    r = await ev(() => { const P = G.player; const tap = G.input.tap[2], m0 = P.mana; let nova = false; for (let i = 0; i < 200; i++) { G.tick(1 / 60); if (P.cast && P.cast.id === 'nova') nova = true; } return { tap, nova, cd: P.cds.nova, spent: m0 - P.mana }; });
+    r = await ev(() => { const P = G.player; const tap = G.input.tap[2], m0 = P.mana; let nova = false; for (let i = 0; i < 200; i++) { G.tick(1 / 60); if (P.cast && P.cast.id === 'arc') nova = true; } return { tap, nova, cd: P.cds.arc, spent: m0 - P.mana }; });
     assert(r.tap > 0.2 && r.tap < 0.35 && !r.nova && r.cd === 0, '过期的缓冲不应再放出技能：' + JSON.stringify(r));
     //    挥砍途中按了 Q 又翻滚：翻滚之前缓冲着的技能作废，滚完不会突然放出来
     await ev(() => { const P = G.player; P.mana = P.maxMana; P.roll.cd = 0; });
@@ -3206,7 +3549,7 @@ async function main() {
     r = await ev(() => ({ tap: G.input.tap[2], cast: G.player.cast && G.player.cast.id }));
     assert(r.tap > 0.2 && r.cast === 'cleave', '挥砍途中按 Q 应记入缓冲：' + JSON.stringify(r));
     await page.keyboard.press('Space');
-    r = await ev(() => { const P = G.player; const o = { tap: G.input.tap[2], roll: P.roll.t > 0 }; let nova = false; for (let i = 0; i < 80; i++) { G.tick(1 / 60); if (P.cast && P.cast.id === 'nova') nova = true; } o.nova = nova; return o; });
+    r = await ev(() => { const P = G.player; const o = { tap: G.input.tap[2], roll: P.roll.t > 0 }; let nova = false; for (let i = 0; i < 80; i++) { G.tick(1 / 60); if (P.cast && P.cast.id === 'arc') nova = true; } o.nova = nova; return o; });
     assert(r.roll && r.tap === 0 && !r.nova, '翻滚应清掉之前缓冲的技能输入：' + JSON.stringify(r));
     // 3. 翻滚途中点攻击：滚完立刻出手
     await ev(() => { G.player.roll.cd = 0; });
@@ -3275,7 +3618,7 @@ async function main() {
       const o = { tap: G.input.tap.join(), dodge: G.input.tapDodge, exec: G.input.tapExec };
       const m0 = P.mana;
       let nova = false;
-      for (let i = 0; i < 70; i++) { G.tick(1 / 60); if (P.cast && P.cast.id === 'nova') nova = true; }
+      for (let i = 0; i < 70; i++) { G.tick(1 / 60); if (P.cast && P.cast.id === 'arc') nova = true; }
       o.nova = nova;
       o.spent = m0 - P.mana;
       return o;
@@ -3306,7 +3649,7 @@ async function main() {
     assert(r.dead && r.tap === '0,0,0,0' && r.dodge === 0 && r.exec === 0, '倒下时应清空缓冲的输入：' + JSON.stringify(r));
     assert(r.stop === 0 && r.slow === 0 && r.k === 1, '倒下时顿帧 / 慢动作应一并结束：' + JSON.stringify(r));
     assert(r.alive && !r.acted, '重生后不应自动放出死前缓冲的动作：' + JSON.stringify(r));
-    return '霜环在 ' + b.at.toFixed(2) + ' 秒接上（可取消时刻 ' + b.cancelT.toFixed(2) + '）';
+    return '链雷在 ' + b.at.toFixed(2) + ' 秒接上（可取消时刻 ' + b.cancelT.toFixed(2) + '）';
   });
 
   await step('受击反馈：每次命中都有闪白 / 后仰 / 火花 / 数字，暴击与终结的数字另成一类；击退会撞墙，首领不被推动；重击打断小怪起手（过了收不住的时刻、皮糙肉厚的、精英除外）；死法随致命伤害类型', async () => {
@@ -4117,7 +4460,7 @@ async function main() {
     await ev(() => {
       T.lane();
       window.__M = T.mob('husk', 4, 0);
-      window.__M.shock = 1e9;
+      window.__M.shockT = 1e9;
       T.settle();
       G.debug.step(0.05);
     });

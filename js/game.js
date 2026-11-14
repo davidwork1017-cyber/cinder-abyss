@@ -54,7 +54,7 @@
     life: 100, mana: 60, maxLife: 100, maxMana: 60, armour: 0,
     res: { fire: 0, cold: 0, light: 0 },
     speedMult: 1, moveSpeed: 7.2, lifeRegen: 0, manaRegen: 4,
-    S: {}, cast: null, cds: {}, cdMax: {},
+    S: {}, cast: null, cds: {}, cdMax: {}, auraT: {}, // auraT：每个光环距离下一次脉冲的秒数
     roll: { t: 0, cd: 0, cdMax: 0.9, dx: 0, dz: 1 },
     iframe: 0, flask: { life: 3, mana: 3 },
     hot: { life: null, mana: null }, // 药剂的持续回复 {left, rate}
@@ -321,8 +321,16 @@
     P.S = S;
 
     const lv = save.level - 1;
-    P.maxLife = Math.max(1, Math.round((100 + 12 * lv + S.life) * (1 + S.incLife / 100) * (1 + S.moreLife / 100)));
-    P.maxMana = Math.max(0, Math.round((60 + 6 * lv + S.mana) * (1 + S.incMana / 100)));
+    P.maxLifeRaw = Math.max(1, Math.round((100 + 12 * lv + S.life) * (1 + S.incLife / 100) * (1 + S.moreLife / 100)));
+    // 光环保留：技能栏上的光环按百分比扣掉最大魔力（maxManaRaw 是保留之前的上限）。
+    // 魔力回复按保留之后的上限算：保留的那部分魔力既不能用，也不再回复。
+    // 以血为引（技能消耗生命）时光环改为保留最大生命——不然魔力用不上，保留等于白送
+    P.maxManaRaw = Math.max(0, Math.round((60 + 6 * lv + S.mana) * (1 + S.incMana / 100)));
+    P.reservePct = G.reservePct();
+    P.reserveLife = !!S.bloodMagic;
+    P.reserved = Math.round(((P.reserveLife ? P.maxLifeRaw : P.maxManaRaw) * P.reservePct) / 100);
+    P.maxLife = P.reserveLife ? Math.max(1, P.maxLifeRaw - P.reserved) : P.maxLifeRaw;
+    P.maxMana = P.reserveLife ? P.maxManaRaw : Math.max(0, P.maxManaRaw - P.reserved);
     P.armour = Math.max(0, Math.round(S.armour * (1 + S.incArmour / 100)));
     P.res.fire = Math.min(75, S.resFire);
     P.res.cold = Math.min(75, S.resCold);
@@ -335,6 +343,31 @@
     P.mana = Math.min(P.mana, P.maxMana);
     if (P.ent) G.world.setPlayerGear(save.equip); // 手里的武器模型跟着装备走
     return P;
+  };
+
+  // ---------- 光环 ----------
+  // 光环技能只要绑在技能栏任意一格上就生效（宝石得已经学会）
+  G.auraOn = function (id) {
+    const save = G.save;
+    const sk = G.SKILLS[id];
+    return !!(sk && sk.kind === 'aura' && save && save.skills && save.skills[id] && save.bar && save.bar.indexOf(id) >= 0);
+  };
+  // 某个光环保留的魔力百分比：辅助宝石的消耗倍率照样乘在保留上——节流（×0.6）降低保留，迅捷、扩域这类（×1.2 上下）抬高保留
+  G.auraReserve = function (id) {
+    const sk = G.SKILLS[id];
+    if (!sk || !sk.reserve) return 0;
+    let k = 1;
+    for (const supId of (G.save.sockets && G.save.sockets[id]) || []) {
+      const sup = supId && G.SUPPORTS[supId];
+      if (sup) k *= sup.cost;
+    }
+    return Math.round(sk.reserve * k * 10) / 10;
+  };
+  // 技能栏上所有生效的光环一共保留的百分比（封顶 90%）
+  G.reservePct = function () {
+    let pct = 0;
+    for (const id of Object.keys(G.SKILLS)) if (G.auraOn(id)) pct += G.auraReserve(id);
+    return Math.min(90, pct);
   };
 
   G.supportFits = function (skillId, supId) {
@@ -417,6 +450,7 @@
     const speed = P.speedMult * (1 + speedPct / 100);
     let cost = sk.mana * (1 + 0.05 * (lvl - 1)) * costMult * (1 - Math.min(80, S.costReduce || 0) / 100);
     cost = sk.mana > 0 ? Math.max(1, Math.round(cost)) : 0;
+    const isAura = sk.kind === 'aura';
 
     const ctx = {
       id, sk, lvl, base, inc, moreType,
@@ -435,7 +469,8 @@
       stopAvg: ((sk.combo ? sk.comboStop : sk.stop || 0) / 1000) * STOP_K(speed),
       cost,
       cd: sk.cd * (1 - Math.min(80, cdr) / 100),
-      leech, stun, ailment, echo,
+      leech, stun, ailment, echo: isAura ? 0 : echo,
+      reserve: isAura ? G.auraReserve(id) : 0,
       minion: null,
     };
     if (isMinion) {
@@ -465,9 +500,14 @@
 
   // 估算秒伤（技能卡、换装评估用）：平均击中 ÷ 每次出手实际占用的时间（含命中时的顿帧），受冷却限制。
   // 召唤技能：数量上限内的召唤物一起出手的秒伤（单体）
+  // 冷却技能按冷却折算（单独循环施放时的秒伤）；光环是每秒脉冲次数 × 每跳伤害（单体）
   G.skillDps = function (ctx) {
     if (ctx.minion) return (G.avgHit(ctx) * ctx.minion.cap) / Math.max(0.05, ctx.minion.interval);
-    return G.avgHit(ctx) / Math.max(ctx.time + ctx.stopAvg, ctx.cd || 0, 0.01);
+    return G.avgHit(ctx) * G.skillRate(ctx);
+  };
+  // 每秒出手（施放 / 斩击 / 脉冲）次数：含命中时的顿帧，受冷却限制
+  G.skillRate = function (ctx) {
+    return 1 / Math.max(ctx.time + ctx.stopAvg, ctx.cd || 0, 0.01);
   };
 
   // 每种伤害类型在暴击前的倍率
@@ -558,9 +598,154 @@
     }
   }
 
+  // ---------- 元素异常值 ----------
+  const BU = G.BUILDUP;
+  // 爆燃 / 感电电弧这类「异常触发出来的伤害」：固定数值、不暴击、不吃任何加成（加成在算触发量时已经算过了）
+  const PROC_SK = { w: 0, kb: 0, poise: 0 };
+  function procCtx(type, v) {
+    const base = {};
+    base[type] = [v, v];
+    return { sk: PROC_SK, base, inc: {}, moreType: {}, more: 1, extra: {}, crit: 0, critMulti: 100, ailment: 0, stun: 0, leech: 0, echo: 0, area: 1, proc: true };
+  }
+  // 敌人某个元素当前的阈值（首领随触发次数成长）
+  G.buThreshold = function (e, t) {
+    if (!e.bu) G.initBuildUp(e);
+    return e.buTh * e.buGrow[t];
+  };
+  G.initBuildUp = function (e) {
+    e.bu = { fire: 0, cold: 0, light: 0 };
+    e.buT = { fire: 0, cold: 0, light: 0 }; // 距离开始回落还有多久
+    e.buGrow = { fire: 1, cold: 1, light: 1 };
+    e.buTrig = { fire: 0, cold: 0, light: 0 }; // 各元素触发过几次
+    e.buFire = e.buFireN = 0; // 灌进火焰异常值的火焰伤害（已乘上异常累积速度）与命中次数：爆燃按平均每击算
+    e.buTh = Math.max(1, e.maxHp * (e.isBoss ? BU.boss : BU.th * (e.elite ? BU.elite : 1)));
+    e.shockT = e.shockCd = e.bossChill = e.blastT = 0;
+  };
+  // 一击的元素伤害累积进异常值；满了就把触发记进 procs（由最外层的 G.hitEnemy 统一结算，触发出来的伤害不会打乱技能逐个读取 lastHit）
+  function addBuildUp(e, parts, ailment, procs) {
+    if (!e.bu) G.initBuildUp(e);
+    const k = Math.max(0, 1 + (ailment || 0) / 100);
+    for (const t of G.ELEMS) {
+      const v = parts[t];
+      if (!(v > 0)) continue;
+      if (t === 'cold' && (e.freeze > 0 || e.bossChill > 0 || e.brokenT > 0)) continue; // 冻着 / 重度冰缓 / 破绽中不再累积
+      if (t === 'light' && e.shockT > 0) continue;
+      e.bu[t] += (v / G.buThreshold(e, t)) * k;
+      e.buT[t] = BU.hold;
+      if (t === 'fire') {
+        e.buFire += v * k;
+        e.buFireN++;
+      }
+      if (e.bu[t] >= 1) {
+        e.bu[t] = 0;
+        // 爆燃的伤害 = 灌满期间平均每击的火焰伤害 × (1 + 异常累积速度%) × blast，封顶为阈值 × blastCap：
+        // 跟着你的火焰伤害走，而不是跟着爆的那只怪的生命走
+        const fire = t === 'fire' ? Math.min((e.buFire / Math.max(1, e.buFireN)) * BU.blast, e.buTh * BU.blastCap) : 0;
+        procs.push({ t, e, fire });
+        if (t === 'fire') e.buFire = e.buFireN = 0;
+      }
+    }
+  }
+  G.addBuildUp = function (e, parts, ailment) {
+    const procs = [];
+    addBuildUp(e, parts, ailment, procs);
+    for (const p of procs) triggerAilment(p);
+    return procs.length;
+  };
+  // 满了：冻结 / 爆燃 / 感电
+  function triggerAilment(p) {
+    const W = G.world;
+    const e = p.e;
+    const h = e.height || 2;
+    const ty = Math.min(3.4, h * (e.elite ? 1.3 : 1)) + 0.3;
+    const st = state.stats;
+    e.buTrig[p.t]++;
+    if (e.isBoss) e.buGrow[p.t] = Math.min(BU.bossGrowMax, e.buGrow[p.t] + BU.bossGrow);
+    if (p.t === 'cold') {
+      if (e.dead) return;
+      st.freezes = (st.freezes || 0) + 1;
+      if (e.isBoss) {
+        e.bossChill = BU.bossChill;
+        W.text(e.x, e.z, '冰缓', '#bfeaff', 26, { kind: 'tag', y: ty, py: -30 });
+      } else {
+        e.freeze = Math.max(e.freeze || 0, e.elite ? BU.freezeElite : BU.freeze);
+        W.text(e.x, e.z, '冻结', '#d6f3ff', e.elite ? 24 : 20, { kind: 'tag', y: ty });
+      }
+      W.freezeFx(e.x, e.z, e.r, h, !!e.isBoss);
+      G.sfx('impact', { type: 'cold', w: 1, crit: false });
+    } else if (p.t === 'fire') {
+      st.blasts = (st.blasts || 0) + 1;
+      e.blastT = 1;
+      const R = BU.blastR + e.r * 0.5;
+      const dmg = p.fire;
+      W.blastFx(e.x, e.z, R);
+      W.text(e.x, e.z, '爆燃', '#ffb070', e.isBoss ? 26 : 22, { kind: 'tag', y: ty, py: e.isBoss ? -30 : 0 });
+      G.sfx('impact', { type: 'fire', w: 2, crit: false });
+      if (dmg > 0) {
+        const x = e.x, z = e.z;
+        const ctx = procCtx('fire', dmg);
+        for (const o of enemiesIn(x, z, R)) G.hitEnemy(o, ctx, 1, { ang: Math.atan2(o.x - x, o.z - z), w: 1, kb: 1.2, poise: 0, quiet: true, proc: true, noBuild: true });
+      }
+    } else if (p.t === 'light') {
+      if (e.dead) return;
+      st.shocks = (st.shocks || 0) + 1;
+      e.shockT = BU.shock;
+      e.shockCd = 0;
+      W.text(e.x, e.z, '感电', '#fff08a', e.isBoss ? 26 : 22, { kind: 'tag', y: ty, py: e.isBoss ? -30 : 0 });
+      W.burst(e.x, h * 0.6, e.z, 0xffe45e, 18, 5, 0.35);
+      G.sfx('impact', { type: 'light', w: 1, crit: false });
+    }
+  }
+  // 感电的敌人挨了一下：射出至多 shockN 道电弧，射向附近最近的别的敌人；附近一个别的敌人都没有时，只有一道打回它自己。电弧不再触发电弧
+  function shockDischarge(e, total) {
+    if (!(total > 0)) return;
+    e.shockCd = BU.shockGap;
+    const W = G.world;
+    const v = total * BU.bolt;
+    const near = [];
+    for (const o of state.enemies) {
+      if (o === e || o.dead) continue;
+      const d = dist(o.x, o.z, e.x, e.z) - o.r;
+      if (d <= BU.shockR) near.push({ o, d });
+    }
+    near.sort((a, b) => a.d - b.d);
+    const tgts = near.slice(0, BU.shockN).map((n) => n.o);
+    if (!tgts.length && !e.dead) tgts.push(e);
+    const ctx = procCtx('light', v);
+    const y0 = (e.height || 2) * 0.6;
+    for (const o of tgts) {
+      W.spark(e.x, y0, e.z, o.x, (o.height || 2) * 0.55, o.z, o === e);
+      G.hitEnemy(o, ctx, 1, { ang: Math.atan2(o.x - e.x, o.z - e.z), w: 0, kb: 0.15, poise: 0, quiet: true, proc: true, bolt: true, noBuild: true, faint: true });
+    }
+    state.stats.bolts = (state.stats.bolts || 0) + tgts.length;
+  }
+  // 敌人身上的异常值每帧走：回落、感电 / 重度冰缓 / 爆燃标记倒计时。返回此刻的减速比例（0..1）
+  G.tickBuildUp = function (e, dt) {
+    if (!e.bu) G.initBuildUp(e);
+    for (const t of G.ELEMS) {
+      if (e.buT[t] > 0) e.buT[t] -= dt;
+      else if (e.bu[t] > 0) {
+        const b0 = e.bu[t];
+        e.bu[t] = Math.max(0, b0 - BU.decay * dt);
+        if (t === 'fire' && e.bu[t] <= 0) e.buFire = e.buFireN = 0; // 回落到底才清空：平均每击不随回落变化
+      }
+    }
+    if (e.shockT > 0) e.shockT -= dt;
+    if (e.shockCd > 0) e.shockCd -= dt;
+    if (e.bossChill > 0) e.bossChill -= dt;
+    if (e.blastT > 0) e.blastT -= dt;
+    if (e.faintT > 0) e.faintT -= dt;
+    return Math.max(e.bu.cold * BU.chill, e.bossChill > 0 ? BU.bossSlow : 0);
+  };
+
   // info（可选）：{ ang 这一击行进的方向（缺省 = 从玩家指向敌人）, w 分量（0 轻 / 1 重 / 2 终结；缺省取技能数据）,
   //   kb 击退距离, poise 削掉的架势, quiet 不单独出声（一次挥砍打到多个敌人时由技能统一出一声）,
-  //   minion 出手的召唤物（召唤物的命中不算玩家的连击、不改集火目标；镜头不跟着顶） }
+  //   minion 出手的召唤物（召唤物的命中不算玩家的连击、不改集火目标；镜头不跟着顶）,
+  //   aura 光环的脉冲（数字小而淡、不算连击）, proc 爆燃 / 电弧等异常触发的伤害（不算连击）,
+  //   noBuild 不累积元素异常值, bolt 感电电弧（不再触发电弧）, faint 数字小而淡 }
+  let procDepth = 0;
+  const procQ = [];
+  const FAINT_GAP = 0.3;
   G.hitEnemy = function (e, ctx, mult, info) {
     if (!e || e.dead) return 0;
     const W = G.world;
@@ -568,7 +753,7 @@
     const inf = info || NO_INFO;
     const PO = G.POISE;
     const broken = e.brokenT > 0;
-    const m = (mult === undefined ? 1 : mult) * (e.shock > 0 ? 1.25 : 1) * (broken ? PO.taken : 1);
+    const m = (mult === undefined ? 1 : mult) * (broken ? PO.taken : 1);
     const hit = G.calcHit(ctx, m);
     const hp0 = e.hp;
     e.hp -= hit.total;
@@ -594,13 +779,25 @@
     const tx = e.x + G.rand(-0.35, 0.35);
     const tz = e.z + G.rand(-0.25, 0.25);
     const ty = Math.min(2.6, h * 0.5); // 从胸口冒出来，升到头顶为止，不压住血条和名字
-    if (w >= 2) W.text(tx, tz, shown + (hit.crit ? '!' : ''), G.TYPE_COLOR[top], hit.crit ? 30 : 23, { kind: 'big', y: ty });
+    const faint = inf.aura || inf.faint;
+    if (faint) {
+      // 光环脉冲 / 电弧：小而淡的数字，一圈敌人同时挨打时不刷屏；同一个敌人每 FAINT_GAP 秒最多冒一个
+      if (!(e.faintT > 0)) {
+        e.faintT = FAINT_GAP;
+        W.text(tx, tz, shown, G.TYPE_COLOR[top], 11, { kind: 'faint', y: ty });
+      }
+    } else if (w >= 2) W.text(tx, tz, shown + (hit.crit ? '!' : ''), G.TYPE_COLOR[top], hit.crit ? 30 : 23, { kind: 'big', y: ty });
     else if (hit.crit) W.text(tx, tz, shown + '!', G.TYPE_COLOR[top], 24, { kind: 'crit', y: ty });
     else W.text(tx, tz, shown, G.TYPE_COLOR[top], 16, { y: ty });
 
-    W.flash(e.ent, 1 + feel * 0.7);
-    W.hitReact(e.ent, ang, 0.9 + feel * 0.4); // 顺着这一击的方向一仰
-    W.impact(e.x - sn * e.r * 0.7, h * 0.5, e.z - cs * e.r * 0.7, ang, top, feel, hit.crit);
+    if (inf.aura) {
+      // 光环：只在身上闪一点霜屑，不闪白、不后仰
+      W.frostSparkle(e.x, h * 0.55, e.z, e.r);
+    } else {
+      W.flash(e.ent, 1 + feel * 0.7);
+      W.hitReact(e.ent, ang, 0.9 + feel * 0.4); // 顺着这一击的方向一仰
+      W.impact(e.x - sn * e.r * 0.7, h * 0.5, e.z - cs * e.r * 0.7, ang, top, feel, hit.crit);
+    }
     if (!inf.quiet) {
       // 投射物 / 法术逐个出声；暴击时镜头也轻轻一顶（近战由技能统一处理）
       G.sfx('impact', { type: top, w, crit: hit.crit });
@@ -611,6 +808,8 @@
     const st = state.stats;
     if (inf.minion) {
       st.minionHits = (st.minionHits || 0) + 1;
+    } else if (inf.aura || inf.proc) {
+      // 光环脉冲与异常触发的伤害不算你的连击，也不改召唤物的集火目标
     } else {
       st.hits++;
       if (hit.crit) st.crits++;
@@ -629,18 +828,14 @@
       knock(e, ang, (inf.kb !== undefined ? inf.kb : sk.kb || 0) * (hit.crit ? 1.25 : 1));
     }
 
-    // 异常状态
-    const roll = (pct) => Math.random() * 100 < pct;
-    if (hit.parts.fire > 0 && roll(20 + ctx.ailment)) {
-      if (!(e.burnT > 0)) e.burn = 0; // 上一次点燃已经烧完，旧数值作废
-      e.burn = Math.max(e.burn || 0, hit.parts.fire * 0.3);
-      e.burnT = 3;
+    // 元素异常值：这一击里的每种元素按伤害累积，满了就触发（结算放到最外层的命中结束时）
+    procDepth++;
+    if (!inf.noBuild) addBuildUp(e, hit.parts, ctx.ailment, procQ);
+    // 感电中的敌人挨打：放电弧（电弧本身不再触发）
+    if (!inf.bolt && e.shockT > 0 && !(e.shockCd > 0)) {
+      e.shockCd = BU.shockGap; // 排进队列时就开始节流：同一击里再挨一下（比如紧跟着的爆燃）不会再排第二次
+      procQ.push({ t: 'arc', e, total: hit.total });
     }
-    if (hit.parts.cold > 0) {
-      e.chill = 2;
-      if (!e.isBoss && !broken && roll(8 + ctx.ailment * 0.5)) e.freeze = 1.2;
-    }
-    if (hit.parts.light > 0 && roll(20 + ctx.ailment)) e.shock = 4;
     if (ctx.stun > 0 && !e.isBoss && !broken) e.stunT = Math.max(e.stunT || 0, ctx.stun);
     if (ctx.leech > 0) G.healPlayer((hit.total * ctx.leech) / 100);
 
@@ -661,6 +856,20 @@
         e.poiseHit = 0.12;
         if (e.poise <= 0) G.breakEnemy(e, ang);
       }
+    }
+    procDepth--;
+    if (procDepth === 0 && procQ.length) {
+      // 触发出来的伤害会改写 lastHit：结算完把这一击的结果还原，技能照常逐个读取
+      const keep = { crit: lastHit.crit, type: lastHit.type, total: lastHit.total, killed: lastHit.killed };
+      procDepth++;
+      for (let i = 0; i < procQ.length && i < 200; i++) {
+        const p = procQ[i];
+        if (p.t === 'arc') shockDischarge(p.e, p.total);
+        else triggerAilment(p);
+      }
+      procQ.length = 0;
+      procDepth--;
+      Object.assign(lastHit, keep);
     }
     return hit.total;
   };
@@ -1264,6 +1473,18 @@
       if (!id || !save.skills[id] || !G.SKILLS[id]) continue;
       if (chan && chan.slot === slot) continue; // 还按着正在转的那个键：接着转，不从头起
       if (P.cds[id] > 0) continue;
+      if (G.SKILLS[id].kind === 'aura') {
+        // 光环不用按：轻点它的键只提示一句
+        if (G.input.tap[slot] > 0) {
+          G.input.tap[slot] = 0;
+          const now = Date.now();
+          if (now - (toastAt.aura || 0) > 1500) {
+            toastAt.aura = now;
+            G.world.text(P.x, P.z, '光环常驻生效', G.SKILLS[id].color, 15);
+          }
+        }
+        continue;
+      }
       const ctx = G.skillCtx(id);
       if (!G.canAfford(ctx.cost)) {
         const now = Date.now();
@@ -1730,16 +1951,6 @@
       }
     },
 
-    nova(ctx) {
-      const W = G.world;
-      const sk = ctx.sk;
-      const R = sk.radius * Math.sqrt(ctx.area);
-      const hex = hexOf(sk.color);
-      W.ring(P.x, P.z, R, hex, 0.35);
-      W.burst(P.x, 0.8, P.z, hex, 28, R * 2.2, 0.35);
-      for (const e of enemiesIn(P.x, P.z, R)) G.hitEnemy(e, ctx, 1);
-    },
-
     chain(ctx, a) {
       const W = G.world;
       const sk = ctx.sk;
@@ -1886,6 +2097,41 @@
     },
   };
 
+  // 光环的一次脉冲：身边 radius（吃范围加成）以内的所有敌人各挨一小下（光环不经过施放，这里只在被直接调用时生效）
+  SKILL_FX.aura = function (ctx) {
+    const R = G.auraRadius(ctx);
+    const hits = enemiesIn(P.x, P.z, R);
+    G.world.auraPulse(hits.length > 0);
+    for (const e of hits) G.hitEnemy(e, ctx, 1, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 0, kb: 0, poise: ctx.sk.poise || 0, quiet: true, aura: true });
+    return hits.length;
+  };
+  G.auraRadius = (ctx) => ctx.sk.radius * Math.sqrt(ctx.area);
+  // 每帧：技能栏上的光环按各自的间隔脉冲；地上的霜环跟着玩家（光环不在技能栏上就收起）
+  function updateAuras(dt) {
+    const W = G.world;
+    let shown = 0;
+    // 兜底：技能栏变了却没人重算属性时，保留比例对不上就当场重算（不然光环生效了却没扣保留）
+    if (G.reservePct() !== P.reservePct) G.computeStats();
+    for (const id of Object.keys(G.SKILLS)) {
+      if (!G.auraOn(id)) {
+        if (P.auraT[id] !== undefined) delete P.auraT[id];
+        continue;
+      }
+      const ctx = G.skillCtx(id);
+      if (!shown) shown = G.auraRadius(ctx);
+      if (P.dead) continue;
+      if (P.auraT[id] === undefined) P.auraT[id] = Math.min(0.2, ctx.time); // 刚放上技能栏：很快来第一下
+      P.auraT[id] -= dt;
+      if (P.auraT[id] <= 0) {
+        P.auraT[id] += ctx.time;
+        if (P.auraT[id] < 0) P.auraT[id] = ctx.time * 0.5;
+        SKILL_FX.aura(ctx);
+      }
+    }
+    W.setAura(P.dead ? 0 : shown);
+  }
+  G.updateAuras = updateAuras;
+
   // 召唤：在准星处唤起召唤物（落点、数量上限与替换都由 minions.js 处理）
   SKILL_FX.summon = function (ctx, a) {
     if (G.summonMinion) G.summonMinion(ctx.id, a.tx, a.tz, ctx);
@@ -2011,7 +2257,10 @@
   function execHitOf(id) {
     const ctx = G.skillCtx(id);
     const v = G.avgHit(ctx);
-    return ctx.minion ? v * (1 - Math.min(90, P.S.ownLess || 0) / 100) : v;
+    if (ctx.minion) return v * (1 - Math.min(90, P.S.ownLess || 0) / 100);
+    // 有冷却的技能（陨火、闪袭）一下打得重是为了补偿冷却：按「同样的出手时间里能打出多少」折算，免得放上技能栏就把处决抬高几倍
+    if (ctx.cd > 0) return (v * ctx.time) / (ctx.time + ctx.cd);
+    return v;
   }
   function execBase() {
     const save = G.save;
@@ -2213,6 +2462,7 @@
     if (adt === undefined) adt = dt;
 
     if (P.dead) {
+      W.setAura(0);
       P.deadT -= dt;
       if (P.deadT <= 0) G.respawn();
       return;
@@ -2226,6 +2476,7 @@
 
     // 各种计时
     for (const id in P.cds) if (P.cds[id] > 0) P.cds[id] = Math.max(0, P.cds[id] - dt);
+    updateAuras(dt);
     if (P.roll.cd > 0) P.roll.cd = Math.max(0, P.roll.cd - dt);
     if (P.iframe > 0) P.iframe = Math.max(0, P.iframe - dt);
     if (P.graceT > 0) P.graceT = Math.max(0, P.graceT - dt);
@@ -2455,6 +2706,7 @@
         save.sockets[id] = [null, null, null];
         const free = save.bar.indexOf(null);
         if (free >= 0) save.bar[free] = id;
+        G.computeStats(); // 光环宝石自动绑上技能栏就立刻生效：保留魔力要马上算进去
         toast('习得技能：' + name + ' Lv ' + lvl + (free >= 0 ? '' : '（按 G 绑定到技能栏）'), GEM_COLOR);
       } else if (lvl > have) {
         save.skills[id] = lvl;

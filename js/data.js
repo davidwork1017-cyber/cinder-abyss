@@ -27,7 +27,7 @@
   G.TAG_NAME = {
     attack: '攻击', spell: '法术', melee: '近战', projectile: '投射物', area: '范围',
     chaining: '连锁', phys: '物理', fire: '火焰', cold: '冰霜', light: '闪电', movement: '位移',
-    minion: '召唤物', summon: '召唤',
+    minion: '召唤物', summon: '召唤', aura: '光环',
   };
 
   // ---------- 主动技能 ----------
@@ -58,10 +58,13 @@
       dmg: { phys: [8, 12] }, time: 0.36, mana: 4, cd: 0, speed: 28, pierce: 2, projR: 0.28, w: 0, kb: 0.35, poise: 8,
       desc: '掷出一柄旋转的利刃，可穿透 2 个敌人。',
     },
+    // 光环：放在技能栏任意一格上就常驻生效，不用按键。reserve 保留最大魔力的百分比（乘上所镶辅助的消耗倍率：节流降低，迅捷 / 扩域等抬高）；
+    // time 是两次脉冲的间隔（受出手速度与迅捷影响），每次脉冲对 radius 以内（吃范围加成）的所有敌人造成一小下冰霜伤害。
+    // 伤害本身很低，主要价值是不断累积冰霜异常值
     nova: {
-      name: '霜环', icon: '霜', color: '#86d8ff', tags: ['spell', 'area', 'cold'], kind: 'nova',
-      dmg: { cold: [10, 15] }, time: 0.55, mana: 10, cd: 0, radius: 5.6, w: 0, kb: 0.8, poise: 10,
-      desc: '以自身为中心释放冰霜冲击，冰缓周围所有敌人。',
+      name: '霜环', icon: '霜', color: '#86d8ff', tags: ['spell', 'area', 'cold', 'aura'], kind: 'aura',
+      dmg: { cold: [3.2, 4.8] }, time: 0.5, mana: 0, reserve: 25, cd: 0, radius: 4.5, w: 0, kb: 0, poise: 0,
+      desc: '光环：放在技能栏上即常驻生效，保留 25% 最大魔力（以血为引时改为保留生命）。身边一圈寒气每隔片刻刺痛范围内所有敌人，伤害很低，但会不断累积冰霜异常值，冰缓乃至冻结它们。',
     },
     arc: {
       name: '链雷', icon: '雷', color: '#ffe45e', tags: ['spell', 'chaining', 'light'], kind: 'chain',
@@ -70,13 +73,15 @@
     },
     meteor: {
       name: '陨火', icon: '陨', color: '#ff5a2c', tags: ['spell', 'area', 'fire'], kind: 'meteor',
-      dmg: { fire: [46, 68] }, time: 0.6, mana: 18, cd: 3, radius: 3.6, delay: 0.75, range: 15, w: 1, kb: 2.0, poise: 26,
-      desc: '在鼠标位置召来一颗陨石，短暂延迟后造成大量火焰伤害。',
+      // 冷却 + 延迟落地（会被走开躲掉）：每一次的伤害要明显高过主力技能，穿插着放才划算
+      dmg: { fire: [56, 78] }, time: 0.6, mana: 22, cd: 9, radius: 3.6, delay: 0.75, range: 15, w: 2, kb: 2.4, poise: 45,
+      desc: '在鼠标位置召来一颗陨石，短暂延迟后轰然落地，造成巨量火焰伤害。冷却较长，适合穿插在主力技能之间。',
     },
     blink: {
       name: '闪袭', icon: '闪', color: '#c7a6ff', tags: ['attack', 'melee', 'area', 'phys', 'movement'], kind: 'blink',
-      dmg: { phys: [14, 20] }, time: 0.2, mana: 10, cd: 3.5, radius: 3.0, range: 10, w: 1, kb: 1.6, poise: 18, stop: 70,
-      desc: '瞬移到鼠标位置，对落点周围的敌人造成伤害。',
+      // 有冷却：每一下的伤害按「穿插在主力技能之间」来定，单独按冷却循环打不过主力技能
+      dmg: { phys: [30, 42] }, time: 0.2, mana: 10, cd: 3.5, radius: 3.0, range: 10, w: 2, kb: 1.8, poise: 30, stop: 80,
+      desc: '瞬移到鼠标位置，重重砸在落点，对周围的敌人造成大量伤害。冷却期间穿插主力技能。',
     },
     whirl: {
       name: '旋风斩', icon: '旋', color: '#e8c9a0', tags: ['attack', 'melee', 'area', 'phys'], kind: 'spin',
@@ -141,6 +146,24 @@
     execFlaskElite: 0.5, execFlaskBoss: 0.34, // 处决补充的药剂充能（首领战一场能破好几次，给多了会让首领战失去压力）
   };
 
+  // ---------- 元素异常值 ----------
+  // 每个敌人有火 / 冰 / 雷三条异常值（0..1）。每次命中按这一击里该元素的伤害累积：伤害 ÷ 阈值 × (1 + 异常累积速度% / 100)。
+  // 阈值 = 最大生命 × th（精英再 × elite，首领用 boss），首领每触发一次，该元素的阈值提高 bossGrow（封顶 bossGrowMax 倍），像架势一样越打越难。
+  // hold 秒没有再受到该元素伤害后，按每秒 decay 回落。满了即触发：
+  //   冰 → 冻结 freeze 秒（精英 freezeElite 秒）；首领不会被冻结，改为 bossChill 秒的重度冰缓（移动与出手放慢 bossSlow）。
+  //        异常值大于 0 时附带轻度冰缓，减速 = 异常值 × chill。冻结 / 重度冰缓期间不再累积冰霜异常值
+  //   火 → 爆燃：以敌人为中心半径 blastR 的爆炸，伤害 = 灌满期间平均每击的火焰伤害 × (1 + 异常累积速度%) × blast，封顶为该敌人阈值 × blastCap；爆炸本身不累积异常值（不会连锁）
+  //   雷 → 感电 shock 秒：期间它每受到一次命中，就射出 shockN 道电弧，射向 shockR 以内最近的其他敌人（附近一个都没有时，只有一道打回它自己），
+  //        每道 = 这一击的 bolt 倍；电弧不再触发电弧、不累积异常值，同一个敌人每 shockGap 秒最多放一次。感电期间不再累积闪电异常值
+  G.BUILDUP = {
+    th: 0.5, elite: 1.5, boss: 0.15, bossGrow: 0.5, bossGrowMax: 4,
+    hold: 3, decay: 0.5,
+    chill: 0.3, freeze: 1.5, freezeElite: 1.0, bossChill: 3, bossSlow: 0.5,
+    blastR: 3, blast: 1, blastCap: 0.5,
+    shock: 4, shockR: 6, shockN: 2, bolt: 0.3, shockGap: 0.15,
+  };
+  G.ELEMS = ['fire', 'cold', 'light'];
+
   // ---------- 辅助宝石 ----------
   // req：技能需带有其中任一标签；no：带有其中任一标签的技能不能镶（可缺省）；eff：效果；cost：魔力消耗倍率。
   // 镶在召唤技能上时，通用辅助作用在召唤物身上：迅捷也加快召唤物出手，注入 / 蛮力 / 致命 / 震慑 / 蚀染作用于召唤物的每一击，
@@ -157,10 +180,10 @@
     brutal: { name: '蛮力', req: ['phys'], cost: 1.2, eff: { moreType: { phys: 35 } }, desc: '物理伤害额外提高 35%' },
     precise: { name: '致命', req: null, cost: 1.15, eff: { critFlat: 8, critMulti: 40 }, desc: '暴击率 +8%，暴击伤害 +40%' },
     leech: { name: '汲生', req: null, no: ['minion'], cost: 1.1, eff: { leech: 3 }, desc: '造成伤害的 3% 转化为生命' },
-    echo: { name: '回响', req: ['spell'], no: ['summon'], cost: 1.4, eff: { echo: 1, more: -30 }, desc: '法术自动重复施放一次，伤害减少 30%' },
+    echo: { name: '回响', req: ['spell'], no: ['summon', 'aura'], cost: 1.4, eff: { echo: 1, more: -30 }, desc: '法术自动重复施放一次，伤害减少 30%' },
     stagger: { name: '震慑', req: ['attack', 'minion'], cost: 1.15, eff: { stun: 0.7 }, desc: '击中时使非首领敌人眩晕 0.7 秒' },
-    ailment: { name: '蚀染', req: null, cost: 1.1, eff: { ailment: 35 }, desc: '点燃、冻结、感电的几率 +35%' },
-    frugal: { name: '节流', req: null, cost: 0.6, eff: { cdr: 25 }, desc: '魔力消耗减少 40%，冷却时间缩短 25%' },
+    ailment: { name: '蚀染', req: null, cost: 1.1, eff: { ailment: 35 }, desc: '元素异常值的累积速度加快 35%（更快触发爆燃、冻结、感电）' },
+    frugal: { name: '节流', req: null, cost: 0.6, eff: { cdr: 25 }, desc: '魔力消耗减少 40%（光环的魔力保留同样减少 40%），冷却时间缩短 25%' },
     // 召唤物专用
     dominion: { name: '驭灵', req: ['minion'], cost: 1.25, eff: { minionMore: 30 }, desc: '召唤物造成的伤害额外提高 30%' },
     ossify: { name: '坚骨', req: ['minion'], cost: 1.15, eff: { minionLife: 40, minionDR: 15 }, desc: '召唤物最大生命提高 40%，受到的伤害减少 15%' },
@@ -180,9 +203,9 @@
     speed: '攻击与施法速度提高 {v}%', crit: '暴击率提高 {v}%', critMulti: '+{v}% 暴击伤害',
     lifeRegen: '每秒回复 {v} 生命', manaRegen: '魔力回复速度提高 {v}%', lifeOnKill: '击杀回复 {v} 生命',
     moveSpeed: '移动速度提高 {v}%', rarity: '掉落物品稀有度提高 {v}%',
-    area: '技能范围扩大 {v}%', ailment: '异常状态几率 +{v}%', costReduce: '技能消耗降低 {v}%',
+    area: '技能范围扩大 {v}%', ailment: '元素异常值累积速度加快 {v}%', costReduce: '技能消耗降低 {v}%',
     dodgeCd: '翻滚冷却缩短 {v}%', moreDmg: '总伤害额外 {s}{v}%', lessTaken: '受到的伤害减少 {v}%',
-    moreLife: '最大生命额外 {s}{v}%', bloodMagic: '技能消耗生命而非魔力',
+    moreLife: '最大生命额外 {s}{v}%', bloodMagic: '技能消耗生命而非魔力，光环改为保留生命',
     minionDmg: '召唤物伤害提高 {v}%', minionLife: '召唤物最大生命提高 {v}%',
     minionSpeed: '召唤物攻击与移动速度提高 {v}%', minionCap: '烬骸仆从数量上限 +{v}',
     minionMore: '召唤物总伤害额外 {s}{v}%', ownLess: '你自身（非召唤物）的总伤害额外 -{v}%',

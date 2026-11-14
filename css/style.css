@@ -224,6 +224,18 @@ kbd {
 }
 .orb.life .orb-fill { background: linear-gradient(180deg, #ee4630 0%, #b81a10 40%, #5d0805 100%); }
 .orb.mana .orb-fill { background: linear-gradient(180deg, #4c8cf2 0%, #1d4fb4 40%, #0a1d58 100%); }
+/* 光环保留的那部分魔力：球顶一截压暗的斜纹，下沿一道霜色细线 */
+.orb-res {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 0;
+  background: repeating-linear-gradient(135deg, rgba(134, 216, 255, 0.16) 0 4px, rgba(10, 20, 40, 0.55) 4px 8px);
+  border-bottom: 1px solid rgba(160, 225, 255, 0.7);
+  display: none;
+}
+.orb-res.on { display: block; }
 .orb-gloss {
   position: absolute;
   inset: 0;
@@ -1939,6 +1951,12 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
   100% { opacity: 0; }
 }
 .slot.ready .s-icon { animation: slot-ready 0.6s ease-out; }
+/* 光环：常驻生效，图标外一圈缓缓呼吸的光 */
+.slot.aura .s-icon { animation: slot-aura 2.4s ease-in-out infinite; }
+@keyframes slot-aura {
+  0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 45%, transparent), 0 0 6px color-mix(in srgb, var(--c) 30%, transparent); }
+  50% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 80%, transparent), 0 0 12px color-mix(in srgb, var(--c) 55%, transparent); }
+}
 @keyframes slot-ready {
   0% { box-shadow: 0 0 0 2px #fff4dc, 0 0 22px 6px var(--c); filter: brightness(2.1); }
   100% { box-shadow: 0 0 0 0 transparent; filter: none; }
@@ -2274,6 +2292,22 @@ body.panel-open #coach { display: none; }
   background: linear-gradient(180deg, #f6f1e4, #b7ae9a);
   transition: transform 0.1s linear;
 }
+/* ---- 首领元素异常值：架势条下面三小段 ---- */
+.boss-bu { display: flex; gap: 4px; margin-top: 3px; height: 4px; }
+.boss-bu i { position: relative; flex: 1; overflow: hidden; background: #0c0706; box-shadow: 0 0 0 1px #0a0504; }
+.boss-bu i b { position: absolute; inset: 0; transform-origin: left center; transform: scaleX(0); transition: transform 0.1s linear; }
+.boss-bu i.fire b { background: #ff8a3c; }
+.boss-bu i.cold b { background: #86d8ff; }
+.boss-bu i.light b { background: #ffe45e; }
+.boss-bu i.on b { animation: bu-on 0.2s steps(2, jump-none) infinite; }
+.boss-bu i.on { box-shadow: 0 0 0 1px #0a0504, 0 0 8px currentColor; }
+.boss-bu i.fire { color: #ff8a3c; }
+.boss-bu i.cold { color: #86d8ff; }
+.boss-bu i.light { color: #ffe45e; }
+@keyframes bu-on {
+  0% { filter: brightness(1); }
+  100% { filter: brightness(1.7); }
+}
 #boss-box.broken .boss-poise { border-color: #ffc94a; box-shadow: 0 0 0 1px #0a0504, 0 0 12px rgba(255, 200, 80, 0.6); }
 #boss-box.broken #boss-poise-fill { background: linear-gradient(180deg, #fff6cf, #ffb53c); animation: poise-broken 0.22s steps(2, jump-none) infinite; }
 @keyframes poise-broken {
@@ -2448,5 +2482,8 @@ body.panel-open #coach { display: none; }
 .sk-num.full b { color: var(--ally); }
 .sk-mnote { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 11.5px; line-height: 16px; color: #8fb8b0; }
 .sk-mnote i { flex: none; width: 5px; height: 5px; background: var(--ally); transform: rotate(45deg); box-shadow: 0 0 6px var(--ally); }
+.sk-anote { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 11.5px; line-height: 16px; color: #a9c4d4; }
+.sk-anote.cd { color: #c8b38f; }
+.sk-anote i { flex: none; width: 5px; height: 5px; background: var(--c); transform: rotate(45deg); box-shadow: 0 0 6px var(--c); }
 .st-group.ally { color: #5fc8b4; }
 .help .c-ally, .tcard .c-ally, .co-body .c-ally { color: var(--ally); }

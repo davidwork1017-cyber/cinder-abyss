@@ -229,12 +229,13 @@
       dmg: def.dmg * G.dmgScale(level) * (elite ? 1.3 : 1), level, speed: def.speed, elem, elite,
       isBoss: false, bossKind: null, pack: o.pack == null ? null : o.pack, awake: !!o.awake,
       dead: false, deathT: 0, height: (type === 'brute' ? 2.8 : 2) * (elite ? 1.35 : 1),
-      chill: 0, freeze: 0, shock: 0, burn: 0, burnT: 0, stunT: 0,
+      freeze: 0, stunT: 0, slowK: 1, iced: false,
       ent: G.world.makeMob(type, G.TYPE_HEX[elem], elite),
       ang: Math.random() * TAU,
       reach: def.range + (r - def.r), // 攻击距离随体型略增
       mass: def.mass * (elite ? 1.7 : 1), poiseMax: elite ? def.poise : 0,
     }, zone);
+    G.initBuildUp(e); // 元素异常值（阈值按最大生命定）
     G.world.setEnt(e.ent, x, z, e.ang);
     G.state.enemies.push(e);
     return e;
@@ -250,12 +251,13 @@
       dmg: def.dmg * G.dmgScale(level), level, speed: def.speed, elem, elite: false,
       isBoss: true, bossKind: kind, pack: null, awake: false,
       dead: false, deathT: 0, height: 4.6,
-      chill: 0, freeze: 0, shock: 0, burn: 0, burnT: 0, stunT: 0,
+      freeze: 0, stunT: 0, slowK: 1, iced: false,
       ent: G.world.makeBoss(kind, G.TYPE_HEX[elem]),
       ang: 0,
       busy: 0, cd: 1, enraged: false, lastPattern: null, dash: null, aim: 0,
       mass: 50, poiseMax: def.poise,
     }, zone);
+    G.initBuildUp(e);
     G.world.setEnt(e.ent, x, z, e.ang);
     G.state.enemies.push(e);
     G.state.boss = e;
@@ -916,14 +918,16 @@
         W.burst(e.x, 0.4, e.z, 0xd8c8b0, 16, 6, 0.4);
       }
     }
+    // 冰缓（重度冰缓 50%）：招式之间的停顿和收招一起拉长
+    const sk = e.slowK > 0 ? e.slowK : 1;
     if (e.busy > 0) {
-      e.busy -= dt;
+      e.busy -= dt * sk;
       turn(e, e.aim, 12, dt);
       return;
     }
     if (dist > 5) chase(e, P, spd, dt);
     else turn(e, angTo(e, P.x, P.z), 6, dt);
-    e.cd -= dt;
+    e.cd -= dt * sk;
     if (e.cd <= 0 && dist <= 26 && !e.dash) {
       e.cd = e.enraged ? 0.6 : 1.0; // busy 结束后才继续倒数，所以这是招式之间的停顿
       startPattern(e, P, dist);
@@ -1076,18 +1080,9 @@
       }
       if (e.awake && !e.wasAwake) onWake(e);
 
-      // 状态效果
-      if (e.burnT > 0) {
-        e.burnT -= dt;
-        e.hp -= e.burn * dt;
-        if (e.burnT <= 0) e.burn = 0;
-        if (e.hp <= 0) {
-          e.hp = 0;
-          G.killEnemy(e, { type: 'fire', ang: e.ang + Math.PI }); // 烧死的：按火焰的死法
-          continue;
-        }
-      }
-      if (e.shock > 0) e.shock -= dt;
+      // 元素异常值：回落、感电 / 重度冰缓倒计时；slow 是冰缓的减速比例（移动和出手节奏一起放慢）
+      const slow = G.tickBuildUp(e, dt);
+      e.slowK = 1 - slow;
       if (e.isBoss) e.freeze = e.stunT = e.stagT = 0; // 首领免疫冻结、眩晕与踉跄
       // 架势：破绽倒计时（被处决途中不走）；平时几秒不挨打后回复
       if (e.poiseMax > 0) {
@@ -1104,8 +1099,12 @@
       if (e.freeze > 0) e.freeze -= dt;
       if (e.stunT > 0) e.stunT -= dt;
       if (e.stagT > 0) e.stagT -= dt;
-      const spd = e.speed * (e.chill > 0 ? 0.65 : 1);
-      if (e.chill > 0) e.chill -= dt;
+      const iced = e.freeze > 0;
+      if (iced !== e.iced) {
+        e.iced = iced;
+        W.frost(e.ent, iced); // 冻住时整个身子罩一层冰色
+      }
+      const spd = e.speed * e.slowK;
 
       // 击退：带着撞墙检测滑出去，速度按指数衰减
       if (e.kvx !== 0 || e.kvz !== 0) {
@@ -1124,7 +1123,7 @@
         updateNav(e, tg, dt);
         if (e.isBoss) updateBoss(e, dt, tg, td, spd);
         else {
-          if (e.atkCd > 0) e.atkCd -= dt;
+          if (e.atkCd > 0) e.atkCd -= dt * e.slowK; // 冰缓：出手间隔一起变长
           MOB_AI[e.def.ai](e, dt, tg, td, spd);
         }
       } else if (e.tauntT > 0) e.tauntT -= dt;
@@ -1181,7 +1180,11 @@
       e.navT = 0;
       e.navDirect = true;
       e.navWp = false;
-      e.chill = e.freeze = e.shock = e.burn = e.burnT = e.stunT = 0;
+      e.freeze = e.stunT = 0;
+      e.slowK = 1;
+      if (e.iced) W.frost(e.ent, false);
+      e.iced = false;
+      G.initBuildUp(e);
       e.stunAnim = false;
       e.kvx = e.kvz = e.stagT = 0;
       e.foe = e.taunter = null;

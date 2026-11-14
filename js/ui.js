@@ -365,7 +365,7 @@
         fx: '',
       });
     }
-    const orb = (name) => ({ fill: $(name + '-fill'), num: $(name + '-num'), maxEl: $(name + '-max'), v: -1, max: -1, q: -1 });
+    const orb = (name) => ({ fill: $(name + '-fill'), num: $(name + '-num'), maxEl: $(name + '-max'), v: -1, max: -1, q: -1, res: $(name + '-res'), rq: -1 });
     hud.life = orb('life');
     hud.mana = orb('mana');
     const flask = (name) => {
@@ -378,6 +378,12 @@
     hud.xp = { fill: $('xp-fill'), lv: $('xp-lv'), pct: $('xp-pct'), level: -1, need: 1, q: -1 };
     hud.zone = { name: $('zone-name'), sub: $('zone-sub'), ref: null, tier: -1 };
     hud.boss = { box: $('boss-box'), name: $('boss-name'), fill: $('boss-fill'), trail: $('boss-trail'), num: $('boss-num'), ail: $('boss-ail'), ailSig: '', on: false, ref: null, q: -1, hp: -1, poise: $('boss-poise-fill'), pq: -1, brk: false, far: false, brkTxt: $('boss-break-txt') };
+    // 首领的元素异常值三小段
+    hud.boss.bu = {};
+    for (const t of G.ELEMS) {
+      const el = document.querySelector('.boss-bu .' + t);
+      hud.boss.bu[t] = { el, fill: el.querySelector('b'), q: -1, on: false };
+    }
     hud.combo = { el: $('combo'), num: $('combo-n'), bar: $('combo-bar'), n: 0, tier: -1, q: -1, fading: false };
     hud.low = { el: $('lowlife'), orb: document.querySelector('.orb.life'), on: false, beatT: -1e9 };
     hud.bagN = { el: $('kh-new'), n: -1 };
@@ -410,7 +416,8 @@
     });
   }
 
-  function setOrb(o, cur, max) {
+  // full（可选）：球满格对应的数值（魔力球按保留前的上限画，顶上那一截是光环保留）
+  function setOrb(o, cur, max, full) {
     const v = Math.max(0, Math.ceil(cur));
     if (v !== o.v) {
       o.v = v;
@@ -420,10 +427,19 @@
       o.max = max;
       o.maxEl.textContent = '/ ' + max;
     }
-    const q = max > 0 ? Math.round(G.clamp(cur / max, 0, 1) * 200) / 2 : 0; // 0.5% 精度
+    const fm = full > 0 ? full : max;
+    const q = fm > 0 ? Math.round(G.clamp(cur / fm, 0, 1) * 200) / 2 : 0; // 0.5% 精度
     if (q !== o.q) {
       o.q = q;
       o.fill.style.transform = 'translateY(' + (100 - q) + '%)';
+    }
+    if (o.res) {
+      const rq = fm > 0 ? Math.round(G.clamp(1 - max / fm, 0, 1) * 200) / 2 : 0;
+      if (rq !== o.rq) {
+        o.rq = rq;
+        o.res.classList.toggle('on', rq > 0);
+        o.res.style.height = rq + '%';
+      }
     }
   }
 
@@ -449,8 +465,8 @@
     const st = G.state;
     const now = performance.now();
 
-    setOrb(hud.life, P.life, P.maxLife);
-    setOrb(hud.mana, P.mana, P.maxMana);
+    setOrb(hud.life, P.life, P.maxLife, P.maxLifeRaw || P.maxLife);
+    setOrb(hud.mana, P.mana, P.maxMana, P.maxManaRaw || P.maxMana);
     setFlask(hud.flaskLife, P.flask.life);
     setFlask(hud.flaskMana, P.flask.mana);
 
@@ -491,10 +507,12 @@
           s.img.className = 's-img ico ' + IC.cls('sk-' + id);
           s.icon.style.setProperty('--c', sk.color);
           s.el.classList.toggle('has-combo', !!sk.combo);
+          s.el.classList.toggle('aura', sk.kind === 'aura');
           if (!(id in hud.cost)) hud.cost[id] = G.skillCtx(id).cost;
         } else {
           s.img.className = 's-img ico';
           s.el.classList.remove('has-combo');
+          s.el.classList.remove('aura');
         }
       }
       // 连段指示：正在出第几段（出手中算上这一段），窗口过了就熄灭
@@ -525,7 +543,8 @@
       if (id && !P.dead) {
         if (s.left > 0 && s.left < 0.3 && left <= 0) slotFx(s, 'ready', '', now);
         if (held && !s.held) {
-          if (left > 0.15) slotFx(s, 'deny', '冷却中', now);
+          if (G.SKILLS[id].kind === 'aura') slotFx(s, 'ready', '', now); // 光环：按了也只是亮一下，提示它一直生效
+          else if (left > 0.15) slotFx(s, 'deny', '冷却中', now);
           else if (na) slotFx(s, 'deny', blood ? '生命不足' : '魔力不足', now);
         }
       }
@@ -614,6 +633,22 @@
       if (asig !== hb.ailSig) {
         hb.ailSig = asig;
         hb.ail.innerHTML = ailHtml(b, false);
+      }
+      // 元素异常值：平时按累积量涨，触发中（重度冰缓 / 感电 / 刚爆燃）整段亮着闪动
+      if (b.bu) {
+        const on = { fire: b.blastT > 0, cold: b.bossChill > 0, light: b.shockT > 0 };
+        for (const t of G.ELEMS) {
+          const u = hb.bu[t];
+          const q = on[t] ? 1 : Math.round(G.clamp(b.bu[t], 0, 1) * 200) / 200;
+          if (q !== u.q) {
+            u.q = q;
+            u.fill.style.transform = 'scaleX(' + q + ')';
+          }
+          if (on[t] !== u.on) {
+            u.on = on[t];
+            u.el.classList.toggle('on', on[t]);
+          }
+        }
       }
       // 架势条：平时是剩余架势；破绽中变成金色，随破绽时间缩短
       const brk = b.brokenT > 0 && !b.executed; // 处决过之后只是在爬起来，不再提示
@@ -848,13 +883,14 @@
   }
 
   // 敌人身上的异常状态
-  const AIL_NAME = { burn: '点燃', chill: '冰缓', freeze: '冻结', shock: '感电', stun: '眩晕' };
+  // 元素异常值触发后的状态：爆燃（刚炸过，亮 1 秒）、冻结、冰缓（首领的重度冰缓，或冰霜异常值带来的轻度冰缓）、感电
+  const AIL_NAME = { burn: '爆燃', chill: '冰缓', freeze: '冻结', shock: '感电', stun: '眩晕' };
   function ailList(e) {
     const out = [];
-    if (e.burnT > 0 && e.burn > 0) out.push('burn');
+    if (e.blastT > 0) out.push('burn');
     if (e.freeze > 0) out.push('freeze');
-    else if (e.chill > 0) out.push('chill');
-    if (e.shock > 0) out.push('shock');
+    else if (e.bossChill > 0 || (e.bu && e.bu.cold > 0.02)) out.push('chill');
+    if (e.shockT > 0) out.push('shock');
     if (e.stunT > 0) out.push('stun');
     return out;
   }
@@ -1124,7 +1160,7 @@
     }
     h += '</div><div class="st-group">其他</div><div class="st-grid">';
     h += row('技能范围', pct(s('area')));
-    h += row('异常状态几率', pct(s('ailment')));
+    h += row('异常累积速度', (s('ailment') > 0 ? '+' : '') + pct(s('ailment')));
     h += row('物品稀有度', pct(s('rarity')));
     h += row('击杀回复', fmt1(s('lifeOnKill')));
     if (s('costReduce')) h += row('消耗降低', fmt1(s('costReduce')) + '%');
@@ -1333,7 +1369,7 @@
     const sk = G.SKILLS[id];
     const ctx = G.skillCtx(id);
     const avg = G.avgHit(ctx);
-    const rate = 1 / Math.max(ctx.time + ctx.stopAvg, ctx.cd || 0, 0.01); // 含命中时的顿帧，和实际打出来的节奏一致
+    const rate = G.skillRate(ctx); // 含命中时的顿帧，受冷却限制，和实际打出来的节奏一致
     const blood = G.player.S.bloodMagic > 0;
     const socks = S.sockets[id] || [null, null, null];
 
@@ -1374,14 +1410,26 @@
       if (mi.taunt) bits.push('嘲讽 ' + fmt1(mi.taunt.cd) + ' 秒 / 半径 ' + fmt1(mi.taunt.r));
       if (mi.dps > 0) bits.push((mi.cap > 1 ? '满员秒伤约 ' : '秒伤约 ') + fmtInt(mi.dps));
       note = '<div class="sk-mnote"><i></i>' + bits.join(' · ') + '</div>';
+    } else if (sk.kind === 'aura') {
+      // 光环：没有施放，只有保留；卡片上是每一跳的伤害、每秒几跳和半径
+      nums =
+        num('每跳伤害', avg < 10 ? fmt1(avg) : fmtInt(avg), 'hl') +
+        num('每秒脉冲', rate.toFixed(2)) +
+        num('估算秒伤', avg * rate < 10 ? fmt1(avg * rate) : fmtInt(avg * rate)) +
+        num(blood ? '生命保留' : '魔力保留', fmt1(ctx.reserve) + '%') +
+        num('半径', fmt1(G.auraRadius(ctx))) +
+        num('暴击率', fmt1(ctx.crit) + '%');
+      note = '<div class="sk-anote"><i></i>' + (G.auraOn(id) ? '生效中' : '放进技能栏任意一格即生效') + ' · 不用按键 · 主要价值是持续累积冰霜异常值</div>';
     } else {
       nums =
-        num('平均击中', fmtInt(avg), 'hl') +
+        num(ctx.cd > 0 ? '每次伤害' : '平均击中', fmtInt(avg), 'hl') +
         num(sk.kind === 'spin' || sk.kind === 'flicker' ? '每秒斩击' : '每秒施放', rate.toFixed(2)) +
         num('估算秒伤', fmtInt(avg * rate)) +
         num((blood ? '生命消耗' : '魔力消耗') + (sk.kind === 'spin' || sk.kind === 'flicker' ? ' / 每下' : ''), ctx.cost > 0 ? fmt1(ctx.cost) : '无') +
         num('冷却', ctx.cd > 0 ? fmt1(ctx.cd) + ' 秒' : '无') +
         num('暴击率', fmt1(ctx.crit) + '%');
+      // 冷却技能：秒伤按冷却折算（单独循环施放打不过主力技能），价值在于穿插
+      if (ctx.cd > 0) note = '<div class="sk-anote cd"><i></i>冷却技能：每次伤害高，估算秒伤按冷却折算；穿插在主力技能之间施放最划算</div>';
     }
     return (
       '<div class="skill-card" style="--c:' + sk.color + '">' +
@@ -1742,6 +1790,22 @@
     );
   }
 
+  // 帮助页的元素异常值一节（数值从 G.BUILDUP 取，数据改了这里跟着变）
+  function helpBuildUp() {
+    const B = G.BUILDUP;
+    const c = (t, txt) => '<b style="color:' + G.TYPE_COLOR[t] + '">' + txt + '</b>';
+    const pc = (v) => Math.round(v * 100) + '%';
+    return (
+      '<div class="sec-title">元素异常值</div>' +
+      '<p>每个敌人有' + c('fire', '火焰') + '、' + c('cold', '冰霜') + '、' + c('light', '闪电') + '三条<b>异常值</b>，就是头顶血条下（首领在血条下方）那三小段。每次命中，这一击里的每种元素伤害都会往对应的一条里灌：伤害越高灌得越多，敌人生命越厚灌得越慢——精英更慢，首领最慢，而且首领每触发一次，那一条就更难灌满。技能、注入辅助、装备上的附加伤害、光环和召唤物的命中都算。几秒没有再受到某种元素的伤害，那一条就会慢慢回落。</p>' +
+      '<p>灌满即触发，然后清空重来：</p>' +
+      '<p>' + c('cold', '冰霜 → 冻结') + '：冻住 ' + B.freeze + ' 秒（精英 ' + B.freezeElite + ' 秒），动弹不得。首领不会被冻住，改为 ' + B.bossChill + ' 秒的重度冰缓，移动和出手都慢 ' + pc(B.bossSlow) + '。冰霜异常值没满的时候也有轻度冰缓，越满越慢，最多慢 ' + pc(B.chill) + '。</p>' +
+      '<p>' + c('fire', '火焰 → 爆燃') + '：以它为中心炸开一团火焰，波及周围 ' + B.blastR + ' 米内的敌人，伤害' + (B.blast === 1 ? '相当于灌满期间你平均一击的火焰伤害' : '是灌满期间你平均一击火焰伤害的 ' + pc(B.blast)) + '，再吃异常累积速度的加成——你的火焰越强，炸得越狠（但不超过这只敌人生命的一定比例）。爆炸本身不会再引发爆燃。</p>' +
+      '<p>' + c('light', '闪电 → 感电') + '：' + B.shock + ' 秒内它每挨一下，就射出至多 ' + B.shockN + ' 道电弧，每道是那一击伤害的 ' + pc(B.bolt) + '，射向身边最近的别的敌人；身边一个别的敌人都没有时，只有一道电弧打回它自己。电弧不会再引发电弧。</p>' +
+      '<p><b>异常累积速度</b>（蚀染辅助、秘识支路的「侵蚀」「元素使」天赋）让异常值涨得更快。物理伤害不累积异常值，它削的是架势。</p>'
+    );
+  }
+
   function renderHelp() {
     const key = (k, t) => '<div class="hk"><span class="hk-keys">' + k.map((x) => '<kbd>' + x + '</kbd>').join('') + '</span><span>' + t + '</span></div>';
     let curs = '';
@@ -1762,8 +1826,9 @@
       key(['H', 'Esc'], '打开帮助 / 关闭面板') +
       '<div class="sec-title">战斗须知</div>' +
       '<p>地面上的<b class="c-red">红色区域</b>是敌人即将落下的攻击，在它填满之前走出去或翻滚穿过。</p>' +
-      '<p><b style="color:' + G.TYPE_COLOR.fire + '">火焰</b>会点燃敌人使其持续受伤，<b style="color:' + G.TYPE_COLOR.cold + '">冰霜</b>会冰缓并有几率冻结，<b style="color:' + G.TYPE_COLOR.light + '">闪电</b>会让敌人感电、承受更多伤害。把准星移到敌人身上可以看到它的等级和身上的异常状态。</p>' +
+      '<p>元素伤害会在敌人身上累积<b>异常值</b>，满了就触发异常（详见下面「元素异常值」）。把准星移到敌人身上可以看到它的等级和身上的异常状态。</p>' +
       '<p>护甲减少受到的物理伤害，抗性减少对应元素的伤害，上限为 75%。</p>' +
+      helpBuildUp() +
       '<div class="sec-title">连击、架势与处决</div>' +
       '<p><b>连击</b>：按住或连按<b>裂石击</b>会连出三段——横斩、反手上挑、跃起下劈。第三段是<b>终结技</b>：范围更大、伤害翻倍、把敌人震飞，还能打断小怪的起手。停手太久、翻滚或改用别的技能，连段就从头再来；技能图标上方的三格显示打到了第几段。</p>' +
       '<p><b>出招的节奏</b>：动作途中按下的攻击、技能和翻滚会被记住，能出手的一瞬间立刻放出，不必掐着时间狂点。<b>翻滚可以取消挥砍</b>——起手和收招都行。</p>' +
@@ -1776,6 +1841,7 @@
       '<p>怪物会掉落<b class="c-teal">技能宝石</b>。学会的技能在「技能」页拖到技能栏的格子里（左键 / 右键 / Q / E），或点技能卡上的按键标签；再次拾到更高等级的同名宝石会直接升级。</p>' +
       '<p>每个技能有 3 个辅助槽。<b>辅助宝石</b>不会单独生效，而是改变它所镶嵌的技能：多几枚投射物、范围更大、自动重复施放……代价是更高的魔力消耗。把宝石拖进辅助槽，或点击空槽挑选；点击已镶嵌的槽取下。</p>' +
       '<p>一颗辅助宝石同一时间只能镶在一个技能上，并且技能要带有它要求的标签。</p>' +
+      '<p>带<b>光环</b>标签的技能（' + (G.SKILLS.nova ? G.SKILLS.nova.name : '霜环') + '）不用按键：放进技能栏任意一格就常驻生效，代价是<b>保留</b>一部分最大魔力——魔力球顶上压暗的那一截，保留的魔力既不能用也不回复（以血为引时改为保留生命）。镶上的辅助宝石按各自的消耗倍率增减保留：节流减少，迅捷、扩域这类增加。回响和投射物类辅助镶不上。</p>' +
       helpSummon() +
       '<div class="sec-title">天赋盘</div>' +
       '<p>每升一级获得 1 点天赋，首次击败每个首领再得 2 点。从中央出发有四条支路：<b style="color:#e2705a">铸躯</b>偏向生命与物理，<b style="color:#7ed67a">迅影</b>偏向速度与暴击，<b style="color:#6fb2ff">秘识</b>偏向魔力与元素，<b class="c-ally">统御</b>强化召唤物。</p>' +
@@ -2931,7 +2997,11 @@
         '<div class="tcard" style="--c:' + sk.color + '">' + tcHead('<span class="ibox sk" style="--c:' + sk.color + '">' + IC.skill(id) + '</span>', sk.name, '技能宝石 · Lv ' + l.data.lvl) +
         '<div class="tc-tags">' + cardTags(sk).map((t) => '<span>' + G.TAG_NAME[t] + '</span>').join('') + '</div>' +
         '<div class="tc-desc">' + sk.desc + '</div>' +
-        '<div class="tc-foot">' + (sk.kind === 'summon' ? '' : '基础伤害 ') + dmg + '<br>魔力 ' + (sk.mana ? Math.round(sk.mana * (1 + 0.05 * (l.data.lvl - 1))) : '无') + ' · 施放 ' + sk.time + ' 秒' + (sk.cd ? ' · 冷却 ' + sk.cd + ' 秒' : '') + '</div>' +
+        '<div class="tc-foot">' + (sk.kind === 'summon' ? '' : sk.kind === 'aura' ? '每跳基础伤害 ' : '基础伤害 ') + dmg + '<br>' +
+        (sk.kind === 'aura'
+          ? '魔力保留 ' + sk.reserve + '% · 每 ' + sk.time + ' 秒一跳 · 半径 ' + sk.radius
+          : '魔力 ' + (sk.mana ? Math.round(sk.mana * (1 + 0.05 * (l.data.lvl - 1))) : '无') + ' · 施放 ' + sk.time + ' 秒' + (sk.cd ? ' · 冷却 ' + sk.cd + ' 秒' : '')) +
+        '</div>' +
         state + foot + '</div>'
       );
     }
