@@ -3096,7 +3096,7 @@
   // 链条（每节只有 rx / rz 两个自由度）的末端推出碰撞球：用两根转轴的雅可比做一步阻尼最小二乘，自根向梢、两遍。
   // 推出去的同时把朝球里转的角速度清掉（贴着滑，不弹回去再钻）。tipLen > 0：最后一节的末端在枢轴正下方 tipLen 处；
   // -1：马尾，发梢取 HAIR_T 的最后一点
-  const _pc = new Float32Array(3);
+  const _springPt = new Float32Array(3);
   function pushOut(ent, chain, tipLen, cols, s, a0, v0) {
     const rig = ent.rig, M = ent.mdl, o = ent.out, js = rig.joints, n = chain.length;
     for (let pass = 0; pass < 2; pass++) {
@@ -3121,10 +3121,10 @@
         for (let c = 0; c < cols.length; c++) {
           const C = cols[c], cm = C[0] * 12, cj = js[C[0]];
           const ox = C[1] - cj.px, oy = C[2] - cj.py, oz = C[3] - cj.pz;
-          _pc[0] = M[cm] * ox + M[cm + 1] * oy + M[cm + 2] * oz + M[cm + 3];
-          _pc[1] = M[cm + 4] * ox + M[cm + 5] * oy + M[cm + 6] * oz + M[cm + 7];
-          _pc[2] = M[cm + 8] * ox + M[cm + 9] * oy + M[cm + 10] * oz + M[cm + 11];
-          const ex = px + dx - _pc[0], ey = py + dy - _pc[1], ez = pz + dz - _pc[2], l = Math.hypot(ex, ey, ez);
+          _springPt[0] = M[cm] * ox + M[cm + 1] * oy + M[cm + 2] * oz + M[cm + 3];
+          _springPt[1] = M[cm + 4] * ox + M[cm + 5] * oy + M[cm + 6] * oz + M[cm + 7];
+          _springPt[2] = M[cm + 8] * ox + M[cm + 9] * oy + M[cm + 10] * oz + M[cm + 11];
+          const ex = px + dx - _springPt[0], ey = py + dy - _springPt[1], ez = pz + dz - _springPt[2], l = Math.hypot(ex, ey, ez);
           if (l < C[4] && l > 1e-5) {
             const k = (C[4] - l) / l;
             dx += ex * k; dy += ey * k; dz += ez * k;
