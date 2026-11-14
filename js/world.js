@@ -1062,12 +1062,62 @@
       return g;
     });
   }
+  // 扁的一绺头发：沿折线扫出扁椭圆截面（宽 w[i]、厚 th[i]，都是半径），薄的那一面始终朝外（背向 ctr），
+  // 所以整绺贴着头皮躺平、从正面看是一片梳顺的发面而不是一根尖刺。两端收成圆钝的头
+  function gStrand(key, pts, w, th, ctr, sub = 3) {
+    return geo('S' + key, () => {
+      const curve = new T.CatmullRomCurve3(pts.map((p) => new T.Vector3(p[0], p[1], p[2])), false, 'centripetal');
+      const n = (pts.length - 1) * sub, R = 6;
+      const pos = [], nor = [], idx = [];
+      const pt = new T.Vector3(), tan = new T.Vector3(), out = new T.Vector3(), side = new T.Vector3(), C = new T.Vector3(ctr[0], ctr[1], ctr[2]);
+      const lerp = (a, u) => {
+        const f = u * (a.length - 1), i0 = Math.min(a.length - 2, Math.floor(f));
+        return a[i0] + (a[i0 + 1] - a[i0]) * (f - i0);
+      };
+      for (let i = 0; i <= n; i++) {
+        const u = i / n;
+        curve.getPoint(u, pt);
+        curve.getTangent(u, tan);
+        out.subVectors(pt, C);
+        out.addScaledVector(tan, -out.dot(tan)).normalize();
+        side.crossVectors(out, tan).normalize(); // (side, out) 绕切线逆时针，和 gSweep 的绕序一致
+        // 两端各收一点，端面不至于是一刀切的平口
+        const e = Math.min(1, Math.min(u, 1 - u) * n * 0.9 + 0.35);
+        const ww = lerp(w, u) * e, tt = lerp(th, u) * e;
+        for (let k = 0; k < R; k++) {
+          const a = (k / R) * TAU, ca = Math.cos(a), sa = Math.sin(a);
+          pos.push(pt.x + side.x * ca * ww + out.x * sa * tt, pt.y + side.y * ca * ww + out.y * sa * tt, pt.z + side.z * ca * ww + out.z * sa * tt);
+          const nx = side.x * ca * tt + out.x * sa * ww, ny = side.y * ca * tt + out.y * sa * ww, nz = side.z * ca * tt + out.z * sa * ww, l = Math.hypot(nx, ny, nz) || 1;
+          nor.push(nx / l, ny / l, nz / l);
+        }
+      }
+      for (let i = 0; i < n; i++) {
+        for (let k = 0; k < R; k++) {
+          const a = i * R + k, b = i * R + ((k + 1) % R), c = a + R, d = b + R;
+          idx.push(a, b, c, b, d, c);
+        }
+      }
+      // 端面：扇形封口（截面很扁，看不出平口）
+      for (const [i, s] of [[0, -1], [n, 1]]) {
+        const base = i * R;
+        for (let k = 1; k < R - 1; k++) {
+          if (s < 0) idx.push(base, base + k + 1, base + k);
+          else idx.push(base, base + k, base + k + 1);
+        }
+      }
+      const g = new T.BufferGeometry();
+      g.setAttribute('position', new T.Float32BufferAttribute(pos, 3));
+      g.setAttribute('normal', new T.Float32BufferAttribute(nor, 3));
+      g.setIndex(idx);
+      return g;
+    });
+  }
 
   // ----- 骨架定义 + 零件烘焙 -----
   // 用法：b.j(关节名, 父关节, 枢轴 x,y,z)；b.at(关节).surf(表面).p(几何体, 颜色, 位置…, 旋转…, 缩放…)
   // 所有坐标都是模型空间里的绑定姿态（面朝 +z，+x 是它的左手边，脚踩 y = 0）。
   function rigBuilder(key, NB) {
-    const joints = [], JI = Object.create(null);
+    const joints = [], JI = Object.create(null), virt = [];
     const body = [], glow = [], aux = [];
     let curJ = 0, curS = SURF.cloth, curF = false;
     const mk = (g, c, x, y, z, rx, ry, rz, sx, sy, sz) => ({
@@ -1081,6 +1131,11 @@
         const pj = pi < 0 ? null : joints[pi];
         JI[name] = joints.length;
         joints.push({ name, parent: pi, px: x, py: y, pz: z, lx: x - (pj ? pj.px : 0), ly: y - (pj ? pj.py : 0), lz: z - (pj ? pj.pz : 0) });
+        return B;
+      },
+      // 虚关节：只占姿态通道、不占骨骼（不能挂零件）。动作照常给它写关键帧，post / late 里当信号读（玩家的 cape1..3）
+      v(name) {
+        virt.push(name);
         return B;
       },
       at(name) {
@@ -1236,8 +1291,10 @@
         };
         const nJ = joints.length;
         if (nJ > NB) throw new Error('rig ' + key + ': 关节数 ' + nJ + ' 超过 ' + NB);
-        const rest = new Float32Array(nJ * CH);
-        for (let i = 0; i < nJ; i++) rest[i * CH + 6] = rest[i * CH + 7] = rest[i * CH + 8] = 1;
+        for (let i = 0; i < virt.length; i++) JI[virt[i]] = nJ + i;
+        const nC = (nJ + virt.length) * CH;
+        const rest = new Float32Array(nC);
+        for (let i = 0; i < nC; i += CH) rest[i + 6] = rest[i + 7] = rest[i + 8] = 1;
         const J = Object.create(null);
         for (const name in JI) J[name] = JI[name] * CH;
         const geoBody = bake1(body, false), geoGlow = bake1(glow, true), geoAux = bake1(aux, true);
@@ -1438,7 +1495,7 @@
     const body = new T.Group();
     group.add(body);
     scene.add(group);
-    const n = rig.nJ * CH;
+    const n = rig.rest.length; // 实关节 + 虚关节的姿态通道
     const ent = {
       group, body, mats: [], parts: {}, kind, own: [], ring: null, flashT: 0, removed: false,
       rig, pose: new Float32Array(n), from: new Float32Array(n), out: new Float32Array(n),
@@ -1523,9 +1580,13 @@
 
   // ----- 姿态求解：欧拉角 → 模型矩阵 → 骨骼矩阵 -----
   function solveRig(ent) {
-    const js = ent.rig.joints, n = js.length, o = ent.out, M = ent.mdl, Bn = ent.bones;
-    for (let i = 0; i < n; i++) {
-      const j = js[i], c = i * CH, m = i * 12;
+    for (let i = 0, n = ent.rig.joints.length; i < n; i++) solveJoint(ent, i);
+  }
+  // 只重算一个关节（父关节必须已经是最新的）：叶子上的链条（围巾、马尾）单独改了角度时用
+  function solveJoint(ent, i) {
+    const o = ent.out, M = ent.mdl, Bn = ent.bones;
+    {
+      const j = ent.rig.joints[i], c = i * CH, m = i * 12;
       const a = Math.cos(o[c]), b = Math.sin(o[c]), cy = Math.cos(o[c + 1]), d = Math.sin(o[c + 1]), e = Math.cos(o[c + 2]), f = Math.sin(o[c + 2]);
       const sx = o[c + 6], sy = o[c + 7], sz = o[c + 8];
       const l00 = cy * e * sx, l01 = -cy * f * sy, l02 = d * sz;
@@ -1890,6 +1951,7 @@
       dbl.group.position.copy(ent.group.position);
       dbl.group.rotation.y = ent.group.rotation.y;
       dbl.out.set(ent.out);
+      if (ent.tails) dbl.tails = { s: ent.tails.s.slice(), init: true }; // 围巾 / 马尾接着原来的摆动，不跳回静止
       applyGear(dbl, ent.gearType, ent.gearRar);
       ent = dbl;
     }
@@ -2051,7 +2113,8 @@
   }
 
   // =====================================================================
-  // 玩家：余烬行者 —— 浅色兜帽披风、暗钢胸甲、单侧大肩甲，右手持武器，左手托着一点余烬
+  // 玩家：余烬行者 · 夜行束发 —— 灰烬银短发往后梳、脑后一束小马尾，青绿围巾两条长尾，深色皮衣 + 飞刀绑带，
+  // 轻装短皮裙、软皮高靴；右手持武器，左手托着一点余烬。围巾尾巴和马尾由 tailSprings 的弹簧驱动
   // =====================================================================
   const HALF_PI = Math.PI / 2;
   // 披风 / 罩袍用的弧形布片：绕 y 轴车削出背后的一段弧面
@@ -2073,10 +2136,77 @@
     return i >= 0 ? i : G.clamp(baseIdx | 0, 0, GEAR_KEYS.length - 1);
   }
 
+  // 皮衣 / 布 / 靴的配色：压暗的冷灰紫皮革，衬出青绿围巾和灰烬银的头发
+  const LEA = 0x4e454b, LEA_D = 0x231f25, CLOTH = 0x272a36, BOOT = [0x17151a, 0x37323b], STRAP = 0x5a4a40, POUCH = 0x4e4038, DARK = 0x14151b;
+  // 围巾尾巴：每条三节。len = 各节长度，w = 各节上下端宽度（4 个），kx = 结扣的横向位置（偏左，让开脑后的马尾），
+  // x = 两条尾巴离结扣的横向距离，y / z = 第一节枢轴，splay = 两条尾巴静止时往两边分开的角度
+  const SF = { len: [0.28, 0.27, 0.26], w: [0.075, 0.068, 0.056, 0.04], kx: 0.09, x: 0.035, y: 1.6, z: -0.15, splay: 0.13, c: [0x22625a, 0x4fbfa8], ci: 0x1a4a43 };
+  const SF_SEG = ['sfL1', 'sfL2', 'sfL3', 'sfR1', 'sfR2', 'sfR3'];
+  // 马尾各节的枢轴：束在后脑偏高处（俯视也看得到那一撮），绑定姿态里已经往后下方斜，静止时发梢停在围巾圈上方、离开后颈；最后一个点是发梢
+  const HAIR_T = [[0, 1.858, -0.172], [0, 1.795, -0.256], [0, 1.728, -0.296], [0, 1.655, -0.316]];
+  const HP_SEG = ['hp1', 'hp2', 'hp3'];
+  // 发色：灰烬银——冷调的浅灰，暗部压到石板灰。俯视镜头里头顶占了头部大半：在暖色的灰烬地面上冷亮色最跳；
+  // 在霜原的青蓝地面上靠「比地面更亮、且不带青」分开；和深色皮衣、青绿围巾也拉得开。眉毛用更深的炭灰
+  const HAIR_C = [0x4b4e5a, 0x8a8e9a, 0xaeb2bd];
+  const lerpC = (a, b, t) => {
+    const ch = (s) => Math.round(((a >> s) & 255) + (((b >> s) & 255) - ((a >> s) & 255)) * t);
+    return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+  };
+  function hairHead(b) {
+    const [HD, HM, HL] = HAIR_C, BROW = 0x34353d;
+    const SKIN = [0x9c7259, 0xd4aa8c], SKIN_D = 0xb08568;
+    const y0 = 0.012;
+    // 车削出的蛋形头：颧骨最宽、往下收成尖一点的下巴（埋进围巾）
+    b.at('head').surf(SURF.leather);
+    b.p(gLathe('hr/skull', [[0.001, 1.59], [0.072, 1.605], [0.114, 1.655], [0.139, 1.72], [0.145, 1.78], [0.124, 1.85], [0.072, 1.9], [0.001, 1.916]], 10), SKIN, 0, y0, 0.012, 0, 0, 0, 0.92, 1, 1.04);
+    // 鼻梁一点小凸起；眉：两道细短的炭灰，外端略扬；眼：两点暗余烬，嵌在眉下
+    b.p(gSph(0.018, 5, 3), SKIN_D, 0, 1.73 + y0, 0.15, -0.3, 0, 0, 0.6, 1.4, 0.5);
+    for (const s of [1, -1]) b.p(gBox(0.044, 0.011, 0.018), BROW, s * 0.045, 1.79 + y0, 0.153, 0, s * 0.4, s * 0.14);
+    for (const s of [1, -1]) b.g(gSph(0.0105, 5, 3), 0.55, s * 0.043, 1.762 + y0, 0.152, 0, s * 0.35, s * 0.12, 1.45, 0.55, 0.8);
+
+    // 头发：一顶往后倾的发壳（前额发际线高、后脑压到后颈），上面躺着几绺梳向脑后的扁发片
+    const cy = 1.778 + y0, cz = -0.012, C = [0, cy, cz];
+    // 正中矢状面上的点：a = 0 正前方，PI/2 头顶，PI 正后方；s 往两侧偏（弧度）
+    const hs = (a, s, r) => [Math.sin(s) * r * 0.95, cy + Math.sin(a) * Math.cos(s) * r, cz + Math.cos(a) * Math.cos(s) * r * 1.08];
+    b.surf(SURF.leather);
+    b.p(gDome(0.166, 10, 5, 1.8), [HD, HL], 0, cy, cz, -0.5, 0, 0, 0.95, 1.0, 1.08);
+    // 往后梳的四绺：前端圆钝、在发际线上微微隆起（不是一根根竖起的尖），翻过头顶收进脑后的发结
+    for (const s of [0.5, 0.17, -0.17, -0.5]) {
+      const k = 1 - Math.abs(s) * 0.5;
+      const pts = [hs(0.36, s, 0.166), hs(0.95, s * 0.95, 0.181 * k + 0.168 * (1 - k)), hs(1.75, s * 0.8, 0.178), hs(2.55, s * 0.4, 0.168)];
+      b.p(gStrand('hr/l' + s, pts, [0.034, 0.043, 0.04, 0.02], [0.012, 0.017, 0.015, 0.008], C, 2), [HM, HL], 0, 0, 0);
+    }
+    // 斜刘海：从左侧分缝处压过额头、拨到右边太阳穴，宽而扁，左右不对称
+    b.p(gStrand('hr/fr', [hs(1.05, 0.42, 0.178), hs(0.5, 0.2, 0.176), hs(0.3, -0.28, 0.174), hs(0.36, -0.78, 0.166)], [0.032, 0.046, 0.04, 0.016], [0.013, 0.016, 0.013, 0.007], C, 2), [HM, HL], 0, 0, 0);
+    // 鬓角垂下的两缕碎发：扁的一片，贴着太阳穴和脸颊往下，末端略向前收；右边短一点
+    for (const s of [1, -1]) {
+      const l = s > 0 ? 1 : 0.8;
+      b.p(gStrand('hr/f' + s, [[s * 0.114, 1.852, 0.056], [s * 0.124, 1.795, 0.07], [s * 0.119, 1.795 - 0.06 * l, 0.08], [s * 0.107, 1.795 - 0.095 * l, 0.092]], [0.019, 0.02, 0.014, 0.006], [0.008, 0.009, 0.007, 0.004], [0, 1.77, 0], 2), [HM, HL], 0, 0, 0);
+    }
+
+    // 马尾：每节一段，挂在 hp1..hp3 上；越往发梢越暗一点。发梢分成两撮，一长一短，略微叉开
+    const T = HAIR_T, R = [[0.028, 0.045, 0.043], [0.043, 0.04, 0.034]];
+    for (let i = 0; i < 2; i++) {
+      const a = T[i], c = T[i + 1], m = [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2 + 0.005, (a[2] + c[2]) / 2 - 0.012];
+      const a0 = i ? [a[0], a[1] + 0.015, a[2] + 0.006] : a;
+      b.at(HP_SEG[i]).p(gSweep('hr/t' + i, [a0, m, c], R[i], 5, 2), [lerpC(HL, HD, 0.25 + i * 0.22), lerpC(HL, HD, i * 0.22)], 0, 0, 0);
+    }
+    {
+      const a = T[2], c = T[3];
+      b.at('hp3');
+      for (const [s, l] of [[1, 1], [-1, 0.8]]) {
+        const e = [c[0] + s * 0.022, a[1] + (c[1] - a[1]) * l, c[2] - 0.004 + (1 - l) * 0.01];
+        b.p(gSweep('hr/tt' + s, [[a[0] + s * 0.008, a[1] + 0.015, a[2] + 0.004], [s * 0.016, (a[1] + e[1]) / 2, (a[2] + e[2]) / 2 - 0.008], e], [0.026, 0.02, 0.006], 4, 2), [lerpC(HL, HD, 0.7), lerpC(HL, HD, 0.44)], 0, 0, 0);
+      }
+    }
+    // 青色发绳
+    const dy = T[1][1] - T[0][1], dz = T[1][2] - T[0][2];
+    b.at('hp1').p(gTorus(0.03, 0.011, 3, 7), SF.c[1], T[0][0], T[0][1] - 0.006, T[0][2] - 0.008, Math.atan2(-dy, dz), 0, 0);
+  }
+
   function playerRig() {
     return rigOf('player', () => {
-      const CLOAK = 0xe8dfc8, CLOAK_D = 0xb3a488, CLOAK_IN = 0x6d6150, STEEL = 0x5d6a84, STEEL_D = 0x343c4e;
-      const LEATHER = 0x5e4432, DARK = 0x191b23, GOLD = 0xdcae45, CLOTH = 0x2f3644, BLADE = 0xd9dee6, WOOD = 0x6b4a32, BONE = 0xd9cfb6;
+      const STEEL = 0x5d6a84, STEEL_D = 0x343c4e, GOLD = 0xdcae45, BLADE = 0xd9dee6, WOOD = 0x6b4a32, BONE = 0xd9cfb6;
       const b = rigBuilder('player', NB_BIG);
       b.j('root', null, 0, 1.0, 0).j('spine', 'root', 0, 1.1, 0).j('chest', 'spine', 0, 1.32, 0).j('head', 'chest', 0, 1.62, 0.01);
       b.j('uaL', 'chest', 0.33, 1.5, 0).j('faL', 'uaL', 0.38, 1.19, -0.01).j('hL', 'faL', 0.39, 0.9, 0.02);
@@ -2093,91 +2223,81 @@
       b.j('bnC1', 'wBn', -0.39 - 0.48, 0.84, BAN_Z).j('bnC2', 'wBn', -0.39 + 0.15, 0.84, BAN_Z - 0.1);
       b.j('thL', 'root', 0.14, 0.97, 0).j('shL', 'thL', 0.15, 0.53, 0.01).j('ftL', 'shL', 0.15, 0.12, 0);
       b.j('thR', 'root', -0.14, 0.97, 0).j('shR', 'thR', -0.15, 0.53, 0.01).j('ftR', 'shR', -0.15, 0.12, 0);
-      b.j('cape1', 'chest', 0, 1.54, -0.16).j('cape2', 'cape1', 0, 1.14, -0.27).j('cape3', 'cape2', 0, 0.78, -0.33);
       b.j('tab', 'root', 0, 1.0, 0.19);
+      // 围巾两条尾巴（各三节，挂在胸口）+ 马尾（三节，挂在头上）
+      for (const [side, sn] of [['L', 1], ['R', -1]]) {
+        const x = SF.kx + sn * SF.x;
+        b.j('sf' + side + '1', 'chest', x, SF.y, SF.z).j('sf' + side + '2', 'sf' + side + '1', x, SF.y - SF.len[0], SF.z).j('sf' + side + '3', 'sf' + side + '2', x, SF.y - SF.len[0] - SF.len[1], SF.z);
+      }
+      b.j('hp1', 'head', ...HAIR_T[0]).j('hp2', 'hp1', ...HAIR_T[1]).j('hp3', 'hp2', ...HAIR_T[2]);
+      // 旧披风的三节退成虚关节：动作里的 cape1..3 关键帧不再摆布片，只当作「甩」的信号喂给围巾 / 马尾的弹簧
+      b.v('cape1').v('cape2').v('cape3');
 
-      // --- 骨盆：皮裙、两侧的腿甲片、腰带、腰包、余烬瓶 ---
+      // --- 骨盆：短皮裙（让出大腿，腿显得长）、腰带、三只腰包、背后横挂一把短匕 ---
       b.at('root').surf(SURF.leather);
-      b.p(gLathe('pl/hip', [[0.28, 0.76], [0.3, 0.86], [0.26, 1.0], [0.24, 1.08]], 10), [0x35261d, LEATHER], 0, 0, 0, 0, 0, 0, 1, 1, 0.85);
-      b.surf(SURF.metal, true);
-      for (const s of [1, -1]) b.p(gPlate('pl/tasset', [[-0.1, 0.1], [0.1, 0.1], [0.11, -0.08], [0, -0.17], [-0.11, -0.08]], 0.025, 0.015), [STEEL_D, STEEL], s * 0.285, 0.9, 0, 0.05, s * HALF_PI, -s * 0.16);
-      b.surf(SURF.gold).p(gTorus(0.255, 0.03, 5, 14), GOLD, 0, 1.045, 0, HALF_PI, 0, 0, 1, 0.85, 1);
-      b.p(gRBox(0.12, 0.11, 0.05, 0.018), GOLD, 0, 1.045, 0.225);
-      b.surf(SURF.leather).p(gRBox(0.14, 0.16, 0.1, 0.03), 0x7a5a42, 0.2, 0.95, 0.17, 0, 0.5, 0);
-      b.surf(SURF.metal).p(gCyl(0.03, 0.036, 0.05, 6), STEEL_D, -0.22, 1.0, 0.17);
-      b.g(gSph(0.052, 7, 5), 1, -0.22, 0.93, 0.17, 0, 0, 0, 1, 1.3, 1);
-      // --- 前襟：垂在两腿之间的布条 ---
+      b.p(gLathe('pl/hip', [[0.232, 0.85], [0.246, 0.91], [0.222, 1.0], [0.208, 1.08]], 10), [LEA_D, LEA], 0, 0, 0, 0, 0, 0, 1, 1, 0.84);
+      b.p(gTorus(0.218, 0.024, 5, 14), 0x2a2326, 0, 1.04, 0, HALF_PI, 0, 0, 1, 0.84, 1);
+      b.surf(SURF.gold).p(gRBox(0.09, 0.08, 0.04, 0.014), 0x8c8f99, 0, 1.04, 0.19);
+      b.surf(SURF.leather);
+      b.p(gRBox(0.1, 0.11, 0.07, 0.024), POUCH, 0.16, 0.96, 0.14, 0, 0.55, 0);
+      b.p(gRBox(0.09, 0.1, 0.065, 0.022), POUCH, 0.235, 0.97, -0.01, 0, HALF_PI, 0);
+      b.p(gRBox(0.08, 0.09, 0.06, 0.02), POUCH, -0.19, 0.97, 0.12, 0, -0.6, 0);
+      b.p(gCyl(0.022, 0.022, 0.13, 6), 0x2a2326, 0.09, 1.0, -0.22, 0, 0, HALF_PI);
+      b.surf(SURF.metal).p(gPlate('pl/knife', [[0, 0.02], [0.2, 0.012], [0.25, 0], [0.2, -0.012], [0, -0.02]], 0.008, 0.004), [0x8d97a8, 0xc9d0da], 0.15, 1.0, -0.225, 0, 0, Math.PI);
+      // --- 前襟：两条长短不一的窄布 ---
       b.at('tab').surf(SURF.cloth);
-      b.pd(gPlate('pl/tab', [[-0.11, 0], [0.11, 0], [0.13, -0.32], [0, -0.46], [-0.13, -0.32]], 0.012, 0.004), [CLOAK_D, CLOAK], CLOAK_IN, 0, 1.0, 0.215, -0.07);
-      b.surf(SURF.gold).p(gPlate('pl/tabg', [[0, 0.06], [0.045, 0], [0, -0.06], [-0.045, 0]], 0.01, 0.003), GOLD, 0, 0.79, 0.24, -0.07);
-
-      // --- 腹部 ---
+      b.pd(gPlate('pl/tab1', [[-0.04, 0], [0.04, 0], [0.035, -0.26], [0, -0.3], [-0.035, -0.24]], 0.008, 0.003), [0x1a1a20, 0x2e2f38], 0x101014, 0.05, 1.0, 0.2, -0.07, 0, 0.05);
+      b.pd(gPlate('pl/tab2', [[-0.035, 0], [0.035, 0], [0.03, -0.2], [0, -0.23], [-0.03, -0.18]], 0.008, 0.003), [0x1a1a20, 0x2e2f38], 0x101014, -0.045, 1.0, 0.205, -0.07, 0, -0.06);
+      // --- 腹部：收腰 ---
       b.at('spine').surf(SURF.leather);
-      b.p(gLathe('pl/abd', [[0.235, 1.03], [0.225, 1.14], [0.25, 1.3], [0.22, 1.36]], 10), [STEEL_D, 0x3d4658], 0, 0, 0, 0, 0, 0, 1, 1, 0.82);
-
-      // --- 胸甲、披肩、肩甲 ---
-      b.at('chest').surf(SURF.metal);
-      b.p(gLathe('pl/chest', [[0.23, 1.26], [0.31, 1.36], [0.33, 1.47], [0.25, 1.57], [0.12, 1.64]], 12), [STEEL_D, STEEL], 0, 0, 0, 0, 0, 0, 1, 1, 0.8);
-      b.p(gPlate('pl/plast', [[-0.15, 0.12], [0, 0.17], [0.15, 0.12], [0.11, -0.07], [0, -0.14], [-0.11, -0.07]], 0.03, 0.022), STEEL, 0, 1.41, 0.235, -0.1);
-      b.surf(SURF.gold).p(gPlate('pl/plastg', [[-0.13, 0.105], [0, 0.15], [0.13, 0.105], [0.13, 0.078], [0, 0.118], [-0.13, 0.078]], 0.02, 0.006), GOLD, 0, 1.415, 0.268, -0.1);
-      b.g(gOct(0.05), 1, 0, 1.385, 0.28, 0, 0, 0, 1, 1.5, 0.6);
-      // 披肩（浅色布）顺着肩膀垂下 + 金边 + 领口搭扣
-      b.surf(SURF.cloth);
-      b.p(gLathe('pl/mantle', [[0.39, 1.37], [0.4, 1.41], [0.34, 1.52], [0.23, 1.61], [0.15, 1.68]], 12), [CLOAK_D, CLOAK], 0, 0, -0.03, 0, 0, 0, 1, 1, 0.86);
-      b.surf(SURF.gold).p(gTorus(0.395, 0.016, 5, 18), GOLD, 0, 1.385, -0.03, HALF_PI, 0, 0, 1, 0.86, 1);
-      b.p(gSph(0.042, 7, 5), GOLD, 0, 1.585, 0.215, 0, 0, 0, 1, 1, 0.6);
-      // 左肩：两层钢甲 + 金棱 + 一道符文光；右肩：小一号的单层甲
+      b.p(gLathe('pl/abd', [[0.2, 1.03], [0.19, 1.14], [0.212, 1.3], [0.198, 1.36]], 10), [LEA_D, LEA], 0, 0, 0, 0, 0, 0, 1, 1, 0.82);
+      // --- 胸：深色皮衣、左肩到右胯的飞刀绑带（三把飞刀）、左肩一块皮垫 ---
+      b.at('chest').surf(SURF.leather);
+      b.p(gLathe('pl/chest', [[0.2, 1.26], [0.258, 1.36], [0.272, 1.46], [0.205, 1.555], [0.1, 1.615]], 12), [LEA_D, LEA], 0, 0, 0, 0, 0, 0, 1, 1, 0.8);
+      b.p(gSweep('pl/strap', [[0.22, 1.55, 0.06], [0.13, 1.47, 0.205], [-0.02, 1.34, 0.226], [-0.2, 1.24, 0.15]], [0.026, 0.026, 0.026, 0.024], 4), STRAP, 0, 0, 0);
+      b.p(gSweep('pl/strap2', [[0.22, 1.55, 0.06], [0.16, 1.5, -0.14], [-0.02, 1.36, -0.2], [-0.2, 1.24, 0.15]], [0.024, 0.024, 0.024, 0.024], 4), STRAP, 0, 0, 0);
       b.surf(SURF.metal);
-      b.p(gDome(0.21, 10, 4, 1.45), [STEEL_D, STEEL], 0.4, 1.52, 0, 0, 0, -0.55, 1.1, 0.8, 1.22);
-      b.p(gDome(0.17, 10, 3, 1.4), [STEEL_D, STEEL], 0.5, 1.43, 0, 0, 0, -1.0, 1, 0.75, 1.25);
-      b.surf(SURF.gold).p(gSweep('pl/ridge', [[0.3, 1.62, 0], [0.42, 1.675, 0], [0.55, 1.6, 0], [0.6, 1.5, 0]], [0.02, 0.026, 0.022, 0.012], 5), GOLD, 0, 0, 0);
-      b.g(gBox(0.02, 0.02, 0.24), 0.9, 0.555, 1.47, 0, 0, 0, -1.0);
-      b.surf(SURF.metal).p(gDome(0.16, 9, 3, 1.4), [STEEL_D, STEEL], -0.4, 1.51, 0, 0, 0, 0.6, 1, 0.75, 1.15);
-      b.surf(SURF.gold).p(gTorus(0.15, 0.014, 4, 12), GOLD, -0.435, 1.455, 0, HALF_PI, 0, 0.6, 1, 1.15, 1);
-
-      // --- 头：深兜帽，脸藏在阴影里，只露出一双发亮的眼睛 ---
-      b.at('head').surf(SURF.cloth);
-      b.p(gSph(0.22, 12, 8), [CLOAK_D, CLOAK], 0, 1.76, -0.03, 0, 0, 0, 1, 1.04, 1.16);
-      b.p(gSph(0.15, 10, 7), DARK, 0, 1.705, 0.105, 0, 0, 0, 0.86, 1.08, 1);
-      b.p(gTorus(0.15, 0.04, 6, 14), CLOAK, 0, 1.725, 0.14, 0.3, 0, 0, 0.92, 1.12, 1);
-      b.p(gSweep('pl/hoodtip', [[0, 1.78, -0.1], [0, 1.74, -0.27], [0, 1.62, -0.36], [0, 1.47, -0.36]], [0.12, 0.1, 0.065, 0.012], 7), [CLOAK_D, CLOAK], 0, 0, 0);
-      b.p(gCyl(0.15, 0.19, 0.13, 9), CLOAK_D, 0, 1.62, 0.0);
-      b.g(gSph(0.021, 6, 4), 1, 0.054, 1.705, 0.245, 0, 0, 0.25, 1.5, 0.62, 1).g(gSph(0.021, 6, 4), 1, -0.054, 1.705, 0.245, 0, 0, -0.25, 1.5, 0.62, 1);
-
-      // --- 手臂：布袖、带钢片的皮护腕、厚手套 ---
+      for (let k = 0; k < 3; k++) b.p(gPlate('pl/fk', [[-0.012, 0], [0.012, 0], [0.008, 0.09], [0, 0.11], [-0.008, 0.09]], 0.006, 0.003), [0x7d8798, 0xc9d0da], 0.09 - k * 0.055, 1.46 - k * 0.045, 0.232, -0.12, 0, 0.55);
+      b.surf(SURF.leather).p(gDome(0.115, 8, 3, 1.3), [LEA_D, LEA], 0.355, 1.5, 0, 0, 0, -0.62, 1, 0.7, 1.1);
+      // --- 围巾：颈间绕两圈 + 背后偏左的结 + 两条细长的尾巴（各三节，tailSprings 驱动）---
+      b.at('chest').surf(SURF.cloth);
+      b.p(gTorus(0.122, 0.056, 6, 14), SF.c[1], 0, 1.605, -0.01, HALF_PI + 0.2, 0, 0, 1, 1, 1.3);
+      b.p(gTorus(0.15, 0.05, 6, 14), [SF.c[0], SF.c[1]], 0, 1.555, 0.0, HALF_PI - 0.14, 0, 0, 1.06, 0.92, 1.25);
+      b.p(gSph(0.062, 7, 5), SF.c[0], SF.kx, 1.585, -0.152, 0, -0.35, 0, 1.4, 1, 0.8);
+      for (const [side, s] of [['L', 1], ['R', -1]]) {
+        let y = SF.y;
+        for (let i = 0; i < 3; i++) {
+          const len = SF.len[i] + 0.03, w0 = SF.w[i] / 2, w1 = SF.w[i + 1] / 2, last = i === 2;
+          const pts = last ? [[-w0, 0.03], [w0, 0.03], [w1, -len + 0.03], [0, -len + 0.03 + w1 * 1.1], [-w1, -len + 0.03]] : [[-w0, 0.03], [w0, 0.03], [w1, -len + 0.03], [-w1, -len + 0.03]];
+          b.at('sf' + side + (i + 1)).pd(gPlate('pl/sc' + i, pts, 0.008, 0.004), SF.c, SF.ci, SF.kx + s * SF.x, y, SF.z, 0, 0, 0);
+          y -= SF.len[i];
+        }
+      }
+      // --- 头：束发 ---
+      hairHead(b);
+      // --- 手臂：细一圈的布袖、皮护腕、手套 ---
       const arm = (s, U, F, H) => {
-        b.at(U).surf(SURF.cloth).limb(CLOTH, s * 0.33, 1.5, 0, s * 0.38, 1.19, -0.01, 0.105, 0.085, 7, 3);
-        b.at(F).surf(SURF.leather).limb([0x3d2c20, LEATHER], s * 0.38, 1.19, -0.01, s * 0.39, 0.93, 0.02, 0.1, 0.082, 7, 0);
-        b.surf(SURF.metal, true).p(gPlate('pl/bracer', [[-0.04, 0.09], [0.04, 0.09], [0.03, -0.09], [-0.03, -0.09]], 0.014, 0.01), STEEL, s * 0.468, 1.065, 0, 0, s * HALF_PI, s * 0.05);
-        b.surf(SURF.gold).p(gCyl(0.097, 0.102, 0.035, 8), GOLD, s * 0.382, 1.15, -0.008).p(gCyl(0.086, 0.09, 0.03, 8), GOLD, s * 0.39, 0.955, 0.018);
-        b.at(H).surf(SURF.leather).p(gSph(0.09, 8, 6), [DARK, 0x2a2d3a], s * 0.39, 0.86, 0.035, 0, 0, 0, 0.92, 1.12, 1.08);
+        b.at(U).surf(SURF.cloth).limb(CLOTH, s * 0.33, 1.5, 0, s * 0.38, 1.19, -0.01, 0.09, 0.075, 7, 3);
+        b.at(F).surf(SURF.leather).limb([LEA_D, LEA], s * 0.38, 1.19, -0.01, s * 0.39, 0.93, 0.02, 0.085, 0.07, 7, 0);
+        b.p(gCyl(0.08, 0.084, 0.09, 8), [0x3a302c, STRAP], s * 0.387, 1.04, 0.005);
+        b.at(H).surf(SURF.leather).p(gSph(0.082, 8, 6), [DARK, 0x2a2d3a], s * 0.39, 0.86, 0.035, 0, 0, 0, 0.92, 1.12, 1.08);
       };
       arm(1, 'uaL', 'faL', 'hL');
       arm(-1, 'uaR', 'faR', 'hR');
       // 左手掌心的余烬
-      b.at('hL').g(gOct(0.055), 1, 0.39, 0.75, 0.08, 0, 0.6, 0, 1, 1.5, 1);
-
-      // --- 腿：布裤、护膝、钢胫甲、皮靴 ---
+      b.at('hL').g(gOct(0.05), 1, 0.39, 0.75, 0.08, 0, 0.6, 0, 1, 1.5, 1);
+      // --- 腿：贴身长裤、小皮护膝、软皮高靴 + 绑腿 ---
       const leg = (s, TH, SH, FT) => {
-        b.at(TH).surf(SURF.cloth).limb(CLOTH, s * 0.14, 0.97, 0, s * 0.15, 0.53, 0.01, 0.14, 0.108, 7, 2);
-        b.surf(SURF.metal, true).p(gDome(0.1, 6, 2, 1.3), STEEL, s * 0.15, 0.55, 0.075, HALF_PI - 0.2, 0, 0, 1, 0.9, 1.15);
-        b.at(SH).surf(SURF.metal).p(gLathe('pl/greave', [[0.085, 0.1], [0.1, 0.24], [0.122, 0.42], [0.1, 0.5]], 8), [STEEL_D, STEEL], s * 0.15, 0, 0.012);
-        b.surf(SURF.gold).p(gCyl(0.118, 0.123, 0.03, 8), GOLD, s * 0.15, 0.43, 0.012);
-        b.at(FT).surf(SURF.leather).p(gSph(0.105, 8, 6), [0x241b16, 0x503b2d], s * 0.15, 0.072, 0.07, 0, 0, 0, 0.95, 0.72, 1.8);
-        b.p(gCyl(0.098, 0.105, 0.11, 7), 0x3a2b21, s * 0.15, 0.14, 0);
+        b.at(TH).surf(SURF.cloth).limb(CLOTH, s * 0.14, 0.97, 0, s * 0.15, 0.53, 0.01, 0.12, 0.094, 7, 2);
+        b.surf(SURF.leather).p(gDome(0.085, 6, 2, 1.3), LEA, s * 0.15, 0.55, 0.065, HALF_PI - 0.2, 0, 0, 1, 0.9, 1.1);
+        if (s < 0) b.p(gTorus(0.108, 0.013, 3, 8), STRAP, s * 0.145, 0.8, 0, HALF_PI, 0, 0, 1, 1, 1);
+        b.at(SH).surf(SURF.leather).p(gLathe('pl/boot', [[0.078, 0.1], [0.082, 0.26], [0.092, 0.42], [0.098, 0.5]], 8), BOOT, s * 0.15, 0, 0.012);
+        b.p(gTorus(0.088, 0.013, 3, 8), STRAP, s * 0.15, 0.3, 0.012, HALF_PI, 0, 0, 1, 1, 1).p(gTorus(0.094, 0.013, 3, 8), STRAP, s * 0.15, 0.4, 0.012, HALF_PI, 0, 0, 1, 1, 1);
+        b.at(FT).surf(SURF.leather).p(gSph(0.096, 8, 6), BOOT, s * 0.15, 0.07, 0.07, 0, 0, 0, 0.92, 0.72, 1.78);
+        b.p(gCyl(0.088, 0.096, 0.1, 7), BOOT[0], s * 0.15, 0.14, 0);
       };
       leg(1, 'thL', 'shL', 'ftL');
       leg(-1, 'thR', 'shR', 'ftR');
-
-      // --- 披风：三段，自上而下越来越宽，下摆撕成几条 ---
-      b.surf(SURF.cloth);
-      b.at('cape1').pd(gDrape('pl/c1', [[0.33, 1.1], [0.3, 1.3], [0.23, 1.56]], 2.5), [CLOAK_D, CLOAK], CLOAK_IN, 0, 0, 0.0);
-      b.at('cape2').pd(gDrape('pl/c2', [[0.42, 0.74], [0.39, 0.95], [0.33, 1.16]], 2.3), [0x9a8c73, CLOAK_D], CLOAK_IN, 0, 0, 0.0);
-      b.at('cape3');
-      for (const a of [-0.84, -0.28, 0.28, 0.84]) {
-        const h = Math.abs(a) > 0.5 ? 0.36 : 0.46;
-        b.pd(gPlate('pl/tat' + h, [[-0.125, 0], [0.125, 0], [0.08, -h * 0.7], [0, -h], [-0.07, -h * 0.6]], 0.01, 0.003), [0x7d715c, 0x9a8c73], CLOAK_IN, Math.sin(a) * 0.41, 0.8, -Math.cos(a) * 0.41, 0.1, Math.PI + a, 0);
-      }
 
       // --- 武器：三把都挂在右手上，握把沿 +z；没装备的那两把缩到 0 ---
       const WX = -0.39, WY = 0.84;
@@ -2434,13 +2554,8 @@
       p[J.hR + 2] = -0.2 * id;
     }
 
-    // 披风与前襟：跑起来向后扬，叠一层飘动
-    const fl = Math.sin(t * 2.3 + ent.phase), fl2 = Math.sin(t * 3.1 + 1.3 + ent.phase), fl3 = Math.sin(w * 2 + 0.6);
-    p[J.cape1] = 0.06 + 0.26 * run + fl * (0.025 + 0.03 * run);
-    p[J.cape2] = 0.1 + 0.2 * run + fl2 * (0.04 + 0.05 * run) + fl3 * 0.06 * run;
-    p[J.cape3] = 0.08 + 0.18 * run + Math.sin(t * 3.7 + 2.2) * (0.06 + 0.08 * run) - fl3 * 0.08 * run;
-    p[J.cape1 + 2] = fl2 * 0.02 - 0.05 * c * run;
-    p[J.tab] = -0.06 - 0.3 * run * Math.max(Math.abs(s), 0.4) + fl * 0.03;
+    // 短前襟：跑起来向后扬，叠一层飘动（围巾和马尾在 tailSprings 里另算）
+    p[J.tab] = -0.04 - 0.38 * run * Math.max(Math.abs(s), 0.4) + Math.sin(t * 2.3 + ent.phase) * 0.03;
   }
   // 每帧都要设的东西：只显示当前装备的那把武器，掌心余烬脉动
   function playerPost(ent, o, t) {
@@ -2821,7 +2936,230 @@
     solveRig(ent);
   }
 
+  // ----- 围巾尾巴 + 马尾：角度空间里的二阶弹簧 -----
+  // 目标角 = 静止垂挂 + 重力（取胸口 / 头此刻的真实朝向，翻滚、倒地、仰头都对）+ 跑动后扬 + 风里的抖动 +
+  // 身体转向 / 翻滚带出的侧甩与离心上扬 + 动作里 cape1..3 的关键帧（虚关节，当作「甩」的信号）。
+  // 每节刚度递减，末梢慢半拍，自然形成鞭梢。积分完把每节的末端推出头、围巾圈（后颈）、后背、腰臀的碰撞球：
+  // 翻滚、后仰时马尾顺着后颈滑过去而不是穿进脖子，围巾尾巴贴着背飘而不是钻进皮衣里
+  const SF_K = [170, 115, 80], HP_K = [230, 160, 110];
+  // 碰撞球：[挂的关节, 绑定姿态里的球心 x, y, z, 半径]
+  const HP_COL = [['head', 0, 1.79, 0.0, 0.15], ['chest', 0, 1.58, -0.03, 0.2], ['chest', 0, 1.4, -0.01, 0.235]];
+  const SF_COL = [['head', 0, 1.79, 0.0, 0.16], ['chest', 0, 1.4, 0.0, 0.225], ['spine', 0, 1.2, 0.0, 0.195], ['root', 0, 0.95, 0.0, 0.215]];
+  // 状态数组 s 的布局：围巾 6 节 ×（rx, rz）的角度 [0, 12)、角速度 [12, 24)；马尾 3 节的角度 [24, 30)、角速度 [30, 36)；
+  // 上一帧的围巾 / 马尾朝向（偏航、俯仰）[36, 40)；[40] = 上一帧的朝向是否有效；[41, 45) 上一帧胸口 / 头里的重力方向（x, z）
+  const TS_N = 45;
+  const _tR = new Float32Array(9), _tD = new Float32Array(3), _tgt = new Float32Array(18);
+  // 关节 j 的坐标系里，竖直向下（模型空间的 -y）指向哪边
+  function downIn(M, j, out) {
+    rotOf(M, j, _tR);
+    out[0] = -_tR[3];
+    out[1] = -_tR[4];
+    out[2] = -_tR[5];
+  }
+  const wrapA = (a) => a - Math.round(a / TAU) * TAU;
+  function tailSprings(ent, dt) {
+    const rig = ent.rig, J = rig.J, JI = rig.JI, o = ent.out, M = ent.mdl;
+    let st = ent.tails;
+    if (!st) st = ent.tails = { s: new Float32Array(TS_N), init: false };
+    const s = st.s, tg = _tgt;
+    const run = Math.min(1.3, ent.spd / 7.2), r1 = Math.min(1, run), ph = ent.phase || 0, t = ent.clock || 0;
+    // 动作给的「甩」：旧披风关节上的关键帧
+    const c1 = o[J.cape1], c2 = o[J.cape2], c3 = o[J.cape3], z1 = o[J.cape1 + 2], z2 = o[J.cape2 + 2];
+    const yawB = ent.group.rotation.y + o[J.root + 1] + o[J.spine + 1] + o[J.chest + 1];
+    const yawH = yawB + o[J.head + 1];
+    // 动作把身子压扁 / 拉长（瞬步、影步的那一下）时，矩阵里的不等比缩放让「朝向」和碰撞球都不可信：
+    // 这几帧沿用上一帧的重力方向、不算转速、不做碰撞，弹簧照常跑
+    const cm = JI.chest * 12;
+    const l0 = Math.hypot(M[cm], M[cm + 4], M[cm + 8]), l1 = Math.hypot(M[cm + 1], M[cm + 5], M[cm + 9]), l2 = Math.hypot(M[cm + 2], M[cm + 6], M[cm + 10]);
+    const warp = Math.max(l0, l1, l2) > Math.min(l0, l1, l2) * 1.2;
+    // 胸口 / 头里的重力方向，以及它们绕左右轴的俯仰（翻滚时转得飞快 → 离心）
+    let gxS = s[41], gzS = s[42], gxH = s[43], gzH = s[44], pS = s[38], pH = s[39];
+    if (!warp || !st.init) {
+      downIn(M, JI.chest, _tD);
+      gxS = _tD[0]; gzS = _tD[2]; pS = Math.atan2(_tD[2], -_tD[1]);
+      downIn(M, JI.head, _tD);
+      gxH = _tD[0]; gzH = _tD[2]; pH = Math.atan2(_tD[2], -_tD[1]);
+      s[41] = gxS; s[42] = gzS; s[43] = gxH; s[44] = gzH;
+    }
+    let wS = 0, wH = 0, qS = 0, qH = 0;
+    if (s[40] && dt > 0 && !warp) {
+      const cl = (v) => (v > 22 ? 22 : v < -22 ? -22 : v);
+      wS = cl(wrapA(yawB - s[36]) / dt);
+      wH = cl(wrapA(yawH - s[37]) / dt);
+      qS = cl(wrapA(pS - s[38]) / dt);
+      qH = cl(wrapA(pH - s[39]) / dt);
+    }
+    s[36] = yawB; s[37] = yawH; s[38] = pS; s[39] = pH; s[40] = warp ? 0 : 1;
+
+    // --- 围巾 ---
+    {
+      const cen = Math.min(0.9, (Math.abs(wS) + Math.abs(qS) * 0.5) * 0.055);
+      const grav = -0.8 * gzS, gside = 0.8 * gxS;
+      for (let side = 0; side < 2; side++) {
+        const sn = side ? -1 : 1;
+        for (let i = 0; i < 3; i++) {
+          const q = (side * 3 + i) * 2;
+          const fl = Math.sin(t * (10.5 + i * 1.7) + i * 1.2 + side * 0.9 + ph), fz = Math.sin(t * (8.3 + i * 1.3) + i * 1.5 + side * 2.1 + ph);
+          const idle = Math.sin(t * 1.6 + i * 0.8 + side * 0.6 + ph) * 0.06 * (1 - r1);
+          let rx, rz;
+          if (i === 0) {
+            rx = 0.3 + grav + 0.78 * run + cen + c1 * 0.9 + fl * 0.05 * run;
+            rz = sn * SF.splay + gside - wS * 0.03 + z1 * 1.2 + fz * 0.08 * run + idle * 0.5;
+          } else if (i === 1) {
+            rx = 0.06 + 0.12 * run + cen * 0.5 + c2 * 0.7 + fl * 0.16 * run + idle;
+            rz = sn * 0.04 - wS * 0.025 + z2 * 1.1 + fz * 0.15 * run + idle;
+          } else {
+            rx = 0.04 + 0.04 * run + cen * 0.3 + c3 * 0.6 + fl * 0.24 * run + idle;
+            rz = -wS * 0.02 + z2 * 0.8 + fz * 0.22 * run + idle;
+          }
+          // 再大的甩动也只到水平略上，不翻到头顶
+          tg[q] = i === 0 ? G.clamp(rx, -0.3, 1.45) : G.clamp(rx, -0.7, 0.45);
+          tg[q + 1] = G.clamp(rz, -1.1, 1.1);
+        }
+      }
+    }
+    // --- 马尾：更硬、更短，额外叠一层跑步时的上下颠 ---
+    {
+      const cen = Math.min(0.7, (Math.abs(wH) + Math.abs(qH) * 0.5) * 0.045);
+      const grav = -0.85 * gzH, gside = 0.6 * gxH, bob = Math.sin(ent.walk * 2) * r1, ph2 = ph + 0.7;
+      for (let i = 0; i < 3; i++) {
+        const q = 12 + i * 2;
+        const fl = Math.sin(t * (9 + i * 1.9) + i * 1.3 + ph2), fz = Math.sin(t * (7.1 + i * 1.4) + i * 1.7 + ph2);
+        const idle = Math.sin(t * 1.4 + i * 0.9 + ph2) * 0.05 * (1 - r1);
+        let rx, rz;
+        if (i === 0) {
+          rx = grav + 0.62 * run + cen + c1 * 0.5 + bob * 0.12 + idle * 0.5;
+          rz = gside - wH * 0.035 + z1 * 0.8 + fz * 0.06 * run + idle * 0.4;
+        } else {
+          rx = 0.08 * run + cen * 0.4 + fl * (0.1 + 0.05 * i) * run + bob * 0.08 + idle;
+          rz = -wH * 0.025 + fz * (0.1 + 0.06 * i) * run + idle;
+        }
+        tg[q] = i === 0 ? G.clamp(rx, -0.6, 1.35) : G.clamp(rx, -0.6, 0.6);
+        tg[q + 1] = G.clamp(rz, -1.0, 1.0);
+      }
+    }
+    // --- 积分：1/120 秒一小步的半隐式欧拉（阻尼比 0.32 / 0.36）；状态坏了就直接贴回目标 ---
+    if (!st.init) {
+      for (let q = 0; q < 12; q++) { s[q] = tg[q]; s[12 + q] = 0; }
+      for (let q = 0; q < 6; q++) { s[24 + q] = tg[12 + q]; s[30 + q] = 0; }
+      st.init = true;
+    } else if (dt > 0) {
+      const n = Math.min(12, Math.max(1, Math.ceil(dt / (1 / 120)))), h = dt / n;
+      for (let it = 0; it < n; it++) {
+        for (let q = 0; q < 12; q++) {
+          const k = SF_K[(q >> 1) % 3];
+          s[12 + q] += (k * (tg[q] - s[q]) - 2 * 0.32 * Math.sqrt(k) * s[12 + q]) * h;
+          s[q] += s[12 + q] * h;
+        }
+        for (let q = 0; q < 6; q++) {
+          const k = HP_K[q >> 1];
+          s[30 + q] += (k * (tg[12 + q] - s[24 + q]) - 2 * 0.36 * Math.sqrt(k) * s[30 + q]) * h;
+          s[24 + q] += s[30 + q] * h;
+        }
+      }
+      for (let q = 0; q < 36; q++) {
+        if (!(Math.abs(s[q]) < 50)) {
+          st.init = false;
+          return tailSprings(ent, 0);
+        }
+      }
+    }
+    // --- 写回姿态 + 碰撞 ---
+    for (let j = 0; j < 6; j++) {
+      const ix = J[SF_SEG[j]], i = j % 3, sn = j < 3 ? 1 : -1;
+      o[ix] = s[j * 2];
+      o[ix + 2] = s[j * 2 + 1];
+      // 绕尾巴自身的长轴拧一点：侧面看得到布面，不是一条线
+      o[ix + 1] = sn * (0.12 + 0.22 * r1) * (i === 0 ? 1 : 0.4) + Math.sin(t * (6.5 + i) + j * 1.7 + ph) * (0.08 + 0.3 * r1);
+    }
+    for (let j = 0; j < 3; j++) {
+      const ix = J[HP_SEG[j]];
+      o[ix] = s[24 + j * 2];
+      o[ix + 1] = 0;
+      o[ix + 2] = s[24 + j * 2 + 1];
+    }
+    const chainL = rig.tailL || (rig.tailL = SF_SEG.slice(0, 3).map((n) => JI[n]));
+    const chainR = rig.tailR || (rig.tailR = SF_SEG.slice(3).map((n) => JI[n]));
+    const chainH = rig.tailH || (rig.tailH = HP_SEG.map((n) => JI[n]));
+    const colS = rig.colS || (rig.colS = SF_COL.map((c) => [JI[c[0]], c[1], c[2], c[3], c[4]]));
+    const colH = rig.colH || (rig.colH = HP_COL.map((c) => [JI[c[0]], c[1], c[2], c[3], c[4]]));
+    for (const jj of chainL) solveJoint(ent, jj);
+    for (const jj of chainR) solveJoint(ent, jj);
+    for (const jj of chainH) solveJoint(ent, jj);
+    if (warp) return;
+    pushOut(ent, chainL, SF.len[2], colS, s, 0, 12);
+    pushOut(ent, chainR, SF.len[2], colS, s, 6, 18);
+    pushOut(ent, chainH, -1, colH, s, 24, 30);
+  }
+  // 链条（每节只有 rx / rz 两个自由度）的末端推出碰撞球：用两根转轴的雅可比做一步阻尼最小二乘，自根向梢、两遍。
+  // 推出去的同时把朝球里转的角速度清掉（贴着滑，不弹回去再钻）。tipLen > 0：最后一节的末端在枢轴正下方 tipLen 处；
+  // -1：马尾，发梢取 HAIR_T 的最后一点
+  const _pc = new Float32Array(3);
+  function pushOut(ent, chain, tipLen, cols, s, a0, v0) {
+    const rig = ent.rig, M = ent.mdl, o = ent.out, js = rig.joints, n = chain.length;
+    for (let pass = 0; pass < 2; pass++) {
+      let moved = false;
+      for (let i = 0; i < n; i++) {
+        const ji = chain[i], m = ji * 12;
+        // 这一节的末端（模型空间）
+        let px, py, pz;
+        if (i < n - 1) {
+          const mc = chain[i + 1] * 12;
+          px = M[mc + 3]; py = M[mc + 7]; pz = M[mc + 11];
+        } else {
+          const jp = js[ji];
+          let ox, oy, oz;
+          if (tipLen > 0) { ox = 0; oy = -tipLen; oz = 0; }
+          else { const T3 = HAIR_T[3]; ox = T3[0] - jp.px; oy = T3[1] - jp.py; oz = T3[2] - jp.pz; }
+          px = M[m] * ox + M[m + 1] * oy + M[m + 2] * oz + M[m + 3];
+          py = M[m + 4] * ox + M[m + 5] * oy + M[m + 6] * oz + M[m + 7];
+          pz = M[m + 8] * ox + M[m + 9] * oy + M[m + 10] * oz + M[m + 11];
+        }
+        let dx = 0, dy = 0, dz = 0, hit = false;
+        for (let c = 0; c < cols.length; c++) {
+          const C = cols[c], cm = C[0] * 12, cj = js[C[0]];
+          const ox = C[1] - cj.px, oy = C[2] - cj.py, oz = C[3] - cj.pz;
+          _pc[0] = M[cm] * ox + M[cm + 1] * oy + M[cm + 2] * oz + M[cm + 3];
+          _pc[1] = M[cm + 4] * ox + M[cm + 5] * oy + M[cm + 6] * oz + M[cm + 7];
+          _pc[2] = M[cm + 8] * ox + M[cm + 9] * oy + M[cm + 10] * oz + M[cm + 11];
+          const ex = px + dx - _pc[0], ey = py + dy - _pc[1], ez = pz + dz - _pc[2], l = Math.hypot(ex, ey, ez);
+          if (l < C[4] && l > 1e-5) {
+            const k = (C[4] - l) / l;
+            dx += ex * k; dy += ey * k; dz += ez * k;
+            hit = true;
+          }
+        }
+        if (!hit) continue;
+        // 两根转轴：rx 绕父关节的 x 轴（欧拉 XYZ 最外层），rz 绕本关节自己的 z 轴（最内层）
+        const qm = js[ji].parent * 12, qx = px - M[m + 3], qy = py - M[m + 7], qz = pz - M[m + 11];
+        let ax = M[qm], ay = M[qm + 4], az = M[qm + 8], al = Math.hypot(ax, ay, az) || 1;
+        ax /= al; ay /= al; az /= al;
+        let bx = M[m + 2], by = M[m + 6], bz = M[m + 10], bl = Math.hypot(bx, by, bz) || 1;
+        bx /= bl; by /= bl; bz /= bl;
+        const Ax = ay * qz - az * qy, Ay = az * qx - ax * qz, Az = ax * qy - ay * qx;
+        const Bx = by * qz - bz * qy, By = bz * qx - bx * qz, Bz = bx * qy - by * qx;
+        const lam = 1e-4, aa = Ax * Ax + Ay * Ay + Az * Az + lam, bb = Bx * Bx + By * By + Bz * Bz + lam, ab = Ax * Bx + Ay * By + Az * Bz;
+        const ra = Ax * dx + Ay * dy + Az * dz, rb = Bx * dx + By * dy + Bz * dz, det = aa * bb - ab * ab;
+        if (det < 1e-12) continue;
+        // 多推 10%，下一帧不至于又刚好擦进去；一遍最多转 0.25 弧度，深陷时分几帧推出来，不会一帧弹飞
+        const da = G.clamp(((bb * ra - ab * rb) / det) * 1.1, -0.25, 0.25), db = G.clamp(((aa * rb - ab * ra) / det) * 1.1, -0.25, 0.25);
+        const qa = a0 + i * 2, qv = v0 + i * 2;
+        s[qa] += da;
+        s[qa + 1] += db;
+        if (s[qv] * da < 0) s[qv] = 0;
+        if (s[qv + 1] * db < 0) s[qv + 1] = 0;
+        const ix = ji * CH;
+        o[ix] = s[qa];
+        o[ix + 2] = s[qa + 1];
+        for (let k = i; k < n; k++) solveJoint(ent, chain[k]);
+        moved = true;
+      }
+      if (!moved) break;
+    }
+  }
+
   function playerLate(ent, sdt) {
+    tailSprings(ent, sdt || 0);
     playerIK(ent, sdt || 0);
     bannerSway(ent, sdt || 0);
     // 挥砍的出手段：武器拖出一道刀光
