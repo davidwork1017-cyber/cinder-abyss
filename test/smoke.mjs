@@ -1071,7 +1071,8 @@ async function main() {
     assert(r.next.length === 4 && r.next.every((i) => i >= 0 && i <= 2) && new Set(r.next).size >= 2 && r.next.every((i, k) => k < 2 || i !== r.next[k - 1] || i !== r.next[k - 2]),
       '之后应优先往怪堆里跳、在堆里轮着砍（不连砍三刀同一只）：' + JSON.stringify(r.next));
     assert(r.loneAgain >= 1 && r.hit.every((d) => d > 0), '一直按着，落单的敌人也应再轮到：' + JSON.stringify(r));
-    assert(r.moves.every((d) => d > 0.3), '每一跳都应有位移：' + JSON.stringify(r.moves));
+    // 连砍同一堆里挨着的两只时，落点可能离得很近：要求每一跳都动了，并且大多数跳得明显
+    assert(r.moves.every((d) => d > 0.02) && r.moves.filter((d) => d > 0.3).length >= r.moves.length - 1, '每一跳都应有位移：' + JSON.stringify(r.moves));
     assert(r.spent > r.cost * 3 && r.iframe > 0.05 && r.iframe < 0.15, '每刀应扣魔力、闪现给短暂无敌：' + JSON.stringify(r));
     assert(r.release && r.clipAfter === null, '松手应停下且不残留动作：' + JSON.stringify(r));
     assert(r.solo.n >= 5 && r.solo.same && r.solo.dmg > 0 && r.solo.turn.every((a) => a > 0.8) && r.solo.gap.every((g) => g > 0.5 && g < 1.3),

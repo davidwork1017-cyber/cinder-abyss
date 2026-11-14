@@ -139,8 +139,29 @@
     } else {
       G.save = s;
     }
+    G.syncGemLevels();
     return G.save;
   }
+
+  // 已学会的技能宝石随角色成长：等级不低于「角色等级 × 0.75」（和掉落宝石的等级曲线一致）。
+  // 否则宝石只能靠捡到更高等级的同名宝石来升，十几个技能里很难刷到想要的那个；召唤物不吃装备伤害，更依赖宝石等级。
+  // 返回这次被抬高的技能 id 列表
+  G.gemFloor = function () {
+    return G.clamp(Math.round((G.save.level || 1) * 0.75), 1, MAX_GEM_LEVEL);
+  };
+  G.syncGemLevels = function () {
+    const save = G.save;
+    const up = [];
+    if (!save || !save.skills) return up;
+    const t = G.gemFloor();
+    for (const id of Object.keys(save.skills)) {
+      if (G.SKILLS[id] && save.skills[id] < t) {
+        save.skills[id] = t;
+        up.push(id);
+      }
+    }
+    return up;
+  };
 
   const isObj = (o) => !!o && typeof o === 'object' && !Array.isArray(o);
   const isNum = (v) => typeof v === 'number' && isFinite(v);
@@ -2451,11 +2472,11 @@
       const name = G.SKILLS[id].name;
       const have = save.skills[id];
       if (!have) {
-        save.skills[id] = lvl;
+        save.skills[id] = Math.max(lvl, G.gemFloor());
         save.sockets[id] = [null, null, null];
         const free = save.bar.indexOf(null);
         if (free >= 0) save.bar[free] = id;
-        toast('习得技能：' + name + ' Lv ' + lvl + (free >= 0 ? '' : '（按 G 绑定到技能栏）'), GEM_COLOR);
+        toast('习得技能：' + name + ' Lv ' + save.skills[id] + (free >= 0 ? '' : '（按 G 绑定到技能栏）'), GEM_COLOR);
       } else if (lvl > have) {
         save.skills[id] = lvl;
         toast(name + ' 升至 Lv ' + lvl, GEM_COLOR);
@@ -2531,12 +2552,14 @@
     }
     if (save.level >= MAX_LEVEL) save.xp = 0;
     if (!gained) return;
+    const gemsUp = G.syncGemLevels();
     G.computeStats();
     if (!P.dead) {
       P.life = P.maxLife;
       P.mana = P.maxMana;
     }
     toast('等级提升：Lv ' + save.level + '（获得 ' + gained + ' 点天赋点）', '#ffd75e');
+    if (gemsUp.length) toast('技能宝石随之成长到 Lv ' + G.gemFloor() + '：' + gemsUp.map((id) => G.SKILLS[id].name).join('、'), GEM_COLOR);
     G.world.ring(P.x, P.z, 4.5, 0xffd75e, 0.6);
     G.world.burst(P.x, 1.2, P.z, 0xffd75e, 30, 5, 0.8);
     G.sfx('level');

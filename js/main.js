@@ -219,7 +219,7 @@
     learnAll() {
       const save = G.save;
       for (const id of Object.keys(G.SKILLS)) {
-        if (!save.skills[id]) save.skills[id] = 1;
+        if (!save.skills[id]) save.skills[id] = G.gemFloor ? G.gemFloor() : 1;
         if (!Array.isArray(save.sockets[id])) save.sockets[id] = [null, null, null];
         if (save.bar.indexOf(id) < 0) {
           const free = save.bar.indexOf(null);
@@ -238,6 +238,7 @@
       const P = G.player;
       G.save.level = G.clamp(Math.floor(n) || 1, 1, G.MAX_LEVEL);
       G.save.xp = 0;
+      if (G.syncGemLevels) G.syncGemLevels();
       G.computeStats();
       P.life = P.maxLife;
       P.mana = P.maxMana;
