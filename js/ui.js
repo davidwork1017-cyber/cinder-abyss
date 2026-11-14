@@ -19,6 +19,8 @@
   const itemIcon = (item, cls) => ibox(IC.item(item), 'r' + item.rarity + (cls ? ' ' + cls : ''));
 
   const KEY_LABEL = ['左键', '右键', 'Q', 'E'];
+  // 卡片上的标签行：「召唤」紧挨着「召唤物」是重复的说法（1280 宽时还会把标签行挤成两行），卡片上不显示
+  const cardTags = (sk) => (sk.tags.indexOf('minion') >= 0 ? sk.tags.filter((t) => t !== 'summon') : sk.tags);
   const TABS = [
     ['inv', '背包', 'I'],
     ['skills', '技能', 'G'],
@@ -30,8 +32,13 @@
     s: { name: '铸躯', hint: '生命 · 护甲 · 物理' },
     d: { name: '迅影', hint: '速度 · 暴击 · 机动' },
     i: { name: '秘识', hint: '魔力 · 元素 · 范围' },
+    m: { name: '统御', hint: '召唤物 · 数量 · 魔力' },
   };
+  const ARM_ORDER = ['s', 'd', 'i', 'm'];
   const KIND_NAME = { small: '小型天赋', notable: '核心天赋', keystone: '基石天赋', start: '起点' };
+  const ALLY = G.icons.ally || '#4fe3c8'; // 友方召唤物的青色（与世界里的血条、地面圈同色）
+  const MINION_STATS = ['minionDmg', 'minionLife', 'minionSpeed', 'minionCap', 'minionMore'];
+  const MINION_NAME = { thrall: '烬骸仆从', colossus: '石誓守像' };
   const ZONE_GLYPH = { ash: '烬', frost: '霜', storm: '雷', abyss: '渊' };
   const ZONE_ORD = ['第一境', '第二境', '第三境', '第四境', '第五境', '第六境'];
 
@@ -380,6 +387,11 @@
     hud.cost = {};
     hud.costT = -1e9;
     hud.free = 0;
+    // 召唤物条：生命球右边、技能栏左边的一小条，每只召唤物一个图标 + 血条；守像另有嘲讽冷却
+    const mn = document.createElement('div');
+    mn.id = 'minions';
+    $('hud').appendChild(mn);
+    hud.mn = { root: mn, chips: [], n: -1, on: false, list: [] };
 
     // HUD 上真正可点的按钮：快捷键提示与天赋提醒
     const hudEl = $('hud');
@@ -715,8 +727,102 @@
       if (dead) hud.death.sub.textContent = P.respawnAt ? '余烬未冷 · 即将在首领的竞技场门外重燃' : '余烬未冷 · 即将在区域入口重燃';
     }
 
+    updateMinionBar();
     updateWorldUi(now);
     updateCoach(now);
+  }
+
+  // ---------- 召唤物条 ----------
+  // 守像排最前，其余按召唤的先后；格子复用，只在数值变化时写 DOM
+  function mnChip(i) {
+    const m = hud.mn;
+    let c = m.chips[i];
+    if (c) return c;
+    const d = document.createElement('div');
+    d.className = 'mn';
+    d.innerHTML = '<div class="mn-icon"><i class="ico"></i><b class="mn-t"></b></div><div class="mn-hp"><i></i></div><div class="mn-tc"><i></i></div>';
+    m.root.appendChild(d);
+    c = { el: d, img: d.querySelector('.ico'), hp: d.querySelector('.mn-hp > i'), tc: d.querySelector('.mn-tc > i'), tTxt: d.querySelector('.mn-t'), kind: '', q: -1, low: null, tq: -1, tn: '', ready: null, rise: null, on: false };
+    m.chips.push(c);
+    return c;
+  }
+  function updateMinionBar() {
+    const m = hud.mn;
+    const src = liveMinions();
+    const list = m.list;
+    list.length = 0;
+    for (let i = 0; i < src.length; i++) {
+      const x = src[i];
+      if (x && !x.dead && x.kind === 'colossus') list.push(x);
+    }
+    for (let i = 0; i < src.length; i++) {
+      const x = src[i];
+      if (x && !x.dead && x.kind !== 'colossus') list.push(x);
+    }
+    const on = list.length > 0 && !G.player.dead;
+    if (on !== m.on) {
+      m.on = on;
+      m.root.classList.toggle('on', on);
+    }
+    for (let i = 0; i < list.length; i++) {
+      const x = list[i];
+      const c = mnChip(i);
+      const kind = x.kind === 'colossus' ? 'colossus' : 'thrall';
+      if (!c.on || c.kind !== kind) {
+        c.on = true;
+        c.kind = kind;
+        c.el.className = 'mn ' + kind;
+        const sid = x.skill && G.SKILLS[x.skill] ? x.skill : kind;
+        c.img.className = 'ico ' + (G.SKILLS[sid] ? IC.cls('sk-' + sid) : '');
+        c.q = c.tq = -1;
+        c.tn = '';
+        c.ready = c.low = c.rise = null;
+      }
+      const f = x.maxHp > 0 ? G.clamp(x.hp / x.maxHp, 0, 1) : 0;
+      const q = Math.round(f * 50) / 50;
+      if (q !== c.q) {
+        c.q = q;
+        c.hp.style.transform = 'scaleX(' + q + ')';
+      }
+      const low = f < 0.35;
+      if (low !== c.low) {
+        c.low = low;
+        c.el.classList.toggle('low', low);
+      }
+      const rise = x.rising > 0;
+      if (rise !== c.rise) {
+        c.rise = rise;
+        c.el.classList.toggle('rise', rise);
+      }
+      if (kind === 'colossus') {
+        // 嘲讽：冷却中时条从空涨到满、角上写剩余秒数；转好时角标亮起
+        const max = x.tauntCdMax > 0 ? x.tauntCdMax : 0;
+        const left = Math.max(0, x.tauntCd || 0);
+        const tq = max > 0 ? Math.round((1 - G.clamp(left / max, 0, 1)) * 40) / 40 : 1;
+        if (tq !== c.tq) {
+          c.tq = tq;
+          c.tc.style.transform = 'scaleX(' + tq + ')';
+        }
+        const ready = left <= 0.05;
+        if (ready !== c.ready) {
+          c.ready = ready;
+          c.el.classList.toggle('ready', ready);
+        }
+        const tn = ready ? '嘲' : String(Math.ceil(left));
+        if (tn !== c.tn) {
+          c.tn = tn;
+          c.tTxt.textContent = tn;
+        }
+      }
+    }
+    for (let i = list.length; i < m.chips.length; i++) {
+      const c = m.chips[i];
+      if (c.on) {
+        c.on = false;
+        c.kind = '';
+        c.el.className = 'mn off';
+      }
+    }
   }
 
   function hurt() {
@@ -1005,6 +1111,17 @@
       const v = s('add' + G.CAP[t]);
       if (v) h += row('附加' + G.TYPE_NAME[t], Math.max(1, Math.round(v * 0.7)) + '–' + Math.max(2, Math.round(v * 1.3)), G.TYPE_COLOR[t]);
     }
+    if (s('ownLess')) h += row('自身总伤害', '-' + fmt1(s('ownLess')) + '%', '#ff7a6a');
+    // 召唤物：学会了召唤技能，或者身上 / 天赋里有召唤物属性时才列出来
+    const hasSummon = Object.keys(G.save.skills).some((id) => G.SKILLS[id] && G.SKILLS[id].kind === 'summon');
+    if (hasSummon || MINION_STATS.some((k) => s(k))) {
+      h += '</div><div class="st-group ally">召唤物</div><div class="st-grid">';
+      h += row('召唤物伤害', pct(s('minionDmg')), ALLY);
+      h += row('召唤物生命', pct(s('minionLife')), ALLY);
+      h += row('攻击与移动速度', pct(s('minionSpeed')), ALLY);
+      h += row('仆从数量上限', '+' + fmt1(s('minionCap')), ALLY);
+      if (s('minionMore')) h += row('召唤物总伤害', pct(s('minionMore')), s('minionMore') > 0 ? '#ffb066' : '#ff7a6a');
+    }
     h += '</div><div class="st-group">其他</div><div class="st-grid">';
     h += row('技能范围', pct(s('area')));
     h += row('异常状态几率', pct(s('ailment')));
@@ -1154,6 +1271,62 @@
   function reqText(sup) {
     return sup.req ? sup.req.map((t) => G.TAG_NAME[t]).join(' / ') : '';
   }
+  // 辅助宝石镶不上某个技能的原因：缺标签，或者技能带着它排斥的标签（例如回响不能用于召唤）
+  function unfitText(skillId, sup) {
+    const sk = G.SKILLS[skillId];
+    const bad = sup.no && sk ? sup.no.filter((t) => sk.tags.indexOf(t) >= 0) : [];
+    if (bad.length) return '不能用于' + bad.map((t) => G.TAG_NAME[t] || t).join(' / ') + '技能';
+    return '需要标签：' + reqText(sup);
+  }
+  // 适用范围的一句话：「任意技能」/ 「物理」/ 「任意技能（召唤物除外）」
+  function scopeText(sup) {
+    const no = sup.no && sup.no.length ? '（' + sup.no.map((t) => G.TAG_NAME[t] || t).join(' / ') + '除外）' : '';
+    return (sup.req ? reqText(sup) : '任意技能') + no;
+  }
+
+  // 召唤技能的召唤物数值：优先用 G.minionInfo（minions.js），缺的字段按 ctx.minion 自己算，都没有就给个不出错的空值
+  function minionStats(id, ctx) {
+    ctx = ctx || G.skillCtx(id);
+    const m = ctx.minion || null;
+    let info = null;
+    try {
+      info = typeof G.minionInfo === 'function' ? G.minionInfo(id) : null;
+    } catch (err) {
+      info = null;
+    }
+    info = info || {};
+    // 不含暴击的每一击区间（与 G.calcHit 同一套乘法）
+    let lo = 0;
+    let hi = 0;
+    for (const t in ctx.base) {
+      const k = Math.max(0, 1 + ((ctx.inc && ctx.inc[t]) || 0) / 100) * (ctx.moreType && ctx.moreType[t] !== undefined ? ctx.moreType[t] : 1);
+      lo += ctx.base[t][0] * k;
+      hi += ctx.base[t][1] * k;
+    }
+    let ex = 0;
+    for (const t in ctx.extra) ex += ctx.extra[t];
+    lo *= (1 + ex / 100) * ctx.more;
+    hi *= (1 + ex / 100) * ctx.more;
+    const n = (v, d) => (typeof v === 'number' && isFinite(v) ? v : d);
+    const sk = G.SKILLS[id] || {};
+    let count = 0;
+    for (const mm of liveMinions()) if (mm && !mm.dead && (mm.skill === id || (!mm.skill && mm.kind === sk.minion))) count++;
+    const rateCtx = m && m.interval > 0 ? 1 / m.interval : 0;
+    return {
+      count: n(info.count, count),
+      cap: n(info.cap, m ? m.cap : sk.cap || 0),
+      dmgMin: Math.round(n(info.dmgMin, lo)),
+      dmgMax: Math.round(n(info.dmgMax, hi)),
+      life: Math.round(n(info.life, m ? m.life : sk.life || 0)),
+      // 每秒出手次数。minionInfo.rate 若给的是间隔秒数（> 1 秒一次的召唤物也只有守像），以 ctx 为准
+      rate: rateCtx || n(info.rate, 0),
+      dr: m ? m.dr : sk.dr || 0,
+      radius: m ? m.radius : 0,
+      taunt: m ? m.taunt : sk.taunt || null,
+      dps: ctx.minion && G.skillDps ? G.skillDps(ctx) : 0,
+    };
+  }
+  const liveMinions = () => (G.state && Array.isArray(G.state.minions) ? G.state.minions : []);
 
   function skillCard(id) {
     const S = G.save;
@@ -1183,22 +1356,42 @@
       }
     }
     const num = (label, val, cls) => '<div class="sk-num' + (cls ? ' ' + cls : '') + '"><span>' + label + '</span><b>' + val + '</b></div>';
+    let nums;
+    let note = '';
+    const mi = sk.kind === 'summon' ? minionStats(id, ctx) : null;
+    if (mi) {
+      // 召唤技能：卡片上是召唤物自己的数值（每一击、出手频率、生命、现存数量 / 上限）
+      nums =
+        num('每击伤害', mi.dmgMin === mi.dmgMax ? fmtInt(mi.dmgMin) : fmtInt(mi.dmgMin) + '–' + fmtInt(mi.dmgMax), 'hl') +
+        num('每秒攻击', mi.rate > 0 ? mi.rate.toFixed(2) : '—') +
+        num('召唤物生命', fmtInt(mi.life)) +
+        num('数量', mi.count + ' / ' + mi.cap, mi.count >= mi.cap ? 'full' : '') +
+        num(blood ? '生命消耗' : '魔力消耗', ctx.cost > 0 ? fmt1(ctx.cost) : '无') +
+        num('冷却', ctx.cd > 0 ? fmt1(ctx.cd) + ' 秒' : '无');
+      const bits = ['施放 ' + fmt1(ctx.time) + ' 秒'];
+      if (mi.dr > 0) bits.push('减伤 ' + Math.round(mi.dr) + '%');
+      if (mi.radius > 0) bits.push('砸地半径 ' + fmt1(mi.radius));
+      if (mi.taunt) bits.push('嘲讽 ' + fmt1(mi.taunt.cd) + ' 秒 / 半径 ' + fmt1(mi.taunt.r));
+      if (mi.dps > 0) bits.push((mi.cap > 1 ? '满员秒伤约 ' : '秒伤约 ') + fmtInt(mi.dps));
+      note = '<div class="sk-mnote"><i></i>' + bits.join(' · ') + '</div>';
+    } else {
+      nums =
+        num('平均击中', fmtInt(avg), 'hl') +
+        num(sk.kind === 'spin' || sk.kind === 'flicker' ? '每秒斩击' : '每秒施放', rate.toFixed(2)) +
+        num('估算秒伤', fmtInt(avg * rate)) +
+        num((blood ? '生命消耗' : '魔力消耗') + (sk.kind === 'spin' || sk.kind === 'flicker' ? ' / 每下' : ''), ctx.cost > 0 ? fmt1(ctx.cost) : '无') +
+        num('冷却', ctx.cd > 0 ? fmt1(ctx.cd) + ' 秒' : '无') +
+        num('暴击率', fmt1(ctx.crit) + '%');
+    }
     return (
       '<div class="skill-card" style="--c:' + sk.color + '">' +
       '<div class="sk-top"><div class="sk-icon" data-drag="skill:' + id + '" data-tip="skdrag:' + id + '">' + IC.skill(id) + '</div>' +
       '<div class="sk-title"><div class="sk-name">' + sk.name + '<em>Lv ' + S.skills[id] + '</em></div>' +
-      '<div class="sk-tags">' + sk.tags.map((t) => '<span>' + G.TAG_NAME[t] + '</span>').join('') + '</div></div>' +
+      '<div class="sk-tags">' + cardTags(sk).map((t) => '<span>' + G.TAG_NAME[t] + '</span>').join('') + '</div></div>' +
       '<div class="sk-binds">' + binds + '</div></div>' +
       '<div class="sk-desc">' + sk.desc + '</div>' +
       (sk.combo ? '<div class="sk-combo">' + sk.combo.map((c, i) => '<span' + (c.w >= 2 ? ' class="fin"' : '') + '>' + (c.w >= 2 ? '终结 ' : '第 ' + (i + 1) + ' 段 ') + '×' + c.mult + '</span>').join('<i></i>') + '</div>' : '') +
-      '<div class="sk-nums">' +
-      num('平均击中', fmtInt(avg), 'hl') +
-      num(sk.kind === 'spin' || sk.kind === 'flicker' ? '每秒斩击' : '每秒施放', rate.toFixed(2)) +
-      num('估算秒伤', fmtInt(avg * rate)) +
-      num((blood ? '生命消耗' : '魔力消耗') + (sk.kind === 'spin' || sk.kind === 'flicker' ? ' / 每下' : ''), ctx.cost > 0 ? fmt1(ctx.cost) : '无') +
-      num('冷却', ctx.cd > 0 ? fmt1(ctx.cd) + ' 秒' : '无') +
-      num('暴击率', fmt1(ctx.crit) + '%') +
-      '</div>' +
+      '<div class="sk-nums' + (mi ? ' ally' : '') + '">' + nums + '</div>' + note +
       '<div class="sk-socks"><span class="sk-socks-label">辅助</span>' + sockets + '</div>' +
       '</div>'
     );
@@ -1232,7 +1425,7 @@
       const loc = supLocation(id);
       sups +=
         '<div class="sup' + (loc ? ' used' : '') + '" data-drag="sup:' + id + '" style="--c:' + IC.supColor(id) + '"><div class="sup-top">' + IC.sup(id) + '<b>' + sp.name + '</b>' +
-        '<span class="sup-req">' + (sp.req ? reqText(sp) : '任意技能') + '</span></div>' +
+        '<span class="sup-req">' + scopeText(sp) + '</span></div>' +
         '<div class="sup-desc">' + sp.desc + '</div>' +
         '<div class="sup-foot"><span>消耗 ×' + sp.cost + '</span>' +
         (loc ? '<span class="sup-loc">镶于 ' + G.SKILLS[loc.skill].name + '</span>' : '<span class="sup-free">未使用</span>') +
@@ -1281,7 +1474,7 @@
       if (!fits) {
         rank = 3;
         html =
-          '<div class="pk-row off"><div class="pk-top">' + IC.sup(id) + '<b>' + sp.name + '</b><span class="pk-note bad">需要标签：' + reqText(sp) + '</span></div>' +
+          '<div class="pk-row off"><div class="pk-top">' + IC.sup(id) + '<b>' + sp.name + '</b><span class="pk-note bad">' + unfitText(pk.skill, sp) + '</span></div>' +
           '<div class="pk-desc">' + sp.desc + '</div></div>';
       } else if (loc && loc.skill === pk.skill) {
         rank = 2;
@@ -1409,14 +1602,15 @@
     }
 
     // 各支路已点数量与属性汇总
-    const armCount = { s: 0, d: 0, i: 0 };
-    const armTotal = { s: 0, d: 0, i: 0 };
+    const armCount = {};
+    const armTotal = {};
     const armColor = {};
     const sum = {};
     for (const id in T) {
       const n = T[id];
       if (n.kind === 'start') continue;
-      armTotal[n.arm]++;
+      armTotal[n.arm] = (armTotal[n.arm] || 0) + 1;
+      armCount[n.arm] = armCount[n.arm] || 0;
       armColor[n.arm] = n.color;
       if (alloc.has(id)) {
         armCount[n.arm]++;
@@ -1424,9 +1618,12 @@
       }
     }
     let arms = '';
-    for (const k of ['s', 'd', 'i']) {
+    // 已知的支路按固定顺序排，数据里新加了别的支路也照样列出来
+    const armKeys = ARM_ORDER.filter((k) => armTotal[k]).concat(Object.keys(armTotal).filter((k) => ARM_ORDER.indexOf(k) < 0));
+    for (const k of armKeys) {
+      const info = ARM_INFO[k] || { name: '支路', hint: '' };
       arms +=
-        '<div class="arm" style="--c:' + armColor[k] + '"><i></i><b>' + ARM_INFO[k].name + '</b><span>' + ARM_INFO[k].hint + '</span><em>' + armCount[k] + ' / ' + armTotal[k] + '</em></div>';
+        '<div class="arm" style="--c:' + armColor[k] + '"><i></i><b>' + info.name + '</b><span>' + info.hint + '</span><em>' + armCount[k] + ' / ' + armTotal[k] + '</em></div>';
     }
     let sumHtml = '';
     for (const k in sum) sumHtml += '<div class="ts-line">' + esc(G.fmtStat(k, sum[k])) + '</div>';
@@ -1434,7 +1631,7 @@
 
     el.body.innerHTML =
       '<div class="tree">' +
-      '<div class="tree-view"><svg id="tree-svg" viewBox="-480 -534 960 884" preserveAspectRatio="xMidYMid meet">' +
+      '<div class="tree-view"><svg id="tree-svg" viewBox="-480 -395 960 760" preserveAspectRatio="xMidYMid meet">' +
       '<g class="tdeco"><circle r="81"/><circle r="231"/><circle r="381"/><circle r="462"/></g>' +
       '<g>' + edges + '</g><g>' + nodes + '</g><g>' + labels + '</g></svg>' +
       '<div class="tree-legend"><span class="lg alloc"><i></i>已点亮</span><span class="lg avail"><i></i>可点亮</span><span class="lg locked"><i></i>未连接</span>' +
@@ -1526,6 +1723,25 @@
     return o.autoSalvage ? 'scrap' : o.autoWhite ? 'auto' : 'manual';
   }
 
+  // 帮助页的召唤一节：召唤技能、集火、召唤物辅助宝石（宝石名单从数据里取，数据改了这里跟着变）
+  function helpSummon() {
+    const name = (id, fb) => (G.SKILLS[id] ? G.SKILLS[id].name : fb);
+    const sups = Object.keys(G.SUPPORTS).filter((id) => {
+      const sp = G.SUPPORTS[id];
+      return sp.req && sp.req.length === 1 && sp.req[0] === 'minion';
+    });
+    const gems = sups.map((id) => '<div class="hc" style="--c:' + IC.supColor(id) + '">' + IC.sup(id) + '<b>' + G.SUPPORTS[id].name + '</b><span>' + G.SUPPORTS[id].desc + '</span></div>').join('');
+    const blocked = ['echo', 'leech', 'multi', 'pierce', 'chain'].filter((id) => G.SUPPORTS[id]).map((id) => G.SUPPORTS[id].name).join('、');
+    return (
+      '<div class="sec-title">召唤与集火</div>' +
+      '<p><b class="c-ally">' + name('thrall', '烬骸仆从') + '</b>在准星处唤起迅捷的骸骨剑士，数量满了再施放会替换伤得最重的那具；<b class="c-ally">' + name('colossus', '石誓守像') + '</b>只有一尊，缓慢而坚韧，会砸地伤害一圈敌人，并不时<b>嘲讽</b>，让周围的敌人转而攻击它。</p>' +
+      '<p>召唤物全自动：跟在你身边，自己挑身边的敌人打。你<b>亲手打中</b>的敌人会被标记几秒，召唤物优先<b>集火</b>它——想先清掉谁，就先打它一下。敌人也会还手：一具仆从最多缠住两只怪、守像四只，多出来的照样冲你来，远程怪和爆裂虫更是认准了你。仆从会闪开小怪的预警圈，却躲不开首领的招式，挨得也更重；倒下的召唤物需要重新施放。</p>' +
+      '<p>召唤物<b>不吃你自己的伤害属性</b>，只随宝石等级、带「召唤物」字样的属性（装备词缀与<b class="c-ally">统御</b>支路的天赋）和镶在召唤技能上的辅助宝石成长。屏幕左下、生命球旁边的一排小图标是它们的血量，守像的嘲讽冷却也在那里；技能页的卡片上有每一击的伤害、生命与数量。</p>' +
+      (gems ? '<div class="hc-list">' + gems + '</div>' : '') +
+      '<p>通用辅助也能镶在召唤技能上：迅捷加快召唤物出手，注入、蛮力、致命、震慑、蚀染作用于召唤物的每一击，扩域放大守像的砸地，节流照常减少消耗与冷却。' + (blocked ? blocked + '镶不上召唤技能。' : '') + '</p>'
+    );
+  }
+
   function renderHelp() {
     const key = (k, t) => '<div class="hk"><span class="hk-keys">' + k.map((x) => '<kbd>' + x + '</kbd>').join('') + '</span><span>' + t + '</span></div>';
     let curs = '';
@@ -1560,8 +1776,9 @@
       '<p>怪物会掉落<b class="c-teal">技能宝石</b>。学会的技能在「技能」页拖到技能栏的格子里（左键 / 右键 / Q / E），或点技能卡上的按键标签；再次拾到更高等级的同名宝石会直接升级。</p>' +
       '<p>每个技能有 3 个辅助槽。<b>辅助宝石</b>不会单独生效，而是改变它所镶嵌的技能：多几枚投射物、范围更大、自动重复施放……代价是更高的魔力消耗。把宝石拖进辅助槽，或点击空槽挑选；点击已镶嵌的槽取下。</p>' +
       '<p>一颗辅助宝石同一时间只能镶在一个技能上，并且技能要带有它要求的标签。</p>' +
+      helpSummon() +
       '<div class="sec-title">天赋盘</div>' +
-      '<p>每升一级获得 1 点天赋，首次击败每个首领再得 2 点。从中央出发有三条支路：<b style="color:#e2705a">铸躯</b>偏向生命与物理，<b style="color:#7ed67a">迅影</b>偏向速度与暴击，<b style="color:#6fb2ff">秘识</b>偏向魔力与元素。</p>' +
+      '<p>每升一级获得 1 点天赋，首次击败每个首领再得 2 点。从中央出发有四条支路：<b style="color:#e2705a">铸躯</b>偏向生命与物理，<b style="color:#7ed67a">迅影</b>偏向速度与暴击，<b style="color:#6fb2ff">秘识</b>偏向魔力与元素，<b class="c-ally">统御</b>强化召唤物。</p>' +
       '<p>支路尽头的<b>基石天赋</b>效果强烈但带有代价。天赋可以随时退回或整体重置，不需要任何花费。</p>' +
       '<div class="sec-title">区域与轮回</div>' +
       '<p>每个区域的尽头盘踞着一名首领。击败它之后会出现传送门，通往地图，可以前往下一个区域。</p>' +
@@ -1671,7 +1888,7 @@
       const sp = G.SUPPORTS[id];
       return (
         '<div class="tcard" style="--c:' + IC.supColor(id) + '">' + tcHead(ibox(IC.sup(id), 'gemb'), sp.name, '辅助宝石') + '<div class="tc-desc">' + sp.desc + '</div>' +
-        '<div class="tc-foot">魔力消耗 ×' + sp.cost + (sp.req ? ' · 需要标签：' + reqText(sp) : '') + '</div>' +
+        '<div class="tc-foot">魔力消耗 ×' + sp.cost + (sp.req || sp.no ? ' · 适用：' + scopeText(sp) : '') + '</div>' +
         '<div class="tc-hint">点击取下 · 拖到别的辅助槽移动</div></div>'
       );
     }
@@ -2407,7 +2624,7 @@
         const skill = sock.dataset.skill;
         const idx = +sock.dataset.idx;
         if (drag.from && drag.from.skill === skill && drag.from.idx === idx) return NO_DROP;
-        if (!G.supportFits(skill, drag.id)) return { el: sock, ok: false, label: '需要标签：' + reqText(G.SUPPORTS[drag.id]), run: null };
+        if (!G.supportFits(skill, drag.id)) return { el: sock, ok: false, label: unfitText(skill, G.SUPPORTS[drag.id]), run: null };
         return { el: sock, ok: true, label: '镶进 ' + G.SKILLS[skill].name, run: () => socketDrop(skill, idx) };
       }
       if (drag.from && inWin && q('.col-side')) {
@@ -2501,6 +2718,7 @@
     plate: null, plateSig: '', plateOn: false, busyAt: -1e9, hits: -1, arrows: [], cands: [], tipX: 0, tipY: 0,
     feed: null, feedList: [],
     exec: null, execTxt: null, execOn: false, execFar: null, execX: -1, execY: -1,
+    mplate: null, mpSig: '', mpOn: false, mpX: -1, mpY: -1,
   };
 
   function initWorldUi() {
@@ -2512,7 +2730,7 @@
       '<path class="pa-edge" d="' + arcL + '"/><path class="pa-edge" d="' + arcR + '"/>' +
       '<path class="pa-track" d="' + arcL + '"/><path class="pa-track" d="' + arcR + '"/>' +
       '<path class="pa-life" d="' + arcL + '" pathLength="100"/><path class="pa-mana" d="' + arcR + '" pathLength="100"/>' +
-      '</svg></div><div id="nameplate"></div><div id="arrows"></div>' +
+      '</svg></div><div id="nameplate"></div><div id="mplate"></div><div id="arrows"></div>' +
       '<div id="execp"><div class="ep"><kbd>F</kbd><span></span></div><i></i></div>';
     wui.exec = $('execp');
     wui.execTxt = wui.exec.querySelector('span');
@@ -2520,6 +2738,7 @@
     wui.lifeEl = root.querySelector('.pa-life');
     wui.manaEl = root.querySelector('.pa-mana');
     wui.plate = $('nameplate');
+    wui.mplate = $('mplate');
     const box = $('arrows');
     for (let i = 0; i < 6; i++) {
       const d = document.createElement('div');
@@ -2562,6 +2781,77 @@
       }
     }
     return best;
+  }
+
+  // 召唤物的身高（世界单位）：名牌和悬停判定用
+  const MINION_H = { thrall: 1.75, colossus: 2.9 };
+  // 鼠标指着哪只召唤物（判定方法与 enemyAt 相同）
+  function minionAt(mx, my) {
+    const ms = liveMinions();
+    if (!ms.length) return null;
+    const W = G.world;
+    const m = G.input.mouse;
+    let best = null;
+    let bd = 1e9;
+    for (let i = 0; i < ms.length; i++) {
+      const x = ms[i];
+      if (!x || x.dead) continue;
+      const h = x.height || MINION_H[x.kind] || 1.8;
+      const r = x.r || (x.kind === 'colossus' ? 1.1 : 0.5);
+      const dx = x.x - m.wx;
+      const dz = x.z - m.wz;
+      const reach = r + h * 1.6 + 1;
+      if (dx * dx + dz * dz > reach * reach) continue;
+      const f = W.project(x.x, 0, x.z);
+      if (!f.ok) continue;
+      const t = W.project(x.x, h, x.z);
+      const s = W.project(x.x + r, 0, x.z);
+      const rpx = Math.max(14, (s.x - f.x) * 1.2);
+      const ty = G.clamp(my, t.y, f.y);
+      const k = f.y !== t.y ? (ty - t.y) / (f.y - t.y) : 0;
+      const d = Math.hypot(mx - (t.x + (f.x - t.x) * k), my - ty);
+      if (d <= rpx && d < bd) {
+        bd = d;
+        best = x;
+      }
+    }
+    return best;
+  }
+  // 召唤物的小名牌：名字、生命、在做什么（守像另写嘲讽冷却）
+  function minionPlate(x) {
+    const p = wui.mplate;
+    if (!x) {
+      if (wui.mpOn) {
+        wui.mpOn = false;
+        wui.mpSig = '';
+        p.classList.remove('on');
+      }
+      return;
+    }
+    const sk = x.skill && G.SKILLS[x.skill];
+    const name = x.name || MINION_NAME[x.kind] || (sk ? sk.name : '召唤物');
+    const tg = x.target && !x.target.dead ? x.target : null;
+    const focus = typeof G.focusTarget === 'function' ? G.focusTarget() : null;
+    const doing = x.rising > 0 ? '正在现身' : tg ? (tg === focus ? '集火 ' : '攻击 ') + tg.name : '跟随中';
+    const taunt = x.kind === 'colossus' && x.tauntCdMax > 0 ? (x.tauntCd > 0.05 ? '嘲讽 ' + Math.ceil(x.tauntCd) + ' 秒' : '嘲讽就绪') : '';
+    const sig = name + '|' + Math.ceil(x.hp) + '|' + x.maxHp + '|' + doing + '|' + taunt;
+    if (sig !== wui.mpSig) {
+      wui.mpSig = sig;
+      p.className = 'on ' + (x.kind === 'colossus' ? 'colossus' : 'thrall');
+      p.innerHTML =
+        '<div class="mp-top"><b>' + esc(name) + '</b><em>召唤物</em></div>' +
+        '<div class="mp-hp"><i style="width:' + Math.round(G.clamp(x.maxHp > 0 ? x.hp / x.maxHp : 0, 0, 1) * 100) + '%"></i><span>' + fmtInt(Math.max(0, Math.ceil(x.hp))) + ' / ' + fmtInt(x.maxHp) + '</span></div>' +
+        '<div class="mp-note"><span' + (tg && tg === focus ? ' class="focus"' : '') + '>' + esc(doing) + '</span>' + (taunt ? '<span class="' + (x.tauntCd > 0.05 ? '' : 'ready') + '">' + taunt + '</span>' : '') + '</div>';
+    }
+    wui.mpOn = true;
+    const q = G.world.project(x.x, (x.height || MINION_H[x.kind] || 1.8) + 0.45, x.z);
+    const px = Math.round(q.x);
+    const py = Math.round(q.y - 8);
+    if (px !== wui.mpX || py !== wui.mpY) {
+      wui.mpX = px;
+      wui.mpY = py;
+      p.style.transform = 'translate(' + px + 'px,' + py + 'px) translate(-50%,-100%)';
+    }
   }
 
   // 地面掉落的一行概要与升降标记（半秒重算一次）
@@ -2625,8 +2915,13 @@
       const id = l.data.id;
       const sk = G.SKILLS[id];
       const have = save.skills[id];
-      const k = 1 + 0.2 * (l.data.lvl - 1);
-      const dmg = Object.keys(sk.dmg).map((t) => '<b style="color:' + G.TYPE_COLOR[t] + '">' + Math.round(sk.dmg[t][0] * k) + '–' + Math.round(sk.dmg[t][1] * k) + ' ' + G.TYPE_NAME[t] + '</b>').join(' + ');
+      const k = 1 + (sk.kind === 'summon' ? G.MINION_DMG_LVL || 0.2 : 0.2) * (l.data.lvl - 1);
+      const dmgs = sk.dmg || {};
+      let dmg = Object.keys(dmgs).map((t) => '<b style="color:' + G.TYPE_COLOR[t] + '">' + Math.round(dmgs[t][0] * k) + '–' + Math.round(dmgs[t][1] * k) + ' ' + G.TYPE_NAME[t] + '</b>').join(' + ') || '无';
+      if (sk.kind === 'summon') {
+        // 召唤宝石：写召唤物自己的基础数值（还没算召唤物属性和辅助）
+        dmg = '<span class="c-ally">召唤物</span>每击 ' + dmg + (sk.life ? '<br>召唤物生命 ' + Math.round(sk.life * (1 + (G.MINION_LIFE_LVL || 0.28) * (l.data.lvl - 1))) : '') + (sk.cap ? (sk.cap > 1 ? ' · 基础上限 ' + sk.cap + ' 具' : ' · 只有 1 尊') : '');
+      }
       const state = !have
         ? '<div class="tc-state new">新技能 · 拾取后学会' + (save.bar.indexOf(null) >= 0 ? '，并放进技能栏的空格' : '，在技能页绑定按键') + '</div>'
         : l.data.lvl > have
@@ -2634,9 +2929,9 @@
           : '<div class="tc-state dup">等级不高于已学会的 Lv ' + have + ' · 拾取后化为 1 ' + G.CURRENCY.dust.name + '</div>';
       return (
         '<div class="tcard" style="--c:' + sk.color + '">' + tcHead('<span class="ibox sk" style="--c:' + sk.color + '">' + IC.skill(id) + '</span>', sk.name, '技能宝石 · Lv ' + l.data.lvl) +
-        '<div class="tc-tags">' + sk.tags.map((t) => '<span>' + G.TAG_NAME[t] + '</span>').join('') + '</div>' +
+        '<div class="tc-tags">' + cardTags(sk).map((t) => '<span>' + G.TAG_NAME[t] + '</span>').join('') + '</div>' +
         '<div class="tc-desc">' + sk.desc + '</div>' +
-        '<div class="tc-foot">基础伤害 ' + dmg + '<br>魔力 ' + (sk.mana ? Math.round(sk.mana * (1 + 0.05 * (l.data.lvl - 1))) : '无') + ' · 施放 ' + sk.time + ' 秒' + (sk.cd ? ' · 冷却 ' + sk.cd + ' 秒' : '') + '</div>' +
+        '<div class="tc-foot">' + (sk.kind === 'summon' ? '' : '基础伤害 ') + dmg + '<br>魔力 ' + (sk.mana ? Math.round(sk.mana * (1 + 0.05 * (l.data.lvl - 1))) : '无') + ' · 施放 ' + sk.time + ' 秒' + (sk.cd ? ' · 冷却 ' + sk.cd + ' 秒' : '') + '</div>' +
         state + foot + '</div>'
       );
     }
@@ -2646,7 +2941,7 @@
     return (
       '<div class="tcard" style="--c:' + IC.supColor(l.data) + '">' + tcHead(ibox(IC.sup(l.data), 'gemb'), sp.name, '辅助宝石') +
       '<div class="tc-desc">' + sp.desc + '</div>' +
-      '<div class="tc-foot">魔力消耗 ×' + sp.cost + ' · ' + (sp.req ? '需要标签：' + reqText(sp) : '适用于任意技能') +
+      '<div class="tc-foot">魔力消耗 ×' + sp.cost + ' · 适用：' + scopeText(sp) +
       '<br>你的技能里可镶嵌：' + (fits.length ? fits.join('、') : '暂无') + '</div>' +
       (have
         ? '<div class="tc-state dup">已经拥有 · 拾取后化为 1 ' + G.CURRENCY.augment.name + '</div>'
@@ -2797,12 +3092,15 @@
     // 准星 + 鼠标指着什么
     let loot = null;
     let enemy = null;
+    let ally = null;
     const aim = live && ui.overCanvas && ui.mouseX >= 0;
     if (aim && !P.dead) {
       loot = W.lootLabelAt(ui.mouseX, ui.mouseY);
       if (!loot) enemy = enemyAt(ui.mouseX, ui.mouseY);
+      if (!loot && !enemy) ally = minionAt(ui.mouseX, ui.mouseY); // 敌人优先：准星压在混战里时总是先看敌人
     }
-    const rs = !aim ? 'off' : loot ? 'loot' : enemy ? 'enemy' : 'aim';
+    minionPlate(ally);
+    const rs = !aim ? 'off' : loot ? 'loot' : enemy ? 'enemy' : ally ? 'ally' : 'aim';
     if (rs !== wui.retState) {
       wui.retState = rs;
       wui.ret.className = rs;
@@ -2941,6 +3239,7 @@
       feedPush('c' + loot.data, ibox(IC.cur(loot.data), 'curb'), G.CURRENCY[loot.data].name, G.CURRENCY[loot.data].color);
     } else if (loot.kind === 'skill') {
       const sk = G.SKILLS[loot.data.id];
+      if (isSummon(loot.data.id)) summonPing();
       feedPush('s' + loot.data.id + loot.data.lvl, '<span class="ibox sk" style="--c:' + sk.color + '">' + IC.skill(loot.data.id) + '</span>', '技能宝石 · ' + sk.name + ' Lv ' + loot.data.lvl, '#3fe0c8');
     } else {
       feedPush('p' + loot.data, ibox(IC.sup(loot.data), 'gemb'), '辅助宝石 · ' + G.SUPPORTS[loot.data].name, '#f0f0f4');
@@ -2957,6 +3256,7 @@
     fightT: 0, // 需要清静的提示亮着的时候，已经连续打了多久
     epoch: -1, vet: false, // 这份存档读进来时是不是老角色（3 级以上）：只在读档 / 删档时判定一次
     snooze: {}, shows: {}, // 提示 id → 先别出、到这个时刻再说 / 已经出现过几次
+    summonPing: false, // 第一次拾到召唤宝石 / 第一次施放召唤：等着出召唤提示（看过之后不再记）
   };
   const COACH_DONE_MS = 2000; // 「做到了」之后再留多久
   const COACH_GAP_MS = 1500; // 两条提示之间的间隔
@@ -2980,6 +3280,12 @@
   const comboOnBar = () => G.save.bar.some((id) => id && G.SKILLS[id] && G.SKILLS[id].combo);
   const lifeFrac = () => (G.player.maxLife > 0 ? G.player.life / G.player.maxLife : 1);
   const inFight = () => enemyNear(14, (e) => e.awake); // 身边有醒着的敌人
+  const isSummon = (id) => !!(id && G.SKILLS[id] && G.SKILLS[id].kind === 'summon');
+  const minionCount = () => liveMinions().reduce((n, m) => n + (m && !m.dead ? 1 : 0), 0);
+  const focusNow = () => (typeof G.focusTarget === 'function' ? G.focusTarget() : null);
+  function summonPing() {
+    if (!G.save.tut.summon) coach.summonPing = true;
+  }
 
   // when：什么时候该出现；done(b)：玩家做到了（b 是出现那一刻的快照）；max：最多停留的秒数（只算游戏进行中的时间）
   // basic：基础操作，读档时已经 3 级以上的老角色直接跳过；need：要先看过哪一条；panel：打开对应页签时在面板里接着提示
@@ -3028,6 +3334,19 @@
       html: '精英和首领血条下的<b>白条是架势</b>。连续命中把它打空，敌人就会露出<b class="c-gold">破绽</b>——近战削得最多，终结技尤其多',
       when: () => enemyNear(12, (e) => e.awake && e.poiseMax > 0 && !(e.brokenT > 0)),
       done: (b) => G.state.stats.breaks > b.breaks,
+    },
+    {
+      id: 'summon', max: 40,
+      // 显示时按技能栏现场拼：召唤宝石绑在哪个键就写哪个键（不在技能栏上时退回不带键的说法）
+      get html() {
+        const bar = (G.save && G.save.bar) || [];
+        let i = -1;
+        for (let k = 0; k < bar.length && i < 0; k++) if (bar[k] && G.SKILLS[bar[k]] && G.SKILLS[bar[k]].kind === 'summon') i = k;
+        const how = i >= 0 && KEY_LABEL[i] ? '按 <kbd>' + KEY_LABEL[i] + '</kbd> 朝准星施放' : '朝准星施放';
+        return '学会了<b class="c-ally">召唤</b>：' + how + '，召唤物会自己寻敌厮杀。你<b>亲手打中</b>的敌人会被标记，召唤物优先<b>集火</b>它。召唤物的数值、辅助宝石在 <kbd>G</kbd> 技能页';
+      },
+      when: () => coach.summonPing,
+      done: () => minionCount() > 0 && !!focusNow(),
     },
     {
       id: 'loot', calm: true, max: 22,
@@ -3128,7 +3447,11 @@
     }
     coach.px = P.x;
     coach.pz = P.z;
-    if (P.cast) coach.cast[P.cast.slot] = true;
+    if (P.cast) {
+      coach.cast[P.cast.slot] = true;
+      if (!coach.summonPing && isSummon(P.cast.id)) summonPing();
+    }
+    if (coach.summonPing && G.save.tut.summon) coach.summonPing = false; // 已经看过（或测试里统一标成看过）
     if (P.roll.t > 0) coach.rolled = true;
     if (coach.cur0 < 0) coach.cur0 = curTotal();
 
@@ -3139,6 +3462,7 @@
       coach.vet = G.save.level >= 3;
       coach.snooze = {};
       coach.shows = {};
+      coach.summonPing = false;
     }
 
     // 稍纵即逝的提示（处决、濒死喝药、首领门口）：条件满足时不等间隔，直接顶掉正在显示的那条

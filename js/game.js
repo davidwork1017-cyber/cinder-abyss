@@ -41,6 +41,10 @@
     enemies: [], projectiles: [], telegraphs: [], loot: [], timers: [],
     boss: null, portal: null,
     hover: null, // 准星正指着的敌人（界面层写入；world 据此不重复画名字）
+    // 召唤物（minions.js 维护）：{ kind, skill, ent, x, z, hp, maxHp, dead, target, atkT, tauntCd, tauntCdMax, ... }
+    minions: [],
+    // 集火目标：玩家最近一次亲手打中的敌人，focusT 秒后失效（召唤物优先攻击它）
+    focus: null, focusT: 0,
     // 战斗统计（新手提示与测试读取）：命中 / 暴击 / 终结技命中 / 击破 / 处决 / 击杀
     stats: { hits: 0, crits: 0, finishers: 0, breaks: 0, execs: 0, kills: 0 },
   });
@@ -128,6 +132,7 @@
   // G.save 始终是同一个对象：换存档时原地覆盖内容
   function setSave(s) {
     G.saveEpoch = (G.saveEpoch || 0) + 1; // 换了一份存档（读档 / 删档）：界面层据此重新判断「是不是老角色」
+    if (G.clearMinions) G.clearMinions(); // 召唤物不进存档：换了角色就散掉
     if (G.save && G.save !== s) {
       for (const k of Object.keys(G.save)) delete G.save[k];
       Object.assign(G.save, s);
@@ -285,7 +290,7 @@
     } catch (err) {
       /* 存储不可用时也照常重置内存里的存档 */
     }
-    setSave(G.newSave());
+    setSave(G.newSave()); // 召唤物在 setSave 里一并散掉
     G.computeStats();
     G.persist();
     return G.save;
@@ -336,6 +341,7 @@
     const sk = G.SKILLS[skillId];
     const sup = G.SUPPORTS[supId];
     if (!sk || !sup) return false;
+    if (sup.no && sup.no.some((tag) => sk.tags.indexOf(tag) >= 0)) return false;
     if (!sup.req) return true;
     return sup.req.some((tag) => sk.tags.indexOf(tag) >= 0);
   };
@@ -343,17 +349,21 @@
   // 顿帧时长随攻击 / 施法速度的缩放：越快越短，但不低于六成（再短就没有顿挫感了）
   const STOP_K = (speed) => G.clamp(1 / (speed > 0 ? speed : 1), 0.6, 1);
 
-  // 每次命中都要用到的技能上下文
+  // 每次命中都要用到的技能上下文。
+  // 召唤技能（kind 'summon'）的伤害字段描述的是召唤物的每一击：不吃玩家自己的伤害属性（附加伤害、伤害提高、
+  // 总伤害、暴击、异常几率、范围），只吃 minionDmg / minionMore 与镶在这个技能上的辅助；ctx.minion 是召唤物的其余数值
   G.skillCtx = function (id) {
     const save = G.save;
     const S = P.S;
     const sk = G.SKILLS[id];
     const lvl = save.skills[id] || 1;
-    const scale = 1 + 0.2 * (lvl - 1);
+    const isMinion = sk.kind === 'summon';
+    // 召唤物的基础伤害起点高、每级成长慢一些（G.MINION_DMG_LVL）：前期只有 3 具仆从、几乎没有加成时也打得动，后期不至于碾压首领
+    const scale = 1 + (isMinion ? G.MINION_DMG_LVL : 0.2) * (lvl - 1);
 
     const base = {};
     for (const t in sk.dmg) base[t] = [sk.dmg[t][0] * scale, sk.dmg[t][1] * scale];
-    for (const t of TYPES) {
+    if (!isMinion) for (const t of TYPES) {
       const v = S['add' + G.CAP[t]] || 0;
       if (v > 0) {
         if (!base[t]) base[t] = [0, 0];
@@ -365,15 +375,17 @@
     const inc = {};
     const moreType = {};
     for (const t of TYPES) {
-      inc[t] = (S.incAll || 0) + (t === 'phys' ? S.incPhys || 0 : (S.incElem || 0) + (S['inc' + G.CAP[t]] || 0));
+      inc[t] = isMinion ? S.minionDmg || 0 : (S.incAll || 0) + (t === 'phys' ? S.incPhys || 0 : (S.incElem || 0) + (S['inc' + G.CAP[t]] || 0));
       moreType[t] = 1;
     }
 
-    let more = 1 + (S.moreDmg || 0) / 100;
+    // 基石「万骸之主」：你自己（非召唤物）的伤害总额外降低（处决也算你自己的伤害）
+    let more = isMinion ? 1 + (S.minionMore || 0) / 100 : (1 + (S.moreDmg || 0) / 100) * (1 - Math.min(90, S.ownLess || 0) / 100);
     const extra = {};
-    let proj = 0, pierce = 0, chain = 0, area = S.area || 0, speedPct = 0;
-    let critFlat = 0, critMulti = 150 + (S.critMulti || 0);
-    let leech = 0, stun = 0, ailment = S.ailment || 0, echo = 0, cdr = 0, costMult = 1;
+    let proj = 0, pierce = 0, chain = 0, area = isMinion ? 0 : S.area || 0, speedPct = 0;
+    let critFlat = 0, critMulti = 150 + (isMinion ? 0 : S.critMulti || 0);
+    let leech = 0, stun = 0, ailment = isMinion ? 0 : S.ailment || 0, echo = 0, cdr = 0, costMult = 1;
+    let mLife = 0, mDR = 0, mCap = 0, mSpeed = 0;
 
     for (const supId of save.sockets[id] || []) {
       const sup = supId && G.SUPPORTS[supId];
@@ -394,6 +406,11 @@
       if (e.ailment) ailment += e.ailment;
       if (e.echo) echo += e.echo;
       if (e.cdr) cdr += e.cdr;
+      if (e.minionMore) more *= 1 + e.minionMore / 100;
+      if (e.minionLife) mLife += e.minionLife;
+      if (e.minionDR) mDR += e.minionDR;
+      if (e.minionCap) mCap += e.minionCap;
+      if (e.minionSpeed) mSpeed += e.minionSpeed;
       costMult *= sup.cost;
     }
 
@@ -401,11 +418,11 @@
     let cost = sk.mana * (1 + 0.05 * (lvl - 1)) * costMult * (1 - Math.min(80, S.costReduce || 0) / 100);
     cost = sk.mana > 0 ? Math.max(1, Math.round(cost)) : 0;
 
-    return {
+    const ctx = {
       id, sk, lvl, base, inc, moreType,
       more: Math.max(0, more),
       extra,
-      crit: G.clamp(5 * (1 + (S.crit || 0) / 100) + critFlat, 0, 100),
+      crit: G.clamp((isMinion ? 5 : 5 * (1 + (S.crit || 0) / 100)) + critFlat, 0, 100),
       critMulti: Math.max(100, critMulti),
       proj: 1 + proj,
       pierce: (sk.pierce || 0) + pierce,
@@ -419,11 +436,37 @@
       cost,
       cd: sk.cd * (1 - Math.min(80, cdr) / 100),
       leech, stun, ailment, echo,
+      minion: null,
     };
+    if (isMinion) {
+      // 召唤物：生命随宝石等级成长（比伤害快一些，跟得上怪物的伤害成长）；攻速吃「召唤物速度」和迅捷，移动只吃前者
+      const spdK = Math.max(0.2, 1 + ((S.minionSpeed || 0) + mSpeed) / 100);
+      const atkK = spdK * (1 + speedPct / 100);
+      const cap = sk.cap + (sk.minion === 'thrall' ? Math.max(0, Math.round((S.minionCap || 0) + mCap)) : 0);
+      ctx.minion = {
+        kind: sk.minion, cap,
+        life: Math.max(1, Math.round(sk.life * (1 + G.MINION_LIFE_LVL * (lvl - 1)) * Math.max(0.1, 1 + ((S.minionLife || 0) + mLife) / 100))),
+        dr: Math.min(75, (sk.dr || 0) + mDR),
+        interval: sk.rate / atkK,
+        move: sk.move * spdK,
+        reach: sk.reach || 1,
+        cleave: sk.cleave || 0, // 仆从横斩额外带到的敌人数与扇面（弧度）
+        hold: sk.hold || 2, // 同时最多牵制几只小怪（多出来的去找玩家）
+        arc: ((sk.arc || 0) * Math.PI) / 180,
+        radius: (sk.radius || 0) * Math.sqrt(ctx.area),
+        taunt: sk.taunt || null,
+      };
+    }
+    return ctx;
   };
 
-  // 估算秒伤（技能卡、换装评估用）：平均击中 ÷ 每次出手实际占用的时间（含命中时的顿帧），受冷却限制
+  G.MINION_LIFE_LVL = 0.28; // 召唤物生命每级宝石的成长（伤害是 MINION_DMG_LVL，生命要跟得上怪物伤害 1.15 倍 / 级的成长）
+  G.MINION_DMG_LVL = 0.11; // 召唤物伤害每级宝石的成长（其他技能是 0.2；召唤宝石的基础伤害相应高一截）
+
+  // 估算秒伤（技能卡、换装评估用）：平均击中 ÷ 每次出手实际占用的时间（含命中时的顿帧），受冷却限制。
+  // 召唤技能：数量上限内的召唤物一起出手的秒伤（单体）
   G.skillDps = function (ctx) {
+    if (ctx.minion) return (G.avgHit(ctx) * ctx.minion.cap) / Math.max(0.05, ctx.minion.interval);
     return G.avgHit(ctx) / Math.max(ctx.time + ctx.stopAvg, ctx.cd || 0, 0.01);
   };
 
@@ -497,6 +540,7 @@
   const lastHit = (G.lastHit = { crit: false, type: 'phys', killed: false, total: 0 });
   const KB_DECAY = (G.KB_DECAY = 7); // 击退速度每秒的衰减率：初速度 = 距离 × 衰减率（enemies.js 按同一个数衰减）
   const CHAIN_KEEP = 2.5; // 连击计数：多久没有命中就清零
+  const FOCUS_KEEP = (G.FOCUS_KEEP = 4); // 集火目标保留的秒数
 
   // 把敌人朝 ang 方向推开 dist（世界单位，按体重折算）；真正的位移在 updateEnemies 里带着撞墙检测做
   function knock(e, ang, dist) {
@@ -515,7 +559,8 @@
   }
 
   // info（可选）：{ ang 这一击行进的方向（缺省 = 从玩家指向敌人）, w 分量（0 轻 / 1 重 / 2 终结；缺省取技能数据）,
-  //   kb 击退距离, poise 削掉的架势, quiet 不单独出声（一次挥砍打到多个敌人时由技能统一出一声） }
+  //   kb 击退距离, poise 削掉的架势, quiet 不单独出声（一次挥砍打到多个敌人时由技能统一出一声）,
+  //   minion 出手的召唤物（召唤物的命中不算玩家的连击、不改集火目标；镜头不跟着顶） }
   G.hitEnemy = function (e, ctx, mult, info) {
     if (!e || e.dead) return 0;
     const W = G.world;
@@ -564,12 +609,19 @@
     wake(e);
 
     const st = state.stats;
-    st.hits++;
-    if (hit.crit) st.crits++;
-    const ch = P.chain;
-    ch.n++;
-    ch.t = CHAIN_KEEP;
-    if (ch.n > ch.best) ch.best = ch.n;
+    if (inf.minion) {
+      st.minionHits = (st.minionHits || 0) + 1;
+    } else {
+      st.hits++;
+      if (hit.crit) st.crits++;
+      const ch = P.chain;
+      ch.n++;
+      ch.t = CHAIN_KEEP;
+      if (ch.n > ch.best) ch.best = ch.n;
+      // 集火：玩家亲手打中的敌人成为召唤物的优先目标
+      state.focus = e;
+      state.focusT = FOCUS_KEEP;
+    }
 
     // 重击打断普通小怪的起手；所有命中都把小怪推开（首领不被推动）
     if (!e.isBoss) {
@@ -819,10 +871,12 @@
     placePlayer(at.x, at.z);
     refill();
     G.resetEnemies();
+    if (G.regroupMinions) G.regroupMinions(); // 召唤物回到重生点身边
     if (state.portal) state.portal.armed = true;
   };
 
   // ---------- 预警圈 ----------
+  const BOSS_VS_MINION = (G.BOSS_VS_MINION = 1.6); // 首领的预警招式打在召唤物身上的伤害倍率
   G.telegraph = function (spec) {
     const t = spec;
     if (!t.shape) t.shape = 'circle';
@@ -890,6 +944,16 @@
       list.splice(i, 1);
       W.removeTelegraph(t.handle);
       if (!t.friendly && t.dmg > 0 && insideTelegraph(t, P.x, P.z)) G.hurtPlayer(t.dmg, t.dtype, t);
+      if (!t.friendly && t.dmg > 0 && G.hurtMinion) {
+        // 敌方的预警圈对站在里面的召唤物同样结算。召唤物不会躲：首领的招式对它们加重（BOSS_VS_MINION），
+        // 一直让召唤物围着首领硬砍会成片倒下，得重新召唤
+        const ms = state.minions;
+        const k = t.owner && t.owner.isBoss ? BOSS_VS_MINION : 1;
+        for (let j = ms.length - 1; j >= 0; j--) {
+          const m = ms[j];
+          if (m && !m.dead && insideTelegraph(t, m.x, m.z)) G.hurtMinion(m, t.dmg * k, t.dtype, t);
+        }
+      }
       if (t.onFire) t.onFire(t);
     }
   };
@@ -921,6 +985,27 @@
   };
 
   const recentVolleys = []; // 最近伤到过玩家的齐射编号
+
+  // 敌方弹丸擦过召唤物（至多五六只，逐个比距离）：每发弹丸对每只召唤物至多结算一次，
+  // 同一轮齐射对同一只召唤物也只结算一次。弹丸不会被挡下：躲在召唤物身后照样挨射
+  function hostileGrazesMinions(p) {
+    const ms = state.minions;
+    for (let j = 0; j < ms.length; j++) {
+      const m = ms[j];
+      if (m.dead || m.rising > 0) continue;
+      if (dist(m.x, m.z, p.x, p.z) > p.r + m.r) continue;
+      if (!p.mHit) p.mHit = [];
+      else if (p.mHit.indexOf(m) >= 0) continue;
+      p.mHit.push(m);
+      const v = p.volley;
+      if (v !== undefined && v !== null) {
+        if (m.volley === v) continue;
+        m.volley = v;
+      }
+      G.hurtMinion(m, p.dmg, p.dtype, { x: p.x - p.dx, z: p.z - p.dz });
+      G.world.burst(p.x, 1.1, p.z, p.color, 4, 3, 0.2);
+    }
+  }
 
   function removeProjectile(i) {
     const p = state.projectiles[i];
@@ -1010,7 +1095,10 @@
             alive = afterPlayerHit(p, e);
             break; // 每小步最多命中一个
           }
-        } else if (!P.dead && dist(P.x, P.z, p.x, p.z) <= p.r + 0.5) {
+        } else {
+          // 擦过召唤物照样结算它的那一份，但弹丸不会被挡下，继续飞向身后的玩家
+          if (G.hurtMinion && state.minions.length) hostileGrazesMinions(p);
+          if (P.dead || dist(P.x, P.z, p.x, p.z) > p.r + 0.5) continue;
           // 同一轮齐射（volley 相同）只结算一次伤害：贴脸吃满一圈弹幕不该被瞬间打空
           const v = p.volley;
           const from = { x: p.x - p.dx, z: p.z - p.dz };
@@ -1247,7 +1335,7 @@
       });
       // 出手动作：连击三段各有各的挥法，其余按技能类型；命中帧对在生效的时刻
       const kind = sk.kind;
-      const clip = st ? st.clip : kind === 'proj' ? 'throw' : kind === 'blink' ? 'blink' : kind === 'melee' ? 'attack1' : 'cast';
+      const clip = st ? st.clip : kind === 'proj' ? 'throw' : kind === 'blink' ? 'blink' : kind === 'melee' ? 'attack1' : 'cast'; // 召唤也用施法动作
       G.world.play(P.ent, clip, { dur: st ? c.dur + 0.1 : ctx.time * 1.3, contact: c.fireT });
       if (st) {
         G.world.setTrail(G.TYPE_HEX[mainType(ctx)]);
@@ -1798,6 +1886,11 @@
     },
   };
 
+  // 召唤：在准星处唤起召唤物（落点、数量上限与替换都由 minions.js 处理）
+  SKILL_FX.summon = function (ctx, a) {
+    if (G.summonMinion) G.summonMinion(ctx.id, a.tx, a.tz, ctx);
+  };
+
   // 以当前鼠标落点为目标执行一次技能效果（不扣消耗、不进冷却）
   // st（可选）：连击技能的哪一段
   G.execSkill = function (ctx, st) {
@@ -1913,12 +2006,18 @@
     return pathClear(P.x, P.z, _spot.x, _spot.z);
   };
 
-  // 处决伤害的基数：技能栏上平均击中最高的那个技能
+  // 处决伤害的基数：技能栏上平均击中最高的那个技能。
+  // 召唤技能按召唤物的一击算，但处决是玩家自己的伤害：「万骸之主」的自身伤害惩罚照样要乘上
+  function execHitOf(id) {
+    const ctx = G.skillCtx(id);
+    const v = G.avgHit(ctx);
+    return ctx.minion ? v * (1 - Math.min(90, P.S.ownLess || 0) / 100) : v;
+  }
   function execBase() {
     const save = G.save;
     let best = 0;
-    for (const id of save.bar) if (id && save.skills[id]) best = Math.max(best, G.avgHit(G.skillCtx(id)));
-    if (!best) for (const id in save.skills) best = Math.max(best, G.avgHit(G.skillCtx(id)));
+    for (const id of save.bar) if (id && save.skills[id]) best = Math.max(best, execHitOf(id));
+    if (!best) for (const id in save.skills) best = Math.max(best, execHitOf(id));
     return best;
   }
 
@@ -2699,6 +2798,9 @@
     P.ent.group.visible = true;
     placePlayer(state.zone.start.x, state.zone.start.z);
     refill();
+    state.focus = null;
+    state.focusT = 0;
+    if (G.regroupMinions) G.regroupMinions(); // 召唤物跟着进入新区域，在入口处重新现身
 
     save.lastZone = idx;
     save.tier = tier;

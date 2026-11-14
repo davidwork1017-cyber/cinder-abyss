@@ -17,6 +17,12 @@
   const POUNCE = 1.3; // 近战小怪出手时前扑的最远距离
   const COMMIT = 0.4; // 起手只剩最后这一成时已经收不住了：重击也打断不了
   const POUNCE_T = 0.1; // 前扑摊在起手的最后这么多秒里（不是一帧瞬移过去）
+  // 召唤物：小怪在玩家与附近的召唤物之间挑一个打。离自己 FOE_RANGE 以内的召唤物才考虑；
+  // 召唤物要比玩家近出 FOE_BIAS 才会被选中（偏向玩家）。被嘲讽时无条件打嘲讽者
+  const FOE_RANGE = 7;
+  const FOE_BIAS = 2.5;
+  // 远程小怪和爆裂虫更认准玩家：召唤物得贴到跟前（比玩家近出这么多）才会转火，躲在召唤物后面的人照样挨射、照样被扑
+  const FOE_BIAS_RANGED = 6;
 
   let packSeq = 1; // 怪群编号
   let spawnZone = null; // spawnZoneMobs 进行中时的 zone（此时 G.state.zone 可能还没赋值）
@@ -135,6 +141,25 @@
     e.navZ = s.az + (uz / len) * t2;
     e.navWp = true;
   }
+  // 给召唤物用的寻路：从 (x, z) 去 (tx, tz)，直线走得通就返回目标本身，否则沿通道轴线给一个路点（写进 out）
+  const navProbe = { x: 0, z: 0, r: 0.5, zone: null, navDirect: true, navWp: false, navX: 0, navZ: 0 };
+  G.navPoint = function (x, z, tx, tz, r, out) {
+    const o = out || { x: 0, z: 0 };
+    o.x = tx;
+    o.z = tz;
+    const zone = G.state.zone;
+    if (!zone) return o;
+    navProbe.x = x;
+    navProbe.z = z;
+    navProbe.r = r || 0.5;
+    navProbe.zone = zone;
+    refreshNav(navProbe, tx, tz);
+    if (navProbe.navWp) {
+      o.x = navProbe.navX;
+      o.z = navProbe.navZ;
+    }
+    return o;
+  };
   function updateNav(e, P, dt) {
     e.navT -= dt;
     if (e.navT > 0) return;
@@ -182,6 +207,12 @@
     e.breaks = 0;
     e.executed = false;
     e.execLock = false;
+    // 攻击对象：foe 为 null 表示玩家，否则是一只召唤物；foeT 下次重新挑选的倒计时；
+    // tauntT / taunter：被守像嘲讽的剩余秒数与嘲讽者
+    e.foe = null;
+    e.foeT = 0;
+    e.tauntT = 0;
+    e.taunter = null;
     return e;
   }
 
@@ -348,6 +379,74 @@
     }
   }
 
+  // ---------- 攻击对象 ----------
+  // 打中攻击对象：玩家走 G.hurtPlayer，召唤物走 G.hurtMinion
+  function strike(tg, dmg, dtype, src) {
+    if (tg === G.player) G.hurtPlayer(dmg, dtype, src);
+    else if (G.hurtMinion) G.hurtMinion(tg, dmg, dtype, src);
+  }
+  function foeOk(m) {
+    return !!m && !m.dead && !(m.rising > 0);
+  }
+  // 一只召唤物同时最多牵制几只小怪（仆从 2、守像 4；嘲讽不受这个限制）：多出来的怪照样冲着玩家去
+  function minionHold(m) {
+    return (m.ctx && m.ctx.minion && m.ctx.minion.hold) || 2;
+  }
+  // 除了 self 以外，眼下有几只怪正盯着召唤物 m
+  function aggroOn(m, self) {
+    const es = G.state.enemies;
+    let n = 0;
+    for (let i = 0; i < es.length; i++) {
+      const o = es[i];
+      if (o !== self && o.foe === m && !o.dead && o.awake) n++;
+    }
+    return n;
+  }
+  // 这一帧小怪 / 首领的攻击对象（玩家或某只召唤物）。出手途中不换对象，预警和扑击才对得上
+  function pickFoe(e, P, dt) {
+    if (e.tauntT > 0) {
+      e.tauntT -= dt;
+      if (foeOk(e.taunter)) return e.taunter;
+      e.tauntT = 0;
+    }
+    e.taunter = null;
+    if (e.isBoss) return P; // 首领只会被嘲讽短暂吸引，平时只盯玩家
+    const ms = G.state.minions;
+    if (!ms || !ms.length) {
+      e.foe = null;
+      return P;
+    }
+    const busy = e.state !== 'idle';
+    e.foeT -= dt;
+    if ((e.foeT > 0 || busy) && (e.foe === null || foeOk(e.foe))) return e.foe || P;
+    e.foeT = 0.35 + Math.random() * 0.25;
+    let best = null, bd = FOE_RANGE;
+    for (let i = 0; i < ms.length; i++) {
+      const m = ms[i];
+      if (!foeOk(m) || aggroOn(m, e) >= minionHold(m)) continue; // 已经被围满的召唤物不再吸引更多的怪
+      const d = Math.hypot(m.x - e.x, m.z - e.z) - m.r;
+      if (d < bd) {
+        bd = d;
+        best = m;
+      }
+    }
+    const bias = e.def && (e.def.ai === 'ranged' || e.def.ai === 'bomb') ? FOE_BIAS_RANGED : FOE_BIAS;
+    e.foe = best && (P.dead || bd + bias < Math.hypot(P.x - e.x, P.z - e.z)) ? best : null;
+    return e.foe || P;
+  }
+  // 守像的嘲讽：dur 秒内只打它（首领用 bossDur，且不打断已经开始的招式）
+  G.tauntEnemy = function (e, m, dur, bossDur) {
+    if (!e || e.dead || !m || m.dead) return false;
+    e.tauntT = Math.max(e.tauntT || 0, e.isBoss ? bossDur : dur);
+    e.taunter = m;
+    if (!e.isBoss) {
+      e.foe = m;
+      e.foeT = e.tauntT;
+    }
+    e.awake = true;
+    return true;
+  };
+
   // ---------- 小怪 AI ----------
   // volley：同一轮齐射共用一个编号，game.js 保证一轮齐射对玩家只结算一次伤害
   let volleySeq = 1;
@@ -383,7 +482,7 @@
       // 起手的最后一瞬：朝玩家扑出去（摊在这 0.1 秒里走完），落地时按当时的距离判定。
       // 扑得够远，蓄力时被轻击推开一两步照样够得着
       const f = 1 - Math.max(0, e.stateT) / POUNCE_T;
-      const gap = dist - (e.r + PLAYER_R + 0.2);
+      const gap = dist - (e.r + PLAYER_R + 0.2); // dist 已按召唤物的体型折算过
       if (gap > 0) {
         const a = angTo(e, P.x, P.z), d = Math.min((POUNCE * (Math.min(t0, POUNCE_T) - Math.max(0, e.stateT))) / POUNCE_T, gap);
         if (d > 0) tryMove(e, Math.sin(a) * d, Math.cos(a) * d);
@@ -392,7 +491,7 @@
       if (e.stateT > 0) return;
       W.slash(e.x, e.z, e.ang, e.reach + 0.5, 100, WARN_HEX);
       if (W.clipOf(e.ent) !== 'attack') W.play(e.ent, 'attack');
-      if (Math.hypot(P.x - e.x, P.z - e.z) <= e.reach + 0.7) G.hurtPlayer(e.dmg, 'phys', e);
+      if (Math.hypot(P.x - e.x, P.z - e.z) <= e.reach + 0.2 + (P.r || PLAYER_R)) strike(P, e.dmg, 'phys', e);
       e.state = 'recover';
       e.stateT = 0.28;
       e.vis = 0.35;
@@ -1019,13 +1118,16 @@
 
       const ox = e.x, oz = e.z; // 之后的位移才是它自己走的（被推开不算迈步）
       if (e.awake && !held && !P.dead) {
-        updateNav(e, P, dt);
-        if (e.isBoss) updateBoss(e, dt, P, dist, spd);
+        // 攻击对象：玩家或附近的召唤物（被嘲讽时是守像）；AI 把它当成「玩家」来追、来打
+        const tg = pickFoe(e, P, dt);
+        const td = tg === P ? dist : Math.max(0, Math.hypot(tg.x - e.x, tg.z - e.z) - (tg.r - PLAYER_R)); // 按体型折算成「到玩家那么大的目标」的距离
+        updateNav(e, tg, dt);
+        if (e.isBoss) updateBoss(e, dt, tg, td, spd);
         else {
           if (e.atkCd > 0) e.atkCd -= dt;
-          MOB_AI[e.def.ai](e, dt, P, dist, spd);
+          MOB_AI[e.def.ai](e, dt, tg, td, spd);
         }
-      }
+      } else if (e.tauntT > 0) e.tauntT -= dt;
       e.moving = Math.hypot(e.x - ox, e.z - oz) > dt * 0.6;
       e.held = held;
       near.push(e);
@@ -1033,6 +1135,7 @@
     }
 
     separate(active, dt, P);
+    if (G.updateMinions) G.updateMinions(dt); // 召唤物在敌人之后更新：读到的是敌人这一帧的位置
 
     for (const e of near) {
       const s = Math.sin(e.ang), c = Math.cos(e.ang);
@@ -1081,6 +1184,8 @@
       e.chill = e.freeze = e.shock = e.burn = e.burnT = e.stunT = 0;
       e.stunAnim = false;
       e.kvx = e.kvz = e.stagT = 0;
+      e.foe = e.taunter = null;
+      e.foeT = e.tauntT = 0;
       e.poiseMax = e.poise = e.poiseBase;
       e.poiseT = e.poiseHit = e.brokenT = 0;
       e.breaks = 0;

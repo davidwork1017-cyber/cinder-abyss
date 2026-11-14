@@ -2343,3 +2343,110 @@ body.panel-open #coach { display: none; }
 .sk-combo span { padding: 1px 8px; background: #17100c; border: 1px solid #3d2c1e; border-radius: 2px; font-variant-numeric: tabular-nums; }
 .sk-combo span.fin { color: #ffd0a0; border-color: #b4551c; }
 .sk-combo i { width: 10px; height: 1px; background: #5e4329; }
+
+/* ============================================================
+   召唤物：HUD 上的召唤物条、悬停名牌、技能卡上的召唤物数值
+   友方统一用魂火青（--ally），和敌人的红、玩家的金区分开
+   ============================================================ */
+:root { --ally: #4fe3c8; --ally-d: #1d6f62; }
+.c-ally { color: var(--ally); }
+
+/* ---- 召唤物条：生命药剂右边、技能栏左边，从下往上排，放不下就折到上一行 ---- */
+#minions {
+  position: absolute;
+  left: 204px;
+  bottom: 20px;
+  max-width: calc(50vw - 400px);
+  display: none;
+  flex-wrap: wrap-reverse;
+  align-items: flex-end;
+  gap: 5px 4px;
+  padding: 5px 6px 4px;
+  background: linear-gradient(180deg, rgba(10, 22, 20, 0.55), rgba(8, 12, 11, 0.78));
+  border: 1px solid rgba(79, 227, 200, 0.28);
+  border-radius: 4px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+}
+#minions.on { display: flex; }
+.mn { position: relative; width: 26px; transition: opacity 0.2s; }
+.mn.off { display: none; }
+.mn.rise { opacity: 0.55; }
+.mn-icon {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  background: radial-gradient(circle at 50% 40%, #18332e, #0a1412 75%);
+  border: 1px solid #2f8577;
+  border-radius: 3px;
+}
+.mn-icon .ico { position: absolute; inset: 1px; width: auto; height: auto; background-size: contain; background-repeat: no-repeat; background-position: center; }
+.mn-hp, .mn-tc { height: 4px; margin-top: 2px; overflow: hidden; background: #071110; border: 1px solid #0f2a26; border-radius: 1px; }
+.mn-hp i, .mn-tc i { display: block; height: 100%; transform-origin: left center; will-change: transform; }
+.mn-hp i { background: linear-gradient(180deg, #8ff5e2, #26a892); }
+.mn.low .mn-hp i { background: linear-gradient(180deg, #ffd37a, #d9862c); }
+.mn.low .mn-icon { border-color: #b8742c; }
+.mn-tc, .mn-t { display: none; }
+/* 守像：大一号，多一道嘲讽冷却条和角标 */
+.mn.colossus { width: 34px; margin-right: 3px; }
+.mn.colossus .mn-icon { width: 34px; height: 34px; border-color: #49b8a4; }
+.mn.colossus .mn-tc { display: block; height: 3px; margin-top: 1px; }
+.mn.colossus .mn-tc i { background: linear-gradient(180deg, #ffe3a0, #c98a2e); }
+.mn.colossus .mn-t {
+  position: absolute;
+  right: -5px;
+  top: -6px;
+  display: grid;
+  place-items: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 2px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: #cdbfa6;
+  background: #120c08;
+  border: 1px solid #6b5330;
+  border-radius: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.mn.colossus.ready .mn-t { color: #1a1004; background: #ffc85a; border-color: #ffe3a0; box-shadow: 0 0 8px rgba(255, 200, 90, 0.7); }
+.mn.colossus.ready .mn-tc i { background: linear-gradient(180deg, #fff1c4, #ffbe4a); }
+
+/* ---- 召唤物的悬停名牌（青色边，和敌人名牌区分） ---- */
+#mplate {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: none;
+  min-width: 118px;
+  padding: 3px 9px 5px;
+  text-align: center;
+  white-space: nowrap;
+  background: rgba(8, 16, 15, 0.9);
+  border: 1px solid #2f8577;
+  border-radius: 3px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6), 0 0 10px rgba(79, 227, 200, 0.15);
+  pointer-events: none;
+}
+#mplate.on { display: block; }
+.mp-top b { font-size: 13px; font-weight: 600; letter-spacing: 1px; color: #d9fff6; }
+.mp-top em { margin-left: 6px; padding: 0 5px; font-style: normal; font-size: 10.5px; line-height: 15px; border-radius: 2px; color: #04211c; background: var(--ally); }
+.mp-hp { position: relative; height: 12px; margin-top: 3px; overflow: hidden; background: #071110; border: 1px solid #1f4a43; }
+.mp-hp i { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(180deg, #6fe8d2, #1e8a78); }
+.mp-hp span { position: relative; display: block; font-size: 10px; line-height: 10px; color: #fff; text-shadow: 0 1px 2px #000; font-variant-numeric: tabular-nums; }
+.mp-note { display: flex; justify-content: center; gap: 8px; margin-top: 3px; font-size: 11px; color: #8fb8b0; }
+.mp-note .focus { color: #ffd98a; }
+.mp-note .ready { color: #ffc85a; }
+
+#reticle.ally { --rc: var(--ally); }
+#reticle.ally .r-ring { width: 14px; height: 14px; margin: -7px 0 0 -7px; }
+
+/* ---- 技能卡 / 属性 / 帮助 ---- */
+.sk-nums.ally { border-color: #1d4a43; background: #08100e; }
+.sk-nums.ally .sk-num { border-left-color: #12302b; }
+.sk-nums.ally .sk-num span { color: #7fa59d; }
+.sk-num.full b { color: var(--ally); }
+.sk-mnote { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 11.5px; line-height: 16px; color: #8fb8b0; }
+.sk-mnote i { flex: none; width: 5px; height: 5px; background: var(--ally); transform: rotate(45deg); box-shadow: 0 0 6px var(--ally); }
+.st-group.ally { color: #5fc8b4; }
+.help .c-ally, .tcard .c-ally, .co-body .c-ally { color: var(--ally); }
