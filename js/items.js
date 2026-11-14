@@ -265,6 +265,20 @@
   };
 
   // ---------- 打造 ----------
+  // 琢刻石：第 idx 条词缀能换成的同类词缀（同为前缀或同为后缀，适用部位 / 物品等级 / 稀有度限制照旧，
+  // 不和其他词缀重复，也不会洗回它自己）。拿掉这一条正好空出一个同类位置
+  function chiselPool(item, idx) {
+    const af = item.affixes[idx];
+    if (!af || item.rarity < 1) return [];
+    const type = G.AFFIX_BY_ID[af.id].type;
+    const rest = { slot: item.slot, baseIdx: item.baseIdx, ilvl: item.ilvl, affixes: item.affixes.filter((a, i) => i !== idx) };
+    return eligibleAffixes(rest, item.rarity, af.id).filter((d) => d.type === type);
+  }
+  // 每条词缀能不能用琢刻石重洗：[true, false, ...]
+  G.chiselable = function (item) {
+    return item && item.affixes ? item.affixes.map((a, i) => chiselPool(item, i).length > 0) : [];
+  };
+
   // 返回不能使用的原因（中文），可以使用时返回 null
   function craftBlock(item, curId) {
     const n = item.affixes.length;
@@ -288,6 +302,9 @@
       case 'chaos':
         if (item.rarity !== 2) return '只能用于稀有物品';
         return n >= 1 ? null : '这件物品没有可移除的词缀';
+      case 'chisel':
+        if (item.rarity < 1 || n < 1) return '只能用于带有词缀的魔法或稀有物品';
+        return G.chiselable(item).some(Boolean) ? null : '这件物品的词缀都没有可换的同类词缀';
       case 'divine':
         if (item.rarity < 1 || n < 1) return '只能用于带有词缀的魔法或稀有物品';
         return null;
@@ -300,9 +317,14 @@
     return craftBlock(item, curId) === null;
   };
 
-  G.craft = function (item, curId) {
+  // idx：琢刻石要重洗的那条词缀（item.affixes 的下标），其他通货不用
+  G.craft = function (item, curId, idx) {
     const why = craftBlock(item, curId);
     if (why !== null) return { ok: false, msg: why };
+    if (curId === 'chisel') {
+      if (!(idx >= 0 && idx < item.affixes.length) || idx !== Math.floor(idx)) return { ok: false, msg: '先选一条要重洗的词缀' };
+      if (!chiselPool(item, idx).length) return { ok: false, msg: '这条词缀没有可换的同类词缀' };
+    }
     let msg = '';
     switch (curId) {
       case 'dust':
@@ -337,6 +359,15 @@
         msg = '已替换 1 条词缀';
         break;
       }
+      case 'chisel': {
+        // 原地换掉这一条：新词缀放在同一个位置，其他词缀的顺序、阶和数值都不动
+        const def = G.weighted(chiselPool(item, idx), (d) => affixW(d, item));
+        const af = { id: def.id, tier: rollTier(item.ilvl), v: 0 };
+        af.v = rollValue(def, af.tier);
+        item.affixes[idx] = af;
+        msg = '已重洗 1 条' + (def.type === 'prefix' ? '前缀' : '后缀');
+        break;
+      }
       case 'divine': {
         // 在各自的阶内重掷；整体结果与原来完全相同时再掷几次，避免白白消耗
         const before = item.affixes.map((af) => af.v).join(',');
@@ -361,6 +392,7 @@
     } else if (item.rarity === 2) {
       out.augment = 1;
       if (Math.random() < 0.3) out.regal = 1;
+      if (Math.random() < G.SALVAGE_RARE_HI) out[Math.random() < 0.5 ? 'exalt' : 'chaos'] = 1;
     }
     return out;
   };

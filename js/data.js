@@ -411,10 +411,15 @@
     augment: { name: '增幅尘', color: '#7fe0c0', w: 22, desc: '给只有 1 条词缀的魔法物品追加 1 条词缀' },
     alch: { name: '点金石', color: '#ffd75e', w: 10, desc: '把普通物品升为稀有物品，带 4 条词缀' },
     regal: { name: '冠冕石', color: '#ffb46a', w: 12, desc: '把魔法物品升为稀有物品，并追加 1 条词缀' },
-    exalt: { name: '升华石', color: '#f2e6b0', w: 9, desc: '给稀有物品追加 1 条词缀（最多 6 条）' },
-    chaos: { name: '乱流石', color: '#d98cff', w: 9, desc: '移除稀有物品的 1 条随机词缀，再追加 1 条新词缀' },
-    divine: { name: '重铸石', color: '#ff8fa8', w: 4, desc: '重新随机物品所有词缀的数值' },
+    exalt: { name: '升华石', color: '#f2e6b0', w: 13, desc: '给稀有物品追加 1 条词缀（最多 6 条）' },
+    chaos: { name: '乱流石', color: '#d98cff', w: 13, desc: '移除稀有物品的 1 条随机词缀，再追加 1 条新词缀' },
+    chisel: { name: '琢刻石', color: '#a6e36a', w: 7, desc: '用于魔法或稀有物品：从词缀里挑一条，只把这一条重洗成另一条同类词缀（前缀换前缀、后缀换后缀），其他词缀不变' },
+    divine: { name: '重铸石', color: '#ff8fa8', w: 6, desc: '重新随机物品所有词缀的数值' },
   };
+  // 首领第一次倒下时，在随机通货之外保底给的通货
+  G.BOSS_FIRST_CUR = ['exalt', 'chaos'];
+  // 分解稀有物品时额外给出升华石或乱流石（各占一半）的几率
+  G.SALVAGE_RARE_HI = 0.2;
   G.CUR_IDS = Object.keys(G.CURRENCY);
 
   // ---------- 无铭技能宝石：没有刻下技能的空白宝石，带等级；在技能页挑一个技能学会，或给等级更低的已学技能升级 ----------

@@ -3387,6 +3387,8 @@
   }
   // 无铭技能宝石的掉落几率（首领首杀另外必掉）：普通怪比随机技能宝石的 1.2% 略低
   const BLANK_DROP = (G.BLANK_DROP = { boss: 0.2, elite: 0.04, mob: 0.008 });
+  // 辅助宝石的掉落：首领固定掉 boss 颗（第一颗必是还没有的），精英 elite、普通怪 mob 的几率各掉一颗
+  const SUPPORT_DROP = (G.SUPPORT_DROP = { boss: 2, elite: 0.3, mob: 0.025 });
   // preferNew：挑玩家还没有的宝石的概率
   function pickSkillGem(preferNew) {
     const all = G.GEM_SKILLS; // 武器技不掉落
@@ -3411,8 +3413,10 @@
       G.spawnLoot('item', G.rollItem(ilvl, 2), x, z);
       for (let i = 0; i < 2; i++) G.spawnLoot('item', G.rollItem(ilvl, Math.max(1, G.rollRarity(rm))), x, z);
       for (let i = 0; i < 4; i++) G.spawnLoot('cur', G.rollCurrency(), x, z);
+      // 首领第一次倒下：另外保底升华石、乱流石各一颗
+      if (e.bossKind && !save.bossKills[e.bossKind]) for (const id of G.BOSS_FIRST_CUR) G.spawnLoot('cur', id, x, z);
       G.spawnLoot('skill', pickSkillGem(1), x, z);
-      G.spawnLoot('support', pickSupportGem(1), x, z);
+      for (let i = 0; i < SUPPORT_DROP.boss; i++) G.spawnLoot('support', pickSupportGem(i ? 0.7 : 1), x, z);
       // 无铭技能宝石：每个首领第一次倒下必掉一颗（第一个区域的首领就是新角色的保底），之后再打有小几率
       if ((e.bossKind && !save.bossKills[e.bossKind]) || Math.random() < BLANK_DROP.boss) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
       return;
@@ -3422,19 +3426,15 @@
       G.spawnLoot('cur', G.rollCurrency(), x, z);
       // 还没有任何辅助宝石时，第一只精英必掉一颗
       const needFirst = save.supports.length === 0 && !state.loot.some((l) => l.kind === 'support');
-      if (needFirst) {
-        G.spawnLoot('support', pickSupportGem(1), x, z);
-      } else if (Math.random() < 0.15) {
-        if (Math.random() < 0.5) G.spawnLoot('skill', pickSkillGem(0.7), x, z);
-        else G.spawnLoot('support', pickSupportGem(0.7), x, z);
-      }
+      if (needFirst || Math.random() < SUPPORT_DROP.elite) G.spawnLoot('support', pickSupportGem(needFirst ? 1 : 0.7), x, z);
+      if (Math.random() < 0.075) G.spawnLoot('skill', pickSkillGem(0.7), x, z);
       if (Math.random() < BLANK_DROP.elite) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
       return;
     }
     if (Math.random() < 0.14) G.spawnLoot('item', G.rollItem(ilvl, G.rollRarity(rm)), x, z);
     if (Math.random() < 0.09) G.spawnLoot('cur', G.rollCurrency(), x, z);
     if (Math.random() < 0.012) G.spawnLoot('skill', pickSkillGem(0.7), x, z);
-    if (Math.random() < 0.01) G.spawnLoot('support', pickSupportGem(0.7), x, z);
+    if (Math.random() < SUPPORT_DROP.mob) G.spawnLoot('support', pickSupportGem(0.7), x, z);
     if (Math.random() < BLANK_DROP.mob) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
   };
 
@@ -3752,11 +3752,12 @@
     return commit();
   };
 
-  G.applyCurrency = function (item, curId) {
+  // idx：琢刻石要重洗的词缀下标（其他通货不用）。没选或选了不能洗的那条：不消耗，返回 false
+  G.applyCurrency = function (item, curId, idx) {
     const save = G.save;
     if (!item || !G.CURRENCY[curId] || !(save.cur[curId] > 0)) return false;
     if (!G.canCraft(item, curId)) return false;
-    const r = G.craft(item, curId);
+    const r = G.craft(item, curId, idx);
     if (!r.ok) {
       if (r.msg) toast(r.msg, '#ff8a6a');
       return false;

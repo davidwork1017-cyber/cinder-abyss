@@ -359,6 +359,7 @@
     tab: 'inv',
     sel: null, // 背包页选中的物品 uid
     invMsg: '',
+    invOk: '', // 成功提示（琢刻石换了哪一条），绿色
     flash: false, // 下一次渲染让详情卡闪一下（通货改造成功）
     lastSel: { uid: null, t: 0 }, // 自己判定双击，避免重渲染后原生 dblclick 丢失
     picker: null, // { skill, idx } 正在选辅助宝石的插槽
@@ -1423,7 +1424,7 @@
             '<button type="button" tabindex="-1" class="btn" data-act="salvage">分解</button>' +
             '<button type="button" tabindex="-1" class="btn" data-act="drop">丢弃</button>') +
         '</div>' +
-        (ui.invMsg ? '<div class="inv-msg">' + esc(ui.invMsg) + '</div>' : '') +
+        (ui.invMsg ? '<div class="inv-msg">' + esc(ui.invMsg) + '</div>' : ui.invOk ? '<div class="inv-msg ok">' + esc(ui.invOk) + '</div>' : '') +
         '<div class="sec-title sm">通货改造<span class="sec-note">点击，或把通货拖到物品上</span></div>' +
         '<div class="craft-grid">' + craft + '</div>';
     } else {
@@ -2213,7 +2214,8 @@
       '<div class="sec-title">通货</div>' +
       '<p>通货不是用来买东西的，而是直接改造装备。把通货<b>拖到一件物品上</b>，或者选中物品后点击右侧的通货按钮。</p>' +
       '<div class="hc-list">' + curs + '</div>' +
-      '<p>分解魔法物品有机会得到微光尘，分解稀有物品必得增幅尘。</p>' +
+      '<p><b style="color:' + G.CURRENCY.chisel.color + '">' + G.CURRENCY.chisel.name + '</b>用法稍有不同：拖到魔法或稀有物品上之后会弹出它的词缀列表，点选其中一条，只把这一条重洗成同类的另一条词缀（新词缀照样受部位、物品等级和不能重复的限制），其他词缀原封不动。点「取消」或按 <kbd>Esc</kbd> 不会消耗。</p>' +
+      '<p>分解魔法物品有机会得到微光尘；分解稀有物品必得增幅尘，还有机会得到冠冕石、升华石或乱流石。每个首领第一次被击败时，除了随机通货，还保底掉落升华石和乱流石各一颗。</p>' +
       '</div></div>';
   }
 
@@ -2293,7 +2295,7 @@
       return (
         '<div class="tcard" style="--c:' + c.color + '">' + tcHead(ibox(IC.cur(id), 'curb'), c.name, '通货 · 持有 ' + n) +
         '<div class="tc-desc">' + c.desc + '</div>' +
-        '<div class="tc-hint' + (n ? '' : ' dim') + '">' + (n ? '拖到一件物品上使用' : '还没有这种通货 · 怪物掉落，或分解装备获得') + '</div></div>'
+        '<div class="tc-hint' + (n ? '' : ' dim') + '">' + (n ? (id === 'chisel' ? '拖到一件物品上，再点选要重洗的词缀' : '拖到一件物品上使用') : '还没有这种通货 · 怪物掉落，或分解装备获得') + '</div></div>'
       );
     }
     if (kind === 'aff') {
@@ -2552,14 +2554,22 @@
       const f = selItem();
       if (f && !f.equipped) askDrop(f.item, ui.mouseX, ui.mouseY);
     },
+    'chisel-pick'(d) {
+      const c = ui.confirm;
+      ui.confirm = null;
+      const f = c && c.kind === 'chisel' ? findItem(c.uid) : null;
+      if (f) useChisel(f.item, +d.idx);
+      render();
+    },
     'drop-yes'() {
       const c = ui.confirm;
       ui.confirm = null;
-      const f = c ? findItem(c.uid) : null;
+      const f = c && !c.kind ? findItem(c.uid) : null;
       if (f && !f.equipped) dropToGround(f.item);
       render();
     },
     'drop-no'() {
+      // 丢弃确认和琢刻石选择框共用的「取消」：什么都不做，也不消耗
       ui.confirm = null;
       G.sfx('click');
       render();
@@ -2580,6 +2590,7 @@
     craft(d) {
       const f = selItem();
       if (!f) return;
+      if (d.cur === 'chisel' && G.canCraft(f.item, 'chisel')) return askChisel(f.item, ui.mouseX, ui.mouseY);
       if (G.applyCurrency(f.item, d.cur)) {
         ui.invMsg = '';
         ui.flash = true;
@@ -2742,6 +2753,7 @@
     }
     if (!a || a.disabled) return;
     if (a.dataset.act !== 'salvage-all') ui.bagMsg = '';
+    if (a.dataset.act !== 'chisel-pick') ui.invOk = ''; // 琢刻石换了哪一条：留到下一次操作
     if (a.dataset.act !== 'tut-reset') ui.tutMsg = '';
     ACT[a.dataset.act](a.dataset, a, e);
   }
@@ -2792,13 +2804,62 @@
     }
     render();
   }
+  // 琢刻石：先弹出这件物品的词缀列表，玩家点一条再真正使用（取消不消耗）
+  function askChisel(item, x, y) {
+    ui.confirm = { kind: 'chisel', uid: item.uid, x, y };
+    G.sfx('click');
+    render();
+  }
+  function useChisel(item, idx) {
+    const before = G.itemLines(item).affixes[idx];
+    if (G.applyCurrency(item, 'chisel', idx)) {
+      const after = G.itemLines(item).affixes[idx];
+      ui.sel = item.uid;
+      ui.flash = true;
+      ui.invMsg = '';
+      ui.invOk = G.CURRENCY.chisel.name + '：' + (before ? before.text : '') + ' → ' + (after ? after.text : '');
+      G.sfx('craft');
+    } else {
+      ui.invMsg = '这条词缀现在不能用' + G.CURRENCY.chisel.name + '重洗';
+    }
+  }
+  function chiselBox(box, item) {
+    const c = G.CURRENCY.chisel;
+    const lines = G.itemLines(item).affixes;
+    const can = G.chiselable(item);
+    let rows = '';
+    lines.forEach((a, i) => {
+      const kind = a.type === 'prefix' ? '前缀' : '后缀';
+      rows += can[i]
+        ? '<button type="button" tabindex="-1" class="cz-aff ' + a.type + '" data-act="chisel-pick" data-idx="' + i + '"><span class="ic-tier t' + a.tier + '">T' + a.tier + '</span>' +
+          '<span class="cz-txt">' + esc(a.text) + '</span><em>' + kind + '</em><b>重洗这一条</b></button>'
+        : '<div class="cz-aff off ' + a.type + '"><span class="ic-tier t' + a.tier + '">T' + a.tier + '</span><span class="cz-txt">' + esc(a.text) + '</span><em>' + kind + '</em><b>没有可换的同类' + kind + '</b></div>';
+    });
+    box.innerHTML =
+      '<div class="cf-top">' + ibox(IC.cur('chisel'), 'curb') + '<div><b style="color:' + c.color + '">' + c.name + ' · ' + esc(item.name) + '</b>' +
+      '<span>点一条词缀，只把它重洗成另一条同类词缀（前缀换前缀、后缀换后缀），其他词缀不变。消耗 1 ' + c.name + '（持有 ' + (G.save.cur.chisel || 0) + '）。</span></div></div>' +
+      '<div class="cz-list">' + rows + '</div>' +
+      '<div class="cf-row"><button type="button" tabindex="-1" class="btn" data-act="drop-no">取消</button><span class="cz-esc"><kbd>Esc</kbd> 取消，不消耗</span></div>';
+  }
   function renderConfirm() {
     const box = el.confirm;
     const c = ui.confirm;
     const f = c && ui.isOpen && ui.tab === 'inv' ? findItem(c.uid) : null;
-    if (!f || f.equipped) {
+    const chisel = !!(c && c.kind === 'chisel');
+    if (!f || (chisel ? !G.canCraft(f.item, 'chisel') || !(G.save.cur.chisel > 0) : f.equipped)) {
       ui.confirm = null;
-      box.classList.remove('on');
+      box.classList.remove('on', 'chisel');
+      return;
+    }
+    box.classList.toggle('chisel', chisel);
+    if (chisel) {
+      chiselBox(box, f.item);
+      box.classList.add('on');
+      // 没有鼠标位置（键盘 / 测试）时放在窗口中间
+      const x = c.x >= 0 ? c.x : window.innerWidth / 2;
+      const y = c.y >= 0 ? c.y : window.innerHeight / 2 + box.offsetHeight / 2;
+      box.style.left = Math.round(G.clamp(x - box.offsetWidth / 2, 8, window.innerWidth - box.offsetWidth - 8)) + 'px';
+      box.style.top = Math.round(G.clamp(y - box.offsetHeight - 12, 8, window.innerHeight - box.offsetHeight - 8)) + 'px';
       return;
     }
     box.innerHTML =
@@ -2825,6 +2886,7 @@
       ui.confirm = null;
       ui.delArmed = false;
       ui.invMsg = '';
+      ui.invOk = '';
       ui.bagMsg = '';
       ui.tutMsg = '';
       ui.treeMsg = '';
@@ -3098,8 +3160,14 @@
       const c = G.CURRENCY[id];
       if (!G.canCraft(f.item, id)) return { el: t, ok: false, label: G.craft(f.item, id).msg || '不能对它使用' + c.name, run: null };
       return {
-        el: t, ok: true, label: '对「' + f.item.name + '」使用' + c.name,
+        el: t, ok: true, label: id === 'chisel' ? '对「' + f.item.name + '」使用' + c.name + '，再挑一条词缀' : '对「' + f.item.name + '」使用' + c.name,
         run: () => {
+          if (id === 'chisel') {
+            ui.sel = f.item.uid;
+            ui.invMsg = '';
+            askChisel(f.item, ui.mouseX, ui.mouseY);
+            return;
+          }
           if (G.applyCurrency(f.item, id)) {
             ui.sel = f.item.uid;
             ui.invMsg = '';

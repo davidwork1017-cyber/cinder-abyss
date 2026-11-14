@@ -724,7 +724,7 @@ async function main() {
       const curN = save.cur[cur.data];
       T.tp(sup.x, sup.z);
       G.debug.step(0.1);
-      out.sup = save.supports.length === 1 && S.loot.indexOf(sup) < 0;
+      out.sup = save.supports.indexOf(sup.data) >= 0 && S.loot.indexOf(sup) < 0; // 小怪也可能多掉一颗，只看捡起的这颗
       T.tp(cur.x, cur.z);
       G.debug.step(0.1);
       out.cur = save.cur[cur.data] >= curN + 1 && S.loot.indexOf(cur) < 0; // 同类通货落得很近时会一起捡到
@@ -895,6 +895,105 @@ async function main() {
     assert(r.uselessPicked && r.useless.gems === '6,4,2' && r.useless.dust === 1 && r.useless.toast.includes('用不上'), '用不上的无铭宝石应化为 1 微光尘：' + JSON.stringify(r.useless));
     assert(r.old === '[]' && r.bad === '20,5,3,1' && r.bad2 === '[]' && r.back === '6,4,2' && r.fresh === '[]', '旧存档 / 畸形存档没有修好：' + JSON.stringify(r));
     return '首杀掉 Lv ' + r.first[0].lvl + '，几率 ' + JSON.stringify(r.rates);
+  });
+
+  await step('掉落：升华石 / 乱流石 / 重铸石权重提高，琢刻石介于其间；首领首杀保底升华石和乱流石各一颗；分解稀有物品有几率给其一；辅助宝石掉率提高、首领掉两颗；重复的辅助宝石照旧化为增幅尘', async () => {
+    const r = await ev(() => {
+      const S = G.state, save = G.save, P = G.player;
+      T.arena();
+      const out = {};
+      const C = G.CURRENCY;
+      let tot = 0;
+      for (const id of G.CUR_IDS) tot += C[id].w;
+      out.w = { exalt: C.exalt.w, chaos: C.chaos.w, chisel: C.chisel.w, divine: C.divine.w, pExalt: C.exalt.w / tot, pDivine: C.divine.w / tot, tot };
+      // 真实抽样：rollCurrency 的分布
+      const cnt = {};
+      for (let i = 0; i < 20000; i++) { const id = G.rollCurrency(); cnt[id] = (cnt[id] || 0) + 1; }
+      out.roll = { exalt: cnt.exalt / 20000, chaos: cnt.chaos / 20000, chisel: (cnt.chisel || 0) / 20000, divine: cnt.divine / 20000 };
+
+      const fake = (o) => Object.assign({ level: 5, x: P.x + 6, z: P.z, name: '测试' }, o);
+      const kind = Object.keys(G.BOSSES)[1];
+      const of = (k) => S.loot.filter((l) => l.kind === k).map((l) => l.data);
+      const rnd = Math.random, bk = save.bossKills, sup0 = save.supports;
+      try {
+        save.supports = ['multi']; // 不触发「第一只精英必掉辅助宝石」
+        Math.random = () => 0.999; // 靠几率的一律不出：只剩固定掉落和保底
+        save.bossKills = {};
+        G.dropLoot(fake({ isBoss: true, bossKind: kind }));
+        out.first = { cur: of('cur').sort().join(), sup: of('support').length };
+        T.clearLoot();
+        save.bossKills = { [kind]: true };
+        G.dropLoot(fake({ isBoss: true, bossKind: kind }));
+        out.again = { cur: of('cur').sort().join(), sup: of('support').length };
+        T.clearLoot();
+        G.dropLoot(fake({ elite: true }));
+        G.dropLoot(fake({}));
+        out.unlucky = of('support').length;
+        T.clearLoot();
+        Math.random = () => 0.001;
+        G.dropLoot(fake({ elite: true }));
+        out.eliteLucky = of('support').length;
+        T.clearLoot();
+        G.dropLoot(fake({}));
+        out.mobLucky = of('support').length;
+        T.clearLoot();
+        // 分解：稀有物品几率中了给升华石或乱流石，没中不给；魔法物品不给
+        const rare = G.rollItem(5, 2, 'ring'), magic = G.rollItem(5, 1, 'ring');
+        out.salvLucky = G.salvageResult(rare);
+        out.salvMagic = G.salvageResult(magic);
+        Math.random = () => 0.999;
+        out.salvUnlucky = G.salvageResult(rare);
+      } finally {
+        Math.random = rnd;
+        save.bossKills = bk;
+      }
+      // 抽样：分解稀有物品给出升华石 / 乱流石的比例
+      let hi = 0;
+      const rare = G.rollItem(5, 2, 'ring');
+      for (let i = 0; i < 4000; i++) { const o = G.salvageResult(rare); if (o.exalt || o.chaos) hi++; }
+      out.salvRate = hi / 4000;
+      // 抽样：普通怪 / 精英掉辅助宝石的实际几率（不真的生成掉落物）
+      const spawn = G.spawnLoot;
+      let mobSup = 0, eliteSup = 0;
+      try {
+        let n = 0;
+        G.spawnLoot = (k) => { if (k === 'support') n++; return {}; };
+        for (let i = 0; i < 8000; i++) G.dropLoot(fake({}));
+        mobSup = n / 8000;
+        n = 0;
+        for (let i = 0; i < 3000; i++) G.dropLoot(fake({ elite: true }));
+        eliteSup = n / 3000;
+      } finally {
+        G.spawnLoot = spawn;
+      }
+      out.supRate = { mob: mobSup, elite: eliteSup, cfg: Object.assign({}, G.SUPPORT_DROP) };
+      // 重复的辅助宝石：拾取后化为 1 增幅尘（保持原样）
+      const aug0 = save.cur.augment;
+      const l = G.spawnLoot('support', 'multi', P.x, P.z);
+      T.tp(l.x, l.z);
+      G.debug.step(0.5);
+      out.dup = { picked: S.loot.indexOf(l) < 0, aug: save.cur.augment - aug0, n: save.supports.length, toast: T.toasts() };
+      save.supports = sup0;
+      T.clearLoot();
+      G.persist();
+      return out;
+    });
+    const w = r.w;
+    assert(w.exalt >= 12 && w.chaos >= 12 && w.chisel > w.divine && w.chisel < w.exalt && w.chisel < w.chaos && w.divine >= 5, '通货权重不对：' + JSON.stringify(w));
+    assert(w.pExalt > 0.1 && w.pDivine > 0.04, '升华石 / 重铸石的实际几率应比原来（9% / 4%）高：' + JSON.stringify(w));
+    assert(Math.abs(r.roll.exalt - w.pExalt) < 0.015 && Math.abs(r.roll.chisel - w.chisel / w.tot) < 0.012, 'rollCurrency 的分布和权重对不上：' + JSON.stringify(r.roll));
+    assert(r.first.sup === 2 && r.again.sup === 2, '首领应固定掉 2 颗辅助宝石：' + JSON.stringify(r));
+    const firstCur = r.first.cur.split(','), againCur = r.again.cur.split(',');
+    const n = (a, id) => a.filter((x) => x === id).length;
+    assert(firstCur.length === 6 && n(firstCur, 'exalt') === 1 && n(firstCur, 'chaos') === 1, '首领首杀应在 4 颗随机通货之外保底升华石、乱流石各一颗：' + r.first.cur);
+    assert(againCur.length === 4 && n(againCur, 'exalt') === 0 && n(againCur, 'chaos') === 0, '再打首领不应有保底：' + r.again.cur);
+    assert(r.unlucky === 0 && r.eliteLucky === 1 && r.mobLucky === 1, '精英 / 普通怪的辅助宝石几率掉落不对：' + JSON.stringify(r));
+    assert(r.salvLucky.augment === 1 && (r.salvLucky.exalt === 1) !== (r.salvLucky.chaos === 1), '分解稀有物品几率中了应给升华石或乱流石之一：' + JSON.stringify(r.salvLucky));
+    assert(!r.salvUnlucky.exalt && !r.salvUnlucky.chaos && !r.salvMagic.exalt && !r.salvMagic.chaos, '没中几率 / 魔法物品不应给：' + JSON.stringify(r));
+    assert(r.salvRate > 0.12 && r.salvRate < 0.3, '分解稀有物品给升华石 / 乱流石的比例不对：' + r.salvRate);
+    assert(r.supRate.mob > 0.018 && r.supRate.mob < 0.035 && r.supRate.elite > 0.22 && r.supRate.elite < 0.4, '辅助宝石掉率应比原来（普通 1%、精英 7.5%）高：' + JSON.stringify(r.supRate));
+    assert(r.dup.picked && r.dup.aug === 1 && r.dup.n === 1 && r.dup.toast.includes('增幅尘'), '重复的辅助宝石应化为 1 增幅尘：' + JSON.stringify(r.dup));
+    return '升华石 ' + (w.pExalt * 100).toFixed(1) + '%，琢刻石 ' + ((w.chisel / w.tot) * 100).toFixed(1) + '%，辅助宝石 普通 ' + (r.supRate.mob * 100).toFixed(1) + '% / 精英 ' + (r.supRate.elite * 100).toFixed(0) + '%';
   });
 
   await step('升级：经验满后升级、回满、得到天赋点并在 HUD 上提醒', async () => {
@@ -3211,7 +3310,7 @@ async function main() {
     return '护甲 ' + ids.armour + ' → ' + armA;
   });
 
-  await step('通货：7 种通货都能通过背包界面改造合适的物品', async () => {
+  await step('通货：8 种通货都能通过背包界面改造合适的物品', async () => {
     const uid = await ev(() => {
       G.save.bag.length = 0;
       for (const id of G.CUR_IDS) G.save.cur[id] = 1;
@@ -3232,7 +3331,7 @@ async function main() {
     };
     await page.click('.cell[data-item="' + uid.ring + '"]');
     let s = await state(uid.ring);
-    assert(s.btn.dust && s.btn.alch && !s.btn.augment && !s.btn.regal && !s.btn.exalt && !s.btn.chaos && !s.btn.divine, '普通物品的可用通货不对：' + JSON.stringify(s.btn));
+    assert(s.btn.dust && s.btn.alch && !s.btn.augment && !s.btn.regal && !s.btn.exalt && !s.btn.chaos && !s.btn.chisel && !s.btn.divine, '普通物品的可用通货不对：' + JSON.stringify(s.btn));
     await use('dust');
     s = await state(uid.ring);
     assert(s.rarity === 1 && s.n === 1 && s.cur.dust === 0 && s.name !== s.base, '微光尘：' + JSON.stringify(s));
@@ -3256,6 +3355,14 @@ async function main() {
     s = await state(uid.ring);
     assert(s.ids === ids && s.tiers === tiers && s.cur.divine === 0, '重铸石：' + JSON.stringify(s));
     assert(new Set(s.ids.split(',')).size === 4, '出现了重复词缀：' + s.ids);
+    // 琢刻石：按钮先弹出词缀列表，点一条才真正使用
+    await use('chisel');
+    const pickIdx = await ev(() => { const b = document.querySelector('#confirm.on .cz-aff[data-act="chisel-pick"]'); return b ? +b.dataset.idx : -1; });
+    assert(pickIdx >= 0, '琢刻石按钮应弹出词缀选择框');
+    await page.click('#confirm .cz-aff[data-idx="' + pickIdx + '"]');
+    s = await state(uid.ring);
+    const a0 = ids.split(','), a1 = s.ids.split(',');
+    assert(s.cur.chisel === 0 && a1.length === 4 && a1.filter((x, i) => x !== a0[i]).length === 1 && a1[pickIdx] !== a0[pickIdx] && new Set(a1).size === 4, '琢刻石：' + JSON.stringify(s) + ' 之前 ' + ids);
 
     await page.click('.cell[data-item="' + uid.helm + '"]');
     await use('alch');
@@ -3283,6 +3390,135 @@ async function main() {
     await closePanel();
   });
 
+  await step('琢刻石：只重洗选中的那一条（同为前缀 / 后缀、不重复、阶数不超过物品等级），其他词缀原样不动；普通物品、没选词缀时不能用且不消耗', async () => {
+    const r = await ev(() => {
+      const save = G.save;
+      const out = { bad: [], trials: 0, types: { prefix: 0, suffix: 0 } };
+      const snap = (it) => it.affixes.map((a) => a.id + ':' + a.tier + ':' + a.v);
+      const maxTier = (ilvl) => { let t = 0; G.TIER_ILVL.forEach((v, i) => { if (v <= ilvl) t = i; }); return t; };
+      save.cur.chisel = 0;
+      for (let k = 0; k < 160; k++) {
+        const slot = G.SLOTS[k % G.SLOTS.length];
+        const ilvl = 1 + (k * 7) % 22;
+        const it = G.rollItem(ilvl, k % 5 === 0 ? 1 : 2, slot);
+        if (it.rarity === 2) while (it.affixes.length < 6 && G.addAffix(it)) { /* 尽量填满，池子最紧的时候也要守规矩 */ }
+        const can = G.chiselable(it);
+        const idx = can.indexOf(true, k % Math.max(1, it.affixes.length)) >= 0 ? can.indexOf(true, k % Math.max(1, it.affixes.length)) : can.indexOf(true);
+        if (idx < 0) continue;
+        const b = snap(it), name = it.name;
+        const t0 = G.AFFIX_BY_ID[it.affixes[idx].id].type;
+        save.cur.chisel = 1;
+        const ok = G.applyCurrency(it, 'chisel', idx);
+        const a = snap(it);
+        const nw = it.affixes[idx], def = G.AFFIX_BY_ID[nw.id];
+        out.trials++;
+        out.types[t0]++;
+        const why = [];
+        if (!ok || save.cur.chisel !== 0) why.push('没有生效或没扣通货');
+        if (a.length !== b.length) why.push('词缀条数变了');
+        a.forEach((x, i) => { if (i !== idx && x !== b[i]) why.push('第 ' + i + ' 条被动了'); });
+        if (b[idx].split(':')[0] === nw.id) why.push('洗回了同一条');
+        if (def.type !== t0) why.push('类别变了 ' + t0 + ' → ' + def.type);
+        if (new Set(it.affixes.map((x) => x.id)).size !== it.affixes.length) why.push('出现重复词缀');
+        if (def.slots.indexOf(it.slot) < 0) why.push('不适用这个部位');
+        if (nw.tier > maxTier(it.ilvl) || (def.minIlvl && it.ilvl < def.minIlvl) || (def.rareOnly && it.rarity < 2)) why.push('阶数 / 物品等级限制不对');
+        if (it.rarity === 2 && it.name !== name) why.push('稀有物品的名字不该变');
+        if (why.length) out.bad.push(slot + ' ' + idx + ' ' + why.join('、') + ' ' + b.join('|') + ' → ' + a.join('|'));
+      }
+      // 普通物品：不能用，不消耗；没选词缀 / 选了不存在的下标：不消耗
+      const white = G.rollItem(5, 0, 'ring');
+      save.cur.chisel = 1;
+      out.white = { can: G.canCraft(white, 'chisel'), use: G.applyCurrency(white, 'chisel', 0), n: save.cur.chisel, msg: G.craft(white, 'chisel', 0).msg };
+      const rare = G.rollItem(10, 2, 'ring');
+      const before = snap(rare).join('|');
+      out.noIdx = { use: G.applyCurrency(rare, 'chisel'), use2: G.applyCurrency(rare, 'chisel', 99), n: save.cur.chisel, same: snap(rare).join('|') === before };
+      save.cur.chisel = 0;
+      out.none = { use: G.applyCurrency(rare, 'chisel', 0), same: snap(rare).join('|') === before };
+      // 魔法物品：前缀洗出来还是前缀，名字跟着词缀变
+      const magic = G.rollItem(8, 1, 'helm');
+      while (magic.affixes.length < 2 && G.addAffix(magic)) { /* 补满两条 */ }
+      save.cur.chisel = 1;
+      const mi = G.chiselable(magic).indexOf(true);
+      const mb = snap(magic);
+      out.magic = { ok: G.applyCurrency(magic, 'chisel', mi), n: magic.affixes.length, kept: snap(magic).filter((x, i) => i !== mi && x === mb[i]).length, nameOk: magic.name !== magic.baseName };
+      save.cur.chisel = 0;
+      return out;
+    });
+    assert(r.bad.length === 0, '琢刻石重洗出错：' + r.bad.slice(0, 4).join(' ｜ '));
+    assert(r.trials >= 140 && r.types.prefix > 20 && r.types.suffix > 20, '琢刻石试得太少：' + JSON.stringify({ trials: r.trials, types: r.types }));
+    assert(!r.white.can && r.white.use === false && r.white.n === 1 && r.white.msg.includes('魔法或稀有'), '普通物品不能用琢刻石，也不消耗：' + JSON.stringify(r.white));
+    assert(r.noIdx.use === false && r.noIdx.use2 === false && r.noIdx.n === 1 && r.noIdx.same, '没选词缀时不应使用：' + JSON.stringify(r.noIdx));
+    assert(r.none.use === false && r.none.same, '没有琢刻石时不能用：' + JSON.stringify(r.none));
+    assert(r.magic.ok && r.magic.n === 2 && r.magic.kept === 1 && r.magic.nameOk, '魔法物品用琢刻石不对：' + JSON.stringify(r.magic));
+    return r.trials + ' 次（前缀 ' + r.types.prefix + ' / 后缀 ' + r.types.suffix + '）';
+  });
+
+  await uiStep('琢刻石：拖到物品上 / 点改造按钮先弹出词缀列表（每条「重洗这一条」、取消、Esc），取消或 Esc 不消耗，点一条只换那一条', async () => {
+    const uid = await ev(() => {
+      G.save.bag.length = 0;
+      G.save.cur.chisel = 2;
+      const it = G.debug.giveItem(2, 'ring', undefined, 12);
+      while (it.affixes.length < 6 && G.addAffix(it)) { /* 填满 */ }
+      G.debug.giveItem(0, 'boots');
+      return it.uid;
+    });
+    const cell = '.cell[data-item="' + uid + '"]';
+    const st = () => ev((u) => {
+      const it = G.save.bag.find((x) => x.uid === u);
+      const box = document.getElementById('confirm');
+      return {
+        aff: it.affixes.map((a) => a.id + ':' + a.tier + ':' + a.v), n: G.save.cur.chisel, tab: T.tab(),
+        on: box.classList.contains('on') && box.classList.contains('chisel'),
+        picks: box.querySelectorAll('.cz-aff[data-act="chisel-pick"]').length,
+        labels: Array.from(box.querySelectorAll('.cz-aff[data-act="chisel-pick"] b')).map((b) => b.textContent),
+        cancel: !!box.querySelector('[data-act="drop-no"]'), text: box.innerText, rect: T.rect('#confirm'), w: innerWidth, h: innerHeight,
+        msg: (document.querySelector('.inv-msg.ok') || {}).textContent || '',
+      };
+    }, uid);
+    await page.keyboard.press('KeyI');
+    // 拖到普通物品上：不适用（变暗）且没有选择框
+    let mid = null;
+    const white = await ev(() => G.save.bag.find((x) => x.rarity === 0).uid);
+    await dragTo('.cur[data-cur="chisel"]', '.cell[data-item="' + white + '"]', async () => {
+      mid = await ev((u) => ({ no: document.querySelector('.cell[data-item="' + u + '"]').classList.contains('drop-no'), cap: document.querySelector('#drag-ghost em').textContent }), white);
+    });
+    let s = await st();
+    assert(mid.no && !s.on && s.n === 2, '琢刻石拖到普通物品上应拒绝：' + JSON.stringify(mid));
+    // 拖到稀有物品上：弹出选择框，每条词缀一个「重洗这一条」
+    const a0 = (await st()).aff;
+    await dragTo('.cur[data-cur="chisel"]', cell, async () => {
+      mid = await ev(() => document.querySelector('#drag-ghost em').textContent);
+    });
+    s = await st();
+    assert(mid.includes('琢刻石') && s.on && s.picks === a0.length && s.labels.every((t) => t === '重洗这一条') && s.cancel && s.text.includes('Esc'), '拖放后应弹出词缀选择框：' + JSON.stringify(s));
+    assert(s.rect.l >= 0 && s.rect.r <= s.w && s.rect.t >= 0 && s.rect.b <= s.h, '选择框跑出了窗口：' + JSON.stringify(s.rect));
+    assert(s.n === 2 && s.aff.join() === a0.join(), '弹出选择框时还不该消耗：' + JSON.stringify(s));
+    // Esc：只关选择框，背包还开着，什么都没变
+    await page.keyboard.press('Escape');
+    s = await st();
+    assert(!s.on && s.tab === 'inv' && s.n === 2 && s.aff.join() === a0.join(), 'Esc 应只取消选择框且不消耗：' + JSON.stringify(s));
+    // 改造按钮 → 选择框 → 取消
+    await page.click(cell);
+    await page.click('.craft-btn[data-cur="chisel"]');
+    s = await st();
+    assert(s.on && s.picks === a0.length, '点改造按钮应弹出选择框');
+    await page.click('#confirm [data-act="drop-no"]');
+    s = await st();
+    assert(!s.on && s.tab === 'inv' && s.n === 2 && s.aff.join() === a0.join(), '取消后不应消耗：' + JSON.stringify(s));
+    // 再开一次，点第一条后缀：只换这一条，类别不变
+    await page.click('.craft-btn[data-cur="chisel"]');
+    const idx = await ev(() => { const b = Array.from(document.querySelectorAll('#confirm .cz-aff.suffix[data-act="chisel-pick"]')); return b.length ? +b[0].dataset.idx : -1; });
+    assert(idx >= 0, '选择框里应能选后缀');
+    await page.click('#confirm .cz-aff[data-idx="' + idx + '"]');
+    s = await st();
+    const t = await ev((o) => G.AFFIX_BY_ID[o.id].type, { id: s.aff[idx].split(':')[0] });
+    assert(!s.on && s.n === 1 && s.aff.filter((x, i) => x !== a0[i]).length === 1 && s.aff[idx] !== a0[idx] && t === 'suffix', '点选后应只重洗那一条：' + JSON.stringify({ a0, a: s.aff, idx, t }));
+    assert(s.msg.includes('琢刻石') && s.msg.includes('→'), '应提示换掉了哪一条：' + s.msg);
+    cleanText(await ev(() => T.bodyText()), '用过琢刻石的背包页');
+    await closePanel();
+    return '第 ' + (idx + 1) + ' 条：' + s.msg;
+  });
+
   // ------------------------------------------------------------------ v2 界面：图标 / 拖拽 / 换装评估 / 背包整理
   await uiStep('图标：装备各基底各档、通货、技能、辅助宝石都有各不相同的图标，并用在背包 / 装备栏 / 通货 / 改造按钮上', async () => {
     const r = await ev(() => {
@@ -3308,10 +3544,10 @@ async function main() {
       };
     });
     assert(r.bad.length === 0 && r.uniq === r.n, '有图标没画出来或重复：' + JSON.stringify(r.bad) + ' ' + r.uniq + '/' + r.n);
-    assert(r.kinds === '46,7,19,19,5,1', '图标数量不对（装备 46：武器 8 种 × 3 档 + 其余 22 / 通货 7 / 技能 19：11 个技能 + 8 个武器技 / 辅助 19 / 异常 5 / 无铭宝石 1）：' + r.kinds);
+    assert(r.kinds === '46,8,19,19,5,1', '图标数量不对（装备 46：武器 8 种 × 3 档 + 其余 22 / 通货 8 / 技能 19：11 个技能 + 8 个武器技 / 辅助 19 / 异常 5 / 无铭宝石 1）：' + r.kinds);
     assert(r.cellIcons === 8 && r.cellOk && r.distinct === 8, '背包格图标不对：' + JSON.stringify(r));
     assert(r.minSize >= 44 && r.maxSize <= 64, '背包格图标应在 44–64 像素之间：' + r.minSize + '–' + r.maxSize);
-    assert(r.eq === 8 && r.cur === 7 && r.craft === 7 && r.head && r.glyphLeft === 0, '装备栏 / 通货 / 改造按钮 / 详情没有全部换成图标：' + JSON.stringify(r));
+    assert(r.eq === 8 && r.cur === 8 && r.craft === 8 && r.head && r.glyphLeft === 0, '装备栏 / 通货 / 改造按钮 / 详情没有全部换成图标：' + JSON.stringify(r));
     await closePanel();
     return r.n + ' 个图标';
   });

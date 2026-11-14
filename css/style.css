@@ -1025,7 +1025,7 @@ kbd {
 .st-row b { color: #ecdfc8; font-weight: 600; font-variant-numeric: tabular-nums; }
 
 .bag { flex: none; display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
-.cur-row { flex: none; display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.cur-row { flex: none; display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
 .cur {
   position: relative;
   display: flex;
@@ -1063,6 +1063,7 @@ kbd {
 .act-row { flex: none; display: flex; gap: 8px; margin-top: 10px; }
 .act-row .btn { flex: 1; }
 .inv-msg { flex: none; margin-top: 8px; font-size: 12px; color: #ff8a7a; text-align: center; }
+.inv-msg.ok { color: #c9ec9e; }
 .craft-grid { flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .craft-btn {
   display: flex;
@@ -1905,6 +1906,36 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .cf-top span { display: block; margin-top: 3px; font-size: 12px; line-height: 18px; color: #b9ac96; }
 .cf-row { display: flex; gap: 8px; margin-top: 10px; }
 .cf-row .btn { flex: 1; }
+
+/* 琢刻石：挑一条词缀重洗 */
+#confirm.chisel { width: 400px; max-width: calc(100vw - 16px); border-color: #7fae52; }
+#confirm.chisel .cf-row .btn { flex: none; min-width: 96px; }
+.cz-list { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.cz-aff {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  color: #a9b6ff;
+  background: #140e0a;
+  border: 1px solid #3a2c20;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.cz-aff .ic-tier { flex: none; }
+.cz-aff .cz-txt { flex: 1; min-width: 0; }
+.cz-aff em { flex: none; font-style: normal; font-size: 11px; color: var(--faint); }
+.cz-aff b { flex: none; font-weight: 600; font-size: 12px; color: #c9ec9e; padding: 1px 6px; border: 1px solid #4f6b36; border-radius: 2px; }
+.cz-aff:hover { background: #1d1a10; border-color: #a6e36a; }
+.cz-aff:hover b { color: #10140a; background: #a6e36a; border-color: #a6e36a; }
+.cz-aff.off { cursor: default; opacity: 0.55; }
+.cz-aff.off b { color: var(--faint); border-color: #3a2c20; font-weight: 400; }
+.cz-esc { align-self: center; font-size: 12px; color: #9d917e; }
+.cz-esc kbd { margin-right: 4px; }
 
 /* ---- 技能页：技能栏与图标 ---- */
 .barstrip { flex: none; display: flex; gap: 10px; }
