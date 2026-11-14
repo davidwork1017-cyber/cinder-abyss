@@ -283,6 +283,178 @@
     }
   }
 
+  // 武器 3：双匕（两柄交叉的短刃；t0 骨匕、t1 鸦喙般的乌钢弯刃配金护手、t2 暗刃烬火刃口）
+  function drawDaggers(g, t) {
+    const steel = t === 2 ? '#4b4655' : t === 1 ? '#7d8796' : C.bone;
+    const one = (m, back) => {
+      g.save();
+      if (back) g.globalAlpha = 0.92;
+      // 刃：t1 / t2 微弯，t2 带一道回钩
+      if (t === 0) solid(g, (p) => p.M(-3.2, 5).L(-3.6, -6).Q(-3.4, -15, 0, -22).Q(2.2, -15, 3.6, -6).L(3.2, 5).Z(), steel, { m, hi: 0.4 });
+      else if (t === 1) solid(g, (p) => p.M(-3, 5).L(-4.6, -6).Q(-4.4, -17, 2.6, -24).Q(1.6, -21, 2.2, -18).Q(5, -12, 4.4, -5).L(3.2, 5).Z(), steel, { m });
+      else solid(g, (p) => p.M(-3, 5).L(-3.4, -6).L(-5.4, -10).L(-3, -12).Q(-1.4, -19, 2.6, -24).Q(4, -14, 3.4, -4).L(3.2, 5).Z(), steel, { m });
+      if (t === 2) glow(g, (p) => p.M(3.1, 3).Q(3.6, -12, 2.4, -21), C.ember, { m, stroke: 1.1, blur: 2.4 });
+      else if (t === 0) line(g, (p) => p.M(-1, 1).L(1, -3).M(0.6, -6).L(-0.8, -10).M(-1.4, 3.4).L(-0.2, 1.6), dark(steel, 0.45), 1, m);
+      else line(g, (p) => p.M(0, 3).L(0, -14), dark(steel, 0.42), 1.1, m);
+      if (t === 1) line(g, (p) => p.M(-1.8, 2.5).L(-2.4, -12), rgba('#ffffff', 0.55), 0.8, m);
+      // 护手、握柄、柄头
+      const gc = t === 2 ? C.duskD : t === 1 ? C.gold : C.ironD;
+      if (t === 1) solid(g, (p) => p.M(-8, 4).Q(-6.4, 7.4, -3, 5.8).L(3, 5.8).Q(6.4, 7.4, 8, 4).L(8.2, 7.6).Q(4, 9.6, 2.6, 8.8).L(-2.6, 8.8).Q(-4, 9.6, -8.2, 7.6).Z(), gc, { m, bevel: 1.2 });
+      else solid(g, (p) => p.R(-6.6, 5, 13.2, 3.4, 1.2), gc, { m, bevel: 1.2 });
+      solid(g, (p) => p.R(-1.9, 8.4, 3.8, 7.6, 1), t === 2 ? '#2e2630' : C.leatherD, { m, bevel: 1 });
+      line(g, (p) => p.M(-1.8, 10.6).L(1.8, 11.5).M(-1.8, 13).L(1.8, 13.9), rgba('#000000', 0.5), 0.8, m);
+      if (t === 2) gem(g, 0, 18, 2.4, C.ember, 4, m, { glow: 4, lw: 1.5 });
+      else solid(g, (p) => p.E(0, 17.6, 2.3), gc, { m, bevel: 1 });
+      g.restore();
+    };
+    one(rot(-38, 1.16, -1.8, 2), true);
+    one(rot(38, 1.16, 1.8, 2), false);
+  }
+
+  // 武器 4：战锤（双手长柄 + 大锤头；t0 皮绳捆着的石锤头、t1 钢锤金箍带尖喙、t2 暗石锤头透出熔火裂纹）
+  function drawHammer(g, t) {
+    const m = rot(40, 1.05, -1, 2);
+    const haft = t === 2 ? C.ironD : C.wood;
+    tube(g, (p) => p.M(0, 27).L(0, -13), haft, 3.2, { m });
+    // 握把缠绳 + 柄尾
+    solid(g, (p) => p.R(-2.5, 14, 5, 9, 1), t === 2 ? '#2e2630' : C.leatherD, { m, bevel: 1 });
+    line(g, (p) => p.M(-2.3, 16).L(2.3, 17.2).M(-2.3, 18.6).L(2.3, 19.8).M(-2.3, 21.2).L(2.3, 22.4), rgba('#000000', 0.5), 0.9, m);
+    solid(g, (p) => p.R(-2.8, 24, 5.6, 3.6, 1.2), t === 1 ? C.gold : C.ironD, { m, bevel: 1 });
+    if (t === 0) {
+      // 一块打磨过的石头，用皮绳捆在木柄上
+      solid(g, (p) => p.P([-13, -21, -10.6, -25, -2, -26, 9, -25.4, 13.4, -22, 13, -13.6, 9.6, -10.6, -3, -10, -10.4, -10.8, -13.6, -14]), C.stone, { m, hi: 0.32, lo: 0.5 });
+      line(g, (p) => p.M(-9, -22).L(-6, -19.6).M(7, -14).L(10, -16.4), rgba('#34302c', 0.8), 1.1, m);
+      tube(g, (p) => p.M(-3.4, -26.4).L(3.4, -9.6).M(3.4, -26.4).L(-3.4, -9.6), C.cord, 1.6, { m });
+    } else if (t === 1) {
+      // 一面平锤、一面尖喙
+      solid(g, (p) => p.M(-4, -25).L(-14, -25.6).L(-15.4, -24).L(-15.4, -12).L(-14, -10.4).L(-4, -11).Z(), C.steel, { m });
+      solid(g, (p) => p.M(4, -23.4).L(19, -18.4).L(4, -12.6).Z(), C.steel, { m });
+      solid(g, (p) => p.R(-4.4, -26.6, 8.8, 17.2, 1.4), C.gold, { m, bevel: 1.2 });
+      solid(g, (p) => p.P([0, -33, 2.4, -26.6, -2.4, -26.6]), C.steel, { m, bevel: 0.9, lw: 1.6 });
+      line(g, (p) => p.M(-13.6, -22.6).L(-13.6, -13), rgba('#ffffff', 0.55), 0.9, m);
+      solid(g, (p) => p.R(-2.7, -2, 5.4, 3, 1), C.gold, { m, bevel: 1 });
+    } else {
+      // 暗石锤头：裂纹里透出烬火
+      solid(g, (p) => p.P([-15, -23, -11, -27, 11, -27, 15, -23, 15.6, -13, 11, -9, -11, -9, -15.6, -13]), '#4a4450', { m, hi: 0.3, lo: 0.5 });
+      glow(g, (p) => p.M(-11, -24).L(-7, -19).L(-9.4, -14.6).L(-5, -11.4).M(9, -25).L(6, -20).L(10, -16).L(7.4, -11), C.ember, { m, stroke: 1.2, blur: 3 });
+      solid(g, (p) => p.R(-3.6, -28.4, 7.2, 21, 1), C.duskD, { m, bevel: 1.1 });
+      gem(g, 0, -18, 2.8, C.ember, 4, m, { glow: 5, lw: 1.5 });
+    }
+  }
+
+  // 武器 5：长弓（弓身 + 弦 + 搭着的一支箭；t0 木弓、t1 反曲弓金弓梢、t2 暗弓发光弦）
+  function drawBow(g, t) {
+    const m = rot(40, 1.04, 2, 0);
+    const wood = t === 2 ? '#4a3f52' : t === 1 ? '#a86a3a' : C.wood;
+    const strCol = t === 2 ? C.abyss : '#e8dcc0';
+    // 弦（先画，压在弓身底下）
+    if (t === 2) glow(g, (p) => p.M(5, -25).L(5, 25), C.abyss, { m, stroke: 1, blur: 4, core: lite(C.abyss, 0.6) });
+    else line(g, (p) => p.M(5, -25).L(5, 25), strCol, 1.1, m);
+    // 箭：从弦伸出弓外
+    tube(g, (p) => p.M(5, 0).L(-19, 0), t === 2 ? C.duskD : C.woodD, 1.4, { m });
+    solid(g, (p) => p.M(5.6, 0).L(9.4, -3).L(11, -3).L(8, 0).L(11, 3).L(9.4, 3).Z(), t === 1 ? C.cloth : t === 2 ? C.abyss : C.bone, { m, bevel: 0, lw: 1.2 });
+    if (t === 2) glow(g, (p) => p.P([-27, 0, -19, -3.4, -20.4, 0, -19, 3.4]), C.abyss, { m, blur: 5, core: lite(C.abyss, 0.5) });
+    solid(g, (p) => p.P([-27, 0, -19, -3.4, -20.4, 0, -19, 3.4]), t === 2 ? lite(C.abyss, 0.3) : C.steel, { m, bevel: 0.8, lw: 1.4 });
+    // 弓身：t1 两梢外翻
+    const limb = t === 1
+      ? (p) => p.M(9, -27).Q(4, -27, 3.8, -24).C(-6, -20, -9.6, -10, -9, 0).C(-9.6, 10, -6, 20, 3.8, 24).Q(4, 27, 9, 27)
+      : (p) => p.M(5, -25).C(-5, -21, -9.4, -10, -9, 0).C(-9.4, 10, -5, 21, 5, 25);
+    tube(g, limb, wood, 3, { m });
+    // 握把
+    solid(g, (p) => p.R(-11.4, -4.4, 4.8, 8.8, 1.4), t === 2 ? '#2e2630' : C.leatherD, { m, bevel: 1 });
+    line(g, (p) => p.M(-11, -2).L(-7, -1).M(-11, 1).L(-7, 2), rgba('#000000', 0.5), 0.8, m);
+    if (t === 1) {
+      solid(g, (p) => p.E(8.6, -26.6, 1.9).E(8.6, 26.6, 1.9), C.gold, { m, bevel: 0.8, lw: 1.4 });
+      solid(g, (p) => p.R(-10.6, -7, 3.4, 2, 0.6).R(-10.6, 5, 3.4, 2, 0.6), C.gold, { m, bevel: 0, lw: 1.1 });
+    }
+    if (t === 2) gem(g, -9, 0, 2.3, C.abyss, 4, m, { glow: 5, lw: 1.4 });
+  }
+
+  // 武器 6：太刀（修长微弯的单刃 + 扁圆镡 + 长柄缠绳；t0 直刃铁刀、t1 钢刃带霜色刃纹配金镡、t2 暗刃烬火刃口）
+  function drawKatana(g, t) {
+    const m = rot(45, 1.17, 0, 0.5);
+    const steel = t === 2 ? '#4b4655' : t === 1 ? C.steel : C.iron;
+    // 刃：刃背（左）与刃口（右）都沿同一条弧线弯，尖头斜切
+    const N = 10, L = 32, y0 = 6;
+    const cx = (f) => (t === 0 ? 1.2 : 3.2) * f * f; // 越往刃尖越往右弯（直刃太刀几乎不弯）
+    const edge = (p) => {
+      p.M(-1.8 + cx(0), y0);
+      for (let i = 1; i <= N; i++) { const f = i / N; p.L(-2.1 + cx(f) - 0.2 * f, y0 - L * f); }
+      p.L(1.8 + cx(1), y0 - L - 2.6); // 切先
+      for (let i = N; i >= 0; i--) { const f = i / N; p.L(2.2 + cx(f) - (f > 0.9 ? (f - 0.9) * 7 : 0), y0 - L * f + (f > 0.9 ? 1.4 : 0)); }
+      return p.Z();
+    };
+    solid(g, edge, steel, { m, bevel: 1.1 });
+    if (t === 1) glow(g, (p) => { for (let i = 0; i <= 20; i++) { const f = i / 20; p[i ? 'L' : 'M'](0.6 + cx(f * 0.9) + Math.sin(f * 30) * 0.5, y0 - 2 - L * 0.9 * f); } }, C.cold, { m, stroke: 0.9, blur: 2.4, core: '#eefaff' });
+    else if (t === 2) glow(g, (p) => { for (let i = 0; i <= 10; i++) { const f = i / 10; p[i ? 'L' : 'M'](1.6 + cx(f * 0.9), y0 - 2 - L * 0.9 * f); } }, C.ember, { m, stroke: 1.1, blur: 2.6 });
+    else line(g, (p) => { for (let i = 0; i <= 10; i++) { const f = i / 10; p[i ? 'L' : 'M'](-0.4 + cx(f * 0.85), y0 - 2 - L * 0.85 * f); } }, dark(steel, 0.42), 1, m);
+    // 镡：扁圆
+    const gc = t === 2 ? C.duskD : t === 1 ? C.gold : C.ironD;
+    solid(g, (p) => p.E(0, 7.6, 6.4, 2.6), gc, { m, bevel: 1.1 });
+    // 柄：缠绳的菱形花纹
+    const wrap = t === 2 ? '#7a1f1c' : t === 1 ? C.cloth : '#2e2630';
+    solid(g, (p) => p.R(-2.2, 9.6, 4.4, 15, 1.2), wrap, { m, bevel: 1, hi: 0.35 });
+    line(g, (p) => { for (let y = 10.6; y < 23.5; y += 3.2) p.M(-2, y).L(2, y + 1.6).M(2, y).L(-2, y + 1.6); }, t === 0 ? rgba(C.hide, 0.8) : rgba('#f3e2c0', 0.7), 0.9, m);
+    solid(g, (p) => p.R(-2.5, 24.2, 5, 2.8, 1), gc, { m, bevel: 0.8, lw: 1.6 });
+    if (t === 2) gem(g, 0, 7.6, 1.9, C.ember, 4, m, { glow: 4, lw: 1.2 });
+  }
+
+  // 武器 7：魂幡（一根高杆 + 横担上垂下的残破幡布 + 几串小骨符；
+  // t0 木杆麻布、墨画的魂纹，t1 红幡金边、铜顶，t2 暗铁杆、黑幡上一道魂火青的符纹）
+  function drawBanner(g, t) {
+    const m = rot(18, 0.88, -6.5, 0.5);
+    const pole = t === 2 ? C.duskD : t === 1 ? C.woodD : C.wood;
+    const trim = t === 2 ? C.ironD : t === 1 ? C.gold : C.boneD;
+    const clothC = t === 2 ? '#2d3038' : t === 1 ? C.cloth : '#cfc4a6';
+    // 骨符：一根细绳吊着一小块骨片（先画绳子，压在横担下面）
+    const charm = (x0, y0, x1, y1, r) => {
+      line(g, (p) => p.M(x0, y0).L(x1, y1 - r), t === 2 ? rgba(ALLY, 0.7) : rgba(C.cord, 0.95), 1, m);
+      solid(g, (p) => p.M(x1, y1 - r * 1.3).L(x1 + r * 0.8, y1).L(x1, y1 + r * 1.5).L(x1 - r * 0.8, y1).Z(), C.bone, { m, bevel: 0.8, lw: 1.4, hi: 0.4 });
+    };
+    charm(-1.4, -19, -6, -8, 2.2);
+    charm(16, -20, 18.4, -9.5, 2);
+    charm(16, -20, 15.6, -3.6, 1.7);
+    // 杆
+    tube(g, (p) => p.M(0, 29).L(0, -23), pole, 2.9, { m });
+    // 幡布：从横担垂下，右缘随风微摆，下摆撕成参差的布条
+    const cloth = (p) => p.M(1.4, -19).L(14, -19.4).C(14.8, -11, 12.6, -3, 14.6, 5).L(12.4, 2.6).L(11, 8.6).L(9, 3.4).L(7, 10).L(5.4, 4.6).L(3.4, 8.2).L(2, 3).C(1, -4, 2.6, -11, 1.4, -19).Z();
+    solid(g, cloth, clothC, { m, hi: 0.22, lo: 0.5, bevel: 1.1, lw: 1.9 });
+    // 布上的破口与纹样
+    solid(g, (p) => p.P([10.2, -6, 11.6, -4.6, 10.8, -2.8, 9.6, -4.2]), dark(clothC, 0.55), { m, bevel: 0, lw: 1 });
+    if (t === 0) {
+      // 墨画的魂纹：一个圈 + 下垂的三笔
+      line(g, (p) => p.E(7.6, -12.6, 2.6).M(7.6, -9.6).L(7.6, -3).M(5.4, -8).L(4.6, -4).M(9.8, -8).L(10.4, -4.4), rgba('#3a2a22', 0.85), 1.2, m);
+    } else if (t === 1) {
+      line(g, (p) => p.M(2.6, -16.6).L(13, -16.8).M(2.6, -16.6).C(2.2, -8, 3, -2, 2.8, 2), lite(C.gold, 0.1), 1.1, m);
+      glow(g, (p) => p.P([7.8, -14.4, 10.2, -10.6, 7.8, -6.8, 5.4, -10.6]), C.gold, { m, blur: 3, core: lite(C.gold, 0.45) });
+      line(g, (p) => p.M(7.8, -6).L(7.8, -0.6), rgba(C.gold, 0.9), 1.1, m);
+    } else {
+      // 魂火青的符纹：发光的眼形 + 往下淌的一道
+      glow(g, (p) => p.M(4, -11).Q(7.8, -15.4, 11.6, -11).Q(7.8, -6.6, 4, -11).Z(), ALLY, { m, stroke: 1.2, blur: 5, core: '#c9fff2' });
+      glow(g, (p) => p.E(7.8, -11, 1.3), ALLY, { m, blur: 5, core: '#f2fffb' });
+      glow(g, (p) => p.M(7.8, -7.6).L(7.2, -3).L(8.4, 0.6), ALLY, { m, stroke: 1, blur: 4, core: '#c9fff2' });
+    }
+    // 横担
+    tube(g, (p) => p.M(-2.2, -19.6).L(16.4, -20.2), pole, 2, { m });
+    solid(g, (p) => p.E(16.6, -20.2, 1.6), trim, { m, bevel: 0.6, lw: 1.3 });
+    // 杆顶
+    if (t === 0) {
+      solid(g, (p) => p.E(0, -25, 3.1, 2.8), C.bone, { m, bevel: 1, lw: 1.7 });
+      solid(g, (p) => p.E(-1.1, -25.4, 0.8).E(1.1, -25.4, 0.8), '#3a2a22', { m, bevel: 0, lw: 0 });
+    } else if (t === 1) {
+      solid(g, (p) => p.R(-2.4, -24.4, 4.8, 2.8, 0.8), C.gold, { m, bevel: 0.8, lw: 1.5 });
+      solid(g, (p) => p.P([0, -32, 2.6, -25, 0, -23.6, -2.6, -25]), C.copper, { m, bevel: 0.9, lw: 1.6 });
+    } else {
+      // 一弯暗铁月钩托着一点魂火
+      solid(g, (p) => p.M(-1.6, -22).Q(-7, -27, -3, -32).Q(-4, -27.6, 0, -25).Q(4, -27.6, 3, -32).Q(7, -27, 1.6, -22).Z(), C.ironD, { m, bevel: 1, lw: 1.6 });
+      gem(g, 0, -27.6, 2.1, ALLY, 4, m, { glow: 5, lw: 1.3 });
+    }
+    // 握把缠布 + 杆尾
+    solid(g, (p) => p.R(-2.3, 11, 4.6, 8.4, 1), t === 2 ? '#2e2630' : C.leatherD, { m, bevel: 1 });
+    line(g, (p) => p.M(-2.1, 13).L(2.1, 14.1).M(-2.1, 15.6).L(2.1, 16.7), rgba('#000000', 0.5), 0.9, m);
+    solid(g, (p) => p.P([-1.8, 27, 1.8, 27, 0, 31.4]), trim, { m, bevel: 0.6, lw: 1.4 });
+  }
+
   // 头盔（皮盔 / 铁盔 / 烬钢盔）
   function drawHelm(g, t) {
     if (t === 0) {
@@ -475,10 +647,17 @@
     }
   }
 
+  const WEAPON_TYPES = ['blade', 'staff', 'wand', 'daggers', 'hammer', 'bow', 'katana', 'banner'];
+  const WEAPON_DRAW = { blade: drawBlade, staff: drawStaff, wand: drawWand, daggers: drawDaggers, hammer: drawHammer, bow: drawBow, katana: drawKatana, banner: drawBanner };
+  function weaponType(baseIdx) {
+    const b = G.BASES && G.BASES.weapon && G.BASES.weapon[baseIdx];
+    return (b && WEAPON_DRAW[b.type] ? b.type : WEAPON_TYPES[baseIdx]) || 'blade';
+  }
   // 各部位的图稿大小不一，统一放大到差不多占满格子
   const ITEM_SCALE = { weapon: 1.2, helm: 1.2, body: 1.17, gloves: 1.2, boots: 1.18, belt: 1.08, ring: 1.3, amulet: 1.1 };
   const ITEM_DRAW = {
-    weapon: (g, base, tier) => [drawBlade, drawStaff, drawWand][base](g, tier),
+    // 按基底的 type 选画法（数据里没写 type 的老基底按下标 0 / 1 / 2 退回刃 / 长杖 / 短杖）
+    weapon: (g, base, tier) => (WEAPON_DRAW[weaponType(base)] || drawBlade)(g, tier),
     helm: (g, base, tier) => drawHelm(g, tier),
     body: (g, base, tier) => drawBody(g, tier),
     gloves: (g, base, tier) => drawGloves(g, tier),
@@ -739,6 +918,146 @@
   };
 
   // =====================================================================
+  // 武器技：按武器类型画（技能 id 由数据决定，图标跟着 G.BASES.weapon[i].wskill 找到类型）
+  // =====================================================================
+  const WSKILL_COLOR = { blade: '#f0e2c4', staff: '#c79bff', wand: '#9fd0ff', daggers: '#b58cff', hammer: '#e8b070', bow: '#a8e08a', katana: '#ff9a7a', banner: ALLY };
+  const WSKILL_DRAW = {
+    // 回锋斩：一记向右上的直刺（穿出去的刃光），外面绕着一道回身横扫的环形刃光
+    blade(g, col) {
+      const ring = (p, a0, a1, r0, r1) => {
+        const N = 22;
+        for (let i = 0; i <= N; i++) { const a = a0 + ((a1 - a0) * i) / N; p[i ? 'L' : 'M'](Math.cos(a) * r0, Math.sin(a) * r0); }
+        for (let i = N; i >= 0; i--) { const f = i / N, a = a0 + (a1 - a0) * f, r = r1 + (r0 - r1) * (1 - Math.sin(f * Math.PI)) * 0.6; p.L(Math.cos(a) * r, Math.sin(a) * r); }
+        return p.Z();
+      };
+      glow(g, (p) => ring(p, 0.2, 4.9, 26, 20), col, { blur: 7, core: col });
+      solid(g, (p) => ring(p, 0.2, 4.9, 26, 20), lite(col, 0.4), { hi: 0.7, lo: 0.3, lw: 1.8, bevel: 1.1 });
+      // 回旋方向的箭头尖
+      const a = 4.9, x = Math.cos(a) * 23, y = Math.sin(a) * 23;
+      solid(g, (p) => p.P([x + 5, y - 4.4, x + 1.4, y + 4.8, x - 3.2, y - 2.6]), lite(col, 0.5), { hi: 0.7, lw: 1.6, bevel: 0.9 });
+      const m = rot(45, 1, 0, 0);
+      line(g, (p) => p.M(-3.6, 16).L(-3.6, 6).M(3.6, 17).L(3.6, 8).M(0, 20).L(0, 10), rgba(lite(col, 0.5), 0.85), 1.5, m);
+      glow(g, (p) => p.P([0, -22, 3.4, -15, 3, 8, -3, 8, -3.4, -15]), col, { m, blur: 8, core: col });
+      solid(g, (p) => p.P([0, -22, 3.4, -15, 3, 8, -3, 8, -3.4, -15]), lite(col, 0.65), { m, hi: 0.7, lo: 0.25, lw: 1.9, bevel: 1.1 });
+      solid(g, (p) => p.R(-7, 8, 14, 3.4, 1.2).R(-1.8, 11.4, 3.6, 5.6, 1), dark(col, 0.4), { m, hi: 0.4, lw: 1.7, bevel: 0.9 });
+      spark(g, 15.5, -15.5, 5.6, '#ffffff');
+    },
+    // 地脉涌：地面上一圈裂开的光环，环上一根根地脉之刺往上涌
+    staff(g, col) {
+      const ky = 0.42, cy = 10;
+      glow(g, (p) => p.E(0, cy, 24, 24 * ky), col, { stroke: 3.4, blur: 9, core: col });
+      line(g, (p) => p.E(0, cy, 16, 16 * ky), rgba(lite(col, 0.5), 0.8), 1.4);
+      const spikes = [[-21, 1], [-12, 0.75], [-4, 1.25], [5, 0.85], [13, 1.1], [21, 0.8]];
+      for (const [x, k] of spikes) {
+        const yb = cy + Math.sqrt(Math.max(0, 1 - (x / 24) * (x / 24))) * 24 * ky * (x % 2 ? -1 : 1) * 0.5;
+        const h = 22 * k;
+        solid(g, (p) => p.P([x - 3.4 * k, yb, x - 0.6, yb - h, x + 1, yb - h + 2, x + 3.4 * k, yb]), lite(col, 0.3 + k * 0.15), { hi: 0.7, lo: 0.3, lw: 1.7, bevel: 1 });
+      }
+      glow(g, (p) => p.E(0, cy, 5.6, 2.6), '#ffffff', { blur: 6, core: '#ffffff' });
+      spark(g, -4, cy - 30, 4.4, '#ffffff');
+    },
+    // 秘弹连射：五颗小秘弹拖着弯曲的尾迹，从左下汇向右上的一个准星
+    wand(g, col) {
+      const tx = 15, ty = -15;
+      glow(g, (p) => p.E(tx, ty, 7.6), col, { stroke: 1.6, blur: 5, core: lite(col, 0.5) });
+      line(g, (p) => p.M(tx, ty - 11).L(tx, ty - 6).M(tx, ty + 6).L(tx, ty + 11).M(tx - 11, ty).L(tx - 6, ty).M(tx + 6, ty).L(tx + 11, ty), lite(col, 0.4), 1.4);
+      const bolts = [[-24, 6, -0.9], [-18, 18, -0.4], [-6, 24, 0.3], [-14, -4, -1.3], [4, 12, 0.9]];
+      bolts.forEach(([x, y, bend], i) => {
+        const k = 0.55 + i * 0.1, ex = x + (tx - x) * k, ey = y + (ty - y) * k;
+        const mx = (x + ex) / 2 + bend * 6, my = (y + ey) / 2 - bend * 6;
+        line(g, (p) => p.M(x, y).Q(mx, my, ex, ey), rgba(lite(col, 0.3), 0.75), 1.8);
+        glow(g, (p) => p.E(ex, ey, 3.4), col, { blur: 6, core: lite(col, 0.7) });
+      });
+      spark(g, tx, ty, 4.4, '#ffffff');
+    },
+    // 影刺：一道暗色的身影残像（新月形），一柄短刃从它背后斜刺下去，刃尖迸出暴击的星芒
+    daggers(g, col) {
+      glow(g, (p) => p.M(-6, -25).C(-26, -18, -26, 14, -6, 22).C(-16, 10, -16, -12, -6, -25).Z(), col, { blur: 8, core: mix(col, '#141226', 0.45) });
+      solid(g, (p) => p.M(-6, -25).C(-26, -18, -26, 14, -6, 22).C(-16, 10, -16, -12, -6, -25).Z(), mix(col, '#141226', 0.55), { hi: 0.35, lo: 0.4, lw: 1.6, bevel: 0 });
+      line(g, (p) => p.M(-24, -9).L(-31, -9).M(-25, 0).L(-32, 0).M(-24, 9).L(-30, 9), rgba(lite(col, 0.3), 0.7), 1.5);
+      const m = rot(-145, 1.05, 4, 1);
+      glow(g, (p) => p.M(-3, 5).L(-3.4, -9).Q(-2, -18, 1.4, -22).Q(3.6, -14, 3.2, -6).L(3, 5).Z(), col, { m, blur: 7, core: col });
+      solid(g, (p) => p.M(-3, 5).L(-3.4, -9).Q(-2, -18, 1.4, -22).Q(3.6, -14, 3.2, -6).L(3, 5).Z(), lite(col, 0.6), { m, hi: 0.7, lo: 0.25, lw: 1.9, bevel: 1.1 });
+      solid(g, (p) => p.R(-6.4, 5, 12.8, 3.2, 1.2).R(-1.8, 8.2, 3.6, 7.6, 1), dark(col, 0.45), { m, hi: 0.4, lw: 1.7, bevel: 0.9 });
+      spark(g, 15.4, 19.6, 8, '#ffffff');
+      spark(g, 22.4, 11, 3.6, lite(col, 0.5));
+    },
+    // 震地：锤头砸在左下的地面，冲击波朝右上一路变宽
+    hammer(g, col) {
+      for (let i = 0; i < 3; i++) {
+        const r = 12 + i * 8.5, w = 0.5 + i * 0.16, a0 = -Math.PI / 4;
+        glow(g, (p) => { for (let k = 0; k <= 8; k++) { const a = a0 - w + (2 * w * k) / 8; p[k ? 'L' : 'M'](-12 + Math.cos(a) * r, 12 + Math.sin(a) * r); } return p; }, col, { stroke: 3.2 - i * 0.6, blur: 6, core: lite(col, 0.5 - i * 0.1) });
+      }
+      // 碎石
+      solid(g, (p) => p.P([6, 0, 9, -3, 11, 0, 8.6, 2.4]).P([-1, 8, 2, 6, 3.4, 9, 0, 10.4]).P([13, 10, 16, 8.4, 17, 11.6]), dark(col, 0.25), { hi: 0.4, lw: 1.3, bevel: 0 });
+      glow(g, (p) => p.E(-12, 13, 9, 4), col, { blur: 8, core: lite(col, 0.6) });
+      const m = rot(-40, 1.08, -12, 10);
+      tube(g, (p) => p.M(0, -5).L(0, -27), C.wood, 3.2, { m });
+      solid(g, (p) => p.R(-12.5, -6.5, 25, 12, 1.8), C.steel, { m, hi: 0.5, lo: 0.45, bevel: 1.3 });
+      solid(g, (p) => p.R(-3.4, -8, 6.8, 15, 1), dark(col, 0.3), { m, hi: 0.45, bevel: 1 });
+      line(g, (p) => p.M(-10.6, -3.6).L(-10.6, 3).M(10.6, -3.6).L(10.6, 3), rgba('#ffffff', 0.6), 1, m);
+      spark(g, 19, -19, 5.4, '#ffffff');
+    },
+    // 箭雨：五支箭斜着落向地上的一个圈
+    bow(g, col) {
+      glow(g, (p) => p.E(2, 18, 21, 7.6), col, { stroke: 2.2, blur: 6, core: lite(col, 0.4) });
+      const arrows = [[-14, -8, 0.95], [-2, -18, 1.05], [10, -10, 0.9], [-6, 2, 0.85], [14, 3, 0.8]];
+      for (const [x, y, k] of arrows) {
+        const m = rot(-150, k, x, y);
+        line(g, (p) => p.M(0, 14).L(0, 26), rgba(lite(col, 0.4), 0.55), 1.4, m);
+        tube(g, (p) => p.M(0, 9).L(0, -6), C.woodD, 1.3, { m });
+        solid(g, (p) => p.M(0, 7).L(-2.6, 10.6).L(-2.6, 12.4).L(0, 10).L(2.6, 12.4).L(2.6, 10.6).Z(), lite(col, 0.2), { m, bevel: 0, lw: 1 });
+        glow(g, (p) => p.P([0, -12, 2.6, -5, 0, -6.4, -2.6, -5]), col, { m, blur: 4, core: lite(col, 0.6) });
+      }
+      spark(g, 2, 18, 4.4, '#ffffff');
+    },
+    // 瞬断：一道横贯的细长斩光，身后拖着冲刺的残影线，斩痕上迸出几处断口
+    katana(g, col) {
+      const m = rot(-28, 1, 0, 0);
+      line(g, (p) => p.M(-30, -7).L(-14, -7).M(-29, 6).L(-10, 6).M(-26, 13).L(-18, 13), rgba(lite(col, 0.4), 0.8), 1.6, m);
+      glow(g, (p) => p.M(-24, 1.4).Q(0, -2.6, 28, 0).Q(0, 1.4, -24, 1.4).Z(), col, { m, blur: 10, core: col });
+      solid(g, (p) => p.M(-24, 1.6).Q(0, -3.2, 28, 0).Q(0, 1.8, -24, 1.6).Z(), '#ffffff', { m, hi: 0, lo: 0.1, lw: 1.3, bevel: 0 });
+      for (const [x, s] of [[-8, 7], [6, 9], [18, 6]]) {
+        solid(g, (p) => p.P([x - 2, -s * 0.2, x + 1.8, -s, x + 2.4, -s * 0.15, x + 0.4, s * 0.9]), lite(col, 0.45), { m, hi: 0.7, lw: 1.4, bevel: 0 });
+      }
+      spark(g, 24, -12, 6.4, '#ffffff');
+    },
+    // 魂潮：左下一面小魂幡，四团魂火拖着弯尾从幡上涌向右上；幡脚一圈短促的「狂热」折线
+    banner(g, col) {
+      const m = rot(10, 0.86, -17, 7);
+      // 幡
+      tube(g, (p) => p.M(0, 24).L(0, -20), C.duskD, 2.6, { m });
+      solid(g, (p) => p.M(1.2, -17).L(12, -17.4).C(12.6, -10, 10.8, -3, 12.4, 4).L(10.4, 1.8).L(9, 7).L(7.2, 2.6).L(5.4, 8.4).L(3.8, 3.6).L(2.2, 6.6).L(1.6, 2).C(0.8, -4, 2.2, -10, 1.2, -17).Z(), '#2d3038', { m, hi: 0.25, lo: 0.5, bevel: 1, lw: 1.8 });
+      glow(g, (p) => p.M(3.4, -9).Q(6.6, -13, 9.8, -9).Q(6.6, -5.2, 3.4, -9).Z(), col, { m, stroke: 1.1, blur: 4, core: lite(col, 0.7) });
+      tube(g, (p) => p.M(-1.8, -17.6).L(14, -18), C.duskD, 1.8, { m });
+      // 魂火：头是发光的圆，尾巴是一条渐细的弯弧
+      const wisp = (x0, y0, x1, y1, bend, r) => {
+        const mx = (x0 + x1) / 2 - (y1 - y0) * bend, my = (y0 + y1) / 2 + (x1 - x0) * bend;
+        const dx = x1 - mx, dy = y1 - my, d = Math.hypot(dx, dy) || 1, nx = -dy / d, ny = dx / d;
+        glow(g, (p) => p.M(x0, y0).Q(mx + nx * r * 0.5, my + ny * r * 0.5, x1 + nx * r, y1 + ny * r).L(x1 - nx * r, y1 - ny * r).Q(mx - nx * r * 0.5, my - ny * r * 0.5, x0, y0).Z(), col, { blur: 6, core: rgba(lite(col, 0.35), 0.75) });
+        glow(g, (p) => p.E(x1, y1, r * 1.15), col, { blur: 8, core: lite(col, 0.75) });
+        glow(g, (p) => p.E(x1 - r * 0.3, y1 - r * 0.3, r * 0.45), '#ffffff', { blur: 3, core: '#ffffff' });
+      };
+      wisp(-8, -8, 4, -22, 0.25, 3.2);
+      wisp(-6, -3, 17, -15, 0.22, 3.6);
+      wisp(-4, 2, 22, 0, 0.2, 3.1);
+      wisp(-6, 6, 12, 14, -0.18, 2.6);
+      // 狂热：幡脚两道短折线
+      line(g, (p) => p.M(-27, 24).L(-24, 20).L(-21, 24).M(-12, 25).L(-9, 21).L(-6, 25), rgba(lite(col, 0.4), 0.85), 1.6);
+      spark(g, 21, -21, 5, '#ffffff');
+    },
+  };
+  // 武器技的技能 id → 武器类型（读 G.BASES.weapon 的 wskill 字段）
+  function wskillType(id) {
+    const ws = (G.BASES && G.BASES.weapon) || [];
+    for (let i = 0; i < ws.length; i++) if (ws[i] && ws[i].wskill === id) return weaponType(i);
+    const sk = G.SKILLS && G.SKILLS[id];
+    if (sk && WSKILL_DRAW[sk.wtype]) return sk.wtype;
+    if (sk && WSKILL_DRAW[sk.weapon]) return sk.weapon;
+    return null;
+  }
+
+  // =====================================================================
   // 小符号：辅助宝石上的刻纹、异常状态
   // =====================================================================
   const GLYPH = {
@@ -907,8 +1226,12 @@
     }
     if (k[0] === 'sk') {
       const s = G.SKILLS[k[1]];
-      return s && SKILL_DRAW[k[1]] ? render((g) => SKILL_DRAW[k[1]](g, s.color)) : null;
+      if (s && SKILL_DRAW[k[1]]) return render((g) => SKILL_DRAW[k[1]](g, s.color));
+      const wt = s ? wskillType(k[1]) : null;
+      return wt ? render((g) => WSKILL_DRAW[wt](g, s.color || WSKILL_COLOR[wt])) : null;
     }
+    // 预览用：按武器类型直接画武器技（不依赖技能 id）
+    if (k[0] === 'wsk') return WSKILL_DRAW[k[1]] ? render((g) => WSKILL_DRAW[k[1]](g, WSKILL_COLOR[k[1]])) : null;
     if (k[0] === 'sup') return G.SUPPORTS[k[1]] ? render((g) => drawSupport(g, k[1])) : null;
     if (k[0] === 'blank') return render((g) => { g.scale(1.08, 1.08); drawBlank(g); });
     if (k[0] === 'ail') {
@@ -1003,6 +1326,9 @@
     sup: (id, extra) => html('sup-' + id, extra),
     ail: (id, extra) => html('ail-' + id, extra),
     blank: (extra) => html('blank', extra), // 无铭技能宝石
+    wsk: (type, extra) => html('wsk-' + type, extra), // 按武器类型的武器技图标（技能数据还没有时的退路）
+    weaponType, // 武器基底下标 → 'blade' | 'staff' | 'wand' | 'daggers' | 'hammer' | 'bow' | 'katana' | 'banner'
+    wskColor: (type) => WSKILL_COLOR[type] || '#e6dfd0',
     supColor: (id) => SUP_TINT[supKey(id)] || '#d8d8e0',
     ally: ALLY,
   };

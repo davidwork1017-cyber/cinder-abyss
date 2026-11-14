@@ -27,17 +27,29 @@
   G.TAG_NAME = {
     attack: '攻击', spell: '法术', melee: '近战', projectile: '投射物', area: '范围',
     chaining: '连锁', phys: '物理', fire: '火焰', cold: '冰霜', light: '闪电', movement: '位移',
-    minion: '召唤物', summon: '召唤', aura: '光环',
+    minion: '召唤物', summon: '召唤', aura: '光环', weapon: '武器技',
   };
+
+  // ---------- 武器伤害 ----------
+  // 攻击技能（带 attack 标签）的伤害来自手里的武器：每一击 = 武器伤害 × 技能的武器倍率 wm × (1 + ATTACK_GEM_LVL × (宝石等级 − 1))，
+  // 出手速度再乘上武器的攻击速度（有冷却的攻击技能——闪袭——攻速改为乘在每一击的伤害上，见 G.cdAps）。法术和召唤不看武器伤害。
+  // 武器基础伤害 = 基底的 1 级伤害 × (1 + WEAPON_LVL × (物品等级 − 1))，再乘一个 0.9–1.1 的成色。
+  // 攻击技能的成长几乎全在武器上（宝石等级只给一点点）：拿着当前区域物品等级的武器、宝石在成长下限时，
+  // 两者相乘和改版前「宝石每级 +20%」的曲线贴得很近（角色 1–27 级都在 ±5% 以内）。起手的 1 级刃（8–12）× 裂石击 1.25 = 改版前的 10–15
+  G.WEAPON_LVL = 0.12;
+  G.WEAPON_LVL_CAP = 27; // 物品等级超过这么多不再提高武器伤害（宝石的成长下限也在 27 级角色时到 20 级封顶）
+  G.ATTACK_GEM_LVL = 0.012;
+  G.FISTS = { min: 2, max: 4, aps: 1 }; // 空手
 
   // ---------- 主动技能 ----------
   // 每个技能的打击手感：w 分量（0 轻 / 1 重 / 2 终结），kb 击退距离（世界单位，按怪物体重折算），
   // poise 每次命中削掉的架势。近战削得最多，法术次之。
+  // 攻击技能没有自己的伤害区间：wm 是武器倍率（见上面的「武器伤害」），法术 / 召唤照旧用 dmg
   G.SKILLS = {
     cleave: {
       name: '裂石击', icon: '斩', color: '#e6dfd0', tags: ['attack', 'melee', 'area', 'phys'], kind: 'melee',
       // time 是三段的平均段长（界面估算秒伤用），range / arc 是前两段的大致范围
-      dmg: { phys: [10, 15] }, time: 0.45, mana: 0, cd: 0, range: 3.6, arc: 125,
+      wm: 1.25, time: 0.45, mana: 0, cd: 0, range: 3.6, arc: 125,
       // 三段连击。time：这一段多久之后可以接下一段 / 别的动作；hit：命中时刻；tail：没有后续输入时的收招；
       // mult 伤害倍率；lunge 出手时朝准星踏出的距离；stop 顿帧毫秒数。
       // 前两段是扇形（range 半径、arc 角度、dir 刀光扫过的方向），第三段是跃起下劈：落点在身前 reach 处、半径 range 的圆
@@ -55,7 +67,7 @@
     },
     blade: {
       name: '飞刃', icon: '刃', color: '#cfd6e6', tags: ['attack', 'projectile', 'phys'], kind: 'proj',
-      dmg: { phys: [8, 12] }, time: 0.36, mana: 4, cd: 0, speed: 28, pierce: 2, projR: 0.28, w: 0, kb: 0.35, poise: 8,
+      wm: 1.0, time: 0.36, mana: 4, cd: 0, speed: 28, pierce: 2, projR: 0.28, w: 0, kb: 0.35, poise: 8,
       desc: '掷出一柄旋转的利刃，可穿透 2 个敌人。',
     },
     // 光环：放在技能栏任意一格上就常驻生效，不用按键。reserve 保留最大魔力的百分比（乘上所镶辅助的消耗倍率：节流降低，迅捷 / 扩域等抬高）；
@@ -80,14 +92,14 @@
     blink: {
       name: '闪袭', icon: '闪', color: '#c7a6ff', tags: ['attack', 'melee', 'area', 'phys', 'movement'], kind: 'blink',
       // 有冷却：每一下的伤害按「穿插在主力技能之间」来定，单独按冷却循环打不过主力技能
-      dmg: { phys: [30, 42] }, time: 0.2, mana: 10, cd: 3.5, radius: 3.0, range: 10, w: 2, kb: 1.8, poise: 30, stop: 80,
+      wm: 3.6, time: 0.2, mana: 10, cd: 3.5, radius: 3.0, range: 10, w: 2, kb: 1.8, poise: 30, stop: 80,
       desc: '瞬移到鼠标位置，重重砸在落点，对周围的敌人造成大量伤害。冷却期间穿插主力技能。',
     },
     whirl: {
       name: '旋风斩', icon: '旋', color: '#e8c9a0', tags: ['attack', 'melee', 'area', 'phys'], kind: 'spin',
       // 持续施放：按住时原地旋转，每 time 秒（受出手速度影响）对身边一圈造成一次伤害、扣一次魔力。
       // radius 半径；move 旋转中的移动速度倍率；kb 击退（顺着旋转方向带一下，不把敌人推出圈外）；stop 每跳的顿帧毫秒数
-      dmg: { phys: [6, 10] }, time: 0.3, mana: 2, cd: 0, radius: 3.0, move: 0.6, w: 0, kb: 0.18, poise: 6, stop: 12,
+      wm: 0.8, time: 0.3, mana: 2, cd: 0, radius: 3.0, move: 0.6, w: 0, kb: 0.18, poise: 6, stop: 12,
       desc: '按住持续旋转，不断斩击身边一圈的敌人，每一下都消耗少量魔力。转起来可以慢慢走动；松手、翻滚或施放别的技能就停下。',
     },
     shadestep: {
@@ -95,7 +107,7 @@
       // 持续施放：按住时自动瞬移到身边 range 以内（走得过去的）敌人旁边斩一刀，再闪向下一个。
       // 每 time 秒一刀（受出手速度影响），每刀扣一次魔力；radius 是每一刀波及目标周围的半径（吃范围加成）；
       // lead 闪现到落地出刀之间的秒数（第一刀 / 之后每一刀），闪现期间无敌，出刀那一刻不无敌；stop 每刀的顿帧毫秒数
-      dmg: { phys: [5, 7] }, time: 0.18, mana: 2, cd: 0, range: 8, radius: 1.6, lead: [0.08, 0.1], move: 0, w: 0, kb: 0.25, poise: 9, stop: 25,
+      wm: 0.6, time: 0.18, mana: 2, cd: 0, range: 8, radius: 1.6, lead: [0.08, 0.1], move: 0, w: 0, kb: 0.25, poise: 9, stop: 25,
       desc: '按住后自动闪到附近的敌人身边斩击，再闪向下一个，不用瞄准。优先砍准星附近和这一轮还没砍过的敌人，每一刀也波及目标身边的敌人，消耗少量魔力。闪现的瞬间无敌，落地出刀时没有；选中露出破绽的敌人直接处决。松手、翻滚、施放别的技能或附近没有敌人时停下。',
     },
     // 召唤：在准星处（最远 range，落在可走的地面上）唤起召唤物。召唤物不吃玩家自己的伤害属性，
@@ -119,7 +131,84 @@
       taunt: { cd: 7, r: 6, dur: 3, boss: 0.8 }, // 嘲讽：冷却、半径、小怪被嘲讽的秒数、首领被嘲讽的秒数
       desc: '在准星处立起一尊石誓守像：缓慢而坚不可摧，每隔几秒双拳砸地伤害一圈敌人，并不时怒吼嘲讽，迫使周围的敌人转而攻击它。只能存在 1 尊，再次施放会在新位置重铸。',
     },
+
+    // ---------- 武器技（R 键）：每种武器自带一个，跟着手里的武器走 ----------
+    // weaponOnly：不掉落、不进技能页的普通列表、镶不了辅助宝石、不占技能栏的 4 格。wtype 是对应的武器类型。
+    // 攻击型（带 attack）按武器伤害 × wm 成长（等级 = 宝石的成长下限，只给一点点加成），出手节奏不吃武器攻速；
+    // 法术型（长杖 / 短杖）用 edmg 作基础伤害，等级 = 武器物品等级 × 0.75，元素取你元素伤害加成最高的那一种（并列时取 elem）。
+    // wt：phases 各段生效的时刻（第一段扣消耗、进冷却），cancel 之后可以接别的动作，dur 自然收招；都按秒，受出手速度影响。
+    // useMult：一次施放里同一个目标平均吃到的倍率总和（技能卡 / 秒伤估算用；avgHit 返回的是「每次施放」对单体的伤害）。
+    // move：施放途中的移动速度倍率。冷却技能每次的伤害按「穿插在主力技能之间额外多出 20–35% 秒伤」来定
+    riposte: {
+      name: '回锋斩', icon: '回', color: '#f0e2c4', tags: ['weapon', 'attack', 'melee', 'area', 'phys'], kind: 'wblade', weaponOnly: true, wtype: 'blade',
+      wm: 2.2, time: 0.58, mana: 6, cd: 4, w: 1, kb: 1.0, poise: 16, move: 0.2,
+      wt: { phases: [0.16, 0.4], cancel: 0.58, dur: 0.72, clip: { dur: 0.69 } }, // clip：动作时长 / 命中帧对到的时刻（缺省第一段），让回身横扫的姿势落在第二段
+      // 先突刺：朝准星踏出 lunge，贯穿身前 len × width 的一条直线（撞墙截断）；再回身横扫身边一整圈
+      thrust: { mult: 1.0, len: 5.5, width: 1.4, lunge: 1.0, kb: 1.0, poise: 16, stop: 50, w: 1 },
+      sweep: { mult: 1.6, range: 3.4, kb: 1.6, poise: 26, stop: 90, w: 2 },
+      useMult: 2.6,
+      desc: '先朝准星突刺，贯穿一条直线上的所有敌人；随即回身横扫，斩击身边一整圈。',
+    },
+    leyburst: {
+      name: '地脉涌', icon: '涌', color: '#ffb07a', tags: ['weapon', 'spell', 'area'], kind: 'wstaff', weaponOnly: true, wtype: 'staff',
+      edmg: [48, 72], elem: 'fire', time: 0.55, mana: 12, cd: 6, radius: 5.2, ailment: 60, w: 1, kb: 1.4, poise: 22, move: 0.3,
+      wt: { phases: [0.38], cancel: 0.55, dur: 0.7 },
+      useMult: 1,
+      desc: '以杖顿地，地脉之力在身边炸开一圈，属性取你加成最高的元素，并大幅累积该元素的异常值。墙后的敌人不受波及。',
+    },
+    arcvolley: {
+      name: '秘弹连射', icon: '弹', color: '#c9b4ff', tags: ['weapon', 'spell', 'projectile'], kind: 'wwand', weaponOnly: true, wtype: 'wand',
+      edmg: [7.5, 11.5], elem: 'light', time: 0.45, mana: 10, cd: 5, n: 5, gap: 0.09, speed: 21, projR: 0.26, range: 18, seek: 6, turn: 9, explode: 1.8,
+      w: 0, kb: 0.3, poise: 6, move: 0.5,
+      wt: { phases: [0.2], cancel: 0.45, dur: 0.6 },
+      useMult: 5,
+      desc: '快速连射 5 枚追踪秘弹，飞向准星附近的敌人（有多个时轮流分配），命中后在小范围内炸开，属性取你加成最高的元素。秘弹撞墙即散。',
+    },
+    shadowstab: {
+      name: '影刺', icon: '刺', color: '#a9a2ff', tags: ['weapon', 'attack', 'melee', 'phys', 'movement'], kind: 'wdaggers', weaponOnly: true, wtype: 'daggers',
+      wm: 3.85, time: 0.34, mana: 6, cd: 4, range: 8, radius: 1.4, w: 2, kb: 1.2, poise: 30, stop: 90, iframe: 0.3, move: 0,
+      wt: { phases: [0.06, 0.16], cancel: 0.34, dur: 0.45, clip: { dur: 0.55, at: 0.16 } }, // 动作的命中帧是刺出那一下
+      useMult: 1, sureCrit: true, // 必定暴击
+      desc: '闪到准星附近敌人（8 格以内、中间没有墙）的身后刺出一击，必定暴击，并波及目标身边的敌人。闪现的瞬间无敌。附近没有目标时不会施放。',
+    },
+    quake: {
+      name: '震地', icon: '震', color: '#d8b07a', tags: ['weapon', 'attack', 'melee', 'area', 'phys'], kind: 'whammer', weaponOnly: true, wtype: 'hammer',
+      wm: 6.0, time: 0.85, mana: 8, cd: 6, len: 9, w0: 2.0, w1: 5.5, reach: 1.4, slamR: 2.2, wave: 28, w: 2, kb: 3.2, poise: 60, stop: 110, move: 0.1,
+      wt: { phases: [0.5], cancel: 0.85, dur: 1.0 },
+      useMult: 1,
+      desc: '高举战锤砸向地面，冲击波朝准星方向推进、越远越宽，重创沿途敌人并将其震飞，削减大量架势。冲击波遇墙即止。',
+    },
+    arrowrain: {
+      name: '箭雨', icon: '雨', color: '#bfe0a0', tags: ['weapon', 'attack', 'area', 'phys'], kind: 'wbow', weaponOnly: true, wtype: 'bow',
+      wm: 0.62, time: 0.45, mana: 12, cd: 8, range: 14, radius: 3.5, delay: 0.35, ticks: 12, tick: 0.25, ailment: 50, infuse: true,
+      w: 0, kb: 0.1, poise: 5, move: 0.4,
+      wt: { phases: [0.3], cancel: 0.45, dur: 0.55 },
+      useMult: 12,
+      desc: '朝天射出一蓬箭，约 3 秒内箭矢不断落在准星一带，反复命中范围内的敌人。技能栏上任何技能镶着的注入宝石（灼炎 / 寒霜 / 雷霆）都会附在箭上，并更快累积元素异常值。',
+    },
+    flashcut: {
+      name: '瞬断', icon: '断', color: '#e8f0ff', tags: ['weapon', 'attack', 'melee', 'phys', 'movement'], kind: 'wkatana', weaponOnly: true, wtype: 'katana',
+      wm: 6.9, time: 0.26, mana: 8, cd: 6, range: 8, width: 1.0, dash: 0.14, delay: 0.35, w: 2, kb: 1.0, poise: 40, stop: 100, move: 0,
+      wt: { phases: [0.08], cancel: 0.26, dur: 0.4, clip: { dur: 0.75, at: 0.22 } }, // 命中帧对到冲刺结束，收刀的一甩正好对上斩开
+      useMult: 1,
+      desc: '朝准星疾冲而过（途中无敌，遇墙即停），约 0.35 秒后，沿途经过的每一个敌人同时被斩开，伤害极高。',
+    },
+    // 魂潮：召唤型。asMinion：伤害按召唤物算——dmg 是每只魂火的基础伤害，等级 = 武器物品等级 × 0.75，每级 +MINION_DMG_LVL，
+    // 只吃召唤物伤害（minionDmg / minionMore），不吃你自己的伤害属性、暴击与「万骸之主」的减伤。
+    // n 只魂火，每隔 gap 秒放出一只，飞向准星附近（seek 以内）的敌人，碰到就在 explode 半径内炸开；life 秒内没碰到就消散。
+    // frenzy：同时让所有召唤物狂热 dur 秒，攻击与移动速度 ×(1 + k)
+    soultide: {
+      name: '魂潮', icon: '潮', color: '#4fe3c8', tags: ['weapon', 'spell', 'minion', 'projectile'], kind: 'wbanner', weaponOnly: true, wtype: 'banner', asMinion: true,
+      dmg: { phys: [17, 24] }, time: 0.5, mana: 14, cd: 8, n: 4, gap: 0.07, speed: 17, projR: 0.3, life: 1.5, range: 16, seek: 6, turn: 11, explode: 1.6,
+      w: 0, kb: 0.5, poise: 8, move: 0.4,
+      frenzy: { dur: 4, k: 0.3 },
+      wt: { phases: [0.28], cancel: 0.5, dur: 0.62 },
+      useMult: 4,
+      desc: '挥动魂幡，放出 4 只魂火扑向准星附近的敌人，碰到即炸开，伤害按召唤物计算（吃召唤物伤害加成）。同时令你所有的召唤物狂热 4 秒：攻击与移动速度提高 30%。没有召唤物时也能用，有召唤物时更强。',
+    },
   };
+  // 武器技之外的技能：能学、能掉落、能放进技能栏的那些
+  G.GEM_SKILLS = Object.keys(G.SKILLS).filter((id) => !G.SKILLS[id].weaponOnly);
   for (const id in G.SKILLS) {
     const sk = G.SKILLS[id];
     if (sk.combo) {
@@ -209,7 +298,11 @@
     minionDmg: '召唤物伤害提高 {v}%', minionLife: '召唤物最大生命提高 {v}%',
     minionSpeed: '召唤物攻击与移动速度提高 {v}%', minionCap: '烬骸仆从数量上限 +{v}',
     minionMore: '召唤物总伤害额外 {s}{v}%', ownLess: '你自身（非召唤物）的总伤害额外 -{v}%',
+    poiseDmg: '架势削减提高 {v}%', pierce: '投射物额外穿透 {v} 个敌人',
+    // 武器的本地词缀：只改这把武器自己的伤害（不进角色属性汇总），已经算在物品的 dmg 里
+    wInc: '武器物理伤害提高 {v}%', wAdd: '附加 {a}–{b} 物理伤害',
   };
+  G.LOCAL_STATS = { wInc: 1, wAdd: 1 };
   G.fmtStat = function (stat, v) {
     const f = G.STAT_FMT[stat] || stat + ' {v}';
     const r = Math.round(v * 10) / 10;
@@ -228,11 +321,24 @@
   G.RARITY_NAME = ['普通', '魔法', '稀有'];
   G.RARITY_COLOR = ['#d6d1c4', '#7f9dff', '#ffd75e'];
 
+  // 武器：type 武器类型；wskill 自带的武器技（G.SKILLS 里的 id）；dmg 1 级时的物理伤害区间（按物品等级成长，见「武器伤害」）；
+  // aps 攻击速度：攻击技能的出手速度倍率（1 = 技能本身的节奏），武器秒伤 = 平均伤害 × aps；
+  // hands 1 单手 / 2 双手（模型握法用）。前三种的下标 0 / 1 / 2 不能动（旧存档靠 baseIdx 认基底），新类型只能往后加。
+  // 隐含属性 imp：fixed 为 true 时不随物品等级放大，step 是每多少物品等级 +1（长弓的穿透）；also 附带的第二条（G.impAlso）。
+  // caster：施法武器（武器伤害低）；drop：随机掉落时的基底权重（缺省 1）。
+  // 双匕 / 长弓 / 太刀的武器秒伤比刃高一成左右：刃的隐含「物理伤害提高」随物品等级放大，其余的隐含几乎不加单体秒伤，
+  // 这样同物品等级下各类攻击武器配攻击技能的秒伤都在刃的 ±10% 以内（长弓单体略低，靠穿透打群）
   G.BASES = {
     weapon: [
-      { names: ['铁刃', '战刃', '烬钢刃'], imp: { stat: 'incPhys', lo: 8, hi: 14 } },
-      { names: ['木杖', '符文杖', '渊晶杖'], imp: { stat: 'incElem', lo: 8, hi: 14 } },
-      { names: ['骨杖', '灵枝', '雷纹短杖'], imp: { stat: 'speed', lo: 4, hi: 7 } },
+      { names: ['铁刃', '战刃', '烬钢刃'], type: 'blade', wskill: 'riposte', dmg: [8, 12], aps: 1.0, hands: 1, imp: { stat: 'incPhys', lo: 8, hi: 14 } },
+      { names: ['木杖', '符文杖', '渊晶杖'], type: 'staff', wskill: 'leyburst', dmg: [5, 8], aps: 0.9, hands: 2, caster: true, imp: { stat: 'incElem', lo: 8, hi: 14 } },
+      { names: ['骨杖', '灵枝', '雷纹短杖'], type: 'wand', wskill: 'arcvolley', dmg: [4, 8], aps: 1.0, hands: 1, caster: true, imp: { stat: 'speed', lo: 4, hi: 7 } },
+      { names: ['双骨匕', '鸦喙双匕', '烬牙双刺'], type: 'daggers', wskill: 'shadowstab', dmg: [7, 13], aps: 1.2, hands: 1, imp: { stat: 'crit', lo: 20, hi: 30 } },
+      { names: ['石锤', '铁誓战锤', '熔心巨锤'], type: 'hammer', wskill: 'quake', dmg: [11, 18], aps: 0.8, hands: 2, imp: { stat: 'poiseDmg', lo: 15, hi: 25 } },
+      { names: ['榆木长弓', '筋角长弓', '渊鸣长弓'], type: 'bow', wskill: 'arrowrain', dmg: [8, 15], aps: 1.0, hands: 2, imp: { stat: 'pierce', lo: 1, hi: 1, fixed: true, step: 12 } },
+      { names: ['直刃太刀', '霜纹太刀', '烬月太刀'], type: 'katana', wskill: 'flashcut', dmg: [8, 14], aps: 1.05, hands: 2, imp: { stat: 'critMulti', lo: 12, hi: 20 } },
+      // 魂幡：召唤师的武器，武器伤害很低；隐含属性带一点召唤物生命（also：数值 = 主隐含 × k，取整）
+      { names: ['骨铃魂幡', '残旌魂幡', '渊引魂幡'], type: 'banner', wskill: 'soultide', dmg: [3, 6], aps: 0.9, hands: 2, caster: true, drop: 0.8, imp: { stat: 'minionDmg', lo: 10, hi: 16, also: { stat: 'minionLife', k: 0.5 } } },
     ],
     helm: [{ names: ['皮盔', '铁盔', '烬钢盔'], armour: [10, 4] }],
     body: [{ names: ['皮甲', '锁甲', '烬钢甲'], armour: [20, 8] }],
@@ -268,7 +374,8 @@
     A('incCold', 'prefix', '凛冬', 'incCold', 6, 10, 1.35, ['weapon'].concat(JEW), 5),
     A('incLight', 'prefix', '雷殛', 'incLight', 6, 10, 1.35, ['weapon'].concat(JEW), 5),
     A('incAll', 'prefix', '凶暴', 'incAll', 4, 7, 1.33, ['weapon', 'amulet'], 4),
-    A('addPhys', 'prefix', '裂伤', 'addPhys', 2, 3, 1.5, ['weapon', 'gloves'].concat(JEW), 5),
+    // 武器上的物理附加改为本地词缀（wAdd，只加这把武器的伤害）；手套 / 首饰上的照旧对所有技能生效
+    A('addPhys', 'prefix', '裂伤', 'addPhys', 2, 3, 1.5, ['gloves'].concat(JEW), 5),
     A('addFire', 'prefix', '淬火', 'addFire', 2, 4, 1.5, ['weapon', 'gloves'].concat(JEW), 4),
     A('addCold', 'prefix', '覆霜', 'addCold', 2, 4, 1.5, ['weapon', 'gloves'].concat(JEW), 4),
     A('addLight', 'prefix', '蓄电', 'addLight', 2, 4, 1.5, ['weapon', 'gloves'].concat(JEW), 4),
@@ -285,7 +392,10 @@
     A('rarity', 'suffix', '寻宝', 'rarity', 5, 9, 1.25, ['helm', 'gloves', 'boots'].concat(JEW), 4),
     // 召唤物词缀。baseW：按基底（BASES 里的下标）调整出现权重——杖类武器（木杖 / 骨杖）更容易出召唤物伤害；
     // minIlvl / rareOnly：只在物品等级够高的稀有物品上出现
-    Object.assign(A('minionDmg', 'prefix', '统御', 'minionDmg', 6, 10, 1.35, ['weapon'].concat(JEW), 5), { baseW: { weapon: [0.4, 1.8, 1.8] } }),
+    Object.assign(A('minionDmg', 'prefix', '统御', 'minionDmg', 6, 10, 1.35, ['weapon'].concat(JEW), 5), { baseW: { weapon: [0.4, 1.8, 1.8, 0.4, 0.4, 0.4, 0.4, 2.6] } }),
+    // 武器本地词缀（local）：改的是这把武器自己的伤害，施法武器（杖类、魂幡）很少出
+    Object.assign(A('wInc', 'prefix', '淬锋', 'wInc', 8, 13, 1.25, ['weapon'], 7), { local: true, baseW: { weapon: [1, 0.3, 0.3, 1, 1, 1, 1, 0.2] } }),
+    Object.assign(A('wAdd', 'prefix', '重锻', 'wAdd', 2, 3, 1.33, ['weapon'], 6), { local: true, baseW: { weapon: [1, 0.3, 0.3, 1, 1, 1, 1, 0.2] } }),
     A('minionLife', 'prefix', '骸固', 'minionLife', 8, 13, 1.3, ['helm', 'body', 'belt'], 5),
     Object.assign(A('minionCap', 'suffix', '万骸', 'minionCap', 1, 1, 1, ['amulet'], 2), { minIlvl: 18, rareOnly: true }),
   ];

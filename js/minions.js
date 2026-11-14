@@ -26,6 +26,10 @@
   const list = S.minions;
   let markShown = null; // 当前头顶有集火标记的敌人
   let refreshT = 0;
+  // 狂热（魂潮）：剩余秒数与攻击 / 移动速度的加成比例。期间出手间隔、攻击动作与移动都快 (1 + frenzyK) 倍
+  let frenzyT = 0;
+  let frenzyK = 0;
+  const frenzyMul = () => (frenzyT > 0 ? 1 + frenzyK : 1);
 
   const dist = (ax, az, bx, bz) => Math.hypot(ax - bx, az - bz);
   function turn(m, target, rate, dt) {
@@ -189,8 +193,26 @@
     list.length = 0;
     S.focus = null;
     S.focusT = 0;
+    frenzyT = 0;
     setMark(null);
   };
+
+  // 让所有召唤物狂热 dur 秒，攻击与移动速度 ×(1 + k)（重复施放刷新时长，取较高的加成）。返回受影响的召唤物数量。
+  // 每只召唤物身上的特效走 world.frenzyFx(ent, dur)（可选）
+  G.minionFrenzy = function (dur, k) {
+    frenzyK = frenzyT > 0 ? Math.max(frenzyK, k) : k;
+    frenzyT = Math.max(frenzyT, dur);
+    let n = 0;
+    for (const m of list) {
+      if (m.dead) continue;
+      n++;
+      if (G.world && typeof G.world.frenzyFx === 'function') G.world.frenzyFx(m.ent, dur);
+      else if (G.world) G.world.burst(m.x, m.height * 0.6, m.z, ALLY_HEX, 10, 3, 0.4);
+    }
+    return n;
+  };
+  // 狂热剩余秒数与当前倍率（界面 / 测试用）
+  G.minionFrenzyState = () => ({ t: frenzyT, mult: frenzyMul() });
 
   // 全部回到玩家身边重新现身（换区域、重生、离得太远）
   function regroup(m, i, n) {
@@ -403,14 +425,14 @@
   const _info = { ang: 0, w: 0, kb: 0, poise: 0, quiet: true, minion: null };
 
   function startAttack(m, e) {
-    const K = KIND[m.kind], mi = m.ctx.minion;
-    const k = Math.min(1, mi.interval / m.ctx.sk.rate); // 攻速快了，动作也跟着快（不慢于原速）
+    const K = KIND[m.kind], mi = m.ctx.minion, fz = frenzyMul();
+    const k = Math.min(1, mi.interval / fz / m.ctx.sk.rate); // 攻速快了（含狂热），动作也跟着快（不慢于原速）
     const dur = K.atkDur * k, hit = K.atkHit * k;
     m.state = 'attack';
     m.stateT = dur;
     m.strikeT = hit;
     m.target = e;
-    m.atkT = mi.interval;
+    m.atkT = mi.interval; // 狂热的加速在倒计时里算（每秒减 fz），这里不再除，免得算两遍
     m.ang = Math.atan2(e.x - m.x, e.z - m.z);
     G.world.play(m.ent, 'attack', { dur, contact: hit });
   }
@@ -562,6 +584,8 @@
     // 集火目标：过期或死了就清掉；有召唤物时在它头顶标出来
     if (S.focusT > 0) S.focusT -= dt;
     if (S.focus && (S.focus.dead || !(S.focusT > 0))) S.focus = null;
+    if (frenzyT > 0) frenzyT = Math.max(0, frenzyT - dt);
+    const fz = frenzyMul();
     if (!list.length) {
       setMark(null);
       return;
@@ -585,7 +609,7 @@
       m.moving = false;
       if (m.hurtT > 0) m.hurtT -= dt;
       if (m.ignoreT > 0) m.ignoreT -= dt;
-      if (m.atkT > 0) m.atkT -= dt;
+      if (m.atkT > 0) m.atkT -= dt * fz;
       if (m.tauntCd > 0) m.tauntCd = Math.max(0, m.tauntCd - dt);
 
       if (m.rising > 0) {
@@ -629,13 +653,13 @@
           if (esc) {
             // 仆从身手灵活：看清小怪的预警圈之后会闪出去（守像太慢不躲；首领的招式也不躲，照样要吃）
             turn(m, Math.atan2(esc.x, esc.z), 12, dt);
-            step(m, esc.x, esc.z, mi.move * dt);
+            step(m, esc.x, esc.z, mi.move * fz * dt);
             m.moving = true;
           } else if (m.kind === 'colossus' && canTaunt(m)) startTaunt(m);
           else if (e) {
             const gap = m.kind === 'colossus' ? Math.max(mi.reach, mi.radius * 0.7) : mi.reach;
             const stop = e.r + m.r + gap * 0.85;
-            if (moveTo(m, e.x, e.z, mi.move, stop, dt, 0.45)) {
+            if (moveTo(m, e.x, e.z, mi.move * fz, stop, dt, 0.45)) {
               m.stuckT = 0;
               turn(m, Math.atan2(e.x - m.x, e.z - m.z), 10, dt);
               if (m.atkT <= 0) startAttack(m, e);
@@ -650,7 +674,7 @@
             const idx = m.kind === 'thrall' ? ti : 0;
             const sp = followSpot(m, idx, tn);
             const far = dist(m.x, m.z, sp.x, sp.z);
-            const speed = mi.move * (far > 6 ? 1.35 : 1);
+            const speed = mi.move * fz * (far > 6 ? 1.35 : 1);
             // 跟随点挪远了（玩家走动 / 转身）就重新开始计「走不过去」的时间
             if (Math.abs(sp.x - m.spX) + Math.abs(sp.z - m.spZ) > 1.2) {
               m.spX = sp.x;

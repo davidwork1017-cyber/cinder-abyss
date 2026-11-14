@@ -5,11 +5,11 @@
   const W = G.world;
 
   // keys 以 KeyboardEvent.code 为键（KeyW / ArrowUp / Space ...），与键盘布局无关
-  // tap：技能栏 4 个输入的按键缓冲（秒），轻点一下也能在下一次可施法时放出来
+  // tap：技能栏 5 个输入（左键 / 右键 / Q / E / R 武器技）的按键缓冲（秒），轻点一下也能在下一次可施法时放出来
   const input = (G.input = {
     keys: {},
     mouse: { x: window.innerWidth / 2, y: window.innerHeight / 2, wx: 0, wz: 0, b: [false, false, false] },
-    tap: [0, 0, 0, 0],
+    tap: [0, 0, 0, 0, 0],
     tapDodge: 0, // 翻滚的输入缓冲：按下时滚不了（冷却、处决途中）就记下，能滚了立刻滚
     tapExec: 0, // 处决的输入缓冲
     alt: false, // 按住 Alt：展开地面掉落的名牌（界面层读取）
@@ -22,7 +22,7 @@
   function clearInput() {
     for (const k in input.keys) input.keys[k] = false;
     input.mouse.b[0] = input.mouse.b[1] = input.mouse.b[2] = false;
-    input.tap[0] = input.tap[1] = input.tap[2] = input.tap[3] = 0;
+    input.tap[0] = input.tap[1] = input.tap[2] = input.tap[3] = input.tap[4] = 0;
     input.tapDodge = input.tapExec = 0;
     input.alt = false;
   }
@@ -70,6 +70,7 @@
       }
       else if (code === 'KeyQ') input.tap[2] = G.bufferTime('cast');
       else if (code === 'KeyE') input.tap[3] = G.bufferTime('cast');
+      else if (code === 'KeyR') input.tap[4] = G.bufferTime('cast'); // 武器技
     });
 
     window.addEventListener('keyup', (e) => {
@@ -208,17 +209,18 @@
       refreshUi();
       return G.save.cur[curId];
     },
-    giveItem(rarity, slot) {
+    // baseIdx（可选）：指定基底（武器 0..7 = 刃 / 长杖 / 短杖 / 双匕 / 战锤 / 长弓 / 太刀 / 魂幡）；ilvl（可选）：指定物品等级
+    giveItem(rarity, slot, baseIdx, ilvl) {
       if (G.save.bag.length >= G.BAG_SIZE) return null;
-      const ilvl = G.state.zone ? G.state.zone.level : G.save.level;
-      const item = G.rollItem(Math.max(1, ilvl), rarity || 0, slot);
+      if (!(ilvl > 0)) ilvl = G.state.zone ? G.state.zone.level : G.save.level;
+      const item = G.rollItem(Math.max(1, ilvl), rarity || 0, slot, baseIdx);
       G.save.bag.push(item);
       refreshUi();
       return item;
     },
     learnAll() {
       const save = G.save;
-      for (const id of Object.keys(G.SKILLS)) {
+      for (const id of G.GEM_SKILLS) { // 武器技跟着武器走，不用学
         if (!save.skills[id]) save.skills[id] = G.gemFloor ? G.gemFloor() : 1;
         if (!Array.isArray(save.sockets[id])) save.sockets[id] = [null, null, null];
         if (save.bar.indexOf(id) < 0) {
@@ -323,6 +325,8 @@
         skills: Object.assign({}, save.skills),
         supports: save.supports.slice(),
         bar: save.bar.slice(),
+        weaponSkill: G.weaponSkill(),
+        weapon: save.equip.weapon ? G.weaponStats(save.equip.weapon) : null,
         passives: G.passivePoints(),
       };
     },

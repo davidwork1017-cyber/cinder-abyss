@@ -89,9 +89,64 @@
   function addFrom(item, list) {
     if (!list.length) return false;
     insertAffix(item, G.weighted(list, (d) => affixW(d, item)));
+    G.refreshWeapon(item);
     G.updateItemName(item);
     return true;
   }
+
+  // ---------- 武器伤害 ----------
+  // 名称阶：物品等级 1–5 / 6–11 / 12+ → 0 / 1 / 2（基底的三个名字）
+  G.nameTier = (ilvl) => (ilvl < 6 ? 0 : ilvl < 12 ? 1 : 2);
+
+  // 某个武器基底在某个物品等级下的基础伤害区间（本地词缀之前）；q 是成色（缺省 1 = 平均）
+  G.weaponBaseDmg = function (baseIdx, ilvl, q) {
+    const base = G.BASES.weapon[baseIdx] || G.BASES.weapon[0];
+    const L = G.clamp(Math.round(ilvl) || 1, 1, G.WEAPON_LVL_CAP);
+    const k = (1 + G.WEAPON_LVL * (L - 1)) * (q === undefined ? 1 : q);
+    const lo = Math.max(1, Math.round(base.dmg[0] * k));
+    return [lo, Math.max(lo + 1, Math.round(base.dmg[1] * k))];
+  };
+
+  // 本地附加的区间：和词缀文本「附加 a–b」显示的数字一致
+  const addRange = (v) => [Math.max(1, Math.round(v * 0.7)), Math.max(2, Math.round(v * 1.3))];
+
+  // 按基础伤害 wbase 和本地词缀重算武器的 dmg（[最小, 最大]，已含本地词缀）与 aps。
+  // 词缀有增减（打造、重铸）后都要调用；不是武器时什么也不做
+  G.refreshWeapon = function (item) {
+    if (!item || item.slot !== 'weapon') return item;
+    const base = G.BASES.weapon[item.baseIdx] || G.BASES.weapon[0];
+    if (!Array.isArray(item.wbase)) item.wbase = G.weaponBaseDmg(item.baseIdx, item.ilvl);
+    let inc = 0;
+    let addLo = 0;
+    let addHi = 0;
+    for (const af of item.affixes) {
+      const stat = G.AFFIX_BY_ID[af.id].stat;
+      if (stat === 'wInc') inc += af.v;
+      else if (stat === 'wAdd') {
+        const r = addRange(af.v);
+        addLo += r[0];
+        addHi += r[1];
+      }
+    }
+    const k = 1 + inc / 100;
+    const lo = Math.max(1, Math.round((item.wbase[0] + addLo) * k));
+    item.dmg = [lo, Math.max(lo, Math.round((item.wbase[1] + addHi) * k))];
+    item.aps = base.aps;
+    return item;
+  };
+
+  // 武器面板：{ min, max, aps, dps（平均伤害 × 攻速）, type }。不传武器（空手）时是拳头，type 为 null、fists 为 true
+  G.weaponStats = function (item) {
+    if (!item || item.slot !== 'weapon') {
+      const F = G.FISTS;
+      return { min: F.min, max: F.max, aps: F.aps, dps: ((F.min + F.max) / 2) * F.aps, type: null, fists: true };
+    }
+    if (!Array.isArray(item.dmg) || !(item.aps > 0)) G.refreshWeapon(item);
+    const base = G.BASES.weapon[item.baseIdx] || G.BASES.weapon[0];
+    const min = item.dmg[0];
+    const max = item.dmg[1];
+    return { min, max, aps: item.aps, dps: ((min + max) / 2) * item.aps, type: base.type, fists: false };
+  };
 
   function isRareName(name) {
     if (typeof name !== 'string') return false;
@@ -102,14 +157,22 @@
   }
 
   // ---------- 生成 ----------
-  G.rollItem = function (ilvl, rarity, slot) {
+  // 隐含属性的数值：一般随物品等级放大；fixed 的不放大，带 step 的每 step 物品等级 +1（封顶再 +1）
+  function rollImp(imp, ilvl) {
+    if (imp.fixed) return G.randInt(imp.lo, imp.hi) + (imp.step ? Math.min(1, Math.floor(ilvl / imp.step)) : 0);
+    return Math.round(G.rand(imp.lo, imp.hi) * (1 + ilvl * 0.06));
+  }
+
+  // baseIdx（可选）：指定基底，缺省随机
+  G.rollItem = function (ilvl, rarity, slot, baseIdx) {
     ilvl = Math.max(1, Math.round(ilvl) || 1);
     rarity = G.clamp(Math.round(rarity) || 0, 0, 2);
     if (!slot) slot = G.pick(G.SLOTS);
     const bases = G.BASES[slot];
-    const baseIdx = Math.floor(Math.random() * bases.length);
+    // 随机基底按 drop 权重（缺省 1）：武器里魂幡稍少（0.8），其余一样多，起步区域也是各类武器混着出
+    if (!(baseIdx >= 0 && baseIdx < bases.length) || baseIdx !== Math.floor(baseIdx)) baseIdx = bases.indexOf(G.weighted(bases, (b) => (b.drop === undefined ? 1 : b.drop)));
     const base = bases[baseIdx];
-    const nameIdx = Math.min(ilvl < 6 ? 0 : ilvl < 12 ? 1 : 2, base.names.length - 1);
+    const nameIdx = Math.min(G.nameTier(ilvl), base.names.length - 1);
 
     const item = {
       uid: newUid(),
@@ -120,9 +183,14 @@
       rarity,
       ilvl,
       armour: base.armour ? Math.round(base.armour[0] + base.armour[1] * ilvl) : 0,
-      imp: base.imp ? { stat: base.imp.stat, v: Math.round(G.rand(base.imp.lo, base.imp.hi) * (1 + ilvl * 0.06)) } : null,
+      imp: base.imp ? { stat: base.imp.stat, v: rollImp(base.imp, ilvl) } : null,
       affixes: [],
     };
+    // 武器：基础伤害按物品等级成长，再乘 0.9–1.1 的成色；dmg / aps 由 refreshWeapon 推出来
+    if (slot === 'weapon') {
+      item.wbase = G.weaponBaseDmg(baseIdx, ilvl, G.rand(0.9, 1.1));
+      G.refreshWeapon(item);
+    }
 
     const want = rarity === 2 ? G.randInt(3, 5) : rarity === 1 ? G.randInt(1, 2) : 0;
     while (item.affixes.length < want && G.addAffix(item)) { /* 加到够数或没有可用词缀为止 */ }
@@ -155,24 +223,43 @@
   };
 
   // ---------- 属性与文本 ----------
+  // 隐含属性附带的第二条（魂幡：召唤物伤害之外再给一点召唤物生命）：由基底推出来，不存档。没有时 null
+  G.impAlso = function (item) {
+    const bases = item && item.imp && G.BASES[item.slot];
+    const bi = bases && bases[item.baseIdx] && bases[item.baseIdx].imp;
+    if (!bi || !bi.also || bi.stat !== item.imp.stat) return null;
+    return { stat: bi.also.stat, v: Math.max(1, Math.round(item.imp.v * bi.also.k)) };
+  };
+
   G.itemStats = function (item) {
     const s = {};
     if (item.armour) s.armour = item.armour;
     if (item.imp) s[item.imp.stat] = (s[item.imp.stat] || 0) + item.imp.v;
+    const also = G.impAlso(item);
+    if (also) s[also.stat] = (s[also.stat] || 0) + also.v;
     for (const af of item.affixes) {
       const stat = G.AFFIX_BY_ID[af.id].stat;
+      if (G.LOCAL_STATS[stat]) continue; // 武器本地词缀已经算在武器伤害里
       s[stat] = (s[stat] || 0) + af.v;
     }
     return s;
   };
 
+  // weapon：武器面板（G.weaponStats），不是武器时为 null；词缀行的 local 表示本地词缀。
+  // imp 是隐含属性的整行文本（魂幡这种带第二条的用「，」连起来），imps 是逐条的文本
   G.itemLines = function (item) {
+    const imps = [];
+    if (item.imp) imps.push(G.fmtStat(item.imp.stat, item.imp.v));
+    const also = G.impAlso(item);
+    if (also) imps.push(G.fmtStat(also.stat, also.v));
     return {
+      weapon: item.slot === 'weapon' ? G.weaponStats(item) : null,
       armour: item.armour || 0,
-      imp: item.imp ? G.fmtStat(item.imp.stat, item.imp.v) : null,
+      imp: imps.length ? imps.join('，') : null,
+      imps,
       affixes: item.affixes.map(function (af) {
         const def = G.AFFIX_BY_ID[af.id];
-        return { text: G.fmtStat(def.stat, af.v), type: def.type, tier: af.tier + 1 };
+        return { text: G.fmtStat(def.stat, af.v), type: def.type, tier: af.tier + 1, local: !!def.local };
       }),
     };
   };
@@ -261,6 +348,7 @@
         break;
       }
     }
+    G.refreshWeapon(item); // 本地词缀变了：武器伤害跟着重算
     G.updateItemName(item);
     return { ok: true, msg };
   };
