@@ -2450,3 +2450,76 @@ body.panel-open #coach { display: none; }
 .sk-mnote i { flex: none; width: 5px; height: 5px; background: var(--ally); transform: rotate(45deg); box-shadow: 0 0 6px var(--ally); }
 .st-group.ally { color: #5fc8b4; }
 .help .c-ally, .tcard .c-ally, .co-body .c-ally { color: var(--ally); }
+
+/* ============================================================
+   无铭技能宝石：技能页顶部的持有条、「尚未获得」里可点的技能、技能卡上的升级按钮
+   珍珠色（--blank），和青色的技能宝石、白色的辅助宝石区分开
+   ============================================================ */
+:root { --blank: #e2ccff; --blank-d: #6f5a99; }
+.c-blank, .help .c-blank, .tcard .c-blank, .co-body .c-blank { color: var(--blank); }
+.blank-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding: 7px 12px 7px 8px;
+  background:
+    radial-gradient(ellipse 50% 120% at 0% 50%, rgba(226, 204, 255, 0.12), transparent 70%),
+    linear-gradient(180deg, #17121c, #0e0b10);
+  border: 1px solid #3a3048;
+  border-left: 3px solid var(--blank);
+  border-radius: 3px;
+}
+.blank-bar .ibox { width: 40px; height: 40px; --rc: var(--blank-d); box-shadow: 0 0 10px rgba(226, 204, 255, 0.2), inset 0 0 8px rgba(0, 0, 0, 0.7); }
+.bk-txt { min-width: 0; }
+.bk-top { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+.bk-top b { font-family: var(--serif); font-size: 15px; letter-spacing: 1px; color: var(--blank); }
+.bk-lv { font-size: 12.5px; color: #f2eaff; }
+.bk-all { font-size: 11.5px; color: #8d8299; }
+.bk-how, .bk-msg { margin-top: 2px; font-size: 12px; line-height: 17px; color: #a79cb5; }
+.bk-msg { color: #9fdc8a; }
+.bk-msg .bad { color: #ff8a7a; }
+.bk-msg kbd { font-size: 11px; }
+
+.skill-more.can-learn { border-color: #4a3d5c; }
+.sm-title span { margin-left: 10px; letter-spacing: 0.5px; color: var(--blank); }
+.sm-learn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px 0 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: #d8cfc0;
+  background: #120d10;
+  border: 1px solid #3d3148;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.sm-learn .ico { filter: none; opacity: 1; }
+.sm-learn em { font-style: normal; font-size: 11.5px; color: var(--blank); }
+.sm-learn:hover { border-color: var(--blank); color: #fff; background: #1b1420; }
+.sm-learn.armed { border-color: var(--blank); background: #2a2036; box-shadow: 0 0 0 1px var(--blank), 0 0 12px rgba(226, 204, 255, 0.3); }
+.sm-learn.armed em { color: #fff; }
+.blank-up {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 20px;
+  margin-left: 8px;
+  padding: 0 7px 0 3px;
+  vertical-align: 2px;
+  font-family: var(--sans);
+  font-weight: 400;
+  font-size: 11.5px;
+  letter-spacing: 0;
+  color: var(--blank);
+  background: #1a1420;
+  border: 1px solid #4a3d5c;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.blank-up .ico { width: 18px; height: 18px; }
+.blank-up:hover { border-color: var(--blank); color: #fff; }
+.blank-up.armed { color: #fff; background: #2a2036; border-color: var(--blank); box-shadow: 0 0 10px rgba(226, 204, 255, 0.35); }

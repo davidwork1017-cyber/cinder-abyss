@@ -7,6 +7,7 @@
   const BAG_SIZE = (G.BAG_SIZE = 40);
   const MAX_LEVEL = (G.MAX_LEVEL = 60);
   const MAX_GEM_LEVEL = 20;
+  const BLANK_MAX = 99; // 无铭技能宝石最多攒这么多颗（存档读入时截断）
   const PLAYER_PAD = 0.5; // 玩家与墙的距离
   const TAU = Math.PI * 2;
   const DEG = Math.PI / 180;
@@ -126,6 +127,7 @@
       opts: { autoWhite: false, hideNormal: false, autoSalvage: false, salvageMagic: false },
       seenHelp: false,
       tut: {}, // 已经看过的新手提示：{ 提示 id: 1 }（界面层维护）
+      blankGems: [], // 手里的无铭技能宝石：每颗的等级，从高到低排
     };
   };
 
@@ -261,6 +263,9 @@
         if (raw.tut[k] && /^[a-z][a-z0-9_]{0,23}$/i.test(k)) s.tut[k] = 1;
       }
     }
+    s.blankGems = Array.isArray(raw.blankGems)
+      ? raw.blankGems.filter(isNum).slice(0, BLANK_MAX).map((v) => G.clamp(Math.floor(v), 1, MAX_GEM_LEVEL)).sort((a, b) => b - a)
+      : [];
     return s;
   }
 
@@ -2322,6 +2327,8 @@
   function gemLevel() {
     return G.clamp(Math.round(state.zone.level * 0.75) + G.randInt(0, 1), 1, MAX_GEM_LEVEL);
   }
+  // 无铭技能宝石的掉落几率（首领首杀另外必掉）：普通怪比随机技能宝石的 1.2% 略低
+  const BLANK_DROP = (G.BLANK_DROP = { boss: 0.2, elite: 0.04, mob: 0.008 });
   // preferNew：挑玩家还没有的宝石的概率
   function pickSkillGem(preferNew) {
     const all = Object.keys(G.SKILLS);
@@ -2348,6 +2355,8 @@
       for (let i = 0; i < 4; i++) G.spawnLoot('cur', G.rollCurrency(), x, z);
       G.spawnLoot('skill', pickSkillGem(1), x, z);
       G.spawnLoot('support', pickSupportGem(1), x, z);
+      // 无铭技能宝石：每个首领第一次倒下必掉一颗（第一个区域的首领就是新角色的保底），之后再打有小几率
+      if ((e.bossKind && !save.bossKills[e.bossKind]) || Math.random() < BLANK_DROP.boss) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
       return;
     }
     if (e.elite) {
@@ -2361,12 +2370,14 @@
         if (Math.random() < 0.5) G.spawnLoot('skill', pickSkillGem(0.7), x, z);
         else G.spawnLoot('support', pickSupportGem(0.7), x, z);
       }
+      if (Math.random() < BLANK_DROP.elite) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
       return;
     }
     if (Math.random() < 0.14) G.spawnLoot('item', G.rollItem(ilvl, G.rollRarity(rm)), x, z);
     if (Math.random() < 0.09) G.spawnLoot('cur', G.rollCurrency(), x, z);
     if (Math.random() < 0.012) G.spawnLoot('skill', pickSkillGem(0.7), x, z);
     if (Math.random() < 0.01) G.spawnLoot('support', pickSupportGem(0.7), x, z);
+    if (Math.random() < BLANK_DROP.mob) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
   };
 
   G.spawnLoot = function (kind, data, x, z) {
@@ -2404,14 +2415,59 @@
       label = '技能宝石：' + G.SKILLS[data.id].name + ' Lv ' + data.lvl;
       color = GEM_COLOR;
       beam = true;
+    } else if (kind === 'blank') {
+      label = G.BLANK_GEM.name + ' Lv ' + data.lvl;
+      color = G.BLANK_GEM.color;
+      beam = true;
     } else {
       label = '辅助宝石：' + G.SUPPORTS[data].name;
       color = SUP_COLOR;
       beam = true;
     }
-    const loot = { kind, data, x: bx, z: bz, label, color, mesh: W.makeLoot(kind, hexOf(color), beam, bx, bz, kind === 'item' ? data : undefined), t: 0 };
+    const loot = { kind, data, x: bx, z: bz, label, color, mesh: W.makeLoot(kind, hexOf(kind === 'blank' ? G.BLANK_GEM.crystal : color), beam, bx, bz, kind === 'item' ? data : undefined), t: 0 };
     state.loot.push(loot);
     return loot;
+  };
+
+  // 学会一个新技能：开好 3 个辅助槽，技能栏有空格就放进去；返回放进的格子（没有空格时 -1）
+  function learnSkill(id, lvl) {
+    const save = G.save;
+    save.skills[id] = lvl;
+    save.sockets[id] = [null, null, null];
+    const free = save.bar.indexOf(null);
+    if (free >= 0) save.bar[free] = id;
+    return free;
+  }
+
+  // ---------- 无铭技能宝石 ----------
+  // 手里最高的一颗（没有时 0）
+  G.blankBest = () => G.save.blankGems[0] || 0;
+  // 某个等级的无铭宝石还有没有用处：有没学会的技能，或有低于这个等级的已学技能
+  G.blankUseful = function (lvl) {
+    const sk = G.save.skills;
+    return Object.keys(G.SKILLS).some((id) => !sk[id] || sk[id] < lvl);
+  };
+  // 对某个技能用一颗无铭宝石：没学会就学会，学会了就升到宝石的等级。总是用手里等级最高的那颗；
+  // 已学技能的等级不低于它时不能用。成功返回 { id, lvl, from（原等级，新学为 0）, slot（新学时放进的技能栏格子，-1 为没有空格） }
+  G.useBlankGem = function (id) {
+    const save = G.save;
+    const sk = G.SKILLS[id];
+    const lvl = G.blankBest();
+    const have = save.skills[id] || 0;
+    if (!sk || !lvl || lvl <= have) return null;
+    save.blankGems.shift();
+    const B = G.BLANK_GEM;
+    let slot = -1;
+    if (!have) {
+      slot = learnSkill(id, lvl);
+      toast('习得技能：' + sk.name + ' Lv ' + lvl + (slot >= 0 ? '' : '（在技能页绑定到技能栏）') + ' · 用掉一颗' + B.short, GEM_COLOR);
+    } else {
+      save.skills[id] = lvl;
+      toast(sk.name + ' 升至 Lv ' + lvl + ' · 用掉一颗' + B.short, GEM_COLOR);
+    }
+    G.sfx('gem');
+    G.persist();
+    return { id, lvl, from: have, slot };
   };
 
   function grantCurrency(id, n) {
@@ -2451,10 +2507,7 @@
       const name = G.SKILLS[id].name;
       const have = save.skills[id];
       if (!have) {
-        save.skills[id] = lvl;
-        save.sockets[id] = [null, null, null];
-        const free = save.bar.indexOf(null);
-        if (free >= 0) save.bar[free] = id;
+        const free = learnSkill(id, lvl);
         toast('习得技能：' + name + ' Lv ' + lvl + (free >= 0 ? '' : '（按 G 绑定到技能栏）'), GEM_COLOR);
       } else if (lvl > have) {
         save.skills[id] = lvl;
@@ -2462,6 +2515,20 @@
       } else {
         grantCurrency('dust', 1);
         toast('重复的技能宝石化为 1 ' + G.CURRENCY.dust.name, G.CURRENCY.dust.color);
+      }
+      G.sfx('gem');
+      G.persist();
+    } else if (loot.kind === 'blank') {
+      const lvl = loot.data.lvl;
+      const B = G.BLANK_GEM;
+      if (!G.blankUseful(lvl) || save.blankGems.length >= BLANK_MAX) {
+        // 所有技能都已学会且都不低于这个等级：这颗再也用不上，和重复的技能宝石一样化成尘
+        grantCurrency('dust', 1);
+        toast('用不上的' + B.name + '化为 1 ' + G.CURRENCY.dust.name, G.CURRENCY.dust.color);
+      } else {
+        save.blankGems.push(lvl);
+        save.blankGems.sort((a, b) => b - a);
+        toast('获得' + B.name + ' Lv ' + lvl + '（共 ' + save.blankGems.length + ' 颗，按 G 在技能页挑选技能）', B.color);
       }
       G.sfx('gem');
       G.persist();

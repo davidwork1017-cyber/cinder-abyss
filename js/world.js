@@ -5049,7 +5049,7 @@
     const loots = [];
     for (const s of G.SLOTS) loots.push(W.makeLoot('item', 0xffffff, s === 'weapon', 0, 2, s));
     for (let i = 1; i < 3; i++) loots.push(W.makeLoot('item', 0xffffff, false, 0, 2, { slot: 'weapon', baseIdx: i }));
-    for (const k of ['item', 'cur', 'skill', 'support']) loots.push(W.makeLoot(k, 0xffffff, false, 0, 2));
+    for (const k of ['item', 'cur', 'skill', 'blank', 'support']) loots.push(W.makeLoot(k, 0xffffff, false, 0, 2));
     allyFxVisible(true); // 召唤法阵 / 聚焦标记平时是隐藏的：预热这一帧让它们露个面，着色器一并编译
     const rt = new T.WebGLRenderTarget(64, 64);
     renderer.setRenderTarget(rt);
@@ -5119,6 +5119,11 @@
       bake('lt/skill', [[gTorus(0.15, 0.028, 4, 6), LC.gold, 0, 0, 0, Math.PI / 2], [gTorus(0.1, 0.022, 4, 6), LC.gold, 0, -0.22, 0, Math.PI / 2]]),
       bake('lt/skillG', [[gCyl(0.13, 0.13, 0.3, 6), WH, 0, 0, 0], [gCone(0.13, 0.2, 6), WH, 0, 0.25, 0], [gCone(0.13, 0.14, 6), WH, 0, -0.22, 0, Math.PI]]),
     ],
+    // 无铭技能宝石：同一根晶柱，箍换成素银（晶体颜色由调用方给中性的银白）
+    blank: () => [
+      bake('lt/blank', [[gTorus(0.15, 0.028, 4, 6), LC.steel, 0, 0, 0, Math.PI / 2], [gTorus(0.1, 0.022, 4, 6), LC.steel, 0, -0.22, 0, Math.PI / 2]]),
+      LOOT_MODEL.skill()[1],
+    ],
     support: () => [
       bake('lt/sup', [[gTorus(0.2, 0.03, 4, 12), LC.gold, 0, 0, 0, Math.PI / 2], [gCone(0.04, 0.09, 4), LC.gold, 0.22, 0, 0, 0, 0, -Math.PI / 2], [gCone(0.04, 0.09, 4), LC.gold, -0.22, 0, 0, 0, 0, Math.PI / 2]]),
       bake('lt/supG', [[gIco(0.16, 0), WH, 0, 0, 0, 0, 0, 0, 1, 0.7, 1]]),
@@ -5128,7 +5133,7 @@
   const WEAPON_MODEL = ['blade', 'staff', 'wand'];
   let lootBody = null;
 
-  // kind：item | cur | skill | support。slot（可选，只对 item 有意义）：装备栏位名，或物品对象本身
+  // kind：item | cur | skill | blank（无铭技能宝石）| support。slot（可选，只对 item 有意义）：装备栏位名，或物品对象本身
   // （{ slot, baseIdx }，武器靠 baseIdx 区分 刃 / 长杖 / 短杖）。不传时是一只通用的小包裹。
   W.makeLoot = function (kind, hex, beam, x, z, slot) {
     const h = hexOf(hex);

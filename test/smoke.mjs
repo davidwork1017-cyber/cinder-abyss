@@ -770,6 +770,108 @@ async function main() {
     assert(e.full && e.t2.includes('背包已满'), '背包已满时应保留掉落并提示');
   });
 
+  await step('无铭技能宝石：首领首杀必掉（再打靠几率），精英 / 普通怪小几率；拾取进存档并按等级排好，拾取记录写数量；用不上时化为微光尘；旧存档补默认值，畸形数据被修正', async () => {
+    const r = await ev((KEY) => {
+      const S = G.state, save = G.save, P = G.player;
+      T.arena();
+      const out = {};
+      const blanks = () => S.loot.filter((l) => l.kind === 'blank');
+      const fake = (o) => Object.assign({ level: 3, x: P.x + 6, z: P.z, name: '测试' }, o);
+      const kind = Object.keys(G.BOSSES)[0];
+      const rnd = Math.random;
+      const bk = save.bossKills;
+      try {
+        Math.random = () => 0.999; // 只看保底：靠几率的掉落一律不出
+        save.bossKills = {};
+        G.dropLoot(fake({ isBoss: true, bossKind: kind }));
+        out.first = blanks().map((l) => ({ lvl: l.data.lvl, label: l.label, color: l.color }));
+        T.clearLoot();
+        save.bossKills = { [kind]: true };
+        G.dropLoot(fake({ isBoss: true, bossKind: kind }));
+        out.again = blanks().length;
+        T.clearLoot();
+        G.dropLoot(fake({ elite: true }));
+        G.dropLoot(fake({}));
+        out.unlucky = blanks().length;
+        T.clearLoot();
+        Math.random = () => 0.001; // 几率掉落全中
+        G.dropLoot(fake({ isBoss: true, bossKind: kind }));
+        out.bossLucky = blanks().length;
+        T.clearLoot();
+        G.dropLoot(fake({ elite: true }));
+        out.eliteLucky = blanks().length;
+        T.clearLoot();
+        G.dropLoot(fake({}));
+        out.mobLucky = blanks().length;
+        T.clearLoot();
+      } finally {
+        Math.random = rnd;
+        save.bossKills = bk;
+      }
+      out.rates = Object.assign({}, G.BLANK_DROP);
+
+      // 拾取：走过去自动捡起，存进存档（从高到低排），提示与拾取记录里写数量
+      save.blankGems = [];
+      const dust0 = save.cur.dust;
+      const pick = (lvl) => {
+        const l = G.spawnLoot('blank', { lvl }, P.x, P.z);
+        T.tp(l.x, l.z);
+        G.debug.step(0.5);
+        return S.loot.indexOf(l) < 0;
+      };
+      out.picked = pick(4);
+      out.toast1 = T.toasts();
+      out.feed = document.getElementById('feed').innerText;
+      out.picked2 = pick(2) && pick(6);
+      out.gems = save.blankGems.join();
+      out.stored = (JSON.parse(localStorage.getItem(KEY)).blankGems || []).join();
+      // 所有技能都学会了、而且都不低于这颗的等级：用不上，化为 1 微光尘
+      const sk0 = save.skills;
+      save.skills = {};
+      for (const id of Object.keys(G.SKILLS)) save.skills[id] = 9;
+      out.useful9 = G.blankUseful(9);
+      out.useful10 = G.blankUseful(10);
+      out.uselessPicked = pick(5);
+      out.useless = { gems: save.blankGems.join(), dust: save.cur.dust - dust0, toast: T.toasts() };
+      save.skills = sk0;
+      G.persist();
+
+      // 旧存档没有这个字段：补成空数组；畸形数据被修正（取整、夹在 1–20、丢掉非数字、从高到低排）
+      const keep = localStorage.getItem(KEY);
+      const raw = JSON.parse(keep);
+      delete raw.blankGems;
+      localStorage.setItem(KEY, JSON.stringify(raw));
+      G.loadSave();
+      out.old = JSON.stringify(G.save.blankGems);
+      raw.blankGems = ['x', 5.7, 99, -2, null, 3];
+      localStorage.setItem(KEY, JSON.stringify(raw));
+      G.loadSave();
+      out.bad = G.save.blankGems.join();
+      raw.blankGems = 'abc';
+      localStorage.setItem(KEY, JSON.stringify(raw));
+      G.loadSave();
+      out.bad2 = JSON.stringify(G.save.blankGems);
+      localStorage.setItem(KEY, keep);
+      G.loadSave();
+      G.computeStats();
+      out.back = G.save.blankGems.join();
+      out.fresh = JSON.stringify(G.newSave().blankGems);
+      G.save.blankGems = []; // 不把宝石留给后面的步骤：技能页顶部多一条会改变布局
+      G.persist();
+      return out;
+    }, SAVE_KEY);
+    assert(r.first.length === 1 && r.first[0].lvl >= 1 && r.first[0].label.startsWith('无铭技能宝石 Lv ') && r.first[0].color !== '#3fe0c8', '首领首杀应必掉一颗无铭技能宝石，名牌颜色和技能宝石不同：' + JSON.stringify(r.first));
+    assert(r.again === 0 && r.unlucky === 0, '首领再打 / 精英 / 普通怪没有中几率时不应掉：' + JSON.stringify(r));
+    assert(r.bossLucky === 1 && r.eliteLucky === 1 && r.mobLucky === 1, '几率掉落没有生效：' + JSON.stringify(r));
+    assert(r.rates.elite > 0 && r.rates.elite <= 0.1 && r.rates.mob > 0 && r.rates.mob < 0.012 && r.rates.boss < 1, '掉落几率不对：' + JSON.stringify(r.rates));
+    assert(r.picked && r.picked2 && r.gems === '6,4,2' && r.stored === '6,4,2', '拾取后应按等级从高到低存进存档：' + JSON.stringify(r));
+    assert(r.toast1.includes('无铭技能宝石 Lv 4') && r.toast1.includes('共 1 颗') && r.feed.includes('无铭技能宝石 Lv 4') && r.feed.includes('共 1 颗'), '拾取提示 / 拾取记录没有写数量：' + r.toast1 + ' | ' + r.feed);
+    assert(r.useful9 === false && r.useful10 === true, 'blankUseful 判断不对');
+    assert(r.uselessPicked && r.useless.gems === '6,4,2' && r.useless.dust === 1 && r.useless.toast.includes('用不上'), '用不上的无铭宝石应化为 1 微光尘：' + JSON.stringify(r.useless));
+    assert(r.old === '[]' && r.bad === '20,5,3,1' && r.bad2 === '[]' && r.back === '6,4,2' && r.fresh === '[]', '旧存档 / 畸形存档没有修好：' + JSON.stringify(r));
+    return '首杀掉 Lv ' + r.first[0].lvl + '，几率 ' + JSON.stringify(r.rates);
+  });
+
   await step('升级：经验满后升级、回满、得到天赋点并在 HUD 上提醒', async () => {
     const r = await ev(() => {
       const P = G.player, save = G.save;
@@ -1881,7 +1983,7 @@ async function main() {
       const sizes = cells.map((n) => n.getBoundingClientRect().width);
       return {
         n: keys.length, bad: keys.filter((k, i) => !/^data:image\/png;base64,/.test(urls[i]) || urls[i].length < 1500), uniq: new Set(urls).size,
-        kinds: ['it-', 'cur-', 'sk-', 'sup-', 'ail-'].map((p) => keys.filter((k) => k.startsWith(p)).length).join(),
+        kinds: ['it-', 'cur-', 'sk-', 'sup-', 'ail-', 'blank'].map((p) => keys.filter((k) => k.startsWith(p)).length).join(),
         cellIcons: cells.length, cellOk: cells.every((n) => bg(n).startsWith('url("data:image/png')), minSize: Math.min.apply(null, sizes), maxSize: Math.max.apply(null, sizes),
         distinct: new Set(cells.map(bg)).size,
         eq: Array.from(document.querySelectorAll('.eq > .ico')).filter((n) => bg(n).startsWith('url("data:image/png')).length,
@@ -1892,7 +1994,7 @@ async function main() {
       };
     });
     assert(r.bad.length === 0 && r.uniq === r.n, '有图标没画出来或重复：' + JSON.stringify(r.bad) + ' ' + r.uniq + '/' + r.n);
-    assert(r.kinds === '31,7,11,19,5', '图标数量不对（装备 31 / 通货 7 / 技能 11 / 辅助 19 / 异常 5）：' + r.kinds);
+    assert(r.kinds === '31,7,11,19,5,1', '图标数量不对（装备 31 / 通货 7 / 技能 11 / 辅助 19 / 异常 5 / 无铭宝石 1）：' + r.kinds);
     assert(r.cellIcons === 8 && r.cellOk && r.distinct === 8, '背包格图标不对：' + JSON.stringify(r));
     assert(r.minSize >= 44 && r.maxSize <= 64, '背包格图标应在 44–64 像素之间：' + r.minSize + '–' + r.maxSize);
     assert(r.eq === 8 && r.cur === 7 && r.craft === 7 && r.head && r.glyphLeft === 0, '装备栏 / 通货 / 改造按钮 / 详情没有全部换成图标：' + JSON.stringify(r));
@@ -2627,6 +2729,119 @@ async function main() {
     }, bar0);
   });
 
+  await uiStep('无铭技能宝石：技能页顶部写数量和最高等级；点两下才用掉；学会新技能自动上技能栏；给已学技能升级；总是用最高的那颗；等级不够不能升；第一次捡到有新手提示', async () => {
+    // 先让两个技能变回「没学会」，技能栏腾出一格
+    await ev(() => {
+      const s = G.save;
+      for (const id of ['arc', 'meteor']) {
+        delete s.skills[id];
+        delete s.sockets[id];
+        const i = s.bar.indexOf(id);
+        if (i >= 0) s.bar[i] = null;
+      }
+      s.bar = ['cleave', 'ember', 'nova', null];
+      s.skills.nova = 3;
+      s.skills.blade = 8;
+      s.blankGems = [7, 5, 2];
+      G.computeStats();
+    });
+    await page.keyboard.press('KeyG');
+    let r = await ev(() => ({
+      bar: (document.querySelector('.blank-bar') || {}).innerText || '',
+      learn: Array.from(document.querySelectorAll('.sm-learn')).map((b) => b.dataset.skill).sort().join(),
+      learnTxt: (document.querySelector('.sm-learn') || {}).innerText || '',
+      upNova: (document.querySelector('.blank-up[data-skill="nova"]') || {}).innerText || '',
+      upBlade: !!document.querySelector('.blank-up[data-skill="blade"]'),
+      icon: getComputedStyle(document.querySelector('.blank-bar .ico')).backgroundImage.startsWith('url("data:image/png'),
+    }));
+    assert(r.bar.includes('无铭技能宝石') && r.bar.includes('×3') && r.bar.includes('最高 Lv 7') && r.icon, '技能页顶部应写数量和最高等级：' + JSON.stringify(r));
+    assert(r.learn === 'arc,meteor' && r.learnTxt.includes('Lv 7'), '「尚未获得」里每个技能都应能点、写明用哪一颗：' + JSON.stringify(r));
+    assert(r.upNova.includes('Lv 7') && !r.upBlade, '已学技能卡上：等级更低的给升级入口，等级更高的不给：' + JSON.stringify(r));
+    cleanText(await ev(() => T.bodyText()), '带无铭宝石的技能页');
+
+    // 防误点：点一下只是选中；点别的就换成选中别的；悬停写清楚会用哪一颗
+    await page.locator('.sm-learn[data-skill="arc"]').scrollIntoViewIfNeeded();
+    await page.click('.sm-learn[data-skill="arc"]');
+    r = await ev(() => ({ gems: G.save.blankGems.join(), arc: !!G.save.skills.arc, armed: document.querySelector('.sm-learn[data-skill="arc"]').classList.contains('armed'), txt: document.querySelector('.sm-learn[data-skill="arc"]').innerText, tip: document.getElementById('tip').innerText }));
+    assert(r.gems === '7,5,2' && !r.arc && r.armed && r.txt.includes('再点一次'), '点第一下不应用掉宝石，而是等着确认：' + JSON.stringify(r));
+    assert(r.tip.includes('Lv 7') && r.tip.includes('链雷'), '悬停提示应写明会用 Lv 7 的那颗学会链雷：' + r.tip);
+    await page.click('.sm-learn[data-skill="meteor"]');
+    r = await ev(() => ({ gems: G.save.blankGems.join(), arcArmed: document.querySelector('.sm-learn[data-skill="arc"]').classList.contains('armed'), metArmed: document.querySelector('.sm-learn[data-skill="meteor"]').classList.contains('armed') }));
+    assert(r.gems === '7,5,2' && !r.arcArmed && r.metArmed, '点另一个技能应改为选中它，仍不用掉宝石：' + JSON.stringify(r));
+    // 再点一次：学会，用的是最高的 Lv 7，自动放进技能栏的空格
+    await page.click('.sm-learn[data-skill="meteor"]');
+    r = await ev(() => ({ gems: G.save.blankGems.join(), lvl: G.save.skills.meteor, sock: JSON.stringify(G.save.sockets.meteor), bar: G.save.bar.join(), msg: (document.querySelector('.bk-msg') || {}).innerText || '', toast: T.toasts(), card: !!document.querySelector('.skill-card [data-act="bind"][data-skill="meteor"]'), stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).blankGems.join() }));
+    assert(r.lvl === 7 && r.gems === '5,2' && r.stored === '5,2', '应用掉最高的 Lv 7 那颗学会陨火：' + JSON.stringify(r));
+    assert(r.sock === '[null,null,null]' && r.bar === 'cleave,ember,nova,meteor' && r.card, '学会后应开好辅助槽并自动放进技能栏的空格：' + JSON.stringify(r));
+    assert(r.msg.includes('陨火') && r.msg.includes('Lv 7') && r.toast.includes('习得技能：陨火 Lv 7'), '学会后应给出提示：' + JSON.stringify(r));
+    await until(() => document.querySelectorAll('#slots .slot')[3].dataset.skill === 'meteor').catch(() => {
+      throw new Error('HUD 技能栏没有同步');
+    });
+
+    // 升级已学技能：用当前最高的 Lv 5；同样要点两下
+    await page.locator('.blank-up[data-skill="nova"]').scrollIntoViewIfNeeded();
+    r = await ev(() => document.querySelector('.blank-up[data-skill="nova"]').innerText);
+    assert(r.includes('Lv 5'), '升级按钮应写明会升到 Lv 5：' + r);
+    await page.click('.blank-up[data-skill="nova"]');
+    r = await ev(() => ({ lvl: G.save.skills.nova, gems: G.save.blankGems.join(), txt: document.querySelector('.blank-up[data-skill="nova"]').innerText }));
+    assert(r.lvl === 3 && r.gems === '5,2' && r.txt.includes('再点一次'), '升级也要点两下：' + JSON.stringify(r));
+    await page.click('.blank-up[data-skill="nova"]');
+    r = await ev(() => ({ lvl: G.save.skills.nova, gems: G.save.blankGems.join(), msg: (document.querySelector('.bk-msg') || {}).innerText || '', btn: !!document.querySelector('.blank-up[data-skill="nova"]'), toast: T.toasts() }));
+    assert(r.lvl === 5 && r.gems === '2' && r.msg.includes('Lv 3') && r.msg.includes('Lv 5') && r.toast.includes('霜环 升至 Lv 5'), '应用掉 Lv 5 那颗把霜环升到 Lv 5：' + JSON.stringify(r));
+    assert(!r.btn, '剩下的 Lv 2 不高于霜环的 Lv 5，卡上不应再有升级入口');
+
+    // 等级不够：不能升级（接口直接拒绝，界面上不给入口）
+    r = await ev(() => ({ api: G.useBlankGem('nova'), gems: G.save.blankGems.join(), lvl: G.save.skills.nova, ups: document.querySelectorAll('.blank-up').length, cleave: G.save.skills.cleave }));
+    assert(r.api === null && r.gems === '2' && r.lvl === 5, '等级不高于当前时不应能升级：' + JSON.stringify(r));
+    // 用完最后一颗：顶部写「已用完」，「尚未获得」变回不可点的列表
+    r = await ev(() => {
+      G.save.blankGems = [];
+      G.ui.refresh();
+      return { bar: (document.querySelector('.blank-bar') || {}).innerText || '', learn: document.querySelectorAll('.sm-learn').length, ups: document.querySelectorAll('.blank-up').length, api: G.useBlankGem('arc') };
+    });
+    assert(r.learn === 0 && r.ups === 0 && r.api === null, '没有无铭宝石时不应有使用入口：' + JSON.stringify(r));
+    await closePanel();
+    r = await ev(() => { G.ui.open('skills'); const b = !!document.querySelector('.blank-bar'); G.ui.close(); return b; });
+    assert(!r, '手里没有无铭宝石时技能页顶部不应显示持有条');
+
+    // 新手提示：第一次捡到时出现，告诉玩家到技能页去用；技能页里接着提示；用掉一颗就算做到了
+    await ev(() => {
+      T.arena();
+      T.hintsSeen();
+      delete G.save.tut.blank;
+      G.save.blankGems = [];
+      const P = G.player;
+      const l = G.spawnLoot('blank', { lvl: 6 }, P.x, P.z);
+      T.tp(l.x, l.z);
+      G.debug.step(0.5);
+      G.debug.hold(false);
+    });
+    await until(() => G.ui.hints().current === 'blank' && G.ui.hints().state === 'show' && document.getElementById('coach').classList.contains('on')).catch(() => {
+      throw new Error('第一次捡到无铭宝石时没有出现新手提示');
+    });
+    r = await ev(() => document.getElementById('coach').innerText);
+    assert(r.includes('无铭技能宝石') && r.includes('G') && r.includes('技能页'), '新手提示没有说清楚去技能页用：' + r);
+    await page.keyboard.press('KeyG');
+    r = await ev(() => (document.querySelector('.side-coach') || {}).innerText || '');
+    assert(r.includes('再点一次'), '技能页里应接着提示怎么用：' + r);
+    await page.locator('.sm-learn[data-skill="arc"]').scrollIntoViewIfNeeded();
+    await page.click('.sm-learn[data-skill="arc"]');
+    await page.click('.sm-learn[data-skill="arc"]');
+    await until(() => !!G.save.tut.blank).catch(() => {
+      throw new Error('用掉一颗之后新手提示没有标记为看过');
+    });
+    r = await ev(() => G.save.skills.arc);
+    assert(r === 6, '通过提示引导学会的链雷应是 Lv 6：' + r);
+    await closePanel();
+    await ev(() => {
+      G.debug.hold(true);
+      G.save.blankGems = [];
+      G.save.skills.blade = 1;
+      G.save.skills.nova = 1;
+      G.persist();
+    });
+  });
+
   await uiStep('新手提示：按情境逐条出现、做到即消失、不挡操作，看过的写进存档；面板里有对应的提示条；老角色跳过基础操作', async () => {
     const hint = () => ev(() => Object.assign(G.ui.hints(), { cls: document.getElementById('coach').className, txt: document.getElementById('coach').innerText, tut: Object.keys(G.save.tut).join() }));
     const shown = (id) => until((id) => G.ui.hints().current === id && G.ui.hints().state === 'show' && document.getElementById('coach').classList.contains('on'), id).catch(() => {
@@ -2643,6 +2858,7 @@ async function main() {
       G.save.level = 1;
       G.computeStats();
       G.save.bag.length = 0;
+      G.save.blankGems = []; // 前面的步骤里可能随机捡到过无铭宝石：它的提示会插队
       G.save.tut = {};
       G.ui.refresh();
       G.debug.hold(false);
@@ -2651,7 +2867,7 @@ async function main() {
     await page.mouse.move(900, 450);
     await shown('move');
     let r = await hint();
-    assert(r.txt.includes('移动') && r.all.length === 15, '第一条提示应是移动：' + r.txt);
+    assert(r.txt.includes('移动') && r.all.length === 16, '第一条提示应是移动：' + r.txt);
     r = await ev(() => { const c = T.rect('#coach'), k = T.rect('#keyhints'), f = T.rect('.orb-wrap.left'); return { c, under: c.t >= k.b, aboveOrb: c.b <= f.t, pe: getComputedStyle(document.getElementById('coach')).pointerEvents }; });
     assert(r.under && r.aboveOrb && r.c.l >= 0 && r.pe === 'none', '提示卡的位置不对或挡住了操作：' + JSON.stringify(r));
     await page.keyboard.down('KeyD');
@@ -4380,6 +4596,7 @@ async function main() {
       });
       assert(r.dead && r.removed, '首领没有死亡或尸体没有移除');
       assert(r.kinds.item >= 3 && r.kinds.cur >= 4 && r.kinds.skill >= 1 && r.kinds.support >= 1, '首领掉落不对：' + JSON.stringify(r.kinds));
+      assert(!r.first || r.kinds.blank >= 1, '首领首杀应必掉一颗无铭技能宝石：' + JSON.stringify(r.kinds));
       assert(r.rare && r.minRarity >= 1, '首领应至少掉 1 件稀有，其余至少魔法');
       assert(r.portal && r.portal.mesh && Math.abs(r.portal.x - r.bp.x) < 1e-6, '没有在场地中央生成传送门');
       assert(r.cleared === 0 && r.kill === true, '通关记录没有写入');
