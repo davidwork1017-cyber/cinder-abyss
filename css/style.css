@@ -378,7 +378,7 @@ kbd {
   box-shadow: inset 0 0 14px rgba(0, 0, 0, 0.65);
   transition: filter 0.15s, box-shadow 0.1s;
 }
-.s-img { position: absolute; inset: 4px; width: auto; height: auto; }
+.s-icon > .s-img { position: absolute; inset: 4px; width: auto; height: auto; } /* 比通用的 .ico（24px）权重高，才能铺满格子 */
 .s-cd {
   --cd: 0;
   position: absolute;
