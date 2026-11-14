@@ -19,6 +19,61 @@
   const itemIcon = (item, cls) => ibox(IC.item(item), 'r' + item.rarity + (cls ? ' ' + cls : ''));
 
   const KEY_LABEL = ['左键', '右键', 'Q', 'E'];
+  const W_SLOT = 4; // 施放系统里武器技的格子号（R 键）；技能栏存档只有前 4 格，这一格由手里的武器决定
+
+  // ---------- 武器 ----------
+  // 武器类型名：优先用数据里的写法，没有就用这张表
+  const WTYPE_NAME = { blade: '刃', staff: '长杖', wand: '短杖', daggers: '双匕', hammer: '战锤', bow: '长弓', katana: '太刀', banner: '魂幡' };
+  const WTYPE_ORDER = ['blade', 'staff', 'wand', 'daggers', 'hammer', 'bow', 'katana', 'banner'];
+  const wBase = (item) => (item && item.slot === 'weapon' && G.BASES.weapon ? G.BASES.weapon[item.baseIdx | 0] || null : null);
+  const wTypeOf = (baseIdx) => {
+    const b = G.BASES.weapon && G.BASES.weapon[baseIdx];
+    return (b && b.type) || (IC.weaponType ? IC.weaponType(baseIdx) : WTYPE_ORDER[baseIdx]) || 'blade';
+  };
+  const wTypeName = (baseIdx) => {
+    const b = G.BASES.weapon && G.BASES.weapon[baseIdx];
+    return (b && (b.typeName || b.label)) || WTYPE_NAME[wTypeOf(baseIdx)] || '武器';
+  };
+  // 武器的伤害数值：{ min, max, aps（每秒攻击次数）, dps, type }；不是武器、或数据里还没有伤害时返回 null
+  function wStats(item) {
+    if (!item || item.slot !== 'weapon') return null;
+    try {
+      if (typeof G.weaponStats === 'function') {
+        const s = G.weaponStats(item);
+        if (s && isFinite(s.min) && isFinite(s.max)) {
+          const aps = s.aps > 0 ? s.aps : 1;
+          return { min: s.min, max: s.max, aps, dps: isFinite(s.dps) ? s.dps : ((s.min + s.max) / 2) * aps, type: s.type || wTypeOf(item.baseIdx | 0) };
+        }
+      }
+    } catch (e) {
+      /* 数据层还没就绪时退回物品上的字段 */
+    }
+    if (Array.isArray(item.dmg) && isFinite(item.dmg[0])) {
+      const aps = item.aps > 0 ? item.aps : 1;
+      return { min: item.dmg[0], max: item.dmg[1], aps, dps: ((item.dmg[0] + item.dmg[1]) / 2) * aps, type: wTypeOf(item.baseIdx | 0) };
+    }
+    return null;
+  }
+  // 武器技的成长方式：attack 随武器伤害；minion 按召唤物（魂幡）；其余是法术，随武器物品等级与元素加成
+  const wGrowKind = (sk) => (sk.tags.indexOf('attack') >= 0 ? 'attack' : sk.tags.indexOf('minion') >= 0 || sk.minion || sk.wtype === 'banner' ? 'minion' : 'spell');
+  const WGROW_TIP = { attack: '攻击型：随武器伤害成长', minion: '召唤型：按召唤物计算，吃召唤物伤害加成', spell: '法术型：随武器物品等级与元素伤害加成成长' };
+  const isWSkill = (id) => !!(id && G.SKILLS[id] && (G.SKILLS[id].weaponOnly || G.SKILLS[id].tags.indexOf('weapon') >= 0));
+  // 某件武器自带的武器技 id（数据里没有时为 null）
+  const wSkillOf = (item) => {
+    const b = wBase(item);
+    return b && b.wskill && G.SKILLS[b.wskill] ? b.wskill : null;
+  };
+  // 当前 R 键上的武器技 id（没拿武器 / 数据还没有时为 null）
+  function curWSkill() {
+    let id = null;
+    try {
+      id = typeof G.weaponSkill === 'function' ? G.weaponSkill() : wSkillOf(G.save.equip.weapon);
+    } catch (e) {
+      id = null;
+    }
+    return id && G.SKILLS[id] ? id : null;
+  }
+  const fmtDmg = (v) => (v < 10 ? fmt1(v) : fmtInt(v));
   // 卡片上的标签行：「召唤」紧挨着「召唤物」是重复的说法（1280 宽时还会把标签行挤成两行），卡片上不显示
   const cardTags = (sk) => (sk.tags.indexOf('minion') >= 0 ? sk.tags.filter((t) => t !== 'summon') : sk.tags);
   const TABS = [
@@ -368,6 +423,23 @@
         fx: '',
       });
     }
+    // 第五格「武器技」（R）：不在 #slots 里（那四格对应存档里的技能栏），隔一道竖线跟在后面，内容随手里的武器变
+    const wsep = document.createElement('div');
+    wsep.className = 'bar-sep';
+    const ws = document.createElement('div');
+    ws.id = 'wslot';
+    ws.className = 'slot wslot empty nowpn';
+    ws.innerHTML =
+      '<div class="s-icon"><i class="s-img ico"></i><div class="s-cd"></div><span class="s-cdnum"></span><span class="s-none">无武器</span></div>' +
+      '<div class="s-key"><b>R</b>武器技</div><div class="s-bubble"></div><div class="s-combo"><i></i><i></i><i></i></div>';
+    $('bar').appendChild(wsep);
+    $('bar').appendChild(ws);
+    hud.slots.push({
+      el: ws, icon: ws.querySelector('.s-icon'), img: ws.querySelector('.s-img'), cd: ws.querySelector('.s-cd'), num: ws.querySelector('.s-cdnum'),
+      bubble: ws.querySelector('.s-bubble'), pips: Array.from(ws.querySelectorAll('.s-combo > i')),
+      lit: 0, id: undefined, cdq: 0, numTxt: '', na: false, casting: false, left: 0, held: false, fxT: -1e9, fx: '',
+      wpn: undefined, // 上一帧有没有拿武器
+    });
     const orb = (name) => ({ fill: $(name + '-fill'), num: $(name + '-num'), maxEl: $(name + '-max'), v: -1, max: -1, q: -1, res: $(name + '-res'), rq: -1 });
     hud.life = orb('life');
     hud.mana = orb('mana');
@@ -488,6 +560,8 @@
         const id = S.bar[i];
         if (id) hud.cost[id] = G.skillCtx(id).cost;
       }
+      const wid = curWSkill();
+      if (wid) hud.cost[wid] = skillCost(wid);
       hud.free = G.passivePoints().free;
       // 「新」标记只对还在背包里的物品有意义（装备、分解、丢弃之后就不算了）
       if (ui.fresh.size) {
@@ -497,9 +571,14 @@
 
     // 技能栏
     const blood = P.S.bloodMagic > 0;
-    for (let i = 0; i < 4; i++) {
+    const wpn = !!S.equip.weapon;
+    for (let i = 0; i < hud.slots.length; i++) {
       const s = hud.slots[i];
-      const id = S.bar[i] || null;
+      const id = (i === W_SLOT ? curWSkill() : S.bar[i]) || null;
+      if (i === W_SLOT && wpn !== s.wpn) {
+        s.wpn = wpn;
+        s.el.classList.toggle('nowpn', !wpn); // 空手：格子里写「无武器」
+      }
       if (id !== s.id) {
         s.id = id;
         s.el.classList.toggle('empty', !id);
@@ -511,7 +590,7 @@
           s.icon.style.setProperty('--c', sk.color);
           s.el.classList.toggle('has-combo', !!sk.combo);
           s.el.classList.toggle('aura', sk.kind === 'aura');
-          if (!(id in hud.cost)) hud.cost[id] = G.skillCtx(id).cost;
+          if (!(id in hud.cost)) hud.cost[id] = skillCost(id);
         } else {
           s.img.className = 's-img ico';
           s.el.classList.remove('has-combo');
@@ -550,6 +629,8 @@
           else if (left > 0.15) slotFx(s, 'deny', '冷却中', now);
           else if (na) slotFx(s, 'deny', blood ? '生命不足' : '魔力不足', now);
         }
+      } else if (i === W_SLOT && !P.dead && held && !s.held) {
+        slotFx(s, 'deny', wpn ? '没有武器技' : '没有武器', now); // R 格空着也按了：说清楚为什么放不出来
       }
       s.left = left;
       s.held = held;
@@ -575,6 +656,13 @@
         s.casting = casting;
         s.el.classList.toggle('casting', casting);
       }
+    }
+
+    // 武器技的新手提示亮着时，R 格跟着一闪一闪，指给玩家看
+    const wHint = !!(coach.cur && coach.cur.id === 'wskill' && coach.state === 'show');
+    if (wHint !== hud.wHint) {
+      hud.wHint = wHint;
+      hud.slots[W_SLOT].el.classList.toggle('hint', wHint);
     }
 
     // 经验条
@@ -873,7 +961,16 @@
     const inp = G.input;
     if (i === 0) return inp.mouse.b[0];
     if (i === 1) return inp.mouse.b[2];
-    return !!inp.keys[i === 2 ? 'KeyQ' : 'KeyE'];
+    return !!inp.keys[i === 2 ? 'KeyQ' : i === 3 ? 'KeyE' : 'KeyR'];
+  }
+  // 技能消耗：武器技可能还没接进 skillCtx，算不出来就当没有消耗
+  function skillCost(id) {
+    try {
+      const c = G.skillCtx(id).cost;
+      return isFinite(c) ? c : 0;
+    } catch (e) {
+      return 0;
+    }
   }
   function slotFx(s, kind, text, now) {
     if (s.fx) s.el.classList.remove(s.fx);
@@ -960,8 +1057,11 @@
       const ctx = G.skillCtx(id);
       dps[id] = G.skillDps(ctx);
     }
+    // R 键的武器技：换武器会换掉它（换类型）或改变它的伤害（同类型，等级 / 武器伤害不同）
+    const wid = typeof G.weaponSkill === 'function' ? G.weaponSkill() : null;
+    const ws = wid ? { id: wid, dps: G.skillDps(G.skillCtx(wid)) } : null;
     return {
-      dps, life: P.maxLife, mana: P.maxMana, armour: P.armour,
+      dps, ws, life: P.maxLife, mana: P.maxMana, armour: P.armour,
       rf: P.res.fire, rc: P.res.cold, rl: P.res.light, res: P.res.fire + P.res.cold + P.res.light,
       move: P.moveSpeed, regen: P.lifeRegen,
     };
@@ -1024,6 +1124,19 @@
         lines.push({ label: G.SKILLS[id].name + ' 秒伤', text: signed(d), pct, good: d > 0 });
       } else if (Math.abs(d) > 1e-6) faint = true;
     }
+    // 武器技：同一个技能时比秒伤，按四分之一计入评分（最多 ±10），不让它压过技能栏上的主力技能；换了另一类武器就只列出换成了什么
+    let wsScore = 0;
+    if (a.ws && b.ws && a.ws.id === b.ws.id) {
+      const d = b.ws.dps - a.ws.dps;
+      const pct = a.ws.dps > 0 ? (d / a.ws.dps) * 100 : null;
+      if (Math.abs(d) >= 0.05 && (pct === null || Math.abs(pct) >= 0.5)) {
+        lines.push({ label: '武器技 ' + G.SKILLS[a.ws.id].name + ' 秒伤', text: signed(d), pct, good: d > 0 });
+        wsScore = pct === null ? 0 : G.clamp(pct, -40, 40) * 0.25;
+      } else if (Math.abs(d) > 1e-6) faint = true;
+    } else if (a.ws || b.ws) {
+      const nm = (w) => (w ? '「' + G.SKILLS[w.id].name + '」' : '无');
+      lines.push({ label: '武器技', text: nm(a.ws) + ' → ' + nm(b.ws), pct: null, neutral: true });
+    }
     const num = (label, d, unit, pct) => {
       if (Math.abs(d) >= 0.05) lines.push({ label, text: signed(d) + (unit || ''), pct: pct === undefined ? null : pct, good: d > 0 });
     };
@@ -1037,7 +1150,7 @@
     const ea = effLife(a);
     const def = ea > 0 ? (effLife(b) / ea - 1) * 100 : 0;
     const util = (a.mana > 0 ? (b.mana / a.mana - 1) * 15 : 0) + (b.move / a.move - 1) * 50 + (a.life > 0 ? ((b.regen - a.regen) / a.life) * 300 : 0);
-    const score = (nOff ? off / nOff : 0) + def + util;
+    const score = (nOff ? off / nOff : 0) + def + util + wsScore;
     const v = { badge: score > 0.5 ? 'up' : score < -0.5 ? 'down' : 'eq', score, empty: !cur, lines, faint };
     vdCache.set(item.uid, { t: now, v });
     return v;
@@ -1052,7 +1165,7 @@
     for (const l of v.lines) {
       // 百分比不到 10% 时带一位小数，不会把 0.6% 写成「+1%」或「+0%」
       const ap = l.pct === null ? 0 : Math.abs(l.pct);
-      h += '<div class="vd-line ' + (l.good ? 'good' : 'bad') + '"><span>' + l.label + '</span><b>' + l.text.replace('-', '−') + '</b>' +
+      h += '<div class="vd-line ' + (l.neutral ? 'neutral' : l.good ? 'good' : 'bad') + '"><span>' + l.label + '</span><b>' + (l.neutral ? l.text : l.text.replace('-', '−')) + '</b>' +
         (l.pct === null ? '' : '<em>' + (l.pct >= 0 ? '+' : '−') + (ap < 9.95 ? ap.toFixed(1) : Math.round(ap)) + '%</em>') + '</div>';
     }
     return h + '</div>';
@@ -1079,13 +1192,20 @@
     h += '<div class="ic-head">' + itemIcon(item) + '<div class="ic-ttl"><div class="ic-name">' + esc(item.name) + '</div>';
     if (item.name !== item.baseName) h += '<div class="ic-base">' + esc(item.baseName) + '</div>';
     h += '</div></div>';
-    h += '<div class="ic-meta"><span>' + G.RARITY_NAME[item.rarity] + ' · ' + G.SLOT_NAME[item.slot] + '</span><span>物品等级 ' + item.ilvl + '</span></div>';
+    const isW = item.slot === 'weapon';
+    h += '<div class="ic-meta"><span>' + G.RARITY_NAME[item.rarity] + ' · ' + (isW ? G.SLOT_NAME.weapon + ' · ' + wTypeName(item.baseIdx | 0) : G.SLOT_NAME[item.slot]) + '</span><span>物品等级 ' + item.ilvl + '</span></div>';
+    if (isW) h += weaponBlock(item, o.cmp);
     if (L.armour) h += '<div class="ic-line arm">护甲 <b>' + L.armour + '</b></div>';
     if (L.imp) h += '<div class="ic-line imp">' + esc(L.imp) + '</div>';
     if (L.affixes.length) {
       h += '<div class="ic-sep"></div>';
       L.affixes.forEach((a, i) => {
-        h += '<div class="ic-line aff ' + a.type + '"' + (o.affTips ? ' data-tip="aff:' + item.uid + ':' + i + '"' : '') + '><span class="ic-tier t' + a.tier + '">T' + a.tier + '</span>' + esc(a.text) + '</div>';
+        // 武器的本地词缀（只改这把武器的伤害）标一下，免得以为会再加一遍
+        const af = item.affixes[i];
+        const def = af && G.AFFIX_BY_ID[af.id];
+        const local = !!(a.local || (def && (def.local || (G.LOCAL_STATS && G.LOCAL_STATS[def.stat]))));
+        h += '<div class="ic-line aff ' + a.type + '"' + (o.affTips ? ' data-tip="aff:' + item.uid + ':' + i + '"' : '') + '><span class="ic-tier t' + a.tier + '">T' + a.tier + '</span>' + esc(a.text) +
+          (local ? '<em class="ic-loc">已计入武器</em>' : '') + '</div>';
       });
     } else {
       h += '<div class="ic-sep"></div><div class="ic-line none">没有词缀</div>';
@@ -1096,11 +1216,45 @@
     return h;
   }
 
+  // 武器卡片上的伤害一节：物理伤害、每秒攻击、武器秒伤（cmp 给出时，每行后面标出与它相比的变化），以及自带的武器技
+  function weaponBlock(item, cmp) {
+    const w = wStats(item);
+    const c = cmp && cmp !== item && cmp.uid !== item.uid ? wStats(cmp) : null;
+    let h = '<div class="ic-wpn">';
+    if (w) {
+      // d：差值；pct：是否带百分比
+      const delta = (d, base, digits) => {
+        if (!c || Math.abs(d) < (digits ? 0.005 : 0.05)) return c ? '<em class="wd-eq">＝</em>' : '';
+        const p = base > 0 ? (d / base) * 100 : 0;
+        const ap = Math.abs(p);
+        return '<em class="' + (d > 0 ? 'wd-up' : 'wd-down') + '">' + (d > 0 ? '▲' : '▼') + (digits ? Math.abs(d).toFixed(2) : fmt1(Math.abs(d))) +
+          (base > 0 ? '<i>' + (d > 0 ? '+' : '−') + (ap < 9.95 ? ap.toFixed(1) : Math.round(ap)) + '%</i>' : '') + '</em>';
+      };
+      h +=
+        '<div class="ic-line wd"><span>物理伤害</span><b>' + Math.round(w.min) + '–' + Math.round(w.max) + '</b>' + (c ? delta((w.min + w.max - c.min - c.max) / 2, (c.min + c.max) / 2) : '') + '</div>' +
+        '<div class="ic-line wd"><span>每秒攻击</span><b>' + w.aps.toFixed(2) + '</b>' + (c ? delta(w.aps - c.aps, c.aps, 2) : '') + '</div>' +
+        '<div class="ic-line wd dps"><span>武器秒伤</span><b>' + fmt1(w.dps) + '</b>' + (c ? delta(w.dps - c.dps, c.dps) : '') + '</div>';
+      const b = wBase(item);
+      if (b && b.caster) h += '<div class="ic-wcmp">施法武器：武器伤害低，只影响攻击技能；法术与召唤不看它</div>';
+      if (c) h += '<div class="ic-wcmp">箭头是与身上那把（秒伤 ' + fmt1(c.dps) + '）相比</div>';
+    }
+    const wid = wSkillOf(item);
+    if (wid) {
+      const sk = G.SKILLS[wid];
+      const cw = cmp ? wSkillOf(cmp) : null;
+      h +=
+        '<div class="ic-wsk" style="--c:' + sk.color + '"><span class="tc-skico sm">' + IC.skill(wid) + '</span><span><em>武器技 <kbd>R</kbd></em><b>' + sk.name + '</b></span>' +
+        (sk.cd > 0 ? '<i>冷却 ' + fmt1(sk.cd) + ' 秒</i>' : '') + '</div>' +
+        (cw && cw !== wid ? '<div class="ic-wcmp">换上后 <kbd>R</kbd> 从「' + G.SKILLS[cw].name + '」变为「' + sk.name + '」</div>' : '');
+    }
+    return h + '</div>';
+  }
+
   // 物品提示：卡片 + 换装评估，身上同部位有装备时并排列出来对比
   function itemTip(item, equipped, hint) {
     if (equipped) return itemCard(item, { tag: '已装备', hint });
     const eq = G.save.equip[item.slot];
-    const card = itemCard(item, { vd: verdict(item), hint });
+    const card = itemCard(item, { vd: verdict(item), hint, cmp: eq });
     return eq ? '<div class="tip-pair">' + card + itemCard(eq, { tag: '当前装备' }) + '</div>' : card;
   }
 
@@ -1248,7 +1402,7 @@
       detail =
         '<div class="sec-title">' + (sel.equipped ? '已装备' : '背包物品') + '</div>' +
         '<div class="detail-card' + (ui.flash ? ' flash' : '') + '" data-item="' + it.uid + '">' +
-        itemCard(it, { vd: sel.equipped ? null : verdict(it), affTips: true }) + '</div>' +
+        itemCard(it, { vd: sel.equipped ? null : verdict(it), affTips: true, cmp: sel.equipped ? null : S.equip[it.slot] }) + '</div>' +
         (cap
           ? '<div class="aff-count">前缀 <b>' + np + '</b>/' + cap + '<i></i>后缀 <b>' + ns + '</b>/' + cap + '<i></i>悬停词缀查看阶级</div>'
           : '<div class="aff-count">普通物品没有词缀，可以用通货改造</div>') +
@@ -1367,6 +1521,87 @@
   }
   const liveMinions = () => (G.state && Array.isArray(G.state.minions) ? G.state.minions : []);
 
+  // 攻击技能卡上的一行：每一击 = 武器伤害 × 武器倍率 × 宝石等级加成，出手速度随武器攻速
+  function attackNote(ctx) {
+    const w = ctx.weapon || G.FISTS || null;
+    if (!w || !(ctx.wm > 0)) return '';
+    const item = G.save.equip.weapon;
+    const src = item ? wTypeName(item.baseIdx | 0) : '空手';
+    const lk = ctx.levelK > 1.0005 ? '<span class="wn-op">×</span>宝石 <b>+' + Math.round((ctx.levelK - 1) * 100) + '%</b>' : '';
+    return (
+      '<div class="sk-anote wpn"><i></i><span>伤害取自武器：' + src + ' <b>' + Math.round(w.min) + '–' + Math.round(w.max) + '</b><span class="wn-op">×</span>倍率 <b>' + Math.round(ctx.wm * 100) + '%</b>' + lk +
+      ' · 攻速 <b>×' + (w.aps > 0 ? w.aps : 1).toFixed(2) + '</b>' + (G.cdAps && G.cdAps(ctx.sk) ? '（有冷却：攻速折进每一击的伤害）' : '') + (item ? '' : '（空手很弱，记得装备武器）') + '</span></div>'
+    );
+  }
+
+  // 技能页右栏顶上的武器技一节：当前武器技的卡片（数值、成长方式；不能镶辅助），下面一排是每种武器各自的武器技
+  function wskillSection() {
+    const S = G.save;
+    const item = S.equip.weapon;
+    const id = curWSkill();
+    const row = (G.BASES.weapon || [])
+      .map((b, bi) => {
+        const wid = b && b.wskill && G.SKILLS[b.wskill] ? b.wskill : null;
+        const type = wTypeOf(bi);
+        const on = !!item && (item.baseIdx | 0) === bi;
+        return (
+          '<span class="wsl' + (on ? ' on' : '') + '" style="--c:' + (wid ? G.SKILLS[wid].color : IC.wskColor(type)) + '"' + (wid ? ' data-tip="wsk:' + wid + '"' : '') + '>' +
+          (wid ? IC.skill(wid) : IC.wsk(type)) + '<em>' + wTypeName(bi) + '</em></span>'
+        );
+      })
+      .join('');
+    let main;
+    if (!id) {
+      main =
+        '<div class="wsk-empty"><div class="wsk-slot">R</div><div><b>' + (item ? '这把武器没有武器技' : '没有装备武器') + '</b>' +
+        '<p>每种武器自带一招<b>武器技</b>，固定在 <kbd>R</kbd> 键，换武器就换招。' + (item ? '' : '装备一把武器即可使用。') + '</p></div></div>';
+    } else {
+      const sk = G.SKILLS[id];
+      let ctx = null;
+      let avg = 0;
+      let rate = 0;
+      try {
+        ctx = G.skillCtx(id);
+        avg = G.avgHit(ctx);
+        rate = G.skillRate(ctx);
+      } catch (e) {
+        ctx = null;
+      }
+      const blood = G.player.S.bloodMagic > 0;
+      const num = (label, val, cls) => '<div class="sk-num' + (cls ? ' ' + cls : '') + '"><span>' + label + '</span><b>' + val + '</b></div>';
+      const isAtk = sk.tags.indexOf('attack') >= 0;
+      let lvl = 0;
+      try {
+        lvl = typeof G.weaponSkillLevel === 'function' ? G.weaponSkillLevel(id) : 0;
+      } catch (e) {
+        lvl = 0;
+      }
+      const nums = ctx
+        ? num('每次伤害', fmtDmg(avg), 'hl') +
+          num('冷却', ctx.cd > 0 ? fmt1(ctx.cd) + ' 秒' : '无') +
+          num('估算秒伤', fmtDmg(avg * rate)) +
+          num(blood ? '生命消耗' : '魔力消耗', ctx.cost > 0 ? fmt1(ctx.cost) : '无') +
+          num('暴击率', sk.sureCrit ? '必定暴击' : fmt1(ctx.crit) + '%') +
+          num('等级', lvl ? 'Lv ' + lvl : '—')
+        : '';
+      const w = ctx && ctx.weapon ? ctx.weapon : wStats(item);
+      const gk = wGrowKind(sk);
+      const grow = gk === 'attack'
+        ? '攻击型：伤害取自武器' + (w ? ' <b>' + Math.round(w.min) + '–' + Math.round(w.max) + '</b>' : '') + (ctx && ctx.wm > 0 ? '<span class="wn-op">×</span>倍率 <b>' + Math.round(ctx.wm * 100) + '%</b>' : '') + '，等级随角色等级'
+        : gk === 'minion'
+          ? '召唤型：魂火按召唤物计算，等级随武器物品等级' + (lvl ? '（Lv ' + lvl + '）' : '') + '，吃召唤物伤害加成（辅助宝石不算）'
+          : '法术型：等级 = 武器物品等级 × 0.75' + (lvl ? '（Lv ' + lvl + '）' : '') + '，吃元素伤害加成';
+      main =
+        '<div class="sk-top"><div class="sk-icon">' + IC.skill(id) + '</div>' +
+        '<div class="sk-title"><div class="sk-name">' + sk.name + '</div><div class="wsk-src">来自 ' + esc(item ? item.name : '') + ' · ' + wTypeName(item ? item.baseIdx | 0 : 0) + '</div></div></div>' +
+        '<div class="sk-desc">' + sk.desc + '</div>' +
+        (nums ? '<div class="sk-nums">' + nums + '</div>' : '') +
+        '<div class="sk-anote wpn"><i></i><span>' + grow + '</span></div>' +
+        '<div class="sk-anote cd"><i></i><span>有冷却，穿插在主力技能之间用；不能镶辅助宝石</span></div>';
+    }
+    return '<div class="wsk-card" style="--c:' + (id ? G.SKILLS[id].color : '#8c7f6d') + '">' + main + '<div class="wsk-row">' + row + '</div></div>';
+  }
+
   function skillCard(id) {
     const S = G.save;
     const sk = G.SKILLS[id];
@@ -1440,6 +1675,8 @@
         num('暴击率', fmt1(ctx.crit) + '%');
       // 冷却技能：秒伤按冷却折算（单独循环施放打不过主力技能），价值在于穿插
       if (ctx.cd > 0) note = '<div class="sk-anote cd"><i></i>冷却技能：每次伤害高，估算秒伤按冷却折算；穿插在主力技能之间施放最划算</div>';
+      // 攻击技能：伤害取自手里的武器
+      if (ctx.attack) note = attackNote(ctx) + note;
     }
     return (
       '<div class="skill-card" style="--c:' + sk.color + '">' +
@@ -1457,8 +1694,9 @@
 
   function renderSkills() {
     const S = G.save;
-    const known = Object.keys(G.SKILLS).filter((id) => S.skills[id]);
-    const unknown = Object.keys(G.SKILLS).filter((id) => !S.skills[id]);
+    // 武器技不进技能列表：它们跟着武器走，在最上面单独一节
+    const known = Object.keys(G.SKILLS).filter((id) => S.skills[id] && !isWSkill(id));
+    const unknown = Object.keys(G.SKILLS).filter((id) => !S.skills[id] && !isWSkill(id));
     const B = G.BLANK_GEM;
     const best = G.blankBest();
     let cards = known.map(skillCard).join('');
@@ -1502,6 +1740,11 @@
         '<div class="barslot' + (id ? '' : ' empty') + '" data-slot="' + i + '"' + (id ? ' data-drag="skill:' + id + '" data-tip="skdrag:' + id + '" style="--c:' + G.SKILLS[id].color + '"' : '') + '>' +
         '<div class="bs-icon">' + (id ? IC.skill(id) : '') + '</div><div class="bs-txt"><span>' + KEY_LABEL[i] + '</span><b>' + (id ? G.SKILLS[id].name : '空') + '</b></div></div>';
     }
+    // 第五格：武器技，跟着武器走，不能拖放
+    const wid = curWSkill();
+    bar +=
+      '<div class="wbarslot' + (wid ? '' : ' empty') + '"' + (wid ? ' data-tip="wsk:' + wid + '" style="--c:' + G.SKILLS[wid].color + '"' : ' data-tip="txt:' + (S.equip.weapon ? '这把武器没有武器技' : '装备一把武器，R 键就会有它的武器技') + '"') + '>' +
+      '<div class="bs-icon">' + (wid ? IC.skill(wid) : '') + '</div><div class="bs-txt"><span>R · 武器技</span><b>' + (wid ? G.SKILLS[wid].name : S.equip.weapon ? '无' : '无武器') + '</b></div></div>';
 
     let sups = '';
     for (const id of Object.keys(G.SUPPORTS)) {
@@ -1527,7 +1770,8 @@
       '<div class="barstrip">' + bar + '</div>' +
       '<div class="sec-title">技能<span class="sec-note">点击辅助槽选择宝石，或把右侧的宝石拖进来</span></div>' +
       '<div class="skill-list scroll" data-scroll="skills">' + cards + '</div></div>' +
-      '<div class="col col-side"><div class="sec-title">辅助宝石<span class="sec-note">' + S.supports.length + ' / ' + Object.keys(G.SUPPORTS).length + '</span></div>' +
+      '<div class="col col-side"><div class="sec-title">武器技<span class="sec-note"><kbd>R</kbd> 随手中的武器更换</span></div>' + wskillSection() +
+      '<div class="sec-title">辅助宝石<span class="sec-note">' + S.supports.length + ' / ' + Object.keys(G.SUPPORTS).length + '</span></div>' +
       (coach ? '<div class="side-coach">' + coach + '</div>' : '') +
       '<div class="sup-list scroll" data-scroll="sups">' + sups + '</div></div>' +
       '</div>';
@@ -1843,6 +2087,49 @@
     );
   }
 
+  // 帮助页的武器一节：攻击技能吃武器伤害、武器技在 R 上；各种武器的攻速、隐含属性与武器技从数据里取
+  function helpWeapons() {
+    const atk = Object.keys(G.SKILLS).filter((id) => {
+      const sk = G.SKILLS[id];
+      return !isWSkill(id) && sk.tags.indexOf('attack') >= 0 && sk.kind !== 'summon';
+    }).map((id) => G.SKILLS[id].name);
+    const F = G.FISTS || { min: 2, max: 4 };
+    const gl = G.ATTACK_GEM_LVL ? +(G.ATTACK_GEM_LVL * 100).toFixed(1) : 1.5;
+    const rows = (G.BASES.weapon || []).map((b, bi) => {
+      const wid = b.wskill && G.SKILLS[b.wskill] ? b.wskill : null;
+      const sk = wid ? G.SKILLS[wid] : null;
+      let imp = '';
+      if (b.imp) {
+        const lo = G.fmtStat(b.imp.stat, b.imp.lo);
+        imp = b.imp.lo === b.imp.hi || b.imp.fixed ? lo : lo.replace(String(b.imp.lo), b.imp.lo + '–' + b.imp.hi);
+        // 附带的第二条隐含属性（魂幡：召唤物生命）
+        const a = b.imp.also;
+        if (a && a.stat && a.k > 0) {
+          const alo = Math.max(1, Math.round(b.imp.lo * a.k));
+          const ahi = Math.max(1, Math.round(b.imp.hi * a.k));
+          const t = G.fmtStat(a.stat, alo);
+          imp += '，' + (alo === ahi ? t : t.replace(String(alo), alo + '–' + ahi));
+        }
+      }
+      const bits = [];
+      if (b.aps) bits.push('每秒攻击 ' + b.aps.toFixed(2));
+      if (b.caster) bits.push('施法武器，武器伤害低');
+      if (b.hands === 2) bits.push('双手');
+      if (imp) bits.push(esc(imp));
+      return (
+        '<div class="hc hw" style="--c:' + (sk ? sk.color : '#c9b48e') + '">' + IC.html('it-weapon-' + bi + '-0') + '<b>' + wTypeName(bi) + '</b>' +
+        '<span>' + bits.join(' · ') + (sk ? '<br><em>武器技「' + sk.name + '」</em>' + (sk.cd > 0 ? '冷却 ' + fmt1(sk.cd) + ' 秒。' : '') + sk.desc : '') + '</span></div>'
+      );
+    }).join('');
+    return (
+      '<div class="sec-title">武器与武器技</div>' +
+      '<p>武器决定<b>攻击</b>技能' + (atk.length ? '（' + atk.join('、') + '）' : '') + '的伤害：每一击 = 武器的物理伤害 × 技能的<b>武器倍率</b>，宝石每高一级再多 ' + gl + '%（攻击技能主要靠换更高物品等级的武器变强）；出手速度还要乘上武器的<b>攻击速度</b>——有冷却的攻击技能（如闪袭）出手次数由冷却决定，攻速改为折进每一击的伤害。法术和召唤不看武器伤害。空手只有 ' + F.min + '–' + F.max + ' 的拳头伤害。</p>' +
+      '<p>武器详情里列出物理伤害、每秒攻击和<b>武器秒伤</b>（平均伤害 × 每秒攻击），后面的箭头是与身上那把的比较。魔法、稀有武器可能带「武器物理伤害提高」「附加物理伤害」这类<b>本地词缀</b>，已经算进这把武器的伤害里。</p>' +
+      '<p>每种武器自带一招<b>武器技</b>，固定在 <kbd>R</kbd> 键：换武器就换招，不占技能栏，也不能镶辅助宝石。武器技都有冷却，单次伤害高，穿插在主力技能之间施放最划算。攻击型的随武器伤害成长；长杖、短杖的法术型武器技随武器的物品等级和你的元素伤害加成成长；魂幡的魂火按召唤物计算，吃召唤物伤害加成，还会让身边的召唤物短暂狂热。技能页右栏顶上有当前武器技的数值。</p>' +
+      (rows ? '<div class="hc-list">' + rows + '</div>' : '')
+    );
+  }
+
   function renderHelp() {
     const key = (k, t) => '<div class="hk"><span class="hk-keys">' + k.map((x) => '<kbd>' + x + '</kbd>').join('') + '</span><span>' + t + '</span></div>';
     let curs = '';
@@ -1855,6 +2142,7 @@
       '<div class="col scroll" data-scroll="help1"><div class="sec-title">操作</div>' +
       key(['W', 'A', 'S', 'D'], '移动（方向键亦可）') +
       key(['左键', '右键', 'Q', 'E'], '朝准星施放技能栏上的技能，可按住') +
+      key(['R'], '武器技：随手中的武器而变') +
       key(['空格'], '翻滚，途中短暂无敌；可以取消挥砍') +
       key(['1', '2'], '生命 / 魔力药剂，击杀怪物会充能') +
       key(['F'], '处决露出破绽的敌人；否则拾取最近的掉落') +
@@ -1891,7 +2179,7 @@
       '<div class="help-foot"><button type="button" tabindex="-1" class="btn sm" data-act="tut-reset">重新显示新手提示</button>' +
       '<span>' + (ui.tutMsg || '已看过 ' + Object.keys(G.save.tut).length + ' / ' + HINTS.length + ' 条') + '</span></div>' +
       '</div>' +
-      '<div class="col scroll" data-scroll="help3"><div class="sec-title">装备与词缀</div>' +
+      '<div class="col scroll" data-scroll="help3">' + helpWeapons() + '<div class="sec-title">装备与词缀</div>' +
       '<p>装备分为<b style="color:' + G.RARITY_COLOR[0] + '">普通</b>、<b style="color:' + G.RARITY_COLOR[1] + '">魔法</b>（最多 2 条词缀）和<b style="color:' + G.RARITY_COLOR[2] + '">稀有</b>（最多 6 条词缀）。词缀分前缀与后缀，各占一半位置。</p>' +
       '<p>词缀前的 <span class="ic-tier t4">T4</span> 是它的阶级，数字越大数值越高；物品等级越高，能出现的阶级越高。在详情里悬停一条词缀可以看到每一阶的数值范围。</p>' +
       '<p>物品角上的 <b class="vd-up">▲</b> <b class="vd-down">▼</b> 是与身上同部位装备的比较：按技能栏上技能的秒伤、最大生命、护甲与抗性估算。把鼠标停在背包格子或<b>地上的名牌</b>上，都能看到完整属性和换上之后的变化。</p>' +
@@ -2012,6 +2300,19 @@
     }
     if (kind === 'blank') return blankTip(id);
     if (kind === 'txt') return '<div class="tcard slim"><div class="tc-desc">' + esc(id) + '</div></div>';
+    if (kind === 'wsk') {
+      // 武器技说明：名字、来自哪种武器、描述、冷却；正拿着这把武器时说清楚在 R 上
+      const sk = G.SKILLS[id];
+      if (!sk) return '';
+      const bi = (G.BASES.weapon || []).findIndex((b) => b && b.wskill === id);
+      const cur = curWSkill() === id;
+      return (
+        '<div class="tcard" style="--c:' + sk.color + '">' + tcHead('<span class="tc-skico">' + IC.skill(id) + '</span>', sk.name, '武器技 · ' + (bi >= 0 ? wTypeName(bi) : '武器') + (sk.cd > 0 ? ' · 冷却 ' + fmt1(sk.cd) + ' 秒' : '')) +
+        '<div class="tc-desc">' + sk.desc + '</div>' +
+        '<div class="tc-foot">' + WGROW_TIP[wGrowKind(sk)] + ' · 不能镶辅助宝石</div>' +
+        '<div class="tc-hint' + (cur ? ' ok' : '') + '">' + (cur ? '正在 R 键上' : '装备一把' + (bi >= 0 ? wTypeName(bi) : '这种武器') + '即可在 R 键使用') + '</div></div>'
+      );
+    }
     if (kind === 'skdrag') {
       const sk = G.SKILLS[id];
       return '<div class="tcard slim" style="--c:' + sk.color + '"><div class="tc-name">' + sk.name + '</div><div class="tc-hint">拖到技能栏的格子里绑定按键</div></div>';
@@ -3082,6 +3383,16 @@
       const k = 1 + (sk.kind === 'summon' ? G.MINION_DMG_LVL || 0.2 : 0.2) * (l.data.lvl - 1);
       const dmgs = sk.dmg || {};
       let dmg = Object.keys(dmgs).map((t) => '<b style="color:' + G.TYPE_COLOR[t] + '">' + Math.round(dmgs[t][0] * k) + '–' + Math.round(dmgs[t][1] * k) + ' ' + G.TYPE_NAME[t] + '</b>').join(' + ') || '无';
+      if (sk.wm && sk.kind !== 'summon') {
+        // 攻击技能：伤害取自武器，写倍率和按当前武器算出的数
+        const wb = (G.skillBase && G.skillBase(id, l.data.lvl).phys) || null;
+        // 有冷却的攻击技能（闪袭）把武器攻速折进每一击（G.cdAps）：倍率后面也写上，和括号里的数对得上
+        const cdA = !!(G.cdAps && G.cdAps(sk));
+        const aps = cdA ? G.weaponStats(save.equip.weapon).aps : 1;
+        dmg = '武器伤害 × ' + Math.round(sk.wm * (1 + (G.ATTACK_GEM_LVL || 0.03) * (l.data.lvl - 1)) * 100) + '%' +
+          (cdA ? ' × 攻速 ' + aps.toFixed(2) : '') +
+          (wb ? '（当前武器 <b style="color:' + G.TYPE_COLOR.phys + '">' + Math.round(wb[0]) + '–' + Math.round(wb[1]) + ' ' + G.TYPE_NAME.phys + '</b>）' : '');
+      }
       if (sk.kind === 'summon') {
         // 召唤宝石：写召唤物自己的基础数值（还没算召唤物属性和辅助）
         dmg = '<span class="c-ally">召唤物</span>每击 ' + dmg + (sk.life ? '<br>召唤物生命 ' + Math.round(sk.life * (1 + (G.MINION_LIFE_LVL || 0.28) * (l.data.lvl - 1))) : '') + (sk.cap ? (sk.cap > 1 ? ' · 基础上限 ' + sk.cap + ' 具' : ' · 只有 1 尊') : '');
@@ -3157,7 +3468,7 @@
   // 停手细看时才是带血量的完整名牌。
   function plateFor(e, now) {
     const p = wui.plate;
-    if (slotDown(0) || slotDown(1) || slotDown(2) || slotDown(3) || G.player.cast || G.player.exec) wui.busyAt = now;
+    if (slotDown(0) || slotDown(1) || slotDown(2) || slotDown(3) || slotDown(W_SLOT) || G.player.cast || G.player.exec) wui.busyAt = now;
     const mini = now - wui.busyAt < 900;
     if (!e || e.isBoss || (e.elite && (mini || e.brokenT > 0))) {
       if (wui.plateOn) {
@@ -3430,7 +3741,7 @@
   // ============================================================
   const coach = {
     cur: null, state: '', t: 0, last: 0, hideAt: 0, gapT: 0, pollT: 0, urgT: 0, base: null,
-    px: null, pz: 0, moved: 0, cast: [false, false, false, false], rolled: false, sawGround: false, cur0: -1,
+    px: null, pz: 0, moved: 0, cast: [false, false, false, false, false], rolled: false, sawGround: false, cur0: -1,
     minT: 0, // 当前这条至少要亮多久（秒，按字数算）——哪怕玩家一眨眼就做到了，也得留出读完的时间
     fightT: 0, // 需要清静的提示亮着的时候，已经连续打了多久
     epoch: -1, vet: false, // 这份存档读进来时是不是老角色（3 级以上）：只在读档 / 删档时判定一次
@@ -3485,6 +3796,13 @@
       done: (b) => G.player.flask.life < b.flask - 0.5 || lifeFrac() > 0.9,
     },
     {
+      // 旧存档第一次读进来（武器补上了伤害）：说一次攻击技能改为吃武器伤害
+      id: 'wmig', calm: true, max: 14,
+      html: '<b>武器改版</b>：攻击技能（裂石击、飞刃等）的伤害现在取自<b>手中武器</b>，旧武器已按角色等级折算好伤害。长杖、短杖和魂幡的武器伤害偏低，走攻击路线就换一把刃、双匕、战锤、太刀或长弓。每种武器还自带一招 <kbd>R</kbd> 键的<b>武器技</b>',
+      when: () => !!G.weaponMigrated,
+      done: () => false,
+    },
+    {
       id: 'move', basic: true, max: 40,
       html: '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动，沿着路一直往前走',
       when: () => true,
@@ -3507,6 +3825,23 @@
       html: '按住 <kbd>左键</kbd> 连出<b>三段</b>：横斩、上挑，第三段是跃起下劈的<b>终结技</b>——伤害翻倍，把敌人震飞。出招途中随时可以按 <kbd>空格</kbd> 翻滚取消',
       when: () => comboOnBar() && enemyNear(9, (e) => e.awake),
       done: (b) => G.state.stats.finishers > b.finishers,
+    },
+    {
+      // 第一次能用 R：手里的武器有武器技、它没在冷却、身边有醒着的敌人
+      id: 'wskill', need: 'attack', max: 30,
+      get html() {
+        const id = curWSkill();
+        const sk = id ? G.SKILLS[id] : null;
+        return '按 <kbd>R</kbd> 施放<b>武器技</b>' + (sk ? '「' + sk.name + '」' : '') + '：每种武器自带一招，换武器就换招。有冷却、单次伤害高，穿插在普通攻击之间用';
+      },
+      when: () => {
+        const id = curWSkill();
+        return !!id && !(G.player.cds[id] > 0) && enemyNear(11, (e) => e.awake);
+      },
+      done: () => {
+        const id = curWSkill();
+        return !!coach.cast[W_SLOT] || !!(id && G.player.cds[id] > 0);
+      },
     },
     {
       id: 'poise', max: 30,
@@ -3596,7 +3931,7 @@
     // 至少亮够读完的时间：去掉标签后按字数算，4 ~ 8 秒
     coach.minT = G.clamp(1.5 + h.html.replace(/<[^>]*>/g, '').length * 0.06, 4, 8);
     coach.moved = 0;
-    coach.cast = [false, false, false, false];
+    coach.cast = [false, false, false, false, false];
     coach.rolled = false;
     coach.sawGround = false;
     const cs = G.state.stats;

@@ -416,6 +416,19 @@ kbd {
   border: 1px solid #3d2c1e;
   border-radius: 2px;
 }
+/* 第五格：武器技（R）。底框带一圈金属色的边，和四个技能格区分开 */
+.wslot .s-key { min-width: 0; padding: 0 5px; white-space: nowrap; letter-spacing: 0; color: #d9c49a; border-color: #5e4329; }
+.wslot .s-key b { margin-right: 3px; color: #fff1d6; font-weight: 700; }
+.wslot .s-icon { box-shadow: 0 0 0 1px #0c0705, 0 0 0 2px color-mix(in srgb, var(--c) 30%, #6a4a2c), inset 0 0 14px rgba(0, 0, 0, 0.65); }
+.wslot.casting .s-icon { box-shadow: 0 0 0 1px #ffe2b0, 0 0 16px var(--c), inset 0 0 14px rgba(0, 0, 0, 0.4); }
+.wslot.empty .s-icon { box-shadow: none; }
+.wslot.hint .s-icon { animation: wslot-hint 1.1s ease-in-out infinite; }
+@keyframes wslot-hint {
+  0%, 100% { box-shadow: 0 0 0 1px #0c0705, 0 0 0 2px #8a6a40, inset 0 0 14px rgba(0, 0, 0, 0.65); }
+  50% { box-shadow: 0 0 0 1px #ffe2b0, 0 0 18px 3px rgba(255, 170, 80, 0.75), inset 0 0 14px rgba(0, 0, 0, 0.4); }
+}
+.s-none { position: absolute; inset: 0; display: none; place-items: center; font-size: 11px; letter-spacing: 1px; color: #6e5d48; }
+.wslot.nowpn .s-none { display: grid; }
 #dodge {
   width: 46px;
   margin-top: 6px;
@@ -843,6 +856,40 @@ kbd {
 .ic-line.imp { color: #d9c49a; }
 .ic-line.aff { color: #a9b6ff; }
 .ic-line.none { color: var(--faint); text-align: center; }
+/* 武器：伤害 / 攻速 / 秒伤三行，右侧是与身上那把的差值；下面一行是自带的武器技 */
+.ic-wpn { padding-bottom: 2px; }
+.ic-line.wd { display: flex; align-items: baseline; gap: 8px; color: #b9a98f; }
+.ic-line.wd span { min-width: 56px; }
+.ic-line.wd b { color: #fff; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ic-line.wd.dps b { color: #ffd9a0; font-size: 14px; }
+.ic-line.wd em { margin-left: auto; font-style: normal; font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ic-line.wd em i { margin-left: 4px; font-style: normal; opacity: 0.8; }
+.wd-up { color: #8fdc6a; }
+.wd-down { color: #ff7a6a; }
+.wd-eq { color: var(--faint); }
+.ic-loc { margin-left: 6px; font-style: normal; font-size: 10.5px; color: var(--faint); }
+.hc.hw { align-items: flex-start; }
+.hc.hw .ico { align-self: flex-start; width: 28px; height: 28px; margin: 0 -2px 0 0; }
+.hc.hw b { width: 34px; line-height: 28px; }
+.hc.hw em { font-style: normal; color: color-mix(in srgb, var(--c) 60%, #fff); margin-right: 4px; }
+.ic-wcmp { padding: 0 12px; font-size: 11px; line-height: 17px; color: var(--faint); }
+.ic-wcmp kbd { font-size: 10px; }
+.ic-wsk {
+  --c: #e6dfd0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 5px 12px 2px;
+  padding: 4px 8px 4px 4px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--c) 16%, #120c09), #120c09);
+  border: 1px solid color-mix(in srgb, var(--c) 34%, #2a1e15);
+  border-radius: 3px;
+}
+.ic-wsk > span:not(.tc-skico) { display: flex; flex-direction: column; line-height: 15px; }
+.ic-wsk > span em { font-style: normal; font-size: 10.5px; color: var(--dim); }
+.ic-wsk > span em kbd { font-size: 9.5px; padding: 0 3px; }
+.ic-wsk > span b { font-family: var(--serif); font-size: 14px; letter-spacing: 1px; color: color-mix(in srgb, var(--c) 55%, #fff); }
+.ic-wsk > i { margin-left: auto; font-style: normal; font-size: 11px; color: var(--dim); white-space: nowrap; }
 .ic-sep {
   height: 1px;
   margin: 6px 12px;
@@ -1685,6 +1732,7 @@ button.pk-row:hover { background: #2a1b10; border-color: var(--ember-2); }
 .vd-line em { min-width: 40px; text-align: right; font-style: normal; font-size: 11.5px; opacity: 0.85; font-variant-numeric: tabular-nums; }
 .vd-line.good b, .vd-line.good em { color: #8fe07a; }
 .vd-line.bad b, .vd-line.bad em { color: #ff7a66; }
+.vd-line.neutral b { color: #e8d9b8; font-weight: 500; }
 .vd-line.none { justify-content: center; color: var(--faint); }
 .ic-hint { margin: 8px 10px 0; padding-top: 6px; font-size: 11.5px; text-align: center; color: var(--ember-2); border-top: 1px solid #2e2219; }
 .detail-card .ic-line.aff[data-tip] { cursor: help; }
@@ -1860,7 +1908,7 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 
 /* ---- 技能页：技能栏与图标 ---- */
 .barstrip { flex: none; display: flex; gap: 10px; }
-.barslot {
+.barslot, .wbarslot {
   --c: #666;
   flex: 1;
   max-width: 190px;
@@ -1888,6 +1936,11 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .bs-txt span { display: block; font-size: 11px; letter-spacing: 1px; color: #b3a48b; }
 .bs-txt b { display: block; font-family: var(--serif); font-size: 15px; letter-spacing: 1px; color: color-mix(in srgb, var(--c) 55%, #fff); white-space: nowrap; }
 .barslot.empty .bs-txt b { font-family: var(--sans); font-size: 12px; font-weight: 400; color: var(--faint); }
+/* 技能页技能栏的第五格：武器技（跟着武器走，不能拖放） */
+.wbarslot { background: linear-gradient(90deg, color-mix(in srgb, var(--c) 10%, #100b08), #100b08); border-color: color-mix(in srgb, var(--c) 30%, #2e2219); }
+.wbarslot.empty .bs-icon { background: #0c0807; border: 1px dashed #3d2c1e; }
+.wbarslot.empty .bs-txt b { font-family: var(--sans); font-size: 12px; font-weight: 400; color: var(--faint); }
+.wbarslot .bs-txt span { color: #d9c49a; }
 .sock .ico { width: 20px; height: 20px; margin-left: -4px; }
 .sup { --c: #8a8a94; }
 .sup-top .ico { width: 26px; height: 26px; margin: -3px 0 -3px -4px; }
@@ -2390,7 +2443,7 @@ body.panel-open #coach { display: none; }
   position: absolute;
   left: 204px;
   bottom: 20px;
-  max-width: calc(50vw - 400px);
+  max-width: calc(50vw - 446px); /* 让开技能栏（含武器技格）的左半边 */
   display: none;
   flex-wrap: wrap-reverse;
   align-items: flex-end;
@@ -2485,6 +2538,62 @@ body.panel-open #coach { display: none; }
 .sk-anote { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 11.5px; line-height: 16px; color: #a9c4d4; }
 .sk-anote.cd { color: #c8b38f; }
 .sk-anote i { flex: none; width: 5px; height: 5px; background: var(--c); transform: rotate(45deg); box-shadow: 0 0 6px var(--c); }
+/* 攻击技能：伤害取自武器 */
+.sk-anote.wpn { align-items: flex-start; color: #c9bba0; }
+.sk-anote.wpn i { margin-top: 5.5px; }
+.sk-anote.wpn b { color: #fff1d6; font-weight: 600; font-variant-numeric: tabular-nums; }
+.sk-anote .wn-op { margin: 0 4px; color: var(--faint); }
+
+/* 技能页右栏顶上的武器技一节：当前武器技的紧凑卡片 + 每种武器的武器技一排小图标 */
+.wsk-card {
+  --c: #ccc;
+  flex: none;
+  margin-bottom: 14px;
+  padding: 10px 12px 10px;
+  background:
+    radial-gradient(ellipse 60% 90% at 0% 0%, color-mix(in srgb, var(--c) 11%, transparent), transparent 70%),
+    linear-gradient(180deg, #1a130e, #100b08);
+  border: 1px solid #33261b;
+  border-top-color: color-mix(in srgb, var(--c) 45%, #33261b);
+  border-radius: 3px;
+}
+.wsk-card .sk-top { gap: 10px; }
+.wsk-card .sk-icon { width: 44px; height: 44px; }
+.wsk-card .sk-icon .ico { width: 38px; height: 38px; }
+.wsk-card .sk-name { font-size: 17px; }
+.wsk-src { margin-top: 3px; font-size: 11.5px; color: #8c7f6d; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wsk-card .sk-desc { margin-top: 7px; font-size: 12px; line-height: 17px; }
+.wsk-card .sk-nums { grid-template-columns: repeat(3, 1fr); margin-top: 7px; }
+.wsk-card .sk-num:nth-child(4) { border-left: none; }
+.wsk-card .sk-num:nth-child(n + 4) { border-top: 1px solid #201710; }
+.wsk-card .sk-num { padding: 3px 0 4px; }
+.wsk-card .sk-num b { font-size: 13px; }
+.wsk-card .sk-anote { margin-top: 4px; font-size: 11px; line-height: 15px; }
+.wsk-row { display: flex; justify-content: space-between; margin-top: 8px; padding-top: 8px; border-top: 1px solid #2a1e15; }
+.wsl { --c: #888; position: relative; display: flex; flex-direction: column; align-items: center; gap: 1px; width: 34px; padding: 2px 0 1px; border: 1px solid transparent; border-radius: 3px; cursor: default; }
+.wsl .ico { width: 26px; height: 26px; filter: saturate(0.6) brightness(0.8); }
+.wsl em { font-style: normal; font-size: 10px; line-height: 13px; color: #8c7f6d; white-space: nowrap; }
+.wsl:hover .ico { filter: none; }
+.wsl.on { background: color-mix(in srgb, var(--c) 16%, #120c09); border-color: color-mix(in srgb, var(--c) 50%, #2a1e15); }
+.wsl.on .ico { filter: none; }
+.wsl.on em { color: color-mix(in srgb, var(--c) 60%, #fff); }
+/* 矮屏（720 高）：给下面的辅助宝石列表多留点地方 */
+@media (max-height: 780px) {
+  .wsk-card { margin-bottom: 6px; padding: 8px 10px; }
+  .wsk-card .sk-anote.cd { display: none; }
+  .wsk-card .sk-desc { margin-top: 5px; }
+  .wsk-row { margin-top: 6px; padding-top: 6px; }
+  .wsl em { display: none; }
+}
+.wsk-empty { display: flex; gap: 12px; align-items: center; }
+.wsk-empty b { font-family: var(--serif); font-size: 15px; letter-spacing: 1px; color: #e6d6b8; }
+.wsk-empty p { margin: 3px 0 0; font-size: 12px; line-height: 17px; color: #b9ac96; }
+.wsk-empty p b { font-family: var(--sans); font-size: 12px; letter-spacing: 0; color: #ffe2b0; }
+.wsk-slot { flex: none; width: 44px; height: 44px; display: grid; place-items: center; font-size: 17px; font-weight: 700; color: #6e5d48; background: #0f0a08; border: 1px dashed #3d2c1e; border-radius: 4px; }
+.tc-skico { flex: none; position: relative; width: 42px; height: 42px; border-radius: 4px; background: radial-gradient(circle at 50% 32%, color-mix(in srgb, var(--c) 58%, #000), color-mix(in srgb, var(--c) 13%, #0a0706) 88%); border: 1px solid color-mix(in srgb, var(--c) 62%, #000); }
+.tc-skico .ico { position: absolute; inset: 3px; width: auto; height: auto; }
+.tc-skico.sm { width: 30px; height: 30px; border-radius: 3px; }
+.tc-skico.sm .ico { inset: 2px; }
 .st-group.ally { color: #5fc8b4; }
 .help .c-ally, .tcard .c-ally, .co-body .c-ally { color: var(--ally); }
 

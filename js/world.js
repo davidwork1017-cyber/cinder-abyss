@@ -488,6 +488,8 @@
 
     initParticles();
     initHitFx();
+    initSmoke();
+    initArrows();
     corpseRoot = new T.Group();
     scene.add(corpseRoot);
 
@@ -509,6 +511,7 @@
     meteors[0].mesh.visible = false;
     const warm = W.makeTelegraph({ shape: 'circle', x: 0, z: 0, r: 1 }, false);
     initAllyFx();
+    initGhosts();
     warmEntities(); // 里面会真的渲染一帧，上面这些特效的着色器也一并编译
     W.removeTelegraph(warm);
   };
@@ -1242,7 +1245,7 @@
         return {
           key, NB, joints, JI, J, nJ, rest, geoBody, geoGlow, geoAux,
           tris: cnt(geoBody) + cnt(geoGlow) + cnt(geoAux),
-          height: o.height, stride: o.stride || 3, clips: Object.create(null), loco: null, post: null, late: null,
+          height: o.height, stride: o.stride || 3, clips: Object.create(null), gearClips: Object.create(null), loco: null, post: null, late: null,
           sockets: Object.create(null), hitJ: null, feet: null, ankle: 0,
         };
       },
@@ -1309,9 +1312,54 @@
           return { j: rig.JI[c[0]], x: c[1], y: c[2], z: c[3], r: c[4] };
         })
         : null,
+      // 只有玩家用：hand / handL 手的轨迹（交给 IK）；draw 拉弓的程度；arrow 右手捏箭；ikL 双手武器时左手握柄的权重
+      hand: spec.hand ? handTrack(spec.hand) : null,
+      handL: spec.handL ? handTrack(spec.handL) : null,
+      draw: spec.draw || null, arrow: !!spec.arrow, ikL: spec.ikL,
+      spec, // 原始描述：镜像 / 双手版本从它派生
     };
   }
+  // 手的轨迹：{ f: 'chest' 胸口坐标系（默认）| 'model', k: [时刻...]（负数 = 加速冲到这一帧，同 kf）,
+  //   p: [[x,y,z]...] 握点位置, d: [[x,y,z]...] 武器指向, e: [[x,y,z]...] 刃口朝向（缺省朝下）, w: [权重...]（缺省 1） }
+  function handTrack(h) {
+    const K = [];
+    for (let i = 0; i < 9; i++) {
+      const arr = [];
+      for (let j = 0; j < h.k.length; j++) {
+        const src = i < 3 ? h.p[j] : i < 6 ? h.d[j] : h.e ? h.e[j] : null;
+        arr.push(h.k[j], src ? src[i % 3] : i === 7 ? -1 : 0);
+      }
+      K.push(arr);
+    }
+    let W = null;
+    if (h.w) {
+      W = [];
+      for (let j = 0; j < h.k.length; j++) W.push(h.k[j], h.w[j]);
+    }
+    return { f: h.f || 'chest', K, W };
+  }
   const aliasClip = (rig, name, target) => (rig.clips[name] = rig.clips[target]);
+  // 给某种武器注册一个同名动作的替换版本（W.play 时按 ent.gearClips 先查）
+  function defGearClip(rig, gear, name, spec) {
+    const keep = rig.clips[name];
+    defClip(rig, name, spec);
+    const c = rig.clips[name];
+    if (keep) rig.clips[name] = keep;
+    else delete rig.clips[name];
+    (rig.gearClips[gear] || (rig.gearClips[gear] = Object.create(null)))[name] = c;
+    return c;
+  }
+  // 左右镜像一组关键帧：左右关节互换，绕 y / z 轴的转角和 x 向位移取反
+  const MIRROR_J = { uaL: 'uaR', uaR: 'uaL', faL: 'faR', faR: 'faL', hL: 'hR', hR: 'hL', thL: 'thR', thR: 'thL', shL: 'shR', shR: 'shL', ftL: 'ftR', ftR: 'ftL' };
+  function mirrorKeys(keys) {
+    const out = {};
+    for (const key in keys) {
+      const dot = key.indexOf('.'), jn = key.slice(0, dot), ch = key.slice(dot + 1);
+      const flip = ch === 'ry' || ch === 'rz' || ch === 'ox';
+      out[(MIRROR_J[jn] || jn) + '.' + ch] = flip ? keys[key].map((v, i) => (i % 2 ? -v : v)) : keys[key];
+    }
+    return out;
+  }
 
   // ----- 着色器注入：刚性蒙皮 + 逐顶点粗糙/金属度 + 轮廓光 + 消散 -----
   const RIG_VERT_PARS = 'attribute float aBone;\nattribute vec2 aSurf;\nuniform mat4 uBones[ NB ];\nvarying vec2 vSurf;\nvarying vec3 vBP;\n';
@@ -1658,7 +1706,7 @@
         solveRig(ent);
       }
     }
-    if (rig.late) rig.late(ent);
+    if (rig.late) rig.late(ent, sdt);
   }
 
   W.setEnt = function (ent, x, z, ang) {
@@ -1689,7 +1737,8 @@
       W.hitReact(ent, opts && opts.ang !== undefined ? opts.ang : ent.group.rotation.y + Math.PI, opts ? opts.strength : undefined);
       return true;
     }
-    const c = ent.rig.clips[name];
+    // 玩家拿双手武器 / 长弓时，同名动作换成按这种武器重排的版本（名字不变）
+    const c = (ent.gearClips && ent.gearClips[name]) || ent.rig.clips[name];
     if (!c) return false;
     beginFade(ent, opts && opts.fade !== undefined ? opts.fade : c.fade);
     ent.clip = c;
@@ -2009,6 +2058,21 @@
   const gDrape = (key, pts, arc, seg = 7) =>
     geo('D' + key, () => new T.LatheGeometry(pts.map((p) => new T.Vector2(p[0], p[1])), seg, Math.PI - arc / 2, arc));
 
+  // 长弓握把的 z 与上弓梢（弓弦上端的挂点）的绑定坐标；下弓梢关于握把对称
+  const BOW_GZ = 0.04, BOW_TIP = [0.345, 1.01, 0.73];
+  // 武器种类：底材的 type → 模型序号（也是 ent.gearType）。前三种的序号与旧存档的 baseIdx 一致
+  const GEAR_KEYS = ['blade', 'staff', 'wand', 'daggers', 'hammer', 'bow', 'katana', 'banner'];
+  const G_DAG = 3, G_HAM = 4, G_BOW = 5, G_KAT = 6, G_BAN = 7;
+  const TWO_HAND = [false, false, false, false, true, false, true, false];
+  const GEAR_JOINT = ['wB', 'wS', 'wW', 'wD', 'wH', 'wBo', 'wK', 'wBn'];
+  // 魂幡：挑杆的高度（握点往上，沿杆）、幡布挂点离杆的横向距离、两段幡布的长度
+  const BAN_Z = 1.6, BAN_X = 0.25, BAN_L1 = 0.46, BAN_L2 = 0.44, BAN_CL = 0.26;
+  function gearIndex(baseIdx) {
+    const bs = G.BASES && G.BASES.weapon, b = bs && bs[baseIdx];
+    const i = b && b.type ? GEAR_KEYS.indexOf(b.type) : -1;
+    return i >= 0 ? i : G.clamp(baseIdx | 0, 0, GEAR_KEYS.length - 1);
+  }
+
   function playerRig() {
     return rigOf('player', () => {
       const CLOAK = 0xe8dfc8, CLOAK_D = 0xb3a488, CLOAK_IN = 0x6d6150, STEEL = 0x5d6a84, STEEL_D = 0x343c4e;
@@ -2018,6 +2082,15 @@
       b.j('uaL', 'chest', 0.33, 1.5, 0).j('faL', 'uaL', 0.38, 1.19, -0.01).j('hL', 'faL', 0.39, 0.9, 0.02);
       b.j('uaR', 'chest', -0.33, 1.5, 0).j('faR', 'uaR', -0.38, 1.19, -0.01).j('hR', 'faR', -0.39, 0.9, 0.02);
       b.j('wB', 'hR', -0.39, 0.84, 0.05).j('wS', 'hR', -0.39, 0.84, 0.05).j('wW', 'hR', -0.39, 0.84, 0.05);
+      // 后加的四种武器：双匕（两手各一把）、战锤、太刀挂右手；长弓挂左手，弓弦两段各挂在弓梢上（拉弓时转向右手、拉长）；
+      // wA 是拉弓时右手捏着的那支箭
+      b.j('wD', 'hR', -0.39, 0.84, 0.05).j('wH', 'hR', -0.39, 0.84, 0.05).j('wK', 'hR', -0.39, 0.84, 0.05).j('wA', 'hR', -0.39, 0.84, 0.03);
+      b.j('wDL', 'hL', 0.39, 0.84, 0.05).j('wBo', 'hL', 0.39, 0.84, 0.05);
+      b.j('bsU', 'wBo', BOW_TIP[0], BOW_TIP[1], BOW_TIP[2]).j('bsL', 'wBo', BOW_TIP[0], BOW_TIP[1], 0.08 - BOW_TIP[2]);
+      // 魂幡挂右手；幡布两段（bnF1 挂在挑杆上，bnF2 是下半截），挑杆外端和杆另一侧各坠一串骨符（bnC1 / bnC2）。都由 bannerSway 按摆锤算
+      b.j('wBn', 'hR', -0.39, 0.84, 0.05);
+      b.j('bnF1', 'wBn', -0.39 - BAN_X, 0.84, BAN_Z).j('bnF2', 'bnF1', -0.39 - BAN_X, 0.84, BAN_Z - BAN_L1);
+      b.j('bnC1', 'wBn', -0.39 - 0.48, 0.84, BAN_Z).j('bnC2', 'wBn', -0.39 + 0.15, 0.84, BAN_Z - 0.1);
       b.j('thL', 'root', 0.14, 0.97, 0).j('shL', 'thL', 0.15, 0.53, 0.01).j('ftL', 'shL', 0.15, 0.12, 0);
       b.j('thR', 'root', -0.14, 0.97, 0).j('shR', 'thR', -0.15, 0.53, 0.01).j('ftR', 'shR', -0.15, 0.12, 0);
       b.j('cape1', 'chest', 0, 1.54, -0.16).j('cape2', 'cape1', 0, 1.14, -0.27).j('cape3', 'cape2', 0, 0.78, -0.33);
@@ -2129,6 +2202,118 @@
       }
       b.x(gOct(0.062), 1, WX, WY, 0.55, 0, 0, 0, 0.8, 0.8, 1.5);
 
+      // 双匕：短而带钩的叶形刃（单侧开刃、刃尖斜削），黑钢底色，刃脊一道光；护手只有向前弯的一侧
+      const dagger = (J, X) => {
+        b.at(J).surf(SURF.leather).p(gCyl(0.022, 0.025, 0.13, 6), 0x2a2230, X, WY, 0.03, HALF_PI);
+        b.surf(SURF.metal).p(gTorus(0.026, 0.009, 4, 8), STEEL_D, X, WY, -0.055);
+        b.surf(SURF.gold).p(gSweep('pl/dguard', [[0, 0.075, 0.13], [0, 0.04, 0.1], [0, -0.03, 0.098], [0, -0.07, 0.11]], [0.008, 0.016, 0.016, 0.006], 5), GOLD, X, WY, 0);
+        b.surf(SURF.metal).p(gPlate('pl/dblade', [[-0.034, 0], [0.03, 0], [0.042, 0.19], [0.014, 0.37], [-0.03, 0.27], [-0.038, 0.12]], 0.01, 0.012), [0x3b4252, 0xb4bccb], X, WY, 0.11, HALF_PI, HALF_PI, 0);
+        b.x(gBox(0.03, 0.01, 0.2), 1, X, WY + 0.004, 0.24);
+      };
+      dagger('wD', WX);
+      dagger('wDL', -WX);
+      // 战锤：长柄两段缠皮、金箍；锤头是一块厚重的方砧，两端包钢、顶上一根短刺，两侧开一道发光的符槽
+      b.at('wH').surf(SURF.leather).p(gCyl(0.03, 0.034, 1.3, 7), [0x3b2a1e, WOOD], WX, WY, 0.31, HALF_PI);
+      b.p(gCyl(0.039, 0.039, 0.2, 7), 0x2c211a, WX, WY, 0.03, HALF_PI).p(gCyl(0.039, 0.039, 0.16, 7), 0x2c211a, WX, WY, -0.22, HALF_PI);
+      b.surf(SURF.gold).p(gCyl(0.043, 0.043, 0.03, 7), GOLD, WX, WY, 0.16, HALF_PI).p(gCyl(0.043, 0.043, 0.03, 7), GOLD, WX, WY, 0.72, HALF_PI);
+      b.p(gOct(0.05), GOLD, WX, WY, -0.37, HALF_PI, 0, 0, 1, 1.3, 1);
+      b.surf(SURF.metal, true).p(gRBox(0.21, 0.4, 0.26, 0.035), [STEEL_D, STEEL], WX, WY, 0.98);
+      b.p(gCyl(0.125, 0.135, 0.07, 8), STEEL, WX, WY + 0.225, 0.98).p(gCyl(0.135, 0.125, 0.07, 8), STEEL, WX, WY - 0.225, 0.98);
+      b.p(gCone(0.055, 0.2, 5), STEEL, WX, WY, 1.2, HALF_PI);
+      b.surf(SURF.gold).p(gBox(0.225, 0.03, 0.27), GOLD, WX, WY + 0.15, 0.98).p(gBox(0.225, 0.03, 0.27), GOLD, WX, WY - 0.15, 0.98);
+      b.x(gBox(0.218, 0.2, 0.034), 1, WX, WY, 0.98);
+      // 太刀：长柄缠着菱形绳结，方圆的铁镡镶金边，刃身细长、向刃背一侧微弯，刃口一道刃纹光
+      b.at('wK').surf(SURF.cloth).p(gCyl(0.026, 0.028, 0.3, 6), 0x1e1a22, WX, WY, -0.04, HALF_PI);
+      for (const zz of [-0.15, -0.08, -0.01, 0.06]) b.p(gOct(0.028), 0x7a2e24, WX, WY + 0.024, zz, 0, 0, 0, 1, 0.5, 1).p(gOct(0.028), 0x7a2e24, WX, WY - 0.024, zz, 0, 0, 0, 1, 0.5, 1);
+      b.surf(SURF.gold).p(gCyl(0.031, 0.031, 0.03, 6), GOLD, WX, WY, -0.2, HALF_PI);
+      b.surf(SURF.metal).p(gCyl(0.08, 0.08, 0.02, 8), 0x2a2a30, WX, WY, 0.12, HALF_PI, Math.PI / 8, 0);
+      b.surf(SURF.gold).p(gTorus(0.079, 0.008, 4, 8), GOLD, WX, WY, 0.12, 0, 0, Math.PI / 8).p(gBox(0.022, 0.06, 0.03), GOLD, WX, WY, 0.145);
+      {
+        const L = 0.98, K = 0.055, n = 7, pts = [], edge = [];
+        const cx = (t) => K * t * t, wd = (t) => 0.033 - 0.01 * t;
+        pts.push([-0.033, 0], [0.033, 0]);
+        for (let i = 1; i <= n; i++) {
+          const t = (i / n) * 0.9;
+          pts.push([cx(t) + wd(t), L * t]);
+        }
+        pts.push([cx(1) + 0.012, L]);
+        for (let i = n; i >= 1; i--) {
+          const t = (i / n) * 0.9;
+          pts.push([cx(t) - wd(t) + (t > 0.85 ? 0.01 : 0), L * t]);
+          edge.unshift([0, cx(t) - wd(t) * 0.55, 0.15 + L * t]);
+        }
+        edge.unshift([0, -0.018, 0.16]);
+        b.surf(SURF.metal).p(gPlate('pl/katana', pts, 0.012, 0.007), [0x8d96a6, 0xe6ebf2], WX, WY, 0.15, HALF_PI, HALF_PI, 0);
+        b.x(gSweep('pl/hamon', edge, [0.008, 0.009, 0.009, 0.006], 4), 1, WX, WY, 0);
+      }
+      // 长弓：两片弓臂沿 ±z 弯成一张弓，弓背朝手心外（-y），弓弦在 +y 一侧；握把缠皮、两端金箍，弓臂上各一道光纹
+      {
+        const LX = -WX, GZ = BOW_GZ, tx = BOW_TIP[0] - LX, ty = BOW_TIP[1] - WY, tz = BOW_TIP[2] - GZ;
+        const limb = (s) => [[0, 0, s * 0.08], [tx * 0.1, -0.035, s * 0.3], [tx * 0.35, -0.012, s * 0.5], [tx * 0.7, ty * 0.45, s * 0.63], [tx, ty, s * tz]];
+        b.at('wBo').surf(SURF.leather);
+        b.p(gSweep('pl/bowU', limb(1), [0.03, 0.026, 0.02, 0.014, 0.009], 6), [0x3a2618, 0x7a5236], LX, WY, GZ);
+        b.p(gSweep('pl/bowL', limb(-1), [0.03, 0.026, 0.02, 0.014, 0.009], 6), [0x3a2618, 0x7a5236], LX, WY, GZ);
+        b.p(gCyl(0.036, 0.036, 0.17, 7), 0x2c211a, LX, WY, GZ, HALF_PI);
+        b.surf(SURF.gold).p(gCyl(0.04, 0.04, 0.025, 7), GOLD, LX, WY, GZ + 0.095, HALF_PI).p(gCyl(0.04, 0.04, 0.025, 7), GOLD, LX, WY, GZ - 0.095, HALF_PI);
+        b.p(gOct(0.022), GOLD, BOW_TIP[0], BOW_TIP[1], BOW_TIP[2]).p(gOct(0.022), GOLD, BOW_TIP[0], BOW_TIP[1], 2 * GZ - BOW_TIP[2]);
+        b.x(gBox(0.018, 0.018, 0.17), 1, LX + tx * 0.2, WY - 0.05, GZ + 0.33, -0.08).x(gBox(0.018, 0.018, 0.17), 1, LX + tx * 0.2, WY - 0.05, GZ - 0.33, 0.08);
+        const half = BOW_TIP[2] - GZ;
+        b.at('bsU').surf(SURF.cloth).p(gCyl(0.005, 0.005, half, 4), 0xe8e0c8, BOW_TIP[0], BOW_TIP[1], BOW_TIP[2] - half / 2, HALF_PI);
+        b.at('bsL').p(gCyl(0.005, 0.005, half, 4), 0xe8e0c8, BOW_TIP[0], BOW_TIP[1], 2 * GZ - BOW_TIP[2] + half / 2, HALF_PI);
+      }
+      // 箭：箭尾在右手里，沿 +z 指出去；箭镞随稀有度发光
+      b.at('wA').surf(SURF.leather).p(gCyl(0.009, 0.009, 0.86, 4), 0x8a6a48, WX, WY, 0.43, HALF_PI);
+      b.surf(SURF.cloth).p(gPlate('pl/fletch', [[0, 0], [0.035, 0.02], [0.03, 0.13], [0, 0.12]], 0.004, 0.002), 0xd8cfb8, WX, WY, 0.0, HALF_PI, 0, 0);
+      b.p(gPlate('pl/fletch', [[0, 0], [0.035, 0.02], [0.03, 0.13], [0, 0.12]], 0.004, 0.002), 0xd8cfb8, WX, WY, 0.0, HALF_PI, 0, Math.PI);
+      b.x(gCone(0.022, 0.09, 4), 1, WX, WY, 0.9, HALF_PI);
+
+      // 魂幡：一根比人还高的乌木杆，骨环缠绳，杆尾一枚铁钎；杆头三根骨爪托着一团魂火（随稀有度发光）；
+      // 杆顶往外横挑一根短杆，挑着一面撕破的暗紫幡布（上下两段，摆锤驱动），幡面一道发光的符印，
+      // 挑杆外端和杆的另一侧各坠一串骨珠和一枚小骷髅
+      {
+        const BX = WX - BAN_X, CL = 0x2e2436, CL2 = 0x262030, CI = 0x16121b, TRIM = 0xcdbf9f, EBON = 0x2a201b;
+        b.at('wBn').surf(SURF.leather).p(gCyl(0.024, 0.03, 2.32, 6), EBON, WX, WY, 0.6, HALF_PI);
+        b.p(gCyl(0.034, 0.034, 0.22, 6), 0x3a2a20, WX, WY, 0.03, HALF_PI);
+        b.surf(SURF.gold).p(gCyl(0.038, 0.038, 0.025, 6), GOLD, WX, WY, 0.155, HALF_PI).p(gCyl(0.038, 0.038, 0.025, 6), GOLD, WX, WY, -0.095, HALF_PI);
+        b.surf(SURF.metal).p(gCone(0.03, 0.16, 5), STEEL_D, WX, WY, -0.62, -HALF_PI);
+        b.surf(SURF.bone);
+        for (const zz of [0.62, 0.95, 1.3]) b.p(gTorus(0.033, 0.011, 4, 8), BONE, WX, WY, zz).p(gTorus(0.033, 0.011, 4, 8), BONE, WX, WY, zz + 0.035);
+        // 杆头：金箍 + 三根骨爪 + 魂火
+        b.surf(SURF.gold).p(gCyl(0.03, 0.046, 0.07, 6), GOLD, WX, WY, 1.74, HALF_PI);
+        b.surf(SURF.bone);
+        for (let k = 0; k < 3; k++) {
+          const a = (k / 3) * TAU + 0.5, cx = Math.cos(a), sy = Math.sin(a);
+          b.p(gSweep('pl/bnprong' + k, [[cx * 0.03, sy * 0.03, 1.76], [cx * 0.1, sy * 0.1, 1.86], [cx * 0.075, sy * 0.075, 1.97], [cx * 0.02, sy * 0.02, 2.03]], [0.02, 0.017, 0.012, 0.003], 4), BONE, WX, WY, 0);
+        }
+        b.x(gOct(0.075), 1, WX, WY, 1.89, 0, 0, 0, 0.9, 0.9, 1.35);
+        // 挑杆（往外横出）+ 斜撑 + 外端金帽；杆另一侧一截短挑头
+        b.surf(SURF.leather).p(gCyl(0.016, 0.019, 0.52, 5), EBON, WX - 0.25, WY, BAN_Z, 0, 0, HALF_PI);
+        b.p(gSweep('pl/bnbrace', [[0, 0, BAN_Z - 0.24], [-0.07, 0, BAN_Z - 0.12], [-0.2, 0, BAN_Z - 0.015]], [0.012, 0.011, 0.01], 4), EBON, WX, WY, 0);
+        b.p(gCyl(0.014, 0.016, 0.18, 5), EBON, WX + 0.08, WY, BAN_Z - 0.1, 0, 0, HALF_PI);
+        b.surf(SURF.gold).p(gOct(0.028), GOLD, WX - 0.51, WY, BAN_Z).p(gOct(0.022), GOLD, WX + 0.175, WY, BAN_Z - 0.1);
+        // 幡布上段：顶边金条，下沿一道骨白布边，幡面的符印（一圈环 + 一竖两横）两面都发光
+        b.at('bnF1').surf(SURF.cloth);
+        b.pd(gPlate('pl/bnc1', [[-0.18, 0], [-0.185, -0.22], [-0.175, -BAN_L1 - 0.01], [0.175, -BAN_L1 - 0.01], [0.17, -0.25], [0.18, 0]], 0.008, 0.003), CL, CI, BX, WY, BAN_Z - 0.02, HALF_PI);
+        b.surf(SURF.gold).p(gBox(0.39, 0.026, 0.035), GOLD, BX, WY, BAN_Z - 0.015);
+        b.surf(SURF.cloth).p(gBox(0.36, 0.02, 0.045), TRIM, BX, WY, BAN_Z - 0.4);
+        b.x(gTorus(0.08, 0.008, 4, 14), 1, BX, WY, BAN_Z - 0.2, HALF_PI);
+        b.x(gBox(0.014, 0.022, 0.32), 1, BX, WY, BAN_Z - 0.21);
+        b.x(gBox(0.15, 0.022, 0.014), 1, BX, WY, BAN_Z - 0.12).x(gBox(0.1, 0.022, 0.014), 1, BX, WY, BAN_Z - 0.3);
+        // 幡布下段：撕成长短不一的几条
+        b.at('bnF2').surf(SURF.cloth);
+        b.pd(gPlate('pl/bnc2', [[-0.175, 0.01], [-0.17, -0.28], [-0.15, -0.44], [-0.1, -0.31], [-0.045, -0.5], [0.015, -0.34], [0.07, -0.47], [0.12, -0.3], [0.165, -0.4], [0.175, 0.01]], 0.008, 0.003), CL2, CI, BX, WY, BAN_Z - BAN_L1, HALF_PI);
+        // 骨符：一根细绳，两颗骨珠，一枚小骷髅（眼窝里一点余烬）
+        const charm = (J, x, z) => {
+          b.at(J).surf(SURF.cloth).p(gCyl(0.004, 0.004, 0.17, 3), 0x6a5a48, x, WY, z - 0.085, HALF_PI);
+          b.surf(SURF.bone).p(gOct(0.02), BONE, x, WY, z - 0.12, 0, 0, 0, 1, 1, 1.5).p(gOct(0.016), BONE, x, WY, z - 0.165, 0, 0, 0, 1, 1, 1.4);
+          b.p(gSph(0.038, 6, 5), BONE, x, WY, z - BAN_CL + 0.02, 0, 0, 0, 1, 0.95, 1.1);
+          b.p(gBox(0.042, 0.03, 0.03), BONE, x, WY - 0.006, z - BAN_CL - 0.02);
+          b.g(gOct(0.011), 1, x - 0.014, WY - 0.034, z - BAN_CL + 0.012).g(gOct(0.011), 1, x + 0.014, WY - 0.034, z - BAN_CL + 0.012);
+        };
+        charm('bnC1', WX - 0.48, BAN_Z);
+        charm('bnC2', WX + 0.15, BAN_Z - 0.1);
+      }
+
       const rig = b.build({ height: 1.95, reach: 2.2, stride: 2.35, shade: 0.28 });
       rig.hitJ = [rig.J.head, rig.J.chest];
       rig.feet = [rig.JI.ftL, rig.JI.ftR];
@@ -2141,7 +2326,21 @@
       rig.loco = playerLoco;
       rig.post = playerPost;
       rig.late = playerLate;
+      rig.gearJ = GEAR_JOINT.map((n) => rig.J[n]);
+      // 手臂两节的绑定数据（双手武器的左手 / 动作里给定手的位置时用解析 IK 求肩肘角度）
+      const pv = (n) => rig.joints[rig.JI[n]];
+      const armData = (ua, fa, h) => {
+        const a = pv(ua), f = pv(fa), c = pv(h);
+        return {
+          ua: rig.J[ua], fa: rig.J[fa], h: rig.J[h], uaI: rig.JI[ua], faI: rig.JI[fa], hI: rig.JI[h], par: a.parent,
+          U: [f.px - a.px, f.py - a.py, f.pz - a.pz], F: [c.px - f.px, c.py - f.py, c.pz - f.pz],
+          grip: [0, 0.84 - c.py, 0.03 - c.pz], // 握点（武器握把所在处）相对手腕枢轴的偏移
+        };
+      };
+      rig.armR = armData('uaR', 'faR', 'hR');
+      rig.armL = armData('uaL', 'faL', 'hL');
       playerClips(rig);
+      weaponClips(rig);
       return rig;
     });
   }
@@ -2191,8 +2390,8 @@
     p[J.uaR] = (-0.45 * s - 0.1) * run - 0.18 * id;
     p[J.uaR + 2] = -0.14 - 0.06 * run - br * 0.012 * id;
     p[J.faR] = -0.75 * run - 0.5 * id;
-    if (gear === 1) {
-      // 长杖：竖着拄在身侧
+    if (gear === 1 || gear === G_BAN) {
+      // 长杖 / 魂幡：竖着拄在身侧
       p[J.uaR] = (-0.3 * s - 0.25) * run - 0.3 * id;
       p[J.faR] = -0.9 * run - 0.75 * id;
       p[J.hR] = -0.75 + 0.2 * run;
@@ -2201,6 +2400,33 @@
       // 短杖：小臂抬起，杖尖朝前上方
       p[J.faR] = -1.0 * run - 0.95 * id;
       p[J.hR] = -0.2;
+    } else if (gear === G_DAG) {
+      // 双匕：两手各握一把，小臂抬起护在身前，刃尖朝前；跑起来两臂交替前后摆
+      p[J.uaR] = (-0.5 * s - 0.15) * run - 0.22 * id;
+      p[J.uaR + 2] = -0.18 - 0.04 * run;
+      p[J.faR] = -1.05 * run - 1.1 * id;
+      p[J.hR] = 0.6 - 0.1 * run;
+      p[J.hR + 1] = 0.25;
+      p[J.uaL] = (0.5 * s - 0.15) * run - 0.22 * id;
+      p[J.uaL + 2] = 0.18 + 0.04 * run;
+      p[J.faL] = -1.05 * run - 1.1 * id;
+      p[J.hL] = 0.6 - 0.1 * run;
+      p[J.hL + 1] = -0.25;
+    } else if (gear === G_BOW) {
+      // 长弓：左手提弓垂在身侧，弓身竖直、上梢略向前倾，弓弦朝后；右手空着自然摆动
+      p[J.uaR] = -0.75 * s * run + 0.06 * id;
+      p[J.uaR + 2] = -0.12 - 0.05 * run - br * 0.012 * id;
+      p[J.faR] = -(0.85 - 0.25 * s) * run - 0.3 * id;
+      p[J.uaL] = 0.4 * s * run + 0.02 * id;
+      p[J.uaL + 2] = 0.24 + 0.04 * run;
+      p[J.faL] = -0.45 * run - 0.35 * id;
+      p[J.hL] = -1.3 - p[J.uaL] - p[J.faL];
+      p[J.hL + 1] = 0;
+      p[J.hL + 2] = 0.1;
+    } else if (gear === G_HAM || gear === G_KAT) {
+      // 双手武器：右手的位置由 IK 按 LOCO_2H 摆（见 playerLate）；这里只给一个相近的起点
+      p[J.faR] = -1.0 * run - 1.1 * id;
+      p[J.hR] = 0.4;
     } else {
       // 刃：刃尖斜指前下方
       p[J.hR] = 0.5 - 0.25 * run;
@@ -2218,14 +2444,386 @@
   }
   // 每帧都要设的东西：只显示当前装备的那把武器，掌心余烬脉动
   function playerPost(ent, o, t) {
-    const J = ent.rig.J, g = ent.gearType;
-    o[J.wB + 6] = o[J.wB + 7] = o[J.wB + 8] = g === 0 ? 1 : 0;
-    o[J.wS + 6] = o[J.wS + 7] = o[J.wS + 8] = g === 1 ? 1 : 0;
-    o[J.wW + 6] = o[J.wW + 7] = o[J.wW + 8] = g === 2 ? 1 : 0;
+    const J = ent.rig.J, g = ent.gearType, gj = ent.rig.gearJ;
+    for (let i = 0; i < gj.length; i++) o[gj[i] + 6] = o[gj[i] + 7] = o[gj[i] + 8] = g === i ? 1 : 0;
+    o[J.wDL + 6] = o[J.wDL + 7] = o[J.wDL + 8] = g === G_DAG ? 1 : 0;
+    const c = ent.clip, a = g === G_BOW && c && c.arrow ? o[J.wA + 6] : 0;
+    o[J.wA + 6] = o[J.wA + 7] = o[J.wA + 8] = a;
     setGlow(ent, 1 + Math.sin(t * 5) * 0.12);
   }
+
+  // ----- 手臂 IK：双手武器的左手握在柄上；动作里也可以直接给出手（武器）在胸口坐标系里的位置与朝向 -----
+  // 都在模型空间里算（角色自身的坐标系，面朝 +z），结果按权重混进姿态的欧拉角，最后重算一遍骨骼
+  const _R = new Float32Array(9), _Rc = new Float32Array(9), _Ru = new Float32Array(9), _Rf = new Float32Array(9), _Rh = new Float32Array(9);
+  const _eu = new Float32Array(3), _hk = new Float32Array(9), _hm = new Float32Array(9);
+  // 模型矩阵里关节 j 的旋转（按列去掉缩放）
+  function rotOf(M, j, out) {
+    const m = j * 12;
+    for (let c = 0; c < 3; c++) {
+      const x = M[m + c], y = M[m + 4 + c], z = M[m + 8 + c], l = Math.hypot(x, y, z) || 1;
+      out[c] = x / l;
+      out[3 + c] = y / l;
+      out[6 + c] = z / l;
+    }
+  }
+  // out = Aᵀ · B（行主序 3×3）
+  function mulTN(A, B, out) {
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) out[r * 3 + c] = A[r] * B[c] + A[3 + r] * B[3 + c] + A[6 + r] * B[6 + c];
+  }
+  // 与 solveRig 一致的 XYZ 欧拉角分解
+  function eulerOf(R, out) {
+    const s = R[2] > 1 ? 1 : R[2] < -1 ? -1 : R[2];
+    out[1] = Math.asin(s);
+    if (Math.abs(s) < 0.9999) {
+      out[0] = Math.atan2(-R[5], R[8]);
+      out[2] = Math.atan2(-R[1], R[0]);
+    } else {
+      out[0] = Math.atan2(R[7], R[4]);
+      out[2] = 0;
+    }
+  }
+  function blendRot(o, i, e, w) {
+    for (let k = 0; k < 3; k++) {
+      let d = e[k] - o[i + k];
+      d -= Math.round(d / TAU) * TAU;
+      o[i + k] += d * w;
+    }
+  }
+  // 由「指向 d、刃口朝 e」搭出手的旋转（列 = 手的 x / y / z 轴在模型空间里的方向；刃口 = 手的 -y）
+  function handFrame(dx, dy, dz, ex, ey, ez, out) {
+    let l = Math.hypot(dx, dy, dz) || 1;
+    dx /= l; dy /= l; dz /= l;
+    let k = ex * dx + ey * dy + ez * dz;
+    let yx = -(ex - k * dx), yy = -(ey - k * dy), yz = -(ez - k * dz);
+    l = Math.hypot(yx, yy, yz);
+    if (l < 1e-3) {
+      // 刃口方向和指向重合：退回「刃口朝下 / 朝前」
+      ex = Math.abs(dy) < 0.9 ? 0 : 0; ey = Math.abs(dy) < 0.9 ? -1 : 0; ez = Math.abs(dy) < 0.9 ? 0 : 1;
+      k = ex * dx + ey * dy + ez * dz;
+      yx = -(ex - k * dx); yy = -(ey - k * dy); yz = -(ez - k * dz);
+      l = Math.hypot(yx, yy, yz) || 1;
+    }
+    yx /= l; yy /= l; yz /= l;
+    out[0] = yy * dz - yz * dy; out[3] = yz * dx - yx * dz; out[6] = yx * dy - yy * dx;
+    out[1] = yx; out[4] = yy; out[7] = yz;
+    out[2] = dx; out[5] = dy; out[8] = dz;
+  }
+  // 把手腕送到 (wx,wy,wz)，肘尖朝 (px,py,pz)；Rh 给定时顺便把手转到这个朝向
+  function solveArm(ent, A, wx, wy, wz, px, py, pz, w, Rh) {
+    const M = ent.mdl, o = ent.out, m = A.uaI * 12, U = A.U, F = A.F;
+    let dx = wx - M[m + 3], dy = wy - M[m + 7], dz = wz - M[m + 11];
+    const d = Math.hypot(dx, dy, dz) || 1e-4;
+    dx /= d; dy /= d; dz /= d;
+    // 肘角 r：|U + Rx(r)·F| = d（只绕小臂的 x 轴弯，往前弯为负）
+    const uu = U[0] * U[0] + U[1] * U[1] + U[2] * U[2], ff = F[0] * F[0] + F[1] * F[1] + F[2] * F[2];
+    const Ac = U[1] * F[1] + U[2] * F[2], Bs = U[2] * F[1] - U[1] * F[2];
+    const cc = ((d * d - uu - ff) / 2 - U[0] * F[0]) / (Math.hypot(Ac, Bs) || 1e-6);
+    const ph = Math.atan2(Bs, Ac), ac = Math.acos(cc > 1 ? 1 : cc < -1 ? -1 : cc);
+    let r1 = ph - ac, r2 = ph + ac;
+    r1 -= Math.round(r1 / TAU) * TAU;
+    r2 -= Math.round(r2 / TAU) * TAU;
+    // 两个解里挑落在 [-2.6, 0]（往前弯）的那个；都不在就挑离这个区间近的，再夹进去
+    const o1 = r1 > 0 ? r1 : r1 < -2.6 ? -2.6 - r1 : 0, o2 = r2 > 0 ? r2 : r2 < -2.6 ? -2.6 - r2 : 0;
+    let r = o1 <= o2 ? r1 : r2;
+    r = r < -2.6 ? -2.6 : r > 0 ? 0 : r;
+    const cr = Math.cos(r), sr = Math.sin(r);
+    // 上臂局部：肩→腕 a、肘的偏移 b；模型空间：肩→目标 a'、朝向肘尖提示 b'
+    let ax = U[0] + F[0], ay = U[1] + F[1] * cr - F[2] * sr, az = U[2] + F[1] * sr + F[2] * cr;
+    let l = Math.hypot(ax, ay, az) || 1;
+    ax /= l; ay /= l; az /= l;
+    let k = U[0] * ax + U[1] * ay + U[2] * az;
+    let bx = U[0] - k * ax, by = U[1] - k * ay, bz = U[2] - k * az;
+    l = Math.hypot(bx, by, bz) || 1;
+    bx /= l; by /= l; bz /= l;
+    const cx = ay * bz - az * by, cy = az * bx - ax * bz, cz = ax * by - ay * bx;
+    k = px * dx + py * dy + pz * dz;
+    let qx = px - k * dx, qy = py - k * dy, qz = pz - k * dz;
+    l = Math.hypot(qx, qy, qz);
+    if (l < 1e-4) { qx = 0; qy = -1; qz = 0; l = 1; }
+    qx /= l; qy /= l; qz /= l;
+    const sx = dy * qz - dz * qy, sy = dz * qx - dx * qz, sz = dx * qy - dy * qx;
+    // Ru = [a' b' c']·[a b c]ᵀ
+    _Ru[0] = dx * ax + qx * bx + sx * cx; _Ru[1] = dx * ay + qx * by + sx * cy; _Ru[2] = dx * az + qx * bz + sx * cz;
+    _Ru[3] = dy * ax + qy * bx + sy * cx; _Ru[4] = dy * ay + qy * by + sy * cy; _Ru[5] = dy * az + qy * bz + sy * cz;
+    _Ru[6] = dz * ax + qz * bx + sz * cx; _Ru[7] = dz * ay + qz * by + sz * cy; _Ru[8] = dz * az + qz * bz + sz * cz;
+    rotOf(M, A.par, _Rc);
+    mulTN(_Rc, _Ru, _R);
+    eulerOf(_R, _eu);
+    blendRot(o, A.ua, _eu, w);
+    o[A.fa] += (r - o[A.fa]) * w;
+    o[A.fa + 1] *= 1 - w;
+    o[A.fa + 2] *= 1 - w;
+    if (Rh) {
+      // 小臂的模型旋转 = Ru · Rx(r)；手的局部旋转 = 小臂ᵀ · Rh
+      for (let i = 0; i < 3; i++) {
+        _Rf[i * 3] = _Ru[i * 3];
+        _Rf[i * 3 + 1] = _Ru[i * 3 + 1] * cr + _Ru[i * 3 + 2] * sr;
+        _Rf[i * 3 + 2] = -_Ru[i * 3 + 1] * sr + _Ru[i * 3 + 2] * cr;
+      }
+      mulTN(_Rf, Rh, _R);
+      eulerOf(_R, _eu);
+      blendRot(o, A.h, _eu, w);
+    }
+  }
+  // 手的轨迹（动作里的 hand / handL）在 k 时刻的值：位置 3 + 指向 3 + 刃口 3
+  function evalHand(H, k, out) {
+    for (let i = 0; i < 9; i++) out[i] = kf(H.K[i], k);
+  }
+  // 把轨迹值从它的坐标系（chest 胸口 / model 模型空间）换到模型空间
+  function handToModel(ent, frame, src, out) {
+    if (frame === 'model') {
+      out.set(src);
+      return;
+    }
+    const M = ent.mdl, j = ent.rig.JI[frame] * 12;
+    rotOf(M, ent.rig.JI[frame], _Rc);
+    for (let v = 0; v < 3; v++) {
+      const x = src[v * 3], y = src[v * 3 + 1], z = src[v * 3 + 2];
+      out[v * 3] = _Rc[0] * x + _Rc[1] * y + _Rc[2] * z + (v ? 0 : M[j + 3]);
+      out[v * 3 + 1] = _Rc[3] * x + _Rc[4] * y + _Rc[5] * z + (v ? 0 : M[j + 7]);
+      out[v * 3 + 2] = _Rc[6] * x + _Rc[7] * y + _Rc[8] * z + (v ? 0 : M[j + 11]);
+    }
+  }
+  // 双手武器站立 / 跑动时右手的位置（胸口坐标系：位置、指向、刃口朝向）
+  const LOCO_2H = {
+    [G_HAM]: { idle: [-0.13, -0.42, 0.3, -0.55, -0.62, 0.55, 0, -1, 0], run: [-0.24, 0.04, 0.24, -0.12, 0.55, -0.82, 0, 0.2, 1] },
+    [G_KAT]: { idle: [-0.06, -0.33, 0.32, 0.05, 0.42, 0.9, 0, -1, 0], run: [-0.3, -0.42, 0.04, -0.2, -0.38, -0.9, 0, -1, 0] },
+  };
+  // 左手在双手武器柄上能握的范围（沿柄的 z，绑定坐标）；右手握在 z≈0.03，两手之间至少留 gap
+  const GRIP_2H = { [G_HAM]: [-0.31, 0.62, 0.15], [G_KAT]: [-0.17, -0.1, 0.12] };
+  function ikPole(ent, x, y, z) {
+    // 肘尖提示：胸口坐标系里的方向 → 模型空间
+    const M = ent.mdl, j = ent.rig.JI.chest * 12;
+    _hm[0] = M[j] * x + M[j + 1] * y + M[j + 2] * z;
+    _hm[1] = M[j + 4] * x + M[j + 5] * y + M[j + 6] * z;
+    _hm[2] = M[j + 8] * x + M[j + 9] * y + M[j + 10] * z;
+  }
+  // 由模型空间的（位置、指向、刃口）把手臂摆过去
+  function armTo(ent, A, T, w, poleX) {
+    handFrame(T[3], T[4], T[5], T[6], T[7], T[8], _Rh);
+    const gp = A.grip;
+    const wx = T[0] - (_Rh[0] * gp[0] + _Rh[1] * gp[1] + _Rh[2] * gp[2]);
+    const wy = T[1] - (_Rh[3] * gp[0] + _Rh[4] * gp[1] + _Rh[5] * gp[2]);
+    const wz = T[2] - (_Rh[6] * gp[0] + _Rh[7] * gp[1] + _Rh[8] * gp[2]);
+    ikPole(ent, poleX, -1, -0.35);
+    solveArm(ent, A, wx, wy, wz, _hm[0], _hm[1], _hm[2], w, _Rh);
+  }
+  const _ikT = new Float32Array(9);
+  function playerIK(ent, sdt) {
+    const rig = ent.rig, c = ent.clip, g = ent.gearType, M = ent.mdl;
+    let ik = ent.ik;
+    if (!ik) ik = ent.ik = { src: null, t: 1, dur: 0.1, from: new Float32Array(9), cur: new Float32Array(9), fw: 0, w: 0, lw: 0, last: null };
+    let re = false;
+    // ---- 右手：动作给的轨迹，或双手武器的站立 / 跑动姿势 ----
+    let src = null, want = 0;
+    if (c && c.hand) {
+      src = c;
+      evalHand(c.hand, ent.cK, _hk);
+      handToModel(ent, c.hand.f, _hk, _ikT);
+      want = c.hand.W ? kf(c.hand.W, ent.cK) : 1;
+    } else if (!c && TWO_HAND[g]) {
+      src = 'loco';
+      const L = LOCO_2H[g], mv = ent.mv, br = Math.sin(ent.clock * 1.9) * 0.012 * (1 - mv);
+      for (let i = 0; i < 9; i++) _hk[i] = L.idle[i] + (L.run[i] - L.idle[i]) * mv;
+      _hk[1] += br;
+      handToModel(ent, 'chest', _hk, _ikT);
+      want = 1;
+    }
+    if (src !== ik.src) {
+      // 换了来源：从上一帧实际用的目标平滑过渡过去
+      ik.from.set(ik.cur);
+      ik.fw = ik.w;
+      ik.t = 0;
+      ik.dur = Math.max(0.05, c ? c.fade : ik.last ? ik.last.out : 0.15);
+      if (ik.src && typeof ik.src === 'object') ik.last = ik.src;
+      ik.src = src;
+    }
+    ik.t += sdt;
+    const s = smooth01(ik.t / ik.dur);
+    if (src) {
+      if (ik.fw < 0.01 || s >= 1) ik.cur.set(_ikT);
+      else for (let i = 0; i < 9; i++) ik.cur[i] = ik.from[i] + (_ikT[i] - ik.from[i]) * s;
+    }
+    ik.w = ik.fw + (want - ik.fw) * s;
+    if (ik.w > 0.002 && src) {
+      armTo(ent, rig.armR, ik.cur, ik.w, -0.8);
+      solveRig(ent);
+      re = true;
+    }
+    // ---- 左手：动作给的轨迹优先；否则双手武器时握在柄上 ----
+    if (c && c.handL) {
+      evalHand(c.handL, ent.cK, _hk);
+      handToModel(ent, c.handL.f, _hk, _ikT);
+      const wl = c.handL.W ? kf(c.handL.W, ent.cK) : 1;
+      ik.lw = wl;
+      armTo(ent, rig.armL, _ikT, wl * (ent.fadeT < ent.fadeDur ? smooth01(ent.fadeT / ent.fadeDur) : 1), 0.8);
+      solveRig(ent);
+      re = true;
+    } else {
+      const tw = TWO_HAND[g] ? (c ? (c.hand ? (c.ikL === undefined ? 1 : c.ikL) : 0) : 1 - ent.mv) : 0;
+      ik.lw += (tw - ik.lw) * Math.min(1, sdt * 14);
+      if (ik.lw > 0.002 && TWO_HAND[g]) {
+        // 柄上离左肩最近、又不和右手挤在一起的那一点
+        const wj = rig.gearJ[g] / CH, m = wj * 12, gr = GRIP_2H[g];
+        rotOf(M, wj, _Rh);
+        const pj = rig.joints[wj];
+        const ox = -0.39 - pj.px, oy = 0.84 - pj.py, oz = -pj.pz;
+        const Ox = M[m] * ox + M[m + 1] * oy + M[m + 2] * oz + M[m + 3];
+        const Oy = M[m + 4] * ox + M[m + 5] * oy + M[m + 6] * oz + M[m + 7];
+        const Oz = M[m + 8] * ox + M[m + 9] * oy + M[m + 10] * oz + M[m + 11];
+        const sm = rig.armL.uaI * 12;
+        let zg = (M[sm + 3] - Ox) * _Rh[2] + (M[sm + 7] - Oy) * _Rh[5] + (M[sm + 11] - Oz) * _Rh[8];
+        zg = zg < gr[0] ? gr[0] : zg > gr[1] ? gr[1] : zg;
+        if (Math.abs(zg - 0.03) < gr[2]) zg = zg < 0.03 && 0.03 - gr[2] >= gr[0] ? 0.03 - gr[2] : 0.03 + gr[2] <= gr[1] ? 0.03 + gr[2] : 0.03 - gr[2];
+        _ikT[0] = Ox + _Rh[2] * zg; _ikT[1] = Oy + _Rh[5] * zg; _ikT[2] = Oz + _Rh[8] * zg;
+        _ikT[3] = _Rh[2]; _ikT[4] = _Rh[5]; _ikT[5] = _Rh[8];
+        _ikT[6] = -_Rh[1]; _ikT[7] = -_Rh[4]; _ikT[8] = -_Rh[7];
+        // 够不着就慢慢松手（不把胳膊扯直了去够）
+        const dd = Math.hypot(_ikT[0] - M[sm + 3], _ikT[1] - M[sm + 7], _ikT[2] - M[sm + 11]);
+        const reach = 1 - smooth01((dd - 0.6) / 0.22);
+        if (reach > 0.002) {
+          armTo(ent, rig.armL, _ikT, ik.lw * reach, 0.8);
+          solveRig(ent);
+          re = true;
+        }
+      }
+    }
+    // ---- 长弓：弓弦两段转向搭箭点（拉弓时是右手），箭从右手指向弓把 ----
+    if (g === G_BOW) {
+      const J = rig.J, o = ent.out, dk = c && c.draw ? kf(c.draw, ent.cK) : 0;
+      const bj = rig.JI.wBo, bm = bj * 12, bp = rig.joints[bj], hm = rig.JI.hR * 12, hp = rig.joints[rig.JI.hR];
+      let nx = BOW_TIP[0], ny = BOW_TIP[1], nz = BOW_GZ;
+      // 右手握点（模型空间）
+      const gx = -0.39 - hp.px, gy = 0.84 - hp.py, gz = 0.03 - hp.pz;
+      const hx = M[hm] * gx + M[hm + 1] * gy + M[hm + 2] * gz + M[hm + 3];
+      const hy = M[hm + 4] * gx + M[hm + 5] * gy + M[hm + 6] * gz + M[hm + 7];
+      const hz = M[hm + 8] * gx + M[hm + 9] * gy + M[hm + 10] * gz + M[hm + 11];
+      if (dk > 0.001) {
+        rotOf(M, bj, _Rh);
+        const qx = hx - M[bm + 3], qy = hy - M[bm + 7], qz = hz - M[bm + 11];
+        const lx = _Rh[0] * qx + _Rh[3] * qy + _Rh[6] * qz + bp.px;
+        const ly = _Rh[1] * qx + _Rh[4] * qy + _Rh[7] * qz + bp.py;
+        const lz = _Rh[2] * qx + _Rh[5] * qy + _Rh[8] * qz + bp.pz;
+        nx += (lx - nx) * dk;
+        ny += (ly - ny) * dk;
+        nz += (lz - nz) * dk;
+      }
+      const half = BOW_TIP[2] - BOW_GZ;
+      let vx = nx - BOW_TIP[0], vy = ny - BOW_TIP[1], vz = nz - BOW_TIP[2], vl = Math.hypot(vx, vy, vz) || 1;
+      o[J.bsU] = Math.atan2(vy, -vz);
+      o[J.bsU + 1] = Math.asin(G.clamp(-vx / vl, -1, 1));
+      o[J.bsU + 2] = 0;
+      o[J.bsU + 8] = vl / half;
+      vz = nz - (2 * BOW_GZ - BOW_TIP[2]);
+      vl = Math.hypot(vx, vy, vz) || 1;
+      o[J.bsL] = Math.atan2(-vy, vz);
+      o[J.bsL + 1] = Math.asin(G.clamp(vx / vl, -1, 1));
+      o[J.bsL + 2] = 0;
+      o[J.bsL + 8] = vl / half;
+      if (o[J.wA + 6] > 0) {
+        // 箭：右手 → 弓把
+        const ox = 0.39 - bp.px, oy = 0.84 - bp.py, oz = BOW_GZ - bp.pz;
+        const bx = M[bm] * ox + M[bm + 1] * oy + M[bm + 2] * oz + M[bm + 3];
+        const by = M[bm + 4] * ox + M[bm + 5] * oy + M[bm + 6] * oz + M[bm + 7];
+        const bz = M[bm + 8] * ox + M[bm + 9] * oy + M[bm + 10] * oz + M[bm + 11];
+        rotOf(M, rig.JI.hR, _Rh);
+        const qx = bx - hx, qy = by - hy, qz = bz - hz, ql = Math.hypot(qx, qy, qz) || 1;
+        const lx = (_Rh[0] * qx + _Rh[3] * qy + _Rh[6] * qz) / ql;
+        const ly = (_Rh[1] * qx + _Rh[4] * qy + _Rh[7] * qz) / ql;
+        const lz = (_Rh[2] * qx + _Rh[5] * qy + _Rh[8] * qz) / ql;
+        o[J.wA] = Math.atan2(-ly, lz);
+        o[J.wA + 1] = Math.asin(G.clamp(lx, -1, 1));
+        o[J.wA + 2] = 0;
+      }
+      re = true;
+    }
+    if (re) solveRig(ent);
+  }
   const _sk = { x: 0, y: 0, z: 0 }, _sk2 = { x: 0, y: 0, z: 0 };
-  function playerLate(ent) {
+  // ----- 魂幡的幡布与骨符：世界空间里的几个摆锤（Verlet），挂点跟着杆走，幡布被重力拉下、被动作甩起、跑动时拖在后面 -----
+  // 摆锤：0 = 幡布上段（挂在 bnF1）、1 = 下段（挂在上段的末端）、2 / 3 = 两串骨符
+  const BAN_BOB = [['bnF1', BAN_L1], [null, BAN_L2], ['bnC1', BAN_CL], ['bnC2', BAN_CL]];
+  const _ba = new Float32Array(3);
+  function bannerSway(ent, dt) {
+    let s = ent.ban;
+    if (ent.gearType !== G_BAN || ent.dying) {
+      if (s) s.on = false;
+      return;
+    }
+    if (!s) s = ent.ban = { on: false, P: new Float32Array(36), t: 0 };
+    const rig = ent.rig, J = rig.J, o = ent.out, M = ent.mdl, P = s.P, g = ent.group;
+    const yaw = g.rotation.y, cy = Math.cos(yaw), sy = Math.sin(yaw), sc = g.scale.x * ent.body.scale.x;
+    rotOf(M, rig.JI.wBn, _Rh);
+    const R = _Rh;
+    const h = dt > 1 / 30 ? 1 / 30 : dt;
+    s.t += h;
+    // 相对挂点的摆动按 damp 衰减（不来回晃个没完）；相对空气的阻力 air 让幡布跑动时斜拖在后面，而不是被扯成一面平旗
+    const damp = Math.pow(0.88, h * 60), air = 0.65 * h, G2 = 7.5 * h * h;
+    // 风：沿幡面法线（杆的局部 y）的一点飘动
+    const wind = (Math.sin(s.t * 2.7 + ent.phase) * 0.9 + Math.sin(s.t * 6.1) * 0.45) * h * h;
+    const nx = (R[1] * cy + R[7] * sy) * wind, nz = (-R[1] * sy + R[7] * cy) * wind, ny = R[4] * wind;
+    let rx1 = 0, ry1 = 0;
+    for (let i = 0; i < 4; i++) {
+      const b = BAN_BOB[i], q = i * 9;
+      // 挂点（世界坐标）
+      let ax, ay, az;
+      if (b[0]) {
+        const m = rig.JI[b[0]] * 12, mx = M[m + 3] * sc, my = M[m + 7] * sc, mz = M[m + 11] * sc;
+        ax = g.position.x + mx * cy + mz * sy;
+        ay = g.position.y + my;
+        az = g.position.z - mx * sy + mz * cy;
+      } else {
+        ax = P[0]; ay = P[1]; az = P[2];
+      }
+      const L = b[1] * sc;
+      let x = P[q], y = P[q + 1], z = P[q + 2];
+      if (!s.on || Math.hypot(x - ax, y - ay, z - az) > L * 4) {
+        x = P[q + 3] = ax; y = P[q + 4] = ay - L; z = P[q + 5] = az;
+        P[q + 6] = ax; P[q + 7] = ay; P[q + 8] = az;
+      }
+      if (h > 0) {
+        const fw = i < 2 ? 1 : 0.3;
+        // 挂点这一步的位移
+        const vax = ax - P[q + 6], vay = ay - P[q + 7], vaz = az - P[q + 8];
+        P[q + 6] = ax; P[q + 7] = ay; P[q + 8] = az;
+        const vx = x - P[q + 3], vy = y - P[q + 4], vz = z - P[q + 5];
+        let x2 = x + vax + (vx - vax) * damp - vx * air + nx * fw;
+        let y2 = y + vay + (vy - vay) * damp - vy * air - G2 + ny * fw;
+        let z2 = z + vaz + (vz - vaz) * damp - vz * air + nz * fw;
+        const dx = x2 - ax, dy = y2 - ay, dz = z2 - az, l = Math.hypot(dx, dy, dz) || 1;
+        x2 = ax + (dx / l) * L; y2 = ay + (dy / l) * L; z2 = az + (dz / l) * L;
+        P[q + 3] = x; P[q + 4] = y; P[q + 5] = z;
+        x = x2; y = y2; z = z2;
+        P[q] = x; P[q + 1] = y; P[q + 2] = z;
+      }
+      // 摆锤方向：世界 → 模型 → 杆的局部坐标
+      const wx = (x - ax) / L, wy = (y - ay) / L, wz = (z - az) / L;
+      const mx = wx * cy - wz * sy, mz = wx * sy + wz * cy, my = wy;
+      _ba[0] = R[0] * mx + R[3] * my + R[6] * mz;
+      _ba[1] = R[1] * mx + R[4] * my + R[7] * mz;
+      _ba[2] = R[2] * mx + R[5] * my + R[8] * mz;
+      const arx = Math.atan2(_ba[1], -_ba[2]), ary = Math.asin(G.clamp(-_ba[0], -1, 1));
+      if (i === 0) {
+        // 幡布沿挑杆挂着：主要绕挑杆前后摆，左右只许一点
+        rx1 = arx;
+        ry1 = G.clamp(ary, -0.25, 0.25);
+        o[J.bnF1] = rx1; o[J.bnF1 + 1] = ry1; o[J.bnF1 + 2] = 0;
+      } else if (i === 1) {
+        let d = arx - rx1;
+        d -= Math.round(d / TAU) * TAU;
+        o[J.bnF2] = G.clamp(d, -1.4, 1.4); o[J.bnF2 + 1] = G.clamp(ary - ry1, -0.3, 0.3); o[J.bnF2 + 2] = 0;
+      } else {
+        const jj = i === 2 ? J.bnC1 : J.bnC2;
+        o[jj] = arx; o[jj + 1] = G.clamp(ary, -1.2, 1.2); o[jj + 2] = 0;
+      }
+    }
+    s.on = true;
+    solveRig(ent);
+  }
+
+  function playerLate(ent, sdt) {
+    playerIK(ent, sdt || 0);
+    bannerSway(ent, sdt || 0);
     // 挥砍的出手段：武器拖出一道刀光
     const c = ent.clip;
     if (c && c.trail && ent === trail.ent && !ent.dying && ent.cK >= c.trail[0] && ent.cK <= c.trail[1]) {
@@ -2550,12 +3148,361 @@
     });
   }
 
+  // ----- 按武器换的动作 + 武器技的动作 -----
+  const ARM_J = { uaR: 1, faR: 1, hR: 1, uaL: 1, faL: 1, hL: 1 };
+  function noArms(keys) {
+    const o = {};
+    for (const k in keys) if (!ARM_J[k.slice(0, k.indexOf('.'))]) o[k] = keys[k];
+    return o;
+  }
+  // 手的轨迹：[[k, 'I'] 站立姿势 | [k, 位置, 指向, 刃口]...]
+  function track(I, list, f) {
+    const k = [], p = [], d = [], e = [];
+    for (const it of list) {
+      const idle = it[1] === 'I';
+      k.push(it[0]);
+      // 站立姿势是胸口坐标系里的值：模型空间的轨迹要加上胸口的高度
+      p.push(idle ? (f === 'model' ? [I[0], I[1] + 1.32, I[2]] : I.slice(0, 3)) : it[1]);
+      d.push(idle ? I.slice(3, 6) : it[2]);
+      e.push(idle ? I.slice(6, 9) : it[3] || [0, -1, 0]);
+    }
+    return { f: f || 'chest', k, p, d, e };
+  }
+  function weaponClips(rig) {
+    const C = (v) => [0, v, 1, v];
+    const stance = (keys, d) => {
+      keys['thL.rx'] = [0, -0.55 * d, 1, -0.55 * d];
+      keys['shL.rx'] = [0, 0.75 * d, 1, 0.75 * d];
+      keys['thR.rx'] = [0, 0.35 * d, 1, 0.35 * d];
+      keys['shR.rx'] = [0, 0.35 * d, 1, 0.35 * d];
+      keys['ftR.rx'] = [0, 0.25 * d, 1, 0.25 * d];
+      keys['thL.rz'] = [0, 0.1, 1, 0.1];
+      keys['thR.rz'] = [0, -0.16, 1, -0.16];
+      return keys;
+    };
+    const base = (n) => rig.clips[n].spec;
+    const flick = (keys) => Object.assign({}, keys, {
+      'root.sx': [0, 0.15, 0.14, 0.3, 0.26, 1.18, 0.36, 1, 1, 1],
+      'root.sz': [0, 0.15, 0.14, 0.3, 0.26, 1.18, 0.36, 1, 1, 1],
+      'root.sy': [0, 1.7, 0.14, 1.5, 0.26, 0.86, 0.36, 1, 1, 1],
+      'root.oy': [0, 0.1, 0.18, -0.16, -0.5, -0.12, 1, -0.04],
+    });
+
+    // --- 双手武器（战锤 / 太刀）：三段连击、旋风、处决都改成双手握持，右手按轨迹走，左手握柄 ---
+    for (const g of [G_HAM, G_KAT]) {
+      const I = LOCO_2H[g].idle;
+      const T1 = track(I, [
+        [0, 'I'],
+        [0.3, [-0.3, 0.16, 0.18], [-0.45, 0.55, -0.7], [0.2, 0.3, 0.93]],
+        [-0.5, [0.02, -0.12, 0.5], [0.75, -0.05, 0.65], [0.65, 0, -0.75]],
+        [0.72, [0.26, -0.22, 0.32], [0.55, -0.25, -0.8], [-0.8, 0, -0.55]],
+        [1, 'I'],
+      ]);
+      const T2 = track(I, [
+        [0, 'I'],
+        [0.3, [0.24, -0.28, 0.26], [0.55, -0.35, -0.75], [-0.5, 0.3, -0.3]],
+        [-0.5, [-0.04, -0.02, 0.5], [-0.7, 0.2, 0.68], [-0.68, 0.1, -0.7]],
+        [0.72, [-0.28, 0.2, 0.28], [-0.55, 0.55, -0.62], [0, 1, 0]],
+        [1, 'I'],
+      ]);
+      // 终结的跳劈：落地时上身前倾很多，轨迹用模型空间（不跟着胸口转），锤头 / 刀尖正好落到身前的地面上
+      const T3 = track(I, [
+        [0, 'I'],
+        [0.18, [-0.05, 1.55, 0.2], [0, 0.95, 0.3], [0, 0, 1]],
+        [0.34, [0, 2.25, -0.05], [0, 0.35, -0.94], [0, 1, 0]],
+        [-0.5, [0, 0.62, 0.78], [0, -0.42, 0.9], [0, -0.9, -0.42]],
+        [0.8, [0, 0.6, 0.76], [0, -0.44, 0.9], [0, -0.9, -0.44]],
+        [1, 'I'],
+      ], 'model');
+      const a1 = base('attack1'), a2 = base('attack2'), a3 = base('attack3');
+      defGearClip(rig, g, 'attack1', Object.assign({}, a1, { keys: noArms(a1.keys), hand: T1 }));
+      defGearClip(rig, g, 'attack2', Object.assign({}, a2, { keys: noArms(a2.keys), hand: T2 }));
+      defGearClip(rig, g, 'attack3', Object.assign({}, a3, { keys: noArms(a3.keys), hand: T3 }));
+      defGearClip(rig, g, 'flicker', Object.assign({}, base('flicker'), { keys: flick(noArms(a1.keys)), hand: T1 }));
+      defGearClip(rig, g, 'flicker2', Object.assign({}, base('flicker2'), { keys: flick(noArms(a2.keys)), hand: T2 }));
+      const sp = base('spin');
+      const hold = [-0.2, -0.12, 0.4], hd = [-0.85, 0.05, 0.5], he = [0.5, 0, 0.85];
+      defGearClip(rig, g, 'spin', Object.assign({}, sp, { keys: noArms(sp.keys), hand: track(I, [[0, hold, hd, he], [1, hold, hd, he]]) }));
+      const ex = base('execute');
+      defGearClip(rig, g, 'execute', Object.assign({}, ex, {
+        keys: noArms(ex.keys),
+        hand: track(I, [
+          [0, 'I'],
+          [0.3, [-0.26, 1.05, -0.05], [0.05, 0.1, 1]],
+          [-0.5, [0, 1.0, 0.8], [0, -0.04, 1]],
+          [0.62, [0, 1.0, 0.78], [0, -0.04, 1]],
+          [0.78, [-0.22, 1.0, 0.6], [-0.7, -0.1, 0.7], [0.7, 0, 0.7]],
+          [1, 'I'],
+        ], 'model'),
+      }));
+    }
+    // --- 长弓：弓在左手，近战动作左右镜像（用弓身抡），投掷换右手 ---
+    for (const n of ['attack1', 'attack2', 'attack3', 'flicker', 'flicker2', 'execute', 'throw']) {
+      const s = base(n);
+      defGearClip(rig, G_BOW, n, Object.assign({}, s, { keys: mirrorKeys(s.keys) }));
+    }
+    // --- 魂幡：杆太长，终结的下劈改成杆头平压向前（不往地里戳），其余照长杖的挥法 ---
+    {
+      const s = base('attack3');
+      defGearClip(rig, G_BAN, 'attack3', Object.assign({}, s, { keys: Object.assign({}, s.keys, { 'hR.rx': [0, 0.6, 0.18, 0.3, 0.34, -0.2, -0.5, 0.62, 0.8, 0.58, 1, 0.5] }) }));
+    }
+    {
+      const s = base('spin');
+      defGearClip(rig, G_BOW, 'spin', Object.assign({}, s, { keys: mirrorKeys(s.keys), fn(ent, p, k) { p[ent.rig.J.root + 1] = -k * TAU; } }));
+    }
+
+    // ===== 武器技（W.play(ent, 'w_' + type)）=====
+    // 刃「回锋斩」：后引 → 弓步直刺（k0）→ 原地拧身一整圈横扫（扫到正后方约在 k = 0.62）
+    defClip(rig, 'w_blade', {
+      dur: 0.8, k0: 0.3, lower: LEGS, fade: 0.05, out: 0.22, trail: [0.2, 0.78],
+      keys: stance({
+        'root.oz': [0, 0, 0.14, -0.12, -0.3, 0.32, 0.45, 0.22, 1, 0.02],
+        'root.rx': [0, 0.06, 0.14, 0, -0.3, 0.26, 0.45, 0.12, 0.8, 0.1, 1, 0.04],
+        'root.ry': [0, 0, 0.14, -0.3, -0.3, 0.12, 0.44, 0.12, 0.76, TAU + 0.1, 1, TAU],
+        'root.oy': [0, 0, 0.3, -0.06, 0.5, -0.1, 0.76, -0.12, 1, 0],
+        'spine.ry': [0, 0, 0.14, -0.25, -0.3, 0.15, 0.45, 0, 1, 0],
+        'chest.ry': [0, 0, 0.14, -0.45, -0.3, 0.25, 0.45, -0.1, 0.76, -0.25, 1, 0],
+        'head.ry': [0, 0, 0.14, 0.6, -0.3, -0.25, 0.45, 0.2, 0.76, 0.3, 1, 0],
+        'uaR.rx': [0, -0.2, 0.14, 0.6, -0.3, -1.45, 0.42, -1.2, 0.5, -0.05, 0.76, 0, 1, -0.2],
+        'uaR.rz': [0, -0.3, 0.14, -0.45, -0.3, -0.08, 0.42, -0.5, 0.5, -1.4, 0.76, -1.4, 1, -0.35],
+        'uaR.ry': [0, 0, 0.42, 0, 0.5, 0.35, 0.76, 0.35, 1, 0],
+        'faR.rx': [0, -0.6, 0.14, -1.7, -0.3, -0.05, 0.42, -0.2, 0.5, -0.25, 0.76, -0.25, 1, -0.55],
+        'hR.rx': [0, 0.9, 0.14, 1.45, -0.3, 1.55, 0.5, 1.5, 0.76, 1.5, 1, 0.8],
+        'hR.ry': C(0), 'hR.rz': C(0),
+        'uaL.rx': [0, -0.2, 0.14, -0.9, -0.3, 0.6, 0.5, 0, 1, 0.1],
+        'uaL.rz': [0, 0.3, 0.3, 0.45, 0.5, 1.15, 0.76, 1.15, 1, 0.3],
+        'faL.rx': [0, -0.6, 0.3, -0.4, 1, -0.5],
+        'cape1.rx': [0, 0.1, 0.3, 0.3, 0.5, 0.8, 0.76, 0.8, 1, 0.1],
+        'cape2.rx': [0, 0.1, 0.3, 0.25, 0.5, 0.6, 0.76, 0.6, 1, 0.1],
+        'cape3.rx': [0, 0.1, 0.3, 0.2, 0.5, 0.5, 0.76, 0.5, 1, 0.1],
+      }, 1),
+    });
+    // 长杖「地脉涌」：杖高举过头 → 沉身把杖尾杵进地里（k0）→ 定住片刻
+    defClip(rig, 'w_staff', {
+      dur: 0.75, k0: 0.55, fade: 0.06, out: 0.24,
+      keys: {
+        'root.oy': [0, 0, 0.3, 0.06, -0.55, -0.38, 0.75, -0.36, 1, 0],
+        'root.rx': [0, 0.05, 0.3, -0.12, -0.55, 0.2, 0.75, 0.18, 1, 0.04],
+        'spine.rx': [0, 0, 0.3, -0.15, -0.55, 0.12, 0.75, 0.1, 1, 0],
+        'chest.rx': [0, 0, 0.3, -0.15, -0.55, 0.1, 0.75, 0.1, 1, 0],
+        'head.rx': [0, 0, 0.3, -0.3, -0.55, 0.2, 1, 0],
+        'uaR.rx': [0, -0.3, 0.3, -2.5, -0.55, -0.75, 0.75, -0.8, 1, -0.3],
+        'uaR.rz': [0, -0.14, 0.3, 0.15, -0.55, -0.1, 1, -0.14],
+        'uaR.ry': C(0),
+        'faR.rx': [0, -0.75, 0.3, -0.35, -0.55, -0.25, 0.75, -0.3, 1, -0.75],
+        'hR.rx': [0, -0.75, 0.3, 1.15, -0.55, -1.12, 0.75, -1.08, 1, -0.75],
+        'hR.ry': C(0), 'hR.rz': C(0.12),
+        'uaL.rx': [0, 0, 0.3, -1.6, -0.55, 0.2, 0.75, 0.2, 1, 0],
+        'uaL.rz': [0, 0.12, 0.3, 0.9, -0.55, 1.1, 0.75, 1.1, 1, 0.12],
+        'faL.rx': [0, -0.3, 0.3, -0.6, -0.55, -0.1, 1, -0.3],
+        'hL.rx': [0, 0, 0.3, -0.4, -0.55, 0.3, 1, 0],
+        'thL.rx': [0, -0.1, 0.3, -0.2, -0.55, -1.25, 0.75, -1.2, 1, -0.05],
+        'shL.rx': [0, 0.1, 0.3, 0.2, -0.55, 1.55, 0.75, 1.5, 1, 0.08],
+        'thR.rx': [0, 0, 0.3, 0.05, -0.55, 0.35, 0.75, 0.35, 1, 0],
+        'shR.rx': [0, 0.1, 0.3, 0.15, -0.55, 1.3, 0.75, 1.25, 1, 0.08],
+        'ftR.rx': [0, 0, -0.55, 0.4, 0.75, 0.4, 1, 0],
+        'ftL.rx': [0, 0, -0.55, 0.2, 1, 0],
+        'thL.rz': [0, 0.07, -0.55, 0.22, 0.75, 0.22, 1, 0.07],
+        'thR.rz': [0, -0.07, -0.55, -0.22, 0.75, -0.22, 1, -0.07],
+        'cape1.rx': [0, 0.1, 0.3, -0.1, -0.55, 0.7, 0.75, 0.4, 1, 0.1],
+        'cape2.rx': [0, 0.1, 0.3, -0.15, -0.58, 0.6, 0.8, 0.35, 1, 0.1],
+        'cape3.rx': [0, 0.1, 0.3, -0.15, -0.62, 0.5, 0.85, 0.3, 1, 0.1],
+      },
+    });
+    // 短杖「秘弹连射」：右臂平举、杖尖指前，手腕连抖五下（k = 0.18 / 0.33 / 0.48 / 0.63 / 0.78，k0 是第一下）
+    {
+      const shots = [0.18, 0.33, 0.48, 0.63, 0.78];
+      const hrx = [0, 0.2, 0.1, 1.0], uax = [0, -0.3, 0.1, -1.5], chx = [0, 0, 0.1, 0];
+      for (const k of shots) {
+        hrx.push(k - 0.04, 1.0, -k, 1.7, k + 0.06, 1.2);
+        uax.push(k - 0.01, -1.5, -(k + 0.02), -1.64, k + 0.08, -1.5);
+        chx.push(k - 0.01, 0, -(k + 0.02), -0.07, k + 0.09, 0);
+      }
+      hrx.push(0.88, 1.2, 1, 0.3);
+      uax.push(0.9, -1.45, 1, -0.35);
+      chx.push(1, 0);
+      defClip(rig, 'w_wand', {
+        dur: 0.9, k0: shots[0], lower: LEGS, fade: 0.06, out: 0.2,
+        keys: stance({
+          'chest.rx': chx,
+          'chest.ry': [0, 0, 0.1, 0.35, 0.86, 0.35, 1, 0],
+          'spine.ry': [0, 0, 0.1, 0.15, 0.86, 0.15, 1, 0],
+          'head.ry': [0, 0, 0.1, -0.4, 0.86, -0.4, 1, 0],
+          'uaR.rx': uax,
+          'uaR.rz': [0, -0.15, 0.1, 0.12, 0.86, 0.12, 1, -0.15],
+          'uaR.ry': C(0),
+          'faR.rx': [0, -0.95, 0.1, -0.12, 0.86, -0.12, 1, -0.95],
+          'hR.rx': hrx,
+          'hR.ry': C(0), 'hR.rz': C(0),
+          'uaL.rx': [0, 0, 0.1, -0.7, 0.86, -0.7, 1, 0],
+          'uaL.rz': [0, 0.12, 0.1, -0.1, 0.86, -0.1, 1, 0.12],
+          'faL.rx': [0, -0.3, 0.1, -1.7, 0.86, -1.7, 1, -0.3],
+        }, 0.7),
+      });
+    }
+    // 双匕「影刺」：蜷身收成一线消失（瞬移在 k≈0.22）→ 在目标身后弹开、双匕高举 → 一齐下刺（k0）
+    defClip(rig, 'w_daggers', {
+      dur: 0.6, k0: 0.5, fade: 0.04, out: 0.2, trail: [0.36, 0.6],
+      keys: {
+        'root.sy': [0, 1, 0.12, 0.86, -0.22, 1.7, 0.3, 0.6, 0.4, 1.12, 0.5, 1, 1, 1],
+        'root.sx': [0, 1, 0.12, 1.1, -0.22, 0.1, 0.3, 1.25, 0.4, 0.95, 0.5, 1, 1, 1],
+        'root.sz': [0, 1, 0.12, 1.1, -0.22, 0.1, 0.3, 1.25, 0.4, 0.95, 0.5, 1, 1, 1],
+        'root.rx': [0, 0.1, 0.12, 0.4, 0.22, 0, 0.32, 0.3, -0.5, 0.45, 0.7, 0.4, 1, 0.05],
+        'root.oy': [0, 0, 0.12, -0.2, 0.22, 0, 0.32, -0.25, -0.5, -0.4, 0.7, -0.38, 1, 0],
+        'root.oz': [0, 0, 0.32, -0.1, -0.5, 0.25, 0.7, 0.22, 1, 0.02],
+        'spine.rx': [0, 0, 0.12, 0.3, 0.22, 0, 0.32, -0.1, -0.5, 0.2, 1, 0],
+        'head.rx': [0, 0, 0.32, -0.2, -0.5, 0.25, 1, 0],
+        'uaR.rx': [0, -0.2, 0.12, -0.9, 0.22, -0.3, 0.32, -2.5, -0.5, -0.85, 0.7, -0.9, 1, -0.25],
+        'uaR.rz': [0, -0.2, 0.12, 0.4, 0.22, -0.2, 0.32, -0.25, -0.5, 0.12, 0.7, 0.12, 1, -0.2],
+        'faR.rx': [0, -1.1, 0.12, -1.9, 0.22, -0.5, 0.32, -1.3, -0.5, -0.15, 0.7, -0.2, 1, -1.1],
+        'hR.rx': [0, 0.6, 0.32, 1.9, -0.5, 1.5, 0.7, 1.5, 1, 0.6],
+        'uaL.rx': [0, -0.2, 0.12, -0.9, 0.22, -0.3, 0.32, -2.5, -0.5, -0.85, 0.7, -0.9, 1, -0.25],
+        'uaL.rz': [0, 0.2, 0.12, -0.4, 0.22, 0.2, 0.32, 0.25, -0.5, -0.12, 0.7, -0.12, 1, 0.2],
+        'faL.rx': [0, -1.1, 0.12, -1.9, 0.22, -0.5, 0.32, -1.3, -0.5, -0.15, 0.7, -0.2, 1, -1.1],
+        'hL.rx': [0, 0.6, 0.32, 1.9, -0.5, 1.5, 0.7, 1.5, 1, 0.6],
+        'hR.ry': C(0.15), 'hL.ry': C(-0.15),
+        'thL.rx': [0, -0.2, 0.12, -1.1, 0.22, -0.2, 0.32, -0.8, -0.5, -1.3, 0.7, -1.25, 1, -0.1],
+        'shL.rx': [0, 0.3, 0.12, 1.5, 0.22, 0.3, 0.32, 1.3, -0.5, 1.5, 0.7, 1.45, 1, 0.1],
+        'thR.rx': [0, -0.1, 0.12, -0.95, 0.22, -0.1, 0.32, -0.3, -0.5, 0.5, 0.7, 0.5, 1, 0],
+        'shR.rx': [0, 0.3, 0.12, 1.5, 0.22, 0.3, 0.32, 1.0, -0.5, 0.9, 0.7, 0.9, 1, 0.1],
+        'ftR.rx': [0, 0, -0.5, 0.5, 0.7, 0.5, 1, 0],
+        'cape1.rx': [0, 0.1, 0.12, -0.3, 0.22, 0.2, 0.32, 0.7, -0.5, 0.3, 1, 0.1],
+        'cape2.rx': [0, 0.1, 0.12, -0.4, 0.22, 0.2, 0.36, 0.6, -0.55, 0.3, 1, 0.1],
+        'cape3.rx': [0, 0.1, 0.12, -0.4, 0.22, 0.2, 0.4, 0.5, -0.6, 0.25, 1, 0.1],
+      },
+    });
+    // 战锤「震地」：下蹲蓄力 → 跃起、锤举过头 → 落地砸进地面（k0）→ 定住
+    {
+      const I = LOCO_2H[G_HAM].idle;
+      defClip(rig, 'w_hammer', {
+        dur: 0.9, k0: 0.55, air: 'jump', fade: 0.06, out: 0.26, trail: [0.4, 0.6],
+        hand: track(I, [
+          [0, 'I'],
+          [0.15, [-0.12, 0.8, 0.32], [-0.2, 0.3, 0.93], [0, 0, 1]],
+          [0.36, [0, 2.3, -0.08], [0, 0.25, -0.97], [0, 1, 0.2]],
+          [-0.55, [0, 0.52, 0.76], [0, -0.45, 0.89], [0, -0.89, -0.45]],
+          [0.75, [0, 0.5, 0.75], [0, -0.47, 0.88], [0, -0.88, -0.47]],
+          [1, 'I'],
+        ], 'model'),
+        keys: {
+          'root.oy': [0, 0, 0.15, -0.25, 0.36, 0.32, -0.55, -0.5, 0.75, -0.48, 1, 0],
+          'root.rx': [0, 0.05, 0.15, 0.15, 0.36, -0.25, -0.55, 0.32, 0.75, 0.3, 1, 0.05],
+          'spine.rx': [0, 0, 0.36, -0.2, -0.55, 0.15, 0.75, 0.14, 1, 0],
+          'chest.rx': [0, 0, 0.36, -0.2, -0.55, 0.1, 0.75, 0.1, 1, 0],
+          'head.rx': [0, 0, 0.36, 0.15, -0.55, -0.35, 0.75, -0.3, 1, 0],
+          'thL.rx': [0, -0.1, 0.15, -0.8, 0.36, -0.5, -0.55, -1.35, 0.75, -1.3, 1, -0.05],
+          'shL.rx': [0, 0.1, 0.15, 1.2, 0.36, 0.9, -0.55, 1.5, 0.75, 1.45, 1, 0.08],
+          'thR.rx': [0, 0, 0.15, -0.6, 0.36, 0.1, -0.55, 0.2, 0.75, 0.2, 1, 0],
+          'shR.rx': [0, 0.1, 0.15, 1.1, 0.36, 0.8, -0.55, 1.3, 0.75, 1.25, 1, 0.08],
+          'ftR.rx': [0, 0, -0.55, 0.35, 0.75, 0.35, 1, 0],
+          'thL.rz': [0, 0.07, -0.55, 0.3, 0.75, 0.3, 1, 0.07],
+          'thR.rz': [0, -0.07, -0.55, -0.3, 0.75, -0.3, 1, -0.07],
+          'cape1.rx': [0, 0.1, 0.36, -0.2, -0.55, 0.7, 0.75, 0.4, 1, 0.1],
+          'cape2.rx': [0, 0.1, 0.36, -0.25, -0.58, 0.6, 0.8, 0.35, 1, 0.1],
+          'cape3.rx': [0, 0.1, 0.36, -0.25, -0.62, 0.5, 0.85, 0.3, 1, 0.1],
+        },
+      });
+    }
+    // 长弓「箭雨」：侧身举弓斜指天空、搭箭拉满 → 撒放（k0）→ 定住
+    {
+      const AIM = [0, 0.8, 0.6], GRIP = [0.15, 1.95, 0.63], DRAW = 0.46;
+      const nock = GRIP.map((v, i) => v - AIM[i] * DRAW), rest = GRIP.map((v, i) => v - AIM[i] * 0.17);
+      const out = [nock[0] - 0.08, nock[1] - AIM[1] * 0.12, nock[2] - AIM[2] * 0.12 - 0.06];
+      const bowD = [0, 0.6, -0.8], handE = [0, -0.6, 0.8];
+      defClip(rig, 'w_bow', {
+        dur: 0.8, k0: 0.55, lower: LEGS, fade: 0.08, out: 0.24, arrow: true,
+        draw: [0, 0, 0.15, 0, 0.45, 1, 0.54, 1, -0.57, 0, 1, 0],
+        handL: { f: 'model', k: [0, 0.15, 0.75, 1], p: [[0.4, 0.85, 0.1], GRIP, GRIP, [0.4, 0.85, 0.1]], d: [bowD, bowD, bowD, bowD], e: [AIM, AIM, AIM, AIM], w: [0, 1, 1, 0] },
+        hand: { f: 'model', k: [0, 0.15, 0.45, 0.54, -0.57, 0.75, 1], p: [[-0.4, 0.85, 0.05], rest, nock, nock, out, out, [-0.4, 0.85, 0.05]], d: [AIM, AIM, AIM, AIM, AIM, AIM, AIM], e: [handE, handE, handE, handE, handE, handE, handE], w: [0, 1, 1, 1, 1, 1, 0] },
+        keys: {
+          'wA.s': [0, 0, 0.12, 0, 0.16, 1, 0.55, 1, 0.56, 0, 1, 0],
+          'root.ry': [0, 0, 0.15, -0.8, 0.75, -0.8, 1, 0],
+          'chest.ry': [0, 0, 0.15, -0.3, 0.75, -0.3, 1, 0],
+          'head.ry': [0, 0, 0.15, 0.9, 0.75, 0.9, 1, 0],
+          'head.rx': [0, 0, 0.15, -0.4, 0.75, -0.4, 1, 0],
+          'chest.rx': [0, 0, 0.2, -0.12, 0.54, -0.12, -0.58, -0.22, 0.75, -0.14, 1, 0],
+          'thL.rz': [0, 0.07, 0.15, 0.22, 0.75, 0.22, 1, 0.07],
+          'thR.rz': [0, -0.07, 0.15, -0.22, 0.75, -0.22, 1, -0.07],
+          'thL.rx': [0, 0, 0.15, -0.15, 0.75, -0.15, 1, 0],
+          'shL.rx': [0, 0.06, 0.15, 0.3, 0.75, 0.3, 1, 0.06],
+          'shR.rx': [0, 0.06, 0.15, 0.25, 0.75, 0.25, 1, 0.06],
+          'cape1.rx': [0, 0.1, 0.55, 0.1, 0.6, 0.3, 1, 0.1],
+        },
+      });
+    }
+    // 太刀「瞬断」：压低重心、刀收在右胯后 → 冲刺中一刀横斩到左前方（k0）→ 定住（延迟的斩线在这段落下）→ 甩刀收势
+    {
+      const I = LOCO_2H[G_KAT].idle;
+      defClip(rig, 'w_katana', {
+        dur: 0.9, k0: 0.3, lower: null, fade: 0.05, out: 0.24, trail: [0.15, 0.34],
+        hand: track(I, [
+          [0, 'I'],
+          [0.15, [-0.3, -0.36, -0.04], [-0.25, -0.3, -0.92], [0.5, 0, -0.2]],
+          [-0.3, [0.16, -0.08, 0.48], [0.88, 0.02, 0.47], [0.47, 0, -0.88]],
+          [0.62, [0.16, -0.08, 0.47], [0.88, 0, 0.47], [0.47, 0, -0.88]],
+          [-0.76, [-0.18, -0.3, 0.36], [-0.35, -0.45, 0.82], [0, -0.9, -0.4]],
+          [0.86, [-0.18, -0.32, 0.36], [-0.35, -0.48, 0.8], [0, -0.9, -0.4]],
+          [1, 'I'],
+        ]),
+        keys: {
+          'root.oy': [0, 0, 0.15, -0.3, -0.3, -0.45, 0.62, -0.42, 0.8, -0.3, 1, 0],
+          'root.rx': [0, 0.05, 0.15, 0.25, -0.3, 0.4, 0.62, 0.38, 0.8, 0.2, 1, 0.04],
+          'root.ry': [0, 0, 0.15, -0.35, -0.3, 0.35, 0.62, 0.3, 1, 0],
+          'spine.ry': [0, 0, 0.15, -0.3, -0.3, 0.3, 0.62, 0.25, 1, 0],
+          'chest.ry': [0, 0, 0.15, -0.5, -0.3, 0.45, 0.62, 0.4, 0.8, 0.1, 1, 0],
+          'head.ry': [0, 0, 0.15, 0.6, -0.3, -0.4, 0.62, -0.35, 1, 0],
+          'thL.rx': [0, -0.1, 0.15, -0.7, -0.3, -1.5, 0.62, -1.45, 0.8, -0.9, 1, -0.05],
+          'shL.rx': [0, 0.1, 0.15, 1.1, -0.3, 1.45, 0.62, 1.45, 0.8, 1.0, 1, 0.08],
+          'thR.rx': [0, 0, 0.15, 0.2, -0.3, 0.75, 0.62, 0.7, 0.8, 0.4, 1, 0],
+          'shR.rx': [0, 0.1, 0.15, 0.9, -0.3, 0.35, 0.62, 0.35, 0.8, 0.6, 1, 0.08],
+          'ftR.rx': [0, 0, -0.3, 0.7, 0.62, 0.7, 1, 0],
+          'cape1.rx': [0, 0.1, 0.15, 0, -0.3, 0.9, 0.62, 0.5, 1, 0.1],
+          'cape2.rx': [0, 0.1, 0.15, 0, -0.33, 0.8, 0.66, 0.45, 1, 0.1],
+          'cape3.rx': [0, 0.1, 0.15, 0, -0.36, 0.7, 0.7, 0.4, 1, 0.1],
+          'tab.rx': [0, 0, -0.3, -0.6, 0.62, -0.3, 1, 0],
+        },
+      });
+    }
+    // 魂幡「魂潮」：把幡高举过头、后仰蓄势 → 朝前猛地一挥，杆头压向准星（k0：魂灵脱幡而出），左手顺势前指 → 定住，幡布被甩得猎猎翻卷 → 收回
+    {
+      const P0 = [-0.42, 0.95, 0.2], UP = [0, 1, 0], FWD = [0, 0, 1];
+      const RAISE = [-0.3, 2.0, -0.02], RD = [0.08, 0.98, -0.18], RE = [0, 0.18, 0.98];
+      const THR = [-0.24, 1.45, 0.62], TD = [0.12, 0.5, 0.86], TE = [0, -0.86, 0.5];
+      defClip(rig, 'w_banner', {
+        dur: 0.8, k0: 0.46, lower: LEGS, fade: 0.06, out: 0.24,
+        hand: {
+          f: 'model', k: [0, 0.1, 0.32, -0.46, 0.72, 1],
+          p: [P0, P0, RAISE, THR, [-0.24, 1.42, 0.6], P0], d: [UP, UP, RD, TD, TD, UP], e: [FWD, FWD, RE, TE, TE, FWD], w: [0, 1, 1, 1, 1, 0],
+        },
+        keys: stance({
+          'root.oz': [0, 0, 0.32, -0.1, -0.46, 0.26, 0.72, 0.22, 1, 0.02],
+          'root.rx': [0, 0.04, 0.32, -0.14, -0.46, 0.26, 0.72, 0.22, 1, 0.04],
+          'root.ry': [0, 0, 0.32, -0.2, -0.46, 0.15, 0.72, 0.12, 1, 0],
+          'spine.rx': [0, 0, 0.32, -0.12, -0.46, 0.14, 0.72, 0.12, 1, 0],
+          'chest.rx': [0, 0, 0.32, -0.16, -0.46, 0.12, 0.72, 0.1, 1, 0],
+          'chest.ry': [0, 0, 0.32, -0.3, -0.46, 0.22, 0.72, 0.18, 1, 0],
+          'head.rx': [0, 0, 0.32, -0.25, -0.46, 0.15, 1, 0],
+          'head.ry': [0, 0, 0.32, 0.3, -0.46, -0.2, 1, 0],
+          'uaL.rx': [0, 0, 0.32, 0.5, -0.46, -1.45, 0.72, -1.35, 1, 0],
+          'uaL.rz': [0, 0.12, 0.32, 0.5, -0.46, 0.15, 0.72, 0.15, 1, 0.12],
+          'faL.rx': [0, -0.3, 0.32, -1.2, -0.46, -0.15, 0.72, -0.2, 1, -0.3],
+          'hL.rx': [0, 0, 0.32, 0.3, -0.46, -0.5, 0.72, -0.45, 1, 0],
+          'cape1.rx': [0, 0.1, 0.32, -0.1, -0.46, 0.65, 0.72, 0.45, 1, 0.1],
+          'cape2.rx': [0, 0.1, 0.32, -0.15, -0.5, 0.6, 0.76, 0.4, 1, 0.1],
+          'cape3.rx': [0, 0.1, 0.32, -0.15, -0.54, 0.5, 0.8, 0.35, 1, 0.1],
+        }, 0.9),
+      });
+    }
+  }
+
   // 武器的握法 / 挂点长度 / 稀有度的发光
-  const GEAR_TIP = [1.17, 1.54, 0.68];
+  // 挂点 weapon（武器尖端 / 长弓的上弓梢 / 魂幡杆头的魂火）相对武器关节的 [x, y, z]
+  const GEAR_TIP = [[0, 0, 1.17], [0, 0, 1.54], [0, 0, 0.68], [0, 0, 0.5], [0, 0, 1.0], [BOW_TIP[0] - 0.39, BOW_TIP[1] - 0.84, BOW_TIP[2] - 0.05], [0, 0.04, 1.12], [0, 0, 1.84]];
   const GEAR_GLOW = [[0xcfd6e2, 0.3], [0x7f9dff, 1.15], [0xffd75e, 1.5]];
   // 稀有度光晕：[沿武器的位置（占挂点长度的比例）, 魔法的大小, 稀有的大小, 不透明度]。
-  // 刃的光裹着刃身；长杖 / 短杖握在头和胸口旁边，光只罩住杖头的晶体，小而淡，不把兜帽和上身照成一片白
-  const GEAR_AURA = [[0.62, 1.0, 1.5, 1], [0.885, 0.5, 0.72, 0.5], [0.81, 0.42, 0.6, 0.5]];
+  // 刃的光裹着刃身；长杖 / 短杖握在头和胸口旁边，光只罩住杖头的晶体，小而淡，不把兜帽和上身照成一片白；
+  // 双匕只罩右手那把；战锤罩住锤头；长弓的光在握把上；太刀和刃一样裹着刃身；魂幡罩住杆头的魂火
+  const GEAR_AURA = [[0.62, 1.0, 1.5, 1], [0.885, 0.5, 0.72, 0.5], [0.81, 0.42, 0.6, 0.5], [0.55, 0.55, 0.85, 0.8], [0.95, 0.75, 1.1, 0.75], [0, 0.75, 1.05, 0.6], [0.6, 1.0, 1.5, 1], [1, 0.55, 0.8, 0.55]];
   const auraMats = Object.create(null);
   function auraMat(hex, alpha) {
     const key = hex + ':' + alpha;
@@ -2567,9 +3514,18 @@
   function applyGear(ent, type, rar) {
     ent.gearType = type;
     ent.gearRar = rar;
-    const joint = type === 1 ? 'wS' : type === 2 ? 'wW' : 'wB';
-    ent.sock.weapon.j = ent.rig.JI[type < 0 ? 'hR' : joint];
-    ent.sock.weapon.z = type < 0 ? 0.05 : GEAR_TIP[type];
+    const sw = ent.sock.weapon, tip = type < 0 ? null : GEAR_TIP[type];
+    sw.j = ent.rig.JI[type < 0 ? 'hR' : GEAR_JOINT[type]];
+    sw.x = tip ? tip[0] : 0;
+    sw.y = tip ? tip[1] : 0;
+    sw.z = tip ? tip[2] : 0.05;
+    // 挂点 hand：刀光的根部。长弓挥的是左手里的弓
+    const sh = ent.sock.hand, hj = type === G_BOW ? 'hL' : 'hR';
+    sh.j = ent.rig.JI[hj];
+    sh.x = 0;
+    sh.y = type === G_BOW ? -0.1 : -0.06;
+    sh.z = type === G_BOW ? 0.05 : 0.02;
+    ent.gearClips = (type >= 0 && ent.rig.gearClips[type]) || null;
     const gg = GEAR_GLOW[rar] || GEAR_GLOW[0], m = ent.auxMat;
     m.userData.e0.set(gg[0]).convertSRGBToLinear();
     m.userData.ei0 = gg[1];
@@ -2586,7 +3542,9 @@
   }
   function makePlayerEnt() {
     const ent = newEnt('player', playerRig(), WH, 0xffb347, 1.15);
-    ent.sock = { weapon: { j: 0, x: 0, y: 0, z: 1 } };
+    ent.sock = { weapon: { j: 0, x: 0, y: 0, z: 1 }, hand: { j: 0, x: 0, y: -0.06, z: 0.02 } };
+    ent.gearType = 0;
+    ent.gearClips = null;
     ent.uRim.value.setRGB(0.22, 0.2, 0.17);
     ent.aura = new T.Sprite(spriteMat(0xffffff));
     ent.aura.visible = false;
@@ -2603,11 +3561,12 @@
   };
   function gearFrom(ent, equip) {
     const w = equip && equip.weapon;
-    const type = w ? G.clamp(w.baseIdx | 0, 0, 2) : -1, rar = w ? G.clamp(w.rarity | 0, 0, 2) : 0;
+    const type = w ? gearIndex(w.baseIdx | 0) : -1, rar = w ? G.clamp(w.rarity | 0, 0, 2) : 0;
     if (type !== ent.gearType || rar !== ent.gearRar) applyGear(ent, type, rar);
   }
   // 玩家的武器模型跟着装备走：equip 是存档里的 { slot: item }。
-  // 武器底材 baseIdx 0 / 1 / 2 → 刃 / 长杖 / 短杖，稀有度决定武器上那道光的颜色和强度；没有武器时空手。
+  // 武器底材的 type（G.BASES.weapon[baseIdx].type：blade / staff / wand / daggers / hammer / bow / katana / banner）决定手里拿什么，
+  // 稀有度决定武器上那道光的颜色和强度；没有武器时空手。
   W.setPlayerGear = function (equip) {
     const ent = G.player && G.player.ent;
     if (ent && !ent.removed) gearFrom(ent, equip);
@@ -5064,15 +6023,17 @@
     made.forEach((e, i) => e.group.position.set(((i % 3) - 1) * 5, 0, -Math.floor(i / 3) * 4));
     const loots = [];
     for (const s of G.SLOTS) loots.push(W.makeLoot('item', 0xffffff, s === 'weapon', 0, 2, s));
-    for (let i = 1; i < 3; i++) loots.push(W.makeLoot('item', 0xffffff, false, 0, 2, { slot: 'weapon', baseIdx: i }));
+    for (let i = 1; i < GEAR_KEYS.length; i++) loots.push(W.makeLoot('item', 0xffffff, false, 0, 2, { slot: 'weapon', type: GEAR_KEYS[i] }));
     for (const k of ['item', 'cur', 'skill', 'blank', 'support']) loots.push(W.makeLoot(k, 0xffffff, false, 0, 2));
     allyFxVisible(true); // 召唤法阵 / 聚焦标记平时是隐藏的：预热这一帧让它们露个面，着色器一并编译
+    warmWeaponFx(true);
     const rt = new T.WebGLRenderTarget(64, 64);
     renderer.setRenderTarget(rt);
     renderer.render(scene, camera);
     renderer.setRenderTarget(null);
     rt.dispose();
     allyFxVisible(false);
+    warmWeaponFx(false);
     for (const l of loots) W.removeMesh(l);
     for (const e of made) {
       scene.remove(e.group);
@@ -5096,6 +6057,81 @@
     wand: () => [
       bake('lt/wand', [[gCyl(0.02, 0.032, 0.5, 6), LC.bone, 0, -0.1, 0], [gIco(0.04, 0), LC.bone, 0, -0.36, 0], [gCone(0.03, 0.14, 4), LC.bone, 0.06, 0.2, 0, 0, 0, -0.4], [gCone(0.03, 0.14, 4), LC.bone, -0.06, 0.2, 0, 0, 0, 0.4]]),
       bake('lt/wandG', [[gOct(0.06), WH, 0, 0.24, 0, 0, 0, 0, 0.8, 1.4, 0.8]]),
+    ],
+    // 双匕：两把交叉的叶形短刃；刃脊发光
+    daggers: () => {
+      const one = (s) => {
+        const r = s * 0.42;
+        const at = (x, y) => [x * Math.cos(r) - y * Math.sin(r), x * Math.sin(r) + y * Math.cos(r)];
+        const P = (g, c, x, y, z, rx, ry, rz) => { const q = at(x, y); return [g, c, q[0], q[1], z, rx || 0, ry || 0, (rz || 0) + r]; };
+        return [
+          P(gPlate('lt/dag', [[-0.034, 0], [0.03, 0], [0.042, 0.19], [0.014, 0.37], [-0.03, 0.27], [-0.038, 0.12]], 0.012, 0.01), LC.steel, 0, -0.08, s * 0.02),
+          P(gBox(0.15, 0.035, 0.05), LC.gold, 0, -0.09, s * 0.02),
+          P(gCyl(0.022, 0.025, 0.13, 6), LC.dark, 0, -0.16, s * 0.02),
+          P(gTorus(0.026, 0.009, 4, 8), LC.steelD, 0, -0.245, s * 0.02),
+        ];
+      };
+      const glow = (s) => {
+        const r = s * 0.42, x = -Math.sin(r) * 0.07, y = Math.cos(r) * 0.07;
+        return [gBox(0.012, 0.2, 0.03), WH, x, y, s * 0.02, 0, 0, r];
+      };
+      return [bake('lt/daggers', one(1).concat(one(-1))), bake('lt/daggersG', [glow(1), glow(-1)])];
+    },
+    // 战锤：长柄 + 方砧锤头（两端包钢、顶上短刺），锤头两侧一道发光的符槽
+    hammer: () => [
+      bake('lt/hammer', [
+        [gCyl(0.028, 0.032, 0.9, 6), LC.wood, 0, -0.1, 0], [gCyl(0.036, 0.036, 0.14, 6), LC.leatherD, 0, -0.42, 0],
+        [gCyl(0.04, 0.04, 0.025, 6), LC.gold, 0, 0.12, 0], [gOct(0.045), LC.gold, 0, -0.57, 0],
+        [gRBox(0.36, 0.17, 0.2, 0.03), LC.steelD, 0, 0.42, 0], [gCyl(0.1, 0.11, 0.06, 7), LC.steel, 0.2, 0.42, 0, 0, 0, Math.PI / 2], [gCyl(0.11, 0.1, 0.06, 7), LC.steel, -0.2, 0.42, 0, 0, 0, Math.PI / 2],
+        [gCone(0.045, 0.15, 5), LC.steel, 0, 0.58, 0], [gBox(0.025, 0.18, 0.21), LC.gold, 0.12, 0.42, 0], [gBox(0.025, 0.18, 0.21), LC.gold, -0.12, 0.42, 0],
+      ]),
+      bake('lt/hammerG', [[gBox(0.16, 0.035, 0.212), WH, 0, 0.42, 0]]),
+    ],
+    // 长弓：竖着的一张弓，弓弦拉直；两片弓臂上各一道光纹
+    bow: () => {
+      const limb = (s) => [[0, s * 0.06, 0], [0, s * 0.24, -0.03], [0, s * 0.4, -0.01], [0, s * 0.5, 0.06], [0, s * 0.54, 0.13]];
+      return [
+        bake('lt/bow', [
+          [gSweep('lt/bowU', limb(1), [0.026, 0.022, 0.017, 0.012, 0.008], 5), LC.leather, 0, 0, 0], [gSweep('lt/bowL', limb(-1), [0.026, 0.022, 0.017, 0.012, 0.008], 5), LC.leather, 0, 0, 0],
+          [gCyl(0.03, 0.03, 0.14, 6), LC.leatherD, 0, 0, 0], [gCyl(0.034, 0.034, 0.02, 6), LC.gold, 0, 0.08, 0], [gCyl(0.034, 0.034, 0.02, 6), LC.gold, 0, -0.08, 0],
+          [gCyl(0.005, 0.005, 1.08, 3), 0xe8e0c8, 0, 0, 0.13], [gOct(0.02), LC.gold, 0, 0.54, 0.13], [gOct(0.02), LC.gold, 0, -0.54, 0.13],
+        ]),
+        bake('lt/bowG', [[gBox(0.016, 0.14, 0.016), WH, 0, 0.26, -0.045], [gBox(0.016, 0.14, 0.016), WH, 0, -0.26, -0.045]]),
+      ];
+    },
+    // 太刀：细长微弯的刃身、方圆的镡、缠绳的长柄；刃口一道刃纹光
+    katana: () => {
+      const L = 0.72, K = 0.045, pts = [[-0.026, 0], [0.026, 0]], edge = [];
+      for (let i = 1; i <= 6; i++) { const t = (i / 6) * 0.9; pts.push([K * t * t + 0.026 - 0.008 * t, L * t]); }
+      pts.push([K + 0.01, L]);
+      for (let i = 6; i >= 1; i--) { const t = (i / 6) * 0.9; pts.push([K * t * t - 0.026 + 0.008 * t + (t > 0.85 ? 0.008 : 0), L * t]); edge.unshift([K * t * t - 0.014, -0.12 + L * t, 0]); }
+      edge.unshift([-0.014, -0.11, 0]);
+      return [
+        bake('lt/katana', [
+          [gPlate('lt/kat', pts, 0.01, 0.006), LC.steel, 0, -0.12, 0],
+          [gCyl(0.065, 0.065, 0.018, 8), LC.dark, 0, -0.13, 0, 0, Math.PI / 8, 0], [gTorus(0.064, 0.007, 4, 8), LC.gold, 0, -0.13, 0, Math.PI / 2, 0, Math.PI / 8],
+          [gCyl(0.022, 0.024, 0.24, 6), LC.dark, 0, -0.27, 0], [gOct(0.024), 0x7a2e24, 0.02, -0.22, 0, 0, 0, 0, 0.5, 1, 1], [gOct(0.024), 0x7a2e24, 0.02, -0.31, 0, 0, 0, 0, 0.5, 1, 1],
+          [gCyl(0.026, 0.026, 0.025, 6), LC.gold, 0, -0.4, 0],
+        ]),
+        bake('lt/katanaG', [[gSweep('lt/hamon', edge, [0.008, 0.008, 0.006], 4), WH, 0, 0, 0]]),
+      ];
+    },
+    // 魂幡：乌木杆、骨爪杆头，横挑杆挑着一面撕破的暗紫幡布，外端坠一枚小骷髅；魂火和幡面符印发光
+    banner: () => [
+      bake('lt/banner', [
+        [gCyl(0.022, 0.028, 1.12, 6), 0x2a201b, 0, -0.02, 0], [gCone(0.026, 0.12, 5), LC.steelD, 0, -0.64, 0, Math.PI],
+        [gCyl(0.032, 0.032, 0.12, 6), LC.leatherD, 0, -0.3, 0], [gCyl(0.036, 0.036, 0.022, 6), LC.gold, 0, 0.42, 0],
+        [gTorus(0.03, 0.01, 4, 8), LC.bone, 0, 0.1, 0, Math.PI / 2], [gTorus(0.03, 0.01, 4, 8), LC.bone, 0, 0.14, 0, Math.PI / 2],
+        [gCone(0.018, 0.14, 4), LC.bone, 0.05, 0.6, 0, 0, 0, -0.35], [gCone(0.018, 0.14, 4), LC.bone, -0.05, 0.6, 0, 0, 0, 0.35], [gCone(0.018, 0.14, 4), LC.bone, 0, 0.6, 0.05, 0.35, 0, 0],
+        [gCyl(0.014, 0.016, 0.42, 5), 0x2a201b, 0.2, 0.36, 0, 0, 0, Math.PI / 2], [gOct(0.024), LC.gold, 0.42, 0.36, 0],
+        [gPlate('lt/bnc', [[-0.15, 0], [-0.155, -0.36], [-0.12, -0.58], [-0.07, -0.42], [-0.02, -0.62], [0.04, -0.44], [0.09, -0.57], [0.13, -0.4], [0.15, 0]], 0.012, 0.004), 0x3a2c44, 0.22, 0.34, 0],
+        [gBox(0.32, 0.02, 0.03), LC.bone, 0.22, 0.04, 0],
+        [gCyl(0.004, 0.004, 0.14, 3), 0x6a5a48, 0.42, 0.29, 0], [gSph(0.034, 6, 5), LC.bone, 0.42, 0.2, 0],
+      ]),
+      bake('lt/bannerG', [
+        [gOct(0.06), WH, 0, 0.53, 0, 0, 0, 0, 0.9, 1.3, 0.9],
+        [gTorus(0.065, 0.008, 4, 12), WH, 0.22, 0.17, 0], [gBox(0.012, 0.28, 0.024), WH, 0.22, 0.16, 0], [gBox(0.12, 0.012, 0.024), WH, 0.22, 0.24, 0],
+      ]),
     ],
     helm: () => [
       bake('lt/helm', [[gDome(0.22, 8, 4, 1.7), LC.steel, 0, -0.04, 0], [gBox(0.05, 0.2, 0.05), LC.steelD, 0, -0.1, 0.2], [gBox(0.04, 0.05, 0.4), LC.gold, 0, 0.19, 0], [gTorus(0.215, 0.025, 4, 12), LC.gold, 0, -0.06, 0, Math.PI / 2]]),
@@ -5146,17 +6182,20 @@
     ],
   };
   const lootModels = Object.create(null);
-  const WEAPON_MODEL = ['blade', 'staff', 'wand'];
+  const WEAPON_MODEL = GEAR_KEYS; // 掉落模型的名字和武器种类同名
   let lootBody = null;
 
   // kind：item | cur | skill | blank（无铭技能宝石）| support。slot（可选，只对 item 有意义）：装备栏位名，或物品对象本身
-  // （{ slot, baseIdx }，武器靠 baseIdx 区分 刃 / 长杖 / 短杖）。不传时是一只通用的小包裹。
+  // （{ slot, baseIdx }，武器按 G.BASES.weapon[baseIdx].type 区分八种；也可以直接给 { slot: 'weapon', type }）。不传时是一只通用的小包裹。
   W.makeLoot = function (kind, hex, beam, x, z, slot) {
     const h = hexOf(hex);
     let key = kind;
     if (kind === 'item') {
       const sl = slot && typeof slot === 'object' ? slot.slot : slot;
-      if (sl === 'weapon') key = WEAPON_MODEL[slot && typeof slot === 'object' ? G.clamp(slot.baseIdx | 0, 0, 2) : 0];
+      if (sl === 'weapon') {
+        const o = slot && typeof slot === 'object' ? slot : null;
+        key = o && GEAR_KEYS.indexOf(o.type) >= 0 ? o.type : WEAPON_MODEL[o ? gearIndex(o.baseIdx | 0) : 0];
+      }
       else if (sl && LOOT_MODEL[sl]) key = sl;
     }
     if (!LOOT_MODEL[key]) key = 'item';
@@ -5167,7 +6206,7 @@
     const gem = new T.Group();
     gem.position.y = 0.55;
     gem.scale.setScalar(1.3);
-    if (key === 'blade' || key === 'staff' || key === 'wand') gem.rotation.z = 0.5; // 武器斜着悬在空中
+    if (WEAPON_MODEL.indexOf(key) >= 0) gem.rotation.z = key === 'bow' ? 0.3 : key === 'daggers' ? 0 : 0.5; // 武器斜着悬在空中
     else if (key === 'ring' || key === 'amulet' || key === 'belt') gem.rotation.x = 0.35;
     if (mdl[0]) {
       const m = new T.Mesh(mdl[0], lootBody);
@@ -6069,6 +7108,824 @@
     }
   };
 
+  // =====================================================================
+  // 武器技的特效（全部预先建池，运行时只改参数，不分配）
+  // =====================================================================
+  // ----- 光带：直刺的枪芒 / 冲刺的路径 / 延迟落下的斩线 / 地脉 -----
+  // 方片沿 ang 摆放：局部 x 横跨、z 顺着方向；mode 0 = 从尾到头射出再从尾部收掉，1 = 先是一道细暗线、到时刻 uD 骤亮再收细消失
+  const STREAK_FRAG = [
+    'uniform vec3 uColor; uniform float uK; uniform float uMode; uniform float uD; varying vec2 vP;',
+    'void main(){',
+    '  float a = abs(vP.x); float s = vP.y * 0.5 + 0.5;',
+    '  float core = exp(-a * a * 9.0); float hot = exp(-a * a * 60.0);',
+    '  float al; float wh;',
+    '  if (uMode < 0.5) {',
+    '    float head = smoothstep(0.0, 0.3, uK); float tail = smoothstep(0.2, 1.0, uK);',
+    '    float m = (1.0 - smoothstep(head - 0.04, head, s)) * smoothstep(tail - 0.02, tail + 0.18, s);',
+    '    float tip = 0.55 + 0.45 * s;',
+    '    al = m * (core * 0.8 + hot * 1.2) * tip * (1.0 - uK * 0.5); wh = hot;',
+    '  } else {',
+    '    float ends = smoothstep(0.0, 0.2, s) * (1.0 - smoothstep(0.8, 1.0, s));',
+    '    if (uK < uD) { float f = uK / max(uD, 0.001); al = exp(-a * a * 200.0) * ends * (0.35 + 0.45 * f) * (0.75 + 0.25 * sin(uK * 90.0)); wh = 0.3 * f; }',
+    '    else { float f = (uK - uD) / max(1.0 - uD, 0.001); float w = mix(1.0, 0.12, f);',
+    '      al = exp(-a * a * 9.0 / (w * w + 0.01)) * ends * (1.0 - f * f) * 1.5; wh = exp(-a * a * 60.0 / (w * w + 0.01)); }',
+    '  }',
+    '  gl_FragColor = vec4(mix(uColor, vec3(1.0), wh * 0.75), al);',
+    '}',
+  ].join('\n');
+  const streaks = [];
+  function streakGet() {
+    let it = null;
+    for (let i = 0; i < streaks.length; i++) if (!streaks[i].on) { it = streaks[i]; break; }
+    if (!it && streaks.length >= 24) {
+      it = streaks[0];
+      for (let i = 1; i < streaks.length; i++) if (streaks[i].t / streaks[i].dur > it.t / it.dur) it = streaks[i];
+    }
+    if (!it) {
+      const u = { uColor: { value: new T.Color() }, uK: { value: 0 }, uMode: { value: 0 }, uD: { value: 0 } };
+      const mat = new T.ShaderMaterial({ uniforms: u, vertexShader: FX_VERT, fragmentShader: STREAK_FRAG, transparent: true, depthWrite: false, blending: T.AdditiveBlending, side: T.DoubleSide });
+      const mesh = new T.Mesh(gQuad(), mat);
+      mesh.visible = false;
+      mesh.renderOrder = 5;
+      scene.add(mesh);
+      it = { mesh, u, on: false, t: 0, dur: 1, x: 0, z: 0, y: 1, ang: 0, hex: 0xffffff, fired: true, sparks: 0 };
+      streaks.push(it);
+    }
+    return it;
+  }
+  // 从 (x0,z0) 朝 ang 方向长 len 的一道光带
+  function streak(x0, z0, y, ang, len, hw, hex, dur, mode, delay) {
+    const it = streakGet(), sn = Math.sin(ang), cs = Math.cos(ang);
+    it.on = true;
+    it.t = 0;
+    it.dur = dur;
+    it.u.uColor.value.set(hex);
+    it.u.uK.value = 0;
+    it.u.uMode.value = mode;
+    it.u.uD.value = mode ? Math.min(0.9, delay / dur) : 0;
+    it.fired = !mode;
+    it.x = x0 + sn * len * 0.5;
+    it.z = z0 + cs * len * 0.5;
+    it.y = y;
+    it.ang = ang;
+    it.hex = hex;
+    it.len = len;
+    it.mesh.position.set(it.x, y, it.z);
+    it.mesh.rotation.y = ang;
+    it.mesh.scale.set(hw, 1, len * 0.5);
+    it.mesh.visible = true;
+    return it;
+  }
+  function updateStreaks(dt) {
+    for (let i = 0; i < streaks.length; i++) {
+      const it = streaks[i];
+      if (!it.on) continue;
+      it.t += dt;
+      if (it.t >= it.dur) {
+        it.on = false;
+        it.mesh.visible = false;
+        continue;
+      }
+      const k = it.t / it.dur;
+      it.u.uK.value = k;
+      if (!it.fired && k >= it.u.uD.value) {
+        // 延迟的斩线落下：沿线炸开一串火花 + 一记闪光
+        it.fired = true;
+        _c.set(it.hex);
+        const sn = Math.sin(it.ang), cs = Math.cos(it.ang);
+        for (let j = 0; j < 16; j++) {
+          const f = rand(-0.45, 0.45) * it.len, side = Math.random() < 0.5 ? -1 : 1, v = rand(3, 8);
+          spawnP(it.x + sn * f, it.y, it.z + cs * f, cs * side * v + sn * rand(-2, 2), rand(0.5, 4), -sn * side * v + cs * rand(-2, 2), rand(0.18, 0.4), rand(0.12, 0.22), _c.r + (1 - _c.r) * 0.5, _c.g + (1 - _c.g) * 0.5, _c.b + (1 - _c.b) * 0.5, 9, 2.5);
+        }
+        flare(it.x, it.y, it.z, it.hex, 1.6, 0.12);
+        flashLight(it.x, it.y + 1, it.z, it.hex, 1.4);
+      }
+    }
+  }
+
+  // ----- 烟：第二套点精灵，普通混合（暗色的烟雾不能用加色） -----
+  const SN = 240;
+  const sPos = new Float32Array(SN * 3), sCol = new Float32Array(SN * 4), sSize = new Float32Array(SN);
+  const sVel = new Float32Array(SN * 3), sLife = new Float32Array(SN), sMax = new Float32Array(SN), sSz = new Float32Array(SN), sA = new Float32Array(SN);
+  let sNext = 0, sGeo = null, sMat = null, sPts = null;
+  function initSmoke() {
+    for (let i = 0; i < SN; i++) sPos[i * 3 + 1] = -999;
+    sGeo = new T.BufferGeometry();
+    sGeo.setAttribute('position', new T.BufferAttribute(sPos, 3).setUsage(T.DynamicDrawUsage));
+    sGeo.setAttribute('aColor', new T.BufferAttribute(sCol, 4).setUsage(T.DynamicDrawUsage));
+    sGeo.setAttribute('aSize', new T.BufferAttribute(sSize, 1).setUsage(T.DynamicDrawUsage));
+    sMat = new T.ShaderMaterial({
+      uniforms: { uScale: pMat.uniforms.uScale },
+      vertexShader:
+        'attribute vec4 aColor; attribute float aSize; uniform float uScale; varying vec4 vC;\n' +
+        'void main(){ vC = aColor; vec4 mv = modelViewMatrix * vec4(position, 1.0);\n' +
+        ' gl_PointSize = aSize * uScale / max(0.1, -mv.z); gl_Position = projectionMatrix * mv; }',
+      fragmentShader:
+        'varying vec4 vC;\n' +
+        'void main(){ vec2 q = gl_PointCoord - 0.5; float d = length(q);\n' +
+        ' float n = 0.82 + 0.18 * sin(q.x * 23.0 + vC.a * 40.0) * sin(q.y * 19.0 - vC.a * 30.0);\n' +
+        ' float a = smoothstep(0.5, 0.12, d * (1.0 + (1.0 - n))) * vC.a;\n' +
+        ' if (a < 0.01) discard; gl_FragColor = vec4(vC.rgb, a); }',
+      transparent: true, depthWrite: false,
+    });
+    sPts = new T.Points(sGeo, sMat);
+    sPts.frustumCulled = false;
+    sPts.renderOrder = 4;
+    scene.add(sPts);
+  }
+  function spawnS(x, y, z, vx, vy, vz, life, size, r, g, b, a) {
+    const i = sNext, j = i * 3;
+    sNext = (sNext + 1) % SN;
+    sPos[j] = x; sPos[j + 1] = y; sPos[j + 2] = z;
+    sVel[j] = vx; sVel[j + 1] = vy; sVel[j + 2] = vz;
+    sCol[i * 4] = r; sCol[i * 4 + 1] = g; sCol[i * 4 + 2] = b;
+    sLife[i] = sMax[i] = life;
+    sSz[i] = size;
+    sA[i] = a;
+  }
+  let smokeLive = 0;
+  function updateSmoke(dt) {
+    if (smokeLive <= 0) return;
+    smokeLive -= dt;
+    for (let i = 0, j = 0; i < SN; i++, j += 3) {
+      let l = sLife[i];
+      if (l <= 0) continue;
+      l -= dt;
+      if (l <= 0) {
+        sLife[i] = 0;
+        sSize[i] = 0;
+        sPos[j + 1] = -999;
+        sCol[i * 4 + 3] = 0;
+        continue;
+      }
+      sLife[i] = l;
+      const dr = Math.max(0, 1 - 2.2 * dt);
+      sVel[j] *= dr; sVel[j + 1] *= dr; sVel[j + 2] *= dr;
+      sPos[j] += sVel[j] * dt; sPos[j + 1] += sVel[j + 1] * dt; sPos[j + 2] += sVel[j + 2] * dt;
+      const f = l / sMax[i];
+      sCol[i * 4 + 3] = sA[i] * Math.min(1, (1 - f) * 8) * f;
+      sSize[i] = sSz[i] * (1.5 - 0.8 * f);
+    }
+    sGeo.attributes.position.needsUpdate = true;
+    sGeo.attributes.aColor.needsUpdate = true;
+    sGeo.attributes.aSize.needsUpdate = true;
+  }
+  // 一团烟：r 半径，n 团数，hex 烟的色调（会被压暗）
+  W.smoke = function (x, y, z, r, n, hex) {
+    _c.set(hex === undefined ? 0x2a2233 : hex);
+    for (let i = 0; i < n; i++) {
+      const a = rand(0, TAU), d = r * Math.sqrt(Math.random()), v = rand(0.6, 2.2);
+      spawnS(x + Math.sin(a) * d, y + rand(-0.3, 0.6), z + Math.cos(a) * d, Math.sin(a) * v, rand(0.3, 1.4), Math.cos(a) * v, rand(0.5, 0.95), rand(0.8, 1.4) * (0.7 + r * 0.6), _c.r, _c.g, _c.b, rand(0.8, 1));
+    }
+    smokeLive = 1.2;
+  };
+
+  // ----- 残影：玩家此刻姿势的半透明轮廓，原地淡出 -----
+  const GHOST_VERT = [
+    'attribute float aBone; uniform mat4 uBones[ NB ]; varying vec3 vN; varying vec3 vV;',
+    'void main(){ mat4 b = uBones[ int( aBone + 0.5 ) ]; vec4 mv = modelViewMatrix * ( b * vec4( position, 1.0 ) );',
+    ' vN = normalize( normalMatrix * ( mat3( b ) * normal ) ); vV = -mv.xyz; gl_Position = projectionMatrix * mv; }',
+  ].join('\n');
+  const GHOST_FRAG = 'uniform vec3 uColor; uniform float uA; varying vec3 vN; varying vec3 vV;\nvoid main(){ float r = 1.0 - abs( dot( normalize( vN ), normalize( vV ) ) ); float a = ( 0.18 + 0.82 * r * r ) * uA; gl_FragColor = vec4( uColor * ( 0.6 + 0.8 * r ), a ); }';
+  const ghosts = [];
+  function initGhosts() {
+    const rig = playerRig();
+    for (let i = 0; i < 6; i++) {
+      const u = { uBones: { value: new Float32Array(rig.NB * 16) }, uColor: { value: new T.Color() }, uA: { value: 0 } };
+      const mat = new T.ShaderMaterial({ uniforms: u, vertexShader: GHOST_VERT, fragmentShader: GHOST_FRAG, transparent: true, depthWrite: false, blending: T.AdditiveBlending });
+      mat.defines = { NB: rig.NB };
+      const mesh = new T.Mesh(rig.geoBody, mat);
+      mesh.visible = false;
+      mesh.renderOrder = 5;
+      scene.add(mesh);
+      ghosts.push({ mesh, u, on: false, t: 0, dur: 0.3, a0: 1, wait: 0 });
+    }
+  }
+  // 在 (x,z) 留一个 ent（玩家）当前姿势的残影；a 初始亮度，dur 淡出秒数，wait 延迟多久才出现
+  W.afterimage = function (ent, x, z, hex, a, dur, wait) {
+    if (!ent || ent.removed || ent.rig !== playerRig()) return;
+    let g = null;
+    for (let i = 0; i < ghosts.length; i++) if (!ghosts[i].on) { g = ghosts[i]; break; }
+    if (!g) {
+      g = ghosts[0];
+      for (let i = 1; i < ghosts.length; i++) if (ghosts[i].t / ghosts[i].dur > g.t / g.dur) g = ghosts[i];
+    }
+    g.on = true;
+    g.t = 0;
+    g.dur = dur || 0.3;
+    g.a0 = a === undefined ? 0.9 : a;
+    g.wait = wait || 0;
+    g.u.uBones.value.set(ent.bones);
+    g.u.uColor.value.set(hex === undefined ? 0xbfd8ff : hex);
+    g.u.uA.value = g.wait > 0 ? 0 : g.a0;
+    g.mesh.position.set(x, ent.group.position.y, z);
+    g.mesh.rotation.set(0, ent.group.rotation.y, 0);
+    g.mesh.scale.setScalar(ent.group.scale.x * ent.k);
+    g.mesh.visible = g.wait <= 0;
+  };
+  function updateGhosts(dt) {
+    for (let i = 0; i < ghosts.length; i++) {
+      const g = ghosts[i];
+      if (!g.on) continue;
+      if (g.wait > 0) {
+        g.wait -= dt;
+        if (g.wait > 0) continue;
+        g.mesh.visible = true;
+      }
+      g.t += dt;
+      const k = g.t / g.dur;
+      if (k >= 1) {
+        g.on = false;
+        g.mesh.visible = false;
+      } else g.u.uA.value = g.a0 * (1 - k) * (1 - k * 0.5);
+    }
+  }
+
+  // ----- 震地的冲击波：从脚下沿 ang 推出去、越推越宽的一道波前 -----
+  const WAVE_FRAG = [
+    'uniform vec3 uColor; uniform float uK; uniform float uW0; uniform float uW1; varying vec2 vP;',
+    'void main(){',
+    '  float s = vP.y * 0.5 + 0.5;',
+    '  float hw = mix(uW0, uW1, s) / uW1;',
+    '  float ax = abs(vP.x) / max(hw, 0.001);',
+    '  if (ax > 1.0) discard;',
+    '  float front = min(uK / 0.72, 1.0);',
+    '  float d = front - s - ax * ax * 0.05;', // 波前略微前凸
+    '  if (d < 0.0) discard;',
+    '  float band = exp(-d * d * 260.0);',
+    '  float wake = exp(-d * 6.0) * 0.32;',
+    '  float edge = 1.0 - smoothstep(0.7, 1.0, ax);',
+    '  float fade = 1.0 - smoothstep(0.66, 1.0, uK);',
+    '  float a = (band + wake) * edge * fade * smoothstep(0.0, 0.05, s);',
+    '  gl_FragColor = vec4(mix(uColor, vec3(1.0), band * 0.55), a);',
+    '}',
+  ].join('\n');
+  const waves = [];
+  W.shockwave = function (x, z, ang, len, w0, w1, hex, dur) {
+    let it = null;
+    for (let i = 0; i < waves.length; i++) if (!waves[i].on) { it = waves[i]; break; }
+    if (!it && waves.length >= 4) it = waves[0];
+    if (!it) {
+      const u = { uColor: { value: new T.Color() }, uK: { value: 0 }, uW0: { value: 1 }, uW1: { value: 1 } };
+      const mat = new T.ShaderMaterial({ uniforms: u, vertexShader: FX_VERT, fragmentShader: WAVE_FRAG, transparent: true, depthWrite: false, blending: T.AdditiveBlending, side: T.DoubleSide });
+      const mesh = new T.Mesh(gQuad(), mat);
+      mesh.visible = false;
+      mesh.renderOrder = 4;
+      scene.add(mesh);
+      it = { mesh, u, on: false, t: 0, dur: 1, x: 0, z: 0, ang: 0, len: 1, w0: 1, w1: 1, hex: 0, done: 0, crack: 0 };
+      waves.push(it);
+    }
+    dur = dur || 0.55;
+    it.on = true;
+    it.t = 0;
+    it.dur = dur;
+    it.x = x; it.z = z; it.ang = ang; it.len = len; it.w0 = w0; it.w1 = w1; it.hex = hexOf(hex);
+    it.done = 0;
+    it.crack = 0.6;
+    it.u.uColor.value.set(it.hex);
+    it.u.uK.value = 0;
+    it.u.uW0.value = w0;
+    it.u.uW1.value = w1;
+    const sn = Math.sin(ang), cs = Math.cos(ang);
+    it.mesh.position.set(x + sn * len * 0.5, 0.11, z + cs * len * 0.5);
+    it.mesh.rotation.y = ang;
+    it.mesh.scale.set(w1 * 0.5, 1, len * 0.5);
+    it.mesh.visible = true;
+    // 落锤点：一圈冲击环、一块砸裂的地面、一团尘土和碎石
+    W.ring(x, z, w0 * 1.6 + 0.8, hex, 0.35);
+    W.decal(5, x, z, w0 + 0.9, rand(0, TAU), hex, 3.5);
+    W.smoke(x, 0.4, z, 0.9, 10, 0x5a4a3e);
+    _c.set(hex);
+    for (let i = 0; i < 18; i++) {
+      const a = rand(0, TAU), v = rand(2, 7);
+      spawnP(x + Math.sin(a) * 0.4, 0.2, z + Math.cos(a) * 0.4, Math.sin(a) * v, rand(3, 8), Math.cos(a) * v, rand(0.5, 0.9), rand(0.18, 0.32), 0.42, 0.36, 0.3, 22, 0.6);
+    }
+    flare(x, 0.6, z, hex, 2.2, 0.14);
+    flashLight(x, 1.5, z, hex, 2.4);
+    W.shake(0.45);
+  };
+  function updateWaves(dt) {
+    for (let i = 0; i < waves.length; i++) {
+      const it = waves[i];
+      if (!it.on) continue;
+      it.t += dt;
+      const k = it.t / it.dur;
+      if (k >= 1) {
+        it.on = false;
+        it.mesh.visible = false;
+        continue;
+      }
+      it.u.uK.value = k;
+      // 波前走过的地方：翻起碎石和元素色的火花，隔一段裂开一道地缝
+      const f = Math.min(1, k / 0.72) * it.len, sn = Math.sin(it.ang), cs = Math.cos(it.ang);
+      _c.set(it.hex);
+      while (it.done < f) {
+        it.done += 0.32;
+        const s = it.done, hw = (it.w0 + (it.w1 - it.w0) * (s / it.len)) * 0.5;
+        const px = it.x + sn * s, pz = it.z + cs * s;
+        for (let j = 0; j < 2; j++) {
+          const o = rand(-hw, hw) * 0.9;
+          spawnP(px + cs * o, 0.15, pz - sn * o, sn * rand(1, 3), rand(3, 7), cs * rand(1, 3), rand(0.35, 0.7), rand(0.16, 0.28), 0.4, 0.34, 0.28, 20, 0.8);
+          spawnP(px + cs * o, 0.3, pz - sn * o, sn * rand(2, 5), rand(1, 3), cs * rand(2, 5), rand(0.2, 0.4), rand(0.12, 0.2), _c.r + (1 - _c.r) * 0.4, _c.g + (1 - _c.g) * 0.4, _c.b + (1 - _c.b) * 0.4, 6, 2);
+        }
+        if (s >= it.crack) {
+          it.crack += 1.5;
+          W.decal(5, px, pz, 0.55 + hw * 0.6, it.ang + rand(-0.4, 0.4), it.hex, 2.6);
+        }
+      }
+    }
+  }
+
+  // ----- 箭雨：一个 InstancedMesh 画所有的箭（下落时拉长成发光的箭影，落地后插在地上一会儿） -----
+  const AR_MAX = 90;
+  const arX = new Float32Array(AR_MAX), arZ = new Float32Array(AR_MAX), arY = new Float32Array(AR_MAX), arT = new Float32Array(AR_MAX), arS = new Uint8Array(AR_MAX);
+  const arDX = new Float32Array(AR_MAX), arDZ = new Float32Array(AR_MAX), arC = new Uint32Array(AR_MAX);
+  let arMesh = null, arNext = 0, arLive = 0;
+  const AR_FALL = 0.2, AR_STUCK = 0.75, AR_RISE = 0.3, AR_H = 8;
+  const rains = [];
+  const ZONE_FRAG = [
+    'uniform vec3 uColor; uniform float uK; uniform float uA; varying vec2 vP;',
+    'void main(){',
+    '  float l = length(vP); if (l > 1.0) discard;',
+    '  float an = atan(vP.x, vP.y);',
+    '  float edge = 1.0 - smoothstep(0.0, 0.03, abs(l - 0.96));',
+    '  float ticks = pow(abs(sin(an * 10.0 - uK * 6.0)), 30.0) * smoothstep(0.84, 0.92, l) * (1.0 - smoothstep(0.95, 1.0, l));',
+    '  float fill = smoothstep(0.2, 1.0, l) * 0.08;',
+    '  float a = (edge * 0.75 + ticks * 0.5 + fill) * uA;',
+    '  gl_FragColor = vec4(mix(uColor, vec3(1.0), edge * 0.3), a);',
+    '}',
+  ].join('\n');
+  function initArrows() {
+    const parts = [
+      [gCyl(0.018, 0.018, 0.95, 4), 0xc8a878, 0, 0.5, 0],
+      [gCone(0.05, 0.16, 4), 0xffffff, 0, 0.0, 0, Math.PI],
+      [gBox(0.11, 0.16, 0.012), 0xf0e8d8, 0, 0.9, 0],
+      [gBox(0.012, 0.16, 0.11), 0xf0e8d8, 0, 0.9, 0],
+    ];
+    const g = bake('fx/arrow', parts);
+    const mat = new T.MeshBasicMaterial({ vertexColors: true, toneMapped: false, fog: false });
+    arMesh = new T.InstancedMesh(g, mat, AR_MAX);
+    arMesh.instanceMatrix.setUsage(T.DynamicDrawUsage);
+    _c.setRGB(1, 1, 1);
+    for (let i = 0; i < AR_MAX; i++) {
+      arMesh.setColorAt(i, _c);
+      _m4.makeScale(0, 0, 0);
+      arMesh.setMatrixAt(i, _m4);
+    }
+    arMesh.instanceColor.setUsage(T.DynamicDrawUsage);
+    arMesh.frustumCulled = false;
+    arMesh.renderOrder = 4;
+    arMesh.visible = false;
+    scene.add(arMesh);
+  }
+  // 放一支箭：state 1 = 从天上落到 (x,z)；3 = 从 (x,y,z) 往天上射走
+  function arrowSpawn(x, y, z, dx, dz, state, hex) {
+    const i = arNext;
+    arNext = (arNext + 1) % AR_MAX;
+    arX[i] = x; arY[i] = y; arZ[i] = z; arDX[i] = dx; arDZ[i] = dz;
+    arT[i] = 0;
+    arS[i] = state;
+    arC[i] = hex;
+    arLive = 1.5;
+  }
+  // 箭雨：在 (x,z) 半径 r 的范围里下 dur 秒的箭（delay 秒后开始落，默认 0.25）；fromX/fromZ 给出时先从那里朝天射出一把箭
+  W.arrowRain = function (x, z, r, dur, hex, fromX, fromZ, delay) {
+    let it = null;
+    for (let i = 0; i < rains.length; i++) if (!rains[i].on) { it = rains[i]; break; }
+    if (!it && rains.length >= 4) it = rains[0];
+    if (!it) {
+      const u = { uColor: { value: new T.Color() }, uK: { value: 0 }, uA: { value: 0 } };
+      const mat = new T.ShaderMaterial({ uniforms: u, vertexShader: FX_VERT, fragmentShader: ZONE_FRAG, transparent: true, depthWrite: false, blending: T.AdditiveBlending, side: T.DoubleSide });
+      const mesh = new T.Mesh(gQuad(), mat);
+      mesh.visible = false;
+      mesh.renderOrder = 3;
+      scene.add(mesh);
+      it = { mesh, u, on: false, t: 0, dur: 1, x: 0, z: 0, r: 1, acc: 0, hex: 0, dx: 0, dz: 1, delay: 0 };
+      rains.push(it);
+    }
+    it.on = true;
+    it.t = 0;
+    it.delay = delay === undefined ? 0.25 : delay;
+    it.dur = dur;
+    it.x = x; it.z = z; it.r = r; it.acc = 0;
+    it.hex = hexOf(hex);
+    // 箭从射手那一侧斜着落下来
+    let dx = 0, dz = 1;
+    if (fromX !== undefined) {
+      dx = x - fromX;
+      dz = z - fromZ;
+      const l = Math.hypot(dx, dz) || 1;
+      dx /= l;
+      dz /= l;
+      _c.set(it.hex);
+      for (let i = 0; i < 7; i++) arrowSpawn(fromX + rand(-0.3, 0.3), 1.8 + rand(0, 0.4), fromZ + rand(-0.3, 0.3), dx, dz, 3, it.hex);
+      flare(fromX, 2, fromZ, it.hex, 1.2, 0.1);
+    }
+    it.dx = dx;
+    it.dz = dz;
+    it.u.uColor.value.set(it.hex);
+    it.u.uA.value = 0;
+    it.mesh.position.set(x, 0.09, z);
+    it.mesh.scale.set(r, 1, r);
+    it.mesh.visible = true;
+  };
+  function updateArrows(dt) {
+    // 发射器：按时间撒箭
+    for (let i = 0; i < rains.length; i++) {
+      const it = rains[i];
+      if (!it.on) continue;
+      it.t += dt;
+      const live = it.t - it.delay;
+      it.u.uK.value = it.t;
+      it.u.uA.value = Math.min(1, it.t / 0.2) * (live > it.dur ? Math.max(0, 1 - (live - it.dur) / 0.35) : 1);
+      if (live > it.dur + 0.35) {
+        it.on = false;
+        it.mesh.visible = false;
+        continue;
+      }
+      if (live < 0 || live > it.dur) continue;
+      it.acc += dt * (26 + it.r * 6);
+      while (it.acc > 1) {
+        it.acc -= 1;
+        const a = rand(0, TAU), d = it.r * Math.sqrt(Math.random()) * 0.95;
+        arrowSpawn(it.x + Math.sin(a) * d, 0, it.z + Math.cos(a) * d, it.dx + rand(-0.15, 0.15), it.dz + rand(-0.15, 0.15), 1, it.hex);
+      }
+    }
+    if (arLive <= 0) {
+      if (arMesh.visible) arMesh.visible = false;
+      return;
+    }
+    arLive -= dt;
+    arMesh.visible = true;
+    for (let i = 0; i < AR_MAX; i++) {
+      const st = arS[i];
+      if (!st) continue;
+      arT[i] += dt;
+      const t = arT[i];
+      let px, py, pz, sy = 1, tilt = 0.35, bright = 1;
+      if (st === 1) {
+        const k = t / AR_FALL;
+        if (k >= 1) {
+          // 落地：插进土里，扬一点尘，闪一下
+          arS[i] = 2;
+          arT[i] = 0;
+          _c.set(arC[i]);
+          for (let j = 0; j < 3; j++) spawnP(arX[i], 0.12, arZ[i], rand(-1.5, 1.5), rand(0.8, 2.4), rand(-1.5, 1.5), rand(0.25, 0.45), rand(0.16, 0.26), 0.38, 0.33, 0.27, 6, 2);
+          spawnP(arX[i], 0.25, arZ[i], 0, 1, 0, 0.12, 0.35, _c.r, _c.g, _c.b, 0, 0);
+          arLive = Math.max(arLive, AR_STUCK);
+          px = arX[i]; py = -0.12; pz = arZ[i];
+        } else {
+          const h = AR_H * (1 - k);
+          px = arX[i] - arDX[i] * h * 0.4; py = h; pz = arZ[i] - arDZ[i] * h * 0.4;
+          sy = 2.4;
+          bright = 2.2;
+        }
+      } else if (st === 2) {
+        const k = t / AR_STUCK;
+        if (k >= 1) {
+          arS[i] = 0;
+          _m4.makeScale(0, 0, 0);
+          arMesh.setMatrixAt(i, _m4);
+          continue;
+        }
+        px = arX[i]; py = -0.12 - k * k * 0.5; pz = arZ[i];
+        bright = 0.55 * (1 - k) + 0.15;
+      } else {
+        const k = t / AR_RISE;
+        if (k >= 1) {
+          arS[i] = 0;
+          _m4.makeScale(0, 0, 0);
+          arMesh.setMatrixAt(i, _m4);
+          continue;
+        }
+        px = arX[i] + arDX[i] * k * 3; py = arY[i] + k * 14; pz = arZ[i] + arDZ[i] * k * 3;
+        sy = -2.4; // 箭尖朝上
+        tilt = 0.25;
+        bright = 2;
+      }
+      // 箭沿 y 轴：箭尖在原点、箭杆朝 +y；朝来向倾斜
+      _v.set(-arDZ[i], 0, arDX[i]);
+      _q.setFromAxisAngle(_v.normalize(), -tilt * (sy < 0 ? -1 : 1));
+      _m4.compose(_v2.set(px, py, pz), _q, _s.set(1, Math.abs(sy), 1));
+      if (sy < 0) _m4.multiply(_mFlip);
+      arMesh.setMatrixAt(i, _m4);
+      _c.set(arC[i]).lerp(_c2.setRGB(1, 1, 1), 0.35).multiplyScalar(bright);
+      arMesh.setColorAt(i, _c);
+    }
+    arMesh.instanceMatrix.needsUpdate = true;
+    arMesh.instanceColor.needsUpdate = true;
+  }
+  const _mFlip = new T.Matrix4().makeRotationX(Math.PI);
+
+  // ----- 秘弹：短杖的追踪小弹（由调用方移动；朝着移动方向，拖一道细尾） -----
+  W.makeSeeker = function (hex) {
+    const h = hexOf(hex);
+    const grp = new T.Group();
+    const core = new T.Mesh(gOct(1), coreMat(h));
+    core.scale.set(0.09, 0.09, 0.26);
+    grp.add(core);
+    const glow = new T.Sprite(spriteMat(h));
+    glow.scale.setScalar(0.9);
+    grp.add(glow);
+    _c.set(h);
+    const u = grp.userData;
+    u.kind = 'proj';
+    u.seek = true;
+    u.r = _c.r; u.g = _c.g; u.b = _c.b;
+    u.rad = 0.07;
+    u.acc = 0;
+    u.lx = NaN; u.lz = NaN;
+    grp.position.y = -50;
+    scene.add(grp);
+    projObjs.push(grp);
+    return grp;
+  };
+  // 秘弹出膛 / 命中的一小下闪光
+  W.seekerFx = function (x, y, z, hex) {
+    _c.set(hex);
+    for (let i = 0; i < 6; i++) {
+      const a = rand(0, TAU), v = rand(2, 5);
+      spawnP(x, y, z, Math.sin(a) * v, rand(-1, 3), Math.cos(a) * v, rand(0.12, 0.25), 0.14, _c.r + (1 - _c.r) * 0.4, _c.g + (1 - _c.g) * 0.4, _c.b + (1 - _c.b) * 0.4, 4, 3);
+    }
+    flare(x, y, z, hex, 0.8, 0.07);
+  };
+
+  // ----- 各武器技的组合特效 -----
+  // 刃「回锋斩」的直刺：从 (x,z) 朝 ang 刺出 len 远的一道枪芒
+  W.thrustFx = function (x, z, ang, len, hex) {
+    streak(x, z, 1.05, ang, len, 0.55, hex, 0.3, 0, 0);
+    const sn = Math.sin(ang), cs = Math.cos(ang);
+    _c.set(hex);
+    for (let i = 0; i < 12; i++) {
+      const f = rand(0.3, 1) * len;
+      spawnP(x + sn * f, 1.05 + rand(-0.15, 0.15), z + cs * f, sn * rand(4, 10), rand(-0.5, 1.5), cs * rand(4, 10), rand(0.12, 0.26), rand(0.1, 0.18), _c.r + (1 - _c.r) * 0.5, _c.g + (1 - _c.g) * 0.5, _c.b + (1 - _c.b) * 0.5, 2, 3);
+    }
+    flare(x + sn * len, 1.05, z + cs * len, hex, 1.1, 0.09);
+  };
+  // 刃「回锋斩」的回身横扫：绕 (x,z) 一整圈的月牙 + 外沿的冲击环 + 卷起的尘
+  W.sweepFx = function (x, z, r, hex) {
+    W.slash(x, z, rand(0, TAU), r, 360, hex, { dur: 0.3, inner: 0.55, y: 0.9 });
+    W.ring(x, z, r * 1.05, hex, 0.3);
+    for (let i = 0; i < 14; i++) {
+      const a = rand(0, TAU), d = r * rand(0.6, 1);
+      spawnP(x + Math.sin(a) * d, 0.25, z + Math.cos(a) * d, Math.cos(a) * 3, rand(0.5, 1.5), -Math.sin(a) * 3, rand(0.3, 0.55), rand(0.25, 0.4), 0.36, 0.32, 0.27, 1, 2.5);
+    }
+  };
+  // 长杖「地脉涌」：脚下炸开一圈，地面裂出几道发光的地脉，沿圈喷起元素色的光柱。type：phys / fire / cold / light（决定地上的痕迹）
+  const BURST_DECAL = { fire: 1, cold: 2, light: 3, phys: 5 };
+  W.groundBurst = function (x, z, r, hex, type) {
+    W.ring(x, z, r, hex, 0.45);
+    W.ring(x, z, r * 0.55, mixHex(hex, 0xffffff, 0.5), 0.3);
+    W.decal(BURST_DECAL[type] === undefined ? 5 : BURST_DECAL[type], x, z, r * 0.8, rand(0, TAU), hex, 3.5);
+    const a0 = rand(0, TAU);
+    for (let i = 0; i < 6; i++) streak(x, z, 0.14, a0 + (i / 6) * TAU + rand(-0.2, 0.2), r * rand(0.75, 0.95), 0.22, hex, 0.42, 0, 0);
+    _c.set(hex);
+    for (let i = 0; i < 26; i++) {
+      const a = rand(0, TAU), d = r * rand(0.3, 0.95), wh = i % 3 === 0 ? 0.6 : 0.1;
+      spawnP(x + Math.sin(a) * d, 0.2, z + Math.cos(a) * d, Math.sin(a) * rand(0.2, 1.5), rand(5, 10), Math.cos(a) * rand(0.2, 1.5), rand(0.35, 0.7), rand(0.18, 0.32), _c.r + (1 - _c.r) * wh, _c.g + (1 - _c.g) * wh, _c.b + (1 - _c.b) * wh, 9, 1.2);
+    }
+    W.burst(x, 0.6, z, hex, 22, 6, 0.5);
+    flare(x, 0.8, z, hex, 2.2, 0.14);
+    W.shake(0.3);
+  };
+  // 双匕「影刺」：起点和落点各一团烟，中间一串往回飘的暗影，落点一记闪光
+  W.shadowStep = function (x0, z0, x1, z1, hex) {
+    W.smoke(x0, 0.7, z0, 0.6, 14, 0x5a4870);
+    W.smoke(x1, 0.7, z1, 0.5, 10, 0x5a4870);
+    const dx = x1 - x0, dz = z1 - z0, d = Math.hypot(dx, dz) || 1, n = Math.max(3, Math.ceil(d * 2.5));
+    _c.set(hex);
+    for (let i = 0; i < n; i++) {
+      const k = i / n;
+      spawnP(x0 + dx * k + rand(-0.2, 0.2), rand(0.4, 1.6), z0 + dz * k + rand(-0.2, 0.2), (-dx / d) * rand(0.3, 1.2), rand(0, 0.6), (-dz / d) * rand(0.3, 1.2), rand(0.25, 0.5), rand(0.18, 0.3), _c.r * 0.7, _c.g * 0.7, _c.b * 0.7, -0.3, 2);
+    }
+    flare(x1, 1.1, z1, hex, 1.0, 0.08);
+  };
+  // 太刀「瞬断」的冲刺：沿路径留下几道残影（用 ent 此刻的姿势）、一道光带和地上的擦痕
+  W.dashCut = function (ent, x0, z0, x1, z1, hex) {
+    const dx = x1 - x0, dz = z1 - z0, d = Math.hypot(dx, dz);
+    const ang = Math.atan2(dx, dz);
+    if (ent) for (let i = 0; i < 4; i++) {
+      const f = 0.15 + i * 0.22;
+      W.afterimage(ent, x0 + dx * f, z0 + dz * f, hex, 0.35 + i * 0.15, 0.22 + i * 0.05, 0);
+    }
+    if (d > 0.2) {
+      streak(x0, z0, 1.0, ang, d, 0.42, hex, 0.3, 0, 0);
+      W.decal(0, x0 + dx * 0.5, z0 + dz * 0.5, d * 0.5, ang, hex, 0.5, 0.2);
+    }
+    _c.set(hex);
+    const n = Math.max(3, Math.ceil(d * 3));
+    for (let i = 0; i < n; i++) {
+      const k = i / n;
+      spawnP(x0 + dx * k + rand(-0.15, 0.15), rand(0.3, 1.6), z0 + dz * k + rand(-0.15, 0.15), (dx / (d || 1)) * rand(1, 3), rand(-0.2, 0.6), (dz / (d || 1)) * rand(1, 3), rand(0.2, 0.4), rand(0.12, 0.22), _c.r + (1 - _c.r) * 0.5, _c.g + (1 - _c.g) * 0.5, _c.b + (1 - _c.b) * 0.5, 0, 2.5);
+    }
+  };
+  // 一道延迟落下的斩线：立刻在 (x,z) 横着出现一道细暗线，delay 秒后骤亮、炸开火花再消失
+  W.cutLine = function (x, z, ang, len, hex, delay) {
+    const dl = delay === undefined ? 0.35 : Math.max(0, delay);
+    const sn = Math.sin(ang), cs = Math.cos(ang);
+    streak(x - sn * len * 0.5, z - cs * len * 0.5, 1.0, ang, len, 0.5, hex, dl + 0.24, 1, dl);
+  };
+  // ----- 魂幡「魂潮」 -----
+  // 魂灵出幡：W.soulTide(x, z, ang, hex[, ent])。杆头（ent 缺省是玩家；拿着武器时取它的 weapon 挂点，否则在 (x, 2.3, z)）
+  // 炸开一团魂火、魂雾往外卷（偏向 ang 方向），脚下一圈魂环，一圈魂火从地上升起
+  W.soulTide = function (x, z, ang, hex, ent) {
+    const h = hexOf(hex === undefined || hex === null ? ALLY_HEX : hex);
+    if (ent === undefined) ent = G.player && G.player.ent;
+    const fa = ang || 0, fx = Math.sin(fa), fz = Math.cos(fa);
+    let bx = x, by = 2.3, bz = z;
+    if (ent && !ent.removed && ent.sock && ent.sock.weapon && ent.gearType >= 0) {
+      W.entSocket(ent, 'weapon', _sk);
+      bx = _sk.x; by = _sk.y; bz = _sk.z;
+    }
+    W.ring(x, z, 2.4, h, 0.5);
+    W.ring(x, z, 1.2, mixHex(h, 0xffffff, 0.55), 0.32);
+    flare(bx, by, bz, h, 2.0, 0.16);
+    flashLight(bx, by, bz, h, 1.8);
+    W.smoke(bx, by, bz, 0.35, 6, mixHex(h, 0x141820, 0.6));
+    _c.set(h);
+    for (let i = 0; i < 30; i++) {
+      // 杆头：一圈往外旋出去的魂火，带一点上浮
+      const a = rand(0, TAU), v = rand(1.5, 4.5), wh = i % 3 === 0 ? 0.65 : 0.15, f = rand(1, 4);
+      spawnP(bx, by, bz, Math.sin(a) * v + Math.cos(a) * v * 0.5 + fx * f, rand(-0.5, 2), Math.cos(a) * v - Math.sin(a) * v * 0.5 + fz * f, rand(0.35, 0.7), rand(0.14, 0.26), _c.r + (1 - _c.r) * wh, _c.g + (1 - _c.g) * wh, _c.b + (1 - _c.b) * wh, -1.2, 2.2);
+    }
+    for (let i = 0; i < 18; i++) {
+      // 魂环上升起的魂火
+      const a = (i / 18) * TAU + rand(-0.1, 0.1);
+      spawnP(x + Math.sin(a) * 2.2, 0.15, z + Math.cos(a) * 2.2, -Math.sin(a) * 0.6, rand(2.5, 4.5), -Math.cos(a) * 0.6, rand(0.4, 0.75), rand(0.16, 0.26), _c.r * 0.9, _c.g * 0.9, _c.b * 0.9, -0.4, 1.4);
+    }
+  };
+  // 魂灵（由调用方移动，和 makeProjectile / makeSeeker 一样用 W.removeMesh 移除）：一颗亮的魂火头拖一条渐细的魂尾，朝着移动方向，
+  // 一路飘下往上浮的魂火屑
+  W.makeWisp = function (hex) {
+    const h = hexOf(hex === undefined || hex === null ? ALLY_HEX : hex);
+    const grp = new T.Group();
+    const body = new T.Group();
+    grp.add(body);
+    const head = new T.Mesh(gSph(1, 8, 6), coreMat(mixHex(h, 0xffffff, 0.45)));
+    head.scale.set(0.12, 0.12, 0.15);
+    body.add(head);
+    const tail = new T.Mesh(gCone(1, 1, 6), coreMat(h));
+    tail.rotation.x = -HALF_PI; // 锥尖朝后（-z）
+    tail.position.z = -0.24;
+    tail.scale.set(0.085, 0.42, 0.085);
+    body.add(tail);
+    const glow = new T.Sprite(spriteMat(h));
+    glow.scale.setScalar(1.15);
+    body.add(glow);
+    _c.set(h);
+    const u = grp.userData;
+    u.kind = 'proj';
+    u.seek = true;
+    u.wisp = body;
+    u.r = _c.r; u.g = _c.g; u.b = _c.b;
+    u.rad = 0.1;
+    u.acc = 0;
+    u.ph = rand(0, TAU);
+    u.age = 0;
+    u.lx = NaN; u.lz = NaN;
+    grp.position.y = -50;
+    scene.add(grp);
+    projObjs.push(grp);
+    return grp;
+  };
+  // 魂灵撞上目标炸开：W.wispBurst(x, z, r, hex)，r 是炸开的半径。魂火往外炸成一圈、一点魂雾、地上一圈魂环、一记闪光
+  W.wispBurst = function (x, z, r, hex) {
+    const h = hexOf(hex === undefined || hex === null ? ALLY_HEX : hex), R = r || 1;
+    const y = 1.1;
+    _c.set(h);
+    for (let i = 0; i < 16; i++) {
+      const a = rand(0, TAU), v = rand(2, 4.5) * R, wh = i % 2 ? 0.55 : 0.1;
+      spawnP(x, y, z, Math.sin(a) * v, rand(0, 3), Math.cos(a) * v, rand(0.22, 0.4), rand(0.14, 0.24), _c.r + (1 - _c.r) * wh, _c.g + (1 - _c.g) * wh, _c.b + (1 - _c.b) * wh, -0.8, 3);
+    }
+    W.smoke(x, y, z, 0.3 * R, 5, mixHex(h, 0x141820, 0.55));
+    flare(x, y, z, h, 1.2 + 0.3 * R, 0.1);
+    W.ring(x, z, R, h, 0.25);
+  };
+  // 魂潮的狂热：W.frenzyFx(ent, dur[, hex])，召唤物身上 dur 秒的魂火（轮廓光跟着脉动、身上不断冒出往上飘的魂火屑），结束时恢复原来的轮廓光
+  const frenzies = [];
+  W.frenzyFx = W.frenzy = function (ent, dur, hex) {
+    if (!ent || ent.removed) return;
+    const h = hexOf(hex === undefined || hex === null ? ALLY_HEX : hex);
+    let it = null;
+    for (let i = 0; i < frenzies.length; i++) if (frenzies[i].ent === ent) { it = frenzies[i]; break; }
+    if (!it) {
+      it = { ent, t: 0, dur: 1, acc: 0, rim: new T.Color().copy(ent.uRim.value), col: new T.Color() };
+      frenzies.push(it);
+    }
+    it.t = 0;
+    it.dur = dur === undefined ? 4 : dur;
+    it.col.set(h).convertSRGBToLinear();
+    W.entSocket(ent, 'chest', _sk);
+    flare(_sk.x, _sk.y, _sk.z, h, 1.3, 0.12);
+    _c.set(h);
+    for (let i = 0; i < 10; i++) {
+      const a = rand(0, TAU);
+      spawnP(_sk.x + Math.sin(a) * 0.4, _sk.y - 0.4, _sk.z + Math.cos(a) * 0.4, Math.sin(a) * 1.2, rand(2, 4), Math.cos(a) * 1.2, rand(0.35, 0.6), rand(0.16, 0.24), _c.r, _c.g, _c.b, -0.8, 1.5);
+    }
+  };
+  function updateFrenzy(dt) {
+    for (let i = frenzies.length - 1; i >= 0; i--) {
+      const it = frenzies[i], e = it.ent;
+      it.t += dt;
+      if (e.removed || e.dying || it.t >= it.dur) {
+        if (!e.removed) e.uRim.value.copy(it.rim);
+        frenzies.splice(i, 1);
+        continue;
+      }
+      // 轮廓光：先亮一下，之后随心跳般的脉动，最后半秒淡回去
+      const fade = Math.min(1, (it.dur - it.t) / 0.5), pulse = 0.55 + 0.45 * Math.sin(it.t * 9) * Math.sin(it.t * 9);
+      const k = Math.min(1, it.t / 0.15) * fade * (0.6 + 0.9 * pulse);
+      e.uRim.value.copy(it.rim).lerp(it.col, Math.min(1, k * 0.8)).multiplyScalar(1 + k * 1.6);
+      it.acc += dt;
+      if (it.acc > 0.07 && e.group.visible) {
+        it.acc = 0;
+        W.entSocket(e, 'chest', _sk);
+        spawnP(_sk.x + rand(-0.35, 0.35), _sk.y + rand(-0.6, 0.3), _sk.z + rand(-0.35, 0.35), rand(-0.3, 0.3), rand(1.2, 2.6), rand(-0.3, 0.3), rand(0.35, 0.6), rand(0.12, 0.2), it.col.r * 1.4, it.col.g * 1.4, it.col.b * 1.4, -0.6, 1.2);
+      }
+    }
+  }
+  function clearFrenzy() {
+    for (const it of frenzies) if (!it.ent.removed) it.ent.uRim.value.copy(it.rim);
+    frenzies.length = 0;
+  }
+
+  // ----- 震飞：被震地掀起的敌人整个弹离地面一小段（只动整体高度，落地归零；setEnt 每帧把高度设回 0，这里在它之后再抬起来） -----
+  const knocks = [];
+  W.knockUp = function (ent, s) {
+    if (!ent || ent.removed) return;
+    if (!(ent.kuT < ent.kuDur)) knocks.push(ent);
+    const k = s === undefined ? 1 : s;
+    ent.kuT = 0;
+    ent.kuDur = 0.36 + 0.14 * k;
+    ent.kuH = 0.85 * k;
+  };
+  function updateKnocks(dt) {
+    for (let i = knocks.length - 1; i >= 0; i--) {
+      const e = knocks[i];
+      e.kuT += dt;
+      const k = e.kuT / e.kuDur;
+      if (k >= 1 || e.removed) {
+        e.kuT = e.kuDur;
+        if (!e.removed) e.group.position.y = 0;
+        knocks.splice(i, 1);
+        continue;
+      }
+      e.group.position.y = e.kuH * 4 * k * (1 - k);
+    }
+  }
+  function updateWeaponFx(dt) {
+    updateKnocks(dt);
+    updateStreaks(dt);
+    updateSmoke(dt);
+    updateGhosts(dt);
+    updateWaves(dt);
+    updateArrows(dt);
+    updateFrenzy(dt);
+  }
+  function clearWeaponFx() {
+    clearFrenzy();
+    for (const e of knocks) { e.kuT = e.kuDur; if (!e.removed) e.group.position.y = 0; }
+    knocks.length = 0;
+    for (const it of streaks) { it.on = false; it.mesh.visible = false; }
+    for (const g of ghosts) { g.on = false; g.mesh.visible = false; }
+    for (const it of waves) { it.on = false; it.mesh.visible = false; }
+    for (const it of rains) { it.on = false; it.mesh.visible = false; }
+    arS.fill(0);
+    arLive = 0;
+    _m4.makeScale(0, 0, 0);
+    for (let i = 0; i < AR_MAX; i++) arMesh.setMatrixAt(i, _m4);
+    arMesh.instanceMatrix.needsUpdate = true;
+    arMesh.visible = false;
+    for (let i = 0; i < SN; i++) {
+      sLife[i] = 0;
+      sSize[i] = 0;
+      sPos[i * 3 + 1] = -999;
+    }
+    sGeo.attributes.position.needsUpdate = true;
+    sGeo.attributes.aSize.needsUpdate = true;
+    smokeLive = 0;
+  }
+  // 预热：每种特效各摆一个出来，让 warmEntities 那一帧把着色器编译掉
+  let warmWisp = null;
+  function warmWeaponFx(on) {
+    if (warmWisp) {
+      W.removeMesh(warmWisp);
+      warmWisp = null;
+    }
+    if (on) {
+      warmWisp = W.makeWisp(ALLY_HEX);
+      warmWisp.position.set(0, 1, 2);
+      streakGet().mesh.visible = true;
+      ghosts[0].mesh.visible = true;
+      W.shockwave(0, 2, 0, 4, 1, 3, 0xffffff, 0.5);
+      W.arrowRain(0, 2, 2, 1, 0xffffff);
+      arMesh.visible = true;
+      spawnS(0, 1, 2, 0, 0, 0, 0.5, 1, 0.2, 0.2, 0.2, 0.5);
+      smokeLive = 1;
+      updateSmoke(0.01);
+    } else clearWeaponFx();
+  }
+
   // ---------- 光环：玩家脚下常驻的一圈淡淡的霜环 + 绕身飘的霜粒；每次脉冲有一道向外扩的细环 ----------
   const AURA_FRAG = [
     'uniform vec3 uColor; uniform float uA; uniform float uPulse; uniform float uTime; varying vec2 vP;',
@@ -6200,6 +8057,7 @@
     for (const d of decals) { d.on = false; d.mesh.visible = false; }
     for (const f of flares) { f.on = false; f.sp.visible = false; }
     for (const s of summons) { s.on = false; s.grp.visible = false; }
+    clearWeaponFx();
     W.focusMark(null);
     trail.n = 0;
     trail.live = 0;
@@ -6650,6 +8508,7 @@
     updateMeteors(dt);
     updateSummons(dt);
     updateFocus(raw);
+    updateWeaponFx(dt);
     for (let i = 0; i < texts.length; i++) if (texts[i].t < texts[i].dur) texts[i].t += raw; // 数字按真实时间走：顿帧时照样弹出来
 
     // 受击闪白到时复原
@@ -6671,9 +8530,32 @@
     // 投射物：自转 + 拖尾
     for (let i = 0; i < projObjs.length; i++) {
       const m = projObjs[i], u = m.userData, p = m.position;
-      m.rotation.x += dt * 7;
-      m.rotation.y += dt * 9;
+      if (u.seek) {
+        // 秘弹：朝着移动方向
+        const dx = p.x - u.lx, dz = p.z - u.lz;
+        if (dx * dx + dz * dz > 1e-6) m.rotation.y = Math.atan2(dx, dz);
+        u.lx = p.x;
+        u.lz = p.z;
+      } else {
+        m.rotation.x += dt * 7;
+        m.rotation.y += dt * 9;
+      }
       u.acc += dt;
+      if (u.wisp) {
+        // 魂灵：头尾左右摇曳，拖一串往上浮的魂火屑
+        // 刚放出时从幡头的高度落下来（前 0.3 秒），像是从幡上飞出去的
+        u.ph += dt * 13;
+        u.age += dt;
+        const lift = u.age < 0.3 ? (1 - u.age / 0.3) * (1 - u.age / 0.3) * 1.1 : 0;
+        u.wisp.rotation.y = Math.sin(u.ph) * 0.35;
+        u.wisp.position.y = lift + Math.sin(u.ph * 0.5) * 0.08;
+        if (u.acc > 0.03 && p.y > -10) {
+          u.acc = 0;
+          const wh = Math.random() < 0.3 ? 0.5 : 0;
+          spawnP(p.x + rand(-0.08, 0.08), p.y + rand(-0.05, 0.1), p.z + rand(-0.08, 0.08), rand(-0.3, 0.3), rand(0.4, 1.4), rand(-0.3, 0.3), rand(0.3, 0.5), rand(0.14, 0.22), u.r + (1 - u.r) * wh, u.g + (1 - u.g) * wh, u.b + (1 - u.b) * wh, -1, 1.5);
+        }
+        continue;
+      }
       if (u.acc > 0.028 && p.y > -10) {
         u.acc = 0;
         spawnP(p.x + rand(-0.1, 0.1), p.y + rand(-0.1, 0.1), p.z + rand(-0.1, 0.1), rand(-0.6, 0.6), rand(-0.2, 0.8), rand(-0.6, 0.6), rand(0.2, 0.36), u.rad * 2.2, u.r * 0.8, u.g * 0.8, u.b * 0.8, -0.5, 1);
