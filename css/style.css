@@ -2881,3 +2881,60 @@ body.panel-open #coach { display: none; }
 #big-toast .bt-t { font-size: 14px; letter-spacing: 8px; text-indent: 8px; color: #e8c49a; }
 #big-toast .bt-n { margin: 2px 0; font-size: 44px; font-weight: 700; letter-spacing: 10px; text-indent: 10px; color: var(--c); text-shadow: 0 0 18px rgba(255, 110, 30, 0.8), 0 0 4px rgba(255, 200, 140, 0.9), 0 2px 3px #000; }
 #big-toast .bt-s { font-size: 13px; letter-spacing: 4px; text-indent: 4px; color: #cfa47a; }
+
+/* ============================================================
+   烬铸技：拿着烬铸武器时 R 上那一招。余烬橙的框 + 缓慢呼吸的光，和普通武器技一眼分开
+   ============================================================ */
+.wslot.uskill .s-icon {
+  border-color: #ff9b3d;
+  background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--c) 45%, #5a2608), #170904 86%);
+  animation: usk-glow 2.2s ease-in-out infinite;
+}
+.wslot.uskill .s-key { color: #ffc27a; border-color: #a0501c; background: linear-gradient(180deg, #3a1a08, #1d0d05); }
+.wslot.uskill .s-key b { color: #fff0d8; }
+.wslot.uskill.casting .s-icon { animation: none; box-shadow: 0 0 0 1px #ffe2b0, 0 0 22px 4px rgba(255, 140, 50, 0.85), inset 0 0 14px rgba(0, 0, 0, 0.4); }
+.wslot.uskill.cooling .s-icon { animation: none; box-shadow: 0 0 0 1px #0c0705, 0 0 0 2px #7a3a14, inset 0 0 14px rgba(0, 0, 0, 0.65); }
+/* 四角的余烬框 */
+.s-ember { display: none; position: absolute; left: -4px; top: -4px; width: 66px; height: 66px; pointer-events: none;
+  background:
+    linear-gradient(#ffb066, #ffb066) 0 0 / 12px 2px no-repeat, linear-gradient(#ffb066, #ffb066) 0 0 / 2px 12px no-repeat,
+    linear-gradient(#ffb066, #ffb066) 100% 0 / 12px 2px no-repeat, linear-gradient(#ffb066, #ffb066) 100% 0 / 2px 12px no-repeat,
+    linear-gradient(#ffb066, #ffb066) 0 100% / 12px 2px no-repeat, linear-gradient(#ffb066, #ffb066) 0 100% / 2px 12px no-repeat,
+    linear-gradient(#ffb066, #ffb066) 100% 100% / 12px 2px no-repeat, linear-gradient(#ffb066, #ffb066) 100% 100% / 2px 12px no-repeat;
+  filter: drop-shadow(0 0 3px rgba(255, 130, 40, 0.9));
+}
+.wslot.uskill .s-ember { display: block; }
+.wslot.uskill .s-ember::after { content: ''; position: absolute; inset: 4px; border-radius: 4px; pointer-events: none;
+  background: radial-gradient(ellipse 70% 30% at 50% 100%, rgba(255, 130, 40, 0.35), transparent 70%); animation: usk-rise 1.6s ease-in-out infinite; }
+@keyframes usk-glow {
+  0%, 100% { box-shadow: 0 0 0 1px #0c0705, 0 0 0 2px #c4621e, 0 0 8px 1px rgba(255, 120, 40, 0.45), inset 0 0 12px rgba(0, 0, 0, 0.6), inset 0 0 8px rgba(255, 120, 40, 0.3); }
+  50% { box-shadow: 0 0 0 1px #0c0705, 0 0 0 2px #ff9b3d, 0 0 16px 3px rgba(255, 140, 50, 0.7), inset 0 0 12px rgba(0, 0, 0, 0.6), inset 0 0 14px rgba(255, 140, 50, 0.5); }
+}
+@keyframes usk-rise { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+.ic-wsk.uq { border-color: #c4621e; background: linear-gradient(90deg, rgba(120, 50, 12, 0.5), #120c09); box-shadow: 0 0 8px rgba(255, 120, 40, 0.25); }
+.ic-wsk.uq > span em { color: #ffb066; letter-spacing: 1px; }
+.ic-usk { margin: 0 12px 3px; padding: 4px 8px; font-size: 11.5px; line-height: 16px; color: #e6cdb0; background: rgba(90, 38, 8, 0.25); border-left: 2px solid #c4621e; }
+.ic-usk em { display: block; margin-top: 2px; font-style: normal; font-size: 11px; color: #b08060; }
+.tcard.uskill { border-color: #c4621e; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 140, 50, 0.25), 0 0 16px rgba(255, 110, 30, 0.25); }
+.wsk-card.uskill { border-color: #6a3414; border-top-color: #ff9b3d; box-shadow: 0 0 14px rgba(255, 110, 30, 0.18), inset 0 0 18px rgba(255, 110, 30, 0.06);
+  background: radial-gradient(ellipse 60% 90% at 0% 0%, rgba(255, 130, 40, 0.16), transparent 70%), linear-gradient(180deg, #1d120b, #100b08); }
+.wsk-card.uskill .sk-icon { border-color: #ff9b3d; box-shadow: 0 0 10px rgba(255, 130, 40, 0.5); }
+.usk-tag { padding: 0 5px; border: 1px solid #a0501c; border-radius: 2px; color: #ffb066 !important; background: rgba(90, 38, 8, 0.5); font-size: 11px !important; letter-spacing: 1px !important; }
+.wsk-row.urow { justify-content: flex-start; gap: 10px; margin-top: 6px; padding-top: 6px; border-top-color: #3a1e0c; align-items: center; }
+.wsk-row.urow > b { font-size: 11px; font-weight: 400; letter-spacing: 1px; color: #c4621e; margin-right: 2px; }
+.usl { --c: #888; display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 38px; padding: 2px 3px 1px; border: 1px solid transparent; border-radius: 3px; cursor: default; }
+.usl .ico { width: 26px; height: 26px; filter: saturate(0.6) brightness(0.8); }
+.usl em { font-style: normal; font-size: 10px; line-height: 13px; color: #8c7f6d; white-space: nowrap; }
+.usl:hover .ico, .usl.on .ico { filter: none; }
+.usl.on { background: rgba(90, 38, 8, 0.5); border-color: #c4621e; box-shadow: 0 0 8px rgba(255, 120, 40, 0.35); }
+.usl.on em { color: #ffb066; }
+@media (max-height: 780px) { .usl em { display: none; } }
+.wbarslot.uskill { border-color: #a0501c; box-shadow: 0 0 8px rgba(255, 120, 40, 0.25); }
+.wbarslot.uskill .bs-txt span { color: #ffb066; }
+.hc.hw.uskill { border-color: #6a3414; background: linear-gradient(90deg, rgba(90, 38, 8, 0.3), transparent 70%); }
+.hc.hw.uskill b { width: auto; min-width: 58px; color: #ffb066; }
+/* 矮窗口：烬铸技的长说明省掉（悬停 R 格旁的图标 / 技能页里都看得到），只留「替换……」一行 */
+@media (max-height: 780px) {
+  .ic-usk .u-d { display: none; }
+  .ic-usk em { margin-top: 0; }
+}

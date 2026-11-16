@@ -3847,6 +3847,106 @@
         }, 0.9),
       });
     }
+
+    // ===== 烬铸技 =====
+    // 太刀「千刃归烬」的收刀：最后一闪落地，背对着一地斩痕——刀往右下一甩（血振），再横过身前慢慢送回左胯的鞘里，
+    // 「咔」的一声入鞘（k0），斩痕一齐炸开；定住片刻，起身
+    {
+      const I = LOCO_2H[G_KAT].idle;
+      defClip(rig, 'u_katana', {
+        dur: 0.84, k0: 0.55, lower: null, fade: 0.04, out: 0.24, trail: [0.04, 0.24],
+        hand: track(I, [
+          [0, [-0.38, -0.18, 0.4], [-0.8, -0.2, 0.56], [0, -1, 0]],
+          [-0.18, [-0.56, -0.34, 0.26], [-0.86, -0.46, 0.2], [0, -1, 0]],
+          [0.34, [-0.2, -0.38, 0.42], [0.55, -0.15, -0.82], [0, 1, 0]],
+          [-0.55, [0.2, -0.44, 0.14], [0.18, -0.22, -0.96], [0, 1, 0]],
+          [0.86, [0.2, -0.44, 0.14], [0.18, -0.22, -0.96], [0, 1, 0]],
+          [1, 'I'],
+        ]),
+        keys: {
+          'root.oy': [0, -0.32, 0.18, -0.42, -0.55, -0.48, 0.86, -0.44, 1, 0],
+          'root.rx': [0, 0.3, 0.18, 0.38, -0.55, 0.22, 0.86, 0.2, 1, 0.04],
+          'root.ry': [0, 0.3, 0.18, 0.45, -0.55, -0.15, 0.86, -0.15, 1, 0],
+          'spine.ry': [0, 0.2, 0.18, 0.3, -0.55, -0.2, 0.86, -0.18, 1, 0],
+          'chest.ry': [0, 0.3, 0.18, 0.45, -0.55, -0.3, 0.86, -0.28, 1, 0],
+          'chest.rx': [0, 0, -0.55, 0.12, 0.86, 0.1, 1, 0],
+          'head.ry': [0, -0.3, 0.18, -0.5, -0.55, 0.35, 0.86, 0.32, 1, 0],
+          'head.rx': [0, 0, -0.55, 0.22, 0.86, 0.2, 1, 0],
+          'thL.rx': [0, -1.3, 0.18, -1.45, -0.55, -1.4, 0.86, -1.35, 1, -0.05],
+          'shL.rx': [0, 1.4, 0.18, 1.5, -0.55, 1.5, 0.86, 1.45, 1, 0.08],
+          'thR.rx': [0, 0.6, 0.18, 0.7, -0.55, 0.75, 0.86, 0.7, 1, 0],
+          'shR.rx': [0, 0.4, 0.18, 0.4, -0.55, 0.5, 0.86, 0.5, 1, 0.08],
+          'ftR.rx': [0, 0.6, 0.86, 0.6, 1, 0],
+          'cape1.rx': [0, 0.7, 0.18, 0.9, -0.55, 0.4, 0.86, 0.25, 1, 0.1],
+          'cape2.rx': [0, 0.6, 0.2, 0.8, -0.58, 0.35, 0.88, 0.22, 1, 0.1],
+          'cape3.rx': [0, 0.5, 0.22, 0.7, -0.6, 0.3, 0.9, 0.2, 1, 0.1],
+          'tab.rx': [0, -0.4, -0.55, -0.15, 1, 0],
+        },
+      });
+    }
+    // 长杖「三相天灾」：双手把杖高举过头、后仰望天（k0：风暴落下），举着定住，再收回
+    defClip(rig, 'u_staff', {
+      dur: 1.0, k0: 0.42, fade: 0.06, out: 0.26,
+      keys: {
+        'root.oy': [0, 0, 0.26, -0.14, -0.42, 0.06, 0.8, 0.04, 1, 0],
+        'root.rx': [0, 0.05, 0.26, 0.1, -0.42, -0.14, 0.8, -0.12, 1, 0.04],
+        'spine.rx': [0, 0, 0.26, 0.08, -0.42, -0.14, 0.8, -0.12, 1, 0],
+        'chest.rx': [0, 0, 0.26, 0.05, -0.42, -0.3, 0.8, -0.26, 1, 0],
+        'head.rx': [0, 0, 0.26, 0.1, -0.42, -0.55, 0.8, -0.48, 1, 0],
+        'uaR.rx': [0, -0.3, 0.26, -1.6, -0.42, -2.95, 0.8, -2.9, 1, -0.3],
+        'uaR.rz': [0, -0.14, 0.26, 0.05, -0.42, 0.12, 0.8, 0.1, 1, -0.14],
+        'uaR.ry': C(0),
+        'faR.rx': [0, -0.75, 0.26, -0.9, -0.42, -0.12, 0.8, -0.15, 1, -0.75],
+        'hR.rx': [0, -0.75, 0.26, 0.4, -0.42, 1.35, 0.8, 1.3, 1, -0.75],
+        'hR.ry': C(0), 'hR.rz': C(0.1),
+        'uaL.rx': [0, 0, 0.26, -1.4, -0.42, -2.55, 0.8, -2.5, 1, 0],
+        'uaL.rz': [0, 0.12, 0.26, -0.1, -0.42, -0.35, 0.8, -0.32, 1, 0.12],
+        'faL.rx': [0, -0.3, 0.26, -0.9, -0.42, -0.45, 0.8, -0.45, 1, -0.3],
+        'hL.rx': [0, 0, -0.42, 0.4, 1, 0],
+        'thL.rx': [0, -0.1, 0.26, -0.45, -0.42, -0.3, 0.8, -0.3, 1, -0.05],
+        'shL.rx': [0, 0.1, 0.26, 0.6, -0.42, 0.35, 0.8, 0.35, 1, 0.08],
+        'thR.rx': [0, 0, 0.26, 0.2, -0.42, 0.3, 0.8, 0.3, 1, 0],
+        'shR.rx': [0, 0.1, 0.26, 0.4, -0.42, 0.3, 0.8, 0.3, 1, 0.08],
+        'thL.rz': [0, 0.07, -0.42, 0.24, 0.8, 0.24, 1, 0.07],
+        'thR.rz': [0, -0.07, -0.42, -0.24, 0.8, -0.24, 1, -0.07],
+        'cape1.rx': [0, 0.1, 0.26, 0.2, -0.42, 0.9, 0.8, 0.75, 1, 0.1],
+        'cape2.rx': [0, 0.1, 0.28, 0.2, -0.46, 0.8, 0.84, 0.65, 1, 0.1],
+        'cape3.rx': [0, 0.1, 0.3, 0.2, -0.5, 0.7, 0.88, 0.55, 1, 0.1],
+      },
+    });
+    // 魂幡「万魂降临」：双手把魂幡举过头 → 猛地往下一杵，杆尾插进身前的地里（k0），幡杆竖着、人蹲成弓步 → 定住 → 拔起收回
+    {
+      const P0 = [-0.42, 0.95, 0.2], UP = [0, 1, 0], FWD = [0, 0, 1];
+      const RAISE = [-0.18, 2.15, 0.22], PLANT = [-0.1, 0.92, 0.62], PD = [0, 1, 0.1];
+      defClip(rig, 'u_banner', {
+        dur: 1.0, k0: 0.5, fade: 0.06, out: 0.26,
+        hand: {
+          f: 'model', k: [0, 0.12, 0.34, -0.5, 0.82, 1],
+          p: [P0, P0, RAISE, PLANT, PLANT, P0], d: [UP, UP, UP, PD, PD, UP], e: [FWD, FWD, FWD, FWD, FWD, FWD], w: [0, 1, 1, 1, 1, 0],
+        },
+        keys: {
+          'root.oy': [0, 0, 0.34, 0.1, -0.5, -0.5, 0.82, -0.46, 1, 0],
+          'root.rx': [0, 0.04, 0.34, -0.12, -0.5, 0.3, 0.82, 0.28, 1, 0.04],
+          'root.oz': [0, 0, 0.34, -0.08, -0.5, 0.22, 0.82, 0.2, 1, 0],
+          'spine.rx': [0, 0, 0.34, -0.15, -0.5, 0.14, 0.82, 0.12, 1, 0],
+          'chest.rx': [0, 0, 0.34, -0.18, -0.5, 0.12, 0.82, 0.1, 1, 0],
+          'head.rx': [0, 0, 0.34, -0.35, -0.5, 0.1, 0.82, 0.05, 1, 0],
+          'uaL.rx': [0, 0, 0.34, -2.6, -0.5, -1.25, 0.82, -1.2, 1, 0],
+          'uaL.rz': [0, 0.12, 0.34, -0.3, -0.5, -0.45, 0.82, -0.42, 1, 0.12],
+          'faL.rx': [0, -0.3, 0.34, -0.4, -0.5, -0.5, 0.82, -0.5, 1, -0.3],
+          'thL.rx': [0, -0.1, 0.34, -0.3, -0.5, -1.3, 0.82, -1.25, 1, -0.05],
+          'shL.rx': [0, 0.1, 0.34, 0.3, -0.5, 1.5, 0.82, 1.45, 1, 0.08],
+          'thR.rx': [0, 0, 0.34, 0.1, -0.5, 0.4, 0.82, 0.38, 1, 0],
+          'shR.rx': [0, 0.1, 0.34, 0.2, -0.5, 1.35, 0.82, 1.3, 1, 0.08],
+          'ftR.rx': [0, 0, -0.5, 0.45, 0.82, 0.45, 1, 0],
+          'thL.rz': [0, 0.07, -0.5, 0.24, 0.82, 0.24, 1, 0.07],
+          'thR.rz': [0, -0.07, -0.5, -0.24, 0.82, -0.24, 1, -0.07],
+          'cape1.rx': [0, 0.1, 0.34, -0.2, -0.5, 0.8, 0.82, 0.5, 1, 0.1],
+          'cape2.rx': [0, 0.1, 0.36, -0.25, -0.54, 0.7, 0.86, 0.45, 1, 0.1],
+          'cape3.rx': [0, 0.1, 0.38, -0.25, -0.58, 0.6, 0.9, 0.4, 1, 0.1],
+        },
+      });
+    }
   }
 
   // 武器的握法 / 挂点长度 / 稀有度的发光
@@ -6328,6 +6428,7 @@
     ent.fxPrev = -1;
     ent.fxClip = null;
     ent.uRim.value.setRGB(0.05, 0.24, 0.19);
+    if (kind === 'wraith') spectral(ent);
     {
       const sm = new T.MeshBasicMaterial({ map: allyShadeTex(), color: lin(0x02100d), transparent: true, opacity: 0.7, depthWrite: false, toneMapped: false });
       ent.own.push(sm);
@@ -6344,6 +6445,45 @@
   };
   // 召唤物挡在镜头和玩家之间时，把它的身体打成一格一格的镂空（借死亡消散的离散方格，只是不发光），
   // 透过去能看见玩家。on：这一帧是否挡着；dt 用来平滑淡入淡出。正在倒下的不管
+  // 万魂降临的英灵：仆从的骨架换一身半透明的魂火躯壳——骨色压成淡青、自己发着幽光，轮廓光很亮，
+  // 大一圈；剑刃血槽这些点缀是余烬橙（烬铸）；走动时身上不断飘出魂火屑（见 updateSpectral）
+  const spectralEnts = [];
+  function spectral(ent) {
+    const bm = ent.bodyMat;
+    bm.transparent = true;
+    bm.opacity = 0.62;
+    bm.color.copy(lin(0x9ff5e6));
+    bm.emissive.copy(lin(0x1f8f7a));
+    bm.emissiveIntensity = 0.9;
+    bm.userData.e0 = bm.emissive.clone();
+    bm.userData.ei0 = 0.9;
+    bm.needsUpdate = true;
+    ent.uRim.value.setRGB(0.35, 1.25, 1.0);
+    ent.k = 1.2;
+    ent.body.scale.setScalar(1.2);
+    ent.spectral = true;
+    ent.specAcc = 0;
+    spectralEnts.push(ent);
+  }
+  function updateSpectral(dt) {
+    for (let i = spectralEnts.length - 1; i >= 0; i--) {
+      const e = spectralEnts[i];
+      if (e.removed || e.dying) {
+        spectralEnts.splice(i, 1);
+        continue;
+      }
+      if (!e.group.visible) continue;
+      e.specAcc += dt * 26;
+      const g = e.group.position;
+      while (e.specAcc > 1) {
+        e.specAcc -= 1;
+        const warm = Math.random() < 0.22;
+        const a = rand(0, TAU), d = rand(0.1, 0.45);
+        spawnP(g.x + Math.sin(a) * d, rand(0.2, 2.4), g.z + Math.cos(a) * d, rand(-0.3, 0.3), rand(0.6, 1.8), rand(-0.3, 0.3), rand(0.4, 0.8), rand(0.1, 0.2),
+          warm ? 1 : ALLY_RGB.r + 0.2, warm ? 0.62 : ALLY_RGB.g, warm ? 0.3 : ALLY_RGB.b, -0.5, 1.4);
+      }
+    }
+  }
   W.allyOcclude = function (ent, on, dt) {
     if (!ent || ent.removed || ent.dying) return;
     const k0 = ent.occK || 0;
@@ -7640,7 +7780,8 @@
     it.hex = hex;
     it.len = len;
     it.mesh.position.set(it.x, y, it.z);
-    it.mesh.rotation.y = ang;
+    it.mesh.rotation.order = 'XYZ';
+    it.mesh.rotation.set(0, ang, 0);
     it.mesh.scale.set(hw, 1, len * 0.5);
     it.mesh.visible = true;
     return it;
@@ -8333,9 +8474,12 @@
     updateWaves(dt);
     updateArrows(dt);
     updateFrenzy(dt);
+    updateSpectral(dt);
+    updateUfx(dt);
   }
   function clearWeaponFx() {
     clearFrenzy();
+    clearUfx();
     for (const e of knocks) { e.kuT = e.kuDur; if (!e.removed) e.group.position.y = 0; }
     knocks.length = 0;
     for (const it of streaks) { it.on = false; it.mesh.visible = false; }
@@ -10006,6 +10150,406 @@
     }
     W.burst(x, h * 0.5, z, 0xe8fff8, 12, 4, 0.35);
   };
+
+  // ---------- 烬铸技的特效 ----------
+  const EMBER = 0xff9b3d, EMBER_HI = 0xffe2b8;
+  // 立着的光带：从 (x0,y0,z0) 到 (x1,y1,z1)（同一个 z 附近的竖直 / 斜向光带，落雷、天降光柱用），hw 半宽
+  function vstreak(x0, y0, z0, x1, y1, z1, hw, hex, dur) {
+    const it = streakGet();
+    const dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy) || 0.01;
+    it.on = true;
+    it.t = 0;
+    it.dur = dur;
+    it.u.uColor.value.set(hex);
+    it.u.uK.value = 0;
+    it.u.uMode.value = 0;
+    it.u.uD.value = 0;
+    it.fired = true;
+    it.x = (x0 + x1) / 2;
+    it.y = (y0 + y1) / 2;
+    it.z = (z0 + z1) / 2;
+    it.len = len;
+    it.mesh.position.set(it.x, it.y, it.z);
+    // 平躺的方片先绕 x 轴立起来（长边朝上），再在画面里绕 z 轴斜过去
+    it.mesh.rotation.order = 'ZYX';
+    it.mesh.rotation.set(-HALF_PI, 0, Math.atan2(-dx, dy));
+    it.mesh.scale.set(hw, 1, len * 0.5);
+    it.mesh.visible = true;
+    return it;
+  }
+  // 一道从天而降的锯齿落雷：分 n 段，每段横向抖开一点，底下再向两侧岔出两道贴地的小电弧
+  function skyBolt(x, z, hex, top, n, hw) {
+    let px = x + rand(-0.6, 0.6), py = top, pz = z;
+    for (let i = 1; i <= n; i++) {
+      const k = i / n;
+      const nx = i === n ? x : x + rand(-0.9, 0.9) * (1 - k * 0.6);
+      const ny = top * (1 - k);
+      vstreak(px, py, pz, nx, ny, z, hw * (1 - k * 0.35), hex, 0.22);
+      px = nx;
+      py = ny;
+    }
+  }
+
+  // ----- 千刃归烬 -----
+  // 斩痕：挂在被闪过的敌人身上的一道余烬色细光（一直跟着它），收刀那一刻随斩痕一齐炸开（ashClear）
+  const ASH_N = 36;
+  const ashMarks = [];
+  let ashTex = null;
+  function ashMarkTex() {
+    if (ashTex) return ashTex;
+    const c = makeCanvas(128, 32), g = c.getContext('2d');
+    const gr = g.createLinearGradient(0, 0, 128, 0);
+    gr.addColorStop(0, 'rgba(255,120,40,0)');
+    gr.addColorStop(0.2, 'rgba(255,150,60,0.9)');
+    gr.addColorStop(0.5, 'rgba(255,240,215,1)');
+    gr.addColorStop(0.8, 'rgba(255,150,60,0.9)');
+    gr.addColorStop(1, 'rgba(255,120,40,0)');
+    g.fillStyle = gr;
+    g.beginPath();
+    g.moveTo(0, 16);
+    g.quadraticCurveTo(64, 6, 128, 16);
+    g.quadraticCurveTo(64, 26, 0, 16);
+    g.fill();
+    g.fillStyle = 'rgba(255,255,255,0.95)';
+    g.fillRect(28, 15, 72, 2);
+    ashTex = new T.CanvasTexture(c);
+    return ashTex;
+  }
+  function ashGet() {
+    for (let i = 0; i < ashMarks.length; i++) if (!ashMarks[i].on) return ashMarks[i];
+    if (ashMarks.length >= ASH_N) return null;
+    const mat = new T.SpriteMaterial({ map: ashMarkTex(), color: lin(0xffc890), transparent: true, blending: T.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false });
+    const sp = new T.Sprite(mat);
+    sp.renderOrder = 7;
+    sp.visible = false;
+    scene.add(sp);
+    const m = { sp, mat, on: false, ent: null, t: 0, y: 1, len: 1.6, pop: 0 };
+    ashMarks.push(m);
+    return m;
+  }
+  W.ashMark = function (ent, ang, n, h) {
+    if (!ent || ent.removed) return;
+    const m = ashGet();
+    if (!m) return;
+    m.on = true;
+    m.ent = ent;
+    m.t = 0;
+    m.pop = 0;
+    m.y = (h || 2) * rand(0.32, 0.72);
+    m.len = 2.0 + Math.min(1.8, (h || 2) * 0.4);
+    m.mat.rotation = rand(-1.2, 1.2);
+    m.sp.visible = true;
+    const g = ent.group.position;
+    flare(g.x, m.y, g.z, EMBER, 1.2, 0.08);
+  };
+  // 收刀：所有斩痕骤亮一下再散掉
+  W.ashClear = function () {
+    for (const m of ashMarks) if (m.on && !m.pop) m.pop = 0.001;
+  };
+  function updateAshMarks(dt) {
+    for (const m of ashMarks) {
+      if (!m.on) continue;
+      m.t += dt;
+      const e = m.ent;
+      if (m.pop > 0) m.pop += dt;
+      if (!e || e.removed || m.t > 4 || m.pop > 0.16) {
+        m.on = false;
+        m.ent = null;
+        m.sp.visible = false;
+        continue;
+      }
+      const g = e.group.position;
+      m.sp.position.set(g.x, m.y, g.z);
+      // 出现时从一点拉开，挂着的时候微微呼吸；收刀时骤亮变粗
+      const open = Math.min(1, m.t / 0.07);
+      const breathe = 0.85 + 0.15 * Math.sin(m.t * 18);
+      const pk = m.pop > 0 ? 1 + m.pop * 9 : 1;
+      m.sp.scale.set(m.len * open * (m.pop > 0 ? 1.25 : 1), 0.42 * breathe * pk, 1);
+      m.mat.opacity = m.pop > 0 ? 1 - m.pop / 0.16 : 0.75 + 0.25 * breathe;
+    }
+  }
+  // 一闪的路径：两道余烬色的残影、一条贴地的光带、一路火星
+  W.ashDash = function (ent, x0, z0, x1, z1, hex) {
+    const dx = x1 - x0, dz = z1 - z0, d = Math.hypot(dx, dz);
+    const ang = Math.atan2(dx, dz);
+    if (ent) for (let i = 0; i < 3; i++) W.afterimage(ent, x0 + dx * (0.2 + i * 0.28), z0 + dz * (0.2 + i * 0.28), i ? hex : EMBER_HI, 0.45 + i * 0.12, 0.2 + i * 0.06, 0);
+    if (d > 0.2) {
+      streak(x0, z0, 1.05, ang, d, 0.32, EMBER_HI, 0.26, 0, 0);
+      streak(x0, z0, 0.12, ang, d, 0.5, EMBER, 0.5, 0, 0);
+    }
+    const n = Math.max(4, Math.ceil(d * 4));
+    for (let i = 0; i < n; i++) {
+      const k = i / n, warm = i % 3 !== 0;
+      spawnP(x0 + dx * k + rand(-0.2, 0.2), rand(0.3, 1.7), z0 + dz * k + rand(-0.2, 0.2), (dx / (d || 1)) * rand(1, 4), rand(0, 1.4), (dz / (d || 1)) * rand(1, 4), rand(0.25, 0.5), rand(0.12, 0.22), 1, warm ? 0.62 : 0.95, warm ? 0.26 : 0.85, -0.6, 2.2);
+    }
+    flare(x1, 1.1, z1, hex, 1.3, 0.08);
+  };
+  // 收刀：delay 秒里四周的火星朝你收拢，脚下一道收紧的细环
+  W.ashSheathe = function (x, z, delay) {
+    const T0 = Math.max(0.12, delay);
+    for (let i = 0; i < 26; i++) {
+      const a = rand(0, TAU), r = rand(2.2, 4);
+      spawnP(x + Math.sin(a) * r, rand(0.3, 2), z + Math.cos(a) * r, (-Math.sin(a) * r) / T0, rand(-0.3, 0.3), (-Math.cos(a) * r) / T0, T0, rand(0.1, 0.18), 1, 0.7, 0.35, 0, 0);
+    }
+    W.ring(x, z, 3.2, EMBER, T0);
+  };
+  // 斩痕齐爆：n 道刀光交叉斩过（越多越密），白热的一团火花，地上一道冲击环；吃掉残刃（mk）时再多一圈金色的刃光
+  W.ashBurst = function (x, z, h, r, n, mk) {
+    const y = Math.min(2.4, (h || 2) * 0.55), rr = r || 0.6;
+    flashLight(x, y + 1.2, z, EMBER, 2.2);
+    flare(x, y, z, EMBER, 2.2 + rr + Math.min(6, n) * 0.2, 0.16);
+    const cnt = Math.min(8, 2 + n);
+    const a0 = rand(0, TAU);
+    for (let i = 0; i < cnt; i++) {
+      const a = a0 + (i / cnt) * Math.PI + rand(-0.15, 0.15), len = 2.2 + rr * 2.2;
+      streak(x - Math.sin(a) * len * 0.5, z - Math.cos(a) * len * 0.5, y * (0.6 + 0.5 * (i / cnt)), a, len, 0.42, i % 2 ? EMBER_HI : EMBER, 0.3, 0, 0);
+    }
+    // 竖着劈下的两道
+    vstreak(x - 0.9, y + 1.6, z, x + 0.9, 0.2, z, 0.35, EMBER_HI, 0.24);
+    vstreak(x + 0.8, y + 1.5, z, x - 0.7, 0.2, z, 0.3, EMBER, 0.24);
+    W.ring(x, z, rr + 2.2, EMBER, 0.36);
+    W.ring(x, z, rr + 1.2, EMBER_HI, 0.22);
+    W.decal(0, x, z, rr + 1.4, a0, EMBER, 1.6, 0.35);
+    W.burst(x, y, z, 0xfff0d0, 12 + Math.min(6, n) * 2, 9, 0.4);
+    W.burst(x, y, z, EMBER, 22 + Math.min(6, n) * 3, 7, 0.6);
+    if (mk > 0) {
+      for (let i = 0; i < Math.min(5, mk); i++) W.slash(x, z, a0 + (i / 5) * TAU, 1.5 + rr, 80, i % 2 ? 0xffe2b8 : 0xffc27a, { y: y * (0.8 + 0.1 * i), dur: 0.24, inner: 0.5, dir: i % 2 ? -1 : 1 });
+      W.ring(x, z, rr + 3, 0xffc27a, 0.42);
+    }
+  };
+
+  // ----- 三相天灾 -----
+  // 地上的三相法阵：外圈三段（火 / 冰 / 雷）顺转，内圈反转，中间一个旋转的三角，风暴结束前淡出
+  const TRI_FRAG = [
+    'uniform vec3 uC0; uniform vec3 uC1; uniform vec3 uC2; uniform float uA; uniform float uRot; varying vec2 vP;',
+    'vec3 pick(float s){ return s < 1.0 ? uC0 : (s < 2.0 ? uC1 : uC2); }',
+    'void main(){',
+    '  float l = length(vP);',
+    '  if (l > 1.0) discard;',
+    '  float an = atan(vP.x, vP.y) / 6.2831853 + 0.5;',
+    '  float s1 = fract(an + uRot * 0.15) * 3.0;',
+    '  float g1 = smoothstep(0.0, 0.04, fract(s1)) * (1.0 - smoothstep(0.92, 1.0, fract(s1)));',
+    '  float r1 = (1.0 - smoothstep(0.0, 0.025, abs(l - 0.94))) * g1;',
+    '  float r1b = (1.0 - smoothstep(0.0, 0.01, abs(l - 0.88))) * 0.5;',
+    '  float s2 = fract(an - uRot * 0.27) * 3.0;',
+    '  float tick = pow(abs(sin((an - uRot * 0.27) * 3.14159 * 24.0)), 30.0) * smoothstep(0.56, 0.6, l) * (1.0 - smoothstep(0.66, 0.7, l));',
+    '  float r2 = (1.0 - smoothstep(0.0, 0.016, abs(l - 0.63))) + tick * 0.8;',
+    // 旋转的等边三角：到三条边的距离
+    '  float ca = cos(uRot * 0.6), sa = sin(uRot * 0.6);',
+    '  vec2 q = vec2(ca * vP.x - sa * vP.y, sa * vP.x + ca * vP.y);',
+    '  float d = 1e3;',
+    '  for (int i = 0; i < 3; i++) { float a = float(i) * 2.0943951; vec2 n = vec2(sin(a), cos(a)); d = min(d, abs(dot(q, n) + 0.3)); }',
+    '  float tri = (1.0 - smoothstep(0.0, 0.014, d)) * (1.0 - smoothstep(0.58, 0.62, l));',
+    '  float fill = smoothstep(0.2, 1.0, l) * 0.07;',
+    '  vec3 c1 = pick(s1), c2 = pick(s2);',
+    '  vec3 col = c1 * (r1 * 1.2 + r1b) + c2 * r2 * 0.9 + mix(c1, vec3(1.0), 0.5) * tri * 0.8 + c1 * fill;',
+    '  float a = clamp((r1 + r1b * 0.6 + r2 * 0.8 + tri * 0.7 + fill) * uA, 0.0, 1.0);',
+    '  if (a < 0.003) discard;',
+    '  gl_FragColor = vec4(col / max(0.001, r1 * 1.2 + r1b + r2 * 0.9 + tri * 0.8 + fill), a);',
+    '}',
+  ].join('\n');
+  const storms = [];
+  const STORM_HEX = [0xff7a2c, 0x7fd4ff, 0xffe45e];
+  W.triStorm = function (x, z, R, dur) {
+    let s = null;
+    for (const it of storms) if (!it.on) { s = it; break; }
+    if (!s) {
+      const u = { uC0: { value: lin(STORM_HEX[0]) }, uC1: { value: lin(STORM_HEX[1]) }, uC2: { value: lin(STORM_HEX[2]) }, uA: { value: 0 }, uRot: { value: 0 } };
+      const mat = new T.ShaderMaterial({ uniforms: u, vertexShader: FX_VERT, fragmentShader: TRI_FRAG, transparent: true, depthWrite: false, blending: T.AdditiveBlending, side: T.DoubleSide });
+      const mesh = new T.Mesh(gQuad(), mat);
+      mesh.renderOrder = 3;
+      mesh.visible = false;
+      scene.add(mesh);
+      s = { mesh, u, on: false, t: 0, dur: 1, x: 0, z: 0, R: 1, acc: 0, flash: 0 };
+      storms.push(s);
+    }
+    s.on = true;
+    s.t = 0;
+    s.dur = dur;
+    s.x = x;
+    s.z = z;
+    s.R = R;
+    s.acc = 0;
+    s.flash = 0;
+    s.mesh.position.set(x, 0.09, z);
+    s.mesh.scale.set(R, 1, R);
+    s.mesh.visible = true;
+    for (let i = 0; i < 3; i++) W.ring(x, z, R * (1 - i * 0.18), STORM_HEX[i], 0.5 + i * 0.1);
+    flashLight(x, 4, z, 0xffe8d0, 2);
+  };
+  function updateStorms(dt) {
+    for (const s of storms) {
+      if (!s.on) continue;
+      s.t += dt;
+      if (s.t >= s.dur) {
+        s.on = false;
+        s.mesh.visible = false;
+        continue;
+      }
+      const k = s.t / s.dur;
+      s.u.uA.value = Math.min(1, s.t / 0.25) * (1 - smooth01((k - 0.85) / 0.15));
+      s.u.uRot.value = s.t * 2.2;
+      s.mesh.scale.setScalar(s.R * (0.85 + 0.15 * Math.min(1, s.t / 0.3)));
+      s.mesh.scale.y = 1;
+      if (k > 0.9) continue;
+      // 头顶压着一团翻滚的暗云，云里三色电光乱闪；地面上三色的流光绕着圈往里旋
+      s.acc += dt;
+      while (s.acc > 0.035) {
+        s.acc -= 0.035;
+        const a = rand(0, TAU), d = Math.sqrt(Math.random()) * s.R * 1.05;
+        spawnS(s.x + Math.sin(a) * d, rand(5.6, 6.6), s.z + Math.cos(a) * d * 0.7, rand(-0.6, 0.6), rand(-0.1, 0.2), rand(-0.6, 0.6), rand(1.0, 1.5), rand(2.2, 3.4), 0.24, 0.21, 0.3, 0.8);
+        smokeLive = 1.5;
+        const t = (Math.random() * 3) | 0, b = rand(0, TAU), r0 = s.R * rand(0.8, 1.0);
+        _c.set(STORM_HEX[t]);
+        spawnP(s.x + Math.sin(b) * r0, 0.25, s.z + Math.cos(b) * r0, Math.cos(b) * 3 - Math.sin(b) * 1.5, rand(0.4, 1.4), -Math.sin(b) * 3 - Math.cos(b) * 1.5, rand(0.4, 0.7), rand(0.12, 0.2), _c.r, _c.g, _c.b, -0.3, 1.2);
+      }
+      s.flash -= dt;
+      if (s.flash <= 0) {
+        s.flash = rand(0.08, 0.2);
+        const a = rand(0, TAU), d = Math.sqrt(Math.random()) * s.R;
+        const hx = STORM_HEX[(Math.random() * 3) | 0];
+        flare(s.x + Math.sin(a) * d, rand(5.6, 6.4), s.z + Math.cos(a) * d * 0.7, hx, rand(2.5, 4.5), 0.12);
+      }
+    }
+  }
+  // 冰棱：从云里直坠下来的一根冰晶（落地时由 triStrikeLand 炸开）
+  const icicles = [];
+  let iceMat = null;
+  function icicleGet() {
+    for (const it of icicles) if (!it.on) return it;
+    if (!iceMat) iceMat = new T.MeshStandardMaterial({ color: lin(0xcff2ff), emissive: lin(0x5fc8ff), emissiveIntensity: 1.6, roughness: 0.15, metalness: 0.2, transparent: true, opacity: 0.92, flatShading: true });
+    const mesh = new T.Mesh(gOct(0.5), iceMat);
+    mesh.scale.set(0.55, 2.6, 0.55);
+    mesh.visible = false;
+    scene.add(mesh);
+    const glow = new T.Sprite(spriteMat(0x7fd4ff));
+    glow.scale.setScalar(2.4);
+    mesh.add(glow);
+    const it = { mesh, on: false, t: 0, dur: 0.2, x: 0, z: 0 };
+    icicles.push(it);
+    return it;
+  }
+  function updateIcicles(dt) {
+    for (const it of icicles) {
+      if (!it.on) continue;
+      it.t += dt;
+      const k = Math.min(1, it.t / it.dur);
+      const y = 0.9 + 5.4 * (1 - k * k);
+      it.mesh.position.set(it.x, y, it.z);
+      it.mesh.rotation.y += dt * 6;
+      spawnP(it.x + rand(-0.2, 0.2), y + 1, it.z + rand(-0.2, 0.2), 0, rand(1, 3), 0, rand(0.15, 0.3), rand(0.12, 0.2), 0.8, 0.95, 1, 0, 2);
+      if (k >= 1) {
+        it.on = false;
+        it.mesh.visible = false;
+      }
+    }
+  }
+  // 风暴的一击开始落下：t = 'fire' 陨火 / 'cold' 冰棱 / 'light' 云里先蓄一下光（落雷是瞬间的，在落地那一刻劈下）
+  W.triStrike = function (x, z, t, r, fall) {
+    if (t === 'fire') W.meteorFall(x, z, fall, STORM_HEX[0]);
+    else if (t === 'cold') {
+      const it = icicleGet();
+      it.on = true;
+      it.t = 0;
+      it.dur = Math.max(0.05, fall);
+      it.x = x;
+      it.z = z;
+      it.mesh.visible = true;
+      it.mesh.position.set(x, 6.3, z);
+    } else {
+      flare(x, 6, z, STORM_HEX[2], 3.6, Math.max(0.08, fall));
+      W.decal(3, x, z, r * 0.6, rand(0, TAU), STORM_HEX[2], fall + 0.3);
+    }
+  };
+  W.triStrikeLand = function (x, z, t, r) {
+    const hx = STORM_HEX[t === 'fire' ? 0 : t === 'cold' ? 1 : 2];
+    W.ring(x, z, r, hx, 0.3);
+    if (t === 'fire') {
+      W.decal(1, x, z, r * 0.7, rand(0, TAU), hx, 2.2);
+      W.burst(x, 0.6, z, 0xffb070, 14, 6, 0.45);
+    } else if (t === 'cold') {
+      W.decal(2, x, z, r * 0.85, rand(0, TAU), 0x9fdcff, 2.4);
+      flare(x, 0.8, z, 0xd6f3ff, 2.4, 0.12);
+      _c.set(0xd6f3ff);
+      for (let i = 0; i < 18; i++) {
+        const a = rand(0, TAU), v = rand(3, 7);
+        spawnP(x, 0.5, z, Math.sin(a) * v, rand(2, 6), Math.cos(a) * v, rand(0.35, 0.7), rand(0.14, 0.26), _c.r, _c.g, _c.b, 12, 1.5);
+      }
+      flashLight(x, 2, z, hx, 1.6);
+    } else {
+      skyBolt(x, z, hx, 6.2, 4, 0.55);
+      skyBolt(x, z, 0xffffff, 6.2, 3, 0.18);
+      const a = rand(0, TAU);
+      W.bolt([{ x, z }, { x: x + Math.sin(a) * r * 1.3, z: z + Math.cos(a) * r * 1.3 }], hx, true);
+      W.bolt([{ x, z }, { x: x - Math.sin(a + 0.6) * r * 1.2, z: z - Math.cos(a + 0.6) * r * 1.2 }], hx, true);
+      flare(x, 1.0, z, 0xffffff, 3, 0.12);
+      flashLight(x, 3, z, hx, 2.6);
+      W.burst(x, 0.8, z, hx, 16, 7, 0.35);
+    }
+  };
+
+  // ----- 万魂降临 -----
+  // 插旗：准星处一个大的魂火法阵（借召唤的法阵），一圈魂火青 + 余烬橙的冲击环，一道从你的幡头连到法阵的魂流
+  W.soulHost = function (x, z, R, fx, fz) {
+    W.summonFx(x, z, true);
+    W.ring(x, z, R, ALLY_HEX, 0.7);
+    W.ring(x, z, R * 0.7, EMBER, 0.55);
+    W.ring(fx, fz, 2.6, ALLY_HI, 0.45);
+    W.decal(5, fx, fz, 1.6, rand(0, TAU), 0x9fe8da, 2.5);
+    flashLight(x, 3, z, ALLY_HEX, 2.6);
+    const dx = x - fx, dz = z - fz, d = Math.hypot(dx, dz) || 1;
+    for (let i = 0; i < 30; i++) {
+      const k = i / 30, warm = i % 4 === 0;
+      spawnP(fx + dx * k, 0.4 + Math.sin(k * Math.PI) * 2.2, fz + dz * k, (dx / d) * 4, rand(0.5, 1.5), (dz / d) * 4, rand(0.5, 0.8), rand(0.16, 0.26), warm ? 1 : ALLY_RGB.r, warm ? 0.62 : ALLY_RGB.g, warm ? 0.3 : ALLY_RGB.b, -0.6, 1);
+    }
+    for (let i = 0; i < 40; i++) {
+      const a = rand(0, TAU), r = Math.sqrt(Math.random()) * R;
+      spawnP(x + Math.sin(a) * r, 0.15, z + Math.cos(a) * r, 0, rand(3, 7), 0, rand(0.6, 1.2), rand(0.14, 0.28), ALLY_RGB.r, ALLY_RGB.g, ALLY_RGB.b, -1.5, 0.8);
+    }
+  };
+  // 一位英灵从天而降：一道魂火青的天光柱直劈到落点，外面裹一层余烬橙，落点亮起召唤法阵
+  W.champFx = function (x, z) {
+    vstreak(x, 15, z, x, 0, z, 0.9, ALLY_HEX, 0.5);
+    vstreak(x, 15, z, x, 0, z, 0.3, ALLY_HI, 0.4);
+    vstreak(x + 0.25, 13, z, x, 0, z, 1.4, EMBER, 0.35);
+    W.summonFx(x, z, false);
+    flare(x, 0.6, z, ALLY_HI, 2.6, 0.16);
+  };
+  // 英灵落地一砸：冲击环、地裂、扬尘
+  W.champLand = function (x, z, R) {
+    W.ring(x, z, R, ALLY_HEX, 0.38);
+    W.ring(x, z, R * 0.6, EMBER, 0.3);
+    W.decal(5, x, z, R * 0.75, rand(0, TAU), 0x9fe8da, 2.2);
+    W.burst(x, 0.3, z, 0xcbbba6, 12, 5, 0.45);
+    W.burst(x, 1.0, z, ALLY_HEX, 14, 5, 0.4);
+    W.shake(0.12);
+  };
+  // 英灵时间到了消散：魂火往上飘散
+  W.champFade = function (x, z, h) {
+    for (let i = 0; i < 24; i++) {
+      const a = rand(0, TAU), d = rand(0.1, 0.6), warm = i % 4 === 0;
+      spawnP(x + Math.sin(a) * d, rand(0.2, h || 2.4), z + Math.cos(a) * d, Math.sin(a) * 0.6, rand(2, 4.5), Math.cos(a) * 0.6, rand(0.6, 1.1), rand(0.14, 0.24), warm ? 1 : ALLY_RGB.r, warm ? 0.62 : ALLY_RGB.g, warm ? 0.3 : ALLY_RGB.b, -1, 1);
+    }
+  };
+  // 现有召唤物被治疗：身上一道往上冲的魂火青光
+  W.soulHeal = function (ent, x, z, h) {
+    flare(x, (h || 2) * 0.6, z, ALLY_HI, 1.6, 0.14);
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * TAU;
+      spawnP(x + Math.sin(a) * 0.55, 0.2, z + Math.cos(a) * 0.55, 0, rand(3, 5), 0, rand(0.35, 0.55), rand(0.12, 0.2), 0.75, 1, 0.9, -1, 1);
+    }
+  };
+
+  function updateUfx(dt) {
+    updateAshMarks(dt);
+    updateStorms(dt);
+    updateIcicles(dt);
+  }
+  function clearUfx() {
+    for (const m of ashMarks) { m.on = false; m.ent = null; m.sp.visible = false; }
+    for (const s of storms) { s.on = false; s.mesh.visible = false; }
+    for (const it of icicles) { it.on = false; it.mesh.visible = false; }
+  }
 
   // 聚焦标记：传入敌人的实体（G.state.enemies[i].ent）就标在它头上并跟着走，传 null 隐藏。
   // 每帧调用或只在目标变化时调用都可以；目标被移除 / 开始死亡时标记自动消失。r（可选）：脚下瞄准框的半径

@@ -211,6 +211,51 @@
       useMult: 4,
       desc: '挥动魂幡，放出 4 只魂火扑向准星附近的敌人，碰到即炸开，伤害按召唤物计算（吃召唤物伤害加成）。同时令你所有的召唤物狂热 4 秒：攻击与移动速度提高 30%。没有召唤物时也能用，有召唤物时更强。',
     },
+
+    // ---------- 烬铸技：拿着烬铸武器时，R 上的武器技换成它专属的这一招（G.weaponSkill 按 G.UNIQUES[..].uskill 换） ----------
+    // uskill：烬铸技（界面上带余烬框 / 余烬光）；replaces：它顶替的那个普通武器技。比普通武器技强、更花哨，冷却也长得多。
+    // 千刃归烬（太刀）：在附近的敌人之间连闪至多 hops 次（每次闪 dash 秒、落地停 gap 秒；闪现途中无敌、不穿墙），
+    //   每一闪对沿路和目标身边 splash 米内的敌人斩出 pass 倍武器伤害的一刀，并在这一闪的目标身上留下一道斩痕（别的挨了刀的留 side 道）；最后一闪之后 delay 秒收刀，所有斩痕一齐炸开：
+    //   每道斩痕 cut 倍武器伤害（同一个敌人的斩痕合成一击结算），带着残刃的敌人每层残刃再多 mark 倍（残刃被吃掉）。
+    //   range：每一闪找下一个目标的距离（从你此刻的位置量到敌人边缘）；第一闪取准星附近的
+    ashcuts: {
+      name: '千刃归烬', icon: '烬', color: '#ffb066', tags: ['weapon', 'attack', 'melee', 'phys', 'movement'], kind: 'ukatana', weaponOnly: true, wtype: 'katana', uskill: true, replaces: 'flashcut',
+      wm: 1, time: 0.3, mana: 16, cd: 10, range: 7.5, hops: 6, dash: 0.08, gap: 0.075, width: 1.1, splash: 1.8, pass: 2.8, cut: 6.5, side: 0.5, mark: 6, delay: 0.42,
+      w: 2, kb: 0.6, poise: 14, stop: 30, cutPoise: 45, cutStop: 160, move: 0,
+      wclip: null, // 起手不另播动作：每一闪播影步的闪斩，最后播收刀「u_katana」
+      wt: { phases: [0.05], cancel: 9, dur: 9 }, // 时长由连闪自己管（打完收刀才结束）
+      useMult: 55.8, // 单体首领：6 闪 × (2.8 + 6.5)
+      desc: '在准星附近的敌人之间连闪至多 6 次（闪现途中无敌，不穿墙，附近没有敌人就提前收手），每一闪斩出一刀并留下斩痕。收刀的一瞬，所有斩痕一齐炸开；带着残刃的敌人每层残刃再受到额外伤害（残刃被吃掉）。附近没有敌人时不会施放。',
+    },
+    // 三相天灾（长杖）：在准星一带（最远 range，被墙挡住时落在墙前）召来 dur 秒的元素风暴，半径 radius。
+    //   每 tick 秒落下一击，火 → 冰 → 雷轮流（每种都按它自己的元素伤害加成算），落点优先砸在范围里的敌人身上，炸开半径 hitR；
+    //   每一击额外 ailment% 异常累积，冻结 / 爆燃 / 感电（以及三相共鸣）会在怪群里接连触发。
+    //   风暴打出来的异常照常让首领的阈值变高（拿着三相之心也一样），首领不会被冻结
+    tristorm: {
+      name: '三相天灾', icon: '灾', color: '#ffd08a', tags: ['weapon', 'spell', 'area', 'fire', 'cold', 'light'], kind: 'ustaff', weaponOnly: true, wtype: 'staff', uskill: true, replaces: 'leyburst',
+      edmg: [16, 24], elem: 'fire', time: 0.7, mana: 26, cd: 12, range: 14, radius: 4.6, dur: 4, tick: 0.2, hitR: 1.8, ailment: 120, delay: 0.35,
+      w: 1, kb: 0.5, poise: 6, move: 0.25,
+      wclip: 'u_staff',
+      wt: { phases: [0.42], cancel: 0.7, dur: 0.95, clip: { dur: 1.0 } },
+      useMult: 14, // 单体平均吃到的击数（20 击里大约七成落在同一个目标身上）
+      desc: '在准星一带召来持续 4 秒的元素风暴：陨火、冰棱与落雷轮番砸下，每秒 5 击，优先落在范围里的敌人身上，每一击都按它自己的元素伤害加成计算，并大幅累积异常值——冻结、爆燃、感电会在怪群里接连炸开。首领的阈值照常变高，不会被冻结。',
+    },
+    // 万魂降临（魂幡）：召来 n 位英灵（champ：伤害 / 生命按召唤物算——等级 = 武器物品等级 × 0.75，吃召唤物伤害 / 生命加成与继承），
+    //   在准星一带（最远 range）落下，落地时各砸一圈（slam 倍英灵一击、半径 slamR），之后自动作战 life 秒，
+    //   时间到了消散（拿着万魂旗时化作魂火炸开，同魂火轮回）。英灵不占仆从的数量上限。
+    //   同时把你现有的召唤物全部治疗到满，并狂热 frenzy.dur 秒
+    soulhost: {
+      name: '万魂降临', icon: '降', color: '#7ff0d8', tags: ['weapon', 'spell', 'minion', 'phys'], kind: 'ubanner', weaponOnly: true, wtype: 'banner', uskill: true, replaces: 'soultide',
+      champ: true, minion: 'wraith',
+      dmg: { phys: [5, 7] }, time: 0.75, mana: 30, cd: 15, range: 9, n: 6, life: 40, dur: 8, rate: 0.75, reach: 1.0, move: 8.2, dr: 20, cap: 6,
+      cleave: 3, arc: 170, inherit: 0.35, hold: 3, slam: 4, slamR: 2.2, spread: 2.6,
+      w: 0, kb: 0.4, poise: 4,
+      frenzy: { dur: 4, k: 0.3 },
+      wclip: 'u_banner',
+      wt: { phases: [0.5], cancel: 0.75, dur: 1.0, clip: { dur: 1.05 } },
+      useMult: 1,
+      desc: '把魂幡插进地里：6 位英灵从天而降，落在准星一带，落地时各砸出一圈冲击，随后自动厮杀 8 秒再消散（化作魂火炸开）。英灵的伤害与生命按召唤物计算，吃召唤物加成与继承，不占仆从数量。同时把你现有的召唤物全部治疗到满，并令它们狂热 4 秒。',
+    },
   };
   // 武器技之外的技能：能学、能掉落、能放进技能栏的那些
   G.GEM_SKILLS = Object.keys(G.SKILLS).filter((id) => !G.SKILLS[id].weaponOnly);
@@ -451,17 +496,17 @@
   G.UNIQUE_BASE_Q = 1.1;
   G.UNIQUES = {
     jinduan: {
-      name: '烬断', base: 6, boss: 'warden', mech: 'blade', mechName: '残刃',
+      name: '烬断', base: 6, boss: 'warden', mech: 'blade', mechName: '残刃', uskill: 'ashcuts',
       lines: [{ id: 'wInc', k: [1.7, 2.3] }, { id: 'crit', k: [1.6, 2.2] }, { id: 'critMulti', k: [1.1, 1.5] }, { id: 'speed', k: [0.9, 1.3] }],
       lore: '雷霆监察者的刑刀断在烬渊里，断口至今还在发烫。',
     },
     sanxiang: {
-      name: '三相之心', base: 1, boss: 'weaver', mech: 'tri', mechName: '三相共鸣',
+      name: '三相之心', base: 1, boss: 'weaver', mech: 'tri', mechName: '三相共鸣', uskill: 'tristorm',
       lines: [{ id: 'uIncElem', k: [1.15, 1.65] }, { id: 'uAilment', k: [1.0, 1.5] }, { id: 'speed', k: [1.0, 1.4] }, { id: 'addLight', k: [0.95, 1.35] }],
       lore: '霜织者把三种元素织进同一颗心里，它们至今仍在互相拉扯。',
     },
     wanhun: {
-      name: '万魂旗', base: 7, boss: 'lord', mech: 'soul', mechName: '魂火轮回',
+      name: '万魂旗', base: 7, boss: 'lord', mech: 'soul', mechName: '魂火轮回', uskill: 'soulhost',
       lines: [{ id: 'minionDmg', k: [0.1, 0.2] }, { id: 'minionLife', k: [0.3, 0.6] }, { id: 'minionCap', fixed: 1 }, { id: 'wInc', k: [2.0, 2.8] }],
       lore: '烬渊之主麾下的亡魂都系在这面旗上，倒下一个，就烧起一团。',
     },
@@ -474,19 +519,19 @@
   G.UNIQUE_DROP = { chance: [0, 0.15, 0.25], pity: 2 };
   G.uniqueChance = (tier) => (tier >= 2 ? G.UNIQUE_DROP.chance[2] : tier >= 1 ? G.UNIQUE_DROP.chance[1] : 0);
   // 机制数值（平衡机器人量过：对位构筑比同物品等级「6 条最高阶词缀取中值」的顶级稀有快约两到三成）：
-  // 残刃：max 层引爆，mult 倍武器伤害（必定暴击），波及 r 米内别的敌人 splash 倍；带残刃的敌人倒下，残刃飞到 jump 米内最近的敌人身上；
-  //   瞬断冷却 × cdK
+  // 残刃：max 层引爆，mult 倍武器伤害（必定暴击），波及 r 米内别的敌人 splash 倍；带残刃的敌人倒下，残刃飞到 jump 米内最近的敌人身上
+  //   （拿着烬断时 R 上是烬铸技「千刃归烬」，不再是瞬断；它收刀时把残刃吃掉换成额外伤害）
   // 三相共鸣：半径 r、另外两种元素各灌 k 条；refresh：已感电 / 冰缓的续满时间；heat：没攒过火焰伤害的敌人被灌爆时按源头的火焰伤害爆燃；
   //   grow：拿着它时首领因正常触发而变高的阈值 × grow（0 = 不变高）
   // 魂火轮回：魂火 k 倍最大生命、半径 r；继承武器伤害的比例最多 × inherit（gated：提高的部分按武器物品等级的继承折算走）；
   //   free：自动召唤不耗魔力
-  G.MARK = { max: 5, mult: 11, cdK: 0.5, r: 2.5, splash: 0.3, jump: 5 };
+  G.MARK = { max: 5, mult: 11, r: 2.5, splash: 0.3, jump: 5 };
   G.TRI = { r: 5, k: 0.75, refresh: true, heat: true, grow: 0 };
   G.SOULFIRE = { k: 0.15, r: 3, inherit: 1.5, gated: true, free: true };
   // 机制说明按上面的数值写（改数值时说明跟着变）
   const pc = (x) => Math.round(x * 100) + '%';
   G.UNIQUES.jinduan.mechDesc = '每次暴击在目标身上留下一道残刃；叠满 ' + G.MARK.max + ' 道一齐引爆，造成 ' + pc(G.MARK.mult) + ' 武器伤害的物理伤害（必定暴击），周围 ' + G.MARK.r + ' 米内的其他敌人受到其中 ' + pc(G.MARK.splash) +
-    '。带着残刃的敌人倒下时，残刃飞到 ' + G.MARK.jump + ' 米内最近的敌人身上。瞬断的冷却时间减半。';
+    '。带着残刃的敌人倒下时，残刃飞到 ' + G.MARK.jump + ' 米内最近的敌人身上。';
   G.UNIQUES.sanxiang.mechDesc = '任何敌人触发冻结、爆燃或感电时，' + G.TRI.r + ' 米内的敌人（含它自己）获得另外两种元素各 ' + pc(G.TRI.k) + ' 条异常值；已在感电或冰缓中的改为续满时间，被灌爆的爆燃沿用源头的火焰伤害。共鸣灌满的异常不再引发共鸣。' +
     (G.TRI.grow < 1 ? '首领不会因为异常越打越难触发。' : '');
   G.UNIQUES.wanhun.mechDesc = '召唤物倒下时化作魂火炸开，对周围 ' + G.SOULFIRE.r + ' 米内的敌人造成它最大生命 ' + pc(G.SOULFIRE.k) + ' 的火焰伤害。自动召唤不消耗魔力。召唤物继承武器伤害的比例' +

@@ -522,10 +522,15 @@
   // 总伤害、暴击、异常几率、范围），只吃 minionDmg / minionMore 与镶在这个技能上的辅助；ctx.minion 是召唤物的其余数值
   // ---------- 武器技 ----------
   // 当前武器自带的武器技 id（没拿武器时 null）
-  G.weaponSkill = function () {
-    const w = G.save && G.save.equip && G.save.equip.weapon;
+  // 烬铸武器：换成它专属的烬铸技（G.UNIQUES[..].uskill），顶替这类武器的普通武器技
+  G.weaponSkillOf = function (w) {
+    const U = w && w.rarity === 3 && G.UNIQUES[w.uq];
+    if (U && U.uskill && G.SKILLS[U.uskill]) return U.uskill;
     const base = w && G.BASES.weapon[w.baseIdx];
     return (base && base.wskill && G.SKILLS[base.wskill] && base.wskill) || null;
+  };
+  G.weaponSkill = function () {
+    return G.weaponSkillOf(G.save && G.save.equip && G.save.equip.weapon);
   };
   // 武器技共用一个冷却：换了武器技（换了另一类武器）时，把上一个武器技剩下的冷却按比例带到新的武器技上，
   // 免得在两类武器之间来回换就能连放。换装（commit）和每帧开头各对一次；同类武器之间换本来就是同一个 id
@@ -604,7 +609,7 @@
       out.phys = [wp.min * k, wp.max * k];
       return out;
     }
-    const scale = sk.kind === 'summon' || sk.asMinion ? G.minionDmgK(lvl) : 1 + 0.2 * (lvl - 1);
+    const scale = sk.kind === 'summon' || sk.asMinion || sk.champ ? G.minionDmgK(lvl) : 1 + 0.2 * (lvl - 1);
     if (sk.edmg) {
       out[G.topElem(sk.elem)] = [sk.edmg[0] * scale, sk.edmg[1] * scale];
       return out;
@@ -619,7 +624,8 @@
     const sk = G.SKILLS[id];
     const isWs = !!sk.weaponOnly;
     const lvl = isWs ? G.weaponSkillLevel(id) : save.skills[id] || 1;
-    const isMinion = sk.kind === 'summon';
+    // champ：万魂降临的英灵——数值按召唤物算（ctx.minion），但它是武器技，不吃辅助宝石
+    const isMinion = sk.kind === 'summon' || !!sk.champ;
     // mScale：伤害按召唤物算（召唤技能，以及魂潮这种 asMinion 的武器技）——只吃召唤物类属性
     const mScale = isMinion || !!sk.asMinion;
     // 攻击技能：伤害 = 武器伤害 × wm × (1 + ATTACK_GEM_LVL × (等级 − 1))，出手速度再乘武器攻速（武器技的节奏是按各自的武器定好的，不再乘）
@@ -711,7 +717,7 @@
       stopAvg: ((sk.combo ? sk.comboStop : sk.stop || 0) / 1000) * STOP_K(speed),
       cost,
       // 烬断（残刃）：瞬断的冷却减半
-      cd: sk.cd * (1 - Math.min(80, cdr) / 100) * (id === 'flashcut' && P.uMech === 'blade' ? G.MARK.cdK : 1),
+      cd: sk.cd * (1 - Math.min(80, cdr) / 100),
       leech, stun, ailment, echo: isAura ? 0 : echo,
       reserve: isAura ? G.auraReserve(id) : 0,
       minion: null,
@@ -1001,8 +1007,8 @@
     const st = state.stats;
     e.buTrig[p.t]++;
     // 三相共鸣直接灌满的那一下不让首领的阈值变高（不然共鸣越多，首领反而越难触发异常）
-    // 拿着三相之心时，正常触发让首领阈值变高的幅度 × TRI.grow
-    if (e.isBoss && !p.spread) e.buGrow[p.t] = Math.min(BU.bossGrowMax, e.buGrow[p.t] + BU.bossGrow * (P.uMech === 'tri' ? G.TRI.grow : 1));
+    // 拿着三相之心时，正常触发让首领阈值变高的幅度 × TRI.grow；烬铸技「三相天灾」打出来的触发不打这个折扣（首领照常越打越难）
+    if (e.isBoss && !p.spread) e.buGrow[p.t] = Math.min(BU.bossGrowMax, e.buGrow[p.t] + BU.bossGrow * (P.uMech === 'tri' && !(p.storm || stormDepth > 0) ? G.TRI.grow : 1));
     if (p.t === 'cold') {
       if (e.dead) return;
       st.freezes = (st.freezes || 0) + 1;
@@ -2880,6 +2886,7 @@
   const WS_FALLBACK = {
     wblade: ['attack1', 'attack2'], wstaff: ['cast'], wwand: ['cast'], wdaggers: ['blink', 'flicker'],
     whammer: ['attack3'], wbow: ['throw'], wkatana: ['blink'], wbanner: ['cast'],
+    ukatana: ['flicker'], ustaff: ['cast'], ubanner: ['cast'],
   };
   function fxOpt(name) {
     const W = G.world;
@@ -3005,6 +3012,14 @@
       }
       c.aim = Math.atan2(c.data.e.x - P.x, c.data.e.z - P.z);
     }
+    if (sk.kind === 'ukatana') {
+      // 千刃归烬：附近没有闪得过去的敌人就不起手（不扣魔力、不进冷却）
+      if (!cutPick(sk, null, _cs)) {
+        flickerNoTarget();
+        return false;
+      }
+      c.aim = Math.atan2(_cs.e.x - P.x, _cs.e.z - P.z);
+    }
     G.input.tap[slot] = 0;
     comboReset();
     P.cast = c;
@@ -3013,7 +3028,9 @@
     const cl = wt.clip || {};
     const clipDur = (cl.dur || wt.dur + 0.1) / sp;
     const clipAt = cl.at !== undefined ? cl.at / sp : c.fireT;
-    if (!W.play(P.ent, 'w_' + sk.wtype, { dur: clipDur, contact: clipAt })) {
+    // 烬铸技有自己的动作（sk.wclip；null = 起手不另播，由技能自己按段播）
+    const clipName = sk.wclip !== undefined ? sk.wclip : 'w_' + sk.wtype;
+    if (clipName && !W.play(P.ent, clipName, { dur: clipDur, contact: clipAt })) {
       c.fb = true;
       W.play(P.ent, WS_FALLBACK[sk.kind][0], { dur: Math.max(c.fireT * 2.2, 0.3), contact: c.fireT });
     }
@@ -3377,6 +3394,296 @@
     const n = G.minionFrenzy ? G.minionFrenzy(fz.dur, fz.k) : 0;
     if (n) G.world.text(P.x, P.z, '狂热', '#4fe3c8', 16);
     G.sfx('cast');
+  };
+
+  // =====================================================================
+  // 烬铸技（拿着烬铸武器时 R 上的那一招，见 data.js 的 ashcuts / tristorm / soulhost）
+  // =====================================================================
+  // ---------- 千刃归烬：连闪 → 收刀 → 斩痕齐爆 ----------
+  // 落点：穿过目标、落在它身后（从你这边看过去的另一侧）；身后站不住就在它身边找（flickerSpot）
+  const CUT_TRY = [0, 0.45, -0.45, 0.9, -0.9, 1.4, -1.4];
+  function cutSpot(e, out) {
+    const W = G.world;
+    const ab = Math.atan2(e.x - P.x, e.z - P.z);
+    const gap = e.r + 1.1;
+    for (const da of CUT_TRY) {
+      const a = ab + da;
+      const x = e.x + Math.sin(a) * gap;
+      const z = e.z + Math.cos(a) * gap;
+      if (!W.walkable(x, z, PLAYER_PAD) || !pathClear(P.x, P.z, x, z)) continue;
+      out.e = e;
+      out.x = x;
+      out.z = z;
+      return true;
+    }
+    return flickerSpot(e, ab + Math.PI, out);
+  }
+  // 下一闪的目标：range 以内（量到敌人边缘）。第一闪取准星 5 格以内离准星最近的，没有就取最近的；
+  // 之后优先没斩过的、斩得少的、近的；刚斩过的那个只在没有别的可选时再斩（只剩一个目标时来回穿它）
+  const _cs = { e: null, x: 0, z: 0, a: 0 };
+  function cutPick(sk, run, out) {
+    const m = G.input.mouse;
+    const cand = [];
+    for (const e of state.enemies) {
+      if (e.dead || e.executed) continue;
+      const dp = dist(e.x, e.z, P.x, P.z);
+      if (dp - e.r > sk.range) continue;
+      let s;
+      if (!run || !run.last) {
+        const dm = dist(e.x, e.z, m.wx, m.wz);
+        s = dm - e.r <= 5 ? -dm : -1000 - dp;
+      } else {
+        const n = run.cuts.has(e) ? run.cuts.get(e) : 0;
+        s = -n * 4 - dp * 0.15 - (e === run.last ? 100 : 0);
+      }
+      cand.push({ e, s });
+    }
+    cand.sort((a, b) => b.s - a.s);
+    for (const it of cand) if (cutSpot(it.e, out)) return true;
+    return false;
+  }
+  function addCut(run, e, k) {
+    run.cuts.set(e, (run.cuts.get(e) || 0) + k);
+  }
+  // 一闪：从此刻的位置闪到 _cs 的落点（途中无敌），沿路的敌人各挨一刀、各留一道斩痕；闪到之后停 gap 秒再闪下一次
+  function cutHop(c, run) {
+    if (run.done) return;
+    const sk = run.sk, ctx = run.ctx, W = G.world;
+    if (P.cast !== c || P.dead) {
+      // 被翻滚取消 / 倒下：已经留下的斩痕照样炸开
+      cutFinish(c, run, 0.12, false);
+      return;
+    }
+    if (run.hops >= sk.hops || !cutPick(sk, run, _cs)) {
+      cutFinish(c, run, sk.delay, true);
+      return;
+    }
+    const e = _cs.e;
+    const x0 = P.x, z0 = P.z, x1 = _cs.x, z1 = _cs.z;
+    const a = Math.atan2(x1 - x0, z1 - z0);
+    const d = dist(x0, z0, x1, z1);
+    const dashT = sk.dash / ctx.speed;
+    const gapT = sk.gap / ctx.speed;
+    run.hops++;
+    run.last = e;
+    state.stats.ashHops = (state.stats.ashHops || 0) + 1;
+    // 沿路、以及目标身边 splash 米内的敌人：各挨一刀
+    const hits = enemiesInLine(x0, z0, a, d, sk.width * Math.sqrt(ctx.area)).filter((o) => losClear(x0, z0, o.x, o.z));
+    for (const o of enemiesIn(e.x, e.z, sk.splash * Math.sqrt(ctx.area))) if (hits.indexOf(o) < 0 && losClear(x1, z1, o.x, o.z)) hits.push(o);
+    if (hits.indexOf(e) < 0) hits.push(e);
+    P.iframe = Math.max(P.iframe, dashT + gapT + 0.06);
+    P.roll.t = 0;
+    c.data.mv = { x0, z0, x1, z1, t0: c.t, dt: dashT };
+    c.aim = a;
+    P.face = a;
+    const hex = hexOf(sk.color);
+    W.play(P.ent, run.hops % 2 ? 'flicker' : 'flicker2', { dur: dashT + gapT + 0.12, contact: dashT });
+    W.setTrail(hex);
+    G.sfx('roll');
+    G.after(dashT, () => {
+      if (run.done) return;
+      if (!fxOpt('ashDash', P.ent, x0, z0, P.x, P.z, hex)) W.dashFx(x0, z0, P.x, P.z, hex);
+      const live = hits.filter((o) => !o.dead);
+      // 斩痕：这一闪的目标留一整道，沿路 / 身边挨了刀的留半道（sk.side）——怪群里多炸一些，单挑首领不变
+      for (const o of live) {
+        addCut(run, o, o === e ? 1 : sk.side);
+        fxOpt('ashMark', o.ent, a + Math.PI / 2 + G.rand(-0.6, 0.6), run.cuts.get(o), o.height || 2);
+      }
+      G.sfx('swing', { step: run.hops % 2 });
+      if (live.length) wsStrike(ctx, live, sk.pass, { ang: a, w: 0, kb: sk.kb, poise: sk.poise, stop: sk.stop, dir: a });
+      G.after(gapT, () => cutHop(c, run));
+    });
+  }
+  // 收刀：delay 秒后所有斩痕一齐炸开。sheath：正常打完（播收刀动作；被取消时不播）
+  function cutFinish(c, run, delay, sheath) {
+    if (run.done) return;
+    run.done = true;
+    const sk = run.sk, W = G.world;
+    if (P.cast === c) {
+      c.data.mv = null;
+      c.tick = null;
+      if (sheath) {
+        W.play(P.ent, 'u_katana', { dur: delay + 0.42, contact: delay });
+        c.cancelT = c.t + delay; // 炸开之后就能接别的动作
+        c.dur = c.t + delay + 0.42;
+      }
+    }
+    fxOpt('ashSheathe', P.x, P.z, delay);
+    G.after(delay, () => cutBurst(run));
+  }
+  function cutBurst(run) {
+    const sk = run.sk, ctx = run.ctx, W = G.world;
+    const list = [];
+    run.cuts.forEach((n, e) => {
+      if (!e.dead) list.push({ e, n });
+    });
+    fxOpt('ashClear');
+    state.stats.ashBursts = (state.stats.ashBursts || 0) + 1;
+    if (!list.length) return;
+    let crit = false, marks = 0, total = 0;
+    for (const it of list) {
+      const e = it.e;
+      // 残刃：每层再多 mark 倍，吃掉
+      const mk = P.uMech === 'blade' ? e.marks || 0 : 0;
+      if (mk > 0) {
+        e.marks = 0;
+        if (W.bladeMarks) W.bladeMarks(e.ent, 0);
+        marks += mk;
+      }
+      fxOpt('ashBurst', e.x, e.z, e.height || 2, e.r, it.n, mk);
+      total += G.hitEnemy(e, ctx, it.n * sk.cut + mk * sk.mark, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 2, kb: sk.kb * 2, poise: sk.cutPoise, quiet: true }) || 0;
+      crit = crit || lastHit.crit;
+      if (!e.dead) W.shudder(e.ent, 0.14, 0.24);
+    }
+    state.stats.ashCuts = (state.stats.ashCuts || 0) + list.reduce((s, it) => s + it.n, 0);
+    state.stats.ashMarks = (state.stats.ashMarks || 0) + marks;
+    run.total = total;
+    state.stats.ashDmg = (state.stats.ashDmg || 0) + total;
+    G.hitStop(sk.cutStop * ctx.stopK + (crit ? 20 : 0));
+    W.shudder(P.ent, 0.03, 0.16);
+    W.punch(P.face + Math.PI, 0.5);
+    W.shake(0.62);
+    W.fovKick(4);
+    G.slowMo(0.35, 0.22);
+    G.sfx('impact', { type: 'phys', w: 2, crit });
+    G.sfx('finisher');
+    G.sfx('ashcuts');
+  }
+  WS_FX.ukatana = function (ctx, c) {
+    const sk = ctx.sk;
+    const run = (c.data.run = { sk, ctx, cuts: new Map(), hops: 0, last: null, done: false, total: 0 });
+    // 连闪的位移：每帧把玩家从这一闪的起点插到落点
+    c.tick = (cc) => {
+      const mv = cc.data.mv;
+      if (!mv) return;
+      const f = G.clamp((cc.t - mv.t0) / mv.dt, 0, 1);
+      P.x = mv.x0 + (mv.x1 - mv.x0) * f;
+      P.z = mv.z0 + (mv.z1 - mv.z0) * f;
+      if (f >= 1) cc.data.mv = null;
+    };
+    cutHop(c, run);
+  };
+
+  // ---------- 三相天灾：准星处的元素风暴 ----------
+  // 风暴打出来的异常：stormDepth > 0 时，首领照常因触发变高阈值（三相之心的 TRI.grow 不管这里）
+  let stormDepth = 0;
+  const STORM_ELEMS = ['fire', 'cold', 'light'];
+  // 某一种元素的一击：基础伤害整个换成这个元素（等级与地脉涌一样按武器物品等级），再加上你的附加伤害
+  function stormCtx(ctx, t) {
+    const sk = ctx.sk, S = P.S;
+    const k = ctx.levelK;
+    const base = {};
+    base[t] = [sk.edmg[0] * k, sk.edmg[1] * k];
+    for (const u of TYPES) {
+      const v = S['add' + G.CAP[u]] || 0;
+      if (v > 0) {
+        if (!base[u]) base[u] = [0, 0];
+        base[u][0] += v * 0.7;
+        base[u][1] += v * 1.3;
+      }
+    }
+    return Object.assign({}, ctx, { base });
+  }
+  WS_FX.ustaff = function (ctx, c) {
+    const W = G.world;
+    const sk = ctx.sk;
+    const a = aimInfo();
+    const d = rayLen(P.x, P.z, a.ang, Math.min(sk.range, a.dist), 0);
+    const x = P.x + Math.sin(a.ang) * d;
+    const z = P.z + Math.cos(a.ang) * d;
+    const R = sk.radius * Math.sqrt(ctx.area);
+    const ctxs = {};
+    for (const t of STORM_ELEMS) ctxs[t] = stormCtx(ctx, t);
+    const n = Math.round(sk.dur / sk.tick);
+    const storm = { x, z, R, n, hits: 0, struck: new Map() };
+    c.data.storm = storm;
+    if (!fxOpt('triStorm', x, z, R, sk.delay + sk.dur + 0.3)) G.telegraph({ shape: 'circle', x, z, r: R, dur: sk.delay + sk.dur, dmg: 0, friendly: true });
+    W.shake(0.25);
+    G.sfx('cast');
+    G.sfx('tristorm');
+    state.stats.storms = (state.stats.storms || 0) + 1;
+    const FALL = 0.24; // 从天上落到地面的时间（陨火 / 冰棱 / 落雷的特效在这之前出手）
+    const strike = (i) => {
+      if (P.dead) return;
+      const t = STORM_ELEMS[i % 3];
+      const hr = sk.hitR * Math.sqrt(ctx.area);
+      // 落点：范围里（看得见风暴中心）的敌人里挑一个，被砸得少的优先；一个都没有就随便落在圈里
+      const pool = enemiesIn(x, z, R).filter((e) => losClear(x, z, e.x, e.z));
+      let px, pz;
+      if (pool.length) {
+        pool.sort((p, q) => (storm.struck.get(p) || 0) - (storm.struck.get(q) || 0) + (Math.random() - 0.5) * 1.2);
+        const e = pool[0];
+        storm.struck.set(e, (storm.struck.get(e) || 0) + 1);
+        px = e.x + G.rand(-0.4, 0.4);
+        pz = e.z + G.rand(-0.4, 0.4);
+      } else {
+        const rr = R * 0.85 * Math.sqrt(Math.random());
+        const aa = Math.random() * TAU;
+        px = x + Math.sin(aa) * rr;
+        pz = z + Math.cos(aa) * rr;
+      }
+      fxOpt('triStrike', px, pz, t, hr, FALL);
+      G.after(FALL, () => {
+        if (P.dead) return;
+        const hits = enemiesIn(px, pz, hr).filter((e) => losClear(px, pz, e.x, e.z));
+        fxOpt('triStrikeLand', px, pz, t, hr);
+        if (i % 2 === 0) G.sfx('impact', { type: t, w: 1, crit: false });
+        if (!hits.length) return;
+        stormDepth++;
+        for (const e of hits) G.hitEnemy(e, ctxs[t], 1, { ang: Math.atan2(e.x - px, e.z - pz), w: sk.w, kb: sk.kb, poise: sk.poise, quiet: true });
+        stormDepth--;
+        storm.hits += hits.length;
+        state.stats.stormHits = (state.stats.stormHits || 0) + hits.length;
+        if (i % 3 === 0) W.shake(0.12);
+      });
+    };
+    for (let i = 0; i < n; i++) G.after(sk.delay + i * sk.tick, () => strike(i));
+  };
+
+  // ---------- 万魂降临：英灵降临 + 治疗 / 狂热现有的召唤物 ----------
+  WS_FX.ubanner = function (ctx, c) {
+    const W = G.world;
+    const sk = ctx.sk;
+    const a = aimInfo();
+    const d = rayLen(P.x, P.z, a.ang, Math.min(sk.range, Math.max(2.5, a.dist)), 0.6);
+    const cx = P.x + Math.sin(a.ang) * d;
+    const cz = P.z + Math.cos(a.ang) * d;
+    // 先把现有的召唤物治疗到满、狂热（新来的英灵不算在内）
+    let healed = 0;
+    for (const m of state.minions) {
+      if (m.dead || m.expire) continue;
+      m.hp = m.maxHp;
+      healed++;
+      fxOpt('soulHeal', m.ent, m.x, m.z, m.height || 2);
+    }
+    const fz = sk.frenzy;
+    if (G.minionFrenzy) G.minionFrenzy(fz.dur, fz.k);
+    if (healed) W.text(P.x, P.z, '治疗 · 狂热', '#7ff0d8', 16);
+    fxOpt('soulHost', cx, cz, sk.spread + 1.6, P.x, P.z);
+    W.shake(0.35);
+    W.fovKick(2.5);
+    G.sfx('soulhost');
+    state.stats.hosts = (state.stats.hosts || 0) + 1;
+    // 英灵：一圈落在准星一带，依次落下
+    if (!G.summonChampion) return;
+    const n = sk.n;
+    const a0 = Math.random() * TAU;
+    for (let i = 0; i < n; i++) {
+      const aa = a0 + (i / n) * TAU;
+      const rr = sk.spread * (i % 2 ? 1 : 0.62);
+      G.after(0.06 * i, () => {
+        if (P.dead) return;
+        const m = G.summonChampion(c.id, cx + Math.sin(aa) * rr, cz + Math.cos(aa) * rr, ctx, sk.dur);
+        if (!m) return;
+        // 落地一砸：slam 倍英灵一击，半径 slamR
+        const R = sk.slamR;
+        const hits = enemiesIn(m.x, m.z, R);
+        fxOpt('champLand', m.x, m.z, R);
+        for (const e of hits) G.hitEnemy(e, ctx, sk.slam, { ang: Math.atan2(e.x - m.x, e.z - m.z), w: 1, kb: 1.2, poise: 12, quiet: true, minion: m });
+        if (hits.length) G.sfx('impact', { type: 'phys', w: 1, crit: false });
+        state.stats.champions = (state.stats.champions || 0) + 1;
+      });
+    }
   };
 
   // 以当前鼠标落点为目标执行一次技能效果（不扣消耗、不进冷却）
