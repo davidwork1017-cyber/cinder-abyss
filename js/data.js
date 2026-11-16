@@ -340,8 +340,9 @@
   G.SLOTS = ['weapon', 'helm', 'body', 'gloves', 'boots', 'belt', 'ring', 'amulet'];
   G.SLOT_NAME = { weapon: '武器', helm: '头盔', body: '胸甲', gloves: '手套', boots: '鞋子', belt: '腰带', ring: '戒指', amulet: '护符' };
   G.SLOT_GLYPH = { weapon: '武', helm: '盔', body: '甲', gloves: '手', boots: '靴', belt: '带', ring: '戒', amulet: '坠' };
-  G.RARITY_NAME = ['普通', '魔法', '稀有'];
-  G.RARITY_COLOR = ['#d6d1c4', '#7f9dff', '#ffd75e'];
+  // 3 = 烬铸：只有轮回层级里的首领会掉的固定武器（见下面的「烬铸武器」），名字是偏暗的金红色，和稀有的亮黄分开
+  G.RARITY_NAME = ['普通', '魔法', '稀有', '烬铸'];
+  G.RARITY_COLOR = ['#d6d1c4', '#7f9dff', '#ffd75e', '#ff9b3d'];
 
   // 武器：type 武器类型；wskill 自带的武器技（G.SKILLS 里的 id）；dmg 1 级时的物理伤害区间（按物品等级成长，见「武器伤害」）；
   // aps 攻击速度：攻击技能的出手速度倍率（1 = 技能本身的节奏），武器秒伤 = 平均伤害 × aps；
@@ -425,10 +426,64 @@
     Object.assign(A('wAdd', 'prefix', '重锻', 'wAdd', 2, 3, 1.33, ['weapon'], 6), { local: true, baseW: { weapon: [1, 0.3, 0.3, 1, 1, 1, 1, 0.2] } }),
     A('minionLife', 'prefix', '骸固', 'minionLife', 8, 13, 1.3, ['helm', 'body', 'belt'], 5),
     Object.assign(A('minionCap', 'suffix', '万骸', 'minionCap', 1, 1, 1, ['amulet'], 2), { minIlvl: 18, rareOnly: true }),
+    // 只出现在烬铸武器上的词缀行（slots 为空、权重 0：随机掉落和打造都不会出）
+    A('uIncElem', 'prefix', '三相', 'incElem', 8, 13, 1.35, [], 0),
+    A('uAilment', 'suffix', '蚀相', 'ailment', 8, 13, 1.3, [], 0),
   ];
   G.AFFIX_BY_ID = {};
   for (const a of G.AFFIXES) G.AFFIX_BY_ID[a.id] = a;
-  for (const id of ['moveSpeed', 'resFire', 'resCold', 'resLight', 'speed', 'crit', 'critMulti', 'manaRegen', 'rarity']) G.AFFIX_BY_ID[id].soft = true;
+  for (const id of ['moveSpeed', 'resFire', 'resCold', 'resLight', 'speed', 'crit', 'critMulti', 'manaRegen', 'rarity', 'uAilment']) G.AFFIX_BY_ID[id].soft = true;
+
+  // ---------- 烬铸武器（稀有度 3）----------
+  // 名字、武器类型和词缀行都是固定的，只有数值在区间里掷。区间跟着物品等级走：每一行取这条词缀在该物品等级最高阶的区间，
+  // 下限 × k[0]、上限 × k[1]（fixed 的行是固定值，不进完美度）。基础伤害按普通武器的公式在掉落的物品等级上算，成色固定取 BASE_Q
+  // （普通武器 0.9–1.1 的上沿），所以层级越高掉的同一把越强。裸属性大致相当于同物品等级最好的稀有武器，强在机制上。
+  // boss：只由这个首领掉（层级 1 起）；mech：机制（game.js 里按 P.uMech 判断）
+  G.UNIQUE_BASE_Q = 1.1;
+  G.UNIQUES = {
+    jinduan: {
+      name: '烬断', base: 6, boss: 'warden', mech: 'blade', mechName: '残刃',
+      lines: [{ id: 'wInc', k: [1.7, 2.3] }, { id: 'crit', k: [1.6, 2.2] }, { id: 'critMulti', k: [1.1, 1.5] }, { id: 'speed', k: [0.9, 1.3] }],
+      lore: '雷霆监察者的刑刀断在烬渊里，断口至今还在发烫。',
+    },
+    sanxiang: {
+      name: '三相之心', base: 1, boss: 'weaver', mech: 'tri', mechName: '三相共鸣',
+      lines: [{ id: 'uIncElem', k: [1.15, 1.65] }, { id: 'uAilment', k: [1.0, 1.5] }, { id: 'speed', k: [1.0, 1.4] }, { id: 'addLight', k: [0.95, 1.35] }],
+      lore: '霜织者把三种元素织进同一颗心里，它们至今仍在互相拉扯。',
+    },
+    wanhun: {
+      name: '万魂旗', base: 7, boss: 'lord', mech: 'soul', mechName: '魂火轮回',
+      lines: [{ id: 'minionDmg', k: [0.1, 0.2] }, { id: 'minionLife', k: [0.3, 0.6] }, { id: 'minionCap', fixed: 1 }, { id: 'wInc', k: [2.0, 2.8] }],
+      lore: '烬渊之主麾下的亡魂都系在这面旗上，倒下一个，就烧起一团。',
+    },
+  };
+  G.UNIQUE_IDS = Object.keys(G.UNIQUES);
+  G.UNIQUE_BY_BOSS = {};
+  for (const id of G.UNIQUE_IDS) G.UNIQUE_BY_BOSS[G.UNIQUES[id].boss] = id;
+  // 掉率：层级 1 为 chance[1]（15%），层级 2 起 chance[2]（25%）；首领连续 pity（2）次没掉它的武器，下一次必掉
+  // （最晚第 3 次击杀，掉了就清零）。熔渣巨像不掉：它是第一个区域的首领、打得最快，四个首领分三把武器，留给后三个
+  G.UNIQUE_DROP = { chance: [0, 0.15, 0.25], pity: 2 };
+  G.uniqueChance = (tier) => (tier >= 2 ? G.UNIQUE_DROP.chance[2] : tier >= 1 ? G.UNIQUE_DROP.chance[1] : 0);
+  // 机制数值（平衡机器人量过：对位构筑比同物品等级「6 条最高阶词缀取中值」的顶级稀有快约两到三成）：
+  // 残刃：max 层引爆，mult 倍武器伤害（必定暴击），波及 r 米内别的敌人 splash 倍；带残刃的敌人倒下，残刃飞到 jump 米内最近的敌人身上；
+  //   瞬断冷却 × cdK
+  // 三相共鸣：半径 r、另外两种元素各灌 k 条；refresh：已感电 / 冰缓的续满时间；heat：没攒过火焰伤害的敌人被灌爆时按源头的火焰伤害爆燃；
+  //   grow：拿着它时首领因正常触发而变高的阈值 × grow（0 = 不变高）
+  // 魂火轮回：魂火 k 倍最大生命、半径 r；继承武器伤害的比例最多 × inherit（gated：提高的部分按武器物品等级的继承折算走）；
+  //   free：自动召唤不耗魔力
+  G.MARK = { max: 5, mult: 11, cdK: 0.5, r: 2.5, splash: 0.3, jump: 5 };
+  G.TRI = { r: 5, k: 0.75, refresh: true, heat: true, grow: 0 };
+  G.SOULFIRE = { k: 0.15, r: 3, inherit: 1.5, gated: true, free: true };
+  // 机制说明按上面的数值写（改数值时说明跟着变）
+  const pc = (x) => Math.round(x * 100) + '%';
+  G.UNIQUES.jinduan.mechDesc = '每次暴击在目标身上留下一道残刃；叠满 ' + G.MARK.max + ' 道一齐引爆，造成 ' + pc(G.MARK.mult) + ' 武器伤害的物理伤害（必定暴击），周围 ' + G.MARK.r + ' 米内的其他敌人受到其中 ' + pc(G.MARK.splash) +
+    '。带着残刃的敌人倒下时，残刃飞到 ' + G.MARK.jump + ' 米内最近的敌人身上。瞬断的冷却时间减半。';
+  G.UNIQUES.sanxiang.mechDesc = '任何敌人触发冻结、爆燃或感电时，' + G.TRI.r + ' 米内的敌人（含它自己）获得另外两种元素各 ' + pc(G.TRI.k) + ' 条异常值；已在感电或冰缓中的改为续满时间，被灌爆的爆燃沿用源头的火焰伤害。共鸣灌满的异常不再引发共鸣。' +
+    (G.TRI.grow < 1 ? '首领不会因为异常越打越难触发。' : '');
+  G.UNIQUES.wanhun.mechDesc = '召唤物倒下时化作魂火炸开，对周围 ' + G.SOULFIRE.r + ' 米内的敌人造成它最大生命 ' + pc(G.SOULFIRE.k) + ' 的火焰伤害。自动召唤不消耗魔力。召唤物继承武器伤害的比例' +
+    (G.SOULFIRE.gated ? '最多' : '') + '提高 ' + pc(G.SOULFIRE.inherit - 1) + (G.SOULFIRE.gated ? '（和继承一样按武器物品等级折算）' : '') + '。';
+  // 分解烬铸武器固定得到的通货
+  G.UNIQUE_SALVAGE = { exalt: 2, chaos: 2, divine: 1, chisel: 1 };
 
   G.RARE_A = ['灰烬', '霜骨', '雷鸣', '渊影', '残月', '裂魂', '荆棘', '苍白', '余烬', '暮光', '锈蚀', '血誓'];
   G.RARE_B = ['之握', '之誓', '之眼', '壁垒', '挽歌', '獠牙', '回响', '枷锁', '之冠', '低语', '印记', '之怒'];

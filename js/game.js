@@ -139,6 +139,9 @@
       tut: {}, // 已经看过的新手提示：{ 提示 id: 1 }（界面层维护）
       blankGems: [], // 手里的无铭技能宝石：每颗的等级，从高到低排
       autoSummon: autoSummonDefaults(), // 召唤技能的「自动召唤」开关：{ 技能 id: true / false }，默认关
+      // 烬铸图鉴：found 拾到过的烬铸武器 { id: true }，best 见过的最高完美度 { id: 0..100 }，
+      // pity 各首领（层级 1 起）连续多少次没掉它的武器 { 首领: 次数 }
+      uniq: { found: {}, best: {}, pity: {} },
     };
   };
   function autoSummonDefaults() {
@@ -187,7 +190,7 @@
   const isItem = (it) =>
     isObj(it) && G.SLOTS.indexOf(it.slot) >= 0 && typeof it.uid === 'string' &&
     typeof it.name === 'string' && typeof it.baseName === 'string' &&
-    (it.rarity === 0 || it.rarity === 1 || it.rarity === 2) && isNum(it.ilvl) &&
+    (it.rarity === 0 || it.rarity === 1 || it.rarity === 2 || (it.rarity === 3 && it.slot === 'weapon' && typeof it.uq === 'string' && !!G.UNIQUES[it.uq])) && isNum(it.ilvl) &&
     (it.armour === undefined || isNum(it.armour)) &&
     (it.imp == null || (isObj(it.imp) && typeof it.imp.stat === 'string' && isNum(it.imp.v))) &&
     Array.isArray(it.affixes) &&
@@ -200,6 +203,7 @@
   // oldGrowth：存档来自成长改版之前（没有 gv 字段）。那时武器伤害到物品等级 27 就封顶，物品等级更高的武器
   // 把 wbase 按「现在这个物品等级的成长 ÷ 27 级的成长」放大一次（成色不变），老角色手里的高等级武器不吃亏
   function fixItem(it, charLvl, oldGrowth) {
+    if (it.rarity === 3) fixUnique(it);
     const bases = G.BASES[it.slot];
     if (!(it.baseIdx >= 0 && it.baseIdx < bases.length) || it.baseIdx !== Math.floor(it.baseIdx)) it.baseIdx = 0;
     if (it.slot === 'weapon') {
@@ -219,6 +223,25 @@
       }
       G.refreshWeapon(it);
     }
+    return it;
+  }
+
+  // 烬铸武器：基底、名字、词缀行都按定义修回来；数值夹回各自的区间（缺的行取区间中点）。武器伤害照常由下面的 wbase 推导
+  function fixUnique(it) {
+    const U = G.UNIQUES[it.uq];
+    it.ilvl = G.clamp(Math.round(it.ilvl), 1, 999);
+    it.baseIdx = U.base;
+    it.name = U.name;
+    const base = G.BASES.weapon[U.base];
+    if (base.names.indexOf(it.baseName) < 0) it.baseName = base.names[Math.min(G.nameTier(it.ilvl), base.names.length - 1)];
+    const tier = G.clamp(G.TIER_ILVL.filter((l) => l <= it.ilvl).length - 1, 0, G.TIER_ILVL.length - 1);
+    it.affixes = U.lines.map((ln, i) => {
+      const r = G.uniqueLineRange(it.uq, it.ilvl, i);
+      const old = it.affixes.find((a) => a.id === ln.id);
+      const v = old ? G.clamp(Math.round(old.v), r[0], r[1]) : Math.round((r[0] + r[1]) / 2);
+      return { id: ln.id, tier, v };
+    });
+    it.armour = 0;
     return it;
   }
 
@@ -343,8 +366,32 @@
     // 自动召唤开关：只认召唤技能，旧存档没有这一项就保持默认（关）
     const ra = isObj(raw.autoSummon) ? raw.autoSummon : {};
     for (const id of Object.keys(s.autoSummon)) s.autoSummon[id] = ra[id] === true;
+    // 烬铸图鉴：只认存在的烬铸 id / 首领，完美度 0–100、保底计数 0–上限
+    const ru = isObj(raw.uniq) ? raw.uniq : {};
+    const rf = isObj(ru.found) ? ru.found : {};
+    const rb = isObj(ru.best) ? ru.best : {};
+    const rp = isObj(ru.pity) ? ru.pity : {};
+    for (const id of G.UNIQUE_IDS) {
+      if (rf[id] === true) s.uniq.found[id] = true;
+      if (isNum(rb[id]) && rb[id] > 0) s.uniq.best[id] = G.clamp(Math.round(rb[id]), 0, 100);
+    }
+    for (const k of Object.keys(G.UNIQUE_BY_BOSS)) {
+      const n = toInt(rp[k], 0, G.UNIQUE_DROP.pity, 0);
+      if (n > 0) s.uniq.pity[k] = n;
+    }
+    // 身上 / 背包里已有的烬铸武器也算拾到过（旧数据缺图鉴时补上）
+    for (const it of s.bag.concat(s.equip.weapon ? [s.equip.weapon] : [])) if (it.rarity === 3) noteUnique(it, s);
     return s;
   }
+  // 图鉴记一笔：拾到过、最高完美度
+  function noteUnique(it, save) {
+    const U = (save || G.save).uniq;
+    if (!it || it.rarity !== 3 || !U) return;
+    const p = Math.round(G.uniquePerfect(it) * 100);
+    U.found[it.uq] = true;
+    if (!(U.best[it.uq] >= p)) U.best[it.uq] = p;
+  }
+  G.noteUnique = (it) => noteUnique(it);
 
   G.loadSave = function () {
     let raw = null;
@@ -426,6 +473,9 @@
     P.manaRegen = (2 + P.maxMana * 0.035) * (1 + S.manaRegen / 100);
     P.life = Math.min(P.life, P.maxLife);
     P.mana = Math.min(P.mana, P.maxMana);
+    // 手里烬铸武器的机制（blade 残刃 / tri 三相共鸣 / soul 魂火轮回），没有时 null
+    const w = save.equip.weapon;
+    P.uMech = w && w.rarity === 3 && G.UNIQUES[w.uq] ? G.UNIQUES[w.uq].mech : null;
     if (P.ent) G.world.setPlayerGear(save.equip); // 手里的武器模型跟着装备走
     return P;
   };
@@ -660,7 +710,8 @@
       stopK: STOP_K(speed),
       stopAvg: ((sk.combo ? sk.comboStop : sk.stop || 0) / 1000) * STOP_K(speed),
       cost,
-      cd: sk.cd * (1 - Math.min(80, cdr) / 100),
+      // 烬断（残刃）：瞬断的冷却减半
+      cd: sk.cd * (1 - Math.min(80, cdr) / 100) * (id === 'flashcut' && P.uMech === 'blade' ? G.MARK.cdK : 1),
       leech, stun, ailment, echo: isAura ? 0 : echo,
       reserve: isAura ? G.auraReserve(id) : 0,
       minion: null,
@@ -712,14 +763,16 @@
   G.minionInherit = function (sk) {
     const S = P.S;
     const k = (sk && sk.inherit) || 1;
-    const wPct = Math.max(0, S.mWeapon || 0);
-    const dPct = Math.min(100, Math.max(0, S.mDef || 0));
-    const lPct = Math.max(0, S.mLife || 0);
     const item = G.save.equip.weapon;
-    const base = item && G.BASES.weapon[item.baseIdx];
-    const soul = (base && base.soul) || 1;
     // 器魂随武器的物品等级成长（层级 0 的武器只继承一成左右）：召唤师靠后期的装备变强，而不是在层级 0 就把这条线点满
     const gate = item ? G.inheritGate(item.ilvl || 1) : 0;
+    // 万魂旗（魂火轮回）：继承武器伤害的比例 × wMul，最多 SOULFIRE.inherit 倍；SOULFIRE.gated 时提高的部分也跟着上面的折算走
+    const wMul = P.uMech === 'soul' ? 1 + (G.SOULFIRE.inherit - 1) * (G.SOULFIRE.gated ? gate : 1) : 1;
+    const wPct = Math.max(0, S.mWeapon || 0) * wMul;
+    const dPct = Math.min(100, Math.max(0, S.mDef || 0));
+    const lPct = Math.max(0, S.mLife || 0);
+    const base = item && G.BASES.weapon[item.baseIdx];
+    const soul = (base && base.soul) || 1;
     // 防御 / 生命：按身上其余装备的平均物品等级折算（和武器一样靠后期的装备成长）
     let iSum = 0, iN = 0;
     for (const slot of G.SLOTS) {
@@ -738,7 +791,7 @@
     const res = {};
     for (const t of G.ELEMS) res[t] = Math.min(75, Math.max(0, (P.res[t] || 0) * dK));
     return {
-      weapon: wPct, def: dPct, lifePct: lPct, soul, add, gate, ilvl: item ? item.ilvl : 0, gateDef, ilvlDef,
+      weapon: wPct, wBase: Math.max(0, S.mWeapon || 0), wMul, def: dPct, lifePct: lPct, soul, add, gate, ilvl: item ? item.ilvl : 0, gateDef, ilvlDef,
       armour: Math.round((P.armour || 0) * dK),
       res,
       life: Math.round((P.gearLife || 0) * lPct / 100 * gateDef * k),
@@ -917,7 +970,9 @@
     const ty = Math.min(3.4, h * (e.elite ? 1.3 : 1)) + 0.3;
     const st = state.stats;
     e.buTrig[p.t]++;
-    if (e.isBoss) e.buGrow[p.t] = Math.min(BU.bossGrowMax, e.buGrow[p.t] + BU.bossGrow);
+    // 三相共鸣直接灌满的那一下不让首领的阈值变高（不然共鸣越多，首领反而越难触发异常）
+    // 拿着三相之心时，正常触发让首领阈值变高的幅度 × TRI.grow
+    if (e.isBoss && !p.spread) e.buGrow[p.t] = Math.min(BU.bossGrowMax, e.buGrow[p.t] + BU.bossGrow * (P.uMech === 'tri' ? G.TRI.grow : 1));
     if (p.t === 'cold') {
       if (e.dead) return;
       st.freezes = (st.freezes || 0) + 1;
@@ -952,7 +1007,136 @@
       W.burst(e.x, h * 0.6, e.z, 0xffe45e, 18, 5, 0.35);
       G.sfx('impact', { type: 'light', w: 1, crit: false });
     }
+    // 三相之心：正常触发的异常引发共鸣；共鸣直接灌满触发的（p.spread）不再引发，链条到此为止
+    if (P.uMech === 'tri' && !p.spread) triSpread(e, p.t, p.t === 'fire' ? p.fire : e.buFireN > 0 ? Math.min((e.buFire / e.buFireN) * BU.blast, e.buTh * BU.blastCap) : 0);
   }
+
+  // ---------- 烬铸武器的机制 ----------
+  // 三相共鸣：src 身上触发了 t，半径 TRI.r 内的敌人（包括 src 自己）立刻获得另外两种元素各 TRI.k 条异常值。
+  // 灌满的照常触发异常，但带上 spread 标记——不会再引发共鸣（防止无限连锁）；之后玩家的命中再把某一条灌满时，照常共鸣
+  let triDepth = 0;
+  // heat：源头的爆燃伤害（或它身上攒着的平均火焰伤害）。TRI.heat 时，被共鸣灌爆的敌人自己没攒过火焰伤害，就按这个爆
+  function triSpread(src, t, heat) {
+    if (triDepth > 0) return 0; // 双保险：共鸣结算途中不会再开一轮
+    triDepth++;
+    const R = G.TRI.r;
+    const others = G.ELEMS.filter((x) => x !== t);
+    const x0 = src.x, z0 = src.z;
+    const hit = [];
+    const trig = [];
+    for (const o of state.enemies) {
+      if (o.dead || dist(o.x, o.z, x0, z0) - o.r > R) continue;
+      if (!o.bu) G.initBuildUp(o);
+      let any = false;
+      for (const u of others) {
+        // 已经冰缓 / 感电的：灌不进去，改为把剩余时间续满（TRI.refresh）；冻结中 / 破绽中的不动
+        if (u === 'cold' && (o.freeze > 0 || o.bossChill > 0 || o.brokenT > 0)) {
+          if (G.TRI.refresh && o.bossChill > 0 && !(o.brokenT > 0)) { o.bossChill = Math.max(o.bossChill, BU.bossChill); any = true; }
+          continue;
+        }
+        if (u === 'light' && o.shockT > 0) {
+          if (G.TRI.refresh) { o.shockT = Math.max(o.shockT, BU.shock); any = true; }
+          continue;
+        }
+        o.bu[u] += G.TRI.k;
+        o.buT[u] = G.BUILDUP.hold;
+        any = true;
+        if (o.bu[u] >= 1) {
+          o.bu[u] = 0;
+          let fire = u === 'fire' ? Math.min((o.buFire / Math.max(1, o.buFireN)) * BU.blast, o.buTh * BU.blastCap) : 0;
+          if (u === 'fire' && G.TRI.heat && heat > 0) fire = Math.max(fire, Math.min(heat, o.buTh * BU.blastCap));
+          if (u === 'fire') o.buFire = o.buFireN = 0;
+          trig.push({ t: u, e: o, fire, spread: true });
+        }
+      }
+      if (any) hit.push(o);
+    }
+    state.stats.triSpreads = (state.stats.triSpreads || 0) + 1;
+    state.stats.triTargets = (state.stats.triTargets || 0) + hit.length;
+    if (G.world.triFx) G.world.triFx(x0, z0, R, t, hit.map((o) => ({ x: o.x, z: o.z, h: o.height || 2, self: o === src })));
+    G.world.text(x0, z0, '三相共鸣', '#ffd9a8', src.isBoss ? 24 : 20, { kind: 'tag', y: Math.min(3.4, (src.height || 2) * 1.2) + 0.9, py: -48 });
+    for (const p of trig) triggerAilment(p);
+    triDepth--;
+    return hit.length;
+  }
+  G.triSpread = triSpread;
+
+  // 残刃引爆：MARK.mult 倍武器伤害的物理伤害（吃你的物理伤害提高、总伤害和暴击伤害——必定暴击；不再留下残刃），
+  // 周围 MARK.r 米内的别的敌人挨 MARK.splash 倍
+  const MARK_SK = { w: 2, kb: 0.8, poise: 30 };
+  function markBurst(e) {
+    if (!e || e.dead) return 0;
+    const W = G.world;
+    const S = P.S;
+    const ws = G.weaponStats(G.save.equip.weapon);
+    const k = G.MARK.mult;
+    const ctx = {
+      sk: MARK_SK, base: { phys: [ws.min * k, ws.max * k] }, inc: { phys: (S.incAll || 0) + (S.incPhys || 0) }, moreType: { phys: 1 },
+      more: Math.max(0, (1 + (S.moreDmg || 0) / 100) * (1 - Math.min(90, S.ownLess || 0) / 100)), extra: {},
+      crit: 100, critMulti: Math.max(100, 150 + (S.critMulti || 0)), ailment: 0, stun: 0, leech: 0, echo: 0, area: 1, proc: true,
+    };
+    const h = e.height || 2;
+    const x0 = e.x, z0 = e.z, r0 = e.r;
+    // 波及：引爆点周围 MARK.r 米内的别的敌人挨 MARK.splash 倍的同一击（先圈定再结算，免得打死目标后圈子跟着变）
+    const near = G.MARK.splash > 0 ? enemiesIn(x0, z0, G.MARK.r + r0).filter((o) => o !== e) : [];
+    let dmg = G.hitEnemy(e, ctx, 1, { ang: Math.atan2(x0 - P.x, z0 - P.z), w: 2, kb: 0.8, poise: 30, quiet: true, proc: true, mark: true });
+    for (const o of near) {
+      if (o.dead) continue;
+      dmg += G.hitEnemy(o, ctx, G.MARK.splash, { ang: Math.atan2(o.x - x0, o.z - z0), w: 1.5, kb: 0.6, poise: 15, quiet: true, proc: true, mark: true }) || 0;
+    }
+    state.stats.markSplash = (state.stats.markSplash || 0) + near.length;
+    if (W.markBurstFx) W.markBurstFx(x0, z0, h, r0, G.MARK.r);
+    W.text(x0, z0, '残刃', '#ffc27a', e.isBoss ? 26 : 22, { kind: 'tag', y: Math.min(3.4, h * 1.2) + 0.5, py: e.isBoss ? -30 : 0 });
+    G.hitStop(70);
+    W.shake(0.28);
+    G.sfx('impact', { type: 'phys', w: 2, crit: true });
+    G.sfx('markburst');
+    state.stats.markBursts = (state.stats.markBursts || 0) + 1;
+    return dmg;
+  }
+  G.markBurst = markBurst;
+  function markJump(e) {
+    let best = null, bd = G.MARK.jump || 0;
+    for (const o of state.enemies) {
+      if (o.dead || o === e) continue;
+      const d = dist(o.x, o.z, e.x, e.z) - o.r;
+      if (d <= bd) { bd = d; best = o; }
+    }
+    if (!best) return null;
+    const W = G.world;
+    best.marks = (best.marks || 0) + e.marks;
+    state.stats.markJumps = (state.stats.markJumps || 0) + 1;
+    if (W.markJumpFx) W.markJumpFx(e.x, e.z, best.x, best.z, best.height || 2);
+    if (best.marks >= G.MARK.max) {
+      best.marks = 0;
+      if (procDepth > 0) procQ.push({ t: 'mark', e: best });
+      else markBurst(best);
+    }
+    if (W.bladeMarks) W.bladeMarks(best.ent, best.marks, best);
+    return best;
+  }
+  G.markJump = markJump;
+
+  // 魂火轮回：召唤物倒下时炸开，对周围 SOULFIRE.r 内的敌人造成它最大生命 × SOULFIRE.k 的火焰伤害（不暴击、不累积异常值）
+  G.soulFire = function (m) {
+    if (P.uMech !== 'soul' || !m || !state.zone) return 0;
+    const v = (m.maxHp || 0) * G.SOULFIRE.k;
+    const R = G.SOULFIRE.r + (m.r || 0.5) * 0.5;
+    const x = m.x, z = m.z;
+    if (G.world.soulFireFx) G.world.soulFireFx(x, z, R, m.height || 2);
+    G.sfx('soulfire');
+    state.stats.soulBursts = (state.stats.soulBursts || 0) + 1;
+    let n = 0;
+    if (v > 0) {
+      const ctx = procCtx('fire', v);
+      for (const o of enemiesIn(x, z, R)) {
+        G.hitEnemy(o, ctx, 1, { ang: Math.atan2(o.x - x, o.z - z), w: 1, kb: 1.0, poise: 10, quiet: true, proc: true, noBuild: true });
+        n++;
+      }
+    }
+    state.stats.soulHits = (state.stats.soulHits || 0) + n;
+    return n;
+  };
   // 感电的敌人挨了一下：射出至多 shockN 道电弧，射向附近最近的别的敌人；附近一个别的敌人都没有时，只有一道打回它自己。电弧不再触发电弧
   function shockDischarge(e, total) {
     if (!(total > 0)) return;
@@ -1095,6 +1279,16 @@
     }
     if (ctx.stun > 0 && !e.isBoss && !broken) e.stunT = Math.max(e.stunT || 0, ctx.stun);
     if (ctx.leech > 0) G.healPlayer((hit.total * ctx.leech) / 100);
+    // 烬断（残刃）：你亲手的暴击留下一道残刃，叠满就排进队列引爆（引爆本身是 proc，不再留残刃）
+    if (hit.crit && P.uMech === 'blade' && !inf.minion && !inf.proc && !inf.aura && e.hp > 0) {
+      e.marks = (e.marks || 0) + 1;
+      state.stats.marks = (state.stats.marks || 0) + 1;
+      if (e.marks >= G.MARK.max) {
+        e.marks = 0;
+        procQ.push({ t: 'mark', e });
+      }
+      if (W.bladeMarks) W.bladeMarks(e.ent, e.marks, e);
+    }
 
     lastHit.crit = hit.crit;
     lastHit.type = top;
@@ -1124,6 +1318,7 @@
       for (let i = 0; i < procQ.length && i < 200; i++) {
         const p = procQ[i];
         if (p.t === 'arc') shockDischarge(p.e, p.total);
+        else if (p.t === 'mark') markBurst(p.e);
         else triggerAilment(p);
       }
       procQ.length = 0;
@@ -1155,6 +1350,12 @@
     });
     state.stats.kills++;
     G.sfx('kill', { type, big: !!(e.elite || e.isBoss) });
+    // 烬断（残刃）：倒下的敌人身上的残刃飞到 MARK.jump 米内最近的敌人身上接着叠（够层数就引爆）
+    if (e.marks > 0) {
+      if (P.uMech === 'blade') markJump(e);
+      e.marks = 0;
+      if (W.bladeMarks) W.bladeMarks(e.ent, 0);
+    }
 
     // 经验
     const xp = G.killXp(e, save.level); // 压级衰减 / 越级封顶见 data.js 的「经验」
@@ -2506,6 +2707,7 @@
     if (!G.autoSummonOn(id) || !G.save.skills[id] || P.cds[id] > 0) return null;
     const ctx = G.skillCtx(id);
     if (!ctx.minion || G.minionCount(id) >= ctx.minion.cap) return null;
+    if (P.uMech === 'soul' && G.SOULFIRE.free) ctx.cost = 0; // 万魂旗：自动召唤不消耗魔力
     if (!G.canAfford(ctx.cost)) return null;
     if (P.S.bloodMagic && ctx.cost > 0 && P.life - ctx.cost < P.maxLife * AUTO_BLOOD_KEEP) return null;
     return ctx;
@@ -3530,6 +3732,7 @@
       for (let i = 0; i < SUPPORT_DROP.boss; i++) G.spawnLoot('support', pickSupportGem(i ? 0.7 : 1), x, z);
       // 无铭技能宝石：每个首领第一次倒下必掉一颗（第一个区域的首领就是新角色的保底），之后再打有小几率
       if ((e.bossKind && !save.bossKills[e.bossKind]) || Math.random() < BLANK_DROP.boss) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
+      uniqueDrop(e, ilvl);
       return;
     }
     if (e.elite) {
@@ -3548,6 +3751,28 @@
     if (Math.random() < SUPPORT_DROP.mob) G.spawnLoot('support', pickSupportGem(0.7), x, z);
     if (Math.random() < BLANK_DROP.mob) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
   };
+
+  // 烬铸武器：只有层级 1 起的后三个首领会掉，各掉各的那一把；连续 pity 次没掉，下一次必掉（计数存档，掉了清零）
+  function uniqueDrop(e, ilvl) {
+    const kind = e.bossKind;
+    const id = kind && G.UNIQUE_BY_BOSS[kind];
+    const tier = state.tier || 0;
+    if (!id || tier < 1) return null;
+    const U = G.save.uniq;
+    const n = U.pity[kind] || 0;
+    if (n >= G.UNIQUE_DROP.pity || Math.random() < G.uniqueChance(tier)) {
+      U.pity[kind] = 0;
+      const item = G.rollUnique(id, ilvl);
+      const loot = G.spawnLoot('item', item, e.x, e.z);
+      G.sfx('unique');
+      if (G.ui.bigToast) G.ui.bigToast('烬铸武器', item.name, G.RARITY_COLOR[3], G.UNIQUES[id].mechName);
+      state.stats.uniqueDrops = (state.stats.uniqueDrops || 0) + 1;
+      return loot;
+    }
+    U.pity[kind] = n + 1;
+    return null;
+  }
+  G.uniqueDrop = uniqueDrop;
 
   G.spawnLoot = function (kind, data, x, z) {
     const W = G.world;
@@ -3666,6 +3891,10 @@
         return false;
       }
       save.bag.push(loot.data);
+      if (loot.data.rarity === 3) {
+        noteUnique(loot.data);
+        G.persist();
+      }
       G.sfx('pickup');
     } else if (loot.kind === 'cur') {
       grantCurrency(loot.data, 1);
@@ -3867,6 +4096,10 @@
   G.applyCurrency = function (item, curId, idx) {
     const save = G.save;
     if (!item || !G.CURRENCY[curId] || !(save.cur[curId] > 0)) return false;
+    if (item.rarity === 3) {
+      toast('烬铸武器无法改造', '#ff8a6a', 'uqlock', 600);
+      return false;
+    }
     if (!G.canCraft(item, curId)) return false;
     const r = G.craft(item, curId, idx);
     if (!r.ok) {

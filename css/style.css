@@ -2795,3 +2795,89 @@ body.panel-open #coach { display: none; }
 .blank-up .ico { width: 18px; height: 18px; }
 .blank-up:hover { border-color: var(--blank); color: #fff; }
 .blank-up.armed { color: #fff; background: #2a2036; border-color: var(--blank); box-shadow: 0 0 10px rgba(226, 204, 255, 0.35); }
+
+/* ============================================================
+   烬铸（稀有度 3）：偏暗的金红色，格子 / 卡片带一圈缓慢呼吸的余烬光
+   ============================================================ */
+.icard.r3 {
+  --rc: #ff9b3d;
+  border-color: #c4621e;
+  background: radial-gradient(120% 60% at 50% 0%, #3a1a08, transparent 70%), linear-gradient(180deg, #1d110a, #0c0806);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 140, 50, 0.25), 0 0 18px rgba(255, 110, 30, 0.25);
+}
+.icard.r3 .ic-name { color: #ff9b3d; text-shadow: 0 0 8px rgba(255, 120, 40, 0.55), 0 1px 2px #000; }
+.cell.r3, .eq.r3 {
+  --rc: #ff9b3d;
+  border-color: #d06a22;
+  background: radial-gradient(circle at 50% 30%, #5a2608, #170904 82%);
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.6), inset 0 0 10px rgba(255, 120, 40, 0.35), 0 0 6px rgba(255, 120, 40, 0.35);
+  animation: uq-glow 2.6s ease-in-out infinite;
+}
+@keyframes uq-glow {
+  0%, 100% { box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.6), inset 0 0 8px rgba(255, 120, 40, 0.3), 0 0 4px rgba(255, 120, 40, 0.3); }
+  50% { box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.6), inset 0 0 14px rgba(255, 140, 50, 0.5), 0 0 10px rgba(255, 120, 40, 0.55); }
+}
+.cell.r3.sel, .eq.r3.sel { animation: none; }
+.ibox.r3 { --rc: #d06a22; background: radial-gradient(circle at 50% 30%, #5a2608, #170904 82%); box-shadow: 0 0 6px rgba(255, 120, 40, 0.4); }
+.ibox.r3.unk > .ico { filter: brightness(0.15) sepia(1) hue-rotate(-20deg); opacity: 0.7; }
+.ic-line.aff.uq { color: #ffc58a; }
+.ic-rng { margin-left: 4px; font-style: normal; font-size: 11px; color: #9a7a5c; }
+.ic-perf { display: flex; align-items: center; gap: 8px; margin: 6px 12px 2px; font-size: 12px; color: #d9b68e; }
+.ic-perf b { color: #ffb066; font-size: 13px; }
+.ic-perf i { flex: 1; height: 4px; background: #2a1a10; border: 1px solid #4a2c16; position: relative; }
+.ic-perf i::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: var(--p); background: linear-gradient(90deg, #a8461a, #ffb066); box-shadow: 0 0 6px rgba(255, 140, 50, 0.6); }
+.ic-uq { margin: 7px 10px 0; padding: 6px 8px; font-size: 12px; line-height: 1.5; color: #f0d9bc; background: rgba(90, 38, 8, 0.35); border-left: 2px solid #ff9b3d; }
+.ic-uq b { display: block; margin-bottom: 2px; color: #ff9b3d; letter-spacing: 2px; }
+.ic-lore { margin: 6px 12px 0; font-size: 11.5px; font-style: italic; color: #8f7860; }
+.ic-lock { margin: 6px 12px 0; font-size: 11px; letter-spacing: 1px; color: #c87a5a; text-align: right; }
+.act-row.top { margin: 0 0 8px; }
+/* 矮窗口（如 1280×720）：烬铸卡片省掉来历和「无法改造」一行（通货栏、拖拽提示里都写着），悬停提示不至于超出屏幕 */
+@media (max-height: 780px) {
+  .icard.r3 .ic-lore, .icard.r3 .ic-lock { display: none; }
+}
+.act-row.top + .inv-msg { margin: -2px 0 8px; }
+.craft-grid.locked { opacity: 0.55; filter: saturate(0.4); }
+.btn.sm.uqb { margin-left: auto; color: #ffb066; border-color: #7a3a14; }
+.btn.sm.uqb.on { background: rgba(120, 50, 12, 0.35); }
+/* 烬铸图鉴 */
+.codex-t { margin-top: 14px; }
+.codex { display: flex; flex-direction: column; gap: 6px; }
+.cx-row { display: flex; gap: 9px; align-items: center; padding: 6px 8px; background: #120c08; border: 1px solid #2e2219; }
+.cx-row.found { border-color: #6a3414; background: linear-gradient(90deg, rgba(90, 38, 8, 0.35), #120c08 70%); }
+.cx-row .ibox { width: 40px; height: 40px; flex: none; }
+.cx-main { flex: 1; min-width: 0; }
+.cx-name { font-size: 14px; color: #8f7860; letter-spacing: 1px; }
+.cx-row.found .cx-name { color: #ff9b3d; }
+.cx-name em { margin-left: 6px; font-style: normal; font-size: 11px; color: var(--faint); }
+.cx-sub { font-size: 11.5px; color: var(--dim); }
+.cx-sub b { color: #e0b88e; font-weight: 400; }
+.cx-stat { display: flex; justify-content: space-between; gap: 8px; margin-top: 2px; font-size: 11.5px; color: var(--dim); }
+.cx-stat b { color: #ffc27a; }
+.cx-pity { display: flex; align-items: center; gap: 5px; }
+.cx-pity i { width: 46px; height: 4px; background: #2a1a10; border: 1px solid #4a2c16; position: relative; }
+.cx-pity i::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: var(--p); background: #c4621e; }
+.cx-note { font-size: 11px; line-height: 1.5; color: var(--faint); }
+/* 烬铸掉落：屏幕正中的大字 */
+#big-toast {
+  --c: #ff9b3d;
+  position: fixed;
+  left: 50%;
+  top: 34%;
+  z-index: 31;
+  transform: translate(-50%, -50%);
+  padding: 14px 90px 16px;
+  text-align: center;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  background: radial-gradient(ellipse at center, rgba(40, 14, 4, 0.92), rgba(10, 6, 4, 0.75) 55%, transparent 75%);
+}
+#big-toast.on { visibility: visible; animation: bt-in 0.5s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+#big-toast.out { opacity: 0 !important; transform: translate(-50%, -60%); transition: opacity 0.6s, transform 0.6s; }
+@keyframes bt-in {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(1.6); filter: blur(4px); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); filter: none; }
+}
+#big-toast .bt-t { font-size: 14px; letter-spacing: 8px; text-indent: 8px; color: #e8c49a; }
+#big-toast .bt-n { margin: 2px 0; font-size: 44px; font-weight: 700; letter-spacing: 10px; text-indent: 10px; color: var(--c); text-shadow: 0 0 18px rgba(255, 110, 30, 0.8), 0 0 4px rgba(255, 200, 140, 0.9), 0 2px 3px #000; }
+#big-toast .bt-s { font-size: 13px; letter-spacing: 4px; text-indent: 4px; color: #cfa47a; }

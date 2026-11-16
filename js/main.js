@@ -223,9 +223,21 @@
       return G.save.cur[curId];
     },
     // baseIdx（可选）：指定基底（武器 0..7 = 刃 / 长杖 / 短杖 / 双匕 / 战锤 / 长弓 / 太刀 / 魂幡）；ilvl（可选）：指定物品等级
+    // 烬铸武器：rarity 传 3，slot 传烬铸 id（jinduan / sanxiang / wanhun；不认识时按 baseIdx 找，再不行随机一把），
+    // baseIdx 位置可以改传完美度（0..1，每条词缀行都取区间里这个位置）
     giveItem(rarity, slot, baseIdx, ilvl) {
       if (G.save.bag.length >= G.BAG_SIZE) return null;
       if (!(ilvl > 0)) ilvl = G.state.zone ? G.state.zone.level : G.save.level;
+      if (rarity === 3) {
+        let id = G.UNIQUES[slot] ? slot : G.UNIQUE_IDS.find((u) => G.UNIQUES[u].base === baseIdx);
+        if (!id) id = G.pick(G.UNIQUE_IDS);
+        const q = typeof baseIdx === 'number' && baseIdx >= 0 && baseIdx <= 1 && G.UNIQUES[slot] ? baseIdx : undefined;
+        const u = G.rollUnique(id, Math.max(1, ilvl), q);
+        G.save.bag.push(u);
+        G.noteUnique(u);
+        refreshUi();
+        return u;
+      }
       const item = G.rollItem(Math.max(1, ilvl), rarity || 0, slot, baseIdx);
       G.save.bag.push(item);
       refreshUi();

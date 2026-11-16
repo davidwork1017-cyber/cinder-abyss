@@ -8,6 +8,7 @@
     [0, 0, 0], // 普通
     [1, 1, 2], // 魔法
     [3, 3, 6], // 稀有
+    [0, 0, 0], // 烬铸：词缀行固定，什么也加不上
   ];
 
   let uidCounter = 0;
@@ -205,8 +206,65 @@
     return addFrom(item, eligibleAffixes(item, item.rarity, null));
   };
 
+  // ---------- 烬铸武器 ----------
+  // 第 i 条词缀行在这件物品上的区间 [lo, hi]：取这条词缀在物品等级最高阶的区间，乘上该行的 k（fixed 行是 [v, v]）。
+  // 不存档：由烬铸 id 和物品等级推出来（读档时据此把数值修回区间里）
+  G.uniqueLineRange = function (uq, ilvl, i) {
+    const U = G.UNIQUES[uq];
+    const ln = U && U.lines[i];
+    if (!ln) return [0, 0];
+    if (ln.fixed !== undefined) return [ln.fixed, ln.fixed];
+    const r = tierRange(G.AFFIX_BY_ID[ln.id], maxTier(ilvl));
+    const lo = Math.max(1, Math.round(r[0] * ln.k[0]));
+    return [lo, Math.max(lo, Math.round(r[1] * ln.k[1]))];
+  };
+  G.uniqueRange = (item, i) => G.uniqueLineRange(item.uq, item.ilvl, i);
+  // 完美度（0..1）：每条非固定词缀行的数值在自己区间里的位置，取平均
+  G.uniquePerfect = function (item) {
+    const U = item && G.UNIQUES[item.uq];
+    if (!U) return 0;
+    let sum = 0;
+    let n = 0;
+    U.lines.forEach((ln, i) => {
+      if (ln.fixed !== undefined) return;
+      const af = item.affixes[i];
+      const r = G.uniqueRange(item, i);
+      if (!af) return;
+      sum += r[1] > r[0] ? G.clamp((af.v - r[0]) / (r[1] - r[0]), 0, 1) : 1;
+      n++;
+    });
+    return n ? sum / n : 1;
+  };
+  // 掷一件烬铸武器。q（可选，0..1）：每条词缀行都取区间里这个位置（测试 / 调试用），缺省各自随机
+  G.rollUnique = function (uq, ilvl, q) {
+    const U = G.UNIQUES[uq];
+    if (!U) return null;
+    ilvl = Math.max(1, Math.round(ilvl) || 1);
+    const base = G.BASES.weapon[U.base];
+    const nameIdx = Math.min(G.nameTier(ilvl), base.names.length - 1);
+    const item = {
+      uid: newUid(), slot: 'weapon', baseIdx: U.base, baseName: base.names[nameIdx], name: U.name,
+      rarity: 3, uq, ilvl, armour: 0,
+      imp: base.imp ? { stat: base.imp.stat, v: rollImp(base.imp, ilvl) } : null,
+      affixes: [],
+    };
+    const tier = maxTier(ilvl);
+    U.lines.forEach((ln, i) => {
+      const r = G.uniqueLineRange(uq, ilvl, i);
+      const v = q === undefined ? G.randInt(r[0], r[1]) : Math.round(r[0] + (r[1] - r[0]) * G.clamp(q, 0, 1));
+      item.affixes.push({ id: ln.id, tier, v });
+    });
+    item.wbase = G.weaponBaseDmg(U.base, ilvl, G.UNIQUE_BASE_Q);
+    G.refreshWeapon(item);
+    return item;
+  };
+
   // ---------- 命名 ----------
   G.updateItemName = function (item) {
+    if (item.rarity === 3) {
+      if (G.UNIQUES[item.uq]) item.name = G.UNIQUES[item.uq].name;
+      return;
+    }
     if (item.rarity === 2) {
       if (!isRareName(item.name)) item.name = G.pick(G.RARE_A) + G.pick(G.RARE_B);
       return;
@@ -284,6 +342,7 @@
 
   // 返回不能使用的原因（中文），可以使用时返回 null
   function craftBlock(item, curId) {
+    if (item.rarity === 3) return '烬铸武器无法改造'; // 所有通货（含琢刻石、重铸石）都不认它
     const n = item.affixes.length;
     switch (curId) {
       case 'dust':
@@ -390,7 +449,9 @@
   // ---------- 分解与随机表 ----------
   G.salvageResult = function (item) {
     const out = {};
-    if (item.rarity === 1) {
+    if (item.rarity === 3) {
+      Object.assign(out, G.UNIQUE_SALVAGE); // 固定的一把高阶通货（要确认两次才分得掉，见界面）
+    } else if (item.rarity === 1) {
       if (Math.random() < 0.5) out.dust = 1;
     } else if (item.rarity === 2) {
       out.augment = 1;

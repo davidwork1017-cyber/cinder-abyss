@@ -3176,9 +3176,23 @@
     if (!a || !a.visible) return;
     const s = ent.sock.weapon, M = ent.mdl, m = s.j * 12, z = s.z * (GEAR_AURA[ent.gearType] || GEAR_AURA[0])[0];
     a.position.set(M[m + 2] * z + M[m + 3], M[m + 6] * z + M[m + 7], M[m + 10] * z + M[m + 11]);
-    if (ent.gearRar >= 2 && Math.random() < 0.06 && !ent.dying) {
+    if (ent.gearRar === 2 && Math.random() < 0.06 && !ent.dying) {
       W.entSocket(ent, 'weapon', _sk);
       spawnP(_sk.x, _sk.y, _sk.z, rand(-0.3, 0.3), rand(0.2, 0.9), rand(-0.3, 0.3), rand(0.4, 0.8), 0.1, 1, 0.84, 0.37, -0.3, 0.6);
+    }
+    // 烬铸：火星沿着整把武器（握把到尖端）往上飘，偶尔一粒偏白的亮点
+    if (ent.gearRar >= 3 && !ent.dying && sdt > 0) {
+      ent.emberAcc = (ent.emberAcc || 0) + sdt * 26;
+      if (ent.emberAcc >= 1) {
+        W.entSocket(ent, 'weapon', _sk);
+        W.entSocket(ent, 'hand', _sk2);
+        while (ent.emberAcc >= 1) {
+          ent.emberAcc -= 1;
+          const f = 0.25 + Math.random() * 0.75, w = Math.random() < 0.2 ? 0.55 : 0;
+          spawnP(_sk2.x + (_sk.x - _sk2.x) * f, _sk2.y + (_sk.y - _sk2.y) * f, _sk2.z + (_sk.z - _sk2.z) * f, rand(-0.35, 0.35), rand(0.5, 1.5), rand(-0.35, 0.35),
+            rand(0.35, 0.8), rand(0.07, 0.13), 1, 0.45 + 0.3 * Math.random() + w * 0.4, 0.12 + w * 0.6, -0.8, 0.8);
+        }
+      }
     }
   }
 
@@ -3838,7 +3852,8 @@
   // 武器的握法 / 挂点长度 / 稀有度的发光
   // 挂点 weapon（武器尖端 / 长弓的上弓梢 / 魂幡杆头的魂火）相对武器关节的 [x, y, z]
   const GEAR_TIP = [[0, 0, 1.17], [0, 0, 1.54], [0, 0, 0.68], [0, 0, 0.5], [0, 0, 1.0], [BOW_TIP[0] - 0.39, BOW_TIP[1] - 0.84, BOW_TIP[2] - 0.05], [0, 0.04, 1.12], [0, 0, 1.84]];
-  const GEAR_GLOW = [[0xcfd6e2, 0.3], [0x7f9dff, 1.15], [0xffd75e, 1.5]];
+  // 第 4 档是烬铸：余烬橙的自发光比稀有更亮，光晕更大（见 applyGear），武器上不停往上飘火星（见下面的 gear 更新）
+  const GEAR_GLOW = [[0xcfd6e2, 0.3], [0x7f9dff, 1.15], [0xffd75e, 1.5], [0xff7424, 2.4]];
   // 稀有度光晕：[沿武器的位置（占挂点长度的比例）, 魔法的大小, 稀有的大小, 不透明度]。
   // 刃的光裹着刃身；长杖 / 短杖握在头和胸口旁边，光只罩住杖头的晶体，小而淡，不把兜帽和上身照成一片白；
   // 双匕只罩右手那把；战锤罩住锤头；长弓的光在握把上；太刀和刃一样裹着刃身；魂幡罩住杆头的魂火
@@ -3877,7 +3892,7 @@
     if (type >= 0 && rar >= 1) {
       const ga = GEAR_AURA[type];
       ent.aura.material = auraMat(gg[0], ga[3]);
-      ent.aura.scale.setScalar(rar >= 2 ? ga[2] : ga[1]);
+      ent.aura.scale.setScalar(rar >= 3 ? ga[2] * 1.3 : rar >= 2 ? ga[2] : ga[1]);
     }
   }
   function makePlayerEnt() {
@@ -3901,7 +3916,7 @@
   };
   function gearFrom(ent, equip) {
     const w = equip && equip.weapon;
-    const type = w ? gearIndex(w.baseIdx | 0) : -1, rar = w ? G.clamp(w.rarity | 0, 0, 2) : 0;
+    const type = w ? gearIndex(w.baseIdx | 0) : -1, rar = w ? G.clamp(w.rarity | 0, 0, 3) : 0;
     if (type !== ent.gearType || rar !== ent.gearRar) applyGear(ent, type, rar);
   }
   // 玩家的武器模型跟着装备走：equip 是存档里的 { slot: item }。
@@ -6365,6 +6380,7 @@
     for (const s of G.SLOTS) loots.push(W.makeLoot('item', 0xffffff, s === 'weapon', 0, 2, s));
     for (let i = 1; i < GEAR_KEYS.length; i++) loots.push(W.makeLoot('item', 0xffffff, false, 0, 2, { slot: 'weapon', type: GEAR_KEYS[i] }));
     for (const k of ['item', 'cur', 'skill', 'blank', 'support']) loots.push(W.makeLoot(k, 0xffffff, false, 0, 2));
+    loots.push(W.makeLoot('item', 0xff9b3d, true, 0, 2, { slot: 'weapon', type: 'katana', rarity: 3 })); // 烬铸的本体材质与双层光柱
     allyFxVisible(true); // 召唤法阵 / 聚焦标记平时是隐藏的：预热这一帧让它们露个面，着色器一并编译
     warmWeaponFx(true);
     const rt = new T.WebGLRenderTarget(64, 64);
@@ -6524,11 +6540,14 @@
   const lootModels = Object.create(null);
   const WEAPON_MODEL = GEAR_KEYS; // 掉落模型的名字和武器种类同名
   let lootBody = null;
+  let lootBodyU = null; // 烬铸武器掉在地上时的本体：带一点余烬自发光
 
   // kind：item | cur | skill | blank（无铭技能宝石）| support。slot（可选，只对 item 有意义）：装备栏位名，或物品对象本身
   // （{ slot, baseIdx }，武器按 G.BASES.weapon[baseIdx].type 区分八种；也可以直接给 { slot: 'weapon', type }）。不传时是一只通用的小包裹。
   W.makeLoot = function (kind, hex, beam, x, z, slot) {
     const h = hexOf(hex);
+    // 烬铸武器：更高更粗的双层光柱、更大的地面光盘、带一点余烬自发光的本体，悬着时不停往上冒火星
+    const uq = kind === 'item' && !!slot && typeof slot === 'object' && slot.rarity === 3;
     let key = kind;
     if (kind === 'item') {
       const sl = slot && typeof slot === 'object' ? slot.slot : slot;
@@ -6548,8 +6567,9 @@
     gem.scale.setScalar(1.3);
     if (WEAPON_MODEL.indexOf(key) >= 0) gem.rotation.z = key === 'bow' ? 0.3 : key === 'daggers' ? 0 : 0.5; // 武器斜着悬在空中
     else if (key === 'ring' || key === 'amulet' || key === 'belt') gem.rotation.x = 0.35;
+    if (uq && !lootBodyU) lootBodyU = new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.55, envMap: rigEnvMap(), envMapIntensity: 1.0, flatShading: true, emissive: lin(0x7a2a06), emissiveIntensity: 0.9 });
     if (mdl[0]) {
-      const m = new T.Mesh(mdl[0], lootBody);
+      const m = new T.Mesh(mdl[0], uq ? lootBodyU : lootBody);
       m.castShadow = true;
       gem.add(m);
     }
@@ -6559,17 +6579,27 @@
     grp.add(gem);
     const disc = new T.Mesh(gQuad(), discMat(h));
     disc.position.y = 0.05;
-    disc.scale.set(beam ? 1.5 : 0.85, 1, beam ? 1.5 : 0.85);
+    const ds = uq ? 2.3 : beam ? 1.5 : 0.85;
+    disc.scale.set(ds, 1, ds);
     disc.renderOrder = 2;
     grp.add(disc);
     if (beam) {
-      const bm = new T.Mesh(geo('beamCyl', () => new T.CylinderGeometry(0.05, 0.13, 6.5, 8, 1, true).translate(0, 3.25, 0)), beamMat(h));
+      const bm = uq
+        ? new T.Mesh(geo('beamCylU', () => new T.CylinderGeometry(0.13, 0.15, 11, 10, 1, true).translate(0, 5.5, 0)), beamMat(h, 0.34))
+        : new T.Mesh(geo('beamCyl', () => new T.CylinderGeometry(0.05, 0.13, 6.5, 8, 1, true).translate(0, 3.25, 0)), beamMat(h));
       bm.renderOrder = 5;
       grp.add(bm);
+      if (uq) {
+        // 里层一道更细、更亮的芯
+        const core = new T.Mesh(geo('beamCylUc', () => new T.CylinderGeometry(0.03, 0.05, 9, 8, 1, true).translate(0, 4.5 + 1.0, 0)), beamMat(mixHex(h, 0xffffff, 0.5), 0.5));
+        core.renderOrder = 5;
+        grp.add(core);
+      }
       const sp = new T.Sprite(spriteMat(h));
       sp.position.y = 0.6;
-      sp.scale.setScalar(1.4);
+      sp.scale.setScalar(uq ? 1.2 : 1.4);
       grp.add(sp);
+      if (uq) grp.userData.glow = sp;
     }
     const u = grp.userData;
     u.kind = 'loot';
@@ -6577,6 +6607,13 @@
     u.t = 0;
     u.spin = rand(1.4, 2.2);
     u.ph = rand(0, TAU);
+    u.ember = uq ? 0 : -1; // 烬铸：火星的累计量（-1 不冒）
+    if (uq) {
+      _c.set(h);
+      u.er = _c.r;
+      u.eg = _c.g;
+      u.eb = _c.b;
+    }
     grp.scale.setScalar(0.01);
     scene.add(grp);
     lootObjs.push(grp);
@@ -9568,10 +9605,11 @@
     );
   }
   const beamMats = Object.create(null);
-  function beamMat(hex) {
+  function beamMat(hex, op) {
+    const key = op ? hex + ':' + op : hex;
     return (
-      beamMats[hex] ||
-      (beamMats[hex] = new T.MeshBasicMaterial({ map: beamTex(), color: lin(hex), transparent: true, opacity: 0.6, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide, toneMapped: false, fog: false }))
+      beamMats[key] ||
+      (beamMats[key] = new T.MeshBasicMaterial({ map: beamTex(), color: lin(hex), transparent: true, opacity: op || 0.6, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide, toneMapped: false, fog: false }))
     );
   }
   W.makePortal = function (x, z) {
@@ -9806,6 +9844,169 @@
     }
   }
 
+  // ---------- 烬铸武器的特效 ----------
+  // 残刃：敌人头顶一圈悬着的小刃，叠几层亮几把（最多 5 把），慢慢转；目标被移除 / 开始死亡时自动收起
+  const MARK_N = 5, MARK_POOL = 24;
+  const markPool = [];
+  let markMat = null;
+  function newMarkSet() {
+    if (!markMat) markMat = new T.MeshBasicMaterial({ color: lin(0xffe2b8), toneMapped: false, fog: false });
+    const grp = new T.Group();
+    const blades = [];
+    for (let i = 0; i < MARK_N; i++) {
+      const a = (i / MARK_N) * TAU;
+      const piv = new T.Group();
+      piv.rotation.y = a;
+      const b = new T.Mesh(gOct(0.1), markMat);
+      b.scale.set(1.1, 6.2, 1.7);
+      b.position.set(0, 0, 1);
+      b.rotation.x = -0.45; // 刃尖朝下、向里斜，像插向它的一圈刀
+      piv.add(b);
+      const gl = new T.Sprite(spriteMat(0xff9b3d));
+      gl.scale.setScalar(1.1);
+      gl.position.set(0, 0, 1);
+      piv.add(gl);
+      piv.userData.b = b;
+      piv.userData.g = gl;
+      grp.add(piv);
+      blades.push(piv);
+    }
+    grp.visible = false;
+    scene.add(grp);
+    const m = { grp, blades, ent: null, n: 0, t: 0, pop: 0 };
+    markPool.push(m);
+    return m;
+  }
+  // n：当前层数（0 收起）
+  W.bladeMarks = function (ent, n) {
+    if (!ent) return;
+    let m = null;
+    for (let i = 0; i < markPool.length; i++) if (markPool[i].ent === ent) m = markPool[i];
+    if (!(n > 0)) {
+      if (m) {
+        m.ent = null;
+        m.grp.visible = false;
+      }
+      return;
+    }
+    if (!m) {
+      for (let i = 0; i < markPool.length && !m; i++) if (!markPool[i].ent) m = markPool[i];
+      if (!m && markPool.length < MARK_POOL) m = newMarkSet();
+      if (!m) return;
+      m.ent = ent;
+      m.t = 0;
+    }
+    m.n = Math.min(MARK_N, n);
+    m.pop = 0.22;
+  };
+  W.bladeMarkCount = function (ent) {
+    for (let i = 0; i < markPool.length; i++) if (markPool[i].ent === ent) return markPool[i].n;
+    return 0;
+  };
+  function updateMarks(raw) {
+    for (let i = 0; i < markPool.length; i++) {
+      const m = markPool[i];
+      const e = m.ent;
+      if (!e) continue;
+      if (e.removed || e.dying) {
+        m.ent = null;
+        m.grp.visible = false;
+        continue;
+      }
+      m.t += raw;
+      if (m.pop > 0) m.pop = Math.max(0, m.pop - raw);
+      // 一圈小刃绕着它的上半身转（在头顶血条下面，不和血条、名字挤在一起），刚叠上一层时整圈一跳
+      const g = e.group.position, hh = e.rig.height * e.k * e.group.scale.y;
+      const d = (G.MOBS && G.MOBS[e.kind]) || (G.BOSSES && G.BOSSES[e.kind]);
+      const R = (((d && d.r) || 0.6) * e.k + 0.35) * (1 + m.pop * 0.8);
+      m.grp.position.set(g.x, g.y + hh * 0.72 + Math.sin(m.t * 3) * 0.06, g.z);
+      m.grp.rotation.y += raw * 1.6;
+      for (let j = 0; j < MARK_N; j++) {
+        const pv = m.blades[j];
+        pv.visible = j < m.n;
+        pv.userData.b.position.z = R;
+        pv.userData.g.position.z = R;
+      }
+      m.grp.visible = true;
+    }
+  }
+  W.updateMarks = updateMarks;
+  // 残刃引爆：五道刀光从四面同时斩过，一团白热的火花，地上一道冲击环
+  // R：波及半径（从目标边缘算），冲击环推到这里
+  W.markBurstFx = function (x, z, h, r, R) {
+    const y = Math.min(2.4, h * 0.55);
+    flashLight(x, y + 1, z, 0xffc27a, 2.6);
+    flare(x, y, z, 0xffd9a8, 2.6 + (r || 0.6), 0.16);
+    const a0 = Math.random() * TAU;
+    for (let i = 0; i < MARK_N; i++) W.slash(x, z, a0 + (i / MARK_N) * TAU, 1.4 + (r || 0.6), 70, i % 2 ? 0xffe2b8 : 0xff9b3d, { y: y * (0.75 + 0.1 * i), dur: 0.2, inner: 0.55, dir: i % 2 ? -1 : 1 });
+    W.ring(x, z, (r || 0.6) + (R || 2.0), 0xffb066, 0.32);
+    W.burst(x, y, z, 0xfff0d0, 30, 8, 0.4);
+    W.burst(x, y, z, 0xff9b3d, 16, 5, 0.5);
+  };
+  // 残刃转移：一串余烬色的刃光从倒下的敌人飞向下一个
+  W.markJumpFx = function (x0, z0, x1, z1, h) {
+    const dx = x1 - x0, dz = z1 - z0, len = Math.hypot(dx, dz) || 1;
+    const y1 = Math.min(2.4, (h || 2) * 0.6);
+    const n = Math.min(24, 8 + Math.round(len * 3));
+    for (let q = 0; q < n; q++) {
+      const f = q / n;
+      _c.set(q % 2 ? 0xffe2b8 : 0xff9b3d);
+      spawnP(x0 + dx * f, 1.0 + (y1 - 1.0) * f + Math.sin(f * Math.PI) * 0.8, z0 + dz * f, (dx / len) * 3, rand(0.2, 0.6), (dz / len) * 3, rand(0.25, 0.45), 0.22, _c.r, _c.g, _c.b, 0, 2);
+    }
+    W.burst(x1, y1, z1, 0xffc27a, 8, 3, 0.3);
+  };
+  // 三相共鸣：三色（火 / 冰 / 雷）的三道圈从中心推开，火星流从触发的敌人涌向每个被灌的敌人（另外两种颜色交替）
+  const TRI_HEX = { fire: 0xff7a2c, cold: 0x7fd4ff, light: 0xffe45e };
+  W.triFx = function (x0, z0, R, t, targets) {
+    W.ring(x0, z0, R, TRI_HEX.fire, 0.7);
+    W.ring(x0, z0, R * 0.8, TRI_HEX.cold, 0.6);
+    W.ring(x0, z0, R * 0.6, TRI_HEX.light, 0.5);
+    flashLight(x0, 2.2, z0, 0xffe8d0, 1.2);
+    const others = ['fire', 'cold', 'light'].filter((x) => x !== t);
+    for (const k of ['fire', 'cold', 'light']) W.burst(x0, 1.2, z0, TRI_HEX[k], 10, 5, 0.5);
+    for (let i = 0; i < targets.length; i++) {
+      const o = targets[i];
+      const y1 = o.h * 0.6;
+      for (let j = 0; j < 2; j++) {
+        const hx = TRI_HEX[others[j]];
+        _c.set(hx);
+        // 每个被灌的敌人脚下各亮起两道（另外两种元素颜色的）小圈
+        W.ring(o.x, o.z, 0.85 + j * 0.4, hx, 0.5);
+        if (o.self) {
+          // 自己身上：两色火星绕着身体往上旋
+          for (let q = 0; q < 14; q++) {
+            const a = (q / 14) * TAU + j * Math.PI;
+            spawnP(o.x + Math.sin(a) * 0.8, 0.3 + q * 0.12, o.z + Math.cos(a) * 0.8, Math.cos(a) * 1.6, 1.8, -Math.sin(a) * 1.6, rand(0.5, 0.8), 0.24, _c.r, _c.g, _c.b, -0.5, 1.2);
+          }
+          continue;
+        }
+        // 从触发的敌人涌过去的一道弧形火星流（两种颜色各走一边）
+        const dx = o.x - x0, dz = o.z - z0, len = Math.hypot(dx, dz) || 1;
+        const n = Math.min(22, 10 + Math.round(len * 3));
+        for (let q = 0; q < n; q++) {
+          const f = q / n, off = (j ? 1 : -1) * Math.sin(f * Math.PI) * 0.7;
+          const px = x0 + dx * f + (dz / len) * off, pz = z0 + dz * f - (dx / len) * off;
+          spawnP(px, 1.0 + (y1 - 1.0) * f + Math.sin(f * Math.PI) * 0.6, pz, (dx / len) * 2.5, rand(0.2, 0.8), (dz / len) * 2.5, rand(0.4, 0.7), 0.24, _c.r, _c.g, _c.b, 0, 2);
+        }
+        W.burst(o.x, y1, o.z, hx, 8, 3, 0.4);
+      }
+    }
+  };
+  // 魂火：魂火青与余烬橙两层火从倒下的召唤物脚下腾起，冲击环推到伤害半径
+  W.soulFireFx = function (x, z, R, h) {
+    flashLight(x, 1.6, z, ALLY_HEX, 2.2);
+    flare(x, 0.9, z, ALLY_HEX, 2.4, 0.16);
+    W.ring(x, z, R, ALLY_HEX, 0.42);
+    W.ring(x, z, R * 0.65, 0xff9b3d, 0.3);
+    W.decal(1, x, z, R * 0.6, Math.random() * TAU, ALLY_HEX, 2.5);
+    for (let i = 0; i < 36; i++) {
+      const a = rand(0, TAU), d = Math.sqrt(Math.random()) * R * 0.8, warm = i % 3 === 0;
+      const r = warm ? 1 : ALLY_RGB.r, g = warm ? 0.6 : ALLY_RGB.g, b = warm ? 0.25 : ALLY_RGB.b;
+      spawnP(x + Math.sin(a) * d * 0.3, 0.2, z + Math.cos(a) * d * 0.3, Math.sin(a) * rand(2, 5), rand(1.5, 4.5), Math.cos(a) * rand(2, 5), rand(0.45, 0.9), rand(0.16, 0.3), r, g, b, -1.5, 1.4);
+    }
+    W.burst(x, h * 0.5, z, 0xe8fff8, 12, 4, 0.35);
+  };
+
   // 聚焦标记：传入敌人的实体（G.state.enemies[i].ent）就标在它头上并跟着走，传 null 隐藏。
   // 每帧调用或只在目标变化时调用都可以；目标被移除 / 开始死亡时标记自动消失。r（可选）：脚下瞄准框的半径
   W.focusMark = function (ent, r) {
@@ -9952,6 +10153,7 @@
     updateMeteors(dt);
     updateSummons(dt);
     updateFocus(raw);
+    updateMarks(raw);
     updateWeaponFx(dt);
     for (let i = 0; i < texts.length; i++) if (texts[i].t < texts[i].dur) texts[i].t += raw; // 数字按真实时间走：顿帧时照样弹出来
 
@@ -9982,6 +10184,18 @@
       g.scale.setScalar(k < 1 ? 0.2 + 0.8 * k + Math.sin(k * Math.PI) * 0.25 : 1);
       u.gem.position.y = 0.55 + Math.sin(u.t * 2.4 + u.ph) * 0.09 + (k < 1 ? Math.sin(k * Math.PI) * 0.9 : 0);
       u.gem.rotation.y += dt * u.spin;
+      if (u.ember >= 0) {
+        // 烬铸：光晕一呼一吸，火星从地面光盘里往上飘
+        if (u.glow) u.glow.scale.setScalar(1.1 + Math.sin(u.t * 3.1) * 0.2);
+        u.ember += dt * 34;
+        const p = g.position;
+        while (u.ember >= 1) {
+          u.ember -= 1;
+          const a = rand(0, TAU), d = Math.sqrt(Math.random()) * 1.1, w = Math.random() < 0.25 ? 0.5 : 0;
+          spawnP(p.x + Math.sin(a) * d, 0.1 + Math.random() * 0.6, p.z + Math.cos(a) * d, rand(-0.25, 0.25), rand(1.0, 2.8), rand(-0.25, 0.25), rand(0.6, 1.3), rand(0.08, 0.16),
+            u.er + (1 - u.er) * w, u.eg * 0.8 + (1 - u.eg) * w, u.eb * 0.5 + w * 0.6, -0.9, 0.6);
+        }
+      }
     }
 
     // 传送门
@@ -10269,6 +10483,14 @@
       g.fillRect(x, y, w, h);
       g.strokeStyle = l.color;
       g.globalAlpha = 0.85;
+      const uqL = l.kind === 'item' && l.data && l.data.rarity === 3;
+      if (uqL) {
+        // 烬铸：名牌外面再描一圈发光的边
+        g.shadowColor = l.color;
+        g.shadowBlur = 10;
+        g.strokeRect(x - 1.5, y - 1.5, w + 3, h + 3);
+        g.shadowBlur = 0;
+      }
       g.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
       g.globalAlpha = 1;
       g.fillStyle = l.color;

@@ -3,6 +3,7 @@
 import { launch } from './harness.mjs';
 
 const SAVE_KEY = 'cinder-abyss-save-v1';
+let G_CUR_N = 8, G_UQ_COLOR = '#ff9b3d', G_SOUL_INH = 1.5, G_SOUL_K = 0.2; // 烬铸步骤用到的数据（启动后从页面里读）
 let browser, page, errors;
 let failed = 0;
 let passed = 0;
@@ -6912,6 +6913,452 @@ async function main() {
     assert(r.same && r.brute[0] === r.brute[1], '16 级以内的怪物曲线应与改版前完全相同：' + JSON.stringify(r));
     assert(r.mono && r.flatter, '17 级以上应单调成长且比改版前平缓：' + JSON.stringify(r));
     return '生命倍率 ' + r.hp.join('/') + ' · 伤害倍率 ' + r.dmg.join('/') + '（16/17/24/32/40/48/64 级）';
+  });
+
+  // ---------------- 烬铸武器（稀有度 3）----------------
+  await step('烬铸：固定名字 / 武器类型 / 词缀行，数值在区间里掷（区间随物品等级走），完美度是各行位置的平均；基础伤害按物品等级成长', async () => {
+    ({ n: G_CUR_N, c: G_UQ_COLOR, i: G_SOUL_INH, k: G_SOUL_K } = await ev(() => ({ n: G.CUR_IDS.length, c: G.RARITY_COLOR[3], i: G.SOULFIRE.inherit, k: G.SOULFIRE.k })));
+    const r = await ev(() => {
+      const out = { bad: [] };
+      for (const id of G.UNIQUE_IDS) {
+        const U = G.UNIQUES[id];
+        for (const il of [21, 30, 44, 56]) {
+          for (let k = 0; k < 30; k++) {
+            const it = G.rollUnique(id, il);
+            if (it.rarity !== 3 || it.uq !== id || it.name !== U.name || it.slot !== 'weapon' || it.baseIdx !== U.base) out.bad.push('身份 ' + id);
+            if (it.affixes.length !== U.lines.length) out.bad.push('行数 ' + id);
+            it.affixes.forEach((a, i) => {
+              const rg = G.uniqueRange(it, i);
+              if (a.id !== U.lines[i].id || !(a.v >= rg[0] && a.v <= rg[1]) || a.v !== Math.round(a.v)) out.bad.push(id + ' 第 ' + i + ' 行 ' + a.id + '=' + a.v + ' 不在 ' + rg);
+            });
+            const p = G.uniquePerfect(it);
+            if (!(p >= 0 && p <= 1)) out.bad.push('完美度 ' + p);
+          }
+        }
+        // 完美度：全取下限 0、全取上限 1、中间 0.5 左右
+        const lo = G.rollUnique(id, 44, 0), hi = G.rollUnique(id, 44, 1), mid = G.rollUnique(id, 44, 0.5);
+        out[id] = { lo: G.uniquePerfect(lo), hi: G.uniquePerfect(hi), mid: +G.uniquePerfect(mid).toFixed(2) };
+        // 手算一件：第 0 行在下限、其余在上限 → 完美度 = (行数 − 1) / 行数（固定行不计）
+        const one = G.rollUnique(id, 44, 1);
+        one.affixes[0].v = G.uniqueRange(one, 0)[0];
+        const n = U.lines.filter((l) => l.fixed === undefined).length;
+        out[id].one = [+G.uniquePerfect(one).toFixed(4), +((n - 1) / n).toFixed(4)];
+        // 区间随物品等级变宽变高；伤害按普通武器的公式（成色固定 UNIQUE_BASE_Q）
+        const a = G.rollUnique(id, 24, 0.5), b = G.rollUnique(id, 48, 0.5);
+        out[id].grow = G.uniqueRange(b, 0)[1] > G.uniqueRange(a, 0)[1] && b.dmg[1] > a.dmg[1];
+        out[id].wbase = T.canon(b.wbase) === T.canon(G.weaponBaseDmg(U.base, 48, G.UNIQUE_BASE_Q));
+        // 固定行（万魂旗的 +1 仆从上限）
+        U.lines.forEach((l, i) => { if (l.fixed !== undefined && b.affixes[i].v !== l.fixed) out.bad.push('固定行 ' + id); });
+      }
+      out.color = G.RARITY_COLOR[3] !== G.RARITY_COLOR[2] && G.RARITY_NAME[3] === '烬铸';
+      out.lines = G.itemLines(G.rollUnique('wanhun', 44, 0.5)).affixes.map((a) => a.text).join('；');
+      return out;
+    });
+    assert(!r.bad.length, '烬铸掷骰有问题：' + r.bad.slice(0, 5).join(' | '));
+    for (const id of ['jinduan', 'sanxiang', 'wanhun']) {
+      const o = r[id];
+      assert(o.lo === 0 && o.hi === 1 && Math.abs(o.mid - 0.5) < 0.08 && o.one[0] === o.one[1], id + ' 的完美度算错了：' + JSON.stringify(o));
+      assert(o.grow && o.wbase, id + ' 的区间 / 伤害没有随物品等级成长：' + JSON.stringify(o));
+    }
+    assert(r.color && /仆从数量上限 \+1/.test(r.lines), JSON.stringify(r));
+    return r.lines;
+  });
+
+  await uiStep('烬铸：所有通货（含琢刻石、重铸石）都拒绝，提示「烬铸武器无法改造」，拖上去时变暗；分解要点两次「分解」，固定给一把高阶通货；提示里有完美度和区间', async () => {
+    const pre = await ev(() => {
+      while (G.save.bag.length > 30) G.save.bag.pop();
+      const it = G.debug.giveItem(3, 'jinduan', 0.6, 44);
+      for (const c of G.CUR_IDS) G.debug.give(c, 2);
+      const before = T.canon(it);
+      const out = { uid: it.uid, can: G.CUR_IDS.filter((c) => G.canCraft(it, c)), msgs: G.CUR_IDS.map((c) => G.craft(it, c, 0).msg) };
+      out.applied = G.CUR_IDS.filter((c) => G.applyCurrency(it, c, 0));
+      out.same = T.canon(it) === before;
+      out.cur = G.CUR_IDS.every((c) => G.save.cur[c] >= 2);
+      out.toast = T.toasts();
+      out.chisel = G.chiselable(it).some(Boolean);
+      return out;
+    });
+    assert(!pre.can.length && !pre.applied.length && pre.same && pre.cur && !pre.chisel, '烬铸武器被通货改动了：' + JSON.stringify(pre));
+    assert(pre.msgs.every((m) => m === '烬铸武器无法改造') && /烬铸武器无法改造/.test(pre.toast), '拒绝的提示不对：' + JSON.stringify(pre.msgs) + ' ' + pre.toast);
+    // 界面：选中后详情里有完美度、区间、机制；拖琢刻石过去时这一格变暗并写明原因
+    await ev(() => G.ui.open('inv'));
+    await page.click('.cell[data-item="' + pre.uid + '"]');
+    const card = await ev(() => document.querySelector('.detail-card').innerText + ' | ' + document.querySelector('.detail-card').parentElement.innerText);
+    assert(/完美度 \d+%/.test(card) && /（\d+–\d+）/.test(card) && /残刃/.test(card) && /烬铸武器无法改造/.test(card), '详情卡片缺内容：' + card.slice(0, 300));
+    let mid = null;
+    await dragTo('.cur[data-cur="chisel"]', '.cell[data-item="' + pre.uid + '"]', async () => {
+      mid = await ev((u) => ({ no: document.querySelector('.cell[data-item="' + u + '"]').classList.contains('drop-no'), cap: document.querySelector('#drag-ghost em') ? document.querySelector('#drag-ghost em').textContent : '' }), pre.uid);
+    });
+    assert(mid && mid.no && /烬铸武器无法改造/.test(mid.cap), '拖到烬铸武器上应变暗并写明原因：' + JSON.stringify(mid));
+    assert(await ev((u) => G.save.cur.chisel >= 2 && !!G.save.bag.find((b) => b.uid === u), pre.uid), '拖放后琢刻石被消耗了');
+    // 分解：第一次只上膛，第二次才分解，固定得到 UNIQUE_SALVAGE
+    await page.click('.cell[data-item="' + pre.uid + '"]');
+    const c0 = await ev(() => Object.assign({}, G.save.cur));
+    await page.click('[data-act="salvage"]');
+    const armed = await ev((u) => ({ still: !!G.save.bag.find((b) => b.uid === u), msg: document.querySelector('.inv-msg') ? document.querySelector('.inv-msg').textContent : '' }), pre.uid);
+    assert(armed.still && /再点一次/.test(armed.msg), '第一次点分解不应直接分解：' + JSON.stringify(armed));
+    await page.click('[data-act="salvage"]');
+    const done = await ev((a) => ({ gone: !G.save.bag.find((b) => b.uid === a.u), d: Object.keys(G.UNIQUE_SALVAGE).every((k) => G.save.cur[k] - a.c0[k] === G.UNIQUE_SALVAGE[k]) }), { u: pre.uid, c0 });
+    assert(done.gone && done.d, '第二次点分解应分解并给出固定通货：' + JSON.stringify(done));
+    return '拒绝 ' + G_CUR_N + ' 种通货 · 分解得 ' + JSON.stringify(await ev(() => G.UNIQUE_SALVAGE));
+  });
+
+  await step('烬铸掉落：只有轮回层级 ≥ 1 的霜织者 / 雷霆监察者 / 烬渊之主掉各自那一把，巨像和层级 0 不掉；层级 1 约 15%、层级 2 起约 25%；连续 2 次没掉第 3 次必掉，掉了清零；带光柱、名牌颜色、大字提示', async () => {
+    const r = await ev(() => {
+      const S = G.state, U = G.save.uniq;
+      const keep = { tier: S.tier };
+      const P = G.player;
+      const boss = (kind) => ({ bossKind: kind, x: P.x + 2, z: P.z - 2, isBoss: true, level: 40 });
+      const out = {};
+      T.clearLoot();
+      U.pity = {};
+      // 绑定关系与层级门槛
+      T.fix(0);
+      S.tier = 0;
+      out.t0 = ['golem', 'weaver', 'warden', 'lord'].map((k) => !!G.uniqueDrop(boss(k), 40));
+      out.pity0 = Object.keys(U.pity).length;
+      S.tier = 1;
+      out.t1 = ['golem', 'weaver', 'warden', 'lord'].map((k) => { const l = G.uniqueDrop(boss(k), 30); return l ? l.data.uq : null; });
+      // 几率：层级 1 是 15%（随机数 0.14 掉、0.16 不掉），层级 2 起 25%（0.24 掉、0.26 不掉）。每次之间清掉保底计数，只看随机数
+      T.fix(0.14);
+      U.pity = {};
+      out.c1a = !!G.uniqueDrop(boss('warden'), 30);
+      T.fix(0.16);
+      U.pity = {};
+      out.c1b = !!G.uniqueDrop(boss('warden'), 30);
+      S.tier = 2;
+      U.pity = {};
+      out.c2b0 = !!G.uniqueDrop(boss('warden'), 46);
+      T.fix(0.24);
+      U.pity = {};
+      out.c2a = !!G.uniqueDrop(boss('warden'), 46);
+      T.fix(0.26);
+      U.pity = {};
+      out.c2b = !!G.uniqueDrop(boss('warden'), 46);
+      S.tier = 5;
+      T.fix(0.2);
+      U.pity = {};
+      out.c5 = !!G.uniqueDrop(boss('warden'), 90);
+      out.chance = [G.uniqueChance(0), G.uniqueChance(1), G.uniqueChance(2), G.uniqueChance(7)];
+      // 保底：2 次没掉，第 3 次必掉，掉了清零（各首领分开计）；再来一轮还是第 3 次
+      T.fix(0.999);
+      S.tier = 1;
+      U.pity = {};
+      const seq = [];
+      for (let i = 0; i < 6; i++) seq.push(!!G.uniqueDrop(boss('lord'), 32));
+      out.seq = seq.map((x) => (x ? 1 : 0)).join('');
+      out.pityAfter = U.pity.lord || 0;
+      out.weaverUntouched = U.pity.weaver || 0;
+      G.uniqueDrop(boss('weaver'), 32);
+      out.weaver1 = U.pity.weaver;
+      // 走一遍 G.dropLoot（首领的完整掉落里带上烬铸）
+      T.unfix();
+      T.clearLoot();
+      U.pity.warden = G.UNIQUE_DROP.pity;
+      G.dropLoot({ isBoss: true, bossKind: 'warden', level: 28, x: P.x, z: P.z - 3 });
+      const l = S.loot.find((x) => x.kind === 'item' && x.data.rarity === 3);
+      out.full = l ? { uq: l.data.uq, ilvl: l.data.ilvl, color: l.color, label: l.label, beam: l.mesh.children.length } : null;
+      out.pityReset = U.pity.warden || 0;
+      const bt = document.getElementById('big-toast');
+      out.toast = bt ? { on: bt.classList.contains('on'), text: bt.innerText } : null;
+      T.clearLoot();
+      U.pity = {};
+      S.tier = keep.tier;
+      return out;
+    });
+    assert(r.t0.every((x) => !x) && r.pity0 === 0, '层级 0 不应掉落，也不计保底：' + JSON.stringify(r));
+    assert(r.t1.join() === ',sanxiang,jinduan,wanhun', '首领与烬铸的绑定不对（巨像应不掉）：' + JSON.stringify(r.t1));
+    assert(r.c1a && !r.c1b && r.c2b0 && r.c2a && !r.c2b && r.c5, '掉率不对：' + JSON.stringify(r));
+    assert(r.chance.join() === '0,0.15,0.25,0.25', '掉率表不对：' + r.chance);
+    assert(r.seq === '001001' && r.pityAfter === 0 && r.weaverUntouched === 0 && r.weaver1 === 1, '保底不对：' + JSON.stringify(r));
+    assert(r.full && r.full.uq === 'jinduan' && r.full.ilvl === 28 && r.full.color === G_UQ_COLOR && r.full.beam >= 5 && r.pityReset === 0, '首领完整掉落里的烬铸不对：' + JSON.stringify(r.full));
+    assert(r.toast && r.toast.on && /烬断/.test(r.toast.text), '应弹出屏幕中央的大字提示：' + JSON.stringify(r.toast));
+    return '保底序列 ' + r.seq + ' · 名牌 ' + r.full.label;
+  });
+
+  await step('残刃（烬断）：你的暴击留下可见的残刃层数，叠满 5 层引爆 MARK.mult 倍武器伤害（必定暴击、吃物理伤害提高），波及 MARK.r 米内的别的敌人（MARK.splash 倍），带残刃的敌人倒下时残刃飞到附近的敌人身上；引爆和召唤物 / 异常的命中不叠层；瞬断冷却减半', async () => {
+    const r = await ev(() => {
+      T.arena();
+      const P = G.player, S = G.state;
+      const rare = G.rollItem(44, 2, 'weapon', 6);
+      G.save.equip.weapon = rare;
+      G.computeStats();
+      const out = { cdRare: G.skillCtx('flashcut').cd };
+      G.save.equip.weapon = G.rollUnique('jinduan', 44, 0.5);
+      G.computeStats();
+      out.cdUq = G.skillCtx('flashcut').cd;
+      out.mech = P.uMech;
+      const e = T.mob('husk', 0, -3);
+      const near = T.mob('husk', 1.6, -3);
+      const far = T.mob('husk', -1 - e.r - G.MARK.r - 1.5, -3);
+      for (const o of [e, near, far]) o.buTh = 1e15; // 不触发异常（感电的电弧会打到旁边的靶子，混进波及的伤害里）
+      const ctx = G.skillCtx('cleave');
+      T.fix(0); // 必定暴击、伤害取下限
+      const hits = [];
+      const b0 = S.stats.markBursts || 0;
+      for (let i = 0; i < 4; i++) {
+        const h0 = e.hp;
+        G.hitEnemy(e, ctx, 1, { quiet: true });
+        hits.push(h0 - e.hp);
+      }
+      out.marks4 = e.marks;
+      G.world.update(1 / 60);
+      out.shown = G.world.bladeMarkCount(e.ent);
+      // 召唤物 / 异常的命中不叠层
+      G.hitEnemy(e, ctx, 1, { quiet: true, minion: {} });
+      G.hitEnemy(e, ctx, 1, { quiet: true, proc: true });
+      out.marksStill = e.marks;
+      const h5 = e.hp;
+      G.hitEnemy(e, ctx, 1, { quiet: true });
+      const d5 = h5 - e.hp;
+      out.bursts = (S.stats.markBursts || 0) - b0;
+      out.marksAfter = e.marks;
+      out.shownAfter = G.world.bladeMarkCount(e.ent);
+      const ws = G.weaponStats(G.save.equip.weapon);
+      const PS = P.S;
+      const expect = ws.min * G.MARK.mult * (1 + ((PS.incAll || 0) + (PS.incPhys || 0)) / 100) * (1 + (PS.moreDmg || 0) / 100) * (1 - Math.min(90, PS.ownLess || 0) / 100) * ((150 + (PS.critMulti || 0)) / 100);
+      out.burst = [Math.round(d5 - hits[3]), Math.round(expect)];
+      out.splash = [Math.round(near.maxHp - near.hp), Math.round(expect * G.MARK.splash)];
+      out.far = Math.round(far.maxHp - far.hp);
+      out.sp = G.MARK.splash;
+      // 带残刃的敌人倒下：残刃飞到 MARK.jump 米内最近的敌人身上（远的不算）；够层数就地引爆
+      const j1 = T.mob('husk', 0, -10), j2 = T.mob('husk', 2, -10), j3 = T.mob('husk', 2 + G.MARK.jump + 3, -10);
+      j1.marks = 3;
+      G.killEnemy(j1, {});
+      out.jump = [j2.marks || 0, j3.marks || 0, j1.marks || 0];
+      const j4 = T.mob('husk', 3, -11);
+      j4.marks = G.MARK.max - 3;
+      const bj = S.stats.markBursts || 0;
+      G.killEnemy(j4, {});
+      out.jumpBurst = [(S.stats.markBursts || 0) - bj, j2.marks || 0, Math.round(j2.maxHp - j2.hp) > 0];
+      // 不是烬断时暴击不留残刃
+      const e2 = T.mob('husk', 2, -3);
+      G.save.equip.weapon = rare;
+      G.computeStats();
+      for (let i = 0; i < 6; i++) G.hitEnemy(e2, ctx, 1, { quiet: true });
+      out.rareMarks = e2.marks || 0;
+      T.unfix();
+      T.arena();
+      return out;
+    });
+    assert(r.mech === 'blade' && r.cdUq === r.cdRare * 0.5, '瞬断冷却应减半：' + JSON.stringify(r));
+    assert(r.marks4 === 4 && r.shown === 4 && r.marksStill === 4, '残刃层数不对（或召唤物 / 异常命中也叠了层）：' + JSON.stringify(r));
+    assert(r.bursts === 1 && r.marksAfter === 0 && r.shownAfter === 0, '第 5 层应引爆并清零：' + JSON.stringify(r));
+    assert(Math.abs(r.burst[0] - r.burst[1]) <= Math.max(2, r.burst[1] * 0.01), '引爆伤害应为 MARK.mult 倍武器伤害（暴击）：' + JSON.stringify(r.burst));
+    assert(r.sp > 0 && Math.abs(r.splash[0] - r.splash[1]) <= Math.max(2, r.splash[1] * 0.01) && r.far === 0, '引爆应只波及周围的敌人（MARK.splash 倍）：' + JSON.stringify({ s: r.splash, far: r.far }));
+    assert(r.jump.join() === '3,0,0' && r.jumpBurst[0] === 1 && r.jumpBurst[1] === 0 && r.jumpBurst[2], '倒下时残刃应飞到附近的敌人身上、够层数引爆：' + JSON.stringify({ j: r.jump, b: r.jumpBurst }));
+    assert(r.rareMarks === 0, '普通武器不应留残刃');
+    return '引爆 ' + r.burst[0] + ' · 波及 ' + r.splash[0] + ' · 瞬断冷却 ' + r.cdRare + ' → ' + r.cdUq + ' 秒';
+  });
+
+  await step('三相共鸣（三相之心）：任一元素触发时，半径 TRI.r 内的敌人（含它自己）获得另外两种各 TRI.k 条；共鸣灌满触发的异常不再共鸣（不会无限连锁），之后正常灌满照常共鸣；已感电的续满时间、被灌爆的爆燃沿用源头的火焰伤害；拿着它时首领的异常阈值不变高', async () => {
+    const r = await ev(() => {
+      T.arena();
+      const S = G.state;
+      G.save.equip.weapon = G.rollUnique('sanxiang', 44, 0.5);
+      G.computeStats();
+      const out = { mech: G.player.uMech, k: G.TRI.k };
+      const a = T.mob('husk', 0, -4), b = T.mob('husk', 2, -5), far = T.mob('husk', 9, -4);
+      const s0 = S.stats.triSpreads || 0;
+      G.addBuildUp(a, { cold: a.buTh * 1.05 }, 0);
+      out.spread1 = (S.stats.triSpreads || 0) - s0;
+      out.a = [a.bu.fire, a.bu.cold, a.bu.light].map((v) => +v.toFixed(2));
+      out.b = [b.bu.fire, b.bu.cold, b.bu.light].map((v) => +v.toFixed(2));
+      out.far = [far.bu.fire, far.bu.cold, far.bu.light].join();
+      out.frozen = a.freeze > 0;
+      // 一圈敌人的三条都快满了：一次触发 → 共鸣把它们全部灌满、全部触发，但共鸣只发生这一次
+      G.clearEnemies();
+      const ring = [];
+      for (let i = 0; i < 6; i++) ring.push(T.mob('husk', Math.sin(i) * 2, -5 + Math.cos(i) * 2));
+      for (const e of ring) { e.bu.fire = e.bu.cold = e.bu.light = 0.9; e.buT.fire = e.buT.cold = e.buT.light = 3; }
+      const s1 = S.stats.triSpreads || 0, f1 = S.stats.freezes || 0, k1 = S.stats.shocks || 0;
+      G.addBuildUp(ring[0], { fire: ring[0].buTh * 0.2 }, 0);
+      out.chainSpreads = (S.stats.triSpreads || 0) - s1;
+      out.chainFreezes = (S.stats.freezes || 0) - f1;
+      out.chainShocks = (S.stats.shocks || 0) - k1;
+      // 之后玩家的命中正常灌满：照常共鸣
+      const e = ring[1];
+      e.freeze = 0;
+      e.bu.cold = 0.9;
+      G.addBuildUp(e, { cold: e.buTh * 0.2 }, 0);
+      out.after = (S.stats.triSpreads || 0) - s1;
+      // 已在感电中的：不灌，感电时间续满（TRI.refresh）；自己没攒过火焰伤害的被灌爆时按源头攒的火焰伤害爆燃（TRI.heat）
+      const heatRun = (heat) => {
+        G.clearEnemies();
+        const keep = G.TRI.heat;
+        G.TRI.heat = heat;
+        const src = T.mob('husk', 0, -4), cold = T.mob('husk', -1.6, -4);
+        src.buTh = cold.buTh = 1000; // 阈值放大，好让源头攒下一笔看得出的火焰伤害而不灌满
+        G.addBuildUp(src, { fire: src.buTh * 0.1 }, 0);
+        cold.bu.fire = 1.02 - G.TRI.k; cold.buT.fire = 3;
+        const hp = cold.hp, bl = S.stats.blasts || 0;
+        G.addBuildUp(src, { cold: src.buTh * 1.05 }, 0);
+        G.TRI.heat = keep;
+        return { blasts: (S.stats.blasts || 0) - bl, dmg: Math.round(hp - cold.hp) };
+      };
+      out.heatOn = heatRun(true);
+      out.heatOff = heatRun(false);
+      G.clearEnemies();
+      const rs = T.mob('husk', 0, -4), sh = T.mob('husk', 1.6, -4);
+      sh.shockT = 0.5;
+      G.addBuildUp(rs, { cold: rs.buTh * 1.05 }, 0);
+      out.refresh = +sh.shockT.toFixed(2);
+      out.shockFull = G.BUILDUP.shock;
+      // 首领：拿着三相之心时正常触发也不让阈值变高（TRI.grow = 0）；普通武器照常变高
+      G.clearEnemies();
+      const bb = T.mob('brute', 0, -6);
+      bb.isBoss = true;
+      G.addBuildUp(bb, { fire: bb.buTh * 1.05 }, 0);
+      out.growTri = bb.buGrow.fire;
+      // 不是三相之心时不共鸣
+      G.save.equip.weapon = G.rollItem(44, 2, 'weapon', 1);
+      G.computeStats();
+      const c = T.mob('husk', -6, -4);
+      const s2 = S.stats.triSpreads || 0;
+      G.addBuildUp(c, { light: c.buTh * 1.05 }, 0);
+      out.rare = (S.stats.triSpreads || 0) - s2;
+      G.clearEnemies();
+      const bb2 = T.mob('brute', 0, -6);
+      bb2.isBoss = true;
+      G.addBuildUp(bb2, { fire: bb2.buTh * 1.05 }, 0);
+      out.growRare = bb2.buGrow.fire;
+      out.grow = G.TRI.grow;
+      T.arena();
+      return out;
+    });
+    assert(r.mech === 'tri' && r.spread1 === 1 && r.frozen, '触发冻结应引发一次共鸣：' + JSON.stringify(r));
+    assert(r.a[0] === r.k && r.a[2] === r.k && r.b[0] === r.k && r.b[2] === r.k && r.b[1] === 0 && r.far === '0,0,0', '共鸣灌的量 / 范围不对：' + JSON.stringify(r));
+    assert(r.chainSpreads === 1 && r.chainFreezes >= 5 && r.chainShocks >= 5, '共鸣灌满触发的异常不应再共鸣：' + JSON.stringify(r));
+    assert(r.after === 2 && r.rare === 0, '之后正常触发应照常共鸣、普通武器不共鸣：' + JSON.stringify(r));
+    assert(r.refresh === r.shockFull && r.heatOn.blasts === 1 && r.heatOn.dmg > 0 && r.heatOff.blasts === 1 && r.heatOff.dmg === 0, '共鸣应续满感电、被灌爆的爆燃沿用源头的火焰伤害：' + JSON.stringify({ on: r.heatOn, off: r.heatOff, refresh: r.refresh }));
+    assert(r.grow === 0 && r.growTri === 1 && r.growRare > 1, '拿着三相之心时首领的异常阈值不应变高：' + JSON.stringify({ t: r.growTri, r: r.growRare }));
+    return '一次触发灌满 6 只：冻结 ' + r.chainFreezes + ' / 感电 ' + r.chainShocks + '，共鸣只 1 次';
+  });
+
+  await step('魂火轮回（万魂旗）：召唤物倒下炸开（最大生命的 SOULFIRE.k 倍火焰伤害），被替换 / 换区不算；自动召唤不耗魔力；继承武器伤害的比例最多 SOULFIRE.inherit 倍（提高的部分按武器物品等级折算）', async () => {
+    const snap = await ev(() => T.buildSnap());
+    const r = await ev(() => {
+      T.arena();
+      const P = G.player, S = G.state, save = G.save;
+      save.skills.thrall = Math.max(save.skills.thrall || 1, 20);
+      save.sockets.thrall = [null, null, null];
+      save.bar = ['cleave', 'thrall', null, null];
+      const rare = G.rollItem(44, 2, 'weapon', 7);
+      const uq = G.rollUnique('wanhun', 44, 0.5);
+      const out = {};
+      // 继承：同一个 mWeapon，换上万魂旗后比例翻倍
+      save.equip.weapon = rare;
+      G.computeStats();
+      P.S.mWeapon = 40;
+      out.inhRare = G.minionInherit(G.SKILLS.thrall).weapon;
+      out.capRare = G.skillCtx('thrall').minion.cap;
+      save.equip.weapon = uq;
+      G.computeStats();
+      P.S.mWeapon = 40;
+      out.inhUq = G.minionInherit(G.SKILLS.thrall).weapon;
+      out.want = 40 * (1 + (G.SOULFIRE.inherit - 1) * (G.SOULFIRE.gated ? G.inheritGate(44) : 1));
+      // 物品等级到继承折算满了（46 级起）：比例提高满 SOULFIRE.inherit 倍
+      save.equip.weapon = G.rollUnique('wanhun', 60, 0.5);
+      G.computeStats();
+      P.S.mWeapon = 40;
+      out.inhFull = G.minionInherit(G.SKILLS.thrall).weapon;
+      save.equip.weapon = uq;
+      G.computeStats();
+      out.capUq = G.skillCtx('thrall').minion.cap;
+      // 魂火：贴着两只怪倒下
+      const e1 = T.mob('husk', 0, -5), e2 = T.mob('husk', 1, -5.5), e3 = T.mob('husk', 10, -5);
+      const m = G.summonMinion('thrall', P.x, P.z - 4);
+      m.x = P.x; m.z = P.z - 5;
+      const hp = [e1.hp, e2.hp, e3.hp];
+      const sb = S.stats.soulBursts || 0;
+      G.hurtMinion(m, 1e9, 'phys', { x: P.x, z: P.z - 8 });
+      out.burst = (S.stats.soulBursts || 0) - sb;
+      out.dmg = [hp[0] - e1.hp, hp[1] - e2.hp, hp[2] - e3.hp].map(Math.round);
+      out.expect = Math.round(m.maxHp * G.SOULFIRE.k);
+      // 被替换 / 散掉不算倒下
+      const sb2 = S.stats.soulBursts || 0;
+      G.clearMinions();
+      out.quiet = (S.stats.soulBursts || 0) - sb2;
+      // 自动召唤：魔力为 0 也照补（普通魂幡不补）
+      G.save.autoSummon.thrall = true;
+      G.autoSummonDelay(0);
+      P.mana = 0;
+      for (let i = 0; i < 90; i++) { P.mana = 0; G.debug.step(1 / 60); }
+      out.freeN = G.minionCount('thrall');
+      G.clearMinions();
+      save.equip.weapon = rare;
+      G.computeStats();
+      for (let i = 0; i < 90; i++) { P.mana = 0; G.debug.step(1 / 60); }
+      out.paidN = G.minionCount('thrall');
+      // 普通魂幡：倒下不炸
+      const m2 = G.summonMinion('thrall', P.x, P.z - 4);
+      const sb3 = S.stats.soulBursts || 0;
+      G.hurtMinion(m2, 1e9, 'phys', { x: P.x, z: P.z - 8 });
+      out.rareBurst = (S.stats.soulBursts || 0) - sb3;
+      G.save.autoSummon.thrall = false;
+      T.arena();
+      return out;
+    });
+    await ev((b) => T.buildRestore(b), snap);
+    assert(r.inhRare === 40 && Math.abs(r.inhUq - r.want) < 1e-6 && r.inhUq > 40 && Math.abs(r.inhFull - 40 * G_SOUL_INH) < 1e-6 && r.capUq === r.capRare + 1, '继承比例 / 仆从上限不对：' + JSON.stringify(r));
+    assert(r.burst === 1 && Math.abs(r.dmg[0] - r.expect) <= 1 && Math.abs(r.dmg[1] - r.expect) <= 1 && r.dmg[2] === 0, '魂火伤害 / 范围不对：' + JSON.stringify(r));
+    assert(r.quiet === 0 && r.rareBurst === 0, '散掉的召唤物 / 普通魂幡不应炸：' + JSON.stringify(r));
+    assert(r.freeN >= 1 && r.paidN === 0, '万魂旗的自动召唤应不耗魔力：' + JSON.stringify(r));
+    return '魂火 ' + r.expect + '（最大生命 × ' + G_SOUL_K + '）· 继承 40% → ' + r.inhUq.toFixed(1) + '%（物品等级 44）/ ' + r.inhFull + '%（60）';
+  });
+
+  await step('存档：烬铸图鉴（拾到过、最高完美度）与保底计数刷新后保留；拾取烬铸记进图鉴；畸形数据被修正（未知 id 丢弃、数值夹回区间、计数截断）', async () => {
+    const pre = await ev(() => {
+      const save = G.save, P = G.player;
+      while (save.bag.length > 30) save.bag.pop();
+      save.uniq = { found: {}, best: {}, pity: {} };
+      T.clearLoot();
+      const it = G.rollUnique('sanxiang', 40, 0.25);
+      const l = G.spawnLoot('item', it, P.x + 1, P.z);
+      G.pickup(l);
+      const it2 = G.rollUnique('sanxiang', 40, 0.75);
+      G.pickup(G.spawnLoot('item', it2, P.x + 1, P.z));
+      save.uniq.pity = { weaver: 2, warden: 1 };
+      G.persist();
+      return { uniq: T.canon(save.uniq), uid: it2.uid, pf: Math.round(G.uniquePerfect(it2) * 100) };
+    });
+    assert(/"found":\{"sanxiang":true\}/.test(pre.uniq) && pre.uniq.indexOf('"sanxiang":' + pre.pf) > 0, '拾取后图鉴没有记下：' + pre.uniq);
+    await page.reload();
+    await install();
+    await frames(2);
+    const after = await ev((u) => ({ uniq: T.canon(G.save.uniq), item: !!G.save.bag.find((b) => b.uid === u && b.rarity === 3 && b.uq === 'sanxiang') }), pre.uid);
+    assert(after.uniq === pre.uniq && after.item, '刷新后图鉴 / 烬铸武器没有保留：' + JSON.stringify(after) + ' vs ' + pre.uniq);
+    // 畸形数据：未知烬铸 id 的物品丢弃，数值夹回区间，缺的行补中值；图鉴里的未知 id / 首领、越界数字被修正
+    const bad = await ev((key) => {
+      const raw = JSON.parse(localStorage.getItem(key));
+      const u = raw.bag.find((b) => b.rarity === 3);
+      u.affixes[0].v = 99999;
+      u.affixes.splice(2, 1);
+      u.name = '假名字';
+      u.baseIdx = 0;
+      raw.bag.push(Object.assign({}, u, { uid: 'zz1', uq: 'nope' }));
+      raw.uniq = { found: { sanxiang: true, nope: true, wanhun: 'yes' }, best: { sanxiang: 250, jinduan: -3 }, pity: { weaver: 999, golem: 4, warden: 'x', lord: 2.7 } };
+      localStorage.setItem(key, JSON.stringify(raw));
+      // 直接按读档的流程读一遍（刷新页面时游戏会先把内存里的存档写回去）
+      G.loadSave();
+      G.computeStats();
+      return true;
+    }, SAVE_KEY);
+    assert(bad, '');
+    const fixed = await ev(() => {
+      const u = G.save.bag.find((b) => b.rarity === 3);
+      return {
+        n: G.save.bag.filter((b) => b.rarity === 3).length,
+        name: u.name, base: u.baseIdx, lines: u.affixes.map((a) => a.id).join(),
+        inRange: u.affixes.every((a, i) => { const r = G.uniqueRange(u, i); return a.v >= r[0] && a.v <= r[1]; }),
+        top: u.affixes[0].v === G.uniqueRange(u, 0)[1],
+        want: G.UNIQUES.sanxiang.lines.map((l) => l.id).join(),
+        uniq: T.canon(G.save.uniq),
+      };
+    });
+    assert(fixed.n === 2 && fixed.name === '三相之心' && fixed.base === 1 && fixed.lines === fixed.want && fixed.inRange && fixed.top, '畸形的烬铸武器没有修好：' + JSON.stringify(fixed));
+    assert(fixed.uniq === '{"best":{"sanxiang":100},"found":{"sanxiang":true},"pity":{"lord":2,"weaver":2}}', '畸形的图鉴没有修好：' + fixed.uniq);
+    return fixed.uniq;
   });
 
   await step('删除存档：两步确认后回到全新角色', async () => {

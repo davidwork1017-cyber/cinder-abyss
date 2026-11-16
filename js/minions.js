@@ -245,7 +245,10 @@
     const ang = src && dist(src.x, src.z, m.x, m.z) > 0.05 ? Math.atan2(m.x - src.x, m.z - src.z) : m.ang + Math.PI;
     W.flash(m.ent, 0.8);
     W.hitReact(m.ent, ang, m.kind === 'colossus' ? 0.5 : 0.9);
-    if (m.hp <= 0) removeMinion(m, ang, G.TYPE_NAME[dtype] ? dtype : 'phys');
+    if (m.hp <= 0) {
+      if (G.soulFire) G.soulFire(m); // 万魂旗：倒下时化作魂火炸开（被替换、换区域时的消失不算）
+      removeMinion(m, ang, G.TYPE_NAME[dtype] ? dtype : 'phys');
+    }
     return true;
   };
 
