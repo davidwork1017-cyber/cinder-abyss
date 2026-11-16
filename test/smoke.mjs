@@ -2124,13 +2124,13 @@ async function main() {
     return '两秒脉冲 ' + r.pulses.toFixed(1) + ' 次，半径 ' + r.R[0].toFixed(1) + '，保留 ' + r.on.res + ' 魔力';
   });
 
-  await summonStep('元素异常值：按每种元素的伤害累积（物理不算），阈值随生命 / 精英 / 首领而定，异常累积速度加快累积，几秒没挨打后回落；冰霜异常值带来轻度冰缓', async () => {
+  await summonStep('元素异常值：按每种元素的伤害累积（物理不算），各元素速度不同（闪电 > 冰霜 > 火焰），阈值随生命 / 精英 / 首领而定，异常累积速度加快累积，几秒没挨打后回落；冰霜异常值带来轻度冰缓', async () => {
     const r = await ev(() => {
       T.arena();
       const P = G.player, B = G.BUILDUP, out = {};
       const mk = (type, elite) => {
         const e = T.mob(type, 4, 0, { elite });
-        e.maxHp = 200; // 阈值按最大生命：200 → 普通 100
+        e.maxHp = 100 / B.th; // 阈值按最大生命：普通敌人的阈值正好 100
         G.initBuildUp(e);
         e.hp = e.maxHp = 1e6;
         return e;
@@ -2142,6 +2142,17 @@ async function main() {
       out.phys = e.bu.fire + e.bu.light;
       G.addBuildUp(e, { cold: 20 }, 100); // 异常累积速度 +100%：翻倍
       out.cold2 = e.bu.cold;
+      // 同样 30 点伤害：三种元素各灌多少
+      const per = {};
+      for (const t of G.ELEMS) {
+        const x = T.mob('husk', -4, 0);
+        x.maxHp = 100 / B.th;
+        G.initBuildUp(x);
+        x.hp = x.maxHp = 1e6;
+        G.addBuildUp(x, { [t]: 30 }, 0);
+        per[t] = x.bu[t];
+      }
+      out.per = per;
       G.tick(1 / 60);
       out.slowK = e.slowK;
       G.debug.step(B.hold - 0.2);
@@ -2157,7 +2168,7 @@ async function main() {
       const e2 = mk('brute');
       const fire = G.calcHit(ctx, 1).parts.fire; // 随机数钉死：和下面这一击的数值相同
       G.hitEnemy(e2, ctx, 1);
-      out.fire = { bu: e2.bu.fire, want: (fire / G.buThreshold(e2, 'fire')) * (1 + ctx.ailment / 100), ail: ctx.ailment };
+      out.fire = { bu: e2.bu.fire, want: (fire / G.buThreshold(e2, 'fire')) * B.rate.fire * (1 + ctx.ailment / 100), ail: ctx.ailment };
       T.unfix();
       // 阈值：精英更高，首领最高
       const el = T.mob('husk', 4, 2, { elite: true }), nm = T.mob('husk', 4, -2);
@@ -2166,12 +2177,17 @@ async function main() {
       return out;
     });
     const B = await ev(() => G.BUILDUP);
-    assert(Math.abs(r.th - 100) < 1e-6 && Math.abs(r.cold1 - 0.3) < 1e-9 && r.phys === 0, '冰霜伤害 30 / 阈值 100 应累积 0.3，物理不累积：' + JSON.stringify(r));
-    assert(Math.abs(r.cold2 - 0.7) < 1e-9, '异常累积速度 +100% 应让累积翻倍：' + JSON.stringify(r));
-    assert(Math.abs(r.slowK - (1 - 0.7 * B.chill)) < 0.01, '冰霜异常值应带来按比例的轻度冰缓：' + JSON.stringify(r));
-    assert(Math.abs(r.held - 0.7) < 1e-9 && r.decayed < 0.7 - 0.15 && r.decayed > 0.3 && r.gone === 0, '异常值应在几秒后开始回落直到清空：' + JSON.stringify(r));
+    const rc = B.rate.cold;
+    assert(Math.abs(r.th - 100) < 1e-6 && Math.abs(r.cold1 - 0.3 * rc) < 1e-9 && r.phys === 0, '冰霜伤害 30 / 阈值 100 应累积 0.3 × 冰霜速度，物理不累积：' + JSON.stringify(r));
+    assert(Math.abs(r.cold2 - 0.7 * rc) < 1e-9, '异常累积速度 +100% 应让累积翻倍：' + JSON.stringify(r));
+    for (const t of ['fire', 'cold', 'light']) assert(Math.abs(r.per[t] - 0.3 * B.rate[t]) < 1e-9, t + ' 应按自己的速度累积：' + JSON.stringify(r.per));
+    assert(B.rate.light > B.rate.cold && B.rate.cold > B.rate.fire && B.rate.light >= 1.5 && B.rate.fire === 1, '闪电最快、冰霜次之、火焰最慢：' + JSON.stringify(B.rate));
+    assert(Math.abs(r.slowK - (1 - 0.7 * rc * B.chill)) < 0.01, '冰霜异常值应带来按比例的轻度冰缓：' + JSON.stringify(r));
+    assert(Math.abs(r.held - 0.7 * rc) < 1e-9 && r.decayed < r.held - 0.15 && r.decayed > 0.3 && r.gone === 0, '异常值应在几秒后开始回落直到清空：' + JSON.stringify(r));
     assert(r.fire.bu > 0 && Math.abs(r.fire.bu - r.fire.want) < 1e-6 && r.fire.ail >= 35, '掷焰命中应按公式累积火焰异常值：' + JSON.stringify(r.fire));
-    assert(Math.abs(r.ratio.normal - B.th) < 0.02 && Math.abs(r.ratio.elite - B.th * B.elite) < 0.02 && Math.abs(r.ratio.boss - B.boss) < 1e-6 && B.th * B.elite * 4.5 > B.th, '阈值比例不对：' + JSON.stringify(r.ratio));
+    assert(Math.abs(r.ratio.normal - B.th) < 0.02 && Math.abs(r.ratio.elite - B.thElite) < 0.02 && Math.abs(r.ratio.boss - B.boss) < 1e-6 && B.thElite * 4.5 > B.th, '阈值比例不对：' + JSON.stringify(r.ratio));
+    // 普通敌人打掉不到五分之一生命的火焰伤害就该灌满（改版前要一半），精英约三成
+    assert(B.th <= 0.2 && B.th >= 0.12 && B.thElite <= 0.35 && B.thElite > B.th, '阈值应降到普通约 18%、精英约 30%：' + JSON.stringify({ th: B.th, el: B.thElite }));
   });
 
   await summonStep('异常触发：冰霜满 → 冻结（精英更短，冻结中不再累积）；火焰满 → 爆燃波及周围且不连锁；闪电满 → 感电，挨打时向附近敌人射电弧（不连锁、有节流，身边没人则打回自己）', async () => {
@@ -2184,7 +2200,7 @@ async function main() {
       try {
         const mk = (type, dx, dz, elite) => {
           const e = T.mob(type, dx, dz, { elite });
-          e.maxHp = 200;
+          e.maxHp = 100 / B.th; // 普通敌人的阈值 100
           G.initBuildUp(e);
           e.hp = e.maxHp = 1e6;
           return e;
@@ -2322,6 +2338,152 @@ async function main() {
     assert(r.freeze === 0 && r.chill === B.bossChill && r.locked === 0, '首领不应被冻结，冰霜灌满应是重度冰缓（期间不再累积）：' + JSON.stringify(r));
     assert(Math.abs(r.slowK - (1 - B.bossSlow)) < 1e-6 && r.slowAfter > 0.99 && r.freezeAfter === 0, '重度冰缓应放慢 ' + B.bossSlow * 100 + '% 并按时结束：' + JSON.stringify(r));
     assert(r.th[1] === 1 + B.bossGrow && r.th[2] === 1 + 2 * B.bossGrow && r.th[7] === B.bossGrowMax && r.fireTh === 1, '首领阈值应每次提高、封顶，各元素分开：' + JSON.stringify(r.th));
+  });
+
+  await summonStep('死亡时的异常：死时异常值过半（或正冻着 / 正感电）→ 尸爆（爆燃公式）/ 放电（电弧射向最近的几个敌人）/ 碎冰（尸体碎成冰碴、给周围灌冰霜异常值）；打死它的那一击灌满也照样按死亡结算；连锁最多几代、每帧有上限；lastHit 不被打乱', async () => {
+    const r = await ev(() => {
+      T.arena();
+      const P = G.player, W = G.world, S = G.state, B = G.BUILDUP, out = {};
+      const texts = [], dies = [], ot = W.text, od = W.die;
+      W.text = function (x, z, str) { texts.push(String(str)); return ot.apply(W, arguments); };
+      W.die = function (ent, o) { dies.push(o && o.type); return od.apply(W, arguments); };
+      T.fix(0.5);
+      try {
+        // 阈值 100 的靶子；hp 给小了就是一击必死的
+        const mk = (type, dx, dz, hp, elite) => {
+          const e = T.mob(type, dx, dz, { elite });
+          e.maxHp = 100 / B.th;
+          G.initBuildUp(e);
+          e.hp = hp || 1e6;
+          e.maxHp = 1e6;
+          return e;
+        };
+        const phys = (v) => ({ sk: { w: 0, kb: 0, poise: 0 }, base: { phys: [v, v] }, inc: {}, moreType: {}, more: 1, extra: {}, crit: 0, critMulti: 100, ailment: 0, stun: 0, leech: 0 });
+        const elem = (t, v) => ({ sk: { w: 0, kb: 0, poise: 0 }, base: { [t]: [v, v] }, inc: {}, moreType: {}, more: 1, extra: {}, crit: 0, critMulti: 100, ailment: 0, stun: 0, leech: 0 });
+        const st = (k) => S.stats[k] || 0;
+        const tick = () => G.debug.step(1 / 60); // 换一帧：每帧上限重新计数
+        // 尸爆：火焰异常值 60% 的敌人被一下物理打死，尸体按爆燃公式炸开；旁边的挨炸但火焰异常值不涨，远处的不受波及
+        {
+          const v = mk('husk', 5, 0, 1), n = mk('husk', 6.5, 0), far = mk('husk', 5 + B.blastR + 4, 0), low = mk('husk', 5, -6, 1), ln = mk('husk', 6.5, -6);
+          v.bu.fire = 0.6; v.buFire = 40; v.buFireN = 2; // 平均每击 20
+          low.bu.fire = B.deathMin - 0.1; low.buFire = 40; low.buFireN = 2;
+          const c0 = st('corpseBlasts');
+          const got = G.hitEnemy(v, phys(7), 1, { quiet: true });
+          out.fire = { dead: v.dead, n: 1e6 - n.hp, want: Math.min(20 * B.blast, 100 * B.blastCap), far: 1e6 - far.hp, nbu: n.bu.fire, stat: st('corpseBlasts') - c0, text: texts.includes('尸爆') };
+          out.lastHit = { total: G.lastHit.total, killed: G.lastHit.killed, type: G.lastHit.type, got };
+          G.hitEnemy(low, phys(7), 1, { quiet: true });
+          out.fire.low = { dead: low.dead, ln: 1e6 - ln.hp, stat: st('corpseBlasts') - c0 };
+          G.clearEnemies();
+          tick();
+        }
+        // 放电：闪电异常值 60% 的敌人死时向最近的 deathBoltN 个敌人各射一道电弧（平均每击闪电伤害 × deathBolt），不累积闪电异常值；感电中死掉也放电
+        {
+          const v = mk('husk', 5, 0, 1);
+          const ns = [mk('husk', 6.5, 0), mk('husk', 5, 1.6), mk('husk', 3.5, 0), mk('husk', 5, -1.8), mk('husk', 5 + B.shockR + 3, 0)];
+          v.bu.light = 0.6; v.buLit = 30; v.buLitN = 1;
+          const d0 = st('deathShocks'), b0 = st('bolts');
+          G.hitEnemy(v, phys(7), 1, { quiet: true });
+          out.light = { dmg: ns.map((e) => Math.round((1e6 - e.hp) * 10) / 10), want: 30 * B.deathBolt, bu: ns.map((e) => e.bu.light), stat: st('deathShocks') - d0, bolts: st('bolts') - b0, text: texts.includes('放电') };
+          const s1 = mk('husk', 5, 4, 1), s1n = mk('husk', 6.5, 4);
+          s1.shockT = 2; s1.buLit = 20; s1.buLitN = 1; // 感电中：异常值是 0，但死时照样放电
+          G.hitEnemy(s1, phys(7), 1, { quiet: true });
+          out.light.shocked = { stat: st('deathShocks') - d0, n: 1e6 - s1n.hp };
+          G.clearEnemies();
+          tick();
+        }
+        // 碎冰：冰霜异常值 60% 的敌人死时尸体按冰霜碎掉，给周围的敌人灌冰霜异常值（按死者的阈值折算；精英灌得少）；正冻着的死了也碎
+        {
+          const v = mk('husk', 5, 0, 1), n = mk('husk', 6.5, 0), el = mk('husk', 5, 1.8, 0, true), far = mk('husk', 5 + B.shatterR + 4, 0);
+          el.hp = 1e6;
+          v.bu.cold = 0.6;
+          const s0 = st('shatters');
+          dies.length = 0;
+          G.hitEnemy(v, phys(7), 1, { quiet: true });
+          out.cold = { die: dies.slice(), n: n.bu.cold, want: Math.min(B.shatterCap, B.shatter), el: el.bu.cold, elWant: (100 * B.shatter) / G.buThreshold(el, 'cold'), far: far.bu.cold, stat: st('shatters') - s0, text: texts.includes('碎冰') };
+          const fz = mk('husk', 5, -5, 1), fzn = mk('husk', 6.5, -5);
+          fz.freeze = 1;
+          dies.length = 0;
+          G.hitEnemy(fz, phys(7), 1, { quiet: true });
+          out.cold.frozen = { stat: st('shatters') - s0, die: dies.slice(), n: fzn.bu.cold };
+          G.clearEnemies();
+          tick();
+        }
+        // 打死它的那一击正好灌满：不走活着时的冻结 / 感电，按死亡触发结算（冰霜就碎成冰碴）
+        {
+          const v = mk('husk', 5, 0, 1), n = mk('husk', 6.5, 0);
+          v.bu.cold = 0.9;
+          const f0 = st('freezes'), s0 = st('shatters');
+          dies.length = 0;
+          G.hitEnemy(v, elem('cold', 50), 1, { quiet: true });
+          out.killFill = { freezes: st('freezes') - f0, shatters: st('shatters') - s0, die: dies.slice(), n: n.bu.cold };
+          G.clearEnemies();
+          tick();
+        }
+        // 不在命中里的击杀（处决等）也结算死亡触发
+        {
+          const v = mk('husk', 5, 0, 1), n = mk('husk', 6.5, 0);
+          v.bu.fire = 0.7; v.buFire = 10; v.buFireN = 1;
+          G.killEnemy(v, {});
+          out.direct = { n: 1e6 - n.hp, want: 10 * B.blast };
+          G.clearEnemies();
+          tick();
+        }
+        // 连锁保护：一排一碰就死、火焰异常值都过半的敌人，每个尸爆只够得着下一个——最多连 deathGen 代
+        {
+          const row = [];
+          for (let i = 0; i < 6; i++) {
+            const e = mk('husk', 4 + i * 3.5, 0, 1);
+            e.bu.fire = 0.6; e.buFire = 50; e.buFireN = 1;
+            row.push(e);
+          }
+          const c0 = st('corpseBlasts'), k0 = st('deathCapped');
+          G.hitEnemy(row[0], phys(7), 1, { quiet: true });
+          out.chain = { blasts: st('corpseBlasts') - c0, capped: st('deathCapped') - k0, dead: row.map((e) => (e.dead ? 1 : 0)) };
+          G.clearEnemies();
+          tick();
+        }
+        // 每帧上限：同一帧里打死一大堆过半的敌人，死亡触发至多 deathMax 次；下一帧重新计数
+        {
+          const pile = [];
+          for (let i = 0; i < B.deathMax + 4; i++) {
+            const e = mk('husk', 4 + (i % 4) * 1.2, -3 + Math.floor(i / 4) * 1.2, 1);
+            e.bu.light = 0.6; // 平均每击为 0：放电没有伤害，只看次数
+            pile.push(e);
+          }
+          const d0 = st('deathShocks');
+          for (const e of pile) G.hitEnemy(e, phys(7), 1, { quiet: true });
+          out.cap = { n: st('deathShocks') - d0 };
+          tick();
+          const more = mk('husk', 4, 4, 1);
+          more.bu.light = 0.6;
+          G.hitEnemy(more, phys(7), 1, { quiet: true });
+          out.cap.next = st('deathShocks') - d0;
+          G.clearEnemies();
+        }
+      } finally {
+        W.text = ot;
+        W.die = od;
+        T.unfix();
+      }
+      return out;
+    });
+    const B = await ev(() => G.BUILDUP);
+    const near = (a, b) => Math.abs(a - b) < Math.max(0.5, b * 0.03);
+    assert(r.fire.dead && r.fire.stat === 1 && r.fire.text && near(r.fire.n, r.fire.want) && r.fire.far === 0 && r.fire.nbu === 0, '火焰异常值过半的敌人死时应尸爆（爆燃公式、不累积火焰异常值）：' + JSON.stringify(r.fire));
+    assert(r.fire.low.dead && r.fire.low.stat === 1 && r.fire.low.ln === 0, '没过半的不尸爆：' + JSON.stringify(r.fire.low));
+    assert(r.lastHit.total === 7 && r.lastHit.killed === true && r.lastHit.type === 'phys' && r.lastHit.got === 7, '死亡触发结算完 lastHit 应还原成打死它的那一击：' + JSON.stringify(r.lastHit));
+    const hitN = r.light.dmg.filter((d) => d > 0).length;
+    assert(r.light.stat === 1 && r.light.text && hitN === B.deathBoltN && r.light.dmg[4] === 0 && r.light.bolts === B.deathBoltN, '闪电异常值过半的敌人死时应向最近的 ' + B.deathBoltN + ' 个敌人放电：' + JSON.stringify(r.light));
+    assert(r.light.dmg.filter((d) => d > 0).every((d) => near(d, r.light.want)) && r.light.bu.every((v) => v === 0), '每道电弧 = 平均每击闪电伤害 × ' + B.deathBolt + '，不累积闪电异常值：' + JSON.stringify(r.light));
+    // 旁边那只挨两下：活着时感电的电弧（这一击 7 × bolt）+ 死亡放电
+    assert(r.light.shocked.stat === 2 && near(r.light.shocked.n, 20 * B.deathBolt + 7 * B.bolt), '感电中死掉也应放电：' + JSON.stringify(r.light.shocked));
+    assert(r.cold.stat === 1 && r.cold.text && r.cold.die[0] === 'cold' && Math.abs(r.cold.n - r.cold.want) < 1e-6 && Math.abs(r.cold.el - r.cold.elWant) < 1e-6 && r.cold.el < r.cold.n && r.cold.far === 0, '冰霜异常值过半的敌人死时应碎冰（冰碴、给周围灌冰霜异常值、精英灌得少）：' + JSON.stringify(r.cold));
+    assert(r.cold.frozen.stat === 2 && r.cold.frozen.die[0] === 'cold' && r.cold.frozen.n > 0, '冻着的敌人死了也应碎冰：' + JSON.stringify(r.cold.frozen));
+    assert(r.killFill.freezes === 0 && r.killFill.shatters === 1 && r.killFill.die[0] === 'cold' && r.killFill.n > 0, '打死它的那一击灌满冰霜：应碎冰而不是冻结一具尸体：' + JSON.stringify(r.killFill));
+    assert(near(r.direct.n, r.direct.want), '不在命中里的击杀也应结算死亡触发：' + JSON.stringify(r.direct));
+    assert(r.chain.blasts === B.deathGen && r.chain.capped >= 1 && r.chain.dead.slice(0, B.deathGen + 1).every((d) => d) && r.chain.dead[B.deathGen + 1] === 0, '死亡触发连锁最多 ' + B.deathGen + ' 代：' + JSON.stringify(r.chain));
+    assert(r.cap.n === B.deathMax && r.cap.next === B.deathMax + 1, '每帧至多 ' + B.deathMax + ' 次死亡触发，下一帧重新计数：' + JSON.stringify(r.cap));
+    return '尸爆 ' + Math.round(r.fire.n) + '，放电 ' + B.deathBoltN + ' × ' + r.light.want + '，碎冰灌 ' + r.cold.n.toFixed(2) + '（精英 ' + r.cold.el.toFixed(2) + '），连锁 ' + r.chain.blasts + ' 代';
   });
 
   await step('冷却 / 延迟技能：每次的伤害明显高于主力技能的一下；单独按冷却循环的秒伤打不过主力技能；技能卡写「每次伤害」并说明冷却', async () => {

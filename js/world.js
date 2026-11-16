@@ -10319,6 +10319,7 @@
   function drawBuildUp(g, e, x, y, w) {
     const b = e.bu;
     if (!b) return y;
+    const BU_DEATH = (G.BUILDUP && G.BUILDUP.deathMin) || 0.5;
     const on = { fire: e.blastT > 0, cold: e.freeze > 0 || e.bossChill > 0, light: e.shockT > 0 };
     if (!(b.fire > 0.005 || b.cold > 0.005 || b.light > 0.005 || on.fire || on.cold || on.light)) return y;
     const gap = 2, sw = (w - gap * 2) / 3;
@@ -10331,9 +10332,15 @@
       g.fillRect(sx, y, sw, 3);
       // 刚触发（冻结 / 重度冰缓 / 感电 / 爆燃之后）：整段亮着闪动；平时按累积量涨
       const k = on[t] ? 1 : Math.max(0, Math.min(1, b[t]));
-      if (k <= 0) continue;
-      g.fillStyle = on[t] ? (Math.sin(wtime * 14) > 0 ? '#ffffff' : BU_CSS[t]) : BU_CSS[t];
-      g.fillRect(sx, y, sw * k, 3);
+      if (k > 0) {
+        g.fillStyle = on[t] ? (Math.sin(wtime * 14) > 0 ? '#ffffff' : BU_CSS[t]) : BU_CSS[t];
+        g.fillRect(sx, y, sw * k, 3);
+      }
+      // 半格处一道刻度：过了它，这只敌人死的时候就会触发该元素的死亡异常（尸爆 / 碎冰 / 放电）
+      if (!on[t]) {
+        g.fillStyle = k >= BU_DEATH ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.65)';
+        g.fillRect(Math.round(sx + sw * BU_DEATH), y - 1, 1, 5);
+      }
     }
     return y + 6;
   }

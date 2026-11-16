@@ -241,8 +241,13 @@
   };
 
   // ---------- 元素异常值 ----------
-  // 每个敌人有火 / 冰 / 雷三条异常值（0..1）。每次命中按这一击里该元素的伤害累积：伤害 ÷ 阈值 × (1 + 异常累积速度% / 100)。
-  // 阈值 = 最大生命 × th（精英再 × elite，首领用 boss），首领每触发一次，该元素的阈值提高 bossGrow（封顶 bossGrowMax 倍），像架势一样越打越难。
+  // 每个敌人有火 / 冰 / 雷三条异常值（0..1）。每次命中按这一击里该元素的伤害累积：伤害 ÷ 阈值 × rate[元素] × (1 + 异常累积速度% / 100)。
+  // rate：各元素自己的累积速度——闪电（高频群伤）最快，冰霜次之，火焰最慢（靠爆燃的大伤害回本）。
+  // 阈值 = 最大生命 × th（精英用 thElite，首领用 boss），首领每触发一次，该元素的阈值提高 bossGrow（封顶 bossGrowMax 倍），像架势一样越打越难。
+  // 死亡时的异常：敌人死的那一刻某条异常值 ≥ deathMin（冰霜另算上「正冻着」，闪电另算上「正感电」），就按那个元素在尸体处触发一次（见 game.js 的 queueDeathProcs）：
+  //   火 → 尸爆：和爆燃同一个公式；雷 → 放电：向 shockR 以内最近的 deathBoltN 个敌人各射一道电弧，每道 = 灌进闪电异常值的平均每击闪电伤害 × deathBolt；
+  //   冰 → 碎冰：尸体碎成冰碴，给 shatterR 以内的敌人灌冰霜异常值（量 = 死者的阈值 × shatter，折算到对方的阈值，每个至多 shatterCap 条）。
+  //   连锁保护：死亡触发打死的敌人还能再触发，但从玩家亲手的命中算起最多 deathGen 代；每帧最多 deathMax 次；死亡电弧 / 尸爆同样不累积异常值。
   // hold 秒没有再受到该元素伤害后，按每秒 decay 回落。满了即触发：
   //   冰 → 冻结 freeze 秒（精英 freezeElite 秒）；首领不会被冻结，改为 bossChill 秒的重度冰缓（移动与出手放慢 bossSlow）。
   //        异常值大于 0 时附带轻度冰缓，减速 = 异常值 × chill。冻结 / 重度冰缓期间不再累积冰霜异常值
@@ -250,11 +255,15 @@
   //   雷 → 感电 shock 秒：期间它每受到一次命中，就射出 shockN 道电弧，射向 shockR 以内最近的其他敌人（附近一个都没有时，只有一道打回它自己），
   //        每道 = 这一击的 bolt 倍；电弧不再触发电弧、不累积异常值，同一个敌人每 shockGap 秒最多放一次。感电期间不再累积闪电异常值
   G.BUILDUP = {
-    th: 0.5, elite: 1.5, boss: 0.15, bossGrow: 0.5, bossGrowMax: 4,
+    th: 0.18, thElite: 0.3, boss: 0.15, bossGrow: 0.5, bossGrowMax: 4,
+    rate: { fire: 1, cold: 1.2, light: 1.6 },
     hold: 3, decay: 0.5,
     chill: 0.3, freeze: 1.5, freezeElite: 1.0, bossChill: 3, bossSlow: 0.5,
     blastR: 3, blast: 1, blastCap: 0.5,
     shock: 4, shockR: 6, shockN: 2, bolt: 0.3, shockGap: 0.15,
+    deathMin: 0.5, deathGen: 2, deathMax: 10,
+    deathBoltN: 3, deathBolt: 0.6,
+    shatterR: 3, shatter: 0.4, shatterCap: 0.6,
   };
   G.ELEMS = ['fire', 'cold', 'light'];
 

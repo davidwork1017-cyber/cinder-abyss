@@ -928,8 +928,43 @@
     e.buGrow = { fire: 1, cold: 1, light: 1 };
     e.buTrig = { fire: 0, cold: 0, light: 0 }; // 各元素触发过几次
     e.buFire = e.buFireN = 0; // 灌进火焰异常值的火焰伤害（已乘上异常累积速度）与命中次数：爆燃按平均每击算
-    e.buTh = Math.max(1, e.maxHp * (e.isBoss ? BU.boss : BU.th * (e.elite ? BU.elite : 1)));
+    e.buLit = e.buLitN = 0; // 同上，闪电：死亡放电按平均每击算
+    e.buTh = Math.max(1, e.maxHp * (e.isBoss ? BU.boss : e.elite ? BU.thElite : BU.th));
     e.shockT = e.shockCd = e.bossChill = e.blastT = 0;
+  };
+  // 爆燃（含尸爆）的伤害 = 灌进火焰异常值期间平均每击的火焰伤害 × (1 + 异常累积速度%) × blast，封顶为阈值 × blastCap：
+  // 跟着你的火焰伤害走，而不是跟着爆的那只怪的生命走
+  function blastDmg(e) {
+    return Math.min((e.buFire / Math.max(1, e.buFireN)) * BU.blast, e.buTh * BU.blastCap);
+  }
+  // 触发记进 procs，带上当前在结算第几代（见 flushProcs）
+  function queueProc(procs, p) {
+    p.gen = procGen;
+    procs.push(p);
+  }
+  // 往某条异常值里灌 frac（0..1 的比例，已折算好阈值与各种速度）。所有来源（命中、碎冰……）都走这里：
+  // 冻着 / 感电中的锁定、回落计时、灌满触发都在这一处。满了就把触发记进 procs，返回是否触发
+  function fillMeter(e, t, frac, procs) {
+    if (!e.bu) G.initBuildUp(e);
+    if (!(frac > 0)) return false;
+    if (t === 'cold' && (e.freeze > 0 || e.bossChill > 0 || e.brokenT > 0)) return false; // 冻着 / 重度冰缓 / 破绽中不再累积
+    if (t === 'light' && e.shockT > 0) return false;
+    e.bu[t] += frac;
+    e.buT[t] = BU.hold;
+    if (e.bu[t] < 1) return false;
+    if (e.hp <= 0) {
+      // 这一击同时打死了它：不走活着时的触发，留满让 G.killEnemy 按死亡触发结算（冰霜才会碎成冰碴、闪电才会放电）
+      e.bu[t] = 1;
+      return false;
+    }
+    e.bu[t] = 0;
+    queueProc(procs, { t, e, fire: t === 'fire' ? blastDmg(e) : 0 });
+    if (t === 'fire') e.buFire = e.buFireN = 0; // 闪电的平均每击不清：感电中死掉也要放电（回落到底才清）
+    return true;
+  }
+  G.fillMeter = function (e, t, frac) {
+    fillMeter(e, t, frac, procQ);
+    flushProcs();
   };
   // 一击的元素伤害累积进异常值；满了就把触发记进 procs（由最外层的 G.hitEnemy 统一结算，触发出来的伤害不会打乱技能逐个读取 lastHit）
   function addBuildUp(e, parts, ailment, procs) {
@@ -938,22 +973,17 @@
     for (const t of G.ELEMS) {
       const v = parts[t];
       if (!(v > 0)) continue;
-      if (t === 'cold' && (e.freeze > 0 || e.bossChill > 0 || e.brokenT > 0)) continue; // 冻着 / 重度冰缓 / 破绽中不再累积
+      // 锁定中（见 fillMeter）的这一击不计入平均每击
+      if (t === 'cold' && (e.freeze > 0 || e.bossChill > 0 || e.brokenT > 0)) continue;
       if (t === 'light' && e.shockT > 0) continue;
-      e.bu[t] += (v / G.buThreshold(e, t)) * k;
-      e.buT[t] = BU.hold;
       if (t === 'fire') {
         e.buFire += v * k;
         e.buFireN++;
+      } else if (t === 'light') {
+        e.buLit += v * k;
+        e.buLitN++;
       }
-      if (e.bu[t] >= 1) {
-        e.bu[t] = 0;
-        // 爆燃的伤害 = 灌满期间平均每击的火焰伤害 × (1 + 异常累积速度%) × blast，封顶为阈值 × blastCap：
-        // 跟着你的火焰伤害走，而不是跟着爆的那只怪的生命走
-        const fire = t === 'fire' ? Math.min((e.buFire / Math.max(1, e.buFireN)) * BU.blast, e.buTh * BU.blastCap) : 0;
-        procs.push({ t, e, fire });
-        if (t === 'fire') e.buFire = e.buFireN = 0;
-      }
+      fillMeter(e, t, (v / G.buThreshold(e, t)) * k * (BU.rate[t] || 1), procs);
     }
   }
   G.addBuildUp = function (e, parts, ailment) {
@@ -993,11 +1023,7 @@
       W.blastFx(e.x, e.z, R);
       W.text(e.x, e.z, '爆燃', '#ffb070', e.isBoss ? 26 : 22, { kind: 'tag', y: ty, py: e.isBoss ? -30 : 0 });
       G.sfx('impact', { type: 'fire', w: 2, crit: false });
-      if (dmg > 0) {
-        const x = e.x, z = e.z;
-        const ctx = procCtx('fire', dmg);
-        for (const o of enemiesIn(x, z, R)) G.hitEnemy(o, ctx, 1, { ang: Math.atan2(o.x - x, o.z - z), w: 1, kb: 1.2, poise: 0, quiet: true, proc: true, noBuild: true });
-      }
+      fireBlast(e.x, e.z, R, dmg);
     } else if (p.t === 'light') {
       if (e.dead) return;
       st.shocks = (st.shocks || 0) + 1;
@@ -1141,24 +1167,109 @@
   function shockDischarge(e, total) {
     if (!(total > 0)) return;
     e.shockCd = BU.shockGap;
-    const W = G.world;
-    const v = total * BU.bolt;
+    const tgts = nearestOthers(e, BU.shockR, BU.shockN);
+    if (!tgts.length && !e.dead) tgts.push(e);
+    shootBolts(e, tgts, total * BU.bolt);
+    state.stats.bolts = (state.stats.bolts || 0) + tgts.length;
+  }
+  // 爆燃 / 尸爆的爆炸：半径 R 内的敌人各挨一下 dmg 的火焰伤害（不累积异常值，所以不会连锁出新的爆燃）
+  function fireBlast(x, z, R, dmg) {
+    if (!(dmg > 0)) return;
+    const ctx = procCtx('fire', dmg);
+    for (const o of enemiesIn(x, z, R)) G.hitEnemy(o, ctx, 1, { ang: Math.atan2(o.x - x, o.z - z), w: 1, kb: 1.2, poise: 0, quiet: true, proc: true, noBuild: true });
+  }
+  // e 身边 R 以内最近的至多 n 个别的（活着的）敌人
+  function nearestOthers(e, R, n) {
     const near = [];
     for (const o of state.enemies) {
       if (o === e || o.dead) continue;
       const d = dist(o.x, o.z, e.x, e.z) - o.r;
-      if (d <= BU.shockR) near.push({ o, d });
+      if (d <= R) near.push({ o, d });
     }
     near.sort((a, b) => a.d - b.d);
-    const tgts = near.slice(0, BU.shockN).map((n) => n.o);
-    if (!tgts.length && !e.dead) tgts.push(e);
+    return near.slice(0, n).map((m) => m.o);
+  }
+  // 从 e 身上向 tgts 各射一道 v 点闪电伤害的电弧（电弧不再放电弧、不累积异常值）
+  function shootBolts(e, tgts, v) {
+    const W = G.world;
     const ctx = procCtx('light', v);
     const y0 = (e.height || 2) * 0.6;
     for (const o of tgts) {
       W.spark(e.x, y0, e.z, o.x, (o.height || 2) * 0.55, o.z, o === e);
       G.hitEnemy(o, ctx, 1, { ang: Math.atan2(o.x - e.x, o.z - e.z), w: 0, kb: 0.15, poise: 0, quiet: true, proc: true, bolt: true, noBuild: true, faint: true });
     }
-    state.stats.bolts = (state.stats.bolts || 0) + tgts.length;
+  }
+
+  // ---------- 死亡时的异常 ----------
+  // 敌人死的那一刻（G.killEnemy 调 queueDeathProcs）查它的三条异常值：≥ deathMin 的（冰霜另算上正冻着的、闪电另算上正感电的）各在尸体处触发一次，
+  // 和活着时的触发一起排进 procQ 统一结算。连锁保护：
+  //   代数——玩家亲手的命中打死的是第 1 代；死亡触发（以及它连带的爆燃 / 电弧）打死的再 +1，超过 deathGen 代不再触发；
+  //   每帧至多 deathMax 次；死亡电弧 / 尸爆都不累积异常值；procQ 每次结算至多 PROC_MAX 条。
+  let deathFrame = -1;
+  let deathN = 0;
+  function queueDeathProcs(e) {
+    if (!e.bu) return false;
+    const st = state.stats;
+    const gen = procGen + 1;
+    let shatter = false;
+    for (const t of G.ELEMS) {
+      if (!(e.bu[t] >= BU.deathMin || (t === 'cold' && e.freeze > 0) || (t === 'light' && e.shockT > 0))) continue;
+      if (state.time !== deathFrame) {
+        deathFrame = state.time;
+        deathN = 0;
+      }
+      if (gen > BU.deathGen || deathN >= BU.deathMax) {
+        st.deathCapped = (st.deathCapped || 0) + 1;
+        continue;
+      }
+      deathN++;
+      const p = { t, e, death: true, gen, fire: 0, lit: 0 };
+      if (t === 'fire') p.fire = blastDmg(e);
+      else if (t === 'light') p.lit = (e.buLit / Math.max(1, e.buLitN)) * BU.deathBolt;
+      else shatter = true;
+      procQ.push(p);
+    }
+    return shatter;
+  }
+  // 结算一条死亡触发：火 → 尸爆，雷 → 放电，冰 → 碎冰
+  function deathTrigger(p) {
+    if (p.t === 'fire') corpseBlast(p);
+    else if (p.t === 'light') deathDischarge(p);
+    else shatterCold(p);
+  }
+  function deathTag(e) {
+    return Math.min(3.4, (e.height || 2) * (e.elite ? 1.3 : 1)) + 0.3;
+  }
+  function corpseBlast(p) {
+    const e = p.e, W = G.world, st = state.stats;
+    st.corpseBlasts = (st.corpseBlasts || 0) + 1;
+    const R = BU.blastR + e.r * 0.5;
+    W.blastFx(e.x, e.z, R);
+    W.text(e.x, e.z, '尸爆', '#ffb070', 22, { kind: 'tag', y: deathTag(e) });
+    G.sfx('impact', { type: 'fire', w: 2, crit: false });
+    fireBlast(e.x, e.z, R, p.fire);
+  }
+  function deathDischarge(p) {
+    const e = p.e, W = G.world, st = state.stats;
+    const tgts = nearestOthers(e, BU.shockR, BU.deathBoltN);
+    st.deathShocks = (st.deathShocks || 0) + 1;
+    W.text(e.x, e.z, '放电', '#fff08a', 22, { kind: 'tag', y: deathTag(e) });
+    W.burst(e.x, (e.height || 2) * 0.6, e.z, 0xffe45e, 22, 6, 0.4);
+    G.sfx('impact', { type: 'light', w: 1, crit: false });
+    if (!tgts.length || !(p.lit > 0)) return;
+    shootBolts(e, tgts, p.lit);
+    st.bolts = (st.bolts || 0) + tgts.length;
+  }
+  function shatterCold(p) {
+    const e = p.e, W = G.world, st = state.stats;
+    st.shatters = (st.shatters || 0) + 1;
+    const R = BU.shatterR + e.r * 0.5;
+    W.freezeFx(e.x, e.z, e.r, e.height || 2, false);
+    W.ring(e.x, e.z, R, 0xd6f3ff, 0.4);
+    W.text(e.x, e.z, '碎冰', '#d6f3ff', 22, { kind: 'tag', y: deathTag(e) });
+    G.sfx('impact', { type: 'cold', w: 2, crit: false });
+    // 灌的量按死者的阈值折算到对方的阈值：小怪碎在精英 / 首领身上灌得少
+    for (const o of enemiesIn(e.x, e.z, R)) fillMeter(o, 'cold', Math.min(BU.shatterCap, (e.buTh * BU.shatter) / G.buThreshold(o, 'cold')), procQ);
   }
   // 敌人身上的异常值每帧走：回落、感电 / 重度冰缓 / 爆燃标记倒计时。返回此刻的减速比例（0..1）
   G.tickBuildUp = function (e, dt) {
@@ -1168,7 +1279,11 @@
       else if (e.bu[t] > 0) {
         const b0 = e.bu[t];
         e.bu[t] = Math.max(0, b0 - BU.decay * dt);
-        if (t === 'fire' && e.bu[t] <= 0) e.buFire = e.buFireN = 0; // 回落到底才清空：平均每击不随回落变化
+        if (e.bu[t] <= 0) {
+          // 回落到底才清空：平均每击不随回落变化
+          if (t === 'fire') e.buFire = e.buFireN = 0;
+          else if (t === 'light') e.buLit = e.buLitN = 0;
+        }
       }
     }
     if (e.shockT > 0) e.shockT -= dt;
@@ -1185,7 +1300,9 @@
   //   aura 光环的脉冲（数字小而淡、不算连击）, proc 爆燃 / 电弧等异常触发的伤害（不算连击）,
   //   noBuild 不累积元素异常值, bolt 感电电弧（不再触发电弧）, faint 数字小而淡 }
   let procDepth = 0;
+  let procGen = 0;
   const procQ = [];
+  const PROC_MAX = 200;
   const FAINT_GAP = 0.3;
   G.hitEnemy = function (e, ctx, mult, info) {
     if (!e || e.dead) return 0;
@@ -1275,7 +1392,7 @@
     // 感电中的敌人挨打：放电弧（电弧本身不再触发）
     if (!inf.bolt && e.shockT > 0 && !(e.shockCd > 0)) {
       e.shockCd = BU.shockGap; // 排进队列时就开始节流：同一击里再挨一下（比如紧跟着的爆燃）不会再排第二次
-      procQ.push({ t: 'arc', e, total: hit.total });
+      queueProc(procQ, { t: 'arc', e, total: hit.total });
     }
     if (ctx.stun > 0 && !e.isBoss && !broken) e.stunT = Math.max(e.stunT || 0, ctx.stun);
     if (ctx.leech > 0) G.healPlayer((hit.total * ctx.leech) / 100);
@@ -1311,22 +1428,29 @@
       }
     }
     procDepth--;
-    if (procDepth === 0 && procQ.length) {
-      // 触发出来的伤害会改写 lastHit：结算完把这一击的结果还原，技能照常逐个读取
-      const keep = { crit: lastHit.crit, type: lastHit.type, total: lastHit.total, killed: lastHit.killed };
-      procDepth++;
-      for (let i = 0; i < procQ.length && i < 200; i++) {
-        const p = procQ[i];
-        if (p.t === 'arc') shockDischarge(p.e, p.total);
-        else if (p.t === 'mark') markBurst(p.e);
-        else triggerAilment(p);
-      }
-      procQ.length = 0;
-      procDepth--;
-      Object.assign(lastHit, keep);
-    }
+    flushProcs();
     return hit.total;
   };
+  // 结算排着的触发（活着时的冻结 / 爆燃 / 感电、感电电弧、死亡触发）。只在最外层结算：触发出来的伤害里再触发的照样排进来、按顺序结算。
+  // procGen 记着正在结算的这一条是第几代，期间打死的敌人的死亡触发就是下一代（见 queueDeathProcs）
+  function flushProcs() {
+    if (procDepth > 0 || !procQ.length) return;
+    // 触发出来的伤害会改写 lastHit：结算完把这一击的结果还原，技能照常逐个读取
+    const keep = { crit: lastHit.crit, type: lastHit.type, total: lastHit.total, killed: lastHit.killed };
+    procDepth++;
+    for (let i = 0; i < procQ.length && i < PROC_MAX; i++) {
+      const p = procQ[i];
+      procGen = p.gen || 0;
+      if (p.t === 'arc') shockDischarge(p.e, p.total);
+      else if (p.t === 'mark') markBurst(p.e); // 烬断 · 残刃叠满引爆
+      else if (p.death) deathTrigger(p);
+      else triggerAilment(p);
+    }
+    procGen = 0;
+    procQ.length = 0;
+    procDepth--;
+    Object.assign(lastHit, keep);
+  }
 
   // info（可选）：{ ang 致命一击行进的方向, type 致命伤害的类型, w 这一击的分量, over 过量击杀的程度 }
   G.killEnemy = function (e, info) {
@@ -1343,7 +1467,8 @@
     const ang = inf.ang !== undefined ? inf.ang : Math.atan2(e.x - P.x, e.z - P.z);
     const kw = inf.w || 0;
     const over = Math.max(0, inf.over || 0);
-    const type = inf.type || 'phys';
+    // 死亡时的异常（尸爆 / 放电 / 碎冰）排进触发队列；碎冰的尸体按冰霜碎成冰碴
+    const type = queueDeathProcs(e) ? 'cold' : inf.type || 'phys';
     W.die(e.ent, {
       ang, type, over: over + (kw >= 2 ? 0.6 : 0),
       force: e.isBoss ? 0 : (4.5 + kw * 4 + over * 3) / Math.sqrt(e.mass || 1),
@@ -1408,6 +1533,7 @@
       G.sfx('boss');
       G.persist();
     }
+    flushProcs(); // 不是在命中里打死的（处决等）：死亡触发就地结算；在命中里打死的由那一击结束时统一结算
   };
 
   // 打断玩家手上的一切：施法、翻滚、处决、连段、连击计数、输入缓冲、顿帧 / 慢动作（倒下、重生、换区时用）
