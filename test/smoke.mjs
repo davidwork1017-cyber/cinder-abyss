@@ -7602,10 +7602,10 @@ async function main() {
       const far = T.mob('husk', 12, 6);
       T.aim(P.x, P.z - 7);
       for (const k of ['stormHits', 'freezes', 'blasts', 'shocks', 'storms']) S.stats[k] = 0;
-      // 记下每一击的元素：包一层 hitEnemy
+      // 记下每一击的元素：包一层 hitEnemy（只数风暴自己的落击；感电放电、尸爆这类派生伤害带 proc 标记，不算）
       const seen = {};
       const oh = G.hitEnemy;
-      G.hitEnemy = function (e, ctx, m, info) { if (ctx && ctx.sk === sk) for (const t in ctx.base) if (t !== 'phys') seen[t] = (seen[t] || 0) + 1; return oh.apply(this, arguments); };
+      G.hitEnemy = function (e, ctx, m, info) { if (ctx && ctx.sk === sk && !(info && info.proc)) for (const t in ctx.base) if (t !== 'phys') seen[t] = (seen[t] || 0) + 1; return oh.apply(this, arguments); };
       G.input.tap[4] = 0.3;
       let t = 0;
       try { while (t < 5.5) { G.tick(1 / 60); t += 1 / 60; } } finally { G.hitEnemy = oh; }
