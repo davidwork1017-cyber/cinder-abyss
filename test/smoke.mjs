@@ -893,7 +893,7 @@ async function main() {
     assert(r.toast1.includes('无铭技能宝石 Lv 4') && r.toast1.includes('共 1 颗') && r.feed.includes('无铭技能宝石 Lv 4') && r.feed.includes('共 1 颗'), '拾取提示 / 拾取记录没有写数量：' + r.toast1 + ' | ' + r.feed);
     assert(r.useful9 === false && r.useful10 === true, 'blankUseful 判断不对');
     assert(r.uselessPicked && r.useless.gems === '6,4,2' && r.useless.dust === 1 && r.useless.toast.includes('用不上'), '用不上的无铭宝石应化为 1 微光尘：' + JSON.stringify(r.useless));
-    assert(r.old === '[]' && r.bad === '20,5,3,1' && r.bad2 === '[]' && r.back === '6,4,2' && r.fresh === '[]', '旧存档 / 畸形存档没有修好：' + JSON.stringify(r));
+    assert(r.old === '[]' && r.bad === '45,5,3,1' && r.bad2 === '[]' && r.back === '6,4,2' && r.fresh === '[]', '旧存档 / 畸形存档没有修好：' + JSON.stringify(r));
     return '首杀掉 Lv ' + r.first[0].lvl + '，几率 ' + JSON.stringify(r.rates);
   });
 
@@ -1141,7 +1141,7 @@ async function main() {
       G.loadSave();
       G.computeStats();
       // 旧武器按 max(物品等级, 角色等级) 推导（改版前物品等级不影响伤害，老角色常拿着低等级武器）
-      const lvOf = (il) => Math.max(il, Math.min(save.level, G.WEAPON_LVL_CAP));
+      const lvOf = (il) => Math.max(il, Math.min(save.level, G.WEAPON_LVL_OLD_CAP));
       const got = save.bag.map((it) => ({ b: it.baseIdx, dmg: it.dmg.join('-'), aps: it.aps, want: G.weaponBaseDmg(it.baseIdx, lvOf(it.ilvl)).map((v) => Math.round(v * 1.2)).join('-') }));
       const eq = save.equip.weapon;
       out.old = { lvl: save.level, mig: G.weaponMigrated, got, eq: eq && { b: eq.baseIdx, dmg: eq.dmg.join('-'), want: G.weaponBaseDmg(0, lvOf(5)).map((v) => Math.round(v * 1.2)).join('-') }, quake: save.skills.quake, ws: G.weaponSkill() };
@@ -3156,7 +3156,7 @@ async function main() {
     assert(r.md === 38 && Math.abs(r.dmgK - r.want) < 1e-6 && Math.abs(r.life - r.lifeWant) < 0.02 && r.life > 1.05, '召唤物伤害 / 生命加成不对：' + JSON.stringify(r));
     assert(Math.abs(r.minionHit - r.minionWant) < 0.01, '召唤物的命中不应吃自身伤害惩罚：' + JSON.stringify(r));
     assert(r.ml.every(Boolean) && r.S.speed >= 4 && r.S.minionSpeed >= 10 && r.S.mana >= 30, '旁支的施法速度 / 召唤物速度 / 魔力：' + JSON.stringify(r.S));
-    assert(r.nodes >= 8 && r.nodes <= 10, '统御支路应有 8–10 个节点：' + r.nodes);
+    assert(r.nodes === 26, '统御支路应有 26 个节点（原有 10 个 + 外圈继承装备的两条线与基石 16 个）：' + r.nodes);
     // 天赋页：这一支的每个节点和名字都在画面里、不和别的节点重叠
     await page.keyboard.press('KeyP');
     const v = await ev(() => {
@@ -3824,7 +3824,7 @@ async function main() {
     await page.click('.cell[data-item]');
     await page.hover('.detail-card .ic-line.aff');
     r2 = await ev(() => ({ on: document.getElementById('tip').classList.contains('on'), rows: document.querySelectorAll('#tip .tr-row').length, now: document.querySelectorAll('#tip .tr-row.now').length, txt: document.getElementById('tip').innerText }));
-    assert(r2.on && r2.rows === 6 && r2.now === 1 && r2.txt.includes('本阶范围'), '悬停词缀应说明各阶范围：' + JSON.stringify(r2));
+    assert(r2.on && r2.rows === 10 && r2.now === 1 && r2.txt.includes('本阶范围'), '悬停词缀应说明各阶范围：' + JSON.stringify(r2));
     cleanText(r2.txt, '词缀提示');
     // 地图页的筛选选项
     await page.keyboard.press('KeyM');
@@ -4509,7 +4509,7 @@ async function main() {
     await page.mouse.move(900, 450);
     await shown('move');
     let r = await hint();
-    assert(r.txt.includes('移动') && r.all.length === 18, '第一条提示应是移动（共 18 条，含武器技与旧存档的武器改版说明）：' + r.txt + ' / ' + r.all.length);
+    assert(r.txt.includes('移动') && r.all.length === 19, '第一条提示应是移动（共 19 条，含武器技、旧存档的武器改版与成长改版说明）：' + r.txt + ' / ' + r.all.length);
     r = await ev(() => { const c = T.rect('#coach'), k = T.rect('#keyhints'), f = T.rect('.orb-wrap.left'); return { c, under: c.t >= k.b, aboveOrb: c.b <= f.t, pe: getComputedStyle(document.getElementById('coach')).pointerEvents }; });
     assert(r.under && r.aboveOrb && r.c.l >= 0 && r.pe === 'none', '提示卡的位置不对或挡住了操作：' + JSON.stringify(r));
     await page.keyboard.down('KeyD');
@@ -6519,6 +6519,401 @@ async function main() {
     await ev(() => G.debug.hold(true));
   });
 
+  // ---------------- 成长改版：角色一直成长到 60 级、经验曲线跟着怪物等级、更大的天赋盘、召唤物继承装备、16 级以上的怪物曲线 ----------------
+  await step('成长：宝石 / 武器 / 基础生命不再在 20 / 27 级封顶，层级 0 用到的数值和改版前逐项相同', async () => {
+    const r = await ev(() => {
+      const keep = { level: G.save.level, skills: Object.assign({}, G.save.skills) };
+      const out = { cap: G.MAX_GEM_LEVEL };
+      const floorAt = (l) => { G.save.level = l; return G.gemFloor(); };
+      out.floors = [1, 16, 27, 40, 60].map(floorAt);
+      G.save.level = keep.level;
+      // 武器：27 级以内和改版前的公式一样（1 + 0.12 × (等级 − 1)），之后接着线性涨
+      const old = (b, l) => { const B = G.BASES.weapon[b]; const k = 1 + 0.12 * (Math.min(l, 27) - 1); const lo = Math.max(1, Math.round(B.dmg[0] * k)); return [lo, Math.max(lo + 1, Math.round(B.dmg[1] * k))].join('-'); };
+      out.wSame = [1, 5, 13, 16, 24, 27].every((l) => [0, 3, 4, 7].every((b) => G.weaponBaseDmg(b, l).join('-') === old(b, l)));
+      out.w = [27, 32, 48, 64].map((l) => G.weaponBaseDmg(0, l)[1]);
+      // 基础生命 / 魔力：20 级以内和改版前一样（每级 +12 / +6），之后每级多给
+      out.lifeSame = [1, 8, 16, 20].every((l) => G.baseLife(l) === 100 + 12 * (l - 1) && G.baseMana(l) === 60 + 6 * (l - 1));
+      out.life = [20, 35, 50, 60].map(G.baseLife);
+      // 宝石 20 级以上照样涨：法术 / 召唤物的基础伤害、召唤物生命
+      const avg = (o) => Object.values(o).reduce((s, v) => s + (v[0] + v[1]) / 2, 0);
+      out.ember = [20, 30, 45].map((l) => Math.round(avg(G.skillBase('ember', l))));
+      out.emberSame = Math.abs(avg(G.skillBase('ember', 14)) - 14 * (1 + 0.2 * 13)) < 1e-9;
+      out.thrall = [20, 30, 45].map((l) => Math.round(avg(G.skillBase('thrall', l))));
+      // 掉落宝石 / 无铭宝石 / 存档里的宝石等级上限都跟着提高
+      G.save.skills.ember = 44;
+      G.persist();
+      G.loadSave();
+      out.loaded = G.save.skills.ember;
+      G.save.level = keep.level;
+      G.save.skills = keep.skills;
+      G.syncGemLevels();
+      G.computeStats();
+      G.persist();
+      return out;
+    });
+    assert(r.cap === 45 && r.floors.join() === '1,12,20,30,45', '宝石成长下限应一直涨到 45：' + JSON.stringify(r));
+    assert(r.wSame && r.w[1] > r.w[0] && r.w[2] > r.w[1] && r.w[3] > r.w[2] && r.w[2] / r.w[0] > 1.5, '武器伤害应在 27 级以后继续成长、之前不变：' + JSON.stringify(r));
+    assert(r.lifeSame && r.life[1] - r.life[0] > 15 * 20 && r.life[3] > r.life[2], '基础生命应在 20 级以后明显成长、之前不变：' + JSON.stringify(r));
+    assert(r.emberSame && r.ember[1] > r.ember[0] * 1.3 && r.ember[2] > r.ember[1] && r.thrall[2] > r.thrall[1] && r.thrall[1] > r.thrall[0], '宝石 20 级以上的伤害应继续成长：' + JSON.stringify(r));
+    assert(r.loaded === 44, '存档里 20 级以上的宝石不应被截回 20：' + r.loaded);
+    return '宝石下限 ' + r.floors.join('/') + ' · 刃 ' + r.w.join('/') + ' · 基础生命 ' + r.life.join('/');
+  });
+
+  await step('经验：16 级以内的升级经验与改版前相同，之后跟着怪物经验同步成长；压级递减、越级封顶；每个区域清一遍，角色等级始终比怪物高 2–7 级', async () => {
+    const r = await ev(() => {
+      const out = {};
+      const poly = (l) => Math.round(40 + 30 * Math.pow(l, 1.5));
+      out.needSame = [1, 5, 10, 16].every((l) => G.xpNeed(l) === poly(l));
+      out.ratio = [20, 35, 55].map((l) => +(G.xpNeed(l + 1) / G.xpNeed(l)).toFixed(3));
+      const e = (level, extra) => Object.assign({ level, def: G.MOBS.husk, elite: false, isBoss: false }, extra);
+      out.k = [0, 3, 5, 8, 12, 30].map((d) => +(G.killXp(e(20), 20 + d) / G.mobXp(20)).toFixed(3));
+      out.under = +(G.killXp(e(40), 20) / G.mobXp(28)).toFixed(3); // 高出 8 级以上的部分不再多给
+      out.boss = +(G.killXp(e(20, { isBoss: true }), 20) / G.mobXp(20)).toFixed(1);
+      // 每个区域按顺序清一遍（层级 0 → 2），只算经验
+      const keep = { zi: G.state.zoneIdx, tier: G.state.tier };
+      let lvl = 1, xp = 0;
+      const gain = (v) => { xp += v; while (lvl < 60 && xp >= G.xpNeed(lvl)) { xp -= G.xpNeed(lvl); lvl++; } };
+      out.rows = [];
+      for (let t = 0; t < 3; t++) for (let z = 0; z < 4; z++) {
+        G.enterZone(z, t);
+        const list = G.state.enemies.filter((q) => !q.dead).sort((a, b) => (a.isBoss - b.isBoss) || (a.level - b.level));
+        for (const q of list) gain(G.killXp(q, lvl));
+        out.rows.push({ zl: G.state.zone.level, lvl });
+      }
+      G.enterZone(keep.zi, keep.tier);
+      return out;
+    });
+    assert(r.needSame, '16 级以内的升级经验应与改版前相同');
+    assert(r.ratio.every((x) => Math.abs(x - 1.17) < 0.002), '16 级以上每级所需经验应按 1.17 倍增长：' + r.ratio);
+    assert(r.k[0] === 1 && r.k[1] === 1 && r.k[2] < 0.6 && r.k[3] < 0.4 && r.k[4] < 0.1 && r.k[5] === 0.02, '压级经验应逐级递减并有下限：' + r.k);
+    assert(r.under === 1 && r.boss === 20, '越级经验应封顶、首领 20 倍：' + JSON.stringify(r));
+    const off = r.rows.map((x) => x.lvl - x.zl);
+    assert(off.every((d) => d >= 2 && d <= 7), '清完每个区域时角色应只比怪物高 2–7 级：' + JSON.stringify(r.rows));
+    assert(r.rows[3].lvl >= 18 && r.rows[3].lvl <= 21 && r.rows[7].lvl <= 39 && r.rows[11].lvl <= 55, '各层级末区的角色等级不对：' + JSON.stringify(r.rows));
+    return '清完各区域后的等级：' + r.rows.map((x) => x.lvl + '@' + x.zl).join(' ');
+  });
+
+  await step('词缀：物品等级 31 / 38 / 46 / 55 解锁第 7–10 阶，按同样的倍率接着涨（抗性 / 速度类放缓）；24 级以内的 6 阶不变；高阶词缀在物品详情里显示 T7–T10', async () => {
+    const r = await ev(() => {
+      const out = { ilvl: G.TIER_ILVL.join() };
+      const A = G.AFFIX_BY_ID;
+      const oldR = (d, t) => { const k = Math.pow(d.g, t); const lo = Math.round(d.lo * k); return [lo, Math.max(lo, Math.round(d.hi * k))].join('-'); };
+      out.same = G.AFFIXES.every((d) => [0, 1, 2, 3, 4, 5].every((t) => G.affixRange(d, t).join('-') === oldR(d, t)));
+      out.life = [5, 6, 7, 8, 9].map((t) => G.affixRange(A.life, t)[1]);
+      out.lifeExact = G.affixRange(A.life, 9).join('-') === oldR(A.life, 9);
+      out.res = G.affixRange(A.resFire, 9)[1];
+      out.resOld = Math.round(10 * Math.pow(1.3, 9));
+      const top = (ilvl) => { let m = 0; for (let i = 0; i < 300; i++) for (const a of G.rollItem(ilvl, 2).affixes) m = Math.max(m, a.tier); return m; };
+      out.top = [24, 30, 31, 38, 46, 55, 64].map(top);
+      // 详情里的高阶标签
+      let it = null;
+      for (let i = 0; i < 200 && !it; i++) { const c = G.rollItem(60, 2, 'helm'); if (c.affixes.some((a) => a.tier === 9)) it = c; }
+      G.save.bag.length = Math.min(G.save.bag.length, 30);
+      G.save.bag.push(it);
+      G.ui.open('inv');
+      const card = document.querySelector('[data-item="' + it.uid + '"]');
+      out.card = !!card;
+      return out;
+    });
+    assert(r.ilvl === '1,5,9,13,18,24,31,38,46,55', '词缀阶的物品等级不对：' + r.ilvl);
+    assert(r.same, '前 6 阶的数值应与改版前完全相同');
+    assert(r.lifeExact && r.life.every((v, i) => i === 0 || v > r.life[i - 1]), '生命词缀的高阶应按同样的倍率接着涨：' + r.life);
+    assert(r.res < r.resOld && r.res >= 45, '抗性词缀的高阶应放缓：' + r.res + ' vs ' + r.resOld);
+    assert(r.top.join() === '5,5,6,7,8,9,9', '各物品等级能出的最高阶不对：' + r.top);
+    assert(r.card, '背包里找不到那件高阶物品');
+    const uid = await ev(() => G.save.bag[G.save.bag.length - 1].uid);
+    await page.hover('[data-item="' + uid + '"]', { force: true });
+    await until(() => document.getElementById('tip').classList.contains('on'));
+    const tip = await ev(() => ({ t10: !!document.querySelector('#tip .ic-tier.t10'), txt: document.getElementById('tip').innerText }));
+    assert(tip.t10 && tip.txt.includes('T10'), '高阶词缀在详情里应显示 T10：' + tip.txt.slice(0, 200));
+    await ev(() => { G.save.bag.pop(); });
+    await closePanel();
+    return '各物品等级最高阶 ' + r.top.join('/') + ' · 生命词缀 T6–T10 上限 ' + r.life.join('/');
+  });
+
+  await step('天赋盘：117 个节点（8 个基石），原有 49 个节点的 id / 位置 / 连线不变，全部连通；满级的点数点不满', async () => {
+    const r = await ev(() => {
+      const T = G.TREE;
+      const ids = Object.keys(T).filter((id) => id !== 'start');
+      const kinds = {};
+      for (const id of ids) kinds[T[id].kind] = (kinds[T[id].kind] || 0) + 1;
+      const OLD = 'sm0-start sm0-sm1 sm1-sm2 sm2-sm3 sm2-sr0 sm3-sm4 sm4-sm5 sk-sm5 sl0-sm1 sl0-sl1 sl1-sl2 sr0-sr1 sr1-sr2 dm0-start dm0-dm1 dm1-dm2 dm2-dm3 dm2-dr0 dm3-dm4 dm4-dm5 dk-dm5 dl0-dm1 dl0-dl1 dl1-dl2 dr0-dr1 dr1-dr2 im0-start im0-im1 im1-im2 im2-im3 im2-ir0 im3-im4 im4-im5 ik-im5 il0-im1 il0-il1 il1-il2 ir0-ir1 ir1-ir2 mm0-start mm0-mm1 mm1-mm2 mm2-mm3 mm2-mr0 mm3-mm4 mk-mm4 ml0-mm1 ml0-ml1 mr0-mr1'.split(' ');
+      const edgesOk = OLD.every((e) => { const [a, b] = e.split('-'); return T[a] && T[b] && T[a].links.includes(b) && T[b].links.includes(a); });
+      const symmetric = ids.every((id) => T[id].links.every((l) => T[l] && T[l].links.includes(id)));
+      const seen = new Set(['start']);
+      const q = ['start'];
+      while (q.length) for (const l of T[q.pop()].links) if (!seen.has(l)) { seen.add(l); q.push(l); }
+      const keep = { level: G.save.level, kills: Object.assign({}, G.save.bossKills) };
+      G.save.level = 60;
+      for (const k of Object.keys(G.BOSSES)) G.save.bossKills[k] = true;
+      const pts = G.passivePoints().total;
+      G.save.level = keep.level;
+      G.save.bossKills = keep.kills;
+      return {
+        n: ids.length, kinds, edgesOk, symmetric, all: seen.size === ids.length + 1, pts,
+        sk: [Math.round(T.sk.x * 100) / 100, Math.round(T.sk.y * 100) / 100].join(), mr1: [Math.round(T.mr1.x * 100) / 100, Math.round(T.mr1.y * 100) / 100].join(),
+        newK: ids.filter((id) => T[id].kind === 'keystone' && /2$/.test(id)).map((id) => T[id].name).join('/'),
+      };
+    });
+    assert(r.n === 117 && r.kinds.keystone === 8 && r.kinds.notable === 24, '天赋盘的规模不对：' + JSON.stringify(r));
+    assert(r.edgesOk && r.symmetric && r.all, '原有连线应保留、连线双向、所有节点与起点连通：' + JSON.stringify(r));
+    assert(r.sk === '-400.1,231' && r.mr1 === '332.73,-46.76', '原有节点的位置不应移动：' + r.sk + ' ' + r.mr1);
+    assert(r.pts === 67 && r.pts < r.n, '满级 60 级应有 67 点、点不满整个盘：' + r.pts);
+    return r.n + ' 个节点（核心 ' + r.kinds.notable + '、基石 ' + r.kinds.keystone + '：新增 ' + r.newK + '）· 满级 ' + r.pts + ' 点';
+  });
+
+  await step('天赋页：全览放得下整个盘；滚轮缩放、拖动平移、全览按钮复位；缩放后照常点亮与悬停提示，基石的代价标红', async () => {
+    await ev(() => { G.debug.setLevel(30); G.resetPassives(); G.ui.open('tree'); });
+    const vb = () => ev(() => document.getElementById('tree-svg').getAttribute('viewBox').split(' ').map(Number));
+    const v0 = await vb();
+    // 全览：每个节点都在视口里
+    const inView = await ev(() => {
+      const svg = document.getElementById('tree-svg').getBoundingClientRect();
+      return Array.from(document.querySelectorAll('#tree-svg .tn .shape')).every((n) => { const r = n.getBoundingClientRect(); return r.left >= svg.left && r.right <= svg.right && r.top >= svg.top && r.bottom <= svg.bottom; });
+    });
+    assert(inView, '全览时应能看到全部节点');
+    const box = await ev(() => { const r = document.getElementById('tree-svg').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+    await page.mouse.move(box.x - 120, box.y + 40);
+    for (let i = 0; i < 3; i++) await page.mouse.wheel(0, -240);
+    await frames(2);
+    const v1 = await vb();
+    assert(v1[2] < v0[2] * 0.75, '滚轮应放大：' + v0 + ' → ' + v1);
+    await page.mouse.move(box.x, box.y);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 90, box.y + 50, { steps: 5 });
+    await page.mouse.up();
+    const v2 = await vb();
+    assert(v2[2] === v1[2] && (v2[0] < v1[0] || v2[1] < v1[1]), '拖动应平移视口：' + v1 + ' → ' + v2);
+    assert((await ev(() => G.save.passives.length)) === 1, '拖动松手不应点亮天赋');
+    // 放大后点亮：起点旁的体魄
+    await ev(() => { document.querySelector('[data-z="fit"]').click(); });
+    await page.click('[data-z="in"]');
+    await page.click('#tree-svg [data-node="sm0"] .hit', { force: true });
+    assert(await ev(() => G.save.passives.includes('sm0')), '放大后应能照常点亮');
+    const v3 = await vb();
+    assert(v3[2] < v0[2], '点亮后重绘不应丢掉缩放');
+    await page.click('[data-z="fit"]');
+    const v4 = await vb();
+    assert(v4.join() === v0.join(), '全览按钮应复位：' + v4);
+    await page.hover('#tree-svg [data-node="mk2"] .hit', { force: true });
+    await until(() => document.getElementById('tip').classList.contains('on'));
+    const tip = await ev(() => ({ txt: document.getElementById('tip').innerText, bad: Array.from(document.querySelectorAll('#tip .tc-stat.bad')).map((n) => n.textContent) }));
+    assert(tip.txt.includes('器魂共鸣') && tip.txt.includes('基石天赋') && tip.bad.length === 2 && tip.bad.some((t) => t.includes('最大生命额外 -15%')), '新基石的提示不对：' + JSON.stringify(tip));
+    await page.hover('#tree-svg [data-node="sk2"] .hit', { force: true });
+    await until(() => document.getElementById('tip').innerText.includes('不动如山'));
+    const t2 = await ev(() => document.getElementById('tip').innerText);
+    assert(t2.includes('移动速度降低 15%') && t2.includes('翻滚冷却延长 50%'), '负值的写法应换成反义词：' + t2);
+    // 元素过载的抗性代价在 75% 上限之后才扣：溢出的抗性抵消不了
+    await page.hover('#tree-svg [data-node="ik2"] .hit', { force: true });
+    await until(() => document.getElementById('tip').innerText.includes('元素过载'));
+    const t3 = await ev(() => Array.from(document.querySelectorAll('#tip .tc-stat.bad')).map((n) => n.textContent));
+    assert(t3.length === 1 && t3[0].includes('上限之后'), '元素过载的代价应标红并写明在上限之后扣除：' + t3);
+    const rl = await ev(() => {
+      const st = G.TREE.start.stats;
+      const P = G.player;
+      G.TREE.start.stats = { resFire: 130, resCold: 40 };
+      G.computeStats();
+      const a = [P.res.fire, P.res.cold];
+      G.TREE.start.stats = { resFire: 130, resCold: 40, resLoss: G.TREE.ik2.stats.resLoss };
+      G.computeStats();
+      const b = [P.res.fire, P.res.cold];
+      G.TREE.start.stats = st;
+      G.computeStats();
+      return { a, b };
+    });
+    assert(rl.a[0] === 75 && rl.b[0] === 55 && rl.b[1] === rl.a[1] - 20, '元素过载：溢出的火抗也应从 75% 掉到 55%，其余抗性同样 -20：' + JSON.stringify(rl));
+    await ev(() => G.resetPassives());
+    await closePanel();
+    return '全览 ' + v0.map(Math.round).join(' ') + ' · 放大到 ' + Math.round((v0[2] / v1[2]) * 100) + '%';
+  });
+
+  await step('旧存档：改版前点过的天赋原样保留并提示一次；物品等级 27 以上的旧武器按新成长放大一次；宝石补到新的成长下限；等级不变，经验条进度按新曲线折算', async () => {
+    const r = await ev(() => {
+      const KEY = 'cinder-abyss-save-v1';
+      const keep = localStorage.getItem(KEY);
+      const raw = JSON.parse(keep);
+      delete raw.gv; // 改版前的存档没有 gv
+      raw.level = 42;
+      raw.xp = 1234;
+      raw.bossKills = { golem: true, weaver: true, warden: true, lord: true };
+      // 改版前：49 个节点全部点满（42 级 + 4 个首领 = 49 点）
+      raw.passives = ['start'].concat(Object.keys(G.TREE).filter((id) => /^([sdi](m[0-5]|k|l[0-2]|r[0-2])|mm[0-4]|mk|ml[01]|mr[01])$/.test(id)));
+      const w = G.rollItem(31, 2, 'weapon', 0);
+      w.wbase = [33, 49]; // 改版前 27 级封顶时的平均成色
+      w.uid = 'oldw31';
+      raw.equip = Object.assign({}, raw.equip, { weapon: w });
+      raw.skills = { cleave: 20, ember: 20, thrall: 20 };
+      raw.sockets = { cleave: [null, null, null], ember: [null, null, null], thrall: [null, null, null] };
+      raw.bar = ['cleave', 'ember', 'thrall', null];
+      localStorage.setItem(KEY, JSON.stringify(raw));
+      G.loadSave();
+      G.computeStats();
+      const s = G.save;
+      const out = {
+        level: s.level, xp: s.xp, n: s.passives.length - 1, mig: G.growthMigrated && G.growthMigrated.kept, gv: s.gv,
+        frac0: 1234 / G.xpNeedOld(42), frac: s.xp / G.xpNeed(42),
+        wbase: s.equip.weapon.wbase.join('-'), want: [Math.round(33 * G.weaponLvlK(31) / G.weaponLvlK(27)), Math.round(49 * G.weaponLvlK(31) / G.weaponLvlK(27))].join('-'),
+        gems: [s.skills.cleave, s.skills.ember, s.skills.thrall].join(), free: G.passivePoints().free,
+      };
+      // 存档再读一遍：不会再放大第二次，也不再提示
+      G.persist();
+      G.loadSave();
+      out.again = G.save.equip.weapon.wbase.join('-');
+      out.xp2 = G.save.xp;
+      out.mig2 = G.growthMigrated;
+      out.keep = keep;
+      return out;
+    });
+    assert(r.level === 42 && r.gv === 2 && Math.abs(r.frac - r.frac0) < 1e-9 && r.frac0 > 0.1 && Math.abs(r.xp2 - r.xp) < 1e-6, '等级应保持不变、经验条进度按新的升级所需经验折算一次：' + JSON.stringify(r));
+    assert(r.n === 49 && r.mig === 49 && r.free === 0, '旧存档的 49 个天赋应全部保留：' + JSON.stringify(r));
+    assert(r.wbase === r.want && r.again === r.want, '高物品等级的旧武器应按新成长放大一次：' + JSON.stringify(r));
+    assert(r.gems === '32,32,32' && r.mig2 === null, '宝石应补到 42 级的成长下限 32，第二次读档不再提示：' + JSON.stringify(r));
+    // 提示：读进旧存档后出现一次「成长改版」
+    await ev(() => {
+      const KEY = 'cinder-abyss-save-v1';
+      const raw = JSON.parse(localStorage.getItem(KEY));
+      delete raw.gv;
+      raw.level = 45; // 多出 3 点可用天赋点
+      // 其余提示都标成看过：只等这一条
+      raw.tut = {};
+      for (const id of G.ui.hints().all) if (id !== 'growth') raw.tut[id] = 1;
+      localStorage.setItem(KEY, JSON.stringify(raw));
+      G.loadSave();
+      G.computeStats();
+      G.clearEnemies();
+      G.debug.hold(false);
+    });
+    await until(() => G.ui.hints().current === 'growth', null, 20000).catch(() => { throw new Error('读进旧存档后应提示一次成长改版'); });
+    const txt = await ev(() => document.getElementById('coach').innerText);
+    assert(txt.includes('117') && txt.includes('全部保留') && txt.includes('3'), '成长改版的提示不对：' + txt);
+    await ev((keep) => {
+      G.debug.hold(true);
+      localStorage.setItem('cinder-abyss-save-v1', keep);
+      G.loadSave();
+      G.save.tut.growth = 1;
+      G.computeStats();
+      G.persist();
+    }, r.keep);
+    return '49 个旧天赋保留 · 旧武器 ' + r.wbase + ' · 宝石 Lv ' + r.gems;
+  });
+
+  await step('召唤物继承装备：武器伤害 / 护甲 / 抗性 / 装备生命按天赋比例继承（魂幡按倍数计、物品等级 12–46 之间折算），受击时护甲与抗性生效，技能卡写出明细', async () => {
+    const r = await ev(() => {
+      T.arena();
+      const save = G.save, P = G.player;
+      G.debug.setLevel(55);
+      for (const k of Object.keys(G.BOSSES)) save.bossKills[k] = true;
+      G.resetPassives();
+      save.skills.thrall = save.skills.thrall || G.gemFloor();
+      save.skills.colossus = save.skills.colossus || G.gemFloor();
+      save.sockets.thrall = [null, null, null];
+      save.sockets.colossus = [null, null, null];
+      // 一把刃：物品等级 50，没有本地词缀
+      const blade = G.rollItem(50, 0, 'weapon', 0);
+      blade.wbase = [100, 140];
+      G.refreshWeapon(blade);
+      save.equip.weapon = blade;
+      // 其余装备的物品等级临时改成 50（防御 / 生命的继承按它们的平均物品等级折算，50 ≥ 46 不打折）
+      const ilvl0 = {};
+      for (const sl of G.SLOTS) if (sl !== 'weapon' && save.equip[sl]) { ilvl0[sl] = save.equip[sl].ilvl; save.equip[sl].ilvl = 50; }
+      G.computeStats();
+      const base0 = G.skillCtx('thrall').base.phys.slice();
+      const life0 = G.skillCtx('thrall').minion.life;
+      const out = {};
+      // 武器线：承锋 + 承锋 + 器灵（4 + 5 + 12 = 21%）
+      for (const id of ['mm0', 'mm1', 'ml0', 'ml1', 'ml2', 'ml3', 'ml4']) G.allocPassive(id);
+      let c = G.skillCtx('thrall');
+      out.w = P.S.mWeapon;
+      out.add = [c.base.phys[0] - base0[0], c.base.phys[1] - base0[1]].map((v) => Math.round(v * 100) / 100);
+      out.addC = G.skillCtx('colossus').minion.inherit.add.map((v) => Math.round(v * 100) / 100);
+      // 魂幡：武器伤害按 2.2 倍计；物品等级 29 只继承一半（12 级起折算，46 级才完整）
+      const banner = G.rollItem(29, 0, 'weapon', 7);
+      banner.wbase = [10, 20];
+      G.refreshWeapon(banner);
+      save.equip.weapon = banner;
+      G.computeStats();
+      c = G.skillCtx('thrall');
+      out.banner = c.minion.inherit.add.map((v) => Math.round(v * 100) / 100);
+      out.gate = c.minion.inherit.gate;
+      out.gates = [5, 12, 14, 19, 29, 46, 60].map((l) => Math.round(G.inheritGate(l) * 1000) / 1000);
+      save.equip.weapon = blade;
+      // 防御线：骸甲 / 骸甲 / 承甲（6 + 8 + 20 = 34%）
+      for (const id of ['mm2', 'mr0', 'mr1', 'mr2', 'mr3', 'mr4']) G.allocPassive(id);
+      G.computeStats();
+      c = G.skillCtx('thrall');
+      out.def = P.S.mDef;
+      out.arm = [c.minion.armour, Math.round(P.armour * 0.34)];
+      out.res = [c.minion.res.fire, Math.min(75, P.res.fire * 0.34)].map((v) => Math.round(v * 100) / 100);
+      out.gateDef = c.minion.inherit.gateDef;
+      // 生命：同命（30%），装备生命 × 30%（再吃召唤物生命加成）
+      for (const id of ['mr5', 'mr6']) G.allocPassive(id);
+      G.computeStats();
+      c = G.skillCtx('thrall');
+      out.gearLife = P.gearLife;
+      out.inhLife = c.minion.inherit.life;
+      out.lifeWant = Math.round(P.gearLife * 0.3);
+      out.lifeUp = c.minion.life > life0;
+      // 受击：同一下物理 / 火焰伤害，继承了护甲和抗性的仆从受到的更少
+      const m = G.summonMinion('thrall', P.x + 2, P.z);
+      G.debug.step(1.2);
+      const hit = (dtype) => { const hp = m.hp; G.hurtMinion(m, 50, dtype); const d = hp - m.hp; m.hp = m.maxHp; return Math.round(d * 100) / 100; };
+      out.phys = hit('phys');
+      out.fire = hit('fire');
+      out.mArm = m.armour;
+      out.mRes = m.res && m.res.fire;
+      // 层级 0 的装备（物品等级 14）：防御 / 生命几乎继承不到（此时防御线已点到骸甲 ×3 + 承甲 = 42%）
+      for (const sl in ilvl0) save.equip[sl].ilvl = 14;
+      G.computeStats();
+      c = G.skillCtx('thrall');
+      out.low = { gateDef: Math.round(c.minion.inherit.gateDef * 1000) / 1000, arm: c.minion.armour, armWant: Math.round(P.armour * 0.42 * G.inheritGate(14)), life: c.minion.inherit.life };
+      for (const sl in ilvl0) save.equip[sl].ilvl = 50;
+      G.computeStats();
+      // 技能卡
+      G.ui.open('skills');
+      const card = Array.from(document.querySelectorAll('.skill-card')).find((q) => q.querySelector('.sk-name') && q.querySelector('.sk-name').textContent.includes('烬骸仆从'));
+      out.card = card ? card.querySelector('.sk-inh') && card.querySelector('.sk-inh').innerText : null;
+      G.ui.close();
+      G.clearMinions();
+      for (const sl in ilvl0) save.equip[sl].ilvl = ilvl0[sl];
+      G.computeStats();
+      return out;
+    });
+    const near = (a, b) => Math.abs(a - b) < 0.02;
+    assert(r.w === 21 && near(r.add[0], 100 * 0.21) && near(r.add[1], 140 * 0.21), '仆从每击应附加武器伤害 × 21%：' + JSON.stringify(r));
+    assert(near(r.addC[0], 100 * 0.21 * 2.4) && near(r.addC[1], 140 * 0.21 * 2.4), '守像的继承系数应为 2.4：' + JSON.stringify(r.addC));
+    assert(r.gate === 0.5 && near(r.banner[0], 10 * 0.21 * 0.5 * 2.2) && near(r.banner[1], 20 * 0.21 * 0.5 * 2.2), '魂幡 2.2 倍、物品等级 29 折算一半：' + JSON.stringify(r));
+    assert(r.gates.join() === [0, 0, 0.059, 0.206, 0.5, 1, 1].join(), '继承折算：物品等级 12 以下为 0，46 级涨满：' + r.gates);
+    assert(r.def === 34 && r.gateDef === 1 && r.arm[0] === r.arm[1] && r.arm[0] > 0 && r.res[0] === r.res[1], '护甲与抗性应按 34% 继承：' + JSON.stringify(r));
+    assert(r.inhLife === r.lifeWant && r.gearLife > 0 && r.lifeUp, '装备生命应按 30% 继承：' + JSON.stringify(r));
+    assert(r.low.gateDef === 0.059 && Math.abs(r.low.arm - r.low.armWant) <= 1 && Math.abs(r.low.life - r.gearLife * 0.3 * (2 / 34)) <= 1, '层级 0 的装备只继承约 6%：' + JSON.stringify(r.low));
+    assert(r.mArm > 0 && r.phys < 50 && (r.mRes > 0 ? r.fire < 50 : true), '继承来的护甲 / 抗性在受击时应生效：' + JSON.stringify(r));
+    assert(r.card && r.card.includes('继承装备') && r.card.includes('护甲') && r.card.includes('生命 +'), '技能卡上应写出继承明细：' + r.card);
+    await ev(() => { G.resetPassives(); G.debug.setLevel(12); G.computeStats(); });
+    return '刃 100–140 × 17% → +' + r.add.join('–') + ' / 每击 · 护甲 ' + r.arm[0] + ' · 物理 50 → ' + r.phys + ' · 卡片：' + r.card;
+  });
+
+  await step('怪物曲线：16 级以内（层级 0）的生命 / 伤害与改版前逐级相同；17 级以上按新曲线平滑成长，比改版前平缓', async () => {
+    const r = await ev(() => {
+      const out = {};
+      out.same = Array.from({ length: 16 }, (_, i) => i + 1).every((l) => G.hpScale(l) === Math.pow(1.2, l - 1) && G.dmgScale(l) === Math.pow(1.15, l - 1));
+      const lv = [16, 17, 24, 32, 40, 48, 64];
+      out.hp = lv.map((l) => +G.hpScale(l).toFixed(1));
+      out.dmg = lv.map((l) => +G.dmgScale(l).toFixed(1));
+      out.mono = lv.every((l, i) => i === 0 || (G.hpScale(l) > G.hpScale(lv[i - 1]) && G.dmgScale(l) > G.dmgScale(lv[i - 1])));
+      out.flatter = lv.slice(1).every((l) => G.hpScale(l) < Math.pow(1.2, l - 1) && G.dmgScale(l) < Math.pow(1.15, l - 1));
+      // 实际生成的怪：层级 0 末区的巨躯生命与改版前一样
+      const keep = { zi: G.state.zoneIdx, tier: G.state.tier };
+      G.enterZone(3, 0);
+      const e = G.spawnMob('brute', G.state.zone.start.x, G.state.zone.start.z, 15, {});
+      out.brute = [e.maxHp, Math.round(100 * Math.pow(1.2, 14))];
+      G.enterZone(keep.zi, keep.tier);
+      return out;
+    });
+    assert(r.same && r.brute[0] === r.brute[1], '16 级以内的怪物曲线应与改版前完全相同：' + JSON.stringify(r));
+    assert(r.mono && r.flatter, '17 级以上应单调成长且比改版前平缓：' + JSON.stringify(r));
+    return '生命倍率 ' + r.hp.join('/') + ' · 伤害倍率 ' + r.dmg.join('/') + '（16/17/24/32/40/48/64 级）';
+  });
+
   await step('删除存档：两步确认后回到全新角色', async () => {
     await page.keyboard.press('KeyM');
     await page.click('[data-act="del-save"]');
@@ -6580,7 +6975,7 @@ async function main() {
       };
     });
     assert(r.level === 1 && r.xp === 0 && r.bag === 0 && r.dust === 0 && r.chaos === 0, '畸形数值没有被修正：' + JSON.stringify(r));
-    assert(r.skills === '{"ember":20}' && r.sups === 'multi' && r.sockets === '{"ember":["multi",null,null]}' && r.bar === 'ember,,,', '畸形技能数据没有被修正：' + JSON.stringify(r));
+    assert(r.skills === '{"ember":45}' && r.sups === 'multi' && r.sockets === '{"ember":["multi",null,null]}' && r.bar === 'ember,,,', '畸形技能数据没有被修正：' + JSON.stringify(r));
     assert(r.passives === 'start' && r.tier === 2 && r.maxTier === 2 && r.lastZone === 3 && r.zone === 3 && r.ok, '畸形进度数据没有被修正：' + JSON.stringify(r));
   });
 

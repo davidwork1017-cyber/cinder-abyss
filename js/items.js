@@ -38,10 +38,12 @@
 
   // 某词缀在某阶的数值区间 [lo, hi]
   function tierRange(def, tier) {
-    const k = Math.pow(def.g, tier);
+    const hi = Math.max(0, tier - G.SOFT_TIER);
+    const k = Math.pow(def.g, tier - hi) * Math.pow(def.soft ? Math.sqrt(def.g) : def.g, hi);
     const lo = Math.round(def.lo * k);
     return [lo, Math.max(lo, Math.round(def.hi * k))];
   }
+  G.affixRange = tierRange;
 
   function rollValue(def, tier) {
     const r = tierRange(def, tier);
@@ -99,10 +101,11 @@
   G.nameTier = (ilvl) => (ilvl < 6 ? 0 : ilvl < 12 ? 1 : 2);
 
   // 某个武器基底在某个物品等级下的基础伤害区间（本地词缀之前）；q 是成色（缺省 1 = 平均）
+  // 物品等级带来的武器伤害倍率：1 + WEAPON_LVL × (等级 − 1)，等级封顶 WEAPON_LVL_CAP
+  G.weaponLvlK = (ilvl) => 1 + G.WEAPON_LVL * (G.clamp(Math.round(ilvl) || 1, 1, G.WEAPON_LVL_CAP) - 1);
   G.weaponBaseDmg = function (baseIdx, ilvl, q) {
     const base = G.BASES.weapon[baseIdx] || G.BASES.weapon[0];
-    const L = G.clamp(Math.round(ilvl) || 1, 1, G.WEAPON_LVL_CAP);
-    const k = (1 + G.WEAPON_LVL * (L - 1)) * (q === undefined ? 1 : q);
+    const k = G.weaponLvlK(ilvl) * (q === undefined ? 1 : q);
     const lo = Math.max(1, Math.round(base.dmg[0] * k));
     return [lo, Math.max(lo + 1, Math.round(base.dmg[1] * k))];
   };

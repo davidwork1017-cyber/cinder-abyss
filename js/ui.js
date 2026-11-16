@@ -87,9 +87,10 @@
     s: { name: '铸躯', hint: '生命 · 护甲 · 物理' },
     d: { name: '迅影', hint: '速度 · 暴击 · 机动' },
     i: { name: '秘识', hint: '魔力 · 元素 · 范围' },
-    m: { name: '统御', hint: '召唤物 · 数量 · 魔力' },
+    m: { name: '统御', hint: '召唤物 · 继承装备' },
+    o: { name: '交汇', hint: '相邻支路之间的混合' },
   };
-  const ARM_ORDER = ['s', 'd', 'i', 'm'];
+  const ARM_ORDER = ['s', 'd', 'i', 'm', 'o'];
   const KIND_NAME = { small: '小型天赋', notable: '核心天赋', keystone: '基石天赋', start: '起点' };
   const ALLY = G.icons.ally || '#4fe3c8'; // 友方召唤物的青色（与世界里的血条、地面圈同色）
   const MINION_STATS = ['minionDmg', 'minionLife', 'minionSpeed', 'minionCap', 'minionMore'];
@@ -1184,9 +1185,7 @@
 
   // 词缀某一阶的数值区间（与 items.js 的掷骰公式一致）
   function tierRange(def, tier) {
-    const k = Math.pow(def.g, tier);
-    const lo = Math.round(def.lo * k);
-    return [lo, Math.max(lo, Math.round(def.hi * k))];
+    return G.affixRange(def, tier);
   }
   function maxTierFor(ilvl) {
     let t = 0;
@@ -1318,13 +1317,16 @@
     if (s('ownLess')) h += row('自身总伤害', '-' + fmt1(s('ownLess')) + '%', '#ff7a6a');
     // 召唤物：学会了召唤技能，或者身上 / 天赋里有召唤物属性时才列出来
     const hasSummon = Object.keys(G.save.skills).some((id) => G.SKILLS[id] && G.SKILLS[id].kind === 'summon');
-    if (hasSummon || MINION_STATS.some((k) => s(k))) {
+    if (hasSummon || MINION_STATS.some((k) => s(k)) || s('mWeapon') || s('mDef') || s('mLife')) {
       h += '</div><div class="st-group ally">召唤物</div><div class="st-grid">';
       h += row('召唤物伤害', pct(s('minionDmg')), ALLY);
       h += row('召唤物生命', pct(s('minionLife')), ALLY);
       h += row('攻击与移动速度', pct(s('minionSpeed')), ALLY);
       h += row('仆从数量上限', '+' + fmt1(s('minionCap')), ALLY);
       if (s('minionMore')) h += row('召唤物总伤害', pct(s('minionMore')), s('minionMore') > 0 ? '#ffb066' : '#ff7a6a');
+      if (s('mWeapon')) h += row('继承武器伤害', fmt1(s('mWeapon')) + '%', ALLY);
+      if (s('mDef')) h += row('继承护甲与抗性', fmt1(Math.min(100, s('mDef'))) + '%', ALLY);
+      if (s('mLife')) h += row('继承装备生命', fmt1(s('mLife')) + '%', ALLY);
     }
     h += '</div><div class="st-group">其他</div><div class="st-grid">';
     h += row('技能范围', pct(s('area')));
@@ -1332,7 +1334,10 @@
     h += row('物品稀有度', pct(s('rarity')));
     h += row('击杀回复', fmt1(s('lifeOnKill')));
     if (s('costReduce')) h += row('消耗降低', fmt1(s('costReduce')) + '%');
-    if (s('dodgeCd')) h += row('翻滚冷却', '-' + fmt1(s('dodgeCd')) + '%');
+    if (s('dodgeCd')) h += row('翻滚冷却', pct(-s('dodgeCd')), s('dodgeCd') > 0 ? null : '#ff7a6a');
+    if (s('moreElem')) h += row('元素总伤害', pct(s('moreElem')), s('moreElem') > 0 ? '#ffb066' : '#ff7a6a');
+    if (s('moreTaken')) h += row('承受伤害', '+' + fmt1(s('moreTaken')) + '%', '#ff7a6a');
+    if (s('resLoss')) h += row('元素抗性（上限后）', '-' + fmt1(s('resLoss')) + '%', '#ff7a6a');
     if (s('moreDmg')) h += row('总伤害', pct(s('moreDmg')), s('moreDmg') > 0 ? '#ffb066' : '#ff7a6a');
     if (s('lessTaken')) h += row('承受伤害', '-' + fmt1(s('lessTaken')) + '%', '#9fdc8a');
     if (s('moreLife')) h += row('生命总量', pct(s('moreLife')), s('moreLife') > 0 ? '#9fdc8a' : '#ff7a6a');
@@ -1532,6 +1537,32 @@
   }
   const liveMinions = () => (G.state && Array.isArray(G.state.minions) ? G.state.minions : []);
 
+  // 召唤技能卡上的「继承装备」一行：统御外圈的天赋让召唤物继承你的武器伤害、护甲 / 抗性、装备生命。
+  // 一点都没有时给一句去哪里点的提示
+  function inheritNote(ctx) {
+    const h = ctx.minion && ctx.minion.inherit;
+    if (!h) return '';
+    if (!(h.weapon > 0 || h.def > 0 || h.lifePct > 0)) {
+      return '<div class="sk-inh off"><i></i>天赋盘统御支路的外圈可以让召唤物继承你的武器伤害、护甲与抗性、装备生命</div>';
+    }
+    const parts = [];
+    if (h.add) {
+      const item = G.save.equip.weapon;
+      const src = item ? wTypeName(item.baseIdx | 0) : '空手';
+      parts.push('武器 <b>' + fmtInt(h.add[0]) + '–' + fmtInt(h.add[1]) + '</b> 物理 / 每击（' + src + '伤害 × ' + fmt1(h.weapon) + '%' +
+        (h.gate < 1 ? ' × 物品等级 ' + h.ilvl + ' 折算 ' + Math.round(h.gate * 100) + '%' : '') + (h.soul > 1 ? ' × ' + h.soul + ' 倍' : '') + (ctx.sk.inherit > 1 ? ' × 守像 ' + ctx.sk.inherit : '') + '）');
+    } else if (h.weapon > 0) {
+      parts.push('武器：没有装备武器，无可继承');
+    }
+    if ((h.def > 0 || h.lifePct > 0) && h.gateDef < 1) parts.push('防御与生命按装备平均物品等级 ' + h.ilvlDef + ' 折算 ' + Math.round(h.gateDef * 100) + '%');
+    if (h.def > 0) {
+      parts.push('护甲 <b>' + fmtInt(h.armour) + '</b>');
+      parts.push('抗性 <b>' + G.ELEMS.map((t) => '<span style="color:' + G.TYPE_COLOR[t] + '">' + Math.round(h.res[t]) + '%</span>').join(' / ') + '</b>');
+    }
+    if (h.lifePct > 0) parts.push('生命 <b>+' + fmtInt(h.life) + '</b>');
+    return '<div class="sk-inh"><i></i><span>继承装备：' + parts.join(' · ') + '</span></div>';
+  }
+
   // 攻击技能卡上的一行：每一击 = 武器伤害 × 武器倍率 × 宝石等级加成，出手速度随武器攻速
   function attackNote(ctx) {
     const w = ctx.weapon || G.FISTS || null;
@@ -1680,7 +1711,7 @@
       if (mi.radius > 0) bits.push('砸地半径 ' + fmt1(mi.radius));
       if (mi.taunt) bits.push('嘲讽 ' + fmt1(mi.taunt.cd) + ' 秒 / 半径 ' + fmt1(mi.taunt.r));
       if (mi.dps > 0) bits.push((mi.cap > 1 ? '满员秒伤约 ' : '秒伤约 ') + fmtInt(mi.dps));
-      note = '<div class="sk-mnote"><i></i>' + bits.join(' · ') + '</div>' + autoRow(id);
+      note = '<div class="sk-mnote"><i></i>' + bits.join(' · ') + '</div>' + inheritNote(ctx) + autoRow(id);
     } else if (sk.kind === 'aura') {
       // 光环：没有施放，只有保留；卡片上是每一跳的伤害、每秒几跳和半径
       nums =
@@ -1887,6 +1918,60 @@
   const NODE_R = { small: 12, notable: 17, keystone: 18, start: 16 };
   const n1 = (v) => Math.round(v * 10) / 10;
 
+  // 核心 / 基石天赋名字的摆放（相对节点中心的 x / y 与对齐方式）：在上 / 下 / 左 / 右几个候选位置里挑一个
+  // 和其他节点、已经摆好的名字重叠最少的。按全览时的名字放大倍数（约 1.45）估算，天赋盘是静态的，算一次缓存
+  let treeLabelCache = null;
+  function treeLabels() {
+    if (treeLabelCache) return treeLabelCache;
+    const T = G.TREE;
+    const K = 1.45;
+    const out = {};
+    const boxes = [];
+    const ids = Object.keys(T).filter((id) => T[id].kind === 'notable' || T[id].kind === 'keystone');
+    ids.sort((a, b) => (T[a].kind === 'keystone' ? 0 : 1) - (T[b].kind === 'keystone' ? 0 : 1));
+    let yTop = Infinity;
+    for (const id in T) yTop = Math.min(yTop, T[id].y);
+    yTop -= 20;
+    const over = (a, b) => Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+    for (const id of ids) {
+      const n = T[id];
+      const r = NODE_R[n.kind] * (n.kind === 'keystone' ? 1.42 : 1);
+      const fs = n.kind === 'keystone' ? 18.5 : 17;
+      const w = n.name.length * (fs + (n.kind === 'keystone' ? 2 : 1));
+      const len = Math.hypot(n.x, n.y) || 1;
+      const ux = n.x / len, uy = n.y / len;
+      // 候选：x / y 是文字基线锚点，a 是对齐；pref 是偏好（越小越优先：沿半径朝外的一侧优先）
+      const C = [
+        { x: 0, y: -(r + 10), a: 'middle', pref: uy < 0 ? 0 : 2 },
+        { x: 0, y: r + fs + 6, a: 'middle', pref: uy > 0 ? 0 : 2 },
+        { x: r + 10, y: 6, a: 'start', pref: ux > 0 ? 0.5 : 2.5 },
+        { x: -(r + 10), y: 6, a: 'end', pref: ux < 0 ? 0.5 : 2.5 },
+        { x: 0, y: -(r + 26), a: 'middle', pref: 3 },
+        { x: 0, y: r + fs + 22, a: 'middle', pref: 3 },
+      ];
+      let best = null;
+      for (const c of C) {
+        const x0 = c.a === 'middle' ? c.x - w / 2 : c.a === 'start' ? c.x : c.x - w;
+        // 放大 K 倍（以节点为原点），换成绝对坐标
+        const b = [n.x + x0 * K, n.y + (c.y - fs * 0.86) * K, n.x + (x0 + w) * K, n.y + (c.y + fs * 0.18) * K];
+        let cost = c.pref * 40;
+        for (const oid in T) {
+          if (oid === id) continue;
+          const o = T[oid];
+          const rr = NODE_R[o.kind] + 5;
+          cost += over(b, [o.x - rr, o.y - rr, o.x + rr, o.y + rr]) * 3;
+        }
+        for (const ob of boxes) cost += over(b, ob) * 4;
+        if (b[1] < yTop) cost += (yTop - b[1]) * w * K * 3; // 全览时盘面最上方压着图例，名字别往那里放
+        if (!best || cost < best.cost) best = { c, b, cost };
+      }
+      boxes.push(best.b);
+      out[id] = { x: best.c.x, y: best.c.y, a: best.c.a };
+    }
+    treeLabelCache = out;
+    return out;
+  }
+
   function renderTree() {
     const S = G.save;
     const T = G.TREE;
@@ -1931,28 +2016,11 @@
         '<g class="tn ' + n.kind + ' ' + state + '" data-act="node" data-node="' + id + '" data-tip="node:' + id + '" style="--c:' + (n.color || '#ffb066') + '" transform="translate(' + n1(n.x) + ' ' + n1(n.y) + ')">' +
         '<circle class="halo" r="' + (r + (n.kind === 'small' ? 7 : 11)) + '"/>' + shape + '<circle class="hit" r="' + (r + 8) + '"/></g>';
 
-      // 核心 / 基石天赋直接标出名字
+      // 核心 / 基石天赋直接标出名字（摆放位置见 treeLabels）
       if (n.kind === 'notable' || n.kind === 'keystone') {
-        const len = Math.hypot(n.x, n.y) || 1;
-        const dx = n.x / len;
-        const dy = n.y / len;
-        let lx;
-        let ly;
-        let anchor = 'middle';
-        if (n.kind === 'keystone') {
-          lx = n.x;
-          ly = n.y + (dy < 0 ? -(r * 1.42 + 12) : r * 1.42 + 26);
-        } else if (Math.abs(dy) > 0.7) {
-          // 偏上 / 偏下的节点：名字放正上方或正下方
-          lx = n.x;
-          ly = n.y + (dy < 0 ? -(r + 12) : r + 24);
-        } else {
-          lx = n.x + (dx > 0 ? r + 12 : -(r + 12));
-          ly = n.y + 6;
-          anchor = dx > 0 ? 'start' : 'end';
-        }
+        const L = treeLabels()[id];
         labels +=
-          '<text class="tl ' + n.kind + ' ' + (isAlloc ? 'alloc' : avail ? 'avail' : '') + '" style="--c:' + n.color + '" x="' + n1(lx) + '" y="' + n1(ly) + '" text-anchor="' + anchor + '">' + n.name + '</text>';
+          '<g transform="translate(' + n1(n.x) + ' ' + n1(n.y) + ')"><text class="tl ' + n.kind + ' ' + (isAlloc ? 'alloc' : avail ? 'avail' : '') + '" style="--c:' + n.color + '" x="' + n1(L.x) + '" y="' + n1(L.y) + '" text-anchor="' + L.a + '">' + n.name + '</text></g>';
       }
     }
 
@@ -1986,11 +2054,15 @@
 
     el.body.innerHTML =
       '<div class="tree">' +
-      '<div class="tree-view"><svg id="tree-svg" viewBox="-480 -395 960 760" preserveAspectRatio="xMidYMid meet">' +
-      '<g class="tdeco"><circle r="81"/><circle r="231"/><circle r="381"/><circle r="462"/></g>' +
+      '<div class="tree-view"><svg id="tree-svg" viewBox="' + vbStr(treeVb()) + '" preserveAspectRatio="xMidYMid meet">' +
+      '<g class="tdeco"><circle r="81"/><circle r="231"/><circle r="381"/><circle r="462"/><circle r="564"/><circle r="636"/></g>' +
       '<g>' + edges + '</g><g>' + nodes + '</g><g>' + labels + '</g></svg>' +
       '<div class="tree-legend"><span class="lg alloc"><i></i>已点亮</span><span class="lg avail"><i></i>可点亮</span><span class="lg locked"><i></i>未连接</span>' +
-      '<span class="lg-sep"></span><span>点击点亮 · 再次点击退回</span></div></div>' +
+      '<span class="lg-sep"></span><span>点击点亮 · 再次点击退回 · 滚轮缩放 · 拖动平移</span></div>' +
+      '<div class="tree-zoom">' +
+      '<button type="button" tabindex="-1" data-act="tree-zoom" data-z="out" title="缩小">－</button>' +
+      '<button type="button" tabindex="-1" data-act="tree-zoom" data-z="fit"' + (ui.tv ? '' : ' class="on"') + '>全览</button>' +
+      '<button type="button" tabindex="-1" data-act="tree-zoom" data-z="in" title="放大">＋</button></div></div>' +
       '<div class="col col-side tree-side">' +
       '<div class="sec-title">天赋点</div>' +
       '<div class="pts' + (pts.free > 0 ? ' has' : '') + '"><b>' + pts.free + '</b><div><span>可用天赋点</span><em>已用 ' + pts.used + ' · 共 ' + pts.total + '</em></div></div>' +
@@ -2003,6 +2075,126 @@
       '<button type="button" tabindex="-1" class="btn' + (ui.resetArmed ? ' danger' : '') + '" data-act="tree-reset"' + (pts.used > 0 ? '' : ' disabled') + '>' +
       (ui.resetArmed ? '再点一次确认重置' : '重置全部天赋') + '</button>' +
       '</div></div>';
+    treeApply();
+  }
+
+  // ---------- 天赋盘的缩放与平移 ----------
+  // ui.tv：当前视口（SVG 用户坐标的 { x, y, w, h }），null 表示「全览」——整个盘缩放到正好放下。
+  // 视口的宽高比始终和全览一致（preserveAspectRatio meet 负责留边），缩放范围是全览的 1 倍到 1 / TREE_ZMAX 倍
+  const TREE_ZMAX = 3.2;
+  let treeBox = null;
+  function treeFit() {
+    if (treeBox) return treeBox;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const id in G.TREE) {
+      const n = G.TREE[id];
+      x0 = Math.min(x0, n.x); x1 = Math.max(x1, n.x);
+      y0 = Math.min(y0, n.y); y1 = Math.max(y1, n.y);
+    }
+    // 四周留出节点、光圈和名字的位置（名字左右伸出去最多）
+    // 顶上多留一些：图例和缩放按钮压在盘面上方
+    const px = 92, py = 60, top = 96;
+    treeBox = { x: x0 - px, y: y0 - top, w: x1 - x0 + 2 * px, h: y1 - y0 + py + top };
+    return treeBox;
+  }
+  const treeVb = () => ui.tv || treeFit();
+  const vbStr = (v) => n1(v.x) + ' ' + n1(v.y) + ' ' + n1(v.w) + ' ' + n1(v.h);
+  // 视口中心不出全览的范围，宽度夹在缩放范围内
+  function treeClamp(v) {
+    const F = treeFit();
+    const w = G.clamp(v.w, F.w / TREE_ZMAX, F.w);
+    const h = (w * F.h) / F.w;
+    let cx = v.x + v.w / 2, cy = v.y + v.h / 2;
+    cx = G.clamp(cx, F.x + w / 2, F.x + F.w - w / 2);
+    cy = G.clamp(cy, F.y + h / 2, F.y + F.h - h / 2);
+    return w >= F.w - 0.5 ? null : { x: cx - w / 2, y: cy - h / 2, w, h };
+  }
+  // 屏幕像素 / SVG 用户单位
+  function treeScale(svg, v) {
+    const cw = svg.clientWidth || 1, ch = svg.clientHeight || 1;
+    return Math.min(cw / v.w, ch / v.h);
+  }
+  // 把视口写到 SVG 上，并按缩放调整名字的字号：缩得越小名字相对越大，屏幕上不小于约 11 像素
+  function treeApply() {
+    const svg = document.getElementById('tree-svg');
+    if (!svg) return;
+    const v = treeVb();
+    svg.setAttribute('viewBox', vbStr(v));
+    const k = treeScale(svg, v);
+    svg.style.setProperty('--lk', G.clamp(0.66 / k, 1, 2.2).toFixed(3));
+    svg.classList.toggle('zoomed', !!ui.tv);
+    const fit = el.body.querySelector('.tree-zoom [data-z="fit"]');
+    if (fit) fit.classList.toggle('on', !ui.tv);
+  }
+  // 以屏幕点 (sx, sy) 为中心缩放 f 倍（f < 1 放大）；不给点就以视口中心
+  function treeZoom(f, sx, sy) {
+    const svg = document.getElementById('tree-svg');
+    if (!svg) return;
+    const v = treeVb();
+    const r = svg.getBoundingClientRect();
+    const k = treeScale(svg, v);
+    const ox = r.left + (r.width - v.w * k) / 2, oy = r.top + (r.height - v.h * k) / 2;
+    if (sx === undefined) {
+      sx = r.left + r.width / 2;
+      sy = r.top + r.height / 2;
+    }
+    const ux = v.x + (sx - ox) / k, uy = v.y + (sy - oy) / k; // 鼠标下的那一点（用户坐标）
+    const F = treeFit();
+    const w = G.clamp(v.w * f, F.w / TREE_ZMAX, F.w);
+    const h = (w * F.h) / F.w;
+    const k2 = Math.min(r.width / w, r.height / h);
+    const ox2 = r.left + (r.width - w * k2) / 2, oy2 = r.top + (r.height - h * k2) / 2;
+    ui.tv = treeClamp({ x: ux - (sx - ox2) / k2, y: uy - (sy - oy2) / k2, w, h });
+    treeApply();
+  }
+  // 拖动平移：在盘面上按下左键拖动（挪出几像素才算拖，没挪动就还是一次点击）
+  const tpan = { on: false, armed: false, x: 0, y: 0, v: null };
+  function treePanDown(e) {
+    if (e.button !== 0 || !ui.isOpen || ui.tab !== 'tree') return;
+    const view = e.target.closest ? e.target.closest('.tree-view') : null;
+    if (!view || e.target.closest('.tree-zoom') || !ui.tv) return; // 全览时没有可平移的余地
+    tpan.armed = true;
+    tpan.on = false;
+    tpan.x = e.clientX;
+    tpan.y = e.clientY;
+    tpan.v = Object.assign({}, ui.tv);
+  }
+  function treePanMove(e) {
+    if (!tpan.armed) return;
+    if (!(e.buttons & 1)) {
+      tpan.armed = tpan.on = false;
+      return;
+    }
+    const dx = e.clientX - tpan.x, dy = e.clientY - tpan.y;
+    if (!tpan.on && Math.hypot(dx, dy) < 6) return;
+    if (!tpan.on) {
+      tpan.on = true;
+      hideTip();
+    }
+    const svg = document.getElementById('tree-svg');
+    if (!svg) return;
+    const k = treeScale(svg, tpan.v);
+    ui.tv = treeClamp({ x: tpan.v.x - dx / k, y: tpan.v.y - dy / k, w: tpan.v.w, h: tpan.v.h }) || ui.tv;
+    treeApply();
+    el.body.querySelector('.tree-view').classList.add('panning');
+  }
+  function treePanUp() {
+    if (!tpan.armed) return;
+    if (tpan.on) {
+      swallowClick(); // 拖完松手不算点了节点
+      const view = el.body.querySelector('.tree-view');
+      if (view) view.classList.remove('panning');
+    }
+    tpan.armed = tpan.on = false;
+  }
+  function treeWheel(e) {
+    if (!ui.isOpen || ui.tab !== 'tree') return;
+    const view = e.target.closest ? e.target.closest('.tree-view') : null;
+    if (!view) return;
+    e.preventDefault();
+    hideTip();
+    const d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+    treeZoom(Math.exp(G.clamp(d, -240, 240) * 0.0016), e.clientX, e.clientY);
   }
 
   // ============================================================
@@ -2092,7 +2284,7 @@
       '<p>召唤技能的按键是<b class="c-ally">自动召唤</b>的开关（每个技能分别记住，技能页的卡片上也能切换）：开着时，只要数量没到上限、魔力够、冷却好了，就在你身边隔一小会儿召唤一只，倒下的也会自动补上，正常扣魔力、进冷却；魔力不够就暂停，回上来接着补（点了以血为引则扣生命，付完低于四成生命时不自动召唤）。自动召唤不播动作，不打断你的施法、连招和翻滚，处决途中暂停。想把召唤物放到指定位置，按住 <kbd>Shift</kbd> 再按那个键，就在准星处手动召唤一次。技能从技能栏上拿下时自动召唤不生效，放回去接着补。</p>' +
       '<p><b class="c-ally">' + name('thrall', '烬骸仆从') + '</b>唤起迅捷的骸骨剑士，数量满了再手动召唤会替换伤得最重的那具；<b class="c-ally">' + name('colossus', '石誓守像') + '</b>只有一尊，缓慢而坚韧，会砸地伤害一圈敌人，并不时<b>嘲讽</b>，让周围的敌人转而攻击它。</p>' +
       '<p>召唤物全自动：跟在你身边，自己挑身边的敌人打。你<b>亲手打中</b>的敌人会被标记几秒，召唤物优先<b>集火</b>它——想先清掉谁，就先打它一下。敌人也会还手：一具仆从最多缠住两只怪、守像四只，多出来的照样冲你来，远程怪和爆裂虫更是认准了你。仆从会闪开小怪的预警圈，却躲不开首领的招式，挨得也更重；倒下的召唤物没开自动召唤时需要重新施放。</p>' +
-      '<p>召唤物<b>不吃你自己的伤害属性</b>，只随宝石等级、带「召唤物」字样的属性（装备词缀与<b class="c-ally">统御</b>支路的天赋）和镶在召唤技能上的辅助宝石成长。屏幕左下、生命球旁边的一排小图标是它们的血量，守像的嘲讽冷却也在那里；技能页的卡片上有每一击的伤害、生命与数量。</p>' +
+      '<p>召唤物<b>不吃你自己的伤害属性</b>，只随宝石等级、带「召唤物」字样的属性（装备词缀与<b class="c-ally">统御</b>支路的天赋）和镶在召唤技能上的辅助宝石成长；统御支路外圈的天赋还能让召唤物<b>继承你的武器伤害、护甲与抗性、装备生命</b>（武器的物品等级越高继承得越完整，魂幡按倍数计），后期靠装备继续变强。屏幕左下、生命球旁边的一排小图标是它们的血量，守像的嘲讽冷却也在那里；技能页的卡片上有每一击的伤害、生命与数量。</p>' +
       (gems ? '<div class="hc-list">' + gems + '</div>' : '') +
       '<p>通用辅助也能镶在召唤技能上：迅捷加快召唤物出手，注入、蛮力、致命、震慑、蚀染作用于召唤物的每一击，扩域放大守像的砸地，节流照常减少消耗与冷却。' + (blocked ? blocked + '镶不上召唤技能。' : '') + '</p>'
     );
@@ -2197,8 +2389,8 @@
       '<p>带<b>光环</b>标签的技能（' + (G.SKILLS.nova ? G.SKILLS.nova.name : '霜环') + '）不用按键：放进技能栏任意一格就常驻生效，代价是<b>保留</b>一部分最大魔力——魔力球顶上压暗的那一截，保留的魔力既不能用也不回复（以血为引时改为保留生命）。镶上的辅助宝石按各自的消耗倍率增减保留：节流减少，迅捷、扩域这类增加。回响和投射物类辅助镶不上。</p>' +
       helpSummon() +
       '<div class="sec-title">天赋盘</div>' +
-      '<p>每升一级获得 1 点天赋，首次击败每个首领再得 2 点。从中央出发有四条支路：<b style="color:#e2705a">铸躯</b>偏向生命与物理，<b style="color:#7ed67a">迅影</b>偏向速度与暴击，<b style="color:#6fb2ff">秘识</b>偏向魔力与元素，<b class="c-ally">统御</b>强化召唤物。</p>' +
-      '<p>支路尽头的<b>基石天赋</b>效果强烈但带有代价。天赋可以随时退回或整体重置，不需要任何花费。</p>' +
+      '<p>每升一级获得 1 点天赋，首次击败每个首领再得 2 点。从中央出发有四条支路：<b style="color:#e2705a">铸躯</b>偏向生命与物理，<b style="color:#7ed67a">迅影</b>偏向速度与暴击，<b style="color:#6fb2ff">秘识</b>偏向魔力与元素，<b class="c-ally">统御</b>强化召唤物；相邻支路之间还有<b style="color:#e0be6e">交汇</b>天赋，两头都能点进去。满级也点不满整个盘，要有取舍。</p>' +
+      '<p>每条支路有两个<b>基石天赋</b>（中圈一个、最外圈一个），效果强烈但带有代价。天赋可以随时退回或整体重置，不需要任何花费。天赋盘里滚轮缩放、按住拖动平移，「全览」回到整个盘。</p>' +
       '<div class="sec-title">区域与轮回</div>' +
       '<p>每个区域的尽头盘踞着一名首领。击败它之后会出现传送门，通往地图，可以前往下一个区域。</p>' +
       '<p>击败最后一个区域的首领会开启<b>轮回层级</b>：所有区域的怪物更强，掉落的物品等级也更高。</p>' +
@@ -2358,7 +2550,7 @@
       const alloc = G.save.passives.includes(id);
       const avail = !alloc && n.links.some((l) => G.save.passives.includes(l));
       let lines = '';
-      for (const k in n.stats) lines += '<div class="tc-stat">' + esc(G.fmtStat(k, n.stats[k])) + '</div>';
+      for (const k in n.stats) lines += '<div class="tc-stat' + (G.statBad(k, n.stats[k]) ? ' bad' : '') + '">' + esc(G.fmtStat(k, n.stats[k])) + '</div>';
       let hint;
       if (n.kind === 'start') hint = '<div class="tc-desc">所有支路从这里出发。</div>';
       else if (alloc) hint = '<div class="tc-hint ok">已点亮 · 点击退回</div>';
@@ -2686,6 +2878,11 @@
       }
       disarmReset();
       render();
+    },
+    'tree-zoom'(d) {
+      if (d.z === 'fit') ui.tv = null;
+      else treeZoom(d.z === 'in' ? 0.7 : 1 / 0.7);
+      treeApply();
     },
     'tree-reset'() {
       if (!ui.resetArmed) {
@@ -3478,7 +3675,7 @@
       const id = l.data.id;
       const sk = G.SKILLS[id];
       const have = save.skills[id];
-      const k = 1 + (sk.kind === 'summon' ? G.MINION_DMG_LVL || 0.2 : 0.2) * (l.data.lvl - 1);
+      const k = sk.kind === 'summon' ? G.minionDmgK(l.data.lvl) : 1 + 0.2 * (l.data.lvl - 1);
       const dmgs = sk.dmg || {};
       let dmg = Object.keys(dmgs).map((t) => '<b style="color:' + G.TYPE_COLOR[t] + '">' + Math.round(dmgs[t][0] * k) + '–' + Math.round(dmgs[t][1] * k) + ' ' + G.TYPE_NAME[t] + '</b>').join(' + ') || '无';
       if (sk.wm && sk.kind !== 'summon') {
@@ -3493,7 +3690,7 @@
       }
       if (sk.kind === 'summon') {
         // 召唤宝石：写召唤物自己的基础数值（还没算召唤物属性和辅助）
-        dmg = '<span class="c-ally">召唤物</span>每击 ' + dmg + (sk.life ? '<br>召唤物生命 ' + Math.round(sk.life * (1 + (G.MINION_LIFE_LVL || 0.28) * (l.data.lvl - 1))) : '') + (sk.cap ? (sk.cap > 1 ? ' · 基础上限 ' + sk.cap + ' 具' : ' · 只有 1 尊') : '');
+        dmg = '<span class="c-ally">召唤物</span>每击 ' + dmg + (sk.life ? '<br>召唤物生命 ' + Math.round(sk.life * G.minionLifeK(l.data.lvl)) : '') + (sk.cap ? (sk.cap > 1 ? ' · 基础上限 ' + sk.cap + ' 具' : ' · 只有 1 尊') : '');
       }
       const state = !have
         ? '<div class="tc-state new">新技能 · 拾取后学会' + (save.bar.indexOf(null) >= 0 ? '，并放进技能栏的空格' : '，在技能页绑定按键') + '</div>'
@@ -3901,6 +4098,19 @@
       done: () => false,
     },
     {
+      // 成长改版前的老角色第一次读进来：天赋盘扩大、宝石 / 武器 / 词缀不再封顶
+      id: 'growth', calm: true, max: 16,
+      get html() {
+        const free = G.passivePoints().free;
+        const n = Object.keys(G.TREE).length - 1;
+        return '<b>成长改版</b>：天赋盘扩大到 <b>' + n + '</b> 个节点，你原来点亮的天赋全部保留' + (free > 0 ? '，还有 <b class="c-gold">' + free + '</b> 点天赋点可以接着点（<kbd>P</kbd>）' : '') +
+          '。技能宝石的成长上限提高到 Lv ' + G.MAX_GEM_LEVEL + '，武器伤害随物品等级一直成长，物品等级 31 以上会出现更高阶的词缀。' +
+          '升级改为跟着怪物等级走：等级比怪物高出 3 级以上时经验迅速减少，你的经验条进度已按新的升级所需经验折算';
+      },
+      when: () => !!G.growthMigrated,
+      done: () => false,
+    },
+    {
       id: 'move', basic: true, max: 40,
       html: '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动，沿着路一直往前走',
       when: () => true,
@@ -4220,6 +4430,12 @@
     window.addEventListener('pointerup', dragUp, true);
     window.addEventListener('pointercancel', cancelDrag, true);
     window.addEventListener('blur', cancelDrag);
+    // 天赋盘：滚轮缩放、拖动平移
+    el.body.addEventListener('wheel', treeWheel, { passive: false });
+    el.body.addEventListener('pointerdown', treePanDown);
+    window.addEventListener('pointermove', treePanMove);
+    window.addEventListener('pointerup', treePanUp);
+    window.addEventListener('pointercancel', treePanUp);
     // 抢在 main.js 之前处理的按键：拖拽中 / 确认框开着时 Esc 只取消这一步，不关面板；开场卡片用回车或空格关闭
     window.addEventListener(
       'keydown',
@@ -4290,6 +4506,7 @@
       if (ui.isOpen) {
         renderPicker();
         hideTip();
+        if (ui.tab === 'tree') treeApply(); // 名字字号跟着面板尺寸重算
       }
     });
   }

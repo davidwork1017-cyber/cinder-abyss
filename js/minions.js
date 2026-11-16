@@ -169,7 +169,7 @@
     const m = {
       kind, skill: skillId, name: K.name, ent: makeEnt(kind),
       x, z, ang: Math.atan2(x - P.x, z - P.z), r: K.r, height: K.height,
-      hp: mi.life, maxHp: mi.life, dr: mi.dr, dead: false,
+      hp: mi.life, maxHp: mi.life, dr: mi.dr, armour: mi.armour || 0, res: mi.res || null, dead: false,
       target: null, atkT: 0.25, tauntCd: mi.taunt ? 1.5 : 0, tauntCdMax: mi.taunt ? mi.taunt.cd : 0,
       state: 'idle', stateT: 0, strikeT: -1, rising: 0, riseMax: K.rise, riseClip: true,
       moving: false, stuckT: 0, seekT: 0, hurtT: 0, volley: null, ignore: null, ignoreT: 0,
@@ -234,7 +234,12 @@
   G.hurtMinion = function (m, amount, dtype, src) {
     if (!m || m.dead || !(amount > 0)) return false;
     const W = G.world;
-    const dmg = Math.max(1, amount * (1 - (m.dr || 0) / 100));
+    // 继承来的护甲 / 抗性和玩家受击同一套结算：护甲减物理（封顶 80%），抗性减对应元素；再乘自带的减伤
+    let k = 1 - (m.dr || 0) / 100;
+    if (!dtype || dtype === 'phys') {
+      if (m.armour > 0) k *= 1 - Math.min(0.8, m.armour / (m.armour + 10 * amount));
+    } else if (m.res && m.res[dtype] > 0) k *= 1 - m.res[dtype] / 100;
+    const dmg = Math.max(1, amount * k);
     m.hp -= dmg;
     m.hurtT = 0.35;
     const ang = src && dist(src.x, src.z, m.x, m.z) > 0.05 ? Math.atan2(m.x - src.x, m.z - src.z) : m.ang + Math.PI;
@@ -278,6 +283,7 @@
       count: aliveOf(skillId), cap: mi.cap, dmgMin: lo * k, dmgMax: hi * k, avg: G.avgHit(ctx),
       life: mi.life, rate: 1 / mi.interval, interval: mi.interval, dps: G.skillDps(ctx),
       move: mi.move, dr: mi.dr, radius: mi.radius, kind: mi.kind,
+      armour: mi.armour || 0, res: mi.res || { fire: 0, cold: 0, light: 0 }, inherit: mi.inherit || null,
       taunt: mi.taunt ? { cd: mi.taunt.cd, r: mi.taunt.r, dur: mi.taunt.dur } : null,
     };
   };
@@ -295,6 +301,8 @@
       const mi = ctx.minion;
       m.ctx = ctx;
       m.dr = mi.dr;
+      m.armour = mi.armour || 0;
+      m.res = mi.res || null;
       if (mi.life !== m.maxHp) {
         m.hp = Math.max(1, (m.hp / m.maxHp) * mi.life);
         m.maxHp = mi.life;

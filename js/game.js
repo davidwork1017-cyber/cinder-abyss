@@ -6,7 +6,8 @@
   const SAVE_KEY = 'cinder-abyss-save-v1';
   const BAG_SIZE = (G.BAG_SIZE = 40);
   const MAX_LEVEL = (G.MAX_LEVEL = 60);
-  const MAX_GEM_LEVEL = 20;
+  // 宝石等级上限：成长下限 round(角色等级 × 0.75) 一直涨到满级 60 时的 45（改版前 20 级封顶，角色 27 级以后宝石就不再变强）
+  const MAX_GEM_LEVEL = (G.MAX_GEM_LEVEL = 45);
   const BLANK_MAX = 99; // 无铭技能宝石最多攒这么多颗（存档读入时截断）
   const PLAYER_PAD = 0.5; // 玩家与墙的距离
   const TAU = Math.PI * 2;
@@ -125,7 +126,8 @@
     start.wbase = [Math.round(ref[0] / aps), Math.round(ref[1] / aps)];
     G.refreshWeapon(start);
     return {
-      v: 1, level: 1, xp: 0, bag: [], equip: { weapon: start }, cur,
+      // gv：成长版本。2 = 宝石 / 武器 / 词缀阶不再在 20 / 27 / 24 封顶、天赋盘扩大之后的存档
+      v: 1, gv: 2, level: 1, xp: 0, bag: [], equip: { weapon: start }, cur,
       skills: { cleave: 1, ember: 1 }, supports: [],
       sockets: { cleave: [null, null, null], ember: [null, null, null] },
       bar: ['cleave', 'ember', null, null],
@@ -195,15 +197,24 @@
   // 物品的基底下标修成合法值；武器补齐伤害字段。旧存档的武器没有 wbase：按基底取平均成色推出来（确定、公平，不会是 0）。
   // 改版前物品等级不影响伤害，老角色手里常常还是低等级的武器：推导时的等级取 max(物品等级, 角色等级)（再受 WEAPON_LVL_CAP 限制），
   // 不让攻击流派的老角色一读档就掉一大截。dmg / aps 总是由 wbase 和本地词缀重新推导（存档里写的不算数）
-  function fixItem(it, charLvl) {
+  // oldGrowth：存档来自成长改版之前（没有 gv 字段）。那时武器伤害到物品等级 27 就封顶，物品等级更高的武器
+  // 把 wbase 按「现在这个物品等级的成长 ÷ 27 级的成长」放大一次（成色不变），老角色手里的高等级武器不吃亏
+  function fixItem(it, charLvl, oldGrowth) {
     const bases = G.BASES[it.slot];
     if (!(it.baseIdx >= 0 && it.baseIdx < bases.length) || it.baseIdx !== Math.floor(it.baseIdx)) it.baseIdx = 0;
     if (it.slot === 'weapon') {
       const wb = it.wbase;
       const ok = Array.isArray(wb) && wb.length === 2 && isNum(wb[0]) && isNum(wb[1]) && wb[0] >= 1 && wb[1] >= wb[0] && wb[1] <= 1e6;
-      if (ok) it.wbase = [Math.round(wb[0]), Math.round(wb[1])];
-      else {
-        it.wbase = G.weaponBaseDmg(it.baseIdx, Math.max(it.ilvl, Math.min(charLvl || 1, G.WEAPON_LVL_CAP)));
+      if (ok) {
+        it.wbase = [Math.round(wb[0]), Math.round(wb[1])];
+        const cap0 = G.WEAPON_LVL_OLD_CAP;
+        if (oldGrowth && it.ilvl > cap0) {
+          const k = G.weaponLvlK(it.ilvl) / G.weaponLvlK(cap0);
+          it.wbase = [Math.max(1, Math.round(wb[0] * k)), Math.max(Math.round(wb[0] * k) + 1, Math.round(wb[1] * k))];
+        }
+      } else {
+        // 更早的存档（还没有武器伤害字段）：照旧按 max(物品等级, 角色等级) 推导，角色等级那一项按改版前的 27 封顶
+        it.wbase = G.weaponBaseDmg(it.baseIdx, Math.max(it.ilvl, Math.min(charLvl || 1, G.WEAPON_LVL_OLD_CAP)));
         G.weaponMigrated = true; // 界面层据此提示一次「攻击技能改为吃武器伤害」
       }
       G.refreshWeapon(it);
@@ -231,18 +242,23 @@
   // 把读到的存档修成合法形状（字段缺失、被改动、旧数据都不该让游戏崩掉）
   function sanitize(raw) {
     G.weaponMigrated = false;
+    G.growthMigrated = null;
     const d = G.newSave();
     if (!isObj(raw) || raw.v !== 1) return d;
     const s = d;
 
     s.level = toInt(raw.level, 1, MAX_LEVEL, 1);
     s.xp = typeof raw.xp === 'number' && isFinite(raw.xp) && raw.xp > 0 ? raw.xp : 0;
-    s.bag = Array.isArray(raw.bag) ? raw.bag.filter(isItem).map((it) => fixItem(it, s.level)) : [];
+    const oldGrowth = !(raw.gv >= 2); // 成长改版之前的存档（见 fixItem、下面的天赋）
+    // 改版前升级所需经验是多项式（G.xpNeedOld）：等级不动，经验条的进度（百分比）原样换算到新的升级所需经验上，
+    // 不让高等级的老角色一读档经验条就从六成掉到几个百分点
+    if (oldGrowth && s.level < MAX_LEVEL && s.xp > 0) s.xp = Math.min(0.999, s.xp / G.xpNeedOld(s.level)) * G.xpNeed(s.level);
+    s.bag = Array.isArray(raw.bag) ? raw.bag.filter(isItem).map((it) => fixItem(it, s.level, oldGrowth)) : [];
     if (isObj(raw.equip)) {
       s.equip = {};
       for (const slot of G.SLOTS) {
         const it = raw.equip[slot];
-        if (isItem(it) && it.slot === slot) s.equip[slot] = fixItem(it, s.level);
+        if (isItem(it) && it.slot === slot) s.equip[slot] = fixItem(it, s.level, oldGrowth);
       }
     }
     if (isObj(raw.cur)) {
@@ -295,6 +311,9 @@
     }
     const ok = reachable(pas);
     s.passives = pas.filter((id) => ok.has(id));
+    // 成长改版前的老角色：天赋盘扩大时原有节点的 id 和连线都没有动，点过的天赋原样保留（这里不需要搬动或退点），
+    // 只是记一笔，让界面层提示一次「天赋盘扩大了、多出来的天赋点可以接着点」
+    if (oldGrowth && s.level > 1) G.growthMigrated = { kept: s.passives.length - 1 };
 
     s.cleared = {};
     if (isObj(raw.cleared)) {
@@ -380,24 +399,27 @@
       const it = save.equip[slot];
       if (it) add(G.itemStats(it));
     }
+    const gearLife = S.life;
     for (const id of save.passives) add(G.TREE[id].stats);
     P.S = S;
 
-    const lv = save.level - 1;
-    P.maxLifeRaw = Math.max(1, Math.round((100 + 12 * lv + S.life) * (1 + S.incLife / 100) * (1 + S.moreLife / 100)));
+    P.gearLife = gearLife; // 装备给的「+最大生命」（召唤物继承生命用）
+    P.maxLifeRaw = Math.max(1, Math.round((G.baseLife(save.level) + S.life) * (1 + S.incLife / 100) * (1 + S.moreLife / 100)));
     // 光环保留：技能栏上的光环按百分比扣掉最大魔力（maxManaRaw 是保留之前的上限）。
     // 魔力回复按保留之后的上限算：保留的那部分魔力既不能用，也不再回复。
     // 以血为引（技能消耗生命）时光环改为保留最大生命——不然魔力用不上，保留等于白送
-    P.maxManaRaw = Math.max(0, Math.round((60 + 6 * lv + S.mana) * (1 + S.incMana / 100)));
+    P.maxManaRaw = Math.max(0, Math.round((G.baseMana(save.level) + S.mana) * (1 + S.incMana / 100)));
     P.reservePct = G.reservePct();
     P.reserveLife = !!S.bloodMagic;
     P.reserved = Math.round(((P.reserveLife ? P.maxLifeRaw : P.maxManaRaw) * P.reservePct) / 100);
     P.maxLife = P.reserveLife ? Math.max(1, P.maxLifeRaw - P.reserved) : P.maxLifeRaw;
     P.maxMana = P.reserveLife ? P.maxManaRaw : Math.max(0, P.maxManaRaw - P.reserved);
     P.armour = Math.max(0, Math.round(S.armour * (1 + S.incArmour / 100)));
-    P.res.fire = Math.min(75, S.resFire);
-    P.res.cold = Math.min(75, S.resCold);
-    P.res.light = Math.min(75, S.resLight);
+    // resLoss（基石「元素过载」）在 75% 上限之后才扣，溢出的抗性抵消不了
+    const resLoss = Math.max(0, S.resLoss || 0);
+    P.res.fire = Math.min(75, S.resFire) - resLoss;
+    P.res.cold = Math.min(75, S.resCold) - resLoss;
+    P.res.light = Math.min(75, S.resLight) - resLoss;
     P.speedMult = Math.max(0.2, 1 + S.speed / 100);
     P.moveSpeed = 7.2 * Math.max(0.2, 1 + S.moveSpeed / 100);
     P.lifeRegen = S.lifeRegen;
@@ -532,7 +554,7 @@
       out.phys = [wp.min * k, wp.max * k];
       return out;
     }
-    const scale = 1 + (sk.kind === 'summon' || sk.asMinion ? G.MINION_DMG_LVL : 0.2) * (lvl - 1);
+    const scale = sk.kind === 'summon' || sk.asMinion ? G.minionDmgK(lvl) : 1 + 0.2 * (lvl - 1);
     if (sk.edmg) {
       out[G.topElem(sk.elem)] = [sk.edmg[0] * scale, sk.edmg[1] * scale];
       return out;
@@ -556,6 +578,14 @@
 
     // 召唤物的基础伤害起点高、每级成长慢一些（G.MINION_DMG_LVL）：前期只有 3 具仆从、几乎没有加成时也打得动，后期不至于碾压首领
     const base = G.skillBase(id, lvl);
+    // 召唤物继承你的装备（统御外圈的天赋）：每一击附加「你的武器伤害 × 继承比例 × 魂幡倍率 × 技能的继承系数」点物理伤害，
+    // 和基础伤害一样再吃召唤物伤害加成；防御 / 生命的继承在下面 ctx.minion 里算
+    const inh = isMinion ? G.minionInherit(sk) : null;
+    if (inh && inh.add) {
+      if (!base.phys) base.phys = [0, 0];
+      base.phys[0] += inh.add[0];
+      base.phys[1] += inh.add[1];
+    }
     if (!mScale) for (const t of TYPES) {
       const v = S['add' + G.CAP[t]] || 0;
       if (v > 0) {
@@ -569,7 +599,8 @@
     const moreType = {};
     for (const t of TYPES) {
       inc[t] = mScale ? S.minionDmg || 0 : (S.incAll || 0) + (t === 'phys' ? S.incPhys || 0 : (S.incElem || 0) + (S['inc' + G.CAP[t]] || 0));
-      moreType[t] = 1;
+      // 基石「元素过载」：你的元素伤害总额外提高（召唤物不吃）
+      moreType[t] = !mScale && t !== 'phys' ? Math.max(0, 1 + (S.moreElem || 0) / 100) : 1;
     }
 
     // 基石「万骸之主」：你自己（非召唤物）的伤害总额外降低（处决也算你自己的伤害）
@@ -637,7 +668,7 @@
       attack: isAttack,
       weapon: wp,
       wm: isAttack ? sk.wm : 0,
-      levelK: isAttack ? 1 + G.ATTACK_GEM_LVL * (lvl - 1) : 1 + (mScale ? G.MINION_DMG_LVL : 0.2) * (lvl - 1),
+      levelK: isAttack ? 1 + G.ATTACK_GEM_LVL * (lvl - 1) : mScale ? G.minionDmgK(lvl) : 1 + 0.2 * (lvl - 1),
       asMinion: mScale && !isMinion, // 魂潮：伤害按召唤物算的武器技（ctx.minion 仍为 null）
     };
     if (isMinion) {
@@ -647,8 +678,12 @@
       const cap = sk.cap + (sk.minion === 'thrall' ? Math.max(0, Math.round((S.minionCap || 0) + mCap)) : 0);
       ctx.minion = {
         kind: sk.minion, cap,
-        life: Math.max(1, Math.round(sk.life * (1 + G.MINION_LIFE_LVL * (lvl - 1)) * Math.max(0.1, 1 + ((S.minionLife || 0) + mLife) / 100))),
+        life: Math.max(1, Math.round((sk.life * G.minionLifeK(lvl) + inh.life) * Math.max(0.1, 1 + ((S.minionLife || 0) + mLife) / 100))),
         dr: Math.min(75, (sk.dr || 0) + mDR),
+        // 继承来的护甲 / 抗性（受击时和你一样结算：护甲减物理、抗性减元素）；inherit 是技能卡上显示用的明细
+        armour: inh.armour,
+        res: inh.res,
+        inherit: inh,
         interval: sk.rate / atkK,
         move: sk.move * spdK,
         reach: sk.reach || 1,
@@ -662,8 +697,61 @@
     return ctx;
   };
 
+  // 召唤物继承你的装备（天赋里的 mWeapon / mDef / mLife，单位 %）：
+  //   武器：每一击附加 你武器的伤害区间 × mWeapon% × 物品等级折算（G.inheritGate：物品等级 INHERIT_ILVL0 以下为 0，到 INHERIT_ILVL 线性涨满）× 魂幡倍率（BASES 里的 soul，魂幡武器伤害低，按倍数计）× 技能的 inherit 系数
+  //        （守像出手慢、一击重，系数更高）——武器的物品等级、成色和本地词缀从此也影响召唤师；
+  //   防御：护甲 = 你的护甲 × mDef%，各项抗性 = 你的抗性 × mDef%（封顶 75%）；
+  //   生命：额外基础生命 = 你装备上「+最大生命」的总和 × mLife% × inherit 系数（再吃召唤物生命加成）。
+  //   防御和生命同样按物品等级折算：用武器以外的装备的平均物品等级。
+  // 返回 { weapon, def, lifePct 三项比例, add 附加伤害 [最小, 最大] 或 null, armour, res: { fire, cold, light }, life, soul, gate, gateDef, ilvlDef }
+  // 折算从物品等级 INHERIT_ILVL0 起步：层级 0 的装备（物品等级 ≤ 19）几乎继承不到，这条线是给轮回层级用的，
+  // 天赋盘变大后层级 0 的召唤师不会因此变强（改版前统御只有 13 个节点）
+  G.INHERIT_ILVL0 = 12;
+  G.INHERIT_ILVL = 46;
+  G.inheritGate = (ilvl) => G.clamp((ilvl - G.INHERIT_ILVL0) / (G.INHERIT_ILVL - G.INHERIT_ILVL0), 0, 1);
+  G.minionInherit = function (sk) {
+    const S = P.S;
+    const k = (sk && sk.inherit) || 1;
+    const wPct = Math.max(0, S.mWeapon || 0);
+    const dPct = Math.min(100, Math.max(0, S.mDef || 0));
+    const lPct = Math.max(0, S.mLife || 0);
+    const item = G.save.equip.weapon;
+    const base = item && G.BASES.weapon[item.baseIdx];
+    const soul = (base && base.soul) || 1;
+    // 器魂随武器的物品等级成长（层级 0 的武器只继承一成左右）：召唤师靠后期的装备变强，而不是在层级 0 就把这条线点满
+    const gate = item ? G.inheritGate(item.ilvl || 1) : 0;
+    // 防御 / 生命：按身上其余装备的平均物品等级折算（和武器一样靠后期的装备成长）
+    let iSum = 0, iN = 0;
+    for (const slot of G.SLOTS) {
+      const it = slot !== 'weapon' && G.save.equip[slot];
+      if (it) { iSum += it.ilvl || 1; iN++; }
+    }
+    const ilvlDef = iN ? Math.round(iSum / iN) : 0;
+    const gateDef = iN ? G.inheritGate(iSum / iN) : 0;
+    const dK = (dPct / 100) * gateDef;
+    let add = null;
+    if (wPct > 0 && gate > 0) {
+      const w = G.weaponStats(item);
+      const f = (wPct / 100) * gate * soul * k;
+      add = [w.min * f, w.max * f];
+    }
+    const res = {};
+    for (const t of G.ELEMS) res[t] = Math.min(75, Math.max(0, (P.res[t] || 0) * dK));
+    return {
+      weapon: wPct, def: dPct, lifePct: lPct, soul, add, gate, ilvl: item ? item.ilvl : 0, gateDef, ilvlDef,
+      armour: Math.round((P.armour || 0) * dK),
+      res,
+      life: Math.round((P.gearLife || 0) * lPct / 100 * gateDef * k),
+    };
+  };
+
   G.MINION_LIFE_LVL = 0.28; // 召唤物生命每级宝石的成长（伤害是 MINION_DMG_LVL，生命要跟得上怪物伤害 1.15 倍 / 级的成长）
+  // 宝石 20 级以上（轮回层级里）每级再多 MINION_LIFE_LATE：线性成长越往后占比越小，仆从会跟不上层级 2 的怪物伤害
+  G.MINION_LIFE_LATE = 0.8;
+  G.minionLifeK = (lvl) => 1 + G.MINION_LIFE_LVL * (lvl - 1) + G.MINION_LIFE_LATE * Math.max(0, lvl - 20);
   G.MINION_DMG_LVL = 0.11; // 召唤物伤害每级宝石的成长（其他技能是 0.2；召唤宝石的基础伤害相应高一截）
+  G.MINION_DMG_LATE = 0.09; // 宝石 20 级以上每级再多这么多（和生命一样，层级 0 用不到；召唤物吃不到武器 / 词缀阶的成长，层级 2 靠它跟上）
+  G.minionDmgK = (lvl) => 1 + G.MINION_DMG_LVL * (lvl - 1) + G.MINION_DMG_LATE * Math.max(0, lvl - 20);
 
   // 估算秒伤（技能卡、换装评估用）：平均击中 ÷ 每次出手实际占用的时间（含命中时的顿帧），受冷却限制。
   // 召唤技能：数量上限内的召唤物一起出手的秒伤（单体）
@@ -1068,10 +1156,8 @@
     state.stats.kills++;
     G.sfx('kill', { type, big: !!(e.elite || e.isBoss) });
 
-    // 经验：等级压制时衰减
-    let xp = G.mobXp(e.level) * (e.isBoss ? 20 : ((e.def && e.def.xp) || 1) * (e.elite ? 3 : 1));
-    if (save.level > e.level + 8) xp *= 0.1;
-    else if (save.level > e.level + 4) xp *= 0.5;
+    // 经验
+    const xp = G.killXp(e, save.level); // 压级衰减 / 越级封顶见 data.js 的「经验」
 
     if (P.S.lifeOnKill > 0) G.healPlayer(P.S.lifeOnKill);
     const charge = 0.12 + (e.elite ? 1 : 0) + (e.isBoss ? 3 : 0);
@@ -1153,6 +1239,7 @@
     if (!dtype || dtype === 'phys') dmg *= 1 - Math.min(0.8, P.armour / (P.armour + 10 * amount));
     else dmg *= 1 - (P.res[dtype] || 0) / 100;
     dmg *= 1 - Math.min(90, P.S.lessTaken || 0) / 100;
+    dmg *= 1 + Math.max(0, P.S.moreTaken || 0) / 100; // 基石「刃舞」的代价
     dmg = Math.max(1, dmg);
 
     P.life -= dmg;

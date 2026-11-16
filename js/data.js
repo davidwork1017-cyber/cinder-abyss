@@ -37,7 +37,10 @@
   // 攻击技能的成长几乎全在武器上（宝石等级只给一点点）：拿着当前区域物品等级的武器、宝石在成长下限时，
   // 两者相乘和改版前「宝石每级 +20%」的曲线贴得很近（角色 1–27 级都在 ±5% 以内）。起手的 1 级刃（8–12）× 裂石击 1.25 = 改版前的 10–15
   G.WEAPON_LVL = 0.12;
-  G.WEAPON_LVL_CAP = 27; // 物品等级超过这么多不再提高武器伤害（宝石的成长下限也在 27 级角色时到 20 级封顶）
+  // 武器伤害按物品等级一直线性成长到这么高（轮回层级 2 的物品等级到 48，层级 3 到 64；再往上不再提高）。
+  // 改版前到 27 就封顶了：WEAPON_LVL_OLD_CAP 只用于修旧存档（见 game.js 的 fixItem）
+  G.WEAPON_LVL_CAP = 80;
+  G.WEAPON_LVL_OLD_CAP = 27;
   G.ATTACK_GEM_LVL = 0.012;
   G.FISTS = { min: 2, max: 4, aps: 1 }; // 空手
 
@@ -119,6 +122,7 @@
       dmg: { phys: [11, 15] }, time: 0.6, mana: 12, cd: 0, range: 6,
       cap: 3, life: 54, rate: 0.8, reach: 0.9, move: 7.4, dr: 0, w: 0, kb: 0.1, poise: 3,
       cleave: 4, arc: 160, // 横斩：身前 160° 扇面里贴着的敌人再带到至多 4 个
+      inherit: 1, // 继承武器伤害 / 装备生命时的系数（见 game.js 的 G.minionInherit）
       hold: 2, // 同时最多牵制 2 只小怪（守像 4 只）；被围满后其余的怪会去找玩家
       desc: '唤起烬骸仆从：迅捷的骸骨剑士，自动寻找敌人厮杀，横斩会带到身前贴着的敌人，优先攻击你最近打中的目标。基础上限 3 具。按键开关自动召唤（在你身边补到上限）；Shift + 按键在准星处召唤一具，数量已满时替换受伤最重的那具。',
     },
@@ -127,6 +131,7 @@
       dmg: { phys: [24, 36] }, time: 1.0, mana: 30, cd: 6, range: 6,
       cap: 1, life: 220, rate: 2.5, reach: 1.6, move: 4.4, dr: 25, w: 1, kb: 1.1, poise: 9,
       radius: 3.2, // 砸地半径（受扩域影响）
+      inherit: 2.4, // 出手慢、一击重：继承的武器伤害与装备生命按 2.4 倍计
       hold: 4,
       taunt: { cd: 7, r: 6, dur: 3, boss: 0.8 }, // 嘲讽：冷却、半径、小怪被嘲讽的秒数、首领被嘲讽的秒数
       desc: '立起一尊石誓守像：缓慢而坚不可摧，每隔几秒双拳砸地伤害一圈敌人，并不时怒吼嘲讽，迫使周围的敌人转而攻击它。只能存在 1 尊。按键开关自动召唤；Shift + 按键在准星处召唤，已有的那尊会在新位置重铸。',
@@ -299,13 +304,30 @@
     minionSpeed: '召唤物攻击与移动速度提高 {v}%', minionCap: '烬骸仆从数量上限 +{v}',
     minionMore: '召唤物总伤害额外 {s}{v}%', ownLess: '你自身（非召唤物）的总伤害额外 -{v}%',
     poiseDmg: '架势削减提高 {v}%', pierce: '投射物额外穿透 {v} 个敌人',
+    moreElem: '元素伤害总额外 {s}{v}%', moreTaken: '受到的伤害增加 {v}%',
+    // 在 75% 上限之后才扣：溢出的抗性抵消不了（基石「元素过载」的代价）
+    resLoss: '各项元素抗性 -{v}%（在 75% 上限之后扣除）',
+    // 召唤物继承你的装备（见 game.js 的 G.minionInherit）
+    mWeapon: '召唤物每一击附加相当于你武器伤害 {v}% 的物理伤害（按武器物品等级折算）', mDef: '召唤物获得你 {v}% 的护甲与抗性（按装备物品等级折算）',
+    mLife: '召唤物获得你装备上最大生命总和 {v}% 的额外生命（按装备物品等级折算）',
     // 武器的本地词缀：只改这把武器自己的伤害（不进角色属性汇总），已经算在物品的 dmg 里
     wInc: '武器物理伤害提高 {v}%', wAdd: '附加 {a}–{b} 物理伤害',
   };
   G.LOCAL_STATS = { wInc: 1, wAdd: 1 };
+  // 「提高 / 缩短 / 减少……」类的写法遇到负值时换成反义词、写绝对值（「移动速度降低 15%」，而不是「提高 -15%」）
+  const FLIP = [['提高', '降低'], ['缩短', '延长'], ['减少', '增加'], ['加快', '减慢'], ['扩大', '缩小']];
+  // 代价：负值，或者本身就是坏处的属性（界面上标红）
+  G.statBad = (stat, v) => (stat === 'ownLess' || stat === 'moreTaken' || stat === 'resLoss' ? v > 0 : v < 0);
   G.fmtStat = function (stat, v) {
-    const f = G.STAT_FMT[stat] || stat + ' {v}';
-    const r = Math.round(v * 10) / 10;
+    let f = G.STAT_FMT[stat] || stat + ' {v}';
+    let r = Math.round(v * 10) / 10;
+    if (r < 0 && f.indexOf('{s}') < 0 && f.indexOf('+{v}') < 0) {
+      const w = FLIP.find((p) => f.indexOf(p[0]) >= 0);
+      if (w) {
+        f = f.replace(w[0], w[1]);
+        r = -r;
+      }
+    }
     return f
       .replace('{s}', r >= 0 ? '+' : '')
       .replace('+{v}', (r >= 0 ? '+' : '') + r)
@@ -338,7 +360,8 @@
       { names: ['榆木长弓', '筋角长弓', '渊鸣长弓'], type: 'bow', wskill: 'arrowrain', dmg: [8, 15], aps: 1.0, hands: 2, imp: { stat: 'pierce', lo: 1, hi: 1, fixed: true, step: 12 } },
       { names: ['直刃太刀', '霜纹太刀', '烬月太刀'], type: 'katana', wskill: 'flashcut', dmg: [8, 14], aps: 1.05, hands: 2, imp: { stat: 'critMulti', lo: 12, hi: 20 } },
       // 魂幡：召唤师的武器，武器伤害很低；隐含属性带一点召唤物生命（also：数值 = 主隐含 × k，取整）
-      { names: ['骨铃魂幡', '残旌魂幡', '渊引魂幡'], type: 'banner', wskill: 'soultide', dmg: [3, 6], aps: 0.9, hands: 2, caster: true, drop: 0.8, imp: { stat: 'minionDmg', lo: 10, hi: 16, also: { stat: 'minionLife', k: 0.5 } } },
+      // soul：召唤物继承武器伤害时按这么多倍计（魂幡的武器伤害只有刃的四成多，乘上之后和刃相当，召唤师拿魂幡不吃亏）
+      { names: ['骨铃魂幡', '残旌魂幡', '渊引魂幡'], type: 'banner', wskill: 'soultide', dmg: [3, 6], aps: 0.9, hands: 2, caster: true, drop: 0.8, soul: 2.2, imp: { stat: 'minionDmg', lo: 10, hi: 16, also: { stat: 'minionLife', k: 0.5 } } },
     ],
     helm: [{ names: ['皮盔', '铁盔', '烬钢盔'], armour: [10, 4] }],
     body: [{ names: ['皮甲', '锁甲', '烬钢甲'], armour: [20, 8] }],
@@ -358,8 +381,12 @@
     ],
   };
 
-  // 词缀：tiers 由 lo/hi 按 g 的幂次增长；TIER_ILVL 是各阶所需物品等级
-  G.TIER_ILVL = [1, 5, 9, 13, 18, 24];
+  // 词缀：tiers 由 lo/hi 按 g 的幂次增长；TIER_ILVL 是各阶所需物品等级。
+  // 前 6 阶（物品等级 24 以内，层级 0 能见到的全部）和改版前一样；后 4 阶（31 / 38 / 46 / 55）给轮回层级 1 以后用，
+  // 按同样的 g 接着涨。soft 的词缀（抗性、速度、暴击这类有上限或收益递增的）从 SOFT_TIER 阶往上每阶只按 √g 涨，
+  // 免得一条抗性就顶满、一双鞋子跑出两倍移速
+  G.TIER_ILVL = [1, 5, 9, 13, 18, 24, 31, 38, 46, 55];
+  G.SOFT_TIER = 5;
   const ARM = ['helm', 'body', 'gloves', 'boots'];
   const JEW = ['ring', 'amulet'];
   function A(id, type, label, stat, lo, hi, g, slots, w) {
@@ -401,6 +428,7 @@
   ];
   G.AFFIX_BY_ID = {};
   for (const a of G.AFFIXES) G.AFFIX_BY_ID[a.id] = a;
+  for (const id of ['moveSpeed', 'resFire', 'resCold', 'resLight', 'speed', 'crit', 'critMulti', 'manaRegen', 'rarity']) G.AFFIX_BY_ID[id].soft = true;
 
   G.RARE_A = ['灰烬', '霜骨', '雷鸣', '渊影', '残月', '裂魂', '荆棘', '苍白', '余烬', '暮光', '锈蚀', '血誓'];
   G.RARE_B = ['之握', '之誓', '之眼', '壁垒', '挽歌', '獠牙', '回响', '枷锁', '之冠', '低语', '印记', '之怒'];
@@ -490,6 +518,106 @@
     add(mArm, 'ml1', 4.4, -25, 'ml0', '亡者狂潮', { minionSpeed: 10, minionDmg: 8 }, 'notable');
     add(mArm, 'mr0', 4.5, 19, 'mm2', '心智', { mana: 20 });
     add(mArm, 'mr1', 5.6, 22, 'mr0', '骸军', { minionCap: 1, minionLife: 15 }, 'notable');
+
+    // ---------- 外圈（成长改版加的 68 个节点）----------
+    // 上面 49 个节点的 id、位置和连线一个都没动：老存档点过的天赋原样有效。新节点只往外长：
+    //   每条支路的两条旁支各再延伸 2–4 个节点（末端是核心天赋），再由两条外延小路汇到半径 10.6 处的第二个基石；
+    //   相邻支路之间：上下两个大空隙各有一团「交汇」天赋（两头都能进），左右两个窄空隙各有一座桥。
+    // 统御的两条外延就是「召唤物继承装备」的两条线：左边继承武器伤害，右边继承护甲 / 抗性 / 生命。
+    // 满级 60 级约有 67 点，整个盘 117 个节点，点不满，要取舍。
+    const ARMS = { s: arms[0], d: arms[1], i: arms[2], m: mArm };
+    const OUTER = { key: 'o', color: '#e0be6e' };
+    // 极坐标（半径 r × U，绝对角度 ang 度）放一个节点，links 是要连上的已有节点
+    function at(arm, id, r, ang, name, stats, kind, links) {
+      const a = (ang * Math.PI) / 180;
+      T[id] = { id, x: Math.cos(a) * r * U, y: Math.sin(a) * r * U, name, stats, kind: kind || 'small', arm: arm.key, color: arm.color, links: [] };
+      for (const l of links) link(id, l);
+    }
+    function link(a, b) {
+      if (T[a].links.indexOf(b) < 0) T[a].links.push(b);
+      if (T[b].links.indexOf(a) < 0) T[b].links.push(a);
+    }
+    // 三条经典支路的外延：off 是相对支路角度的偏移（l 旁支朝负方向、r 旁支朝正方向，和原来的旁支一致）
+    const EXT = {
+      s: {
+        l: [['膂力', { incPhys: 8 }], ['体魄', { life: 20 }], ['碎骨', { incPhys: 20, poiseDmg: 25, area: 6 }]],
+        r: [['铁骨', { incArmour: 15 }], ['铁甲', { armour: 120, incArmour: 30 }]],
+        o: [['体魄', { life: 25 }], ['坚韧', { incLife: 6 }], ['铁骨', { incArmour: 15 }], ['愈合', { lifeRegen: 4 }]],
+        k: ['不动如山', { lessTaken: 15, incArmour: 40, moveSpeed: -15, dodgeCd: -50 }],
+      },
+      d: {
+        l: [['锐眼', { crit: 12 }], ['要害', { critMulti: 10 }], ['致命节奏', { crit: 25, critMulti: 20 }]],
+        r: [['敏捷', { speed: 4 }], ['疾行', { moveSpeed: 6, speed: 6, dodgeCd: 15 }]],
+        o: [['敏捷', { speed: 3 }], ['猎手', { incAll: 6 }], ['轻步', { moveSpeed: 3 }], ['锐眼', { crit: 12 }]],
+        k: ['刃舞', { speed: 20, crit: 40, moreTaken: 15 }],
+      },
+      i: {
+        l: [['元素亲和', { incElem: 8 }], ['侵蚀', { ailment: 8 }], ['元素共鸣', { incElem: 16, ailment: 10, area: 6 }]],
+        r: [['心智', { mana: 20 }], ['深思', { incMana: 12, manaRegen: 25, costReduce: 5 }]],
+        o: [['元素亲和', { incElem: 8 }], ['博识', { incMana: 6 }], ['冥想', { manaRegen: 15 }], ['延展', { area: 6 }]],
+        k: ['元素过载', { moreElem: 30, resLoss: 20 }],
+      },
+    };
+    for (const k of ['s', 'd', 'i']) {
+      const arm = ARMS[k], e = EXT[k], A = arm.ang;
+      const N = (j, n) => (j === n - 1 ? 'notable' : 'small');
+      at(arm, k + 'l3', 6.3, A - 24, e.l[0][0], e.l[0][1], N(0, 3), [k + 'l2']);
+      at(arm, k + 'l4', 7.4, A - 22, e.l[1][0], e.l[1][1], N(1, 3), [k + 'l3']);
+      at(arm, k + 'l5', 8.5, A - 21, e.l[2][0], e.l[2][1], N(2, 3), [k + 'l4']);
+      at(arm, k + 'r3', 7.3, A + 25, e.r[0][0], e.r[0][1], N(0, 2), [k + 'r2']);
+      at(arm, k + 'r4', 8.4, A + 27, e.r[1][0], e.r[1][1], N(1, 2), [k + 'r3']);
+      at(arm, k + 'o0', 9.4, A - 16, e.o[0][0], e.o[0][1], 'small', [k + 'l5']);
+      at(arm, k + 'o1', 10.1, A - 8, e.o[1][0], e.o[1][1], 'small', [k + 'o0']);
+      at(arm, k + 'o2', 9.4, A + 18, e.o[2][0], e.o[2][1], 'small', [k + 'r4']);
+      at(arm, k + 'o3', 10.1, A + 9, e.o[3][0], e.o[3][1], 'small', [k + 'o2']);
+      at(arm, k + 'k2', 10.6, A, e.k[0], e.k[1], 'keystone', [k + 'o1', k + 'o3']);
+    }
+    // 统御外延：左线继承武器伤害，右线继承护甲 / 抗性 / 生命，两线各自通向基石「器魂共鸣」。
+    // 这两条线上只放继承属性、不放普通的召唤物伤害 / 生命：继承的武器伤害按物品等级折算，层级 0 的召唤师点进来几乎白点，
+    // 不会因为天赋盘变大而在层级 0 变强（改版前统御只有 13 个节点，多出来的点只能去点通用节点）
+    const M = mArm;
+    at(M, 'ml2', 5.5, 303, '承锋', { mWeapon: 4 }, 'small', ['ml1']);
+    at(M, 'ml3', 6.5, 303, '承锋', { mWeapon: 5 }, 'small', ['ml2']);
+    at(M, 'ml4', 7.5, 304, '器灵', { mWeapon: 12 }, 'notable', ['ml3']);
+    at(M, 'ml5', 8.5, 305, '承锋', { mWeapon: 5 }, 'small', ['ml4']);
+    at(M, 'ml6', 9.5, 306, '兵魂', { mWeapon: 20 }, 'notable', ['ml5']);
+    at(M, 'mr2', 6.6, 355, '骸甲', { mDef: 6 }, 'small', ['mr1']);
+    at(M, 'mr3', 7.5, 355, '骸甲', { mDef: 8 }, 'small', ['mr2']);
+    at(M, 'mr4', 8.4, 355, '承甲', { mDef: 20 }, 'notable', ['mr3']);
+    at(M, 'mr5', 9.3, 354, '骸甲', { mDef: 8 }, 'small', ['mr4']);
+    at(M, 'mr6', 10.2, 353, '同命', { mLife: 30 }, 'notable', ['mr5']);
+    at(M, 'mo0', 10.3, 312, '承锋', { mWeapon: 5 }, 'small', ['ml6']);
+    at(M, 'mo1', 10.9, 317, '承锋', { mWeapon: 5 }, 'small', ['mo0']);
+    at(M, 'mo3', 11.4, 323, '器契', { mWeapon: 4, mDef: 4 }, 'small', ['mo1']);
+    at(M, 'mo2', 10.9, 344, '骸甲', { mDef: 6 }, 'small', ['mr6']);
+    at(M, 'mo4', 11.4, 337, '器契', { mWeapon: 4, mDef: 4 }, 'small', ['mo2']);
+    // 基石的代价对召唤师也是真的：你自己的伤害大减，最大生命也跟着降
+    at(M, 'mk2', 11.6, 330, '器魂共鸣', { mWeapon: 50, mDef: 30, mLife: 25, ownLess: 40, moreLife: -15 }, 'keystone', ['mo3', 'mo4']);
+    // 交汇：下方（铸躯 × 迅影，近战）与上方（秘识 × 统御，法术与召唤）各一团，两头的旁支都能进；
+    // 左（铸躯 × 秘识）右（迅影 × 统御）两座桥
+    const O = OUTER;
+    at(O, 'bi0', 6.0, 72, '坚毅', { life: 15, speed: 2 }, 'small', ['dr2']);
+    at(O, 'bi1', 6.0, 108, '坚毅', { life: 15, incPhys: 5 }, 'small', ['sl2']);
+    at(O, 'bx0', 8.0, 68, '锋芒', { incPhys: 6, crit: 8 }, 'small', ['dr4']);
+    at(O, 'bx1', 8.0, 112, '韧皮', { life: 20, incArmour: 8 }, 'small', ['sl5']);
+    at(O, 'bx2', 7.4, 79, '膂力', { incPhys: 8 }, 'small', ['bi0', 'bx0']);
+    at(O, 'bx3', 7.4, 101, '体魄', { life: 20 }, 'small', ['bi1', 'bx1']);
+    at(O, 'bn1', 7.0, 90, '百战', { incPhys: 15, life: 30, speed: 4 }, 'notable', ['bx2', 'bx3']);
+    at(O, 'bx4', 8.4, 90, '膂力', { incPhys: 8 }, 'small', ['bn1']);
+    at(O, 'bn2', 9.6, 90, '浴血', { incPhys: 12, lifeOnKill: 8, lifeRegen: 5 }, 'notable', ['bx4']);
+    at(O, 'ti0', 6.0, 252, '灵引', { mana: 15, incElem: 5 }, 'small', ['ir2']);
+    at(O, 'ti1', 6.0, 288, '灵引', { minionDmg: 8 }, 'small', ['ml3']);
+    at(O, 'tx0', 8.0, 248, '元素亲和', { incElem: 8 }, 'small', ['ir4']);
+    at(O, 'tx1', 8.0, 292, '骸骨坚韧', { minionLife: 12 }, 'small', ['ml5']);
+    at(O, 'tx2', 7.4, 259, '灵契', { incElem: 6, minionDmg: 6 }, 'small', ['ti0', 'tx0']);
+    at(O, 'tx3', 7.4, 281, '灵契', { minionDmg: 6, mana: 10 }, 'small', ['ti1', 'tx1']);
+    at(O, 'tn1', 7.0, 270, '灵契共振', { incElem: 10, minionDmg: 10, mana: 20 }, 'notable', ['tx2', 'tx3']);
+    at(O, 'tx4', 8.4, 270, '亡者狂潮', { minionSpeed: 5 }, 'small', ['tn1']);
+    at(O, 'tn2', 9.6, 270, '魂火', { incElem: 15, minionDmg: 15, ailment: 10 }, 'notable', ['tx4']);
+    at(O, 'lx0', 9.4, 183, '血与智', { life: 15, mana: 15 }, 'small', ['sr4', 'il5']);
+    at(O, 'ln', 10.4, 183, '血智', { life: 30, mana: 30, incLife: 5, incMana: 5 }, 'notable', ['lx0']);
+    at(O, 'rx0', 9.2, 2, '疾令', { speed: 3, minionSpeed: 5 }, 'small', ['dl5', 'mr5']);
+    at(O, 'rn', 10.2, 4, '狩群', { speed: 6, minionSpeed: 10, moveSpeed: 4 }, 'notable', ['rx0']);
   })();
 
   // ---------- 区域 ----------
@@ -535,8 +663,52 @@
     warden: { name: '雷霆监察者', hp: 875, dmg: 15.4, speed: 4.0, r: 1.7, poise: 480, patterns: ['cross', 'barrage', 'charge', 'ring'] },
     lord: { name: '烬渊之主', hp: 1175, dmg: 15, speed: 4.0, r: 1.9, poise: 550, patterns: ['slam', 'fan', 'spiral', 'cross', 'barrage', 'summon'] },
   };
-  G.hpScale = (l) => Math.pow(1.2, l - 1);
-  G.dmgScale = (l) => Math.pow(1.15, l - 1);
-  G.xpNeed = (l) => Math.round(40 + 30 * Math.pow(l, 1.5));
+  // 怪物成长：MOB_KNEE（16，层级 0 的最高怪物等级）以内是原来的 1.2 / 1.15 倍每级，一位不差；
+  // 再往上按 MOB_HP_LATE / MOB_DMG_LATE 每级成长——对上轮回层级里角色的实际成长（宝石 / 武器 / 词缀阶 / 生命都不再封顶，
+  // 经验曲线也让角色等级跟着怪物等级走），用平衡机器人在层级 1、2 的中段和末区量出来：
+  // 比层级 0 末区难一截但打得过，层级 2 再难一些。
+  // 生命和伤害都分两段：层级 1（17–32 级）每级 MOB_HP_LATE / MOB_DMG_LATE，层级 2 起（33 级以上）每级 MOB_HP_LATE2 / MOB_DMG_LATE2。
+  // 生命：层级 1 里角色的词缀阶只从 5 阶涨到 7 阶，层级 2 一口气涨到 8–10 阶，怪物生命跟着这个节奏走（层级 2 的首领用时明显长过层级 1）。
+  // 伤害：层级 1 每级 1.10，期望等级（35 级左右）打层级 1 末区时每秒受到的伤害（按生命算）和层级 0 末区相当；
+  // 层级 2 角色生命、护甲的成长放缓，伤害每级只再涨 1.055，每秒受到的伤害仍是层级 1 的 1.5 倍以上
+  G.MOB_KNEE = 16;
+  G.MOB_KNEE2 = 32;
+  G.MOB_HP_LATE = 1.09;
+  G.MOB_HP_LATE2 = 1.13;
+  G.MOB_DMG_LATE = 1.1;
+  G.MOB_DMG_LATE2 = 1.055;
+  const late = (l, k1, k2) => Math.pow(k1, Math.min(l, G.MOB_KNEE2) - G.MOB_KNEE) * Math.pow(k2, Math.max(0, l - G.MOB_KNEE2));
+  G.hpScale = (l) => (l <= G.MOB_KNEE ? Math.pow(1.2, l - 1) : Math.pow(1.2, G.MOB_KNEE - 1) * late(l, G.MOB_HP_LATE, G.MOB_HP_LATE2));
+  G.dmgScale = (l) => (l <= G.MOB_KNEE ? Math.pow(1.15, l - 1) : Math.pow(1.15, G.MOB_KNEE - 1) * late(l, G.MOB_DMG_LATE, G.MOB_DMG_LATE2));
+
+  // ---------- 经验 ----------
+  // 每只怪的经验按怪物等级指数成长（mobXp，1.17 倍 / 级）。升级所需经验在 XP_KNEE 级以内和改版前一样（多项式），
+  // 再往上改为和 mobXp 同样按 1.17 倍 / 级增长——「每升一级要杀多少只同级怪」从此不变，角色等级就跟着怪物等级走，
+  // 不会像改版前那样越往后升得越快（改版前轮回层级 1 打完是 42 级、怪物才 29–32 级）。
+  // 压级：角色比怪物高出 XP_OVER 级以上，每多 1 级经验 × XP_FALL（最低 XP_FLOOR），反复刷低等级区域收益递减；
+  // 越级：怪物比角色高出 XP_UNDER 级以上的部分不再多给。
+  G.XP_KNEE = 16;
+  G.XP_OVER = 3;
+  G.XP_FALL = 0.72;
+  G.XP_FLOOR = 0.02;
+  G.XP_UNDER = 8;
+  const xpPoly = (G.xpNeedOld = (l) => Math.round(40 + 30 * Math.pow(l, 1.5))); // 改版前的升级所需经验（读旧存档时换算经验条用）
+  G.xpNeed = (l) => (l <= G.XP_KNEE ? xpPoly(l) : Math.round(xpPoly(G.XP_KNEE) * Math.pow(1.17, l - G.XP_KNEE)));
   G.mobXp = (l) => 10 * Math.pow(1.17, l - 1);
+  // 等级差带来的经验倍率（d = 角色等级 − 怪物等级）
+  G.xpLevelK = (d) => (d > G.XP_OVER ? Math.max(G.XP_FLOOR, Math.pow(G.XP_FALL, d - G.XP_OVER)) : 1);
+  // 击杀一个敌人（{ level, isBoss, elite, def }）在角色 charLvl 级时得到的经验
+  G.killXp = function (e, charLvl) {
+    const w = e.isBoss ? 20 : ((e.def && e.def.xp) || 1) * (e.elite ? 3 : 1);
+    return G.mobXp(Math.min(e.level, charLvl + G.XP_UNDER)) * w * G.xpLevelK(charLvl - e.level);
+  };
+
+  // ---------- 角色基础生命 / 魔力 ----------
+  // LIFE_KNEE 级以内和改版前一样（每级 +12 生命、+6 魔力）；再往上每级多给 LIFE_LATE / MANA_LATE，
+  // 跟上轮回层级里怪物伤害的成长
+  G.LIFE_KNEE = 20; // 层级 0 打完大约 19–20 级：之前的生命 / 魔力曲线和改版前完全一样
+  G.LIFE_LATE = 24;
+  G.MANA_LATE = 4;
+  G.baseLife = (l) => 100 + 12 * (l - 1) + G.LIFE_LATE * Math.max(0, l - G.LIFE_KNEE);
+  G.baseMana = (l) => 60 + 6 * (l - 1) + G.MANA_LATE * Math.max(0, l - G.LIFE_KNEE);
 })();
