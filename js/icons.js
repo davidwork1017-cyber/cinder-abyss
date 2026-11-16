@@ -1067,6 +1067,87 @@
       spark(g, 21, -21, 5, '#ffffff');
     },
   };
+  // =====================================================================
+  // 烬铸技：先画一圈余烬框（暗金红的描边、四角各一颗火星、底下一层余烬的光），再画招式本身
+  // =====================================================================
+  const EMB = '#ff9b3d';
+  function emberFrame(g) {
+    const sq = (p, r) => p.R(-r, -r, r * 2, r * 2, 7);
+    glow(g, (p) => sq(p, 28.5), EMB, { stroke: 2.2, blur: 8, core: rgba('#ff8a30', 0.75) });
+    line(g, (p) => sq(p, 28.5), rgba('#ffd7a0', 0.85), 1.1);
+    line(g, (p) => sq(p, 25.6), rgba('#a8461a', 0.7), 0.8);
+    for (const [x, y] of [[-28.5, -28.5], [28.5, -28.5], [-28.5, 28.5], [28.5, 28.5]]) {
+      solid(g, (p) => p.P([x, y - 4.2, x + 4.2, y, x, y + 4.2, x - 4.2, y]), '#ffb066', { hi: 0.6, lo: 0.4, lw: 1.3, bevel: 0 });
+    }
+    // 底边往上飘的几颗火星
+    for (const [x, y, r] of [[-16, 24, 1.6], [-5, 26, 1.1], [9, 23.5, 1.4], [19, 25.5, 1.0]]) glow(g, (p) => p.E(x, y, r), EMB, { blur: 4, core: '#ffe2b8' });
+  }
+  const USKILL_DRAW = {
+    // 千刃归烬：一柄倒插的太刀，四周六道交错的斩光，中心炸开一团白热的余烬
+    ashcuts(g, col) {
+      emberFrame(g);
+      glow(g, (p) => p.E(0, 2, 12), EMB, { blur: 14, core: rgba('#ffb066', 0.55) });
+      const cuts = [[-38, 25], [22, 24], [-75, 21], [70, 22], [5, 26], [-12, 19]];
+      for (const [deg, len] of cuts) {
+        const m = rot(deg, 1, 0, 2);
+        glow(g, (p) => p.M(-len, 0.9).Q(0, -1.8, len, 0).Q(0, 1.6, -len, 0.9).Z(), col, { m, blur: 6, core: lite(col, 0.35) });
+        solid(g, (p) => p.M(-len * 0.8, 0.5).Q(0, -1, len * 0.8, 0).Q(0, 0.9, -len * 0.8, 0.5).Z(), '#fff4e0', { m, hi: 0, lo: 0.1, lw: 0, bevel: 0 });
+      }
+      // 太刀：刃朝下斜插，刀镡与柄在右上
+      const m = rot(-148, 1, 3, 0);
+      glow(g, (p) => p.M(-1.8, 9).L(-2, -14).Q(-1.2, -21, 1.6, -24).Q(2.4, -16, 2, -6).L(1.8, 9).Z(), col, { m, blur: 6, core: col });
+      solid(g, (p) => p.M(-1.8, 9).L(-2, -14).Q(-1.2, -21, 1.6, -24).Q(2.4, -16, 2, -6).L(1.8, 9).Z(), lite(col, 0.75), { m, hi: 0.7, lo: 0.2, lw: 1.7, bevel: 1 });
+      solid(g, (p) => p.E(0, 10, 4.6, 1.6), '#5a3418', { m, hi: 0.5, lw: 1.5, bevel: 0.8 });
+      tube(g, (p) => p.M(0, 12).L(0, 21), '#3a2418', 2.6, { m });
+      spark(g, 0, 2, 7, '#ffffff');
+      spark(g, 17, -17, 4.2, '#ffe2b8');
+    },
+    // 三相天灾：头顶一团暗云，底下三击——陨火（橙）、冰棱（蓝）、落雷（黄），地上一圈三色的法阵
+    tristorm(g) {
+      emberFrame(g);
+      const F = '#ff7a2c', C = '#7fd4ff', L = '#ffe45e';
+      const ky = 0.36, cy = 18;
+      glow(g, (p) => p.E(0, cy, 21, 21 * ky), F, { stroke: 2.2, blur: 5, core: lite(F, 0.3) });
+      glow(g, (p) => p.E(0, cy, 15.5, 15.5 * ky), C, { stroke: 1.8, blur: 5, core: lite(C, 0.3) });
+      glow(g, (p) => p.E(0, cy, 10, 10 * ky), L, { stroke: 1.5, blur: 5, core: lite(L, 0.3) });
+      // 云
+      solid(g, (p) => p.M(-22, -10).C(-26, -18, -18, -24, -11, -21).C(-8, -29, 4, -29, 7, -22).C(13, -27, 23, -22, 21, -14).C(26, -11, 23, -5, 17, -6).L(-17, -6).C(-23, -5, -25, -8, -22, -10).Z(), '#3a3442', { hi: 0.35, lo: 0.5, lw: 1.8, bevel: 1.2 });
+      line(g, (p) => p.M(-14, -12).C(-8, -16, -2, -15, 2, -12).M(5, -14).C(9, -17, 14, -16, 16, -12), rgba('#8f86a0', 0.7), 1.1);
+      // 陨火（左）
+      glow(g, (p) => p.M(-17, -4).L(-11, 9).L(-14, 10).Z(), F, { blur: 6, core: rgba(lite(F, 0.4), 0.8) });
+      solid(g, (p) => p.P([-12, 9, -8, 7.5, -7, 12, -10.5, 14.5, -14, 12.5]), '#6a4a3a', { hi: 0.4, lw: 1.4, bevel: 0.8 });
+      glow(g, (p) => p.E(-10.5, 11, 3), F, { blur: 6, core: lite(F, 0.5) });
+      // 冰棱（中）
+      solid(g, (p) => p.P([0, 15, -3, 2, 0, -6, 3, 2]), lite(C, 0.25), { hi: 0.8, lo: 0.3, lw: 1.5, bevel: 0.9 });
+      glow(g, (p) => p.E(0, 15, 3), C, { blur: 6, core: '#e8faff' });
+      // 落雷（右）
+      glow(g, (p) => p.M(14, -6).L(10, 3).L(14, 3).L(10, 15).L(19, 1).L(15, 1).L(18, -6).Z(), L, { blur: 7, core: lite(L, 0.55) });
+      solid(g, (p) => p.M(14, -6).L(10, 3).L(14, 3).L(10, 15).L(19, 1).L(15, 1).L(18, -6).Z(), lite(L, 0.4), { hi: 0.6, lo: 0.25, lw: 1.3, bevel: 0 });
+      spark(g, 10, 15, 4, '#ffffff');
+    },
+    // 万魂降临：一面插在地上的魂幡，两侧三位英灵的魂影（盔顶 + 肩甲的剪影）从地里升起，头顶一道天光
+    soulhost(g, col) {
+      emberFrame(g);
+      glow(g, (p) => p.P([-4, -27, 4, -27, 9, 22, -9, 22]), col, { blur: 10, core: rgba(lite(col, 0.4), 0.28) });
+      const ghost = (x, y, k, warm) => {
+        const tr = (p) => p.M(x, y - 11 * k).C(x + 5 * k, y - 11 * k, x + 5.5 * k, y - 6 * k, x + 4.5 * k, y - 3.5 * k).L(x + 9 * k, y - 1 * k).C(x + 10 * k, y + 4 * k, x + 7 * k, y + 10 * k, x + 5 * k, y + 14 * k)
+          .L(x + 2 * k, y + 11 * k).L(x, y + 15 * k).L(x - 2 * k, y + 11 * k).L(x - 5 * k, y + 14 * k).C(x - 7 * k, y + 10 * k, x - 10 * k, y + 4 * k, x - 9 * k, y - 1 * k).L(x - 4.5 * k, y - 3.5 * k).C(x - 5.5 * k, y - 6 * k, x - 5 * k, y - 11 * k, x, y - 11 * k).Z();
+        glow(g, tr, col, { blur: 7, core: rgba(lite(col, 0.3), 0.55) });
+        line(g, tr, rgba(warm ? '#ffb066' : lite(col, 0.6), 0.9), 1.1);
+        glow(g, (p) => p.M(x - 3 * k, y - 6.5 * k).L(x + 3 * k, y - 6.5 * k), warm ? '#ffb066' : '#e8fff8', { stroke: 1.2, blur: 3, core: '#ffffff' });
+      };
+      ghost(-17, 6, 0.95, false);
+      ghost(17, 6, 0.95, true);
+      ghost(0, 0, 1.15, false);
+      // 幡：杆插在地上，幡布在杆头
+      tube(g, (p) => p.M(-1, 26).L(-1, -24), C.duskD, 2.4);
+      solid(g, (p) => p.M(0, -22).L(10, -22.4).C(10.6, -16, 9, -10, 10.4, -4).L(8.4, -6).L(7, -1.6).L(5.4, -5.4).L(3.8, -1).L(2.2, -4.6).L(0.6, -1.4).Z(), '#2d3038', { hi: 0.25, lo: 0.5, bevel: 1, lw: 1.6 });
+      glow(g, (p) => p.E(5, -14, 2.4), EMB, { blur: 5, core: '#ffe2b8' });
+      glow(g, (p) => p.E(-1, 25, 9, 2.6), col, { blur: 6, core: lite(col, 0.5) });
+      spark(g, -1, -26, 5, '#ffffff');
+    },
+  };
+
   // 武器技的技能 id → 武器类型（读 G.BASES.weapon 的 wskill 字段）
   function wskillType(id) {
     const ws = (G.BASES && G.BASES.weapon) || [];
@@ -1247,6 +1328,7 @@
     if (k[0] === 'sk') {
       const s = G.SKILLS[k[1]];
       if (s && SKILL_DRAW[k[1]]) return render((g) => SKILL_DRAW[k[1]](g, s.color));
+      if (s && USKILL_DRAW[k[1]]) return render((g) => USKILL_DRAW[k[1]](g, s.color));
       const wt = s ? wskillType(k[1]) : null;
       return wt ? render((g) => WSKILL_DRAW[wt](g, s.color || WSKILL_COLOR[wt])) : null;
     }

@@ -21,7 +21,10 @@
   const KIND = {
     thrall: { r: 0.5, height: 2.0, rise: 0.7, atkDur: 0.5, atkHit: 0.22, name: '烬骸仆从', fallback: 'husk' },
     colossus: { r: 0.95, height: 3.0, rise: 1.0, atkDur: 1.0, atkHit: 0.55, tauntDur: 0.8, tauntHit: 0.35, name: '石誓守像', fallback: 'brute' },
+    // 万魂降临的英灵（烬铸技）：借仆从的骨架，world 给它一身半透明的魂火躯壳，大一圈；有时限（m.expire），不占仆从的上限
+    wraith: { r: 0.55, height: 2.4, rise: 0.4, atkDur: 0.42, atkHit: 0.19, name: '万魂英灵', fallback: 'husk', scale: 1.2 },
   };
+  const blade = (m) => m.kind !== 'colossus'; // 仆从与英灵：近战横斩、会躲小怪的预警圈
 
   const list = S.minions;
   let markShown = null; // 当前头顶有集火标记的敌人
@@ -43,7 +46,7 @@
   // ---------- 模型（world 的召唤物骨架还没好时，先借小怪的骨架染成青色） ----------
   function makeEnt(kind) {
     const W = G.world;
-    if (typeof W.makeMinion === 'function') return W.makeMinion(kind, ALLY_HEX);
+    if (typeof W.makeMinion === 'function') return W.makeMinion(kind, kind === 'wraith' ? 0xffa050 : ALLY_HEX);
     return W.makeMob(KIND[kind].fallback, ALLY_HEX, false);
   }
   function riseFx(x, z, big) {
@@ -66,7 +69,8 @@
     m.riseClip = G.world.play(m.ent, 'rise', { dur: k.rise });
     if (!m.riseClip) G.world.setEntScale(m.ent, 0.25); // 没有破土动作：从地里长出来
     G.world.setEnt(m.ent, m.x, m.z, m.ang);
-    riseFx(m.x, m.z, m.kind === 'colossus');
+    if (m.kind === 'wraith' && typeof G.world.champFx === 'function') G.world.champFx(m.x, m.z);
+    else riseFx(m.x, m.z, m.kind === 'colossus');
   }
 
   // ---------- 落点 ----------
@@ -183,6 +187,38 @@
     return m;
   };
 
+  // 万魂降临：在 (x, z) 附近落下一位英灵，dur 秒后消散（拿着万魂旗时化作魂火炸开）。ctx 是武器技的上下文（ctx.minion 是英灵的数值）。
+  // 英灵不占任何召唤技能的上限，也不受「没学这个技能就解散」的刷新影响
+  G.summonChampion = function (skillId, x, z, ctx, dur) {
+    if (!S.zone || !ctx || !ctx.minion) return null;
+    const mi = ctx.minion;
+    const K = KIND.wraith;
+    const W = G.world;
+    let at = { x, z };
+    if (!W.walkable(x, z, K.r + 0.1)) at = spotToward(x, z, 12, K.r + 0.1);
+    const m = {
+      kind: 'wraith', skill: skillId, name: K.name, ent: makeEnt('wraith'),
+      x: at.x, z: at.z, ang: Math.atan2(at.x - P.x, at.z - P.z), r: K.r, height: K.height,
+      hp: mi.life, maxHp: mi.life, dr: mi.dr, armour: mi.armour || 0, res: mi.res || null, dead: false,
+      target: null, atkT: 0.1, tauntCd: 0, tauntCdMax: 0,
+      state: 'idle', stateT: 0, strikeT: -1, rising: 0, riseMax: K.rise, riseClip: true,
+      moving: false, stuckT: 0, seekT: 0, hurtT: 0, volley: null, ignore: null, ignoreT: 0,
+      navT: 0, navWp: false, navX: 0, navZ: 0, navTx: 0, navTz: 0,
+      spX: 0, spZ: 0, spBest: Infinity, spT: 0,
+      born: S.time, ctx, expire: S.time + (dur || 8), life: dur || 8,
+    };
+    list.push(m);
+    startRise(m);
+    return m;
+  };
+  // 时间到了：消散（魂火轮回照常炸开）
+  function expireMinion(m) {
+    if (m.dead) return;
+    if (G.soulFire) G.soulFire(m);
+    if (G.world.champFade) G.world.champFade(m.x, m.z, m.height);
+    removeMinion(m, m.ang + Math.PI, undefined);
+  }
+
   // 散掉所有召唤物（删档 / 换存档时）
   G.clearMinions = function () {
     for (let i = list.length - 1; i >= 0; i--) {
@@ -245,7 +281,10 @@
     const ang = src && dist(src.x, src.z, m.x, m.z) > 0.05 ? Math.atan2(m.x - src.x, m.z - src.z) : m.ang + Math.PI;
     W.flash(m.ent, 0.8);
     W.hitReact(m.ent, ang, m.kind === 'colossus' ? 0.5 : 0.9);
-    if (m.hp <= 0) removeMinion(m, ang, G.TYPE_NAME[dtype] ? dtype : 'phys');
+    if (m.hp <= 0) {
+      if (G.soulFire) G.soulFire(m); // 万魂旗：倒下时化作魂火炸开（被替换、换区域时的消失不算）
+      removeMinion(m, ang, G.TYPE_NAME[dtype] ? dtype : 'phys');
+    }
     return true;
   };
 
@@ -293,6 +332,7 @@
     const save = G.save;
     for (let i = list.length - 1; i >= 0; i--) {
       const m = list[i];
+      if (m.expire) continue; // 英灵：数值定在降临那一刻，到时自己消散
       if (!save.skills[m.skill]) {
         removeMinion(m);
         continue;
@@ -448,7 +488,7 @@
   // 命中帧：仆从砍面前的目标；守像在身前砸出一圈
   function strike(m) {
     const W = G.world, ctx = m.ctx;
-    if (m.kind === 'thrall') {
+    if (blade(m)) {
       const e = m.target;
       // 玩家正在处决的目标不去抢（处决只属于玩家）
       const reach = ctx.minion.reach + m.r + 0.6;
@@ -608,11 +648,15 @@
     }
 
     let ti = 0, tn = 0;
-    for (let i = 0; i < list.length; i++) if (list[i].kind === 'thrall') tn++;
+    for (let i = 0; i < list.length; i++) if (blade(list[i])) tn++;
 
     for (let i = list.length - 1; i >= 0; i--) {
       const m = list[i];
       if (!m || m.dead) continue;
+      if (m.expire && S.time >= m.expire) {
+        expireMinion(m);
+        continue;
+      }
       const K = KIND[m.kind];
       const mi = m.ctx.minion;
       m.moving = false;
@@ -658,7 +702,7 @@
             m.target = nt;
           }
           const e = m.target;
-          const esc = m.kind === 'thrall' ? dodgeDir(m) : null;
+          const esc = blade(m) ? dodgeDir(m) : null;
           if (esc) {
             // 仆从身手灵活：看清小怪的预警圈之后会闪出去（守像太慢不躲；首领的招式也不躲，照样要吃）
             turn(m, Math.atan2(esc.x, esc.z), 12, dt);
@@ -680,7 +724,7 @@
               m.stuckT = 0;
             }
           } else {
-            const idx = m.kind === 'thrall' ? ti : 0;
+            const idx = blade(m) ? ti : 0;
             const sp = followSpot(m, idx, tn);
             const far = dist(m.x, m.z, sp.x, sp.z);
             const speed = mi.move * fz * (far > 6 ? 1.35 : 1);
@@ -707,7 +751,7 @@
             } else m.stuckT = 0;
           }
         }
-        if (m.kind === 'thrall') ti++;
+        if (blade(m)) ti++;
         separate(m, dt);
       }
       m.moving0 = m.moving;
