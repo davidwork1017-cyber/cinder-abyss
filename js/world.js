@@ -1643,6 +1643,7 @@
     beginFade(ent, c.out);
     if (done && fn) fn(ent);
   }
+  const BACK_ON = 2.05, BACK_OFF = 1.75; // 倒退走的进 / 出阈值（弧度）
   // sdt：受时间缩放影响的动画时间步；dist：这一帧实际走过的距离
   function advanceEnt(ent, sdt, moving, dist, ldx, ldz) {
     const rig = ent.rig, p = ent.pose;
@@ -1650,14 +1651,20 @@
     const t = ent.clock;
     ent.mv += ((moving ? 1 : 0) - ent.mv) * Math.min(1, sdt * 10);
     if (moving && sdt > 0) {
-      ent.walk += dist * rig.stride * (ent.mdir > 1.9 || ent.mdir < -1.9 ? -1 : 1); // 倒退时步态反着走
+      ent.walk += dist * rig.stride * (ent.back ? -1 : 1); // 倒退时步态反着走
       ent.spd += (dist / sdt - ent.spd) * Math.min(1, sdt * 10);
       if (dist > 1e-4) {
-        // 移动方向相对朝向的夹角（玩家边打边退时腿朝移动方向迈）
+        // 移动方向相对朝向的夹角（玩家边打边退时腿朝移动方向迈）。跟得稍慢一点，起步时胯不会猛地一拧
         let a = Math.atan2(ldx, ldz) - ent.group.rotation.y - ent.mdir;
         a -= Math.round(a / TAU) * TAU;
-        ent.mdir += a * Math.min(1, sdt * 14);
+        ent.mdir += a * Math.min(1, sdt * 9);
+        ent.mdir -= Math.round(ent.mdir / TAU) * TAU; // 折回 ±π，长时间绕圈也不会越积越大
       }
+      // 「倒退走」带滞回：夹角过 BACK_ON 才切到倒退，回到 BACK_OFF 以下才切回来。
+      // 以前单一阈值 1.9：夹角在阈值附近晃时，步态方向和胯的朝向会一帧一帧来回翻，看起来像抽搐
+      const am = Math.abs(ent.mdir);
+      if (!ent.back && am > BACK_ON) ent.back = true;
+      else if (ent.back && am < BACK_OFF) ent.back = false;
     } else {
       ent.spd += (0 - ent.spd) * Math.min(1, sdt * 10);
     }
@@ -2468,17 +2475,18 @@
   }
 
   // 站立呼吸 + 跑动步态。步态相位来自实际走过的距离，脚不会在地上打滑
-  function playerLoco(ent, p, t) {
+  function playerLoco(ent, p, t, sdt) {
     const J = ent.rig.J, mv = ent.mv, w = ent.walk;
     const s = Math.sin(w), c = Math.cos(w), id = 1 - mv;
     const run = Math.min(1.25, ent.spd / 7.2) * mv; // 0 = 站着，1 = 全速跑
     const br = Math.sin(t * 1.9), br2 = Math.sin(t * 0.95 + 1);
     const gear = ent.gearType;
-    // 移动方向和朝向不一致时，胯转向移动方向，上身拧回来
-    let md = ent.mdir;
-    if (md > 1.9) md -= Math.PI;
-    else if (md < -1.9) md += Math.PI;
-    md *= mv * 0.75;
+    // 移动方向和朝向不一致时，胯转向移动方向，上身拧回来。拧的幅度封顶（±HIP_MAX），
+    // 侧着走时腿脚不会歪着拧过去；正走 / 倒退之间的切换用 backK 平滑过渡，不在一帧里翻转
+    ent.backK = (ent.backK || 0) + ((ent.back ? 1 : 0) - (ent.backK || 0)) * Math.min(1, (sdt || 0) * 8);
+    const fwd = ent.mdir, bwd = ent.mdir - Math.sign(ent.mdir || 1) * Math.PI;
+    const HIP_MAX = 0.5, clampHip = (v) => Math.max(-HIP_MAX, Math.min(HIP_MAX, v * 0.6));
+    let md = (clampHip(fwd) + (clampHip(bwd) - clampHip(fwd)) * ent.backK) * mv;
 
     p[J.root] = 0.2 * run;
     p[J.root + 1] = -0.14 * s * run + md;
