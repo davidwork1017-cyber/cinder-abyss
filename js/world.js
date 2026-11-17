@@ -2893,6 +2893,9 @@
   const RIG_FLAT = true;
   // ----- 建立实体 -----
   // tintHex：躯体整体染色；elemHex：自发光部件的元素色
+  // 变体零件里的自发光件不用本体的元素色、改用自己固定颜色的那几组：变体名 → [颜色, 亮度]。
+  // 冰弓的冰裂纹和冰核要一直是冰蓝（玩家本体的元素色是琥珀橙）；颜色压得偏深一点，泛光之后仍是蓝而不是白
+  const VAR_GLOW = { emberbow: [0x3fa8ff, 1.35] };
   function newEnt(kind, rig, tintHex, elemHex, glowI) {
     const group = new T.Group();
     const body = new T.Group();
@@ -2981,7 +2984,24 @@
           m.customDepthMaterial = dm;
           list.push(m);
         }
-        if (gv.glow) list.push(new T.Mesh(gv.glow, gm));
+        if (gv.glow) {
+          let vm = gm;
+          const vg = VAR_GLOW[vn];
+          if (vg) {
+            // 和本体的自发光材质一样，只是颜色固定；进 ent.mats，受击闪白 / 冻结 / 销毁都照常
+            const vc = lin(vg[0]);
+            vm = new T.MeshStandardMaterial({ color: vc.clone().multiplyScalar(0.25), vertexColors: true, emissive: vc, emissiveIntensity: vg[1], roughness: 0.4, metalness: 0, toneMapped: false });
+            vm.defines.NB = rig.NB;
+            if (rig.skin4) vm.defines.SKIN4 = 1;
+            vm.flatShading = RIG_FLAT;
+            vm.onBeforeCompile = function (sh) { injectLit(sh, ent); };
+            vm.userData.e0 = vc.clone();
+            vm.userData.ei0 = vg[1];
+            vm.userData.fi = 1.25;
+            ent.mats.push(vm);
+          }
+          list.push(new T.Mesh(gv.glow, vm));
+        }
         if (gv.aux && ent.auxMat) list.push(new T.Mesh(gv.aux, ent.auxMat));
         for (const m of list) {
           m.visible = false;
@@ -3783,28 +3803,37 @@
       b.x(gTorus(0.085, 0.006, 3, 14), 1, LX - 0.01, WY - 0.02, GZ, 0, HALF_PI, 0);
       for (const s of [1, -1]) for (const f of [0.22, 0.34, 0.46]) b.x(gBox(0.03, 0.01, 0.022), 1, LX + tx * f, WY - 0.06 + f * 0.04, GZ + s * f * 1.15, 0, 0, s * 0.3);
     }
-    // --- 烬铸弓（凛羽）：冷铁弓臂棱角分明，弓背伸出几枚冰棱状的尖刺，弓臂上一路裂纹，握把托着一块不化的星冰 ---
+    // --- 冰弓（凛羽）：霜钢弓臂棱角分明（握把处发暗、往梢头渐渐结霜发白），弓背伸出几枚淡蓝的冰晶尖刺，
+    // 弓臂上一路冷蓝的冰裂纹，握把前托着一颗发冷光的冰核。裂纹和冰核走这把弓自己的冰蓝自发光（见 VAR_GLOW），
+    // 不吃玩家的元素色；握把两头的细环是稀有度色（凛羽的烬铸档在 applyGear 里换成冰蓝，见 GEAR_GLOW_VAR）---
     {
       const limb = (s) => [[0, 0, s * 0.08], [tx * 0.1, -0.06, s * 0.24], [tx * 0.3, -0.075, s * 0.42], [tx * 0.56, -0.035, s * 0.56], [tx * 0.82, ty * 0.5, s * 0.66], [tx, ty, s * tz]];
-      b.variant('emberbow').at('wBo').surf(SURF.dark, true);
-      b.p(gSweep('pl/ebU', limb(1), [0.04, 0.036, 0.03, 0.022, 0.015, 0.01], 5), [0x111418, 0x24384a], LX, WY, GZ);
-      b.p(gSweep('pl/ebL', limb(-1), [0.04, 0.036, 0.03, 0.022, 0.015, 0.01], 5), [0x111418, 0x24384a], LX, WY, GZ);
-      b.surf(SURF.leather).p(gCyl(0.04, 0.04, 0.18, 7), 0x2a1610, LX, WY, GZ, HALF_PI);
-      b.surf(SURF.dark, true);
+      const ICE_LO = 0x3d86c4, ICE_HI = 0xc8ecff, FROST = 0xa9c6de;
+      // 弓臂用低金属度的面：高金属度在俯视镜头下只反射出暗色的天空下半截，霜色会被吃成一片黑
+      b.variant('emberbow').at('wBo').surf(SURF.bone, true);
+      b.p(gSweep('pl/ebU', limb(1), [0.04, 0.036, 0.03, 0.022, 0.015, 0.01], 5), [0x2a4460, 0x9cc4e6], LX, WY, GZ);
+      b.p(gSweep('pl/ebL', limb(-1), [0.04, 0.036, 0.03, 0.022, 0.015, 0.01], 5), [0x2a4460, 0x9cc4e6], LX, WY, GZ);
+      b.surf(SURF.leather).p(gCyl(0.04, 0.04, 0.18, 7), 0x1b2838, LX, WY, GZ, HALF_PI);
+      // 冰晶尖刺：拉长的八面体，硬朗的面
+      b.surf(SURF.ice, true);
       for (const s of [1, -1]) {
-        b.p(gCone(0.026, 0.13, 4), 0x2a1c18, LX + tx * 0.3, WY - 0.12, GZ + s * 0.4, -HALF_PI - s * 0.5);
-        b.p(gCone(0.02, 0.09, 4), 0x2a1c18, LX + tx * 0.6, WY - 0.06, GZ + s * 0.58, -HALF_PI - s * 0.8);
+        b.p(gOct(1), [ICE_LO, ICE_HI], LX + tx * 0.3, WY - 0.12, GZ + s * 0.4, -HALF_PI - s * 0.5, 0, 0, 0.026, 0.085, 0.026);
+        b.p(gOct(1), [ICE_LO, ICE_HI], LX + tx * 0.6, WY - 0.06, GZ + s * 0.58, -HALF_PI - s * 0.8, 0, 0, 0.02, 0.06, 0.02);
         const t = tipE(s);
-        b.p(gCone(0.018, 0.1, 4), 0x2a1c18, t[0], t[1] + 0.02, t[2] + s * 0.03, s > 0 ? HALF_PI - 0.4 : -HALF_PI + 0.4);
+        b.p(gOct(1), [ICE_LO, ICE_HI], t[0], t[1] + 0.02, t[2] + s * 0.03, s > 0 ? HALF_PI - 0.4 : -HALF_PI + 0.4, 0, 0, 0.018, 0.065, 0.018);
+        // 冰核两侧各一根托住它的霜钢爪
+        b.surf(SURF.metal, true).p(gCone(0.012, 0.07, 4), FROST, LX, WY - 0.075, GZ + s * 0.035, -HALF_PI + s * 0.5).surf(SURF.ice, true);
       }
-      b.surf(SURF.gold).p(gCyl(0.044, 0.044, 0.026, 7), 0x3a6a8a, LX, WY, GZ + 0.1, HALF_PI).p(gCyl(0.044, 0.044, 0.026, 7), 0x3a6a8a, LX, WY, GZ - 0.1, HALF_PI);
-      // 裂纹：顺着弓臂一路的几段（稀有度色；烬铸是余烬橙）
+      b.surf(SURF.metal).p(gCyl(0.044, 0.044, 0.026, 7), FROST, LX, WY, GZ + 0.1, HALF_PI).p(gCyl(0.044, 0.044, 0.026, 7), FROST, LX, WY, GZ - 0.1, HALF_PI);
+      // 冰裂纹：顺着弓臂一路的几段（冰蓝自发光）
       for (const s of [1, -1]) {
-        b.x(gBox(0.012, 0.012, 0.16), 1, LX + tx * 0.15, WY - 0.075, GZ + s * 0.3, s * -0.1);
-        b.x(gBox(0.012, 0.012, 0.13), 1, LX + tx * 0.45, WY - 0.065, GZ + s * 0.49, s * 0.15);
-        b.x(gBox(0.01, 0.01, 0.1), 1, LX + tx * 0.75, WY + ty * 0.25, GZ + s * 0.62, s * 0.6);
+        b.g(gBox(0.012, 0.012, 0.16), 1, LX + tx * 0.15, WY - 0.075, GZ + s * 0.3, s * -0.1);
+        b.g(gBox(0.012, 0.012, 0.13), 1, LX + tx * 0.45, WY - 0.065, GZ + s * 0.49, s * 0.15);
+        b.g(gBox(0.01, 0.01, 0.1), 1, LX + tx * 0.75, WY + ty * 0.25, GZ + s * 0.62, s * 0.6);
       }
-      b.g(gOct(0.038), 1.2, LX, WY - 0.07, GZ, 0, 0.6, 0, 1, 1.4, 1);
+      b.g(gOct(0.038), 1.2, LX, WY - 0.075, GZ, 0, 0.6, 0, 1, 1.5, 1);
+      // 稀有度色：握把两头的细环
+      b.x(gTorus(0.046, 0.006, 3, 10), 1, LX, WY, GZ + 0.115).x(gTorus(0.046, 0.006, 3, 10), 1, LX, WY, GZ - 0.115);
     }
     b.variant(null);
   }
@@ -5041,8 +5070,23 @@
       W.entSocket(ent, 'weapon', _sk);
       spawnP(_sk.x, _sk.y, _sk.z, rand(-0.3, 0.3), rand(0.2, 0.9), rand(-0.3, 0.3), rand(0.4, 0.8), 0.1, 1, 0.84, 0.37, -0.3, 0.6);
     }
+    // 冰弓凛羽：不冒火星，弓身上一粒粒细碎的霜晶慢慢飘落，偶尔一粒亮白的冰闪
+    if (ent.gearRar >= 3 && ent.gearVar === 'emberbow' && !ent.dying && sdt > 0) {
+      ent.emberAcc = (ent.emberAcc || 0) + sdt * 16;
+      if (ent.emberAcc >= 1) {
+        W.entSocket(ent, 'weapon', _sk);
+        W.entSocket(ent, 'hand', _sk2);
+        while (ent.emberAcc >= 1) {
+          ent.emberAcc -= 1;
+          const f = Math.random() * 1.1 - 0.05, w = Math.random() < 0.18;
+          spawnP(_sk2.x + (_sk.x - _sk2.x) * f + rand(-0.06, 0.06), _sk2.y + (_sk.y - _sk2.y) * f, _sk2.z + (_sk.z - _sk2.z) * f + rand(-0.06, 0.06),
+            rand(-0.15, 0.15), rand(-0.1, 0.25), rand(-0.15, 0.15), rand(0.6, 1.1), w ? rand(0.07, 0.1) : rand(0.04, 0.07),
+            w ? 0.8 : 0.25, w ? 0.93 : 0.62 + 0.15 * Math.random(), 1, 0.35, 1.2);
+        }
+      }
+    }
     // 烬铸：火星沿着整把武器（握把到尖端）往上飘，偶尔一粒偏白的亮点
-    if (ent.gearRar >= 3 && !ent.dying && sdt > 0) {
+    else if (ent.gearRar >= 3 && !ent.dying && sdt > 0) {
       ent.emberAcc = (ent.emberAcc || 0) + sdt * 26;
       if (ent.emberAcc >= 1) {
         W.entSocket(ent, 'weapon', _sk);
@@ -5964,6 +6008,8 @@
     [0, GUN_AX, GUN_MUZ.gatling - 0.05], [0, GUN_AX, GUN_MUZ.flamer - 0.05], [0, GUN_AX, GUN_MUZ.revolver - 0.05]];
   // 第 4 档是烬铸：余烬橙的自发光比稀有更亮，光晕更大（见 applyGear），武器上不停往上飘火星（见下面的 gear 更新）
   const GEAR_GLOW = [[0xcfd6e2, 0.3], [0x7f9dff, 1.15], [0xffd75e, 1.5], [0xff7424, 2.4]];
+  // 个别武器的烬铸档换一种光色（只换这一把，不动其他烬铸武器）：冰弓凛羽是冰蓝，光晕和飘落的东西也跟着换（见 applyGear 与下面的 gear 更新）
+  const GEAR_GLOW_VAR = { emberbow: [0x58b8ff, 2.0] };
   // 稀有度光晕：[沿武器的位置（占挂点长度的比例）, 魔法的大小, 稀有的大小, 不透明度]。
   // 刃的光裹着刃身；长杖 / 短杖握在头和胸口旁边，光只罩住杖头的晶体，小而淡，不把兜帽和上身照成一片白；
   // 双匕只罩右手那把；战锤罩住锤头；长弓的光在握把上；太刀和刃一样裹着刃身；魂幡罩住杆头的魂火
@@ -5994,7 +6040,7 @@
     sh.y = type === G_BOW ? -0.1 : -0.06;
     sh.z = type === G_BOW ? 0.05 : 0.02;
     ent.gearClips = (type >= 0 && ent.rig.gearClips[type]) || null;
-    const gg = GEAR_GLOW[rar] || GEAR_GLOW[0], m = ent.auxMat;
+    const gg = (rar >= 3 && GEAR_GLOW_VAR[ent.gearVar]) || GEAR_GLOW[rar] || GEAR_GLOW[0], m = ent.auxMat;
     m.userData.e0.set(gg[0]).convertSRGBToLinear();
     m.userData.ei0 = gg[1];
     if (ent.flashT <= 0) {
@@ -9787,26 +9833,33 @@
       ]),
       bake('lt/revG', [[gBox(0.008, 0.26, 0.01), WH, 0.026, 0.22, 0], [gBox(0.008, 0.2, 0.01), WH, -0.026, 0.25, 0]]),
     ];
-    const bowLoot = (key, col, fit, glow, curl) => () => {
+    // extra（可选）：额外烘进本体的零件（冰弓的冰晶尖刺）
+    const bowLoot = (key, col, fit, glow, curl, extra) => () => {
       const limb = (s) => [[0, s * 0.06, 0], [0, s * 0.24, -0.04 * curl], [0, s * 0.4, -0.02], [0, s * 0.5, 0.06], [0, s * 0.54, 0.13]];
       return [
         bake('lt/' + key, [
           [gSweep('lt/' + key + 'U', limb(1), [0.03, 0.025, 0.019, 0.013, 0.008], 5), col, 0, 0, 0], [gSweep('lt/' + key + 'L', limb(-1), [0.03, 0.025, 0.019, 0.013, 0.008], 5), col, 0, 0, 0],
           [gCyl(0.032, 0.032, 0.14, 6), LC.leatherD, 0, 0, 0], [gCyl(0.036, 0.036, 0.02, 6), fit, 0, 0.08, 0], [gCyl(0.036, 0.036, 0.02, 6), fit, 0, -0.08, 0],
           [gCyl(0.005, 0.005, 1.08, 3), 0xe8e0c8, 0, 0, 0.13], [gOct(0.022), fit, 0, 0.54, 0.13], [gOct(0.022), fit, 0, -0.54, 0.13],
-        ]),
+        ].concat(extra || [])),
         bake('lt/' + key + 'G', glow),
       ];
     };
     LOOT_MODEL.eagle = LOOT_MODEL.bow;
     LOOT_MODEL.huntbow = bowLoot('hbow', 0x3a2c22, 0xd9cfb6, [[gOct(0.022), WH, 0, 0, -0.04], [gBox(0.014, 0.12, 0.014), WH, 0, 0.3, -0.06], [gBox(0.014, 0.12, 0.014), WH, 0, -0.3, -0.06]], 1.5);
     LOOT_MODEL.runebow = bowLoot('rbow', 0x3a4560, 0xb8c4d6, [[gTorus(0.07, 0.007, 3, 12), WH, 0, 0, -0.02, 0, Math.PI / 2, 0], [gBox(0.025, 0.02, 0.016), WH, 0, 0.22, -0.05], [gBox(0.025, 0.02, 0.016), WH, 0, -0.22, -0.05], [gBox(0.025, 0.02, 0.016), WH, 0, 0.36, -0.03], [gBox(0.025, 0.02, 0.016), WH, 0, -0.36, -0.03]], 1);
-    LOOT_MODEL.emberbow = bowLoot('ebow', 0x18202a, 0x3a6a8a, [[gOct(0.035), WH, 0, 0, -0.05], [gBox(0.012, 0.14, 0.012), WH, 0, 0.18, -0.06], [gBox(0.012, 0.14, 0.012), WH, 0, -0.18, -0.06], [gBox(0.012, 0.1, 0.012), WH, 0, 0.4, -0.02], [gBox(0.012, 0.1, 0.012), WH, 0, -0.4, -0.02]], 2);
+    // 冰弓：霜钢弓臂、霜银配件，弓背上四枚淡蓝冰晶尖刺；发光件（冰核 + 四段冰裂纹）是稀有度色，凛羽掉落时换成冰蓝（见 makeLoot）
+    const EB_ICE = 0xbfe6fa, EB_ICE2 = 0x8cc8ee;
+    LOOT_MODEL.emberbow = bowLoot('ebow', 0x46627e, 0xb4cce0, [[gOct(0.035), WH, 0, 0, -0.05], [gBox(0.012, 0.14, 0.012), WH, 0, 0.18, -0.06], [gBox(0.012, 0.14, 0.012), WH, 0, -0.18, -0.06], [gBox(0.012, 0.1, 0.012), WH, 0, 0.4, -0.02], [gBox(0.012, 0.1, 0.012), WH, 0, -0.4, -0.02]], 2, [
+      [gOct(1), EB_ICE, 0, 0.26, -0.1, -0.5, 0, 0, 0.022, 0.075, 0.022], [gOct(1), EB_ICE, 0, -0.26, -0.1, 0.5, 0, 0, 0.022, 0.075, 0.022],
+      [gOct(1), EB_ICE2, 0, 0.44, -0.04, -0.8, 0, 0, 0.017, 0.055, 0.017], [gOct(1), EB_ICE2, 0, -0.44, -0.04, 0.8, 0, 0, 0.017, 0.055, 0.017],
+    ]);
   }
   const lootModels = Object.create(null);
   const WEAPON_MODEL = GEAR_KEYS; // 掉落模型的名字和武器种类同名
   let lootBody = null;
   let lootBodyU = null; // 烬铸武器掉在地上时的本体：带一点余烬自发光
+  let lootBodyUIce = null; // 冰弓凛羽掉在地上时的本体：带一点冷蓝自发光
 
   // kind：item | cur | skill | blank（无铭技能宝石）| support。slot（可选，只对 item 有意义）：装备栏位名，或物品对象本身
   // （{ slot, baseIdx }，武器按 G.BASES.weapon[baseIdx].type 区分八种；也可以直接给 { slot: 'weapon', type }）。不传时是一只通用的小包裹。
@@ -9835,12 +9888,15 @@
     if (WEAPON_MODEL.indexOf(key) >= 0 || BOW_TYPES.indexOf(key) >= 0) gem.rotation.z = key === 'bow' || BOW_TYPES.indexOf(key) >= 0 ? 0.3 : key === 'daggers' ? 0 : GUN_TYPES.indexOf(key) >= 0 ? 0.15 : 0.5; // 武器斜着悬在空中
     else if (key === 'ring' || key === 'amulet' || key === 'belt') gem.rotation.x = 0.35;
     if (uq && !lootBodyU) lootBodyU = new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.55, envMap: rigEnvMap(), envMapIntensity: 1.0, flatShading: true, emissive: lin(0x7a2a06), emissiveIntensity: 0.9 });
+    // 冰弓凛羽：本体透一点冷蓝而不是余烬橙，发光件冰蓝，往上冒的是霜雾冰晶（光柱、地面光盘、名牌仍是烬铸的颜色）
+    const uqIce = uq && key === 'emberbow';
+    if (uqIce && !lootBodyUIce) lootBodyUIce = new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.5, envMap: rigEnvMap(), envMapIntensity: 1.0, flatShading: true, emissive: lin(0x0c3a6a), emissiveIntensity: 0.9 });
     if (mdl[0]) {
-      const m = new T.Mesh(mdl[0], uq ? lootBodyU : lootBody);
+      const m = new T.Mesh(mdl[0], uqIce ? lootBodyUIce : uq ? lootBodyU : lootBody);
       m.castShadow = true;
       gem.add(m);
     }
-    const g2 = new T.Mesh(mdl[1], lootMat(h));
+    const g2 = new T.Mesh(mdl[1], lootMat(uqIce ? 0x4fb4ff : h));
     g2.castShadow = !mdl[0];
     gem.add(g2);
     grp.add(gem);
@@ -9875,6 +9931,7 @@
     u.spin = rand(1.4, 2.2);
     u.ph = rand(0, TAU);
     u.ember = uq ? 0 : -1; // 烬铸：火星的累计量（-1 不冒）
+    u.frost = uqIce; // 冰弓凛羽：冒的是霜晶不是火星
     if (uq) {
       _c.set(h);
       u.er = _c.r;
@@ -12294,7 +12351,7 @@
   const RIB_DEF = {
     ember: [0.24, 0.2], blade: [0.09, 0.1], dart: [0.12, 0.22], orb: [0.18, 0.15],
     glob: [0.17, 0.15], shard: [0.15, 0.2], spark: [0.13, 0.12], firebolt: [0.28, 0.22], horb: [0.15, 0.12],
-    // 远程武器：子弹 / 左轮的重弹 / 箭 / 烬铸弓的燃箭 / 喷枪的火团
+    // 远程武器：子弹 / 左轮的重弹 / 箭 / 冰弓的寒冰箭 / 喷枪的火团
     bullet: [0.045, 0.07], slug: [0.07, 0.1], arrow: [0.04, 0.16], emberarrow: [0.11, 0.24], flamelet: [0.2, 0.12],
   };
   // 外形别名：game.js 那边怎么起名都认得
@@ -12354,7 +12411,7 @@
     else if (kind === 'spark') { r0 = 1; g0 = 0.95; b0 = 0.6; r1 = 0.55; g1 = 0.45; b1 = 0.1; }
     else if (kind === 'firebolt') { r0 = 1; g0 = 0.45; b0 = 0.12; r1 = 0.55; g1 = 0.05; b1 = 0.02; }
     else if (kind === 'bullet' || kind === 'slug') { r0 = 1; g0 = 0.9; b0 = 0.6; r1 = 0.8; g1 = 0.35; b1 = 0.08; }
-    else if (kind === 'emberarrow') { r0 = 0.75; g0 = 0.93; b0 = 1; r1 = 0.12; g1 = 0.4; b1 = 0.75; }
+    else if (kind === 'emberarrow') { r0 = 0.42; g0 = 0.76; b0 = 1; r1 = 0.04; g1 = 0.22; b1 = 0.65; }
     else if (kind === 'flamelet') { r0 = 1; g0 = 0.6; b0 = 0.22; r1 = 0.6; g1 = 0.08; b1 = 0.02; }
     else if (u.hostile) { r0 = u.r * 0.6; g0 = u.g * 0.6; b0 = u.b * 0.6; r1 = 0.45; g1 = 0.04; b1 = 0.03; }
     else { r0 = u.r + (1 - u.r) * 0.45; g0 = u.g + (1 - u.g) * 0.45; b0 = u.b + (1 - u.b) * 0.45; r1 = u.r * 0.55; g1 = u.g * 0.55; b1 = u.b * 0.55; }
@@ -12894,7 +12951,7 @@
   // =====================================================================
   const RANGED_PF = { bullet: 1, slug: 1, arrow: 1, emberarrow: 1, flamelet: 1 };
   const GUN_KIND = { gatling: 'bullet', revolver: 'slug', flamer: 'flamelet', huntbow: 'arrow', eagle: 'arrow', runebow: 'arrow', emberbow: 'emberarrow' };
-  const BUFF_HEX = { huntbow: 0x6fe8b0, eagle: 0xffd75e, runebow: 0xc9a6ff, emberbow: 0x7fd4ff };
+  const BUFF_HEX = { huntbow: 0x6fe8b0, eagle: 0xffd75e, runebow: 0xc9a6ff, emberbow: 0x3a9cff }; // 冰弓压深一点：加法混合 + 泛光之后仍是冰蓝，不发白
   const RF = {
     muz: [], puffs: [], fires: [], shells: [], tracers: [],
     laser: { ext: -1, x: 0, z: 0, dx: 0, dz: 1, len: 0, scorch: 0 },
@@ -13000,7 +13057,8 @@
       muzzleAdd(_rs.x, _rs.y, _rs.z, u.dx, u.dz, big ? 1.35 : 0.9, big ? 0xff9a40 : 0xffc060);
       if (!big || Math.random() < 0.5) shellAdd(ent, u.dx, u.dz, big);
     } else if (kind === 'arrow' || kind === 'emberarrow') {
-      flare(_rs2.x, _rs2.y, _rs2.z, kind === 'emberarrow' ? 0x9fd8ff : u.tinted ? u.hex : 0xfff0d0, 0.5, 0.06);
+      // 寒冰箭的出手闪光小一号：凛冬一次三支，三团闪光叠在一起会糊成白
+      flare(_rs2.x, _rs2.y, _rs2.z, kind === 'emberarrow' ? 0x3a9cff : u.tinted ? u.hex : 0xfff0d0, kind === 'emberarrow' ? 0.3 : 0.5, 0.06);
     }
   }
   // 地上一片燃烧的余烬
@@ -13057,7 +13115,8 @@
   };
   W.gunTracer = function (x0, z0, x1, z1, y, hex) {
     if (RF.tracers.length >= 40) RF.tracers.shift();
-    RF.tracers.push({ x0, y0: y || 1.25, z0, x1, y1: (y || 1.25) - 0.15, z1, t: 0, dur: 0.09, hex: hex === undefined ? 0xffb050 : hexOf(hex) });
+    // hex 给了才按它上色（冰弓的冰晶连跳）；不给时照旧是枪火的琥珀色
+    RF.tracers.push({ x0, y0: y || 1.25, z0, x1, y1: (y || 1.25) - 0.15, z1, t: 0, dur: 0.09, hex: hex === undefined ? 0xffb050 : hexOf(hex), tint: hex !== undefined });
   };
   // 量表灌满的那一刻：武器上一圈亮光 + 往上迸的火星（热度橙 / 专注青绿）
   W.gaugeFull = function (ent, kind) {
@@ -13111,33 +13170,38 @@
     if (type === 'light') W.bolt([{ x, z }, { x: x + rand(-R, R), z: z + rand(-R, R) }], hex);
     flare(x, 1, z, hex, 1.3, 0.1);
   };
-  // 烬铸弓（凛羽）的冰晶连跳：一枚冰晶从 A 划一道弧落到 B
+  // 冰弓（凛羽）的冰晶连跳：一枚冰晶从 A 划一道弧落到 B
+  // 弧线是一串冷蓝的冰晶点（越往落点越亮），落点一记小小的冷光、一圈霜环和几粒冰屑
   W.emberSpark = function (x0, z0, x1, z1) {
     const n = 10;
     for (let i = 0; i <= n; i++) {
       const k = i / n, h = Math.sin(k * Math.PI) * 1.1;
-      spawnP(x0 + (x1 - x0) * k, 1.0 + h, z0 + (z1 - z0) * k, rand(-0.3, 0.3), rand(-0.2, 0.4), rand(-0.3, 0.3), 0.18 + k * 0.2, 0.14 + 0.05 * Math.sin(k * 3), 0.6 + 0.3 * k, 0.88, 1, 3, 2);
+      spawnP(x0 + (x1 - x0) * k, 1.0 + h, z0 + (z1 - z0) * k, rand(-0.3, 0.3), rand(-0.2, 0.4), rand(-0.3, 0.3), 0.18 + k * 0.2, 0.11 + 0.04 * Math.sin(k * 3), 0.18 + 0.2 * k, 0.5 + 0.25 * k, 1, 3, 2);
     }
-    W.gunTracer(x0, z0, x1, z1, 1.1, 0x9fd8ff);
-    flare(x1, 1.0, z1, 0x9fd8ff, 0.9, 0.09);
-    for (let i = 0; i < 5; i++) {
-      const a = rand(0, TAU), v = rand(1.5, 3.5);
-      spawnP(x1, 1.0, z1, Math.sin(a) * v, rand(0.5, 2.5), Math.cos(a) * v, rand(0.2, 0.4), rand(0.06, 0.1), 0.75, 0.93, 1, 9, 2);
+    W.gunTracer(x0, z0, x1, z1, 1.1, 0x3a9cff);
+    flare(x1, 1.0, z1, 0x2f8ee8, 0.75, 0.09);
+    W.ring(x1, z1, 0.6, 0x2f8ee8, 0.2);
+    for (let i = 0; i < 6; i++) {
+      const a = rand(0, TAU), v = rand(1.5, 3.5), w = i === 0;
+      spawnP(x1, 1.0, z1, Math.sin(a) * v, rand(0.5, 2.5), Math.cos(a) * v, rand(0.2, 0.4), w ? 0.09 : rand(0.05, 0.09), w ? 0.8 : 0.28, w ? 0.93 : 0.65, 1, 9, 2);
     }
   };
   // 凛冬的碎尸冰爆：一圈冰霜 + 四散的冰碴
+  // 颜色都压在深一点的冰蓝上（加法混合 + 泛光会把浅色推成白）：外圈霜环、内圈一记冷光、地上留一片霜花，
+  // 冰碴大多是冰蓝、少数亮白，贴地一层慢慢散开的淡蓝霜雾
   W.frostBlast = function (x, z, R) {
-    W.ring(x, z, R, 0x7fd4ff, 0.3);
-    W.ring(x, z, R * 0.55, 0xdff4ff, 0.18);
-    flare(x, 1.0, z, 0xbfe8ff, 1.4 + R * 0.3, 0.12);
-    flashLight(x, 2, z, 0x7fd4ff, 1.4);
+    W.ring(x, z, R, 0x2f8ee8, 0.3);
+    W.ring(x, z, R * 0.55, 0x6cc0ff, 0.18);
+    W.decal(2, x, z, R * 0.7, rand(0, TAU), 0x2466c8, 1.2);
+    flare(x, 1.0, z, 0x2f8ee8, 1.0 + R * 0.25, 0.12);
+    flashLight(x, 2, z, 0x3a8ce8, 0.7);
     for (let i = 0; i < 18; i++) {
-      const a = rand(0, TAU), v = rand(2, 5) * Math.max(0.6, R / 2.5);
-      spawnP(x, 1.0, z, Math.sin(a) * v, rand(1, 4), Math.cos(a) * v, rand(0.35, 0.7), rand(0.08, 0.16), 0.72, 0.92, 1, 12, 2.5);
+      const a = rand(0, TAU), v = rand(2, 5) * Math.max(0.6, R / 2.5), w = i % 5 === 0;
+      spawnP(x, 1.0, z, Math.sin(a) * v, rand(1, 4), Math.cos(a) * v, rand(0.35, 0.7), w ? rand(0.1, 0.14) : rand(0.06, 0.12), w ? 0.8 : 0.24, w ? 0.93 : 0.6, 1, 12, 2.5);
     }
     for (let i = 0; i < 8; i++) {
       const a = rand(0, TAU), d = rand(0, R * 0.6);
-      spawnP(x + Math.sin(a) * d, 0.3, z + Math.cos(a) * d, 0, rand(0.2, 0.6), 0, rand(0.6, 1.1), rand(0.3, 0.5), 0.55, 0.8, 0.95, -0.3, 1.2);
+      spawnP(x + Math.sin(a) * d, 0.3, z + Math.cos(a) * d, 0, rand(0.2, 0.6), 0, rand(0.6, 1.1), rand(0.3, 0.5), 0.1, 0.26, 0.5, -0.3, 1.2);
     }
     return true;
   };
@@ -13228,11 +13292,14 @@
     }
   };
   const EL_HEX = { fire: [1, 0.42, 0.1], cold: [0.5, 0.85, 1], light: [1, 0.92, 0.35] };
-  function arrowBody(u, p, k) {
+  // tint（可选）：[r, g, b] 乘在箭身的顶点色上（冰弓的寒冰箭是霜钢箭杆、淡蓝箭羽）
+  function arrowBody(u, p, k, tint) {
     _pq.setFromAxisAngle(UP, Math.atan2(u.dx, u.dz));
     mPose(p.x, p.y, p.z, _pq, k, k, k);
-    pfPut('arrow', 1, 1, 1);
+    if (tint) pfPut('arrow', tint[0], tint[1], tint[2]);
+    else pfPut('arrow', 1, 1, 1);
   }
+  const ICE_ARROW = [0.42, 0.62, 0.95];
   PF_DRAW.arrow = function (u, x, y, z, dt) {
     const p = rOff(u, x, y, z);
     arrowBody(u, p, 1);
@@ -13258,18 +13325,21 @@
     }
   };
   PF_DRAW.emberarrow = function (u, x, y, z, dt) {
-    // 凛羽的寒冰箭：箭头裹着一层冷光，身后拖着冰雾和细碎的冰晶
+    // 凛羽的寒冰箭：箭头套着一枚冰棱（尖朝前、绕箭杆慢慢滚转），外面一层冷光，身后拖着冰雾和细碎的冰晶（偶尔一粒亮白的冰闪）
     const p = rOff(u, x, y, z);
-    arrowBody(u, p, 1.1);
+    arrowBody(u, p, 1.1, ICE_ARROW);
     const hx = p.x + u.dx * 0.22, hz = p.z + u.dz * 0.22;
-    for (let k = 0; k < 2; k++) flameTongue(u, hx - u.dx * k * 0.2, p.y + 0.02, hz - u.dz * k * 0.2, Math.sin(u.age * 17 + k * 2) * 0.2, 0.22 - k * 0.05, 0.6 + 0.15 * Math.sin(u.age * 29 + k), 0.35, 0.7, 1, 'flameN');
-    flameTongue(u, hx, p.y + 0.03, hz, 0, 0.12, 0.4, 0.8, 0.95, 1);
-    mBill(hx, p.y, hz, 1.1);
-    pfPut('glow', 0.3, 0.65, 1);
+    _pq.setFromAxisAngle(UP, Math.atan2(u.dx, u.dz)).multiply(_pq2.setFromAxisAngle(Z_AXIS, u.age * 7 + (u.ph || 0)));
+    mPose(hx + u.dx * 0.05, p.y + 0.02, hz + u.dz * 0.05, _pq, 0.1, 0.1, 0.17);
+    pfPut('shard', 0.5, 0.8, 1);
+    mBill(hx, p.y, hz, 0.95);
+    pfPut('glow', 0.07, 0.3, 0.85);
     u.acc += dt;
     while (u.acc > 0.025) {
       u.acc -= 0.025;
-      spawnP(hx - u.dx * 0.3 + rand(-0.08, 0.08), p.y + rand(-0.05, 0.1), hz - u.dz * 0.3 + rand(-0.08, 0.08), rand(-0.6, 0.6) - u.dx, rand(-0.3, 0.6), rand(-0.6, 0.6) - u.dz, rand(0.3, 0.55), rand(0.06, 0.11), 0.7, 0.9, 1, 2, 1.5);
+      const w = Math.random() < 0.15;
+      spawnP(hx - u.dx * 0.3 + rand(-0.08, 0.08), p.y + rand(-0.05, 0.1), hz - u.dz * 0.3 + rand(-0.08, 0.08), rand(-0.6, 0.6) - u.dx, rand(-0.3, 0.6), rand(-0.6, 0.6) - u.dz, rand(0.3, 0.55), w ? 0.09 : rand(0.05, 0.09),
+        w ? 0.75 : 0.22, w ? 0.9 : 0.58, 1, 2, 1.5);
     }
   };
   PF_DRAW.flamelet = function (u, x, y, z, dt) {
@@ -13303,11 +13373,12 @@
       }
       if (vk === 'emberarrow') {
         const r = how === 'blast' ? R || 1.4 : 0.9;
-        W.ring(x, z, r, 0x7fd4ff, 0.22);
-        flare(x, y, z, 0xbfe8ff, 0.9 + r * 0.3, 0.08);
-        for (let i = 0; i < 9; i++) {
-          const a = rand(0, TAU), v = rand(1.5, 4);
-          spawnP(x, y, z, Math.sin(a) * v, rand(0.3, 2.5), Math.cos(a) * v, rand(0.2, 0.4), rand(0.06, 0.12), 0.72, 0.92, 1, 10, 2);
+        // 冰屑四溅 + 一圈冷蓝的霜环；只有少数几粒是亮白的冰闪，泛光之后整体仍是冰蓝
+        W.ring(x, z, r, 0x2f8ee8, 0.22);
+        flare(x, y, z, 0x2f8ee8, 0.7 + r * 0.25, 0.08);
+        for (let i = 0; i < 10; i++) {
+          const a = rand(0, TAU), v = rand(1.5, 4), w = i < 2;
+          spawnP(x, y, z, Math.sin(a) * v, rand(0.3, 2.5), Math.cos(a) * v, rand(0.2, 0.4), w ? 0.1 : rand(0.05, 0.1), w ? 0.8 : 0.25, w ? 0.92 : 0.62, 1, 10, 2);
         }
         return true;
       }
@@ -13414,7 +13485,10 @@
       if (tr.t >= tr.dur) { RF.tracers.splice(i, 1); continue; }
       const k = 1 - tr.t / tr.dur, dx = tr.x1 - tr.x0, dy = tr.y1 - tr.y0, dz = tr.z1 - tr.z0, l = Math.hypot(dx, dy, dz) || 1;
       mStretch((tr.x0 + tr.x1) / 2, (tr.y0 + tr.y1) / 2, (tr.z0 + tr.z1) / 2, dx, dy, dz, 0.07 + 0.05 * k, l);
-      pfPut('beam', 1.6 * k, 1.0 * k, 0.4 * k);
+      if (tr.tint) {
+        _c.set(tr.hex);
+        pfPut('beam', _c.r * 1.3 * k, _c.g * 1.3 * k, _c.b * 1.3 * k);
+      } else pfPut('beam', 1.6 * k, 1.0 * k, 0.4 * k);
     }
     // --- 火团（喷火 / 火浪） ---
     for (let i = RF.puffs.length - 1; i >= 0; i--) {
@@ -13621,7 +13695,8 @@
     // 脚下：一圈细光环 + 地光
     _pq.copy(_qFlat);
     mPose(x, 0.08, z, _pq, 1.05, 1.05, 1.05);
-    pfPut('ringF', cr * a * 0.8, cg * a * 0.8, cb * a * 0.8);
+    const rk = B.type === 'emberbow' ? 0.2 : 0.8; // 冰弓的细光环压得很暗：冰蓝的细线一泛光就成了白圈
+    pfPut('ringF', cr * a * rk, cg * a * rk, cb * a * rk);
     mPose(x, 0.06, z, _qFlat, 2.6, 2.6, 1);
     pfPut('glow', cr * 0.45 * a, cg * 0.45 * a, cb * 0.45 * a);
     B.acc += dt * 14;
@@ -13657,15 +13732,18 @@
         if (dt > 0 && Math.random() < dt * 20) spawnP(px, py, pz, rand(-0.3, 0.3), rand(0, 0.5), rand(-0.3, 0.3), rand(0.25, 0.45), 0.09, EC[k][0], EC[k][1], EC[k][2], 0, 2);
       }
     } else if (B.type === 'emberbow') {
-      // 烬铸弓（凛羽）：脚下一圈冰棱慢慢升起，寒气绕身
+      // 冰弓（凛羽）：脚下一圈冰晶（高矮交错、慢慢绕身转、轻轻起伏），冰晶之间贴地一层淡蓝的霜雾
       for (let k = 0; k < 10; k++) {
-        const ang = (k / 10) * TAU + t * 0.5, px = x + Math.sin(ang) * 0.7, pz = z + Math.cos(ang) * 0.7, fl = 0.85 + 0.15 * Math.sin(t * 5 + k * 2.3);
-        mStretch(px, 0.05, pz, 0, -1, 0, 0.18 * a, 0.6 * fl * a);
-        pfPut('flameN', 0.3, 0.6, 0.95);
-        if (k % 2) {
-          mStretch(px, 0.08, pz, 0, -1, 0, 0.1 * a, 0.42 * fl * a);
-          pfPut('flame', 0.7 * a, 0.9 * a, 1 * a);
-        }
+        const ang = (k / 10) * TAU + t * 0.5, rr = k % 2 ? 0.62 : 0.76, px = x + Math.sin(ang) * rr, pz = z + Math.cos(ang) * rr;
+        const fl = 0.88 + 0.12 * Math.sin(t * 4 + k * 2.3), h = (k % 2 ? 0.17 : 0.24) * fl * Math.min(1, B.t / 0.35);
+        _pq.copy(_pq2.setFromAxisAngle(UP, ang * 2 + k)).multiply(_qFlat); // 尖朝上，各自转一个角度，冰面反光错落
+        mPose(px, h * 0.95, pz, _pq, h * 0.6, h * 0.6, h);
+        pfPut('shard', 0.34 * a, 0.66 * a, 1.0 * a);
+      }
+      for (let k = 0; k < 6; k++) {
+        const ang = (k / 6) * TAU - t * 0.35, px = x + Math.sin(ang) * 0.65, pz = z + Math.cos(ang) * 0.65;
+        mBill(px, 0.22, pz, 0.85 + 0.1 * Math.sin(t * 2 + k));
+        pfPut('glow', 0.03 * a, 0.12 * a, 0.3 * a);
       }
     }
     // 绕身升起的光粒
@@ -14933,6 +15011,14 @@
         if (u.glow) u.glow.scale.setScalar(1.1 + Math.sin(u.t * 3.1) * 0.2);
         u.ember += dt * 34;
         const p = g.position;
+        while (u.ember >= 1 && u.frost) {
+          // 霜晶：慢慢升起、一路减速的冷蓝细点，偶尔一粒亮白
+          u.ember -= 1;
+          if (Math.random() < 0.4) continue; // 比火星稀一些
+          const a = rand(0, TAU), d = Math.sqrt(Math.random()) * 1.1, w = Math.random() < 0.2;
+          spawnP(p.x + Math.sin(a) * d, 0.1 + Math.random() * 0.5, p.z + Math.cos(a) * d, rand(-0.2, 0.2), rand(0.5, 1.5), rand(-0.2, 0.2), rand(0.8, 1.4), w ? rand(0.08, 0.12) : rand(0.05, 0.1),
+            w ? 0.75 : 0.22, w ? 0.9 : 0.6, 1, 0.25, 1.4);
+        }
         while (u.ember >= 1) {
           u.ember -= 1;
           const a = rand(0, TAU), d = Math.sqrt(Math.random()) * 1.1, w = Math.random() < 0.25 ? 0.5 : 0;
