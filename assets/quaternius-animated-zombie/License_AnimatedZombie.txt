@@ -1,0 +1,13 @@
+------------------------------------------------------
+Animated Zombie Pack by Quaternius
+https://quaternius.com/packs/animatedzombie.html
+-------------------------------------------------------
+
+License:
+CC0 1.0 Universal (CC0 1.0)
+Public Domain Dedication
+https://creativecommons.org/publicdomain/zero/1.0/
+
+(The pack's download folder ships without a licence file; the pack page
+lists "License: CC0". This note records that, in the same form as the
+licence files of Quaternius's other packs.)

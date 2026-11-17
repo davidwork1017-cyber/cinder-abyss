@@ -2038,8 +2038,12 @@
   // ----- 骨架定义 + 零件烘焙 -----
   // 用法：b.j(关节名, 父关节, 枢轴 x,y,z)；b.at(关节).surf(表面).p(几何体, 颜色, 位置…, 旋转…, 缩放…)
   // 所有坐标都是模型空间里的绑定姿态（面朝 +z，+x 是它的左手边，脚踩 y = 0）。
-  function rigBuilder(key, NB) {
+  // cs（可选）：C 模型的配置。给了它时，本体关节上的程序化零件按 cs.keep(关节名, 种类) 过滤（种类：p 受光 / g 自发光 / x 稀有度光），
+  // 被换掉的身体由 cApply 换成 C 模型的网格；武器等留下的零件照常烘焙
+  function rigBuilder(key, NB, cs) {
     const joints = [], JI = Object.create(null), virt = [];
+    let curTag = null; // b.tag(名字)：之后的零件带这个标签（给 cs.keep 区分同一关节上的武器和身体）
+    const skip = (kind) => cs && !cs.keep(joints[curJ].name, kind, curTag);
     const body0 = [], glow0 = [], aux0 = [];
     // 变体：同一副骨架上可以互换显示的几组零件（玩家手里的远程武器）。b.variant(名字) 之后的零件进这一组，b.variant(null) 回到本体
     const variants = Object.create(null);
@@ -2055,7 +2059,8 @@
         if (pi === undefined) throw new Error('rig ' + key + ': 未定义的父关节 ' + parent);
         const pj = pi < 0 ? null : joints[pi];
         JI[name] = joints.length;
-        joints.push({ name, parent: pi, px: x, py: y, pz: z, lx: x - (pj ? pj.px : 0), ly: y - (pj ? pj.py : 0), lz: z - (pj ? pj.pz : 0) });
+        // px0..pz0：程序化骨架原本的枢轴（换成 C 模型后 px..pz 会挪；按绑定坐标写死的武器握点、弓梢等用 px0 换算）
+        joints.push({ name, parent: pi, px: x, py: y, pz: z, px0: x, py0: y, pz0: z, lx: x - (pj ? pj.px : 0), ly: y - (pj ? pj.py : 0), lz: z - (pj ? pj.pz : 0) });
         return B;
       },
       // 虚关节：只占姿态通道、不占骨骼（不能挂零件）。动作照常给它写关键帧，post / late 里当信号读（玩家的 cape1..3）
@@ -2066,6 +2071,10 @@
       at(name) {
         if (JI[name] === undefined) throw new Error('rig ' + key + ': 未定义的关节 ' + name);
         curJ = JI[name];
+        return B;
+      },
+      tag(t) {
+        curTag = t || null;
         return B;
       },
       variant(name) {
@@ -2085,11 +2094,12 @@
       },
       // 受光零件。颜色可以是一个十六进制数，或 [下端色, 上端色] 的竖向渐变
       p(g, c, x, y, z, rx, ry, rz, sx, sy, sz) {
-        body.push(mk(g, c, x, y, z, rx, ry, rz, sx, sy, sz));
+        if (!skip('p')) body.push(mk(g, c, x, y, z, rx, ry, rz, sx, sy, sz));
         return B;
       },
       // 双面零件（披风、旗幡）：外侧 c，内侧 ci
       pd(g, c, ci, x, y, z, rx, ry, rz, sx, sy, sz) {
+        if (skip('p')) return B;
         const part = mk(g, c, x, y, z, rx, ry, rz, sx, sy, sz);
         part.ci = ci;
         body.push(part);
@@ -2097,6 +2107,7 @@
       },
       // 第二组自发光零件，用独立材质（玩家武器上随稀有度变色的部分）
       x(g, k, x, y, z, rx, ry, rz, sx, sy, sz) {
+        if (skip('x')) return B;
         const part = mk(g, 0, x, y, z, rx, ry, rz, sx, sy, sz);
         part.k = k;
         part.s = SURF.glow;
@@ -2105,6 +2116,7 @@
       },
       // 自发光零件：k 是亮度（1 = 元素色全亮）
       g(g, k, x, y, z, rx, ry, rz, sx, sy, sz) {
+        if (skip('g')) return B;
         const part = mk(g, 0, x, y, z, rx, ry, rz, sx, sy, sz);
         part.k = k;
         part.s = SURF.glow;
@@ -2124,6 +2136,8 @@
         return B;
       },
       build(o) {
+        // 主角的程序化零件（武器、围巾）保持原色；其余角色统一压成暗色调
+        const tone = o.tone === undefined ? key !== 'player' : o.tone;
         const bake1 = (list, isGlow) => {
           if (!list.length) return null;
           // 双面零件展开成正反两份：反面翻转绕序和法线，用内侧颜色
@@ -2201,9 +2215,18 @@
                 r += (cB.r - r) * t; g += (cB.g - g) * t; bl += (cB.b - bl) * t;
               }
               if (jit) {
-                const h = Math.sin(px * 91.7 + py * 57.3 + pz * 133.1) * 43758.5453;
+                // 平涂：明暗抖动按整个三角形取（面心），一面一色
+                const f0 = k - ((k - v0) % 3);
+                const cx = (pos[f0 * 3] + pos[f0 * 3 + 3] + pos[f0 * 3 + 6]) / 3, cy = (pos[f0 * 3 + 1] + pos[f0 * 3 + 4] + pos[f0 * 3 + 7]) / 3, cz = (pos[f0 * 3 + 2] + pos[f0 * 3 + 5] + pos[f0 * 3 + 8]) / 3;
+                const h = Math.sin(cx * 91.7 + cy * 57.3 + cz * 133.1) * 43758.5453;
                 const kk = 1 + (h - Math.floor(h) - 0.5) * jit * 2;
                 r *= kk; g *= kk; bl *= kk;
+              }
+              // 暗色调：亮度压进炭灰到灰烬灰的一段（线性亮度约 0.03～0.13），亮色压得多、暗色几乎不动，层次的先后不变；
+              // 饱和度也收掉一截——和重新上色的 C 模型（深灰的主角、炭黑的蜘蛛）站在一起是同一套暗色，不发白、不发艳
+              if (!isGlow && tone) {
+                const l = r * 0.3 + g * 0.59 + bl * 0.11, f = Math.min(0.78 - 0.54 * smooth01((l - 0.02) / 0.3), 0.125 / Math.max(l, 1e-3) + 0.02);
+                r = (l + (r - l) * 0.62) * f; g = (l + (g - l) * 0.62) * f; bl = (l + (bl - l) * 0.62) * f;
               }
               // 贴近地面的部分压暗一点（假的环境光遮蔽）
               if (!isGlow && o.shade) {
@@ -2241,7 +2264,7 @@
         return {
           key, NB, joints, JI, J, nJ, rest, geoBody, geoGlow, geoAux, geoVar,
           tris: cnt(geoBody) + cnt(geoGlow) + cnt(geoAux),
-          height: o.height, stride: o.stride || 3, clips: Object.create(null), gearClips: Object.create(null), loco: null, post: null, late: null,
+          height: o.height, reach: o.reach || 1.5, stride: o.stride || 3, clips: Object.create(null), gearClips: Object.create(null), loco: null, post: null, late: null,
           sockets: Object.create(null), hitJ: null, feet: null, ankle: 0,
         };
       },
@@ -2357,8 +2380,447 @@
     return out;
   }
 
+  // =====================================================================
+  // C 模型：Quaternius 的平涂低多边形角色（CC0，2018–2020 的免费包），按烬渊的暗色调重新上色，蒙皮到程序化骨架上
+  // =====================================================================
+  // 源文件由 tools/convert-chars.mjs 转成精简的 GLB，tools/pack-assets.mjs 打成 js/assets/chars.js（base64，index.html 里同步引入，
+  // file:// 双击打开也能用）。这里同步解析 GLB（不经过 GLTFLoader），然后：
+  //   1. 摆姿势（静止姿态校正）：把模型的绑定姿态（T 字等）逐骨骼转到程序化骨架的静止姿态——上臂 / 小臂 / 大腿 / 小腿的朝向
+  //      对齐程序化关节之间的连线（或配置里给的方向），手指握成拳，头可以缩小一点；
+  //   2. 关节枢轴挪到模型对应骨骼的位置；没有对应骨骼的关节（武器、弓弦、幡布……）跟着父关节平移，挂在上面的程序化零件一起平移；
+  //   3. 网格按摆好的姿势烘焙成静止姿态的顶点，每个顶点最多 4 根骨骼的权重换算到程序化关节上（多根骨骼并到同一关节的权重相加），
+  //      和留下来的程序化零件（武器等）合成同一个几何体，着色器按 4 权重蒙皮（SKIN4）。
+  // 原有的 defClip 动作、步态、IK、挂点、受击、死亡于是原样驱动新网格；模型自带的动作也能经 cClipKeys 采样成同一套关节通道的关键帧。
+  // 任何一步失败都退回纯程序化骨架（cTry）。
+  const CM = Object.create(null); // 模型 key → 解析结果（失败为 null）
+  function cParse(b64) {
+    const bin = atob(b64), n = bin.length, u8 = new Uint8Array(n);
+    for (let i = 0; i < n; i++) u8[i] = bin.charCodeAt(i);
+    const dv = new DataView(u8.buffer);
+    if (dv.getUint32(0, true) !== 0x46546c67) throw new Error('不是 GLB');
+    const jl = dv.getUint32(12, true);
+    const json = JSON.parse(new TextDecoder().decode(u8.subarray(20, 20 + jl)));
+    const b0 = 20 + jl + 8;
+    const NC = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16 };
+    const CT = { 5126: Float32Array, 5125: Uint32Array, 5123: Uint16Array, 5121: Uint8Array };
+    const acc = (i) => {
+      const a = json.accessors[i], v = json.bufferViews[a.bufferView], C = CT[a.componentType], len = a.count * NC[a.type];
+      const off = b0 + (v.byteOffset || 0) + (a.byteOffset || 0);
+      const out = new C(u8.buffer.slice(off, off + len * C.BYTES_PER_ELEMENT));
+      if (!a.normalized) return out;
+      const f = new Float32Array(len), d = a.componentType === 5121 ? 255 : 65535;
+      for (let k = 0; k < len; k++) f[k] = out[k] / d;
+      return f;
+    };
+    const sk = json.skins[0], nodes = json.nodes, nb = sk.joints.length;
+    const boneOf = new Map();
+    sk.joints.forEach((ni, i) => boneOf.set(ni, i));
+    const parent = new Int16Array(nb).fill(-1);
+    sk.joints.forEach((ni, i) => (nodes[ni].children || []).forEach((c) => { if (boneOf.has(c)) parent[boneOf.get(c)] = i; }));
+    const ibm = acc(sk.inverseBindMatrices);
+    const B = [];
+    for (let i = 0; i < nb; i++) B.push(new T.Matrix4().fromArray(ibm, i * 16).invert());
+    const names = sk.joints.map((ni) => nodes[ni].name);
+    const loc = sk.joints.map((ni) => ({ t: nodes[ni].translation || [0, 0, 0], q: nodes[ni].rotation || [0, 0, 0, 1] }));
+    const mats = json.materials.map((m) => ({ name: m.name, c: m.pbrMetallicRoughness.baseColorFactor }));
+    const prims = json.meshes[0].primitives.map((p) => ({
+      name: (p.extras && p.extras.name) || '', mat: mats[p.material].name, base: mats[p.material].c,
+      P: acc(p.attributes.POSITION), J: acc(p.attributes.JOINTS_0), W: acc(p.attributes.WEIGHTS_0),
+      C: p.attributes.COLOR_0 !== undefined ? acc(p.attributes.COLOR_0) : null, I: acc(p.indices),
+    }));
+    const clips = Object.create(null);
+    for (const a of json.animations || []) {
+      const times = acc(a.samplers[a.channels[0].sampler].input);
+      const ch = a.channels.map((c) => ({ b: boneOf.get(c.target.node), path: c.target.path, v: acc(a.samplers[c.sampler].output) })).filter((c) => c.b !== undefined);
+      clips[a.name] = { n: times.length, dur: times[times.length - 1], ch };
+    }
+    const bi = Object.create(null);
+    names.forEach((nm, i) => (bi[nm] = i));
+    const order = [];
+    const visit = (i) => {
+      order.push(i);
+      for (let k = 0; k < nb; k++) if (parent[k] === i) visit(k);
+    };
+    for (let i = 0; i < nb; i++) if (parent[i] < 0) visit(i);
+    let ymax = 0;
+    for (const p of prims) for (let k = 1; k < p.P.length; k += 3) if (p.P[k] > ymax) ymax = p.P[k];
+    return { nb, names, bi, parent, order, B, loc, prims, clips, ymax };
+  }
+  function cModel(key) {
+    if (key in CM) return CM[key];
+    let m = null;
+    try {
+      const st = window.CA_ASSETS && window.CA_ASSETS.chars;
+      const b64 = st && st.models && st.models[key];
+      if (b64) {
+        m = cParse(b64);
+        st.models[key] = null; // 解析完就放掉 base64 文本（约 0.6 MB），和 assets.js 处理其它资源包一样
+      }
+    } catch (e) {
+      if (window.console) console.warn('[角色] 模型 ' + key + ' 解析失败，改用程序化外观', e);
+      m = null;
+    }
+    return (CM[key] = m);
+  }
+  // 这副骨架要不要换成 C 模型：有配置、模型解析成功、没有被关掉（window.CA_PROCEDURAL_CHARS = true 时全部用程序化外观）
+  function cSpec(key) {
+    const sp = CSPEC[key];
+    if (!sp || window.CA_PROCEDURAL_CHARS) return null;
+    const md = cModel(sp.model);
+    return md ? Object.assign({ key, md }, sp) : null;
+  }
+  // 先按 C 模型建骨架，出错就退回纯程序化
+  function cTry(key, make) {
+    const cs = cSpec(key);
+    if (cs) {
+      try {
+        return make(cs);
+      } catch (e) {
+        if (window.console) console.warn('[角色] ' + key + ' 套用模型失败，改用程序化外观', e);
+      }
+    }
+    return make(null);
+  }
+
+  const _cm = new T.Matrix4(), _cm2 = new T.Matrix4(), _cq = new T.Quaternion(), _cv = new T.Vector3(), _cv2 = new T.Vector3(), _cv3 = new T.Vector3();
+  // M ← T(o) · R · T(−o) · M（绕 M 的原点做世界空间里的变换）
+  function cAround(M, R) {
+    _cv.setFromMatrixPosition(M);
+    M.premultiply(_cm.makeTranslation(-_cv.x, -_cv.y, -_cv.z)).premultiply(R).premultiply(_cm.makeTranslation(_cv.x, _cv.y, _cv.z));
+  }
+  // 摆出静止姿态：返回每根骨骼摆好后的世界矩阵（程序化骨架的模型空间）。Bg：绑定姿态的世界矩阵（同一空间）
+  function cPose(md, cs, Bg, Bgi, piv) {
+    const P = new Array(md.nb), F = new Array(md.nb), SX = new Array(md.nb);
+    for (const i of md.order) {
+      const p = md.parent[i], nm = md.names[i];
+      P[i] = p < 0 ? Bg[i].clone() : F[p].clone().multiply(_cm2.copy(Bgi[p]).multiply(Bg[i]));
+      // 父骨骼被拉长了：子骨骼只跟着挪到拉长后的位置，自己不被拉长
+      if (p >= 0 && SX[p]) P[i].setPosition(_cv2.setFromMatrixPosition(P[i]).applyMatrix4(SX[p]));
+      const aim = cs.aim && cs.aim(nm);
+      if (aim) {
+        // 这根骨骼「指向」子骨骼 aim[0]（不必真是子节点：按绑定姿态里的相对位置算），转到目标方向 aim[1]
+        const k = md.bi[aim[0]];
+        _cv2.setFromMatrixPosition(P[i]);
+        _cv3.setFromMatrixPosition(_cm2.copy(P[i]).multiply(Bgi[i]).multiply(Bg[k])).sub(_cv2).normalize();
+        const t = aim[1];
+        if (typeof t[0] === 'string') {
+          const a = piv(t[0]), b = piv(t[1]);
+          _cv2.set(b[0] - a[0], b[1] - a[1], b[2] - a[2]).normalize();
+        } else _cv2.set(t[0], t[1], t[2]).normalize();
+        cAround(P[i], _cm2.makeRotationFromQuaternion(_cq.setFromUnitVectors(_cv3, _cv2)));
+      }
+      const rot = cs.rot && cs.rot(nm);
+      if (rot) cAround(P[i], _cm2.makeRotationAxis(_cv2.set(rot[0], rot[1], rot[2]).normalize(), rot[3]));
+      const sc = cs.scale && cs.scale(nm);
+      if (sc) cAround(P[i], _cm2.makeScale(sc, sc, sc));
+      // 沿骨骼方向拉长（骷髅的短腿）：st = [指向的骨骼, 倍数]
+      const st = cs.stretch && cs.stretch(nm);
+      if (st) {
+        const k = md.bi[st[0]];
+        _cv2.setFromMatrixPosition(P[i]);
+        _cv3.setFromMatrixPosition(_cm2.copy(P[i]).multiply(Bgi[i]).multiply(Bg[k])).sub(_cv2).normalize();
+        const f = st[1] - 1, x = _cv3.x, y = _cv3.y, z = _cv3.z;
+        F[i] = P[i].clone();
+        _cv2.setFromMatrixPosition(P[i]);
+        const o = _cv2.clone();
+        SX[i] = new T.Matrix4().set(1 + f * x * x, f * x * y, f * x * z, 0, f * x * y, 1 + f * y * y, f * y * z, 0, f * x * z, f * y * z, 1 + f * z * z, 0, 0, 0, 0, 1);
+        SX[i].premultiply(_cm2.makeTranslation(o.x, o.y, o.z)).multiply(_cm2.makeTranslation(-o.x, -o.y, -o.z));
+        P[i].premultiply(SX[i]);
+        continue;
+      }
+      F[i] = P[i];
+    }
+    P.F = F; // 不带拉长的骨骼坐标系（采样模型动作时用）
+    return P;
+  }
+  // 程序化骨架上留下来的零件（刚性、单骨骼）→ SKIN4 的数组；顺手按关节的位移平移
+  function cRigid(g, dl, out) {
+    if (!g) return;
+    const p = g.attributes.position.array, n = g.attributes.normal.array, c = g.attributes.color.array, b = g.attributes.aBone.array, s = g.attributes.aSurf.array;
+    for (let v = 0; v < b.length; v++) {
+      const j = b[v] | 0;
+      out.P.push(p[v * 3] + dl[j * 3], p[v * 3 + 1] + dl[j * 3 + 1], p[v * 3 + 2] + dl[j * 3 + 2]);
+      out.N.push(n[v * 3], n[v * 3 + 1], n[v * 3 + 2]);
+      out.C.push(c[v * 3], c[v * 3 + 1], c[v * 3 + 2]);
+      out.J.push(j, 0, 0, 0);
+      out.W.push(1, 0, 0, 0);
+      out.S.push(s[v * 2], s[v * 2 + 1]);
+    }
+  }
+  const cBuf = () => ({ P: [], N: [], C: [], J: [], W: [], S: [] });
+  // 蒙皮矩阵 K 下网格（不含隐藏的部分）的最低点
+  function cLowY(md, cs, K) {
+    let lo = Infinity;
+    const v = new T.Vector3();
+    for (const pr of md.prims) {
+      if (cs.hide && cs.hide(pr.name, pr.mat)) continue;
+      for (let i = 0, nv = pr.P.length / 3; i < nv; i++) {
+        let y = 0;
+        for (let k = 0; k < 4; k++) {
+          const w = pr.W[i * 4 + k];
+          if (w > 0) y += v.set(pr.P[i * 3], pr.P[i * 3 + 1], pr.P[i * 3 + 2]).applyMatrix4(K[pr.J[i * 4 + k]]).y * w;
+        }
+        if (y < lo) lo = y;
+      }
+    }
+    return lo;
+  }
+  function cGeo(o, rig) {
+    if (!o.P.length) return null;
+    const g = new T.BufferGeometry();
+    g.setAttribute('position', new T.Float32BufferAttribute(o.P, 3));
+    g.setAttribute('normal', new T.Float32BufferAttribute(o.N, 3));
+    g.setAttribute('color', new T.Float32BufferAttribute(o.C, 3));
+    g.setAttribute('aSkin', new T.Float32BufferAttribute(o.J, 4));
+    g.setAttribute('aSkinW', new T.Float32BufferAttribute(o.W, 4));
+    g.setAttribute('aSurf', new T.Float32BufferAttribute(o.S, 2));
+    g.boundingSphere = new T.Sphere(new T.Vector3(0, rig.height * 0.5, 0), rig.height * 0.5 + (rig.reach || 1.5));
+    return g;
+  }
+  // 把 C 模型套到刚建好的程序化骨架上（rig 来自 rigBuilder(.., cs).build）
+  function cApply(rig, cs) {
+    if (!cs) return;
+    const md = cs.md, Jn = rig.joints, nJ = Jn.length;
+    const piv0 = (n) => {
+      const j = Jn[rig.JI[n]];
+      return [j.px0 === undefined ? j.px : j.px0, j.py0 === undefined ? j.py : j.py0, j.pz0 === undefined ? j.pz : j.pz0];
+    };
+    // 模型空间换算：绕 y 转 yaw、等比缩放到 cs.height、骨盆对准 root 的水平位置
+    const s = cs.height / md.ymax;
+    const G = new T.Matrix4().makeRotationY(cs.yaw || 0).multiply(new T.Matrix4().makeScale(s, s, s));
+    _cv.setFromMatrixPosition(md.B[md.bi[cs.center]]).applyMatrix4(G);
+    const r0 = piv0('root');
+    G.premultiply(new T.Matrix4().makeTranslation(r0[0] - _cv.x, 0, r0[2] - _cv.z));
+    // 骨骼的世界矩阵换到这个空间：G · B · L⁻¹（L 是 G 去掉平移的部分，换完仍是不带缩放的刚体矩阵；蒙皮 P·B⁻¹ 里 L 抵消）
+    const Gi = new T.Matrix4().makeRotationY(cs.yaw || 0).multiply(new T.Matrix4().makeScale(s, s, s)).invert();
+    let Bg = md.B.map((m) => G.clone().multiply(m).multiply(Gi));
+    let Bgi = Bg.map((m) => m.clone().invert());
+    let P = cPose(md, cs, Bg, Bgi, piv0);
+    // 贴地（cs.ground）：摆好姿势后网格最低点抬 / 压到这个高度——拉长了腿的骷髅，脚会被推到地面以下
+    if (cs.ground !== undefined) {
+      const lift = cs.ground - cLowY(md, cs, P.map((m, i) => m.clone().multiply(Bgi[i]).multiply(G)));
+      if (Math.abs(lift) > 1e-4) {
+        G.premultiply(new T.Matrix4().makeTranslation(0, lift, 0));
+        Bg = md.B.map((m) => G.clone().multiply(m).multiply(Gi));
+        Bgi = Bg.map((m) => m.clone().invert());
+        P = cPose(md, cs, Bg, Bgi, piv0);
+      }
+    }
+    const pos = (bn) => {
+      if (md.bi[bn] === undefined) throw new Error('模型 ' + cs.model + ' 没有骨骼 ' + bn);
+      _cv.setFromMatrixPosition(P[md.bi[bn]]);
+      return [_cv.x, _cv.y, _cv.z];
+    };
+    // 关节枢轴：有对应骨骼的挪过去，其余跟着父关节平移（cs.shift 再额外挪一点：武器握点对准拳心）
+    const dl = new Float32Array(nJ * 3);
+    for (let i = 0; i < nJ; i++) {
+      const j = Jn[i], src = cs.pivot[j.name];
+      j.px0 = j.px; j.py0 = j.py; j.pz0 = j.pz;
+      const np = typeof src === 'function' ? src(pos, piv0) : src ? pos(src) : null;
+      if (np) {
+        dl[i * 3] = np[0] - j.px; dl[i * 3 + 1] = np[1] - j.py; dl[i * 3 + 2] = np[2] - j.pz;
+      } else if (j.parent >= 0) {
+        for (let k = 0; k < 3; k++) dl[i * 3 + k] = dl[j.parent * 3 + k];
+      }
+      const sh = cs.shift && cs.shift[j.name];
+      if (sh) for (let k = 0; k < 3; k++) dl[i * 3 + k] += sh[k];
+    }
+    for (let i = 0; i < nJ; i++) {
+      const j = Jn[i];
+      j.px += dl[i * 3]; j.py += dl[i * 3 + 1]; j.pz += dl[i * 3 + 2];
+    }
+    for (let i = 0; i < nJ; i++) {
+      const j = Jn[i], pj = j.parent >= 0 ? Jn[j.parent] : null;
+      j.lx = j.px - (pj ? pj.px : 0); j.ly = j.py - (pj ? pj.py : 0); j.lz = j.pz - (pj ? pj.pz : 0);
+    }
+    // C 骨骼 → 程序化关节：没写的跟最近的父骨骼走
+    const jOf = new Int16Array(md.nb);
+    for (const i of md.order) {
+      const t = cs.map(md.names[i]);
+      jOf[i] = t && rig.JI[t] !== undefined ? rig.JI[t] : md.parent[i] >= 0 ? jOf[md.parent[i]] : 0;
+    }
+    // 蒙皮矩阵：原始顶点 → 静止姿态（程序化骨架的模型空间）
+    const K = P.map((m, i) => m.clone().multiply(Bgi[i]).multiply(G));
+    const split = cs.split ? md.names.map((nm) => cs.split(nm, pos)) : null;
+    const body = cBuf(), glow = cBuf();
+    const v = new T.Vector3(), acc = new T.Vector3(), tmp = new T.Vector3(), col = [0, 0, 0];
+    for (const pr of md.prims) {
+      if (cs.hide && cs.hide(pr.name, pr.mat)) continue;
+      const gk = cs.glow ? cs.glow(pr.mat, pr.name) : 0, out = gk ? glow : body;
+      const sf = gk ? SURF.glow : cs.surf(pr.mat, pr.name);
+      const nv = pr.P.length / 3;
+      // 每个顶点：静止姿态的位置 + 并到程序化关节上的权重（最多 4 个）
+      const RP = new Float32Array(nv * 3), RJ = new Float32Array(nv * 4), RW = new Float32Array(nv * 4), RC = new Float32Array(nv * 3);
+      for (let i = 0; i < nv; i++) {
+        v.set(pr.P[i * 3], pr.P[i * 3 + 1], pr.P[i * 3 + 2]);
+        acc.set(0, 0, 0);
+        const js = [], ws = [];
+        for (let k = 0; k < 4; k++) {
+          const w = pr.W[i * 4 + k];
+          if (w <= 0) continue;
+          const b = pr.J[i * 4 + k];
+          acc.addScaledVector(tmp.copy(v).applyMatrix4(K[b]), w);
+          let jj = jOf[b];
+          const spl = split && split[b];
+          if (spl) {
+            // 一根骨骼拆成两个关节（只有前臂没有手骨的骷髅：前臂末端那一截给手腕关节）
+            tmp.copy(v).applyMatrix4(K[b]);
+            const t = ((tmp.x - spl.a[0]) * spl.d[0] + (tmp.y - spl.a[1]) * spl.d[1] + (tmp.z - spl.a[2]) * spl.d[2]) / spl.len;
+            if (t > spl.from) jj = rig.JI[spl.j];
+          }
+          const at = js.indexOf(jj);
+          if (at >= 0) ws[at] += w;
+          else { js.push(jj); ws.push(w); }
+        }
+        RP[i * 3] = acc.x; RP[i * 3 + 1] = acc.y; RP[i * 3 + 2] = acc.z;
+        // 多于 4 个关节时只留最重的 4 个
+        while (js.length > 4) {
+          let lo = 0;
+          for (let k = 1; k < ws.length; k++) if (ws[k] < ws[lo]) lo = k;
+          js.splice(lo, 1); ws.splice(lo, 1);
+        }
+        const sw = ws.reduce((a, b) => a + b, 0) || 1;
+        for (let k = 0; k < 4; k++) { RJ[i * 4 + k] = k < js.length ? js[k] : 0; RW[i * 4 + k] = k < js.length ? ws[k] / sw : 0; }
+        if (gk) RC[i * 3] = RC[i * 3 + 1] = RC[i * 3 + 2] = gk;
+        else {
+          const c = cs.color(pr.mat, pr.name, pr.base, pr.C ? [pr.C[i * 4], pr.C[i * 4 + 1], pr.C[i * 4 + 2]] : null, RP[i * 3 + 1], col, RP[i * 3], RP[i * 3 + 2]);
+          RC[i * 3] = c[0]; RC[i * 3 + 1] = c[1]; RC[i * 3 + 2] = c[2];
+        }
+      }
+      // 按三角形展开（平涂：每个面自己的法线）
+      const I = pr.I, cull = cs.cull;
+      for (let t = 0; t < I.length; t += 3) {
+        const a = I[t], b = I[t + 1], c = I[t + 2];
+        // 按三角形剔掉不要的部分（主角的胡子）：给的是静止姿态里的面心
+        if (cull && cull(pr.mat, (RP[a * 3] + RP[b * 3] + RP[c * 3]) / 3, (RP[a * 3 + 1] + RP[b * 3 + 1] + RP[c * 3 + 1]) / 3, (RP[a * 3 + 2] + RP[b * 3 + 2] + RP[c * 3 + 2]) / 3, pos)) continue;
+        _cv.set(RP[b * 3] - RP[a * 3], RP[b * 3 + 1] - RP[a * 3 + 1], RP[b * 3 + 2] - RP[a * 3 + 2]);
+        _cv2.set(RP[c * 3] - RP[a * 3], RP[c * 3 + 1] - RP[a * 3 + 1], RP[c * 3 + 2] - RP[a * 3 + 2]);
+        _cv.cross(_cv2).normalize();
+        for (const k of [a, b, c]) {
+          out.P.push(RP[k * 3], RP[k * 3 + 1], RP[k * 3 + 2]);
+          out.N.push(_cv.x, _cv.y, _cv.z);
+          out.C.push(RC[k * 3], RC[k * 3 + 1], RC[k * 3 + 2]);
+          out.J.push(RJ[k * 4], RJ[k * 4 + 1], RJ[k * 4 + 2], RJ[k * 4 + 3]);
+          out.W.push(RW[k * 4], RW[k * 4 + 1], RW[k * 4 + 2], RW[k * 4 + 3]);
+          out.S.push(sf[0], sf[1]);
+        }
+      }
+    }
+    // 配置里额外加的程序化零件（眼窝里的火、余烬囊…）：在新枢轴上建一副同名关节的小骨架来烘焙
+    if (cs.extra) {
+      const xb = rigBuilder(rig.key + '+', rig.NB);
+      for (const j of Jn) xb.j(j.name, j.parent >= 0 ? Jn[j.parent].name : null, j.px, j.py, j.pz);
+      cs.extra(xb, pos);
+      const xr = xb.build({ height: rig.height, reach: rig.reach, tone: rig.key !== 'player' }); // 'player+'：主角的围巾结和尾巴一样不压暗
+      const z = new Float32Array(nJ * 3);
+      cRigid(xr.geoBody, z, body);
+      cRigid(xr.geoGlow, z, glow);
+    }
+    cRigid(rig.geoBody, dl, body);
+    cRigid(rig.geoGlow, dl, glow);
+    rig.geoBody = cGeo(body, rig);
+    rig.geoGlow = cGeo(glow, rig);
+    const aux = cBuf();
+    cRigid(rig.geoAux, dl, aux);
+    rig.geoAux = cGeo(aux, rig);
+    for (const vn in rig.geoVar) {
+      const gv = rig.geoVar[vn];
+      for (const k of ['body', 'glow', 'aux']) {
+        const o = cBuf();
+        cRigid(gv[k], dl, o);
+        gv[k] = cGeo(o, rig);
+      }
+    }
+    const cnt = (g) => (g ? g.attributes.position.count / 3 : 0);
+    rig.tris = cnt(rig.geoBody) + cnt(rig.geoGlow) + cnt(rig.geoAux);
+    rig.skin4 = true;
+    rig.cModel = cs.model;
+    rig.cPose = { G, Gi, P, pos, md };
+    if (cs.ankle !== undefined) rig.ankle = typeof cs.ankle === 'function' ? cs.ankle(rig) : cs.ankle;
+    if (cs.stride) rig.stride = cs.stride;
+    if (cs.gait) rig.gait = cs.gait;
+    if (cs.emis) rig.emis = cs.emis; // [颜色, 强度]：躯体一层很淡的自发光（焦骨里透出的余烬）
+    for (const k in cs.sock || {}) {
+      const q = cs.sock[k];
+      sock(rig, k, q[0], q[1], q[2], q[3]);
+    }
+  }
+
+  // 模型自带的动作 → 程序化关节通道的关键帧（defClip 的 keys）。drive：程序化关节 → 带动它的模型骨骼（默认用 cs.pivot 里的骨骼名）
+  // opts：{ from, to（截取的秒数）, fps（采样率，默认 20）, joints（只采这些关节）, trans（这些关节也采位移，默认只有 root）}
+  const _cA = [], _cl = new T.Matrix4(), _cpos = new T.Vector3(), _csc = new T.Vector3(1, 1, 1);
+  function cClipKeys(rig, cs, name, opts) {
+    const md = cs.md, clip = md.clips[name], cp = rig.cPose;
+    if (!clip || !cp) throw new Error('没有动作 ' + name);
+    const o = opts || {};
+    const t0 = o.from || 0, t1 = Math.min(clip.dur, o.to === undefined ? clip.dur : o.to), fps = o.fps || 20;
+    const nF = Math.max(2, Math.round((t1 - t0) * fps) + 1);
+    const drive = Object.assign({}, o.drive || {});
+    for (const jn in cs.pivot) if (drive[jn] === undefined && typeof cs.pivot[jn] === 'string') drive[jn] = cs.pivot[jn];
+    for (const jn in cs.drive || {}) if (drive[jn] === undefined) drive[jn] = cs.drive[jn];
+    const Jn = rig.joints, nJ = Jn.length;
+    const use = Jn.map((j) => drive[j.name] !== undefined && md.bi[drive[j.name]] !== undefined && (!o.joints || o.joints.indexOf(j.name) >= 0));
+    const trans = o.trans || ['root'];
+    const Pinv = cp.P.F.map((m) => m.clone().invert());
+    const keys = Object.create(null);
+    const M = Jn.map(() => new T.Matrix4());
+    const loc = new Array(md.nb), W = new Array(md.nb);
+    const qa = new T.Quaternion(), qb = new T.Quaternion(), e = new T.Euler();
+    for (let f = 0; f < nF; f++) {
+      const t = t0 + ((t1 - t0) * f) / (nF - 1), k = f / (nF - 1);
+      // 采样每根骨骼的局部 TRS（逐帧线性插值，旋转 slerp）
+      const u = (t / clip.dur) * (clip.n - 1), i0 = Math.min(clip.n - 2, Math.floor(u)), fr = u - i0;
+      for (let b = 0; b < md.nb; b++) loc[b] = { t: md.loc[b].t, q: md.loc[b].q };
+      for (const c of clip.ch) {
+        const v = c.v;
+        if (c.path === 'rotation') {
+          qa.fromArray(v, i0 * 4); qb.fromArray(v, (i0 + 1) * 4);
+          qa.slerp(qb, fr);
+          loc[c.b] = { t: loc[c.b].t, q: [qa.x, qa.y, qa.z, qa.w] };
+        } else if (c.path === 'translation') {
+          const a = i0 * 3, b2 = a + 3;
+          loc[c.b] = { t: [v[a] + (v[b2] - v[a]) * fr, v[a + 1] + (v[b2 + 1] - v[a + 1]) * fr, v[a + 2] + (v[b2 + 2] - v[a + 2]) * fr], q: loc[c.b].q };
+        }
+      }
+      for (const b of md.order) {
+        const L = _cl.compose(_cpos.fromArray(loc[b].t), qa.fromArray(loc[b].q), _csc);
+        W[b] = md.parent[b] < 0 ? L.clone() : W[md.parent[b]].clone().multiply(L);
+      }
+      // 程序化关节的模型矩阵：带动它的骨骼的形变 × 平移(枢轴)；没有骨骼带动的关节保持静止姿态
+      for (let i = 0; i < nJ; i++) {
+        const j = Jn[i];
+        if (use[i]) {
+          const b = md.bi[drive[j.name]];
+          M[i].copy(cp.G).multiply(W[b]).multiply(cp.Gi).multiply(Pinv[b]).multiply(_cl.makeTranslation(j.px, j.py, j.pz));
+        } else if (j.parent >= 0) M[i].copy(M[j.parent]).multiply(_cl.makeTranslation(j.lx, j.ly, j.lz));
+        else M[i].makeTranslation(j.px, j.py, j.pz);
+        if (!use[i]) continue;
+        const Lm = j.parent >= 0 ? _cl.copy(M[j.parent]).invert().multiply(M[i]) : _cl.copy(M[i]);
+        e.setFromRotationMatrix(Lm, 'XYZ');
+        _cpos.setFromMatrixPosition(Lm);
+        const vals = { rx: e.x, ry: e.y, rz: e.z };
+        if (trans.indexOf(j.name) >= 0) {
+          vals.ox = _cpos.x - j.lx; vals.oy = _cpos.y - j.ly; vals.oz = _cpos.z - j.lz;
+        }
+        for (const ch in vals) {
+          const key = j.name + '.' + ch, arr = keys[key] || (keys[key] = []);
+          let val = vals[ch];
+          if (ch[0] === 'r' && arr.length) {
+            const prev = arr[arr.length - 1];
+            val -= Math.round((val - prev) / TAU) * TAU; // 角度连续
+          }
+          arr.push(k, val);
+        }
+      }
+    }
+    return { keys, dur: (t1 - t0) / (o.speed || 1) };
+  }
+
   // ----- 着色器注入：刚性蒙皮 + 逐顶点粗糙/金属度 + 轮廓光 + 消散 -----
-  const RIG_VERT_PARS = 'attribute float aBone;\nattribute vec2 aSurf;\nuniform mat4 uBones[ NB ];\nvarying vec2 vSurf;\nvarying vec3 vBP;\n';
+  // SKIN4（C 模型）：每个顶点 4 根骨骼的线性混合蒙皮；否则一个顶点只跟一根骨骼（程序化零件）
+  const RIG_SKIN_PARS = '#ifdef SKIN4\nattribute vec4 aSkin;\nattribute vec4 aSkinW;\n#else\nattribute float aBone;\n#endif\nuniform mat4 uBones[ NB ];\n';
+  const RIG_BONE = '#ifdef SKIN4\nmat4 boneM = uBones[ int( aSkin.x + 0.5 ) ] * aSkinW.x + uBones[ int( aSkin.y + 0.5 ) ] * aSkinW.y + uBones[ int( aSkin.z + 0.5 ) ] * aSkinW.z + uBones[ int( aSkin.w + 0.5 ) ] * aSkinW.w;\n#else\nmat4 boneM = uBones[ int( aBone + 0.5 ) ];\n#endif\n';
+  const RIG_VERT_PARS = RIG_SKIN_PARS + 'attribute vec2 aSurf;\nvarying vec2 vSurf;\nvarying vec3 vBP;\n';
   const RIG_FRAG_PARS = 'varying vec2 vSurf;\nvarying vec3 vBP;\nuniform vec3 uRim;\nuniform vec4 uDis;\n';
   const RIG_FRAG = [
     '#include <emissivemap_fragment>',
@@ -2381,7 +2843,7 @@
     sh.uniforms.uDis = ent.uDis;
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\n' + RIG_VERT_PARS)
-      .replace('#include <beginnormal_vertex>', 'mat4 boneM = uBones[ int( aBone + 0.5 ) ];\nvec3 objectNormal = mat3( boneM ) * normal;')
+      .replace('#include <beginnormal_vertex>', RIG_BONE + 'vec3 objectNormal = mat3( boneM ) * normal;')
       .replace('#include <begin_vertex>', 'vec3 transformed = ( boneM * vec4( position, 1.0 ) ).xyz;\nvSurf = aSurf;\nvBP = position;');
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', '#include <common>\n' + RIG_FRAG_PARS)
@@ -2390,8 +2852,8 @@
   function injectDepth(sh, ent) {
     sh.uniforms.uBones = ent.uBones;
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aBone;\nuniform mat4 uBones[ NB ];\n')
-      .replace('#include <begin_vertex>', 'vec3 transformed = ( uBones[ int( aBone + 0.5 ) ] * vec4( position, 1.0 ) ).xyz;');
+      .replace('#include <common>', '#include <common>\n' + RIG_SKIN_PARS)
+      .replace('#include <begin_vertex>', RIG_BONE + 'vec3 transformed = ( boneM * vec4( position, 1.0 ) ).xyz;');
   }
 
   // 金属反光用的环境贴图：一张手画的天空渐变，经 PMREM 预滤波
@@ -2427,6 +2889,8 @@
     return rigEnv;
   }
 
+  // 角色一律平涂（按面着色、硬边），和 C 模型的低多边形风格一致
+  const RIG_FLAT = true;
   // ----- 建立实体 -----
   // tintHex：躯体整体染色；elemHex：自发光部件的元素色
   function newEnt(kind, rig, tintHex, elemHex, glowI) {
@@ -2455,19 +2919,28 @@
 
     const bm = new T.MeshStandardMaterial({ color: lin(tintHex), vertexColors: true, roughness: 1, metalness: 0, envMap: rigEnvMap(), envMapIntensity: 0.9 });
     bm.defines.NB = rig.NB;
+    if (rig.skin4) bm.defines.SKIN4 = 1;
+    bm.flatShading = RIG_FLAT;
     bm.onBeforeCompile = function (sh) { injectLit(sh, ent); };
-    bm.userData.e0 = new T.Color(0);
-    bm.userData.ei0 = 1;
+    bm.userData.e0 = rig.emis ? lin(rig.emis[0]) : new T.Color(0);
+    bm.userData.ei0 = rig.emis ? rig.emis[1] : 1;
+    if (rig.emis) {
+      bm.emissive.copy(bm.userData.e0);
+      bm.emissiveIntensity = bm.userData.ei0;
+    }
     bm.userData.fi = 0.3;
     const ec = lin(elemHex);
     const gm = new T.MeshStandardMaterial({ color: ec.clone().multiplyScalar(0.25), vertexColors: true, emissive: ec, emissiveIntensity: glowI, roughness: 0.4, metalness: 0, toneMapped: false });
     gm.defines.NB = rig.NB;
+    if (rig.skin4) gm.defines.SKIN4 = 1;
+    gm.flatShading = RIG_FLAT;
     gm.onBeforeCompile = function (sh) { injectLit(sh, ent); };
     gm.userData.e0 = ec.clone();
     gm.userData.ei0 = glowI;
     gm.userData.fi = 1.25;
     const dm = new T.MeshDepthMaterial({ depthPacking: T.RGBADepthPacking });
     dm.defines = { NB: rig.NB };
+    if (rig.skin4) dm.defines.SKIN4 = 1;
     dm.onBeforeCompile = function (sh) { injectDepth(sh, ent); };
     ent.mats.push(bm, gm);
     ent.own.push(dm);
@@ -2488,6 +2961,8 @@
     if (rig.geoAux) {
       const am = new T.MeshStandardMaterial({ color: 0x000000, vertexColors: true, emissive: new T.Color(1, 1, 1), emissiveIntensity: 1, roughness: 0.4, metalness: 0, toneMapped: false });
       am.defines.NB = rig.NB;
+      if (rig.skin4) am.defines.SKIN4 = 1;
+      am.flatShading = RIG_FLAT;
       am.onBeforeCompile = function (sh) { injectLit(sh, ent); };
       am.userData.e0 = new T.Color(1, 1, 1);
       am.userData.ei0 = 1;
@@ -3334,10 +3809,220 @@
     b.variant(null);
   }
 
+  // ----- C 模型的配置：哪副骨架换哪个模型、骨骼怎么对到关节上、怎么摆静止姿态、怎么上色 -----
+  // map(骨骼名) → 关节名（蒙皮权重并过去）；pivot：关节 → 骨骼名（枢轴挪到那根骨骼）或 (pos, piv0) => [x,y,z]；
+  // aim(骨骼名) → [指向的骨骼, 目标方向（[x,y,z] 或 [关节A, 关节B] 取程序化骨架里两关节的连线）]；rot(骨骼名) → [轴 x,y,z, 角度]；
+  // scale(骨骼名) → 等比缩放；keep(关节名, 种类) → 这个关节上的程序化零件留不留；color(材质, 图元, 原色, 顶点色, y, out) → 线性 rgb；
+  // surf(材质) → SURF；glow(材质) → 自发光强度（0 = 不发光）；hide(图元, 材质) → 不要这块网格；shift：关节 → 额外平移（武器对准拳心）
+  const cLin = (hex) => {
+    const c = lin(hex);
+    return [c.r, c.g, c.b];
+  };
+  // 贴地的部分压暗一点（和程序化角色的假环境光遮蔽一样）
+  const cShade = (out, c, y, h, k) => {
+    const sh = 1 - k * (1 - smooth01(y / (h * 0.45)));
+    out[0] = c[0] * sh; out[1] = c[1] * sh; out[2] = c[2] * sh;
+    return out;
+  };
+  const FINGER = /^(Index|Middle|Ring|Pinky|Thumb)\d[LR]$/;
+  // 主角：Adventurer（Ultimate Modular Men）。深色皮衣、青绿围巾、灰烬银的头发；背包摘掉
+  const PL_COL = {
+    Skin: cLin(0xa9826a), Green: cLin(0x4a4247), LightGreen: cLin(0x282c38), Grey: cLin(0x2c282e), Black: cLin(0x151317),
+    Hair: cLin(0xa9adb8), Eyebrows: cLin(0x34353d), Eye: cLin(0x120e0c), Brown: cLin(0x22242d), Brown2: cLin(0x5a4a40), Gold: cLin(0x8c7a52),
+  };
+  const PL_SURF = { Skin: SURF.leather, Hair: SURF.cloth, Green: SURF.leather, Grey: SURF.leather, Black: SURF.leather, Brown2: SURF.leather, Gold: SURF.gold };
+  const PL_MAP = {
+    Root: 'root', Body: 'root', Hips: 'root', Abdomen: 'root', Torso: 'spine', Chest: 'chest', ShoulderL: 'chest', ShoulderR: 'chest', Neck: 'head', Head: 'head',
+    UpperArmL: 'uaL', LowerArmL: 'faL', WristL: 'hL', UpperArmR: 'uaR', LowerArmR: 'faR', WristR: 'hR',
+    UpperLegL: 'thL', LowerLegL: 'shL', FootL: 'ftL', UpperLegR: 'thR', LowerLegR: 'shR', FootR: 'ftR',
+  };
+  // 换成模型的身体关节（这些关节上的程序化零件不要了）；围巾的两条尾巴留着（挂在新的结扣上，照旧由弹簧驱动），马尾不要
+  const PL_BODY = { root: 1, spine: 1, chest: 1, head: 1, uaL: 1, faL: 1, hL: 1, uaR: 1, faR: 1, hR: 1, thL: 1, shL: 1, ftL: 1, thR: 1, shR: 1, ftR: 1, tab: 1, hp1: 1, hp2: 1, hp3: 1 };
+  // 围巾结扣：脖子后面偏左（相对 Neck 骨骼）
+  const PL_KNOT = [0.07, -0.035, -0.125];
+  const plKnot = (side) => (pos, piv0) => {
+    const n = pos('Neck'), o = piv0('sf' + side + '1');
+    return [n[0] + PL_KNOT[0] + (o[0] - SF.kx), n[1] + PL_KNOT[1], n[2] + PL_KNOT[2]];
+  };
+  // 上臂静止时比程序化骨架多张开一点（这个模型肩窄、胸厚，垂直放下会插进躯干）
+  const PL_ARM = [0.3, -1, 0.0], PL_FORE = [0.06, -1, 0.1];
+  // 游魂（Zombie）的骨骼 → 关节
+  const HK_MAP = {
+    Hips: 'root', Spine: 'spine', Spine1: 'spine', Spine2: 'spine', LeftShoulder: 'spine', RightShoulder: 'spine', Neck: 'head', Head: 'head', HeadTop_End: 'head',
+    LeftArm: 'uaL', LeftForeArm: 'faL', RightArm: 'uaR', RightForeArm: 'faR', LeftUpLeg: 'thL', LeftLeg: 'shL', LeftFoot: 'ftL', RightUpLeg: 'thR', RightLeg: 'shR', RightFoot: 'ftR',
+  };
+  const HK_TINT = [0.27, 0.25, 0.225]; // 灰烬的灰褐：比地面亮一档，游戏镜头下不至于和灰土地面糊成一片
+  // 骷髅（Skeleton）：模型里 R 开头的骨骼在 +x 一侧（按看着它的人的左右起名），也就是骷髅自己的左边；…001 是手臂
+  const TH_MAP = {
+    Hips: 'root', Torso: 'chest', Neck: 'head', Head: 'head',
+    RUpperLeg001: 'uaL', RDownLeg001: 'faL', LUpperLeg001: 'uaR', LDownLeg001: 'faR', RUpperLeg: 'thL', RDownLeg: 'shL', LUpperLeg: 'thR', LDownLeg: 'shR',
+  };
+  const TH_BONE = cLin(0x5a5a5c); // 焦骨：偏冷的灰烬骨色（场景光大多偏暖，骨色再暖就发红、像陶土）
+  // 焦骨：按位置撒一层焦黑的斑（每个顶点 0～60% 压暗）
+  const thChar = (out, c, x, y, z) => {
+    const h = Math.sin(x * 41.3 + y * 27.1 + z * 63.7) * 43758.5453, n = h - Math.floor(h);
+    const k = 1 - 0.6 * n * n;
+    out[0] = c[0] * k; out[1] = c[1] * k * 0.98; out[2] = c[2] * k * 0.96;
+    return out;
+  };
+  // 一段骨骼（a → b 的方向延长出去）上 t 处的点：骷髅的手腕在前臂上 66% 处
+  const thSeg = (pos, a, b, t) => {
+    const p = pos(a), q = pos(b);
+    return [q[0] + (q[0] - p[0]) * t, q[1] + (q[1] - p[1]) * t, q[2] + (q[2] - p[2]) * t];
+  };
+  // split 的参数：骨骼 b 沿 a → b 方向，长度取 |a b|，过了 from 的部分换给关节 j；ankleY 给了时改按离地高度判断（小腿末端的脚）
+  const thSplit = (pos, a, b, j, from, ankleY) => {
+    const p = pos(a), q = pos(b), d = [q[0] - p[0], q[1] - p[1], q[2] - p[2]], len = Math.hypot(d[0], d[1], d[2]);
+    if (ankleY !== undefined) return { j, a: [0, ankleY + 0.04, 0], d: [0, -1, 0], len: 1, from: 0 };
+    return { j, a: q, d: d.map((v) => v / len), len, from };
+  };
+  // 蜘蛛（Spider）：身体 / 头 / 腹三节，八条腿各三节同名；脚上的 IK 骨骼不参与
+  const SP_MAP = { Root: 'root', Body: 'root', Thorax: 'thx', Head: 'head', Abdomen: 'abd' };
+  const SP_COL = cLin(0x1d1a19);
+  const CSPEC = {
+    player: {
+      model: 'adventurer', height: 1.9, yaw: 0, center: 'Hips',
+      map: (n) => PL_MAP[n] || (FINGER.test(n) ? 'h' + n.slice(-1) : null),
+      pivot: {
+        root: 'Hips', spine: 'Torso', chest: 'Chest', head: 'Neck',
+        uaL: 'UpperArmL', faL: 'LowerArmL', hL: 'WristL', uaR: 'UpperArmR', faR: 'LowerArmR', hR: 'WristR',
+        thL: 'UpperLegL', shL: 'LowerLegL', thR: 'UpperLegR', shR: 'LowerLegR',
+        ftL: (pos) => { const k = pos('LowerLegL'); return [k[0], 0.1, k[2]]; },
+        ftR: (pos) => { const k = pos('LowerLegR'); return [k[0], 0.1, k[2]]; },
+        sfL1: plKnot('L'), sfR1: plKnot('R'),
+      },
+      drive: { ftL: 'FootL', ftR: 'FootR' },
+      aim: (n) => {
+        const s = n.slice(-1) === 'L' ? 1 : -1;
+        if (n === 'UpperArmL' || n === 'UpperArmR') return ['LowerArm' + n.slice(-1), [s * PL_ARM[0], PL_ARM[1], PL_ARM[2]]];
+        if (n === 'LowerArmL' || n === 'LowerArmR') return ['Wrist' + n.slice(-1), [s * PL_FORE[0], PL_FORE[1], PL_FORE[2]]];
+        if (n === 'WristL' || n === 'WristR') return ['Middle2' + n.slice(-1), [s * PL_FORE[0], PL_FORE[1], PL_FORE[2]]];
+        if (n === 'UpperLegL' || n === 'UpperLegR') return ['LowerLeg' + n.slice(-1), ['th' + n.slice(-1), 'sh' + n.slice(-1)]];
+        return null;
+      },
+      // 握拳：四指的第二、三节各往掌心卷
+      rot: (n) => (/^(Index|Middle|Ring|Pinky)[23][LR]$/.test(n) ? [0, 0, 1, (n.slice(-1) === 'L' ? -1 : 1) * 1.25] : null),
+      hide: (name) => /^Backpack\//.test(name),
+      // 胡子（头发网格在嘴以下、脸前面的部分）剃掉：烬渊的主角是个年轻人
+      cull: (mat, x, y, z, pos) => mat === 'Hair' && y < pos('Head')[1] + 0.065 && z > pos('Head')[2] + 0.04,
+      keep: (j) => !PL_BODY[j],
+      // 青绿围巾：脖子上绕两圈 + 背后的结（尾巴是程序化骨架原有的 sf 关节）
+      extra: (b, pos) => {
+        const n = pos('Neck');
+        b.at('chest').surf(SURF.cloth);
+        b.p(gTorus(0.083, 0.042, 6, 14), SF.c[1], n[0], n[1] - 0.005, n[2] + 0.005, HALF_PI + 0.22, 0, 0, 1, 1, 1.2);
+        b.p(gTorus(0.108, 0.04, 6, 14), [SF.c[0], SF.c[1]], n[0], n[1] - 0.05, n[2] + 0.01, HALF_PI - 0.12, 0, 0, 1.08, 0.92, 1.15);
+        b.p(gSph(0.05, 7, 5), SF.c[0], n[0] + PL_KNOT[0], n[1] + PL_KNOT[1] + 0.01, n[2] + PL_KNOT[2], 0, -0.35, 0, 1.4, 1, 0.8);
+      },
+      color: (mat, prim, base, vc, y, out) => cShade(out, PL_COL[mat] || cLin(0x3b3439), y, 1.9, 0.28),
+      surf: (mat) => PL_SURF[mat] || SURF.cloth,
+      sock: { head: ['head', 0, 0.2, 0.02], chest: ['chest', 0, 0.06, 0.12] },
+      ankle: (rig) => rig.joints[rig.JI.ftL].py,
+    },
+    // 游魂：Zombie（Animated Zombie）。贴图调色板的颜色去饱和、压向灰烬的灰褐；驼背、双臂前伸（对齐程序化游魂的静止姿态）；眼窝两点元素火
+    husk: {
+      model: 'zombie', height: 2.15, yaw: -HALF_PI, center: 'Hips',
+      map: (n) => HK_MAP[n] || (/^LeftHand/.test(n) ? 'faL' : /^RightHand/.test(n) ? 'faR' : /^LeftToe/.test(n) ? 'ftL' : /^RightToe/.test(n) ? 'ftR' : null),
+      pivot: { root: 'Hips', spine: 'Spine', head: 'Neck', uaL: 'LeftArm', faL: 'LeftForeArm', uaR: 'RightArm', faR: 'RightForeArm', thL: 'LeftUpLeg', shL: 'LeftLeg', ftL: 'LeftFoot', thR: 'RightUpLeg', shR: 'RightLeg', ftR: 'RightFoot' },
+      aim: (n) => {
+        const L = n.indexOf('Left') === 0, s = L ? 1 : -1, S = L ? 'Left' : 'Right', j = L ? 'L' : 'R';
+        if (n === 'Spine') return ['Neck', ['spine', 'head']];
+        if (n === 'Neck') return ['HeadTop_End', [0, 1, 0.3]];
+        if (n === S + 'Arm') return [S + 'ForeArm', ['ua' + j, 'fa' + j]];
+        if (n === S + 'ForeArm') return [S + 'Hand', [s * 0.1, -1, 0.45]];
+        if (n === S + 'Hand') return [S + 'HandIndex1', [s * 0.1, -1, 0.45]];
+        if (n === S + 'UpLeg') return [S + 'Leg', ['th' + j, 'sh' + j]];
+        if (n === S + 'Leg') return [S + 'Foot', ['sh' + j, 'ft' + j]];
+        return null;
+      },
+      keep: () => false,
+      color: (mat, prim, base, vc, y, out) => {
+        const c = vc || base, l = c[0] * 0.3 + c[1] * 0.59 + c[2] * 0.11;
+        for (let k = 0; k < 3; k++) out[k] = (c[k] + (l - c[k]) * 0.72) * HK_TINT[k];
+        return cShade(out, out, y, 2.15, 0.3);
+      },
+      surf: () => SURF.hide,
+      extra: (b, pos) => {
+        // 眼窝里两点元素火（模型的眼睛在 Head 骨骼前上方）
+        const h = pos('Head');
+        b.at('head');
+        for (const s of [1, -1]) b.g(gOct(0.026), 1.1, h[0] + s * 0.05, h[1] + 0.105, h[2] + 0.115, 0, 0, 0, 1, 0.7, 0.6);
+      },
+      sock: { weapon: ['faR', -0.02, -0.42, 0.14], hand: ['faL', 0.02, -0.42, 0.14], head: ['head', 0, 0.2, 0.08], chest: ['spine', 0, 0.32, 0.14] },
+      ankle: (rig) => rig.joints[rig.JI.ftL].py,
+    },
+    // 烬骸仆从：Skeleton（Animated Monster）。焦骨色、透着一层很淡的余烬光；头骨缩小一点，腿拉长一些（原模型是大头短腿）；
+    // 前臂末端那一截拆给手腕关节（模型没有手骨），剑和小圆盾沿用程序化的
+    thrall: {
+      model: 'skeleton', height: 1.62, yaw: 0, center: 'Hips',
+      map: (n) => TH_MAP[n] || null,
+      pivot: {
+        root: 'Hips', chest: 'Torso', head: 'Neck', uaL: 'RUpperLeg001', faL: 'RDownLeg001', uaR: 'LUpperLeg001', faR: 'LDownLeg001', thL: 'RUpperLeg', shL: 'RDownLeg', thR: 'LUpperLeg', shR: 'LDownLeg',
+        hL: (pos) => thSeg(pos, 'RUpperLeg001', 'RDownLeg001', 0.66), hR: (pos) => thSeg(pos, 'LUpperLeg001', 'LDownLeg001', 0.66),
+        ftL: (pos) => { const k = pos('RDownLeg'); return [k[0], 0.085, k[2]]; }, ftR: (pos) => { const k = pos('LDownLeg'); return [k[0], 0.085, k[2]]; },
+      },
+      aim: (n) => {
+        if (n === 'RUpperLeg001') return ['RDownLeg001', [0.2, -1, 0.02]];
+        if (n === 'LUpperLeg001') return ['LDownLeg001', [-0.2, -1, 0.02]];
+        if (n === 'RUpperLeg') return ['RDownLeg', ['thL', 'shL']];
+        if (n === 'LUpperLeg') return ['LDownLeg', ['thR', 'shR']];
+        return null;
+      },
+      scale: (n) => (n === 'Head' ? 0.84 : null),
+      stretch: (n) => (n === 'RUpperLeg' || n === 'LUpperLeg' ? [n.replace('Upper', 'Down'), 1.7] : null),
+      ground: 0, // 拉长大腿把小腿和脚推到了地面以下：整个模型抬回来，脚底贴地
+      // 前臂末端 34% 是手：权重给手腕关节；小腿末端是脚：给脚踝关节
+      split: (n, pos) => {
+        if (n === 'RDownLeg001') return thSplit(pos, 'RUpperLeg001', 'RDownLeg001', 'hL', 0.66);
+        if (n === 'LDownLeg001') return thSplit(pos, 'LUpperLeg001', 'LDownLeg001', 'hR', 0.66);
+        if (n === 'RDownLeg') return thSplit(pos, 'RUpperLeg', 'RDownLeg', 'ftL', 0.82, 0.085);
+        if (n === 'LDownLeg') return thSplit(pos, 'LUpperLeg', 'LDownLeg', 'ftR', 0.82, 0.085);
+        return null;
+      },
+      keep: (j, kind, tag) => tag === 'gear',
+      color: (mat, prim, base, vc, y, out, x, z) => cShade(out, thChar(out, TH_BONE, x, y, z), y, 1.85, 0.4),
+      surf: () => SURF.bone,
+      emis: [0xff5a1e, 0.015], // 很淡：整身的橙色自发光会把焦骨染成陶土色，余烬主要靠胸腔和眼窝的魂火
+      extra: (b, pos) => {
+        // 胸腔里的魂火（肋骨缝里透出来）+ 眼窝里两点魂火
+        const t = pos('Torso'), n = pos('Neck'), h = pos('Head');
+        b.at('chest').g(gSph(0.075, 7, 5), 1.4, t[0], t[1] + (n[1] - t[1]) * 0.55, t[2] + 0.01, 0, 0, 0, 1, 1.4, 0.9);
+        b.at('head');
+        for (const s of [1, -1]) b.g(gSph(0.026, 6, 4), 1.7, h[0] + s * 0.058, h[1] + 0.155, h[2] + 0.125, 0, 0, 0, 1.1, 0.9, 0.6);
+      },
+      // 步频 / 腿摆幅：着地那只脚往后扫的距离 ≈ 半个步态周期走过的距离（π / stride），和程序化骨架的比例一致
+      stride: 4.1,
+      gait: 0.9,
+      sock: { weapon: ['hR', 0, -0.05, 0.92], hand: ['hR', 0, -0.05, 0.03], head: ['head', 0, 0.3, 0.02], chest: ['chest', 0, 0.22, 0.06] },
+      ankle: (rig) => rig.joints[rig.JI.ftL].py,
+    },
+    // 喷吐者：Spider（Easy Enemy）。炭黑的身体，眼睛和腹背上的囊发着元素光；骨架是蜘蛛自己的（八条腿各三节），
+    // 动作用模型自带的走 / 待机 / 攻击 / 死亡采样成关键帧，失衡是程序化的
+    spitter: {
+      model: 'spider', height: 0.78, yaw: 0, center: 'Body',
+      map: (n) => (SP_MAP[n] !== undefined ? SP_MAP[n] : /Leg/.test(n) ? n : null),
+      pivot: null, // spiderRig 里按骨骼逐个填
+      keep: () => false,
+      color: (mat, prim, base, vc, y, out) => cShade(out, SP_COL, y, 0.78, 0.15),
+      surf: () => SURF.chitin,
+      glow: (mat) => (mat === 'Material.001' ? 1.1 : 0),
+      extra: (b, pos) => {
+        // 腹背上的余烬囊：半埋在腹部上方的一团（元素光），囊外两道暗色的甲环
+        const a = pos('Abdomen');
+        const x = a[0], y = a[1] + 0.33, z = a[2] - 0.34;
+        b.at('abd').g(gSph(0.13, 8, 6), 1.2, x, y, z, -0.25, 0, 0, 1.2, 0.45, 1.45);
+        b.surf(SURF.chitin, true).p(gTorus(0.12, 0.018, 4, 12), 0x15110f, x, y + 0.02, z + 0.07, HALF_PI - 0.3, 0, 0, 1.15, 1, 0.7);
+        b.p(gTorus(0.1, 0.016, 4, 12), 0x15110f, x, y - 0.01, z - 0.1, HALF_PI - 0.1, 0, 0, 1.2, 1, 0.7);
+      },
+      // Head 骨骼在身体中部：嘴（weapon / hand）挪到眼睛前下方的口器处，head 挪到眼睛上方
+      sock: { weapon: ['head', 0, -0.02, 0.4], hand: ['head', 0, -0.02, 0.4], head: ['head', 0, 0.14, 0.22], chest: ['root', 0, 0.2, 0.05] },
+    },
+  };
+
   function playerRig() {
-    return rigOf('player', () => {
+    return rigOf('player', () => cTry('player', (cs) => {
       const STEEL = 0x5d6a84, STEEL_D = 0x343c4e, GOLD = 0xdcae45, BLADE = 0xd9dee6, WOOD = 0x6b4a32, BONE = 0xd9cfb6;
-      const b = rigBuilder('player', NB_BIG);
+      const b = rigBuilder('player', NB_BIG, cs);
       b.j('root', null, 0, 1.0, 0).j('spine', 'root', 0, 1.1, 0).j('chest', 'spine', 0, 1.32, 0).j('head', 'chest', 0, 1.62, 0.01);
       b.j('uaL', 'chest', 0.33, 1.5, 0).j('faL', 'uaL', 0.38, 1.19, -0.01).j('hL', 'faL', 0.39, 0.9, 0.02);
       b.j('uaR', 'chest', -0.33, 1.5, 0).j('faR', 'uaR', -0.38, 1.19, -0.01).j('hR', 'faR', -0.39, 0.9, 0.02);
@@ -3583,27 +4268,44 @@
       sock(rig, 'handL', 'hL', 0, -0.1, 0.05);
       sock(rig, 'head', 'head', 0, 0.16, 0);
       sock(rig, 'chest', 'chest', 0, 0.12, 0.1);
+      cApply(rig, cs);
       rig.loco = playerLoco;
       rig.post = playerPost;
       rig.late = playerLate;
       rig.gearJ = GEAR_JOINT.map((n) => rig.J[n]);
       // 手臂两节的绑定数据（双手武器的左手 / 动作里给定手的位置时用解析 IK 求肩肘角度）
       const pv = (n) => rig.joints[rig.JI[n]];
-      const armData = (ua, fa, h) => {
-        const a = pv(ua), f = pv(fa), c = pv(h);
-        return {
-          ua: rig.J[ua], fa: rig.J[fa], h: rig.J[h], uaI: rig.JI[ua], faI: rig.JI[fa], hI: rig.JI[h], par: a.parent,
-          U: [f.px - a.px, f.py - a.py, f.pz - a.pz], F: [c.px - f.px, c.py - f.py, c.pz - f.pz],
-          grip: [0, 0.84 - c.py, 0.03 - c.pz], // 握点（武器握把所在处）相对手腕枢轴的偏移
+      const armData = (ua, fa, h, w) => {
+        const a = pv(ua), f = pv(fa), c = pv(h), wj = pv(w);
+        const U = [f.px - a.px, f.py - a.py, f.pz - a.pz], F = [c.px - f.px, c.py - f.py, c.pz - f.pz];
+        // 握点（武器握把所在处）相对手腕枢轴的偏移：程序化骨架里握把在 (±0.39, 0.84, 0.03)；换成 C 模型后武器跟着手腕平移，
+        // 再按配置挪一点对准拳心（武器关节比手腕多出来的那段位移）
+        const ex = (k) => (wj[k] - (wj[k + '0'] === undefined ? wj[k] : wj[k + '0'])) - (c[k] - (c[k + '0'] === undefined ? c[k] : c[k + '0']));
+        const c0 = (k) => (c[k + '0'] === undefined ? c[k] : c[k + '0']);
+        const A = {
+          ua: rig.J[ua], fa: rig.J[fa], h: rig.J[h], uaI: rig.JI[ua], faI: rig.JI[fa], hI: rig.JI[h], par: a.parent, U, F,
+          grip: [ex('px'), 0.84 - c0('py') + ex('py'), 0.03 - c0('pz') + ex('pz')],
+          k: 1,
         };
+        if (rig.skin4) {
+          // C 模型的手臂比程序化的短 / 肩窄：动作里给的手的位置按「离肩多远」等比换算（rm：胸口坐标系 / 模型空间里新旧肩位）
+          const ch = pv('chest'), len = (P) => Math.hypot(P[0], P[1], P[2]);
+          const U0 = [f.px0 - a.px0, f.py0 - a.py0, f.pz0 - a.pz0], F0 = [c.px0 - f.px0, c.py0 - f.py0, c.pz0 - f.pz0];
+          A.k = (len(U) + len(F)) / (len(U0) + len(F0));
+          A.rm = {
+            c0: [a.px0 - ch.px0, a.py0 - ch.py0, a.pz0 - ch.pz0], c1: [a.px - ch.px, a.py - ch.py, a.pz - ch.pz],
+            m0: [a.px0, a.py0, a.pz0], m1: [a.px, a.py, a.pz],
+          };
+        }
+        return A;
       };
-      rig.armR = armData('uaR', 'faR', 'hR');
-      rig.armL = armData('uaL', 'faL', 'hL');
+      rig.armR = armData('uaR', 'faR', 'hR', 'wB');
+      rig.armL = armData('uaL', 'faL', 'hL', 'wBo');
       playerClips(rig);
       weaponClips(rig);
       rangedClips(rig);
       return rig;
-    });
+    }));
   }
 
   // 站立呼吸 + 跑动步态。步态相位来自实际走过的距离，脚不会在地上打滑
@@ -3848,6 +4550,13 @@
       out[v * 3 + 2] = _Rc[6] * x + _Rc[7] * y + _Rc[8] * z + (v ? 0 : M[j + 11]);
     }
   }
+  // C 模型的手臂和程序化的长短 / 肩宽不同：手的目标位置按「从肩出发的位移 × 臂长比」换算，方向不变
+  function remapHand(A, frame, src) {
+    const r = A.rm;
+    if (!r) return;
+    const a = frame === 'model' ? r.m0 : r.c0, b = frame === 'model' ? r.m1 : r.c1;
+    for (let i = 0; i < 3; i++) src[i] = b[i] + (src[i] - a[i]) * A.k;
+  }
   // 双手武器站立 / 跑动时右手的位置（胸口坐标系：位置、指向、刃口朝向）
   const LOCO_2H = {
     [G_HAM]: { idle: [-0.13, -0.42, 0.3, -0.55, -0.62, 0.55, 0, -1, 0], run: [-0.24, 0.04, 0.24, -0.12, 0.55, -0.82, 0, 0.2, 1] },
@@ -3885,6 +4594,7 @@
     if (c && c.hand) {
       src = c;
       evalHand(c.hand, ent.cK, _hk);
+      remapHand(rig.armR, c.hand.f, _hk);
       handToModel(ent, c.hand.f, _hk, _ikT);
       want = c.hand.W ? kf(c.hand.W, ent.cK) : 1;
     } else if (!c && LOCO_2H[g]) {
@@ -3892,6 +4602,7 @@
       const L = LOCO_2H[g], mv = ent.mv, br = Math.sin(ent.clock * 1.9) * 0.012 * (1 - mv);
       for (let i = 0; i < 9; i++) _hk[i] = L.idle[i] + (L.run[i] - L.idle[i]) * mv;
       _hk[1] += br;
+      remapHand(rig.armR, 'chest', _hk);
       handToModel(ent, 'chest', _hk, _ikT);
       want = 1;
     }
@@ -3919,6 +4630,7 @@
     // ---- 左手：动作给的轨迹优先；否则双手武器时握在柄上 ----
     if (c && c.handL) {
       evalHand(c.handL, ent.cK, _hk);
+      remapHand(rig.armL, c.handL.f, _hk);
       handToModel(ent, c.handL.f, _hk, _ikT);
       const wl = c.handL.W ? kf(c.handL.W, ent.cK) : 1;
       ik.lw = wl;
@@ -3933,7 +4645,7 @@
         const wj = rig.gearJ[g] / CH, m = wj * 12, gr = GRIP_2H[g];
         rotOf(M, wj, _Rh);
         const pj = rig.joints[wj];
-        const ox = -0.39 - pj.px, oy = 0.84 + (gr[3] || 0) - pj.py, oz = -pj.pz;
+        const ox = -0.39 - pj.px0, oy = 0.84 + (gr[3] || 0) - pj.py0, oz = -pj.pz0;
         const Ox = M[m] * ox + M[m + 1] * oy + M[m + 2] * oz + M[m + 3];
         const Oy = M[m + 4] * ox + M[m + 5] * oy + M[m + 6] * oz + M[m + 7];
         const Oz = M[m + 8] * ox + M[m + 9] * oy + M[m + 10] * oz + M[m + 11];
@@ -3946,7 +4658,7 @@
         _ikT[6] = -_Rh[1]; _ikT[7] = -_Rh[4]; _ikT[8] = -_Rh[7];
         // 够不着就慢慢松手（不把胳膊扯直了去够）
         const dd = Math.hypot(_ikT[0] - M[sm + 3], _ikT[1] - M[sm + 7], _ikT[2] - M[sm + 11]);
-        const reach = 1 - smooth01((dd - 0.6) / 0.22);
+        const reach = 1 - smooth01((dd - 0.6 * rig.armL.k) / (0.22 * rig.armL.k));
         if (reach > 0.002) {
           armTo(ent, rig.armL, _ikT, ik.lw * reach, 0.8);
           solveRig(ent);
@@ -3960,16 +4672,16 @@
       const bj = rig.JI.wBo, bm = bj * 12, bp = rig.joints[bj], hm = rig.JI.hR * 12, hp = rig.joints[rig.JI.hR];
       let nx = BOW_TIP[0], ny = BOW_TIP[1], nz = BOW_GZ;
       // 右手握点（模型空间）
-      const gx = -0.39 - hp.px, gy = 0.84 - hp.py, gz = 0.03 - hp.pz;
+      const gx = rig.armR.grip[0], gy = rig.armR.grip[1], gz = rig.armR.grip[2];
       const hx = M[hm] * gx + M[hm + 1] * gy + M[hm + 2] * gz + M[hm + 3];
       const hy = M[hm + 4] * gx + M[hm + 5] * gy + M[hm + 6] * gz + M[hm + 7];
       const hz = M[hm + 8] * gx + M[hm + 9] * gy + M[hm + 10] * gz + M[hm + 11];
       if (dk > 0.001) {
         rotOf(M, bj, _Rh);
         const qx = hx - M[bm + 3], qy = hy - M[bm + 7], qz = hz - M[bm + 11];
-        const lx = _Rh[0] * qx + _Rh[3] * qy + _Rh[6] * qz + bp.px;
-        const ly = _Rh[1] * qx + _Rh[4] * qy + _Rh[7] * qz + bp.py;
-        const lz = _Rh[2] * qx + _Rh[5] * qy + _Rh[8] * qz + bp.pz;
+        const lx = _Rh[0] * qx + _Rh[3] * qy + _Rh[6] * qz + bp.px0;
+        const ly = _Rh[1] * qx + _Rh[4] * qy + _Rh[7] * qz + bp.py0;
+        const lz = _Rh[2] * qx + _Rh[5] * qy + _Rh[8] * qz + bp.pz0;
         nx += (lx - nx) * dk;
         ny += (ly - ny) * dk;
         nz += (lz - nz) * dk;
@@ -3988,7 +4700,7 @@
       o[J.bsL + 8] = vl / half;
       if (o[J.wA + 6] > 0) {
         // 箭：右手 → 弓把
-        const ox = 0.39 - bp.px, oy = 0.84 - bp.py, oz = BOW_GZ - bp.pz;
+        const ox = 0.39 - bp.px0, oy = 0.84 - bp.py0, oz = BOW_GZ - bp.pz0;
         const bx = M[bm] * ox + M[bm + 1] * oy + M[bm + 2] * oz + M[bm + 3];
         const by = M[bm + 4] * ox + M[bm + 5] * oy + M[bm + 6] * oz + M[bm + 7];
         const bz = M[bm + 8] * ox + M[bm + 9] * oy + M[bm + 10] * oz + M[bm + 11];
@@ -4261,7 +4973,7 @@
           const jp = js[ji];
           let ox, oy, oz;
           if (tipLen > 0) { ox = 0; oy = -tipLen; oz = 0; }
-          else { const T3 = HAIR_T[3]; ox = T3[0] - jp.px; oy = T3[1] - jp.py; oz = T3[2] - jp.pz; }
+          else { const T3 = HAIR_T[3]; ox = T3[0] - jp.px0; oy = T3[1] - jp.py0; oz = T3[2] - jp.pz0; }
           px = M[m] * ox + M[m + 1] * oy + M[m + 2] * oz + M[m + 3];
           py = M[m + 4] * ox + M[m + 5] * oy + M[m + 6] * oz + M[m + 7];
           pz = M[m + 8] * ox + M[m + 9] * oy + M[m + 10] * oz + M[m + 11];
@@ -4269,7 +4981,7 @@
         let dx = 0, dy = 0, dz = 0, hit = false;
         for (let c = 0; c < cols.length; c++) {
           const C = cols[c], cm = C[0] * 12, cj = js[C[0]];
-          const ox = C[1] - cj.px, oy = C[2] - cj.py, oz = C[3] - cj.pz;
+          const ox = C[1] - cj.px0, oy = C[2] - cj.py0, oz = C[3] - cj.pz0;
           _springPt[0] = M[cm] * ox + M[cm + 1] * oy + M[cm + 2] * oz + M[cm + 3];
           _springPt[1] = M[cm + 4] * ox + M[cm + 5] * oy + M[cm + 6] * oz + M[cm + 7];
           _springPt[2] = M[cm + 8] * ox + M[cm + 9] * oy + M[cm + 10] * oz + M[cm + 11];
@@ -5351,9 +6063,9 @@
   // 游魂：佝偻的枯瘦躯体裹着破寿衣，鹿骨面具，过长的手臂拖着骨爪，肋骨间透出元素余火
   // ---------------------------------------------------------------------
   function huskRig() {
-    return rigOf('husk', () => {
+    return rigOf('husk', () => cTry('husk', (cs) => {
       const HIDE = 0x8a7f76, HIDE_D = 0x4a4340, CLOTH = 0x2d2734, CLOTH_L = 0x4a4152, CLOTH_IN = 0x17141b, BONE = 0xded5ba, BONE_D = 0x9c927a;
-      const b = rigBuilder('husk', NB_SMALL);
+      const b = rigBuilder('husk', NB_SMALL, cs);
       b.j('root', null, 0, 0.95, 0).j('spine', 'root', 0, 1.02, 0.02).j('head', 'spine', 0, 1.5, 0.3).j('jaw', 'head', 0, 1.47, 0.36);
       b.j('uaL', 'spine', 0.31, 1.46, 0.12).j('faL', 'uaL', 0.43, 1.1, 0.2).j('uaR', 'spine', -0.31, 1.46, 0.12).j('faR', 'uaR', -0.43, 1.1, 0.2);
       b.j('thL', 'root', 0.14, 0.93, 0).j('shL', 'thL', 0.16, 0.52, 0.06).j('ftL', 'shL', 0.16, 0.1, 0);
@@ -5442,6 +6154,7 @@
       sock(rig, 'hand', 'faL', 0.02, -0.4, 0.2);
       sock(rig, 'head', 'head', 0, 0.1, 0.1);
       sock(rig, 'chest', 'spine', 0, 0.3, 0.15);
+      cApply(rig, cs);
       rig.loco = function (ent, p, t) {
         const J = rig.J, mv = ent.mv, s = Math.sin(ent.walk), c = Math.cos(ent.walk), id = 1 - mv;
         const run = Math.min(1.2, ent.spd / 5) * mv;
@@ -5541,7 +6254,7 @@
         },
       });
       return rig;
-    });
+    }));
   }
 
   // ---------------------------------------------------------------------
@@ -5726,8 +6439,96 @@
   // ---------------------------------------------------------------------
   // 喷吐者：四条细腿托着低矮的分节甲壳，长颈顶着一朵张开的喇叭口，喉囊里蓄着元素液
   // ---------------------------------------------------------------------
+  // ---------------------------------------------------------------------
+  // 喷吐者（C 模型）：蜘蛛。骨架照着模型的骨骼建（身体、胸、头、腹 + 八条腿各三节），动作取模型自带的
+  // 待机 / 走 / 攻击 / 死亡 / 跳（蓄力用跳之前那一下下蹲），失衡是程序化的。没有模型时用下面的程序化喷吐者
+  // ---------------------------------------------------------------------
+  const SP_LEGS = ['FrontLeg', 'MidFrontLeg', 'MidBackLeg', 'BackLeg'];
+  // 一组采样好的关键帧 → 通道下标 + 关键帧（和 defClip 一样的格式），按归一化时间 k 写进姿态（w：混合权重）
+  function cTrack(rig, keys) {
+    const ci = [], cK = [];
+    for (const key in keys) {
+      const dot = key.indexOf('.'), j = rig.JI[key.slice(0, dot)];
+      if (j === undefined) continue;
+      ci.push(j * CH + CHI[key.slice(dot + 1)]);
+      cK.push(keys[key]);
+    }
+    return { ci, cK };
+  }
+  function cTrackEval(tr, p, k, w) {
+    for (let i = 0; i < tr.ci.length; i++) {
+      const ix = tr.ci[i];
+      p[ix] += (kf(tr.cK[i], k) - p[ix]) * w;
+    }
+  }
+  function spiderRig(cs) {
+    const b = rigBuilder('spitter', 28, cs);
+    b.j('root', null, 0, 0.4, 0).j('thx', 'root', 0, 0.4, 0.2).j('head', 'thx', 0, 0.4, 0.3).j('abd', 'root', 0, 0.4, -0.3);
+    cs.pivot = { root: 'Body', thx: 'Thorax', head: 'Head', abd: 'Abdomen' };
+    for (const L of SP_LEGS) {
+      for (const s of ['L', 'R']) {
+        b.j(L + s, 'root', 0, 0.4, 0).j(L + '2' + s, L + s, 0, 0.4, 0).j(L + '3' + s, L + '2' + s, 0, 0.4, 0);
+        for (const n of [L + s, L + '2' + s, L + '3' + s]) cs.pivot[n] = n;
+      }
+    }
+    const rig = b.build({ height: 0.8, reach: 1.4, stride: 4.4, shade: 0 }); // stride：按腿尖着地时的滑动量调的（模型走一个周期约 1.4 米）
+    cApply(rig, cs);
+    rig.hitJ = [rig.J.thx, rig.J.abd];
+    const idle = cClipKeys(rig, cs, 'Spider_Idle', { fps: 15 }), walk = cClipKeys(rig, cs, 'Spider_Walk', { fps: 30 });
+    const idleT = cTrack(rig, idle.keys), walkT = cTrack(rig, walk.keys);
+    rig.loco = function (ent, p, t) {
+      cTrackEval(idleT, p, (((t + ent.phase * 3) / idle.dur) % 1 + 1) % 1, 1);
+      if (ent.mv > 0.01) cTrackEval(walkT, p, (((ent.walk / TAU) % 1) + 1) % 1, Math.min(1, ent.mv * 1.2));
+    };
+    rig.post = function (ent, o, t) {
+      // 余烬囊一鼓一鼓地亮；蓄力时越来越亮，吐出去那一下最亮
+      const c = ent.clip;
+      let k = 0.85 + 0.2 * Math.sin(t * 3.1 + ent.phase);
+      if (c && c.name === 'windup') k += 0.9 * ent.cK;
+      else if (c && c.name === 'attack') k += 1.2 * hump(ent.cK, 0, c.k0, c.k0 + 0.05, c.k0 + 0.35);
+      setGlow(ent, k);
+    };
+    // 蓄力：跳之前那一下下蹲、前腿抬起（定格）
+    const jump = cClipKeys(rig, cs, 'Spider_Jump', { fps: 30, to: 0.3 });
+    defClip(rig, 'windup', { dur: 0.45, hold: true, fade: 0.08, base: 'rest', keys: jump.keys });
+    // 喷吐：模型的扑咬，命中帧在前腿砸下、头往前探的那一刻
+    const atk = cClipKeys(rig, cs, 'Spider_Attack', { fps: 30 });
+    defClip(rig, 'attack', { dur: 0.55, k0: 0.42, fade: 0.05, out: 0.2, base: 'rest', keys: atk.keys });
+    const die = cClipKeys(rig, cs, 'Spider_Death', { fps: 30 });
+    // 模型的死亡动作先把身子弹起将近一个身高再翻过去：压成一下小跳
+    const dy = die.keys['root.oy'];
+    if (dy) for (let k = 1; k < dy.length; k += 2) if (dy[k] > 0) dy[k] *= 0.25;
+    defClip(rig, 'death', { dur: 0.75, base: 'rest', hold: true, fade: 0.05, keys: die.keys });
+    // 失衡：身子趴低、八条腿往外摊开，打着晃
+    const legJ = [];
+    SP_LEGS.forEach((L, i) => ['L', 'R'].forEach((s) => legJ.push([rig.J[L + s], rig.J[L + '2' + s], s === 'L' ? 1 : -1, i])));
+    defClip(rig, 'stagger', {
+      dur: 1.4, loop: true, fade: 0.15, out: 0.25,
+      fn(ent, p, k) {
+        const J = rig.J, a = k * TAU, s = Math.sin(a);
+        p[J.root + 4] -= 0.12;
+        p[J.root + 2] += 0.12 * s;
+        p[J.root] += 0.08 * Math.cos(a);
+        p[J.head] += 0.25 + 0.1 * Math.sin(a * 2);
+        p[J.abd] -= 0.2;
+        for (const [hip, knee, sd, i] of legJ) {
+          p[hip + 2] -= sd * (0.22 + 0.06 * Math.sin(a + i));
+          p[knee + 2] += sd * 0.2;
+        }
+      },
+    });
+    sock(rig, 'weapon', 'head', 0, 0.02, 0.2);
+    for (const k in cs.sock || {}) {
+      const q = cs.sock[k];
+      sock(rig, k, q[0], q[1], q[2], q[3]);
+    }
+    return rig;
+  }
   function spitterRig() {
-    return rigOf('spitter', () => {
+    return rigOf('spitter', () => cTry('spitter', (cs) => (cs ? spiderRig(cs) : spitterProc())));
+  }
+  function spitterProc() {
+    return (() => {
       const SHELL = 0x6f8060, SHELL_D = 0x3b4636, DARK = 0x20241f, PALE = 0xc2c7a6, PALE_D = 0x8e9478, HORN = 0x2e2a26;
       const b = rigBuilder('spitter', NB_SMALL);
       b.j('root', null, 0, 0.78, -0.05).j('neck1', 'root', 0, 0.98, 0.34).j('neck2', 'neck1', 0, 1.42, 0.46).j('head', 'neck2', 0, 1.82, 0.62);
@@ -5879,7 +6680,7 @@
         },
       });
       return rig;
-    });
+    })();
   }
 
   // ---------------------------------------------------------------------
@@ -6363,13 +7164,16 @@
     const ent = newEnt(type, MOB_RIG[type](), warmGround ? 0xc3cbe6 : 0xf6dfc4, eh, 1.1);
     if (warmGround) ent.uRim.value.setRGB(0.1, 0.13, 0.2);
     else ent.uRim.value.setRGB(0.2, 0.15, 0.1);
+    if (ent.rig.skin4) ent.uRim.value.multiplyScalar(1.5); // 暗色的 C 模型：轮廓光强一点，游戏镜头下才能从灰土地面上分出来
     if (elite) {
       // 精英：更大、发光更强，轮廓上镀一圈金
       ent.k = 1.35;
       ent.body.scale.setScalar(1.35);
       ent.glowK = 1.35;
       setGlow(ent, 1);
-      ent.uRim.value.setRGB(0.5, 0.36, 0.12);
+      // C 模型的面大而平，同样强度的金边会把整个身子染成土黄：收一点
+      const rk = ent.rig.skin4 ? 0.42 : 1;
+      ent.uRim.value.setRGB(0.5 * rk, 0.36 * rk, 0.12 * rk);
       ent.ring = groundDisc(ent, dashRingTex(), mixHex(eh, 0xffe9b0, 0.45), G.MOBS[type].r * 1.35 + 0.75, 0.85);
     }
     return ent;
@@ -7946,10 +8750,10 @@
   // 右手一把豁了口的剑，左臂绑着一面青铜包边的小圆盾；胸腔里烧着一团魂火
   // ---------------------------------------------------------------------
   function thrallRig() {
-    return rigOf('thrall', () => {
+    return rigOf('thrall', () => cTry('thrall', (cs) => {
       const BONE = 0xece3cc, BONE_D = 0xa69c86, IRON = 0x7a828e, IRON_D = 0x3d434d, BRONZE = 0xbb8e4c, BRONZE_D = 0x6f5329;
       const LEATHER = 0x5c4432, LEATHER_D = 0x35271c, WOOD = 0x6e5038, CLOTH = 0x2c4a47, CLOTH_L = 0x3f655f, CLOTH_IN = 0x132220, HOLE = 0x0a0c0c;
-      const b = rigBuilder('thrall', NB_SMALL);
+      const b = rigBuilder('thrall', NB_SMALL, cs);
       b.j('root', null, 0, 0.95, 0).j('spine', 'root', 0, 1.05, -0.03).j('chest', 'spine', 0, 1.27, -0.03).j('head', 'chest', 0, 1.54, 0).j('jaw', 'head', 0, 1.6, 0.05);
       b.j('uaL', 'chest', 0.25, 1.44, -0.02).j('faL', 'uaL', 0.29, 1.15, -0.03).j('hL', 'faL', 0.31, 0.9, 0);
       b.j('uaR', 'chest', -0.25, 1.44, -0.02).j('faR', 'uaR', -0.29, 1.15, -0.03).j('hR', 'faR', -0.31, 0.9, 0);
@@ -8025,6 +8829,7 @@
       b.surf(SURF.leather).p(gCyl(0.038, 0.04, 0.04, 8), LEATHER_D, -0.3, 1.075, -0.02);
 
       // --- 豁口剑：握把沿 +z，刃面竖着；血槽里一道光（随元素变色，见 W.minionElem） ---
+      b.tag('gear'); // 剑和盾：换成 C 模型时留下
       const WX = -0.31, WY = 0.85, WZ = 0.03;
       b.at('hR').surf(SURF.leather).p(gCyl(0.021, 0.023, 0.2, 6), LEATHER_D, WX, WY, WZ + 0.02, HALF_PI);
       b.surf(SURF.metal).p(gSph(0.03, 6, 4), IRON, WX, WY, WZ - 0.095);
@@ -8039,6 +8844,7 @@
       b.p(gDome(0.06, 8, 3), BRONZE, 0.38, 1.03, 0, 0, 0, -HALF_PI);
       b.g(gTorus(0.12, 0.016, 3, 16), 1.3, 0.388, 1.03, 0, 0, HALF_PI, 0);
       b.g(gTorus(0.226, 0.01, 3, 18), 0.9, 0.392, 1.03, 0, 0, HALF_PI, 0); // 盾沿一圈魂火描边
+      b.tag(null);
 
       // --- 腿：股骨、髌骨、胫腓骨、骨脚；右小腿一截暗铁胫甲，左膝青铜护膝 ---
       for (const s of [1, -1]) {
@@ -8062,6 +8868,7 @@
       sock(rig, 'handL', 'hL', 0, -0.05, 0.02);
       sock(rig, 'head', 'head', 0, 0.13, 0.02);
       sock(rig, 'chest', 'chest', 0, 0.06, 0.06);
+      cApply(rig, cs);
       rig.post = minionPost;
       rig.late = minionLate;
       rig.loco = function (ent, p, t) {
@@ -8087,8 +8894,9 @@
         p[J.shR] = 0.3 * id;
         p[J.thL + 2] = 0.08 * id;
         p[J.thR + 2] = -0.1 * id;
-        legCycle(p, J.thL, J.shL, J.ftL, s, c, run, 0.78, 1.15);
-        legCycle(p, J.thR, J.shR, J.ftR, -s, -c, run, 0.78, 1.15);
+        const ga = rig.gait || 0.78; // 腿摆幅（C 模型的骷髅腿短，摆得大一点、步频也高一点，脚才不打滑）
+        legCycle(p, J.thL, J.shL, J.ftL, s, c, run, ga, 1.15);
+        legCycle(p, J.thR, J.shR, J.ftR, -s, -c, run, ga, 1.15);
         // 左臂：小臂横在身前举着盾
         p[J.uaL] = -0.5 - 0.15 * run + 0.03 * br;
         p[J.uaL + 1] = -0.55;
@@ -8105,7 +8913,7 @@
       };
       thrallClips(rig);
       return rig;
-    });
+    }));
   }
   function thrallClips(rig) {
     locoClips(rig);
@@ -8795,6 +9603,7 @@
     loots.push(W.makeLoot('item', 0xff9b3d, true, 0, 2, { slot: 'weapon', type: 'katana', rarity: 3 })); // 烬铸的本体材质与双层光柱
     allyFxVisible(true); // 召唤法阵 / 聚焦标记平时是隐藏的：预热这一帧让它们露个面，着色器一并编译
     warmWeaponFx(true);
+    if (ghosts.length) ghosts[0].mesh.visible = true; // 残影（亮度 0）：第一次冲刺 / 一闪时不再现编译着色器
     // 编码与后期处理的渲染目标、屏幕一致（sRGB）：这里编译出来的着色器就是之后真正要用的那一批
     const rt = new T.WebGLRenderTarget(64, 64, { encoding: T.sRGBEncoding });
     renderer.setRenderTarget(rt);
@@ -8803,6 +9612,7 @@
     rt.dispose();
     allyFxVisible(false);
     warmWeaponFx(false);
+    if (ghosts.length) ghosts[0].mesh.visible = ghosts[0].on;
     for (const l of loots) W.removeMesh(l);
     for (const e of made) {
       scene.remove(e.group);
@@ -10209,9 +11019,12 @@
 
   // ----- 残影：玩家此刻姿势的半透明轮廓，原地淡出 -----
   const GHOST_VERT = [
-    'attribute float aBone; uniform mat4 uBones[ NB ]; varying vec3 vN; varying vec3 vV;',
-    'void main(){ mat4 b = uBones[ int( aBone + 0.5 ) ]; vec4 mv = modelViewMatrix * ( b * vec4( position, 1.0 ) );',
-    ' vN = normalize( normalMatrix * ( mat3( b ) * normal ) ); vV = -mv.xyz; gl_Position = projectionMatrix * mv; }',
+    'varying vec3 vN; varying vec3 vV;',
+    'void main(){',
+    // 和角色本体同一套蒙皮（C 模型是 4 权重 SKIN4，程序化骨架是单骨骼 aBone）
+    'BONE_CODE',
+    ' vec4 mv = modelViewMatrix * ( boneM * vec4( position, 1.0 ) );',
+    ' vN = normalize( normalMatrix * ( mat3( boneM ) * normal ) ); vV = -mv.xyz; gl_Position = projectionMatrix * mv; }',
   ].join('\n');
   const GHOST_FRAG = 'uniform vec3 uColor; uniform float uA; varying vec3 vN; varying vec3 vV;\nvoid main(){ float r = 1.0 - abs( dot( normalize( vN ), normalize( vV ) ) ); float a = ( 0.18 + 0.82 * r * r ) * uA; gl_FragColor = vec4( uColor * ( 0.6 + 0.8 * r ), a ); }';
   const ghosts = [];
@@ -10219,8 +11032,9 @@
     const rig = playerRig();
     for (let i = 0; i < 6; i++) {
       const u = { uBones: { value: new Float32Array(rig.NB * 16) }, uColor: { value: new T.Color() }, uA: { value: 0 } };
-      const mat = new T.ShaderMaterial({ uniforms: u, vertexShader: GHOST_VERT, fragmentShader: GHOST_FRAG, transparent: true, depthWrite: false, blending: T.AdditiveBlending });
+      const mat = new T.ShaderMaterial({ uniforms: u, vertexShader: RIG_SKIN_PARS + GHOST_VERT.replace('BONE_CODE', RIG_BONE), fragmentShader: GHOST_FRAG, transparent: true, depthWrite: false, blending: T.AdditiveBlending });
       mat.defines = { NB: rig.NB };
+      if (rig.skin4) mat.defines.SKIN4 = 1;
       const mesh = new T.Mesh(rig.geoBody, mat);
       mesh.visible = false;
       mesh.renderOrder = 5;
