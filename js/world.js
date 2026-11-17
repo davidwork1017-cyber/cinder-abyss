@@ -8,7 +8,7 @@
   const TAU = Math.PI * 2;
   const rand = G.rand;
 
-  let renderer, scene, camera, hemi, sun, lamp, fxLight, portalLight;
+  let renderer, scene, camera, hemi, sun, fill, lamp, fxLight, portalLight;
   let ocv, octx;
   let vw = 1, vh = 1, dpr = 1;
   let wtime = 0;
@@ -27,7 +27,7 @@
   const HUD_BAND = 140; // 画面底部被技能栏 / 血球占住的高度（CSS 像素），W.inView 把它当作看不见
   const VIEW_PAD = 36; // W.inView 的屏幕边距
   const SUN_OFF = new T.Vector3(-11, 28, 17);
-  const SHADOW_HALF = 28, SHADOW_MAP = 2048;
+  const SHADOW_HALF = 28;
   const HEMI_I = 0.46;
   const camT = new T.Vector3();
   let camSnap = true;
@@ -450,6 +450,713 @@
     });
   }
 
+  // =====================================================================
+  // 画面升级：CC0 PBR 地面 / 岩壁材质、CC0 布景模型、后期处理（泛光 + 调色 + 暗角）、画质档位。
+  // 外部素材都是可选的：没加载到（或加载失败）时一切照旧走上面的程序化外观。素材来源见 assets/README.md
+  // =====================================================================
+  // 每个区域：packs 用到的素材包（js/assets/*.js）；
+  // mats 地面三套材质 0 路面（可行走）/ 1 粗糙地面（路外过渡带、路上零星的斑块）/ 2 岩壁与虚空：
+  //   tex 贴图 id，tile 一张贴图铺多少世界单位，con 贴图明暗起伏（0 纯色 / 1 原样），nrm 法线强度，rough 粗糙度倍率，sat 饱和度（缺省 1），
+  //   k 亮度（乘在区域配色上：路面 = path，粗糙地面 = path 与 rock 之间，岩壁 = rock 与 voidc 之间）
+  // lava：mode 1 = 路面的裂缝（高度低处）发光；mode 2 = 粗糙地面贴图的 R 通道就是自发光（熔岩流）
+  // rock：岩石 / 岩壁的三向投影贴图；cap = 朝上的面盖一层（雪 / 灰），capAll = 程序化岩石也盖
+  // grade：调色（sat 饱和度、con 对比度、lift 暗部偏色、gain 亮部增益、vig 暗角）；bloom：th 阈值、k 强度、r 半径
+  // mist：贴地薄雾（只在路外的虚空上）；prop：布景模型的统一着色（tint 乘色、sat 保留原调色板饱和度的比例）
+  // props：布景模型 [模型 key, 权重, 最小缩放, 最大缩放, 标记]；标记 t = 高（南缘不放）、r = 用岩石材质、l = 平放在地上（抬到贴地）
+  //   outer 外圈（替换程序化摆件，keep = 程序化摆件保留的比例）、mid 中圈（midK 的概率替换程序化岩石）、
+  //   edge 紧贴路边的小物件、fire 路边的火盆 / 灯（会发光）、boss 首领场地外的大件
+  const ZONE_GFX = {
+    ash: {
+      packs: ['zone-ash', 'rock-dark', 'models'],
+      mats: [
+        { tex: 'mud_cracked_dry_03', tile: 4.2, con: 0.95, nrm: 1.2, rough: 1, k: 0.48, sat: 0.35 },
+        { tex: 'burned_ground_01', tile: 4.8, con: 1.0, nrm: 1.3, rough: 1, k: 0.4, sat: 0.8 },
+        { tex: 'dark_rock', tile: 6.5, con: 1.0, nrm: 1.0, rough: 1, k: 1.0 },
+      ],
+      lava: { mode: 1, color: 0xff5a1a, k: 4.2 },
+      rock: { tex: 'dark_rock', tile: 2.6, nrm: 1.2, cap: 0x5e5550, capAll: 0.12 },
+      grade: { sat: 1.06, con: 1.05, lift: 0x060201, gain: 0xfff3e8, vig: 0.42 },
+      bloom: { th: 0.93, k: 0.34, r: 0.42 },
+      mist: { color: 0x3a2218, a: 0.32 },
+      prop: { tint: 0x6e6058, sat: 0.3 },
+      props: {
+        outer: [['kh/tree_dead_large', 3, 0.8, 1.1, 't'], ['kh/tree_dead_medium', 3, 0.9, 1.2, 't'], ['kh/tree_dead_small', 2, 1, 1.3, ''], ['kn/rock_tallA', 2, 2.4, 3.4, 'tr'], ['kn/stump_oldTall', 2, 2.2, 3, '']],
+        keep: 0,
+        mid: [['kn/rock_largeD', 1, 1.6, 2.4, 'r'], ['kn/rock_largeF', 1, 1.6, 2.4, 'r'], ['kn/rock_tallH', 1, 2, 2.8, 'r']],
+        midK: 0.3,
+        edge: [['kh/ribcage', 1, 0.9, 1.2, 'l'], ['kh/skull', 2, 0.5, 0.7, ''], ['kh/bone_A', 3, 0.8, 1.1, 'l'], ['kd/sword_shield_broken', 1, 0.7, 0.9, ''], ['kh/gravemarker_A', 1, 0.8, 1, '']],
+        fire: { m: 'kn/campfire_stones', s: 3.2, h: 0.12, color: 0xff7a2a, size: 1.5 },
+        boss: [['kh/pillar', 2, 0.75, 0.95, 't'], ['kd/rubble_large', 1, 0.45, 0.6, '']],
+      },
+    },
+    frost: {
+      packs: ['zone-frost', 'rock-grey', 'models'],
+      mats: [
+        { tex: 'Ice002', tile: 7.5, con: 0.38, nrm: 0.55, rough: 0.6, k: 1.0 },
+        { tex: 'Snow013', tile: 4.5, con: 0.9, nrm: 1.4, rough: 1, k: 0.85 },
+        { tex: 'Rock035', tile: 6.5, con: 1.0, nrm: 1.0, rough: 1, k: 1.0 },
+      ],
+      lava: null,
+      rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0xb4c8d6, capAll: 0.6 },
+      grade: { sat: 0.96, con: 1.06, lift: 0x01040a, gain: 0xeef8ff, vig: 0.4 },
+      bloom: { th: 0.94, k: 0.3, r: 0.4 },
+      mist: { color: 0x3c5566, a: 0.3 },
+      prop: { tint: 0x8aa0b0, sat: 0.2 },
+      props: {
+        outer: [['kn/stone_tallA', 3, 2.6, 3.6, 'tr'], ['kn/rock_tallB', 2, 2.4, 3.2, 'tr'], ['kh/tree_dead_large', 2, 0.8, 1.05, 't'], ['kh/tree_dead_small', 2, 1, 1.3, '']],
+        keep: 0.45,
+        mid: [['kn/rock_largeB', 1, 1.6, 2.4, 'r'], ['kn/stone_tallC', 1, 2.2, 3, 'r']],
+        midK: 0.3,
+        edge: [['kh/ribcage', 1, 0.9, 1.2, 'l'], ['kh/bone_A', 3, 0.8, 1.1, 'l'], ['kh/skull', 1, 0.5, 0.7, '']],
+        fire: { m: 'kh/lantern_standing', s: 1.3, h: 0.62, color: 0x7fd4ff, size: 0.55 },
+        boss: [['kn/statue_ring', 1, 3, 3.6, 't'], ['kn/stone_tallA', 2, 3.2, 4, 'tr']],
+      },
+    },
+    storm: {
+      packs: ['zone-storm', 'rock-grey', 'models'],
+      mats: [
+        { tex: 'monastery_stone_floor', tile: 4.6, con: 0.9, nrm: 1.1, rough: 1, k: 1.0 },
+        { tex: 'rocky_trail', tile: 4.8, con: 1.0, nrm: 1.2, rough: 1, k: 0.7 },
+        { tex: 'Rock035', tile: 6.5, con: 1.0, nrm: 1.0, rough: 1, k: 1.0 },
+      ],
+      lava: null,
+      rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0, capAll: 0 },
+      grade: { sat: 1.02, con: 1.06, lift: 0x03020a, gain: 0xf6f2ff, vig: 0.42 },
+      bloom: { th: 0.94, k: 0.32, r: 0.4 },
+      mist: { color: 0x2c2744, a: 0.32 },
+      prop: { tint: 0x5f5b74, sat: 0.2 },
+      props: {
+        outer: [['kd/pillar', 3, 0.7, 0.95, 't'], ['kd/pillar_decorated', 1, 0.7, 0.9, 't'], ['kn/statue_column', 2, 3.4, 4.2, 't'], ['kn/statue_columnDamaged', 3, 3.4, 4.4, ''], ['kd/wall_broken', 2, 0.7, 0.9, 't'], ['kn/statue_obelisk', 1, 4, 5, 't']],
+        keep: 0,
+        mid: [['kd/rubble_half', 1, 0.45, 0.6, ''], ['kd/column', 1, 0.9, 1.2, '']],
+        midK: 0.35,
+        edge: [['kd/floor_tile_small_broken_A', 2, 0.5, 0.7, 'l'], ['kd/sword_shield_broken', 1, 0.7, 0.9, ''], ['kn/statue_columnDamaged', 1, 1.6, 2, '']],
+        fire: { m: 'kh/lantern_standing', s: 1.4, h: 0.62, color: 0xffe45e, size: 0.6 },
+        boss: [['kd/pillar_decorated', 2, 0.8, 1, 't'], ['kd/barrier_column', 1, 0.7, 0.9, '']],
+      },
+    },
+    abyss: {
+      packs: ['zone-abyss', 'rock-dark', 'models'],
+      mats: [
+        { tex: 'dark_rock_02', tile: 5.0, con: 0.85, nrm: 1.1, rough: 1, k: 1.0 },
+        { tex: 'Lava001', tile: 6.0, con: 1.0, nrm: 1.0, rough: 1, k: 0.75 },
+        { tex: 'dark_rock', tile: 6.5, con: 1.0, nrm: 1.0, rough: 1, k: 1.0 },
+      ],
+      lava: { mode: 2, color: 0xff3a22, k: 3.0 },
+      rock: { tex: 'dark_rock', tile: 2.6, nrm: 1.2, cap: 0, capAll: 0 },
+      grade: { sat: 1.05, con: 1.07, lift: 0x060103, gain: 0xffeeee, vig: 0.45 },
+      bloom: { th: 0.93, k: 0.34, r: 0.42 },
+      mist: { color: 0x2e0d12, a: 0.32 },
+      prop: { tint: 0x5e4a4c, sat: 0.25 },
+      props: {
+        outer: [['kh/arch', 1, 0.8, 1, 't'], ['kh/grave_A_destroyed', 3, 1, 1.3, ''], ['kh/pillar', 2, 0.7, 0.9, 't'], ['kn/rock_tallA', 2, 2.4, 3.4, 'tr'], ['kh/tree_dead_medium', 2, 0.9, 1.2, 't']],
+        keep: 0.3,
+        mid: [['kn/rock_tallG', 1, 2.2, 3, 'r'], ['kn/rock_largeF', 1, 1.8, 2.4, 'r']],
+        midK: 0.3,
+        edge: [['kh/skull_candle', 1, 0.6, 0.8, ''], ['kh/skull', 2, 0.5, 0.7, ''], ['kh/ribcage', 1, 0.9, 1.2, 'l'], ['kh/gravemarker_A', 2, 0.8, 1, '']],
+        fire: { m: 'kn/campfire_stones', s: 3.2, h: 0.12, color: 0xff3a2a, size: 1.6 },
+        boss: [['kh/crypt', 1, 0.62, 0.7, 't1'], ['kh/arch', 1, 0.9, 1, 't'], ['kh/pillar', 2, 0.8, 1, 't']],
+      },
+    },
+    rift: {
+      packs: ['zone-rift', 'rock-grey', 'models'],
+      mats: [
+        { tex: 'slate_floor', tile: 5.5, con: 0.8, nrm: 1.0, rough: 0.6, k: 1.15 },
+        { tex: 'moon_01', tile: 6.0, con: 1.0, nrm: 1.3, rough: 1, k: 0.75 },
+        { tex: 'Rock035', tile: 6.5, con: 1.0, nrm: 1.0, rough: 1, k: 1.0 },
+      ],
+      lava: null,
+      rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0, capAll: 0 },
+      grade: { sat: 1.04, con: 1.06, lift: 0x000604, gain: 0xeefff8, vig: 0.44 },
+      bloom: { th: 0.93, k: 0.34, r: 0.45 },
+      mist: { color: 0x123a30, a: 0.32 },
+      prop: { tint: 0x4c605a, sat: 0.16 },
+      props: {
+        outer: [['kn/stone_tallA', 3, 2.8, 3.8, 'tr'], ['kn/statue_obelisk', 2, 4, 5.2, 't'], ['kn/statue_ring', 1, 3, 3.6, ''], ['kd/rubble_large', 1, 0.4, 0.55, '']],
+        keep: 0.5,
+        mid: [['kn/rock_largeD', 1, 1.6, 2.4, 'r'], ['kn/stone_tallC', 1, 2.2, 3, 'r']],
+        midK: 0.3,
+        edge: [['kd/floor_tile_small_broken_A', 2, 0.5, 0.7, 'l'], ['kn/rock_largeB', 1, 0.6, 0.8, 'r']],
+        fire: null,
+        boss: [['kn/statue_obelisk', 1, 5, 6, 't'], ['kn/stone_tallA', 2, 3.4, 4.2, 'tr']],
+      },
+    },
+  };
+
+  // ----- 画质档位：dpr 像素比上限（高档封顶 1.5：2 倍屏按原生像素渲染再叠多重采样太贵），post 走后期处理（泛光 / 调色 / 暗角），
+  //   bloomRes 泛光链的分辨率比例，msaa 后期渲染目标的多重采样，shadow 阴影贴图边长，mist 贴地薄雾 -----
+  const QUALITY = {
+    high: { dpr: 1.5, post: true, bloom: true, bloomRes: 1, msaa: 4, shadow: 2048, mist: true },
+    mid: { dpr: 1.25, post: true, bloom: true, bloomRes: 0.5, msaa: 2, shadow: 1024, mist: false },
+    low: { dpr: 1, post: false, bloom: false, bloomRes: 1, msaa: 0, shadow: 1024, mist: false },
+  };
+  let qual = QUALITY.high, qualId = 'high';
+  const BLOOM_CAP = 1.1; // 进泛光的单个像素最亮多少（最大分量）
+  const post = { composer: null, rt: null, bloom: null, grade: null, ok: false };
+
+  // 最终调色：对比度 / 饱和度 / 暗部偏色 / 亮部增益 / 暗角。画面在渲染目标里已经是显示空间（sRGB）
+  const GradeShader = {
+    uniforms: {
+      tDiffuse: { value: null }, uSat: { value: 1 }, uCon: { value: 1 }, uVig: { value: 0.4 }, uAspect: { value: 1.6 },
+      uLift: { value: new T.Vector3(0, 0, 0) }, uGain: { value: new T.Vector3(1, 1, 1) },
+    },
+    vertexShader: 'varying vec2 vUv;\nvoid main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: [
+      'uniform sampler2D tDiffuse; uniform float uSat, uCon, uVig, uAspect; uniform vec3 uLift, uGain; varying vec2 vUv;',
+      'void main(){',
+      '  vec3 c = max(texture2D(tDiffuse, vUv).rgb, 0.0);',
+      // 高光肩部：超过 0.8 的部分按指数压向 1（色调映射过的材质很少到这里，主要压的是不做色调映射的加色特效 + 泛光），
+      // 叠在一起的技能不会糊成一整片死白，颜色也保得住
+      '  c = mix(c, 0.8 + 0.2 * (1.0 - exp(-(c - 0.8) * 5.0)), step(0.8, c));',
+      '  c = (c - 0.5) * uCon + 0.5;',
+      '  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));',
+      '  c = mix(vec3(l), c, uSat);',
+      '  c = c * uGain + uLift * (1.0 - clamp(l, 0.0, 1.0));',
+      '  vec2 q = (vUv - vec2(0.5, 0.47)) * vec2(uAspect, 1.0);',
+      '  c *= mix(1.0, smoothstep(1.05, 0.32, length(q)), uVig);',
+      '  gl_FragColor = vec4(max(c, 0.0), 1.0);',
+      '}',
+    ].join('\n'),
+  };
+
+  function postSize() {
+    return { w: Math.max(1, Math.round(vw * dpr)), h: Math.max(1, Math.round(vh * dpr)) };
+  }
+  function makePostTarget() {
+    const { w, h } = postSize();
+    const gl2 = renderer.capabilities.isWebGL2;
+    const half = gl2 && renderer.extensions.has('EXT_color_buffer_float');
+    const opt = { minFilter: T.LinearFilter, magFilter: T.LinearFilter, format: T.RGBAFormat, type: half ? T.HalfFloatType : T.UnsignedByteType, encoding: T.sRGBEncoding };
+    let rt;
+    if (gl2 && qual.msaa > 0 && T.WebGLMultisampleRenderTarget) {
+      rt = new T.WebGLMultisampleRenderTarget(w, h, opt);
+      rt.samples = qual.msaa;
+    } else rt = new T.WebGLRenderTarget(w, h, opt);
+    return rt;
+  }
+  // 后期处理链：场景（显示空间、HDR 半浮点）→ 泛光 → 调色与暗角 → 屏幕。r128 的材质在渲染到目标时同样做色调映射，
+  // 编码跟随目标（sRGB），所以画面和直接渲染到屏幕一致；toneMapped:false 的特效能超过 1，泛光只挑这些
+  function initPost() {
+    if (!T.EffectComposer || !T.RenderPass || !T.ShaderPass || !T.UnrealBloomPass) return;
+    try {
+      post.rt = makePostTarget();
+      const c = (post.composer = new T.EffectComposer(renderer, post.rt));
+      c.addPass(new T.RenderPass(scene, camera));
+      const { w, h } = postSize();
+      post.bloom = new T.UnrealBloomPass(new T.Vector2(w, h), 0.42, 0.5, 0.93);
+      post.bloom.highPassUniforms.smoothWidth.value = 0.12;
+      // 泛光的输入封顶（保持色相）：叠在一起的加色特效在半浮点目标里能到 3~5，不封顶的话一团技能会把周围整片晕成白色
+      const hp = post.bloom.materialHighPassFilter;
+      hp.fragmentShader = hp.fragmentShader.replace(
+        'vec4 texel = texture2D( tDiffuse, vUv );',
+        'vec4 texel = texture2D( tDiffuse, vUv ); float bMx = max(max(texel.r, texel.g), max(texel.b, 1e-4)); texel.rgb *= min(1.0, ' + BLOOM_CAP.toFixed(2) + ' / bMx);'
+      );
+      hp.needsUpdate = true;
+      // 中档：泛光链按一半分辨率算（UnrealBloomPass 自己再逐级减半），省掉大半泛光开销
+      const bSet = post.bloom.setSize.bind(post.bloom);
+      post.bloom.setSize = (bw, bh) => bSet(Math.max(2, Math.round(bw * qual.bloomRes)), Math.max(2, Math.round(bh * qual.bloomRes)));
+      c.addPass(post.bloom);
+      post.grade = new T.ShaderPass(GradeShader);
+      c.addPass(post.grade);
+      post.ok = true;
+    } catch (e) {
+      post.ok = false;
+      post.composer = null;
+      if (window.console) console.warn('[画面] 后期处理初始化失败，改为直接渲染', e);
+    }
+  }
+  function applyZonePost(gx) {
+    if (!post.ok) return;
+    const g = (gx && gx.grade) || { sat: 1, con: 1, lift: 0, gain: 0xffffff, vig: 0.4 };
+    const u = post.grade.uniforms;
+    u.uSat.value = g.sat;
+    u.uCon.value = g.con;
+    u.uVig.value = g.vig;
+    _c.set(g.lift);
+    u.uLift.value.set(_c.r, _c.g, _c.b);
+    _c.set(g.gain);
+    u.uGain.value.set(_c.r, _c.g, _c.b);
+    const b = (gx && gx.bloom) || { th: 0.93, k: 0.42, r: 0.45 };
+    post.bloom.threshold = b.th;
+    post.bloom.strength = b.k;
+    post.bloom.radius = b.r;
+  }
+  // 画质：'high' / 'mid' / 'low'。低档不走后期处理（无泛光 / 调色 / 暗角）、阴影贴图减半、像素比 1、不画薄雾
+  W.setQuality = function (id) {
+    if (!QUALITY[id]) id = G.defaultQuality && QUALITY[G.defaultQuality()] ? G.defaultQuality() : 'high'; // 'auto' 等：按设备推断
+    const prev = qual;
+    qual = QUALITY[id];
+    qualId = id;
+    if (!renderer) return id;
+    if (sun && sun.shadow.mapSize.x !== qual.shadow) {
+      sun.shadow.mapSize.set(qual.shadow, qual.shadow);
+      if (sun.shadow.map) {
+        sun.shadow.map.dispose();
+        sun.shadow.map = null;
+      }
+    }
+    if (post.ok && prev.msaa !== qual.msaa) {
+      post.rt = makePostTarget();
+      post.composer.reset(post.rt);
+    }
+    if (post.ok) post.bloom.enabled = qual.bloom;
+    if (zoneFx && zoneFx.mist) zoneFx.mist.visible = qual.mist;
+    W.resize();
+    return id;
+  };
+  W.quality = () => qualId;
+  // 调试 / 测试用：当前画面状态
+  W.gfxInfo = () => ({
+    quality: qualId, post: !!(post.ok && qual.post), bloom: !!(post.ok && qual.post && qual.bloom), dpr,
+    hd: !!(zoneFx && zoneFx.hd), fires: zoneFx && zoneFx.fires ? zoneFx.fires.list.length : 0, mist: !!(zoneFx && zoneFx.mist && zoneFx.mist.visible),
+  });
+
+  // ----- 贴图（每个区域进入时从解码好的图像建纹理，离开时释放显存） -----
+  let zoneTex = Object.create(null);
+  function zoneTexture(id, kind) {
+    const key = id + ':' + kind;
+    if (zoneTex[key]) return zoneTex[key];
+    const im = G.assets.tex(id);
+    const t = new T.Texture(im[kind]);
+    t.wrapS = t.wrapT = T.RepeatWrapping;
+    t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    t.needsUpdate = true;
+    own(t);
+    return (zoneTex[key] = t);
+  }
+  const gfxBroken = Object.create(null); // 建 PBR 外观时出过错的区域：之后一直用程序化外观
+  // 贴图包（除布景模型包以外）都到了就能换 PBR 地面 / 岩壁；模型包单独判断，没有它就只是不摆 CC0 布景
+  const texPacks = (gx) => gx.packs.filter((p) => p !== 'models');
+  // 模型包到了且真的解析出了模型（GLTFLoader 缺失时包本身「成功」但一个模型都没有）
+  const propsReady = (gx) => !!(G.assets && G.assets.ready(['models']) && gx.props.outer.some((e) => G.assets.geo(e[0])));
+  function gfxReady(gx) {
+    if (!gx || gfxBroken[gx.packs[0]] || !G.assets || !G.assets.ready(texPacks(gx))) return false;
+    for (const m of gx.mats) if (!G.assets.tex(m.tex)) return false;
+    return !!G.assets.tex(gx.rock.tex);
+  }
+
+  // ----- PBR 地面材质：三套贴图按顶点权重 + 各自的高度图混合，平铺用噪声偏移打散 -----
+  const GROUND_FRAG_HEAD = [
+    'uniform sampler2D tA0, tN0, tR0, tA1, tN1, tR1, tA2, tN2, tR2;',
+    'uniform vec3 uS, uC0, uC1, uC2, uV0, uV1, uV2; uniform vec4 uK0, uK1, uK2;',
+    'vec3 gSat(vec3 c, float s) { return mix(vec3(dot(c, vec3(0.2126, 0.7152, 0.0722))), c, s); }',
+    'uniform vec4 uLava; uniform vec2 uLavaM; uniform float uVK;',
+    'varying vec2 vW; varying vec3 vWp;',
+    'float gHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }',
+    'float gNoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);',
+    '  return mix(mix(gHash(i), gHash(i + vec2(1.0, 0.0)), f.x), mix(gHash(i + vec2(0.0, 1.0)), gHash(i + vec2(1.0, 1.0)), f.x), f.y); }',
+    // 打散平铺（Quilez 的 texture variation）：按低频噪声在 8 组随机偏移里挑相邻两组采样、按反照率差异混合；三张图用同一组偏移和混合系数
+    'void gSample2(sampler2D tA, sampler2D tN, sampler2D tR, vec2 uv, float k, out vec3 a, out vec3 n, out vec3 r) {',
+    '  float l = k * 8.0, ia = floor(l), f = fract(l);',
+    '  vec2 oa = sin(vec2(3.0, 7.0) * ia), ob = sin(vec2(3.0, 7.0) * (ia + 1.0));',
+    '  vec3 a1 = texture2D(tA, uv + oa).rgb, a2 = texture2D(tA, uv + ob).rgb;',
+    '  float m = smoothstep(0.2, 0.8, f - 0.1 * dot(a1 - a2, vec3(1.0)));',
+    '  a = mix(a1, a2, m);',
+    '  n = mix(texture2D(tN, uv + oa).xyz, texture2D(tN, uv + ob).xyz, m);',
+    '  r = mix(texture2D(tR, uv + oa).xyz, texture2D(tR, uv + ob).xyz, m);',
+    '}',
+    'vec3 gLin(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c)); }',
+  ].join('\n');
+  const GROUND_MAIN = [
+    'vec2 gp = vec2(vWp.x, -vWp.z);',
+    'float gk = gNoise(gp * 0.045);',
+    'vec3 gw = vec3(vW.x, max(0.0, 1.0 - vW.x - vW.y), vW.y);',
+    'vec3 a0 = vec3(0.5), n0 = vec3(0.5, 0.5, 1.0), r0 = vec3(1.0, 0.8, 0.0);',
+    'vec3 a1 = a0, n1 = n0, r1 = r0, a2 = a0, n2 = n0, r2 = r0;',
+    'if (gw.x > 0.003) gSample2(tA0, tN0, tR0, gp * uS.x, gk, a0, n0, r0);',
+    'if (gw.y > 0.003) gSample2(tA1, tN1, tR1, gp * uS.y + 0.37, fract(gk * 1.7 + 0.31), a1, n1, r1);',
+    'if (gw.z > 0.003) gSample2(tA2, tN2, tR2, gp * uS.z - 0.21, fract(gk * 2.3 + 0.57), a2, n2, r2);',
+    // 高度混合：权重 + 高度，只保留最高的那一截，交界处沿着石缝 / 裂缝走
+    'vec3 gh = vec3(r0.b, r1.b, r2.b) + gw;',
+    'float ghm = max(max(gh.x, gh.y), gh.z) - 0.22;',
+    'vec3 gb = max(gh - ghm, 0.0) * step(0.003, gw);',
+    'gb /= max(gb.x + gb.y + gb.z, 1e-4);',
+    'vec3 gA = gb.x * gSat(uC0 * mix(vec3(1.0), min(gLin(a0) * uV0, 2.2), uK0.x), uK0.w) + gb.y * gSat(uC1 * mix(vec3(1.0), min(gLin(a1) * uV1, 2.2), uK1.x), uK1.w) + gb.z * gSat(uC2 * mix(vec3(1.0), min(gLin(a2) * uV2, 2.2), uK2.x), uK2.w);',
+    'float gAo = dot(gb, vec3(r0.r, uLavaM.x > 1.5 ? 1.0 : r1.r, r2.r));',
+    'float gRgh = clamp(dot(gb, vec3(r0.g * uK0.y, r1.g * uK1.y, r2.g * uK2.y)), 0.04, 1.0);',
+    'vec3 gn0 = n0 * 2.0 - 1.0, gn1 = n1 * 2.0 - 1.0, gn2 = n2 * 2.0 - 1.0;',
+    'gn0.xy *= uK0.z; gn1.xy *= uK1.z; gn2.xy *= uK2.z;',
+    'vec3 gnt = normalize(gn0 * gb.x + gn1 * gb.y + gn2 * gb.z);',
+    // uv = (x, -z)：切线 = +x，副切线 = -z，法线 = +y
+    'vec3 gNv = normalize((viewMatrix * vec4(gnt.x, gnt.z, -gnt.y, 0.0)).xyz);',
+    // 熔岩：路面裂缝（高度低处；处处有一点，按低频噪声成片加亮）或熔岩流贴图的自发光；离开路面后跟着顶点色一起熄灭
+    'vec3 gLava = vec3(0.0);',
+    'if (uLava.a > 0.0) {',
+    '  float pulse = 0.72 + 0.28 * sin(uLavaM.y * 1.3 + gNoise(gp * 0.25) * 6.2832);',
+    '  float em = uLavaM.x > 1.5 ? r1.r * r1.r * gb.y : (1.0 - smoothstep(0.1, 0.42, r0.b)) * (0.3 + 0.7 * smoothstep(0.12, 0.5, gNoise(gp * 0.09 + 3.1))) * gb.x;',
+    '  gLava = uLava.rgb * uLava.a * em * pulse * smoothstep(uVK + 0.02, uVK + 0.35, vColor.g);',
+    '  gA *= 1.0 - 0.6 * min(1.0, em);',
+    '}',
+    'diffuseColor.rgb *= gA * mix(1.0, gAo, 0.75);',
+  ].join('\n');
+  function groundMaterial(gx, def) {
+    const pathL = lin(def.path), rockL = lin(def.rock), voidL = lin(def.voidc);
+    const base = [pathL, pathL.clone().lerp(rockL, 0.5), rockL.clone().lerp(voidL, 0.45)];
+    const U = { uS: { value: new T.Vector3() }, uLava: { value: new T.Vector4(0, 0, 0, 0) }, uLavaM: { value: new T.Vector2(0, 0) }, uVK: { value: GROUND_VK } };
+    gx.mats.forEach((m, i) => {
+      U['tA' + i] = { value: zoneTexture(m.tex, 'albedo') };
+      U['tN' + i] = { value: zoneTexture(m.tex, 'normal') };
+      U['tR' + i] = { value: zoneTexture(m.tex, 'arh') };
+      U.uS.value.setComponent(i, 1 / m.tile);
+      U['uC' + i] = { value: base[i].clone().multiplyScalar(m.k * 1.25) };
+      const avg = G.assets.tex(m.tex).avg;
+      U['uV' + i] = { value: new T.Vector3(1 / avg[0], 1 / avg[1], 1 / avg[2]) };
+      U['uK' + i] = { value: new T.Vector4(m.con, m.rough, m.nrm, m.sat === undefined ? 1 : m.sat) };
+    });
+    if (gx.lava) {
+      _c.set(gx.lava.color).convertSRGBToLinear();
+      U.uLava.value.set(_c.r, _c.g, _c.b, gx.lava.k);
+      U.uLavaM.value.x = gx.lava.mode;
+    }
+    const mat = own(new T.MeshStandardMaterial({ roughness: 1, metalness: 0, vertexColors: true }));
+    mat.onBeforeCompile = (sh) => {
+      Object.assign(sh.uniforms, U);
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute vec2 aW;\nvarying vec2 vW;\nvarying vec3 vWp;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\n\tvW = aW;\n\tvWp = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\n' + GROUND_FRAG_HEAD)
+        .replace('#include <map_fragment>', GROUND_MAIN)
+        .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = roughness * gRgh;')
+        .replace('#include <normal_fragment_maps>', 'normal = gNv;')
+        .replace('#include <tonemapping_fragment>', '#include <tonemapping_fragment>\n\tgl_FragColor.rgb += gLava;');
+    };
+    mat.userData.U = U;
+    return mat;
+  }
+  const GROUND_VK = 0.34; // 虚空的顶点色亮度（地面外缘向它渐变，虚空底板直接用它）
+
+  // ----- 岩石 / 布景材质：三向投影贴图（岩壁的纹理）+ 法线，按区域着色；布景模型保留一部分原调色板 -----
+  const TRI_HEAD = [
+    'uniform sampler2D tRA, tRN; uniform float uRS, uRCon, uRNrm, uSat, uCapAll, uCapK; uniform vec3 uRV, uTint, uCapC;',
+    'varying vec3 vTriP; varying float vCap;',
+    'vec3 tLin(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c)); }',
+  ].join('\n');
+  const TRI_MAIN = [
+    'vec3 tfN = normalize(cross(dFdx(vViewPosition), dFdy(vViewPosition)));',
+    'vec3 tWN = normalize((vec4(tfN, 0.0) * viewMatrix).xyz);',
+    'vec3 tw = pow(abs(tWN), vec3(4.0)); tw /= dot(tw, vec3(1.0));',
+    'vec2 uvX = vTriP.zy * uRS, uvY = vTriP.xz * uRS, uvZ = vTriP.xy * uRS;',
+    'vec3 tAl = vec3(0.0); vec3 nX = vec3(0.0, 0.0, 1.0), nY = nX, nZ = nX;',
+    'if (tw.x > 0.02) { tAl += texture2D(tRA, uvX).rgb * tw.x; nX = texture2D(tRN, uvX).xyz * 2.0 - 1.0; }',
+    'if (tw.y > 0.02) { tAl += texture2D(tRA, uvY).rgb * tw.y; nY = texture2D(tRN, uvY).xyz * 2.0 - 1.0; }',
+    'if (tw.z > 0.02) { tAl += texture2D(tRA, uvZ).rgb * tw.z; nZ = texture2D(tRN, uvZ).xyz * 2.0 - 1.0; }',
+    'tAl /= max(0.001, (tw.x > 0.02 ? tw.x : 0.0) + (tw.y > 0.02 ? tw.y : 0.0) + (tw.z > 0.02 ? tw.z : 0.0));',
+    'vec3 tAlN = min(tLin(tAl) * uRV, vec3(2.2));', // 暗贴图里零星的亮斑除以平均色后会爆白，封顶
+    // 法线：whiteout 混合（Ben Golus 的三向投影法线），各投影面的切线方向按法线朝向翻转
+    'vec3 sgn = sign(tWN);',
+    'nX.xy *= uRNrm; nY.xy *= uRNrm; nZ.xy *= uRNrm;',
+    'nX.x *= sgn.x; nY.x *= sgn.y; nZ.x *= -sgn.z;',
+    'nX = vec3(nX.xy + tWN.zy, abs(nX.z) * tWN.x);',
+    'nY = vec3(nY.xy + tWN.xz, abs(nY.z) * tWN.y);',
+    'nZ = vec3(nZ.xy + tWN.xy, abs(nZ.z) * tWN.z);',
+    'vec3 tNW = normalize(nX.zyx * tw.x + nY.xzy * tw.y + nZ.xyz * tw.z);',
+    'vec3 tNv = normalize((viewMatrix * vec4(tNW, 0.0)).xyz);',
+    'float tCap = max(vCap, uCapAll) * uCapK * smoothstep(0.45, 0.8, tNW.y);',
+    'diffuseColor.rgb *= mix(vec3(1.0), tAlN, uRCon);',
+  ].join('\n');
+  function triMaterial(gx, opt) {
+    const r = gx.rock, avg = G.assets.tex(r.tex).avg;
+    _c.set(opt.tint || 0xffffff).convertSRGBToLinear();
+    const U = {
+      tRA: { value: zoneTexture(r.tex, 'albedo') }, tRN: { value: zoneTexture(r.tex, 'normal') },
+      uRS: { value: 1 / r.tile }, uRCon: { value: opt.con }, uRNrm: { value: r.nrm * opt.nrm }, uSat: { value: opt.sat },
+      uRV: { value: new T.Vector3(1 / avg[0], 1 / avg[1], 1 / avg[2]) }, uTint: { value: new T.Vector3(_c.r, _c.g, _c.b).multiplyScalar(opt.tintK || 1) },
+      uCapAll: { value: opt.cap ? r.capAll || 0 : 0 }, uCapC: { value: lin(r.cap || 0xffffff) }, uCapK: { value: r.cap ? 1 : 0 }, // 没有覆盖色的区域：Kenney 岩石的草皮顶面也按岩石处理
+    };
+    const mat = own(new T.MeshStandardMaterial({ color: 0xffffff, roughness: opt.rough, metalness: 0, flatShading: true, vertexColors: !!opt.vc }));
+    mat.onBeforeCompile = (sh) => {
+      Object.assign(sh.uniforms, U);
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute float aCap;\nvarying vec3 vTriP;\nvarying float vCap;')
+        .replace(
+          '#include <begin_vertex>',
+          '#include <begin_vertex>\n\tvec4 trp = vec4(transformed, 1.0);\n#ifdef USE_INSTANCING\n\ttrp = instanceMatrix * trp;\n#endif\n\tvTriP = (modelMatrix * trp).xyz;\n\tvCap = aCap;'
+        );
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\n' + TRI_HEAD)
+        .replace('#include <map_fragment>', TRI_MAIN)
+        .replace(
+          '#include <color_fragment>',
+          opt.vc
+            ? '\tfloat tLm = dot(vColor, vec3(0.2126, 0.7152, 0.0722));\n\tdiffuseColor.rgb *= mix(vec3(tLm), vColor, uSat) * uTint;\n\tdiffuseColor.rgb = mix(diffuseColor.rgb, uCapC, tCap);'
+            : '#include <color_fragment>\n\tdiffuseColor.rgb *= uTint;\n\tdiffuseColor.rgb = mix(diffuseColor.rgb, uCapC * (0.8 + 0.2 * tAlN.g), tCap);'
+        )
+        .replace('#include <normal_fragment_maps>', 'normal = tNv;');
+    };
+    return mat;
+  }
+
+  // ----- 火盆 / 灯的火焰（加色混合、不做色调映射，泛光会把它们点亮） -----
+  const brazierFlameTex = () =>
+    tex('brazierFlame', () => {
+      const Wd = 64, H = 128, c = makeCanvas(Wd, H), g = c.getContext('2d'), img = g.createImageData(Wd, H), d = img.data;
+      for (let y = 0; y < H; y++) {
+        const v = 1 - y / (H - 1); // 0 = 底部，1 = 火尖
+        for (let x = 0; x < Wd; x++) {
+          const u = (x / (Wd - 1)) * 2 - 1;
+          const w = 0.82 * Math.pow(Math.max(0, 1 - v), 0.85) * Math.min(1, v * 7 + 0.35);
+          const wig = Math.sin(v * 9 + u * 2) * 0.1 * v;
+          const e = w > 0.001 ? Math.abs(u + wig) / w : 9;
+          let a = e >= 1 ? 0 : Math.pow(1 - e, 1.3) * Math.min(1, (1 - v) * 2.2);
+          a = Math.max(0, Math.min(1, a * (0.8 + 0.2 * Math.sin(v * 23 + u * 5))));
+          const o = (y * Wd + x) * 4;
+          d[o] = d[o + 1] = d[o + 2] = 255;
+          d[o + 3] = Math.round(a * 255);
+        }
+      }
+      g.putImageData(img, 0, 0);
+      return new T.CanvasTexture(c);
+    });
+  const gVQuad = () => geo('vquad', () => new T.PlaneGeometry(1, 1).translate(0, 0.5, 0));
+
+  // ----- 贴地薄雾：一张盖住整个区域的平面，透明度来自「离可行走区域多远」的遮罩，只在路外的虚空上起雾 -----
+  const MIST_VERT = 'varying vec3 vWp; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vWp = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }';
+  const MIST_FRAG = [
+    'uniform sampler2D tMask; uniform vec4 uBox; uniform vec3 uCol; uniform float uA, uT; varying vec3 vWp;',
+    'float mH(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }',
+    'float mN(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);',
+    '  return mix(mix(mH(i), mH(i + vec2(1.0, 0.0)), f.x), mix(mH(i + vec2(0.0, 1.0)), mH(i + vec2(1.0, 1.0)), f.x), f.y); }',
+    'void main(){',
+    '  vec2 uv = (vWp.xz - uBox.xy) / uBox.zw;',
+    '  float m = texture2D(tMask, uv).r;',
+    '  vec2 p = mat2(0.8, -0.6, 0.6, 0.8) * vWp.xz * 0.075;',
+    '  float n = mN(p + vec2(uT * 0.04, uT * 0.025)) * 0.5 + mN(mat2(0.6, 0.8, -0.8, 0.6) * p * 2.1 - vec2(uT * 0.06, -uT * 0.02)) * 0.3 + mN(p * 4.3 + uT * 0.05) * 0.2;',
+    '  float a = uA * m * smoothstep(0.2, 0.8, n);',
+    '  gl_FragColor = vec4(uCol, a);',
+    '}',
+  ].join('\n');
+  function buildMist(zone, gx, sd) {
+    const b = zone.bounds, M = 26;
+    const x0 = b.minX - M, z0 = b.minZ - M, w = b.maxX - b.minX + 2 * M, h = b.maxZ - b.minZ + 2 * M;
+    const S = 1.25, cw = Math.ceil(w / S), ch = Math.ceil(h / S);
+    const c = makeCanvas(cw, ch), g = c.getContext('2d'), im = g.createImageData(cw, ch), d = im.data;
+    for (let j = 0; j < ch; j++) {
+      for (let i = 0; i < cw; i++) {
+        const v = smooth01((-sd(x0 + (i + 0.5) * S, z0 + (j + 0.5) * S) - 1.5) / 6);
+        const o = (j * cw + i) * 4;
+        d[o] = d[o + 1] = d[o + 2] = Math.round(v * 255);
+        d[o + 3] = 255;
+      }
+    }
+    g.putImageData(im, 0, 0);
+    const mt = own(new T.CanvasTexture(c));
+    mt.flipY = false;
+    _c.set(gx.mist.color);
+    const mat = own(
+      new T.ShaderMaterial({
+        uniforms: { tMask: { value: mt }, uBox: { value: new T.Vector4(x0, z0, w, h) }, uCol: { value: new T.Vector3(_c.r, _c.g, _c.b) }, uA: { value: gx.mist.a }, uT: uTime },
+        vertexShader: MIST_VERT, fragmentShader: MIST_FRAG, transparent: true, depthWrite: false,
+      })
+    );
+    const pg = own(new T.PlaneGeometry(w, h).rotateX(-Math.PI / 2).translate(x0 + w / 2, 0.55, z0 + h / 2));
+    const m = new T.Mesh(pg, mat);
+    m.renderOrder = 2;
+    m.frustumCulled = false;
+    m.visible = qual.mist;
+    zoneGroup.add(m);
+    return m;
+  }
+
+  // ----- 按需加载区域素材：没就绪时先用程序化外观，就绪后若还在这个区域就原地重建一次外观 -----
+  let loadingEl = null, pendingZone = null;
+  function showLoading(on) {
+    if (!loadingEl) {
+      loadingEl = document.createElement('div');
+      loadingEl.id = 'zone-loading';
+      loadingEl.textContent = '正在载入场景…';
+      document.body.appendChild(loadingEl);
+    }
+    loadingEl.classList.toggle('on', !!on);
+  }
+  function requestZoneAssets(zone, gx) {
+    if (!G.assets || !gx || G.assets.settled(gx.packs)) return;
+    pendingZone = zone;
+    showLoading(true);
+    G.assets.need(gx.packs).then(() => {
+      if (pendingZone === zone) {
+        pendingZone = null;
+        showLoading(false);
+      }
+      // 贴图到了而当前是程序化外观，或者模型包后到了而当前没摆布景：原地重建一次
+      const up = gfxReady(gx) && (!zoneFx || !zoneFx.hd || (!zoneFx.props && propsReady(gx)));
+      if (up && W.zone === zone && zoneGroup) {
+        disposeZone();
+        safeBuildVisuals(zone);
+        // 换外观时画面先压暗一下再淡入，不是生硬地一跳
+        try {
+          const cv = renderer.domElement;
+          cv.style.transition = 'none';
+          cv.style.opacity = '0.25';
+          void cv.offsetWidth;
+          cv.style.transition = 'opacity 0.45s ease-out';
+          cv.style.opacity = '1';
+        } catch (e) { /* 忽略 */ }
+      }
+    });
+  }
+  // 空闲时预取下一个区域的素材包，走到那里时不用再等
+  function prefetchNext(def) {
+    if (!G.assets) return;
+    const i = G.ZONES.indexOf(def);
+    const nx = G.ZONES[i + 1] && ZONE_GFX[G.ZONES[i + 1].id];
+    if (!nx) return;
+    setTimeout(() => G.assets.need(nx.packs), 1500);
+  }
+  W.assetsPending = () => !!pendingZone;
+  // 启动时先等首个区域的素材（最多 maxMs 毫秒），开场就是完整画面；等待期间整屏盖一层「正在载入场景…」
+  W.preloadZone = function (idx, maxMs) {
+    const def = G.ZONES[Math.max(0, Math.min(G.ZONES.length - 1, idx | 0))];
+    const gx = def && ZONE_GFX[def.id];
+    if (!gx || !G.assets || G.assets.settled(gx.packs)) return Promise.resolve(!!(gx && G.assets && G.assets.ready(gx.packs)));
+    let boot = null;
+    try {
+      boot = document.createElement('div');
+      boot.id = 'boot-loading';
+      boot.textContent = '正在载入场景…';
+      document.body.appendChild(boot);
+    } catch (e) {
+      boot = null;
+    }
+    const done = (v) => {
+      if (boot && boot.parentNode) boot.parentNode.removeChild(boot);
+      boot = null;
+      return v;
+    };
+    return Promise.race([G.assets.need(gx.packs), new Promise((r) => setTimeout(() => r(false), maxMs || 2500))]).then(done, () => done(false));
+  };
+
+  // ----- 布景模型：沿不可行走的边按权重挑模型，同一模型的所有摆放合成一个实例化网格 -----
+  function pickW(list) {
+    let tot = 0;
+    for (const e of list) tot += e[1];
+    let r = Math.random() * tot;
+    for (const e of list) if ((r -= e[1]) <= 0) return e;
+    return list[list.length - 1];
+  }
+  function buildProps(zone, gx, sd, ringSamples, lowK, mats) {
+    const P = gx.props, def = zone.def;
+    const by = Object.create(null); // 模型 key → { e, list }
+    const once = Object.create(null);
+    const place = (e, x, z, extra) => {
+      const info = G.assets.geoInfo(e[0]);
+      if (!G.assets.geo(e[0]) || !info) return false;
+      if (e[4].indexOf('1') >= 0 && once[e[0]]) return false; // 标记 1：整个区域只放一个
+      once[e[0]] = 1;
+      const s = rand(e[2], e[3]);
+      if (sd(x, z) > -(info.r * s * 0.8 + 0.4)) return false; // 模型的水平半径整个落在路外
+      const flat = e[4].indexOf('l') >= 0;
+      const y = flat ? -info.y0 * s : 0;
+      const tilt = flat ? 0 : extra && extra.tilt ? extra.tilt : 0.06;
+      (by[e[0]] || (by[e[0]] = { e, list: [], small: !!(extra && extra.small) })).list.push(x, y, z, rand(-tilt, tilt), rand(0, TAU), rand(-tilt, tilt), s, s, s, rand(0.78, 1.08));
+      return true;
+    };
+    const choose = (list, x, z) => {
+      if (lowK(x, z) >= 1) return pickW(list);
+      const low = list.filter((e) => e[4].indexOf('t') < 0);
+      return low.length ? pickW(low) : null;
+    };
+    // 外圈：替换程序化摆件
+    ringSamples(6.5, 4.2, (x, z) => {
+      x += rand(-1.5, 1.5);
+      z += rand(-1.5, 1.5);
+      if (sd(x, z) > -3.0 || Math.random() < 0.3) return;
+      const e = choose(P.outer, x, z);
+      if (e) place(e, x, z);
+    });
+    // 中圈：一部分程序化岩石旁边换成模型岩石
+    if (P.mid && P.mid.length) {
+      ringSamples(1.9, 2.2, (x, z) => {
+        if (Math.random() >= P.midK * 0.6) return;
+        x += rand(-0.4, 0.4);
+        z += rand(-0.4, 0.4);
+        if (sd(x, z) > -1.75) return;
+        const e = choose(P.mid, x, z);
+        if (e) place(e, x, z, { tilt: 0.2 });
+      });
+    }
+    // 路边小物件
+    if (P.edge && P.edge.length) {
+      ringSamples(5.2, 1.25, (x, z) => {
+        if (Math.random() < 0.45) return;
+        x += rand(-0.4, 0.4);
+        z += rand(-0.4, 0.4);
+        const e = choose(P.edge, x, z);
+        if (e) place(e, x, z, { small: true });
+      });
+    }
+    // 首领场地外的大件（只放在远离镜头的北半圈）
+    if (P.boss && P.boss.length) {
+      const bp = zone.bossPos;
+      for (let k = 0; k < 9; k++) {
+        const a = Math.PI + (k / 8 - 0.5) * 2.4 + rand(-0.12, 0.12), d = zone.bossR + rand(3.2, 5.5);
+        const x = bp.x + Math.sin(a) * d, z = bp.z + Math.cos(a) * d;
+        if (lowK(x, z) < 1) continue;
+        place(pickW(P.boss), x, z);
+      }
+    }
+    // 火盆 / 灯：每块空地北侧两个（矮火堆南侧再加一个），紧贴路边
+    const fires = [];
+    if (P.fire && G.assets.geo(P.fire.m)) {
+      const F = P.fire;
+      const shortFire = F.m.indexOf('lantern') < 0; // 矮的火堆在南侧（靠镜头）也放一个，不会挡住战场；立灯只放北侧
+      zone.circles.forEach((c, ci) => {
+        const n = ci === zone.circles.length - 1 ? 4 : 2;
+        const ns = shortFire && ci > 0 && ci < zone.circles.length - 1 ? 1 : 0;
+        for (let k = 0; k < n + ns; k++) {
+          const a = k >= n ? rand(-0.6, 0.6) : Math.PI + (n === 2 ? (k ? 0.75 : -0.75) : (k - 1.5) * 0.62) + rand(-0.15, 0.15), rr = c.r + 1.25;
+          const x = c.x + Math.sin(a) * rr, z = c.z + Math.cos(a) * rr;
+          if (sd(x, z) > -0.9) continue;
+          (by[F.m] || (by[F.m] = { e: [F.m, 1, F.s, F.s, ''], list: [] })).list.push(x, 0, z, 0, rand(0, TAU), 0, F.s, F.s, F.s, 1);
+          fires.push({ x, y: F.h * (F.m.indexOf('lantern') >= 0 ? F.s : 1), z, ph: rand(0, TAU), acc: 0 });
+        }
+      });
+    }
+    // 路边小物件不投影（又小又多，投影只是白白多画一遍）
+    for (const k in by) {
+      const { e, list, small } = by[k];
+      const rockish = e[4].indexOf('r') >= 0;
+      instanced(G.assets.geo(k), rockish ? mats.rock : mats.prop, list, !small, rockish ? lin(def.rock).multiplyScalar(1.2) : new T.Color(1, 1, 1));
+    }
+    if (!fires.length) return null;
+    // 火焰：竖直的方片，朝镜头倾斜；每帧在 W.update 里按各自的相位抖动
+    const F = P.fire;
+    _c.set(F.color).convertSRGBToLinear();
+    const fm = own(new T.MeshBasicMaterial({ map: brazierFlameTex(), color: new T.Color(_c.r * 2.4, _c.g * 2.4, _c.b * 2.4), transparent: true, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false, side: T.DoubleSide }));
+    const im = new T.InstancedMesh(gVQuad(), fm, fires.length * 2);
+    im.frustumCulled = false;
+    im.renderOrder = 5;
+    zoneGroup.add(im);
+    own(im);
+    const gm = own(new T.MeshBasicMaterial({ map: glowTex(), color: _c.clone().multiplyScalar(0.9), transparent: true, opacity: 0.55, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false }));
+    const gl = [];
+    for (const f of fires) gl.push(f.x, 0.06, f.z, 0, 0, 0, 2.6 * F.size, 1, 2.6 * F.size, 1);
+    const gIM = instanced(gQuad(), gm, gl, false, null);
+    if (gIM) gIM.renderOrder = 1;
+    return { im, list: fires, size: F.size, ar: _c.r, ag: _c.g, ab: _c.b };
+  }
+  const _fq = new T.Quaternion(), _fe = new T.Euler();
+  function updateFires(F, dt) {
+    const s = F.size;
+    for (let i = 0; i < F.list.length; i++) {
+      const f = F.list[i], t = wtime * 7 + f.ph;
+      const fl = 0.85 + 0.15 * Math.sin(t) * Math.sin(t * 1.7 + 1.3);
+      for (let k = 0; k < 2; k++) {
+        const w = (k ? 0.55 : 1) * s, h = (k ? 1.25 : 1.6) * s * fl * (k ? 1.1 - 0.1 * Math.sin(t * 2.3) : 1);
+        _fe.set(-0.62, k ? 0.3 : -0.3, 0);
+        _fq.setFromEuler(_fe);
+        _m4.compose(_v.set(f.x, f.y, f.z), _fq, _s.set(w, h, 1));
+        F.im.setMatrixAt(i * 2 + k, _m4);
+      }
+      f.acc += dt * 6 * s;
+      while (f.acc > 1) {
+        f.acc -= 1;
+        spawnP(f.x + rand(-0.2, 0.2) * s, f.y + 0.4 * s, f.z + rand(-0.2, 0.2) * s, rand(-0.3, 0.3), rand(1.2, 2.4), rand(-0.3, 0.3), rand(0.5, 1.1), rand(0.06, 0.12), F.ar, F.ag * 0.8, F.ab * 0.6, -0.6, 0.4);
+      }
+    }
+    F.im.instanceMatrix.needsUpdate = true;
+  }
+
   // ---------- 初始化 ----------
   W.zone = null;
 
@@ -461,6 +1168,13 @@
     renderer.toneMappingExposure = 1.12;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = T.PCFSoftShadowMap;
+    // 画质档位：存档里的「画质」选项（高 / 中 / 低）；'auto'（玩家没选过）按设备推断（见 G.defaultQuality）
+    let qs = G.save && G.save.opts && G.save.opts.quality;
+    if (!QUALITY[qs] && G.defaultQuality) qs = G.defaultQuality();
+    if (QUALITY[qs]) {
+      qual = QUALITY[qs];
+      qualId = qs;
+    }
 
     scene = new T.Scene();
     scene.background = new T.Color(0x100c0a);
@@ -477,7 +1191,7 @@
 
     sun = new T.DirectionalLight(0xffffff, 0.82);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(SHADOW_MAP, SHADOW_MAP);
+    sun.shadow.mapSize.set(qual.shadow, qual.shadow);
     const sc = sun.shadow.camera;
     sc.left = -SHADOW_HALF; sc.right = SHADOW_HALF; sc.top = SHADOW_HALF; sc.bottom = -SHADOW_HALF;
     sc.near = 1; sc.far = 90;
@@ -486,6 +1200,10 @@
     sun.shadow.normalBias = 0.04;
     scene.add(sun);
     scene.add(sun.target);
+    // 补光：从镜头对面（画面上方）斜照过来的一盏不投影的方向光，按区域配色给角色和岩石勾一道轮廓
+    fill = new T.DirectionalLight(0xffffff, 0.3);
+    fill.position.set(6, 10, -14);
+    scene.add(fill);
     // 阴影相机的右/上轴：用来把光源位置吸附到纹素网格，避免移动时阴影边缘游动
     _v.copy(SUN_OFF).normalize(); // 指向光源 = 阴影相机的 +z
     sunR.crossVectors(UP, _v).normalize();
@@ -512,6 +1230,7 @@
     W.renderer = renderer;
     W.scene = scene;
     W.camera = camera;
+    initPost();
     W.resize();
     window.addEventListener('resize', W.resize);
 
@@ -533,9 +1252,14 @@
   W.resize = function () {
     vw = Math.max(1, window.innerWidth);
     vh = Math.max(1, window.innerHeight);
-    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    dpr = Math.min(window.devicePixelRatio || 1, qual.dpr);
     renderer.setPixelRatio(dpr);
     renderer.setSize(vw, vh);
+    if (post.ok) {
+      post.composer.setPixelRatio(dpr);
+      post.composer.setSize(vw, vh);
+      post.grade.uniforms.uAspect.value = vw / vh;
+    }
     camera.aspect = vw / vh;
     camera.updateProjectionMatrix();
     ocv.width = Math.round(vw * dpr);
@@ -851,9 +1575,13 @@
   function buildVisuals(zone) {
     const def = zone.def;
     const st = GROUND_STYLE[def.id] || GROUND_STYLE.ash;
-    const tx = groundTextures(def, st);
+    // 区域的 CC0 素材已经就绪就用 PBR 外观（hd），否则先用程序化外观，同时去加载素材
+    const gx = ZONE_GFX[def.id] || null;
+    zoneTex = Object.create(null);
     zoneGroup = new T.Group();
     scene.add(zoneGroup);
+    const hd = gfxReady(gx);
+    const tx = hd ? null : groundTextures(def, st);
 
     // 氛围：雾在 r128 里是在色调映射和编码之后混合的，所以直接用显示色
     scene.background.set(def.fog);
@@ -861,6 +1589,8 @@
     hemi.color.copy(lin(def.sky));
     hemi.groundColor.copy(lin(mixHex(def.fog, def.rock, 0.55)));
     sun.color.copy(lin(mixHex(0xffffff, def.sky, 0.5)));
+    fill.color.copy(lin(mixHex(def.accent, def.sky, 0.55)));
+    applyZonePost(gx);
 
     const sd = (x, z) => zoneSd(zone, x, z);
     const b = zone.bounds;
@@ -880,7 +1610,7 @@
     const sdv = new Float32Array(sx * (nz + 1));
     for (let j = 0; j <= nz; j++) for (let i = 0; i <= nx; i++) sdv[j * sx + i] = sd(x0 + i * CS, z0 + j * CS);
     const vid = new Int32Array(sx * (nz + 1)).fill(-1);
-    const pos = [], uv = [], col = [], idx = [];
+    const pos = [], uv = [], col = [], idx = [], aw = [];
     const vert = (i, j) => {
       const k = j * sx + i;
       if (vid[k] >= 0) return vid[k];
@@ -892,7 +1622,15 @@
       const lit = n * ao;
       pos.push(x, 0, z);
       uv.push(x / TILE, -z / TILE);
-      col.push(vm[0] + (lit - vm[0]) * kk, vm[1] + (lit - vm[1]) * kk, vm[2] + (lit - vm[2]) * kk);
+      if (hd) {
+        // PBR 地面：顶点色只管明暗（压暗靠墙处、向虚空渐暗），颜色来自材质；aW = (路面权重, 岩壁权重)，其余是粗糙地面
+        const v = GROUND_VK + (lit - GROUND_VK) * kk;
+        col.push(v, v, v);
+        const pn = vnoise(x * 0.17 + 11.3, z * 0.17 - 5.1);
+        let wp = smooth01((d + 0.45) / 1.0);
+        wp *= 1 - 0.55 * smooth01((pn - 0.58) / 0.2) * smooth01(d / 2.2); // 路面上零星的粗糙斑块，离路边越远越少
+        aw.push(wp, smooth01((-d - 0.9) / 2.2) * (1 - wp));
+      } else col.push(vm[0] + (lit - vm[0]) * kk, vm[1] + (lit - vm[1]) * kk, vm[2] + (lit - vm[2]) * kk);
       return (vid[k] = pos.length / 3 - 1);
     };
     for (let j = 0; j < nz; j++) {
@@ -910,8 +1648,9 @@
     gg.setAttribute('normal', new T.BufferAttribute(nrm, 3));
     gg.setAttribute('uv', new T.Float32BufferAttribute(uv, 2));
     gg.setAttribute('color', new T.Float32BufferAttribute(col, 3));
+    if (hd) gg.setAttribute('aW', new T.Float32BufferAttribute(aw, 2));
     gg.setIndex(pos.length / 3 > 65535 ? new T.Uint32BufferAttribute(idx, 1) : new T.Uint16BufferAttribute(idx, 1));
-    const gmat = own(
+    const gmat = hd ? groundMaterial(gx, def) : own(
       new T.MeshStandardMaterial({
         map: tx.map, bumpMap: tx.bump, bumpScale: st.bump, emissiveMap: tx.emis,
         emissive: lin(def.accent), emissiveIntensity: st.emis,
@@ -919,7 +1658,7 @@
       })
     );
     // 发光裂纹只留在路面上，虚空里跟着顶点色一起熄灭
-    gmat.onBeforeCompile = (sh) => {
+    if (!hd) gmat.onBeforeCompile = (sh) => {
       sh.fragmentShader = sh.fragmentShader.replace(
         '#include <emissivemap_fragment>',
         '#include <emissivemap_fragment>\n\ttotalEmissiveRadiance *= smoothstep( 0.2, 0.62, vColor.g );'
@@ -937,7 +1676,12 @@
     vg.setAttribute('normal', new T.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
     vg.setAttribute('uv', new T.Float32BufferAttribute([vx0 / TILE, -vz0 / TILE, vx0 / TILE, -vz1 / TILE, vx1 / TILE, -vz1 / TILE, vx1 / TILE, -vz0 / TILE], 2));
     vg.setIndex([0, 1, 2, 0, 2, 3]);
-    const vmat = own(
+    if (hd) {
+      // 和地面同一个材质：全是岩壁那一套、顶点色 = 虚空亮度，跟地面外缘无缝衔接
+      vg.setAttribute('aW', new T.Float32BufferAttribute([0, 1, 0, 1, 0, 1, 0, 1], 2));
+      vg.setAttribute('color', new T.Float32BufferAttribute(new Array(12).fill(GROUND_VK), 3));
+    }
+    const vmat = hd ? gmat : own(
       new T.MeshStandardMaterial({ map: tx.map, bumpMap: tx.bump, bumpScale: st.bump, color: new T.Color(vm[0], vm[1], vm[2]), roughness: 1, metalness: 0 })
     );
     const voidMesh = new T.Mesh(vg, vmat);
@@ -996,18 +1740,22 @@
       const s = rand(1.2, 2.0);
       spires.push(x, -0.3, z, rand(-0.22, 0.22), rand(0, TAU), rand(-0.22, 0.22), s, s * rand(0.9, 1.6) * lowK(x, z), s, rand(0.4, 0.75));
     });
-    const rockMat = own(new T.MeshStandardMaterial({ color: 0xffffff, roughness: 0.96, metalness: 0, flatShading: true }));
+    const rockMat = hd
+      ? triMaterial(gx, { con: 1, nrm: 1, sat: 1, rough: 0.92, cap: true })
+      : own(new T.MeshStandardMaterial({ color: 0xffffff, roughness: 0.96, metalness: 0, flatShading: true }));
     const rockTint = lin(def.rock);
     instanced(rockGeoA(), rockMat, rocksA, true, rockTint);
     instanced(rockGeoB(), rockMat, rocksB, true, rockTint);
     instanced(spireGeo(), rockMat, spires, true, rockTint);
 
-    // --- 主题摆件 ---
+    // --- 主题摆件（有 CC0 布景模型时只保留 keep 比例的程序化摆件，其余换成模型，见 buildProps） ---
     const props = [];
+    const withProps = hd && propsReady(gx);
+    const keepK = withProps ? gx.props.keep : 1;
     ringSamples(6.5, 4.2, (x, z) => {
       x += rand(-1.5, 1.5);
       z += rand(-1.5, 1.5);
-      if (sd(x, z) > -3.0 || Math.random() < 0.3) return;
+      if (sd(x, z) > -3.0 || Math.random() < 0.3 || Math.random() >= keepK) return;
       const s = rand(0.85, 1.6);
       props.push(x, -0.1, z, rand(-0.1, 0.1), rand(0, TAU), rand(-0.1, 0.1), s, s * rand(0.9, 1.3) * (lowK(x, z) < 1 ? 0.65 : 1), s, 1);
     });
@@ -1081,6 +1829,17 @@
     const bossSigil = sigil(zone.bossPos.x, zone.bossPos.z, zone.bossR * 0.84, def.accent, 0.26);
     sigil(zone.start.x, zone.start.z, 3.4, mixHex(def.sky, 0xffffff, 0.3), 0.16);
     const rp = rift ? riftPieces(zone, sd, ringSamples, lowK, accentL, crystalMat) : null;
+    // --- CC0 布景模型、火盆、贴地薄雾 ---
+    let fires = null, mist = null;
+    if (hd) {
+      if (withProps) {
+        const pm = triMaterial(gx, { vc: true, con: 0.5, nrm: 0.6, sat: gx.prop.sat, tint: gx.prop.tint, tintK: 1.0, rough: 0.86 });
+        fires = buildProps(zone, gx, sd, ringSamples, lowK, { rock: rockMat, prop: pm });
+      }
+      if (gx.mist) mist = buildMist(zone, gx, sd);
+      prefetchNext(def);
+    }
+    if (gx && !withProps) requestZoneAssets(zone, gx);
 
     _c.set(def.accent);
     zoneFx = {
@@ -1088,7 +1847,22 @@
       ar: _c.r, ag: _c.g, ab: _c.b,
       ambAcc: 0, boltIn: rand(3, 7), boltT: 0,
       isles: rp ? rp.isles : null, skyMat: rp ? rp.skyMat : null, starIn: rand(1.5, 4),
+      fires, mist, gU: hd ? gmat.userData.U : null, hd, props: withProps,
     };
+  }
+
+  // 建外观时 PBR 那条路出了任何错，都退回程序化外观重建一次（不让素材问题拖垮游戏）
+  function safeBuildVisuals(zone) {
+    try {
+      buildVisuals(zone);
+    } catch (e) {
+      const gx = ZONE_GFX[zone.def.id];
+      if (!gx || gfxBroken[gx.packs[0]]) throw e;
+      gfxBroken[gx.packs[0]] = true;
+      if (window.console) console.warn('[画面] 区域外观建立失败，改用程序化外观', e);
+      disposeZone();
+      buildVisuals(zone);
+    }
   }
 
   W.buildZone = function (def, level) {
@@ -1105,7 +1879,7 @@
       bounds: L.bounds,
     };
     W.zone = zone;
-    buildVisuals(zone);
+    safeBuildVisuals(zone);
     buildMinimap(zone);
     camSnap = true;
     return zone;
@@ -7759,7 +8533,8 @@
     loots.push(W.makeLoot('item', 0xff9b3d, true, 0, 2, { slot: 'weapon', type: 'katana', rarity: 3 })); // 烬铸的本体材质与双层光柱
     allyFxVisible(true); // 召唤法阵 / 聚焦标记平时是隐藏的：预热这一帧让它们露个面，着色器一并编译
     warmWeaponFx(true);
-    const rt = new T.WebGLRenderTarget(64, 64);
+    // 编码与后期处理的渲染目标、屏幕一致（sRGB）：这里编译出来的着色器就是之后真正要用的那一批
+    const rt = new T.WebGLRenderTarget(64, 64, { encoding: T.sRGBEncoding });
     renderer.setRenderTarget(rt);
     renderer.render(scene, camera);
     renderer.setRenderTarget(null);
@@ -12712,7 +13487,7 @@
     camera.updateMatrixWorld();
 
     // 太阳跟随相机焦点，并吸附到阴影贴图的纹素网格
-    const texel = (SHADOW_HALF * 2) / SHADOW_MAP;
+    const texel = (SHADOW_HALF * 2) / sun.shadow.mapSize.x;
     _v.set(camT.x, 0, camT.z - 3 + CAM_LEAD);
     const pr = _v.dot(sunR), pu = _v.dot(sunU);
     _v.addScaledVector(sunR, Math.round(pr / texel) * texel - pr).addScaledVector(sunU, Math.round(pu / texel) * texel - pu);
@@ -12733,6 +13508,8 @@
         spawnAmbient(fx);
       }
       fx.crystalMat.emissiveIntensity = 0.95 + Math.sin(wtime * 1.7) * 0.2;
+      if (fx.fires) updateFires(fx.fires, dt);
+      if (fx.gU) fx.gU.uLavaM.value.y = wtime;
       fx.glowMat.opacity = 0.38 + Math.sin(wtime * 1.7) * 0.08;
       fx.bossSigil.material.opacity = 0.24 + Math.sin(wtime * 1.2) * 0.07;
       fx.bossSigil.rotation.y += dt * 0.04;
@@ -13258,8 +14035,36 @@
     }
   }
 
+  // 自动画质（存档里是 'auto'，即玩家没手动选过）：连续 4 秒平均帧间隔超过 24 毫秒（明显掉帧）就降一档，只在本次运行有效
+  const autoQ = { last: 0, acc: 0, n: 0 };
+  function autoQualityWatch() {
+    const now = performance.now();
+    const d = autoQ.last ? now - autoQ.last : 0;
+    autoQ.last = now;
+    if (qualId === 'low' || !G.save || !G.save.opts || G.save.opts.quality !== 'auto' || document.hidden || pendingZone || G.state.paused) {
+      autoQ.acc = autoQ.n = 0;
+      return;
+    }
+    if (!d || d > 250) {
+      autoQ.acc = autoQ.n = 0; // 切标签页、建区域之类的单次卡顿不算
+      return;
+    }
+    autoQ.acc += d;
+    autoQ.n++;
+    if (autoQ.acc < 4000) return;
+    const avg = autoQ.acc / autoQ.n;
+    autoQ.acc = autoQ.n = 0;
+    if (avg > 24) {
+      const next = qualId === 'high' ? 'mid' : 'low';
+      if (window.console) console.info('[画面] 帧间隔平均 ' + avg.toFixed(1) + ' 毫秒，画质自动降到「' + (next === 'mid' ? '中' : '低') + '」');
+      W.setQuality(next);
+      if (G.ui && G.ui.refresh && G.ui.isOpen && G.ui.isOpen()) G.ui.refresh();
+    }
+  }
   W.render = function () {
-    renderer.render(scene, camera);
+    autoQualityWatch();
+    if (post.ok && qual.post) post.composer.render();
+    else renderer.render(scene, camera);
     drawOverlay();
   };
 })();

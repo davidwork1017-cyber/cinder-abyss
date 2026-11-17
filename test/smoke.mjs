@@ -7233,6 +7233,57 @@ async function main() {
     return '几何体 ' + r.g + '（+' + r.geo + '），贴图 ' + r.t + '（+' + r.tex + '）';
   });
 
+  await step('画面：CC0 素材按区域加载后换成 PBR 地面与布景；画质高 / 中 / 低即时切换、存档，三档都能渲染', async () => {
+    const r = await ev(async () => {
+      const W = G.world;
+      const wait = async (f, ms) => {
+        const t = performance.now();
+        while (!f() && performance.now() - t < ms) await new Promise((res) => setTimeout(res, 50));
+        return f();
+      };
+      const q0 = G.save.opts.quality;
+      const zones = [];
+      for (let i = 0; i < G.ZONES.length; i++) {
+        G.enterZone(i, 0);
+        await wait(() => !W.assetsPending(), 40000);
+        const g = W.gfxInfo();
+        zones.push(G.ZONES[i].id + ':' + (g.hd ? 'hd' : 'proc') + (g.fires ? '+' + g.fires + '火' : ''));
+      }
+      G.enterZone(0, 0);
+      const qs = [];
+      for (const q of ['high', 'mid', 'low']) {
+        W.setQuality(q);
+        G.debug.step(0.1);
+        W.render();
+        const g = W.gfxInfo();
+        qs.push(q + ':' + (g.post ? 'post' : 'direct') + (g.bloom ? '+bloom' : '') + (g.mist ? '+mist' : ''));
+      }
+      W.setQuality(q0);
+      return { zones, qs, q0, eff: W.quality(), valid: q0 === 'auto' || G.QUALITY_IDS.indexOf(q0) >= 0 };
+    });
+    assert(r.valid, '存档里的画质无效：' + r.q0);
+    assert(r.zones.every((z) => z.includes(':hd')), '有区域没换上 PBR 外观（素材没加载到？）：' + r.zones.join(' '));
+    assert(r.qs.join() === 'high:post+bloom+mist,mid:post+bloom,low:direct', '画质档位不对：' + r.qs.join());
+    // 地图页的画质按钮：点了立即生效并写进存档
+    await page.keyboard.press('KeyM');
+    await page.click('[data-act="quality"][data-q="mid"]');
+    const u = await ev(() => ({ q: G.world.quality(), o: G.save.opts.quality, st: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).opts.quality, on: document.querySelector('[data-act="quality"].on').dataset.q }));
+    await page.click('[data-act="quality"][data-q="' + r.eff + '"]');
+    await closePanel();
+    assert(u.q === 'mid' && u.o === 'mid' && u.st === 'mid' && u.on === 'mid', '画质按钮没有生效或没有存档：' + JSON.stringify(u));
+    const back = await ev((q0) => {
+      G.save.opts.quality = q0; // 恢复成测试开始时的设置（可能是 auto）
+      G.persist();
+      return G.world.quality();
+    }, r.q0);
+    assert(back === r.eff, '画质没有恢复');
+    await ev(() => {
+      G.enterZone(0, 1);
+      G.debug.god(true);
+    });
+    return r.zones.join(' ') + ' ｜ ' + r.qs.join(' ') + ' ｜ 默认 ' + r.q0 + '（' + r.eff + '）';
+  });
+
   // ------------------------------------------------------------------ 存档
   let snap = null;
   await step('存档：刷新页面后角色、装备、技能、天赋、进度完整恢复', async () => {

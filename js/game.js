@@ -145,7 +145,8 @@
       passives: ['start'], cleared: {}, bossKills: {},
       tier: 0, maxTier: 0, lastZone: 0,
       // 选项：自动拾取普通物品 / 折叠普通物品的名牌 / 拾取时自动分解普通物品 / 一键分解是否包含魔法物品
-      opts: { autoWhite: false, hideNormal: false, autoSalvage: false, salvageMagic: false },
+      // quality：画质档位 high / mid / low（世界层读取，见 G.world.setQuality）；auto = 玩家还没选过，每次启动按设备推断，掉帧时自动降档
+      opts: { autoWhite: false, hideNormal: false, autoSalvage: false, salvageMagic: false, quality: 'auto' },
       seenHelp: false,
       tut: {}, // 已经看过的新手提示：{ 提示 id: 1 }（界面层维护）
       blankGems: [], // 手里的无铭技能宝石：每颗的等级，从高到低排
@@ -388,7 +389,10 @@
     s.tier = toInt(raw.tier, 0, s.maxTier, 0);
     s.lastZone = toInt(raw.lastZone, 0, G.ZONES.length - 1, 0);
     const ro = isObj(raw.opts) ? raw.opts : {};
-    s.opts = { autoWhite: !!ro.autoWhite, hideNormal: !!ro.hideNormal, autoSalvage: !!ro.autoSalvage, salvageMagic: !!ro.salvageMagic };
+    s.opts = {
+      autoWhite: !!ro.autoWhite, hideNormal: !!ro.hideNormal, autoSalvage: !!ro.autoSalvage, salvageMagic: !!ro.salvageMagic,
+      quality: G.QUALITY_IDS.indexOf(ro.quality) >= 0 ? ro.quality : 'auto',
+    };
     s.seenHelp = !!raw.seenHelp;
     s.tut = {};
     if (isObj(raw.tut)) {
@@ -432,6 +436,27 @@
     if (!(U.best[it.uq] >= p)) U.best[it.uq] = p;
   }
   G.noteUnique = (it) => noteUnique(it);
+
+  // 画质档位：桌面默认高，手机 / 平板默认中
+  G.QUALITY_IDS = ['high', 'mid', 'low'];
+  // 浏览器在用软件渲染（显卡被禁用、SwiftShader / llvmpipe 之类）时默认低：后期处理在 CPU 上太贵
+  let softGL = null;
+  function isSoftGL() {
+    if (softGL !== null) return softGL;
+    softGL = false;
+    try {
+      const gl = document.createElement('canvas').getContext('webgl');
+      const ext = gl && gl.getExtension('WEBGL_debug_renderer_info');
+      const name = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : '';
+      softGL = /swiftshader|llvmpipe|softpipe|software|basic render/i.test(name);
+      const lose = gl && gl.getExtension('WEBGL_lose_context');
+      if (lose) lose.loseContext();
+    } catch (e) {
+      softGL = false;
+    }
+    return softGL;
+  }
+  G.defaultQuality = () => (isSoftGL() ? 'low' : /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') ? 'mid' : 'high');
 
   G.loadSave = function () {
     let raw = null;

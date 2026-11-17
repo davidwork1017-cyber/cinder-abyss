@@ -1,0 +1,13 @@
+Poly Haven (https://polyhaven.com) — textures used in 烬渊
+
+License: Creative Commons Zero (CC0 1.0 Universal)
+https://creativecommons.org/publicdomain/zero/1.0/
+Licence page (checked 2026-11-17): https://polyhaven.com/license
+  "Our assets are all licensed as CC0, which is effectively Public Domain ...
+   You can use our assets for any purpose, including commercial work.
+   You do not need to give credit or attribution when using them (although it is appreciated)."
+
+Assets (1k JPG originals from https://api.polyhaven.com/files/<id>; recompressed here, see tools/prep-textures.mjs):
+  mud_cracked_dry_03, burned_ground_01, dark_rock, dark_rock_02,
+  monastery_stone_floor, rocky_trail, slate_floor, moon_01
+  Each: https://polyhaven.com/a/<id>
