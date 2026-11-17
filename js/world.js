@@ -7847,6 +7847,8 @@
       if (n === 'rise') k *= q < 0.72 ? 0.2 + q * 1.1 : 1 + 1.7 * (1 - smooth01((q - 0.72) / 0.28));
       else if (n === 'taunt') k *= 1 + 1.6 * hump(q, 0.48, 0.6, 0.8, 1);
       else if (n === 'attack') k *= 1 + 0.7 * hump(q, c.k0 - 0.2, c.k0, c.k0 + 0.04, c.k0 + 0.3);
+      else if (n === 'cast2') k *= 1 + 1.4 * hump(q, 0.2, c.k0, c.k0 + 0.05, 0.95);
+      else if (n === 'channel') k *= 1.5 + 0.3 * Math.sin(t * 31);
       else if (n === 'death') k *= 1 - 0.85 * q;
     }
     setGlow(ent, k);
@@ -7870,6 +7872,11 @@
     if (ent.fxClip !== c) {
       ent.fxClip = c;
       ent.fxPrev = -1;
+    }
+    if (ent.kind === 'pyre') {
+      pyreClipFx(ent, c);
+      ent.fxPrev = ent.cK;
+      return;
     }
     const g = ent.group.position, k = ent.k * ent.group.scale.x, big = ent.kind === 'colossus';
     const n = c.name;
@@ -8427,8 +8434,263 @@
     });
   }
 
-  const MINION_RIG = { thrall: thrallRig, colossus: colossusRig };
-  const MINION_RING_R = { thrall: 0.82, colossus: 1.6 };
+  // ---------------------------------------------------------------------
+  // 焚骨祭司：佝偻的骸骨术士，罩着烧焦的长法袍和兜帽，袍角烧穿的破口里透着余烬；
+  // 右手一根扭曲的骨木长杖，杖头铁笼里关着一团焚火（火弹从这里掷出），左掌心托着一簇小火；
+  // 兜帽下的骷髅眼窝和敞开的胸腔里是魂火青——一眼认得出是自己人。14 个关节，2 个网格（躯体 + 魂火）+ 1 组焚火点缀
+  // ---------------------------------------------------------------------
+  function pyreRig() {
+    return rigOf('pyre', () => {
+      const BONE = 0xe4d8bd, BONE_D = 0x9d9179, ROBE = 0x2a2220, ROBE_L = 0x463631, ROBE_IN = 0x120c0a, ASH = 0x5b4c45;
+      const WOOD = 0x4a3426, WOOD_L = 0x6d4f39, IRON = 0x585d66, IRON_D = 0x2c3036, BRONZE = 0xa77a3e, HOLE = 0x0a0807;
+      const b = rigBuilder('pyre', NB_SMALL);
+      b.j('root', null, 0, 0.95, 0).j('spine', 'root', 0, 1.08, -0.02).j('chest', 'spine', 0, 1.3, -0.04).j('head', 'chest', 0, 1.58, 0.03);
+      b.j('uaL', 'chest', 0.22, 1.47, -0.03).j('faL', 'uaL', 0.27, 1.17, -0.03).j('hL', 'faL', 0.29, 0.93, 0.02);
+      b.j('uaR', 'chest', -0.22, 1.47, -0.03).j('faR', 'uaR', -0.27, 1.17, -0.03).j('hR', 'faR', -0.29, 0.93, 0.02);
+      b.j('thL', 'root', 0.1, 0.92, 0).j('shL', 'thL', 0.11, 0.5, 0.01);
+      b.j('thR', 'root', -0.1, 0.92, 0).j('shR', 'thR', -0.11, 0.5, 0.01);
+
+      // --- 法袍下摆：一整圈焦黑的长袍（车削体），下沿烧得参差，里面衬着暗红；破口和下摆上几点余烬 ---
+      b.at('root').surf(SURF.cloth);
+      b.pd(gLathe('py/skirt', [[0.31, 0.14], [0.29, 0.3], [0.24, 0.62], [0.19, 0.88], [0.17, 1.04], [0.11, 1.09], [0.02, 1.11]], 12), [ROBE_IN, ROBE], ROBE_IN, 0, 0, 0);
+      for (let i = 0; i < 7; i++) {
+        const a = (i / 7) * TAU + 0.3, r = 0.3;
+        b.pd(gPlate('py/tat' + (i % 3), [[-0.07, 0], [0.07, 0], [0.05, -0.1 - (i % 3) * 0.03], [0, -0.05], [-0.05, -0.13]], 0.006, 0.002), ROBE, ROBE_IN, Math.sin(a) * r, 0.16, Math.cos(a) * r, 0.1, a, 0);
+      }
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * TAU + 0.9;
+        b.x(gSph(0.022, 5, 4), 1.1, Math.sin(a) * 0.3, 0.17 + (i % 2) * 0.05, Math.cos(a) * 0.3);
+      }
+      b.surf(SURF.leather).p(gTorus(0.175, 0.026, 5, 12), ASH, 0, 1.0, 0, HALF_PI, 0, 0, 1, 0.85, 1);
+      b.surf(SURF.bone).p(gSph(0.04, 6, 5), BONE, 0.12, 0.96, 0.12); // 腰间挂的一节骨
+      b.p(gSph(0.032, 6, 5), BONE_D, 0.15, 0.89, 0.1);
+
+      // --- 胸腔：袍子前襟敞开，露出肋骨，肋骨间烧着魂火；兜帽连着的肩披裹住后背 ---
+      b.at('chest').surf(SURF.cloth);
+      b.pd(gDrape('py/mantle', [[0.27, 1.06], [0.29, 1.28], [0.27, 1.45], [0.15, 1.58]], 4.0, 9), [ROBE, ROBE_L], ROBE_IN, 0, 0, -0.01);
+      b.surf(SURF.bone);
+      b.p(gCyl(0.026, 0.032, 0.3, 6), [BONE_D, BONE], 0, 1.33, -0.07, -0.08);
+      for (let i = 0; i < 3; i++) {
+        const y = 1.42 - i * 0.07, w = 0.12 + i * 0.012, z = 0.085 - i * 0.008;
+        for (const sx of [1, -1]) b.p(gSweep('py/rib' + i + sx, [[sx * 0.02, y + 0.02, -0.075], [sx * w, y, -0.035], [sx * (w - 0.015), y - 0.03, z - 0.02], [sx * 0.03, y - 0.055, z + 0.01]], [0.015, 0.017, 0.014, 0.01], 5), [BONE_D, BONE], 0, 0, 0);
+      }
+      b.g(gSph(0.06, 8, 6), 1.5, 0, 1.34, 0.0, 0, 0, 0, 1, 1.3, 1);
+      // 肩上一串骨珠
+      for (let i = 0; i < 7; i++) {
+        const a = -1.2 + (i / 6) * 2.4;
+        b.p(gSph(0.026, 6, 4), i % 2 ? BONE : BONE_D, Math.sin(a) * 0.2, 1.5 - Math.abs(a) * 0.03, Math.cos(a) * 0.13);
+      }
+      b.surf(SURF.gold).p(gSph(0.03, 6, 4), BRONZE, 0, 1.47, 0.14);
+
+      // --- 头：兜帽遮住大半个骷髅，眼窝里两点魂火，下颌骨随着念咒开合 ---
+      b.at('head').surf(SURF.bone);
+      b.p(gSph(0.1, 10, 8), [BONE_D, BONE], 0, 1.65, 0.01, 0, 0, 0, 0.92, 1.0, 1.06);
+      b.p(gRBox(0.11, 0.045, 0.07, 0.02), BONE, 0, 1.588, 0.07);
+      b.surf(SURF.cloth);
+      for (const sx of [1, -1]) b.p(gSph(0.028, 6, 5), HOLE, sx * 0.038, 1.64, 0.092, 0, 0, 0, 1.1, 0.9, 0.7);
+      for (const sx of [1, -1]) b.g(gSph(0.022, 6, 4), 1.8, sx * 0.038, 1.64, 0.104);
+      b.pd(gDrape('py/hood', [[0.03, 1.88], [0.15, 1.84], [0.19, 1.69], [0.185, 1.52]], 4.9, 10), [ROBE, ROBE_L], ROBE_IN, 0, 0, 0.025, -0.05);
+      b.pd(gCone(0.06, 0.18, 5), ROBE, ROBE_IN, 0, 1.9, -0.06, -0.9); // 兜帽尖往后耷拉
+
+      // --- 手臂：袍袖从肩垂到肘，前臂是细骨，骨手 ---
+      for (const sx of [1, -1]) {
+        const U = sx > 0 ? 'uaL' : 'uaR', F = sx > 0 ? 'faL' : 'faR', H = sx > 0 ? 'hL' : 'hR';
+        b.at(U).surf(SURF.cloth).pd(gLathe('py/sleeve', [[0.1, 1.1], [0.085, 1.17], [0.065, 1.33], [0.05, 1.47]], 8), [ROBE, ROBE_L], ROBE_IN, sx * 0.245, 0, -0.03);
+        b.at(F).surf(SURF.bone).limb([BONE_D, BONE], sx * 0.27, 1.17, -0.03, sx * 0.29, 0.95, 0.02, 0.024, 0.02, 6, 0);
+        b.at(H).p(gSph(0.04, 7, 5), [BONE_D, BONE], sx * 0.29, 0.9, 0.03, 0, 0, 0, 0.8, 1.1, 1);
+        for (let k = -1; k <= 1; k++) b.p(gCone(0.011, 0.065, 3), BONE, sx * 0.29 + k * 0.019, 0.85, 0.05, Math.PI - 0.3);
+      }
+      // 左掌心的一簇焚火
+      b.at('hL').x(gCone(0.035, 0.12, 5), 1.3, 0.31, 0.96, 0.09).x(gSph(0.03, 6, 4), 1.6, 0.31, 0.92, 0.09);
+
+      // --- 骨木长杖：竖握在右手里，杖身扭着两道铜箍，杖头一只铁笼，笼里一团焚火，笼顶一枚兽颅 ---
+      const SX = -0.3, SZ = 0.06;
+      b.at('hR').surf(SURF.leather).p(gSweep('py/staff', [[SX, 0.12, SZ], [SX + 0.015, 0.6, SZ + 0.01], [SX - 0.01, 1.2, SZ - 0.005], [SX + 0.01, 1.72, SZ + 0.01], [SX, 1.95, SZ]], [0.022, 0.026, 0.024, 0.028, 0.034], 6), [WOOD, WOOD_L], 0, 0, 0);
+      b.surf(SURF.gold).p(gCyl(0.036, 0.036, 0.04, 8), BRONZE, SX, 1.0, SZ).p(gCyl(0.038, 0.038, 0.04, 8), BRONZE, SX, 1.6, SZ);
+      b.surf(SURF.metal);
+      for (let k = 0; k < 4; k++) {
+        const a = (k / 4) * TAU + 0.4;
+        b.p(gSweep('py/cage' + k, [[SX, 1.93, SZ], [SX + Math.sin(a) * 0.1, 2.02, SZ + Math.cos(a) * 0.1], [SX + Math.sin(a) * 0.1, 2.16, SZ + Math.cos(a) * 0.1], [SX, 2.25, SZ]], [0.011, 0.012, 0.012, 0.01], 4), [IRON_D, IRON], 0, 0, 0);
+      }
+      b.surf(SURF.bone).p(gSph(0.05, 7, 5), BONE, SX, 2.28, SZ + 0.01, 0, 0, 0, 0.9, 0.8, 1.2);
+      b.x(gSph(0.07, 8, 6), 1.5, SX, 2.09, SZ).x(gCone(0.05, 0.14, 5), 1.2, SX, 2.17, SZ);
+
+      // --- 腿：袍下露出两截细骨小腿和骨脚 ---
+      for (const sx of [1, -1]) {
+        const TH = sx > 0 ? 'thL' : 'thR', SH = sx > 0 ? 'shL' : 'shR';
+        b.at(TH).surf(SURF.bone).limb([BONE_D, BONE], sx * 0.1, 0.92, 0, sx * 0.11, 0.51, 0.01, 0.032, 0.027, 6, 0);
+        b.at(SH).limb([BONE_D, BONE], sx * 0.11, 0.5, 0.01, sx * 0.11, 0.09, 0, 0.026, 0.021, 6, 2);
+        b.p(gSph(0.045, 7, 5), [BONE_D, BONE], sx * 0.11, 0.045, 0.05, 0, 0, 0, 0.85, 0.55, 1.8);
+      }
+
+      const rig = b.build({ height: 1.95, reach: 1.7, stride: 2.2, shade: 0.25 });
+      rig.hitJ = [rig.J.head, rig.J.chest];
+      rig.feet = [rig.JI.shL, rig.JI.shR];
+      rig.ankle = 0.5;
+      sock(rig, 'weapon', 'hR', -0.01, 1.16, 0.04); // 杖头铁笼里的焚火（火弹 / 灼链从这里出去）
+      sock(rig, 'hand', 'hR', 0, -0.03, 0.02);
+      sock(rig, 'handL', 'hL', 0.02, 0.03, 0.07);
+      sock(rig, 'head', 'head', 0, 0.12, 0);
+      sock(rig, 'chest', 'chest', 0, 0.06, 0.08);
+      rig.post = minionPost;
+      rig.late = minionLate;
+      rig.loco = function (ent, p, t) {
+        const J = rig.J, mv = ent.mv, s = Math.sin(ent.walk), id = 1 - mv;
+        const run = Math.min(1.2, ent.spd / 5.5) * mv;
+        const br = Math.sin(t * 1.5 + ent.phase), br2 = Math.sin(t * 0.7 + ent.phase * 1.3);
+        p[J.root] = 0.08 * run;
+        p[J.root + 1] = -0.08 * s * run;
+        p[J.root + 2] = 0.05 * s * run;
+        // 佝偻着背，头往前探；站着时肩头随着呼吸起伏，头慢慢转着打量四周
+        p[J.spine] = 0.18 + 0.06 * run + 0.02 * br * id;
+        p[J.chest] = 0.14 + 0.05 * run + 0.03 * br * id;
+        p[J.chest + 1] = 0.08 * s * run;
+        p[J.head] = -0.22 - 0.1 * run + 0.04 * br;
+        p[J.head + 1] = 0.25 * br2 * id - 0.08 * s * run;
+        p[J.thL] = -0.55 * s * run - 0.05 * id;
+        p[J.shL] = (0.25 + 0.5 * Math.max(0, Math.cos(ent.walk))) * run + 0.08 * id;
+        p[J.thR] = 0.55 * s * run + 0.04 * id;
+        p[J.shR] = (0.25 + 0.5 * Math.max(0, -Math.cos(ent.walk))) * run + 0.06 * id;
+        // 左手托着火，掌心朝上举在身侧
+        p[J.uaL] = -0.35 + 0.3 * s * run + 0.03 * br;
+        p[J.uaL + 2] = 0.22;
+        p[J.faL] = -1.1 - 0.08 * br2;
+        p[J.hL] = -0.25;
+        // 右手拄杖：杖竖在身前右侧，走路时杖随步子点地
+        p[J.uaR] = -0.32 - 0.25 * s * run;
+        p[J.uaR + 2] = -0.08;
+        p[J.faR] = -0.62 - 0.1 * run;
+        p[J.hR] = 0.85 + 0.1 * run;
+      };
+      pyreClips(rig);
+      return rig;
+    });
+  }
+  function pyreClips(rig) {
+    locoClips(rig);
+    const LEGS = ['thL', 'shL', 'thR', 'shR'];
+    // 升起：一团焚火从地里翻上来，骸骨裹着法袍从火里浮出，最后把杖往地上一顿
+    defClip(rig, 'rise', {
+      dur: 0.8, base: 'rest', air: true, fade: 0, out: 0.18,
+      keys: {
+        'root.oy': [0, -1.9, 0.3, -1.4, -0.7, -0.08, 0.86, 0.03, 1, 0],
+        'root.rx': [0, 0.5, 0.45, 0.35, 0.8, 0.1, 1, 0.08],
+        'spine.rx': [0, 0.5, 0.5, 0.3, 1, 0.18],
+        'chest.rx': [0, 0.4, 0.5, 0.25, 1, 0.14],
+        'head.rx': [0, 0.6, 0.45, 0.2, 0.75, -0.45, 1, -0.22],
+        'uaL.rx': [0, -2.6, 0.45, -2.2, 0.75, -0.6, 1, -0.35],
+        'uaL.rz': [0, 0.5, 0.6, 0.35, 1, 0.22],
+        'faL.rx': [0, -0.3, 0.6, -0.8, 1, -1.1],
+        'uaR.rx': [0, -2.4, 0.45, -2.6, 0.72, -1.0, 0.86, -0.25, 1, -0.32],
+        'uaR.rz': [0, -0.4, 0.6, -0.2, 1, -0.08],
+        'faR.rx': [0, -0.5, 0.6, -0.9, 1, -0.62],
+        'hR.rx': [0, 0.3, 0.6, 0.6, 1, 0.85],
+        'thL.rx': [0, -0.9, 0.6, -0.4, 1, -0.05],
+        'shL.rx': [0, 1.2, 0.6, 0.5, 1, 0.08],
+        'thR.rx': [0, -0.3, 0.6, -0.1, 1, 0.04],
+        'shR.rx': [0, 0.8, 0.6, 0.3, 1, 0.06],
+      },
+    });
+    // 掷火弹：杖往后一引，拧身把杖头朝目标一挥，焚火从杖头甩出去（k0 = 杖头挥到最前）
+    defClip(rig, 'attack', {
+      dur: 0.62, k0: 0.58, lower: LEGS, fade: 0.06, out: 0.2,
+      keys: {
+        'root.ry': [0, 0, 0.35, -0.3, -0.58, 0.28, 0.85, 0.2, 1, 0],
+        'chest.ry': [0, 0, 0.35, -0.45, -0.58, 0.4, 0.85, 0.3, 1, 0],
+        'chest.rx': [0, 0.14, 0.35, 0.0, -0.58, 0.3, 1, 0.14],
+        'head.rx': [0, -0.22, 0.35, -0.35, -0.58, -0.1, 1, -0.22],
+        'head.ry': [0, 0, 0.35, 0.35, -0.58, -0.25, 1, 0],
+        'uaR.rx': [0, -0.32, 0.35, -2.3, -0.58, -1.35, 0.85, -1.2, 1, -0.32],
+        'uaR.rz': [0, -0.08, 0.35, -0.5, -0.58, 0.1, 1, -0.08],
+        'faR.rx': [0, -0.62, 0.35, -1.2, -0.58, -0.15, 0.85, -0.25, 1, -0.62],
+        'hR.rx': [0, 0.85, 0.35, 0.6, -0.58, 2.0, 0.85, 1.8, 1, 0.85],
+        'uaL.rx': [0, -0.35, 0.35, -0.9, -0.58, -0.1, 1, -0.35],
+        'uaL.rz': [0, 0.22, 0.35, 0.5, -0.58, 0.3, 1, 0.22],
+        'faL.rx': [0, -1.1, 0.35, -1.5, -0.58, -0.6, 1, -1.1],
+        'thL.rx': [0, -0.05, 0.35, 0.1, -0.58, -0.45, 0.85, -0.4, 1, -0.05],
+        'shL.rx': [0, 0.08, 0.35, 0.1, -0.58, 0.45, 1, 0.08],
+        'thR.rx': [0, 0.04, 0.35, -0.1, -0.58, 0.25, 1, 0.04],
+      },
+    });
+    // 坠焰：双手把杖高举过头、仰头念咒（杖头的焚火冲天而起），k0 = 举到最高；随后杖尾往地上重重一顿
+    defClip(rig, 'cast2', {
+      dur: 0.9, k0: 0.6, lower: LEGS, fade: 0.08, out: 0.25,
+      keys: {
+        'spine.rx': [0, 0.18, 0.4, -0.12, -0.6, -0.25, 0.85, 0.3, 1, 0.18],
+        'chest.rx': [0, 0.14, 0.4, -0.15, -0.6, -0.3, 0.85, 0.3, 1, 0.14],
+        'head.rx': [0, -0.22, 0.4, -0.6, -0.6, -0.75, 0.85, 0.05, 1, -0.22],
+        'uaR.rx': [0, -0.32, 0.3, -1.6, -0.6, -2.95, 0.85, -1.1, 1, -0.32],
+        'uaR.rz': [0, -0.08, 0.6, 0.25, 0.85, -0.05, 1, -0.08],
+        'faR.rx': [0, -0.62, 0.3, -0.5, -0.6, -0.15, 0.85, -0.7, 1, -0.62],
+        'hR.rx': [0, 0.85, 0.3, 1.6, -0.6, 2.9, 0.85, 1.0, 1, 0.85],
+        'uaL.rx': [0, -0.35, 0.3, -1.6, -0.6, -2.9, 0.85, -0.6, 1, -0.35],
+        'uaL.rz': [0, 0.22, 0.6, -0.25, 0.85, 0.3, 1, 0.22],
+        'faL.rx': [0, -1.1, 0.3, -0.6, -0.6, -0.2, 0.85, -1.0, 1, -1.1],
+        'thL.rx': [0, -0.05, 0.6, 0.05, -0.85, -0.5, 1, -0.05],
+        'shL.rx': [0, 0.08, 0.6, 0.05, -0.85, 0.6, 1, 0.08],
+        'thR.rx': [0, 0.04, -0.85, -0.25, 1, 0.04],
+        'shR.rx': [0, 0.06, -0.85, 0.5, 1, 0.06],
+      },
+    });
+    // 灼链：杖平端着指向目标，左手扶住杖身，整个身子前倾着顶住；身子随着引导微微发颤（fn 里的抖动）
+    defClip(rig, 'channel', {
+      dur: 2.2, k0: 0.1, lower: LEGS, fade: 0.12, out: 0.25,
+      keys: {
+        'root.rx': [0, 0.08, 0.1, 0.18, 0.9, 0.18, 1, 0.08],
+        'chest.rx': [0, 0.14, 0.1, 0.3, 0.9, 0.3, 1, 0.14],
+        'head.rx': [0, -0.22, 0.1, -0.4, 0.9, -0.4, 1, -0.22],
+        'uaR.rx': [0, -0.32, 0.1, -1.05, 0.9, -1.05, 1, -0.32],
+        'uaR.rz': [0, -0.08, 0.1, 0.15, 0.9, 0.15, 1, -0.08],
+        'faR.rx': [0, -0.62, 0.1, -0.4, 0.9, -0.4, 1, -0.62],
+        'hR.rx': [0, 0.85, 0.1, 1.95, 0.9, 1.95, 1, 0.85],
+        'uaL.rx': [0, -0.35, 0.1, -1.2, 0.9, -1.2, 1, -0.35],
+        'uaL.rz': [0, 0.22, 0.1, -0.35, 0.9, -0.35, 1, 0.22],
+        'faL.rx': [0, -1.1, 0.1, -0.7, 0.9, -0.7, 1, -1.1],
+        'thL.rx': [0, -0.05, 0.1, -0.4, 0.9, -0.4, 1, -0.05],
+        'shL.rx': [0, 0.08, 0.1, 0.4, 0.9, 0.4, 1, 0.08],
+        'thR.rx': [0, 0.04, 0.1, 0.3, 0.9, 0.3, 1, 0.04],
+        'shR.rx': [0, 0.06, 0.1, 0.25, 0.9, 0.25, 1, 0.06],
+      },
+      fn(ent, p, k, t) {
+        const J = rig.J, w = hump(k, 0.05, 0.12, 0.88, 0.98);
+        p[J.chest + 1] += Math.sin(t * 41) * 0.035 * w;
+        p[J.uaR] += Math.sin(t * 53 + 1) * 0.04 * w;
+        p[J.head + 2] += Math.sin(t * 37) * 0.04 * w;
+      },
+    });
+    // 散架：杖从手里脱落，两膝一软，法袍塌成一堆，骷髅连着兜帽滚落到一边
+    defClip(rig, 'death', {
+      dur: 0.8, base: 'rest', hold: true, air: true, fade: 0.05,
+      clear: [['head', 0, 0.07, 0.02, 0.11], ['chest', 0, 0.03, 0.04, 0.13], ['root', 0, 0, 0, 0.1], ['shL', 0, 0, 0.02, 0.05], ['shR', 0, 0, 0.02, 0.05]],
+      keys: {
+        'root.oy': [0, 0, 0.25, -0.1, -0.65, -0.72, 1, -0.78],
+        'root.rx': [0, 0, 0.3, -0.15, 0.65, 0.6, 1, 0.95],
+        'spine.rx': [0, 0.18, 0.4, 0.4, 1, 0.5],
+        'chest.rx': [0, 0.14, 0.4, 0.3, 1, 0.25],
+        'chest.sy': [0, 1, 0.6, 1, 1, 0.8],
+        'head.rx': [0, -0.22, 0.4, 0.2, 0.7, 0.8, 1, 1.6],
+        'head.rz': [0, 0, 0.6, 0.4, 1, 1.2],
+        'head.ox': [0, 0, 0.6, 0.05, 1, 0.24],
+        'head.oz': [0, 0, 0.6, 0.12, 1, 0.26],
+        'head.oy': [0, 0, 0.6, -0.03, 1, -0.12],
+        'thL.rx': [0, 0, 0.3, -0.6, 0.65, -1.5, 1, -1.55],
+        'shL.rx': [0, 0, 0.3, 1.0, 0.65, 2.4, 1, 2.5],
+        'thR.rx': [0, 0, 0.3, -0.4, 0.65, -1.3, 1, -1.4],
+        'shR.rx': [0, 0, 0.3, 0.9, 0.65, 2.3, 1, 2.45],
+        'uaL.rx': [0, -0.35, 0.4, -0.9, 1, -0.2],
+        'uaL.rz': [0, 0.22, 0.6, 0.9, 1, 1.3],
+        'faL.rx': [0, -1.1, 1, -0.2],
+        'uaR.rx': [0, -0.32, 0.35, -0.9, 1, -0.4],
+        'uaR.rz': [0, -0.08, 0.6, -0.9, 1, -1.3],
+        'faR.rx': [0, -0.62, 1, -0.1],
+        'hR.rx': [0, 0.85, 0.35, 1.6, 0.7, 2.6, 1, 2.9],
+        'hR.rz': [0, 0, 0.7, -0.6, 1, -0.9],
+      },
+    });
+  }
+
+  const MINION_RIG = { thrall: thrallRig, colossus: colossusRig, pyre: pyreRig };
+  const MINION_RING_R = { thrall: 0.82, colossus: 1.6, pyre: 0.75 };
   // 召唤物实体。kind：'thrall' | 'colossus'。elemHex（可选）：剑刃血槽 / 拳上符石这些点缀的颜色，
   // 默认魂火青；魂火（眼、胸腔、誓印）、脚环与血条永远是魂火青。之后可用 W.minionElem 改点缀色。
   W.makeMinion = function (kind, elemHex) {
@@ -10535,6 +10797,7 @@
   function clearWeaponFx() {
     clearFrenzy();
     clearUfx();
+    clearPyreFx();
     for (const e of knocks) { e.kuT = e.kuDur; if (!e.removed) e.group.position.y = 0; }
     knocks.length = 0;
     for (const it of streaks) { it.on = false; it.mesh.visible = false; }
@@ -11777,6 +12040,7 @@
     meteorFlames(dt);
     updateDebris(dt);
     rangedPfDraw(dt);
+    pyrePfDraw(dt);
     pfEnd();
     updateRibbons(dt);
   }
@@ -12877,6 +13141,212 @@
         s.rung = true;
         W.ring(s.x, s.z, s.r * 0.85, ALLY_HI, 0.35);
       }
+    }
+  }
+
+  // ---------- 焚骨祭司的特效 ----------
+  // 火弹：W.makePyreBolt() 返回一个投射物（和 makeProjectile 一样由调用方摆位置、用 W.removeMesh 移除）：
+  //   白热的核裹着一团焚火，两缕魂火青的细焰绕着它打转，一路洒火星、拖一条橙红的尾巴
+  RIB_DEF.pyre = [0.22, 0.24];
+  PF_DRAW.pyre = function (u, x, y, z, dt) {
+    const r = u.rad, t = u.age, ph = u.ph;
+    mPose(x, y, z, _pqI, r * 0.5, r * 0.5, r * 0.5);
+    pfPut('core', 1, 0.85, 0.55);
+    const f1 = 1 + 0.18 * Math.sin(t * 33 + ph);
+    mStretch(x + u.dx * r * 0.5, y, z + u.dz * r * 0.5, u.dx, 0, u.dz, r * 2.8 * (2 - f1), r * 2.4 * f1);
+    pfPut('flame', 0.55, 0.2, 0.04);
+    for (let k = 0; k < 2; k++) {
+      const wob = Math.sin(t * 15 + ph + k * 2.4) * 0.3 + (k - 0.5) * 0.7;
+      flameTongue(u, x + u.dx * r * 0.3, y, z + u.dz * r * 0.3, wob, r * 2.1, r * (4.6 + 1.4 * Math.sin(t * 21 + k * 2)), 1, 0.24, 0.03, 'flameN');
+    }
+    // 魂火青的两缕：绕着火球转
+    for (let k = 0; k < 2; k++) {
+      const a = t * 14 + ph + k * Math.PI, ox = Math.cos(a) * r * 1.3, oy = Math.sin(a) * r * 1.0;
+      mBill(x - u.dz * ox, y + oy, z + u.dx * ox, r * 1.6);
+      pfPut('glow', ALLY_RGB.r * 0.5, ALLY_RGB.g * 0.9, ALLY_RGB.b * 0.8);
+    }
+    glowPut(u, x, y, z, r * 6.5, 0.5);
+    u.acc += dt;
+    while (u.acc > 0.025) {
+      u.acc -= 0.025;
+      const teal = Math.random() < 0.25;
+      spawnP(x - u.dx * r + rand(-0.1, 0.1), y + rand(-0.1, 0.1), z - u.dz * r + rand(-0.1, 0.1), rand(-1, 1) - u.dx * 1.4, rand(0.3, 1.6), rand(-1, 1) - u.dz * 1.4, rand(0.25, 0.45), rand(0.08, 0.13),
+        teal ? ALLY_RGB.r : 1, teal ? ALLY_RGB.g : rand(0.55, 0.85), teal ? ALLY_RGB.b : 0.2, -1.4, 1.8);
+    }
+  };
+  W.makePyreBolt = function () {
+    return W.makeProjectile(0xff8a3c, 0.27, false, { kind: 'pyre' });
+  };
+  // 火弹炸开：橙红的火环 + 金色内环，火团往上翻、火星四溅，几点魂火青的余烬往上飘，地上一块焦痕
+  W.pyreBlast = function (x, z, R, mesh) {
+    const y = 0.9;
+    W.ring(x, z, R, 0xff7a2c, 0.32);
+    W.ring(x, z, R * 0.5, 0xffd7a0, 0.18);
+    flare(x, y, z, 0xffa050, 1.5 + R * 0.35, 0.12);
+    flashLight(x, 2, z, 0xff8a3c, 1.5);
+    for (let i = 0; i < 14; i++) {
+      const a = rand(0, TAU), v = rand(1, 3) * R;
+      spawnP(x, y, z, Math.sin(a) * v, rand(0.5, 2.4), Math.cos(a) * v, rand(0.22, 0.4), rand(0.4, 0.62), 1, 0.42, 0.1, -2, 3.5);
+    }
+    for (let i = 0; i < 14; i++) {
+      const a = rand(0, TAU), v = rand(4, 8) * Math.sqrt(R);
+      spawnP(x, y, z, Math.sin(a) * v, rand(1, 5), Math.cos(a) * v, rand(0.3, 0.55), rand(0.08, 0.13), 1, rand(0.7, 0.95), rand(0.3, 0.55), 12, 1.5);
+    }
+    for (let i = 0; i < 6; i++) spawnP(x + rand(-R, R) * 0.5, 0.4, z + rand(-R, R) * 0.5, rand(-0.4, 0.4), rand(1.2, 2.6), rand(-0.4, 0.4), rand(0.5, 0.9), rand(0.1, 0.16), ALLY_RGB.r, ALLY_RGB.g, ALLY_RGB.b, -0.8, 1);
+    W.smoke(x, y + 0.2, z, 0.3 * R, 4, 0x241a16);
+    W.decal(1, x, z, R * 0.65, rand(0, TAU), 0xff7a2c, 1.6);
+  };
+  // 坠焰：一颗裹着焚火的陨石从天而降（地上的预警圈由 game.js 的友方预警画），落点先亮一圈魂火青的咒环
+  W.pyreMeteor = function (x, z, R, delay) {
+    W.meteorFall(x, z, delay, 0xff9a4a);
+    W.ring(x, z, R * 0.9, ALLY_HEX, 0.4);
+    W.ring(x, z, R * 0.45, 0xffb070, 0.3);
+  };
+  W.pyreMeteorLand = function (x, z, R) {
+    W.ring(x, z, R, 0xff7a2c, 0.5);
+    W.ring(x, z, R * 0.6, 0xffd08a, 0.35);
+    W.ring(x, z, R * 1.15, ALLY_HEX, 0.3);
+    W.decal(1, x, z, R * 0.9, rand(0, TAU), 0x2a1408, 4);
+    const n = 36;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU + rand(-0.06, 0.06), v = (R / 0.45) * rand(0.8, 1.05);
+      puffAdd(x + Math.sin(a) * 0.4, 0.45, z + Math.cos(a) * 0.4, Math.sin(a) * v, rand(0.2, 1.0), Math.cos(a) * v, rand(0.38, 0.5), rand(0.3, 0.46), 1);
+    }
+    for (let i = 0; i < 34; i++) {
+      const a = rand(0, TAU), v = rand(3, 8);
+      spawnP(x, 0.6, z, Math.sin(a) * v, rand(2, 7), Math.cos(a) * v, rand(0.5, 1.0), rand(0.12, 0.22), 1, rand(0.4, 0.75), 0.12, 6, 1.2);
+    }
+    for (let i = 0; i < 10; i++) spawnP(x + rand(-1, 1) * R * 0.6, 0.3, z + rand(-1, 1) * R * 0.6, rand(-0.5, 0.5), rand(1.5, 3.5), rand(-0.5, 0.5), rand(0.6, 1.1), rand(0.12, 0.2), ALLY_RGB.r, ALLY_RGB.g, ALLY_RGB.b, -0.6, 0.9);
+    flare(x, 1, z, 0xff8a3c, 2.8, 0.18);
+    flashLight(x, 2.4, z, 0xff7a2c, 2.6);
+    W.emberGround(x, z, R * 0.7, 2.2);
+  };
+  // 灼链：W.pyreBeam(ent, e) 每帧调用，从这位祭司的杖头连到目标胸口；e 为 null 收起。
+  // 一根橙红的火焰光束，里面缠着一缕魂火青的细线，沿途翻滚着火星，打在目标身上一团亮光。超过 0.15 秒没再调就自己收起
+  const pyreBeams = [];
+  W.pyreBeam = function (ent, e) {
+    let b = null;
+    for (let i = 0; i < pyreBeams.length; i++) if (pyreBeams[i].ent === ent) b = pyreBeams[i];
+    if (!e) {
+      if (b) pyreBeams.splice(pyreBeams.indexOf(b), 1);
+      return;
+    }
+    if (!b) {
+      b = { ent, x: 0, y: 0, z: 0, at: 0, t0: wtime };
+      pyreBeams.push(b);
+      W.entSocket(ent, 'weapon', _rs);
+      flare(_rs.x, _rs.y, _rs.z, 0xffa050, 1.4, 0.15);
+    }
+    b.x = e.x;
+    b.z = e.z;
+    b.y = Math.min(2.2, (e.height || 2) * 0.55);
+    b.at = wtime;
+  };
+  // 焰蓄：W.pyreCharge(ent, k[, release]) k = 0..1，杖头的焚火随之变大变亮；release 时迸一下
+  const pyreEnts = [];
+  W.pyreCharge = function (ent, k, release) {
+    if (!ent || ent.removed) return;
+    if (pyreEnts.indexOf(ent) < 0) pyreEnts.push(ent);
+    ent.pyreK = G.clamp(k || 0, 0, 1);
+    if (release) {
+      W.entSocket(ent, 'weapon', _rs);
+      flare(_rs.x, _rs.y, _rs.z, 0xffc070, 2.2, 0.18);
+      for (let i = 0; i < 18; i++) {
+        const a = rand(0, TAU), v = rand(1.5, 4);
+        spawnP(_rs.x, _rs.y, _rs.z, Math.sin(a) * v, rand(1, 4), Math.cos(a) * v, rand(0.3, 0.6), rand(0.1, 0.18), 1, rand(0.55, 0.85), 0.2, 2, 1.5);
+      }
+    }
+  };
+  function pyrePfDraw(dt) {
+    for (let i = pyreBeams.length - 1; i >= 0; i--) {
+      const b = pyreBeams[i], ent = b.ent;
+      if (ent.removed || ent.dying || wtime - b.at > 0.15) {
+        pyreBeams.splice(i, 1);
+        continue;
+      }
+      W.entSocket(ent, 'weapon', _rs);
+      const x0 = _rs.x, y0 = _rs.y, z0 = _rs.z, x1 = b.x, y1 = b.y, z1 = b.z;
+      const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0, len = Math.hypot(dx, dy, dz) || 1;
+      const mx = (x0 + x1) / 2, my = (y0 + y1) / 2, mz = (z0 + z1) / 2;
+      const grow = Math.min(1, (wtime - b.t0) / 0.12);
+      const pulse = (1 + 0.15 * Math.sin(wtime * 43 + i) + 0.07 * Math.sin(wtime * 71)) * grow;
+      mStretch(mx, my, mz, dx / len, dy / len, dz / len, 0.5 * pulse, len);
+      pfPut('beam', 0.95, 0.28, 0.05);
+      mStretch(mx, my, mz, dx / len, dy / len, dz / len, 0.22 * pulse, len);
+      pfPut('beam', 1.4, 0.8, 0.25);
+      // 缠在里面的一缕魂火青
+      const tw = Math.sin(wtime * 9 + i) * 0.06;
+      mStretch(mx, my + tw, mz, dx / len, dy / len, dz / len, 0.09, len);
+      pfPut('beam', ALLY_RGB.r * 1.4, ALLY_RGB.g * 1.6, ALLY_RGB.b * 1.5);
+      mBill(x0, y0, z0, 0.9 * pulse);
+      pfPut('glow', 1.3, 0.6, 0.18);
+      mBill(x1, y1, z1, 1.5 * pulse);
+      pfPut('glow', 1.4, 0.55, 0.12);
+      if (dt > 0) {
+        for (let k = 0; k < 2; k++) {
+          const f = Math.random();
+          spawnP(x0 + dx * f, y0 + dy * f, z0 + dz * f, rand(-0.8, 0.8), rand(0.2, 1.6), rand(-0.8, 0.8), rand(0.2, 0.4), rand(0.08, 0.14), 1, rand(0.5, 0.85), 0.15, -1, 2);
+        }
+        spawnP(x1, y1, z1, rand(-2.5, 2.5), rand(0.5, 3), rand(-2.5, 2.5), rand(0.25, 0.45), rand(0.1, 0.18), 1, 0.6, 0.2, 6, 1.5);
+        if (Math.random() < dt * 12) flashLight(x1, y1 + 0.5, z1, 0xff8a3c, 1.1);
+      }
+    }
+    // 杖头的焰蓄：一团随焰蓄长大的焚火光晕，满了以后一跳一跳地往上蹿火舌
+    for (let i = pyreEnts.length - 1; i >= 0; i--) {
+      const ent = pyreEnts[i];
+      if (ent.removed) {
+        pyreEnts.splice(i, 1);
+        continue;
+      }
+      if (ent.dying || !ent.group.visible) continue;
+      const k = ent.pyreK || 0;
+      if (k <= 0.02) continue;
+      W.entSocket(ent, 'weapon', _rs);
+      const fl = 1 + 0.12 * Math.sin(wtime * 23 + ent.phase);
+      mBill(_rs.x, _rs.y, _rs.z, (0.25 + 0.75 * k) * fl);
+      pfPut('glow', 1.2 * k, 0.5 * k, 0.12 * k);
+      if (k >= 0.999) {
+        const h = 0.25 + 0.12 * Math.sin(wtime * 17 + ent.phase);
+        mStretch(_rs.x, _rs.y + h * 0.5, _rs.z, 0, 1, 0, 0.22, h * 1.6);
+        pfPut('flame', 1, 0.42, 0.08);
+        if (dt > 0 && Math.random() < dt * 20) spawnP(_rs.x + rand(-0.06, 0.06), _rs.y + 0.1, _rs.z + rand(-0.06, 0.06), rand(-0.3, 0.3), rand(1, 2.4), rand(-0.3, 0.3), rand(0.3, 0.5), rand(0.07, 0.12), 1, 0.7, 0.25, -1, 1);
+      }
+    }
+  }
+  function clearPyreFx() {
+    pyreBeams.length = 0;
+  }
+  // 祭司动作里的一次性特效（minionClipFx 转过来）
+  function pyreClipFx(ent, c) {
+    const n = c.name, g = ent.group.position;
+    if (n === 'rise') {
+      // 一团焚火从地里翻上来，夹着几点魂火青
+      if (ent.cK < 0.7 && Math.random() < 0.7) {
+        const a = rand(0, TAU), d = rand(0.05, 0.45), teal = Math.random() < 0.3;
+        spawnP(g.x + Math.sin(a) * d, 0.1, g.z + Math.cos(a) * d, Math.sin(a) * rand(0.2, 0.8), rand(1.6, 3.6), Math.cos(a) * rand(0.2, 0.8), rand(0.35, 0.7), rand(0.12, 0.22),
+          teal ? ALLY_RGB.r : 1, teal ? ALLY_RGB.g : rand(0.45, 0.7), teal ? ALLY_RGB.b : 0.12, -1.5, 1.2);
+      }
+      if (crossed(ent, 0.86)) W.ring(g.x, g.z, 0.9, 0xff8a3c, 0.3); // 杖往地上一顿
+    } else if (n === 'attack' && crossed(ent, c.k0)) {
+      W.entSocket(ent, 'weapon', _sk);
+      flare(_sk.x, _sk.y, _sk.z, 0xffa050, 1.1, 0.1);
+      for (let i = 0; i < 6; i++) spawnP(_sk.x, _sk.y, _sk.z, rand(-1.5, 1.5), rand(0.5, 2.5), rand(-1.5, 1.5), rand(0.2, 0.4), rand(0.08, 0.13), 1, 0.7, 0.25, 4, 2);
+    } else if (n === 'cast2') {
+      W.entSocket(ent, 'weapon', _sk);
+      if (ent.cK > 0.2 && ent.cK < c.k0 && Math.random() < 0.8) spawnP(_sk.x + rand(-0.08, 0.08), _sk.y, _sk.z + rand(-0.08, 0.08), rand(-0.3, 0.3), rand(2.5, 5), rand(-0.3, 0.3), rand(0.3, 0.55), rand(0.12, 0.2), 1, rand(0.45, 0.75), 0.12, -1, 1);
+      if (crossed(ent, c.k0)) {
+        flare(_sk.x, _sk.y, _sk.z, 0xffc070, 2.4, 0.2);
+        flashLight(_sk.x, _sk.y, _sk.z, 0xff8a3c, 1.8);
+        for (let i = 0; i < 16; i++) spawnP(_sk.x, _sk.y, _sk.z, rand(-1, 1), rand(4, 9), rand(-1, 1), rand(0.4, 0.7), rand(0.12, 0.2), 1, rand(0.5, 0.8), 0.15, -2, 1);
+      }
+      if (crossed(ent, 0.85)) W.ring(g.x, g.z, 1.2, 0xff8a3c, 0.3);
+    } else if (n === 'death' && crossed(ent, 0.55)) {
+      // 法袍塌下去：扬起一把灰和余烬，魂火从胸腔里散掉
+      for (let i = 0; i < 12; i++) {
+        const a = rand(0, TAU), sp = rand(0.8, 2.4);
+        spawnP(g.x + Math.sin(a) * 0.25, rand(0.1, 0.5), g.z + Math.cos(a) * 0.25, Math.sin(a) * sp, rand(0.8, 2.6), Math.cos(a) * sp, rand(0.4, 0.8), rand(0.1, 0.2), 0.35, 0.3, 0.27, 6, 1.4);
+      }
+      for (let i = 0; i < 10; i++) spawnP(g.x + rand(-0.3, 0.3), rand(0.2, 0.9), g.z + rand(-0.3, 0.3), rand(-0.6, 0.6), rand(0.8, 2.2), rand(-0.6, 0.6), rand(0.4, 0.8), rand(0.08, 0.14), 1, rand(0.5, 0.8), 0.18, -0.8, 1.2);
     }
   }
 

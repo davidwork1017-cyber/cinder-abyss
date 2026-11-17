@@ -652,6 +652,7 @@
     const sup = G.SUPPORTS[supId];
     if (!sk || !sup || (sk.weaponOnly && !sk.basic)) return false; // 武器技镶不了辅助（远程普攻例外：镶在武器普攻卡上）
     if (sup.no && sup.no.some((tag) => sk.tags.indexOf(tag) >= 0)) return false;
+    if (sup.noKind && sk.minion && sup.noKind.indexOf(sk.minion) >= 0) return false;
     if (!sup.req) return true;
     return sup.req.some((tag) => sk.tags.indexOf(tag) >= 0);
   };
@@ -846,7 +847,7 @@
     let more = mScale ? 1 + (S.minionMore || 0) / 100 : (1 + (S.moreDmg || 0) / 100) * (1 - Math.min(90, S.ownLess || 0) / 100);
     const extra = {};
     // 长弓的隐含穿透作用于你所有的投射物技能
-    let proj = 0, pierce = !mScale && sk.tags.indexOf('projectile') >= 0 ? S.pierce || 0 : 0, chain = 0, area = mScale ? 0 : S.area || 0, speedPct = 0;
+    let proj = 0, pierce = !mScale && sk.tags.indexOf('projectile') >= 0 ? S.pierce || 0 : 0, chain = 0, area = mScale ? S.minionArea || 0 : S.area || 0, speedPct = 0; // 召唤物的范围只吃「召唤物的范围效果」
     let critFlat = sk.critFlat || 0, critMulti = 150 + (mScale ? 0 : S.critMulti || 0) + (sk.critMulti || 0); // 鹰眼长弓的普攻自带暴击
     let leech = 0, stun = 0, ailment = (mScale ? 0 : S.ailment || 0) + (sk.ailment || 0), echo = 0, cdr = 0, costMult = 1;
     let mLife = 0, mDR = 0, mCap = 0, mSpeed = 0;
@@ -933,7 +934,8 @@
       // 召唤物：生命随宝石等级成长（比伤害快一些，跟得上怪物的伤害成长）；攻速吃「召唤物速度」和迅捷，移动只吃前者
       const spdK = Math.max(0.2, 1 + ((S.minionSpeed || 0) + mSpeed) / 100);
       const atkK = spdK * (1 + speedPct / 100);
-      const cap = sk.cap + (sk.minion === 'thrall' ? Math.max(0, Math.round((S.minionCap || 0) + mCap)) : 0);
+      // 数量上限：仆从吃天赋 / 护符的「仆从数量」和镶着的群聚；焚骨祭司只吃镶在它身上的群聚；守像固定 1 尊
+      const cap = sk.cap + (sk.minion === 'thrall' ? Math.max(0, Math.round((S.minionCap || 0) + mCap)) : sk.minion === 'pyre' ? Math.max(0, Math.round(mCap)) : 0);
       ctx.minion = {
         kind: sk.minion, cap,
         life: Math.max(1, Math.round((sk.life * G.minionLifeK(lvl) + inh.life) * Math.max(0.1, 1 + ((S.minionLife || 0) + mLife) / 100))),
@@ -951,6 +953,19 @@
         radius: (sk.radius || 0) * Math.sqrt(ctx.area),
         taunt: sk.taunt || null,
       };
+      if (sk.minion === 'pyre') {
+        // 焚骨祭司：火弹爆炸 / 坠焰的半径吃扩域；多重投射让它一次掷出几枚（分头砸向不同的敌人）
+        const mi = ctx.minion, ak = Math.sqrt(ctx.area);
+        mi.keep = sk.keep;
+        mi.flee = sk.flee;
+        mi.speed = sk.speed;
+        mi.explode = sk.explode * ak;
+        mi.bolts = Math.max(1, ctx.proj);
+        mi.charge = sk.charge;
+        mi.chargeK = 1 + Math.max(0, S.minionCharge || 0) / 100; // 焰蓄攒得快（天赋「焚骨圣咏」）
+        mi.meteor = Object.assign({}, sk.meteor, { radius: sk.meteor.radius * ak, r: sk.meteor.r * ak });
+        mi.beam = sk.beam;
+      }
     }
     return ctx;
   };
@@ -979,7 +994,8 @@
     const dPct = Math.min(100, Math.max(0, S.mDef || 0));
     const lPct = Math.max(0, S.mLife || 0);
     const base = item && G.BASES.weapon[item.baseIdx];
-    const soul = (base && base.soul) || 1;
+    // 焚骨祭司（casterInherit）：拿着施法武器（杖 / 短杖 / 魂幡）时按 casterInherit 倍继承，和魂幡的倍数取高的那个
+    const soul = Math.max((base && base.soul) || 1, base && base.caster && sk && sk.casterInherit ? sk.casterInherit : 1);
     // 防御 / 生命：按身上其余装备的平均物品等级折算（和武器一样靠后期的装备成长）
     let iSum = 0, iN = 0;
     for (const slot of G.SLOTS) {
@@ -1011,13 +1027,25 @@
   G.minionLifeK = (lvl) => 1 + G.MINION_LIFE_LVL * (lvl - 1) + G.MINION_LIFE_LATE * Math.max(0, lvl - 20);
   G.MINION_DMG_LVL = 0.11; // 召唤物伤害每级宝石的成长（其他技能是 0.2；召唤宝石的基础伤害相应高一截）
   G.MINION_DMG_LATE = 0.09; // 宝石 20 级以上每级再多这么多（和生命一样，层级 0 用不到；召唤物吃不到武器 / 词缀阶的成长，层级 2 靠它跟上）
-  G.minionDmgK = (lvl) => 1 + G.MINION_DMG_LVL * (lvl - 1) + G.MINION_DMG_LATE * Math.max(0, lvl - 20);
+  // 宝石 MINION_DMG_KNEE 级以上（层级 1 后段起）每级再乘 MINION_DMG_GROW：怪物生命是按等级指数成长的（每级 ×1.08–1.12），
+  // 线性的等级加成越往后占比越小（32 级时每级只 +3.6%），别的流派在这一段还有武器物品等级、词缀阶、暴击一起往上乘，
+  // 召唤物只有宝石等级和继承这两条路，平衡机器人量出来层级 1 末区到层级 2 掉得最狠。乘上这一项后每级的成长跟得上怪物
+  G.MINION_DMG_KNEE = 28;
+  G.MINION_DMG_GROW = 1.04;
+  G.minionDmgK = (lvl) => (1 + G.MINION_DMG_LVL * (lvl - 1) + G.MINION_DMG_LATE * Math.max(0, lvl - 20)) * Math.pow(G.MINION_DMG_GROW, Math.max(0, lvl - G.MINION_DMG_KNEE));
 
   // 估算秒伤（技能卡、换装评估用）：平均击中 ÷ 每次出手实际占用的时间（含命中时的顿帧），受冷却限制。
   // 召唤技能：数量上限内的召唤物一起出手的秒伤（单体）
   // 冷却技能按冷却折算（单独循环施放时的秒伤）；光环是每秒脉冲次数 × 每跳伤害（单体）
   G.skillDps = function (ctx) {
-    if (ctx.minion) return (G.avgHit(ctx) * ctx.minion.cap) / Math.max(0.05, ctx.minion.interval);
+    const mi = ctx.minion;
+    if (mi && mi.beam) {
+      // 焚骨祭司打单体：每 charge.max 枚火弹接一轮灼链（单体时一弹只攒 1 点焰蓄）
+      const ticks = Math.floor(mi.beam.dur / (mi.beam.tick * Math.min(1, mi.interval / ctx.sk.rate)) + 1e-6); // 召唤物速度也加快灼链的跳数
+      const cyc = mi.charge.max * mi.interval + mi.beam.dur;
+      return (G.avgHit(ctx) * mi.cap * (mi.charge.max + ticks * mi.beam.mult)) / cyc;
+    }
+    if (mi) return (G.avgHit(ctx) * mi.cap) / Math.max(0.05, mi.interval);
     return G.avgHit(ctx) * G.skillRate(ctx);
   };
   // 每秒出手（施放 / 斩击 / 脉冲）次数：含命中时的顿帧，受冷却限制
