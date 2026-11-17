@@ -90,6 +90,17 @@ async function install() {
         T.settle();
       },
       // 一只打不死、不会动的靶子
+      // 从玩家出发、一路可走（两侧各留 1 米）最远的那个方向：{ x, z } 单位向量，len 是能走多远（最多 max 米）
+      openDir(max) {
+        let best = { x: 0, z: 1, len: 0 };
+        for (let k = 0; k < 24; k++) {
+          const a = (k * Math.PI) / 12, x = Math.sin(a), z = Math.cos(a);
+          let d = 0.5;
+          for (; d <= max; d += 0.5) if ([-1, 0, 1].some((o) => !W.walkable(P.x + x * d + z * o, P.z + z * d - x * o, 0.4))) break;
+          if (d > best.len) best = { x, z, len: d };
+        }
+        return best;
+      },
       dummy(dx, dz) {
         const e = G.spawnMob('brute', P.x + dx, P.z + dz, 1, { awake: true });
         e.hp = e.maxHp = 1e7;
@@ -1022,12 +1033,12 @@ async function main() {
   });
 
   // ------------------------------------------------------------------ 技能
-  await step('learnAll：11 个技能与 19 个辅助宝石全部到手', async () => {
+  await step('learnAll：12 个技能与 19 个辅助宝石全部到手', async () => {
     const r = await ev(() => {
       G.debug.learnAll();
       return { skills: Object.keys(G.save.skills).length, sups: G.save.supports.length, bar: G.save.bar.slice() };
     });
-    assert(r.skills === 11 && r.sups === 19 && r.bar.every((b) => b), JSON.stringify(r));
+    assert(r.skills === 12 && r.sups === 19 && r.bar.every((b) => b), JSON.stringify(r));
   });
 
   for (let i = 0; i < SKILL_IDS.length; i++) {
@@ -3294,7 +3305,7 @@ async function main() {
       const n = document.querySelectorAll('#slots .slot')[2];
       return { cls: n.classList.contains('auto'), ring: getComputedStyle(n.querySelector('.s-ring')).display, badge: getComputedStyle(n.querySelector('.s-auto')).display, txt: n.querySelector('.s-auto').textContent };
     });
-    assert(before.def === '{"thrall":false,"colossus":false}' && before.cur === false, '自动召唤应默认关：' + JSON.stringify(before));
+    assert(before.def === '{"thrall":false,"colossus":false,"pyre":false}' && before.cur === false, '自动召唤应默认关：' + JSON.stringify(before));
     assert(sw.on === true && sw.col === false && sw.stored.thrall === true && !(sw.tap > 0) && !sw.cast, '按 Q 应切换仆从的自动召唤并写进存档，不起手、不留缓冲：' + JSON.stringify(sw));
     assert(hudOn.cls && hudOn.ring === 'block' && hudOn.badge === 'block' && hudOn.txt === '自动', '技能栏格子应显示「自动」状态：' + JSON.stringify(hudOn));
 
@@ -3518,7 +3529,7 @@ async function main() {
       out.hud0 = document.querySelectorAll('#slots .slot')[0].classList.contains('auto');
       return out;
     });
-    assert(card.has && card.on && card.other === 2 && card.txt.includes('自动召唤') && card.txt.includes('Shift'), '召唤技能卡上应有自动召唤开关：' + JSON.stringify(card));
+    assert(card.has && card.on && card.other === 3 && card.txt.includes('自动召唤') && card.txt.includes('Shift'), '召唤技能卡上应有自动召唤开关：' + JSON.stringify(card));
     assert(card2.save === false && card2.stored === false && card2.off && card2.txt.includes('关'), '点技能卡上的开关应关掉并存档：' + JSON.stringify(card2));
     assert(!off.hud && off.n === 0, '关掉后不应再补、技能栏的「自动」应消失：' + JSON.stringify(off));
     assert(off.unbound.n === 0 && off.unbound.kept && off.rebound === 1 && off.hud0, '从技能栏拿下时不补、开关保留；换到别的格子照常：' + JSON.stringify(off));
@@ -3548,7 +3559,7 @@ async function main() {
       G.computeStats();
       return out;
     }, SAVE_KEY);
-    assert(sv.back === '{"thrall":true,"colossus":true}' && sv.old === '{"thrall":false,"colossus":false}' && sv.bad === '{"thrall":false,"colossus":false}', '自动召唤的存档不对：' + JSON.stringify(sv));
+    assert(sv.back === '{"thrall":true,"colossus":true,"pyre":false}' && sv.old === '{"thrall":false,"colossus":false,"pyre":false}' && sv.bad === '{"thrall":false,"colossus":false,"pyre":false}', '自动召唤的存档不对：' + JSON.stringify(sv));
     return '间隔 ' + gaps.join(' / ') + ' 秒，每次扣 ' + r.cost + ' 魔力';
   }
 
@@ -3713,6 +3724,301 @@ async function main() {
     assert(r.proj > 0, '敌方弹丸应能打中召唤物：' + JSON.stringify(r));
     assert(r.playerProj > 0, '没有召唤物挡着的弹丸仍应打中玩家：' + JSON.stringify(r));
     assert(r.boss > 0 && r.dead, '首领的预警圈应伤到召唤物，打死后移除：' + JSON.stringify(r));
+  });
+
+  await summonStep('焚骨祭司：Shift + 按键在准星处唤起，自动召唤补到上限 2 位；镶群聚 +1，天赋 / 护符的「仆从数量」不算；站在后排朝怪堆掷火弹，一弹炸到多个敌人，攒满焰蓄召下坠焰', async () => {
+    await ev(() => {
+      T.arena();
+      T._face = [G.player.face, G.player.drawFace]; // 手动召唤会转身：步骤结束时转回来，不影响后面的步骤
+      G.debug.god(true);
+      for (const id of Object.keys(G.save.sockets)) G.save.sockets[id] = [null, null, null];
+      G.computeStats();
+      G.bindSkill(3, 'pyre');
+      G.debug.step(0.05);
+    });
+    await page.keyboard.down('Shift');
+    await page.keyboard.press('KeyE');
+    await page.keyboard.up('Shift');
+    const a = await ev(() => {
+      const P = G.player, S = G.state, out = {};
+      const pyres = () => S.minions.filter((m) => m.kind === 'pyre' && !m.dead);
+      T.aim(P.x + 3, P.z + 2);
+      for (let i = 0; i < 90 && !(P.cast && P.cast.fired); i++) G.tick(1 / 60);
+      out.fired = !!(P.cast && P.cast.fired && P.cast.id === 'pyre');
+      G.debug.step(0.2);
+      const p0 = pyres()[0];
+      out.manual = pyres().length;
+      out.atAim = p0 ? +Math.hypot(p0.x - (P.x + 3), p0.z - (P.z + 2)).toFixed(2) : -1;
+      out.rise = p0 ? G.world.clipOf(p0.ent) : null;
+      out.auto0 = G.save.autoSummon.pyre;
+      // 自动召唤：补到上限
+      G.toggleAutoSummon('pyre', true, true);
+      for (let i = 0; i < 400 && pyres().length < 2; i++) {
+        P.mana = P.maxMana;
+        G.tick(1 / 60);
+      }
+      G.debug.step(1.2);
+      out.auto = pyres().length;
+      out.cap = G.minionInfo('pyre').cap;
+      // 上限：镶群聚 +1；全局的「仆从数量」（天赋 / 护符）只加仆从
+      if (G.save.supports.indexOf('horde') < 0) G.save.supports.push('horde');
+      out.hordeFits = G.supportFits('pyre', 'horde') && !G.supportFits('colossus', 'horde');
+      G.save.sockets.pyre = ['horde', null, null];
+      G.computeStats();
+      out.hordeCap = G.skillCtx('pyre').minion.cap;
+      G.save.sockets.pyre = [null, null, null];
+      G.computeStats();
+      const mc = P.S.minionCap;
+      P.S.minionCap = (mc || 0) + 2;
+      out.globalCap = G.skillCtx('pyre').minion.cap;
+      out.thrallGlobal = G.skillCtx('thrall').minion.cap - G.SKILLS.thrall.cap - Math.round(mc || 0);
+      P.S.minionCap = mc;
+      G.save.sockets.pyre = [null, null, null];
+      G.computeStats();
+      G.toggleAutoSummon('pyre', false, true);
+      out.desc = /2 位/.test(G.SKILLS.pyre.desc) && /群聚/.test(G.SKILLS.pyre.desc) && /祭司/.test(G.SUPPORTS.horde.desc);
+      return out;
+    });
+    assert(a.fired && a.manual === 1 && a.atAim < 1.2 && a.rise === 'rise' && a.auto0 === false, 'Shift + E 应在准星处唤起一位祭司（播破土动作）：' + JSON.stringify(a));
+    assert(a.auto === 2 && a.cap === 2, '自动召唤应补到 2 位：' + JSON.stringify(a));
+    assert(a.hordeFits && a.hordeCap === 3 && a.globalCap === 2 && a.thrallGlobal === 2 && a.desc, '群聚镶在祭司上 +1 位、守像镶不上；全局的仆从数量只加仆从，说明里写清楚：' + JSON.stringify(a));
+
+    const b = await ev(() => {
+      const P = G.player, S = G.state, out = {};
+      T.fix(0.5);
+      // 一团冻住的游魂（不会动、不会还手），离玩家 8 米（挑一个 10 米内没有墙的方向）
+      const dir = T.openDir(12);
+      const cx = P.x + dir.x * Math.min(8, dir.len - 1.5), cz = P.z + dir.z * Math.min(8, dir.len - 1.5);
+      const pack = [];
+      for (let i = 0; i < 5; i++) {
+        const e = G.spawnMob('husk', cx + ((i % 3) - 1) * 0.9, cz + (Math.floor(i / 3) - 0.5) * 0.9, 1, { awake: true });
+        e.hp = e.maxHp = 1e6;
+        e.freeze = 1e9;
+        e.atkCd = 1e9;
+        pack.push(e);
+      }
+      // 每一帧祭司打中了几个不同的敌人（一枚火弹炸开就是一帧里打中好几个）
+      const oh = G.hitEnemy;
+      let frame = new Set(), best = 0, meteorW = 0;
+      G.hitEnemy = function (e, ctx, mult, info) {
+        if (info && info.minion && info.minion.kind === 'pyre') {
+          frame.add(e);
+          if (info.w === 2) meteorW++;
+        }
+        return oh(e, ctx, mult, info);
+      };
+      let bolts = 0, keep = 99;
+      try {
+        for (let i = 0; i < 600; i++) {
+          frame = new Set();
+          G.tick(1 / 60);
+          best = Math.max(best, frame.size);
+          bolts = Math.max(bolts, G.minionBolts());
+          for (const m of S.minions) if (m.kind === 'pyre' && m.state === 'attack') keep = Math.min(keep, Math.hypot(m.x - cx, m.z - cz));
+        }
+      } finally {
+        G.hitEnemy = oh;
+      }
+      out.perBlast = best;
+      out.bolts = bolts;
+      out.keep = +keep.toFixed(2);
+      out.hurt = pack.filter((e) => e.hp < e.maxHp).length;
+      out.meteors = S.stats.pyreMeteors || 0;
+      out.meteorHits = S.stats.pyreMeteorHits || 0;
+      out.meteorW = meteorW;
+      out.focus = G.focusTarget(); // 玩家没出手：没有集火目标，按怪堆挑
+      T.unfix();
+      [P.face, P.drawFace] = T._face;
+      return { ...out, focus: !!out.focus };
+    });
+    assert(b.bolts >= 1 && b.perBlast >= 3 && b.hurt === 5, '火弹应炸到怪堆里的多个敌人：' + JSON.stringify(b));
+    assert(b.keep >= 5, '祭司应站在后排施法（离怪堆至少 5 米）：' + JSON.stringify(b));
+    assert(b.meteors >= 1 && b.meteorHits >= 4 && b.meteorW >= 4, '攒满焰蓄应对怪堆召下坠焰：' + JSON.stringify(b));
+    return '一弹最多炸到 ' + b.perBlast + ' 个，坠焰 ' + b.meteors + ' 次';
+  });
+
+  await summonStep('焚骨祭司：单个首领时攒满焰蓄引导灼链；集火目标优先；敌人贴身先退开；倒下化作灰烬、自动召唤补回；技能卡写出火弹与大招，召唤物条上有焰蓄条', async () => {
+    const r = await ev(() => {
+      T.arena();
+      G.debug.god(true);
+      const P = G.player, S = G.state, out = {};
+      for (const id of Object.keys(G.save.sockets)) G.save.sockets[id] = [null, null, null];
+      G.computeStats();
+      G.bindSkill(3, 'pyre');
+      const ps = [G.summonMinion('pyre', P.x - 1.5, P.z - 1), G.summonMinion('pyre', P.x + 1.5, P.z - 1)];
+      G.debug.step(1.0);
+      // 一个冻住的首领：火弹只打得到它一个，焰蓄攒满后放灼链
+      const dir = T.openDir(14);
+      const bd = Math.min(9, dir.len - 2.5);
+      const boss = G.spawnBoss('golem', P.x + dir.x * bd, P.z + dir.z * bd, 1);
+      boss.hp = boss.maxHp = 1e8;
+      boss.freeze = 1e9;
+      boss.dmg = 0; // 首领不吃冻结：招式照放，但不伤人（这里只看祭司怎么打它）
+      boss.cd = 1e9;
+      boss.awake = true;
+      for (const m of ps) m.charge = m.ctx.minion.charge.max - 1;
+      let beamSeen = false, beamTicks0 = S.stats.pyreBeamTicks || 0, w = { met: S.stats.pyreMeteors || 0 };
+      for (let i = 0; i < 600; i++) {
+        G.tick(1 / 60);
+        if (ps.some((m) => m.state === 'beam')) beamSeen = true;
+      }
+      out.alive = ps.filter((m) => !m.dead).length;
+      out.beam = beamSeen;
+      out.ticks = (S.stats.pyreBeamTicks || 0) - beamTicks0;
+      out.noMeteor = (S.stats.pyreMeteors || 0) === w.met;
+      out.bossHurt = boss.maxHp - boss.hp > 0;
+      // 集火：玩家打中的敌人成了目标，祭司转而打它
+      const far = G.spawnMob('brute', P.x + dir.x * (bd - 3) - dir.z * 2, P.z + dir.z * (bd - 3) + dir.x * 2, 1, { awake: true });
+      far.hp = far.maxHp = 1e7;
+      far.freeze = 1e9;
+      G.hitEnemy(far, G.skillCtx('cleave'), 0.01, {});
+      G.debug.step(0.4);
+      out.focus = G.focusTarget() === far && ps.every((m) => m.dead || m.target === far || m.state === 'beam');
+      G.clearEnemies();
+      // 贴身：一只醒着的游魂站到祭司身边，祭司应退开（往玩家那边）
+      const m = ps[0];
+      m.charge = 0;
+      const e = G.spawnMob('husk', m.x + 0.9, m.z - 0.6, 1, { awake: true });
+      e.hp = e.maxHp = 1e6;
+      e.freeze = 1e9;
+      const d0 = Math.hypot(m.x - e.x, m.z - e.z);
+      G.debug.step(1.0);
+      out.flee = +(Math.hypot(m.x - e.x, m.z - e.z) - d0).toFixed(2);
+      G.clearEnemies();
+      // 倒下：从列表里拿掉、模型演倒地；开着自动召唤会补回
+      G.toggleAutoSummon('pyre', true, true);
+      P.mana = P.maxMana;
+      const ent = m.ent;
+      G.hurtMinion(m, 1e9, 'phys', null);
+      out.dead = m.dead && S.minions.indexOf(m) < 0 && !!ent.dying;
+      for (let i = 0; i < 240 && S.minions.filter((x) => x.kind === 'pyre').length < 2; i++) {
+        P.mana = P.maxMana;
+        G.tick(1 / 60);
+      }
+      out.refill = S.minions.filter((x) => x.kind === 'pyre').length;
+      G.toggleAutoSummon('pyre', false, true);
+      return out;
+    });
+    assert(r.alive === 2 && r.beam && r.ticks >= 8 && r.noMeteor && r.bossHurt, '只有一个首领时焰蓄满了应引导灼链（不放坠焰）：' + JSON.stringify(r));
+    assert(r.focus, '祭司应转去打集火目标：' + JSON.stringify(r));
+    assert(r.flee > 0.8, '敌人贴身时祭司应先退开：' + JSON.stringify(r));
+    assert(r.dead && r.refill === 2, '祭司倒下应演倒地并由自动召唤补回：' + JSON.stringify(r));
+    // 技能卡：火弹半径、焰蓄与两种大招
+    await page.keyboard.press('KeyG');
+    const card = await ev(() => {
+      const c = Array.from(document.querySelectorAll('.skill-card')).find((n) => n.textContent.includes('焚骨祭司'));
+      const ico = c && c.querySelector('.ico');
+      return { txt: c ? c.textContent : '', ico: ico ? getComputedStyle(ico).backgroundImage.length > 30 : false };
+    });
+    await closePanel();
+    assert(/火弹爆炸半径/.test(card.txt) && /焰蓄 7 点/.test(card.txt) && /坠焰/.test(card.txt) && /灼链/.test(card.txt) && /数量/.test(card.txt) && card.ico, '祭司的技能卡应写出火弹半径、焰蓄与大招，并有图标：' + card.txt.slice(0, 200));
+    // 召唤物条：每位祭司一枚图标，下面一道焰蓄条（攒满时整枚亮起）
+    await ev(() => {
+      for (const m of G.state.minions) if (m.kind === 'pyre') m.charge = m.ctx.minion.charge.max;
+    });
+    await frames(4);
+    const hud = await ev(() => {
+      const chips = Array.from(document.querySelectorAll('.mn.pyre'));
+      return { n: chips.length, bar: chips.every((c) => getComputedStyle(c.querySelector('.mn-tc')).display !== 'none'), ready: chips.filter((c) => c.classList.contains('ready')).length };
+    });
+    assert(hud.n === 2 && hud.bar && hud.ready === 2, '召唤物条上应有两位祭司和焰蓄条：' + JSON.stringify(hud));
+    return '灼链 ' + r.ticks + ' 跳，贴身退开 ' + r.flee + ' 米';
+  });
+
+  await summonStep('焚骨祭司：继承武器伤害时施法武器（杖 / 短杖 / 魂幡）按 2.2 倍计；多重投射一次掷 3 枚分头砸、扩域放大爆炸与坠焰；穿透 / 连锁镶不上；天赋「焚骨圣咏」扩大召唤物范围、加快焰蓄', async () => {
+    const r = await ev(() => {
+      T.arena();
+      const P = G.player, S = G.state, out = {};
+      for (const id of Object.keys(G.save.sockets)) G.save.sockets[id] = [null, null, null];
+      G.computeStats();
+      const soul = (base) => {
+        G.equip(G.debug.giveItem(0, 'weapon', base, G.save.level));
+        G.computeStats();
+        return [G.minionInherit(G.SKILLS.pyre).soul, G.minionInherit(G.SKILLS.thrall).soul];
+      };
+      out.blade = soul(0);
+      out.staff = soul(1);
+      out.wand = soul(2);
+      out.banner = soul(7);
+      // 辅助
+      for (const id of ['multi', 'expanse', 'pierce', 'chain', 'fire', 'dominion']) if (G.save.supports.indexOf(id) < 0) G.save.supports.push(id);
+      out.fits = ['multi', 'expanse', 'fire', 'dominion', 'pierce', 'chain', 'echo'].map((id) => id + ':' + G.supportFits('pyre', id)).join(' ');
+      const base = G.skillCtx('pyre').minion;
+      G.save.sockets.pyre = ['multi', 'expanse', null];
+      G.computeStats();
+      const sup = G.skillCtx('pyre').minion;
+      out.bolts = [base.bolts, sup.bolts];
+      out.rk = +(sup.explode / base.explode).toFixed(3);
+      out.mk = +(sup.meteor.radius / base.meteor.radius).toFixed(3);
+      // 多重投射：一次 3 枚，分给目标身边不同的敌人
+      T.arena();
+      G.save.sockets.pyre = ['multi', null, null];
+      G.computeStats();
+      const m = G.summonMinion('pyre', P.x, P.z - 1);
+      G.debug.step(1.0);
+      const es = [];
+      const dir = T.openDir(12);
+      const vd = Math.min(7, dir.len - 1.5);
+      for (let i = 0; i < 3; i++) {
+        const e = G.spawnMob('husk', P.x + dir.x * vd + dir.z * (i - 1) * 2.6, P.z + dir.z * vd - dir.x * (i - 1) * 2.6, 1, { awake: true });
+        e.hp = e.maxHp = 1e6;
+        e.freeze = 1e9;
+        es.push(e);
+      }
+      let peak = 0;
+      for (let i = 0; i < 120; i++) {
+        G.tick(1 / 60);
+        peak = Math.max(peak, G.minionBolts());
+      }
+      out.volley = peak;
+      out.spread = es.filter((e) => e.hp < e.maxHp).length;
+      G.save.sockets.pyre = [null, null, null];
+      // 天赋：mm4 往外的一小支
+      const T2 = G.TREE;
+      out.nodes = ['mp0', 'mp1', 'mpn'].map((id) => (T2[id] ? T2[id].kind + ':' + Object.keys(T2[id].stats).join('+') : '-')).join(' ');
+      G.debug.setLevel(30);
+      G.resetPassives();
+      const path = ['mm0', 'mm1', 'mm2', 'mm3', 'mm4', 'mp0', 'mp1', 'mpn'];
+      out.alloc = path.map((id) => G.allocPassive(id)).every(Boolean);
+      G.computeStats();
+      out.S = { area: P.S.minionArea, charge: P.S.minionCharge };
+      const tree = G.skillCtx('pyre').minion;
+      out.treeRk = +(tree.explode / base.explode).toFixed(3);
+      out.chargeK = tree.chargeK;
+      out.colR = +(G.skillCtx('colossus').minion.radius / G.SKILLS.colossus.radius).toFixed(3);
+      return out;
+    });
+    assert(r.staff[0] === 2.2 && r.wand[0] === 2.2 && r.banner[0] === 2.2 && r.blade[0] === 1 && r.staff[1] === 1 && r.banner[1] === 2.2, '祭司拿施法武器时继承按 2.2 倍（仆从只有魂幡按倍数）：' + JSON.stringify(r));
+    assert(/multi:true/.test(r.fits) && /expanse:true/.test(r.fits) && /fire:true/.test(r.fits) && /dominion:true/.test(r.fits) && /pierce:false/.test(r.fits) && /chain:false/.test(r.fits) && /echo:false/.test(r.fits), '祭司能镶的辅助不对：' + r.fits);
+    assert(r.bolts[0] === 1 && r.bolts[1] === 3 && Math.abs(r.rk - Math.sqrt(1.4)) < 0.01 && Math.abs(r.mk - Math.sqrt(1.4)) < 0.01, '多重投射 / 扩域对祭司不对：' + JSON.stringify(r));
+    assert(r.volley === 3 && r.spread >= 2, '多重投射时一次应掷出 3 枚、分头砸向不同的敌人：' + JSON.stringify(r));
+    assert(/notable:minionDmg\+minionArea\+minionCharge/.test(r.nodes) && r.alloc && r.S.area >= 30 && r.S.charge >= 30 && r.treeRk > 1.1 && r.chargeK >= 1.3 && r.colR > 1.1, '天赋「焚骨圣咏」这一支不对：' + JSON.stringify(r));
+    return '继承 ×' + r.staff[0] + '，多重投射 ' + r.volley + ' 枚';
+  });
+
+  await step('召唤师后期：宝石 28 级以内的召唤物伤害成长和改版前一样，之后每级再 ×1.04（层级 2 跟得上怪物生命）；守像嘲讽首领 3 秒；祭司打单体的秒伤估算含灼链', async () => {
+    const r = await ev(() => {
+      const old = (l) => 1 + 0.11 * (l - 1) + 0.09 * Math.max(0, l - 20);
+      const out = {};
+      out.same = [1, 10, 17, 20, 26, 28].every((l) => Math.abs(G.minionDmgK(l) - old(l)) < 1e-9);
+      out.k32 = +(G.minionDmgK(32) / old(32)).toFixed(4);
+      out.k45 = +(G.minionDmgK(45) / old(45)).toFixed(4);
+      out.taunt = G.SKILLS.colossus.taunt.boss;
+      const boss = G.spawnBoss('golem', G.player.x + 30, G.player.z, 1);
+      const t = G.SKILLS.colossus.taunt;
+      const col = { dead: false, x: 0, z: 0 };
+      out.bossT = G.tauntEnemy(boss, col, t.dur, t.boss) ? boss.tauntT : -1;
+      G.clearEnemies();
+      const c = G.skillCtx('pyre'), mi = c.minion;
+      const ticks = Math.floor(mi.beam.dur / (mi.beam.tick * Math.min(1, mi.interval / c.sk.rate)) + 1e-6);
+      const want = (G.avgHit(c) * mi.cap * (mi.charge.max + ticks * mi.beam.mult)) / (mi.charge.max * mi.interval + mi.beam.dur);
+      out.dps = Math.abs(G.skillDps(c) - want) < 1e-6 && G.skillDps(c) > G.avgHit(c) * mi.cap / mi.interval;
+      return out;
+    });
+    assert(r.same && Math.abs(r.k32 - Math.pow(1.04, 4)) < 1e-3 && Math.abs(r.k45 - Math.pow(1.04, 17)) < 1e-3, '召唤物伤害的后期成长不对：' + JSON.stringify(r));
+    assert(r.taunt === 3 && r.bossT === 3, '守像应能嘲讽首领 3 秒：' + JSON.stringify(r));
+    assert(r.dps, '祭司的秒伤估算应含灼链：' + JSON.stringify(r));
+    return '宝石 45 级 ×' + r.k45;
   });
 
   await summonStep('召唤物跟随：换区域、重生、离得太远都会回到玩家身边；不追离玩家太远的敌人', async () => {
@@ -3974,7 +4280,7 @@ async function main() {
     assert(r.md === 38 && Math.abs(r.dmgK - r.want) < 1e-6 && Math.abs(r.life - r.lifeWant) < 0.02 && r.life > 1.05, '召唤物伤害 / 生命加成不对：' + JSON.stringify(r));
     assert(Math.abs(r.minionHit - r.minionWant) < 0.01, '召唤物的命中不应吃自身伤害惩罚：' + JSON.stringify(r));
     assert(r.ml.every(Boolean) && r.S.speed >= 4 && r.S.minionSpeed >= 10 && r.S.mana >= 30, '旁支的施法速度 / 召唤物速度 / 魔力：' + JSON.stringify(r.S));
-    assert(r.nodes === 26, '统御支路应有 26 个节点（原有 10 个 + 外圈继承装备的两条线与基石 16 个）：' + r.nodes);
+    assert(r.nodes === 29, '统御支路应有 29 个节点（原有 10 个 + 外圈继承装备的两条线与基石 16 个 + 焚骨祭司的 3 个）：' + r.nodes);
     // 天赋页：这一支的每个节点和名字都在画面里、不和别的节点重叠
     await page.keyboard.press('KeyP');
     const v = await ev(() => {
@@ -4790,7 +5096,7 @@ async function main() {
     cleanText(await ev(() => T.bodyText()), '技能页');
     // 武器普攻卡（.basic-card，拿着远程武器时才生效）另算
     const cards = await ev(() => ({ n: document.querySelectorAll('.skill-card:not(.wsk-card):not(.basic-card)').length, ws: document.querySelectorAll('.wsk-card').length }));
-    assert(cards.n === 11 && cards.ws === 1, '技能卡数量不对（11 张技能卡 + 1 张武器技卡）：' + JSON.stringify(cards));
+    assert(cards.n === 12 && cards.ws === 1, '技能卡数量不对（12 张技能卡 + 1 张武器技卡）：' + JSON.stringify(cards));
     await page.click('[data-act="bind"][data-skill="nova"][data-slot="2"]');
     let r = await ev(() => ({ bar: G.save.bar.slice(), on: document.querySelector('[data-act="bind"][data-skill="nova"][data-slot="2"]').classList.contains('on') }));
     assert(r.bar[2] === 'nova' && r.on && r.bar.filter((b) => b === 'nova').length === 1, '界面绑定失败：' + r.bar);
@@ -4910,7 +5216,7 @@ async function main() {
       // 武器普攻卡的 3 个孔（data-skill = G.BASIC_CARD）不算在内：它能镶投射物类的辅助，亮不亮看界面
       mid = await ev(() => { const own = (sel) => Array.from(document.querySelectorAll(sel)).filter((n) => n.dataset.skill !== G.BASIC_CARD).length; return { lit: own('.sock.drop-ok'), dim: own('.sock.drop-no'), cap: document.querySelector('#drag-ghost em').textContent }; });
     });
-    assert(mid.lit === 6 && mid.dim === 27 && mid.cap === '镶进 掷焰', '拖辅助宝石时只有带「投射物」标签的技能的槽应亮起：' + JSON.stringify(mid));
+    assert(mid.lit === 9 && mid.dim === 27 && mid.cap === '镶进 掷焰', '拖辅助宝石时只有带「投射物」标签的技能的槽应亮起（掷焰、飞刃、焚骨祭司）：' + JSON.stringify(mid));
     let r = await ev(() => ({ e: G.save.sockets.ember.slice(), proj: G.skillCtx('ember').proj }));
     assert(r.e[0] === 'multi' && r.proj === 3, '宝石没有镶上：' + JSON.stringify(r));
     await dragTo(sup('brutal'), sock('ember', 1), async () => {
@@ -7527,7 +7833,7 @@ async function main() {
     return '各物品等级最高阶 ' + r.top.join('/') + ' · 生命词缀 T6–T10 上限 ' + r.life.join('/');
   });
 
-  await step('天赋盘：125 个节点（8 个基石，远程改版加了枪械 / 弓各 4 个），原有 117 个节点的 id / 位置 / 连线不变，全部连通；满级的点数点不满', async () => {
+  await step('天赋盘：128 个节点（8 个基石，远程改版加了枪械 / 弓各 4 个，焚骨祭司 3 个），原有 117 个节点的 id / 位置 / 连线不变，全部连通；满级的点数点不满', async () => {
     const r = await ev(() => {
       const T = G.TREE;
       const ids = Object.keys(T).filter((id) => id !== 'start');
@@ -7549,12 +7855,12 @@ async function main() {
         n: ids.length, kinds, edgesOk, symmetric, all: seen.size === ids.length + 1, pts, bosses: Object.keys(G.BOSSES).length,
         ranged: ['gn0', 'gn1', 'gn2', 'gnn', 'bw0', 'bw1', 'bw2', 'bwn'].map((id) => T[id] ? Object.keys(T[id].stats).join('+') : '-').join(' '),
         // 新节点和别的节点都隔开至少 0.8 个单位（48 像素），面板上不挤
-        gap: Math.round(Math.min(...['gn0', 'gn1', 'gn2', 'gnn', 'bw0', 'bw1', 'bw2', 'bwn'].map((a) => Math.min(...ids.filter((b) => b !== a).map((b) => Math.hypot(T[a].x - T[b].x, T[a].y - T[b].y)))))),
+        gap: Math.round(Math.min(...['gn0', 'gn1', 'gn2', 'gnn', 'bw0', 'bw1', 'bw2', 'bwn', 'mp0', 'mp1', 'mpn'].map((a) => Math.min(...ids.filter((b) => b !== a).map((b) => Math.hypot(T[a].x - T[b].x, T[a].y - T[b].y)))))),
         sk: [Math.round(T.sk.x * 100) / 100, Math.round(T.sk.y * 100) / 100].join(), mr1: [Math.round(T.mr1.x * 100) / 100, Math.round(T.mr1.y * 100) / 100].join(),
         newK: ids.filter((id) => T[id].kind === 'keystone' && /2$/.test(id)).map((id) => T[id].name).join('/'),
       };
     });
-    assert(r.n === 125 && r.kinds.keystone === 8 && r.kinds.notable === 26, '天赋盘的规模不对：' + JSON.stringify(r));
+    assert(r.n === 128 && r.kinds.keystone === 8 && r.kinds.notable === 27, '天赋盘的规模不对：' + JSON.stringify(r));
     assert(/heatGain/.test(r.ranged) && /heatDmg/.test(r.ranged) && /rDmg/.test(r.ranged) && /focusGain/.test(r.ranged) && /buffDur/.test(r.ranged) && /rangeDmg/.test(r.ranged) && r.gap >= 48, '远程的 8 个节点（热度 / 热度伤害 / 热度技；专注 / 增益时长 / 远距离）不对或挤在一起：' + r.ranged + ' 间距 ' + r.gap);
     assert(r.edgesOk && r.symmetric && r.all, '原有连线应保留、连线双向、所有节点与起点连通：' + JSON.stringify(r));
     assert(r.sk === '-400.1,231' && r.mr1 === '332.73,-46.76', '原有节点的位置不应移动：' + r.sk + ' ' + r.mr1);

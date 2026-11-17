@@ -2592,6 +2592,12 @@ body.panel-open #coach { display: none; }
 }
 .mn.colossus.ready .mn-t { color: #1a1004; background: #ffc85a; border-color: #ffe3a0; box-shadow: 0 0 8px rgba(255, 200, 90, 0.7); }
 .mn.colossus.ready .mn-tc i { background: linear-gradient(180deg, #fff1c4, #ffbe4a); }
+/* 焚骨祭司：图标下面多一道焰蓄条（焚火橙），攒满时图标边框亮起 */
+.mn.pyre .mn-icon { border-color: #b8743a; background: radial-gradient(circle at 50% 40%, #33201a, #120a08 75%); }
+.mn.pyre .mn-tc { display: block; height: 3px; margin-top: 1px; }
+.mn.pyre .mn-tc i { background: linear-gradient(180deg, #ffc27a, #e0601c); }
+.mn.pyre.ready .mn-icon { border-color: #ffc06a; box-shadow: 0 0 8px rgba(255, 150, 60, 0.75); }
+.mn.pyre.ready .mn-tc i { background: linear-gradient(180deg, #fff0c8, #ff9a3c); }
 
 /* ---- 召唤物的悬停名牌（青色边，和敌人名牌区分） ---- */
 #mplate {
