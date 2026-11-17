@@ -2938,3 +2938,94 @@ body.panel-open #coach { display: none; }
   .ic-usk .u-d { display: none; }
   .ic-usk em { margin-top: 0; }
 }
+
+/* ===== 远程武器：量表（热度 / 专注）、R 格的灌注、右键的武器普攻 ===== */
+#gauge { display: none; width: 22px; flex-direction: column; align-items: center; gap: 5px; margin-left: -4px; }
+#gauge.on { display: flex; }
+#gauge .g-track {
+  --g0: #ffd27a; --g1: #ff7a2c; --g2: #c22a10;
+  position: relative; width: 14px; height: 58px; border-radius: 3px; overflow: hidden;
+  background: linear-gradient(180deg, #120b08, #1f140d);
+  border: 1px solid #4a3320; box-shadow: 0 0 0 1px #0c0705, inset 0 0 6px rgba(0, 0, 0, 0.8);
+}
+#gauge[data-kind='focus'] .g-track { --g0: #e6ffd8; --g1: #7fe0a8; --g2: #1f7a64; border-color: #2f4a3a; }
+#gauge .g-fill {
+  position: absolute; inset: 0; transform-origin: 50% 100%; transform: scaleY(0);
+  background: linear-gradient(0deg, var(--g2), var(--g1) 55%, var(--g0));
+  transition: transform 0.08s linear;
+}
+#gauge .g-ticks {
+  position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(0deg, transparent 0 10.6px, rgba(0, 0, 0, 0.55) 10.6px 11.6px);
+}
+#gauge .g-num {
+  position: absolute; left: 0; right: 0; bottom: 2px; text-align: center; font-size: 9px; font-weight: 700; color: #fff;
+  text-shadow: 0 1px 2px #000, 0 0 4px #000; font-variant-numeric: tabular-nums;
+}
+#gauge .g-name { min-width: 0; padding: 0 2px; font-size: 10px; letter-spacing: 0; writing-mode: horizontal-tb; white-space: nowrap; color: #e0b98a; }
+#gauge[data-kind='focus'] .g-name { color: #a9e6c4; }
+#gauge.full .g-track { border-color: #ffd9a0; animation: g-full 0.9s ease-in-out infinite; }
+#gauge[data-kind='focus'].full .g-track { border-color: #d8ffe8; }
+@keyframes g-full {
+  0%, 100% { box-shadow: 0 0 0 1px #0c0705, 0 0 6px rgba(255, 150, 60, 0.5), inset 0 0 6px rgba(0, 0, 0, 0.5); }
+  50% { box-shadow: 0 0 0 1px #0c0705, 0 0 14px 2px rgba(255, 170, 80, 0.95), inset 0 0 4px rgba(255, 255, 255, 0.3); }
+}
+#gauge[data-kind='focus'].full .g-track { animation-name: g-full-f; }
+@keyframes g-full-f {
+  0%, 100% { box-shadow: 0 0 0 1px #0c0705, 0 0 6px rgba(120, 230, 170, 0.5), inset 0 0 6px rgba(0, 0, 0, 0.5); }
+  50% { box-shadow: 0 0 0 1px #0c0705, 0 0 14px 2px rgba(150, 255, 190, 0.95), inset 0 0 4px rgba(255, 255, 255, 0.3); }
+}
+/* R 格：量表没满时图标压暗、底下一层量表色从下往上灌；满了整格亮起一圈呼吸光 */
+.s-gfill { position: absolute; inset: 0; display: none; pointer-events: none; }
+.s-gfill > i {
+  position: absolute; inset: 0; transform-origin: 50% 100%; transform: scaleY(0);
+  background: linear-gradient(0deg, rgba(255, 110, 40, 0.55), rgba(255, 190, 90, 0.18));
+  border-top: 2px solid rgba(255, 220, 160, 0.9);
+  transition: transform 0.08s linear;
+}
+.wslot[data-gauge='focus'] .s-gfill > i { background: linear-gradient(0deg, rgba(60, 200, 150, 0.55), rgba(170, 255, 200, 0.16)); border-top-color: rgba(210, 255, 225, 0.9); }
+.wslot.ranged .s-gfill { display: block; }
+.wslot.gated .s-img { filter: grayscale(0.85) brightness(0.55); }
+.wslot.gfull .s-gfill { display: none; }
+.wslot.gfull .s-icon { animation: wslot-full 1s ease-in-out infinite; }
+@keyframes wslot-full {
+  0%, 100% { box-shadow: 0 0 0 1px #0c0705, 0 0 0 2px #b8742c, 0 0 8px rgba(255, 160, 70, 0.4), inset 0 0 14px rgba(0, 0, 0, 0.5); }
+  50% { box-shadow: 0 0 0 1px #ffe2b0, 0 0 18px 4px rgba(255, 170, 80, 0.85), inset 0 0 10px rgba(0, 0, 0, 0.3); }
+}
+.wslot[data-gauge='focus'].gfull .s-icon { animation-name: wslot-full-f; }
+@keyframes wslot-full-f {
+  0%, 100% { box-shadow: 0 0 0 1px #0c0705, 0 0 0 2px #3a9a74, 0 0 8px rgba(120, 230, 170, 0.4), inset 0 0 14px rgba(0, 0, 0, 0.5); }
+  50% { box-shadow: 0 0 0 1px #e0ffe8, 0 0 18px 4px rgba(140, 255, 190, 0.85), inset 0 0 10px rgba(0, 0, 0, 0.3); }
+}
+/* 右键 = 武器普攻：格子角上一枚「普攻」小签，键位底色换成武器的铜色，提示它现在不能换 */
+.slot.basic .s-icon::after {
+  content: '普攻'; position: absolute; right: 2px; top: 2px; padding: 0 3px; font-size: 9px; line-height: 13px; letter-spacing: 0;
+  color: #1a0f08; background: #e8b870; border-radius: 2px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.slot.basic .s-key { color: #f0d8b0; border-color: #7a5430; background: linear-gradient(180deg, #2e1d10, #170f08); }
+/* 技能页：武器普攻卡（排在技能列表最上面）、锁住的右键 */
+.bind.locked { display: inline-grid; place-items: center; min-width: 38px; height: 26px; padding: 0 7px; font-size: 12px; color: #6a5a48; background: repeating-linear-gradient(135deg, #130d0a 0 5px, #1b130d 5px 10px); border: 1px dashed #4a3622; border-radius: 3px; cursor: default; }
+.bind.lock { display: inline-grid; place-items: center; min-width: 38px; height: 26px; padding: 0 7px; font-size: 12px; color: #8c7f6d; background: #130d0a; border: 1px solid #3d2c1e; border-radius: 3px; }
+.bind.lock.on { color: #fff3dc; background: linear-gradient(180deg, #8a5a24, #4a2c0e); border-color: #e8b870; }
+.basic-card { border-color: color-mix(in srgb, var(--c) 45%, #3a2a1c); background: linear-gradient(180deg, color-mix(in srgb, var(--c) 9%, #18110c), #120c09 60%); }
+.basic-card .sk-name em.bc-name { font-style: normal; margin-left: 8px; padding: 0 6px; font-size: 12px; line-height: 18px; color: #1a0f08; background: color-mix(in srgb, var(--c) 80%, #fff); border-radius: 2px; vertical-align: 2px; }
+.basic-card.off { opacity: 0.82; }
+.basic-card.off .sk-icon { filter: grayscale(0.7) brightness(0.7); }
+.basic-card.uq { box-shadow: 0 0 0 1px rgba(255, 140, 50, 0.35), inset 0 0 18px rgba(255, 120, 40, 0.08); }
+.basic-card .wsk-row { justify-content: flex-start; gap: 4px; }
+.basic-card .sk-num.full b { color: #ffe2a8; text-shadow: 0 0 6px rgba(255, 170, 80, 0.8); }
+.sk-anote.gauge i { background: linear-gradient(0deg, #c22a10, #ff7a2c 55%, #ffd27a) !important; }
+.sk-anote.gauge.focus i { background: linear-gradient(0deg, #1f7a64, #7fe0a8 55%, #e6ffd8) !important; }
+.sock.idle { opacity: 0.6; }
+.sock.idle em { font-style: normal; margin-left: 4px; font-size: 10px; color: #c98a6a; }
+.barslot.basic { cursor: default; border-style: solid; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 40%, transparent); }
+.barslot.basic .bs-txt span { color: #e8b870; }
+/* 地图：区域数随数据走（五个区域时卡片收窄一点、大字缩小） */
+.zones { grid-template-columns: repeat(var(--nz, 4), 1fr); gap: 12px; }
+.zones[style*='--nz:5'] .z-glyph { font-size: 70px; }
+.zones[style*='--nz:5'] .z-name { font-size: 18px; letter-spacing: 3px; }
+.zones[style*='--nz:5'] .z-body { padding: 11px 12px 12px; }
+.zones[style*='--nz:5'] .z-meta, .zones[style*='--nz:5'] .z-desc, .zones[style*='--nz:5'] .z-boss { font-size: 12px; }
+/* 武器技卡下面的一排武器：十几种武器时换行排 */
+.wsk-card .wsk-row { flex-wrap: wrap; justify-content: flex-start; gap: 2px 1px; }
+.wsk-card .wsk-row.urow { flex-wrap: nowrap; }

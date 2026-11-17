@@ -1,5 +1,5 @@
 'use strict';
-// 敌人：生成、区域布怪、每帧 AI（4 种小怪 + 首领 8 种招式）、状态效果、重置与清空
+// 敌人：生成、区域布怪、每帧 AI（6 种小怪 + 首领 11 种招式）、状态效果、重置与清空
 (function () {
   const G = window.G;
   const TAU = Math.PI * 2;
@@ -228,7 +228,7 @@
       type, def, name: elite ? '精英' + def.name : def.name, x, z, r, hp, maxHp: hp,
       dmg: def.dmg * G.dmgScale(level) * (elite ? 1.3 : 1), level, speed: def.speed, elem, elite,
       isBoss: false, bossKind: null, pack: o.pack == null ? null : o.pack, awake: !!o.awake,
-      dead: false, deathT: 0, height: (type === 'brute' ? 2.8 : 2) * (elite ? 1.35 : 1),
+      dead: false, deathT: 0, height: (def.h || (type === 'brute' ? 2.8 : 2)) * (elite ? 1.35 : 1),
       freeze: 0, stunT: 0, slowK: 1, iced: false,
       ent: G.world.makeMob(type, G.TYPE_HEX[elem], elite),
       ang: Math.random() * TAU,
@@ -236,6 +236,7 @@
       mass: def.mass * (elite ? 1.7 : 1), poiseMax: elite ? def.poise : 0,
     }, zone);
     G.initBuildUp(e); // 元素异常值（阈值按最大生命定）
+    e.blinkCd = G.rand(1.5, 3); // 隙影：第一次闪身前的冷却
     G.world.setEnt(e.ent, x, z, e.ang);
     G.state.enemies.push(e);
     return e;
@@ -272,7 +273,14 @@
     for (const p of list) if (Math.hypot(p.x - x, p.z - z) < min) return false;
     return true;
   }
-  function packType(mobs, main) {
+  // 坠星裂谷的两种新怪，在轮回层级 1 起也会零星混进其它区域的怪群里
+  const LATE_MOBS = ['phaser', 'charger'];
+  const LATE_CHANCE = 0.05;
+  function packType(mobs, main, zone) {
+    if (zone && zone.level > zone.def.level && Math.random() < LATE_CHANCE) {
+      const t = G.pick(LATE_MOBS);
+      if (mobs.indexOf(t) < 0 && G.MOBS[t]) return t;
+    }
     return Math.random() < 0.78 ? main : G.pick(mobs);
   }
   // 一个空地里的若干怪群：先排好位置和类型，再决定精英，最后统一生成
@@ -300,7 +308,7 @@
           const x = cx + Math.sin(a) * d, z = cz + Math.cos(a) * d;
           if (Math.hypot(x - c.x, z - c.z) > inner) continue;
           if (!W.walkable(x, z, 1) || !farFromStart(zone, x, z) || !spaced(members, x, z, 1.4)) continue;
-          members.push({ x, z, type: packType(mobs, main), elite: false });
+          members.push({ x, z, type: packType(mobs, main, zone), elite: false });
           break;
         }
       }
@@ -342,7 +350,7 @@
         const x = mid.x + Math.sin(a) * d, z = mid.z + Math.cos(a) * d;
         if (!W.walkable(x, z, 1) || !farFromStart(zone, x, z) || !spaced(members, x, z, 1.3)) continue;
         members.push({ x, z });
-        G.spawnMob(packType(mobs, main), x, z, level, { elite: false, pack, awake: false });
+        G.spawnMob(packType(mobs, main, zone), x, z, level, { elite: false, pack, awake: false });
         break;
       }
     }
@@ -432,7 +440,7 @@
         best = m;
       }
     }
-    const bias = e.def && (e.def.ai === 'ranged' || e.def.ai === 'bomb') ? FOE_BIAS_RANGED : FOE_BIAS;
+    const bias = e.def && (e.def.ai === 'ranged' || e.def.ai === 'bomb' || e.def.ai === 'blink') ? FOE_BIAS_RANGED : FOE_BIAS;
     e.foe = best && (P.dead || bd + bias < Math.hypot(P.x - e.x, P.z - e.z)) ? best : null;
     return e.foe || P;
   }
@@ -453,13 +461,14 @@
   // volley：同一轮齐射共用一个编号，game.js 保证一轮齐射对玩家只结算一次伤害
   let volleySeq = 1;
   // 敌弹的外形（只管样子）：喷吐者吐黏液弹，首领各有各的——霜织者冰棱、雷霆监察者雷球、熔渣巨像 / 烬渊之主火弹
-  const BOSS_SHOT = { weaver: 'shard', warden: 'spark', golem: 'firebolt', lord: 'firebolt' };
+  const BOSS_SHOT = { weaver: 'shard', warden: 'spark', golem: 'firebolt', lord: 'firebolt', behemoth: 'spark' };
+  const MOB_SHOT = { phaser: 'spark' }; // 隙影放的是电弹
   function shoot(e, ang, speed, dmg, r, life, off, volley) {
     const dx = Math.sin(ang), dz = Math.cos(ang);
     G.spawnProjectile({
       owner: 'e', x: e.x + dx * off, z: e.z + dz * off, dx, dz, speed, r, life,
       color: hexOf(e), dmg, dtype: e.elem, volley,
-      vk: e.isBoss ? BOSS_SHOT[e.bossKind] : 'glob',
+      vk: e.isBoss ? BOSS_SHOT[e.bossKind] : MOB_SHOT[e.type] || 'glob',
     });
   }
 
@@ -675,7 +684,260 @@
     else turn(e, angTo(e, P.x, P.z), 10, dt);
   }
 
-  const MOB_AI = { melee: aiMelee, slam: aiSlam, ranged: aiRanged, bomb: aiBomb };
+  // ---------- 持续型危险区（引力井、横扫射线）：每帧推进，主人被打出破绽 / 死亡 / 换区时立即作废 ----------
+  const hazards = [];
+  function addHazard(h) {
+    hazards.push(h);
+    return h;
+  }
+  function updateHazards(dt) {
+    for (let i = hazards.length - 1; i >= 0; i--) {
+      const h = hazards[i];
+      if (!live(h.e, h.seq) || h.update(dt) === false) {
+        hazards.splice(i, 1);
+        if (h.end) h.end();
+      }
+    }
+  }
+  function clearHazards() {
+    const list = hazards.splice(0, hazards.length);
+    for (const h of list) if (h.end) h.end();
+  }
+  // 一次招式里同一个目标只结算一次（玩家 / 每只召唤物）
+  const mkOnce = () => ({ p: false, m: new Set() });
+  // 以 (x, z) 为中心、半径 r 的一次打击：玩家与范围内的召唤物（首领打召唤物按 BOSS_VS_MINION 加重）
+  function zap(e, x, z, r, dmg, dtype, once) {
+    const P = G.player;
+    if (!(once && once.p) && !P.dead && Math.hypot(P.x - x, P.z - z) <= r + PLAYER_R) {
+      if (G.hurtPlayer(dmg, dtype, e) && once) once.p = true;
+    }
+    const ms = G.state.minions;
+    if (!ms || !G.hurtMinion) return;
+    const k = e.isBoss ? G.BOSS_VS_MINION || 1.6 : 1;
+    for (let j = ms.length - 1; j >= 0; j--) {
+      const m = ms[j];
+      if (!m || m.dead || (once && once.m.has(m))) continue;
+      if (Math.hypot(m.x - x, m.z - z) <= r + (m.r || 0.5)) {
+        G.hurtMinion(m, dmg * k, dtype, e);
+        if (once) once.m.add(m);
+      }
+    }
+  }
+  function segDist(x, z, ax, az, bx, bz) {
+    const ux = bx - ax, uz = bz - az, l2 = ux * ux + uz * uz;
+    const t = l2 > 0 ? G.clamp(((x - ax) * ux + (z - az) * uz) / l2, 0, 1) : 0;
+    return Math.hypot(x - (ax + ux * t), z - (az + uz * t));
+  }
+
+  // ---------- 隙影：保持距离放电弹；隔一阵闪到玩家侧面，现身后补一轮三连扇射 ----------
+  const BLINK_T = 0.45; // 闪身：原地隐去、落点亮预警环的时长
+  const BLINK_AIM = 0.5; // 现身到开火
+  function blinkSpot(e, P) {
+    const W = G.world, away = Math.atan2(e.x - P.x, e.z - P.z), es = G.state.enemies;
+    for (let i = 0; i < 12; i++) {
+      const a = away + (i & 1 ? 1 : -1) * G.rand(1.1, 2.1), d = G.rand(5.5, 7.5);
+      const x = P.x + Math.sin(a) * d, z = P.z + Math.cos(a) * d;
+      if (!W.walkable(x, z, e.r + 0.4) || !W.inView(x, z)) continue;
+      if (Math.hypot(x - e.x, z - e.z) < 3 || !lineClear(x, z, P.x, P.z, 0.3)) continue;
+      let crowd = false;
+      for (let j = 0; j < es.length && !crowd; j++) {
+        const o = es[j];
+        if (o !== e && !o.dead && Math.hypot(o.x - x, o.z - z) < 1.5) crowd = true;
+      }
+      if (!crowd) return { x, z };
+    }
+    return null;
+  }
+  function aiBlink(e, dt, P, dist, spd) {
+    const def = e.def, W = G.world, hex = hexOf(e);
+    if (e.blinkCd > 0) e.blinkCd -= dt * e.slowK;
+    if (e.state === 'blink') {
+      e.stateT -= dt;
+      if (e.stateT > 0) return;
+      // 现身：落在预警环里，转向目标，短暂瞄准后三连扇射
+      e.x = e.blinkX;
+      e.z = e.blinkZ;
+      e.ang = angTo(e, P.x, P.z);
+      e.kvx = e.kvz = 0;
+      W.setEnt(e.ent, e.x, e.z, e.ang);
+      W.play(e.ent, 'appear');
+      W.burst(e.x, 1.3, e.z, hex, 16, 4.5, 0.4);
+      W.ring(e.x, e.z, 1.6, hex, 0.3);
+      e.state = 'windup';
+      e.stateT = BLINK_AIM;
+      e.fan = true;
+      e.navT = 0;
+      return;
+    }
+    if (e.state === 'windup' && e.fan) {
+      e.stateT -= dt;
+      turn(e, angTo(e, P.x, P.z), 9, dt);
+      strikeAnim(e, e.stateT);
+      if (e.stateT > 0) return;
+      e.state = 'idle';
+      e.fan = false;
+      if (!W.inView(e.x, e.z)) {
+        e.atkCd = 0.3;
+        W.stop(e.ent);
+        return;
+      }
+      const a = angTo(e, P.x, P.z), volley = volleySeq++;
+      e.ang = a;
+      if (W.clipOf(e.ent) !== 'attack') W.play(e.ent, 'attack');
+      for (let i = -1; i <= 1; i++) shoot(e, a + i * 0.24, 12, e.dmg * 0.85, 0.32, 2.3, e.r + 0.3, volley);
+      G.sfx('cast');
+      e.atkCd = def.cd * G.rand(0.9, 1.2);
+      return;
+    }
+    // 闪身：被贴近了，或者正好准备出手——落点在玩家侧面 5.5–7.5 远、画面之内、和玩家之间没有遮挡
+    if (e.state === 'idle' && e.blinkCd <= 0 && W.inView(e.x, e.z) && dist < 13 && (dist < RANGED_FLEE + 0.5 || e.atkCd <= 0.2)) {
+      const d = blinkSpot(e, P);
+      if (d) {
+        e.state = 'blink';
+        e.stateT = BLINK_T;
+        e.blinkX = d.x;
+        e.blinkZ = d.z;
+        e.blinkCd = G.rand(4.5, 6.5);
+        e.vis = 0;
+        W.play(e.ent, 'blink', { dur: BLINK_T });
+        W.ring(d.x, d.z, 1.3, hex, BLINK_T); // 落点预警
+        W.burst(e.x, 1.2, e.z, hex, 10, 3, 0.35);
+        return;
+      }
+      e.blinkCd = 0.8;
+    }
+    aiRanged(e, dt, P, dist, spd);
+  }
+
+  // ---------- 陨角兽：刨地蓄力（地上亮出冲锋道），沿直线猛冲，撞墙会晕；贴身时用角顶 ----------
+  const CHARGE_SPEED = 17;
+  const GORE_T = 0.45;
+  const GORE_REACH = 1.7;
+  function chargeHits(e, P) {
+    const once = e.dashHit, R = e.r + 0.35;
+    P = G.player; // 冲锋撞上谁算谁：不管它原本盯的是玩家还是召唤物
+    if (!once.p && !P.dead && Math.hypot(P.x - e.x, P.z - e.z) <= R + PLAYER_R) {
+      if (G.hurtPlayer(e.dmg, 'phys', e)) {
+        once.p = true;
+        G.world.shake(0.25);
+      }
+    }
+    const ms = G.state.minions;
+    if (!ms || !G.hurtMinion) return;
+    for (let j = ms.length - 1; j >= 0; j--) {
+      const m = ms[j];
+      if (!m || m.dead || once.m.has(m) || m.rising > 0) continue;
+      if (Math.hypot(m.x - e.x, m.z - e.z) <= R + (m.r || 0.5)) {
+        G.hurtMinion(m, e.dmg, 'phys', e);
+        once.m.add(m);
+      }
+    }
+  }
+  function aiCharge(e, dt, P, dist, spd) {
+    const def = e.def, W = G.world;
+    if (e.goreCd > 0) e.goreCd -= dt;
+    if (e.state === 'windup') {
+      e.stateT -= dt;
+      if (e.gore) {
+        turn(e, angTo(e, P.x, P.z), 4, dt);
+        strikeAnim(e, e.stateT);
+        e.vis = -0.25 * (1 - Math.max(0, e.stateT) / GORE_T);
+        if (e.stateT > 0) return;
+        W.slash(e.x, e.z, e.ang, GORE_REACH + e.r + 0.4, 90, WARN_HEX);
+        if (W.clipOf(e.ent) !== 'attack') W.play(e.ent, 'attack');
+        if (Math.hypot(P.x - e.x, P.z - e.z) <= GORE_REACH + e.r + (P.r || PLAYER_R)) strike(P, e.dmg * 0.7, 'phys', e);
+        e.gore = false;
+        e.state = 'recover';
+        e.stateT = 0.4;
+        e.vis = 0.3;
+        e.goreCd = 1.6;
+        return;
+      }
+      // 冲锋蓄力：方向锁死在预警道上，后蹄刨地扬尘
+      e.vis = -0.28 * (1 - Math.max(0, e.stateT) / def.windup);
+      if (Math.random() < dt * 14) W.burst(e.x - e.laneDx * e.r, 0.2, e.z - e.laneDz * e.r, 0xbfb6a6, 2, 2, 0.35);
+      if (e.stateT > 0) return;
+      e.state = 'dash';
+      e.dashLeft = e.laneLen;
+      e.dashHit = mkOnce();
+      e.vis = 0;
+      e.ang = Math.atan2(e.laneDx, e.laneDz);
+      W.play(e.ent, 'charge', { loop: true });
+      W.ring(e.x, e.z, e.r + 1, WARN_HEX, 0.25);
+      G.sfx('hit');
+      return;
+    }
+    if (e.state === 'dash') {
+      const pad = e.r * 0.8;
+      let remain = Math.min(e.dashLeft, CHARGE_SPEED * e.slowK * dt), wall = false;
+      e.dashLeft -= remain;
+      while (remain > 1e-6) {
+        const m = Math.min(0.35, remain);
+        const nx = e.x + e.laneDx * m, nz = e.z + e.laneDz * m;
+        if (!W.walkable(nx, nz, pad)) {
+          wall = true;
+          break;
+        }
+        e.x = nx;
+        e.z = nz;
+        remain -= m;
+        chargeHits(e, P);
+      }
+      if (Math.random() < dt * 20) W.burst(e.x, 0.2, e.z, 0xbfb6a6, 2, 2.5, 0.3);
+      if (wall || e.dashLeft <= 1e-3) {
+        W.stop(e.ent, 0.15);
+        e.state = 'recover';
+        e.atkCd = def.cd * G.rand(0.9, 1.2);
+        if (wall) {
+          // 一头撞上岩壁：晕一下，正是还手的时候
+          e.stateT = 0.15;
+          e.stagT = Math.max(e.stagT, 1.2);
+          W.burst(e.x + e.laneDx * e.r, 1, e.z + e.laneDz * e.r, 0xd8c8b0, 14, 5, 0.4);
+          W.shake(0.18);
+          G.sfx('hit');
+        } else e.stateT = 0.6;
+      }
+      return;
+    }
+    if (e.state === 'recover') {
+      e.stateT -= dt;
+      e.vis = Math.max(0, e.vis - dt * 1.4);
+      if (e.stateT <= 0) {
+        e.state = 'idle';
+        e.vis = 0;
+      }
+      return;
+    }
+    if (dist <= GORE_REACH + 0.5 && !(e.goreCd > 0) && e.navDirect) {
+      e.state = 'windup';
+      e.gore = true;
+      e.stateT = GORE_T;
+      W.play(e.ent, 'windup', { dur: GORE_T });
+      W.ring(e.x, e.z, e.r + 0.8, WARN_HEX, GORE_T);
+      return;
+    }
+    if (e.atkCd <= 0 && dist >= 3.2 && dist <= def.range && e.navDirect && W.inView(e.x, e.z)) {
+      const a = angTo(e, P.x, P.z), len = Math.min(13, dist + 4), w = 2 * (e.r + 0.45);
+      e.ang = a;
+      e.laneDx = Math.sin(a);
+      e.laneDz = Math.cos(a);
+      e.laneLen = len;
+      e.state = 'windup';
+      e.gore = false;
+      e.stateT = def.windup;
+      W.play(e.ent, 'windup', { dur: def.windup });
+      G.telegraph({
+        shape: 'rect', x: e.x + e.laneDx * len * 0.5, z: e.z + e.laneDz * len * 0.5, len, w, ang: a, dur: def.windup,
+        dmg: 0, dtype: 'phys', owner: e, cancelIfOwnerDead: true, friendly: false,
+      });
+      return;
+    }
+    if (dist > def.range * 0.7 || !e.navDirect) chase(e, P, spd, dt);
+    else if (dist > GORE_REACH + 0.3) chase(e, P, spd * 0.45, dt);
+    else turn(e, angTo(e, P.x, P.z), 8, dt);
+  }
+
+  const MOB_AI = { melee: aiMelee, slam: aiSlam, ranged: aiRanged, bomb: aiBomb, blink: aiBlink, charge: aiCharge };
 
   // ---------- 首领招式 ----------
   // 弹幕类招式出手前的蓄力提示
@@ -705,6 +967,21 @@
       }
     }
     return spots;
+  }
+
+  // 引力井把玩家往 (x, z) 拽：越靠近井心拽得越狠；翻滚时只剩四成；处决途中不动
+  function pullPlayer(x, z, R, dt) {
+    const P = G.player, W = G.world;
+    if (P.dead || P.exec) return;
+    const dx = x - P.x, dz = z - P.z, d = Math.hypot(dx, dz);
+    if (d >= R || d < 0.25) return;
+    let v = 3.4 * (0.55 + 0.45 * (1 - d / R));
+    if (P.roll && P.roll.t > 0) v *= 0.4;
+    const m = Math.min(d - 0.2, v * dt), nx = P.x + (dx / d) * m, nz = P.z + (dz / d) * m;
+    if (W.walkable(nx, nz, 0.5)) {
+      P.x = nx;
+      P.z = nz;
+    }
   }
 
   const PATTERNS = {
@@ -860,10 +1137,158 @@
         if (live(e, seq)) lay(Math.PI / 4);
       });
     },
+    // ----- 衔星巨兽的三种新招式 -----
+    // 流星犁地：几道落点从首领脚下沿直线朝外一路推进（像犁过地面），每道线对同一个目标只打一次；狂暴时 5 道
+    starfall(e, P) {
+      const W = G.world, seq = e.seq, hex = hexOf(e), x0 = e.x, z0 = e.z;
+      const WIND = 0.7, FUSE = 0.55, GAP = 0.085, STEP = 2.1, R = 1.35;
+      const n = e.enraged ? 5 : 3, spread = e.enraged ? 0.36 : 0.5, base = angTo(e, P.x, P.z);
+      e.aim = base;
+      let maxK = 0;
+      for (let l = 0; l < n; l++) {
+        const a = base + (l - (n - 1) / 2) * spread, sx = Math.sin(a), sz = Math.cos(a), once = mkOnce();
+        for (let k = 0; k < 14; k++) {
+          const d = e.r + 1.4 + k * STEP, x = x0 + sx * d, z = z0 + sz * d;
+          if (!G.world.walkable(x, z, 0)) break;
+          maxK = Math.max(maxK, k);
+          G.after(Math.max(0, WIND - FUSE + k * GAP), () => {
+            if (!live(e, seq)) return;
+            G.telegraph({
+              shape: 'circle', x, z, r: R, dur: FUSE, dmg: 0, dtype: e.elem, owner: e, cancelIfOwnerDead: true, friendly: false,
+              onFire() {
+                if (!live(e, seq)) return;
+                zap(e, x, z, R, e.dmg * 1.05, e.elem, once);
+                if (W.riftStrike) W.riftStrike(x, z, R, hex, k === 0);
+                else W.burst(x, 0.4, z, hex, 10, 5, 0.35);
+                if (k === 0 && l === 0) {
+                  W.shake(0.3);
+                  G.sfx('hit');
+                }
+              },
+            });
+          });
+        }
+      }
+      e.busy = WIND + maxK * GAP + 0.6;
+      cue(e, WIND);
+    },
+    // 坍缩：玩家脚下张开一口引力井，半径 7 以内的人被往井心拽（翻滚时拽得轻）；到点内爆，井心 2.8 以内重创。
+    // 狂暴时内爆再向外炸出一圈星屑弹
+    gravity(e, P) {
+      const W = G.world, seq = e.seq, hex = hexOf(e);
+      const WIND = 0.6, PULL = e.enraged ? 1.8 : 1.6, R = 7, CORE = 2.8;
+      e.aim = angTo(e, P.x, P.z);
+      e.busy = WIND + PULL + 0.45;
+      cue(e, WIND);
+      G.after(WIND, () => {
+        if (!live(e, seq)) return;
+        const x = P.x, z = P.z, once = mkOnce();
+        let t = 0;
+        G.telegraph({ shape: 'circle', x, z, r: CORE, dur: PULL, dmg: 0, dtype: e.elem, owner: e, cancelIfOwnerDead: true, friendly: false });
+        addHazard({
+          e, seq,
+          update(dt) {
+            t += dt;
+            pullPlayer(x, z, R, dt);
+            if (W.riftWell) W.riftWell(x, z, R, CORE, hex, Math.min(1, t / PULL), dt);
+            if (t < PULL) return true;
+            zap(e, x, z, CORE, e.dmg * 1.8, e.elem, once);
+            if (W.riftWell) W.riftWell(x, z, R, CORE, hex, -1, 0);
+            else W.burst(x, 0.6, z, hex, 30, 8, 0.5);
+            W.shake(0.45);
+            G.sfx('hit');
+            if (e.enraged) {
+              const volley = volleySeq++, off = Math.random() * TAU;
+              for (let i = 0; i < 10; i++) {
+                const a = off + (i * TAU) / 10;
+                G.spawnProjectile({
+                  owner: 'e', x: x + Math.sin(a) * 0.8, z: z + Math.cos(a) * 0.8, dx: Math.sin(a), dz: Math.cos(a), speed: 7.5, r: 0.38, life: 2.4,
+                  color: hex, dmg: e.dmg * 0.7, dtype: e.elem, volley, vk: BOSS_SHOT[e.bossKind],
+                });
+              }
+            }
+            return false;
+          },
+          end() {
+            if (W.riftWell) W.riftWell(x, z, R, CORE, hex, -2, 0);
+          },
+        });
+      });
+      return PULL;
+    },
+    // 衔星吐息：先亮出射线的起始方向，然后口中射线横扫约 110°（起点偏在玩家一侧，躲法是绕到起始线后面或者翻滚穿过去）；
+    // 狂暴时扫过去再扫回来
+    sweep(e, P) {
+      const W = G.world, seq = e.seq, hex = hexOf(e);
+      const WIND = 0.9, LEN = 24, HW = 1.1, ARC = 1.9, SW = e.enraged ? 2.3 : 1.6;
+      const side = Math.random() < 0.5 ? 1 : -1, a0 = angTo(e, P.x, P.z) - side * ARC * 0.4;
+      const mouth = (a, o) => {
+        o.x = e.x + Math.sin(a) * e.r * 1.1;
+        o.z = e.z + Math.cos(a) * e.r * 1.1;
+        return o;
+      };
+      const o = mouth(a0, { x: 0, z: 0 });
+      e.aim = a0;
+      e.busy = WIND + SW + 0.45;
+      G.telegraph({
+        shape: 'rect', x: o.x + Math.sin(a0) * LEN * 0.5, z: o.z + Math.cos(a0) * LEN * 0.5, len: LEN, w: HW * 2, ang: a0, dur: WIND,
+        dmg: 0, dtype: e.elem, owner: e, cancelIfOwnerDead: true, friendly: false,
+      });
+      G.after(WIND, () => {
+        if (!live(e, seq)) return;
+        const lane = G.telegraph({
+          shape: 'rect', x: o.x + Math.sin(a0) * LEN * 0.5, z: o.z + Math.cos(a0) * LEN * 0.5, len: LEN, w: HW * 2, ang: a0, dur: SW + 0.1,
+          dmg: 0, dtype: e.elem, owner: e, cancelIfOwnerDead: true, friendly: false,
+        });
+        const mHit = new Map();
+        let t = 0, hitT = -9;
+        addHazard({
+          e, seq,
+          update(dt) {
+            t += dt;
+            const k = Math.min(1, t / SW), sm = (v) => v * v * (3 - 2 * v);
+            const u = e.enraged ? (k < 0.5 ? sm(k / 0.5) : 1 - sm((k - 0.5) / 0.5)) : sm(k);
+            const a = a0 + side * ARC * u, sx = Math.sin(a), sz = Math.cos(a);
+            e.aim = e.ang = a;
+            mouth(a, o);
+            const ex = o.x + sx * LEN, ez = o.z + sz * LEN;
+            lane.x = o.x + sx * LEN * 0.5;
+            lane.z = o.z + sz * LEN * 0.5;
+            lane.ang = a;
+            if (lane.handle && lane.handle.mesh) {
+              lane.handle.mesh.position.x = lane.x;
+              lane.handle.mesh.position.z = lane.z;
+              lane.handle.mesh.rotation.y = a;
+            }
+            if (W.riftBeam) W.riftBeam(o.x, o.z, ex, ez, hex, 1);
+            const Pl = G.player;
+            if (t - hitT >= 0.45 && !Pl.dead && segDist(Pl.x, Pl.z, o.x, o.z, ex, ez) <= HW + PLAYER_R) {
+              if (G.hurtPlayer(e.dmg * 0.9, e.elem, e)) hitT = t;
+            }
+            const ms = G.state.minions;
+            if (ms && G.hurtMinion) {
+              for (let j = ms.length - 1; j >= 0; j--) {
+                const m = ms[j];
+                if (!m || m.dead || t - (mHit.has(m) ? mHit.get(m) : -9) < 0.45) continue;
+                if (segDist(m.x, m.z, o.x, o.z, ex, ez) <= HW + (m.r || 0.5)) {
+                  G.hurtMinion(m, e.dmg * 0.9 * (G.BOSS_VS_MINION || 1.6), e.elem, e);
+                  mHit.set(m, t);
+                }
+              }
+            }
+            return t < SW;
+          },
+          end() {
+            if (W.riftBeam) W.riftBeam(0, 0, 0, 0, hex, 0);
+          },
+        });
+      });
+      return SW;
+    },
   };
 
   // 各招式从起手到出手的秒数（和上面预警 / 延时的数值对应），以及之后追加出手的时刻
-  const PATTERN_WIND = { slam: 0.95, charge: 0.75, ring: 0.45, fan: 0.4, barrage: 0.3, summon: 0.5, spiral: 0.25, cross: 0.9 };
+  const PATTERN_WIND = { slam: 0.95, charge: 0.75, ring: 0.45, fan: 0.4, barrage: 0.3, summon: 0.5, spiral: 0.25, cross: 0.9, starfall: 0.7, gravity: 0.6, sweep: 0.9 };
   const PATTERN_HITS = { fan: [0, 0.35, 0.7], cross: [0, 0.6] };
   function startPattern(e, P, dist) {
     const pats = e.def.patterns;
@@ -875,7 +1300,7 @@
     if (!opts.length) opts = pats;
     const p = G.pick(opts);
     e.lastPattern = p;
-    PATTERNS[p](e, P, dist);
+    const hold = PATTERNS[p](e, P, dist); // 返回值：持续型招式在出手之后还要持续多久（出手动作跟着拉长）
     // 动作：先摆蓄力姿势，出手动作提前「命中帧之前的那一小段」开始播，
     // 这样锤子落地 / 弹幕离手正好对在预警结算（伤害生效）的那一刻；多段的招式每一段都出手一次
     const W = G.world, seq = e.seq, wind = PATTERN_WIND[p];
@@ -886,6 +1311,7 @@
       const opts = { contact: Math.max(lead, 0.001) };
       if (p === 'spiral') opts.dur = 1.8 + lead;
       else if (p === 'barrage') opts.dur = 1.1 + lead;
+      else if (hold > 0) opts.dur = hold + lead;
       G.after(wind + at - lead, () => {
         if (live(e, seq)) W.play(e.ent, p, opts);
       });
@@ -943,6 +1369,14 @@
   G.interruptEnemy = function (e, dur) {
     if (!e || e.dead || e.isBoss || e.elite || e.def.sturdy) return false;
     let cut = false;
+    if (e.state === 'dash') {
+      // 陨角兽冲到一半被重击：冲锋就此停下
+      e.state = 'recover';
+      e.stateT = 0.3;
+      e.atkCd = Math.max(e.atkCd, e.def.cd * 0.6);
+      G.world.stop(e.ent);
+      cut = true;
+    }
     if (e.state === 'windup' || e.state === 'fuse') {
       // 起手已经走完大半：收不住了，这一下照常打出来（要打断就得趁早）
       if (e.stateT < e.def.windup * COMMIT) return false;
@@ -950,6 +1384,7 @@
       e.state = 'idle';
       e.stateT = 0;
       e.vis = 0;
+      e.fan = e.gore = false;
       e.atkCd = Math.max(e.atkCd, G.rand(0.35, 0.6));
       G.world.stop(e.ent);
       cut = true;
@@ -972,6 +1407,7 @@
     e.state = 'idle';
     e.stateT = 0;
     e.vis = 0;
+    e.fan = e.gore = false;
     e.stunT = e.freeze = e.stagT = 0;
     e.stunAnim = false;
     if (e.isBoss) {
@@ -1015,7 +1451,7 @@
   function pushWeight(e) {
     if (e.isBoss) return 0;
     if (e.brokenT > 0) return 0; // 破绽中钉在原地（处决的落点才对得上）
-    if (e.state === 'windup' || e.state === 'fuse') return 0; // 出手中不被挤动，预警位置才对得上
+    if (e.state === 'windup' || e.state === 'fuse' || e.state === 'dash' || e.state === 'blink') return 0; // 出手中不被挤动，预警位置才对得上
     if (e.freeze > 0 || e.stunT > 0) return 0.2;
     return 1;
   }
@@ -1059,6 +1495,7 @@
     near.length = 0;
     active.length = 0;
     const bossNear = Math.hypot(P.x - zone.bossPos.x, P.z - zone.bossPos.z) < zone.bossR - 1;
+    if (hazards.length) updateHazards(dt);
 
     for (let i = list.length - 1; i >= 0; i--) {
       const e = list[i];
@@ -1159,6 +1596,7 @@
   // 玩家重生：全部回到出生点并沉睡，首领回满血
   G.resetEnemies = function () {
     const W = G.world, list = G.state.enemies;
+    clearHazards();
     for (let i = list.length - 1; i >= 0; i--) {
       const e = list[i];
       if (e.dead) continue; // 正在收缩的尸体交给 updateEnemies 收尾
@@ -1196,6 +1634,9 @@
       e.poiseT = e.poiseHit = e.brokenT = 0;
       e.breaks = 0;
       e.executed = e.execLock = false;
+      e.fan = e.gore = false;
+      e.blinkCd = G.rand(1.5, 3);
+      e.goreCd = 0;
       W.stop(e.ent, 0);
       if (e.isBoss) {
         e.hp = e.maxHp;
@@ -1211,6 +1652,7 @@
 
   G.clearEnemies = function () {
     const W = G.world, list = G.state.enemies;
+    clearHazards();
     for (const e of list) {
       e.dead = true; // 让还挂着的延迟回调和预警圈全部失效
       e.seq++;

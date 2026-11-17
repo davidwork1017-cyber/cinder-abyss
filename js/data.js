@@ -44,6 +44,25 @@
   G.ATTACK_GEM_LVL = 0.012;
   G.FISTS = { min: 2, max: 4, aps: 1 }; // 空手
 
+  // ---------- 远程武器：量表 ----------
+  // 拿着枪械或弓时右键是这把武器的普攻（G.rangedWeapon()），R 被量表卡住：满了（max）才亮，放出去清零。
+  // 热度（枪械）：开火时上涨（每种普攻的 heat / heatShot），最近 hitKeep 秒内没打中任何东西时只涨 miss 倍（对着空地预热很慢）；
+  //   停火 hold 秒后每秒回落 decay。没有过热惩罚。
+  // 专注（弓）：普攻的箭每命中一次 +hit，暴击 × crit，离你 farD 米以外命中 × far；一支箭最多算 cap 次命中（贯穿进怪堆不会一下灌满）；
+  //   你每挨一下 −hurt；hold 秒没有命中后每秒回落 decay；增益生效期间不涨。按发积攒的量（专注、左轮的热度）除以出手速度倍率：射得快不等于 R 来得快。
+  // 节奏（平衡机器人量过）：持续作战时第一次 R 在 11–16 秒，枪械之后每 12–16 秒一次；弓的增益 8 秒里专注不涨，一轮约 18–22 秒。
+  // 远距离：命中点离你 farMin 米以内不算远，到 farMax 米算满（鹰眼的额外伤害、rangeDmg 都按这个比例）
+  G.RANGED = {
+    max: 100,
+    heat: { hold: 1.5, decay: 6, miss: 0.5, hitKeep: 1.0 },
+    focus: { hit: 2.5, crit: 1.6, far: 1.5, farD: 8, cap: 3, hurt: 5, hold: 8, decay: 3 },
+    farMin: 4, farMax: 14,
+  };
+  G.GAUGE_NAME = { heat: '热度', focus: '专注' };
+  // 技能页上「武器普攻」卡的 id：辅助宝石镶在 save.sockets[G.BASIC_CARD] 里，换远程武器时不动
+  G.BASIC_CARD = 'wbasic';
+  // 旧存档里长弓（下标 5）的三个名字：读档时换成鹰眼长弓的同阶名字
+  G.BOW_OLD_NAMES = ['榆木长弓', '筋角长弓', '渊鸣长弓'];
   // ---------- 主动技能 ----------
   // 每个技能的打击手感：w 分量（0 轻 / 1 重 / 2 终结），kb 击退距离（世界单位，按怪物体重折算），
   // poise 每次命中削掉的架势。近战削得最多，法术次之。
@@ -183,14 +202,6 @@
       useMult: 1,
       desc: '高举战锤砸向地面，冲击波朝准星方向推进、越远越宽，重创沿途敌人并将其震飞，削减大量架势。冲击波遇墙即止。',
     },
-    arrowrain: {
-      name: '箭雨', icon: '雨', color: '#bfe0a0', tags: ['weapon', 'attack', 'area', 'phys'], kind: 'wbow', weaponOnly: true, wtype: 'bow',
-      wm: 0.62, time: 0.45, mana: 12, cd: 8, range: 14, radius: 3.5, delay: 0.35, ticks: 12, tick: 0.25, ailment: 50, infuse: true,
-      w: 0, kb: 0.1, poise: 5, move: 0.4,
-      wt: { phases: [0.3], cancel: 0.45, dur: 0.55 },
-      useMult: 12,
-      desc: '朝天射出一蓬箭，约 3 秒内箭矢不断落在准星一带，反复命中范围内的敌人。技能栏上任何技能镶着的注入宝石（灼炎 / 寒霜 / 雷霆）都会附在箭上，并更快累积元素异常值。',
-    },
     flashcut: {
       name: '瞬断', icon: '断', color: '#e8f0ff', tags: ['weapon', 'attack', 'melee', 'phys', 'movement'], kind: 'wkatana', weaponOnly: true, wtype: 'katana',
       wm: 6.9, time: 0.26, mana: 8, cd: 6, range: 8, width: 1.0, dash: 0.14, delay: 0.35, w: 2, kb: 1.0, poise: 40, stop: 100, move: 0,
@@ -210,6 +221,138 @@
       wt: { phases: [0.28], cancel: 0.5, dur: 0.62 },
       useMult: 4,
       desc: '挥动魂幡，放出 4 只魂火扑向准星附近的敌人，碰到即炸开，伤害按召唤物计算（吃召唤物伤害加成）。同时令你所有的召唤物狂热 4 秒：攻击与移动速度提高 30%。没有召唤物时也能用，有召唤物时更强。',
+    },
+
+    // ---------- 远程武器（枪械 / 弓）：右键 = 武器普攻，R = 量表技 ----------
+    // 拿着枪械或弓时，右键自动换成这把武器的普攻（basic: true，id 为 basic_<武器类型>）：不掉落、不进技能栏，技能页上是一张「武器普攻」卡，
+    // 3 个辅助孔属于卡片本身（save.sockets[G.BASIC_CARD]），换别的远程武器时宝石不动，只按当前普攻的标签生效。
+    // 普攻按武器伤害 × wm 成长（等级 = 宝石的成长下限），出手节奏乘武器攻速与出手速度，不消耗魔力。
+    // time：两发之间的秒数（机炮是转满之后的最快间隔；喷枪是两跳之间）；draw：弓第一箭的拉弓时间；
+    // heat：枪械每秒开火增加的热度（左轮按发：heatShot），见 G.RANGED。conv：伤害转换（{ 元素: 比例 }，'rune' = 符文弓按元素加成取元素）
+    basic_gatling: {
+      name: '开火', icon: '射', color: '#ffc46a', tags: ['attack', 'projectile', 'phys'], kind: 'rbasic', rtype: 'gatling', weaponOnly: true, basic: true,
+      // spin：枪管空转多久才开火；rate0：刚转起来时的射速比例，ramp 秒后到最快；spread：弹道散布（度）
+      // pierce：每发子弹自带穿透 1 个敌人（扫怪群时打得到后排）
+      wm: 0.7, time: 0.083, mana: 0, cd: 0, spin: 0.5, rate0: 0.4, ramp: 2.5, speed: 42, projR: 0.18, range: 18, spread: 4, pierce: 1,
+      heat: 6.5, move: 0.35, w: 0, kb: 0.06, poise: 4, addEff: 0.25,
+      desc: '按住右键：枪管先空转约 0.5 秒，转起来之后开火，射速越打越快（约 2.5 秒后最快）。每一发子弹穿透 1 个敌人。开火时移动很慢，每一发都削不少架势。持续开火积攒热度。装备上的附加伤害只按 25% 计。',
+    },
+    basic_flamer: {
+      name: '开火', icon: '焰', color: '#ff8a3c', tags: ['attack', 'area', 'fire'], kind: 'rbasic', rtype: 'flamer', weaponOnly: true, basic: true,
+      // 身前 range 半径、arc 度的扇面，每 time 秒一跳；ember：每 gap 秒在火舌尽头留下一团余烬（半径 r、持续 dur 秒、每 tick 秒对里面的敌人造成 mult 倍伤害，
+      // 同一个敌人站在几团余烬里也只按一团算）
+      wm: 0.45, time: 0.1, mana: 0, cd: 0, range: 5.5, arc: 60, conv: { fire: 1 }, ailment: 50,
+      ember: { gap: 0.3, r: 1.5, dur: 2.5, tick: 0.5, mult: 0.3 },
+      heat: 6.5, move: 0.55, w: 0, kb: 0, poise: 2, addEff: 0.3, // 火舌不推人：一秒十跳，推开了就喷不到了
+      desc: '按住右键喷出火舌：身前短距离的扇面内持续灼烧所有敌人（全部是火焰伤害，异常值累积很快），并在地上留下燃烧的余烬。持续开火积攒热度。装备上的附加伤害只按 30% 计。',
+    },
+    basic_revolver: {
+      name: '开火', icon: '射', color: '#ffd28a', tags: ['attack', 'projectile', 'phys'], kind: 'rbasic', rtype: 'revolver', weaponOnly: true, basic: true,
+      // clip 发一轮，打空后 reload 秒自动装填
+      wm: 1.05, time: 0.27, mana: 0, cd: 0, clip: 6, reload: 0.6, speed: 46, projR: 0.2, range: 20,
+      heatShot: 2.4, move: 0.8, w: 0, kb: 0.35, poise: 9, stop: 12, addEff: 0.75,
+      desc: '右键开枪：单发伤害高、又快又准，可以边走边打。每打完 6 发自动快速装填。每一发都积攒热度。装备上的附加伤害按 75% 计。',
+    },
+    basic_huntbow: {
+      name: '射击', icon: '矢', color: '#bfe8a0', tags: ['attack', 'projectile', 'phys'], kind: 'rbasic', rtype: 'huntbow', weaponOnly: true, basic: true,
+      // seek：箭会拐向身边 seek 米内的敌人，turn 每秒最多转的弧度；pierce：自带穿透 1 个敌人，穿过之后重新找下一个猎物（见 afterPlayerHit）
+      wm: 0.9, time: 0.38, mana: 0, cd: 0, draw: 0.12, speed: 30, projR: 0.24, range: 22, seek: 7, turn: 7, pierce: 1,
+      move: 0.6, w: 0, kb: 0.3, poise: 6,
+      desc: '右键射箭：箭矢会自己拐向附近的敌人，射中后还会穿过去、再追下一个敌人。命中积攒专注，暴击和远距离命中积攒得更多。',
+    },
+    basic_eagle: {
+      name: '射击', icon: '矢', color: '#e8f0d0', tags: ['attack', 'projectile', 'phys'], kind: 'rbasic', rtype: 'eagle', weaponOnly: true, basic: true,
+      // critFlat / critMulti：普攻自带的暴击率与暴击伤害；far：距离 G.RANGED.farMax 以外命中时额外的伤害（之间按距离线性）
+      wm: 1.0, time: 0.48, mana: 0, cd: 0, draw: 0.16, speed: 40, projR: 0.22, range: 26, critFlat: 12, critMulti: 50, far: 0.35,
+      move: 0.5, w: 0, kb: 0.5, poise: 9,
+      desc: '右键射箭：暴击率与暴击伤害很高，离得越远伤害越高。命中积攒专注，暴击和远距离命中积攒得更多。',
+    },
+    basic_runebow: {
+      name: '射击', icon: '矢', color: '#c9a6ff', tags: ['attack', 'projectile', 'phys'], kind: 'rbasic', rtype: 'runebow', weaponOnly: true, basic: true,
+      // conv 'rune'：convK 的伤害转成你元素伤害加成最高的那种元素（都没有加成时火 / 冰 / 雷轮流）
+      // chain：符文箭命中后弹向附近另一个敌人一次（打怪群时元素异常铺得开）
+      wm: 1.15, time: 0.4, mana: 0, cd: 0, draw: 0.13, speed: 32, projR: 0.24, range: 22, conv: 'rune', convK: 0.6, ailment: 40, chain: 1,
+      move: 0.6, w: 0, kb: 0.3, poise: 6,
+      desc: '右键射箭：箭上带着元素（取你元素伤害加成最高的那种，没有加成时火、冰、雷轮流），异常值累积很快，命中后还会弹向附近另一个敌人一次。命中积攒专注。',
+    },
+    basic_emberbow: {
+      name: '射击', icon: '矢', color: '#ff9b3d', tags: ['attack', 'projectile', 'phys'], kind: 'rbasic', rtype: 'emberbow', weaponOnly: true, basic: true,
+      // spark：每支箭命中后迸出一点余烬，跳向 r 米内最近的另一个敌人，最多跳 n 次，每跳 mult 倍伤害（全部转为火焰）
+      wm: 1.1, time: 0.42, mana: 0, cd: 0, draw: 0.13, speed: 34, projR: 0.24, range: 22, spark: { n: 2, r: 6, mult: 0.35 },
+      move: 0.6, w: 0, kb: 0.3, poise: 7,
+      desc: '右键射箭：每支箭命中后迸出余烬，在附近的敌人之间连跳 2 次，造成火焰伤害。命中积攒专注。',
+    },
+
+    // R（量表技）：rgauge 为 true——没有冷却、不扣魔力，量表满了才能放，放出去量表清零。枪械的三招按武器伤害成长（吃「热度技伤害」），
+    // 弓的四招是限时增益（buff.dur 秒，吃「增益持续时间」）
+    meltray: {
+      name: '熔光射线', icon: '光', color: '#ffb36a', tags: ['weapon', 'attack', 'fire', 'light'], kind: 'rgatling', weaponOnly: true, wtype: 'gatling', rgauge: true,
+      // dur 秒的光束：每 tick 秒对一条长 len、宽 width 的直线上所有敌人造成 wm 倍伤害（一半火焰一半闪电），光束每秒最多转 turn 弧度追向准星
+      wm: 1.6, time: 0.3, mana: 0, cd: 0, tick: 0.1, dur: 3, len: 16, width: 1.4, turn: 2.6, conv: { fire: 0.5, light: 0.5 }, ailment: 40,
+      w: 0, kb: 0.05, poise: 4, move: 0.35,
+      wclip: 'r_gatling',
+      wt: { phases: [0.3], cancel: 9, dur: 9, clip: { dur: 3.3, at: 0.3 } }, // 时长由光束自己管（起手 0.3 秒 + 光束 3 秒）
+      useMult: 48,
+      desc: '热度满时可用：枪口喷出持续 3 秒的熔光射线，贯穿一条直线上的所有敌人，慢慢转向准星。伤害一半火焰、一半闪电，同时累积两种异常值。放完热度归零。',
+    },
+    firestorm: {
+      name: '焚天炎爆', icon: '爆', color: '#ff6a2c', tags: ['weapon', 'attack', 'area', 'fire'], kind: 'rflamer', weaponOnly: true, wtype: 'flamer', rgauge: true,
+      // 半径 radius 的火浪，wm 倍武器伤害（全部火焰）；之后留下半径 burn.r 的火场，burn.dur 秒内每 burn.tick 秒 burn.mult 倍武器伤害
+      wm: 14, time: 0.75, mana: 0, cd: 0, radius: 7.5, conv: { fire: 1 }, ailment: 100, burn: { r: 6, dur: 5, tick: 0.5, mult: 1 },
+      w: 2, kb: 2.6, poise: 70, stop: 110, move: 0.1,
+      wclip: 'r_flamer',
+      wt: { phases: [0.42], cancel: 0.75, dur: 0.9 },
+      useMult: 24,
+      desc: '热度满时可用：一口气排空所有热度，以你为中心炸开一圈巨大的火浪，重创并震退周围的敌人，并留下 5 秒的大片火场。',
+    },
+    wildfire: {
+      name: '乱射', icon: '乱', color: '#ffcf7a', tags: ['weapon', 'attack', 'projectile', 'phys'], kind: 'rrevolver', weaponOnly: true, wtype: 'revolver', rgauge: true, uskill: true,
+      // dur 秒里每 gap 秒朝 range 米内的敌人（轮流挑最近的几个）开一枪，没有敌人时朝四周乱射；期间照常走动、不会被打断
+      wm: 0.5, time: 0.2, mana: 0, cd: 0, dur: 3, gap: 0.07, range: 12, speed: 46, projR: 0.2,
+      w: 0, kb: 0.25, poise: 5, move: 1,
+      wclip: 'r_revolver',
+      wt: { phases: [0.08], cancel: 0.15, dur: 0.2, clip: { dur: 3, at: 0.08 } },
+      useMult: 18,
+      desc: '热度满时可用：接下来 3 秒里朝四面八方疯狂开火，自动瞄准身边的敌人，期间可以自由走动、不会被打断。放完热度归零。',
+    },
+    volley: {
+      name: '万矢', icon: '矢', color: '#bfe8a0', tags: ['weapon', 'attack'], kind: 'rbuff', weaponOnly: true, wtype: 'huntbow', rgauge: true,
+      // split：每支箭分成几支追踪箭，每支 mult 倍伤害；fan：散开的角度
+      buff: { dur: 8, split: 5, mult: 0.4, fan: 50 },
+      time: 0.4, mana: 0, cd: 0, w: 0, kb: 0, poise: 0, move: 0.5,
+      wclip: 'r_huntbow',
+      wt: { phases: [0.22], cancel: 0.4, dur: 0.5 },
+      useMult: 0,
+      desc: '专注满时可用：8 秒内每一支箭都分裂成 5 支追踪箭（每支 40% 伤害），各自扑向附近的敌人。放完专注归零。',
+    },
+    pierceheart: {
+      name: '一矢穿心', icon: '穿', color: '#e8f4ff', tags: ['weapon', 'attack'], kind: 'rbuff', weaponOnly: true, wtype: 'eagle', rgauge: true,
+      buff: { dur: 8, crit: 100, pierce: 99 },
+      time: 0.4, mana: 0, cd: 0, w: 0, kb: 0, poise: 0, move: 0.5,
+      wclip: 'r_eagle',
+      wt: { phases: [0.22], cancel: 0.4, dur: 0.5 },
+      useMult: 0,
+      desc: '专注满时可用：8 秒内每一支箭都必定暴击，并贯穿路上的所有敌人。放完专注归零。',
+    },
+    overflow: {
+      name: '元素满溢', icon: '溢', color: '#c9a6ff', tags: ['weapon', 'attack'], kind: 'rbuff', weaponOnly: true, wtype: 'runebow', rgauge: true,
+      // 箭的伤害全部转成元素，火 → 冰 → 雷轮流；异常累积 × ailment；每次命中在目标处炸开半径 burst.r、burst.mult 倍伤害的同元素小爆炸
+      buff: { dur: 8, ailment: 2, burst: { r: 2.2, mult: 0.4 } },
+      time: 0.4, mana: 0, cd: 0, w: 0, kb: 0, poise: 0, move: 0.5,
+      wclip: 'r_runebow',
+      wt: { phases: [0.22], cancel: 0.4, dur: 0.5 },
+      useMult: 0,
+      desc: '专注满时可用：8 秒内箭矢全部化为元素，火、冰、雷轮流，异常值累积翻倍，每次命中还在目标处炸开一团同元素的小爆炸。放完专注归零。',
+    },
+    emberstorm: {
+      name: '燎原', icon: '燎', color: '#ff9b3d', tags: ['weapon', 'attack', 'fire'], kind: 'rbuff', weaponOnly: true, wtype: 'emberbow', rgauge: true, uskill: true,
+      // fan：每次射出几支箭（各 mult 倍伤害）；spark：余烬改为跳 n 次、每跳 mult 倍；blast：被箭或余烬打死的敌人炸开（半径 r、mult 倍火焰伤害）
+      buff: { dur: 8, fan: 3, mult: 0.75, spread: 16, spark: { n: 4, mult: 0.45 }, blast: { r: 3, mult: 0.6 } },
+      time: 0.4, mana: 0, cd: 0, w: 0, kb: 0, poise: 0, move: 0.5,
+      wclip: 'r_emberbow',
+      wt: { phases: [0.22], cancel: 0.4, dur: 0.5 },
+      useMult: 0,
+      desc: '专注满时可用：8 秒内每次射出 3 支燃烧的箭，余烬在敌人之间连跳 4 次、伤害更高，被箭或余烬烧死的敌人当场炸成一团火。放完专注归零。',
     },
 
     // ---------- 烬铸技：拿着烬铸武器时，R 上的武器技换成它专属的这一招（G.weaponSkill 按 G.UNIQUES[..].uskill 换） ----------
@@ -366,6 +509,9 @@
     mLife: '召唤物获得你装备上最大生命总和 {v}% 的额外生命（按装备物品等级折算）',
     // 武器的本地词缀：只改这把武器自己的伤害（不进角色属性汇总），已经算在物品的 dmg 里
     wInc: '武器物理伤害提高 {v}%', wAdd: '附加 {a}–{b} 物理伤害',
+    // 远程武器（见 G.RANGED）：枪械的热度、弓的专注
+    heatGain: '热度积攒速度加快 {v}%', heatDmg: '热度满时枪械普攻伤害提高 {v}%（随热度线性）', rDmg: '枪械热度技（R）伤害提高 {v}%',
+    focusGain: '专注积攒速度加快 {v}%', buffDur: '弓的专注技（R）增益持续时间延长 {v}%', rangeDmg: '远距离命中时弓的伤害提高 {v}%',
   };
   G.LOCAL_STATS = { wInc: 1, wAdd: 1 };
   // 「提高 / 缩短 / 减少……」类的写法遇到负值时换成反义词、写绝对值（「移动速度降低 15%」，而不是「提高 -15%」）
@@ -412,11 +558,21 @@
       { names: ['骨杖', '灵枝', '雷纹短杖'], type: 'wand', wskill: 'arcvolley', dmg: [4, 8], aps: 1.0, hands: 1, caster: true, imp: { stat: 'speed', lo: 4, hi: 7 } },
       { names: ['双骨匕', '鸦喙双匕', '烬牙双刺'], type: 'daggers', wskill: 'shadowstab', dmg: [7, 13], aps: 1.2, hands: 1, imp: { stat: 'crit', lo: 20, hi: 30 } },
       { names: ['石锤', '铁誓战锤', '熔心巨锤'], type: 'hammer', wskill: 'quake', dmg: [11, 18], aps: 0.8, hands: 2, imp: { stat: 'poiseDmg', lo: 15, hi: 25 } },
-      { names: ['榆木长弓', '筋角长弓', '渊鸣长弓'], type: 'bow', wskill: 'arrowrain', dmg: [8, 15], aps: 1.0, hands: 2, imp: { stat: 'pierce', lo: 1, hi: 1, fixed: true, step: 12 } },
+      // 下标 5：原来的长弓（type 'bow'、R 箭雨）改成鹰眼长弓，旧存档里的长弓读档时换成这里的名字（见 game.js 的 fixItem / G.BOW_OLD_NAMES）
+      { names: ['榆木鹰眼弓', '鹰眼长弓', '渊鸣鹰眼弓'], type: 'eagle', ranged: 'bow', wskill: 'pierceheart', dmg: [8, 15], aps: 1.0, hands: 2, imp: { stat: 'pierce', lo: 1, hi: 1, fixed: true, step: 12 } },
       { names: ['直刃太刀', '霜纹太刀', '烬月太刀'], type: 'katana', wskill: 'flashcut', dmg: [8, 14], aps: 1.05, hands: 2, imp: { stat: 'critMulti', lo: 12, hi: 20 } },
       // 魂幡：召唤师的武器，武器伤害很低；隐含属性带一点召唤物生命（also：数值 = 主隐含 × k，取整）
       // soul：召唤物继承武器伤害时按这么多倍计（魂幡的武器伤害只有刃的四成多，乘上之后和刃相当，召唤师拿魂幡不吃亏）
       { names: ['骨铃魂幡', '残旌魂幡', '渊引魂幡'], type: 'banner', wskill: 'soultide', dmg: [3, 6], aps: 0.9, hands: 2, caster: true, drop: 0.8, soul: 2.2, imp: { stat: 'minionDmg', lo: 10, hi: 16, also: { stat: 'minionLife', k: 0.5 } } },
+      // ---------- 远程武器（ranged：'gun' 枪械 / 'bow' 弓）：右键是武器普攻（basic_<type>），R 由量表决定（见 G.RANGED） ----------
+      // 机炮一发伤害低、射速高（转满后约 12 发 / 秒），喷枪一跳伤害低、范围打满；单体秒伤和刃配裂石击在同一档（不耗魔力，靠站得远换一点）
+      { names: ['铆钉机炮', '转膛机炮', '熔轮机炮'], type: 'gatling', ranged: 'gun', wskill: 'meltray', dmg: [3, 5], aps: 1.0, hands: 2, imp: { stat: 'poiseDmg', lo: 10, hi: 16 } },
+      { names: ['铁皮喷枪', '焚炉喷枪', '熔岩喷枪'], type: 'flamer', ranged: 'gun', wskill: 'firestorm', dmg: [4, 7], aps: 1.0, hands: 2, imp: { stat: 'ailment', lo: 8, hi: 12 } },
+      { names: ['桦木猎弓', '追猎弓', '影羽猎弓'], type: 'huntbow', ranged: 'bow', wskill: 'volley', dmg: [7, 12], aps: 1.1, hands: 2, imp: { stat: 'speed', lo: 4, hi: 7 } },
+      { names: ['刻纹弓', '符文弓', '辉纹符文弓'], type: 'runebow', ranged: 'bow', wskill: 'overflow', dmg: [7, 12], aps: 1.0, hands: 2, imp: { stat: 'incElem', lo: 6, hi: 10 } },
+      // 下面两种只有烬铸武器用（drop 0：随机掉落不出）；烬铸武器的物品等级在 21 以上，实际只会用到第三阶的名字
+      { names: ['黄铜左轮', '铁芯左轮', '烬铸左轮'], type: 'revolver', ranged: 'gun', wskill: 'wildfire', dmg: [8, 12], aps: 1.0, hands: 1, drop: 0, imp: { stat: 'crit', lo: 10, hi: 16 } },
+      { names: ['焦木长弓', '炭羽长弓', '烬铸长弓'], type: 'emberbow', ranged: 'bow', wskill: 'emberstorm', dmg: [8, 14], aps: 1.05, hands: 2, drop: 0, imp: { stat: 'incFire', lo: 8, hi: 14 } },
     ],
     helm: [{ names: ['皮盔', '铁盔', '烬钢盔'], armour: [10, 4] }],
     body: [{ names: ['皮甲', '锁甲', '烬钢甲'], armour: [20, 8] }],
@@ -474,10 +630,16 @@
     A('rarity', 'suffix', '寻宝', 'rarity', 5, 9, 1.25, ['helm', 'gloves', 'boots'].concat(JEW), 4),
     // 召唤物词缀。baseW：按基底（BASES 里的下标）调整出现权重——杖类武器（木杖 / 骨杖）更容易出召唤物伤害；
     // minIlvl / rareOnly：只在物品等级够高的稀有物品上出现
-    Object.assign(A('minionDmg', 'prefix', '统御', 'minionDmg', 6, 10, 1.35, ['weapon'].concat(JEW), 5), { baseW: { weapon: [0.4, 1.8, 1.8, 0.4, 0.4, 0.4, 0.4, 2.6] } }),
+    Object.assign(A('minionDmg', 'prefix', '统御', 'minionDmg', 6, 10, 1.35, ['weapon'].concat(JEW), 5), { baseW: { weapon: [0.4, 1.8, 1.8, 0.4, 0.4, 0.4, 0.4, 2.6, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2] } }),
     // 武器本地词缀（local）：改的是这把武器自己的伤害，施法武器（杖类、魂幡）很少出
     Object.assign(A('wInc', 'prefix', '淬锋', 'wInc', 8, 13, 1.25, ['weapon'], 7), { local: true, baseW: { weapon: [1, 0.3, 0.3, 1, 1, 1, 1, 0.2] } }),
-    Object.assign(A('wAdd', 'prefix', '重锻', 'wAdd', 2, 3, 1.33, ['weapon'], 6), { local: true, baseW: { weapon: [1, 0.3, 0.3, 1, 1, 1, 1, 0.2] } }),
+    // 机炮 / 喷枪不出「重锻」：它们的基础伤害低、出手极快，固定的本地附加对它们是几倍的收益
+    Object.assign(A('wAdd', 'prefix', '重锻', 'wAdd', 2, 3, 1.33, ['weapon'], 6), { local: true, baseW: { weapon: [1, 0.3, 0.3, 1, 1, 1, 1, 0.2, 0, 0] } }),
+    // 远程武器专属：baseW 只给枪械（机炮 / 喷枪 / 左轮）或弓（鹰眼 / 追猎 / 符文 / 烬铸弓）非零权重
+    Object.assign(A('heatGain', 'suffix', '炽膛', 'heatGain', 6, 10, 1.2, ['weapon'], 6), { baseW: { weapon: [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0] } }),
+    Object.assign(A('heatDmg', 'prefix', '赤热', 'heatDmg', 10, 16, 1.3, ['weapon'], 5), { baseW: { weapon: [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0] } }),
+    Object.assign(A('focusGain', 'suffix', '凝神', 'focusGain', 6, 10, 1.2, ['weapon'], 6), { baseW: { weapon: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 1] } }),
+    Object.assign(A('rangeDmg', 'prefix', '远矢', 'rangeDmg', 10, 16, 1.3, ['weapon'], 5), { baseW: { weapon: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 1] } }),
     A('minionLife', 'prefix', '骸固', 'minionLife', 8, 13, 1.3, ['helm', 'body', 'belt'], 5),
     Object.assign(A('minionCap', 'suffix', '万骸', 'minionCap', 1, 1, 1, ['amulet'], 2), { minIlvl: 18, rareOnly: true }),
     // 只出现在烬铸武器上的词缀行（slots 为空、权重 0：随机掉落和打造都不会出）
@@ -486,7 +648,7 @@
   ];
   G.AFFIX_BY_ID = {};
   for (const a of G.AFFIXES) G.AFFIX_BY_ID[a.id] = a;
-  for (const id of ['moveSpeed', 'resFire', 'resCold', 'resLight', 'speed', 'crit', 'critMulti', 'manaRegen', 'rarity', 'uAilment']) G.AFFIX_BY_ID[id].soft = true;
+  for (const id of ['moveSpeed', 'resFire', 'resCold', 'resLight', 'speed', 'crit', 'critMulti', 'manaRegen', 'rarity', 'uAilment', 'heatGain', 'focusGain']) G.AFFIX_BY_ID[id].soft = true;
 
   // ---------- 烬铸武器（稀有度 3）----------
   // 名字、武器类型和词缀行都是固定的，只有数值在区间里掷。区间跟着物品等级走：每一行取这条词缀在该物品等级最高阶的区间，
@@ -510,12 +672,46 @@
       lines: [{ id: 'minionDmg', k: [0.1, 0.2] }, { id: 'minionLife', k: [0.3, 0.6] }, { id: 'minionCap', fixed: 1 }, { id: 'wInc', k: [2.0, 2.8] }],
       lore: '烬渊之主麾下的亡魂都系在这面旗上，倒下一个，就烧起一团。',
     },
+    // 熔芯（左轮）：熔渣巨像掉。R 是它专属的「乱射」；机制「熔芯弹」——每一轮的最后一发必定暴击，并在命中处炸开
+    rongxin: {
+      name: '熔芯', base: 12, boss: 'golem', mech: 'core', mechName: '熔芯弹', uskill: 'wildfire',
+      lines: [{ id: 'wInc', k: [1.7, 2.3] }, { id: 'critMulti', k: [1.1, 1.5] }, { id: 'heatGain', k: [1.2, 1.7] }, { id: 'speed', k: [0.9, 1.3] }],
+      lore: '熔渣巨像胸腔里那块烧不化的芯子，被人车成了枪膛。',
+    },
+    // 烬羽（弓）：第五个区域（坠星裂谷）的首领衔星巨兽掉（bossZone 兜底：首领 id 对不上时取这个区域的首领，见 G.syncUniqueBosses）。
+    // R 是专属的「燎原」；机制「余烬连射」写在它的普攻里（basic_emberbow 的 spark），这里加强：余烬点燃目标
+    jinyu: {
+      name: '烬羽', base: 13, boss: 'behemoth', bossZone: 'rift', mech: 'ember', mechName: '余烬连射', uskill: 'emberstorm',
+      lines: [{ id: 'wInc', k: [1.6, 2.2] }, { id: 'incFire', k: [1.2, 1.7] }, { id: 'focusGain', k: [1.2, 1.7] }, { id: 'crit', k: [1.2, 1.7] }],
+      lore: '裂隙尽头的那团火从不落地，它把自己的羽毛一根根射了出去。',
+    },
   };
   G.UNIQUE_IDS = Object.keys(G.UNIQUES);
   G.UNIQUE_BY_BOSS = {};
-  for (const id of G.UNIQUE_IDS) G.UNIQUE_BY_BOSS[G.UNIQUES[id].boss] = id;
+  // 首领 → 它掉的烬铸 id。boss 不在 G.BOSSES 里时（新首领还没定名）按 bossZone 取那个区域的首领（game.js 启动时再对一遍）
+  // 实在对不上（那个首领还不存在）时：U.boss 暂时指向最后一个区域的首领（只为界面能显示），但不登记掉落
+  G.syncUniqueBosses = function () {
+    for (const k of Object.keys(G.UNIQUE_BY_BOSS)) delete G.UNIQUE_BY_BOSS[k];
+    const B = G.BOSSES || {};
+    for (const id of G.UNIQUE_IDS) {
+      const U = G.UNIQUES[id];
+      if (U.boss0 === undefined) U.boss0 = U.boss;
+      let b = U.boss0;
+      if (!B[b] && U.bossZone && G.ZONES) {
+        const z = G.ZONES.find((zz) => zz.id === U.bossZone) || (G.ZONES.length > 4 ? G.ZONES[4] : null);
+        if (z && B[z.boss]) b = z.boss;
+      }
+      if (B[b] && !G.UNIQUE_BY_BOSS[b]) {
+        U.boss = b;
+        G.UNIQUE_BY_BOSS[b] = id;
+      } else if (!B[b] && G.ZONES && G.ZONES.length) {
+        U.boss = G.ZONES[G.ZONES.length - 1].boss;
+      }
+    }
+  };
+  G.syncUniqueBosses();
   // 掉率：层级 1 为 chance[1]（15%），层级 2 起 chance[2]（25%）；首领连续 pity（2）次没掉它的武器，下一次必掉
-  // （最晚第 3 次击杀，掉了就清零）。熔渣巨像不掉：它是第一个区域的首领、打得最快，四个首领分三把武器，留给后三个
+  // （最晚第 3 次击杀，掉了就清零）。五个首领各掉一把：巨像 → 熔芯，霜织者 → 三相之心，监察者 → 烬断，烬渊之主 → 万魂旗，第五区首领 → 烬羽
   G.UNIQUE_DROP = { chance: [0, 0.15, 0.25], pity: 2 };
   G.uniqueChance = (tier) => (tier >= 2 ? G.UNIQUE_DROP.chance[2] : tier >= 1 ? G.UNIQUE_DROP.chance[1] : 0);
   // 机制数值（平衡机器人量过：对位构筑比同物品等级「6 条最高阶词缀取中值」的顶级稀有快约两到三成）：
@@ -536,6 +732,12 @@
     (G.TRI.grow < 1 ? '首领不会因为异常越打越难触发。' : '');
   G.UNIQUES.wanhun.mechDesc = '召唤物倒下时化作魂火炸开，对周围 ' + G.SOULFIRE.r + ' 米内的敌人造成它最大生命 ' + pc(G.SOULFIRE.k) + ' 的火焰伤害。自动召唤不消耗魔力。召唤物继承武器伤害的比例' +
     (G.SOULFIRE.gated ? '最多' : '') + '提高 ' + pc(G.SOULFIRE.inherit - 1) + (G.SOULFIRE.gated ? '（和继承一样按武器物品等级折算）' : '') + '。';
+  // 熔芯弹：每一轮（6 发）的最后一发必定暴击，命中时在目标处炸开半径 r、mult 倍伤害的火焰爆炸（不伤目标本身）
+  G.CORE_ROUND = { r: 2.5, mult: 0.8 };
+  // 余烬连射（烬羽）：普攻的余烬（basic_emberbow.spark）每跳额外让目标灼烧——点燃 ignite 条火焰异常值
+  G.EMBER_MECH = { ignite: 0.12 };
+  G.UNIQUES.rongxin.mechDesc = '每一轮的最后一发是熔芯弹：必定暴击，并在命中处炸开，对周围 ' + G.CORE_ROUND.r + ' 米内的其他敌人造成 ' + pc(G.CORE_ROUND.mult) + ' 的火焰伤害。';
+  G.UNIQUES.jinyu.mechDesc = '每支箭命中后迸出余烬，在附近的敌人之间连跳，每跳造成火焰伤害并额外灌入 ' + pc(G.EMBER_MECH.ignite) + ' 条火焰异常值。';
   // 分解烬铸武器固定得到的通货
   G.UNIQUE_SALVAGE = { exalt: 2, chaos: 2, divine: 1, chisel: 1 };
 
@@ -727,6 +929,18 @@
     at(O, 'ln', 10.4, 183, '血智', { life: 30, mana: 30, incLife: 5, incMana: 5 }, 'notable', ['lx0']);
     at(O, 'rx0', 9.2, 2, '疾令', { speed: 3, minionSpeed: 5 }, 'small', ['dl5', 'mr5']);
     at(O, 'rn', 10.2, 4, '狩群', { speed: 6, minionSpeed: 10, moveSpeed: 4 }, 'notable', ['rx0']);
+    // ---------- 远程武器（远程改版加的 8 个节点）----------
+    // 下方两条旁支和交汇团之间原来是空的：铸躯一侧（sl1 往下）是枪械的热度，迅影一侧（dr0 往下）是弓的专注，各 3 个小节点 + 1 个核心，
+    // 末端的两个核心隔着正下方相望。117 → 125 个节点
+    const D = ARMS.d, S2 = ARMS.s;
+    at(S2, 'gn0', 4.0, 112, '炽膛', { heatGain: 15 }, 'small', ['sl1']);
+    at(S2, 'gn1', 4.7, 104, '赤热', { heatDmg: 15 }, 'small', ['gn0']);
+    at(S2, 'gn2', 4.2, 94, '淬膛', { rDmg: 20 }, 'small', ['gn1']);
+    at(S2, 'gnn', 3.1, 100, '熔炉之心', { heatGain: 15, heatDmg: 10, rDmg: 25 }, 'notable', ['gn2']);
+    at(D, 'bw0', 3.8, 60, '凝神', { focusGain: 15 }, 'small', ['dr0']);
+    at(D, 'bw1', 4.6, 67, '远射', { rangeDmg: 20 }, 'small', ['bw0']);
+    at(D, 'bw2', 4.2, 78, '屏息', { buffDur: 15 }, 'small', ['bw1']);
+    at(D, 'bwn', 3.1, 80, '鹰隼之息', { focusGain: 15, buffDur: 20, rangeDmg: 15 }, 'notable', ['bw2']);
   })();
 
   // ---------- 区域 ----------
@@ -751,10 +965,30 @@
       fog: 0x1a0c10, voidc: 0x0f0709, path: 0x6e4a4a, rock: 0x3f2a2c, accent: 0xff3a4a, sky: 0xffb0a0,
       mobs: ['husk', 'bomber', 'spitter', 'brute', 'brute'], desc: '一切灰烬的源头。',
     },
+    {
+      // 第五区：烬渊之下，天穹裂开、星骸坠落的谷地。地面是墨绿的熔融琉璃，裂纹里流着星辉
+      id: 'rift', name: '坠星裂谷', level: 17, elem: 'light', boss: 'behemoth',
+      fog: 0x0a1613, voidc: 0x050c0a, path: 0x44685a, rock: 0x263a35, accent: 0x6effc8, sky: 0xc4ffe6,
+      mobs: ['husk', 'phaser', 'charger', 'spitter', 'brute', 'phaser', 'charger'], desc: '天穹在这里裂开过一道口子，坠下来的星骸至今还在放电。',
+    },
   ];
-  // 每个轮回层级提高的怪物等级。四个区域是 1 / 5 / 9 / 13，每区 +4；
-  // 取 16 让下一层从 17 接着往上走，不会比上一层的末区（13，首领 16）倒退
-  G.TIER_LEVELS = 16;
+  // 第五区上线之前就打通过烬渊深处的老存档：读档时提示一次「烬渊深处之后多了一个区域」。
+  // 判定看原始存档：烬渊深处有通关记录、坠星裂谷还没有、而且这条提示没看过（save.tut[id]）。
+  // 老角色的 maxTier 原样保留：已经开启的层级照常能进，只是在最高层级要打通新的末区才开下一层
+  G.NEW_ZONE_NOTICE = {
+    id: 'zone5', zone: 'rift', after: 'abyss',
+    html: '<b>新区域开放</b>：「烬渊深处」之后多了一个区域——<b>坠星裂谷</b>（怪物等级 17 起），首领是<b>衔星巨兽</b>。' +
+      '已经开启的轮回层级全部保留；今后在最高层级击败坠星裂谷的首领，才会开启更高一层。每个轮回层级的怪物等级改为 +20（原来 +16），五个区域接着往上走。按 <kbd>M</kbd> 打开地图',
+  };
+  G.zoneNoticeFor = function (raw) {
+    const N = G.NEW_ZONE_NOTICE;
+    const c = raw && typeof raw === 'object' && raw.cleared && typeof raw.cleared === 'object' ? raw.cleared : null;
+    const seen = raw && raw.tut && typeof raw.tut === 'object' && raw.tut[N.id];
+    return !!(c && typeof c[N.after] === 'number' && typeof c[N.zone] !== 'number' && !seen);
+  };
+  // 每个轮回层级提高的怪物等级。五个区域是 1 / 5 / 9 / 13 / 17，每区 +4；
+  // 取 20 让下一层从 21 接着往上走，不会比上一层的末区（17，首领 20）倒退：层级 n 覆盖 1+20n … 20+20n 级
+  G.TIER_LEVELS = 20;
 
   // ---------- 怪物 ----------
   G.MOBS = {
@@ -764,6 +998,11 @@
     brute: { name: '巨躯', hp: 100, dmg: 17, speed: 3.1, r: 0.95, range: 2.6, windup: 0.85, cd: 2.2, xp: 2.6, ai: 'slam', mass: 2.2, poise: 140, sturdy: true },
     spitter: { name: '喷吐者', hp: 24, dmg: 9, speed: 4.2, r: 0.55, range: 13, windup: 0.45, cd: 2.2, xp: 1.3, ai: 'ranged', mass: 0.9, poise: 90 },
     bomber: { name: '爆裂虫', hp: 15, dmg: 20, speed: 7.2, r: 0.5, range: 2.2, windup: 0.7, cd: 9, xp: 0.9, ai: 'bomb', mass: 0.8, poise: 80 },
+    // 坠星裂谷的两种新怪。h：模型高度（血条 / 飘字的位置）
+    // 隙影：保持距离放单发电弹；隔几秒会闪到玩家侧面（落点先亮预警环），现身后补一轮三连扇射；被贴脸也是闪走而不是后撤
+    phaser: { name: '隙影', hp: 26, dmg: 10, speed: 4.4, r: 0.55, range: 12, windup: 0.45, cd: 2.6, xp: 1.5, ai: 'blink', mass: 0.8, poise: 90, h: 2.3 },
+    // 陨角兽：中距离刨地蓄力（地上亮一条冲锋道），然后沿直线猛冲；撞墙会晕一下。贴身时用角顶
+    charger: { name: '陨角兽', hp: 70, dmg: 16, speed: 4.2, r: 0.85, range: 10, windup: 0.8, cd: 3.6, xp: 2.0, ai: 'charge', mass: 1.8, poise: 130, h: 2.2 },
   };
   // 首领生命比 v1 高约 12%：补偿破绽易伤与处决，战斗时长大致不变
   G.BOSSES = {
@@ -771,29 +1010,39 @@
     weaver: { name: '霜织者', hp: 785, dmg: 15.4, speed: 3.8, r: 1.5, poise: 450, patterns: ['fan', 'barrage', 'summon', 'ring'] },
     warden: { name: '雷霆监察者', hp: 875, dmg: 15.4, speed: 4.0, r: 1.7, poise: 480, patterns: ['cross', 'barrage', 'charge', 'ring'] },
     lord: { name: '烬渊之主', hp: 1175, dmg: 15, speed: 4.0, r: 1.9, poise: 550, patterns: ['slam', 'fan', 'spiral', 'cross', 'barrage', 'summon'] },
+    // 衔星巨兽：背上嵌着一块坠星的四足古兽。starfall 流星犁地（几道落点沿直线朝外推进）、gravity 坍缩（玩家脚下的引力井把人往里拽，到点内爆）、
+    // sweep 衔星吐息（口中射线横扫一大片扇面）、slam 前蹄践踏
+    behemoth: { name: '衔星巨兽', hp: 1250, dmg: 15, speed: 4.2, r: 2.0, poise: 600, patterns: ['starfall', 'gravity', 'sweep', 'slam'] },
   };
-  // 怪物成长：MOB_KNEE（16，层级 0 的最高怪物等级）以内是原来的 1.2 / 1.15 倍每级，一位不差；
-  // 再往上按 MOB_HP_LATE / MOB_DMG_LATE 每级成长——对上轮回层级里角色的实际成长（宝石 / 武器 / 词缀阶 / 生命都不再封顶，
-  // 经验曲线也让角色等级跟着怪物等级走），用平衡机器人在层级 1、2 的中段和末区量出来：
-  // 比层级 0 末区难一截但打得过，层级 2 再难一些。
-  // 生命和伤害都分两段：层级 1（17–32 级）每级 MOB_HP_LATE / MOB_DMG_LATE，层级 2 起（33 级以上）每级 MOB_HP_LATE2 / MOB_DMG_LATE2。
-  // 生命：层级 1 里角色的词缀阶只从 5 阶涨到 7 阶，层级 2 一口气涨到 8–10 阶，怪物生命跟着这个节奏走（层级 2 的首领用时明显长过层级 1）。
-  // 伤害：层级 1 每级 1.10，期望等级（35 级左右）打层级 1 末区时每秒受到的伤害（按生命算）和层级 0 末区相当；
-  // 层级 2 角色生命、护甲的成长放缓，伤害每级只再涨 1.055，每秒受到的伤害仍是层级 1 的 1.5 倍以上
+  // 怪物成长：MOB_KNEE（16，前四个区域的最高怪物等级）以内是原来的 1.2 / 1.15 倍每级，一位不差；
+  // 再往上分三段，对上轮回层级里角色的实际成长（宝石 / 武器 / 词缀阶 / 生命都不再封顶，经验曲线也让角色等级跟着怪物等级走），
+  // 用平衡机器人在层级 0 末区（第五区）、层级 1 中段与末区、层级 2 中段与末区量出来（每层 5 个区域、+TIER_LEVELS = 20 级）：
+  //   17–32 级（MOB_HP_LATE / MOB_DMG_LATE）：第五区和层级 1 的前三个区域，和每层 16 级时的同等级一样；
+  //   33–40 级（…LATE2）：层级 1 的后两个区域。角色的物品等级在这里跨过 31 / 38 两档词缀阶，生命跟得上每级 1.12；
+  //     伤害每级只涨 1.03——层级 1 末区（第五区，37–40 级，角色 43 级左右）的首领用时与受伤和每层 16 级时的层级 1 末区相当；
+  //   41 级以上（…LATE3）：层级 2。角色在 60 级封顶、物品等级还在涨，怪物生命每级 1.08、伤害每级 1.03：
+  //     层级 2 中段和以前的层级 2 中段相当，末区（57–60 级）更难一截，但好装备打得过。
   G.MOB_KNEE = 16;
   G.MOB_KNEE2 = 32;
+  G.MOB_KNEE3 = 40;
   G.MOB_HP_LATE = 1.09;
-  G.MOB_HP_LATE2 = 1.13;
+  G.MOB_HP_LATE2 = 1.12;
+  G.MOB_HP_LATE3 = 1.08;
   G.MOB_DMG_LATE = 1.1;
-  G.MOB_DMG_LATE2 = 1.055;
-  const late = (l, k1, k2) => Math.pow(k1, Math.min(l, G.MOB_KNEE2) - G.MOB_KNEE) * Math.pow(k2, Math.max(0, l - G.MOB_KNEE2));
-  G.hpScale = (l) => (l <= G.MOB_KNEE ? Math.pow(1.2, l - 1) : Math.pow(1.2, G.MOB_KNEE - 1) * late(l, G.MOB_HP_LATE, G.MOB_HP_LATE2));
-  G.dmgScale = (l) => (l <= G.MOB_KNEE ? Math.pow(1.15, l - 1) : Math.pow(1.15, G.MOB_KNEE - 1) * late(l, G.MOB_DMG_LATE, G.MOB_DMG_LATE2));
+  G.MOB_DMG_LATE2 = 1.03;
+  G.MOB_DMG_LATE3 = 1.03;
+  const late = (l, k1, k2, k3) =>
+    Math.pow(k1, Math.min(l, G.MOB_KNEE2) - G.MOB_KNEE) *
+    Math.pow(k2, Math.max(0, Math.min(l, G.MOB_KNEE3) - G.MOB_KNEE2)) *
+    Math.pow(k3, Math.max(0, l - G.MOB_KNEE3));
+  G.hpScale = (l) => (l <= G.MOB_KNEE ? Math.pow(1.2, l - 1) : Math.pow(1.2, G.MOB_KNEE - 1) * late(l, G.MOB_HP_LATE, G.MOB_HP_LATE2, G.MOB_HP_LATE3));
+  G.dmgScale = (l) => (l <= G.MOB_KNEE ? Math.pow(1.15, l - 1) : Math.pow(1.15, G.MOB_KNEE - 1) * late(l, G.MOB_DMG_LATE, G.MOB_DMG_LATE2, G.MOB_DMG_LATE3));
 
   // ---------- 经验 ----------
   // 每只怪的经验按怪物等级指数成长（mobXp，1.17 倍 / 级）。升级所需经验在 XP_KNEE 级以内和改版前一样（多项式），
   // 再往上改为和 mobXp 同样按 1.17 倍 / 级增长——「每升一级要杀多少只同级怪」从此不变，角色等级就跟着怪物等级走，
   // 不会像改版前那样越往后升得越快（改版前轮回层级 1 打完是 42 级、怪物才 29–32 级）。
+  // 每层改成 5 个区域、+20 级之后曲线不用动：每个区域清一遍，清完时仍比该区最高的怪物高 3–4 级（层级 2 的末区碰到 60 级上限）。
   // 压级：角色比怪物高出 XP_OVER 级以上，每多 1 级经验 × XP_FALL（最低 XP_FLOOR），反复刷低等级区域收益递减；
   // 越级：怪物比角色高出 XP_UNDER 级以上的部分不再多给。
   G.XP_KNEE = 16;
@@ -815,7 +1064,7 @@
   // ---------- 角色基础生命 / 魔力 ----------
   // LIFE_KNEE 级以内和改版前一样（每级 +12 生命、+6 魔力）；再往上每级多给 LIFE_LATE / MANA_LATE，
   // 跟上轮回层级里怪物伤害的成长
-  G.LIFE_KNEE = 20; // 层级 0 打完大约 19–20 级：之前的生命 / 魔力曲线和改版前完全一样
+  G.LIFE_KNEE = 20; // 前四个区域打完大约 19–20 级：之前的生命 / 魔力曲线和改版前完全一样（第五区起开始多给）
   G.LIFE_LATE = 24;
   G.MANA_LATE = 4;
   G.baseLife = (l) => 100 + 12 * (l - 1) + G.LIFE_LATE * Math.max(0, l - G.LIFE_KNEE);

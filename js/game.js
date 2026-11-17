@@ -15,6 +15,7 @@
   const TYPES = G.TYPES;
   const GEM_COLOR = '#3fe0c8';
   const SUP_COLOR = '#ffffff';
+  if (G.syncUniqueBosses) G.syncUniqueBosses(); // data.js 里首领表在烬铸表之后才定义：到这里再把「首领 → 烬铸」对一遍
 
   // ---------- 小工具 ----------
   function angDiff(a, b) {
@@ -64,6 +65,13 @@
     combo: { step: 0, t: 0 }, // 连段：下一次近战出第几段（0 起）；t 归零则从头再来
     chain: { n: 0, t: 0, best: 0 }, // 连击计数：连续命中的次数，t 秒内没有新的命中就清零
     exec: null, // 正在进行的处决 { e, t, x0, z0, hit }
+    // 远程武器（见 G.RANGED）：gauge 量表（热度 / 专注各自记着，换枪换弓不清零）；heatIdle / focusIdle 距离上次开火 / 命中的秒数
+    gauge: { heat: 0, focus: 0, heatIdle: 99, focusIdle: 99 },
+    // gun：枪械与弓的出手状态。spin 机炮枪管转速（0..1）、ramp 转满后连续开火的秒数、ammo 左轮弹仓、reloadT 装填剩余秒数、
+    // cdT 距离下一发最早能出手的秒数（轻点也快不过射速）、hitT 距离上次普攻命中的秒数、cycle 符文弓轮到的元素、emberT 喷枪下一团余烬
+    gun: { spin: 0, ramp: 0, ammo: 6, reloadT: 0, cdT: 0, hitT: 99, cycle: 0, emberT: 0, firing: false },
+    rbuff: null, // 弓的专注技增益 { id, t, dur }
+    rstate: null, // 乱射这类脱离施放系统、不会被打断的持续效果 { id, t, dur, nextT, i, ctx }
   });
 
   // ---------- 时间流：顿帧与慢动作 ----------
@@ -129,8 +137,11 @@
       // gv：成长版本。2 = 宝石 / 武器 / 词缀阶不再在 20 / 27 / 24 封顶、天赋盘扩大之后的存档
       v: 1, gv: 2, level: 1, xp: 0, bag: [], equip: { weapon: start }, cur,
       skills: { cleave: 1, ember: 1 }, supports: [],
-      sockets: { cleave: [null, null, null], ember: [null, null, null] },
+      sockets: { cleave: [null, null, null], ember: [null, null, null], [G.BASIC_CARD]: [null, null, null] },
       bar: ['cleave', 'ember', null, null],
+      // 拿着远程武器时右键被武器普攻占用：原来右键上的技能记在这里，换回非远程武器时放回去（见 syncRanged）
+      rmbKeep: null,
+      bowMig: false, // 读档时把旧长弓改成了鹰眼长弓、「远程改版」提示还没看过（见 sanitize）
       passives: ['start'], cleared: {}, bossKills: {},
       tier: 0, maxTier: 0, lastZone: 0,
       // 选项：自动拾取普通物品 / 折叠普通物品的名牌 / 拾取时自动分解普通物品 / 一键分解是否包含魔法物品
@@ -206,6 +217,15 @@
     if (it.rarity === 3) fixUnique(it);
     const bases = G.BASES[it.slot];
     if (!(it.baseIdx >= 0 && it.baseIdx < bases.length) || it.baseIdx !== Math.floor(it.baseIdx)) it.baseIdx = 0;
+    // 远程改版：长弓（下标 5）改成鹰眼长弓。旧名字换成同阶的新名字，普通 / 魔法物品的显示名跟着重拼（稀有的随机名不动）
+    if (it.slot === 'weapon' && it.baseIdx === 5) {
+      const oi = G.BOW_OLD_NAMES.indexOf(it.baseName);
+      if (oi >= 0) {
+        it.baseName = bases[5].names[oi];
+        if (it.rarity < 2) G.updateItemName(it);
+        G.bowMigrated = (G.bowMigrated || 0) + 1; // 界面层据此提示一次「长弓改成了鹰眼长弓」
+      }
+    }
     if (it.slot === 'weapon') {
       const wb = it.wbase;
       const ok = Array.isArray(wb) && wb.length === 2 && isNum(wb[0]) && isNum(wb[1]) && wb[0] >= 1 && wb[1] >= wb[0] && wb[1] <= 1e6;
@@ -266,6 +286,8 @@
   function sanitize(raw) {
     G.weaponMigrated = false;
     G.growthMigrated = null;
+    G.bowMigrated = 0;
+    G.newZoneNotice = G.zoneNoticeFor(raw); // 第五区上线前打通过烬渊深处的老存档：界面层提示一次新区域
     const d = G.newSave();
     if (!isObj(raw) || raw.v !== 1) return d;
     const s = d;
@@ -317,6 +339,19 @@
       }
       s.sockets[id] = arr;
     }
+    // 武器普攻卡的 3 个孔（不属于哪个已学技能，换远程武器时不动）
+    {
+      const src = Array.isArray(rawSockets[G.BASIC_CARD]) ? rawSockets[G.BASIC_CARD] : [];
+      const arr = [null, null, null];
+      for (let i = 0; i < 3; i++) {
+        const sup = src[i];
+        if (sup && s.supports.indexOf(sup) >= 0 && !used.has(sup) && G.supportFits(G.BASIC_CARD, sup)) {
+          arr[i] = sup;
+          used.add(sup);
+        }
+      }
+      s.sockets[G.BASIC_CARD] = arr;
+    }
     // 技能栏：4 格，技能必须已学，同一技能只占一格
     const rawBar = Array.isArray(raw.bar) ? raw.bar : d.bar;
     s.bar = [null, null, null, null];
@@ -324,6 +359,7 @@
       const id = rawBar[i];
       if (id && s.skills[id] && s.bar.indexOf(id) < 0) s.bar[i] = id;
     }
+    s.rmbKeep = typeof raw.rmbKeep === 'string' && s.skills[raw.rmbKeep] && s.bar.indexOf(raw.rmbKeep) < 0 ? raw.rmbKeep : null;
 
     // 天赋：只保留存在且与起点连通的节点
     const pas = ['start'];
@@ -360,6 +396,10 @@
         if (raw.tut[k] && /^[a-z][a-z0-9_]{0,23}$/i.test(k)) s.tut[k] = 1;
       }
     }
+    // 长弓改名只在第一次读档时发生（改完的名字随即存回去）：存档里记一笔 bowMig，直到「远程改版」提示看过（tut.bowmig）才清掉，
+    // 不让第一次会话在提示弹出前就结束的玩家永远看不到它
+    s.bowMig = G.bowMigrated > 0 || (raw.bowMig === true && !s.tut.bowmig);
+    if (s.bowMig) G.bowMigrated = Math.max(1, G.bowMigrated);
     s.blankGems = Array.isArray(raw.blankGems)
       ? raw.blankGems.filter(isNum).slice(0, BLANK_MAX).map((v) => G.clamp(Math.floor(v), 1, MAX_GEM_LEVEL)).sort((a, b) => b - a)
       : [];
@@ -433,10 +473,75 @@
   };
 
   // =====================================================================
+  // 远程武器：右键接管、量表
+  // =====================================================================
+  // 一把武器是不是远程武器：是的话返回它的基底（带 ranged / type），否则 null
+  G.rangedOf = function (w) {
+    const base = w && w.slot === 'weapon' && G.BASES.weapon[w.baseIdx];
+    return base && base.ranged ? base : null;
+  };
+  // 手里的远程武器：null，或 { family: 'gun' | 'bow', type, basic: 普攻技能 id, gauge: { kind: 'heat' | 'focus', v, max, full, name } }
+  G.rangedWeapon = function () {
+    const base = G.rangedOf(G.save && G.save.equip && G.save.equip.weapon);
+    if (!base) return null;
+    const kind = base.ranged === 'gun' ? 'heat' : 'focus';
+    const max = G.RANGED.max;
+    const v = Math.min(max, P.gauge[kind] || 0);
+    return { family: base.ranged, type: base.type, basic: 'basic_' + base.type, gauge: { kind, v, max, full: v >= max, name: G.GAUGE_NAME[kind] } };
+  };
+  // R 能不能放：不是远程武器时总是 true（照常看冷却）；远程武器要量表满
+  G.gaugeReady = function () {
+    const rw = G.rangedWeapon();
+    return !rw || rw.gauge.full;
+  };
+  // 往量表里加 v（可以是负数）；满的那一刻记一笔（新手提示 / 界面读 state.stats.gaugeFull）
+  G.addGauge = function (kind, v) {
+    const g = P.gauge;
+    const max = G.RANGED.max;
+    const was = g[kind] >= max;
+    g[kind] = G.clamp((g[kind] || 0) + v, 0, max);
+    if (!was && g[kind] >= max) {
+      state.stats.gaugeFull = (state.stats.gaugeFull || 0) + 1;
+      const rw = G.rangedWeapon();
+      if (rw && rw.gauge.kind === kind && G.world && P.ent) {
+        G.world.text(P.x, P.z, G.GAUGE_NAME[kind] + '已满 · R', kind === 'heat' ? '#ffb36a' : '#bfe8a0', 15);
+        fxOpt('gaugeFull', P.ent, kind);
+      }
+    }
+    return g[kind];
+  };
+  // 右键接管：拿上远程武器时把右键上的技能收进 save.rmbKeep、右键留空（输入由武器普攻接管）；
+  // 换回非远程武器时放回去（那个技能已经被你放到别的格子上、或者右键已经有了别的技能时就不放）
+  function syncRanged() {
+    const save = G.save;
+    if (!save || !Array.isArray(save.bar)) return;
+    if (G.rangedOf(save.equip && save.equip.weapon)) {
+      const id = save.bar[1];
+      if (id) {
+        save.bar[1] = null;
+        if (!save.rmbKeep || !save.skills[save.rmbKeep] || save.bar.indexOf(save.rmbKeep) >= 0) save.rmbKeep = id;
+      }
+    } else if (save.rmbKeep) {
+      const id = save.rmbKeep;
+      save.rmbKeep = null;
+      if (!save.bar[1] && save.skills[id] && save.bar.indexOf(id) < 0) save.bar[1] = id;
+    }
+  }
+  G.syncRanged = syncRanged;
+  // 新学的技能自动放进技能栏时用的空格：拿着远程武器时右键不算空格
+  G.freeBarSlot = function () {
+    const bar = G.save.bar;
+    const busy = !!G.rangedOf(G.save.equip && G.save.equip.weapon);
+    for (let i = 0; i < bar.length; i++) if (!bar[i] && !(busy && i === 1)) return i;
+    return -1;
+  };
+
+  // =====================================================================
   // 属性
   // =====================================================================
   G.computeStats = function () {
     const save = G.save;
+    syncRanged(); // 光环保留看技能栏：先把右键接管对好
     const S = {};
     for (const k of Object.keys(G.STAT_FMT)) S[k] = 0;
     const add = (stats) => {
@@ -505,13 +610,31 @@
     return Math.min(90, pct);
   };
 
+  // 武器普攻卡（G.BASIC_CARD）：能镶任何一种远程普攻用得上的辅助（标签取所有普攻的并集），生效时再按当前普攻的标签筛（G.basicSupports）
+  let basicTags = null;
   G.supportFits = function (skillId, supId) {
+    if (skillId === G.BASIC_CARD) {
+      const sup = G.SUPPORTS[supId];
+      if (!sup) return false;
+      if (!basicTags) {
+        basicTags = [];
+        for (const id in G.SKILLS) if (G.SKILLS[id].basic) for (const t of G.SKILLS[id].tags) if (basicTags.indexOf(t) < 0) basicTags.push(t);
+      }
+      if (sup.no && sup.no.some((tag) => basicTags.indexOf(tag) >= 0)) return false;
+      return !sup.req || sup.req.some((tag) => basicTags.indexOf(tag) >= 0);
+    }
     const sk = G.SKILLS[skillId];
     const sup = G.SUPPORTS[supId];
-    if (!sk || !sup || sk.weaponOnly) return false; // 武器技镶不了辅助
+    if (!sk || !sup || (sk.weaponOnly && !sk.basic)) return false; // 武器技镶不了辅助（远程普攻例外：镶在武器普攻卡上）
     if (sup.no && sup.no.some((tag) => sk.tags.indexOf(tag) >= 0)) return false;
     if (!sup.req) return true;
     return sup.req.some((tag) => sk.tags.indexOf(tag) >= 0);
+  };
+
+  // 武器普攻卡上对这个普攻生效的辅助（卡上镶着、标签对得上）；不适用的照样镶着，换到合适的远程武器再生效
+  G.basicSupports = function (id) {
+    const arr = (G.save.sockets && G.save.sockets[G.BASIC_CARD]) || [];
+    return arr.filter((supId) => supId && G.SUPPORTS[supId] && G.supportFits(id, supId));
   };
 
   // 顿帧时长随攻击 / 施法速度的缩放：越快越短，但不低于六成（再短就没有顿挫感了）
@@ -540,6 +663,9 @@
     // 武器技起手途中换掉了武器：还没生效的那一招作废（否则会用新武器的数值打出旧武器的招、又不占新武器技的冷却）
     if (P.cast && P.cast.ws && !P.cast.fired && P.cast.id !== id) P.cast = null;
     if (!id || id === wsLast) return;
+    // 远程武器的 R 没有冷却（量表卡着）：不接手冷却，wsLast 留在上一个有冷却的武器技上——
+    // 否则「近战 → 弓 → 近战」一换就把近战武器技的冷却洗掉了
+    if (!(G.SKILLS[id].cd > 0)) return;
     const old = wsLast;
     wsLast = id;
     const left = old ? P.cds[old] || 0 : 0;
@@ -575,21 +701,51 @@
     }
     return best;
   };
-  // 箭雨借用的注入：技能栏上（4 格里）任何技能镶着的灼炎 / 寒霜 / 雷霆注入，每种算一次 → { fire: 30, ... }
-  function barInfusions() {
-    const save = G.save;
-    const seen = new Set();
-    const extra = {};
-    for (const id of save.bar) {
-      if (!id) continue;
-      for (const supId of save.sockets[id] || []) {
-        const sup = supId && G.SUPPORTS[supId];
-        if (!sup || !sup.eff.extra || seen.has(supId)) continue;
-        seen.add(supId);
-        for (const t in sup.eff.extra) extra[t] = (extra[t] || 0) + sup.eff.extra[t];
+  // 远程武器类型 → 'gun' / 'bow'
+  const RFAM = {};
+  for (const b of G.BASES.weapon) if (b.ranged) RFAM[b.type] = b.ranged;
+  G.RFAM = RFAM;
+  const RUNE_CYCLE = ['fire', 'cold', 'light'];
+  // 符文弓这一箭的元素：你有元素伤害加成就取最高的那种，都没有（或元素满溢期间）就火 / 冰 / 雷轮流（P.gun.cycle 每射一箭往下走一格）
+  G.runeElem = function (forceCycle) {
+    const S = P.S;
+    if (!forceCycle) {
+      let best = null, bv = 0, tie = false;
+      for (const t of G.ELEMS) {
+        const v = S['inc' + G.CAP[t]] || 0;
+        if (v > bv) {
+          bv = v;
+          best = t;
+          tie = false;
+        } else if (v === bv && v > 0) tie = true;
       }
+      if (best && !tie) return best;
     }
-    return extra;
+    return RUNE_CYCLE[((P.gun.cycle % 3) + 3) % 3];
+  };
+  // 此刻生效的弓增益（数据在 G.SKILLS[id].buff），没有时 null
+  G.rangedBuff = function () {
+    const b = P.rbuff;
+    return b && b.t > 0 && G.SKILLS[b.id] ? G.SKILLS[b.id].buff : null;
+  };
+  // 武器伤害的转换：conv { 元素: 比例 }（'rune' = 符文弓按 G.runeElem 取元素、转 convK）；元素满溢期间符文弓的箭全部转成轮到的元素
+  function convertBase(sk, out) {
+    let conv = sk.conv;
+    if (sk.basic && sk.rtype === 'runebow' && P.rbuff && P.rbuff.t > 0 && P.rbuff.id === 'overflow') conv = { [G.runeElem(true)]: 1 };
+    else if (conv === 'rune') conv = { [G.runeElem()]: sk.convK || 0.6 };
+    if (!conv || !out.phys) return out;
+    const p = out.phys;
+    let left = 1;
+    for (const t in conv) {
+      const k = Math.min(left, conv[t]);
+      left -= k;
+      if (!out[t]) out[t] = [0, 0];
+      out[t][0] += p[0] * k;
+      out[t][1] += p[1] * k;
+    }
+    if (left <= 1e-6) delete out.phys;
+    else out.phys = [p[0] * left, p[1] * left];
+    return out;
   }
 
   // 技能在某个等级下的基础伤害（还没算你的伤害属性）：{ 类型: [最小, 最大] }。攻击技能按当前武器算。
@@ -607,7 +763,7 @@
       // 否则慢而重的战锤配冷却技能会比双匕强出四成
       const k = sk.wm * (1 + G.ATTACK_GEM_LVL * (lvl - 1)) * (G.cdAps(sk) ? wp.aps : 1);
       out.phys = [wp.min * k, wp.max * k];
-      return out;
+      return convertBase(sk, out);
     }
     const scale = sk.kind === 'summon' || sk.asMinion || sk.champ ? G.minionDmgK(lvl) : 1 + 0.2 * (lvl - 1);
     if (sk.edmg) {
@@ -642,8 +798,10 @@
       base.phys[0] += inh.add[0];
       base.phys[1] += inh.add[1];
     }
+    // 装备上的「附加 X 伤害」每一击都加一份：机炮、喷枪这类一秒十几跳的普攻只按 addEff 计（不然附加伤害按发数翻好几倍）
+    const addEff = sk.addEff === undefined ? 1 : sk.addEff;
     if (!mScale) for (const t of TYPES) {
-      const v = S['add' + G.CAP[t]] || 0;
+      const v = (S['add' + G.CAP[t]] || 0) * addEff;
       if (v > 0) {
         if (!base[t]) base[t] = [0, 0];
         base[t][0] += v * 0.7;
@@ -661,14 +819,16 @@
 
     // 基石「万骸之主」：你自己（非召唤物）的伤害总额外降低（处决也算你自己的伤害）
     let more = mScale ? 1 + (S.minionMore || 0) / 100 : (1 + (S.moreDmg || 0) / 100) * (1 - Math.min(90, S.ownLess || 0) / 100);
-    const extra = sk.infuse ? barInfusions() : {}; // 箭雨：借技能栏上的注入
+    const extra = {};
     // 长弓的隐含穿透作用于你所有的投射物技能
     let proj = 0, pierce = !mScale && sk.tags.indexOf('projectile') >= 0 ? S.pierce || 0 : 0, chain = 0, area = mScale ? 0 : S.area || 0, speedPct = 0;
-    let critFlat = 0, critMulti = 150 + (mScale ? 0 : S.critMulti || 0);
+    let critFlat = sk.critFlat || 0, critMulti = 150 + (mScale ? 0 : S.critMulti || 0) + (sk.critMulti || 0); // 鹰眼长弓的普攻自带暴击
     let leech = 0, stun = 0, ailment = (mScale ? 0 : S.ailment || 0) + (sk.ailment || 0), echo = 0, cdr = 0, costMult = 1;
     let mLife = 0, mDR = 0, mCap = 0, mSpeed = 0;
 
-    for (const supId of (!isWs && save.sockets[id]) || []) {
+    // 远程普攻：辅助镶在武器普攻卡上（只取对这个普攻生效的）；别的武器技不吃辅助
+    const sups = sk.basic ? G.basicSupports(id) : (!isWs && save.sockets[id]) || [];
+    for (const supId of sups) {
       const sup = supId && G.SUPPORTS[supId];
       if (!sup) continue;
       const e = sup.eff;
@@ -695,7 +855,12 @@
       costMult *= sup.cost;
     }
 
-    const speed = P.speedMult * (1 + speedPct / 100) * (isAttack && !isWs ? wp.aps : 1);
+    // 远程武器：热度越高枪械普攻越痛（heatDmg），热度技吃 rDmg
+    const fam = sk.basic ? RFAM[sk.rtype] : sk.rgauge ? RFAM[sk.wtype] : null;
+    if (fam === 'gun' && sk.basic && S.heatDmg) more *= 1 + (S.heatDmg / 100) * Math.min(1, (P.gauge.heat || 0) / G.RANGED.max);
+    if (fam === 'gun' && sk.rgauge && S.rDmg) more *= 1 + S.rDmg / 100;
+    // 远程普攻的出手节奏也乘武器攻速（别的武器技按各自的武器定好了节奏，不乘）
+    const speed = P.speedMult * (1 + speedPct / 100) * (isAttack && (!isWs || sk.basic) ? wp.aps : 1);
     let cost = sk.mana * (1 + 0.05 * (lvl - 1)) * costMult * (1 - Math.min(80, S.costReduce || 0) / 100);
     cost = sk.mana > 0 ? Math.max(1, Math.round(cost)) : 0;
     const isAura = sk.kind === 'aura';
@@ -728,6 +893,17 @@
       levelK: isAttack ? 1 + G.ATTACK_GEM_LVL * (lvl - 1) : mScale ? G.minionDmgK(lvl) : 1 + 0.2 * (lvl - 1),
       asMinion: mScale && !isMinion, // 魂潮：伤害按召唤物算的武器技（ctx.minion 仍为 null）
     };
+    if (sk.basic) {
+      // 远程普攻的平均出手间隔（秒伤估算用）：左轮把装填摊进每一发
+      if (sk.clip) ctx.cycle = (sk.clip * ctx.time + sk.reload / speed) / sk.clip;
+      // 弓的增益（一矢穿心：必定暴击、贯穿所有；元素满溢：异常累积翻倍）
+      const b = G.rangedBuff();
+      if (b && fam === 'bow') {
+        if (b.crit) ctx.crit = Math.max(ctx.crit, b.crit);
+        if (b.pierce) ctx.pierce += b.pierce;
+        if (b.ailment) ctx.ailment = (100 + ctx.ailment) * b.ailment - 100;
+      }
+    }
     if (isMinion) {
       // 召唤物：生命随宝石等级成长（比伤害快一些，跟得上怪物的伤害成长）；攻速吃「召唤物速度」和迅捷，移动只吃前者
       const spdK = Math.max(0.2, 1 + ((S.minionSpeed || 0) + mSpeed) / 100);
@@ -821,7 +997,7 @@
   };
   // 每秒出手（施放 / 斩击 / 脉冲）次数：含命中时的顿帧，受冷却限制
   G.skillRate = function (ctx) {
-    return 1 / Math.max(ctx.time + ctx.stopAvg, ctx.cd || 0, 0.01);
+    return 1 / Math.max((ctx.cycle || ctx.time) + ctx.stopAvg, ctx.cd || 0, 0.01);
   };
 
   // 每种伤害类型在暴击前的倍率
@@ -902,7 +1078,7 @@
   function knock(e, ang, dist) {
     if (!(dist > 0) || e.isBoss || e.dead) return;
     // 砸地 / 引信蓄力中的怪钉在原地（预警圈的位置才对得上）；被打断的不在此列
-    if (e.state === 'fuse' || (e.state === 'windup' && e.def.ai === 'slam')) return;
+    if (e.state === 'fuse' || e.state === 'dash' || (e.state === 'windup' && e.def.ai === 'slam')) return; // 陨角兽冲锋中也不被推离冲锋道
     let v = (dist * KB_DECAY) / (e.mass || 1);
     if (e.freeze > 0 || e.brokenT > 0) v *= 0.35;
     e.kvx += Math.sin(ang) * v;
@@ -1384,6 +1560,7 @@
       // 集火：玩家亲手打中的敌人成为召唤物的优先目标
       state.focus = e;
       state.focusT = FOCUS_KEEP;
+      if (sk.basic) rangedOnHit(e, ctx, hit, inf); // 远程普攻：热度的「最近打中过」、弓的专注
     }
 
     // 重击打断普通小怪的起手；所有命中都把小怪推开（首领不被推动）
@@ -1550,6 +1727,7 @@
     }
     P.exec = null;
     P.cast = null;
+    P.rstate = null; // 乱射不会被打断，但倒下 / 换区 / 重生时到此为止
     P.roll.t = 0;
     P.combo.step = 0;
     P.combo.t = 0;
@@ -1584,6 +1762,8 @@
     G.sfx('hurt');
     P.chain.n = 0; // 挨打：连击中断
     P.chain.t = 0;
+    const rw = G.rangedWeapon();
+    if (rw && rw.family === 'bow') G.addGauge('focus', -G.RANGED.focus.hurt); // 挨打掉一点专注
 
     if (P.life <= 0) {
       P.life = 0;
@@ -1670,6 +1850,7 @@
     G.world.clearFx(); // 还在半空的陨石、冲击环等不该跟到重生之后
     placePlayer(at.x, at.z);
     refill();
+    resetRanged();
     G.resetEnemies();
     if (G.regroupMinions) G.regroupMinions(); // 召唤物回到重生点身边
     G.autoSummonDelay(); // 倒下的那些等它们现身之后再补
@@ -1874,6 +2055,12 @@
     }
     if (p.pierce > 0) {
       p.pierce--;
+      // 追猎弓的箭穿过之后不再盯着刚射中的那个：重新在附近找下一个猎物
+      if (p.reseek > 0) {
+        p.home = null;
+        p.seekT = 0;
+        p.life = Math.max(p.life, p.reseek / p.speed + 0.15);
+      }
       return true;
     }
     return false;
@@ -1888,6 +2075,23 @@
       p.life -= dt;
       let alive = p.life > 0;
       // 追踪弹（秘弹连射）：每秒最多转 turn 弧度拐向目标；目标死了就直飞
+      // 追猎弓的箭：目标没了就在 reseek 米内重新找一个（每 0.1 秒找一次）
+      if (p.reseek > 0 && (!p.home || p.home.dead)) {
+        p.home = null;
+        p.seekT = (p.seekT || 0) - dt;
+        if (p.seekT <= 0) {
+          p.seekT = 0.1;
+          const cur = Math.atan2(p.dx, p.dz);
+          let bd = p.reseek;
+          for (const e of state.enemies) {
+            if (e.dead || p.hit.has(e)) continue;
+            const d = dist(e.x, e.z, p.x, p.z) - e.r;
+            if (d >= bd || Math.abs(angDiff(Math.atan2(e.x - p.x, e.z - p.z), cur)) > 1.6) continue;
+            bd = d;
+            p.home = e;
+          }
+        }
+      }
       if (p.home) {
         if (p.home.dead) p.home = null;
         else {
@@ -1927,7 +2131,10 @@
             // 后到的那枚照常消耗穿透 / 连锁 / 引爆，只是不再对它结算直击
             if (!p.cast || !p.cast.has(e)) {
               if (p.cast) p.cast.add(e);
-              G.hitEnemy(e, p.ctx, 1, { ang: Math.atan2(p.dx, p.dz) }); // 顺着弹道推
+              // 远程武器的箭 / 子弹：multFn 算这一下的倍率（鹰眼的远距离加成），after 接着结算余烬 / 元素爆炸 / 熔芯弹；src 让专注按箭计数
+              const m = p.multFn ? p.multFn(p, e) : p.mult || 1;
+              G.hitEnemy(e, p.ctx, m, { ang: Math.atan2(p.dx, p.dz), src: p }); // 顺着弹道推
+              if (p.after) p.after(p, e, lastHit.killed, lastHit.crit);
             }
             if (!p.explode) projFx(p, 'hit'); // 飞刃擦过敌人的金属火花（爆炸弹的特效在爆炸那一下）
             alive = afterPlayerHit(p, e);
@@ -2072,8 +2279,14 @@
     return !!inp.keys[slot === 2 ? 'KeyQ' : 'KeyE'];
   }
   // 某个输入槽此刻对应的技能
+  // 拿着远程武器时右键（1）固定是这把武器的普攻
   G.slotSkill = function (slot) {
-    return slot === WS_SLOT ? G.weaponSkill() : (G.save.bar[slot] || null);
+    if (slot === WS_SLOT) return G.weaponSkill();
+    if (slot === 1) {
+      const rw = G.rangedWeapon();
+      if (rw) return rw.basic;
+    }
+    return G.save.bar[slot] || null;
   };
 
   // 同时按住时，键位技能优先于鼠标技能，这样按住左键普攻时仍能插入 Q / E / R
@@ -2120,7 +2333,7 @@
     for (const slot of CAST_ORDER) {
       if (!slotHeld(slot)) continue;
       const isWs = slot === WS_SLOT;
-      const id = isWs ? G.weaponSkill() : save.bar[slot];
+      const id = G.slotSkill(slot);
       if (isWs && !id) {
         // 空手按 R：提示一句
         if (G.input.tap[slot] > 0) {
@@ -2133,9 +2346,22 @@
         }
         continue;
       }
-      if (!id || !G.SKILLS[id] || (!isWs && !save.skills[id])) continue;
+      if (!id || !G.SKILLS[id] || (!isWs && !G.SKILLS[id].basic && !save.skills[id])) continue;
       if (chan && chan.slot === slot) continue; // 还按着正在转的那个键：接着转，不从头起
       if (P.cds[id] > 0) continue;
+      if (isWs && G.SKILLS[id].rgauge && !G.gaugeReady()) {
+        // 远程武器的 R：量表没满放不出来，轻点只提示一句
+        if (G.input.tap[slot] > 0) {
+          G.input.tap[slot] = 0;
+          const rw = G.rangedWeapon();
+          if (rw && Date.now() - (toastAt.gauge || 0) > 1200) {
+            toastAt.gauge = Date.now();
+            G.world.text(P.x, P.z, rw.gauge.name + '未满（' + Math.floor(rw.gauge.v) + '/' + rw.gauge.max + '）', '#c9c2b4', 14);
+          }
+        }
+        continue;
+      }
+      if (G.SKILLS[id].basic && P.rstate) continue; // 乱射期间不另外开火
       if (G.SKILLS[id].kind === 'aura') {
         // 光环不用按：轻点它的键只提示一句
         if (G.input.tap[slot] > 0) {
@@ -2162,6 +2388,10 @@
       }
       const sk = ctx.sk;
       const ang = aimInfo().ang;
+      if (sk.basic) {
+        startRanged(slot, ctx, ang);
+        return true;
+      }
       if (sk.weaponOnly) {
         if (startWeaponSkill(slot, ctx, ang)) return true;
         continue;
@@ -2500,7 +2730,8 @@
       return;
     }
     if (c.channel) {
-      if (c.flicker) updateFlicker(c, dt);
+      if (c.ranged) updateRanged(c, dt);
+      else if (c.flicker) updateFlicker(c, dt);
       else updateChannel(c, dt);
       return;
     }
@@ -2541,6 +2772,502 @@
       if (c.t >= c.dur) P.cast = null;
     }
   }
+
+  // =====================================================================
+  // 远程普攻（右键）：枪械与弓
+  // =====================================================================
+  // 按住右键是一个持续施放（P.cast.ranged）：机炮 / 喷枪按住才开火，左轮 / 弓轻点也至少出一发，按住连发。
+  // 出手节奏 = 普攻的 time ÷ 出手速度（含武器攻速与迅捷）；P.gun.cdT 记着下一发最早能出手的时刻，反复轻点也快不过射速。
+  // 动作优先播 world 的 'fire_<类型>'（机炮 / 喷枪循环播），没有时弓和左轮借用掷出的动作。
+  // 外形与特效：投射物的 vk（bullet 机炮 / slug 左轮 / arrow 箭 / emberarrow 烬铸燃箭）由 world 画，枪口焰、弹壳、喷火跟着动作和弹丸自动出；
+  // 地上的火（world.emberGround）、焚天炎爆（fireNova）、熔光射线（laser，每帧）、弓的增益光环（rangedBuff）是可选接口，没有时用通用特效顶上
+  const RANGED_HOLD = { gatling: true, flamer: true }; // 这两种松手就停（不会因为轻点的缓冲多打一发）
+  const MAX_FIELDS = 40;
+  const fields = []; // 地上的火：喷枪的余烬、焚天炎爆的火场 { kind, x, z, r, t, tick, tt, mult, ctx, key, hex }
+  const VK = { gatling: 'bullet', revolver: 'slug', flamer: 'flamelet', huntbow: 'arrow', eagle: 'arrow', runebow: 'arrow', emberbow: 'emberarrow' };
+
+  function playFire(type, opts) {
+    const W = G.world;
+    if (W.play(P.ent, 'fire_' + type, opts)) return true;
+    if (opts && opts.loop) return false;
+    return W.play(P.ent, 'throw', opts);
+  }
+  function stopFireClip() {
+    const W = G.world;
+    const cl = W.clipOf(P.ent);
+    if (cl && cl.indexOf('fire_') === 0) W.stop(P.ent, 0.14);
+  }
+
+  function startRanged(slot, ctx, ang) {
+    const sk = ctx.sk;
+    const g = P.gun;
+    G.input.tap[slot] = 0;
+    comboReset();
+    let first = 0;
+    if (sk.rtype === 'flamer') first = 0.04;
+    else if (sk.rtype === 'revolver') first = g.reloadT > 0 ? g.reloadT : 0.03;
+    else if (sk.draw) first = sk.draw / ctx.speed;
+    first = Math.max(first, g.cdT);
+    P.cast = {
+      slot, id: ctx.id, t: 0, fired: false, aim: ang, step: -1, st: null, channel: true, ranged: true, rtype: sk.rtype,
+      nextT: first, cancelT: Infinity, dur: Infinity, pulses: 0, move: sk.move, emberT: 0,
+    };
+    P.face = ang;
+    if (RANGED_HOLD[sk.rtype]) {
+      // 机炮 / 喷枪：按住期间随时可以接别的技能（空转时也是），不用等第一发
+      P.cast.fired = true;
+      P.cast.cancelT = 0;
+      P.cast.clipOk = playFire(sk.rtype, { loop: true, dur: 0.6 });
+    }
+    else if (sk.draw) playFire(sk.rtype, { dur: Math.max(0.2, first + 0.18), contact: Math.max(0.02, first) });
+    return true;
+  }
+
+  function endRanged() {
+    P.cast = null;
+    P.gun.firing = false;
+    stopFireClip();
+  }
+
+  // 普攻的出手速度倍率（迅捷、攻速词缀 / 天赋，不含武器本身的攻速）：按发积攒的量表除以它，射得快不等于 R 来得快
+  const speedK = (ctx) => Math.max(1, ctx.speed / ((ctx.weapon && ctx.weapon.aps) || 1));
+  // 热度：开火时上涨（最近没打中东西时只涨 miss 倍），吃 heatGain
+  function gainHeat(v) {
+    const H = G.RANGED.heat;
+    const k = (P.gun.hitT <= H.hitKeep ? 1 : H.miss) * Math.max(0, 1 + (P.S.heatGain || 0) / 100);
+    P.gauge.heatIdle = 0;
+    G.addGauge('heat', v * k);
+  }
+
+  function updateRanged(c, dt) {
+    c.t += dt;
+    c.aim = aimInfo().ang;
+    P.face = c.aim;
+    const sk = G.SKILLS[c.id];
+    const g = P.gun;
+    const held = slotHeld(c.slot) && G.slotSkill(c.slot) === c.id && !P.rstate;
+    if (G.slotSkill(c.slot) !== c.id || P.rstate || (!held && (c.pulses > 0 || RANGED_HOLD[sk.rtype]))) {
+      endRanged();
+      return;
+    }
+    g.firing = true;
+    if (sk.rtype === 'gatling') {
+      // 枪管先转起来（spin 秒），转满之后才开火；射速从 rate0 倍涨到满，转满后连续开火 ramp 秒到最快
+      g.spin = Math.min(1, g.spin + dt / Math.max(0.1, sk.spin / P.speedMult));
+      if (g.spin < 1) {
+        c.move = Math.max(sk.move, 0.5);
+        c.nextT = c.t;
+        return;
+      }
+      c.move = sk.move;
+      g.ramp = Math.min(sk.ramp, g.ramp + dt);
+      for (let n = 0; n < 4 && c.t >= c.nextT; n++) {
+        const ctx = G.skillCtx(c.id);
+        const iv = ctx.time / (sk.rate0 + (1 - sk.rate0) * (g.ramp / sk.ramp));
+        c.nextT += iv;
+        shotDone(c);
+        fireGatling(ctx, c);
+        gainHeat(sk.heat * iv);
+      }
+      return;
+    }
+    if (sk.rtype === 'flamer') {
+      for (let n = 0; n < 3 && c.t >= c.nextT; n++) {
+        const ctx = G.skillCtx(c.id);
+        c.nextT += ctx.time;
+        shotDone(c);
+        fireFlamer(ctx, c);
+        gainHeat(sk.heat * ctx.time);
+      }
+      return;
+    }
+    if (sk.rtype === 'revolver' && g.reloadT > 0) {
+      c.nextT = Math.max(c.nextT, c.t + g.reloadT);
+      return;
+    }
+    if (c.t < c.nextT) return;
+    if (RFAM[sk.rtype] === 'bow') P.gun.cycle++; // 符文弓轮到下一个元素
+    const ctx = G.skillCtx(c.id);
+    c.nextT = c.t + ctx.time;
+    g.cdT = ctx.time;
+    shotDone(c);
+    if (sk.rtype === 'revolver') {
+      fireRevolver(ctx, c);
+      gainHeat(sk.heatShot / speedK(ctx)); // 按发计，但出手速度不加快积攒：和机炮 / 喷枪一样按开火的时间涨
+      playFire('revolver', { dur: Math.min(0.3, ctx.time * 0.95), contact: 0.02 });
+    } else {
+      fireBow(ctx, c);
+      // 下一箭：拉弓的动作对到下一次放箭的时刻
+      if (held) playFire(sk.rtype, { dur: Math.max(0.2, ctx.time + 0.05), contact: ctx.time * 0.92 });
+    }
+  }
+  // 打出了一发：之后随时可以接别的动作；记进统计（新手提示读）
+  function shotDone(c) {
+    c.fired = true;
+    c.cancelT = 0;
+    c.pulses++;
+    state.stats.rShots = (state.stats.rShots || 0) + 1;
+  }
+
+  // 一发子弹 / 一支箭。o：{ cast 同一次出手共用的已命中集合, mult, multFn, after, vk 外形, tint, home, turn, reseek, pierce, chain, color, speed, range }
+  function shootProj(ctx, ang, o) {
+    const sk = ctx.sk;
+    const dx = Math.sin(ang);
+    const dz = Math.cos(ang);
+    const speed = o.speed || sk.speed || 30;
+    return G.spawnProjectile({
+      owner: 'p', x: P.x + dx * 0.8, z: P.z + dz * 0.8, dx, dz,
+      speed, r: o.r || sk.projR || 0.22, life: (o.range || sk.range || 20) / speed, color: o.color !== undefined ? o.color : hexOf(sk.color),
+      ctx, pierce: o.pierce !== undefined ? o.pierce : ctx.pierce, chain: o.chain !== undefined ? o.chain : ctx.chain, explode: 0, hit: new Set(), cast: o.cast,
+      vk: o.vk || VK[sk.rtype || sk.wtype], tint: o.tint, rtype: sk.rtype || sk.wtype, home: o.home || null, turn: o.turn || 0, reseek: o.reseek || 0,
+      mult: o.mult || 1, multFn: o.multFn || null, after: o.after || null, ranged: true,
+    });
+  }
+  function fireGatling(ctx, c) {
+    const sk = ctx.sk;
+    const n = Math.max(1, ctx.proj);
+    const cast = new Set();
+    const spr = sk.spread * DEG;
+    const fan = n > 1 ? Math.min(30, 8 * (n - 1)) * DEG : 0;
+    const tint = infuseHex(ctx);
+    for (let i = 0; i < n; i++) {
+      const ang = c.aim + (n > 1 ? -fan / 2 + (fan * i) / (n - 1) : 0) + G.rand(-spr, spr);
+      shootProj(ctx, ang, { cast, vk: 'bullet', tint });
+    }
+    G.sfx('shot', { type: 'gatling' });
+  }
+
+  function fireRevolver(ctx, c) {
+    const g = P.gun;
+    const core = g.ammo <= 1 && P.uMech === 'core'; // 熔芯：一轮的最后一发是熔芯弹
+    const use = core ? Object.assign({}, ctx, { crit: 100 }) : ctx;
+    const n = Math.max(1, ctx.proj);
+    const cast = new Set();
+    const fan = n > 1 ? Math.min(30, 9 * (n - 1)) * DEG : 0;
+    const tint = core ? G.TYPE_HEX.fire : infuseHex(ctx);
+    for (let i = 0; i < n; i++) {
+      const ang = c.aim + (n > 1 ? -fan / 2 + (fan * i) / (n - 1) : 0);
+      shootProj(use, ang, { cast, vk: 'slug', tint, after: core ? coreBlast : null });
+    }
+    G.sfx('shot', { type: 'revolver' });
+    g.ammo--;
+    if (g.ammo <= 0) startReload(ctx);
+  }
+  function startReload(ctx) {
+    const sk = G.SKILLS.basic_revolver;
+    P.gun.ammo = 0;
+    P.gun.reloadT = sk.reload / Math.max(0.2, (ctx && ctx.speed) || P.speedMult);
+    fxOpt('reload', P.ent, P.gun.reloadT);
+  }
+  // 把一次出手的伤害全部换成某个元素（余烬、熔芯弹、元素爆炸用）
+  function elemCtx(ctx, t) {
+    let lo = 0, hi = 0;
+    for (const k in ctx.base) {
+      lo += ctx.base[k][0];
+      hi += ctx.base[k][1];
+    }
+    const base = {};
+    base[t] = [lo, hi];
+    return Object.assign({}, ctx, { base });
+  }
+  function coreBlast(p, e) {
+    const C = G.CORE_ROUND;
+    const fctx = elemCtx(p.ctx, 'fire');
+    fctx.crit = 0;
+    const x = e.x, z = e.z;
+    if (!fxOpt('coreBlast', x, z, C.r)) {
+      G.world.ring(x, z, C.r, 0xff8a3c, 0.3);
+      G.world.burst(x, 1.0, z, 0xff8a3c, 18, 6, 0.4);
+    }
+    for (const o of enemiesIn(x, z, C.r)) if (o !== e) G.hitEnemy(o, fctx, C.mult, { ang: Math.atan2(o.x - x, o.z - z), w: 1, quiet: true, extra: true });
+    state.stats.coreRounds = (state.stats.coreRounds || 0) + 1;
+  }
+
+  // 喷枪：身前扇面（被墙截短）里的敌人每跳挨一下；每隔 ember.gap 秒在火舌尽头留下一团余烬
+  function fireFlamer(ctx, c) {
+    const W = G.world;
+    const sk = ctx.sk;
+    const R = rayLen(P.x, P.z, c.aim, sk.range * Math.sqrt(ctx.area), -0.3);
+    const half = (sk.arc / 2) * DEG;
+    const hits = [];
+    for (const e of enemiesIn(P.x, P.z, R)) {
+      const d = dist(e.x, e.z, P.x, P.z);
+      if (d > e.r + 0.6) {
+        const diff = Math.abs(angDiff(Math.atan2(e.x - P.x, e.z - P.z), c.aim));
+        if (diff > half + Math.asin(Math.min(1, e.r / d))) continue;
+      }
+      if (!losClear(P.x, P.z, e.x, e.z)) continue;
+      hits.push(e);
+    }
+    if (!c.clipOk && !fxOpt('flameCone', P.x, P.z, c.aim, R, sk.arc, ctx.time * 2.2)) {
+      // world 没有喷火的动作（它会自己画火舌）时：撒几点火星顶上
+      for (let i = 0; i < 3; i++) {
+        const a = c.aim + G.rand(-half, half) * 0.8;
+        const d = G.rand(0.8, R);
+        W.burst(P.x + Math.sin(a) * d, 1.0, P.z + Math.cos(a) * d, i ? 0xff8a3c : 0xffd28a, 2, 1.6, 0.25);
+      }
+    }
+    for (const e of hits) G.hitEnemy(e, ctx, 1, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 0, kb: sk.kb, poise: sk.poise, quiet: true, faint: true });
+    if (hits.length) G.sfx('impact', { type: 'fire', w: 0, crit: false });
+    // 余烬
+    const E = sk.ember;
+    c.emberT -= ctx.time;
+    if (E && c.emberT <= 0) {
+      c.emberT += E.gap;
+      const d = Math.max(1, R * 0.85);
+      const x = P.x + Math.sin(c.aim) * d;
+      const z = P.z + Math.cos(c.aim) * d;
+      addField({ kind: 'ember', x, z, r: E.r * Math.sqrt(ctx.area), dur: E.dur, tick: E.tick, mult: E.mult, ctx, key: 'emberAt', hex: 0xff7a2c });
+    }
+  }
+
+  // 地上的火：每 tick 秒对范围里的敌人造成 mult 倍伤害；同一个敌人在同一类火（key）里每 tick 秒只挨一下（几团余烬叠在一起也一样）
+  function addField(f) {
+    f.t = f.dur;
+    f.tt = Math.min(0.15, f.tick);
+    if (fields.length >= MAX_FIELDS) fields.shift();
+    fields.push(f);
+    if (!fxOpt('emberGround', f.x, f.z, f.r, f.dur, f.kind === 'burn')) G.world.decal(1, f.x, f.z, f.r * 0.9, Math.random() * TAU, f.hex || 0xff7a2c, f.dur);
+    return f;
+  }
+  function updateFields(dt) {
+    for (let i = fields.length - 1; i >= 0; i--) {
+      const f = fields[i];
+      f.t -= dt;
+      if (f.t <= 0) {
+        fields.splice(i, 1);
+        continue;
+      }
+      f.tt -= dt;
+      if (f.tt > 0) continue;
+      f.tt += f.tick;
+      for (const e of enemiesIn(f.x, f.z, f.r)) {
+        if (state.time - (e[f.key] || -99) < f.tick * 0.95) continue;
+        e[f.key] = state.time;
+        G.hitEnemy(e, f.ctx, f.mult, { ang: Math.atan2(e.x - f.x, e.z - f.z), w: 0, kb: 0, poise: 1, quiet: true, faint: true, extra: true });
+      }
+    }
+  }
+  G.rangedFields = () => fields;
+
+  // 远距离系数（0..1）：命中点离你 farMin 以内为 0，farMax 以外为 1
+  function farK(e) {
+    const RG = G.RANGED;
+    return G.clamp((dist(e.x, e.z, P.x, P.z) - RG.farMin) / (RG.farMax - RG.farMin), 0, 1);
+  }
+  // 弓的伤害倍率：鹰眼长弓的远距离加成（sk.far）+ rangeDmg
+  function bowMult(p, e) {
+    const sk = p.ctx.sk;
+    const far = (sk.far || 0) + (P.S.rangeDmg || 0) / 100;
+    return (p.mult || 1) * (1 + farK(e) * far);
+  }
+  // 追猎：挑一个大致在箭头方向上、离你 range 以内的敌人（越近、越正前方越优先）；exclude 里的跳过
+  function pickHome(ang, R, exclude) {
+    let best = null;
+    let bs = Infinity;
+    for (const e of state.enemies) {
+      if (e.dead || (exclude && exclude.has(e))) continue;
+      const d = dist(e.x, e.z, P.x, P.z);
+      if (d - e.r > R) continue;
+      const diff = Math.abs(angDiff(Math.atan2(e.x - P.x, e.z - P.z), ang));
+      if (diff > 1.1) continue;
+      const sc = d + diff * 6;
+      if (sc < bs) {
+        bs = sc;
+        best = e;
+      }
+    }
+    return best;
+  }
+
+  function fireBow(ctx, c) {
+    const sk = ctx.sk;
+    const type = sk.rtype;
+    const buffId = P.rbuff && P.rbuff.t > 0 ? P.rbuff.id : null;
+    const b = G.rangedBuff();
+    const n = Math.max(1, ctx.proj);
+    const fan = n > 1 ? Math.min(40, 10 * (n - 1)) * DEG : 0;
+    const mainT = mainType(ctx);
+    const tint = mainT !== 'phys' ? G.TYPE_HEX[mainT] : infuseHex(ctx);
+    const color = mainT !== 'phys' ? G.TYPE_HEX[mainT] : hexOf(sk.color);
+    const shared = new Set();
+    const after = arrowAfter;
+    for (let i = 0; i < n; i++) {
+      const ang = c.aim + (n > 1 ? -fan / 2 + (fan * i) / (n - 1) : 0);
+      if (buffId === 'volley' && b) {
+        // 万矢：每支箭分成 split 支追踪箭，分给附近不同的敌人
+        const used = new Set();
+        const spr = b.fan * DEG;
+        for (let j = 0; j < b.split; j++) {
+          const a = ang - spr / 2 + (spr * j) / Math.max(1, b.split - 1);
+          const home = pickHome(a, sk.range, used) || pickHome(ang, sk.range, null);
+          if (home) used.add(home);
+          shootProj(ctx, a, { vk: 'arrow', tint, color, mult: b.mult, multFn: bowMult, after, home, turn: sk.turn || 8, reseek: sk.seek || 7, cast: new Set() });
+        }
+        continue;
+      }
+      if (buffId === 'emberstorm' && b) {
+        // 燎原：一次射出 fan 支燃烧的箭
+        const spr = b.spread * DEG;
+        for (let j = 0; j < b.fan; j++) {
+          const a = ang - spr / 2 + (spr * j) / Math.max(1, b.fan - 1);
+          shootProj(ctx, a, { vk: 'emberarrow', tint: G.TYPE_HEX.fire, color, mult: b.mult, multFn: bowMult, after, cast: new Set() });
+        }
+        continue;
+      }
+      const o = { vk: VK[type], tint, color, multFn: bowMult, after, cast: shared };
+      if (type === 'huntbow') {
+        o.home = pickHome(ang, sk.range, null);
+        o.turn = sk.turn;
+        o.reseek = sk.seek;
+      }
+      shootProj(ctx, ang, o);
+    }
+    G.sfx('shot', { type: 'bow' });
+  }
+
+  // 箭的直击之后：符文弓的元素满溢小爆炸、烬铸弓的余烬连跳、燎原的焚尸
+  function arrowAfter(p, e, killed) {
+    const sk = p.ctx.sk;
+    const buffId = P.rbuff && P.rbuff.t > 0 ? P.rbuff.id : null;
+    const b = G.rangedBuff();
+    if (buffId === 'overflow' && b && b.burst) {
+      const t = mainType(p.ctx);
+      const ectx = elemCtx(p.ctx, t === 'phys' ? 'fire' : t);
+      const R = b.burst.r;
+      const x = e.x, z = e.z;
+      if (!fxOpt('elemBurst', x, z, R, t)) {
+        G.world.ring(x, z, R, G.TYPE_HEX[t] || 0xffffff, 0.25);
+        G.world.burst(x, 1.0, z, G.TYPE_HEX[t] || 0xffffff, 10, 4, 0.3);
+      }
+      for (const o of enemiesIn(x, z, R)) G.hitEnemy(o, ectx, b.burst.mult, { ang: Math.atan2(o.x - x, o.z - z), w: 0, kb: 0.2, poise: 2, quiet: true, faint: o !== e, extra: true });
+    }
+    if (sk.spark) emberChain(p.ctx, e, buffId === 'emberstorm' && b ? b.spark : null);
+    if (killed && buffId === 'emberstorm' && b && b.blast) emberBlast(p.ctx, e, b.blast);
+  }
+  // 余烬：从 e 跳向 r 米内最近的、这一串还没烧过的敌人，最多 n 跳，每跳 mult 倍（火焰）。拿着烬羽时每跳再灌一点火焰异常值
+  function emberChain(ctx, e0, boost) {
+    const S0 = ctx.sk.spark;
+    const n = boost ? boost.n : S0.n;
+    const mult = boost ? boost.mult : S0.mult;
+    const fctx = elemCtx(ctx, 'fire');
+    const seen = new Set([e0]);
+    let from = { x: e0.x, z: e0.z };
+    let i = 0;
+    const hop = () => {
+      if (P.dead || i >= n) return;
+      let best = null;
+      let bd = S0.r;
+      for (const o of state.enemies) {
+        if (o.dead || seen.has(o)) continue;
+        const d = dist(o.x, o.z, from.x, from.z) - o.r;
+        if (d < bd) {
+          bd = d;
+          best = o;
+        }
+      }
+      if (!best) return;
+      seen.add(best);
+      i++;
+      if (!fxOpt('emberSpark', from.x, from.z, best.x, best.z)) G.world.bolt([{ x: from.x, z: from.z }, { x: best.x, z: best.z }], 0xff8a3c, true);
+      G.hitEnemy(best, fctx, mult, { ang: Math.atan2(best.x - from.x, best.z - from.z), w: 0, kb: 0.2, poise: 3, quiet: true, extra: true });
+      const killed = lastHit.killed;
+      if (P.uMech === 'ember' && !best.dead) G.fillMeter(best, 'fire', G.EMBER_MECH.ignite);
+      state.stats.embers = (state.stats.embers || 0) + 1;
+      const b = G.rangedBuff();
+      if (killed && P.rbuff && P.rbuff.id === 'emberstorm' && b && b.blast) emberBlast(ctx, best, b.blast);
+      from = { x: best.x, z: best.z };
+      G.after(0.06, hop);
+    };
+    G.after(0.05, hop);
+  }
+  function emberBlast(ctx, e, B) {
+    const fctx = elemCtx(ctx, 'fire');
+    const x = e.x, z = e.z;
+    if (!fxOpt('coreBlast', x, z, B.r)) {
+      G.world.ring(x, z, B.r, 0xff8a3c, 0.3);
+      G.world.burst(x, 1.0, z, 0xff8a3c, 16, 6, 0.4);
+    }
+    for (const o of enemiesIn(x, z, B.r)) G.hitEnemy(o, fctx, B.mult, { ang: Math.atan2(o.x - x, o.z - z), w: 1, kb: 0.8, poise: 6, quiet: true, extra: true });
+    state.stats.emberBlasts = (state.stats.emberBlasts || 0) + 1;
+  }
+
+  // 远程普攻 / 量表技的命中：枪械记下「最近打中过」（热度按它涨满速），弓的普攻按命中积攒专注
+  function rangedOnHit(e, ctx, hit, inf) {
+    const sk = ctx.sk;
+    if (!sk.basic || inf.extra) return;
+    const fam = RFAM[sk.rtype];
+    P.gun.hitT = 0;
+    state.stats.rHits = (state.stats.rHits || 0) + 1;
+    if (fam !== 'bow' || (P.rbuff && P.rbuff.t > 0)) return;
+    const F = G.RANGED.focus;
+    const src = inf.src;
+    if (src) {
+      src.fHits = (src.fHits || 0) + 1;
+      if (src.fHits > F.cap) return;
+    }
+    let v = F.hit * (hit.crit ? F.crit : 1) * (dist(e.x, e.z, P.x, P.z) >= F.farD ? F.far : 1);
+    v *= Math.max(0, 1 + (P.S.focusGain || 0) / 100) / speedK(ctx);
+    P.gauge.focusIdle = 0;
+    G.addGauge('focus', v);
+  }
+
+  // 每帧：机炮的转速回落、左轮装填、量表回落、增益 / 乱射计时、地上的火
+  function tickRanged(dt) {
+    const g = P.gun;
+    const gg = P.gauge;
+    const RG = G.RANGED;
+    g.hitT += dt;
+    if (g.cdT > 0) g.cdT = Math.max(0, g.cdT - dt);
+    const c = P.cast && P.cast.ranged ? P.cast : null;
+    if (!c) g.firing = false;
+    if (!(c && c.rtype === 'gatling')) {
+      g.spin = Math.max(0, g.spin - dt / 0.6);
+      g.ramp = Math.max(0, g.ramp - dt * 2);
+    }
+    // 左轮：打空自动装填；停火一会儿也把没打完的这一轮补满
+    if (g.reloadT > 0) {
+      g.reloadT -= dt;
+      if (g.reloadT <= 0) {
+        g.reloadT = 0;
+        g.ammo = G.SKILLS.basic_revolver.clip;
+      }
+    } else if (g.ammo < G.SKILLS.basic_revolver.clip && !c && g.cdT <= 0 && gg.heatIdle > 1.5 && G.rangedWeapon() && G.rangedWeapon().type === 'revolver') {
+      startReload(null);
+    }
+    // 量表：满了就一直亮着等你放；没满时停火 / 没命中一阵子后慢慢回落
+    gg.heatIdle += dt;
+    gg.focusIdle += dt;
+    if (gg.heat < RG.max && gg.heatIdle > RG.heat.hold) gg.heat = Math.max(0, gg.heat - RG.heat.decay * dt);
+    if (gg.focus < RG.max && gg.focusIdle > RG.focus.hold) gg.focus = Math.max(0, gg.focus - RG.focus.decay * dt);
+    // 弓的增益：到点，或者换下了那把弓，就结束
+    if (P.rbuff) {
+      P.rbuff.t -= dt;
+      const rw = G.rangedWeapon();
+      if (P.rbuff.t <= 0 || !rw || rw.type !== G.SKILLS[P.rbuff.id].wtype) endBuff();
+    }
+    if (P.rstate) updateWildfire(dt);
+    updateFields(dt);
+  }
+  function endBuff() {
+    if (!P.rbuff) return;
+    P.rbuff = null;
+    fxOpt('rangedBuff', null);
+  }
+  // 换区域 / 重生：量表、增益、乱射、地上的火、枪的状态都清掉
+  function resetRanged() {
+    P.gauge.heat = P.gauge.focus = 0;
+    P.gauge.heatIdle = P.gauge.focusIdle = 99;
+    const g = P.gun;
+    g.spin = g.ramp = g.reloadT = g.cdT = 0;
+    g.ammo = G.SKILLS.basic_revolver.clip;
+    g.hitT = 99;
+    g.firing = false;
+    endBuff();
+    P.rstate = null;
+    fields.length = 0;
+  }
+  G.resetRanged = resetRanged;
 
   // ---------- 技能效果 ----------
   const SKILL_FX = {
@@ -2880,13 +3607,14 @@
   // =====================================================================
   // 施放分几段（sk.wt.phases，第一段扣消耗、进冷却），每一段到点时调用 WS_FX[kind](ctx, c, 段号)。
   // 翻滚在第一段之前取消不扣消耗、不进冷却；之后取消会丢掉还没到点的段（已经排进计时器的延时伤害——
-  // 瞬断的斩开、箭雨、秘弹、震地的冲击波——照常结算）。
+  // 瞬断的斩开、秘弹、震地的冲击波——照常结算）。远程武器的 R 不进冷却，第一段生效时清空量表（翻滚在那之前取消不清空）。
   // 动作优先播 world 的 'w_<武器类型>'（k0 对在第一段），没有时退回现有动作 WS_FALLBACK（逐段播）。
   // 特效先找 world 里可选的专用函数（见各技能里的 fxOpt 调用），没有就用现有的通用特效顶上
   const WS_FALLBACK = {
     wblade: ['attack1', 'attack2'], wstaff: ['cast'], wwand: ['cast'], wdaggers: ['blink', 'flicker'],
-    whammer: ['attack3'], wbow: ['throw'], wkatana: ['blink'], wbanner: ['cast'],
+    whammer: ['attack3'], wkatana: ['blink'], wbanner: ['cast'],
     ukatana: ['flicker'], ustaff: ['cast'], ubanner: ['cast'],
+    rgatling: ['cast'], rflamer: ['cast'], rrevolver: ['throw'], rbuff: ['cast'],
   };
   function fxOpt(name) {
     const W = G.world;
@@ -3062,6 +3790,12 @@
         c.fired = true;
         c.ctx = ctx;
         state.stats.wskills = (state.stats.wskills || 0) + 1;
+        if (sk.rgauge) {
+          // 远程武器的 R：量表清零
+          const rw = G.rangedWeapon();
+          if (rw) P.gauge[rw.gauge.kind] = 0;
+          state.stats.rUses = (state.stats.rUses || 0) + 1;
+        }
         WS_FX[sk.kind](ctx, c, 0);
         c.phase = 1;
       }
@@ -3270,41 +4004,6 @@
           if (!it.e.dead) wsStrike(ctx, [it.e], 1, Object.assign({}, o, { stop: 0 }));
         });
       }
-    },
-
-    // 箭雨：落在准星一带（最远 range，被墙挡住时落在墙前），delay 秒后开始，每 tick 秒一轮，共 ticks 轮
-    wbow(ctx, c) {
-      const W = G.world;
-      const sk = ctx.sk;
-      const a = aimInfo();
-      const d = rayLen(P.x, P.z, a.ang, Math.min(sk.range, a.dist), 0);
-      const x = P.x + Math.sin(a.ang) * d;
-      const z = P.z + Math.cos(a.ang) * d;
-      const R = sk.radius * Math.sqrt(ctx.area);
-      const hex = hexOf(sk.color);
-      const total = sk.delay + sk.ticks * sk.tick;
-      // world 的箭从生成到落地要 0.2 秒：提前这么多开始撒，第一支箭落地正好是第一跳伤害
-      if (!fxOpt('arrowRain', x, z, R, (sk.ticks - 1) * sk.tick + 0.1, hex, P.x, P.z, Math.max(0, sk.delay - 0.2))) {
-        G.telegraph({ shape: 'circle', x, z, r: R, dur: total, dmg: 0, friendly: true });
-      }
-      G.sfx('cast');
-      const tickFn = (i) => {
-        if (P.dead) return;
-        const hits = enemiesIn(x, z, R).filter((e) => losClear(x, z, e.x, e.z)); // 墙后的不挨
-        if (!W.arrowRain) for (let j = 0; j < 3; j++) {
-          const rr = R * Math.sqrt(Math.random());
-          const aa = Math.random() * TAU;
-          W.burst(x + Math.sin(aa) * rr, 0.25, z + Math.cos(aa) * rr, hex, 3, 1.6, 0.25);
-        }
-        if (!hits.length) return;
-        let crit = false;
-        for (const e of hits) {
-          G.hitEnemy(e, ctx, 1, { ang: Math.atan2(e.x - x, e.z - z), w: 0, kb: sk.kb, poise: sk.poise, quiet: true });
-          crit = crit || lastHit.crit;
-        }
-        if (i % 2 === 0 || crit) G.sfx('impact', { type: lastHit.type, w: 0, crit });
-      };
-      for (let i = 0; i < sk.ticks; i++) G.after(sk.delay + i * sk.tick, () => tickFn(i));
     },
 
     // 瞬断：疾冲到准星方向（最远 range，遇墙即停，途中无敌）；delay 秒后沿途经过的敌人同时被斩开
@@ -3686,6 +4385,119 @@
     }
   };
 
+  // =====================================================================
+  // 远程武器的 R（量表技，见 data.js 的 meltray / firestorm / wildfire / volley / pierceheart / overflow / emberstorm）
+  // =====================================================================
+  // 熔光射线：dur 秒的光束，每 tick 秒结算一次直线上的敌人；光束每秒最多转 turn 弧度追向准星。
+  // 光束每帧交给 world.laser 画（可选，没有时每跳画一道电弧顶上）
+  WS_FX.rgatling = function (ctx, c) {
+    const W = G.world;
+    const sk = ctx.sk;
+    const hex = hexOf(sk.color);
+    c.dur = c.t + sk.dur;
+    c.cancelT = c.dur;
+    c.data = { ang: c.aim, tickT: 0 };
+    G.sfx('cast');
+    c.tick = (cc, dt) => {
+      const d = cc.data;
+      const want = aimInfo().ang;
+      d.ang += G.clamp(angDiff(want, d.ang), -sk.turn * dt, sk.turn * dt);
+      cc.aim = d.ang;
+      const sn = Math.sin(d.ang);
+      const cs = Math.cos(d.ang);
+      const len = Math.max(1, rayLen(P.x, P.z, d.ang, sk.len, -0.3));
+      const drawn = fxOpt('laser', P.x, P.z, sn, cs, len);
+      d.tickT -= dt;
+      if (d.tickT <= 0) {
+        d.tickT += sk.tick;
+        if (!drawn) W.bolt([{ x: P.x + sn * 0.8, z: P.z + cs * 0.8 }, { x: P.x + sn * len, z: P.z + cs * len }], hex, true);
+        const hits = enemiesInLine(P.x, P.z, d.ang, len, sk.width / 2);
+        let crit = false;
+        for (const e of hits) {
+          G.hitEnemy(e, ctx, 1, { ang: d.ang, w: 0, kb: sk.kb, poise: sk.poise, quiet: true, faint: true });
+          crit = crit || lastHit.crit;
+        }
+        if (hits.length) {
+          W.shake(0.05);
+          G.sfx('impact', { type: 'fire', w: 0, crit });
+        }
+        state.stats.beamTicks = (state.stats.beamTicks || 0) + 1;
+      }
+    };
+  };
+
+  // 焚天炎爆：以你为中心半径 radius 的火浪（墙后的不挨），之后留下半径 burn.r 的火场
+  WS_FX.rflamer = function (ctx) {
+    const W = G.world;
+    const sk = ctx.sk;
+    const k = Math.sqrt(ctx.area);
+    const R = sk.radius * k;
+    const hex = hexOf(sk.color);
+    const hits = enemiesIn(P.x, P.z, R).filter((e) => losClear(P.x, P.z, e.x, e.z));
+    if (!fxOpt('fireNova', P.x, P.z, R)) {
+      W.ring(P.x, P.z, R, hex, 0.5);
+      W.ring(P.x, P.z, R * 0.6, 0xffd28a, 0.3);
+      W.burst(P.x, 0.6, P.z, hex, 60, R * 1.6, 0.7);
+    }
+    W.fovKick(2.4);
+    G.sfx('finisher');
+    wsStrike(ctx, hits, 1, { ang: (e) => Math.atan2(e.x - P.x, e.z - P.z), w: sk.w, kb: sk.kb, poise: sk.poise, stop: sk.stop });
+    const B = sk.burn;
+    // burn.mult 是武器伤害的倍数：ctx 里已经乘了火浪的 wm，这里折回去
+    addField({ kind: 'burn', x: P.x, z: P.z, r: B.r * k, dur: B.dur, tick: B.tick, mult: B.mult / (sk.wm || 1), ctx, key: 'burnAt', hex });
+  };
+
+  // 乱射：脱离施放系统的持续效果（P.rstate）——翻滚、走动、放别的技能都不打断它
+  WS_FX.rrevolver = function (ctx) {
+    const sk = ctx.sk;
+    P.rstate = { id: ctx.id, t: sk.dur, dur: sk.dur, nextT: 0, i: 0, ctx };
+    if (P.cast && P.cast.ranged) endRanged();
+    G.world.text(P.x, P.z, sk.name, sk.color, 18);
+    G.sfx('cast');
+  };
+  function updateWildfire(dt) {
+    const rs = P.rstate;
+    const sk = G.SKILLS[rs.id];
+    rs.t -= dt;
+    rs.nextT -= dt;
+    for (let n = 0; n < 4 && rs.nextT <= 0 && rs.t > -1e-6; n++) {
+      rs.nextT += sk.gap;
+      // 身边看得见的敌人按距离排，轮流打最近的几个；一个都没有就朝四周乱射
+      const tg = [];
+      for (const e of state.enemies) {
+        if (e.dead) continue;
+        const d = dist(e.x, e.z, P.x, P.z) - e.r;
+        if (d <= sk.range && losClear(P.x, P.z, e.x, e.z)) tg.push({ e, d });
+      }
+      tg.sort((a, b) => a.d - b.d);
+      let ang;
+      if (tg.length) {
+        const e = tg[rs.i % Math.min(4, tg.length)].e;
+        ang = Math.atan2(e.x - P.x, e.z - P.z) + G.rand(-0.07, 0.07);
+      } else ang = Math.random() * TAU;
+      rs.i++;
+      shootProj(rs.ctx, ang, { vk: 'slug', range: sk.range + 4 });
+      if (rs.i % 2) G.sfx('shot', { type: 'revolver' });
+      state.stats.wildShots = (state.stats.wildShots || 0) + 1;
+    }
+    if (rs.t <= 0) P.rstate = null;
+  }
+
+  // 弓的专注技：限时增益（P.rbuff），持续时间吃 buffDur
+  WS_FX.rbuff = function (ctx) {
+    const W = G.world;
+    const sk = ctx.sk;
+    const dur = sk.buff.dur * Math.max(0.1, 1 + (P.S.buffDur || 0) / 100);
+    P.rbuff = { id: ctx.id, t: dur, dur };
+    const hex = hexOf(sk.color);
+    if (!fxOpt('rangedBuff', sk.wtype, dur)) {
+      W.ring(P.x, P.z, 2.6, hex, 0.45);
+      W.burst(P.x, 1.2, P.z, hex, 24, 4, 0.6);
+    }
+    W.text(P.x, P.z, sk.name, sk.color, 18);
+    G.sfx('cast');
+  };
+
   // 以当前鼠标落点为目标执行一次技能效果（不扣消耗、不进冷却）
   // st（可选）：连击技能的哪一段
   G.execSkill = function (ctx, st) {
@@ -3814,6 +4626,8 @@
     if (ctx.cd > 0) return (v * ctx.time) / (ctx.time + ctx.cd);
     // 没有冷却的攻击技能：每一击的伤害跟着武器走，慢而重的战锤一击大、快的双匕一击小。处决按秒伤算（乘上攻速，
     // 1.0 攻速的刃正好不变），不然同样秒伤的战锤处决会比双匕重近一半
+    // 远程普攻：按秒伤折成「同样秒伤的刃挥一刀」（0.45 秒一刀）
+    if (ctx.sk.basic) return G.skillDps(ctx) * 0.45;
     if (ctx.sk.wm && ctx.sk.kind !== 'summon') return v * G.weaponStats(G.save.equip.weapon).aps;
     return v;
   }
@@ -3821,6 +4635,8 @@
     const save = G.save;
     let best = 0;
     for (const id of save.bar) if (id && save.skills[id]) best = Math.max(best, execHitOf(id));
+    const rw = G.rangedWeapon(); // 拿着远程武器：右键的武器普攻也算
+    if (rw && G.SKILLS[rw.basic]) best = Math.max(best, execHitOf(rw.basic));
     if (!best) for (const id in save.skills) best = Math.max(best, execHitOf(id));
     return best;
   }
@@ -4033,6 +4849,7 @@
 
     // 各种计时
     for (const id in P.cds) if (P.cds[id] > 0) P.cds[id] = Math.max(0, P.cds[id] - dt);
+    tickRanged(dt);
     updateAuras(dt);
     updateAutoSummon(dt);
     if (P.roll.cd > 0) P.roll.cd = Math.max(0, P.roll.cd - dt);
@@ -4091,7 +4908,8 @@
           if (mv && !still) {
             // 施法中走得慢；挥砍出手前几乎钉在原地（那一小步由连击自己迈）；旋风斩边转边走
             const c = P.cast;
-            const k = !c ? 1 : c.channel || c.ws ? c.move : c.st ? (c.fired ? 0.55 : 0.25) : 0.4;
+            let k = !c ? 1 : c.channel || c.ws ? c.move : c.st ? (c.fired ? 0.55 : 0.25) : 0.4;
+            if (P.rstate) k = Math.max(k, G.SKILLS[P.rstate.id].move || 1); // 乱射期间照常走动
             const sp = P.moveSpeed * k * dt;
             movePlayer(mv.x * sp, mv.z * sp);
             if (!P.cast) P.face = Math.atan2(mv.x, mv.z);
@@ -4185,7 +5003,7 @@
     if (Math.random() < BLANK_DROP.mob) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
   };
 
-  // 烬铸武器：只有层级 1 起的后三个首领会掉，各掉各的那一把；连续 pity 次没掉，下一次必掉（计数存档，掉了清零）
+  // 烬铸武器：五个首领都会掉（层级 1 起），各掉各的那一把；连续 pity 次没掉，下一次必掉（计数存档，掉了清零）
   function uniqueDrop(e, ilvl) {
     const kind = e.bossKind;
     const id = kind && G.UNIQUE_BY_BOSS[kind];
@@ -4261,7 +5079,7 @@
     const save = G.save;
     save.skills[id] = Math.max(lvl, G.gemFloor()); // 新学的技能也不低于随角色成长的等级
     save.sockets[id] = [null, null, null];
-    const free = save.bar.indexOf(null);
+    const free = G.freeBarSlot();
     if (free >= 0) save.bar[free] = id;
     G.computeStats(); // 光环宝石自动绑上技能栏就立刻生效：保留魔力要马上算进去
     return free;
@@ -4607,6 +5425,7 @@
   G.bindSkill = function (slot, skillId) {
     const save = G.save;
     if (!(slot >= 0 && slot < 4) || slot !== Math.floor(slot)) return false;
+    if (slot === 1 && G.rangedWeapon()) return false; // 右键被武器普攻占着：什么也绑不上（换回非远程武器后恢复原来的右键技能）
     if (!skillId) {
       save.bar[slot] = null;
       return commit();
@@ -4616,6 +5435,7 @@
     const from = save.bar.indexOf(skillId);
     if (from === slot) return true;
     if (from >= 0) save.bar[from] = save.bar[slot];
+    if (save.rmbKeep === skillId) save.rmbKeep = null; // 收着的右键技能被你绑到了别处：不再放回右键
     save.bar[slot] = skillId;
     if (P.cast && (P.cast.slot === slot || P.cast.slot === from) && !P.cast.fired) P.cast = null;
     return commit();
@@ -4623,7 +5443,8 @@
 
   G.socketSupport = function (skillId, idx, supId) {
     const save = G.save;
-    if (!save.skills[skillId] || !(idx >= 0 && idx < 3) || idx !== Math.floor(idx)) return false;
+    // 武器普攻卡（G.BASIC_CARD）不是学会的技能，但一样有 3 个孔
+    if ((skillId !== G.BASIC_CARD && !save.skills[skillId]) || !(idx >= 0 && idx < 3) || idx !== Math.floor(idx)) return false;
     let arr = save.sockets[skillId];
     if (!Array.isArray(arr)) arr = save.sockets[skillId] = [null, null, null];
     while (arr.length < 3) arr.push(null);
@@ -4705,6 +5526,7 @@
     P.ent.group.visible = true;
     placePlayer(state.zone.start.x, state.zone.start.z);
     refill();
+    resetRanged();
     state.focus = null;
     state.focusT = 0;
     if (G.regroupMinions) G.regroupMinions(); // 召唤物跟着进入新区域，在入口处重新现身

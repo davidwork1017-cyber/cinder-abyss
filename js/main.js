@@ -206,6 +206,13 @@
       if (held) clearInput();
       return held;
     },
+    // 远程武器的量表直接设成 v（缺省填满）：kind 'heat' / 'focus'，缺省取手里远程武器的那一种
+    gauge(v, kind) {
+      const rw = G.rangedWeapon();
+      const k = kind || (rw ? rw.gauge.kind : 'heat');
+      G.player.gauge[k] = G.clamp(v === undefined ? G.RANGED.max : v, 0, G.RANGED.max);
+      return G.player.gauge[k];
+    },
     // 同步推进模拟（1/60 秒一步，不渲染）
     step(seconds) {
       const n = Math.max(1, Math.round((seconds || 0) * 60));
@@ -222,8 +229,8 @@
       refreshUi();
       return G.save.cur[curId];
     },
-    // baseIdx（可选）：指定基底（武器 0..7 = 刃 / 长杖 / 短杖 / 双匕 / 战锤 / 长弓 / 太刀 / 魂幡）；ilvl（可选）：指定物品等级
-    // 烬铸武器：rarity 传 3，slot 传烬铸 id（jinduan / sanxiang / wanhun；不认识时按 baseIdx 找，再不行随机一把），
+    // baseIdx（可选）：指定基底（武器 0..13 = 刃 / 长杖 / 短杖 / 双匕 / 战锤 / 鹰眼长弓 / 太刀 / 魂幡 / 转膛机炮 / 焚炉喷枪 / 追猎弓 / 符文弓 / 烬铸左轮 / 烬铸长弓）；ilvl（可选）：指定物品等级
+    // 烬铸武器：rarity 传 3，slot 传烬铸 id（jinduan / sanxiang / wanhun / rongxin / jinyu；不认识时按 baseIdx 找，再不行随机一把），
     // baseIdx 位置可以改传完美度（0..1，每条词缀行都取区间里这个位置）
     giveItem(rarity, slot, baseIdx, ilvl) {
       if (G.save.bag.length >= G.BAG_SIZE) return null;
@@ -249,7 +256,7 @@
         if (!save.skills[id]) save.skills[id] = G.gemFloor ? G.gemFloor() : 1;
         if (!Array.isArray(save.sockets[id])) save.sockets[id] = [null, null, null];
         if (save.bar.indexOf(id) < 0) {
-          const free = save.bar.indexOf(null);
+          const free = G.freeBarSlot ? G.freeBarSlot() : save.bar.indexOf(null);
           if (free >= 0) save.bar[free] = id;
         }
       }
@@ -351,6 +358,9 @@
         supports: save.supports.slice(),
         bar: save.bar.slice(),
         weaponSkill: G.weaponSkill(),
+        ranged: G.rangedWeapon(),
+        rbuff: G.player.rbuff ? { id: G.player.rbuff.id, t: r2(G.player.rbuff.t) } : null,
+        rstate: G.player.rstate ? { id: G.player.rstate.id, t: r2(G.player.rstate.t) } : null,
         weapon: save.equip.weapon ? G.weaponStats(save.equip.weapon) : null,
         passives: G.passivePoints(),
       };

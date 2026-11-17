@@ -297,6 +297,8 @@
     frost: { kind: 'ice', cells: 7, fine: 19, crackW: 0.035, crackK: 0.3, glow: 0.34, rough: 0.5, bump: 0.03, emis: 0.55, amb: 'snow', ambRate: 26 },
     storm: { kind: 'tile', cells: 8, fine: 0, crackW: 0.045, crackK: 0.55, glow: 0.11, rough: 0.8, bump: 0.05, emis: 1.0, amb: 'spark', ambRate: 7 },
     abyss: { kind: 'crack', cells: 12, fine: 30, crackW: 0.075, crackK: 0.62, glow: 0.17, rough: 0.9, bump: 0.07, emis: 0.95, amb: 'ember', ambRate: 20 },
+    // 坠星裂谷：glass = 熔融琉璃，胞块带流纹，胞缝是发亮的星辉，暗处散着星屑；amb 'mote' = 缓缓升起的星尘
+    rift: { kind: 'glass', cells: 6, fine: 17, crackW: 0.042, crackK: 0.3, glow: 0.36, rough: 0.42, bump: 0.05, emis: 1.05, amb: 'mote', ambRate: 15 },
   };
   const TILE = 14; // 一张地面贴图铺多少世界单位
 
@@ -399,7 +401,12 @@
           const hair = fine ? (1 - smooth01(fine.edge[i] / 0.055)) * smooth01((a - 0.35) * 2.2) : 0;
           let shade = (0.7 + 0.42 * a) * tone;
           let r = pr, g = pg, bl = pb;
-          if (st.kind === 'ice') {
+          if (st.kind === 'glass') {
+            // 熔融琉璃：胞内顺着一个方向的流纹，胞缝透出星辉的淡青；整体压暗，让发光的裂缝跳出来
+            const flow = 0.5 + 0.5 * Math.sin(((x * 0.7 + y * 0.45) / S) * TAU * 3 + a * 6 + vor.id[i] * 4);
+            shade *= (0.78 + 0.16 * flow) * (1 - 0.22 * hair) * (0.82 + 0.3 * vor.id[i] * vor.id[i]);
+            r += crack * 12; g += crack * 28; bl += crack * 20;
+          } else if (st.kind === 'ice') {
             // 冰裂是亮的，并带一点霜白
             const frost = smooth01((b - 0.55) * 3);
             shade *= 1 + st.crackK * crack + 0.16 * hair + 0.12 * frost;
@@ -418,7 +425,12 @@
           dB[k] = dB[k + 1] = dB[k + 2] = hgt * 255;
           dB[k + 3] = 255;
           // 自发光：只有一部分区域的裂纹在发亮，避免均匀网格感
-          const gl = vor ? crack * smooth01((b - (1 - st.glow - 0.12)) / 0.2) : rune;
+          let gl = vor ? crack * smooth01((b - (1 - st.glow - 0.12)) / 0.2) : rune;
+          if (st.kind === 'glass') {
+            // 星辉：所有胞缝都隐隐发亮（主裂缝更亮），胞内暗处散着成簇的星屑
+            const dust = hash2((x >> 1) + seed * 3, (y >> 1) * 7 + 11) > 0.9965 ? 1 - crack : 0;
+            gl = Math.max(gl, crack * (0.05 + 0.25 * smooth01((a - 0.5) * 3)) + hair * 0.04, dust * 0.9);
+          }
           dE[k] = dE[k + 1] = dE[k + 2] = Math.min(255, gl * 255);
           dE[k + 3] = 255;
         }
@@ -686,6 +698,17 @@
         [gCyl(0.46, 0.46, 0.9, 8), D, 1.35, 0.45, 0.4, 0, 0.5, Math.PI / 2],
       ]);
     }
+    if (id === 'rift') {
+      // 坠星裂谷：斜插在地里的几根星骸晶柱，根部压着暗色的琉璃块
+      const C = 0x9fcfc2, D = 0x557a71, S = 0x22302c;
+      return bake('prop/rift', [
+        [gOct(0.42), C, 0, 1.3, 0, 0.12, 0.3, 0.1, 1, 3.2, 1],
+        [gOct(0.3), D, 0.55, 0.8, 0.15, 0, 0, -0.45, 1, 2.6, 1],
+        [gOct(0.26), C, -0.5, 0.65, -0.1, 0.2, 0, 0.5, 1, 2.4, 1],
+        [gIco(0.55, 0), S, 0.1, 0.15, 0.35, 0.3, 0.2, 0, 1.1, 0.6, 1],
+        [gIco(0.4, 0), S, -0.3, 0.1, -0.45, 0, 0.5, 0.2, 1, 0.55, 1],
+      ]);
+    }
     if (id === 'abyss') {
       const C = 0x2a171c, D = 0x180d11;
       return bake('prop/abyss', [
@@ -703,6 +726,126 @@
       seg(C, -0.1, 2.9, 0, 0.1, 3.9, -0.55, 0.08),
       seg(D, 0.6, 2.75, 0.06, 0.7, 3.5, -0.3, 0.06),
     ]);
+  }
+
+  // ----- 坠星裂谷的布景 -----
+  // 岩壁外斜插的星骸碑（两面刻着发光的符线）、悬在虚空上方缓缓起伏的浮岩、空地里的陨坑（发亮的坑沿 + 一圈碎晶）、
+  // 首领场地外一圈坠落的天穹碎片。相机从 +z 俯视：靠近镜头一侧（南缘）的高物一律不放
+  const obeliskGeo = () => jitterGeo('obelisk', new T.BoxGeometry(1, 1, 1, 1, 4, 1).translate(0, 0.5, 0), 0.16);
+  const isleGeo = () =>
+    bake('rift/isle', [
+      [gCone(1, 2.4, 6), 0x2b3b37, 0, -1.2, 0, Math.PI, 0, 0],
+      [gIco(1.05, 0), 0x3d524c, 0, 0.05, 0, 0, 0.4, 0, 1.1, 0.35, 1.1],
+      [gOct(0.35), 0xbfe8dc, 0.35, 0.55, 0.1, 0.2, 0, 0.3, 0.6, 1.6, 0.6],
+      [gOct(0.25), 0x9fd8c8, -0.4, 0.4, -0.2, -0.3, 0, -0.4, 0.6, 1.4, 0.6],
+      [gIco(0.4, 0), 0x2b3b37, 0.5, -0.9, 0.3, 0.3, 0, 0],
+    ]);
+  // 陨坑：坑心暗、坑沿一圈亮环，十几道放射状的裂纹
+  const craterTex = () =>
+    tex('crater', () => {
+      const S = 256, c = makeCanvas(S, S), g = c.getContext('2d'), R = S / 2;
+      g.translate(R, R);
+      const gr = g.createRadialGradient(0, 0, 0, 0, 0, R);
+      gr.addColorStop(0, 'rgba(255,255,255,0.05)');
+      gr.addColorStop(0.55, 'rgba(255,255,255,0.12)');
+      gr.addColorStop(0.72, 'rgba(255,255,255,0.85)');
+      gr.addColorStop(0.8, 'rgba(255,255,255,0.35)');
+      gr.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = gr;
+      g.fillRect(-R, -R, S, S);
+      g.strokeStyle = '#fff';
+      g.lineCap = 'round';
+      for (let i = 0; i < 15; i++) {
+        const a = (i / 15) * TAU + Math.sin(i * 7.3) * 0.2, r0 = R * (0.18 + 0.1 * Math.abs(Math.sin(i * 3.1))), r1 = R * (0.86 + 0.12 * Math.abs(Math.sin(i * 5.7)));
+        g.lineWidth = 1.5 + 2 * Math.abs(Math.sin(i * 2.3));
+        g.globalAlpha = 0.55;
+        g.beginPath();
+        g.moveTo(Math.sin(a) * r0, Math.cos(a) * r0);
+        const am = a + Math.sin(i * 1.7) * 0.12;
+        g.lineTo(Math.sin(am) * (r0 + r1) * 0.5, Math.cos(am) * (r0 + r1) * 0.5);
+        g.lineTo(Math.sin(a) * r1, Math.cos(a) * r1);
+        g.stroke();
+      }
+      return new T.CanvasTexture(c);
+    });
+  function riftPieces(zone, sd, ringSamples, lowK, accentL, crystalMat) {
+    const def = zone.def;
+    // 星骸碑
+    const obs = [], strips = [], picked = [];
+    ringSamples(5.5, 3.4, (x, z) => {
+      x += rand(-1, 1);
+      z += rand(-1, 1);
+      if (sd(x, z) > -2.4 || lowK(x, z) < 1 || Math.random() < 0.4) return;
+      for (const q of picked) if (Math.hypot(q.x - x, q.z - z) < 12) return;
+      picked.push({ x, z });
+      const h = rand(4.5, 7), w = rand(0.9, 1.3), d = rand(0.7, 0.95);
+      const rx = rand(-0.35, 0.35), ry = rand(0, TAU), rz = rand(-0.4, 0.4);
+      obs.push(x, -0.6, z, rx, ry, rz, w, h, d, rand(0.75, 1.05));
+      for (let k = 0; k < 3; k++) {
+        for (const side of [1, -1]) {
+          _e.set(rx, ry, rz);
+          _v.set(0, h * (0.3 + k * 0.2), side * (d * 0.5 + 0.02)).applyEuler(_e);
+          strips.push(x + _v.x, -0.6 + _v.y, z + _v.z, rx, ry, rz, w * (k === 1 ? 0.7 : 0.42), 0.07, 0.04, 1);
+        }
+      }
+    });
+    const obMat = own(new T.MeshStandardMaterial({ color: 0xffffff, roughness: 0.55, metalness: 0.2, flatShading: true }));
+    instanced(obeliskGeo(), obMat, obs, true, lin(mixHex(def.rock, 0x0a0f0e, 0.2)));
+    instanced(gBox(1, 1, 1), crystalMat, strips, false, null);
+
+    // 浮岩：悬在虚空上方，每块各自慢慢起伏、打转（W.update 里动）
+    const isMat = own(new T.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.85, metalness: 0, emissive: accentL, emissiveIntensity: 0.07 }));
+    const isles = [], ig = isleGeo();
+    ringSamples(8, 7.5, (x, z) => {
+      x += rand(-2, 2);
+      z += rand(-2, 2);
+      if (isles.length >= 14 || sd(x, z) > -5.5 || lowK(x, z) < 1 || Math.random() < 0.3) return;
+      for (const q of isles) if (Math.hypot(q.x - x, q.z - z) < 8) return;
+      const m = new T.Mesh(ig, isMat), y = rand(1.6, 4.6);
+      m.scale.setScalar(rand(0.7, 1.5));
+      m.position.set(x, y, z);
+      m.rotation.y = rand(0, TAU);
+      m.castShadow = true;
+      zoneGroup.add(m);
+      isles.push({ m, x, z, y, ph: rand(0, TAU), sp: rand(0.25, 0.5), rot: rand(-0.08, 0.08) });
+    });
+
+    // 陨坑
+    const crMat = own(new T.MeshBasicMaterial({ map: craterTex(), color: accentL, transparent: true, opacity: 0.5, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false }));
+    const dkMat = own(new T.MeshBasicMaterial({ map: blotchTex(), color: lin(mixHex(def.voidc, 0x000000, 0.3)), transparent: true, opacity: 0.6, depthWrite: false }));
+    const craters = [], darks = [], shards = [];
+    for (let ci = 1; ci < zone.circles.length - 1; ci++) {
+      const c = zone.circles[ci];
+      if (Math.random() < 0.25) continue;
+      const a = rand(0, TAU), d = rand(0, Math.max(0, c.r - 5.5)), x = c.x + Math.sin(a) * d, z = c.z + Math.cos(a) * d, r = rand(2.6, 3.8);
+      craters.push(x, 0.035, z, 0, rand(0, TAU), 0, r, 1, r, 1);
+      darks.push(x, 0.025, z, 0, rand(0, TAU), 0, r * 1.2, 1, r * 1.2, 1);
+      const n = G.randInt(5, 8);
+      for (let k = 0; k < n; k++) {
+        const b = (k / n) * TAU + rand(-0.3, 0.3), rr = r * rand(0.72, 0.9), h = rand(0.25, 0.6);
+        shards.push(x + Math.sin(b) * rr, h * 0.35, z + Math.cos(b) * rr, Math.cos(b) * 0.6, rand(0, TAU), -Math.sin(b) * 0.6, 0.12, h, 0.12, 1);
+      }
+    }
+    const dIM = instanced(gQuad(), dkMat, darks, false, null);
+    if (dIM) dIM.renderOrder = 1;
+    const cIM = instanced(gQuad(), crMat, craters, false, null);
+    if (cIM) cIM.renderOrder = 1;
+    instanced(gOct(1), crystalMat, shards, true, null);
+
+    // 首领场地外的天穹碎片
+    const bp = zone.bossPos, sky = [];
+    for (let k = 0; k < 10; k++) {
+      const a = (k / 10) * TAU + rand(-0.2, 0.2), d = zone.bossR + rand(3.5, 6.5);
+      const x = bp.x + Math.sin(a) * d, z = bp.z + Math.cos(a) * d;
+      if (sd(x, z) > -2.8 || lowK(x, z) < 1) continue;
+      const h = rand(3, 5.5);
+      sky.push(x, h * 0.3, z, rand(-0.3, 0.3), rand(0, TAU), rand(-0.3, 0.3), h * 0.22, h, h * 0.22, 1);
+    }
+    const skyMat = own(
+      new T.MeshStandardMaterial({ color: lin(mixHex(def.accent, 0xffffff, 0.55)).multiplyScalar(0.35), emissive: accentL, emissiveIntensity: 0.55, roughness: 0.15, metalness: 0.1, flatShading: true })
+    );
+    instanced(gOct(1), skyMat, sky, true, null);
+    return { isles, skyMat };
   }
 
   function buildVisuals(zone) {
@@ -868,11 +1011,11 @@
       const s = rand(0.85, 1.6);
       props.push(x, -0.1, z, rand(-0.1, 0.1), rand(0, TAU), rand(-0.1, 0.1), s, s * rand(0.9, 1.3) * (lowK(x, z) < 1 ? 0.65 : 1), s, 1);
     });
-    const icy = def.id === 'frost';
+    const icy = def.id === 'frost', rift = def.id === 'rift';
     const propMat = own(
       new T.MeshStandardMaterial({
-        vertexColors: true, flatShading: true, roughness: icy ? 0.25 : 0.9, metalness: icy ? 0.1 : 0,
-        emissive: lin(def.accent), emissiveIntensity: icy ? 0.22 : def.id === 'abyss' ? 0.1 : 0,
+        vertexColors: true, flatShading: true, roughness: icy ? 0.25 : rift ? 0.35 : 0.9, metalness: icy || rift ? 0.1 : 0,
+        emissive: lin(def.accent), emissiveIntensity: icy ? 0.22 : rift ? 0.2 : def.id === 'abyss' ? 0.1 : 0,
       })
     );
     instanced(propGeo(def.id), propMat, props, true, null);
@@ -937,18 +1080,21 @@
     };
     const bossSigil = sigil(zone.bossPos.x, zone.bossPos.z, zone.bossR * 0.84, def.accent, 0.26);
     sigil(zone.start.x, zone.start.z, 3.4, mixHex(def.sky, 0xffffff, 0.3), 0.16);
+    const rp = rift ? riftPieces(zone, sd, ringSamples, lowK, accentL, crystalMat) : null;
 
     _c.set(def.accent);
     zoneFx = {
       st, crystalMat, glowMat, bossSigil,
       ar: _c.r, ag: _c.g, ab: _c.b,
       ambAcc: 0, boltIn: rand(3, 7), boltT: 0,
+      isles: rp ? rp.isles : null, skyMat: rp ? rp.skyMat : null, starIn: rand(1.5, 4),
     };
   }
 
   W.buildZone = function (def, level) {
     disposeZone();
     W.clearFx();
+    hideRiftFx();
     const L = layoutZone();
     const boss = L.circles[5];
     const zone = {
@@ -1120,7 +1266,10 @@
   // 所有坐标都是模型空间里的绑定姿态（面朝 +z，+x 是它的左手边，脚踩 y = 0）。
   function rigBuilder(key, NB) {
     const joints = [], JI = Object.create(null), virt = [];
-    const body = [], glow = [], aux = [];
+    const body0 = [], glow0 = [], aux0 = [];
+    // 变体：同一副骨架上可以互换显示的几组零件（玩家手里的远程武器）。b.variant(名字) 之后的零件进这一组，b.variant(null) 回到本体
+    const variants = Object.create(null);
+    let body = body0, glow = glow0, aux = aux0;
     let curJ = 0, curS = SURF.cloth, curF = false;
     const mk = (g, c, x, y, z, rx, ry, rz, sx, sy, sz) => ({
       g, c, j: curJ, s: curS, f: curF,
@@ -1143,6 +1292,15 @@
       at(name) {
         if (JI[name] === undefined) throw new Error('rig ' + key + ': 未定义的关节 ' + name);
         curJ = JI[name];
+        return B;
+      },
+      variant(name) {
+        if (!name) {
+          body = body0; glow = glow0; aux = aux0;
+        } else {
+          const v = variants[name] || (variants[name] = { body: [], glow: [], aux: [] });
+          body = v.body; glow = v.glow; aux = v.aux;
+        }
         return B;
       },
       // flat = true 时按面重算法线（硬朗的石头 / 晶体 / 甲片）
@@ -1299,10 +1457,15 @@
         for (let i = 0; i < nC; i += CH) rest[i + 6] = rest[i + 7] = rest[i + 8] = 1;
         const J = Object.create(null);
         for (const name in JI) J[name] = JI[name] * CH;
-        const geoBody = bake1(body, false), geoGlow = bake1(glow, true), geoAux = bake1(aux, true);
+        const geoBody = bake1(body0, false), geoGlow = bake1(glow0, true), geoAux = bake1(aux0, true);
         const cnt = (g) => (g ? g.attributes.position.count / 3 : 0);
+        const geoVar = Object.create(null);
+        for (const vn in variants) {
+          const v = variants[vn];
+          geoVar[vn] = { body: bake1(v.body, false), glow: bake1(v.glow, true), aux: bake1(v.aux, true) };
+        }
         return {
-          key, NB, joints, JI, J, nJ, rest, geoBody, geoGlow, geoAux,
+          key, NB, joints, JI, J, nJ, rest, geoBody, geoGlow, geoAux, geoVar,
           tris: cnt(geoBody) + cnt(geoGlow) + cnt(geoAux),
           height: o.height, stride: o.stride || 3, clips: Object.create(null), gearClips: Object.create(null), loco: null, post: null, late: null,
           sockets: Object.create(null), hitJ: null, feet: null, ankle: 0,
@@ -1558,6 +1721,25 @@
       ent.mats.push(am);
       ent.auxMat = am;
       body.add(new T.Mesh(rig.geoAux, am));
+    }
+    // 变体零件：和本体共用材质与骨骼，平时隐藏，由 W.showVariant / applyGear 决定显示哪一组
+    if (rig.geoVar) {
+      for (const vn in rig.geoVar) {
+        const gv = rig.geoVar[vn], list = [];
+        if (gv.body) {
+          const m = new T.Mesh(gv.body, bm);
+          m.castShadow = true;
+          m.customDepthMaterial = dm;
+          list.push(m);
+        }
+        if (gv.glow) list.push(new T.Mesh(gv.glow, gm));
+        if (gv.aux && ent.auxMat) list.push(new T.Mesh(gv.aux, ent.auxMat));
+        for (const m of list) {
+          m.visible = false;
+          body.add(m);
+        }
+        (ent.vMesh || (ent.vMesh = Object.create(null)))[vn] = list;
+      }
     }
     solveRig(ent);
     return ent;
@@ -1961,7 +2143,7 @@
       dbl.group.rotation.y = ent.group.rotation.y;
       dbl.out.set(ent.out);
       if (ent.tails) dbl.tails = { s: ent.tails.s.slice(), init: true }; // 围巾 / 马尾接着原来的摆动，不跳回静止
-      applyGear(dbl, ent.gearType, ent.gearRar);
+      applyGear(dbl, ent.gearType, ent.gearRar, ent.gearVar);
       ent = dbl;
     }
     const c = ent.rig.clips.death;
@@ -2133,16 +2315,29 @@
   // 长弓握把的 z 与上弓梢（弓弦上端的挂点）的绑定坐标；下弓梢关于握把对称
   const BOW_GZ = 0.04, BOW_TIP = [0.345, 1.01, 0.73];
   // 武器种类：底材的 type → 模型序号（也是 ent.gearType）。前三种的序号与旧存档的 baseIdx 一致
-  const GEAR_KEYS = ['blade', 'staff', 'wand', 'daggers', 'hammer', 'bow', 'katana', 'banner'];
-  const G_DAG = 3, G_HAM = 4, G_BOW = 5, G_KAT = 6, G_BAN = 7;
-  const TWO_HAND = [false, false, false, false, true, false, true, false];
-  const GEAR_JOINT = ['wB', 'wS', 'wW', 'wD', 'wH', 'wBo', 'wK', 'wBn'];
+  // 远程武器（8 转膛机炮 / 9 焚炉喷枪 / 10 烬铸左轮）挂在同一个关节 wF 上，各自一组变体零件；四种弓共用长弓的序号 5（同一套握法与动作），
+  // 弓身也是变体零件（弓弦仍挂在 bsU / bsL 上，四张弓的弓梢位置相同）
+  const GEAR_KEYS = ['blade', 'staff', 'wand', 'daggers', 'hammer', 'bow', 'katana', 'banner', 'gatling', 'flamer', 'revolver'];
+  const G_DAG = 3, G_HAM = 4, G_BOW = 5, G_KAT = 6, G_BAN = 7, G_GAT = 8, G_FLM = 9, G_REV = 10;
+  const TWO_HAND = [false, false, false, false, true, false, true, false, true, true, false];
+  const GEAR_JOINT = ['wB', 'wS', 'wW', 'wD', 'wH', 'wBo', 'wK', 'wBn', 'wF', 'wF', 'wF'];
+  // 武器底材的 type → 序号；弓类都算长弓（旧的 'bow' 即鹰眼长弓）
+  const BOW_TYPES = ['huntbow', 'eagle', 'runebow', 'emberbow'];
+  const GUN_TYPES = ['gatling', 'flamer', 'revolver'];
+  const TYPE_GEAR = { huntbow: G_BOW, eagle: G_BOW, runebow: G_BOW, emberbow: G_BOW, bow: G_BOW };
+  // 序号之外还要区分的具体型号（变体零件的名字）：弓 → 四种弓之一，枪 → 自己的 type
+  const gearVariant = (type) => (type === 'bow' ? 'eagle' : BOW_TYPES.indexOf(type) >= 0 || GUN_TYPES.indexOf(type) >= 0 ? type : null);
   // 魂幡：挑杆的高度（握点往上，沿杆）、幡布挂点离杆的横向距离、两段幡布的长度
   const BAN_Z = 1.6, BAN_X = 0.25, BAN_L1 = 0.46, BAN_L2 = 0.44, BAN_CL = 0.26;
-  function gearIndex(baseIdx) {
+  const baseType = (baseIdx) => {
     const bs = G.BASES && G.BASES.weapon, b = bs && bs[baseIdx];
-    const i = b && b.type ? GEAR_KEYS.indexOf(b.type) : -1;
-    return i >= 0 ? i : G.clamp(baseIdx | 0, 0, GEAR_KEYS.length - 1);
+    return (b && b.type) || null;
+  };
+  function gearIndex(baseIdx) {
+    const t = baseType(baseIdx);
+    if (t && TYPE_GEAR[t] !== undefined) return TYPE_GEAR[t];
+    const i = t ? GEAR_KEYS.indexOf(t) : -1;
+    return i >= 0 ? i : G.clamp(baseIdx | 0, 0, 7);
   }
 
   // 皮衣 / 布 / 靴的配色：压暗的冷灰紫皮革，衬出青绿围巾和灰烬银的头发
@@ -2213,6 +2408,158 @@
     b.at('hp1').p(gTorus(0.03, 0.011, 3, 7), SF.c[1], T[0][0], T[0][1] - 0.006, T[0][2] - 0.008, Math.atan2(-dy, dz), 0, 0);
   }
 
+  // ----- 远程武器的持握模型（变体零件）-----
+  // 火器：握把在右手（握点 z≈0.03），枪身在握把上方，GUN_AX 是枪管轴线比握点高出的距离；枪口沿 +z
+  const GUN_AX = 0.15;
+  // 枪口 / 喷嘴相对握点的 z（挂点 weapon 用）
+  const GUN_MUZ = { gatling: 0.98, flamer: 0.92, revolver: 0.5 };
+  // 前握把（左手）的 z：和右手同一高度、在枪身轴线下方
+  const GUN_FORE = { gatling: 0.32, flamer: 0.34 };
+  // 站立 / 跑动时右手的位置（胸口坐标系：握点、枪口指向、枪身「下方」——握把一侧）；并进 LOCO_2H
+  const GUN_LOCO = {
+    [G_GAT]: { idle: [-0.06, -0.27, 0.16, 0.55, 0.0, 0.83, 0, -1, 0], run: [-0.1, -0.22, 0.14, 0.5, 0.3, 0.81, 0, -0.94, 0.33] },
+    [G_FLM]: { idle: [-0.06, -0.27, 0.16, 0.55, 0.0, 0.83, 0, -1, 0], run: [-0.1, -0.22, 0.14, 0.5, 0.3, 0.81, 0, -0.94, 0.33] },
+    [G_REV]: { idle: [-0.3, -0.48, 0.1, 0.05, -0.55, 0.83, 0, -0.83, -0.55], run: [-0.3, -0.42, 0.14, 0.05, -0.25, 0.97, 0, -0.97, -0.25] },
+  };
+  // 拿着机炮 / 喷枪时上身往右拧的角度（脊柱 + 胸口各一半），让斜端着的枪口朝正前方、左手够得着前握把
+  const GUN_TWIST = -0.3;
+  function rangedGuns(b, WX, WY, GOLD, STEEL, STEEL_D) {
+    const AY = WY + GUN_AX, GUNM = 0x2b2d33, GUNM2 = 0x4a4d57, OIL = 0x1c1a1d, BRASS = 0xc8963c, COPPER = 0xb0643a;
+    // --- 转膛机炮：后握把 + 方正的机匣（顶上一排散热槽）+ 左侧弹鼓 + 六根枪管（挂 wGb，开火时绕轴转）+ 机匣前下方的前握把 ---
+    b.variant('gatling').at('wF').surf(SURF.leather);
+    b.p(gRBox(0.055, 0.15, 0.07, 0.018), OIL, WX, WY - 0.01, 0.035, -0.25);
+    b.surf(SURF.metal, true).p(gRBox(0.15, 0.15, 0.36, 0.03), [GUNM, GUNM2], WX, AY + 0.01, 0.12);
+    b.p(gRBox(0.11, 0.05, 0.3, 0.015), STEEL_D, WX, AY + 0.1, 0.12);
+    b.p(gBox(0.03, 0.06, 0.08), GUNM, WX, WY + 0.05, -0.02); // 扳机护圈
+    b.surf(SURF.gold).p(gCyl(0.085, 0.085, 0.03, 10), BRASS, WX, AY, 0.31, HALF_PI);
+    // 弹鼓 + 一截弹链
+    b.surf(SURF.metal).p(gCyl(0.085, 0.085, 0.09, 10), [STEEL_D, STEEL], WX + 0.12, AY - 0.02, 0.1, 0, 0, HALF_PI);
+    b.surf(SURF.gold).p(gTorus(0.085, 0.01, 4, 12), BRASS, WX + 0.165, AY - 0.02, 0.1, 0, HALF_PI, 0);
+    b.p(gSweep('pl/gatbelt', [[0.12, -0.08, 0.1], [0.07, -0.07, 0.17], [0.03, -0.02, 0.2]], [0.022, 0.02, 0.02], 4), BRASS, WX, AY, 0);
+    // 前握把：竖直的一截，左手握在 z = 0.42、和右手同一高度
+    const FG = GUN_FORE.gatling;
+    b.surf(SURF.leather).p(gCyl(0.026, 0.03, 0.17, 6), OIL, WX, WY + 0.02, FG).p(gRBox(0.07, 0.04, 0.09, 0.012), GUNM, WX, AY - 0.06, FG);
+    b.surf(SURF.metal).p(gCyl(0.06, 0.06, 0.05, 8), GUNM2, WX, AY, FG + 0.03, HALF_PI);
+    // 稀有度光：机匣顶上三道散热槽 + 弹鼓中心
+    for (const zz of [0.04, 0.12, 0.2]) b.x(gBox(0.09, 0.012, 0.018), 1, WX, AY + 0.127, zz);
+    b.x(gOct(0.026), 1, WX + 0.17, AY - 0.02, 0.1);
+    // 枪管束（wGb：枢轴在轴线上 z = 0.3）
+    b.at('wGb').surf(SURF.metal);
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * TAU, cx = Math.cos(a) * 0.046, cy = Math.sin(a) * 0.046;
+      b.p(gCyl(0.017, 0.017, 0.64, 6), [STEEL_D, STEEL], WX + cx, AY + cy, 0.64, HALF_PI);
+    }
+    b.p(gCyl(0.024, 0.024, 0.66, 6), OIL, WX, AY, 0.62, HALF_PI);
+    b.surf(SURF.gold).p(gTorus(0.066, 0.014, 4, 12), BRASS, WX, AY, 0.58).p(gTorus(0.066, 0.016, 4, 12), BRASS, WX, AY, 0.93);
+    b.surf(SURF.metal).p(gCyl(0.07, 0.07, 0.04, 8), GUNM, WX, AY, 0.76, HALF_PI);
+    b.x(gTorus(0.07, 0.006, 3, 12), 1, WX, AY, 0.955);
+
+    // --- 焚炉喷枪：后握把，一根粗输焰管通到前端的喇叭喷嘴，管上骑着一只铜燃料罐（压力表），喷嘴下一点常燃的引火 ---
+    b.variant('flamer').at('wF').surf(SURF.leather);
+    b.p(gRBox(0.055, 0.15, 0.07, 0.018), OIL, WX, WY - 0.01, 0.035, -0.25);
+    b.surf(SURF.metal).p(gRBox(0.11, 0.11, 0.26, 0.025), [GUNM, GUNM2], WX, AY - 0.01, 0.1);
+    b.p(gCyl(0.036, 0.04, 0.6, 8), [STEEL_D, STEEL], WX, AY, 0.52, HALF_PI);
+    for (const zz of [0.36, 0.52, 0.68]) b.surf(SURF.gold).p(gTorus(0.043, 0.01, 4, 10), BRASS, WX, AY, zz);
+    // 喷嘴：外翻的喇叭口 + 里面一圈暗色的焰口
+    b.surf(SURF.metal).p(gCyl(0.075, 0.042, 0.13, 10), STEEL_D, WX, AY, 0.86, HALF_PI);
+    b.surf(SURF.gold).p(gTorus(0.074, 0.012, 4, 12), COPPER, WX, AY, 0.925);
+    b.p(gCyl(0.008, 0.008, 0.14, 4), COPPER, WX, AY - 0.06, 0.84, HALF_PI);
+    // 燃料罐：横骑在机身上方，两道铜箍、前端一只压力表
+    b.surf(SURF.gold).p(gCyl(0.07, 0.07, 0.34, 10), [0x7a3e20, COPPER], WX, AY + 0.11, 0.2, HALF_PI);
+    b.p(gDome(0.07, 10, 4), COPPER, WX, AY + 0.11, 0.37, HALF_PI).p(gDome(0.07, 10, 4), 0x7a3e20, WX, AY + 0.11, 0.03, -HALF_PI);
+    b.surf(SURF.metal).p(gTorus(0.072, 0.012, 4, 12), STEEL_D, WX, AY + 0.11, 0.1).p(gTorus(0.072, 0.012, 4, 12), STEEL_D, WX, AY + 0.11, 0.3);
+    b.p(gCyl(0.03, 0.03, 0.02, 8), STEEL, WX - 0.05, AY + 0.17, 0.31, 0, 0, 0.6);
+    b.p(gSweep('pl/flmhose', [[0, 0.06, 0.37], [0, 0.03, 0.44], [0, 0.0, 0.48]], [0.014, 0.014, 0.014], 4), OIL, WX, AY, 0);
+    // 前握把
+    b.surf(SURF.leather).p(gCyl(0.026, 0.03, 0.16, 6), OIL, WX, WY + 0.03, GUN_FORE.flamer).p(gRBox(0.06, 0.04, 0.08, 0.012), GUNM, WX, AY - 0.055, GUN_FORE.flamer);
+    // 发光：压力表盘（稀有度色）、引火（元素色，常燃）、管上一道烧红的焰纹
+    b.x(gCyl(0.022, 0.022, 0.024, 8), 1, WX - 0.054, AY + 0.175, 0.31, 0, 0, 0.6);
+    b.x(gBox(0.012, 0.012, 0.3), 1, WX, AY + 0.038, 0.55);
+    b.g(gOct(0.024), 1, WX, AY - 0.06, 0.93, 0, 0, 0, 1, 1, 1.6);
+
+    // --- 烬铸左轮：发黑的长管左轮，八棱枪管、粗转轮，枪身上烧着余烬的裂纹，握把是焦黑的骨木；转轮挂在 wGb 上（不转，只是位置） ---
+    const BLK = 0x221c1c, BLK2 = 0x3a2e2a, EMBG = 0xd09048;
+    b.variant('revolver').at('wF').surf(SURF.bone);
+    b.p(gRBox(0.05, 0.16, 0.075, 0.02), [0x2a1a14, 0x5a3426], WX, WY - 0.015, 0.0, -0.32);
+    b.surf(SURF.gold).p(gBox(0.054, 0.02, 0.08), EMBG, WX, WY - 0.09, -0.02, -0.32);
+    b.surf(SURF.metal, true).p(gRBox(0.06, 0.1, 0.17, 0.016), [BLK, BLK2], WX, AY - 0.03, 0.06);
+    b.p(gBox(0.022, 0.05, 0.05), BLK, WX, AY + 0.03, -0.035, 0.5); // 击锤
+    b.p(gTorus(0.03, 0.007, 4, 8), BLK2, WX, WY + 0.06, 0.06, 0, HALF_PI, 0); // 扳机护圈
+    b.p(gCyl(0.026, 0.026, 0.36, 8), [BLK, BLK2], WX, AY, 0.33, HALF_PI, Math.PI / 8, 0);
+    b.p(gBox(0.03, 0.03, 0.3), BLK, WX, AY - 0.032, 0.3);
+    b.surf(SURF.gold).p(gTorus(0.027, 0.008, 4, 8), EMBG, WX, AY, 0.505).p(gBox(0.01, 0.022, 0.03), EMBG, WX, AY + 0.03, 0.48);
+    b.p(gTorus(0.027, 0.006, 4, 8), EMBG, WX, AY, 0.17);
+    // 余烬裂纹（稀有度色：烬铸是余烬橙）
+    b.x(gBox(0.006, 0.008, 0.26), 1, WX + 0.027, AY + 0.004, 0.33, 0, 0.06, 0).x(gBox(0.006, 0.008, 0.2), 1, WX - 0.027, AY - 0.004, 0.36, 0, -0.08, 0);
+    b.x(gBox(0.062, 0.008, 0.008), 1, WX, AY - 0.03, 0.1, 0, 0, 0.3);
+    b.at('wGb').surf(SURF.metal, true).p(gCyl(0.05, 0.05, 0.1, 8), [BLK, BLK2], WX, AY - 0.005, 0.1, HALF_PI);
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * TAU + 0.5;
+      b.x(gOct(0.011), 1, WX + Math.cos(a) * 0.033, AY - 0.005 + Math.sin(a) * 0.033, 0.152);
+    }
+  }
+  // 四种弓：弓臂从握把（LX, WY, GZ）弯到弓梢（相对握把 tx, ty, ±tz），弓梢位置一样（弓弦挂在本体的 bsU / bsL 上）
+  function rangedBows(b, LX, WY, GZ, tx, ty, tz, GOLD) {
+    const tipE = (s) => [LX + tx, WY + ty, GZ + s * tz];
+    // --- 追猎弓：短而狠的反曲猎弓，乌木弓臂，梢头骨质外卷，握把缠青绿猎绳，弓背一枚「猎眼」---
+    {
+      const limb = (s) => [[0, 0, s * 0.08], [tx * 0.05, -0.05, s * 0.25], [tx * 0.3, -0.065, s * 0.45], [tx * 0.62, -0.01, s * 0.6], [tx * 0.86, ty * 0.6, s * 0.67], [tx, ty, s * tz]];
+      b.variant('huntbow').at('wBo').surf(SURF.leather);
+      b.p(gSweep('pl/hbU', limb(1), [0.032, 0.028, 0.022, 0.016, 0.012, 0.009], 6), [0x1f1a17, 0x4d3c2e], LX, WY, GZ);
+      b.p(gSweep('pl/hbL', limb(-1), [0.032, 0.028, 0.022, 0.016, 0.012, 0.009], 6), [0x1f1a17, 0x4d3c2e], LX, WY, GZ);
+      b.p(gCyl(0.037, 0.037, 0.17, 7), 0x23443e, LX, WY, GZ, HALF_PI);
+      for (const zz of [-0.05, 0, 0.05]) b.p(gTorus(0.038, 0.007, 3, 8), 0x3d8a78, LX, WY, GZ + zz);
+      b.surf(SURF.bone);
+      for (const s of [1, -1]) {
+        const t = tipE(s);
+        b.p(gSweep('pl/hbtip' + s, [[0, 0, 0], [0, -0.015, s * 0.045], [0, -0.06, s * 0.07], [0, -0.09, s * 0.06]], [0.012, 0.011, 0.009, 0.004], 4), 0xd9cfb6, t[0], t[1], t[2]);
+      }
+      b.p(gCone(0.02, 0.07, 4), 0xd9cfb6, LX, WY - 0.06, GZ + 0.12, -0.5).p(gCone(0.02, 0.07, 4), 0xd9cfb6, LX, WY - 0.06, GZ - 0.12, Math.PI + 0.5);
+      b.x(gOct(0.022), 1, LX, WY - 0.05, GZ, 0, 0, 0, 1, 0.6, 1.4);
+      b.x(gBox(0.014, 0.014, 0.12), 1, LX + tx * 0.3, WY - 0.08, GZ + 0.42, -0.1).x(gBox(0.014, 0.014, 0.12), 1, LX + tx * 0.3, WY - 0.08, GZ - 0.42, 0.1);
+    }
+    // --- 符文弓：灰蓝的石纹弓臂，银色包角，握把外一圈符环，弓臂上各三道发光的符刻 ---
+    {
+      const limb = (s) => [[0, 0, s * 0.08], [tx * 0.1, -0.05, s * 0.28], [tx * 0.4, -0.035, s * 0.48], [tx * 0.74, ty * 0.38, s * 0.62], [tx, ty, s * tz]];
+      b.variant('runebow').at('wBo').surf(SURF.stone);
+      b.p(gSweep('pl/rbU', limb(1), [0.036, 0.032, 0.026, 0.018, 0.011], 6), [0x262c3a, 0x56637e], LX, WY, GZ);
+      b.p(gSweep('pl/rbL', limb(-1), [0.036, 0.032, 0.026, 0.018, 0.011], 6), [0x262c3a, 0x56637e], LX, WY, GZ);
+      b.surf(SURF.leather).p(gCyl(0.038, 0.038, 0.17, 7), 0x2a2232, LX, WY, GZ, HALF_PI);
+      b.surf(SURF.metal).p(gTorus(0.085, 0.012, 4, 14), 0xb8c4d6, LX, WY - 0.02, GZ, 0, HALF_PI, 0);
+      for (const s of [1, -1]) {
+        const t = tipE(s);
+        b.p(gCone(0.022, 0.08, 5), 0xb8c4d6, t[0], t[1] - 0.01, t[2] - s * 0.02, s > 0 ? HALF_PI : -HALF_PI);
+        b.p(gCyl(0.041, 0.041, 0.024, 7), 0xb8c4d6, LX, WY, GZ + s * 0.095, HALF_PI);
+      }
+      b.x(gTorus(0.085, 0.006, 3, 14), 1, LX - 0.01, WY - 0.02, GZ, 0, HALF_PI, 0);
+      for (const s of [1, -1]) for (const f of [0.22, 0.34, 0.46]) b.x(gBox(0.03, 0.01, 0.022), 1, LX + tx * f, WY - 0.06 + f * 0.04, GZ + s * f * 1.15, 0, 0, s * 0.3);
+    }
+    // --- 烬铸弓：烧黑的铁弓臂棱角分明，弓背伸出几枚刃状的尖刺，弓臂上一路熔开的裂纹，握把托着一团不灭的余烬 ---
+    {
+      const limb = (s) => [[0, 0, s * 0.08], [tx * 0.1, -0.06, s * 0.24], [tx * 0.3, -0.075, s * 0.42], [tx * 0.56, -0.035, s * 0.56], [tx * 0.82, ty * 0.5, s * 0.66], [tx, ty, s * tz]];
+      b.variant('emberbow').at('wBo').surf(SURF.dark, true);
+      b.p(gSweep('pl/ebU', limb(1), [0.04, 0.036, 0.03, 0.022, 0.015, 0.01], 5), [0x161112, 0x3a2620], LX, WY, GZ);
+      b.p(gSweep('pl/ebL', limb(-1), [0.04, 0.036, 0.03, 0.022, 0.015, 0.01], 5), [0x161112, 0x3a2620], LX, WY, GZ);
+      b.surf(SURF.leather).p(gCyl(0.04, 0.04, 0.18, 7), 0x2a1610, LX, WY, GZ, HALF_PI);
+      b.surf(SURF.dark, true);
+      for (const s of [1, -1]) {
+        b.p(gCone(0.026, 0.13, 4), 0x2a1c18, LX + tx * 0.3, WY - 0.12, GZ + s * 0.4, -HALF_PI - s * 0.5);
+        b.p(gCone(0.02, 0.09, 4), 0x2a1c18, LX + tx * 0.6, WY - 0.06, GZ + s * 0.58, -HALF_PI - s * 0.8);
+        const t = tipE(s);
+        b.p(gCone(0.018, 0.1, 4), 0x2a1c18, t[0], t[1] + 0.02, t[2] + s * 0.03, s > 0 ? HALF_PI - 0.4 : -HALF_PI + 0.4);
+      }
+      b.surf(SURF.gold).p(gCyl(0.044, 0.044, 0.026, 7), 0x8a3a1a, LX, WY, GZ + 0.1, HALF_PI).p(gCyl(0.044, 0.044, 0.026, 7), 0x8a3a1a, LX, WY, GZ - 0.1, HALF_PI);
+      // 裂纹：顺着弓臂一路的几段（稀有度色；烬铸是余烬橙）
+      for (const s of [1, -1]) {
+        b.x(gBox(0.012, 0.012, 0.16), 1, LX + tx * 0.15, WY - 0.075, GZ + s * 0.3, s * -0.1);
+        b.x(gBox(0.012, 0.012, 0.13), 1, LX + tx * 0.45, WY - 0.065, GZ + s * 0.49, s * 0.15);
+        b.x(gBox(0.01, 0.01, 0.1), 1, LX + tx * 0.75, WY + ty * 0.25, GZ + s * 0.62, s * 0.6);
+      }
+      b.g(gOct(0.038), 1.2, LX, WY - 0.07, GZ, 0, 0.6, 0, 1, 1.4, 1);
+    }
+    b.variant(null);
+  }
+
   function playerRig() {
     return rigOf('player', () => {
       const STEEL = 0x5d6a84, STEEL_D = 0x343c4e, GOLD = 0xdcae45, BLADE = 0xd9dee6, WOOD = 0x6b4a32, BONE = 0xd9cfb6;
@@ -2230,6 +2577,8 @@
       b.j('wBn', 'hR', -0.39, 0.84, 0.05);
       b.j('bnF1', 'wBn', -0.39 - BAN_X, 0.84, BAN_Z).j('bnF2', 'bnF1', -0.39 - BAN_X, 0.84, BAN_Z - BAN_L1);
       b.j('bnC1', 'wBn', -0.39 - 0.48, 0.84, BAN_Z).j('bnC2', 'wBn', -0.39 + 0.15, 0.84, BAN_Z - 0.1);
+      // 火器挂右手（三把枪各是一组变体零件）；wGb 是机炮的转膛（枪管束绕自身轴转）/ 左轮的转轮
+      b.j('wF', 'hR', -0.39, 0.84, 0.05).j('wGb', 'wF', -0.39, 0.84 + GUN_AX, 0.3);
       b.j('thL', 'root', 0.14, 0.97, 0).j('shL', 'thL', 0.15, 0.53, 0.01).j('ftL', 'shL', 0.15, 0.12, 0);
       b.j('thR', 'root', -0.14, 0.97, 0).j('shR', 'thR', -0.15, 0.53, 0.01).j('ftR', 'shR', -0.15, 0.12, 0);
       b.j('tab', 'root', 0, 1.0, 0.19);
@@ -2379,13 +2728,18 @@
       {
         const LX = -WX, GZ = BOW_GZ, tx = BOW_TIP[0] - LX, ty = BOW_TIP[1] - WY, tz = BOW_TIP[2] - GZ;
         const limb = (s) => [[0, 0, s * 0.08], [tx * 0.1, -0.035, s * 0.3], [tx * 0.35, -0.012, s * 0.5], [tx * 0.7, ty * 0.45, s * 0.63], [tx, ty, s * tz]];
-        b.at('wBo').surf(SURF.leather);
+        // 鹰眼长弓（旧存档里的长弓都是它）：弓身是变体零件，弓弦留在本体上，四张弓共用
+        b.variant('eagle').at('wBo').surf(SURF.leather);
         b.p(gSweep('pl/bowU', limb(1), [0.03, 0.026, 0.02, 0.014, 0.009], 6), [0x3a2618, 0x7a5236], LX, WY, GZ);
         b.p(gSweep('pl/bowL', limb(-1), [0.03, 0.026, 0.02, 0.014, 0.009], 6), [0x3a2618, 0x7a5236], LX, WY, GZ);
         b.p(gCyl(0.036, 0.036, 0.17, 7), 0x2c211a, LX, WY, GZ, HALF_PI);
         b.surf(SURF.gold).p(gCyl(0.04, 0.04, 0.025, 7), GOLD, LX, WY, GZ + 0.095, HALF_PI).p(gCyl(0.04, 0.04, 0.025, 7), GOLD, LX, WY, GZ - 0.095, HALF_PI);
         b.p(gOct(0.022), GOLD, BOW_TIP[0], BOW_TIP[1], BOW_TIP[2]).p(gOct(0.022), GOLD, BOW_TIP[0], BOW_TIP[1], 2 * GZ - BOW_TIP[2]);
         b.x(gBox(0.018, 0.018, 0.17), 1, LX + tx * 0.2, WY - 0.05, GZ + 0.33, -0.08).x(gBox(0.018, 0.018, 0.17), 1, LX + tx * 0.2, WY - 0.05, GZ - 0.33, 0.08);
+        // 鹰眼：握把上方一根白羽饰（长弓的远射意味）
+        b.surf(SURF.cloth).p(gPlate('pl/eaglefe', [[0, 0], [0.03, 0.03], [0.028, 0.15], [0, 0.17], [-0.012, 0.08]], 0.006, 0.003), 0xe8e0cc, LX + 0.02, WY - 0.06, GZ + 0.13, HALF_PI + 0.3, 0, 0.2);
+        rangedBows(b, LX, WY, GZ, tx, ty, tz, GOLD);
+        b.variant(null);
         const half = BOW_TIP[2] - GZ;
         b.at('bsU').surf(SURF.cloth).p(gCyl(0.005, 0.005, half, 4), 0xe8e0c8, BOW_TIP[0], BOW_TIP[1], BOW_TIP[2] - half / 2, HALF_PI);
         b.at('bsL').p(gCyl(0.005, 0.005, half, 4), 0xe8e0c8, BOW_TIP[0], BOW_TIP[1], 2 * GZ - BOW_TIP[2] + half / 2, HALF_PI);
@@ -2442,6 +2796,9 @@
         charm('bnC1', WX - 0.48, BAN_Z);
         charm('bnC2', WX + 0.15, BAN_Z - 0.1);
       }
+      // 三把火器（变体零件，挂 wF / wGb）
+      rangedGuns(b, WX, WY, GOLD, STEEL, STEEL_D);
+      b.variant(null);
 
       const rig = b.build({ height: 1.95, reach: 2.2, stride: 2.35, shade: 0.28 });
       rig.hitJ = [rig.J.head, rig.J.chest];
@@ -2470,6 +2827,7 @@
       rig.armL = armData('uaL', 'faL', 'hL');
       playerClips(rig);
       weaponClips(rig);
+      rangedClips(rig);
       return rig;
     });
   }
@@ -2553,10 +2911,16 @@
       p[J.hL] = -1.3 - p[J.uaL] - p[J.faL];
       p[J.hL + 1] = 0;
       p[J.hL + 2] = 0.1;
-    } else if (gear === G_HAM || gear === G_KAT) {
-      // 双手武器：右手的位置由 IK 按 LOCO_2H 摆（见 playerLate）；这里只给一个相近的起点
+    } else if (gear === G_HAM || gear === G_KAT || gear >= G_GAT) {
+      // 双手武器 / 火器：右手的位置由 IK 按 LOCO_2H 摆（见 playerLate）；这里只给一个相近的起点
       p[J.faR] = -1.0 * run - 1.1 * id;
       p[J.hR] = 0.4;
+      if (gear === G_GAT || gear === G_FLM) {
+        // 端着机炮 / 喷枪：上身往右拧，枪口朝正前方
+        p[J.spine + 1] += GUN_TWIST * 0.5;
+        p[J.chest + 1] += GUN_TWIST * 0.5;
+        p[J.head + 1] -= GUN_TWIST * 0.8;
+      }
     } else {
       // 刃：刃尖斜指前下方
       p[J.hR] = 0.5 - 0.25 * run;
@@ -2568,9 +2932,10 @@
     p[J.tab] = -0.04 - 0.38 * run * Math.max(Math.abs(s), 0.4) + Math.sin(t * 2.3 + ent.phase) * 0.03;
   }
   // 每帧都要设的东西：只显示当前装备的那把武器，掌心余烬脉动
-  function playerPost(ent, o, t) {
-    const J = ent.rig.J, g = ent.gearType, gj = ent.rig.gearJ;
-    for (let i = 0; i < gj.length; i++) o[gj[i] + 6] = o[gj[i] + 7] = o[gj[i] + 8] = g === i ? 1 : 0;
+  function playerPost(ent, o, t, sdt) {
+    const J = ent.rig.J, g = ent.gearType, gj = ent.rig.gearJ, gw = g >= 0 ? gj[g] : -1;
+    for (let i = 0; i < gj.length; i++) o[gj[i] + 6] = o[gj[i] + 7] = o[gj[i] + 8] = gj[i] === gw ? 1 : 0;
+    gunSpinPost(ent, o, sdt || 0);
     o[J.wDL + 6] = o[J.wDL + 7] = o[J.wDL + 8] = g === G_DAG ? 1 : 0;
     const c = ent.clip, a = g === G_BOW && c && c.arrow ? o[J.wA + 6] : 0;
     o[J.wA + 6] = o[J.wA + 7] = o[J.wA + 8] = a;
@@ -2713,9 +3078,11 @@
   const LOCO_2H = {
     [G_HAM]: { idle: [-0.13, -0.42, 0.3, -0.55, -0.62, 0.55, 0, -1, 0], run: [-0.24, 0.04, 0.24, -0.12, 0.55, -0.82, 0, 0.2, 1] },
     [G_KAT]: { idle: [-0.06, -0.33, 0.32, 0.05, 0.42, 0.9, 0, -1, 0], run: [-0.3, -0.42, 0.04, -0.2, -0.38, -0.9, 0, -1, 0] },
+    // 火器：机炮 / 喷枪端在右胯前、枪口斜指左前（上身往右拧，枪口正好朝前），跑起来枪口略抬；左轮单手垂在身侧、枪口朝前下
+    ...GUN_LOCO,
   };
   // 左手在双手武器柄上能握的范围（沿柄的 z，绑定坐标）；右手握在 z≈0.03，两手之间至少留 gap
-  const GRIP_2H = { [G_HAM]: [-0.31, 0.62, 0.15], [G_KAT]: [-0.17, -0.1, 0.12] };
+  const GRIP_2H = { [G_HAM]: [-0.31, 0.62, 0.15], [G_KAT]: [-0.17, -0.1, 0.12], [G_GAT]: [GUN_FORE.gatling, GUN_FORE.gatling, 0.1], [G_FLM]: [GUN_FORE.flamer, GUN_FORE.flamer, 0.1] };
   function ikPole(ent, x, y, z) {
     // 肘尖提示：胸口坐标系里的方向 → 模型空间
     const M = ent.mdl, j = ent.rig.JI.chest * 12;
@@ -2746,7 +3113,7 @@
       evalHand(c.hand, ent.cK, _hk);
       handToModel(ent, c.hand.f, _hk, _ikT);
       want = c.hand.W ? kf(c.hand.W, ent.cK) : 1;
-    } else if (!c && TWO_HAND[g]) {
+    } else if (!c && LOCO_2H[g]) {
       src = 'loco';
       const L = LOCO_2H[g], mv = ent.mv, br = Math.sin(ent.clock * 1.9) * 0.012 * (1 - mv);
       for (let i = 0; i < 9; i++) _hk[i] = L.idle[i] + (L.run[i] - L.idle[i]) * mv;
@@ -2792,7 +3159,7 @@
         const wj = rig.gearJ[g] / CH, m = wj * 12, gr = GRIP_2H[g];
         rotOf(M, wj, _Rh);
         const pj = rig.joints[wj];
-        const ox = -0.39 - pj.px, oy = 0.84 - pj.py, oz = -pj.pz;
+        const ox = -0.39 - pj.px, oy = 0.84 + (gr[3] || 0) - pj.py, oz = -pj.pz;
         const Ox = M[m] * ox + M[m + 1] * oy + M[m + 2] * oz + M[m + 3];
         const Oy = M[m + 4] * ox + M[m + 5] * oy + M[m + 6] * oz + M[m + 7];
         const Oz = M[m + 8] * ox + M[m + 9] * oy + M[m + 10] * oz + M[m + 11];
@@ -3957,15 +4324,165 @@
     }
   }
 
+  // ----- 远程武器的动作：普攻 fire_<type>、R 技 r_<type>（另注册同名的 w_<type>，按旧的命名也播得出来）-----
+  // 开火动作可以被连续重播（每发一次 W.play）：第 0 帧就是举枪瞄准的姿势，后坐只在开头一小段，之后一直保持瞄准，所以连射时姿势不跳
+  function rangedClips(rig) {
+    const C = (v) => [0, v, 1, v];
+    const brace = (keys, d) => {
+      keys['thL.rx'] = C(-0.45 * d);
+      keys['shL.rx'] = C(0.6 * d);
+      keys['thR.rx'] = C(0.3 * d);
+      keys['shR.rx'] = C(0.4 * d);
+      keys['ftR.rx'] = C(0.2 * d);
+      keys['thL.rz'] = C(0.12);
+      keys['thR.rz'] = C(-0.18);
+      return keys;
+    };
+    const alias = (a, b) => { rig.clips[a] = rig.clips[b]; };
+    // 机炮 / 喷枪的腰射：枪口对着胸口坐标系里的左前方（上身往右拧之后正好朝前）
+    const HIP = GUN_LOCO[G_GAT].idle, hp = HIP.slice(0, 3), hd = HIP.slice(3, 6), he = HIP.slice(6, 9);
+    const kick = (v, dz, dy) => [v[0], v[1] + dy, v[2] - dz];
+    const hipTwist = { 'spine.ry': C(GUN_TWIST * 0.55), 'chest.ry': C(GUN_TWIST * 0.55), 'head.ry': C(-GUN_TWIST * 0.9), 'root.rx': C(-0.04) };
+    // 转膛机炮：沉腰顶住后坐，枪身随每一发轻轻一震（机炮的转膛在 gunSpinPost 里转）
+    defClip(rig, 'fire_gatling', {
+      dur: 0.42, k0: 0.08, lower: LEGS, fade: 0.08, out: 0.3,
+      hand: { k: [0, 0.06, 0.2, 1], p: [hp, kick(hp, 0.035, 0.01), hp, hp], d: [hd, [hd[0], hd[1] + 0.05, hd[2]], hd, hd], e: [he, he, he, he] },
+      keys: brace(Object.assign({ 'chest.rx': [0, -0.08, 0.06, -0.12, 0.3, -0.08, 1, -0.08] }, hipTwist), 0.9),
+    });
+    // 熔光射线：双脚扎稳、上身后仰顶住，枪口对准（长按 ~3 秒；射线由 rangedFx 画）
+    defClip(rig, 'r_gatling', {
+      dur: 3.2, k0: 0.06, lower: null, fade: 0.12, out: 0.35,
+      hand: { k: [0, 0.08, 1], p: [hp, kick(hp, -0.02, 0.03), kick(hp, -0.02, 0.03)], d: [hd, hd, hd], e: [he, he, he] },
+      keys: brace(Object.assign({ 'chest.rx': [0, -0.1, 0.08, -0.2, 1, -0.2], 'root.oy': [0, 0, 0.1, -0.08, 1, -0.08] }, hipTwist), 1.3),
+      fn(ent, p, k, t) {
+        // 射线的反冲：整个人细细地抖
+        const j = Math.sin(t * 71) * 0.012 + Math.sin(t * 43) * 0.008;
+        p[ent.rig.J.chest] += j;
+        p[ent.rig.J.root + 4] += j * 0.5;
+      },
+    });
+    // 焚炉喷枪：弓步前压，枪口略向下扫，喷射中左右轻轻摆
+    defClip(rig, 'fire_flamer', {
+      dur: 0.5, k0: 0.08, lower: LEGS, fade: 0.08, out: 0.3,
+      hand: { k: [0, 1], p: [kick(hp, -0.04, 0.02), kick(hp, -0.04, 0.02)], d: [[hd[0], -0.12, hd[2]], [hd[0], -0.12, hd[2]]], e: [he, he] },
+      keys: brace(Object.assign({ 'chest.rx': C(0.08), 'spine.rx': C(0.06) }, hipTwist), 1.1),
+      fn(ent, p, k, t) {
+        p[ent.rig.J.chest + 1] += Math.sin(t * 5.5) * 0.06;
+      },
+    });
+    // 焚天炎爆：把喷枪往身前一沉、枪口压向地面——蓄压（枪身发抖）→ 一口气泄掉全部热度（k0）→ 后坐着站起
+    defClip(rig, 'r_flamer', {
+      dur: 1.0, k0: 0.42, lower: null, fade: 0.08, out: 0.3,
+      hand: {
+        k: [0, 0.3, -0.42, 0.6, 1],
+        p: [hp, [-0.02, -0.35, 0.28], [0.0, -0.48, 0.34], [0.0, -0.42, 0.24], hp],
+        d: [hd, [0.4, -0.55, 0.73], [0.35, -0.8, 0.5], [0.4, -0.5, 0.75], hd],
+        e: [he, [0, -0.8, -0.6], [0, -0.6, -0.8], [0, -0.85, -0.5], he],
+      },
+      keys: Object.assign({
+        'root.oy': [0, 0, 0.3, -0.18, -0.42, -0.32, 0.6, -0.22, 1, 0],
+        'spine.rx': [0, 0, 0.3, 0.18, -0.42, 0.3, 0.6, 0.12, 1, 0],
+        'chest.rx': [0, 0, 0.3, 0.1, -0.42, 0.22, 0.6, -0.08, 1, 0],
+        'thL.rx': [0, -0.1, 0.3, -0.9, 0.6, -0.8, 1, -0.05], 'shL.rx': [0, 0.1, 0.3, 1.1, 0.6, 1.0, 1, 0.08],
+        'thR.rx': [0, 0, 0.3, 0.2, 0.6, 0.2, 1, 0], 'shR.rx': [0, 0.1, 0.3, 1.0, 0.6, 0.9, 1, 0.08],
+        'thL.rz': C(0.18), 'thR.rz': C(-0.2),
+        'cape1.rx': [0, 0.1, 0.42, 0.9, 0.7, 0.4, 1, 0.1], 'cape2.rx': [0, 0.1, 0.44, 0.8, 0.75, 0.35, 1, 0.1], 'cape3.rx': [0, 0.1, 0.46, 0.7, 0.8, 0.3, 1, 0.1],
+      }, hipTwist),
+      fn(ent, p, k, t) {
+        if (k > 0.15 && k < 0.42) p[ent.rig.J.chest + 2] += Math.sin(t * 60) * 0.025 * (k - 0.15) * 4;
+      },
+    });
+    // 烬铸左轮：拔枪（从胯边一抬就到肩高，k0 = 第一发）→ 枪口上跳 → 落回瞄准
+    {
+      // 模型空间：躯干侧身（右肩在前）不影响枪口方向
+      const R0 = GUN_LOCO[G_REV].idle, aimP = [-0.28, 0.14, 0.52], aimD = [0.12, 0.0, 1], aimE = [0, -1, 0];
+      const mP = [-0.2, 1.45, 0.64], mD = [0.04, 0, 1], low = [-0.36, 0.88, 0.18], lowD = [0.05, -0.55, 0.83], lowE = [0, -0.83, -0.55];
+      defClip(rig, 'fire_revolver', {
+        dur: 0.36, k0: 0.22, lower: LEGS, fade: 0.05, out: 0.28,
+        hand: {
+          f: 'model',
+          k: [0, 0.18, -0.22, 0.34, 0.6, 1],
+          p: [low, mP, mP, [mP[0], mP[1] + 0.07, mP[2] - 0.06], mP, mP],
+          d: [lowD, mD, mD, [0.04, 0.55, 0.83], mD, mD],
+          e: [lowE, aimE, aimE, [0, -0.83, 0.55], aimE, aimE],
+          w: [0.6, 1, 1, 1, 1, 1],
+        },
+        keys: {
+          'chest.ry': [0, 0, 0.18, 0.3, 1, 0.3], 'spine.ry': [0, 0, 0.18, 0.15, 1, 0.15], 'head.ry': [0, 0, 0.18, -0.4, 1, -0.4],
+          'chest.rx': [0, 0, 0.22, 0, 0.34, -0.06, 0.6, 0, 1, 0],
+        },
+      });
+      // 乱射：边走边朝四面八方扇射——右臂一圈一圈地甩，左手在击锤上来回拨（腿交给步态，移动不受影响）
+      defClip(rig, 'r_revolver', {
+        dur: 3.0, k0: 0.03, lower: LEGS, fade: 0.08, out: 0.3,
+        hand: { k: [0, 1], p: [aimP, aimP], d: [aimD, aimD], e: [aimE, aimE] },
+        handL: { k: [0, 1], p: [[-0.12, 0.12, 0.42], [-0.12, 0.12, 0.42]], d: [[0, 0.3, 1], [0, 0.3, 1]], e: [[0, -1, 0.3], [0, -1, 0.3]], w: [1, 1] },
+        keys: { 'head.rx': C(0.1) },
+        fn(ent, p, k, t) {
+          // 上身绕着转：乱射是「朝四面八方」，靠躯干的扭动 + 手臂摆角把枪口甩向各个方向
+          const J = ent.rig.J, a = t * 9.5;
+          p[J.spine + 1] = Math.sin(a) * 0.7;
+          p[J.chest + 1] = Math.sin(a + 0.6) * 0.55;
+          p[J.chest] = -0.05 + Math.sin(a * 2.3) * 0.06;
+          p[J.root + 4] += Math.abs(Math.sin(t * 31)) * 0.015;
+        },
+      });
+    }
+    // 弓：侧身举弓平射——左手把弓推到肩前，右手从弦上拉到下巴边（k = 0.15→0.42 拉满）→ 撒放（k0）→ 回身
+    {
+      const AIM = [0, 0.03, 1], GRIP = [0.08, 1.45, 0.62], DRAW = 0.5;
+      const nock = GRIP.map((v, i) => v - AIM[i] * DRAW), rest = GRIP.map((v, i) => v - AIM[i] * 0.17);
+      const out = [nock[0] - 0.1, nock[1] + 0.02, nock[2] - 0.08];
+      const bowD = [0, 0.97, -0.03], handE = [0, -0.03, 1], lowL = [0.4, 0.85, 0.1], lowR = [-0.4, 0.85, 0.05];
+      const bowSpec = (dur, k0, extra) => Object.assign({
+        dur, k0, lower: LEGS, fade: 0.06, out: 0.22, arrow: true,
+        draw: [0, 0, 0.12, 0, k0 - 0.04, 1, -k0 - 0.02, 0, 1, 0],
+        handL: { f: 'model', k: [0, 0.1, 0.85, 1], p: [lowL, GRIP, GRIP, lowL], d: [bowD, bowD, bowD, bowD], e: [AIM, AIM, AIM, AIM], w: [0.3, 1, 1, 0] },
+        hand: { f: 'model', k: [0, 0.1, k0 - 0.06, k0, -k0 - 0.03, 0.85, 1], p: [lowR, rest, nock, nock, out, out, lowR], d: [AIM, AIM, AIM, AIM, AIM, AIM, AIM], e: [handE, handE, handE, handE, handE, handE, handE], w: [0.3, 1, 1, 1, 1, 1, 0] },
+        keys: {
+          'wA.s': [0, 0, 0.08, 0, 0.12, 1, k0, 1, k0 + 0.01, 0, 1, 0],
+          'root.ry': [0, 0, 0.1, -0.85, 0.85, -0.85, 1, 0],
+          'chest.ry': [0, 0, 0.1, -0.35, 0.85, -0.35, 1, 0],
+          'head.ry': [0, 0, 0.1, 1.05, 0.85, 1.05, 1, 0],
+          'chest.rx': [0, 0, 0.12, -0.05, k0, -0.05, k0 + 0.03, -0.14, 0.85, -0.06, 1, 0],
+          'thL.rz': C(0.2), 'thR.rz': C(-0.2),
+          'cape1.rx': [0, 0.1, k0, 0.1, k0 + 0.05, 0.35, 1, 0.1],
+        },
+      }, extra || {});
+      for (const t of BOW_TYPES) defClip(rig, 'fire_' + t, bowSpec(t === 'eagle' ? 0.62 : t === 'huntbow' ? 0.48 : 0.55, t === 'eagle' ? 0.6 : 0.52));
+      alias('fire_bow', 'fire_eagle');
+      // R：把弓高举过头、一声弦鸣（专注灌满后的增益）——弓身朝天、右手在弦上一勾一放，身后余势
+      const upG = [0.05, 2.05, 0.25], upD = [0, 0.3, -0.95], upA = [0, 0.95, 0.3];
+      for (const t of BOW_TYPES) {
+        defClip(rig, 'r_' + t, {
+          dur: 0.75, k0: 0.45, lower: LEGS, fade: 0.06, out: 0.28,
+          draw: [0, 0, 0.2, 0, 0.4, 0.8, -0.47, 0, 1, 0],
+          handL: { f: 'model', k: [0, 0.25, 0.7, 1], p: [lowL, upG, upG, lowL], d: [upD, upD, upD, upD], e: [upA, upA, upA, upA], w: [0.2, 1, 1, 0] },
+          hand: { f: 'model', k: [0, 0.25, 0.42, -0.47, 0.7, 1], p: [lowR, [-0.05, 1.75, 0.18], [-0.05, 1.62, 0.12], [-0.3, 1.5, 0.05], [-0.3, 1.5, 0.05], lowR], d: [upA, upA, upA, upA, upA, upA], w: [0.2, 1, 1, 1, 1, 0] },
+          keys: {
+            'root.oy': [0, 0, 0.3, -0.06, -0.45, 0.06, 0.7, 0, 1, 0],
+            'chest.rx': [0, 0, 0.3, -0.18, 0.7, -0.12, 1, 0],
+            'head.rx': [0, 0, 0.3, -0.45, 0.7, -0.3, 1, 0],
+            'cape1.rx': [0, 0.1, 0.45, 0.8, 1, 0.1], 'cape2.rx': [0, 0.1, 0.47, 0.7, 1, 0.1], 'cape3.rx': [0, 0.1, 0.49, 0.6, 1, 0.1],
+          },
+        });
+      }
+      alias('r_bow', 'r_eagle');
+    }
+    for (const t of GUN_TYPES.concat(BOW_TYPES, ['bow'])) if (!rig.clips['w_' + t] && rig.clips['r_' + t]) alias('w_' + t, 'r_' + t);
+  }
+
   // 武器的握法 / 挂点长度 / 稀有度的发光
   // 挂点 weapon（武器尖端 / 长弓的上弓梢 / 魂幡杆头的魂火）相对武器关节的 [x, y, z]
-  const GEAR_TIP = [[0, 0, 1.17], [0, 0, 1.54], [0, 0, 0.68], [0, 0, 0.5], [0, 0, 1.0], [BOW_TIP[0] - 0.39, BOW_TIP[1] - 0.84, BOW_TIP[2] - 0.05], [0, 0.04, 1.12], [0, 0, 1.84]];
+  const GEAR_TIP = [[0, 0, 1.17], [0, 0, 1.54], [0, 0, 0.68], [0, 0, 0.5], [0, 0, 1.0], [BOW_TIP[0] - 0.39, BOW_TIP[1] - 0.84, BOW_TIP[2] - 0.05], [0, 0.04, 1.12], [0, 0, 1.84],
+    [0, GUN_AX, GUN_MUZ.gatling - 0.05], [0, GUN_AX, GUN_MUZ.flamer - 0.05], [0, GUN_AX, GUN_MUZ.revolver - 0.05]];
   // 第 4 档是烬铸：余烬橙的自发光比稀有更亮，光晕更大（见 applyGear），武器上不停往上飘火星（见下面的 gear 更新）
   const GEAR_GLOW = [[0xcfd6e2, 0.3], [0x7f9dff, 1.15], [0xffd75e, 1.5], [0xff7424, 2.4]];
   // 稀有度光晕：[沿武器的位置（占挂点长度的比例）, 魔法的大小, 稀有的大小, 不透明度]。
   // 刃的光裹着刃身；长杖 / 短杖握在头和胸口旁边，光只罩住杖头的晶体，小而淡，不把兜帽和上身照成一片白；
   // 双匕只罩右手那把；战锤罩住锤头；长弓的光在握把上；太刀和刃一样裹着刃身；魂幡罩住杆头的魂火
-  const GEAR_AURA = [[0.62, 1.0, 1.5, 1], [0.885, 0.5, 0.72, 0.5], [0.81, 0.42, 0.6, 0.5], [0.55, 0.55, 0.85, 0.8], [0.95, 0.75, 1.1, 0.75], [0, 0.75, 1.05, 0.6], [0.6, 1.0, 1.5, 1], [1, 0.55, 0.8, 0.55]];
+  const GEAR_AURA = [[0.62, 1.0, 1.5, 1], [0.885, 0.5, 0.72, 0.5], [0.81, 0.42, 0.6, 0.5], [0.55, 0.55, 0.85, 0.8], [0.95, 0.75, 1.1, 0.75], [0, 0.75, 1.05, 0.6], [0.6, 1.0, 1.5, 1], [1, 0.55, 0.8, 0.55],
+    [0.3, 0.7, 1.0, 0.6], [0.3, 0.65, 0.95, 0.6], [0.45, 0.5, 0.75, 0.7]];
   const auraMats = Object.create(null);
   function auraMat(hex, alpha) {
     const key = hex + ':' + alpha;
@@ -3974,9 +4491,11 @@
       (auraMats[key] = new T.SpriteMaterial({ map: glowTex(), color: lin(hex), opacity: alpha, transparent: true, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false, fog: false }))
     );
   }
-  function applyGear(ent, type, rar) {
+  function applyGear(ent, type, rar, vn) {
     ent.gearType = type;
     ent.gearRar = rar;
+    ent.gearVar = vn || (type === G_BOW ? 'eagle' : type >= G_GAT ? GEAR_KEYS[type] : null);
+    if (ent.vMesh) for (const k in ent.vMesh) for (const m of ent.vMesh[k]) m.visible = k === ent.gearVar;
     const sw = ent.sock.weapon, tip = type < 0 ? null : GEAR_TIP[type];
     sw.j = ent.rig.JI[type < 0 ? 'hR' : GEAR_JOINT[type]];
     sw.x = tip ? tip[0] : 0;
@@ -4025,7 +4544,8 @@
   function gearFrom(ent, equip) {
     const w = equip && equip.weapon;
     const type = w ? gearIndex(w.baseIdx | 0) : -1, rar = w ? G.clamp(w.rarity | 0, 0, 3) : 0;
-    if (type !== ent.gearType || rar !== ent.gearRar) applyGear(ent, type, rar);
+    const vn = w ? gearVariant(baseType(w.baseIdx | 0)) : null;
+    if (type !== ent.gearType || rar !== ent.gearRar || (vn || null) !== (ent.gearVar || null)) applyGear(ent, type, rar, vn);
   }
   // 玩家的武器模型跟着装备走：equip 是存档里的 { slot: item }。
   // 武器底材的 type（G.BASES.weapon[baseIdx].type：blade / staff / wand / daggers / hammer / bow / katana / banner）决定手里拿什么，
@@ -4745,7 +5265,321 @@
     });
   }
 
-  const MOB_RIG = { husk: huskRig, brute: bruteRig, spitter: spitterRig, bomber: bomberRig };
+  // ---------------------------------------------------------------------
+  // 隙影：没有腿的兜帽身影，罩袍收成一条拖尾悬在地面上方；裂开的瓷面具上竖着一道发亮的裂口，
+  // 细长的手臂末端是三根碎晶指，身边绕着三片小碎晶
+  // ---------------------------------------------------------------------
+  function phaserRig() {
+    return rigOf('phaser', () => {
+      const ROBE = 0x26303a, ROBE_L = 0x425262, ROBE_IN = 0x0d1115, MASK = 0xdedccd, MASK_D = 0x9a9a8c, GLASS = 0xa6cdc2, GLASS_D = 0x58786f, DARK = 0x14181c;
+      const b = rigBuilder('phaser', NB_SMALL);
+      b.j('root', null, 0, 1.15, 0).j('body', 'root', 0, 1.45, 0.02).j('head', 'body', 0, 1.98, 0.08);
+      b.j('uaL', 'body', 0.27, 1.8, 0.04).j('faL', 'uaL', 0.42, 1.42, 0.12).j('uaR', 'body', -0.27, 1.8, 0.04).j('faR', 'uaR', -0.42, 1.42, 0.12);
+      b.j('tail1', 'root', 0, 1.05, -0.04).j('tail2', 'tail1', 0, 0.6, -0.16).j('orb', 'body', 0, 1.6, 0);
+
+      // 罩袍下摆，撕成几条
+      b.at('tail1').surf(SURF.cloth);
+      b.pd(gLathe('ph/robe', [[0.13, 0.56], [0.26, 0.76], [0.34, 1.0], [0.31, 1.26]], 9), [ROBE, ROBE_L], ROBE_IN, 0, 0, -0.04);
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * TAU + 0.4;
+        b.pd(gPlate('ph/tat' + (k % 2), [[-0.08, 0], [0.08, 0], [0.03, -0.32 + (k % 2) * 0.08], [-0.03, -0.22]], 0.008, 0.002), ROBE, ROBE_IN, Math.sin(a) * 0.29, 0.66, Math.cos(a) * 0.27 - 0.04, -0.2, a, 0);
+      }
+      // 拖尾：越往下越细，尾梢一点余光
+      b.at('tail2').pd(gLathe('ph/tail', [[0.01, 0.1], [0.07, 0.28], [0.12, 0.46], [0.14, 0.62]], 8), [ROBE_IN, ROBE], ROBE_IN, 0, 0, -0.16);
+      b.g(gSph(0.045, 6, 4), 0.8, 0, 0.12, -0.16);
+
+      // 躯干：前胸一道竖裂透出元素光，肩头顶着碎晶，背后一片短披
+      b.at('body').surf(SURF.cloth);
+      b.p(gSph(0.24, 9, 7), [ROBE, ROBE_L], 0, 1.52, 0.02, 0, 0, 0, 1.05, 1.2, 0.85);
+      b.pd(gDrape('ph/mantle', [[0.36, 1.3], [0.36, 1.55], [0.3, 1.78], [0.14, 1.92]], 3.6, 8), [ROBE, ROBE_L], ROBE_IN, 0, 0, 0.02);
+      b.g(gBox(0.05, 0.3, 0.05), 1, 0, 1.52, 0.22, 0, 0, 0.15).g(gBox(0.03, 0.15, 0.04), 0.85, 0.05, 1.42, 0.21, 0, 0, -0.55);
+      b.surf(SURF.ice, true);
+      for (const s of [1, -1]) {
+        b.p(gOct(0.1), [GLASS_D, GLASS], s * 0.3, 1.88, 0, 0, 0, -s * 0.3, 0.8, 2.2, 0.8);
+        b.p(gOct(0.07), GLASS, s * 0.38, 1.8, -0.08, 0.3, 0, -s * 0.75, 0.7, 1.8, 0.7);
+      }
+
+      // 头：兜帽（前面敞开）+ 瓷面具，竖着的发光裂口，额上三根晶刺
+      b.at('head').surf(SURF.cloth);
+      b.pd(gDrape('ph/hood', [[0.03, 2.3], [0.17, 2.22], [0.23, 2.02], [0.21, 1.82]], 4.3, 9), [ROBE, ROBE_L], ROBE_IN, 0, 0, 0.04, -0.12);
+      b.surf(SURF.bone).p(gSph(0.15, 9, 7), [MASK_D, MASK], 0, 2.0, 0.1, 0.1, 0, 0, 0.85, 1.12, 0.75);
+      b.surf(SURF.cloth);
+      for (const s of [1, -1]) b.p(gSph(0.032, 6, 4), DARK, s * 0.058, 2.05, 0.205, 0, 0, 0, 1.3, 0.8, 0.6);
+      b.g(gBox(0.026, 0.22, 0.03), 1, 0, 1.99, 0.215, 0.1, 0, 0.12);
+      b.surf(SURF.ice, true).p(gOct(0.05), GLASS, 0, 2.3, 0.04, -0.2, 0, 0, 0.6, 2.6, 0.6);
+      for (const s of [1, -1]) b.p(gOct(0.04), GLASS_D, s * 0.1, 2.25, 0.04, -0.15, 0, -s * 0.45, 0.6, 2.2, 0.6);
+
+      // 手臂：细瘦的上臂，碎晶前臂，三根长指（指尖带元素光）
+      for (const s of [1, -1]) {
+        const U = s > 0 ? 'uaL' : 'uaR', F = s > 0 ? 'faL' : 'faR';
+        b.at(U).surf(SURF.cloth).limb([ROBE, ROBE_L], s * 0.27, 1.8, 0.04, s * 0.42, 1.42, 0.12, 0.065, 0.05, 6, 2);
+        b.at(F).surf(SURF.ice).limb([DARK, GLASS_D], s * 0.42, 1.42, 0.12, s * 0.47, 1.1, 0.26, 0.045, 0.035, 6, 0);
+        for (let k = -1; k <= 1; k++) {
+          const x = s * 0.47 + k * 0.045;
+          b.p(gSweep('ph/fing' + s + k, [[x, 1.09, 0.27], [x + k * 0.03, 0.96, 0.38], [x + k * 0.04, 0.82, 0.4]], [0.024, 0.018, 0.004], 4), [GLASS_D, GLASS], 0, 0, 0);
+          b.g(gSph(0.018, 5, 3), 0.8, x + k * 0.04, 0.83, 0.4);
+        }
+      }
+      // 身边绕着的三片碎晶（post 里转）
+      b.at('orb');
+      for (let k = 0; k < 3; k++) {
+        const a = (k / 3) * TAU;
+        b.g(gOct(0.075), 1, Math.sin(a) * 0.6, 1.6 + (k - 1) * 0.12, Math.cos(a) * 0.6, 0, 0, 0, 0.7, 1.6, 0.7);
+      }
+
+      const rig = b.build({ height: 2.35, reach: 1.4, stride: 3, shade: 0.15 });
+      rig.hitJ = [rig.J.head, rig.J.body];
+      sock(rig, 'weapon', 'faR', -0.05, -0.58, 0.28);
+      sock(rig, 'hand', 'faL', 0.05, -0.58, 0.28);
+      sock(rig, 'head', 'head', 0, 0.1, 0.1);
+      sock(rig, 'chest', 'body', 0, 0.05, 0.2);
+      rig.loco = function (ent, p, t) {
+        const J = rig.J, mv = ent.mv, id = 1 - mv, run = Math.min(1.2, ent.spd / 4.4) * mv;
+        const a = Math.sin(t * 1.8 + ent.phase), a2 = Math.sin(t * 1.1 + ent.phase * 2);
+        p[J.root + 4] = 0.12 + 0.08 * a; // 悬着，一起一伏
+        p[J.root] = 0.28 * run + 0.03 * a2; // 朝行进方向前倾
+        p[J.root + 2] = 0.05 * a2 * id;
+        p[J.body] = 0.05 + 0.04 * a2;
+        p[J.head] = -0.1 - 0.18 * run + 0.05 * a;
+        p[J.head + 2] = 0.14 * Math.sin(t * 0.9 + ent.phase) * id;
+        p[J.uaL] = -0.25 + 0.45 * run + 0.08 * a;
+        p[J.uaR] = -0.25 + 0.45 * run + 0.08 * a2;
+        p[J.uaL + 2] = 0.22 + 0.05 * a;
+        p[J.uaR + 2] = -0.22 - 0.05 * a;
+        p[J.faL] = -0.5 + 0.1 * a2;
+        p[J.faR] = -0.5 + 0.1 * a;
+        p[J.tail1] = 0.15 + 0.55 * run + 0.06 * a2;
+        p[J.tail1 + 2] = 0.1 * Math.sin(t * 1.4 + ent.phase);
+        p[J.tail2] = 0.2 + 0.45 * run + 0.1 * a;
+        p[J.tail2 + 2] = 0.16 * Math.sin(t * 1.4 + ent.phase - 0.9);
+      };
+      rig.post = function (ent, o, t) {
+        o[rig.J.orb + 1] = t * 2.4 + ent.phase;
+        setGlow(ent, 0.85 + 0.15 * Math.sin(t * 4 + ent.phase));
+      };
+      // 蓄力：双手合拢在胸前聚光，后仰，碎晶环收紧发亮
+      defClip(rig, 'windup', {
+        dur: 0.45, hold: true, fade: 0.08,
+        keys: {
+          'root.oz': [0, 0, 1, -0.1], 'body.rx': [0, 0.05, 1, -0.25], 'head.rx': [0, -0.1, 1, -0.3],
+          'uaL.rx': [0, -0.25, 1, -1.1], 'uaL.rz': [0, 0.22, 1, -0.3], 'faL.rx': [0, -0.5, 1, -0.5],
+          'uaR.rx': [0, -0.25, 1, -1.1], 'uaR.rz': [0, -0.22, 1, 0.3], 'faR.rx': [0, -0.5, 1, -0.5],
+          'orb.s': [0, 1, 1, 0.7], 'tail1.rx': [0, 0.15, 1, 0.35],
+        },
+      });
+      // 出手：双臂猛地推出去，碎晶环炸开再收回
+      defClip(rig, 'attack', {
+        dur: 0.4, k0: 0.3, fade: 0.03, out: 0.2,
+        keys: {
+          'root.oz': [0, -0.1, -0.3, 0.12, 1, 0], 'body.rx': [0, -0.25, -0.3, 0.3, 1, 0.05], 'head.rx': [0, -0.3, -0.3, 0.15, 1, -0.1],
+          'uaL.rx': [0, -1.1, -0.3, -1.5, 0.7, -1.3, 1, -0.3], 'uaL.rz': [0, -0.3, -0.3, 0.25, 1, 0.22], 'faL.rx': [0, -0.5, -0.3, -0.05, 1, -0.5],
+          'uaR.rx': [0, -1.1, -0.3, -1.5, 0.7, -1.3, 1, -0.3], 'uaR.rz': [0, 0.3, -0.3, -0.25, 1, -0.22], 'faR.rx': [0, -0.5, -0.3, -0.05, 1, -0.5],
+          'orb.s': [0, 0.7, -0.3, 1.5, 1, 1], 'tail1.rx': [0, 0.35, -0.3, -0.1, 1, 0.15],
+        },
+      });
+      // 闪身：原地一拧，缩成一点
+      defClip(rig, 'blink', {
+        dur: 0.45, hold: true, fade: 0.05,
+        keys: {
+          'root.s': [0, 1, 0.3, 1.15, -1, 0.04], 'root.ry': [0, 0, 1, 3.6], 'root.oy': [0, 0.12, 0.35, 0.3, 1, 0.6],
+          'uaL.rx': [0, -0.25, 1, -0.4], 'uaL.rz': [0, 0.22, 1, -0.6], 'uaR.rx': [0, -0.25, 1, -0.4], 'uaR.rz': [0, -0.22, 1, 0.6],
+          'head.rx': [0, -0.1, 1, 0.4], 'tail1.rx': [0, 0.15, 1, -0.4], 'orb.s': [0, 1, 1, 0.3],
+        },
+      });
+      // 现身：反着拧出来，双臂张开
+      defClip(rig, 'appear', {
+        dur: 0.3, fade: 0.01, out: 0.12,
+        keys: {
+          'root.s': [0, 0.04, -0.6, 1.12, 1, 1], 'root.ry': [0, -3.2, 0.7, 0, 1, 0], 'root.oy': [0, 0.6, 0.7, 0.15, 1, 0.12],
+          'uaL.rx': [0, -0.4, 0.6, -0.9, 1, -0.6], 'uaL.rz': [0, -0.6, 0.6, 0.7, 1, 0.3], 'uaR.rx': [0, -0.4, 0.6, -0.9, 1, -0.6], 'uaR.rz': [0, 0.6, 0.6, -0.7, 1, -0.3],
+          'orb.s': [0, 0.3, 0.6, 1.4, 1, 1],
+        },
+      });
+      // 失衡：歪着头晃荡，手臂垂软
+      defClip(rig, 'stagger', {
+        dur: 1.4, loop: true, fade: 0.12, out: 0.25,
+        keys: { 'faL.rx': [0, -0.15, 1, -0.15], 'faR.rx': [0, -0.15, 1, -0.15] },
+        fn(ent, p, k) {
+          const J = rig.J, a = k * TAU, s = Math.sin(a);
+          p[J.root + 4] = 0.02 + 0.04 * Math.sin(a * 2);
+          p[J.root + 2] = 0.16 * s;
+          p[J.body] = 0.35 + 0.06 * Math.cos(a);
+          p[J.head] = 0.4 + 0.1 * Math.sin(a * 2);
+          p[J.head + 2] = 0.35 * Math.sin(a + 0.8);
+          p[J.uaL] = 0.15 + 0.2 * Math.sin(a + 1.5);
+          p[J.uaR] = 0.15 + 0.2 * Math.sin(a + 2.6);
+          p[J.uaL + 2] = 0.1;
+          p[J.uaR + 2] = -0.1;
+        },
+      });
+      // 死亡：面具裂开似的仰头一抽，然后整团塌落在地，碎晶散落
+      defClip(rig, 'death', {
+        dur: 0.8, base: 'rest', hold: true, air: true, fade: 0.05,
+        keys: {
+          'root.oy': [0, 0.1, 0.25, 0.2, -0.8, -0.82, 1, -0.84], 'root.rx': [0, 0, 0.25, -0.35, -0.8, 1.2, 1, 1.25], 'root.rz': [0, 0, 1, 0.3],
+          'body.rx': [0, 0, 0.25, -0.3, 1, 0.3], 'head.rx': [0, 0, 0.25, -0.7, 0.8, 0.4, 1, 0.3], 'head.rz': [0, 0, 1, 0.6],
+          'uaL.rx': [0, -0.3, 0.25, -2.2, 0.8, -2.6, 1, -2.7], 'uaL.rz': [0, 0.2, 0.25, 1.0, 1, 1.1],
+          'uaR.rx': [0, -0.3, 0.25, -2.0, 0.8, -1.6, 1, -1.7], 'uaR.rz': [0, -0.2, 0.25, -1.0, 1, -1.2],
+          'tail1.rx': [0, 0.15, 0.6, -0.8, 1, -1.0], 'tail2.rx': [0, 0.2, 0.7, -0.6, 1, -0.7],
+          'orb.oy': [0, 0, 0.3, 0.2, -0.85, -1.5, 1, -1.5], 'orb.s': [0, 1, 0.3, 1.4, 1, 0.5],
+        },
+      });
+      return rig;
+    });
+  }
+
+  // ---------------------------------------------------------------------
+  // 陨角兽：矮壮的四足兽，额前顶着一根前弯的星晶巨角，背上叠着石甲、甲缝里透出元素光，短而粗的四条腿
+  // ---------------------------------------------------------------------
+  function chargerRig() {
+    return rigOf('charger', () => {
+      const HIDE = 0x5f625a, HIDE_D = 0x34362f, BELLY = 0x8c8a78, PLATE = 0x75837a, PLATE_D = 0x3e4944, HORN = 0xbfe0d4, HORN_D = 0x6e948a, HOOF = 0x1d1f1c, BONE = 0xd2cab2;
+      const b = rigBuilder('charger', NB_SMALL);
+      b.j('root', null, 0, 1.0, -0.1).j('chest', 'root', 0, 1.1, 0.45).j('head', 'chest', 0, 1.05, 1.05).j('jaw', 'head', 0, 0.86, 1.22);
+      const LEG = [['FL', 1, 0.72], ['FR', -1, 0.72], ['BL', 1, -0.62], ['BR', -1, -0.62]];
+      for (const [n, sx, z] of LEG) b.j('u' + n, z > 0 ? 'chest' : 'root', sx * 0.42, 0.95, z).j('d' + n, 'u' + n, sx * 0.44, 0.5, z + (z > 0 ? 0.04 : -0.06));
+      b.j('tail', 'root', 0, 1.15, -0.95);
+
+      // 后躯与前胸：前高后低的一整块肉，肩背隆起
+      b.at('root').surf(SURF.hide);
+      b.p(gSph(0.55, 10, 8), [BELLY, HIDE], 0, 1.02, -0.38, 0.1, 0, 0, 1, 0.82, 1.12);
+      b.surf(SURF.stone, true).p(gRBox(0.8, 0.22, 0.6, 0.06), [PLATE_D, PLATE], 0, 1.5, -0.42, -0.12);
+      b.g(gBox(0.5, 0.05, 0.08), 0.85, 0, 1.55, -0.1, -0.12);
+      b.at('chest').surf(SURF.hide);
+      b.p(gSph(0.62, 10, 8), [BELLY, HIDE], 0, 1.15, 0.45, -0.1, 0, 0, 1.05, 0.98, 1.0);
+      b.surf(SURF.stone, true);
+      b.p(gRBox(1.0, 0.26, 0.7, 0.07), [PLATE_D, PLATE], 0, 1.74, 0.42, 0.1).p(gRBox(0.78, 0.22, 0.5, 0.06), PLATE, 0, 1.82, 0.12, -0.05);
+      b.g(gBox(0.62, 0.05, 0.08), 0.9, 0, 1.78, 0.78, 0.1);
+      b.surf(SURF.ice, true);
+      for (let k = 0; k < 3; k++) b.p(gOct(0.08), [HORN_D, HORN], (k - 1) * 0.22, 1.95 - Math.abs(k - 1) * 0.06, 0.32 - Math.abs(k - 1) * 0.05, -0.3, 0, (k - 1) * -0.4, 0.8, 2.2, 0.8);
+
+      // 头：低垂的宽额，前弯的星晶巨角，两侧短角，獠牙
+      b.at('head').surf(SURF.hide);
+      b.p(gSph(0.32, 9, 7), [HIDE_D, HIDE], 0, 1.0, 1.2, 0.2, 0, 0, 0.95, 0.82, 1.3);
+      b.p(gCyl(0.16, 0.22, 0.4, 7), HIDE_D, 0, 0.88, 1.52, HALF_PI + 0.35);
+      b.surf(SURF.stone, true).p(gRBox(0.5, 0.14, 0.4, 0.04), PLATE, 0, 1.22, 1.22, -0.25);
+      b.surf(SURF.ice).p(gSweep('cg/horn', [[0, 1.18, 1.33], [0, 1.46, 1.78], [0, 1.92, 2.0], [0, 2.32, 1.86]], [0.2, 0.15, 0.08, 0.014], 7), [HORN_D, HORN], 0, 0, 0);
+      b.g(gSph(0.06, 6, 4), 1, 0, 2.31, 1.86).g(gBox(0.035, 0.42, 0.05), 0.85, 0, 1.66, 1.93, 0.75).g(gBox(0.03, 0.22, 0.04), 0.7, 0, 2.08, 1.99, -0.2);
+      for (const s of [1, -1]) {
+        b.surf(SURF.bone).p(gSweep('cg/side' + s, [[s * 0.22, 1.1, 1.2], [s * 0.4, 1.18, 1.25], [s * 0.48, 1.32, 1.36]], [0.06, 0.04, 0.008], 5), BONE, 0, 0, 0);
+        b.g(gSph(0.035, 6, 4), 1, s * 0.17, 1.06, 1.45);
+      }
+      b.at('jaw').surf(SURF.hide).p(gRBox(0.3, 0.1, 0.38, 0.04), HIDE_D, 0, 0.78, 1.42, 0.2);
+      b.surf(SURF.bone, true);
+      for (const s of [1, -1]) b.p(gCone(0.04, 0.22, 4), BONE, s * 0.13, 0.86, 1.58, -0.6);
+
+      // 腿：粗短，膝下一截深色，蹄
+      for (const [n, sx, z] of LEG) {
+        const dz = z + (z > 0 ? 0.04 : -0.06);
+        b.at('u' + n).surf(SURF.hide).limb([HIDE_D, HIDE], sx * 0.42, 0.98, z, sx * 0.44, 0.5, dz, 0.17, 0.13, 7, 2);
+        b.at('d' + n).limb(HIDE_D, sx * 0.44, 0.5, dz, sx * 0.44, 0.12, dz + 0.02, 0.12, 0.1, 7, 0);
+        b.surf(SURF.stone, true).p(gCyl(0.12, 0.15, 0.14, 7), HOOF, sx * 0.44, 0.07, dz + 0.03);
+      }
+      b.at('tail').surf(SURF.hide).limb(HIDE, 0, 1.15, -0.95, 0, 0.82, -1.12, 0.06, 0.035, 6, 2);
+      b.surf(SURF.ice, true).p(gOct(0.06), HORN, 0, 0.76, -1.15, 0, 0, 0, 0.8, 1.8, 0.8);
+
+      const rig = b.build({ height: 2.0, reach: 1.7, stride: 3.2, shade: 0.3 });
+      rig.hitJ = [rig.J.head, rig.J.chest];
+      sock(rig, 'weapon', 'head', 0, 0.8, 0.75);
+      sock(rig, 'hand', 'head', 0, 0, 0.45);
+      sock(rig, 'head', 'head', 0, 0.15, 0.1);
+      sock(rig, 'chest', 'chest', 0, 0.2, 0.3);
+      const LJ = LEG.map(([n, , z]) => [rig.J['u' + n], rig.J['d' + n], z > 0 ? 1 : -1]);
+      const LPH = [0, Math.PI, Math.PI, 0]; // 对角步
+      rig.loco = function (ent, p, t) {
+        const J = rig.J, mv = ent.mv, w = ent.walk, id = 1 - mv, run = Math.min(1.3, ent.spd / 4.2) * mv;
+        const a = Math.sin(t * 1.5 + ent.phase), a2 = Math.sin(t * 0.9 + ent.phase * 2);
+        p[J.root + 4] = 0.05 * Math.cos(2 * w) * run + 0.015 * a * id;
+        p[J.root] = 0.02 * a2 * id;
+        p[J.root + 2] = 0.04 * Math.sin(w) * run;
+        p[J.chest] = 0.03 * a + 0.04 * Math.sin(2 * w) * run;
+        p[J.head] = 0.05 + 0.06 * a2 + 0.08 * run;
+        p[J.head + 1] = 0.25 * Math.sin(t * 0.7 + ent.phase) * id;
+        p[J.jaw] = 0.05 + 0.08 * Math.max(0, a);
+        p[J.tail] = 0.3 + 0.1 * a;
+        p[J.tail + 2] = 0.35 * Math.sin(t * 2.2 + ent.phase);
+        for (let i = 0; i < 4; i++) {
+          const L = LJ[i], ph = w + LPH[i], s = Math.sin(ph), up = Math.max(0, Math.cos(ph));
+          p[L[0]] += -0.55 * s * run;
+          p[L[1]] += L[2] * 0.7 * up * run;
+        }
+      };
+      rig.post = function (ent, o, t) {
+        setGlow(ent, 0.85 + 0.15 * Math.sin(t * 2.5 + ent.phase));
+      };
+      // 蓄力：压低脑袋把角对准，后蹄刨地
+      defClip(rig, 'windup', {
+        dur: 0.8, hold: true, fade: 0.08,
+        keys: {
+          'root.oz': [0, 0, 1, -0.18], 'root.rx': [0, 0, 1, 0.08], 'chest.rx': [0, 0, 1, 0.22], 'head.rx': [0, 0.05, 1, 0.42], 'jaw.rx': [0, 0.05, 1, 0.3],
+          'uBL.rx': [0, 0, 1, -0.25], 'dBL.rx': [0, 0, 1, -0.35], 'uBR.rx': [0, 0, 1, -0.25], 'dBR.rx': [0, 0, 1, -0.35],
+          'tail.rx': [0, 0.3, 1, -0.4],
+        },
+        fn(ent, p, k) {
+          // 右前蹄往后刨三下
+          const J = rig.J, s = Math.max(0, Math.sin(k * TAU * 3));
+          p[J.uFR] += 0.5 * s - 0.15;
+          p[J.dFR] += 0.6 * s;
+          p[J.head + 2] = 0.08 * Math.sin(k * TAU * 3);
+        },
+      });
+      // 冲锋：四蹄腾跃的跑法，脑袋压低，尾巴绷直
+      defClip(rig, 'charge', {
+        dur: 0.36, loop: true, fade: 0.06, out: 0.2,
+        keys: { 'head.rx': [0, 0.45, 1, 0.45], 'tail.rx': [0, -0.6, 1, -0.6] },
+        fn(ent, p, k) {
+          const J = rig.J, a = k * TAU, s = Math.sin(a), c = Math.cos(a);
+          p[J.root] = 0.12 * s;
+          p[J.root + 4] = 0.12 * Math.max(0, c);
+          p[J.chest] = 0.2 + 0.08 * s;
+          p[J.head] += 0.06 * c;
+          for (const [u, d, sg] of LJ) {
+            const ph = sg > 0 ? a : a + 2.2, ss = Math.sin(ph), up = Math.max(0, Math.cos(ph));
+            p[u] = -0.8 * ss;
+            p[d] = sg * 0.9 * up;
+          }
+        },
+      });
+      // 顶角：脑袋从下往上猛挑
+      defClip(rig, 'attack', {
+        dur: 0.42, k0: 0.35, fade: 0.03, out: 0.2,
+        keys: {
+          'root.oz': [0, -0.18, -0.35, 0.3, 1, 0], 'chest.rx': [0, 0.22, -0.35, -0.22, 0.7, -0.15, 1, 0], 'head.rx': [0, 0.42, -0.35, -0.65, 0.7, -0.45, 1, 0.05],
+          'jaw.rx': [0, 0.3, -0.35, 0.05, 1, 0.05],
+          'uFL.rx': [0, 0, -0.35, -0.5, 1, 0], 'uFR.rx': [0, 0, -0.35, -0.4, 1, 0], 'uBL.rx': [0, -0.25, -0.35, 0.3, 1, 0], 'uBR.rx': [0, -0.25, -0.35, 0.3, 1, 0],
+        },
+      });
+      // 晕眩：脑袋耷拉着左右晃，四条腿叉开站不稳
+      defClip(rig, 'stagger', {
+        dur: 1.3, loop: true, fade: 0.12, out: 0.25,
+        keys: { 'uFL.rz': [0, 0.2, 1, 0.2], 'uFR.rz': [0, -0.2, 1, -0.2], 'uBL.rz': [0, 0.15, 1, 0.15], 'uBR.rz': [0, -0.15, 1, -0.15] },
+        fn(ent, p, k) {
+          const J = rig.J, a = k * TAU;
+          p[J.root + 2] = 0.12 * Math.sin(a);
+          p[J.root + 4] = -0.08;
+          p[J.chest] = 0.15 + 0.05 * Math.cos(a);
+          p[J.head] = 0.5 + 0.1 * Math.sin(a * 2);
+          p[J.head + 1] = 0.35 * Math.sin(a);
+          p[J.head + 2] = 0.25 * Math.sin(a + 0.6);
+          p[J.jaw] = 0.35;
+        },
+      });
+      // 死亡：前腿一软跪倒，再侧翻过去，四蹄朝外僵住
+      defClip(rig, 'death', {
+        dur: 0.85, base: 'rest', hold: true, air: true, fade: 0.05,
+        keys: {
+          'root.rz': [0, 0, 0.35, 0.1, -0.85, 1.45, 1, 1.42], 'root.oy': [0, 0, 0.35, -0.22, -0.85, -0.42, 1, -0.44], 'root.rx': [0, 0, 0.35, 0.18, 1, 0.05],
+          'chest.rx': [0, 0, 0.35, 0.25, 1, 0.05], 'head.rx': [0, 0, 0.35, 0.5, 0.85, -0.2, 1, -0.15], 'head.rz': [0, 0, 1, 0.3], 'jaw.rx': [0, 0, 1, 0.45],
+          'uFL.rx': [0, 0, 0.35, -0.6, 1, -0.4], 'dFL.rx': [0, 0, 0.35, 1.2, 1, 0.3], 'uFR.rx': [0, 0, 0.35, -0.5, 1, -0.6], 'dFR.rx': [0, 0, 0.35, 1.1, 1, 0.2],
+          'uBL.rx': [0, 0, 1, 0.4], 'uBR.rx': [0, 0, 1, 0.5], 'dBL.rx': [0, 0, 1, -0.2], 'dBR.rx': [0, 0, 1, -0.3],
+          'tail.rx': [0, 0.3, 1, 0.9],
+        },
+      });
+      return rig;
+    });
+  }
+
+  const MOB_RIG = { husk: huskRig, brute: bruteRig, spitter: spitterRig, bomber: bomberRig, phaser: phaserRig, charger: chargerRig };
 
   W.makeMob = function (type, elemHex, elite) {
     const eh = hexOf(elemHex);
@@ -5766,7 +6600,401 @@
     });
   }
 
-  const BOSS_RIG = { golem: golemRig, weaver: weaverRig, warden: wardenRig, lord: lordRig };
+  // ---------------------------------------------------------------------
+  // 衔星巨兽：背上嵌着一块坠星的四足古兽。石甲覆背、甲缝透着星辉，长颈，额生星眼，
+  // 一对琉璃巨角，口中能吐出横扫的星光射线
+  // ---------------------------------------------------------------------
+  function behemothRig() {
+    return rigOf('behemoth', () => {
+      const HIDE = 0x4f5a55, HIDE_D = 0x252d2a, BELLY = 0x7c8474, PLATE = 0x76837a, PLATE_D = 0x3c4743, GLASS = 0xc4ece1, GLASS_D = 0x6a988e, HOOF = 0x161918, BONE = 0xdcd5bf, BONE_D = 0x9c9682, DARK = 0x121514;
+      const b = rigBuilder('behemoth', NB_BIG);
+      b.j('root', null, 0, 2.5, -0.6).j('chest', 'root', 0, 2.7, 0.9).j('neck', 'chest', 0, 3.1, 1.9).j('head', 'neck', 0, 3.65, 2.75).j('jaw', 'head', 0, 3.42, 3.05);
+      b.j('antL', 'head', 0.32, 4.05, 2.62).j('antR', 'head', -0.32, 4.05, 2.62).j('star', 'chest', 0, 3.85, 0.15);
+      b.j('tail1', 'root', 0, 2.8, -2.1).j('tail2', 'tail1', 0, 2.45, -3.0);
+      const LEGS = [['fL', 1, 'chest', 1.3, 1.45, 1.4], ['fR', -1, 'chest', 1.3, 1.45, 1.4], ['bL', 1, 'root', -1.3, -1.75, -1.55], ['bR', -1, 'root', -1.3, -1.75, -1.55]];
+      for (const [n, sx, par, zu, zk, zh] of LEGS) b.j(n + 'u', par, sx * 0.95, 2.4, zu).j(n + 'k', n + 'u', sx * 1.0, 1.32, zk).j(n + 'h', n + 'k', sx * 1.0, 0.32, zh);
+
+      // 后躯：低一截的臀，两块背甲，胯侧护甲
+      b.at('root').surf(SURF.hide);
+      b.p(gSph(1.05, 12, 9), [BELLY, HIDE], 0, 2.55, -1.05, 0.12, 0, 0, 1.0, 0.86, 1.15);
+      b.surf(SURF.stone, true);
+      b.p(gRBox(1.5, 0.35, 1.2, 0.1), [PLATE_D, PLATE], 0, 3.36, -1.1, -0.15);
+      b.p(gRBox(1.2, 0.3, 0.9, 0.08), [PLATE_D, PLATE], 0, 3.18, -1.98, -0.42);
+      for (const s of [1, -1]) b.p(gRBox(0.45, 0.75, 0.95, 0.08), PLATE_D, s * 0.98, 2.72, -1.2, 0, 0, -s * 0.25);
+      b.g(gBox(1.0, 0.07, 0.1), 0.85, 0, 3.45, -0.5, -0.15).g(gBox(0.8, 0.06, 0.09), 0.75, 0, 3.3, -1.6, -0.3);
+
+      // 前躯：宽厚的胸廓，肩甲，背甲，两肋几根外露的骨，肋下一道道星辉裂纹
+      b.at('chest').surf(SURF.hide);
+      b.p(gSph(1.2, 12, 9), [BELLY, HIDE], 0, 2.85, 0.72, -0.08, 0, 0, 1.05, 1.0, 1.12);
+      b.surf(SURF.stone, true);
+      b.p(gRBox(1.9, 0.4, 0.95, 0.1), [PLATE_D, PLATE], 0, 3.82, 1.08, 0.22);
+      b.p(gRBox(1.7, 0.36, 0.8, 0.1), [PLATE_D, PLATE], 0, 3.74, -0.72, -0.12);
+      for (const s of [1, -1]) {
+        b.p(gRBox(0.5, 0.9, 1.0, 0.1), [PLATE_D, PLATE], s * 1.12, 3.1, 1.15, 0, 0, -s * 0.22);
+        b.g(gBox(0.06, 0.95, 0.06), 0.8, s * 1.23, 2.75, 0.32, 0.45, 0, -s * 0.22).g(gBox(0.05, 0.6, 0.05), 0.7, s * 1.18, 2.55, -0.05, -0.3, 0, -s * 0.2);
+        b.surf(SURF.bone);
+        for (let i = 0; i < 3; i++) {
+          const z = 0.1 + i * 0.4;
+          b.p(gSweep('bh/rib' + s + i, [[s * 0.65, 3.6, z], [s * 1.18, 3.1, z + 0.08], [s * 1.18, 2.35, z + 0.14]], [0.07, 0.065, 0.035], 5), [BONE_D, BONE], 0, 0, 0);
+        }
+        b.surf(SURF.stone, true);
+      }
+
+      // 背上的坠星：一团亮核，裂开的石壳围着它，三根晶刺从壳缝里刺出来
+      b.at('star');
+      b.g(gIco(0.85, 1), 1, 0, 4.05, 0.15);
+      for (let k = 0; k < 4; k++) {
+        const a = (k / 4) * TAU + 0.5;
+        b.g(gOct(0.34), 0.9, Math.sin(a) * 0.6, 4.5, 0.15 + Math.cos(a) * 0.6, Math.cos(a) * 0.55, 0, -Math.sin(a) * 0.55, 0.6, 2.3, 0.6);
+      }
+      b.surf(SURF.stone, true);
+      for (let k = 0; k < 5; k++) {
+        const a = (k / 5) * TAU;
+        b.p(gIco(0.48, 0), [PLATE_D, PLATE], Math.sin(a) * 0.72, 3.82, 0.15 + Math.cos(a) * 0.72, Math.cos(a) * 0.6, a, -Math.sin(a) * 0.6, 0.9, 0.55, 0.9);
+      }
+
+      // 长颈：粗颈 + 两片颈甲，颈脊一排琉璃晶鬃
+      b.at('neck').surf(SURF.hide).limb([HIDE_D, HIDE], 0, 3.0, 1.7, 0, 3.55, 2.62, 0.64, 0.46, 9, 3);
+      b.surf(SURF.stone, true).p(gRBox(0.85, 0.22, 0.55, 0.06), [PLATE_D, PLATE], 0, 3.72, 1.98, 0.62).p(gRBox(0.72, 0.2, 0.48, 0.06), PLATE, 0, 3.97, 2.36, 0.78);
+      b.surf(SURF.ice, true);
+      for (let k = 0; k < 4; k++) b.p(gOct(0.12), [GLASS_D, GLASS], (k % 2 ? 0.12 : -0.12), 3.98 + k * 0.1, 1.72 + k * 0.24, -0.65, 0, (k % 2 ? -0.25 : 0.25), 0.7, 2.4, 0.7);
+
+      // 头：长吻，骨质额板，额心一只星眼，口中透光（张嘴才看得见），上颚一排獠牙
+      b.at('head').surf(SURF.hide);
+      b.p(gSph(0.55, 11, 8), [HIDE_D, HIDE], 0, 3.72, 2.9, 0.15, 0, 0, 0.85, 0.75, 1.2);
+      b.p(gCyl(0.26, 0.36, 0.78, 8), HIDE_D, 0, 3.55, 3.42, HALF_PI + 0.3, 0, 0);
+      b.surf(SURF.bone).p(gRBox(0.62, 0.16, 0.72, 0.05), [BONE_D, BONE], 0, 3.98, 3.02, 0.2);
+      b.p(gRBox(0.36, 0.1, 0.4, 0.04), BONE, 0, 3.78, 3.55, 0.45);
+      b.g(gSph(0.11, 8, 6), 1, 0, 4.02, 3.36).g(gSph(0.2, 8, 6), 1, 0, 3.45, 3.48, 0, 0, 0, 1, 0.55, 1.4);
+      for (const s of [1, -1]) b.g(gSph(0.07, 6, 4), 1, s * 0.33, 3.78, 3.22);
+      b.surf(SURF.bone, true);
+      for (const s of [1, -1]) for (let k = 0; k < 3; k++) b.p(gCone(0.05, 0.2, 4), BONE, s * (0.11 + k * 0.08), 3.34, 3.66 - k * 0.16, Math.PI);
+      // 下颚 + 一对上挑的獠牙
+      b.at('jaw').surf(SURF.hide).p(gRBox(0.5, 0.16, 0.85, 0.05), HIDE_D, 0, 3.28, 3.42, 0.25);
+      b.surf(SURF.bone);
+      for (const s of [1, -1]) b.p(gSweep('bh/tusk' + s, [[s * 0.2, 3.3, 3.72], [s * 0.32, 3.48, 3.94], [s * 0.36, 3.76, 3.98]], [0.07, 0.05, 0.01], 5), [BONE_D, BONE], 0, 0, 0);
+      // 角：琉璃质的分叉巨角，角梢发光
+      for (const s of [1, -1]) {
+        b.at(s > 0 ? 'antL' : 'antR').surf(SURF.ice);
+        b.p(gSweep('bh/ant' + s, [[s * 0.3, 4.0, 2.65], [s * 0.75, 4.55, 2.45], [s * 1.25, 4.95, 2.05], [s * 1.55, 5.5, 1.8]], [0.13, 0.1, 0.07, 0.015], 6), [GLASS_D, GLASS], 0, 0, 0);
+        b.p(gSweep('bh/tineA' + s, [[s * 0.7, 4.5, 2.47], [s * 0.76, 5.0, 2.75], [s * 0.7, 5.35, 2.86]], [0.07, 0.05, 0.01], 5), [GLASS_D, GLASS], 0, 0, 0);
+        b.p(gSweep('bh/tineB' + s, [[s * 1.2, 4.92, 2.08], [s * 1.55, 5.0, 2.4], [s * 1.8, 5.15, 2.5]], [0.06, 0.04, 0.008], 5), [GLASS_D, GLASS], 0, 0, 0);
+        b.g(gSph(0.06, 6, 4), 1, s * 1.55, 5.5, 1.8).g(gSph(0.05, 6, 4), 1, s * 0.7, 5.35, 2.86).g(gSph(0.05, 6, 4), 1, s * 1.8, 5.15, 2.5);
+      }
+      // 尾：两节，尾梢一根晶刺
+      b.at('tail1').surf(SURF.hide).limb([HIDE_D, HIDE], 0, 2.8, -2.05, 0, 2.45, -3.0, 0.3, 0.2, 8, 1);
+      b.at('tail2').limb(HIDE_D, 0, 2.45, -3.0, 0, 1.9, -3.7, 0.2, 0.08, 7, 1);
+      b.surf(SURF.ice, true).p(gOct(0.16), GLASS, 0, 1.74, -3.86, 0.7, 0, 0, 0.8, 2.2, 0.8);
+      b.g(gSph(0.07, 6, 4), 0.9, 0, 1.88, -3.72);
+      // 腿：粗壮的上腿 + 膝甲，深色的小腿，宽蹄上箍着一圈星辉
+      for (const [n, sx, , zu, zk, zh] of LEGS) {
+        const front = zu > 0;
+        b.at(n + 'u').surf(SURF.hide).limb([HIDE_D, HIDE], sx * 0.95, 2.5, zu, sx * 1.0, 1.32, zk, 0.45, 0.3, 8, 1);
+        b.surf(SURF.stone, true).p(gRBox(0.5, 0.45, 0.6, 0.08), [PLATE_D, PLATE], sx * 1.08, 1.42, zk + (front ? 0.18 : -0.12), front ? 0.25 : -0.25, 0, -sx * 0.1);
+        b.at(n + 'k').surf(SURF.hide).limb([DARK, HIDE_D], sx * 1.0, 1.32, zk, sx * 1.0, 0.36, zh, 0.27, 0.21, 8, 1);
+        b.at(n + 'h').surf(SURF.stone, true).p(gCyl(0.3, 0.38, 0.36, 8), HOOF, sx * 1.0, 0.18, zh + 0.04);
+        b.g(gTorus(0.31, 0.035, 4, 12), 0.75, sx * 1.0, 0.38, zh + 0.04, HALF_PI, 0, 0);
+      }
+
+      const rig = b.build({ height: 5.6, reach: 3.6, stride: 1.15, shade: 0.3 });
+      rig.hitJ = [rig.J.head, rig.J.chest];
+      rig.feet = [rig.JI.fLh, rig.JI.fRh, rig.JI.bLh, rig.JI.bRh];
+      rig.ankle = 0.32;
+      sock(rig, 'weapon', 'jaw', 0, 0.05, 0.45);
+      sock(rig, 'hand', 'fLh', 0, -0.1, 0.1);
+      sock(rig, 'head', 'head', 0, 0.45, 0.3);
+      sock(rig, 'chest', 'star', 0, 0.15, 0);
+      const LJ = LEGS.map(([n, , , zu]) => [rig.J[n + 'u'], rig.J[n + 'k'], rig.J[n + 'h'], zu > 0 ? 1 : -1]);
+      const LPH = [0, Math.PI, Math.PI, 0]; // 对角步：左前与右后同步
+      rig.loco = function (ent, p, t) {
+        const J = rig.J, mv = ent.mv, w = ent.walk, id = 1 - mv, run = Math.min(1.2, ent.spd / 4.2) * mv;
+        const br = Math.sin(t * 1.0 + ent.phase), a2 = Math.sin(t * 0.6 + ent.phase * 2);
+        p[J.root + 2] = 0.035 * Math.sin(w) * run;
+        p[J.root] = 0.02 * br * id;
+        p[J.chest] = 0.02 * br + 0.04 * Math.sin(2 * w) * run;
+        p[J.chest + 1] = 0.06 * Math.sin(w) * run;
+        p[J.neck] = -0.05 + 0.05 * br + 0.08 * run;
+        p[J.neck + 1] = 0.12 * a2 * id;
+        p[J.head] = 0.05 - 0.04 * br - 0.06 * run;
+        p[J.head + 1] = 0.15 * Math.sin(t * 0.45 + ent.phase) * id;
+        p[J.jaw] = 0.05 + 0.05 * Math.max(0, br);
+        p[J.tail1] = 0.2 + 0.05 * a2;
+        p[J.tail1 + 1] = 0.2 * Math.sin(t * 0.9 + ent.phase) + 0.15 * Math.sin(w) * run;
+        p[J.tail2] = 0.25 + 0.06 * br;
+        p[J.tail2 + 1] = 0.25 * Math.sin(t * 0.9 + ent.phase - 0.8);
+        for (let i = 0; i < 4; i++) {
+          const L = LJ[i], ph = w + LPH[i], s = Math.sin(ph), up = Math.max(0, Math.cos(ph));
+          p[L[0]] += -0.42 * s * run;
+          p[L[1]] += L[3] * 0.7 * up * run;
+          p[L[2]] += (-L[3] * 0.3 * up + 0.2 * s) * run;
+        }
+      };
+      rig.post = function (ent, o, t, dt) {
+        const J = rig.J, k = ent.coreK || 1;
+        const sc = (1 + Math.sin(t * 2.6) * 0.05) * (1 + (k - 1) * 0.3); // 坠星只胀一点，亮度才是主要的变化
+        o[J.star + 6] = o[J.star + 7] = o[J.star + 8] = sc;
+        o[J.star + 1] = t * 0.25;
+        setGlow(ent, 0.85 + 0.15 * Math.sin(t * 2.6) + (k - 1) * 0.9 + (ent.mouthK || 0) * 0.5);
+        ent.coreK = 1 + (k - 1) * Math.max(0, 1 - dt * 5);
+        ent.mouthK = (ent.mouthK || 0) * Math.max(0, 1 - dt * 4);
+        if (!ent.dying) bossEmbers(ent, dt, 4.0, 1.0, 6);
+      };
+      const heat = (v) => (ent, p, k) => { ent.coreK = 1 + v * k; };
+      const crouch = (v) => ({
+        'fLu.rx': -0.45 * v, 'fLk.rx': 0.75 * v, 'fLh.rx': -0.3 * v, 'fRu.rx': -0.45 * v, 'fRk.rx': 0.75 * v, 'fRh.rx': -0.3 * v,
+        'bLu.rx': 0.45 * v, 'bLk.rx': -0.75 * v, 'bLh.rx': 0.3 * v, 'bRu.rx': 0.45 * v, 'bRk.rx': -0.75 * v, 'bRh.rx': 0.3 * v,
+      });
+      // 践踏：人立而起，前蹄高抬
+      defClip(rig, 'stomp_w', {
+        dur: 0.95, hold: true, fade: 0.12,
+        keys: {
+          'root.rx': [0, 0, 0.6, -0.45, 1, -0.52], 'chest.rx': [0, 0, 1, -0.15],
+          'neck.rx': [0, -0.05, 1, -0.45], 'head.rx': [0, 0.05, 1, 0.3], 'jaw.rx': [0, 0.05, 1, 0.45],
+          'fLu.rx': [0, 0, 0.6, -1.0, 1, -1.15], 'fLk.rx': [0, 0, 0.6, 1.4, 1, 1.5], 'fRu.rx': [0, 0, 0.6, -0.8, 1, -0.95], 'fRk.rx': [0, 0, 0.6, 1.5, 1, 1.6],
+          'bLu.rx': [0, 0, 1, 0.38], 'bLk.rx': [0, 0, 1, -0.3], 'bRu.rx': [0, 0, 1, 0.34], 'bRk.rx': [0, 0, 1, -0.25],
+          'tail1.rx': [0, 0.2, 1, -0.3],
+        },
+        fn: heat(0.5),
+      });
+      defClip(rig, 'stomp', {
+        dur: 0.6, k0: 0.22, fade: 0.03, out: 0.35,
+        keys: {
+          'root.rx': [0, -0.52, -0.22, 0.1, 0.6, 0.06, 1, 0], 'chest.rx': [0, -0.15, -0.22, 0.12, 1, 0],
+          'neck.rx': [0, -0.45, -0.22, 0.25, 0.7, 0.2, 1, 0], 'head.rx': [0, 0.3, -0.22, 0.3, 1, 0.05], 'jaw.rx': [0, 0.45, -0.22, 0.65, 1, 0.05],
+          'fLu.rx': [0, -1.15, -0.22, -0.35, 0.7, -0.3, 1, 0], 'fLk.rx': [0, 1.5, -0.22, 0.05, 1, 0], 'fRu.rx': [0, -0.95, -0.22, -0.3, 0.7, -0.25, 1, 0], 'fRk.rx': [0, 1.6, -0.22, 0.05, 1, 0],
+          'bLu.rx': [0, 0.38, -0.22, -0.1, 1, 0], 'bLk.rx': [0, -0.3, 1, 0], 'bRu.rx': [0, 0.34, -0.22, -0.1, 1, 0], 'bRk.rx': [0, -0.25, 1, 0],
+          'tail1.rx': [0, -0.3, -0.22, 0.5, 1, 0.2],
+        },
+        fn(ent, p, k) { if (k < 0.35) ent.coreK = 1.6; },
+      });
+      // 流星犁地：仰天长啸，背上的坠星越烧越亮；然后脑袋猛地砸向前方、前蹄一踏
+      defClip(rig, 'howl_w', {
+        dur: 0.7, hold: true, fade: 0.1,
+        keys: {
+          'root.rx': [0, 0, 1, -0.12], 'chest.rx': [0, 0, 1, -0.2], 'neck.rx': [0, -0.05, 1, -0.85], 'head.rx': [0, 0.05, 1, -0.55], 'jaw.rx': [0, 0.05, 0.5, 0.7, 1, 0.8],
+          'fLu.rx': [0, 0, 1, -0.2], 'fRu.rx': [0, 0, 1, -0.2], 'bLu.rx': [0, 0, 1, 0.15], 'bRu.rx': [0, 0, 1, 0.15],
+          'tail1.rx': [0, 0.2, 1, -0.4], 'tail2.rx': [0, 0.25, 1, -0.3],
+        },
+        fn: heat(0.9),
+      });
+      defClip(rig, 'howl', {
+        dur: 0.75, k0: 0.2, fade: 0.03, out: 0.35,
+        keys: {
+          'root.rx': [0, -0.12, -0.2, 0.1, 1, 0], 'chest.rx': [0, -0.2, -0.2, 0.15, 1, 0],
+          'neck.rx': [0, -0.85, -0.2, 0.2, 0.7, 0.1, 1, 0], 'head.rx': [0, -0.55, -0.2, 0.35, 1, 0.05], 'jaw.rx': [0, 0.8, -0.2, 0.9, 0.7, 0.5, 1, 0.05],
+          'fLu.rx': [0, -0.2, -0.2, -0.5, 0.6, -0.3, 1, 0], 'fLk.rx': [0, 0, -0.2, 0.4, 1, 0], 'fRu.rx': [0, -0.2, 1, 0], 'bLu.rx': [0, 0.15, 1, 0], 'bRu.rx': [0, 0.15, 1, 0],
+          'tail1.rx': [0, -0.4, -0.2, 0.4, 1, 0.2], 'tail2.rx': [0, -0.3, 1, 0.25],
+        },
+        fn(ent, p, k) { if (k < 0.4) ent.coreK = 2; },
+      });
+      // 坍缩：四肢一沉伏低身子，坠星一明一暗地蓄力；内爆那一刻猛地昂头
+      const cw = crouch(1), cwK = {}, chK = {};
+      for (const key in cw) {
+        cwK[key] = [0, 0, 1, cw[key]];
+        chK[key] = [0, cw[key], 0.85, cw[key] * 1.05, 1, 0];
+      }
+      defClip(rig, 'crouch_w', {
+        dur: 0.6, hold: true, fade: 0.1,
+        keys: Object.assign(cwK, { 'neck.rx': [0, 0, 1, 0.35], 'head.rx': [0, 0, 1, -0.2], 'jaw.rx': [0, 0.05, 1, 0.3], 'tail1.rx': [0, 0.2, 1, 0.5] }),
+        fn: heat(1.0),
+      });
+      defClip(rig, 'crouch', {
+        dur: 1.6, k0: 0.1, fade: 0.04, out: 0.35,
+        keys: Object.assign(chK, {
+          'neck.rx': [0, 0.35, 0.85, 0.4, 0.93, -0.3, 1, 0], 'head.rx': [0, -0.2, 0.85, -0.25, 0.93, -0.4, 1, 0], 'jaw.rx': [0, 0.3, 0.85, 0.4, 0.93, 0.8, 1, 0.05],
+          'tail1.rx': [0, 0.5, 0.85, 0.55, 1, 0.2],
+        }),
+        fn(ent, p, k) { ent.coreK = k > 0.85 ? 2.3 : 1.5 + 0.5 * k + 0.2 * Math.sin(k * TAU * 6); },
+      });
+      // 衔星吐息：低头前探、张开大口，口中的光越聚越亮；吐息时嘴张到最大，脑袋跟着射线转
+      defClip(rig, 'breath_w', {
+        dur: 0.9, hold: true, fade: 0.1,
+        keys: {
+          'chest.rx': [0, 0, 1, 0.1], 'neck.rx': [0, 0, 1, 0.32], 'head.rx': [0, 0, 1, -0.08], 'jaw.rx': [0, 0.05, 1, 0.55],
+          'fLu.rx': [0, 0, 1, -0.28], 'fLk.rx': [0, 0, 1, 0.38], 'fRu.rx': [0, 0, 1, -0.15], 'bLu.rx': [0, 0, 1, 0.22], 'bRu.rx': [0, 0, 1, 0.22],
+        },
+        fn(ent, p, k) { ent.mouthK = k; },
+      });
+      defClip(rig, 'breath', {
+        dur: 1.6, k0: 0.08, fade: 0.04, out: 0.3,
+        keys: {
+          'chest.rx': [0, 0.1, 0.9, 0.1, 1, 0], 'neck.rx': [0, 0.32, 0.9, 0.3, 1, 0], 'head.rx': [0, -0.08, 0.9, -0.08, 1, 0.05], 'jaw.rx': [0, 0.55, 0.08, 0.9, 0.9, 0.9, 1, 0.05],
+          'fLu.rx': [0, -0.28, 0.9, -0.28, 1, 0], 'fLk.rx': [0, 0.38, 0.9, 0.38, 1, 0], 'fRu.rx': [0, -0.15, 0.9, -0.15, 1, 0], 'bLu.rx': [0, 0.22, 0.9, 0.22, 1, 0], 'bRu.rx': [0, 0.22, 0.9, 0.22, 1, 0],
+        },
+        fn(ent, p, k) {
+          ent.mouthK = k < 0.92 ? 1 : (1 - k) / 0.08;
+          p[rig.J.head + 2] += 0.05 * Math.sin(k * TAU * 9);
+        },
+      });
+      // 破绽：前腿一折跪倒，脑袋垂到地上，坠星明灭不定
+      defClip(rig, 'broken', {
+        dur: 2.2, loop: true, air: true, fade: 0.25, out: 0.45,
+        keys: {
+          'root.rx': [0, 0.3, 1, 0.3], 'root.oy': [0, -0.55, 1, -0.55], 'chest.rx': [0, 0.12, 1, 0.12],
+          'fLu.rx': [0, -0.35, 1, -0.35], 'fLk.rx': [0, 1.9, 1, 1.9], 'fLh.rx': [0, 0.6, 1, 0.6], 'fRu.rx': [0, -0.25, 1, -0.25], 'fRk.rx': [0, 1.8, 1, 1.8], 'fRh.rx': [0, 0.6, 1, 0.6],
+          'bLu.rx': [0, -0.3, 1, -0.3], 'bRu.rx': [0, -0.3, 1, -0.3], 'tail1.rx': [0, 0.7, 1, 0.7], 'tail2.rx': [0, 0.4, 1, 0.4],
+        },
+        fn(ent, p, k) {
+          const J = rig.J, s = Math.sin(k * TAU), s2 = Math.sin(k * TAU * 2);
+          p[J.neck] = 0.22 + 0.05 * s2;
+          p[J.neck + 1] = 0.12 * s;
+          p[J.head] = 0.3 + 0.08 * s2;
+          p[J.head + 2] = 0.15 * s;
+          p[J.jaw] = 0.35 + 0.1 * s2;
+          p[J.chest + 6] = p[J.chest + 8] = 1 + 0.025 * s2;
+          ent.coreK = 0.55 + 0.35 * Math.max(0, Math.sin(k * TAU * 5));
+        },
+      });
+      // 死亡：最后一次人立长嘶，坠星暴亮，然后侧身轰然倒下，星光熄灭
+      defClip(rig, 'death', {
+        dur: 2.0, base: 'rest', hold: true, air: true, fade: 0.1,
+        keys: {
+          'root.rx': [0, 0, 0.25, -0.42, 0.5, 0.22, 1, 0.1],
+          'root.rz': [0, 0, 0.5, 0.1, -0.9, 1.35, 1, 1.32],
+          'root.oy': [0, 0, 0.25, 0.1, 0.5, -0.6, -0.9, -1.45, 1, -1.45],
+          'chest.rx': [0, 0, 0.25, -0.2, 0.5, 0.2, 1, 0.1],
+          'neck.rx': [0, 0, 0.25, -0.85, 0.6, 0.3, 0.9, 0.1, 1, 0.15], 'neck.rz': [0, 0, 0.6, -0.2, 1, -0.45],
+          'head.rx': [0, 0, 0.25, -0.5, 0.6, 0.4, 1, 0.3], 'jaw.rx': [0, 0.05, 0.25, 0.9, 0.6, 0.5, 1, 0.6],
+          'fLu.rx': [0, 0, 0.25, -1.0, 0.5, 0.2, 1, -0.3], 'fLk.rx': [0, 0, 0.25, 1.3, 0.5, 0.6, 1, 0.2], 'fRu.rx': [0, 0, 0.25, -0.8, 0.5, 0.4, 1, 0.2], 'fRk.rx': [0, 0, 0.25, 1.4, 0.5, 0.8, 1, 0.4],
+          'bLu.rx': [0, 0, 0.25, 0.4, 0.5, -0.3, 1, -0.6], 'bRu.rx': [0, 0, 0.25, 0.35, 0.5, -0.2, 1, 0.3], 'bLk.rx': [0, 0, 1, 0.3], 'bRk.rx': [0, 0, 1, 0.5],
+          'tail1.rx': [0, 0.2, 0.5, 0.6, 1, 0.3], 'tail1.ry': [0, 0, 1, 0.5],
+        },
+        fn(ent, p, k) { ent.coreK = k < 0.25 ? 1 + k * 4 : Math.max(0.1, 2 - (k - 0.25) * 2.6); },
+      });
+      bossAliases(rig, { slam: 'stomp', charge: 'stomp', ring: 'howl', spiral: 'howl', fan: 'breath', barrage: 'howl', summon: 'howl', cross: 'stomp' });
+      for (const [pat, clip] of [['starfall', 'howl'], ['gravity', 'crouch'], ['sweep', 'breath']]) {
+        aliasClip(rig, pat, clip);
+        aliasClip(rig, pat + '_w', clip + '_w');
+      }
+      return rig;
+    });
+  }
+
+  // ----- 衔星巨兽的招式特效 -----
+  // 吐息射线：一束从口中斜射到远处地面的星光（平躺 + 竖立两片交叉的光带，外层元素色、芯白），两端各一团光晕。
+  // 每帧由 enemies.js 喂位置；k = 0 时藏起来
+  let riftBeamObj = null;
+  W.riftBeam = function (x0, z0, x1, z1, hex, k) {
+    if (!(k > 0)) {
+      if (riftBeamObj) riftBeamObj.visible = riftBeamObj.userData.s1.visible = false;
+      return;
+    }
+    if (!riftBeamObj) {
+      const g = new T.Group(), parts = [];
+      const add = (w, white, vert) => {
+        const m = new T.Mesh(gQuad(), new T.MeshBasicMaterial({ map: boltTex(), color: 0xffffff, transparent: true, opacity: 1, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false, side: T.DoubleSide, fog: false }));
+        m.scale.set(w, 1, 1);
+        if (vert) m.rotation.z = HALF_PI;
+        m.renderOrder = 5;
+        g.add(m);
+        parts.push({ m, white });
+      };
+      add(1.5, false, false);
+      add(1.5, false, true);
+      add(0.5, true, false);
+      add(0.5, true, true);
+      const s0 = new T.Sprite(spriteMat(0xffffff)), s1 = new T.Sprite(spriteMat(0xffffff));
+      g.add(s0);
+      scene.add(s1);
+      g.visible = false;
+      scene.add(g);
+      riftBeamObj = g;
+      g.userData = { parts, s0, s1, hex: -1 };
+    }
+    const g = riftBeamObj, u = g.userData, y0 = 3.1, y1 = 0.35;
+    if (u.hex !== hex) {
+      u.hex = hex;
+      for (const q of u.parts) q.m.material.color.copy(lin(q.white ? mixHex(hex, 0xffffff, 0.75) : hex));
+      u.s0.material = u.s1.material = spriteMat(mixHex(hex, 0xffffff, 0.4));
+    }
+    const len = Math.hypot(x1 - x0, y1 - y0, z1 - z0);
+    g.visible = true;
+    g.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+    g.lookAt(x1, y1, z1);
+    const fl = 0.85 + Math.random() * 0.3;
+    for (const q of u.parts) {
+      q.m.scale.z = len / 2;
+      q.m.scale.x = (q.white ? 0.42 : 1.35) * fl;
+    }
+    u.s0.position.set(0, 0, -len / 2);
+    u.s0.scale.setScalar(2.6 * fl);
+    u.s1.visible = true;
+    u.s1.position.set(x1, 0.5, z1);
+    u.s1.scale.setScalar(3.4 * fl);
+    // 沿射线溅火星，落点扬一把碎光
+    _c.set(hex);
+    for (let i = 0; i < 3; i++) {
+      const t = Math.random(), px = x0 + (x1 - x0) * t, pz = z0 + (z1 - z0) * t, py = y0 + (y1 - y0) * t;
+      spawnP(px, py, pz, rand(-1.5, 1.5), rand(0, 2.5), rand(-1.5, 1.5), rand(0.2, 0.45), rand(0.1, 0.2), _c.r + (1 - _c.r) * 0.5, _c.g + (1 - _c.g) * 0.5, _c.b + (1 - _c.b) * 0.5, 3, 1.5);
+    }
+    spawnP(x1, 0.3, z1, rand(-3, 3), rand(2, 5), rand(-3, 3), rand(0.3, 0.6), rand(0.15, 0.3), _c.r, _c.g, _c.b, 9, 1);
+    flashLight(x1, 1.2, z1, hex, 1.2);
+  };
+  // 引力井：地上一圈缓缓收紧、越转越快的断续光环，星尘从外圈被吸进井心；k = −1 内爆，k = −2 直接收起
+  let riftWellObj = null;
+  W.riftWell = function (x, z, R, core, hex, k, dt) {
+    if (!riftWellObj) {
+      const m = new T.Mesh(gQuad(), new T.MeshBasicMaterial({ map: dashRingTex(), color: 0xffffff, transparent: true, opacity: 0.8, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false }));
+      m.renderOrder = 2;
+      m.visible = false;
+      scene.add(m);
+      riftWellObj = m;
+    }
+    const m = riftWellObj;
+    if (k < 0) {
+      m.visible = false;
+      if (k === -1) {
+        // 内爆：先往里一缩，再炸开一圈
+        _c.set(hex);
+        for (let i = 0; i < 36; i++) {
+          const a = rand(0, TAU), v = rand(4, 11);
+          spawnP(x, rand(0.3, 1.6), z, Math.sin(a) * v, rand(1, 5), Math.cos(a) * v, rand(0.35, 0.7), rand(0.15, 0.32), _c.r + (1 - _c.r) * 0.4, _c.g + (1 - _c.g) * 0.4, _c.b + (1 - _c.b) * 0.4, 6, 1.6);
+        }
+        flare(x, 1.2, z, hex, 6, 0.3);
+        flashLight(x, 2, z, hex, 2.2);
+        W.ring(x, z, core + 1.4, hex, 0.35);
+        skyBolt(x, z, mixHex(hex, 0xffffff, 0.4), 9, 4, 0.5);
+      }
+      return;
+    }
+    const r = R - (R - core) * 0.35 * k;
+    m.visible = true;
+    m.material.color.copy(lin(hex));
+    m.material.opacity = 0.45 + 0.4 * k;
+    m.position.set(x, 0.06, z);
+    m.scale.set(r, 1, r);
+    m.rotation.y -= dt * (1.5 + 5 * k);
+    _c.set(hex);
+    let n = dt * 70;
+    while (n > 0) {
+      if (n < 1 && Math.random() > n) break;
+      n -= 1;
+      const a = rand(0, TAU), d = R * rand(0.75, 1.0), px = x + Math.sin(a) * d, pz = z + Math.cos(a) * d, v = rand(4, 7);
+      spawnP(px, rand(0.1, 0.9), pz, -Math.sin(a) * v + Math.cos(a) * 1.5, rand(0, 0.6), -Math.cos(a) * v - Math.sin(a) * 1.5, (d / v) * 0.9, rand(0.08, 0.16), _c.r + (1 - _c.r) * 0.3, _c.g + (1 - _c.g) * 0.3, _c.b + (1 - _c.b) * 0.3, 0, 0);
+    }
+  };
+  // 流星犁地的一处落点：一道星光从天而降，地上炸开一圈碎光（每道线的第一处多一道竖直落雷）
+  W.riftStrike = function (x, z, r, hex, big) {
+    const hw = mixHex(hex, 0xffffff, 0.45);
+    vstreak(x + rand(-0.8, 0.8), 8, z - 1.2, x, 0.1, z, big ? 0.5 : 0.32, hw, 0.2);
+    if (big) skyBolt(x, z, hw, 7, 3, 0.35);
+    flare(x, 0.6, z, hex, r * 2.2, 0.18);
+    W.ring(x, z, r, hex, 0.25);
+    _c.set(hex);
+    for (let i = 0; i < 9; i++) {
+      const a = rand(0, TAU), v = rand(2, 5);
+      spawnP(x, 0.25, z, Math.sin(a) * v, rand(2, 5), Math.cos(a) * v, rand(0.25, 0.5), rand(0.1, 0.22), _c.r + (1 - _c.r) * 0.3, _c.g + (1 - _c.g) * 0.3, _c.b + (1 - _c.b) * 0.3, 9, 1);
+    }
+  };
+  function hideRiftFx() {
+    if (riftBeamObj) {
+      riftBeamObj.visible = false;
+      riftBeamObj.userData.s1.visible = false;
+    }
+    if (riftWellObj) riftWellObj.visible = false;
+  }
+
+  const BOSS_RIG = { golem: golemRig, weaver: weaverRig, warden: wardenRig, lord: lordRig, behemoth: behemothRig };
 
   W.makeBoss = function (kind, elemHex) {
     const eh = hexOf(elemHex);
@@ -6685,6 +7913,49 @@
       bake('lt/supG', [[gIco(0.16, 0), WH, 0, 0, 0, 0, 0, 0, 1, 0.7, 1]]),
     ],
   };
+  // 远程武器的掉落模型：三把枪横着（枪口朝 +y 方向斜指），四张弓竖着
+  {
+    const GM = 0x2b2d33, BR = 0xc8963c, CU = 0xb0643a, BLK = 0x221c1c;
+    LOOT_MODEL.gatling = () => [
+      bake('lt/gat', [
+        [gRBox(0.14, 0.3, 0.14, 0.03), GM, 0, -0.08, 0], [gBox(0.05, 0.12, 0.06), 0x1c1a1d, 0, -0.26, -0.07, 0.4],
+        [gCyl(0.07, 0.07, 0.07, 8), LC.steelD, 0.1, -0.08, -0.02, 0, 0, Math.PI / 2],
+        ...[0, 1, 2, 3, 4, 5].map((k) => [gCyl(0.014, 0.014, 0.5, 5), LC.steel, Math.cos((k / 6) * TAU) * 0.04, 0.32, Math.sin((k / 6) * TAU) * 0.04]),
+        [gTorus(0.058, 0.012, 4, 10), BR, 0, 0.1, 0, Math.PI / 2], [gTorus(0.058, 0.012, 4, 10), BR, 0, 0.55, 0, Math.PI / 2],
+      ]),
+      bake('lt/gatG', [[gBox(0.08, 0.02, 0.15), WH, 0, -0.02, 0.07], [gTorus(0.06, 0.006, 3, 10), WH, 0, 0.57, 0, Math.PI / 2]]),
+    ];
+    LOOT_MODEL.flamer = () => [
+      bake('lt/flm', [
+        [gRBox(0.1, 0.22, 0.1, 0.02), GM, 0, -0.14, 0], [gBox(0.05, 0.12, 0.06), 0x1c1a1d, 0, -0.3, -0.06, 0.4],
+        [gCyl(0.034, 0.038, 0.46, 8), LC.steel, 0, 0.18, 0], [gCyl(0.065, 0.036, 0.11, 10), LC.steelD, 0, 0.45, 0],
+        [gCyl(0.06, 0.06, 0.28, 10), CU, 0, -0.04, 0.1], [gTorus(0.062, 0.01, 4, 10), LC.steelD, 0, 0.04, 0.1, Math.PI / 2],
+      ]),
+      bake('lt/flmG', [[gOct(0.03), WH, 0, 0.52, -0.05], [gBox(0.012, 0.3, 0.012), WH, 0, 0.18, 0.036]]),
+    ];
+    LOOT_MODEL.revolver = () => [
+      bake('lt/rev', [
+        [gRBox(0.05, 0.16, 0.07, 0.02), 0x4a2a1c, 0, -0.16, -0.06, 0.4], [gRBox(0.06, 0.12, 0.1, 0.016), BLK, 0, -0.04, 0],
+        [gCyl(0.048, 0.048, 0.1, 8), BLK, 0, 0.0, 0], [gCyl(0.024, 0.024, 0.34, 8), BLK, 0, 0.22, 0], [gTorus(0.026, 0.008, 4, 8), 0xd09048, 0, 0.39, 0, Math.PI / 2],
+      ]),
+      bake('lt/revG', [[gBox(0.008, 0.26, 0.01), WH, 0.026, 0.22, 0], [gBox(0.008, 0.2, 0.01), WH, -0.026, 0.25, 0]]),
+    ];
+    const bowLoot = (key, col, fit, glow, curl) => () => {
+      const limb = (s) => [[0, s * 0.06, 0], [0, s * 0.24, -0.04 * curl], [0, s * 0.4, -0.02], [0, s * 0.5, 0.06], [0, s * 0.54, 0.13]];
+      return [
+        bake('lt/' + key, [
+          [gSweep('lt/' + key + 'U', limb(1), [0.03, 0.025, 0.019, 0.013, 0.008], 5), col, 0, 0, 0], [gSweep('lt/' + key + 'L', limb(-1), [0.03, 0.025, 0.019, 0.013, 0.008], 5), col, 0, 0, 0],
+          [gCyl(0.032, 0.032, 0.14, 6), LC.leatherD, 0, 0, 0], [gCyl(0.036, 0.036, 0.02, 6), fit, 0, 0.08, 0], [gCyl(0.036, 0.036, 0.02, 6), fit, 0, -0.08, 0],
+          [gCyl(0.005, 0.005, 1.08, 3), 0xe8e0c8, 0, 0, 0.13], [gOct(0.022), fit, 0, 0.54, 0.13], [gOct(0.022), fit, 0, -0.54, 0.13],
+        ]),
+        bake('lt/' + key + 'G', glow),
+      ];
+    };
+    LOOT_MODEL.eagle = LOOT_MODEL.bow;
+    LOOT_MODEL.huntbow = bowLoot('hbow', 0x3a2c22, 0xd9cfb6, [[gOct(0.022), WH, 0, 0, -0.04], [gBox(0.014, 0.12, 0.014), WH, 0, 0.3, -0.06], [gBox(0.014, 0.12, 0.014), WH, 0, -0.3, -0.06]], 1.5);
+    LOOT_MODEL.runebow = bowLoot('rbow', 0x3a4560, 0xb8c4d6, [[gTorus(0.07, 0.007, 3, 12), WH, 0, 0, -0.02, 0, Math.PI / 2, 0], [gBox(0.025, 0.02, 0.016), WH, 0, 0.22, -0.05], [gBox(0.025, 0.02, 0.016), WH, 0, -0.22, -0.05], [gBox(0.025, 0.02, 0.016), WH, 0, 0.36, -0.03], [gBox(0.025, 0.02, 0.016), WH, 0, -0.36, -0.03]], 1);
+    LOOT_MODEL.emberbow = bowLoot('ebow', 0x241a18, 0x8a3a1a, [[gOct(0.035), WH, 0, 0, -0.05], [gBox(0.012, 0.14, 0.012), WH, 0, 0.18, -0.06], [gBox(0.012, 0.14, 0.012), WH, 0, -0.18, -0.06], [gBox(0.012, 0.1, 0.012), WH, 0, 0.4, -0.02], [gBox(0.012, 0.1, 0.012), WH, 0, -0.4, -0.02]], 2);
+  }
   const lootModels = Object.create(null);
   const WEAPON_MODEL = GEAR_KEYS; // 掉落模型的名字和武器种类同名
   let lootBody = null;
@@ -6701,7 +7972,8 @@
       const sl = slot && typeof slot === 'object' ? slot.slot : slot;
       if (sl === 'weapon') {
         const o = slot && typeof slot === 'object' ? slot : null;
-        key = o && GEAR_KEYS.indexOf(o.type) >= 0 ? o.type : WEAPON_MODEL[o ? gearIndex(o.baseIdx | 0) : 0];
+        const bt = o ? o.type || baseType(o.baseIdx | 0) : null;
+        key = bt && LOOT_MODEL[bt] ? bt : bt === 'bow' ? 'eagle' : WEAPON_MODEL[o ? gearIndex(o.baseIdx | 0) : 0];
       }
       else if (sl && LOOT_MODEL[sl]) key = sl;
     }
@@ -6713,7 +7985,7 @@
     const gem = new T.Group();
     gem.position.y = 0.55;
     gem.scale.setScalar(1.3);
-    if (WEAPON_MODEL.indexOf(key) >= 0) gem.rotation.z = key === 'bow' ? 0.3 : key === 'daggers' ? 0 : 0.5; // 武器斜着悬在空中
+    if (WEAPON_MODEL.indexOf(key) >= 0 || BOW_TYPES.indexOf(key) >= 0) gem.rotation.z = key === 'bow' || BOW_TYPES.indexOf(key) >= 0 ? 0.3 : key === 'daggers' ? 0 : GUN_TYPES.indexOf(key) >= 0 ? 0.15 : 0.5; // 武器斜着悬在空中
     else if (key === 'ring' || key === 'amulet' || key === 'belt') gem.rotation.x = 0.35;
     if (uq && !lootBodyU) lootBodyU = new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.55, envMap: rigEnvMap(), envMapIntensity: 1.0, flatShading: true, emissive: lin(0x7a2a06), emissiveIntensity: 0.9 });
     if (mdl[0]) {
@@ -8974,14 +10246,15 @@
     pfPart('blade', bladeGeo(), vc, 64, 0);
     pfPart('shard', shardGeo(), vc, 64, 0);
     pfPart('blur', gQuad(), add(swooshTex(), T.DoubleSide), 64, 4);
-    pfPart('glow', quad, add(glowTex()), 260, 5);
-    pfPart('flame', flameQuad, add(flameTex()), 320, 6);
+    pfPart('glow', quad, add(glowTex()), 520, 5);
+    pfPart('flame', flameQuad, add(flameTex()), 480, 6);
     // 普通混合的火舌：浅色地面（冰原、灰烬）上加色的火会被冲成一片白，垫一层实色的橙红火舌，火的形状和颜色才立得住
-    pfPart('flameN', flameQuad, new T.MeshBasicMaterial({ map: flameHardTex(), transparent: true, depthWrite: false, toneMapped: false, fog: false }), 240, 5);
+    pfPart('flameN', flameQuad, new T.MeshBasicMaterial({ map: flameHardTex(), transparent: true, depthWrite: false, toneMapped: false, fog: false }), 420, 5);
     pfPart('arc', quad, add(crackleTex()), 120, 6);
     const rockMat = new T.MeshStandardMaterial({ map: basaltTex(), roughness: 0.92, metalness: 0.05, flatShading: true });
     pfPart('debris', rockGeo(0), rockMat, 96, 0);
     initRibbons();
+    rangedPfInit(add, vc, flameQuad, quad);
   }
   // 调试 / 测试：各零件此刻的实例数、拖尾条数、池里闲置的投射物数
   W.projFxInfo = function () {
@@ -9169,13 +10442,18 @@
   const RIB_DEF = {
     ember: [0.24, 0.2], blade: [0.09, 0.1], dart: [0.12, 0.22], orb: [0.18, 0.15],
     glob: [0.17, 0.15], shard: [0.15, 0.2], spark: [0.13, 0.12], firebolt: [0.28, 0.22], horb: [0.15, 0.12],
+    // 远程武器：子弹 / 左轮的重弹 / 箭 / 烬铸弓的燃箭 / 喷枪的火团
+    bullet: [0.045, 0.07], slug: [0.07, 0.1], arrow: [0.04, 0.16], emberarrow: [0.11, 0.24], flamelet: [0.2, 0.12],
   };
+  // 外形别名：game.js 那边怎么起名都认得
+  const PF_ALIAS = { tracer: 'bullet', round: 'bullet', gun: 'bullet', gatling: 'bullet', revolver: 'slug', bolt: 'slug', homing: 'arrow', harrow: 'arrow', earrow: 'arrow', bow: 'arrow', flame: 'flamelet', flamer: 'flamelet', fire: 'flamelet', emberbow: 'emberarrow' };
   const PF_HOSTILE = { glob: 1, shard: 1, spark: 1, firebolt: 1, horb: 1 };
   // makeProjectile(hex, radius, hostile[, opts])：opts.kind 外形（缺省按敌我取 orb / horb），opts.dx/dz 出生时的飞行方向，
   // opts.tint 注入的元素色（拖尾、光晕和命中往这个颜色偏一点）
   W.makeProjectile = function (hex, radius, hostile, opts) {
     const o = opts || {};
-    let kind = o.kind;
+    let kind = PF_ALIAS[o.kind] || o.kind;
+    if (!hostile && !PF_DRAW[kind]) kind = rangedAutoKind(kind); // 远程武器普攻的弹丸：按手里的武器认外形（子弹 / 箭 / 火团）
     if (!PF_DRAW[kind] || !!PF_HOSTILE[kind] !== !!hostile) kind = hostile ? 'horb' : 'orb'; // 敌我外形不串用
     const h = hexOf(hex);
     const grp = pfPool.length ? pfPool.pop() : new T.Group();
@@ -9205,8 +10483,10 @@
     u.dz = dl > 0 ? o.dz / dl : 1;
     u.lx = NaN; u.lz = NaN;
     u.trail = true; // world 自己画拖尾（game.js 不再每帧撒通用火花）
+    u.ox = 0; u.oz = 0; u.oy = 0;
     const rd = RIB_DEF[kind];
     u.rib = ribForKind(kind, u, rd);
+    if (RANGED_PF[kind]) rangedOnSpawn(kind, u);
     grp.position.set(0, -50, 0); // 调用方下一行就会设置位置；先藏到地下
     scene.add(grp);
     projObjs.push(grp);
@@ -9221,6 +10501,8 @@
     else if (kind === 'shard') { r0 = 0.72; g0 = 0.92; b0 = 1; r1 = 0.15; g1 = 0.35; b1 = 0.6; }
     else if (kind === 'spark') { r0 = 1; g0 = 0.95; b0 = 0.6; r1 = 0.55; g1 = 0.45; b1 = 0.1; }
     else if (kind === 'firebolt') { r0 = 1; g0 = 0.45; b0 = 0.12; r1 = 0.55; g1 = 0.05; b1 = 0.02; }
+    else if (kind === 'bullet' || kind === 'slug') { r0 = 1; g0 = 0.9; b0 = 0.6; r1 = 0.8; g1 = 0.35; b1 = 0.08; }
+    else if (kind === 'emberarrow' || kind === 'flamelet') { r0 = 1; g0 = 0.6; b0 = 0.22; r1 = 0.6; g1 = 0.08; b1 = 0.02; }
     else if (u.hostile) { r0 = u.r * 0.6; g0 = u.g * 0.6; b0 = u.b * 0.6; r1 = 0.45; g1 = 0.04; b1 = 0.03; }
     else { r0 = u.r + (1 - u.r) * 0.45; g0 = u.g + (1 - u.g) * 0.45; b0 = u.b + (1 - u.b) * 0.45; r1 = u.r * 0.55; g1 = u.g * 0.55; b1 = u.b * 0.55; }
     if (tk) {
@@ -9718,6 +11000,7 @@
     }
     meteorFlames(dt);
     updateDebris(dt);
+    rangedPfDraw(dt);
     pfEnd();
     updateRibbons(dt);
   }
@@ -9739,8 +11022,782 @@
   function clearProjFx() {
     clearRibbons();
     clearDebris();
+    rangedClear();
     for (let i = 0; i < PF_LIST.length; i++) PF_LIST[i].n = 0;
     pfEnd();
+  }
+
+  // =====================================================================
+  // 远程武器的特效：枪口焰、弹壳、曳光弹、箭（追踪 / 元素 / 燃箭）、喷火、燃烧的地面、熔光射线、焚天炎爆、乱射、弓的增益光环。
+  // 大多由玩家身上正在播的动作（fire_<type> / r_<type>）自动驱动；game.js 也可以直接调这些接口（都可选，不调也有画面）：
+  //   W.emberGround(x, z, r, dur)    地上一片燃烧的余烬（喷枪留下的火、焚天炎爆的火海）
+  //   W.fireNova(x, z, R)            焚天炎爆的火浪（不调时 r_flamer 的出手帧自动放一次）
+  //   W.laser(x, z, dx, dz, len)     熔光射线这一帧的起点 / 方向 / 长度（每帧调；不调时 r_gatling 播放期间沿枪口方向自动画）
+  //   W.rangedBuff(type, dur)        弓的 R 增益光环（type = huntbow / eagle / runebow / emberbow，null 关掉；不调时 r_<弓> 自动开 8 秒）
+  //   W.gunTracer(x0, z0, x1, z1)    一发瞬时弹道（乱射）；W.muzzle(ent) 枪口焰
+  // 投射物外形（G.spawnProjectile 的 vk）：bullet 机炮曳光弹 / slug 左轮重弹 / arrow 箭（tint 给元素色）/ emberarrow 烬铸燃箭 / flamelet 火团；
+  // 普攻弹丸不写 vk 时，按手里的武器自动认
+  // =====================================================================
+  const RANGED_PF = { bullet: 1, slug: 1, arrow: 1, emberarrow: 1, flamelet: 1 };
+  const GUN_KIND = { gatling: 'bullet', revolver: 'slug', flamer: 'flamelet', huntbow: 'arrow', eagle: 'arrow', runebow: 'arrow', emberbow: 'emberarrow' };
+  const BUFF_HEX = { huntbow: 0x6fe8b0, eagle: 0xffd75e, runebow: 0xc9a6ff, emberbow: 0xff7a2c };
+  const RF = {
+    muz: [], puffs: [], fires: [], shells: [], tracers: [],
+    laser: { ext: -1, x: 0, z: 0, dx: 0, dz: 1, len: 0, scorch: 0 },
+    buff: { type: null, t: 0, dur: 0, set: -9, acc: 0 },
+    spray: 0, novaK: -1, novaSet: -9, groundAt: -9, projAt: -9, fireAt: -9, flameAcc: 0, gaugeT: 0, gaugeFull: false, gaugeK: 0, groundAuto: 0,
+  };
+  const _rs = { x: 0, y: 0, z: 0 }, _rs2 = { x: 0, y: 0, z: 0 }, _rf = { x: 0, y: 0, z: 0 };
+  const _qFlat = new T.Quaternion().setFromAxisAngle(new T.Vector3(1, 0, 0), -Math.PI / 2);
+  const laserTex = () =>
+    tex('laser', () => {
+      const c = makeCanvas(64, 8), g = c.getContext('2d'), gr = g.createLinearGradient(0, 0, 64, 0);
+      gr.addColorStop(0, 'rgba(255,255,255,0)');
+      gr.addColorStop(0.28, 'rgba(255,255,255,0.18)');
+      gr.addColorStop(0.44, 'rgba(255,255,255,0.85)');
+      gr.addColorStop(0.5, 'rgba(255,255,255,1)');
+      gr.addColorStop(0.56, 'rgba(255,255,255,0.85)');
+      gr.addColorStop(0.72, 'rgba(255,255,255,0.18)');
+      gr.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = gr;
+      g.fillRect(0, 0, 64, 8);
+      return new T.CanvasTexture(c);
+    });
+  function rangedPfInit(add, vc, flameQuad, quad) {
+    const arrowGeo = bake('fx/arrowZ', [
+      [gCyl(0.014, 0.014, 0.78, 4), 0xd8b888, 0, 0, -0.3, HALF_PI],
+      [gCone(0.042, 0.14, 4), 0xffffff, 0, 0, 0.15, HALF_PI],
+      [gBox(0.1, 0.012, 0.16), 0xf0e8d8, 0, 0, -0.6],
+      [gBox(0.012, 0.1, 0.16), 0xf0e8d8, 0, 0, -0.6],
+    ]);
+    pfPart('arrow', arrowGeo, vc, 96, 0);
+    pfPart('beam', quad, add(laserTex(), T.DoubleSide), 200, 6);
+    pfPart('casing', gCyl(0.014, 0.014, 0.048, 6), pfSolid, 64, 0);
+    pfPart('ringF', geo('fxRingThin', () => new T.TorusGeometry(1, 0.035, 3, 40)), add(null, T.DoubleSide), 24, 4);
+  }
+  const pEnt = () => {
+    const e = G.player && G.player.ent;
+    return e && !e.removed && !e.dying ? e : null;
+  };
+  const clipNm = (e) => (e && e.clip ? e.clip.name : '');
+  // 武器关节 +z（枪管 / 武器指向）在世界里的方向，压平到地面
+  function weaponFwd(ent, out) {
+    const s = ent.sock.weapon, M = ent.mdl, m = s.j * 12, g = ent.group;
+    const x = M[m + 2], z = M[m + 10], sn = Math.sin(g.rotation.y), cs = Math.cos(g.rotation.y);
+    let wx = x * cs + z * sn, wz = z * cs - x * sn;
+    const l = Math.hypot(wx, wz);
+    if (l < 1e-4) { wx = sn; wz = cs; } else { wx /= l; wz /= l; }
+    out.x = wx; out.y = 0; out.z = wz;
+    return out;
+  }
+  // 元素色 → 元素（箭的拖尾 / 命中花样）
+  function elemOf(r, g, b) {
+    if (b > 0.7 && b > r + 0.1) return 'cold';
+    if (r > 0.75 && g > 0.7 && b < 0.6) return 'light';
+    if (r > 0.75 && g < 0.62) return 'fire';
+    return null;
+  }
+  function rangedAutoKind(kind) {
+    const ent = pEnt();
+    if (!ent || !ent.gearVar || !GUN_KIND[ent.gearVar]) return kind;
+    const nm = clipNm(ent);
+    if (nm.indexOf('fire_') === 0 || nm.indexOf('r_') === 0 || wtime - RF.fireAt < 0.3) return GUN_KIND[ent.gearVar];
+    return kind;
+  }
+  function muzzleAdd(x, y, z, dx, dz, s, hex) {
+    if (RF.muz.length >= 24) RF.muz.shift();
+    RF.muz.push({ x, y, z, dx, dz, t: 0, dur: 0.06 + 0.02 * s, s, hex, rot: rand(0, TAU) });
+    _c.set(hex);
+    for (let i = 0; i < 3; i++) spawnP(x, y, z, dx * rand(4, 8) + rand(-1, 1), rand(-0.3, 1.2), dz * rand(4, 8) + rand(-1, 1), rand(0.06, 0.14), 0.09, 1, 0.85, 0.5, 2, 6);
+    flashLight(x, y + 0.4, z, hex, 0.9 * s);
+  }
+  function shellAdd(ent, dx, dz, big) {
+    W.entSocket(ent, 'hand', _rs2);
+    W.entSocket(ent, 'weapon', _rs);
+    const x = _rs2.x + (_rs.x - _rs2.x) * 0.25, z = _rs2.z + (_rs.z - _rs2.z) * 0.25, y = _rs2.y + 0.15;
+    if (RF.shells.length >= 60) RF.shells.shift();
+    const rv = rand(1.6, 2.6);
+    RF.shells.push({ x, y, z, vx: -dz * rv - dx * 0.4, vy: rand(2.2, 3.6), vz: dx * rv - dz * 0.4, t: 0, a: rand(0, TAU), w: rand(14, 24), big: !!big, rest: false });
+  }
+  W.muzzle = function (ent, s, hex) {
+    ent = ent || pEnt();
+    if (!ent) return;
+    W.entSocket(ent, 'weapon', _rs);
+    weaponFwd(ent, _rf);
+    muzzleAdd(_rs.x, _rs.y, _rs.z, _rf.x, _rf.z, s || 1, hex === undefined ? 0xffc060 : hexOf(hex));
+  };
+  function rangedOnSpawn(kind, u) {
+    RF.projAt = wtime;
+    const ent = pEnt();
+    if (u.tinted) u.el = elemOf(u.tr, u.tg, u.tb);
+    else u.el = kind === 'arrow' ? elemOf(u.r, u.g, u.b) : null;
+    if (!ent || u.hostile) return;
+    const P = G.player;
+    W.entSocket(ent, 'weapon', _rs);
+    // 弹丸从枪口出来：画的位置前 0.1 秒从枪口滑到真正的弹道上
+    if (kind === 'bullet' || kind === 'slug' || kind === 'flamelet') {
+      u.ox = _rs.x - P.x; u.oz = _rs.z - P.z; u.oy = _rs.y - 1.1;
+    } else {
+      W.entSocket(ent, 'handL', _rs2);
+      u.ox = _rs2.x - P.x; u.oz = _rs2.z - P.z; u.oy = _rs2.y - 1.1;
+    }
+    if (kind === 'bullet' || kind === 'slug') {
+      const big = kind === 'slug';
+      muzzleAdd(_rs.x, _rs.y, _rs.z, u.dx, u.dz, big ? 1.35 : 0.9, big ? 0xff9a40 : 0xffc060);
+      if (!big || Math.random() < 0.5) shellAdd(ent, u.dx, u.dz, big);
+    } else if (kind === 'arrow' || kind === 'emberarrow') {
+      flare(_rs2.x, _rs2.y, _rs2.z, kind === 'emberarrow' ? 0xff8a3c : u.tinted ? u.hex : 0xfff0d0, 0.5, 0.06);
+    }
+  }
+  // 地上一片燃烧的余烬
+  W.emberGround = function (x, z, r, dur, big) {
+    RF.groundAt = wtime;
+    if (RF.fires.length >= 28) RF.fires.shift();
+    r = Math.max(0.4, r || 1);
+    dur = dur || 3;
+    RF.fires.push({ x, z, r, t: 0, dur, seed: rand(0, 100), acc: 0, big: !!big });
+    W.decal(1, x, z, r * 1.05, rand(0, TAU), 0x2a1408, dur + 1.2);
+  };
+  // 焚天炎爆：脚下炸开一圈火浪，往外推开的火团 + 地上留一大片火
+  W.fireNova = function (x, z, R) {
+    RF.novaSet = wtime;
+    R = R || 5.5;
+    W.ring(x, z, R, 0xff7a2c, 0.5);
+    W.ring(x, z, R * 0.6, 0xffd08a, 0.35);
+    W.decal(1, x, z, R * 0.9, rand(0, TAU), 0x2a1408, 5);
+    const n = 48;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU + rand(-0.05, 0.05), v = R / 0.5 * rand(0.85, 1.05);
+      puffAdd(x + Math.sin(a) * 0.5, 0.45, z + Math.cos(a) * 0.5, Math.sin(a) * v, rand(0.2, 1.0), Math.cos(a) * v, rand(0.42, 0.55), rand(0.32, 0.5), 1);
+    }
+    for (let i = 0; i < 40; i++) {
+      const a = rand(0, TAU), v = rand(3, 9);
+      spawnP(x, 0.6, z, Math.sin(a) * v, rand(2, 7), Math.cos(a) * v, rand(0.5, 1.0), rand(0.12, 0.22), 1, rand(0.4, 0.75), 0.12, 6, 1.2);
+    }
+    flare(x, 1, z, 0xff8a3c, 3.2, 0.2);
+    flashLight(x, 2.4, z, 0xff7a2c, 3);
+    W.shake(0.45);
+    // 留在地上的火海（game.js 自己放了就不重复）
+    RF.groundAuto = { x, z, R, at: wtime + 0.08 };
+  };
+  W.laser = function (x, z, dx, dz, len) {
+    const L = RF.laser, l = Math.hypot(dx, dz) || 1;
+    L.ext = wtime + 0.12;
+    L.x = x; L.z = z; L.dx = dx / l; L.dz = dz / l; L.len = len || 0;
+  };
+  W.rangedBuff = function (type, dur) {
+    const B = RF.buff;
+    B.type = type && BUFF_HEX[type] ? type : type === 'bow' ? 'eagle' : null;
+    B.t = 0;
+    B.dur = dur > 0 ? dur : 8;
+    B.set = wtime;
+  };
+  W.gunTracer = function (x0, z0, x1, z1, y, hex) {
+    if (RF.tracers.length >= 40) RF.tracers.shift();
+    RF.tracers.push({ x0, y0: y || 1.25, z0, x1, y1: (y || 1.25) - 0.15, z1, t: 0, dur: 0.09, hex: hex === undefined ? 0xffb050 : hexOf(hex) });
+  };
+  // 量表灌满的那一刻：武器上一圈亮光 + 往上迸的火星（热度橙 / 专注青绿）
+  W.gaugeFull = function (ent, kind) {
+    ent = ent || pEnt();
+    if (!ent) return;
+    const hex = kind === 'heat' ? 0xff9a40 : 0x9fe8b0;
+    W.entSocket(ent, 'weapon', _rs);
+    flare(_rs.x, _rs.y, _rs.z, hex, 1.6, 0.16);
+    W.ring(G.player.x, G.player.z, 1.4, hex, 0.35);
+    _c.set(hex);
+    for (let i = 0; i < 14; i++) spawnP(_rs.x, _rs.y, _rs.z, rand(-1.5, 1.5), rand(1.5, 3.5), rand(-1.5, 1.5), rand(0.35, 0.6), rand(0.08, 0.13), _c.r, _c.g, _c.b, 3, 1.2);
+  };
+  // 左轮装填：转轮甩出来转一圈（转轮一路连跳），掉几枚空弹壳
+  W.reload = function (ent, t) {
+    ent = ent || pEnt();
+    if (!ent || ent.gearType !== G_REV) return;
+    ent.revTurn = (ent.revTurn || 0) + 6;
+    const f = G.player.face || 0;
+    for (let i = 0; i < 3; i++) shellAdd(ent, Math.sin(f), Math.cos(f), true);
+  };
+  // 熔芯弹的小爆炸（命中处炸一团火）
+  W.coreBlast = function (x, z, r) {
+    W.ring(x, z, r, 0xff8a3c, 0.3);
+    for (let i = 0; i < 14; i++) {
+      const a = (i / 14) * TAU, v = r / 0.4;
+      puffAdd(x, 0.7, z, Math.sin(a) * v, rand(0.5, 1.5), Math.cos(a) * v, rand(0.3, 0.4), rand(0.25, 0.4), 1);
+    }
+    flare(x, 1, z, 0xff8a3c, 1.6, 0.12);
+    flashLight(x, 1.8, z, 0xff7a2c, 1.4);
+  };
+  // 喷火（没有 fire_flamer 动作时 game.js 才调）：沿 aim 喷一把火团
+  W.flameCone = function (x, z, aim, R, arc, dur) {
+    const sp = 10, n = 8;
+    for (let i = 0; i < n; i++) {
+      const a = aim + ((rand(-0.5, 0.5) * (arc || 60)) / 180) * Math.PI, v = sp * rand(0.85, 1.1);
+      puffAdd(x + Math.sin(aim) * 0.6, 1.1, z + Math.cos(aim) * 0.6, Math.sin(a) * v, rand(-0.3, 0.5), Math.cos(a) * v, ((R || 5) / sp) * rand(0.8, 1.05), rand(0.55, 0.85), 0);
+    }
+  };
+  // 元素满溢的命中小爆炸：按元素换花样
+  const BURST_EL = { fire: [0xff7a2c, 1], cold: [0x86d8ff, 2], light: [0xffe45e, 3] };
+  W.elemBurst = function (x, z, R, type) {
+    const b = BURST_EL[type] || [0xffffff, 5], hex = b[0];
+    W.ring(x, z, R, hex, 0.28);
+    W.decal(b[1], x, z, R * 0.6, rand(0, TAU), hex, 1.2);
+    _c.set(hex);
+    for (let i = 0; i < 16; i++) {
+      const a = rand(0, TAU), v = rand(2.5, 5.5);
+      spawnP(x, 0.9, z, Math.sin(a) * v, rand(0.5, 3.5), Math.cos(a) * v, rand(0.2, 0.4), rand(0.12, 0.2), _c.r, _c.g, _c.b, type === 'cold' ? 6 : 2, 3);
+    }
+    if (type === 'fire') for (let i = 0; i < 8; i++) { const a = (i / 8) * TAU; puffAdd(x, 0.6, z, Math.sin(a) * 4, 1, Math.cos(a) * 4, 0.3, 0.3, 1); }
+    if (type === 'light') W.bolt([{ x, z }, { x: x + rand(-R, R), z: z + rand(-R, R) }], hex);
+    flare(x, 1, z, hex, 1.3, 0.1);
+  };
+  // 烬铸弓的余烬连跳：一颗燃着的余烬从 A 划一道弧落到 B
+  W.emberSpark = function (x0, z0, x1, z1) {
+    const n = 10;
+    for (let i = 0; i <= n; i++) {
+      const k = i / n, h = Math.sin(k * Math.PI) * 1.1;
+      spawnP(x0 + (x1 - x0) * k, 1.0 + h, z0 + (z1 - z0) * k, rand(-0.3, 0.3), rand(0.2, 0.8), rand(-0.3, 0.3), 0.18 + k * 0.2, 0.16 + 0.05 * Math.sin(k * 3), 1, 0.55 + 0.3 * k, 0.15, -0.5, 2);
+    }
+    W.gunTracer(x0, z0, x1, z1, 1.1, 0xff8a3c);
+    flare(x1, 1.0, z1, 0xff8a3c, 0.9, 0.09);
+    puffAdd(x1, 0.9, z1, 0, 1, 0, 0.3, 0.5, 0);
+  };
+  W.rangedInfo = () => ({
+    muzzle: RF.muz.length, puffs: RF.puffs.length, fires: RF.fires.length, shells: RF.shells.length, tracers: RF.tracers.length,
+    laser: RF.laser.ext >= wtime || clipNm(pEnt()) === 'r_gatling', buff: RF.buff.type, spin: (pEnt() && pEnt().gunSpin) || 0,
+  });
+  function puffAdd(x, y, z, vx, vy, vz, life, s, wave) {
+    if (RF.puffs.length >= 220) RF.puffs.shift();
+    RF.puffs.push({ x, y, z, vx, vy, vz, t: 0, life, s, ph: rand(0, TAU), wave: wave || 0 });
+  }
+  // 动作开始播放的那一刻（W.play 包了一层）：记下开火时刻，弓的 R 自动开光环、喷枪的 R 记下出手帧
+  function rangedOnPlay(ent, name, opts) {
+    if (name.indexOf('fire_') === 0) {
+      RF.fireAt = wtime;
+      if (name === 'fire_revolver') ent.revTurn = (ent.revTurn || 0) + 1;
+      return;
+    }
+    if (name.indexOf('r_') !== 0 && name.indexOf('w_') !== 0) return;
+    const t = name.slice(2);
+    if (BUFF_HEX[t] || t === 'bow') {
+      if (wtime - RF.buff.set > 0.3) W.rangedBuff(t, 8);
+      flare(G.player.x, 2.1, G.player.z, BUFF_HEX[t] || 0xffd75e, 2.2, 0.18);
+    } else if (t === 'flamer') RF.novaK = 0;
+  }
+  {
+    const play0 = W.play;
+    W.play = function (ent, name, opts) {
+      const ok = play0(ent, name, opts);
+      if (ok && ent && ent.kind === 'player' && typeof name === 'string' && ent === pEnt()) rangedOnPlay(ent, name, opts);
+      return ok;
+    };
+  }
+  function rangedClear() {
+    RF.muz.length = RF.puffs.length = RF.fires.length = RF.shells.length = RF.tracers.length = 0;
+    RF.buff.type = null;
+    RF.laser.ext = -1;
+    RF.groundAuto = 0;
+  }
+  // 机炮的转膛（开火时 0.5 秒左右转起来）、左轮每发转一格
+  function gunSpinPost(ent, o, sdt) {
+    const g = ent.gearType;
+    if (g !== G_GAT && g !== G_REV) return;
+    const J = ent.rig.J, nm = clipNm(ent);
+    if (g === G_GAT) {
+      const want = nm === 'fire_gatling' ? 32 : nm === 'r_gatling' ? 44 : 0, v = ent.gunSpin || 0;
+      ent.gunSpin = v + (want - v) * Math.min(1, sdt * (want > v ? 2.4 : 1.2));
+      if (ent.gunSpin < 0.05 && !want) ent.gunSpin = 0;
+      ent.gunAng = ((ent.gunAng || 0) + ent.gunSpin * sdt) % TAU;
+      o[J.wGb + 2] = ent.gunAng;
+    } else {
+      const tgt = ((ent.revTurn || 0) * TAU) / 6, cur = ent.gunAng || 0;
+      ent.gunAng = cur + (tgt - cur) * Math.min(1, sdt * 22);
+      o[J.wGb + 2] = ent.gunAng;
+    }
+  }
+
+  // ----- 投射物外形 -----
+  // 弹丸画的位置：出生后 0.1 秒内从枪口（或弓）滑到真正的弹道上
+  function rOff(u, x, y, z) {
+    const k = Math.max(0, 1 - u.age / 0.1);
+    _rs.x = x + u.ox * k; _rs.y = y + u.oy * k; _rs.z = z + u.oz * k;
+    return _rs;
+  }
+  PF_DRAW.bullet = function (u, x, y, z, dt) {
+    const p = rOff(u, x, y, z), L = 0.95;
+    mStretch(p.x - u.dx * L * 0.5, p.y, p.z - u.dz * L * 0.5, u.dx, 0, u.dz, 0.075, L);
+    pfPut('beam', 1.7, 1.2, 0.55);
+    mPose(p.x, p.y, p.z, _pqI, 0.03, 0.03, 0.03);
+    pfPut('core', 1.2, 1.1, 0.8);
+    mBill(p.x, p.y, p.z, 0.45);
+    pfPut('glow', 0.9, 0.55, 0.18);
+  };
+  PF_DRAW.slug = function (u, x, y, z, dt) {
+    const p = rOff(u, x, y, z), L = 1.4;
+    mStretch(p.x - u.dx * L * 0.5, p.y, p.z - u.dz * L * 0.5, u.dx, 0, u.dz, 0.13, L);
+    pfPut('beam', 1.9, 0.95, 0.35);
+    mStretch(p.x - u.dx * 0.25, p.y, p.z - u.dz * 0.25, u.dx, 0, u.dz, 0.05, 0.5);
+    pfPut('beam', 2, 1.8, 1.4);
+    mPose(p.x, p.y, p.z, _pqI, 0.045, 0.045, 0.045);
+    pfPut('core', 1.3, 1.0, 0.7);
+    mBill(p.x, p.y, p.z, 0.8);
+    pfPut('glow', 1.0, 0.45, 0.12);
+    u.acc += dt;
+    if (u.acc > 0.03) {
+      u.acc = 0;
+      spawnP(p.x, p.y, p.z, rand(-0.5, 0.5), rand(0.2, 1), rand(-0.5, 0.5), rand(0.15, 0.3), 0.08, 1, 0.55, 0.2, -0.5, 2);
+    }
+  };
+  const EL_HEX = { fire: [1, 0.42, 0.1], cold: [0.5, 0.85, 1], light: [1, 0.92, 0.35] };
+  function arrowBody(u, p, k) {
+    _pq.setFromAxisAngle(UP, Math.atan2(u.dx, u.dz));
+    mPose(p.x, p.y, p.z, _pq, k, k, k);
+    pfPut('arrow', 1, 1, 1);
+  }
+  PF_DRAW.arrow = function (u, x, y, z, dt) {
+    const p = rOff(u, x, y, z);
+    arrowBody(u, p, 1);
+    const hx = p.x + u.dx * 0.2, hz = p.z + u.dz * 0.2, e = u.el && EL_HEX[u.el];
+    if (e) {
+      mBill(hx, p.y, hz, 0.7);
+      pfPut('glow', e[0] * 0.9, e[1] * 0.9, e[2] * 0.9);
+      u.acc += dt;
+      if (u.el === 'fire') {
+        flameTongue(u, hx, p.y, hz, Math.sin(u.age * 30) * 0.2, 0.16, 0.42 + 0.1 * Math.sin(u.age * 41), 0.9, 0.3, 0.05, 'flameN');
+      } else if (u.el === 'light' && hash2(Math.floor(u.age * 30), 7) < 0.6) {
+        _pq.copy(camQ).multiply(_pq2.setFromAxisAngle(Z_AXIS, rand(0, TAU)));
+        mPose(hx, p.y, hz, _pq, 0.5, 0.18, 1);
+        pfPut('arc', 1.2, 1.05, 0.45);
+      }
+      if (u.acc > 0.035) {
+        u.acc = 0;
+        spawnP(hx, p.y, hz, rand(-0.4, 0.4), rand(-0.1, 0.6), rand(-0.4, 0.4), rand(0.18, 0.32), 0.1, e[0], e[1], e[2], u.el === 'cold' ? 0.6 : -0.6, 2);
+      }
+    } else {
+      mBill(hx, p.y, hz, 0.35);
+      pfPut('glow', 0.5, 0.48, 0.4);
+    }
+  };
+  PF_DRAW.emberarrow = function (u, x, y, z, dt) {
+    const p = rOff(u, x, y, z);
+    arrowBody(u, p, 1.1);
+    const hx = p.x + u.dx * 0.22, hz = p.z + u.dz * 0.22;
+    for (let k = 0; k < 2; k++) flameTongue(u, hx - u.dx * k * 0.2, p.y + 0.02, hz - u.dz * k * 0.2, Math.sin(u.age * 23 + k * 2) * 0.3, 0.26 - k * 0.06, 0.7 + 0.2 * Math.sin(u.age * 37 + k), 1, 0.32, 0.05, 'flameN');
+    flameTongue(u, hx, p.y + 0.03, hz, 0, 0.14, 0.45, 1, 0.75, 0.35);
+    mBill(hx, p.y, hz, 1.1);
+    pfPut('glow', 1, 0.42, 0.1);
+    u.acc += dt;
+    while (u.acc > 0.02) {
+      u.acc -= 0.02;
+      spawnP(hx - u.dx * 0.3 + rand(-0.08, 0.08), p.y + rand(-0.05, 0.1), hz - u.dz * 0.3 + rand(-0.08, 0.08), rand(-0.8, 0.8) - u.dx, rand(0.3, 1.5), rand(-0.8, 0.8) - u.dz, rand(0.25, 0.5), rand(0.08, 0.14), 1, rand(0.45, 0.8), 0.15, -1.2, 1.5);
+    }
+  };
+  PF_DRAW.flamelet = function (u, x, y, z, dt) {
+    const p = rOff(u, x, y, z), s = 0.25 + Math.min(1, u.age * 3) * 0.55;
+    mStretch(p.x, p.y, p.z, u.dx, 0, u.dz, s * 1.3, s * 2.2);
+    pfPut('flameN', 0.95, 0.38, 0.06);
+    mStretch(p.x, p.y, p.z, u.dx, 0, u.dz, s * 0.8, s * 1.4);
+    pfPut('flame', 0.9, 0.55, 0.2);
+    mBill(p.x, p.y, p.z, s * 2.4);
+    pfPut('glow', 0.6, 0.22, 0.04);
+  };
+  {
+    const impact0 = W.projImpact;
+    W.projImpact = function (mesh, x, z, how, R) {
+      const u = mesh && mesh.userData, vk = u && u.vfx;
+      if (!vk || !RANGED_PF[vk]) return impact0(mesh, x, z, how, R);
+      const y = 1.1;
+      if (vk === 'bullet' || vk === 'slug') {
+        const big = vk === 'slug';
+        for (let i = 0; i < (big ? 9 : 4); i++) {
+          const a = Math.atan2(-u.dx, -u.dz) + rand(-1.1, 1.1), v = rand(3, 7);
+          spawnP(x, y, z, Math.sin(a) * v, rand(0.5, 3.5), Math.cos(a) * v, rand(0.08, 0.2), rand(0.06, 0.11), 1, 0.8, 0.4, 9, 3);
+        }
+        flare(x, y, z, big ? 0xffa050 : 0xffe0a0, big ? 0.9 : 0.45, 0.06);
+        if (how === 'wall') W.decal(0, x - u.dx * 0.2, z - u.dz * 0.2, 0.35, Math.atan2(u.dx, u.dz), 0xffd0a0, 0.3, 0.08);
+        return true;
+      }
+      if (vk === 'flamelet') {
+        for (let i = 0; i < 5; i++) spawnP(x, y, z, rand(-1.5, 1.5), rand(0.5, 2), rand(-1.5, 1.5), rand(0.2, 0.4), rand(0.15, 0.25), 1, rand(0.35, 0.6), 0.08, -1, 2);
+        return true;
+      }
+      if (vk === 'emberarrow') {
+        fireBurst(x, y, z, how === 'blast' ? R || 1.4 : 0.9, u);
+        return true;
+      }
+      // 箭：木屑 + 元素的小爆
+      const e = u.el && EL_HEX[u.el];
+      for (let i = 0; i < 5; i++) {
+        const a = Math.atan2(-u.dx, -u.dz) + rand(-1, 1), v = rand(2, 4.5);
+        spawnP(x, y, z, Math.sin(a) * v, rand(0.5, 2.5), Math.cos(a) * v, rand(0.2, 0.4), rand(0.07, 0.12), 0.85, 0.72, 0.5, 12, 1.5);
+      }
+      if (e) {
+        for (let i = 0; i < 8; i++) {
+          const a = rand(0, TAU), v = rand(2, 5);
+          spawnP(x, y, z, Math.sin(a) * v, rand(-0.5, 2.5), Math.cos(a) * v, rand(0.15, 0.32), rand(0.1, 0.18), e[0], e[1], e[2], 3, 3);
+        }
+        _c.setRGB(e[0], e[1], e[2]);
+        flare(x, y, z, _c.getHex(), 0.8, 0.08);
+      } else flare(x, y, z, 0xfff0d0, 0.45, 0.05);
+      if (how === 'wall') W.decal(0, x - u.dx * 0.2, z - u.dz * 0.2, 0.3, Math.atan2(u.dx, u.dz), 0xfff0d0, 0.3, 0.07);
+      return true;
+    };
+  }
+
+  // ----- 每帧：自动驱动 + 画出来（在 updateProjFx 的 pfBegin / pfEnd 之间） -----
+  function flameRange() {
+    const s = G.SKILLS && G.SKILLS.basic_flamer;
+    return (s && (s.range || s.r || s.len)) || 4.6;
+  }
+  function rangedPfDraw(dt) {
+    const ent = pEnt(), nm = clipNm(ent), P = G.player;
+    // --- 喷枪：喷射期间从喷嘴往前喷火团 ---
+    if (ent && ent.gearType === G_FLM && nm === 'fire_flamer' && dt > 0) {
+      W.entSocket(ent, 'weapon', _rs);
+      weaponFwd(ent, _rf);
+      const rng = flameRange(), sp = 10;
+      RF.flameAcc += dt * 75;
+      while (RF.flameAcc >= 1) {
+        RF.flameAcc -= 1;
+        const spr = rand(-0.17, 0.17), c = Math.cos(spr), s = Math.sin(spr), fx = _rf.x * c + _rf.z * s, fz = -_rf.x * s + _rf.z * c, v = sp * rand(0.85, 1.1);
+        puffAdd(_rs.x + fx * 0.05, _rs.y, _rs.z + fz * 0.05, fx * v, rand(-0.3, 0.5), fz * v, (rng / sp) * rand(0.8, 1.05), rand(0.55, 0.85), 0);
+      }
+      // 喷嘴口一团亮火
+      mBill(_rs.x, _rs.y, _rs.z, 0.7);
+      pfPut('glow', 1.2, 0.7, 0.25);
+      flashLight(_rs.x + _rf.x * 1.5, 1.6, _rs.z + _rf.z * 1.5, 0xff8a3c, 1.4);
+      // 地上的余烬：game.js 自己没放的话，隔一会儿在火焰尽头落一小片
+      if (wtime - RF.groundAt > 1.2) {
+        RF.groundAuto = RF.groundAuto || 0;
+        if (Math.random() < dt * 2.2) {
+          const d = rng * rand(0.6, 0.95);
+          fireLite(_rs.x + _rf.x * d, _rs.z + _rf.z * d);
+        }
+      }
+    } else RF.flameAcc = 0;
+    // --- 焚天炎爆：出手帧放火浪（game.js 调过 W.fireNova 就不重复） ---
+    if (ent && RF.novaK >= 0) {
+      if (nm !== 'r_flamer' && nm !== 'w_flamer') RF.novaK = -1;
+      else if (ent.cK >= ent.clip.k0 && RF.novaK < ent.clip.k0) {
+        RF.novaK = 2;
+        if (wtime - RF.novaSet > 0.4) {
+          const s = G.SKILLS && G.SKILLS[(G.weaponSkill && G.weaponSkill()) || ''];
+          W.fireNova(P.x, P.z, (s && (s.r || s.radius)) || 5.5);
+        }
+      } else if (RF.novaK < 2) RF.novaK = ent.cK;
+    }
+    if (RF.groundAuto && wtime >= RF.groundAuto.at) {
+      const g = RF.groundAuto;
+      RF.groundAuto = 0;
+      if (wtime - RF.groundAt > 0.3) W.emberGround(g.x, g.z, g.R * 0.75, 4.5, true);
+    }
+    // --- 熔光射线 ---
+    const L = RF.laser, lzOn = L.ext >= wtime || (ent && (nm === 'r_gatling' || nm === 'w_gatling'));
+    if (lzOn && ent) drawLaser(ent, L, dt);
+    // --- 乱射：game.js 没打出弹丸时，自动朝附近的敌人 / 四面八方甩出弹道 ---
+    if (ent && (nm === 'r_revolver' || nm === 'w_revolver') && dt > 0) {
+      RF.spray += dt * 13;
+      while (RF.spray >= 1) {
+        RF.spray -= 1;
+        if (wtime - RF.projAt < 0.15) continue;
+        sprayShot(ent);
+      }
+    } else RF.spray = 0;
+    // --- 枪口焰 ---
+    for (let i = RF.muz.length - 1; i >= 0; i--) {
+      const m = RF.muz[i];
+      m.t += dt;
+      if (m.t >= m.dur) { RF.muz.splice(i, 1); continue; }
+      const k = 1 - m.t / m.dur, s = m.s * (0.7 + 0.5 * k);
+      _c.set(m.hex).convertSRGBToLinear();
+      // 一道往前喷的长火舌 + 两侧斜出的短火舌（俯视是个十字星）+ 一团光
+      mStretch(m.x + m.dx * 0.02, m.y, m.z + m.dz * 0.02, -m.dx, 0, -m.dz, 0.22 * s, 0.75 * s);
+      pfPut('flame', 1.4 * k, 1.1 * k, 0.6 * k);
+      for (const sd of [1, -1]) {
+        const a = sd * 0.9, c = Math.cos(a), sn = Math.sin(a), ex = m.dx * c + m.dz * sn, ez = -m.dx * sn + m.dz * c;
+        mStretch(m.x, m.y, m.z, -ex, 0, -ez, 0.12 * s, 0.32 * s);
+        pfPut('flame', 1.2 * k, 0.8 * k, 0.35 * k);
+      }
+      mBill(m.x, m.y, m.z, 1.1 * s);
+      pfPut('glow', _c.r * k * 1.4, _c.g * k * 1.2, _c.b * k);
+    }
+    // --- 瞬时弹道 ---
+    for (let i = RF.tracers.length - 1; i >= 0; i--) {
+      const tr = RF.tracers[i];
+      tr.t += dt;
+      if (tr.t >= tr.dur) { RF.tracers.splice(i, 1); continue; }
+      const k = 1 - tr.t / tr.dur, dx = tr.x1 - tr.x0, dy = tr.y1 - tr.y0, dz = tr.z1 - tr.z0, l = Math.hypot(dx, dy, dz) || 1;
+      mStretch((tr.x0 + tr.x1) / 2, (tr.y0 + tr.y1) / 2, (tr.z0 + tr.z1) / 2, dx, dy, dz, 0.07 + 0.05 * k, l);
+      pfPut('beam', 1.6 * k, 1.0 * k, 0.4 * k);
+    }
+    // --- 火团（喷火 / 火浪） ---
+    for (let i = RF.puffs.length - 1; i >= 0; i--) {
+      const f = RF.puffs[i];
+      f.t += dt;
+      if (f.t >= f.life) {
+        if (Math.random() < 0.25) spawnS(f.x, f.y + 0.2, f.z, rand(-0.2, 0.2), rand(0.5, 1), rand(-0.2, 0.2), rand(0.5, 0.8), rand(0.4, 0.6), 0.12, 0.1, 0.09, 0.35), (smokeLive = 1.2);
+        RF.puffs.splice(i, 1);
+        continue;
+      }
+      const dr = Math.max(0, 1 - (f.wave ? 1.5 : 1.2) * dt);
+      f.vx *= dr; f.vz *= dr; f.vy += dt * 1.6;
+      f.x += f.vx * dt; f.y = Math.max(0.15, f.y + f.vy * dt); f.z += f.vz * dt;
+      const a = f.t / f.life, s = f.s * (0.45 + a * 1.3), fl = 1 + 0.15 * Math.sin(wtime * 31 + f.ph);
+      const r = 1, g = a < 0.25 ? 0.75 - a : 0.5 - a * 0.4, b = a < 0.2 ? 0.3 : 0.06, kk = a < 0.75 ? 1 : (1 - a) * 4;
+      const vl = Math.hypot(f.vx, f.vz) || 1;
+      mStretch(f.x, f.y, f.z, f.vx / vl, 0.15, f.vz / vl, s * 0.9 * fl, s * 1.5);
+      pfPut('flameN', r * kk * (1 - a * 0.4), g * kk, b * kk);
+      if (a < 0.6) {
+        const hk = f.wave ? 0.45 : 0.9;
+        mStretch(f.x, f.y + 0.05, f.z, f.vx / vl, 0.2, f.vz / vl, s * 0.55, s * 0.9 * fl);
+        pfPut('flame', hk * kk, 0.66 * hk * kk, 0.28 * hk * kk);
+      }
+    }
+    // --- 燃烧的地面 ---
+    for (let i = RF.fires.length - 1; i >= 0; i--) {
+      const F = RF.fires[i];
+      F.t += dt;
+      if (F.t >= F.dur) { RF.fires.splice(i, 1); continue; }
+      drawFire(F, dt);
+    }
+    // --- 弹壳 ---
+    for (let i = RF.shells.length - 1; i >= 0; i--) {
+      const s = RF.shells[i];
+      s.t += dt;
+      if (s.t > 2.2) { RF.shells.splice(i, 1); continue; }
+      if (!s.rest) {
+        s.vy -= 13 * dt;
+        s.x += s.vx * dt; s.y += s.vy * dt; s.z += s.vz * dt;
+        s.a += s.w * dt;
+        if (s.y < 0.03) {
+          s.y = 0.03;
+          if (Math.abs(s.vy) < 1.2) { s.rest = true; s.vy = 0; } else { s.vy = -s.vy * 0.35; s.vx *= 0.5; s.vz *= 0.5; s.w *= 0.5; }
+        }
+      }
+      const sc = (s.big ? 1.3 : 1) * (s.t > 1.8 ? (2.2 - s.t) / 0.4 : 1);
+      _pe.set(s.rest ? HALF_PI : s.a, s.a * 0.7, s.rest ? 0 : s.a * 0.4);
+      _pq.setFromEuler(_pe);
+      mPose(s.x, s.y, s.z, _pq, sc, sc, sc);
+      pfPut('casing', 0.95, 0.62, 0.22);
+    }
+    // --- 弓的 R 增益光环 ---
+    drawBuff(ent, dt);
+    // --- 热度 / 专注灌满：武器上的稀有度光一呼一吸（「R 可以放了」）；热度很高时枪口冒烟 ---
+    gaugeFx(ent, dt);
+  }
+  // 喷枪自己落的一小片余烬（只有画面）
+  function fireLite(x, z) {
+    if (RF.fires.length >= 28) RF.fires.shift();
+    RF.fires.push({ x, z, r: rand(0.55, 0.85), t: 0, dur: rand(1.6, 2.4), seed: rand(0, 100), acc: 0, big: false });
+    W.decal(1, x, z, 0.8, rand(0, TAU), 0x2a1408, 3);
+  }
+  function drawFire(F, dt) {
+    const fin = Math.min(1, F.t / 0.18), fout = Math.min(1, (F.dur - F.t) / 0.7), a = fin * fout;
+    const n = Math.max(3, Math.min(F.big ? 26 : 10, Math.round(F.r * F.r * 1.6)));
+    // 一地发红的余烬：贴地的小光斑，一明一暗地跳（火的范围靠它连成一片，火舌只是点缀）
+    const ne = Math.max(5, Math.min(F.big ? 90 : 18, Math.round(F.r * F.r * 5)));
+    for (let k = 0; k < ne; k++) {
+      const h1 = hash2(k * 5 + 11, Math.floor(F.seed) + 7), h2 = hash2(k * 17 + 3, Math.floor(F.seed) + 1), ang = h1 * TAU, d = Math.sqrt(h2) * F.r;
+      const fl = 0.55 + 0.45 * Math.sin(wtime * (3 + h2 * 5) + k * 2.1), sz = (0.35 + h1 * 0.45) * a;
+      mPose(F.x + Math.sin(ang) * d, 0.06, F.z + Math.cos(ang) * d, _qFlat, sz, sz, 1);
+      pfPut('glow', 0.95 * fl * a, 0.32 * fl * a, 0.05 * fl * a);
+    }
+    // 底下一层暗红的地光
+    mPose(F.x, 0.07, F.z, _qFlat, F.r * 1.9, F.r * 1.9, 1);
+    pfPut('glow', 0.42 * a, 0.1 * a, 0.015 * a);
+    for (let k = 0; k < n; k++) {
+      const h1 = hash2(k * 7 + 1, Math.floor(F.seed)), h2 = hash2(k * 13 + 5, Math.floor(F.seed) + 3);
+      const ang = h1 * TAU, d = Math.sqrt(h2) * F.r * 0.92;
+      const x = F.x + Math.sin(ang) * d, z = F.z + Math.cos(ang) * d;
+      const fl = 0.75 + 0.35 * Math.sin(wtime * (9 + h1 * 6) + k * 1.7), sz = (0.34 + h2 * 0.22) * a;
+      mStretch(x, 0.05, z, 0, -1, 0, sz * 0.75, sz * 1.5 * fl);
+      pfPut('flameN', 0.95, 0.32 + 0.12 * h1, 0.05);
+      if (k % 2 === 0) {
+        mStretch(x, 0.08, z, 0, -1, 0, sz * 0.45, sz * 0.95 * fl);
+        pfPut('flame', 0.95 * a, 0.62 * a, 0.25 * a);
+      }
+    }
+    F.acc += dt * F.r * 5;
+    while (F.acc >= 1) {
+      F.acc -= 1;
+      const ang = rand(0, TAU), d = Math.sqrt(Math.random()) * F.r;
+      spawnP(F.x + Math.sin(ang) * d, 0.2, F.z + Math.cos(ang) * d, rand(-0.3, 0.3), rand(1, 2.6), rand(-0.3, 0.3), rand(0.4, 0.9), rand(0.07, 0.13), 1, rand(0.45, 0.75), 0.12, -1, 0.8);
+    }
+  }
+  function drawLaser(ent, L, dt) {
+    W.entSocket(ent, 'weapon', _rs);
+    let x0 = _rs.x, z0 = _rs.z, dx, dz, len;
+    const y0 = _rs.y;
+    if (L.ext >= wtime) {
+      dx = L.dx; dz = L.dz; len = L.len;
+      if (Math.hypot(L.x - x0, L.z - z0) > 2) { x0 = L.x; z0 = L.z; }
+    } else {
+      weaponFwd(ent, _rf);
+      dx = _rf.x; dz = _rf.z; len = 0;
+    }
+    if (!(len > 0)) {
+      // 没给长度：往前走到墙为止（最多 14 米）
+      len = 14;
+      for (let d = 0.5; d <= 14; d += 0.5) if (!W.walkable(x0 + dx * d, z0 + dz * d, 0)) { len = d; break; }
+    }
+    const x1 = x0 + dx * len, z1 = z0 + dz * len, y1 = y0 - 0.25, mx = (x0 + x1) / 2, mz = (z0 + z1) / 2, my = (y0 + y1) / 2;
+    const pulse = 1 + 0.12 * Math.sin(wtime * 47) + 0.06 * Math.sin(wtime * 83);
+    // 外焰（火）→ 内焰 → 白热的芯
+    mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.75 * pulse, len);
+    pfPut('beam', 0.95, 0.26, 0.05);
+    mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.34 * pulse, len);
+    pfPut('beam', 1.4, 0.75, 0.22);
+    mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.12, len);
+    pfPut('beam', 2.2, 2.0, 1.6);
+    // 缠在光束上的电弧（雷）
+    const nArc = Math.max(3, Math.round(len / 1.6));
+    for (let i = 0; i < nArc; i++) {
+      if (hash2(Math.floor(wtime * 28) + i * 3, i) < 0.35) continue;
+      const f = (i + hash2(Math.floor(wtime * 20), i + 9)) / nArc;
+      _pq.copy(camQ).multiply(_pq2.setFromAxisAngle(Z_AXIS, Math.atan2(dz, dx) + rand(-0.5, 0.5)));
+      mPose(x0 + dx * len * f, y0 + (y1 - y0) * f, z0 + dz * len * f, _pq, rand(0.9, 1.5), rand(0.3, 0.45), 1);
+      pfPut('arc', 1.1, 1.0, 0.45);
+    }
+    mBill(x0, y0, z0, 1.4 * pulse);
+    pfPut('glow', 1.3, 0.6, 0.15);
+    mBill(x1, y1, z1, 2.2 * pulse);
+    pfPut('glow', 1.4, 0.55, 0.12);
+    mPose(x1, 0.07, z1, _qFlat, 2.4, 2.4, 1);
+    pfPut('glow', 0.9, 0.3, 0.05);
+    if (dt > 0) {
+      for (let i = 0; i < 3; i++) {
+        const a = rand(0, TAU), v = rand(2, 6), el = Math.random() < 0.4;
+        spawnP(x1, y1, z1, Math.sin(a) * v - dx * 2, rand(1, 4), Math.cos(a) * v - dz * 2, rand(0.12, 0.3), rand(0.08, 0.14), 1, el ? 0.95 : 0.55, el ? 0.5 : 0.15, 8, 2);
+      }
+      flashLight(x1, 1.5, z1, 0xff8a3c, 2.2);
+      L.scorch -= dt;
+      if (L.scorch <= 0) {
+        L.scorch = 0.12;
+        W.decal(1, x1, z1, 0.55, rand(0, TAU), 0x2a1408, 1.6);
+      }
+    }
+  }
+  function sprayShot(ent) {
+    const P = G.player, S = G.state;
+    W.entSocket(ent, 'weapon', _rs);
+    let tx, tz, best = null, n = 0;
+    const es = (S && S.enemies) || [];
+    for (let i = 0; i < es.length; i++) {
+      const e = es[i];
+      if (e.dead || Math.hypot(e.x - P.x, e.z - P.z) > 9) continue;
+      n++;
+      if (Math.random() * n < 1) best = e; // 附近的敌人里随手挑一个
+    }
+    if (best && Math.random() < 0.8) {
+      tx = best.x + rand(-0.3, 0.3);
+      tz = best.z + rand(-0.3, 0.3);
+    } else {
+      const a = rand(0, TAU), d = rand(5, 8);
+      tx = P.x + Math.sin(a) * d;
+      tz = P.z + Math.cos(a) * d;
+    }
+    const dx = tx - _rs.x, dz = tz - _rs.z, l = Math.hypot(dx, dz) || 1;
+    W.gunTracer(_rs.x, _rs.z, tx, tz, _rs.y);
+    muzzleAdd(_rs.x, _rs.y, _rs.z, dx / l, dz / l, 1.1, 0xff9a40);
+    ent.revTurn = (ent.revTurn || 0) + 1;
+    if (Math.random() < 0.35) shellAdd(ent, dx / l, dz / l, true);
+    for (let i = 0; i < 4; i++) spawnP(tx, 1.0, tz, rand(-3, 3), rand(0.5, 3), rand(-3, 3), rand(0.08, 0.18), 0.08, 1, 0.8, 0.4, 9, 3);
+  }
+  function drawBuff(ent, dt) {
+    const B = RF.buff;
+    if (!B.type) return;
+    B.t += dt;
+    const PB = G.player, gone = PB && 'rbuff' in PB && !PB.rbuff && wtime - B.set > 0.8; // 逻辑层的增益已经结束
+    if (B.t >= B.dur || gone || !ent || (ent.gearVar && ent.gearVar !== B.type) || (PB && PB.dead)) {
+      B.type = null;
+      return;
+    }
+    const P = G.player, x = P.x, z = P.z, t = wtime;
+    _c.set(BUFF_HEX[B.type]).convertSRGBToLinear();
+    const cr = _c.r, cg = _c.g, cb = _c.b;
+    const left = B.dur - B.t, a = Math.min(1, B.t / 0.25) * (left < 1.2 ? 0.55 + 0.45 * Math.abs(Math.sin(t * 9)) : 1);
+    // 脚下：一圈细光环 + 地光
+    _pq.copy(_qFlat);
+    mPose(x, 0.08, z, _pq, 1.05, 1.05, 1.05);
+    pfPut('ringF', cr * a * 0.8, cg * a * 0.8, cb * a * 0.8);
+    mPose(x, 0.06, z, _qFlat, 2.6, 2.6, 1);
+    pfPut('glow', cr * 0.45 * a, cg * 0.45 * a, cb * 0.45 * a);
+    B.acc += dt * 14;
+    if (B.type === 'huntbow') {
+      // 万矢：五枚小箭影绕身转
+      for (let k = 0; k < 5; k++) {
+        const ang = t * 2.6 + (k / 5) * TAU, px = x + Math.sin(ang) * 0.85, pz = z + Math.cos(ang) * 0.85;
+        mStretch(px, 1.25 + 0.1 * Math.sin(t * 3 + k), pz, Math.cos(ang), 0, -Math.sin(ang), 0.12, 0.6);
+        pfPut('beam', cr * 2.2 * a, cg * 2.2 * a, cb * 2.2 * a);
+        mBill(px, 1.25, pz, 0.35);
+        pfPut('glow', cr * a, cg * a, cb * a);
+      }
+    } else if (B.type === 'eagle') {
+      // 一矢穿心：脚下四道转动的准星刻度，眼前一点金光
+      for (let k = 0; k < 4; k++) {
+        const ang = t * 1.2 + (k / 4) * TAU, px = x + Math.sin(ang) * 1.3, pz = z + Math.cos(ang) * 1.3;
+        _pq.setFromAxisAngle(UP, ang).multiply(_qFlat);
+        mPose(px, 0.09, pz, _pq, 0.07, 0.42, 1);
+        pfPut('beam', cr * 2 * a, cg * 2 * a, cb * 1.6 * a);
+      }
+      const f = G.player.face || 0;
+      mBill(x + Math.sin(f) * 0.18, 1.78, z + Math.cos(f) * 0.18, 0.5 + 0.1 * Math.sin(t * 12));
+      pfPut('glow', 1.6 * a, 1.4 * a, 0.8 * a);
+    } else if (B.type === 'runebow') {
+      // 元素满溢：火、冰、雷三颗元素球绕身转，地上的光圈跟着换色
+      const EC = [[1, 0.4, 0.08], [0.45, 0.8, 1], [1, 0.9, 0.3]];
+      for (let k = 0; k < 3; k++) {
+        const ang = t * 3.1 + (k / 3) * TAU, px = x + Math.sin(ang) * 0.75, pz = z + Math.cos(ang) * 0.75, py = 1.2 + 0.15 * Math.sin(t * 4 + k * 2);
+        mPose(px, py, pz, _pqI, 0.07, 0.07, 0.07);
+        pfPut('core', EC[k][0] * 1.3, EC[k][1] * 1.3, EC[k][2] * 1.3);
+        mBill(px, py, pz, 0.55);
+        pfPut('glow', EC[k][0] * a, EC[k][1] * a, EC[k][2] * a);
+        if (dt > 0 && Math.random() < dt * 20) spawnP(px, py, pz, rand(-0.3, 0.3), rand(0, 0.5), rand(-0.3, 0.3), rand(0.25, 0.45), 0.09, EC[k][0], EC[k][1], EC[k][2], 0, 2);
+      }
+    } else if (B.type === 'emberbow') {
+      // 烬铸弓：脚下一圈火舌往上舔，余烬绕身升起
+      for (let k = 0; k < 10; k++) {
+        const ang = (k / 10) * TAU + t * 0.8, px = x + Math.sin(ang) * 0.7, pz = z + Math.cos(ang) * 0.7, fl = 0.8 + 0.3 * Math.sin(t * 13 + k * 2.3);
+        mStretch(px, 0.05, pz, 0, -1, 0, 0.28 * a, 0.75 * fl * a);
+        pfPut('flameN', 0.95, 0.35, 0.05);
+        if (k % 2) {
+          mStretch(px, 0.08, pz, 0, -1, 0, 0.16 * a, 0.5 * fl * a);
+          pfPut('flame', 0.9 * a, 0.6 * a, 0.25 * a);
+        }
+      }
+    }
+    // 绕身升起的光粒
+    while (B.acc >= 1) {
+      B.acc -= 1;
+      const ang = rand(0, TAU), d = rand(0.3, 0.9);
+      spawnP(x + Math.sin(ang) * d, rand(0.2, 1.2), z + Math.cos(ang) * d, rand(-0.2, 0.2), rand(0.8, 1.8), rand(-0.2, 0.2), rand(0.5, 0.9), rand(0.07, 0.12),
+        Math.min(1, cr * 1.6 + 0.2), Math.min(1, cg * 1.6 + 0.2), Math.min(1, cb * 1.6 + 0.2), -0.6, 0.8);
+    }
+  }
+  function gaugeFx(ent, dt) {
+    if (!ent || !ent.gearVar || !GUN_KIND[ent.gearVar]) return;
+    RF.gaugeT -= dt;
+    if (RF.gaugeT <= 0) {
+      RF.gaugeT = 0.2;
+      let k = 0;
+      try {
+        const rw = typeof G.rangedWeapon === 'function' ? G.rangedWeapon() : null, gg = rw && rw.gauge;
+        k = gg && gg.max > 0 ? gg.v / gg.max : 0;
+      } catch (e) {
+        k = 0;
+      }
+      RF.gaugeK = k;
+      RF.gaugeFull = k >= 0.999;
+    }
+    const m = ent.auxMat;
+    if (m && ent.flashT <= 0) {
+      const base = m.userData.ei0;
+      m.emissiveIntensity = RF.gaugeFull ? base * (1.25 + 0.55 * Math.abs(Math.sin(wtime * 5))) : base;
+    }
+    // 热度高：枪口冒一缕青烟；满了还噼啪掉火星
+    if (dt > 0 && ent.gearType >= G_GAT && RF.gaugeK > 0.7 && Math.random() < dt * (RF.gaugeFull ? 9 : 4)) {
+      W.entSocket(ent, 'weapon', _rs);
+      spawnS(_rs.x, _rs.y + 0.05, _rs.z, rand(-0.1, 0.1), rand(0.4, 0.8), rand(-0.1, 0.1), rand(0.5, 0.9), rand(0.18, 0.28), 0.16, 0.15, 0.15, 0.3);
+      smokeLive = 1.2;
+      if (RF.gaugeFull) spawnP(_rs.x, _rs.y, _rs.z, rand(-0.6, 0.6), rand(0.5, 1.6), rand(-0.6, 0.6), rand(0.2, 0.4), 0.08, 1, 0.6, 0.2, 3, 1);
+    }
   }
 
   const lootMats = Object.create(null);
@@ -10603,6 +12660,10 @@
       spawnP(x, rand(5, 9), z, rand(0.4, 1.2), rand(-2.6, -1.5), rand(-0.2, 0.5), rand(2.6, 4), rand(0.09, 0.17), 0.62, 0.74, 0.85, 0, 0);
     } else if (mode === 'spark') {
       spawnP(x, rand(0.2, 3.5), z, rand(-2, 2), rand(-1, 2), rand(-2, 2), rand(0.3, 0.8), rand(0.08, 0.16), fx.ar, fx.ag, fx.ab, 0, 0.5);
+    } else if (mode === 'mote') {
+      // 星尘：从琉璃地面的裂缝里缓缓升起，偶尔一粒偏白
+      const w = Math.random() < 0.3 ? 0.6 : 0;
+      spawnP(x, rand(0.05, 0.6), z, rand(-0.2, 0.2), rand(0.35, 0.95), rand(-0.2, 0.2), rand(3, 5.5), rand(0.06, 0.14), fx.ar + (1 - fx.ar) * w, fx.ag + (1 - fx.ag) * w, fx.ab + (1 - fx.ab) * w, -0.05, 0.25);
     } else {
       spawnP(x, rand(0.1, 1.2), z, rand(-0.2, 0.9), rand(0.5, 1.7), rand(-0.4, 0.4), rand(2.2, 4.5), rand(0.08, 0.2), fx.ar, fx.ag * 0.8, fx.ab * 0.6, -0.25, 0.15);
     }
@@ -10687,6 +12748,24 @@
           fx.boltT -= dt;
           const k = Math.max(0, fx.boltT / 0.3);
           hi += (k > 0.75 || (k > 0.3 && k < 0.5) ? 1 : 0.15) * k * 0.9;
+        }
+      }
+      if (fx.isles) {
+        // 坠星裂谷：浮岩起伏、天穹碎片呼吸、天边不时划过一颗流星
+        for (let i = 0; i < fx.isles.length; i++) {
+          const q = fx.isles[i];
+          q.m.position.y = q.y + Math.sin(wtime * q.sp + q.ph) * 0.35;
+          q.m.rotation.y += dt * q.rot;
+        }
+        fx.skyMat.emissiveIntensity = 0.5 + Math.sin(wtime * 1.3) * 0.15;
+        fx.starIn -= dt;
+        if (fx.starIn <= 0) {
+          fx.starIn = rand(2.5, 6);
+          const sx = camT.x + rand(-16, 16), sy = rand(5, 8), sz = camT.z - rand(6, 13), dx = rand(0.6, 1) * (Math.random() < 0.5 ? -1 : 1), dy = -0.32, dz = 0.2, v = 24;
+          for (let i = 0; i < 16; i++) {
+            const w = 1 - i / 16;
+            spawnP(sx - dx * i * 0.22, sy - dy * i * 0.22, sz - dz * i * 0.22, dx * v, dy * v, dz * v, 0.25 + 0.4 * w, 0.06 + 0.16 * w, fx.ar + (1 - fx.ar) * w, fx.ag + (1 - fx.ag) * w, fx.ab + (1 - fx.ab) * w, 0, 0);
+          }
         }
       }
       hemi.intensity = hi;

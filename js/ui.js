@@ -23,8 +23,9 @@
 
   // ---------- 武器 ----------
   // 武器类型名：优先用数据里的写法，没有就用这张表
-  const WTYPE_NAME = { blade: '刃', staff: '长杖', wand: '短杖', daggers: '双匕', hammer: '战锤', bow: '长弓', katana: '太刀', banner: '魂幡' };
+  const WTYPE_NAME = { blade: '刃', staff: '长杖', wand: '短杖', daggers: '双匕', hammer: '战锤', bow: '长弓', katana: '太刀', banner: '魂幡', gatling: '机炮', flamer: '喷枪', revolver: '左轮', huntbow: '猎弓', eagle: '长弓', runebow: '符文弓', emberbow: '烬铸弓' };
   const WTYPE_ORDER = ['blade', 'staff', 'wand', 'daggers', 'hammer', 'bow', 'katana', 'banner'];
+  const GUN_TYPES = ['gatling', 'flamer', 'revolver'];
   const wBase = (item) => (item && item.slot === 'weapon' && G.BASES.weapon ? G.BASES.weapon[item.baseIdx | 0] || null : null);
   const wTypeOf = (baseIdx) => {
     const b = G.BASES.weapon && G.BASES.weapon[baseIdx];
@@ -108,7 +109,7 @@
   const ALLY = G.icons.ally || '#4fe3c8'; // 友方召唤物的青色（与世界里的血条、地面圈同色）
   const MINION_STATS = ['minionDmg', 'minionLife', 'minionSpeed', 'minionCap', 'minionMore'];
   const MINION_NAME = { thrall: '烬骸仆从', colossus: '石誓守像' };
-  const ZONE_GLYPH = { ash: '烬', frost: '霜', storm: '雷', abyss: '渊' };
+  const ZONE_GLYPH = { ash: '烬', frost: '霜', storm: '雷', abyss: '渊', rift: '星' };
   const ZONE_ORD = ['第一境', '第二境', '第三境', '第四境', '第五境', '第六境'];
 
   // ============================================================
@@ -119,7 +120,7 @@
   let master = null;
   let noiseBuf = null;
   const lastPlay = {};
-  const MIN_GAP = { hit: 55, crit: 70, cast: 60, hurt: 120, pickup: 60, click: 30, roll: 100, heart: 300, deny: 160, ready: 120, drop: 80, impact: 40, swing: 70, finisher: 150, ashcuts: 300, tristorm: 300, soulhost: 300, break: 200, execute: 200, execstart: 200, kill: 70 };
+  const MIN_GAP = { shot: 40, hit: 55, crit: 70, cast: 60, hurt: 120, pickup: 60, click: 30, roll: 100, heart: 300, deny: 160, ready: 120, drop: 80, impact: 40, swing: 70, finisher: 150, ashcuts: 300, tristorm: 300, soulhost: 300, break: 200, execute: 200, execstart: 200, kill: 70 };
 
   function audioInit() {
     try {
@@ -183,6 +184,20 @@
   }
 
   const SFX = {
+    // 远程普攻：机炮短促的「哒」、左轮沉的一声「砰」带一点金属尾音、弓弦的「嘣」
+    shot(t, p) {
+      if (p.type === 'gatling') {
+        noise('bandpass', 2400, 700, t, 0.05, 0.32, 1.2, 0.002);
+        tone('square', 140, 70, t, 0.04, 0.1);
+      } else if (p.type === 'revolver') {
+        noise('lowpass', 4200, 300, t, 0.16, 0.6, 0.8, 0.002);
+        tone('sawtooth', 120, 46, t, 0.14, 0.25);
+        tone('triangle', 2200, 1800, t + 0.02, 0.12, 0.05);
+      } else {
+        tone('triangle', 260, 170, t, 0.13, 0.22);
+        noise('highpass', 1800, 4200, t, 0.09, 0.16, 0.9, 0.003);
+      }
+    },
     cast(t) {
       noise('bandpass', 500, 2600, t, 0.14, 0.35, 1.4, 0.02);
       tone('sine', 300, 620, t, 0.12, 0.18);
@@ -497,10 +512,16 @@
     ws.id = 'wslot';
     ws.className = 'slot wslot empty nowpn';
     ws.innerHTML =
-      '<div class="s-icon"><i class="s-img ico"></i><div class="s-cd"></div><span class="s-cdnum"></span><span class="s-none">无武器</span></div>' +
+      '<div class="s-icon"><i class="s-img ico"></i><div class="s-gfill"><i></i></div><div class="s-cd"></div><span class="s-cdnum"></span><span class="s-none">无武器</span></div>' +
       '<div class="s-key"><b>R</b><span class="s-ktxt">武器技</span></div><div class="s-bubble"></div><div class="s-combo"><i></i><i></i><i></i></div><i class="s-ember"></i>';
+    // 远程武器的量表（热度 / 专注）：R 格左边一根竖条，满了才能放 R；R 格里也跟着从下往上灌
+    const gauge = document.createElement('div');
+    gauge.id = 'gauge';
+    gauge.innerHTML = '<div class="g-track"><i class="g-fill"></i><i class="g-ticks"></i><span class="g-num"></span></div><div class="s-key g-name">热度</div>';
     $('bar').appendChild(wsep);
+    $('bar').appendChild(gauge);
     $('bar').appendChild(ws);
+    hud.gauge = { el: gauge, fill: gauge.querySelector('.g-fill'), num: gauge.querySelector('.g-num'), name: gauge.querySelector('.g-name'), kind: '', q: -1, full: null, on: null, wfill: ws.querySelector('.s-gfill > i') };
     hud.slots.push({
       el: ws, icon: ws.querySelector('.s-icon'), img: ws.querySelector('.s-img'), cd: ws.querySelector('.s-cd'), num: ws.querySelector('.s-cdnum'),
       bubble: ws.querySelector('.s-bubble'), pips: Array.from(ws.querySelectorAll('.s-combo > i')),
@@ -557,6 +578,55 @@
         toggle(b.dataset.open);
       }
     });
+  }
+
+  // 手里的远程武器（G.rangedWeapon）：null，或 { family, type, basic, gauge: { kind, v, max, full, name } }
+  function rangedNow() {
+    try {
+      const rw = typeof G.rangedWeapon === 'function' ? G.rangedWeapon() : null;
+      return rw && rw.gauge ? rw : null;
+    } catch (e) {
+      return null;
+    }
+  }
+  // 量表：R 格左边的竖条（热度橙红 / 专注青绿），R 格里同步从下往上灌；没满时 R 格压暗，满了一闪一闪
+  function updateGauge(rw) {
+    const g = hud.gauge;
+    if (!g) return;
+    const on = !!rw;
+    if (on !== g.on) {
+      g.on = on;
+      g.el.classList.toggle('on', on);
+      hud.slots[W_SLOT].el.classList.toggle('ranged', on);
+      if (!on) {
+        hud.slots[W_SLOT].el.classList.remove('gated', 'gfull');
+        g.full = null;
+      }
+    }
+    if (!on) return;
+    const kind = rw.gauge.kind;
+    if (kind !== g.kind) {
+      g.kind = kind;
+      g.el.dataset.kind = kind;
+      hud.slots[W_SLOT].el.dataset.gauge = kind;
+      g.name.textContent = rw.gauge.name || (kind === 'heat' ? '热度' : '专注');
+    }
+    const max = rw.gauge.max > 0 ? rw.gauge.max : 100;
+    const q = Math.round(G.clamp(rw.gauge.v / max, 0, 1) * 200) / 2;
+    if (q !== g.q) {
+      g.q = q;
+      g.fill.style.transform = 'scaleY(' + q / 100 + ')';
+      g.wfill.style.transform = 'scaleY(' + q / 100 + ')';
+      g.num.textContent = Math.floor(q);
+    }
+    const full = !!rw.gauge.full || q >= 100;
+    if (full !== g.full) {
+      if (full && g.full === false) slotFx(hud.slots[W_SLOT], 'ready', '', performance.now());
+      g.full = full;
+      g.el.classList.toggle('full', full);
+      hud.slots[W_SLOT].el.classList.toggle('gated', !full);
+      hud.slots[W_SLOT].el.classList.toggle('gfull', full);
+    }
   }
 
   // full（可选）：球满格对应的数值（魔力球按保留前的上限画，顶上那一截是光环保留）
@@ -640,9 +710,15 @@
     // 技能栏
     const blood = P.S.bloodMagic > 0;
     const wpn = !!S.equip.weapon;
+    const rw = rangedNow();
     for (let i = 0; i < hud.slots.length; i++) {
       const s = hud.slots[i];
-      const id = (i === W_SLOT ? curWSkill() : S.bar[i]) || null;
+      const basic = i === 1 && rw && G.SKILLS[rw.basic] ? rw.basic : null; // 拿着远程武器：右键就是武器普攻
+      const id = (i === W_SLOT ? curWSkill() : basic || S.bar[i]) || null;
+      if (i === 1 && !!basic !== !!s.basic) {
+        s.basic = !!basic;
+        s.el.classList.toggle('basic', !!basic);
+      }
       if (i === W_SLOT && wpn !== s.wpn) {
         s.wpn = wpn;
         s.el.classList.toggle('nowpn', !wpn); // 空手：格子里写「无武器」
@@ -706,6 +782,7 @@
           const shift = !!(G.input.keys.ShiftLeft || G.input.keys.ShiftRight);
           if (sk.kind === 'aura') slotFx(s, 'ready', '', now); // 光环：按了也只是亮一下，提示它一直生效
           else if (sk.kind === 'summon' && !shift) slotFx(s, 'ready', '', now); // 召唤：按键是自动召唤的开关，不是施放
+          else if (i === W_SLOT && rw && !rw.gauge.full) slotFx(s, 'deny', rw.gauge.name + '未满', now); // 远程武器的 R 要量表灌满
           else if (left > 0.15) slotFx(s, 'deny', '冷却中', now);
           else if (na) slotFx(s, 'deny', blood ? '生命不足' : '魔力不足', now);
         }
@@ -743,8 +820,10 @@
       }
     }
 
+    updateGauge(rw);
+
     // 武器技的新手提示亮着时，R 格跟着一闪一闪，指给玩家看
-    const wHint = !!(coach.cur && coach.cur.id === 'wskill' && coach.state === 'show');
+    const wHint = !!(coach.cur && (coach.cur.id === 'wskill' || coach.cur.id === 'rgauge') && coach.state === 'show');
     if (wHint !== hud.wHint) {
       hud.wHint = wHint;
       hud.slots[W_SLOT].el.classList.toggle('hint', wHint);
@@ -1157,17 +1236,21 @@
     const P = G.player;
     const save = G.save;
     const dps = {};
-    for (let i = 0; i < 4; i++) {
+    // 武器普攻（basic）不是学会的技能，但拿着远程武器时它就是右键
+    const usable = (id) => !!(id && G.SKILLS[id] && (G.SKILLS[id].basic || save.skills[id]));
+    for (const i of [0, 2, 3]) {
       const id = save.bar[i];
-      if (!id || dps[id] !== undefined || !G.SKILLS[id] || !save.skills[id]) continue;
-      const ctx = G.skillCtx(id);
-      dps[id] = G.skillDps(ctx);
+      if (!usable(id) || dps[id] !== undefined) continue;
+      dps[id] = G.skillDps(G.skillCtx(id));
     }
+    // 右键单独记：换上 / 换下远程武器会把右键换成武器普攻，或把记住的技能换回来
+    const rid = G.slotSkill(1);
+    const rmb = usable(rid) ? { id: rid, dps: dps[rid] !== undefined ? dps[rid] : G.skillDps(G.skillCtx(rid)) } : null;
     // R 键的武器技：换武器会换掉它（换类型）或改变它的伤害（同类型，等级 / 武器伤害不同）
     const wid = typeof G.weaponSkill === 'function' ? G.weaponSkill() : null;
     const ws = wid ? { id: wid, dps: G.skillDps(G.skillCtx(wid)) } : null;
     return {
-      dps, ws, life: P.maxLife, mana: P.maxMana, armour: P.armour,
+      dps, rmb, ws, life: P.maxLife, mana: P.maxMana, armour: P.armour,
       rf: P.res.fire, rc: P.res.cold, rl: P.res.light, res: P.res.fire + P.res.cold + P.res.light,
       move: P.moveSpeed, regen: P.lifeRegen,
     };
@@ -1218,9 +1301,29 @@
     let off = 0;
     let nOff = 0;
     let faint = false; // 有变化，但小到不值得单列一行
-    for (const id in a.dps) {
-      const d = b.dps[id] - a.dps[id];
-      const pct = a.dps[id] > 0 ? (d / a.dps[id]) * 100 : null;
+    // 两边右键是同一个技能时，和技能栏上的技能一起比；不是同一个时单独列一行「右键：A → B」，再比两边右键的秒伤
+    if (a.rmb && b.rmb && a.rmb.id === b.rmb.id) {
+      if (a.dps[a.rmb.id] === undefined) a.dps[a.rmb.id] = a.rmb.dps;
+      if (b.dps[b.rmb.id] === undefined) b.dps[b.rmb.id] = b.rmb.dps;
+    } else if (a.rmb || b.rmb) {
+      const nm = (r) => (r ? '「' + G.SKILLS[r.id].name + '」' : '无');
+      lines.push({ label: '右键', text: nm(a.rmb) + ' → ' + nm(b.rmb), pct: null, neutral: true });
+      const ra = a.rmb ? a.rmb.dps || 0 : 0;
+      const rb = b.rmb ? b.rmb.dps || 0 : 0;
+      const d = rb - ra;
+      const pct = ra > 0 ? (d / ra) * 100 : null;
+      if (pct !== null) {
+        off += G.clamp(pct, -100, 100);
+        nOff++;
+      }
+      if (Math.abs(d) >= 0.05 && (pct === null || Math.abs(pct) >= 0.5)) lines.push({ label: '右键秒伤', text: signed(d), pct, good: d > 0 });
+      else if (Math.abs(d) > 1e-6) faint = true;
+    }
+    for (const id in Object.assign({}, a.dps, b.dps)) {
+      const av = a.dps[id] || 0;
+      const bv = b.dps[id] || 0;
+      const d = bv - av;
+      const pct = av > 0 ? (d / av) * 100 : null;
       if (pct !== null) {
         off += pct;
         nOff++;
@@ -1727,6 +1830,88 @@
     );
   }
 
+  // ---------- 武器普攻卡：拿着枪械或弓时右键是这把武器的普攻；3 个辅助孔属于卡片本身（save.sockets[G.BASIC_CARD]） ----------
+  const BASIC_KEY = () => G.BASIC_CARD || 'wbasic';
+  const RANGED_ORDER = ['gatling', 'flamer', 'revolver', 'huntbow', 'eagle', 'runebow', 'emberbow'];
+  const GAUGE_TXT = {
+    heat: '热度：开火时上涨，停火一会儿后慢慢回落；没有过热惩罚。灌满后 <kbd>R</kbd> 亮起，放出 R 技会把热度排空',
+    focus: '专注：箭矢命中时上涨，暴击和远距离命中涨得更多，挨打会掉一点。灌满后 <kbd>R</kbd> 亮起，放出限时增益并清空专注',
+  };
+  // 技能名（辅助孔的主人可能是武器普攻卡，它不是一个技能）
+  const skName = (id) => (id === BASIC_KEY() ? '武器普攻' : G.SKILLS[id] ? G.SKILLS[id].name : String(id));
+  function basicCard() {
+    const S = G.save, key = BASIC_KEY(), rw = rangedNow();
+    const id = rw && G.SKILLS[rw.basic] ? rw.basic : null;
+    const sk = id ? G.SKILLS[id] : null;
+    const socks = S.sockets[key] || [null, null, null];
+    let live = [];
+    try {
+      live = id && typeof G.basicSupports === 'function' ? G.basicSupports(id) : [];
+    } catch (e) {
+      live = [];
+    }
+    let sockets = '';
+    for (let i = 0; i < 3; i++) {
+      const sup = socks[i];
+      const picking = ui.picker && ui.picker.skill === key && ui.picker.idx === i;
+      if (sup && G.SUPPORTS[sup]) {
+        const idle = id && live.indexOf(sup) < 0; // 镶着，但对现在这把武器的普攻不生效
+        sockets +=
+          '<button type="button" tabindex="-1" class="sock full' + (idle ? ' idle' : '') + '" data-act="socket" data-skill="' + key + '" data-idx="' + i + '" data-tip="sock:' + sup + '" data-drag="sup:' + sup + '">' +
+          IC.sup(sup) + G.SUPPORTS[sup].name + (idle ? '<em>不生效</em>' : '') + '</button>';
+      } else {
+        sockets += '<button type="button" tabindex="-1" class="sock' + (picking ? ' picking' : '') + '" data-act="socket" data-skill="' + key + '" data-idx="' + i + '"><i></i>空槽</button>';
+      }
+    }
+    const row = RANGED_ORDER.filter((t) => G.SKILLS['basic_' + t]).map((t) => {
+      const bid = 'basic_' + t, bs = G.SKILLS[bid];
+      const bi = (G.BASES.weapon || []).findIndex((b) => b && b.type === t);
+      return '<span class="wsl' + (bid === id ? ' on' : '') + '" style="--c:' + bs.color + '" data-tip="wsk:' + bid + '">' + IC.skill(bid) + '<em>' + (bi >= 0 ? wTypeName(bi) : bs.name) + '</em></span>';
+    }).join('');
+    const num = (label, val, cls) => '<div class="sk-num' + (cls ? ' ' + cls : '') + '"><span>' + label + '</span><b>' + val + '</b></div>';
+    let body;
+    if (sk) {
+      let ctx = null, avg = 0, rate = 0;
+      try {
+        ctx = G.skillCtx(id);
+        avg = G.avgHit(ctx);
+        rate = G.skillRate(ctx);
+      } catch (e) {
+        ctx = null;
+      }
+      const g = rw.gauge;
+      const nums = ctx
+        ? num(sk.rtype === 'flamer' ? '每一跳' : '每发伤害', fmtDmg(avg), 'hl') +
+          num(sk.rtype === 'flamer' ? '每秒几跳' : '每秒几发', rate > 0 ? rate.toFixed(2) : '—') +
+          num('估算秒伤', fmtDmg(avg * rate)) +
+          num('暴击率', fmt1(ctx.crit) + '%') +
+          num(g.name, Math.floor(g.v) + ' / ' + g.max, g.full ? 'full' : '') +
+          num('魔力消耗', '无')
+        : '';
+      body =
+        '<div class="sk-desc">' + sk.desc + '</div>' +
+        (nums ? '<div class="sk-nums">' + nums + '</div>' : '') +
+        (ctx ? attackNote(ctx) : '') +
+        '<div class="sk-anote gauge ' + g.kind + '"><i></i><span>' + (GAUGE_TXT[g.kind] || '') + '</span></div>';
+    } else {
+      body =
+        '<div class="sk-desc">拿上<b>枪械</b>或<b>弓</b>时，<kbd>右键</kbd>自动变成这把武器自己的普攻（枪械「开火」、弓「射击」），伤害随武器成长、不耗魔力。' +
+        '原来放在右键上的技能先收起来，换回其他武器时放回去。</div>' +
+        '<div class="sk-anote"><i></i><span>下面的 3 个辅助孔属于这张卡：换不同的远程武器时宝石不动，按当时普攻的标签生效</span></div>';
+    }
+    return (
+      '<div class="skill-card basic-card' + (sk ? '' : ' off') + (sk && /revolver|emberbow/.test(sk.rtype) ? ' uq' : '') + '" style="--c:' + (sk ? sk.color : '#a08868') + '">' +
+      '<div class="sk-top"><div class="sk-icon"' + (id ? ' data-tip="wsk:' + id + '"' : '') + '>' + (id ? IC.skill(id) : IC.basicBlank ? IC.basicBlank() : '') + '</div>' +
+      '<div class="sk-title"><div class="sk-name">武器普攻' + (sk ? '<em class="bc-name">' + sk.name + '</em>' : '') + '</div>' +
+      '<div class="wsk-src">' + (sk ? '来自 ' + esc(S.equip.weapon ? S.equip.weapon.name : '') + ' · ' + wTypeName(S.equip.weapon.baseIdx | 0) : '没有拿着枪械或弓') + '</div></div>' +
+      '<div class="sk-binds"><span class="bind lock' + (sk ? ' on' : '') + '">右键</span></div></div>' +
+      body +
+      '<div class="wsk-row">' + row + '</div>' +
+      '<div class="sk-socks"><span class="sk-socks-label">辅助</span>' + sockets + '</div>' +
+      '</div>'
+    );
+  }
+
   // 技能页右栏顶上的武器技一节：当前武器技的卡片（数值、成长方式；不能镶辅助），下面一排是每种武器各自的武器技
   function wskillSection() {
     const S = G.save;
@@ -1792,6 +1977,17 @@
           nums = num('单体总伤', fmtDmg(avg), 'hl') + num('每一闪 · 斩痕', fmtDmg(per * sk.pass) + ' · ' + fmtDmg(per * sk.cut)) + num('每层残刃', fmtDmg(per * sk.mark)) + cdN + costN + num('暴击率', fmt1(ctx.crit) + '%');
         }
       }
+      // 远程武器的量表技：没有冷却、不耗魔力，量表满了才能放
+      if (ctx && sk.rgauge) {
+        const rw = rangedNow(), g = rw && rw.gauge;
+        const gN = num(g ? g.name : '量表', g ? Math.floor(g.v) + ' / ' + g.max : '—', g && g.full ? 'full' : '');
+        if (sk.buff) {
+          const dur = sk.buff.dur * Math.max(0.1, 1 + ((G.player.S && G.player.S.buffDur) || 0) / 100);
+          nums = num('增益持续', fmt1(dur) + ' 秒', 'hl') + gN + num('冷却', '无') + num('魔力消耗', '无') + num('暴击率', fmt1(ctx.crit) + '%') + num('等级', lvl ? 'Lv ' + lvl : '—');
+        } else {
+          nums = num(sk.useMult > 1 ? '整招伤害' : '每次伤害', fmtDmg(avg), 'hl') + gN + num('冷却', '无') + num('魔力消耗', '无') + num('暴击率', fmt1(ctx.crit) + '%') + num('等级', lvl ? 'Lv ' + lvl : '—');
+        }
+      }
       const w = ctx && ctx.weapon ? ctx.weapon : wStats(item);
       const gk = wGrowKind(sk);
       const grow = gk === 'attack'
@@ -1806,7 +2002,9 @@
         '<div class="sk-desc">' + sk.desc + '</div>' +
         (nums ? '<div class="sk-nums">' + nums + '</div>' : '') +
         '<div class="sk-anote wpn"><i></i><span>' + grow + '</span></div>' +
-        '<div class="sk-anote cd"><i></i><span>' + (sk.uskill ? '烬铸武器专属：冷却长、一次打得狠，换回普通武器时冷却按比例带过去；' : '有冷却，穿插在主力技能之间用；') + '不能镶辅助宝石</span></div>';
+        (sk.rgauge
+          ? '<div class="sk-anote gauge ' + (GUN_TYPES.indexOf(sk.wtype) >= 0 ? 'heat' : 'focus') + '"><i></i><span>' + (GUN_TYPES.indexOf(sk.wtype) >= 0 ? '热度' : '专注') + '灌满时 R 亮起，放出后清零；没有冷却、不耗魔力' + (sk.uskill ? '；烬铸武器专属' : '') + '；不能镶辅助宝石</span></div>'
+          : '<div class="sk-anote cd"><i></i><span>' + (sk.uskill ? '烬铸武器专属：冷却长、一次打得狠，换回普通武器时冷却按比例带过去；' : '有冷却，穿插在主力技能之间用；') + '不能镶辅助宝石</span></div>');
     }
     // 第二排：三把烬铸武器各自的烬铸技（拿着的那把亮起）
     const urow = Object.keys(G.SKILLS).filter(isUSkill).map((u) =>
@@ -1840,7 +2038,12 @@
     const socks = S.sockets[id] || [null, null, null];
 
     let binds = '';
+    const rmbLock = !!rangedNow();
     for (let i = 0; i < 4; i++) {
+      if (i === 1 && rmbLock) {
+        binds += '<span class="bind locked" data-tip="txt:拿着枪械或弓时右键是武器普攻，不能绑别的技能">' + KEY_LABEL[i] + '</span>';
+        continue;
+      }
       binds +=
         '<button type="button" tabindex="-1" class="bind' + (S.bar[i] === id ? ' on' : '') + '" data-act="bind" data-skill="' + id + '" data-slot="' + i + '">' + KEY_LABEL[i] + '</button>';
     }
@@ -1927,7 +2130,7 @@
     const unknown = Object.keys(G.SKILLS).filter((id) => !S.skills[id] && !isWSkill(id));
     const B = G.BLANK_GEM;
     const best = G.blankBest();
-    let cards = known.map(skillCard).join('');
+    let cards = basicCard() + known.map(skillCard).join('');
     if (unknown.length) {
       // 有无铭宝石时，每个没学会的技能都能点：第一下只是选中，再点一次才用掉
       const item = (id) => {
@@ -1962,7 +2165,16 @@
 
     // 技能栏：四个格子，可以把技能图标拖进来
     let bar = '';
+    const rwB = rangedNow();
     for (let i = 0; i < 4; i++) {
+      if (i === 1 && rwB && G.SKILLS[rwB.basic]) {
+        // 右键被武器普攻占着：不能拖进拖出
+        const bk = G.SKILLS[rwB.basic];
+        bar +=
+          '<div class="barslot basic" data-tip="txt:拿着枪械或弓时右键固定是武器普攻；原来的右键技能' + (S.rmbKeep && G.SKILLS[S.rmbKeep] ? '（' + G.SKILLS[S.rmbKeep].name + '）' : '') + '换回其他武器时放回去" style="--c:' + bk.color + '">' +
+          '<div class="bs-icon">' + IC.skill(rwB.basic) + '</div><div class="bs-txt"><span>右键 · 武器普攻</span><b>' + bk.name + '</b></div></div>';
+        continue;
+      }
       const id = S.bar[i];
       bar +=
         '<div class="barslot' + (id ? '' : ' empty') + '" data-slot="' + i + '"' + (id ? ' data-drag="skill:' + id + '" data-tip="skdrag:' + id + '" style="--c:' + G.SKILLS[id].color + '"' : '') + '>' +
@@ -1984,7 +2196,7 @@
         '<span class="sup-req">' + scopeText(sp) + '</span></div>' +
         '<div class="sup-desc">' + sp.desc + '</div>' +
         '<div class="sup-foot"><span>消耗 ×' + sp.cost + '</span>' +
-        (loc ? '<span class="sup-loc">镶于 ' + G.SKILLS[loc.skill].name + '</span>' : '<span class="sup-free">未使用</span>') +
+        (loc ? '<span class="sup-loc">镶于 ' + skName(loc.skill) + '</span>' : '<span class="sup-free">未使用</span>') +
         '</div></div>';
     }
     if (!sups) {
@@ -2042,14 +2254,14 @@
         rank = loc ? 1 : 0;
         html =
           '<button type="button" tabindex="-1" class="pk-row" data-act="pick" data-sup="' + id + '"><div class="pk-top">' + IC.sup(id) + '<b>' + sp.name + '</b>' +
-          (loc ? '<span class="pk-note warn">正用于 ' + G.SKILLS[loc.skill].name + ' · 选择后移过来</span>' : '<span class="pk-note">消耗 ×' + sp.cost + '</span>') +
+          (loc ? '<span class="pk-note warn">正用于 ' + skName(loc.skill) + ' · 选择后移过来</span>' : '<span class="pk-note">消耗 ×' + sp.cost + '</span>') +
           '</div><div class="pk-desc">' + sp.desc + '</div></button>';
       }
       rows.push({ rank, html });
     }
     rows.sort((a, b) => a.rank - b.rank);
     box.innerHTML =
-      '<div class="pk-title">为「' + G.SKILLS[pk.skill].name + '」选择辅助宝石</div>' +
+      '<div class="pk-title">为「' + skName(pk.skill) + '」选择辅助宝石</div>' +
       (rows.length
         ? '<div class="pk-list scroll">' + rows.map((r) => r.html).join('') + '</div>'
         : '<div class="pk-empty">还没有辅助宝石。精英怪和首领会掉落。</div>');
@@ -2412,7 +2624,7 @@
       '<div class="tier-row"><div class="tiers">' + tiers + '</div>' +
       '<div class="tier-note">每提高一层，所有区域的怪物等级 +' + G.TIER_LEVELS + '，掉落的物品等级随之提高。' +
       (S.maxTier === 0 ? '击败最后一个区域的首领后开启下一层。' : '在当前最高层级击败最后一个区域的首领，开启更高一层。') + '</div></div></div>' +
-      '<div class="zones">' + cards + '</div>' +
+      '<div class="zones" style="--nz:' + G.ZONES.length + '">' + cards + '</div>' +
       '<div class="map-opts">' +
       '<div class="opt-text"><b>普通物品</b><span>魔法、稀有物品总是自动拾取</span></div>' +
       '<div class="seg">' +
@@ -2509,11 +2721,13 @@
       const bits = [];
       if (b.aps) bits.push('每秒攻击 ' + b.aps.toFixed(2));
       if (b.caster) bits.push('施法武器，武器伤害低');
+      if (b.ranged) bits.push(b.ranged === 'gun' ? '枪械 · 热度' : '弓 · 专注');
       if (b.hands === 2) bits.push('双手');
       if (imp) bits.push(esc(imp));
       return (
         '<div class="hc hw" style="--c:' + (sk ? sk.color : '#c9b48e') + '">' + IC.html('it-weapon-' + bi + '-0') + '<b>' + wTypeName(bi) + '</b>' +
-        '<span>' + bits.join(' · ') + (sk ? '<br><em>武器技「' + sk.name + '」</em>' + (sk.cd > 0 ? '冷却 ' + fmt1(sk.cd) + ' 秒。' : '') + sk.desc : '') + '</span></div>'
+        '<span>' + bits.join(' · ') + (b.ranged && G.SKILLS['basic_' + b.type] ? '<br><em>右键「' + G.SKILLS['basic_' + b.type].name + '」</em>' + G.SKILLS['basic_' + b.type].desc : '') +
+        (sk ? '<br><em>' + (sk.rgauge ? (b.ranged === 'gun' ? '热度技' : '专注技') : '武器技') + '「' + sk.name + '」</em>' + (sk.cd > 0 ? '冷却 ' + fmt1(sk.cd) + ' 秒。' : '') + sk.desc : '') + '</span></div>'
       );
     }).join('');
     return (
@@ -2521,8 +2735,23 @@
       '<p>武器决定<b>攻击</b>技能' + (atk.length ? '（' + atk.join('、') + '）' : '') + '的伤害：每一击 = 武器的物理伤害 × 技能的<b>武器倍率</b>，宝石每高一级再多 ' + gl + '%（攻击技能主要靠换更高物品等级的武器变强）；出手速度还要乘上武器的<b>攻击速度</b>——有冷却的攻击技能（如闪袭）出手次数由冷却决定，攻速改为折进每一击的伤害。法术和召唤不看武器伤害。空手只有 ' + F.min + '–' + F.max + ' 的拳头伤害。</p>' +
       '<p>武器详情里列出物理伤害、每秒攻击和<b>武器秒伤</b>（平均伤害 × 每秒攻击），后面的箭头是与身上那把的比较。魔法、稀有武器可能带「武器物理伤害提高」「附加物理伤害」这类<b>本地词缀</b>，已经算进这把武器的伤害里。</p>' +
       '<p>每种武器自带一招<b>武器技</b>，固定在 <kbd>R</kbd> 键：换武器就换招，不占技能栏，也不能镶辅助宝石。武器技都有冷却，单次伤害高，穿插在主力技能之间施放最划算。攻击型的随武器伤害成长；长杖、短杖的法术型武器技随武器的物品等级和你的元素伤害加成成长；魂幡的魂火按召唤物计算，吃召唤物伤害加成，还会让身边的召唤物短暂狂热。技能页右栏顶上有当前武器技的数值。</p>' +
+      helpRanged() +
       helpUSkills() +
       (rows ? '<div class="hc-list">' + rows + '</div>' : '')
+    );
+  }
+
+  // 帮助页：远程武器（枪械 / 弓）——右键普攻、量表与 R
+  function helpRanged() {
+    if (!G.SKILLS.basic_gatling && !G.SKILLS.basic_eagle) return '';
+    const R = G.RANGED || {};
+    return (
+      '<div class="sec-title">枪械与弓</div>' +
+      '<p>拿着<b>枪械</b>（机炮、喷枪、烬铸左轮）或<b>弓</b>（猎弓、鹰眼长弓、符文弓、烬铸弓）时，<kbd>右键</kbd>自动变成这把武器自己的<b>普攻</b>——枪械「开火」、弓「射击」。普攻按武器伤害成长、不耗魔力；这期间右键不能绑别的技能，原来的右键技能先收起来，换回其他武器时放回去。左键、Q、E 照常使用。</p>' +
+      '<p>技能页最上面是<b>「武器普攻」卡</b>，自带 3 个辅助孔：多重、贯穿、连锁、注能、迅捷之类按普攻的标签生效。宝石镶在卡上，换不同的远程武器也不用取下来（对当前普攻不适用的会标「不生效」）。</p>' +
+      '<p><kbd>R</kbd> 被一根<b>量表</b>卡着，就是技能栏 R 格左边那根竖条：没满时 R 格是暗的，满了亮起，放出 R 技量表清零。' +
+      '枪械攒<b style="color:#ffb36a">热度</b>：开火时上涨，停火一会儿慢慢回落，没有过热惩罚——R 是一记排空热度的大招。' +
+      '弓攒<b style="color:#9fe0b8">专注</b>：箭矢命中时上涨，暴击和' + (R.farD ? ' ' + R.farD + ' 米外的' : '远距离') + '命中涨得更多，挨打会掉一点——R 是一段约 8 秒的强力增益（增益期间不涨专注）。天赋盘里有提高热度 / 专注积攒、热度技伤害和增益持续时间的天赋。</p>'
     );
   }
 
@@ -2551,8 +2780,8 @@
       '<div class="help">' +
       '<div class="col scroll" data-scroll="help1"><div class="sec-title">操作</div>' +
       key(['W', 'A', 'S', 'D'], '移动（方向键亦可）') +
-      key(['左键', '右键', 'Q', 'E'], '朝准星施放技能栏上的技能，可按住') +
-      key(['R'], '武器技：随手中的武器而变（烬铸武器换成它的烬铸技）') +
+      key(['左键', '右键', 'Q', 'E'], '朝准星施放技能栏上的技能，可按住；拿着枪械或弓时右键是武器普攻') +
+      key(['R'], '武器技：随手中的武器而变（烬铸武器换成它的烬铸技；枪械和弓要先攒满热度 / 专注）') +
       key(['空格'], '翻滚，途中短暂无敌；可以取消挥砍') +
       key(['1', '2'], '生命 / 魔力药剂，击杀怪物会充能') +
       key(['F'], '处决露出破绽的敌人；否则拾取最近的掉落') +
@@ -2584,7 +2813,7 @@
       '<p>每条支路有两个<b>基石天赋</b>（中圈一个、最外圈一个），效果强烈但带有代价。天赋可以随时退回或整体重置，不需要任何花费。天赋盘里滚轮缩放、按住拖动平移，「全览」回到整个盘。</p>' +
       '<div class="sec-title">区域与轮回</div>' +
       '<p>每个区域的尽头盘踞着一名首领。击败它之后会出现传送门，通往地图，可以前往下一个区域。</p>' +
-      '<p>击败最后一个区域的首领会开启<b>轮回层级</b>：所有区域的怪物更强，掉落的物品等级也更高。</p>' +
+      '<p>击败最后一个区域（第 ' + G.ZONES.length + ' 个，' + G.ZONES[G.ZONES.length - 1].name + '）的首领会开启<b>轮回层级</b>：每高一层，所有区域的怪物等级 +' + G.TIER_LEVELS + '，掉落的物品等级也随之提高。</p>' +
       '<p>游戏会自动存档。</p>' +
       '<div class="help-foot"><button type="button" tabindex="-1" class="btn sm" data-act="tut-reset">重新显示新手提示</button>' +
       '<span>' + (ui.tutMsg || '已看过 ' + Object.keys(G.save.tut).length + ' / ' + HINTS.length + ' 条') + '</span></div>' +
@@ -2717,6 +2946,27 @@
       const sk = G.SKILLS[id];
       if (!sk) return '';
       const cur = curWSkill() === id;
+      // 远程武器的普攻 / 量表技
+      const rt = sk.rtype || sk.wtype, rbi = (G.BASES.weapon || []).findIndex((b) => b && b.type === rt), rName = rbi >= 0 ? wTypeName(rbi) : '远程武器';
+      const gName = GUN_TYPES.indexOf(rt) >= 0 ? '热度' : '专注';
+      if (sk.basic) {
+        const rw = rangedNow(), on = !!(rw && rw.basic === id);
+        return (
+          '<div class="tcard" style="--c:' + sk.color + '">' + tcHead('<span class="tc-skico">' + IC.skill(id) + '</span>', sk.name, '武器普攻 · ' + rName + ' · 右键') +
+          '<div class="tc-desc">' + sk.desc + '</div>' +
+          '<div class="tc-foot">伤害随武器成长 · 不耗魔力 · 辅助宝石镶在技能页的「武器普攻」卡上（换远程武器时不动）· 积攒' + gName + '</div>' +
+          '<div class="tc-hint' + (on ? ' ok' : '') + '">' + (on ? '正在右键上' : '装备' + rName + '即可用右键') + '</div></div>'
+        );
+      }
+      if (sk.rgauge) {
+        const U = sk.uskill ? uOfSkill(id) : null;
+        return (
+          '<div class="tcard' + (sk.uskill ? ' uskill' : '') + '" style="--c:' + sk.color + '">' + tcHead('<span class="tc-skico">' + IC.skill(id) + '</span>', sk.name, (sk.uskill ? '烬铸技' : '武器技') + ' · ' + rName + ' · ' + gName + '技') +
+          '<div class="tc-desc">' + sk.desc + '</div>' +
+          '<div class="tc-foot">' + gName + '灌满时 R 亮起 · 没有冷却、不耗魔力 · 放出后' + gName + '清零' + (sk.buff ? ' · 限时增益，吃「增益持续时间」' : ' · 吃「热度技伤害」') + ' · 不能镶辅助宝石</div>' +
+          '<div class="tc-hint' + (cur ? ' ok' : '') + '">' + (cur ? '正在 R 键上' : '装备' + (U ? '「' + U.name + '」' : rName) + '即可在 R 键使用') + '</div></div>'
+        );
+      }
       if (sk.uskill) {
         // 烬铸技：余烬框；写明是哪把烬铸武器专属、顶替了哪个武器技
         const U = uOfSkill(id);
@@ -3604,7 +3854,7 @@
         const idx = +sock.dataset.idx;
         if (drag.from && drag.from.skill === skill && drag.from.idx === idx) return NO_DROP;
         if (!G.supportFits(skill, drag.id)) return { el: sock, ok: false, label: unfitText(skill, G.SUPPORTS[drag.id]), run: null };
-        return { el: sock, ok: true, label: '镶进 ' + G.SKILLS[skill].name, run: () => socketDrop(skill, idx) };
+        return { el: sock, ok: true, label: '镶进 ' + skName(skill), run: () => socketDrop(skill, idx) };
       }
       if (drag.from && inWin && q('.col-side')) {
         const from = drag.from;
@@ -4367,12 +4617,66 @@
       },
       when: () => {
         const id = curWSkill();
-        return !!id && !(G.player.cds[id] > 0) && enemyNear(11, (e) => e.awake);
+        return !!id && !rangedNow() && !(G.player.cds[id] > 0) && enemyNear(11, (e) => e.awake); // 远程武器的 R 由下面的量表提示讲
       },
       done: () => {
         const id = curWSkill();
         return !!coach.cast[W_SLOT] || !!(id && G.player.cds[id] > 0);
       },
+    },
+    {
+      // 第一次拿上枪械或弓：右键变成武器普攻、R 被量表卡住
+      id: 'ranged', max: 26,
+      get html() {
+        const rw = rangedNow();
+        const gun = rw && rw.family === 'gun';
+        const bk = rw && G.SKILLS[rw.basic];
+        const g = rw ? rw.gauge.name : '量表';
+        return '拿上了' + (gun ? '<b>枪械</b>' : '<b>弓</b>') + '：<kbd>右键</kbd>现在是它的普攻「' + (bk ? bk.name : gun ? '开火' : '射击') + '」（原来的右键技能先收起来，换回别的武器就回来）。' +
+          (gun ? '持续开火积攒' : '箭矢命中积攒') + '<b class="c-gold">' + g + '</b>，技能栏 R 格旁边那根竖条就是它；灌满了 <kbd>R</kbd> 才亮。普攻的辅助宝石镶在 <kbd>G</kbd> 技能页最上面的「武器普攻」卡上';
+      },
+      when: () => !!rangedNow(),
+      done: () => {
+        const rw = rangedNow();
+        return !!rw && rw.gauge.v > rw.gauge.max * 0.15;
+      },
+    },
+    {
+      // 量表第一次灌满：按 R
+      id: 'rgauge', urgent: true, need: 'ranged', max: 18,
+      get html() {
+        const rw = rangedNow(), id = curWSkill(), sk = id ? G.SKILLS[id] : null;
+        return '<b class="c-gold">' + (rw ? rw.gauge.name : '量表') + '满了</b>：按 <kbd>R</kbd> 放出' + (sk ? '「' + sk.name + '」' : '这把武器的 R 技') + '。' +
+          (rw && rw.family === 'bow' ? '弓的 R 是一段限时增益，放出后专注清空' : '放完热度排空，接着打又会慢慢攒满');
+      },
+      when: () => {
+        const rw = rangedNow();
+        return !!rw && rw.gauge.full && !!curWSkill();
+      },
+      done: () => {
+        const rw = rangedNow();
+        return !rw || !rw.gauge.full;
+      },
+    },
+    {
+      // 远程改版前的存档里有长弓：读档时改成了鹰眼长弓（箭雨换成了一矢穿心）
+      id: 'bowmig', calm: true, max: 16,
+      html: '<b>远程改版</b>：长弓分成了追猎弓、鹰眼长弓、符文弓三种，你原来的长弓已改为<b>鹰眼长弓</b>（伤害与词缀不变）。' +
+        '拿着弓时 <kbd>右键</kbd> 固定是「射击」，命中积攒<b class="c-gold">专注</b>，满了按 <kbd>R</kbd> 放出限时增益「一矢穿心」（箭雨已移除）',
+      when: () => G.bowMigrated > 0,
+      done: () => false,
+    },
+    {
+      // 第五区上线前就打通过烬渊深处的老存档：提示一次多了一个区域（文字在数据里；读档时 sanitize 按 G.zoneNoticeFor 把 G.newZoneNotice 置上）
+      get id() {
+        return (G.NEW_ZONE_NOTICE && G.NEW_ZONE_NOTICE.id) || 'zone5';
+      },
+      calm: true, max: 16,
+      get html() {
+        return (G.NEW_ZONE_NOTICE && G.NEW_ZONE_NOTICE.html) || '<b>新区域开放</b>：「烬渊深处」之后多了一个区域。按 <kbd>M</kbd> 打开地图';
+      },
+      when: () => !!G.newZoneNotice,
+      done: () => false,
     },
     {
       id: 'poise', max: 30,
@@ -4480,6 +4784,7 @@
   }
   function coachSeen(id) {
     G.save.tut[id] = 1;
+    if (id === 'bowmig') G.save.bowMig = false;
     G.persist();
   }
   // 面板里接着提示的那一句（当前提示与这个页签有关时）
