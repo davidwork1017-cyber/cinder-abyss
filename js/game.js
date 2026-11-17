@@ -2022,7 +2022,8 @@
       p.wisp && W0.makeWisp ? W0.makeWisp(p.color)
       : (p.seeker || p.wisp) && W0.makeSeeker ? W0.makeSeeker(p.color, look)
       : W0.makeProjectile(p.color, p.r, p.owner !== 'p', look);
-    p.mesh.position.set(p.x, 1.1, p.z);
+    // p.y0：出手高度（矮个子的嘴边），飞出去一小段后升到统一的弹道高度 1.1
+    p.mesh.position.set(p.x, p.y0 !== undefined ? p.y0 : 1.1, p.z);
     state.projectiles.push(p);
     return p;
   };
@@ -2217,11 +2218,17 @@
         if (idx >= 0) removeProjectile(idx);
         continue;
       }
-      p.mesh.position.set(p.x, 1.1, p.z);
+      let py = 1.1;
+      if (p.y0 !== undefined) {
+        p.yT = (p.yT || 0) + dt;
+        const k = Math.min(1, p.yT / 0.22);
+        py = p.y0 + (1.1 - p.y0) * k * (2 - k);
+      }
+      p.mesh.position.set(p.x, py, p.z);
       p.trailT -= dt;
       if (p.trailT <= 0 && !p.mesh.userData.trail) {
         p.trailT = p.owner === 'p' ? 0.04 : 0.09;
-        W.burst(p.x, 1.1, p.z, p.color, 1, 0.6, 0.25);
+        W.burst(p.x, py, p.z, p.color, 1, 0.6, 0.25);
       }
     }
   };

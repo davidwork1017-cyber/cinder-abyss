@@ -1,5 +1,5 @@
 {
-  "_comment": "烬渊的外部素材清单（全部 CC0）。prep-textures.mjs 按 textures 下载 1k 原图并压成 assets/ 下的三张贴图；pack-assets.mjs 按 packs 把 assets/ 打成 js/assets/*.js。",
+  "_comment": "烬渊的外部素材清单（全部 CC0）。prep-textures.mjs 按 textures 下载 1k 原图并压成 assets/ 下的三张贴图；pack-assets.mjs 按 packs 把 assets/ 打成 js/assets/*.js；chars 包是角色模型（convert-chars.mjs 从 Quaternius 源文件转出的 GLB），index.html 直接同步引入。",
   "textures": {
     "mud_cracked_dry_03": { "src": "polyhaven", "page": "https://polyhaven.com/a/mud_cracked_dry_03" },
     "burned_ground_01": { "src": "polyhaven", "page": "https://polyhaven.com/a/burned_ground_01" },
@@ -16,6 +16,7 @@
   },
   "packs": {
     "models": { "models": "*" },
+    "chars": { "chars": { "adventurer": "quaternius-modular-men/Adventurer.glb", "zombie": "quaternius-animated-zombie/Zombie.glb", "skeleton": "quaternius-animated-monster/Skeleton.glb", "spider": "quaternius-easy-enemy/Spider.glb" } },
     "rock-dark": { "textures": ["dark_rock"] },
     "rock-grey": { "textures": ["Rock035"] },
     "zone-ash": { "textures": ["mud_cracked_dry_03", "burned_ground_01"] },

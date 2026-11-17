@@ -88,6 +88,8 @@ for (const [name, pk] of Object.entries(manifest.packs)) {
     index.textures[id] = name;
   }
   if (pk.models === '*') for (const [k, buf] of Object.entries(allModels())) data.models[k] = buf.toString('base64');
+  // 角色模型（GLB，由 tools/convert-chars.mjs 生成）：游戏端同步解析，不经过 assets.js 的布景烘焙
+  for (const [k, rel] of Object.entries(pk.chars || {})) data.models[k] = fs.readFileSync(path.join(root, 'assets', rel)).toString('base64');
   const body =
     '// 自动生成（node tools/pack-assets.mjs），不要手改。素材来源与许可证见 assets/README.md\n' +
     "(window.CA_ASSETS = window.CA_ASSETS || {})['" + name + "'] = " + JSON.stringify(data) + ';\n';
