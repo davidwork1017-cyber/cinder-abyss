@@ -227,6 +227,14 @@
         G.bowMigrated = (G.bowMigrated || 0) + 1; // 界面层据此提示一次「长弓改成了鹰眼长弓」
       }
     }
+    // 冰弓改名：旧存档里的「烬铸长弓」换成同阶的「凛晶长弓」，普通 / 魔法物品的显示名跟着重拼（按基底的 type 认，不看下标）
+    if (it.slot === 'weapon' && bases[it.baseIdx] && bases[it.baseIdx].type === 'emberbow' && bases[it.baseIdx].names.indexOf(it.baseName) < 0) {
+      const oi = G.EMBERBOW_OLD_NAMES.indexOf(it.baseName);
+      if (oi >= 0 && bases[it.baseIdx].names[oi]) {
+        it.baseName = bases[it.baseIdx].names[oi];
+        if (it.rarity < 2) G.updateItemName(it);
+      }
+    }
     if (it.slot === 'weapon') {
       const wb = it.wbase;
       const ok = Array.isArray(wb) && wb.length === 2 && isNum(wb[0]) && isNum(wb[1]) && wb[0] >= 1 && wb[1] >= wb[0] && wb[1] <= 1e6;

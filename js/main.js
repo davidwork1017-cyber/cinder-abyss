@@ -238,7 +238,7 @@
       refreshUi();
       return G.save.cur[curId];
     },
-    // baseIdx（可选）：指定基底（武器 0..13 = 刃 / 长杖 / 短杖 / 双匕 / 战锤 / 鹰眼长弓 / 太刀 / 魂幡 / 转膛机炮 / 焚炉喷枪 / 追猎弓 / 符文弓 / 烬铸左轮 / 烬铸长弓）；ilvl（可选）：指定物品等级
+    // baseIdx（可选）：指定基底（武器 0..13 = 刃 / 长杖 / 短杖 / 双匕 / 战锤 / 鹰眼长弓 / 太刀 / 魂幡 / 转膛机炮 / 焚炉喷枪 / 追猎弓 / 符文弓 / 烬铸左轮 / 冰弓）；ilvl（可选）：指定物品等级
     // 烬铸武器：rarity 传 3，slot 传烬铸 id（jinduan / sanxiang / wanhun / rongxin / jinyu；不认识时按 baseIdx 找，再不行随机一把），
     // baseIdx 位置可以改传完美度（0..1，每条词缀行都取区间里这个位置）
     giveItem(rarity, slot, baseIdx, ilvl) {
