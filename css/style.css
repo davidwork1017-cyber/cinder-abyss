@@ -3029,3 +3029,43 @@ body.panel-open #coach { display: none; }
 /* 武器技卡下面的一排武器：十几种武器时换行排 */
 .wsk-card .wsk-row { flex-wrap: wrap; justify-content: flex-start; gap: 2px 1px; }
 .wsk-card .wsk-row.urow { flex-wrap: nowrap; }
+
+/* ============================================================
+   场景素材加载提示（进入一个素材还没到的区域时，小地图正下方的一小条；
+   顶部中央是区域名横幅，不放那里）
+   ============================================================ */
+#zone-loading {
+  position: fixed;
+  right: 14px;
+  top: 194px;
+  width: 172px;
+  box-sizing: border-box;
+  text-align: center;
+  z-index: 30;
+  padding: 5px 14px;
+  font-size: 12.5px;
+  letter-spacing: 2px;
+  color: #e6d7bd;
+  background: rgba(14, 10, 8, 0.82);
+  border: 1px solid #4a3524;
+  border-radius: 3px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+#zone-loading.on { opacity: 1; transition-delay: 0.25s; }
+.help p.credits { font-size: 12px; line-height: 19px; color: #9d917e; }
+/* 首次进入时等待首个区域素材的整屏遮罩（最多两三秒） */
+#boot-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  letter-spacing: 4px;
+  color: #c9b89a;
+  background: #0c0907;
+  pointer-events: none;
+}

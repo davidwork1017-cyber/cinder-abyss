@@ -176,22 +176,31 @@
 
   function boot() {
     const save = G.loadSave();
+    // 首个区域的 CC0 素材包先开始下载（和下面的初始化同时进行），最多等 2.5 秒；等的时候盖一层「正在载入场景…」
+    const pre = W.preloadZone(save.lastZone, 2500);
     W.init();
     G.ui.init();
-    bindInput();
     G.player.ent = W.makePlayer();
     G.computeStats();
     G.player.life = G.player.maxLife;
     G.player.mana = G.player.maxMana;
-    G.enterZone(save.lastZone, save.tier);
-    W.update(0); // 首次运行会先停在开场卡片：先把镜头和灯光摆到玩家身上
-    if (!save.seenHelp) {
-      save.seenHelp = true;
-      G.persist();
-      G.ui.showIntro();
-    }
-    last = performance.now();
-    requestAnimationFrame(frame);
+    // 先等首个区域的 CC0 素材包（失败或超时就先用程序化外观进场，右上角提示「正在载入场景…」，素材到了再换上）
+    let started = false;
+    const start = () => {
+      if (started) return;
+      started = true;
+      bindInput();
+      G.enterZone(save.lastZone, save.tier);
+      W.update(0); // 首次运行会先停在开场卡片：先把镜头和灯光摆到玩家身上
+      if (!save.seenHelp) {
+        save.seenHelp = true;
+        G.persist();
+        G.ui.showIntro();
+      }
+      last = performance.now();
+      requestAnimationFrame(frame);
+    };
+    pre.then(start, start);
   }
 
   // ---------- 自动化测试用的调试接口 ----------

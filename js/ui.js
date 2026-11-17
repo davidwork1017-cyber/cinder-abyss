@@ -2635,6 +2635,13 @@
       '<div class="opt-sep"></div>' +
       '<button type="button" tabindex="-1" class="switch' + (S.opts.hideNormal ? ' on' : '') + '" data-act="opt" data-opt="hideNormal"><i></i></button>' +
       '<div class="opt-text"><b>折叠普通物品的名牌</b><span>地上只留一个小点，悬停或按住 Alt 展开</span></div>' +
+      '<div class="opt-sep"></div>' +
+      '<div class="opt-text"><b>画质</b><span>' + (S.opts.quality === 'auto' ? '自动选择，明显掉帧时会自动调低' : '电脑吃力时调低') + '</span></div>' +
+      '<div class="seg">' +
+      [['high', '高', '泛光、调色与暗角，4 倍多重采样抗锯齿，高分屏最高按 1.5 倍像素渲染'], ['mid', '中', '保留泛光与调色；泛光按一半分辨率计算，不画贴地薄雾，阴影精度减半，抗锯齿降为 2 倍，高分屏最高 1.25 倍像素'], ['low', '低', '关闭泛光、调色等后期效果和贴地薄雾，阴影精度减半，适合老旧电脑']]
+        .map((o) => '<button type="button" tabindex="-1" class="seg-b' + ((G.world.quality ? G.world.quality() : S.opts.quality) === o[0] ? ' on' : '') + '" data-act="quality" data-q="' + o[0] + '" data-tip="txt:' + o[2] + '">' + o[1] + '</button>')
+        .join('') +
+      '</div>' +
       '<div class="opt-gap"></div>' +
       (ui.delArmed
         ? '<span class="del-warn">存档删除后无法恢复，确定吗？</span>' +
@@ -2815,6 +2822,8 @@
       '<p>每个区域的尽头盘踞着一名首领。击败它之后会出现传送门，通往地图，可以前往下一个区域。</p>' +
       '<p>击败最后一个区域（第 ' + G.ZONES.length + ' 个，' + G.ZONES[G.ZONES.length - 1].name + '）的首领会开启<b>轮回层级</b>：每高一层，所有区域的怪物等级 +' + G.TIER_LEVELS + '，掉落的物品等级也随之提高。</p>' +
       '<p>游戏会自动存档。</p>' +
+      '<div class="sec-title">素材来源</div>' +
+      '<p class="credits">地面与岩壁贴图来自 <b>Poly Haven</b>、<b>ambientCG</b>，布景模型来自 <b>KayKit</b>（Kay Lousberg）与 <b>Kenney</b>，均以 CC0 授权公开，在此致谢。</p>' +
       '<div class="help-foot"><button type="button" tabindex="-1" class="btn sm" data-act="tut-reset">重新显示新手提示</button>' +
       '<span>' + (ui.tutMsg || '已看过 ' + Object.keys(G.save.tut).length + ' / ' + HINTS.length + ' 条') + '</span></div>' +
       '</div>' +
@@ -3194,6 +3203,15 @@
       const o = G.save.opts;
       if (!(d.opt in o)) return;
       o[d.opt] = !o[d.opt];
+      G.persist();
+      G.sfx('click');
+      render();
+    },
+    // 画质：立即生效并存档
+    quality(d) {
+      if (G.QUALITY_IDS.indexOf(d.q) < 0) return;
+      G.save.opts.quality = d.q;
+      if (G.world.setQuality) G.world.setQuality(d.q);
       G.persist();
       G.sfx('click');
       render();
