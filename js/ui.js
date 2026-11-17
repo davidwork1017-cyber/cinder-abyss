@@ -23,7 +23,7 @@
 
   // ---------- 武器 ----------
   // 武器类型名：优先用数据里的写法，没有就用这张表
-  const WTYPE_NAME = { blade: '刃', staff: '长杖', wand: '短杖', daggers: '双匕', hammer: '战锤', bow: '长弓', katana: '太刀', banner: '魂幡', gatling: '机炮', flamer: '喷枪', revolver: '左轮', huntbow: '猎弓', eagle: '长弓', runebow: '符文弓', emberbow: '烬铸弓' };
+  const WTYPE_NAME = { blade: '刃', staff: '长杖', wand: '短杖', daggers: '双匕', hammer: '战锤', bow: '长弓', katana: '太刀', banner: '魂幡', gatling: '机炮', flamer: '喷枪', revolver: '左轮', huntbow: '猎弓', eagle: '长弓', runebow: '符文弓', emberbow: '霜弓' };
   const WTYPE_ORDER = ['blade', 'staff', 'wand', 'daggers', 'hammer', 'bow', 'katana', 'banner'];
   const GUN_TYPES = ['gatling', 'flamer', 'revolver'];
   const wBase = (item) => (item && item.slot === 'weapon' && G.BASES.weapon ? G.BASES.weapon[item.baseIdx | 0] || null : null);
@@ -2780,7 +2780,7 @@
     const R = G.RANGED || {};
     return (
       '<div class="sec-title">枪械与弓</div>' +
-      '<p>拿着<b>枪械</b>（机炮、喷枪、烬铸左轮）或<b>弓</b>（猎弓、鹰眼长弓、符文弓、烬铸弓）时，<kbd>右键</kbd>自动变成这把武器自己的<b>普攻</b>——枪械「开火」、弓「射击」。普攻按武器伤害成长、不耗魔力；这期间右键不能绑别的技能，原来的右键技能先收起来，换回其他武器时放回去。左键、Q、E 照常使用。</p>' +
+      '<p>拿着<b>枪械</b>（机炮、喷枪、烬铸左轮）或<b>弓</b>（猎弓、鹰眼长弓、符文弓、霜弓）时，<kbd>右键</kbd>自动变成这把武器自己的<b>普攻</b>——枪械「开火」、弓「射击」。普攻按武器伤害成长、不耗魔力；这期间右键不能绑别的技能，原来的右键技能先收起来，换回其他武器时放回去。左键、Q、E 照常使用。</p>' +
       '<p>技能页最上面是<b>「武器普攻」卡</b>，自带 3 个辅助孔：多重、贯穿、连锁、注能、迅捷之类按普攻的标签生效。宝石镶在卡上，换不同的远程武器也不用取下来（对当前普攻不适用的会标「不生效」）。</p>' +
       '<p><kbd>R</kbd> 被一根<b>量表</b>卡着，就是技能栏 R 格左边那根竖条：没满时 R 格是暗的，满了亮起，放出 R 技量表清零。' +
       '枪械攒<b style="color:#ffb36a">热度</b>：开火时上涨，停火一会儿慢慢回落，没有过热惩罚——R 是一记排空热度的大招。' +

@@ -735,19 +735,40 @@
     else line(g, marks, rune, 1.2, m);
     glow(g, (p) => p.E(-9, 0, 4.6), rune, { m, stroke: 1, blur: t ? 4 : 1, core: rgba(lite(rune, 0.4), t ? 0.9 : 0.5) });
   }
-  // 烬铸弓：烧黑的铁弓臂棱角分明，弓背伸出刃状尖刺，弓臂熔开的裂纹、握把托着一团余烬（只有一档）
+  // 冰弓（霜木长弓 / 寒羽长弓 / 凛晶长弓）：棱角分明的霜钢弓臂，弓背伸出淡蓝的冰晶尖刺，握把托着一颗发冷光的冰核；
+  // t0 灰蓝霜木、冰刺只在梢头；t1 深一档的寒钢、弓臂上亮起细细的冰裂纹；t2 暗霜钢、冰刺更多更长、冰弦和冰核都亮起来
   function drawEmberbow(g, t) {
     const m = rot(40, 1.06, 2, 0);
     t = t || 0;
-    glow(g, (p) => p.E(-4, 0, 14, 22), C.ember, { m, blur: 10, core: rgba(C.ember, 0.12) });
+    const ICE_C = '#7fd4ff', ICE_P = '#cdeeff', ICE_D = '#3f8fc8';
+    if (t >= 1) glow(g, (p) => p.E(-4, 0, 13, 21), ICE_D, { m, blur: 10, core: rgba(ICE_D, t >= 2 ? 0.14 : 0.08) });
+    const wood = t === 0 ? '#6c8094' : t === 1 ? '#3e5268' : '#25374b';
     const limb = (p) => p.M(5, -25).L(-2, -21).L(-8, -13).L(-9.6, 0).L(-8, 13).L(-2, 21).L(5, 25);
-    bowBase(g, m, limb, '#2a1e1c', '#e8c8a0', '#ffb066', '#ff8a3c');
-    solid(g, (p) => p.P([-6, -15, -14, -19, -8.6, -11]).P([-6, 15, -14, 19, -8.6, 11]).P([0, -22, -3, -29, 1.6, -23]).P([0, 22, -3, 29, 1.6, 23]), '#3a2622', { m, bevel: 0, lw: 1.3 });
-    glow(g, (p) => p.M(-3, -19).L(-6.6, -14).L(-8.2, -8).M(-3, 19).L(-6.6, 14).L(-8.2, 8), C.ember, { m, stroke: 1.2, blur: 3 });
-    solid(g, (p) => p.R(-11.8, -4.6, 5, 9.2, 1.4), '#2a1610', { m, bevel: 1 });
-    gem(g, -13.6, 0, 2.6, C.ember, 4, m, { glow: 6, lw: 1.3 });
-    if (t >= 1) glow(g, (p) => p.E(5, -25, 1.6).E(5, 25, 1.6), C.ember, { m, blur: 4, core: '#ffd2a0' });
-    if (t >= 2) glow(g, (p) => p.M(-16, -3).L(-19, 0).L(-16, 3), C.ember, { m, stroke: 1.1, blur: 3 });
+    bowBase(g, m, limb, wood, '#e2f2ff', '#bfe8ff', t >= 2 ? '#9fd8ff' : null);
+    // 冰晶尖刺：梢头一对（各档都有），t1 起弓背中段一对，t2 再长出一对小的
+    const tips = (p) => p.P([0, -22, -3.4, -29.5, 1.8, -23]).P([0, 22, -3.4, 29.5, 1.8, 23]);
+    const mids = (p) => p.P([-6, -15, -14.5, -19.5, -8.6, -11]).P([-6, 15, -14.5, 19.5, -8.6, 11]);
+    const smalls = (p) => p.P([-8.6, -7, -14, -8.6, -9.4, -4]).P([-8.6, 7, -14, 8.6, -9.4, 4]);
+    solid(g, tips, ICE_P, { m, hi: 0.7, lo: 0.35, bevel: 0.6, lw: 1.3 });
+    if (t >= 1) solid(g, mids, ICE_P, { m, hi: 0.7, lo: 0.35, bevel: 0.6, lw: 1.3 });
+    if (t >= 2) solid(g, smalls, ICE_P, { m, hi: 0.7, lo: 0.35, bevel: 0.5, lw: 1.2 });
+    // 冰晶的高光棱：每枚尖刺中间一道白线
+    line(g, (p) => {
+      p.M(-0.4, -23).L(-2.6, -28).M(-0.4, 23).L(-2.6, 28);
+      if (t >= 1) p.M(-7.4, -14.6).L(-12.6, -18.4).M(-7.4, 14.6).L(-12.6, 18.4);
+    }, rgba('#ffffff', 0.75), 0.8, m);
+    // 冰裂纹：t0 只是刻痕，t1 / t2 发冷光
+    const cracks = (p) => p.M(-3, -19).L(-6.6, -14).L(-8.2, -8).M(-3, 19).L(-6.6, 14).L(-8.2, 8);
+    if (t >= 1) glow(g, cracks, ICE_C, { m, stroke: t >= 2 ? 1.3 : 1, blur: t >= 2 ? 4 : 2.5, core: rgba(ICE_P, 0.9) });
+    else line(g, cracks, rgba('#a8d8f4', 0.55), 0.9, m);
+    // 握把：深蓝缠绳，两道霜银箍
+    solid(g, (p) => p.R(-11.8, -4.6, 5, 9.2, 1.4), '#1d2a3a', { m, bevel: 1 });
+    line(g, (p) => p.M(-11.6, -2).L(-7, -2.6).M(-11.6, 0.4).L(-7, -0.2).M(-11.6, 2.8).L(-7, 2.2), rgba('#6e8fae', 0.7), 0.8, m);
+    solid(g, (p) => p.R(-12.2, -5.4, 5.8, 1.4, 0.6).R(-12.2, 4, 5.8, 1.4, 0.6), '#b8d4ea', { m, bevel: 0, lw: 1.1 });
+    // 冰核：菱形的冰晶，档次越高越亮
+    gem(g, -13.8, 0, t >= 2 ? 3 : 2.6, t === 0 ? '#8fc4e6' : ICE_C, 4, m, { glow: t === 0 ? 2 : t === 1 ? 5 : 7, lw: 1.3, ky: 1.35 });
+    if (t >= 1) glow(g, (p) => p.E(5, -25, 1.5).E(5, 25, 1.5), ICE_C, { m, blur: 4, core: '#eaf8ff' });
+    if (t >= 2) spark(g, m[0] * -13.8 + m[4], m[1] * -13.8 + m[5], 5.2, '#ffffff'); // spark 不吃变换：手动换到图标坐标
   }
 
   const WEAPON_TYPES = ['blade', 'staff', 'wand', 'daggers', 'hammer', 'eagle', 'katana', 'banner'];
@@ -1292,16 +1313,21 @@
   // =====================================================================
   const EMB = '#ff9b3d';
   const ICE = '#7fd4ff';
-  function emberFrame(g) {
+  // 烬铸技的外框。pal 不给时是余烬橙；凛冬（冰弓凛羽）传 FRAME_ICE：同样的框，换成霜蓝，底边的火星换成飘落的冰晶
+  const FRAME_EMB = { glow: EMB, core: '#ff8a30', hi: '#ffd7a0', lo: '#a8461a', corner: '#ffb066', mote: '#ffe2b8', ice: false };
+  const FRAME_ICE = { glow: '#4aa8e8', core: '#3f9be0', hi: '#d4f0ff', lo: '#1f5a8a', corner: '#bfe8ff', mote: '#f0faff', ice: true };
+  function emberFrame(g, pal) {
+    const F = pal || FRAME_EMB;
     const sq = (p, r) => p.R(-r, -r, r * 2, r * 2, 7);
-    glow(g, (p) => sq(p, 28.5), EMB, { stroke: 2.2, blur: 8, core: rgba('#ff8a30', 0.75) });
-    line(g, (p) => sq(p, 28.5), rgba('#ffd7a0', 0.85), 1.1);
-    line(g, (p) => sq(p, 25.6), rgba('#a8461a', 0.7), 0.8);
+    glow(g, (p) => sq(p, 28.5), F.glow, { stroke: 2.2, blur: 8, core: rgba(F.core, 0.75) });
+    line(g, (p) => sq(p, 28.5), rgba(F.hi, 0.85), 1.1);
+    line(g, (p) => sq(p, 25.6), rgba(F.lo, 0.7), 0.8);
     for (const [x, y] of [[-28.5, -28.5], [28.5, -28.5], [-28.5, 28.5], [28.5, 28.5]]) {
-      solid(g, (p) => p.P([x, y - 4.2, x + 4.2, y, x, y + 4.2, x - 4.2, y]), '#ffb066', { hi: 0.6, lo: 0.4, lw: 1.3, bevel: 0 });
+      solid(g, (p) => p.P([x, y - 4.2, x + 4.2, y, x, y + 4.2, x - 4.2, y]), F.corner, { hi: 0.6, lo: 0.4, lw: 1.3, bevel: 0 });
     }
-    // 底边往上飘的几颗火星
-    for (const [x, y, r] of [[-16, 24, 1.6], [-5, 26, 1.1], [9, 23.5, 1.4], [19, 25.5, 1.0]]) glow(g, (p) => p.E(x, y, r), EMB, { blur: 4, core: '#ffe2b8' });
+    // 底边往上飘的几颗火星（冰框：顶边往下飘的几粒小冰晶）
+    if (F.ice) for (const [x, y, r] of [[-17, -24.5, 1.6], [-6, -26, 1.1], [8, -23.8, 1.4], [18, -25.6, 1.0]]) glow(g, (p) => p.P([x, y - r * 1.5, x + r, y, x, y + r * 1.5, x - r, y]), F.glow, { blur: 3, core: F.mote });
+    else for (const [x, y, r] of [[-16, 24, 1.6], [-5, 26, 1.1], [9, 23.5, 1.4], [19, 25.5, 1.0]]) glow(g, (p) => p.E(x, y, r), F.glow, { blur: 4, core: F.mote });
   }
   const USKILL_DRAW = {
     // 乱射：中间一把左轮，八道弹道朝四面八方甩出去，弹道尽头各一点火星
@@ -1321,7 +1347,7 @@
     },
     // 凛冬：三支寒冰箭扇形射出，脚下一排冰棱
     emberstorm(g, col) {
-      emberFrame(g);
+      emberFrame(g, FRAME_ICE);
       for (let i = 0; i < 5; i++) {
         const x = -16 + i * 8, h = 7 + (i % 2) * 5;
         const tr = (p) => p.M(x - 3, 24).L(x - 0.6, 24 - h).L(x + 0.6, 24 - h - 1).L(x + 3, 24).Z();
@@ -1459,7 +1485,7 @@
       glow(g, (p) => p.E(11.5, -11.5, 4), col, { blur: 8, core: '#efe2ff' });
       spark(g, 11.5, -11.5, 4, '#ffffff');
     },
-    // 烬铸弓（凛羽）射击：一支寒冰箭，命中处迸出冰晶，跳向旁边两个点
+    // 冰弓（凛羽）射击：一支寒冰箭，命中处迸出冰晶，跳向旁边两个点
     emberbow(g, col) {
       const m = rot(45, 1, -4, 4);
       glow(g, (p) => p.M(-3, 6).Q(0, 20, 0, 24).Q(0, 20, 3, 6).Z(), ICE, { m, blur: 6, core: rgba('#dff4ff', 0.8) });
