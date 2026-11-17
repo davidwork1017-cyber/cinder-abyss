@@ -1048,7 +1048,7 @@
   // =====================================================================
   const WSKILL_COLOR = {
     blade: '#f0e2c4', staff: '#c79bff', wand: '#9fd0ff', daggers: '#b58cff', hammer: '#e8b070', bow: '#a8e08a', katana: '#ff9a7a', banner: ALLY,
-    gatling: '#ffb36a', flamer: '#ff6a2c', revolver: '#ffcf7a', huntbow: '#bfe8a0', eagle: '#e8f4ff', runebow: '#c9a6ff', emberbow: '#ff9b3d',
+    gatling: '#ffb36a', flamer: '#ff6a2c', revolver: '#ffcf7a', huntbow: '#bfe8a0', eagle: '#e8f4ff', runebow: '#c9a6ff', emberbow: '#9fd8ff',
   };
   // 一支箭（尖朝 -y，长约 30）：箭杆、箭羽、箭镞；col 是箭镞 / 光的颜色
   function arrowAt(g, m, col, o) {
@@ -1253,6 +1253,7 @@
   // 烬铸技：先画一圈余烬框（暗金红的描边、四角各一颗火星、底下一层余烬的光），再画招式本身
   // =====================================================================
   const EMB = '#ff9b3d';
+  const ICE = '#7fd4ff';
   function emberFrame(g) {
     const sq = (p, r) => p.R(-r, -r, r * 2, r * 2, 7);
     glow(g, (p) => sq(p, 28.5), EMB, { stroke: 2.2, blur: 8, core: rgba('#ff8a30', 0.75) });
@@ -1280,18 +1281,18 @@
       for (const x of [-3, 0, 3]) glow(g, (p) => p.E(x, -2.6, 1), EMB, { m, blur: 3, core: '#ffd2a0' });
       glow(g, (p) => p.E(0, 0, 6), EMB, { blur: 10, core: rgba('#ffb066', 0.25) });
     },
-    // 燎原：三支燃烧的箭扇形射出，脚下一片火场
+    // 凛冬：三支寒冰箭扇形射出，脚下一排冰棱
     emberstorm(g, col) {
       emberFrame(g);
       for (let i = 0; i < 5; i++) {
-        const x = -16 + i * 8, h = 7 + (i % 2) * 4;
-        const tr = (p) => p.M(x - 3.4, 24).C(x - 4, 24 - h * 0.6, x - 0.6, 24 - h * 0.8, x, 24 - h).C(x + 0.8, 24 - h * 0.7, x + 4, 24 - h * 0.5, x + 3.4, 24).Z();
-        glow(g, tr, EMB, { blur: 5, core: rgba('#ffb066', 0.85) });
+        const x = -16 + i * 8, h = 7 + (i % 2) * 5;
+        const tr = (p) => p.M(x - 3, 24).L(x - 0.6, 24 - h).L(x + 0.6, 24 - h - 1).L(x + 3, 24).Z();
+        glow(g, tr, ICE, { blur: 5, core: rgba('#dff4ff', 0.85) });
       }
       for (const [deg, x, y] of [[-20, -9, 4], [0, 0, 1], [20, 9, 4]]) {
         const m = rot(deg, 0.95, x, y);
-        glow(g, (p) => p.M(-3, 8).Q(0, 22, 0, 26).Q(0, 22, 3, 8).Z(), EMB, { m, blur: 6, core: rgba('#ffd08a', 0.8) });
-        arrowAt(g, m, col, { shaft: '#3a2622', fletch: '#ffb066', blur: 6 });
+        glow(g, (p) => p.M(-3, 8).Q(0, 22, 0, 26).Q(0, 22, 3, 8).Z(), ICE, { m, blur: 6, core: rgba('#dff4ff', 0.8) });
+        arrowAt(g, m, col, { shaft: '#22303c', fletch: '#9fd8ff', blur: 6 });
       }
       spark(g, 0, -15, 6, '#ffffff');
     },
@@ -1420,15 +1421,15 @@
       glow(g, (p) => p.E(11.5, -11.5, 4), col, { blur: 8, core: '#efe2ff' });
       spark(g, 11.5, -11.5, 4, '#ffffff');
     },
-    // 烬铸弓射击：一支燃箭，命中处迸出余烬，跳向旁边两个点
+    // 烬铸弓（凛羽）射击：一支寒冰箭，命中处迸出冰晶，跳向旁边两个点
     emberbow(g, col) {
       const m = rot(45, 1, -4, 4);
-      glow(g, (p) => p.M(-3, 6).Q(0, 20, 0, 24).Q(0, 20, 3, 6).Z(), EMB_C, { m, blur: 6, core: rgba('#ffd08a', 0.8) });
-      arrowAt(g, m, col, { shaft: '#3a2622', fletch: '#ffb066' });
+      glow(g, (p) => p.M(-3, 6).Q(0, 20, 0, 24).Q(0, 20, 3, 6).Z(), ICE, { m, blur: 6, core: rgba('#dff4ff', 0.8) });
+      arrowAt(g, m, col, { shaft: '#22303c', fletch: '#9fd8ff' });
       const hx = 8, hy = -16;
       for (const [x, y] of [[22, -8], [16, 6]]) {
-        line(g, (p) => p.M(hx, hy).Q((hx + x) / 2 + 4, (hy + y) / 2 - 6, x, y), rgba('#ffb066', 0.9), 1.4, null, [2, 2]);
-        glow(g, (p) => p.E(x, y, 2.6), EMB_C, { blur: 5, core: '#fff0d0' });
+        line(g, (p) => p.M(hx, hy).Q((hx + x) / 2 + 4, (hy + y) / 2 - 6, x, y), rgba('#9fd8ff', 0.9), 1.4, null, [2, 2]);
+        glow(g, (p) => p.M(x, y - 3).L(x + 2.2, y).L(x, y + 3).L(x - 2.2, y).Z(), ICE, { blur: 5, core: '#f0faff' });
       }
       spark(g, hx, hy, 6, '#ffffff');
     },

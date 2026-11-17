@@ -2100,7 +2100,7 @@ async function main() {
     return '热度 开火 ' + r.heat.fire + ' → 停火 ' + r.heat.after + ' · 专注 普通 ' + f.normal + ' / 暴击 ' + f.crit + ' / 挨打 −' + f.hurt;
   });
 
-  await step('枪械的 R：熔光射线 3 秒贯穿一条线、跟着准星转、同时累积火与雷的异常值；焚天炎爆炸开一大圈并留下火场；乱射 3 秒自动打身边的敌人、翻滚也不断、照常走动', async () => {
+  await step('枪械的 R：熔光射线按住蓄力、松手一发贯穿一条线、蓄力越久越痛、同时累积火与雷的异常值；焚天炎爆炸开一大圈并留下火场；乱射 3 秒自动打身边的敌人、翻滚也不断、照常走动', async () => {
     const r = await ev((code) => {
       eval(code);
       const save = G.save, P = G.player, S = G.state, out = {};
@@ -2113,26 +2113,42 @@ async function main() {
         const line = [T.mob('brute', 4, 0, { hp: 1e7 }), T.mob('brute', 8, 0.3, { hp: 1e7 }), T.mob('brute', 12, -0.3, { hp: 1e7 })];
         const off = T.mob('brute', 5, 6, { hp: 1e7 });
         G.debug.gauge();
+        // 按住 R 蓄力 1.5 秒（期间不出伤害、准星先指着上方的 off，瞄准线跟着走），再转回直线、松手放出
         G.input.tap[4] = 0.3;
+        G.input.keys.KeyR = true;
         const t0 = S.time;
         let castT = 0;
-        for (let i = 0; i < 60 * 1.6; i++) {
+        const shots0 = S.stats.beamShots || 0;
+        for (let i = 0; i < 60 * 1.9; i++) {
+          T.aim(i < 60 ? off.x : P.x + 10, i < 60 ? off.z : P.z);
+          G.tick(1 / 60);
+          if (P.cast && P.cast.id === 'meltray') castT = S.time - t0;
+        }
+        out.charging = !!(P.cast && P.cast.id === 'meltray' && P.cast.data && !P.cast.data.shot);
+        out.preDmg = line.concat([off]).map((e) => Math.round(e.maxHp - e.hp)).reduce((x, y) => x + y, 0);
+        G.input.keys.KeyR = false;
+        for (let i = 0; i < 60 * 0.8; i++) {
           T.aim(P.x + 10, P.z);
           G.tick(1 / 60);
           if (P.cast && P.cast.id === 'meltray') castT = S.time - t0;
         }
         out.line = line.map((e) => Math.round(e.maxHp - e.hp));
         out.bu = { fire: +(line[0].bu ? line[0].bu.fire : 0).toFixed(3), light: +(line[0].bu ? line[0].bu.light : 0).toFixed(3) };
-        const offHp0 = off.hp;
-        // 准星转到上方：光束慢慢转过去，扫到 off
-        for (let i = 0; i < 60 * 2; i++) {
+        out.offFull = Math.round(off.maxHp - off.hp);
+        out.castT = +castT.toFixed(2);
+        out.shots = (S.stats.beamShots || 0) - shots0;
+        out.kFull = S.stats.beamK;
+        // 轻点一下（不蓄力）：伤害只有蓄满的约 30%；准星指着 off 放
+        const hpA = line[0].hp, offA = off.hp;
+        G.debug.gauge();
+        G.input.tap[4] = 0.3;
+        for (let i = 0; i < 60 * 1.0; i++) {
           T.aim(off.x, off.z);
           G.tick(1 / 60);
-          if (P.cast && P.cast.id === 'meltray') castT = S.time - t0;
         }
-        out.turn = Math.round(offHp0 - off.hp);
-        out.castT = +castT.toFixed(2);
-        out.ticks = S.stats.beamTicks || 0;
+        out.turn = Math.round(offA - off.hp);
+        out.lineTap = Math.round(hpA - line[0].hp);
+        out.kTap = S.stats.beamK;
         // 焚天炎爆
         T.lane();
         RW.arm(9);
@@ -2152,6 +2168,8 @@ async function main() {
         G.computeStats();
         out.wsU = G.weaponSkill();
         const around = [T.mob('brute', 5, 0), T.mob('brute', -5, 1), T.mob('brute', 0, -6)];
+        const pair = T.mob('husk', 5.2, 1.3, { hp: 1e7 }); // 贴着第一只，吃弹片
+        const sp0 = S.stats.wildSplash || 0;
         G.debug.gauge();
         G.input.tap[4] = 0.3;
         RW.run(20);
@@ -2168,6 +2186,8 @@ async function main() {
         out.wild.end = !!P.rstate;
         out.wild.hit = around.map((e) => Math.round(e.maxHp - e.hp));
         out.wild.shots = S.stats.wildShots || 0;
+        out.wild.splash = (S.stats.wildSplash || 0) - sp0;
+        out.wild.pair = Math.round(pair.maxHp - pair.hp);
       } finally {
         G.BUILDUP.th = th0;
         G.input.keys.KeyD = false;
@@ -2179,14 +2199,16 @@ async function main() {
     }, rangedSetup);
     assert(r.line.every((v) => v > 0), '熔光射线应贯穿直线上的所有敌人：' + r.line);
     assert(r.bu.fire > 0 && r.bu.light > 0, '熔光射线应同时累积火与雷的异常值：' + JSON.stringify(r.bu));
-    assert(r.turn > 0 && r.castT >= 3 && r.castT < 3.6 && r.ticks >= 25, '光束应跟着准星转过去、持续约 3 秒：' + JSON.stringify(r));
+    assert(r.charging && r.preDmg === 0, '按住 R 时应在蓄力、还没出伤害：' + JSON.stringify(r));
+    assert(r.offFull === 0 && r.shots === 1 && r.kFull === 1 && r.castT > 1.7 && r.castT < 2.8, '松手应只放一发蓄满的射线、打在松手时准星的方向：' + JSON.stringify(r));
+    assert(r.turn > 0 && r.lineTap === 0 && Math.abs(r.kTap - 0.3) < 0.05, '轻点应立刻放出约 30% 伤害的射线、朝着准星：' + JSON.stringify(r));
     assert(r.nova.hit.every((v) => v > 0) && r.nova.far === 0 && r.nova.heat === 0 && r.nova.fields === 1 && r.nova.burn > 0, '焚天炎爆不对：' + JSON.stringify(r.nova));
     assert(r.wsU === 'wildfire' && r.wild.on && r.wild.heat === 0 && r.wild.during && !r.wild.end && r.wild.moved > 3, '乱射应开启、翻滚不断、照常走动、3 秒后结束：' + JSON.stringify(r.wild));
-    assert(r.wild.hit.filter((v) => v > 0).length >= 2 && r.wild.shots >= 30, '乱射应自动打身边的敌人：' + JSON.stringify(r.wild));
-    return '射线 ' + r.line.join('/') + '（' + r.castT + 's，' + r.ticks + ' 跳）· 炎爆 ' + r.nova.hit.join('/') + ' + 火场 ' + r.nova.burn + ' · 乱射 ' + r.wild.shots + ' 发';
+    assert(r.wild.hit.filter((v) => v > 0).length >= 2 && r.wild.shots >= 30 && r.wild.splash > 0 && r.wild.pair > 0, '乱射应自动打身边的敌人、弹片波及旁边的：' + JSON.stringify(r.wild));
+    return '射线 ' + r.line.join('/') + '（蓄满 ' + r.castT + 's，轻点 ' + r.turn + '）· 炎爆 ' + r.nova.hit.join('/') + ' + 火场 ' + r.nova.burn + ' · 乱射 ' + r.wild.shots + ' 发';
   });
 
-  await step('弓的 R 增益（约 8 秒）：万矢每箭分 5 支追踪箭；一矢穿心必定暴击、贯穿所有；元素满溢火冰雷轮流、异常翻倍、命中炸开；燎原 3 支燃箭、余烬多跳、烧死的炸开；换掉弓增益就没了', async () => {
+  await step('弓的 R 增益（约 8 秒）：万矢每箭分 5 支追踪箭；一矢穿心必定暴击、贯穿所有；元素满溢火冰雷轮流、异常翻倍、命中炸开；凛冬 3 支寒冰箭、冰晶多跳、打死的碎成冰爆；换掉弓增益就没了', async () => {
     const r = await ev((code) => {
       eval(code);
       const save = G.save, P = G.player, S = G.state, out = {};
@@ -2239,7 +2261,7 @@ async function main() {
         G.computeStats();
         RW.run(2);
         out.over.endOnSwap = !P.rbuff;
-        // 燎原（烬羽）
+        // 凛冬（凛羽）
         const jy = G.rollUnique('jinyu', 30, 0.5);
         out.storm = buff(13, jy);
         out.storm.ws = G.weaponSkill();
@@ -2272,11 +2294,11 @@ async function main() {
     assert(r.volley && r.volley.id === 'volley' && r.volley.dur === 8 && r.volley.proj >= 5 && r.volley.hit >= 3, '万矢不对：' + JSON.stringify(r.volley));
     assert(r.pierce && r.pierce.id === 'pierceheart' && r.pierce.ctx[0] === 100 && r.pierce.ctx[1] >= 99 && r.pierce.hit === 5 && r.pierce.crits >= 5, '一矢穿心不对：' + JSON.stringify(r.pierce));
     assert(r.over && r.over.id === 'overflow' && r.over.els === 'cold fire light' && r.over.ail >= 180 && r.over.splash > 0 && r.over.endOnSwap, '元素满溢不对：' + JSON.stringify(r.over));
-    assert(r.storm && r.storm.id === 'emberstorm' && r.storm.ws === 'emberstorm' && r.storm.proj >= 3 && r.storm.embers >= 3 && r.storm.blasts >= 1 && r.storm.hit >= 3 && r.storm.ended, '燎原不对：' + JSON.stringify(r.storm));
-    return '万矢 ' + r.volley.proj + ' 支 · 穿心 ' + r.pierce.hit + ' 个 · 满溢 ' + r.over.els + ' · 燎原 余烬 ' + r.storm.embers + ' 跳 / 焚尸 ' + r.storm.blasts;
+    assert(r.storm && r.storm.id === 'emberstorm' && r.storm.ws === 'emberstorm' && r.storm.proj >= 3 && r.storm.embers >= 3 && r.storm.blasts >= 1 && r.storm.hit >= 3 && r.storm.ended, '凛冬不对：' + JSON.stringify(r.storm));
+    return '万矢 ' + r.volley.proj + ' 支 · 穿心 ' + r.pierce.hit + ' 个 · 满溢 ' + r.over.els + ' · 凛冬 冰晶 ' + r.storm.embers + ' 跳 / 冰爆 ' + r.storm.blasts;
   });
 
-  await step('烬铸远程：熔芯每轮最后一发必定暴击并炸开；烬羽的余烬连跳并灌火焰异常值；两者都按烬铸规则（固定词缀行、R 换成专属技）；旧存档的长弓读档后变成鹰眼长弓，R 不再是箭雨', async () => {
+  await step('烬铸远程：熔芯每轮最后一发必定暴击并炸开；凛羽的冰晶连跳并灌冰霜异常值；两者都按烬铸规则（固定词缀行、R 换成专属技）；旧存档的长弓读档后变成鹰眼长弓，R 不再是箭雨', async () => {
     const r = await ev((code) => {
       eval(code);
       const save = G.save, P = G.player, S = G.state, out = {};
@@ -2294,7 +2316,7 @@ async function main() {
         RW.run(30);
         out.core = { crits: S.stats.crits - c0, rounds: (S.stats.coreRounds || 0) - cr0, side: Math.round(side.maxHp - side.hp) };
         T.unfix();
-        // 烬羽：余烬连跳 + 火焰异常
+        // 凛羽：冰晶连跳 + 冰霜异常
         T.lane();
         save.equip.weapon = G.rollUnique('jinyu', 30, 0.5);
         G.computeStats();
@@ -2303,7 +2325,7 @@ async function main() {
         const e0 = S.stats.embers || 0;
         RW.hold(10, a);
         RW.run(60);
-        out.ember = { jumps: (S.stats.embers || 0) - e0, b: Math.round(b.maxHp - b.hp) + Math.round(c.maxHp - c.hp), fire: +(((b.bu && b.bu.fire) || 0) + ((c.bu && c.bu.fire) || 0)).toFixed(3) };
+        out.ember = { jumps: (S.stats.embers || 0) - e0, b: Math.round(b.maxHp - b.hp) + Math.round(c.maxHp - c.hp), cold: +(((b.bu && b.bu.cold) || 0) + ((c.bu && c.bu.cold) || 0)).toFixed(3), frozen: (b.freeze > 0 ? 1 : 0) + (c.freeze > 0 ? 1 : 0) };
         // 旧存档的长弓
         const KEY = 'cinder-abyss-save-v1';
         const keep = localStorage.getItem(KEY);
@@ -2328,7 +2350,7 @@ async function main() {
       return out;
     }, rangedSetup);
     assert(r.mech === 'core' && r.core.rounds >= 1 && r.core.crits >= r.core.rounds && r.core.side > 0, '熔芯弹应必定暴击并炸开：' + JSON.stringify(r.core));
-    assert(r.mech2 === 'ember' && r.ember.jumps >= 1 && r.ember.b > 0 && r.ember.fire > 0, '烬羽的余烬应连跳并灌火焰异常值：' + JSON.stringify(r.ember));
+    assert(r.mech2 === 'ember' && r.ember.jumps >= 1 && r.ember.b > 0 && (r.ember.cold > 0 || r.ember.frozen > 0), '凛羽的冰晶应连跳并灌冰霜异常值：' + JSON.stringify(r.ember));
     const m = r.mig;
     assert(m.base === '鹰眼长弓' && m.name === '锋锐的鹰眼长弓' && m.type === 'eagle' && m.ws === 'pierceheart' && m.rare === '渊鸣鹰眼弓/灰烬之眼' && m.flag === 2 && m.noRain, '旧长弓应换成鹰眼长弓（名字同阶、稀有名不动），R 是一矢穿心：' + JSON.stringify(m));
     assert(m.bar === 'cleave,,,' && m.slot1 === 'basic_eagle', '读进拿着长弓的旧存档：右键应接管为射击：' + JSON.stringify(m));
@@ -7942,7 +7964,7 @@ async function main() {
     return '拒绝 ' + G_CUR_N + ' 种通货 · 分解得 ' + JSON.stringify(await ev(() => G.UNIQUE_SALVAGE));
   });
 
-  await step('烬铸掉落：轮回层级 ≥ 1 的五个首领各掉各的那一把（巨像 → 熔芯、第五区首领 → 烬羽），层级 0 不掉；层级 1 约 15%、层级 2 起约 25%；连续 2 次没掉第 3 次必掉，掉了清零；带光柱、名牌颜色、大字提示', async () => {
+  await step('烬铸掉落：轮回层级 ≥ 1 的五个首领各掉各的那一把（巨像 → 熔芯、第五区首领 → 凛羽），层级 0 不掉；层级 1 约 15%、层级 2 起约 25%；连续 2 次没掉第 3 次必掉，掉了清零；带光柱、名牌颜色、大字提示', async () => {
     const r = await ev(() => {
       const S = G.state, U = G.save.uniq;
       const keep = { tier: S.tier };
@@ -8009,7 +8031,7 @@ async function main() {
       return out;
     });
     assert(r.t0.every((x) => !x) && r.pity0 === 0, '层级 0 不应掉落，也不计保底：' + JSON.stringify(r));
-    assert(r.t1.join() === 'rongxin,sanxiang,jinduan,wanhun' + (r.t1.length > 4 ? ',jinyu' : '') && r.bow !== false, '首领与烬铸的绑定不对（巨像 → 熔芯、第五区首领 → 烬羽）：' + JSON.stringify([r.kinds, r.t1, r.bow]));
+    assert(r.t1.join() === 'rongxin,sanxiang,jinduan,wanhun' + (r.t1.length > 4 ? ',jinyu' : '') && r.bow !== false, '首领与烬铸的绑定不对（巨像 → 熔芯、第五区首领 → 凛羽）：' + JSON.stringify([r.kinds, r.t1, r.bow]));
     assert(r.c1a && !r.c1b && r.c2b0 && r.c2a && !r.c2b && r.c5, '掉率不对：' + JSON.stringify(r));
     assert(r.chance.join() === '0,0.15,0.25,0.25', '掉率表不对：' + r.chance);
     assert(r.seq === '001001' && r.pityAfter === 0 && r.weaverUntouched === 0 && r.weaver1 === 1, '保底不对：' + JSON.stringify(r));

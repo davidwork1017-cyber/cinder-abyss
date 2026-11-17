@@ -3107,11 +3107,11 @@
         continue;
       }
       if (buffId === 'emberstorm' && b) {
-        // 燎原：一次射出 fan 支燃烧的箭
+        // 凛冬：一次射出 fan 支寒冰箭
         const spr = b.spread * DEG;
         for (let j = 0; j < b.fan; j++) {
           const a = ang - spr / 2 + (spr * j) / Math.max(1, b.fan - 1);
-          shootProj(ctx, a, { vk: 'emberarrow', tint: G.TYPE_HEX.fire, color, mult: b.mult, multFn: bowMult, after, cast: new Set() });
+          shootProj(ctx, a, { vk: 'emberarrow', tint: G.TYPE_HEX.cold, color, mult: b.mult, multFn: bowMult, after, cast: new Set() });
         }
         continue;
       }
@@ -3126,7 +3126,7 @@
     G.sfx('shot', { type: 'bow' });
   }
 
-  // 箭的直击之后：符文弓的元素满溢小爆炸、烬铸弓的余烬连跳、燎原的焚尸
+  // 箭的直击之后：符文弓的元素满溢小爆炸、凛羽的冰晶连跳、凛冬的冰爆
   function arrowAfter(p, e, killed) {
     const sk = p.ctx.sk;
     const buffId = P.rbuff && P.rbuff.t > 0 ? P.rbuff.id : null;
@@ -3145,12 +3145,12 @@
     if (sk.spark) emberChain(p.ctx, e, buffId === 'emberstorm' && b ? b.spark : null);
     if (killed && buffId === 'emberstorm' && b && b.blast) emberBlast(p.ctx, e, b.blast);
   }
-  // 余烬：从 e 跳向 r 米内最近的、这一串还没烧过的敌人，最多 n 跳，每跳 mult 倍（火焰）。拿着烬羽时每跳再灌一点火焰异常值
+  // 冰晶（凛羽）：从 e 跳向 r 米内最近的、这一串还没跳过的敌人，最多 n 跳，每跳 mult 倍（冰霜）。拿着凛羽时每跳再灌一点冰霜异常值
   function emberChain(ctx, e0, boost) {
     const S0 = ctx.sk.spark;
     const n = boost ? boost.n : S0.n;
     const mult = boost ? boost.mult : S0.mult;
-    const fctx = elemCtx(ctx, 'fire');
+    const fctx = elemCtx(ctx, 'cold');
     const seen = new Set([e0]);
     let from = { x: e0.x, z: e0.z };
     let i = 0;
@@ -3169,10 +3169,10 @@
       if (!best) return;
       seen.add(best);
       i++;
-      if (!fxOpt('emberSpark', from.x, from.z, best.x, best.z)) G.world.bolt([{ x: from.x, z: from.z }, { x: best.x, z: best.z }], 0xff8a3c, true);
+      if (!fxOpt('emberSpark', from.x, from.z, best.x, best.z)) G.world.bolt([{ x: from.x, z: from.z }, { x: best.x, z: best.z }], 0x9fd8ff, true);
       G.hitEnemy(best, fctx, mult, { ang: Math.atan2(best.x - from.x, best.z - from.z), w: 0, kb: 0.2, poise: 3, quiet: true, extra: true });
       const killed = lastHit.killed;
-      if (P.uMech === 'ember' && !best.dead) G.fillMeter(best, 'fire', G.EMBER_MECH.ignite);
+      if (P.uMech === 'ember' && !best.dead) G.fillMeter(best, 'cold', G.EMBER_MECH.ignite);
       state.stats.embers = (state.stats.embers || 0) + 1;
       const b = G.rangedBuff();
       if (killed && P.rbuff && P.rbuff.id === 'emberstorm' && b && b.blast) emberBlast(ctx, best, b.blast);
@@ -3182,11 +3182,11 @@
     G.after(0.05, hop);
   }
   function emberBlast(ctx, e, B) {
-    const fctx = elemCtx(ctx, 'fire');
+    const fctx = elemCtx(ctx, 'cold');
     const x = e.x, z = e.z;
-    if (!fxOpt('coreBlast', x, z, B.r)) {
-      G.world.ring(x, z, B.r, 0xff8a3c, 0.3);
-      G.world.burst(x, 1.0, z, 0xff8a3c, 16, 6, 0.4);
+    if (!fxOpt('frostBlast', x, z, B.r)) {
+      G.world.ring(x, z, B.r, 0x9fd8ff, 0.3);
+      G.world.burst(x, 1.0, z, 0xbfe8ff, 16, 6, 0.4);
     }
     for (const o of enemiesIn(x, z, B.r)) G.hitEnemy(o, fctx, B.mult, { ang: Math.atan2(o.x - x, o.z - z), w: 1, kb: 0.8, poise: 6, quiet: true, extra: true });
     state.stats.emberBlasts = (state.stats.emberBlasts || 0) + 1;
@@ -4388,40 +4388,54 @@
   // =====================================================================
   // 远程武器的 R（量表技，见 data.js 的 meltray / firestorm / wildfire / volley / pierceheart / overflow / emberstorm）
   // =====================================================================
-  // 熔光射线：dur 秒的光束，每 tick 秒结算一次直线上的敌人；光束每秒最多转 turn 弧度追向准星。
-  // 光束每帧交给 world.laser 画（可选，没有时每跳画一道电弧顶上）
+  // 熔光射线：按住 R 蓄力（瞄准线跟准星），松手（或蓄满后再按 hold 秒）放出一道贯穿射线，一次结算直线上的所有敌人。
+  // 射线每帧交给 world.laser 画（可选，没有时画一道电弧顶上）
   WS_FX.rgatling = function (ctx, c) {
     const W = G.world;
     const sk = ctx.sk;
     const hex = hexOf(sk.color);
-    c.dur = c.t + sk.dur;
+    c.dur = c.t + sk.charge + sk.hold + 0.2;
     c.cancelT = c.dur;
-    c.data = { ang: c.aim, tickT: 0 };
+    c.data = { ang: c.aim, ch: 0, shot: false, beamT: 0, len: sk.len };
     G.sfx('cast');
     c.tick = (cc, dt) => {
       const d = cc.data;
-      const want = aimInfo().ang;
-      d.ang += G.clamp(angDiff(want, d.ang), -sk.turn * dt, sk.turn * dt);
-      cc.aim = d.ang;
-      const sn = Math.sin(d.ang);
-      const cs = Math.cos(d.ang);
-      const len = Math.max(1, rayLen(P.x, P.z, d.ang, sk.len, -0.3));
-      const drawn = fxOpt('laser', P.x, P.z, sn, cs, len);
-      d.tickT -= dt;
-      if (d.tickT <= 0) {
-        d.tickT += sk.tick;
-        if (!drawn) W.bolt([{ x: P.x + sn * 0.8, z: P.z + cs * 0.8 }, { x: P.x + sn * len, z: P.z + cs * len }], hex, true);
-        const hits = enemiesInLine(P.x, P.z, d.ang, len, sk.width / 2);
-        let crit = false;
-        for (const e of hits) {
-          G.hitEnemy(e, ctx, 1, { ang: d.ang, w: 0, kb: sk.kb, poise: sk.poise, quiet: true, faint: true });
-          crit = crit || lastHit.crit;
+      if (!d.shot) {
+        d.ang = aimInfo().ang;
+        cc.aim = d.ang;
+        d.ch += dt;
+        const k = Math.min(1, d.ch / sk.charge);
+        const sn = Math.sin(d.ang), cs = Math.cos(d.ang);
+        const len = Math.max(1, rayLen(P.x, P.z, d.ang, sk.len, -0.3));
+        fxOpt('laser', P.x, P.z, sn, cs, len, { charge: k });
+        if (k >= 1 && !d.full) {
+          d.full = true;
+          fxOpt('gaugeFull', P.ent, 'heat');
         }
-        if (hits.length) {
-          W.shake(0.05);
-          G.sfx('impact', { type: 'fire', w: 0, crit });
+        if (!slotHeld(WS_SLOT) || d.ch >= sk.charge + sk.hold) {
+          // 放：一次结算整条线
+          d.shot = true;
+          d.k = sk.minK + (1 - sk.minK) * k;
+          d.len = len;
+          d.beamT = sk.beamT;
+          cc.dur = cc.t + sk.beamT + 0.15;
+          cc.cancelT = cc.dur;
+          if (!fxOpt('laser', P.x, P.z, sn, cs, len, { w: 1 + 1.6 * k })) W.bolt([{ x: P.x + sn * 0.8, z: P.z + cs * 0.8 }, { x: P.x + sn * len, z: P.z + cs * len }], hex, true);
+          const hits = enemiesInLine(P.x, P.z, d.ang, len, (sk.width * (0.6 + 0.4 * k)) / 2);
+          if (hits.length) wsStrike(ctx, hits, d.k, { ang: d.ang, w: k >= 1 ? sk.w : 1, kb: sk.kb * (0.5 + 0.5 * k), poise: sk.poise * d.k, stop: sk.stop * (0.4 + 0.6 * k), dir: d.ang });
+          else G.sfx('impact', { type: 'fire', w: 1, crit: false });
+          W.shake(0.2 + 0.3 * k);
+          state.stats.beamShots = (state.stats.beamShots || 0) + 1;
+          state.stats.beamHits = (state.stats.beamHits || 0) + hits.length;
+          state.stats.beamK = d.k;
         }
-        state.stats.beamTicks = (state.stats.beamTicks || 0) + 1;
+      } else {
+        // 射线余晖：粗细跟着蓄力，慢慢收细
+        d.beamT -= dt;
+        if (d.beamT > 0) {
+          const f = d.beamT / sk.beamT;
+          fxOpt('laser', P.x, P.z, Math.sin(d.ang), Math.cos(d.ang), d.len, { w: (0.4 + 2.2 * (d.k || 1)) * f });
+        } else G.world.stop && G.world.stop(P.ent, 0.15);
       }
     };
   };
@@ -4462,7 +4476,7 @@
     rs.nextT -= dt;
     for (let n = 0; n < 4 && rs.nextT <= 0 && rs.t > -1e-6; n++) {
       rs.nextT += sk.gap;
-      // 身边看得见的敌人按距离排，轮流打最近的几个；一个都没有就朝四周乱射
+      // 身边看得见的敌人按距离排，在最近的 spread 个之间轮流点射；一个都没有就朝四周乱射
       const tg = [];
       for (const e of state.enemies) {
         if (e.dead) continue;
@@ -4472,15 +4486,31 @@
       tg.sort((a, b) => a.d - b.d);
       let ang;
       if (tg.length) {
-        const e = tg[rs.i % Math.min(4, tg.length)].e;
+        const e = tg[rs.i % Math.min(sk.spread || 4, tg.length)].e;
         ang = Math.atan2(e.x - P.x, e.z - P.z) + G.rand(-0.07, 0.07);
       } else ang = Math.random() * TAU;
       rs.i++;
-      shootProj(rs.ctx, ang, { vk: 'slug', range: sk.range + 4 });
+      shootProj(rs.ctx, ang, { vk: 'slug', range: sk.range + 4, pierce: (rs.ctx.pierce || 0) + (sk.pierce || 0), after: sk.splash ? wildSplash : null });
       if (rs.i % 2) G.sfx('shot', { type: 'revolver' });
       state.stats.wildShots = (state.stats.wildShots || 0) + 1;
     }
     if (rs.t <= 0) P.rstate = null;
+  }
+
+  // 乱射的弹片：命中处半径 splash.r 内的其他敌人挨 splash.mult 倍（不伤被打中的那个）
+  function wildSplash(p, e) {
+    const S = p.ctx.sk.splash;
+    if (!S) return;
+    const R = S.r * Math.sqrt(p.ctx.area || 1);
+    const x = e.x, z = e.z;
+    let n = 0;
+    for (const o of enemiesIn(x, z, R)) {
+      if (o === e) continue;
+      G.hitEnemy(o, p.ctx, S.mult, { ang: Math.atan2(o.x - x, o.z - z), w: 0, kb: 0.15, poise: 2, quiet: true, faint: true, extra: true });
+      n++;
+    }
+    if (n && Math.random() < 0.5) G.world.burst(x, 1.0, z, 0xffcf7a, 6, 4, 0.2);
+    state.stats.wildSplash = (state.stats.wildSplash || 0) + n;
   }
 
   // 弓的专注技：限时增益（P.rbuff），持续时间吃 buffDur

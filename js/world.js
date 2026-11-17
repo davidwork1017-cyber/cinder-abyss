@@ -2534,12 +2534,12 @@
       b.x(gTorus(0.085, 0.006, 3, 14), 1, LX - 0.01, WY - 0.02, GZ, 0, HALF_PI, 0);
       for (const s of [1, -1]) for (const f of [0.22, 0.34, 0.46]) b.x(gBox(0.03, 0.01, 0.022), 1, LX + tx * f, WY - 0.06 + f * 0.04, GZ + s * f * 1.15, 0, 0, s * 0.3);
     }
-    // --- 烬铸弓：烧黑的铁弓臂棱角分明，弓背伸出几枚刃状的尖刺，弓臂上一路熔开的裂纹，握把托着一团不灭的余烬 ---
+    // --- 烬铸弓（凛羽）：冷铁弓臂棱角分明，弓背伸出几枚冰棱状的尖刺，弓臂上一路裂纹，握把托着一块不化的星冰 ---
     {
       const limb = (s) => [[0, 0, s * 0.08], [tx * 0.1, -0.06, s * 0.24], [tx * 0.3, -0.075, s * 0.42], [tx * 0.56, -0.035, s * 0.56], [tx * 0.82, ty * 0.5, s * 0.66], [tx, ty, s * tz]];
       b.variant('emberbow').at('wBo').surf(SURF.dark, true);
-      b.p(gSweep('pl/ebU', limb(1), [0.04, 0.036, 0.03, 0.022, 0.015, 0.01], 5), [0x161112, 0x3a2620], LX, WY, GZ);
-      b.p(gSweep('pl/ebL', limb(-1), [0.04, 0.036, 0.03, 0.022, 0.015, 0.01], 5), [0x161112, 0x3a2620], LX, WY, GZ);
+      b.p(gSweep('pl/ebU', limb(1), [0.04, 0.036, 0.03, 0.022, 0.015, 0.01], 5), [0x111418, 0x24384a], LX, WY, GZ);
+      b.p(gSweep('pl/ebL', limb(-1), [0.04, 0.036, 0.03, 0.022, 0.015, 0.01], 5), [0x111418, 0x24384a], LX, WY, GZ);
       b.surf(SURF.leather).p(gCyl(0.04, 0.04, 0.18, 7), 0x2a1610, LX, WY, GZ, HALF_PI);
       b.surf(SURF.dark, true);
       for (const s of [1, -1]) {
@@ -2548,7 +2548,7 @@
         const t = tipE(s);
         b.p(gCone(0.018, 0.1, 4), 0x2a1c18, t[0], t[1] + 0.02, t[2] + s * 0.03, s > 0 ? HALF_PI - 0.4 : -HALF_PI + 0.4);
       }
-      b.surf(SURF.gold).p(gCyl(0.044, 0.044, 0.026, 7), 0x8a3a1a, LX, WY, GZ + 0.1, HALF_PI).p(gCyl(0.044, 0.044, 0.026, 7), 0x8a3a1a, LX, WY, GZ - 0.1, HALF_PI);
+      b.surf(SURF.gold).p(gCyl(0.044, 0.044, 0.026, 7), 0x3a6a8a, LX, WY, GZ + 0.1, HALF_PI).p(gCyl(0.044, 0.044, 0.026, 7), 0x3a6a8a, LX, WY, GZ - 0.1, HALF_PI);
       // 裂纹：顺着弓臂一路的几段（稀有度色；烬铸是余烬橙）
       for (const s of [1, -1]) {
         b.x(gBox(0.012, 0.012, 0.16), 1, LX + tx * 0.15, WY - 0.075, GZ + s * 0.3, s * -0.1);
@@ -7954,7 +7954,7 @@
     LOOT_MODEL.eagle = LOOT_MODEL.bow;
     LOOT_MODEL.huntbow = bowLoot('hbow', 0x3a2c22, 0xd9cfb6, [[gOct(0.022), WH, 0, 0, -0.04], [gBox(0.014, 0.12, 0.014), WH, 0, 0.3, -0.06], [gBox(0.014, 0.12, 0.014), WH, 0, -0.3, -0.06]], 1.5);
     LOOT_MODEL.runebow = bowLoot('rbow', 0x3a4560, 0xb8c4d6, [[gTorus(0.07, 0.007, 3, 12), WH, 0, 0, -0.02, 0, Math.PI / 2, 0], [gBox(0.025, 0.02, 0.016), WH, 0, 0.22, -0.05], [gBox(0.025, 0.02, 0.016), WH, 0, -0.22, -0.05], [gBox(0.025, 0.02, 0.016), WH, 0, 0.36, -0.03], [gBox(0.025, 0.02, 0.016), WH, 0, -0.36, -0.03]], 1);
-    LOOT_MODEL.emberbow = bowLoot('ebow', 0x241a18, 0x8a3a1a, [[gOct(0.035), WH, 0, 0, -0.05], [gBox(0.012, 0.14, 0.012), WH, 0, 0.18, -0.06], [gBox(0.012, 0.14, 0.012), WH, 0, -0.18, -0.06], [gBox(0.012, 0.1, 0.012), WH, 0, 0.4, -0.02], [gBox(0.012, 0.1, 0.012), WH, 0, -0.4, -0.02]], 2);
+    LOOT_MODEL.emberbow = bowLoot('ebow', 0x18202a, 0x3a6a8a, [[gOct(0.035), WH, 0, 0, -0.05], [gBox(0.012, 0.14, 0.012), WH, 0, 0.18, -0.06], [gBox(0.012, 0.14, 0.012), WH, 0, -0.18, -0.06], [gBox(0.012, 0.1, 0.012), WH, 0, 0.4, -0.02], [gBox(0.012, 0.1, 0.012), WH, 0, -0.4, -0.02]], 2);
   }
   const lootModels = Object.create(null);
   const WEAPON_MODEL = GEAR_KEYS; // 掉落模型的名字和武器种类同名
@@ -10502,7 +10502,8 @@
     else if (kind === 'spark') { r0 = 1; g0 = 0.95; b0 = 0.6; r1 = 0.55; g1 = 0.45; b1 = 0.1; }
     else if (kind === 'firebolt') { r0 = 1; g0 = 0.45; b0 = 0.12; r1 = 0.55; g1 = 0.05; b1 = 0.02; }
     else if (kind === 'bullet' || kind === 'slug') { r0 = 1; g0 = 0.9; b0 = 0.6; r1 = 0.8; g1 = 0.35; b1 = 0.08; }
-    else if (kind === 'emberarrow' || kind === 'flamelet') { r0 = 1; g0 = 0.6; b0 = 0.22; r1 = 0.6; g1 = 0.08; b1 = 0.02; }
+    else if (kind === 'emberarrow') { r0 = 0.75; g0 = 0.93; b0 = 1; r1 = 0.12; g1 = 0.4; b1 = 0.75; }
+    else if (kind === 'flamelet') { r0 = 1; g0 = 0.6; b0 = 0.22; r1 = 0.6; g1 = 0.08; b1 = 0.02; }
     else if (u.hostile) { r0 = u.r * 0.6; g0 = u.g * 0.6; b0 = u.b * 0.6; r1 = 0.45; g1 = 0.04; b1 = 0.03; }
     else { r0 = u.r + (1 - u.r) * 0.45; g0 = u.g + (1 - u.g) * 0.45; b0 = u.b + (1 - u.b) * 0.45; r1 = u.r * 0.55; g1 = u.g * 0.55; b1 = u.b * 0.55; }
     if (tk) {
@@ -11040,7 +11041,7 @@
   // =====================================================================
   const RANGED_PF = { bullet: 1, slug: 1, arrow: 1, emberarrow: 1, flamelet: 1 };
   const GUN_KIND = { gatling: 'bullet', revolver: 'slug', flamer: 'flamelet', huntbow: 'arrow', eagle: 'arrow', runebow: 'arrow', emberbow: 'emberarrow' };
-  const BUFF_HEX = { huntbow: 0x6fe8b0, eagle: 0xffd75e, runebow: 0xc9a6ff, emberbow: 0xff7a2c };
+  const BUFF_HEX = { huntbow: 0x6fe8b0, eagle: 0xffd75e, runebow: 0xc9a6ff, emberbow: 0x7fd4ff };
   const RF = {
     muz: [], puffs: [], fires: [], shells: [], tracers: [],
     laser: { ext: -1, x: 0, z: 0, dx: 0, dz: 1, len: 0, scorch: 0 },
@@ -11146,7 +11147,7 @@
       muzzleAdd(_rs.x, _rs.y, _rs.z, u.dx, u.dz, big ? 1.35 : 0.9, big ? 0xff9a40 : 0xffc060);
       if (!big || Math.random() < 0.5) shellAdd(ent, u.dx, u.dz, big);
     } else if (kind === 'arrow' || kind === 'emberarrow') {
-      flare(_rs2.x, _rs2.y, _rs2.z, kind === 'emberarrow' ? 0xff8a3c : u.tinted ? u.hex : 0xfff0d0, 0.5, 0.06);
+      flare(_rs2.x, _rs2.y, _rs2.z, kind === 'emberarrow' ? 0x9fd8ff : u.tinted ? u.hex : 0xfff0d0, 0.5, 0.06);
     }
   }
   // 地上一片燃烧的余烬
@@ -11180,10 +11181,19 @@
     // 留在地上的火海（game.js 自己放了就不重复）
     RF.groundAuto = { x, z, R, at: wtime + 0.08 };
   };
-  W.laser = function (x, z, dx, dz, len) {
+  // opt.charge（0..1）：蓄力中，只画一道细的瞄准线和枪口越聚越亮的光团；opt.w：射线粗细倍数（放出那一下粗，随后收细）
+  W.laser = function (x, z, dx, dz, len, opt) {
     const L = RF.laser, l = Math.hypot(dx, dz) || 1;
     L.ext = wtime + 0.12;
     L.x = x; L.z = z; L.dx = dx / l; L.dz = dz / l; L.len = len || 0;
+    L.charge = opt && opt.charge !== undefined ? opt.charge : -1;
+    const w = opt && opt.w !== undefined ? opt.w : 1;
+    if (L.charge < 0 && w > 1.5 && !(L.w > 1.5)) {
+      // 放出的那一下：枪口一圈冲击 + 终点炸开
+      W.ring(x, z, 1.6 + w * 0.4, 0xffb36a, 0.25);
+      W.fovKick && W.fovKick(2.5);
+    }
+    L.w = L.charge >= 0 ? 0 : w;
   };
   W.rangedBuff = function (type, dur) {
     const B = RF.buff;
@@ -11248,16 +11258,35 @@
     if (type === 'light') W.bolt([{ x, z }, { x: x + rand(-R, R), z: z + rand(-R, R) }], hex);
     flare(x, 1, z, hex, 1.3, 0.1);
   };
-  // 烬铸弓的余烬连跳：一颗燃着的余烬从 A 划一道弧落到 B
+  // 烬铸弓（凛羽）的冰晶连跳：一枚冰晶从 A 划一道弧落到 B
   W.emberSpark = function (x0, z0, x1, z1) {
     const n = 10;
     for (let i = 0; i <= n; i++) {
       const k = i / n, h = Math.sin(k * Math.PI) * 1.1;
-      spawnP(x0 + (x1 - x0) * k, 1.0 + h, z0 + (z1 - z0) * k, rand(-0.3, 0.3), rand(0.2, 0.8), rand(-0.3, 0.3), 0.18 + k * 0.2, 0.16 + 0.05 * Math.sin(k * 3), 1, 0.55 + 0.3 * k, 0.15, -0.5, 2);
+      spawnP(x0 + (x1 - x0) * k, 1.0 + h, z0 + (z1 - z0) * k, rand(-0.3, 0.3), rand(-0.2, 0.4), rand(-0.3, 0.3), 0.18 + k * 0.2, 0.14 + 0.05 * Math.sin(k * 3), 0.6 + 0.3 * k, 0.88, 1, 3, 2);
     }
-    W.gunTracer(x0, z0, x1, z1, 1.1, 0xff8a3c);
-    flare(x1, 1.0, z1, 0xff8a3c, 0.9, 0.09);
-    puffAdd(x1, 0.9, z1, 0, 1, 0, 0.3, 0.5, 0);
+    W.gunTracer(x0, z0, x1, z1, 1.1, 0x9fd8ff);
+    flare(x1, 1.0, z1, 0x9fd8ff, 0.9, 0.09);
+    for (let i = 0; i < 5; i++) {
+      const a = rand(0, TAU), v = rand(1.5, 3.5);
+      spawnP(x1, 1.0, z1, Math.sin(a) * v, rand(0.5, 2.5), Math.cos(a) * v, rand(0.2, 0.4), rand(0.06, 0.1), 0.75, 0.93, 1, 9, 2);
+    }
+  };
+  // 凛冬的碎尸冰爆：一圈冰霜 + 四散的冰碴
+  W.frostBlast = function (x, z, R) {
+    W.ring(x, z, R, 0x7fd4ff, 0.3);
+    W.ring(x, z, R * 0.55, 0xdff4ff, 0.18);
+    flare(x, 1.0, z, 0xbfe8ff, 1.4 + R * 0.3, 0.12);
+    flashLight(x, 2, z, 0x7fd4ff, 1.4);
+    for (let i = 0; i < 18; i++) {
+      const a = rand(0, TAU), v = rand(2, 5) * Math.max(0.6, R / 2.5);
+      spawnP(x, 1.0, z, Math.sin(a) * v, rand(1, 4), Math.cos(a) * v, rand(0.35, 0.7), rand(0.08, 0.16), 0.72, 0.92, 1, 12, 2.5);
+    }
+    for (let i = 0; i < 8; i++) {
+      const a = rand(0, TAU), d = rand(0, R * 0.6);
+      spawnP(x + Math.sin(a) * d, 0.3, z + Math.cos(a) * d, 0, rand(0.2, 0.6), 0, rand(0.6, 1.1), rand(0.3, 0.5), 0.55, 0.8, 0.95, -0.3, 1.2);
+    }
+    return true;
   };
   W.rangedInfo = () => ({
     muzzle: RF.muz.length, puffs: RF.puffs.length, fires: RF.fires.length, shells: RF.shells.length, tracers: RF.tracers.length,
@@ -11376,17 +11405,18 @@
     }
   };
   PF_DRAW.emberarrow = function (u, x, y, z, dt) {
+    // 凛羽的寒冰箭：箭头裹着一层冷光，身后拖着冰雾和细碎的冰晶
     const p = rOff(u, x, y, z);
     arrowBody(u, p, 1.1);
     const hx = p.x + u.dx * 0.22, hz = p.z + u.dz * 0.22;
-    for (let k = 0; k < 2; k++) flameTongue(u, hx - u.dx * k * 0.2, p.y + 0.02, hz - u.dz * k * 0.2, Math.sin(u.age * 23 + k * 2) * 0.3, 0.26 - k * 0.06, 0.7 + 0.2 * Math.sin(u.age * 37 + k), 1, 0.32, 0.05, 'flameN');
-    flameTongue(u, hx, p.y + 0.03, hz, 0, 0.14, 0.45, 1, 0.75, 0.35);
+    for (let k = 0; k < 2; k++) flameTongue(u, hx - u.dx * k * 0.2, p.y + 0.02, hz - u.dz * k * 0.2, Math.sin(u.age * 17 + k * 2) * 0.2, 0.22 - k * 0.05, 0.6 + 0.15 * Math.sin(u.age * 29 + k), 0.35, 0.7, 1, 'flameN');
+    flameTongue(u, hx, p.y + 0.03, hz, 0, 0.12, 0.4, 0.8, 0.95, 1);
     mBill(hx, p.y, hz, 1.1);
-    pfPut('glow', 1, 0.42, 0.1);
+    pfPut('glow', 0.3, 0.65, 1);
     u.acc += dt;
-    while (u.acc > 0.02) {
-      u.acc -= 0.02;
-      spawnP(hx - u.dx * 0.3 + rand(-0.08, 0.08), p.y + rand(-0.05, 0.1), hz - u.dz * 0.3 + rand(-0.08, 0.08), rand(-0.8, 0.8) - u.dx, rand(0.3, 1.5), rand(-0.8, 0.8) - u.dz, rand(0.25, 0.5), rand(0.08, 0.14), 1, rand(0.45, 0.8), 0.15, -1.2, 1.5);
+    while (u.acc > 0.025) {
+      u.acc -= 0.025;
+      spawnP(hx - u.dx * 0.3 + rand(-0.08, 0.08), p.y + rand(-0.05, 0.1), hz - u.dz * 0.3 + rand(-0.08, 0.08), rand(-0.6, 0.6) - u.dx, rand(-0.3, 0.6), rand(-0.6, 0.6) - u.dz, rand(0.3, 0.55), rand(0.06, 0.11), 0.7, 0.9, 1, 2, 1.5);
     }
   };
   PF_DRAW.flamelet = function (u, x, y, z, dt) {
@@ -11419,7 +11449,13 @@
         return true;
       }
       if (vk === 'emberarrow') {
-        fireBurst(x, y, z, how === 'blast' ? R || 1.4 : 0.9, u);
+        const r = how === 'blast' ? R || 1.4 : 0.9;
+        W.ring(x, z, r, 0x7fd4ff, 0.22);
+        flare(x, y, z, 0xbfe8ff, 0.9 + r * 0.3, 0.08);
+        for (let i = 0; i < 9; i++) {
+          const a = rand(0, TAU), v = rand(1.5, 4);
+          spawnP(x, y, z, Math.sin(a) * v, rand(0.3, 2.5), Math.cos(a) * v, rand(0.2, 0.4), rand(0.06, 0.12), 0.72, 0.92, 1, 10, 2);
+        }
         return true;
       }
       // 箭：木屑 + 元素的小爆
@@ -11489,7 +11525,7 @@
       if (wtime - RF.groundAt > 0.3) W.emberGround(g.x, g.z, g.R * 0.75, 4.5, true);
     }
     // --- 熔光射线 ---
-    const L = RF.laser, lzOn = L.ext >= wtime || (ent && (nm === 'r_gatling' || nm === 'w_gatling'));
+    const L = RF.laser, lzOn = L.ext >= wtime || (ent && nm === 'w_gatling');
     if (lzOn && ent) drawLaser(ent, L, dt);
     // --- 乱射：game.js 没打出弹丸时，自动朝附近的敌人 / 四面八方甩出弹道 ---
     if (ent && (nm === 'r_revolver' || nm === 'w_revolver') && dt > 0) {
@@ -11638,7 +11674,23 @@
       for (let d = 0.5; d <= 14; d += 0.5) if (!W.walkable(x0 + dx * d, z0 + dz * d, 0)) { len = d; break; }
     }
     const x1 = x0 + dx * len, z1 = z0 + dz * len, y1 = y0 - 0.25, mx = (x0 + x1) / 2, mz = (z0 + z1) / 2, my = (y0 + y1) / 2;
-    const pulse = 1 + 0.12 * Math.sin(wtime * 47) + 0.06 * Math.sin(wtime * 83);
+    if (L.ext >= wtime && L.charge >= 0) {
+      // 蓄力：细细的瞄准线（越蓄越亮、越稳）+ 枪口聚起的光团，四周的光粒往枪口收
+      const k = L.charge, fl = k >= 1 ? 1 : 0.6 + 0.4 * Math.abs(Math.sin(wtime * (20 + k * 30)));
+      mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.045 + 0.05 * k, len);
+      pfPut('beam', (0.9 + k) * fl, (0.3 + 0.5 * k) * fl, 0.08 * fl);
+      mBill(x0, y0, z0, 0.3 + 0.8 * k);
+      pfPut('glow', 0.6 + 0.6 * k, 0.25 + 0.35 * k, 0.05 + 0.1 * k);
+      mBill(x0, y0, z0, 0.1 + 0.25 * k);
+      pfPut('core', 1 + 0.6 * k, 0.8 + 0.5 * k, 0.4 + 0.4 * k);
+      if (dt > 0 && Math.random() < dt * (10 + 30 * k)) {
+        const a = rand(0, TAU), d = rand(0.8, 1.6);
+        spawnP(x0 + Math.sin(a) * d, y0 + rand(-0.4, 0.6), z0 + Math.cos(a) * d, -Math.sin(a) * d * 3, rand(-0.5, 0.5), -Math.cos(a) * d * 3, 0.3, rand(0.06, 0.1), 1, 0.7 + 0.3 * Math.random(), 0.3, 0, 1);
+      }
+      if (k >= 1) { mPose(x1, 0.07, z1, _qFlat, 0.8, 0.8, 1); pfPut('glow', 0.9, 0.3, 0.05); }
+      return;
+    }
+    const pulse = (1 + 0.12 * Math.sin(wtime * 47) + 0.06 * Math.sin(wtime * 83)) * (L.ext >= wtime && L.w > 0 ? L.w : 1);
     // 外焰（火）→ 内焰 → 白热的芯
     mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.75 * pulse, len);
     pfPut('beam', 0.95, 0.26, 0.05);
@@ -11752,14 +11804,14 @@
         if (dt > 0 && Math.random() < dt * 20) spawnP(px, py, pz, rand(-0.3, 0.3), rand(0, 0.5), rand(-0.3, 0.3), rand(0.25, 0.45), 0.09, EC[k][0], EC[k][1], EC[k][2], 0, 2);
       }
     } else if (B.type === 'emberbow') {
-      // 烬铸弓：脚下一圈火舌往上舔，余烬绕身升起
+      // 烬铸弓（凛羽）：脚下一圈冰棱慢慢升起，寒气绕身
       for (let k = 0; k < 10; k++) {
-        const ang = (k / 10) * TAU + t * 0.8, px = x + Math.sin(ang) * 0.7, pz = z + Math.cos(ang) * 0.7, fl = 0.8 + 0.3 * Math.sin(t * 13 + k * 2.3);
-        mStretch(px, 0.05, pz, 0, -1, 0, 0.28 * a, 0.75 * fl * a);
-        pfPut('flameN', 0.95, 0.35, 0.05);
+        const ang = (k / 10) * TAU + t * 0.5, px = x + Math.sin(ang) * 0.7, pz = z + Math.cos(ang) * 0.7, fl = 0.85 + 0.15 * Math.sin(t * 5 + k * 2.3);
+        mStretch(px, 0.05, pz, 0, -1, 0, 0.18 * a, 0.6 * fl * a);
+        pfPut('flameN', 0.3, 0.6, 0.95);
         if (k % 2) {
-          mStretch(px, 0.08, pz, 0, -1, 0, 0.16 * a, 0.5 * fl * a);
-          pfPut('flame', 0.9 * a, 0.6 * a, 0.25 * a);
+          mStretch(px, 0.08, pz, 0, -1, 0, 0.1 * a, 0.42 * fl * a);
+          pfPut('flame', 0.7 * a, 0.9 * a, 1 * a);
         }
       }
     }

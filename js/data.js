@@ -276,24 +276,25 @@
       desc: '右键射箭：箭上带着元素（取你元素伤害加成最高的那种，没有加成时火、冰、雷轮流），异常值累积很快，命中后还会弹向附近另一个敌人一次。命中积攒专注。',
     },
     basic_emberbow: {
-      name: '射击', icon: '矢', color: '#ff9b3d', tags: ['attack', 'projectile', 'phys'], kind: 'rbasic', rtype: 'emberbow', weaponOnly: true, basic: true,
-      // spark：每支箭命中后迸出一点余烬，跳向 r 米内最近的另一个敌人，最多跳 n 次，每跳 mult 倍伤害（全部转为火焰）
+      name: '射击', icon: '矢', color: '#9fd8ff', tags: ['attack', 'projectile', 'phys'], kind: 'rbasic', rtype: 'emberbow', weaponOnly: true, basic: true,
+      // spark：每支箭命中后迸出一枚冰晶，跳向 r 米内最近的另一个敌人，最多跳 n 次，每跳 mult 倍伤害（全部转为冰霜）
       wm: 1.1, time: 0.42, mana: 0, cd: 0, draw: 0.13, speed: 34, projR: 0.24, range: 22, spark: { n: 2, r: 6, mult: 0.35 },
       move: 0.6, w: 0, kb: 0.3, poise: 7,
-      desc: '右键射箭：每支箭命中后迸出余烬，在附近的敌人之间连跳 2 次，造成火焰伤害。命中积攒专注。',
+      desc: '右键射箭：每支箭命中后迸出冰晶，在附近的敌人之间连跳 2 次，造成冰霜伤害。命中积攒专注。',
     },
 
     // R（量表技）：rgauge 为 true——没有冷却、不扣魔力，量表满了才能放，放出去量表清零。枪械的三招按武器伤害成长（吃「热度技伤害」），
     // 弓的四招是限时增益（buff.dur 秒，吃「增益持续时间」）
     meltray: {
       name: '熔光射线', icon: '光', color: '#ffb36a', tags: ['weapon', 'attack', 'fire', 'light'], kind: 'rgatling', weaponOnly: true, wtype: 'gatling', rgauge: true,
-      // dur 秒的光束：每 tick 秒对一条长 len、宽 width 的直线上所有敌人造成 wm 倍伤害（一半火焰一半闪电），光束每秒最多转 turn 弧度追向准星
-      wm: 1.6, time: 0.3, mana: 0, cd: 0, tick: 0.1, dur: 3, len: 16, width: 1.4, turn: 2.6, conv: { fire: 0.5, light: 0.5 }, ailment: 40,
-      w: 0, kb: 0.05, poise: 4, move: 0.35,
+      // 按住 R 蓄力（瞄准线跟着准星），松手放出一道贯穿射线：长 len、宽 width 的直线上所有敌人挨一下 wm 倍伤害（一半火焰一半闪电）。
+      // 蓄力 charge 秒满；伤害按蓄力程度 minK → 1；蓄满后再按住 hold 秒自动放出。蓄力时移动速度 × move
+      wm: 40, time: 0.3, mana: 0, cd: 0, charge: 1.4, hold: 1.0, minK: 0.3, len: 24, width: 2.4, beamT: 0.4, conv: { fire: 0.5, light: 0.5 }, ailment: 100,
+      w: 2, kb: 1.4, poise: 80, stop: 120, move: 0.35,
       wclip: 'r_gatling',
-      wt: { phases: [0.3], cancel: 9, dur: 9, clip: { dur: 3.3, at: 0.3 } }, // 时长由光束自己管（起手 0.3 秒 + 光束 3 秒）
-      useMult: 48,
-      desc: '热度满时可用：枪口喷出持续 3 秒的熔光射线，贯穿一条直线上的所有敌人，慢慢转向准星。伤害一半火焰、一半闪电，同时累积两种异常值。放完热度归零。',
+      wt: { phases: [0.3], cancel: 9, dur: 9, clip: { dur: 3.2, at: 0.3 } }, // 时长由蓄力自己管（起手 0.3 秒 + 蓄力 + 射线）
+      useMult: 40,
+      desc: '热度满时可用：按住 R 蓄力，枪口的瞄准线跟着准星走；松手放出一道巨大的熔光射线，贯穿一整条直线上的所有敌人，造成一次性的巨额伤害并重重击退。蓄力越久伤害越高（1.4 秒蓄满，蓄满后再按住 1 秒会自动放出）。伤害一半火焰、一半闪电，同时累积两种异常值。放完热度归零。',
     },
     firestorm: {
       name: '焚天炎爆', icon: '爆', color: '#ff6a2c', tags: ['weapon', 'attack', 'area', 'fire'], kind: 'rflamer', weaponOnly: true, wtype: 'flamer', rgauge: true,
@@ -307,13 +308,14 @@
     },
     wildfire: {
       name: '乱射', icon: '乱', color: '#ffcf7a', tags: ['weapon', 'attack', 'projectile', 'phys'], kind: 'rrevolver', weaponOnly: true, wtype: 'revolver', rgauge: true, uskill: true,
-      // dur 秒里每 gap 秒朝 range 米内的敌人（轮流挑最近的几个）开一枪，没有敌人时朝四周乱射；期间照常走动、不会被打断
-      wm: 0.5, time: 0.2, mana: 0, cd: 0, dur: 3, gap: 0.07, range: 12, speed: 46, projR: 0.2,
+      // dur 秒里每 gap 秒朝 range 米内的敌人开一枪：在最近的 spread 个敌人之间轮流点射，没有敌人时朝四周乱射；期间照常走动、不会被打断
+      // 每发子弹贯穿 pierce 个敌人，命中处炸开半径 splash.r 的弹片，波及周围其他敌人（splash.mult 倍，不伤被打中的那个）
+      wm: 0.5, time: 0.2, mana: 0, cd: 0, dur: 3, gap: 0.07, range: 13, speed: 46, projR: 0.2, spread: 8, pierce: 1, splash: { r: 2, mult: 0.45 },
       w: 0, kb: 0.25, poise: 5, move: 1,
       wclip: 'r_revolver',
       wt: { phases: [0.08], cancel: 0.15, dur: 0.2, clip: { dur: 3, at: 0.08 } },
       useMult: 18,
-      desc: '热度满时可用：接下来 3 秒里朝四面八方疯狂开火，自动瞄准身边的敌人，期间可以自由走动、不会被打断。放完热度归零。',
+      desc: '热度满时可用：接下来 3 秒里朝四面八方疯狂开火，子弹在身边最多 8 个敌人之间轮流扫射，每发贯穿 1 个敌人，命中处炸开弹片波及周围的敌人。期间可以自由走动、不会被打断。放完热度归零。',
     },
     volley: {
       name: '万矢', icon: '矢', color: '#bfe8a0', tags: ['weapon', 'attack'], kind: 'rbuff', weaponOnly: true, wtype: 'huntbow', rgauge: true,
@@ -345,14 +347,14 @@
       desc: '专注满时可用：8 秒内箭矢全部化为元素，火、冰、雷轮流，异常值累积翻倍，每次命中还在目标处炸开一团同元素的小爆炸。放完专注归零。',
     },
     emberstorm: {
-      name: '燎原', icon: '燎', color: '#ff9b3d', tags: ['weapon', 'attack', 'fire'], kind: 'rbuff', weaponOnly: true, wtype: 'emberbow', rgauge: true, uskill: true,
-      // fan：每次射出几支箭（各 mult 倍伤害）；spark：余烬改为跳 n 次、每跳 mult 倍；blast：被箭或余烬打死的敌人炸开（半径 r、mult 倍火焰伤害）
+      name: '凛冬', icon: '凛', color: '#9fd8ff', tags: ['weapon', 'attack', 'cold'], kind: 'rbuff', weaponOnly: true, wtype: 'emberbow', rgauge: true, uskill: true,
+      // fan：每次射出几支箭（各 mult 倍伤害）；spark：冰晶改为跳 n 次、每跳 mult 倍；blast：被箭或冰晶打死的敌人碎成冰爆（半径 r、mult 倍冰霜伤害）
       buff: { dur: 8, fan: 3, mult: 0.75, spread: 16, spark: { n: 4, mult: 0.45 }, blast: { r: 3, mult: 0.6 } },
       time: 0.4, mana: 0, cd: 0, w: 0, kb: 0, poise: 0, move: 0.5,
       wclip: 'r_emberbow',
       wt: { phases: [0.22], cancel: 0.4, dur: 0.5 },
       useMult: 0,
-      desc: '专注满时可用：8 秒内每次射出 3 支燃烧的箭，余烬在敌人之间连跳 4 次、伤害更高，被箭或余烬烧死的敌人当场炸成一团火。放完专注归零。',
+      desc: '专注满时可用：8 秒内每次射出 3 支寒冰箭，冰晶在敌人之间连跳 4 次、伤害更高，被箭或冰晶打死的敌人当场碎成一圈冰爆。放完专注归零。',
     },
 
     // ---------- 烬铸技：拿着烬铸武器时，R 上的武器技换成它专属的这一招（G.weaponSkill 按 G.UNIQUES[..].uskill 换） ----------
@@ -572,7 +574,7 @@
       { names: ['刻纹弓', '符文弓', '辉纹符文弓'], type: 'runebow', ranged: 'bow', wskill: 'overflow', dmg: [7, 12], aps: 1.0, hands: 2, imp: { stat: 'incElem', lo: 6, hi: 10 } },
       // 下面两种只有烬铸武器用（drop 0：随机掉落不出）；烬铸武器的物品等级在 21 以上，实际只会用到第三阶的名字
       { names: ['黄铜左轮', '铁芯左轮', '烬铸左轮'], type: 'revolver', ranged: 'gun', wskill: 'wildfire', dmg: [8, 12], aps: 1.0, hands: 1, drop: 0, imp: { stat: 'crit', lo: 10, hi: 16 } },
-      { names: ['焦木长弓', '炭羽长弓', '烬铸长弓'], type: 'emberbow', ranged: 'bow', wskill: 'emberstorm', dmg: [8, 14], aps: 1.05, hands: 2, drop: 0, imp: { stat: 'incFire', lo: 8, hi: 14 } },
+      { names: ['霜木长弓', '寒羽长弓', '烬铸长弓'], type: 'emberbow', ranged: 'bow', wskill: 'emberstorm', dmg: [8, 14], aps: 1.05, hands: 2, drop: 0, imp: { stat: 'incCold', lo: 8, hi: 14 } },
     ],
     helm: [{ names: ['皮盔', '铁盔', '烬钢盔'], armour: [10, 4] }],
     body: [{ names: ['皮甲', '锁甲', '烬钢甲'], armour: [20, 8] }],
@@ -678,12 +680,13 @@
       lines: [{ id: 'wInc', k: [1.7, 2.3] }, { id: 'critMulti', k: [1.1, 1.5] }, { id: 'heatGain', k: [1.2, 1.7] }, { id: 'speed', k: [0.9, 1.3] }],
       lore: '熔渣巨像胸腔里那块烧不化的芯子，被人车成了枪膛。',
     },
-    // 烬羽（弓）：第五个区域（坠星裂谷）的首领衔星巨兽掉（bossZone 兜底：首领 id 对不上时取这个区域的首领，见 G.syncUniqueBosses）。
-    // R 是专属的「燎原」；机制「余烬连射」写在它的普攻里（basic_emberbow 的 spark），这里加强：余烬点燃目标
+    // 凛羽（弓，内部 id 仍是 jinyu）：第五个区域（坠星裂谷）的首领衔星巨兽掉（bossZone 兜底：首领 id 对不上时取这个区域的首领，见 G.syncUniqueBosses）。
+    // R 是专属的「凛冬」；机制「碎晶连跳」写在它的普攻里（basic_emberbow 的 spark），这里加强：冰晶给目标灌冰霜异常值
+    // （内部 id 仍沿用 jinyu / emberbow / emberstorm / mech 'ember'，旧存档不用迁移）
     jinyu: {
-      name: '烬羽', base: 13, boss: 'behemoth', bossZone: 'rift', mech: 'ember', mechName: '余烬连射', uskill: 'emberstorm',
-      lines: [{ id: 'wInc', k: [1.6, 2.2] }, { id: 'incFire', k: [1.2, 1.7] }, { id: 'focusGain', k: [1.2, 1.7] }, { id: 'crit', k: [1.2, 1.7] }],
-      lore: '裂隙尽头的那团火从不落地，它把自己的羽毛一根根射了出去。',
+      name: '凛羽', base: 13, boss: 'behemoth', bossZone: 'rift', mech: 'ember', mechName: '碎晶连跳', uskill: 'emberstorm',
+      lines: [{ id: 'wInc', k: [1.6, 2.2] }, { id: 'incCold', k: [1.2, 1.7] }, { id: 'focusGain', k: [1.2, 1.7] }, { id: 'crit', k: [1.2, 1.7] }],
+      lore: '衔星巨兽吞下的星辰在它腹中冻成了冰，坠落时迸出的每一片，都削成了一根羽箭。',
     },
   };
   G.UNIQUE_IDS = Object.keys(G.UNIQUES);
@@ -711,7 +714,7 @@
   };
   G.syncUniqueBosses();
   // 掉率：层级 1 为 chance[1]（15%），层级 2 起 chance[2]（25%）；首领连续 pity（2）次没掉它的武器，下一次必掉
-  // （最晚第 3 次击杀，掉了就清零）。五个首领各掉一把：巨像 → 熔芯，霜织者 → 三相之心，监察者 → 烬断，烬渊之主 → 万魂旗，第五区首领 → 烬羽
+  // （最晚第 3 次击杀，掉了就清零）。五个首领各掉一把：巨像 → 熔芯，霜织者 → 三相之心，监察者 → 烬断，烬渊之主 → 万魂旗，第五区首领 → 凛羽
   G.UNIQUE_DROP = { chance: [0, 0.15, 0.25], pity: 2 };
   G.uniqueChance = (tier) => (tier >= 2 ? G.UNIQUE_DROP.chance[2] : tier >= 1 ? G.UNIQUE_DROP.chance[1] : 0);
   // 机制数值（平衡机器人量过：对位构筑比同物品等级「6 条最高阶词缀取中值」的顶级稀有快约两到三成）：
@@ -734,10 +737,10 @@
     (G.SOULFIRE.gated ? '最多' : '') + '提高 ' + pc(G.SOULFIRE.inherit - 1) + (G.SOULFIRE.gated ? '（和继承一样按武器物品等级折算）' : '') + '。';
   // 熔芯弹：每一轮（6 发）的最后一发必定暴击，命中时在目标处炸开半径 r、mult 倍伤害的火焰爆炸（不伤目标本身）
   G.CORE_ROUND = { r: 2.5, mult: 0.8 };
-  // 余烬连射（烬羽）：普攻的余烬（basic_emberbow.spark）每跳额外让目标灼烧——点燃 ignite 条火焰异常值
+  // 碎晶连跳（凛羽）：普攻的冰晶（basic_emberbow.spark）每跳额外灌入 ignite 条冰霜异常值
   G.EMBER_MECH = { ignite: 0.12 };
   G.UNIQUES.rongxin.mechDesc = '每一轮的最后一发是熔芯弹：必定暴击，并在命中处炸开，对周围 ' + G.CORE_ROUND.r + ' 米内的其他敌人造成 ' + pc(G.CORE_ROUND.mult) + ' 的火焰伤害。';
-  G.UNIQUES.jinyu.mechDesc = '每支箭命中后迸出余烬，在附近的敌人之间连跳，每跳造成火焰伤害并额外灌入 ' + pc(G.EMBER_MECH.ignite) + ' 条火焰异常值。';
+  G.UNIQUES.jinyu.mechDesc = '每支箭命中后迸出冰晶，在附近的敌人之间连跳，每跳造成冰霜伤害并额外灌入 ' + pc(G.EMBER_MECH.ignite) + ' 条冰霜异常值。';
   // 分解烬铸武器固定得到的通货
   G.UNIQUE_SALVAGE = { exalt: 2, chaos: 2, divine: 1, chisel: 1 };
 
