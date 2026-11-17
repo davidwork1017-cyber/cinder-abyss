@@ -63,6 +63,9 @@
   G.BASIC_CARD = 'wbasic';
   // 旧存档里长弓（下标 5）的三个名字：读档时换成鹰眼长弓的同阶名字
   G.BOW_OLD_NAMES = ['榆木长弓', '筋角长弓', '渊鸣长弓'];
+  // 冰弓（type 'emberbow'）第三阶原来叫「烬铸长弓」（和烬铸稀有度、烬铸左轮撞名，又带火味），改叫「凛晶长弓」。
+  // 旧存档读档时按位置换成同阶的新名字（见 game.js 的 fixItem）；前两阶没改名，照抄
+  G.EMBERBOW_OLD_NAMES = ['霜木长弓', '寒羽长弓', '烬铸长弓'];
   // ---------- 主动技能 ----------
   // 每个技能的打击手感：w 分量（0 轻 / 1 重 / 2 终结），kb 击退距离（世界单位，按怪物体重折算），
   // poise 每次命中削掉的架势。近战削得最多，法术次之。
@@ -597,7 +600,7 @@
       { names: ['刻纹弓', '符文弓', '辉纹符文弓'], type: 'runebow', ranged: 'bow', wskill: 'overflow', dmg: [7, 12], aps: 1.0, hands: 2, imp: { stat: 'incElem', lo: 6, hi: 10 } },
       // 下面两种只有烬铸武器用（drop 0：随机掉落不出）；烬铸武器的物品等级在 21 以上，实际只会用到第三阶的名字
       { names: ['黄铜左轮', '铁芯左轮', '烬铸左轮'], type: 'revolver', ranged: 'gun', wskill: 'wildfire', dmg: [8, 12], aps: 1.0, hands: 1, drop: 0, imp: { stat: 'crit', lo: 10, hi: 16 } },
-      { names: ['霜木长弓', '寒羽长弓', '烬铸长弓'], type: 'emberbow', ranged: 'bow', wskill: 'emberstorm', dmg: [8, 14], aps: 1.05, hands: 2, drop: 0, imp: { stat: 'incCold', lo: 8, hi: 14 } },
+      { names: ['霜木长弓', '寒羽长弓', '凛晶长弓'], type: 'emberbow', ranged: 'bow', wskill: 'emberstorm', dmg: [8, 14], aps: 1.05, hands: 2, drop: 0, imp: { stat: 'incCold', lo: 8, hi: 14 } },
     ],
     helm: [{ names: ['皮盔', '铁盔', '烬钢盔'], armour: [10, 4] }],
     body: [{ names: ['皮甲', '锁甲', '烬钢甲'], armour: [20, 8] }],
@@ -660,7 +663,7 @@
     Object.assign(A('wInc', 'prefix', '淬锋', 'wInc', 8, 13, 1.25, ['weapon'], 7), { local: true, baseW: { weapon: [1, 0.3, 0.3, 1, 1, 1, 1, 0.2] } }),
     // 机炮 / 喷枪不出「重锻」：它们的基础伤害低、出手极快，固定的本地附加对它们是几倍的收益
     Object.assign(A('wAdd', 'prefix', '重锻', 'wAdd', 2, 3, 1.33, ['weapon'], 6), { local: true, baseW: { weapon: [1, 0.3, 0.3, 1, 1, 1, 1, 0.2, 0, 0] } }),
-    // 远程武器专属：baseW 只给枪械（机炮 / 喷枪 / 左轮）或弓（鹰眼 / 追猎 / 符文 / 烬铸弓）非零权重
+    // 远程武器专属：baseW 只给枪械（机炮 / 喷枪 / 左轮）或弓（鹰眼 / 追猎 / 符文 / 霜弓）非零权重
     Object.assign(A('heatGain', 'suffix', '炽膛', 'heatGain', 6, 10, 1.2, ['weapon'], 6), { baseW: { weapon: [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0] } }),
     Object.assign(A('heatDmg', 'prefix', '赤热', 'heatDmg', 10, 16, 1.3, ['weapon'], 5), { baseW: { weapon: [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0] } }),
     Object.assign(A('focusGain', 'suffix', '凝神', 'focusGain', 6, 10, 1.2, ['weapon'], 6), { baseW: { weapon: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 1] } }),
