@@ -19,7 +19,7 @@
 
   // 各类召唤物的体型与动作节奏（秒，按 1 倍攻速）
   const KIND = {
-    thrall: { r: 0.5, height: 2.0, rise: 0.7, atkDur: 0.5, atkHit: 0.22, name: '烬骸仆从', fallback: 'husk' },
+    thrall: { r: 0.5, height: 1.85, rise: 0.7, atkDur: 0.5, atkHit: 0.22, name: '烬骸仆从', fallback: 'husk' },
     colossus: { r: 0.95, height: 3.0, rise: 1.0, atkDur: 1.0, atkHit: 0.55, tauntDur: 0.8, tauntHit: 0.35, name: '石誓守像', fallback: 'brute' },
     // 万魂降临的英灵（烬铸技）：借仆从的骨架，world 给它一身半透明的魂火躯壳，大一圈；有时限（m.expire），不占仆从的上限
     wraith: { r: 0.55, height: 2.4, rise: 0.4, atkDur: 0.42, atkHit: 0.19, name: '万魂英灵', fallback: 'husk', scale: 1.2 },

@@ -999,9 +999,10 @@
     // sturdy：皮糙肉厚，重击也打断不了它的起手（只能躲）
     husk: { name: '游魂', hp: 30, dmg: 7, speed: 5.0, r: 0.55, range: 1.7, windup: 0.35, cd: 1.1, xp: 1, ai: 'melee', mass: 1, poise: 100 },
     brute: { name: '巨躯', hp: 100, dmg: 17, speed: 3.1, r: 0.95, range: 2.6, windup: 0.85, cd: 2.2, xp: 2.6, ai: 'slam', mass: 2.2, poise: 140, sturdy: true },
-    spitter: { name: '喷吐者', hp: 24, dmg: 9, speed: 4.2, r: 0.55, range: 13, windup: 0.45, cd: 2.2, xp: 1.3, ai: 'ranged', mass: 0.9, poise: 90 },
+    spitter: { name: '喷吐者', hp: 24, dmg: 9, speed: 4.2, r: 0.55, range: 13, windup: 0.45, cd: 2.2, xp: 1.3, ai: 'ranged', mass: 0.9, poise: 90, h: 0.9 },
     bomber: { name: '爆裂虫', hp: 15, dmg: 20, speed: 7.2, r: 0.5, range: 2.2, windup: 0.7, cd: 9, xp: 0.9, ai: 'bomb', mass: 0.8, poise: 80 },
-    // 坠星裂谷的两种新怪。h：模型高度（血条 / 飘字的位置）
+    // h：模型高度（血条 / 飘字 / 受击特效的位置），不写时 2（巨躯 2.8）；喷吐者是一只矮蜘蛛
+    // 坠星裂谷的两种新怪
     // 隙影：保持距离放单发电弹；隔几秒会闪到玩家侧面（落点先亮预警环），现身后补一轮三连扇射；被贴脸也是闪走而不是后撤
     phaser: { name: '隙影', hp: 26, dmg: 10, speed: 4.4, r: 0.55, range: 12, windup: 0.45, cd: 2.6, xp: 1.5, ai: 'blink', mass: 0.8, poise: 90, h: 2.3 },
     // 陨角兽：中距离刨地蓄力（地上亮一条冲锋道），然后沿直线猛冲；撞墙会晕一下。贴身时用角顶
