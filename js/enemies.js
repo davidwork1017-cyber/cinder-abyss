@@ -465,8 +465,10 @@
   const MOB_SHOT = { phaser: 'spark' }; // 隙影放的是电弹
   function shoot(e, ang, speed, dmg, r, life, off, volley) {
     const dx = Math.sin(ang), dz = Math.cos(ang);
+    // 矮个子（喷吐者的蜘蛛）从嘴边吐出来，而不是凭空出现在统一的弹道高度上
+    const y0 = e.height < 1.5 && e.ent && G.world.entSocket ? Math.max(0.2, G.world.entSocket(e.ent, 'weapon').y) : undefined;
     G.spawnProjectile({
-      owner: 'e', x: e.x + dx * off, z: e.z + dz * off, dx, dz, speed, r, life,
+      owner: 'e', x: e.x + dx * off, z: e.z + dz * off, y0, dx, dz, speed, r, life,
       color: hexOf(e), dmg, dtype: e.elem, volley,
       vk: e.isBoss ? BOSS_SHOT[e.bossKind] : MOB_SHOT[e.type] || 'glob',
     });
@@ -619,7 +621,8 @@
       e.state = 'windup';
       e.stateT = def.windup;
       W.play(e.ent, 'windup', { dur: def.windup });
-      W.burst(e.x, e.height * 0.7, e.z, hexOf(e), 5, 1.6, def.windup); // 嘴边聚能
+      const mo = W.entSocket(e.ent, 'weapon');
+      W.burst(mo.x, mo.y, mo.z, hexOf(e), 5, 1.6, def.windup); // 嘴边聚能
       return;
     }
     if (dist > RANGED_HOLD || !e.navDirect || !seen) {

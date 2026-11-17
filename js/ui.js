@@ -2823,7 +2823,7 @@
       '<p>击败最后一个区域（第 ' + G.ZONES.length + ' 个，' + G.ZONES[G.ZONES.length - 1].name + '）的首领会开启<b>轮回层级</b>：每高一层，所有区域的怪物等级 +' + G.TIER_LEVELS + '，掉落的物品等级也随之提高。</p>' +
       '<p>游戏会自动存档。</p>' +
       '<div class="sec-title">素材来源</div>' +
-      '<p class="credits">地面与岩壁贴图来自 <b>Poly Haven</b>、<b>ambientCG</b>，布景模型来自 <b>KayKit</b>（Kay Lousberg）与 <b>Kenney</b>，均以 CC0 授权公开，在此致谢。</p>' +
+      '<p class="credits">地面与岩壁贴图来自 <b>Poly Haven</b>、<b>ambientCG</b>，布景模型来自 <b>KayKit</b>（Kay Lousberg）与 <b>Kenney</b>，主角、游魂、烬骸仆从与喷吐者的模型来自 <b>Quaternius</b>，均以 CC0 授权公开，在此致谢。</p>' +
       '<div class="help-foot"><button type="button" tabindex="-1" class="btn sm" data-act="tut-reset">重新显示新手提示</button>' +
       '<span>' + (ui.tutMsg || '已看过 ' + Object.keys(G.save.tut).length + ' / ' + HINTS.length + ' 条') + '</span></div>' +
       '</div>' +
