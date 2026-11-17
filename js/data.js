@@ -152,8 +152,28 @@
       radius: 3.2, // 砸地半径（受扩域影响）
       inherit: 2.4, // 出手慢、一击重：继承的武器伤害与装备生命按 2.4 倍计
       hold: 4,
-      taunt: { cd: 7, r: 6, dur: 3, boss: 0.8 }, // 嘲讽：冷却、半径、小怪被嘲讽的秒数、首领被嘲讽的秒数
-      desc: '立起一尊石誓守像：缓慢而坚不可摧，每隔几秒双拳砸地伤害一圈敌人，并不时怒吼嘲讽，迫使周围的敌人转而攻击它。只能存在 1 尊。按键开关自动召唤；Shift + 按键在准星处召唤，已有的那尊会在新位置重铸。',
+      // 首领被嘲讽的秒数原来是 0.8：首领几乎从不看守像一眼，招式全砸在玩家（站在后排的召唤师）身上，召唤师打首领反倒最容易死。
+      // 和小怪一样 3 秒之后，首领每 7 秒里有 3 秒冲着守像去（招式照放，只是对准守像）
+      taunt: { cd: 7, r: 6, dur: 3, boss: 3 }, // 嘲讽：冷却、半径、小怪被嘲讽的秒数、首领被嘲讽的秒数
+      desc: '立起一尊石誓守像：缓慢而坚不可摧，每隔几秒双拳砸地伤害一圈敌人，并不时怒吼嘲讽，迫使周围的敌人（首领也一样）转而攻击它几秒。只能存在 1 尊。按键开关自动召唤；Shift + 按键在准星处召唤，已有的那尊会在新位置重铸。',
+    },
+    // 焚骨祭司：法师召唤物。站在前排身后 keep 米左右（离玩家不超过 CHASE 的范围），每 rate 秒朝怪最密的地方掷一枚焚骨火弹（cast：射程，到目标边缘），
+    // 火弹飞行 speed、碰到敌人或到达落点在 explode 半径内炸开（吃扩域）。每个被炸到的敌人给它攒 1 点焰蓄（一弹最多 charge.per），
+    // 攒满 charge.max 放一次大招：目标身边（meteor.r 内）至少 meteor.min 个敌人时召下「坠焰」（延迟 meteor.delay 后落在最密处，半径 meteor.radius、mult 倍一击），
+    // 否则对目标（首领 / 精英 / 集火目标优先）引导「灼链」：dur 秒、每 tick 秒一跳、每跳 mult 倍。
+    // 身子骨很脆：没有减伤、生命很低；敌人贴到 flee 米以内时先往玩家那边退开再施法。
+    // 数量上限只吃镶在它身上的「群聚」，不吃天赋 / 护符的「仆从数量」。继承武器伤害时，施法武器（杖 / 短杖 / 魂幡）按 casterInherit 倍计
+    pyre: {
+      name: '焚骨祭司', icon: '焚', color: '#ff9a4a', tags: ['spell', 'minion', 'summon', 'fire', 'projectile', 'area'], kind: 'summon', minion: 'pyre',
+      dmg: { fire: [10, 15] }, time: 0.8, mana: 22, cd: 0, range: 6,
+      cap: 2, life: 30, rate: 1.3, reach: 10, keep: 7, flee: 3.2, move: 6.6, dr: 0, w: 0, kb: 0.6, poise: 6, ailment: 20,
+      speed: 17, explode: 2.1,
+      charge: { per: 3, max: 7 },
+      meteor: { min: 3, r: 3.4, radius: 3.4, delay: 0.85, mult: 3.2, kb: 2.2, poise: 22, w: 2 },
+      beam: { dur: 2.2, tick: 0.2, mult: 0.42, poise: 3 },
+      inherit: 1, casterInherit: 2.2,
+      hold: 1,
+      desc: '唤起焚骨祭司：裹着焦黑法袍的骸骨术士，站在前排身后远远施法，朝怪最密的地方掷出焚骨火弹，落地炸开一片火焰。每炸到一个敌人攒一点焰蓄，攒满就放大招：怪多时召下坠焰砸向最密的一团，单个强敌（首领、精英、你的集火目标）则引导灼链持续灼烧。身子骨很脆，敌人贴近会先退开，需要仆从和守像挡在前面。基础上限 2 位，只有镶在它身上的群聚能多唤一位（天赋与装备的仆从数量不算）；拿着杖、短杖或魂幡时继承的武器伤害更多。',
     },
 
     // ---------- 武器技（R 键）：每种武器自带一个，跟着手里的武器走 ----------
@@ -461,8 +481,9 @@
   // 扩域放大守像的砸地，节流照常减消耗和冷却；回响、汲生、投射物 / 连锁类镶不上
   G.SUPPORTS = {
     multi: { name: '多重投射', req: ['projectile'], cost: 1.3, eff: { proj: 2, more: -25 }, desc: '额外发射 2 个投射物，伤害减少 25%' },
-    pierce: { name: '贯穿', req: ['projectile'], cost: 1.15, eff: { pierce: 3 }, desc: '投射物额外穿透 3 个敌人' },
-    chain: { name: '连锁', req: ['projectile', 'chaining'], cost: 1.25, eff: { chain: 2, more: -15 }, desc: '额外连锁 2 次，伤害减少 15%' },
+    // 焚骨祭司的火弹碰到就炸：穿透、连锁对它没有意义，镶不上召唤技能（多重投射可以：一次掷出几枚，分头砸向不同的敌人）
+    pierce: { name: '贯穿', req: ['projectile'], no: ['minion'], cost: 1.15, eff: { pierce: 3 }, desc: '投射物额外穿透 3 个敌人' },
+    chain: { name: '连锁', req: ['projectile', 'chaining'], no: ['minion'], cost: 1.25, eff: { chain: 2, more: -15 }, desc: '额外连锁 2 次，伤害减少 15%' },
     expanse: { name: '扩域', req: ['area'], cost: 1.2, eff: { area: 40 }, desc: '技能范围扩大 40%' },
     haste: { name: '迅捷', req: null, cost: 1.25, eff: { speed: 25 }, desc: '攻击与施法速度加快 25%' },
     fire: { name: '灼炎注入', req: null, cost: 1.2, eff: { extra: { fire: 30 } }, desc: '获得相当于伤害 30% 的额外火焰伤害' },
@@ -478,7 +499,8 @@
     // 召唤物专用
     dominion: { name: '驭灵', req: ['minion'], cost: 1.25, eff: { minionMore: 30 }, desc: '召唤物造成的伤害额外提高 30%' },
     ossify: { name: '坚骨', req: ['minion'], cost: 1.15, eff: { minionLife: 40, minionDR: 15 }, desc: '召唤物最大生命提高 40%，受到的伤害减少 15%' },
-    horde: { name: '群聚', req: ['minion'], no: ['area'], cost: 1.3, eff: { minionCap: 1, minionMore: -15 }, desc: '烬骸仆从数量上限 +1，召唤物造成的伤害额外降低 15%' },
+    // noKind：这些召唤物镶不上（守像只能有 1 尊）。镶在焚骨祭司上时是祭司 +1
+    horde: { name: '群聚', req: ['minion'], noKind: ['colossus'], cost: 1.3, eff: { minionCap: 1, minionMore: -15 }, desc: '所镶召唤技能的数量上限 +1（烬骸仆从或焚骨祭司；守像镶不上），召唤物造成的伤害额外降低 15%' },
     frenzy: { name: '狂怒', req: ['minion'], cost: 1.2, eff: { minionSpeed: 20 }, desc: '召唤物的攻击速度与移动速度提高 20%' },
   };
 
@@ -500,6 +522,7 @@
     minionDmg: '召唤物伤害提高 {v}%', minionLife: '召唤物最大生命提高 {v}%',
     minionSpeed: '召唤物攻击与移动速度提高 {v}%', minionCap: '烬骸仆从数量上限 +{v}',
     minionMore: '召唤物总伤害额外 {s}{v}%', ownLess: '你自身（非召唤物）的总伤害额外 -{v}%',
+    minionArea: '召唤物的范围效果扩大 {v}%', minionCharge: '焚骨祭司攒焰蓄加快 {v}%',
     poiseDmg: '架势削减提高 {v}%', pierce: '投射物额外穿透 {v} 个敌人',
     moreElem: '元素伤害总额外 {s}{v}%', moreTaken: '受到的伤害增加 {v}%',
     // 在 75% 上限之后才扣：溢出的抗性抵消不了（基石「元素过载」的代价）
@@ -929,6 +952,12 @@
     at(O, 'ln', 10.4, 183, '血智', { life: 30, mana: 30, incLife: 5, incMana: 5 }, 'notable', ['lx0']);
     at(O, 'rx0', 9.2, 2, '疾令', { speed: 3, minionSpeed: 5 }, 'small', ['dl5', 'mr5']);
     at(O, 'rn', 10.2, 4, '狩群', { speed: 6, minionSpeed: 10, moveSpeed: 4 }, 'notable', ['rx0']);
+    // ---------- 焚骨祭司（法师召唤物改版加的 3 个节点）----------
+    // 从统御主干的 mm4 往右上分出一小支，落在「万骸之主」和右边继承线之间的空地上：两个小节点 + 一个核心。
+    // 范围效果吃到守像的砸地和祭司的火弹 / 坠焰，焰蓄只有祭司用得上。125 → 128 个节点
+    at(M, 'mp0', 7.0, 341, '焚契', { minionDmg: 6, minionArea: 6 }, 'small', ['mm4']);
+    at(M, 'mp1', 8.2, 343, '焚契', { minionDmg: 6, minionArea: 9 }, 'small', ['mp0']);
+    at(M, 'mpn', 9.3, 338, '焚骨圣咏', { minionDmg: 6, minionArea: 15, minionCharge: 30 }, 'notable', ['mp1']);
     // ---------- 远程武器（远程改版加的 8 个节点）----------
     // 下方两条旁支和交汇团之间原来是空的：铸躯一侧（sl1 往下）是枪械的热度，迅影一侧（dr0 往下）是弓的专注，各 3 个小节点 + 1 个核心，
     // 末端的两个核心隔着正下方相望。117 → 125 个节点

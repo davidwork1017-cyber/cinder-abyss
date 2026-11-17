@@ -1,5 +1,5 @@
 'use strict';
-// 召唤物：烬骸仆从（快速近战，最多 3 具起）与石誓守像（缓慢、坚固、砸地 + 嘲讽，只有 1 尊）。
+// 召唤物：烬骸仆从（快速近战，最多 3 具起）、石誓守像（缓慢、坚固、砸地 + 嘲讽，只有 1 尊）与焚骨祭司（后排施法，火弹炸怪群、攒满焰蓄放坠焰 / 灼链，2 位起）。
 // 全自动：跟随玩家、自己挑目标，优先打玩家最近亲手打中的敌人（集火目标）；敌人也会转头打它们。
 // 召唤物不进存档：读档后需要重新召唤（开着自动召唤的技能会自己补上，见 game.js 的 updateAutoSummon）。数值来自 G.skillCtx(技能).minion（宝石等级、召唤物属性、镶在技能上的辅助）
 (function () {
@@ -23,8 +23,11 @@
     colossus: { r: 0.95, height: 3.0, rise: 1.0, atkDur: 1.0, atkHit: 0.55, tauntDur: 0.8, tauntHit: 0.35, name: '石誓守像', fallback: 'brute' },
     // 万魂降临的英灵（烬铸技）：借仆从的骨架，world 给它一身半透明的魂火躯壳，大一圈；有时限（m.expire），不占仆从的上限
     wraith: { r: 0.55, height: 2.4, rise: 0.4, atkDur: 0.42, atkHit: 0.19, name: '万魂英灵', fallback: 'husk', scale: 1.2 },
+    // 焚骨祭司：atk 掷一枚火弹；big 坠焰的起手（举杖召星），chan 灼链的引导（时长由技能数据定）
+    pyre: { r: 0.45, height: 2.1, rise: 0.8, atkDur: 0.62, atkHit: 0.36, bigDur: 0.9, bigHit: 0.55, name: '焚骨祭司', fallback: 'spitter' },
   };
-  const blade = (m) => m.kind !== 'colossus'; // 仆从与英灵：近战横斩、会躲小怪的预警圈
+  const blade = (m) => m.kind === 'thrall' || m.kind === 'wraith'; // 仆从与英灵：近战横斩
+  const dodger = (m) => m.kind !== 'colossus'; // 仆从、英灵、祭司都会躲小怪的预警圈（守像太慢不躲）
 
   const list = S.minions;
   let markShown = null; // 当前头顶有集火标记的敌人
@@ -46,7 +49,8 @@
   // ---------- 模型（world 的召唤物骨架还没好时，先借小怪的骨架染成青色） ----------
   function makeEnt(kind) {
     const W = G.world;
-    if (typeof W.makeMinion === 'function') return W.makeMinion(kind, kind === 'wraith' ? 0xffa050 : ALLY_HEX);
+    // 点缀色：英灵是烬铸的余烬橙，祭司的杖头 / 掌心 / 袍角是焚火橙，其余是魂火青
+    if (typeof W.makeMinion === 'function') return W.makeMinion(kind, kind === 'wraith' ? 0xffa050 : kind === 'pyre' ? 0xff8a3c : ALLY_HEX);
     return W.makeMob(KIND[kind].fallback, ALLY_HEX, false);
   }
   function riseFx(x, z, big) {
@@ -141,6 +145,7 @@
   function removeMinion(m, ang, type, quiet) {
     const W = G.world;
     if (m.dead) return;
+    if (m.beamOn) endBeam(m);
     m.dead = true;
     m.hp = 0;
     m.target = null;
@@ -180,6 +185,7 @@
       navT: 0, navWp: false, navX: 0, navZ: 0, navTx: 0, navTz: 0,
       spX: 0, spZ: 0, spBest: Infinity, spT: 0,
       born: S.time, ctx,
+      charge: 0, beamT: 0, beamTick: 0, beamOn: false, fleeT: 0, braveT: 0, losT: 0, // 焚骨祭司：焰蓄、灼链、退避
     };
     list.push(m);
     startRise(m);
@@ -221,8 +227,10 @@
 
   // 散掉所有召唤物（删档 / 换存档时）
   G.clearMinions = function () {
+    clearBolts();
     for (let i = list.length - 1; i >= 0; i--) {
       const m = list[i];
+      if (m.beamOn) endBeam(m);
       m.dead = true;
       m.target = null;
       if (G.world && m.ent) G.world.removeEnt(m.ent);
@@ -253,6 +261,7 @@
 
   // 全部回到玩家身边重新现身（换区域、重生、离得太远）
   function regroup(m, i, n) {
+    if (m.beamOn) endBeam(m);
     const p = spotNear(m.kind === 'colossus' ? 3 : 2.2, m.r + 0.1, P.face + Math.PI + (n > 1 ? (i - (n - 1) / 2) * 0.8 : 0));
     m.x = p.x;
     m.z = p.z;
@@ -598,6 +607,407 @@
     return null;
   }
 
+  // ---------- 焚骨祭司 ----------
+  // 视线：两点之间没有墙（和玩家的技能一样按可走的地面判断）
+  function los(x0, z0, x1, z1) {
+    const W = G.world, dx = x1 - x0, dz = z1 - z0;
+    const n = Math.ceil(Math.hypot(dx, dz) / 0.4);
+    for (let i = 1; i < n; i++) if (!W.walkable(x0 + (dx * i) / n, z0 + (dz * i) / n, -0.3)) return false;
+    return true;
+  }
+  // (x, z) 半径 R 以内（算上敌人半径）还活着的敌人数
+  function crowd(x, z, R, skip) {
+    const es = S.enemies;
+    let n = 0;
+    for (let i = 0; i < es.length; i++) {
+      const e = es[i];
+      if (e !== skip && !e.dead && dist(e.x, e.z, x, z) - e.r <= R) n++;
+    }
+    return n;
+  }
+  // 祭司够得着（射程以内、看得见）的敌人
+  function castable(m, e, extra) {
+    if (!e || e.dead || e.execLock) return false;
+    if (dist(e.x, e.z, P.x, P.z) - e.r > CHASE_MAX) return false;
+    return dist(e.x, e.z, m.x, m.z) - e.r <= m.ctx.minion.reach + (extra || 0);
+  }
+  // 挑目标：集火目标优先（火弹照样炸到它身边的怪）；否则在够得着的敌人里挑身边最挤的一个（同样挤取近的）。
+  // 射程外的也算（走过去），只是排在后面
+  function pickCast(m) {
+    const f = G.focusTarget();
+    const skip = m.ignoreT > 0 ? m.ignore : null;
+    if (f && f !== skip && dist(f.x, f.z, P.x, P.z) - f.r <= CHASE_MAX) return f;
+    const R = m.ctx.minion.explode, es = S.enemies;
+    let best = null, bs = -Infinity;
+    for (let i = 0; i < es.length; i++) {
+      const e = es[i];
+      if (e === skip || !inReach(m, e)) continue;
+      const d = dist(e.x, e.z, m.x, m.z) - e.r;
+      const sc = crowd(e.x, e.z, R) * 3 - d * 0.25 - (d > m.ctx.minion.reach ? 6 : 0) + (e === m.target ? 1 : 0);
+      if (sc > bs) {
+        bs = sc;
+        best = e;
+      }
+    }
+    return best;
+  }
+  // 最挤的一团：以每个够得着的敌人为圆心数 R 内的敌人，取最多的那一团的重心。返回 { n, x, z } 或 null
+  const _clu = { n: 0, x: 0, z: 0 };
+  function densest(m, R) {
+    const es = S.enemies;
+    let bn = 0, bx = 0, bz = 0;
+    for (let i = 0; i < es.length; i++) {
+      const c = es[i];
+      if (!castable(m, c, 2)) continue;
+      let n = 0, sx = 0, sz = 0;
+      for (let j = 0; j < es.length; j++) {
+        const e = es[j];
+        if (e.dead || dist(e.x, e.z, c.x, c.z) - e.r > R) continue;
+        n++;
+        sx += e.x;
+        sz += e.z;
+      }
+      if (n > bn) {
+        bn = n;
+        bx = sx / n;
+        bz = sz / n;
+      }
+    }
+    if (!bn) return null;
+    _clu.n = bn;
+    _clu.x = bx;
+    _clu.z = bz;
+    return _clu;
+  }
+  // 灼链的目标：集火目标 > 首领 > 精英 > 生命最多的，都要在射程以内、看得见
+  function beamTarget(m) {
+    const f = G.focusTarget();
+    const ok = (e) => castable(m, e, 1) && los(m.x, m.z, e.x, e.z);
+    if (f && ok(f)) return f;
+    let best = null, bs = -1;
+    const es = S.enemies;
+    for (let i = 0; i < es.length; i++) {
+      const e = es[i];
+      if (!ok(e)) continue;
+      const sc = (e.isBoss ? 1e12 : 0) + (e.elite ? 1e9 : 0) + e.hp;
+      if (sc > bs) {
+        bs = sc;
+        best = e;
+      }
+    }
+    return best;
+  }
+  // 贴身的敌人（退避用）：flee 米以内最近的一只
+  function threat(m) {
+    const R = m.ctx.minion.flee, es = S.enemies;
+    let best = null, bd = R;
+    for (let i = 0; i < es.length; i++) {
+      const e = es[i];
+      if (e.dead || !e.awake) continue;
+      const d = dist(e.x, e.z, m.x, m.z) - e.r - m.r;
+      if (d < bd) {
+        bd = d;
+        best = e;
+      }
+    }
+    return best;
+  }
+
+  // 火弹：从杖头飞向目标（目标还活着就一路追着它），碰到敌人或到达落点在 R 半径内炸开，撞墙也炸。
+  // 同一次施放的几枚（多重投射）各炸各的，同一个敌人只吃其中一枚
+  const bolts = [];
+  const _sk = { x: 0, y: 0, z: 0 };
+  function throwBolts(m, e) {
+    const W = G.world, mi = m.ctx.minion;
+    W.entSocket(m.ent, 'weapon', _sk);
+    const n = mi.bolts;
+    const aims = [e];
+    if (n > 1) {
+      // 其余几枚分给目标身边的其他敌人（近的优先），不够就散在目标两侧
+      const es = S.enemies.filter((o) => o !== e && !o.dead && castable(m, o, 2) && dist(o.x, o.z, e.x, e.z) < 7);
+      es.sort((a, b) => dist(a.x, a.z, e.x, e.z) - dist(b.x, b.z, e.x, e.z));
+      for (let i = 0; i < n - 1; i++) aims.push(es[i] || null);
+    }
+    const cast = n > 1 ? new Set() : null;
+    const a0 = Math.atan2(e.x - m.x, e.z - m.z);
+    for (let i = 0; i < aims.length; i++) {
+      const t = aims[i];
+      let tx, tz;
+      if (t) {
+        tx = t.x;
+        tz = t.z;
+      } else {
+        const a = a0 + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * 0.35, d = dist(e.x, e.z, m.x, m.z);
+        tx = m.x + Math.sin(a) * d;
+        tz = m.z + Math.cos(a) * d;
+      }
+      const dx = tx - _sk.x, dz = tz - _sk.z, dd = Math.hypot(dx, dz) || 1;
+      const mesh = W.makePyreBolt ? W.makePyreBolt() : W.makeProjectile(0xff8a3c, 0.28, false, { kind: 'ember', dx: dx / dd, dz: dz / dd, tint: ALLY_HEX });
+      mesh.position.set(_sk.x, _sk.y, _sk.z);
+      bolts.push({
+        m, ctx: m.ctx, tg: t, x: _sk.x, z: _sk.z, y0: _sk.y, d0: dd, tx, tz, life: 2.2, mesh, cast,
+        R: mi.explode, per: mi.charge.per, wob: Math.random() * TAU,
+      });
+    }
+    G.sfx('cast');
+  }
+  function boltBlast(b) {
+    const W = G.world, R = b.R, es = S.enemies, m = b.m;
+    let n = 0;
+    for (let i = 0; i < es.length; i++) {
+      const e = es[i];
+      if (e.dead || e.execLock || dist(e.x, e.z, b.x, b.z) - e.r > R) continue;
+      if (b.cast) {
+        if (b.cast.has(e)) continue;
+        b.cast.add(e);
+      }
+      G.hitEnemy(e, b.ctx, 1, { ang: Math.atan2(e.x - b.x, e.z - b.z), w: b.ctx.sk.w || 0, kb: b.ctx.sk.kb || 0, poise: b.ctx.sk.poise || 0, quiet: true, minion: m });
+      n++;
+    }
+    if (W.pyreBlast) W.pyreBlast(b.x, b.z, R, b.mesh);
+    else if (!W.projImpact(b.mesh, b.x, b.z, 'blast', R)) {
+      W.ring(b.x, b.z, R, 0xff8a3c, 0.3);
+      W.burst(b.x, 1, b.z, 0xff8a3c, 14, 5, 0.4);
+    }
+    if (dist(b.x, b.z, P.x, P.z) < 16) G.sfx('impact', { type: 'fire', w: 0, crit: false });
+    // 焰蓄：每炸到一个敌人 +1（一弹最多 per 点）；祭司已经倒下就不算了
+    if (n && m && !m.dead) {
+      m.charge = Math.min(m.ctx.minion.charge.max, m.charge + Math.min(b.per, n) * (m.ctx.minion.chargeK || 1));
+      S.stats.pyreHits = (S.stats.pyreHits || 0) + n;
+    }
+  }
+  function updateBolts(dt) {
+    const W = G.world;
+    for (let i = bolts.length - 1; i >= 0; i--) {
+      const b = bolts[i];
+      if (b.tg && !b.tg.dead) {
+        b.tx = b.tg.x;
+        b.tz = b.tg.z;
+      }
+      b.life -= dt;
+      let dx = b.tx - b.x, dz = b.tz - b.z;
+      const d = Math.hypot(dx, dz);
+      const stepLen = b.ctx.minion.speed * dt;
+      let boom = d <= stepLen || b.life <= 0;
+      if (!boom) {
+        dx /= d;
+        dz /= d;
+        const nx = b.x + dx * stepLen, nz = b.z + dz * stepLen;
+        if (!W.walkable(nx, nz, -0.4)) boom = true;
+        else {
+          b.x = nx;
+          b.z = nz;
+          // 半路擦到别的敌人也炸
+          const es = S.enemies;
+          for (let j = 0; j < es.length && !boom; j++) {
+            const e = es[j];
+            if (!e.dead && dist(e.x, e.z, b.x, b.z) <= e.r + 0.3) boom = true;
+          }
+        }
+      } else {
+        b.x = b.tx;
+        b.z = b.tz;
+      }
+      // 一道低低的弧线：越近越低，落点贴地炸开
+      const k = G.clamp(1 - Math.hypot(b.tx - b.x, b.tz - b.z) / Math.max(1, b.d0), 0, 1);
+      const y = b.y0 + (0.9 - b.y0) * k + Math.sin(k * Math.PI) * Math.min(1.6, b.d0 * 0.12);
+      b.mesh.position.set(b.x, y, b.z);
+      if (boom) {
+        boltBlast(b);
+        W.removeMesh(b.mesh);
+        bolts.splice(i, 1);
+      }
+    }
+  }
+  function clearBolts() {
+    for (const b of bolts) if (G.world) G.world.removeMesh(b.mesh);
+    bolts.length = 0;
+  }
+  G.minionBolts = () => bolts.length; // 测试用
+
+  // 出手：掷火弹 / 坠焰起手 / 灼链引导
+  function pyreSpeedK(m) {
+    return Math.min(1, m.ctx.minion.interval / frenzyMul() / m.ctx.sk.rate);
+  }
+  function startBolt(m, e) {
+    const K = KIND.pyre, k = pyreSpeedK(m);
+    m.state = 'attack';
+    m.stateT = K.atkDur * k;
+    m.strikeT = K.atkHit * k;
+    m.target = e;
+    m.atkT = m.ctx.minion.interval;
+    m.ang = Math.atan2(e.x - m.x, e.z - m.z);
+    G.world.play(m.ent, 'attack', { dur: m.stateT, contact: m.strikeT });
+  }
+  // 大招：怪够多 → 坠焰砸向最挤的一团；否则灼链烧单个强敌。都不成（没有看得见的目标）就先不放
+  function startBig(m) {
+    const K = KIND.pyre, mi = m.ctx.minion;
+    const c = densest(m, mi.meteor.r);
+    if (c && c.n >= mi.meteor.min) {
+      m.state = 'meteor';
+      m.stateT = K.bigDur;
+      m.strikeT = K.bigHit;
+      m.bigX = c.x;
+      m.bigZ = c.z;
+      m.ang = Math.atan2(c.x - m.x, c.z - m.z);
+      m.charge = 0;
+      m.atkT = mi.interval;
+      G.world.play(m.ent, 'cast2', { dur: K.bigDur, contact: K.bigHit });
+      if (G.world.pyreCharge) G.world.pyreCharge(m.ent, 0, true);
+      return true;
+    }
+    const e = beamTarget(m);
+    if (!e) return false;
+    m.state = 'beam';
+    m.target = e;
+    m.stateT = mi.beam.dur;
+    m.strikeT = -1;
+    m.beamTick = 0.05;
+    m.charge = 0;
+    m.ang = Math.atan2(e.x - m.x, e.z - m.z);
+    m.beamOn = true;
+    G.world.play(m.ent, 'channel', { dur: mi.beam.dur + 0.25 });
+    if (G.world.pyreCharge) G.world.pyreCharge(m.ent, 0, true);
+    G.sfx('cast');
+    return true;
+  }
+  function castMeteor(m) {
+    const W = G.world, mi = m.ctx.minion, M = mi.meteor, ctx = m.ctx;
+    const x = m.bigX, z = m.bigZ, R = M.radius;
+    if (W.pyreMeteor) W.pyreMeteor(x, z, R, M.delay);
+    else W.meteorFall(x, z, M.delay, 0xff7a2c);
+    G.telegraph({
+      shape: 'circle', x, z, r: R, dur: M.delay, dmg: 0, friendly: true,
+      onFire() {
+        let n = 0;
+        const es = S.enemies;
+        for (let i = 0; i < es.length; i++) {
+          const e = es[i];
+          if (e.dead || e.execLock || dist(e.x, e.z, x, z) - e.r > R) continue;
+          G.hitEnemy(e, ctx, M.mult, { ang: Math.atan2(e.x - x, e.z - z), w: M.w, kb: M.kb, poise: M.poise, quiet: true, minion: m });
+          n++;
+        }
+        if (W.pyreMeteorLand) W.pyreMeteorLand(x, z, R);
+        else {
+          W.ring(x, z, R, 0xff7a2c, 0.45);
+          W.burst(x, 0.8, z, 0xff7a2c, 40, 8, 0.6);
+        }
+        if (dist(x, z, P.x, P.z) < 16) W.shake(0.25);
+        G.sfx('hit');
+        S.stats.pyreMeteors = (S.stats.pyreMeteors || 0) + 1;
+        S.stats.pyreMeteorHits = (S.stats.pyreMeteorHits || 0) + n;
+      },
+    });
+  }
+  function endBeam(m) {
+    m.beamOn = false;
+    if (G.world && G.world.pyreBeam) G.world.pyreBeam(m.ent, null);
+  }
+  // 灼链每帧：目标死了 / 跑出射程 / 被墙挡住就换身边最近的另一个；没有就收手
+  function updateBeam(m, dt) {
+    const W = G.world, mi = m.ctx.minion, B = mi.beam;
+    let e = m.target;
+    if (!e || e.dead || !castable(m, e, 2) || !los(m.x, m.z, e.x, e.z)) {
+      e = m.target = beamTarget(m);
+      if (!e) {
+        endBeam(m);
+        m.state = 'idle';
+        m.stateT = 0;
+        G.world.stop(m.ent);
+        return;
+      }
+    }
+    turn(m, Math.atan2(e.x - m.x, e.z - m.z), 8, dt);
+    m.beamTick -= dt;
+    if (m.beamTick <= 0) {
+      m.beamTick += B.tick * pyreSpeedK(m);
+      G.hitEnemy(e, m.ctx, B.mult, { ang: Math.atan2(e.x - m.x, e.z - m.z), w: 0, kb: 0, poise: B.poise, quiet: true, minion: m });
+      S.stats.pyreBeamTicks = (S.stats.pyreBeamTicks || 0) + 1;
+    }
+    if (W.pyreBeam) W.pyreBeam(m.ent, e);
+  }
+
+  // 祭司空闲时的一帧：躲预警圈 → 敌人贴身就往玩家那边退 → 焰蓄满了放大招 → 射程内看得见就掷火弹 → 否则走近 / 跟随
+  // 返回 true：回到玩家身边重新现身了（这一帧不再往下走）
+  function updatePyre(m, i, dt, fz, pi, pn) {
+    const mi = m.ctx.minion;
+    m.seekT -= dt;
+    if (m.seekT <= 0 || (m.target && m.target.dead)) {
+      m.seekT = SEEK_GAP;
+      const nt = pickCast(m);
+      if (nt !== m.target) m.stuckT = 0;
+      m.target = nt;
+    }
+    if (m.braveT > 0) m.braveT -= dt;
+    const esc = dodgeDir(m);
+    if (esc) {
+      turn(m, Math.atan2(esc.x, esc.z), 12, dt);
+      step(m, esc.x, esc.z, mi.move * fz * dt);
+      m.moving = true;
+      return;
+    }
+    const th = m.braveT > 0 ? null : threat(m);
+    if (th) {
+      // 退开：背离贴身的敌人，偏向玩家（躲到前排身后）；连续退了一阵还甩不掉就硬着头皮施法
+      m.fleeT += dt;
+      if (m.fleeT > 1.4) {
+        m.fleeT = 0;
+        m.braveT = 2.2;
+      }
+      let dx = m.x - th.x, dz = m.z - th.z;
+      const d = Math.hypot(dx, dz) || 1;
+      dx /= d;
+      dz /= d;
+      const px = P.x - m.x, pz = P.z - m.z, pd = Math.hypot(px, pz);
+      if (pd > 1.5) {
+        dx += (px / pd) * 0.7;
+        dz += (pz / pd) * 0.7;
+      }
+      const l = Math.hypot(dx, dz) || 1;
+      turn(m, Math.atan2(dx, dz), 12, dt);
+      if (!step(m, dx / l, dz / l, mi.move * fz * dt)) m.braveT = 1.2; // 退无可退
+      m.moving = true;
+      return;
+    }
+    m.fleeT = Math.max(0, m.fleeT - dt);
+    if (m.charge >= mi.charge.max && m.atkT <= 0 && startBig(m)) return;
+    const e = m.target;
+    if (e) {
+      const d = dist(e.x, e.z, m.x, m.z) - e.r;
+      m.losT -= dt;
+      if (m.losT <= 0) {
+        m.losT = 0.2;
+        m.losOk = los(m.x, m.z, e.x, e.z);
+      }
+      // 看不见目标（隔着墙）又一直绕不过去：先放下它，换别的打
+      m.losBad = m.losOk ? 0 : (m.losBad || 0) + dt;
+      if (m.losBad > 2.5) {
+        m.losBad = 0;
+        m.ignore = e;
+        m.ignoreT = 2.5;
+        m.target = null;
+        m.seekT = 0;
+        return;
+      }
+      if (d <= mi.reach && m.losOk) {
+        m.stuckT = 0;
+        turn(m, Math.atan2(e.x - m.x, e.z - m.z), 10, dt);
+        if (m.atkT <= 0) startBolt(m, e);
+        return;
+      }
+      // 走到射程以内（看不见就再走近些），但不越过 keep：站在后排
+      if (!moveTo(m, e.x, e.z, mi.move * fz, m.losOk ? Math.min(mi.reach * 0.85, Math.max(mi.keep, d - 1)) : 2, dt, 0.3) && m.stuckT > STUCK_T) {
+        m.ignore = e;
+        m.ignoreT = 2.5;
+        m.target = null;
+        m.seekT = 1;
+        m.stuckT = 0;
+      }
+      return;
+    }
+    return followIdle(m, i, dt, mi, fz, pi, pn);
+  }
+
   // ---------- 跟随 ----------
   function followSpot(m, idx, n) {
     const W = G.world;
@@ -606,6 +1016,10 @@
     if (m.kind === 'colossus') {
       a = back;
       r = 4;
+    } else if (m.kind === 'pyre') {
+      // 祭司站在玩家身后两侧更远处（idx 是第几位祭司）
+      a = back + (idx % 2 ? 0.5 : -0.5) + Math.floor(idx / 2) * 0.25;
+      r = 4.6;
     } else {
       a = back + (n > 1 ? (idx - (n - 1) / 2) * (TAU / Math.max(3, n + 1)) : 0.6);
       r = 2.4 + (idx % 2) * 1.2;
@@ -627,6 +1041,35 @@
     return spotNear(r * 0.8, m.r, a);
   }
 
+  // 没有目标时跟着玩家走：走到跟随点（idx / n：同类里第几只、共几只）。走不过去又离得远就回到玩家身边重新现身（返回 true）
+  function followIdle(m, i, dt, mi, fz, idx, n) {
+    const sp = followSpot(m, idx, n);
+    const far = dist(m.x, m.z, sp.x, sp.z);
+    const speed = mi.move * fz * (far > 6 ? 1.35 : 1);
+    // 跟随点挪远了（玩家走动 / 转身）就重新开始计「走不过去」的时间
+    if (Math.abs(sp.x - m.spX) + Math.abs(sp.z - m.spZ) > 1.2) {
+      m.spX = sp.x;
+      m.spZ = sp.z;
+      m.spBest = far;
+      m.spT = 0;
+    } else if (far < m.spBest - 0.25) {
+      m.spBest = far;
+      m.spT = 0;
+    } else m.spT += dt;
+    const nearP = dist(m.x, m.z, P.x, P.z) <= 6;
+    if (nearP && (m.spT > 1.0 || m.stuckT > STUCK_T)) {
+      // 离玩家不远、却一直挪不近跟随点（走廊里被墙 / 同伴挡着）：就地站好，不对着墙原地踏步
+      m.stuckT = 0;
+      if (dist(m.x, m.z, P.x, P.z) > 1.2) turn(m, Math.atan2(P.x - m.x, P.z - m.z), 4, dt);
+    } else if (!moveTo(m, sp.x, sp.z, speed, m.moving0 ? 0.3 : 1.0, dt)) {
+      if (m.stuckT > STUCK_T && !nearP) {
+        regroup(m, i, list.length);
+        return true;
+      }
+    } else m.stuckT = 0;
+    return false;
+  }
+
   // ---------- 每帧 ----------
   G.updateMinions = function (dt) {
     const W = G.world;
@@ -635,6 +1078,7 @@
     if (S.focus && (S.focus.dead || !(S.focusT > 0))) S.focus = null;
     if (frenzyT > 0) frenzyT = Math.max(0, frenzyT - dt);
     const fz = frenzyMul();
+    if (bolts.length) updateBolts(dt); // 祭司倒下了，飞在半路的火弹照样落地
     if (!list.length) {
       setMark(null);
       return;
@@ -647,8 +1091,11 @@
       refreshAll();
     }
 
-    let ti = 0, tn = 0;
-    for (let i = 0; i < list.length; i++) if (blade(list[i])) tn++;
+    let ti = 0, tn = 0, pi = 0, pn = 0;
+    for (let i = 0; i < list.length; i++) {
+      if (blade(list[i])) tn++;
+      else if (list[i].kind === 'pyre') pn++;
+    }
 
     for (let i = list.length - 1; i >= 0; i--) {
       const m = list[i];
@@ -684,15 +1131,24 @@
           if (t0 >= 0) {
             m.strikeT -= dt;
             if (m.strikeT < 0) {
-              if (m.state === 'attack') strike(m);
+              if (m.state === 'attack') {
+                if (m.kind !== 'pyre') strike(m);
+                else if (m.target && !m.target.dead) throwBolts(m, m.target);
+              } else if (m.state === 'meteor') castMeteor(m);
               else taunt(m);
             }
           }
-          if (m.target && !m.target.dead) turn(m, Math.atan2(m.target.x - m.x, m.target.z - m.z), 6, dt);
+          if (m.state === 'beam') {
+            if (m.stateT > 0) updateBeam(m, dt);
+            if (m.stateT <= 0 && m.beamOn) endBeam(m);
+          } else if (m.state === 'meteor') turn(m, Math.atan2(m.bigX - m.x, m.bigZ - m.z), 6, dt);
+          else if (m.target && !m.target.dead) turn(m, Math.atan2(m.target.x - m.x, m.target.z - m.z), 6, dt);
           if (m.stateT <= 0) {
             m.state = 'idle';
             m.strikeT = -1;
           }
+        } else if (m.kind === 'pyre') {
+          if (updatePyre(m, i, dt, fz, pi, pn)) continue;
         } else {
           m.seekT -= dt;
           if (m.seekT <= 0 || (m.target && m.target.dead)) {
@@ -702,7 +1158,7 @@
             m.target = nt;
           }
           const e = m.target;
-          const esc = blade(m) ? dodgeDir(m) : null;
+          const esc = dodger(m) ? dodgeDir(m) : null;
           if (esc) {
             // 仆从身手灵活：看清小怪的预警圈之后会闪出去（守像太慢不躲；首领的招式也不躲，照样要吃）
             turn(m, Math.atan2(esc.x, esc.z), 12, dt);
@@ -723,35 +1179,10 @@
               m.seekT = 1;
               m.stuckT = 0;
             }
-          } else {
-            const idx = blade(m) ? ti : 0;
-            const sp = followSpot(m, idx, tn);
-            const far = dist(m.x, m.z, sp.x, sp.z);
-            const speed = mi.move * fz * (far > 6 ? 1.35 : 1);
-            // 跟随点挪远了（玩家走动 / 转身）就重新开始计「走不过去」的时间
-            if (Math.abs(sp.x - m.spX) + Math.abs(sp.z - m.spZ) > 1.2) {
-              m.spX = sp.x;
-              m.spZ = sp.z;
-              m.spBest = far;
-              m.spT = 0;
-            } else if (far < m.spBest - 0.25) {
-              m.spBest = far;
-              m.spT = 0;
-            } else m.spT += dt;
-            const nearP = dist(m.x, m.z, P.x, P.z) <= 6;
-            if (nearP && (m.spT > 1.0 || m.stuckT > STUCK_T)) {
-              // 离玩家不远、却一直挪不近跟随点（走廊里被墙 / 同伴挡着）：就地站好，不对着墙原地踏步
-              m.stuckT = 0;
-              if (dist(m.x, m.z, P.x, P.z) > 1.2) turn(m, Math.atan2(P.x - m.x, P.z - m.z), 4, dt);
-            } else if (!moveTo(m, sp.x, sp.z, speed, m.moving0 ? 0.3 : 1.0, dt)) {
-              if (m.stuckT > STUCK_T && !nearP) {
-                regroup(m, i, list.length);
-                continue;
-              }
-            } else m.stuckT = 0;
-          }
+          } else if (followIdle(m, i, dt, mi, fz, blade(m) ? ti : 0, tn)) continue;
         }
         if (blade(m)) ti++;
+        else if (m.kind === 'pyre') pi++;
         separate(m, dt);
       }
       m.moving0 = m.moving;

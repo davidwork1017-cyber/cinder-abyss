@@ -107,8 +107,8 @@
   const ARM_ORDER = ['s', 'd', 'i', 'm', 'o'];
   const KIND_NAME = { small: '小型天赋', notable: '核心天赋', keystone: '基石天赋', start: '起点' };
   const ALLY = G.icons.ally || '#4fe3c8'; // 友方召唤物的青色（与世界里的血条、地面圈同色）
-  const MINION_STATS = ['minionDmg', 'minionLife', 'minionSpeed', 'minionCap', 'minionMore'];
-  const MINION_NAME = { thrall: '烬骸仆从', colossus: '石誓守像' };
+  const MINION_STATS = ['minionDmg', 'minionLife', 'minionSpeed', 'minionCap', 'minionMore', 'minionArea', 'minionCharge'];
+  const MINION_NAME = { thrall: '烬骸仆从', colossus: '石誓守像', pyre: '焚骨祭司' };
   const ZONE_GLYPH = { ash: '烬', frost: '霜', storm: '雷', abyss: '渊', rift: '星' };
   const ZONE_ORD = ['第一境', '第二境', '第三境', '第四境', '第五境', '第六境'];
 
@@ -1047,7 +1047,11 @@
     }
     for (let i = 0; i < src.length; i++) {
       const x = src[i];
-      if (x && !x.dead && x.kind !== 'colossus') list.push(x);
+      if (x && !x.dead && x.kind !== 'colossus' && x.kind !== 'pyre') list.push(x);
+    }
+    for (let i = 0; i < src.length; i++) {
+      const x = src[i];
+      if (x && !x.dead && x.kind === 'pyre') list.push(x);
     }
     const on = list.length > 0 && !G.player.dead;
     if (on !== m.on) {
@@ -1057,7 +1061,7 @@
     for (let i = 0; i < list.length; i++) {
       const x = list[i];
       const c = mnChip(i);
-      const kind = x.kind === 'colossus' ? 'colossus' : 'thrall';
+      const kind = x.kind === 'colossus' || x.kind === 'pyre' ? x.kind : 'thrall';
       if (!c.on || c.kind !== kind) {
         c.on = true;
         c.kind = kind;
@@ -1102,6 +1106,19 @@
         if (tn !== c.tn) {
           c.tn = tn;
           c.tTxt.textContent = tn;
+        }
+      } else if (kind === 'pyre') {
+        // 焚骨祭司：下面一道焰蓄条，攒满时整枚图标亮起（马上放坠焰 / 灼链）
+        const max = x.ctx && x.ctx.minion && x.ctx.minion.charge ? x.ctx.minion.charge.max : 0;
+        const tq = max > 0 ? Math.round(G.clamp((x.charge || 0) / max, 0, 1) * 28) / 28 : 0;
+        if (tq !== c.tq) {
+          c.tq = tq;
+          c.tc.style.transform = 'scaleX(' + tq + ')';
+        }
+        const ready = tq >= 1 || x.state === 'beam' || x.state === 'meteor';
+        if (ready !== c.ready) {
+          c.ready = ready;
+          c.el.classList.toggle('ready', ready);
         }
       }
     }
@@ -1541,6 +1558,8 @@
       h += row('攻击与移动速度', pct(s('minionSpeed')), ALLY);
       h += row('仆从数量上限', '+' + fmt1(s('minionCap')), ALLY);
       if (s('minionMore')) h += row('召唤物总伤害', pct(s('minionMore')), s('minionMore') > 0 ? '#ffb066' : '#ff7a6a');
+      if (s('minionArea')) h += row('召唤物范围', pct(s('minionArea')), ALLY);
+      if (s('minionCharge')) h += row('焰蓄攒得快', pct(s('minionCharge')), ALLY);
       if (s('mWeapon')) {
         // 万魂旗：显示提高后的比例，并写明倍数（倍数随武器物品等级折算）
         const wMul = P.uMech === 'soul' ? G.minionInherit(null).wMul : 1;
@@ -2084,7 +2103,13 @@
       if (mi.dr > 0) bits.push('减伤 ' + Math.round(mi.dr) + '%');
       if (mi.radius > 0) bits.push('砸地半径 ' + fmt1(mi.radius));
       if (mi.taunt) bits.push('嘲讽 ' + fmt1(mi.taunt.cd) + ' 秒 / 半径 ' + fmt1(mi.taunt.r));
-      if (mi.dps > 0) bits.push((mi.cap > 1 ? '满员秒伤约 ' : '秒伤约 ') + fmtInt(mi.dps));
+      const pm = ctx.minion && ctx.minion.charge ? ctx.minion : null;
+      if (pm) {
+        // 焚骨祭司：火弹的爆炸半径、一次几枚，焰蓄攒满放的两种大招
+        bits.push('火弹爆炸半径 ' + fmt1(pm.explode) + (pm.bolts > 1 ? ' · 一次 ' + pm.bolts + ' 枚' : ''));
+        bits.push('焰蓄 ' + pm.charge.max + ' 点：坠焰 ' + fmt1(pm.meteor.mult) + ' 倍 / 半径 ' + fmt1(pm.meteor.radius) + '，灼链 ' + fmt1(pm.beam.dur) + ' 秒 × 每跳 ' + fmt1(pm.beam.mult) + ' 倍');
+      }
+      if (mi.dps > 0) bits.push((mi.cap > 1 ? '满员秒伤约 ' : '秒伤约 ') + fmtInt(mi.dps) + (pm ? '（单体，含灼链；炸到怪群时成倍）' : ''));
       note = '<div class="sk-mnote"><i></i>' + bits.join(' · ') + '</div>' + inheritNote(ctx) + autoRow(id);
     } else if (sk.kind === 'aura') {
       // 光环：没有施放，只有保留；卡片上是每一跳的伤害、每秒几跳和半径
@@ -2661,15 +2686,16 @@
       return sp.req && sp.req.length === 1 && sp.req[0] === 'minion';
     });
     const gems = sups.map((id) => '<div class="hc" style="--c:' + IC.supColor(id) + '">' + IC.sup(id) + '<b>' + G.SUPPORTS[id].name + '</b><span>' + G.SUPPORTS[id].desc + '</span></div>').join('');
-    const blocked = ['echo', 'leech', 'multi', 'pierce', 'chain'].filter((id) => G.SUPPORTS[id]).map((id) => G.SUPPORTS[id].name).join('、');
+    const blocked = ['echo', 'leech', 'pierce', 'chain'].filter((id) => G.SUPPORTS[id]).map((id) => G.SUPPORTS[id].name).join('、');
     return (
       '<div class="sec-title">召唤与集火</div>' +
       '<p>召唤技能的按键是<b class="c-ally">自动召唤</b>的开关（每个技能分别记住，技能页的卡片上也能切换）：开着时，只要数量没到上限、魔力够、冷却好了，就在你身边隔一小会儿召唤一只，倒下的也会自动补上，正常扣魔力、进冷却；魔力不够就暂停，回上来接着补（点了以血为引则扣生命，付完低于四成生命时不自动召唤）。自动召唤不播动作，不打断你的施法、连招和翻滚，处决途中暂停。想把召唤物放到指定位置，按住 <kbd>Shift</kbd> 再按那个键，就在准星处手动召唤一次。技能从技能栏上拿下时自动召唤不生效，放回去接着补。</p>' +
-      '<p><b class="c-ally">' + name('thrall', '烬骸仆从') + '</b>唤起迅捷的骸骨剑士，数量满了再手动召唤会替换伤得最重的那具；<b class="c-ally">' + name('colossus', '石誓守像') + '</b>只有一尊，缓慢而坚韧，会砸地伤害一圈敌人，并不时<b>嘲讽</b>，让周围的敌人转而攻击它。</p>' +
+      '<p><b class="c-ally">' + name('thrall', '烬骸仆从') + '</b>唤起迅捷的骸骨剑士，数量满了再手动召唤会替换伤得最重的那具；<b class="c-ally">' + name('colossus', '石誓守像') + '</b>只有一尊，缓慢而坚韧，会砸地伤害一圈敌人，并不时<b>嘲讽</b>，让周围的敌人（首领也会被吸引一阵）转而攻击它。</p>' +
+      '<p><b class="c-ally">' + name('pyre', '焚骨祭司') + '</b>是召唤师清怪的主力：站在前排身后远远施法，把焚骨火弹掷向怪最密的地方，落地炸开一片。每炸到一个敌人攒一点<b>焰蓄</b>，攒满了放大招——怪多时召下<b>坠焰</b>砸向最挤的一团，单个强敌（首领、精英、你的集火目标）则引导<b>灼链</b>持续灼烧。祭司很脆，敌人贴近会先往你身边退，最好让仆从和守像挡在前面。基础上限 2 位，只有镶在它身上的群聚能多唤一位（天赋和护符的「仆从数量」只算仆从）；多重投射让它一次掷出几枚火弹，分头砸向不同的敌人；拿着杖、短杖或魂幡时它继承的武器伤害更多。屏幕左下的图标下方那道橙条就是它的焰蓄。</p>' +
       '<p>召唤物全自动：跟在你身边，自己挑身边的敌人打。你<b>亲手打中</b>的敌人会被标记几秒，召唤物优先<b>集火</b>它——想先清掉谁，就先打它一下。敌人也会还手：一具仆从最多缠住两只怪、守像四只，多出来的照样冲你来，远程怪和爆裂虫更是认准了你。仆从会闪开小怪的预警圈，却躲不开首领的招式，挨得也更重；倒下的召唤物没开自动召唤时需要重新施放。</p>' +
       '<p>召唤物<b>不吃你自己的伤害属性</b>，只随宝石等级、带「召唤物」字样的属性（装备词缀与<b class="c-ally">统御</b>支路的天赋）和镶在召唤技能上的辅助宝石成长；统御支路外圈的天赋还能让召唤物<b>继承你的武器伤害、护甲与抗性、装备生命</b>（武器的物品等级越高继承得越完整，魂幡按倍数计），后期靠装备继续变强。屏幕左下、生命球旁边的一排小图标是它们的血量，守像的嘲讽冷却也在那里；技能页的卡片上有每一击的伤害、生命与数量。</p>' +
       (gems ? '<div class="hc-list">' + gems + '</div>' : '') +
-      '<p>通用辅助也能镶在召唤技能上：迅捷加快召唤物出手，注入、蛮力、致命、震慑、蚀染作用于召唤物的每一击，扩域放大守像的砸地，节流照常减少消耗与冷却。' + (blocked ? blocked + '镶不上召唤技能。' : '') + '</p>'
+      '<p>通用辅助也能镶在召唤技能上：迅捷加快召唤物出手，注入、蛮力、致命、震慑、蚀染作用于召唤物的每一击，扩域放大守像的砸地和祭司的火弹、坠焰，多重投射只对祭司有用，节流照常减少消耗与冷却。' + (blocked ? blocked + '镶不上召唤技能。' : '') + '</p>'
     );
   }
 
@@ -4013,7 +4039,7 @@
   }
 
   // 召唤物的身高（世界单位）：名牌和悬停判定用
-  const MINION_H = { thrall: 1.75, colossus: 2.9 };
+  const MINION_H = { thrall: 1.75, colossus: 2.9, pyre: 1.95 };
   // 鼠标指着哪只召唤物（判定方法与 enemyAt 相同）
   function minionAt(mx, my) {
     const ms = liveMinions();
@@ -4061,16 +4087,18 @@
     const name = x.name || MINION_NAME[x.kind] || (sk ? sk.name : '召唤物');
     const tg = x.target && !x.target.dead ? x.target : null;
     const focus = typeof G.focusTarget === 'function' ? G.focusTarget() : null;
-    const doing = x.rising > 0 ? '正在现身' : tg ? (tg === focus ? '集火 ' : '攻击 ') + tg.name : '跟随中';
-    const taunt = x.kind === 'colossus' && x.tauntCdMax > 0 ? (x.tauntCd > 0.05 ? '嘲讽 ' + Math.ceil(x.tauntCd) + ' 秒' : '嘲讽就绪') : '';
+    const doing = x.rising > 0 ? '正在现身' : x.state === 'beam' && tg ? '灼链 ' + tg.name : x.state === 'meteor' ? '召下坠焰' : tg ? (tg === focus ? '集火 ' : '攻击 ') + tg.name : '跟随中';
+    const cmax = x.kind === 'pyre' && x.ctx && x.ctx.minion && x.ctx.minion.charge ? x.ctx.minion.charge.max : 0;
+    const taunt = x.kind === 'colossus' && x.tauntCdMax > 0 ? (x.tauntCd > 0.05 ? '嘲讽 ' + Math.ceil(x.tauntCd) + ' 秒' : '嘲讽就绪')
+      : cmax ? (x.charge >= cmax ? '焰蓄已满' : '焰蓄 ' + Math.floor(x.charge || 0) + ' / ' + cmax) : '';
     const sig = name + '|' + Math.ceil(x.hp) + '|' + x.maxHp + '|' + doing + '|' + taunt;
     if (sig !== wui.mpSig) {
       wui.mpSig = sig;
-      p.className = 'on ' + (x.kind === 'colossus' ? 'colossus' : 'thrall');
+      p.className = 'on ' + (x.kind === 'colossus' || x.kind === 'pyre' ? x.kind : 'thrall');
       p.innerHTML =
         '<div class="mp-top"><b>' + esc(name) + '</b><em>召唤物</em></div>' +
         '<div class="mp-hp"><i style="width:' + Math.round(G.clamp(x.maxHp > 0 ? x.hp / x.maxHp : 0, 0, 1) * 100) + '%"></i><span>' + fmtInt(Math.max(0, Math.ceil(x.hp))) + ' / ' + fmtInt(x.maxHp) + '</span></div>' +
-        '<div class="mp-note"><span' + (tg && tg === focus ? ' class="focus"' : '') + '>' + esc(doing) + '</span>' + (taunt ? '<span class="' + (x.tauntCd > 0.05 ? '' : 'ready') + '">' + taunt + '</span>' : '') + '</div>';
+        '<div class="mp-note"><span' + (tg && tg === focus ? ' class="focus"' : '') + '>' + esc(doing) + '</span>' + (taunt ? '<span class="' + ((cmax ? x.charge < cmax : x.tauntCd > 0.05) ? '' : 'ready') + '">' + taunt + '</span>' : '') + '</div>';
     }
     wui.mpOn = true;
     const q = G.world.project(x.x, (x.height || MINION_H[x.kind] || 1.8) + 0.45, x.z);
@@ -4699,6 +4727,13 @@
       },
       when: () => coach.summonPing,
       done: () => minionCount() > 0 && !!focusNow(),
+    },
+    {
+      // 第一次唤起焚骨祭司：讲清楚它站后排、靠焰蓄放大招、怕被贴身
+      id: 'pyre', max: 30,
+      html: '<b class="c-ally">焚骨祭司</b>站在后排朝怪堆掷火弹，每炸到一个敌人攒一点<b>焰蓄</b>（图标下的橙条），攒满就召下<b>坠焰</b>或引导<b>灼链</b>。它很脆：让仆从和守像挡在前面',
+      when: () => G.state.minions.some((m) => m && !m.dead && m.kind === 'pyre' && !(m.rising > 0)),
+      done: () => (G.state.stats.pyreMeteors || 0) + (G.state.stats.pyreBeamTicks || 0) > 0,
     },
     {
       id: 'loot', calm: true, max: 22,
