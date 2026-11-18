@@ -70,6 +70,15 @@
     }
     return false;
   }
+  // 牵引（黑洞、黑旋风、渊缚、渊陷）：把 e 朝 (x, z) 挪 step 米，带撞墙检测（贴墙滑），不会被拽进墙里。返回实际挪动的距离
+  G.pullEnemy = function (e, x, z, step) {
+    if (!e || e.dead || !(step > 0)) return 0;
+    const dx = x - e.x, dz = z - e.z, d = Math.hypot(dx, dz);
+    if (d < 1e-4) return 0;
+    const m = Math.min(step, d), ox = e.x, oz = e.z;
+    tryMove(e, (dx / d) * m, (dz / d) * m);
+    return Math.hypot(e.x - ox, e.z - oz);
+  };
   const SLIDE = [0.9, -0.9, 1.45, -1.45];
   function moveDir(e, dx, dz, step) {
     if (tryMove(e, dx * step, dz * step)) return true;
@@ -1412,6 +1421,7 @@
     e.vis = 0;
     e.fan = e.gore = false;
     e.stunT = e.freeze = e.stagT = 0;
+    e.bindT = e.bindLeft = 0; // 破绽中不再被缚住、不被拽（留在原地给你处决）
     e.stunAnim = false;
     if (e.isBoss) {
       e.busy = 0;
@@ -1526,7 +1536,7 @@
       // 元素异常值：回落、感电 / 重度冰缓倒计时；slow 是冰缓的减速比例（移动和出手节奏一起放慢）
       const slow = G.tickBuildUp(e, dt);
       e.slowK = 1 - slow;
-      if (e.isBoss) e.freeze = e.stunT = e.stagT = 0; // 首领免疫冻结、眩晕与踉跄
+      if (e.isBoss) e.freeze = e.stunT = e.stagT = e.bindT = 0; // 首领免疫冻结、眩晕与踉跄（渊缚对首领只减速）
       // 架势：破绽倒计时（被处决途中不走）；平时几秒不挨打后回复
       if (e.poiseMax > 0) {
         if (e.poiseHit > 0) e.poiseHit -= dt;
@@ -1538,7 +1548,7 @@
         } else if (e.poiseT > 0) e.poiseT -= dt;
         else if (e.poise < e.poiseMax) e.poise = Math.min(e.poiseMax, e.poise + e.poiseMax * G.POISE.regen * dt);
       }
-      const held = e.freeze > 0 || e.stunT > 0 || e.stagT > 0 || e.brokenT > 0;
+      const held = e.freeze > 0 || e.stunT > 0 || e.stagT > 0 || e.brokenT > 0 || e.bindT > 0; // 渊缚：定身，和冻结一样暂停 AI
       if (e.freeze > 0) e.freeze -= dt;
       if (e.stunT > 0) e.stunT -= dt;
       if (e.stagT > 0) e.stagT -= dt;
@@ -1558,6 +1568,16 @@
         if (Math.abs(e.kvx) + Math.abs(e.kvz) < 0.4) e.kvx = e.kvz = 0;
       }
 
+      // 渊缚 / 渊陷的牵引（冻结中不拽，破绽中不拽；一次渊缚最多拽 bindPullMax 米，到目标点 0.6 米以内就停）
+      if (e.bindT > 0 && e.bindLeft > 0 && !(e.freeze > 0) && !(e.brokenT > 0)) {
+        const gap = Math.hypot(e.bindX - e.x, e.bindZ - e.z) - 0.6;
+        if (gap > 0) e.bindLeft -= G.pullEnemy(e, e.bindX, e.bindZ, Math.min(gap, e.bindLeft, G.bindPullSpeed(e, G.BUILDUP.bindPull) * dt));
+        else e.bindLeft = 0;
+      }
+      if (e.voidT > 0 && !e.isBoss && !(e.freeze > 0)) {
+        const gap = Math.hypot(e.voidX - e.x, e.voidZ - e.z) - 0.6;
+        if (gap > 0) G.pullEnemy(e, e.voidX, e.voidZ, Math.min(gap, G.bindPullSpeed(e, G.BUILDUP.voidPull) * dt));
+      }
       const ox = e.x, oz = e.z; // 之后的位移才是它自己走的（被推开不算迈步）
       if (e.awake && !held && !P.dead) {
         // 攻击对象：玩家或附近的召唤物（被嘲讽时是守像）；AI 把它当成「玩家」来追、来打
