@@ -3454,7 +3454,7 @@
         if (v.fx && G.world.vortexBounce) G.world.vortexBounce(v.x, v.z, rx, rz);
       }
     }
-    // 伤害：半径以内的敌人，同一次施放每 tick 秒最多一跳、一共最多 cap 跳（首领 bossCap）；碰到新的敌人就吸附
+    // 伤害：半径以内的敌人，同一次施放每 tick 秒最多一跳；吸附过的一共最多 cap 跳、只是卷到的 splashCap 跳（首领 bossCap）；碰到新的敌人就吸附
     for (const e of enemiesIn(v.x, v.z, v.R)) {
       if (!v.lat && v.latN < L.max && state.time - (v.seen.get(e) || -99) >= L.again) {
         v.seen.set(e, state.time);
@@ -3463,12 +3463,15 @@
           v.lat = e;
           v.latT = L.t;
           v.latN++;
+          let lc = v.cast.get(e);
+          if (!lc) v.cast.set(e, (lc = { next: 0, n: 0 }));
+          lc.lat = true;
           state.stats.vortexLatches = (state.stats.vortexLatches || 0) + 1;
         }
       }
       let c = v.cast.get(e);
       if (!c) v.cast.set(e, (c = { next: 0, n: 0 }));
-      if (c.n >= (e.isBoss ? sk.bossCap : sk.cap) || state.time < c.next) continue;
+      if (c.n >= (e.isBoss ? sk.bossCap : c.lat ? sk.cap : sk.splashCap) || state.time < c.next) continue;
       c.next = state.time + sk.tick * 0.95;
       c.n++;
       G.hitEnemy(e, v.ctx, 1, { ang: v.a, quiet: true, tick: true });
