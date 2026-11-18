@@ -33,10 +33,12 @@
       document.head.appendChild(s);
     });
   }
+  // zones-integrate：载入后先用 img.decode() 在后台线程把 JPEG 解好（原来是第一次 drawImage 时在主线程里同步解码，
+  // 预取下一区的素材包时会在进区两三秒后卡一下）；不支持 decode() 的浏览器照旧 onload
   function loadImage(b64) {
     return new Promise((res, rej) => {
       const im = new Image();
-      im.onload = () => res(im);
+      im.onload = () => (im.decode ? im.decode().then(() => res(im), () => res(im)) : res(im));
       im.onerror = () => rej(new Error('贴图解码失败'));
       im.src = 'data:image/jpeg;base64,' + b64;
     });
@@ -46,7 +48,8 @@
     try {
       const c = document.createElement('canvas');
       c.width = c.height = 16;
-      const g = c.getContext('2d');
+      // willReadFrequently：用 CPU 画布，getImageData 不用等 GPU 进程（软件渲染下 GPU 进程正忙着画 3D，原来一次要等 1 秒多）
+      const g = c.getContext('2d', { willReadFrequently: true });
       g.drawImage(im, 0, 0, 16, 16);
       const d = g.getImageData(0, 0, 16, 16).data;
       const a = [0, 0, 0];
@@ -67,7 +70,7 @@
       const c = document.createElement('canvas');
       c.width = w;
       c.height = h;
-      const g = c.getContext('2d');
+      const g = c.getContext('2d', { willReadFrequently: true }); // 同上：CPU 画布，读像素不等 GPU
       g.drawImage(img, 0, 0);
       out = { w, h, d: g.getImageData(0, 0, w, h).data };
     } catch (e) {
