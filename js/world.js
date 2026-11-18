@@ -2503,8 +2503,8 @@
     const t0 = performance.now();
     const pr = terrPrep(spec);
     let h = CELL;
-    // 内存上限：sd + sdShot 每区不超过约 4 MB（外接框 ≤ 180 m 时 0.25 m 格距远在上限之内）
-    while (((pr.x1 - pr.x0) / h + 1) * ((pr.z1 - pr.z0) / h + 1) > (pr.hasShotCut ? 500000 : 1000000)) h *= 2;
+    // 内存上限：sd + sdShot 每区不超过约 6.4 MB（zones-polish：区域加长到 ×1.6，原 4 MB / 50 万格；ash 的外接框到 205 × 170 m，0.25 m 格距约 60 万格）
+    while (((pr.x1 - pr.x0) / h + 1) * ((pr.z1 - pr.z0) / h + 1) > (pr.hasShotCut ? 800000 : 1600000)) h *= 2;
     const x0 = pr.x0, z0 = pr.z0;
     const nx = Math.ceil((pr.x1 - x0) / h) + 1, nz = Math.ceil((pr.z1 - z0) / h) + 1;
     const sd = new Float32Array(nx * nz).fill(SD_LO);
@@ -22300,31 +22300,39 @@
   };
 
   // 小地图：静态部分（空地、走廊）在建区时画到离屏画布
-  const MM = { size: 172, pad: 12, cv: null, s: 1, ox: 0, oz: 0 };
+  // zones-polish：区域加长以后整张图缩进 172 px 会小于 minS（每米 0.9 像素，最窄的 4 m 路不到 3.6 px）。
+  // 这时底图按 minS 画成比小地图大的一张（cw × ch），每帧截取以玩家为中心的 172 × 172 一块（vx / vy 是截取框在底图上的左上角，贴边时夹住）
+  const MM = { size: 172, pad: 12, minS: 0.9, cv: null, s: 1, ox: 0, oz: 0, cw: 172, ch: 172, win: false, vx: 0, vy: 0 };
   function buildMinimap(zone) {
     const S = MM.size, b = zone.bounds;
     const cv = MM.cv || (MM.cv = makeCanvas(1, 1));
-    cv.width = cv.height = Math.round(S * dpr);
+    const bw = b.maxX - b.minX, bh = b.maxZ - b.minZ;
+    const fit = (S - MM.pad * 2) / Math.max(bw, bh), s = Math.max(fit, MM.minS);
+    MM.win = fit < MM.minS;
+    const CW = MM.win ? Math.max(S, Math.ceil(bw * s + MM.pad * 2)) : S, CH = MM.win ? Math.max(S, Math.ceil(bh * s + MM.pad * 2)) : S;
+    MM.cw = CW;
+    MM.ch = CH;
+    MM.vx = MM.vy = 0;
+    cv.width = Math.round(CW * dpr);
+    cv.height = Math.round(CH * dpr);
     const g = cv.getContext('2d');
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.clearRect(0, 0, S, S);
+    g.clearRect(0, 0, CW, CH);
     g.fillStyle = 'rgba(12,9,8,0.88)';
-    g.fillRect(0, 0, S, S);
-    const bw = b.maxX - b.minX, bh = b.maxZ - b.minZ;
-    const s = (S - MM.pad * 2) / Math.max(bw, bh);
+    g.fillRect(0, 0, CW, CH);
     MM.s = s;
-    MM.ox = MM.pad + (S - MM.pad * 2 - bw * s) / 2 - b.minX * s;
-    MM.oz = MM.pad + (S - MM.pad * 2 - bh * s) / 2 - b.minZ * s;
+    MM.ox = MM.pad + (CW - MM.pad * 2 - bw * s) / 2 - b.minX * s;
+    MM.oz = MM.pad + (CH - MM.pad * 2 - bh * s) / 2 - b.minZ * s;
     const X = (x) => x * s + MM.ox, Z = (z) => z * s + MM.oz;
     // 按地形网格逐像素画（设备像素）：可走处路面色（按 sd 算覆盖率，自带抗锯齿），外面 1.5 px 一圈深色描边；
     // 深水深蓝、熔岩橙红、浅水在路面上偏浅蓝；虚空、岩壁不画（底色）
-    const m = zone.map, N = cv.width, im = g.createImageData(N, N), D = im.data;
+    const m = zone.map, N = cv.width, NY = cv.height, im = g.createImageData(N, NY), D = im.data;
     const pc3 = new T.Color(mixHex(zone.def.path, 0xffffff, 0.12)), PC = [pc3.r * 255, pc3.g * 255, pc3.b * 255];
     const COL = { [MAT.WATER]: [26, 58, 92], [MAT.LAVA]: [214, 78, 34] }, SLOW = [120, 176, 206];
     const kpx = s * dpr; // 每米多少设备像素
     const hasMat = m.pr.cp.length > 0, hasSlow = !!(m.hazAny & HAZ.slow);
-    const arenaMask = zone.arena.round ? null : new Uint8Array(N * N);
-    for (let j = 0; j < N; j++) {
+    const arenaMask = zone.arena.round ? null : new Uint8Array(N * NY);
+    for (let j = 0; j < NY; j++) {
       const wz = ((j + 0.5) / dpr - MM.oz) / s;
       for (let i = 0; i < N; i++) {
         const wx = ((i + 0.5) / dpr - MM.ox) / s, o = (j * N + i) * 4;
@@ -22363,7 +22371,7 @@
     const acc = new T.Color(zone.def.accent);
     if (arenaMask) {
       const AC = [acc.r * 255, acc.g * 255, acc.b * 255];
-      for (let j = 1; j < N - 1; j++) {
+      for (let j = 1; j < NY - 1; j++) {
         for (let i = 1; i < N - 1; i++) {
           const k = j * N + i;
           if (!arenaMask[k] || (arenaMask[k - 1] && arenaMask[k + 1] && arenaMask[k - N] && arenaMask[k + N])) continue;
@@ -22382,16 +22390,28 @@
       g.stroke();
     }
     g.globalAlpha = 1;
+    if (MM.win) return; // 截取模式的边框每帧画在截取框上
     g.strokeStyle = 'rgba(214,160,92,0.55)';
     g.lineWidth = 1;
     g.strokeRect(0.5, 0.5, S - 1, S - 1);
   }
+  // 截取框：以 (x, z) 为中心，贴着底图的边夹住（只在截取模式下有用）
+  function minimapView(x, z) {
+    const S = MM.size;
+    MM.vx = MM.win ? Math.round(Math.max(0, Math.min(MM.cw - S, x * MM.s + MM.ox - S / 2)) * dpr) / dpr : 0;
+    MM.vy = MM.win ? Math.round(Math.max(0, Math.min(MM.ch - S, z * MM.s + MM.oz - S / 2)) * dpr) / dpr : 0;
+  }
 
   // 测试用：世界坐标 → 小地图在画面上的位置（CSS 像素）；读小地图上一个像素（static：只读建区时画好的静态底图，否则读叠加层）
-  W.minimapXY = (x, z) => ({ x: vw - MM.size - 14 + x * MM.s + MM.ox, y: 14 + z * MM.s + MM.oz });
+  // 截取模式下按最近一帧的截取框换算（view：先把截取框挪到以 (view.x, view.z) 为中心，测试看整张底图用）
+  W.minimapXY = (x, z, view) => {
+    if (view) minimapView(view.x, view.z);
+    return { x: vw - MM.size - 14 + x * MM.s + MM.ox - MM.vx, y: 14 + z * MM.s + MM.oz - MM.vy };
+  };
+  W.minimapInfo = () => ({ s: MM.s, win: MM.win, cw: MM.cw, ch: MM.ch, size: MM.size });
   W.minimapPixel = function (cx, cy, stat) {
     if (stat) {
-      const g = MM.cv.getContext('2d'), mx = vw - MM.size - 14, my = 14;
+      const g = MM.cv.getContext('2d'), mx = vw - MM.size - 14 - MM.vx, my = 14 - MM.vy;
       return Array.from(g.getImageData(Math.floor((cx - mx) * dpr), Math.floor((cy - my) * dpr), 1, 1).data);
     }
     return Array.from(octx.getImageData(Math.floor(cx * dpr), Math.floor(cy * dpr), 1, 1).data);
@@ -22654,8 +22674,19 @@
     // --- 小地图 ---
     if (MM.cv) {
       const S = MM.size, mx = vw - S - 14, my = 14;
-      g.drawImage(MM.cv, mx, my, S, S);
-      const X = (x) => mx + x * MM.s + MM.ox, Z = (z) => my + z * MM.s + MM.oz;
+      if (MM.win) {
+        // 截取模式：以玩家为中心截一块底图，标记都裁在小地图框里
+        minimapView(P.x, P.z);
+        g.drawImage(MM.cv, MM.vx * dpr, MM.vy * dpr, S * dpr, S * dpr, mx, my, S, S);
+        g.save();
+        g.beginPath();
+        g.rect(mx, my, S, S);
+        g.clip();
+      } else {
+        MM.vx = MM.vy = 0;
+        g.drawImage(MM.cv, mx, my, S, S);
+      }
+      const X = (x) => mx + x * MM.s + MM.ox - MM.vx, Z = (z) => my + z * MM.s + MM.oz - MM.vy;
       for (let i = 0; i < es.length; i++) {
         const e = es[i];
         if (e.dead || e.isBoss || !e.awake) continue;
@@ -22718,6 +22749,12 @@
       g.arc(X(P.x), Z(P.z), 3.2, 0, TAU);
       g.stroke();
       g.fill();
+      if (MM.win) {
+        g.restore();
+        g.strokeStyle = 'rgba(214,160,92,0.55)';
+        g.lineWidth = 1;
+        g.strokeRect(mx + 0.5, my + 0.5, S - 1, S - 1);
+      }
     }
   }
 
