@@ -102,9 +102,10 @@
     d: { name: '迅影', hint: '速度 · 暴击 · 机动' },
     i: { name: '秘识', hint: '魔力 · 元素 · 范围' },
     m: { name: '统御', hint: '召唤物 · 继承装备' },
+    c: { name: '噬渊', hint: '混沌 · 渊缚 · 黑洞' },
     o: { name: '交汇', hint: '相邻支路之间的混合' },
   };
-  const ARM_ORDER = ['s', 'd', 'i', 'm', 'o'];
+  const ARM_ORDER = ['s', 'd', 'i', 'm', 'c', 'o'];
   const KIND_NAME = { small: '小型天赋', notable: '核心天赋', keystone: '基石天赋', start: '起点' };
   const ALLY = G.icons.ally || '#4fe3c8'; // 友方召唤物的青色（与世界里的血条、地面圈同色）
   const MINION_STATS = ['minionDmg', 'minionLife', 'minionSpeed', 'minionCap', 'minionMore', 'minionArea', 'minionCharge'];
@@ -361,6 +362,11 @@
         // 电：短促的噼啪
         tone('square', 1900 * v, 260, t, 0.07, 0.13, 0.002);
         noise('highpass', 4200, 2400, t, 0.06, 0.2);
+      } else if (ty === 'chaos') {
+        // 混沌：往下一沉的低鸣，尾巴一点倒吸的嘶声
+        tone('sine', 220 * v, 70, t, 0.16, 0.26);
+        tone('triangle', 660 * v, 180, t + 0.01, 0.1, 0.1, 0.002);
+        noise('bandpass', 1400 * v, 600, t + 0.03, 0.12, 0.18, 1.2);
       } else {
         // 物理：金属磕碰
         tone('triangle', 920 * v, 480, t, 0.05, 0.14, 0.002);
@@ -1544,6 +1550,14 @@
       const v = s('inc' + G.CAP[t]);
       if (v) h += row(G.TYPE_NAME[t] + '伤害', pct(s('incAll') + s('incElem') + v), G.TYPE_COLOR[t]);
     }
+    // 混沌：吃三种元素各自的提高（元素伤害提高只算一次）+ 混沌伤害提高。学了混沌技能、或身上有混沌专属的属性时才列出来
+    const chInc = s('incFire') + s('incCold') + s('incLight') + s('incChaos');
+    const chaosSk = Object.keys(G.save.skills).some((id) => G.SKILLS[id] && G.SKILLS[id].tags.indexOf('chaos') >= 0);
+    if (chaosSk || s('incChaos') || s('moreChaos') || s('addChaos')) {
+      h += row('混沌伤害', pct(s('incAll') + s('incElem') + chInc), G.TYPE_COLOR.chaos);
+      if (s('moreChaos')) h += row('混沌总额外', pct(s('moreChaos')), G.TYPE_COLOR.chaos);
+    }
+    if (G.flamePct && G.flamePct() > 0) h += row('黑焰额外混沌', fmt1(G.flamePct()) + '%', G.TYPE_COLOR.chaos);
     for (const t of G.TYPES) {
       const v = s('add' + G.CAP[t]);
       if (v) h += row('附加' + G.TYPE_NAME[t], Math.max(1, Math.round(v * 0.7)) + '–' + Math.max(2, Math.round(v * 1.3)), G.TYPE_COLOR[t]);
@@ -1587,6 +1601,13 @@
   }
 
   // 烬铸图鉴：三把烬铸武器（拾到过没有、见过的最高完美度）和各首领的保底进度
+  // 和这把烬铸共用首领掉落与保底的另一把（衔星巨兽：凛羽 / 星蚀），没有时 null
+  function shareOf(id) {
+    const D = G.UNIQUES[id], alt = (G.UNIQUE_ALT && G.UNIQUE_ALT[D.boss]) || [];
+    if (!alt.length) return null;
+    const first = G.UNIQUE_BY_BOSS[D.boss];
+    return id === first ? alt[0] : first;
+  }
   function codexHtml() {
     const U = G.save.uniq || { found: {}, best: {}, pity: {} };
     const pity = G.UNIQUE_DROP.pity;
@@ -1597,12 +1618,12 @@
       const found = !!U.found[id];
       const boss = G.BOSSES[D.boss];
       const n = U.pity[D.boss] || 0;
-      const fake = { slot: 'weapon', baseIdx: D.base, baseName: G.BASES.weapon[D.base].names[2], rarity: 3 };
+      const fake = { slot: 'weapon', baseIdx: D.base, baseName: G.BASES.weapon[D.base].names[2], rarity: 3, uq: id };
       rows +=
         '<div class="cx-row' + (found ? ' found' : '') + '" data-uq="' + id + '">' +
         '<span class="ibox r3' + (found ? '' : ' unk') + '">' + IC.item(fake) + '</span>' +
         '<div class="cx-main"><div class="cx-name">' + (found ? esc(D.name) : '？？？') + '<em>' + wTypeName(D.base) + '</em></div>' +
-        '<div class="cx-sub"><b>' + esc(D.mechName) + '</b> · ' + esc(boss.name) + '（轮回 1 起）</div>' +
+        '<div class="cx-sub"><b>' + esc(D.mechName) + '</b> · ' + esc(boss.name) + '（轮回 1 起）' + (shareOf(id) ? ' · 与' + esc(G.UNIQUES[shareOf(id)].name) + '共用掉落与保底' : '') + '</div>' +
         '<div class="cx-stat"><span>' + (found ? '最高完美度 <b>' + (U.best[id] || 0) + '%</b>' : '尚未拾到') + '</span>' +
         '<span class="cx-pity">保底 <b>' + n + '</b>/' + pity + '<i style="--p:' + Math.round((n / pity) * 100) + '%"></i></span></div></div></div>';
     }
@@ -2013,11 +2034,12 @@
         ? '攻击型：伤害取自武器' + (w ? ' <b>' + Math.round(w.min) + '–' + Math.round(w.max) + '</b>' : '') + (ctx && ctx.wm > 0 ? '<span class="wn-op">×</span>倍率 <b>' + Math.round(ctx.wm * 100) + '%</b>' : '') + '，等级随角色等级'
         : gk === 'minion'
           ? '召唤型：' + (sk.champ ? '英灵' : '魂火') + '按召唤物计算，等级随武器物品等级' + (lvl ? '（Lv ' + lvl + '）' : '') + '，吃召唤物伤害加成' + (sk.champ ? '、生命加成与继承' : '') + '（辅助宝石不算）'
-          : '法术型：等级 = 武器物品等级 × 0.75' + (lvl ? '（Lv ' + lvl + '）' : '') + '，吃元素伤害加成';
+          : '法术型：等级 = 武器物品等级 × 0.75' + (lvl ? '（Lv ' + lvl + '）' : '') + (sk.kind === 'wwand' && G.player.uMech === 'void' ? '，属性固定为混沌，吃混沌伤害加成（三种元素的提高都算）' : '，吃元素伤害加成');
       main =
         '<div class="sk-top"><div class="sk-icon">' + IC.skill(id) + '</div>' +
         '<div class="sk-title"><div class="sk-name">' + sk.name + (sk.uskill ? '<em class="usk-tag">烬铸技</em>' : '') + '</div><div class="wsk-src">来自 ' + esc(item ? item.name : '') + ' · ' + wTypeName(item ? item.baseIdx | 0 : 0) +
-        (sk.uskill && sk.replaces && G.SKILLS[sk.replaces] ? ' · 替换「' + G.SKILLS[sk.replaces].name + '」' : '') + '</div></div></div>' +
+        (sk.uskill && sk.replaces && G.SKILLS[sk.replaces] ? ' · 替换「' + G.SKILLS[sk.replaces].name + '」' : '') +
+        (sk.kind === 'wwand' && G.player.uMech === 'void' ? ' · 属性固定为混沌' : '') + '</div></div></div>' +
         '<div class="sk-desc">' + sk.desc + '</div>' +
         (nums ? '<div class="sk-nums">' + nums + '</div>' : '') +
         '<div class="sk-anote wpn"><i></i><span>' + grow + '</span></div>' +
@@ -2111,6 +2133,14 @@
       }
       if (mi.dps > 0) bits.push((mi.cap > 1 ? '满员秒伤约 ' : '秒伤约 ') + fmtInt(mi.dps) + (pm ? '（单体，含灼链；炸到怪群时成倍）' : ''));
       note = '<div class="sk-mnote"><i></i>' + bits.join(' · ') + '</div>' + inheritNote(ctx) + autoRow(id);
+    } else if (sk.buff) {
+      // 黑焰：不脉冲、自己没有伤害；卡片上是每一击额外的混沌伤害比例和保留
+      const F = G.auraOn(id) ? G.flamePct() : Math.min(sk.flame.cap, sk.flame.k0 + sk.flame.k1 * (S.skills[id] - 1)) * (1 + Math.max(0, G.player.S.flameEff || 0) / 100);
+      nums =
+        num('额外混沌', fmt1(F) + '%', 'hl') +
+        num(blood ? '生命保留' : '魔力保留', fmt1(ctx.reserve) + '%') +
+        num('封顶', fmt1(sk.flame.cap) + '%');
+      note = '<div class="sk-anote"><i></i>' + (G.auraOn(id) ? '生效中' : '放进技能栏任意一格即生效') + ' · 不用按键 · 你和召唤物的每一击都按加成之后的伤害多出这一比例的混沌伤害（和注入相加，触发出来的伤害不带）</div>';
     } else if (sk.kind === 'aura') {
       // 光环：没有施放，只有保留；卡片上是每一跳的伤害、每秒几跳和半径
       nums =
@@ -2131,6 +2161,13 @@
         num('暴击率', fmt1(ctx.crit) + '%');
       // 冷却技能：秒伤按冷却折算（单独循环施放打不过主力技能），价值在于穿插
       if (ctx.cd > 0) note = '<div class="sk-anote cd"><i></i>冷却技能：每次伤害高，估算秒伤按冷却折算；穿插在主力技能之间施放最划算</div>';
+      // 混沌流的两招：写清每次伤害是怎么算出来的
+      if (sk.kind === 'hole') {
+        const dur = sk.dur * (1 + Math.max(0, G.player.S.holeDur || 0) / 100);
+        note += '<div class="sk-anote"><i></i>持续 ' + fmt1(dur) + ' 秒 · 每 ' + sk.tick + ' 秒一跳（每次伤害按 ' + sk.useMult + ' 跳计）· 半径 ' + fmt1(sk.radius * Math.sqrt(ctx.area)) + ' · 越轻的敌人拽得越狠，首领几乎拽不动</div>';
+      } else if (sk.kind === 'vortex') {
+        note = '<div class="sk-anote"><i></i>半径 ' + fmt1(sk.radius * Math.sqrt(ctx.area)) + ' · 同一个敌人每 ' + sk.tick + ' 秒一跳，单体平均每次约 ' + sk.useMult + ' 跳 · 贯穿镶不上，连锁会让漩涡走到头后拐向下一个敌人</div>';
+      }
       // 攻击技能：伤害取自手里的武器
       if (ctx.attack) note = attackNote(ctx) + note;
     }
@@ -2723,7 +2760,10 @@
       '<p><b>死亡时的异常</b>：每一小段正中有一道刻度。敌人死的时候哪一条过了刻度（灌到 ' + pc(B.deathMin) + ' 以上；正冻着的算冰霜、正感电的算闪电），就在尸体处再触发一次：' +
       c('fire', '尸爆') + '（和爆燃一样的爆炸）、' + c('light', '放电') + '（向身边最近的 ' + B.deathBoltN + ' 个敌人各射一道电弧，每道是灌闪电时你平均一击闪电伤害的 ' + pc(B.deathBolt) + '）、' +
       c('cold', '碎冰') + '（尸体碎成冰碴，给周围 ' + B.shatterR + ' 米内的敌人灌一截冰霜异常值）。死亡触发打死的敌人还能接着触发，但一串最多连 ' + B.deathGen + ' 层。</p>' +
-      '<p><b>异常累积速度</b>（蚀染辅助、秘识支路的「侵蚀」「元素使」天赋）让异常值涨得更快。物理伤害不累积异常值，它削的是架势。</p>'
+      '<p><b>异常累积速度</b>（蚀染辅助、秘识支路的「侵蚀」「元素使」天赋）让异常值涨得更快。物理伤害不累积异常值，它削的是架势。</p>' +
+      '<p>' + c('chaos', '混沌') + '伤害有自己的一条异常值（敌人头顶的第四段），满了就' + c('chaos', '渊缚') + '：小怪定住 ' + B.bind + ' 秒（精英 ' + B.bindElite + ' 秒），并被拽向 ' + B.bindR +
+      ' 米内最近的黑洞，附近没有黑洞就拽向身边的怪群中心；首领不定不拽，改为 ' + B.bossBind + ' 秒减速 ' + Math.round(B.bossBindSlow * 100) + '%。渊缚期间不再累积混沌异常值。正被渊缚或混沌异常值过半的敌人死时会' +
+      c('chaos', '渊陷') + '：把尸体身边的小怪往里拽一下（不造成伤害）。混沌伤害吃火焰、冰霜、闪电三种伤害提高的总和（元素伤害提高只算一次），不吃「元素过载」。</p>'
     );
   }
 
@@ -2842,7 +2882,7 @@
       '<p>带<b>光环</b>标签的技能（' + (G.SKILLS.nova ? G.SKILLS.nova.name : '霜环') + '）不用按键：放进技能栏任意一格就常驻生效，代价是<b>保留</b>一部分最大魔力——魔力球顶上压暗的那一截，保留的魔力既不能用也不回复（以血为引时改为保留生命）。镶上的辅助宝石按各自的消耗倍率增减保留：节流减少，迅捷、扩域这类增加。回响和投射物类辅助镶不上。</p>' +
       helpSummon() +
       '<div class="sec-title">天赋盘</div>' +
-      '<p>每升一级获得 1 点天赋，首次击败每个首领再得 2 点。从中央出发有四条支路：<b style="color:#e2705a">铸躯</b>偏向生命与物理，<b style="color:#7ed67a">迅影</b>偏向速度与暴击，<b style="color:#6fb2ff">秘识</b>偏向魔力与元素，<b class="c-ally">统御</b>强化召唤物；相邻支路之间还有<b style="color:#e0be6e">交汇</b>天赋，两头都能点进去。满级也点不满整个盘，要有取舍。</p>' +
+      '<p>每升一级获得 1 点天赋，首次击败每个首领再得 2 点。从中央出发有五条支路：<b style="color:#e2705a">铸躯</b>偏向生命与物理，<b style="color:#7ed67a">迅影</b>偏向速度与暴击，<b style="color:#6fb2ff">秘识</b>偏向魔力与元素，<b class="c-ally">统御</b>强化召唤物，正上方短短的<b style="color:#ff6ad2">噬渊</b>偏向混沌、渊缚与黑洞；相邻支路之间还有<b style="color:#e0be6e">交汇</b>天赋，两头都能点进去。满级也点不满整个盘，要有取舍。</p>' +
       '<p>每条支路有两个<b>基石天赋</b>（中圈一个、最外圈一个），效果强烈但带有代价。天赋可以随时退回或整体重置，不需要任何花费。天赋盘里滚轮缩放、按住拖动平移，「全览」回到整个盘。</p>' +
       '<div class="sec-title">区域与轮回</div>' +
       '<p>每个区域的尽头盘踞着一名首领。击败它之后会出现传送门，通往地图，可以前往下一个区域。</p>' +
@@ -4219,7 +4259,7 @@
       const id = l.data.id;
       const sk = G.SKILLS[id];
       const have = save.skills[id];
-      const k = sk.kind === 'summon' ? G.minionDmgK(l.data.lvl) : 1 + 0.2 * (l.data.lvl - 1);
+      const k = (sk.kind === 'summon' ? G.minionDmgK(l.data.lvl) : 1 + 0.2 * (l.data.lvl - 1)) * (sk.chaosEarly && G.chaosEarlyK ? G.chaosEarlyK(l.data.lvl) : 1);
       const dmgs = sk.dmg || {};
       let dmg = Object.keys(dmgs).map((t) => '<b style="color:' + G.TYPE_COLOR[t] + '">' + Math.round(dmgs[t][0] * k) + '–' + Math.round(dmgs[t][1] * k) + ' ' + G.TYPE_NAME[t] + '</b>').join(' + ') || '无';
       if (sk.wm && sk.kind !== 'summon') {
@@ -4245,8 +4285,10 @@
         '<div class="tcard" style="--c:' + sk.color + '">' + tcHead('<span class="ibox sk" style="--c:' + sk.color + '">' + IC.skill(id) + '</span>', sk.name, '技能宝石 · Lv ' + l.data.lvl) +
         '<div class="tc-tags">' + cardTags(sk).map((t) => '<span>' + G.TAG_NAME[t] + '</span>').join('') + '</div>' +
         '<div class="tc-desc">' + sk.desc + '</div>' +
-        '<div class="tc-foot">' + (sk.kind === 'summon' ? '' : sk.kind === 'aura' ? '每跳基础伤害 ' : '基础伤害 ') + dmg + '<br>' +
-        (sk.kind === 'aura'
+        '<div class="tc-foot">' + (sk.buff ? '额外混沌 ' + fmt1(Math.min(sk.flame.cap, sk.flame.k0 + sk.flame.k1 * (l.data.lvl - 1))) + '%（每一击）' : (sk.kind === 'summon' ? '' : sk.kind === 'aura' ? '每跳基础伤害 ' : sk.useMult > 1 && !sk.weaponOnly ? '每跳基础伤害 ' : '基础伤害 ') + dmg) + '<br>' +
+        (sk.buff
+          ? '魔力保留 ' + sk.reserve + '%'
+          : sk.kind === 'aura'
           ? '魔力保留 ' + sk.reserve + '% · 每 ' + sk.time + ' 秒一跳 · 半径 ' + sk.radius
           : '魔力 ' + (sk.mana ? Math.round(sk.mana * (1 + 0.05 * (l.data.lvl - 1))) : '无') + ' · 施放 ' + sk.time + ' 秒' + (sk.cd ? ' · 冷却 ' + sk.cd + ' 秒' : '')) +
         '</div>' +

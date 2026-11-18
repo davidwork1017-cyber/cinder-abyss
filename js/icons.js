@@ -203,6 +203,8 @@
     fire: '#ff7a2c', cold: '#86d8ff', light: '#ffe45e', mana: '#6f9dff', blood: '#e2362e', abyss: '#c05cff', leaf: '#7ed67a',
   };
   const ALLY = '#4fe3c8'; // 友方仆从的魂火青色：世界里的血条、地面圈、界面上的仆从条都用这一种
+  // 混沌：近黑的核 / 品红的边 / 亮芯（和 world.js 混沌特效一节的 CH_* 同色）
+  const CH = { core: '#12061a', rim: '#f03cb4', hi: '#ffd2f2' };
 
   // =====================================================================
   // 装备
@@ -1100,6 +1102,36 @@
       }
       if (col !== ALLY) spark(g, 0, -27, 3.8, lite(col, 0.4));
     },
+    // ---------- 混沌流：近黑的核、品红的边、亮芯（CH_*） ----------
+    // 黑洞：一个圆洞，外圈品红的光环，里面三道往里卷的螺旋亮线，右上一颗正被吸进去的星屑
+    blackhole(g) {
+      glow(g, (p) => p.E(0, 0, 21), CH.rim, { stroke: 4.4, blur: 9, core: CH.rim });
+      solid(g, (p) => p.E(0, 0, 19), CH.core, { hi: 0.12, lo: 0.2, bevel: 1.2, lw: 2.2 });
+      for (let k = 0; k < 3; k++) {
+        const a0 = (k / 3) * TAU;
+        glow(g, (p) => { for (let i = 0; i <= 14; i++) { const t = i / 14, a = a0 + t * 2.6, r = 17 - t * 13; p[i ? 'L' : 'M'](Math.cos(a) * r, Math.sin(a) * r); } }, CH.rim, { stroke: 1.5, blur: 3, core: CH.hi });
+      }
+      glow(g, (p) => p.E(0, 0, 21), CH.hi, { stroke: 1.1, blur: 0, core: CH.hi });
+      spark(g, 17, -17, 4.6, CH.hi);
+    },
+    // 黑旋风：上宽下窄的漏斗（三层卷起的环），底下一点近黑的核，两侧甩出的尖片
+    vortex(g) {
+      for (let i = 0; i < 4; i++) {
+        const y = -18 + i * 10, rx = 20 - i * 4.6, ry = 4.6 - i * 0.7;
+        solid(g, (p) => p.E(i % 2 ? 1.5 : -1.5, y, rx, ry).E(i % 2 ? 1.5 : -1.5, y + 0.8, rx - 3.2, Math.max(1, ry - 2)), i === 0 ? CH.hi : CH.rim, { rule: 'evenodd', hi: 0.5, lo: 0.4, bevel: 0.8, lw: 1.8 });
+      }
+      glow(g, (p) => p.E(0, 21, 4.4, 2.2), CH.rim, { blur: 6, core: CH.core });
+      solid(g, (p) => p.P([20, -4, 27, -9, 23, -2]).P([-20, 6, -27, 2, -23, 9]), CH.hi, { hi: 0.6, lo: 0.3, bevel: 0, lw: 1.3 });
+    },
+    // 黑焰：一团火焰剪影，填近黑，外描一道品红硬边，焰尖一点亮芯
+    blackflame(g) {
+      const flame = (p, k, dx, dy) => p.M(dx, dy - 26 * k).C(dx + 10 * k, dy - 12 * k, dx + 17 * k, dy - 2 * k, dx + 13 * k, dy + 10 * k).C(dx + 9 * k, dy + 21 * k, dx - 9 * k, dy + 21 * k, dx - 13 * k, dy + 10 * k)
+        .C(dx - 17 * k, dy, dx - 7 * k, dy - 4 * k, dx - 6 * k, dy - 13 * k).C(dx - 3 * k, dy - 9 * k, dx - 2 * k, dy - 18 * k, dx, dy - 26 * k).Z();
+      glow(g, (p) => flame(p, 1, 0, 2), CH.rim, { blur: 9, core: CH.rim });
+      solid(g, (p) => flame(p, 0.92, 0, 2.6), CH.core, { hi: 0.18, lo: 0.2, bevel: 1, lw: 2.2 });
+      glow(g, (p) => flame(p, 0.5, 0.6, 7), CH.rim, { stroke: 1.6, blur: 3, core: CH.rim });
+      spark(g, 0, -22, 4.4, CH.hi);
+    },
   };
 
   // =====================================================================
@@ -1544,12 +1576,16 @@
       .M(-4.6, 8.4).Q(-4.6, 0.6, 0, 0.6).Q(4.6, 0.6, 4.6, 8.4)
       .M(-10.6, 7.8).Q(-10.4, 2, -6.4, 2).Q(-4.4, 2, -3.6, 3.2).M(3.6, 3.2).Q(4.4, 2, 6.4, 2).Q(10.4, 2, 10.6, 7.8),
     m_speed: (p) => p.M(-9, 5.4).Q(-6.4, -3.4, -1.6, -9.4).M(-4, 9.4).Q(-1, -0.4, 4.4, -7.4).M(1.8, 9.8).Q(5, 2.4, 9.6, -3.6),
+    // 混沌注入：一个小圆加三道向心的弧（乱流石是一笔连续的螺旋，这里分成三段）
+    chaos: (p) => { p.E(0, 0, 2.6); for (let k = 0; k < 3; k++) { const a0 = (k / 3) * TAU; for (let i = 0; i <= 6; i++) { const t = i / 6, a = a0 + t * 1.5, r = 9.4 - t * 4.6; p[i ? 'L' : 'M'](Math.cos(a) * r, Math.sin(a) * r); } } return p; },
+    // 渊缚：一个空心圆，四道从外往里的短箭头
+    bind: (p) => { p.E(0, 0, 3.4); for (let i = 0; i < 4; i++) { const a = (i / 4) * TAU + Math.PI / 4, c = Math.cos(a), s = Math.sin(a); p.M(c * 9.6, s * 9.6).L(c * 5.6, s * 5.6).M(c * 5.6 - s * 1.8 + c * 1.8, s * 5.6 + c * 1.8 + s * 1.8).L(c * 5.6, s * 5.6).L(c * 5.6 + s * 1.8 + c * 1.8, s * 5.6 - c * 1.8 + s * 1.8); } return p; },
   };
   const GLYPH_FILL = { fire: 1, light: 1, stagger: 1, ailment: 1, frugal: 1, brutal: 1 }; // 这些符号画成实心
   const SUP_TINT = {
     multi: '#ffb066', pierce: '#b9c6dc', chain: '#ffe45e', expanse: '#7fe0c0', haste: '#7ed67a', fire: '#ff7a2c', cold: '#86d8ff', light: '#ffe45e',
     brutal: '#e2705a', precise: '#ffd75e', leech: '#ff6a8a', echo: '#c7a6ff', stagger: '#f2e6b0', ailment: '#b6e05c', frugal: '#6fb2ff',
-    m_dmg: '#3fe0c8', m_life: '#d2b47a', m_horde: '#e28ad6', m_speed: '#ff5a46',
+    m_dmg: '#3fe0c8', m_life: '#d2b47a', m_horde: '#e28ad6', m_speed: '#ff5a46', chaos: '#f03cb4',
   };
   // 仆从辅助宝石的 id 由数据那边定；按 id 认不出时按名字认，两边怎么起名都对得上
   const SUP_BY_NAME = { 驭灵: 'm_dmg', 坚骨: 'm_life', 群聚: 'm_horde', 狂怒: 'm_speed' };
@@ -1558,7 +1594,7 @@
     const sp = G.SUPPORTS && G.SUPPORTS[id];
     return (sp && SUP_BY_NAME[sp.name]) || id;
   }
-  const AIL = { burn: ['fire', '#ff8a3c'], chill: ['cold', '#86d8ff'], freeze: ['freeze', '#d6f3ff'], shock: ['light', '#ffe45e'], stun: ['stagger', '#ffffff'] };
+  const AIL = { burn: ['fire', '#ff8a3c'], chill: ['cold', '#86d8ff'], freeze: ['freeze', '#d6f3ff'], shock: ['light', '#ffe45e'], stun: ['stagger', '#ffffff'], bind: ['bind', '#ff6ad2'] };
 
   function drawGlyph(g, name, col, m, w) {
     const tr = GLYPH[name];
@@ -1671,8 +1707,24 @@
     return b.toDataURL('image/png');
   }
 
+  // 有自己图标的烬铸（物品图标键 it-uq-<id>）；别的烬铸照旧按「部位 + 基底 + 档次」取键
+  const UQ_DRAW = {
+    // 星蚀：暗银的杖身，杖头一圈镂空的托爪夹着一块近黑的星核，外圈品红的裂光
+    xingshi(g) {
+      const m = rot(45, 1.12, -2, 2);
+      tube(g, (p) => p.M(0, 22).L(0, -10), '#5a5468', 3.8, { m });
+      solid(g, (p) => p.R(-3, 15, 6, 3, 1), C.silver, { m, bevel: 1 });
+      solid(g, (p) => p.R(-3.2, -11, 6.4, 3, 1), C.silver, { m, bevel: 1 });
+      solid(g, (p) => p.P([-3, -10, -8, -18, -6, -25, -2.6, -19, 2.6, -19, 6, -25, 8, -18, 3, -10]), '#4a4458', { m, bevel: 1.2 });
+      glow(g, (p) => p.E(0, -19, 6.6), CH.rim, { m, blur: 9, core: CH.rim });
+      solid(g, (p) => p.E(0, -19, 5.2), CH.core, { m, hi: 0.1, lo: 0.2, bevel: 0.8, lw: 1.8 });
+      glow(g, (p) => p.M(-5.6, -23).L(-2.2, -20.4).M(5.4, -15).L(2.4, -17.6).M(4.8, -24).L(2, -21), CH.hi, { m, stroke: 1.1, blur: 3, core: CH.hi });
+      spark(g, 12.6, -17.6, 4.8, CH.hi);
+    },
+  };
   function build(key) {
     const k = key.split('-');
+    if (k[0] === 'it' && k[1] === 'uq') return UQ_DRAW[k[2]] ? render((g) => { g.scale(ITEM_SCALE.weapon, ITEM_SCALE.weapon); UQ_DRAW[k[2]](g); }) : null;
     if (k[0] === 'it') {
       const fn = ITEM_DRAW[k[1]];
       const s = ITEM_SCALE[k[1]] || 1;
@@ -1726,6 +1778,7 @@
 
   // 物品 → 图标键：部位 + 基底 + 名称档次（由 baseName 在基底名单里的位置决定）
   function itemKey(item) {
+    if (item.rarity === 3 && item.uq && UQ_DRAW[item.uq]) return 'it-uq-' + item.uq;
     const bases = G.BASES[item.slot] || [];
     const bi = G.clamp(item.baseIdx | 0, 0, Math.max(0, bases.length - 1));
     const base = bases[bi];
@@ -1741,6 +1794,7 @@
     for (const slot of G.SLOTS) {
       G.BASES[slot].forEach((b, bi) => b.names.forEach((n, ti) => out.push('it-' + slot + '-' + bi + '-' + ti)));
     }
+    for (const id of Object.keys(UQ_DRAW)) out.push('it-uq-' + id);
     for (const id of G.CUR_IDS) out.push('cur-' + id);
     for (const id of Object.keys(G.SKILLS)) out.push('sk-' + id);
     for (const id of Object.keys(G.SUPPORTS)) out.push('sup-' + id);
@@ -1793,6 +1847,7 @@
     weaponType, // 武器基底下标 → 'blade' | 'staff' | 'wand' | 'daggers' | 'hammer' | 'bow' | 'katana' | 'banner'
     wskColor: (type) => WSKILL_COLOR[type] || '#e6dfd0',
     supColor: (id) => SUP_TINT[supKey(id)] || '#d8d8e0',
+    uqIcons: () => Object.keys(UQ_DRAW), // 有自己图标的烬铸（测试用）
     ally: ALLY,
   };
 })();
