@@ -5636,7 +5636,7 @@
     }
     // 区域刷的普通怪（horde）掉落几率按 G.BALANCE.loot 打折：怪多了一倍，一整区合计约 ×1.15
     const L = e.horde ? G.BALANCE.loot : null;
-    const kItem = L ? L.item : 1, kCur = L ? L.cur : 1, kGem = L ? L.gem : 1;
+    const zk = L ? e.hordeK || 1 : 1, kItem = L ? L.item * zk : 1, kCur = L ? L.cur * zk : 1, kGem = L ? L.gem * zk : 1;
     if (Math.random() < 0.14 * kItem) G.spawnLoot('item', G.rollItem(ilvl, G.rollRarity(rm)), x, z);
     if (Math.random() < 0.09 * kCur) G.spawnLoot('cur', G.rollCurrency(), x, z);
     if (Math.random() < 0.012 * kGem) G.spawnLoot('skill', pickSkillGem(0.7), x, z);

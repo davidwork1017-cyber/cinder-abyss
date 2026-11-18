@@ -200,11 +200,12 @@
     const elem = zone.def.elem;
     // horde：区域刷出来的普通怪，生命按 G.BALANCE.mobHp 打折（经验 / 掉落也打折，见 killXp、dropLoot）；精英、召唤的、调试刷的不打折
     const horde = !elite && !!o.horde;
+    const hordeK = horde ? (G.BALANCE.zoneK && G.BALANCE.zoneK[zone.def.id]) || 1 : 1; // 这一区普通怪经验 / 掉落的系数
     const hp = Math.max(1, Math.round(def.hp * G.hpScale(level) * (elite ? 4.5 : horde ? G.BALANCE.mobHp : 1))); // 精英血量 4 → 4.5：补偿破绽易伤与处决
     const r = def.r * (elite ? 1.25 : 1);
     const e = runtimeFields({
       type, def, name: elite ? '精英' + def.name : def.name, x, z, r, hp, maxHp: hp,
-      dmg: def.dmg * G.dmgScale(level) * (elite ? 1.3 : 1), level, speed: def.speed, elem, elite, horde,
+      dmg: def.dmg * G.dmgScale(level) * (elite ? 1.3 : 1), level, speed: def.speed, elem, elite, horde, hordeK,
       isBoss: false, bossKind: null, pack: o.pack == null ? null : o.pack, awake: !!o.awake,
       dead: false, deathT: 0, height: (def.h || (type === 'brute' ? 2.8 : 2)) * (elite ? 1.35 : 1),
       freeze: 0, stunT: 0, slowK: 1, iced: false,
@@ -351,7 +352,7 @@
         if (!W.walkable(x, z, 1) || !farFromStart(zone, x, z) || !spaced(members, x, z, 1.4)) continue;
         let type = packType(mobs, main, zone);
         if (m >= n0 && HEAVY[type]) type = light.length ? (HEAVY[main] ? G.pick(light) : main) : 'husk';
-        members.push({ x, z, type, elite: false });
+        members.push({ x, z, type, elite: false, extra: m >= n0 });
         break;
       }
     }
@@ -364,6 +365,7 @@
     for (const m of members) {
       const e = G.spawnMob(m.type, m.x, m.z, level, { elite: m.elite, pack, awake: false, horde: true });
       if (e && slot.ambush) e.ambush = true;
+      if (e && m.extra) e.packExtra = true; // 加人加出来的那几只（测试核对它们都是轻怪）
     }
   }
 
