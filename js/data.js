@@ -1072,6 +1072,11 @@
     at(C, 'cr1', 3.85, 294, '视界', { holeDur: 20, pullK: 30, bindAil: 15 }, 'notable', ['cr0']);
   })();
 
+  // ---------- 区域地形的数值（world.js「区域地形」一节）----------
+  // slow：浅水 / 冰泥的移速系数，slowRoll：翻滚距离系数；burn：灼烧每跳伤害 = burn × G.dmgScale(区域等级)，burnTick 秒一跳；
+  // thinT：薄冰站多久裂开，thinBack：离开后多久复原；wakeLos：小怪苏醒要看得见玩家；bossLeash：区域首领拴在场地里
+  G.TERRAIN = { slow: 0.65, slowRoll: 0.85, burn: 3, burnTick: 0.5, thinT: 1.0, thinBack: 4, wakeLos: true, bossLeash: true };
+
   // ---------- 区域 ----------
   G.ZONES = [
     {
@@ -1090,8 +1095,9 @@
       mobs: ['husk', 'spitter', 'bomber', 'brute', 'spitter'], desc: '仍在运转的古代机关，雷声从不停歇。',
     },
     {
+      // zones-integrate：配色改成 zones-abyss 定的炭灰紫底子（原 fog 0x1a0c10、voidc 0x0f0709、path 0x6e4a4a、rock 0x3f2a2c、accent 0xff3a4a，太红太饱和），红橙只做点缀
       id: 'abyss', name: '烬渊深处', level: 13, elem: 'fire', boss: 'lord',
-      fog: 0x1a0c10, voidc: 0x0f0709, path: 0x6e4a4a, rock: 0x3f2a2c, accent: 0xff3a4a, sky: 0xffb0a0,
+      fog: 0x18121e, voidc: 0x0c0810, path: 0x57525c, rock: 0x48424f, accent: 0xff6a2a, sky: 0xffb0a0,
       mobs: ['husk', 'bomber', 'spitter', 'brute', 'brute'], desc: '一切灰烬的源头。',
     },
     {
