@@ -9329,6 +9329,112 @@ async function main() {
     assert(r.redraw, '窗口变化后小地图应重画且不变：' + JSON.stringify(r));
     return r.out.map((z) => z.id + ' 路面差 ' + z.pathD + ' 轮廓 ' + z.ring).join('，');
   });
+
+  await step('区域 frost 布局：20 个种子都通过校验 + 进区刷怪正常 + 首领门外重生；浅水 / 裂开的薄冰减速，薄冰有预警；深水挡人不挡子弹', async () => {
+    const r = await ev(() => {
+      G.debug.hold(true);
+      const W = G.world, out = { bad: [] };
+      // 20 个种子：校验通过、是新生成器（不是 legacy）、3 个旁支 2 个宝箱、精英 ≤ 4、2 块薄冰、有浅水、场地 4 根柱子
+      for (let s = 1; s <= 20; s++) {
+        const g = W.genLayout('frost', s * 7919 + 13), sp = g.spec;
+        const why = g.ok ? [] : g.why.slice();
+        if (sp.legacy) why.push('退回了 legacy');
+        else {
+          if (sp.rooms.filter((rm) => rm.kind === 'side').length !== 3) why.push('旁支不是 3 个');
+          if (sp.chests.length !== 2) why.push('宝箱不是 2 个');
+          if (sp.packs.filter((p) => p.elite).length > 4) why.push('精英超过 4');
+          if (sp.haz.filter((h) => h.kind === 'thin').length !== 2) why.push('薄冰不是 2 块');
+          if (!sp.haz.some((h) => h.kind === 'slow')) why.push('没有浅水');
+          if (sp.cuts.filter((c) => c.mat === W.MAT.WALL && c.prim.r === 0.8).length !== 4) why.push('场地柱子不是 4 根');
+        }
+        if (why.length) out.bad.push(g.seed + '：' + why.join('；'));
+      }
+      // 固定种子进区
+      G.debug.god(true);
+      G.debug.zoneSeed(4242);
+      G.enterZone(1, 0);
+      const S = G.state, P = G.player, z = S.zone, L = G.debug.layout();
+      const mobs = S.enemies.filter((e) => !e.isBoss);
+      out.zone = {
+        id: z.def.id, gen: L.gen, n: mobs.length, elites: mobs.filter((e) => e.elite).length,
+        bad: mobs.filter((e) => !W.walkable(e.x, e.z, 0) || Math.hypot(e.x - z.start.x, e.z - z.start.z) < 12).length,
+        types: Array.from(new Set(mobs.map((e) => e.type))).every((t) => z.def.mobs.includes(t)),
+        boss: S.boss && S.boss.bossKind, bossIn: !!S.boss && W.inArena(S.boss.x, S.boss.z), chests: z.chests.length,
+      };
+      // 深水：起点背面 r = 9.5 处是水，不能走、子弹能过
+      const c1 = z.circles[1], back = Math.atan2(z.start.x - c1.x, z.start.z - c1.z);
+      const wx = z.start.x + Math.sin(back) * 9.5, wz = z.start.z + Math.cos(back) * 9.5;
+      out.water = { walk: W.walkable(wx, wz, 0), shot: W.shotFree(wx, wz, 0) };
+      // 走 0.25 秒的位移（按住 D），用来比较减速
+      const walk = (x, zz) => {
+        T.tp(x, zz);
+        G.debug.step(0.05);
+        G.input.keys.KeyD = true;
+        G.debug.step(0.25);
+        G.input.keys.KeyD = false;
+        return Math.hypot(P.x - x, P.z - zz);
+      };
+      // 量减速时把怪清掉（别挡路），量完按同一个种子重进
+      G.clearEnemies();
+      const thinRooms = z.feats.filter((f) => f.kind === 'thin').map((f) => f.room);
+      const core = z.rooms[z.path.find((id) => z.rooms[id].kind === 'room' && !thinRooms.includes(id))].core;
+      const base = walk(core.x, core.z);
+      const sh = z.feats.find((f) => f.kind === 'shallow');
+      out.slow = { base: +base.toFixed(2), shallow: sh ? +(walk(sh.x, sh.z) / base).toFixed(2) : null, haz: sh ? W.hazardAt(sh.x, sh.z) : -1 };
+      // 薄冰：站着不动 1.2 秒就裂开（外观状态同步、裂纹变亮），裂开后在上面走会减速；离开 4 秒多复原
+      const th = z.feats.find((f) => f.kind === 'thin');
+      T.tp(core.x, core.z);
+      G.debug.step(0.1);
+      W.update(1 / 60);
+      const s0 = W.frostState(), i0 = s0.ids.findIndex((id) => id === W.hazPrimAt(th.x, th.z, 'thin')), k0 = s0.k[i0];
+      T.tp(th.x, th.z);
+      G.debug.step(0.7);
+      W.update(1 / 60);
+      const s1 = W.frostState(), k1 = s1.k[i0];
+      G.debug.step(0.6);
+      W.update(1 / 60);
+      const s2 = W.frostState();
+      out.thin = { id: s0.ids[i0], tid: s1.tid, cracked: s2.cracked.includes(s0.ids[i0]), rest: +k0.toFixed(2), half: +k1.toFixed(2), crackedK: +s2.k[i0].toFixed(2), speed: +(walk(th.x - 0.6, th.z) / base).toFixed(2) };
+      T.tp(core.x, core.z);
+      G.debug.step(4.6);
+      W.update(1 / 60);
+      out.thin.back = !W.frostState().cracked.length;
+      // 首领战里倒下：重生在门外（离场地中心 bossR + 2，在门的颈口上），首领复位
+      G.enterZone(1, 0);
+      const b = S.boss;
+      G.debug.tpBoss();
+      let t = 0;
+      while (!b.awake && t < 3) { G.tick(1 / 60); t += 1 / 60; }
+      out.woke = b.awake;
+      G.debug.god(false);
+      P.life = 1;
+      let dt = 0;
+      while (!P.dead && dt < 40) { G.tick(1 / 60); dt += 1 / 60; }
+      out.dead = P.dead;
+      G.debug.step(4.2);
+      out.respawn = {
+        alive: !P.dead, door: +(Math.hypot(P.x - S.zone.bossPos.x, P.z - S.zone.bossPos.z) - S.zone.bossR).toFixed(3), walk: W.walkable(P.x, P.z, 0.5), inArena: W.inArena(P.x, P.z),
+        bossHome: +Math.hypot(b.x - S.zone.bossPos.x, b.z - S.zone.bossPos.z).toFixed(3), bossAwake: b.awake, bossFull: b.hp === b.maxHp,
+      };
+      G.debug.god(true);
+      G.debug.zoneSeed(null);
+      G.enterZone(0, 0);
+      return out;
+    });
+    assert(!r.bad.length, '有种子不合格：' + r.bad.slice(0, 4).join(' | '));
+    const Z = r.zone;
+    assert(Z.id === 'frost' && Z.gen === 'custom' && Z.boss === 'weaver' && Z.bossIn && Z.chests === 2, '进区布局不对：' + JSON.stringify(Z));
+    assert(Z.n >= 40 && Z.n <= 70 && Z.elites >= 1 && Z.elites <= 4 && Z.bad === 0 && Z.types, '刷怪不对：' + JSON.stringify(Z));
+    assert(!r.water.walk && r.water.shot, '深水应挡人、不挡子弹：' + JSON.stringify(r.water));
+    assert(r.slow.haz & 1 && r.slow.shallow > 0.55 && r.slow.shallow < 0.75, '浅水应减速到约 0.65：' + JSON.stringify(r.slow));
+    const th = r.thin;
+    assert(th.tid === th.id && th.half > th.rest + 0.2 && th.cracked && th.crackedK > th.rest + 0.3, '薄冰的预警 / 裂开状态不对：' + JSON.stringify(th));
+    assert(th.speed > 0.55 && th.speed < 0.75 && th.back, '裂开的薄冰应减速、离开后复原：' + JSON.stringify(th));
+    const R = r.respawn;
+    assert(r.woke && r.dead && R.alive && Math.abs(R.door - 2) < 0.01 && R.walk && !R.inArena, '首领战倒下应重生在场地门外：' + JSON.stringify(r));
+    assert(R.bossHome < 0.01 && !R.bossAwake && R.bossFull, '首领没有复位：' + JSON.stringify(R));
+    return '怪 ' + Z.n + '（精英 ' + Z.elites + '），浅水 ×' + r.slow.shallow + '，薄冰 ×' + th.speed + '，门距 ' + R.door;
+  });
 }
 
 main()
