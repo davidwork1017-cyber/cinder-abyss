@@ -2849,7 +2849,7 @@ async function main() {
     assert(Math.abs(r.cold2 - 0.7 * rc) < 1e-9, '异常累积速度 +100% 应让累积翻倍：' + JSON.stringify(r));
     for (const t of ['fire', 'cold', 'light']) assert(Math.abs(r.per[t] - 0.3 * B.rate[t]) < 1e-9, t + ' 应按自己的速度累积：' + JSON.stringify(r.per));
     assert(B.rate.light > B.rate.cold && B.rate.cold > B.rate.fire && B.rate.light >= 1.5 && B.rate.fire === 1, '闪电最快、冰霜次之、火焰最慢：' + JSON.stringify(B.rate));
-    assert(Math.abs(r.slowK - (1 - 0.7 * rc * B.chill)) < 0.01, '冰霜异常值应带来按比例的轻度冰缓：' + JSON.stringify(r));
+    assert(Math.abs(r.slowK - (1 - (B.chillMin + (B.chill - B.chillMin) * Math.pow(0.7 * rc, B.chillPow)))) < 0.01, '冰霜异常值应带来轻度冰缓（保底 + 越满越慢）：' + JSON.stringify(r));
     assert(Math.abs(r.held - 0.7 * rc) < 1e-9 && r.decayed < r.held - 0.15 && r.decayed > 0.3 && r.gone === 0, '异常值应在几秒后开始回落直到清空：' + JSON.stringify(r));
     assert(r.fire.bu > 0 && Math.abs(r.fire.bu - r.fire.want) < 1e-6 && r.fire.ail >= 35, '掷焰命中应按公式累积火焰异常值：' + JSON.stringify(r.fire));
     assert(Math.abs(r.ratio.normal - B.th) < 0.02 && Math.abs(r.ratio.elite - B.thElite) < 0.02 && Math.abs(r.ratio.boss - B.boss) < 1e-6 && B.thElite * 4.5 > B.th, '阈值比例不对：' + JSON.stringify(r.ratio));
@@ -3005,6 +3005,96 @@ async function main() {
     assert(r.freeze === 0 && r.chill === B.bossChill && r.locked === 0, '首领不应被冻结，冰霜灌满应是重度冰缓（期间不再累积）：' + JSON.stringify(r));
     assert(Math.abs(r.slowK - (1 - B.bossSlow)) < 1e-6 && r.slowAfter > 0.99 && r.freezeAfter === 0, '重度冰缓应放慢 ' + B.bossSlow * 100 + '% 并按时结束：' + JSON.stringify(r));
     assert(r.th[1] === 1 + B.bossGrow && r.th[2] === 1 + 2 * B.bossGrow && r.th[7] === B.bossGrowMax && r.fireTh === 1, '首领阈值应每次提高、封顶，各元素分开：' + JSON.stringify(r.th));
+  });
+
+  await summonStep('冰缓看得出来：挨上一下冰就有保底减速，冻结前到上限（普通 / 精英 / 首领各有上下限）；小怪的移动、起手、预警圈和动作按同一个倍率放慢；身上泛青，冻住时换成冻结的冰色；首领的轻度冰缓、渊缚、重度冰缓取较大的', async () => {
+    const r = await ev(() => {
+      T.arena();
+      G.debug.god(true);
+      const P = G.player, B = G.BUILDUP, out = {};
+      // 上下限：异常值刚大于 0 / 冻结前一刻 / 空
+      const nm = T.mob('husk', 4, 0), el = T.mob('husk', -4, 0, { elite: true });
+      const boss = G.spawnBoss('golem', P.x, P.z - 12, 1);
+      boss.hp = boss.maxHp = 1e7;
+      const at = (e, c) => {
+        e.bu.cold = c;
+        return +G.tickBuildUp(e, 0).toFixed(4);
+      };
+      out.lim = {};
+      for (const [k, e] of [['n', nm], ['e', el], ['b', boss]]) out.lim[k] = [at(e, 1e-4), at(e, 0.999), at(e, 0)];
+      // 真实的一小下冰霜伤害（阈值的 2%）：灌进去的很少，减速照样到保底
+      G.addBuildUp(nm, { cold: G.buThreshold(nm, 'cold') * 0.02 }, 0);
+      out.tiny = { bu: +nm.bu.cold.toFixed(4), slow: +G.tickBuildUp(nm, 0).toFixed(4) };
+      // 首领：冰缓上限 < 渊缚减速 < 重度冰缓，三者取较大的
+      boss.bu.cold = 0.999;
+      boss.bossBind = 1;
+      out.bind = +G.tickBuildUp(boss, 0).toFixed(4);
+      boss.bossChill = 1;
+      out.heavy = +G.tickBuildUp(boss, 0).toFixed(4);
+      G.clearEnemies();
+      // 一对游魂：a 冻结前一刻的冰缓（异常值钉住不回落），b 没有冰缓。离玩家同样远、朝着玩家，同时起手
+      const mk = (dx) => {
+        const e = G.spawnMob('husk', P.x + dx, P.z, 1, { awake: true });
+        e.wasAwake = true;
+        e.hp = e.maxHp = 1e6;
+        e.atkCd = 1e9;
+        e.ang = Math.atan2(P.x - e.x, P.z - e.z);
+        return e;
+      };
+      const a = mk(6), b = mk(-6);
+      a.bu.cold = 0.999;
+      a.buT.cold = 1e9;
+      G.tick(1 / 60);
+      out.k = +a.slowK.toFixed(4);
+      out.kb = b.slowK;
+      out.tint = [a.ent.uChill.value, b.ent.uChill.value];
+      const W = G.world;
+      for (const e of [a, b]) {
+        e.state = 'windup';
+        e.stateT = e.def.windup;
+      }
+      const ta = G.telegraph({ x: P.x + 30, z: P.z + 30, r: 1, dur: 5, dmg: 0, owner: a, cancelIfOwnerDead: true });
+      const tb = G.telegraph({ x: P.x + 30, z: P.z - 30, r: 1, dur: 5, dmg: 0, owner: b, cancelIfOwnerDead: true });
+      const w0 = [a.stateT, b.stateT];
+      for (let i = 0; i < 6; i++) G.tick(1 / 60);
+      out.wind = [w0[0] - a.stateT, w0[1] - b.stateT];
+      out.tele = [ta.t, tb.t];
+      G.cancelTelegraphs(a);
+      G.cancelTelegraphs(b);
+      // 走路：回到原位、空闲着追玩家 0.5 秒；动作同理
+      for (const [e, dx] of [[a, 6], [b, -6]]) {
+        e.state = 'idle';
+        e.stateT = e.vis = 0;
+        e.x = P.x + dx;
+        e.z = P.z;
+        e.ang = Math.atan2(P.x - e.x, P.z - e.z);
+        W.play(e.ent, 'windup', { dur: 3 }); // 一段拉长到 3 秒的动作：这 0.5 秒里播不完，比较两只各播到了哪
+      }
+      const p0 = [a.x, b.x], c0 = [a.ent.cT, b.ent.cT];
+      for (let i = 0; i < 30; i++) G.tick(1 / 60);
+      out.walk = [Math.abs(a.x - p0[0]), Math.abs(b.x - p0[1])];
+      out.anim = [a.ent.cT - c0[0], b.ent.cT - c0[1], W.clipOf(a.ent), W.clipOf(b.ent)];
+      // 冻住：冰缓的偏色让给冻结的冰色
+      a.freeze = 1;
+      G.tick(1 / 60);
+      out.frozen = { tint: a.ent.uChill.value, iced: !!a.ent.iced };
+      return out;
+    });
+    const B = await ev(() => G.BUILDUP);
+    const near = (x, y, t) => Math.abs(x - y) <= (t || 0.005);
+    const L = r.lim;
+    assert(B.chillMin >= 0.15 && B.chillMin <= 0.2 && B.chill >= 0.45 && B.chill <= 0.5, '普通敌人的冰缓应是保底 15～20%、上限 45～50%：' + JSON.stringify(B));
+    assert(near(L.n[0], B.chillMin) && near(L.n[1], B.chill) && L.n[2] === 0, '普通敌人冰缓的保底 / 上限不对：' + JSON.stringify(L));
+    assert(near(L.e[0], B.chillMinElite) && near(L.e[1], B.chillElite) && L.e[2] === 0 && B.chillElite < B.chill, '精英冰缓的保底 / 上限不对：' + JSON.stringify(L));
+    assert(near(L.b[0], B.chillMinBoss) && near(L.b[1], B.chillBoss) && L.b[2] === 0 && B.chillBoss < B.chillElite && B.chillBoss < B.bossBindSlow, '首领冰缓的保底 / 上限不对：' + JSON.stringify(L));
+    assert(r.tiny.bu > 0 && r.tiny.bu < 0.05 && r.tiny.slow >= B.chillMin, '一小下冰霜伤害就该有保底的冰缓：' + JSON.stringify(r.tiny));
+    assert(near(r.bind, B.bossBindSlow) && near(r.heavy, B.bossSlow), '首领的冰缓 / 渊缚 / 重度冰缓应取较大的：' + JSON.stringify(r));
+    const k = r.k;
+    assert(near(k, 1 - B.chill, 0.01) && r.kb === 1, '冻结前一刻的游魂应慢到上限：' + JSON.stringify(r));
+    assert(near(r.wind[0] / r.wind[1], k, 0.03) && near(r.anim[0] / r.anim[1], k, 0.03) && near(r.tele[0] / r.tele[1], k, 0.03), '起手计时、动作、预警圈应按同一个倍率放慢：' + JSON.stringify(r));
+    assert(r.walk[1] > 1 && near(r.walk[0] / r.walk[1], k, 0.06), '走路应按同一个倍率放慢：' + JSON.stringify(r));
+    assert(r.tint[0] > 0.9 && r.tint[1] === 0 && r.frozen.tint === 0 && r.frozen.iced, '冰缓应让身上泛青（冻住时换成冻结的冰色）：' + JSON.stringify(r));
+    return '保底 / 上限 普通 ' + L.n[0] + '/' + L.n[1] + ' 精英 ' + L.e[0] + '/' + L.e[1] + ' 首领 ' + L.b[0] + '/' + L.b[1] + '；放慢倍率 ' + k + '（起手 ' + (r.wind[0] / r.wind[1]).toFixed(3) + '、动作 ' + (r.anim[0] / r.anim[1]).toFixed(3) + '、走路 ' + (r.walk[0] / r.walk[1]).toFixed(3) + '）';
   });
 
   await summonStep('死亡时的异常：死时异常值过半（或正冻着 / 正感电）→ 尸爆（爆燃公式）/ 放电（电弧射向最近的几个敌人）/ 碎冰（尸体碎成冰碴、给周围灌冰霜异常值）；打死它的那一击灌满也照样按死亡结算；连锁最多几代、每帧有上限；lastHit 不被打乱', async () => {
