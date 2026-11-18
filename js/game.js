@@ -815,7 +815,9 @@
       out[el] = [sk.edmg[0] * scale, sk.edmg[1] * scale];
       return out;
     }
-    for (const t in sk.dmg) out[t] = [sk.dmg[t][0] * scale, sk.dmg[t][1] * scale];
+    // 混沌技能的前期补偿（G.chaosEarlyK：宝石 1 级相当于 0.95 倍，15 级起 0.75 倍）
+    const ek = sk.chaosEarly && G.chaosEarlyK ? G.chaosEarlyK(lvl) : 1;
+    for (const t in sk.dmg) out[t] = [sk.dmg[t][0] * scale * ek, sk.dmg[t][1] * scale * ek];
     return out;
   };
 
@@ -1317,6 +1319,16 @@
   }
 
   // ---------- 渊缚（混沌异常）----------
+  // 飘字节流：怪堆里渊缚 / 渊陷接连触发时，同一片地方（TAG_R 米内）每 TAG_GAP 秒只冒一个字；精英、首领照常每次都冒
+  const TAG_GAP = 1, TAG_R = 6;
+  const tagLog = [];
+  function tagOk(kind, x, z) {
+    const now = state.time;
+    for (let i = tagLog.length - 1; i >= 0; i--) if (now - tagLog[i].t >= TAG_GAP || now < tagLog[i].t) tagLog.splice(i, 1);
+    for (const g of tagLog) if (g.kind === kind && dist(g.x, g.z, x, z) <= TAG_R) return false;
+    tagLog.push({ kind, x, z, t: now });
+    return true;
+  }
   // 小怪 / 精英：定身并往最近的黑洞（bindR 以内）拽，没有黑洞就往怪群中心（packR 以内活着的敌人的平均位置）拽，附近只有它自己时只定身；
   // 首领：不定不拽，bossBind 秒减速。拽的位移在 enemies.js 里按 bindX / bindZ / bindLeft 每帧走（撞墙即停、冻结中不拽）
   function triggerBind(e, ty) {
@@ -1354,7 +1366,7 @@
       e.bindZ = tz;
       e.bindLeft = BU.bindPullMax;
     } else e.bindLeft = 0;
-    W.text(e.x, e.z, '渊缚', '#ffb3e6', e.elite ? 24 : 20, { kind: 'tag', y: ty });
+    if (e.elite || tagOk('bind', e.x, e.z)) W.text(e.x, e.z, '渊缚', '#ffb3e6', e.elite ? 24 : 20, { kind: 'tag', y: ty });
     if (W.bindFx) W.bindFx(e.x, e.z, e.r, e.height || 2, false);
     G.sfx('impact', { type: 'chaos', w: 1, crit: false });
     // 星蚀（渊口）：触发渊缚的敌人脚下张开一道小黑洞
@@ -1573,7 +1585,7 @@
     st.voids = (st.voids || 0) + 1;
     const R = BU.voidR + e.r * 0.5;
     if (W.voidFx) W.voidFx(e.x, e.z, R);
-    W.text(e.x, e.z, '渊陷', '#ffb3e6', 22, { kind: 'tag', y: deathTag(e) });
+    if (e.elite || e.isBoss || tagOk('void', e.x, e.z)) W.text(e.x, e.z, '渊陷', '#ffb3e6', 22, { kind: 'tag', y: deathTag(e) });
     for (const o of enemiesIn(e.x, e.z, R)) {
       if (o === e || o.isBoss || o.elite) continue;
       o.voidT = BU.voidT;
@@ -3895,14 +3907,14 @@
   SKILL_FX.vortex = function (ctx, a) {
     const sk = ctx.sk;
     const n = Math.max(1, ctx.proj);
-    const spread = Math.min(60, 12 * (n - 1)) * DEG; // 和投射物一样的扇形
+    const spread = Math.min(70, 20 * (n - 1)) * DEG; // 比投射物的扇形张得开一点：漩涡有半径，挨太近会叠成一团
     const stepA = n > 1 ? spread / (n - 1) : 0;
     const cast = new Map(); // 同一次施放的几团共用：同一个敌人 tick 秒内只挨一跳
     const R = sk.radius * Math.sqrt(ctx.area);
     for (let i = 0; i < n; i++) {
       const ang = a.ang - spread / 2 + stepA * i;
       const v = { x: P.x + Math.sin(ang) * 0.8, z: P.z + Math.cos(ang) * 0.8, dx: Math.sin(ang), dz: Math.cos(ang), speed: sk.speed, life: sk.life, R, ctx, cast, hit: new Set(), chain: ctx.chain };
-      v.fx = G.world.makeVortex ? G.world.makeVortex(v.x, v.z, R) : null;
+      v.fx = G.world.makeVortex ? G.world.makeVortex(v.x, v.z, R, i) : null;
       vortices.push(v);
     }
     G.sfx('cast');

@@ -2034,11 +2034,12 @@
         ? '攻击型：伤害取自武器' + (w ? ' <b>' + Math.round(w.min) + '–' + Math.round(w.max) + '</b>' : '') + (ctx && ctx.wm > 0 ? '<span class="wn-op">×</span>倍率 <b>' + Math.round(ctx.wm * 100) + '%</b>' : '') + '，等级随角色等级'
         : gk === 'minion'
           ? '召唤型：' + (sk.champ ? '英灵' : '魂火') + '按召唤物计算，等级随武器物品等级' + (lvl ? '（Lv ' + lvl + '）' : '') + '，吃召唤物伤害加成' + (sk.champ ? '、生命加成与继承' : '') + '（辅助宝石不算）'
-          : '法术型：等级 = 武器物品等级 × 0.75' + (lvl ? '（Lv ' + lvl + '）' : '') + '，吃元素伤害加成';
+          : '法术型：等级 = 武器物品等级 × 0.75' + (lvl ? '（Lv ' + lvl + '）' : '') + (sk.kind === 'wwand' && G.player.uMech === 'void' ? '，属性固定为混沌，吃混沌伤害加成（三种元素的提高都算）' : '，吃元素伤害加成');
       main =
         '<div class="sk-top"><div class="sk-icon">' + IC.skill(id) + '</div>' +
         '<div class="sk-title"><div class="sk-name">' + sk.name + (sk.uskill ? '<em class="usk-tag">烬铸技</em>' : '') + '</div><div class="wsk-src">来自 ' + esc(item ? item.name : '') + ' · ' + wTypeName(item ? item.baseIdx | 0 : 0) +
-        (sk.uskill && sk.replaces && G.SKILLS[sk.replaces] ? ' · 替换「' + G.SKILLS[sk.replaces].name + '」' : '') + '</div></div></div>' +
+        (sk.uskill && sk.replaces && G.SKILLS[sk.replaces] ? ' · 替换「' + G.SKILLS[sk.replaces].name + '」' : '') +
+        (sk.kind === 'wwand' && G.player.uMech === 'void' ? ' · 星蚀：属性固定为混沌' : '') + '</div></div></div>' +
         '<div class="sk-desc">' + sk.desc + '</div>' +
         (nums ? '<div class="sk-nums">' + nums + '</div>' : '') +
         '<div class="sk-anote wpn"><i></i><span>' + grow + '</span></div>' +
@@ -4258,7 +4259,7 @@
       const id = l.data.id;
       const sk = G.SKILLS[id];
       const have = save.skills[id];
-      const k = sk.kind === 'summon' ? G.minionDmgK(l.data.lvl) : 1 + 0.2 * (l.data.lvl - 1);
+      const k = (sk.kind === 'summon' ? G.minionDmgK(l.data.lvl) : 1 + 0.2 * (l.data.lvl - 1)) * (sk.chaosEarly && G.chaosEarlyK ? G.chaosEarlyK(l.data.lvl) : 1);
       const dmgs = sk.dmg || {};
       let dmg = Object.keys(dmgs).map((t) => '<b style="color:' + G.TYPE_COLOR[t] + '">' + Math.round(dmgs[t][0] * k) + '–' + Math.round(dmgs[t][1] * k) + ' ' + G.TYPE_NAME[t] + '</b>').join(' + ') || '无';
       if (sk.wm && sk.kind !== 'summon') {
