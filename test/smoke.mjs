@@ -612,7 +612,7 @@ async function main() {
     });
   }
 
-  await step('镜头与远程怪：脚下能看到 11 以上；屏幕下方画面外的喷吐者先走进画面再开火', async () => {
+  await step('镜头与远程怪：脚下能看到 7.5 以上、头顶 9.5 以上（卡通风格的近镜头）；屏幕下方画面外的喷吐者先走进画面再开火', async () => {
     const r = await ev(() => {
       T.arena();
       const P = G.player, S = G.state, W = G.world;
@@ -621,8 +621,8 @@ async function main() {
       T.settle();
       const vw = innerWidth, vh = innerHeight;
       const on = (q) => q.ok && q.x >= 0 && q.x <= vw && q.y >= 0 && q.y <= vh;
-      const out = { down: on(W.project(P.x, 0, P.z + 11)), up: on(W.project(P.x, 0, P.z - 13)), py: W.project(P.x, 0, P.z).y / vh };
-      // 喷吐者放在正下方 11 处：在技能栏后面，算不得看得见
+      const out = { down: on(W.project(P.x, 0, P.z + 7.5)), up: on(W.project(P.x, 0, P.z - 9.5)), py: W.project(P.x, 0, P.z).y / vh };
+      // 喷吐者放在正下方 11 处：在画面外（或技能栏后面），算不得看得见
       const e = G.spawnMob('spitter', c.x, c.z + 4.5, 1, { awake: true });
       e.atkCd = 0;
       out.seen0 = W.inView(e.x, e.z);
@@ -7096,7 +7096,8 @@ async function main() {
       const P = G.player, W = G.world, b = window.__B;
       b.brokenT = 4;
       let best = null;
-      for (let dx = 6; dx <= 16 && !best; dx += 0.5) for (let dz = -12; dz <= -4; dz += 0.5) {
+      // 搜索范围按镜头来：卡通风格的近镜头更低更近，小地图底下对应的点（离地 4.1）离玩家近得多（1440×900 下约 dx 8.5～10、dz -2.5 上下）
+      for (let dx = 4; dx <= 22 && !best; dx += 0.5) for (let dz = -16; dz <= 2; dz += 0.5) {
         const q = W.project(P.x + dx, 4.1, P.z + dz);
         if (q.x > innerWidth - 150 && q.x < innerWidth - 40 && q.y > 60 && q.y < 150) { best = { dx, dz }; break; }
       }

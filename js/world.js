@@ -20,19 +20,31 @@
   const UP = new T.Vector3(0, 1, 0);
   const _pr = { x: 0, y: 0, ok: false };
 
-  const CAM_OFF = new T.Vector3(0, 24, 17);
-  // 镜头整体向屏幕下方（+z）让出的距离：玩家因此站在画面中线偏上，
-  // 脚下能看到的范围和头顶差不多（底部还有技能栏要占掉一截）
-  const CAM_LEAD = 3;
+  // 镜头：固定朝向的俯视（等距感），只平移不旋转。调镜头只改 CAMERA（调试时可以 G.world.setCamera({ ... }) 现场试）：
+  //   pitch 俯角（度，从水平面往下）、dist 镜头到焦点的距离、fov 竖直视角（度）、lookY 焦点离地高度、
+  //   lead 焦点向屏幕下方（+z）让出的距离：玩家因此站在画面中线偏上，脚下能看到的范围和头顶差不多（底部还有技能栏要占掉一截）、
+  //   fogNear / fogFar 雾的起止（相对镜头的距离）、shadow 阴影贴图覆盖的半宽（镜头近了可以收小，阴影更清楚）
+  // 旧镜头：pitch ≈ 53.5、dist ≈ 28.6、fov 38、lead 3、雾 27～64（主角在 900 高的画面里约 54 像素）
+  const CAMERA = { pitch: 50, dist: 21, fov: 34, lookY: 1, lead: 2.2, fogNear: 22, fogFar: 52, shadow: 22 };
+  const CAM_OFF = new T.Vector3();
+  let CAM_LEAD = CAMERA.lead;
+  function camDerive() {
+    const a = (CAMERA.pitch * Math.PI) / 180;
+    CAM_OFF.set(0, CAMERA.lookY + Math.sin(a) * CAMERA.dist, Math.cos(a) * CAMERA.dist);
+    CAM_LEAD = CAMERA.lead;
+  }
+  camDerive();
   const HUD_BAND = 140; // 画面底部被技能栏 / 血球占住的高度（CSS 像素），W.inView 把它当作看不见
   const VIEW_PAD = 36; // W.inView 的屏幕边距
-  const SUN_OFF = new T.Vector3(-11, 28, 17);
-  const SHADOW_HALF = 28;
-  const HEMI_I = 0.46;
+  // 主光从左上方略偏镜头一侧打下来：角色身上有一条清楚的明暗交界线，影子落向右上（角色身后），不压在脚前
+  const SUN_OFF = new T.Vector3(-17, 27, 9);
+  let SHADOW_HALF = CAMERA.shadow;
+  const HEMI_I = 0.46; // 旧的半球光强度（ZONE_LIGHT 没写 hemiI 时用）
+  let hemiBase = HEMI_I;
   const camT = new T.Vector3();
   let camSnap = true;
   let shakeAmt = 0;
-  const BASE_FOV = 38;
+  let BASE_FOV = CAMERA.fov;
   // 镜头冲量（顺着打击方向顶一下再弹回）与视角收缩（终结技 / 处决时的一记「推近」）
   let punchX = 0, punchZ = 0, fovK = 0, fovNow = BASE_FOV;
   const sunR = new T.Vector3(), sunU = new T.Vector3();
@@ -63,6 +75,252 @@
     const c = document.createElement('canvas');
     c.width = w;
     c.height = h;
+    return c;
+  }
+
+  // =====================================================================
+  // 卡通渲染基础（toon）：所有角色 / 环境共用的光照阶梯、色调曲线、轮廓光、笔触噪声、竖向渐变。
+  // 这里的数字是唯一的出处，调风格只改这一节。
+  //  · 光照阶梯：改的是 three 的 ShaderChunk（全局），所以每一个 MeshStandardMaterial（地面、岩石、布景、角色、掉落物）
+  //    的直射光都变成 2～3 级的软阶梯；某个材质不要阶梯时 defines.TOON_OFF = 1，要更软的阶梯时 defines.TOON_SOFT = '0.2'。
+  //  · 阴影的颜色不是黑灰：背光面 / 阴影里只剩环境光（半球光），半球光的天空色就是这个区域的「阴影色」（冷紫 / 冷蓝），
+  //    地面色是暖色的反光；主光照到的地方环境光压到 TOON.ambLit，受光面是干净的暖色。见 ZONE_LIGHT。
+  //  · 色调曲线：保持色相的高光肩部 + 一点饱和度（CustomToneMapping），低画质（没有后期）也是同一套颜色。
+  //  · 轮廓光：角色材质（injectLit）按补光（第二盏方向光，镜头对面）的方向在背光一侧的边缘勾一道冷色光，强度 TOON.rimK。
+  //  · makeToonMat / toonPatch / toonBrushTex / toonGradient / toonCast：给环境与角色工作用的工具，见各自注释。
+  // =====================================================================
+  const TOON = {
+    // 阶梯：dot(N, L) 过 t1 进入中间调（亮度 mid），过 t2 进入受光面；soft 是每一级边缘的软化半宽
+    t1: 0.0, t2: 0.42, mid: 0.56, soft: 0.07,
+    ambLit: 0.4, // 主光照到的地方环境光（半球光）只留这么多：受光面是干净的暖色，冷紫只出现在背光面和阴影里（不然暖色会被冷光洗成粉灰）
+    spec: 0.35, // 直射高光的倍率（卡通：高光收着，只在金属 / 冰上留一点）
+    metal: 0.55, // 金属保留多少固有色（1 = 物理上的全黑漫反射；越小金属越像上了色的漆）
+    knee: 0.78, sat: 1.1, // 色调曲线：亮度超过 knee 的部分按指数压向 1（保持色相）；sat 线性空间里的饱和度
+    exposure: 1.0,
+    rimK: 0.85, rimLo: 0.56, rimHi: 0.7, // 角色轮廓光：强度、菲涅尔阶梯的起止（越接近 1 越细）
+    smoothChars: true, // C 模型用平滑法线（低多边形 + 软阶梯 = 一块块干净的明暗，而不是每个面一块颜色）
+  };
+  const fNum = (v) => (Number.isInteger(v) ? v.toFixed(1) : String(v));
+  (function patchToonChunks() {
+    const SC = T.ShaderChunk;
+    const RAMP = [
+      '#ifndef TOON_SOFT',
+      '#define TOON_SOFT ' + fNum(TOON.soft),
+      '#endif',
+      'float toonRamp( const in float x ) {',
+      '#ifdef TOON_OFF',
+      '\treturn saturate( x );',
+      '#else',
+      '\treturn ' + fNum(TOON.mid) + ' * smoothstep( ' + fNum(TOON.t1) + ' - TOON_SOFT, ' + fNum(TOON.t1) + ' + TOON_SOFT, x ) + ' +
+        fNum(1 - TOON.mid) + ' * smoothstep( ' + fNum(TOON.t2) + ' - TOON_SOFT, ' + fNum(TOON.t2) + ' + TOON_SOFT, x );',
+      '#endif',
+      '}',
+    ].join('\n');
+    const rep = (name, a, b) => {
+      if (SC[name].indexOf(a) < 0) {
+        if (window.console) console.warn('[画面] 卡通着色：' + name + ' 里找不到要替换的片段，这一处保持原样');
+        return;
+      }
+      SC[name] = SC[name].replace(a, b);
+    };
+    rep('lights_physical_pars_fragment', 'struct PhysicalMaterial {', RAMP + '\nstruct PhysicalMaterial {');
+    rep('lights_physical_pars_fragment', 'vec3 irradiance = dotNL * directLight.color;', 'vec3 irradiance = toonRamp( dot( geometry.normal, directLight.direction ) ) * directLight.color;');
+    rep(
+      'lights_physical_pars_fragment',
+      'reflectedLight.directSpecular += ( 1.0 - clearcoatDHR ) * irradiance * BRDF_Specular_GGX( directLight, geometry.viewDir, geometry.normal,',
+      'reflectedLight.directSpecular += ( 1.0 - clearcoatDHR ) * ' + fNum(TOON.spec) + ' * irradiance * BRDF_Specular_GGX( directLight, geometry.viewDir, geometry.normal,'
+    );
+    // 主光（第 0 盏方向光：投影的太阳排在最前）的阶梯值 × 阴影，记下来给环境光用（只对 MeshStandard / Physical）
+    rep('lights_fragment_begin', 'GeometricContext geometry;', '#ifdef STANDARD\n\tfloat toonSh = 1.0;\n\tfloat toonKeyLit = 0.0;\n#endif\nGeometricContext geometry;');
+    rep(
+      'lights_fragment_begin',
+      'directLight.color *= all( bvec2( directLight.visible, receiveShadow ) ) ? getShadow( directionalShadowMap[ i ]',
+      '#ifdef STANDARD\n\t\ttoonSh =\n#else\n\t\tdirectLight.color *=\n#endif\n\t\tall( bvec2( directLight.visible, receiveShadow ) ) ? getShadow( directionalShadowMap[ i ]'
+    );
+    rep(
+      'lights_fragment_begin',
+      'vDirectionalShadowCoord[ i ] ) : 1.0;\n\t\t#endif\n\t\tRE_Direct( directLight, geometry, material, reflectedLight );',
+      'vDirectionalShadowCoord[ i ] ) : 1.0;\n\t\t#ifdef STANDARD\n\t\tdirectLight.color *= toonSh;\n\t\t#endif\n\t\t#endif\n\t\tRE_Direct( directLight, geometry, material, reflectedLight );\n' +
+        '\t\t#if defined( STANDARD ) && ( UNROLLED_LOOP_INDEX == 0 )\n\t\ttoonKeyLit = toonRamp( dot( geometry.normal, directLight.direction ) ) * toonSh;\n\t\t#endif'
+    );
+    rep('lights_fragment_end', '#if defined( RE_IndirectDiffuse )\n\tRE_IndirectDiffuse(', '#if defined( STANDARD ) && !defined( TOON_OFF )\n\tirradiance *= mix( 1.0, ' + fNum(TOON.ambLit) + ', toonKeyLit );\n#endif\n#if defined( RE_IndirectDiffuse )\n\tRE_IndirectDiffuse(');
+    rep('lights_physical_fragment', 'material.diffuseColor = diffuseColor.rgb * ( 1.0 - metalnessFactor );', 'material.diffuseColor = diffuseColor.rgb * ( 1.0 - metalnessFactor * ' + fNum(TOON.metal) + ' );');
+    rep(
+      'tonemapping_pars_fragment',
+      'vec3 CustomToneMapping( vec3 color ) { return color; }',
+      [
+        'vec3 CustomToneMapping( vec3 color ) {',
+        '\tvec3 c = max( color * toneMappingExposure, 0.0 );',
+        '\tfloat m = max( max( c.r, c.g ), c.b );',
+        '\tif ( m > ' + fNum(TOON.knee) + ' ) c *= ( ' + fNum(TOON.knee) + ' + ' + fNum(1 - TOON.knee) + ' * ( 1.0 - exp( -( m - ' + fNum(TOON.knee) + ' ) / ' + fNum(1 - TOON.knee) + ' ) ) ) / m;',
+        '\tfloat l = dot( c, vec3( 0.2126, 0.7152, 0.0722 ) );',
+        '\treturn saturate( mix( vec3( l ), c, ' + fNum(TOON.sat) + ' ) );',
+        '}',
+      ].join('\n')
+    );
+  })();
+
+  // 笔触噪声贴图（灰度，均值 0.5，四方连续）：几百道带方向的软笔触叠在一层低频斑块上。全局只画一次。
+  let toonBrush = null;
+  function toonBrushTex() {
+    if (toonBrush) return toonBrush;
+    const N = 256, c = makeCanvas(N, N), g = c.getContext('2d');
+    g.fillStyle = 'rgb(128,128,128)';
+    g.fillRect(0, 0, N, N);
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    // 低频斑块
+    for (let i = 0; i < 46; i++) {
+      const x = rnd() * N, y = rnd() * N, r = 20 + rnd() * 46, v = rnd() < 0.5 ? 0 : 255, a = 0.05 + rnd() * 0.07;
+      for (const ox of [-N, 0, N]) for (const oy of [-N, 0, N]) {
+        const gr = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
+        gr.addColorStop(0, `rgba(${v},${v},${v},${a})`);
+        gr.addColorStop(1, `rgba(${v},${v},${v},0)`);
+        g.fillStyle = gr;
+        g.fillRect(x + ox - r, y + oy - r, r * 2, r * 2);
+      }
+    }
+    // 笔触：大多顺着一个主方向（约 -25°），长 10～34 像素，宽 3～7，明暗各半
+    g.lineCap = 'round';
+    for (let i = 0; i < 520; i++) {
+      const x = rnd() * N, y = rnd() * N, len = 10 + rnd() * 24, a = -0.45 + (rnd() - 0.5) * 0.9, w = 3 + rnd() * 4;
+      const v = rnd() < 0.5 ? 0 : 255, al = 0.06 + rnd() * 0.1;
+      const dx = Math.cos(a) * len * 0.5, dy = Math.sin(a) * len * 0.5;
+      g.strokeStyle = `rgba(${v},${v},${v},${al})`;
+      g.lineWidth = w;
+      for (const ox of [-N, 0, N]) for (const oy of [-N, 0, N]) {
+        g.beginPath();
+        g.moveTo(x + ox - dx, y + oy - dy);
+        g.quadraticCurveTo(x + ox + dy * 0.25, y + oy - dx * 0.25, x + ox + dx, y + oy + dy);
+        g.stroke();
+      }
+    }
+    const t = new T.CanvasTexture(c);
+    t.wrapS = t.wrapT = T.RepeatWrapping;
+    t.generateMipmaps = true;
+    t.minFilter = T.LinearMipmapLinearFilter;
+    toonBrush = t;
+    return t;
+  }
+
+  // toonPatch(material, opts)：给一个已有的 MeshStandardMaterial 加卡通的附加项（保留它原来的 onBeforeCompile）。
+  //   brush: 0..1 笔触噪声的明暗幅度（0.15 左右是「看得出是画的」，0.3 是很重的笔触）；brushScale: 每个世界单位重复几次（默认 0.35）；
+  //   brushSpace: 'world'（默认，三向投影）| 'object'（跟着网格走：会动的东西用它，免得纹理在身上游动）；
+  //   grad: [底色, 顶色, y0, y1]，按世界高度乘一层渐变（十六进制色，乘在固有色上；y0..y1 之间平滑过渡）；
+  //   soft: 这个材质的阶梯软化半宽（覆盖 TOON.soft）；off: true 时不要阶梯（物理的 dot(N, L)）。
+  // 返回同一个材质。onBeforeCompile 的程序缓存键会带上这些选项，不同选项不会错用同一个着色器程序。
+  function toonPatch(mat, o) {
+    o = o || {};
+    const prev = mat.onBeforeCompile, prevKey = mat.customProgramCacheKey;
+    if (o.soft !== undefined) mat.defines = Object.assign(mat.defines || {}, { TOON_SOFT: fNum(o.soft) });
+    if (o.off) mat.defines = Object.assign(mat.defines || {}, { TOON_OFF: 1 });
+    const U = {};
+    let head = '', body = '', vHead = '', vBody = '';
+    if (o.brush) {
+      U.tToonBrush = { value: toonBrushTex() };
+      U.uToonBrush = { value: new T.Vector2(o.brush, o.brushScale || 0.35) };
+      vHead += 'varying vec3 vTbP;\nvarying vec3 vTbN;\n';
+      const objSp = o.brushSpace === 'object';
+      vBody += objSp
+        ? '\tvTbP = position; vTbN = normal;\n'
+        : '\tvec4 tbW = vec4( transformed, 1.0 );\n#ifdef USE_INSTANCING\n\ttbW = instanceMatrix * tbW;\n#endif\n\tvTbP = ( modelMatrix * tbW ).xyz;\n\tvTbN = normalize( mat3( modelMatrix ) * objectNormal );\n';
+      head += 'uniform sampler2D tToonBrush;\nuniform vec2 uToonBrush;\nvarying vec3 vTbP;\nvarying vec3 vTbN;\n';
+      body +=
+        '\t{\n\t\tvec3 bw = pow( abs( normalize( vTbN ) ), vec3( 3.0 ) ); bw /= dot( bw, vec3( 1.0 ) );\n' +
+        '\t\tvec3 bp = vTbP * uToonBrush.y;\n' +
+        '\t\tfloat bn = texture2D( tToonBrush, bp.zy ).r * bw.x + texture2D( tToonBrush, bp.xz ).r * bw.y + texture2D( tToonBrush, bp.xy ).r * bw.z;\n' +
+        '\t\tdiffuseColor.rgb *= 1.0 + ( bn - 0.5 ) * 2.0 * uToonBrush.x;\n\t}\n';
+    }
+    if (o.grad) {
+      const a = lin(o.grad[0]), b = lin(o.grad[1]);
+      U.uToonGradA = { value: new T.Vector3(a.r, a.g, a.b) };
+      U.uToonGradB = { value: new T.Vector3(b.r, b.g, b.b) };
+      U.uToonGradY = { value: new T.Vector2(o.grad[2] || 0, o.grad[3] === undefined ? 2 : o.grad[3]) };
+      vHead += 'varying float vTgY;\n';
+      vBody += '\tvec4 tgW = vec4( transformed, 1.0 );\n#ifdef USE_INSTANCING\n\ttgW = instanceMatrix * tgW;\n#endif\n\tvTgY = ( modelMatrix * tgW ).y;\n';
+      head += 'uniform vec3 uToonGradA, uToonGradB;\nuniform vec2 uToonGradY;\nvarying float vTgY;\n';
+      body += '\tdiffuseColor.rgb *= mix( uToonGradA, uToonGradB, smoothstep( uToonGradY.x, uToonGradY.y, vTgY ) );\n';
+    }
+    const key = 'toon:' + (o.brush ? 'b' + (o.brushSpace === 'object' ? 'o' : 'w') : '') + (o.grad ? 'g' : '');
+    mat.userData.toonU = U;
+    mat.onBeforeCompile = function (sh, r) {
+      if (prev) prev.call(this, sh, r);
+      Object.assign(sh.uniforms, U);
+      if (vHead) {
+        sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + vHead).replace('#include <begin_vertex>', '#include <begin_vertex>\n' + vBody);
+        // begin_vertex 可能已经被前一个 onBeforeCompile 换掉了（角色的蒙皮）：那就挂到 project_vertex 前面
+        if (sh.vertexShader.indexOf(vBody) < 0) sh.vertexShader = sh.vertexShader.replace('#include <project_vertex>', vBody + '#include <project_vertex>');
+      }
+      if (head) {
+        const f0 = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + head);
+        // color_fragment 被前一个 onBeforeCompile 换掉了（岩石的三向投影）：挂到 normal_fragment_begin 前面
+        sh.fragmentShader = f0.indexOf('#include <color_fragment>') >= 0 ? f0.replace('#include <color_fragment>', '#include <color_fragment>\n' + body) : f0.replace('#include <normal_fragment_begin>', body + '#include <normal_fragment_begin>');
+      }
+    };
+    mat.customProgramCacheKey = () => key + '|' + (prevKey ? prevKey.call(mat) : '') + '|' + (prev ? prev.toString() : '');
+    mat.needsUpdate = true;
+    return mat;
+  }
+  // makeToonMat(opts)：环境 / 布景 / 程序化道具用的卡通材质。粗糙度 1、不是金属（没有 PBR 的反光），其余同 toonPatch：
+  //   color（十六进制，默认白）、vertexColors（默认 true：顶点色就是画上去的颜色）、map、emissive / emissiveIntensity、
+  //   flat（按面着色：硬朗的石头 / 晶体）、side、transparent / opacity、fog（默认 true）、brush / brushScale / brushSpace / grad / soft / off。
+  // 例：makeToonMat({ brush: 0.18, grad: [0x4a3a66, 0xffffff, 0, 2.5] }) —— 带笔触、底部压成冷紫的岩石。
+  function makeToonMat(o) {
+    o = o || {};
+    const m = new T.MeshStandardMaterial({
+      color: o.color === undefined ? 0xffffff : lin(o.color), vertexColors: o.vertexColors === undefined ? true : !!o.vertexColors,
+      roughness: 1, metalness: 0, flatShading: !!o.flat, side: o.side || T.FrontSide,
+      transparent: !!o.transparent, opacity: o.opacity === undefined ? 1 : o.opacity, fog: o.fog === undefined ? true : o.fog,
+    });
+    if (o.map) m.map = o.map;
+    if (o.emissive !== undefined) {
+      m.emissive = lin(o.emissive);
+      m.emissiveIntensity = o.emissiveIntensity === undefined ? 1 : o.emissiveIntensity;
+    }
+    return o.brush || o.grad || o.soft !== undefined || o.off ? toonPatch(m, o) : m;
+  }
+  // 竖向渐变（CPU，写进顶点色）：toonGradient(geometry, { bottom, top, y0, y1, k })。顶部偏亮偏暖、底部偏暗偏冷，
+  // 乘在已有的 color 属性上（没有就先建一个白色的）；k 是渐变的强度（默认 1）。几何体自己的局部坐标 y。返回同一个几何体。
+  function toonGradient(g, o) {
+    o = o || {};
+    const pos = g.attributes.position, n = pos.count;
+    let col = g.attributes.color;
+    if (!col) {
+      col = new T.BufferAttribute(new Float32Array(n * 3).fill(1), 3);
+      g.setAttribute('color', col);
+    }
+    const a = lin(o.bottom === undefined ? 0x5a4a7a : o.bottom), b = lin(o.top === undefined ? 0xffffff : o.top), k = o.k === undefined ? 1 : o.k;
+    let y0 = o.y0, y1 = o.y1;
+    if (y0 === undefined || y1 === undefined) {
+      if (!g.boundingBox) g.computeBoundingBox();
+      if (y0 === undefined) y0 = g.boundingBox.min.y;
+      if (y1 === undefined) y1 = g.boundingBox.max.y;
+    }
+    const span = Math.max(1e-4, y1 - y0);
+    for (let i = 0; i < n; i++) {
+      const t = smooth01((pos.getY(i) - y0) / span);
+      const r = a.r + (b.r - a.r) * t, gg = a.g + (b.g - a.g) * t, bl = a.b + (b.b - a.b) * t;
+      col.setXYZ(i, col.getX(i) * (1 + (r - 1) * k), col.getY(i) * (1 + (gg - 1) * k), col.getZ(i) * (1 + (bl - 1) * k));
+    }
+    col.needsUpdate = true;
+    return g;
+  }
+  // 调试 / 截图脚本用（游戏代码直接用上面的函数）
+  W.toon = { TOON, makeToonMat, toonPatch, toonGradient, toonBrushTex, toonCast: (c) => toonCast(c) };
+  // 角色固有色的统一处理（线性 rgb，原地改 c = [r, g, b]）：太暗的颜色抬到一个带冷紫的底（卡通里没有死黑），饱和度提一点。
+  // 程序化骨架（bake1）和 C 模型（cApply）的每个顶点色都过一遍；phase 2 换角色配色时直接改各自的调色板，这里只兜底。
+  const TOON_CAST = { floor: 0.03, floorTint: [0.62, 0.55, 1.0], sat: 1.18, max: 0.82 };
+  function toonCast(c) {
+    let l = c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722;
+    const S = TOON_CAST.sat;
+    for (let k = 0; k < 3; k++) c[k] = Math.max(0, l + (c[k] - l) * S);
+    const F = TOON_CAST.floor;
+    if (l < F) {
+      const t = 1 - l / F; // 0 = 正好在底线上，1 = 纯黑
+      for (let k = 0; k < 3; k++) c[k] += F * TOON_CAST.floorTint[k] * t;
+      l = F;
+    }
+    if (l > TOON_CAST.max) for (let k = 0; k < 3; k++) c[k] *= TOON_CAST.max / l;
     return c;
   }
 
@@ -469,16 +727,16 @@
     ash: {
       packs: ['zone-ash', 'rock-dark', 'models'],
       mats: [
-        { tex: 'mud_cracked_dry_03', tile: 4.2, con: 0.95, nrm: 1.2, rough: 1, k: 0.48, sat: 0.35 },
-        { tex: 'burned_ground_01', tile: 4.8, con: 1.0, nrm: 1.3, rough: 1, k: 0.4, sat: 0.8 },
+        { tex: 'mud_cracked_dry_03', tile: 4.2, con: 0.8, nrm: 0.7, rough: 1, k: 0.62, sat: 0.85 },
+        { tex: 'burned_ground_01', tile: 4.8, con: 0.9, nrm: 0.8, rough: 1, k: 0.5, sat: 1.0 },
         { tex: 'dark_rock', tile: 6.5, con: 1.0, nrm: 1.0, rough: 1, k: 1.0 },
       ],
       lava: { mode: 1, color: 0xff5a1a, k: 4.2 },
       rock: { tex: 'dark_rock', tile: 2.6, nrm: 1.2, cap: 0x5e5550, capAll: 0.12 },
-      grade: { sat: 1.06, con: 1.05, lift: 0x060201, gain: 0xfff3e8, vig: 0.42 },
-      bloom: { th: 0.93, k: 0.34, r: 0.42 },
-      mist: { color: 0x3a2218, a: 0.32 },
-      prop: { tint: 0x6e6058, sat: 0.3 },
+      grade: { sat: 1.12, con: 1.1, lift: 0x0a0414, gain: 0xfff6ee, vig: 0.24 },
+      bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
+      mist: { color: 0x4a2636, a: 0.3 },
+      prop: { tint: 0xa08470, sat: 0.55 },
       props: {
         outer: [['kh/tree_dead_large', 3, 0.8, 1.1, 't'], ['kh/tree_dead_medium', 3, 0.9, 1.2, 't'], ['kh/tree_dead_small', 2, 1, 1.3, ''], ['kn/rock_tallA', 2, 2.4, 3.4, 'tr'], ['kn/stump_oldTall', 2, 2.2, 3, '']],
         keep: 0,
@@ -498,8 +756,8 @@
       ],
       lava: null,
       rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0xb4c8d6, capAll: 0.6 },
-      grade: { sat: 0.96, con: 1.06, lift: 0x01040a, gain: 0xeef8ff, vig: 0.4 },
-      bloom: { th: 0.94, k: 0.3, r: 0.4 },
+      grade: { sat: 1.12, con: 1.1, lift: 0x04081a, gain: 0xf4faff, vig: 0.22 },
+      bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x3c5566, a: 0.3 },
       prop: { tint: 0x8aa0b0, sat: 0.2 },
       props: {
@@ -521,8 +779,8 @@
       ],
       lava: null,
       rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0, capAll: 0 },
-      grade: { sat: 1.02, con: 1.06, lift: 0x03020a, gain: 0xf6f2ff, vig: 0.42 },
-      bloom: { th: 0.94, k: 0.32, r: 0.4 },
+      grade: { sat: 1.12, con: 1.1, lift: 0x080418, gain: 0xfaf6ff, vig: 0.24 },
+      bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x2c2744, a: 0.32 },
       prop: { tint: 0x5f5b74, sat: 0.2 },
       props: {
@@ -544,8 +802,8 @@
       ],
       lava: { mode: 2, color: 0xff3a22, k: 3.0 },
       rock: { tex: 'dark_rock', tile: 2.6, nrm: 1.2, cap: 0, capAll: 0 },
-      grade: { sat: 1.05, con: 1.07, lift: 0x060103, gain: 0xffeeee, vig: 0.45 },
-      bloom: { th: 0.93, k: 0.34, r: 0.42 },
+      grade: { sat: 1.12, con: 1.1, lift: 0x0c0412, gain: 0xfff2f0, vig: 0.26 },
+      bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x2e0d12, a: 0.32 },
       prop: { tint: 0x5e4a4c, sat: 0.25 },
       props: {
@@ -567,8 +825,8 @@
       ],
       lava: null,
       rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0, capAll: 0 },
-      grade: { sat: 1.04, con: 1.06, lift: 0x000604, gain: 0xeefff8, vig: 0.44 },
-      bloom: { th: 0.93, k: 0.34, r: 0.45 },
+      grade: { sat: 1.12, con: 1.1, lift: 0x020a10, gain: 0xf2fff8, vig: 0.24 },
+      bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x123a30, a: 0.32 },
       prop: { tint: 0x4c605a, sat: 0.16 },
       props: {
@@ -583,12 +841,59 @@
     },
   };
 
+  // ----- 卡通光照的区域配色（toon）：key 主光（暖）、shade 阴影色 = 半球光的天空色（冷紫 / 冷蓝，背光面和阴影里就是这个颜色）、
+  //   bounce 半球光的地面色（朝下的面的暖色反光）、rim 补光 / 轮廓光（镜头对面，冷色）、fog 雾和背景色（显示色，不过色调曲线）、
+  //   exposure 色调曲线前的曝光。强度：keyI / hemiI / rimI。没写的区域按 G.ZONES 的配色推一套（toonLightOf）。
+  //   第 0 区是设计稿里的标准色板；其它区域先保证「亮、饱和、不脏」，细调留给各区域的布景工作 -----
+  const ZONE_LIGHT = {
+    ash: { key: 0xffc286, keyI: 1.5, shade: 0x6248de, bounce: 0x9a3e22, hemiI: 0.95, rim: 0x8fb6ff, rimI: 0.9, fog: 0x2a1620, exposure: 1.0 },
+    frost: { key: 0xffe8cc, keyI: 1.45, shade: 0x4c7ae0, bounce: 0x3a6078, hemiI: 0.9, rim: 0xc8ecff, rimI: 0.85, fog: 0x1a2c3e, exposure: 1.0 },
+    storm: { key: 0xffe2a0, keyI: 1.45, shade: 0x5446c8, bounce: 0x5a4468, hemiI: 0.9, rim: 0xe6dcff, rimI: 0.85, fog: 0x221c36, exposure: 1.0 },
+    abyss: { key: 0xffcc9c, keyI: 1.45, shade: 0x5038b0, bounce: 0x8a2a30, hemiI: 0.9, rim: 0xff9cb0, rimI: 0.85, fog: 0x2e121c, exposure: 1.0 },
+    rift: { key: 0xf0ffe0, keyI: 1.45, shade: 0x3a8cc0, bounce: 0x245a48, hemiI: 0.9, rim: 0xa4ffde, rimI: 0.85, fog: 0x0f2a26, exposure: 1.0 },
+  };
+  function applyZoneLight(L) {
+    scene.background.set(L.fog);
+    scene.fog.color.set(L.fog);
+    hemi.color.copy(lin(L.shade));
+    hemi.groundColor.copy(lin(L.bounce));
+    hemi.intensity = hemiBase = L.hemiI;
+    sun.color.copy(lin(L.key));
+    sun.intensity = L.keyI;
+    fill.color.copy(lin(L.rim));
+    fill.intensity = L.rimI;
+    renderer.toneMappingExposure = TOON.exposure * (L.exposure || 1);
+  }
+  // 调试 / 调色用：现场改当前区域的光照或调色（不写回表里，换区域就恢复）。
+  //   G.world.toonTune({ light: { keyI: 1.4, shade: 0x6050c0 }, grade: { sat: 1.1 }, bloom: { k: 0.1 } })，返回当前生效的值
+  W.toonTune = function (o) {
+    o = o || {};
+    const def = W.zone && W.zone.def;
+    if (!def) return null;
+    const L = Object.assign({}, toonLightOf(def), W._toonL && W._toonL.id === def.id ? W._toonL.v : {}, o.light || {});
+    W._toonL = { id: def.id, v: L };
+    applyZoneLight(L);
+    const gx = ZONE_GFX[def.id];
+    const gq = { grade: Object.assign({}, gx && gx.grade, (W._toonG && W._toonG.id === def.id && W._toonG.grade) || {}, o.grade || {}), bloom: Object.assign({}, gx && gx.bloom, (W._toonG && W._toonG.id === def.id && W._toonG.bloom) || {}, o.bloom || {}) };
+    W._toonG = { id: def.id, grade: gq.grade, bloom: gq.bloom };
+    applyZonePost(gq);
+    return { light: L, grade: gq.grade, bloom: gq.bloom };
+  };
+  function toonLightOf(def) {
+    return ZONE_LIGHT[def.id] || {
+      key: mixHex(0xffffff, def.sky, 0.45), keyI: 1.45, shade: mixHex(0x5a48c8, def.accent, 0.2), bounce: mixHex(def.rock, def.accent, 0.35), hemiI: 0.9,
+      rim: mixHex(def.sky, 0xffffff, 0.3), rimI: 0.85, fog: mixHex(def.fog, 0x3a2a4a, 0.4), exposure: 1.0,
+    };
+  }
+
   // ----- 画质档位：dpr 像素比上限（高档封顶 1.5：2 倍屏按原生像素渲染再叠多重采样太贵），post 走后期处理（泛光 / 调色 / 暗角），
   //   bloomRes 泛光链的分辨率比例，msaa 后期渲染目标的多重采样，shadow 阴影贴图边长，mist 贴地薄雾 -----
   const QUALITY = {
     high: { dpr: 1.5, post: true, bloom: true, bloomRes: 1, msaa: 4, shadow: 2048, mist: true },
     mid: { dpr: 1.25, post: true, bloom: true, bloomRes: 0.5, msaa: 2, shadow: 1024, mist: false },
-    low: { dpr: 1, post: false, bloom: false, bloomRes: 1, msaa: 0, shadow: 1024, mist: false },
+    // 低档的 scale：3D 画面按 0.9 倍分辨率渲染（HUD / 血条叠加层仍是原生分辨率）。卡通风格的近镜头让角色、岩壁、粒子在画面里占的像素多了，
+    // 软件渲染下低档一帧慢了 7%～20%；收一成像素刚好补回来（SwiftShader 实测：起点 294 → 269 毫秒，混战 306 → 290 毫秒，均为 1440×900）
+    low: { dpr: 1, post: false, bloom: false, bloomRes: 1, msaa: 0, shadow: 1024, mist: false, scale: 0.9 },
   };
   let qual = QUALITY.high, qualId = 'high';
   const BLOOM_CAP = 1.1; // 进泛光的单个像素最亮多少（最大分量）
@@ -667,7 +972,7 @@
   }
   function applyZonePost(gx) {
     if (!post.ok) return;
-    const g = (gx && gx.grade) || { sat: 1, con: 1, lift: 0, gain: 0xffffff, vig: 0.4 };
+    const g = (gx && gx.grade) || { sat: 1.05, con: 1.04, lift: 0, gain: 0xffffff, vig: 0.24 };
     const u = post.grade.uniforms;
     u.uSat.value = g.sat;
     u.uCon.value = g.con;
@@ -676,7 +981,7 @@
     u.uLift.value.set(_c.r, _c.g, _c.b);
     _c.set(g.gain);
     u.uGain.value.set(_c.r, _c.g, _c.b);
-    const b = (gx && gx.bloom) || { th: 0.93, k: 0.42, r: 0.45 };
+    const b = (gx && gx.bloom) || { th: 0.97, k: 0.16, r: 0.32 };
     post.bloom.threshold = b.th;
     post.bloom.strength = b.k;
     post.bloom.radius = b.r;
@@ -707,7 +1012,7 @@
   W.quality = () => qualId;
   // 调试 / 测试用：当前画面状态
   W.gfxInfo = () => ({
-    quality: qualId, post: !!(post.ok && qual.post), bloom: !!(post.ok && qual.post && qual.bloom), dpr,
+    quality: qualId, post: !!(post.ok && qual.post), bloom: !!(post.ok && qual.post && qual.bloom), dpr, scale: qual.scale || 1,
     hd: !!(zoneFx && zoneFx.hd), fires: zoneFx && zoneFx.fires ? zoneFx.fires.list.length : 0, mist: !!(zoneFx && zoneFx.mist && zoneFx.mist.visible),
   });
 
@@ -865,7 +1170,7 @@
       uCapAll: { value: opt.cap ? r.capAll || 0 : 0 }, uCapC: { value: lin(r.cap || 0xffffff) }, uCapK: { value: r.cap ? 1 : 0 }, // 没有覆盖色的区域：Kenney 岩石的草皮顶面也按岩石处理
     };
     const mat = own(new T.MeshStandardMaterial({ color: 0xffffff, roughness: opt.rough, metalness: 0, flatShading: true, vertexColors: !!opt.vc }));
-    mat.onBeforeCompile = (sh) => {
+    mat.onBeforeCompile = function (sh) {
       Object.assign(sh.uniforms, U);
       sh.vertexShader = sh.vertexShader
         .replace('#include <common>', '#include <common>\nattribute float aCap;\nvarying vec3 vTriP;\nvarying float vCap;')
@@ -884,7 +1189,8 @@
         )
         .replace('#include <normal_fragment_maps>', 'normal = tNv;');
     };
-    return mat;
+    // 卡通：岩壁 / 布景在三向投影贴图上再叠一层很淡的笔触噪声（世界空间），大块的面不至于是一整片照片纹理
+    return toonPatch(mat, { brush: 0.1, brushScale: 0.45 });
   }
 
   // ----- 火盆 / 灯的火焰（加色混合、不做色调映射，泛光会把它们点亮） -----
@@ -1164,8 +1470,9 @@
     const canvas = document.getElementById('gl');
     renderer = new T.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     renderer.outputEncoding = T.sRGBEncoding;
-    renderer.toneMapping = T.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.12;
+    // 卡通色调曲线（保持色相的高光肩部 + 饱和度，见 TOON / patchToonChunks），代替 ACES：ACES 会把中间调压灰、把饱和色洗淡
+    renderer.toneMapping = T.CustomToneMapping;
+    renderer.toneMappingExposure = TOON.exposure;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = T.PCFSoftShadowMap;
     // 画质档位：存档里的「画质」选项（高 / 中 / 低）；'auto'（玩家没选过）按设备推断（见 G.defaultQuality）
@@ -1178,13 +1485,10 @@
 
     scene = new T.Scene();
     scene.background = new T.Color(0x100c0a);
-    scene.fog = new T.Fog(0x100c0a, 27, 64);
+    scene.fog = new T.Fog(0x100c0a, CAMERA.fogNear, CAMERA.fogFar);
 
     camera = new T.PerspectiveCamera(BASE_FOV, 1, 2, 240);
-    camera.position.copy(CAM_OFF);
-    camera.lookAt(0, 1, 0); // 朝向固定，之后只平移
-    camera.getWorldDirection(camF);
-    camU.set(0, 1, 0).applyQuaternion(camera.quaternion);
+    camAim(); // 朝向固定，之后只平移
 
     hemi = new T.HemisphereLight(0xffffff, 0x222222, HEMI_I);
     scene.add(hemi);
@@ -1202,7 +1506,7 @@
     scene.add(sun.target);
     // 补光：从镜头对面（画面上方）斜照过来的一盏不投影的方向光，按区域配色给角色和岩石勾一道轮廓
     fill = new T.DirectionalLight(0xffffff, 0.3);
-    fill.position.set(6, 10, -14);
+    fill.position.set(12, 9, -14); // 镜头对面偏右：只照亮角色的背面和边缘，相当于轮廓光（角色材质按它的方向勾冷色的边）
     scene.add(fill);
     // 阴影相机的右/上轴：用来把光源位置吸附到纹素网格，避免移动时阴影边缘游动
     _v.copy(SUN_OFF).normalize(); // 指向光源 = 阴影相机的 +z
@@ -1249,11 +1553,45 @@
     clearRibbons();
   };
 
+  // 按 CAMERA 摆镜头的朝向（只在初始化和 W.setCamera 时调用）
+  function camAim() {
+    camera.position.copy(CAM_OFF);
+    camera.lookAt(0, CAMERA.lookY, 0);
+    camera.getWorldDirection(camF);
+    camU.set(0, 1, 0).applyQuaternion(camera.quaternion);
+    camera.fov = fovNow = BASE_FOV;
+    camera.updateProjectionMatrix();
+    if (scene && scene.fog) {
+      scene.fog.near = CAMERA.fogNear;
+      scene.fog.far = CAMERA.fogFar;
+    }
+  }
+  // 调试 / 调镜头：G.world.setCamera({ pitch, dist, fov, lead, lookY, fogNear, fogFar, shadow })，返回当前配置
+  W.setCamera = function (o) {
+    Object.assign(CAMERA, o || {});
+    camDerive();
+    BASE_FOV = CAMERA.fov;
+    if (SHADOW_HALF !== CAMERA.shadow && sun) {
+      SHADOW_HALF = CAMERA.shadow;
+      const sc = sun.shadow.camera;
+      sc.left = -SHADOW_HALF; sc.right = SHADOW_HALF; sc.top = SHADOW_HALF; sc.bottom = -SHADOW_HALF;
+      sc.updateProjectionMatrix();
+    }
+    if (camera) {
+      camAim();
+      camSnap = true;
+      W.resize();
+      W.update(0);
+    }
+    return Object.assign({}, CAMERA);
+  };
+
   W.resize = function () {
     vw = Math.max(1, window.innerWidth);
     vh = Math.max(1, window.innerHeight);
     dpr = Math.min(window.devicePixelRatio || 1, qual.dpr);
-    renderer.setPixelRatio(dpr);
+    const glDpr = dpr * (qual.scale || 1); // 3D 画面的像素比（低档比叠加层低一点，见 QUALITY.low.scale）
+    renderer.setPixelRatio(glDpr);
     renderer.setSize(vw, vh);
     if (post.ok) {
       post.composer.setPixelRatio(dpr);
@@ -1267,7 +1605,7 @@
     ocv.style.width = vw + 'px';
     ocv.style.height = vh + 'px';
     // 粒子按世界单位换算成像素大小
-    pMat.uniforms.uScale.value = (vh * dpr) / (2 * Math.tan((BASE_FOV * Math.PI) / 360));
+    pMat.uniforms.uScale.value = (vh * glDpr) / (2 * Math.tan((BASE_FOV * Math.PI) / 360));
     if (W.zone) buildMinimap(W.zone);
   };
 
@@ -1584,12 +1922,8 @@
     const tx = hd ? null : groundTextures(def, st);
 
     // 氛围：雾在 r128 里是在色调映射和编码之后混合的，所以直接用显示色
-    scene.background.set(def.fog);
-    scene.fog.color.set(def.fog);
-    hemi.color.copy(lin(def.sky));
-    hemi.groundColor.copy(lin(mixHex(def.fog, def.rock, 0.55)));
-    sun.color.copy(lin(mixHex(0xffffff, def.sky, 0.5)));
-    fill.color.copy(lin(mixHex(def.accent, def.sky, 0.55)));
+    // 卡通光照：暖的主光、冷紫的阴影色（半球光天空色）、暖的地面反光、冷色的轮廓补光（ZONE_LIGHT）
+    applyZoneLight(toonLightOf(def));
     applyZonePost(gx);
 
     const sd = (x, z) => zoneSd(zone, x, z);
@@ -1809,7 +2143,8 @@
       }
     }
     const blotMat = own(
-      new T.MeshBasicMaterial({ map: blotchTex(), color: lin(mixHex(def.voidc, 0x000000, 0.4)), transparent: true, opacity: 0.38, depthWrite: false })
+      // 卡通：污斑不再是近黑的一大片（旧 0.38 不透明度把地面弄脏），颜色偏向这个区域的阴影色、淡一半
+      new T.MeshBasicMaterial({ map: blotchTex(), color: lin(mixHex(mixHex(def.voidc, toonLightOf(def).shade, 0.3), 0x000000, 0.3)), transparent: true, opacity: 0.2, depthWrite: false })
     );
     const blotIM = instanced(gQuad(), blotMat, blots, false, null);
     if (blotIM) blotIM.renderOrder = 1;
@@ -1827,7 +2162,8 @@
       return q;
     };
     const bossSigil = sigil(zone.bossPos.x, zone.bossPos.z, zone.bossR * 0.84, def.accent, 0.26);
-    sigil(zone.start.x, zone.start.z, 3.4, mixHex(def.sky, 0xffffff, 0.3), 0.16);
+    // 起点的法阵：镜头拉近后原来的 3.4 会铺满半个画面，收成脚下一小圈、更淡（布景工作可以整个换掉）
+    sigil(zone.start.x, zone.start.z, 1.9, mixHex(def.sky, 0xffffff, 0.3), 0.1);
     const rp = rift ? riftPieces(zone, sd, ringSamples, lowK, accentL, crystalMat) : null;
     // --- CC0 布景模型、火盆、贴地薄雾 ---
     let fires = null, mist = null;
@@ -2035,6 +2371,7 @@
     });
   }
 
+  const _tc = [0, 0, 0];
   // ----- 骨架定义 + 零件烘焙 -----
   // 用法：b.j(关节名, 父关节, 枢轴 x,y,z)；b.at(关节).surf(表面).p(几何体, 颜色, 位置…, 旋转…, 缩放…)
   // 所有坐标都是模型空间里的绑定姿态（面朝 +z，+x 是它的左手边，脚踩 y = 0）。
@@ -2136,8 +2473,9 @@
         return B;
       },
       build(o) {
-        // 主角的程序化零件（武器、围巾）保持原色；其余角色统一压成暗色调
-        const tone = o.tone === undefined ? key !== 'player' : o.tone;
+        // 卡通：不再把其余角色压成暗色调（旧的 style C 暗色曲线），所有角色的顶点色统一过 toonCast（抬死黑、提饱和）。
+        // o.tone 保留为开关（false = 连 toonCast 也不过，原样用调色板）
+        const tone = o.tone === undefined ? true : o.tone;
         const bake1 = (list, isGlow) => {
           if (!list.length) return null;
           // 双面零件展开成正反两份：反面翻转绕序和法线，用内侧颜色
@@ -2215,18 +2553,14 @@
                 r += (cB.r - r) * t; g += (cB.g - g) * t; bl += (cB.b - bl) * t;
               }
               if (jit) {
-                // 平涂：明暗抖动按整个三角形取（面心），一面一色
-                const f0 = k - ((k - v0) % 3);
-                const cx = (pos[f0 * 3] + pos[f0 * 3 + 3] + pos[f0 * 3 + 6]) / 3, cy = (pos[f0 * 3 + 1] + pos[f0 * 3 + 4] + pos[f0 * 3 + 7]) / 3, cz = (pos[f0 * 3 + 2] + pos[f0 * 3 + 5] + pos[f0 * 3 + 8]) / 3;
-                const h = Math.sin(cx * 91.7 + cy * 57.3 + cz * 133.1) * 43758.5453;
-                const kk = 1 + (h - Math.floor(h) - 0.5) * jit * 2;
+                // 手绘感的明暗起伏：按位置取平滑噪声（一片片过渡，而不是旧的「一面一色」的平涂抖动），顶部略亮
+                const kk = 1 + (vnoise(px * 5.3 + pz * 2.9 + 11.1, py * 5.3 - pz * 1.7) - 0.5) * jit * 2.2;
                 r *= kk; g *= kk; bl *= kk;
               }
-              // 暗色调：亮度压进炭灰到灰烬灰的一段（线性亮度约 0.03～0.13），亮色压得多、暗色几乎不动，层次的先后不变；
-              // 饱和度也收掉一截——和重新上色的 C 模型（深灰的主角、炭黑的蜘蛛）站在一起是同一套暗色，不发白、不发艳
               if (!isGlow && tone) {
-                const l = r * 0.3 + g * 0.59 + bl * 0.11, f = Math.min(0.78 - 0.54 * smooth01((l - 0.02) / 0.3), 0.125 / Math.max(l, 1e-3) + 0.02);
-                r = (l + (r - l) * 0.62) * f; g = (l + (g - l) * 0.62) * f; bl = (l + (bl - l) * 0.62) * f;
+                _tc[0] = r; _tc[1] = g; _tc[2] = bl;
+                toonCast(_tc);
+                r = _tc[0]; g = _tc[1]; bl = _tc[2];
               }
               // 贴近地面的部分压暗一点（假的环境光遮蔽）
               if (!isGlow && o.shade) {
@@ -2684,11 +3018,40 @@
         if (gk) RC[i * 3] = RC[i * 3 + 1] = RC[i * 3 + 2] = gk;
         else {
           const c = cs.color(pr.mat, pr.name, pr.base, pr.C ? [pr.C[i * 4], pr.C[i * 4 + 1], pr.C[i * 4 + 2]] : null, RP[i * 3 + 1], col, RP[i * 3], RP[i * 3 + 2]);
+          if (cs.toon !== false) toonCast(c);
           RC[i * 3] = c[0]; RC[i * 3 + 1] = c[1]; RC[i * 3 + 2] = c[2];
         }
       }
-      // 按三角形展开（平涂：每个面自己的法线）
+      // 按三角形展开。卡通（TOON.smoothChars）：同一块网格里位置重合的顶点焊在一起，面法线按面积加权平均成平滑法线；
+      // 关掉时是旧的平涂（每个面自己的法线）
       const I = pr.I, cull = cs.cull;
+      let SN = null, wid = null;
+      if (TOON.smoothChars && cs.smooth !== false) {
+        wid = new Int32Array(nv);
+        const wm = new Map();
+        let nw = 0;
+        for (let i = 0; i < nv; i++) {
+          const kk = Math.round(RP[i * 3] * 2000) + ',' + Math.round(RP[i * 3 + 1] * 2000) + ',' + Math.round(RP[i * 3 + 2] * 2000);
+          let w = wm.get(kk);
+          if (w === undefined) wm.set(kk, (w = nw++));
+          wid[i] = w;
+        }
+        SN = new Float32Array(nw * 3);
+        for (let t = 0; t < I.length; t += 3) {
+          const a = I[t], b = I[t + 1], c = I[t + 2];
+          _cv.set(RP[b * 3] - RP[a * 3], RP[b * 3 + 1] - RP[a * 3 + 1], RP[b * 3 + 2] - RP[a * 3 + 2]);
+          _cv2.set(RP[c * 3] - RP[a * 3], RP[c * 3 + 1] - RP[a * 3 + 1], RP[c * 3 + 2] - RP[a * 3 + 2]);
+          _cv.cross(_cv2);
+          for (const k of [a, b, c]) {
+            const w = wid[k] * 3;
+            SN[w] += _cv.x; SN[w + 1] += _cv.y; SN[w + 2] += _cv.z;
+          }
+        }
+        for (let w = 0; w < SN.length; w += 3) {
+          const l = Math.hypot(SN[w], SN[w + 1], SN[w + 2]) || 1;
+          SN[w] /= l; SN[w + 1] /= l; SN[w + 2] /= l;
+        }
+      }
       for (let t = 0; t < I.length; t += 3) {
         const a = I[t], b = I[t + 1], c = I[t + 2];
         // 按三角形剔掉不要的部分（主角的胡子）：给的是静止姿态里的面心
@@ -2698,7 +3061,8 @@
         _cv.cross(_cv2).normalize();
         for (const k of [a, b, c]) {
           out.P.push(RP[k * 3], RP[k * 3 + 1], RP[k * 3 + 2]);
-          out.N.push(_cv.x, _cv.y, _cv.z);
+          if (SN) out.N.push(SN[wid[k] * 3], SN[wid[k] * 3 + 1], SN[wid[k] * 3 + 2]);
+          else out.N.push(_cv.x, _cv.y, _cv.z);
           out.C.push(RC[k * 3], RC[k * 3 + 1], RC[k * 3 + 2]);
           out.J.push(RJ[k * 4], RJ[k * 4 + 1], RJ[k * 4 + 2], RJ[k * 4 + 3]);
           out.W.push(RW[k * 4], RW[k * 4 + 1], RW[k * 4 + 2], RW[k * 4 + 3]);
@@ -2826,9 +3190,17 @@
     '#include <emissivemap_fragment>',
     'roughnessFactor = vSurf.x;',
     'metalnessFactor = vSurf.y;',
-    // 轮廓光：俯视镜头下把身形从暗色地面上勾出来
+    // 轮廓光：俯视镜头下把身形从地面上勾出来。uRim 是每个实体自己的（精英的金边、受击 / 选中时的变色），
     'float rigRim = 1.0 - saturate( dot( normal, normalize( vViewPosition ) ) );',
     'totalEmissiveRadiance += uRim * rigRim * rigRim * rigRim;',
+    // 卡通轮廓光（TOON.rimK）：补光（第二盏方向光，在镜头对面）那一侧的边缘一条软阶梯的冷色光，另一侧只留很淡的一点——不是一圈描边
+    '#if NUM_DIR_LIGHTS > 1',
+    '{',
+    '  float tRb = smoothstep( ' + fNum(TOON.rimLo) + ', ' + fNum(TOON.rimHi) + ', rigRim );',
+    '  float tRm = smoothstep( -0.25, 0.45, dot( normal, directionalLights[ 1 ].direction ) );',
+    '  totalEmissiveRadiance += directionalLights[ 1 ].color * ( diffuseColor.rgb * 0.6 + 0.4 ) * tRb * ( 0.15 + 0.85 * tRm ) * ' + fNum(TOON.rimK) + ';',
+    '}',
+    '#endif',
     // 死亡消散：按绑定姿态下的小方格逐块烧掉，边缘发亮
     'if ( uDis.a > 0.0 ) {',
     '  vec3 dq = floor( vBP * 9.0 );',
@@ -2862,11 +3234,12 @@
     if (rigEnv) return rigEnv;
     const c = makeCanvas(128, 64), g = c.getContext('2d');
     const gr = g.createLinearGradient(0, 0, 0, 64);
+    // 卡通：下半截不再是近黑（俯视镜头下金属面大多反射的是下半截，旧的会让金属一片黑），换成暖的地面反光
     gr.addColorStop(0, '#fff6e6');
-    gr.addColorStop(0.3, '#b9b2ad');
-    gr.addColorStop(0.5, '#5e5a5c');
-    gr.addColorStop(0.56, '#2a2627');
-    gr.addColorStop(1, '#0c0a0a');
+    gr.addColorStop(0.3, '#d6cde0');
+    gr.addColorStop(0.5, '#9a8ca6');
+    gr.addColorStop(0.56, '#6e5a64');
+    gr.addColorStop(1, '#4a3a3e');
     g.fillStyle = gr;
     g.fillRect(0, 0, 128, 64);
     // 两团高光：一冷一暖，转动时金属面上有东西在滑
@@ -2889,8 +3262,9 @@
     return rigEnv;
   }
 
-  // 角色一律平涂（按面着色、硬边），和 C 模型的低多边形风格一致
-  const RIG_FLAT = true;
+  // 卡通：角色用平滑法线（程序化零件按各自烘焙的法线，C 模型见 TOON.smoothChars），光照阶梯给出干净的大块明暗；
+  // 旧的「一律平涂（按面着色）」在阶梯光照下会碎成满身小色块
+  const RIG_FLAT = false;
   // ----- 建立实体 -----
   // tintHex：躯体整体染色；elemHex：自发光部件的元素色
   // 变体零件里的自发光件不用本体的元素色、改用自己固定颜色的那几组：变体名 → [颜色, 亮度]。
@@ -3856,8 +4230,9 @@
   const FINGER = /^(Index|Middle|Ring|Pinky|Thumb)\d[LR]$/;
   // 主角：Adventurer（Ultimate Modular Men）。深色皮衣、青绿围巾、灰烬银的头发；背包摘掉
   const PL_COL = {
-    Skin: cLin(0xa9826a), Green: cLin(0x4a4247), LightGreen: cLin(0x282c38), Grey: cLin(0x2c282e), Black: cLin(0x151317),
-    Hair: cLin(0xa9adb8), Eyebrows: cLin(0x34353d), Eye: cLin(0x120e0c), Brown: cLin(0x22242d), Brown2: cLin(0x5a4a40), Gold: cLin(0x8c7a52),
+    // 卡通（phase 1 兜底）：整体抬亮一档、肤色更暖；正式的主角配色在 phase 2 里换
+    Skin: cLin(0xd29a7c), Green: cLin(0x5c5060), LightGreen: cLin(0x353b52), Grey: cLin(0x3e3748), Black: cLin(0x24212e),
+    Hair: cLin(0xc6cad8), Eyebrows: cLin(0x3a3a48), Eye: cLin(0x1a1418), Brown: cLin(0x2f3346), Brown2: cLin(0x6e5848), Gold: cLin(0xc49a52),
   };
   const PL_SURF = { Skin: SURF.leather, Hair: SURF.cloth, Green: SURF.leather, Grey: SURF.leather, Black: SURF.leather, Brown2: SURF.leather, Gold: SURF.gold };
   const PL_MAP = {
@@ -3880,13 +4255,15 @@
     Hips: 'root', Spine: 'spine', Spine1: 'spine', Spine2: 'spine', LeftShoulder: 'spine', RightShoulder: 'spine', Neck: 'head', Head: 'head', HeadTop_End: 'head',
     LeftArm: 'uaL', LeftForeArm: 'faL', RightArm: 'uaR', RightForeArm: 'faR', LeftUpLeg: 'thL', LeftLeg: 'shL', LeftFoot: 'ftL', RightUpLeg: 'thR', RightLeg: 'shR', RightFoot: 'ftR',
   };
-  const HK_TINT = [0.27, 0.25, 0.225]; // 灰烬的灰褐：比地面亮一档，游戏镜头下不至于和灰土地面糊成一片
+  // 卡通（phase 1 兜底）：旧的灰烬灰褐 [0.27, 0.25, 0.225] + 72% 去饱和太暗太脏；现在只去一半饱和、乘一层偏紫的灰，正式配色在 phase 2
+  const HK_TINT = [0.46, 0.4, 0.44];
+  const HK_DESAT = 0.4;
   // 骷髅（Skeleton）：模型里 R 开头的骨骼在 +x 一侧（按看着它的人的左右起名），也就是骷髅自己的左边；…001 是手臂
   const TH_MAP = {
     Hips: 'root', Torso: 'chest', Neck: 'head', Head: 'head',
     RUpperLeg001: 'uaL', RDownLeg001: 'faL', LUpperLeg001: 'uaR', LDownLeg001: 'faR', RUpperLeg: 'thL', RDownLeg: 'shL', LUpperLeg: 'thR', LDownLeg: 'shR',
   };
-  const TH_BONE = cLin(0x5a5a5c); // 焦骨：偏冷的灰烬骨色（场景光大多偏暖，骨色再暖就发红、像陶土）
+  const TH_BONE = cLin(0xaaa398); // 骨色：卡通配色下抬亮成浅骨白（旧的焦骨 0x5a5a5c 在新光照下发脏）
   // 焦骨：按位置撒一层焦黑的斑（每个顶点 0～60% 压暗）
   const thChar = (out, c, x, y, z) => {
     const h = Math.sin(x * 41.3 + y * 27.1 + z * 63.7) * 43758.5453, n = h - Math.floor(h);
@@ -3907,7 +4284,7 @@
   };
   // 蜘蛛（Spider）：身体 / 头 / 腹三节，八条腿各三节同名；脚上的 IK 骨骼不参与
   const SP_MAP = { Root: 'root', Body: 'root', Thorax: 'thx', Head: 'head', Abdomen: 'abd' };
-  const SP_COL = cLin(0x1d1a19);
+  const SP_COL = cLin(0x4a3038); // 深梅色的甲壳（旧的炭黑 0x1d1a19 在卡通光照下是一团黑）
   const CSPEC = {
     player: {
       model: 'adventurer', height: 1.9, yaw: 0, center: 'Hips',
@@ -3967,7 +4344,7 @@
       keep: () => false,
       color: (mat, prim, base, vc, y, out) => {
         const c = vc || base, l = c[0] * 0.3 + c[1] * 0.59 + c[2] * 0.11;
-        for (let k = 0; k < 3; k++) out[k] = (c[k] + (l - c[k]) * 0.72) * HK_TINT[k];
+        for (let k = 0; k < 3; k++) out[k] = (c[k] + (l - c[k]) * HK_DESAT) * HK_TINT[k];
         return cShade(out, out, y, 2.15, 0.3);
       },
       surf: () => SURF.hide,
@@ -7210,7 +7587,7 @@
     const ent = newEnt(type, MOB_RIG[type](), warmGround ? 0xc3cbe6 : 0xf6dfc4, eh, 1.1);
     if (warmGround) ent.uRim.value.setRGB(0.1, 0.13, 0.2);
     else ent.uRim.value.setRGB(0.2, 0.15, 0.1);
-    if (ent.rig.skin4) ent.uRim.value.multiplyScalar(1.5); // 暗色的 C 模型：轮廓光强一点，游戏镜头下才能从灰土地面上分出来
+    // （旧：暗色的 C 模型轮廓光 ×1.5。卡通配色下角色不再是暗色，靠 TOON 的轮廓光分开，不再加强）
     if (elite) {
       // 精英：更大、发光更强，轮廓上镀一圈金
       ent.k = 1.35;
@@ -14927,7 +15304,7 @@
       fx.glowMat.opacity = 0.38 + Math.sin(wtime * 1.7) * 0.08;
       fx.bossSigil.material.opacity = 0.24 + Math.sin(wtime * 1.2) * 0.07;
       fx.bossSigil.rotation.y += dt * 0.04;
-      let hi = HEMI_I;
+      let hi = hemiBase;
       if (fx.st.amb === 'spark') {
         // 雷鸣遗迹：不定时的天光闪烁
         fx.boltIn -= dt;
