@@ -15993,9 +15993,9 @@
   // 漩涡：上宽下窄的开口圆台，绕着身子的斜条纹往上卷（亮芯 / 品红 / 近黑三档），顶上一段降到三成不透明
   const VORTEX_VERT = 'varying vec2 vUv;\nvoid main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
   const VORTEX_FRAG = [
-    'uniform vec3 uCore; uniform vec3 uRim; uniform vec3 uHi; uniform float uTime; varying vec2 vUv;',
+    'uniform vec3 uCore; uniform vec3 uRim; uniform vec3 uHi; uniform float uTime; uniform float uPh; varying vec2 vUv;',
     'void main(){',
-    '  float s = fract(vUv.x * 3.0 + vUv.y * 1.4 - uTime * 2.6);',
+    '  float s = fract(vUv.x * 3.0 + vUv.y * 1.4 - uTime * 2.6 + uPh);', // uPh：同一次施放的几团各错开一点相位
     '  vec3 col = s < 0.16 ? uHi : (s < 0.5 ? uRim : uCore);',
     '  float a = vUv.y > 0.82 ? 0.32 : (vUv.y > 0.55 ? 0.62 : 0.9);',
     '  if (s >= 0.5 && vUv.y > 0.55) discard;', // 上半截只留亮条：漏斗口是一圈卷起来的条纹，不是一面墙
@@ -16062,7 +16062,8 @@
   };
   W.holeCount = () => chHoles.filter((h) => h.on).length;
 
-  W.makeVortex = function (x, z, R) {
+  // i：同一次施放里的第几团（多重投射）。相位、转向、高矮各错开一点，几团挨在一起时不会糊成一个盘
+  W.makeVortex = function (x, z, R, i) {
     let v = chVorts.find((o) => !o.on);
     if (!v) {
       if (chVorts.length >= 6) {
@@ -16071,28 +16072,32 @@
         const lo = qualId === 'low';
         const geo = new T.CylinderGeometry(1, 0.28, 1, lo ? 8 : 12, 1, true);
         geo.translate(0, 0.5, 0);
-        const u = chUniforms();
+        const u = chUniforms({ uPh: { value: 0 } });
         const mat = new T.ShaderMaterial({ uniforms: u, vertexShader: VORTEX_VERT, fragmentShader: VORTEX_FRAG, transparent: true, depthWrite: false, side: T.DoubleSide });
         const mesh = new T.Mesh(geo, mat);
         mesh.renderOrder = 4;
         mesh.visible = false;
         scene.add(mesh);
-        v = { mesh, on: false };
+        v = { mesh, u, on: false };
         chVorts.push(v);
       }
     }
     v.on = true;
     v.R = R;
     v.acc = 0;
+    const k = i || 0;
+    v.dir = k % 2 ? -1 : 1;
+    v.u.uPh.value = k * 0.37;
+    v.mesh.rotation.y = k * 1.3;
     v.mesh.position.set(x, 0.05, z);
-    v.mesh.scale.set(R, 2.4, R);
+    v.mesh.scale.set(R * (1 - 0.06 * (k % 3)), 2.4 * (1 - 0.12 * (k % 3)), R * (1 - 0.06 * (k % 3)));
     v.mesh.visible = true;
     return v;
   };
   W.updateVortex = function (v, x, z, dt) {
     if (!v || !v.on) return;
     v.mesh.position.set(x, 0.05, z);
-    v.mesh.rotation.y += dt * 9;
+    v.mesh.rotation.y += dt * 9 * (v.dir || 1);
     // 甩出的尖片：高画质每 0.06 秒一片，低画质 0.12 秒
     v.acc += dt * (qualId === 'low' ? 8 : 16);
     while (v.acc > 1) {
@@ -16117,11 +16122,12 @@
   function updateFlame(dt) {
     const P = G.player;
     if (!flame.on || !P || !P.ent || !P.ent.group.visible) return;
-    flame.acc += dt * (qualId === 'low' ? 2.5 : 10);
+    flame.acc += dt * (qualId === 'low' ? 2.5 : 14);
     while (flame.acc > 1) {
       flame.acc -= 1;
       const a = rand(0, TAU), d = rand(0.2, 0.55), x = P.x + Math.sin(a) * d, z = P.z + Math.cos(a) * d;
-      if (Math.random() < 0.5) tChunk(2, x, rand(0.4, 1.5), z, 0, 0, 0, rand(0.55, 0.8), rand(0.24, 0.34), CH_DARK, CH_CORE, -1.6);
+      // 暗紫的烟团垫底（形状），品红转近黑的尖片往上窜（亮芯那一档是特效高光段）
+      if (Math.random() < 0.45) tChunk(2, x, rand(0.4, 1.5), z, 0, 0, 0, rand(0.55, 0.8), rand(0.3, 0.42), CH_RIM, CH_CORE, -1.6);
       else tChunk(0, x, rand(0.3, 1.2), z, rand(-0.3, 0.3), rand(1.8, 2.8), rand(-0.3, 0.3), rand(0.45, 0.65), rand(0.18, 0.26), CH_HI, CH_RIM, -0.5);
     }
   }

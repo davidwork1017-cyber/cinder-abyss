@@ -9122,12 +9122,17 @@ async function main() {
       Object.assign(P.S, { incAll: 10, incElem: 20, incFire: 30, incCold: 40, incLight: 50, incChaos: 60, moreElem: 30, moreChaos: 25, minionDmg: 70 });
       const v = G.skillCtx('vortex'), e = G.skillCtx('ember'), t = G.skillCtx('thrall');
       const out = { chaos: v.inc.chaos, more: v.moreType.chaos, fire: e.inc.fire, fireMore: e.moreType.fire, mChaos: t.inc.chaos, mMore: t.moreType.chaos, hasChaos: G.TYPES.indexOf('chaos') >= 0, notElem: G.ELEMS.indexOf('chaos') < 0 };
+      // 前期补偿：宝石 1 级相当于 0.95 倍、15 级起回到 0.75 倍（只乘在混沌技能上）
+      const lo = G.SKILLS.vortex.dmg.chaos[0];
+      out.early = [1, 8, 15, 30].map((l) => +(G.skillBase('vortex', l).chaos[0] / (lo * (1 + 0.2 * (l - 1))) * 0.75).toFixed(3));
+      out.emberEarly = +(G.skillBase('ember', 1).fire[0] / G.SKILLS.ember.dmg.fire[0]).toFixed(3);
       T.buildRestore(snap);
       G.computeStats();
       return out;
     });
     assert(r.chaos === 210 && Math.abs(r.more - 1.25) < 1e-9 && r.fire === 60 && Math.abs(r.fireMore - 1.3) < 1e-9, '混沌加成不对：' + JSON.stringify(r));
     assert(r.mChaos === 70 && r.mMore === 1 && r.hasChaos && r.notElem, '召唤物 / 类型表不对：' + JSON.stringify(r));
+    assert(r.early.join() === '0.95,0.9,0.75,0.75' && r.emberEarly === 1, '混沌技能的前期补偿不对：' + JSON.stringify(r));
     return '混沌 +' + r.chaos + '% × ' + r.more + '（火 +' + r.fire + '% × ' + r.fireMore + '）';
   });
 
@@ -9251,7 +9256,7 @@ async function main() {
     return '一排 ' + r.line.hits.join('/') + ' 跳 · 单体 ' + r.single.hits[0] + '（多重 ' + r.multi.hits[0] + '）· 连锁拐弯 ' + r.chain.hits[0] + ' 跳';
   });
 
-  await step('黑焰：放上技能栏保留 30% 魔力（节流后 18%）；攻击、法术、召唤物的每一击都多出 F% 的混沌伤害，和注入相加；触发出来的伤害不带；取下即失效', async () => {
+  await step('黑焰：放上技能栏保留 35% 魔力（节流后 21%）；攻击、法术、召唤物的每一击都多出 F% 的混沌伤害，和注入相加；触发出来的伤害不带；取下即失效', async () => {
     const r = await ev(() => {
       T.arena();
       T.fix(0.5);
@@ -9312,7 +9317,7 @@ async function main() {
       return out;
     });
     const f = r.F / 100, near = (a, b) => Math.abs(a - b) < 0.005;
-    assert(r.reserve === 30 && Math.abs(r.reserveFrugal - 18) < 0.01 && r.haste === false && near(f, 0.08), '保留 / 数值 / 辅助不对：' + JSON.stringify(r));
+    assert(r.reserve === 35 && Math.abs(r.reserveFrugal - 21) < 0.01 && r.haste === false && near(f, 0.06), '保留 / 数值 / 辅助不对：' + JSON.stringify(r));
     assert(near(r.attack.chaos, f) && near(r.spell.chaos, f) && r.minion !== null && near(r.minion, f), '攻击 / 法术 / 召唤物都应多出 F% 的混沌：' + JSON.stringify(r));
     assert(near(r.attackCold.chaos, f) && near(r.attackCold.cold, 0.3), '黑焰和注入应相加（按同一个底数）：' + JSON.stringify(r));
     assert(r.proc === 'fire' && r.off === 0 && r.offCtx === 0, '触发伤害不该带黑焰、取下应失效：' + JSON.stringify(r));
@@ -9371,6 +9376,21 @@ async function main() {
       for (let i = 0; i < 30; i++) G.tick(1 / 60);
       out.boss.moved = Math.hypot(boss.x - b0[0], boss.z - b0[1]);
       out.binds = G.state.stats.binds || 0;
+      // 飘字节流：一小堆怪同时渊缚只冒一个「渊缚」，精英照常冒
+      G.debug.step(1.2);
+      let tags = 0;
+      const ot = G.world.text;
+      G.world.text = function (x, z, str) {
+        if (str === '渊缚') tags++;
+        return ot.apply(this, arguments);
+      };
+      const heap = [0, 1, 2, 3].map((i) => T.mob('husk', ...at(-3, i * 1.1)));
+      for (const e of heap) G.fillMeter(e, 'chaos', 1.01);
+      out.heapTags = tags;
+      const el2 = T.mob('husk', ...at(-3, 4.6), { elite: true });
+      G.fillMeter(el2, 'chaos', 1.01);
+      out.eliteTags = tags - out.heapTags;
+      G.world.text = ot;
       T.unfix();
       T.arena();
       return out;
@@ -9379,7 +9399,8 @@ async function main() {
     assert(r.frozenMove < 0.05 && r.thawMove > 0.5, '冻结中不该拽、解冻后接着拽：' + JSON.stringify(r));
     assert(r.toHole < 0.01 && r.elite === 0.6, '黑洞 / 精英不对：' + JSON.stringify(r));
     assert(r.boss.bind === 0 && r.boss.bossBind === 2.5 && Math.abs(r.boss.slow - 0.4) < 1e-9 && Math.abs(r.boss.slowChill - 0.5) < 1e-9 && r.boss.grow === 1.5 && r.boss.moved < 0.3, '首领规则不对：' + JSON.stringify(r.boss));
-    return '定身 ' + r.bind + ' 秒，拽近 ' + r.closer.toFixed(2) + ' 米 · 精英 ' + r.elite + ' 秒 · 首领减速 ' + r.boss.slow;
+    assert(r.heapTags === 1 && r.eliteTags === 1, '同一堆怪同时渊缚应只冒一个字（精英照常）：' + JSON.stringify(r));
+    return '定身 ' + r.bind + ' 秒，拽近 ' + r.closer.toFixed(2) + ' 米 · 精英 ' + r.elite + ' 秒 · 首领减速 ' + r.boss.slow + ' · 一堆 4 只只冒 ' + r.heapTags + ' 个字';
   });
 
   await step('噬渊支路：从起点点进去（cm0 → cm1 → cl0 → cl1），跳点不行；旧的 129 个节点 id / 坐标 / 连线 / 属性一个没变；新节点离任何节点 ≥ 55 像素；基石的代价是最大生命', async () => {

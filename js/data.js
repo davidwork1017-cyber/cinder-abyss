@@ -182,13 +182,14 @@
     },
 
     // ---------- 混沌技能（混沌流） ----------
-    // 混沌吃三种元素伤害提高的总和，基础伤害按同类元素技能的 0.75 倍定：专门堆混沌的角色在 20 / 40 级和堆单一元素的角色秒伤持平
+    // 混沌吃三种元素伤害提高的总和，基础伤害按同类元素技能的 0.75 倍定：专门堆混沌的角色在 20 / 40 级和堆单一元素的角色秒伤持平。
+    // 前期（宝石等级 15 以内）装备还堆不出三份元素加成：chaosEarly 的技能按 G.chaosEarlyK 再乘一点，1 级相当于 0.95 倍，到 15 级收回 0.75 倍
     // 黑洞：在准星处（最远 range，撞墙截在墙前）撕开 dur 秒的黑洞，每 tick 秒对 radius 以内的敌人造成一跳伤害；
     //   pullR × radius 以内的敌人被往中心拽：速度 pull × (0.6 + 0.4 × 越靠近中心越快) / √体重，首领固定 bossPull，离中心 core 以内不再拽。
     //   同一个敌人同一时刻只吃一个黑洞的跳（渊口的小黑洞也算）。持续类法术：回响镶不上
     blackhole: {
       name: '黑洞', icon: '洞', color: '#ff6ad2', tags: ['spell', 'area', 'chaos', 'duration'], kind: 'hole',
-      dmg: { chaos: [3.9, 5.8] }, time: 0.5, mana: 20, cd: 6, range: 14,
+      dmg: { chaos: [3.9, 5.8] }, chaosEarly: true, time: 0.5, mana: 20, cd: 6, range: 14,
       radius: 3.2, pullR: 1.35, dur: 3, tick: 0.25, pull: 4.5, bossPull: 0.5, core: 0.7,
       w: 0, kb: 0, poise: 2, useMult: 12,
       desc: '在准星处撕开一个黑洞，持续 3 秒：把周围的敌人往中心拽（越轻拽得越狠，首领几乎拽不动），并持续造成混沌伤害。冷却较长。',
@@ -198,20 +199,20 @@
     //   贯穿镶不上（漩涡本来就穿过所有敌人）；连锁：走到头之后拐向 hop.r 米内这一发还没打过的最近敌人，再走 hop.life 秒
     vortex: {
       name: '黑旋风', icon: '涡', color: '#ff6ad2', tags: ['spell', 'projectile', 'area', 'chaos'], kind: 'vortex',
-      dmg: { chaos: [3.6, 5.6] }, time: 0.55, mana: 9, cd: 0,
+      dmg: { chaos: [3.6, 5.6] }, chaosEarly: true, time: 0.55, mana: 9, cd: 0,
       speed: 9, life: 1.6, radius: 1.5, tick: 0.2, drag: 1.2, hop: { r: 8, life: 0.9 },
       noSup: ['pierce'],
       w: 0, kb: 0, poise: 3, useMult: 2.5,
       desc: '放出一团缓慢推进的黑色漩涡，沿途卷住半径内的所有敌人，持续造成混沌伤害，并把它们往前带一小段。',
     },
     // 黑焰：光环（buff：不脉冲、自己不造成伤害）。你和召唤物的每一击额外造成 F% 的混沌伤害，
-    //   F = min(cap, k0 + k1 × (宝石等级 − 1)) × (1 + 黑焰效果%)；和注入一样按加成之后、暴击之前的伤害折算（相加，不再吃混沌加成）。
+    //   F = min(cap, k0 + k1 × (宝石等级 − 1)) × (1 + 黑焰效果%)，40 级（宝石 30）约 13%，37 级宝石封顶 15%；和注入一样按加成之后、暴击之前的伤害折算（相加，不再吃混沌加成）。
     //   爆燃 / 电弧这类触发伤害与霜环的脉冲不带黑焰。只能镶节流
     blackflame: {
       name: '黑焰', icon: '冥', color: '#e04cc0', tags: ['spell', 'aura', 'chaos'], kind: 'aura', buff: true,
-      mana: 0, reserve: 30, cd: 0, time: 1, w: 0, kb: 0, poise: 0,
-      flame: { k0: 8, k1: 0.4, cap: 25 },
-      desc: '光环：放在技能栏上即常驻生效，保留 30% 最大魔力（以血为引时改为保留生命）。你和召唤物的每一击都附带一缕黑焰，造成相当于这一击伤害一定比例的额外混沌伤害。只能镶节流。',
+      mana: 0, reserve: 35, cd: 0, time: 1, w: 0, kb: 0, poise: 0,
+      flame: { k0: 6, k1: 0.25, cap: 15 },
+      desc: '光环：放在技能栏上即常驻生效，保留 35% 最大魔力（以血为引时改为保留生命）。你和召唤物的每一击都附带一缕黑焰，造成相当于这一击伤害一定比例的额外混沌伤害。只能镶节流。',
     },
 
     // ---------- 武器技（R 键）：每种武器自带一个，跟着手里的武器走 ----------
@@ -459,6 +460,13 @@
       useMult: 1,
       desc: '把魂幡插进地里：6 位英灵从天而降，落在准星一带，落地时各砸出一圈冲击，随后自动厮杀 8 秒再消散（化作魂火炸开）。英灵的伤害与生命按召唤物计算，吃召唤物加成与继承，不占仆从数量。同时把你现有的召唤物全部治疗到满，并令它们狂热 4 秒。',
     },
+  };
+  // 混沌技能的前期补偿（只乘在 chaosEarly 的技能上）：倍率按宝石等级从 k0 / k1（1 级）缓缓降到 1（lvl 级），之后不变。
+  // 先平后陡（1 − t²）：5–10 级的角色还能拿到大部分补偿，15 级（角色 20 级左右）收回到 0.75 倍的基础
+  G.CHAOS_EARLY = { k0: 0.95, k1: 0.75, lvl: 15 };
+  G.chaosEarlyK = function (lvl) {
+    const E = G.CHAOS_EARLY, t = Math.min(1, Math.max(0, (lvl - 1) / (E.lvl - 1)));
+    return (E.k1 + (E.k0 - E.k1) * (1 - t * t)) / E.k1;
   };
   // 武器技之外的技能：能学、能掉落、能放进技能栏的那些
   G.GEM_SKILLS = Object.keys(G.SKILLS).filter((id) => !G.SKILLS[id].weaponOnly);
@@ -1046,19 +1054,19 @@
     at(D, 'bw2', 4.2, 78, '屏息', { buffDur: 15 }, 'small', ['bw1']);
     at(D, 'bwn', 3.1, 80, '鹰隼之息', { focusGain: 15, buffDur: 20, rangeDmg: 15 }, 'notable', ['bw2']);
     // ---------- 噬渊（混沌流加的 9 个节点）----------
-    // 正上方（270°）内圈原来空着的楔形：半径 1.35–5.35，夹在秘识的右旁支（≤ 232°）、统御的左旁支（≥ 303°）和上方交汇团（半径 6 起）之间。
+    // 正上方（270°）内圈原来空着的楔形：半径 1.3–5.2（两个旁支往外张开一点，核心 / 基石的名字在全览时互不压住，也不压住奥能涌流 / 灵契共振），夹在秘识的右旁支（≤ 232°）、统御的左旁支（≥ 303°）和上方交汇团（半径 6 起）之间。
     // 只从起点连出去，不连交汇团（不给上方交汇团开捷径）。旧节点一个不动。128 → 137 个节点（不含起点）
     const C = { key: 'c', color: '#ff6ad2' };
-    at(C, 'cm0', 1.35, 270, '蚀心', { incChaos: 8 }, 'small', ['start']);
-    at(C, 'cm1', 2.35, 270, '缚引', { bindAil: 10 }, 'small', ['cm0']);
-    at(C, 'cm2', 3.35, 270, '蚀心', { incChaos: 10 }, 'small', ['cm1']);
-    at(C, 'cm3', 4.35, 270, '渊潮', { incChaos: 15, incElem: 8, area: 6 }, 'notable', ['cm2']);
+    at(C, 'cm0', 1.3, 270, '蚀心', { incChaos: 8 }, 'small', ['start']);
+    at(C, 'cm1', 2.25, 270, '缚引', { bindAil: 10 }, 'small', ['cm0']);
+    at(C, 'cm2', 3.2, 270, '蚀心', { incChaos: 10 }, 'small', ['cm1']);
+    at(C, 'cm3', 4.25, 270, '渊潮', { incChaos: 15, incElem: 8, area: 6 }, 'notable', ['cm2']);
     // 基石：混沌伤害总额外提高，代价是最大生命（纯混沌流也躲不开的代价）
-    at(C, 'ck', 5.35, 270, '万籁俱寂', { moreChaos: 25, moreLife: -15 }, 'keystone', ['cm3']);
-    at(C, 'cl0', 3.3, 251, '噬光', { incChaos: 8, mana: 10 }, 'small', ['cm1']);
-    at(C, 'cl1', 4.4, 249, '幽焰', { flameEff: 25, incChaos: 10 }, 'notable', ['cl0']);
-    at(C, 'cr0', 3.3, 289, '沉坠', { bindAil: 10, holeDur: 10 }, 'small', ['cm1']);
-    at(C, 'cr1', 4.4, 291, '视界', { holeDur: 20, pullK: 30, bindAil: 15 }, 'notable', ['cr0']);
+    at(C, 'ck', 5.2, 270, '万籁俱寂', { moreChaos: 25, moreLife: -15 }, 'keystone', ['cm3']);
+    at(C, 'cl0', 3.0, 252, '噬光', { incChaos: 8, mana: 10 }, 'small', ['cm1']);
+    at(C, 'cl1', 3.85, 243, '幽焰', { flameEff: 25, incChaos: 10 }, 'notable', ['cl0']);
+    at(C, 'cr0', 2.95, 287, '沉坠', { bindAil: 10, holeDur: 10 }, 'small', ['cm1']);
+    at(C, 'cr1', 3.85, 294, '视界', { holeDur: 20, pullK: 30, bindAil: 15 }, 'notable', ['cr0']);
   })();
 
   // ---------- 区域 ----------
