@@ -7973,7 +7973,7 @@ async function main() {
     return '清完各区域后的等级：' + r.rows.map((x) => x.lvl + '@' + x.zl).join(' ');
   });
 
-  await step('大区小怪（G.BALANCE）：区域刷的普通怪生命 ×0.55、经验和掉落几率按倍率打折，生成器怪群人数 ×1.25；精英、首领召唤、直接刷的怪不打折', async () => {
+  await step('大区小怪（G.BALANCE）：区域刷的普通怪生命 ×0.55、经验和掉落几率按倍率打折，生成器怪群人数 ×1.25（多出来的只放轻怪）；精英、首领召唤、直接刷的怪不打折', async () => {
     const r = await ev(() => {
       const B = G.BALANCE, out = { B: JSON.parse(JSON.stringify(B)) };
       const keep = { zi: G.state.zoneIdx, tier: G.state.tier, k: B.packSize };
@@ -8016,15 +8016,15 @@ async function main() {
       // 怪群人数：同样的固定布局（5 个区 × 3 个种子），packSize = 1 和设计值各刷一遍，比普通怪 + 精英的总数
       const count = (k) => {
         B.packSize = k;
-        let n = 0, packs = 0;
+        let n = 0, packs = 0, heavy = 0;
         for (const seed of [11, 22, 33]) for (let z = 0; z < G.ZONES.length; z++) {
           G.debug.zoneSeed(seed + z);
           G.enterZone(z, 0);
           const ids = new Set();
-          for (const e of G.state.enemies) if (!e.isBoss) { n++; ids.add(e.pack); }
+          for (const e of G.state.enemies) if (!e.isBoss) { n++; ids.add(e.pack); if (!e.elite && (e.type === 'brute' || e.type === 'charger' || e.type === 'bomber')) heavy++; }
           packs += ids.size;
         }
-        return { n, packs };
+        return { n, packs, heavy };
       };
       try { out.size1 = count(1); out.sizeK = count(keep.k); } finally { B.packSize = keep.k; G.debug.zoneSeed(null); }
       G.enterZone(keep.zi, keep.tier);
@@ -8042,7 +8042,10 @@ async function main() {
     // 同样的布局：怪群数不变，怪的总数约 ×1.25（随机取整的期望正好是倍率；站位半径跟着放大，几乎都摆得下）
     const kN = r.sizeK.n / r.size1.n;
     assert(r.sizeK.packs === r.size1.packs && kN > 1.15 && kN < 1.4, '同样的布局下怪群数应不变、怪的总数约 ×1.25：' + JSON.stringify({ size1: r.size1, sizeK: r.sizeK, kN }));
-    return '普通 ' + r.cnt.horde + ' 只 / 精英 ' + r.cnt.elite + ' 只 · 经验 ×' + r.B.mobXp + ' · 掉落 物品 ×' + rel('item').toFixed(2) + ' 通货 ×' + rel('cur').toFixed(2) + '（相对倍率）· 人数 ' + r.size1.n + ' → ' + r.sizeK.n + '（×' + kN.toFixed(2) + '）';
+    // 多出来的人手只放轻怪：巨躯 / 陨角兽 / 爆裂虫的数量和 packSize = 1 时差不多（不按这条规则会是 ×1.25）
+    const kH = r.sizeK.heavy / r.size1.heavy;
+    assert(r.size1.heavy >= 60 && kH > 0.85 && kH < 1.12, '怪群加人时重手的数量应基本不变：' + JSON.stringify({ size1: r.size1, sizeK: r.sizeK, kH }));
+    return '普通 ' + r.cnt.horde + ' 只 / 精英 ' + r.cnt.elite + ' 只 · 经验 ×' + r.B.mobXp + ' · 掉落 物品 ×' + rel('item').toFixed(2) + ' 通货 ×' + rel('cur').toFixed(2) + '（相对倍率）· 人数 ' + r.size1.n + ' → ' + r.sizeK.n + '（×' + kN.toFixed(2) + '）· 重手 ' + r.size1.heavy + ' → ' + r.sizeK.heavy;
   });
 
   await step('词缀：物品等级 31 / 38 / 46 / 55 解锁第 7–10 阶，按同样的倍率接着涨（抗性 / 速度类放缓）；24 级以内的 6 阶不变；高阶词缀在物品详情里显示 T7–T10', async () => {
