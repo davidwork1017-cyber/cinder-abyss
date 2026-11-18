@@ -92,11 +92,15 @@
   const TOON = {
     // 阶梯：dot(N, L) 过 t1 进入中间调（亮度 mid），过 t2 进入受光面；soft 是每一级边缘的软化半宽
     t1: 0.0, t2: 0.42, mid: 0.56, soft: 0.07,
-    ambLit: 0.4, // 主光照到的地方环境光（半球光）只留这么多：受光面是干净的暖色，冷紫只出现在背光面和阴影里（不然暖色会被冷光洗成粉灰）
+    ambLit: 0.3, // 主光照到的地方环境光（半球光）只留这么多：受光面是干净的暖色，冷紫只出现在背光面和阴影里（不然暖色会被冷光洗成粉灰）
     spec: 0.35, // 直射高光的倍率（卡通：高光收着，只在金属 / 冰上留一点）
     metal: 0.55, // 金属保留多少固有色（1 = 物理上的全黑漫反射；越小金属越像上了色的漆）
     knee: 0.78, sat: 1.1, // 色调曲线：亮度超过 knee 的部分按指数压向 1（保持色相）；sat 线性空间里的饱和度
-    exposure: 1.0,
+    toe: 0.09, // 色调曲线的暗部：f(x) = x²(1 + toe) / (x + toe)，把暗部往下压、亮部几乎不动（1 → 1），黑色是真的黑，不是灰紫的雾
+    // 阴影色（ZONE_LIGHT 的 shade = 半球光天空色、bounce = 地面色）在应用时统一处理：饱和度只留 shadeSat、强度乘 hemiK。
+    // 表里写的是「这个区域的阴影偏什么色」，这两个数决定阴影有多深、多浓（phase 1b：之前阴影太浅太艳，像一层粉紫的雾）
+    shadeSat: 0.55, hemiK: 0.55,
+    exposure: 1.15, // phase 1b：阴影压深、加了暗部 toe 之后整体提一点曝光，地面回到 25%～35%
     rimK: 0.85, rimLo: 0.56, rimHi: 0.7, // 角色轮廓光：强度、菲涅尔阶梯的起止（越接近 1 越细）
     smoothChars: true, // C 模型用平滑法线（低多边形 + 软阶梯 = 一块块干净的明暗，而不是每个面一块颜色）
   };
@@ -151,6 +155,7 @@
       [
         'vec3 CustomToneMapping( vec3 color ) {',
         '\tvec3 c = max( color * toneMappingExposure, 0.0 );',
+        '\tc = c * c * ' + fNum(1 + TOON.toe) + ' / ( c + ' + fNum(TOON.toe) + ' );',
         '\tfloat m = max( max( c.r, c.g ), c.b );',
         '\tif ( m > ' + fNum(TOON.knee) + ' ) c *= ( ' + fNum(TOON.knee) + ' + ' + fNum(1 - TOON.knee) + ' * ( 1.0 - exp( -( m - ' + fNum(TOON.knee) + ' ) / ' + fNum(1 - TOON.knee) + ' ) ) ) / m;',
         '\tfloat l = dot( c, vec3( 0.2126, 0.7152, 0.0722 ) );',
@@ -750,8 +755,8 @@
     frost: {
       packs: ['zone-frost', 'rock-grey', 'models'],
       mats: [
-        { tex: 'Ice002', tile: 7.5, con: 0.38, nrm: 0.55, rough: 0.6, k: 1.0 },
-        { tex: 'Snow013', tile: 4.5, con: 0.9, nrm: 1.4, rough: 1, k: 0.85 },
+        { tex: 'Ice002', tile: 7.5, con: 0.38, nrm: 0.55, rough: 0.6, k: 0.5 },
+        { tex: 'Snow013', tile: 4.5, con: 0.9, nrm: 1.4, rough: 1, k: 0.45 },
         { tex: 'Rock035', tile: 6.5, con: 1.0, nrm: 1.0, rough: 1, k: 1.0 },
       ],
       lava: null,
@@ -773,8 +778,8 @@
     storm: {
       packs: ['zone-storm', 'rock-grey', 'models'],
       mats: [
-        { tex: 'monastery_stone_floor', tile: 4.6, con: 0.9, nrm: 1.1, rough: 1, k: 1.0 },
-        { tex: 'rocky_trail', tile: 4.8, con: 1.0, nrm: 1.2, rough: 1, k: 0.7 },
+        { tex: 'monastery_stone_floor', tile: 4.6, con: 0.9, nrm: 1.1, rough: 1, k: 0.8 },
+        { tex: 'rocky_trail', tile: 4.8, con: 1.0, nrm: 1.2, rough: 1, k: 0.56 },
         { tex: 'Rock035', tile: 6.5, con: 1.0, nrm: 1.0, rough: 1, k: 1.0 },
       ],
       lava: null,
@@ -819,8 +824,8 @@
     rift: {
       packs: ['zone-rift', 'rock-grey', 'models'],
       mats: [
-        { tex: 'slate_floor', tile: 5.5, con: 0.8, nrm: 1.0, rough: 0.6, k: 1.15 },
-        { tex: 'moon_01', tile: 6.0, con: 1.0, nrm: 1.3, rough: 1, k: 0.75 },
+        { tex: 'slate_floor', tile: 5.5, con: 0.8, nrm: 1.0, rough: 0.6, k: 0.7 },
+        { tex: 'moon_01', tile: 6.0, con: 1.0, nrm: 1.3, rough: 1, k: 0.46 },
         { tex: 'Rock035', tile: 6.5, con: 1.0, nrm: 1.0, rough: 1, k: 1.0 },
       ],
       lava: null,
@@ -852,12 +857,17 @@
     abyss: { key: 0xffcc9c, keyI: 1.45, shade: 0x5038b0, bounce: 0x8a2a30, hemiI: 0.9, rim: 0xff9cb0, rimI: 0.85, fog: 0x2e121c, exposure: 1.0 },
     rift: { key: 0xf0ffe0, keyI: 1.45, shade: 0x3a8cc0, bounce: 0x245a48, hemiI: 0.9, rim: 0xa4ffde, rimI: 0.85, fog: 0x0f2a26, exposure: 1.0 },
   };
+  // 阴影色的统一处理（TOON.shadeSat / hemiK）：线性空间里向亮度收饱和度
+  function toonShade(hex) {
+    const c = lin(hex), l = c.r * 0.2126 + c.g * 0.7152 + c.b * 0.0722, k = TOON.shadeSat;
+    return c.setRGB(l + (c.r - l) * k, l + (c.g - l) * k, l + (c.b - l) * k);
+  }
   function applyZoneLight(L) {
     scene.background.set(L.fog);
     scene.fog.color.set(L.fog);
-    hemi.color.copy(lin(L.shade));
-    hemi.groundColor.copy(lin(L.bounce));
-    hemi.intensity = hemiBase = L.hemiI;
+    hemi.color.copy(toonShade(L.shade));
+    hemi.groundColor.copy(toonShade(L.bounce));
+    hemi.intensity = hemiBase = L.hemiI * TOON.hemiK;
     sun.color.copy(lin(L.key));
     sun.intensity = L.keyI;
     fill.color.copy(lin(L.rim));
@@ -970,15 +980,18 @@
       if (window.console) console.warn('[画面] 后期处理初始化失败，改为直接渲染', e);
     }
   }
+  // 卡通（phase 1b）：暗部的对比主要交给色调曲线的 toe（低画质没有后期也有），调色里的对比度只用一半
+  const GRADE_LIFT_K = 0, GRADE_CON_K = 0.5;
   function applyZonePost(gx) {
     if (!post.ok) return;
     const g = (gx && gx.grade) || { sat: 1.05, con: 1.04, lift: 0, gain: 0xffffff, vig: 0.24 };
     const u = post.grade.uniforms;
     u.uSat.value = g.sat;
-    u.uCon.value = g.con;
+    u.uCon.value = 1 + (g.con - 1) * GRADE_CON_K;
     u.uVig.value = g.vig;
+    // 卡通（phase 1b）：暗部偏色（lift）会把黑色抬成一层灰紫，不再用；表里的 lift 留着不删，乘 GRADE_LIFT_K
     _c.set(g.lift);
-    u.uLift.value.set(_c.r, _c.g, _c.b);
+    u.uLift.value.set(_c.r, _c.g, _c.b).multiplyScalar(GRADE_LIFT_K);
     _c.set(g.gain);
     u.uGain.value.set(_c.r, _c.g, _c.b);
     const b = (gx && gx.bloom) || { th: 0.97, k: 0.16, r: 0.32 };
