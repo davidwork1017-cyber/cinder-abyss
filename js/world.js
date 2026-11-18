@@ -904,9 +904,10 @@
   const QUALITY = {
     high: { dpr: 1.5, post: true, bloom: true, bloomRes: 1, msaa: 4, shadow: 2048, mist: true },
     mid: { dpr: 1.25, post: true, bloom: true, bloomRes: 0.5, msaa: 2, shadow: 1024, mist: false },
-    // 低档的 scale：3D 画面按 0.9 倍分辨率渲染（HUD / 血条叠加层仍是原生分辨率）。卡通风格的近镜头让角色、岩壁、粒子在画面里占的像素多了，
-    // 软件渲染下低档一帧慢了 7%～20%；收一成像素刚好补回来（SwiftShader 实测：起点 294 → 269 毫秒，混战 306 → 290 毫秒，均为 1440×900）
-    low: { dpr: 1, post: false, bloom: false, bloomRes: 1, msaa: 0, shadow: 1024, mist: false, scale: 0.9 },
+    // 低档的 scale：3D 画面按 0.85 倍分辨率渲染（HUD / 血条叠加层仍是原生分辨率）。卡通风格的近镜头让角色、岩壁、粒子在画面里占的像素多了，
+    // 第 0 区起点又多了植被；软件 GL 下 3D 画面和 HUD 图标的画布共用同一个 GPU 进程，画面一重，启动时空闲预热图标就慢（实测每个图标 538 → 601 毫秒）。
+    // 0.85 倍分辨率 + 低档不画起点的草 / 蕨 / 苔（buildAshDress）之后：图标 508～522 毫秒，混战一帧 226～235 毫秒（改前 main 244），1440×900 / 1280×800 SwiftShader
+    low: { dpr: 1, post: false, bloom: false, bloomRes: 1, msaa: 0, shadow: 1024, mist: false, scale: 0.85 },
   };
   let qual = QUALITY.high, qualId = 'high';
   const BLOOM_CAP = 1.1; // 进泛光的单个像素最亮多少（最大分量）
@@ -1555,9 +1556,8 @@
 
     const ws = new T.Color(1, 1, 1);
     const foliage = own(makeToonMat({ brush: 0.12, brushScale: 0.8, soft: 0.14 }));
-    instanced(ashGrassGeo(), foliage, L.grass, false, ws);
-    instanced(ashFernGeo(), foliage, L.fern, false, ws);
-    instanced(ashMossGeo(), foliage, L.moss, false, ws);
+    // 低画质不画地上的草 / 蕨 / 苔（软件 GL 下它们和图标的画布共用一个 GPU 进程，见 QUALITY.low 的注释）
+    const lowHide = [instanced(ashGrassGeo(), foliage, L.grass, false, ws), instanced(ashFernGeo(), foliage, L.fern, false, ws), instanced(ashMossGeo(), foliage, L.moss, false, ws)].filter(Boolean);
     instanced(ashDriftGeo(), own(makeToonMat({ brush: 0.1, brushScale: 0.5, soft: 0.16 })), L.drift, false, ws);
     instanced(ashRockGeo(2), own(makeToonMat({ color: ASH_PAL.rock, brush: 0.1 })), L.pebble, false, ws);
     const bloomMat = own(makeToonMat({ emissive: ASH_PAL.bloom, emissiveIntensity: 0.9 }));
@@ -1593,11 +1593,13 @@
     motes.renderOrder = 6;
     motes.visible = qualId !== 'low';
     zoneGroup.add(motes);
-    return { trail, motes, mm, fisMat, glowMat, bloomMat };
+    for (const m of lowHide) m.visible = qualId !== 'low';
+    return { trail, motes, mm, fisMat, glowMat, bloomMat, lowHide };
   }
   // 每帧（W.update 的区域氛围段里一行调用）：灰烬的盒子跟着镜头焦点，熔岩裂缝和余烬花慢慢呼吸
   function updateAshDress(D) {
     D.motes.visible = qualId !== 'low';
+    for (let i = 0; i < D.lowHide.length; i++) D.lowHide[i].visible = qualId !== 'low';
     D.mm.uniforms.uC.value.set(camT.x, 0, camT.z + CAM_LEAD);
     const k = 0.5 + 0.5 * Math.sin(wtime * 1.3);
     if (D.fisMat) D.fisMat.color.setScalar(0.92 + 0.16 * k);
