@@ -9838,7 +9838,8 @@ async function main() {
           if (best > 200) rays++;
         }
         const pathD = (Math.abs(start[0] - path.r * 255) + Math.abs(start[1] - path.g * 255) + Math.abs(start[2] - path.b * 255)) / 3;
-        out.push({ id: z.def.id, start, pathD: Math.round(pathD), far, ring: Math.round(ring), rays });
+        const mi = W.minimapInfo(); // zones-polish：区域加长以后小地图不再整张缩进 172 px，最小每米 0.9 像素，超出时以玩家为中心截取
+        out.push({ id: z.def.id, start, pathD: Math.round(pathD), far, ring: Math.round(ring), rays, s: +mi.s.toFixed(2), win: mi.win });
       }
       G.enterZone(0, 0);
       const m = W.minimapXY(0, 0), p0 = W.minimapPixel(m.x, m.y, true);
@@ -9850,6 +9851,7 @@ async function main() {
       assert(z.start[3] > 240 && z.pathD < 40, z.id + '：起点应画成路面色：' + JSON.stringify(z));
       assert(z.far && z.far[0] < 30 && z.far[1] < 30 && z.far[2] < 30, z.id + '：岩壁外应是底色：' + JSON.stringify(z));
       assert(z.ring > 200 && z.rays >= 28, z.id + '：首领场地应有一整圈主题色轮廓（32 个方向至少 28 个碰到）：' + JSON.stringify(z));
+      assert(z.s >= 0.9, z.id + '：小地图每米应不少于 0.9 像素（太大的区域改成截取）：' + JSON.stringify(z));
     }
     assert(r.redraw, '窗口变化后小地图应重画且不变：' + JSON.stringify(r));
     return r.out.map((z) => z.id + ' 路面差 ' + z.pathD + ' 轮廓 ' + z.ring + '（' + z.rays + '/32）').join('，');
