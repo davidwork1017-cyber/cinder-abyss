@@ -4983,6 +4983,31 @@
     if (e.hp <= 0) G.killEnemy(e);
   };
 
+  // ---------- 宝箱 ----------
+  // 走到 CHEST_R 以内自动打开；掉落约等于打死一只精英（按精英的掉落表掷一次，物品等级 = 宝箱所在房间的怪物等级）。
+  // 只对这次进区有效（布局不存档）
+  const CHEST_R = 1.4;
+  G.openChest = function (c) {
+    const zone = state.zone;
+    if (!zone || !c || c.open) return false;
+    c.open = true;
+    const rm = zone.rooms && zone.rooms[c.room];
+    const level = zone.level + Math.floor((rm ? rm.order : 0) / 2);
+    G.dropLoot({ elite: true, level, x: c.x, z: c.z });
+    G.world.openChest(c);
+    G.sfx('pickup');
+    state.stats.chests = (state.stats.chests || 0) + 1;
+    return true;
+  };
+  function updateChests() {
+    const list = state.zone && state.zone.chests;
+    if (!list) return;
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i];
+      if (!c.open && dist(P.x, P.z, c.x, c.z) < CHEST_R) G.openChest(c);
+    }
+  }
+
   G.updatePlayer = function (dt, adt) {
     const W = G.world;
     const inp = G.input;
@@ -5011,6 +5036,7 @@
     if (P.iframe > 0) P.iframe = Math.max(0, P.iframe - dt);
     if (P.graceT > 0) P.graceT = Math.max(0, P.graceT - dt);
     terrainTick(dt);
+    updateChests();
     for (let i = 0; i < 5; i++) if (inp.tap[i] > 0) inp.tap[i] -= adt;
     if (inp.tapDodge > 0) inp.tapDodge -= adt;
     if (inp.tapExec > 0) inp.tapExec -= adt;
