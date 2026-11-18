@@ -791,6 +791,7 @@
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x3c2a30, a: 0.3 }, // zones-ash：0x4a2636 → 0x3c2a30，少一点酒红
       prop: { tint: 0x6e5c54, sat: 0.5 }, // 卡通：布景模型压到岩壁那一档，不比地面亮
+      patch: 0.3, // zones-polish：路面上的暗色粗糙斑块（带点状的暗纹，看着像脏印子）0.55 → 0.3
       blots: { k: 0.35, r: 0.65, op: 0.3, tex: 'crack' }, // zones-polish：细裂纹代替软边的暗块（op 0.16 → 0.3：线细，同样的不透明度几乎看不见）。zones-ash：污斑看着像脏印子，少放、放小，路面的细节交给布景里的积灰和余烬裂缝
       sigil: { r: 0.52, dark: 0.55, start: false }, // zones-ash：熔渣坑的法阵收小、压暗一半；不要起点法阵（起点布景见 buildAshDress）
       props: {
@@ -817,6 +818,7 @@
       rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0x6a7a8a, capAll: 0.3 }, // phase 3：雪盖 0xb4c8d6 / 0.6 → 0x8296aa / 0.45；zones-frost：再压一档（水边的石头是这一区的「岩壁」）
       grade: { sat: 1.12, con: 1.1, lift: 0x04081a, gain: 0xf4faff, vig: 0.22 },
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
+      patch: 0.15, // zones-polish：岛上的粗糙地面斑块像泥印子，0.55 → 0.15
       blots: { k: 0.35, r: 0.7, op: 0.28, tex: 'crack' }, // zones-polish：冻土上的细冰裂，不是暗块。zones-frost：岛上的污斑少一半多、小一圈（zones-ash 加的旋钮）
       sigil: { k: 0.4 }, // zones-frost：冰湖上的法阵颜色压到 4 成（加色混合，等于淡一半多），不那么像界面
       mist: null, // zones-frost：路外整片是水（dress 画），贴地薄雾在水面上是一块块的亮斑，去掉（高 / 低画质也就一致了）
@@ -863,7 +865,7 @@
       // 红橙只留给路面上零星几片发光的裂缝（lava.patch）、余烬口、深渊底的熔岩缝和火星
       mats: [
         { tex: 'dark_rock_02', tile: 5.0, con: 0.55, nrm: 0.9, rough: 1, k: 0.6, sat: 0.45, col: 0x57525c },
-        { tex: 'Lava001', tile: 6.0, con: 0.4, nrm: 0.8, rough: 1, k: 0.56, sat: 0.3, col: 0x4e4652 },
+        { tex: 'dark_rock_02', tile: 5.0, con: 0.62, nrm: 0.9, rough: 1, k: 0.5, sat: 0.4, col: 0x47424e }, // zones-polish：原来是 Lava001（熔岩流的暗纹在路面上是一块块脏斑），换成同一种石板的暗一档：斑块读成颜色深一点的石板，靠崖、靠墙的路边也暗一些
         { tex: 'dark_rock', tile: 6.5, con: 0.8, nrm: 1.0, rough: 1, k: 0.9, col: 0x3a3442 }, // 岩壁外的岩顶：岩石之间露出来的地方也要落在岩壁那一档（15–25%）
       ],
       lava: { mode: 1, color: 0xff6a22, k: 1.6, patch: [0, 0.72] },
@@ -903,6 +905,7 @@
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x16303a, a: 0.3 },
       prop: { tint: 0x3e5250, sat: 0.12 },
+      patch: 0.2, // zones-polish：板岩路面上的暗色软斑 0.55 → 0.2
       blots: { k: 0.4, r: 0.7, op: 0.3, tex: 'crack' }, // zones-polish：细裂纹代替暗块。污斑少一半多、小一点（zones-ash 加的旋钮）
       // 下面三个旋钮原来是 rift 的 dress 运行时找网格改的（zones-integrate 收进表里）：法阵缩到 0.45、电光青压淡；水晶和光晕电光青；
       // 通用岩石换成卡通材质（底色 = rockTop / def.rock，高画质 ×0.88、低画质 ×0.7），按低频噪声成簇留空
@@ -1722,9 +1725,9 @@
       for (let i = 0, n = 14; i < n; i++) {
         if (pr() < 0.14) continue;
         const a = (i / n) * TAU + rp(-0.12, 0.12), d = rp(1.6, 2.3);
-        poi.push([ashSlabGeo(stoneK(0.12)), hx + Math.sin(a) * d, 0.025, hz + Math.cos(a) * d, rp(-0.04, 0.04), a + rp(-0.3, 0.3), rp(-0.04, 0.04), rp(0.8, 1.15), 0.07, rp(0.55, 0.8), rp(0.82, 0.98)]);
+        poi.push([ashBoxGeo(stoneK(0.12)), hx + Math.sin(a) * d, 0.025, hz + Math.cos(a) * d, rp(-0.04, 0.04), a + rp(-0.3, 0.3), rp(-0.04, 0.04), rp(0.8, 1.15), 0.07, rp(0.55, 0.8), rp(0.82, 0.98)]);
       }
-      for (const sg of [-1, 1]) poi.push([ashSlabGeo(stoneK(0.05)), hx + sg * 0.32, 0.03, hz + sg * 0.12, sg * 0.05, side + rp(-0.2, 0.2), 0, 0.55, 0.08, 1.1, rp(0.75, 0.88)]);
+      for (const sg of [-1, 1]) poi.push([ashBoxGeo(stoneK(0.05)), hx + sg * 0.32, 0.03, hz + sg * 0.12, sg * 0.05, side + rp(-0.2, 0.2), 0, 0.55, 0.08, 1.1, rp(0.75, 0.88)]);
       // 从炉址往外裂开的余烬裂缝（并进熔岩网格，和起点别的裂缝一起呼吸）
       for (let k = 0; k < 3; k++) {
         const a = side + Math.PI + (k - 1) * 0.9 + rp(-0.25, 0.25), d = 2.5;
@@ -1732,11 +1735,11 @@
       }
       // 倒下的界碑：北侧离中心 5.5–6.5 m，横躺着，旁边是断掉的碑座
       const ma = side + rp(-0.35, 0.35), md = rp(5.6, 6.4), mx = st.x + Math.sin(ma) * md, mz = st.z + Math.cos(ma) * md, mang = ma + Math.PI / 2 + rp(-0.4, 0.4);
-      poi.push([ashSlabGeo(stoneK(0.08)), mx, 0.22, mz, rp(-0.06, 0.06), mang, 0.12, 0.62, 0.42, 2.5, rp(0.88, 0.98)]);
-      poi.push([ashSlabGeo(stoneK(0.08)), mx + Math.sin(mang) * 1.25, 0.34, mz + Math.cos(mang) * 1.25, 0.3, mang, 0, 0.7, 0.5, 0.35, 0.86]); // 碑头
+      poi.push([ashBlockGeo(stoneK(0.08)), mx, 0.22, mz, rp(-0.06, 0.06), mang, 0.12, 0.62, 0.42, 2.5, rp(0.88, 0.98)]);
+      poi.push([ashBlockGeo(stoneK(0.08)), mx + Math.sin(mang) * 1.25, 0.34, mz + Math.cos(mang) * 1.25, 0.3, mang, 0, 0.7, 0.5, 0.35, 0.86]); // 碑头
       const bx = mx + Math.sin(mang) * -1.75 + Math.sin(ma) * 0.4, bz = mz + Math.cos(mang) * -1.75 + Math.cos(ma) * 0.4;
-      poi.push([ashSlabGeo(stoneK(0.04)), bx, 0.32, bz, rp(-0.05, 0.05), mang + 0.3, rp(-0.05, 0.05), 0.82, 0.64, 0.72, 0.84]);
-      poi.push([ashSlabGeo(stoneK(0.04)), bx + rp(-0.2, 0.2), 0.7, bz + rp(-0.2, 0.2), 0.25, mang + 0.6, -0.2, 0.5, 0.18, 0.46, 0.8]); // 断口的碎块
+      poi.push([ashBlockGeo(stoneK(0.04)), bx, 0.32, bz, rp(-0.05, 0.05), mang + 0.3, rp(-0.05, 0.05), 0.82, 0.64, 0.72, 0.84]);
+      poi.push([ashBlockGeo(stoneK(0.04)), bx + rp(-0.2, 0.2), 0.7, bz + rp(-0.2, 0.2), 0.25, mang + 0.6, -0.2, 0.5, 0.18, 0.46, 0.8]); // 断口的碎块
       L.drift.push(mx - Math.sin(mang) * 0.9, 0, mz - Math.cos(mang) * 0.9, 0, rp(0, TAU), 0, 1.1, 0.7, 1.2, 1);
       for (let q = 0; q < 4; q++) L.grass.push(mx + rp(-1.4, 1.4), 0, mz + rp(-0.9, 0.9), 0, rp(0, TAU), 0, rp(0.7, 1.1), rp(0.7, 1.2), rp(0.7, 1.1), rp(0.85, 1.1));
       for (let q = 0; q < 6; q++) L.pebble.push(hx + rp(-3, 3), 0.02, hz + rp(-3, 3), rp(-0.4, 0.4), rp(0, TAU), rp(-0.4, 0.4), rp(0.08, 0.2), rp(0.05, 0.12), rp(0.08, 0.2), rp(0.75, 1.05));
@@ -1749,7 +1752,7 @@
         const wa = a + Math.PI / 2 + rp(-0.3, 0.3), wl = rp(1.4, 2.4);
         for (let b = 0, nb = Math.round(wl / 0.6); b < nb; b++) {
           const u = -wl / 2 + (b + 0.5) * (wl / nb), hh = rp(0.35, 0.95) * (1 - Math.abs(u) / wl * 0.6);
-          poi.push([ashSlabGeo(ASH_LAY.wall), x + Math.sin(wa) * u, hh / 2, z + Math.cos(wa) * u, rp(-0.04, 0.04), wa + rp(-0.06, 0.06), rp(-0.04, 0.04), 0.5, hh, wl / nb * 0.95, rp(0.78, 0.96)]);
+          poi.push([ashBlockGeo(ASH_LAY.wall), x + Math.sin(wa) * u, hh / 2, z + Math.cos(wa) * u, rp(-0.04, 0.04), wa + rp(-0.06, 0.06), rp(-0.04, 0.04), 0.5, hh, wl / nb * 0.95, rp(0.78, 0.96)]);
         }
         L.drift.push(x + rp(-0.6, 0.6), 0, z + rp(-0.6, 0.6), 0, rp(0, TAU), 0, rp(0.9, 1.4), rp(0.6, 1), rp(0.9, 1.4), 1);
         made++;
@@ -1760,6 +1763,7 @@
     const foliage = own(makeToonMat({ brush: 0.12, brushScale: 0.8, soft: 0.14 }));
     if (poi.length) {
       const pm = new T.Mesh(ashMerge(poi), own(makeToonMat({ brush: 0.12, brushScale: 0.6, soft: 0.1 })));
+      pm.name = 'ashStartPoi';
       pm.castShadow = pm.receiveShadow = true;
       pm.geometry.computeBoundingSphere();
       zoneGroup.add(pm);
@@ -1996,7 +2000,9 @@
     for (const k in by) {
       const { e, list, small } = by[k];
       const rockish = e[4].indexOf('r') >= 0;
-      instanced(G.assets.geo(k), rockish ? mats.rock : mats.prop, list, !small, rockish && def.id !== 'ash' ? lin(def.rock).multiplyScalar(1.2) : new T.Color(1, 1, 1)); // 第 0 区的岩石材质自带颜色
+      // zones-polish：只有两三个、又不大的一组（顶点 < 600）不投影：影子几乎看不出来，每组却多一次阴影 draw（区域加长以后摆件的种类多了）
+      const gk = G.assets.geo(k), fewSmall = list.length / 10 <= 3 && gk && gk.attributes && gk.attributes.position.count < 600;
+      instanced(gk, rockish ? mats.rock : mats.prop, list, !small && !fewSmall, rockish && def.id !== 'ash' ? lin(def.rock).multiplyScalar(1.2) : new T.Color(1, 1, 1)); // 第 0 区的岩石材质自带颜色
     }
     if (!fires.length) return null;
     // 火焰：竖直的方片，朝镜头倾斜；每帧在 W.update 里按各自的相位抖动
@@ -3982,7 +3988,7 @@
     const mat = own(makeToonMat({ brush: 0.1, brushScale: 0.6 }));
     const body = gfxAdd(new T.InstancedMesh(chestBodyGeo(), mat, list.length));
     const lid = gfxAdd(new T.InstancedMesh(chestLidGeo(), mat, list.length));
-    body.castShadow = lid.castShadow = true;
+    body.castShadow = lid.castShadow = false; // zones-polish：箱体烘了贴地的接触阴影，不再投实时阴影（每区省两次阴影 draw）
     body.receiveShadow = lid.receiveShadow = true;
     const H = { body, lid, list, t: [], anim: false };
     for (let i = 0; i < list.length; i++) chestMatrices(H, i);
@@ -4113,8 +4119,22 @@
     } else for (const q of p.pts || [[p.x, p.z]]) o.push(q);
     return o;
   }
+  const ashRoomBox = (rm) => {
+    let x0 = 1e18, z0 = 1e18, x1 = -1e18, z1 = -1e18;
+    for (const p of rm.prims) {
+      const b = primBox(p);
+      if (b[0] < x0) x0 = b[0];
+      if (b[1] < z0) z0 = b[1];
+      if (b[2] > x1) x1 = b[2];
+      if (b[3] > z1) z1 = b[3];
+    }
+    return [x0, z0, x1, z1];
+  };
   // 两个房间是否分开了至少 gap（按图元边上的采样点近似）
   function ashApart(A, B, gap) {
+    // 外接框隔得比 gap 还远就不用逐点量（zones-polish：加长后每摆一个房间都要和前面所有关键路径房间比一次）
+    const ba = ashRoomBox(A), bb = ashRoomBox(B);
+    if (ba[0] - bb[2] > gap || bb[0] - ba[2] > gap || ba[1] - bb[3] > gap || bb[1] - ba[3] > gap) return true;
     for (const p of A.prims) for (const q of ashOutline(p)) if (ashRoomSd(B, q[0], q[1]) > -gap) return false;
     for (const p of B.prims) for (const q of ashOutline(p)) if (ashRoomSd(A, q[0], q[1]) > -gap) return false;
     return true;
@@ -4647,7 +4667,7 @@
         if (out.length >= n) break;
         if (sdf(x, z) < minSd || Math.hypot(x - S.start.x, z - S.start.z) < 14 || nearDoor(x, z, 4.5)) continue;
         if (ends.some((e) => Math.hypot(e[0] - x, e[1] - z) < 6)) continue;
-        if (packs.concat(out).some((p) => Math.hypot(p.x - x, p.z - z) < 6.5) || (avoid || []).some((p) => Math.hypot(p.x - x, p.z - z) < (gap || 6.5))) continue;
+        if (packs.concat(out).some((p) => Math.hypot(p.x - x, p.z - z) < 8.5) || (avoid || []).some((p) => Math.hypot(p.x - x, p.z - z) < (gap || 6.5))) continue; // zones-polish：群间距 6.5 → 8.5（怪群放大以后一团挤得太密）
         out.push({ x, z });
       }
       return out;
@@ -4704,12 +4724,17 @@
       const r2 = mulberry32((sub ^ 0x27d4eb2f ^ Math.imul(att, 0x85ebca6b)) >>> 0), th0 = r2() * TAU;
       let bestV = 1e9;
       best = th0;
+      const OL = [];
+      for (const rm of L.spec.rooms) for (const p of rm.prims) for (const q of ashOutline(p)) OL.push(q[0], q[1]); // 轮廓点只算一次（zones-polish）
       for (let j = 0; j < 24; j++) {
         const th = th0 + (j * Math.PI) / 12, c = Math.cos(th), s = Math.sin(th);
         let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
-        for (const rm of L.spec.rooms) for (const p of rm.prims) for (const q of ashOutline(p)) {
-          const x = q[0] * c + q[1] * s, z = q[1] * c - q[0] * s;
-          x0 = Math.min(x0, x); z0 = Math.min(z0, z); x1 = Math.max(x1, x); z1 = Math.max(z1, z);
+        for (let k = 0; k < OL.length; k += 2) {
+          const x = OL[k] * c + OL[k + 1] * s, z = OL[k + 1] * c - OL[k] * s;
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (z < z0) z0 = z;
+          if (z > z1) z1 = z;
         }
         const w = x1 - x0 + 2, h = z1 - z0 + 2, v = Math.max(0, Math.max(w, h) - ASH_GEN.box[0]) + Math.max(0, Math.min(w, h) - ASH_GEN.box[1]);
         if (v < bestV - 1e-6) {
@@ -4811,6 +4836,10 @@
       [gBox(0.7, 0.5, 0.6), ASH_LAY.stone, 1.0, 0.25, 0.4, 0, 0.5, 0.2],
       [gBox(0.5, 0.36, 0.5), ASH_LAY.stone, -0.9, 0.18, -0.6, 0.3, 0.2, 0],
     ]).clone(), { bottom: ASH_LAY.stoneLo, top: 0xffffff, y0: 0, y1: 3.2 }));
+  // 便宜的石块（zones-polish）：倒角方块（ashSlabGeo，圆角盒）每块约 300 个顶点，起点的景和农舍残墙各几十块，低画质下拖慢图标预热（软件 GL 同一个 GPU 进程）。
+  // 平铺的石板用普通方块（36 个顶点），砌墙的石块用八棱柱（竖边切角，96 个顶点），同样带竖向渐变
+  const ashBoxGeo = (col) => geo('ash/box' + col, () => toonGradient(bake('ash/box0' + col, [[gBox(1, 1, 1), col, 0, 0, 0]]).clone(), { bottom: ASH_LAY.stoneLo, top: 0xffffff, y0: -0.5, y1: 0.5 }));
+  const ashBlockGeo = (col) => geo('ash/blk' + col, () => toonGradient(bake('ash/blk0' + col, [[gCyl(0.5412, 0.5412, 1, 8), col, 0, 0, 0, 0, Math.PI / 8, 0]]).clone(), { bottom: ASH_LAY.stoneLo, top: 0xffffff, y0: -0.5, y1: 0.5 }));
   const ashSlabGeo = (col) => geo('ash/slab' + (col || ASH_LAY.stone), () => toonGradient(bake('ash/slab0' + (col || ASH_LAY.stone), [[gRBox(1, 1, 1, 0.08), col || ASH_LAY.stone, 0, 0, 0]]).clone(), { bottom: ASH_LAY.stoneLo, top: 0xffffff, y0: -0.5, y1: 0.5 }));
 
   // 余烬条带（不受光的硬边色阶）：沿 [x0, z0] → [x1, z1] 的锯齿折线
@@ -4857,22 +4886,22 @@
           const top = crs * ch * (lowK + (1 - lowK) * Math.min(1, t * 1.6));
           if (ch * c > top - 0.05 || (c === crs - 1 && rnd() < 0.3)) continue; // 塌掉 / 缺块
           const hh = Math.min(ch, top - ch * c) * r(0.9, 1.0);
-          parts.push([ashSlabGeo(ASH_LAY.wall), f.x + ux * mid + uz * r(-0.03, 0.03), ch * c + hh / 2, f.z + uz * mid - ux * r(-0.03, 0.03), r(-0.03, 0.03), f.ang + r(-0.05, 0.05), r(-0.04, 0.04), th * r(0.98, 1.08), hh, bl * 0.96, r(0.78, 1.05)]);
+          parts.push([ashBlockGeo(ASH_LAY.wall), f.x + ux * mid + uz * r(-0.03, 0.03), ch * c + hh / 2, f.z + uz * mid - ux * r(-0.03, 0.03), r(-0.03, 0.03), f.ang + r(-0.05, 0.05), r(-0.04, 0.04), th * r(0.98, 1.08), hh, bl * 0.96, r(0.78, 1.05)]);
         }
       }
       // 木梁：搭在墙顶（高的那一段），有的一头塌到地上
       if (rnd() < 0.7) {
         const fall = rnd() < 0.4, bl = L * r(0.55, 0.85), cx = drop * L * r(0.05, 0.2);
-        parts.push([ashSlabGeo(ASH_LAY.char), f.x + ux * cx, crs * ch + 0.08 - (fall ? 0.5 : 0), f.z + uz * cx, fall ? drop * 0.28 : 0, f.ang, r(-0.06, 0.06), 0.26, 0.2, bl, r(0.9, 1.1)]);
+        parts.push([ashBoxGeo(ASH_LAY.char), f.x + ux * cx, crs * ch + 0.08 - (fall ? 0.5 : 0), f.z + uz * cx, fall ? drop * 0.28 : 0, f.ang, r(-0.06, 0.06), 0.26, 0.2, bl, r(0.9, 1.1)]);
       }
       if (rnd() < 0.5) {
         const e = drop * (L / 2 - 0.1);
-        parts.push([ashSlabGeo(ASH_LAY.char), f.x + ux * e, 0.8, f.z + uz * e, r(-0.08, 0.08), f.ang + r(0, 1), r(-0.08, 0.08), 0.24, 1.6, 0.24, r(0.9, 1.1)]);
+        parts.push([ashBoxGeo(ASH_LAY.char), f.x + ux * e, 0.8, f.z + uz * e, r(-0.08, 0.08), f.ang + r(0, 1), r(-0.08, 0.08), 0.24, 1.6, 0.24, r(0.9, 1.1)]);
       }
       // 墙脚的落石（塌低的那头多一点）
       for (let k = 0, n = 2 + Math.floor(rnd() * 3); k < n; k++) {
         const sd = rnd() < 0.5 ? -1 : 1, along = -drop * L * r(0.1, 0.5);
-        parts.push([ashSlabGeo(ASH_LAY.wall), f.x + ux * along + uz * sd * (th / 2 + r(0.25, 0.7)), 0.1, f.z + uz * along - ux * sd * (th / 2 + r(0.25, 0.7)), r(-0.3, 0.3), r(0, TAU), r(-0.3, 0.3), r(0.3, 0.55), r(0.18, 0.3), r(0.3, 0.6), r(0.75, 0.95)]);
+        parts.push([ashBlockGeo(ASH_LAY.wall), f.x + ux * along + uz * sd * (th / 2 + r(0.25, 0.7)), 0.1, f.z + uz * along - ux * sd * (th / 2 + r(0.25, 0.7)), r(-0.3, 0.3), r(0, TAU), r(-0.3, 0.3), r(0.3, 0.55), r(0.18, 0.3), r(0.3, 0.6), r(0.75, 0.95)]);
       }
     }
     for (const t of F('trunk')) parts.push([ashSnagGeo(), t.x, 0, t.z, r(-0.06, 0.06), r(0, TAU), r(-0.06, 0.06), t.r * 1.05, t.r * r(1.15, 1.6), t.r * 1.05, r(0.85, 1.05)]);
@@ -4924,7 +4953,7 @@
     const cracks = [];
     for (const rm of zone.rooms) {
       if (rm.kind === 'start' || rm.kind === 'link') continue;
-      const c = rm.core, nf = rm.kind === 'arena' ? 5 : rm.kind === 'side' ? 1 : 3;
+      const c = rm.core, nf = rm.kind === 'arena' ? 5 : rm.kind === 'side' ? 1 : 2; // zones-polish：关键路径房间 3 → 2 道（房间从 4 个变 7 个，全区的裂缝数和原来差不多）
       let made = 0;
       for (let t = 0; t < 30 && made < nf; t++) {
         const a = r(0, TAU), d = r(c.r * 0.5, c.r + 4), x = c.x + Math.sin(a) * d, z = c.z + Math.cos(a) * d, dd = sd(x, z);
@@ -4956,6 +4985,8 @@
     if (river || pools.length || cracks.length || embers.length || pend) {
       out.lava = ctx.gfx.lavaStrip(river ? river.pts : [], river ? river.hw : 1, { pools, crust: 0.95, crustSide: 0.24, crustR: [0.55, 1.05], crustCol: ASH_LAY.lavaCrust, crustHi: ASH_LAY.crustHi, crustSeam: ASH_LAY.crustSeam, glowA: 0.08, bands: ASH_LAY.lavaToon, extra, glowQuads: pend ? pend.glow : null });
     }
+    if (out.lava && out.lava.mesh) out.lava.mesh.name = 'ashLava';
+    if (out.props) out.props.name = 'ashProps';
     out.rockHi = ctx.mats.rock && ctx.mats.rock.color.clone();
     return out;
   }
@@ -4997,7 +5028,7 @@
   //   旁支：4–5 条死路栈道通向小岛（3 个宝箱 + 1 个精英群，第 5 条是普通怪群）。危险区：岛沿的浅水（减速）、2 块薄冰（站久了会裂）。
   //   size-frost（区域加长）：岛 4 → 6–7、旁支 3 → 4–5、宝箱 2 → 3，关键路径约 159 → 250 m，可走面积约 2800 → 4450 m²。
   //   地标：一段栈道旁边半沉在水里的巨兽脊椎，肋骨拱过栈道；一颗巨兽头骨占一个岛的一角（WALL）；场地里 4 根肋骨柱（WALL，可以躲弹幕）。
-  // 区域外面整片是开阔的水面：spec.outside 用 VOID（玩法上和深水一样，挡移动、不挡子弹；小地图按 §3.2 不画深水），外观由 dress 画成水
+  // 区域外面整片是开阔的水面：spec.outside 用 WATER（zones-polish：原来是 VOID；玩法上一样，挡移动、不挡子弹；小地图按 §3.2 不画区域外面的深水），外观由 dress 画成水
   // size-frost：靠多摆岛把区域加长，栈道 / 冰桥的长度不变。外接框要卡在网格上限里（FROST.cells），所以岛链是弯来弯去的
   const FROST = {
     isles: [6, 7], // 关键路径上的岛（不算起点岛和场地）
@@ -5506,7 +5537,7 @@
     // 怪物等级：按 order 在关键路径（nI 个岛）上的比例折算；旁支按它挂着的那个岛算（旁支的 order 是父岛 + 1），连接按起端房间
     for (const rm of rooms) rm.lv = W.terrain.lvFor(rm.kind === 'side' ? rm.order - 1 : rm.order, nI);
     const spec = {
-      rooms, links, cuts, haz, feats, packs, chests, outside: MAT.VOID,
+      rooms, links, cuts, haz, feats, packs, chests, outside: MAT.WATER, // zones-polish：VOID → WATER（区域外面真的是水；小地图跳过区域外面的材质，深水照旧不画）
       start: { x: 0, z: 0, exit: { x: LG[0].pA.x, z: LG[0].pA.z, ang: LG[0].ang } },
       arena: { room: AI, x: ac.x, z: ac.z, door, dir: { x: (ac.x - door.x) / doorD, z: (ac.z - door.z) / doorD } },
     };
@@ -5533,7 +5564,8 @@
     deep: 0x29444f, mid: 0x2f4c58, shore: 0x365562, foam: 0x7898a4, shallow: 0x3a6c80,
     wood: [0x5a4c42, 0x4e4239, 0x635447, 0x463c36], post: 0x342c30, rope: 0x7c6e5c, under: 0x0e1c24,
     ice: [0x365666, 0x325060, 0x3c5c6c], iceEdge: 0x56788a, iceCol: 0x48697a,
-    bone: 0x9e9c94, boneShade: 0x403a5c, socket: 0x12131e,
+    bone: 0xaab0b0, boneShade: 0x403a5c, socket: 0x12131e, // zones-polish：骨色 0x9e9c94 → 0xaab0b0（偏冷的灰白，暖主光下不再发黄发褐）
+    iceShard: 0x6e94a6, // zones-polish：场地肋骨柱根部包着的冰棱
     reed: 0x34483f, reedHead: 0x4e3c30, floe: 0x3e5866, thin: 0x8cbcd0, crack: 0x6cc8e8, lamp: 0x8fdcff,
   };
   // 每个零件 [几何体, 颜色, 变换矩阵]，合并成一个带顶点色的几何体（整区的骨头一次 draw）
@@ -5687,10 +5719,10 @@
       };
       ell(0, 0.55, -0.7, 1.45, 1.2, 1.4); // 颅顶
       ell(0, 0.05, 0.75, 1.05, 0.72, 1.55, 0, 1); // 长吻
-      for (const sg of [-1, 1]) {
-        ell(sg * 0.6, 0.84, 0.3, 0.6, 0.17, 0.5, -0.2); // 眉骨（眼窝上沿，贴着颅顶）
-        ell(sg * 1.02, 0.12, 0.05, 0.42, 0.34, 0.75); // 颧骨
-      }
+      // 眉骨（zones-polish：原来两边各一个扁椭球，像两块盖子）：一道连着的弧形骨脊横过额前，中间略低、两头往下收进颧骨
+      ell(0, 0.86, 0.34, 1.22, 0.2, 0.42, -0.22);
+      ell(0, 0.78, 0.5, 0.42, 0.16, 0.3, -0.1); // 眉心的凹槽上沿（中间压低一点）
+      for (const sg of [-1, 1]) ell(sg * 1.02, 0.12, 0.05, 0.42, 0.34, 0.75); // 颧骨
       ell(0, -0.62, 0.55, 0.88, 0.26, 1.35, 0.14, 0.8); // 下颌（微张）
       for (let k = 0; k < 8; k++) {
         const t = (k / 7) * 2 - 1;
@@ -5709,6 +5741,19 @@
       g.setAttribute('position', new T.BufferAttribute(pos, 3));
       return g;
     });
+  // 变粗细的管子（zones-polish）：TubeGeometry 先按半径 1 建，再把每一圈相对中线按 rFn(t) 缩放（t = 0..1 沿曲线）
+  function frostTaper(cv, n, rs, rFn) {
+    const g = new T.TubeGeometry(cv, n, 1, rs, false), pa = g.attributes.position, c = new T.Vector3();
+    for (let i = 0; i <= n; i++) {
+      cv.getPointAt(i / n, c);
+      const r = rFn(i / n);
+      for (let j = 0; j <= rs; j++) {
+        const k = i * (rs + 1) + j;
+        pa.setXYZ(k, c.x + (pa.getX(k) - c.x) * r, c.y + (pa.getY(k) - c.y) * r, c.z + (pa.getZ(k) - c.z) * r);
+      }
+    }
+    return g;
+  }
   // 巨兽骨：脊椎节 + 拱过栈道的肋骨 + 头骨 + 场地里的肋骨柱，合并成一个网格
   function frostBones(zone, ctx) {
     const parts = [], B = FROST_PAL.bone;
@@ -5729,24 +5774,33 @@
       if (f.kind === 'rib') {
         const h = rand(3.0, 3.6), mx = (f.ax + f.bx) / 2, mz = (f.az + f.bz) / 2;
         const cv = new T.QuadraticBezierCurve3(new T.Vector3(f.ax, -0.3, f.az), new T.Vector3(mx + (f.ax - mx) * 0.25, h * 2, mz + (f.az - mz) * 0.25), new T.Vector3(f.bx, -0.4, f.bz));
-        add(ctx.own(new T.TubeGeometry(cv, 10, 0.15, 5, false)), B, new T.Matrix4());
+        // zones-polish：两头粗、拱顶细（原来是等粗 0.15 的管子，像一根木条）
+        add(ctx.own(frostTaper(cv, 12, 6, (t) => 0.13 + 0.09 * Math.pow(Math.abs(t * 2 - 1), 1.5))), B, new T.Matrix4());
       } else if (f.kind === 'skull') {
         // 头骨：局部 +z 朝 ang（岛心）
         const S = 1.05, base = frostM4(f.x, -0.25, f.z, 0, f.ang, 0, S);
         const pc = (g, col, x, y, z, rx, ry, rz, sx, sy, sz) => add(g, col, base.clone().multiply(frostM4(x, y, z, rx, ry, rz, sx, sy, sz)));
         pc(frostSkullGeo(), B, 0, 1.0, 0, 0, 0, 0, 1, 1, 1);
         for (const sg of [-1, 1]) {
-          pc(gIco(0.34, 0), FROST_PAL.socket, sg * 0.62, 1.68, 0.62, 0, 0, 0, 1, 0.75, 0.6); // 眼窝（眉骨下面的暗窝）
+          pc(gIco(0.4, 0), FROST_PAL.socket, sg * 0.6, 1.6, 0.68, 0, 0, 0, 1, 0.8, 0.62); // 眼窝（眉骨下面的暗窝，zones-polish 加大、往下挪到眉脊底下）
           pc(gIco(0.13, 0), FROST_PAL.socket, sg * 0.2, 1.08, 2.22, 0, 0, 0, 1, 0.8, 0.6); // 鼻孔
           pc(gCone(0.16, 1.1, 5), B, sg * 0.62, 0.55, 2.0, 1.35, 0, sg * -0.2, 1); // 獠牙（从吻侧往前下方伸出；缩放要给，原来漏了，frostM4 拿到 undefined 整个看不见）
           pc(gCone(0.3, 2.4, 5), B, sg * 1.35, 2.35, -1.1, -0.95, 0, sg * 0.75, 1); // 角（颅顶两侧往后上方）
         }
       } else if (f.kind === 'pillar') {
-        // 肋骨柱：从冰壳里拔起、朝场地中心弯过去的一根粗肋骨
+        // 肋骨柱（zones-polish：原来是等粗的管子插在八棱冰座上，像一根褐色木棍）：冰里拔起的一根巨兽獠牙 / 肋骨——
+        // 根部一个骨节，往上越来越细、一圈圈生长纹（略粗的环），朝场地中心弯过去收成尖；根部一圈斜插的冰棱和一块冰壳（同一个网格，不再另画冰座）
         const ox = -Math.sin(f.ang), oz = -Math.cos(f.ang), h = rand(4.2, 5);
-        const cv = new T.QuadraticBezierCurve3(new T.Vector3(f.x, 0, f.z), new T.Vector3(f.x - ox * 0.3, h * 0.75, f.z - oz * 0.3), new T.Vector3(f.x + ox * 1.4, h, f.z + oz * 1.4));
-        add(ctx.own(new T.TubeGeometry(cv, 8, 0.36, 6, false)), B, new T.Matrix4());
-        add(gCone(0.36, 1.0, 6), B, frostM4(f.x + ox * 1.4 + ox * 0.45, h - 0.12, f.z + oz * 1.4 + oz * 0.45, Math.PI / 2 + 0.5, f.ang + Math.PI, 0, 1));
+        const cv = new T.QuadraticBezierCurve3(new T.Vector3(f.x, -0.2, f.z), new T.Vector3(f.x - ox * 0.35, h * 0.72, f.z - oz * 0.35), new T.Vector3(f.x + ox * 1.6, h, f.z + oz * 1.6));
+        add(ctx.own(frostTaper(cv, 14, 8, (t) => (0.62 - 0.5 * Math.pow(t, 0.85)) * (1 + 0.1 * Math.pow(Math.max(0, Math.cos(t * Math.PI * 9)), 6)))), B, new T.Matrix4());
+        const tip = cv.getPointAt(1), tg = cv.getTangentAt(1);
+        add(gCone(0.12, 0.7, 6), B, new T.Matrix4().compose(tip.clone().addScaledVector(tg, 0.33), new T.Quaternion().setFromUnitVectors(new T.Vector3(0, 1, 0), tg), new T.Vector3(1, 1, 1)));
+        add(gIco(0.78, 1), B, frostM4(f.x, 0.15, f.z, 0, f.ang, 0, 1, 0.55, 1)); // 根部的骨节
+        add(gCyl(1.05, 1.15, 0.22, 9), FROST_PAL.iceCol, frostM4(f.x, 0.08, f.z, 0, rand(0, TAU), 0, 1)); // 冰壳
+        for (let k = 0; k < 6; k++) {
+          const a = (k / 6) * TAU + rand(-0.3, 0.3), d = rand(0.65, 0.95), hh = rand(0.8, 1.5), rk = rand(0.75, 1.25); // 同一个缓存的锥按比例缩放（几何体缓存的键不能带随机数）
+          add(gCone(0.27, 1, 5), k % 2 ? FROST_PAL.iceShard : FROST_PAL.iceEdge, frostM4(f.x + Math.sin(a) * d, hh * 0.4, f.z + Math.cos(a) * d, rand(0.25, 0.45), a, 0, rk, hh, rk));
+        }
       }
     }
     if (!parts.length) return null;
@@ -5896,7 +5950,7 @@
       st.deck = frostDeck(zone, ctx);
       st.bones = frostBones(zone, ctx);
       const pl = zone.feats.filter((f) => f.kind === 'pillar');
-      st.collars = pl.length ? ctx.gfx.pillars(pl.map((p) => ({ x: p.x, z: p.z, r: 0.95, h: 0.55 })), { color: FROST_PAL.iceCol }) : null;
+      st.collars = null; // zones-polish：冰座并进骨头网格（frostBones 里的冰壳和冰棱），少一次 draw
       st.thin = frostThin(zone, ctx);
       st.shore = frostShore(zone, ctx);
       st.lamps = frostLamps(zone, ctx);
@@ -6274,7 +6328,7 @@
       if (Math.hypot(u, v) < 12.5) return false;
       if (!ambush && allDoors.some((p) => Math.hypot(p[0] - u, p[1] - v) < 4.6)) return false;
       if (nodes.some((N) => segDist(u, v, N.a, N.b) < (ambush ? 3 : 4))) return false;
-      if (packsL.some((p) => Math.hypot(p.u - u, p.v - v) < (ambush || p.ambush ? 5.5 : 7))) return false;
+      if (packsL.some((p) => Math.hypot(p.u - u, p.v - v) < (ambush || p.ambush ? 7.5 : 9.5))) return false; // zones-polish：群间距 7 / 5.5 → 9.5 / 7.5（怪群放大到 ×1.25 以后，12 m 里能挤进 21 只，混战一屏 draw call 超预算）
       return true;
     };
     const placeIn = (H, n, extra) => {
@@ -7059,7 +7113,7 @@
     // ---- 怪群：平台按面积 2–3 群，P2 / P4 / P6 的鼓包各一小群，精英洞一群（精英）----
     const okPack = (x, z, list, minSd) =>
       sdAll(x, z) >= minSd && Math.hypot(x, z) >= 13 && doors.every((d) => Math.hypot(d.x - x, d.z - z) >= 5.5) &&
-      vents.every((v) => Math.hypot(v.x - x, v.z - z) >= 4.5) && list.every((p) => Math.hypot(p.x - x, p.z - z) >= 6);
+      vents.every((v) => Math.hypot(v.x - x, v.z - z) >= 4.5) && list.every((p) => Math.hypot(p.x - x, p.z - z) >= 8); // zones-polish：群间距 6 → 8（怪群放大以后平台上挤得太密）
     const platPacks = (L) => {
       const bx = L.prims.map(primBox).reduce((a, b) => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])]);
       let area = 0;
@@ -7200,6 +7254,7 @@
     stone: 0x4a4450, stoneLo: 0x241e2c, // 石桥：受光的桥面、桥身底部（冷紫）
     basalt: 0x504a58, basaltLo: 0x3c3448, // 崖壁上的玄武岩柱（底部别压到近黑，岩壁那一档 15–25%）
     cliffTop: 0x3c3342, cliffBot: 0x0c0810, // 虚空边往下挂的崖面（不受光的渐变）
+    lip: 0x5a5462, lipEdge: 0x6a6272, // zones-polish：崖沿一道浅色的石唇（路面往里 0.45 m 到崖口），崖口最外那一线再亮一点，一眼看出哪里是边
     deep: 0x0c0810, deepRim: 0x150f1b, // 深渊底：中间、靠崖壁一侧
     core: 0xffd08a, mid: 0xff7a2a, edge: 0xc8341c, // 余烬：芯 / 中 / 边
     crystal: 0xff6a2a, // 岩壁上的晶簇改成闷烧的余烬橙（原来是区域强调色的正红）
@@ -7281,7 +7336,7 @@
     const vert = (x, y, z, dark) => {
       pos.push(x, y, z);
       uv.push(x / TILE, -z / TILE);
-      const v = GROUND_VK * (dark ? 0.25 : 1);
+      const v = GROUND_VK * (dark ? 0.1 : 1); // zones-polish：沉进深渊的岩顶 0.25 → 0.1（原来受光后是一片暗红紫的斜面，看不出往下）
       col.push(v, v, v);
       aw.push(0, 1);
       return pos.length / 3 - 1;
@@ -7334,6 +7389,15 @@
     let moved = 0;
     for (let i = 0; i < P.count; i++) {
       const x = P.getX(i), z = P.getZ(i), d = sd(x, z);
+      // zones-polish：路面离崖口 2.6 m 以内（外面是虚空的那一侧）压暗到 0.7 倍，路和深渊分得开
+      if (d >= 0 && d < 2.6 && Cc) {
+        const gx = sd(x + e, z) - sd(x - e, z), gz = sd(x, z + e) - sd(x, z - e), l = Math.hypot(gx, gz);
+        if (l > 1e-5 && W.matAt(x - (gx / l) * (d + 0.6), z - (gz / l) * (d + 0.6)) === MAT.VOID) {
+          const k = 0.7 + 0.3 * smooth01(d / 2.6);
+          Cc.setXYZ(i, Cc.getX(i) * k, Cc.getY(i) * k, Cc.getZ(i) * k);
+        }
+        continue;
+      }
       if (d >= 0 || W.matAt(x, z) !== MAT.VOID) continue;
       const gx = sd(x + e, z) - sd(x - e, z), gz = sd(x, z + e) - sd(x, z - e), l = Math.hypot(gx, gz);
       if (l < 1e-5) continue;
@@ -7354,8 +7418,11 @@
   // 崖面：沿外侧是虚空的边往下挂一圈岩面（受光的卡通材质，竖向渐暗，几层横向的凹凸像岩层），桥的两侧不挂（桥是薄的）。
   // 本区自己的工具：共用的 cliffBand 是不受光的一整片，而且会在桥下挂出一面黑墙
   function abyssCliff(zone, ctx) {
-    const rows = [[0, 0], [-0.9, 0.35], [-2.6, -0.2], [-ABYSS_DEEP, 0.5]]; // [y, 往外凸多少]
-    const pos = [], col = [], idx = [], top = new T.Color(ABYSS_PAL.cliffTop), bot = new T.Color(ABYSS_PAL.cliffBot);
+    // [y, 往外凸多少, 颜色]：zones-polish 在崖口上面加了一道石唇（前两行，平铺在路面上 0.03 m，往里 0.45 m），
+    // 崖面从石唇下沿起往下更快地压暗（原来是 [0,0] [-0.9] [-2.6] [-深] 四行、按 t^0.7 渐暗，一大片暗红紫的斜面看不出深）
+    const top = new T.Color(ABYSS_PAL.cliffTop), bot = new T.Color(ABYSS_PAL.cliffBot), lipC = new T.Color(ABYSS_PAL.lip), lipE = new T.Color(ABYSS_PAL.lipEdge);
+    const rows = [[0.03, -0.45, lipC], [0.03, 0.04, lipE], [-0.32, 0.16, top], [-0.9, 0.35, top.clone().lerp(bot, 0.45)], [-2.6, -0.2, top.clone().lerp(bot, 0.85)], [-ABYSS_DEEP, 0.5, bot]];
+    const pos = [], col = [], idx = [];
     const isBridge = (x, z) => {
       const r = W.roomAt(x, z);
       return r >= 0 && zone.rooms[r].tags && zone.rooms[r].tags.indexOf('bridge') >= 0;
@@ -7369,10 +7436,10 @@
           continue;
         }
         const base = pos.length / 3, jit = vnoise(x * 0.7 + 3.1, z * 0.7 - 1.7) - 0.5;
-        rows.forEach(([y, o], k) => {
-          const w = k ? o + jit * 0.7 * k : 0.04;
+        rows.forEach(([y, o, cc], k) => {
+          const w = k > 1 ? o + jit * 0.7 * (k - 1) : o;
           pos.push(x + nx * w, y, z + nz * w);
-          const t = k / (rows.length - 1), c = top.clone().lerp(bot, Math.pow(t, 0.7)).convertSRGBToLinear();
+          const c = cc.clone().convertSRGBToLinear();
           col.push(c.r, c.g, c.b);
         });
         if (prev >= 0) for (let k = 0; k + 1 < rows.length; k++) idx.push(prev + k, base + k, base + k + 1, prev + k, base + k + 1, prev + k + 1);
@@ -8101,7 +8168,7 @@
     }
     const rockMat = ctx.own(makeToonMat({ flat: true, brush: 0.16, brushScale: 0.5 }));
     const rIM = ctx.instanced(riftMeteorGeo(), rockMat, rocks, true, new T.Color(1, 1, 1));
-    const cIM = ctx.instanced(gOct(1), ctx.mats.crystal, crys, !low, null);
+    const cIM = ctx.instanced(gOct(1), ctx.mats.crystal, crys, false, null); // 发光水晶不投影（zones-polish：原来高画质投影，省一次阴影 draw）
     const gIM = ctx.instanced(gQuad(), ctx.mats.glow, glows, false, null);
     if (gIM) gIM.renderOrder = 1;
     for (const m of [rIM, cIM, gIM]) if (m) mine.add(m);
@@ -8419,7 +8486,6 @@
     // 陨坑
     if (byFeat) accentL = lin(RIFT_PAL.spark); // 新布局：星辉用电光青（zones-rift 的配色）
     const crMat = own(new T.MeshBasicMaterial({ map: craterTex(), color: accentL, transparent: true, opacity: 0.5, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false }));
-    const dkMat = own(new T.MeshBasicMaterial({ map: blotchTex(), color: lin(mixHex(def.voidc, 0x000000, 0.3)), transparent: true, opacity: 0.6, depthWrite: false }));
     const craters = [], darks = [], shards = [];
     const spots = byFeat ? ofKind('crater').map((f) => ({ x: f.x, z: f.z, r: f.r })) : [];
     if (!byFeat) {
@@ -8440,11 +8506,10 @@
         shards.push(x + Math.sin(b) * rr, h * 0.35, z + Math.cos(b) * rr, Math.cos(b) * 0.6, rand(0, TAU), -Math.sin(b) * 0.6, 0.12, h, 0.12, 1);
       }
     }
-    const dIM = instanced(gQuad(), dkMat, darks, false, null);
-    if (dIM) dIM.renderOrder = 1;
+    // zones-polish：陨坑底下那块暗斑（不透明度 0.6 的一大团）不画了：看着像地上的脏印子，还多一次 draw（随机数照旧取，后面的摆放不变）
     const cIM = instanced(gQuad(), crMat, craters, false, null);
     if (cIM) cIM.renderOrder = 1;
-    instanced(gOct(1), crystalMat, shards, true, null);
+    instanced(gOct(1), crystalMat, shards, false, null); // 发光的小晶刺不投影（zones-polish：省一次阴影 draw）
 
     // 首领场地外的天穹碎片（新布局：坑底四周那圈岩壁里的 'shard' 锚点，细一点）
     const bp = zone.bossPos, sky = [];
@@ -8517,6 +8582,8 @@
     }
     const vid = new Int32Array(sx * (nz + 1)).fill(-1);
     const pos = [], uv = [], col = [], idx = [], aw = [];
+    // 路面上粗糙斑块的强度（zones-polish：ZONE_GFX.<id>.patch，缺省 0.55 和原来一样）：frost / rift 的粗糙地面贴图在路面上是一块块像泥、像脏印子的软边斑，压下去
+    const patchK = gx && gx.patch !== undefined ? gx.patch : 0.55;
     const vert = (i, j) => {
       const k = j * sx + i;
       if (vid[k] >= 0) return vid[k];
@@ -8538,7 +8605,7 @@
         const pn = vnoise(x * 0.17 + 11.3, z * 0.17 - 5.1);
         let wp = smooth01((d + 0.45) / 1.0);
         // 路面上零星的粗糙斑块，离路边越远越少；第 0 区斑块更多更实（打散满地一样的龟裂纹），踩出来的路上没有
-        wp *= ash ? 1 - 0.55 * smooth01((pn - 0.6) / 0.16) * smooth01((d + 0.5) / 2.5) * (1 - tk) * smooth01((Math.hypot(x - zone.start.x, z - zone.start.z) - 3) / 3) : 1 - 0.55 * smooth01((pn - 0.58) / 0.2) * smooth01(d / 2.2);
+        wp *= ash ? 1 - patchK * smooth01((pn - 0.6) / 0.16) * smooth01((d + 0.5) / 2.5) * (1 - tk) * smooth01((Math.hypot(x - zone.start.x, z - zone.start.z) - 3) / 3) : 1 - patchK * smooth01((pn - 0.58) / 0.2) * smooth01(d / 2.2);
         aw.push(wp, smooth01((-d - 0.9) / 2.2) * (1 - wp));
       } else col.push(vm[0] + (lit - vm[0]) * kk, vm[1] + (lit - vm[1]) * kk, vm[2] + (lit - vm[2]) * kk);
       return (vid[k] = pos.length / 3 - 1);
@@ -8731,7 +8798,7 @@
     const crystalMat = own(
       new T.MeshStandardMaterial({ color: accentL.clone().multiplyScalar(0.3), emissive: accentL, emissiveIntensity: 1.0, roughness: 0.3, flatShading: true, toneMapped: false })
     );
-    instanced(gOct(1), crystalMat, crystals, true, null);
+    instanced(gOct(1), crystalMat, crystals, false, null); // 发光的水晶不投影（zones-polish：影子看不出来，每区省一次阴影 draw；第 0 区原来就在 dress 里关掉了）
     const glowMat = own(
       new T.MeshBasicMaterial({ map: glowTex(), color: accentL, transparent: true, opacity: 0.4, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false })
     );
@@ -8850,37 +8917,6 @@
   // 场景里用到的贴图也先传上去（initTexture）。不做的话这些留到第一次进视野的那一帧现做，软件渲染下正好卡在走到第一群怪、开打的时候。
   // 每个区每次会话只做一次（G.enterZone 刷完怪以后调）：再进同一个区时着色器和贴图都已经在了，不再花时间
   const warmed = new Set();
-  // 第一次进区的真画一帧（zones-polish）：renderer.compile 只编了程序，软件 GL 的着色器还要等第一次真画的时候现做（顶点格式、状态组合各一份），
-  // 几何体 / 实例缓冲也是第一次画才上传，C 量到进区后 1.1–1.5 秒还有一帧 0.8–1.3 秒。这里在进区时就用俯视的正交镜头把整张图（含平时隐藏的东西、刚刷的怪）
-  // 画进一张 64 × 64 的 sRGB 目标（编码和后期处理的目标一致，编出来的就是之后要用的那批），读一个像素等 GPU 画完。只在第一次进这个区时做
-  let warmRT = null;
-  function warmDraw(z) {
-    const b = z.bounds;
-    if (!b) return;
-    const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2, hw = (b.maxX - b.minX) / 2 + 6, hh = (b.maxZ - b.minZ) / 2 + 6;
-    const oc = new T.OrthographicCamera(-hw, hw, hh, -hh, 1, 400);
-    oc.position.set(cx, 150, cz);
-    oc.up.set(0, 0, -1);
-    oc.lookAt(cx, 0, cz);
-    oc.updateMatrixWorld(true);
-    const hidden = [];
-    zoneGroup.traverse((o) => {
-      if (!o.visible) {
-        hidden.push(o);
-        o.visible = true;
-      }
-    });
-    if (!warmRT) warmRT = new T.WebGLRenderTarget(64, 64, { encoding: T.sRGBEncoding });
-    const prev = renderer.getRenderTarget(), px = new Uint8Array(4);
-    try {
-      renderer.setRenderTarget(warmRT);
-      renderer.render(scene, oc);
-      renderer.readRenderTargetPixels(warmRT, 0, 0, 1, 1, px);
-    } finally {
-      renderer.setRenderTarget(prev);
-      for (const o of hidden) o.visible = false;
-    }
-  }
   W.precompile = function () {
     const z = W.zone;
     if (!z || warmed.has(z.def.id)) return;
@@ -8902,7 +8938,6 @@
           if (m.uniforms) for (const u in m.uniforms) up(m.uniforms[u] && m.uniforms[u].value);
         }
       });
-      warmDraw(z);
     } catch (e) {
       if (window.console) console.warn('[画面] 进区预热失败（不影响游戏）', e);
     }
@@ -23040,6 +23075,7 @@
     MM.cw = CW;
     MM.ch = CH;
     MM.vx = MM.vy = 0;
+    MM.vDirty = true;
     cv.width = Math.round(CW * dpr);
     cv.height = Math.round(CH * dpr);
     const g = cv.getContext('2d');
@@ -23072,7 +23108,7 @@
           a = a + cd * (1 - a);
         }
         if (hasMat && d < 0.5) {
-          const mt = matAt(m, wx, wz), c = COL[mt];
+          const mt = matAt(m, wx, wz), c = mt === m.pr.outside ? null : COL[mt]; // 区域外面的材质不画（frost 外面整片是水，§3.2 深水不画；zones-polish）
           if (c) {
             // 熔岩 / 深水上照样描一圈深色边（zones-integrate）：跨熔岩的桥就是两条描边夹着路面（§3.1），岸线也更清楚
             r = c[0] * (1 - cd); gg = c[1] * (1 - cd); bb = c[2] * (1 - cd); a = 1;
@@ -23402,21 +23438,34 @@
     if (MM.cv) {
       const S = MM.size, mx = vw - S - 14, my = 14;
       if (MM.win) {
-        // 截取模式：以玩家为中心截一块底图，标记都裁在小地图框里
+        // 截取模式：以玩家为中心截一块底图。截取框动了才把那一块拷进一张固定 172 × 172 的画布（MM.view），
+        // 每帧照旧整张 drawImage（和不截取时一样便宜）；标记出了框就不画，不用 clip（2D 画布的 clip / 带源矩形的 drawImage
+        // 每帧都在 GPU 进程里多做一遍，低画质下拖慢图标预热，zones-polish 实测）
+        const ox = MM.vx, oy = MM.vy;
         minimapView(P.x, P.z);
-        g.drawImage(MM.cv, MM.vx * dpr, MM.vy * dpr, S * dpr, S * dpr, mx, my, S, S);
-        g.save();
-        g.beginPath();
-        g.rect(mx, my, S, S);
-        g.clip();
+        if (!MM.view || MM.view.width !== Math.round(S * dpr)) {
+          MM.view = makeCanvas(Math.round(S * dpr), Math.round(S * dpr));
+          MM.vDirty = true;
+        }
+        if (MM.vDirty || ox !== MM.vx || oy !== MM.vy) {
+          const vg = MM.view.getContext('2d');
+          vg.clearRect(0, 0, MM.view.width, MM.view.height);
+          vg.drawImage(MM.cv, Math.round(MM.vx * dpr), Math.round(MM.vy * dpr), MM.view.width, MM.view.height, 0, 0, MM.view.width, MM.view.height);
+          vg.strokeStyle = 'rgba(214,160,92,0.55)';
+          vg.lineWidth = dpr;
+          vg.strokeRect(0.5 * dpr, 0.5 * dpr, MM.view.width - dpr, MM.view.height - dpr);
+          MM.vDirty = false;
+        }
+        g.drawImage(MM.view, mx, my, S, S);
       } else {
         MM.vx = MM.vy = 0;
         g.drawImage(MM.cv, mx, my, S, S);
       }
       const X = (x) => mx + x * MM.s + MM.ox - MM.vx, Z = (z) => my + z * MM.s + MM.oz - MM.vy;
+      const inMM = (px, pz) => px > mx - 3 && px < mx + S + 3 && pz > my - 3 && pz < my + S + 3; // 截取模式下框外的标记不画
       for (let i = 0; i < es.length; i++) {
         const e = es[i];
-        if (e.dead || e.isBoss || !e.awake) continue;
+        if (e.dead || e.isBoss || !e.awake || !inMM(X(e.x), Z(e.z))) continue;
         g.fillStyle = e.elite ? '#ffc04a' : 'rgba(255,96,72,0.9)';
         const r = e.elite ? 2.4 : 1.5;
         g.fillRect(X(e.x) - r, Z(e.z) - r, r * 2, r * 2);
@@ -23427,11 +23476,12 @@
           const m = ms[i], ent = m && m.ent;
           if (!ent || m.dead || ent.removed) continue;
           const r = ent.kind === 'colossus' ? 2.6 : 1.7, gp = ent.group.position;
+          if (!inMM(X(gp.x), Z(gp.z))) continue;
           g.fillRect(X(gp.x) - r, Z(gp.z) - r, r * 2, r * 2);
         }
       }
       const zn = W.zone;
-      if (st.boss && !st.boss.dead) {
+      if (st.boss && !st.boss.dead && inMM(X(st.boss.x), Z(st.boss.z))) {
         // 首领：脉动的红色菱形
         const bx = X(st.boss.x), bz = Z(st.boss.z), r = 5 + Math.sin(wtime * 4) * 0.8;
         g.fillStyle = '#ff4a3a';
@@ -23446,7 +23496,7 @@
         g.stroke();
         g.fill();
       }
-      if (st.portal) {
+      if (st.portal && inMM(X(st.portal.x), Z(st.portal.z))) {
         const px = X(st.portal.x), pz = Z(st.portal.z);
         g.strokeStyle = '#b9a4ff';
         g.lineWidth = 2;
@@ -23458,9 +23508,10 @@
       }
       if (zn) {
         g.fillStyle = 'rgba(255,255,255,0.35)';
-        g.fillRect(X(zn.start.x) - 1.5, Z(zn.start.z) - 1.5, 3, 3);
+        if (inMM(X(zn.start.x), Z(zn.start.z))) g.fillRect(X(zn.start.x) - 1.5, Z(zn.start.z) - 1.5, 3, 3);
         // 宝箱：金色小方块，打开以后变暗
         for (const c of zn.chests) {
+          if (!inMM(X(c.x), Z(c.z))) continue;
           g.fillStyle = c.open ? 'rgba(150,126,84,0.55)' : '#ffd75e';
           g.strokeStyle = 'rgba(0,0,0,0.8)';
           g.lineWidth = 1;
@@ -23476,12 +23527,6 @@
       g.arc(X(P.x), Z(P.z), 3.2, 0, TAU);
       g.stroke();
       g.fill();
-      if (MM.win) {
-        g.restore();
-        g.strokeStyle = 'rgba(214,160,92,0.55)';
-        g.lineWidth = 1;
-        g.strokeRect(mx + 0.5, my + 0.5, S - 1, S - 1);
-      }
     }
   }
 
