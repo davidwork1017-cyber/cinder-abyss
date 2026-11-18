@@ -733,7 +733,7 @@
       packs: ['zone-ash', 'rock-dark', 'models'],
       mats: [
         // 卡通：路面是暗一档的灰褐焦土（不再是粉褐色），贴图的明暗起伏压低，地面不抢角色；路外是更暗、偏灰紫的灰土
-        { tex: 'mud_cracked_dry_03', tile: 4.2, con: 0.45, nrm: 0.5, rough: 1, k: 0.62, sat: 0.85, col: 0x575358 }, // 偏冷的灰：被暖金色的主光一照就是灰褐，不是橙粉
+        { tex: 'mud_cracked_dry_03', tile: 4.2, con: 0.45, nrm: 0.5, rough: 1, k: 0.68, sat: 0.85, col: 0x575358 }, // 偏冷的灰：被暖金色的主光一照就是灰褐，不是橙粉
         { tex: 'burned_ground_01', tile: 4.8, con: 0.6, nrm: 0.7, rough: 1, k: 0.62, sat: 0.9, col: 0x4a474e },
         { tex: 'dark_rock', tile: 6.5, con: 0.8, nrm: 1.0, rough: 1, k: 0.8, col: 0x2c2226 }, // 岩壁外的虚空地面比路面暗得多，把空地框出来
       ],
@@ -763,7 +763,7 @@
         { tex: 'Rock035', tile: 6.5, con: 1.0, nrm: 1.0, rough: 1, k: 1.0 },
       ],
       lava: null,
-      rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0xb4c8d6, capAll: 0.6 },
+      rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0x8296aa, capAll: 0.45 }, // phase 3：雪盖 0xb4c8d6 / 0.6 → 0x8296aa / 0.45，岩壁不再比地面亮
       grade: { sat: 1.12, con: 1.1, lift: 0x04081a, gain: 0xf4faff, vig: 0.22 },
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x3c5566, a: 0.3 },
@@ -855,10 +855,10 @@
   //   第 0 区是设计稿里的标准色板；其它区域先保证「亮、饱和、不脏」，细调留给各区域的布景工作 -----
   const ZONE_LIGHT = {
     ash: { key: 0xffc286, keyI: 1.5, shade: 0x6248de, bounce: 0x9a3e22, hemiI: 0.95, rim: 0x8fb6ff, rimI: 0.9, fog: 0x2a1620, exposure: 1.0 },
-    frost: { key: 0xffe8cc, keyI: 1.45, shade: 0x4c7ae0, bounce: 0x3a6078, hemiI: 0.9, rim: 0xc8ecff, rimI: 0.85, fog: 0x1a2c3e, exposure: 1.0 },
-    storm: { key: 0xffe2a0, keyI: 1.45, shade: 0x5446c8, bounce: 0x5a4468, hemiI: 0.9, rim: 0xe6dcff, rimI: 0.85, fog: 0x221c36, exposure: 1.0 },
+    frost: { key: 0xffe8cc, keyI: 1.45, shade: 0x4c7ae0, bounce: 0x3a6078, hemiI: 0.9, rim: 0xc8ecff, rimI: 0.85, fog: 0x1a2c3e, exposure: 0.76 },
+    storm: { key: 0xffe2a0, keyI: 1.45, shade: 0x5446c8, bounce: 0x5a4468, hemiI: 0.9, rim: 0xe6dcff, rimI: 0.85, fog: 0x221c36, exposure: 0.84 },
     abyss: { key: 0xffcc9c, keyI: 1.45, shade: 0x5038b0, bounce: 0x8a2a30, hemiI: 0.9, rim: 0xff9cb0, rimI: 0.85, fog: 0x2e121c, exposure: 1.0 },
-    rift: { key: 0xf0ffe0, keyI: 1.45, shade: 0x3a8cc0, bounce: 0x245a48, hemiI: 0.9, rim: 0xa4ffde, rimI: 0.85, fog: 0x0f2a26, exposure: 1.0 },
+    rift: { key: 0xf0ffe0, keyI: 1.45, shade: 0x3a8cc0, bounce: 0x245a48, hemiI: 0.9, rim: 0xa4ffde, rimI: 0.85, fog: 0x0f2a26, exposure: 0.86 },
   };
   // 阴影色的统一处理（TOON.shadeSat / hemiK）：线性空间里向亮度收饱和度
   function toonShade(hex) {
@@ -984,14 +984,15 @@
     }
   }
   // 卡通（phase 1b）：暗部的对比主要交给色调曲线的 toe（低画质没有后期也有），调色里的对比度只用一半
-  const GRADE_LIFT_K = 0, GRADE_CON_K = 0.5;
+  // phase 3：暗角也只用一半（GRADE_VIG_K）：岩壁都在画面边缘，满强度的暗角会把它们压到 15% 以下（高画质 11.5%，低画质没有暗角是 21%）
+  const GRADE_LIFT_K = 0, GRADE_CON_K = 0.5, GRADE_VIG_K = 0.5;
   function applyZonePost(gx) {
     if (!post.ok) return;
     const g = (gx && gx.grade) || { sat: 1.05, con: 1.04, lift: 0, gain: 0xffffff, vig: 0.24 };
     const u = post.grade.uniforms;
     u.uSat.value = g.sat;
     u.uCon.value = 1 + (g.con - 1) * GRADE_CON_K;
-    u.uVig.value = g.vig;
+    u.uVig.value = g.vig * GRADE_VIG_K;
     // 卡通（phase 1b）：暗部偏色（lift）会把黑色抬成一层灰紫，不再用；表里的 lift 留着不删，乘 GRADE_LIFT_K
     _c.set(g.lift);
     u.uLift.value.set(_c.r, _c.g, _c.b).multiplyScalar(GRADE_LIFT_K);
@@ -1291,7 +1292,7 @@
   // 高的东西（灰堆、蕨、岩石）只放在路外，路外本来就走不进去，碰撞和原来一致。全部实例化，起点布景一共约 10 个 draw call。
   const ASH_DRESS = { r0: 15, r1: 26 };
   const ASH_PAL = {
-    rock: 0x5a4a4e, rockLo: 0x4a3c6c, // 岩石固有色（比地面暗一档）、贴地的冷紫（乘在固有色上）
+    rock: 0x6a6472, rockLo: 0x5c4e80, // phase 3：0x5a4a4e / 0x4a3c6c → 0x6a6472 / 0x5c4e80：去掉受光面的赤陶色，岩壁整体抬到 15% 左右（之前 11.5%，比目标暗） // 岩石固有色（比地面暗一档）、贴地的冷紫（乘在固有色上）
     ash: 0x3c3434, ashLo: 0x5a4a5a, ashFall: 0x9a8a8a, // 灰堆、地上的积灰（贴花，淡淡提亮一层）
     grass: 0xb07a40, grassLo: 0x4a2e2a, // 枯草
     fern: 0x3f8e84, fernLo: 0x1e3a48, // 灰蕨（冷色点缀）
@@ -11450,6 +11451,8 @@
     '  if (s < 0.0) discard;',
     '  vec3 col = s > 0.74 ? uC0 : (s > 0.34 ? uColor : uC2);',
     '  float a = uK < 0.42 ? 0.9 : (uK < 0.7 ? 0.62 : 0.32);',
+    // phase 3：内沿那一道（暗色带）只留 40% 不透明，月牙压在敌人身上时还看得见敌人；亮芯和主色带不变，形状照样是实色的
+    '  if (s <= 0.34) a *= 0.4;',
     '  gl_FragColor = vec4(col, a);',
     '}',
   ].join('\n');
