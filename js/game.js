@@ -1718,6 +1718,7 @@
       W.flash(e.ent, 1 + feel * 0.7);
       W.hitReact(e.ent, ang, 0.9 + feel * 0.4); // 顺着这一击的方向一仰
       W.impact(e.x - sn * e.r * 0.7, h * 0.5, e.z - cs * e.r * 0.7, ang, top, feel, hit.crit);
+      if (ctx.flame > 0 && W.flameHit) W.flameHit(e.x, h * 0.55, e.z, e.r, ang); // 黑焰：命中点甩出几片品红的小火舌
     }
     if (!inf.quiet) {
       // 投射物 / 法术逐个出声；暴击时镜头也轻轻一顶（近战由技能统一处理）
@@ -3262,7 +3263,7 @@
   }
   function addHole(h) {
     while (holes.length >= HOLE_MAX) removeHole(0);
-    h.fx = G.world.makeHole ? G.world.makeHole(h.x, h.z, h.R, h.mouth) : null;
+    h.fx = G.world.makeHole ? G.world.makeHole(h.x, h.z, h.R, h.mouth, h.pullR) : null;
     holes.push(h);
     return h;
   }
