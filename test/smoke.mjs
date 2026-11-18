@@ -10032,15 +10032,21 @@ async function main() {
       G.debug.hold(true);
       const W = G.world, S = G.state, P = G.player, out = { bad: [], seeds: 0 };
       const zi = G.ZONES.findIndex((z) => z.id === 'storm');
-      // 20 个种子：校验通过、是本区自己的生成器（有 storm 字段），怪 45–65 只、精英 1–4、宝箱 2、每个关键路径大厅都有伏击群
+      // 20 个种子：校验通过、是本区自己的生成器（有 storm 字段），关键路径大厅 6–7 个、旁支 3–5 个，怪 72–104 只（size-storm：区域加长 ×1.6），
+      // 精英 1–6（关键路径 ≤ 5，旁支保底 1）、宝箱 3、至多一个关键路径大厅没有伏击群；每个房间的怪物等级偏移 lv = lvFor(order, 大厅数)，旁支取父大厅
+      const lvFor = W.terrain.lvFor;
       for (let s = 1; s <= 20; s++) {
         const g = W.genLayout('storm', s * 7919 + 3), sp = g.spec;
         out.seeds++;
         if (!g.ok || !sp.storm) { out.bad.push(s + '：' + g.why.join('；')); continue; }
         const mobs = sp.packs.reduce((a, p) => a + (Array.isArray(p.n) ? (p.n[0] + p.n[1]) / 2 : p.n), 0);
-        const el = sp.packs.filter((p) => p.elite).length, halls = sp.rooms.filter((rm) => rm.kind === 'room');
-        const amb = halls.filter((h) => sp.packs.some((p) => p.ambush && p.room === h.id)).length;
-        if (mobs < 45 || mobs > 65 || el < 1 || el > 4 || sp.chests.length !== 2 || halls.length !== 4 || amb < 3) out.bad.push(s + '：怪 ' + mobs + ' 精英 ' + el + ' 宝箱 ' + sp.chests.length + ' 伏击 ' + amb);
+        const el = sp.packs.filter((p) => p.elite).length, halls = sp.rooms.filter((rm) => rm.kind === 'room'), sides = sp.rooms.filter((rm) => rm.kind === 'side');
+        const pel = sp.packs.filter((p) => p.elite && sp.rooms[p.room].kind !== 'side').length, sel = sp.packs.some((p) => p.elite && sp.rooms[p.room].kind === 'side');
+        const amb = halls.filter((h) => sp.packs.some((p) => p.ambush && p.room === h.id)).length, nP = halls.length;
+        const lvOk = sp.rooms.every((rm) => rm.lv === lvFor(rm.kind === 'side' ? rm.order - 1 : rm.order, nP)) && sp.rooms[sp.arena.room].lv === 2 && halls.every((h) => h.order > 1 || h.lv === 0);
+        if (mobs < 72 || mobs > 104 || el < 1 || el > 6 || pel > 5 || !sel || sp.chests.length !== 3 || nP < 6 || nP > 7 || sides.length < 3 || sides.length > 5 || amb < nP - 1 || !lvOk) {
+          out.bad.push(s + '：怪 ' + mobs + ' 精英 ' + el + '（关键路径 ' + pel + '）宝箱 ' + sp.chests.length + ' 大厅 ' + nP + ' 旁支 ' + sides.length + ' 伏击 ' + amb + ' lv ' + lvOk);
+        }
       }
       // 固定种子进区
       G.debug.zoneSeed(4242);
@@ -10099,7 +10105,7 @@ async function main() {
     });
     assert(r.seeds === 20 && !r.bad.length, 'storm 有种子不合格：' + r.bad.slice(0, 4).join(' | '));
     const z = r.zone;
-    assert(z.gen === 'custom' && z.n >= 20 && z.boss && z.bad === 0 && z.elites <= 4 && z.chests === 2, '进区刷怪不对：' + JSON.stringify(z));
+    assert(z.gen === 'custom' && z.n >= 20 && z.boss && z.bad === 0 && z.elites <= 6 && z.chests === 3, '进区刷怪不对：' + JSON.stringify(z));
     assert(Math.abs(z.doorGap - 2) < 0.01 && z.doorWalk && z.wallMat, '场地门 / 区域外的墙不对：' + JSON.stringify(z));
     assert(r.node.shape === 'rect' && r.node.w === 2 && Math.abs(r.node.dur - 0.9) < 1e-6 && r.node.warnAt <= 6.5, '雷枢应在 5 秒一轮里先放 2 m 宽、0.9 秒的长条预警：' + JSON.stringify(r.node));
     assert(r.node.playerHit > 0 && r.node.huskHit > 0, '雷枢落雷应同时打到玩家和小怪：' + JSON.stringify(r.node));

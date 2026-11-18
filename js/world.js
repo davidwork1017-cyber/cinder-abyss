@@ -5626,14 +5626,16 @@
   // ===== 区域地形：storm（雷鸣遗迹）—— zones-storm 只改这一节 =====
   // 雷鸣遗迹：直角的废墟大厅（设计稿 §3.3）。整区一个随机朝向 th，所有大厅、走廊都按 0° / 90° 对齐：
   // 生成时在局部坐标 (u, v) 里摆轴对齐的盒子，输出时转成 ang = th 的 rbox。
-  // 关键路径：起点圆厅（r=8 圆盘契约）→ H1 → H2 机关厅（一对雷枢）→ H3 柱廊厅（两排柱）→ H4 → 监察大厅（30 × 30，四根粗柱）。
+  // 关键路径：起点圆厅（r=8 圆盘契约）→ H1 → H2 机关厅（一对雷枢）→ H3 柱廊厅（两排柱）→ H4 … → 监察大厅（30 × 30，四根粗柱）。
+  // size-storm：区域加长到约 ×1.6，靠多摆大厅（关键路径 4 → 6–7 个，后半段再一个机关厅），不拉长走廊；旁支 3–5 个，宝箱 3 个。
   // 大厅之间是直的或 L 形（一个弯）的走廊，宽 5–6 m；门口两侧是门框柱（WALL），把门收窄到 4 m。
   // 区域外面整片是墙（spec.outside = WALL）：边上没有通用岩石圈，墙身由 dress 里的 wallRun 沿边画出来。
   const STORM = {
     tries: 120, // 一个种子里最多重摆几次（只用 R，结果仍由种子决定）
     gap: 3.5, // 不相干的两块之间至少隔这么厚的墙
-    area: [3000, 3500], // 目标可走面积（按盒子面积估，校验时实测）
-    box: 148, // 世界坐标外接框上限（设计稿 ≤ 150）
+    area: [5000, 6000], // 目标可走面积（按盒子面积估，校验时实测；size-storm：3000–3500 → ×1.6）
+    box: 172, // 世界坐标外接框上限（size-storm：148 → 172，§2.3 的上限 180）
+    halls7: 0.65, // 关键路径 7 个大厅的概率（其余 6 个）
     hw: [2.5, 3], // 关键路径走廊的半宽
     door: 2, // 门口收窄后的半宽（门框柱之间 4 m）
     frameR: 0.55, // 门框柱（外观）的半宽
@@ -5651,7 +5653,7 @@
     return GEN.legacy(R, def); // 几乎不会走到：交给校验换种子
   }
   // 放宽的校验阈值：区域外面整片是墙，不相邻的大厅之间隔着实心墙、视线本来就不通，所以「边到边 ≥ 14 m」放宽到 3 m
-  stormGen.check = { box: 150, areaMin: 2850, areaMax: 3700, gap: 3 };
+  stormGen.check = { box: 175, areaMin: 4600, areaMax: 6200, gap: 3 }; // size-storm：box 150 → 175、面积 2850–3700 → 4600–6200
 
   function stormTry(R) {
     const rnd = (a, b) => a + R() * (b - a);
@@ -5717,10 +5719,24 @@
       cors.push(C);
       return C;
     };
-    // ---------- 关键路径：H1..H4 + 场地 ----------
+    // 摆的过程中就记着世界坐标的外接框：会把外接框撑过 STORM.box 的大厅 / 旁支当作摆不下，换方向再试（不必整张摆完才发现）
+    const wb = [-8, -8, 8, 8];
+    const fitW = (list, commit) => {
+      const q = wb.slice();
+      for (const b of list) for (const [a, c] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        const p = toW(b.u + a * b.hu, b.v + c * b.hv);
+        q[0] = Math.min(q[0], p[0]); q[1] = Math.min(q[1], p[1]); q[2] = Math.max(q[2], p[0]); q[3] = Math.max(q[3], p[1]);
+      }
+      if (q[2] - q[0] > STORM.box || q[3] - q[1] > STORM.box) return false;
+      if (commit) for (let i = 0; i < 4; i++) wb[i] = q[i];
+      return true;
+    };
+    // ---------- 关键路径：H1..H6 / H7 + 场地 ----------
+    // 大厅的种类：H2 机关厅、H3 柱廊厅照旧，后半段再一个机关厅（倒数第二个大厅），其余是普通大厅
     let P = st, d = SDIRS[Math.floor(R() * 4)], nIn = null;
-    const KIND = ['', 'hall', 'machine', 'colonnade', 'hall', 'arena'];
-    for (let k = 1; k <= 5; k++) {
+    const nH = R() < STORM.halls7 ? 7 : 6;
+    const KIND = nH === 7 ? ['', 'hall', 'machine', 'colonnade', 'hall', 'hall', 'machine', 'hall', 'arena'] : ['', 'hall', 'machine', 'colonnade', 'hall', 'machine', 'hall', 'arena'];
+    for (let k = 1; k <= nH + 1; k++) {
       const kind = KIND[k], arena = kind === 'arena';
       let B, pts, n, C, hw, sA, y, ok = false;
       // 摆不下（撞到已有的房间 / 走廊）就换个方向、换个尺寸再试，最多 8 次
@@ -5738,14 +5754,14 @@
       if (arena) len = wid = 15;
       else if (kind === 'colonnade') { len = rnd(12.5, 14); wid = rnd(8, 9); }
       else if (kind === 'machine') { len = rnd(9.5, 12); wid = rnd(8.5, 11); }
-      else { len = rnd(8.5, 12.5); wid = rnd(8.5, 11); if (R() < 0.35) { const t = len; len = wid; wid = t; } }
+      else { len = rnd(9, 13); wid = rnd(9, 11.5); if (R() < 0.35) { const t = len; len = wid; wid = t; } } // size-storm：普通大厅大一点（8.5–12.5 × 8.5–11 → 9–13 × 9–11.5）
       hw = arena ? 4 : rnd(STORM.hw[0], STORM.hw[1]);
       sA = dotP(P.u, P.v, d) + alongH(P, d);
       const yA0 = dotP(P.u, P.v, lat(d)), Alat = latH(P, d);
       // 走廊离开上一个房间的横向位置：起点圆厅从圆心出去；其余在门框柱之外留够墙
       const ySpan = P.disk ? 0 : Math.max(0, Alat - STORM.door - STORM.frameR * 2 - 1.2 - (arena ? 2 : 0));
       y = yA0 + rnd(-ySpan, ySpan);
-      const L = !arena && !P.disk && R() < 0.4 && k < 5; // L 形：从 P 的墙出去，沿着 B 的侧墙走，转个弯从侧墙进 B
+      const L = !arena && !P.disk && R() < 0.4 && k <= nH; // L 形：从 P 的墙出去，沿着 B 的侧墙走，转个弯从侧墙进 B
       if (!L) {
         const g = arena ? rnd(8, 11) : rnd(8, 13.5);
         const sB = sA + g, yb = arena ? y : y + rnd(-1, 1) * Math.max(0, wid - STORM.door - STORM.frameR * 2 - 1.5) * 0.75;
@@ -5769,7 +5785,7 @@
       C = addCor(P, B, pts, hw, arena ? 'neck' : 'corr', P.disk || arena ? 0 : STORM.door, arena ? 0 : STORM.door);
       C.order = k - 1;
       // 和已有的东西隔开：新大厅只能挨着这条走廊，走廊只能挨着两端
-      ok = clear(B, (h) => h === C) && C.legs.every((b) => clear(b, (h) => h === P || h === C));
+      ok = clear(B, (h) => h === C) && C.legs.every((b) => clear(b, (h) => h === P || h === C)) && fitW([B].concat(C.legs), true);
       if (!ok) cors.pop();
       }
       if (!ok) return stormFail('hall');
@@ -5785,9 +5801,9 @@
       P = B;
       nIn = n;
     }
-    const pathHalls = halls.slice(1, 5), arena = halls[5];
-    // ---------- 旁支小室：2–3 个，从关键路径大厅没开门的墙岔出去 ----------
-    const want = R() < 0.4 ? 3 : 2, sides = [];
+    const pathHalls = halls.slice(1, nH + 1), arena = halls[nH + 1];
+    // ---------- 旁支小室：3–5 个，从关键路径大厅没开门的墙岔出去 ----------
+    const want = R() < 0.5 ? 3 : R() < 0.7 ? 4 : 5, sides = [];
     const order = pathHalls.slice().sort(() => R() - 0.5);
     for (let pass = 0; pass < 2 && sides.length < want; pass++) {
       for (const H of order) {
@@ -5805,6 +5821,7 @@
           if (!clear(S, null)) continue;
           if (!clear(tmp.legs[0], (h) => h === H)) continue;
           if (boxGap(S, tmp.legs[0]) > 0.01) continue;
+          if (!fitW([S, tmp.legs[0]], true)) continue;
           halls.push(S);
           const C = addCor(H, S, [pt(q, sA - OV, y), pt(q, sA + g + OV, y)], hw, 'corr', 0, 1.5);
           C.order = H.order;
@@ -5818,7 +5835,7 @@
         }
       }
     }
-    if (sides.length < 2) return stormFail('sides');
+    if (sides.length < 3) return stormFail('sides');
     // ---------- 外接框、面积 ----------
     let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9, area = 0;
     const grow = (b) => {
@@ -5854,17 +5871,16 @@
     if (area < STORM.area[0] || area > STORM.area[1]) return stormFail('area');
     // ---------- 雷枢：H2 里横跨大厅一对；另有 0–1 对在某条走廊上 ----------
     const nodes = [];
-    const mach = pathHalls.find((H) => H.hk === 'machine');
-    if (mach) {
+    for (const mach of pathHalls.filter((H) => H.hk === 'machine')) {
       const n = mach.entry.n, l = lat(n), len = alongH(mach, n), wid = latH(mach, n);
-      for (let t = 0; t < 8; t++) {
-        const s = rnd(0, 0.32) * len, o = wid - 0.25; // 雷线偏向出口一侧，门内留出伏击的位置
+      for (let t = 0; t < 10; t++) {
+        const s = (t < 5 ? rnd(0, 0.32) : rnd(-0.3, 0.6)) * len, o = wid - 0.25; // 雷线偏向出口一侧，门内留出伏击的位置（前几次摆不开再放宽）
         const a = [mach.u + n[0] * s - l[0] * o, mach.v + n[1] * s - l[1] * o], b = [mach.u + n[0] * s + l[0] * o, mach.v + n[1] * s + l[1] * o];
         if (nearDoor(mach, a[0], a[1], 4) || nearDoor(mach, b[0], b[1], 4)) continue;
         nodes.push({ a, b, room: mach, r: 0.75 });
         break;
       }
-      if (!nodes.length) return stormFail('node');
+      if (!nodes.some((N) => N.room === mach)) return stormFail('node');
     }
     if (R() < 0.55) {
       const cand = cors.filter((C) => !C.side && C.kind === 'corr');
@@ -5906,8 +5922,15 @@
     for (const H of halls) for (const D of H.doors) allDoors.push(D.p);
     // ---------- 怪群 ----------
     const packsL = [];
-    const okPack = (u, v, minSd, ambush) => {
-      if (sdL(u, v) < minSd) return false;
+    // sdL(u, v) ≥ minSd 的快速判定（结果和直接算 sdL 一样）：点在大厅 H 里离墙已经 ≥ minSd 时，房间那一半的 max 不用再算别的盒子，只查挖空
+    const sdOk = (u, v, minSd, H) => {
+      if (!H || H.disk || boxSd(H, u, v) < minSd) return sdL(u, v) >= minSd;
+      for (const c of cutsL) if (Math.hypot(u - c.u, v - c.v) - c.r < minSd) return false;
+      for (const b of wallsL) if (-boxSd(b, u, v) < minSd) return false;
+      return true;
+    };
+    const okPack = (u, v, minSd, ambush, H) => {
+      if (!sdOk(u, v, minSd, H)) return false;
       if (Math.hypot(u, v) < 12.5) return false;
       if (!ambush && allDoors.some((p) => Math.hypot(p[0] - u, p[1] - v) < 4.6)) return false;
       if (nodes.some((N) => segDist(u, v, N.a, N.b) < (ambush ? 3 : 4))) return false;
@@ -5916,7 +5939,7 @@
     };
     const placeIn = (H, n, extra) => {
       const c = [];
-      for (let u = H.u - H.hu + 3; u <= H.u + H.hu - 3; u += 1.5) for (let v = H.v - H.hv + 3; v <= H.v + H.hv - 3; v += 1.5) if (okPack(u, v, 3, false)) c.push([u, v]);
+      for (let u = H.u - H.hu + 3; u <= H.u + H.hu - 3; u += 1.5) for (let v = H.v - H.hv + 3; v <= H.v + H.hv - 3; v += 1.5) if (okPack(u, v, 3, false, H)) c.push([u, v]);
       if (!c.length) return null;
       const p = c[Math.floor(R() * c.length)];
       const pk = Object.assign({ u: p[0], v: p[1], H, n, r: 2.6 }, extra || {});
@@ -5934,7 +5957,7 @@
         if (Lmax < 4.4) continue;
         const L = rnd(4.4, Lmax), dep = rnd(2.6, Math.max(2.6, Math.min(5.2, dl * 2 - 2.4, 1.5 * L - 3.3)));
         const u = D.p[0] + D.n[0] * dep + l[0] * sd * L, v = D.p[1] + D.n[1] * dep + l[1] * sd * L;
-        if (boxSd(H, u, v) < 2.4 || !okPack(u, v, 2.4, true)) continue;
+        if (boxSd(H, u, v) < 2.4 || !okPack(u, v, 2.4, true, H)) continue;
         if (sees([D.p[0] - D.n[0] * 3, D.p[1] - D.n[1] * 3], [u, v])) continue;
         packsL.push({ u, v, H, n: [3, 5], r: 2.2, ambush: true });
         done = true;
@@ -5947,58 +5970,59 @@
         const u = D.p[0] + D.n[0] * 6.2 + l[0] * sd * 4.4, v = D.p[1] + D.n[1] * 6.2 + l[1] * sd * 4.4;
         wallsL.push(wb);
         const endOk = [-1, 1].every((e) => boxSd(H, wc[0] + l[0] * e * 2.4, wc[1] + l[1] * e * 2.4) >= 1.2); // 残墙两头离侧墙留出能走的缝
-        const why = boxSd(H, wc[0], wc[1]) < 2.9 || !endOk ? 'aw' : boxSd(H, u, v) < 2.4 ? 'ab' : !okPack(u, v, 2.4, true) ? 'ap' : sees([D.p[0] - D.n[0] * 3, D.p[1] - D.n[1] * 3], [u, v]) ? 'as' : '';
+        const why = boxSd(H, wc[0], wc[1]) < 2.9 || !endOk ? 'aw' : boxSd(H, u, v) < 2.4 ? 'ab' : !okPack(u, v, 2.4, true, H) ? 'ap' : sees([D.p[0] - D.n[0] * 3, D.p[1] - D.n[1] * 3], [u, v]) ? 'as' : '';
         if (why) { stormFail(why); wallsL.pop(); continue; }
         packsL.push({ u, v, H, n: [3, 5], r: 2.2, ambush: true });
         done = true;
       }
     }
     // 每个大厅按面积：< 250 m² 1–2 群、250–500 2–3 群、> 500 3–4 群（伏击那一群算在里面）
-    const target = Math.round(rnd(50, 58));
+    const target = Math.round(rnd(80, 93)); // size-storm：50–58 → ×1.6（每群的只数归 zones-balance，这里只多摆群）
     const expect = () => packsL.reduce((a, p) => a + (Array.isArray(p.n) ? (p.n[0] + p.n[1]) / 2 : p.n), 0);
     const lim = pathHalls.map((H) => { const a = 4 * H.hu * H.hv; return a < 250 ? [1, 2] : a < 500 ? [2, 3] : [3, 4]; });
     pathHalls.forEach((H, i) => {
       while (packsL.filter((p) => p.H === H).length < lim[i][0]) if (!placeIn(H, [4, 6])) break;
     });
-    // 旁支：精英室（保底精英）、可选的第三间（小群）
+    // 旁支：精英室（保底精英）、第三间起各一个小群（第三间还有宝箱）
     const eliteRoom = sides[1], chestRoom = sides[0];
     packsL.push({ u: eliteRoom.u, v: eliteRoom.v, H: eliteRoom, n: [4, 5], r: 2.4, elite: true });
-    if (sides[2]) packsL.push({ u: sides[2].u, v: sides[2].v, H: sides[2], n: [3, 4], r: 2.2 });
+    for (const S of sides.slice(2)) packsL.push({ u: S.u, v: S.v, H: S, n: [3, 4], r: 2.2 });
     // 长走廊（> 14 m、宽 6 m 的）中点：2–3 只的小群
     for (const C of cors) {
       if (C.side || C.kind !== 'corr' || C.len < 14 || C.hw < 2.75 || R() < 0.5) continue;
       const m = W.terrainGfx.axisAt(C.axis, 0.5);
       if (okPack(m.x, m.z, Math.min(2.6, C.hw - 0.2), false)) packsL.push({ u: m.x, v: m.z, H: C, n: [2, 3], r: 1.7, cor: true }); // 走廊中点的小群不放蛮兵（下面输出 noBrute）
     }
-    for (let guard = 0; guard < 12 && expect() < target; guard++) {
+    for (let guard = 0; guard < 20 && expect() < target; guard++) {
       const i = Math.floor(R() * pathHalls.length);
       if (packsL.filter((p) => p.H === pathHalls[i]).length >= lim[i][1]) continue;
       placeIn(pathHalls[i], [4, 6]);
     }
     const tot = expect();
-    if (tot < 45 || tot > 64) return stormFail('mobs');
-    // 精英：关键路径大厅各 45%（落在非伏击的一群上），加上精英室保底，全区上限 4
+    if (tot < 72 || tot > 102) return stormFail('mobs'); // size-storm：45–64 → ×1.6
+    // 精英：关键路径大厅各 45%（落在非伏击的一群上），关键路径最多 5 个，加上精英室保底，全区上限 6
     let elites = 1;
     for (const H of pathHalls) {
-      if (elites >= 4 || R() >= 0.45) continue;
+      if (elites >= 6 || R() >= 0.45) continue;
       const c = packsL.filter((p) => p.H === H && !p.ambush);
       if (!c.length) continue;
       c[Math.floor(R() * c.length)].elite = true;
       elites++;
     }
-    // ---------- 宝箱：宝箱室、精英室各一个，放在背对门的那面墙前 ----------
-    const chestsL = [chestRoom, eliteRoom].map((S) => ({ u: S.u + S.entry.n[0] * (S.hu - 1.8), v: S.v + S.entry.n[1] * (S.hv - 1.8), S }));
+    // ---------- 宝箱：宝箱室、精英室、第三间旁支各一个，放在背对门的那面墙前 ----------
+    const chestsL = [chestRoom, eliteRoom, sides[2]].map((S) => ({ u: S.u + S.entry.n[0] * (S.hu - 1.8), v: S.v + S.entry.n[1] * (S.hv - 1.8), S }));
 
     // ---------- 输出 spec（世界坐标）----------
     const rooms = [], links = [], cuts = [], packs = [], chests = [];
     const W2 = (p) => toW(p[0], p[1]);
     const rb = (b, round) => { const c = toW(b.u, b.v); return { t: 'rbox', x: c[0], z: c[1], hx: b.hu, hz: b.hv, ang: th, round }; };
     // 房间顺序 = 重叠处的优先级：大厅在前、走廊在后
+    // 怪物等级偏移 lv = lvFor(order, 关键路径大厅数)：旁支取它岔出来的那个大厅的 order，走廊取进口那一端
     halls.forEach((H, i) => {
       H.id = i;
       const c = toW(H.u, H.v);
       rooms.push({
-        id: i, kind: H.kind, order: H.order, path: H.path,
+        id: i, kind: H.kind, order: H.order, path: H.path, lv: lvFor(H.parent ? H.parent.order : H.order, nH),
         prims: [H.disk ? { t: 'circle', x: 0, z: 0, r: 8 } : rb(H, 0.6)],
         core: { x: c[0], z: c[1], r: H.disk ? 8 : Math.min(H.hu, H.hv) - 0.3 },
         tags: H.kind === 'side' ? [H === eliteRoom ? 'elite' : H === chestRoom ? 'chest' : 'room'] : H.hk ? [H.hk] : [],
@@ -6009,7 +6033,7 @@
       const lg = C.legs.reduce((a, b) => (Math.max(b.hu, b.hv) > Math.max(a.hu, a.hv) ? b : a));
       const c = toW(lg.u, lg.v);
       rooms.push({
-        id: C.id, kind: 'link', order: C.order, path: !C.side, prims: C.legs.map((b) => rb(b, 0.3)),
+        id: C.id, kind: 'link', order: C.order, lv: lvFor(C.order, nH), path: !C.side, prims: C.legs.map((b) => rb(b, 0.3)),
         core: { x: c[0], z: c[1], r: C.hw }, axis: C.axis.map(W2), ends: [C.a.id, C.b.id], tags: [C.kind],
       });
       const da = W2(C.doorA.p), db = W2(C.doorB.p);
@@ -6174,7 +6198,7 @@
       const len = Math.hypot(N.bx - N.ax, N.bz - N.az), ang = Math.atan2(N.bx - N.ax, N.bz - N.az);
       cond.push((N.ax + N.bx) / 2, 0.012, (N.az + N.bz) / 2, 0, ang, 0, 0.42, 0.03, len, 1);
     }
-    // 北墙（朝镜头的那面）上隔一段立一根小避雷针：同一套柱子模型缩小，顶上也是发光晶体
+    // 北墙（朝镜头的那面）上隔一段立一根小避雷针：同一套柱子模型缩小，顶上也是发光晶体；转轮最多 9 个（size-storm：区域加长，6 → 9，仍是一次 draw）
     const rods = [], wheels = [];
     let lastRod = null, lastWheel = null;
     stormEdges(3.2, 0.5, (x, z, nx, nz) => {
@@ -6189,7 +6213,7 @@
           tips.push(x, top + 1.32, z, 0, rand(0, TAU), 0, 0.12, 0.22, 0.12, 1);
         }
       }
-      if (wheels.length < 6 && (!lastWheel || Math.hypot(lastWheel[0] - x, lastWheel[1] - z) > 16) && Math.random() < 0.35) {
+      if (wheels.length < 9 && (!lastWheel || Math.hypot(lastWheel[0] - x, lastWheel[1] - z) > 16) && Math.random() < 0.35) {
         lastWheel = [x, z];
         wheels.push({ x: x - nx * 0.42, y: 1.35, z: z - nz * 0.42, ang: Math.atan2(nx, nz), s: rand(0.85, 1.15), ph: rand(0, TAU), sp: rand(0.25, 0.5) * (Math.random() < 0.5 ? -1 : 1) });
       }
