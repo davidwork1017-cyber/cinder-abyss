@@ -8268,40 +8268,35 @@
     }
   }
 
-  // 进区时把整个场景预热一遍（zones-integrate）：renderer.compile 不管视锥，把还没看到的布景、睡着的怪的材质都编好，
-  // 场景里用到的贴图也先传上去（initTexture）。原来这些都留到第一次进视野的那一帧现做，软件渲染下进区头几秒会卡 1 秒多。
-  // 程序按 cacheKey 缓存、贴图传过一次就不再传，所以同一个区第二次进来几乎不花时间；G.enterZone 刷完怪以后调
+  // 第一次进某个区时把整个场景预热一遍（zones-integrate）：renderer.compile 不管视锥，把还没看到的布景、睡着的怪的材质都编好，
+  // 场景里用到的贴图也先传上去（initTexture）。不做的话这些留到第一次进视野的那一帧现做，软件渲染下正好卡在走到第一群怪、开打的时候。
+  // 每个区每次会话只做一次（G.enterZone 刷完怪以后调）：再进同一个区时着色器和贴图都已经在了，不再花时间
+  const warmed = new Set();
   W.precompile = function () {
+    const z = W.zone;
+    if (!z || warmed.has(z.def.id)) return;
+    warmed.add(z.def.id);
     const t0 = performance.now();
     try {
       renderer.compile(scene, camera);
       const seen = new Set();
+      const up = (t) => {
+        if (t && t.isTexture && t.image && !seen.has(t)) {
+          seen.add(t);
+          renderer.initTexture(t);
+        }
+      };
       scene.traverse((o) => {
         if (!o.material) return;
         for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
-          for (const k of ['map', 'normalMap', 'emissiveMap', 'bumpMap', 'roughnessMap', 'aoMap', 'alphaMap']) {
-            const t = m[k];
-            if (t && t.isTexture && !seen.has(t) && t.image) {
-              seen.add(t);
-              renderer.initTexture(t);
-            }
-          }
-          if (m.uniforms) for (const u in m.uniforms) {
-            const t = m.uniforms[u] && m.uniforms[u].value;
-            if (t && t.isTexture && !seen.has(t) && t.image) {
-              seen.add(t);
-              renderer.initTexture(t);
-            }
-          }
+          for (const k of ['map', 'normalMap', 'emissiveMap', 'bumpMap', 'roughnessMap', 'aoMap', 'alphaMap']) up(m[k]);
+          if (m.uniforms) for (const u in m.uniforms) up(m.uniforms[u] && m.uniforms[u].value);
         }
       });
-      // 贴图上传和编译在 GPU 进程里是异步的，读一个像素逼它在这里做完（不然会在进区后的第二三帧卡住，软件渲染下 1 秒多）
-      const gl = renderer.getContext();
-      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
     } catch (e) {
       if (window.console) console.warn('[画面] 进区预热失败（不影响游戏）', e);
     }
-    if (W.zone && W.zone.ms) W.zone.ms.compile = performance.now() - t0;
+    if (z.ms) z.ms.compile = performance.now() - t0;
   };
   W.buildZone = function (def, level) {
     disposeZone();
