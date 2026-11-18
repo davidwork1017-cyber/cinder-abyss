@@ -5525,6 +5525,76 @@ async function main() {
     }, bar0);
   });
 
+  await uiStep('准星随时找得到：关面板 / 开场卡片后鼠标不动也立刻显示在鼠标处；层级压过大字提示；鼠标停一阵再动时外圈收拢提示', async () => {
+    await ev(() => {
+      T.arena();
+      T.settle();
+      G.debug.hold(false);
+    });
+    const ret = () =>
+      ev(() => {
+        const r = document.getElementById('reticle');
+        return { cls: r.className, tf: r.style.transform, disp: getComputedStyle(r).display, ping: +(r.dataset.ping || 0) };
+      });
+    const shown = (msg) => until(() => document.getElementById('reticle').className === 'aim', null, 10000).catch(() => {
+      throw new Error(msg);
+    });
+    await page.mouse.move(1000, 620);
+    await shown('准星没有出现');
+    // 面板开关一轮：鼠标移到面板上再按 Esc 关掉，鼠标不动（之前 overCanvas 停在「在面板上」，准星和系统指针一起消失）
+    await page.keyboard.press('KeyI');
+    await until(() => document.getElementById('reticle').className === 'off');
+    await page.mouse.move(720, 450);
+    let r = await ev(() => document.elementFromPoint(720, 450).tagName);
+    assert(r !== 'CANVAS', '面板没有盖住 (720, 450)');
+    let p0 = (await ret()).ping;
+    await page.keyboard.press('Escape');
+    await shown('Esc 关掉面板后鼠标不动，准星没有出现');
+    r = await ret();
+    assert(r.tf === 'translate(720px, 450px)' && r.disp !== 'none', '关掉面板后准星不在鼠标处：' + JSON.stringify(r));
+    assert(r.ping > p0, '准星重新出现时应收拢提示一下：' + JSON.stringify(r));
+    // 点面板右上的「关闭」：鼠标停在原处（按钮的位置）
+    await page.keyboard.press('KeyG');
+    await until(() => document.getElementById('reticle').className === 'off');
+    const b = await ev(() => T.rect('#panel-close'));
+    const bx = Math.round(b.x), by = Math.round(b.y);
+    await page.mouse.move(bx, by);
+    await page.mouse.down();
+    await page.mouse.up();
+    assert(!(await ev(() => G.ui.isOpen())), '点「关闭」没有关掉面板');
+    await shown('点「关闭」后鼠标不动，准星没有出现');
+    r = await ret();
+    assert(r.tf === 'translate(' + bx + 'px, ' + by + 'px)', '点「关闭」后准星不在鼠标处：' + JSON.stringify(r));
+    // 开场卡片：鼠标停在卡片上按回车
+    await page.mouse.move(720, 450);
+    await ev(() => G.ui.showIntro());
+    await until(() => document.getElementById('reticle').className === 'off');
+    await page.keyboard.press('Enter');
+    await shown('回车关掉开场卡片后鼠标不动，准星没有出现');
+    r = await ret();
+    assert(r.tf === 'translate(720px, 450px)', '关掉开场卡片后准星不在鼠标处：' + JSON.stringify(r));
+    // 鼠标停 2.2 秒以上再动：收拢提示一次；接着连续移动不再提示
+    await sleep(2500);
+    p0 = (await ret()).ping;
+    await page.mouse.move(760, 430);
+    await page.mouse.move(780, 420);
+    r = await ret();
+    assert(r.ping === p0 + 1 && r.tf === 'translate(780px, 420px)', '鼠标停了一阵再动应提示一次：' + JSON.stringify({ p0, r }));
+    // 大字提示（烬铸武器）出现在画面中上部时，准星不能被它盖住
+    r = await ev(() => {
+      G.ui.bigToast('测试', '测试', '#ff9b3d', '');
+      return { ret: +getComputedStyle(document.getElementById('reticle')).zIndex, bt: +getComputedStyle(document.getElementById('big-toast')).zIndex, toasts: +getComputedStyle(document.getElementById('toasts')).zIndex, tip: +getComputedStyle(document.getElementById('tip')).zIndex };
+    });
+    assert(r.ret > r.bt && r.ret > r.toasts && r.ret < r.tip, '准星的层级应高过大字提示 / 提示条、低过悬浮提示：' + JSON.stringify(r));
+    await ev(() => {
+      const t = document.getElementById('big-toast');
+      clearTimeout(t._t1);
+      clearTimeout(t._t2);
+      t.classList.remove('on', 'out');
+      G.debug.hold(true);
+    });
+  });
+
   await uiStep('无铭技能宝石：技能页顶部写数量和最高等级；点两下才用掉；学会新技能自动上技能栏；给已学技能升级；总是用最高的那颗；等级不够不能升；第一次捡到有新手提示', async () => {
     // 先让两个技能变回「没学会」，技能栏腾出一格
     await ev(() => {

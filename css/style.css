@@ -2282,31 +2282,36 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
   50% { transform: scale(1.12); }
 }
 
-#reticle { position: fixed; left: 0; top: 0; width: 0; height: 0; z-index: 8; pointer-events: none; --rc: #fff0d2; }
+/* 准星：浅色线条外面包一圈深色描边，亮的地面 / 特效和暗的地面上都看得清。
+   层级高过提示条和大字提示（30 / 31），低过悬浮提示（40）；面板和开场卡片打开时整个隐藏 */
+#reticle { position: fixed; left: 0; top: 0; width: 0; height: 0; z-index: 35; pointer-events: none; --rc: #fff0d2; --ro: rgba(10, 6, 4, 0.85); }
 #reticle.off { display: none; }
 #reticle i { position: absolute; display: block; transition: transform 0.1s, width 0.1s, height 0.1s, margin 0.1s, border-color 0.1s, background 0.1s, border-radius 0.1s; }
-.r-ring { left: 0; top: 0; width: 22px; height: 22px; margin: -11px 0 0 -11px; border: 1.5px solid var(--rc); border-radius: 50%; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(0, 0, 0, 0.45); opacity: 0.9; }
-.r-dot { left: -1.5px; top: -1.5px; width: 3px; height: 3px; border-radius: 50%; background: var(--rc); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7); }
-.r-t { left: -1px; top: -1px; width: 2px; height: 6px; background: var(--rc); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6); }
-.r-t.t1 { transform: translateY(-17px); }
-.r-t.t2 { transform: rotate(90deg) translateY(-17px); }
-.r-t.t3 { transform: rotate(180deg) translateY(-17px); }
-.r-t.t4 { transform: rotate(270deg) translateY(-17px); }
+.r-ring { left: 0; top: 0; width: 26px; height: 26px; margin: -13px 0 0 -13px; border: 2px solid var(--rc); border-radius: 50%; box-shadow: 0 0 0 1.5px var(--ro), inset 0 0 0 1.5px var(--ro), 0 0 6px 2px rgba(0, 0, 0, 0.35); }
+.r-dot { left: -2px; top: -2px; width: 4px; height: 4px; border-radius: 50%; background: var(--rc); box-shadow: 0 0 0 1.5px var(--ro); }
+/* 四根短刻度：以准星中心为原点摆放，离中心 19px（贴着外圈、留一点缝） */
+.r-t { left: -1.25px; top: -3.5px; width: 2.5px; height: 7px; background: var(--rc); box-shadow: 0 0 0 1.5px var(--ro); }
+.r-t.t1 { transform: translateY(-19px); }
+.r-t.t2 { transform: rotate(90deg) translateY(-19px); }
+.r-t.t3 { transform: rotate(180deg) translateY(-19px); }
+.r-t.t4 { transform: rotate(270deg) translateY(-19px); }
+/* 「找准星」：外圈从 3 倍大收拢到原位并淡出（由 ui.js 的 retPing 用 Web Animations 播放） */
+#reticle .r-ping { left: 0; top: 0; width: 26px; height: 26px; margin: -13px 0 0 -13px; border: 1px solid var(--rc); border-radius: 50%; box-shadow: 0 0 0 1px var(--ro), inset 0 0 0 1px var(--ro); opacity: 0; transition: none; }
 /* 指着敌人：收紧、变红、十字转成斜的 */
 #reticle.enemy { --rc: #ff5a44; }
-#reticle.enemy .r-ring { width: 16px; height: 16px; margin: -8px 0 0 -8px; }
-#reticle.enemy .r-t.t1 { transform: rotate(45deg) translateY(-14px); }
-#reticle.enemy .r-t.t2 { transform: rotate(135deg) translateY(-14px); }
-#reticle.enemy .r-t.t3 { transform: rotate(225deg) translateY(-14px); }
-#reticle.enemy .r-t.t4 { transform: rotate(315deg) translateY(-14px); }
+#reticle.enemy .r-ring { width: 19px; height: 19px; margin: -9.5px 0 0 -9.5px; }
+#reticle.enemy .r-t.t1 { transform: rotate(45deg) translateY(-15px); }
+#reticle.enemy .r-t.t2 { transform: rotate(135deg) translateY(-15px); }
+#reticle.enemy .r-t.t3 { transform: rotate(225deg) translateY(-15px); }
+#reticle.enemy .r-t.t4 { transform: rotate(315deg) translateY(-15px); }
 /* 指着掉落：金色方框，表示「可拾取」 */
 #reticle.loot { --rc: #ffd75e; }
-#reticle.loot .r-ring { border-radius: 3px; transform: rotate(45deg); width: 14px; height: 14px; margin: -7px 0 0 -7px; }
-#reticle.loot .r-t { height: 4px; }
-#reticle.loot .r-t.t1 { transform: translateY(-15px); }
-#reticle.loot .r-t.t2 { transform: rotate(90deg) translateY(-15px); }
-#reticle.loot .r-t.t3 { transform: rotate(180deg) translateY(-15px); }
-#reticle.loot .r-t.t4 { transform: rotate(270deg) translateY(-15px); }
+#reticle.loot .r-ring { border-radius: 3px; transform: rotate(45deg); width: 16px; height: 16px; margin: -8px 0 0 -8px; }
+#reticle.loot .r-t { top: -2.5px; height: 5px; }
+#reticle.loot .r-t.t1 { transform: translateY(-17px); }
+#reticle.loot .r-t.t2 { transform: rotate(90deg) translateY(-17px); }
+#reticle.loot .r-t.t3 { transform: rotate(180deg) translateY(-17px); }
+#reticle.loot .r-t.t4 { transform: rotate(270deg) translateY(-17px); }
 
 /* ============================================================
    新手提示卡 / 开场卡片
@@ -2626,7 +2631,7 @@ body.panel-open #coach { display: none; }
 .mp-note .ready { color: #ffc85a; }
 
 #reticle.ally { --rc: var(--ally); }
-#reticle.ally .r-ring { width: 14px; height: 14px; margin: -7px 0 0 -7px; }
+#reticle.ally .r-ring { width: 17px; height: 17px; margin: -8.5px 0 0 -8.5px; }
 
 /* ---- 技能卡 / 属性 / 帮助 ---- */
 .sk-nums.ally { border-color: #1d4a43; background: #08100e; }

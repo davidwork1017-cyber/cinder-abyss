@@ -4021,8 +4021,33 @@
       wui.arrows.push({ el: d, tip: d.firstChild, txt: d.lastChild, on: false, kind: '', x: -1, y: -1, a: 99 });
     }
     wui.ret = $('reticle');
-    wui.ret.innerHTML = '<i class="r-ring"></i><i class="r-dot"></i><i class="r-t t1"></i><i class="r-t t2"></i><i class="r-t t3"></i><i class="r-t t4"></i>';
+    // r-ping 是「找准星」时从外面收拢过来的一圈
+    wui.ret.innerHTML = '<i class="r-ping"></i><i class="r-ring"></i><i class="r-dot"></i><i class="r-t t1"></i><i class="r-t t2"></i><i class="r-t t3"></i><i class="r-t t4"></i>';
+    rx.ping = wui.ret.firstChild;
     wui.feed = $('feed');
+  }
+
+  // 准星要随时找得到：鼠标停了一阵再动、从隐藏变回显示（关面板、鼠标回到窗口）、换区域、复活、切回窗口时，
+  // 外圈从大往小收拢一下，把视线引到准星上
+  const RET_IDLE = 2200; // 毫秒：鼠标停这么久后再动就提示一下
+  const rx = { ping: null, pingAt: -1e9, pings: 0, moveAt: 0, live: false, zone: null, dead: false, want: false };
+  function retOnCanvas(t) {
+    return !!t && (t === document.body || t === document.documentElement || t.tagName === 'CANVAS');
+  }
+  function retPing(now) {
+    if (now - rx.pingAt < 700 || !rx.ping || !rx.ping.animate) return;
+    rx.pingAt = now;
+    wui.ret.dataset.ping = ++rx.pings; // 测试用：提示过几次
+    // 0.09 秒内从 3.2 倍淡入，再用 0.36 秒减速收拢到准星外圈，最后 0.15 秒淡掉
+    rx.ping.animate(
+      [
+        { transform: 'scale(3.2)', opacity: 0 },
+        { transform: 'scale(2.7)', opacity: 1, offset: 0.15, easing: 'cubic-bezier(0.3, 0.7, 0.4, 1)' },
+        { transform: 'scale(1.05)', opacity: 0.9, offset: 0.75 },
+        { transform: 'scale(1)', opacity: 0 },
+      ],
+      { duration: 600 }
+    );
   }
 
   // 鼠标指着哪个敌人：先用鼠标的地面落点粗筛，再按屏幕上「脚 → 头」的一条胶囊判定
@@ -4394,6 +4419,10 @@
     let loot = null;
     let enemy = null;
     let ally = null;
+    // 面板 / 开场卡片刚关掉：鼠标不动就没有 mousemove，overCanvas 还停在「鼠标在面板上」，准星和系统指针会一起消失。
+    // 这里按鼠标现在的位置重新判断一次（只在关掉的那一帧读一次布局）
+    if (live && !rx.live && ui.mouseX >= 0) ui.overCanvas = retOnCanvas(document.elementFromPoint(ui.mouseX, ui.mouseY));
+    rx.live = live;
     const aim = live && ui.overCanvas && ui.mouseX >= 0;
     if (aim && !P.dead) {
       loot = W.lootLabelAt(ui.mouseX, ui.mouseY);
@@ -4403,8 +4432,22 @@
     minionPlate(ally);
     const rs = !aim ? 'off' : loot ? 'loot' : enemy ? 'enemy' : ally ? 'ally' : 'aim';
     if (rs !== wui.retState) {
+      if (wui.retState === 'off') rx.want = true; // 从隐藏变回显示：提示一下在哪
       wui.retState = rs;
       wui.ret.className = rs;
+    }
+    // 换区域 / 复活后画面整个变了，也提示一下；隐藏着的时候先记下，显示出来再提示
+    if (G.state.zone !== rx.zone) {
+      if (rx.zone) rx.want = true;
+      rx.zone = G.state.zone;
+    }
+    if (P.dead !== rx.dead) {
+      if (!P.dead) rx.want = true;
+      rx.dead = P.dead;
+    }
+    if (rx.want && rs !== 'off') {
+      rx.want = false;
+      retPing(now);
     }
     ui.hoverEnemy = enemy;
     syncLabels(loot, live, now);
@@ -5077,6 +5120,20 @@
       const t = e.target;
       ui.overCanvas = !t || t === document.body || t === document.documentElement || t.tagName === 'CANVAS';
       wui.ret.style.transform = 'translate(' + e.clientX + 'px,' + e.clientY + 'px)'; // 准星直接跟鼠标，不等下一帧
+      const now = performance.now();
+      if (now - rx.moveAt > RET_IDLE && wui.retState !== 'off') retPing(now); // 停了一阵再动：提示一下准星在哪
+      rx.moveAt = now;
+    });
+    // 鼠标不动、它下面的东西变了（面板关掉、提示卡收起）时浏览器会补发 mouseover：顺手更新准星的位置和「在不在画面上」
+    document.addEventListener('mouseover', (e) => {
+      ui.mouseX = e.clientX;
+      ui.mouseY = e.clientY;
+      ui.overCanvas = retOnCanvas(e.target);
+      wui.ret.style.transform = 'translate(' + e.clientX + 'px,' + e.clientY + 'px)';
+    });
+    // 切回窗口：鼠标可能一直停在原处，提示一下准星在哪
+    window.addEventListener('focus', () => {
+      rx.want = true;
     });
     document.documentElement.addEventListener('mouseleave', () => {
       ui.mouseX = -1;
