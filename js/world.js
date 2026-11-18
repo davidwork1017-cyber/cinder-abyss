@@ -3668,7 +3668,8 @@
     plankBridge(pts, w, opt) {
       const o = opt || {}, list = [], stone = !!o.stone, y = o.y !== undefined ? o.y : 0.04, th = o.th || (stone ? 0.2 : 0.08);
       const pitch = stone ? 0.9 : 0.55, depth = stone ? 0.86 : 0.46;
-      for (let i = 0; i + 1 < pts.length; i++) {
+      // opt.pairs（zones-polish）：pts 两两一组是互不相连的几座桥（同一个实例化网格，一次 draw），每座两头都有桥墩
+      for (let i = 0; i + 1 < pts.length; i += o.pairs ? 2 : 1) {
         const a = pts[i], b = pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1], l = Math.hypot(dx, dz), ang = Math.atan2(dx, dz);
         const n = Math.max(1, Math.floor(l / pitch)), cx = Math.cos(ang), sx = -Math.sin(ang);
         for (let k = 0; k < n; k++) {
@@ -3688,7 +3689,7 @@
             }
           }
         }
-        if (stone && i === 0) for (const e of [[a[0], a[1]], [b[0], b[1]]]) for (const sd of [-1, 1]) {
+        if (stone && (i === 0 || o.pairs)) for (const e of [[a[0], a[1]], [b[0], b[1]]]) for (const sd of [-1, 1]) {
           list.push(e[0] + cx * sd * (w * 0.5 + 0.2), 0.45, e[1] + sx * sd * (w * 0.5 + 0.2), 0, ang + rand(-0.1, 0.1), 0, 0.7, 0.9, 0.7, rand(0.7, 0.85));
         }
       }
@@ -4703,11 +4704,14 @@
     // 熔岩河 + 场地的熔岩池：一个网格（硬边色阶、冷壳、流纹），地面暖光低画质不画
     const river = F('river').find((f) => !f.ditch), pools = F('pool'), rivers = F('river');
     // 石桥：石板 + 一节节矮石墙 + 两头桥墩
+    // zones-polish：两座桥（河上的石桥 + 熔岩沟上的窄桥）一个网格，同宽
+    const bp = [];
     for (const b of F('bridge')) {
       const dx = Math.sin(b.ang) * b.len * 0.5, dz = Math.cos(b.ang) * b.len * 0.5;
-      out.bridge = ctx.gfx.plankBridge([[b.x - dx, b.z - dz], [b.x + dx, b.z + dz]], b.w, { stone: true, rail: true, color: ASH_LAY.stone });
-      if (out.bridge) out.bridge.castShadow = false; // 平的桥不投影（省一次阴影 draw），矮石墙的影子看不出来
+      bp.push([b.x - dx, b.z - dz], [b.x + dx, b.z + dz]);
     }
+    if (bp.length) out.bridge = ctx.gfx.plankBridge(bp, ASH_GEN.bridgeW, { stone: true, rail: true, color: ASH_LAY.stone, pairs: true });
+    if (out.bridge) out.bridge.castShadow = false; // 平的桥不投影（省一次阴影 draw），矮石墙的影子看不出来
     // 农舍矮墙（L 形的墙挖空沿边一节节砌起来）：墙厚的一半，矮、高低错落
     if (F('wall').length) out.walls = ctx.gfx.wallRun({ kinds: [MAT.WALL], step: 1.1, h: 1.25, t: 0.38, color: ASH_LAY.wall });
     if (out.walls) out.walls.castShadow = false; // 矮墙不投影：省一次阴影 draw（墙只在农庄，实例化网格不做视锥剔除，每帧都画）
@@ -7789,7 +7793,77 @@
   let zoneDisp = []; // 换区时要 dispose 的东西
   let zoneFx = null; // 每帧要动的区域元素（水晶脉动、法阵、环境粒子配置）
 
+  // ----- 远处的实例不画（zones-polish）-----
+  // 区域加长到 ×1.6 以后，沿岩壁的岩石 / 摆件这些实例化网格的实例数跟着边长涨，一张图的实例每帧全画，
+  // 混战里三角形超过 23 万。这里不加 draw call：镜头焦点每挪 ICULL.step 米，把离焦点 R + 实例半径以外的实例从缓冲区里挤掉（count 变小）。
+  // 一屏约 21 × 18.5 m、阴影范围也在焦点附近，R = 34 m 时屏幕边上的高物（≤ 11 m）也照样画。
+  // 只管实例数 ≥ ICULL.min 的静态网格；有别的代码在改矩阵（动画）的网格一发现就复原、不再管。W.icull(false) 关掉（调试俯视图用）
+  const ICULL = { R: 34, step: 4, min: 12, on: true };
+  let icull = null;
+  function icullInit() {
+    const list = [];
+    zoneGroup.traverse((o) => {
+      if (!o.isInstancedMesh || o.count < ICULL.min || o.userData.noCull) return;
+      const n = o.count, M = o.instanceMatrix.array.slice(0, n * 16), C = o.instanceColor ? o.instanceColor.array.slice(0, n * 3) : null;
+      if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
+      const gr = o.geometry.boundingSphere.radius + Math.hypot(o.geometry.boundingSphere.center.x, o.geometry.boundingSphere.center.z);
+      const P = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) {
+        const b = i * 16, sx = Math.hypot(M[b], M[b + 1], M[b + 2]), sy = Math.hypot(M[b + 4], M[b + 5], M[b + 6]), sz = Math.hypot(M[b + 8], M[b + 9], M[b + 10]);
+        P[i * 3] = M[b + 12];
+        P[i * 3 + 1] = M[b + 14];
+        P[i * 3 + 2] = gr * Math.max(sx, sy, sz);
+      }
+      list.push({ im: o, n, M, C, P, ver: -1, off: false });
+    });
+    icull = { group: zoneGroup, list, cx: 1e9, cz: 1e9 };
+  }
+  function icullRestore(e) {
+    e.im.instanceMatrix.array.set(e.M);
+    if (e.C) e.im.instanceColor.array.set(e.C), (e.im.instanceColor.needsUpdate = true);
+    e.im.count = e.n;
+    e.im.instanceMatrix.needsUpdate = true;
+  }
+  function icullUpdate(x, z) {
+    if (!zoneGroup) return;
+    if (!icull || icull.group !== zoneGroup) icullInit();
+    if (!ICULL.on || Math.hypot(x - icull.cx, z - icull.cz) < ICULL.step) return;
+    icull.cx = x;
+    icull.cz = z;
+    const R = ICULL.R;
+    for (const e of icull.list) {
+      if (e.off) continue;
+      const im = e.im;
+      if (e.ver >= 0 && im.instanceMatrix.version !== e.ver) {
+        e.off = true; // 别处在改这个网格的矩阵：复原，不再管
+        icullRestore(e);
+        continue;
+      }
+      const A = im.instanceMatrix.array, CA = e.C ? im.instanceColor.array : null, M = e.M, C = e.C, P = e.P;
+      let k = 0;
+      for (let i = 0; i < e.n; i++) {
+        const dx = P[i * 3] - x, dz = P[i * 3 + 1] - z, rr = R + P[i * 3 + 2];
+        if (dx * dx + dz * dz > rr * rr) continue;
+        for (let j = 0; j < 16; j++) A[k * 16 + j] = M[i * 16 + j];
+        if (C) for (let j = 0; j < 3; j++) CA[k * 3 + j] = C[i * 3 + j];
+        k++;
+      }
+      im.count = k;
+      im.instanceMatrix.needsUpdate = true;
+      if (CA) im.instanceColor.needsUpdate = true;
+      e.ver = im.instanceMatrix.version;
+    }
+  }
+  W.icull = (on) => {
+    ICULL.on = on !== false;
+    if (icull && icull.group === zoneGroup) {
+      for (const e of icull.list) if (!e.off) icullRestore(e), (e.ver = e.im.instanceMatrix.version);
+      icull.cx = icull.cz = 1e9;
+    }
+    return { on: ICULL.on, n: icull ? icull.list.length : 0 };
+  };
   function disposeZone() {
+    icull = null;
     if (!zoneGroup) return;
     scene.remove(zoneGroup);
     for (const d of zoneDisp) d.dispose();
@@ -22100,6 +22174,7 @@
       camT.x += (P.x - camT.x) * k;
       camT.z += (P.z - camT.z) * k;
     }
+    icullUpdate(camT.x, camT.z + CAM_LEAD); // 远处的实例不画（zones-polish）
     let sx = 0, sy = 0;
     if (shakeAmt > 0.002) {
       sx = (Math.random() - 0.5) * shakeAmt * 1.1;
