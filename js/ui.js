@@ -4302,11 +4302,18 @@
         : '<div class="np-top">' + top + '</div>' +
           '<div class="np-hp"><i style="width:' + Math.round(G.clamp(e.hp / e.maxHp, 0, 1) * 100) + '%"></i><span>' + fmtInt(Math.max(0, Math.ceil(e.hp))) + ' / ' + fmtInt(e.maxHp) + '</span></div>' +
           (ailSig(e) ? '<div class="np-ail">' + ailHtml(e, true) + '</div>' : e.awake ? '' : '<div class="np-note">尚未察觉你</div>');
+      // 尺寸只在内容变了的时候量一次（下面用它把名牌夹在屏幕里）
+      wui.plateW = p.offsetWidth;
+      wui.plateH = p.offsetHeight;
     }
     wui.plateOn = true;
     const h = (e.height || 1.8) * (e.elite ? 1.3 : 1);
     const q = G.world.project(e.x, h + 0.35, e.z);
-    p.style.transform = 'translate(' + Math.round(q.x) + 'px,' + Math.round(q.y - (e.elite ? 24 : mini ? 16 : 10)) + 'px) translate(-50%,-100%)';
+    // 镜头近了以后，画面上方的高个子敌人头顶会顶出屏幕：名牌夹在屏幕里（左右各留 6 像素，上边留 6 像素）
+    const hw = (wui.plateW || 0) / 2, vw = window.innerWidth;
+    const x = Math.min(Math.max(q.x, hw + 6), Math.max(hw + 6, vw - hw - 6));
+    const y = Math.max(q.y - (e.elite ? 24 : mini ? 16 : 10), (wui.plateH || 0) + 6);
+    p.style.transform = 'translate(' + Math.round(x) + 'px,' + Math.round(y) + 'px) translate(-50%,-100%)';
     return true;
   }
 
