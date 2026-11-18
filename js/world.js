@@ -22046,6 +22046,7 @@
   function updateChaosFx(dt) {
     updateFlame(dt);
     if (flame.flick < 6) flame.flick = Math.min(6, flame.flick + dt * 24);
+    if (chTick.k < 8) chTick.k = Math.min(8, chTick.k + dt * 40);
   }
   // 黑焰打中时：命中点甩出几片品红的小火舌（亮芯转品红），高画质再垫一小团暗紫的烟。
   // 怪堆里每一击都带黑焰：额度每秒回 24、最多攒 6，超了就不画（不刷屏，也不挤占碎块池）
@@ -22059,6 +22060,20 @@
       tChunk(0, bx, y + rand(-0.2, 0.25), bz, Math.sin(a) * v * 0.6, rand(2.6, 4.2), Math.cos(a) * v * 0.6, rand(0.22, 0.32), rand(0.2, 0.28), CH_HI, CH_RIM, 3);
     }
     if (!lo) tChunk(2, bx, y, bz, 0, 0.9, 0, 0.35, 0.22, CH_RIM, CH_CORE, -1.2);
+  };
+
+  // 黑洞 / 黑旋风每一跳的命中：一颗小星 + 一两片品红尖片（卡通碎块池，实例化），不留地面贴花、不打闪光。
+  // 怪堆里每秒几十跳：额度每秒回 40、最多攒 8，超了就只闪白（W.flash 照常）
+  const chTick = { k: 8 };
+  W.chaosTick = function (x, y, z, ang, crit) {
+    if (chTick.k < 1) return;
+    chTick.k -= 1;
+    const lo = qualId === 'low';
+    tChunk(1, x, y + 0.1, z, 0, 0, 0, 0.14, crit ? 0.5 : 0.34, CH_HI, CH_RIM, 0);
+    for (let i = 0, n = lo ? 1 : 2; i < n; i++) {
+      const a = ang + rand(-0.9, 0.9), v = rand(3, 6);
+      tChunk(0, x, y + rand(-0.1, 0.2), z, Math.sin(a) * v, rand(1.5, 3.5), Math.cos(a) * v, rand(0.18, 0.26), rand(0.12, 0.17), CH_HI, i ? CH_DARK : CH_RIM, 12);
+    }
   };
 
   // ---- 混沌的实例化零件（在 updateProjFx 的 pfBegin / pfEnd 之间画）----
