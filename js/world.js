@@ -784,13 +784,15 @@
     storm: {
       packs: ['zone-storm', 'rock-grey', 'models'],
       mats: [
-        { tex: 'monastery_stone_floor', tile: 4.6, con: 0.9, nrm: 1.1, rough: 1, k: 0.8 },
-        { tex: 'rocky_trail', tile: 4.8, con: 1.0, nrm: 1.2, rough: 1, k: 0.56 },
-        { tex: 'Rock035', tile: 6.5, con: 1.0, nrm: 1.0, rough: 1, k: 1.0 },
+        // zones-storm：石板紫的地砖（压掉贴图里偏粉的石块），路外的碎石地更暗；墙外整片是暗的「墙体」地面
+        { tex: 'monastery_stone_floor', tile: 4.6, con: 0.6, nrm: 1.0, rough: 1, k: 0.48, sat: 0.45, col: 0x5c5a70 },
+        { tex: 'rocky_trail', tile: 4.8, con: 0.8, nrm: 1.1, rough: 1, k: 0.44, sat: 0.5, col: 0x4a4860 },
+        { tex: 'Rock035', tile: 6.5, con: 0.8, nrm: 1.0, rough: 1, k: 0.8, sat: 0.6, col: 0x23202e },
       ],
       lava: null,
       rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0, capAll: 0 },
       grade: { sat: 1.12, con: 1.1, lift: 0x080418, gain: 0xfaf6ff, vig: 0.24 },
+      blots: { k: 0.35, r: 0.7 }, // zones-storm：地砖上的污斑少一些、小一些（zones-ash 的开关，C 合并后生效）
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x2c2744, a: 0.32 },
       prop: { tint: 0x5f5b74, sat: 0.2 },
@@ -862,7 +864,7 @@
     ash: { key: 0xffcc98, keyI: 1.5, shade: 0x6248de, bounce: 0x6a4632, hemiI: 0.95, rim: 0x8fb6ff, rimI: 0.9, fog: 0x221a1c, exposure: 1.0 },
     // zones-frost：冷白偏暖的低太阳、冷紫偏蓝的阴影（不是纯蓝）、水面反上来的青灰；曝光比原来高一档（角色亮起来），地面 / 水面靠材质自己压暗
     frost: { key: 0xffe6c8, keyI: 1.45, shade: 0x5c58d8, bounce: 0x2c5664, hemiI: 0.9, rim: 0xc0e4ff, rimI: 0.85, fog: 0x13203a, exposure: 0.9 },
-    storm: { key: 0xffe2a0, keyI: 1.45, shade: 0x5446c8, bounce: 0x5a4468, hemiI: 0.9, rim: 0xe6dcff, rimI: 0.85, fog: 0x221c36, exposure: 0.84 },
+    storm: { key: 0xfff2dc, keyI: 1.45, shade: 0x5446c8, bounce: 0x3c3452, hemiI: 0.9, rim: 0xe6dcff, rimI: 0.85, fog: 0x1c1a2c, exposure: 0.84 }, // zones-storm：主光收成近白（石板不再被晒成粉褐），反光压成中性暗紫
     abyss: { key: 0xffcc9c, keyI: 1.45, shade: 0x5038b0, bounce: 0x8a2a30, hemiI: 0.9, rim: 0xff9cb0, rimI: 0.85, fog: 0x2e121c, exposure: 1.0 },
     rift: { key: 0xf0ffe0, keyI: 1.45, shade: 0x3a8cc0, bounce: 0x245a48, hemiI: 0.9, rim: 0xa4ffde, rimI: 0.85, fog: 0x0f2a26, exposure: 0.86 },
   };
@@ -3207,6 +3209,26 @@
     if (m.dispose) own(m); // r128 的 Mesh 没有 dispose()，几何体 / 材质由调用方 own
     return m;
   }
+  // 墙段 / 柱子 / 台阶的卡通几何体（zones-storm）：单位尺寸、中心在原点，实例按 (长, 高, 厚) / (r, h, r) 缩放；
+  // 顶点色是乘在实例色上的明暗（压檐 / 柱头最亮），再用 toonGradient 把根部压成冷紫
+  const gfxWallGeo = () =>
+    geo('gfx/wall', () => toonGradient(bake('gfx/wall0', [
+      [gBox(1, 1, 1), 0xb4b4b8, 0, -0.03, 0, 0, 0, 0, 1, 0.82, 1], // 墙身
+      [gBox(1, 1, 1), 0x8c8c90, 0, -0.45, 0, 0, 0, 0, 1.03, 0.1, 1.08], // 勒脚
+      [gBox(1, 1, 1), 0xc8c8cc, 0, 0.44, 0, 0, 0, 0, 1.04, 0.12, 1.14], // 压檐（受光的顶面）
+    ]).clone(), { bottom: 0x6a5c94, top: 0xffffff, y0: -0.5, y1: 0.35 }));
+  const gfxPillarGeo = () =>
+    geo('gfx/pillar', () => toonGradient(bake('gfx/pillar0', [
+      [gCyl(0.92, 1.0, 0.86, 8), 0xb8b8bc, 0, -0.01, 0], // 柱身（微收分）
+      [gCyl(1.22, 1.3, 0.07, 8), 0x8c8c90, 0, -0.465, 0], // 柱础
+      [gCyl(1.18, 1.0, 0.08, 8), 0xcacace, 0, 0.44, 0], // 柱头
+      [gBox(0.5, 0.16, 0.5), 0x707074, 0.78, 0.12, 0.2, 0.3, 0.6, 0.2], // 崩口（一块凹进去的暗面）
+    ]).clone(), { bottom: 0x6a5c94, top: 0xffffff, y0: -0.5, y1: 0.3 }));
+  const gfxStepGeo = () =>
+    geo('gfx/step', () => bake('gfx/step0', [
+      [gBox(1, 1, 1), 0x9a9a9e, 0, 0, -0.06, 0, 0, 0, 1, 1, 0.88], // 踏面
+      [gBox(1, 1, 1), 0xe0e0e2, 0, 0.12, 0.44, 0, 0, 0, 1.0, 0.78, 0.12], // 前沿的亮边（受光）
+    ]));
   const TERRAIN_GFX = {
     // 水面（卡通，zones-frost 改）：按地形网格烘一张遮罩（R = 离岸距离，按 sd 算；G = 浅水），
     //   深水：一张平面，岸边一道泡沫线 + 三档台阶式的深浅（岸边浅 → 中 → 深），深处有几道慢慢漂的亮纹、离岸一点有一圈往外推的细浪线；
@@ -3501,19 +3523,55 @@
       const g = geo('plank/rb', () => toonGradient(gRBox(1, 1, 1, 0.09).clone(), { bottom: 0x5a4a6e, top: 0xffffff, y0: -0.5, y1: 0.5 }));
       return instanced(g, own(makeToonMat({ color: o.color || (stone ? 0x7a6e66 : 0x5a4030), brush: 0.12 })), list, true, new T.Color(1, 1, 1));
     },
-    // 墙段：沿外侧材质是 WALL（或 opt.kinds）的边每 opt.step（默认 2 m）一段方块墙，高 opt.h（2.2）、厚 opt.t（0.8），贴在边外侧
+    // 墙段：沿外侧材质是 WALL（或 opt.kinds）的边每 opt.step（默认 2 m）一段方块墙，高 opt.h（2.2）、厚 opt.t（0.8），贴在边外侧。
+    // 卡通（zones-storm）：每段是「勒脚 + 墙身 + 压檐」烘成的一块（顶点色：勒脚暗、压檐最亮，根部压成冷紫），仍是一次 draw。
+    // 可选：opt.minLoop 跳过周长小于它的闭合边圈（柱子、门框柱这类 WALL 圆挖空的边，默认 0 = 不跳）；
+    //   opt.hFn(x, z, nx, nz) 返回这一段的高度倍率（缺省 0.92–1.04 随机），n 是外法线，可以用来做残缺、把南边（朝镜头）的墙压矮；
+    //   opt.extra 追加的实例（同一个网格：门框柱、过梁这类方块），每 10 个数一个，格式同 instanced 的 list；
+    //   opt.overlap 每段的长度 = step × overlap（缺省 1.08；弧形墙外侧会露缝，用 1.2 左右）
     wallRun(opt) {
-      const o = opt || {}, step = o.step || 2, h = o.h || 2.2, t = o.t || 0.8, list = [];
-      W.edgeSamples(step, t * 0.5, (x, z, kind, nx, nz) => {
-        list.push(x, h * 0.5, z, 0, Math.atan2(nx, nz), 0, step * 1.08, h * rand(0.92, 1.04), t, rand(0.85, 1.05));
-      }, { kinds: o.kinds || [MAT.WALL] });
-      return instanced(gBox(1, 1, 1), o.mat || own(makeToonMat({ color: o.color || 0x5a5660, brush: 0.14, vertexColors: false })), list, true, new T.Color(1, 1, 1));
+      const o = opt || {}, step = o.step || 2, h = o.h || 2.2, t = o.t || 0.8, list = [], kinds = o.kinds || [MAT.WALL];
+      const seg = (x, z, nx, nz) => {
+        const hh = h * (o.hFn ? o.hFn(x, z, nx, nz) : rand(0.92, 1.04));
+        list.push(x, hh * 0.5, z, 0, Math.atan2(nx, nz), 0, step * (o.overlap || 1.08), hh, t, rand(0.85, 1.05));
+      };
+      if (!o.minLoop) W.edgeSamples(step, t * 0.5, (x, z, kind, nx, nz) => seg(x, z, nx, nz), { kinds });
+      else {
+        // 和 W.edgeSamples 同样的取点（无抖动），只是先量一下闭合边圈的周长
+        for (const L of edgeLines(W.zone.map)) {
+          const P = L.pts, n = P.length / 4;
+          if (L.closed) {
+            let len = 0;
+            for (let i = 0; i < n; i++) len += Math.hypot(P[((i + 1) % n) * 4] - P[i * 4], P[((i + 1) % n) * 4 + 1] - P[i * 4 + 1]);
+            if (len < o.minLoop) continue;
+          }
+          let acc = step * 0.5;
+          for (let i = 0; i + 1 < n || (L.closed && i < n); i++) {
+            const a = i * 4, b = ((i + 1) % n) * 4, sl = Math.hypot(P[b] - P[a], P[b + 1] - P[a + 1]);
+            while (acc <= sl) {
+              const k = sl > 0 ? acc / sl : 0;
+              if (kinds.indexOf(L.mats[i]) >= 0) {
+                let nx = P[a + 2] + (P[b + 2] - P[a + 2]) * k, nz = P[a + 3] + (P[b + 3] - P[a + 3]) * k;
+                const l = Math.hypot(nx, nz) || 1;
+                nx /= l;
+                nz /= l;
+                seg(P[a] + (P[b] - P[a]) * k + nx * t * 0.5, P[a + 1] + (P[b + 1] - P[a + 1]) * k + nz * t * 0.5, nx, nz);
+              }
+              acc += step;
+            }
+            acc -= sl;
+          }
+        }
+      }
+      if (o.extra) for (let i = 0; i < o.extra.length; i++) list.push(o.extra[i]);
+      return instanced(gfxWallGeo(), o.mat || own(makeToonMat({ color: o.color || 0x5a5660, brush: 0.14 })), list, true, new T.Color(1, 1, 1));
     },
-    // 柱子：list = [{ x, z, r, h }]（WALL 圆挖空的位置），八棱柱
+    // 柱子：list = [{ x, z, r, h }]（WALL 圆挖空的位置），八棱柱。
+    // 卡通（zones-storm）：柱础 + 微收分的柱身 + 柱头，柱身上有一道崩口（顶点色：柱础 / 柱头亮一档，根部压成冷紫），仍是一次 draw
     pillars(list, opt) {
       const o = opt || {}, L = [];
       for (const p of list) L.push(p.x, (p.h || 3) * 0.5, p.z, 0, rand(0, TAU), 0, p.r, p.h || 3, p.r, rand(0.88, 1.05));
-      return instanced(gCyl(1, 1, 1, 8), o.mat || own(makeToonMat({ color: o.color || 0x5e5864, brush: 0.14, vertexColors: false })), L, true, new T.Color(1, 1, 1));
+      return instanced(gfxPillarGeo(), o.mat || own(makeToonMat({ color: o.color || 0x5e5864, brush: 0.14 })), L, true, new T.Color(1, 1, 1));
     },
     // 崖面带：沿外侧是 VOID（或 opt.kinds）的边往下挂一条竖直的条带（深 opt.h，默认 6 m），顶 → 底渐暗，不受光
     cliffBand(opt) {
@@ -3531,13 +3589,17 @@
       g.setAttribute('color', new T.Float32BufferAttribute(col, 3));
       return gfxAdd(new T.Mesh(g, own(new T.MeshBasicMaterial({ vertexColors: true, side: T.DoubleSide }))));
     },
-    // 门口的「台阶」贴花：list = [{ x, z, ang, w }]（ang = 走进去的方向），每处 3 道横条（高 0.04 的暗色薄片，不碰撞）
+    // 门口的「台阶」贴花：list = [{ x, z, ang, w }]（ang = 走进去的方向），每处 3 级（不碰撞）。
+    // 卡通（zones-storm）：三级往下的矮石阶（高 0.12 / 0.08 / 0.04），每级的前沿一条受光的亮边，下一级更暗；仍是一次 draw
     stairDecal(list, opt) {
       const o = opt || {}, L = [];
       for (const d of list) {
-        for (let k = -1; k <= 1; k++) L.push(d.x + Math.sin(d.ang) * k * 0.5, 0.02, d.z + Math.cos(d.ang) * k * 0.5, 0, d.ang, 0, d.w || 4, 0.04, 0.18, 1 - 0.12 * (k + 1));
+        for (let k = -1; k <= 1; k++) {
+          const hh = 0.08 - 0.04 * k; // 门外那级最高，往里一级比一级低
+          L.push(d.x + Math.sin(d.ang) * k * 0.5, hh * 0.5, d.z + Math.cos(d.ang) * k * 0.5, 0, d.ang, 0, (d.w || 4) * (1 - 0.04 * (k + 1)), hh, 0.5, 1 - 0.12 * (k + 1));
+        }
       }
-      return instanced(gBox(1, 1, 1), own(makeToonMat({ color: o.color || 0x3a3036, vertexColors: false })), L, false, new T.Color(1, 1, 1));
+      return instanced(gfxStepGeo(), own(makeToonMat({ color: o.color || 0x3a3036, brush: 0.1 })), L, false, new T.Color(1, 1, 1));
     },
     edgeRuns,
     axisAt,
@@ -5296,9 +5358,705 @@
   // ===== 区域地形：frost 结束 =====
 
   // ===== 区域地形：storm（雷鸣遗迹）—— zones-storm 只改这一节 =====
-  // 现在还是 legacy 布局。换生成器：ZONE_TERRAIN.storm = { gen(R, def) { … return spec; }, dress(zone, ctx) { … }, fx(dt, st, ctx) { … }, tick(dt, zone) { … } }；
-  // 本区专用的函数、常量也写在这一节里（模板和约定见 zones-notes/design.md §7）
-  ZONE_TERRAIN.storm = { gen: GEN.legacy };
+  // 雷鸣遗迹：直角的废墟大厅（设计稿 §3.3）。整区一个随机朝向 th，所有大厅、走廊都按 0° / 90° 对齐：
+  // 生成时在局部坐标 (u, v) 里摆轴对齐的盒子，输出时转成 ang = th 的 rbox。
+  // 关键路径：起点圆厅（r=8 圆盘契约）→ H1 → H2 机关厅（一对雷枢）→ H3 柱廊厅（两排柱）→ H4 → 监察大厅（30 × 30，四根粗柱）。
+  // 大厅之间是直的或 L 形（一个弯）的走廊，宽 5–6 m；门口两侧是门框柱（WALL），把门收窄到 4 m。
+  // 区域外面整片是墙（spec.outside = WALL）：边上没有通用岩石圈，墙身由 dress 里的 wallRun 沿边画出来。
+  const STORM = {
+    tries: 120, // 一个种子里最多重摆几次（只用 R，结果仍由种子决定）
+    gap: 3.5, // 不相干的两块之间至少隔这么厚的墙
+    area: [3000, 3500], // 目标可走面积（按盒子面积估，校验时实测）
+    box: 148, // 世界坐标外接框上限（设计稿 ≤ 150）
+    hw: [2.5, 3], // 关键路径走廊的半宽
+    door: 2, // 门口收窄后的半宽（门框柱之间 4 m）
+    frameR: 0.55, // 门框柱（外观）的半宽
+    // 雷枢：period 周期、warn 预警、w 雷线宽、range 玩家离雷线多近才运转、dmg 伤害（0.6 × 小怪平均伤害约 8，再乘 dmgScale；先取保守值，C 调）
+    node: { period: 5, warn: 0.9, w: 2, range: 14, dmg: 4.8 },
+  };
+  const SDIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+  const stormFails = {}; // 调试：一个种子里重摆的原因计数（W.stormFails）
+  const stormFail = (k) => ((stormFails[k] = (stormFails[k] || 0) + 1), null);
+  function stormGen(R, def) {
+    for (let k = 0; k < STORM.tries; k++) {
+      const spec = stormTry(R);
+      if (spec) return spec;
+    }
+    return GEN.legacy(R, def); // 几乎不会走到：交给校验换种子
+  }
+  // 放宽的校验阈值：区域外面整片是墙，不相邻的大厅之间隔着实心墙、视线本来就不通，所以「边到边 ≥ 14 m」放宽到 3 m
+  stormGen.check = { box: 150, areaMin: 2850, areaMax: 3700, gap: 3 };
+
+  function stormTry(R) {
+    const rnd = (a, b) => a + R() * (b - a);
+    const th = R() * TAU, cs = Math.cos(th), sn = Math.sin(th);
+    const toW = (u, v) => [u * cs + v * sn, -u * sn + v * cs]; // 局部 → 世界（rbox 的局部 x = u、局部 z = v）
+    const dirW = (d) => toW(d[0], d[1]);
+    const lat = (d) => [-d[1], d[0]];
+    const alongH = (H, d) => (d[0] ? H.hu : H.hv), latH = (H, d) => (d[0] ? H.hv : H.hu);
+    const dotP = (u, v, d) => u * d[0] + v * d[1];
+    const pt = (d, s, y) => { const l = lat(d); return [d[0] * s + l[0] * y, d[1] * s + l[1] * y]; };
+    const halls = [], cors = [], cutsL = [], wallsL = [], feats = [];
+    const OV = 2.5; // 走廊两端伸进房间的长度（太短的话门口两块的 sd 都小，max 起来会掐出一道窄缝）
+    // 盒子都是局部轴对齐的：{ u, v, hu, hv }
+    const segBox = (a, b, hw) => {
+      const du = Math.abs(b[0] - a[0]), dv = Math.abs(b[1] - a[1]);
+      return { u: (a[0] + b[0]) / 2, v: (a[1] + b[1]) / 2, hu: du > dv ? du / 2 : hw, hv: du > dv ? hw : dv / 2 };
+    };
+    const boxGap = (a, b) => Math.hypot(Math.max(0, Math.abs(a.u - b.u) - a.hu - b.hu), Math.max(0, Math.abs(a.v - b.v) - a.hv - b.hv));
+    // 新放一块：和已有的盒子都隔开 STORM.gap（ok(h) 返回 true 的那几块可以挨着：自己的走廊 / 两端的大厅）
+    const clear = (box, ok) => {
+      for (const H of halls) if (!(ok && ok(H)) && boxGap(box, H) < STORM.gap) return false;
+      for (const C of cors) for (const b of C.legs) if (!(ok && ok(C)) && boxGap(box, b) < STORM.gap) return false;
+      return true;
+    };
+    const st = { u: 0, v: 0, hu: 8, hv: 8, disk: true, kind: 'start', order: 0, path: true, doors: [] };
+    halls.push(st);
+    // 门：p 局部坐标、n 朝里（走进这个房间的方向）、w 半宽、frame 门框柱半径（0 = 没有）
+    // 门框柱只是外观（不挖空）：门洞的收窄由走廊末端那一小段窄盒子做（见 addCor），柱子立在门洞两侧的实心墙里
+    const framesL = [];
+    const addDoor = (H, p, n, w, frame, big) => {
+      const D = { p, n, w, frame };
+      H.doors.push(D);
+      if (frame) {
+        const l = lat(n), o = w + frame;
+        for (const s of [-1, 1]) framesL.push({ u: p[0] - n[0] * frame + l[0] * o * s, v: p[1] - n[1] * frame + l[1] * o * s, r: frame, ang: Math.atan2(n[0], n[1]), big: !!big });
+      }
+      return D;
+    };
+    // 走廊：legs 是盒子；axis 是中线折线（局部）；a / b 两端的房间。
+    // wA / wB：门洞半宽（比走廊窄时，墙那一段换成半宽 wX 的窄盒子：从房间里一直伸到墙外 3 m，走廊本身停在墙外 1 m）
+    const addCor = (A, B, pts, hw, kind, wA, wB) => {
+      const segs = [];
+      for (let i = 0; i + 1 < pts.length; i++) {
+        const a = pts[i].slice(), b = pts[i + 1].slice();
+        // 弯折处两段各往外伸 hw，转角是方的
+        if (i > 0) { const d0 = [Math.sign(a[0] - pts[i - 1][0]), Math.sign(a[1] - pts[i - 1][1])]; a[0] -= d0[0] * hw; a[1] -= d0[1] * hw; }
+        if (i + 2 < pts.length) { const d1 = [Math.sign(b[0] - a[0]), Math.sign(b[1] - a[1])]; b[0] += d1[0] * hw; b[1] += d1[1] * hw; }
+        segs.push([a, b]);
+      }
+      const doorBox = [];
+      const narrow = (end, w) => {
+        const i = end ? pts.length - 1 : 0, j = end ? pts.length - 2 : 1, q = pts[i];
+        const dd = [Math.sign(pts[j][0] - q[0]), Math.sign(pts[j][1] - q[1])]; // 从房间里朝走廊外
+        const wall = [q[0] + dd[0] * OV, q[1] + dd[1] * OV];
+        segs[end ? segs.length - 1 : 0][end ? 1 : 0] = [wall[0] + dd[0], wall[1] + dd[1]];
+        doorBox.push(segBox(q, [wall[0] + dd[0] * 3, wall[1] + dd[1] * 3], w)); // 和走廊重叠 2 m：重叠太短，两块的 sd 在接缝处 max 起来会掐出窄缝
+      };
+      if (wA && wA < hw) narrow(false, wA);
+      if (wB && wB < hw) narrow(true, wB);
+      const legs = segs.map(([a, b]) => segBox(a, b, hw)).concat(doorBox);
+      const C = { a: A, b: B, legs, axis: pts, hw, kind, len: 0 };
+      for (let i = 0; i + 1 < pts.length; i++) C.len += Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
+      cors.push(C);
+      return C;
+    };
+    // ---------- 关键路径：H1..H4 + 场地 ----------
+    let P = st, d = SDIRS[Math.floor(R() * 4)], nIn = null;
+    const KIND = ['', 'hall', 'machine', 'colonnade', 'hall', 'arena'];
+    for (let k = 1; k <= 5; k++) {
+      const kind = KIND[k], arena = kind === 'arena';
+      let B, pts, n, C, hw, sA, y, ok = false;
+      // 摆不下（撞到已有的房间 / 走廊）就换个方向、换个尺寸再试，最多 8 次
+      for (let att = 0; att < 8 && !ok; att++) {
+      if (k > 1 || att > 0) {
+        // 出口方向：不从进门的那面墙出去；直走 / 左转 / 右转
+        const opts = k > 1 ? SDIRS.filter((q) => !(q[0] === -nIn[0] && q[1] === -nIn[1])) : SDIRS;
+        const w = opts.map((q) => (nIn && q[0] === nIn[0] && q[1] === nIn[1] ? 0.36 : 0.32));
+        let r = R() * w.reduce((a, b) => a + b, 0), j = 0;
+        while ((r -= w[j]) > 0 && j < opts.length - 1) j++;
+        d = opts[j];
+      }
+      // 尺寸（相对进门方向）：len 顺着走进来的方向，wid 横着
+      let len, wid;
+      if (arena) len = wid = 15;
+      else if (kind === 'colonnade') { len = rnd(12.5, 14); wid = rnd(8, 9); }
+      else if (kind === 'machine') { len = rnd(9.5, 12); wid = rnd(8.5, 11); }
+      else { len = rnd(8.5, 12.5); wid = rnd(8.5, 11); if (R() < 0.35) { const t = len; len = wid; wid = t; } }
+      hw = arena ? 4 : rnd(STORM.hw[0], STORM.hw[1]);
+      sA = dotP(P.u, P.v, d) + alongH(P, d);
+      const yA0 = dotP(P.u, P.v, lat(d)), Alat = latH(P, d);
+      // 走廊离开上一个房间的横向位置：起点圆厅从圆心出去；其余在门框柱之外留够墙
+      const ySpan = P.disk ? 0 : Math.max(0, Alat - STORM.door - STORM.frameR * 2 - 1.2 - (arena ? 2 : 0));
+      y = yA0 + rnd(-ySpan, ySpan);
+      const L = !arena && !P.disk && R() < 0.4 && k < 5; // L 形：从 P 的墙出去，沿着 B 的侧墙走，转个弯从侧墙进 B
+      if (!L) {
+        const g = arena ? rnd(8, 11) : rnd(8, 13.5);
+        const sB = sA + g, yb = arena ? y : y + rnd(-1, 1) * Math.max(0, wid - STORM.door - STORM.frameR * 2 - 1.5) * 0.75;
+        const c = pt(d, sB + len, yb);
+        B = { u: c[0], v: c[1], hu: d[0] ? len : wid, hv: d[0] ? wid : len };
+        pts = [pt(d, sA - OV, y), pt(d, sB + OV, y)];
+        n = d;
+      } else {
+        const side = R() < 0.5 ? 1 : -1, l = lat(d), e = rnd(2.6, 4);
+        // B 横着摆在走廊一侧：B 的「len」是横向（从侧墙进门），wid 顺着 d
+        const sB0 = sA + rnd(STORM.gap, 6.5);
+        const sT = sB0 + rnd(hw + STORM.door + 2.2, 2 * wid - hw - STORM.door - 2.2);
+        if (sT <= sB0 + hw + 2) { stormFail('L'); continue; }
+        const yb = y + side * (hw + e + len);
+        const c = pt(d, sB0 + wid, yb);
+        B = { u: c[0], v: c[1], hu: d[0] ? wid : len, hv: d[0] ? len : wid };
+        pts = [pt(d, sA - OV, y), pt(d, sT, y), pt(d, sT, y + side * (hw + e + OV))];
+        n = [l[0] * side, l[1] * side];
+      }
+      Object.assign(B, { kind: arena ? 'arena' : 'room', hk: kind, order: k, path: true, doors: [] });
+      C = addCor(P, B, pts, hw, arena ? 'neck' : 'corr', P.disk || arena ? 0 : STORM.door, arena ? 0 : STORM.door);
+      C.order = k - 1;
+      // 和已有的东西隔开：新大厅只能挨着这条走廊，走廊只能挨着两端
+      ok = clear(B, (h) => h === C) && C.legs.every((b) => clear(b, (h) => h === P || h === C));
+      if (!ok) cors.pop();
+      }
+      if (!ok) return stormFail('hall');
+      halls.push(B);
+      // 门：P 那一端（起点圆厅不放门框柱：柱子会切进 r=8 的圆盘）、B 那一端
+      const pa = pts[0], pb = pts[pts.length - 1];
+      C.doorA = addDoor(P, P.disk ? pt(d, 8, 0) : pt(d, sA, dotP(pa[0], pa[1], lat(d))), [-d[0], -d[1]], arena ? 4 : STORM.door, P.disk ? 0 : arena ? 0 : STORM.frameR);
+      C.doorA.out = d;
+      const bw = n[0] ? B.u - n[0] * B.hu : B.v - n[1] * B.hv; // B 进门那面墙
+      const pbw = n[0] ? [bw, pb[1]] : [pb[0], bw];
+      C.doorB = addDoor(B, pbw, n, arena ? 4 : STORM.door, arena ? 1.0 : STORM.frameR, arena); // 场地大门：8 m 门洞不收窄，门框柱更粗
+      B.entry = C.doorB;
+      P = B;
+      nIn = n;
+    }
+    const pathHalls = halls.slice(1, 5), arena = halls[5];
+    // ---------- 旁支小室：2–3 个，从关键路径大厅没开门的墙岔出去 ----------
+    const want = R() < 0.4 ? 3 : 2, sides = [];
+    const order = pathHalls.slice().sort(() => R() - 0.5);
+    for (let pass = 0; pass < 2 && sides.length < want; pass++) {
+      for (const H of order) {
+        if (sides.length >= want) break;
+        if (pass === 0 && sides.some((s) => s.parent === H)) continue;
+        const dirs = SDIRS.filter((q) => !H.doors.some((D) => (D.n[0] === -q[0] && D.n[1] === -q[1]) || (D.out && D.out[0] === q[0] && D.out[1] === q[1])));
+        for (let t = 0; t < 4 && dirs.length; t++) {
+          const q = dirs[Math.floor(R() * dirs.length)], half = sides.length === 1 ? 6 : rnd(5, 5.8), hw = 2.2;
+          const sA = dotP(H.u, H.v, q) + alongH(H, q), span = Math.max(0, latH(H, q) - 1.5 - 0.6 * 2 - hw - 1);
+          const y = dotP(H.u, H.v, lat(q)) + rnd(-span, span), g = rnd(12, 13.5);
+          if (H.doors.some((D) => Math.hypot(D.p[0] - pt(q, sA, y)[0], D.p[1] - pt(q, sA, y)[1]) < 7)) continue;
+          const c = pt(q, sA + g + half, y + rnd(-1, 1));
+          const S = { u: c[0], v: c[1], hu: half, hv: half, kind: 'side', order: H.order + 1, path: false, doors: [], parent: H };
+          const tmp = { legs: [segBox(pt(q, sA - OV, y), pt(q, sA + g + OV, y), hw)] };
+          if (!clear(S, null)) continue;
+          if (!clear(tmp.legs[0], (h) => h === H)) continue;
+          if (boxGap(S, tmp.legs[0]) > 0.01) continue;
+          halls.push(S);
+          const C = addCor(H, S, [pt(q, sA - OV, y), pt(q, sA + g + OV, y)], hw, 'corr', 0, 1.5);
+          C.order = H.order;
+          C.side = true;
+          C.doorA = addDoor(H, pt(q, sA, y), [-q[0], -q[1]], 1.5, 0);
+          C.doorA.out = q;
+          C.doorB = addDoor(S, pt(q, sA + g, y), q, 1.5, 0.6);
+          S.entry = C.doorB;
+          sides.push(S);
+          break;
+        }
+      }
+    }
+    if (sides.length < 2) return stormFail('sides');
+    // ---------- 外接框、面积 ----------
+    let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9, area = 0;
+    const grow = (b) => {
+      for (const [a, c] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        const p = toW(b.u + a * b.hu, b.v + c * b.hv);
+        x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]);
+      }
+    };
+    for (const H of halls) { grow(H); area += H.disk ? Math.PI * 64 : 4 * H.hu * H.hv; }
+    for (const C of cors) {
+      for (const b of C.legs) { grow(b); area += 4 * b.hu * b.hv; }
+      area -= 2 * OV * 2 * C.hw; // 两端伸进房间的部分不重复算
+    }
+    if (x1 - x0 > STORM.box || z1 - z0 > STORM.box) return stormFail('box');
+    // ---------- 柱子：柱廊厅两排、监察大厅四根 ----------
+    const nearDoor = (H, u, v, r) => H.doors.some((D) => Math.hypot(D.p[0] - u, D.p[1] - v) < r);
+    const colon = pathHalls.find((H) => H.hk === 'colonnade');
+    if (colon) {
+      const n = colon.entry.n, l = lat(n), len = alongH(colon, n), wid = latH(colon, n);
+      const cnt = Math.floor((2 * len - 6) / 4) + 1;
+      for (let i = 0; i < cnt; i++) {
+        const s = (i - (cnt - 1) / 2) * 4;
+        for (const sd of [-1, 1]) {
+          const u = colon.u + n[0] * s + l[0] * sd * (wid - 3), v = colon.v + n[1] * s + l[1] * sd * (wid - 3);
+          if (nearDoor(colon, u, v, 3.6)) continue;
+          if (s + len < 9) continue; // 进门那一头留出 9 m 的前厅（伏击群躲在门边的拐角）
+          cutsL.push({ u, v, r: 0.6, kind: 'col', h: 3.4 });
+        }
+      }
+    }
+    for (const a of [-1, 1]) for (const c of [-1, 1]) cutsL.push({ u: arena.u + a * 8, v: arena.v + c * 8, r: 1.2, kind: 'col', h: 4.2, arena: true });
+    for (const c of cutsL) area -= Math.PI * c.r * c.r * 0.5;
+    if (area < STORM.area[0] || area > STORM.area[1]) return stormFail('area');
+    // ---------- 雷枢：H2 里横跨大厅一对；另有 0–1 对在某条走廊上 ----------
+    const nodes = [];
+    const mach = pathHalls.find((H) => H.hk === 'machine');
+    if (mach) {
+      const n = mach.entry.n, l = lat(n), len = alongH(mach, n), wid = latH(mach, n);
+      for (let t = 0; t < 8; t++) {
+        const s = rnd(0, 0.32) * len, o = wid - 0.25; // 雷线偏向出口一侧，门内留出伏击的位置
+        const a = [mach.u + n[0] * s - l[0] * o, mach.v + n[1] * s - l[1] * o], b = [mach.u + n[0] * s + l[0] * o, mach.v + n[1] * s + l[1] * o];
+        if (nearDoor(mach, a[0], a[1], 4) || nearDoor(mach, b[0], b[1], 4)) continue;
+        nodes.push({ a, b, room: mach, r: 0.75 });
+        break;
+      }
+      if (!nodes.length) return stormFail('node');
+    }
+    if (R() < 0.55) {
+      const cand = cors.filter((C) => !C.side && C.kind === 'corr');
+      const C = cand[Math.floor(R() * cand.length)];
+      const legs = [];
+      for (let i = 0; i + 1 < C.axis.length; i++) legs.push([C.axis[i], C.axis[i + 1], Math.hypot(C.axis[i + 1][0] - C.axis[i][0], C.axis[i + 1][1] - C.axis[i][1])]);
+      const lg = legs.sort((p, q) => q[2] - p[2])[0];
+      if (C && lg && lg[2] >= 7) {
+        const m = [(lg[0][0] + lg[1][0]) / 2, (lg[0][1] + lg[1][1]) / 2], du = Math.sign(lg[1][0] - lg[0][0]), dv = Math.sign(lg[1][1] - lg[0][1]);
+        const l = lat([du, dv]), o = C.hw + 0.2;
+        nodes.push({ a: [m[0] - l[0] * o, m[1] - l[1] * o], b: [m[0] + l[0] * o, m[1] + l[1] * o], room: C, r: 0.6 });
+      }
+    }
+    for (const N of nodes) for (const p of [N.a, N.b]) cutsL.push({ u: p[0], v: p[1], r: N.r, kind: 'pylon' });
+    // ---------- 局部 sd（摆怪群、看视线用；和光栅化的 sd 一致到圆角）----------
+    const boxSd = (b, u, v) => {
+      const qx = Math.abs(u - b.u) - b.hu, qz = Math.abs(v - b.v) - b.hv;
+      return -Math.hypot(Math.max(qx, 0), Math.max(qz, 0)) - Math.min(Math.max(qx, qz), 0);
+    };
+    const sdL = (u, v) => {
+      let s = -1e9;
+      for (const H of halls) s = Math.max(s, H.disk ? 8 - Math.hypot(u - H.u, v - H.v) : boxSd(H, u, v));
+      for (const C of cors) for (const b of C.legs) s = Math.max(s, boxSd(b, u, v));
+      for (const c of cutsL) s = Math.min(s, Math.hypot(u - c.u, v - c.v) - c.r);
+      for (const b of wallsL) s = Math.min(s, -boxSd(b, u, v));
+      return s;
+    };
+    const segDist = (u, v, a, b) => {
+      const ex = b[0] - a[0], ez = b[1] - a[1], l2 = ex * ex + ez * ez;
+      const t = l2 > 0 ? Math.max(0, Math.min(1, ((u - a[0]) * ex + (v - a[1]) * ez) / l2)) : 0;
+      return Math.hypot(u - a[0] - ex * t, v - a[1] - ez * t);
+    };
+    const sees = (a, b) => {
+      const n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.3);
+      for (let i = 1; i < n; i++) if (sdL(a[0] + ((b[0] - a[0]) * i) / n, a[1] + ((b[1] - a[1]) * i) / n) < -0.4) return false; // 唤醒的视线按 shotFree(pad −0.3) 判
+      return true;
+    };
+    const allDoors = [];
+    for (const H of halls) for (const D of H.doors) allDoors.push(D.p);
+    // ---------- 怪群 ----------
+    const packsL = [];
+    const okPack = (u, v, minSd, ambush) => {
+      if (sdL(u, v) < minSd) return false;
+      if (Math.hypot(u, v) < 12.5) return false;
+      if (!ambush && allDoors.some((p) => Math.hypot(p[0] - u, p[1] - v) < 4.6)) return false;
+      if (nodes.some((N) => segDist(u, v, N.a, N.b) < (ambush ? 3 : 4))) return false;
+      if (packsL.some((p) => Math.hypot(p.u - u, p.v - v) < (ambush || p.ambush ? 5.5 : 7))) return false;
+      return true;
+    };
+    const placeIn = (H, n, extra) => {
+      const c = [];
+      for (let u = H.u - H.hu + 3; u <= H.u + H.hu - 3; u += 1.5) for (let v = H.v - H.hv + 3; v <= H.v + H.hv - 3; v += 1.5) if (okPack(u, v, 3, false)) c.push([u, v]);
+      if (!c.length) return null;
+      const p = c[Math.floor(R() * c.length)];
+      const pk = Object.assign({ u: p[0], v: p[1], H, n, r: 2.6 }, extra || {});
+      packsL.push(pk);
+      return pk;
+    };
+    // 伏击槽位：进门以后贴着门这面墙往旁边躲开，从门外 3 m 看不到
+    for (const H of pathHalls) {
+      const D = H.entry, l = lat(D.n);
+      let done = false;
+      const off = (D.p[0] - H.u) * l[0] + (D.p[1] - H.v) * l[1], wl = latH(H, l), dl = alongH(H, D.n);
+      for (let t = 0; t < 24 && !done; t++) {
+        // 横向躲开门洞 L、进门深度 dep：L 不出大厅（离侧墙 2.4），dep 浅到从门外 3 m 看过来被门边的墙挡住（L > 2·(3 + dep) / 3）
+        const sd = t % 2 ? -1 : 1, Lmax = Math.min(8.5, wl - 2.4 - sd * off);
+        if (Lmax < 4.4) continue;
+        const L = rnd(4.4, Lmax), dep = rnd(2.6, Math.max(2.6, Math.min(5.2, dl * 2 - 2.4, 1.5 * L - 3.3)));
+        const u = D.p[0] + D.n[0] * dep + l[0] * sd * L, v = D.p[1] + D.n[1] * dep + l[1] * sd * L;
+        if (boxSd(H, u, v) < 2.4 || !okPack(u, v, 2.4, true)) continue;
+        if (sees([D.p[0] - D.n[0] * 3, D.p[1] - D.n[1] * 3], [u, v])) continue;
+        packsL.push({ u, v, H, n: [3, 5], r: 2.2, ambush: true });
+        done = true;
+      }
+      // 找不到天然的拐角：门内 3 m、门洞旁边立一段残墙（WALL），伏击群躲在它后面
+      for (let t = 0; t < 2 && !done; t++) {
+        const sd = (t ? -1 : 1) * (R() < 0.5 ? 1 : -1);
+        const wc = [D.p[0] + D.n[0] * 3 + l[0] * sd * 4.6, D.p[1] + D.n[1] * 3 + l[1] * sd * 4.6];
+        const wb = { u: wc[0], v: wc[1], hu: D.n[0] ? 0.45 : 2.4, hv: D.n[0] ? 2.4 : 0.45 };
+        const u = D.p[0] + D.n[0] * 6.2 + l[0] * sd * 4.4, v = D.p[1] + D.n[1] * 6.2 + l[1] * sd * 4.4;
+        wallsL.push(wb);
+        const endOk = [-1, 1].every((e) => boxSd(H, wc[0] + l[0] * e * 2.4, wc[1] + l[1] * e * 2.4) >= 1.2); // 残墙两头离侧墙留出能走的缝
+        const why = boxSd(H, wc[0], wc[1]) < 2.9 || !endOk ? 'aw' : boxSd(H, u, v) < 2.4 ? 'ab' : !okPack(u, v, 2.4, true) ? 'ap' : sees([D.p[0] - D.n[0] * 3, D.p[1] - D.n[1] * 3], [u, v]) ? 'as' : '';
+        if (why) { stormFail(why); wallsL.pop(); continue; }
+        packsL.push({ u, v, H, n: [3, 5], r: 2.2, ambush: true });
+        done = true;
+      }
+    }
+    // 每个大厅按面积：< 250 m² 1–2 群、250–500 2–3 群、> 500 3–4 群（伏击那一群算在里面）
+    const target = Math.round(rnd(50, 58));
+    const expect = () => packsL.reduce((a, p) => a + (Array.isArray(p.n) ? (p.n[0] + p.n[1]) / 2 : p.n), 0);
+    const lim = pathHalls.map((H) => { const a = 4 * H.hu * H.hv; return a < 250 ? [1, 2] : a < 500 ? [2, 3] : [3, 4]; });
+    pathHalls.forEach((H, i) => {
+      while (packsL.filter((p) => p.H === H).length < lim[i][0]) if (!placeIn(H, [4, 6])) break;
+    });
+    // 旁支：精英室（保底精英）、可选的第三间（小群）
+    const eliteRoom = sides[1], chestRoom = sides[0];
+    packsL.push({ u: eliteRoom.u, v: eliteRoom.v, H: eliteRoom, n: [4, 5], r: 2.4, elite: true });
+    if (sides[2]) packsL.push({ u: sides[2].u, v: sides[2].v, H: sides[2], n: [3, 4], r: 2.2 });
+    // 长走廊（> 14 m、宽 6 m 的）中点：2–3 只的小群
+    for (const C of cors) {
+      if (C.side || C.kind !== 'corr' || C.len < 14 || C.hw < 2.75 || R() < 0.5) continue;
+      const m = W.terrainGfx.axisAt(C.axis, 0.5);
+      if (okPack(m.x, m.z, Math.min(2.6, C.hw - 0.2), false)) packsL.push({ u: m.x, v: m.z, H: C, n: [2, 3], r: 1.7, cor: true });
+    }
+    for (let guard = 0; guard < 12 && expect() < target; guard++) {
+      const i = Math.floor(R() * pathHalls.length);
+      if (packsL.filter((p) => p.H === pathHalls[i]).length >= lim[i][1]) continue;
+      placeIn(pathHalls[i], [4, 6]);
+    }
+    const tot = expect();
+    if (tot < 45 || tot > 64) return stormFail('mobs');
+    // 精英：关键路径大厅各 45%（落在非伏击的一群上），加上精英室保底，全区上限 4
+    let elites = 1;
+    for (const H of pathHalls) {
+      if (elites >= 4 || R() >= 0.45) continue;
+      const c = packsL.filter((p) => p.H === H && !p.ambush);
+      if (!c.length) continue;
+      c[Math.floor(R() * c.length)].elite = true;
+      elites++;
+    }
+    // ---------- 宝箱：宝箱室、精英室各一个，放在背对门的那面墙前 ----------
+    const chestsL = [chestRoom, eliteRoom].map((S) => ({ u: S.u + S.entry.n[0] * (S.hu - 1.8), v: S.v + S.entry.n[1] * (S.hv - 1.8), S }));
+
+    // ---------- 输出 spec（世界坐标）----------
+    const rooms = [], links = [], cuts = [], packs = [], chests = [];
+    const W2 = (p) => toW(p[0], p[1]);
+    const rb = (b, round) => { const c = toW(b.u, b.v); return { t: 'rbox', x: c[0], z: c[1], hx: b.hu, hz: b.hv, ang: th, round }; };
+    // 房间顺序 = 重叠处的优先级：大厅在前、走廊在后
+    halls.forEach((H, i) => {
+      H.id = i;
+      const c = toW(H.u, H.v);
+      rooms.push({
+        id: i, kind: H.kind, order: H.order, path: H.path,
+        prims: [H.disk ? { t: 'circle', x: 0, z: 0, r: 8 } : rb(H, 0.6)],
+        core: { x: c[0], z: c[1], r: H.disk ? 8 : Math.min(H.hu, H.hv) - 0.3 },
+        tags: H.kind === 'side' ? [H === eliteRoom ? 'elite' : H === chestRoom ? 'chest' : 'room'] : H.hk ? [H.hk] : [],
+      });
+    });
+    cors.forEach((C) => {
+      C.id = rooms.length;
+      const lg = C.legs.reduce((a, b) => (Math.max(b.hu, b.hv) > Math.max(a.hu, a.hv) ? b : a));
+      const c = toW(lg.u, lg.v);
+      rooms.push({
+        id: C.id, kind: 'link', order: C.order, path: !C.side, prims: C.legs.map((b) => rb(b, 0.3)),
+        core: { x: c[0], z: c[1], r: C.hw }, axis: C.axis.map(W2), ends: [C.a.id, C.b.id], tags: [C.kind],
+      });
+      const da = W2(C.doorA.p), db = W2(C.doorB.p);
+      links.push({ a: C.a.id, b: C.id, door: { x: da[0], z: da[1], w: C.doorA.w * 2 }, kind: 'door' }, { a: C.id, b: C.b.id, door: { x: db[0], z: db[1], w: C.doorB.w * 2 }, kind: C.kind === 'neck' ? 'gate' : 'door' });
+    });
+    for (const c of cutsL) {
+      const p = toW(c.u, c.v);
+      cuts.push({ prim: { t: 'circle', x: p[0], z: p[1], r: c.r }, mat: MAT.WALL });
+      feats.push({ kind: c.kind, x: p[0], z: p[1], r: c.r, h: c.h || 0, ang: c.ang !== undefined ? c.ang + th : th, big: !!c.big, arena: !!c.arena });
+    }
+    for (const f of framesL) {
+      const p = toW(f.u, f.v);
+      feats.push({ kind: 'frame', x: p[0], z: p[1], r: f.r, h: 0, ang: f.ang + th, big: f.big });
+    }
+    for (const b of wallsL) {
+      const c = toW(b.u, b.v);
+      cuts.push({ prim: { t: 'rbox', x: c[0], z: c[1], hx: b.hu, hz: b.hv, ang: th, round: 0.15 }, mat: MAT.WALL });
+    }
+    for (const H of halls) {
+      for (const D of H.doors) {
+        const p = W2(D.p), n = dirW(D.n);
+        feats.push({ kind: 'door', x: p[0], z: p[1], ang: Math.atan2(n[0], n[1]), w: D.w * 2, room: H.id, entry: D === H.entry });
+      }
+    }
+    nodes.forEach((N, i) => {
+      const a = W2(N.a), b = W2(N.b);
+      feats.push({ kind: 'node', ax: a[0], az: a[1], bx: b[0], bz: b[1], room: N.room.id, ph: i * 1.7 });
+    });
+    for (const p of packsL) {
+      const c = toW(p.u, p.v);
+      const o = { room: p.H.id, x: c[0], z: c[1], n: p.n, r: p.r, elite: !!p.elite };
+      if (p.ambush) o.ambush = true;
+      packs.push(o);
+    }
+    for (const c of chestsL) {
+      const p = toW(c.u, c.v);
+      chests.push({ x: p[0], z: p[1], room: c.S.id, ang: 0 });
+    }
+    const d1 = dirW(cors[0].doorA.out), ad = dirW(arena.entry.n), A = toW(arena.u, arena.v);
+    const spec = {
+      rooms, links, cuts, haz: [], feats, packs, chests, outside: MAT.WALL,
+      start: { x: 0, z: 0, exit: { x: d1[0] * 8, z: d1[1] * 8, ang: Math.atan2(d1[0], d1[1]) } },
+      // 门外重生点在颈口里、离场地墙 2 m：bossR = |door − 中心| − 2 = 15（场地半宽）
+      arena: { room: arena.id, x: A[0], z: A[1], door: { x: A[0] - ad[0] * 17, z: A[1] - ad[1] * 17 }, dir: { x: ad[0], z: ad[1] } },
+      storm: { th },
+    };
+    spec.bounds = specBounds(spec);
+    return spec;
+  }
+  // ---------- 外观：石板紫的残垣 + 黄色的雷 ----------
+  // 色板（显示色）：墙身、柱子是偏冷的石板紫，受光的顶面亮一档、根部压成冷紫（toonGradient）；黄铜机关；雷光是 accent 黄。
+  // 明暗目标（§7.4）：地面 25–35%、墙 15–25%；墙顶的压檐是墙上最亮的一条，所以墙身本身压暗一档
+  const STORM_PAL = {
+    wall: 0x585670, // 墙身（实例色乘在烘好的顶点色上：墙身 0.8、压檐 1、勒脚 0.62）
+    col: 0x5e5c76, // 柱子
+    stair: 0x6a667e, // 门口台阶
+    rubble: 0x5e5a72, // 碎石
+    brass: 0xc8963c, // 雷枢、转轮的黄铜
+    bolt: 0xffe45e, // 雷光（= 区域 accent）
+    conduit: 0x6a5a34, // 雷线下面嵌在地里的铜槽
+    stoneLift: 0x423e52, // 石头的自发光（抬背光面；色调曲线的 toe 会把小的自发光压没，所以给得比看起来大）
+  };
+  // 雷枢的柱子：石座 + 立柱 + 三道铜线圈 + 铜帽（顶上的发光晶体另一个实例化网格）
+  const stormPylonGeo = () =>
+    geo('storm/pylon', () => toonGradient(bake('storm/pylon0', [
+      [gBox(1, 1, 1), 0x4a465e, 0, 0.25, 0, 0, 0, 0, 1.15, 0.5, 1.15],
+      [gCyl(0.36, 0.44, 2.4, 8), 0x625e7a, 0, 1.6, 0],
+      [gTorus(0.46, 0.07, 4, 12), 0xc8963c, 0, 1.25, 0, Math.PI / 2],
+      [gTorus(0.42, 0.07, 4, 12), 0xc8963c, 0, 1.75, 0, Math.PI / 2],
+      [gTorus(0.38, 0.07, 4, 12), 0xc8963c, 0, 2.25, 0, Math.PI / 2],
+      [gCone(0.42, 0.5, 8), 0x8a6a30, 0, 3.05, 0],
+    ]).clone(), { bottom: 0x3a3456, top: 0xffffff, y0: 0, y1: 2.4 }));
+  // 转轮（纯装饰的机关）：一个嵌在墙面上的齿轮，八个齿，中间一颗铜毂
+  const stormWheelGeo = () =>
+    geo('storm/wheel', () => {
+      const parts = [[gCyl(0.82, 0.82, 0.18, 12), 0x9a7a3c, 0, 0, 0, Math.PI / 2], [gCyl(0.3, 0.3, 0.3, 8), 0xd8a84a, 0, 0, 0, Math.PI / 2]];
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * TAU;
+        parts.push([gBox(0.26, 0.3, 0.16), 0x8a6a34, Math.sin(a) * 0.92, Math.cos(a) * 0.92, 0, 0, 0, -a]);
+        parts.push([gBox(0.12, 0.62, 0.1), 0x6a5230, Math.sin(a) * 0.48, Math.cos(a) * 0.48, 0.08, 0, 0, -a]);
+      }
+      return bake('storm/wheel0', parts);
+    });
+
+  // 沿墙边按弧长取点（跳过柱子、门框柱这类小的闭合边圈）：cb(x, z, nx, nz)，n 是外法线
+  function stormEdges(step, off, cb) {
+    for (const L of edgeLines(W.zone.map)) {
+      const P = L.pts, n = P.length / 4;
+      if (L.closed && n * 0.4 < 10) {
+        let len = 0;
+        for (let i = 0; i < n; i++) len += Math.hypot(P[((i + 1) % n) * 4] - P[i * 4], P[((i + 1) % n) * 4 + 1] - P[i * 4 + 1]);
+        if (len < 10) continue;
+      }
+      let acc = step * Math.random();
+      for (let i = 0; i + 1 < n || (L.closed && i < n); i++) {
+        const a = i * 4, b = ((i + 1) % n) * 4, sl = Math.hypot(P[b] - P[a], P[b + 1] - P[a + 1]);
+        while (acc <= sl) {
+          const k = sl > 0 ? acc / sl : 0;
+          let nx = P[a + 2] + (P[b + 2] - P[a + 2]) * k, nz = P[a + 3] + (P[b + 3] - P[a + 3]) * k;
+          const l = Math.hypot(nx, nz) || 1;
+          nx /= l;
+          nz /= l;
+          if (L.mats[i] === MAT.WALL) cb(P[a] + (P[b] - P[a]) * k + nx * off, P[a + 1] + (P[b + 1] - P[a + 1]) * k + nz * off, nx, nz);
+          acc += step;
+        }
+        acc -= sl;
+      }
+    }
+  }
+  function stormDress(zone, ctx) {
+    const F = zone.feats, low = ctx.low, out = { wheels: null };
+    const camSide = (nz) => smooth01((nz - 0.15) / 0.5); // 外法线朝镜头（+z）的墙：在房间的南边，压矮免得挡住战场
+    // 墙 / 柱子的石头材质：背光面只有冷紫的半球光，太黑（7–11%），加一点自发光把背光面抬到墙的 15–25% 档，受光的压檐不至于更亮
+    const stoneMat = (hex) => own(makeToonMat({ color: hex, brush: 0.14, emissive: STORM_PAL.stoneLift, emissiveIntensity: 1 }));
+    // --- 墙：沿 WALL 边每 2 m 一段，带压檐；高度有成段的残缺（低频噪声），南边的墙压成矮墙 ---
+    const extra = [];
+    // 门框柱：方柱，和墙同一个实例化网格；关键路径的门再横一根过梁（门在南墙上不加，免得挡视线）
+    const frames = F.filter((f) => f.kind === 'frame');
+    for (const f of frames) {
+      const s = f.big ? 1.5 : 1.1, h = (f.big ? 4.2 : 3.2) * (1 - 0.55 * camSide(-Math.cos(f.ang)));
+      extra.push(f.x, h * 0.5, f.z, 0, f.ang, 0, f.r * 2 * s * 0.9, h, f.r * 2 * s * 0.9, 1.08);
+    }
+    for (let i = 0; i + 1 < frames.length; i += 2) {
+      const a = frames[i], b = frames[i + 1];
+      if (Math.hypot(a.x - b.x, a.z - b.z) > 13) continue;
+      if (Math.cos(a.ang) < -0.4) continue; // 进门方向朝 -z：门在房间的南墙上（南墙压成了矮墙），不加过梁
+      const h = a.big ? 4.2 : 3.2, w = Math.hypot(a.x - b.x, a.z - b.z) + a.r * 2;
+      extra.push((a.x + b.x) / 2, h + 0.18, (a.z + b.z) / 2, 0, Math.atan2(b.x - a.x, b.z - a.z) + Math.PI / 2, 0, w, 0.5, 0.8, 1.0);
+    }
+    const walls = ctx.gfx.wallRun({
+      mat: stoneMat(STORM_PAL.wall), h: 2.7, t: 1.0, step: 2, overlap: 1.2, minLoop: 10, extra,
+      hFn: (x, z, nx, nz) => {
+        const ruin = vnoise(x * 0.11 + 3.7, z * 0.11 - 1.3), k = 0.58 + 0.5 * smooth01((ruin - 0.28) / 0.4);
+        return k * (1 - 0.62 * camSide(nz));
+      },
+    });
+    out.walls = walls;
+    // --- 柱子：柱廊厅两排（三成是断柱）、监察大厅四根粗柱；南边的压矮一些 ---
+    const cols = [];
+    for (const f of F) {
+      if (f.kind !== 'col') continue;
+      const lk = ctx.lowK(f.x, f.z) < 1 ? 0.7 : 1;
+      const broken = !f.arena && Math.random() < 0.3;
+      cols.push({ x: f.x, z: f.z, r: f.r * (f.arena ? 0.95 : 0.92), h: (broken ? rand(1.2, 2.0) : f.h) * lk });
+    }
+    out.cols = ctx.gfx.pillars(cols, { mat: stoneMat(STORM_PAL.col) });
+    // --- 门口的台阶：进下一个大厅 / 旁支小室的门口三级往下的石阶 ---
+    const stairs = F.filter((f) => f.kind === 'door' && f.entry).map((f) => ({ x: f.x + Math.sin(f.ang) * 0.9, z: f.z + Math.cos(f.ang) * 0.9, ang: f.ang, w: f.w + 0.6 }));
+    out.stairs = ctx.gfx.stairDecal(stairs, { color: STORM_PAL.stair });
+    // --- 雷枢：柱子、顶上的发光晶体、雷线下面嵌在地里的铜槽 ---
+    const pyl = [], tips = [], cond = [], glows = [];
+    const nodes = F.filter((f) => f.kind === 'node');
+    for (const N of nodes) {
+      const mx = (N.ax + N.bx) / 2, mz = (N.az + N.bz) / 2;
+      for (const [x, z] of [[N.ax, N.az], [N.bx, N.bz]]) {
+        const ol = Math.hypot(x - mx, z - mz) || 1, hk = 1 - 0.4 * camSide((z - mz) / ol); // 靠镜头那一根矮一些，不挡住雷线
+        pyl.push(x, 0, z, 0, rand(0, TAU), 0, 1, hk, 1, rand(0.9, 1.05));
+        tips.push(x, 3.5 * hk, z, 0, rand(0, TAU), 0, 0.26, 0.46, 0.26, 1);
+        glows.push(x, 0.05, z, 0, 0, 0, 2.4, 1, 2.4, 1);
+      }
+      const len = Math.hypot(N.bx - N.ax, N.bz - N.az), ang = Math.atan2(N.bx - N.ax, N.bz - N.az);
+      cond.push((N.ax + N.bx) / 2, 0.012, (N.az + N.bz) / 2, 0, ang, 0, 0.42, 0.03, len, 1);
+    }
+    // 北墙（朝镜头的那面）上隔一段立一根小避雷针：同一套柱子模型缩小，顶上也是发光晶体
+    const rods = [], wheels = [];
+    let lastRod = null, lastWheel = null;
+    stormEdges(3.2, 0.5, (x, z, nx, nz) => {
+      if (nz > -0.7) return;
+      const ruin = vnoise(x * 0.11 + 3.7, z * 0.11 - 1.3);
+      if (ruin < 0.5) return; // 只立在没塌的墙段上
+      if (!lastRod || Math.hypot(lastRod[0] - x, lastRod[1] - z) > 11) {
+        if (Math.random() < 0.6) {
+          lastRod = [x, z];
+          const hk = 0.58 + 0.5 * smooth01((ruin - 0.28) / 0.4), top = 2.7 * hk;
+          rods.push(x, top, z, 0, rand(0, TAU), 0, 0.36, 0.42, 0.36, 0.95);
+          tips.push(x, top + 1.32, z, 0, rand(0, TAU), 0, 0.12, 0.22, 0.12, 1);
+        }
+      }
+      if (wheels.length < 6 && (!lastWheel || Math.hypot(lastWheel[0] - x, lastWheel[1] - z) > 16) && Math.random() < 0.35) {
+        lastWheel = [x, z];
+        wheels.push({ x: x - nx * 0.42, y: 1.35, z: z - nz * 0.42, ang: Math.atan2(nx, nz), s: rand(0.85, 1.15), ph: rand(0, TAU), sp: rand(0.25, 0.5) * (Math.random() < 0.5 ? -1 : 1) });
+      }
+    });
+    const bodyMat = own(makeToonMat({ brush: 0.12, brushScale: 0.5 }));
+    instanced(stormPylonGeo(), bodyMat, pyl.concat(rods), true, new T.Color(1, 1, 1));
+    const tipMat = own(new T.MeshBasicMaterial({ color: lin(STORM_PAL.bolt).multiplyScalar(1.6), toneMapped: false }));
+    out.tipMat = tipMat;
+    instanced(gOct(1), tipMat, tips, false, null);
+    if (cond.length) instanced(gBox(1, 1, 1), own(makeToonMat({ color: STORM_PAL.conduit, vertexColors: false, emissive: STORM_PAL.bolt, emissiveIntensity: 0.12 })), cond, false, new T.Color(1, 1, 1));
+    if (!low && glows.length) {
+      const gm = own(new T.MeshBasicMaterial({ map: glowTex(), color: lin(STORM_PAL.bolt), transparent: true, opacity: 0.3, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false }));
+      const gi = instanced(gQuad(), gm, glows, false, null);
+      if (gi) gi.renderOrder = 1;
+      out.glowMat = gm;
+    }
+    // --- 转轮：嵌在北墙墙面上慢慢转（低画质不转）---
+    if (wheels.length) {
+      const wm = own(makeToonMat({ brush: 0.1 }));
+      const im = gfxAdd(new T.InstancedMesh(stormWheelGeo(), wm, wheels.length));
+      im.castShadow = true;
+      out.wheels = { im, list: wheels };
+      stormWheels(out.wheels, 0);
+    }
+    // --- 碎石：贴着墙根零星几块（低画质减半）---
+    const rub = [];
+    stormEdges(2.6, -0.45, (x, z, nx, nz) => {
+      if (Math.random() < (low ? 0.8 : 0.62)) return;
+      const n = Math.random() < 0.4 ? 2 : 1;
+      for (let k = 0; k < n; k++) {
+        const s = rand(0.18, 0.42);
+        rub.push(x + rand(-0.5, 0.5) - nx * rand(0, 0.5), s * 0.35, z + rand(-0.5, 0.5) - nz * rand(0, 0.5), rand(-0.4, 0.4), rand(0, TAU), rand(-0.4, 0.4), s * rand(1, 1.6), s, s * rand(0.8, 1.3), rand(0.75, 1.05));
+      }
+    });
+    instanced(gBox(1, 1, 1), own(makeToonMat({ color: STORM_PAL.rubble, vertexColors: false, flat: true })), rub, false, new T.Color(1, 1, 1));
+    return out;
+  }
+  const _sq = new T.Quaternion(), _sq2 = new T.Quaternion(), _sz = new T.Vector3(0, 0, 1), _sy = new T.Vector3(0, 1, 0);
+  function stormWheels(Wh, t) {
+    for (let i = 0; i < Wh.list.length; i++) {
+      const w = Wh.list[i];
+      _sq.setFromAxisAngle(_sy, w.ang);
+      _sq2.setFromAxisAngle(_sz, w.ph + t * w.sp);
+      _m4.compose(_v.set(w.x, w.y, w.z), _sq.multiply(_sq2), _s.set(w.s, w.s, w.s));
+      Wh.im.setMatrixAt(i, _m4);
+    }
+    Wh.im.instanceMatrix.needsUpdate = true;
+  }
+  // 每帧：转轮转、雷枢的晶体呼吸；中 / 高画质下雷枢两柱之间不时跳一道小电弧，预警期间跳得很密
+  function stormFx(dt, st, ctx) {
+    if (!st) return;
+    const rt = W.zone && W.zone.stormRt, lowQ = qualId === 'low';
+    if (st.wheels && !lowQ) stormWheels(st.wheels, wtime);
+    st.tipMat.color.copy(lin(STORM_PAL.bolt)).multiplyScalar(1.35 + 0.35 * Math.sin(wtime * 3.1));
+    if (st.glowMat) st.glowMat.opacity = 0.24 + 0.08 * Math.sin(wtime * 3.1);
+    if (lowQ || !rt) return;
+    for (const N of rt.list) {
+      N.arc -= dt;
+      if (N.arc > 0) continue;
+      const warn = N.warn > 0;
+      if (!warn && !N.near) { N.arc = 0.5; continue; }
+      N.arc = warn ? rand(0.07, 0.14) : rand(1.2, 3.2);
+      const f = N.f, pts = [];
+      for (let k = 0; k <= 4; k++) {
+        const t = k / 4, j = k === 0 || k === 4 ? 0 : rand(-0.5, 0.5);
+        pts.push({ x: f.ax + (f.bx - f.ax) * t + (f.bz - f.az) * j * 0.1, z: f.az + (f.bz - f.az) * t - (f.bx - f.ax) * j * 0.1 });
+      }
+      if (warn) W.bolt(pts, STORM_PAL.bolt, true);
+      else W.bolt(pts.slice(0, 2 + Math.floor(Math.random() * 2)), STORM_PAL.bolt, true); // 闲置时只在一根柱子边上跳一小段
+    }
+  }
+  // ---------- 玩法：雷枢（定时机关，设计稿 §3.3 / §5 第 6 条）----------
+  // 每对柱子每 period 秒放一道 w 宽的雷线：先用 G.telegraph 的长条预警 warn 秒（它同时结算玩家和召唤物），
+  // 到点时这里自己结算站在雷线里的小怪（首领免疫），所以可以把怪引过去。玩家离雷线 range 以内才运转
+  function stormRt(zone) {
+    const list = (zone.feats || []).filter((f) => f.kind === 'node').map((f) => ({ f, t: f.ph || 0, warn: 0, near: false, arc: 0, dmg: 0 }));
+    return (zone.stormRt = { list });
+  }
+  function stormSegD(x, z, f) {
+    const ex = f.bx - f.ax, ez = f.bz - f.az, l2 = ex * ex + ez * ez;
+    const t = l2 > 0 ? Math.max(0, Math.min(1, ((x - f.ax) * ex + (z - f.az) * ez) / l2)) : 0;
+    return Math.hypot(x - f.ax - ex * t, z - f.az - ez * t);
+  }
+  function stormTick(dt, zone) {
+    const rt = zone.stormRt || stormRt(zone);
+    if (!rt.list.length) return;
+    const P = G.player, C = STORM.node;
+    for (const N of rt.list) {
+      const f = N.f;
+      if (N.warn > 0) {
+        N.warn -= dt;
+        if (N.warn <= 0) stormStrike(N, zone);
+      }
+      const near = !!P && !P.dead && stormSegD(P.x, P.z, f) <= C.range;
+      if (near && !N.near) N.t = Math.min(N.t, C.period - 1.2); // 刚走近：至少再过 1.2 秒才起手
+      N.near = near;
+      if (!near) continue;
+      N.t += dt;
+      if (N.t < C.period) continue;
+      N.t -= C.period;
+      const len = Math.hypot(f.bx - f.ax, f.bz - f.az);
+      N.dmg = Math.max(1, Math.round(C.dmg * G.dmgScale(zone.level)));
+      N.warn = C.warn;
+      G.telegraph({ shape: 'rect', x: (f.ax + f.bx) / 2, z: (f.az + f.bz) / 2, ang: Math.atan2(f.bx - f.ax, f.bz - f.az), len, w: C.w, dur: C.warn, dmg: N.dmg, dtype: 'light', storm: true });
+    }
+  }
+  function stormStrike(N, zone) {
+    const f = N.f, C = STORM.node, ex = f.bx - f.ax, ez = f.bz - f.az, len = Math.hypot(ex, ez) || 1, ux = ex / len, uz = ez / len;
+    // 雷线里的小怪（按身体半径放宽一点）
+    for (const e of G.state.enemies) {
+      if (!e || e.dead || e.isBoss) continue;
+      const dx = e.x - f.ax, dz = e.z - f.az, al = dx * ux + dz * uz, pe = Math.abs(-dx * uz + dz * ux);
+      if (al < -0.3 || al > len + 0.3 || pe > C.w / 2 + (e.r || 0.5) * 0.5) continue;
+      e.hp -= N.dmg;
+      e.awake = true;
+      W.flash(e.ent, 0.8);
+      W.text(e.x, e.z, '-' + N.dmg, '#ffe45e', 14);
+      if (e.hp <= 0) G.killEnemy(e);
+    }
+    const pts = [];
+    for (let k = 0; k <= 6; k++) {
+      const t = k / 6, j = k === 0 || k === 6 ? 0 : rand(-0.35, 0.35);
+      pts.push({ x: f.ax + ex * t - uz * j, z: f.az + ez * t + ux * j });
+    }
+    W.bolt(pts, STORM_PAL.bolt, false);
+    const P = G.player;
+    if (P && Math.hypot(P.x - (f.ax + f.bx) / 2, P.z - (f.az + f.bz) / 2) < 12) {
+      W.shake(0.18);
+      G.sfx('impact', { type: 'light', w: 2, crit: false });
+    }
+  }
+  ZONE_TERRAIN.storm = { gen: stormGen, dress: stormDress, fx: stormFx, tick: stormTick };
+  W.stormNodeCfg = STORM.node; // 测试 / C 阶段调数值用
+  W.stormFails = stormFails;
   // ===== 区域地形：storm 结束 =====
 
   // ===== 区域地形：abyss（烬渊深处）—— zones-abyss 只改这一节 =====

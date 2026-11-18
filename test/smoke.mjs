@@ -9501,6 +9501,86 @@ async function main() {
     assert(R.bossHome < 0.01 && !R.bossAwake && R.bossFull, '首领没有复位：' + JSON.stringify(R));
     return '怪 ' + Z.n + '（精英 ' + Z.elites + '），浅水 ×' + r.slow.shallow + '，薄冰 ×' + th.speed + '，门距 ' + R.door;
   });
+
+  await step('区域 storm 布局：20 个种子都通过校验 + 进区刷怪正常 + 首领门外重生；雷枢先长条预警、再同时打到玩家和小怪', async () => {
+    const r = await ev(() => {
+      G.debug.hold(true);
+      const W = G.world, S = G.state, P = G.player, out = { bad: [], seeds: 0 };
+      const zi = G.ZONES.findIndex((z) => z.id === 'storm');
+      // 20 个种子：校验通过、是本区自己的生成器（有 storm 字段），怪 45–65 只、精英 1–4、宝箱 2、每个关键路径大厅都有伏击群
+      for (let s = 1; s <= 20; s++) {
+        const g = W.genLayout('storm', s * 7919 + 3), sp = g.spec;
+        out.seeds++;
+        if (!g.ok || !sp.storm) { out.bad.push(s + '：' + g.why.join('；')); continue; }
+        const mobs = sp.packs.reduce((a, p) => a + (Array.isArray(p.n) ? (p.n[0] + p.n[1]) / 2 : p.n), 0);
+        const el = sp.packs.filter((p) => p.elite).length, halls = sp.rooms.filter((rm) => rm.kind === 'room');
+        const amb = halls.filter((h) => sp.packs.some((p) => p.ambush && p.room === h.id)).length;
+        if (mobs < 45 || mobs > 65 || el < 1 || el > 4 || sp.chests.length !== 2 || halls.length !== 4 || amb < 3) out.bad.push(s + '：怪 ' + mobs + ' 精英 ' + el + ' 宝箱 ' + sp.chests.length + ' 伏击 ' + amb);
+      }
+      // 固定种子进区
+      G.debug.zoneSeed(4242);
+      G.enterZone(zi, 0);
+      const z = S.zone, info = G.debug.layout();
+      out.zone = {
+        gen: info.gen, n: S.enemies.filter((e) => !e.isBoss).length, boss: !!S.boss, chests: z.chests.length,
+        bad: S.enemies.filter((e) => !W.walkable(e.x, e.z, 0) || Math.hypot(e.x - z.start.x, e.z - z.start.z) < 12).length,
+        elites: S.enemies.filter((e) => e.elite).length, doorGap: Math.hypot(z.bossDoor.x - z.bossPos.x, z.bossDoor.z - z.bossPos.z) - z.bossR,
+        doorWalk: W.walkable(z.bossDoor.x, z.bossDoor.z, 0.5), wallMat: W.matAt(z.bossPos.x + 40, z.bossPos.z + 40) === W.MAT.WALL,
+      };
+      // 雷枢：机关厅那一对。玩家站在雷线上、一只游魂也站在上面
+      const f = z.feats.find((q) => q.kind === 'node');
+      const mx = (f.ax + f.bx) / 2, mz = (f.az + f.bz) / 2;
+      G.clearEnemies();
+      T.tp(mx, mz);
+      P.iframe = 0;
+      G.debug.god(false);
+      P.life = P.maxLife;
+      const husk = G.spawnMob('husk', mx + (f.bx - f.ax) * 0.2, mz + (f.bz - f.az) * 0.2, 1, { awake: true });
+      husk.hp = husk.maxHp = 1e4;
+      husk.speed = 0;
+      husk.atkCd = 1e9;
+      let tg = null, i = 0;
+      for (; i < 60 * 7 && !tg; i++) {
+        G.tick(1 / 60);
+        tg = S.telegraphs.find((t) => t.storm) || null;
+        P.x = mx; P.z = mz; husk.x = mx + (f.bx - f.ax) * 0.2; husk.z = mz + (f.bz - f.az) * 0.2;
+      }
+      out.node = { warnAt: +(i / 60).toFixed(2), shape: tg && tg.shape, w: tg && tg.w, dur: tg && tg.dur };
+      const life0 = P.life, hp0 = husk.hp;
+      for (let k = 0; k < 70 && S.telegraphs.indexOf(tg) >= 0; k++) {
+        G.tick(1 / 60);
+        P.x = mx; P.z = mz; husk.x = mx + (f.bx - f.ax) * 0.2; husk.z = mz + (f.bz - f.az) * 0.2;
+      }
+      G.tick(1 / 60);
+      out.node.playerHit = +(life0 - P.life).toFixed(1);
+      out.node.huskHit = +(hp0 - husk.hp).toFixed(1);
+      G.debug.god(true);
+      // 首领门外重生：进场地叫醒首领，倒下后重生在门外 2 m
+      G.clearEnemies();
+      G.enterZone(zi, 0);
+      const z2 = S.zone;
+      T.tp(z2.arena.tp.x, z2.arena.tp.z);
+      G.debug.step(0.6);
+      out.awake = !!(S.boss && S.boss.awake);
+      G.debug.god(false);
+      P.iframe = 0;
+      G.hurtPlayer(1e9, 'phys');
+      G.debug.step(4.3);
+      out.respawn = { dead: P.dead, door: +(Math.hypot(P.x - z2.bossPos.x, P.z - z2.bossPos.z) - z2.bossR).toFixed(3), walk: W.walkable(P.x, P.z, 0.5) };
+      G.debug.god(true);
+      G.debug.zoneSeed(null);
+      G.enterZone(0, 0);
+      return out;
+    });
+    assert(r.seeds === 20 && !r.bad.length, 'storm 有种子不合格：' + r.bad.slice(0, 4).join(' | '));
+    const z = r.zone;
+    assert(z.gen === 'custom' && z.n >= 20 && z.boss && z.bad === 0 && z.elites <= 4 && z.chests === 2, '进区刷怪不对：' + JSON.stringify(z));
+    assert(Math.abs(z.doorGap - 2) < 0.01 && z.doorWalk && z.wallMat, '场地门 / 区域外的墙不对：' + JSON.stringify(z));
+    assert(r.node.shape === 'rect' && r.node.w === 2 && Math.abs(r.node.dur - 0.9) < 1e-6 && r.node.warnAt <= 6.5, '雷枢应在 5 秒一轮里先放 2 m 宽、0.9 秒的长条预警：' + JSON.stringify(r.node));
+    assert(r.node.playerHit > 0 && r.node.huskHit > 0, '雷枢落雷应同时打到玩家和小怪：' + JSON.stringify(r.node));
+    assert(r.awake && !r.respawn.dead && Math.abs(r.respawn.door - 2) < 0.01 && r.respawn.walk, '倒在首领战里应重生在门外 2 m：' + JSON.stringify(r));
+    return '怪 ' + z.n + ' 只，雷枢 ' + r.node.warnAt + ' 秒起手，玩家 -' + r.node.playerHit + ' / 游魂 -' + r.node.huskHit;
+  });
 }
 
 main()
