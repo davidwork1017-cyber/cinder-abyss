@@ -16303,8 +16303,8 @@
       chLin[k] = [_c.r, _c.g, _c.b];
     }
     pfPart('chShard', PF.tShard.mesh.geometry, PF.tShard.mesh.material, 240, 0);
-    // chDisc：黑旋风的圆片（面朝镜头的 14 边形），材质同上
-    pfPart('chDisc', geo('chDisc', () => new T.CircleGeometry(1, 14)), PF.tShard.mesh.material, 120, 0);
+    // chDisc：黑旋风的圆片（面朝镜头的 14 边形）。不做深度测试、最后画：吸附在怪身上时圆片在胸口高度，不然会被怪的身子挡住
+    pfPart('chDisc', geo('chDisc', () => new T.CircleGeometry(1, 14)), new T.MeshBasicMaterial({ toneMapped: false, fog: false, side: T.DoubleSide, depthTest: false }), 120, 10);
     // chFlame：黑焰的火舌，圆底、往上收成一个微微勾着的尖（以中心为扇心的一圈轮廓），材质同上
     pfPart('chFlame', geo('chFlame', () => {
       const O = [[0, -0.36], [0.2, -0.31], [0.32, -0.16], [0.33, 0.02], [0.25, 0.2], [0.15, 0.38], [0.09, 0.56], [0.06, 0.74], [-0.05, 0.92], [-0.04, 0.7], [-0.13, 0.5], [-0.24, 0.3], [-0.32, 0.1], [-0.33, -0.08], [-0.27, -0.25], [-0.15, -0.34]];
