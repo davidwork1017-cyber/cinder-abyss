@@ -9925,15 +9925,21 @@ async function main() {
     const r = await ev(() => {
       G.debug.hold(true);
       const W = G.world, out = { bad: [] };
-      // 20 个种子：校验通过、是新生成器（不是 legacy）、3 个旁支 2 个宝箱、精英 ≤ 4、2 块薄冰、有浅水、场地 4 根柱子
+      // 20 个种子：校验通过、是新生成器（不是 legacy）、关键路径 6–7 个岛、4–5 个旁支 3 个宝箱、精英 ≤ 6（关键路径 ≤ 5，精英旁支正好 1 个）、
+      // 每个房间的怪物等级按 lvFor 折算、2 块薄冰、有浅水、场地 4 根柱子（size-frost：原来 3 个旁支 2 个宝箱、精英 ≤ 4）
       for (let s = 1; s <= 20; s++) {
         const g = W.genLayout('frost', s * 7919 + 13), sp = g.spec;
         const why = g.ok ? [] : g.why.slice();
         if (sp.legacy) why.push('退回了 legacy');
         else {
-          if (sp.rooms.filter((rm) => rm.kind === 'side').length !== 3) why.push('旁支不是 3 个');
-          if (sp.chests.length !== 2) why.push('宝箱不是 2 个');
-          if (sp.packs.filter((p) => p.elite).length > 4) why.push('精英超过 4');
+          const nI = sp.rooms.filter((rm) => rm.kind === 'room').length, nSide = sp.rooms.filter((rm) => rm.kind === 'side').length;
+          if (nI < 6 || nI > 7) why.push('关键路径的岛不是 6–7 个');
+          if (nSide < 4 || nSide > 5) why.push('旁支不是 4–5 个');
+          if (sp.chests.length !== 3) why.push('宝箱不是 3 个');
+          if (sp.packs.filter((p) => p.elite).length > 6) why.push('精英超过 6');
+          if (sp.packs.filter((p) => p.elite && sp.rooms[p.room].kind !== 'side').length > 5) why.push('关键路径的精英超过 5');
+          if (sp.packs.filter((p) => p.elite && sp.rooms[p.room].kind === 'side').length !== 1) why.push('精英旁支不是 1 个');
+          if (sp.rooms.some((rm) => rm.lv !== W.terrain.lvFor(rm.kind === 'side' ? rm.order - 1 : rm.order, nI))) why.push('房间的怪物等级没按 lvFor 折算');
           if (sp.haz.filter((h) => h.kind === 'thin').length !== 2) why.push('薄冰不是 2 块');
           if (!sp.haz.some((h) => h.kind === 'slow')) why.push('没有浅水');
           if (sp.cuts.filter((c) => c.mat === W.MAT.WALL && c.prim.r === 0.8).length !== 4) why.push('场地柱子不是 4 根');
@@ -10014,8 +10020,9 @@ async function main() {
     });
     assert(!r.bad.length, '有种子不合格：' + r.bad.slice(0, 4).join(' | '));
     const Z = r.zone;
-    assert(Z.id === 'frost' && Z.gen === 'custom' && Z.boss === 'weaver' && Z.bossIn && Z.chests === 2, '进区布局不对：' + JSON.stringify(Z));
-    assert(Z.n >= 40 && Z.n <= 70 && Z.elites >= 1 && Z.elites <= 4 && Z.bad === 0 && Z.types, '刷怪不对：' + JSON.stringify(Z));
+    assert(Z.id === 'frost' && Z.gen === 'custom' && Z.boss === 'weaver' && Z.bossIn && Z.chests === 3, '进区布局不对：' + JSON.stringify(Z));
+    // size-frost：区域加长后怪群约 ×1.6–1.8，怪数上下限照 ×1.6 放（原来 40–70、精英 1–4）
+    assert(Z.n >= 64 && Z.n <= 112 && Z.elites >= 1 && Z.elites <= 6 && Z.bad === 0 && Z.types, '刷怪不对：' + JSON.stringify(Z));
     assert(!r.water.walk && r.water.shot, '深水应挡人、不挡子弹：' + JSON.stringify(r.water));
     assert(r.slow.haz & 1 && r.slow.shallow > 0.55 && r.slow.shallow < 0.75, '浅水应减速到约 0.65：' + JSON.stringify(r.slow));
     const th = r.thin;
