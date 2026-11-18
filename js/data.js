@@ -194,16 +194,20 @@
       w: 0, kb: 0, poise: 2, useMult: 12,
       desc: '在准星处撕开一个黑洞，持续 3 秒：把周围的敌人往中心拽（越轻拽得越狠，首领几乎拽不动），并持续造成混沌伤害。冷却较长。',
     },
-    // 黑旋风：一团缓慢推进的漩涡（speed、life 秒），半径 radius 以内的敌人每 tick 秒挨一跳（同一次施放的几团共用这个间隔）；
-    //   圈内的非首领敌人被顺着行进方向带 drag / √体重 米每秒，并往路径中线收一点。
-    //   贯穿镶不上（漩涡本来就穿过所有敌人）；连锁：走到头之后拐向 hop.r 米内这一发还没打过的最近敌人，再走 hop.life 秒
+    // 黑旋风（第三轮改）：每次施放放出 count 团又快又小的漩涡（多重投射再加），扇形每团隔 spread°，路线带一点随机的摆动（wander 弧度 / 秒）。
+    //   碰到敌人就吸附 latch.t 秒（贴着它不走），期间把 latch.r 以内的小怪往漩涡拽（latch.pull / √体重，首领只挪 latch.bossPull），松开后接着飞。
+    //   半径 radius 以内的敌人每 tick 秒挨一跳；撞上真墙 / 悬崖按法线反弹（最多 bounce 次，再撞就散），寿命 life 秒。
+    //   上限：同一次施放对同一个敌人每 tick 秒最多一跳、一共最多 cap 跳（首领 bossCap 跳）；每团最多吸附 latch.max 次，同一个敌人 latch.again 秒内不再吸。
+    //   贯穿：前 N 个敌人不吸附，直接穿过（照样挨跳）；连锁：每次松开后拐向 hop.r 米内这一团还没吸过的最近敌人（每拐一次消耗 1 次）
     vortex: {
       name: '黑旋风', icon: '涡', color: '#ff6ad2', tags: ['spell', 'projectile', 'area', 'chaos'], kind: 'vortex',
-      dmg: { chaos: [3.6, 5.6] }, chaosEarly: true, time: 0.55, mana: 9, cd: 0,
-      speed: 9, life: 1.6, radius: 1.5, tick: 0.2, drag: 1.2, hop: { r: 8, life: 0.9 },
-      noSup: ['pierce'],
-      w: 0, kb: 0, poise: 3, useMult: 2.5,
-      desc: '放出一团缓慢推进的黑色漩涡，沿途卷住半径内的所有敌人，持续造成混沌伤害，并把它们往前带一小段。',
+      dmg: { chaos: [3.1, 4.85] }, chaosEarly: true, time: 0.55, mana: 9, cd: 0,
+      count: 3, speed: 14, life: 2.2, radius: 0.9, spread: 13, wander: 1.6,
+      latch: { t: 0.4, r: 2.4, pull: 4.5, bossPull: 0.3, max: 3, again: 0.8 },
+      bounce: 4, tick: 0.2, cap: 3, bossCap: 4, hop: { r: 7 },
+      // useMult：单体小怪每次施放实测平均 2.9 跳（chaos-tools/fx-hits.mjs，5 个种子共 112 次）；每跳伤害按「平均每跳 × 跳数」和第二轮的 4.6 × 2.5 相同定
+      w: 0, kb: 0, poise: 3, useMult: 2.9,
+      desc: '放出三团疾飞的小黑旋风，路线飘忽不定。碰到敌人就吸附在它身上片刻，把周围的小怪拽过来一起绞，持续造成混沌伤害，然后接着飞；撞到墙会弹开，在狭窄的地方来回反弹。',
     },
     // 黑焰：光环（buff：不脉冲、自己不造成伤害）。你和召唤物的每一击额外造成 F% 的混沌伤害，
     //   F = min(cap, k0 + k1 × (宝石等级 − 1)) × (1 + 黑焰效果%)，40 级（宝石 30）约 13%，37 级宝石封顶 15%；和注入一样按加成之后、暴击之前的伤害折算（相加，不再吃混沌加成）。
