@@ -2169,7 +2169,7 @@
         const L = sk.latch, nv = sk.count + Math.max(0, ctx.proj - 1);
         note =
           '<div class="sk-anote"><i></i>每次 ' + nv + ' 团 · 吸附 ' + L.t + ' 秒，拽近 ' + fmt1(L.r) + ' 米内的小怪 · 每团最多吸 ' + L.max + ' 次、撞墙弹 ' + sk.bounce + ' 次、飞 ' + sk.life + ' 秒</div>' +
-          '<div class="sk-anote"><i></i>同一次施放对同一个敌人每 ' + sk.tick + ' 秒最多一跳、一共最多 ' + sk.cap + ' 跳（首领 ' + sk.bossCap + ' 跳；单体平均每次约 ' + sk.useMult + ' 跳）· 贯穿：前几个敌人不吸附、直接穿过 · 连锁：松开后拐向附近下一个敌人</div>';
+          '<div class="sk-anote"><i></i>同一次施放对同一个敌人每 ' + sk.tick + ' 秒最多一跳；被吸附的一共最多 ' + sk.cap + ' 跳、卷到的 ' + sk.splashCap + ' 跳、首领 ' + sk.bossCap + ' 跳（单体平均每次约 ' + sk.useMult + ' 跳）· 贯穿：前几个敌人不吸附、直接穿过 · 连锁：松开后拐向附近下一个敌人</div>';
       }
       // 攻击技能：伤害取自手里的武器
       if (ctx.attack) note = attackNote(ctx) + note;
