@@ -2039,7 +2039,7 @@
         '<div class="sk-top"><div class="sk-icon">' + IC.skill(id) + '</div>' +
         '<div class="sk-title"><div class="sk-name">' + sk.name + (sk.uskill ? '<em class="usk-tag">烬铸技</em>' : '') + '</div><div class="wsk-src">来自 ' + esc(item ? item.name : '') + ' · ' + wTypeName(item ? item.baseIdx | 0 : 0) +
         (sk.uskill && sk.replaces && G.SKILLS[sk.replaces] ? ' · 替换「' + G.SKILLS[sk.replaces].name + '」' : '') +
-        (sk.kind === 'wwand' && G.player.uMech === 'void' ? ' · 星蚀：属性固定为混沌' : '') + '</div></div></div>' +
+        (sk.kind === 'wwand' && G.player.uMech === 'void' ? ' · 属性固定为混沌' : '') + '</div></div></div>' +
         '<div class="sk-desc">' + sk.desc + '</div>' +
         (nums ? '<div class="sk-nums">' + nums + '</div>' : '') +
         '<div class="sk-anote wpn"><i></i><span>' + grow + '</span></div>' +
