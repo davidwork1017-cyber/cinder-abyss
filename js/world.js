@@ -533,6 +533,54 @@
       }
       return new T.CanvasTexture(c);
     });
+  // 地面细节（zones-polish）：替代污斑的「有意的」地面纹路：从中心往外几道锯齿状的细裂纹，带分叉，越往外越细；
+  // 一圈很淡的碎屑点。白色 + alpha，颜色由材质给。污斑那种一大团软边的暗块看着像脏印子
+  const groundCrackTex = () =>
+    tex('crackDetail', () => {
+      const S = 128, c = makeCanvas(S, S), g = c.getContext('2d');
+      let sd = 7;
+      const rnd = () => ((sd = (sd * 16807) % 2147483647) - 1) / 2147483646;
+      g.strokeStyle = 'rgba(255,255,255,1)';
+      g.lineCap = 'round';
+      g.lineJoin = 'round';
+      const branch = (x, y, a, len, w, depth) => {
+        g.lineWidth = w;
+        g.beginPath();
+        g.moveTo(x, y);
+        const n = Math.max(3, Math.round(len / 6));
+        for (let i = 0; i < n; i++) {
+          a += (rnd() - 0.5) * 0.9;
+          x += Math.cos(a) * (len / n);
+          y += Math.sin(a) * (len / n);
+          g.lineTo(x, y);
+          if (depth < 2 && rnd() < 0.28) {
+            g.stroke();
+            branch(x, y, a + (rnd() < 0.5 ? -1 : 1) * (0.5 + rnd() * 0.6), len * (0.35 + rnd() * 0.25), w * 0.6, depth + 1);
+            g.lineWidth = w;
+            g.beginPath();
+            g.moveTo(x, y);
+          }
+          w *= 0.88;
+          g.lineWidth = Math.max(0.6, w);
+        }
+        g.stroke();
+      };
+      const nb = 5;
+      for (let i = 0; i < nb; i++) branch(S / 2 + (rnd() - 0.5) * 6, S / 2 + (rnd() - 0.5) * 6, (i / nb) * TAU + rnd() * 0.8, 34 + rnd() * 22, 3.2, 0);
+      g.fillStyle = 'rgba(255,255,255,0.35)';
+      for (let i = 0; i < 40; i++) {
+        const a = rnd() * TAU, d = 10 + rnd() * 44;
+        g.fillRect(S / 2 + Math.cos(a) * d, S / 2 + Math.sin(a) * d, 1 + rnd() * 1.5, 1 + rnd() * 1.5);
+      }
+      // 外圈淡出（贴花的方块边不露出来）
+      g.globalCompositeOperation = 'destination-in';
+      const gr = g.createRadialGradient(S / 2, S / 2, S * 0.3, S / 2, S / 2, S * 0.5);
+      gr.addColorStop(0, 'rgba(255,255,255,1)');
+      gr.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = gr;
+      g.fillRect(0, 0, S, S);
+      return new T.CanvasTexture(c);
+    });
   // 传送门旋涡
   const swirlTex = () =>
     tex('swirl', () => {
@@ -743,7 +791,7 @@
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x3c2a30, a: 0.3 }, // zones-ash：0x4a2636 → 0x3c2a30，少一点酒红
       prop: { tint: 0x6e5c54, sat: 0.5 }, // 卡通：布景模型压到岩壁那一档，不比地面亮
-      blots: { k: 0.35, r: 0.65, op: 0.16 }, // zones-ash：污斑看着像脏印子，少放、放小，路面的细节交给布景里的积灰和余烬裂缝
+      blots: { k: 0.35, r: 0.65, op: 0.3, tex: 'crack' }, // zones-polish：细裂纹代替软边的暗块（op 0.16 → 0.3：线细，同样的不透明度几乎看不见）。zones-ash：污斑看着像脏印子，少放、放小，路面的细节交给布景里的积灰和余烬裂缝
       sigil: { r: 0.52, dark: 0.55, start: false }, // zones-ash：熔渣坑的法阵收小、压暗一半；不要起点法阵（起点布景见 buildAshDress）
       props: {
         // 卡通布景：Kenney 的岩石和树桩去掉（和程序化的倒角岩风格不一致、树桩照片贴图发白），岩石全部是程序化的
@@ -794,7 +842,7 @@
       lava: null,
       rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0, capAll: 0 },
       grade: { sat: 1.12, con: 1.1, lift: 0x080418, gain: 0xfaf6ff, vig: 0.24 },
-      blots: { k: 0.35, r: 0.7 }, // zones-storm：地砖上的污斑少一些、小一些（zones-ash 的开关）
+      blots: { k: 0.35, r: 0.7, op: 0.3, tex: 'crack' }, // zones-polish：地砖上是细裂纹，不是暗块。zones-storm：地砖上的污斑少一些、小一些（zones-ash 的开关）
       sigil: { r: 0.55, op: 0.12 }, // zones-storm：监察大厅的法阵原来又大又满，收小、压淡
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x2c2744, a: 0.32 },
@@ -855,7 +903,7 @@
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x16303a, a: 0.3 },
       prop: { tint: 0x3e5250, sat: 0.12 },
-      blots: { k: 0.4, r: 0.7 }, // 污斑少一半多、小一点（zones-ash 加的旋钮）
+      blots: { k: 0.4, r: 0.7, op: 0.3, tex: 'crack' }, // zones-polish：细裂纹代替暗块。污斑少一半多、小一点（zones-ash 加的旋钮）
       // 下面三个旋钮原来是 rift 的 dress 运行时找网格改的（zones-integrate 收进表里）：法阵缩到 0.45、电光青压淡；水晶和光晕电光青；
       // 通用岩石换成卡通材质（底色 = rockTop / def.rock，高画质 ×0.88、低画质 ×0.7），按低频噪声成簇留空
       sigil: { r: 0.378, col: 0x7aeeff, k: 0.55 },
@@ -1660,8 +1708,62 @@
       nf++;
     }
 
+    // 起点空地中间的景（zones-polish：owner 说空地中间太空）：偏开出口一侧一圈裂开的旧石板（炉址，贴地、不碰撞），从它往外裂开几道余烬裂缝；
+    // 北侧（离镜头远、不挡人）一块倒下的界碑和它的断座；空地边外两三截矮残墙；残墙和界碑脚下堆点积灰、几簇枯草和碎石。
+    // 起点圆盘里不能有障碍（起点契约），所以都不碰撞、都很矮（石板 0.06 m、界碑 0.45 m），空地中间照样能打。合成一个网格（视锥剔除，打架时不在画面里就不画）
+    const poi = [], pr = ashRng(zone, 3), rp = (a, b) => a + (b - a) * pr();
+    {
+      const ex = st.exit || { ang: 0 }, ea = ex.ang !== undefined ? ex.ang : Math.atan2(ex.x - st.x, ex.z - st.z);
+      // 垂直于出口的两个方向里取偏北（-z）的那个
+      const a1 = ea + Math.PI / 2, a2 = ea - Math.PI / 2, side = Math.cos(a1) < Math.cos(a2) ? a1 : a2;
+      const hx = st.x + Math.sin(side) * 2.2 + Math.sin(ea + Math.PI) * 1.2, hz = st.z + Math.cos(side) * 2.2 + Math.cos(ea + Math.PI) * 1.2;
+      const stoneK = (k) => mixHex(ASH_LAY.stone, ASH_PAL.ashFall || 0x8a817c, k);
+      // 炉址：一圈不规则的石板，缺几块，中间一块裂成两半
+      for (let i = 0, n = 14; i < n; i++) {
+        if (pr() < 0.14) continue;
+        const a = (i / n) * TAU + rp(-0.12, 0.12), d = rp(1.6, 2.3);
+        poi.push([ashSlabGeo(stoneK(0.12)), hx + Math.sin(a) * d, 0.025, hz + Math.cos(a) * d, rp(-0.04, 0.04), a + rp(-0.3, 0.3), rp(-0.04, 0.04), rp(0.8, 1.15), 0.07, rp(0.55, 0.8), rp(0.82, 0.98)]);
+      }
+      for (const sg of [-1, 1]) poi.push([ashSlabGeo(stoneK(0.05)), hx + sg * 0.32, 0.03, hz + sg * 0.12, sg * 0.05, side + rp(-0.2, 0.2), 0, 0.55, 0.08, 1.1, rp(0.75, 0.88)]);
+      // 从炉址往外裂开的余烬裂缝（并进熔岩网格，和起点别的裂缝一起呼吸）
+      for (let k = 0; k < 3; k++) {
+        const a = side + Math.PI + (k - 1) * 0.9 + rp(-0.25, 0.25), d = 2.5;
+        ashFissure(pr, hx + Math.sin(a) * d, hz + Math.cos(a) * d, rp(1.6, 2.6), rp(0.07, 0.1), fis);
+      }
+      // 倒下的界碑：北侧离中心 5.5–6.5 m，横躺着，旁边是断掉的碑座
+      const ma = side + rp(-0.35, 0.35), md = rp(5.6, 6.4), mx = st.x + Math.sin(ma) * md, mz = st.z + Math.cos(ma) * md, mang = ma + Math.PI / 2 + rp(-0.4, 0.4);
+      poi.push([ashSlabGeo(stoneK(0.08)), mx, 0.22, mz, rp(-0.06, 0.06), mang, 0.12, 0.62, 0.42, 2.5, rp(0.88, 0.98)]);
+      poi.push([ashSlabGeo(stoneK(0.08)), mx + Math.sin(mang) * 1.25, 0.34, mz + Math.cos(mang) * 1.25, 0.3, mang, 0, 0.7, 0.5, 0.35, 0.86]); // 碑头
+      const bx = mx + Math.sin(mang) * -1.75 + Math.sin(ma) * 0.4, bz = mz + Math.cos(mang) * -1.75 + Math.cos(ma) * 0.4;
+      poi.push([ashSlabGeo(stoneK(0.04)), bx, 0.32, bz, rp(-0.05, 0.05), mang + 0.3, rp(-0.05, 0.05), 0.82, 0.64, 0.72, 0.84]);
+      poi.push([ashSlabGeo(stoneK(0.04)), bx + rp(-0.2, 0.2), 0.7, bz + rp(-0.2, 0.2), 0.25, mang + 0.6, -0.2, 0.5, 0.18, 0.46, 0.8]); // 断口的碎块
+      L.drift.push(mx - Math.sin(mang) * 0.9, 0, mz - Math.cos(mang) * 0.9, 0, rp(0, TAU), 0, 1.1, 0.7, 1.2, 1);
+      for (let q = 0; q < 4; q++) L.grass.push(mx + rp(-1.4, 1.4), 0, mz + rp(-0.9, 0.9), 0, rp(0, TAU), 0, rp(0.7, 1.1), rp(0.7, 1.2), rp(0.7, 1.1), rp(0.85, 1.1));
+      for (let q = 0; q < 6; q++) L.pebble.push(hx + rp(-3, 3), 0.02, hz + rp(-3, 3), rp(-0.4, 0.4), rp(0, TAU), rp(-0.4, 0.4), rp(0.08, 0.2), rp(0.05, 0.12), rp(0.08, 0.2), rp(0.75, 1.05));
+      // 空地边外的矮残墙：北半圈、避开出口，贴着可走区域外 0.4–1.5 m
+      let made = 0;
+      for (let t = 0; t < 24 && made < 3; t++) {
+        const a = side + rp(-1.3, 1.3), d0 = rp(8.6, 11);
+        const x = st.x + Math.sin(a) * d0, z = st.z + Math.cos(a) * d0, dd = sd(x, z);
+        if (dd > -0.4 || dd < -2.2 || Math.abs(Math.atan2(Math.sin(a - ea), Math.cos(a - ea))) < 0.9) continue;
+        const wa = a + Math.PI / 2 + rp(-0.3, 0.3), wl = rp(1.4, 2.4);
+        for (let b = 0, nb = Math.round(wl / 0.6); b < nb; b++) {
+          const u = -wl / 2 + (b + 0.5) * (wl / nb), hh = rp(0.35, 0.95) * (1 - Math.abs(u) / wl * 0.6);
+          poi.push([ashSlabGeo(ASH_LAY.wall), x + Math.sin(wa) * u, hh / 2, z + Math.cos(wa) * u, rp(-0.04, 0.04), wa + rp(-0.06, 0.06), rp(-0.04, 0.04), 0.5, hh, wl / nb * 0.95, rp(0.78, 0.96)]);
+        }
+        L.drift.push(x + rp(-0.6, 0.6), 0, z + rp(-0.6, 0.6), 0, rp(0, TAU), 0, rp(0.9, 1.4), rp(0.6, 1), rp(0.9, 1.4), 1);
+        made++;
+      }
+    }
+
     const ws = new T.Color(1, 1, 1);
     const foliage = own(makeToonMat({ brush: 0.12, brushScale: 0.8, soft: 0.14 }));
+    if (poi.length) {
+      const pm = new T.Mesh(ashMerge(poi), own(makeToonMat({ brush: 0.12, brushScale: 0.6, soft: 0.1 })));
+      pm.castShadow = pm.receiveShadow = true;
+      pm.geometry.computeBoundingSphere();
+      zoneGroup.add(pm);
+    }
     // 低画质不画地上的草 / 蕨 / 苔（软件 GL 下它们和图标的画布共用一个 GPU 进程，见 QUALITY.low 的注释）
     const lowHide = [instanced(ashGrassGeo(), foliage, L.grass, false, ws), instanced(ashFernGeo(), foliage, L.fern, false, ws), instanced(ashMossGeo(), foliage, L.moss, false, ws)].filter(Boolean);
     instanced(ashDriftGeo(), own(makeToonMat({ brush: 0.1, brushScale: 0.5, soft: 0.16 })), L.drift, false, ws);
@@ -3588,25 +3690,46 @@
         }
       }
       const crustK = o.crust === undefined ? 0.45 : o.crust, cc = lin(o.crustCol || 0x34221e);
+      // 卡通熔岩（zones-polish，可选）：opt.crustSide = 冷壳离中线至少多远（× 半宽），芯那一条露出来；opt.crustSeam = 壳底下一圈发红的缝（比壳大一点，先画）；
+      // opt.crustR = 壳的半径范围（× min(1.4, 半宽 / 3)），opt.crustHi = 壳顶面中间一小块亮一点的颜色（受光的硬壳）
+      const cs = o.crustSide || 0, seam = o.crustSeam ? lin(o.crustSeam) : null, cR = o.crustR || [0.25, 0.75], chi = o.crustHi ? lin(o.crustHi) : null;
       if (crustK > 0) {
-        const plate = (x, z, r) => {
-          const m = 5, ph = prnd() * TAU;
+        const plate = (x, z, r, c, yy, sk) => {
+          const m = 5;
           for (let i = 0; i < m; i++) {
-            const a0 = ph + (i / m) * TAU, a1 = ph + ((i + 1) / m) * TAU, r0 = r * (0.7 + 0.5 * prnd()), r1 = r * (0.7 + 0.5 * prnd());
-            tri(x, z, x + Math.sin(a0) * r0, z + Math.cos(a0) * r0, x + Math.sin(a1) * r1, z + Math.cos(a1) * r1, cc, y + 0.004, 0);
+            const a0 = sk[5] + (i / m) * TAU, a1 = sk[5] + ((i + 1) / m) * TAU, r0 = r * sk[i], r1 = r * sk[(i + 1) % m];
+            tri(x, z, x + Math.sin(a0) * r0, z + Math.cos(a0) * r0, x + Math.sin(a1) * r1, z + Math.cos(a1) * r1, c, yy, 0);
           }
         };
+        const plate3 = (x, z, r) => {
+          const sk = [0, 1, 2, 3, 4].map(() => 0.7 + 0.5 * prnd()).concat(prnd() * TAU);
+          if (seam) plate(x, z, r * 1.16 + 0.06, seam, y + 0.003, sk);
+          plate(x, z, r, cc, y + 0.004, sk);
+          if (chi) plate(x + r * 0.08, z - r * 0.1, r * 0.48, chi, y + 0.005, sk);
+        };
         pseed = 977;
+        const placedP = []; // 卡通冷壳不互相叠（叠在一起的两块在同一个高度上会打架、出条纹）
         for (const sg of segs) {
           const l = Math.hypot(sg[2] - sg[0], sg[3] - sg[1]), n = Math.floor(l * crustK + prnd());
           for (let k = 0; k < n; k++) {
-            const t = prnd(), w = sg[6] + (sg[7] - sg[6]) * t, u = (prnd() * 2 - 1) * 0.62 * w;
-            plate(sg[0] + (sg[2] - sg[0]) * t + sg[4] * u, sg[1] + (sg[3] - sg[1]) * t + sg[5] * u, (0.25 + 0.5 * prnd()) * Math.min(1.4, w / 3));
+            const t = prnd(), w = sg[6] + (sg[7] - sg[6]) * t, sgn = prnd() < 0.5 ? -1 : 1, q = prnd();
+            const u = cs ? sgn * (cs + (0.66 - cs) * q) * w : (q * 2 - 1) * 0.62 * w;
+            const px = sg[0] + (sg[2] - sg[0]) * t + sg[4] * u, pz = sg[1] + (sg[3] - sg[1]) * t + sg[5] * u, pr0 = (cR[0] + (cR[1] - cR[0]) * prnd()) * Math.min(1.4, w / 3);
+            if (cs) {
+              if (placedP.some((p) => Math.hypot(p[0] - px, p[1] - pz) < (p[2] + pr0) * 1.25 + 0.15)) continue;
+              placedP.push([px, pz, pr0]);
+            }
+            plate3(px, pz, pr0);
           }
         }
-        for (const P of o.pools || []) for (let k = 0, n = Math.round(P.r * 0.8); k < n; k++) {
-          const a = prnd() * TAU, d = prnd() * P.r * 0.55;
-          plate(P.x + Math.sin(a) * d, P.z + Math.cos(a) * d, 0.2 + 0.25 * prnd());
+        for (const P of o.pools || []) for (let k = 0, n = Math.round(P.r * (cs ? 1.3 : 0.8)); k < n; k++) {
+          const a = prnd() * TAU, d = (cs ? 0.3 + 0.35 * prnd() : prnd() * 0.55) * P.r;
+          const px = P.x + Math.sin(a) * d, pz = P.z + Math.cos(a) * d, pr0 = cs ? 0.35 + 0.35 * prnd() : 0.2 + 0.25 * prnd();
+          if (cs) {
+            if (placedP.some((p) => Math.hypot(p[0] - px, p[1] - pz) < (p[2] + pr0) * 1.25 + 0.15)) continue;
+            placedP.push([px, pz, pr0]);
+          }
+          plate3(px, pz, pr0);
         }
       }
       let g = geoS;
@@ -3821,10 +3944,12 @@
   }
 
   // ---------- 宝箱：模型和打开动画（玩法在 game.js 的 G.openChest）----------
-  // 两个实例化网格：箱体、箱盖（铰链在后上沿，锁扣朝镜头）；打开时箱盖往后翻、冒一团金色火星。整区 2 次 draw。
+  // 两个实例化网格：箱体（带贴地的接触阴影）、箱盖（铰链在后上沿，锁扣朝镜头）；打开时箱盖往后翻、冒一团金色火星。整区 2 次 draw。
   // 宝箱的状态（open）存在 zone.chests 的每一项上，素材到了原地重建外观时照状态重建
   const chestBodyGeo = () =>
     geo('chest/body', () => toonGradient(bake('chest/body0', [
+      // 贴地的接触阴影（zones-polish）：烘进箱体的一块暗色扁圆片，低画质没有阴影贴图也压得住地，不多一次 draw
+      [gCyl(1, 1, 1, 14), 0x16121c, 0.04, 0.008, -0.03, 0, 0, 0, 0.66, 0.012, 0.5],
       [gBox(1, 1, 1), 0x7a4e2a, 0, 0.25, 0, 0, 0, 0, 0.9, 0.5, 0.6],
       [gBox(1, 1, 1), 0x8c8a86, -0.33, 0.25, 0, 0, 0, 0, 0.08, 0.52, 0.63],
       [gBox(1, 1, 1), 0x8c8a86, 0.33, 0.25, 0, 0, 0, 0, 0.08, 0.52, 0.63],
@@ -4618,6 +4743,10 @@
     // 熔岩河的色阶（zones-integrate：原来用 lavaStrip 的缺省色阶，橙红两档又宽又饱和，整条河是一条亮带）：
     // 白热的芯只占很窄一条（特效那一档 85–100%），往外很快压成低饱和的暗红褐，再到焦黑的冷壳；叠加的地面暖光也压到 0.1（原来 0.2，整条河被提成一片橙）
     lava: [[0, 0xffd890], [0.06, 0xf08a3a], [0.14, 0xb0502a], [0.3, 0x7c3626], [0.56, 0x502a26], [0.88, 0x30242a], [1.16, 0x201a1c]],
+    // zones-polish：卡通熔岩。三级硬边色阶（白热的芯 → 橙 → 暗熔红），往外很快落到低饱和的冷壳和焦黑的沿；
+    // 河面上大块的暗色冷壳（顶面中间一小块受光的灰）漂在两侧，壳底下一圈发红的缝，只有芯那一条是特效亮度
+    lavaToon: [[0, 0xffe4a0], [0.055, 0xec8e3c], [0.13, 0xa8462a], [0.24, 0x5a2c26], [0.42, 0x3a2c2a], [0.9, 0x2a2428], [1.16, 0x1c191b]],
+    lavaCrust: 0x2e2626, crustHi: 0x4a403c, crustSeam: 0x8a3420,
   };
   // 零件合成一个静态网格（不是实例化：每种零件只有几个，合成一次 draw 更省）。part = [几何体, x, y, z, rx, ry, rz, sx, sy, sz, 亮度]
   function ashMerge(parts) {
@@ -4712,11 +4841,40 @@
     }
     if (bp.length) out.bridge = ctx.gfx.plankBridge(bp, ASH_GEN.bridgeW, { stone: true, rail: true, color: ASH_LAY.stone, pairs: true });
     if (out.bridge) out.bridge.castShadow = false; // 平的桥不投影（省一次阴影 draw），矮石墙的影子看不出来
-    // 农舍矮墙（L 形的墙挖空沿边一节节砌起来）：墙厚的一半，矮、高低错落
-    if (F('wall').length) out.walls = ctx.gfx.wallRun({ kinds: [MAT.WALL], step: 1.1, h: 1.25, t: 0.38, color: ASH_LAY.wall });
-    if (out.walls) out.walls.castShadow = false; // 矮墙不投影：省一次阴影 draw（墙只在农庄，实例化网格不做视锥剔除，每帧都画）
-    // 静态的零件合成一个网格：焦木残桩、巨大的枯树、烟囱、塌桥、浅滩的硬壳
+    // 静态的零件合成一个网格：焦木残桩、巨大的枯树、烟囱、塌桥、浅滩的硬壳、农舍的残墙
     const parts = [];
+    // 农舍残墙（zones-polish：原来是 wallRun 一节节方块，太方正）：按墙挖空的方块一层层砌倒角的石块（三层，块长不一、左右错缝），
+    // 顶上一层缺块、一头塌低，墙顶搭一根烧黑的木梁（有的斜着塌下来），两头偶尔立一根焦木柱，墙脚散几块落石。并进静态零件网格，省掉墙那一次 draw
+    for (const f of F('wall')) {
+      const ux = Math.sin(f.ang), uz = Math.cos(f.ang), L = f.hz * 2, th = f.hx * 2, crs = 3, ch = 0.4;
+      const drop = rnd() < 0.5 ? -1 : 1, lowK = r(0.35, 0.6); // 塌低的一头、塌到原高的几成
+      for (let c = 0; c < crs; c++) {
+        let a = -L / 2, first = c % 2 === 1; // 奇数层先砌一块短的，和下一层错缝
+        while (a < L / 2 - 0.05) {
+          const bl = Math.min(L / 2 - a, first ? r(0.2, 0.45) : r(0.5, 0.95)), mid = a + bl / 2, t = (mid / L + 0.5) * drop * 0.5 + 0.5; // t：0 = 塌低的一头
+          a += bl;
+          first = false;
+          const top = crs * ch * (lowK + (1 - lowK) * Math.min(1, t * 1.6));
+          if (ch * c > top - 0.05 || (c === crs - 1 && rnd() < 0.3)) continue; // 塌掉 / 缺块
+          const hh = Math.min(ch, top - ch * c) * r(0.9, 1.0);
+          parts.push([ashSlabGeo(ASH_LAY.wall), f.x + ux * mid + uz * r(-0.03, 0.03), ch * c + hh / 2, f.z + uz * mid - ux * r(-0.03, 0.03), r(-0.03, 0.03), f.ang + r(-0.05, 0.05), r(-0.04, 0.04), th * r(0.98, 1.08), hh, bl * 0.96, r(0.78, 1.05)]);
+        }
+      }
+      // 木梁：搭在墙顶（高的那一段），有的一头塌到地上
+      if (rnd() < 0.7) {
+        const fall = rnd() < 0.4, bl = L * r(0.55, 0.85), cx = drop * L * r(0.05, 0.2);
+        parts.push([ashSlabGeo(ASH_LAY.char), f.x + ux * cx, crs * ch + 0.08 - (fall ? 0.5 : 0), f.z + uz * cx, fall ? drop * 0.28 : 0, f.ang, r(-0.06, 0.06), 0.26, 0.2, bl, r(0.9, 1.1)]);
+      }
+      if (rnd() < 0.5) {
+        const e = drop * (L / 2 - 0.1);
+        parts.push([ashSlabGeo(ASH_LAY.char), f.x + ux * e, 0.8, f.z + uz * e, r(-0.08, 0.08), f.ang + r(0, 1), r(-0.08, 0.08), 0.24, 1.6, 0.24, r(0.9, 1.1)]);
+      }
+      // 墙脚的落石（塌低的那头多一点）
+      for (let k = 0, n = 2 + Math.floor(rnd() * 3); k < n; k++) {
+        const sd = rnd() < 0.5 ? -1 : 1, along = -drop * L * r(0.1, 0.5);
+        parts.push([ashSlabGeo(ASH_LAY.wall), f.x + ux * along + uz * sd * (th / 2 + r(0.25, 0.7)), 0.1, f.z + uz * along - ux * sd * (th / 2 + r(0.25, 0.7)), r(-0.3, 0.3), r(0, TAU), r(-0.3, 0.3), r(0.3, 0.55), r(0.18, 0.3), r(0.3, 0.6), r(0.75, 0.95)]);
+      }
+    }
     for (const t of F('trunk')) parts.push([ashSnagGeo(), t.x, 0, t.z, r(-0.06, 0.06), r(0, TAU), r(-0.06, 0.06), t.r * 1.05, t.r * r(1.15, 1.6), t.r * 1.05, r(0.85, 1.05)]);
     for (const t of F('tree')) parts.push([ashBigTreeGeo(), t.x, 0, t.z, 0, r(0, TAU), 0, r(0.95, 1.12), r(0.95, 1.1), r(0.95, 1.12), 1]);
     for (const c of F('chimney')) parts.push([ashChimneyGeo(), c.x, 0, c.z, 0, c.ang, 0, 1, r(0.9, 1.05), 1, 1]);
@@ -4792,11 +4950,11 @@
         const wk = (t) => (dv.hw[i] + (dv.hw[i + 1] - dv.hw[i]) * t) * (1 + 0.1 * (vnoise((a[0] + dx * t) * 0.45 + 3.1, (a[1] + dz * t) * 0.45 - 7.3) * 2 - 1));
         for (let q = 0; q < n; q++) ds.push([a[0] + (dx * q) / n, a[1] + (dz * q) / n, a[0] + (dx * (q + 1)) / n, a[1] + (dz * (q + 1)) / n, -dz / l, dx / l, wk(q / n), wk((q + 1) / n)]);
       }
-      extra.push({ segs: ds, bands: ASH_LAY.lava, y: 0.015, al });
+      extra.push({ segs: ds, bands: ASH_LAY.lavaToon, y: 0.015, al });
     }
     if (pend) extra.push({ segs: pend.segs, bands: pend.bands, y: 0.02, hard: false, al });
     if (river || pools.length || cracks.length || embers.length || pend) {
-      out.lava = ctx.gfx.lavaStrip(river ? river.pts : [], river ? river.hw : 1, { pools, crust: 0.4, glowA: 0.1, bands: ASH_LAY.lava, extra, glowQuads: pend ? pend.glow : null });
+      out.lava = ctx.gfx.lavaStrip(river ? river.pts : [], river ? river.hw : 1, { pools, crust: 0.95, crustSide: 0.24, crustR: [0.55, 1.05], crustCol: ASH_LAY.lavaCrust, crustHi: ASH_LAY.crustHi, crustSeam: ASH_LAY.crustSeam, glowA: 0.08, bands: ASH_LAY.lavaToon, extra, glowQuads: pend ? pend.glow : null });
     }
     out.rockHi = ctx.mats.rock && ctx.mats.rock.color.clone();
     return out;
@@ -8588,7 +8746,8 @@
     if (glowIM) glowIM.renderOrder = 1;
 
     // --- 地面暗斑 ---
-    // 每区可以在 ZONE_GFX.<id>.blots = { k: 块数倍率（默认 1）, r: 大小倍率（默认 1）, op: 不透明度（默认 0.2）} 调污斑（zones-ash 加的旋钮）
+    // 每区可以在 ZONE_GFX.<id>.blots = { k: 块数倍率（默认 1）, r: 大小倍率（默认 1）, op: 不透明度（默认 0.2）, tex: 'crack' } 调污斑（zones-ash 加的旋钮）。
+    // zones-polish：tex: 'crack' 把软边的暗块换成细裂纹（groundCrackTex），读起来是地面的纹路而不是脏印子
     const BL = Object.assign({ k: 1, r: 1, op: 0.2 }, gx && gx.blots);
     const blots = [];
     const blot = (x, z, r) => {
@@ -8612,7 +8771,7 @@
     }
     const blotMat = own(
       // 卡通：污斑不再是近黑的一大片（旧 0.38 不透明度把地面弄脏），颜色偏向这个区域的阴影色、淡一半
-      new T.MeshBasicMaterial({ map: blotchTex(), color: lin(ash ? 0x2a1c1a : mixHex(mixHex(def.voidc, toonLightOf(def).shade, 0.3), 0x000000, 0.3)), transparent: true, opacity: BL.op, depthWrite: false }) // 第 0 区：暖的焦黑，不是冷紫
+      new T.MeshBasicMaterial({ map: BL.tex === 'crack' ? groundCrackTex() : blotchTex(), color: lin(ash ? 0x2a1c1a : mixHex(mixHex(def.voidc, toonLightOf(def).shade, 0.3), 0x000000, 0.3)), transparent: true, opacity: BL.op, depthWrite: false }) // 第 0 区：暖的焦黑，不是冷紫
     );
     const blotIM = instanced(gQuad(), blotMat, blots, false, null);
     if (blotIM) blotIM.renderOrder = 1;
@@ -8691,6 +8850,37 @@
   // 场景里用到的贴图也先传上去（initTexture）。不做的话这些留到第一次进视野的那一帧现做，软件渲染下正好卡在走到第一群怪、开打的时候。
   // 每个区每次会话只做一次（G.enterZone 刷完怪以后调）：再进同一个区时着色器和贴图都已经在了，不再花时间
   const warmed = new Set();
+  // 第一次进区的真画一帧（zones-polish）：renderer.compile 只编了程序，软件 GL 的着色器还要等第一次真画的时候现做（顶点格式、状态组合各一份），
+  // 几何体 / 实例缓冲也是第一次画才上传，C 量到进区后 1.1–1.5 秒还有一帧 0.8–1.3 秒。这里在进区时就用俯视的正交镜头把整张图（含平时隐藏的东西、刚刷的怪）
+  // 画进一张 64 × 64 的 sRGB 目标（编码和后期处理的目标一致，编出来的就是之后要用的那批），读一个像素等 GPU 画完。只在第一次进这个区时做
+  let warmRT = null;
+  function warmDraw(z) {
+    const b = z.bounds;
+    if (!b) return;
+    const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2, hw = (b.maxX - b.minX) / 2 + 6, hh = (b.maxZ - b.minZ) / 2 + 6;
+    const oc = new T.OrthographicCamera(-hw, hw, hh, -hh, 1, 400);
+    oc.position.set(cx, 150, cz);
+    oc.up.set(0, 0, -1);
+    oc.lookAt(cx, 0, cz);
+    oc.updateMatrixWorld(true);
+    const hidden = [];
+    zoneGroup.traverse((o) => {
+      if (!o.visible) {
+        hidden.push(o);
+        o.visible = true;
+      }
+    });
+    if (!warmRT) warmRT = new T.WebGLRenderTarget(64, 64, { encoding: T.sRGBEncoding });
+    const prev = renderer.getRenderTarget(), px = new Uint8Array(4);
+    try {
+      renderer.setRenderTarget(warmRT);
+      renderer.render(scene, oc);
+      renderer.readRenderTargetPixels(warmRT, 0, 0, 1, 1, px);
+    } finally {
+      renderer.setRenderTarget(prev);
+      for (const o of hidden) o.visible = false;
+    }
+  }
   W.precompile = function () {
     const z = W.zone;
     if (!z || warmed.has(z.def.id)) return;
@@ -8712,6 +8902,7 @@
           if (m.uniforms) for (const u in m.uniforms) up(m.uniforms[u] && m.uniforms[u].value);
         }
       });
+      warmDraw(z);
     } catch (e) {
       if (window.console) console.warn('[画面] 进区预热失败（不影响游戏）', e);
     }

@@ -9877,6 +9877,51 @@ async function main() {
     return '掉落 ' + r.items + ' 件装备 + ' + r.cur + ' 个通货';
   });
 
+  await step('宝箱：点一下也能打开（7 m 以内，不同时施法），远了提示走近；附近没有掉落时 F 键打开最近的宝箱', async () => {
+    // zones-polish 加：点击打开和点掉落名牌一样
+    const a = await ev(() => {
+      G.debug.hold(true);
+      G.debug.zoneSeed(20251118);
+      G.enterZone(0, 0);
+      G.debug.zoneSeed(null);
+      for (const e of G.state.enemies) e.awake = false;
+      T.tp(0, 0);
+      T.clearLoot();
+      const c = G.debug.chest(3.5, 0.6), far = G.debug.chest(2.2, -7.4);
+      T.settle();
+      G.world.render();
+      const p = G.world.project(c.x, 0.55, c.z), q = G.world.project(far.x, 0.55, far.z);
+      return { pt: { x: Math.round(p.x), y: Math.round(p.y) }, far: { x: Math.round(q.x), y: Math.round(q.y), ok: q.ok && q.y > 40 && q.y < innerHeight - 160 } };
+    });
+    await page.mouse.click(a.pt.x, a.pt.y);
+    const b = await ev(() => {
+      const ch = G.state.zone.chests, P = G.player;
+      return { open: ch[ch.length - 2].open, cast: !!P.cast, tap: G.input.tap[0], held: G.input.mouse.b[0], loot: G.state.loot.length };
+    });
+    await page.mouse.click(a.far.x, a.far.y);
+    const c = await ev(() => {
+      const ch = G.state.zone.chests, far = ch[ch.length - 1];
+      const r = { farOpen: far.open, toast: T.toasts().includes('走近一点') };
+      // F 键：清掉地上的掉落，站到远处那个宝箱 3 m 以内
+      T.clearLoot();
+      T.tp(far.x - 2.4, far.z + 0.6);
+      return r;
+    });
+    await page.keyboard.press('KeyF');
+    const d = await ev(() => {
+      const ch = G.state.zone.chests;
+      const r = { fOpen: ch[ch.length - 1].open, loot: G.state.loot.length };
+      G.enterZone(0, 0);
+      return r;
+    });
+    assert(a.far.ok, '远处那个宝箱应在画面里：' + JSON.stringify(a));
+    assert(b.open && b.loot > 0, '点宝箱应当打开并掉东西：' + JSON.stringify(b));
+    assert(!b.cast && !(b.tap > 0) && !b.held, '点宝箱时不应同时施法：' + JSON.stringify(b));
+    assert(!c.farOpen && c.toast, '7 m 以外点宝箱不应打开，应提示走近：' + JSON.stringify(c));
+    assert(d.fOpen && d.loot > 0, '附近没有掉落时 F 键应打开 3.5 m 内的宝箱：' + JSON.stringify(d));
+    return '点击打开 ✓、远处提示走近 ✓、F 键打开 ✓';
+  });
+
   await step('小地图：按地形网格画出来（可走处路面色、岩壁外是底色、首领场地有主题色轮廓），窗口变化后重画', async () => {
     const r = await ev(() => {
       G.debug.hold(true);
