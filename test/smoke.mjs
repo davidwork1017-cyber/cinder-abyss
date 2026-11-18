@@ -9809,7 +9809,7 @@ async function main() {
         const zone = G.state.zone, pr = zone.map.pr, L = G.debug.layout();
         const cust = probe(zone, (x, z) => W.sdExact(x, z), (x, z) => W.terrain.exactSd(pr, x, z, true));
         cust.gen = L.gen;
-        cust.shotCut = (zone.spec.cuts || []).some((c) => c.mat === W.MAT.VOID || c.mat === W.MAT.WATER || c.mat === W.MAT.LAVA) || zone.spec.outside === W.MAT.VOID;
+        cust.shotCut = (zone.spec.cuts || []).some((c) => c.mat === W.MAT.VOID || c.mat === W.MAT.WATER || c.mat === W.MAT.LAVA) || [W.MAT.VOID, W.MAT.WATER, W.MAT.LAVA].indexOf(zone.spec.outside) >= 0; // zones-polish：frost 外面改成 WATER，区域外面是虚空 / 水 / 熔岩都算透弹
         // legacy：临时把这一区的生成器换回 GEN.legacy（不固定种子时直接用 Math.random，和改版前一样）
         const gen0 = ZT[zone.def.id].gen;
         ZT[zone.def.id].gen = W.terrain.GEN.legacy;
