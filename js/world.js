@@ -1271,7 +1271,28 @@
     if (W.zone) buildMinimap(W.zone);
   };
 
-  // ---------- 区域：布局 ----------
+  // ===== 区域地形（terrain）=====
+  // 每个区由生成器（GEN.*）输出一份纯数据的布局说明 spec：房间 / 连接 / 挖空 / 危险区 / 地标 / 怪群槽位 / 宝箱，
+  // 再光栅化成 0.25 m 的有向距离网格 map.sd（内正外负，夹在 [-4, 8]），外加 0.5 m 的危险区、房间号、材质小网格，
+  // 和房间图的下一跳表。碰撞、视线、寻路、刷怪、首领场地判定都只读 spec + map。
+  // 外观在这一阶段还读兼容字段 circles / segs（zoneSd 解析求值），所以画面和改版前逐像素一致。设计稿见 zones-notes/design.md §2。
+  //
+  // 图元（y=0 平面上，sd 内部为正）：
+  //   circle  { x, z, r }
+  //   capsule { ax, az, bx, bz, hw }
+  //   rbox    { x, z, hx, hz, ang, round }   hx / hz 是含圆角的半宽；ang 绕 y 轴，和朝向同一套：局部 +z 指向 (sin ang, cos ang)
+  //   poly    { pts: [[x, z], ...], round }   可凹，round = 往外扩的圆角
+  //   arc     { x, z, r, hw, a0, a1 }         环形路段：中线半径 r，角度 = atan2(dx, dz)，从 a0 逆着增大到 a1（a1 > a0）
+  //   path    { pts, hw }                     折线，hw 是数或每个点一个数（变宽）
+  // 材质：0 地面、1 岩壁、2 墙（建筑 / 柱子）、3 虚空、4 深水、5 熔岩、6 冰（装饰）。虚空 / 深水 / 熔岩挡移动、不挡子弹和视线
+  const MAT = { GROUND: 0, ROCK: 1, WALL: 2, VOID: 3, WATER: 4, LAVA: 5, ICE: 6 };
+  const HAZ = { slow: 1, burn: 2, thin: 4 };
+  const SD_LO = -4, SD_HI = 8; // 网格里 sd 的夹取范围
+  const CELL = 0.25, CELL2 = 0.5; // sd 网格 / 小网格的格距
+  const ROOM_NONE = 255, ROOM_AMBIG = 254; // 房间号网格：不在任何房间 / 这一格跨着房间边界，要精确判定
+  W.MAT = MAT;
+  W.HAZ = HAZ;
+
   function distSeg(x, z, s) {
     const ex = s.bx - s.ax, ez = s.bz - s.az;
     let t = ((x - s.ax) * ex + (z - s.az) * ez) / (ex * ex + ez * ez);
@@ -1279,7 +1300,7 @@
     const dx = x - s.ax - ex * t, dz = z - s.az - ez * t;
     return Math.sqrt(dx * dx + dz * dz);
   }
-  // 到可行走区域边界的有向距离（内部为正）
+  // 兼容字段 circles / segs 的解析 sd（改版前的实现，外观在 A1 还用它；新区域的 segs 为空，circles 只是各房间的内切圆）
   function zoneSd(zone, x, z) {
     let d = -1e9;
     const cs = zone.circles, ss = zone.segs;
@@ -1295,22 +1316,741 @@
     return d;
   }
 
-  W.walkable = function (x, z, pad = 0) {
-    const cs = W.zone.circles, ss = W.zone.segs;
-    for (let i = 0; i < cs.length; i++) {
-      const c = cs[i], r = c.r - pad;
-      if (r > 0) {
-        const dx = x - c.x, dz = z - c.z;
-        if (dx * dx + dz * dz <= r * r) return true;
+  // ---------- 图元的有向距离与外接框 ----------
+  function segD(x, z, ax, az, bx, bz) {
+    const ex = bx - ax, ez = bz - az, l2 = ex * ex + ez * ez;
+    let t = l2 > 0 ? ((x - ax) * ex + (z - az) * ez) / l2 : 0;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const dx = x - ax - ex * t, dz = z - az - ez * t;
+    return Math.sqrt(dx * dx + dz * dz);
+  }
+  function polySd(pts, x, z) {
+    let d = 1e18, inside = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const a = pts[i], b = pts[j];
+      const v = segD(x, z, a[0], a[1], b[0], b[1]);
+      if (v < d) d = v;
+      if (a[1] > z !== b[1] > z && x < ((b[0] - a[0]) * (z - a[1])) / (b[1] - a[1]) + a[0]) inside = !inside;
+    }
+    return inside ? d : -d;
+  }
+  function primSd(p, x, z) {
+    switch (p.t) {
+      case 'circle': {
+        const dx = x - p.x, dz = z - p.z;
+        return p.r - Math.sqrt(dx * dx + dz * dz);
+      }
+      case 'capsule':
+        return p.hw - distSeg(x, z, p);
+      case 'rbox': {
+        const c = Math.cos(p.ang || 0), s = Math.sin(p.ang || 0), dx = x - p.x, dz = z - p.z, rd = p.round || 0;
+        const qx = Math.abs(dx * c - dz * s) - (p.hx - rd), qz = Math.abs(dx * s + dz * c) - (p.hz - rd);
+        const ox = qx > 0 ? qx : 0, oz = qz > 0 ? qz : 0;
+        return rd - Math.sqrt(ox * ox + oz * oz) - Math.min(Math.max(qx, qz), 0);
+      }
+      case 'poly':
+        return polySd(p.pts, x, z) + (p.round || 0);
+      case 'arc': {
+        const dx = x - p.x, dz = z - p.z;
+        let t = (Math.atan2(dx, dz) - p.a0) % TAU;
+        if (t < 0) t += TAU;
+        if (t <= p.a1 - p.a0) return p.hw - Math.abs(Math.sqrt(dx * dx + dz * dz) - p.r);
+        const d0 = Math.hypot(dx - Math.sin(p.a0) * p.r, dz - Math.cos(p.a0) * p.r);
+        const d1 = Math.hypot(dx - Math.sin(p.a1) * p.r, dz - Math.cos(p.a1) * p.r);
+        return p.hw - Math.min(d0, d1);
+      }
+      case 'path': {
+        const P = p.pts, hv = typeof p.hw === 'number' ? null : p.hw;
+        let best = -1e18;
+        for (let i = 0; i + 1 < P.length; i++) {
+          const ax = P[i][0], az = P[i][1], ex = P[i + 1][0] - ax, ez = P[i + 1][1] - az, l2 = ex * ex + ez * ez;
+          let t = l2 > 0 ? ((x - ax) * ex + (z - az) * ez) / l2 : 0;
+          t = t < 0 ? 0 : t > 1 ? 1 : t;
+          const w = hv ? hv[i] + (hv[i + 1] - hv[i]) * t : p.hw;
+          const v = w - Math.hypot(x - ax - ex * t, z - az - ez * t);
+          if (v > best) best = v;
+        }
+        return best;
       }
     }
-    for (let i = 0; i < ss.length; i++) {
-      if (distSeg(x, z, ss[i]) <= ss[i].hw - pad) return true;
+    return -1e18;
+  }
+  // 外接框 [minX, minZ, maxX, maxZ]（sd ≥ 0 的部分一定在框里）
+  function primBox(p) {
+    switch (p.t) {
+      case 'circle':
+        return [p.x - p.r, p.z - p.r, p.x + p.r, p.z + p.r];
+      case 'capsule':
+        return [Math.min(p.ax, p.bx) - p.hw, Math.min(p.az, p.bz) - p.hw, Math.max(p.ax, p.bx) + p.hw, Math.max(p.az, p.bz) + p.hw];
+      case 'rbox': {
+        const c = Math.abs(Math.cos(p.ang || 0)), s = Math.abs(Math.sin(p.ang || 0));
+        const ex = p.hx * c + p.hz * s, ez = p.hx * s + p.hz * c;
+        return [p.x - ex, p.z - ez, p.x + ex, p.z + ez];
+      }
+      case 'arc':
+        return [p.x - p.r - p.hw, p.z - p.r - p.hw, p.x + p.r + p.hw, p.z + p.r + p.hw];
+      case 'poly':
+      case 'path': {
+        const m = p.t === 'poly' ? p.round || 0 : typeof p.hw === 'number' ? p.hw : Math.max.apply(null, p.hw);
+        const b = [1e18, 1e18, -1e18, -1e18];
+        for (const q of p.pts) {
+          if (q[0] < b[0]) b[0] = q[0];
+          if (q[1] < b[1]) b[1] = q[1];
+          if (q[0] > b[2]) b[2] = q[0];
+          if (q[1] > b[3]) b[3] = q[1];
+        }
+        return [b[0] - m, b[1] - m, b[2] + m, b[3] + m];
+      }
     }
-    return false;
+    return [0, 0, 0, 0];
+  }
+  // 图元 sd 的 Lipschitz 常数（变宽折线 > 1），决定网格判定需要精修的带宽
+  function primLip(p) {
+    if (p.t !== 'path' || typeof p.hw === 'number') return 1;
+    let k = 1;
+    for (let i = 0; i + 1 < p.pts.length; i++) {
+      const l = Math.hypot(p.pts[i + 1][0] - p.pts[i][0], p.pts[i + 1][1] - p.pts[i][1]);
+      if (l > 1e-6) k = Math.max(k, 1 + Math.abs(p.hw[i + 1] - p.hw[i]) / l);
+    }
+    return k;
+  }
+  const isShotMat = (m) => m === MAT.VOID || m === MAT.WATER || m === MAT.LAVA;
+
+  // ---------- 预处理：图元表 + 4 m 分桶（精确求值只看本桶里的图元）----------
+  const BIN = 4, ROOM_M = 4.5, CUT_M = 8.5; // 分桶格距；房间图元 / 挖空图元影响得到的距离（超出这个距离对 [-4.5, 8.5] 里的 sd 没有影响）
+  function terrPrep(spec) {
+    const rp = [], cp = [], hp = [];
+    let lip = 1;
+    spec.rooms.forEach((rm, ri) => {
+      for (const p of rm.prims) {
+        rp.push({ p, room: ri, box: primBox(p) });
+        lip = Math.max(lip, primLip(p));
+      }
+    });
+    for (const c of spec.cuts || []) {
+      cp.push({ p: c.prim, mat: c.mat, shot: isShotMat(c.mat), box: primBox(c.prim) });
+      lip = Math.max(lip, primLip(c.prim));
+    }
+    for (const h of spec.haz || []) hp.push({ p: h.prim, bit: HAZ[h.kind] || 0, kind: h.kind, k: h.k, box: primBox(h.prim) });
+    let x0 = 1e18, z0 = 1e18, x1 = -1e18, z1 = -1e18;
+    for (const r of rp) {
+      x0 = Math.min(x0, r.box[0]);
+      z0 = Math.min(z0, r.box[1]);
+      x1 = Math.max(x1, r.box[2]);
+      z1 = Math.max(z1, r.box[3]);
+    }
+    x0 -= 4;
+    z0 -= 4;
+    x1 += 4;
+    z1 += 4;
+    const bx0 = x0 - CUT_M, bz0 = z0 - CUT_M;
+    const bnx = Math.ceil((x1 - x0 + 2 * CUT_M) / BIN) + 1, bnz = Math.ceil((z1 - z0 + 2 * CUT_M) / BIN) + 1;
+    const lists = new Array(bnx * bnz);
+    const put = (box, m, idx, key) => {
+      const i0 = Math.max(0, Math.floor((box[0] - m - bx0) / BIN)), i1 = Math.min(bnx - 1, Math.floor((box[2] + m - bx0) / BIN));
+      const j0 = Math.max(0, Math.floor((box[1] - m - bz0) / BIN)), j1 = Math.min(bnz - 1, Math.floor((box[3] + m - bz0) / BIN));
+      for (let j = j0; j <= j1; j++) {
+        for (let i = i0; i <= i1; i++) {
+          const k = j * bnx + i;
+          const L = lists[k] || (lists[k] = { r: [], c: [] });
+          L[key].push(idx);
+        }
+      }
+    };
+    rp.forEach((r, i) => put(r.box, ROOM_M, i, 'r'));
+    cp.forEach((c, i) => put(c.box, CUT_M, i, 'c'));
+    const outside = spec.outside === undefined ? MAT.ROCK : spec.outside;
+    return {
+      rp, cp, hp, lip, x0, z0, x1, z1,
+      bins: { x0: bx0, z0: bz0, nx: bnx, nz: bnz, lists },
+      hasShotCut: cp.some((c) => c.shot) || isShotMat(outside),
+      outsideShot: isShotMat(outside),
+      outside,
+      nRooms: spec.rooms.length,
+    };
+  }
+  // 精确 sd（[-4.5, 8.5] 以内准确；更远的地方只保证在这个范围之外）。shot：只算挡子弹的部分（虚空 / 深水 / 熔岩不算）
+  function exactSd(pr, x, z, shot) {
+    const b = pr.bins;
+    const i = Math.floor((x - b.x0) / BIN), j = Math.floor((z - b.z0) / BIN);
+    if (!(i >= 0 && j >= 0 && i < b.nx && j < b.nz)) return shot && pr.outsideShot ? SD_HI + 1 : SD_LO - 1;
+    const L = b.lists[j * b.nx + i];
+    let d = shot && pr.outsideShot ? SD_HI + 1 : SD_LO - 1;
+    if (!L) return d;
+    if (!(shot && pr.outsideShot)) {
+      const R = L.r;
+      for (let k = 0; k < R.length; k++) {
+        const v = primSd(pr.rp[R[k]].p, x, z);
+        if (v > d) d = v;
+      }
+    }
+    const C = L.c;
+    for (let k = 0; k < C.length; k++) {
+      const c = pr.cp[C[k]];
+      if (shot && c.shot) continue;
+      const v = -primSd(c.p, x, z);
+      if (v < d) d = v;
+    }
+    return d;
+  }
+  // 精确判定一个点在哪个房间：按 rooms 的顺序，第一个包含它的房间（-1 = 都不在）
+  function roomExact(pr, x, z) {
+    let best = -1;
+    for (let k = 0; k < pr.rp.length; k++) {
+      const r = pr.rp[k];
+      if (best >= 0 && r.room >= best) continue;
+      const b = r.box;
+      if (x < b[0] || x > b[2] || z < b[1] || z > b[3]) continue;
+      if (primSd(r.p, x, z) >= 0) best = r.room;
+    }
+    return best;
+  }
+
+  // ---------- 光栅化：每个图元只写自己外接框附近的格子（盖章）----------
+  function stampMax(sd, nx, nz, x0, z0, h, p, box, m) {
+    const i0 = Math.max(0, Math.ceil((box[0] - m - x0) / h)), i1 = Math.min(nx - 1, Math.floor((box[2] + m - x0) / h));
+    const j0 = Math.max(0, Math.ceil((box[1] - m - z0) / h)), j1 = Math.min(nz - 1, Math.floor((box[3] + m - z0) / h));
+    if (p.t === 'circle') {
+      for (let j = j0; j <= j1; j++) {
+        const dz = z0 + j * h - p.z, dz2 = dz * dz;
+        let k = j * nx + i0;
+        for (let i = i0; i <= i1; i++, k++) {
+          const dx = x0 + i * h - p.x;
+          let v = p.r - Math.sqrt(dx * dx + dz2);
+          if (v > sd[k]) sd[k] = v > SD_HI ? SD_HI : v;
+        }
+      }
+      return;
+    }
+    if (p.t === 'capsule') {
+      const ex = p.bx - p.ax, ez = p.bz - p.az, l2 = ex * ex + ez * ez, il = l2 > 0 ? 1 / l2 : 0;
+      for (let j = j0; j <= j1; j++) {
+        const z = z0 + j * h - p.az;
+        let k = j * nx + i0;
+        for (let i = i0; i <= i1; i++, k++) {
+          const x = x0 + i * h - p.ax;
+          let t = (x * ex + z * ez) * il;
+          t = t < 0 ? 0 : t > 1 ? 1 : t;
+          const dx = x - ex * t, dz = z - ez * t;
+          const v = p.hw - Math.sqrt(dx * dx + dz * dz);
+          if (v > sd[k]) sd[k] = v > SD_HI ? SD_HI : v;
+        }
+      }
+      return;
+    }
+    for (let j = j0; j <= j1; j++) {
+      const z = z0 + j * h;
+      let k = j * nx + i0;
+      for (let i = i0; i <= i1; i++, k++) {
+        const v = primSd(p, x0 + i * h, z);
+        if (v > sd[k]) sd[k] = v > SD_HI ? SD_HI : v;
+      }
+    }
+  }
+  function stampCut(sd, nx, nz, x0, z0, h, p, box) {
+    const m = SD_HI;
+    const i0 = Math.max(0, Math.ceil((box[0] - m - x0) / h)), i1 = Math.min(nx - 1, Math.floor((box[2] + m - x0) / h));
+    const j0 = Math.max(0, Math.ceil((box[1] - m - z0) / h)), j1 = Math.min(nz - 1, Math.floor((box[3] + m - z0) / h));
+    for (let j = j0; j <= j1; j++) {
+      const z = z0 + j * h;
+      let k = j * nx + i0;
+      for (let i = i0; i <= i1; i++, k++) {
+        const v = -primSd(p, x0 + i * h, z);
+        if (v < sd[k]) sd[k] = v < SD_LO ? SD_LO : v;
+      }
+    }
+  }
+  // 房间图：邻接、Dijkstra 下一跳（边权 = 房间中心 → 门 → 房间中心）
+  function roomGraph(spec) {
+    const n = spec.rooms.length, INF = 1e18;
+    const linkOf = new Int16Array(n * n).fill(-1);
+    const adj = [];
+    for (let i = 0; i < n; i++) adj.push([]);
+    spec.links.forEach((L, li) => {
+      const A = spec.rooms[L.a].core, B = spec.rooms[L.b].core, d = L.door;
+      const w = d ? Math.hypot(A.x - d.x, A.z - d.z) + Math.hypot(B.x - d.x, B.z - d.z) : Math.hypot(A.x - B.x, A.z - B.z);
+      adj[L.a].push([L.b, w]);
+      adj[L.b].push([L.a, w]);
+      linkOf[L.a * n + L.b] = linkOf[L.b * n + L.a] = li;
+    });
+    const next = new Uint8Array(n * n).fill(ROOM_NONE);
+    const dist = new Float64Array(n), first = new Int16Array(n), done = new Uint8Array(n);
+    for (let s = 0; s < n; s++) {
+      dist.fill(INF);
+      first.fill(-1);
+      done.fill(0);
+      dist[s] = 0;
+      first[s] = s;
+      for (;;) {
+        let u = -1;
+        for (let i = 0; i < n; i++) if (!done[i] && dist[i] < INF && (u < 0 || dist[i] < dist[u])) u = i;
+        if (u < 0) break;
+        done[u] = 1;
+        for (const [v, w] of adj[u]) {
+          if (dist[u] + w < dist[v]) {
+            dist[v] = dist[u] + w;
+            first[v] = u === s ? v : first[u];
+          }
+        }
+      }
+      for (let t = 0; t < n; t++) if (first[t] >= 0) next[s * n + t] = first[t];
+    }
+    return { n, next, linkOf };
+  }
+  function rasterize(spec) {
+    const t0 = performance.now();
+    const pr = terrPrep(spec);
+    let h = CELL;
+    // 内存上限：sd + sdShot 每区不超过约 4 MB（外接框 ≤ 180 m 时 0.25 m 格距远在上限之内）
+    while (((pr.x1 - pr.x0) / h + 1) * ((pr.z1 - pr.z0) / h + 1) > (pr.hasShotCut ? 500000 : 1000000)) h *= 2;
+    const x0 = pr.x0, z0 = pr.z0;
+    const nx = Math.ceil((pr.x1 - x0) / h) + 1, nz = Math.ceil((pr.z1 - z0) / h) + 1;
+    const sd = new Float32Array(nx * nz).fill(SD_LO);
+    for (const r of pr.rp) stampMax(sd, nx, nz, x0, z0, h, r.p, r.box, 4);
+    for (const c of pr.cp) if (!c.shot) stampCut(sd, nx, nz, x0, z0, h, c.p, c.box);
+    let sdShot = sd;
+    if (pr.hasShotCut) {
+      if (pr.outsideShot) {
+        // 区域外面是虚空 / 水 / 熔岩：只有实心的挖空挡子弹
+        sdShot = new Float32Array(nx * nz).fill(SD_HI);
+        for (const c of pr.cp) if (!c.shot) stampCut(sdShot, nx, nz, x0, z0, h, c.p, c.box);
+      } else sdShot = sd.slice();
+      for (const c of pr.cp) if (c.shot) stampCut(sd, nx, nz, x0, z0, h, c.p, c.box);
+    }
+    // 0.5 m 小网格：节点在 (x0 + i·0.5, z0 + j·0.5)，每个节点代表以它为中心的一格
+    const h2 = CELL2, mx = Math.ceil((pr.x1 - x0) / h2) + 1, mz = Math.ceil((pr.z1 - z0) / h2) + 1;
+    const room = new Uint8Array(mx * mz).fill(ROOM_NONE);
+    const half = h2 * Math.SQRT1_2 * pr.lip + 0.01;
+    // 按优先级倒序盖章：整格都在房间里写房间号，跨着边界的写「待定」；排在前面的房间后盖，覆盖掉后面的
+    for (let ri = spec.rooms.length - 1; ri >= 0; ri--) {
+      const prims = spec.rooms[ri].prims, boxes = prims.map(primBox);
+      let bx0 = 1e18, bz0 = 1e18, bx1 = -1e18, bz1 = -1e18;
+      for (const b of boxes) {
+        bx0 = Math.min(bx0, b[0]);
+        bz0 = Math.min(bz0, b[1]);
+        bx1 = Math.max(bx1, b[2]);
+        bz1 = Math.max(bz1, b[3]);
+      }
+      const i0 = Math.max(0, Math.ceil((bx0 - half - x0) / h2)), i1 = Math.min(mx - 1, Math.floor((bx1 + half - x0) / h2));
+      const j0 = Math.max(0, Math.ceil((bz0 - half - z0) / h2)), j1 = Math.min(mz - 1, Math.floor((bz1 + half - z0) / h2));
+      for (let j = j0; j <= j1; j++) {
+        const z = z0 + j * h2;
+        for (let i = i0; i <= i1; i++) {
+          const x = x0 + i * h2;
+          let v = -1e18;
+          for (let q = 0; q < prims.length; q++) {
+            const w = primSd(prims[q], x, z);
+            if (w > v) v = w;
+          }
+          if (v >= half) room[j * mx + i] = ri;
+          else if (v > -half) room[j * mx + i] = ROOM_AMBIG;
+        }
+      }
+    }
+    // 危险区位标志：格中心落在图元里就算
+    const haz = new Uint8Array(mx * mz);
+    let hazAny = 0;
+    for (const hz of pr.hp) {
+      const b = hz.box;
+      const i0 = Math.max(0, Math.ceil((b[0] - x0) / h2)), i1 = Math.min(mx - 1, Math.floor((b[2] - x0) / h2));
+      const j0 = Math.max(0, Math.ceil((b[1] - z0) / h2)), j1 = Math.min(mz - 1, Math.floor((b[3] - z0) / h2));
+      for (let j = j0; j <= j1; j++) {
+        for (let i = i0; i <= i1; i++) {
+          if (primSd(hz.p, x0 + i * h2, z0 + j * h2) >= 0) {
+            haz[j * mx + i] |= hz.bit;
+            hazAny |= hz.bit;
+          }
+        }
+      }
+    }
+    const map = {
+      h, inv: 1 / h, x0, z0, nx, nz, sd, sdShot,
+      h2, mx, mz, room, haz, hazAny, mat: null, edges: null,
+      band: h * Math.SQRT1_2 * pr.lip + 0.01, // 网格值离阈值不到这么多时改用精确求值（双线性对 1-Lipschitz 函数的误差上限 ≈ 0.71 格）
+      pr, graph: roomGraph(spec),
+      ms: 0,
+    };
+    map.ms = performance.now() - t0;
+    return map;
+  }
+  // 双线性取网格值；网格外一律当 -4
+  function gridAt(m, a, x, z) {
+    const fx = (x - m.x0) * m.inv, fz = (z - m.z0) * m.inv;
+    if (!(fx >= 0 && fz >= 0 && fx < m.nx - 1 && fz < m.nz - 1)) return SD_LO;
+    const i = fx | 0, j = fz | 0, u = fx - i, v = fz - j, k = j * m.nx + i, n = m.nx;
+    const a0 = a[k] + (a[k + 1] - a[k]) * u, a1 = a[k + n] + (a[k + n + 1] - a[k + n]) * u;
+    return a0 + (a1 - a0) * v;
+  }
+  // 材质网格（0.5 m，第一次要用时才建）：可走处 0；挖空处是挖空的材质；其余是区域外面的材质（默认岩壁）
+  function matGrid(m) {
+    if (m.mat) return m.mat;
+    const pr = m.pr, mat = new Uint8Array(m.mx * m.mz).fill(pr.outside);
+    for (let j = 0; j < m.mz; j++) {
+      for (let i = 0; i < m.mx; i++) if (gridAt(m, m.sd, m.x0 + i * m.h2, m.z0 + j * m.h2) >= 0) mat[j * m.mx + i] = MAT.GROUND;
+    }
+    for (const c of pr.cp) {
+      const b = c.box;
+      const i0 = Math.max(0, Math.ceil((b[0] - 0.5 - m.x0) / m.h2)), i1 = Math.min(m.mx - 1, Math.floor((b[2] + 0.5 - m.x0) / m.h2));
+      const j0 = Math.max(0, Math.ceil((b[1] - 0.5 - m.z0) / m.h2)), j1 = Math.min(m.mz - 1, Math.floor((b[3] + 0.5 - m.z0) / m.h2));
+      for (let j = j0; j <= j1; j++) {
+        for (let i = i0; i <= i1; i++) {
+          const x = m.x0 + i * m.h2, z = m.z0 + j * m.h2;
+          if (primSd(c.p, x, z) > -0.5 && gridAt(m, m.sd, x, z) < 0.25) mat[j * m.mx + i] = c.mat;
+        }
+      }
+    }
+    return (m.mat = mat);
+  }
+  function matAt(m, x, z) {
+    const mat = matGrid(m);
+    const i = Math.round((x - m.x0) / m.h2), j = Math.round((z - m.z0) / m.h2);
+    if (!(i >= 0 && j >= 0 && i < m.mx && j < m.mz)) return m.pr.outside;
+    return mat[j * m.mx + i];
+  }
+  // sd = 0 的等值线（marching squares，0.5 m），第一次要用时才建：[{ pts: [x, z, nx, nz, ...], mats: [外侧材质...], closed }]
+  function edgeLines(m) {
+    if (m.edges) return m.edges;
+    const h = m.h2, NX = m.mx, NZ = m.mz;
+    const val = new Float32Array(NX * NZ);
+    for (let j = 0; j < NZ; j++) for (let i = 0; i < NX; i++) val[j * NX + i] = gridAt(m, m.sd, m.x0 + i * h, m.z0 + j * h);
+    // 边编号：横边 (i,j)-(i+1,j) = 2k，竖边 (i,j)-(i,j+1) = 2k+1；每条穿过 0 的边上一个点
+    const pt = new Map();
+    const P = (e) => {
+      let q = pt.get(e);
+      if (q) return q;
+      const k = e >> 1, i = k % NX, j = (k / NX) | 0, a = val[k], b = (e & 1) === 0 ? val[k + 1] : val[k + NX];
+      const t = a / (a - b);
+      q = { e, x: m.x0 + (i + ((e & 1) === 0 ? t : 0)) * h, z: m.z0 + (j + ((e & 1) === 1 ? t : 0)) * h, nb: [] };
+      pt.set(e, q);
+      return q;
+    };
+    const link = (ea, eb) => {
+      const a = P(ea), b = P(eb);
+      a.nb.push(b);
+      b.nb.push(a);
+    };
+    for (let j = 0; j + 1 < NZ; j++) {
+      for (let i = 0; i + 1 < NX; i++) {
+        const k = j * NX + i;
+        const a = val[k] >= 0, b = val[k + 1] >= 0, c = val[k + NX + 1] >= 0, d = val[k + NX] >= 0;
+        const code = (a ? 1 : 0) | (b ? 2 : 0) | (c ? 4 : 0) | (d ? 8 : 0);
+        if (code === 0 || code === 15) continue;
+        const eT = 2 * k, eB = 2 * (k + NX), eL = 2 * k + 1, eR = 2 * (k + 1) + 1; // T: z=j 边，B: z=j+1 边
+        switch (code) {
+          case 1: case 14: link(eT, eL); break;
+          case 2: case 13: link(eT, eR); break;
+          case 4: case 11: link(eR, eB); break;
+          case 8: case 7: link(eB, eL); break;
+          case 3: case 12: link(eL, eR); break;
+          case 6: case 9: link(eT, eB); break;
+          case 5: case 10: {
+            // 鞍点：看格中心的值决定怎么连
+            const mid = (val[k] + val[k + 1] + val[k + NX] + val[k + NX + 1]) / 4 >= 0;
+            if ((code === 5) === mid) {
+              link(eT, eR);
+              link(eB, eL);
+            } else {
+              link(eT, eL);
+              link(eR, eB);
+            }
+            break;
+          }
+        }
+      }
+    }
+    const lines = [], used = new Set();
+    const g = 0.3;
+    const emit = (chain, closed) => {
+      const pts = [], mats = [];
+      for (const q of chain) {
+        // 外法线 = -梯度
+        let gx = gridAt(m, m.sd, q.x + g, q.z) - gridAt(m, m.sd, q.x - g, q.z);
+        let gz = gridAt(m, m.sd, q.x, q.z + g) - gridAt(m, m.sd, q.x, q.z - g);
+        const l = Math.hypot(gx, gz) || 1;
+        gx = -gx / l;
+        gz = -gz / l;
+        pts.push(q.x, q.z, gx, gz);
+        mats.push(matAt(m, q.x + gx * 0.6, q.z + gz * 0.6));
+      }
+      lines.push({ pts, mats, closed });
+    };
+    const walk = (s) => {
+      const chain = [s];
+      used.add(s);
+      let prev = null, cur = s;
+      for (;;) {
+        const nx = cur.nb.find((q) => q !== prev && !used.has(q));
+        if (!nx) break;
+        chain.push(nx);
+        used.add(nx);
+        prev = cur;
+        cur = nx;
+      }
+      return chain;
+    };
+    for (const q of pt.values()) if (!used.has(q) && q.nb.length === 1) emit(walk(q), false);
+    for (const q of pt.values()) if (!used.has(q)) emit(walk(q), true);
+    return (m.edges = lines);
+  }
+
+  // ---------- 查询 API ----------
+  // 可走：sd ≥ pad（pad > 0 = 半径 pad 的圆整个在里面，pad < 0 = 可以压进墙 |pad|）。
+  // 网格值离阈值远时直接用网格，贴近阈值时精确求值，所以结果和解析的「圆 + 线段」实现逐点一致。
+  // 测试会整个替换 W.walkable 插假墙，其它函数都必须经属性查找调用它，不能缓存成局部变量
+  W.walkable = function (x, z, pad = 0) {
+    const m = W.zone.map, e = gridAt(m, m.sd, x, z) - pad;
+    if (e > m.band) return true;
+    if (e < -m.band) return false;
+    return exactSd(m.pr, x, z, false) >= pad;
+  };
+  W.sdAt = (x, z) => gridAt(W.zone.map, W.zone.map.sd, x, z);
+  W.sdExact = (x, z) => exactSd(W.zone.map.pr, x, z, false);
+  // 投射物 / 视线专用：只有落在虚空 / 深水 / 熔岩上（挡子弹的 sd 比可走的 sd 大）才查 sdShot，其余委托给 W.walkable
+  W.shotFree = function (x, z, pad = 0) {
+    const m = W.zone.map;
+    if (m.sdShot !== m.sd) {
+      const s = gridAt(m, m.sdShot, x, z);
+      if (s > gridAt(m, m.sd, x, z) + 1e-4) {
+        const e = s - pad;
+        if (e > m.band) return true;
+        if (e < -m.band) return false;
+        return exactSd(m.pr, x, z, true) >= pad;
+      }
+    }
+    return W.walkable(x, z, pad);
+  };
+  // 危险区位标志（HAZ.slow / burn / thin）
+  W.hazardAt = function (x, z) {
+    const m = W.zone.map;
+    if (!m.hazAny) return 0;
+    const i = Math.round((x - m.x0) / m.h2), j = Math.round((z - m.z0) / m.h2);
+    return i >= 0 && j >= 0 && i < m.mx && j < m.mz ? m.haz[j * m.mx + i] : 0;
+  };
+  // 点所在的某一块危险区图元（薄冰按块计时用），没有返回 -1
+  W.hazPrimAt = function (x, z, kind) {
+    const hp = W.zone.map.pr.hp;
+    for (let i = 0; i < hp.length; i++) if (hp[i].kind === kind && primSd(hp[i].p, x, z) >= 0) return i;
+    return -1;
+  };
+  W.matAt = (x, z) => matAt(W.zone.map, x, z);
+  // 房间号：-1 = 不在任何房间里（墙边缝里）。跨边界的格子按 rooms 顺序精确判定
+  W.roomAt = function (x, z) {
+    const m = W.zone.map;
+    const i = Math.round((x - m.x0) / m.h2), j = Math.round((z - m.z0) / m.h2);
+    if (!(i >= 0 && j >= 0 && i < m.mx && j < m.mz)) return -1;
+    const v = m.room[j * m.mx + i];
+    if (v < ROOM_AMBIG) return v;
+    if (v === ROOM_NONE) return -1;
+    return roomExact(m.pr, x, z);
+  };
+  // 两个房间之间的连接（spec.links 的下标），不相邻返回 -1
+  W.roomLink = function (a, b) {
+    const g = W.zone.map.graph;
+    return a >= 0 && b >= 0 && a < g.n && b < g.n ? g.linkOf[a * g.n + b] : -1;
+  };
+  // 沿房间的 axis 折线从 (x, z) 的投影往前（sgn = +1 朝终点、-1 朝起点）走 step，结果写进 out
+  function axisStep(axis, x, z, sgn, step, out) {
+    if (axis.length === 2) {
+      // 两点的 axis 和改版前的「沿通道轴线前进 3.5」逐位相同
+      const ax = axis[0][0], az = axis[0][1];
+      const ux = axis[1][0] - ax, uz = axis[1][1] - az, len = Math.hypot(ux, uz) || 1;
+      const t = ((x - ax) * ux + (z - az) * uz) / len;
+      const t2 = G.clamp(t + sgn * step, 0, len);
+      out.x = ax + (ux / len) * t2;
+      out.z = az + (uz / len) * t2;
+      return out;
+    }
+    // 多段：投影到最近的一段，按弧长前进
+    let bestD = 1e18, s = 0, acc = 0, total = 0;
+    const lens = [];
+    for (let i = 0; i + 1 < axis.length; i++) {
+      const l = Math.hypot(axis[i + 1][0] - axis[i][0], axis[i + 1][1] - axis[i][1]);
+      lens.push(l);
+      total += l;
+    }
+    for (let i = 0; i + 1 < axis.length; i++) {
+      const ax = axis[i][0], az = axis[i][1], ex = axis[i + 1][0] - ax, ez = axis[i + 1][1] - az, l = lens[i] || 1;
+      let t = ((x - ax) * ex + (z - az) * ez) / (l * l);
+      t = G.clamp(t, i === 0 ? -1e9 : 0, i === axis.length - 2 ? 1e9 : 1);
+      const d = Math.hypot(x - ax - ex * G.clamp(t, 0, 1), z - az - ez * G.clamp(t, 0, 1));
+      if (d < bestD) {
+        bestD = d;
+        s = acc + t * l;
+      }
+      acc += l;
+    }
+    let s2 = G.clamp(s + sgn * step, 0, total);
+    for (let i = 0; i + 1 < axis.length; i++) {
+      if (s2 <= lens[i] || i === axis.length - 2) {
+        const k = lens[i] > 0 ? Math.min(1, s2 / lens[i]) : 0;
+        out.x = axis[i][0] + (axis[i + 1][0] - axis[i][0]) * k;
+        out.z = axis[i][1] + (axis[i + 1][1] - axis[i][1]) * k;
+        return out;
+      }
+      s2 -= lens[i];
+    }
+    return out;
+  }
+  // 寻路的下一个路点（直线走不通时由调用方来问）：查房间图的下一跳 rb。
+  //   在带 axis 的通道房间里：沿 axis 朝 rb 那一端前进 3.5 m；
+  //   下一跳是通道房间：沿它的 axis 朝远离当前房间的那一端前进 3.5 m；
+  //   其余：路点 = 两房间之间的门。
+  // 写进 out 并返回 true；不在房间里 / 同一房间 / 不连通返回 false
+  W.navNext = function (x, z, tx, tz, r, out) {
+    const zone = W.zone, rooms = zone.rooms, g = zone.map.graph;
+    const ra = W.roomAt(x, z), rt = W.roomAt(tx, tz);
+    if (ra < 0 || rt < 0 || ra === rt) return false;
+    const rb = g.next[ra * g.n + rt];
+    if (rb === ROOM_NONE) return false;
+    const A = rooms[ra], B = rooms[rb];
+    if (A.axis && A.ends) {
+      if (A.ends[1] === rb) return !!axisStep(A.axis, x, z, 1, 3.5, out);
+      if (A.ends[0] === rb) return !!axisStep(A.axis, x, z, -1, 3.5, out);
+    } else if (B.axis && B.ends) {
+      if (B.ends[0] === ra) return !!axisStep(B.axis, x, z, 1, 3.5, out);
+      if (B.ends[1] === ra) return !!axisStep(B.axis, x, z, -1, 3.5, out);
+    }
+    const li = g.linkOf[ra * g.n + rb], L = li >= 0 ? zone.links[li] : null;
+    if (!L || !L.door) return false;
+    out.x = L.door.x;
+    out.z = L.door.z;
+    return true;
+  };
+  // 卡在墙里时往外推：沿 sd 的梯度朝里走，一次最多 step（墙太厚、梯度为零时朝最近的关键路径房间中心挪）
+  W.pushOut = function (x, z, pad, step, out) {
+    const o = out || { x: 0, z: 0 }, pr = W.zone.map.pr;
+    o.x = x;
+    o.z = z;
+    const d = exactSd(pr, x, z, false);
+    if (d >= pad) return o;
+    const e = 0.05;
+    const gx = exactSd(pr, x + e, z, false) - exactSd(pr, x - e, z, false);
+    const gz = exactSd(pr, x, z + e, false) - exactSd(pr, x, z - e, false);
+    const l = Math.hypot(gx, gz);
+    if (d > SD_LO - 0.5 && l > 1e-6) {
+      const k = Math.min(step, pad - d + 0.02);
+      o.x = x + (gx / l) * k;
+      o.z = z + (gz / l) * k;
+      return o;
+    }
+    let best = null, bd = Infinity;
+    for (const c of W.zone.circles) {
+      const dd = Math.hypot(c.x - x, c.z - z);
+      if (dd < bd) {
+        bd = dd;
+        best = c;
+      }
+    }
+    if (best && bd > 1e-3) {
+      const k = Math.min(step, bd) / bd;
+      o.x = x + (best.x - x) * k;
+      o.z = z + (best.z - z) * k;
+    }
+    return o;
+  };
+  // 沿 sd = 0 的边按弧长每 spacing 取一个点，往外偏 off：cb(x, z, kind, nx, nz)，kind = 外侧材质；opt.kinds 只取这几种材质的边
+  W.edgeSamples = function (spacing, off, cb, opt) {
+    const kinds = opt && opt.kinds;
+    for (const L of edgeLines(W.zone.map)) {
+      const P = L.pts, n = P.length / 4;
+      let acc = spacing * 0.5;
+      for (let i = 0; i + 1 < n || (L.closed && i < n); i++) {
+        const a = i * 4, b = ((i + 1) % n) * 4;
+        const sl = Math.hypot(P[b] - P[a], P[b + 1] - P[a + 1]);
+        while (acc <= sl) {
+          const k = sl > 0 ? acc / sl : 0, kind = L.mats[i];
+          if (!kinds || kinds.indexOf(kind) >= 0) {
+            let nx = P[a + 2] + (P[b + 2] - P[a + 2]) * k, nz = P[a + 3] + (P[b + 3] - P[a + 3]) * k;
+            const l = Math.hypot(nx, nz) || 1;
+            nx /= l;
+            nz /= l;
+            cb(P[a] + (P[b] - P[a]) * k + nx * off, P[a + 1] + (P[b + 1] - P[a + 1]) * k + nz * off, kind, nx, nz);
+          }
+          acc += spacing;
+        }
+        acc -= sl;
+      }
+    }
+  };
+  // 首领场地：唤醒首领 / 拴绳 / 首领提示。legacy 的圆形场地沿用改版前的距离判定（逐位一致）
+  W.inArena = function (x, z) {
+    const a = W.zone.arena;
+    if (a.round) return Math.hypot(x - a.x, z - a.z) < a.r - 1;
+    return W.roomAt(x, z) === a.room && !(a.door && Math.hypot(x - a.door.x, z - a.door.z) <= 1);
+  };
+  W.leashOk = function (x, z) {
+    const a = W.zone.arena;
+    return W.roomAt(x, z) === a.room || !!(a.door && Math.hypot(x - a.door.x, z - a.door.z) <= 3);
+  };
+  W.nearArena = function (x, z) {
+    const zone = W.zone, a = zone.arena;
+    if (a.round) return Math.hypot(x - a.x, z - a.z) < a.r + 13;
+    const p = zone.path, prev = p.length >= 2 ? p[p.length - 2] : -1;
+    const r = W.roomAt(x, z);
+    return (r >= 0 && r === prev) || !!(a.door && Math.hypot(x - a.door.x, z - a.door.z) < 13);
   };
 
-  function layoutZone() {
+  // ---------- 生成器 ----------
+  function mulberry32(seed) {
+    let a = seed >>> 0;
+    return function () {
+      a = (a + 0x6d2b79f5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  // 凹多边形「一团」：n 个顶点，半径 R·(1 + amp·噪声)，round 圆角（荒原、岛屿、平台用）
+  function blob(R, x, z, rad, amp, n, round) {
+    const pts = [], ph = R() * TAU, f1 = 2 + Math.floor(R() * 2), f2 = 3 + Math.floor(R() * 3), k1 = R(), k2 = R();
+    n = n || 14;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU;
+      const w = Math.sin(a * f1 + ph) * (0.6 + 0.4 * k1) + Math.sin(a * f2 + ph * 1.7) * 0.4 * k2 + (R() - 0.5) * 0.5;
+      const r = rad * (1 + amp * w);
+      pts.push([x + Math.sin(a) * r, z + Math.cos(a) * r]);
+    }
+    return { t: 'poly', pts, round: round === undefined ? 0.8 : round };
+  }
+  // 图元外接框 + 4 m（新生成器的 spec.bounds 用它）
+  function specBounds(spec) {
+    const b = { minX: 1e9, maxX: -1e9, minZ: 1e9, maxZ: -1e9 };
+    for (const rm of spec.rooms) {
+      for (const p of rm.prims) {
+        const q = primBox(p);
+        b.minX = Math.min(b.minX, q[0] - 4);
+        b.minZ = Math.min(b.minZ, q[1] - 4);
+        b.maxX = Math.max(b.maxX, q[2] + 4);
+        b.maxZ = Math.max(b.maxZ, q[3] + 4);
+      }
+    }
+    return b;
+  }
+  // 通道露在两端空地之外那一段的中点（退化时用几何中点）；改版前在 enemies.js 里
+  function corridorMid(circles, s) {
+    const out = [];
+    for (let i = 0; i <= 24; i++) {
+      const k = i / 24, x = s.ax + (s.bx - s.ax) * k, z = s.az + (s.bz - s.az) * k;
+      let inCircle = false;
+      for (const c of circles) if (Math.hypot(x - c.x, z - c.z) <= c.r) inCircle = true;
+      if (!inCircle) out.push({ x, z });
+    }
+    return out.length ? out[out.length >> 1] : { x: (s.ax + s.bx) / 2, z: (s.az + s.bz) / 2 };
+  }
+  const rim = (c, o) => {
+    const dx = o.x - c.x, dz = o.z - c.z, d = Math.hypot(dx, dz) || 1;
+    return { x: c.x + (dx / d) * c.r, z: c.z + (dz / d) * c.r };
+  };
+
+  // 生成器：gen(R, def) → spec，R() 是 [0, 1) 的随机源。新生成器只用 R（= mulberry32(seed)），不碰 Math.random。
+  // gen.check 覆盖校验的阈值（见 validateSpec）
+  const GEN = {};
+  // 兼容层：改版前的 layoutZone() 原样搬进来（随机数抽取的次数和顺序完全不变），再翻译成 spec。
+  // 正常进区时 R 就是 Math.random（gen.live），和改版前同一串随机数，之后刷怪、外观的随机序列也一样；
+  // 固定种子（G.debug.zoneSeed、W.genLayout）时 R = mulberry32(seed)
+  GEN.legacy = function (R, def) {
+    const rand = (a, b) => a + R() * (b - a);
     let circles = null;
     for (let attempt = 0; attempt < 40; attempt++) {
       circles = [{ x: 0, z: 0, r: 8 }];
@@ -1341,8 +2081,262 @@
       b.minX = Math.min(b.minX, c.x - c.r); b.maxX = Math.max(b.maxX, c.x + c.r);
       b.minZ = Math.min(b.minZ, c.z - c.r); b.maxZ = Math.max(b.maxZ, c.z + c.r);
     }
-    return { circles, segs, bounds: b };
+    return legacySpec(circles, segs, b);
+  };
+  GEN.legacy.live = true;
+  GEN.legacy.check = { box: 240, areaMin: 1700, areaMax: 3800, gap: 9 };
+  // 圆 → 房间（起点 / 空地 / 首领场地），线段 → 带 axis 的通道房间；圆排在前面，重叠处算圆的（和改版前寻路的 chainLoc 一样）
+  function legacySpec(circles, segs, bounds) {
+    const n = circles.length, rooms = [], links = [], packs = [];
+    circles.forEach((c, i) => {
+      rooms.push({ id: i, kind: i === 0 ? 'start' : i === n - 1 ? 'arena' : 'room', order: i, path: true, prims: [{ t: 'circle', x: c.x, z: c.z, r: c.r }], core: c, tags: [] });
+    });
+    segs.forEach((s, k) => {
+      const id = n + k, mid = corridorMid(circles, s);
+      rooms.push({
+        id, kind: 'link', order: k, path: true, prims: [{ t: 'capsule', ax: s.ax, az: s.az, bx: s.bx, bz: s.bz, hw: s.hw }],
+        core: { x: mid.x, z: mid.z, r: s.hw }, axis: [[s.ax, s.az], [s.bx, s.bz]], ends: [k, k + 1], tags: [],
+      });
+      links.push({ a: k, b: id, door: rim(circles[k], circles[k + 1]), kind: 'corr' }, { a: id, b: k + 1, door: rim(circles[k + 1], circles[k]), kind: 'corr' });
+    });
+    // 怪群槽位：空地 1..n-2 各一个「圆盘」槽位、通道 1..n-2 各一个「中点」槽位（顺序和改版前一样）；具体位置进区时照原来的代码抽
+    for (let ci = 1; ci < n - 1; ci++) packs.push({ room: ci, kind: 'disk', x: circles[ci].x, z: circles[ci].z, r: circles[ci].r });
+    for (let si = 1; si < segs.length; si++) packs.push({ room: n + si, kind: 'line', x: rooms[n + si].core.x, z: rooms[n + si].core.z });
+    const bp = circles[n - 1], from = n >= 2 ? circles[n - 2] : { x: 0, z: 0 };
+    const dx = from.x - bp.x, dz = from.z - bp.z, d = Math.hypot(dx, dz);
+    // 门外重生点：最后一段通道上、离场地中心 r + 2（改版前 G.bossDoor 的算式）
+    const door = d < 1e-3 ? null : { x: bp.x + (dx / d) * (bp.r + 2), z: bp.z + (dz / d) * (bp.r + 2) };
+    // 调试 tpBoss：场地中心朝起点一侧 7 m（改版前 G.debug.tpBoss 的算式）
+    const tx = 0 - bp.x, tz = 0 - bp.z, td = Math.hypot(tx, tz) || 1;
+    const c0 = circles[0], c1 = circles[1] || c0;
+    const ex = rim(c0, c1);
+    return {
+      rooms, links, cuts: [], haz: [], feats: [], packs, chests: [],
+      start: { x: 0, z: 0, exit: { x: ex.x, z: ex.z, ang: Math.atan2(c1.x - c0.x, c1.z - c0.z) } },
+      arena: {
+        room: n - 1, x: bp.x, z: bp.z, r: bp.r, round: true, door,
+        dir: d < 1e-3 ? { x: 0, z: 1 } : { x: -dx / d, z: -dz / d },
+        tp: { x: bp.x + (tx / td) * 7, z: bp.z + (tz / td) * 7 },
+      },
+      bounds,
+      legacy: { circles, segs },
+    };
   }
+
+  // 每个区的地形：gen 生成器（必填）。B 阶段各区只改自己的块：换 gen，加 dress（外观）/ tick（定时机关）
+  const ZONE_TERRAIN = {
+    ash: { gen: GEN.legacy },
+    frost: { gen: GEN.legacy },
+    storm: { gen: GEN.legacy },
+    abyss: { gen: GEN.legacy },
+    rift: { gen: GEN.legacy },
+  };
+  const TERRAIN_FALLBACK = { gen: GEN.legacy };
+
+  // ---------- 校验（生成器负责；失败就换种子）----------
+  const CHECK = { box: 180, areaMin: 2400, areaMax: 3800, gap: 14, startR: 8, firstR: 7, bossR: 9, packStart: 12, packDoor: 4 };
+  function validateSpec(spec, gen) {
+    const ck = Object.assign({}, CHECK, gen && gen.check);
+    const why = [];
+    let pr;
+    try {
+      pr = terrPrep(spec);
+    } catch (e) {
+      return { ok: false, why: ['预处理出错：' + e.message], area: 0 };
+    }
+    const sdx = (x, z) => exactSd(pr, x, z, false);
+    // 外接框
+    const bw = pr.x1 - pr.x0 - 8, bh = pr.z1 - pr.z0 - 8;
+    if (bw > ck.box || bh > ck.box) why.push('外接框 ' + bw.toFixed(0) + '×' + bh.toFixed(0) + ' 超过 ' + ck.box);
+    // 0.5 m 粗网格：可走面积；从起点在 pad 0.6 上 BFS
+    const h = 0.5, nx = Math.ceil((pr.x1 - pr.x0) / h) + 1, nz = Math.ceil((pr.z1 - pr.z0) / h) + 1;
+    if (nx * nz > 2.5e6) return { ok: false, why: why.concat('区域太大'), area: 0 };
+    const open = new Uint8Array(nx * nz);
+    let cells = 0;
+    for (let j = 0; j < nz; j++) {
+      for (let i = 0; i < nx; i++) {
+        const v = sdx(pr.x0 + i * h, pr.z0 + j * h);
+        if (v >= 0) cells++;
+        if (v >= 0.6) open[j * nx + i] = 1;
+      }
+    }
+    const area = cells * h * h;
+    if (area < ck.areaMin || area > ck.areaMax) why.push('可走面积 ' + area.toFixed(0) + ' 不在 ' + ck.areaMin + '–' + ck.areaMax);
+    const cellOf = (x, z) => {
+      const i = Math.round((x - pr.x0) / h), j = Math.round((z - pr.z0) / h);
+      return i >= 0 && j >= 0 && i < nx && j < nz ? j * nx + i : -1;
+    };
+    const seen = new Uint8Array(nx * nz), q = new Int32Array(nx * nz);
+    const s0 = cellOf(spec.start.x, spec.start.z);
+    if (s0 >= 0 && open[s0]) {
+      let qh = 0, qt = 0;
+      q[qt++] = s0;
+      seen[s0] = 1;
+      while (qh < qt) {
+        const k = q[qh++], i = k % nx;
+        const nb = [i > 0 ? k - 1 : -1, i < nx - 1 ? k + 1 : -1, k - nx, k + nx];
+        for (const v of nb) {
+          if (v >= 0 && v < nx * nz && open[v] && !seen[v]) {
+            seen[v] = 1;
+            q[qt++] = v;
+          }
+        }
+      }
+    } else why.push('起点不可走');
+    const reach = (x, z) => {
+      const k = cellOf(x, z);
+      if (k < 0) return false;
+      for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++) if (seen[k + dj * nx + di]) return true;
+      return false;
+    };
+    const A = spec.arena;
+    if (!A || !A.door) why.push('首领场地没有门');
+    else {
+      if (!reach(A.door.x, A.door.z)) why.push('到不了首领场地的门');
+      if (sdx(A.door.x, A.door.z) < 0.5) why.push('首领场地的门 pad 0.5 不可走');
+      const bossR = A.r !== undefined ? A.r : Math.hypot(A.door.x - A.x, A.door.z - A.z) - 2;
+      if (bossR < ck.bossR) why.push('bossR ' + bossR.toFixed(1) + ' < ' + ck.bossR);
+    }
+    spec.rooms.forEach((rm, i) => {
+      if (rm.kind === 'side' && !reach(rm.core.x, rm.core.z)) why.push('到不了旁支房间 ' + i);
+    });
+    for (const c of spec.chests || []) if (!reach(c.x, c.z)) why.push('到不了宝箱 (' + c.x.toFixed(1) + ', ' + c.z.toFixed(1) + ')');
+    // 起点契约：r=8 圆盘整块可走、没有危险区；背向第 1 个房间 ±60° 的扇形里墙贴着 r=8；第 1 个房间 core r ≥ 7
+    const st = spec.start;
+    if (sdx(st.x, st.z) < ck.startR - 1e-6) why.push('起点圆盘不完整');
+    for (const hz of pr.hp) if (primSd(hz.p, st.x, st.z) > -ck.startR) why.push('起点圆盘里有危险区');
+    const path = spec.rooms.filter((r) => r.path && r.kind !== 'link').sort((a, b) => a.order - b.order);
+    const r1 = path[1];
+    if (!r1 || r1.core.r < ck.firstR) why.push('第 1 个房间 core 太小');
+    if (r1) {
+      const back = Math.atan2(r1.core.x - st.x, r1.core.z - st.z) + Math.PI;
+      for (let k = -6; k <= 6; k++) {
+        const a = back + (k / 6) * (Math.PI / 3);
+        if (sdx(st.x + Math.sin(a) * (ck.startR + 0.4), st.z + Math.cos(a) * (ck.startR + 0.4)) >= 0) {
+          why.push('起点背面不是墙');
+          break;
+        }
+      }
+    }
+    // 不相邻的关键路径房间：边到边 ≥ gap（在 A 的格子上量到 B 的距离）
+    const roomSd = (rm, x, z) => {
+      let v = -1e18;
+      for (const p of rm.prims) v = Math.max(v, primSd(p, x, z));
+      return v;
+    };
+    for (let a = 0; a < path.length; a++) {
+      for (let b = a + 2; b < path.length; b++) {
+        const RA = path[a], RB = path[b];
+        if (Math.abs(RA.order - RB.order) < 2) continue;
+        let gap = 1e18;
+        const boxes = RA.prims.map(primBox);
+        for (const bx of boxes) {
+          for (let z = Math.ceil(bx[1] / h) * h; z <= bx[3]; z += h) {
+            for (let x = Math.ceil(bx[0] / h) * h; x <= bx[2]; x += h) {
+              if (roomSd(RA, x, z) < 0) continue;
+              const g = -roomSd(RB, x, z);
+              if (g < gap) gap = g;
+            }
+          }
+        }
+        if (gap < ck.gap) why.push('房间 ' + RA.id + ' 和 ' + RB.id + ' 只隔 ' + gap.toFixed(1) + ' m');
+      }
+    }
+    // 怪群槽位、宝箱：离起点、离门，不在灼烧 / 熔岩上
+    const doors = spec.links.filter((L) => L.door).map((L) => L.door);
+    const bad = (x, z) => pr.hp.some((hz) => hz.kind === 'burn' && primSd(hz.p, x, z) >= 0) || pr.cp.some((c) => c.mat === MAT.LAVA && primSd(c.p, x, z) >= 0);
+    for (const p of spec.packs || []) {
+      if (Math.hypot(p.x - st.x, p.z - st.z) < ck.packStart) why.push('怪群离起点太近');
+      if (!p.kind && !p.ambush && doors.some((d) => Math.hypot(d.x - p.x, d.z - p.z) < ck.packDoor)) why.push('怪群离门太近');
+      if (!reach(p.x, p.z)) why.push('到不了怪群槽位');
+      if (bad(p.x, p.z)) why.push('怪群在灼烧 / 熔岩上');
+    }
+    for (const c of spec.chests || []) if (bad(c.x, c.z)) why.push('宝箱在灼烧 / 熔岩上');
+    return { ok: why.length === 0, why, area };
+  }
+  // spec 的哈希（同一种子应当完全相同）
+  function specHash(spec) {
+    const s = JSON.stringify(spec);
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
+    return (h >>> 0).toString(16).padStart(8, '0');
+  }
+  const terrainOf = (def) => ZONE_TERRAIN[def.id] || TERRAIN_FALLBACK;
+  // 只跑生成器 + 校验，不建网格、不建模型（测试批量校验种子用）
+  W.genLayout = function (id, seed) {
+    const def = G.ZONES.find((z) => z.id === id) || G.ZONES[0];
+    const gen = terrainOf(def).gen;
+    const t0 = performance.now();
+    const spec = gen(mulberry32(seed >>> 0), def);
+    const v = validateSpec(spec, gen);
+    return { id: def.id, seed: seed >>> 0, spec, ok: v.ok, why: v.why, area: v.area, hash: specHash(spec), ms: performance.now() - t0 };
+  };
+  W.specHash = specHash;
+
+  // 进区时的布局：legacy 不固定种子时直接用 Math.random；其余用种子，校验失败 seed+1 重试，8 次都不行退回 legacy。永远不抛错
+  let zoneSeq = 0, pinSeed = null;
+  W.pinZoneSeed = function (s) {
+    pinSeed = s === null || s === undefined ? null : s >>> 0;
+    return pinSeed;
+  };
+  function makeLayout(def) {
+    const gen = terrainOf(def).gen;
+    if (pinSeed === null && gen.live) return { seed: null, spec: gen(Math.random, def), gen };
+    const seed = pinSeed !== null ? pinSeed : (((Math.random() * 4294967296) >>> 0) ^ Math.imul(++zoneSeq, 0x9e3779b1)) >>> 0;
+    for (let k = 0; k < 8; k++) {
+      const s = (seed + k) >>> 0;
+      try {
+        const spec = gen(mulberry32(s), def);
+        if (gen.live || validateSpec(spec, gen).ok) return { seed: s, spec, gen };
+      } catch (e) {
+        if (window.console) console.warn('[地形] 生成器出错', def.id, s, e);
+      }
+    }
+    if (window.console) console.warn('[地形] ' + def.id + ' 连续 8 个种子都没通过校验，退回 legacy 布局', seed);
+    return { seed, spec: GEN.legacy(mulberry32(seed), def), gen: GEN.legacy };
+  }
+  // zone 对象：新字段 + 兼容字段（start / bossPos / bounds / bossR / circles / segs）
+  function assembleZone(def, level, L) {
+    const spec = L.spec, a = Object.assign({}, spec.arena), rooms = spec.rooms; // 拷一份：补默认 tp 不改 spec（哈希不变）
+    const pathRooms = rooms.filter((r) => r.path).sort((p, q) => p.order - q.order || (p.kind === 'link') - (q.kind === 'link'));
+    const bossR = a.r !== undefined ? a.r : a.door ? Math.hypot(a.door.x - a.x, a.door.z - a.z) - 2 : 15;
+    if (!a.tp) {
+      const c = rooms[a.room].core, dx = a.door ? a.door.x - c.x : 0, dz = a.door ? a.door.z - c.z : 1, d = Math.hypot(dx, dz) || 1;
+      a.tp = { x: c.x + (dx / d) * 7, z: c.z + (dz / d) * 7 };
+    }
+    return {
+      def, level,
+      seed: L.seed, spec, rooms, links: spec.links,
+      path: spec.path || pathRooms.map((r) => r.id),
+      arena: a, bossDoor: a.door ? { x: a.door.x, z: a.door.z } : null,
+      packs: spec.packs, chests: spec.chests || [], feats: spec.feats || [],
+      circles: spec.legacy ? spec.legacy.circles : pathRooms.filter((r) => r.kind !== 'link').map((r) => r.core),
+      segs: spec.legacy ? spec.legacy.segs : [],
+      start: spec.start,
+      bossPos: { x: a.x, z: a.z }, bossR,
+      bounds: spec.bounds || specBounds(spec),
+      map: null,
+    };
+  }
+  // 调试：房间、连接、怪群、宝箱的摘要
+  W.layoutInfo = function () {
+    const z = W.zone;
+    if (!z) return null;
+    const r2 = (v) => Math.round(v * 100) / 100;
+    return {
+      id: z.def.id, seed: z.seed, gen: terrainOf(z.def).gen === GEN.legacy ? 'legacy' : 'custom',
+      rooms: z.rooms.map((r) => ({ id: r.id, kind: r.kind, order: r.order, path: r.path, core: { x: r2(r.core.x), z: r2(r.core.z), r: r2(r.core.r) }, tags: r.tags || [] })),
+      links: z.links.map((L) => ({ a: L.a, b: L.b, kind: L.kind, door: L.door ? { x: r2(L.door.x), z: r2(L.door.z) } : null })),
+      path: z.path.slice(),
+      packs: z.packs.map((p) => ({ room: p.room, kind: p.kind || 'pack', x: r2(p.x), z: r2(p.z) })),
+      chests: z.chests.map((c) => ({ room: c.room, x: r2(c.x), z: r2(c.z) })),
+      arena: { room: z.arena.room, x: r2(z.arena.x), z: r2(z.arena.z), bossR: z.bossR, door: z.bossDoor },
+      grid: { nx: z.map.nx, nz: z.map.nz, h: z.map.h, ms: r2(z.map.ms), bytes: z.map.sd.byteLength * (z.map.sdShot === z.map.sd ? 1 : 2) + z.map.room.byteLength * 2 },
+      hash: specHash(z.spec),
+    };
+  };
+  // 测试 / 调试用的内部函数
+  W.terrain = { zoneSd, primSd, primBox, exactSd, validateSpec, specHash, mulberry32, blob, specBounds, GEN, ZONE_TERRAIN };
 
   // ---------- 区域：外观 ----------
   let zoneGroup = null;
@@ -1869,15 +2863,11 @@
     disposeZone();
     W.clearFx();
     hideRiftFx();
-    const L = layoutZone();
-    const boss = L.circles[5];
-    const zone = {
-      def, level,
-      circles: L.circles, segs: L.segs,
-      start: { x: 0, z: 0 },
-      bossPos: { x: boss.x, z: boss.z }, bossR: boss.r,
-      bounds: L.bounds,
-    };
+    const t0 = performance.now();
+    const zone = assembleZone(def, level, makeLayout(def));
+    const t1 = performance.now();
+    zone.map = rasterize(zone.spec); // 不消耗 Math.random，放在外观前面：建外观时 W.walkable 就能用
+    zone.ms = { layout: t1 - t0, raster: zone.map.ms };
     W.zone = zone;
     safeBuildVisuals(zone);
     buildMinimap(zone);

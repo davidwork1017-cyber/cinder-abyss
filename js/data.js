@@ -978,6 +978,11 @@
     at(D, 'bwn', 3.1, 80, '鹰隼之息', { focusGain: 15, buffDur: 20, rangeDmg: 15 }, 'notable', ['bw2']);
   })();
 
+  // ---------- 区域地形的数值（world.js「区域地形」一节）----------
+  // slow：浅水 / 冰泥的移速系数，slowRoll：翻滚距离系数；burn：灼烧每跳伤害 = burn × G.dmgScale(区域等级)，burnTick 秒一跳；
+  // thinT：薄冰站多久裂开，thinBack：离开后多久复原；wakeLos：小怪苏醒要看得见玩家；bossLeash：区域首领拴在场地里
+  G.TERRAIN = { slow: 0.65, slowRoll: 0.85, burn: 3, burnTick: 0.5, thinT: 1.0, thinBack: 4, wakeLos: true, bossLeash: true };
+
   // ---------- 区域 ----------
   G.ZONES = [
     {

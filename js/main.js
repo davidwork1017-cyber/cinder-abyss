@@ -302,12 +302,9 @@
       const P = G.player;
       const zone = G.state.zone;
       const bp = zone.bossPos;
-      // 站在竞技场内、朝起点一侧离中心 7 的位置，足以唤醒首领
-      const dx = zone.start.x - bp.x;
-      const dz = zone.start.z - bp.z;
-      const d = Math.hypot(dx, dz) || 1;
-      let x = bp.x + (dx / d) * 7;
-      let z = bp.z + (dz / d) * 7;
+      // 站在竞技场内离中心 7 的位置（zone.arena.tp：场地中心朝门；legacy 是朝起点一侧），足以唤醒首领
+      let x = zone.arena.tp.x;
+      let z = zone.arena.tp.z;
       if (!W.walkable(x, z, 0.6)) {
         x = bp.x;
         z = bp.z + 7;
@@ -320,6 +317,26 @@
       P.drawFace = P.face;
       W.setEnt(P.ent, P.x, P.z, P.face);
       return { x, z };
+    },
+    // 固定之后进区用的布局种子（传 null 恢复每次随机）；返回当前固定的种子
+    zoneSeed(n) {
+      return W.pinZoneSeed(n);
+    },
+    // 当前区域布局的摘要：种子、房间、连接、关键路径、怪群槽位、宝箱、首领场地、网格大小
+    layout() {
+      return W.layoutInfo();
+    },
+    // 传送到第 i 个房间的 core 中心（core 整块可走）
+    tpRoom(i) {
+      const P = G.player;
+      const rm = G.state.zone.rooms[i | 0];
+      if (!rm) return null;
+      P.x = rm.core.x;
+      P.z = rm.core.z;
+      P.cast = null;
+      P.roll.t = 0;
+      W.setEnt(P.ent, P.x, P.z, P.face);
+      return { x: P.x, z: P.z, kind: rm.kind };
     },
     summary() {
       const P = G.player;

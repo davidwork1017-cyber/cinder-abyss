@@ -9042,6 +9042,119 @@ async function main() {
     });
     assert(r.ok === false && r.level === 1 && r.zone === 'ash', JSON.stringify(r));
   });
+
+  // ------------------------------------------------------------------ 区域地形（网格 + 兼容层）
+  await step('区域地形：5 个区的网格判定和解析 zoneSd 逐点一致（各 5000 个点）', async () => {
+    const r = await ev(() => {
+      G.debug.hold(true);
+      const W = G.world, zs = W.terrain.zoneSd, out = [];
+      let seed = 4242;
+      const rnd = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+      const pads = [0, 0.5, 0.4, -0.4, 1, -0.3, 0.6];
+      for (let zi = 0; zi < G.ZONES.length; zi++) {
+        G.enterZone(zi, 0);
+        const zone = G.state.zone, b = zone.bounds;
+        let bad = 0, near = 0, maxErr = 0;
+        for (let i = 0; i < 5000; i++) {
+          const x = b.minX - 5 + rnd() * (b.maxX - b.minX + 10), z = b.minZ - 5 + rnd() * (b.maxZ - b.minZ + 10), pad = pads[i % pads.length];
+          const a = zs(zone, x, z);
+          if (a > -3.8 && a < 7.8) maxErr = Math.max(maxErr, Math.abs(W.sdAt(x, z) - a));
+          if (Math.abs(a - pad) < 0.03) near++;
+          else if (W.walkable(x, z, pad) !== a >= pad) bad++;
+        }
+        out.push({ id: zone.def.id, bad, near, maxErr: +maxErr.toFixed(3), band: +zone.map.band.toFixed(3), ms: +zone.map.ms.toFixed(1), haz: zone.map.hazAny, shot: zone.map.sdShot !== zone.map.sd });
+      }
+      G.enterZone(0, 0);
+      return out;
+    });
+    for (const z of r) {
+      assert(z.bad === 0, z.id + '：网格 walkable 和解析 zoneSd 判定不一致 ' + z.bad + ' 处：' + JSON.stringify(z));
+      assert(z.maxErr <= z.band, z.id + '：网格 sd 误差超过精修带宽：' + JSON.stringify(z));
+      assert(z.haz === 0 && !z.shot, z.id + '：legacy 布局不该有危险区 / 透弹挖空：' + JSON.stringify(z));
+    }
+    return r.map((z) => z.id + ' 误差 ' + z.maxErr + ' 光栅化 ' + z.ms + 'ms').join('，');
+  });
+
+  await step('区域地形：同一种子生成的布局说明哈希相同，固定种子进区布局不变', async () => {
+    const r = await ev(() => {
+      G.debug.hold(true);
+      const W = G.world, out = { same: true, diff: 0, ids: [] };
+      for (const def of G.ZONES) {
+        const a = W.genLayout(def.id, 20251118), b = W.genLayout(def.id, 20251118), c = W.genLayout(def.id, 20251119);
+        if (a.hash !== b.hash || W.specHash(a.spec) !== a.hash) out.same = false;
+        if (a.hash !== c.hash) out.diff++;
+        out.ids.push(def.id + ':' + a.hash);
+      }
+      G.debug.zoneSeed(777);
+      G.enterZone(1, 0);
+      const l1 = G.debug.layout();
+      G.enterZone(1, 0);
+      const l2 = G.debug.layout();
+      out.pinned = { seed: l1.seed, h1: l1.hash, h2: l2.hash, rooms: l1.rooms.length, path: l1.path.length, packs: l1.packs.length };
+      out.unpinned = G.debug.zoneSeed(null);
+      const tp = G.debug.tpRoom(2);
+      out.tp = !!tp && G.world.walkable(G.player.x, G.player.z, 1);
+      G.enterZone(0, 0);
+      out.seed0 = G.debug.layout().seed;
+      return out;
+    });
+    assert(r.same, '同一种子两次生成的哈希不同：' + JSON.stringify(r));
+    assert(r.diff === r.ids.length, '换了种子布局应当不同：' + JSON.stringify(r));
+    assert(r.pinned.seed === 777 && r.pinned.h1 === r.pinned.h2 && r.pinned.rooms === 11 && r.pinned.path === 11 && r.pinned.packs === 8, '固定种子进区两次布局应一样：' + JSON.stringify(r));
+    assert(r.unpinned === null && r.seed0 === null && r.tp, 'zoneSeed(null) 后应恢复随机布局，tpRoom 应落在房间里：' + JSON.stringify(r));
+    return r.ids.join(' ');
+  });
+
+  await step('区域地形：W.genLayout 对 5 个区 × 20 个种子都通过校验', async () => {
+    const r = await ev(() => {
+      const W = G.world, bad = [], t0 = performance.now();
+      let n = 0, slow = 0;
+      for (const def of G.ZONES) {
+        for (let s = 1; s <= 20; s++) {
+          const g = W.genLayout(def.id, s * 104729);
+          n++;
+          slow = Math.max(slow, g.ms);
+          if (!g.ok) bad.push(def.id + '#' + g.seed + '：' + g.why.join('；'));
+        }
+      }
+      return { n, bad, ms: Math.round(performance.now() - t0), slow: +slow.toFixed(1) };
+    });
+    assert(r.n === 100 && !r.bad.length, '有种子没通过校验：' + r.bad.slice(0, 5).join(' | '));
+    return r.n + ' 个布局，共 ' + r.ms + 'ms，最慢 ' + r.slow + 'ms';
+  });
+
+  await step('区域地形：W.shotFree 和投射物照样被测试插的假墙挡住', async () => {
+    await ev(() => T.lane());
+    const r = await ev(() => {
+      const P = G.player, W = G.world, S = G.state;
+      const ow = W.walkable, wallX = P.x + 3;
+      const out = { before: W.shotFree(wallX, P.z, -0.4) };
+      W.walkable = function (x, z, pad) { return Math.abs(x - wallX) < 0.5 ? false : ow.call(W, x, z, pad); };
+      try {
+        out.wall = W.shotFree(wallX, P.z, -0.4);
+        out.side = W.shotFree(wallX - 1.5, P.z, -0.4);
+        const n0 = S.projectiles.length;
+        G.spawnProjectile({ owner: 'p', x: P.x + 0.5, z: P.z, dx: 1, dz: 0, ctx: G.skillCtx('ember'), color: 0xff8a3c });
+        const p = S.projectiles[S.projectiles.length - 1];
+        out.spawned = S.projectiles.length === n0 + 1;
+        let maxX = -1e9, gone = false;
+        for (let i = 0; i < 60 && !gone; i++) {
+          G.tick(1 / 60);
+          if (S.projectiles.indexOf(p) < 0) gone = true;
+          else maxX = Math.max(maxX, p.x);
+        }
+        out.gone = gone;
+        out.crossed = maxX > wallX + 0.5;
+      } finally {
+        W.walkable = ow;
+      }
+      out.after = W.shotFree(wallX, P.z, -0.4);
+      return out;
+    });
+    assert(r.before && r.after, '撤掉假墙后应能通过：' + JSON.stringify(r));
+    assert(!r.wall && r.side, 'W.shotFree 应被假墙挡住、墙边照常通过：' + JSON.stringify(r));
+    assert(r.spawned && r.gone && !r.crossed, '投射物应在假墙前销毁：' + JSON.stringify(r));
+  });
 }
 
 main()
