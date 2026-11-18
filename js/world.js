@@ -2397,10 +2397,21 @@
     const i0 = Math.max(0, Math.ceil((box[0] - m - x0) / h)), i1 = Math.min(nx - 1, Math.floor((box[2] + m - x0) / h));
     const j0 = Math.max(0, Math.ceil((box[1] - m - z0) / h)), j1 = Math.min(nz - 1, Math.floor((box[3] + m - z0) / h));
     if (i1 < i0) return;
+    const circ = p.t === 'circle', R2 = circ ? (p.r + m) * (p.r + m) : 0;
     for (let j = j0; j <= j1; j++) {
-      const row = evalRow(p, x0, h, i0, i1, z0 + j * h);
-      let k = j * nx + i0;
-      for (let i = 0; i <= i1 - i0; i++, k++) {
+      let a = i0, b = i1;
+      if (circ) {
+        // 圆：离圆心超过 r + m 的格子取值 ≤ -m，盖了也不会变，只算这一行落在圆盘里的那一段（结果逐位相同）
+        const dz = z0 + j * h - p.z, w2 = R2 - dz * dz;
+        if (w2 <= 0) continue;
+        const w = Math.sqrt(w2);
+        a = Math.max(i0, Math.ceil((p.x - w - x0) / h));
+        b = Math.min(i1, Math.floor((p.x + w - x0) / h));
+        if (b < a) continue;
+      }
+      const row = evalRow(p, x0, h, a, b, z0 + j * h);
+      let k = j * nx + a;
+      for (let i = 0; i <= b - a; i++, k++) {
         const v = row[i];
         if (v > sd[k]) sd[k] = v > SD_HI ? SD_HI : v;
       }
