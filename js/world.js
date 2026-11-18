@@ -3558,14 +3558,22 @@
   const RIG_SKIN_PARS = '#ifdef SKIN4\nattribute vec4 aSkin;\nattribute vec4 aSkinW;\n#else\nattribute float aBone;\n#endif\nuniform mat4 uBones[ NB ];\n';
   const RIG_BONE = '#ifdef SKIN4\nmat4 boneM = uBones[ int( aSkin.x + 0.5 ) ] * aSkinW.x + uBones[ int( aSkin.y + 0.5 ) ] * aSkinW.y + uBones[ int( aSkin.z + 0.5 ) ] * aSkinW.z + uBones[ int( aSkin.w + 0.5 ) ] * aSkinW.w;\n#else\nmat4 boneM = uBones[ int( aBone + 0.5 ) ];\n#endif\n';
   const RIG_VERT_PARS = RIG_SKIN_PARS + 'attribute vec2 aSurf;\nvarying vec2 vSurf;\nvarying vec3 vBP;\n';
-  const RIG_FRAG_PARS = 'varying vec2 vSurf;\nvarying vec3 vBP;\nuniform vec3 uRim;\nuniform vec4 uDis;\n';
+  const RIG_FRAG_PARS = 'varying vec2 vSurf;\nvarying vec3 vBP;\nuniform vec3 uRim;\nuniform vec4 uDis;\nuniform float uChill;\n';
   const RIG_FRAG = [
     '#include <emissivemap_fragment>',
     'roughnessFactor = vSurf.x;',
     'metalnessFactor = vSurf.y;',
+    // 冰缓（uChill：0 / 三档，见 W.chill）：固有色按档位往冷青偏、亮度不变，明暗阶梯照常——受光面泛青、背光面发蓝；
+    // 冻结是整身罩一层冰色的自发光（applyIce），这里只动固有色和下面那道边缘光，两者一眼分得开
+    'if ( uChill > 0.0 ) {',
+    '  float chL = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );',
+    '  diffuseColor.rgb = mix( diffuseColor.rgb, chL * vec3( 0.45, 1.0, 2.0 ), uChill * 0.85 );',
+    '}',
     // 轮廓光：俯视镜头下把身形从地面上勾出来。uRim 是每个实体自己的（精英的金边、受击 / 选中时的变色），
     'float rigRim = 1.0 - saturate( dot( normal, normalize( vViewPosition ) ) );',
     'totalEmissiveRadiance += uRim * rigRim * rigRim * rigRim;',
+    // 冰缓：轮廓上一道硬边的冰青光（阶跃，不渐变），档位越高越宽越亮
+    'if ( uChill > 0.0 ) totalEmissiveRadiance += vec3( 0.3, 0.7, 1.0 ) * step( 0.62 - 0.14 * uChill, rigRim ) * ( 0.3 + 0.4 * uChill );',
     // 卡通轮廓光（TOON.rimK）：补光（第二盏方向光，在镜头对面）那一侧的边缘一条软阶梯的冷色光，另一侧只留很淡的一点——不是一圈描边
     '#if NUM_DIR_LIGHTS > 1',
     '{',
@@ -3586,6 +3594,7 @@
     sh.uniforms.uBones = ent.uBones;
     sh.uniforms.uRim = ent.uRim;
     sh.uniforms.uDis = ent.uDis;
+    sh.uniforms.uChill = ent.uChill;
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\n' + RIG_VERT_PARS)
       .replace('#include <beginnormal_vertex>', RIG_BONE + 'vec3 objectNormal = mat3( boneM ) * normal;')
@@ -3661,6 +3670,7 @@
       cK: 0, flashD: 0.09, flashK: 1, shT: 0, shDur: 0, shAmp: 0,
       elemC: new T.Color(elemHex), glowBase: glowI, glowK: 1, bodyMat: null, glowMat: null, depthMat: null,
       uBones: null, uRim: { value: new T.Color(0) }, uDis: { value: new T.Vector4(1, 1, 1, 0) },
+      uChill: { value: 0 }, chillB: 0, chillAcc: 0, // 冰缓的档位与霜屑的发射累积（见 W.chill）
     };
     ent.uBones = { value: ent.bones };
     ent.pose.set(rig.rest);
@@ -4131,6 +4141,28 @@
     if (on) applyIce(ent);
     else unflash(ent);
   };
+  // 冰缓：band 0（没有）/ 1 / 2 / 3（越高越冷），每帧调用。身上的冷青偏色和边缘光走材质里的 uChill（每个实体本来就有自己的材质，不新建材质）；
+  // 脚边冒几片往上飘的冰屑（共用卡通碎块的环形缓冲，不占新的 draw call），档位越高冒得越密，低画质少冒
+  const CHILL_K = [0, 0.55, 0.8, 1];
+  const CHILL_RATE = [0, 2.5, 4, 6], CHILL_RATE_LO = [0, 1, 1.5, 2.5];
+  W.chill = function (ent, band, dt, r) {
+    if (!ent || ent.removed || ent.dying) return;
+    const b = band > 0 ? Math.min(3, band | 0) : 0;
+    if (b !== ent.chillB) {
+      ent.chillB = b;
+      ent.uChill.value = CHILL_K[b];
+      ent.chillAcc = b ? 0.6 : 0; // 刚挨上冰：很快冒第一片
+    }
+    if (!b || !(dt > 0)) return;
+    const g = ent.group.position;
+    if (!W.inView(g.x, g.z)) return;
+    ent.chillAcc += dt * (qualId === 'low' ? CHILL_RATE_LO : CHILL_RATE)[b];
+    while (ent.chillAcc >= 1) {
+      ent.chillAcc -= 1;
+      const a = rand(0, TAU), d = (r || 0.5) * rand(0.6, 1.05);
+      tChunk(0, g.x + Math.sin(a) * d, rand(0.08, 0.3), g.z + Math.cos(a) * d, Math.sin(a) * 0.25, rand(0.9, 1.5), Math.cos(a) * 0.25, rand(0.42, 0.6), rand(0.13, 0.19) + b * 0.015, 0xeaf8ff, 0x6fc4ff, 0);
+    }
+  };
   W.setEntScale = function (ent, k) {
     if (ent.dying) return; // 尸体的消失由 W.die 接管
     ent.group.scale.setScalar(Math.max(0.001, k));
@@ -4186,6 +4218,7 @@
     else if (st) _c.set(st.edge);
     else _c.copy(ent.elemC);
     ent.uDis.value.set(_c.r, _c.g, _c.b, 0);
+    ent.uChill.value = ent.chillB = 0; // 冰缓的偏色不带进死法
     ent.timeScale = 1;
     ent.hitT = 0;
     if (ent.shT > 0) ent.shT = 1e-4;

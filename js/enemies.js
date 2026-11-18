@@ -536,7 +536,7 @@
       e.state = 'windup';
       e.stateT = def.windup;
       W.play(e.ent, 'windup', { dur: def.windup });
-      W.ring(e.x, e.z, e.r + 0.8, WARN_HEX, def.windup); // 起手提示
+      W.ring(e.x, e.z, e.r + 0.8, WARN_HEX, def.windup / (e.slowK || 1)); // 起手提示（冰缓时起手变慢，环跟着多亮一会儿）
       return;
     }
     if (dist > e.reach * 0.8) chase(e, P, spd, dt);
@@ -631,7 +631,7 @@
       e.stateT = def.windup;
       W.play(e.ent, 'windup', { dur: def.windup });
       const mo = W.entSocket(e.ent, 'weapon');
-      W.burst(mo.x, mo.y, mo.z, hexOf(e), 5, 1.6, def.windup); // 嘴边聚能
+      W.burst(mo.x, mo.y, mo.z, hexOf(e), 5, 1.6, def.windup / (e.slowK || 1)); // 嘴边聚能
       return;
     }
     if (dist > RANGED_HOLD || !e.navDirect || !seen) {
@@ -762,7 +762,7 @@
   }
   function aiBlink(e, dt, P, dist, spd) {
     const def = e.def, W = G.world, hex = hexOf(e);
-    if (e.blinkCd > 0) e.blinkCd -= dt * e.slowK;
+    if (e.blinkCd > 0) e.blinkCd -= dt; // dt 已是冰缓放慢后的时钟
     if (e.state === 'blink') {
       e.stateT -= dt;
       if (e.stateT > 0) return;
@@ -812,7 +812,7 @@
         e.blinkCd = G.rand(4.5, 6.5);
         e.vis = 0;
         W.play(e.ent, 'blink', { dur: BLINK_T });
-        W.ring(d.x, d.z, 1.3, hex, BLINK_T); // 落点预警
+        W.ring(d.x, d.z, 1.3, hex, BLINK_T / (e.slowK || 1)); // 落点预警（冰缓时闪身变慢，环跟着多亮一会儿）
         W.burst(e.x, 1.2, e.z, hex, 10, 3, 0.35);
         return;
       }
@@ -881,7 +881,7 @@
     }
     if (e.state === 'dash') {
       const pad = e.r * 0.8;
-      let remain = Math.min(e.dashLeft, CHARGE_SPEED * e.slowK * dt), wall = false;
+      let remain = Math.min(e.dashLeft, CHARGE_SPEED * dt), wall = false; // dt 已是冰缓放慢后的时钟
       e.dashLeft -= remain;
       while (remain > 1e-6) {
         const m = Math.min(0.35, remain);
@@ -925,7 +925,7 @@
       e.gore = true;
       e.stateT = GORE_T;
       W.play(e.ent, 'windup', { dur: GORE_T });
-      W.ring(e.x, e.z, e.r + 0.8, WARN_HEX, GORE_T);
+      W.ring(e.x, e.z, e.r + 0.8, WARN_HEX, GORE_T / (e.slowK || 1));
       return;
     }
     if (e.atkCd <= 0 && dist >= 3.2 && dist <= def.range && e.navDirect && W.inView(e.x, e.z)) {
@@ -1502,6 +1502,13 @@
 
   // ---------- 每帧更新 ----------
   const near = [], active = [];
+  // 冰缓的显示档位（W.chill）：0 没有；轻度冰缓按冰霜异常值分三档；首领的重度冰缓是最高档；冻着的交给冻结的冰色
+  function chillBand(e) {
+    if (e.freeze > 0 || !e.bu) return 0;
+    if (e.bossChill > 0) return 3;
+    const c = e.bu.cold;
+    return c > 0 ? (c < 0.34 ? 1 : c < 0.67 ? 2 : 3) : 0;
+  }
 
   G.updateEnemies = function (dt) {
     const S = G.state, P = G.player, W = G.world, list = S.enemies, zone = S.zone;
@@ -1586,8 +1593,11 @@
         updateNav(e, tg, dt);
         if (e.isBoss) updateBoss(e, dt, tg, td, spd);
         else {
-          if (e.atkCd > 0) e.atkCd -= dt * e.slowK; // 冰缓：出手间隔一起变长
-          MOB_AI[e.def.ai](e, dt, tg, td, spd);
+          // 冰缓：小怪的 AI 按它自己放慢了的时钟走——移动、出手间隔、起手 / 收招、冲锋一起变慢
+          // （移动 = 速度 × 这个时钟，所以传原速；预警圈在 G.updateTelegraphs 里按同一个倍率走，动作在下面按同一个倍率播）
+          const ldt = dt * e.slowK;
+          if (e.atkCd > 0) e.atkCd -= ldt;
+          MOB_AI[e.def.ai](e, ldt, tg, td, e.speed);
         }
       } else if (e.tauntT > 0) e.tauntT -= dt;
       e.moving = Math.hypot(e.x - ox, e.z - oz) > dt * 0.6;
@@ -1611,7 +1621,9 @@
         e.stunAnim = false;
         if (W.clipOf(e.ent) === 'stagger' && !(e.brokenT > 0)) W.stop(e.ent);
       }
-      if (!(e.freeze > 0)) W.animEnt(e.ent, dt, e.moving, S.time);
+      // 冰缓：动作跟着放慢（小怪和 AI 用同一个时钟，起手动作仍对得上出手；首领的招式按固定节奏和预警对齐，只在招式之外放慢）
+      if (!(e.freeze > 0)) W.animEnt(e.ent, dt, e.moving, S.time, e.isBoss && e.busy > 0 ? 1 : e.slowK);
+      W.chill(e.ent, chillBand(e), dt, e.r);
     }
   };
 

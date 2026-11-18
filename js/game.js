@@ -1654,7 +1654,15 @@
     if (e.bossBind > 0) e.bossBind -= dt;
     if (e.voidT > 0) e.voidT -= dt;
     // 冰缓 / 重度冰缓 / 首领的渊缚减速：取较大的那个，不相加
-    return Math.max(e.bu.cold * BU.chill, e.bossChill > 0 ? BU.bossSlow : 0, e.bossBind > 0 ? BU.bossBindSlow : 0);
+    return Math.max(G.chillSlow(e, e.bu.cold), e.bossChill > 0 ? BU.bossSlow : 0, e.bossBind > 0 ? BU.bossBindSlow : 0);
+  };
+  // 轻度冰缓的减速比例：冰霜异常值 frac（0..1）大于 0 就有保底，越满越慢（普通 / 精英 / 首领各有上下限，见 G.BUILDUP）
+  G.chillSlow = function (e, frac) {
+    if (!(frac > 0)) return 0;
+    const boss = e && e.isBoss, el = e && e.elite && !boss;
+    const lo = boss ? BU.chillMinBoss : el ? BU.chillMinElite : BU.chillMin;
+    const hi = boss ? BU.chillBoss : el ? BU.chillElite : BU.chill;
+    return lo + (hi - lo) * Math.pow(Math.min(1, frac), BU.chillPow);
   };
 
   // info（可选）：{ ang 这一击行进的方向（缺省 = 从玩家指向敌人）, w 分量（0 轻 / 1 重 / 2 终结；缺省取技能数据）,
@@ -2099,7 +2107,8 @@
       // 主人被冻结 / 眩晕时预警圈跟着停住，解控后接着走（首领免疫，不受影响）。
       // held 是 updateEnemies 本帧算出的「AI 没有运行」标记，和怪物自己的出手计时正好对齐
       if (t.owner && !t.owner.isBoss && t.owner.held && !t.friendly) continue;
-      t.t += dt;
+      // 冰缓：小怪的预警圈按它自己放慢了的时钟走（和它的起手计时、起手动作一致）；首领的招式按固定节奏，不放慢
+      t.t += t.owner && !t.owner.isBoss && !t.friendly && t.owner.slowK > 0 ? dt * t.owner.slowK : dt;
       if (t.t < t.dur) {
         t.handle.setProgress(t.dur > 0 ? t.t / t.dur : 1);
         continue;
