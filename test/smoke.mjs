@@ -10107,7 +10107,7 @@ async function main() {
     return '怪 ' + z.n + ' 只，雷枢 ' + r.node.warnAt + ' 秒起手，玩家 -' + r.node.playerHit + ' / 游魂 -' + r.node.huskHit;
   });
 
-  await step('区域 abyss 布局：20 个种子都通过校验 + 进区刷怪正常 + 首领门外重生；虚空不挡子弹；余烬口先预警再喷发，伤玩家也伤怪', async () => {
+  await step('区域 abyss 布局：20 个种子都通过校验 + 进区刷怪正常 + 首领门外重生；L 形深渊 7 个平台、4 座桥、3 个洞，怪物等级按路径比例；虚空不挡子弹；余烬口先预警再喷发，伤玩家也伤怪', async () => {
     const r = await ev(() => {
       G.debug.hold(true);
       const W = G.world, S = G.state, P = G.player, out = { bad: [] };
@@ -10128,7 +10128,14 @@ async function main() {
         boss: !!S.boss && W.inArena(S.boss.x, S.boss.z), lane: [-5, -2, 1, 4, 7].every((x) => W.walkable(x, 0, 0.6)),
         door: +(Math.hypot(z.bossDoor.x - z.bossPos.x, z.bossDoor.z - z.bossPos.z) - z.bossR).toFixed(3),
       };
-      // 虚空：深渊中间不可走，但子弹 / 视线能过（桥边往外 4 m）
+      // 加长后的布局（size-abyss）：关键路径 7 个平台、4 座桥（最后一座是场地的门）、3 个洞穴；房间等级按 W.terrain.lvFor 折算，首尾和改前一样（+0 → +2）
+      const plats = z.rooms.filter((r) => r.kind === 'room' && r.path);
+      out.zone.plats = plats.length;
+      out.zone.bridges = z.rooms.filter((r) => (r.tags || []).indexOf('bridge') >= 0).length;
+      out.zone.caves = z.rooms.filter((r) => r.kind === 'side').length;
+      out.zone.lvBad = z.rooms.filter((r) => r.path && r.lv !== W.terrain.lvFor(r.order, plats.length)).map((r) => r.id + ':' + r.order + '=' + r.lv)
+        .concat(z.rooms.filter((r) => !r.path && !(r.lv >= 0 && r.lv <= 2)).map((r) => r.id + ':' + r.lv));
+      out.zone.lvEnds = [plats[0].lv, z.rooms[z.arena.room].lv];
       const br = z.feats.find((f) => f.kind === 'bridge'), a = br.pts[0], b = br.pts[br.pts.length - 1];
       const mx = (a[0] + b[0]) / 2, mz = (a[1] + b[1]) / 2, l = Math.hypot(b[0] - a[0], b[1] - a[1]), nx = -(b[1] - a[1]) / l, nz = (b[0] - a[0]) / l;
       const vx = mx + nx * 5, vz = mz + nz * 5;
@@ -10176,14 +10183,16 @@ async function main() {
     });
     assert(!r.bad.length, 'abyss 有种子没通过校验：' + r.bad.slice(0, 3).join(' | '));
     const Z = r.zone;
-    assert(Z.gen === 'custom' && Z.shot && Z.chests === 2 && Z.vents >= 2, 'abyss 应走自己的生成器、有虚空挖空、2 个宝箱、至少 2 个余烬口：' + JSON.stringify(Z));
-    assert(Z.n >= 35 && Z.n <= 70 && Z.elites >= 1 && Z.elites <= 4 && Z.badPos === 0 && Z.boss, '进区刷怪不对：' + JSON.stringify(Z));
+    assert(Z.gen === 'custom' && Z.shot && Z.chests === 3 && Z.vents >= 4, 'abyss 应走自己的生成器、有虚空挖空、3 个宝箱、至少 4 个余烬口：' + JSON.stringify(Z));
+    assert(Z.plats === 7 && Z.bridges === 4 && Z.caves === 3, 'abyss 加长后应有 7 个平台、4 座桥、3 个洞穴：' + JSON.stringify(Z));
+    assert(!Z.lvBad.length && Z.lvEnds[0] === 0 && Z.lvEnds[1] === 2, '房间等级应按 lvFor(序号, 7) 折算、首尾 +0 / +2：' + JSON.stringify(Z));
+    assert(Z.n >= 56 && Z.n <= 112 && Z.elites >= 1 && Z.elites <= 6 && Z.badPos === 0 && Z.boss, '进区刷怪不对：' + JSON.stringify(Z));
     assert(Z.lane && Math.abs(Z.door - 2) < 0.01, '起点契约 / 首领门的位置不对：' + JSON.stringify(Z));
     assert(!r.void.walk && r.void.shot && r.void.mat, '虚空应不可走、子弹能飞过：' + JSON.stringify(r.void));
     assert(r.awake && r.dead && !r.respawn.dead && Math.abs(r.respawn.door - 2) < 0.01 && r.respawn.walk, '倒在首领战里应重生在门外：' + JSON.stringify(r));
     assert(r.hasVents && r.vent.tel === 1 && Math.abs(r.vent.r - 1.6) < 1e-6 && r.vent.dur > 0.5, '余烬口应先出一个预警圈：' + JSON.stringify(r.vent));
     assert(r.vent.left === 0 && r.vent.life < r.vent.life0 && r.vent.hp < r.vent.hp0, '余烬口喷发应伤到玩家和怪：' + JSON.stringify(r.vent));
-    return '怪 ' + Z.n + '（精英 ' + Z.elites + '），余烬口 ' + Z.vents + '，喷发打掉玩家 ' + (r.vent.life0 - r.vent.life).toFixed(0) + '、游魂 ' + (r.vent.hp0 - r.vent.hp).toFixed(0);
+    return '平台 ' + Z.plats + '，怪 ' + Z.n + '（精英 ' + Z.elites + '），余烬口 ' + Z.vents + '，喷发打掉玩家 ' + (r.vent.life0 - r.vent.life).toFixed(0) + '、游魂 ' + (r.vent.hp0 - r.vent.hp).toFixed(0);
   });
 
   await step('区域 rift 布局：20 个种子都通过校验 + 进区刷怪正常 + 首领门外重生（单向 C 形两圈、关键路径约 180 m、外圈内侧虚空挡人不挡子弹）', async () => {
