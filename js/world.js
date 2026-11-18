@@ -15976,6 +15976,8 @@
   // 卡通特效的写法：硬边色带、三档阶梯透明度、普通混合（「黑」不能用加色画）。核是近黑的 CH_CORE，外面一道品红 CH_RIM，
   // 最外一条亮芯 CH_HI（灰度约 87%，特效高光段）。全部预分配：黑洞圆盘最多 5 个，用完复用；漩涡和光点、火舌都画进实例缓冲；低画质少画零件
   const CH_CORE = 0x12061a, CH_RIM = 0xf03cb4, CH_HI = 0xffd2f2, CH_DARK = 0x3a0c46;
+  // 黑洞视界的细亮芯和透镜顶的亮点再亮一档（灰度约 95%）：高画质的调色会把 CH_HI 压到 84%，这两处要落在特效高光段 85–100%
+  const CH_PIN = 0xfff0fa;
   // 黑洞（第三轮改）：一个网格画两样东西，一次 draw call。
   //   地面圆盘（aPart = 0，半径 = 牵引半径）：近黑的核（uC 以内）→ 一道细亮芯 + 品红的视界边 → 外面三档递减的吸积带（0.3 / 0.18 / 0.09，
   //   暗紫垫底，品红的对数螺旋条往里卷），到伤害半径 uD 为止；牵引半径只描一圈品红虚线，中间是空的，圈里的怪看得清。
@@ -16076,6 +16078,7 @@
         h = chHoles[0];
       } else {
         const u = chUniforms({ uDark: { value: new T.Color(CH_DARK) }, uA: { value: 0 }, uSp: { value: 4 }, uC: { value: 0.2 }, uD: { value: 0.74 }, uH: { value: 0.6 } });
+        u.uHi.value.setHex(CH_PIN);
         const mat = new T.ShaderMaterial({ uniforms: u, vertexShader: HOLE_VERT, fragmentShader: HOLE_FRAG, transparent: true, depthWrite: false });
         const mesh = new T.Mesh(chHoleGeo(), mat);
         mesh.renderOrder = 3;
