@@ -6327,16 +6327,20 @@
   // ===== 区域地形：storm 结束 =====
 
   // ===== 区域地形：abyss（烬渊深处）—— zones-abyss 只改这一节 =====
-  // 布局（design.md §3.4）：一条深渊（VOID）顺着关键路径延伸，两岸是贴着深渊的崖路和鼓出来的平台，外侧是高崖壁（ROCK）。
-  // 生成时用局部坐标 (u, v)：u 顺着深渊，v 横过深渊。起点在 (0, 0)、在 A 岸（v 大的一侧），深渊的 A 岸边是 v = eA，B 岸边是 v = eB。
-  // 关键路径：起点 → 崖路 P0 → L1 → 桥 B1 → L2（B 岸）→ 崖路 P2 → L3 → 桥 B2 → L4（A 岸）→ 桥 B3 → 场地（悬在深渊里的圆台）。
-  // 旁支：两个凿进崖壁的洞穴（隧道 + 圆洞），一个放宝箱，一个放精英群（洞底也放一个宝箱）。
-  // 挖空：深渊每两座桥之间一段 rbox（端面和桥边齐平），沿岸撒一些小圆缺口让崖边不那么直；场地四周一圈 arc，桥两侧各一块多边形补齐。
+  // 布局（design.md §3.4，size-abyss 加长到约 1.6 倍）：一条深渊（VOID）顺着关键路径延伸、中途拐一个直角，两岸是贴着深渊的崖路和鼓出来的平台，外侧是高崖壁（ROCK）。
+  // 生成时用局部坐标 (u, v)。第一段深渊顺着 u：起点在 (0, 0)、在 A 岸（v 大的一侧），A 岸边是 v = eA，B 岸边是 v = eB；
+  // 到 u ≈ cL 朝 A 岸一侧拐弯，第二段深渊顺着 +v：A 岸（拐角的内侧）在 u < cL，B 岸（外侧）在 u > cR。
+  // 关键路径：起点 → 崖路 P0 → L1 → 桥 B1 → L2（B 岸）→ 崖路 P2 → L3 → 桥 B2 → L4（A 岸）→ 崖路 P4 → L5（拐角内侧）
+  //   → 桥 B3 → L6（第二段的 B 岸）→ 崖路 P6 → L7 → 桥 B4 → 场地（悬在深渊里的圆台）。
+  // 拐角内侧只放 L4、L5（路径序号相邻），第二段的 A 岸整段是崖壁：不相邻的平台隔着深渊离得太近，校验第 4 条（间距 ≥ 14 m）过不了。
+  // 旁支：三个凿进崖壁的洞穴（隧道 + 圆洞），一个放精英群（洞底也放一个宝箱），另外两个放宝箱。
+  // 挖空：深渊每两座桥之间一段 rbox（端面和桥边齐平），沿岸撒一些小圆缺口让崖边不那么直；场地四周一圈 rbox，桥两侧各一块补齐。
   // 平台、崖路都往深渊里多画一截，被挖空切掉以后崖边就是虚空边。最后整体按 90° 的倍数旋转、可能镜像（外接框不会变大）。
   const ABYSS = {
     hwPath: 3.25, over: 1, // 崖路图元半宽、伸进深渊被切掉的部分（路宽 5.5）
     hwBridge: 2.25, // 石桥宽 4.5
     arenaR: 14, // 场地半径
+    nPath: 7, // 关键路径上的平台数（不算起点和场地），怪物等级按它折算（W.terrain.lvFor）
     vent: { r: 1.6, period: 6, warn: 0.8, range: 14, dmg: 5, mobK: 0.12, eliteK: 0.06 }, // 余烬口：半径、周期、预警、玩家多近才运转、伤害（× dmgScale）、对怪按最大生命的比例
   };
   // 生成一次；自查不过（余烬口不够、平台太小、怪太少、洞穴碰到别的房间）时 ok = false，abyssGen 接着用同一个随机源重来
@@ -6354,24 +6358,35 @@
       const hu = (u1 - u0) / 2, hv = (v1 - v0) / 2, uc = (u0 + u1) / 2, vc = (v0 + v1) / 2;
       return { t: 'rbox', x: X(uc, vc), z: Z(uc, vc), hx: odd ? hv : hu, hz: odd ? hu : hv, ang: 0, round: 0 };
     };
-    const hwB = ABYSS.hwBridge, hwP = ABYSS.hwPath, over = ABYSS.over, AR = ABYSS.arenaR;
+    const hwB = ABYSS.hwBridge, hwP = ABYSS.hwPath, over = ABYSS.over, AR = ABYSS.arenaR, NP = ABYSS.nPath;
+    const lvOf = (o) => lvFor(o, NP);
 
-    // ---- 深渊三段：A 岸边 eA、宽 g（桥长 10–18）----
+    // ---- 第一段深渊三截：A 岸边 eA、宽 g（桥长 10–18）----
     const eA = [-8.05, -8.05 + rnd(-0.8, 0.8), -8.05 + rnd(-0.8, 0.8)];
-    const g = [rnd(11, 14.5), rnd(11, 15), rnd(11, 14.5)];
+    const g = [rnd(10.5, 14), rnd(10.5, 14.5), rnd(10.5, 14)];
     const eB = eA.map((a, i) => a - g[i]);
-    // ---- 关键路径上的尺寸 ----
-    const P0len = rnd(10, 14), P2len = rnd(27, 33), span3 = rnd(12, 15.5);
-    const Rl = [0, rnd(9.3, 10.4), rnd(8.8, 10), rnd(8.8, 10), rnd(9, 10.2)]; // L1..L4 的半径
+    // ---- 关键路径上的尺寸：P2 / P6 上要放鼓包、洞口和余烬口（23–27 m，和改前的 P2 差不多长）；P4 只放鼓包和一个余烬口，
+    // 但 L3 和 L5 要隔着深渊相距 ≥ 14 m，不能短于 16 m ----
+    const P0len = rnd(9, 12), P2len = rnd(23, 27), P4len = rnd(16.5, 19), P6len = rnd(23, 26.5), span3 = rnd(11, 14.5);
+    const Rl = [0, rnd(9.9, 10.9), rnd(9.5, 10.7), rnd(9.5, 10.7), rnd(9.5, 10.7), rnd(9.9, 10.9), rnd(9.5, 10.7), rnd(9.7, 10.9)]; // L1..L7 的半径
     const u1 = 8 + P0len + Rl[1] * 0.92, ub1 = u1 + rnd(-1.5, 1.5);
     const u2 = ub1 + rnd(-2, 2);
     const u3 = u2 + Rl[2] * 0.92 + P2len + Rl[3] * 0.92, ub2 = u3 + rnd(-1.5, 1.5);
     const u4 = ub2 + rnd(-2, 2);
+    const u5 = u4 + Rl[4] * 0.92 + P4len + Rl[5] * 0.92;
     const eA01 = Math.max(eA[0], eA[1]), eB01 = Math.min(eB[0], eB[1]), eA12 = Math.max(eA[1], eA[2]), eB12 = Math.min(eB[1], eB[2]);
     const v1 = eA01 + Rl[1] - 2, v2 = eB01 - Rl[2] + 2, v3 = eB[1] - Rl[3] + 2, v4 = eA12 + Rl[4] - 2;
-    const vB3 = eA[2] + hwB + 0.6; // B3 沿 A 岸往前，桥下是深渊第三段
-    const Ro = AR + span3; // 场地四周虚空环的外半径（桥 B3 的跨度 = span3）
-    const au = u4 + Rl[4] * 0.8 + Ro + 0.9, av = vB3;
+    // ---- 拐角：L5 在内角，离第一段的 A 岸边、第二段的 A 岸边（u = cL）都是 R − 2；第二段两截（B3 上下）各自的岸边 cL / cR ----
+    const v5 = eA[2] + Rl[5] - 2, cL0 = u5 + Rl[5] - 2;
+    const cL = [cL0 + rnd(0, 0.6), cL0 + rnd(0, 0.6)], cR = [cL[0] + rnd(11, 13.5), 0];
+    cR[1] = cL[1] + Math.max(10.5, Math.min(14, cR[0] - cL[1] + rnd(-0.8, 0.8)));
+    const cR01 = Math.max(cR[0], cR[1]);
+    const vb3 = Math.max(eA[2] + hwB + 2, v5 + rnd(-1.5, 1.5)); // 桥 B3 横过第二段（桥下面是拐角那一截，上面是第二截）
+    const u6 = cR01 + Rl[6] - 2, v6 = vb3 + rnd(-1, 2);
+    const v7 = v6 + Rl[6] * 0.92 + P6len + Rl[7] * 0.92, u7 = cR[1] + Rl[7] - 2;
+    const uP6 = cR[1] + hwP - over; // 第二段 B 岸的崖路 P6（B 岸在 +u 一侧）
+    const Ro = AR + span3; // 场地四周虚空环的外半径（桥 B4 的跨度 = span3）
+    const au = cR[1] + hwB + 0.6, av = v7 + Rl[7] * 0.8 + Ro + 0.9; // B4 沿 B 岸往 +v，桥下是深渊第二截的尽头
 
     const rooms = [], links = [], cuts = [], haz = [], feats = [], packs = [], chests = [];
     const addRoom = (o) => {
@@ -6381,14 +6396,16 @@
       return o;
     };
     // 平台：一个大圆 + 外侧两个小圆（凹凸的崖壁）+ 伸进深渊的「脚」（保证平台整条边都顶到深渊、被切成崖边）。
-    // 只用圆和 rbox：光栅化走快速路径（多边形每格要逐边算，四个平台就要 7 ms）
-    const plat = (u, v, rad, side, eEdge) => {
+    // 只用圆和 rbox：光栅化走快速路径（多边形每格要逐边算，四个平台就要 7 ms）。
+    // ax：外侧（崖壁）在哪根轴上（'v' 第一段、'u' 第二段），side：外侧的正负，eEdge：深渊边在这根轴上的坐标
+    const plat = (u, v, rad, side, eEdge, ax) => {
       const out = [C(u, v, rad)];
       for (let k = 0; k < 2; k++) {
         const a = (k ? 1 : -1) * rnd(0.35, 1.15), d = rad * rnd(0.42, 0.62), r = rad * rnd(0.48, 0.66);
-        out.push(C(u + Math.sin(a) * d, v + side * Math.cos(a) * d, r));
+        out.push(ax === 'u' ? C(u + side * Math.cos(a) * d, v + Math.sin(a) * d, r) : C(u + Math.sin(a) * d, v + side * Math.cos(a) * d, r));
       }
-      out.push(side > 0 ? RB(u - rad * 0.72, u + rad * 0.72, eEdge - 2, eEdge + 3.5) : RB(u - rad * 0.72, u + rad * 0.72, eEdge - 3.5, eEdge + 2));
+      const f0 = side > 0 ? eEdge - 2 : eEdge - 3.5, f1 = side > 0 ? eEdge + 3.5 : eEdge + 2, t = rad * 0.72;
+      out.push(ax === 'u' ? RB(f0, f1, v - t, v + t) : RB(u - t, u + t, f0, f1));
       return out;
     };
     const S = addRoom({ kind: 'start', order: 0, path: true, prims: [C(0, 0, 8)], core: { x: 0, z: 0, r: 8 } });
@@ -6396,41 +6413,91 @@
     const L2 = addRoom({ kind: 'room', order: 2, path: true, prims: plat(u2, v2, Rl[2], -1, eB01) });
     const L3 = addRoom({ kind: 'room', order: 3, path: true, prims: plat(u3, v3, Rl[3], -1, eB[1]) });
     const L4 = addRoom({ kind: 'room', order: 4, path: true, prims: plat(u4, v4, Rl[4], 1, eA12) });
-    const AREN = addRoom({ kind: 'arena', order: 5, path: true, prims: [C(au, av, AR)], core: { x: X(au, av), z: Z(au, av), r: AR }, tags: ['arena'] });
-    // 洞穴：一个挂在 L1 或 L4 的外侧（A 岸崖壁），一个挂在 P2 的外侧（B 岸崖壁）
+    // L5 在拐角内侧：外侧的两个小圆朝内角的对角线（-u, +v），两只脚分别伸进两段深渊
+    const L5p = [C(u5, v5, Rl[5])];
+    for (let k = 0; k < 2; k++) {
+      const a = Math.PI * 0.75 + (k ? 1 : -1) * rnd(0.35, 0.8), d = Rl[5] * rnd(0.42, 0.62), r = Rl[5] * rnd(0.48, 0.66);
+      L5p.push(C(u5 + Math.cos(a) * d, v5 + Math.sin(a) * d, r));
+    }
+    L5p.push(RB(u5 - Rl[5] * 0.72, u5 + Rl[5] * 0.72, eA[2] - 2, eA[2] + 3.5), RB(cL0 - 3.5, cL0 + 2, v5 - Rl[5] * 0.72, v5 + Rl[5] * 0.72));
+    const L5 = addRoom({ kind: 'room', order: 5, path: true, prims: L5p });
+    const L6 = addRoom({ kind: 'room', order: 6, path: true, prims: plat(u6, v6, Rl[6], 1, cR01, 'u') });
+    const L7 = addRoom({ kind: 'room', order: 7, path: true, prims: plat(u7, v7, Rl[7], 1, cR[1], 'u') });
+    const AREN = addRoom({ kind: 'arena', order: 8, path: true, prims: [C(au, av, AR)], core: { x: X(au, av), z: Z(au, av), r: AR }, tags: ['arena'] });
+    // 洞穴：一个挂在 L1 或 L4 的外侧（第一段 A 岸崖壁），一个挂在 P2 的外侧（第一段 B 岸崖壁），一个挂在 P6 的外侧（第二段 B 岸崖壁）
     const caveOnL4 = R() < 0.5;
     const pA = caveOnL4 ? { u: u4 + rnd(-4, -1.5), v: v4, r: Rl[4] } : { u: u1 + rnd(-2.5, 2.5), v: v1, r: Rl[1] };
-    const tlA = rnd(5, 7), rcA = rnd(5, 6);
+    const tlA = rnd(5, 7), rcA = rnd(5.5, 6.8);
     const tA0 = [pA.u, pA.v + pA.r * 0.55], tA1 = [pA.u, pA.v + pA.r + tlA];
     const cA = [pA.u + rnd(-1.5, 1.5), tA1[1] + rcA - 1.2];
-    const CVA = addRoom({ kind: 'side', order: (caveOnL4 ? 4 : 1) + 1, path: false, prims: [C(cA[0], cA[1], rcA)], core: { x: X(cA[0], cA[1]), z: Z(cA[0], cA[1]), r: rcA } });
+    const oA = caveOnL4 ? 4 : 1;
+    const CVA = addRoom({ kind: 'side', order: oA + 1, lv: lvOf(oA), path: false, prims: [C(cA[0], cA[1], rcA)], core: { x: X(cA[0], cA[1]), z: Z(cA[0], cA[1]), r: rcA } });
+    // 崖路上的洞口放在哪：在 [0.3, 0.7] 里挑洞穴离两头平台最远的位置（平台外侧的小圆会伸到和洞一样深，太靠近一头就碰上），
+    // 怪群鼓包放在洞口的另一边。at(t) → 洞穴圆心（局部坐标），rms：两头的平台
+    const caveT = (at, rc, rms) => {
+      let best = 0.5, bd = -1e9;
+      for (let t = 0.3; t < 0.701; t += 0.05) {
+        const c = at(t);
+        let d = 1e9;
+        for (let k = 0; k < 24; k++) {
+          const a = (k / 24) * TAU, x = X(c[0] + Math.sin(a) * (rc + 1.5), c[1] + Math.cos(a) * (rc + 1.5)), z = Z(c[0] + Math.sin(a) * (rc + 1.5), c[1] + Math.cos(a) * (rc + 1.5));
+          for (const rm2 of rms) for (const p of rm2.prims) d = Math.min(d, -primSd(p, x, z));
+        }
+        if (d > bd + 1e-9) {
+          bd = d;
+          best = t;
+        }
+      }
+      return best;
+    };
+    const bulgeT = (tc) => (tc < 0.5 ? Math.min(0.78, tc + rnd(0.3, 0.36)) : Math.max(0.22, tc - rnd(0.3, 0.36)));
     // P2 上：怪群鼓包和洞穴口一前一后
     const p2a = u2 + Rl[2] * 0.6, p2b = u3 - Rl[3] * 0.6, vP2 = eB[1] - hwP + over;
     const p2u = (t) => u2 + Rl[2] * 0.92 + P2len * t; // P2 露在两个平台之外那一段，按比例取 u
-    const bulgeFirst = R() < 0.5;
-    const tBul = bulgeFirst ? rnd(0.28, 0.36) : rnd(0.64, 0.72), tCav = bulgeFirst ? rnd(0.6, 0.68) : rnd(0.32, 0.4);
+    const tlB = rnd(5, 7), rcB = rnd(5.5, 6.8), jB = rnd(-1.5, 1.5);
+    const tCav = caveT((t) => [p2u(t) + jB, eB[1] - 5.5 - tlB - rcB + 1.2], rcB, [L2, L3]), tBul = bulgeT(tCav);
     const ubu = p2u(tBul), ucv = p2u(tCav);
-    const tlB = rnd(5, 7), rcB = rnd(5, 6);
     const tB0 = [ucv, vP2 - 1], tB1 = [ucv, eB[1] - 5.5 - tlB];
-    const cB = [ucv + rnd(-1.5, 1.5), tB1[1] - rcB + 1.2];
-    const CVB = addRoom({ kind: 'side', order: 3, path: false, prims: [C(cB[0], cB[1], rcB)], core: { x: X(cB[0], cB[1]), z: Z(cB[0], cB[1]), r: rcB } });
+    const cB = [ucv + jB, tB1[1] - rcB + 1.2];
+    const CVB = addRoom({ kind: 'side', order: 3, lv: lvOf(2), path: false, prims: [C(cB[0], cB[1], rcB)], core: { x: X(cB[0], cB[1]), z: Z(cB[0], cB[1]), r: rcB } });
+    // P6 上：同样一个鼓包、一个洞口（往 +u 凿进第二段 B 岸的崖壁）
+    const p6a = v6 + Rl[6] * 0.6, p6b = v7 - Rl[7] * 0.6;
+    const p6v = (t) => v6 + Rl[6] * 0.92 + P6len * t;
+    const tlC = rnd(5, 7), rcC = rnd(5.5, 6.8), jC = rnd(-1.5, 1.5);
+    const tCav6 = caveT((t) => [cR[1] + 5.5 + tlC + rcC - 1.2, p6v(t) + jC], rcC, [L6, L7]), tBul6 = bulgeT(tCav6);
+    const vbu6 = p6v(tBul6), vcv6 = p6v(tCav6);
+    const tC0 = [uP6 + 1, vcv6], tC1 = [cR[1] + 5.5 + tlC, vcv6];
+    const cC = [tC1[0] + rcC - 1.2, vcv6 + jC];
+    const CVC = addRoom({ kind: 'side', order: 7, lv: lvOf(6), path: false, prims: [C(cC[0], cC[1], rcC)], core: { x: X(cC[0], cC[1]), z: Z(cC[0], cC[1]), r: rcC } });
     // 崖路和桥（通道房间：axis + ends，寻路沿中线走）
     const P0a = [3, eA[0] + hwP - over], P0b = [u1 - Rl[1] * 0.5, eA[0] + hwP - over];
     const P0 = addRoom({ kind: 'link', order: 0, path: true, prims: [CAP(P0a[0], P0a[1], P0b[0], P0b[1], hwP)], axis: [P0a, P0b].map(P2W), ends: [S.id, L1.id] });
     const B1a = [ub1, eA01 + 2], B1b = [ub1, eB01 - 2];
     const B1 = addRoom({ kind: 'link', order: 1, path: true, prims: [CAP(B1a[0], B1a[1], B1b[0], B1b[1], hwB)], axis: [B1a, B1b].map(P2W), ends: [L1.id, L2.id], tags: ['bridge'] });
-    const hb = 4.7, bw = 3.6; // 鼓包：往崖壁一侧多出来的宽度（路宽 5.5 → 约 8）、半长
+    const hb = 5.2, bw = 3.9; // 鼓包：往崖壁一侧多出来的宽度（路宽 5.5 → 约 8.5）、半长
     const P2prims = [CAP(p2a, vP2, p2b, vP2, hwP), RB(ubu - bw, ubu + bw, vP2 - hb, vP2)];
     P2prims[1].round = 1.4;
     const P2 = addRoom({ kind: 'link', order: 2, path: true, prims: P2prims, axis: [[p2a, vP2], [p2b, vP2]].map(P2W), ends: [L2.id, L3.id] });
     const B2a = [ub2, eB12 - 2], B2b = [ub2, eA12 + 2];
     const B2 = addRoom({ kind: 'link', order: 3, path: true, prims: [CAP(B2a[0], B2a[1], B2b[0], B2b[1], hwB)], axis: [B2a, B2b].map(P2W), ends: [L3.id, L4.id], tags: ['bridge'] });
-    const B3a = [au - Ro - 3, vB3], B3b = [au - AR + 1.5, vB3];
-    const B3 = addRoom({ kind: 'link', order: 4, path: true, prims: [CAP(B3a[0], B3a[1], B3b[0], B3b[1], hwB)], axis: [B3a, B3b].map(P2W), ends: [L4.id, AREN.id], tags: ['bridge'] });
-    const TA = addRoom({ kind: 'link', order: CVA.order, path: false, prims: [CAP(tA0[0], tA0[1], tA1[0], tA1[1], 2.25)], axis: [tA0, tA1].map(P2W), ends: [caveOnL4 ? L4.id : L1.id, CVA.id] });
-    const TB = addRoom({ kind: 'link', order: 3, path: false, prims: [CAP(tB0[0], tB0[1], tB1[0], tB1[1], 2.25)], axis: [tB0, tB1].map(P2W), ends: [P2.id, CVB.id] });
+    // P4：第一段 A 岸、拐角前的崖路，中间一个往崖壁鼓出去的怪群鼓包
+    const p4a = u4 + Rl[4] * 0.6, p4b = u5 - Rl[5] * 0.6, vP4 = eA[2] + hwP - over;
+    const ubu4 = u4 + Rl[4] * 0.92 + P4len * rnd(0.38, 0.62);
+    const P4prims = [CAP(p4a, vP4, p4b, vP4, hwP), RB(ubu4 - bw, ubu4 + bw, vP4, vP4 + hb)];
+    P4prims[1].round = 1.4;
+    const P4 = addRoom({ kind: 'link', order: 4, path: true, prims: P4prims, axis: [[p4a, vP4], [p4b, vP4]].map(P2W), ends: [L4.id, L5.id] });
+    const B3a = [cL0 - 2, vb3], B3b = [cR01 + 2, vb3];
+    const B3 = addRoom({ kind: 'link', order: 5, path: true, prims: [CAP(B3a[0], B3a[1], B3b[0], B3b[1], hwB)], axis: [B3a, B3b].map(P2W), ends: [L5.id, L6.id], tags: ['bridge'] });
+    const P6prims = [CAP(uP6, p6a, uP6, p6b, hwP), RB(uP6, uP6 + hb, vbu6 - bw, vbu6 + bw)];
+    P6prims[1].round = 1.4;
+    const P6 = addRoom({ kind: 'link', order: 6, path: true, prims: P6prims, axis: [[uP6, p6a], [uP6, p6b]].map(P2W), ends: [L6.id, L7.id] });
+    const B4a = [au, av - Ro - 3], B4b = [au, av - AR + 1.5];
+    const B4 = addRoom({ kind: 'link', order: 7, path: true, prims: [CAP(B4a[0], B4a[1], B4b[0], B4b[1], hwB)], axis: [B4a, B4b].map(P2W), ends: [L7.id, AREN.id], tags: ['bridge'] });
+    const TA = addRoom({ kind: 'link', order: CVA.order, lv: CVA.lv, path: false, prims: [CAP(tA0[0], tA0[1], tA1[0], tA1[1], 2.25)], axis: [tA0, tA1].map(P2W), ends: [caveOnL4 ? L4.id : L1.id, CVA.id] });
+    const TB = addRoom({ kind: 'link', order: 3, lv: CVB.lv, path: false, prims: [CAP(tB0[0], tB0[1], tB1[0], tB1[1], 2.25)], axis: [tB0, tB1].map(P2W), ends: [P2.id, CVB.id] });
+    const TC = addRoom({ kind: 'link', order: 7, lv: CVC.lv, path: false, prims: [CAP(tC0[0], tC0[1], tC1[0], tC1[1], 2.25)], axis: [tC0, tC1].map(P2W), ends: [P6.id, CVC.id] });
 
-    // ---- 挖空：深渊三段 + 场地的虚空环 + 桥两侧 ----
+    // ---- 挖空：深渊五截（第一段三截、第二段两截）+ 场地的虚空环 + 桥两侧 ----
     const V = MAT.VOID, voidGroups = [];
     // 虚空挖空：同时记进「虚空房间」的分组（见下面 voidGroups 的说明）
     const vcut = (prim, grp) => {
@@ -6441,13 +6508,15 @@
     };
     vcut(RB(-14, ub1 - hwB, eB[0], eA[0]));
     vcut(RB(ub1 + hwB, ub2 - hwB, eB[1], eA[1]));
-    vcut(RB(ub2 + hwB, au - AR - 0.15, eB[2], eA[2]));
+    vcut(RB(ub2 + hwB, cR[0], eB[2], eA[2])); // 一直挖到拐角外侧，和第二段的第一截拼成直角
+    vcut(RB(cL[0], cR[0], eB[2], vb3 - hwB));
+    vcut(RB(cL[1], cR[1], vb3 + hwB, av - AR - 0.15));
     // 场地四周的虚空环：正八边形的七条边各一块 rbox（内边贴着场地圆周外 0.05，角上的缝最宽约 1.2 m），
     // 角上的缝用小圆补到 ≤ 0.35 m（这条细缝在材质网格里也算虚空，子弹照样飞过）；朝桥的那条边不要，
     // 换成桥两侧各一块贴着桥边的 rbox，靠近场地边的楔形缝再用几个贴着场地圆周的小圆补上。
     // 全是 rbox 和圆：arc 每格要 atan2，一圈要 10 ms；一圈圆因为每个都要按 8 m 的影响范围盖章，也要 7 ms
-    const ring = (ang, r, k) => [au - Math.cos(ang) * r, av + Math.sin(ang) * r * k]; // ang 从桥的方向（-u）量起
-    const ca = X(au, av), cz = Z(au, av), bwx = X(-1, 0) - X(0, 0), bwz = Z(-1, 0) - Z(0, 0), ga = Math.atan2(bwx, bwz); // 世界坐标里朝桥的角度
+    const ring = (ang, r, k) => [au + Math.sin(ang) * r * k, av - Math.cos(ang) * r]; // ang 从桥的方向（-v）量起
+    const ca = X(au, av), cz = Z(au, av), bwx = X(0, -1) - X(0, 0), bwz = Z(0, -1) - Z(0, 0), ga = Math.atan2(bwx, bwz); // 世界坐标里朝桥的角度
     const Wr = 10, hl = (AR + 0.05 + Wr) * Math.tan(Math.PI / 8) + 0.3; // 外边也要和相邻的边接上，不留岩石尖角
     for (let k = 1; k < 8; k++) {
       const a = ga + (k * Math.PI) / 4, d = AR + 0.05 + Wr / 2;
@@ -6458,34 +6527,41 @@
       }
     }
     for (const s of [1, -1]) {
-      vcut(s > 0 ? RB(au - Ro - 1, au - AR - 0.1, av + hwB, av + hwB + Ro * 0.5) : RB(au - Ro - 1, au - AR - 0.1, av - hwB - Ro * 0.5, av - hwB));
+      vcut(s > 0 ? RB(au + hwB, au + hwB + Ro * 0.5, av - Ro - 1, av - AR - 0.1) : RB(au - hwB - Ro * 0.5, au - hwB, av - Ro - 1, av - AR - 0.1));
       const grp = voidGroups[voidGroups.length - 1];
       // 贴着场地圆周的小圆（φ 是切点的角度，半径 r 让它离桥边 ≥ 0.15）
       for (const [phi, r] of [[0.28, 2], [0.42, 3], [0.55, 3.4]]) {
         const p = ring(phi, AR + r + 0.02, s);
-        if (Math.abs(p[1] - av) - r >= hwB + 0.15) vcut(C(p[0], p[1], r), grp);
+        if (Math.abs(p[0] - au) - r >= hwB + 0.15) vcut(C(p[0], p[1], r), grp);
       }
     }
     // 「虚空房间」voidGroups：和上面这些挖空同样的图元，排在所有房间最后。区域外面是岩壁，挡子弹的 sd（sdShot）只是不算虚空挖空的房间 sd，
     // 深渊中间如果不在任何房间里，子弹照样被挡；有了它们，深渊和场地四周的虚空里 sdShot > 0，子弹 / 视线飞得过去，可走的 sd 还是被挖空切掉。
     // 分成十来个小房间（每段深渊、八边形的每条边各一个）：房间号网格按每个房间的外接框逐格算它的全部图元，合成一个大房间要 20 ms
-    // 崖边的小缺口：只咬路宽的一小截（崖路最窄处 ≥ 4.3 m），离桥 / 门口 / 起点远一点
-    const bridgesU = [ub1, ub2];
-    const bite = (u, e, side, deep) => {
-      const r = rnd(2, 3.2);
-      return { prim: C(u, e + side * (deep - r), r), mat: V };
+    // 崖边的小缺口：只咬路宽的一小截（崖路最窄处 ≥ 4.3 m），离桥 / 门口 / 起点远一点。
+    // 每截深渊两岸各撒一串：[顺着哪根轴, 起, 止, 岸边坐标, 陆地在哪一侧, 这一串是不是崖路]
+    const bite = (a, e, side, deep, ax) => {
+      const r = rnd(2, 3.2), c = e + side * (deep - r);
+      return { prim: ax === 'u' ? C(a, c, r) : C(c, a, r), mat: V };
     };
-    for (let seg = 0; seg < 3; seg++) {
-      const u0 = seg === 0 ? -10 : bridgesU[seg - 1] + hwB + 4, uEnd = seg === 0 ? ub1 - hwB - 4 : seg === 1 ? ub2 - hwB - 4 : au - Ro - 4;
-      for (const side of [1, -1]) {
-        let u = u0 + rnd(2, 6);
-        while (u < uEnd) {
-          const e = side > 0 ? eA[seg] : eB[seg];
-          const onPath = (seg === 0 && side > 0 && u > 4 && u < P0b[0]) || (seg === 1 && side < 0 && u > p2a && u < p2b);
-          const nearStart = Math.hypot(u, e) < 14;
-          if (!nearStart && !(seg === 2 && side > 0)) cuts.push(bite(u, e, side, onPath ? rnd(0.5, 1.1) : rnd(0.8, 1.9)));
-          u += rnd(10, 16);
-        }
+    const biteRuns = [
+      ['u', -10, ub1 - hwB - 4, eA[0], 1, [4, P0b[0]]],
+      ['u', -10, ub1 - hwB - 4, eB[0], -1, null],
+      ['u', ub1 + hwB + 4, ub2 - hwB - 4, eA[1], 1, null],
+      ['u', ub1 + hwB + 4, ub2 - hwB - 4, eB[1], -1, [p2a, p2b]],
+      ['u', ub2 + hwB + 4, cL[0] - 4, eA[2], 1, [p4a, p4b]],
+      ['u', ub2 + hwB + 4, cR[0] - 2, eB[2], -1, null],
+      ['v', eB[2] + 2, vb3 - hwB - 4, cR[0], 1, null],
+      ['v', vb3 + hwB + 4, av - Ro - 4, cL[1], -1, null],
+      ['v', vb3 + hwB + 4, av - Ro - 4, cR[1], 1, [p6a, p6b]],
+    ];
+    for (const [ax, a0, aEnd, e, side, path] of biteRuns) {
+      let a = a0 + rnd(2, 6);
+      while (a < aEnd) {
+        const onPath = path && a > path[0] && a < path[1];
+        const nearStart = ax === 'u' && Math.hypot(a, e) < 14;
+        if (!nearStart) cuts.push(bite(a, e, side, onPath ? rnd(0.5, 1.1) : rnd(0.8, 1.9), ax));
+        a += rnd(10, 16);
       }
     }
 
@@ -6524,8 +6600,9 @@
       for (const p of rm2.prims) d = Math.max(d, primSd(p, x, z));
       return d;
     };
+    const PL = [L1, L2, L3, L4, L5, L6, L7];
     // 平台的 core：房间里离边（含挖空）最远的点
-    for (const L of [L1, L2, L3, L4]) {
+    for (const L of PL) {
       const bx = L.prims.map(primBox).reduce((a, b) => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])]);
       const cutClear = clearOf(near(bx, cuts, (c) => c.prim));
       L.clear = cutClear; // 怪群面积也用（生成完删掉，不进 spec）
@@ -6546,9 +6623,9 @@
       L.core = { x: best.x, z: best.z, r: Math.max(0.5, best.r - 0.05) };
     }
     const mid = (A) => ({ x: (A[0][0] + A[A.length - 1][0]) / 2, z: (A[0][1] + A[A.length - 1][1]) / 2 });
-    for (const L of [P0, B1, P2, B2, B3, TA, TB]) {
+    for (const L of [P0, B1, P2, B2, P4, B3, P6, B4, TA, TB, TC]) {
       const m = mid(L.axis);
-      L.core = { x: m.x, z: m.z, r: L === P2 || L === P0 ? hwP - over : hwB };
+      L.core = { x: m.x, z: m.z, r: L === P0 || L === P2 || L === P4 || L === P6 ? hwP - over : hwB };
     }
     // 门：从 a（在 rA 里）沿直线走到 b，rA 的 sd 过 0 的地方
     const edgeOn = (rmA, a, b) => {
@@ -6571,33 +6648,51 @@
     link(P2, L3, edgeOn(L3, [u3, vP2], [u3 - 25, vP2]), 'neck');
     link(L3, B2, { x: X(ub2, eB12), z: Z(ub2, eB12) }, 'bridge');
     link(B2, L4, { x: X(ub2, eA12), z: Z(ub2, eA12) }, 'bridge');
-    link(L4, B3, { x: X(au - Ro, av), z: Z(au - Ro, av) }, 'bridge');
-    link(B3, AREN, { x: X(au - AR, av), z: Z(au - AR, av) }, 'bridge');
+    link(L4, P4, edgeOn(L4, [u4, vP4], [u4 + 25, vP4]), 'neck');
+    link(P4, L5, edgeOn(L5, [u5, vP4], [u5 - 25, vP4]), 'neck');
+    link(L5, B3, { x: X(cL0, vb3), z: Z(cL0, vb3) }, 'bridge');
+    link(B3, L6, { x: X(cR01, vb3), z: Z(cR01, vb3) }, 'bridge');
+    link(L6, P6, edgeOn(L6, [uP6, v6], [uP6, v6 + 25]), 'neck');
+    link(P6, L7, edgeOn(L7, [uP6, v7], [uP6, v7 - 25]), 'neck');
+    link(L7, B4, { x: X(au, av - Ro), z: Z(au, av - Ro) }, 'bridge');
+    link(B4, AREN, { x: X(au, av - AR), z: Z(au, av - AR) }, 'bridge');
     link(caveOnL4 ? L4 : L1, TA, edgeOn(caveOnL4 ? L4 : L1, [pA.u, pA.v], tA1), 'door');
     link(TA, CVA, edgeOn(CVA, cA, tA0), 'door');
     link(P2, TB, { x: X(ucv, eB[1] - 5.5), z: Z(ucv, eB[1] - 5.5) }, 'door');
     link(TB, CVB, edgeOn(CVB, cB, tB0), 'door');
+    link(P6, TC, { x: X(cR[1] + 5.5, vcv6), z: Z(cR[1] + 5.5, vcv6) }, 'door');
+    link(TC, CVC, edgeOn(CVC, cC, tC0), 'door');
     const doors = links.map((L) => L.door);
 
-    // ---- 余烬口：P2 上两个（避开鼓包和洞口），P0 够长时再放一个；偏向崖壁一侧 1 m，靠深渊一侧留出过路的宽度 ----
+    // ---- 余烬口：P2 上两个（避开鼓包和洞口），P4、P6 上各一个，P0 够长时再放一个；偏向崖壁一侧 1 m，靠深渊一侧留出过路的宽度 ----
     const vents = [];
     const ventAt = (u, v) => {
       const x = X(u, v), z = Z(u, v);
       if (Math.hypot(x, z) < 16 || doors.some((d) => Math.hypot(d.x - x, d.z - z) < 5) || sdAll(x, z) < 1.4) return false;
+      if (vents.some((q) => Math.hypot(q.x - x, q.z - z) < 6)) return false;
       vents.push({ kind: 'vent', x, z, r: ABYSS.vent.r, ph: rnd(0, ABYSS.vent.period) });
       return true;
     };
-    const vv = vP2 - 1;
-    // P2 上随机找两处：离洞口、两头的门够远，两个余烬口之间至少 6 m（可以挨着怪群鼓包：怪站在口边上，正好能引过去烧）
-    for (let k = 0; k < 40 && vents.length < 2; k++) {
-      const u = rnd(p2a, p2b);
-      if (Math.abs(u - ubu) < 1.5 || Math.abs(u - ucv) < 4.6 || vents.some((v) => Math.hypot(v.x - X(u, vv), v.z - Z(u, vv)) < 6)) continue;
-      ventAt(u, vv);
+    // 每条崖路随机找几处：离洞口、两头的门够远，两个余烬口之间至少 6 m（可以挨着怪群鼓包：怪站在口边上，正好能引过去烧）
+    // [起, 止, 崖路中线往崖壁偏 1 m 的点, 鼓包, 洞口, 要几个]
+    const ventRuns = [
+      [p2a, p2b, (t) => [t, vP2 - 1], ubu, ucv, 2],
+      [p4a, p4b, (t) => [t, vP4 + 1], ubu4, null, 1],
+      [p6a, p6b, (t) => [uP6 + 1, t], vbu6, vcv6, 1],
+    ];
+    for (const [a0, a1, at, bul, cav, want] of ventRuns) {
+      const n0 = vents.length;
+      for (let k = 0; k < 40 && vents.length - n0 < want; k++) {
+        const t = rnd(a0, a1);
+        if (Math.abs(t - bul) < 1.5 || (cav !== null && Math.abs(t - cav) < 4.6)) continue;
+        const p = at(t);
+        ventAt(p[0], p[1]);
+      }
     }
     if (P0len >= 12.5) ventAt(3 + P0len, eA[0] + hwP - over + 1);
     feats.push(...vents);
 
-    // ---- 怪群：平台按面积 2–3 群，P2 的鼓包一小群，精英洞一群（精英）----
+    // ---- 怪群：平台按面积 2–3 群，P2 / P4 / P6 的鼓包各一小群，精英洞一群（精英）----
     const okPack = (x, z, list, minSd) =>
       sdAll(x, z) >= minSd && Math.hypot(x, z) >= 13 && doors.every((d) => Math.hypot(d.x - x, d.z - z) >= 5.5) &&
       vents.every((v) => Math.hypot(v.x - x, v.z - z) >= 4.5) && list.every((p) => Math.hypot(p.x - x, p.z - z) >= 6);
@@ -6613,23 +6708,26 @@
       return { got, area };
     };
     const elitePlat = [];
-    for (const L of [L1, L2, L3, L4]) {
+    for (const L of PL) {
       const { got } = platPacks(L);
       const el = R() < 0.45;
       got.forEach((p, i) => packs.push({ room: L.id, x: p.x, z: p.z, n: [4, 6], r: 2.8, elite: el && i === 0, ambush: false }));
       if (el && got.length) elitePlat.push(packs.length - got.length);
     }
-    // 精英上限 4（4 个平台都掷中时，最后一个让给精英洞）
-    while (elitePlat.length > 3) packs[elitePlat.pop()].elite = false;
-    for (const du of [0, -1.6, 1.6, -2.6, 2.6]) {
-      const x = X(ubu + du, vP2 - 1.2), z = Z(ubu + du, vP2 - 1.2);
-      if (okPack(x, z, packs, 2.6)) {
-        packs.push({ room: P2.id, x, z, n: [2, 3], r: 2.2, elite: false, ambush: false, noBrute: true }); // 崖路宽 5–6 m，不放蛮兵（zones-integrate）
-        break;
+    // 关键路径上的精英最多 5 个（再加精英洞，全区 ≤ 6）：多掷中的从后往前取消
+    while (elitePlat.length > 5) packs[elitePlat.pop()].elite = false;
+    // 鼓包上的小群：沿崖路前后挪一点找个合规的位置
+    for (const [P, at] of [[P2, (d) => [ubu + d, vP2 - 1.2]], [P4, (d) => [ubu4 + d, vP4 + 1.2]], [P6, (d) => [uP6 + 1.2, vbu6 + d]]]) {
+      for (const du of [0, -1.6, 1.6, -2.6, 2.6]) {
+        const p = at(du), x = X(p[0], p[1]), z = Z(p[0], p[1]);
+        if (okPack(x, z, packs, 2.6)) {
+          packs.push({ room: P.id, x, z, n: [2, 3], r: 2.2, elite: false, ambush: false, noBrute: true }); // 崖路宽 5–6 m，不放蛮兵（zones-integrate）
+          break;
+        }
       }
     }
-    // 旁支：哪个洞放宝箱、哪个放精英群
-    const eliteA = R() < 0.5;
+    // 旁支：三个洞里随机一个放精英群，其余放宝箱
+    const eliteCave = Math.floor(R() * 3);
     const caveStuff = (cv, c, t0, elite) => {
       // 洞底：从洞口往里的方向
       const du = c[0] - t0[0], dv = c[1] - t0[1], dl = Math.hypot(du, dv) || 1, nu = du / dl, nvv = dv / dl;
@@ -6641,56 +6739,80 @@
       } else cv.tags.push('chest');
       chests.push({ x: X(back[0], back[1]), z: Z(back[0], back[1]), room: cv.id, ang });
     };
-    caveStuff(CVA, cA, tA0, eliteA);
-    caveStuff(CVB, cB, tB0, !eliteA);
-    // 全区怪数（按每群平均）收进 51–65（实际刷出来平均少 2 只左右，落在 45–65、和 legacy 的平均 61 只差不多）：多了就把平台上的第三群改小，少了就把平台的群改大
+    caveStuff(CVA, cA, tA0, eliteCave === 0);
+    caveStuff(CVB, cB, tB0, eliteCave === 1);
+    caveStuff(CVC, cC, tC0, eliteCave === 2);
+    // 全区怪数（按每群平均）收进 82–104（改前 51–65 的 1.6 倍，跟着怪群数一起放大；每群几只归 zones-balance）：多了就把平台上的第三群改小，少了就把平台的群改大
     const avgN = () => packs.reduce((s2, p) => s2 + (p.n[0] + p.n[1]) / 2, 0);
     for (const p of packs.filter((q) => q.n[1] === 6 && !q.elite).reverse()) {
-      if (avgN() <= 65) break;
+      if (avgN() <= 104) break;
       p.n = [3, 4];
     }
     for (const p of packs.filter((q) => q.n[1] === 6)) {
-      if (avgN() >= 51) break;
+      if (avgN() >= 82) break;
       p.n = [5, 6];
     }
 
     // ---- 地标 / 外观锚点 ----
-    for (const B of [B1, B2, B3]) feats.push({ kind: 'bridge', pts: B.axis.map((p) => p.slice()), w: hwB * 2, room: B.id });
+    for (const B of [B1, B2, B3, B4]) feats.push({ kind: 'bridge', pts: B.axis.map((p) => p.slice()), w: hwB * 2, room: B.id });
     feats.push({ kind: 'altar', x: X(au, av), z: Z(au, av), r: AR });
-    // 深渊底的熔岩缝：沿深渊中线（外观画在深处，只是点缀）
-    const seam = [];
+    // 深渊底的熔岩缝：沿深渊中线，第一段顺着 u 到拐角，再顺着第二段到场地（外观画在深处，只是点缀）
+    const seam = [], ucn = (cL[0] + cR[0]) / 2, vcn = (eA[2] + eB[2]) / 2;
     for (let k = 0; k <= 14; k++) {
-      const u = -12 + ((au - AR - 1 + 12) * k) / 14, seg = u < ub1 ? 0 : u < ub2 ? 1 : 2;
+      const u = -12 + ((ucn + 12) * k) / 14, seg = u < ub1 ? 0 : u < ub2 ? 1 : 2;
       seam.push(P2W([u, (eA[seg] + eB[seg]) / 2 + rnd(-1.5, 1.5)]));
     }
+    for (let k = 1; k <= 8; k++) {
+      const v = vcn + ((av - AR - 1 - vcn) * k) / 8, seg = v < vb3 ? 0 : 1;
+      seam.push(P2W([(cL[seg] + cR[seg]) / 2 + rnd(-1.5, 1.5), v]));
+    }
     feats.push({ kind: 'seam', pts: seam });
-    for (const L of [L1, L2, L3, L4]) feats.push({ kind: 'plat', room: L.id, x: L.core.x, z: L.core.z, r: L.core.r, order: L.order });
+    for (const L of PL) feats.push({ kind: 'plat', room: L.id, x: L.core.x, z: L.core.z, r: L.core.r, order: L.order });
 
-    const dAr = { x: X(1, 0) - X(0, 0), z: Z(1, 0) - Z(0, 0) }; // 门 → 场地中心
+    const dAr = { x: X(0, 1) - X(0, 0), z: Z(0, 1) - Z(0, 0) }; // 门 → 场地中心
+    // 怪物等级：关键路径房间按自己的序号折算，旁支 / 隧道按挂着的那个房间（上面建的时候已经给了）
+    for (const rm2 of rooms) if (rm2.lv === undefined) rm2.lv = lvOf(rm2.order);
     const spec = {
       rooms, links, cuts, haz, feats, packs, chests,
-      path: [S.id, P0.id, L1.id, B1.id, L2.id, P2.id, L3.id, B2.id, L4.id, B3.id, AREN.id],
+      path: [S.id, P0.id, L1.id, B1.id, L2.id, P2.id, L3.id, B2.id, L4.id, P4.id, L5.id, B3.id, L6.id, P6.id, L7.id, B4.id, AREN.id],
       start: { x: 0, z: 0, exit: { x: links[0].door.x, z: links[0].door.z, ang: Math.atan2(X(1, 0) - X(0, 0), Z(1, 0) - Z(0, 0)) } },
       arena: {
         room: AREN.id, x: X(au, av), z: Z(au, av), r: AR, round: true,
-        door: { x: X(au - AR - 2, av), z: Z(au - AR - 2, av) }, dir: dAr,
+        door: { x: X(au, av - AR - 2), z: Z(au, av - AR - 2) }, dir: dAr,
       },
-      abyss: { rot, mir, eA, eB, ub: [ub1, ub2], au, av, Ro }, // 外观用（局部坐标的几个关键数）
+      abyss: { rot, mir, eA, eB, ub: [ub1, ub2], cL, cR, vb3, au, av, Ro }, // 外观用（局部坐标的几个关键数）
     };
-    for (const L of [L1, L2, L3, L4]) delete L.clear;
+    for (const L of PL) delete L.clear;
     spec.bounds = specBounds(spec);
     // 自查
-    const platN = [L1, L2, L3, L4].map((L) => packs.filter((p) => p.room === L.id).length);
+    const platN = PL.map((L) => packs.filter((p) => p.room === L.id).length);
     const mobs = packs.reduce((s2, p) => s2 + (p.n[0] + p.n[1]) / 2, 0);
     let caveHit = false;
-    for (const [cv, own] of [[CVA, [TA.id, caveOnL4 ? L4.id : L1.id]], [CVB, [TB.id, P2.id]]]) {
+    for (const [cv, own] of [[CVA, [TA.id, caveOnL4 ? L4.id : L1.id]], [CVB, [TB.id, P2.id]], [CVC, [TC.id, P6.id]]]) {
       for (let k = 0; k < 24 && !caveHit; k++) {
         const a = (k / 24) * TAU, x = cv.core.x + Math.sin(a) * (cv.core.r + 1.5), z = cv.core.z + Math.cos(a) * (cv.core.r + 1.5);
         for (const o of rooms) if (o !== cv && o.kind !== 'void' && own.indexOf(o.id) < 0 && roomSd(o, x, z) > -1) caveHit = o.kind + o.id;
       }
     }
-    (abyssGen.whys || (abyssGen.whys = [])).push({ vents: vents.length, l1: +L1.core.r.toFixed(2), core: +Math.min(L2.core.r, L3.core.r, L4.core.r).toFixed(2), platN, mobs, caveHit });
-    const ok = vents.length >= 2 && L1.core.r >= 7.2 && Math.min(L2.core.r, L3.core.r, L4.core.r) >= 6 && Math.min.apply(null, platN) >= 2 && mobs >= 51 && mobs <= 65 && !caveHit;
+    // 不相邻的关键路径平台（序号差 ≥ 2）：图元之间边到边 ≥ 14.2 m。校验第 4 条在 0.5 m 的格子上量，量出来只会更大；
+    // 这里先按图元精确算一遍，过不了就重来（同一岸上的 L1 和 L4 隔着 P2 和两座桥，平台抖动大的时候会贴到 14 m 以内）
+    const primGap = (p, q) => {
+      if (p.t === 'circle') return -primSd(q, p.x, p.z) - p.r;
+      if (q.t === 'circle') return -primSd(p, q.x, q.z) - q.r;
+      let d = 1e9;
+      for (const [a, b] of [[p, q], [q, p]]) for (const sx of [-1, 1]) for (const sz of [-1, 1]) d = Math.min(d, -primSd(b, a.x + sx * a.hx, a.z + sz * a.hz));
+      return d;
+    };
+    let gapBad = false;
+    const PG = [S, ...PL, AREN];
+    for (let a = 0; a < PG.length && !gapBad; a++) {
+      for (let b = a + 2; b < PG.length && !gapBad; b++) {
+        for (const p of PG[a].prims) for (const q of PG[b].prims) if (!gapBad && primGap(p, q) < 14.2) gapBad = PG[a].id + '-' + PG[b].id;
+      }
+    }
+    const coreMin = Math.min.apply(null, PL.slice(1).map((L) => L.core.r));
+    (abyssGen.whys || (abyssGen.whys = [])).push({ vents: vents.length, l1: +L1.core.r.toFixed(2), core: +coreMin.toFixed(2), platN, mobs, caveHit, gap: gapBad });
+    const ok = vents.length >= 4 && L1.core.r >= 7.2 && coreMin >= 6 && Math.min.apply(null, platN) >= 2 && mobs >= 82 && mobs <= 104 && !caveHit && !gapBad;
     // zones-integrate：核心的 sdShot 已经把透弹挖空的图元算成子弹能到的地方，「虚空房间」不用再进布局说明；
     // 上面的摆放和自查照旧带着它们算（结果不变），输出前去掉（它们排在最后，没有别的东西引用它们的 id）
     while (rooms.length && rooms[rooms.length - 1].kind === 'void') rooms.pop();
@@ -6707,7 +6829,7 @@
     abyssGen.tries = k + 1; // 调试：上一次生成用了几次
     return r.spec;
   }
-  abyssGen.check = { areaMin: 2400, areaMax: 2800 };
+  abyssGen.check = { areaMin: 3840, areaMax: 4600 }; // 改前 2400–2800：下限按 1.6 倍，上限按 200 个种子的实测（4070–4440）留余量
   // ---- 外观：卡通配色（owner 11-18：烬渊太红太饱和 → 炭色 / 深紫褐的低饱和底子，红橙只给熔岩、余烬口、火星和首领的光）----
   const ABYSS_PAL = {
     rock: 0x48424f, // 岩壁 / 岩石固有色（替换区域配色里偏红的 0x3f2a2c，按比例改实例色）
@@ -7006,7 +7128,7 @@
       st.base = { sun: sun.intensity, hemi: hemiBase, fog: scene.fog.color.clone(), bg: scene.background.clone(), sunNow: sun.intensity, hemiNow: hemiBase };
     }
     const r = W.roomAt(P.x, P.z), rm = r >= 0 ? zone.rooms[r] : null;
-    if (rm) st.target = Math.min(1, rm.order / 5);
+    if (rm) st.target = Math.min(1, rm.order / (zone.rooms[zone.arena.room].order || 5)); // 场地的序号（加长后是 8）
     st.k += ((st.target || 0) - st.k) * (1 - Math.exp(-dt * 1.2));
     const b = st.base, k = st.k;
     sun.intensity = b.sunNow = b.sun * (1 - 0.18 * k);
