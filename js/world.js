@@ -1296,7 +1296,7 @@
   // 高的东西（灰堆、蕨、岩石）只放在路外，路外本来就走不进去，碰撞和原来一致。全部实例化，起点布景一共约 10 个 draw call。
   const ASH_DRESS = { r0: 15, r1: 26 };
   const ASH_PAL = {
-    rock: 0x66625f, rockLo: 0x5c4e80, // zones-ash：0x6a6472 → 0x66625f（中性暖灰，岩石受光面不再泛红紫）； // phase 3：0x5a4a4e / 0x4a3c6c → 0x6a6472 / 0x5c4e80：去掉受光面的赤陶色，岩壁整体抬到 15% 左右（之前 11.5%，比目标暗） // 岩石固有色（比地面暗一档）、贴地的冷紫（乘在固有色上）
+    rock: 0x5e5a58, rockLo: 0x5c4e80, // zones-ash：0x6a6472 → 0x5e5a58（中性暖灰，岩石受光面不再泛红紫；主光换成偏黄以后顶面会亮，固有色压暗一点）； // phase 3：0x5a4a4e / 0x4a3c6c → 0x6a6472 / 0x5c4e80：去掉受光面的赤陶色，岩壁整体抬到 15% 左右（之前 11.5%，比目标暗） // 岩石固有色（比地面暗一档）、贴地的冷紫（乘在固有色上）
     ash: 0x3c3434, ashLo: 0x5a4a5a, ashFall: 0x9a8a8a, // 灰堆、地上的积灰（贴花，淡淡提亮一层）
     grass: 0xb07a40, grassLo: 0x4a2e2a, // 枯草
     fern: 0x3a8078, fernLo: 0x1e3a48, // 灰蕨（冷色点缀）。A2：0x3f8e84 → 0x3a8078，岩石变少以后蕨露出来，压一点免得岩壁那一档偏亮
@@ -1374,7 +1374,7 @@
   // 沿岩壁边每 ASH_ROCK.step 走一步，按位置的低频噪声分成「簇」和「空档」（大约一半边长是空档）。
   // 簇里每隔 5–8 m 一块大石（锚点），旁边 1–2 块中石，其余位置零星几块碎石；空档里只偶尔放一块小石头；尖岩更少、离边更远。
   // 靠镜头的南缘（lowK）照旧压矮
-  const ASH_ROCK = { step: 1.1, cluster: 0.47, clusterFar: 0.37, gap: [4.5, 7], mid: 0.75, small: 0.62, gapSmall: 0.15, spire: 0.07, brBig: [0.48, 0.62], brMid: [0.58, 0.8], brSmall: [0.62, 0.9] };
+  const ASH_ROCK = { step: 1.1, cluster: 0.47, clusterFar: 0.37, gap: [4.5, 7], mid: 0.75, small: 0.62, gapSmall: 0.15, spire: 0.07, brBig: [0.42, 0.54], brMid: [0.52, 0.72], brSmall: [0.6, 0.86], variants: 1 }; // zones-ash：大石头 / 中石再压暗一点（新主光下顶面亮）
   function ashRocks(zone, sd, lowK, pushRock0, spires) {
     const R = ASH_ROCK;
     // zones-ash：熔岩河 / 熔岩池上、焦木和烟囱脚下不放石头
@@ -1565,6 +1565,7 @@
     '}',
   ].join('\n');
 
+  let ashFisPending = null; // 起点的熔岩裂缝，等区域布景（ashDress）拼进熔岩网格
   function buildAshDress(zone, sd) {
     const rnd = ashRng(zone), st = zone.start, R0 = ASH_DRESS.r0, R1 = ASH_DRESS.r1;
     const trail = ashTrail(zone);
@@ -1631,10 +1632,12 @@
     const pIM = instanced(gQuad(), patchMat, L.patch, false, null);
     if (pIM) pIM.renderOrder = 1;
     // 熔岩裂缝：一张不受光的条带（芯接近白热、往外橙 → 红 → 烧焦的暗沿，不做色调映射）+ 地面上一点暖光
+    // zones-ash：区域布景（ashDress）在的时候，这些裂缝和暖光交给它拼进熔岩河那一个网格（省两次 draw），这里只登记
     let fisMat = null, glowMat = null;
-    if (fis.length) {
+    const bands = [[0, ASH_PAL.core], [0.3, ASH_PAL.mid], [0.6, ASH_PAL.edge], [0.85, ASH_PAL.char], [2.2, mixHex(ASH_PAL.char, 0x3a2a30, 0.5)]];
+    ashFisPending = fis.length && ZONE_TERRAIN.ash && ZONE_TERRAIN.ash.dress ? { segs: fis, bands, glow: L.glow } : null;
+    if (fis.length && !ashFisPending) {
       fisMat = own(new T.MeshBasicMaterial({ vertexColors: true, toneMapped: false, side: T.DoubleSide }));
-      const bands = [[0, ASH_PAL.core], [0.3, ASH_PAL.mid], [0.6, ASH_PAL.edge], [0.85, ASH_PAL.char], [2.2, mixHex(ASH_PAL.char, 0x3a2a30, 0.5)]];
       const core = new T.Mesh(ashFissureGeo(fis, bands, 0.02), fisMat);
       core.renderOrder = 1;
       zoneGroup.add(core);
@@ -3253,8 +3256,27 @@
         for (let k = 0; k < n; k++) segs.push([a[0] + (dx * k) / n, a[1] + (dz * k) / n, a[0] + (dx * (k + 1)) / n, a[1] + (dz * (k + 1)) / n, -dz / l, dx / l, wk(k / n), wk((k + 1) / n)]);
       }
       // 色阶：细细一道白热的芯、橙、大片暗一点的熔红、发黑的边、焦黑的外沿（亮的只占一小条，85–100% 的高光不铺满一大片）
-      const bands = o.bands || [[0, 0xffd27a], [0.1, 0xff8a2a], [0.3, 0xd4441c], [0.6, 0x9a2616], [0.9, 0x2e1c1c], [1.16, 0x1a1214]];
-      const geoS = segs.length ? ashFissureGeo(segs, bands, y, { hard: o.hard !== false, along: true }) : null;
+      const bands = o.bands || [[0, 0xffd27a], [0.09, 0xff8a2a], [0.24, 0xc23a1a], [0.56, 0x86221a], [0.9, 0x2e1c1c], [1.16, 0x1a1214]];
+      let geoS = segs.length ? ashFissureGeo(segs, bands, y, { hard: o.hard !== false, along: true }) : null;
+      // opt.extra：[{ segs, bands, y, al }] 别的发光条带（余烬裂缝、灼烧边……）拼进同一个网格，省 draw；al = 流纹相位（错开闪动）
+      for (const ex of o.extra || []) {
+        if (!ex.segs.length) continue;
+        const g2 = ashFissureGeo(ex.segs, ex.bands, ex.y !== undefined ? ex.y : y + 0.007, { hard: ex.hard !== false, along: true });
+        if (ex.al) for (let i = 0; i < g2.attributes.aL.count; i++) g2.attributes.aL.array[i] = ex.al[Math.floor(i / 6) % ex.al.length];
+        if (!geoS) {
+          geoS = g2;
+          continue;
+        }
+        const cat = (a, b, n) => {
+          const r = new Float32Array(a.length + b.length);
+          r.set(a);
+          r.set(b, a.length);
+          return new T.BufferAttribute(r, n);
+        };
+        const g3 = own(new T.BufferGeometry());
+        for (const [k, n] of [['position', 3], ['color', 3], ['aL', 1], ['normal', 3]]) g3.setAttribute(k, cat(geoS.attributes[k].array, g2.attributes[k].array, n));
+        geoS = g3;
+      }
       // 熔岩池和冷壳：另算一份顶点，最后拼进同一个几何体
       const pos = [], col = [], al = [], Bc = bands.map((q) => lin(q[1]));
       const tri = (x0, z0, x1, z1, x2, z2, c, yy, L) => {
@@ -3345,6 +3367,7 @@
           for (let k = 0; k < n; k++) gl.push(a[0] + ((b[0] - a[0]) * (k + 0.5)) / n, 0.05, a[1] + ((b[1] - a[1]) * (k + 0.5)) / n, 0, 0, 0, w, 1, w, 1);
         }
         for (const P of o.pools || []) gl.push(P.x, 0.05, P.z, 0, 0, 0, P.r * 2, 1, P.r * 2, 1);
+        if (o.glowQuads) for (let i = 0; i < o.glowQuads.length; i++) gl.push(o.glowQuads[i]); // opt.glowQuads：额外的暖光（实例列表，每 10 个数一个）
         const gm = own(new T.MeshBasicMaterial({ map: glowTex(), color: lin(o.glowCol || 0xff7a2a), transparent: true, opacity: o.glowA || 0.25, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false }));
         glow = instanced(gQuad(), gm, gl, false, null);
         if (glow) {
@@ -3529,7 +3552,7 @@
   // ② 整体转一个角度，让外接框落在 150 × 125 以内；③ 按镜头方向（北 = -z，离镜头远）摆树干、矮墙、烟囱、地标、灯位，最后排怪群和宝箱。
   // 只用传进来的随机源（种子），不碰 Math.random
   const ASH_GEN = {
-    area: [3040, 3250], // 骨架的可走面积目标（m²）；校验按 3000–3400（树干、矮墙还要再挖掉一点）
+    area: [3110, 3300], // 骨架的可走面积目标（m²）；校验按 3000–3400（树干、矮墙还要再挖掉一点）
     box: [150, 125], // 外接框上限（长边 / 短边）
     neck: [4.2, 5.6], // 颈口半宽（9–11 m 宽）
     river: [3.2, 4.2], // 熔岩河半宽（6.4–8.4 m）
@@ -3539,7 +3562,7 @@
     walls: [3, 4], // 农庄的 L 形矮墙数
     elite: 0.45, // 关键路径房间出精英群的概率（另有旁支 B 保底一个），全区最多 4 个
   };
-  // 椭圆的一团：along 是 ang 方向的半轴、across 是横向半轴。芯是沿长轴的一个胶囊，周围 5–6 个圆形鼓包，鼓包外沿到椭圆半径 × (1 ± amp)。
+  // 椭圆的一团：along 是 ang 方向的半轴、across 是横向半轴。芯是沿长轴的一个胶囊，周围 4–5 个圆形鼓包，鼓包外沿到椭圆半径 × (1 ± amp)。
   // 用胶囊 + 圆而不是多边形：光栅化和校验对多边形逐条边求距离，贵十倍以上（多边形版本进区光是光栅化就要 40 ms）。
   // sym = 鼓包两两中心对称（场地用：门那一侧和背面半径相同，小地图测试从中心朝门量场地轮廓）
   function ashBlob(r, cx, cz, along, across, ang, amp, sym) {
@@ -3548,14 +3571,14 @@
     const A = Math.min(along, across), B = Math.max(along, across), half = Math.max(0.4, B - A * 0.95), hw = A * 0.82;
     const e0 = along >= across ? W2(0, -half) : W2(-half, 0), e1 = along >= across ? W2(0, half) : W2(half, 0);
     const prims = [{ t: 'capsule', ax: e0[0], az: e0[1], bx: e1[0], bz: e1[1], hw }];
-    const m = sym ? 6 : 5 + Math.floor(r() * 2), t0 = r() * TAU, lob = [];
+    const m = sym ? 4 : 4 + Math.floor(r() * 2), t0 = r() * TAU, lob = []; // 鼓包 4–5 个（场地 2 对）：再多校验时房间间距那一项就贵了
     for (let i = 0; i < m; i++) {
       if (sym && i >= m / 2) {
         const q = lob[i - m / 2];
         lob.push({ t: q.t + Math.PI, rl: q.rl, w: q.w });
         continue;
       }
-      lob.push({ t: t0 + (i / m) * TAU + (sym ? 0 : (r() - 0.5) * 0.6), rl: A * (0.42 + 0.18 * r()), w: (r() - 0.5) * 2 });
+      lob.push({ t: t0 + (i / m) * TAU + (sym ? 0 : (r() - 0.5) * 0.6), rl: A * (0.48 + 0.18 * r()), w: (r() - 0.5) * 2 });
     }
     for (const q of lob) {
       const ex = Math.sin(q.t) * across, ez = Math.cos(q.t) * along, r0 = Math.hypot(ex, ez) || 1;
@@ -4210,14 +4233,15 @@
     const out = { lowHide: [] };
     // 熔岩河 + 场地的熔岩池：一个网格（硬边色阶、冷壳、流纹），地面暖光低画质不画
     const river = F('river')[0], pools = F('pool');
-    if (river || pools.length) out.lava = ctx.gfx.lavaStrip(river ? river.pts : [], river ? river.hw : 1, { pools, crust: 0.28, glowA: 0.22 });
     // 石桥：石板 + 一节节矮石墙 + 两头桥墩
     for (const b of F('bridge')) {
       const dx = Math.sin(b.ang) * b.len * 0.5, dz = Math.cos(b.ang) * b.len * 0.5;
       out.bridge = ctx.gfx.plankBridge([[b.x - dx, b.z - dz], [b.x + dx, b.z + dz]], b.w, { stone: true, rail: true, color: ASH_LAY.stone });
+      if (out.bridge) out.bridge.castShadow = false; // 平的桥不投影（省一次阴影 draw），矮石墙的影子看不出来
     }
     // 农舍矮墙（L 形的墙挖空沿边一节节砌起来）：墙厚的一半，矮、高低错落
     if (F('wall').length) out.walls = ctx.gfx.wallRun({ kinds: [MAT.WALL], step: 1.1, h: 1.25, t: 0.38, color: ASH_LAY.wall });
+    if (out.walls) out.walls.castShadow = false; // 矮墙不投影：省一次阴影 draw（墙只在农庄，实例化网格不做视锥剔除，每帧都画）
     // 静态的零件合成一个网格：焦木残桩、巨大的枯树、烟囱、塌桥、浅滩的硬壳
     const parts = [];
     for (const t of F('trunk')) parts.push([ashSnagGeo(), t.x, 0, t.z, r(-0.06, 0.06), r(0, TAU), r(-0.06, 0.06), t.r * 1.05, t.r * r(1.15, 1.6), t.r * 1.05, r(0.85, 1.05)]);
@@ -4263,6 +4287,7 @@
     const nearProp = (x, z, m) => feats.some((f) => (f.kind === 'trunk' || f.kind === 'tree' || f.kind === 'chimney') && Math.hypot(f.x - x, f.z - z) < (f.r || 1) + m);
     // 通用外观沿岩壁边摆的东西（CC0 枯树 / 程序化摆件、发光水晶和光晕）只看岩壁边，会落到熔岩河、熔岩池上：落在熔岩上的实例缩成 0
     const cull = new Set([ctx.mats.prop, ctx.mats.crystal, ctx.mats.glow]);
+    for (const m of ctx.group.children) if (m.isInstancedMesh && m.material === ctx.mats.crystal) m.castShadow = false; // 发光的小水晶不投影（看不出来，省一次阴影 draw）
     const treeGeo = G.assets ? ['kh/tree_dead_large', 'kh/tree_dead_medium', 'kh/tree_dead_small'].map((k) => G.assets.geo(k)).filter(Boolean) : [];
     for (const m of ctx.group.children) {
       if (!m.isInstancedMesh || !(cull.has(m.material) || treeGeo.indexOf(m.geometry) >= 0)) continue;
@@ -4277,47 +4302,33 @@
       }
       if (hit) m.instanceMatrix.needsUpdate = true;
     }
-    const drift = [], grass = [], patch = [];
-    ctx.edgeSamples(1.7, 0.4, (x, z, kind, nx, nz) => {
-      if (!far(x, z) || onLava(x, z) || nearProp(x, z, 0.6)) return;
-      const n = vnoise(x * 0.3 + 5.1, z * 0.3 - 2.7), k = rnd();
-      const ox = x + nx * r(-0.6, 0.9), oz = z + nz * r(-0.6, 0.9);
-      if (n < 0.42 && k < 0.5) drift.push(ox, 0, oz, 0, r(0, TAU), 0, r(0.6, 1.3), r(0.6, 1.1), r(0.6, 1.2), r(0.85, 1.1));
-      else if (n > 0.55 && k < 0.6) for (let q = 0; q < 2; q++) grass.push(ox + r(-0.3, 0.3), 0, oz + r(-0.3, 0.3), 0, r(0, TAU), 0, r(0.8, 1.3), r(0.8, 1.5), r(0.8, 1.3), r(0.8, 1.15));
-    }, { kinds: [MAT.ROCK], jitter: 0.3 });
-    // 路面：每个房间（起点除外）几道余烬裂缝和几片积灰，离门、怪群、宝箱都有点距离
+    // 路面：每个房间（起点除外）几道余烬裂缝，离门、怪群、宝箱都有点距离。和熔岩、灼烧边拼成一个网格（一次 draw，低画质也便宜）。
+    // 起点布景以外不再另撒积灰 / 枯草（draw call 预算紧），路边靠稀疏的岩石、枯树和地面明暗勾出来
     const avoid = (zone.packs || []).map((p) => [p.x, p.z]).concat((zone.chests || []).map((c) => [c.x, c.z]));
+    const cracks = [];
     for (const rm of zone.rooms) {
       if (rm.kind === 'start' || rm.kind === 'link') continue;
-      const c = rm.core, nf = rm.kind === 'arena' ? 5 : rm.kind === 'side' ? 1 : 2, np = rm.kind === 'side' ? 2 : 4;
+      const c = rm.core, nf = rm.kind === 'arena' ? 5 : rm.kind === 'side' ? 1 : 3;
       let made = 0;
       for (let t = 0; t < 30 && made < nf; t++) {
         const a = r(0, TAU), d = r(c.r * 0.5, c.r + 4), x = c.x + Math.sin(a) * d, z = c.z + Math.cos(a) * d, dd = sd(x, z);
         if (dd < 0.6 || dd > 4.5 || !far(x, z) || onLava(x, z) || avoid.some((q) => Math.hypot(q[0] - x, q[1] - z) < 2.5)) continue;
-        ashFissure(rnd, x, z, r(1.6, 3.2), r(0.07, 0.11), embers);
+        ashFissure(rnd, x, z, r(1.6, 3.2), r(0.07, 0.11), cracks);
         made++;
       }
-      for (let k = 0; k < np; k++) {
-        const a = r(0, TAU), d = Math.sqrt(rnd()) * (c.r + 2), x = c.x + Math.sin(a) * d, z = c.z + Math.cos(a) * d;
-        if (sd(x, z) < 0.5 || !far(x, z)) continue;
-        patch.push(x, 0.018, z, 0, r(0, TAU), 0, r(1.4, 2.8), 1, r(0.9, 1.7), 1);
-      }
     }
-    if (embers.length) {
-      out.emberMat = own(new T.MeshBasicMaterial({ vertexColors: true, toneMapped: false, side: T.DoubleSide }));
-      const em = new T.Mesh(ashFissureGeo(embers, ASH_LAY.ember.concat([[2.0, mixHex(ASH_LAY.ember[3][1], 0x3a2a30, 0.5)]]), 0.022, { hard: true }), out.emberMat);
-      em.renderOrder = 1;
-      ctx.group.add(em);
+    // 熔岩河 + 场地的熔岩池 + 余烬裂缝 + 浅滩的灼烧边：一个网格（硬边色阶、冷壳、流纹），地面暖光低画质不画
+    const eb = ASH_LAY.ember.concat([[2.0, mixHex(ASH_LAY.ember[3][1], 0x3a2a30, 0.5)]]);
+    const al = [];
+    for (let i = 0; i < 24; i++) al.push(r(0, 40));
+    // 起点布景的熔岩裂缝（buildAshDress 登记的）也拼进来，它的暖光和河的暖光一起
+    const pend = ashFisPending;
+    ashFisPending = null;
+    const extra = [{ segs: cracks, bands: eb, y: 0.022, al }, { segs: embers, bands: [[0, 0xff9a3a], [0.3, 0xe0481c], [0.7, 0x9a2616], [1, 0x2a1a1c]], y: 0.06, al }];
+    if (pend) extra.push({ segs: pend.segs, bands: pend.bands, y: 0.02, hard: false, al });
+    if (river || pools.length || cracks.length || embers.length || pend) {
+      out.lava = ctx.gfx.lavaStrip(river ? river.pts : [], river ? river.hw : 1, { pools, crust: 0.4, glowA: 0.2, extra, glowQuads: pend ? pend.glow : null });
     }
-    const ws = new T.Color(1, 1, 1);
-    const fol = own(makeToonMat({ brush: 0.12, brushScale: 0.8, soft: 0.14 }));
-    out.lowHide.push(ctx.instanced(ashDriftGeo(), fol, drift, false, ws), ctx.instanced(ashGrassGeo(), fol, grass, false, ws));
-    const pm = own(new T.MeshBasicMaterial({ map: blotchTex(), color: lin(ASH_LAY.patch), transparent: true, opacity: 0.16, depthWrite: false }));
-    const pIM = ctx.instanced(gQuad(), pm, patch, false, null);
-    if (pIM) pIM.renderOrder = 1;
-    out.lowHide.push(pIM);
-    out.lowHide = out.lowHide.filter(Boolean);
-    for (const m of out.lowHide) m.visible = !low;
     out.rockHi = ctx.mats.rock && ctx.mats.rock.color.clone();
     return out;
   }
@@ -4346,7 +4357,6 @@
       if (D.lava.flow) D.lava.flow.value = low ? 0 : 1;
       if (D.lava.glow) D.lava.glow.visible = !low;
     }
-    if (D.emberMat) D.emberMat.color.setScalar(0.85 + 0.25 * (0.5 + 0.5 * Math.sin(wtime * 2.2)));
     for (let i = 0; i < D.lowHide.length; i++) D.lowHide[i].visible = !low;
     if (D.rockHi && ctx.mats.rock) ctx.mats.rock.color.copy(D.rockHi).multiplyScalar(low ? ASH_LOW.rock : 1);
   }
@@ -4781,8 +4791,9 @@
         for (let i = 0; i < list.length; i += 10) out[(i / 10) % n].push(...list.slice(i, i + 10));
         return out;
       };
-      split(rocksA, 2).forEach((l, k) => instanced(ashRockGeo(k), rockMat, l, true, rockTint));
-      split(rocksB, 2).forEach((l, k) => instanced(ashRockGeo(2 + k), rockMat, l, true, rockTint));
+      // zones-ash：每种大小只留一个变体（原来各 2 个）：省 4 次 draw（实例化网格不做视锥剔除，投影再画一遍），石头靠缩放和朝向就够不一样了
+      split(rocksA, ASH_ROCK.variants).forEach((l, k) => instanced(ashRockGeo(k), rockMat, l, true, rockTint));
+      split(rocksB, ASH_ROCK.variants).forEach((l, k) => instanced(ashRockGeo(2 + k), rockMat, l, true, rockTint));
       instanced(ashSpireGeo(), rockMat, spires, true, rockTint);
     } else {
       instanced(rockGeoA(), rockMat, rocksA, true, rockTint);
