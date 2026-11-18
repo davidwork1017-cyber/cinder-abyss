@@ -1875,22 +1875,15 @@
     G.world.setEnt(P.ent, P.x, P.z, P.drawFace);
   }
 
-  // 首领醒着（正在打）时返回它竞技场门外的重生点：最后一段通道上、离场地中心 bossR + 2，
-  // 在首领的唤醒半径（bossR - 1）之外。其余情况返回 null，表示回区域入口。
+  // 首领醒着（正在打）时返回它竞技场门外的重生点 zone.bossDoor：场地的门上、离场地中心 bossR + 2，
+  // 在首领的唤醒范围之外。其余情况（或门点站不住）返回 null，表示回区域入口。
   G.bossDoor = function () {
     const zone = state.zone;
     const b = state.boss;
     if (!zone || !b || b.dead || !b.awake) return null;
-    const cs = zone.circles;
-    const from = cs.length >= 2 ? cs[cs.length - 2] : zone.start;
-    const bp = zone.bossPos;
-    const dx = from.x - bp.x;
-    const dz = from.z - bp.z;
-    const d = Math.hypot(dx, dz);
-    if (d < 1e-3) return null;
-    const x = bp.x + (dx / d) * (zone.bossR + 2);
-    const z = bp.z + (dz / d) * (zone.bossR + 2);
-    return G.world.walkable(x, z, PLAYER_PAD) ? { x, z } : null;
+    const d = zone.bossDoor;
+    if (!d) return null;
+    return G.world.walkable(d.x, d.z, PLAYER_PAD) ? { x: d.x, z: d.z } : null;
   };
 
   G.respawn = function () {
@@ -2173,7 +2166,7 @@
       for (let s = 0; s < steps && alive; s++) {
         p.x += p.dx * step;
         p.z += p.dz * step;
-        if (!W.walkable(p.x, p.z, -0.4)) {
+        if (!W.shotFree(p.x, p.z, -0.4)) {
           if (p.wisp) {
             // 魂火退回墙前再炸
             p.x -= p.dx * step;
@@ -2291,22 +2284,9 @@
     const W = G.world;
     const total = Math.hypot(dx, dz);
     if (total < 1e-6) return;
-    // 万一站在不可走的位置（不该发生），朝最近的空地中心挪回去
+    // 万一站在不可走的位置（不该发生），沿地形的梯度挪回可走的地方
     if (!W.walkable(P.x, P.z, PLAYER_PAD)) {
-      let best = null;
-      let bd = Infinity;
-      for (const c of state.zone.circles) {
-        const d = dist(c.x, c.z, P.x, P.z);
-        if (d < bd) {
-          bd = d;
-          best = c;
-        }
-      }
-      if (best && bd > 1e-3) {
-        const k = Math.min(total, bd) / bd;
-        P.x += (best.x - P.x) * k;
-        P.z += (best.z - P.z) * k;
-      }
+      W.pushOut(P.x, P.z, PLAYER_PAD, total, P);
       return;
     }
     const n = Math.ceil(total / 0.3);
@@ -3690,14 +3670,14 @@
     W[name].apply(W, Array.prototype.slice.call(arguments, 1));
     return true;
   }
-  // 地面视线：两点之间没有墙（比 pathClear 宽松，用于判定伤害能不能打过去）
+  // 地面视线：两点之间没有墙（比 pathClear 宽松，用于判定伤害能不能打过去；虚空 / 深水 / 熔岩不挡）
   function losClear(x0, z0, x1, z1) {
     const W = G.world;
     const dx = x1 - x0;
     const dz = z1 - z0;
     const n = Math.ceil(Math.hypot(dx, dz) / 0.35);
     for (let i = 1; i < n; i++) {
-      if (!W.walkable(x0 + (dx * i) / n, z0 + (dz * i) / n, -0.3)) return false;
+      if (!W.shotFree(x0 + (dx * i) / n, z0 + (dz * i) / n, -0.3)) return false;
     }
     return true;
   }
@@ -4926,6 +4906,78 @@
   }
 
   // dt：游戏时间；adt（可选）：动作时间——不受慢动作影响（顿帧时照样为 0），输入缓冲和处决按它走
+  // ---------- 地形危险区（每帧一次）：减速、灼烧、薄冰 ----------
+  // 数值在 G.TERRAIN。legacy 布局没有危险区格子（hazAny = 0），直接返回，系数保持 1
+  const terr = { k: 1, roll: 1, burnT: 0, thinT: 0, thinId: -1, crack: {} };
+  function terrainTick(dt) {
+    const zone = state.zone, W = G.world, TR = G.TERRAIN, H = W.HAZ;
+    terr.k = terr.roll = 1;
+    const mask = zone && zone.map ? zone.map.hazAny : 0;
+    if (!mask) {
+      terr.burnT = terr.thinT = 0;
+      terr.thinId = -1;
+      return;
+    }
+    const hz = W.hazardAt(P.x, P.z);
+    let slow = !!(hz & H.slow);
+    // 薄冰：在同一块上站够 thinT 秒就裂开，裂开的那块算减速；离开后 thinBack 秒复原（只有视觉和音效，不会掉下去）
+    const tid = hz & H.thin ? W.hazPrimAt(P.x, P.z, 'thin') : -1;
+    for (const id in terr.crack) {
+      const c = terr.crack[id];
+      if (+id === tid) c.back = TR.thinBack;
+      else if ((c.back -= dt) <= 0) delete terr.crack[id];
+    }
+    if (tid >= 0 && terr.crack[tid]) slow = true;
+    else if (tid >= 0) {
+      terr.thinT = terr.thinId === tid ? terr.thinT + dt : dt;
+      terr.thinId = tid;
+      if (terr.thinT >= TR.thinT) {
+        terr.crack[tid] = { back: TR.thinBack };
+        terr.thinT = 0;
+        W.burst(P.x, 0.2, P.z, 0xcfefff, 14, 3, 0.4);
+        G.sfx('impact');
+      }
+    } else {
+      terr.thinId = -1;
+      terr.thinT = 0;
+    }
+    if (slow) {
+      terr.k = TR.slow;
+      terr.roll = TR.slowRoll;
+    }
+    // 灼烧：每 burnTick 秒一跳火焰伤害；召唤物也吃
+    const burn = TR.burn * G.dmgScale(zone.level);
+    if (hz & H.burn) {
+      terr.burnT += dt;
+      if (terr.burnT >= TR.burnTick) {
+        terr.burnT -= TR.burnTick;
+        G.hurtPlayer(burn, 'fire', null);
+      }
+    } else terr.burnT = 0;
+    if (mask & H.burn && G.hurtMinion && state.minions) {
+      for (const m of state.minions.slice()) {
+        if (m.dead) continue;
+        if (W.hazardAt(m.x, m.z) & H.burn) {
+          m.burnT = (m.burnT || 0) + dt;
+          if (m.burnT >= TR.burnTick) {
+            m.burnT -= TR.burnTick;
+            G.hurtMinion(m, burn, 'fire', null);
+          }
+        } else m.burnT = 0;
+      }
+    }
+  }
+  // 地形灼烧打到小怪（enemies.js 每 burnTick 秒调一次；首领免疫）：不算玩家的命中，不触发技能效果
+  G.terrainBurnEnemy = function (e) {
+    if (!e || e.dead || e.isBoss || !state.zone) return;
+    const W = G.world;
+    const dmg = Math.max(1, G.TERRAIN.burn * G.dmgScale(state.zone.level));
+    e.hp -= dmg;
+    W.flash(e.ent, 0.6);
+    W.text(e.x, e.z, '-' + Math.round(dmg), '#ff8a3c', 14);
+    if (e.hp <= 0) G.killEnemy(e);
+  };
+
   G.updatePlayer = function (dt, adt) {
     const W = G.world;
     const inp = G.input;
@@ -4953,6 +5005,7 @@
     if (P.roll.cd > 0) P.roll.cd = Math.max(0, P.roll.cd - dt);
     if (P.iframe > 0) P.iframe = Math.max(0, P.iframe - dt);
     if (P.graceT > 0) P.graceT = Math.max(0, P.graceT - dt);
+    terrainTick(dt);
     for (let i = 0; i < 5; i++) if (inp.tap[i] > 0) inp.tap[i] -= adt;
     if (inp.tapDodge > 0) inp.tapDodge -= adt;
     if (inp.tapExec > 0) inp.tapExec -= adt;
@@ -4976,7 +5029,7 @@
       // 翻滚：固定方向冲刺，期间不施法（按下的技能留在缓冲里，滚完就出）
       const step = Math.min(dt, P.roll.t);
       P.roll.t -= dt;
-      const sp = P.moveSpeed * 2.6 * step;
+      const sp = P.moveSpeed * 2.6 * step * terr.roll; // 地形减速时翻滚距离也短一点
       movePlayer(P.roll.dx * sp, P.roll.dz * sp);
       P.moving = true;
       P.dustT -= dt;
@@ -5008,7 +5061,7 @@
             const c = P.cast;
             let k = !c ? 1 : c.channel || c.ws ? c.move : c.st ? (c.fired ? 0.55 : 0.25) : 0.4;
             if (P.rstate) k = Math.max(k, G.SKILLS[P.rstate.id].move || 1); // 乱射期间照常走动
-            const sp = P.moveSpeed * k * dt;
+            const sp = P.moveSpeed * k * dt * terr.k;
             movePlayer(mv.x * sp, mv.z * sp);
             if (!P.cast) P.face = Math.atan2(mv.x, mv.z);
           }
