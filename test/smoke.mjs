@@ -9329,6 +9329,73 @@ async function main() {
     assert(r.redraw, '窗口变化后小地图应重画且不变：' + JSON.stringify(r));
     return r.out.map((z) => z.id + ' 路面差 ' + z.pathD + ' 轮廓 ' + z.ring).join('，');
   });
+  await step('区域 ash 布局：20 个种子都通过校验 + 进区刷怪正常 + 首领门外重生；熔岩河挡路不挡子弹，浅滩两边灼烧（玩家和小怪都烧）', async () => {
+    const r = await ev(() => {
+      G.debug.hold(true);
+      const W = G.world, P = G.player, S = G.state, out = { bad: [], n: 0 };
+      for (let s = 1; s <= 20; s++) {
+        const g = W.genLayout('ash', s * 7919 + 13);
+        out.n++;
+        if (!g.ok) out.bad.push(g.seed + '：' + g.why.join('；'));
+      }
+      const god0 = !!P.god;
+      G.debug.god(true);
+      G.debug.zoneSeed(20251118);
+      G.enterZone(0, 0);
+      const z = S.zone, mobs = S.enemies.filter((e) => !e.dead && !e.isBoss);
+      out.custom = !z.spec.legacy && z.feats.some((f) => f.kind === 'river');
+      out.mobs = mobs.length;
+      out.elites = mobs.filter((e) => e.elite).length;
+      out.legal = mobs.every((e) => W.walkable(e.x, e.z, 0) && Math.hypot(e.x - z.start.x, e.z - z.start.z) >= 12);
+      out.bossIn = S.enemies.some((e) => e.isBoss && W.inArena(e.x, e.z));
+      out.chests = z.chests.length;
+      // 熔岩河：桥边 4 m（还在颈口里）是熔岩——走不过去、子弹和视线能过；桥面能走
+      const f = (k) => z.feats.find((q) => q.kind === k), br = f('bridge'), fd = f('ford');
+      const lat = (q, d) => [q.x + Math.cos(q.ang) * d, q.z - Math.sin(q.ang) * d];
+      const lv = lat(br, 4);
+      out.lava = { walk: W.walkable(lv[0], lv[1], 0), shot: W.shotFree(lv[0], lv[1], 0), mat: W.matAt(lv[0], lv[1]) === W.MAT.LAVA };
+      out.bridge = W.walkable(br.x, br.z, 0.6);
+      // 浅滩：中间的硬壳安全，两条边是灼烧；站在边上的小怪和玩家都会掉血
+      const edge = lat(fd, fd.w / 2 - 0.5);
+      out.ford = { mid: W.hazardAt(fd.x, fd.z) & W.HAZ.burn, edge: W.hazardAt(edge[0], edge[1]) & W.HAZ.burn, walk: W.walkable(fd.x, fd.z, 0.6) };
+      // 小怪：玩家站在桥上（离浅滩 20 m 开外，怪不会醒、不会走开），怪睡在灼烧边上
+      const e = G.spawnMob('husk', edge[0], edge[1], z.level, { awake: false });
+      const hp0 = e.hp;
+      T.tp(br.x, br.z);
+      for (let i = 0; i < 70; i++) G.tick(1 / 60);
+      const mob = hp0 - e.hp;
+      // 玩家：站到灼烧边上
+      T.tp(edge[0], edge[1]);
+      G.debug.god(false);
+      P.iframe = 0;
+      const life0 = P.life;
+      for (let i = 0; i < 70; i++) G.tick(1 / 60);
+      out.burn = { mob, player: life0 - P.life, asleep: !e.awake };
+      G.debug.god(true);
+      // 首领门外重生：首领醒着时倒下，重生在场地门外（离场地边缘 2）
+      G.debug.tpBoss();
+      let t = 0;
+      while (!S.boss.awake && t < 3) { G.tick(1 / 60); t += 1 / 60; }
+      G.debug.god(false);
+      P.iframe = 0;
+      G.hurtPlayer(1e9, 'phys');
+      out.died = P.dead;
+      G.debug.step(4.2);
+      out.door = { off: Math.hypot(P.x - z.bossPos.x, P.z - z.bossPos.z) - z.bossR, atDoor: Math.hypot(P.x - z.bossDoor.x, P.z - z.bossDoor.z), walk: W.walkable(P.x, P.z, 0.5), alive: !P.dead };
+      G.debug.god(god0);
+      G.debug.zoneSeed(null);
+      G.enterZone(0, 0);
+      return out;
+    });
+    assert(r.n === 20 && !r.bad.length, '有种子没通过校验：' + r.bad.slice(0, 5).join(' | '));
+    assert(r.custom, '第 0 区应当用新的生成器（有熔岩河），却退回了 legacy：' + JSON.stringify(r));
+    assert(r.mobs >= 20 && r.elites <= 4 && r.legal && r.bossIn && r.chests === 2, '刷怪 / 宝箱不对：' + JSON.stringify(r));
+    assert(!r.lava.walk && r.lava.shot && r.lava.mat && r.bridge, '熔岩河应挡路、不挡子弹，桥面应能走：' + JSON.stringify(r));
+    assert(!r.ford.mid && r.ford.edge && r.ford.walk && r.burn.mob > 0 && r.burn.player > 0, '浅滩两边应灼烧（玩家和小怪都掉血），中间安全：' + JSON.stringify(r));
+    assert(r.died && Math.abs(r.door.off - 2) < 0.01 && r.door.atDoor < 0.01 && r.door.walk && r.door.alive, '首领战里倒下应重生在场地门外：' + JSON.stringify(r.door));
+    return r.n + ' 个种子都过；怪 ' + r.mobs + '（精英 ' + r.elites + '）、宝箱 ' + r.chests + '；灼烧 怪 -' + Math.round(r.burn.mob) + ' 玩家 -' + Math.round(r.burn.player);
+  });
+
 }
 
 main()
