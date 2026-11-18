@@ -18,16 +18,18 @@
     return arr[arr.length - 1];
   };
 
-  G.TYPES = ['phys', 'fire', 'cold', 'light'];
-  G.TYPE_NAME = { phys: '物理', fire: '火焰', cold: '冰霜', light: '闪电' };
-  G.TYPE_COLOR = { phys: '#e6dfd0', fire: '#ff8a3c', cold: '#86d8ff', light: '#ffe45e' };
-  G.TYPE_HEX = { phys: 0xe6dfd0, fire: 0xff7a2c, cold: 0x7fd4ff, light: 0xffe45e };
-  G.CAP = { phys: 'Phys', fire: 'Fire', cold: 'Cold', light: 'Light' };
+  // 混沌（chaos）：伤害提高 = 伤害提高 + 元素伤害提高（只算一次）+ 火焰 / 冰霜 / 闪电三项各自的提高 + 混沌伤害提高，
+  // 总额外只吃 moreChaos，不吃「元素过载」的 moreElem（见 game.js 的 skillCtx）。混沌不是元素：G.ELEMS 里没有它
+  G.TYPES = ['phys', 'fire', 'cold', 'light', 'chaos'];
+  G.TYPE_NAME = { phys: '物理', fire: '火焰', cold: '冰霜', light: '闪电', chaos: '混沌' };
+  G.TYPE_COLOR = { phys: '#e6dfd0', fire: '#ff8a3c', cold: '#86d8ff', light: '#ffe45e', chaos: '#ff6ad2' };
+  G.TYPE_HEX = { phys: 0xe6dfd0, fire: 0xff7a2c, cold: 0x7fd4ff, light: 0xffe45e, chaos: 0xe0279f };
+  G.CAP = { phys: 'Phys', fire: 'Fire', cold: 'Cold', light: 'Light', chaos: 'Chaos' };
 
   G.TAG_NAME = {
     attack: '攻击', spell: '法术', melee: '近战', projectile: '投射物', area: '范围',
     chaining: '连锁', phys: '物理', fire: '火焰', cold: '冰霜', light: '闪电', movement: '位移',
-    minion: '召唤物', summon: '召唤', aura: '光环', weapon: '武器技',
+    minion: '召唤物', summon: '召唤', aura: '光环', weapon: '武器技', chaos: '混沌', duration: '持续',
   };
 
   // ---------- 武器伤害 ----------
@@ -177,6 +179,39 @@
       inherit: 1, casterInherit: 2.2,
       hold: 1,
       desc: '唤起焚骨祭司：裹着焦黑法袍的骸骨术士，站在前排身后远远施法，朝怪最密的地方掷出焚骨火弹，落地炸开一片火焰。每炸到一个敌人攒一点焰蓄，攒满就放大招：怪多时召下坠焰砸向最密的一团，单个强敌（首领、精英、你的集火目标）则引导灼链持续灼烧。身子骨很脆，敌人贴近会先退开，需要仆从和守像挡在前面。基础上限 2 位，只有镶在它身上的群聚能多唤一位（天赋与装备的仆从数量不算）；拿着杖、短杖或魂幡时继承的武器伤害更多。',
+    },
+
+    // ---------- 混沌技能（混沌流） ----------
+    // 混沌吃三种元素伤害提高的总和，基础伤害按同类元素技能的 0.75 倍定：专门堆混沌的角色在 20 / 40 级和堆单一元素的角色秒伤持平
+    // 黑洞：在准星处（最远 range，撞墙截在墙前）撕开 dur 秒的黑洞，每 tick 秒对 radius 以内的敌人造成一跳伤害；
+    //   pullR × radius 以内的敌人被往中心拽：速度 pull × (0.6 + 0.4 × 越靠近中心越快) / √体重，首领固定 bossPull，离中心 core 以内不再拽。
+    //   同一个敌人同一时刻只吃一个黑洞的跳（渊口的小黑洞也算）。持续类法术：回响镶不上
+    blackhole: {
+      name: '黑洞', icon: '洞', color: '#ff6ad2', tags: ['spell', 'area', 'chaos', 'duration'], kind: 'hole',
+      dmg: { chaos: [3.9, 5.8] }, time: 0.5, mana: 20, cd: 6, range: 14,
+      radius: 3.2, pullR: 1.35, dur: 3, tick: 0.25, pull: 4.5, bossPull: 0.5, core: 0.7,
+      w: 0, kb: 0, poise: 2, useMult: 12,
+      desc: '在准星处撕开一个黑洞，持续 3 秒：把周围的敌人往中心拽（越轻拽得越狠，首领几乎拽不动），并持续造成混沌伤害。冷却较长。',
+    },
+    // 黑旋风：一团缓慢推进的漩涡（speed、life 秒），半径 radius 以内的敌人每 tick 秒挨一跳（同一次施放的几团共用这个间隔）；
+    //   圈内的非首领敌人被顺着行进方向带 drag / √体重 米每秒，并往路径中线收一点。
+    //   贯穿镶不上（漩涡本来就穿过所有敌人）；连锁：走到头之后拐向 hop.r 米内这一发还没打过的最近敌人，再走 hop.life 秒
+    vortex: {
+      name: '黑旋风', icon: '涡', color: '#ff6ad2', tags: ['spell', 'projectile', 'area', 'chaos'], kind: 'vortex',
+      dmg: { chaos: [3.6, 5.6] }, time: 0.55, mana: 9, cd: 0,
+      speed: 9, life: 1.6, radius: 1.5, tick: 0.2, drag: 1.2, hop: { r: 8, life: 0.9 },
+      noSup: ['pierce'],
+      w: 0, kb: 0, poise: 3, useMult: 2.5,
+      desc: '放出一团缓慢推进的黑色漩涡，沿途卷住半径内的所有敌人，持续造成混沌伤害，并把它们往前带一小段。',
+    },
+    // 黑焰：光环（buff：不脉冲、自己不造成伤害）。你和召唤物的每一击额外造成 F% 的混沌伤害，
+    //   F = min(cap, k0 + k1 × (宝石等级 − 1)) × (1 + 黑焰效果%)；和注入一样按加成之后、暴击之前的伤害折算（相加，不再吃混沌加成）。
+    //   爆燃 / 电弧这类触发伤害与霜环的脉冲不带黑焰。只能镶节流
+    blackflame: {
+      name: '黑焰', icon: '冥', color: '#e04cc0', tags: ['spell', 'aura', 'chaos'], kind: 'aura', buff: true,
+      mana: 0, reserve: 30, cd: 0, time: 1, w: 0, kb: 0, poise: 0,
+      flame: { k0: 8, k1: 0.4, cap: 25 },
+      desc: '光环：放在技能栏上即常驻生效，保留 30% 最大魔力（以血为引时改为保留生命）。你和召唤物的每一击都附带一缕黑焰，造成相当于这一击伤害一定比例的额外混沌伤害。只能镶节流。',
     },
 
     // ---------- 武器技（R 键）：每种武器自带一个，跟着手里的武器走 ----------
@@ -477,8 +512,17 @@
     deathMin: 0.5, deathGen: 2, deathMax: 10,
     deathBoltN: 3, deathBolt: 0.6,
     shatterR: 3, shatter: 0.4, shatterCap: 0.6,
+    // 混沌 → 渊缚：小怪定身 bind 秒（精英 bindElite）并被往最近的黑洞（bindR 以内）拽，附近没有黑洞就往 packR 以内的怪群中心拽：
+    //   每秒 bindPull / √体重 米，一次最多 bindPullMax 米；冻结中不拽。首领不定不拽，改为 bossBind 秒减速 bossBindSlow（和冰缓取较大的那个）。
+    //   渊缚期间不再累积混沌异常值。死亡时（异常值 ≥ deathMin 或正被渊缚）在尸体处「渊陷」：voidR 以内的小怪被往尸体拽 voidT 秒（每秒 voidPull / √体重 米），不造成伤害
+    bind: 1.0, bindElite: 0.6, bossBind: 2.5, bossBindSlow: 0.4,
+    bindPull: 6, bindPullMax: 3.5, bindR: 8, packR: 5,
+    voidR: 3, voidPull: 5, voidT: 0.35,
   };
+  G.BUILDUP.rate.chaos = 1.4; // 混沌技能的基础伤害低，累积速度放在冰霜和闪电之间
   G.ELEMS = ['fire', 'cold', 'light'];
+  // 有异常值的伤害类型：三种元素 + 混沌（混沌另有自己的触发「渊缚」）
+  G.BUILD_TYPES = ['fire', 'cold', 'light', 'chaos'];
 
   // ---------- 辅助宝石 ----------
   // req：技能需带有其中任一标签；no：带有其中任一标签的技能不能镶（可缺省）；eff：效果；cost：魔力消耗倍率。
@@ -494,12 +538,13 @@
     fire: { name: '灼炎注入', req: null, cost: 1.2, eff: { extra: { fire: 30 } }, desc: '获得相当于伤害 30% 的额外火焰伤害' },
     cold: { name: '寒霜注入', req: null, cost: 1.2, eff: { extra: { cold: 30 } }, desc: '获得相当于伤害 30% 的额外冰霜伤害' },
     light: { name: '雷霆注入', req: null, cost: 1.2, eff: { extra: { light: 30 } }, desc: '获得相当于伤害 30% 的额外闪电伤害' },
+    chaos: { name: '混沌注入', req: null, cost: 1.2, eff: { extra: { chaos: 30 } }, desc: '获得相当于伤害 30% 的额外混沌伤害' },
     brutal: { name: '蛮力', req: ['phys'], cost: 1.2, eff: { moreType: { phys: 35 } }, desc: '物理伤害额外提高 35%' },
     precise: { name: '致命', req: null, cost: 1.15, eff: { critFlat: 8, critMulti: 40 }, desc: '暴击率 +8%，暴击伤害 +40%' },
     leech: { name: '汲生', req: null, no: ['minion'], cost: 1.1, eff: { leech: 3 }, desc: '造成伤害的 3% 转化为生命' },
-    echo: { name: '回响', req: ['spell'], no: ['summon', 'aura'], cost: 1.4, eff: { echo: 1, more: -30 }, desc: '法术自动重复施放一次，伤害减少 30%' },
+    echo: { name: '回响', req: ['spell'], no: ['summon', 'aura', 'duration'], cost: 1.4, eff: { echo: 1, more: -30 }, desc: '法术自动重复施放一次，伤害减少 30%（持续类法术镶不上）' },
     stagger: { name: '震慑', req: ['attack', 'minion'], cost: 1.15, eff: { stun: 0.7 }, desc: '击中时使非首领敌人眩晕 0.7 秒' },
-    ailment: { name: '蚀染', req: null, cost: 1.1, eff: { ailment: 35 }, desc: '元素异常值的累积速度加快 35%（更快触发爆燃、冻结、感电）' },
+    ailment: { name: '蚀染', req: null, cost: 1.1, eff: { ailment: 35 }, desc: '异常值的累积速度加快 35%（更快触发爆燃、冻结、感电与渊缚）' },
     frugal: { name: '节流', req: null, cost: 0.6, eff: { cdr: 25 }, desc: '魔力消耗减少 40%（光环的魔力保留同样减少 40%），冷却时间缩短 25%' },
     // 召唤物专用
     dominion: { name: '驭灵', req: ['minion'], cost: 1.25, eff: { minionMore: 30 }, desc: '召唤物造成的伤害额外提高 30%' },
@@ -517,11 +562,13 @@
     incLight: '闪电伤害提高 {v}%', incElem: '元素伤害提高 {v}%', incAll: '伤害提高 {v}%',
     addPhys: '附加 {a}–{b} 物理伤害', addFire: '附加 {a}–{b} 火焰伤害',
     addCold: '附加 {a}–{b} 冰霜伤害', addLight: '附加 {a}–{b} 闪电伤害',
+    incChaos: '混沌伤害提高 {v}%', addChaos: '附加 {a}–{b} 混沌伤害', moreChaos: '混沌伤害总额外 {s}{v}%',
+    bindAil: '渊缚累积速度加快 {v}%', flameEff: '黑焰的额外混沌伤害提高 {v}%', holeDur: '黑洞持续时间延长 {v}%', pullK: '黑洞与渊缚的牵引力提高 {v}%',
     resFire: '+{v}% 火焰抗性', resCold: '+{v}% 冰霜抗性', resLight: '+{v}% 闪电抗性',
     speed: '攻击与施法速度提高 {v}%', crit: '暴击率提高 {v}%', critMulti: '+{v}% 暴击伤害',
     lifeRegen: '每秒回复 {v} 生命', manaRegen: '魔力回复速度提高 {v}%', lifeOnKill: '击杀回复 {v} 生命',
     moveSpeed: '移动速度提高 {v}%', rarity: '掉落物品稀有度提高 {v}%',
-    area: '技能范围扩大 {v}%', ailment: '元素异常值累积速度加快 {v}%', costReduce: '技能消耗降低 {v}%',
+    area: '技能范围扩大 {v}%', ailment: '异常值累积速度加快 {v}%（含渊缚）', costReduce: '技能消耗降低 {v}%',
     dodgeCd: '翻滚冷却缩短 {v}%', moreDmg: '总伤害额外 {s}{v}%', lessTaken: '受到的伤害减少 {v}%',
     moreLife: '最大生命额外 {s}{v}%', bloodMagic: '技能消耗生命而非魔力，光环改为保留生命',
     minionDmg: '召唤物伤害提高 {v}%', minionLife: '召唤物最大生命提高 {v}%',
@@ -656,6 +703,10 @@
     A('manaRegen', 'suffix', '清明', 'manaRegen', 8, 14, 1.3, ['helm', 'weapon'].concat(JEW), 5),
     A('lifeOnKill', 'suffix', '嗜血', 'lifeOnKill', 1, 3, 1.4, ['weapon', 'gloves', 'ring'], 4),
     A('rarity', 'suffix', '寻宝', 'rarity', 5, 9, 1.25, ['helm', 'gloves', 'boots'].concat(JEW), 4),
+    // 混沌：混沌伤害提高只给混沌（三种元素的提高也给混沌），附加混沌比元素附加低一档（混沌吃三份加成）
+    A('incChaos', 'prefix', '渊蚀', 'incChaos', 6, 10, 1.35, ['weapon'].concat(JEW), 4),
+    A('addChaos', 'prefix', '蚀刻', 'addChaos', 1, 3, 1.5, ['weapon', 'gloves'].concat(JEW), 3),
+    A('bindAil', 'suffix', '缚渊', 'bindAil', 8, 13, 1.3, ['weapon', 'gloves', 'amulet'], 4),
     // 召唤物词缀。baseW：按基底（BASES 里的下标）调整出现权重——杖类武器（木杖 / 骨杖）更容易出召唤物伤害；
     // minIlvl / rareOnly：只在物品等级够高的稀有物品上出现
     Object.assign(A('minionDmg', 'prefix', '统御', 'minionDmg', 6, 10, 1.35, ['weapon'].concat(JEW), 5), { baseW: { weapon: [0.4, 1.8, 1.8, 0.4, 0.4, 0.4, 0.4, 2.6, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2] } }),
@@ -676,7 +727,7 @@
   ];
   G.AFFIX_BY_ID = {};
   for (const a of G.AFFIXES) G.AFFIX_BY_ID[a.id] = a;
-  for (const id of ['moveSpeed', 'resFire', 'resCold', 'resLight', 'speed', 'crit', 'critMulti', 'manaRegen', 'rarity', 'uAilment', 'heatGain', 'focusGain']) G.AFFIX_BY_ID[id].soft = true;
+  for (const id of ['moveSpeed', 'resFire', 'resCold', 'resLight', 'speed', 'crit', 'critMulti', 'manaRegen', 'rarity', 'uAilment', 'heatGain', 'focusGain', 'bindAil']) G.AFFIX_BY_ID[id].soft = true;
 
   // ---------- 烬铸武器（稀有度 3）----------
   // 名字、武器类型和词缀行都是固定的，只有数值在区间里掷。区间跟着物品等级走：每一行取这条词缀在该物品等级最高阶的区间，
@@ -714,13 +765,23 @@
       lines: [{ id: 'wInc', k: [1.6, 2.2] }, { id: 'incCold', k: [1.2, 1.7] }, { id: 'focusGain', k: [1.2, 1.7] }, { id: 'crit', k: [1.2, 1.7] }],
       lore: '衔星巨兽吞下的星辰在它腹中冻成了冰，坠落时迸出的每一片，都削成了一根羽箭。',
     },
+    // 星蚀（短杖）：衔星巨兽掉，和凛羽共用一次掉落判定与保底（G.UNIQUE_ALT）。没有专属烬铸技：拿着它时武器技秘弹连射的属性固定为混沌。
+    // 机制「渊口」见 G.VOID_MOUTH
+    xingshi: {
+      name: '星蚀', base: 2, boss: 'behemoth', bossZone: 'rift', mech: 'void', mechName: '渊口',
+      lines: [{ id: 'incChaos', k: [1.6, 2.2] }, { id: 'addChaos', k: [1.2, 1.6] }, { id: 'bindAil', k: [1.3, 1.8] }, { id: 'speed', k: [1.0, 1.4] }],
+      lore: '衔星巨兽背上那块坠星早已烧空了芯，只剩一圈吞光的黑，握在手里能听见它在往里塌。',
+    },
   };
   G.UNIQUE_IDS = Object.keys(G.UNIQUES);
   G.UNIQUE_BY_BOSS = {};
+  // 同一个首领的第二把（及以后的）烬铸：首领 → [烬铸 id]。掉落判定次数与保底不变，掉了之后一半给 UNIQUE_BY_BOSS 的那把、一半给这里的（见 game.js 的 uniqueDrop）
+  G.UNIQUE_ALT = {};
   // 首领 → 它掉的烬铸 id。boss 不在 G.BOSSES 里时（新首领还没定名）按 bossZone 取那个区域的首领（game.js 启动时再对一遍）
   // 实在对不上（那个首领还不存在）时：U.boss 暂时指向最后一个区域的首领（只为界面能显示），但不登记掉落
   G.syncUniqueBosses = function () {
     for (const k of Object.keys(G.UNIQUE_BY_BOSS)) delete G.UNIQUE_BY_BOSS[k];
+    for (const k of Object.keys(G.UNIQUE_ALT)) delete G.UNIQUE_ALT[k];
     const B = G.BOSSES || {};
     for (const id of G.UNIQUE_IDS) {
       const U = G.UNIQUES[id];
@@ -733,6 +794,9 @@
       if (B[b] && !G.UNIQUE_BY_BOSS[b]) {
         U.boss = b;
         G.UNIQUE_BY_BOSS[b] = id;
+      } else if (B[b]) {
+        U.boss = b;
+        (G.UNIQUE_ALT[b] = G.UNIQUE_ALT[b] || []).push(id);
       } else if (!B[b] && G.ZONES && G.ZONES.length) {
         U.boss = G.ZONES[G.ZONES.length - 1].boss;
       }
@@ -767,6 +831,11 @@
   G.EMBER_MECH = { ignite: 0.12 };
   G.UNIQUES.rongxin.mechDesc = '每一轮的最后一发是熔芯弹：必定暴击，并在命中处炸开，对周围 ' + G.CORE_ROUND.r + ' 米内的其他敌人造成 ' + pc(G.CORE_ROUND.mult) + ' 的火焰伤害。';
   G.UNIQUES.jinyu.mechDesc = '每支箭命中后迸出冰晶，在附近的敌人之间连跳，每跳造成冰霜伤害并额外灌入 ' + pc(G.EMBER_MECH.ignite) + ' 条冰霜异常值。';
+  // 渊口（星蚀）：任何敌人触发渊缚时，脚下张开一道小黑洞：半径 radius、持续 dur 秒、牵引 × pull、每跳伤害按你的黑洞宝石的 dmg 倍
+  //   （没学黑洞时按同等级的基础值）；同时最多 max 道，每 gap 秒最多新开一道
+  G.VOID_MOUTH = { radius: 2.4, dur: 1.5, pull: 0.6, dmg: 0.5, max: 2, gap: 2 };
+  G.UNIQUES.xingshi.mechDesc = '任何敌人触发渊缚时，在它脚下张开一道渊口：持续 ' + G.VOID_MOUTH.dur + ' 秒的小黑洞，半径 ' + G.VOID_MOUTH.radius + ' 米，牵引是黑洞的 ' + pc(G.VOID_MOUTH.pull) +
+    '，每跳伤害按你的黑洞的 ' + pc(G.VOID_MOUTH.dmg) + '。同时最多 ' + G.VOID_MOUTH.max + ' 道，每 ' + G.VOID_MOUTH.gap + ' 秒最多新开一道。武器技秘弹连射的属性固定为混沌。';
   // 分解烬铸武器固定得到的通货
   G.UNIQUE_SALVAGE = { exalt: 2, chaos: 2, divine: 1, chisel: 1 };
 
@@ -976,6 +1045,20 @@
     at(D, 'bw1', 4.6, 67, '远射', { rangeDmg: 20 }, 'small', ['bw0']);
     at(D, 'bw2', 4.2, 78, '屏息', { buffDur: 15 }, 'small', ['bw1']);
     at(D, 'bwn', 3.1, 80, '鹰隼之息', { focusGain: 15, buffDur: 20, rangeDmg: 15 }, 'notable', ['bw2']);
+    // ---------- 噬渊（混沌流加的 9 个节点）----------
+    // 正上方（270°）内圈原来空着的楔形：半径 1.35–5.35，夹在秘识的右旁支（≤ 232°）、统御的左旁支（≥ 303°）和上方交汇团（半径 6 起）之间。
+    // 只从起点连出去，不连交汇团（不给上方交汇团开捷径）。旧节点一个不动。128 → 137 个节点（不含起点）
+    const C = { key: 'c', color: '#ff6ad2' };
+    at(C, 'cm0', 1.35, 270, '蚀心', { incChaos: 8 }, 'small', ['start']);
+    at(C, 'cm1', 2.35, 270, '缚引', { bindAil: 10 }, 'small', ['cm0']);
+    at(C, 'cm2', 3.35, 270, '蚀心', { incChaos: 10 }, 'small', ['cm1']);
+    at(C, 'cm3', 4.35, 270, '渊潮', { incChaos: 15, incElem: 8, area: 6 }, 'notable', ['cm2']);
+    // 基石：混沌伤害总额外提高，代价是最大生命（纯混沌流也躲不开的代价）
+    at(C, 'ck', 5.35, 270, '万籁俱寂', { moreChaos: 25, moreLife: -15 }, 'keystone', ['cm3']);
+    at(C, 'cl0', 3.3, 251, '噬光', { incChaos: 8, mana: 10 }, 'small', ['cm1']);
+    at(C, 'cl1', 4.4, 249, '幽焰', { flameEff: 25, incChaos: 10 }, 'notable', ['cl0']);
+    at(C, 'cr0', 3.3, 289, '沉坠', { bindAil: 10, holeDur: 10 }, 'small', ['cm1']);
+    at(C, 'cr1', 4.4, 291, '视界', { holeDur: 20, pullK: 30, bindAil: 15 }, 'notable', ['cr0']);
   })();
 
   // ---------- 区域 ----------

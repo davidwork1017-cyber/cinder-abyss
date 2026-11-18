@@ -636,6 +636,13 @@
     }
     return Math.round(sk.reserve * k * 10) / 10;
   };
+  // 黑焰：此刻每一击额外的混沌伤害百分比（没放在技能栏上为 0）。F = min(cap, k0 + k1 × (等级 − 1)) × (1 + 黑焰效果%)
+  G.flamePct = function () {
+    if (!G.auraOn('blackflame')) return 0;
+    const f = G.SKILLS.blackflame.flame;
+    const lvl = G.save.skills.blackflame || 1;
+    return Math.min(f.cap, f.k0 + f.k1 * (lvl - 1)) * (1 + Math.max(0, (P.S && P.S.flameEff) || 0) / 100);
+  };
   // 技能栏上所有生效的光环一共保留的百分比（封顶 90%）
   G.reservePct = function () {
     let pct = 0;
@@ -659,6 +666,8 @@
     const sk = G.SKILLS[skillId];
     const sup = G.SUPPORTS[supId];
     if (!sk || !sup || (sk.weaponOnly && !sk.basic)) return false; // 武器技镶不了辅助（远程普攻例外：镶在武器普攻卡上）
+    if (sk.noSup && sk.noSup.indexOf(supId) >= 0) return false; // 黑旋风：贯穿没有意义
+    if (sk.buff) return sup.cost < 1; // 黑焰这类增益光环：只认降低消耗（保留）的辅助
     if (sup.no && sup.no.some((tag) => sk.tags.indexOf(tag) >= 0)) return false;
     if (sup.noKind && sk.minion && sup.noKind.indexOf(sk.minion) >= 0) return false;
     if (!sup.req) return true;
@@ -801,7 +810,9 @@
     }
     const scale = sk.kind === 'summon' || sk.asMinion || sk.champ ? G.minionDmgK(lvl) : 1 + 0.2 * (lvl - 1);
     if (sk.edmg) {
-      out[G.topElem(sk.elem)] = [sk.edmg[0] * scale, sk.edmg[1] * scale];
+      // 星蚀（渊口）：拿着它时短杖的秘弹连射固定为混沌
+      const el = sk.kind === 'wwand' && P.uMech === 'void' ? 'chaos' : G.topElem(sk.elem);
+      out[el] = [sk.edmg[0] * scale, sk.edmg[1] * scale];
       return out;
     }
     for (const t in sk.dmg) out[t] = [sk.dmg[t][0] * scale, sk.dmg[t][1] * scale];
@@ -848,7 +859,12 @@
     for (const t of TYPES) {
       inc[t] = mScale ? S.minionDmg || 0 : (S.incAll || 0) + (t === 'phys' ? S.incPhys || 0 : (S.incElem || 0) + (S['inc' + G.CAP[t]] || 0));
       // 基石「元素过载」：你的元素伤害总额外提高（召唤物不吃）
-      moreType[t] = !mScale && t !== 'phys' ? Math.max(0, 1 + (S.moreElem || 0) / 100) : 1;
+      moreType[t] = !mScale && t !== 'phys' && t !== 'chaos' ? Math.max(0, 1 + (S.moreElem || 0) / 100) : 1;
+    }
+    // 混沌：吃三种元素各自的伤害提高（元素伤害提高上面已经算过一次）+ 混沌伤害提高；总额外只吃 moreChaos（不吃元素过载）
+    if (!mScale) {
+      inc.chaos += (S.incFire || 0) + (S.incCold || 0) + (S.incLight || 0);
+      moreType.chaos = Math.max(0, 1 + (S.moreChaos || 0) / 100);
     }
 
     // 基石「万骸之主」：你自己（非召唤物）的伤害总额外降低（处决也算你自己的伤害）
@@ -918,6 +934,10 @@
       // 烬断（残刃）：瞬断的冷却减半
       cd: sk.cd * (1 - Math.min(80, cdr) / 100),
       leech, stun, ailment, echo: isAura ? 0 : echo,
+      // 混沌异常值（渊缚）另外再加的累积速度（异常累积速度 ailment 对它同样生效）
+      bindAil: mScale ? 0 : S.bindAil || 0,
+      // 黑焰：每一击额外的混沌伤害（%）。光环自己的脉冲（霜环）不带
+      flame: isAura ? 0 : G.flamePct(),
       reserve: isAura ? G.auraReserve(id) : 0,
       minion: null,
       // 攻击技能：attack 为 true，weapon 是此刻的武器面板（G.weaponStats），wm 武器倍率，levelK 等级加成
@@ -1076,6 +1096,8 @@
     }
     // 额外伤害按暴击前的总伤害折算
     for (const t in ctx.extra) parts[t] = (parts[t] || 0) + (pre * ctx.extra[t]) / 100;
+    // 黑焰：同一个 pre（和注入相加，不再吃混沌加成）
+    if (ctx.flame > 0) parts.chaos = (parts.chaos || 0) + (pre * ctx.flame) / 100;
     const crit = Math.random() * 100 < ctx.crit;
     const k = ctx.more * (crit ? ctx.critMulti / 100 : 1) * m;
     let total = 0;
@@ -1089,7 +1111,7 @@
   G.avgHit = function (ctx) {
     let pre = 0;
     for (const t in ctx.base) pre += ((ctx.base[t][0] + ctx.base[t][1]) / 2) * typeMult(ctx, t);
-    let extraPct = 0;
+    let extraPct = ctx.flame > 0 ? ctx.flame : 0;
     for (const t in ctx.extra) extraPct += ctx.extra[t];
     const critK = 1 + (ctx.crit / 100) * (ctx.critMulti / 100 - 1);
     // 连击技能按三段的平均倍率折算（ctx.time 也是平均段长）；武器技按一次施放对单体的倍率总和（useMult）折算
@@ -1141,7 +1163,7 @@
     // 砸地 / 引信蓄力中的怪钉在原地（预警圈的位置才对得上）；被打断的不在此列
     if (e.state === 'fuse' || e.state === 'dash' || (e.state === 'windup' && e.def.ai === 'slam')) return; // 陨角兽冲锋中也不被推离冲锋道
     let v = (dist * KB_DECAY) / (e.mass || 1);
-    if (e.freeze > 0 || e.brokenT > 0) v *= 0.35;
+    if (e.freeze > 0 || e.brokenT > 0 || e.bindT > 0) v *= 0.35; // 渊缚中也只推三成多，免得刚拽进来又被打飞
     e.kvx += Math.sin(ang) * v;
     e.kvz += Math.cos(ang) * v;
     const m = Math.hypot(e.kvx, e.kvz), cap = 26;
@@ -1166,10 +1188,14 @@
     return e.buTh * e.buGrow[t];
   };
   G.initBuildUp = function (e) {
-    e.bu = { fire: 0, cold: 0, light: 0 };
-    e.buT = { fire: 0, cold: 0, light: 0 }; // 距离开始回落还有多久
-    e.buGrow = { fire: 1, cold: 1, light: 1 };
-    e.buTrig = { fire: 0, cold: 0, light: 0 }; // 各元素触发过几次
+    e.bu = { fire: 0, cold: 0, light: 0, chaos: 0 };
+    e.buT = { fire: 0, cold: 0, light: 0, chaos: 0 }; // 距离开始回落还有多久
+    e.buGrow = { fire: 1, cold: 1, light: 1, chaos: 1 };
+    e.buTrig = { fire: 0, cold: 0, light: 0, chaos: 0 }; // 各元素触发过几次
+    // 渊缚：bindT 定身剩余秒数；bindX / bindZ 牵引的目标点，bindLeft 还能拽多远；bossBind 首领的减速剩余秒数；
+    // voidT / voidX / voidZ 渊陷的牵引（死亡触发拽附近的小怪）
+    e.bindT = e.bindLeft = e.bossBind = e.voidT = 0;
+    e.bindX = e.bindZ = e.voidX = e.voidZ = 0;
     e.buFire = e.buFireN = 0; // 灌进火焰异常值的火焰伤害（已乘上异常累积速度）与命中次数：爆燃按平均每击算
     e.buLit = e.buLitN = 0; // 同上，闪电：死亡放电按平均每击算
     e.buTh = Math.max(1, e.maxHp * (e.isBoss ? BU.boss : e.elite ? BU.thElite : BU.th));
@@ -1192,6 +1218,7 @@
     if (!(frac > 0)) return false;
     if (t === 'cold' && (e.freeze > 0 || e.bossChill > 0 || e.brokenT > 0)) return false; // 冻着 / 重度冰缓 / 破绽中不再累积
     if (t === 'light' && e.shockT > 0) return false;
+    if (t === 'chaos' && (e.bindT > 0 || e.bossBind > 0 || e.brokenT > 0)) return false; // 渊缚中 / 破绽中不再累积
     e.bu[t] += frac;
     e.buT[t] = BU.hold;
     if (e.bu[t] < 1) return false;
@@ -1210,12 +1237,17 @@
     flushProcs();
   };
   // 一击的元素伤害累积进异常值；满了就把触发记进 procs（由最外层的 G.hitEnemy 统一结算，触发出来的伤害不会打乱技能逐个读取 lastHit）
-  function addBuildUp(e, parts, ailment, procs) {
+  function addBuildUp(e, parts, ailment, procs, bindAil) {
     if (!e.bu) G.initBuildUp(e);
     const k = Math.max(0, 1 + (ailment || 0) / 100);
-    for (const t of G.ELEMS) {
+    for (const t of G.BUILD_TYPES) {
       const v = parts[t];
       if (!(v > 0)) continue;
+      if (t === 'chaos') {
+        // 混沌：另外再吃渊缚累积速度
+        fillMeter(e, t, (v / G.buThreshold(e, t)) * Math.max(0, k + (bindAil || 0) / 100) * BU.rate.chaos, procs);
+        continue;
+      }
       // 锁定中（见 fillMeter）的这一击不计入平均每击
       if (t === 'cold' && (e.freeze > 0 || e.bossChill > 0 || e.brokenT > 0)) continue;
       if (t === 'light' && e.shockT > 0) continue;
@@ -1229,9 +1261,9 @@
       fillMeter(e, t, (v / G.buThreshold(e, t)) * k * (BU.rate[t] || 1), procs);
     }
   }
-  G.addBuildUp = function (e, parts, ailment) {
+  G.addBuildUp = function (e, parts, ailment, bindAil) {
     const procs = [];
-    addBuildUp(e, parts, ailment, procs);
+    addBuildUp(e, parts, ailment, procs, bindAil);
     for (const p of procs) triggerAilment(p);
     return procs.length;
   };
@@ -1275,10 +1307,64 @@
       W.text(e.x, e.z, '感电', '#fff08a', e.isBoss ? 26 : 22, { kind: 'tag', y: ty, py: e.isBoss ? -30 : 0 });
       W.burst(e.x, h * 0.6, e.z, 0xffe45e, 18, 5, 0.35);
       G.sfx('impact', { type: 'light', w: 1, crit: false });
+    } else if (p.t === 'chaos') {
+      if (e.dead) return;
+      triggerBind(e, ty);
+      return; // 混沌不是元素：不引发三相共鸣
     }
     // 三相之心：正常触发的异常引发共鸣；共鸣直接灌满触发的（p.spread）不再引发，链条到此为止
     if (P.uMech === 'tri' && !p.spread) triSpread(e, p.t, p.t === 'fire' ? p.fire : e.buFireN > 0 ? Math.min((e.buFire / e.buFireN) * BU.blast, e.buTh * BU.blastCap) : 0);
   }
+
+  // ---------- 渊缚（混沌异常）----------
+  // 小怪 / 精英：定身并往最近的黑洞（bindR 以内）拽，没有黑洞就往怪群中心（packR 以内活着的敌人的平均位置）拽，附近只有它自己时只定身；
+  // 首领：不定不拽，bossBind 秒减速。拽的位移在 enemies.js 里按 bindX / bindZ / bindLeft 每帧走（撞墙即停、冻结中不拽）
+  function triggerBind(e, ty) {
+    const W = G.world;
+    const st = state.stats;
+    st.binds = (st.binds || 0) + 1;
+    if (e.isBoss) {
+      e.bossBind = BU.bossBind;
+      W.text(e.x, e.z, '渊缚', '#ffb3e6', 26, { kind: 'tag', y: ty, py: -30 });
+      if (W.bindFx) W.bindFx(e.x, e.z, e.r, e.height || 2, true);
+      G.sfx('impact', { type: 'chaos', w: 1, crit: false });
+      return;
+    }
+    e.bindT = Math.max(e.bindT || 0, e.elite ? BU.bindElite : BU.bind);
+    let tx = null, tz = null;
+    const hole = nearestHole(e.x, e.z, BU.bindR);
+    if (hole) {
+      tx = hole.x;
+      tz = hole.z;
+    } else {
+      let sx = 0, sz = 0, n = 0;
+      for (const o of state.enemies) {
+        if (o.dead || o.isBoss || dist(o.x, o.z, e.x, e.z) > BU.packR) continue;
+        sx += o.x;
+        sz += o.z;
+        n++;
+      }
+      if (n > 1) {
+        tx = sx / n;
+        tz = sz / n;
+      }
+    }
+    if (tx !== null) {
+      e.bindX = tx;
+      e.bindZ = tz;
+      e.bindLeft = BU.bindPullMax;
+    } else e.bindLeft = 0;
+    W.text(e.x, e.z, '渊缚', '#ffb3e6', e.elite ? 24 : 20, { kind: 'tag', y: ty });
+    if (W.bindFx) W.bindFx(e.x, e.z, e.r, e.height || 2, false);
+    G.sfx('impact', { type: 'chaos', w: 1, crit: false });
+    // 星蚀（渊口）：触发渊缚的敌人脚下张开一道小黑洞
+    if (P.uMech === 'void') voidMouth(e.x, e.z);
+  }
+  G.triggerBind = function (e) {
+    triggerBind(e, Math.min(3.4, (e.height || 2) * (e.elite ? 1.3 : 1)) + 0.3);
+  };
+  // 渊缚 / 渊陷的牵引速度（米 / 秒）：体重越大越慢
+  G.bindPullSpeed = (e, v) => (v * (1 + Math.max(0, (P.S && P.S.pullK) || 0) / 100)) / Math.sqrt(e.mass || 1);
 
   // ---------- 烬铸武器的机制 ----------
   // 三相共鸣：src 身上触发了 t，半径 TRI.r 内的敌人（包括 src 自己）立刻获得另外两种元素各 TRI.k 条异常值。
@@ -1455,8 +1541,8 @@
     const st = state.stats;
     const gen = procGen + 1;
     let shatter = false;
-    for (const t of G.ELEMS) {
-      if (!(e.bu[t] >= BU.deathMin || (t === 'cold' && e.freeze > 0) || (t === 'light' && e.shockT > 0))) continue;
+    for (const t of G.BUILD_TYPES) {
+      if (!(e.bu[t] >= BU.deathMin || (t === 'cold' && e.freeze > 0) || (t === 'light' && e.shockT > 0) || (t === 'chaos' && e.bindT > 0))) continue;
       if (state.time !== deathFrame) {
         deathFrame = state.time;
         deathN = 0;
@@ -1469,7 +1555,7 @@
       const p = { t, e, death: true, gen, fire: 0, lit: 0 };
       if (t === 'fire') p.fire = blastDmg(e);
       else if (t === 'light') p.lit = (e.buLit / Math.max(1, e.buLitN)) * BU.deathBolt;
-      else shatter = true;
+      else if (t === 'cold') shatter = true;
       procQ.push(p);
     }
     return shatter;
@@ -1478,7 +1564,22 @@
   function deathTrigger(p) {
     if (p.t === 'fire') corpseBlast(p);
     else if (p.t === 'light') deathDischarge(p);
+    else if (p.t === 'chaos') voidImplode(p);
     else shatterCold(p);
+  }
+  // 渊陷：尸体处往里一陷，voidR 以内的小怪被往尸体拽 voidT 秒（精英 / 首领不拽）；不造成伤害、不累积异常值，不会连锁
+  function voidImplode(p) {
+    const e = p.e, W = G.world, st = state.stats;
+    st.voids = (st.voids || 0) + 1;
+    const R = BU.voidR + e.r * 0.5;
+    if (W.voidFx) W.voidFx(e.x, e.z, R);
+    W.text(e.x, e.z, '渊陷', '#ffb3e6', 22, { kind: 'tag', y: deathTag(e) });
+    for (const o of enemiesIn(e.x, e.z, R)) {
+      if (o === e || o.isBoss || o.elite) continue;
+      o.voidT = BU.voidT;
+      o.voidX = e.x;
+      o.voidZ = e.z;
+    }
   }
   function deathTag(e) {
     return Math.min(3.4, (e.height || 2) * (e.elite ? 1.3 : 1)) + 0.3;
@@ -1517,7 +1618,7 @@
   // 敌人身上的异常值每帧走：回落、感电 / 重度冰缓 / 爆燃标记倒计时。返回此刻的减速比例（0..1）
   G.tickBuildUp = function (e, dt) {
     if (!e.bu) G.initBuildUp(e);
-    for (const t of G.ELEMS) {
+    for (const t of G.BUILD_TYPES) {
       if (e.buT[t] > 0) e.buT[t] -= dt;
       else if (e.bu[t] > 0) {
         const b0 = e.bu[t];
@@ -1534,7 +1635,14 @@
     if (e.bossChill > 0) e.bossChill -= dt;
     if (e.blastT > 0) e.blastT -= dt;
     if (e.faintT > 0) e.faintT -= dt;
-    return Math.max(e.bu.cold * BU.chill, e.bossChill > 0 ? BU.bossSlow : 0);
+    if (e.bindT > 0) {
+      e.bindT -= dt;
+      if (e.bindT <= 0) e.bindT = e.bindLeft = 0;
+    }
+    if (e.bossBind > 0) e.bossBind -= dt;
+    if (e.voidT > 0) e.voidT -= dt;
+    // 冰缓 / 重度冰缓 / 首领的渊缚减速：取较大的那个，不相加
+    return Math.max(e.bu.cold * BU.chill, e.bossChill > 0 ? BU.bossSlow : 0, e.bossBind > 0 ? BU.bossBindSlow : 0);
   };
 
   // info（可选）：{ ang 这一击行进的方向（缺省 = 从玩家指向敌人）, w 分量（0 轻 / 1 重 / 2 终结；缺省取技能数据）,
@@ -1632,7 +1740,7 @@
 
     // 元素异常值：这一击里的每种元素按伤害累积，满了就触发（结算放到最外层的命中结束时）
     procDepth++;
-    if (!inf.noBuild) addBuildUp(e, hit.parts, ctx.ailment, procQ);
+    if (!inf.noBuild) addBuildUp(e, hit.parts, ctx.ailment, procQ, ctx.bindAil);
     // 感电中的敌人挨打：放电弧（电弧本身不再触发）
     if (!inf.bolt && e.shockT > 0 && !(e.shockCd > 0)) {
       e.shockCd = BU.shockGap; // 排进队列时就开始节流：同一击里再挨一下（比如紧跟着的爆燃）不会再排第二次
@@ -3118,6 +3226,164 @@
   }
   G.rangedFields = () => fields;
 
+  // =====================================================================
+  // 混沌流：黑洞、黑旋风（以及星蚀的渊口）
+  // =====================================================================
+  // 黑洞 { x, z, R 伤害半径, pullR 牵引半径, t, dur, tick, tt, ctx, mult, pullMul, mouth 是不是渊口, fx world 的句柄 }
+  // 黑旋风 { x, z, dx, dz, speed, life, R, ctx, cast 同一次施放共用的「敌人 → 下次可挨跳的时刻」, hit 这一发打过的, chain, fx }
+  const holes = [];
+  const vortices = [];
+  const HOLE_MAX = 3; // 场上玩家的黑洞（含渊口）最多几个，多了顶掉最老的
+  let mouthCd = 0; // 渊口：距离下次能新开还有几秒
+  // 和击退一样的豁免：砸地蓄力、引信、陨角兽冲锋中的怪钉在原地（预警圈的位置才对得上）
+  const pinned = (e) => e.state === 'fuse' || e.state === 'dash' || (e.state === 'windup' && e.def && e.def.ai === 'slam');
+  function nearestHole(x, z, R) {
+    let best = null, bd = R;
+    for (const h of holes) {
+      const d = dist(h.x, h.z, x, z);
+      if (d <= bd) {
+        bd = d;
+        best = h;
+      }
+    }
+    return best;
+  }
+  function addHole(h) {
+    while (holes.length >= HOLE_MAX) removeHole(0);
+    h.fx = G.world.makeHole ? G.world.makeHole(h.x, h.z, h.R, h.mouth) : null;
+    holes.push(h);
+    return h;
+  }
+  function removeHole(i) {
+    const h = holes[i];
+    holes.splice(i, 1);
+    if (h.fx && G.world.removeHole) G.world.removeHole(h.fx);
+  }
+  function removeVortex(i) {
+    const v = vortices[i];
+    vortices.splice(i, 1);
+    if (v.fx && G.world.removeVortex) G.world.removeVortex(v.fx);
+  }
+  // 渊口：小黑洞，伤害按黑洞宝石（没学时按同等级的基础值）× VOID_MOUTH.dmg
+  function voidMouth(x, z) {
+    const VM = G.VOID_MOUTH;
+    if (mouthCd > 0 || !G.SKILLS.blackhole) return null;
+    if (holes.filter((h) => h.mouth).length >= VM.max) return null;
+    mouthCd = VM.gap;
+    const ctx = G.skillCtx('blackhole');
+    if (!G.save.skills.blackhole) ctx.base = G.skillBase('blackhole', G.gemFloor());
+    const sk = ctx.sk, R = VM.radius * Math.sqrt(ctx.area);
+    state.stats.mouths = (state.stats.mouths || 0) + 1;
+    return addHole({ x, z, R, pullR: R * sk.pullR, t: 0, dur: VM.dur, tick: sk.tick, tt: sk.tick, ctx, mult: VM.dmg, pullMul: VM.pull, mouth: true });
+  }
+  G.voidMouth = voidMouth;
+
+  function updateChaos(dt) {
+    const W = G.world;
+    if (mouthCd > 0) mouthCd -= dt;
+    // ---- 黑洞 ----
+    for (let i = holes.length - 1; i >= 0; i--) {
+      const h = holes[i];
+      h.t += dt;
+      if (h.t >= h.dur) {
+        removeHole(i);
+        continue;
+      }
+      const sk = h.ctx.sk;
+      for (const e of state.enemies) {
+        if (e.dead) continue;
+        const d = dist(e.x, e.z, h.x, h.z);
+        if (d - e.r > h.pullR || d <= sk.core) continue;
+        let v;
+        if (e.isBoss) v = sk.bossPull * h.pullMul;
+        else {
+          if (pinned(e)) continue;
+          v = G.bindPullSpeed(e, sk.pull) * (0.6 + 0.4 * (1 - Math.min(1, d / h.pullR))) * h.pullMul;
+          if (e.freeze > 0 || e.brokenT > 0) v *= 0.35;
+        }
+        if (G.pullEnemy) G.pullEnemy(e, h.x, h.z, Math.min(v * dt, d - sk.core));
+      }
+      h.tt -= dt;
+      if (h.tt <= 0) {
+        h.tt += h.tick;
+        for (const e of enemiesIn(h.x, h.z, h.R)) {
+          // 同一个敌人同一时刻只吃一个黑洞的跳（两个重叠的黑洞、渊口都不叠加）
+          if (state.time - (e.holeT || -99) < h.tick * 0.95) continue;
+          e.holeT = state.time;
+          G.hitEnemy(e, h.ctx, h.mult, { ang: Math.atan2(e.x - h.x, e.z - h.z), w: 0, kb: 0, poise: sk.poise, quiet: true, faint: true });
+        }
+      }
+      if (h.fx && W.updateHole) W.updateHole(h.fx, h.t / h.dur, dt);
+    }
+    // ---- 黑旋风 ----
+    for (let i = vortices.length - 1; i >= 0; i--) {
+      const v = vortices[i];
+      const sk = v.ctx.sk;
+      v.life -= dt;
+      const total = v.speed * dt;
+      const steps = Math.max(1, Math.ceil(total / 0.45));
+      let alive = true;
+      for (let s = 0; s < steps; s++) {
+        const nx = v.x + (v.dx * total) / steps, nz = v.z + (v.dz * total) / steps;
+        if (!W.walkable(nx, nz, -0.4)) {
+          alive = false; // 撞墙就散
+          break;
+        }
+        v.x = nx;
+        v.z = nz;
+      }
+      if (alive) {
+        for (const e of enemiesIn(v.x, v.z, v.R)) {
+          // 拖拽：顺着行进方向带一段，往路径中线收一点（首领不拖）
+          if (!e.isBoss && !pinned(e) && G.pullEnemy) {
+            const k = G.bindPullSpeed(e, sk.drag) * dt * (e.freeze > 0 || e.brokenT > 0 ? 0.35 : 1);
+            const side = (e.x - v.x) * v.dz - (e.z - v.z) * v.dx; // 到中线的有向距离
+            G.pullEnemy(e, e.x + v.dx * k - v.dz * side * 0.5 * k, e.z + v.dz * k + v.dx * side * 0.5 * k, k);
+          }
+          if (state.time < (v.cast.get(e) || 0)) continue;
+          v.cast.set(e, state.time + sk.tick * 0.95);
+          v.hit.add(e);
+          G.hitEnemy(e, v.ctx, 1, { ang: Math.atan2(v.dx, v.dz), quiet: true });
+        }
+        if (v.life <= 0 && v.chain > 0) {
+          // 连锁：走到头之后拐向附近这一发还没打过的最近敌人，再走一小段
+          let best = null, bd = sk.hop.r;
+          for (const e of state.enemies) {
+            if (e.dead || v.hit.has(e)) continue;
+            const d = dist(e.x, e.z, v.x, v.z);
+            if (d <= bd) {
+              bd = d;
+              best = e;
+            }
+          }
+          if (best) {
+            v.chain--;
+            const len = bd || 1;
+            v.dx = (best.x - v.x) / len;
+            v.dz = (best.z - v.z) / len;
+            v.life = sk.hop.life;
+            state.stats.vortexHops = (state.stats.vortexHops || 0) + 1;
+          }
+        }
+        if (v.life <= 0) alive = false;
+      }
+      if (!alive) {
+        removeVortex(i);
+        continue;
+      }
+      if (v.fx && W.updateVortex) W.updateVortex(v.fx, v.x, v.z, dt);
+    }
+  }
+  // 换区域 / 重生：黑洞和漩涡全部收起
+  function resetChaos() {
+    while (holes.length) removeHole(holes.length - 1);
+    while (vortices.length) removeVortex(vortices.length - 1);
+    mouthCd = 0;
+  }
+  G.chaosHoles = () => holes;
+  G.chaosVortices = () => vortices;
+  G.updateChaos = updateChaos;
+
   // 远距离系数（0..1）：命中点离你 farMin 以内为 0，farMax 以外为 1
   function farK(e) {
     const RG = G.RANGED;
@@ -3334,6 +3600,7 @@
     endBuff();
     P.rstate = null;
     fields.length = 0;
+    resetChaos(); // 黑洞、黑旋风一起收起
   }
   G.resetRanged = resetRanged;
 
@@ -3593,6 +3860,7 @@
         if (P.auraT[id] !== undefined) delete P.auraT[id];
         continue;
       }
+      if (G.SKILLS[id].buff) continue; // 黑焰这类增益光环：不脉冲、不画地上的霜环（特效见 W.setFlame）
       const ctx = G.skillCtx(id);
       if (!shown) shown = G.auraRadius(ctx);
       if (P.dead) continue;
@@ -3605,12 +3873,39 @@
       }
     }
     W.setAura(P.dead ? 0 : shown);
+    if (W.setFlame) W.setFlame(!P.dead && G.auraOn('blackflame'));
   }
   G.updateAuras = updateAuras;
 
   // 召唤：在准星处唤起召唤物（落点、数量上限与替换都由 minions.js 处理）
   SKILL_FX.summon = function (ctx, a) {
     if (G.summonMinion) G.summonMinion(ctx.id, a.tx, a.tz, ctx);
+  };
+
+  // 混沌流的两招（逻辑在上面「混沌流」一节：黑洞 / 黑旋风的每帧更新）
+  SKILL_FX.hole = function (ctx, a) {
+    const sk = ctx.sk;
+    const d = rayLen(P.x, P.z, a.ang, Math.min(sk.range, a.dist), 0.3); // 撞墙截在墙前
+    const R = sk.radius * Math.sqrt(ctx.area);
+    const dur = sk.dur * (1 + Math.max(0, P.S.holeDur || 0) / 100);
+    G.sfx('cast');
+    return addHole({ x: P.x + a.dx * d, z: P.z + a.dz * d, R, pullR: R * sk.pullR, t: 0, dur, tick: sk.tick, tt: sk.tick, ctx, mult: 1, pullMul: 1, mouth: false });
+  };
+
+  SKILL_FX.vortex = function (ctx, a) {
+    const sk = ctx.sk;
+    const n = Math.max(1, ctx.proj);
+    const spread = Math.min(60, 12 * (n - 1)) * DEG; // 和投射物一样的扇形
+    const stepA = n > 1 ? spread / (n - 1) : 0;
+    const cast = new Map(); // 同一次施放的几团共用：同一个敌人 tick 秒内只挨一跳
+    const R = sk.radius * Math.sqrt(ctx.area);
+    for (let i = 0; i < n; i++) {
+      const ang = a.ang - spread / 2 + stepA * i;
+      const v = { x: P.x + Math.sin(ang) * 0.8, z: P.z + Math.cos(ang) * 0.8, dx: Math.sin(ang), dz: Math.cos(ang), speed: sk.speed, life: sk.life, R, ctx, cast, hit: new Set(), chain: ctx.chain };
+      v.fx = G.world.makeVortex ? G.world.makeVortex(v.x, v.z, R) : null;
+      vortices.push(v);
+    }
+    G.sfx('cast');
   };
 
   // ---------- 自动召唤 ----------
@@ -4939,6 +5234,7 @@
 
     if (P.dead) {
       W.setAura(0);
+      if (W.setFlame) W.setFlame(false);
       P.deadT -= dt;
       if (P.deadT <= 0) G.respawn();
       return;
@@ -4953,6 +5249,7 @@
     // 各种计时
     for (const id in P.cds) if (P.cds[id] > 0) P.cds[id] = Math.max(0, P.cds[id] - dt);
     tickRanged(dt);
+    updateChaos(dt);
     updateAuras(dt);
     updateAutoSummon(dt);
     if (P.roll.cd > 0) P.roll.cd = Math.max(0, P.roll.cd - dt);
@@ -5116,10 +5413,12 @@
     const n = U.pity[kind] || 0;
     if (n >= G.UNIQUE_DROP.pity || Math.random() < G.uniqueChance(tier)) {
       U.pity[kind] = 0;
-      const item = G.rollUnique(id, ilvl);
+      // 同一个首领有两把（衔星巨兽：凛羽 / 星蚀）：判定次数和保底不变，掉了之后一半给第一把、一半给另一把
+      const alt = G.UNIQUE_ALT && G.UNIQUE_ALT[kind];
+      const item = G.rollUnique(alt && alt.length && Math.random() >= 0.5 ? alt[Math.floor(Math.random() * alt.length)] : id, ilvl);
       const loot = G.spawnLoot('item', item, e.x, e.z);
       G.sfx('unique');
-      if (G.ui.bigToast) G.ui.bigToast('烬铸武器', item.name, G.RARITY_COLOR[3], G.UNIQUES[id].mechName);
+      if (G.ui.bigToast) G.ui.bigToast('烬铸武器', item.name, G.RARITY_COLOR[3], G.UNIQUES[item.uq].mechName);
       state.stats.uniqueDrops = (state.stats.uniqueDrops || 0) + 1;
       return loot;
     }
