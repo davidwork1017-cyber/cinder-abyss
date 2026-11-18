@@ -1763,6 +1763,7 @@
     const foliage = own(makeToonMat({ brush: 0.12, brushScale: 0.8, soft: 0.14 }));
     if (poi.length) {
       const pm = new T.Mesh(ashMerge(poi), own(makeToonMat({ brush: 0.12, brushScale: 0.6, soft: 0.1 })));
+      pm.name = 'ashStartPoi';
       pm.castShadow = pm.receiveShadow = true;
       pm.geometry.computeBoundingSphere();
       zoneGroup.add(pm);
@@ -4982,6 +4983,8 @@
     if (river || pools.length || cracks.length || embers.length || pend) {
       out.lava = ctx.gfx.lavaStrip(river ? river.pts : [], river ? river.hw : 1, { pools, crust: 0.95, crustSide: 0.24, crustR: [0.55, 1.05], crustCol: ASH_LAY.lavaCrust, crustHi: ASH_LAY.crustHi, crustSeam: ASH_LAY.crustSeam, glowA: 0.08, bands: ASH_LAY.lavaToon, extra, glowQuads: pend ? pend.glow : null });
     }
+    if (out.lava && out.lava.mesh) out.lava.mesh.name = 'ashLava';
+    if (out.props) out.props.name = 'ashProps';
     out.rockHi = ctx.mats.rock && ctx.mats.rock.color.clone();
     return out;
   }
