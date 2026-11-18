@@ -5308,12 +5308,36 @@
     if (!zone || !c || c.open) return false;
     c.open = true;
     const rm = zone.rooms && zone.rooms[c.room];
-    const level = zone.level + Math.floor((rm ? rm.order : 0) / 2);
+    const level = zone.level + (rm && rm.lv !== undefined ? rm.lv : Math.floor((rm ? rm.order : 0) / 2)); // rm.lv：和房间里的怪同一个等级（zones-polish，加长后的区域按路径比例折算）
     G.dropLoot({ elite: true, level, x: c.x, z: c.z });
     G.world.openChest(c);
     G.sfx('pickup');
     state.stats.chests = (state.stats.chests || 0) + 1;
     return true;
+  };
+  // 点击打开（zones-polish）：和点掉落名牌一样，7 m 以内直接打开，远了提示走近。
+  // 点在箱体上时，鼠标射线落到地面的点会比宝箱的中心往远处偏一点（镜头俯角 50°，箱高约 0.9 m），所以判定圆往北挪 0.35 m
+  G.chestAt = function (wx, wz) {
+    const list = state.zone && state.zone.chests;
+    if (!list) return null;
+    let best = null, bd = 1.4;
+    for (const c of list) {
+      if (c.open) continue;
+      const d = dist(wx, wz, c.x, c.z - 0.35);
+      if (d < bd) {
+        bd = d;
+        best = c;
+      }
+    }
+    return best;
+  };
+  G.clickChest = function (c) {
+    if (!c || c.open || P.dead) return false;
+    if (dist(c.x, c.z, P.x, P.z) > 7) {
+      toast('走近一点', '#c8b89a', 'far', 900);
+      return false;
+    }
+    return G.openChest(c);
   };
   function updateChests() {
     const list = state.zone && state.zone.chests;
@@ -5714,7 +5738,18 @@
         best = l;
       }
     }
-    return best ? G.pickup(best) : false;
+    if (best) return G.pickup(best);
+    // 附近没有掉落：打开 3.5 以内最近的宝箱（zones-polish）
+    const list = state.zone && state.zone.chests;
+    let bc = null, cd = 3.5;
+    if (list) for (const c of list) {
+      const d = dist(c.x, c.z, P.x, P.z);
+      if (!c.open && d <= cd) {
+        cd = d;
+        bc = c;
+      }
+    }
+    return bc ? G.openChest(bc) : false;
   };
 
   G.updateLoot = function (dt) {
