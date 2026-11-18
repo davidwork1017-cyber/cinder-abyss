@@ -9242,6 +9242,93 @@ async function main() {
     assert(!r.wall && r.side, 'W.shotFree 应被假墙挡住、墙边照常通过：' + JSON.stringify(r));
     assert(r.spawned && r.gone && !r.crossed, '投射物应在假墙前销毁：' + JSON.stringify(r));
   });
+
+  await step('宝箱：走过去自动打开，掉落约等于一只精英，只开一次；小地图上是金色方块，打开后变暗', async () => {
+    await ev(() => T.lane());
+    const r = await ev(() => {
+      const P = G.player, S = G.state, W = G.world;
+      for (const l of S.loot) W.removeMesh(l.mesh);
+      S.loot.length = 0;
+      const cur0 = Object.values(G.save.cur).reduce((a, b) => a + b, 0), bag0 = G.save.bag.length;
+      const c = G.debug.chest(P.x + 8, P.z);
+      W.render();
+      // 小地图上宝箱那一块 3×3 里最「金」的像素（离玩家的圆点 8 m，不会被盖住）
+      const px = () => {
+        const m = W.minimapXY(c.x, c.z);
+        let best = null;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const q = W.minimapPixel(Math.round(m.x) + dx, Math.round(m.y) + dy);
+          if (!best || q[0] + q[1] - q[2] > best[0] + best[1] - best[2]) best = q;
+        }
+        return best;
+      };
+      const before = px();
+      const open0 = c.open;
+      for (let i = 0; i < 10; i++) G.tick(1 / 60); // 还没走到：不会开
+      const still = c.open;
+      T.tp(c.x - 0.9, c.z);
+      for (let i = 0; i < 30; i++) G.tick(1 / 60);
+      const items = S.loot.filter((l) => l.kind === 'item').length + G.save.bag.length - bag0; // 普通物品可能被「自动拾取」直接收进背包
+      const curSum = () => Object.values(G.save.cur).reduce((a, b) => a + b, 0);
+      const cur = S.loot.filter((l) => l.kind === 'cur').length + curSum() - cur0;
+      const total = () => S.loot.length + curSum() - cur0 + G.save.bag.length - bag0; // 地上的 + 已经拾取的
+      const n1 = total();
+      T.tp(c.x - 3, c.z);
+      for (let i = 0; i < 5; i++) G.tick(1 / 60);
+      T.tp(c.x - 0.9, c.z);
+      for (let i = 0; i < 30; i++) G.tick(1 / 60);
+      const again = total() === n1;
+      T.tp(c.x - 6, c.z); // 小地图上玩家的圆点别盖住宝箱
+      W.render();
+      const after = px();
+      return { open0, still, open: c.open, items, cur, again, stats: S.stats.chests, before, after };
+    });
+    assert(!r.open0 && !r.still && r.open, '宝箱应在走到跟前时才打开：' + JSON.stringify(r));
+    assert(r.items === 2 && r.cur >= 1, '宝箱掉落应和精英一样（2 件装备 + 至少 1 个通货）：' + JSON.stringify(r));
+    assert(r.again && r.stats === 1, '打开过的宝箱不应再掉东西：' + JSON.stringify(r));
+    assert(r.before[0] > 200 && r.before[1] > 170 && r.after[0] < 190, '小地图上的宝箱应是金色、打开后变暗：' + JSON.stringify(r));
+    return '掉落 ' + r.items + ' 件装备 + ' + r.cur + ' 个通货';
+  });
+
+  await step('小地图：按地形网格画出来（可走处路面色、岩壁外是底色、首领场地有主题色轮廓），窗口变化后重画', async () => {
+    const r = await ev(() => {
+      G.debug.hold(true);
+      const W = G.world, out = [];
+      for (let zi = 0; zi < G.ZONES.length; zi++) {
+        G.enterZone(zi, 0);
+        const z = G.state.zone, b = z.bounds, path = new THREE.Color(z.def.path), acc = new THREE.Color(z.def.accent);
+        const pick = (x, zz) => { const m = W.minimapXY(x, zz); return W.minimapPixel(m.x, m.y, true); };
+        const start = pick(z.start.x, z.start.z);
+        // 找一个离可走区域很远的点（sd < -6）当「岩壁外」
+        let far = null;
+        for (let k = 0; k < 400 && !far; k++) {
+          const x = b.minX + ((k * 37) % 100) / 100 * (b.maxX - b.minX), zz = b.minZ + ((k * 61) % 100) / 100 * (b.maxZ - b.minZ);
+          if (W.sdExact(x, zz) < -4.4) far = pick(x, zz);
+        }
+        // 场地轮廓：从场地中心朝门的反方向走到 bossR 附近，找最像主题色的像素
+        let ring = 0;
+        for (let d = z.bossR - 2; d <= z.bossR + 1; d += 0.25) {
+          const q = pick(z.bossPos.x - z.arena.dir.x * d, z.bossPos.z - z.arena.dir.z * d);
+          const sim = 255 - (Math.abs(q[0] - acc.r * 255) + Math.abs(q[1] - acc.g * 255) + Math.abs(q[2] - acc.b * 255)) / 3;
+          ring = Math.max(ring, sim);
+        }
+        const pathD = (Math.abs(start[0] - path.r * 255) + Math.abs(start[1] - path.g * 255) + Math.abs(start[2] - path.b * 255)) / 3;
+        out.push({ id: z.def.id, start, pathD: Math.round(pathD), far, ring: Math.round(ring) });
+      }
+      G.enterZone(0, 0);
+      const m = W.minimapXY(0, 0), p0 = W.minimapPixel(m.x, m.y, true);
+      W.resize();
+      const p1 = W.minimapPixel(m.x, m.y, true);
+      return { out, redraw: p0.join() === p1.join() && p1[3] > 200 };
+    });
+    for (const z of r.out) {
+      assert(z.start[3] > 240 && z.pathD < 40, z.id + '：起点应画成路面色：' + JSON.stringify(z));
+      assert(z.far && z.far[0] < 30 && z.far[1] < 30 && z.far[2] < 30, z.id + '：岩壁外应是底色：' + JSON.stringify(z));
+      assert(z.ring > 200, z.id + '：首领场地应有主题色轮廓：' + JSON.stringify(z));
+    }
+    assert(r.redraw, '窗口变化后小地图应重画且不变：' + JSON.stringify(r));
+    return r.out.map((z) => z.id + ' 路面差 ' + z.pathD + ' 轮廓 ' + z.ring).join('，');
+  });
 }
 
 main()

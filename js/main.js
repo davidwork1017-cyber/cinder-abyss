@@ -144,6 +144,7 @@
       G.updateEnemies(dt);
       G.updateProjectiles(dt);
       G.updateTelegraphs(dt);
+      W.terrainTick(dt); // 区域的定时机关（ZONE_TERRAIN[id].tick）
       G.updateLoot(dt);
       G.updateTimers(dt);
     }
@@ -325,6 +326,18 @@
     // 当前区域布局的摘要：种子、房间、连接、关键路径、怪群槽位、宝箱、首领场地、网格大小
     layout() {
       return W.layoutInfo();
+    },
+    // 在 (x, z) 放一个宝箱（缺省：玩家前方 3 m），返回它；走过去就会打开
+    chest(x, z) {
+      const P = G.player, zone = G.state.zone;
+      if (x === undefined) {
+        x = P.x + Math.sin(P.face) * 3;
+        z = P.z + Math.cos(P.face) * 3;
+      }
+      const c = { x, z, room: W.roomAt(x, z), ang: 0, open: false };
+      zone.chests.push(c);
+      W.refreshChests();
+      return c;
     },
     // 传送到第 i 个房间的 core 中心（core 整块可走）
     tpRoom(i) {
