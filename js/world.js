@@ -3560,13 +3560,14 @@
     if (ent.hitT > 0) {
       ent.hitT -= sdt;
       const u = 1 - Math.max(0, ent.hitT) / ent.hitDur, s = ent.hitS;
-      const env = u < 0.16 ? u / 0.16 : (1 - (u - 0.16) / 0.84) * (1 - (u - 0.16) / 0.84);
-      const sq = -Math.sin(u * TAU) * (1 - u) * 0.2 * s; // 负 = 压扁，正 = 拉长
-      const a = 0.36 * s * env;
+      // 卡通版：一仰更快到位（10% 的时间）、幅度大一点，压扁 / 回弹更明显
+      const env = u < 0.1 ? u / 0.1 : (1 - (u - 0.1) / 0.9) * (1 - (u - 0.1) / 0.9);
+      const sq = -Math.sin(u * TAU) * (1 - u) * 0.27 * s; // 负 = 压扁，正 = 拉长
+      const a = 0.42 * s * env;
       o[0] += ent.hitZ * a;
       o[2] -= ent.hitX * a;
-      o[3] += ent.hitX * 0.14 * s * env;
-      o[5] += ent.hitZ * 0.14 * s * env;
+      o[3] += ent.hitX * 0.18 * s * env;
+      o[5] += ent.hitZ * 0.18 * s * env;
       o[7] *= 1 + sq;
       o[6] *= 1 - sq * 0.5;
       o[8] *= 1 - sq * 0.5;
@@ -3708,17 +3709,19 @@
   };
   const sock = (rig, name, joint, x, y, z) => (rig.sockets[name] = { j: rig.JI[joint], x: x || 0, y: y || 0, z: z || 0 });
 
-  // 受击闪白。k：强度（1 普通，2 重击，3 终结 / 处决）——越重越亮、亮得越久，后半段渐隐
+  // 受击闪色。k：强度（1 普通，2 重击，3 终结 / 处决）——越重越亮、亮得越久。
+  // 卡通版：不是整个闪成白模，而是一层暖奶油色的亮光叠在固有色上（FLASH_RGB，线性），分两档跳变：先亮、再半亮、然后收掉
+  const FLASH_RGB = [1, 0.74, 0.5];
   W.flash = function (ent, k) {
     if (ent.removed) return;
     const s = Math.min(3, k === undefined ? 1 : k);
     if (ent.flashT <= 0) flashing.push(ent);
-    ent.flashD = 0.07 + 0.02 * s;
+    ent.flashD = 0.08 + 0.025 * s;
     ent.flashT = ent.flashD;
-    ent.flashK = 0.9 + 0.3 * s;
+    ent.flashK = 0.62 + 0.2 * s;
     const ms = ent.mats;
     for (let i = 0; i < ms.length; i++) {
-      ms[i].emissive.setRGB(1, 1, 1);
+      ms[i].emissive.setRGB(FLASH_RGB[0], FLASH_RGB[1], FLASH_RGB[2]);
       ms[i].emissiveIntensity = ms[i].userData.fi * ent.flashK;
     }
   };
@@ -5451,6 +5454,26 @@
       W.entSocket(ent, 'hand', _sk2);
       trailPush(ent, _sk2.x + (_sk.x - _sk2.x) * 0.3, _sk2.y + (_sk.y - _sk2.y) * 0.3, _sk2.z + (_sk.z - _sk2.z) * 0.3, _sk.x, _sk.y, _sk.z);
     }
+    // 投掷（掷焰 / 飞刃）的蓄力：出手前火星往投掷的那只手里聚，出手那一刻手上一颗星 + 两团实心的烟（颜色见 W.castTint）
+    if (c && c.name === 'throw' && ent === trail.ent && !ent.dying && sdt > 0) {
+      const kk = ent.cK, cp = castPal;
+      W.entSocket(ent, ent.gearClips && ent.gearClips.throw === c ? 'hand' : 'handL', _sk);
+      if (kk > 0.08 && kk < 0.5) {
+        ent.gatherAcc = (ent.gatherAcc || 0) + sdt * (qualId === 'low' ? 30 : 60);
+        _c.set(cp[1]);
+        while (ent.gatherAcc >= 1) {
+          ent.gatherAcc -= 1;
+          const a = rand(0, TAU), up = rand(-0.3, 0.6), d = rand(0.45, 0.8), t = rand(0.12, 0.18);
+          const ox = Math.sin(a) * d, oy = up, oz = Math.cos(a) * d;
+          spawnP(_sk.x + ox, _sk.y + oy, _sk.z + oz, -ox / t, -oy / t, -oz / t, t, rand(0.1, 0.16), _c.r, _c.g, _c.b, 0, 0);
+        }
+      }
+      if ((ent.thrK || 0) < 0.5 && kk >= 0.5) {
+        tChunk(1, _sk.x, _sk.y, _sk.z, 0, 0, 0, 0.14, 0.42, cp[0], cp[1], 0);
+        tPuffs(_sk.x, _sk.y, _sk.z, qualId === 'low' ? 1 : 2, 1.2, 0.6, 0.26, 0.2, cp[1], cp[2]);
+      }
+      ent.thrK = kk;
+    } else if (ent.thrK) ent.thrK = 0;
     // 稀有度光晕跟着武器走；稀有武器偶尔掉一点光屑
     const a = ent.aura;
     if (!a || !a.visible) return;
@@ -5507,9 +5530,9 @@
     };
 
     let A1, A2; // 前两段的关键帧，影步连斩的短促出刀照搬它们
-    // 第一段：自右向左的横斩
+    // 第一段：自右向左的横斩（刀光窗口 trail 到 0.64 就收：长杖收招时杖身顺着自己的长度走，再拖下去是一条直板）
     defClip(rig, 'attack1', {
-      dur: 0.45, k0: 0.5, lower: LEGS, fade: 0.06, out: 0.2, trail: [0.3, 0.74],
+      dur: 0.45, k0: 0.5, lower: LEGS, fade: 0.06, out: 0.2, trail: [0.3, 0.64],
       keys: (A1 = stance({
         'root.oz': [0, 0, 0.3, -0.05, -0.5, 0.12, 1, 0.03],
         'root.ry': [0, -0.05, 0.3, -0.18, -0.5, 0.08, 0.72, 0.12, 1, 0.02],
@@ -5529,11 +5552,15 @@
         'faL.rx': [0, -0.6, 0.3, -1.0, -0.5, -0.4, 1, -0.5],
         'cape1.rz': [0, 0, 0.3, -0.12, -0.5, 0.25, 0.8, 0.1, 1, 0],
         'cape2.rz': [0, 0, 0.3, -0.15, -0.56, 0.3, 0.85, 0.1, 1, 0],
+        // 卡通的挤压拉伸：蓄力时压低变宽（k 0.3），出手那一下拉长（命中帧 0.5），收招回弹到 1
+        'root.sx': [0, 1, 0.3, 1.05, -0.5, 0.965, 0.72, 1.01, 1, 1],
+        'root.sy': [0, 1, 0.3, 0.92, -0.5, 1.07, 0.72, 0.985, 1, 1],
+        'root.sz': [0, 1, 0.3, 1.05, -0.5, 0.965, 0.72, 1.01, 1, 1],
       }, 1)),
     });
     // 第二段：反手自左向右、略微上挑
     defClip(rig, 'attack2', {
-      dur: 0.45, k0: 0.5, lower: LEGS, fade: 0.06, out: 0.2, trail: [0.3, 0.74],
+      dur: 0.45, k0: 0.5, lower: LEGS, fade: 0.06, out: 0.2, trail: [0.3, 0.64],
       keys: (A2 = stance({
         'root.oz': [0, 0.03, 0.3, 0, -0.5, 0.14, 1, 0.04],
         'root.ry': [0, 0.08, 0.3, 0.16, -0.5, -0.1, 0.72, -0.14, 1, -0.02],
@@ -5553,11 +5580,14 @@
         'faL.rx': [0, -0.7, 0.3, -0.9, -0.5, -0.5, 1, -0.5],
         'cape1.rz': [0, 0, 0.3, 0.12, -0.5, -0.25, 0.8, -0.1, 1, 0],
         'cape2.rz': [0, 0, 0.3, 0.15, -0.56, -0.3, 0.85, -0.1, 1, 0],
+        'root.sx': [0, 1, 0.3, 1.045, -0.5, 0.97, 0.72, 1.01, 1, 1],
+        'root.sy': [0, 1, 0.3, 0.93, -0.5, 1.065, 0.72, 0.985, 1, 1],
+        'root.sz': [0, 1, 0.3, 1.045, -0.5, 0.97, 0.72, 1.01, 1, 1],
       }, 0.9)),
     });
     // 第三段（终结）：双手举过头顶，跃起后劈到地上，落成弓步
     defClip(rig, 'attack3', {
-      dur: 0.6, k0: 0.5, lower: LEGS, air: 'jump', fade: 0.07, out: 0.26, trail: [0.33, 0.6],
+      dur: 0.6, k0: 0.5, lower: LEGS, air: 'jump', fade: 0.07, out: 0.26, trail: [0.33, 0.56],
       keys: {
         'root.oy': [0, -0.3, 0.16, -0.45, 0.34, 0.36, -0.5, -0.6, 0.8, -0.6, 1, -0.3],
         'root.oz': [0, 0, 0.16, -0.08, 0.34, 0.04, -0.5, 0.22, 0.8, 0.2, 1, 0.05],
@@ -5586,6 +5616,10 @@
         'cape1.rx': [0, 0.1, 0.34, -0.15, -0.5, 0.5, 0.8, 0.3, 1, 0.1],
         'cape2.rx': [0, 0.1, 0.34, -0.2, -0.56, 0.45, 0.85, 0.25, 1, 0.1],
         'cape3.rx': [0, 0.1, 0.34, -0.2, -0.62, 0.4, 0.9, 0.2, 1, 0.1],
+        // 终结的挤压拉伸：下蹲蓄力压扁（0.16）→ 起跳拉长（0.34）→ 砸地压扁（命中帧 0.5）→ 回弹
+        'root.sx': [0, 1, 0.16, 1.08, 0.34, 0.94, -0.5, 1.08, 0.66, 0.98, 1, 1],
+        'root.sy': [0, 1, 0.16, 0.88, 0.34, 1.1, -0.5, 0.88, 0.66, 1.03, 1, 1],
+        'root.sz': [0, 1, 0.16, 1.08, 0.34, 0.94, -0.5, 1.08, 0.66, 0.98, 1, 1],
       },
     });
     // 投掷（投射物技能）：左手从身后甩出
@@ -5605,6 +5639,10 @@
         'uaR.rx': [0, -0.2, 0.32, -0.9, -0.5, 0.6, 1, -0.1],
         'uaR.rz': [0, -0.3, 0.32, -0.4, -0.5, -0.6, 1, -0.2],
         'faR.rx': [0, -0.6, 0.32, -0.9, -0.5, -0.3, 1, -0.5],
+        // 蓄力收身压低（0.32），甩出时拉长（0.5）
+        'root.sx': [0, 1, 0.32, 1.04, -0.5, 0.97, 0.75, 1.01, 1, 1],
+        'root.sy': [0, 1, 0.32, 0.93, -0.5, 1.06, 0.75, 0.99, 1, 1],
+        'root.sz': [0, 1, 0.32, 1.04, -0.5, 0.97, 0.75, 1.01, 1, 1],
       }, 0.8),
     });
     // 施法（新星 / 连锁 / 陨石）：收拢蓄力，然后把武器举向空中
@@ -10356,7 +10394,9 @@
         ' gl_PointSize = aSize * uScale / max(0.1, -mv.z); gl_Position = projectionMatrix * mv; }',
       fragmentShader:
         'varying vec3 vC;\n' +
-        'void main(){ float d = length(gl_PointCoord - 0.5); float a = smoothstep(0.5, 0.08, d);\n' +
+        // 卡通版：硬边的小圆点，中心一圈更亮（两档），不再是软绵绵的光斑
+        'void main(){ float d = length(gl_PointCoord - 0.5); if (d > 0.5) discard;\n' +
+        ' float a = (1.0 - smoothstep(0.42, 0.5, d)) * (d < 0.24 ? 1.0 : 0.62);\n' +
         ' gl_FragColor = vec4(vC * a, 1.0); }',
       blending: T.AdditiveBlending, transparent: true, depthWrite: false,
     });
@@ -10405,8 +10445,8 @@
       pPos[j + 1] = y;
       pPos[j + 2] += pVel[j + 2] * dt;
       const f = l / pMax[i];
-      // 出生时快速淡入，后半段淡出
-      const a = Math.min(1, f * 2, (1 - f) * 10 + 0.15);
+      // 出生时快速淡入，后半段淡出；卡通版按三档跳变（不是平滑渐隐）
+      const a0 = Math.min(1, f * 2, (1 - f) * 10 + 0.15), a = a0 > 0.66 ? 1 : a0 > 0.33 ? 0.6 : 0.3;
       pCol[j] = pBase[j] * a;
       pCol[j + 1] = pBase[j + 1] * a;
       pCol[j + 2] = pBase[j + 2] * a;
@@ -10447,6 +10487,7 @@
     'void main(){',
     '  float l = length(vP);',
     '  float fade = 1.0 - smoothstep(0.55, 1.0, uK);', // 后半段淡出
+    '  float sfade = uK < 0.45 ? 1.0 : (uK < 0.75 ? 0.62 : 0.3);', // 卡通的几种痕迹：阶梯式淡出
     '  float n = vn(vP * 3.0 + 5.0) * 0.6 + vn(vP * 7.0) * 0.4;',
     '  float an = atan(vP.x, vP.y);',
     '  vec3 col = uColor; float a = 0.0;',
@@ -10455,11 +10496,11 @@
     '    float along = smoothstep(-1.0, -0.2, vP.y) * (1.0 - smoothstep(0.35, 1.0, vP.y));',
     '    a = pow(wv, 4.0) * along * (1.0 - uK) * (1.0 - uK) * 0.6;',
     '    col = mix(uColor, vec3(1.0), pow(wv, 9.0) * 0.6);',
-    '  } else if (uKind < 1.5) {', // 1 焦痕：不规则的黑斑，起初边缘还带着余烬
-    '    float blot = 1.0 - smoothstep(0.3 + n * 0.3, 0.72 + n * 0.26, l);',
-    '    float rim = smoothstep(0.25, 0.6, l) * blot * (1.0 - smoothstep(0.0, 0.6, uK));',
-    '    col = mix(vec3(0.02, 0.012, 0.01), uColor, rim * n * 1.1);',
-    '    a = blot * 0.8 * fade;',
+    '  } else if (uKind < 1.5) {', // 1 焦痕：不规则的焦斑（卡通版：硬边、深紫褐不是死黑），起初边缘一圈余烬色，淡出分三档
+    '    float blot = 1.0 - smoothstep(0.5 + n * 0.3, 0.54 + n * 0.3, l);',
+    '    float rim = step(0.36 + n * 0.22, l) * blot * step(uK, 0.3);',
+    '    col = mix(vec3(0.07, 0.035, 0.05), uColor, rim);',
+    '    a = blot * 0.82 * sfade;',
     '  } else if (uKind < 2.5) {', // 2 霜痕：放射状的冰晶
     '    float sp = pow(abs(cos(an * 4.0 + n * 1.6)), 7.0);',
     '    float body = 1.0 - smoothstep(0.15, 0.95, l);',
@@ -10475,13 +10516,21 @@
     '    float blot = 1.0 - smoothstep(0.25 + n * 0.3, 0.8 + n * 0.2, l);',
     '    col = mix(vec3(0.07, 0.06, 0.05), uColor * 0.25, n * 0.5);',
     '    a = blot * 0.55 * fade;',
-    '  } else {', // 5 地裂：终结技砸出的放射状裂纹，起初缝里透着光
-    '    float cr = 1.0 - smoothstep(0.0, 0.05 + 0.12 * l, abs(sin(an * 4.5 + n * 4.0)));',
-    '    float reach = 1.0 - smoothstep(0.45 + n * 0.45, 1.0, l);',
-    '    float core = 1.0 - smoothstep(0.0, 0.34, l);',
-    '    float hot = 1.0 - smoothstep(0.0, 0.4, uK);',
-    '    a = max(cr * reach, core * 0.7) * fade * 0.92;',
-    '    col = mix(vec3(0.015, 0.01, 0.008), uColor * 1.4, hot * (cr * reach * 0.9 + core * 0.5));',
+    '  } else if (uKind < 5.5) {', // 5 地裂：终结技砸出的放射状裂纹（卡通版：硬边），起初缝里透着光，淡出分三档
+    '    float cr = step(abs(sin(an * 4.5 + n * 4.0)), 0.06 + 0.12 * l);',
+    '    float reach = step(l, 0.6 + n * 0.4);',
+    '    float core = step(l, 0.3 + n * 0.08);',
+    '    float hot = step(uK, 0.3);',
+    '    a = max(cr * reach, core * 0.75) * sfade * 0.92;',
+    '    col = mix(vec3(0.07, 0.035, 0.05), uColor, hot * max(cr * reach, core * 0.6));',
+    '  } else {', // 6 卡通命中印记：顺着打击方向（局部 +z）甩开的一摊星形印子，起初内圈是主色，之后压暗；淡出分三档
+    '    vec2 q = vec2(vP.x, vP.y * 0.78 + 0.12);',
+    '    float lq = length(q), aq = atan(q.x, q.y);',
+    '    float rr = 0.5 + 0.32 * pow(abs(cos(aq * 2.5 + uSeed * 6.0)), 4.0) + 0.16 * cos(aq) + n * 0.12;',
+    '    float body = step(lq, rr * 0.92);',
+    '    float hot = step(lq, rr * 0.5) * step(uK, 0.35);',
+    '    col = mix(uColor * 0.28 + vec3(0.03, 0.015, 0.04), uColor, hot);',
+    '    a = body * 0.8 * sfade;',
     '  }',
     '  if (l > 1.0 && uKind > 0.5) a = 0.0;',
     '  gl_FragColor = vec4(col, a);',
@@ -10523,8 +10572,41 @@
       }
       return new T.CanvasTexture(c);
     });
-  // 刀光：一条跟着武器走的带子。采样点按「绕角色的圆弧」补间，60 帧下的快挥也是顺滑的弧
-  const TRAIL_MAX = 56, TRAIL_LIFE = 0.19;
+  // ---------- 卡通特效色板（sRGB）：刀光 / 斩击弧取 [亮芯, 主色, 内沿]，命中碎片取 [亮芯, 主色, 暗边, 烟尘] ----------
+  // 刀光一律是有颜色的实色月牙，不用纯白、不用加色：物理用青绿（主角围巾的色系，压在暖色地面上最跳），元素各用元素色。
+  // 命中的火花反过来用暖金（青绿的刀光 + 暖色的迸溅，一冷一暖），烟尘是灰烬的冷灰紫
+  const FX_PAL = {
+    phys: [0xd6fff0, 0x4ce6cf, 0x0b7c84],
+    fire: [0xfff0b0, 0xff8424, 0xc22c18],
+    cold: [0xf0fbff, 0x78ccff, 0x2458d0],
+    light: [0xfffbe0, 0xffdc40, 0xc8820e],
+  };
+  const HIT_PAL = {
+    phys: [0xfff6d8, 0xffbe3c, 0xd2561c, 0x8a6a6e],
+    fire: [0xfff0a0, 0xff7a22, 0xb02418, 0x6a4a48],
+    cold: [0xf4fcff, 0x8fdcff, 0x2a62d0, 0xc4dcee],
+    light: [0xfffce0, 0xffe04a, 0xb8700c, 0x9a8c7a],
+  };
+  const _palTmp = [0, 0, 0, 0];
+  // 伤害类型的代表色（G.TYPE_HEX）→ 色板；不认得的颜色就地推一组（浅芯 / 本色 / 压暗）
+  function fxPal(hex, tbl) {
+    const TH = G.TYPE_HEX, P = tbl || FX_PAL;
+    for (const k in P) if (TH[k] === hex) return P[k];
+    _palTmp[0] = mixHex(hex, 0xffffff, 0.75);
+    _palTmp[1] = hex;
+    _palTmp[2] = mixHex(hex, 0x000000, 0.5);
+    _palTmp[3] = mixHex(hex, 0x8a7a86, 0.7);
+    return _palTmp;
+  }
+  // 投掷蓄力的颜色：game.js 开始投掷时用 W.castTint(这一下的伤害类型色) 设置
+  const castPal = FX_PAL.fire.slice();
+  W.castTint = function (hex) {
+    const p = fxPal(hex);
+    for (let i = 0; i < 3; i++) castPal[i] = p[i];
+  };
+  // 刀光：一条跟着武器走的带子。采样点按「绕角色的圆弧」补间，60 帧下的快挥也是顺滑的弧。
+  // 卡通版：越老的采样内沿越往刃尖收（头粗尾尖的月牙），横向三道硬边色带，不透明度只有三档
+  const TRAIL_MAX = 56, TRAIL_LIFE = 0.18;
   const trail = {
     ent: null, n: 0, live: 0, mesh: null, color: null,
     p: new Float32Array(TRAIL_MAX * 6), age: new Float32Array(TRAIL_MAX), mute: new Uint8Array(TRAIL_MAX),
@@ -10564,11 +10646,27 @@
     g.setIndex(new T.BufferAttribute(idx, 1));
     g.setDrawRange(0, 0);
     trail.color = { value: new T.Color(1, 1, 1) };
+    trail.c0 = { value: new T.Color(1, 1, 1) };
+    trail.c2 = { value: new T.Color(1, 1, 1) };
     const mat = new T.ShaderMaterial({
-      uniforms: { uColor: trail.color },
+      uniforms: { uColor: trail.color, uC0: trail.c0, uC2: trail.c2 },
       vertexShader: 'attribute float aA; attribute float aU; varying float vA; varying float vU;\nvoid main(){ vA = aA; vU = aU; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-      fragmentShader: 'uniform vec3 uColor; varying float vA; varying float vU;\nvoid main(){ float e = vU * vU; float a = vA * (0.16 + 0.84 * e);\n gl_FragColor = vec4(mix(uColor, vec3(1.0), e * e * 0.7) * a, 1.0); }',
-      blending: T.AdditiveBlending, transparent: true, depthWrite: false, side: T.DoubleSide,
+      fragmentShader: [
+        'uniform vec3 uColor; uniform vec3 uC0; uniform vec3 uC2; varying float vA; varying float vU;',
+        'void main(){',
+        '  if (vA < 0.02) discard;',
+        // 月牙：新的采样从握点铺到刃尖，越老内沿越往刃尖收
+        '  float lo = 1.0 - pow(vA, 0.55);',
+        '  float s = (vU - lo) / max(1.0 - lo, 0.001);',
+        '  if (s < 0.0) discard;',
+        // 横向三道硬边色带：刃尖一侧亮芯、中间主色、内沿深色
+        '  vec3 col = s > 0.72 ? uC0 : (s > 0.34 ? uColor : uC2);',
+        // 阶梯式淡出：三档不透明度
+        '  float a = vA > 0.6 ? 0.96 : (vA > 0.3 ? 0.74 : 0.45);',
+        '  gl_FragColor = vec4(col, a);',
+        '}',
+      ].join('\n'),
+      transparent: true, depthWrite: false, side: T.DoubleSide,
     });
     trail.mesh = new T.Mesh(g, mat);
     trail.mesh.frustumCulled = false;
@@ -10637,7 +10735,7 @@
     }
     const n = tr.n;
     for (let i = 0; i < n; i++) {
-      const k = 1 - tr.age[i] / TRAIL_LIFE, a = tr.mute[i] || k <= 0 ? 0 : k * Math.sqrt(k);
+      const k = 1 - tr.age[i] / TRAIL_LIFE, a = tr.mute[i] || k <= 0 ? 0 : k; // 卡通版的形状和阶梯都在着色器里按 k 算
       tr.al[i * 2] = tr.al[i * 2 + 1] = a;
     }
     tr.pos.set(n === TRAIL_MAX ? tr.p : tr.p.subarray(0, n * 6));
@@ -10649,7 +10747,10 @@
   }
   // 刀光的颜色（一般取这一击里占比最大的伤害类型）
   W.setTrail = function (hex) {
-    trail.color.value.set(hex);
+    const p = fxPal(hex);
+    trail.c0.value.set(p[0]);
+    trail.color.value.set(p[1]);
+    trail.c2.value.set(p[2]);
   };
 
   // 贴地痕迹。kind：0 擦痕（短促，加色）1 焦痕 2 霜痕 3 电痕 4 灰迹 5 地裂；r 半径（擦痕为长度的一半），
@@ -10723,14 +10824,22 @@
   // 命中特效：火花顺着这一击行进的方向喷出去，按伤害类型换花样，地上留一道短促的擦痕。
   // type：phys / fire / cold / light；w：分量（0 轻击 1 重击 2 终结 3 处决）；crit：暴击再加一把
   const IMPACT_HEX = { phys: 0xfff0d0, fire: 0xff7a2c, cold: 0x9fe0ff, light: 0xffec70 };
+  // 卡通版：命中点一颗硬边的星，顺着打击方向甩出几片实色尖片，脚下扬起实心的烟团，地上留一摊星形的印子；
+  // 原来的细火花只留一小半。低画质碎块减半
   W.impact = function (x, y, z, ang, type, w, crit) {
-    const hex = IMPACT_HEX[type] || IMPACT_HEX.phys;
+    const hex = IMPACT_HEX[type] || IMPACT_HEX.phys, pal = HIT_PAL[type] || HIT_PAL.phys, lo = qualId === 'low';
     _c.set(hex);
     const r = _c.r, g = _c.g, b = _c.b, sn = Math.sin(ang), cs = Math.cos(ang);
-    const n = 7 + w * 5 + (crit ? 6 : 0), sp = 9 + w * 3.5;
+    tChunk(1, x - sn * 0.15, y + 0.1, z - cs * 0.15, 0, 0, 0, 0.16 + w * 0.03, 0.46 + w * 0.12 + (crit ? 0.16 : 0), pal[0], pal[1], 0);
+    for (let i = 0, m = (lo ? 2 : 4) + w * 2 + (crit ? 2 : 0); i < m; i++) {
+      const a = ang + rand(-0.75, 0.75) * (i % 3 === 0 ? 1.8 : 1), v = (7 + w * 2.5) * rand(0.45, 1);
+      tChunk(0, x, y + rand(-0.15, 0.2), z, Math.sin(a) * v, rand(1.5, 5) + w, Math.cos(a) * v, rand(0.2, 0.34) + w * 0.03, rand(0.13, 0.2) + w * 0.03, pal[0], i % 2 ? pal[1] : pal[2], 16);
+    }
+    tPuffs(x + sn * 0.2, 0.3, z + cs * 0.2, (lo ? 1 : 2) + w, 1.6 + w * 0.6, 0.9, 0.36 + w * 0.06, 0.24 + w * 0.05, mixHex(pal[3], 0xf4e2d4, 0.7), pal[3]);
+    const n = 3 + w * 2 + (crit ? 3 : 0), sp = 9 + w * 3.5;
     for (let i = 0; i < n; i++) {
       const a = ang + rand(-0.7, 0.7) * (i % 4 === 0 ? 2.2 : 1), v = sp * rand(0.35, 1);
-      const wh = i % 3 === 0 ? 0.75 : 0.15;
+      const wh = i % 3 === 0 ? 0.35 : 0.08; // 卡通版：火花保留颜色，少混白
       spawnP(x, y + rand(-0.2, 0.2), z, Math.sin(a) * v, rand(0, 5) + w, Math.cos(a) * v, rand(0.14, 0.34) + w * 0.03, rand(0.1, 0.2) + w * 0.025,
         r + (1 - r) * wh, g + (1 - g) * wh, b + (1 - b) * wh, 14, 3.2);
     }
@@ -10752,16 +10861,25 @@
         const a = rand(0, TAU), v = rand(8, 17);
         spawnP(x, y + rand(-0.2, 0.3), z, Math.sin(a) * v, rand(-3, 8), Math.cos(a) * v, rand(0.06, 0.16), 0.13, 1, 1, 0.7, 0, 6);
       }
-    } else {
-      // 尘土
-      for (let i = 0, m = 3 + w; i < m; i++) {
-        spawnP(x + rand(-0.2, 0.2), 0.3, z + rand(-0.2, 0.2), sn * rand(1, 3) + rand(-1, 1), rand(0.5, 1.6), cs * rand(1, 3) + rand(-1, 1), rand(0.3, 0.55), rand(0.3, 0.5), 0.36, 0.32, 0.27, 1, 2.5);
-      }
     }
-    flare(x, y, z, hex, 1.0 + w * 0.45 + (crit ? 0.3 : 0), 0.08 + w * 0.02);
-    const off = 0.9 + w * 0.35;
-    W.decal(0, x + sn * off, z + cs * off, 0.9 + w * 0.5, ang, hex, 0.22 + w * 0.06, 0.16 + w * 0.04);
-    if (w >= 1 || crit) flashLight(x, y + 1, z, hex, 0.9 + w * 0.5);
+    // （物理的尘土由上面的实心烟团代替）
+    W.decal(6, x + sn * 0.35, z + cs * 0.35, 0.5 + w * 0.22 + (crit ? 0.1 : 0), ang, pal[1], 0.55 + w * 0.2);
+    if (w >= 1 || crit) flashLight(x, y + 1, z, hex, 0.5 + w * 0.3);
+  };
+  // 终结技砸地：落点一颗大星，一圈往外推的实心尘团，几片朝前甩的碎石尖片（ang 是劈下去的方向）
+  W.smashFx = function (x, z, R, ang) {
+    const lo = qualId === 'low', P = HIT_PAL.phys;
+    tChunk(1, x, 0.6, z, 0, 0, 0, 0.22, 0.75 + R * 0.08, P[0], P[1], 0);
+    const dust = mixHex(P[3], 0xf4e2d4, 0.7);
+    for (let i = 0, n = lo ? 6 : 11; i < n; i++) {
+      const a = (i / n) * TAU + rand(-0.2, 0.2), v = R * rand(1.8, 2.6);
+      tChunk(2, x + Math.sin(a) * R * 0.35, 0.3, z + Math.cos(a) * R * 0.35, Math.sin(a) * v, rand(0.6, 1.6), Math.cos(a) * v, rand(0.42, 0.58), rand(0.38, 0.55), dust, P[3], -0.6);
+    }
+    for (let i = 0, n = lo ? 4 : 7; i < n; i++) {
+      const a = ang + rand(-1.3, 1.3), v = rand(5, 9);
+      tChunk(0, x, 0.4, z, Math.sin(a) * v, rand(4, 8), Math.cos(a) * v, rand(0.45, 0.65), rand(0.2, 0.3), i % 2 ? P[1] : 0xb07a5c, i % 2 ? P[2] : 0x5a3a4c, 22);
+    }
+    flashLight(x, 1.5, z, 0xffc070, 0.8);
   };
   // 处决冲刺的残影：沿路径撒一串往后飘的光屑
   W.dashFx = function (x0, z0, x1, z1, hex) {
@@ -10845,35 +10963,43 @@
 
   // 冲击环 / 斩击弧用对象池，稳定后不再分配
   const RING_FRAG = [
-    'uniform vec3 uColor; uniform float uK; varying vec2 vP;',
+    'uniform vec3 uColor; uniform vec3 uC0; uniform float uK; varying vec2 vP;',
     'void main(){',
     '  float l = length(vP);',
     '  float rr = 0.12 + 0.88 * (1.0 - (1.0 - uK) * (1.0 - uK));', // 先快后慢地扩张
-    '  float band = smoothstep(rr - 0.2, rr - 0.025, l) * (1.0 - smoothstep(rr - 0.025, rr, l));',
-    '  float fill = (1.0 - smoothstep(rr - 0.05, rr, l)) * 0.07;',
-    '  float a = (band * 0.85 + fill) * (1.0 - uK) * (1.0 - uK * 0.5);',
-    '  gl_FragColor = vec4(mix(uColor, vec3(1.0), band * 0.25), a);',
+    // 卡通版：一道硬边的色环，越扩越细；外缘一条浅色亮边；不透明度三档
+    '  float w = 0.05 + 0.13 * (1.0 - uK);',
+    '  if (l > rr || l < rr - w) discard;',
+    '  float lit = step(rr - w * 0.35, l);',
+    '  float a = uK < 0.45 ? 0.9 : (uK < 0.75 ? 0.62 : 0.32);',
+    '  gl_FragColor = vec4(mix(uColor, uC0, lit), a);',
     '}',
   ].join('\n');
+  // 斩击弧（卡通版）：一弯实色的月牙从弧的一端扫到另一端。前沿最厚、往尾巴收尖，弧的两端也收尖；
+  // 径向三道硬边色带（外沿亮芯 uC0 / 主色 uColor / 内沿深色 uC2），不透明度三档。普通混合，不会叠成一片白
   const SLASH_FRAG = [
-    'uniform vec3 uColor; uniform float uK; uniform float uArc; uniform float uDir; uniform float uIn; varying vec2 vP;',
+    'uniform vec3 uColor; uniform vec3 uC0; uniform vec3 uC2; uniform float uK; uniform float uArc; uniform float uDir; uniform float uIn; varying vec2 vP;',
     'void main(){',
     '  float l = length(vP);',
     '  float an = atan(vP.x, vP.y) / uArc;', // 弧内为 -1..1（vP.y 是局部 +z，即朝向）
     '  if (abs(an) > 1.0 || l > 1.0) discard;',
-    '  float radial = smoothstep(uIn, 0.9, l) * (1.0 - smoothstep(0.93, 1.0, l));', // 月牙：外沿最亮
-    '  float h = (an * uDir) * 0.5 + 0.5;',
-    '  float sweep = uK * 2.4;', // 刀光从弧的一端扫到另一端
-    '  float head = 1.0 - smoothstep(sweep - 0.03, sweep, h);',
-    '  float tail = smoothstep(sweep - 1.1, sweep, h);',
-    '  float ends = smoothstep(0.0, 0.1, 1.0 - abs(an));',
-    '  float a = radial * head * tail * ends * (1.0 - uK * uK * 0.5);',
-    '  gl_FragColor = vec4(mix(uColor, vec3(1.0), radial * radial * 0.65), a);',
+    '  float h = (an * uDir) * 0.5 + 0.5;', // 0 = 起点，1 = 终点
+    '  float d = uK * 2.1 - h;', // 到前沿的距离（> 0 是已经扫过的部分）
+    '  if (d < 0.0 || d > 0.7) discard;',
+    '  float tail = d / 0.7;',
+    '  float ends = min(1.0, min(h, 1.0 - h) * 7.0);',
+    '  float thick = (1.0 - uIn) * (1.0 - tail * tail) * ends;',
+    '  float s = (l - (1.0 - thick)) / max(thick, 0.001);', // 0 = 内沿，1 = 外沿
+    '  if (s < 0.0) discard;',
+    '  vec3 col = s > 0.74 ? uC0 : (s > 0.34 ? uColor : uC2);',
+    '  float a = uK < 0.42 ? 0.9 : (uK < 0.7 ? 0.62 : 0.32);',
+    '  gl_FragColor = vec4(col, a);',
     '}',
   ].join('\n');
 
-  function makePool(frag, extraUniforms, max) {
-    return { items: [], frag, extraUniforms, max };
+  // blend：缺省加色；卡通的斩击弧 / 冲击环用普通混合（T.NormalBlending），颜色才立得住
+  function makePool(frag, extraUniforms, max, blend) {
+    return { items: [], frag, extraUniforms, max, blend: blend || T.AdditiveBlending };
   }
   function poolGet(pool) {
     for (let i = 0; i < pool.items.length; i++) if (!pool.items[i].on) return pool.items[i];
@@ -10884,10 +11010,10 @@
       return o;
     }
     const uniforms = { uColor: { value: new T.Color() }, uK: { value: 0 } };
-    if (pool.extraUniforms) for (const k of pool.extraUniforms) uniforms[k] = { value: 0 };
+    if (pool.extraUniforms) for (const k of pool.extraUniforms) uniforms[k] = { value: k.charAt(1) === 'C' ? new T.Color() : 0 }; // uC0 / uC2：颜色
     const mat = new T.ShaderMaterial({
       uniforms, vertexShader: FX_VERT, fragmentShader: pool.frag,
-      transparent: true, depthWrite: false, blending: T.AdditiveBlending, side: T.DoubleSide,
+      transparent: true, depthWrite: false, blending: pool.blend, side: T.DoubleSide,
     });
     const mesh = new T.Mesh(gQuad(), mat);
     mesh.visible = false;
@@ -10908,42 +11034,50 @@
       } else it.u.uK.value = it.t / it.dur;
     }
   }
-  const ringPool = makePool(RING_FRAG, null, 28);
-  const slashPool = makePool(SLASH_FRAG, ['uArc', 'uDir', 'uIn'], 12);
+  const ringPool = makePool(RING_FRAG, ['uC0'], 28, T.NormalBlending);
+  const slashPool = makePool(SLASH_FRAG, ['uArc', 'uDir', 'uIn', 'uC0', 'uC2'], 12, T.NormalBlending);
 
   W.ring = function (x, z, r, hex, dur) {
     const it = poolGet(ringPool);
     it.on = true;
     it.t = 0;
     it.dur = dur || 0.4;
-    it.u.uColor.value.set(hex);
+    const pal = fxPal(hexOf(hex)); // 卡通版：环身取主色、外缘取亮芯色（伤害类型的代表色映射到色板，其余颜色就地推）
+    it.u.uColor.value.set(pal[1]);
+    it.u.uC0.value.set(pal[0]);
     it.u.uK.value = 0;
     it.mesh.position.set(x, 0.1, z);
     it.mesh.scale.set(r, 1, r);
     it.mesh.visible = true;
   };
 
-  // opts（可选）：{ dir: 1 | -1 刀光扫过的方向, dur 时长, y 高度, inner 月牙内沿（0 ~ 0.9，越大越细） }
+  // opts（可选）：{ dir: 1 | -1 刀光扫过的方向, dur 时长, y 高度, inner 月牙内沿（0 ~ 0.9，越大越细）, tilt 侧倾 / pitch 俯仰（弧度） }
   W.slash = function (x, z, ang, range, arcDeg, hex, opts) {
     const it = poolGet(slashPool), o = opts || {};
     it.on = true;
     it.t = 0;
     it.dur = o.dur || 0.22;
-    it.u.uColor.value.set(hex);
+    const pal = fxPal(hexOf(hex));
+    it.u.uC0.value.set(pal[0]);
+    it.u.uColor.value.set(pal[1]);
+    it.u.uC2.value.set(pal[2]);
     it.u.uK.value = 0;
     const half = (arcDeg * Math.PI) / 360;
     it.u.uArc.value = Math.min(Math.PI, half);
     it.u.uDir.value = o.dir === -1 ? -1 : 1;
     it.u.uIn.value = o.inner === undefined ? 0.3 : o.inner;
     it.mesh.position.set(x, o.y === undefined ? 0.95 : o.y, z);
-    it.mesh.rotation.y = ang;
+    // tilt：绕朝向轴侧倾（弧度，正 = 局部 +x 一侧抬高；dir = 1 时那一侧是刀光的终点），上挑的一刀不再是平铺在地上的一片；
+    // pitch：整片绕自身的横轴俯仰（负 = 弧的中线往上抬）。tilt = π/2 时月牙竖起来，配合 pitch 画从头顶劈到地上的竖劈
+    it.mesh.rotation.order = 'YXZ';
+    it.mesh.rotation.set(o.pitch || 0, ang, o.tilt || 0);
     it.mesh.scale.set(range, 1, range);
     it.mesh.visible = true;
-    // 弧线外沿甩出的碎光
-    _c.set(hex);
-    for (let i = 0; i < 7; i++) {
-      const a = ang + rand(-half, half), d = range * rand(0.75, 0.98);
-      spawnP(x + Math.sin(a) * d, 0.95, z + Math.cos(a) * d, Math.sin(a) * 5, rand(0.5, 2), Math.cos(a) * 5, rand(0.15, 0.3), 0.16, _c.r, _c.g, _c.b, 4, 3);
+    // 弧线外沿甩出的几片实色碎片（低画质减半）
+    const y = o.y === undefined ? 0.95 : o.y;
+    for (let i = 0, n = qualId === 'low' ? 2 : 4; i < n; i++) {
+      const a = ang + rand(-half, half) * 0.9, d = range * rand(0.8, 1.0), v = rand(3.5, 6);
+      tChunk(0, x + Math.sin(a) * d, y, z + Math.cos(a) * d, Math.sin(a) * v, rand(0.5, 2.5), Math.cos(a) * v, rand(0.16, 0.26), rand(0.12, 0.18), pal[0], pal[1], 6);
     }
   };
 
@@ -11258,12 +11392,17 @@
     }
   };
   // 爆燃：以敌人为中心的火焰爆炸
+  // 卡通版：一道硬边色环 + 一颗星 + 一圈实心火团 + 少量火星（原来是两道同心环 + 48 粒软光点）
   W.blastFx = function (x, z, R) {
+    const lo = qualId === 'low', P = HIT_PAL.fire;
     W.ring(x, z, R, 0xff7a2c, 0.42);
-    W.ring(x, z, R * 0.6, 0xffd090, 0.26);
     W.decal(1, x, z, R * 0.8, Math.random() * TAU, 0xff6a2a, 3);
-    W.burst(x, 0.9, z, 0xff7a2c, 34, 8, 0.55);
-    W.burst(x, 0.5, z, 0xffe0a0, 14, 5, 0.4);
+    tChunk(1, x, 1.0, z, 0, 0, 0, 0.2, 0.8 + R * 0.12, P[0], P[1], 0);
+    for (let i = 0, n = lo ? 5 : 9; i < n; i++) {
+      const a = (i / n) * TAU + rand(-0.3, 0.3), v = rand(1.4, 2.4) * R;
+      tChunk(2, x + Math.sin(a) * 0.3, 0.8, z + Math.cos(a) * 0.3, Math.sin(a) * v, rand(1, 2.4), Math.cos(a) * v, rand(0.34, 0.5), rand(0.36, 0.5), i % 3 ? 0xff7a22 : 0xffd060, i % 3 ? P[2] : 0xff7a22, -1.5);
+    }
+    W.burst(x, 0.9, z, 0xff7a2c, lo ? 8 : 14, 8, 0.5);
     W.shake(0.2);
   };
   // 感电的电弧：一道细小的闪电从 (x0,z0) 窜到 (x1,z1)，沿途带着往前飞的火花；self：没有别的目标，绕回自己身上
@@ -12552,6 +12691,29 @@
     pfPart('arc', quad, add(crackleTex()), 120, 6);
     const rockMat = new T.MeshStandardMaterial({ map: basaltTex(), roughness: 0.92, metalness: 0.05, flatShading: true });
     pfPart('debris', rockGeo(0), rockMat, 96, 0);
+    // 卡通碎块（见 tChunk）：实心、不受光、不进雾，颜色就是画上去的颜色
+    const tMat = new T.MeshBasicMaterial({ toneMapped: false, fog: false, side: T.DoubleSide });
+    pfPart('tShard', geo('tShard', () => {
+      const g = new T.BufferGeometry();
+      g.setAttribute('position', new T.Float32BufferAttribute([0, 0.62, 0, 0.5, 0.05, 0, 0, -0.38, 0, -0.5, 0.05, 0], 3));
+      g.setIndex([0, 3, 1, 1, 3, 2]);
+      return g;
+    }), tMat, 128, 0);
+    pfPart('tStar', geo('tStar', () => {
+      const P = [0, 0, 0];
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * TAU, r = i % 2 ? 0.3 : 1;
+        P.push(Math.sin(a) * r, Math.cos(a) * r, 0);
+      }
+      const idx = [];
+      for (let i = 0; i < 8; i++) idx.push(0, 1 + i, 1 + ((i + 1) % 8));
+      const g = new T.BufferGeometry();
+      g.setAttribute('position', new T.Float32BufferAttribute(P, 3));
+      g.setIndex(idx);
+      return g;
+    }), tMat, 64, 0);
+    // 烟团略透（0.8）：几个圆鼓包叠在一起的地方更实，看着是一团烟而不是一块石头
+    pfPart('tPuff', geo('tPuff', () => new T.CircleGeometry(1, 10)), new T.MeshBasicMaterial({ toneMapped: false, fog: false, side: T.DoubleSide, transparent: true, opacity: 0.8, depthWrite: false }), 320, 3);
     initRibbons();
     rangedPfInit(add, vc, flameQuad, quad);
   }
@@ -12853,8 +13015,8 @@
     // 掷焰：白热的核，一团内焰，三条左右摆动、长短闪烁的外焰舌；一路落下火星、拖一缕细烟
     ember(u, x, y, z, dt) {
       const r = u.rad, t = u.age, ph = u.ph;
-      mPose(x, y, z, _pqI, r * 0.45, r * 0.45, r * 0.45);
-      pfPut('core', 1, 0.82, 0.5);
+      mPose(x, y, z, _pqI, r * 0.56, r * 0.56, r * 0.56); // 卡通版：白热的核大一圈，火球有一个清楚的亮芯
+      pfPut('core', 1, 0.88, 0.58);
       const f1 = 1 + 0.16 * Math.sin(t * 37 + ph);
       const tk = u.tinted ? 0.45 : 0;
       _c.setRGB(u.tr, u.tg, u.tb).convertSRGBToLinear();
@@ -12875,15 +13037,22 @@
         const wob = Math.sin(t * 19 + ph + k * 2.7) * 0.25 + (k - 0.5) * 0.3;
         flameTongue(u, x + u.dx * r * 0.2, y + 0.04, z + u.dz * r * 0.2, wob, r * 1.0, r * (3 + Math.sin(t * 29 + k)), or * 0.8, og * 0.8, ob * 0.8);
       }
-      glowPut(u, x, y, z, r * 6, 0.45);
+      // 卡通版：加色的光晕压到一半多（之前和泛光一起把火球冲成白团），形状靠实色火舌和下面的实心火团立住
+      glowPut(u, x, y, z, r * 5, 0.26);
       u.acc += dt;
       while (u.acc > 0.02) {
         u.acc -= 0.02;
         const wh = Math.random();
         // 火星：小而亮，往上飘、往两侧散
         spawnP(x - u.dx * r + rand(-0.12, 0.12), y + rand(-0.1, 0.12), z - u.dz * r + rand(-0.12, 0.12), rand(-1.2, 1.2) - u.dx * 1.5, rand(0.3, 1.8), rand(-1.2, 1.2) - u.dz * 1.5, rand(0.25, 0.5), rand(0.08, 0.14), 1, 0.65 + wh * 0.3, 0.2 + wh * 0.4, -1.5, 1.8);
-        // 尾焰的一团
-        spawnP(x - u.dx * r * 2, y, z - u.dz * r * 2, -u.dx * 2, rand(0.2, 0.8), -u.dz * 2, rand(0.12, 0.2), r * 1.3, 0.7 * (1 - tk) + u.tr * tk * 0.8, 0.2 * (1 - tk) + u.tg * tk * 0.8, 0.03 * (1 - tk) + u.tb * tk * 0.8, -1, 3);
+      }
+      // 尾巴：一串实心的火团（亮橙压在深红上），先胀后缩没；低画质间隔加倍
+      u.acc3 = (u.acc3 || 0) + dt;
+      const pg = qualId === 'low' ? 0.07 : 0.035;
+      if (u.acc3 > pg) {
+        u.acc3 = 0;
+        const fp = tk ? mixHex(0xff8424, u.hex, tk) : 0xff8424;
+        tChunk(2, x - u.dx * r * 1.6 + rand(-0.1, 0.1), y + rand(-0.06, 0.1), z - u.dz * r * 1.6 + rand(-0.1, 0.1), -u.dx * 1.5 + rand(-0.6, 0.6), rand(0.3, 1.1), -u.dz * 1.5 + rand(-0.6, 0.6), rand(0.14, 0.24), r * rand(0.6, 1.0), fp, 0xb4281a, -1);
       }
       u.acc2 += dt;
       if (u.acc2 > 0.05) {
@@ -13152,23 +13321,26 @@
   function fireBurst(x, y, z, R, u) {
     const tint = u && u.tinted ? (_c.setRGB(u.tr, u.tg, u.tb), _c.getHex()) : 0;
     const h = tint ? mixHex(0xff7a2c, tint, 0.45) : 0xff7a2c;
-    W.ring(x, z, R, h, 0.3);
-    W.ring(x, z, R * 0.55, 0xffd7a0, 0.18);
-    flare(x, y, z, 0xffb060, 1.6 + R * 0.3, 0.12);
+    // 卡通版：硬边的色环 + 一颗大星 + 一圈往外翻的实心火团（亮黄压橙、橙压深红）+ 几片焦黑的碎块 + 少量火星，地上一块硬边焦斑
+    const lo = qualId === 'low', P = HIT_PAL.fire;
+    W.ring(x, z, R, h, 0.3); // 只留一道环：两道同心环压在焦斑上像个靶子
+    tChunk(1, x, y + 0.15, z, 0, 0, 0, 0.2, 0.9 + R * 0.25, P[0], tint ? h : P[1], 0);
     flashLight(x, 2, z, 0xff8a3c, 1.6);
-    _c.set(h);
-    const hr = _c.r, hg = _c.g, hb = _c.b;
-    for (let i = 0; i < 16; i++) {
-      // 火团：大、慢、往上翻
-      const a = rand(0, TAU), v = rand(1, 3.2) * R;
-      spawnP(x, y, z, Math.sin(a) * v, rand(0.5, 2.5), Math.cos(a) * v, rand(0.22, 0.4), rand(0.4, 0.65), hr, hg * 0.85, hb * 0.6, -2, 3.5);
+    for (let i = 0, n = lo ? 5 : 9; i < n; i++) {
+      // 火团：大、往外翻、往上飘；三团里一团是亮黄的
+      const a = (i / n) * TAU + rand(-0.3, 0.3), v = rand(1.6, 3) * R;
+      tChunk(2, x + Math.sin(a) * 0.2, y - 0.2, z + Math.cos(a) * 0.2, Math.sin(a) * v, rand(1, 2.6), Math.cos(a) * v, rand(0.32, 0.46), rand(0.32, 0.46) * Math.sqrt(R), i % 3 ? h : 0xffd060, i % 3 ? P[2] : h, -1.5);
     }
-    for (let i = 0; i < 18; i++) {
+    for (let i = 0, n = lo ? 3 : 5; i < n; i++) {
+      const a = rand(0, TAU), v = rand(4, 7) * Math.sqrt(R);
+      tChunk(0, x, y, z, Math.sin(a) * v, rand(3, 6), Math.cos(a) * v, rand(0.35, 0.5), rand(0.14, 0.2), 0xffb040, 0x3a1a20, 16);
+    }
+    for (let i = 0, n = lo ? 6 : 10; i < n; i++) {
       // 火星：小、快、带重力
       const a = rand(0, TAU), v = rand(4, 9) * Math.sqrt(R);
       spawnP(x, y, z, Math.sin(a) * v, rand(1, 6), Math.cos(a) * v, rand(0.3, 0.6), rand(0.08, 0.14), 1, rand(0.7, 0.95), rand(0.3, 0.6), 12, 1.5);
     }
-    W.smoke(x, y + 0.2, z, 0.35 * R, 5, 0x241a16);
+    W.smoke(x, y + 0.2, z, 0.35 * R, lo ? 2 : 3, 0x241a16);
     W.decal(1, x, z, R * 0.7, rand(0, TAU), h, 1.8);
   }
   // 金属火花：顺着飞行方向喷出去的一把亮白火花
@@ -13233,6 +13405,99 @@
   function clearDebris() {
     dbL.fill(0);
     dbLive = 0;
+  }
+  // ----- 卡通碎块：尖片 / 星 / 烟团（实心、硬边，颜色分档跳变而不是渐隐；每种一个 InstancedMesh，环形缓冲，运行时不分配） -----
+  // kind 0 尖片：顺着速度拉长的菱形，前 45% 是亮色 a、之后换成 b，最后 35% 缩没；
+  //      1 星：四芒星，主色 b 垫底 + 亮芯 a，一出来就是八成大，先胀一下再缩没（顿帧时定格在画面上）；
+  //      2 烟团：两层圆片（暗色 b 在下、亮色 a 在上偏左上，像打了光的一团），先胀后缩没，往上飘
+  const CK_N = 192;
+  const ckK = new Uint8Array(CK_N), ckP = new Float32Array(CK_N * 3), ckV = new Float32Array(CK_N * 3);
+  const ckL = new Float32Array(CK_N), ckM = new Float32Array(CK_N), ckS = new Float32Array(CK_N), ckR = new Float32Array(CK_N), ckG = new Float32Array(CK_N);
+  const ckA = new Float32Array(CK_N * 3), ckB = new Float32Array(CK_N * 3);
+  let ckNext = 0, ckLive = 0;
+  function tChunk(kind, x, y, z, vx, vy, vz, life, size, hexA, hexB, grav) {
+    const i = ckNext, j = i * 3;
+    ckNext = (ckNext + 1) % CK_N;
+    ckK[i] = kind;
+    ckP[j] = x; ckP[j + 1] = y; ckP[j + 2] = z;
+    ckV[j] = vx; ckV[j + 1] = vy; ckV[j + 2] = vz;
+    ckL[i] = ckM[i] = life;
+    ckS[i] = size;
+    ckR[i] = rand(0, TAU);
+    ckG[i] = grav || 0;
+    _c.set(hexA).convertSRGBToLinear();
+    ckA[j] = _c.r; ckA[j + 1] = _c.g; ckA[j + 2] = _c.b;
+    _c.set(hexB).convertSRGBToLinear();
+    ckB[j] = _c.r; ckB[j + 1] = _c.g; ckB[j + 2] = _c.b;
+    ckLive = 2;
+  }
+  function toonChunks(dt) {
+    if (ckLive <= 0) return;
+    let any = false;
+    for (let i = 0; i < CK_N; i++) {
+      let l = ckL[i];
+      if (l <= 0) continue;
+      l -= dt;
+      ckL[i] = l;
+      if (l <= 0) continue;
+      any = true;
+      const j = i * 3, k = ckK[i], f = 1 - l / ckM[i]; // f：0 出生 → 1 消失
+      const dr = Math.max(0, 1 - (k === 2 ? 3.2 : 1.6) * dt);
+      ckV[j + 1] -= ckG[i] * dt;
+      ckV[j] *= dr; ckV[j + 1] *= k === 2 ? dr : 1; ckV[j + 2] *= dr;
+      let y = ckP[j + 1] + ckV[j + 1] * dt;
+      if (y < 0.06 && ckV[j + 1] < 0) {
+        y = 0.06;
+        ckV[j + 1] *= -0.25;
+        ckV[j] *= 0.5;
+        ckV[j + 2] *= 0.5;
+      }
+      ckP[j] += ckV[j] * dt;
+      ckP[j + 1] = y;
+      ckP[j + 2] += ckV[j + 2] * dt;
+      const x = ckP[j], z = ckP[j + 2], s = ckS[i];
+      if (k === 0) {
+        const sh = f < 0.65 ? 1 : 1 - (f - 0.65) / 0.35;
+        const sp = Math.hypot(ckV[j], ckV[j + 1], ckV[j + 2]);
+        mStretch(x, y, z, ckV[j], ckV[j + 1], ckV[j + 2], s * 0.5 * sh, s * (1.3 + Math.min(1.2, sp * 0.12)) * sh);
+        const c = f < 0.45 ? ckA : ckB;
+        pfPut('tShard', c[j], c[j + 1], c[j + 2]);
+      } else if (k === 1) {
+        ckR[i] += dt * 3;
+        const sc = s * (f < 0.25 ? 0.8 + 0.8 * f : 1 - (f - 0.25) / 0.75);
+        _pq.copy(camQ).multiply(_pq2.setFromAxisAngle(Z_AXIS, ckR[i]));
+        mPose(x, y, z, _pq, sc, sc, sc);
+        pfPut('tStar', ckB[j], ckB[j + 1], ckB[j + 2]);
+        _pq.multiply(_pq2.setFromAxisAngle(Z_AXIS, Math.PI / 4));
+        mPose(x + camB.x * 0.04, y + camB.y * 0.04, z + camB.z * 0.04, _pq, sc * 0.55, sc * 0.55, sc * 0.55);
+        pfPut('tStar', ckA[j], ckA[j + 1], ckA[j + 2]);
+      } else {
+        // 一小簇云：暗色的底垫在下面，上面三个亮色的圆鼓包（中间大、两边小），看着是一团烟而不是一颗石头
+        const sc = s * (f < 0.3 ? 0.6 + (f / 0.3) * 0.4 : 1 - ((f - 0.3) / 0.7) * ((f - 0.3) / 0.7));
+        const rx = Math.cos(ckR[i]) * sc, ry = Math.sin(ckR[i]) * sc * 0.25;
+        mBill(x - camB.x * 0.03, y - sc * 0.12, z - camB.z * 0.03, sc * 0.9);
+        pfPut('tPuff', ckB[j], ckB[j + 1], ckB[j + 2]);
+        const ox = camB.x * 0.03, oy = camB.y * 0.03, oz = camB.z * 0.03;
+        mBill(x + ox, y + sc * 0.1 + oy, z + oz, sc * 0.62);
+        pfPut('tPuff', ckA[j], ckA[j + 1], ckA[j + 2]);
+        mBill(x - rx * 0.5 + ox, y - ry + oy, z + oz, sc * 0.44);
+        pfPut('tPuff', ckA[j], ckA[j + 1], ckA[j + 2]);
+        mBill(x + rx * 0.5 + ox, y + ry - sc * 0.08 + oy, z + oz, sc * 0.4);
+        pfPut('tPuff', ckA[j], ckA[j + 1], ckA[j + 2]);
+      }
+    }
+    if (!any) ckLive--;
+  }
+  function clearChunks() {
+    ckL.fill(0);
+    ckLive = 0;
+  }
+  // 烟团（实心的两层圆片）：hexA 亮面、hexB 暗面
+  function tPuffs(x, y, z, n, spread, up, life, size, hexA, hexB) {
+    for (let i = 0; i < n; i++) {
+      const a = rand(0, TAU), v = spread * rand(0.4, 1);
+      tChunk(2, x + Math.sin(a) * 0.15, y, z + Math.cos(a) * 0.15, Math.sin(a) * v, up * rand(0.6, 1.2), Math.cos(a) * v, life * rand(0.75, 1.15), size * rand(0.75, 1.2), hexA, hexB, -0.5);
+    }
   }
   // 陨石尾焰：顺着下落方向拉长的大火舌（陨石的位置在 updateMeteors 里算好）
   function meteorFlames(dt) {
@@ -13302,6 +13567,7 @@
     updateDebris(dt);
     rangedPfDraw(dt);
     pyrePfDraw(dt);
+    toonChunks(dt);
     pfEnd();
     updateRibbons(dt);
   }
@@ -13323,6 +13589,7 @@
   function clearProjFx() {
     clearRibbons();
     clearDebris();
+    clearChunks();
     rangedClear();
     for (let i = 0; i < PF_LIST.length; i++) PF_LIST[i].n = 0;
     pfEnd();
@@ -15270,7 +15537,7 @@
     if (shakeAmt > 0.002) {
       sx = (Math.random() - 0.5) * shakeAmt * 1.1;
       sy = (Math.random() - 0.5) * shakeAmt * 1.1;
-      shakeAmt *= Math.exp(-raw * 7);
+      shakeAmt *= Math.exp(-raw * 10);
     } else shakeAmt = 0;
     if (punchX !== 0 || punchZ !== 0) {
       const pk = Math.exp(-raw * 12);
@@ -15379,8 +15646,8 @@
         flashing[i] = flashing[flashing.length - 1];
         flashing.pop();
       } else {
-        // 从峰值一路渐隐
-        const f = e.flashK * (0.3 + 0.7 * (e.flashT / e.flashD)), ms = e.mats;
+        // 卡通版：两档跳变（前 55% 全亮，之后半亮），不是平滑渐隐
+        const f = e.flashK * (e.flashT / e.flashD > 0.45 ? 1 : 0.45), ms = e.mats;
         for (let j = 0; j < ms.length; j++) ms[j].emissiveIntensity = ms[j].userData.fi * f;
       }
     }
