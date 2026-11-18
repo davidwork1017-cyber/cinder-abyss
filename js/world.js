@@ -15974,7 +15974,7 @@
   // 混沌特效（混沌流）：黑洞、黑旋风、黑焰、渊缚、渊陷
   // =====================================================================
   // 卡通特效的写法：硬边色带、三档阶梯透明度、普通混合（「黑」不能用加色画）。核是近黑的 CH_CORE，外面一道品红 CH_RIM，
-  // 最外一条亮芯 CH_HI（灰度约 87%，特效高光段）。全部预分配：黑洞圆盘最多 5 个、漩涡最多 6 团，用完复用；低画质少画零件
+  // 最外一条亮芯 CH_HI（灰度约 87%，特效高光段）。全部预分配：黑洞圆盘最多 5 个，用完复用；漩涡和光点、火舌都画进实例缓冲；低画质少画零件
   const CH_CORE = 0x12061a, CH_RIM = 0xf03cb4, CH_HI = 0xffd2f2, CH_DARK = 0x3a0c46;
   // 黑洞（第三轮改）：一个网格画两样东西，一次 draw call。
   //   地面圆盘（aPart = 0，半径 = 牵引半径）：近黑的核（uC 以内）→ 一道细亮芯 + 品红的视界边 → 外面三档递减的吸积带（0.3 / 0.18 / 0.09，
@@ -16062,18 +16062,6 @@
     g.boundingSphere = new T.Sphere(new T.Vector3(0, 0, 0), 1.5);
     return (holeGeo = g);
   }
-  // 漩涡：上宽下窄的开口圆台，绕着身子的斜条纹往上卷（亮芯 / 品红 / 近黑三档），顶上一段降到三成不透明
-  const VORTEX_VERT = 'varying vec2 vUv;\nvoid main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
-  const VORTEX_FRAG = [
-    'uniform vec3 uCore; uniform vec3 uRim; uniform vec3 uHi; uniform float uTime; uniform float uPh; varying vec2 vUv;',
-    'void main(){',
-    '  float s = fract(vUv.x * 3.0 + vUv.y * 1.4 - uTime * 2.6 + uPh);', // uPh：同一次施放的几团各错开一点相位
-    '  vec3 col = s < 0.16 ? uHi : (s < 0.5 ? uRim : uCore);',
-    '  float a = vUv.y > 0.82 ? 0.32 : (vUv.y > 0.55 ? 0.62 : 0.9);',
-    '  if (s >= 0.5 && vUv.y > 0.55) discard;', // 上半截只留亮条：漏斗口是一圈卷起来的条纹，不是一面墙
-    '  gl_FragColor = vec4(col, a);',
-    '}',
-  ].join('\n');
   const chHoles = [], chVorts = [];
   const flame = { on: false, acc: 0, flick: 6 };
   function chUniforms(extra) {
@@ -16166,57 +16154,89 @@
   }
   W.holeCount = () => chHoles.filter((h) => h.on).length;
 
-  // i：同一次施放里的第几团（多重投射）。相位、转向、高矮各错开一点，几团挨在一起时不会糊成一个盘
+  // 黑旋风（第三轮改）：一团团又快又小的漩涡，不再各占一个网格。每团是三层面朝镜头的圆片（品红的边 → 近黑的核 → 一粒亮芯），
+  // 外面几条卷进去的尖片绕着转（高画质 3 条、低画质 2 条），都在 chaosPfDraw 里写进实例缓冲；身后甩出的小尖片走卡通碎块池。
+  // i：同一次施放里的第几团（多重投射），转向和相位错开一点
   W.makeVortex = function (x, z, R, i) {
     let v = chVorts.find((o) => !o.on);
     if (!v) {
-      if (chVorts.length >= 6) {
-        v = chVorts[0];
-      } else {
-        const lo = qualId === 'low';
-        const geo = new T.CylinderGeometry(1, 0.28, 1, lo ? 8 : 12, 1, true);
-        geo.translate(0, 0.5, 0);
-        const u = chUniforms({ uPh: { value: 0 } });
-        const mat = new T.ShaderMaterial({ uniforms: u, vertexShader: VORTEX_VERT, fragmentShader: VORTEX_FRAG, transparent: true, depthWrite: false, side: T.DoubleSide });
-        const mesh = new T.Mesh(geo, mat);
-        mesh.renderOrder = 4;
-        mesh.visible = false;
-        scene.add(mesh);
-        v = { mesh, u, on: false };
-        chVorts.push(v);
-      }
+      v = { on: false };
+      chVorts.push(v);
     }
+    const k = i || 0;
     v.on = true;
+    v.x = x;
+    v.z = z;
     v.R = R;
     v.acc = 0;
-    const k = i || 0;
     v.dir = k % 2 ? -1 : 1;
-    v.u.uPh.value = k * 0.37;
-    v.mesh.rotation.y = k * 1.3;
-    v.mesh.position.set(x, 0.05, z);
-    v.mesh.scale.set(R * (1 - 0.06 * (k % 3)), 2.4 * (1 - 0.12 * (k % 3)), R * (1 - 0.06 * (k % 3)));
-    v.mesh.visible = true;
+    v.spin = k * 1.3;
+    v.ph = k * 0.37;
+    v.lat = false;
+    v.pop = 0; // 吸附那一下的放大（三档跳回）
     return v;
   };
-  W.updateVortex = function (v, x, z, dt) {
+  // lat：正吸附在敌人身上（漩涡大一圈、转得更快，刚吸上时往里吸几片尖片）
+  W.updateVortex = function (v, x, z, dt, lat) {
     if (!v || !v.on) return;
-    v.mesh.position.set(x, 0.05, z);
-    v.mesh.rotation.y += dt * 9 * (v.dir || 1);
-    // 甩出的尖片：高画质每 0.06 秒一片，低画质 0.12 秒
-    v.acc += dt * (qualId === 'low' ? 8 : 16);
+    const lo = qualId === 'low';
+    if (lat && !v.lat) {
+      v.pop = 0.24;
+      for (let i = 0, n = lo ? 2 : 4; i < n; i++) {
+        const a = (i / n) * TAU + rand(-0.3, 0.3), d = 1.5, w = rand(5, 7);
+        tChunk(0, x + Math.sin(a) * d, 0.7, z + Math.cos(a) * d, -Math.sin(a) * w, 0, -Math.cos(a) * w, 0.2, 0.16, CH_HI, CH_RIM, 0);
+      }
+    }
+    v.lat = !!lat;
+    if (v.pop > 0) v.pop -= dt;
+    v.x = x;
+    v.z = z;
+    v.spin += dt * (lat ? 16 : 10) * v.dir;
+    // 身后甩出的小尖片：高画质每秒 12 片，低画质 5 片
+    v.acc += dt * (lo ? 5 : 12);
     while (v.acc > 1) {
       v.acc -= 1;
-      const a = rand(0, TAU), w = rand(3, 5.5);
-      tChunk(0, x + Math.sin(a) * v.R * 0.8, rand(0.3, 1.8), z + Math.cos(a) * v.R * 0.8, Math.cos(a) * w, rand(0.5, 2), -Math.sin(a) * w, rand(0.2, 0.32), rand(0.14, 0.2), CH_HI, CH_RIM, 4);
+      const a = rand(0, TAU), w = rand(2, 3.5);
+      tChunk(0, x + Math.sin(a) * v.R * 0.5, rand(0.4, 1.0), z + Math.cos(a) * v.R * 0.5, Math.cos(a) * w * v.dir, rand(0.3, 1.2), -Math.sin(a) * w * v.dir, rand(0.16, 0.24), rand(0.11, 0.16), CH_HI, CH_RIM, 3);
     }
+  };
+  // 撞墙反弹：沿反弹方向甩两片尖片，高画质再一小团暗紫的烟
+  W.vortexBounce = function (x, z, rx, rz) {
+    const lo = qualId === 'low';
+    for (let i = 0, n = lo ? 1 : 3; i < n; i++) {
+      const a = Math.atan2(rx, rz) + rand(-0.8, 0.8), w = rand(4, 6);
+      tChunk(0, x, 0.7, z, Math.sin(a) * w, rand(0.5, 1.5), Math.cos(a) * w, 0.22, 0.16, CH_HI, CH_RIM, 3);
+    }
+    if (!lo) tPuffs(x, 0.6, z, 1, 0.8, 0.5, 0.3, 0.22, CH_DARK, CH_CORE);
   };
   W.removeVortex = function (v) {
     if (!v || !v.on) return;
     v.on = false;
-    v.mesh.visible = false;
-    tPuffs(v.mesh.position.x, 0.4, v.mesh.position.z, qualId === 'low' ? 1 : 3, 1.4, 0.8, 0.35, 0.3, CH_DARK, CH_CORE);
+    tPuffs(v.x, 0.6, v.z, qualId === 'low' ? 1 : 2, 1.2, 0.6, 0.3, 0.24, CH_DARK, CH_CORE);
   };
   W.vortexCount = () => chVorts.filter((v) => v.on).length;
+  function vortexDraw(v) {
+    const lo = qualId === 'low', y = 0.75;
+    const st = v.pop > 0.16 ? 1.45 : v.pop > 0.08 ? 1.3 : 1;
+    const s = v.R * 0.6 * (v.lat ? 1.18 : 1) * st;
+    const ox = camB.x, oy = camB.y, oz = camB.z;
+    mBill(v.x, y, v.z, s);
+    pfPut('chDisc', chLin.rim[0], chLin.rim[1], chLin.rim[2]);
+    mBill(v.x + ox * 0.03, y + oy * 0.03, v.z + oz * 0.03, s * 0.76);
+    pfPut('chDisc', chLin.core[0], chLin.core[1], chLin.core[2]);
+    mBill(v.x + ox * 0.06, y + oy * 0.06, v.z + oz * 0.06, s * 0.15);
+    pfPut('chDisc', chLin.hi[0], chLin.hi[1], chLin.hi[2]);
+    // 卷进去的尖片：水平面上绕着核转，从外圈往里收（外半程品红、内半程亮芯）
+    for (let k = 0, n = lo ? 2 : 3; k < n; k++) {
+      const u = (((wtime * 1.8 + v.ph + k / n) % 1) + 1) % 1;
+      const r = s * (2.2 - 1.3 * u), th = v.spin + (k / n) * TAU + u * 2.4 * v.dir;
+      const x = v.x + Math.sin(th) * r, z = v.z + Math.cos(th) * r;
+      const tx = Math.cos(th) * v.dir - Math.sin(th) * 0.6, tz = -Math.sin(th) * v.dir - Math.cos(th) * 0.6;
+      mStretch(x, y - 0.1, z, tx, 0, tz, s * 0.32, s * 1.3);
+      const c = u < 0.5 ? chLin.rim : chLin.hi;
+      pfPut('chShard', c[0], c[1], c[2]);
+    }
+  }
 
   // 黑焰：玩家身上往上飘的几缕黑焰（暗紫的小烟团 + 品红转近黑的尖片），高画质每秒 10 粒、低画质 2.5 粒；主要的辨识交给手上的火圈（flameWreath）
   W.setFlame = function (on) {
@@ -16282,7 +16302,9 @@
       _c.set({ core: CH_CORE, rim: CH_RIM, hi: CH_HI, dark: CH_DARK }[k]).convertSRGBToLinear();
       chLin[k] = [_c.r, _c.g, _c.b];
     }
-    pfPart('chShard', PF.tShard.mesh.geometry, PF.tShard.mesh.material, 160, 0);
+    pfPart('chShard', PF.tShard.mesh.geometry, PF.tShard.mesh.material, 240, 0);
+    // chDisc：黑旋风的圆片（面朝镜头的 14 边形），材质同上
+    pfPart('chDisc', geo('chDisc', () => new T.CircleGeometry(1, 14)), PF.tShard.mesh.material, 120, 0);
   }
   // 黑焰的火圈：两只手上各一簇往上舔的暗焰（中间一条高的、两边两条往外斜的），武器上再烧三条小的（握把到刃尖之间）。
   // 每条火舌四层：品红描边（垫在最后面、大一圈）→ 近黑的火身 → 里面一条品红 → 偶尔一粒亮芯；高矮按三档轮流跳。
@@ -16334,6 +16356,7 @@
   function chaosPfDraw() {
     chPfInit();
     for (let i = 0; i < chHoles.length; i++) if (chHoles[i].on) holeMotes(chHoles[i]);
+    for (let i = 0; i < chVorts.length; i++) if (chVorts[i].on) vortexDraw(chVorts[i]);
     flameWreath();
   }
 

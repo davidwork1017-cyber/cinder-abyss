@@ -666,7 +666,7 @@
     const sk = G.SKILLS[skillId];
     const sup = G.SUPPORTS[supId];
     if (!sk || !sup || (sk.weaponOnly && !sk.basic)) return false; // 武器技镶不了辅助（远程普攻例外：镶在武器普攻卡上）
-    if (sk.noSup && sk.noSup.indexOf(supId) >= 0) return false; // 黑旋风：贯穿没有意义
+    if (sk.noSup && sk.noSup.indexOf(supId) >= 0) return false; // 技能自己排除的辅助
     if (sk.buff) return sup.cost < 1; // 黑焰这类增益光环：只认降低消耗（保留）的辅助
     if (sup.no && sup.no.some((tag) => sk.tags.indexOf(tag) >= 0)) return false;
     if (sup.noKind && sk.minion && sup.noKind.indexOf(sk.minion) >= 0) return false;
@@ -3243,7 +3243,8 @@
   // 混沌流：黑洞、黑旋风（以及星蚀的渊口）
   // =====================================================================
   // 黑洞 { x, z, R 伤害半径, pullR 牵引半径, t, dur, tick, tt, ctx, mult, pullMul, mouth 是不是渊口, fx world 的句柄 }
-  // 黑旋风 { x, z, dx, dz, speed, life, R, ctx, cast 同一次施放共用的「敌人 → 下次可挨跳的时刻」, hit 这一发打过的, chain, fx }
+  // 黑旋风 { x, z, a 朝向（弧度）, speed, life, R, ctx, cast 同一次施放共用的「敌人 → { next 下次可挨跳的时刻, n 已挨跳数 }」,
+  //   seen 这一团吸过的「敌人 → 时刻」, lat 正吸着的敌人, latT 吸附剩下的秒数, latN 吸过几次, bounce 剩几次反弹, skip 贯穿剩几个, chain, wf 摆动参数, fx }
   const holes = [];
   const vortices = [];
   const HOLE_MAX = 3; // 场上玩家的黑洞（含渊口）最多几个，多了顶掉最老的
@@ -3331,61 +3332,156 @@
     // ---- 黑旋风 ----
     for (let i = vortices.length - 1; i >= 0; i--) {
       const v = vortices[i];
-      const sk = v.ctx.sk;
-      v.life -= dt;
-      const total = v.speed * dt;
-      const steps = Math.max(1, Math.ceil(total / 0.45));
-      let alive = true;
-      for (let s = 0; s < steps; s++) {
-        const nx = v.x + (v.dx * total) / steps, nz = v.z + (v.dz * total) / steps;
-        if (!W.walkable(nx, nz, -0.4)) {
-          alive = false; // 撞墙就散
-          break;
-        }
-        v.x = nx;
-        v.z = nz;
+      if (!updateVortex(v, dt)) {
+        removeVortex(i);
+        continue;
       }
-      if (alive) {
-        for (const e of enemiesIn(v.x, v.z, v.R)) {
-          // 拖拽：顺着行进方向带一段，往路径中线收一点（首领不拖）
-          if (!e.isBoss && !pinned(e) && G.pullEnemy) {
-            const k = G.bindPullSpeed(e, sk.drag) * dt * (e.freeze > 0 || e.brokenT > 0 ? 0.35 : 1);
-            const side = (e.x - v.x) * v.dz - (e.z - v.z) * v.dx; // 到中线的有向距离
-            G.pullEnemy(e, e.x + v.dx * k - v.dz * side * 0.5 * k, e.z + v.dz * k + v.dx * side * 0.5 * k, k);
+      if (v.fx && W.updateVortex) W.updateVortex(v.fx, v.x, v.z, dt, !!v.lat);
+    }
+  }
+
+  // ---- 黑旋风的地形：一层小包装，区域改版合进来以后不用改 ----
+  // 投射物能不能飞过 (x, z)：有 W.shotFree 就用它（虚空 / 熔岩 / 深水上照样飞，只有真墙和悬崖挡），没有就退回 W.walkable
+  function vxFree(x, z, pad) {
+    const W = G.world;
+    return W.shotFree ? W.shotFree(x, z, pad) : W.walkable(x, z, pad);
+  }
+  // 撞墙点 (x, z) 的法线（单位向量，指向能飞的一侧）；(px, pz) 是撞墙前最后一个能飞的点，(dx, dz) 是行进方向。
+  // 有 W.sdAt：用它的梯度（中心差分）。W.sdAt 是「可走」的距离场，虚空 / 熔岩上也有梯度（指向岸边），所以只在撞墙前那一点在地面上
+  //   （sd > −0.35：漩涡飞的时候可以压进墙 0.3）时用，并且反弹后的方向要真的能飞才算数；
+  //   不满足就和没有 W.sdAt 时一样，在撞墙点周围一圈探 vxFree，能飞的方向加起来就是法线（state.stats 里分别计数）
+  const VX_RING = [];
+  for (let k = 0; k < 16; k++) VX_RING.push([Math.sin((k / 16) * TAU), Math.cos((k / 16) * TAU)]);
+  function vxNormal(x, z, px, pz, dx, dz) {
+    const W = G.world;
+    if (W.sdAt && W.sdAt(px, pz) > -0.35) {
+      const e = 0.25;
+      let gx = W.sdAt(x + e, z) - W.sdAt(x - e, z), gz = W.sdAt(x, z + e) - W.sdAt(x, z - e);
+      const gl = Math.hypot(gx, gz);
+      if (gl > 1e-4) {
+        gx /= gl;
+        gz /= gl;
+        const dn = dx * gx + dz * gz;
+        if (dn < -0.05) {
+          const rx = dx - 2 * dn * gx, rz = dz - 2 * dn * gz;
+          if (vxFree(px + rx * 0.5, pz + rz * 0.5, -0.3)) {
+            state.stats.vortexNormSdf = (state.stats.vortexNormSdf || 0) + 1;
+            return { x: gx, z: gz, sdf: true };
           }
-          if (state.time < (v.cast.get(e) || 0)) continue;
-          v.cast.set(e, state.time + sk.tick * 0.95);
-          v.hit.add(e);
-          G.hitEnemy(e, v.ctx, 1, { ang: Math.atan2(v.dx, v.dz), quiet: true });
         }
-        if (v.life <= 0 && v.chain > 0) {
-          // 连锁：走到头之后拐向附近这一发还没打过的最近敌人，再走一小段
+      }
+    }
+    state.stats.vortexNormProbe = (state.stats.vortexNormProbe || 0) + 1;
+    let nx = 0, nz = 0;
+    for (const r of VX_RING) {
+      if (vxFree(x + r[0] * 0.8, z + r[1] * 0.8, -0.3)) {
+        nx += r[0];
+        nz += r[1];
+      }
+    }
+    const nl = Math.hypot(nx, nz);
+    if (nl < 1e-3) return { x: -dx, z: -dz, sdf: false };
+    return { x: nx / nl, z: nz / nl, sdf: false };
+  }
+  G.vortexTerrain = { free: vxFree, normal: vxNormal };
+
+  // 一团漩涡走一帧；返回 false 表示散了
+  function updateVortex(v, dt) {
+    const sk = v.ctx.sk, L = sk.latch;
+    v.life -= dt;
+    if (v.life <= 0) return false;
+    v.t += dt;
+    if (v.lat) {
+      // 吸附中：贴着那只敌人，绕着它小小地转；把附近的小怪往漩涡拽
+      const e = v.lat;
+      v.latT -= dt;
+      if (e.dead || v.latT <= 0) {
+        v.lat = null;
+        if (v.chain > 0) {
+          // 连锁：拐向附近这一团还没吸过的最近敌人
           let best = null, bd = sk.hop.r;
-          for (const e of state.enemies) {
-            if (e.dead || v.hit.has(e)) continue;
-            const d = dist(e.x, e.z, v.x, v.z);
+          for (const o of state.enemies) {
+            if (o.dead || v.seen.has(o)) continue;
+            const d = dist(o.x, o.z, v.x, v.z);
             if (d <= bd) {
               bd = d;
-              best = e;
+              best = o;
             }
           }
           if (best) {
             v.chain--;
-            const len = bd || 1;
-            v.dx = (best.x - v.x) / len;
-            v.dz = (best.z - v.z) / len;
-            v.life = sk.hop.life;
+            v.a = Math.atan2(best.x - v.x, best.z - v.z);
             state.stats.vortexHops = (state.stats.vortexHops || 0) + 1;
           }
         }
-        if (v.life <= 0) alive = false;
+      } else {
+        const oa = v.t * 9;
+        const tx = e.x + Math.sin(oa) * 0.25, tz = e.z + Math.cos(oa) * 0.25;
+        if (vxFree(tx, tz, -0.3)) {
+          v.x = tx;
+          v.z = tz;
+        }
+        for (const o of state.enemies) {
+          if (o.dead || o === e) continue;
+          const d = dist(o.x, o.z, v.x, v.z);
+          if (d - o.r > L.r || d < 0.6) continue;
+          let sp;
+          if (o.isBoss) sp = L.bossPull;
+          else {
+            if (pinned(o)) continue;
+            sp = G.bindPullSpeed(o, L.pull) * (o.freeze > 0 || o.brokenT > 0 ? 0.35 : 1);
+          }
+          if (G.pullEnemy) G.pullEnemy(o, v.x, v.z, Math.min(sp * dt, d - 0.6));
+        }
       }
-      if (!alive) {
-        removeVortex(i);
-        continue;
-      }
-      if (v.fx && W.updateVortex) W.updateVortex(v.fx, v.x, v.z, dt);
     }
+    if (!v.lat) {
+      // 飞：朝向带一点摆动（两路正弦叠加），分小步走，撞墙按法线反弹
+      v.a += sk.wander * (Math.sin(v.t * v.wf[0] + v.wf[1]) * 0.7 + Math.sin(v.t * v.wf[2] + v.wf[3]) * 0.5) * dt;
+      const total = v.speed * dt;
+      const steps = Math.max(1, Math.ceil(total / 0.3));
+      for (let s = 0; s < steps; s++) {
+        const dx = Math.sin(v.a), dz = Math.cos(v.a);
+        const nx = v.x + (dx * total) / steps, nz = v.z + (dz * total) / steps;
+        if (vxFree(nx, nz, -0.3)) {
+          v.x = nx;
+          v.z = nz;
+          continue;
+        }
+        if (v.bounce <= 0) return false; // 反弹次数用完：再撞就散
+        const n = vxNormal(nx, nz, v.x, v.z, dx, dz);
+        const dn = dx * n.x + dz * n.z;
+        let rx = dx - 2 * dn * n.x, rz = dz - 2 * dn * n.z;
+        if (dn >= 0) {
+          rx = n.x;
+          rz = n.z;
+        }
+        v.a = Math.atan2(rx, rz);
+        v.bounce--;
+        state.stats.vortexBounces = (state.stats.vortexBounces || 0) + 1;
+        if (v.fx && G.world.vortexBounce) G.world.vortexBounce(v.x, v.z, rx, rz);
+      }
+    }
+    // 伤害：半径以内的敌人，同一次施放每 tick 秒最多一跳、一共最多 cap 跳（首领 bossCap）；碰到新的敌人就吸附
+    for (const e of enemiesIn(v.x, v.z, v.R)) {
+      if (!v.lat && v.latN < L.max && state.time - (v.seen.get(e) || -99) >= L.again) {
+        v.seen.set(e, state.time);
+        if (v.skip > 0) v.skip--; // 贯穿：这一只不吸，直接穿过
+        else {
+          v.lat = e;
+          v.latT = L.t;
+          v.latN++;
+          state.stats.vortexLatches = (state.stats.vortexLatches || 0) + 1;
+        }
+      }
+      let c = v.cast.get(e);
+      if (!c) v.cast.set(e, (c = { next: 0, n: 0 }));
+      if (c.n >= (e.isBoss ? sk.bossCap : sk.cap) || state.time < c.next) continue;
+      c.next = state.time + sk.tick * 0.95;
+      c.n++;
+      G.hitEnemy(e, v.ctx, 1, { ang: v.a, quiet: true });
+    }
+    return true;
   }
   // 换区域 / 重生：黑洞和漩涡全部收起
   function resetChaos() {
@@ -3907,14 +4003,24 @@
 
   SKILL_FX.vortex = function (ctx, a) {
     const sk = ctx.sk;
-    const n = Math.max(1, ctx.proj);
-    const spread = Math.min(70, 20 * (n - 1)) * DEG; // 比投射物的扇形张得开一点：漩涡有半径，挨太近会叠成一团
+    const n = sk.count + Math.max(0, ctx.proj - 1); // 基础三团，多重投射再加
+    const spread = Math.min(80, sk.spread * (n - 1)) * DEG;
     const stepA = n > 1 ? spread / (n - 1) : 0;
-    const cast = new Map(); // 同一次施放的几团共用：同一个敌人 tick 秒内只挨一跳
+    const cast = new Map(); // 同一次施放的几团共用：同一个敌人每 tick 秒最多一跳、一共最多 cap 跳
     const R = sk.radius * Math.sqrt(ctx.area);
     for (let i = 0; i < n; i++) {
       const ang = a.ang - spread / 2 + stepA * i;
-      const v = { x: P.x + Math.sin(ang) * 0.8, z: P.z + Math.cos(ang) * 0.8, dx: Math.sin(ang), dz: Math.cos(ang), speed: sk.speed, life: sk.life, R, ctx, cast, hit: new Set(), chain: ctx.chain };
+      let x = P.x + Math.sin(ang) * 0.8, z = P.z + Math.cos(ang) * 0.8;
+      if (!vxFree(x, z, -0.3)) {
+        x = P.x;
+        z = P.z;
+      }
+      const v = {
+        x, z, a: ang, speed: sk.speed, life: sk.life, t: 0, R, ctx, cast, seen: new Map(), lat: null, latT: 0, latN: 0,
+        bounce: sk.bounce, skip: ctx.pierce, chain: ctx.chain,
+        // 摆动：两路正弦的频率 / 相位，每团不同
+        wf: [G.rand(2.2, 3.4), i * 2.1 + G.rand(0, TAU), G.rand(4.5, 6.5), i * 1.3 + G.rand(0, TAU)],
+      };
       v.fx = G.world.makeVortex ? G.world.makeVortex(v.x, v.z, R, i) : null;
       vortices.push(v);
     }
