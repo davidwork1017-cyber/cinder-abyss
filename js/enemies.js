@@ -198,11 +198,13 @@
     const zone = spawnZone || G.state.zone;
     const elite = !!o.elite;
     const elem = zone.def.elem;
-    const hp = Math.max(1, Math.round(def.hp * G.hpScale(level) * (elite ? 4.5 : 1))); // 精英血量 4 → 4.5：补偿破绽易伤与处决
+    // horde：区域刷出来的普通怪，生命按 G.BALANCE.mobHp 打折（经验 / 掉落也打折，见 killXp、dropLoot）；精英、召唤的、调试刷的不打折
+    const horde = !elite && !!o.horde;
+    const hp = Math.max(1, Math.round(def.hp * G.hpScale(level) * (elite ? 4.5 : horde ? G.BALANCE.mobHp : 1))); // 精英血量 4 → 4.5：补偿破绽易伤与处决
     const r = def.r * (elite ? 1.25 : 1);
     const e = runtimeFields({
       type, def, name: elite ? '精英' + def.name : def.name, x, z, r, hp, maxHp: hp,
-      dmg: def.dmg * G.dmgScale(level) * (elite ? 1.3 : 1), level, speed: def.speed, elem, elite,
+      dmg: def.dmg * G.dmgScale(level) * (elite ? 1.3 : 1), level, speed: def.speed, elem, elite, horde,
       isBoss: false, bossKind: null, pack: o.pack == null ? null : o.pack, awake: !!o.awake,
       dead: false, deathT: 0, height: (def.h || (type === 'brute' ? 2.8 : 2)) * (elite ? 1.35 : 1),
       freeze: 0, stunT: 0, slowK: 1, iced: false,
@@ -307,7 +309,7 @@
     }
     for (const members of packs) {
       const pack = packSeq++;
-      for (const m of members) G.spawnMob(m.type, m.x, m.z, level, { elite: m.elite, pack, awake: false });
+      for (const m of members) G.spawnMob(m.type, m.x, m.z, level, { elite: m.elite, pack, awake: false, horde: true });
     }
   }
   // 「中点」槽位（legacy 的通道：露在两端空地之外那一段的中点，生成器已经算好）：2–3 只的小群
@@ -321,7 +323,7 @@
         const x = mid.x + Math.sin(a) * d, z = mid.z + Math.cos(a) * d;
         if (!W.walkable(x, z, 1) || !farFromStart(zone, x, z) || !spaced(members, x, z, 1.3)) continue;
         members.push({ x, z });
-        G.spawnMob(packType(mobs, main, zone), x, z, level, { elite: false, pack, awake: false });
+        G.spawnMob(packType(mobs, main, zone), x, z, level, { elite: false, pack, awake: false, horde: true });
         break;
       }
     }
@@ -334,7 +336,10 @@
     let mobs = slot.mobs || zone.def.mobs;
     if (slot.noBrute) mobs = mobs.filter((t) => t !== 'brute');
     if (!mobs.length) mobs = ['husk'];
-    const n = Array.isArray(slot.n) ? G.randInt(slot.n[0], slot.n[1]) : slot.n || G.randInt(4, 6), R = slot.r || 2.6;
+    // 人数 ×G.BALANCE.packSize（随机取整，期望值正好是倍率），站位半径 ×√packSize，成员之间的间距照旧
+    const K = G.BALANCE.packSize;
+    const n0 = Array.isArray(slot.n) ? G.randInt(slot.n[0], slot.n[1]) : slot.n || G.randInt(4, 6);
+    const n = Math.floor(n0 * K + Math.random()), R = (slot.r || 2.6) * Math.sqrt(K);
     const main = G.pick(mobs), members = [];
     for (let m = 0; m < n; m++) {
       for (let tries = 0; tries < 12; tries++) {
@@ -352,7 +357,7 @@
     }
     const pack = packSeq++;
     for (const m of members) {
-      const e = G.spawnMob(m.type, m.x, m.z, level, { elite: m.elite, pack, awake: false });
+      const e = G.spawnMob(m.type, m.x, m.z, level, { elite: m.elite, pack, awake: false, horde: true });
       if (e && slot.ambush) e.ambush = true;
     }
   }
