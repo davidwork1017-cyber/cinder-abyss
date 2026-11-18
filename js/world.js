@@ -7186,8 +7186,11 @@
   //   地标：环路边上的陨石碎块（WALL，可当掩体）、坑底边缘 3 簇水晶（WALL）、坑壁上的星骸碑、虚空上的浮岩、撞击坑。
   //   角度 = atan2(dx, dz)（和 arc 图元同一套），坑心 O；s = 绕圈方向（±1）
   const RIFT_G = {
-    rS: [54, 57], rO: [37.2, 38.6], rM: [24.0, 24.6], hw: 4, rA: 16, spanO: [128, 136], spanM: [130, 138],
-    rampHw: 3.5, neckHw: 4, linkHw: 3.75, bulge: [8.1, 8.6], bulgeOut: 0.28, side: [5.6, 6.1], sideNeck: [8, 9.5], sideHw: 3,
+    // zones-polish：区域加长到 ×1.6：两圈都放大、绕得更远（外圈 r 37–39 / 128–136° → r 43–45 / 193–199°，中圈 r 24 / 130–138° → r 27–28 / 187–193°），
+    // 每圈 3 个房间（各带一个鼓包），旁支 2 → 3。两圈的角度合起来超过一圈：中圈的末尾转回到外圈的开头底下（隔着 ≥ 7 m 坑壁），
+    // 外圈内侧的虚空只放在没有中圈的那一段
+    rS: [60.5, 63.5], rO: [43.2, 44.8], rM: [27.2, 28.0], hw: 4.4, rA: 16, spanO: [193, 199], spanM: [187, 193],
+    rampHw: 3.5, neckHw: 4, linkHw: 3.75, bulge: [9.4, 10], bulgeOut: 0.28, side: [6.2, 6.8], sideNeck: [8, 9.5], sideHw: 3, // zones-polish：环带宽 8 → 8.8、鼓包 8.1–8.6 → 9.4–10、撞击坑 5.6–6.1 → 6.2–6.8
     meteor: [1.5, 2.0], crystal: [0.85, 1.2], crystalR: 13,
   };
   function riftGen(R, def) {
@@ -7230,67 +7233,77 @@
       return { ph, prims: [{ t: 'circle', x: c.x, z: c.z, r: rad }], x: c.x, z: c.z, rad, r: rad - 0.05, root: P(ph, ringR), door0: P(ph, ringR + hw), door1: P(ph, ringR + hw + neck - 0.15 * rad) };
     };
     const at = (a, b, t) => a + (b - a) * t;
-    const phO = ph0 + s * spO * 0.5, phMs = ph1 + s * spM * 0.5;
-    const B1 = bulge(ph0 + s * spO * rnd(0.2, 0.26), rO), B2 = bulge(ph0 + s * spO * rnd(0.74, 0.8), rO);
-    const B3 = bulge(ph1 + s * spM * rnd(0.2, 0.25), rM), B4 = bulge(ph1 + s * spM * rnd(0.73, 0.78), rM);
-    const SA = side(ph0 + s * spO * rnd(0.47, 0.53), rO), SB = side(ph1 + s * spM * rnd(0.47, 0.53), rM);
-    const parA = (SA.ph - phO) * s < 0 ? 1 : 2, parB = (SB.ph - phMs) * s < 0 ? 3 : 4; // 旁支挂在哪个环带房间上
-    const eliteA = R() < 0.5;
-    // 外圈内侧的虚空：环带 [rV0, 外圈内沿 + 0.25]（一串胶囊，两端是圆头），两端离坡道 / 起点那头留足岩壁。
+    // 每圈三等分成 3 个房间；鼓包在各自那一段的中间，旁支挂在分界附近（外圈两个、中圈一个）
+    const phO1 = ph0 + (s * spO) / 3, phO2 = ph0 + (2 * s * spO) / 3, phM1 = ph1 + (s * spM) / 3, phM2 = ph1 + (2 * s * spM) / 3;
+    const B1 = bulge(ph0 + s * spO * rnd(0.14, 0.19), rO), B2 = bulge(ph0 + s * spO * rnd(0.47, 0.53), rO), B3 = bulge(ph0 + s * spO * rnd(0.8, 0.85), rO);
+    // 中圈的鼓包往外鼓：t > 0.7 以后外面是外圈的开头和起点连接，鼓包不放那里
+    const B4 = bulge(ph1 + s * spM * rnd(0.13, 0.18), rM), B5 = bulge(ph1 + s * spM * rnd(0.4, 0.45), rM), B6 = bulge(ph1 + s * spM * rnd(0.62, 0.66), rM);
+    const SA = side(ph0 + s * spO * rnd(0.31, 0.35), rO), SC = side(ph0 + s * spO * rnd(0.64, 0.68), rO), SB = side(ph1 + s * spM * rnd(0.27, 0.3), rM);
+    const parA = (SA.ph - phO1) * s < 0 ? 1 : 2, parC = (SC.ph - phO2) * s < 0 ? 2 : 3, parB = (SB.ph - phM1) * s < 0 ? 4 : 5; // 旁支挂在哪个环带房间上
+    const eliteK = Math.floor(R() * 3); // 三个旁支里哪个是精英坑（0 = A、1 = B、2 = C）
+    // 外圈内侧的虚空：环带 [rV0, 外圈内沿 + 0.25]（一串胶囊，两端是圆头）。起点那头让开中圈的末尾（转回来的那一段 + 封口 + 坑壁），坡道那头留足岩壁。
     // 同一串胶囊既是一个单独的「垫底」房间（不在关键路径上、没有门；sdShot 为正，子弹和视线能飞过），又是 VOID 挖空（不可走）。
-    // 不放进 R1 / R2：校验第 4 条按房间图元的外接框逐格量距离，图元多了很慢
+    // 不放进外圈的房间：校验第 4 条按房间图元的外接框逐格量距离，图元多了很慢
     const rV0 = rA + 5, rV1 = rO - hw + 0.25, vMid = (rV0 + rV1) / 2, vHw = (rV1 - rV0) / 2;
-    const vA = ph0 + s * (16 * D + vHw / vMid), vB = ph1 - s * ((K.rampHw + 5 + vHw) / vMid);
+    const wrap = Math.max(0, spO + spM - TAU); // 中圈末尾转到外圈开头底下的角度
+    const vA = ph0 + s * (wrap + (hw + 9) / rM + vHw / vMid), vB = ph1 - s * ((K.rampHw + 5 + vHw) / vMid);
     const cover = chain(vMid, vA, vB, vHw, 15);
     // 起点连到外圈起端
     const phJ = ph0 + s * 7 * D, join = P(phJ, rO), jd = Math.hypot(join.x, join.z), ux = join.x / jd, uz = join.z / jd;
     const exit = { x: ux * 8, z: uz * 8, ang: Math.atan2(ux, uz) };
     const rooms = [], links = [], cuts = [], feats = [], packs = [], chests = [];
+    const NP = 6, lvOf = (o) => lvFor(o, NP);
     const room = (kind, order, path, prims, core, extra) => {
-      const r = Object.assign({ id: rooms.length, kind, order, path, prims, core, tags: [] }, extra || {});
+      const r = Object.assign({ id: rooms.length, kind, order, lv: lvOf(order), path, prims, core, tags: [] }, extra || {});
       rooms.push(r);
       return r;
     };
     const cOf = (b) => ({ x: b.x, z: b.z, r: b.r });
     // 房间顺序 = 重叠处的优先级：起点、环带、场地、旁支在前，通道在后
     const rStart = room('start', 0, true, [{ t: 'circle', x: 0, z: 0, r: 8 }], { x: 0, z: 0, r: 8 });
-    const r1 = room('room', 1, true, chain(rO, ph0, phO, hw).concat(B1.prims), cOf(B1), { axis: arcAxis(rO, ph0, phO) });
-    const r2 = room('room', 2, true, chain(rO, phO, ph1, hw).concat(B2.prims), cOf(B2), { axis: arcAxis(rO, phO, ph1) });
-    const r3 = room('room', 3, true, chain(rM, ph1, phMs, hw).concat(B3.prims), cOf(B3), { axis: arcAxis(rM, ph1, phMs) });
-    const r4 = room('room', 4, true, chain(rM, phMs, ph2, hw).concat(B4.prims), cOf(B4), { axis: arcAxis(rM, phMs, ph2) });
-    const rArena = room('arena', 5, true, [{ t: 'circle', x: O.x, z: O.z, r: rA }], { x: O.x, z: O.z, r: rA });
-    const ringRooms = [null, r1, r2, r3, r4];
-    const rSA = room('side', ringRooms[parA].order + 1, false, SA.prims, cOf(SA), { tags: [eliteA ? 'elite' : 'chest'] });
-    const rSB = room('side', ringRooms[parB].order + 1, false, SB.prims, cOf(SB), { tags: [eliteA ? 'chest' : 'elite'] });
+    const r1 = room('room', 1, true, chain(rO, ph0, phO1, hw).concat(B1.prims), cOf(B1), { axis: arcAxis(rO, ph0, phO1) });
+    const r2 = room('room', 2, true, chain(rO, phO1, phO2, hw).concat(B2.prims), cOf(B2), { axis: arcAxis(rO, phO1, phO2) });
+    const r3 = room('room', 3, true, chain(rO, phO2, ph1, hw).concat(B3.prims), cOf(B3), { axis: arcAxis(rO, phO2, ph1) });
+    const r4 = room('room', 4, true, chain(rM, ph1, phM1, hw).concat(B4.prims), cOf(B4), { axis: arcAxis(rM, ph1, phM1) });
+    const r5 = room('room', 5, true, chain(rM, phM1, phM2, hw).concat(B5.prims), cOf(B5), { axis: arcAxis(rM, phM1, phM2) });
+    const r6 = room('room', 6, true, chain(rM, phM2, ph2, hw).concat(B6.prims), cOf(B6), { axis: arcAxis(rM, phM2, ph2) });
+    const rArena = room('arena', 7, true, [{ t: 'circle', x: O.x, z: O.z, r: rA }], { x: O.x, z: O.z, r: rA });
+    const ringRooms = [null, r1, r2, r3, r4, r5, r6];
+    const sideOf = (S, par, k) => room('side', ringRooms[par].order, false, S.prims, cOf(S), { tags: [eliteK === k ? 'elite' : 'chest'] });
+    const rSA = sideOf(SA, parA, 0), rSB = sideOf(SB, parB, 1), rSC = sideOf(SC, parC, 2);
     const lStart = room('link', 0, true, [capsule({ x: 0, z: 0 }, join, K.linkHw)], { x: (exit.x + join.x) / 2, z: (exit.z + join.z) / 2, r: K.linkHw }, { axis: [[0, 0], xz(join)] });
     const ramp1a = P(ph1, rO), ramp1b = P(ph1, rM), ramp2a = P(ph2, rM), ramp2b = P(ph2, rA - 2);
-    const lRamp1 = room('link', 2, true, [capsule(ramp1a, ramp1b, K.rampHw)], Object.assign(P(ph1, (rO + rM) / 2), { r: K.rampHw }), { axis: [xz(ramp1a), xz(ramp1b)] });
-    const lRamp2 = room('link', 4, true, [capsule(ramp2a, ramp2b, K.neckHw)], Object.assign(P(ph2, (rM - hw + rA) / 2), { r: K.neckHw }), { axis: [xz(ramp2a), xz(P(ph2, rA))] });
+    const lRamp1 = room('link', 3, true, [capsule(ramp1a, ramp1b, K.rampHw)], Object.assign(P(ph1, (rO + rM) / 2), { r: K.rampHw }), { axis: [xz(ramp1a), xz(ramp1b)] });
+    const lRamp2 = room('link', 6, true, [capsule(ramp2a, ramp2b, K.neckHw)], Object.assign(P(ph2, (rM - hw + rA) / 2), { r: K.neckHw }), { axis: [xz(ramp2a), xz(P(ph2, rA))] });
     const neck = (S, par, rs) => room('link', par.order, false, [capsule(S.root, { x: S.x, z: S.z }, K.sideHw)], { x: (S.door0.x + S.door1.x) / 2, z: (S.door0.z + S.door1.z) / 2, r: K.sideHw }, { axis: [xz(S.root), [S.x, S.z]], ends: [par.id, rs.id] });
-    const lSA = neck(SA, ringRooms[parA], rSA), lSB = neck(SB, ringRooms[parB], rSB);
+    const lSA = neck(SA, ringRooms[parA], rSA), lSB = neck(SB, ringRooms[parB], rSB), lSC = neck(SC, ringRooms[parC], rSC);
     // 虚空的垫底房间：axis 放在外圈中线上（通用外观的污斑沿 axis 撒，撒在外圈路面上，不会浮在深渊上）
     const rVoid = room('room', 2, false, cover, Object.assign(P((vA + vB) / 2, rO), { r: 1 }), { axis: arcAxis(rO, vA, vB), tags: ['void'] });
     lStart.ends = [rStart.id, r1.id];
-    lRamp1.ends = [r2.id, r3.id];
-    lRamp2.ends = [r4.id, rArena.id];
+    lRamp1.ends = [r3.id, r4.id];
+    lRamp2.ends = [r6.id, rArena.id];
     r1.ends = [lStart.id, r2.id];
-    r2.ends = [r1.id, lRamp1.id];
-    r3.ends = [lRamp1.id, r4.id];
-    r4.ends = [r3.id, lRamp2.id];
+    r2.ends = [r1.id, r3.id];
+    r3.ends = [r2.id, lRamp1.id];
+    r4.ends = [lRamp1.id, r5.id];
+    r5.ends = [r4.id, r6.id];
+    r6.ends = [r5.id, lRamp2.id];
     const door = P(ph2, rA + 1.5);
     const link = (a, b, d, kind) => links.push({ a: a.id, b: b.id, door: { x: d.x, z: d.z }, kind });
     link(rStart, lStart, exit, 'neck');
     link(lStart, r1, { x: join.x - ux * hw, z: join.z - uz * hw }, 'neck');
-    link(r1, r2, P(phO, rO), 'neck');
-    link(r2, lRamp1, P(ph1, rO - hw), 'stairs');
-    link(lRamp1, r3, P(ph1, rM + hw), 'stairs');
-    link(r3, r4, P(phMs, rM), 'neck');
-    link(r4, lRamp2, P(ph2, rM - hw), 'stairs');
+    link(r1, r2, P(phO1, rO), 'neck');
+    link(r2, r3, P(phO2, rO), 'neck');
+    link(r3, lRamp1, P(ph1, rO - hw), 'stairs');
+    link(lRamp1, r4, P(ph1, rM + hw), 'stairs');
+    link(r4, r5, P(phM1, rM), 'neck');
+    link(r5, r6, P(phM2, rM), 'neck');
+    link(r6, lRamp2, P(ph2, rM - hw), 'stairs');
     link(lRamp2, rArena, door, 'stairs');
-    link(ringRooms[parA], lSA, SA.door0, 'neck');
-    link(lSA, rSA, SA.door1, 'neck');
-    link(ringRooms[parB], lSB, SB.door0, 'neck');
-    link(lSB, rSB, SB.door1, 'neck');
+    for (const [S, par, ls, rs] of [[SA, parA, lSA, rSA], [SB, parB, lSB, rSB], [SC, parC, lSC, rSC]]) {
+      link(ringRooms[par], ls, S.door0, 'neck');
+      link(ls, rs, S.door1, 'neck');
+    }
     for (const p of cover) cuts.push({ prim: p, mat: MAT.VOID });
 
     // 本地 sd（只用于摆放：怪群、碎块、地标），和光栅化同一个合成规则
@@ -7309,12 +7322,12 @@
     const doors = links.map((L) => L.door);
     const nearDoor = (x, z, d) => doors.some((q) => Math.hypot(q.x - x, q.z - z) < d);
     // 陨石碎块：外圈贴着外沿（内沿是虚空）、中圈贴着内沿（外沿有鼓包和旁支），嵌进岩壁 0.7 m，剩下的路宽 ≥ 4.6 m
-    const avoid = [B1, B2, B3, B4];
+    const avoid = [B1, B2, B3, B4, B5, B6], sides = [SA, SB, SC];
     const placeMeteor = (ringR, pa, pb, outerEdge) => {
       for (let k = 0; k < 10; k++) {
         const rm = rr(K.meteor), ph = at(pa, pb, R()), rc = outerEdge ? ringR + hw - rm + 0.7 : ringR - hw + rm - 0.7, c = P(ph, rc);
         if (avoid.some((b) => Math.hypot(b.x - c.x, b.z - c.z) < b.rad + rm + 2.5)) continue;
-        if ([SA, SB].some((q) => segD(c.x, c.z, q.root.x, q.root.z, q.x, q.z) < K.sideHw + rm + 2.5)) continue;
+        if (sides.some((q) => segD(c.x, c.z, q.root.x, q.root.z, q.x, q.z) < K.sideHw + rm + 2.5)) continue;
         if (nearDoor(c.x, c.z, rm + 4.5) || Math.hypot(c.x - join.x, c.z - join.z) < K.linkHw + rm + 4) continue;
         cuts.push({ prim: { t: 'circle', x: c.x, z: c.z, r: rm }, mat: MAT.WALL });
         feats.push({ kind: 'meteor', x: c.x, z: c.z, ang: ph, s: rm });
@@ -7322,12 +7335,15 @@
       }
       return false;
     };
-    placeMeteor(rO, ph0 + s * spO * 0.33, ph0 + s * spO * 0.43, true);
-    placeMeteor(rO, ph0 + s * spO * 0.57, ph0 + s * spO * 0.67, true);
-    placeMeteor(rM, ph1 + s * spM * 0.12, ph1 + s * spM * 0.42, false);
-    if (R() < 0.6) placeMeteor(rM, ph1 + s * spM * 0.58, ph1 + s * spM * 0.88, false);
+    placeMeteor(rO, ph0 + s * spO * 0.22, ph0 + s * spO * 0.29, true);
+    placeMeteor(rO, ph0 + s * spO * 0.38, ph0 + s * spO * 0.44, true);
+    placeMeteor(rO, ph0 + s * spO * 0.57, ph0 + s * spO * 0.62, true);
+    placeMeteor(rO, ph0 + s * spO * 0.72, ph0 + s * spO * 0.78, true);
+    placeMeteor(rM, ph1 + s * spM * 0.2, ph1 + s * spM * 0.36, false);
+    placeMeteor(rM, ph1 + s * spM * 0.48, ph1 + s * spM * 0.58, false);
+    if (R() < 0.6) placeMeteor(rM, ph1 + s * spM * 0.7, ph1 + s * spM * 0.9, false);
     // 撞击坑里的陨石（精英坑在坑底后方，宝箱坑在宝箱后面）
-    for (const S of [SA, SB]) {
+    for (const S of sides) {
       const ox = (S.x - S.root.x), oz = (S.z - S.root.z), ol = Math.hypot(ox, oz), rm = rnd(1.4, 1.8), back = S.rad * 0.5;
       const mx = S.x + (ox / ol) * back + (-oz / ol) * rnd(-1.5, 1.5), mz = S.z + (oz / ol) * back + (ox / ol) * rnd(-1.5, 1.5);
       cuts.push({ prim: { t: 'circle', x: mx, z: mz, r: rm }, mat: MAT.WALL });
@@ -7372,17 +7388,19 @@
       return mine;
     };
     const byRoom = [
-      ringPacks(r1, B1, rO, ph0, phO, 1),
-      ringPacks(r2, B2, rO, phO, ph1, 2),
-      ringPacks(r3, B3, rM, ph1, phMs, R() < 0.5 ? 1 : 2),
-      ringPacks(r4, B4, rM, phMs, ph2, 2),
+      ringPacks(r1, B1, rO, ph0, phO1, 1),
+      ringPacks(r2, B2, rO, phO1, phO2, 2),
+      ringPacks(r3, B3, rO, phO2, ph1, 2),
+      ringPacks(r4, B4, rM, ph1, phM1, R() < 0.5 ? 1 : 2),
+      ringPacks(r5, B5, rM, phM1, phM2, R() < 0.5 ? 1 : 2),
+      ringPacks(r6, B6, rM, phM2, ph2, 2),
     ];
-    // 精英：关键路径房间各 45%（挑这个房间里的一群），加上精英坑保底，全区上限 4
+    // 精英：关键路径房间各 45%（挑这个房间里的一群），加上精英坑保底，全区上限 6（zones-polish：原 4，关键路径最多 3 → 5）
     const elites = [];
     for (const list of byRoom) if (R() < 0.45) elites.push(list[Math.floor(R() * list.length)]);
-    while (elites.length > 3) elites.splice(Math.floor(R() * elites.length), 1);
+    while (elites.length > 5) elites.splice(Math.floor(R() * elites.length), 1);
     for (const p of elites) p.elite = true;
-    for (const [S, rs] of [[SA, rSA], [SB, rSB]]) {
+    for (const [S, rs] of [[SA, rSA], [SB, rSB], [SC, rSC]]) {
       const isElite = rs.tags[0] === 'elite';
       if (isElite) pack(rs, S.x - S.ux * S.rad * 0.05, S.z - S.uz * S.rad * 0.05, [5, 6], 2.6, { elite: true });
       else pack(rs, S.x - S.ux * S.rad * 0.05, S.z - S.uz * S.rad * 0.05, [2, 3], 2.0);
@@ -7420,7 +7438,7 @@
       if (sdAt(c.x, c.z) > -1.6) continue;
       feats.push({ kind: 'shard', x: c.x, z: c.z, h: rnd(2.6, 4.6) });
     }
-    for (const B of [B1, B2, B3, B4]) if (R() < 0.5) feats.push({ kind: 'crater', x: B.x + rnd(-2, 2), z: B.z + rnd(-2, 2), r: rnd(2.4, 3.2) });
+    for (const B of avoid) if (R() < 0.5) feats.push({ kind: 'crater', x: B.x + rnd(-2, 2), z: B.z + rnd(-2, 2), r: rnd(2.4, 3.2) });
 
     // zones-integrate：核心的 sdShot 已经把透弹挖空的图元算成子弹能到的地方，垫底房间不用再进布局说明；
     // 上面的摆放（本地 sdAt）照旧带着它算，输出前去掉（它是最后一个房间，没有连接、怪群、宝箱引用它）
@@ -7429,14 +7447,14 @@
       rooms, links, cuts, haz: [], feats, packs, chests,
       start: { x: 0, z: 0, exit },
       arena: { room: rArena.id, x: O.x, z: O.z, door, dir: { x: (O.x - door.x) / (rA + 1.5), z: (O.z - door.z) / (rA + 1.5) } },
-      path: [rStart.id, lStart.id, r1.id, r2.id, lRamp1.id, r3.id, r4.id, lRamp2.id, rArena.id],
+      path: [rStart.id, lStart.id, r1.id, r2.id, r3.id, lRamp1.id, r4.id, r5.id, r6.id, lRamp2.id, rArena.id],
     };
     spec.bounds = specBounds(spec);
     return spec;
   }
   // 校验阈值：中圈和坑底之间只有 4 m 岩壁（挡视线，§2.8 第 4 条「中间是 ROCK 也行」A1 没实现，这里把 gap 放到 3.5）；
   // 面积按 §3.5 收在 2700–3500
-  riftGen.check = { gap: 3.5, areaMin: 2700, areaMax: 3500 };
+  riftGen.check = { gap: 3.5, areaMin: 4600, areaMax: 5700 }; // zones-polish：×1.6（原 2700–3500）
 
   // ----- 坠星裂谷的布景（dress / fx）-----
   // 卡通配色：坑壁是偏青的墨绿岩（受光 #4e7a72、侧面 #2c4a46、底部压成冷紫 #2a2c4a），星辉是电光青白（#bffcff 核、#5ef0e0 辉），

@@ -10190,7 +10190,7 @@ async function main() {
     return '怪 ' + Z.n + '（精英 ' + Z.elites + '），余烬口 ' + Z.vents + '，喷发打掉玩家 ' + (r.vent.life0 - r.vent.life).toFixed(0) + '、游魂 ' + (r.vent.hp0 - r.vent.hp).toFixed(0);
   });
 
-  await step('区域 rift 布局：20 个种子都通过校验 + 进区刷怪正常 + 首领门外重生（单向 C 形两圈、关键路径约 180 m、外圈内侧虚空挡人不挡子弹）', async () => {
+  await step('区域 rift 布局：20 个种子都通过校验 + 进区刷怪正常 + 首领门外重生（单向 C 形两圈、关键路径约 290 m、外圈内侧虚空挡人不挡子弹）', async () => {
     const r = await ev(() => {
       const W = G.world, bad = [], stats = [];
       const zi = G.ZONES.findIndex((z) => z.id === 'rift');
@@ -10201,8 +10201,10 @@ async function main() {
         const elites = sp.packs.filter((p) => p.elite).length, sideElite = sp.packs.some((p) => p.elite && sp.rooms[p.room].kind === 'side');
         stats.push({ s, area: Math.round(g.area), len: pit ? Math.round(pit.len) : 0, mobs, elites, chests: sp.chests.length });
         if (!g.ok) bad.push(s + '：' + g.why.join('；'));
-        if (!pit || pit.len < 170 || pit.len > 195) bad.push(s + '：关键路径 ' + (pit && pit.len.toFixed(1)));
-        if (mobs < 45 || mobs > 65 || elites > 4 || !sideElite || sp.chests.length !== 2) bad.push(s + '：怪 / 精英 / 宝箱 ' + JSON.stringify(stats[stats.length - 1]));
+        // zones-polish：区域加长到 ×1.6：关键路径 170–195 → 270–305 m，每圈 3 个房间、旁支 3 个，怪 45–65 → 72–104，精英 ≤ 4 → ≤ 6，宝箱 2 → 3
+        if (!pit || pit.len < 270 || pit.len > 305) bad.push(s + '：关键路径 ' + (pit && pit.len.toFixed(1)));
+        if (sp.rooms.filter((q) => q.kind === 'room' && q.path).length !== 6 || sp.rooms.filter((q) => q.kind === 'side').length !== 3) bad.push(s + '：房间数不对');
+        if (mobs < 72 || mobs > 104 || elites > 6 || !sideElite || sp.chests.length !== 3) bad.push(s + '：怪 / 精英 / 宝箱 ' + JSON.stringify(stats[stats.length - 1]));
       }
       // 进区：固定 3 个种子，看刷怪、首领、宝箱、虚空（挡人不挡子弹）、坑壁（都挡）
       const enter = [];
@@ -10252,7 +10254,7 @@ async function main() {
     assert(!r.bad.length, 'rift 布局不合格：' + r.bad.slice(0, 5).join(' | '));
     for (const e of r.enter) {
       assert(e.gen === 'custom', 'rift 进区应走新生成器（不是 legacy）：' + JSON.stringify(e));
-      assert(e.n >= 40 && e.n <= 70 && e.elites <= 4 && e.chests === 2, 'rift 刷怪 / 宝箱数量不对：' + JSON.stringify(e));
+      assert(e.n >= 64 && e.n <= 112 && e.elites <= 6 && e.chests === 3, 'rift 刷怪 / 宝箱数量不对：' + JSON.stringify(e)); // zones-polish：40–70 → 64–112（×1.6），精英 ≤ 4 → ≤ 6，宝箱 2 → 3
       assert(e.bossIn && e.doorWalk, '首领应站在坑底场地里，门点 pad 0.5 可走：' + JSON.stringify(e));
       assert(!e.voidWalk && e.voidShot, '外圈内侧的虚空应挡人、不挡子弹：' + JSON.stringify(e));
       assert(!e.wallWalk && !e.wallShot, '中圈和坑底之间的坑壁应挡人也挡子弹：' + JSON.stringify(e));
