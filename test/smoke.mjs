@@ -9131,35 +9131,68 @@ async function main() {
   });
 
   // ------------------------------------------------------------------ 区域地形（网格 + 兼容层）
-  await step('区域地形：5 个区的网格判定和解析 zoneSd 逐点一致（各 5000 个点）', async () => {
+  // zones-integrate（C）：五个区都换成了新生成器，原来这一步只对 legacy 布局成立（兼容字段 circles / segs 的解析 zoneSd）。
+  // 现在每个区做两遍：新生成器的布局和图元精确 sd（W.sdExact，可走 / 挡子弹两套）逐点比；再把生成器临时换回 GEN.legacy，照原来的断言和 zoneSd 比
+  await step('区域地形：5 个区的网格判定和精确 sd 逐点一致（新生成器比 W.sdExact、legacy 比解析 zoneSd，各 5000 个点）', async () => {
     const r = await ev(() => {
       G.debug.hold(true);
-      const W = G.world, zs = W.terrain.zoneSd, out = [];
+      const W = G.world, zs = W.terrain.zoneSd, ZT = W.terrain.ZONE_TERRAIN, out = [];
       let seed = 4242;
       const rnd = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
       const pads = [0, 0.5, 0.4, -0.4, 1, -0.3, 0.6];
-      for (let zi = 0; zi < G.ZONES.length; zi++) {
-        G.enterZone(zi, 0);
-        const zone = G.state.zone, b = zone.bounds;
-        let bad = 0, near = 0, maxErr = 0;
+      const probe = (zone, ref, refShot) => {
+        const b = zone.bounds;
+        let bad = 0, near = 0, maxErr = 0, shotBad = 0, shotN = 0;
         for (let i = 0; i < 5000; i++) {
           const x = b.minX - 5 + rnd() * (b.maxX - b.minX + 10), z = b.minZ - 5 + rnd() * (b.maxZ - b.minZ + 10), pad = pads[i % pads.length];
-          const a = zs(zone, x, z);
-          if (a > -3.8 && a < 7.8) maxErr = Math.max(maxErr, Math.abs(W.sdAt(x, z) - a));
+          const a = ref(x, z);
+          if (a > -3.8 && a < 4.6) maxErr = Math.max(maxErr, Math.abs(W.sdAt(x, z) - a));
           if (Math.abs(a - pad) < 0.03) near++;
           else if (W.walkable(x, z, pad) !== a >= pad) bad++;
+          if (refShot) {
+            const sa = refShot(x, z);
+            if (Math.abs(sa - pad) >= 0.03 && Math.abs(a - pad) >= 0.03) {
+              shotN++;
+              if (W.shotFree(x, z, pad) !== sa >= pad) shotBad++;
+            }
+          }
         }
-        out.push({ id: zone.def.id, bad, near, maxErr: +maxErr.toFixed(3), band: +zone.map.band.toFixed(3), ms: +zone.map.ms.toFixed(1), haz: zone.map.hazAny, shot: zone.map.sdShot !== zone.map.sd });
+        return { bad, near, maxErr: +maxErr.toFixed(3), band: +zone.map.band.toFixed(3), shotBad, shotN, ms: +zone.map.ms.toFixed(1), haz: zone.map.hazAny, shot: zone.map.sdShot !== zone.map.sd };
+      };
+      for (let zi = 0; zi < G.ZONES.length; zi++) {
+        G.enterZone(zi, 0);
+        const zone = G.state.zone, pr = zone.map.pr, L = G.debug.layout();
+        const cust = probe(zone, (x, z) => W.sdExact(x, z), (x, z) => W.terrain.exactSd(pr, x, z, true));
+        cust.gen = L.gen;
+        cust.shotCut = (zone.spec.cuts || []).some((c) => c.mat === W.MAT.VOID || c.mat === W.MAT.WATER || c.mat === W.MAT.LAVA) || zone.spec.outside === W.MAT.VOID;
+        // legacy：临时把这一区的生成器换回 GEN.legacy（不固定种子时直接用 Math.random，和改版前一样）
+        const gen0 = ZT[zone.def.id].gen;
+        ZT[zone.def.id].gen = W.terrain.GEN.legacy;
+        let leg;
+        try {
+          G.enterZone(zi, 0);
+          leg = probe(G.state.zone, (x, z) => zs(G.state.zone, x, z), null);
+          leg.gen = G.debug.layout().gen;
+        } finally {
+          ZT[zone.def.id].gen = gen0;
+        }
+        out.push({ id: zone.def.id, cust, leg });
       }
       G.enterZone(0, 0);
       return out;
     });
     for (const z of r) {
-      assert(z.bad === 0, z.id + '：网格 walkable 和解析 zoneSd 判定不一致 ' + z.bad + ' 处：' + JSON.stringify(z));
-      assert(z.maxErr <= z.band, z.id + '：网格 sd 误差超过精修带宽：' + JSON.stringify(z));
-      assert(z.haz === 0 && !z.shot, z.id + '：legacy 布局不该有危险区 / 透弹挖空：' + JSON.stringify(z));
+      const c = z.cust, l = z.leg;
+      assert(c.gen === 'custom' && l.gen === 'legacy', z.id + '：生成器不对：' + JSON.stringify(z));
+      assert(c.bad === 0, z.id + '：网格 walkable 和图元精确 sd 判定不一致 ' + c.bad + ' 处：' + JSON.stringify(c));
+      assert(c.shotBad === 0 && c.shotN > 3000, z.id + '：W.shotFree 和挡子弹的精确 sd 判定不一致 ' + c.shotBad + ' 处：' + JSON.stringify(c));
+      assert(c.maxErr <= c.band, z.id + '：网格 sd 误差超过精修带宽：' + JSON.stringify(c));
+      assert(c.shot === c.shotCut, z.id + '：有透弹挖空（虚空 / 深水 / 熔岩）就应有单独的 sdShot：' + JSON.stringify(c));
+      assert(l.bad === 0, z.id + '：legacy 布局下网格 walkable 和解析 zoneSd 判定不一致 ' + l.bad + ' 处：' + JSON.stringify(l));
+      assert(l.maxErr <= l.band, z.id + '：legacy 布局下网格 sd 误差超过精修带宽：' + JSON.stringify(l));
+      assert(l.haz === 0 && !l.shot, z.id + '：legacy 布局不该有危险区 / 透弹挖空：' + JSON.stringify(l));
     }
-    return r.map((z) => z.id + ' 误差 ' + z.maxErr + ' 光栅化 ' + z.ms + 'ms').join('，');
+    return r.map((z) => z.id + ' 误差 ' + z.cust.maxErr + ' / legacy ' + z.leg.maxErr + ' 光栅化 ' + z.cust.ms + 'ms').join('，');
   });
 
   await step('区域地形：同一种子生成的布局说明哈希相同，固定种子进区布局不变', async () => {
@@ -9177,18 +9210,29 @@ async function main() {
       const l1 = G.debug.layout();
       G.enterZone(1, 0);
       const l2 = G.debug.layout();
-      out.pinned = { seed: l1.seed, h1: l1.hash, h2: l2.hash, rooms: l1.rooms.length, path: l1.path.length, packs: l1.packs.length };
+      const kinds = (l) => l.rooms.reduce((o, rm) => ((o[rm.kind] = (o[rm.kind] || 0) + 1), o), {});
+      out.pinned = { seed: l1.seed, h1: l1.hash, h2: l2.hash, rooms: l1.rooms.length, path: l1.path.length, packs: l1.packs.length, chests: l1.chests.length, kinds: kinds(l1), gen: l1.gen };
       out.unpinned = G.debug.zoneSeed(null);
       const tp = G.debug.tpRoom(2);
       out.tp = !!tp && G.world.walkable(G.player.x, G.player.z, 1);
       G.enterZone(0, 0);
-      out.seed0 = G.debug.layout().seed;
+      const s1 = G.debug.layout();
+      G.enterZone(0, 0);
+      const s2 = G.debug.layout();
+      out.seed0 = s1.seed;
+      out.seed1 = s2.seed;
+      out.fresh = s1.hash !== s2.hash;
       return out;
     });
     assert(r.same, '同一种子两次生成的哈希不同：' + JSON.stringify(r));
     assert(r.diff === r.ids.length, '换了种子布局应当不同：' + JSON.stringify(r));
-    assert(r.pinned.seed === 777 && r.pinned.h1 === r.pinned.h2 && r.pinned.rooms === 11 && r.pinned.path === 11 && r.pinned.packs === 8, '固定种子进区两次布局应一样：' + JSON.stringify(r));
-    assert(r.unpinned === null && r.seed0 === null && r.tp, 'zoneSeed(null) 后应恢复随机布局，tpRoom 应落在房间里：' + JSON.stringify(r));
+    // zones-integrate（C）：原来比的是第 1 区 legacy 布局的数（11 / 11 / 8）。现在第 1 区是霜骨沼泽的岛链（design §3.2）：
+    // 关键路径 = 起点岛 + 4 个岛 + 场地岛 + 5 段连接 = 11，3 个藏宝小岛（各一段死路栈道），宝箱 2 个，怪群 10–14 个
+    const P = r.pinned, K = P.kinds;
+    assert(P.seed === 777 && P.gen === 'custom' && P.h1 === P.h2, '固定种子进区两次布局应一样：' + JSON.stringify(r));
+    assert(P.path === 11 && K.start === 1 && K.arena === 1 && K.room === 4 && K.side === 3 && P.rooms === 17 && P.chests === 2 && P.packs >= 10 && P.packs <= 14, '固定种子的第 1 区布局应符合设计（关键路径 11、旁支 3、宝箱 2、怪群 10–14）：' + JSON.stringify(P));
+    // 不固定种子：每次进区都换布局（owner 决定 10），种子是新取的
+    assert(r.unpinned === null && typeof r.seed0 === 'number' && r.seed0 !== 777 && r.seed1 !== r.seed0 && r.fresh && r.tp, 'zoneSeed(null) 后应恢复每次进区换布局，tpRoom 应落在房间里：' + JSON.stringify(r));
     return r.ids.join(' ');
   });
 
@@ -9305,15 +9349,26 @@ async function main() {
           const x = b.minX + ((k * 37) % 100) / 100 * (b.maxX - b.minX), zz = b.minZ + ((k * 61) % 100) / 100 * (b.maxZ - b.minZ);
           if (W.sdExact(x, zz) < -4.4) far = pick(x, zz);
         }
-        // 场地轮廓：从场地中心朝门的反方向走到 bossR 附近，找最像主题色的像素
-        let ring = 0;
-        for (let d = z.bossR - 2; d <= z.bossR + 1; d += 0.25) {
-          const q = pick(z.bossPos.x - z.arena.dir.x * d, z.bossPos.z - z.arena.dir.z * d);
-          const sim = 255 - (Math.abs(q[0] - acc.r * 255) + Math.abs(q[1] - acc.g * 255) + Math.abs(q[2] - acc.b * 255)) / 3;
-          ring = Math.max(ring, sim);
+        // 场地轮廓（zones-integrate 改）：原来只沿门的反方向一条线找，1 像素宽的 4 连通阶梯轮廓会从像素角漏过去（legacy 布局也偶尔挂）。
+        // 现在从场地中心往 32 个方向各打一条射线（0.5·bossR 到 bossR + 6 m），每个采样点再往切向各挪 0.6 像素，
+        // 统计有多少个方向碰到主题色的轮廓：轮廓应把场地整圈围住
+        const m0 = W.minimapXY(0, 0), m1 = W.minimapXY(1, 0), pxm = Math.abs(m1.x - m0.x) || 1;
+        let ring = 0, rays = 0;
+        for (let k = 0; k < 32; k++) {
+          const a = (k / 32) * Math.PI * 2, ux = Math.sin(a), uz = Math.cos(a);
+          let best = 0;
+          for (let d = z.bossR * 0.5; d <= z.bossR + 6 && best <= 200; d += 0.5 / pxm) {
+            for (const t of [0, 0.6, -0.6]) {
+              const q = pick(z.bossPos.x + ux * d - uz * (t / pxm), z.bossPos.z + uz * d + ux * (t / pxm));
+              const sim = 255 - (Math.abs(q[0] - acc.r * 255) + Math.abs(q[1] - acc.g * 255) + Math.abs(q[2] - acc.b * 255)) / 3;
+              best = Math.max(best, sim);
+            }
+          }
+          ring = Math.max(ring, best);
+          if (best > 200) rays++;
         }
         const pathD = (Math.abs(start[0] - path.r * 255) + Math.abs(start[1] - path.g * 255) + Math.abs(start[2] - path.b * 255)) / 3;
-        out.push({ id: z.def.id, start, pathD: Math.round(pathD), far, ring: Math.round(ring) });
+        out.push({ id: z.def.id, start, pathD: Math.round(pathD), far, ring: Math.round(ring), rays });
       }
       G.enterZone(0, 0);
       const m = W.minimapXY(0, 0), p0 = W.minimapPixel(m.x, m.y, true);
@@ -9324,10 +9379,10 @@ async function main() {
     for (const z of r.out) {
       assert(z.start[3] > 240 && z.pathD < 40, z.id + '：起点应画成路面色：' + JSON.stringify(z));
       assert(z.far && z.far[0] < 30 && z.far[1] < 30 && z.far[2] < 30, z.id + '：岩壁外应是底色：' + JSON.stringify(z));
-      assert(z.ring > 200, z.id + '：首领场地应有主题色轮廓：' + JSON.stringify(z));
+      assert(z.ring > 200 && z.rays >= 28, z.id + '：首领场地应有一整圈主题色轮廓（32 个方向至少 28 个碰到）：' + JSON.stringify(z));
     }
     assert(r.redraw, '窗口变化后小地图应重画且不变：' + JSON.stringify(r));
-    return r.out.map((z) => z.id + ' 路面差 ' + z.pathD + ' 轮廓 ' + z.ring).join('，');
+    return r.out.map((z) => z.id + ' 路面差 ' + z.pathD + ' 轮廓 ' + z.ring + '（' + z.rays + '/32）').join('，');
   });
   await step('区域 ash 布局：20 个种子都通过校验 + 进区刷怪正常 + 首领门外重生；熔岩河挡路不挡子弹，浅滩两边灼烧（玩家和小怪都烧）', async () => {
     const r = await ev(() => {
