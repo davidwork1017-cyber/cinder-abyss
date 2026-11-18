@@ -401,7 +401,8 @@ async function main() {
 
   await step('图标预热：启动后趁空闲分批画好全部图标，第一次打开背包不用现画', async () => {
     const t0 = Date.now();
-    await until(() => G.icons.ready(), null, 60000).catch(() => {
+    // 只是功能检查的超时：SwiftShader 在单核较慢的机器上安静时也要 60 秒上下才画完，留出一倍余量
+    await until(() => G.icons.ready(), null, 120000).catch(() => {
       throw new Error('启动后图标没有在空闲时预先画好');
     });
     const n = await ev(() => G.icons.keys().length);
@@ -3789,12 +3790,27 @@ async function main() {
       // 一团冻住的游魂（不会动、不会还手），离玩家 8 米（挑一个 10 米内没有墙的方向）
       const dir = T.openDir(12);
       const cx = P.x + dir.x * Math.min(8, dir.len - 1.5), cz = P.z + dir.z * Math.min(8, dir.len - 1.5);
+      // 站位要固定：这个方向跟着区域布局走（每次加载随机），上面召出来的祭司则站在玩家朝准星 (3, 2) 的身后，
+      // 两者夹角每次不同——怪堆正好落在祭司身后那一侧时，祭司离怪堆只有 4～5 米，不用走就开打，量到的距离就不到 5 米。
+      // 所以玩家先转身面朝怪堆（站前排），两位祭司挪到玩家身后固定的两个起点，没有敌人时走 1 秒到各自的跟随点，再放怪
+      [P.face, P.drawFace] = [Math.atan2(dir.x, dir.z), Math.atan2(dir.x, dir.z)];
+      T.aim(cx, cz);
+      S.minions.filter((m) => m.kind === 'pyre' && !m.dead).forEach((m, i) => {
+        m.x = P.x - dir.x * 2.5 + dir.z * (i ? 1 : -1);
+        m.z = P.z - dir.z * 2.5 - dir.x * (i ? 1 : -1);
+        m.target = null;
+        m.spX = m.spZ = 1e9; // 跟随点的「走不过去」计时从头算，不沿用上面召唤时留下的
+        m.spT = m.stuckT = m.navT = 0;
+        G.world.setEnt(m.ent, m.x, m.z, m.ang);
+      });
+      G.debug.step(1.0);
       const pack = [];
       for (let i = 0; i < 5; i++) {
         const e = G.spawnMob('husk', cx + ((i % 3) - 1) * 0.9, cz + (Math.floor(i / 3) - 0.5) * 0.9, 1, { awake: true });
         e.hp = e.maxHp = 1e6;
         e.freeze = 1e9;
         e.atkCd = 1e9;
+        e.mass = 1e6; // 冻住的怪照样会被火弹 / 坠焰推开：推散了坠焰就砸不中 4 个（甚至凑不够 3 个改放灼链），散成什么样又跟着墙走，每次不同
         pack.push(e);
       }
       // 每一帧祭司打中了几个不同的敌人（一枚火弹炸开就是一帧里打中好几个）
