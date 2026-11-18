@@ -3375,9 +3375,9 @@
           }
           hits.push(e);
         }
-        // 卡通版：实色月牙只占外圈（inner 0.74），刀光本身由跟着武器的月牙带子画；
+        // 卡通版：实色月牙只占外圈（inner 0.8），刀光本身由跟着武器的月牙带子画；
         // 月牙的终点一侧抬起来（tilt = dir × k）：横斩微微斜着，反手上挑斜得明显
-        W.slash(P.x, P.z, a.ang, R, st.arc, hex, { dir: st.dir, inner: 0.74, dur: 0.2, tilt: st.dir === -1 ? -0.3 : 0.12 });
+        W.slash(P.x, P.z, a.ang, R, st.arc, hex, { dir: st.dir, inner: 0.8, dur: 0.2, tilt: st.dir === -1 ? -0.3 : 0.12 }); // phase 3：inner 0.74 → 0.8，月牙带子窄约 23%
       }
       if (!hits.length) return;
       let crit = false;
