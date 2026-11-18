@@ -9329,6 +9329,85 @@ async function main() {
     assert(r.redraw, '窗口变化后小地图应重画且不变：' + JSON.stringify(r));
     return r.out.map((z) => z.id + ' 路面差 ' + z.pathD + ' 轮廓 ' + z.ring).join('，');
   });
+
+  await step('区域 abyss 布局：20 个种子都通过校验 + 进区刷怪正常 + 首领门外重生；虚空不挡子弹；余烬口先预警再喷发，伤玩家也伤怪', async () => {
+    const r = await ev(() => {
+      G.debug.hold(true);
+      const W = G.world, S = G.state, P = G.player, out = { bad: [] };
+      for (let s = 1; s <= 20; s++) {
+        const g = W.genLayout('abyss', s * 7919);
+        if (!g.ok) out.bad.push(g.seed + '：' + g.why.join('；'));
+      }
+      const zi = G.ZONES.findIndex((z) => z.id === 'abyss');
+      G.debug.zoneSeed(4242);
+      G.enterZone(zi, 0);
+      G.debug.zoneSeed(null);
+      const z = S.zone, L = G.debug.layout();
+      const mobs = S.enemies.filter((e) => !e.isBoss);
+      out.zone = {
+        gen: L.gen, n: mobs.length, elites: mobs.filter((e) => e.elite).length, chests: z.chests.length,
+        vents: z.feats.filter((f) => f.kind === 'vent').length, shot: z.map.sdShot !== z.map.sd,
+        badPos: mobs.filter((e) => !W.walkable(e.x, e.z, 0) || Math.hypot(e.x - z.start.x, e.z - z.start.z) < 12).length,
+        boss: !!S.boss && W.inArena(S.boss.x, S.boss.z), lane: [-5, -2, 1, 4, 7].every((x) => W.walkable(x, 0, 0.6)),
+        door: +(Math.hypot(z.bossDoor.x - z.bossPos.x, z.bossDoor.z - z.bossPos.z) - z.bossR).toFixed(3),
+      };
+      // 虚空：深渊中间不可走，但子弹 / 视线能过（桥边往外 4 m）
+      const br = z.feats.find((f) => f.kind === 'bridge'), a = br.pts[0], b = br.pts[br.pts.length - 1];
+      const mx = (a[0] + b[0]) / 2, mz = (a[1] + b[1]) / 2, l = Math.hypot(b[0] - a[0], b[1] - a[1]), nx = -(b[1] - a[1]) / l, nz = (b[0] - a[0]) / l;
+      const vx = mx + nx * 5, vz = mz + nz * 5;
+      out.void = { walk: W.walkable(vx, vz, 0), shot: W.shotFree(vx, vz, -0.4), mat: W.matAt(vx, vz) === W.MAT.VOID };
+      // 首领门外重生：打首领时倒下 → 重生在门上（离场地边缘 2），可走
+      G.debug.god(true);
+      G.debug.tpBoss();
+      let t = 0;
+      while (!S.boss.awake && t < 3) { G.tick(1 / 60); t += 1 / 60; }
+      out.awake = S.boss.awake;
+      G.debug.god(false);
+      P.iframe = 0;
+      G.hurtPlayer(1e9, 'phys', null);
+      out.dead = P.dead;
+      G.debug.step(4.5);
+      out.respawn = { dead: P.dead, door: +(Math.hypot(P.x - z.bossPos.x, P.z - z.bossPos.z) - z.bossR).toFixed(3), walk: W.walkable(P.x, P.z, 0.5) };
+      G.debug.god(true);
+      // 余烬口：玩家和一只游魂站在口上，让它下一步就开始预警
+      for (const e of S.enemies.slice()) if (!e.isBoss) G.killEnemy(e);
+      G.debug.step(0.1);
+      const v = z.abyssVents && z.abyssVents[0];
+      out.hasVents = !!v;
+      if (v) {
+        T.tp(v.x + 0.3, v.z);
+        const e = G.spawnMob('husk', v.x - 0.3, v.z, z.level, { awake: true });
+        e.speed = 0;
+        e.atkCd = 1e9;
+        const hp0 = e.hp, n0 = S.telegraphs.length;
+        G.debug.god(false);
+        P.life = P.maxLife;
+        P.iframe = 0;
+        v.t = 6 - 1 / 120;
+        G.tick(1 / 60);
+        const tel = S.telegraphs.filter((q) => q.x === v.x && q.z === v.z);
+        out.vent = { tel: S.telegraphs.length - n0, r: tel[0] && tel[0].r, dur: tel[0] && tel[0].dur, hp0, life0: P.life };
+        for (let i = 0; i < 60; i++) G.tick(1 / 60);
+        out.vent.hp = e.dead ? 0 : e.hp;
+        out.vent.life = P.life;
+        out.vent.left = S.telegraphs.filter((q) => q.x === v.x && q.z === v.z).length;
+        G.debug.god(true);
+        P.life = P.maxLife;
+      }
+      G.enterZone(0, 0);
+      return out;
+    });
+    assert(!r.bad.length, 'abyss 有种子没通过校验：' + r.bad.slice(0, 3).join(' | '));
+    const Z = r.zone;
+    assert(Z.gen === 'custom' && Z.shot && Z.chests === 2 && Z.vents >= 2, 'abyss 应走自己的生成器、有虚空挖空、2 个宝箱、至少 2 个余烬口：' + JSON.stringify(Z));
+    assert(Z.n >= 35 && Z.n <= 70 && Z.elites >= 1 && Z.elites <= 4 && Z.badPos === 0 && Z.boss, '进区刷怪不对：' + JSON.stringify(Z));
+    assert(Z.lane && Math.abs(Z.door - 2) < 0.01, '起点契约 / 首领门的位置不对：' + JSON.stringify(Z));
+    assert(!r.void.walk && r.void.shot && r.void.mat, '虚空应不可走、子弹能飞过：' + JSON.stringify(r.void));
+    assert(r.awake && r.dead && !r.respawn.dead && Math.abs(r.respawn.door - 2) < 0.01 && r.respawn.walk, '倒在首领战里应重生在门外：' + JSON.stringify(r));
+    assert(r.hasVents && r.vent.tel === 1 && Math.abs(r.vent.r - 1.6) < 1e-6 && r.vent.dur > 0.5, '余烬口应先出一个预警圈：' + JSON.stringify(r.vent));
+    assert(r.vent.left === 0 && r.vent.life < r.vent.life0 && r.vent.hp < r.vent.hp0, '余烬口喷发应伤到玩家和怪：' + JSON.stringify(r.vent));
+    return '怪 ' + Z.n + '（精英 ' + Z.elites + '），余烬口 ' + Z.vents + '，喷发打掉玩家 ' + (r.vent.life0 - r.vent.life).toFixed(0) + '、游魂 ' + (r.vent.hp0 - r.vent.hp).toFixed(0);
+  });
 }
 
 main()
