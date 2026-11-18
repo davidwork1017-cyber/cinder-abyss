@@ -9869,6 +9869,9 @@ async function main() {
       G.enterZone(0, 0);
       const z = S.zone, mobs = S.enemies.filter((e) => !e.dead && !e.isBoss);
       out.custom = !z.spec.legacy && z.feats.some((f) => f.kind === 'river');
+      // zones-polish：区域加长到 ×1.6：关键路径 7 个房间、旁支 3 个、两道熔岩（河 + 沟），两座石桥都能走
+      out.size = { path: z.rooms.filter((q) => q.path && q.kind === 'room').length, sides: z.rooms.filter((q) => q.kind === 'side').length,
+        rivers: z.feats.filter((q) => q.kind === 'river').length, bridges: z.feats.filter((q) => q.kind === 'bridge').map((q) => W.walkable(q.x, q.z, 0.6)) };
       out.mobs = mobs.length;
       out.elites = mobs.filter((e) => e.elite).length;
       out.legal = mobs.every((e) => W.walkable(e.x, e.z, 0) && Math.hypot(e.x - z.start.x, e.z - z.start.z) >= 12);
@@ -9914,7 +9917,8 @@ async function main() {
     });
     assert(r.n === 20 && !r.bad.length, '有种子没通过校验：' + r.bad.slice(0, 5).join(' | '));
     assert(r.custom, '第 0 区应当用新的生成器（有熔岩河），却退回了 legacy：' + JSON.stringify(r));
-    assert(r.mobs >= 20 && r.elites <= 4 && r.legal && r.bossIn && r.chests === 2, '刷怪 / 宝箱不对：' + JSON.stringify(r));
+    assert(r.mobs >= 20 && r.elites <= 6 && r.legal && r.bossIn && r.chests === 3, '刷怪 / 宝箱不对：' + JSON.stringify(r));
+    assert(r.size.path === 7 && r.size.sides === 3 && r.size.rivers === 2 && r.size.bridges.length === 2 && r.size.bridges.every(Boolean), '加长后的布局不对（关键路径 7 个房间、旁支 3 个、河和沟各一道、两座桥能走）：' + JSON.stringify(r.size));
     assert(!r.lava.walk && r.lava.shot && r.lava.mat && r.bridge, '熔岩河应挡路、不挡子弹，桥面应能走：' + JSON.stringify(r));
     assert(!r.ford.mid && r.ford.edge && r.ford.walk && r.burn.mob > 0 && r.burn.player > 0, '浅滩两边应灼烧（玩家和小怪都掉血），中间安全：' + JSON.stringify(r));
     assert(r.died && Math.abs(r.door.off - 2) < 0.01 && r.door.atDoor < 0.01 && r.door.walk && r.door.alive, '首领战里倒下应重生在场地门外：' + JSON.stringify(r.door));
