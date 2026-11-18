@@ -817,7 +817,7 @@
       rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0x6a7a8a, capAll: 0.3 }, // phase 3：雪盖 0xb4c8d6 / 0.6 → 0x8296aa / 0.45；zones-frost：再压一档（水边的石头是这一区的「岩壁」）
       grade: { sat: 1.12, con: 1.1, lift: 0x04081a, gain: 0xf4faff, vig: 0.22 },
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
-      blots: { k: 0.35, r: 0.7, op: 0.15 }, // zones-frost：岛上的污斑少一半多、小一圈（zones-ash 加的旋钮）
+      blots: { k: 0.35, r: 0.7, op: 0.28, tex: 'crack' }, // zones-polish：冻土上的细冰裂，不是暗块。zones-frost：岛上的污斑少一半多、小一圈（zones-ash 加的旋钮）
       sigil: { k: 0.4 }, // zones-frost：冰湖上的法阵颜色压到 4 成（加色混合，等于淡一半多），不那么像界面
       mist: null, // zones-frost：路外整片是水（dress 画），贴地薄雾在水面上是一块块的亮斑，去掉（高 / 低画质也就一致了）
       prop: { tint: 0x8aa0b0, sat: 0.2 },
@@ -872,7 +872,7 @@
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x1c1622, a: 0.3 },
       prop: { tint: 0x4a4450, sat: 0.15 },
-      blots: { k: 0.4, r: 0.6, op: 0.08 }, // zones-ash 的污斑开关：少、小、淡到几乎看不见（原来在 dress 里把不透明度改成 0.08）
+      blots: { k: 0.12, r: 0.6, op: 0.3, tex: 'crack' }, // zones-polish：owner 说地上一块块暗斑，砍到 0.12、换成细裂纹（路面的变化交给石板和崖沿的压暗）。zones-ash 的污斑开关：少、小、淡到几乎看不见（原来在 dress 里把不透明度改成 0.08）
       // 下面四个旋钮原来是 abyss 的 dress / fx 运行时改的（zones-integrate 收进表里）：法阵收小、压暗、换余烬橙，没有起点法阵；
       // 晶簇是闷烧的余烬橙；环境火星余烬橙；通用岩石成簇留空
       sigil: { r: 0.42, col: 0xff7a2a, k: 0.32, start: false },
