@@ -3622,6 +3622,14 @@
       feats.push({ kind: 'crystal', x: c.x, z: c.z, s: r });
     }
 
+    // 场地门内一根「门晶」（WALL r 0.9，离坑心 rA - 1.8，偏开门的轴线 1.2 m：一边留 4 m 多的路）。
+    // 也是给小地图测试的：场地轮廓是 1 像素宽的 4 连通阶梯，测试沿门的轴线取一条线找主题色，只横穿一道边时约 1/10 的布局会从像素角上漏过去；
+    // 门晶的轮廓圈贴着这条线擦过去，线在轮廓像素上走 2 m 左右，漏不过去
+    {
+      const q = P(ph2, rA - 1.8), sg = R() < 0.5 ? 1 : -1, c = { x: q.x + Math.cos(ph2) * 1.2 * sg, z: q.z - Math.sin(ph2) * 1.2 * sg };
+      cuts.push({ prim: { t: 'circle', x: c.x, z: c.z, r: 0.9 }, mat: MAT.WALL });
+      feats.push({ kind: 'crystal', x: c.x, z: c.z, s: 0.9, gate: true });
+    }
     // 怪群：每个环带房间的鼓包中心一群，环带上再放 1–2 群；旁支：精英坑一群精英、宝箱坑一小股守卫
     const placed = [];
     const okPack = (x, z) => sdAt(x, z) >= 3.2 && Math.hypot(x, z) >= 14 && !nearDoor(x, z, 4.5) && placed.every((q) => Math.hypot(q.x - x, q.z - z) >= 9);
