@@ -9287,14 +9287,22 @@
   const RIG_SKIN_PARS = '#ifdef SKIN4\nattribute vec4 aSkin;\nattribute vec4 aSkinW;\n#else\nattribute float aBone;\n#endif\nuniform mat4 uBones[ NB ];\n';
   const RIG_BONE = '#ifdef SKIN4\nmat4 boneM = uBones[ int( aSkin.x + 0.5 ) ] * aSkinW.x + uBones[ int( aSkin.y + 0.5 ) ] * aSkinW.y + uBones[ int( aSkin.z + 0.5 ) ] * aSkinW.z + uBones[ int( aSkin.w + 0.5 ) ] * aSkinW.w;\n#else\nmat4 boneM = uBones[ int( aBone + 0.5 ) ];\n#endif\n';
   const RIG_VERT_PARS = RIG_SKIN_PARS + 'attribute vec2 aSurf;\nvarying vec2 vSurf;\nvarying vec3 vBP;\n';
-  const RIG_FRAG_PARS = 'varying vec2 vSurf;\nvarying vec3 vBP;\nuniform vec3 uRim;\nuniform vec4 uDis;\n';
+  const RIG_FRAG_PARS = 'varying vec2 vSurf;\nvarying vec3 vBP;\nuniform vec3 uRim;\nuniform vec4 uDis;\nuniform float uChill;\n';
   const RIG_FRAG = [
     '#include <emissivemap_fragment>',
     'roughnessFactor = vSurf.x;',
     'metalnessFactor = vSurf.y;',
+    // 冰缓（uChill：0 / 三档，见 W.chill）：固有色按档位往冷青偏、亮度不变，明暗阶梯照常——受光面泛青、背光面发蓝；
+    // 冻结是整身罩一层冰色的自发光（applyIce），这里只动固有色和下面那道边缘光，两者一眼分得开
+    'if ( uChill > 0.0 ) {',
+    '  float chL = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );',
+    '  diffuseColor.rgb = mix( diffuseColor.rgb, chL * vec3( 0.45, 1.0, 2.0 ), uChill * 0.85 );',
+    '}',
     // 轮廓光：俯视镜头下把身形从地面上勾出来。uRim 是每个实体自己的（精英的金边、受击 / 选中时的变色），
     'float rigRim = 1.0 - saturate( dot( normal, normalize( vViewPosition ) ) );',
     'totalEmissiveRadiance += uRim * rigRim * rigRim * rigRim;',
+    // 冰缓：轮廓上一道硬边的冰青光（阶跃，不渐变），档位越高越宽越亮
+    'if ( uChill > 0.0 ) totalEmissiveRadiance += vec3( 0.3, 0.7, 1.0 ) * step( 0.62 - 0.14 * uChill, rigRim ) * ( 0.3 + 0.4 * uChill );',
     // 卡通轮廓光（TOON.rimK）：补光（第二盏方向光，在镜头对面）那一侧的边缘一条软阶梯的冷色光，另一侧只留很淡的一点——不是一圈描边
     '#if NUM_DIR_LIGHTS > 1',
     '{',
@@ -9315,6 +9323,7 @@
     sh.uniforms.uBones = ent.uBones;
     sh.uniforms.uRim = ent.uRim;
     sh.uniforms.uDis = ent.uDis;
+    sh.uniforms.uChill = ent.uChill;
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\n' + RIG_VERT_PARS)
       .replace('#include <beginnormal_vertex>', RIG_BONE + 'vec3 objectNormal = mat3( boneM ) * normal;')
@@ -9390,6 +9399,7 @@
       cK: 0, flashD: 0.09, flashK: 1, shT: 0, shDur: 0, shAmp: 0,
       elemC: new T.Color(elemHex), glowBase: glowI, glowK: 1, bodyMat: null, glowMat: null, depthMat: null,
       uBones: null, uRim: { value: new T.Color(0) }, uDis: { value: new T.Vector4(1, 1, 1, 0) },
+      uChill: { value: 0 }, chillB: 0, chillAcc: 0, // 冰缓的档位与霜屑的发射累积（见 W.chill）
     };
     ent.uBones = { value: ent.bones };
     ent.pose.set(rig.rest);
@@ -9860,6 +9870,28 @@
     if (on) applyIce(ent);
     else unflash(ent);
   };
+  // 冰缓：band 0（没有）/ 1 / 2 / 3（越高越冷），每帧调用。身上的冷青偏色和边缘光走材质里的 uChill（每个实体本来就有自己的材质，不新建材质）；
+  // 脚边冒几片往上飘的冰屑（共用卡通碎块的环形缓冲，不占新的 draw call），档位越高冒得越密，低画质少冒
+  const CHILL_K = [0, 0.55, 0.8, 1];
+  const CHILL_RATE = [0, 2.5, 4, 6], CHILL_RATE_LO = [0, 1, 1.5, 2.5];
+  W.chill = function (ent, band, dt, r) {
+    if (!ent || ent.removed || ent.dying) return;
+    const b = band > 0 ? Math.min(3, band | 0) : 0;
+    if (b !== ent.chillB) {
+      ent.chillB = b;
+      ent.uChill.value = CHILL_K[b];
+      ent.chillAcc = b ? 0.6 : 0; // 刚挨上冰：很快冒第一片
+    }
+    if (!b || !(dt > 0)) return;
+    const g = ent.group.position;
+    if (!W.inView(g.x, g.z)) return;
+    ent.chillAcc += dt * (qualId === 'low' ? CHILL_RATE_LO : CHILL_RATE)[b];
+    while (ent.chillAcc >= 1) {
+      ent.chillAcc -= 1;
+      const a = rand(0, TAU), d = (r || 0.5) * rand(0.6, 1.05);
+      tChunk(0, g.x + Math.sin(a) * d, rand(0.08, 0.3), g.z + Math.cos(a) * d, Math.sin(a) * 0.25, rand(0.9, 1.5), Math.cos(a) * 0.25, rand(0.42, 0.6), rand(0.13, 0.19) + b * 0.015, 0xeaf8ff, 0x6fc4ff, 0);
+    }
+  };
   W.setEntScale = function (ent, k) {
     if (ent.dying) return; // 尸体的消失由 W.die 接管
     ent.group.scale.setScalar(Math.max(0.001, k));
@@ -9874,6 +9906,7 @@
     fire: { edge: 0xff7a2c, linger: 0.05, fade: 0.6, decal: 1, up: 2.4 },
     cold: { edge: 0xc8eeff, linger: 0.4, fade: 0.2, decal: 2, up: -1.5 },
     light: { edge: 0xfff2a0, linger: 0, fade: 0.3, decal: 3, up: 1.4 },
+    chaos: { edge: 0xf03cb4, linger: 0.1, fade: 0.35, decal: 1, up: -0.6 }, // 混沌：往里塌，压暗，品红的消散边
   };
   // opts：{ ang 击杀这一下行进的方向, force 飞出的初速度（默认 0）, color 消散边缘的颜色（默认元素色）,
   //         linger 倒地后多停留的秒数, type 致命伤害的类型（phys / fire / cold / light，决定死法与地上的痕迹）,
@@ -9914,6 +9947,7 @@
     else if (st) _c.set(st.edge);
     else _c.copy(ent.elemC);
     ent.uDis.value.set(_c.r, _c.g, _c.b, 0);
+    ent.uChill.value = ent.chillB = 0; // 冰缓的偏色不带进死法
     ent.timeScale = 1;
     ent.hitT = 0;
     if (ent.shT > 0) ent.shT = 1e-4;
@@ -9933,6 +9967,10 @@
       } else if (o.type === 'light') {
         m.e0.setRGB(0.8, 0.75, 0.3);
         m.ei0 = 0.45;
+      } else if (o.type === 'chaos') {
+        // 往里塌：压暗，只透出一点品红
+        m.e0.setRGB(0.42, 0.04, 0.3);
+        m.ei0 = 0.4;
       }
       if (violent) {
         // 炸开：一把又大又沉的碎块 + 元素色的碎光
@@ -9988,6 +10026,8 @@
       else if (d.type === 'light') {
         ent.body.position.set(rand(-0.06, 0.06), 0, rand(-0.06, 0.06));
         if (Math.random() < dt * 40) spawnP(g.x + rand(-0.4, 0.4) * h * 0.4, g.y + rand(0.2, 0.8) * h, g.z + rand(-0.4, 0.4) * h * 0.4, rand(-5, 5), rand(-1, 5), rand(-5, 5), rand(0.08, 0.2), 0.13, 1, 0.95, 0.5, 6, 2);
+      } else if (d.type === 'chaos') {
+        ent.bodyMat.color.lerp(_c.setRGB(0.05, 0.02, 0.06), Math.min(1, dt * 4));
       } else if (d.type === 'fire') {
         ent.bodyMat.color.lerp(_c.setRGB(0.05, 0.035, 0.03), Math.min(1, dt * 3.5));
         if (Math.random() < dt * 22) spawnP(g.x + rand(-0.4, 0.4) * h * 0.4, g.y + rand(0.2, 0.8) * h, g.z + rand(-0.4, 0.4) * h * 0.4, rand(-0.6, 0.6), rand(1, 3), rand(-0.6, 0.6), rand(0.3, 0.7), rand(0.1, 0.2), 1, 0.5, 0.12, -1.5, 0.8);
@@ -16773,12 +16813,14 @@
     fire: [0xfff0b0, 0xff8424, 0xc22c18],
     cold: [0xf0fbff, 0x78ccff, 0x2458d0],
     light: [0xfffbe0, 0xffdc40, 0xc8820e],
+    chaos: [0xffd2f2, 0xf03cb4, 0x12061a], // 混沌：亮芯 / 品红 / 近黑的内沿
   };
   const HIT_PAL = {
     phys: [0xfff6d8, 0xffbe3c, 0xd2561c, 0x8a6a6e],
     fire: [0xfff0a0, 0xff7a22, 0xb02418, 0x6a4a48],
     cold: [0xf4fcff, 0x8fdcff, 0x2a62d0, 0xc4dcee],
     light: [0xfffce0, 0xffe04a, 0xb8700c, 0x9a8c7a],
+    chaos: [0xffd8f4, 0xf04ab8, 0x3a0c46, 0x2a1830],
   };
   const _palTmp = [0, 0, 0, 0];
   // 伤害类型的代表色（G.TYPE_HEX）→ 色板；不认得的颜色就地推一组（浅芯 / 本色 / 压暗）
@@ -17016,7 +17058,7 @@
   }
   // 命中特效：火花顺着这一击行进的方向喷出去，按伤害类型换花样，地上留一道短促的擦痕。
   // type：phys / fire / cold / light；w：分量（0 轻击 1 重击 2 终结 3 处决）；crit：暴击再加一把
-  const IMPACT_HEX = { phys: 0xfff0d0, fire: 0xff7a2c, cold: 0x9fe0ff, light: 0xffec70 };
+  const IMPACT_HEX = { phys: 0xfff0d0, fire: 0xff7a2c, cold: 0x9fe0ff, light: 0xffec70, chaos: 0xff6ad2 };
   // 卡通版：命中点一颗硬边的星，顺着打击方向甩出几片实色尖片，脚下扬起实心的烟团，地上留一摊星形的印子；
   // 原来的细火花只留一小半。低画质碎块减半
   W.impact = function (x, y, z, ang, type, w, crit) {
@@ -21693,6 +21735,191 @@
     focus.ring.visible = true;
   }
 
+  // =====================================================================
+  // 混沌特效（混沌流）：黑洞、黑旋风、黑焰、渊缚、渊陷
+  // =====================================================================
+  // 卡通特效的写法：硬边色带、三档阶梯透明度、普通混合（「黑」不能用加色画）。核是近黑的 CH_CORE，外面一道品红 CH_RIM，
+  // 最外一条亮芯 CH_HI（灰度约 87%，特效高光段）。全部预分配：黑洞圆盘最多 5 个、漩涡最多 6 团，用完复用；低画质少画零件
+  const CH_CORE = 0x12061a, CH_RIM = 0xf03cb4, CH_HI = 0xffd2f2, CH_DARK = 0x3a0c46;
+  // 黑洞圆盘：核占 55%，中间一圈是转着的螺旋缝（uSp 条），外缘品红 + 亮芯细边；uA 是整体的三档不透明度（开合时跳档）
+  const HOLE_FRAG = [
+    'uniform vec3 uCore; uniform vec3 uRim; uniform vec3 uHi; uniform float uA; uniform float uSp; uniform float uTime; varying vec2 vP;',
+    'void main(){',
+    '  float l = length(vP);',
+    '  if (l > 1.0) discard;',
+    '  float an = atan(vP.x, vP.y) / 6.2831853;',
+    '  float sp = fract(an * uSp + l * 1.7 + uTime * 0.85);', // 螺旋缝：越往里转得越紧
+    '  vec3 col = uCore; float a = 0.94;',
+    '  if (l > 0.94) { col = uHi; a = 0.92; }',
+    '  else if (l > 0.84) { col = uRim; a = 0.9; }',
+    '  else if (l > 0.55) { if (sp < 0.2) { col = uRim; a = 0.86; } else { col = uCore; a = 0.62; } }',
+    '  gl_FragColor = vec4(col, a * uA);',
+    '}',
+  ].join('\n');
+  // 漩涡：上宽下窄的开口圆台，绕着身子的斜条纹往上卷（亮芯 / 品红 / 近黑三档），顶上一段降到三成不透明
+  const VORTEX_VERT = 'varying vec2 vUv;\nvoid main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
+  const VORTEX_FRAG = [
+    'uniform vec3 uCore; uniform vec3 uRim; uniform vec3 uHi; uniform float uTime; uniform float uPh; varying vec2 vUv;',
+    'void main(){',
+    '  float s = fract(vUv.x * 3.0 + vUv.y * 1.4 - uTime * 2.6 + uPh);', // uPh：同一次施放的几团各错开一点相位
+    '  vec3 col = s < 0.16 ? uHi : (s < 0.5 ? uRim : uCore);',
+    '  float a = vUv.y > 0.82 ? 0.32 : (vUv.y > 0.55 ? 0.62 : 0.9);',
+    '  if (s >= 0.5 && vUv.y > 0.55) discard;', // 上半截只留亮条：漏斗口是一圈卷起来的条纹，不是一面墙
+    '  gl_FragColor = vec4(col, a);',
+    '}',
+  ].join('\n');
+  const chHoles = [], chVorts = [];
+  const flame = { on: false, acc: 0 };
+  function chUniforms(extra) {
+    const u = { uCore: { value: new T.Color(CH_CORE) }, uRim: { value: new T.Color(CH_RIM) }, uHi: { value: new T.Color(CH_HI) }, uTime };
+    return Object.assign(u, extra || {});
+  }
+  W.makeHole = function (x, z, R, mouth) {
+    let h = chHoles.find((o) => !o.on);
+    if (!h) {
+      if (chHoles.length >= 5) {
+        h = chHoles[0];
+      } else {
+        const u = chUniforms({ uA: { value: 0 }, uSp: { value: 6 } });
+        const mat = new T.ShaderMaterial({ uniforms: u, vertexShader: FX_VERT, fragmentShader: HOLE_FRAG, transparent: true, depthWrite: false, side: T.DoubleSide });
+        const mesh = new T.Mesh(gQuad(), mat);
+        mesh.renderOrder = 3;
+        mesh.visible = false;
+        scene.add(mesh);
+        h = { mesh, u, on: false };
+        chHoles.push(h);
+      }
+    }
+    h.on = true;
+    h.x = x;
+    h.z = z;
+    h.R = R;
+    h.k = 0;
+    h.acc = 0;
+    h.u.uSp.value = qualId === 'low' ? 3 : 6;
+    h.mesh.position.set(x, 0.07, z);
+    h.mesh.scale.set(0.01, 1, 0.01);
+    h.mesh.visible = true;
+    W.ring(x, z, R, CH_RIM, 0.3);
+    return h;
+  };
+  // k：0..1 的进度。开（前 12%）和合（后 12%）时半径缩放、不透明度按 1 / 0.62 / 0.3 三档跳；高画质从外圈吸进尖片
+  W.updateHole = function (h, k, dt) {
+    if (!h || !h.on) return;
+    h.k = k;
+    const open = k < 0.12 ? k / 0.12 : k > 0.88 ? (1 - k) / 0.12 : 1;
+    const s = h.R * (0.35 + 0.65 * open);
+    h.mesh.scale.set(s, 1, s);
+    h.mesh.rotation.y -= dt * 1.4;
+    h.u.uA.value = open > 0.66 ? 1 : open > 0.33 ? 0.62 : 0.3;
+    if (qualId === 'low') return;
+    h.acc += dt * 10;
+    while (h.acc > 1) {
+      h.acc -= 1;
+      const a = rand(0, TAU), d = h.R * rand(0.9, 1.25), v = rand(4, 6.5);
+      tChunk(0, h.x + Math.sin(a) * d, rand(0.15, 0.6), h.z + Math.cos(a) * d, -Math.sin(a) * v, rand(0, 0.6), -Math.cos(a) * v, (d / v) * 0.8, rand(0.14, 0.22), CH_HI, CH_RIM, 0);
+    }
+  };
+  W.removeHole = function (h) {
+    if (!h || !h.on) return;
+    h.on = false;
+    h.mesh.visible = false;
+    W.ring(h.x, h.z, h.R * 0.55, CH_RIM, 0.3); // 合上时往里一收
+  };
+  W.holeCount = () => chHoles.filter((h) => h.on).length;
+
+  // i：同一次施放里的第几团（多重投射）。相位、转向、高矮各错开一点，几团挨在一起时不会糊成一个盘
+  W.makeVortex = function (x, z, R, i) {
+    let v = chVorts.find((o) => !o.on);
+    if (!v) {
+      if (chVorts.length >= 6) {
+        v = chVorts[0];
+      } else {
+        const lo = qualId === 'low';
+        const geo = new T.CylinderGeometry(1, 0.28, 1, lo ? 8 : 12, 1, true);
+        geo.translate(0, 0.5, 0);
+        const u = chUniforms({ uPh: { value: 0 } });
+        const mat = new T.ShaderMaterial({ uniforms: u, vertexShader: VORTEX_VERT, fragmentShader: VORTEX_FRAG, transparent: true, depthWrite: false, side: T.DoubleSide });
+        const mesh = new T.Mesh(geo, mat);
+        mesh.renderOrder = 4;
+        mesh.visible = false;
+        scene.add(mesh);
+        v = { mesh, u, on: false };
+        chVorts.push(v);
+      }
+    }
+    v.on = true;
+    v.R = R;
+    v.acc = 0;
+    const k = i || 0;
+    v.dir = k % 2 ? -1 : 1;
+    v.u.uPh.value = k * 0.37;
+    v.mesh.rotation.y = k * 1.3;
+    v.mesh.position.set(x, 0.05, z);
+    v.mesh.scale.set(R * (1 - 0.06 * (k % 3)), 2.4 * (1 - 0.12 * (k % 3)), R * (1 - 0.06 * (k % 3)));
+    v.mesh.visible = true;
+    return v;
+  };
+  W.updateVortex = function (v, x, z, dt) {
+    if (!v || !v.on) return;
+    v.mesh.position.set(x, 0.05, z);
+    v.mesh.rotation.y += dt * 9 * (v.dir || 1);
+    // 甩出的尖片：高画质每 0.06 秒一片，低画质 0.12 秒
+    v.acc += dt * (qualId === 'low' ? 8 : 16);
+    while (v.acc > 1) {
+      v.acc -= 1;
+      const a = rand(0, TAU), w = rand(3, 5.5);
+      tChunk(0, x + Math.sin(a) * v.R * 0.8, rand(0.3, 1.8), z + Math.cos(a) * v.R * 0.8, Math.cos(a) * w, rand(0.5, 2), -Math.sin(a) * w, rand(0.2, 0.32), rand(0.14, 0.2), CH_HI, CH_RIM, 4);
+    }
+  };
+  W.removeVortex = function (v) {
+    if (!v || !v.on) return;
+    v.on = false;
+    v.mesh.visible = false;
+    tPuffs(v.mesh.position.x, 0.4, v.mesh.position.z, qualId === 'low' ? 1 : 3, 1.4, 0.8, 0.35, 0.3, CH_DARK, CH_CORE);
+  };
+  W.vortexCount = () => chVorts.filter((v) => v.on).length;
+
+  // 黑焰：玩家身上往上飘的几缕黑焰（暗紫的烟团 + 品红转近黑的尖片），高画质每 0.2 秒 2 粒、低画质每 0.4 秒 1 粒
+  W.setFlame = function (on) {
+    flame.on = !!on;
+  };
+  W.flameOn = () => flame.on;
+  function updateFlame(dt) {
+    const P = G.player;
+    if (!flame.on || !P || !P.ent || !P.ent.group.visible) return;
+    flame.acc += dt * (qualId === 'low' ? 2.5 : 14);
+    while (flame.acc > 1) {
+      flame.acc -= 1;
+      const a = rand(0, TAU), d = rand(0.2, 0.55), x = P.x + Math.sin(a) * d, z = P.z + Math.cos(a) * d;
+      // 暗紫的烟团垫底（形状），品红转近黑的尖片往上窜（亮芯那一档是特效高光段）
+      if (Math.random() < 0.45) tChunk(2, x, rand(0.4, 1.5), z, 0, 0, 0, rand(0.55, 0.8), rand(0.3, 0.42), CH_RIM, CH_CORE, -1.6);
+      else tChunk(0, x, rand(0.3, 1.2), z, rand(-0.3, 0.3), rand(1.8, 2.8), rand(-0.3, 0.3), rand(0.45, 0.65), rand(0.18, 0.26), CH_HI, CH_RIM, -0.5);
+    }
+  }
+  // 渊缚：脚下一道品红的细环，几片往身上吸的尖片；首领的环大一圈
+  // 低画质不画：怪堆里渊缚接连触发时，每道环都是一次 draw call（飘字「渊缚」和头顶的第四段异常条照样有）
+  W.bindFx = function (x, z, r, h, boss) {
+    if (qualId === 'low') return;
+    W.ring(x, z, r + (boss ? 1.4 : 0.9), CH_RIM, 0.3);
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * TAU + rand(-0.3, 0.3), d = r + 1.2, v = rand(4, 6);
+      tChunk(0, x + Math.sin(a) * d, h * 0.4, z + Math.cos(a) * d, -Math.sin(a) * v, 0, -Math.cos(a) * v, 0.22, 0.18, CH_HI, CH_RIM, 0);
+    }
+  };
+  // 渊陷：尸体处一圈往里收的环 + 往里吸的尖片
+  W.voidFx = function (x, z, R) {
+    W.ring(x, z, R, CH_RIM, 0.35);
+    if (qualId === 'low') return;
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * TAU + rand(-0.3, 0.3), v = rand(5, 8);
+      tChunk(0, x + Math.sin(a) * R, 0.5, z + Math.cos(a) * R, -Math.sin(a) * v, rand(0, 1), -Math.cos(a) * v, R / v, 0.2, CH_HI, CH_RIM, 0);
+    }
+  };
+  function updateChaosFx(dt) {
+    updateFlame(dt);
+  }
+
   // ---------- 每帧更新 ----------
   function spawnAmbient(fx) {
     const x = camT.x + rand(-26, 26), z = camT.z + CAM_LEAD + rand(-22, 13);
@@ -21835,6 +22062,7 @@
     updateFocus(raw);
     updateMarks(raw);
     updateWeaponFx(dt);
+    updateChaosFx(dt);
     for (let i = 0; i < texts.length; i++) if (texts[i].t < texts[i].dur) texts[i].t += raw; // 数字按真实时间走：顿帧时照样弹出来
 
     // 受击闪白到时复原
@@ -22049,19 +22277,20 @@
   };
 
   // 敌人头顶血条下的异常值三小段；返回下一行的 y
-  const BU_CSS = { fire: '#ff8a3c', cold: '#86d8ff', light: '#ffe45e' };
-  const BU_DIM = { fire: 'rgba(255,138,60,0.22)', cold: 'rgba(134,216,255,0.22)', light: 'rgba(255,228,94,0.22)' };
+  const BU_CSS = { fire: '#ff8a3c', cold: '#86d8ff', light: '#ffe45e', chaos: '#ff6ad2' };
+  const BU_DIM = { fire: 'rgba(255,138,60,0.22)', cold: 'rgba(134,216,255,0.22)', light: 'rgba(255,228,94,0.22)', chaos: 'rgba(255,106,210,0.22)' };
   function drawBuildUp(g, e, x, y, w) {
     const b = e.bu;
     if (!b) return y;
     const BU_DEATH = (G.BUILDUP && G.BUILDUP.deathMin) || 0.5;
-    const on = { fire: e.blastT > 0, cold: e.freeze > 0 || e.bossChill > 0, light: e.shockT > 0 };
-    if (!(b.fire > 0.005 || b.cold > 0.005 || b.light > 0.005 || on.fire || on.cold || on.light)) return y;
-    const gap = 2, sw = (w - gap * 2) / 3;
+    const on = { fire: e.blastT > 0, cold: e.freeze > 0 || e.bossChill > 0, light: e.shockT > 0, chaos: e.bindT > 0 || e.bossBind > 0 };
+    const ch = b.chaos > 0.005 || on.chaos; // 混沌（渊缚）有累积时才多出第四段，平时还是三段
+    if (!(b.fire > 0.005 || b.cold > 0.005 || b.light > 0.005 || on.fire || on.cold || on.light || ch)) return y;
+    const els = ch ? G.BUILD_TYPES : G.ELEMS, nSeg = els.length;
+    const gap = 2, sw = (w - gap * (nSeg - 1)) / nSeg;
     g.fillStyle = 'rgba(0,0,0,0.72)';
     g.fillRect(x - 1, y - 1, w + 2, 5);
-    const els = G.ELEMS;
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < nSeg; i++) {
       const t = els[i], sx = x + i * (sw + gap);
       g.fillStyle = BU_DIM[t];
       g.fillRect(sx, y, sw, 3);
