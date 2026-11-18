@@ -9293,10 +9293,12 @@ async function main() {
     return '1 秒：游魂 ' + r.husk.toFixed(2) + ' 米 · 巨躯 ' + r.brute.toFixed(2) + ' · 首领 ' + r.boss.toFixed(2) + ' · 单体 ' + r.dmg1 + '（两个黑洞 ' + r.dmg2 + '）';
   });
 
-  await step('黑旋风：沿途的一排敌人都挨 2–4 跳；多重投射的几团共用间隔（单体不翻倍）；贯穿镶不上；连锁让漩涡走到头后拐向下一个敌人', async () => {
+  await step('黑旋风：每次 3 团（多重投射 +2）；吸附时把附近的小怪拽过来、首领几乎不动；撞墙反弹不散；能飞的虚空 / 熔岩上不反弹；寿命到了就散；同一次施放对同一个敌人每 0.2 秒最多一跳、最多 3 跳；贯穿 = 不吸附直接穿过；连锁 = 松开后拐向下一个敌人', async () => {
     const r = await ev(() => {
-      const P = G.player, save = G.save;
+      const P = G.player, save = G.save, W = G.world, SK = G.SKILLS.vortex;
       const snap = T.buildSnap();
+      const keep = { count: SK.count, wander: SK.wander };
+      const ow = W.walkable, os = W.sdAt, hadSf = Object.prototype.hasOwnProperty.call(W, 'shotFree'), osf = W.shotFree;
       const cnt = new Map(), gap = new Map(), last = new Map();
       const orig = G.hitEnemy;
       G.hitEnemy = function (e, ctx) {
@@ -9307,52 +9309,149 @@ async function main() {
         }
         return orig.apply(this, arguments);
       };
-      const run = (sockets, setup, after) => {
+      const st = (k) => G.state.stats[k] || 0;
+      const reset = (sockets) => {
+        W.walkable = ow;
+        if (os) W.sdAt = os;
+        if (hadSf) W.shotFree = osf;
+        else delete W.shotFree;
         T.arena();
         T.fix(0.5);
         save.skills.vortex = 1;
-        if (save.supports.indexOf('multi') < 0) save.supports.push('multi');
-        if (save.supports.indexOf('chain') < 0) save.supports.push('chain');
-        save.sockets.vortex = sockets;
+        for (const id of ['multi', 'pierce', 'chain']) if (save.supports.indexOf(id) < 0) save.supports.push(id);
+        save.sockets.vortex = sockets || [null, null, null];
         cnt.clear();
         gap.clear();
         last.clear();
-        const d = T.openDir(12);
-        const mobs = setup(d);
-        for (const e of mobs) e.buTh = 1e9;
-        T.aim(P.x + d.x * 10, P.z + d.z * 10);
-        G.execSkill(G.skillCtx('vortex'));
-        const n = G.chaosVortices().length;
-        if (after) after(d);
-        for (let i = 0; i < 150; i++) G.tick(1 / 60);
-        return { n, hits: mobs.map((e) => cnt.get(e) || 0), gap: mobs.map((e) => (gap.has(e) ? +gap.get(e).toFixed(3) : null)) };
       };
-      const line = (d) => [2.5, 3.5, 4.5, 5.5, 6.5].map((k) => T.mob('husk', d.x * k + d.z * 0.3, d.z * k - d.x * 0.3));
+      const tick = (sec) => { for (let i = 0, n = Math.round(sec * 60); i < n; i++) G.tick(1 / 60); };
       const out = {};
-      out.line = run([null, null, null], line);
-      const one = (d) => [T.mob('husk', d.x * 3, d.z * 3)];
-      out.single = run([null, null, null], one);
-      out.multi = run(['multi', null, null], one);
-      // 连锁：漩涡提前走到头（4 米左右），侧面 4 米处一只靶子
-      const side = (d) => [T.mob('husk', d.x * 4.4 - d.z * 4, d.z * 4.4 + d.x * 4)];
-      const short = () => { for (const v of G.chaosVortices()) v.life = 0.4; };
-      const st0 = G.state.stats.vortexHops || 0;
-      out.chain = run(['chain', null, null], side, short);
-      out.hops = (G.state.stats.vortexHops || 0) - st0;
-      out.noChain = run([null, null, null], side, short);
-      out.pierce = G.supportFits('vortex', 'pierce');
-      out.chainFits = G.supportFits('vortex', 'chain');
-      G.hitEnemy = orig;
-      T.unfix();
-      T.buildRestore(snap);
+      try {
+        const d = T.openDir(12), px = -d.z, pz = d.x;
+        const cast = (k) => { T.aim(P.x + d.x * (k || 10), P.z + d.z * (k || 10)); G.execSkill(G.skillCtx('vortex')); return G.chaosVortices().length; };
+        const along = (v) => (v.x - out.p0.x) * d.x + (v.z - out.p0.z) * d.z;
+        // 1. 数量
+        reset();
+        out.n = cast();
+        reset(['multi', null, null]);
+        out.nMulti = cast();
+        // 下面只放 1 团、不摆动：路线可预期
+        SK.count = 1;
+        SK.wander = 0;
+        // 2. 吸附：正前方 4 米一只游魂；它侧面 2 米另一只（不在漩涡路线上），另一侧 3.3 米一个首领
+        reset();
+        const A = T.mob('husk', d.x * 4, d.z * 4), N = T.mob('husk', d.x * 4 + px * 2, d.z * 4 + pz * 2);
+        const boss = G.spawnBoss('golem', P.x + d.x * 4 - px * 3.3, P.z + d.z * 4 - pz * 3.3, 1);
+        boss.awake = boss.wasAwake = true;
+        boss.hp = boss.maxHp = 1e7;
+        boss.speed = 0;
+        boss.busy = boss.cd = 1e9;
+        for (const e of [A, N, boss]) e.buTh = 1e9;
+        const n0 = [N.x, N.z], b0 = [boss.x, boss.z], l0 = st('vortexLatches');
+        cast(4);
+        let at = -1;
+        for (let i = 0; i < 60 && at < 0; i++) {
+          G.tick(1 / 60);
+          if (st('vortexLatches') > l0) at = i;
+        }
+        const v0 = G.chaosVortices()[0];
+        out.latch = { at, on: v0 && v0.lat === A };
+        tick(0.38);
+        out.latch.n = +Math.hypot(N.x - n0[0], N.z - n0[1]).toFixed(2);
+        out.latch.boss = +Math.hypot(boss.x - b0[0], boss.z - b0[1]).toFixed(2);
+        out.latch.hitsA = cnt.get(A) || 0;
+        // 3. 撞墙反弹：前方 5 米一堵假墙（W.walkable 和 W.sdAt 一起改，区域改版的距离场路线也走得到）
+        reset();
+        out.p0 = { x: P.x, z: P.z };
+        const wallSd = (x, z) => Math.abs((x - out.p0.x) * d.x + (z - out.p0.z) * d.z - 5) - 0.5;
+        W.walkable = function (x, z, pad) { return wallSd(x, z) >= (pad || 0) && ow.call(W, x, z, pad); };
+        if (os) W.sdAt = (x, z) => Math.min(os.call(W, x, z), wallSd(x, z));
+        const b1 = st('vortexBounces');
+        cast();
+        tick(0.6);
+        const vw = G.chaosVortices()[0];
+        out.wall = { alive: G.chaosVortices().length, bounces: st('vortexBounces') - b1, dot: vw ? +(Math.sin(vw.a) * d.x + Math.cos(vw.a) * d.z).toFixed(2) : null, s: vw ? +along(vw).toFixed(2) : null };
+        // 4. 虚空 / 熔岩：前方 3–5 米一条「不能走、但子弹能飞」的地带（stub 一个 W.shotFree）；没有 shotFree 时同一条地带会反弹
+        const strip = () => {
+          reset();
+          out.p0 = { x: P.x, z: P.z };
+          W.walkable = function (x, z, pad) { return !(Math.abs((x - out.p0.x) * d.x + (z - out.p0.z) * d.z - 4) < 1) && ow.call(W, x, z, pad); };
+        };
+        strip();
+        W.shotFree = function (x, z, pad) { return Math.abs((x - out.p0.x) * d.x + (z - out.p0.z) * d.z - 4) < 1 ? true : W.walkable(x, z, pad); };
+        const b2 = st('vortexBounces');
+        cast();
+        tick(0.6);
+        const vv = G.chaosVortices()[0];
+        out.void = { alive: G.chaosVortices().length, bounces: st('vortexBounces') - b2, s: vv ? +along(vv).toFixed(2) : null };
+        strip();
+        if (hadSf) W.shotFree = undefined; // 旧接口：只有 W.walkable
+        const b3 = st('vortexBounces');
+        cast();
+        tick(0.6);
+        out.void.legacyBounces = st('vortexBounces') - b3;
+        // 5. 寿命：四面都能飞，1 秒时还在，2.3 秒时散了
+        reset();
+        W.walkable = () => true;
+        if (hadSf) W.shotFree = () => true;
+        cast();
+        tick(1);
+        out.life = [G.chaosVortices().length];
+        tick(1.3);
+        out.life.push(G.chaosVortices().length);
+        // 6. 上限：多重投射 5 团同时绞 3 米外的一只靶子
+        SK.count = keep.count;
+        reset(['multi', null, null]);
+        const one = T.mob('husk', d.x * 3, d.z * 3);
+        one.buTh = 1e9;
+        cast(3);
+        tick(2.5);
+        out.cap = { hits: cnt.get(one) || 0, gap: gap.has(one) ? +gap.get(one).toFixed(3) : null };
+        SK.count = 1;
+        // 7. 贯穿：不吸附，照样挨跳
+        reset(['pierce', null, null]);
+        const pe = T.mob('husk', d.x * 4, d.z * 4);
+        pe.buTh = 1e9;
+        const l7 = st('vortexLatches');
+        cast(4);
+        tick(1);
+        out.pierce = { latches: st('vortexLatches') - l7, hits: cnt.get(pe) || 0, fits: G.supportFits('vortex', 'pierce') };
+        // 8. 连锁：A 正前方 4 米，B 在 A 侧面 4 米；镶连锁时松开 A 之后拐向 B
+        const chainRun = (sockets) => {
+          reset(sockets);
+          const a = T.mob('husk', d.x * 4, d.z * 4), b = T.mob('husk', d.x * 4 + px * 4, d.z * 4 + pz * 4);
+          a.buTh = b.buTh = 1e9;
+          cast(4);
+          tick(1.5);
+          return cnt.get(b) || 0;
+        };
+        const h8 = st('vortexHops');
+        out.chain = { b: chainRun(['chain', null, null]), hops: st('vortexHops') - h8, noChain: chainRun(null), fits: G.supportFits('vortex', 'chain') };
+      } finally {
+        W.walkable = ow;
+        if (os) W.sdAt = os;
+        if (hadSf) W.shotFree = osf;
+        else delete W.shotFree;
+        SK.count = keep.count;
+        SK.wander = keep.wander;
+        G.hitEnemy = orig;
+        T.unfix();
+        T.arena();
+        T.buildRestore(snap);
+      }
+      out.cleared = G.chaosVortices().length;
       return out;
     });
-    assert(r.line.n === 1 && r.line.hits.every((h) => h >= 2 && h <= 4), '一排敌人都应挨 2–4 跳：' + JSON.stringify(r.line));
-    // 几团散开以后覆盖面更大，同一个敌人可能多挨一跳；但同一次施放对它每 0.2 秒最多一跳，不会几团同时打
-    assert(r.multi.n === 3 && r.multi.hits[0] <= r.single.hits[0] + 1 && r.multi.gap[0] >= 0.18, '多重投射的几团应共用间隔：' + JSON.stringify(r));
-    assert(r.chain.hits[0] > 0 && r.hops >= 1 && r.noChain.hits[0] === 0, '连锁应让漩涡拐向侧面的敌人：' + JSON.stringify(r));
-    assert(r.pierce === false && r.chainFits === true, '贯穿应镶不上、连锁能镶：' + JSON.stringify(r));
-    return '一排 ' + r.line.hits.join('/') + ' 跳 · 单体 ' + r.single.hits[0] + '（多重 ' + r.multi.hits[0] + '）· 连锁拐弯 ' + r.chain.hits[0] + ' 跳';
+    assert(r.n === 3 && r.nMulti === 5, '每次应放 3 团、多重投射 5 团：' + JSON.stringify(r));
+    assert(r.latch.at >= 0 && r.latch.on && r.latch.hitsA >= 2 && r.latch.n >= 0.6 && r.latch.boss < 0.2, '吸附应拽近旁边的小怪、首领几乎不动：' + JSON.stringify(r.latch));
+    assert(r.wall.alive === 1 && r.wall.bounces >= 1 && r.wall.dot < -0.8 && r.wall.s < 4.6, '撞墙应反弹回来、不散：' + JSON.stringify(r.wall));
+    assert(r.void.alive === 1 && r.void.bounces === 0 && r.void.s > 5.5 && r.void.legacyBounces >= 1, '能飞的虚空 / 熔岩上不该反弹：' + JSON.stringify(r.void));
+    assert(r.life[0] === 1 && r.life[1] === 0, '寿命到了应散掉：' + JSON.stringify(r.life));
+    assert(r.cap.hits >= 2 && r.cap.hits <= 3 && r.cap.gap >= 0.18, '同一次施放对同一个敌人每 0.2 秒最多一跳、最多 3 跳：' + JSON.stringify(r.cap));
+    assert(r.pierce.fits === true && r.pierce.latches === 0 && r.pierce.hits >= 1, '贯穿：不吸附、照样挨跳：' + JSON.stringify(r.pierce));
+    assert(r.chain.fits === true && r.chain.b > 0 && r.chain.hops >= 1 && r.chain.noChain === 0, '连锁应让漩涡松开后拐向下一个敌人：' + JSON.stringify(r.chain));
+    assert(r.cleared === 0, '清场后不该留漩涡：' + JSON.stringify(r));
+    return r.n + ' 团（多重 ' + r.nMulti + '）· 吸附拽近 ' + r.latch.n + ' 米（首领 ' + r.latch.boss + '）· 撞墙 ' + r.wall.bounces + ' 次 · 五团绞一只 ' + r.cap.hits + ' 跳';
   });
 
   await step('黑焰：放上技能栏保留 35% 魔力（节流后 21%）；攻击、法术、召唤物的每一击都多出 F% 的混沌伤害，和注入相加；触发出来的伤害不带；取下即失效', async () => {
