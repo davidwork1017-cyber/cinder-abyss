@@ -23075,6 +23075,7 @@
     MM.cw = CW;
     MM.ch = CH;
     MM.vx = MM.vy = 0;
+    MM.vDirty = true;
     cv.width = Math.round(CW * dpr);
     cv.height = Math.round(CH * dpr);
     const g = cv.getContext('2d');
@@ -23437,21 +23438,34 @@
     if (MM.cv) {
       const S = MM.size, mx = vw - S - 14, my = 14;
       if (MM.win) {
-        // 截取模式：以玩家为中心截一块底图，标记都裁在小地图框里
+        // 截取模式：以玩家为中心截一块底图。截取框动了才把那一块拷进一张固定 172 × 172 的画布（MM.view），
+        // 每帧照旧整张 drawImage（和不截取时一样便宜）；标记出了框就不画，不用 clip（2D 画布的 clip / 带源矩形的 drawImage
+        // 每帧都在 GPU 进程里多做一遍，低画质下拖慢图标预热，zones-polish 实测）
+        const ox = MM.vx, oy = MM.vy;
         minimapView(P.x, P.z);
-        g.drawImage(MM.cv, MM.vx * dpr, MM.vy * dpr, S * dpr, S * dpr, mx, my, S, S);
-        g.save();
-        g.beginPath();
-        g.rect(mx, my, S, S);
-        g.clip();
+        if (!MM.view || MM.view.width !== Math.round(S * dpr)) {
+          MM.view = makeCanvas(Math.round(S * dpr), Math.round(S * dpr));
+          MM.vDirty = true;
+        }
+        if (MM.vDirty || ox !== MM.vx || oy !== MM.vy) {
+          const vg = MM.view.getContext('2d');
+          vg.clearRect(0, 0, MM.view.width, MM.view.height);
+          vg.drawImage(MM.cv, Math.round(MM.vx * dpr), Math.round(MM.vy * dpr), MM.view.width, MM.view.height, 0, 0, MM.view.width, MM.view.height);
+          vg.strokeStyle = 'rgba(214,160,92,0.55)';
+          vg.lineWidth = dpr;
+          vg.strokeRect(0.5 * dpr, 0.5 * dpr, MM.view.width - dpr, MM.view.height - dpr);
+          MM.vDirty = false;
+        }
+        g.drawImage(MM.view, mx, my, S, S);
       } else {
         MM.vx = MM.vy = 0;
         g.drawImage(MM.cv, mx, my, S, S);
       }
       const X = (x) => mx + x * MM.s + MM.ox - MM.vx, Z = (z) => my + z * MM.s + MM.oz - MM.vy;
+      const inMM = (px, pz) => px > mx - 3 && px < mx + S + 3 && pz > my - 3 && pz < my + S + 3; // 截取模式下框外的标记不画
       for (let i = 0; i < es.length; i++) {
         const e = es[i];
-        if (e.dead || e.isBoss || !e.awake) continue;
+        if (e.dead || e.isBoss || !e.awake || !inMM(X(e.x), Z(e.z))) continue;
         g.fillStyle = e.elite ? '#ffc04a' : 'rgba(255,96,72,0.9)';
         const r = e.elite ? 2.4 : 1.5;
         g.fillRect(X(e.x) - r, Z(e.z) - r, r * 2, r * 2);
@@ -23462,11 +23476,12 @@
           const m = ms[i], ent = m && m.ent;
           if (!ent || m.dead || ent.removed) continue;
           const r = ent.kind === 'colossus' ? 2.6 : 1.7, gp = ent.group.position;
+          if (!inMM(X(gp.x), Z(gp.z))) continue;
           g.fillRect(X(gp.x) - r, Z(gp.z) - r, r * 2, r * 2);
         }
       }
       const zn = W.zone;
-      if (st.boss && !st.boss.dead) {
+      if (st.boss && !st.boss.dead && inMM(X(st.boss.x), Z(st.boss.z))) {
         // 首领：脉动的红色菱形
         const bx = X(st.boss.x), bz = Z(st.boss.z), r = 5 + Math.sin(wtime * 4) * 0.8;
         g.fillStyle = '#ff4a3a';
@@ -23481,7 +23496,7 @@
         g.stroke();
         g.fill();
       }
-      if (st.portal) {
+      if (st.portal && inMM(X(st.portal.x), Z(st.portal.z))) {
         const px = X(st.portal.x), pz = Z(st.portal.z);
         g.strokeStyle = '#b9a4ff';
         g.lineWidth = 2;
@@ -23493,9 +23508,10 @@
       }
       if (zn) {
         g.fillStyle = 'rgba(255,255,255,0.35)';
-        g.fillRect(X(zn.start.x) - 1.5, Z(zn.start.z) - 1.5, 3, 3);
+        if (inMM(X(zn.start.x), Z(zn.start.z))) g.fillRect(X(zn.start.x) - 1.5, Z(zn.start.z) - 1.5, 3, 3);
         // 宝箱：金色小方块，打开以后变暗
         for (const c of zn.chests) {
+          if (!inMM(X(c.x), Z(c.z))) continue;
           g.fillStyle = c.open ? 'rgba(150,126,84,0.55)' : '#ffd75e';
           g.strokeStyle = 'rgba(0,0,0,0.8)';
           g.lineWidth = 1;
@@ -23511,12 +23527,6 @@
       g.arc(X(P.x), Z(P.z), 3.2, 0, TAU);
       g.stroke();
       g.fill();
-      if (MM.win) {
-        g.restore();
-        g.strokeStyle = 'rgba(214,160,92,0.55)';
-        g.lineWidth = 1;
-        g.strokeRect(mx + 0.5, my + 0.5, S - 1, S - 1);
-      }
     }
   }
 
