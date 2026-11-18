@@ -329,6 +329,7 @@
     }
   }
 
+  const HEAVY = { brute: true, charger: true, bomber: true }; // 重手（一下伤害大）的小怪：怪群加人时多出来的不放这几种
   // 生成器排好的怪群：{ room, x, z, n（数或 [下限, 上限]）, r, elite, ambush, mobs, noBrute }，成员在 (x, z) 周围 r 以内。
   // mobs：这一群的怪物表（缺省用区域的）；noBrute：不放蛮兵（窄路上的小群，体型大的躲不开），zones-integrate 加
   function populatePack(zone, slot) {
@@ -341,12 +342,16 @@
     const n0 = Array.isArray(slot.n) ? G.randInt(slot.n[0], slot.n[1]) : slot.n || G.randInt(4, 6);
     const n = Math.floor(n0 * K + Math.random()), R = (slot.r || 2.6) * Math.sqrt(K);
     const main = G.pick(mobs), members = [];
+    // 多出来的人手（第 n0 只以后）只放轻怪：巨躯、陨角兽这种重手和爆裂虫的数量和以前一样，大群不会叠出一波打死人的重击
+    const light = mobs.filter((t) => !HEAVY[t]);
     for (let m = 0; m < n; m++) {
       for (let tries = 0; tries < 12; tries++) {
         const a = Math.random() * TAU, d = G.rand(0.4, R);
         const x = slot.x + Math.sin(a) * d, z = slot.z + Math.cos(a) * d;
         if (!W.walkable(x, z, 1) || !farFromStart(zone, x, z) || !spaced(members, x, z, 1.4)) continue;
-        members.push({ x, z, type: packType(mobs, main, zone), elite: false });
+        let type = packType(mobs, main, zone);
+        if (m >= n0 && HEAVY[type]) type = light.length ? (HEAVY[main] ? G.pick(light) : main) : 'husk';
+        members.push({ x, z, type, elite: false });
         break;
       }
     }
