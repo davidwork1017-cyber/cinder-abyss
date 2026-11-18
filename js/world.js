@@ -5124,7 +5124,9 @@
       const I = isl[i];
       let best = { x: I.x, z: I.z, r: fullSd(I.x, I.z) };
       for (let t = 0; t < 60; t++) {
-        const a = R() * TAU, d = Math.sqrt(R()) * I.R * 0.6, x = I.x + Math.sin(a) * d, z = I.z + Math.cos(a) * d, v = Math.min(fullSd(x, z), roomSd(rooms[i], x, z));
+        const a = R() * TAU, d = Math.sqrt(R()) * I.R * 0.6, x = I.x + Math.sin(a) * d, z = I.z + Math.cos(a) * d, rs = roomSd(rooms[i], x, z);
+        if (rs <= best.r) continue; // min(fullSd, roomSd) ≤ roomSd：这一点不可能更大，省掉整体的 sd（结果不变）
+        const v = Math.min(fullSd(x, z), rs);
         if (v > best.r) best = { x, z, r: v };
       }
       return best;
@@ -5155,11 +5157,19 @@
 
     // ---- 怪群（§3.0）：岛上按面积，栈道只在中点放 2–3 只的小群（不放蛮兵）----
     // 面积：多边形用鞋带公式 + 圆角（周长 × round + π round²）；圆按整圆；浅水圆和岛重叠的部分按一半估
-    // 面积：在岛的外接框里按 0.7 m 撒点数（只算这个房间自己的图元）
+    // 面积：在房间图元的外接框里按 1 m 撒点数（只算这个房间自己的图元）
+    // size-frost：只撒这个房间图元的外接框（原来是外接圆外扩 5 m 的方框，大部分点都在水里），每个房间只算一次（岛的面积在下面分怪群时还要用）
+    const areaOf = new Map();
     const polyArea = (rm) => {
-      const I = isl[rm.id], ext = I.R + 5, st = 0.7;
+      if (areaOf.has(rm.id)) return areaOf.get(rm.id);
+      const st = 1, bx = [1e18, 1e18, -1e18, -1e18]; // 1 m 一个点：只是估算（筛面积、按面积分怪群），校验另按 0.5 m 网格精确量
+      for (const p of rm.prims) {
+        const b = W.terrain.primBox(p);
+        bx[0] = Math.min(bx[0], b[0]); bx[1] = Math.min(bx[1], b[1]); bx[2] = Math.max(bx[2], b[2]); bx[3] = Math.max(bx[3], b[3]);
+      }
       let n = 0;
-      for (let z = I.z - ext; z <= I.z + ext; z += st) for (let x = I.x - ext; x <= I.x + ext; x += st) if (roomSd(rm, x, z) >= 0) n++;
+      for (let z = bx[1] + st / 2; z <= bx[3]; z += st) for (let x = bx[0] + st / 2; x <= bx[2]; x += st) if (roomSd(rm, x, z) >= 0) n++;
+      areaOf.set(rm.id, n * st * st);
       return n * st * st;
     };
     let area = 0, mobs = 0, elites = 0;
