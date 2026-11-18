@@ -8941,7 +8941,14 @@ async function main() {
       // 记下每一道落击的元素：包一层 hitEnemy（只数风暴自己的落击；感电放电、尸爆这类派生伤害带 proc 标记，不算）。
       // 按「落击」数而不是按「命中」数：一道落击砸中几个敌人只算一次，否则数出来的比例取决于怪群站位，测试会随机失败。
       // 三种元素各用一个上下文；装备上的附加伤害会让每个上下文都带上三种元素，所以按 stormCtx 最先写进 base 的那一种（落击本身的元素）认
-      const byCtx = new Map();
+      // 另外在落击出手时（W.triStrike，每一道落击一次，带它的元素）按元素计数：轮流落下按「出手」数断言，和怪有没有被砸中无关
+      // （zones-integrate：按命中数的话，目标在落击下落的 0.24 秒里被击退 / 走开就会落空，三种里任何一种都可能少几下，雷本来就少一道，
+      // 改版前的 main 上 30 遍里也有 1 遍掉到 3）
+      const byCtx = new Map(), spawned = { fire: 0, cold: 0, light: 0 }, ots = G.world.triStrike;
+      G.world.triStrike = function (x, z, el) {
+        spawned[el] = (spawned[el] || 0) + 1;
+        return ots.apply(this, arguments);
+      };
       let frame = 0;
       const oh = G.hitEnemy;
       G.hitEnemy = function (e, ctx, m, info) {
@@ -8953,13 +8960,13 @@ async function main() {
       };
       G.input.tap[4] = 0.3;
       let t = 0;
-      try { while (t < 5.5) { frame++; G.tick(1 / 60); t += 1 / 60; } } finally { G.hitEnemy = oh; }
+      try { while (t < 5.5) { frame++; G.tick(1 / 60); t += 1 / 60; } } finally { G.hitEnemy = oh; G.world.triStrike = ots; }
       const seen = {};
       for (const [c, frames] of byCtx) {
         const el = Object.keys(c.base)[0];
         seen[el] = (seen[el] || 0) + frames.size;
       }
-      out.pack = { hits: S.stats.stormHits, storms: S.stats.storms, freezes: S.stats.freezes, blasts: S.stats.blasts, shocks: S.stats.shocks, seen, far: far.maxHp - far.hp, cd: P.cdMax.tristorm, dmg: es.map((e) => Math.round(e.maxHp - e.hp)) };
+      out.pack = { hits: S.stats.stormHits, storms: S.stats.storms, freezes: S.stats.freezes, blasts: S.stats.blasts, shocks: S.stats.shocks, seen, spawned, far: far.maxHp - far.hp, cd: P.cdMax.tristorm, dmg: es.map((e) => Math.round(e.maxHp - e.hp)) };
       // 首领：风暴打出来的触发照样让阈值变高，不会被冻结
       T.arena();
       G.save.equip.weapon = G.rollUnique('sanxiang', 40, 0.5);
@@ -8981,11 +8988,13 @@ async function main() {
       return out;
     });
     assert(r.pack.storms === 1 && r.pack.hits >= 15 && r.pack.far === 0, '风暴应落在准星一带、打出几十击：' + JSON.stringify(r.pack));
-    assert(r.pack.seen.fire > 0 && r.pack.seen.cold > 0 && r.pack.seen.light > 0 && Math.min(r.pack.seen.fire, r.pack.seen.cold, r.pack.seen.light) >= 4 && Math.max(r.pack.seen.fire, r.pack.seen.cold, r.pack.seen.light) - Math.min(r.pack.seen.fire, r.pack.seen.cold, r.pack.seen.light) <= 3, '火 / 冰 / 雷应轮流落下（按落击数）：' + JSON.stringify(r.pack.seen));
+    const sp = r.pack.spawned, sn = r.pack.seen;
+    assert(Math.min(sp.fire, sp.cold, sp.light) >= 4 && Math.max(sp.fire, sp.cold, sp.light) - Math.min(sp.fire, sp.cold, sp.light) <= 3, '火 / 冰 / 雷应轮流落下（按出手的落击数）：' + JSON.stringify(sp));
+    assert(sn.fire > 0 && sn.cold > 0 && sn.light > 0 && (sn.fire || 0) + (sn.cold || 0) + (sn.light || 0) >= 12, '三种落击都应砸中怪群，砸中的合计 ≥ 12：' + JSON.stringify({ spawned: sp, seen: sn }));
     assert(r.pack.freezes > 0 && r.pack.blasts > 0 && r.pack.shocks > 0, '怪群里应接连触发冻结 / 爆燃 / 感电：' + JSON.stringify(r.pack));
     assert(Math.abs(r.pack.cd - 12) < 1e-6, '冷却应为 12 秒：' + r.pack.cd);
     assert(r.boss.grow0 === 0 && r.boss.grow.some((g) => g > 1) && !r.boss.frozen, '风暴触发的异常应让首领阈值照常变高、首领不被冻结：' + JSON.stringify(r.boss));
-    return '怪群 ' + r.pack.hits + ' 击（火 ' + r.pack.seen.fire + ' / 冰 ' + r.pack.seen.cold + ' / 雷 ' + r.pack.seen.light + '）· 冻结 ' + r.pack.freezes + ' 爆燃 ' + r.pack.blasts + ' 感电 ' + r.pack.shocks + ' · 首领阈值 ×' + r.boss.grow.join('/');
+    return '怪群 ' + r.pack.hits + ' 击（出手 火 ' + sp.fire + ' / 冰 ' + sp.cold + ' / 雷 ' + sp.light + '，砸中 ' + sn.fire + ' / ' + sn.cold + ' / ' + sn.light + '）· 冻结 ' + r.pack.freezes + ' 爆燃 ' + r.pack.blasts + ' 感电 ' + r.pack.shocks + ' · 首领阈值 ×' + r.boss.grow.join('/');
   });
 
   await step('万魂降临：6 位英灵落在准星一带（按召唤物算、吃召唤物伤害加成、不占仆从上限），8 秒后消散（化作魂火）；现有召唤物治疗到满并狂热；冷却 15 秒', async () => {
@@ -9589,6 +9598,666 @@ async function main() {
       return { ok, level: G.save.level, zone: G.state.zone.def.id, open: T.tab() };
     });
     assert(r.ok === false && r.level === 1 && r.zone === 'ash', JSON.stringify(r));
+  });
+
+  // ------------------------------------------------------------------ 区域地形（网格 + 兼容层）
+  // zones-integrate（C）：五个区都换成了新生成器，原来这一步只对 legacy 布局成立（兼容字段 circles / segs 的解析 zoneSd）。
+  // 现在每个区做两遍：新生成器的布局和图元精确 sd（W.sdExact，可走 / 挡子弹两套）逐点比；再把生成器临时换回 GEN.legacy，照原来的断言和 zoneSd 比
+  await step('区域地形：5 个区的网格判定和精确 sd 逐点一致（新生成器比 W.sdExact、legacy 比解析 zoneSd，各 5000 个点）', async () => {
+    const r = await ev(() => {
+      G.debug.hold(true);
+      const W = G.world, zs = W.terrain.zoneSd, ZT = W.terrain.ZONE_TERRAIN, out = [];
+      let seed = 4242;
+      const rnd = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+      const pads = [0, 0.5, 0.4, -0.4, 1, -0.3, 0.6];
+      const probe = (zone, ref, refShot) => {
+        const b = zone.bounds;
+        let bad = 0, near = 0, maxErr = 0, shotBad = 0, shotN = 0;
+        for (let i = 0; i < 5000; i++) {
+          const x = b.minX - 5 + rnd() * (b.maxX - b.minX + 10), z = b.minZ - 5 + rnd() * (b.maxZ - b.minZ + 10), pad = pads[i % pads.length];
+          const a = ref(x, z);
+          if (a > -3.8 && a < 4.6) maxErr = Math.max(maxErr, Math.abs(W.sdAt(x, z) - a));
+          if (Math.abs(a - pad) < 0.03) near++;
+          else if (W.walkable(x, z, pad) !== a >= pad) bad++;
+          if (refShot) {
+            const sa = refShot(x, z);
+            if (Math.abs(sa - pad) >= 0.03 && Math.abs(a - pad) >= 0.03) {
+              shotN++;
+              if (W.shotFree(x, z, pad) !== sa >= pad) shotBad++;
+            }
+          }
+        }
+        return { bad, near, maxErr: +maxErr.toFixed(3), band: +zone.map.band.toFixed(3), shotBad, shotN, ms: +zone.map.ms.toFixed(1), haz: zone.map.hazAny, shot: zone.map.sdShot !== zone.map.sd };
+      };
+      for (let zi = 0; zi < G.ZONES.length; zi++) {
+        G.enterZone(zi, 0);
+        const zone = G.state.zone, pr = zone.map.pr, L = G.debug.layout();
+        const cust = probe(zone, (x, z) => W.sdExact(x, z), (x, z) => W.terrain.exactSd(pr, x, z, true));
+        cust.gen = L.gen;
+        cust.shotCut = (zone.spec.cuts || []).some((c) => c.mat === W.MAT.VOID || c.mat === W.MAT.WATER || c.mat === W.MAT.LAVA) || zone.spec.outside === W.MAT.VOID;
+        // legacy：临时把这一区的生成器换回 GEN.legacy（不固定种子时直接用 Math.random，和改版前一样）
+        const gen0 = ZT[zone.def.id].gen;
+        ZT[zone.def.id].gen = W.terrain.GEN.legacy;
+        let leg;
+        try {
+          G.enterZone(zi, 0);
+          leg = probe(G.state.zone, (x, z) => zs(G.state.zone, x, z), null);
+          leg.gen = G.debug.layout().gen;
+        } finally {
+          ZT[zone.def.id].gen = gen0;
+        }
+        out.push({ id: zone.def.id, cust, leg });
+      }
+      G.enterZone(0, 0);
+      return out;
+    });
+    for (const z of r) {
+      const c = z.cust, l = z.leg;
+      assert(c.gen === 'custom' && l.gen === 'legacy', z.id + '：生成器不对：' + JSON.stringify(z));
+      assert(c.bad === 0, z.id + '：网格 walkable 和图元精确 sd 判定不一致 ' + c.bad + ' 处：' + JSON.stringify(c));
+      assert(c.shotBad === 0 && c.shotN > 3000, z.id + '：W.shotFree 和挡子弹的精确 sd 判定不一致 ' + c.shotBad + ' 处：' + JSON.stringify(c));
+      assert(c.maxErr <= c.band, z.id + '：网格 sd 误差超过精修带宽：' + JSON.stringify(c));
+      assert(c.shot === c.shotCut, z.id + '：有透弹挖空（虚空 / 深水 / 熔岩）就应有单独的 sdShot：' + JSON.stringify(c));
+      assert(l.bad === 0, z.id + '：legacy 布局下网格 walkable 和解析 zoneSd 判定不一致 ' + l.bad + ' 处：' + JSON.stringify(l));
+      assert(l.maxErr <= l.band, z.id + '：legacy 布局下网格 sd 误差超过精修带宽：' + JSON.stringify(l));
+      assert(l.haz === 0 && !l.shot, z.id + '：legacy 布局不该有危险区 / 透弹挖空：' + JSON.stringify(l));
+    }
+    return r.map((z) => z.id + ' 误差 ' + z.cust.maxErr + ' / legacy ' + z.leg.maxErr + ' 光栅化 ' + z.cust.ms + 'ms').join('，');
+  });
+
+  await step('区域地形：同一种子生成的布局说明哈希相同，固定种子进区布局不变', async () => {
+    const r = await ev(() => {
+      G.debug.hold(true);
+      const W = G.world, out = { same: true, diff: 0, ids: [] };
+      for (const def of G.ZONES) {
+        const a = W.genLayout(def.id, 20251118), b = W.genLayout(def.id, 20251118), c = W.genLayout(def.id, 20251119);
+        if (a.hash !== b.hash || W.specHash(a.spec) !== a.hash) out.same = false;
+        if (a.hash !== c.hash) out.diff++;
+        out.ids.push(def.id + ':' + a.hash);
+      }
+      G.debug.zoneSeed(777);
+      G.enterZone(1, 0);
+      const l1 = G.debug.layout();
+      G.enterZone(1, 0);
+      const l2 = G.debug.layout();
+      const kinds = (l) => l.rooms.reduce((o, rm) => ((o[rm.kind] = (o[rm.kind] || 0) + 1), o), {});
+      out.pinned = { seed: l1.seed, h1: l1.hash, h2: l2.hash, rooms: l1.rooms.length, path: l1.path.length, packs: l1.packs.length, chests: l1.chests.length, kinds: kinds(l1), gen: l1.gen };
+      out.unpinned = G.debug.zoneSeed(null);
+      const tp = G.debug.tpRoom(2);
+      out.tp = !!tp && G.world.walkable(G.player.x, G.player.z, 1);
+      G.enterZone(0, 0);
+      const s1 = G.debug.layout();
+      G.enterZone(0, 0);
+      const s2 = G.debug.layout();
+      out.seed0 = s1.seed;
+      out.seed1 = s2.seed;
+      out.fresh = s1.hash !== s2.hash;
+      return out;
+    });
+    assert(r.same, '同一种子两次生成的哈希不同：' + JSON.stringify(r));
+    assert(r.diff === r.ids.length, '换了种子布局应当不同：' + JSON.stringify(r));
+    // zones-integrate（C）：原来比的是第 1 区 legacy 布局的数（11 / 11 / 8）。现在第 1 区是霜骨沼泽的岛链（design §3.2）：
+    // 关键路径 = 起点岛 + 4 个岛 + 场地岛 + 5 段连接 = 11，3 个藏宝小岛（各一段死路栈道），宝箱 2 个，怪群 10–14 个
+    const P = r.pinned, K = P.kinds;
+    assert(P.seed === 777 && P.gen === 'custom' && P.h1 === P.h2, '固定种子进区两次布局应一样：' + JSON.stringify(r));
+    assert(P.path === 11 && K.start === 1 && K.arena === 1 && K.room === 4 && K.side === 3 && P.rooms === 17 && P.chests === 2 && P.packs >= 10 && P.packs <= 14, '固定种子的第 1 区布局应符合设计（关键路径 11、旁支 3、宝箱 2、怪群 10–14）：' + JSON.stringify(P));
+    // 不固定种子：每次进区都换布局（owner 决定 10），种子是新取的
+    assert(r.unpinned === null && typeof r.seed0 === 'number' && r.seed0 !== 777 && r.seed1 !== r.seed0 && r.fresh && r.tp, 'zoneSeed(null) 后应恢复每次进区换布局，tpRoom 应落在房间里：' + JSON.stringify(r));
+    return r.ids.join(' ');
+  });
+
+  await step('区域地形：W.genLayout 对 5 个区 × 20 个种子都通过校验', async () => {
+    const r = await ev(() => {
+      const W = G.world, bad = [], t0 = performance.now();
+      let n = 0, slow = 0;
+      for (const def of G.ZONES) {
+        for (let s = 1; s <= 20; s++) {
+          const g = W.genLayout(def.id, s * 104729);
+          n++;
+          slow = Math.max(slow, g.ms);
+          if (!g.ok) bad.push(def.id + '#' + g.seed + '：' + g.why.join('；'));
+        }
+      }
+      return { n, bad, ms: Math.round(performance.now() - t0), slow: +slow.toFixed(1) };
+    });
+    assert(r.n === 100 && !r.bad.length, '有种子没通过校验：' + r.bad.slice(0, 5).join(' | '));
+    return r.n + ' 个布局，共 ' + r.ms + 'ms，最慢 ' + r.slow + 'ms';
+  });
+
+  await step('区域地形：W.shotFree 和投射物照样被测试插的假墙挡住', async () => {
+    await ev(() => T.lane());
+    const r = await ev(() => {
+      const P = G.player, W = G.world, S = G.state;
+      const ow = W.walkable, wallX = P.x + 3;
+      const out = { before: W.shotFree(wallX, P.z, -0.4) };
+      W.walkable = function (x, z, pad) { return Math.abs(x - wallX) < 0.5 ? false : ow.call(W, x, z, pad); };
+      try {
+        out.wall = W.shotFree(wallX, P.z, -0.4);
+        out.side = W.shotFree(wallX - 1.5, P.z, -0.4);
+        const n0 = S.projectiles.length;
+        G.spawnProjectile({ owner: 'p', x: P.x + 0.5, z: P.z, dx: 1, dz: 0, ctx: G.skillCtx('ember'), color: 0xff8a3c });
+        const p = S.projectiles[S.projectiles.length - 1];
+        out.spawned = S.projectiles.length === n0 + 1;
+        let maxX = -1e9, gone = false;
+        for (let i = 0; i < 60 && !gone; i++) {
+          G.tick(1 / 60);
+          if (S.projectiles.indexOf(p) < 0) gone = true;
+          else maxX = Math.max(maxX, p.x);
+        }
+        out.gone = gone;
+        out.crossed = maxX > wallX + 0.5;
+      } finally {
+        W.walkable = ow;
+      }
+      out.after = W.shotFree(wallX, P.z, -0.4);
+      return out;
+    });
+    assert(r.before && r.after, '撤掉假墙后应能通过：' + JSON.stringify(r));
+    assert(!r.wall && r.side, 'W.shotFree 应被假墙挡住、墙边照常通过：' + JSON.stringify(r));
+    assert(r.spawned && r.gone && !r.crossed, '投射物应在假墙前销毁：' + JSON.stringify(r));
+  });
+
+  await step('宝箱：走过去自动打开，掉落约等于一只精英，只开一次；小地图上是金色方块，打开后变暗', async () => {
+    await ev(() => T.lane());
+    const r = await ev(() => {
+      const P = G.player, S = G.state, W = G.world;
+      for (const l of S.loot) W.removeMesh(l.mesh);
+      S.loot.length = 0;
+      const cur0 = Object.values(G.save.cur).reduce((a, b) => a + b, 0), bag0 = G.save.bag.length;
+      const c = G.debug.chest(P.x + 8, P.z);
+      W.render();
+      // 小地图上宝箱那一块 3×3 里最「金」的像素（离玩家的圆点 8 m，不会被盖住）
+      const px = () => {
+        const m = W.minimapXY(c.x, c.z);
+        let best = null;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const q = W.minimapPixel(Math.round(m.x) + dx, Math.round(m.y) + dy);
+          if (!best || q[0] + q[1] - q[2] > best[0] + best[1] - best[2]) best = q;
+        }
+        return best;
+      };
+      const before = px();
+      const open0 = c.open;
+      for (let i = 0; i < 10; i++) G.tick(1 / 60); // 还没走到：不会开
+      const still = c.open;
+      T.tp(c.x - 0.9, c.z);
+      for (let i = 0; i < 30; i++) G.tick(1 / 60);
+      const items = S.loot.filter((l) => l.kind === 'item').length + G.save.bag.length - bag0; // 普通物品可能被「自动拾取」直接收进背包
+      const curSum = () => Object.values(G.save.cur).reduce((a, b) => a + b, 0);
+      const cur = S.loot.filter((l) => l.kind === 'cur').length + curSum() - cur0;
+      const total = () => S.loot.length + curSum() - cur0 + G.save.bag.length - bag0; // 地上的 + 已经拾取的
+      const n1 = total();
+      T.tp(c.x - 3, c.z);
+      for (let i = 0; i < 5; i++) G.tick(1 / 60);
+      T.tp(c.x - 0.9, c.z);
+      for (let i = 0; i < 30; i++) G.tick(1 / 60);
+      const again = total() === n1;
+      T.tp(c.x - 6, c.z); // 小地图上玩家的圆点别盖住宝箱
+      W.render();
+      const after = px();
+      return { open0, still, open: c.open, items, cur, again, stats: S.stats.chests, before, after };
+    });
+    assert(!r.open0 && !r.still && r.open, '宝箱应在走到跟前时才打开：' + JSON.stringify(r));
+    assert(r.items === 2 && r.cur >= 1, '宝箱掉落应和精英一样（2 件装备 + 至少 1 个通货）：' + JSON.stringify(r));
+    assert(r.again && r.stats === 1, '打开过的宝箱不应再掉东西：' + JSON.stringify(r));
+    assert(r.before[0] > 200 && r.before[1] > 170 && r.after[0] < 190, '小地图上的宝箱应是金色、打开后变暗：' + JSON.stringify(r));
+    return '掉落 ' + r.items + ' 件装备 + ' + r.cur + ' 个通货';
+  });
+
+  await step('小地图：按地形网格画出来（可走处路面色、岩壁外是底色、首领场地有主题色轮廓），窗口变化后重画', async () => {
+    const r = await ev(() => {
+      G.debug.hold(true);
+      const W = G.world, out = [];
+      for (let zi = 0; zi < G.ZONES.length; zi++) {
+        G.enterZone(zi, 0);
+        const z = G.state.zone, b = z.bounds, path = new THREE.Color(z.def.path), acc = new THREE.Color(z.def.accent);
+        const pick = (x, zz) => { const m = W.minimapXY(x, zz); return W.minimapPixel(m.x, m.y, true); };
+        const start = pick(z.start.x, z.start.z);
+        // 找一个离可走区域很远的点（sd < -6）当「岩壁外」
+        let far = null;
+        for (let k = 0; k < 400 && !far; k++) {
+          const x = b.minX + ((k * 37) % 100) / 100 * (b.maxX - b.minX), zz = b.minZ + ((k * 61) % 100) / 100 * (b.maxZ - b.minZ);
+          if (W.sdExact(x, zz) < -4.4) far = pick(x, zz);
+        }
+        // 场地轮廓（zones-integrate 改）：原来只沿门的反方向一条线找，1 像素宽的 4 连通阶梯轮廓会从像素角漏过去（legacy 布局也偶尔挂）。
+        // 现在从场地中心往 32 个方向各打一条射线（0.5·bossR 到 bossR + 6 m），每个采样点再往切向各挪 0.6 像素，
+        // 统计有多少个方向碰到主题色的轮廓：轮廓应把场地整圈围住
+        const m0 = W.minimapXY(0, 0), m1 = W.minimapXY(1, 0), pxm = Math.abs(m1.x - m0.x) || 1;
+        let ring = 0, rays = 0;
+        for (let k = 0; k < 32; k++) {
+          const a = (k / 32) * Math.PI * 2, ux = Math.sin(a), uz = Math.cos(a);
+          let best = 0;
+          for (let d = z.bossR * 0.5; d <= z.bossR + 6 && best <= 200; d += 0.5 / pxm) {
+            for (const t of [0, 0.6, -0.6]) {
+              const q = pick(z.bossPos.x + ux * d - uz * (t / pxm), z.bossPos.z + uz * d + ux * (t / pxm));
+              const sim = 255 - (Math.abs(q[0] - acc.r * 255) + Math.abs(q[1] - acc.g * 255) + Math.abs(q[2] - acc.b * 255)) / 3;
+              best = Math.max(best, sim);
+            }
+          }
+          ring = Math.max(ring, best);
+          if (best > 200) rays++;
+        }
+        const pathD = (Math.abs(start[0] - path.r * 255) + Math.abs(start[1] - path.g * 255) + Math.abs(start[2] - path.b * 255)) / 3;
+        out.push({ id: z.def.id, start, pathD: Math.round(pathD), far, ring: Math.round(ring), rays });
+      }
+      G.enterZone(0, 0);
+      const m = W.minimapXY(0, 0), p0 = W.minimapPixel(m.x, m.y, true);
+      W.resize();
+      const p1 = W.minimapPixel(m.x, m.y, true);
+      return { out, redraw: p0.join() === p1.join() && p1[3] > 200 };
+    });
+    for (const z of r.out) {
+      assert(z.start[3] > 240 && z.pathD < 40, z.id + '：起点应画成路面色：' + JSON.stringify(z));
+      assert(z.far && z.far[0] < 30 && z.far[1] < 30 && z.far[2] < 30, z.id + '：岩壁外应是底色：' + JSON.stringify(z));
+      assert(z.ring > 200 && z.rays >= 28, z.id + '：首领场地应有一整圈主题色轮廓（32 个方向至少 28 个碰到）：' + JSON.stringify(z));
+    }
+    assert(r.redraw, '窗口变化后小地图应重画且不变：' + JSON.stringify(r));
+    return r.out.map((z) => z.id + ' 路面差 ' + z.pathD + ' 轮廓 ' + z.ring + '（' + z.rays + '/32）').join('，');
+  });
+  await step('区域 ash 布局：20 个种子都通过校验 + 进区刷怪正常 + 首领门外重生；熔岩河挡路不挡子弹，浅滩两边灼烧（玩家和小怪都烧）', async () => {
+    const r = await ev(() => {
+      G.debug.hold(true);
+      const W = G.world, P = G.player, S = G.state, out = { bad: [], n: 0 };
+      for (let s = 1; s <= 20; s++) {
+        const g = W.genLayout('ash', s * 7919 + 13);
+        out.n++;
+        if (!g.ok) out.bad.push(g.seed + '：' + g.why.join('；'));
+      }
+      const god0 = !!P.god;
+      G.debug.god(true);
+      G.debug.zoneSeed(20251118);
+      G.enterZone(0, 0);
+      const z = S.zone, mobs = S.enemies.filter((e) => !e.dead && !e.isBoss);
+      out.custom = !z.spec.legacy && z.feats.some((f) => f.kind === 'river');
+      out.mobs = mobs.length;
+      out.elites = mobs.filter((e) => e.elite).length;
+      out.legal = mobs.every((e) => W.walkable(e.x, e.z, 0) && Math.hypot(e.x - z.start.x, e.z - z.start.z) >= 12);
+      out.bossIn = S.enemies.some((e) => e.isBoss && W.inArena(e.x, e.z));
+      out.chests = z.chests.length;
+      // 熔岩河：桥边 4 m（还在颈口里）是熔岩——走不过去、子弹和视线能过；桥面能走
+      const f = (k) => z.feats.find((q) => q.kind === k), br = f('bridge'), fd = f('ford');
+      const lat = (q, d) => [q.x + Math.cos(q.ang) * d, q.z - Math.sin(q.ang) * d];
+      const lv = lat(br, 4);
+      out.lava = { walk: W.walkable(lv[0], lv[1], 0), shot: W.shotFree(lv[0], lv[1], 0), mat: W.matAt(lv[0], lv[1]) === W.MAT.LAVA };
+      out.bridge = W.walkable(br.x, br.z, 0.6);
+      // 浅滩：中间的硬壳安全，两条边是灼烧；站在边上的小怪和玩家都会掉血
+      const edge = lat(fd, fd.w / 2 - 0.5);
+      out.ford = { mid: W.hazardAt(fd.x, fd.z) & W.HAZ.burn, edge: W.hazardAt(edge[0], edge[1]) & W.HAZ.burn, walk: W.walkable(fd.x, fd.z, 0.6) };
+      // 小怪：玩家站在桥上（离浅滩 20 m 开外，怪不会醒、不会走开），怪睡在灼烧边上
+      const e = G.spawnMob('husk', edge[0], edge[1], z.level, { awake: false });
+      const hp0 = e.hp;
+      T.tp(br.x, br.z);
+      for (let i = 0; i < 70; i++) G.tick(1 / 60);
+      const mob = hp0 - e.hp;
+      // 玩家：站到灼烧边上
+      T.tp(edge[0], edge[1]);
+      G.debug.god(false);
+      P.iframe = 0;
+      const life0 = P.life;
+      for (let i = 0; i < 70; i++) G.tick(1 / 60);
+      out.burn = { mob, player: life0 - P.life, asleep: !e.awake };
+      G.debug.god(true);
+      // 首领门外重生：首领醒着时倒下，重生在场地门外（离场地边缘 2）
+      G.debug.tpBoss();
+      let t = 0;
+      while (!S.boss.awake && t < 3) { G.tick(1 / 60); t += 1 / 60; }
+      G.debug.god(false);
+      P.iframe = 0;
+      G.hurtPlayer(1e9, 'phys');
+      out.died = P.dead;
+      G.debug.step(4.2);
+      out.door = { off: Math.hypot(P.x - z.bossPos.x, P.z - z.bossPos.z) - z.bossR, atDoor: Math.hypot(P.x - z.bossDoor.x, P.z - z.bossDoor.z), walk: W.walkable(P.x, P.z, 0.5), alive: !P.dead };
+      G.debug.god(god0);
+      G.debug.zoneSeed(null);
+      G.enterZone(0, 0);
+      return out;
+    });
+    assert(r.n === 20 && !r.bad.length, '有种子没通过校验：' + r.bad.slice(0, 5).join(' | '));
+    assert(r.custom, '第 0 区应当用新的生成器（有熔岩河），却退回了 legacy：' + JSON.stringify(r));
+    assert(r.mobs >= 20 && r.elites <= 4 && r.legal && r.bossIn && r.chests === 2, '刷怪 / 宝箱不对：' + JSON.stringify(r));
+    assert(!r.lava.walk && r.lava.shot && r.lava.mat && r.bridge, '熔岩河应挡路、不挡子弹，桥面应能走：' + JSON.stringify(r));
+    assert(!r.ford.mid && r.ford.edge && r.ford.walk && r.burn.mob > 0 && r.burn.player > 0, '浅滩两边应灼烧（玩家和小怪都掉血），中间安全：' + JSON.stringify(r));
+    assert(r.died && Math.abs(r.door.off - 2) < 0.01 && r.door.atDoor < 0.01 && r.door.walk && r.door.alive, '首领战里倒下应重生在场地门外：' + JSON.stringify(r.door));
+    return r.n + ' 个种子都过；怪 ' + r.mobs + '（精英 ' + r.elites + '）、宝箱 ' + r.chests + '；灼烧 怪 -' + Math.round(r.burn.mob) + ' 玩家 -' + Math.round(r.burn.player);
+  });
+
+  await step('区域 frost 布局：20 个种子都通过校验 + 进区刷怪正常 + 首领门外重生；浅水 / 裂开的薄冰减速，薄冰有预警；深水挡人不挡子弹', async () => {
+    const r = await ev(() => {
+      G.debug.hold(true);
+      const W = G.world, out = { bad: [] };
+      // 20 个种子：校验通过、是新生成器（不是 legacy）、3 个旁支 2 个宝箱、精英 ≤ 4、2 块薄冰、有浅水、场地 4 根柱子
+      for (let s = 1; s <= 20; s++) {
+        const g = W.genLayout('frost', s * 7919 + 13), sp = g.spec;
+        const why = g.ok ? [] : g.why.slice();
+        if (sp.legacy) why.push('退回了 legacy');
+        else {
+          if (sp.rooms.filter((rm) => rm.kind === 'side').length !== 3) why.push('旁支不是 3 个');
+          if (sp.chests.length !== 2) why.push('宝箱不是 2 个');
+          if (sp.packs.filter((p) => p.elite).length > 4) why.push('精英超过 4');
+          if (sp.haz.filter((h) => h.kind === 'thin').length !== 2) why.push('薄冰不是 2 块');
+          if (!sp.haz.some((h) => h.kind === 'slow')) why.push('没有浅水');
+          if (sp.cuts.filter((c) => c.mat === W.MAT.WALL && c.prim.r === 0.8).length !== 4) why.push('场地柱子不是 4 根');
+        }
+        if (why.length) out.bad.push(g.seed + '：' + why.join('；'));
+      }
+      // 固定种子进区
+      G.debug.god(true);
+      G.debug.zoneSeed(4242);
+      G.enterZone(1, 0);
+      const S = G.state, P = G.player, z = S.zone, L = G.debug.layout();
+      const mobs = S.enemies.filter((e) => !e.isBoss);
+      out.zone = {
+        id: z.def.id, gen: L.gen, n: mobs.length, elites: mobs.filter((e) => e.elite).length,
+        bad: mobs.filter((e) => !W.walkable(e.x, e.z, 0) || Math.hypot(e.x - z.start.x, e.z - z.start.z) < 12).length,
+        types: Array.from(new Set(mobs.map((e) => e.type))).every((t) => z.def.mobs.includes(t)),
+        boss: S.boss && S.boss.bossKind, bossIn: !!S.boss && W.inArena(S.boss.x, S.boss.z), chests: z.chests.length,
+      };
+      // 深水：起点背面 r = 9.5 处是水，不能走、子弹能过
+      const c1 = z.circles[1], back = Math.atan2(z.start.x - c1.x, z.start.z - c1.z);
+      const wx = z.start.x + Math.sin(back) * 9.5, wz = z.start.z + Math.cos(back) * 9.5;
+      out.water = { walk: W.walkable(wx, wz, 0), shot: W.shotFree(wx, wz, 0) };
+      // 走 0.25 秒的位移（按住 D），用来比较减速
+      const walk = (x, zz) => {
+        T.tp(x, zz);
+        G.debug.step(0.05);
+        G.input.keys.KeyD = true;
+        G.debug.step(0.25);
+        G.input.keys.KeyD = false;
+        return Math.hypot(P.x - x, P.z - zz);
+      };
+      // 量减速时把怪清掉（别挡路），量完按同一个种子重进
+      G.clearEnemies();
+      const thinRooms = z.feats.filter((f) => f.kind === 'thin').map((f) => f.room);
+      const core = z.rooms[z.path.find((id) => z.rooms[id].kind === 'room' && !thinRooms.includes(id))].core;
+      const base = walk(core.x, core.z);
+      const sh = z.feats.find((f) => f.kind === 'shallow');
+      out.slow = { base: +base.toFixed(2), shallow: sh ? +(walk(sh.x, sh.z) / base).toFixed(2) : null, haz: sh ? W.hazardAt(sh.x, sh.z) : -1 };
+      // 薄冰：站着不动 1.2 秒就裂开（外观状态同步、裂纹变亮），裂开后在上面走会减速；离开 4 秒多复原
+      const th = z.feats.find((f) => f.kind === 'thin');
+      T.tp(core.x, core.z);
+      G.debug.step(0.1);
+      W.update(1 / 60);
+      const s0 = W.frostState(), i0 = s0.ids.findIndex((id) => id === W.hazPrimAt(th.x, th.z, 'thin')), k0 = s0.k[i0];
+      T.tp(th.x, th.z);
+      G.debug.step(0.7);
+      W.update(1 / 60);
+      const s1 = W.frostState(), k1 = s1.k[i0];
+      G.debug.step(0.6);
+      W.update(1 / 60);
+      const s2 = W.frostState();
+      out.thin = { id: s0.ids[i0], tid: s1.tid, cracked: s2.cracked.includes(s0.ids[i0]), rest: +k0.toFixed(2), half: +k1.toFixed(2), crackedK: +s2.k[i0].toFixed(2), speed: +(walk(th.x - 0.6, th.z) / base).toFixed(2) };
+      T.tp(core.x, core.z);
+      G.debug.step(4.6);
+      W.update(1 / 60);
+      out.thin.back = !W.frostState().cracked.length;
+      // 首领战里倒下：重生在门外（离场地中心 bossR + 2，在门的颈口上），首领复位
+      G.enterZone(1, 0);
+      const b = S.boss;
+      G.debug.tpBoss();
+      let t = 0;
+      while (!b.awake && t < 3) { G.tick(1 / 60); t += 1 / 60; }
+      out.woke = b.awake;
+      G.debug.god(false);
+      P.life = 1;
+      let dt = 0;
+      while (!P.dead && dt < 40) { G.tick(1 / 60); dt += 1 / 60; }
+      out.dead = P.dead;
+      G.debug.step(4.2);
+      out.respawn = {
+        alive: !P.dead, door: +(Math.hypot(P.x - S.zone.bossPos.x, P.z - S.zone.bossPos.z) - S.zone.bossR).toFixed(3), walk: W.walkable(P.x, P.z, 0.5), inArena: W.inArena(P.x, P.z),
+        bossHome: +Math.hypot(b.x - S.zone.bossPos.x, b.z - S.zone.bossPos.z).toFixed(3), bossAwake: b.awake, bossFull: b.hp === b.maxHp,
+      };
+      G.debug.god(true);
+      G.debug.zoneSeed(null);
+      G.enterZone(0, 0);
+      return out;
+    });
+    assert(!r.bad.length, '有种子不合格：' + r.bad.slice(0, 4).join(' | '));
+    const Z = r.zone;
+    assert(Z.id === 'frost' && Z.gen === 'custom' && Z.boss === 'weaver' && Z.bossIn && Z.chests === 2, '进区布局不对：' + JSON.stringify(Z));
+    assert(Z.n >= 40 && Z.n <= 70 && Z.elites >= 1 && Z.elites <= 4 && Z.bad === 0 && Z.types, '刷怪不对：' + JSON.stringify(Z));
+    assert(!r.water.walk && r.water.shot, '深水应挡人、不挡子弹：' + JSON.stringify(r.water));
+    assert(r.slow.haz & 1 && r.slow.shallow > 0.55 && r.slow.shallow < 0.75, '浅水应减速到约 0.65：' + JSON.stringify(r.slow));
+    const th = r.thin;
+    assert(th.tid === th.id && th.half > th.rest + 0.2 && th.cracked && th.crackedK > th.rest + 0.3, '薄冰的预警 / 裂开状态不对：' + JSON.stringify(th));
+    assert(th.speed > 0.55 && th.speed < 0.75 && th.back, '裂开的薄冰应减速、离开后复原：' + JSON.stringify(th));
+    const R = r.respawn;
+    assert(r.woke && r.dead && R.alive && Math.abs(R.door - 2) < 0.01 && R.walk && !R.inArena, '首领战倒下应重生在场地门外：' + JSON.stringify(r));
+    assert(R.bossHome < 0.01 && !R.bossAwake && R.bossFull, '首领没有复位：' + JSON.stringify(R));
+    return '怪 ' + Z.n + '（精英 ' + Z.elites + '），浅水 ×' + r.slow.shallow + '，薄冰 ×' + th.speed + '，门距 ' + R.door;
+  });
+
+  await step('区域 storm 布局：20 个种子都通过校验 + 进区刷怪正常 + 首领门外重生；雷枢先长条预警、再同时打到玩家和小怪', async () => {
+    const r = await ev(() => {
+      G.debug.hold(true);
+      const W = G.world, S = G.state, P = G.player, out = { bad: [], seeds: 0 };
+      const zi = G.ZONES.findIndex((z) => z.id === 'storm');
+      // 20 个种子：校验通过、是本区自己的生成器（有 storm 字段），怪 45–65 只、精英 1–4、宝箱 2、每个关键路径大厅都有伏击群
+      for (let s = 1; s <= 20; s++) {
+        const g = W.genLayout('storm', s * 7919 + 3), sp = g.spec;
+        out.seeds++;
+        if (!g.ok || !sp.storm) { out.bad.push(s + '：' + g.why.join('；')); continue; }
+        const mobs = sp.packs.reduce((a, p) => a + (Array.isArray(p.n) ? (p.n[0] + p.n[1]) / 2 : p.n), 0);
+        const el = sp.packs.filter((p) => p.elite).length, halls = sp.rooms.filter((rm) => rm.kind === 'room');
+        const amb = halls.filter((h) => sp.packs.some((p) => p.ambush && p.room === h.id)).length;
+        if (mobs < 45 || mobs > 65 || el < 1 || el > 4 || sp.chests.length !== 2 || halls.length !== 4 || amb < 3) out.bad.push(s + '：怪 ' + mobs + ' 精英 ' + el + ' 宝箱 ' + sp.chests.length + ' 伏击 ' + amb);
+      }
+      // 固定种子进区
+      G.debug.zoneSeed(4242);
+      G.enterZone(zi, 0);
+      const z = S.zone, info = G.debug.layout();
+      out.zone = {
+        gen: info.gen, n: S.enemies.filter((e) => !e.isBoss).length, boss: !!S.boss, chests: z.chests.length,
+        bad: S.enemies.filter((e) => !W.walkable(e.x, e.z, 0) || Math.hypot(e.x - z.start.x, e.z - z.start.z) < 12).length,
+        elites: S.enemies.filter((e) => e.elite).length, doorGap: Math.hypot(z.bossDoor.x - z.bossPos.x, z.bossDoor.z - z.bossPos.z) - z.bossR,
+        doorWalk: W.walkable(z.bossDoor.x, z.bossDoor.z, 0.5), wallMat: W.matAt(z.bossPos.x + 40, z.bossPos.z + 40) === W.MAT.WALL,
+      };
+      // 雷枢：机关厅那一对。玩家站在雷线上、一只游魂也站在上面
+      const f = z.feats.find((q) => q.kind === 'node');
+      const mx = (f.ax + f.bx) / 2, mz = (f.az + f.bz) / 2;
+      G.clearEnemies();
+      T.tp(mx, mz);
+      P.iframe = 0;
+      G.debug.god(false);
+      P.life = P.maxLife;
+      const husk = G.spawnMob('husk', mx + (f.bx - f.ax) * 0.2, mz + (f.bz - f.az) * 0.2, 1, { awake: true });
+      husk.hp = husk.maxHp = 1e4;
+      husk.speed = 0;
+      husk.atkCd = 1e9;
+      let tg = null, i = 0;
+      for (; i < 60 * 7 && !tg; i++) {
+        G.tick(1 / 60);
+        tg = S.telegraphs.find((t) => t.storm) || null;
+        P.x = mx; P.z = mz; husk.x = mx + (f.bx - f.ax) * 0.2; husk.z = mz + (f.bz - f.az) * 0.2;
+      }
+      out.node = { warnAt: +(i / 60).toFixed(2), shape: tg && tg.shape, w: tg && tg.w, dur: tg && tg.dur };
+      const life0 = P.life, hp0 = husk.hp;
+      for (let k = 0; k < 70 && S.telegraphs.indexOf(tg) >= 0; k++) {
+        G.tick(1 / 60);
+        P.x = mx; P.z = mz; husk.x = mx + (f.bx - f.ax) * 0.2; husk.z = mz + (f.bz - f.az) * 0.2;
+      }
+      G.tick(1 / 60);
+      out.node.playerHit = +(life0 - P.life).toFixed(1);
+      out.node.huskHit = +(hp0 - husk.hp).toFixed(1);
+      G.debug.god(true);
+      // 首领门外重生：进场地叫醒首领，倒下后重生在门外 2 m
+      G.clearEnemies();
+      G.enterZone(zi, 0);
+      const z2 = S.zone;
+      T.tp(z2.arena.tp.x, z2.arena.tp.z);
+      G.debug.step(0.6);
+      out.awake = !!(S.boss && S.boss.awake);
+      G.debug.god(false);
+      P.iframe = 0;
+      G.hurtPlayer(1e9, 'phys');
+      G.debug.step(4.3);
+      out.respawn = { dead: P.dead, door: +(Math.hypot(P.x - z2.bossPos.x, P.z - z2.bossPos.z) - z2.bossR).toFixed(3), walk: W.walkable(P.x, P.z, 0.5) };
+      G.debug.god(true);
+      G.debug.zoneSeed(null);
+      G.enterZone(0, 0);
+      return out;
+    });
+    assert(r.seeds === 20 && !r.bad.length, 'storm 有种子不合格：' + r.bad.slice(0, 4).join(' | '));
+    const z = r.zone;
+    assert(z.gen === 'custom' && z.n >= 20 && z.boss && z.bad === 0 && z.elites <= 4 && z.chests === 2, '进区刷怪不对：' + JSON.stringify(z));
+    assert(Math.abs(z.doorGap - 2) < 0.01 && z.doorWalk && z.wallMat, '场地门 / 区域外的墙不对：' + JSON.stringify(z));
+    assert(r.node.shape === 'rect' && r.node.w === 2 && Math.abs(r.node.dur - 0.9) < 1e-6 && r.node.warnAt <= 6.5, '雷枢应在 5 秒一轮里先放 2 m 宽、0.9 秒的长条预警：' + JSON.stringify(r.node));
+    assert(r.node.playerHit > 0 && r.node.huskHit > 0, '雷枢落雷应同时打到玩家和小怪：' + JSON.stringify(r.node));
+    assert(r.awake && !r.respawn.dead && Math.abs(r.respawn.door - 2) < 0.01 && r.respawn.walk, '倒在首领战里应重生在门外 2 m：' + JSON.stringify(r));
+    return '怪 ' + z.n + ' 只，雷枢 ' + r.node.warnAt + ' 秒起手，玩家 -' + r.node.playerHit + ' / 游魂 -' + r.node.huskHit;
+  });
+
+  await step('区域 abyss 布局：20 个种子都通过校验 + 进区刷怪正常 + 首领门外重生；虚空不挡子弹；余烬口先预警再喷发，伤玩家也伤怪', async () => {
+    const r = await ev(() => {
+      G.debug.hold(true);
+      const W = G.world, S = G.state, P = G.player, out = { bad: [] };
+      for (let s = 1; s <= 20; s++) {
+        const g = W.genLayout('abyss', s * 7919);
+        if (!g.ok) out.bad.push(g.seed + '：' + g.why.join('；'));
+      }
+      const zi = G.ZONES.findIndex((z) => z.id === 'abyss');
+      G.debug.zoneSeed(4242);
+      G.enterZone(zi, 0);
+      G.debug.zoneSeed(null);
+      const z = S.zone, L = G.debug.layout();
+      const mobs = S.enemies.filter((e) => !e.isBoss);
+      out.zone = {
+        gen: L.gen, n: mobs.length, elites: mobs.filter((e) => e.elite).length, chests: z.chests.length,
+        vents: z.feats.filter((f) => f.kind === 'vent').length, shot: z.map.sdShot !== z.map.sd,
+        badPos: mobs.filter((e) => !W.walkable(e.x, e.z, 0) || Math.hypot(e.x - z.start.x, e.z - z.start.z) < 12).length,
+        boss: !!S.boss && W.inArena(S.boss.x, S.boss.z), lane: [-5, -2, 1, 4, 7].every((x) => W.walkable(x, 0, 0.6)),
+        door: +(Math.hypot(z.bossDoor.x - z.bossPos.x, z.bossDoor.z - z.bossPos.z) - z.bossR).toFixed(3),
+      };
+      // 虚空：深渊中间不可走，但子弹 / 视线能过（桥边往外 4 m）
+      const br = z.feats.find((f) => f.kind === 'bridge'), a = br.pts[0], b = br.pts[br.pts.length - 1];
+      const mx = (a[0] + b[0]) / 2, mz = (a[1] + b[1]) / 2, l = Math.hypot(b[0] - a[0], b[1] - a[1]), nx = -(b[1] - a[1]) / l, nz = (b[0] - a[0]) / l;
+      const vx = mx + nx * 5, vz = mz + nz * 5;
+      out.void = { walk: W.walkable(vx, vz, 0), shot: W.shotFree(vx, vz, -0.4), mat: W.matAt(vx, vz) === W.MAT.VOID };
+      // 首领门外重生：打首领时倒下 → 重生在门上（离场地边缘 2），可走
+      G.debug.god(true);
+      G.debug.tpBoss();
+      let t = 0;
+      while (!S.boss.awake && t < 3) { G.tick(1 / 60); t += 1 / 60; }
+      out.awake = S.boss.awake;
+      G.debug.god(false);
+      P.iframe = 0;
+      G.hurtPlayer(1e9, 'phys', null);
+      out.dead = P.dead;
+      G.debug.step(4.5);
+      out.respawn = { dead: P.dead, door: +(Math.hypot(P.x - z.bossPos.x, P.z - z.bossPos.z) - z.bossR).toFixed(3), walk: W.walkable(P.x, P.z, 0.5) };
+      G.debug.god(true);
+      // 余烬口：玩家和一只游魂站在口上，让它下一步就开始预警
+      for (const e of S.enemies.slice()) if (!e.isBoss) G.killEnemy(e);
+      G.debug.step(0.1);
+      const v = z.abyssVents && z.abyssVents[0];
+      out.hasVents = !!v;
+      if (v) {
+        T.tp(v.x + 0.3, v.z);
+        const e = G.spawnMob('husk', v.x - 0.3, v.z, z.level, { awake: true });
+        e.speed = 0;
+        e.atkCd = 1e9;
+        const hp0 = e.hp, n0 = S.telegraphs.length;
+        G.debug.god(false);
+        P.life = P.maxLife;
+        P.iframe = 0;
+        v.t = 6 - 1 / 120;
+        G.tick(1 / 60);
+        const tel = S.telegraphs.filter((q) => q.x === v.x && q.z === v.z);
+        out.vent = { tel: S.telegraphs.length - n0, r: tel[0] && tel[0].r, dur: tel[0] && tel[0].dur, hp0, life0: P.life };
+        for (let i = 0; i < 60; i++) G.tick(1 / 60);
+        out.vent.hp = e.dead ? 0 : e.hp;
+        out.vent.life = P.life;
+        out.vent.left = S.telegraphs.filter((q) => q.x === v.x && q.z === v.z).length;
+        G.debug.god(true);
+        P.life = P.maxLife;
+      }
+      G.enterZone(0, 0);
+      return out;
+    });
+    assert(!r.bad.length, 'abyss 有种子没通过校验：' + r.bad.slice(0, 3).join(' | '));
+    const Z = r.zone;
+    assert(Z.gen === 'custom' && Z.shot && Z.chests === 2 && Z.vents >= 2, 'abyss 应走自己的生成器、有虚空挖空、2 个宝箱、至少 2 个余烬口：' + JSON.stringify(Z));
+    assert(Z.n >= 35 && Z.n <= 70 && Z.elites >= 1 && Z.elites <= 4 && Z.badPos === 0 && Z.boss, '进区刷怪不对：' + JSON.stringify(Z));
+    assert(Z.lane && Math.abs(Z.door - 2) < 0.01, '起点契约 / 首领门的位置不对：' + JSON.stringify(Z));
+    assert(!r.void.walk && r.void.shot && r.void.mat, '虚空应不可走、子弹能飞过：' + JSON.stringify(r.void));
+    assert(r.awake && r.dead && !r.respawn.dead && Math.abs(r.respawn.door - 2) < 0.01 && r.respawn.walk, '倒在首领战里应重生在门外：' + JSON.stringify(r));
+    assert(r.hasVents && r.vent.tel === 1 && Math.abs(r.vent.r - 1.6) < 1e-6 && r.vent.dur > 0.5, '余烬口应先出一个预警圈：' + JSON.stringify(r.vent));
+    assert(r.vent.left === 0 && r.vent.life < r.vent.life0 && r.vent.hp < r.vent.hp0, '余烬口喷发应伤到玩家和怪：' + JSON.stringify(r.vent));
+    return '怪 ' + Z.n + '（精英 ' + Z.elites + '），余烬口 ' + Z.vents + '，喷发打掉玩家 ' + (r.vent.life0 - r.vent.life).toFixed(0) + '、游魂 ' + (r.vent.hp0 - r.vent.hp).toFixed(0);
+  });
+
+  await step('区域 rift 布局：20 个种子都通过校验 + 进区刷怪正常 + 首领门外重生（单向 C 形两圈、关键路径约 180 m、外圈内侧虚空挡人不挡子弹）', async () => {
+    const r = await ev(() => {
+      const W = G.world, bad = [], stats = [];
+      const zi = G.ZONES.findIndex((z) => z.id === 'rift');
+      for (let s = 1; s <= 20; s++) {
+        const g = W.genLayout('rift', s * 7919);
+        const sp = g.spec, pit = sp.feats.find((f) => f.kind === 'pit');
+        const mobs = sp.packs.reduce((a, p) => a + (Array.isArray(p.n) ? (p.n[0] + p.n[1]) / 2 : p.n), 0);
+        const elites = sp.packs.filter((p) => p.elite).length, sideElite = sp.packs.some((p) => p.elite && sp.rooms[p.room].kind === 'side');
+        stats.push({ s, area: Math.round(g.area), len: pit ? Math.round(pit.len) : 0, mobs, elites, chests: sp.chests.length });
+        if (!g.ok) bad.push(s + '：' + g.why.join('；'));
+        if (!pit || pit.len < 170 || pit.len > 195) bad.push(s + '：关键路径 ' + (pit && pit.len.toFixed(1)));
+        if (mobs < 45 || mobs > 65 || elites > 4 || !sideElite || sp.chests.length !== 2) bad.push(s + '：怪 / 精英 / 宝箱 ' + JSON.stringify(stats[stats.length - 1]));
+      }
+      // 进区：固定 3 个种子，看刷怪、首领、宝箱、虚空（挡人不挡子弹）、坑壁（都挡）
+      const enter = [];
+      for (const s of [7919, 15838, 23757]) {
+        G.debug.zoneSeed(s);
+        G.enterZone(zi, 0);
+        const z = G.state.zone, L = W.layoutInfo(), pit = z.feats.find((f) => f.kind === 'pit'), boss = G.state.boss;
+        const P = (ph, rr) => [pit.x + Math.sin(ph) * rr, pit.z + Math.cos(ph) * rr];
+        // 横穿虚空：外圈上一点 → 正对着的坑心方向 10 m（落在虚空里）
+        const vm = (pit.vA + pit.vB) / 2, a = P(vm, pit.rO), mid = P(vm, (pit.rV0 + pit.rV1) / 2), b = P(vm, pit.rV0 + 0.8);
+        let shot = true;
+        for (let k = 1; k < 20; k++) {
+          const t = k / 20, x = a[0] + (b[0] - a[0]) * t, zz = a[1] + (b[1] - a[1]) * t;
+          if (!W.shotFree(x, zz, -0.3)) shot = false;
+        }
+        // 中圈和坑底之间的坑壁：挡人也挡子弹
+        const wa = P(pit.ph1 + (pit.ph2 - pit.ph1) * 0.4, (pit.rA + pit.rM - pit.hw) / 2);
+        enter.push({
+          s, gen: L.gen, n: G.state.enemies.length, elites: G.state.enemies.filter((e) => e.elite).length, chests: z.chests.length,
+          bossIn: !!boss && W.inArena(boss.x, boss.z), voidWalk: W.walkable(mid[0], mid[1], 0), voidShot: shot, wallShot: W.shotFree(wa[0], wa[1], -0.3), wallWalk: W.walkable(wa[0], wa[1], 0),
+          doorWalk: W.walkable(z.bossDoor.x, z.bossDoor.z, 0.5), ms: Math.round(z.ms.layout + z.ms.raster),
+        });
+      }
+      // 首领门外重生：在场地里叫醒首领、打一下、倒下，重生点在场地门外（离场地边缘 2），首领复位
+      const S = G.state, Pl = G.player;
+      G.debug.god(true);
+      G.debug.tpBoss();
+      let t = 0;
+      while (!S.boss.awake && t < 3) { G.tick(1 / 60); t += 1 / 60; }
+      const awake = S.boss.awake;
+      G.hitEnemy(S.boss, G.skillCtx('cleave'), 1);
+      G.debug.god(false);
+      Pl.life = 1;
+      let dt = 0;
+      while (!Pl.dead && dt < 40) { G.tick(1 / 60); dt += 1 / 60; }
+      const dead = Pl.dead;
+      G.debug.step(Pl.deadT + 0.5);
+      const z = S.zone, resp = {
+        awake, dead, alive: !Pl.dead, door: +(Math.hypot(Pl.x - z.bossPos.x, Pl.z - z.bossPos.z) - z.bossR).toFixed(2), walk: W.walkable(Pl.x, Pl.z, 0.5),
+        start: Math.hypot(Pl.x - z.start.x, Pl.z - z.start.z) > 30, bossHome: Math.hypot(S.boss.x - z.bossPos.x, S.boss.z - z.bossPos.z) < 0.01 && S.boss.hp === S.boss.maxHp && !S.boss.awake,
+      };
+      G.debug.god(true);
+      G.debug.zoneSeed(null);
+      G.enterZone(0, 0);
+      return { bad, stats, enter, resp };
+    });
+    assert(!r.bad.length, 'rift 布局不合格：' + r.bad.slice(0, 5).join(' | '));
+    for (const e of r.enter) {
+      assert(e.gen === 'custom', 'rift 进区应走新生成器（不是 legacy）：' + JSON.stringify(e));
+      assert(e.n >= 40 && e.n <= 70 && e.elites <= 4 && e.chests === 2, 'rift 刷怪 / 宝箱数量不对：' + JSON.stringify(e));
+      assert(e.bossIn && e.doorWalk, '首领应站在坑底场地里，门点 pad 0.5 可走：' + JSON.stringify(e));
+      assert(!e.voidWalk && e.voidShot, '外圈内侧的虚空应挡人、不挡子弹：' + JSON.stringify(e));
+      assert(!e.wallWalk && !e.wallShot, '中圈和坑底之间的坑壁应挡人也挡子弹：' + JSON.stringify(e));
+    }
+    assert(r.resp.awake && r.resp.dead && r.resp.alive, '首领战倒下、重生的流程不对：' + JSON.stringify(r.resp));
+    assert(Math.abs(r.resp.door - 2) < 0.01 && r.resp.walk && r.resp.start, '倒在首领战里应重生在坑底场地的门外（离场地边缘 2）：' + JSON.stringify(r.resp));
+    assert(r.resp.bossHome, '首领没有复位回满：' + JSON.stringify(r.resp));
+    const avg = (k) => (r.stats.reduce((a, s) => a + s[k], 0) / r.stats.length).toFixed(0);
+    return '20 个种子：面积 ' + avg('area') + ' m²、关键路径 ' + avg('len') + ' m、怪 ' + avg('mobs') + '；进区怪 ' + r.enter.map((e) => e.n + '（布局 + 光栅化 ' + e.ms + 'ms）').join(' / ');
   });
 }
 

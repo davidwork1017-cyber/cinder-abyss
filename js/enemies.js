@@ -45,26 +45,27 @@
     const m = rate * dt;
     e.ang += Math.abs(d) <= m ? d : Math.sign(d) * m;
   }
-  function distToSeg(s, x, z) {
-    const ux = s.bx - s.ax, uz = s.bz - s.az;
-    const l2 = ux * ux + uz * uz;
-    const t = l2 > 0 ? G.clamp(((x - s.ax) * ux + (z - s.az) * uz) / l2, 0, 1) : 0;
-    return Math.hypot(x - (s.ax + ux * t), z - (s.az + uz * t));
-  }
 
   // ---------- 移动：贴墙滑动 ----------
+  // 首领拴绳（G.TERRAIN.bossLeash）：区域首领站在场地里（或门口 3 m 内）时，下一步也必须留在那里；
+  // 已经在外面（调试传送、测试摆放）的不管，免得卡死
+  function leashOk(e, x, z) {
+    if (!e.leash || !G.TERRAIN.bossLeash) return true;
+    const W = G.world;
+    return W.leashOk(x, z) || !W.leashOk(e.x, e.z);
+  }
   function tryMove(e, mx, mz) {
     const W = G.world, pad = e.r * 0.8;
-    if (W.walkable(e.x + mx, e.z + mz, pad)) {
+    if (W.walkable(e.x + mx, e.z + mz, pad) && leashOk(e, e.x + mx, e.z + mz)) {
       e.x += mx;
       e.z += mz;
       return true;
     }
-    if (mx !== 0 && W.walkable(e.x + mx, e.z, pad)) {
+    if (mx !== 0 && W.walkable(e.x + mx, e.z, pad) && leashOk(e, e.x + mx, e.z)) {
       e.x += mx;
       return true;
     }
-    if (mz !== 0 && W.walkable(e.x, e.z + mz, pad)) {
+    if (mz !== 0 && W.walkable(e.x, e.z + mz, pad) && leashOk(e, e.x, e.z + mz)) {
       e.z += mz;
       return true;
     }
@@ -87,7 +88,7 @@
     for (const a of SLIDE) {
       const c = Math.cos(a), s = Math.sin(a);
       const nx = e.x + (dx * c + dz * s) * step, nz = e.z + (dz * c - dx * s) * step;
-      if (W.walkable(nx, nz, pad)) {
+      if (W.walkable(nx, nz, pad) && leashOk(e, nx, nz)) {
         e.x = nx;
         e.z = nz;
         return true;
@@ -96,33 +97,7 @@
     return false;
   }
 
-  // ---------- 轻量寻路：区域是「空地—通道—空地」的链，被墙挡住时沿通道轴线走 ----------
-  const navCache = new WeakMap();
-  function navInfo(zone) {
-    let n = navCache.get(zone);
-    if (n) return n;
-    const cs = zone.circles, ss = zone.segs;
-    n = { ok: ss.length === cs.length - 1, fwd: [] };
-    for (let i = 0; n.ok && i < ss.length; i++) {
-      const s = ss[i], a = cs[i], b = cs[i + 1];
-      const aA = Math.hypot(s.ax - a.x, s.az - a.z) <= a.r + 0.5;
-      const bB = Math.hypot(s.bx - b.x, s.bz - b.z) <= b.r + 0.5;
-      const aB = Math.hypot(s.ax - b.x, s.az - b.z) <= b.r + 0.5;
-      const bA = Math.hypot(s.bx - a.x, s.bz - a.z) <= a.r + 0.5;
-      if (aA && bB) n.fwd.push(true); // a 端在第 i 个空地，b 端通向 i+1
-      else if (aB && bA) n.fwd.push(false);
-      else n.ok = false; // 布局不是预期的链式：退回纯贴墙滑动
-    }
-    navCache.set(zone, n);
-    return n;
-  }
-  // 链上的位置：空地 i → 2i，通道 i → 2i+1，不在任何区域 → -1
-  function chainLoc(zone, x, z) {
-    const cs = zone.circles, ss = zone.segs;
-    for (let i = 0; i < cs.length; i++) if (Math.hypot(x - cs[i].x, z - cs[i].z) <= cs[i].r) return 2 * i;
-    for (let i = 0; i < ss.length; i++) if (distToSeg(ss[i], x, z) <= ss[i].hw) return 2 * i + 1;
-    return -1;
-  }
+  // ---------- 轻量寻路：直线走得通就直接追；被墙挡住时问 W.navNext 要下一个路点（房间图 + 门 / 通道轴线）----------
   function lineClear(x0, z0, x1, z1, pad) {
     const W = G.world, dx = x1 - x0, dz = z1 - z0;
     const n = Math.ceil(Math.hypot(dx, dz) / 0.9);
@@ -132,25 +107,17 @@
     }
     return true;
   }
+  const _wp = { x: 0, z: 0 };
   function refreshNav(e, tx, tz) {
     e.navDirect = lineClear(e.x, e.z, tx, tz, e.r * 0.6);
     e.navWp = false;
     if (e.navDirect) return;
-    const zone = e.zone, n = navInfo(zone);
-    if (!n.ok) return;
-    const le = chainLoc(zone, e.x, e.z), lt = chainLoc(zone, tx, tz);
-    if (le < 0 || lt < 0 || le === lt) return;
-    const fwd = lt > le;
-    const si = le & 1 ? (le - 1) / 2 : fwd ? le / 2 : le / 2 - 1;
-    const s = zone.segs[si];
-    const ux = s.bx - s.ax, uz = s.bz - s.az, len = Math.hypot(ux, uz) || 1;
-    const t = ((e.x - s.ax) * ux + (e.z - s.az) * uz) / len;
-    const t2 = G.clamp(t + (fwd === n.fwd[si] ? 3.5 : -3.5), 0, len);
-    e.navX = s.ax + (ux / len) * t2;
-    e.navZ = s.az + (uz / len) * t2;
+    if (!G.world.navNext(e.x, e.z, tx, tz, e.r, _wp)) return;
+    e.navX = _wp.x;
+    e.navZ = _wp.z;
     e.navWp = true;
   }
-  // 给召唤物用的寻路：从 (x, z) 去 (tx, tz)，直线走得通就返回目标本身，否则沿通道轴线给一个路点（写进 out）
+  // 给召唤物用的寻路：从 (x, z) 去 (tx, tz)，直线走得通就返回目标本身，否则给一个路点（写进 out）
   const navProbe = { x: 0, z: 0, r: 0.5, zone: null, navDirect: true, navWp: false, navX: 0, navZ: 0 };
   G.navPoint = function (x, z, tx, tz, r, out) {
     const o = out || { x: 0, z: 0 };
@@ -292,10 +259,15 @@
     }
     return Math.random() < 0.78 ? main : G.pick(mobs);
   }
-  // 一个空地里的若干怪群：先排好位置和类型，再决定精英，最后统一生成
-  function populateClearing(zone, ci) {
-    const W = G.world, c = zone.circles[ci], mobs = zone.def.mobs;
-    const level = zone.level + Math.floor(ci / 2);
+  // 槽位所在房间按关键路径序号加怪物等级：+⌊order/2⌋
+  function slotLevel(zone, slot) {
+    const rm = zone.rooms[slot.room];
+    return zone.level + Math.floor((rm ? rm.order : 0) / 2);
+  }
+  // 「圆盘」槽位（legacy 的空地）里的若干怪群：先排好位置和类型，再决定精英，最后统一生成
+  function populateClearing(zone, slot) {
+    const W = G.world, c = slot, mobs = zone.def.mobs;
+    const level = slotLevel(zone, slot);
     const nPacks = c.r > 10.5 ? 3 : 2;
     const inner = c.r - 3; // 成员离空地边缘至少 3
     const centres = [], packs = [];
@@ -338,20 +310,10 @@
       for (const m of members) G.spawnMob(m.type, m.x, m.z, level, { elite: m.elite, pack, awake: false });
     }
   }
-  // 通道露在两端空地之外那一段的中点（退化时用几何中点）
-  function corridorMid(zone, s) {
-    const out = [];
-    for (let i = 0; i <= 24; i++) {
-      const k = i / 24, x = s.ax + (s.bx - s.ax) * k, z = s.az + (s.bz - s.az) * k;
-      let inCircle = false;
-      for (const c of zone.circles) if (Math.hypot(x - c.x, z - c.z) <= c.r) inCircle = true;
-      if (!inCircle) out.push({ x, z });
-    }
-    return out.length ? out[out.length >> 1] : { x: (s.ax + s.bx) / 2, z: (s.az + s.bz) / 2 };
-  }
-  function populateCorridor(zone, si) {
-    const W = G.world, mobs = zone.def.mobs, mid = corridorMid(zone, zone.segs[si]);
-    const level = zone.level + Math.floor(si / 2);
+  // 「中点」槽位（legacy 的通道：露在两端空地之外那一段的中点，生成器已经算好）：2–3 只的小群
+  function populateCorridor(zone, slot) {
+    const W = G.world, mobs = zone.def.mobs, mid = slot;
+    const level = slotLevel(zone, slot);
     const main = G.pick(mobs), want = G.randInt(2, 3), pack = packSeq++, members = [];
     for (let m = 0; m < want; m++) {
       for (let tries = 0; tries < 12; tries++) {
@@ -365,13 +327,46 @@
     }
   }
 
+  // 生成器排好的怪群：{ room, x, z, n（数或 [下限, 上限]）, r, elite, ambush, mobs, noBrute }，成员在 (x, z) 周围 r 以内。
+  // mobs：这一群的怪物表（缺省用区域的）；noBrute：不放蛮兵（窄路上的小群，体型大的躲不开），zones-integrate 加
+  function populatePack(zone, slot) {
+    const W = G.world, level = slotLevel(zone, slot);
+    let mobs = slot.mobs || zone.def.mobs;
+    if (slot.noBrute) mobs = mobs.filter((t) => t !== 'brute');
+    if (!mobs.length) mobs = ['husk'];
+    const n = Array.isArray(slot.n) ? G.randInt(slot.n[0], slot.n[1]) : slot.n || G.randInt(4, 6), R = slot.r || 2.6;
+    const main = G.pick(mobs), members = [];
+    for (let m = 0; m < n; m++) {
+      for (let tries = 0; tries < 12; tries++) {
+        const a = Math.random() * TAU, d = G.rand(0.4, R);
+        const x = slot.x + Math.sin(a) * d, z = slot.z + Math.cos(a) * d;
+        if (!W.walkable(x, z, 1) || !farFromStart(zone, x, z) || !spaced(members, x, z, 1.4)) continue;
+        members.push({ x, z, type: packType(mobs, main, zone), elite: false });
+        break;
+      }
+    }
+    if (slot.elite && members.length) {
+      const m = members.find((q) => q.type !== 'bomber') || members[0];
+      if (m.type === 'bomber') m.type = mobs.find((t) => t !== 'bomber') || 'husk';
+      m.elite = true;
+    }
+    const pack = packSeq++;
+    for (const m of members) {
+      const e = G.spawnMob(m.type, m.x, m.z, level, { elite: m.elite, pack, awake: false });
+      if (e && slot.ambush) e.ambush = true;
+    }
+  }
+
   G.spawnZoneMobs = function (zone) {
     spawnZone = zone;
     try {
-      const last = zone.circles.length - 1; // 最后一个空地是首领场地
-      for (let ci = 1; ci < last; ci++) populateClearing(zone, ci);
-      for (let si = 1; si < zone.segs.length; si++) populateCorridor(zone, si);
-      G.spawnBoss(zone.def.boss, zone.bossPos.x, zone.bossPos.z, zone.level + 3);
+      for (const slot of zone.packs) {
+        if (slot.kind === 'disk') populateClearing(zone, slot);
+        else if (slot.kind === 'line') populateCorridor(zone, slot);
+        else populatePack(zone, slot);
+      }
+      const boss = G.spawnBoss(zone.def.boss, zone.bossPos.x, zone.bossPos.z, zone.level + 3);
+      if (boss) boss.leash = true; // 区域首领拴在场地里（G.TERRAIN.bossLeash）
     } finally {
       spawnZone = null;
     }
@@ -1346,7 +1341,7 @@
       d.t -= dt;
       while (remain > 1e-6) {
         const m = Math.min(0.4, remain);
-        if (!W.walkable(e.x + d.dx * m, e.z + d.dz * m, pad)) {
+        if (!W.walkable(e.x + d.dx * m, e.z + d.dz * m, pad) || !leashOk(e, e.x + d.dx * m, e.z + d.dz * m)) {
           d.t = 0;
           break;
         }
@@ -1500,6 +1495,15 @@
     }
   }
 
+  // ---------- 苏醒要看得见（G.TERRAIN.wakeLos）：同一房间、相邻房间，或者视线没被墙挡住 ----------
+  function wakeSees(e, P) {
+    const W = G.world, ra = W.roomAt(e.x, e.z), rp = W.roomAt(P.x, P.z);
+    if (ra >= 0 && rp >= 0 && (ra === rp || W.roomLink(ra, rp) >= 0)) return true;
+    const dx = P.x - e.x, dz = P.z - e.z, n = Math.ceil(Math.hypot(dx, dz) / 0.4);
+    for (let i = 1; i < n; i++) if (!W.shotFree(e.x + (dx * i) / n, e.z + (dz * i) / n, -0.3)) return false;
+    return true;
+  }
+
   // ---------- 每帧更新 ----------
   const near = [], active = [];
   // 冰缓的显示档位（W.chill）：0 没有；轻度冰缓按冰霜异常值分三档；首领的重度冰缓是最高档；冻着的交给冻结的冰色
@@ -1514,7 +1518,9 @@
     const S = G.state, P = G.player, W = G.world, list = S.enemies, zone = S.zone;
     near.length = 0;
     active.length = 0;
-    const bossNear = Math.hypot(P.x - zone.bossPos.x, P.z - zone.bossPos.z) < zone.bossR - 1;
+    const bossNear = W.inArena(P.x, P.z);
+    // 地形危险区：本区有减速 / 灼烧格子时才逐只去查（legacy 布局没有，整段跳过）
+    const TR = G.TERRAIN, hzMask = zone.map ? zone.map.hazAny & (W.HAZ.slow | W.HAZ.burn) : 0;
     if (hazards.length) updateHazards(dt);
 
     for (let i = list.length - 1; i >= 0; i--) {
@@ -1536,7 +1542,7 @@
       if (!e.awake && !P.dead) {
         if (e.isBoss) {
           if (bossNear) e.awake = true;
-        } else if (dist < WAKE_DIST && !(G.player.graceT > 0)) wakePack(e); // 刚重生的几秒内不会被就近的怪发现
+        } else if (dist < WAKE_DIST && !(G.player.graceT > 0) && (!TR.wakeLos || wakeSees(e, P))) wakePack(e); // 刚重生的几秒内不会被就近的怪发现
       }
       if (e.awake && !e.wasAwake) onWake(e);
 
@@ -1564,7 +1570,21 @@
         e.iced = iced;
         W.frost(e.ent, iced); // 冻住时整个身子罩一层冰色
       }
-      const spd = e.speed * e.slowK;
+      let tk = 1; // 地形减速（首领免疫，和免疫冻结、眩晕一致）
+      if (hzMask && !e.isBoss) {
+        const hz = W.hazardAt(e.x, e.z);
+        if (hz & W.HAZ.slow) tk = TR.slow;
+        // 灼烧：小怪也吃（可以把怪引过去）
+        if (hz & W.HAZ.burn) {
+          e.burnT = (e.burnT || 0) + dt;
+          if (e.burnT >= TR.burnTick && G.terrainBurnEnemy) {
+            e.burnT -= TR.burnTick;
+            G.terrainBurnEnemy(e);
+            if (e.dead) continue;
+          }
+        } else e.burnT = 0;
+      }
+      const spd = e.speed * e.slowK * tk;
 
       // 击退：带着撞墙检测滑出去，速度按指数衰减
       if (e.kvx !== 0 || e.kvz !== 0) {

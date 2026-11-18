@@ -4892,7 +4892,7 @@
       when: () => {
         const st = G.state;
         const z = st.zone;
-        return !!(z && st.boss && !st.boss.dead && !st.boss.awake && Math.hypot(G.player.x - z.bossPos.x, G.player.z - z.bossPos.z) < z.bossR + 13);
+        return !!(z && st.boss && !st.boss.dead && !st.boss.awake && G.world.nearArena(G.player.x, G.player.z));
       },
       done: () => !G.state.boss || G.state.boss.awake || G.state.boss.dead,
     },

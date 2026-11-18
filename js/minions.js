@@ -414,6 +414,9 @@
       return false;
     }
     turn(m, Math.atan2(dx, dz), 9, dt);
+    // 浅水 / 冰泥（危险区 SLOW）里和玩家、小怪一样减速（zones-integrate）
+    const Wd = G.world;
+    if (Wd.hazardAt && Wd.hazardAt(m.x, m.z) & Wd.HAZ.slow) speed *= G.TERRAIN.slow;
     const ok = step(m, dx / dd, dz / dd, Math.min(m.navWp ? dd : d - stop, speed * dt));
     m.moving = true;
     m.stuckT = ok ? Math.max(0, m.stuckT - dt) : m.stuckT + dt;
@@ -608,11 +611,11 @@
   }
 
   // ---------- 焚骨祭司 ----------
-  // 视线：两点之间没有墙（和玩家的技能一样按可走的地面判断）
+  // 视线：两点之间没有墙（和玩家的技能一样按 W.shotFree 判断：虚空 / 深水 / 熔岩不挡）
   function los(x0, z0, x1, z1) {
     const W = G.world, dx = x1 - x0, dz = z1 - z0;
     const n = Math.ceil(Math.hypot(dx, dz) / 0.4);
-    for (let i = 1; i < n; i++) if (!W.walkable(x0 + (dx * i) / n, z0 + (dz * i) / n, -0.3)) return false;
+    for (let i = 1; i < n; i++) if (!W.shotFree(x0 + (dx * i) / n, z0 + (dz * i) / n, -0.3)) return false;
     return true;
   }
   // (x, z) 半径 R 以内（算上敌人半径）还活着的敌人数
@@ -793,7 +796,7 @@
         dx /= d;
         dz /= d;
         const nx = b.x + dx * stepLen, nz = b.z + dz * stepLen;
-        if (!W.walkable(nx, nz, -0.4)) boom = true;
+        if (!W.shotFree(nx, nz, -0.4)) boom = true;
         else {
           b.x = nx;
           b.z = nz;
