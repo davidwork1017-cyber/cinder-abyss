@@ -817,7 +817,7 @@
       rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0x6a7a8a, capAll: 0.3 }, // phase 3：雪盖 0xb4c8d6 / 0.6 → 0x8296aa / 0.45；zones-frost：再压一档（水边的石头是这一区的「岩壁」）
       grade: { sat: 1.12, con: 1.1, lift: 0x04081a, gain: 0xf4faff, vig: 0.22 },
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
-      blots: { k: 0.35, r: 0.7, op: 0.15 }, // zones-frost：岛上的污斑少一半多、小一圈（zones-ash 加的旋钮）
+      blots: { k: 0.35, r: 0.7, op: 0.28, tex: 'crack' }, // zones-polish：冻土上的细冰裂，不是暗块。zones-frost：岛上的污斑少一半多、小一圈（zones-ash 加的旋钮）
       sigil: { k: 0.4 }, // zones-frost：冰湖上的法阵颜色压到 4 成（加色混合，等于淡一半多），不那么像界面
       mist: null, // zones-frost：路外整片是水（dress 画），贴地薄雾在水面上是一块块的亮斑，去掉（高 / 低画质也就一致了）
       prop: { tint: 0x8aa0b0, sat: 0.2 },
@@ -872,7 +872,7 @@
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x1c1622, a: 0.3 },
       prop: { tint: 0x4a4450, sat: 0.15 },
-      blots: { k: 0.4, r: 0.6, op: 0.08 }, // zones-ash 的污斑开关：少、小、淡到几乎看不见（原来在 dress 里把不透明度改成 0.08）
+      blots: { k: 0.12, r: 0.6, op: 0.3, tex: 'crack' }, // zones-polish：owner 说地上一块块暗斑，砍到 0.12、换成细裂纹（路面的变化交给石板和崖沿的压暗）。zones-ash 的污斑开关：少、小、淡到几乎看不见（原来在 dress 里把不透明度改成 0.08）
       // 下面四个旋钮原来是 abyss 的 dress / fx 运行时改的（zones-integrate 收进表里）：法阵收小、压暗、换余烬橙，没有起点法阵；
       // 晶簇是闷烧的余烬橙；环境火星余烬橙；通用岩石成簇留空
       sigil: { r: 0.42, col: 0xff7a2a, k: 0.32, start: false },
@@ -20414,6 +20414,7 @@
     updateDebris(dt);
     rangedPfDraw(dt);
     pyrePfDraw(dt);
+    chaosPfDraw(dt);
     toonChunks(dt);
     pfEnd();
     updateRibbons(dt);
@@ -22349,50 +22350,113 @@
   // 混沌特效（混沌流）：黑洞、黑旋风、黑焰、渊缚、渊陷
   // =====================================================================
   // 卡通特效的写法：硬边色带、三档阶梯透明度、普通混合（「黑」不能用加色画）。核是近黑的 CH_CORE，外面一道品红 CH_RIM，
-  // 最外一条亮芯 CH_HI（灰度约 87%，特效高光段）。全部预分配：黑洞圆盘最多 5 个、漩涡最多 6 团，用完复用；低画质少画零件
+  // 最外一条亮芯 CH_HI（灰度约 87%，特效高光段）。全部预分配：黑洞圆盘最多 5 个，用完复用；漩涡和光点、火舌都画进实例缓冲；低画质少画零件
   const CH_CORE = 0x12061a, CH_RIM = 0xf03cb4, CH_HI = 0xffd2f2, CH_DARK = 0x3a0c46;
-  // 黑洞圆盘：核占 55%，中间一圈是转着的螺旋缝（uSp 条），外缘品红 + 亮芯细边；uA 是整体的三档不透明度（开合时跳档）
-  const HOLE_FRAG = [
-    'uniform vec3 uCore; uniform vec3 uRim; uniform vec3 uHi; uniform float uA; uniform float uSp; uniform float uTime; varying vec2 vP;',
+  // 黑洞视界的细亮芯和透镜顶的亮点再亮一档（灰度约 95%）：高画质的调色会把 CH_HI 压到 84%，这两处要落在特效高光段 85–100%
+  const CH_PIN = 0xfff0fa;
+  // 黑洞（第三轮改）：一个网格画两样东西，一次 draw call。
+  //   地面圆盘（aPart = 0，半径 = 牵引半径）：近黑的核（uC 以内）→ 一道细亮芯 + 品红的视界边 → 外面三档递减的吸积带（0.3 / 0.18 / 0.09，
+  //   暗紫垫底，品红的对数螺旋条往里卷），到伤害半径 uD 为止；牵引半径只描一圈品红虚线，中间是空的，圈里的怪看得清。
+  //   低矮的暗色透镜（aPart = 1，半径 uC、高 uH）：近黑的身子，掠射的边缘一圈品红，顶上一粒奶油色的亮点。
+  const HOLE_VERT = [
+    'attribute float aPart; uniform float uC; uniform float uH; varying vec2 vP; varying float vPart; varying float vF; varying float vT;',
     'void main(){',
+    '  vec3 p = position; vPart = aPart; vP = p.xz; vF = 0.0; vT = 0.0;',
+    '  if (aPart > 0.5) {',
+    '    vT = 1.0 - length(p.xz);', // 1 = 透镜顶
+    '    vec3 n = normalize(normalMatrix * vec3(p.x / uC, p.y / uH, p.z / uC));',
+    '    p.xz *= uC; p.y *= uH;',
+    '    vec4 mv = modelViewMatrix * vec4(p, 1.0);',
+    '    vF = 1.0 - abs(dot(n, normalize(-mv.xyz)));',
+    '    gl_Position = projectionMatrix * mv;',
+    '  } else gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);',
+    '}',
+  ].join('\n');
+  const HOLE_FRAG = [
+    'uniform vec3 uCore; uniform vec3 uRim; uniform vec3 uHi; uniform vec3 uDark; uniform float uA; uniform float uSp; uniform float uC; uniform float uD; uniform float uTime;',
+    'varying vec2 vP; varying float vPart; varying float vF; varying float vT;',
+    'void main(){',
+    '  vec3 col = uCore; float a = 0.92;',
+    '  if (vPart > 0.5) {',
+    '    if (vT > 0.86) { col = uHi; a = 1.0; }', // 顶上的亮点
+    '    else if (vF > 0.7) { col = uRim; a = 0.95; }', // 透镜掠射的边
+    '    gl_FragColor = vec4(col, a * uA); return;',
+    '  }',
     '  float l = length(vP);',
     '  if (l > 1.0) discard;',
     '  float an = atan(vP.x, vP.y) / 6.2831853;',
-    '  float sp = fract(an * uSp + l * 1.7 + uTime * 0.85);', // 螺旋缝：越往里转得越紧
-    '  vec3 col = uCore; float a = 0.94;',
-    '  if (l > 0.94) { col = uHi; a = 0.92; }',
-    '  else if (l > 0.84) { col = uRim; a = 0.9; }',
-    '  else if (l > 0.55) { if (sp < 0.2) { col = uRim; a = 0.86; } else { col = uCore; a = 0.62; } }',
+    '  if (l < uC) { a = 0.95; }',
+    '  else if (l < uC + 0.016) { col = uHi; a = 1.0; }', // 视界：一道细亮芯
+    '  else if (l < uC + 0.045) { col = uRim; a = 0.95; }', // 再一道品红
+    '  else if (l < uD) {',
+    '    float t = (l - uC - 0.045) / (uD - uC - 0.045);',
+    '    float b = t < 0.34 ? 0.3 : (t < 0.67 ? 0.18 : 0.09);', // 三档阶梯透明度
+    '    float sp = fract(an * uSp + log(l) * 1.5 + uTime * 0.7);', // 对数螺旋，随时间往里卷
+    '    if (sp < 0.17) { col = uRim; a = b * 1.8; } else { col = uDark; a = b; }',
+    '  }',
+    '  else if (l > 0.976) {', // 牵引半径：一圈品红虚线（慢慢转）
+    '    if (fract(an * 28.0 + uTime * 0.2) > 0.55) discard;',
+    '    col = uRim; a = 0.72;',
+    '  }',
+    '  else discard;',
     '  gl_FragColor = vec4(col, a * uA);',
     '}',
   ].join('\n');
-  // 漩涡：上宽下窄的开口圆台，绕着身子的斜条纹往上卷（亮芯 / 品红 / 近黑三档），顶上一段降到三成不透明
-  const VORTEX_VERT = 'varying vec2 vUv;\nvoid main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
-  const VORTEX_FRAG = [
-    'uniform vec3 uCore; uniform vec3 uRim; uniform vec3 uHi; uniform float uTime; uniform float uPh; varying vec2 vUv;',
-    'void main(){',
-    '  float s = fract(vUv.x * 3.0 + vUv.y * 1.4 - uTime * 2.6 + uPh);', // uPh：同一次施放的几团各错开一点相位
-    '  vec3 col = s < 0.16 ? uHi : (s < 0.5 ? uRim : uCore);',
-    '  float a = vUv.y > 0.82 ? 0.32 : (vUv.y > 0.55 ? 0.62 : 0.9);',
-    '  if (s >= 0.5 && vUv.y > 0.55) discard;', // 上半截只留亮条：漏斗口是一圈卷起来的条纹，不是一面墙
-    '  gl_FragColor = vec4(col, a);',
-    '}',
-  ].join('\n');
+  // 共用的几何体：地面方片（-1..1，四个顶点）+ 单位半球（16 段 × 4 层，绕向朝外），aPart 区分
+  let holeGeo = null;
+  function chHoleGeo() {
+    if (holeGeo) return holeGeo;
+    const pos = [-1, 0, -1, -1, 0, 1, 1, 0, 1, 1, 0, -1], part = [0, 0, 0, 0], idx = [0, 1, 2, 0, 2, 3];
+    const S = 16, R = 4, base = 4;
+    for (let j = 0; j <= R; j++) {
+      const ph = (j / R) * (Math.PI / 2), rr = Math.cos(ph), y = Math.sin(ph);
+      for (let i = 0; i < S; i++) {
+        const a = (i / S) * TAU;
+        pos.push(Math.sin(a) * rr, y, Math.cos(a) * rr);
+        part.push(1);
+      }
+    }
+    const P = (k) => [pos[k * 3], pos[k * 3 + 1], pos[k * 3 + 2]];
+    const tri = (a, b, c) => {
+      // 绕向朝外：法线（叉积）和球面外法线同向
+      const A = P(a), B = P(b), C = P(c);
+      const ux = B[0] - A[0], uy = B[1] - A[1], uz = B[2] - A[2], vx = C[0] - A[0], vy = C[1] - A[1], vz = C[2] - A[2];
+      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      const mx = A[0] + B[0] + C[0], my = A[1] + B[1] + C[1], mz = A[2] + B[2] + C[2];
+      if (nx * mx + ny * my + nz * mz >= 0) idx.push(a, b, c);
+      else idx.push(a, c, b);
+    };
+    for (let j = 0; j < R; j++) {
+      for (let i = 0; i < S; i++) {
+        const a = base + j * S + i, b = base + j * S + ((i + 1) % S), c = a + S, d = b + S;
+        tri(a, b, d);
+        if (j < R - 1) tri(a, d, c);
+      }
+    }
+    const g = new T.BufferGeometry();
+    g.setAttribute('position', new T.Float32BufferAttribute(pos, 3));
+    g.setAttribute('aPart', new T.Float32BufferAttribute(part, 1));
+    g.setIndex(idx);
+    g.boundingSphere = new T.Sphere(new T.Vector3(0, 0, 0), 1.5);
+    return (holeGeo = g);
+  }
   const chHoles = [], chVorts = [];
-  const flame = { on: false, acc: 0 };
+  const flame = { on: false, acc: 0, flick: 6 };
   function chUniforms(extra) {
     const u = { uCore: { value: new T.Color(CH_CORE) }, uRim: { value: new T.Color(CH_RIM) }, uHi: { value: new T.Color(CH_HI) }, uTime };
     return Object.assign(u, extra || {});
   }
-  W.makeHole = function (x, z, R, mouth) {
+  // R：伤害半径；pR：牵引半径（圆盘按它画，缺省 1.35 × R）
+  W.makeHole = function (x, z, R, mouth, pR) {
     let h = chHoles.find((o) => !o.on);
     if (!h) {
       if (chHoles.length >= 5) {
         h = chHoles[0];
       } else {
-        const u = chUniforms({ uA: { value: 0 }, uSp: { value: 6 } });
-        const mat = new T.ShaderMaterial({ uniforms: u, vertexShader: FX_VERT, fragmentShader: HOLE_FRAG, transparent: true, depthWrite: false, side: T.DoubleSide });
-        const mesh = new T.Mesh(gQuad(), mat);
+        const u = chUniforms({ uDark: { value: new T.Color(CH_DARK) }, uA: { value: 0 }, uSp: { value: 4 }, uC: { value: 0.2 }, uD: { value: 0.74 }, uH: { value: 0.6 } });
+        u.uHi.value.setHex(CH_PIN);
+        const mat = new T.ShaderMaterial({ uniforms: u, vertexShader: HOLE_VERT, fragmentShader: HOLE_FRAG, transparent: true, depthWrite: false });
+        const mesh = new T.Mesh(chHoleGeo(), mat);
         mesh.renderOrder = 3;
         mesh.visible = false;
         scene.add(mesh);
@@ -22404,31 +22468,34 @@
     h.x = x;
     h.z = z;
     h.R = R;
+    h.P = pR > R ? pR : R * 1.35;
+    h.mouth = !!mouth;
     h.k = 0;
-    h.acc = 0;
-    h.u.uSp.value = qualId === 'low' ? 3 : 6;
+    h.open = 0;
+    h.t0 = wtime;
+    h.ph = rand(0, TAU);
+    // 核的半径约 0.9 米（渊口按比例小一点），透镜高 0.6 米
+    const core = Math.min(0.32, Math.max(0.16, (mouth ? 0.55 : 0.9) / h.P));
+    h.u.uC.value = core;
+    h.u.uD.value = Math.min(0.92, R / h.P);
+    h.u.uH.value = mouth ? 0.36 : 0.6;
+    h.u.uSp.value = qualId === 'low' ? 3 : 4;
     h.mesh.position.set(x, 0.07, z);
     h.mesh.scale.set(0.01, 1, 0.01);
     h.mesh.visible = true;
     W.ring(x, z, R, CH_RIM, 0.3);
     return h;
   };
-  // k：0..1 的进度。开（前 12%）和合（后 12%）时半径缩放、不透明度按 1 / 0.62 / 0.3 三档跳；高画质从外圈吸进尖片
+  // k：0..1 的进度。开（前 12%）和合（后 12%）时半径缩放、不透明度按 1 / 0.62 / 0.3 三档跳；往里卷的光点在 chaosPfDraw 里画
   W.updateHole = function (h, k, dt) {
     if (!h || !h.on) return;
     h.k = k;
     const open = k < 0.12 ? k / 0.12 : k > 0.88 ? (1 - k) / 0.12 : 1;
-    const s = h.R * (0.35 + 0.65 * open);
+    h.open = open;
+    const s = h.P * (0.35 + 0.65 * open);
     h.mesh.scale.set(s, 1, s);
     h.mesh.rotation.y -= dt * 1.4;
     h.u.uA.value = open > 0.66 ? 1 : open > 0.33 ? 0.62 : 0.3;
-    if (qualId === 'low') return;
-    h.acc += dt * 10;
-    while (h.acc > 1) {
-      h.acc -= 1;
-      const a = rand(0, TAU), d = h.R * rand(0.9, 1.25), v = rand(4, 6.5);
-      tChunk(0, h.x + Math.sin(a) * d, rand(0.15, 0.6), h.z + Math.cos(a) * d, -Math.sin(a) * v, rand(0, 0.6), -Math.cos(a) * v, (d / v) * 0.8, rand(0.14, 0.22), CH_HI, CH_RIM, 0);
-    }
   };
   W.removeHole = function (h) {
     if (!h || !h.on) return;
@@ -22436,61 +22503,121 @@
     h.mesh.visible = false;
     W.ring(h.x, h.z, h.R * 0.55, CH_RIM, 0.3); // 合上时往里一收
   };
+  // 往里卷的光点（每帧算位置，画进 chShard 实例缓冲，不占粒子池）：从牵引圈外缘出生，沿对数螺旋转着往核里落，
+  // 中途升起一点再被吸下去；外半程品红、内半程亮芯（三档阶梯：出生 / 落进核时只有半个大小）。高画质每个洞 14 粒、低画质 6 粒，渊口减半
+  const _ms = { x: 0, y: 0, z: 0 };
+  function holeMote(h, u, a0, out) {
+    const core = h.u.uC.value * h.P, P = h.P * (0.35 + 0.65 * h.open);
+    const r = core + (P * 0.98 - core) * Math.pow(1 - u, 1.4);
+    const th = a0 + 1.5 * Math.log(P / r) + (wtime - h.t0) * 0.9;
+    out.x = h.x + Math.sin(th) * r;
+    out.z = h.z + Math.cos(th) * r;
+    out.y = 0.14 + Math.sin(Math.PI * Math.min(1, u * 1.15)) * (h.mouth ? 0.5 : 0.9);
+    return out;
+  }
+  function holeMotes(h) {
+    if (h.open < 0.34) return;
+    const lo = qualId === 'low', n = (lo ? 6 : 14) >> (h.mouth ? 1 : 0);
+    for (let i = 0; i < n; i++) {
+      const u = (((wtime - h.t0) * 0.55 + i / n + ((i * 0.618) % 1) * 0.13) % 1 + 1) % 1;
+      const a0 = h.ph + i * 2.39996;
+      holeMote(h, u, a0, _ms);
+      const x = _ms.x, y = _ms.y, z = _ms.z;
+      holeMote(h, Math.min(0.999, u + 0.03), a0, _ms);
+      const st = u < 0.08 || u > 0.93 ? 0.5 : 1;
+      const s = (h.mouth ? 0.15 : 0.21) * st;
+      mStretch(x, y, z, _ms.x - x, _ms.y - y, _ms.z - z, s * 0.55, s * 2.4);
+      const c = u < 0.55 ? chLin.rim : chLin.hi;
+      pfPut('chShard', c[0], c[1], c[2]);
+    }
+  }
   W.holeCount = () => chHoles.filter((h) => h.on).length;
 
-  // i：同一次施放里的第几团（多重投射）。相位、转向、高矮各错开一点，几团挨在一起时不会糊成一个盘
+  // 黑旋风（第三轮改）：一团团又快又小的漩涡，不再各占一个网格。每团是三层面朝镜头的圆片（品红的边 → 近黑的核 → 一粒亮芯），
+  // 外面几条卷进去的尖片绕着转（高画质 3 条、低画质 2 条），都在 chaosPfDraw 里写进实例缓冲；身后甩出的小尖片走卡通碎块池。
+  // i：同一次施放里的第几团（多重投射），转向和相位错开一点
   W.makeVortex = function (x, z, R, i) {
     let v = chVorts.find((o) => !o.on);
     if (!v) {
-      if (chVorts.length >= 6) {
-        v = chVorts[0];
-      } else {
-        const lo = qualId === 'low';
-        const geo = new T.CylinderGeometry(1, 0.28, 1, lo ? 8 : 12, 1, true);
-        geo.translate(0, 0.5, 0);
-        const u = chUniforms({ uPh: { value: 0 } });
-        const mat = new T.ShaderMaterial({ uniforms: u, vertexShader: VORTEX_VERT, fragmentShader: VORTEX_FRAG, transparent: true, depthWrite: false, side: T.DoubleSide });
-        const mesh = new T.Mesh(geo, mat);
-        mesh.renderOrder = 4;
-        mesh.visible = false;
-        scene.add(mesh);
-        v = { mesh, u, on: false };
-        chVorts.push(v);
-      }
+      v = { on: false };
+      chVorts.push(v);
     }
+    const k = i || 0;
     v.on = true;
+    v.x = x;
+    v.z = z;
     v.R = R;
     v.acc = 0;
-    const k = i || 0;
     v.dir = k % 2 ? -1 : 1;
-    v.u.uPh.value = k * 0.37;
-    v.mesh.rotation.y = k * 1.3;
-    v.mesh.position.set(x, 0.05, z);
-    v.mesh.scale.set(R * (1 - 0.06 * (k % 3)), 2.4 * (1 - 0.12 * (k % 3)), R * (1 - 0.06 * (k % 3)));
-    v.mesh.visible = true;
+    v.spin = k * 1.3;
+    v.ph = k * 0.37;
+    v.lat = false;
+    v.pop = 0; // 吸附那一下的放大（三档跳回）
     return v;
   };
-  W.updateVortex = function (v, x, z, dt) {
+  // lat：正吸附在敌人身上（漩涡大一圈、转得更快，刚吸上时往里吸几片尖片）
+  W.updateVortex = function (v, x, z, dt, lat) {
     if (!v || !v.on) return;
-    v.mesh.position.set(x, 0.05, z);
-    v.mesh.rotation.y += dt * 9 * (v.dir || 1);
-    // 甩出的尖片：高画质每 0.06 秒一片，低画质 0.12 秒
-    v.acc += dt * (qualId === 'low' ? 8 : 16);
+    const lo = qualId === 'low';
+    if (lat && !v.lat) {
+      v.pop = 0.24;
+      for (let i = 0, n = lo ? 2 : 4; i < n; i++) {
+        const a = (i / n) * TAU + rand(-0.3, 0.3), d = 1.5, w = rand(5, 7);
+        tChunk(0, x + Math.sin(a) * d, 0.7, z + Math.cos(a) * d, -Math.sin(a) * w, 0, -Math.cos(a) * w, 0.2, 0.16, CH_HI, CH_RIM, 0);
+      }
+    }
+    v.lat = !!lat;
+    if (v.pop > 0) v.pop -= dt;
+    v.x = x;
+    v.z = z;
+    v.spin += dt * (lat ? 16 : 10) * v.dir;
+    // 身后甩出的小尖片：高画质每秒 12 片，低画质 5 片
+    v.acc += dt * (lo ? 5 : 12);
     while (v.acc > 1) {
       v.acc -= 1;
-      const a = rand(0, TAU), w = rand(3, 5.5);
-      tChunk(0, x + Math.sin(a) * v.R * 0.8, rand(0.3, 1.8), z + Math.cos(a) * v.R * 0.8, Math.cos(a) * w, rand(0.5, 2), -Math.sin(a) * w, rand(0.2, 0.32), rand(0.14, 0.2), CH_HI, CH_RIM, 4);
+      const a = rand(0, TAU), w = rand(2, 3.5);
+      tChunk(0, x + Math.sin(a) * v.R * 0.5, rand(0.4, 1.0), z + Math.cos(a) * v.R * 0.5, Math.cos(a) * w * v.dir, rand(0.3, 1.2), -Math.sin(a) * w * v.dir, rand(0.16, 0.24), rand(0.11, 0.16), CH_HI, CH_RIM, 3);
     }
+  };
+  // 撞墙反弹：沿反弹方向甩两片尖片，高画质再一小团暗紫的烟
+  W.vortexBounce = function (x, z, rx, rz) {
+    const lo = qualId === 'low';
+    for (let i = 0, n = lo ? 1 : 3; i < n; i++) {
+      const a = Math.atan2(rx, rz) + rand(-0.8, 0.8), w = rand(4, 6);
+      tChunk(0, x, 0.7, z, Math.sin(a) * w, rand(0.5, 1.5), Math.cos(a) * w, 0.22, 0.16, CH_HI, CH_RIM, 3);
+    }
+    if (!lo) tPuffs(x, 0.6, z, 1, 0.8, 0.5, 0.3, 0.22, CH_DARK, CH_CORE);
   };
   W.removeVortex = function (v) {
     if (!v || !v.on) return;
     v.on = false;
-    v.mesh.visible = false;
-    tPuffs(v.mesh.position.x, 0.4, v.mesh.position.z, qualId === 'low' ? 1 : 3, 1.4, 0.8, 0.35, 0.3, CH_DARK, CH_CORE);
+    tPuffs(v.x, 0.6, v.z, qualId === 'low' ? 1 : 2, 1.2, 0.6, 0.3, 0.24, CH_DARK, CH_CORE);
   };
   W.vortexCount = () => chVorts.filter((v) => v.on).length;
+  function vortexDraw(v) {
+    const lo = qualId === 'low', y = 0.75;
+    const st = v.pop > 0.16 ? 1.45 : v.pop > 0.08 ? 1.3 : 1;
+    const s = v.R * 0.6 * (v.lat ? 1.18 : 1) * st;
+    const ox = camB.x, oy = camB.y, oz = camB.z;
+    mBill(v.x, y, v.z, s);
+    pfPut('chDisc', chLin.rim[0], chLin.rim[1], chLin.rim[2]);
+    mBill(v.x + ox * 0.03, y + oy * 0.03, v.z + oz * 0.03, s * 0.76);
+    pfPut('chDisc', chLin.core[0], chLin.core[1], chLin.core[2]);
+    mBill(v.x + ox * 0.06, y + oy * 0.06, v.z + oz * 0.06, s * 0.15);
+    pfPut('chDisc', chLin.hi[0], chLin.hi[1], chLin.hi[2]);
+    // 卷进去的尖片：水平面上绕着核转，从外圈往里收（外半程品红、内半程亮芯）
+    for (let k = 0, n = lo ? 2 : 3; k < n; k++) {
+      const u = (((wtime * 1.8 + v.ph + k / n) % 1) + 1) % 1;
+      const r = s * (2.2 - 1.3 * u), th = v.spin + (k / n) * TAU + u * 2.4 * v.dir;
+      const x = v.x + Math.sin(th) * r, z = v.z + Math.cos(th) * r;
+      const tx = Math.cos(th) * v.dir - Math.sin(th) * 0.6, tz = -Math.sin(th) * v.dir - Math.cos(th) * 0.6;
+      mStretch(x, y - 0.1, z, tx, 0, tz, s * 0.32, s * 1.3);
+      const c = u < 0.5 ? chLin.rim : chLin.hi;
+      pfPut('chShard', c[0], c[1], c[2]);
+    }
+  }
 
-  // 黑焰：玩家身上往上飘的几缕黑焰（暗紫的烟团 + 品红转近黑的尖片），高画质每 0.2 秒 2 粒、低画质每 0.4 秒 1 粒
+  // 黑焰：玩家身上往上飘的几缕黑焰（暗紫的小烟团 + 品红转近黑的尖片），高画质每秒 10 粒、低画质 2.5 粒；主要的辨识交给手上的火圈（flameWreath）
   W.setFlame = function (on) {
     flame.on = !!on;
   };
@@ -22498,12 +22625,12 @@
   function updateFlame(dt) {
     const P = G.player;
     if (!flame.on || !P || !P.ent || !P.ent.group.visible) return;
-    flame.acc += dt * (qualId === 'low' ? 2.5 : 14);
+    flame.acc += dt * (qualId === 'low' ? 2.5 : 10);
     while (flame.acc > 1) {
       flame.acc -= 1;
       const a = rand(0, TAU), d = rand(0.2, 0.55), x = P.x + Math.sin(a) * d, z = P.z + Math.cos(a) * d;
       // 暗紫的烟团垫底（形状），品红转近黑的尖片往上窜（亮芯那一档是特效高光段）
-      if (Math.random() < 0.45) tChunk(2, x, rand(0.4, 1.5), z, 0, 0, 0, rand(0.55, 0.8), rand(0.3, 0.42), CH_RIM, CH_CORE, -1.6);
+      if (Math.random() < 0.4) tChunk(2, x, rand(0.4, 1.5), z, 0, 0, 0, rand(0.5, 0.7), rand(0.16, 0.24), CH_DARK, CH_CORE, -1.6);
       else tChunk(0, x, rand(0.3, 1.2), z, rand(-0.3, 0.3), rand(1.8, 2.8), rand(-0.3, 0.3), rand(0.45, 0.65), rand(0.18, 0.26), CH_HI, CH_RIM, -0.5);
     }
   }
@@ -22528,6 +22655,116 @@
   };
   function updateChaosFx(dt) {
     updateFlame(dt);
+    if (flame.flick < 6) flame.flick = Math.min(6, flame.flick + dt * 24);
+    if (chTick.k < 8) chTick.k = Math.min(8, chTick.k + dt * 40);
+  }
+  // 黑焰打中时：命中点甩出几片品红的小火舌（亮芯转品红），高画质再垫一小团暗紫的烟。
+  // 怪堆里每一击都带黑焰：额度每秒回 24、最多攒 6，超了就不画（不刷屏，也不挤占碎块池）
+  W.flameHit = function (x, y, z, r, ang) {
+    if (flame.flick < 1) return;
+    flame.flick -= 1;
+    const lo = qualId === 'low', sn = Math.sin(ang || 0), cs = Math.cos(ang || 0);
+    const bx = x - sn * (r || 0.5) * 0.6, bz = z - cs * (r || 0.5) * 0.6;
+    for (let i = 0, n = lo ? 1 : 3; i < n; i++) {
+      const a = (ang || 0) + Math.PI + rand(-1.1, 1.1), v = rand(2.5, 4.5);
+      tChunk(0, bx, y + rand(-0.2, 0.25), bz, Math.sin(a) * v * 0.6, rand(2.6, 4.2), Math.cos(a) * v * 0.6, rand(0.22, 0.32), rand(0.2, 0.28), CH_HI, CH_RIM, 3);
+    }
+    if (!lo) tChunk(2, bx, y, bz, 0, 0.9, 0, 0.35, 0.22, CH_RIM, CH_CORE, -1.2);
+  };
+
+  // 黑洞 / 黑旋风每一跳的命中：一颗小星 + 一两片品红尖片（卡通碎块池，实例化），不留地面贴花、不打闪光。
+  // 怪堆里每秒几十跳：额度每秒回 40、最多攒 8，超了就只闪白（W.flash 照常）
+  const chTick = { k: 8 };
+  W.chaosTick = function (x, y, z, ang, crit) {
+    if (chTick.k < 1) return;
+    chTick.k -= 1;
+    const lo = qualId === 'low';
+    tChunk(1, x, y + 0.1, z, 0, 0, 0, 0.14, crit ? 0.5 : 0.34, CH_HI, CH_RIM, 0);
+    for (let i = 0, n = lo ? 1 : 2; i < n; i++) {
+      const a = ang + rand(-0.9, 0.9), v = rand(3, 6);
+      tChunk(0, x, y + rand(-0.1, 0.2), z, Math.sin(a) * v, rand(1.5, 3.5), Math.cos(a) * v, rand(0.18, 0.26), rand(0.12, 0.17), CH_HI, i ? CH_DARK : CH_RIM, 12);
+    }
+  };
+
+  // ---- 混沌的实例化零件（在 updateProjFx 的 pfBegin / pfEnd 之间画）----
+  // chShard：和卡通碎块同一种菱形尖片、同一种材质（实心、不受光，着色器和碎块共用一份），单独一个实例缓冲，
+  // 怪堆里碎块满了也不会挤掉黑洞的光点和黑焰的火舌。第一次用到时才建
+  const chLin = { core: [0, 0, 0], rim: [0, 0, 0], hi: [0, 0, 0], dark: [0, 0, 0] };
+  function chPfInit() {
+    if (PF.chShard) return;
+    for (const k of ['core', 'rim', 'hi', 'dark']) {
+      _c.set({ core: CH_CORE, rim: CH_RIM, hi: CH_HI, dark: CH_DARK }[k]).convertSRGBToLinear();
+      chLin[k] = [_c.r, _c.g, _c.b];
+    }
+    pfPart('chShard', PF.tShard.mesh.geometry, PF.tShard.mesh.material, 240, 0);
+    // chDisc：黑旋风的圆片（面朝镜头的 14 边形）。不做深度测试、最后画：吸附在怪身上时圆片在胸口高度，不然会被怪的身子挡住
+    pfPart('chDisc', geo('chDisc', () => new T.CircleGeometry(1, 14)), new T.MeshBasicMaterial({ toneMapped: false, fog: false, side: T.DoubleSide, depthTest: false }), 120, 10);
+    // chFlame：黑焰的火舌，圆底、往上收成一个微微勾着的尖（以中心为扇心的一圈轮廓），材质同上
+    pfPart('chFlame', geo('chFlame', () => {
+      const O = [[0, -0.36], [0.2, -0.31], [0.32, -0.16], [0.33, 0.02], [0.25, 0.2], [0.15, 0.38], [0.09, 0.56], [0.06, 0.74], [-0.05, 0.92], [-0.04, 0.7], [-0.13, 0.5], [-0.24, 0.3], [-0.32, 0.1], [-0.33, -0.08], [-0.27, -0.25], [-0.15, -0.34]];
+      const P = [0, 0, 0], idx = [];
+      for (const o of O) P.push(o[0], o[1], 0);
+      for (let i = 0; i < O.length; i++) idx.push(0, 1 + i, 1 + ((i + 1) % O.length));
+      const g = new T.BufferGeometry();
+      g.setAttribute('position', new T.Float32BufferAttribute(P, 3));
+      g.setIndex(idx);
+      return g;
+    }), PF.tShard.mesh.material, 96, 0);
+  }
+  // 黑焰的火圈：两只手上各一簇往上舔的暗焰（中间一条高的、两边两条往外斜的），武器上再烧三条小的（握把到刃尖之间）。
+  // 每条火舌四层：品红描边（垫在最后面、大一圈）→ 近黑的火身 → 里面一条品红 → 偶尔一粒亮芯；高矮按三档轮流跳。
+  // 高画质手上 3 条 + 武器 3 条，低画质手上 1 条 + 武器 2 条，都不加亮芯以外的东西
+  const _hs = { x: 0, y: 0, z: 0 }, _ws = { x: 0, y: 0, z: 0 };
+  const TONGUE = [[0, 1, 0], [-0.09, 0.62, -0.55], [0.09, 0.56, 0.55]]; // 横向偏移（米，沿镜头右方）、高度倍率、外斜
+  function tongue(x, y, z, rx, rz, h, lean, k) {
+    const ox = camB.x * 0.03, oy = camB.y * 0.03, oz = camB.z * 0.03;
+    const dx = rx * lean, dz = rz * lean;
+    // 圆底在 y 上：火舌的底部中心对准 (x, y, z)，往上舔
+    const yy = y + 0.3 * h;
+    mStretch(x - ox, yy - 0.02 * h - oy, z - oz, dx, 1, dz, 0.58 * h, 0.62 * h);
+    pfPut('chFlame', chLin.rim[0], chLin.rim[1], chLin.rim[2]);
+    mStretch(x, yy, z, dx, 1, dz, 0.48 * h, 0.54 * h);
+    pfPut('chFlame', chLin.core[0], chLin.core[1], chLin.core[2]);
+    mStretch(x + ox, yy - 0.06 * h + oy, z + oz, dx, 1, dz, 0.24 * h, 0.3 * h);
+    pfPut('chFlame', chLin.rim[0], chLin.rim[1], chLin.rim[2]);
+    if (k === 0) {
+      mStretch(x + ox * 2, yy - 0.1 * h + oy * 2, z + oz * 2, dx, 1, dz, 0.1 * h, 0.13 * h);
+      pfPut('chFlame', chLin.hi[0], chLin.hi[1], chLin.hi[2]);
+    }
+  }
+  function flameWreath() {
+    const P = G.player;
+    if (!flame.on || !P || !P.ent || !P.ent.group.visible || P.dead) return;
+    const lo = qualId === 'low';
+    let rx = camB.z, rz = -camB.x; // 镜头右方（水平）
+    const rl = Math.hypot(rx, rz) || 1;
+    rx /= rl;
+    rz /= rl;
+    const step = (ph) => Math.floor((((wtime * 7 + ph) % 1) + 1) % 1 * 3); // 0 / 1 / 2：三档高矮
+    const H3 = [1, 0.8, 0.64];
+    for (let hnd = 0; hnd < 2; hnd++) {
+      W.entSocket(P.ent, hnd ? 'handL' : 'hand', _hs);
+      for (let j = 0, n = lo ? 1 : 3; j < n; j++) {
+        const t = TONGUE[j], k = step(j * 0.37 + hnd * 0.5);
+        tongue(_hs.x + rx * t[0], _hs.y - 0.08, _hs.z + rz * t[0], rx, rz, (hnd ? 0.78 : 0.9) * t[1] * H3[k], t[2], j === 0 ? k : 1);
+      }
+    }
+    // 武器：握把（右手）到武器挂点之间
+    W.entSocket(P.ent, 'hand', _hs);
+    W.entSocket(P.ent, 'weapon', _ws);
+    const wl = Math.hypot(_ws.x - _hs.x, _ws.y - _hs.y, _ws.z - _hs.z);
+    if (wl > 0.3 && wl < 2.6) {
+      for (let j = 0, n = lo ? 2 : 3; j < n; j++) {
+        const f = lo ? 0.55 + j * 0.4 : 0.4 + j * 0.28, k = step(0.2 + j * 0.29);
+        tongue(_hs.x + (_ws.x - _hs.x) * f, _hs.y + (_ws.y - _hs.y) * f, _hs.z + (_ws.z - _hs.z) * f, rx, rz, 0.55 * H3[k], (j % 2 ? -0.3 : 0.3), 1);
+      }
+    }
+  }
+  function chaosPfDraw() {
+    chPfInit();
+    for (let i = 0; i < chHoles.length; i++) if (chHoles[i].on) holeMotes(chHoles[i]);
+    for (let i = 0; i < chVorts.length; i++) if (chVorts[i].on) vortexDraw(chVorts[i]);
+    flameWreath();
   }
 
   // ---------- 每帧更新 ----------
