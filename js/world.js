@@ -744,6 +744,7 @@
       mist: { color: 0x3c2a30, a: 0.3 }, // zones-ash：0x4a2636 → 0x3c2a30，少一点酒红
       prop: { tint: 0x6e5c54, sat: 0.5 }, // 卡通：布景模型压到岩壁那一档，不比地面亮
       blots: { k: 0.35, r: 0.65, op: 0.16 }, // zones-ash：污斑看着像脏印子，少放、放小，路面的细节交给布景里的积灰和余烬裂缝
+      sigil: { r: 0.52, dark: 0.55, start: false }, // zones-ash：熔渣坑的法阵收小、压暗一半；不要起点法阵（起点布景见 buildAshDress）
       props: {
         // 卡通布景：Kenney 的岩石和树桩去掉（和程序化的倒角岩风格不一致、树桩照片贴图发白），岩石全部是程序化的
         outer: [['kh/tree_dead_large', 3, 0.8, 1.1, 't'], ['kh/tree_dead_medium', 3, 0.9, 1.2, 't'], ['kh/tree_dead_small', 2, 1, 1.3, '']], // 立在熔岩上的由本区布景剔掉（ashDress）
@@ -768,7 +769,8 @@
       rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0x6a7a8a, capAll: 0.3 }, // phase 3：雪盖 0xb4c8d6 / 0.6 → 0x8296aa / 0.45；zones-frost：再压一档（水边的石头是这一区的「岩壁」）
       grade: { sat: 1.12, con: 1.1, lift: 0x04081a, gain: 0xf4faff, vig: 0.22 },
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
-      blots: { k: 0.35, r: 0.7, op: 0.15 }, // zones-frost：岛上的污斑少一半多、小一圈（zones-ash 加的旋钮，C 合并 ash 之后生效）
+      blots: { k: 0.35, r: 0.7, op: 0.15 }, // zones-frost：岛上的污斑少一半多、小一圈（zones-ash 加的旋钮）
+      sigil: { k: 0.4 }, // zones-frost：冰湖上的法阵颜色压到 4 成（加色混合，等于淡一半多），不那么像界面
       mist: null, // zones-frost：路外整片是水（dress 画），贴地薄雾在水面上是一块块的亮斑，去掉（高 / 低画质也就一致了）
       prop: { tint: 0x8aa0b0, sat: 0.2 },
       props: {
@@ -792,7 +794,8 @@
       lava: null,
       rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0, capAll: 0 },
       grade: { sat: 1.12, con: 1.1, lift: 0x080418, gain: 0xfaf6ff, vig: 0.24 },
-      blots: { k: 0.35, r: 0.7 }, // zones-storm：地砖上的污斑少一些、小一些（zones-ash 的开关，C 合并后生效）
+      blots: { k: 0.35, r: 0.7 }, // zones-storm：地砖上的污斑少一些、小一些（zones-ash 的开关）
+      sigil: { r: 0.55, op: 0.12 }, // zones-storm：监察大厅的法阵原来又大又满，收小、压淡
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x2c2744, a: 0.32 },
       prop: { tint: 0x5f5b74, sat: 0.2 },
@@ -821,7 +824,13 @@
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x1c1622, a: 0.3 },
       prop: { tint: 0x4a4450, sat: 0.15 },
-      blots: { k: 0.4, r: 0.6, op: 0.1 }, // zones-ash 的污斑开关（ash 合入后生效）：少、小、淡
+      blots: { k: 0.4, r: 0.6, op: 0.08 }, // zones-ash 的污斑开关：少、小、淡到几乎看不见（原来在 dress 里把不透明度改成 0.08）
+      // 下面四个旋钮原来是 abyss 的 dress / fx 运行时改的（zones-integrate 收进表里）：法阵收小、压暗、换余烬橙，没有起点法阵；
+      // 晶簇是闷烧的余烬橙；环境火星余烬橙；通用岩石成簇留空
+      sigil: { r: 0.42, col: 0xff7a2a, k: 0.32, start: false },
+      crystal: { col: 0xff6a2a, k: 0.32, base: 0x2a1410, glow: 0xff7a2a, glowK: 0.5 },
+      amb: 0xff7a2a,
+      rockStyle: { thin: true },
       props: {
         outer: [['kh/arch', 1, 0.8, 1, 't'], ['kh/grave_A_destroyed', 3, 1, 1.3, ''], ['kh/pillar', 2, 0.7, 0.9, 't'], ['kn/rock_tallA', 2, 2.4, 3.4, 'tr'], ['kh/tree_dead_medium', 2, 0.9, 1.2, 't']],
         keep: 0.3,
@@ -846,7 +855,12 @@
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x16303a, a: 0.3 },
       prop: { tint: 0x3e5250, sat: 0.12 },
-      blots: { k: 0.4, r: 0.7 }, // 污斑少一半多、小一点（zones-ash 加的旋钮，C 合并 ash 之后生效）
+      blots: { k: 0.4, r: 0.7 }, // 污斑少一半多、小一点（zones-ash 加的旋钮）
+      // 下面三个旋钮原来是 rift 的 dress 运行时找网格改的（zones-integrate 收进表里）：法阵缩到 0.45、电光青压淡；水晶和光晕电光青；
+      // 通用岩石换成卡通材质（底色 = rockTop / def.rock，高画质 ×0.88、低画质 ×0.7），按低频噪声成簇留空
+      sigil: { r: 0.378, col: 0x7aeeff, k: 0.55 },
+      crystal: { col: 0x7aeeff, glow: 0x5ad8e8 },
+      rockStyle: { thin: true, toon: { top: 0x4e7a72, bot: 0x2a2c4a, k: 0.88, kLow: 0.7 } },
       props: {
         outer: [['kn/stone_tallA', 3, 2.8, 3.8, 'tr'], ['kn/statue_obelisk', 2, 4, 5.2, 't'], ['kd/rubble_large', 1, 0.4, 0.55, '']],
         keep: 0.35,
@@ -1762,7 +1776,7 @@
     return list[list.length - 1];
   }
   function buildProps(zone, gx, sd, ringSamples, lowK, mats) {
-    const P = gx.props, def = zone.def;
+    const P = gx.props, def = zone.def, edgeOk = mats.edgeOk || (() => true);
     const by = Object.create(null); // 模型 key → { e, list }
     const once = Object.create(null);
     const place = (e, x, z, extra) => {
@@ -1772,6 +1786,7 @@
       once[e[0]] = 1;
       const s = rand(e[2], e[3]);
       if (sd(x, z) > -(info.r * s * 0.8 + 0.4)) return false; // 模型的水平半径整个落在路外
+      if (!edgeOk(x, z)) return false; // 不立在熔岩 / 深水 / 虚空上（zones-integrate）
       const flat = e[4].indexOf('l') >= 0;
       const y = flat ? -info.y0 * s : 0;
       const tilt = flat ? 0 : extra && extra.tilt ? extra.tilt : 0.06;
@@ -1812,14 +1827,17 @@
         if (e) place(e, x, z, { small: true });
       });
     }
-    // 首领场地外的大件（只放在远离镜头的北半圈）
-    if (P.boss && P.boss.length) {
-      const bp = zone.bossPos;
-      for (let k = 0; k < 9; k++) {
-        const a = Math.PI + (k / 8 - 0.5) * 2.4 + rand(-0.12, 0.12), d = zone.bossR + rand(3.2, 5.5);
-        const x = bp.x + Math.sin(a) * d, z = bp.z + Math.cos(a) * d;
-        if (lowK(x, z) < 1) continue;
-        place(pickW(P.boss), x, z);
+    // 首领场地外的大件：沿场地房间的岩壁边、只在远离镜头的北半圈，往外 3.2–5.5 m（zones-integrate：原来按 bossPos + bossR 摆一圈，
+    // 新布局的场地不是圆，会落到别的路上（rift 中圈）或虚空 / 水面上；外面是虚空、水、墙的场地就不摆）
+    if (P.boss && P.boss.length && zone.arena) {
+      const ar = zone.arena.room, cand = [];
+      W.edgeSamples(2.5, 0, (x, z, kind, nx, nz) => {
+        if (W.roomAt(x - nx * 1.2, z - nz * 1.2) === ar && lowK(x + nx * 4, z + nz * 4) >= 1) cand.push(x, z, nx, nz);
+      }, { kinds: [MAT.ROCK] });
+      const n = cand.length / 4, stp = n / 9;
+      for (let k = 0; k < 9 && n; k++) {
+        const i = Math.min(n - 1, Math.floor((k + 0.5) * stp)) * 4, d = rand(3.2, 5.5);
+        place(pickW(P.boss), cand[i] + cand[i + 2] * d + rand(-0.6, 0.6), cand[i + 1] + cand[i + 3] * d + rand(-0.6, 0.6));
       }
     }
     // 火盆 / 灯：每块空地北侧两个（矮火堆南侧再加一个），紧贴路边
@@ -1827,15 +1845,20 @@
     if (P.fire && G.assets.geo(P.fire.m)) {
       const F = P.fire;
       const shortFire = F.m.indexOf('lantern') < 0; // 矮的火堆在南侧（靠镜头）也放一个，不会挡住战场；立灯只放北侧
-      zone.circles.forEach((c, ci) => {
+      const put = (x, z) => {
+        if (sd(x, z) > -0.9 || !edgeOk(x, z)) return;
+        (by[F.m] || (by[F.m] = { e: [F.m, 1, F.s, F.s, ''], list: [] })).list.push(x, 0, z, 0, rand(0, TAU), 0, F.s, F.s, F.s, 1);
+        fires.push({ x, y: F.h * (F.m.indexOf('lantern') >= 0 ? F.s : 1), z, ph: rand(0, TAU), acc: 0 });
+      };
+      const lamps = (zone.feats || []).filter((f) => f.kind === 'lamp');
+      // 生成器给了灯位（feats 里的 lamp，房间北边缘外）就用灯位（zones-integrate）；没有的照旧按关键路径房间的内切圆摆
+      if (lamps.length) for (const f of lamps) put(f.x, f.z);
+      else zone.circles.forEach((c, ci) => {
         const n = ci === zone.circles.length - 1 ? 4 : 2;
         const ns = shortFire && ci > 0 && ci < zone.circles.length - 1 ? 1 : 0;
         for (let k = 0; k < n + ns; k++) {
           const a = k >= n ? rand(-0.6, 0.6) : Math.PI + (n === 2 ? (k ? 0.75 : -0.75) : (k - 1.5) * 0.62) + rand(-0.15, 0.15), rr = c.r + 1.25;
-          const x = c.x + Math.sin(a) * rr, z = c.z + Math.cos(a) * rr;
-          if (sd(x, z) > -0.9) continue;
-          (by[F.m] || (by[F.m] = { e: [F.m, 1, F.s, F.s, ''], list: [] })).list.push(x, 0, z, 0, rand(0, TAU), 0, F.s, F.s, F.s, 1);
-          fires.push({ x, y: F.h * (F.m.indexOf('lantern') >= 0 ? F.s : 1), z, ph: rand(0, TAU), acc: 0 });
+          put(c.x + Math.sin(a) * rr, c.z + Math.cos(a) * rr);
         }
       });
     }
@@ -3743,6 +3766,8 @@
     return {
       zone, def: zone.def, group: zoneGroup, own, sd: o.sd, lowK: o.lowK, hd: o.hd, gx: o.gx, low: qualId === 'low', quality: qualId,
       mats: { rock: o.rock, rockTint: o.rockTint, prop: o.prop, crystal: o.crystal, glow: o.glow, blot: o.blot },
+      // 通用外观的几个网格（zones-integrate 加；原来各区按 y = -0.04、顶点数、贴图去找）：地面、虚空底板、首领法阵、起点法阵（可能为 null）
+      ground: o.ground, voidMesh: o.voidMesh, sigil: o.bossSigil, startSigil: o.startSigil,
       edgeSamples: W.edgeSamples, instanced, gfx: TERRAIN_GFX, makeToonMat, toonGradient, lin, mixHex, rand, MAT, HAZ, uTime,
     };
   }
@@ -4590,23 +4615,8 @@
       return pools.some((q) => Math.hypot(q.x - x, q.z - z) < q.r + 1.5);
     };
     const nearProp = (x, z, m) => feats.some((f) => (f.kind === 'trunk' || f.kind === 'tree' || f.kind === 'chimney') && Math.hypot(f.x - x, f.z - z) < (f.r || 1) + m);
-    // 通用外观沿岩壁边摆的东西（CC0 枯树 / 程序化摆件、发光水晶和光晕）只看岩壁边，会落到熔岩河、熔岩池上：落在熔岩上的实例缩成 0
-    const cull = new Set([ctx.mats.prop, ctx.mats.crystal, ctx.mats.glow]);
+    // 通用外观沿岩壁边摆的东西落在熔岩上的问题，zones-integrate 起由 buildVisuals 按材质网格过滤（edgeOk），这里不再逐实例缩成 0
     for (const m of ctx.group.children) if (m.isInstancedMesh && m.material === ctx.mats.crystal) m.castShadow = false; // 发光的小水晶不投影（看不出来，省一次阴影 draw）
-    const treeGeo = G.assets ? ['kh/tree_dead_large', 'kh/tree_dead_medium', 'kh/tree_dead_small'].map((k) => G.assets.geo(k)).filter(Boolean) : [];
-    for (const m of ctx.group.children) {
-      if (!m.isInstancedMesh || !(cull.has(m.material) || treeGeo.indexOf(m.geometry) >= 0)) continue;
-      let hit = false;
-      for (let i = 0; i < m.count; i++) {
-        m.getMatrixAt(i, _m4);
-        _v.setFromMatrixPosition(_m4);
-        if (!onLava(_v.x, _v.z)) continue;
-        _m4.makeScale(0, 0, 0);
-        m.setMatrixAt(i, _m4);
-        hit = true;
-      }
-      if (hit) m.instanceMatrix.needsUpdate = true;
-    }
     // 路面：每个房间（起点除外）几道余烬裂缝，离门、怪群、宝箱都有点距离。和熔岩、灼烧边拼成一个网格（一次 draw，低画质也便宜）。
     // 起点布景以外不再另撒积灰 / 枯草（draw call 预算紧），路边靠稀疏的岩石、枯树和地面明暗勾出来
     const avoid = (zone.packs || []).map((p) => [p.x, p.z]).concat((zone.chests || []).map((c) => [c.x, c.z]));
@@ -4683,7 +4693,7 @@
     sideWalk: [9, 13], sideR: [5, 6], // 旁支栈道长度、藏宝小岛半径
     area: [2680, 3120], // 生成器自己先按估算面积筛一遍（校验按 0.5 m 网格精确量 2600–3200）
     mobs: [47, 62], // 全区怪数（按每群的平均数估）：少于 47 补一群，多于 62 撤一群，补完仍少于 45 换一组
-    noBrute: ['husk', 'spitter', 'bomber'], // 栈道中点的小群不放蛮兵（populatePack 认 slot.mobs 之后生效，见 §8.frost「给 C」）
+    noBrute: ['husk', 'spitter', 'bomber'], // 栈道中点的小群不放蛮兵（populatePack 认 slot.mobs，zones-integrate 起生效）
   };
   // 一次尝试：摆不下（重叠、太大、面积不对）就返回 null，外面换一组随机数再来
   // 调试：每种摆不下的原因计数（frostGen.fails）
@@ -5445,8 +5455,7 @@
       st.thin = frostThin(zone, ctx);
       st.shore = frostShore(zone, ctx);
       st.lamps = frostLamps(zone, ctx);
-      // 首领场地的法阵：每帧的不透明度在 W.update 里写死了，这里把颜色压到 4 成（加色混合，等于整体淡一半多），冰湖上不那么像界面
-      for (const o of ctx.group.children) if (o.material && o.material.map === sigilTex() && Math.hypot(o.position.x - zone.bossPos.x, o.position.z - zone.bossPos.z) < 0.1) o.material.color.multiplyScalar(0.4);
+      // 首领场地的法阵压暗：zones-integrate 起是 ZONE_GFX.frost.sigil 旋钮
       frostLive = { zone, st, cracked: {}, tid: -1, t: 0 };
       return st;
     },
@@ -5854,7 +5863,7 @@
     for (const C of cors) {
       if (C.side || C.kind !== 'corr' || C.len < 14 || C.hw < 2.75 || R() < 0.5) continue;
       const m = W.terrainGfx.axisAt(C.axis, 0.5);
-      if (okPack(m.x, m.z, Math.min(2.6, C.hw - 0.2), false)) packsL.push({ u: m.x, v: m.z, H: C, n: [2, 3], r: 1.7, cor: true });
+      if (okPack(m.x, m.z, Math.min(2.6, C.hw - 0.2), false)) packsL.push({ u: m.x, v: m.z, H: C, n: [2, 3], r: 1.7, cor: true }); // 走廊中点的小群不放蛮兵（下面输出 noBrute）
     }
     for (let guard = 0; guard < 12 && expect() < target; guard++) {
       const i = Math.floor(R() * pathHalls.length);
@@ -5928,6 +5937,7 @@
       const c = toW(p.u, p.v);
       const o = { room: p.H.id, x: c[0], z: c[1], n: p.n, r: p.r, elite: !!p.elite };
       if (p.ambush) o.ambush = true;
+      if (p.cor) o.noBrute = true; // zones-integrate：populatePack 认 noBrute 了，窄走廊里的小群不出蛮兵
       packs.push(o);
     }
     for (const c of chestsL) {
@@ -6509,7 +6519,7 @@
     for (const du of [0, -1.6, 1.6, -2.6, 2.6]) {
       const x = X(ubu + du, vP2 - 1.2), z = Z(ubu + du, vP2 - 1.2);
       if (okPack(x, z, packs, 2.6)) {
-        packs.push({ room: P2.id, x, z, n: [2, 3], r: 2.2, elite: false, ambush: false });
+        packs.push({ room: P2.id, x, z, n: [2, 3], r: 2.2, elite: false, ambush: false, noBrute: true }); // 崖路宽 5–6 m，不放蛮兵（zones-integrate）
         break;
       }
     }
@@ -6790,53 +6800,16 @@
     ctx.group.add(m);
     return m;
   }
-  // 当前区域里用某个材质的实例网格（岩石、晶簇）
-  const groupMeshes = (ctx, mat) => ctx.group.children.filter((o) => o.isInstancedMesh && o.material === mat);
   function abyssDress(zone, ctx) {
     const gfx = ctx.gfx, low = ctx.low, out = { vents: [], k: 0, base: null };
-    // ① 共享材质换成本区的配色
-    const rockOld = ctx.mats.rockTint, rockNew = lin(ABYSS_PAL.rock);
-    if (rockOld) {
-      const kr = rockNew.r / Math.max(1e-4, rockOld.r), kg = rockNew.g / Math.max(1e-4, rockOld.g), kb = rockNew.b / Math.max(1e-4, rockOld.b);
-      for (const im of groupMeshes(ctx, ctx.mats.rock)) {
-        if (!im.instanceColor) continue;
-        const a = im.instanceColor.array;
-        for (let i = 0; i < a.length; i += 3) {
-          a[i] *= kr;
-          a[i + 1] *= kg;
-          a[i + 2] *= kb;
-        }
-        im.instanceColor.needsUpdate = true;
-      }
-    }
-    if (ctx.mats.crystal) {
-      ctx.mats.crystal.color.copy(lin(0x2a1410));
-      ctx.mats.crystal.emissive.copy(lin(ABYSS_PAL.crystal)).multiplyScalar(0.32);
-    }
-    if (ctx.mats.blot) ctx.mats.blot.opacity = 0.08; // 地面污斑淡到几乎看不见（原来 0.2，把地面弄脏；zones-ash 合入后由 ZONE_GFX.abyss.blots 控制）
-    if (ctx.mats.glow) ctx.mats.glow.color.copy(lin(ABYSS_PAL.mid)).multiplyScalar(0.5);
+    // ① 共享材质换成本区的配色：岩石色在 data.js（第 3 区 rock 0x48424f），晶簇 / 光晕 / 法阵 / 环境火星 / 污斑走 ZONE_GFX.abyss 的旋钮（zones-integrate）
     if (ctx.mats.prop) {
       // 程序化的棘刺摆件：原调色板偏红，乘一层冷紫灰；自发光改成很淡的余烬橙
       ctx.mats.prop.color.copy(lin(0xb8b0d0));
       ctx.mats.prop.emissive.copy(lin(ABYSS_PAL.mid)).multiplyScalar(0.04);
     }
-    // 首领场地的法阵：收小、压暗、换成余烬橙（螺旋和扇射要看得清）；起点的小法阵去掉
-    for (const o of ctx.group.children) {
-      if (!o.isMesh || o.isInstancedMesh || !o.material || o.material.map !== sigilTex()) continue;
-      if (o.scale.x < 4) o.visible = false;
-      else {
-        o.scale.multiplyScalar(0.5);
-        o.material.color.copy(lin(ABYSS_PAL.mid)).multiplyScalar(0.32);
-      }
-    }
-    // ② 虚空：岩顶挖洞 + 地面裙边收到崖边 + 崖面带 + 深渊底
-    let ground = null, voidMesh = null;
-    for (const o of ctx.group.children) {
-      if (!o.isMesh || o.isInstancedMesh) continue;
-      const n = o.geometry.attributes.position.count;
-      if (n === 4 && Math.abs(o.position.y + 0.04) < 1e-6 && !voidMesh) voidMesh = o;
-      else if (!ground && o.geometry.attributes.color && n > 500) ground = o;
-    }
+    // ② 虚空：岩顶挖洞 + 地面裙边收到崖边 + 崖面带 + 深渊底（地面、虚空底板直接用 ctx 给的网格）
+    const ground = ctx.ground, voidMesh = ctx.voidMesh;
     if (ground) out.moved = abyssEdgeGround(zone, ground, ctx.sd);
     if (voidMesh) {
       const old = voidMesh.geometry;
@@ -6922,14 +6895,6 @@
   function abyssFx(dt, st, ctx) {
     if (!st) return;
     const zone = ctx.zone, P = G.player;
-    if (!st.amb && zoneFx) {
-      // 环境火星的颜色原来取区域强调色（正红），换成余烬橙
-      _c.set(ABYSS_PAL.mid);
-      zoneFx.ar = _c.r;
-      zoneFx.ag = _c.g;
-      zoneFx.ab = _c.b;
-      st.amb = true;
-    }
     // 第一次 / 光照被别处改过（toonTune、换区）：重新记下基准
     const B = st.base;
     if (!B || Math.abs(sun.intensity - B.sunNow) > 1e-6 || Math.abs(hemiBase - B.hemiNow) > 1e-6) {
@@ -7399,7 +7364,7 @@
     // ---- 1. 深渊：外圈内侧的虚空往下开一个洞 ----
     // 虚空底板（buildVisuals 的 voidMesh，y = -0.04，铺满整个区域）先画；接着一张洞形的遮罩把那一块的深度清到最远；
     // 然后画洞壁和洞底（y 一直到 -7）；之后地面、岩石、角色照常画，盖在上面。都是不透明物体，按 renderOrder 排
-    const voidMesh = group.children.find((m) => m.isMesh && !m.isInstancedMesh && m.position.y === -0.04 && m.geometry.attributes.position.count === 4);
+    const voidMesh = ctx.voidMesh; // zones-integrate：ctx 直接给虚空底板，不再按 y = -0.04 去找
     // 洞从外圈内沿开始：地面网格伸进虚空的那圈裙边（2.8 m）在下面第 3 步里往下弯成崖坡，所以洞要把它整个罩住
     const H = riftHole(pit, pit.rV0 + 0.1, pit.rV1 + 0.05);
     out.hole = H;
@@ -7427,19 +7392,18 @@
       if (wall) wall.renderOrder = -1;
       out.abyss = { mask, floor, wall };
     }
-    // ---- 2. 通用外观里落进洞里的东西（岩石 / 尖岩 / 摆件模型挨着虚空两头的那几块）缩成 0；
-    // 首领场地外的大件（buildProps 按 bossR + 3.2–5.5 摆一圈）在这个布局里会落到中圈的路上：站在可走区域上的模型也缩成 0
-    // （贴花和水晶不算：陨坑的碎晶本来就在路面上）；坑里的岩壁越往坑心越高（视觉的下降感）----
+    // ---- 2. 通用外观里落进洞里的东西缩成 0：洞比虚空大一圈（要罩住地面伸进虚空的裙边），裙边那一圈岩壁上的实例会悬在洞上，
+    // 这一步只能在本区按洞的形状做（落在虚空 / 熔岩 / 水上的，zones-integrate 起 buildVisuals 已经按材质网格过滤；
+    // 首领场地外的大件也改成沿场地的岩壁边摆，不会再落到中圈的路上）；坑里的岩壁越往坑心越高（视觉的下降感）----
     const mine = new Set();
     const m4 = new T.Matrix4(), pv = new T.Vector3(), qv = new T.Quaternion(), sv = new T.Vector3();
     for (const m of group.children) {
       if (!m.isInstancedMesh) continue;
-      const solid = m.geometry !== gQuad() && m.material !== ctx.mats.crystal;
       let dirty = false;
       for (let i = 0; i < m.count; i++) {
         m.getMatrixAt(i, m4);
         m4.decompose(pv, qv, sv);
-        if (H.inside(pv.x, pv.z) || (solid && ctx.sd(pv.x, pv.z) > -0.3)) {
+        if (H.inside(pv.x, pv.z)) {
           sv.set(0, 0, 0);
           dirty = true;
         } else {
@@ -7456,45 +7420,10 @@
       }
       if (dirty) m.instanceMatrix.needsUpdate = true;
     }
-    // ---- 2b. 通用岩石换成卡通材质（纯色 + 笔触 + 竖向渐变：底部冷紫、顶部受光的青绿）。实例色照旧是 def.rock × 明暗，
-    // 材质底色 = RIFT_PAL.rockTop / def.rock（线性空间逐通道），所以 data.js 改了区域配色这里也跟着对 ----
-    const rT = lin(RIFT_PAL.rockTop), rD = lin(zone.def.rock);
-    const toonRock = ctx.own(makeToonMat({ vertexColors: false, flat: true, brush: 0.14, brushScale: 0.5, grad: [RIFT_PAL.rockBot, 0xffffff, -0.3, 2.4] }));
-    // 低画质没有贴地薄雾压暗岩壁脚下，岩壁整体偏亮（owner 量到过 30%）：低画质再压一档，不加任何开销
-    const rK = low ? 0.7 : 0.88;
-    toonRock.color.setRGB((rK * rT.r) / Math.max(1e-3, rD.r), (rK * rT.g) / Math.max(1e-3, rD.g), (rK * rT.b) / Math.max(1e-3, rD.b));
-    // 岩石成簇、留空（和第 0 区一样的思路，不再是一整圈）：低频噪声高的地方成簇，低的地方只偶尔留一块；大石头多留一些
-    for (const m of group.children) {
-      if (!m.isInstancedMesh || m.material !== ctx.mats.rock) continue;
-      m.material = toonRock;
-      let dirty = false;
-      for (let i = 0; i < m.count; i++) {
-        m.getMatrixAt(i, m4);
-        m4.decompose(pv, qv, sv);
-        if (sv.x === 0) continue;
-        const n = vnoise(pv.x * 0.11 + 3.1, pv.z * 0.11 - 1.7), big = sv.x >= 1.25;
-        const keep = big ? 0.5 + 0.5 * smooth01((n - 0.3) / 0.3) : 0.12 + 0.88 * smooth01((n - 0.42) / 0.22);
-        if (hash2(Math.round(pv.x * 7), Math.round(pv.z * 7)) < keep) continue;
-        sv.set(0, 0, 0);
-        m4.compose(pv, qv, sv);
-        m.setMatrixAt(i, m4);
-        dirty = true;
-      }
-      if (dirty) m.instanceMatrix.needsUpdate = true;
-    }
-    // 水晶、光晕：电光青（通用外观按 def.accent 是薄荷绿）
-    const sp = lin(RIFT_PAL.spark);
-    ctx.mats.crystal.emissive.copy(sp);
-    ctx.mats.crystal.color.copy(sp).multiplyScalar(0.3);
-    ctx.mats.glow.color.copy(lin(RIFT_PAL.glow));
-    // 首领场地的法阵收小、压淡（镜头下太大太花）
-    const sig = group.children.find((m) => m.isMesh && !m.isInstancedMesh && m.scale.x > 5 && Math.abs(m.position.x - zone.bossPos.x) < 0.01 && Math.abs(m.position.z - zone.bossPos.z) < 0.01);
-    if (sig) {
-      sig.scale.multiplyScalar(0.45);
-      sig.material.color.copy(sp).multiplyScalar(0.55);
-    }
+    // ---- 2b. 通用岩石的卡通材质 + 成簇留空、水晶 / 光晕的电光青、首领法阵收小压淡：zones-integrate 起是 ZONE_GFX.rift 的旋钮
+    // （rockStyle / crystal / sigil），buildVisuals 建的时候就是这样，这里不再找网格改 ----
     // ---- 3. 地面：越往坑心越暗（顶点色），坑底最暗一档；伸进虚空的裙边往下弯成崖坡（y 到 -7，越往下越暗），外圈内沿就是一道真的崖口 ----
-    const ground = group.children.find((m) => m.isMesh && !m.isInstancedMesh && m.position.y === 0 && m.geometry.attributes.color && m.geometry.attributes.position.count > 1000);
+    const ground = ctx.ground; // zones-integrate：ctx 直接给地面网格
     if (ground) {
       const pa = ground.geometry.attributes.position, ca = ground.geometry.attributes.color;
       for (let i = 0; i < pa.count; i++) {
@@ -7998,6 +7927,22 @@
     // --- 沿不可行走的边采样 ---
     // 沿 sd = 0 的边（W.edgeSamples）按弧长每 spacing 取一个点、往外偏 off；只取外侧是岩壁的边（水、虚空、墙边由各区的 dress 自己布置）
     const ringSamples = (spacing, off, cb) => W.edgeSamples(spacing, off, cb, { kinds: [MAT.ROCK], jitter: 0.3 });
+    // 沿岩壁边摆的通用东西（岩石、摆件、水晶、CC0 模型）不落在熔岩 / 深水 / 虚空上，也不贴着它们（中心和四周 1.5 m 各查一次材质网格）。
+    // zones-integrate：原来 ash、rift 在 dress 里把这些实例缩成 0
+    const softMat = (x, z) => {
+      const m = W.matAt(x, z);
+      return m === MAT.LAVA || m === MAT.WATER || m === MAT.VOID;
+    };
+    const edgeOk = (x, z) => !(softMat(x, z) || softMat(x + 1.5, z) || softMat(x - 1.5, z) || softMat(x, z + 1.5) || softMat(x, z - 1.5));
+    // 每区的岩石旋钮 ZONE_GFX.<id>.rockStyle = { thin, toon }（zones-integrate；原来 rift 在 dress 里找通用岩石的网格改）：
+    //   thin：按低频噪声成簇、留空（owner 11-18 对第 0 区的意见：大石头多留，小石头只在簇里），toon：卡通材质 { top, bot, k, kLow }
+    const RK = (gx && gx.rockStyle) || {};
+    const keepRock = (x, z, s) => {
+      if (!RK.thin) return true;
+      const n = vnoise(x * 0.11 + 3.1, z * 0.11 - 1.7);
+      const keep = s >= 1.25 ? 0.5 + 0.5 * smooth01((n - 0.3) / 0.3) : 0.12 + 0.88 * smooth01((n - 0.42) / 0.22);
+      return hash2(Math.round(x * 7), Math.round(z * 7)) < keep;
+    };
 
     // --- 岩石：内圈小、外圈大，再加一圈稀疏的尖岩 ---
     // 相机从 +z 方向俯视：可行走区域南缘（靠近镜头一侧）的高物会挡住战场，所以压矮
@@ -8008,7 +7953,11 @@
       const coin = Math.random() < 0.5;
       const list = ash ? (s < 0.9 ? rocksB : rocksA) : coin ? rocksA : rocksB; // 第 0 区：大石头用多面数的倒角岩，小的用少面数的
       const sy = s * rand(0.65, 1.05) * tall;
-      list.push(x, sy * 0.28, z, rand(-0.3, 0.3), rand(0, TAU), rand(-0.3, 0.3), s * rand(0.85, 1.2), sy, s * rand(0.85, 1.2), br !== undefined ? br : rand(0.7, 1.12));
+      const v = [x, sy * 0.28, z, rand(-0.3, 0.3), rand(0, TAU), rand(-0.3, 0.3), s * rand(0.85, 1.2), sy, s * rand(0.85, 1.2), br !== undefined ? br : rand(0.7, 1.12)];
+      if (ash || (edgeOk(x, z) && keepRock(x, z, v[6]))) list.push(...v); // 随机数照旧全部取完，不留的只是不放进列表（后面的随机序列不变）
+    };
+    const pushSpire = (v) => {
+      if (edgeOk(v[0], v[2]) && keepRock(v[0], v[2], v[6])) spires.push(...v);
     };
     if (ash) ashRocks(zone, sd, lowK, pushRock, spires);
     else {
@@ -8021,7 +7970,7 @@
         const lk = lowK(x, z);
         if (Math.random() < 0.28) {
           const s = rand(0.8, 1.3);
-          spires.push(x, -0.2, z, rand(-0.18, 0.18), rand(0, TAU), rand(-0.18, 0.18), s, s * rand(0.9, 1.6) * lk, s, rand(0.6, 1.0));
+          pushSpire([x, -0.2, z, rand(-0.18, 0.18), rand(0, TAU), rand(-0.18, 0.18), s, s * rand(0.9, 1.6) * lk, s, rand(0.6, 1.0)]);
         } else pushRock(x + rand(-0.4, 0.4), z + rand(-0.4, 0.4), rand(1.0, 1.65), rand(1, 1.35) * (lk < 1 ? 0.75 : 1));
       });
       ringSamples(4.2, 4.6, (x, z) => {
@@ -8029,16 +7978,22 @@
         z += rand(-1.2, 1.2);
         if (sd(x, z) > -3.6 || Math.random() < 0.3) return;
         const s = rand(1.2, 2.0);
-        spires.push(x, -0.3, z, rand(-0.22, 0.22), rand(0, TAU), rand(-0.22, 0.22), s, s * rand(0.9, 1.6) * lowK(x, z), s, rand(0.4, 0.75));
+        pushSpire([x, -0.3, z, rand(-0.22, 0.22), rand(0, TAU), rand(-0.22, 0.22), s, s * rand(0.9, 1.6) * lowK(x, z), s, rand(0.4, 0.75)]);
       });
     }
     // 第 0 区：卡通岩石（纯色 + 笔触 + 竖向渐变，不用照片贴图），程序化外观和 PBR 外观都一样
-    const rockMat = ash
+    let rockMat = ash
       ? ashRockMat()
       : hd
         ? triMaterial(gx, { con: 1, nrm: 1, sat: 1, rough: 0.92, cap: true })
         : own(new T.MeshStandardMaterial({ color: 0xffffff, roughness: 0.96, metalness: 0, flatShading: true }));
     const rockTint = ash ? new T.Color(1, 1, 1) : lin(def.rock);
+    if (!ash && RK.toon) {
+      // 卡通岩石（纯色 + 笔触 + 竖向渐变）：实例色照旧是 def.rock × 明暗，材质底色 = top / def.rock（线性空间逐通道），低画质再压一档（没有贴地薄雾）
+      const tc = RK.toon, rT = lin(tc.top), rD = lin(def.rock), rK = qualId === 'low' ? tc.kLow || 0.7 : tc.k || 0.88;
+      rockMat = own(makeToonMat({ vertexColors: false, flat: true, brush: 0.14, brushScale: 0.5, grad: [tc.bot, 0xffffff, -0.3, 2.4] }));
+      rockMat.color.setRGB((rK * rT.r) / Math.max(1e-3, rD.r), (rK * rT.g) / Math.max(1e-3, rD.g), (rK * rT.b) / Math.max(1e-3, rD.b));
+    }
     if (ash) {
       // 同一种几何体换几个变体（每个变体一个实例化网格），不至于所有石头一个样
       const split = (list, n) => {
@@ -8066,7 +8021,8 @@
       z += rand(-1.5, 1.5);
       if (sd(x, z) > -3.0 || Math.random() < 0.3 || Math.random() >= keepK) return;
       const s = rand(0.85, 1.6);
-      props.push(x, -0.1, z, rand(-0.1, 0.1), rand(0, TAU), rand(-0.1, 0.1), s, s * rand(0.9, 1.3) * (lowK(x, z) < 1 ? 0.65 : 1), s, 1);
+      const v = [x, -0.1, z, rand(-0.1, 0.1), rand(0, TAU), rand(-0.1, 0.1), s, s * rand(0.9, 1.3) * (lowK(x, z) < 1 ? 0.65 : 1), s, 1];
+      if (edgeOk(x, z)) props.push(...v);
     });
     const icy = def.id === 'frost', rift = def.id === 'rift';
     const propMat = own(
@@ -8081,6 +8037,7 @@
     const crystals = [], glows = [];
     ringSamples(8.5, 1.6, (x, z) => {
       if (sd(x, z) > -1.1 || Math.random() < 0.3) return;
+      const ok = edgeOk(x, z), c0 = crystals.length, g0 = glows.length;
       const h = rand(0.9, 1.6);
       crystals.push(x, h * 0.45, z, rand(-0.25, 0.25), rand(0, TAU), rand(-0.25, 0.25), 0.26, h, 0.26, 1);
       const n = G.randInt(1, 3);
@@ -8090,6 +8047,10 @@
       }
       const gr = rand(2.6, 3.8);
       glows.push(x, 0.05, z, 0, 0, 0, gr, 1, gr, 1);
+      if (!ok) {
+        crystals.length = c0;
+        glows.length = g0;
+      }
     });
     const accentL = lin(def.accent);
     const crystalMat = own(
@@ -8099,6 +8060,13 @@
     const glowMat = own(
       new T.MeshBasicMaterial({ map: glowTex(), color: accentL, transparent: true, opacity: 0.4, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false })
     );
+    // 每区的水晶旋钮 ZONE_GFX.<id>.crystal = { col 发光色, k 发光强度, base 底色（缺省 col × 0.3）, glow 地面光晕色, glowK }（zones-integrate）
+    const CR = gx && gx.crystal;
+    if (CR) {
+      crystalMat.emissive.copy(lin(CR.col)).multiplyScalar(CR.k !== undefined ? CR.k : 1);
+      crystalMat.color.copy(CR.base !== undefined ? lin(CR.base) : lin(CR.col).multiplyScalar(0.3));
+      glowMat.color.copy(lin(CR.glow !== undefined ? CR.glow : CR.col)).multiplyScalar(CR.glowK !== undefined ? CR.glowK : 1);
+    }
     const glowIM = instanced(gQuad(), glowMat, glows, false, null);
     if (glowIM) glowIM.renderOrder = 1;
 
@@ -8144,11 +8112,19 @@
       zoneGroup.add(q);
       return q;
     };
-    // 第 0 区（zones-ash）：熔渣坑的法阵收小、颜色压暗一半（叠加混合，暗色 = 对比低），不再铺满整个场地
-    const bossSigil = sigil(zone.bossPos.x, zone.bossPos.z, zone.bossR * (ash ? 0.52 : 0.84), ash ? mixHex(def.accent, 0x000000, 0.55) : def.accent, 0.26);
+    // 每区的法阵旋钮 ZONE_GFX.<id>.sigil = { r（× bossR，缺省 0.84）, op（基准不透明度，缺省 0.24，每帧在这上下呼吸）,
+    //   col（缺省区域强调色）, dark（往黑里混的比例）, k（线性空间的亮度倍率）, start（false = 不要起点的小法阵）}；sigil: null = 不画首领法阵。
+    // zones-integrate：原来 frost / rift / abyss 在 dress 里按贴图和位置找到法阵再改，storm 想改改不了
+    const SG = gx && 'sigil' in gx ? gx.sigil : {};
+    let bossSigil = null, startSigil = null;
+    if (SG) {
+      bossSigil = sigil(zone.bossPos.x, zone.bossPos.z, zone.bossR * (SG.r || 0.84), SG.dark ? mixHex(SG.col || def.accent, 0x000000, SG.dark) : SG.col || def.accent, SG.op || 0.24);
+      if (SG.k !== undefined) bossSigil.material.color.multiplyScalar(SG.k);
+      bossSigil.userData.op = SG.op || 0.24;
+    }
     // 起点的法阵：镜头拉近后原来的 3.4 会铺满半个画面，收成脚下一小圈、更淡（布景工作可以整个换掉）
     // 第 0 区不要起点法阵（贴在地上像界面，和布景不是一体的）；起点的布景见 buildAshDress
-    if (!ash) sigil(zone.start.x, zone.start.z, 1.9, mixHex(def.sky, 0xffffff, 0.3), 0.1);
+    if (!SG || SG.start !== false) startSigil = sigil(zone.start.x, zone.start.z, 1.9, mixHex(def.sky, 0xffffff, 0.3), 0.1);
     const dress = ash ? buildAshDress(zone, sd) : null;
     const rp = rift ? riftPieces(zone, sd, ringSamples, lowK, accentL, crystalMat) : null;
     // --- CC0 布景模型、火盆、贴地薄雾 ---
@@ -8156,7 +8132,7 @@
     if (hd) {
       if (withProps) {
         const pm = triMaterial(gx, { vc: true, con: 0.5, nrm: 0.6, sat: gx.prop.sat, tint: gx.prop.tint, tintK: 1.0, rough: 0.86 });
-        fires = buildProps(zone, gx, sd, ringSamples, lowK, { rock: rockMat, prop: pm });
+        fires = buildProps(zone, gx, sd, ringSamples, lowK, { rock: rockMat, prop: pm, edgeOk });
       }
       if (gx.mist) mist = buildMist(zone, gx, sd);
       prefetchNext(def);
@@ -8165,10 +8141,10 @@
 
     // 各区自己的布景（B 阶段在 ZONE_TERRAIN[id].dress 里写）
     const TZ = terrainOf(def);
-    const tctx = terrainCtx(zone, { sd, lowK, hd, gx, rock: rockMat, rockTint, prop: propMat, crystal: crystalMat, glow: glowMat, blot: blotMat });
+    const tctx = terrainCtx(zone, { sd, lowK, hd, gx, rock: rockMat, rockTint, prop: propMat, crystal: crystalMat, glow: glowMat, blot: blotMat, ground, voidMesh, bossSigil, startSigil });
     const tstate = TZ.dress ? TZ.dress(zone, tctx) : null;
 
-    _c.set(def.accent);
+    _c.set(gx && gx.amb !== undefined ? gx.amb : def.accent); // 环境火星的颜色：ZONE_GFX.<id>.amb（缺省区域强调色，zones-integrate）
     const chests = buildChests(zone);
     zoneFx = {
       terrain: tstate, tctx, tz: TZ, chests,
@@ -12620,7 +12596,8 @@
   // ---------------------------------------------------------------------
   function huskRig() {
     return rigOf('husk', () => cTry('husk', (cs) => {
-      const HIDE = 0x8a7f76, HIDE_D = 0x4a4340, CLOTH = 0x2d2734, CLOTH_L = 0x4a4152, CLOTH_IN = 0x17141b, BONE = 0xded5ba, BONE_D = 0x9c927a;
+      // zones-integrate：固有色整体提亮约 7%（受光面在第 0 区只有 48–49%、第 4 区 55.5%，目标 55–75），CLOTH_IN（袍子里子）不动
+      const HIDE = 0x94887e, HIDE_D = 0x4f4844, CLOTH = 0x302a38, CLOTH_L = 0x4f4658, CLOTH_IN = 0x17141b, BONE = 0xeee4c7, BONE_D = 0xa79c83;
       const b = rigBuilder('husk', NB_SMALL, cs);
       b.j('root', null, 0, 0.95, 0).j('spine', 'root', 0, 1.02, 0.02).j('head', 'spine', 0, 1.5, 0.3).j('jaw', 'head', 0, 1.47, 0.36);
       b.j('uaL', 'spine', 0.31, 1.46, 0.12).j('faL', 'uaL', 0.43, 1.1, 0.2).j('uaR', 'spine', -0.31, 1.46, 0.12).j('faR', 'uaR', -0.43, 1.1, 0.2);
@@ -21674,8 +21651,11 @@
       if (fx.chests) updateChests(fx.chests, dt);
       if (fx.gU) fx.gU.uLavaM.value.y = wtime;
       fx.glowMat.opacity = 0.38 + Math.sin(wtime * 1.7) * 0.08;
-      fx.bossSigil.material.opacity = 0.24 + Math.sin(wtime * 1.2) * 0.07;
-      fx.bossSigil.rotation.y += dt * 0.04;
+      if (fx.bossSigil) {
+        const op = fx.bossSigil.userData.op || 0.24;
+        fx.bossSigil.material.opacity = op * (1 + Math.sin(wtime * 1.2) * 0.29);
+        fx.bossSigil.rotation.y += dt * 0.04;
+      }
       let hi = hemiBase;
       if (fx.st.amb === 'spark') {
         // 雷鸣遗迹：不定时的天光闪烁
@@ -21881,7 +21861,8 @@
         if (hasMat && d < 0.5) {
           const mt = matAt(m, wx, wz), c = COL[mt];
           if (c) {
-            r = c[0]; gg = c[1]; bb = c[2]; a = 1;
+            // 熔岩 / 深水上照样描一圈深色边（zones-integrate）：跨熔岩的桥就是两条描边夹着路面（§3.1），岸线也更清楚
+            r = c[0] * (1 - cd); gg = c[1] * (1 - cd); bb = c[2] * (1 - cd); a = 1;
           }
         }
         const ci = Math.min(1, Math.max(0, d * kpx + 0.5)); // 路面

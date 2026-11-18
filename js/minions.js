@@ -414,6 +414,9 @@
       return false;
     }
     turn(m, Math.atan2(dx, dz), 9, dt);
+    // 浅水 / 冰泥（危险区 SLOW）里和玩家、小怪一样减速（zones-integrate）
+    const Wd = G.world;
+    if (Wd.hazardAt && Wd.hazardAt(m.x, m.z) & Wd.HAZ.slow) speed *= G.TERRAIN.slow;
     const ok = step(m, dx / dd, dz / dd, Math.min(m.navWp ? dd : d - stop, speed * dt));
     m.moving = true;
     m.stuckT = ok ? Math.max(0, m.stuckT - dt) : m.stuckT + dt;

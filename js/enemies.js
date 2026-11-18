@@ -318,9 +318,13 @@
     }
   }
 
-  // 生成器排好的怪群：{ room, x, z, n（数或 [下限, 上限]）, r, elite, ambush }，成员在 (x, z) 周围 r 以内
+  // 生成器排好的怪群：{ room, x, z, n（数或 [下限, 上限]）, r, elite, ambush, mobs, noBrute }，成员在 (x, z) 周围 r 以内。
+  // mobs：这一群的怪物表（缺省用区域的）；noBrute：不放蛮兵（窄路上的小群，体型大的躲不开），zones-integrate 加
   function populatePack(zone, slot) {
-    const W = G.world, mobs = zone.def.mobs, level = slotLevel(zone, slot);
+    const W = G.world, level = slotLevel(zone, slot);
+    let mobs = slot.mobs || zone.def.mobs;
+    if (slot.noBrute) mobs = mobs.filter((t) => t !== 'brute');
+    if (!mobs.length) mobs = ['husk'];
     const n = Array.isArray(slot.n) ? G.randInt(slot.n[0], slot.n[1]) : slot.n || G.randInt(4, 6), R = slot.r || 2.6;
     const main = G.pick(mobs), members = [];
     for (let m = 0; m < n; m++) {

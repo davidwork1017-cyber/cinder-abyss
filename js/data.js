@@ -1001,8 +1001,9 @@
       mobs: ['husk', 'spitter', 'bomber', 'brute', 'spitter'], desc: '仍在运转的古代机关，雷声从不停歇。',
     },
     {
+      // zones-integrate：配色改成 zones-abyss 定的炭灰紫底子（原 fog 0x1a0c10、voidc 0x0f0709、path 0x6e4a4a、rock 0x3f2a2c、accent 0xff3a4a，太红太饱和），红橙只做点缀
       id: 'abyss', name: '烬渊深处', level: 13, elem: 'fire', boss: 'lord',
-      fog: 0x1a0c10, voidc: 0x0f0709, path: 0x6e4a4a, rock: 0x3f2a2c, accent: 0xff3a4a, sky: 0xffb0a0,
+      fog: 0x18121e, voidc: 0x0c0810, path: 0x57525c, rock: 0x48424f, accent: 0xff6a2a, sky: 0xffb0a0,
       mobs: ['husk', 'bomber', 'spitter', 'brute', 'brute'], desc: '一切灰烬的源头。',
     },
     {
