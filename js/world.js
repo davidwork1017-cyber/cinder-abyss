@@ -5055,17 +5055,21 @@
     // 场地：core 就是中心（首领站在这里），半径取到柱子内侧
     rooms[5].core = { x: ac.x, z: ac.z, r: Math.max(5, Math.min(...pillars.map((p) => Math.hypot(p.x - ac.x, p.z - ac.z) - p.r)) - 0.2) };
     if (rooms[1].core.r < 7.2) return frostFail('firstCore');
-    const thinIs = [1, 2, 3, 4].filter((i) => i !== skullIs).sort(() => R() - 0.5).slice(0, 2);
+    // 薄冰：候选的岛排好随机顺序，放够 2 块为止；一个岛放不下就换下一个（zones-integrate：原来前两个里有一个放不下就整张重摆，
+    // 生成器平均要摆 2.9 次、最慢的种子 30 多 ms；前两个都放得下的种子结果和原来逐位相同）
+    const thinIs = [1, 2, 3, 4].filter((i) => i !== skullIs).sort(() => R() - 0.5);
     const thins = [];
     for (const i of thinIs) {
+      if (thins.length >= 2) break;
       const r = Math.min(rnd(3, 4.6), rooms[i].core.r - 0.8);
-      if (r < 3) return frostFail('thin');
+      if (r < 3) continue;
       const p = spotIn(i, r + 0.6, r + 2.2, 8 + r + 1, (x, z) => feats.every((f) => f.kind !== 'shallow' || Math.hypot(f.x - x, f.z - z) > f.r + r + 1), 60);
-      if (!p) return frostFail('thin');
+      if (!p) continue;
       haz.push({ prim: { t: 'circle', x: p.x, z: p.z, r }, kind: 'thin' });
       feats.push({ kind: 'thin', x: p.x, z: p.z, r, room: i });
       thins.push({ x: p.x, z: p.z, r });
     }
+    if (thins.length < 2) return frostFail('thin');
 
     // ---- 怪群（§3.0）：岛上按面积，栈道只在中点放 2–3 只的小群（不放蛮兵）----
     // 面积：多边形用鞋带公式 + 圆角（周长 × round + π round²）；圆按整圆；浅水圆和岛重叠的部分按一半估
