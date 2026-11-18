@@ -4483,6 +4483,9 @@
     crust: 0x2e2826, // 浅滩的冷却硬壳
     ember: [[0, 0xffd27a], [0.35, 0xff7a2a], [0.7, 0xc8361c], [1, 0x2a1a1c]], // 余烬裂缝 / 灼烧边的色阶（硬边）
     patch: 0x8a817c, // 积灰
+    // 熔岩河的色阶（zones-integrate：原来用 lavaStrip 的缺省色阶，橙红两档又宽又饱和，整条河是一条亮带）：
+    // 白热的芯只占很窄一条（特效那一档 85–100%），往外很快压成低饱和的暗红褐，再到焦黑的冷壳；叠加的地面暖光也压到 0.1（原来 0.2，整条河被提成一片橙）
+    lava: [[0, 0xffd890], [0.06, 0xf08a3a], [0.14, 0xb0502a], [0.3, 0x7c3626], [0.56, 0x502a26], [0.88, 0x30242a], [1.16, 0x201a1c]],
   };
   // 零件合成一个静态网格（不是实例化：每种零件只有几个，合成一次 draw 更省）。part = [几何体, x, y, z, rx, ry, rz, sx, sy, sz, 亮度]
   function ashMerge(parts) {
@@ -4647,7 +4650,7 @@
     const extra = [{ segs: cracks, bands: eb, y: 0.022, al }, { segs: embers, bands: [[0, 0xff9a3a], [0.3, 0xe0481c], [0.7, 0x9a2616], [1, 0x2a1a1c]], y: 0.06, al }];
     if (pend) extra.push({ segs: pend.segs, bands: pend.bands, y: 0.02, hard: false, al });
     if (river || pools.length || cracks.length || embers.length || pend) {
-      out.lava = ctx.gfx.lavaStrip(river ? river.pts : [], river ? river.hw : 1, { pools, crust: 0.4, glowA: 0.2, extra, glowQuads: pend ? pend.glow : null });
+      out.lava = ctx.gfx.lavaStrip(river ? river.pts : [], river ? river.hw : 1, { pools, crust: 0.4, glowA: 0.1, bands: ASH_LAY.lava, extra, glowQuads: pend ? pend.glow : null });
     }
     out.rockHi = ctx.mats.rock && ctx.mats.rock.color.clone();
     return out;
@@ -5267,6 +5270,59 @@
     }
     return im;
   }
+  // 巨兽头骨（zones-integrate：原来是一个二十面体加三个方块拼的，近看像箱子）：几个低面数的椭球 / 锥拼成头骨的样子——
+  // 圆的颅顶、往前收窄下压的长吻（吻端两个鼻孔凹进去）、额前两道眉骨、两侧颧骨、眼窝（frostBones 里放暗色的窝底）、
+  // 微张的下颌和上颌一排朝下的尖牙。局部坐标：+z 朝前，y = 0 大约是吻部的中线（外形长约 4.4 m、宽 3 m、高 2.3 m），合成一个几何体，走缓存
+  const frostSkullGeo = () =>
+    geo('frost/skull', () => {
+      const parts = [];
+      // 椭球：taper > 0 时越往 +z 越窄、越往下压（做吻部）
+      const ell = (x, y, z, sx, sy, sz, rx, taper) => {
+        const g = new T.SphereGeometry(1, 12, 8), pa = g.attributes.position;
+        for (let i = 0; i < pa.count; i++) {
+          let px = pa.getX(i), py = pa.getY(i);
+          const pz = pa.getZ(i), f = taper ? Math.max(0, pz) * taper : 0;
+          px *= 1 - 0.45 * f;
+          py = py * (1 - 0.35 * f) - 0.25 * f * f;
+          pa.setXYZ(i, px * sx, py * sy, pz * sz);
+        }
+        if (rx) g.rotateX(rx);
+        g.translate(x, y, z);
+        parts.push(g.toNonIndexed());
+        g.dispose();
+      };
+      const cone = (x, y, z, r, h, rx, rz) => {
+        const g = new T.ConeGeometry(r, h, 4);
+        g.rotateX(rx || 0);
+        if (rz) g.rotateZ(rz);
+        g.translate(x, y, z);
+        parts.push(g.toNonIndexed());
+        g.dispose();
+      };
+      ell(0, 0.55, -0.7, 1.45, 1.2, 1.4); // 颅顶
+      ell(0, 0.05, 0.75, 1.05, 0.72, 1.55, 0, 1); // 长吻
+      for (const sg of [-1, 1]) {
+        ell(sg * 0.6, 0.84, 0.3, 0.6, 0.17, 0.5, -0.2); // 眉骨（眼窝上沿，贴着颅顶）
+        ell(sg * 1.02, 0.12, 0.05, 0.42, 0.34, 0.75); // 颧骨
+      }
+      ell(0, -0.62, 0.55, 0.88, 0.26, 1.35, 0.14, 0.8); // 下颌（微张）
+      for (let k = 0; k < 8; k++) {
+        const t = (k / 7) * 2 - 1;
+        cone(t * 0.6 * (1 - 0.2 * t * t), -0.5, 1.4 + 0.55 * (1 - t * t), 0.1, 0.42, Math.PI); // 上颌的尖牙（朝下）
+      }
+      let n = 0;
+      for (const g of parts) n += g.attributes.position.count;
+      const pos = new Float32Array(n * 3);
+      let o = 0;
+      for (const g of parts) {
+        pos.set(g.attributes.position.array, o);
+        o += g.attributes.position.array.length;
+        g.dispose();
+      }
+      const g = new T.BufferGeometry();
+      g.setAttribute('position', new T.BufferAttribute(pos, 3));
+      return g;
+    });
   // 巨兽骨：脊椎节 + 拱过栈道的肋骨 + 头骨 + 场地里的肋骨柱，合并成一个网格
   function frostBones(zone, ctx) {
     const parts = [], B = FROST_PAL.bone;
@@ -5292,15 +5348,13 @@
         // 头骨：局部 +z 朝 ang（岛心）
         const S = 1.05, base = frostM4(f.x, -0.25, f.z, 0, f.ang, 0, S);
         const pc = (g, col, x, y, z, rx, ry, rz, sx, sy, sz) => add(g, col, base.clone().multiply(frostM4(x, y, z, rx, ry, rz, sx, sy, sz)));
-        pc(gIco(1, 1), B, 0, 1.0, -0.3, 0, 0, 0, 1.6, 1.15, 1.75);
-        pc(gBox(1, 1, 1), B, 0, 0.75, 1.5, 0.12, 0, 0, 1.5, 0.95, 1.7);
-        pc(gBox(1, 1, 1), B, 0, 1.55, 0.75, -0.2, 0, 0, 2.2, 0.35, 0.6);
+        pc(frostSkullGeo(), B, 0, 1.0, 0, 0, 0, 0, 1, 1, 1);
         for (const sg of [-1, 1]) {
-          pc(gIco(0.42, 0), FROST_PAL.socket, sg * 0.62, 1.32, 1.05, 0, 0, 0, 1, 0.8, 0.7);
-          pc(gCone(0.22, 1.5, 5), B, sg * 0.6, 0.55, 2.15, 1.0, 0, sg * -0.25);
-          pc(gCone(0.3, 2.4, 5), B, sg * 1.25, 1.75, -0.9, -1.1, 0, sg * 0.9);
+          pc(gIco(0.34, 0), FROST_PAL.socket, sg * 0.62, 1.68, 0.62, 0, 0, 0, 1, 0.75, 0.6); // 眼窝（眉骨下面的暗窝）
+          pc(gIco(0.13, 0), FROST_PAL.socket, sg * 0.2, 1.08, 2.22, 0, 0, 0, 1, 0.8, 0.6); // 鼻孔
+          pc(gCone(0.16, 1.1, 5), B, sg * 0.62, 0.55, 2.0, 1.35, 0, sg * -0.2, 1); // 獠牙（从吻侧往前下方伸出；缩放要给，原来漏了，frostM4 拿到 undefined 整个看不见）
+          pc(gCone(0.3, 2.4, 5), B, sg * 1.35, 2.35, -1.1, -0.95, 0, sg * 0.75, 1); // 角（颅顶两侧往后上方）
         }
-        pc(gBox(1, 1, 1), B, 0, 0.2, 1.35, 0.18, 0, 0, 1.35, 0.35, 1.9);
       } else if (f.kind === 'pillar') {
         // 肋骨柱：从冰壳里拔起、朝场地中心弯过去的一根粗肋骨
         const ox = -Math.sin(f.ang), oz = -Math.cos(f.ang), h = rand(4.2, 5);
