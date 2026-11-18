@@ -9660,6 +9660,80 @@ async function main() {
     assert(r.vent.left === 0 && r.vent.life < r.vent.life0 && r.vent.hp < r.vent.hp0, '余烬口喷发应伤到玩家和怪：' + JSON.stringify(r.vent));
     return '怪 ' + Z.n + '（精英 ' + Z.elites + '），余烬口 ' + Z.vents + '，喷发打掉玩家 ' + (r.vent.life0 - r.vent.life).toFixed(0) + '、游魂 ' + (r.vent.hp0 - r.vent.hp).toFixed(0);
   });
+
+  await step('区域 rift 布局：20 个种子都通过校验 + 进区刷怪正常 + 首领门外重生（单向 C 形两圈、关键路径约 180 m、外圈内侧虚空挡人不挡子弹）', async () => {
+    const r = await ev(() => {
+      const W = G.world, bad = [], stats = [];
+      const zi = G.ZONES.findIndex((z) => z.id === 'rift');
+      for (let s = 1; s <= 20; s++) {
+        const g = W.genLayout('rift', s * 7919);
+        const sp = g.spec, pit = sp.feats.find((f) => f.kind === 'pit');
+        const mobs = sp.packs.reduce((a, p) => a + (Array.isArray(p.n) ? (p.n[0] + p.n[1]) / 2 : p.n), 0);
+        const elites = sp.packs.filter((p) => p.elite).length, sideElite = sp.packs.some((p) => p.elite && sp.rooms[p.room].kind === 'side');
+        stats.push({ s, area: Math.round(g.area), len: pit ? Math.round(pit.len) : 0, mobs, elites, chests: sp.chests.length });
+        if (!g.ok) bad.push(s + '：' + g.why.join('；'));
+        if (!pit || pit.len < 170 || pit.len > 195) bad.push(s + '：关键路径 ' + (pit && pit.len.toFixed(1)));
+        if (mobs < 45 || mobs > 65 || elites > 4 || !sideElite || sp.chests.length !== 2) bad.push(s + '：怪 / 精英 / 宝箱 ' + JSON.stringify(stats[stats.length - 1]));
+      }
+      // 进区：固定 3 个种子，看刷怪、首领、宝箱、虚空（挡人不挡子弹）、坑壁（都挡）
+      const enter = [];
+      for (const s of [7919, 15838, 23757]) {
+        G.debug.zoneSeed(s);
+        G.enterZone(zi, 0);
+        const z = G.state.zone, L = W.layoutInfo(), pit = z.feats.find((f) => f.kind === 'pit'), boss = G.state.boss;
+        const P = (ph, rr) => [pit.x + Math.sin(ph) * rr, pit.z + Math.cos(ph) * rr];
+        // 横穿虚空：外圈上一点 → 正对着的坑心方向 10 m（落在虚空里）
+        const vm = (pit.vA + pit.vB) / 2, a = P(vm, pit.rO), mid = P(vm, (pit.rV0 + pit.rV1) / 2), b = P(vm, pit.rV0 + 0.8);
+        let shot = true;
+        for (let k = 1; k < 20; k++) {
+          const t = k / 20, x = a[0] + (b[0] - a[0]) * t, zz = a[1] + (b[1] - a[1]) * t;
+          if (!W.shotFree(x, zz, -0.3)) shot = false;
+        }
+        // 中圈和坑底之间的坑壁：挡人也挡子弹
+        const wa = P(pit.ph1 + (pit.ph2 - pit.ph1) * 0.4, (pit.rA + pit.rM - pit.hw) / 2);
+        enter.push({
+          s, gen: L.gen, n: G.state.enemies.length, elites: G.state.enemies.filter((e) => e.elite).length, chests: z.chests.length,
+          bossIn: !!boss && W.inArena(boss.x, boss.z), voidWalk: W.walkable(mid[0], mid[1], 0), voidShot: shot, wallShot: W.shotFree(wa[0], wa[1], -0.3), wallWalk: W.walkable(wa[0], wa[1], 0),
+          doorWalk: W.walkable(z.bossDoor.x, z.bossDoor.z, 0.5), ms: Math.round(z.ms.layout + z.ms.raster),
+        });
+      }
+      // 首领门外重生：在场地里叫醒首领、打一下、倒下，重生点在场地门外（离场地边缘 2），首领复位
+      const S = G.state, Pl = G.player;
+      G.debug.god(true);
+      G.debug.tpBoss();
+      let t = 0;
+      while (!S.boss.awake && t < 3) { G.tick(1 / 60); t += 1 / 60; }
+      const awake = S.boss.awake;
+      G.hitEnemy(S.boss, G.skillCtx('cleave'), 1);
+      G.debug.god(false);
+      Pl.life = 1;
+      let dt = 0;
+      while (!Pl.dead && dt < 40) { G.tick(1 / 60); dt += 1 / 60; }
+      const dead = Pl.dead;
+      G.debug.step(Pl.deadT + 0.5);
+      const z = S.zone, resp = {
+        awake, dead, alive: !Pl.dead, door: +(Math.hypot(Pl.x - z.bossPos.x, Pl.z - z.bossPos.z) - z.bossR).toFixed(2), walk: W.walkable(Pl.x, Pl.z, 0.5),
+        start: Math.hypot(Pl.x - z.start.x, Pl.z - z.start.z) > 30, bossHome: Math.hypot(S.boss.x - z.bossPos.x, S.boss.z - z.bossPos.z) < 0.01 && S.boss.hp === S.boss.maxHp && !S.boss.awake,
+      };
+      G.debug.god(true);
+      G.debug.zoneSeed(null);
+      G.enterZone(0, 0);
+      return { bad, stats, enter, resp };
+    });
+    assert(!r.bad.length, 'rift 布局不合格：' + r.bad.slice(0, 5).join(' | '));
+    for (const e of r.enter) {
+      assert(e.gen === 'custom', 'rift 进区应走新生成器（不是 legacy）：' + JSON.stringify(e));
+      assert(e.n >= 40 && e.n <= 70 && e.elites <= 4 && e.chests === 2, 'rift 刷怪 / 宝箱数量不对：' + JSON.stringify(e));
+      assert(e.bossIn && e.doorWalk, '首领应站在坑底场地里，门点 pad 0.5 可走：' + JSON.stringify(e));
+      assert(!e.voidWalk && e.voidShot, '外圈内侧的虚空应挡人、不挡子弹：' + JSON.stringify(e));
+      assert(!e.wallWalk && !e.wallShot, '中圈和坑底之间的坑壁应挡人也挡子弹：' + JSON.stringify(e));
+    }
+    assert(r.resp.awake && r.resp.dead && r.resp.alive, '首领战倒下、重生的流程不对：' + JSON.stringify(r.resp));
+    assert(Math.abs(r.resp.door - 2) < 0.01 && r.resp.walk && r.resp.start, '倒在首领战里应重生在坑底场地的门外（离场地边缘 2）：' + JSON.stringify(r.resp));
+    assert(r.resp.bossHome, '首领没有复位回满：' + JSON.stringify(r.resp));
+    const avg = (k) => (r.stats.reduce((a, s) => a + s[k], 0) / r.stats.length).toFixed(0);
+    return '20 个种子：面积 ' + avg('area') + ' m²、关键路径 ' + avg('len') + ' m、怪 ' + avg('mobs') + '；进区怪 ' + r.enter.map((e) => e.n + '（布局 + 光栅化 ' + e.ms + 'ms）').join(' / ');
+  });
 }
 
 main()
