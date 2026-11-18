@@ -262,7 +262,7 @@
   // 槽位所在房间按关键路径序号加怪物等级：+⌊order/2⌋
   function slotLevel(zone, slot) {
     const rm = zone.rooms[slot.room];
-    return zone.level + Math.floor((rm ? rm.order : 0) / 2);
+    return zone.level + (rm && rm.lv !== undefined ? rm.lv : Math.floor((rm ? rm.order : 0) / 2)); // rm.lv：加长后的区域按路径比例折算（world.js lvFor）
   }
   // 「圆盘」槽位（legacy 的空地）里的若干怪群：先排好位置和类型，再决定精英，最后统一生成
   function populateClearing(zone, slot) {
