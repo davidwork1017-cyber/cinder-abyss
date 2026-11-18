@@ -8941,7 +8941,14 @@ async function main() {
       // 记下每一道落击的元素：包一层 hitEnemy（只数风暴自己的落击；感电放电、尸爆这类派生伤害带 proc 标记，不算）。
       // 按「落击」数而不是按「命中」数：一道落击砸中几个敌人只算一次，否则数出来的比例取决于怪群站位，测试会随机失败。
       // 三种元素各用一个上下文；装备上的附加伤害会让每个上下文都带上三种元素，所以按 stormCtx 最先写进 base 的那一种（落击本身的元素）认
-      const byCtx = new Map();
+      // 另外在落击出手时（W.triStrike，每一道落击一次，带它的元素）按元素计数：轮流落下按「出手」数断言，和怪有没有被砸中无关
+      // （zones-integrate：按命中数的话，目标在落击下落的 0.24 秒里被击退 / 走开就会落空，三种里任何一种都可能少几下，雷本来就少一道，
+      // 改版前的 main 上 30 遍里也有 1 遍掉到 3）
+      const byCtx = new Map(), spawned = { fire: 0, cold: 0, light: 0 }, ots = G.world.triStrike;
+      G.world.triStrike = function (x, z, el) {
+        spawned[el] = (spawned[el] || 0) + 1;
+        return ots.apply(this, arguments);
+      };
       let frame = 0;
       const oh = G.hitEnemy;
       G.hitEnemy = function (e, ctx, m, info) {
@@ -8953,13 +8960,13 @@ async function main() {
       };
       G.input.tap[4] = 0.3;
       let t = 0;
-      try { while (t < 5.5) { frame++; G.tick(1 / 60); t += 1 / 60; } } finally { G.hitEnemy = oh; }
+      try { while (t < 5.5) { frame++; G.tick(1 / 60); t += 1 / 60; } } finally { G.hitEnemy = oh; G.world.triStrike = ots; }
       const seen = {};
       for (const [c, frames] of byCtx) {
         const el = Object.keys(c.base)[0];
         seen[el] = (seen[el] || 0) + frames.size;
       }
-      out.pack = { hits: S.stats.stormHits, storms: S.stats.storms, freezes: S.stats.freezes, blasts: S.stats.blasts, shocks: S.stats.shocks, seen, far: far.maxHp - far.hp, cd: P.cdMax.tristorm, dmg: es.map((e) => Math.round(e.maxHp - e.hp)) };
+      out.pack = { hits: S.stats.stormHits, storms: S.stats.storms, freezes: S.stats.freezes, blasts: S.stats.blasts, shocks: S.stats.shocks, seen, spawned, far: far.maxHp - far.hp, cd: P.cdMax.tristorm, dmg: es.map((e) => Math.round(e.maxHp - e.hp)) };
       // 首领：风暴打出来的触发照样让阈值变高，不会被冻结
       T.arena();
       G.save.equip.weapon = G.rollUnique('sanxiang', 40, 0.5);
@@ -8981,11 +8988,13 @@ async function main() {
       return out;
     });
     assert(r.pack.storms === 1 && r.pack.hits >= 15 && r.pack.far === 0, '风暴应落在准星一带、打出几十击：' + JSON.stringify(r.pack));
-    assert(r.pack.seen.fire > 0 && r.pack.seen.cold > 0 && r.pack.seen.light > 0 && Math.min(r.pack.seen.fire, r.pack.seen.cold, r.pack.seen.light) >= 4 && Math.max(r.pack.seen.fire, r.pack.seen.cold, r.pack.seen.light) - Math.min(r.pack.seen.fire, r.pack.seen.cold, r.pack.seen.light) <= 3, '火 / 冰 / 雷应轮流落下（按落击数）：' + JSON.stringify(r.pack.seen));
+    const sp = r.pack.spawned, sn = r.pack.seen;
+    assert(Math.min(sp.fire, sp.cold, sp.light) >= 4 && Math.max(sp.fire, sp.cold, sp.light) - Math.min(sp.fire, sp.cold, sp.light) <= 3, '火 / 冰 / 雷应轮流落下（按出手的落击数）：' + JSON.stringify(sp));
+    assert(sn.fire > 0 && sn.cold > 0 && sn.light > 0 && (sn.fire || 0) + (sn.cold || 0) + (sn.light || 0) >= 12, '三种落击都应砸中怪群，砸中的合计 ≥ 12：' + JSON.stringify({ spawned: sp, seen: sn }));
     assert(r.pack.freezes > 0 && r.pack.blasts > 0 && r.pack.shocks > 0, '怪群里应接连触发冻结 / 爆燃 / 感电：' + JSON.stringify(r.pack));
     assert(Math.abs(r.pack.cd - 12) < 1e-6, '冷却应为 12 秒：' + r.pack.cd);
     assert(r.boss.grow0 === 0 && r.boss.grow.some((g) => g > 1) && !r.boss.frozen, '风暴触发的异常应让首领阈值照常变高、首领不被冻结：' + JSON.stringify(r.boss));
-    return '怪群 ' + r.pack.hits + ' 击（火 ' + r.pack.seen.fire + ' / 冰 ' + r.pack.seen.cold + ' / 雷 ' + r.pack.seen.light + '）· 冻结 ' + r.pack.freezes + ' 爆燃 ' + r.pack.blasts + ' 感电 ' + r.pack.shocks + ' · 首领阈值 ×' + r.boss.grow.join('/');
+    return '怪群 ' + r.pack.hits + ' 击（出手 火 ' + sp.fire + ' / 冰 ' + sp.cold + ' / 雷 ' + sp.light + '，砸中 ' + sn.fire + ' / ' + sn.cold + ' / ' + sn.light + '）· 冻结 ' + r.pack.freezes + ' 爆燃 ' + r.pack.blasts + ' 感电 ' + r.pack.shocks + ' · 首领阈值 ×' + r.boss.grow.join('/');
   });
 
   await step('万魂降临：6 位英灵落在准星一带（按召唤物算、吃召唤物伤害加成、不占仆从上限），8 秒后消散（化作魂火）；现有召唤物治疗到满并狂热；冷却 15 秒', async () => {
