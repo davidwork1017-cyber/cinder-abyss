@@ -16305,6 +16305,17 @@
     pfPart('chShard', PF.tShard.mesh.geometry, PF.tShard.mesh.material, 240, 0);
     // chDisc：黑旋风的圆片（面朝镜头的 14 边形），材质同上
     pfPart('chDisc', geo('chDisc', () => new T.CircleGeometry(1, 14)), PF.tShard.mesh.material, 120, 0);
+    // chFlame：黑焰的火舌，圆底、往上收成一个微微勾着的尖（以中心为扇心的一圈轮廓），材质同上
+    pfPart('chFlame', geo('chFlame', () => {
+      const O = [[0, -0.36], [0.2, -0.31], [0.32, -0.16], [0.33, 0.02], [0.25, 0.2], [0.15, 0.38], [0.09, 0.56], [0.06, 0.74], [-0.05, 0.92], [-0.04, 0.7], [-0.13, 0.5], [-0.24, 0.3], [-0.32, 0.1], [-0.33, -0.08], [-0.27, -0.25], [-0.15, -0.34]];
+      const P = [0, 0, 0], idx = [];
+      for (const o of O) P.push(o[0], o[1], 0);
+      for (let i = 0; i < O.length; i++) idx.push(0, 1 + i, 1 + ((i + 1) % O.length));
+      const g = new T.BufferGeometry();
+      g.setAttribute('position', new T.Float32BufferAttribute(P, 3));
+      g.setIndex(idx);
+      return g;
+    }), PF.tShard.mesh.material, 96, 0);
   }
   // 黑焰的火圈：两只手上各一簇往上舔的暗焰（中间一条高的、两边两条往外斜的），武器上再烧三条小的（握把到刃尖之间）。
   // 每条火舌四层：品红描边（垫在最后面、大一圈）→ 近黑的火身 → 里面一条品红 → 偶尔一粒亮芯；高矮按三档轮流跳。
@@ -16314,15 +16325,17 @@
   function tongue(x, y, z, rx, rz, h, lean, k) {
     const ox = camB.x * 0.03, oy = camB.y * 0.03, oz = camB.z * 0.03;
     const dx = rx * lean, dz = rz * lean;
-    mStretch(x - ox, y - 0.02 - oy, z - oz, dx, 1, dz, 0.3 * h, 0.86 * h);
-    pfPut('chShard', chLin.rim[0], chLin.rim[1], chLin.rim[2]);
-    mStretch(x, y, z, dx, 1, dz, 0.23 * h, 0.74 * h);
-    pfPut('chShard', chLin.core[0], chLin.core[1], chLin.core[2]);
-    mStretch(x + ox, y + 0.05 * h + oy, z + oz, dx, 1, dz, 0.1 * h, 0.4 * h);
-    pfPut('chShard', chLin.rim[0], chLin.rim[1], chLin.rim[2]);
+    // 圆底在 y 上：火舌的底部中心对准 (x, y, z)，往上舔
+    const yy = y + 0.3 * h;
+    mStretch(x - ox, yy - 0.02 * h - oy, z - oz, dx, 1, dz, 0.58 * h, 0.62 * h);
+    pfPut('chFlame', chLin.rim[0], chLin.rim[1], chLin.rim[2]);
+    mStretch(x, yy, z, dx, 1, dz, 0.48 * h, 0.54 * h);
+    pfPut('chFlame', chLin.core[0], chLin.core[1], chLin.core[2]);
+    mStretch(x + ox, yy - 0.06 * h + oy, z + oz, dx, 1, dz, 0.24 * h, 0.3 * h);
+    pfPut('chFlame', chLin.rim[0], chLin.rim[1], chLin.rim[2]);
     if (k === 0) {
-      mStretch(x + ox * 2, y + 0.1 * h + oy * 2, z + oz * 2, dx, 1, dz, 0.05 * h, 0.17 * h);
-      pfPut('chShard', chLin.hi[0], chLin.hi[1], chLin.hi[2]);
+      mStretch(x + ox * 2, yy - 0.1 * h + oy * 2, z + oz * 2, dx, 1, dz, 0.1 * h, 0.13 * h);
+      pfPut('chFlame', chLin.hi[0], chLin.hi[1], chLin.hi[2]);
     }
   }
   function flameWreath() {
