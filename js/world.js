@@ -807,11 +807,11 @@
       // 红橙只留给路面上零星几片发光的裂缝（lava.patch）、余烬口、深渊底的熔岩缝和火星
       mats: [
         { tex: 'dark_rock_02', tile: 5.0, con: 0.55, nrm: 0.9, rough: 1, k: 0.6, sat: 0.45, col: 0x57525c },
-        { tex: 'Lava001', tile: 6.0, con: 0.45, nrm: 0.8, rough: 1, k: 0.5, sat: 0.3, col: 0x48404c },
-        { tex: 'dark_rock', tile: 6.5, con: 0.8, nrm: 1.0, rough: 1, k: 0.8, col: 0x26202a },
+        { tex: 'Lava001', tile: 6.0, con: 0.4, nrm: 0.8, rough: 1, k: 0.56, sat: 0.3, col: 0x4e4652 },
+        { tex: 'dark_rock', tile: 6.5, con: 0.8, nrm: 1.0, rough: 1, k: 0.9, col: 0x3a3442 }, // 岩壁外的岩顶：岩石之间露出来的地方也要落在岩壁那一档（15–25%）
       ],
       lava: { mode: 1, color: 0xff6a22, k: 1.6, patch: [0, 0.72] },
-      rock: { tex: 'dark_rock', tile: 2.6, nrm: 1.2, cap: 0, capAll: 0 },
+      rock: { tex: 'dark_rock', tile: 2.6, nrm: 1.2, cap: 0x5a5262, capAll: 0.18 }, // 朝上的面盖一层很淡的灰烬，岩石的顶面不至于一片死黑
       grade: { sat: 1.0, con: 1.08, lift: 0x0a0612, gain: 0xf8f4f8, vig: 0.26 },
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x1c1622, a: 0.3 },
@@ -860,7 +860,7 @@
     ash: { key: 0xffc286, keyI: 1.5, shade: 0x6248de, bounce: 0x9a3e22, hemiI: 0.95, rim: 0x8fb6ff, rimI: 0.9, fog: 0x2a1620, exposure: 1.0 },
     frost: { key: 0xffe8cc, keyI: 1.45, shade: 0x4c7ae0, bounce: 0x3a6078, hemiI: 0.9, rim: 0xc8ecff, rimI: 0.85, fog: 0x1a2c3e, exposure: 0.76 },
     storm: { key: 0xffe2a0, keyI: 1.45, shade: 0x5446c8, bounce: 0x5a4468, hemiI: 0.9, rim: 0xe6dcff, rimI: 0.85, fog: 0x221c36, exposure: 0.84 },
-    abyss: { key: 0xffd6b4, keyI: 1.5, shade: 0x4c3cb0, bounce: 0x5a3434, hemiI: 0.9, rim: 0xb4a8ff, rimI: 1.1, fog: 0x18121e, exposure: 1.0 }, // zones-abyss：反光和雾去掉酒红，补光换成冷紫
+    abyss: { key: 0xffd6b4, keyI: 1.5, shade: 0x4c3cb0, bounce: 0x5a3434, hemiI: 1.15, rim: 0xb4a8ff, rimI: 1.1, fog: 0x18121e, exposure: 1.0 }, // zones-abyss：反光和雾去掉酒红，补光换成冷紫
     rift: { key: 0xf0ffe0, keyI: 1.45, shade: 0x3a8cc0, bounce: 0x245a48, hemiI: 0.9, rim: 0xa4ffde, rimI: 0.85, fog: 0x0f2a26, exposure: 0.86 },
   };
   // 阴影色的统一处理（TOON.shadeSat / hemiK）：线性空间里向亮度收饱和度
@@ -3802,7 +3802,7 @@
   const ABYSS_PAL = {
     rock: 0x48424f, // 岩壁 / 岩石固有色（替换区域配色里偏红的 0x3f2a2c，按比例改实例色）
     stone: 0x4a4450, stoneLo: 0x241e2c, // 石桥：受光的桥面、桥身底部（冷紫）
-    basalt: 0x4a4452, basaltLo: 0x241e2c, // 崖壁上的玄武岩柱
+    basalt: 0x504a58, basaltLo: 0x3c3448, // 崖壁上的玄武岩柱（底部别压到近黑，岩壁那一档 15–25%）
     cliffTop: 0x3c3342, cliffBot: 0x0c0810, // 虚空边往下挂的崖面（不受光的渐变）
     deep: 0x0c0810, deepRim: 0x150f1b, // 深渊底：中间、靠崖壁一侧
     core: 0xffd08a, mid: 0xff7a2a, edge: 0xc8341c, // 余烬：芯 / 中 / 边
@@ -4152,8 +4152,8 @@
     if (st.glow && vs) {
       for (let i = 0; i < st.vents.length && i < vs.length; i++) {
         const v = vs[i], left = ABYSS.vent.period - v.t; // 离下一次开始预警还有多久
-        let e = 0.35 + 0.15 * Math.sin(wtime * 2.3 + i * 1.7);
-        if (v.t < 0) e = 0.35;
+        let e = 0.22 + 0.1 * Math.sin(wtime * 2.3 + i * 1.7);
+        if (v.t < 0) e = 0.22;
         else if (left < 1.6) e += (1 - left / 1.6) * 0.9;
         if (v.fire > 0) e = 1.5 + v.fire * 2;
         st.glow.setColorAt(st.vents[i].i, _c.copy(lin(ABYSS_PAL.mid)).multiplyScalar(e));
