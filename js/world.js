@@ -3485,7 +3485,7 @@
     box: 148, // 世界坐标外接框上限（设计稿 ≤ 150）
     hw: [2.5, 3], // 关键路径走廊的半宽
     door: 2, // 门口收窄后的半宽（门框柱之间 4 m）
-    frameR: 0.7,
+    frameR: 0.55, // 门框柱（外观）的半宽
     // 雷枢：period 周期、warn 预警、w 雷线宽、range 玩家离雷线多近才运转、dmg 伤害（0.6 × 小怪平均伤害约 8，再乘 dmgScale；先取保守值，C 调）
     node: { period: 5, warn: 0.9, w: 2, range: 14, dmg: 4.8 },
   };
@@ -3528,25 +3528,39 @@
     const st = { u: 0, v: 0, hu: 8, hv: 8, disk: true, kind: 'start', order: 0, path: true, doors: [] };
     halls.push(st);
     // 门：p 局部坐标、n 朝里（走进这个房间的方向）、w 半宽、frame 门框柱半径（0 = 没有）
-    const addDoor = (H, p, n, w, frame) => {
+    // 门框柱只是外观（不挖空）：门洞的收窄由走廊末端那一小段窄盒子做（见 addCor），柱子立在门洞两侧的实心墙里
+    const framesL = [];
+    const addDoor = (H, p, n, w, frame, big) => {
       const D = { p, n, w, frame };
       H.doors.push(D);
       if (frame) {
         const l = lat(n), o = w + frame;
-        for (const s of [-1, 1]) cutsL.push({ u: p[0] + l[0] * o * s, v: p[1] + l[1] * o * s, r: frame, kind: 'frame', ang: Math.atan2(n[0], n[1]) });
+        for (const s of [-1, 1]) framesL.push({ u: p[0] - n[0] * frame + l[0] * o * s, v: p[1] - n[1] * frame + l[1] * o * s, r: frame, ang: Math.atan2(n[0], n[1]), big: !!big });
       }
       return D;
     };
-    // 走廊：legs 是盒子；axis 是中线折线（局部）；a / b 两端的房间
-    const addCor = (A, B, pts, hw, kind) => {
-      const legs = [];
+    // 走廊：legs 是盒子；axis 是中线折线（局部）；a / b 两端的房间。
+    // wA / wB：门洞半宽（比走廊窄时，墙那一段换成半宽 wX 的窄盒子：从房间里一直伸到墙外 3 m，走廊本身停在墙外 1 m）
+    const addCor = (A, B, pts, hw, kind, wA, wB) => {
+      const segs = [];
       for (let i = 0; i + 1 < pts.length; i++) {
         const a = pts[i].slice(), b = pts[i + 1].slice();
         // 弯折处两段各往外伸 hw，转角是方的
         if (i > 0) { const d0 = [Math.sign(a[0] - pts[i - 1][0]), Math.sign(a[1] - pts[i - 1][1])]; a[0] -= d0[0] * hw; a[1] -= d0[1] * hw; }
         if (i + 2 < pts.length) { const d1 = [Math.sign(b[0] - a[0]), Math.sign(b[1] - a[1])]; b[0] += d1[0] * hw; b[1] += d1[1] * hw; }
-        legs.push(segBox(a, b, hw));
+        segs.push([a, b]);
       }
+      const doorBox = [];
+      const narrow = (end, w) => {
+        const i = end ? pts.length - 1 : 0, j = end ? pts.length - 2 : 1, q = pts[i];
+        const dd = [Math.sign(pts[j][0] - q[0]), Math.sign(pts[j][1] - q[1])]; // 从房间里朝走廊外
+        const wall = [q[0] + dd[0] * OV, q[1] + dd[1] * OV];
+        segs[end ? segs.length - 1 : 0][end ? 1 : 0] = [wall[0] + dd[0], wall[1] + dd[1]];
+        doorBox.push(segBox(q, [wall[0] + dd[0] * 3, wall[1] + dd[1] * 3], w)); // 和走廊重叠 2 m：重叠太短，两块的 sd 在接缝处 max 起来会掐出窄缝
+      };
+      if (wA && wA < hw) narrow(false, wA);
+      if (wB && wB < hw) narrow(true, wB);
+      const legs = segs.map(([a, b]) => segBox(a, b, hw)).concat(doorBox);
       const C = { a: A, b: B, legs, axis: pts, hw, kind, len: 0 };
       for (let i = 0; i + 1 < pts.length; i++) C.len += Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
       cors.push(C);
@@ -3601,7 +3615,7 @@
         n = [l[0] * side, l[1] * side];
       }
       Object.assign(B, { kind: arena ? 'arena' : 'room', hk: kind, order: k, path: true, doors: [] });
-      C = addCor(P, B, pts, hw, arena ? 'neck' : 'corr');
+      C = addCor(P, B, pts, hw, arena ? 'neck' : 'corr', P.disk || arena ? 0 : STORM.door, arena ? 0 : STORM.door);
       C.order = k - 1;
       // 和已有的东西隔开：新大厅只能挨着这条走廊，走廊只能挨着两端
       ok = clear(B, (h) => h === C) && C.legs.every((b) => clear(b, (h) => h === P || h === C));
@@ -3615,13 +3629,7 @@
       C.doorA.out = d;
       const bw = n[0] ? B.u - n[0] * B.hu : B.v - n[1] * B.hv; // B 进门那面墙
       const pbw = n[0] ? [bw, pb[1]] : [pb[0], bw];
-      C.doorB = addDoor(B, pbw, n, arena ? 4 : STORM.door, arena ? 1.0 : STORM.frameR);
-      if (arena) {
-        // 大门：门框柱放在 8 m 门洞两侧的墙里，不收窄
-        const D = C.doorB, l = lat(n);
-        cutsL.splice(cutsL.length - 2, 2);
-        for (const s of [-1, 1]) cutsL.push({ u: D.p[0] + l[0] * 5 * s, v: D.p[1] + l[1] * 5 * s, r: 1.0, kind: 'frame', ang: Math.atan2(n[0], n[1]), big: true });
-      }
+      C.doorB = addDoor(B, pbw, n, arena ? 4 : STORM.door, arena ? 1.0 : STORM.frameR, arena); // 场地大门：8 m 门洞不收窄，门框柱更粗
       B.entry = C.doorB;
       P = B;
       nIn = n;
@@ -3647,7 +3655,7 @@
           if (!clear(tmp.legs[0], (h) => h === H)) continue;
           if (boxGap(S, tmp.legs[0]) > 0.01) continue;
           halls.push(S);
-          const C = addCor(H, S, [pt(q, sA - OV, y), pt(q, sA + g + OV, y)], hw, 'corr');
+          const C = addCor(H, S, [pt(q, sA - OV, y), pt(q, sA + g + OV, y)], hw, 'corr', 0, 1.5);
           C.order = H.order;
           C.side = true;
           C.doorA = addDoor(H, pt(q, sA, y), [-q[0], -q[1]], 1.5, 0);
@@ -3740,7 +3748,7 @@
     };
     const sees = (a, b) => {
       const n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.3);
-      for (let i = 1; i < n; i++) if (sdL(a[0] + ((b[0] - a[0]) * i) / n, a[1] + ((b[1] - a[1]) * i) / n) < -0.5) return false;
+      for (let i = 1; i < n; i++) if (sdL(a[0] + ((b[0] - a[0]) * i) / n, a[1] + ((b[1] - a[1]) * i) / n) < -0.4) return false; // 唤醒的视线按 shotFree(pad −0.3) 判
       return true;
     };
     const allDoors = [];
@@ -3860,6 +3868,10 @@
       const p = toW(c.u, c.v);
       cuts.push({ prim: { t: 'circle', x: p[0], z: p[1], r: c.r }, mat: MAT.WALL });
       feats.push({ kind: c.kind, x: p[0], z: p[1], r: c.r, h: c.h || 0, ang: c.ang !== undefined ? c.ang + th : th, big: !!c.big, arena: !!c.arena });
+    }
+    for (const f of framesL) {
+      const p = toW(f.u, f.v);
+      feats.push({ kind: 'frame', x: p[0], z: p[1], r: f.r, h: 0, ang: f.ang + th, big: f.big });
     }
     for (const b of wallsL) {
       const c = toW(b.u, b.v);
