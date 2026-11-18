@@ -7446,7 +7446,7 @@ async function main() {
       assert(!r.open, '进入区域后面板应关闭');
       assert(r.idx === zi && r.id === Z.id && r.level === Z.level && r.tier === 0 && r.last === zi, '进入的区域不对：' + JSON.stringify(r));
       assert(r.name === Z.name, 'HUD 区域名没有更新：' + r.name);
-      assert(r.n >= 20 && r.elites <= 6, '怪物数量不对：' + r.n); // zones-polish：区域加长到 ×1.6，精英按面积保持密度，上限 4 → 6
+      assert(r.n >= 70 && r.elites <= 6, '怪物数量不对：' + r.n); // zones-polish：区域加长到 ×1.6，精英按面积保持密度，上限 4 → 6；zones-balance：每群 ×1.25，普通怪约 ×2，下限 20 → 70（五个区各 150 次最少 84）
       assert(r.boss === Z.boss && r.bossLv === Z.level + 3, '首领不对：' + r.boss);
       assert(r.types.every((t) => Z.mobs.includes(t)), '出现了不属于该区域的怪：' + r.types);
       assert(r.bad === 0, r.bad + ' 只怪的位置不合法');
@@ -7971,6 +7971,82 @@ async function main() {
     // 前四个区域和改版前一样（19 级左右打完烬渊深处）；第五区打完 22–25 级；层级 1 末区（37–40 级的怪）打完 41–45 级
     assert(r.rows[3].lvl >= 18 && r.rows[3].lvl <= 21 && r.rows[4].lvl >= 22 && r.rows[4].lvl <= 25 && r.rows[9].lvl >= 41 && r.rows[9].lvl <= 45, '各层级末区的角色等级不对：' + JSON.stringify(r.rows));
     return '清完各区域后的等级：' + r.rows.map((x) => x.lvl + '@' + x.zl).join(' ');
+  });
+
+  await step('大区小怪（G.BALANCE）：区域刷的普通怪生命 ×0.55、经验和掉落几率按倍率打折，生成器怪群人数 ×1.25（多出来的只放轻怪）；精英、首领召唤、直接刷的怪不打折', async () => {
+    const r = await ev(() => {
+      const B = G.BALANCE, out = { B: JSON.parse(JSON.stringify(B)) };
+      const keep = { zi: G.state.zoneIdx, tier: G.state.tier, k: B.packSize };
+      // 生命：每区进一次，逐只核对
+      out.bad = [];
+      out.cnt = { horde: 0, elite: 0 };
+      for (let z = 0; z < G.ZONES.length; z++) {
+        G.enterZone(z, 0);
+        for (const e of G.state.enemies) {
+          if (e.isBoss) continue;
+          const base = e.def.hp * G.hpScale(e.level);
+          if (e.elite) {
+            out.cnt.elite++;
+            if (e.horde || e.maxHp !== Math.max(1, Math.round(base * 4.5))) out.bad.push('精英 ' + e.type + ' ' + e.maxHp);
+          } else {
+            out.cnt.horde++;
+            if (!e.horde || e.maxHp !== Math.max(1, Math.round(base * B.mobHp)) || e.hordeK !== (B.zoneK[e.zone.def.id] || 1)) out.bad.push('普通 ' + e.type + ' ' + e.maxHp + ' ×' + e.hordeK);
+          }
+        }
+      }
+      // 首领召唤（pack: null, awake）和调试直接刷的怪：不带 horde，满血
+      const sm = G.spawnMob('husk', G.state.zone.start.x + 3, G.state.zone.start.z, 9, { elite: false, pack: null, awake: true });
+      out.summon = { horde: !!sm.horde, full: sm.maxHp === Math.round(G.MOBS.husk.hp * G.hpScale(9)) };
+      // 经验：普通怪 ×mobXp，精英 ×3、首领 ×20 不变
+      out.xpZone = +(G.killXp(Object.assign({}, sm, { horde: true, hordeK: 1.13 }), 9) / G.mobXp(9)).toFixed(4);
+      out.xp = { horde: +(G.killXp(sm.horde ? sm : Object.assign({}, sm, { horde: true }), 9) / G.mobXp(9)).toFixed(4), plain: +(G.killXp(sm, 9) / G.mobXp(9)).toFixed(4), elite: +(G.killXp(Object.assign({}, sm, { elite: true, horde: false }), 9) / G.mobXp(9)).toFixed(4) };
+      // 掉落几率：同一只怪带 / 不带 horde 各掷 N 次，比物品 / 通货 / 宝石的个数
+      const N = 40000, cnt = (horde) => {
+        const c = { item: 0, cur: 0, gem: 0 }, s0 = G.spawnLoot, r0 = G.rollItem, c0 = G.rollCurrency;
+        G.spawnLoot = (k) => { c[k === 'item' ? 'item' : k === 'cur' ? 'cur' : 'gem']++; return null; };
+        G.rollItem = () => ({ rarity: 0 });
+        G.rollCurrency = () => 'dust';
+        try { for (let i = 0; i < N; i++) G.dropLoot({ level: 9, x: 0, z: 0, elite: false, isBoss: false, horde }); } finally { G.spawnLoot = s0; G.rollItem = r0; G.rollCurrency = c0; }
+        return c;
+      };
+      out.lootPlain = cnt(false);
+      out.lootHorde = cnt(true);
+      sm.dead = true;
+      G.world.removeEnt(sm.ent);
+      G.state.enemies.splice(G.state.enemies.indexOf(sm), 1);
+      // 怪群人数：同样的固定布局（5 个区 × 3 个种子），packSize = 1 和设计值各刷一遍，比普通怪 + 精英的总数
+      const count = (k) => {
+        B.packSize = k;
+        let n = 0, packs = 0, heavy = 0, extra = 0;
+        for (const seed of [11, 22, 33]) for (let z = 0; z < G.ZONES.length; z++) {
+          G.debug.zoneSeed(seed + z);
+          G.enterZone(z, 0);
+          const ids = new Set();
+          for (const e of G.state.enemies) if (!e.isBoss) { n++; ids.add(e.pack); if (e.packExtra) { extra++; if (!e.elite && (e.type === 'brute' || e.type === 'charger' || e.type === 'bomber')) heavy++; } }
+          packs += ids.size;
+        }
+        return { n, packs, heavy, extra };
+      };
+      try { out.size1 = count(1); out.sizeK = count(keep.k); } finally { B.packSize = keep.k; G.debug.zoneSeed(null); }
+      G.enterZone(keep.zi, keep.tier);
+      return out;
+    });
+    // 设计值（owner 默认）：生命 ×0.55、每群 ×1.25
+    assert(r.B.mobHp === 0.55 && r.B.packSize === 1.25, 'G.BALANCE 的生命 / 人数倍率应是 0.55 / 1.25：' + JSON.stringify(r.B));
+    assert(r.bad.length === 0 && r.cnt.horde >= 150 && r.cnt.elite >= 1, '区域刷的普通怪应带 horde、生命 ×mobHp、本区的经验 / 掉落系数，精英不打折：' + JSON.stringify({ cnt: r.cnt, bad: r.bad.slice(0, 8) }));
+    assert(!r.summon.horde && r.summon.full, '召唤 / 直接刷的怪不该打折：' + JSON.stringify(r.summon));
+    assert(Math.abs(r.xpZone - r.B.mobXp * 1.13) < 1e-3 && Object.values(r.B.zoneK).every((k) => k > 0.8 && k < 1.25), '经验应再乘本区系数（各区系数在 0.8–1.25 之间）：' + JSON.stringify({ xpZone: r.xpZone, zoneK: r.B.zoneK }));
+    assert(Math.abs(r.xp.horde - r.B.mobXp) < 1e-9 && r.xp.plain === 1 && r.xp.elite === 3 && r.B.mobXp > 0.3 && r.B.mobXp < 1, '经验：普通怪 ×mobXp、直接刷的 ×1、精英 ×3：' + JSON.stringify(r.xp));
+    // 期望个数：物品 0.14·N、通货 0.09·N；打折后的比例和倍率差 15% 以内（N = 40000 时抽样误差约 2–3%）
+    const rel = (k) => r.lootHorde[k] / r.lootPlain[k] / r.B.loot[k];
+    assert(r.lootPlain.item > 5000 && r.lootPlain.item < 6200 && r.lootPlain.cur > 3200 && r.lootPlain.cur < 4000, '不打折的掉落几率应和原来一样（物品 14%、通货 9%）：' + JSON.stringify(r.lootPlain));
+    assert(['item', 'cur', 'gem'].every((k) => Math.abs(rel(k) - 1) < 0.15) && r.B.loot.item < 1 && r.B.loot.cur < 1 && r.B.loot.gem < 1, '普通怪的掉落几率应按 G.BALANCE.loot 打折：' + JSON.stringify({ plain: r.lootPlain, horde: r.lootHorde, loot: r.B.loot }));
+    // 同样的布局：怪群数不变，怪的总数约 ×1.25（随机取整的期望正好是倍率；站位半径跟着放大，几乎都摆得下）
+    const kN = r.sizeK.n / r.size1.n;
+    assert(r.sizeK.packs === r.size1.packs && kN > 1.15 && kN < 1.4, '同样的布局下怪群数应不变、怪的总数约 ×1.25：' + JSON.stringify({ size1: r.size1, sizeK: r.sizeK, kN }));
+    // 多出来的人手只放轻怪：packSize = 1 时没有加出来的；1.25 时加出来的约占两成，其中一只巨躯 / 陨角兽 / 爆裂虫都没有
+    assert(r.size1.extra === 0 && r.sizeK.extra >= r.sizeK.n * 0.12 && r.sizeK.heavy === 0, '怪群加人时多出来的应全是轻怪：' + JSON.stringify({ size1: r.size1, sizeK: r.sizeK }));
+    return '普通 ' + r.cnt.horde + ' 只 / 精英 ' + r.cnt.elite + ' 只 · 经验 ×' + r.B.mobXp + ' · 掉落 物品 ×' + rel('item').toFixed(2) + ' 通货 ×' + rel('cur').toFixed(2) + '（相对倍率）· 人数 ' + r.size1.n + ' → ' + r.sizeK.n + '（×' + kN.toFixed(2) + '）· 加出来的 ' + r.sizeK.extra + ' 只（重手 ' + r.sizeK.heavy + '）';
   });
 
   await step('词缀：物品等级 31 / 38 / 46 / 55 解锁第 7–10 阶，按同样的倍率接着涨（抗性 / 速度类放缓）；24 级以内的 6 阶不变；高阶词缀在物品详情里显示 T7–T10', async () => {
@@ -10064,7 +10140,7 @@ async function main() {
     });
     assert(r.n === 20 && !r.bad.length, '有种子没通过校验：' + r.bad.slice(0, 5).join(' | '));
     assert(r.custom, '第 0 区应当用新的生成器（有熔岩河），却退回了 legacy：' + JSON.stringify(r));
-    assert(r.mobs >= 20 && r.elites <= 6 && r.legal && r.bossIn && r.chests === 3, '刷怪 / 宝箱不对：' + JSON.stringify(r));
+    assert(r.mobs >= 80 && r.elites <= 6 && r.legal && r.bossIn && r.chests === 3, '刷怪 / 宝箱不对：' + JSON.stringify(r));
     assert(r.size.path === 7 && r.size.sides === 3 && r.size.rivers === 2 && r.size.bridges.length === 2 && r.size.bridges.every(Boolean), '加长后的布局不对（关键路径 7 个房间、旁支 3 个、河和沟各一道、两座桥能走）：' + JSON.stringify(r.size));
     assert(!r.lava.walk && r.lava.shot && r.lava.mat && r.bridge, '熔岩河应挡路、不挡子弹，桥面应能走：' + JSON.stringify(r));
     assert(!r.ford.mid && r.ford.edge && r.ford.walk && r.burn.mob > 0 && r.burn.player > 0, '浅滩两边应灼烧（玩家和小怪都掉血），中间安全：' + JSON.stringify(r));
@@ -10173,7 +10249,8 @@ async function main() {
     const Z = r.zone;
     assert(Z.id === 'frost' && Z.gen === 'custom' && Z.boss === 'weaver' && Z.bossIn && Z.chests === 3, '进区布局不对：' + JSON.stringify(Z));
     // size-frost：区域加长后怪群约 ×1.6–1.8，怪数上下限照 ×1.6 放（原来 40–70、精英 1–4）
-    assert(Z.n >= 64 && Z.n <= 112 && Z.elites >= 1 && Z.elites <= 6 && Z.bad === 0 && Z.types, '刷怪不对：' + JSON.stringify(Z));
+    // zones-balance：每群人数 ×1.25，上下限跟着 ×1.25（64–112 → 80–140）
+    assert(Z.n >= 80 && Z.n <= 140 && Z.elites >= 1 && Z.elites <= 6 && Z.bad === 0 && Z.types, '刷怪不对：' + JSON.stringify(Z));
     assert(!r.water.walk && r.water.shot, '深水应挡人、不挡子弹：' + JSON.stringify(r.water));
     assert(r.slow.haz & 1 && r.slow.shallow > 0.55 && r.slow.shallow < 0.75, '浅水应减速到约 0.65：' + JSON.stringify(r.slow));
     const th = r.thin;
@@ -10263,7 +10340,7 @@ async function main() {
     });
     assert(r.seeds === 20 && !r.bad.length, 'storm 有种子不合格：' + r.bad.slice(0, 4).join(' | '));
     const z = r.zone;
-    assert(z.gen === 'custom' && z.n >= 20 && z.boss && z.bad === 0 && z.elites <= 6 && z.chests === 3, '进区刷怪不对：' + JSON.stringify(z));
+    assert(z.gen === 'custom' && z.n >= 80 && z.boss && z.bad === 0 && z.elites <= 6 && z.chests === 3, '进区刷怪不对：' + JSON.stringify(z));
     assert(Math.abs(z.doorGap - 2) < 0.01 && z.doorWalk && z.wallMat, '场地门 / 区域外的墙不对：' + JSON.stringify(z));
     assert(r.node.shape === 'rect' && r.node.w === 2 && Math.abs(r.node.dur - 0.9) < 1e-6 && r.node.warnAt <= 6.5, '雷枢应在 5 秒一轮里先放 2 m 宽、0.9 秒的长条预警：' + JSON.stringify(r.node));
     assert(r.node.playerHit > 0 && r.node.huskHit > 0, '雷枢落雷应同时打到玩家和小怪：' + JSON.stringify(r.node));
@@ -10350,7 +10427,8 @@ async function main() {
     assert(Z.gen === 'custom' && Z.shot && Z.chests === 3 && Z.vents >= 4, 'abyss 应走自己的生成器、有虚空挖空、3 个宝箱、至少 4 个余烬口：' + JSON.stringify(Z));
     assert(Z.plats === 7 && Z.bridges === 4 && Z.caves === 3, 'abyss 加长后应有 7 个平台、4 座桥、3 个洞穴：' + JSON.stringify(Z));
     assert(!Z.lvBad.length && Z.lvEnds[0] === 0 && Z.lvEnds[1] === 2, '房间等级应按 lvFor(序号, 7) 折算、首尾 +0 / +2：' + JSON.stringify(Z));
-    assert(Z.n >= 56 && Z.n <= 112 && Z.elites >= 1 && Z.elites <= 6 && Z.badPos === 0 && Z.boss, '进区刷怪不对：' + JSON.stringify(Z));
+    // zones-balance：每群人数 ×1.25，上下限跟着 ×1.25（56–112 → 70–140）
+    assert(Z.n >= 70 && Z.n <= 140 && Z.elites >= 1 && Z.elites <= 6 && Z.badPos === 0 && Z.boss, '进区刷怪不对：' + JSON.stringify(Z));
     assert(Z.lane && Math.abs(Z.door - 2) < 0.01, '起点契约 / 首领门的位置不对：' + JSON.stringify(Z));
     assert(!r.void.walk && r.void.shot && r.void.mat, '虚空应不可走、子弹能飞过：' + JSON.stringify(r.void));
     assert(r.awake && r.dead && !r.respawn.dead && Math.abs(r.respawn.door - 2) < 0.01 && r.respawn.walk, '倒在首领战里应重生在门外：' + JSON.stringify(r));
@@ -10423,7 +10501,7 @@ async function main() {
     assert(!r.bad.length, 'rift 布局不合格：' + r.bad.slice(0, 5).join(' | '));
     for (const e of r.enter) {
       assert(e.gen === 'custom', 'rift 进区应走新生成器（不是 legacy）：' + JSON.stringify(e));
-      assert(e.n >= 64 && e.n <= 112 && e.elites <= 6 && e.chests === 3, 'rift 刷怪 / 宝箱数量不对：' + JSON.stringify(e)); // zones-polish：40–70 → 64–112（×1.6），精英 ≤ 4 → ≤ 6，宝箱 2 → 3
+      assert(e.n >= 80 && e.n <= 140 && e.elites <= 6 && e.chests === 3, 'rift 刷怪 / 宝箱数量不对：' + JSON.stringify(e)); // zones-polish：40–70 → 64–112（×1.6），精英 ≤ 4 → ≤ 6，宝箱 2 → 3；zones-balance：每群 ×1.25，→ 80–140
       assert(e.bossIn && e.doorWalk, '首领应站在坑底场地里，门点 pad 0.5 可走：' + JSON.stringify(e));
       assert(!e.voidWalk && e.voidShot, '外圈内侧的虚空应挡人、不挡子弹：' + JSON.stringify(e));
       assert(!e.wallWalk && !e.wallShot, '中圈和坑底之间的坑壁应挡人也挡子弹：' + JSON.stringify(e));
