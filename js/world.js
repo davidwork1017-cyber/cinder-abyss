@@ -4834,19 +4834,23 @@
 
   // ===== 区域地形：frost（霜骨沼泽）—— zones-frost 只改这一节 =====
   // 一串冰封的小岛，岛与岛之间是深水（挡移动、不挡子弹和视线）。规格见 zones-notes/design.md §3.2，实现记录 §8.frost。
-  //   关键路径：起点岛 → I1 → I2 → I3 → I4 → 场地岛「冰湖」，5 段连接 = 3 段栈道（折线 2–4 个弯，hw 2–2.25）+ 2 段冰桥（直，hw 2.5）；
+  //   关键路径：起点岛 → I1 … I6 / I7 → 场地岛「冰湖」，7–8 段连接 = 栈道（折线 2–4 个弯，hw 2–2.25）+ 3 段冰桥（直，hw 2.5）；
   //   进场地的那段冰桥末端放宽成 8 m 多的颈口，首领门就在颈口上、场地边缘外 1 m 多。
-  //   旁支：3 条死路栈道通向藏宝小岛（2 个宝箱 + 1 个精英群）。危险区：岛沿的浅水（减速）、2 块薄冰（站久了会裂）。
+  //   旁支：4–5 条死路栈道通向小岛（3 个宝箱 + 1 个精英群，第 5 条是普通怪群）。危险区：岛沿的浅水（减速）、2 块薄冰（站久了会裂）。
+  //   size-frost（区域加长）：岛 4 → 6–7、旁支 3 → 4–5、宝箱 2 → 3，关键路径约 159 → 250 m，可走面积约 2800 → 4450 m²。
   //   地标：一段栈道旁边半沉在水里的巨兽脊椎，肋骨拱过栈道；一颗巨兽头骨占一个岛的一角（WALL）；场地里 4 根肋骨柱（WALL，可以躲弹幕）。
   // 区域外面整片是开阔的水面：spec.outside 用 VOID（玩法上和深水一样，挡移动、不挡子弹；小地图按 §3.2 不画深水），外观由 dress 画成水
+  // size-frost：靠多摆岛把区域加长，栈道 / 冰桥的长度不变。外接框要卡在网格上限里（FROST.cells），所以岛链是弯来弯去的
   const FROST = {
-    isleR: [7.6, 10], // 岛的半径（主圆 + 3–4 个小圆，见 isle）
+    isles: [6, 7], // 关键路径上的岛（不算起点岛和场地）
+    isleR: [8.8, 11.4], // 岛的半径（主圆 + 3–4 个小圆，见 isle；改版前 7.6–10）
     walk: [12.5, 18], walkHw: [2, 2.25], // 栈道：岸到岸的长度、半宽
     bridge: [8, 11.5], bridgeHw: 2.5, neckHw: 4.3, // 冰桥；进场地那段末端的颈口半宽
     arenaR: 14.3, // 场地：正圆，半径 arenaR + 0.8 ≈ 15
     sideWalk: [9, 13], sideR: [5, 6], // 旁支栈道长度、藏宝小岛半径
-    area: [2680, 3120], // 生成器自己先按估算面积筛一遍（校验按 0.5 m 网格精确量 2600–3200）
-    mobs: [47, 62], // 全区怪数（按每群的平均数估）：少于 47 补一群，多于 62 撤一群，补完仍少于 45 换一组
+    area: [3850, 4950], // 生成器自己先按估算面积筛一遍（校验按 0.5 m 网格精确量 3800–5100）
+    cells: 480000, // 网格格数上限：区域外面是虚空（有透弹挖空），rasterize 超过 50 万格就把格距放大一倍，留点余量
+    mobs: [76, 100], // 全区怪数（按每群的平均数估）：少于 76 补一群，多于 100 撤一群，补完仍少于 72 换一组（改版前 47 / 62 / 45 的约 1.6 倍）
     noBrute: ['husk', 'spitter', 'bomber'], // 栈道中点的小群不放蛮兵（populatePack 认 slot.mobs，zones-integrate 起生效）
   };
   // 一次尝试：摆不下（重叠、太大、面积不对）就返回 null，外面换一组随机数再来
@@ -4877,17 +4881,55 @@
     };
     // ---- 关键路径上的岛：随机游走 ----
     const isl = [], links = [], rooms = [], cuts = [], haz = [], feats = [], packs = [], chests = [];
-    const bridgeAt = 1 + Math.floor(R() * 3); // 第二段冰桥放在第 1–3 段连接（第 4 段固定是进场地的冰桥）
-    let head = rnd(0, TAU);
-    isl.push({ x: 0, z: 0, rad: 8 });
-    for (let i = 1; i <= 5; i++) {
-      const prev = isl[i - 1], rad = i === 5 ? FROST.arenaR + 0.8 : i === 1 ? rnd(9, FROST.isleR[1] + 0.5) : rnd(FROST.isleR[0], FROST.isleR[1]); // I1 大一点：第 1 个房间 core r ≥ 7
-      if (i > 1) head += rnd(-1.0, 1.0);
-      const kind = i - 1 === 4 || i - 1 === bridgeAt ? 'bridge' : 'walk';
-      const gap = kind === 'bridge' ? rnd(FROST.bridge[0], FROST.bridge[1]) : rnd(FROST.walk[0], FROST.walk[1]);
-      const d = prev.rad + gap + rad;
-      isl.push({ x: prev.x + Math.sin(head) * d, z: prev.z + Math.cos(head) * d, rad, kind });
+    // size-frost：关键路径上 nI 个岛（6–7），场地是第 AI = nI + 1 个房间
+    const nI = R() < 0.3 ? FROST.isles[0] : FROST.isles[1], AI = nI + 1; // 7 个岛的占七成：关键路径中位数才到 250 m 上下
+    // 冰桥：进场地的那段固定是冰桥，另外在第 1 … nI−1 段连接里挑 2 段（出起点岛的第 0 段是栈道）
+    const bridgeAt = [];
+    while (bridgeAt.length < 2) {
+      const k = 1 + Math.floor(R() * (nI - 1));
+      if (!bridgeAt.includes(k)) bridgeAt.push(k);
     }
+    // 岛链往前长：每个岛试 4 个朝向（上一段朝向 ±1.4），离前面不相邻的岛够远的里面取外接框最小的（先看长边，加一点随机），
+    // 岛链就会自己弯回来，外接框卡得住网格上限。只按圆心粗算，很便宜：摆不下就在这里重走一遍（岛数不变，最多 40 遍）
+    const ibox = (L) => {
+      let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
+      for (const I of L) {
+        x0 = Math.min(x0, I.x - I.rad); x1 = Math.max(x1, I.x + I.rad);
+        z0 = Math.min(z0, I.z - I.rad); z1 = Math.max(z1, I.z + I.rad);
+      }
+      return [x1 - x0, z1 - z0];
+    };
+    const walkOnce = () => {
+      isl.length = 0;
+      isl.push({ x: 0, z: 0, rad: 8 });
+      let head = rnd(0, TAU);
+      for (let i = 1; i <= AI; i++) {
+        const prev = isl[i - 1], rad = i === AI ? FROST.arenaR + 0.8 : i === 1 ? rnd(9, FROST.isleR[1] + 0.5) : rnd(FROST.isleR[0], FROST.isleR[1]); // I1 大一点：第 1 个房间 core r ≥ 7
+        const kind = i - 1 === nI || bridgeAt.includes(i - 1) ? 'bridge' : 'walk';
+        const gap = kind === 'bridge' ? rnd(FROST.bridge[0], FROST.bridge[1]) : rnd(FROST.walk[0], FROST.walk[1]);
+        const d = prev.rad + gap + rad;
+        let best = null;
+        for (let k = 0; k < (i === 1 ? 1 : 4); k++) {
+          const h = i === 1 ? head : head + rnd(-1.4, 1.4), c = { x: prev.x + Math.sin(h) * d, z: prev.z + Math.cos(h) * d, rad, kind, h };
+          let ok = true;
+          for (let j = 0; j < i - 1 && ok; j++) if (Math.hypot(isl[j].x - c.x, isl[j].z - c.z) - isl[j].rad - rad < 16) ok = false;
+          if (!ok) continue;
+          const b = ibox(isl.concat([c]));
+          c.s = Math.max(b[0], b[1]) * 160 + (b[0] + 24) * (b[1] + 24) + rnd(0, 6000); // 先看长边（太长的一条也不行），再看面积
+          if (!best || c.s < best.s) best = c;
+        }
+        if (!best) return frostFail('walk'), false;
+        head = best.h;
+        isl.push({ x: best.x, z: best.z, rad, kind });
+      }
+      // 旁支往外伸、四周各留 4 m：粗算的长边 / 格数明显超了就重走
+      const b = ibox(isl);
+      if (Math.max(b[0], b[1]) > 166 || (b[0] + 24) * (b[1] + 24) * 16 > FROST.cells * 1.08) return frostFail('walkBox'), false;
+      return true;
+    };
+    let walked = false;
+    for (let w = 0; w < 40 && !walked; w++) walked = walkOnce();
+    if (!walked) return null;
     // 岛 = 一个主圆 + 3–4 个错开的小圆（海岸线有凸有凹）。都用圆：光栅化和校验对圆有快速路径，比多边形快一个数量级
     const isle = (x, z, rad, nl, kMain) => {
       const pr = [{ t: 'circle', x, z, r: rad * kMain }], ph = R() * TAU;
@@ -4900,8 +4942,8 @@
     // 起点岛：r=8 的圆盘（起点契约）+ 朝出口一侧的一团，背面贴着 r=8
     const a0 = Math.atan2(isl[1].x, isl[1].z);
     rooms.push({ id: 0, kind: 'start', order: 0, path: true, prims: [{ t: 'circle', x: 0, z: 0, r: 8 }, { t: 'circle', x: Math.sin(a0 + 0.4) * 4.6, z: Math.cos(a0 + 0.4) * 4.6, r: 4.8 }, { t: 'circle', x: Math.sin(a0 - 0.5) * 5, z: Math.cos(a0 - 0.5) * 5, r: 4.2 }], core: { x: 0, z: 0, r: 8 }, tags: [] });
-    for (let i = 1; i <= 5; i++) {
-      const I = isl[i], arena = i === 5;
+    for (let i = 1; i <= AI; i++) {
+      const I = isl[i], arena = i === AI;
       // 场地「冰湖」：正圆（首领门、bossR、小地图的场地轮廓都按它算）
       const prims = arena ? [{ t: 'circle', x: I.x, z: I.z, r: FROST.arenaR + 0.8 }] : isle(I.x, I.z, I.rad, 3 + (R() < 0.5 ? 1 : 0), i === 1 ? 0.9 : rnd(0.72, 0.84));
       rooms.push({ id: i, kind: arena ? 'arena' : 'room', order: i, path: true, prims, core: { x: I.x, z: I.z, r: 0 }, tags: [] });
@@ -4912,7 +4954,7 @@
       for (let k = 0; k < 16; k++) m = Math.max(m, rimDist(rm, x, z, (k / 16) * TAU, 30));
       return m;
     };
-    for (let i = 0; i <= 5; i++) isl[i].R = maxR(rooms[i], isl[i].x, isl[i].z);
+    for (let i = 0; i <= AI; i++) isl[i].R = maxR(rooms[i], isl[i].x, isl[i].z);
 
     // ---- 连接：栈道（折线）/ 冰桥（直）----
     // 返回 { pts, hw, pA, pB }：pA / pB 是出 A、进 B 的岸边点（门），折线两端各伸进岛里 1.5 m
@@ -4951,17 +4993,21 @@
       return out;
     };
     const LG = [];
-    for (let i = 0; i < 5; i++) LG.push(Object.assign(linkGeo(i, i + 1, isl[i + 1].kind, i === 4), { a: i, b: i + 1, kind: isl[i + 1].kind, path: true }));
+    for (let i = 0; i < AI; i++) LG.push(Object.assign(linkGeo(i, i + 1, isl[i + 1].kind, i === nI), { a: i, b: i + 1, kind: isl[i + 1].kind, path: true }));
     // 首领门：沿进场地的冰桥，离场地中心 = 背面岸线距离 + 1.2（且至少在这一侧岸线外 0.6）——
     // 这样 bossR（= 门距 − 2）正好卡在场地边缘内侧，门外重生、小地图的场地轮廓都对得上
-    const AR = rooms[5], ac = isl[5], LA = LG[4];
+    const AR = rooms[AI], ac = isl[AI], LA = LG[nI];
     const nearRim = rimDist(AR, ac.x, ac.z, LA.ang + Math.PI), farRim = rimDist(AR, ac.x, ac.z, LA.ang);
     const doorD = Math.max(farRim + 1.2, nearRim + 0.6);
     const door = { x: ac.x - Math.sin(LA.ang) * doorD, z: ac.z - Math.cos(LA.ang) * doorD };
 
-    // ---- 旁支：从 I1–I4 里挑 3 个岛，垂直于路径方向岔出去，死路栈道 + 藏宝小岛 ----
-    const sideOf = [1, 2, 3, 4].sort(() => R() - 0.5).slice(0, 3).sort((a, b) => a - b);
-    const roles = ['chest', 'chest', 'elite'].sort(() => R() - 0.5);
+    // ---- 旁支：从关键路径的岛里挑 4–5 个，垂直于路径方向岔出去，死路栈道 + 小岛 ----
+    // size-frost：前 4 条必须有（3 个宝箱 + 1 个精英群，角色随机排），第 5 条是放普通怪群的小岛，摆不下就不要；
+    // 候选的父岛排好随机顺序，一个岛两侧都摆不下就换下一个岛
+    const sideOf = [];
+    for (let i = 1; i <= nI; i++) sideOf.push(i);
+    sideOf.sort(() => R() - 0.5);
+    const roles = ['chest', 'chest', 'chest', 'elite'].sort(() => R() - 0.5).concat(['pack']);
     const sides = [];
     // 两个圆 / 折线之间的粗略间距（排布检查用）
     const segDist = (px, pz, ax, az, bx, bz) => {
@@ -4982,23 +5028,40 @@
       return d;
     };
     const hwMax = (L) => (typeof L.hw === 'number' ? L.hw : Math.max.apply(null, L.hw));
-    for (let k = 0; k < 3; k++) {
-      const p = sideOf[k], I = isl[p], dirA = Math.atan2(isl[p + 1].x - isl[p - 1].x, isl[p + 1].z - isl[p - 1].z);
+    // 外接框（岛按外接半径算，含已摆的旁支）的面积：旁支两侧都摆得下时取让外接框长得少的一侧
+    const boxWith = (c) => {
+      const L = isl.slice(0, AI + 1).map((I) => ({ x: I.x, z: I.z, rad: I.R })).concat(sides);
+      if (c) L.push(c);
+      const b = ibox(L);
+      return b[0] * b[1];
+    };
+    for (let k = 0, pi = 0; k < roles.length && pi < sideOf.length; pi++) {
+      const p = sideOf[pi], I = isl[p], dirA = Math.atan2(isl[p + 1].x - isl[p - 1].x, isl[p + 1].z - isl[p - 1].z);
       let best = null;
       for (const sg of R() < 0.5 ? [1, -1] : [-1, 1]) {
         const a = dirA + sg * (Math.PI / 2) + rnd(-0.4, 0.4), rad = rnd(FROST.sideR[0], FROST.sideR[1]), len = rnd(FROST.sideWalk[0], FROST.sideWalk[1]);
         const rd = rimDist(rooms[p], I.x, I.z, a), d = rd + len + rad;
         const c = { x: I.x + Math.sin(a) * d, z: I.z + Math.cos(a) * d, rad, a, len };
-        // 离其它岛（父岛除外）≥ 12.5、离其它连接 ≥ 6 才算数，取间距最大的一侧
+        // 离其它岛（父岛除外）≥ 12.5、离其它连接 ≥ 6 才算数
         let clr = 1e9;
-        for (let q = 0; q <= 5; q++) if (q !== p) clr = Math.min(clr, Math.hypot(c.x - isl[q].x, c.z - isl[q].z) - isl[q].R - rad - 12.5);
+        for (let q = 0; q <= AI; q++) if (q !== p) clr = Math.min(clr, Math.hypot(c.x - isl[q].x, c.z - isl[q].z) - isl[q].R - rad - 12.5);
         for (const L of LG) clr = Math.min(clr, polyDist(L.pts, c.x, c.z) - hwMax(L) - rad - 6);
         for (const s of sides) clr = Math.min(clr, Math.hypot(c.x - s.x, c.z - s.z) - s.rad - rad - 8);
-        if (!best || clr > best.clr) best = Object.assign(c, { clr });
+        if (clr < 0) continue;
+        c.box = boxWith(c);
+        if (!best || c.box < best.box) best = Object.assign(c, { clr });
       }
-      if (best.clr < 0) return frostFail('side');
+      if (!best) continue;
       sides.push(Object.assign(best, { parent: p, role: roles[k] }));
+      k++;
     }
+    if (sides.length < 4) return frostFail('side');
+    {
+      // 旁支摆好以后外接框基本定了（岛按外接半径、四周 4 m）：先粗查一遍，超了就别往下算
+      const L = isl.slice(0, AI + 1).map((I) => ({ x: I.x, z: I.z, rad: I.R })).concat(sides), b = ibox(L);
+      if (Math.max(b[0], b[1]) > 172 || (b[0] + 8) * (b[1] + 8) * 16 > FROST.cells) return frostFail('sideBox');
+    }
+    sides.sort((a, b) => a.parent - b.parent);
     const sideBase = rooms.length;
     for (const s of sides) {
       rooms.push({ id: rooms.length, kind: 'side', order: s.parent + 1, path: false, prims: isle(s.x, s.z, s.rad, 2, 0.86), core: { x: s.x, z: s.z, r: 0 }, tags: [s.role] });
@@ -5009,8 +5072,8 @@
     for (const s of sides) LG.push(Object.assign(linkGeo(s.parent, s.room, 'walk', false), { a: s.parent, b: s.room, kind: 'walk', path: false }));
 
     // ---- 排布检查（按圆和折线粗算，宁可多扔几次）----
-    for (let i = 0; i <= 5; i++) {
-      for (let j = i + 2; j <= 5; j++) if (Math.hypot(isl[i].x - isl[j].x, isl[i].z - isl[j].z) - isl[i].R - isl[j].R < 15) return frostFail('isleGap');
+    for (let i = 0; i <= AI; i++) {
+      for (let j = i + 2; j <= AI; j++) if (Math.hypot(isl[i].x - isl[j].x, isl[i].z - isl[j].z) - isl[i].R - isl[j].R < 15) return frostFail('isleGap');
     }
     for (let li = 0; li < LG.length; li++) {
       const L = LG[li];
@@ -5034,7 +5097,7 @@
       });
       L.room = rooms.length - 1;
       const kind = L.kind === 'bridge' ? 'bridge' : 'boardwalk';
-      links.push({ a: L.a, b: L.room, door: L.pA, kind }, { a: L.room, b: L.b, door: L.b === 5 ? door : L.pB, kind });
+      links.push({ a: L.a, b: L.room, door: L.pA, kind }, { a: L.room, b: L.b, door: L.b === AI ? door : L.pB, kind });
       feats.push({ kind: L.kind, room: L.room, pts: L.pts, hw: L.hw, side: !L.path });
     });
 
@@ -5068,7 +5131,7 @@
       return { a: best, gap: bv };
     };
     // 头骨：I1–I4 里一个岛的一角（一半压在岸上、一半在水里），朝岛心
-    const skullIs = 2 + Math.floor(R() * 3), sk = freeDir(skullIs, 16); // 不放在 I1（第 1 个房间要留够 core）
+    const skullIs = 2 + Math.floor(R() * (nI - 1)), sk = freeDir(skullIs, 16); // 不放在 I1（第 1 个房间要留够 core）
     if (sk.gap < 0.8) return frostFail('skull');
     dirs[skullIs].push(sk.a);
     {
@@ -5114,7 +5177,7 @@
     }
 
     // ---- 危险区：浅水（岛沿往外 2–3 m，减速）、薄冰 ----
-    const shallowIs = [1, 2, 3, 4].sort(() => R() - 0.5).slice(0, 2 + (R() < 0.5 ? 1 : 0));
+    const shallowIs = sideOf.slice().sort(() => R() - 0.5).slice(0, Math.round(nI / 2) + (R() < 0.5 ? 1 : 0)); // 3–5 个岛（改版前 4 个岛里 2–3 个）
     for (const i of shallowIs) {
       const n = R() < 0.45 ? 2 : 1;
       for (let k = 0; k < n; k++) {
@@ -5124,7 +5187,8 @@
         const c = { x: I.x + Math.sin(f.a) * (rd + 0.6), z: I.z + Math.cos(f.a) * (rd + 0.6) };
         // 别贴到别的房间上
         let ok = true;
-        for (let q = 0; q < rooms.length && ok; q++) if (q !== i && rooms[q].kind !== 'link' && Math.hypot(c.x - isl[q].x, c.z - isl[q].z) < isl[q].R + r + 6) ok = false;
+        // size-frost：不相邻的关键路径岛还要守住校验的 14 m 间距（岛链弯回来以后，浅水会伸到隔一个的岛跟前）
+        for (let q = 0; q < rooms.length && ok; q++) if (q !== i && rooms[q].kind !== 'link' && Math.hypot(c.x - isl[q].x, c.z - isl[q].z) < isl[q].R + r + (q <= AI && Math.abs(q - i) >= 2 ? 14.5 : 6)) ok = false;
         for (const L of LG) if (ok && L.a !== i && L.b !== i && polyDist(L.pts, c.x, c.z) < hwMax(L) + r + 4) ok = false;
         if (!ok) continue;
         dirs[i].push(f.a);
@@ -5164,7 +5228,9 @@
       const I = isl[i];
       let best = { x: I.x, z: I.z, r: fullSd(I.x, I.z) };
       for (let t = 0; t < 60; t++) {
-        const a = R() * TAU, d = Math.sqrt(R()) * I.R * 0.6, x = I.x + Math.sin(a) * d, z = I.z + Math.cos(a) * d, v = Math.min(fullSd(x, z), roomSd(rooms[i], x, z));
+        const a = R() * TAU, d = Math.sqrt(R()) * I.R * 0.6, x = I.x + Math.sin(a) * d, z = I.z + Math.cos(a) * d, rs = roomSd(rooms[i], x, z);
+        if (rs <= best.r) continue; // min(fullSd, roomSd) ≤ roomSd：这一点不可能更大，省掉整体的 sd（结果不变）
+        const v = Math.min(fullSd(x, z), rs);
         if (v > best.r) best = { x, z, r: v };
       }
       return best;
@@ -5175,11 +5241,11 @@
       rooms[i].core = { x: c.x, z: c.z, r: Math.max(1, Math.floor(c.r * 10) / 10) };
     }
     // 场地：core 就是中心（首领站在这里），半径取到柱子内侧
-    rooms[5].core = { x: ac.x, z: ac.z, r: Math.max(5, Math.min(...pillars.map((p) => Math.hypot(p.x - ac.x, p.z - ac.z) - p.r)) - 0.2) };
+    rooms[AI].core = { x: ac.x, z: ac.z, r: Math.max(5, Math.min(...pillars.map((p) => Math.hypot(p.x - ac.x, p.z - ac.z) - p.r)) - 0.2) };
     if (rooms[1].core.r < 7.2) return frostFail('firstCore');
     // 薄冰：候选的岛排好随机顺序，放够 2 块为止；一个岛放不下就换下一个（zones-integrate：原来前两个里有一个放不下就整张重摆，
     // 生成器平均要摆 2.9 次、最慢的种子 30 多 ms；前两个都放得下的种子结果和原来逐位相同）
-    const thinIs = [1, 2, 3, 4].filter((i) => i !== skullIs).sort(() => R() - 0.5);
+    const thinIs = sideOf.filter((i) => i !== skullIs).sort(() => R() - 0.5);
     const thins = [];
     for (const i of thinIs) {
       if (thins.length >= 2) break;
@@ -5195,15 +5261,23 @@
 
     // ---- 怪群（§3.0）：岛上按面积，栈道只在中点放 2–3 只的小群（不放蛮兵）----
     // 面积：多边形用鞋带公式 + 圆角（周长 × round + π round²）；圆按整圆；浅水圆和岛重叠的部分按一半估
-    // 面积：在岛的外接框里按 0.7 m 撒点数（只算这个房间自己的图元）
+    // 面积：在房间图元的外接框里按 1 m 撒点数（只算这个房间自己的图元）
+    // size-frost：只撒这个房间图元的外接框（原来是外接圆外扩 5 m 的方框，大部分点都在水里），每个房间只算一次（岛的面积在下面分怪群时还要用）
+    const areaOf = new Map();
     const polyArea = (rm) => {
-      const I = isl[rm.id], ext = I.R + 5, st = 0.7;
+      if (areaOf.has(rm.id)) return areaOf.get(rm.id);
+      const st = 1, bx = [1e18, 1e18, -1e18, -1e18]; // 1 m 一个点：只是估算（筛面积、按面积分怪群），校验另按 0.5 m 网格精确量
+      for (const p of rm.prims) {
+        const b = W.terrain.primBox(p);
+        bx[0] = Math.min(bx[0], b[0]); bx[1] = Math.min(bx[1], b[1]); bx[2] = Math.max(bx[2], b[2]); bx[3] = Math.max(bx[3], b[3]);
+      }
       let n = 0;
-      for (let z = I.z - ext; z <= I.z + ext; z += st) for (let x = I.x - ext; x <= I.x + ext; x += st) if (roomSd(rm, x, z) >= 0) n++;
+      for (let z = bx[1] + st / 2; z <= bx[3]; z += st) for (let x = bx[0] + st / 2; x <= bx[2]; x += st) if (roomSd(rm, x, z) >= 0) n++;
+      areaOf.set(rm.id, n * st * st);
       return n * st * st;
     };
     let area = 0, mobs = 0, elites = 0;
-    for (let i = 0; i < sideBase + 3; i++) area += polyArea(rooms[i]);
+    for (let i = 0; i < sideBase + sides.length; i++) area += polyArea(rooms[i]);
     for (const L of LG) area += Math.max(0, L.gap) * 2 * (typeof L.hw === 'number' ? L.hw : 3.2);
     if (area < FROST.area[0] || area > FROST.area[1]) return frostFail('area');
     const placed = [];
@@ -5216,7 +5290,7 @@
       if (elite) elites++;
     };
     const spaced = (x, z) => placed.every((q) => Math.hypot(q.x - x, q.z - z) >= 6.5);
-    for (let i = 1; i <= 4; i++) {
+    for (let i = 1; i <= nI; i++) {
       const ar = polyArea(rooms[i]), want = ar < 250 ? 2 : ar < 500 ? (R() < 0.4 ? 3 : 2) : 3 + (R() < 0.5 ? 1 : 0);
       const mine = [];
       for (let k = 0; k < want; k++) {
@@ -5226,7 +5300,7 @@
         mine.push(packs.length - 1);
       }
       if (!mine.length) return frostFail('packs');
-      if (R() < 0.45 && elites < 3) {
+      if (R() < 0.45 && elites < 5) { // 关键路径上的精英最多 5 个，加上精英旁支全区 ≤ 6（size-frost；改版前 3 + 1）
         packs[pick(mine)].elite = true;
         elites++;
       }
@@ -5239,6 +5313,7 @@
     for (const s of sides) {
       const c = rooms[s.room].core;
       if (s.role === 'elite') addPack(s.room, c, [4, 5], 2.2, true);
+      else if (s.role === 'pack') addPack(s.room, c, [4, 6], 2.2, false); // 第 5 条旁支：普通怪群
       else {
         // 宝箱：小岛中间，锁扣朝来的方向
         const L = LG.find((q) => q.b === s.room);
@@ -5247,8 +5322,8 @@
     }
     // 怪太多就从怪群最多的岛上撤一群（不撤精英），太少就在最大的岛上补一群
     while (mobs > FROST.mobs[1]) {
-      const cnt = [0, 0, 0, 0, 0];
-      packs.forEach((p) => p.room >= 1 && p.room <= 4 && cnt[p.room]++);
+      const cnt = new Array(AI).fill(0);
+      packs.forEach((p) => p.room >= 1 && p.room <= nI && cnt[p.room]++);
       const rm = cnt.indexOf(Math.max(...cnt)), k = packs.findIndex((p) => p.room === rm && !p.elite);
       if (cnt[rm] <= 1 || k < 0) break;
       mobs -= 5;
@@ -5256,10 +5331,10 @@
       placed.splice(k, 1);
     }
     for (let t = 0; t < 4 && mobs < FROST.mobs[0]; t++) {
-      const i = 1 + Math.floor(R() * 4), p = spotIn(i, 3, 5, 15.5, spaced, 50);
+      const i = 1 + Math.floor(R() * nI), p = spotIn(i, 3, 5, 15.5, spaced, 50);
       if (p) addPack(i, p, [4, 6], 2.6, false);
     }
-    if (mobs < 45) return frostFail('mobs');
+    if (mobs < 72) return frostFail('mobs');
 
     // ---- 灯：每段栈道两头各一盏（外观用）----
     for (const L of LG) {
@@ -5270,14 +5345,17 @@
       }
     }
 
+    // 怪物等级：按 order 在关键路径（nI 个岛）上的比例折算；旁支按它挂着的那个岛算（旁支的 order 是父岛 + 1），连接按起端房间
+    for (const rm of rooms) rm.lv = W.terrain.lvFor(rm.kind === 'side' ? rm.order - 1 : rm.order, nI);
     const spec = {
       rooms, links, cuts, haz, feats, packs, chests, outside: MAT.VOID,
       start: { x: 0, z: 0, exit: { x: LG[0].pA.x, z: LG[0].pA.z, ang: LG[0].ang } },
-      arena: { room: 5, x: ac.x, z: ac.z, door, dir: { x: (ac.x - door.x) / doorD, z: (ac.z - door.z) / doorD } },
+      arena: { room: AI, x: ac.x, z: ac.z, door, dir: { x: (ac.x - door.x) / doorD, z: (ac.z - door.z) / doorD } },
     };
     spec.bounds = W.terrain.specBounds(spec);
-    const bw = spec.bounds.maxX - spec.bounds.minX - 8, bh = spec.bounds.maxZ - spec.bounds.minZ - 8;
-    if (Math.max(bw, bh) > 170 || Math.min(bw, bh) > 150) return frostFail('box');
+    // 外接框：长边 ≤ 172 m；网格（外接框四周已含 4 m）0.25 m 一格不超过 FROST.cells（size-frost：原来是 170 × 150 的长宽上限）
+    const BW = spec.bounds.maxX - spec.bounds.minX, BH = spec.bounds.maxZ - spec.bounds.minZ;
+    if (Math.max(BW, BH) - 8 > 172 || (BW / 0.25 + 2) * (BH / 0.25 + 2) > FROST.cells) return frostFail('box');
     spec.est = { area: Math.round(area), mobs, elites };
     return spec;
   }
@@ -5287,7 +5365,7 @@
     frostGen.tries = k; // 调试：这次摆了几次
     return spec || GEN.legacy(R, def); // 80 次都摆不下（实测没出现过）：退回 legacy，照样能玩
   }
-  frostGen.check = { box: 170, areaMin: 2600, areaMax: 3200 };
+  frostGen.check = { box: 176, areaMin: 3800, areaMax: 5100 }; // size-frost：原来 170 / 2600 / 3200
   frostGen.fails = {};
 
   // ---------- 霜骨沼泽的外观 ----------
