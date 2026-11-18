@@ -2529,7 +2529,7 @@
       if (st) {
         G.world.setTrail(G.TYPE_HEX[mainType(ctx)]);
         G.sfx('swing', { step });
-      }
+      } else if (kind === 'proj') G.world.castTint(G.TYPE_HEX[mainType(ctx)]); // 投掷蓄力的火星按伤害类型取色
       P.face = ang;
       return true;
     }
@@ -3356,12 +3356,14 @@
           if (e.dead) continue;
           if (dist(e.x, e.z, cx, cz) - e.r <= R || dist(e.x, e.z, P.x, P.z) <= e.r + 1.0) hits.push(e);
         }
-        W.slash(P.x, P.z, a.ang, st.reach * k + R * 0.6, 46, hex, { dur: 0.2, inner: 0.02, y: 1.2 });
+        // 卡通版：一弯竖起来的月牙从头顶劈到身前的地上（tilt π/2 竖起、pitch 把弧的中线抬高 30°，dir -1 从上往下扫），
+        // 落点一圈实心的尘团 + 碎石尖片 + 一颗大星（W.smashFx），地裂是硬边的
+        W.slash(P.x, P.z, a.ang, st.reach * k + 0.4, 130, hex, { dur: 0.22, inner: 0.62, y: 1.1, tilt: Math.PI / 2, pitch: -0.52, dir: -1 });
         W.ring(cx, cz, R, hex, 0.34);
         W.ring(cx, cz, R * 0.55, 0xffe2b0, 0.2);
-        W.decal(5, cx, cz, R * 0.95, Math.random() * TAU, 0xffc890, 2.6);
-        W.burst(cx, 0.3, cz, 0xcbbba6, 18, 6.5, 0.45);
-        W.shake(0.28);
+        W.decal(5, cx, cz, R * 0.95, Math.random() * TAU, 0xffb050, 2.6);
+        W.smashFx(cx, cz, R, a.ang);
+        W.shake(0.24);
       } else {
         const half = (st.arc / 2) * DEG;
         for (const e of enemiesIn(P.x, P.z, R)) {
@@ -3373,7 +3375,9 @@
           }
           hits.push(e);
         }
-        W.slash(P.x, P.z, a.ang, R, st.arc, hex, { dir: st.dir });
+        // 卡通版：实色月牙只占外圈（inner 0.8），刀光本身由跟着武器的月牙带子画；
+        // 月牙的终点一侧抬起来（tilt = dir × k）：横斩微微斜着，反手上挑斜得明显
+        W.slash(P.x, P.z, a.ang, R, st.arc, hex, { dir: st.dir, inner: 0.8, dur: 0.2, tilt: st.dir === -1 ? -0.3 : 0.12 }); // phase 3：inner 0.74 → 0.8，月牙带子窄约 23%
       }
       if (!hits.length) return;
       let crit = false;
@@ -3391,8 +3395,9 @@
       const stop = (st.stop + (crit ? 25 : 0)) * ctx.stopK;
       G.hitStop(stop);
       W.shudder(P.ent, 0.022, stop / 1000);
-      W.punch(a.ang, 0.16 + st.w * 0.2 + (crit ? 0.1 : 0));
-      W.shake(st.w >= 2 ? 0.5 : crit ? 0.22 : 0.1);
+      // 卡通版：镜头的顶（有方向）多一点，乱抖少一点、收得更快（衰减见 world.js W.update 的 shakeAmt）
+      W.punch(a.ang, 0.2 + st.w * 0.24 + (crit ? 0.1 : 0));
+      W.shake(st.w >= 2 ? 0.4 : crit ? 0.17 : 0.07);
       G.sfx('impact', { type: top, w: st.w, crit });
       if (st.w >= 2) {
         W.fovKick(2.6);
