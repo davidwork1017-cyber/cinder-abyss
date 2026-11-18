@@ -510,7 +510,9 @@
   //   连锁保护：死亡触发打死的敌人还能再触发，但从玩家亲手的命中算起最多 deathGen 代；每帧最多 deathMax 次；死亡电弧 / 尸爆同样不累积异常值。
   // hold 秒没有再受到该元素伤害后，按每秒 decay 回落。满了即触发：
   //   冰 → 冻结 freeze 秒（精英 freezeElite 秒）；首领不会被冻结，改为 bossChill 秒的重度冰缓（移动与出手放慢 bossSlow）。
-  //        异常值大于 0 时附带轻度冰缓，减速 = 异常值 × chill。冻结 / 重度冰缓期间不再累积冰霜异常值
+  //        异常值大于 0 时附带轻度冰缓：减速 = chillMin + (chill − chillMin) × 异常值^chillPow——挨上一下冰就有 chillMin 的保底，
+  //        越满越慢，冻结前一刻到 chill（精英 chillMinElite..chillElite，首领 chillMinBoss..chillBoss）。冻结 / 重度冰缓期间不再累积冰霜异常值。
+  //        冰缓放慢的是这只敌人自己的时钟：移动、出手间隔、起手 / 收招、预警圈和动作一起变慢（首领的招式和预警按固定节奏，只放慢走动、招式之间的停顿和收招）
   //   火 → 爆燃：以敌人为中心半径 blastR 的爆炸，伤害 = 灌满期间平均每击的火焰伤害 × (1 + 异常累积速度%) × blast，封顶为该敌人阈值 × blastCap；爆炸本身不累积异常值（不会连锁）
   //   雷 → 感电 shock 秒：期间它每受到一次命中，就射出 shockN 道电弧，射向 shockR 以内最近的其他敌人（附近一个都没有时，只有一道打回它自己），
   //        每道 = 这一击的 bolt 倍；电弧不再触发电弧、不累积异常值，同一个敌人每 shockGap 秒最多放一次。感电期间不再累积闪电异常值
@@ -518,7 +520,8 @@
     th: 0.18, thElite: 0.3, boss: 0.15, bossGrow: 0.5, bossGrowMax: 4,
     rate: { fire: 1, cold: 1.2, light: 1.6 },
     hold: 3, decay: 0.5,
-    chill: 0.3, freeze: 1.5, freezeElite: 1.0, bossChill: 3, bossSlow: 0.5,
+    chill: 0.48, chillMin: 0.18, chillPow: 0.7, chillElite: 0.4, chillMinElite: 0.15, chillBoss: 0.3, chillMinBoss: 0.12,
+    freeze: 1.5, freezeElite: 1.0, bossChill: 3, bossSlow: 0.5,
     blastR: 3, blast: 1, blastCap: 0.5,
     shock: 4, shockR: 6, shockN: 2, bolt: 0.3, shockGap: 0.15,
     deathMin: 0.5, deathGen: 2, deathMax: 10,
@@ -1073,6 +1076,11 @@
     at(C, 'cr1', 3.85, 294, '视界', { holeDur: 20, pullK: 30, bindAil: 15 }, 'notable', ['cr0']);
   })();
 
+  // ---------- 区域地形的数值（world.js「区域地形」一节）----------
+  // slow：浅水 / 冰泥的移速系数，slowRoll：翻滚距离系数；burn：灼烧每跳伤害 = burn × G.dmgScale(区域等级)，burnTick 秒一跳；
+  // thinT：薄冰站多久裂开，thinBack：离开后多久复原；wakeLos：小怪苏醒要看得见玩家；bossLeash：区域首领拴在场地里
+  G.TERRAIN = { slow: 0.65, slowRoll: 0.85, burn: 3, burnTick: 0.5, thinT: 1.0, thinBack: 4, wakeLos: true, bossLeash: true };
+
   // ---------- 区域 ----------
   G.ZONES = [
     {
@@ -1091,8 +1099,9 @@
       mobs: ['husk', 'spitter', 'bomber', 'brute', 'spitter'], desc: '仍在运转的古代机关，雷声从不停歇。',
     },
     {
+      // zones-integrate：配色改成 zones-abyss 定的炭灰紫底子（原 fog 0x1a0c10、voidc 0x0f0709、path 0x6e4a4a、rock 0x3f2a2c、accent 0xff3a4a，太红太饱和），红橙只做点缀
       id: 'abyss', name: '烬渊深处', level: 13, elem: 'fire', boss: 'lord',
-      fog: 0x1a0c10, voidc: 0x0f0709, path: 0x6e4a4a, rock: 0x3f2a2c, accent: 0xff3a4a, sky: 0xffb0a0,
+      fog: 0x18121e, voidc: 0x0c0810, path: 0x57525c, rock: 0x48424f, accent: 0xff6a2a, sky: 0xffb0a0,
       mobs: ['husk', 'bomber', 'spitter', 'brute', 'brute'], desc: '一切灰烬的源头。',
     },
     {

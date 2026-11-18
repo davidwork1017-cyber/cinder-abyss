@@ -1654,7 +1654,15 @@
     if (e.bossBind > 0) e.bossBind -= dt;
     if (e.voidT > 0) e.voidT -= dt;
     // 冰缓 / 重度冰缓 / 首领的渊缚减速：取较大的那个，不相加
-    return Math.max(e.bu.cold * BU.chill, e.bossChill > 0 ? BU.bossSlow : 0, e.bossBind > 0 ? BU.bossBindSlow : 0);
+    return Math.max(G.chillSlow(e, e.bu.cold), e.bossChill > 0 ? BU.bossSlow : 0, e.bossBind > 0 ? BU.bossBindSlow : 0);
+  };
+  // 轻度冰缓的减速比例：冰霜异常值 frac（0..1）大于 0 就有保底，越满越慢（普通 / 精英 / 首领各有上下限，见 G.BUILDUP）
+  G.chillSlow = function (e, frac) {
+    if (!(frac > 0)) return 0;
+    const boss = e && e.isBoss, el = e && e.elite && !boss;
+    const lo = boss ? BU.chillMinBoss : el ? BU.chillMinElite : BU.chillMin;
+    const hi = boss ? BU.chillBoss : el ? BU.chillElite : BU.chill;
+    return lo + (hi - lo) * Math.pow(Math.min(1, frac), BU.chillPow);
   };
 
   // info（可选）：{ ang 这一击行进的方向（缺省 = 从玩家指向敌人）, w 分量（0 轻 / 1 重 / 2 终结；缺省取技能数据）,
@@ -1996,22 +2004,15 @@
     G.world.setEnt(P.ent, P.x, P.z, P.drawFace);
   }
 
-  // 首领醒着（正在打）时返回它竞技场门外的重生点：最后一段通道上、离场地中心 bossR + 2，
-  // 在首领的唤醒半径（bossR - 1）之外。其余情况返回 null，表示回区域入口。
+  // 首领醒着（正在打）时返回它竞技场门外的重生点 zone.bossDoor：场地的门上、离场地中心 bossR + 2，
+  // 在首领的唤醒范围之外。其余情况（或门点站不住）返回 null，表示回区域入口。
   G.bossDoor = function () {
     const zone = state.zone;
     const b = state.boss;
     if (!zone || !b || b.dead || !b.awake) return null;
-    const cs = zone.circles;
-    const from = cs.length >= 2 ? cs[cs.length - 2] : zone.start;
-    const bp = zone.bossPos;
-    const dx = from.x - bp.x;
-    const dz = from.z - bp.z;
-    const d = Math.hypot(dx, dz);
-    if (d < 1e-3) return null;
-    const x = bp.x + (dx / d) * (zone.bossR + 2);
-    const z = bp.z + (dz / d) * (zone.bossR + 2);
-    return G.world.walkable(x, z, PLAYER_PAD) ? { x, z } : null;
+    const d = zone.bossDoor;
+    if (!d) return null;
+    return G.world.walkable(d.x, d.z, PLAYER_PAD) ? { x: d.x, z: d.z } : null;
   };
 
   G.respawn = function () {
@@ -2100,7 +2101,8 @@
       // 主人被冻结 / 眩晕时预警圈跟着停住，解控后接着走（首领免疫，不受影响）。
       // held 是 updateEnemies 本帧算出的「AI 没有运行」标记，和怪物自己的出手计时正好对齐
       if (t.owner && !t.owner.isBoss && t.owner.held && !t.friendly) continue;
-      t.t += dt;
+      // 冰缓：小怪的预警圈按它自己放慢了的时钟走（和它的起手计时、起手动作一致）；首领的招式按固定节奏，不放慢
+      t.t += t.owner && !t.owner.isBoss && !t.friendly && t.owner.slowK > 0 ? dt * t.owner.slowK : dt;
       if (t.t < t.dur) {
         t.handle.setProgress(t.dur > 0 ? t.t / t.dur : 1);
         continue;
@@ -2294,7 +2296,7 @@
       for (let s = 0; s < steps && alive; s++) {
         p.x += p.dx * step;
         p.z += p.dz * step;
-        if (!W.walkable(p.x, p.z, -0.4)) {
+        if (!W.shotFree(p.x, p.z, -0.4)) {
           if (p.wisp) {
             // 魂火退回墙前再炸
             p.x -= p.dx * step;
@@ -2412,22 +2414,9 @@
     const W = G.world;
     const total = Math.hypot(dx, dz);
     if (total < 1e-6) return;
-    // 万一站在不可走的位置（不该发生），朝最近的空地中心挪回去
+    // 万一站在不可走的位置（不该发生），沿地形的梯度挪回可走的地方
     if (!W.walkable(P.x, P.z, PLAYER_PAD)) {
-      let best = null;
-      let bd = Infinity;
-      for (const c of state.zone.circles) {
-        const d = dist(c.x, c.z, P.x, P.z);
-        if (d < bd) {
-          bd = d;
-          best = c;
-        }
-      }
-      if (best && bd > 1e-3) {
-        const k = Math.min(total, bd) / bd;
-        P.x += (best.x - P.x) * k;
-        P.z += (best.z - P.z) * k;
-      }
+      W.pushOut(P.x, P.z, PLAYER_PAD, total, P);
       return;
     }
     const n = Math.ceil(total / 0.3);
@@ -4109,14 +4098,14 @@
     W[name].apply(W, Array.prototype.slice.call(arguments, 1));
     return true;
   }
-  // 地面视线：两点之间没有墙（比 pathClear 宽松，用于判定伤害能不能打过去）
+  // 地面视线：两点之间没有墙（比 pathClear 宽松，用于判定伤害能不能打过去；虚空 / 深水 / 熔岩不挡）
   function losClear(x0, z0, x1, z1) {
     const W = G.world;
     const dx = x1 - x0;
     const dz = z1 - z0;
     const n = Math.ceil(Math.hypot(dx, dz) / 0.35);
     for (let i = 1; i < n; i++) {
-      if (!W.walkable(x0 + (dx * i) / n, z0 + (dz * i) / n, -0.3)) return false;
+      if (!W.shotFree(x0 + (dx * i) / n, z0 + (dz * i) / n, -0.3)) return false;
     }
     return true;
   }
@@ -5345,6 +5334,103 @@
   }
 
   // dt：游戏时间；adt（可选）：动作时间——不受慢动作影响（顿帧时照样为 0），输入缓冲和处决按它走
+  // ---------- 地形危险区（每帧一次）：减速、灼烧、薄冰 ----------
+  // 数值在 G.TERRAIN。legacy 布局没有危险区格子（hazAny = 0），直接返回，系数保持 1
+  const terr = { k: 1, roll: 1, burnT: 0, thinT: 0, thinId: -1, crack: {} };
+  function terrainTick(dt) {
+    const zone = state.zone, W = G.world, TR = G.TERRAIN, H = W.HAZ;
+    terr.k = terr.roll = 1;
+    const mask = zone && zone.map ? zone.map.hazAny : 0;
+    if (!mask) {
+      terr.burnT = terr.thinT = 0;
+      terr.thinId = -1;
+      return;
+    }
+    const hz = W.hazardAt(P.x, P.z);
+    let slow = !!(hz & H.slow);
+    // 薄冰：在同一块上站够 thinT 秒就裂开，裂开的那块算减速；离开后 thinBack 秒复原（只有视觉和音效，不会掉下去）
+    const tid = hz & H.thin ? W.hazPrimAt(P.x, P.z, 'thin') : -1;
+    for (const id in terr.crack) {
+      const c = terr.crack[id];
+      if (+id === tid) c.back = TR.thinBack;
+      else if ((c.back -= dt) <= 0) delete terr.crack[id];
+    }
+    if (tid >= 0 && terr.crack[tid]) slow = true;
+    else if (tid >= 0) {
+      terr.thinT = terr.thinId === tid ? terr.thinT + dt : dt;
+      terr.thinId = tid;
+      if (terr.thinT >= TR.thinT) {
+        terr.crack[tid] = { back: TR.thinBack };
+        terr.thinT = 0;
+        W.burst(P.x, 0.2, P.z, 0xcfefff, 14, 3, 0.4);
+        G.sfx('impact');
+      }
+    } else {
+      terr.thinId = -1;
+      terr.thinT = 0;
+    }
+    if (slow) {
+      terr.k = TR.slow;
+      terr.roll = TR.slowRoll;
+    }
+    // 灼烧：每 burnTick 秒一跳火焰伤害；召唤物也吃
+    const burn = TR.burn * G.dmgScale(zone.level);
+    if (hz & H.burn) {
+      terr.burnT += dt;
+      if (terr.burnT >= TR.burnTick) {
+        terr.burnT -= TR.burnTick;
+        G.hurtPlayer(burn, 'fire', null);
+      }
+    } else terr.burnT = 0;
+    if (mask & H.burn && G.hurtMinion && state.minions) {
+      for (const m of state.minions.slice()) {
+        if (m.dead) continue;
+        if (W.hazardAt(m.x, m.z) & H.burn) {
+          m.burnT = (m.burnT || 0) + dt;
+          if (m.burnT >= TR.burnTick) {
+            m.burnT -= TR.burnTick;
+            G.hurtMinion(m, burn, 'fire', null);
+          }
+        } else m.burnT = 0;
+      }
+    }
+  }
+  // 地形灼烧打到小怪（enemies.js 每 burnTick 秒调一次；首领免疫）：不算玩家的命中，不触发技能效果
+  G.terrainBurnEnemy = function (e) {
+    if (!e || e.dead || e.isBoss || !state.zone) return;
+    const W = G.world;
+    const dmg = Math.max(1, G.TERRAIN.burn * G.dmgScale(state.zone.level));
+    e.hp -= dmg;
+    W.flash(e.ent, 0.6);
+    W.text(e.x, e.z, '-' + Math.round(dmg), '#ff8a3c', 14);
+    if (e.hp <= 0) G.killEnemy(e);
+  };
+
+  // ---------- 宝箱 ----------
+  // 走到 CHEST_R 以内自动打开；掉落约等于打死一只精英（按精英的掉落表掷一次，物品等级 = 宝箱所在房间的怪物等级）。
+  // 只对这次进区有效（布局不存档）
+  const CHEST_R = 1.4;
+  G.openChest = function (c) {
+    const zone = state.zone;
+    if (!zone || !c || c.open) return false;
+    c.open = true;
+    const rm = zone.rooms && zone.rooms[c.room];
+    const level = zone.level + Math.floor((rm ? rm.order : 0) / 2);
+    G.dropLoot({ elite: true, level, x: c.x, z: c.z });
+    G.world.openChest(c);
+    G.sfx('pickup');
+    state.stats.chests = (state.stats.chests || 0) + 1;
+    return true;
+  };
+  function updateChests() {
+    const list = state.zone && state.zone.chests;
+    if (!list) return;
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i];
+      if (!c.open && dist(P.x, P.z, c.x, c.z) < CHEST_R) G.openChest(c);
+    }
+  }
+
   G.updatePlayer = function (dt, adt) {
     const W = G.world;
     const inp = G.input;
@@ -5374,6 +5460,8 @@
     if (P.roll.cd > 0) P.roll.cd = Math.max(0, P.roll.cd - dt);
     if (P.iframe > 0) P.iframe = Math.max(0, P.iframe - dt);
     if (P.graceT > 0) P.graceT = Math.max(0, P.graceT - dt);
+    terrainTick(dt);
+    updateChests();
     for (let i = 0; i < 5; i++) if (inp.tap[i] > 0) inp.tap[i] -= adt;
     if (inp.tapDodge > 0) inp.tapDodge -= adt;
     if (inp.tapExec > 0) inp.tapExec -= adt;
@@ -5397,7 +5485,7 @@
       // 翻滚：固定方向冲刺，期间不施法（按下的技能留在缓冲里，滚完就出）
       const step = Math.min(dt, P.roll.t);
       P.roll.t -= dt;
-      const sp = P.moveSpeed * 2.6 * step;
+      const sp = P.moveSpeed * 2.6 * step * terr.roll; // 地形减速时翻滚距离也短一点
       movePlayer(P.roll.dx * sp, P.roll.dz * sp);
       P.moving = true;
       P.dustT -= dt;
@@ -5429,7 +5517,7 @@
             const c = P.cast;
             let k = !c ? 1 : c.channel || c.ws ? c.move : c.st ? (c.fired ? 0.55 : 0.25) : 0.4;
             if (P.rstate) k = Math.max(k, G.SKILLS[P.rstate.id].move || 1); // 乱射期间照常走动
-            const sp = P.moveSpeed * k * dt;
+            const sp = P.moveSpeed * k * dt * terr.k;
             movePlayer(mv.x * sp, mv.z * sp);
             if (!P.cast) P.face = Math.atan2(mv.x, mv.z);
           }
@@ -6052,6 +6140,7 @@
     state.focusT = 0;
     if (G.regroupMinions) G.regroupMinions(); // 召唤物跟着进入新区域，在入口处重新现身
     G.autoSummonDelay(); // 数量没变，不会重复召唤；缺的等它们现身之后再补
+    if (W.precompile) W.precompile(); // 第一次进这个区：着色器 / 贴图在进区时就准备好，不留到第一场仗（zones-integrate）
 
     save.lastZone = idx;
     save.tier = tier;

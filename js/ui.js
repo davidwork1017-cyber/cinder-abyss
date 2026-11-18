@@ -1176,7 +1176,7 @@
     const out = [];
     if (e.blastT > 0) out.push('burn');
     if (e.freeze > 0) out.push('freeze');
-    else if (e.bossChill > 0 || (e.bu && e.bu.cold > 0.02)) out.push('chill');
+    else if (e.bossChill > 0 || (e.bu && e.bu.cold > 0)) out.push('chill'); // 轻度冰缓有保底：异常值不为空就在减速
     if (e.shockT > 0) out.push('shock');
     if (e.stunT > 0) out.push('stun');
     return out;
@@ -2757,7 +2757,7 @@
       '三种元素灌得不一样快：' + c('light', '闪电 ×' + B.rate.light) + '、' + c('cold', '冰霜 ×' + B.rate.cold) + '、' + c('fire', '火焰 ×' + B.rate.fire) + '——闪电最快，适合打一大群；火焰最慢，但爆燃伤害高。' +
       '技能、注入辅助、装备上的附加伤害、光环和召唤物的命中都算。几秒没有再受到某种元素的伤害，那一条就会慢慢回落。</p>' +
       '<p>灌满即触发，然后清空重来：</p>' +
-      '<p>' + c('cold', '冰霜 → 冻结') + '：冻住 ' + B.freeze + ' 秒（精英 ' + B.freezeElite + ' 秒），动弹不得。首领不会被冻住，改为 ' + B.bossChill + ' 秒的重度冰缓，移动和出手都慢 ' + pc(B.bossSlow) + '。冰霜异常值没满的时候也有轻度冰缓，越满越慢，最多慢 ' + pc(B.chill) + '。</p>' +
+      '<p>' + c('cold', '冰霜 → 冻结') + '：冻住 ' + B.freeze + ' 秒（精英 ' + B.freezeElite + ' 秒），动弹不得。首领不会被冻住，改为 ' + B.bossChill + ' 秒的重度冰缓，移动和出手都慢 ' + pc(B.bossSlow) + '。冰霜异常值没满的时候也有轻度冰缓：挨上一下冰就慢 ' + pc(B.chillMin) + '，越满越慢，冻住前最多慢 ' + pc(B.chill) + '（精英 ' + pc(B.chillMinElite) + '～' + pc(B.chillElite) + '，首领 ' + pc(B.chillMinBoss) + '～' + pc(B.chillBoss) + '）。冰缓放慢的是移动、出手和动作，中了冰缓的敌人身上泛青、脚下冒冰屑。</p>' +
       '<p>' + c('fire', '火焰 → 爆燃') + '：以它为中心炸开一团火焰，波及周围 ' + B.blastR + ' 米内的敌人，伤害' + (B.blast === 1 ? '相当于灌满期间你平均一击的火焰伤害' : '是灌满期间你平均一击火焰伤害的 ' + pc(B.blast)) + '，再吃异常累积速度的加成——你的火焰越强，炸得越狠（但不超过这只敌人生命的一定比例）。爆炸本身不会再引发爆燃。</p>' +
       '<p>' + c('light', '闪电 → 感电') + '：' + B.shock + ' 秒内它每挨一下，就射出至多 ' + B.shockN + ' 道电弧，每道是那一击伤害的 ' + pc(B.bolt) + '，射向身边最近的别的敌人；身边一个别的敌人都没有时，只有一道电弧打回它自己。电弧不会再引发电弧。</p>' +
       '<p><b>死亡时的异常</b>：每一小段正中有一道刻度。敌人死的时候哪一条过了刻度（灌到 ' + pc(B.deathMin) + ' 以上；正冻着的算冰霜、正感电的算闪电），就在尸体处再触发一次：' +
@@ -4895,7 +4895,7 @@
       when: () => {
         const st = G.state;
         const z = st.zone;
-        return !!(z && st.boss && !st.boss.dead && !st.boss.awake && Math.hypot(G.player.x - z.bossPos.x, G.player.z - z.bossPos.z) < z.bossR + 13);
+        return !!(z && st.boss && !st.boss.dead && !st.boss.awake && G.world.nearArena(G.player.x, G.player.z));
       },
       done: () => !G.state.boss || G.state.boss.awake || G.state.boss.dead,
     },
