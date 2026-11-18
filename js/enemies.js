@@ -71,6 +71,15 @@
     }
     return false;
   }
+  // 牵引（黑洞、黑旋风、渊缚、渊陷）：把 e 朝 (x, z) 挪 step 米，带撞墙检测（贴墙滑），不会被拽进墙里。返回实际挪动的距离
+  G.pullEnemy = function (e, x, z, step) {
+    if (!e || e.dead || !(step > 0)) return 0;
+    const dx = x - e.x, dz = z - e.z, d = Math.hypot(dx, dz);
+    if (d < 1e-4) return 0;
+    const m = Math.min(step, d), ox = e.x, oz = e.z;
+    tryMove(e, (dx / d) * m, (dz / d) * m);
+    return Math.hypot(e.x - ox, e.z - oz);
+  };
   const SLIDE = [0.9, -0.9, 1.45, -1.45];
   function moveDir(e, dx, dz, step) {
     if (tryMove(e, dx * step, dz * step)) return true;
@@ -522,7 +531,7 @@
       e.state = 'windup';
       e.stateT = def.windup;
       W.play(e.ent, 'windup', { dur: def.windup });
-      W.ring(e.x, e.z, e.r + 0.8, WARN_HEX, def.windup); // 起手提示
+      W.ring(e.x, e.z, e.r + 0.8, WARN_HEX, def.windup / (e.slowK || 1)); // 起手提示（冰缓时起手变慢，环跟着多亮一会儿）
       return;
     }
     if (dist > e.reach * 0.8) chase(e, P, spd, dt);
@@ -617,7 +626,7 @@
       e.stateT = def.windup;
       W.play(e.ent, 'windup', { dur: def.windup });
       const mo = W.entSocket(e.ent, 'weapon');
-      W.burst(mo.x, mo.y, mo.z, hexOf(e), 5, 1.6, def.windup); // 嘴边聚能
+      W.burst(mo.x, mo.y, mo.z, hexOf(e), 5, 1.6, def.windup / (e.slowK || 1)); // 嘴边聚能
       return;
     }
     if (dist > RANGED_HOLD || !e.navDirect || !seen) {
@@ -748,7 +757,7 @@
   }
   function aiBlink(e, dt, P, dist, spd) {
     const def = e.def, W = G.world, hex = hexOf(e);
-    if (e.blinkCd > 0) e.blinkCd -= dt * e.slowK;
+    if (e.blinkCd > 0) e.blinkCd -= dt; // dt 已是冰缓放慢后的时钟
     if (e.state === 'blink') {
       e.stateT -= dt;
       if (e.stateT > 0) return;
@@ -798,7 +807,7 @@
         e.blinkCd = G.rand(4.5, 6.5);
         e.vis = 0;
         W.play(e.ent, 'blink', { dur: BLINK_T });
-        W.ring(d.x, d.z, 1.3, hex, BLINK_T); // 落点预警
+        W.ring(d.x, d.z, 1.3, hex, BLINK_T / (e.slowK || 1)); // 落点预警（冰缓时闪身变慢，环跟着多亮一会儿）
         W.burst(e.x, 1.2, e.z, hex, 10, 3, 0.35);
         return;
       }
@@ -867,7 +876,7 @@
     }
     if (e.state === 'dash') {
       const pad = e.r * 0.8;
-      let remain = Math.min(e.dashLeft, CHARGE_SPEED * e.slowK * dt), wall = false;
+      let remain = Math.min(e.dashLeft, CHARGE_SPEED * dt), wall = false; // dt 已是冰缓放慢后的时钟
       e.dashLeft -= remain;
       while (remain > 1e-6) {
         const m = Math.min(0.35, remain);
@@ -911,7 +920,7 @@
       e.gore = true;
       e.stateT = GORE_T;
       W.play(e.ent, 'windup', { dur: GORE_T });
-      W.ring(e.x, e.z, e.r + 0.8, WARN_HEX, GORE_T);
+      W.ring(e.x, e.z, e.r + 0.8, WARN_HEX, GORE_T / (e.slowK || 1));
       return;
     }
     if (e.atkCd <= 0 && dist >= 3.2 && dist <= def.range && e.navDirect && W.inView(e.x, e.z)) {
@@ -1407,6 +1416,7 @@
     e.vis = 0;
     e.fan = e.gore = false;
     e.stunT = e.freeze = e.stagT = 0;
+    e.bindT = e.bindLeft = 0; // 破绽中不再被缚住、不被拽（留在原地给你处决）
     e.stunAnim = false;
     if (e.isBoss) {
       e.busy = 0;
@@ -1496,6 +1506,13 @@
 
   // ---------- 每帧更新 ----------
   const near = [], active = [];
+  // 冰缓的显示档位（W.chill）：0 没有；轻度冰缓按冰霜异常值分三档；首领的重度冰缓是最高档；冻着的交给冻结的冰色
+  function chillBand(e) {
+    if (e.freeze > 0 || !e.bu) return 0;
+    if (e.bossChill > 0) return 3;
+    const c = e.bu.cold;
+    return c > 0 ? (c < 0.34 ? 1 : c < 0.67 ? 2 : 3) : 0;
+  }
 
   G.updateEnemies = function (dt) {
     const S = G.state, P = G.player, W = G.world, list = S.enemies, zone = S.zone;
@@ -1532,7 +1549,7 @@
       // 元素异常值：回落、感电 / 重度冰缓倒计时；slow 是冰缓的减速比例（移动和出手节奏一起放慢）
       const slow = G.tickBuildUp(e, dt);
       e.slowK = 1 - slow;
-      if (e.isBoss) e.freeze = e.stunT = e.stagT = 0; // 首领免疫冻结、眩晕与踉跄
+      if (e.isBoss) e.freeze = e.stunT = e.stagT = e.bindT = 0; // 首领免疫冻结、眩晕与踉跄（渊缚对首领只减速）
       // 架势：破绽倒计时（被处决途中不走）；平时几秒不挨打后回复
       if (e.poiseMax > 0) {
         if (e.poiseHit > 0) e.poiseHit -= dt;
@@ -1544,7 +1561,7 @@
         } else if (e.poiseT > 0) e.poiseT -= dt;
         else if (e.poise < e.poiseMax) e.poise = Math.min(e.poiseMax, e.poise + e.poiseMax * G.POISE.regen * dt);
       }
-      const held = e.freeze > 0 || e.stunT > 0 || e.stagT > 0 || e.brokenT > 0;
+      const held = e.freeze > 0 || e.stunT > 0 || e.stagT > 0 || e.brokenT > 0 || e.bindT > 0; // 渊缚：定身，和冻结一样暂停 AI
       if (e.freeze > 0) e.freeze -= dt;
       if (e.stunT > 0) e.stunT -= dt;
       if (e.stagT > 0) e.stagT -= dt;
@@ -1578,6 +1595,16 @@
         if (Math.abs(e.kvx) + Math.abs(e.kvz) < 0.4) e.kvx = e.kvz = 0;
       }
 
+      // 渊缚 / 渊陷的牵引（冻结中不拽，破绽中不拽；一次渊缚最多拽 bindPullMax 米，到目标点 0.6 米以内就停）
+      if (e.bindT > 0 && e.bindLeft > 0 && !(e.freeze > 0) && !(e.brokenT > 0)) {
+        const gap = Math.hypot(e.bindX - e.x, e.bindZ - e.z) - 0.6;
+        if (gap > 0) e.bindLeft -= G.pullEnemy(e, e.bindX, e.bindZ, Math.min(gap, e.bindLeft, G.bindPullSpeed(e, G.BUILDUP.bindPull) * dt));
+        else e.bindLeft = 0;
+      }
+      if (e.voidT > 0 && !e.isBoss && !(e.freeze > 0)) {
+        const gap = Math.hypot(e.voidX - e.x, e.voidZ - e.z) - 0.6;
+        if (gap > 0) G.pullEnemy(e, e.voidX, e.voidZ, Math.min(gap, G.bindPullSpeed(e, G.BUILDUP.voidPull) * dt));
+      }
       const ox = e.x, oz = e.z; // 之后的位移才是它自己走的（被推开不算迈步）
       if (e.awake && !held && !P.dead) {
         // 攻击对象：玩家或附近的召唤物（被嘲讽时是守像）；AI 把它当成「玩家」来追、来打
@@ -1586,8 +1613,11 @@
         updateNav(e, tg, dt);
         if (e.isBoss) updateBoss(e, dt, tg, td, spd);
         else {
-          if (e.atkCd > 0) e.atkCd -= dt * e.slowK; // 冰缓：出手间隔一起变长
-          MOB_AI[e.def.ai](e, dt, tg, td, spd);
+          // 冰缓：小怪的 AI 按它自己放慢了的时钟走——移动、出手间隔、起手 / 收招、冲锋一起变慢
+          // （移动 = 速度 × 这个时钟，所以传原速；预警圈在 G.updateTelegraphs 里按同一个倍率走，动作在下面按同一个倍率播）
+          const ldt = dt * e.slowK;
+          if (e.atkCd > 0) e.atkCd -= ldt;
+          MOB_AI[e.def.ai](e, ldt, tg, td, e.speed);
         }
       } else if (e.tauntT > 0) e.tauntT -= dt;
       e.moving = Math.hypot(e.x - ox, e.z - oz) > dt * 0.6;
@@ -1611,7 +1641,9 @@
         e.stunAnim = false;
         if (W.clipOf(e.ent) === 'stagger' && !(e.brokenT > 0)) W.stop(e.ent);
       }
-      if (!(e.freeze > 0)) W.animEnt(e.ent, dt, e.moving, S.time);
+      // 冰缓：动作跟着放慢（小怪和 AI 用同一个时钟，起手动作仍对得上出手；首领的招式按固定节奏和预警对齐，只在招式之外放慢）
+      if (!(e.freeze > 0)) W.animEnt(e.ent, dt, e.moving, S.time, e.isBoss && e.busy > 0 ? 1 : e.slowK);
+      W.chill(e.ent, chillBand(e), dt, e.r);
     }
   };
 
