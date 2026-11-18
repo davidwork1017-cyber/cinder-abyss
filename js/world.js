@@ -2000,7 +2000,9 @@
     for (const k in by) {
       const { e, list, small } = by[k];
       const rockish = e[4].indexOf('r') >= 0;
-      instanced(G.assets.geo(k), rockish ? mats.rock : mats.prop, list, !small, rockish && def.id !== 'ash' ? lin(def.rock).multiplyScalar(1.2) : new T.Color(1, 1, 1)); // 第 0 区的岩石材质自带颜色
+      // zones-polish：只有两三个、又不大的一组（顶点 < 600）不投影：影子几乎看不出来，每组却多一次阴影 draw（区域加长以后摆件的种类多了）
+      const gk = G.assets.geo(k), fewSmall = list.length / 10 <= 3 && gk && gk.attributes && gk.attributes.position.count < 600;
+      instanced(gk, rockish ? mats.rock : mats.prop, list, !small && !fewSmall, rockish && def.id !== 'ash' ? lin(def.rock).multiplyScalar(1.2) : new T.Color(1, 1, 1)); // 第 0 区的岩石材质自带颜色
     }
     if (!fires.length) return null;
     // 火焰：竖直的方片，朝镜头倾斜；每帧在 W.update 里按各自的相位抖动
@@ -3986,7 +3988,7 @@
     const mat = own(makeToonMat({ brush: 0.1, brushScale: 0.6 }));
     const body = gfxAdd(new T.InstancedMesh(chestBodyGeo(), mat, list.length));
     const lid = gfxAdd(new T.InstancedMesh(chestLidGeo(), mat, list.length));
-    body.castShadow = lid.castShadow = true;
+    body.castShadow = lid.castShadow = false; // zones-polish：箱体烘了贴地的接触阴影，不再投实时阴影（每区省两次阴影 draw）
     body.receiveShadow = lid.receiveShadow = true;
     const H = { body, lid, list, t: [], anim: false };
     for (let i = 0; i < list.length; i++) chestMatrices(H, i);
@@ -4665,7 +4667,7 @@
         if (out.length >= n) break;
         if (sdf(x, z) < minSd || Math.hypot(x - S.start.x, z - S.start.z) < 14 || nearDoor(x, z, 4.5)) continue;
         if (ends.some((e) => Math.hypot(e[0] - x, e[1] - z) < 6)) continue;
-        if (packs.concat(out).some((p) => Math.hypot(p.x - x, p.z - z) < 6.5) || (avoid || []).some((p) => Math.hypot(p.x - x, p.z - z) < (gap || 6.5))) continue;
+        if (packs.concat(out).some((p) => Math.hypot(p.x - x, p.z - z) < 8.5) || (avoid || []).some((p) => Math.hypot(p.x - x, p.z - z) < (gap || 6.5))) continue; // zones-polish：群间距 6.5 → 8.5（怪群放大以后一团挤得太密）
         out.push({ x, z });
       }
       return out;
@@ -4951,7 +4953,7 @@
     const cracks = [];
     for (const rm of zone.rooms) {
       if (rm.kind === 'start' || rm.kind === 'link') continue;
-      const c = rm.core, nf = rm.kind === 'arena' ? 5 : rm.kind === 'side' ? 1 : 3;
+      const c = rm.core, nf = rm.kind === 'arena' ? 5 : rm.kind === 'side' ? 1 : 2; // zones-polish：关键路径房间 3 → 2 道（房间从 4 个变 7 个，全区的裂缝数和原来差不多）
       let made = 0;
       for (let t = 0; t < 30 && made < nf; t++) {
         const a = r(0, TAU), d = r(c.r * 0.5, c.r + 4), x = c.x + Math.sin(a) * d, z = c.z + Math.cos(a) * d, dd = sd(x, z);
@@ -6326,7 +6328,7 @@
       if (Math.hypot(u, v) < 12.5) return false;
       if (!ambush && allDoors.some((p) => Math.hypot(p[0] - u, p[1] - v) < 4.6)) return false;
       if (nodes.some((N) => segDist(u, v, N.a, N.b) < (ambush ? 3 : 4))) return false;
-      if (packsL.some((p) => Math.hypot(p.u - u, p.v - v) < (ambush || p.ambush ? 5.5 : 7))) return false;
+      if (packsL.some((p) => Math.hypot(p.u - u, p.v - v) < (ambush || p.ambush ? 7.5 : 9.5))) return false; // zones-polish：群间距 7 / 5.5 → 9.5 / 7.5（怪群放大到 ×1.25 以后，12 m 里能挤进 21 只，混战一屏 draw call 超预算）
       return true;
     };
     const placeIn = (H, n, extra) => {
@@ -7111,7 +7113,7 @@
     // ---- 怪群：平台按面积 2–3 群，P2 / P4 / P6 的鼓包各一小群，精英洞一群（精英）----
     const okPack = (x, z, list, minSd) =>
       sdAll(x, z) >= minSd && Math.hypot(x, z) >= 13 && doors.every((d) => Math.hypot(d.x - x, d.z - z) >= 5.5) &&
-      vents.every((v) => Math.hypot(v.x - x, v.z - z) >= 4.5) && list.every((p) => Math.hypot(p.x - x, p.z - z) >= 6);
+      vents.every((v) => Math.hypot(v.x - x, v.z - z) >= 4.5) && list.every((p) => Math.hypot(p.x - x, p.z - z) >= 8); // zones-polish：群间距 6 → 8（怪群放大以后平台上挤得太密）
     const platPacks = (L) => {
       const bx = L.prims.map(primBox).reduce((a, b) => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])]);
       let area = 0;
@@ -8166,7 +8168,7 @@
     }
     const rockMat = ctx.own(makeToonMat({ flat: true, brush: 0.16, brushScale: 0.5 }));
     const rIM = ctx.instanced(riftMeteorGeo(), rockMat, rocks, true, new T.Color(1, 1, 1));
-    const cIM = ctx.instanced(gOct(1), ctx.mats.crystal, crys, !low, null);
+    const cIM = ctx.instanced(gOct(1), ctx.mats.crystal, crys, false, null); // 发光水晶不投影（zones-polish：原来高画质投影，省一次阴影 draw）
     const gIM = ctx.instanced(gQuad(), ctx.mats.glow, glows, false, null);
     if (gIM) gIM.renderOrder = 1;
     for (const m of [rIM, cIM, gIM]) if (m) mine.add(m);
@@ -8484,7 +8486,6 @@
     // 陨坑
     if (byFeat) accentL = lin(RIFT_PAL.spark); // 新布局：星辉用电光青（zones-rift 的配色）
     const crMat = own(new T.MeshBasicMaterial({ map: craterTex(), color: accentL, transparent: true, opacity: 0.5, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false }));
-    const dkMat = own(new T.MeshBasicMaterial({ map: blotchTex(), color: lin(mixHex(def.voidc, 0x000000, 0.3)), transparent: true, opacity: 0.6, depthWrite: false }));
     const craters = [], darks = [], shards = [];
     const spots = byFeat ? ofKind('crater').map((f) => ({ x: f.x, z: f.z, r: f.r })) : [];
     if (!byFeat) {
@@ -8505,11 +8506,10 @@
         shards.push(x + Math.sin(b) * rr, h * 0.35, z + Math.cos(b) * rr, Math.cos(b) * 0.6, rand(0, TAU), -Math.sin(b) * 0.6, 0.12, h, 0.12, 1);
       }
     }
-    const dIM = instanced(gQuad(), dkMat, darks, false, null);
-    if (dIM) dIM.renderOrder = 1;
+    // zones-polish：陨坑底下那块暗斑（不透明度 0.6 的一大团）不画了：看着像地上的脏印子，还多一次 draw（随机数照旧取，后面的摆放不变）
     const cIM = instanced(gQuad(), crMat, craters, false, null);
     if (cIM) cIM.renderOrder = 1;
-    instanced(gOct(1), crystalMat, shards, true, null);
+    instanced(gOct(1), crystalMat, shards, false, null); // 发光的小晶刺不投影（zones-polish：省一次阴影 draw）
 
     // 首领场地外的天穹碎片（新布局：坑底四周那圈岩壁里的 'shard' 锚点，细一点）
     const bp = zone.bossPos, sky = [];
@@ -8798,7 +8798,7 @@
     const crystalMat = own(
       new T.MeshStandardMaterial({ color: accentL.clone().multiplyScalar(0.3), emissive: accentL, emissiveIntensity: 1.0, roughness: 0.3, flatShading: true, toneMapped: false })
     );
-    instanced(gOct(1), crystalMat, crystals, true, null);
+    instanced(gOct(1), crystalMat, crystals, false, null); // 发光的水晶不投影（zones-polish：影子看不出来，每区省一次阴影 draw；第 0 区原来就在 dress 里关掉了）
     const glowMat = own(
       new T.MeshBasicMaterial({ map: glowTex(), color: accentL, transparent: true, opacity: 0.4, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false })
     );
