@@ -1283,7 +1283,8 @@
   function buildMist(zone, gx, sd) {
     const b = zone.bounds, M = 26;
     const x0 = b.minX - M, z0 = b.minZ - M, w = b.maxX - b.minX + 2 * M, h = b.maxZ - b.minZ + 2 * M;
-    const S = 1.25, cw = Math.ceil(w / S), ch = Math.ceil(h / S);
+    // 遮罩 2.5 m 一像素（zones-integrate：原来 1.25 m；薄雾从 sd -1.5 到 -7.5 才渐满，贴图线性过滤，看不出差别，求 sd 的次数少四分之三）
+    const S = 2.5, cw = Math.ceil(w / S), ch = Math.ceil(h / S), wS = cw * S, hS = ch * S; // wS / hS：遮罩实际盖住的范围（贴图坐标按它算，不按 w / h）
     const c = makeCanvas(cw, ch), g = c.getContext('2d'), im = g.createImageData(cw, ch), d = im.data;
     for (let j = 0; j < ch; j++) {
       for (let i = 0; i < cw; i++) {
@@ -1299,11 +1300,11 @@
     _c.set(gx.mist.color);
     const mat = own(
       new T.ShaderMaterial({
-        uniforms: { tMask: { value: mt }, uBox: { value: new T.Vector4(x0, z0, w, h) }, uCol: { value: new T.Vector3(_c.r, _c.g, _c.b) }, uA: { value: gx.mist.a }, uT: uTime },
+        uniforms: { tMask: { value: mt }, uBox: { value: new T.Vector4(x0, z0, wS, hS) }, uCol: { value: new T.Vector3(_c.r, _c.g, _c.b) }, uA: { value: gx.mist.a }, uT: uTime },
         vertexShader: MIST_VERT, fragmentShader: MIST_FRAG, transparent: true, depthWrite: false,
       })
     );
-    const pg = own(new T.PlaneGeometry(w, h).rotateX(-Math.PI / 2).translate(x0 + w / 2, 0.55, z0 + h / 2));
+    const pg = own(new T.PlaneGeometry(wS, hS).rotateX(-Math.PI / 2).translate(x0 + wS / 2, 0.55, z0 + hS / 2));
     const m = new T.Mesh(pg, mat);
     m.renderOrder = 2;
     m.frustumCulled = false;
@@ -1742,7 +1743,19 @@
     const i = G.ZONES.indexOf(def);
     const nx = G.ZONES[i + 1] && ZONE_GFX[G.ZONES[i + 1].id];
     if (!nx) return;
-    setTimeout(() => G.assets.need(nx.packs), 1500);
+    // 等一个安静的时刻再预取（25 m 内没有醒着的怪、玩家 3 秒没出手），最多等 60 秒。原来固定在进区 1.5 秒后，
+    // 正好是第一场仗：解码下一区的贴图在软件渲染下会让那一帧卡 1 秒多（main 上就有，zones-integrate 改）
+    const zone0 = W.zone;
+    let waited = 0, calmFor = 0;
+    const tick = () => {
+      if (W.zone !== zone0 || G.assets.settled(nx.packs)) return; // 已经换区了 / 已经在载入或载好了
+      const P = G.player, S = G.state;
+      const busy = (P && P.cast) || (S && S.enemies.some((e) => !e.dead && e.awake && Math.hypot(e.x - P.x, e.z - P.z) < 25));
+      calmFor = busy ? 0 : calmFor + 1;
+      if (calmFor >= 3 || ++waited >= 60) G.assets.need(nx.packs);
+      else setTimeout(tick, 1000);
+    };
+    setTimeout(tick, 1500);
   }
   W.assetsPending = () => !!pendingZone;
   // 启动时先等首个区域的素材（最多 maxMs 毫秒），开场就是完整画面；等待期间整屏盖一层「正在载入场景…」
@@ -8236,6 +8249,41 @@
     }
   }
 
+  // 进区时把整个场景预热一遍（zones-integrate）：renderer.compile 不管视锥，把还没看到的布景、睡着的怪的材质都编好，
+  // 场景里用到的贴图也先传上去（initTexture）。原来这些都留到第一次进视野的那一帧现做，软件渲染下进区头几秒会卡 1 秒多。
+  // 程序按 cacheKey 缓存、贴图传过一次就不再传，所以同一个区第二次进来几乎不花时间；G.enterZone 刷完怪以后调
+  W.precompile = function () {
+    const t0 = performance.now();
+    try {
+      renderer.compile(scene, camera);
+      const seen = new Set();
+      scene.traverse((o) => {
+        if (!o.material) return;
+        for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+          for (const k of ['map', 'normalMap', 'emissiveMap', 'bumpMap', 'roughnessMap', 'aoMap', 'alphaMap']) {
+            const t = m[k];
+            if (t && t.isTexture && !seen.has(t) && t.image) {
+              seen.add(t);
+              renderer.initTexture(t);
+            }
+          }
+          if (m.uniforms) for (const u in m.uniforms) {
+            const t = m.uniforms[u] && m.uniforms[u].value;
+            if (t && t.isTexture && !seen.has(t) && t.image) {
+              seen.add(t);
+              renderer.initTexture(t);
+            }
+          }
+        }
+      });
+      // 贴图上传和编译在 GPU 进程里是异步的，读一个像素逼它在这里做完（不然会在进区后的第二三帧卡住，软件渲染下 1 秒多）
+      const gl = renderer.getContext();
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+    } catch (e) {
+      if (window.console) console.warn('[画面] 进区预热失败（不影响游戏）', e);
+    }
+    if (W.zone && W.zone.ms) W.zone.ms.compile = performance.now() - t0;
+  };
   W.buildZone = function (def, level) {
     disposeZone();
     W.clearFx();
