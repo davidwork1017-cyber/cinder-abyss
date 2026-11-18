@@ -16125,10 +16125,11 @@
       else tChunk(0, x, rand(0.3, 1.2), z, rand(-0.3, 0.3), rand(1.8, 2.8), rand(-0.3, 0.3), rand(0.45, 0.65), rand(0.18, 0.26), CH_HI, CH_RIM, -0.5);
     }
   }
-  // 渊缚：脚下一道收紧的品红环（向外扩的环反着用：从外圈画一道快速的细环），几片往身上吸的尖片；首领的环大一圈
+  // 渊缚：脚下一道品红的细环，几片往身上吸的尖片；首领的环大一圈
+  // 低画质不画：怪堆里渊缚接连触发时，每道环都是一次 draw call（飘字「渊缚」和头顶的第四段异常条照样有）
   W.bindFx = function (x, z, r, h, boss) {
-    W.ring(x, z, r + (boss ? 1.4 : 0.9), CH_RIM, 0.3);
     if (qualId === 'low') return;
+    W.ring(x, z, r + (boss ? 1.4 : 0.9), CH_RIM, 0.3);
     for (let i = 0; i < 4; i++) {
       const a = (i / 4) * TAU + rand(-0.3, 0.3), d = r + 1.2, v = rand(4, 6);
       tChunk(0, x + Math.sin(a) * d, h * 0.4, z + Math.cos(a) * d, -Math.sin(a) * v, 0, -Math.cos(a) * v, 0.22, 0.18, CH_HI, CH_RIM, 0);
