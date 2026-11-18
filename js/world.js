@@ -3080,7 +3080,7 @@
   }
 
   // =====================================================================
-  // C 模型：Quaternius 的平涂低多边形角色（CC0，2018–2020 的免费包），按烬渊的暗色调重新上色，蒙皮到程序化骨架上
+  // C 模型：Quaternius 的平涂低多边形角色（CC0，2018–2020 的免费包），按卡通配色（设计稿 2.3）重新上色，蒙皮到程序化骨架上
   // =====================================================================
   // 源文件由 tools/convert-chars.mjs 转成精简的 GLB，tools/pack-assets.mjs 打成 js/assets/chars.js（base64，index.html 里同步引入，
   // file:// 双击打开也能用）。这里同步解析 GLB（不经过 GLTFLoader），然后：
@@ -3350,6 +3350,8 @@
       const nv = pr.P.length / 3;
       // 每个顶点：静止姿态的位置 + 并到程序化关节上的权重（最多 4 个）
       const RP = new Float32Array(nv * 3), RJ = new Float32Array(nv * 4), RW = new Float32Array(nv * 4), RC = new Float32Array(nv * 3);
+      // cs.vglow(顶点色) → 这个顶点的自发光亮度（0 = 不发光）：三个顶点都发光的三角形进自发光网格（游魂身上的余烬裂纹）
+      const VG = !gk && cs.vglow && pr.C ? new Float32Array(nv) : null;
       for (let i = 0; i < nv; i++) {
         v.set(pr.P[i * 3], pr.P[i * 3 + 1], pr.P[i * 3 + 2]);
         acc.set(0, 0, 0);
@@ -3380,6 +3382,7 @@
         }
         const sw = ws.reduce((a, b) => a + b, 0) || 1;
         for (let k = 0; k < 4; k++) { RJ[i * 4 + k] = k < js.length ? js[k] : 0; RW[i * 4 + k] = k < js.length ? ws[k] / sw : 0; }
+        if (VG) VG[i] = cs.vglow([pr.C[i * 4], pr.C[i * 4 + 1], pr.C[i * 4 + 2]]);
         if (gk) RC[i * 3] = RC[i * 3 + 1] = RC[i * 3 + 2] = gk;
         else {
           const c = cs.color(pr.mat, pr.name, pr.base, pr.C ? [pr.C[i * 4], pr.C[i * 4 + 1], pr.C[i * 4 + 2]] : null, RP[i * 3 + 1], col, RP[i * 3], RP[i * 3 + 2]);
@@ -3424,14 +3427,16 @@
         _cv.set(RP[b * 3] - RP[a * 3], RP[b * 3 + 1] - RP[a * 3 + 1], RP[b * 3 + 2] - RP[a * 3 + 2]);
         _cv2.set(RP[c * 3] - RP[a * 3], RP[c * 3 + 1] - RP[a * 3 + 1], RP[c * 3 + 2] - RP[a * 3 + 2]);
         _cv.cross(_cv2).normalize();
+        const tg = VG && VG[a] > 0 && VG[b] > 0 && VG[c] > 0, o = tg ? glow : out, so = tg ? SURF.glow : sf;
         for (const k of [a, b, c]) {
-          out.P.push(RP[k * 3], RP[k * 3 + 1], RP[k * 3 + 2]);
-          if (SN) out.N.push(SN[wid[k] * 3], SN[wid[k] * 3 + 1], SN[wid[k] * 3 + 2]);
-          else out.N.push(_cv.x, _cv.y, _cv.z);
-          out.C.push(RC[k * 3], RC[k * 3 + 1], RC[k * 3 + 2]);
-          out.J.push(RJ[k * 4], RJ[k * 4 + 1], RJ[k * 4 + 2], RJ[k * 4 + 3]);
-          out.W.push(RW[k * 4], RW[k * 4 + 1], RW[k * 4 + 2], RW[k * 4 + 3]);
-          out.S.push(sf[0], sf[1]);
+          o.P.push(RP[k * 3], RP[k * 3 + 1], RP[k * 3 + 2]);
+          if (SN) o.N.push(SN[wid[k] * 3], SN[wid[k] * 3 + 1], SN[wid[k] * 3 + 2]);
+          else o.N.push(_cv.x, _cv.y, _cv.z);
+          if (tg) o.C.push(VG[k], VG[k], VG[k]);
+          else o.C.push(RC[k * 3], RC[k * 3 + 1], RC[k * 3 + 2]);
+          o.J.push(RJ[k * 4], RJ[k * 4 + 1], RJ[k * 4 + 2], RJ[k * 4 + 3]);
+          o.W.push(RW[k * 4], RW[k * 4 + 1], RW[k * 4 + 2], RW[k * 4 + 3]);
+          o.S.push(so[0], so[1]);
         }
       }
     }
@@ -3440,7 +3445,7 @@
       const xb = rigBuilder(rig.key + '+', rig.NB);
       for (const j of Jn) xb.j(j.name, j.parent >= 0 ? Jn[j.parent].name : null, j.px, j.py, j.pz);
       cs.extra(xb, pos);
-      const xr = xb.build({ height: rig.height, reach: rig.reach, tone: rig.key !== 'player' }); // 'player+'：主角的围巾结和尾巴一样不压暗
+      const xr = xb.build({ height: rig.height, reach: rig.reach }); // 卡通：主角的额外零件（围巾、护肩、后摆）也过 toonCast，和模型本身同一套饱和度
       const z = new Float32Array(nJ * 3);
       cRigid(xr.geoBody, z, body);
       cRigid(xr.geoGlow, z, glow);
@@ -4329,6 +4334,9 @@
   const G_DAG = 3, G_HAM = 4, G_BOW = 5, G_KAT = 6, G_BAN = 7, G_GAT = 8, G_FLM = 9, G_REV = 10;
   const TWO_HAND = [false, false, false, false, true, false, true, false, true, true, false];
   const GEAR_JOINT = ['wB', 'wS', 'wW', 'wD', 'wH', 'wBo', 'wK', 'wBn', 'wF', 'wF', 'wF'];
+  // 卡通：手持武器整体缩小一点（近镜头下原尺寸的武器比人还抢眼）。按握点缩放武器关节（playerPost），
+  // 挂点（刀光、光晕、枪口）都经关节矩阵换算，跟着一起缩；双手武器的左手握点、弓弦在 playerIK 里按这个比例换算
+  const GEAR_K = 0.88;
   // 武器底材的 type → 序号；弓类都算长弓（旧的 'bow' 即鹰眼长弓）
   const BOW_TYPES = ['huntbow', 'eagle', 'runebow', 'emberbow'];
   const GUN_TYPES = ['gatling', 'flamer', 'revolver'];
@@ -4352,7 +4360,8 @@
   const LEA = 0x4e454b, LEA_D = 0x231f25, CLOTH = 0x272a36, BOOT = [0x17151a, 0x37323b], STRAP = 0x5a4a40, POUCH = 0x4e4038, DARK = 0x14151b;
   // 围巾尾巴：每条三节。len = 各节长度，w = 各节上下端宽度（4 个），kx = 结扣的横向位置（偏左，让开脑后的马尾），
   // x = 两条尾巴离结扣的横向距离，y / z = 第一节枢轴，splay = 两条尾巴静止时往两边分开的角度
-  const SF = { len: [0.28, 0.27, 0.26], w: [0.075, 0.068, 0.056, 0.04], kx: 0.09, x: 0.035, y: 1.6, z: -0.15, splay: 0.13, c: [0x22625a, 0x4fbfa8], ci: 0x1a4a43 };
+  // 卡通：围巾是全身最饱和的一块（设计稿 2.3 的青绿 #2ec4b0，暗部 #1a6a78），尾巴加宽，俯视镜头下背后一抹青绿
+  const SF = { len: [0.28, 0.27, 0.26], w: [0.1, 0.092, 0.078, 0.056], kx: 0.09, x: 0.045, y: 1.6, z: -0.15, splay: 0.13, c: [0x1a6a78, 0x2ec4b0], ci: 0x155866 };
   const SF_SEG = ['sfL1', 'sfL2', 'sfL3', 'sfR1', 'sfR2', 'sfR3'];
   // 马尾各节的枢轴：束在后脑偏高处（俯视也看得到那一撮），绑定姿态里已经往后下方斜，静止时发梢停在围巾圈上方、离开后颈；最后一个点是发梢
   const HAIR_T = [[0, 1.858, -0.172], [0, 1.795, -0.256], [0, 1.728, -0.296], [0, 1.655, -0.316]];
@@ -4593,13 +4602,36 @@
     return out;
   };
   const FINGER = /^(Index|Middle|Ring|Pinky|Thumb)\d[LR]$/;
-  // 主角：Adventurer（Ultimate Modular Men）。深色皮衣、青绿围巾、灰烬银的头发；背包摘掉
+  // 主角：Adventurer（Ultimate Modular Men）。深靛蓝紫皮衣、青绿围巾、灰烬银的头发；背包摘掉
+  // 卡通配色（设计稿 2.3）：每个材质一段竖向渐变 [下端色, 上端色, 下端 y, 上端 y]（静止姿态里的高度），上亮下冷，
+  // 像手绘的明暗；固有色定在受光面落在亮度 55%～75% 的那一档，暗部交给光照阶梯和冷色阴影。
+  // 模型的材质：Green = 短袖皮夹克，LightGreen = 里面的衬衣，Brown = 长裤，Brown2 = 腰带和护膝，Grey = 靴子，Black = 鞋底
   const PL_COL = {
-    // 卡通（phase 1 兜底）：整体抬亮一档、肤色更暖；正式的主角配色在 phase 2 里换
-    Skin: cLin(0xd29a7c), Green: cLin(0x5c5060), LightGreen: cLin(0x353b52), Grey: cLin(0x3e3748), Black: cLin(0x24212e),
-    Hair: cLin(0xc6cad8), Eyebrows: cLin(0x3a3a48), Eye: cLin(0x1a1418), Brown: cLin(0x2f3346), Brown2: cLin(0x6e5848), Gold: cLin(0xc49a52),
+    Hair: [0x9290b4, 0xeceaf6, 1.58, 1.9], // 灰烬银：头顶最亮，发梢压到冷灰紫
+    Eyebrows: [0x5e5c78, 0x5e5c78, 0, 1], Eye: [0x1c1828, 0x1c1828, 0, 1],
+    Skin: [0xc08478, 0xe8b8a4, 0.85, 1.75], // 暖肤色：脸最亮，手往下偏红（主光是暖橙，固有色偏粉一点，免得整张脸发橙）
+    Green: [0x34366e, 0x5a5ca8, 1.02, 1.58], // 深靛蓝紫皮衣：肩头带一层亮边色（偏蓝一点，暖光下不发紫）
+    LightGreen: [0x8e8680, 0xc8c0b4, 1.02, 1.58], // 亚麻衬衣：躯干正中一块浅色，把皮衣和围巾隔开（偏冷的米白，暖光下是奶油色）
+    Brown: [0x2a2e4c, 0x434874, 0.12, 1.04], // 深海军蓝长裤
+    Brown2: [0x402a28, 0x5a3a34, 0.58, 1.04], // 腰带 / 护膝：靴子同色系的深棕
+    Grey: [0x3a2426, 0x5a3a36, 0.02, 0.24], Black: [0x221a20, 0x221a20, 0, 1], // 靴子 / 鞋底：深皮棕（暖光下浅了会像光脚）
+    Gold: [0xc8923a, 0xe8b450, 0, 2],
   };
-  const PL_SURF = { Skin: SURF.leather, Hair: SURF.cloth, Green: SURF.leather, Grey: SURF.leather, Black: SURF.leather, Brown2: SURF.leather, Gold: SURF.gold };
+  for (const k in PL_COL) {
+    const c = PL_COL[k];
+    PL_COL[k] = { lo: cLin(c[0]), hi: cLin(c[1]), y0: c[2], y1: c[3] };
+  }
+  const PL_DEF = { lo: cLin(0x3b3439), hi: cLin(0x3b3439), y0: 0, y1: 1 };
+  // 额外零件（护肩、后摆、护腕）的颜色，和模型的材质同一套：皮衣 [下, 上, 后摆下端, 后摆内侧]、靴子皮 [下, 上]、金饰
+  const PL_LEA = [0x36386e, 0x5a5ca8, 0x2e3064, 0x262448], PL_BOOT = [0x3e2826, 0x664036], PL_GOLD = 0xe8b450;
+  // 主角的顶点色：材质的竖向渐变 + 一层很淡的按位置的明暗起伏（笔触感）+ 贴地压暗
+  const plColor = (mat, y, x, z, out) => {
+    const c = PL_COL[mat] || PL_DEF, t = smooth01((y - c.y0) / (c.y1 - c.y0 || 1));
+    const n = 1 + (vnoise(x * 9.1 + z * 4.3 + 3.7, y * 9.1 - z * 3.1) - 0.5) * 0.12;
+    for (let k = 0; k < 3; k++) out[k] = (c.lo[k] + (c.hi[k] - c.lo[k]) * t) * n;
+    return cShade(out, out, y, 1.9, 0.22);
+  };
+  const PL_SURF = { Skin: SURF.leather, Hair: SURF.cloth, Green: SURF.leather, LightGreen: SURF.cloth, Grey: SURF.leather, Black: SURF.leather, Brown2: SURF.leather, Gold: SURF.gold };
   const PL_MAP = {
     Root: 'root', Body: 'root', Hips: 'root', Abdomen: 'root', Torso: 'spine', Chest: 'chest', ShoulderL: 'chest', ShoulderR: 'chest', Neck: 'head', Head: 'head',
     UpperArmL: 'uaL', LowerArmL: 'faL', WristL: 'hL', UpperArmR: 'uaR', LowerArmR: 'faR', WristR: 'hR',
@@ -4620,9 +4652,29 @@
     Hips: 'root', Spine: 'spine', Spine1: 'spine', Spine2: 'spine', LeftShoulder: 'spine', RightShoulder: 'spine', Neck: 'head', Head: 'head', HeadTop_End: 'head',
     LeftArm: 'uaL', LeftForeArm: 'faL', RightArm: 'uaR', RightForeArm: 'faR', LeftUpLeg: 'thL', LeftLeg: 'shL', LeftFoot: 'ftL', RightUpLeg: 'thR', RightLeg: 'shR', RightFoot: 'ftR',
   };
-  // 卡通（phase 1 兜底）：旧的灰烬灰褐 [0.27, 0.25, 0.225] + 72% 去饱和太暗太脏；现在只去一半饱和、乘一层偏紫的灰，正式配色在 phase 2
-  const HK_TINT = [0.46, 0.4, 0.44];
-  const HK_DESAT = 0.4;
+  // 卡通配色（设计稿 2.3）：模型贴图调色板的几种颜色各换成游魂自己的一套——灰烬灰的冷皮肤、两种暗紫褐的破衣，
+  // 贴图里的血污换成余烬裂纹（自发光，见 vglow），眼白压成深眼窝、瞳孔发光。比地面亮一档、比主角暗、饱和度低。
+  // 每项：[贴图里的原色（最近的那个算数）, 下端色, 上端色]；渐变按静止姿态的高度（0.2 → 1.95）
+  const HK_PAL = [
+    [[0.8, 0.85, 0.45], 0x5a5070, 0xa49aa6], // 皮肤：头肩是灰烬灰 #a49aa6，往下压到冷紫
+    [[0.6, 0.5, 0.4], 0x4c3848, 0x725666], // 破衬衣
+    [[0.1, 0.15, 0.4], 0x2c2234, 0x4a3a52], // 破裤子
+    [[0.7, 0.5, 0.2], 0x4e3a36, 0x5e463e], // 绳带 / 鞋
+    [[0.85, 0.85, 0.6], 0x24161e, 0x24161e], // 眼白 → 深眼窝
+  ].map((e) => ({ src: e[0], lo: cLin(e[1]), hi: cLin(e[2]) }));
+  // 贴图里的血污（暗红）和红瞳 → 余烬裂纹 / 眼窝里的火：返回自发光亮度
+  const HK_GLOW = [[[0.4, 0, 0], 1.25], [[0.65, 0, 0.05], 1.5]];
+  const hkNear = (c, src) => (c[0] - src[0]) ** 2 + (c[1] - src[1]) ** 2 + (c[2] - src[2]) ** 2;
+  const hkGlow = (c) => {
+    let best = 0, bd = 0.02; // 和最近的余烬色足够近才发光
+    for (const [src, k] of HK_GLOW) {
+      const d = hkNear(c, src);
+      if (d < bd) { bd = d; best = k; }
+    }
+    if (!best) return 0;
+    for (const e of HK_PAL) if (hkNear(c, e.src) < bd) return 0;
+    return best;
+  };
   // 骷髅（Skeleton）：模型里 R 开头的骨骼在 +x 一侧（按看着它的人的左右起名），也就是骷髅自己的左边；…001 是手臂
   const TH_MAP = {
     Hips: 'root', Torso: 'chest', Neck: 'head', Head: 'head',
@@ -4649,7 +4701,8 @@
   };
   // 蜘蛛（Spider）：身体 / 头 / 腹三节，八条腿各三节同名；脚上的 IK 骨骼不参与
   const SP_MAP = { Root: 'root', Body: 'root', Thorax: 'thx', Head: 'head', Abdomen: 'abd' };
-  const SP_COL = cLin(0x4a3038); // 深梅色的甲壳（旧的炭黑 0x1d1a19 在卡通光照下是一团黑）
+  // 卡通：苔绿的甲壳（背上亮、腿根暗），在暖褐的地面上冷暖分得开，也和主角围巾的青绿不撞（旧的炭黑 / 深梅在卡通光照下是一团黑）
+  const SP_COL = [cLin(0x2e3a2a), cLin(0x7a8e4e)];
   const CSPEC = {
     player: {
       model: 'adventurer', height: 1.9, yaw: 0, center: 'Hips',
@@ -4677,15 +4730,41 @@
       // 胡子（头发网格在嘴以下、脸前面的部分）剃掉：烬渊的主角是个年轻人
       cull: (mat, x, y, z, pos) => mat === 'Hair' && y < pos('Head')[1] + 0.065 && z > pos('Head')[2] + 0.04,
       keep: (j) => !PL_BODY[j],
-      // 青绿围巾：脖子上绕两圈 + 背后的结（尾巴是程序化骨架原有的 sf 关节）
+      // 青绿围巾：脖子上绕两圈 + 背后的结（尾巴是程序化骨架原有的 sf 关节）；卡通：再加几件让剪影厚实的零件——
+      // 左肩皮护肩（金边）、两条小臂的皮护腕、腰带的金扣、皮衣下摆往下接两片开衩的长后摆（各挂在一条大腿上，迈腿时跟着摆），
+      // 左手掌心前托着的一团余烬（自发光）
       extra: (b, pos) => {
         const n = pos('Neck');
         b.at('chest').surf(SURF.cloth);
-        b.p(gTorus(0.083, 0.042, 6, 14), SF.c[1], n[0], n[1] - 0.005, n[2] + 0.005, HALF_PI + 0.22, 0, 0, 1, 1, 1.2);
-        b.p(gTorus(0.108, 0.04, 6, 14), [SF.c[0], SF.c[1]], n[0], n[1] - 0.05, n[2] + 0.01, HALF_PI - 0.12, 0, 0, 1.08, 0.92, 1.15);
-        b.p(gSph(0.05, 7, 5), SF.c[0], n[0] + PL_KNOT[0], n[1] + PL_KNOT[1] + 0.01, n[2] + PL_KNOT[2], 0, -0.35, 0, 1.4, 1, 0.8);
+        b.p(gTorus(0.088, 0.05, 6, 14), SF.c[1], n[0], n[1] - 0.005, n[2] + 0.008, HALF_PI + 0.22, 0, 0, 1, 1, 1.2);
+        b.p(gTorus(0.114, 0.048, 6, 14), [SF.c[0], SF.c[1]], n[0], n[1] - 0.055, n[2] + 0.012, HALF_PI - 0.12, 0, 0, 1.08, 0.92, 1.15);
+        b.p(gSph(0.058, 7, 5), SF.c[0], n[0] + PL_KNOT[0], n[1] + PL_KNOT[1] + 0.01, n[2] + PL_KNOT[2], 0, -0.35, 0, 1.4, 1, 0.8);
+        // 左肩护肩：一块压在肩头的圆皮甲，外沿一圈金
+        const ua = pos('UpperArmL');
+        b.at('uaL').surf(SURF.leather).p(gDome(0.1, 9, 3, 1.3), [PL_LEA[0], PL_LEA[1]], ua[0] + 0.025, ua[1] + 0.02, ua[2], 0, 0, -0.5, 1.05, 0.72, 1.12);
+        b.surf(SURF.gold).p(gTorus(0.1, 0.011, 4, 12), PL_GOLD, ua[0] + 0.025, ua[1] + 0.02, ua[2], HALF_PI, -0.5, 0, 1.05, 1.12, 1);
+        // 护腕：小臂中段到手腕，靴子同色的皮，手腕那头一道金箍
+        for (const [S, j] of [['L', 'faL'], ['R', 'faR']]) {
+          const a = pos('LowerArm' + S), w = pos('Wrist' + S), f = (t) => [a[0] + (w[0] - a[0]) * t, a[1] + (w[1] - a[1]) * t, a[2] + (w[2] - a[2]) * t];
+          const p0 = f(0.3), p1 = f(0.92);
+          b.at(j).surf(SURF.leather).limb([PL_BOOT[0], PL_BOOT[1]], p0[0], p0[1], p0[2], p1[0], p1[1], p1[2], 0.05, 0.047, 8, 0);
+          const p2 = f(0.86);
+          b.surf(SURF.gold).limb(PL_GOLD, p2[0], p2[1], p2[2], p1[0], p1[1], p1[2], 0.052, 0.05, 8, 0);
+        }
+        // 腰带金扣
+        const hp = pos('Hips');
+        b.at('root').surf(SURF.gold).p(gRBox(0.075, 0.06, 0.026, 0.01), PL_GOLD, hp[0], 1.02, 0.17);
+        // 长后摆：皮衣下摆（y ≈ 1.02）往下接到膝盖上方，两片各包住一条大腿的后外侧，中间开衩
+        for (const [S, j, sn] of [['L', 'thL', 1], ['R', 'thR', -1]]) {
+          const t = pos('UpperLeg' + S);
+          b.at(j).surf(SURF.leather).pd(gDrape('pl/coatTail', [[0.165, 0.5], [0.15, 0.64], [0.13, 0.84], [0.118, 1.04]], 1.9, 7), [PL_LEA[2], PL_LEA[0]], PL_LEA[3], t[0] + sn * 0.012, 0, t[2] + 0.01, 0, sn * 0.62, 0);
+        }
+        // 左手的余烬：拳心前下方一团（元素光 = 余烬橙），外面一圈淡一点的光
+        const wl = pos('WristL'), md = pos('Middle1L');
+        const ex = wl[0] + (md[0] - wl[0]) * 0.8, ey = wl[1] + (md[1] - wl[1]) * 0.8 - 0.05, ez = wl[2] + (md[2] - wl[2]) * 0.8 + 0.07;
+        b.at('hL').g(gOct(0.042), 1.35, ex, ey, ez, 0, 0.6, 0, 1, 1.4, 1).g(gSph(0.05, 7, 5), 0.55, ex, ey + 0.01, ez, 0, 0, 0, 1, 1.25, 1);
       },
-      color: (mat, prim, base, vc, y, out) => cShade(out, PL_COL[mat] || cLin(0x3b3439), y, 1.9, 0.28),
+      color: (mat, prim, base, vc, y, out, x, z) => plColor(mat, y, x, z, out),
       surf: (mat) => PL_SURF[mat] || SURF.cloth,
       sock: { head: ['head', 0, 0.2, 0.02], chest: ['chest', 0, 0.06, 0.12] },
       ankle: (rig) => rig.joints[rig.JI.ftL].py,
@@ -4707,17 +4786,33 @@
         return null;
       },
       keep: () => false,
-      color: (mat, prim, base, vc, y, out) => {
-        const c = vc || base, l = c[0] * 0.3 + c[1] * 0.59 + c[2] * 0.11;
-        for (let k = 0; k < 3; k++) out[k] = (c[k] + (l - c[k]) * HK_DESAT) * HK_TINT[k];
-        return cShade(out, out, y, 2.15, 0.3);
+      color: (mat, prim, base, vc, y, out, x, z) => {
+        const c = vc || base;
+        let e = HK_PAL[0], bd = 9;
+        for (const q of HK_PAL) {
+          const d = hkNear(c, q.src);
+          if (d < bd) { bd = d; e = q; }
+        }
+        const t = smooth01((y - 0.2) / 1.75), n = 1 + (vnoise(x * 8.3 + z * 3.9 - 1.3, y * 8.3 + z * 2.7) - 0.5) * 0.16;
+        for (let k = 0; k < 3; k++) out[k] = (e.lo[k] + (e.hi[k] - e.lo[k]) * t) * n;
+        return cShade(out, out, y, 2.15, 0.25);
       },
+      vglow: hkGlow,
       surf: () => SURF.hide,
       extra: (b, pos) => {
         // 眼窝里两点元素火（模型的眼睛在 Head 骨骼前上方）
         const h = pos('Head');
         b.at('head');
-        for (const s of [1, -1]) b.g(gOct(0.026), 1.1, h[0] + s * 0.05, h[1] + 0.105, h[2] + 0.115, 0, 0, 0, 1, 0.7, 0.6);
+        for (const s of [1, -1]) b.g(gOct(0.026), 1.25, h[0] + s * 0.05, h[1] + 0.105, h[2] + 0.115, 0, 0, 0, 1, 0.7, 0.6);
+        // 腰间挂着的几条破布（双面，锯齿下沿），让剪影不那么光溜
+        const hp = pos('Hips');
+        b.at('root').surf(SURF.cloth);
+        const rag = (k, a, r, y, len, w) =>
+          b.pd(gPlate('hk/rag' + k, [[-w, 0], [w, 0], [w * 0.8, -len * 0.7], [w * 0.35, -len * 0.55], [0, -len], [-w * 0.5, -len * 0.6], [-w * 0.9, -len * 0.8]], 0.006, 0.002),
+            [0x3a2a3a, 0x5a4450], 0x2e2232, hp[0] + Math.sin(a) * r, y, hp[2] + Math.cos(a) * r, 0.12, a, 0);
+        rag(0, 0.45, 0.17, hp[1] + 0.06, 0.36, 0.07);
+        rag(1, -1.35, 0.17, hp[1] + 0.04, 0.3, 0.06);
+        rag(2, Math.PI + 0.35, 0.16, hp[1] + 0.07, 0.42, 0.08);
       },
       sock: { weapon: ['faR', -0.02, -0.42, 0.14], hand: ['faL', 0.02, -0.42, 0.14], head: ['head', 0, 0.2, 0.08], chest: ['spine', 0, 0.32, 0.14] },
       ankle: (rig) => rig.joints[rig.JI.ftL].py,
@@ -4774,7 +4869,11 @@
       map: (n) => (SP_MAP[n] !== undefined ? SP_MAP[n] : /Leg/.test(n) ? n : null),
       pivot: null, // spiderRig 里按骨骼逐个填
       keep: () => false,
-      color: (mat, prim, base, vc, y, out) => cShade(out, SP_COL, y, 0.78, 0.15),
+      color: (mat, prim, base, vc, y, out) => {
+        const t = smooth01((y - 0.12) / 0.5);
+        for (let k = 0; k < 3; k++) out[k] = SP_COL[0][k] + (SP_COL[1][k] - SP_COL[0][k]) * t;
+        return cShade(out, out, y, 0.78, 0.15);
+      },
       surf: () => SURF.chitin,
       glow: (mat) => (mat === 'Material.001' ? 1.1 : 0),
       extra: (b, pos) => {
@@ -5181,9 +5280,9 @@
   // 每帧都要设的东西：只显示当前装备的那把武器，掌心余烬脉动
   function playerPost(ent, o, t, sdt) {
     const J = ent.rig.J, g = ent.gearType, gj = ent.rig.gearJ, gw = g >= 0 ? gj[g] : -1;
-    for (let i = 0; i < gj.length; i++) o[gj[i] + 6] = o[gj[i] + 7] = o[gj[i] + 8] = gj[i] === gw ? 1 : 0;
+    for (let i = 0; i < gj.length; i++) o[gj[i] + 6] = o[gj[i] + 7] = o[gj[i] + 8] = gj[i] === gw ? GEAR_K : 0;
     gunSpinPost(ent, o, sdt || 0);
-    o[J.wDL + 6] = o[J.wDL + 7] = o[J.wDL + 8] = g === G_DAG ? 1 : 0;
+    o[J.wDL + 6] = o[J.wDL + 7] = o[J.wDL + 8] = g === G_DAG ? GEAR_K : 0;
     const c = ent.clip, a = g === G_BOW && c && c.arrow ? o[J.wA + 6] : 0;
     o[J.wA + 6] = o[J.wA + 7] = o[J.wA + 8] = a;
     setGlow(ent, 1 + Math.sin(t * 5) * 0.12);
@@ -5422,8 +5521,10 @@
         const Oz = M[m + 8] * ox + M[m + 9] * oy + M[m + 10] * oz + M[m + 11];
         const sm = rig.armL.uaI * 12;
         let zg = (M[sm + 3] - Ox) * _Rh[2] + (M[sm + 7] - Oy) * _Rh[5] + (M[sm + 11] - Oz) * _Rh[8];
-        zg = zg < gr[0] ? gr[0] : zg > gr[1] ? gr[1] : zg;
-        if (Math.abs(zg - 0.03) < gr[2]) zg = zg < 0.03 && 0.03 - gr[2] >= gr[0] ? 0.03 - gr[2] : 0.03 + gr[2] <= gr[1] ? 0.03 + gr[2] : 0.03 - gr[2];
+        // 柄上的可握范围随武器缩放（GEAR_K）一起缩
+        const g0 = gr[0] * GEAR_K, g1 = gr[1] * GEAR_K, g2 = gr[2] * GEAR_K, gc = 0.03 * GEAR_K;
+        zg = zg < g0 ? g0 : zg > g1 ? g1 : zg;
+        if (Math.abs(zg - gc) < g2) zg = zg < gc && gc - g2 >= g0 ? gc - g2 : gc + g2 <= g1 ? gc + g2 : gc - g2;
         _ikT[0] = Ox + _Rh[2] * zg; _ikT[1] = Oy + _Rh[5] * zg; _ikT[2] = Oz + _Rh[8] * zg;
         _ikT[3] = _Rh[2]; _ikT[4] = _Rh[5]; _ikT[5] = _Rh[8];
         _ikT[6] = -_Rh[1]; _ikT[7] = -_Rh[4]; _ikT[8] = -_Rh[7];
@@ -5449,7 +5550,8 @@
       const hz = M[hm + 8] * gx + M[hm + 9] * gy + M[hm + 10] * gz + M[hm + 11];
       if (dk > 0.001) {
         rotOf(M, bj, _Rh);
-        const qx = hx - M[bm + 3], qy = hy - M[bm + 7], qz = hz - M[bm + 11];
+        // 弓关节带着武器缩放（GEAR_K）：右手的位置换回弓的绑定坐标时除掉这一层
+        const ks = o[J.wBo + 6] || 1, qx = (hx - M[bm + 3]) / ks, qy = (hy - M[bm + 7]) / ks, qz = (hz - M[bm + 11]) / ks;
         const lx = _Rh[0] * qx + _Rh[3] * qy + _Rh[6] * qz + bp.px0;
         const ly = _Rh[1] * qx + _Rh[4] * qy + _Rh[7] * qz + bp.py0;
         const lz = _Rh[2] * qx + _Rh[5] * qy + _Rh[8] * qz + bp.pz0;
@@ -6797,7 +6899,7 @@
     }
   }
   function makePlayerEnt() {
-    const ent = newEnt('player', playerRig(), WH, 0xffb347, 1.15);
+    const ent = newEnt('player', playerRig(), WH, 0xff8a3a, 1.15); // 元素色 = 左手余烬的橙（设计稿 2.3 #ff8a3a）
     ent.sock = { weapon: { j: 0, x: 0, y: 0, z: 1 }, hand: { j: 0, x: 0, y: -0.06, z: 0.02 } };
     ent.gearType = 0;
     ent.gearClips = null;
@@ -7050,7 +7152,8 @@
   // ---------------------------------------------------------------------
   function bruteRig() {
     return rigOf('brute', () => {
-      const HIDE = 0x8a6c5e, HIDE_D = 0x5a443c, BELLY = 0xa88d7a, DARK = 0x2a2321, STONE = 0x8d8684, STONE_D = 0x5b5654, BONE = 0xd0c4a8, IRON = 0x4a4a52, CLOTH = 0x5a2a26, CLOTH_IN = 0x2a1413;
+      // 卡通：皮换成冷的板岩蓝灰（旧的粉褐和暖褐地面混在一起），背上的石块浅一档，腰布是一块浓红
+      const HIDE = 0x6c76aa, HIDE_D = 0x3a406e, BELLY = 0x98a0c2, DARK = 0x2a2834, STONE = 0x8a86a2, STONE_D = 0x504c68, BONE = 0xd8ccb0, IRON = 0x4e4e5c, CLOTH = 0x9a2e28, CLOTH_IN = 0x3a1414;
       const b = rigBuilder('brute', NB_SMALL);
       b.j('root', null, 0, 1.12, 0).j('chest', 'root', 0, 1.45, 0).j('head', 'chest', 0, 2.2, 0.45).j('jaw', 'head', 0, 2.14, 0.55);
       b.j('uaL', 'chest', 0.92, 2.12, 0.05).j('faL', 'uaL', 1.18, 1.5, 0.12).j('uaR', 'chest', -0.92, 2.12, 0.05).j('faR', 'uaR', -1.18, 1.5, 0.12);
@@ -7476,7 +7579,7 @@
   // ---------------------------------------------------------------------
   function bomberRig() {
     return rigOf('bomber', () => {
-      const SHELL = 0x4a4654, SHELL_D = 0x23212a, PALE = 0x9d93a6, HORN = 0xcfc6b0;
+      const SHELL = 0x5e5876, SHELL_D = 0x343048, PALE = 0xaea4ba, HORN = 0xd6ceb8; // 卡通：甲壳抬亮一档、偏蓝紫
       const b = rigBuilder('bomber', NB_SMALL);
       b.j('root', null, 0, 0.5, 0).j('head', 'root', 0, 0.5, 0.42).j('sac', 'root', 0, 0.74, -0.2).j('ribs', 'root', 0, 0.56, -0.2);
       b.j('antL', 'head', 0.1, 0.62, 0.6).j('antR', 'head', -0.1, 0.62, 0.6);
@@ -7634,7 +7737,7 @@
   // ---------------------------------------------------------------------
   function phaserRig() {
     return rigOf('phaser', () => {
-      const ROBE = 0x26303a, ROBE_L = 0x425262, ROBE_IN = 0x0d1115, MASK = 0xdedccd, MASK_D = 0x9a9a8c, GLASS = 0xa6cdc2, GLASS_D = 0x58786f, DARK = 0x14181c;
+      const ROBE = 0x2e4866, ROBE_L = 0x4c6c92, ROBE_IN = 0x141c28, MASK = 0xe2e0d2, MASK_D = 0x9a9a8c, GLASS = 0xa6cdc2, GLASS_D = 0x58786f, DARK = 0x1a2030; // 卡通：袍子从炭灰换成钢蓝
       const b = rigBuilder('phaser', NB_SMALL);
       b.j('root', null, 0, 1.15, 0).j('body', 'root', 0, 1.45, 0.02).j('head', 'body', 0, 1.98, 0.08);
       b.j('uaL', 'body', 0.27, 1.8, 0.04).j('faL', 'uaL', 0.42, 1.42, 0.12).j('uaR', 'body', -0.27, 1.8, 0.04).j('faR', 'uaR', -0.42, 1.42, 0.12);
@@ -7796,7 +7899,7 @@
   // ---------------------------------------------------------------------
   function chargerRig() {
     return rigOf('charger', () => {
-      const HIDE = 0x5f625a, HIDE_D = 0x34362f, BELLY = 0x8c8a78, PLATE = 0x75837a, PLATE_D = 0x3e4944, HORN = 0xbfe0d4, HORN_D = 0x6e948a, HOOF = 0x1d1f1c, BONE = 0xd2cab2;
+      const HIDE = 0x6e6a60, HIDE_D = 0x3e3c36, BELLY = 0x9a9682, PLATE = 0x7e8c84, PLATE_D = 0x46524c, HORN = 0xbfe0d4, HORN_D = 0x6e948a, HOOF = 0x26282a, BONE = 0xd8d0b8; // 卡通：抬亮一档
       const b = rigBuilder('charger', NB_SMALL);
       b.j('root', null, 0, 1.0, -0.1).j('chest', 'root', 0, 1.1, 0.45).j('head', 'chest', 0, 1.05, 1.05).j('jaw', 'head', 0, 0.86, 1.22);
       const LEG = [['FL', 1, 0.72], ['FR', -1, 0.72], ['BL', 1, -0.62], ['BR', -1, -0.62]];
@@ -7949,7 +8052,9 @@
     // 躯体染一层和地面相反的冷暖色：火焰区地面偏暖 → 怪偏冷灰；其余区域地面偏冷 → 怪偏暖
     _c.set(eh);
     const warmGround = _c.r > 0.8 && _c.g < 0.6;
-    const ent = newEnt(type, MOB_RIG[type](), warmGround ? 0xc3cbe6 : 0xf6dfc4, eh, 1.1);
+    // 卡通：染色收轻（旧的 0xc3cbe6 / 0xf6dfc4 是给暗色调压的，现在各怪的配色本身就按冷暖定好了）；
+    // 冷色地面那一档几乎不偏暖（区域主光本来就是暖的，再染暖会把游魂的灰皮肤染成肉粉），只压暗一点，让主角仍是最亮的
+    const ent = newEnt(type, MOB_RIG[type](), warmGround ? 0xe2e6f4 : 0xece6e0, eh, 1.1);
     if (warmGround) ent.uRim.value.setRGB(0.1, 0.13, 0.2);
     else ent.uRim.value.setRGB(0.2, 0.15, 0.1);
     // （旧：暗色的 C 模型轮廓光 ×1.5。卡通配色下角色不再是暗色，靠 TOON 的轮廓光分开，不再加强）
@@ -7994,7 +8099,7 @@
   // ---------------------------------------------------------------------
   function golemRig() {
     return rigOf('golem', () => {
-      const ROCK = 0x8a8894, ROCK_D = 0x4b4954, SLAG = 0xa59a96, IRON = 0x3a3840, DARK = 0x26242b;
+      const ROCK = 0xaaa6c0, ROCK_D = 0x66628a, SLAG = 0xbcaea6, IRON = 0x464456, DARK = 0x2e2c38; // 卡通：冷的浅板岩，和暖褐地面分开
       const b = rigBuilder('golem', NB_BIG);
       b.j('root', null, 0, 1.75, 0).j('chest', 'root', 0, 2.15, 0).j('head', 'chest', 0, 3.7, 0.35).j('core', 'chest', 0, 2.75, 0.3);
       b.j('uaL', 'chest', 1.75, 3.4, 0).j('faL', 'uaL', 2.1, 2.35, 0.1).j('uaR', 'chest', -1.75, 3.4, 0).j('faR', 'uaR', -2.1, 2.35, 0.1);
@@ -8204,7 +8309,7 @@
   // ---------------------------------------------------------------------
   function weaverRig() {
     return rigOf('weaver', () => {
-      const CHIT = 0xcfdde8, CHIT_D = 0x7f94a6, ROBE = 0x2c3a4c, ROBE_L = 0x47596e, ROBE_IN = 0x141b24, DARK = 0x161c26, SILK = 0xe9f1f6;
+      const CHIT = 0xb4c6da, CHIT_D = 0x6a82a0, ROBE = 0x30506e, ROBE_L = 0x4c7090, ROBE_IN = 0x16202e, DARK = 0x1c2434, SILK = 0xe4eef6; // 卡通：袍子换成亮一档的霜蓝，甲壳带一点蓝
       const b = rigBuilder('weaver', NB_BIG);
       b.j('root', null, 0, 2.2, 0).j('abd', 'root', 0, 2.2, -0.35).j('torso', 'root', 0, 2.55, 0.2).j('head', 'torso', 0, 3.6, 0.3);
       b.j('uaL', 'torso', 0.48, 3.25, 0.28).j('faL', 'uaL', 0.78, 2.62, 0.42).j('uaR', 'torso', -0.48, 3.25, 0.28).j('faR', 'uaR', -0.78, 2.62, 0.42);
@@ -8431,7 +8536,7 @@
   // ---------------------------------------------------------------------
   function wardenRig() {
     return rigOf('warden', () => {
-      const MET = 0x55536f, MET_D = 0x2a2940, BRASS = 0xc79a44, BRASS_D = 0x7a5c26, DARK = 0x191826;
+      const MET = 0x6c6a94, MET_D = 0x383656, BRASS = 0xd8a84a, BRASS_D = 0x86652a, DARK = 0x222034; // 卡通：钢甲抬亮一档的靛蓝
       const b = rigBuilder('warden', NB_BIG);
       b.j('root', null, 0, 2.6, 0).j('head', 'root', 0, 3.75, 0).j('eye', 'head', 0, 4.02, 0.4).j('base', 'root', 0, 1.3, 0);
       b.j('ringA', 'root', 0, 2.75, 0).j('ringB', 'root', 0, 2.75, 0).j('orbit', 'root', 0, 1.7, 0);
@@ -8649,7 +8754,7 @@
   // ---------------------------------------------------------------------
   function lordRig() {
     return rigOf('lord', () => {
-      const OBS = 0x3d2e38, OBS_D = 0x1d151b, OBS_L = 0x5c4653, CLOTH = 0x8a2230, CLOTH_D = 0x4a1019, CLOTH_IN = 0x21070b, BONE = 0xdccdb2, BONE_D = 0x9a8a72, GOLD = 0xb8862e;
+      const OBS = 0x58405a, OBS_D = 0x2e2234, OBS_L = 0x80607e, CLOTH = 0xa82638, CLOTH_D = 0x5a1422, CLOTH_IN = 0x2a0a10, BONE = 0xe0d2b6, BONE_D = 0x9e8e76, GOLD = 0xd09a34; // 卡通：黑曜石抬成深紫红，披风更浓
       const b = rigBuilder('lord', NB_BIG);
       b.j('root', null, 0, 2.0, 0).j('spine', 'root', 0, 2.3, 0).j('chest', 'spine', 0, 2.8, 0).j('head', 'chest', 0, 3.65, 0.1);
       b.j('halo', 'head', 0, 4.75, 0.05).j('core', 'chest', 0, 2.95, 0.5);
@@ -8972,7 +9077,7 @@
   // ---------------------------------------------------------------------
   function behemothRig() {
     return rigOf('behemoth', () => {
-      const HIDE = 0x4f5a55, HIDE_D = 0x252d2a, BELLY = 0x7c8474, PLATE = 0x76837a, PLATE_D = 0x3c4743, GLASS = 0xc4ece1, GLASS_D = 0x6a988e, HOOF = 0x161918, BONE = 0xdcd5bf, BONE_D = 0x9c9682, DARK = 0x121514;
+      const HIDE = 0x6c7a76, HIDE_D = 0x3c4846, BELLY = 0x949c88, PLATE = 0x8e9c96, PLATE_D = 0x505c58, GLASS = 0xc4ece1, GLASS_D = 0x6a988e, HOOF = 0x202424, BONE = 0xe0d8c2, BONE_D = 0x9c9682, DARK = 0x1a1e1e; // 卡通：抬亮一档
       const b = rigBuilder('behemoth', NB_BIG);
       b.j('root', null, 0, 2.5, -0.6).j('chest', 'root', 0, 2.7, 0.9).j('neck', 'chest', 0, 3.1, 1.9).j('head', 'neck', 0, 3.65, 2.75).j('jaw', 'head', 0, 3.42, 3.05);
       b.j('antL', 'head', 0.32, 4.05, 2.62).j('antR', 'head', -0.32, 4.05, 2.62).j('star', 'chest', 0, 3.85, 0.15);
@@ -9366,7 +9471,7 @@
     const eh = hexOf(elemHex);
     _c.set(eh); // 和小怪一样：暖色地面上的首领偏冷，冷色地面上的偏暖
     const warmGround = _c.r > 0.8 && _c.g < 0.6;
-    const ent = newEnt(kind, BOSS_RIG[kind](), warmGround ? 0xd6daee : 0xfff0e0, eh, 1.15);
+    const ent = newEnt(kind, BOSS_RIG[kind](), warmGround ? 0xe6e9f6 : 0xf2ece6, eh, 1.15); // 卡通：染色收轻，同小怪
     if (warmGround) ent.uRim.value.setRGB(0.12, 0.15, 0.24);
     else ent.uRim.value.setRGB(0.24, 0.18, 0.12);
     groundDisc(ent, glowTex(), eh, G.BOSSES[kind].r * 2.4, 0.4);
@@ -9806,7 +9911,7 @@
   function colossusRig() {
     return rigOf('colossus', () => {
       // 风化的暗灰石 + 暗青铜：明度明显低于玩家的白甲，站在一起也分得开
-      const STONE = 0x655e55, STONE_D = 0x38342f, STONE_L = 0x786f63, BRONZE = 0x8a5d2b, BRONZE_D = 0x452c12;
+      const STONE = 0x7e7468, STONE_D = 0x48423a, STONE_L = 0x948a7c, BRONZE = 0x9a6a32, BRONZE_D = 0x4e3216; // 卡通：浅石抬亮一档
       const CLOTH = 0x214f49, CLOTH_L = 0x2f6b63, CLOTH_IN = 0x0e2421, HOLE = 0x0b0d0d;
       const b = rigBuilder('colossus', NB_SMALL);
       b.j('root', null, 0, 1.5, 0).j('chest', 'root', 0, 1.85, 0).j('head', 'chest', 0, 2.85, 0.1);
@@ -10037,7 +10142,7 @@
   // ---------------------------------------------------------------------
   function pyreRig() {
     return rigOf('pyre', () => {
-      const BONE = 0xe4d8bd, BONE_D = 0x9d9179, ROBE = 0x2a2220, ROBE_L = 0x463631, ROBE_IN = 0x120c0a, ASH = 0x5b4c45;
+      const BONE = 0xe4d8bd, BONE_D = 0x9d9179, ROBE = 0x3e3040, ROBE_L = 0x62485a, ROBE_IN = 0x1a1218, ASH = 0x6e5c58; // 卡通：袍子从炭黑抬成深紫褐
       const WOOD = 0x4a3426, WOOD_L = 0x6d4f39, IRON = 0x585d66, IRON_D = 0x2c3036, BRONZE = 0xa77a3e, HOLE = 0x0a0807;
       const b = rigBuilder('pyre', NB_SMALL);
       b.j('root', null, 0, 0.95, 0).j('spine', 'root', 0, 1.08, -0.02).j('chest', 'spine', 0, 1.3, -0.04).j('head', 'chest', 0, 1.58, 0.03);
