@@ -561,7 +561,7 @@
     storm: { kind: 'tile', cells: 8, fine: 0, crackW: 0.045, crackK: 0.55, glow: 0.11, rough: 0.8, bump: 0.05, emis: 1.0, amb: 'spark', ambRate: 7 },
     abyss: { kind: 'crack', cells: 12, fine: 30, crackW: 0.075, crackK: 0.62, glow: 0.17, rough: 0.9, bump: 0.07, emis: 0.95, amb: 'ember', ambRate: 20 },
     // 坠星裂谷：glass = 熔融琉璃，胞块带流纹，胞缝是发亮的星辉，暗处散着星屑；amb 'mote' = 缓缓升起的星尘
-    rift: { kind: 'glass', cells: 6, fine: 17, crackW: 0.042, crackK: 0.3, glow: 0.36, rough: 0.42, bump: 0.05, emis: 1.05, amb: 'mote', ambRate: 15 },
+    rift: { kind: 'glass', cells: 6, fine: 17, crackW: 0.042, crackK: 0.3, glow: 0.3, rough: 0.42, bump: 0.05, emis: 0.8, amb: 'mote', ambRate: 15 }, // zones-rift：程序化外观的星辉裂缝收一点（素材没到时的退路）
   };
   const TILE = 14; // 一张地面贴图铺多少世界单位
 
@@ -826,20 +826,22 @@
     },
     rift: {
       packs: ['zone-rift', 'rock-grey', 'models'],
+      // 卡通（zones-rift）：路面是偏冷的青灰板岩（不再是满地的饱和绿），贴图起伏压低；路外是更暗的月岩，岩壁外近黑的青
       mats: [
-        { tex: 'slate_floor', tile: 5.5, con: 0.8, nrm: 1.0, rough: 0.6, k: 0.7 },
-        { tex: 'moon_01', tile: 6.0, con: 1.0, nrm: 1.3, rough: 1, k: 0.46 },
-        { tex: 'Rock035', tile: 6.5, con: 1.0, nrm: 1.0, rough: 1, k: 1.0 },
+        { tex: 'slate_floor', tile: 5.5, con: 0.55, nrm: 0.8, rough: 0.7, k: 0.58, sat: 0.85, col: 0x3f5856 },
+        { tex: 'moon_01', tile: 6.0, con: 0.7, nrm: 1.1, rough: 1, k: 0.55, sat: 0.7, col: 0x394446 },
+        { tex: 'Rock035', tile: 6.5, con: 0.9, nrm: 1.0, rough: 1, k: 0.8, col: 0x1c2628 },
       ],
       lava: null,
       rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0, capAll: 0 },
-      grade: { sat: 1.12, con: 1.1, lift: 0x020a10, gain: 0xf2fff8, vig: 0.24 },
+      grade: { sat: 1.04, con: 1.1, lift: 0x020a10, gain: 0xf4fbff, vig: 0.24 },
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
-      mist: { color: 0x123a30, a: 0.32 },
-      prop: { tint: 0x4c605a, sat: 0.16 },
+      mist: { color: 0x16303a, a: 0.3 },
+      prop: { tint: 0x3e5250, sat: 0.12 },
+      blots: { k: 0.4, r: 0.7 }, // 污斑少一半多、小一点（zones-ash 加的旋钮，C 合并 ash 之后生效）
       props: {
-        outer: [['kn/stone_tallA', 3, 2.8, 3.8, 'tr'], ['kn/statue_obelisk', 2, 4, 5.2, 't'], ['kn/statue_ring', 1, 3, 3.6, ''], ['kd/rubble_large', 1, 0.4, 0.55, '']],
-        keep: 0.5,
+        outer: [['kn/stone_tallA', 3, 2.8, 3.8, 'tr'], ['kn/statue_obelisk', 2, 4, 5.2, 't'], ['kd/rubble_large', 1, 0.4, 0.55, '']],
+        keep: 0.35,
         mid: [['kn/rock_largeD', 1, 1.6, 2.4, 'r'], ['kn/stone_tallC', 1, 2.2, 3, 'r']],
         midK: 0.3,
         edge: [['kd/floor_tile_small_broken_A', 2, 0.5, 0.7, 'l'], ['kn/rock_largeB', 1, 0.6, 0.8, 'r']],
@@ -858,7 +860,8 @@
     frost: { key: 0xffe8cc, keyI: 1.45, shade: 0x4c7ae0, bounce: 0x3a6078, hemiI: 0.9, rim: 0xc8ecff, rimI: 0.85, fog: 0x1a2c3e, exposure: 0.76 },
     storm: { key: 0xffe2a0, keyI: 1.45, shade: 0x5446c8, bounce: 0x5a4468, hemiI: 0.9, rim: 0xe6dcff, rimI: 0.85, fog: 0x221c36, exposure: 0.84 },
     abyss: { key: 0xffcc9c, keyI: 1.45, shade: 0x5038b0, bounce: 0x8a2a30, hemiI: 0.9, rim: 0xff9cb0, rimI: 0.85, fog: 0x2e121c, exposure: 1.0 },
-    rift: { key: 0xf0ffe0, keyI: 1.45, shade: 0x3a8cc0, bounce: 0x245a48, hemiI: 0.9, rim: 0xa4ffde, rimI: 0.85, fog: 0x0f2a26, exposure: 0.86 },
+    // 坠星裂谷（zones-rift）：白里带一点暖的主光（青绿的材质不再被绿光染得更绿）、冷紫的阴影、青色的地面反光、电光青的轮廓光
+    rift: { key: 0xfff2e0, keyI: 1.45, shade: 0x6a78e0, bounce: 0x2a5650, hemiI: 1.0, rim: 0x9af0ff, rimI: 0.85, fog: 0x0b1a1c, exposure: 1.02 },
   };
   // 阴影色的统一处理（TOON.shadeSat / hemiK）：线性空间里向亮度收饱和度
   function toonShade(hex) {
@@ -3186,7 +3189,7 @@
     if (order !== undefined) m.renderOrder = order;
     m.frustumCulled = false;
     zoneGroup.add(m);
-    own(m);
+    if (m.dispose) own(m); // r128 的 Mesh 没有 dispose()，几何体 / 材质由调用方 own
     return m;
   }
   const TERRAIN_GFX = {
@@ -3280,14 +3283,42 @@
       for (const p of list) L.push(p.x, (p.h || 3) * 0.5, p.z, 0, rand(0, TAU), 0, p.r, p.h || 3, p.r, rand(0.88, 1.05));
       return instanced(gCyl(1, 1, 1, 8), o.mat || own(makeToonMat({ color: o.color || 0x5e5864, brush: 0.14, vertexColors: false })), L, true, new T.Color(1, 1, 1));
     },
-    // 崖面带：沿外侧是 VOID（或 opt.kinds）的边往下挂一条竖直的条带（深 opt.h，默认 6 m），顶 → 底渐暗，不受光
+    // 崖面带：沿外侧是 VOID（或 opt.kinds）的边往下挂一条竖直的条带（深 opt.h，默认 6 m），不受光。
+    // 卡通（zones-rift）：顶上一道亮一点的崖沿（opt.lip 颜色，默认 top 提亮 35%；高 opt.lipH，默认 0.3 m），往下按 opt.steps 级（默认 3）
+    //   硬阶梯从 top 过渡到 bottom（不是平滑渐变），每级的分界沿边按位置抖 ±opt.jag（默认 0.3，乘级高），像一层层岩层；最后一级渐隐到 bottom。
+    //   opt.steps = 0：退回原来的平滑渐变（没有崖沿）。
+    // 其它可选：opt.runs 直接给折线（[[x, z, nx, nz], ...] 的数组，n 朝虚空；不给就沿 kinds 的边取），opt.off 往 n 那边挪多少（默认 0.05），
+    //   opt.y 顶边高度（默认 0）
     cliffBand(opt) {
       const o = opt || {}, h = o.h || 6, top = lin(o.top || 0x4a3c4a), bot = lin(o.bottom || 0x0a0608), pos = [], col = [];
-      for (const run of edgeRuns(o.kinds || [MAT.VOID])) {
+      const steps = o.steps === undefined ? 3 : o.steps, y0 = o.y || 0, off = o.off === undefined ? 0.05 : o.off;
+      const lipH = steps ? (o.lipH === undefined ? 0.3 : o.lipH) : 0, jag = o.jag === undefined ? 0.3 : o.jag;
+      const lip = o.lip !== undefined ? lin(o.lip) : top.clone().multiplyScalar(1.35);
+      const bands = [];
+      if (lipH > 0) bands.push(lip);
+      for (let k = 0; k < Math.max(1, steps); k++) bands.push(steps ? top.clone().lerp(bot, k / steps) : top);
+      const step = (h - lipH) / Math.max(1, steps);
+      // 第 k 级分界的深度（k = 0 是崖沿底），按位置抖动；同一个点在相邻两段上取同一个值，不会裂开
+      const cut = (x, z, k) => (k === 0 ? lipH : lipH + step * k + (k < steps ? (hash2(Math.round(x * 3) + k * 101, Math.round(z * 3)) - 0.5) * 2 * jag * step : 0));
+      const quad = (ax, az, bx, bz, ya0, yb0, ya1, yb1, c0, c1) => {
+        pos.push(ax, ya0, az, bx, yb0, bz, bx, yb1, bz, ax, ya0, az, bx, yb1, bz, ax, ya1, az);
+        col.push(c0.r, c0.g, c0.b, c0.r, c0.g, c0.b, c1.r, c1.g, c1.b, c0.r, c0.g, c0.b, c1.r, c1.g, c1.b, c1.r, c1.g, c1.b);
+      };
+      for (const run of o.runs || edgeRuns(o.kinds || [MAT.VOID])) {
         for (let i = 0; i + 1 < run.length; i++) {
-          const a = run[i], b = run[i + 1], ax = a[0] + a[2] * 0.05, az = a[1] + a[3] * 0.05, bx = b[0] + b[2] * 0.05, bz = b[1] + b[3] * 0.05;
-          pos.push(ax, 0, az, bx, 0, bz, bx, -h, bz, ax, 0, az, bx, -h, bz, ax, -h, az);
-          col.push(top.r, top.g, top.b, top.r, top.g, top.b, bot.r, bot.g, bot.b, top.r, top.g, top.b, bot.r, bot.g, bot.b, bot.r, bot.g, bot.b);
+          const a = run[i], b = run[i + 1], ax = a[0] + a[2] * off, az = a[1] + a[3] * off, bx = b[0] + b[2] * off, bz = b[1] + b[3] * off;
+          if (!steps) {
+            quad(ax, az, bx, bz, y0, y0, y0 - h, y0 - h, top, bot);
+            continue;
+          }
+          let da = 0, db = 0;
+          for (let k = 0; k < bands.length; k++) {
+            const last = k === bands.length - 1, kk = lipH > 0 ? k : k + 1;
+            const na = last ? h : cut(a[0], a[1], kk), nb = last ? h : cut(b[0], b[1], kk);
+            quad(ax, az, bx, bz, y0 - da, y0 - db, y0 - na, y0 - nb, bands[k], last ? bot : bands[k]);
+            da = na;
+            db = nb;
+          }
         }
       }
       if (!pos.length) return null;
@@ -3423,9 +3454,598 @@
   // ===== 区域地形：abyss 结束 =====
 
   // ===== 区域地形：rift（坠星裂谷）—— zones-rift 只改这一节 =====
-  // 现在还是 legacy 布局。换生成器：ZONE_TERRAIN.rift = { gen(R, def) { … return spec; }, dress(zone, ctx) { … }, fx(dt, st, ctx) { … }, tick(dt, zone) { … } }；
-  // 本区专用的函数、常量也写在这一节里（模板和约定见 zones-notes/design.md §7）
-  ZONE_TERRAIN.rift = { gen: GEN.legacy };
+  // 布局（design.md §3.5，owner 定的第 8、9 条）：一个大陨坑，单向 C 形的两圈环路一路往下绕到坑底。
+  //   起点平台在坑沿外 → R1、R2：外圈（arc r≈38、宽 8 m、约 137°），各带一个往外鼓的平台 → 坡道 1 →
+  //   R3、R4：中圈（r≈24、约 139°），各一个往外鼓的平台 → 坡道 2（8 m 颈口）→ 坑底场地（r 16）。
+  //   每圈都是 C 形：两端封死（落石 / 水晶），方向唯一。圈与圈之间、中圈与坑底之间是坑壁（ROCK：挡移动、子弹、视线）。
+  //   外圈内侧那一段是虚空（VOID 挖空：掉不下去，子弹和视线能飞过），往下看得见深渊；坑底四周留一圈岩壁，外圈的人隔着虚空看不到场地。
+  //   旁支：外圈、中圈各往坑外岔出一个陨石撞击坑（一个放宝箱 + 小股守卫，一个放精英群 + 宝箱）。
+  //   地标：环路边上的陨石碎块（WALL，可当掩体）、坑底边缘 3 簇水晶（WALL）、坑壁上的星骸碑、虚空上的浮岩、撞击坑。
+  //   角度 = atan2(dx, dz)（和 arc 图元同一套），坑心 O；s = 绕圈方向（±1）
+  const RIFT_G = {
+    rS: [54, 57], rO: [37.2, 38.6], rM: [24.0, 24.6], hw: 4, rA: 16, spanO: [128, 136], spanM: [130, 138],
+    rampHw: 3.5, neckHw: 4, linkHw: 3.75, bulge: [8.1, 8.6], bulgeOut: 0.28, side: [5.6, 6.1], sideNeck: [8, 9.5], sideHw: 3,
+    meteor: [1.5, 2.0], crystal: [0.85, 1.2], crystalR: 13,
+  };
+  function riftGen(R, def) {
+    const D = Math.PI / 180, K = RIFT_G;
+    const rnd = (a, b) => a + R() * (b - a), rr = (v) => rnd(v[0], v[1]);
+    const s = R() < 0.5 ? 1 : -1;
+    const phS = R() * TAU, rS = rr(K.rS);
+    const O = { x: -Math.sin(phS) * rS, z: -Math.cos(phS) * rS };
+    const P = (ph, r) => ({ x: O.x + Math.sin(ph) * r, z: O.z + Math.cos(ph) * r });
+    const xz = (q) => [q.x, q.z];
+    const rO = rr(K.rO), rM = rr(K.rM), hw = K.hw, rA = K.rA;
+    const ph0 = phS + s * rnd(9, 13) * D, spO = rr(K.spanO) * D, spM = rr(K.spanM) * D;
+    const ph1 = ph0 + s * spO, ph2 = ph1 + s * spM;
+    const capsule = (a, b, w) => ({ t: 'capsule', ax: a.x, az: a.z, bx: b.x, bz: b.z, hw: w });
+    // 环带 = 一串短胶囊（每段约 12°，弦和弧最多差 0.2 m）。arc 图元的外接框是整个圆，光栅化和校验都按外接框算，太慢
+    const chain = (r, pa, pb, w, step) => {
+      const n = Math.max(1, Math.ceil(Math.abs(pb - pa) / ((step || 12) * D))), out = [];
+      for (let i = 0; i < n; i++) out.push(capsule(P(pa + ((pb - pa) * i) / n, r), P(pa + ((pb - pa) * (i + 1)) / n, r), w));
+      return out;
+    };
+    const arcAxis = (r, pa, pb) => {
+      const n = Math.max(2, Math.ceil(Math.abs(pb - pa) / (4 * D))), out = [];
+      for (let i = 0; i <= n; i++) out.push(xz(P(pa + ((pb - pa) * i) / n, r)));
+      return out;
+    };
+    // 往外鼓的平台：一大两小三个圆拼成的不规则台地（多边形 blob 的光栅化和校验比圆贵十倍以上），圆心在环带外沿再往外 0.28·rad；
+    // core = 大圆（r = 0.88·rad ≥ 7）
+    const bulge = (ph, ringR) => {
+      const rad = rr(K.bulge), c = P(ph, ringR + hw + rad * K.bulgeOut), r0 = rad * 0.88, prims = [{ t: 'circle', x: c.x, z: c.z, r: r0 }];
+      const ux = Math.sin(ph), uz = Math.cos(ph), vx = uz, vz = -ux;
+      for (const sg of [-1, 1]) {
+        const a = rnd(0.35, 0.6), d = rad * rnd(0.42, 0.55), rs = rad * rnd(0.5, 0.62);
+        prims.push({ t: 'circle', x: c.x + (ux * Math.cos(a) + vx * sg * Math.sin(a)) * d, z: c.z + (uz * Math.cos(a) + vz * sg * Math.sin(a)) * d, r: rs });
+      }
+      return { ph, prims, x: c.x, z: c.z, rad, r: r0 - 0.05 };
+    };
+    // 旁支：从环带外沿垂直往外岔出去的撞击坑（圆）
+    const side = (ph, ringR) => {
+      const rad = rr(K.side), neck = rr(K.sideNeck), c = P(ph, ringR + hw + neck + rad * 0.8);
+      return { ph, prims: [{ t: 'circle', x: c.x, z: c.z, r: rad }], x: c.x, z: c.z, rad, r: rad - 0.05, root: P(ph, ringR), door0: P(ph, ringR + hw), door1: P(ph, ringR + hw + neck - 0.15 * rad) };
+    };
+    const at = (a, b, t) => a + (b - a) * t;
+    const phO = ph0 + s * spO * 0.5, phMs = ph1 + s * spM * 0.5;
+    const B1 = bulge(ph0 + s * spO * rnd(0.2, 0.26), rO), B2 = bulge(ph0 + s * spO * rnd(0.74, 0.8), rO);
+    const B3 = bulge(ph1 + s * spM * rnd(0.2, 0.25), rM), B4 = bulge(ph1 + s * spM * rnd(0.73, 0.78), rM);
+    const SA = side(ph0 + s * spO * rnd(0.47, 0.53), rO), SB = side(ph1 + s * spM * rnd(0.47, 0.53), rM);
+    const parA = (SA.ph - phO) * s < 0 ? 1 : 2, parB = (SB.ph - phMs) * s < 0 ? 3 : 4; // 旁支挂在哪个环带房间上
+    const eliteA = R() < 0.5;
+    // 外圈内侧的虚空：环带 [rV0, 外圈内沿 + 0.25]（一串胶囊，两端是圆头），两端离坡道 / 起点那头留足岩壁。
+    // 同一串胶囊既是一个单独的「垫底」房间（不在关键路径上、没有门；sdShot 为正，子弹和视线能飞过），又是 VOID 挖空（不可走）。
+    // 不放进 R1 / R2：校验第 4 条按房间图元的外接框逐格量距离，图元多了很慢
+    const rV0 = rA + 5, rV1 = rO - hw + 0.25, vMid = (rV0 + rV1) / 2, vHw = (rV1 - rV0) / 2;
+    const vA = ph0 + s * (16 * D + vHw / vMid), vB = ph1 - s * ((K.rampHw + 5 + vHw) / vMid);
+    const cover = chain(vMid, vA, vB, vHw, 15);
+    // 起点连到外圈起端
+    const phJ = ph0 + s * 7 * D, join = P(phJ, rO), jd = Math.hypot(join.x, join.z), ux = join.x / jd, uz = join.z / jd;
+    const exit = { x: ux * 8, z: uz * 8, ang: Math.atan2(ux, uz) };
+    const rooms = [], links = [], cuts = [], feats = [], packs = [], chests = [];
+    const room = (kind, order, path, prims, core, extra) => {
+      const r = Object.assign({ id: rooms.length, kind, order, path, prims, core, tags: [] }, extra || {});
+      rooms.push(r);
+      return r;
+    };
+    const cOf = (b) => ({ x: b.x, z: b.z, r: b.r });
+    // 房间顺序 = 重叠处的优先级：起点、环带、场地、旁支在前，通道在后
+    const rStart = room('start', 0, true, [{ t: 'circle', x: 0, z: 0, r: 8 }], { x: 0, z: 0, r: 8 });
+    const r1 = room('room', 1, true, chain(rO, ph0, phO, hw).concat(B1.prims), cOf(B1), { axis: arcAxis(rO, ph0, phO) });
+    const r2 = room('room', 2, true, chain(rO, phO, ph1, hw).concat(B2.prims), cOf(B2), { axis: arcAxis(rO, phO, ph1) });
+    const r3 = room('room', 3, true, chain(rM, ph1, phMs, hw).concat(B3.prims), cOf(B3), { axis: arcAxis(rM, ph1, phMs) });
+    const r4 = room('room', 4, true, chain(rM, phMs, ph2, hw).concat(B4.prims), cOf(B4), { axis: arcAxis(rM, phMs, ph2) });
+    const rArena = room('arena', 5, true, [{ t: 'circle', x: O.x, z: O.z, r: rA }], { x: O.x, z: O.z, r: rA });
+    const ringRooms = [null, r1, r2, r3, r4];
+    const rSA = room('side', ringRooms[parA].order + 1, false, SA.prims, cOf(SA), { tags: [eliteA ? 'elite' : 'chest'] });
+    const rSB = room('side', ringRooms[parB].order + 1, false, SB.prims, cOf(SB), { tags: [eliteA ? 'chest' : 'elite'] });
+    const lStart = room('link', 0, true, [capsule({ x: 0, z: 0 }, join, K.linkHw)], { x: (exit.x + join.x) / 2, z: (exit.z + join.z) / 2, r: K.linkHw }, { axis: [[0, 0], xz(join)] });
+    const ramp1a = P(ph1, rO), ramp1b = P(ph1, rM), ramp2a = P(ph2, rM), ramp2b = P(ph2, rA - 2);
+    const lRamp1 = room('link', 2, true, [capsule(ramp1a, ramp1b, K.rampHw)], Object.assign(P(ph1, (rO + rM) / 2), { r: K.rampHw }), { axis: [xz(ramp1a), xz(ramp1b)] });
+    const lRamp2 = room('link', 4, true, [capsule(ramp2a, ramp2b, K.neckHw)], Object.assign(P(ph2, (rM - hw + rA) / 2), { r: K.neckHw }), { axis: [xz(ramp2a), xz(P(ph2, rA))] });
+    const neck = (S, par, rs) => room('link', par.order, false, [capsule(S.root, { x: S.x, z: S.z }, K.sideHw)], { x: (S.door0.x + S.door1.x) / 2, z: (S.door0.z + S.door1.z) / 2, r: K.sideHw }, { axis: [xz(S.root), [S.x, S.z]], ends: [par.id, rs.id] });
+    const lSA = neck(SA, ringRooms[parA], rSA), lSB = neck(SB, ringRooms[parB], rSB);
+    // 虚空的垫底房间：axis 放在外圈中线上（通用外观的污斑沿 axis 撒，撒在外圈路面上，不会浮在深渊上）
+    room('room', 2, false, cover, Object.assign(P((vA + vB) / 2, rO), { r: 1 }), { axis: arcAxis(rO, vA, vB), tags: ['void'] });
+    lStart.ends = [rStart.id, r1.id];
+    lRamp1.ends = [r2.id, r3.id];
+    lRamp2.ends = [r4.id, rArena.id];
+    r1.ends = [lStart.id, r2.id];
+    r2.ends = [r1.id, lRamp1.id];
+    r3.ends = [lRamp1.id, r4.id];
+    r4.ends = [r3.id, lRamp2.id];
+    const door = P(ph2, rA + 1.5);
+    const link = (a, b, d, kind) => links.push({ a: a.id, b: b.id, door: { x: d.x, z: d.z }, kind });
+    link(rStart, lStart, exit, 'neck');
+    link(lStart, r1, { x: join.x - ux * hw, z: join.z - uz * hw }, 'neck');
+    link(r1, r2, P(phO, rO), 'neck');
+    link(r2, lRamp1, P(ph1, rO - hw), 'stairs');
+    link(lRamp1, r3, P(ph1, rM + hw), 'stairs');
+    link(r3, r4, P(phMs, rM), 'neck');
+    link(r4, lRamp2, P(ph2, rM - hw), 'stairs');
+    link(lRamp2, rArena, door, 'stairs');
+    link(ringRooms[parA], lSA, SA.door0, 'neck');
+    link(lSA, rSA, SA.door1, 'neck');
+    link(ringRooms[parB], lSB, SB.door0, 'neck');
+    link(lSB, rSB, SB.door1, 'neck');
+    for (const p of cover) cuts.push({ prim: p, mat: MAT.VOID });
+
+    // 本地 sd（只用于摆放：怪群、碎块、地标），和光栅化同一个合成规则
+    const sdAt = (x, z) => {
+      let v = -1e9;
+      for (const rm of rooms) for (const p of rm.prims) {
+        const w = primSd(p, x, z);
+        if (w > v) v = w;
+      }
+      for (const c of cuts) {
+        const w = -primSd(c.prim, x, z);
+        if (w < v) v = w;
+      }
+      return v;
+    };
+    const doors = links.map((L) => L.door);
+    const nearDoor = (x, z, d) => doors.some((q) => Math.hypot(q.x - x, q.z - z) < d);
+    // 陨石碎块：外圈贴着外沿（内沿是虚空）、中圈贴着内沿（外沿有鼓包和旁支），嵌进岩壁 0.7 m，剩下的路宽 ≥ 4.6 m
+    const avoid = [B1, B2, B3, B4];
+    const placeMeteor = (ringR, pa, pb, outerEdge) => {
+      for (let k = 0; k < 10; k++) {
+        const rm = rr(K.meteor), ph = at(pa, pb, R()), rc = outerEdge ? ringR + hw - rm + 0.7 : ringR - hw + rm - 0.7, c = P(ph, rc);
+        if (avoid.some((b) => Math.hypot(b.x - c.x, b.z - c.z) < b.rad + rm + 2.5)) continue;
+        if ([SA, SB].some((q) => segD(c.x, c.z, q.root.x, q.root.z, q.x, q.z) < K.sideHw + rm + 2.5)) continue;
+        if (nearDoor(c.x, c.z, rm + 4.5) || Math.hypot(c.x - join.x, c.z - join.z) < K.linkHw + rm + 4) continue;
+        cuts.push({ prim: { t: 'circle', x: c.x, z: c.z, r: rm }, mat: MAT.WALL });
+        feats.push({ kind: 'meteor', x: c.x, z: c.z, ang: ph, s: rm });
+        return true;
+      }
+      return false;
+    };
+    placeMeteor(rO, ph0 + s * spO * 0.33, ph0 + s * spO * 0.43, true);
+    placeMeteor(rO, ph0 + s * spO * 0.57, ph0 + s * spO * 0.67, true);
+    placeMeteor(rM, ph1 + s * spM * 0.12, ph1 + s * spM * 0.42, false);
+    if (R() < 0.6) placeMeteor(rM, ph1 + s * spM * 0.58, ph1 + s * spM * 0.88, false);
+    // 撞击坑里的陨石（精英坑在坑底后方，宝箱坑在宝箱后面）
+    for (const S of [SA, SB]) {
+      const ox = (S.x - S.root.x), oz = (S.z - S.root.z), ol = Math.hypot(ox, oz), rm = rnd(1.4, 1.8), back = S.rad * 0.5;
+      const mx = S.x + (ox / ol) * back + (-oz / ol) * rnd(-1.5, 1.5), mz = S.z + (oz / ol) * back + (ox / ol) * rnd(-1.5, 1.5);
+      cuts.push({ prim: { t: 'circle', x: mx, z: mz, r: rm }, mat: MAT.WALL });
+      feats.push({ kind: 'meteor', x: mx, z: mz, ang: Math.atan2(ox, oz), s: rm, big: true });
+      feats.push({ kind: 'crater', x: S.x, z: S.z, r: S.rad * 0.92, big: true });
+      S.mx = mx;
+      S.mz = mz;
+      S.ux = ox / ol;
+      S.uz = oz / ol;
+    }
+    // 坑底边缘 3 簇水晶（避开门的方向，中心 r 10 以内空着，流星犁地才放得开）
+    for (let k = 0; k < 3; k++) {
+      const ph = ph2 + (60 + 120 * k + rnd(-12, 12)) * D, c = P(ph, K.crystalR), r = rr(K.crystal);
+      cuts.push({ prim: { t: 'circle', x: c.x, z: c.z, r }, mat: MAT.WALL });
+      feats.push({ kind: 'crystal', x: c.x, z: c.z, s: r });
+    }
+
+    // 怪群：每个环带房间的鼓包中心一群，环带上再放 1–2 群；旁支：精英坑一群精英、宝箱坑一小股守卫
+    const placed = [];
+    const okPack = (x, z) => sdAt(x, z) >= 3.2 && Math.hypot(x, z) >= 14 && !nearDoor(x, z, 4.5) && placed.every((q) => Math.hypot(q.x - x, q.z - z) >= 9);
+    const pack = (rm, x, z, n, r, extra) => {
+      const p = Object.assign({ room: rm.id, x, z, n, r }, extra || {});
+      packs.push(p);
+      placed.push(p);
+      return p;
+    };
+    const ringPacks = (rm, B, ringR, pa, pb, k) => {
+      const mine = [pack(rm, B.x, B.z, [4, 6], 2.8)];
+      const want = k === 1 ? [0.78] : [0.17, 0.83];
+      for (const t0 of want) {
+        for (let tries = 0; tries < 12; tries++) {
+          const t = G.clamp(t0 + (tries ? (R() - 0.5) * 0.4 : 0), 0.08, 0.92), ph = at(pa, pb, t), c = P(ph, ringR + rnd(-0.6, 0.6));
+          if (!okPack(c.x, c.z)) continue;
+          mine.push(pack(rm, c.x, c.z, [4, 5], 2.4));
+          break;
+        }
+      }
+      return mine;
+    };
+    const byRoom = [
+      ringPacks(r1, B1, rO, ph0, phO, 1),
+      ringPacks(r2, B2, rO, phO, ph1, 2),
+      ringPacks(r3, B3, rM, ph1, phMs, R() < 0.5 ? 1 : 2),
+      ringPacks(r4, B4, rM, phMs, ph2, 2),
+    ];
+    // 精英：关键路径房间各 45%（挑这个房间里的一群），加上精英坑保底，全区上限 4
+    const elites = [];
+    for (const list of byRoom) if (R() < 0.45) elites.push(list[Math.floor(R() * list.length)]);
+    while (elites.length > 3) elites.splice(Math.floor(R() * elites.length), 1);
+    for (const p of elites) p.elite = true;
+    for (const [S, rs] of [[SA, rSA], [SB, rSB]]) {
+      const isElite = rs.tags[0] === 'elite';
+      if (isElite) pack(rs, S.x - S.ux * S.rad * 0.05, S.z - S.uz * S.rad * 0.05, [5, 6], 2.6, { elite: true });
+      else pack(rs, S.x - S.ux * S.rad * 0.05, S.z - S.uz * S.rad * 0.05, [2, 3], 2.0);
+      // 宝箱放在陨石跟前（离陨石 rm + 1.2，朝坑口），宝箱坑的宝箱正对坑口
+      const cx = S.mx - S.ux * 2.6, cz = S.mz - S.uz * 2.6;
+      chests.push({ x: cx, z: cz, room: rs.id, ang: Math.atan2(-S.ux, -S.uz) });
+    }
+
+    // 地标锚点（外观读）：坑的几何、封口、浮岩、星骸碑、天穹碎片、鼓包里的小陨坑
+    const pathLen = Math.hypot(join.x, join.z) + rO * spO - rO * 7 * D + (rO - rM) + rM * spM + (rM - rA - 1.5);
+    feats.push({ kind: 'pit', x: O.x, z: O.z, s, rO, rM, hw, rA, ph0, ph1, ph2, rV0, rV1, vMid, vHw, vA, vB, len: pathLen });
+    for (const [ph, r, dir] of [[ph0, rO, -1], [ph1, rO, 1], [ph1, rM, -1], [ph2, rM, 1]]) {
+      const c = P(ph + s * dir * ((hw + 1.6) / r), r);
+      feats.push({ kind: 'seal', x: c.x, z: c.z, ang: ph + (s * dir * Math.PI) / 2 });
+    }
+    const spots = [];
+    const spaced = (x, z, d) => spots.every((q) => Math.hypot(q.x - x, q.z - z) >= d);
+    for (let k = 0, n = 0; k < 40 && n < 6; k++) {
+      const ph = at(vA, vB, 0.08 + 0.84 * R()), c = P(ph, rnd(rV0 + 3, rV1 - 3.5));
+      if (!spaced(c.x, c.z, 7) || sdAt(c.x, c.z) > -2.5) continue;
+      spots.push(c);
+      feats.push({ kind: 'isle', x: c.x, z: c.z, y: rnd(-1.6, 1.4), s: rnd(0.8, 1.5), n: n++ });
+    }
+    for (let k = 0, n = 0; k < 60 && n < 6; k++) {
+      // 星骸碑：中圈外侧的坑壁、外圈外侧的坑沿
+      const mid = R() < 0.55, ph = mid ? at(ph1, ph2, 0.1 + 0.8 * R()) : at(ph0, ph1, 0.05 + 0.9 * R());
+      const c = P(ph, mid ? rM + hw + rnd(4.5, 6.5) : rO + hw + rnd(3.5, 5));
+      if (!spaced(c.x, c.z, 12) || sdAt(c.x, c.z) > -2.6) continue;
+      spots.push(c);
+      feats.push({ kind: 'obelisk', x: c.x, z: c.z, ang: R() * TAU });
+      n++;
+    }
+    for (let k = 0; k < 10; k++) {
+      const ph = ph2 + (18 + k * 32.4 + rnd(-6, 6)) * D, c = P(ph, rA + rnd(2.0, 2.8));
+      if (sdAt(c.x, c.z) > -1.6) continue;
+      feats.push({ kind: 'shard', x: c.x, z: c.z, h: rnd(2.6, 4.6) });
+    }
+    for (const B of [B1, B2, B3, B4]) if (R() < 0.5) feats.push({ kind: 'crater', x: B.x + rnd(-2, 2), z: B.z + rnd(-2, 2), r: rnd(2.4, 3.2) });
+
+    const spec = {
+      rooms, links, cuts, haz: [], feats, packs, chests,
+      start: { x: 0, z: 0, exit },
+      arena: { room: rArena.id, x: O.x, z: O.z, door, dir: { x: (O.x - door.x) / (rA + 1.5), z: (O.z - door.z) / (rA + 1.5) } },
+      path: [rStart.id, lStart.id, r1.id, r2.id, lRamp1.id, r3.id, r4.id, lRamp2.id, rArena.id],
+    };
+    spec.bounds = specBounds(spec);
+    return spec;
+  }
+  // 校验阈值：中圈和坑底之间只有 4 m 岩壁（挡视线，§2.8 第 4 条「中间是 ROCK 也行」A1 没实现，这里把 gap 放到 3.5）；
+  // 面积按 §3.5 收在 2700–3500
+  riftGen.check = { gap: 3.5, areaMin: 2700, areaMax: 3500 };
+
+  // ----- 坠星裂谷的布景（dress / fx）-----
+  // 卡通配色：坑壁是偏青的墨绿岩（受光 #4e7a72、侧面 #2c4a46、底部压成冷紫 #2a2c4a），星辉是电光青白（#bffcff 核、#5ef0e0 辉），
+  // 坑底水晶最亮；越往坑心地面越暗（顶点色 ×0.82）。阴影走冷紫（ZONE_LIGHT.rift.shade）
+  const RIFT_PAL = {
+    rockTop: 0x4e7a72, rockSide: 0x2c4a46, rockBot: 0x2a2c4a,
+    meteor: 0x343a44, meteorTop: 0x5a6670, meteorBot: 0x221f36,
+    cliffTop: 0x2e4844, cliffLip: 0x4f7068, cliffBot: 0x04080a, abyss: 0x061012, star: 0xbffcff,
+    isleTop: 0x557a70, isleSide: 0x2b3b37, spark: 0x7aeeff, glow: 0x5ad8e8,
+  };
+  const RIFT_ABYSS_Y = -7; // 深渊底面
+  const RIFT_SKIRT = 2.8; // 地面网格往外铺的裙边（buildVisuals 的 SKIRT），深渊的洞从裙边外面开始
+  // 外圈内侧虚空的洞：沿虚空环带的中线 [vA, vB]，径向 [rIn, rOut]，两头圆头。返回轮廓（闭合，带朝洞外的法线）和三角形
+  function riftHole(pit, rIn, rOut) {
+    const mid = (rIn + rOut) / 2, w = (rOut - rIn) / 2, D = Math.PI / 180, sg = pit.vB > pit.vA ? 1 : -1;
+    const P = (ph, r) => [pit.x + Math.sin(ph) * r, pit.z + Math.cos(ph) * r];
+    const n = Math.max(8, Math.ceil(Math.abs(pit.vB - pit.vA) / (2 * D))), nc = 10;
+    const outer = [], inner = [];
+    for (let i = 0; i <= n; i++) {
+      const ph = pit.vA + ((pit.vB - pit.vA) * i) / n;
+      outer.push(P(ph, rOut));
+      inner.push(P(ph, rIn));
+    }
+    const cap = (ph, end) => {
+      const c = P(ph, mid), rx = Math.sin(ph), rz = Math.cos(ph), tx = Math.cos(ph) * sg * end, tz = -Math.sin(ph) * sg * end, out = [];
+      for (let k = 1; k < nc; k++) {
+        const t = (k / nc) * Math.PI, cr = Math.cos(t) * end, sn = Math.sin(t);
+        out.push([c[0] + rx * w * cr + tx * w * sn, c[1] + rz * w * cr + tz * w * sn]);
+      }
+      return { c, pts: out };
+    };
+    const cB = cap(pit.vB, 1), cA = cap(pit.vA, -1);
+    // 轮廓：外弧 vA→vB、vB 端圆头、内弧 vB→vA、vA 端圆头
+    const loop = outer.concat(cB.pts, inner.slice().reverse(), cA.pts);
+    const outline = [];
+    for (let i = 0; i < loop.length; i++) {
+      const a = loop[(i + loop.length - 1) % loop.length], b = loop[(i + 1) % loop.length];
+      let nx = b[1] - a[1], nz = -(b[0] - a[0]);
+      const l = Math.hypot(nx, nz) || 1;
+      outline.push([loop[i][0], loop[i][1], nx / l, nz / l]);
+    }
+    // 法线朝洞外：和「轮廓点 → 环带中线最近点」同向
+    const p0 = outline[0], c0 = P(pit.vA, mid);
+    if ((p0[0] - c0[0]) * p0[2] + (p0[1] - c0[1]) * p0[3] < 0) for (const q of outline) { q[2] = -q[2]; q[3] = -q[3]; }
+    // 三角形：内外弧之间的条带 + 两头的扇形
+    const tri = [];
+    for (let i = 0; i < n; i++) tri.push(outer[i], inner[i], inner[i + 1], outer[i], inner[i + 1], outer[i + 1]);
+    const fan = (C, a0, list, a1) => {
+      const ring = [a0].concat(list, [a1]);
+      for (let k = 0; k + 1 < ring.length; k++) tri.push(C.c, ring[k], ring[k + 1]);
+    };
+    fan(cB, outer[n], cB.pts, inner[n]);
+    fan(cA, inner[0], cA.pts, outer[0]);
+    const inside = (x, z) => {
+      const d = Math.hypot(x - pit.x, z - pit.z);
+      return (d >= rIn && d <= rOut && riftAngIn(Math.atan2(x - pit.x, z - pit.z))) || riftCapHit(x, z);
+    };
+    return { outline, tri, inside };
+    function riftAngIn(ph) {
+      let t = (ph - pit.vA) * sg;
+      t = ((t % TAU) + TAU) % TAU;
+      return t <= Math.abs(pit.vB - pit.vA);
+    }
+    function riftCapHit(x, z) {
+      const a = P(pit.vA, mid), b = P(pit.vB, mid);
+      return Math.hypot(x - a[0], z - a[1]) < w || Math.hypot(x - b[0], z - b[1]) < w;
+    }
+  }
+  function riftTriGeo(tri, y) {
+    const pos = new Float32Array(tri.length * 3);
+    for (let i = 0; i < tri.length; i++) {
+      pos[i * 3] = tri[i][0];
+      pos[i * 3 + 1] = y;
+      pos[i * 3 + 2] = tri[i][1];
+    }
+    const g = new T.BufferGeometry();
+    g.setAttribute('position', new T.BufferAttribute(pos, 3));
+    const uv = new Float32Array(tri.length * 2);
+    for (let i = 0; i < tri.length; i++) {
+      uv[i * 2] = tri[i][0] / 18;
+      uv[i * 2 + 1] = tri[i][1] / 18;
+    }
+    g.setAttribute('uv', new T.BufferAttribute(uv, 2));
+    return g;
+  }
+  // 深渊底：近黑的青色底子 + 稀疏的星屑（星屑是贴图里的亮点，不发光、不进泛光）
+  const riftAbyssTex = () =>
+    tex('rift/abyss', () => {
+      const S = 256, c = makeCanvas(S, S), g = c.getContext('2d'), im = g.createImageData(S, S), d = im.data;
+      for (let y = 0; y < S; y++) {
+        for (let x = 0; x < S; x++) {
+          const n = 0.55 + 0.45 * Math.sin((x / S) * TAU * 2 + Math.sin((y / S) * TAU * 3) * 1.4) * Math.cos((y / S) * TAU * 2);
+          const st = hash2(x * 7 + 3, y * 13 + 1) > 0.9975 ? 1 : 0;
+          const k = (y * S + x) * 4, v = 0.55 + 0.25 * n;
+          d[k] = Math.min(255, 255 * (v * 0.5 + st * 0.7));
+          d[k + 1] = Math.min(255, 255 * (v * 0.8 + st * 0.95));
+          d[k + 2] = Math.min(255, 255 * (v * 0.85 + st));
+          d[k + 3] = 255;
+        }
+      }
+      g.putImageData(im, 0, 0);
+      const t = new T.CanvasTexture(c);
+      t.wrapS = t.wrapT = T.RepeatWrapping;
+      return t;
+    });
+  // 陨石碎块：压扁的十二面体，顶部偏亮的灰青、底部冷紫
+  const riftMeteorGeo = () =>
+    geo('rift/meteor', () => toonGradient(jitterGeo('rift/meteor0', new T.DodecahedronGeometry(1, 1), 0.36).clone(), { bottom: RIFT_PAL.meteorBot, top: RIFT_PAL.meteorTop, y0: -0.6, y1: 0.9 }));
+  const riftIsleGeo = () =>
+    geo('rift/isle', () => {
+      const g = bake('rift/isle0', [
+        [gCone(1, 2.6, 6), RIFT_PAL.isleSide, 0, -1.3, 0, Math.PI, 0, 0],
+        [gIco(1.05, 0), RIFT_PAL.isleTop, 0, 0.05, 0, 0, 0.4, 0, 1.1, 0.35, 1.1],
+        [gOct(0.35), 0xbff8f0, 0.35, 0.55, 0.1, 0.2, 0, 0.3, 0.6, 1.6, 0.6],
+        [gOct(0.25), 0x8ff0e0, -0.4, 0.4, -0.2, -0.3, 0, -0.4, 0.6, 1.4, 0.6],
+        [gIco(0.4, 0), RIFT_PAL.isleSide, 0.5, -0.9, 0.3, 0.3, 0, 0],
+      ]);
+      return toonGradient(g.clone(), { bottom: 0x1a1c34, top: 0xffffff, y0: -2.4, y1: 0.4 });
+    });
+
+  function riftDress(zone, ctx) {
+    const pit = (zone.feats || []).find((f) => f.kind === 'pit');
+    if (!pit) return null; // 退回 legacy 布局时：照旧只有通用外观 + riftPieces 的老摆法
+    const low = ctx.low, out = { isles: null, abyss: null };
+    const group = ctx.group;
+    // ---- 1. 深渊：外圈内侧的虚空往下开一个洞 ----
+    // 虚空底板（buildVisuals 的 voidMesh，y = -0.04，铺满整个区域）先画；接着一张洞形的遮罩把那一块的深度清到最远；
+    // 然后画洞壁和洞底（y 一直到 -7）；之后地面、岩石、角色照常画，盖在上面。都是不透明物体，按 renderOrder 排
+    const voidMesh = group.children.find((m) => m.isMesh && !m.isInstancedMesh && m.position.y === -0.04 && m.geometry.attributes.position.count === 4);
+    // 洞从外圈内沿开始：地面网格伸进虚空的那圈裙边（2.8 m）在下面第 3 步里往下弯成崖坡，所以洞要把它整个罩住
+    const H = riftHole(pit, pit.rV0 + 0.1, pit.rV1 + 0.05);
+    out.hole = H;
+    if (voidMesh) {
+      voidMesh.renderOrder = -3;
+      const maskMat = ctx.own(new T.ShaderMaterial({
+        vertexShader: 'void main(){ vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0); p.z = p.w * 0.99999; gl_Position = p; }',
+        fragmentShader: 'void main(){ gl_FragColor = vec4(0.0); }',
+        depthWrite: true, depthFunc: T.AlwaysDepth,
+      }));
+      maskMat.colorWrite = false;
+      const mask = new T.Mesh(ctx.own(riftTriGeo(H.tri, -0.04)), maskMat);
+      mask.renderOrder = -2;
+      mask.frustumCulled = false;
+      group.add(mask);
+      const floorMat = ctx.own(new T.MeshBasicMaterial({ map: riftAbyssTex(), color: lin(RIFT_PAL.abyss).multiplyScalar(2.2) }));
+      const floor = new T.Mesh(ctx.own(riftTriGeo(H.tri, RIFT_ABYSS_Y)), floorMat);
+      floor.renderOrder = -1;
+      floor.frustumCulled = false;
+      group.add(floor);
+      // 洞壁：卡通崖面带（法线朝洞里），顶在 -0.04
+      const runs = [H.outline.map((q) => [q[0], q[1], -q[2], -q[3]])];
+      runs[0].push(runs[0][0]);
+      const wall = ctx.gfx.cliffBand({ runs, h: -RIFT_ABYSS_Y - 0.04, y: -0.04, off: 0, top: RIFT_PAL.cliffTop, lip: RIFT_PAL.cliffLip, bottom: RIFT_PAL.cliffBot, steps: 3, lipH: 0.5, jag: 0.35 });
+      if (wall) wall.renderOrder = -1;
+      out.abyss = { mask, floor, wall };
+    }
+    // ---- 2. 通用外观里落进洞里的东西（岩石 / 尖岩 / 摆件模型挨着虚空两头的那几块）缩成 0；
+    // 首领场地外的大件（buildProps 按 bossR + 3.2–5.5 摆一圈）在这个布局里会落到中圈的路上：站在可走区域上的模型也缩成 0
+    // （贴花和水晶不算：陨坑的碎晶本来就在路面上）；坑里的岩壁越往坑心越高（视觉的下降感）----
+    const mine = new Set();
+    const m4 = new T.Matrix4(), pv = new T.Vector3(), qv = new T.Quaternion(), sv = new T.Vector3();
+    for (const m of group.children) {
+      if (!m.isInstancedMesh) continue;
+      const solid = m.geometry !== gQuad() && m.material !== ctx.mats.crystal;
+      let dirty = false;
+      for (let i = 0; i < m.count; i++) {
+        m.getMatrixAt(i, m4);
+        m4.decompose(pv, qv, sv);
+        if (H.inside(pv.x, pv.z) || (solid && ctx.sd(pv.x, pv.z) > -0.3)) {
+          sv.set(0, 0, 0);
+          dirty = true;
+        } else {
+          const d = Math.hypot(pv.x - pit.x, pv.z - pit.z);
+          if (d < pit.rO && pv.y > -0.25 && ctx.lowK(pv.x, pv.z) >= 1) {
+            const k = 1 + 0.45 * (1 - smooth01((d - pit.rA) / (pit.rO - pit.rA)));
+            sv.y *= k;
+            pv.y *= k;
+            dirty = true;
+          } else continue;
+        }
+        m4.compose(pv, qv, sv);
+        m.setMatrixAt(i, m4);
+      }
+      if (dirty) m.instanceMatrix.needsUpdate = true;
+    }
+    // ---- 2b. 通用岩石换成卡通材质（纯色 + 笔触 + 竖向渐变：底部冷紫、顶部受光的青绿）。实例色照旧是 def.rock × 明暗，
+    // 材质底色 = RIFT_PAL.rockTop / def.rock（线性空间逐通道），所以 data.js 改了区域配色这里也跟着对 ----
+    const rT = lin(RIFT_PAL.rockTop), rD = lin(zone.def.rock);
+    const toonRock = ctx.own(makeToonMat({ vertexColors: false, flat: true, brush: 0.14, brushScale: 0.5, grad: [RIFT_PAL.rockBot, 0xffffff, -0.3, 2.4] }));
+    // 低画质没有贴地薄雾压暗岩壁脚下，岩壁整体偏亮（owner 量到过 30%）：低画质再压一档，不加任何开销
+    const rK = low ? 0.7 : 0.88;
+    toonRock.color.setRGB((rK * rT.r) / Math.max(1e-3, rD.r), (rK * rT.g) / Math.max(1e-3, rD.g), (rK * rT.b) / Math.max(1e-3, rD.b));
+    // 岩石成簇、留空（和第 0 区一样的思路，不再是一整圈）：低频噪声高的地方成簇，低的地方只偶尔留一块；大石头多留一些
+    for (const m of group.children) {
+      if (!m.isInstancedMesh || m.material !== ctx.mats.rock) continue;
+      m.material = toonRock;
+      let dirty = false;
+      for (let i = 0; i < m.count; i++) {
+        m.getMatrixAt(i, m4);
+        m4.decompose(pv, qv, sv);
+        if (sv.x === 0) continue;
+        const n = vnoise(pv.x * 0.11 + 3.1, pv.z * 0.11 - 1.7), big = sv.x >= 1.25;
+        const keep = big ? 0.5 + 0.5 * smooth01((n - 0.3) / 0.3) : 0.12 + 0.88 * smooth01((n - 0.42) / 0.22);
+        if (hash2(Math.round(pv.x * 7), Math.round(pv.z * 7)) < keep) continue;
+        sv.set(0, 0, 0);
+        m4.compose(pv, qv, sv);
+        m.setMatrixAt(i, m4);
+        dirty = true;
+      }
+      if (dirty) m.instanceMatrix.needsUpdate = true;
+    }
+    // 水晶、光晕：电光青（通用外观按 def.accent 是薄荷绿）
+    const sp = lin(RIFT_PAL.spark);
+    ctx.mats.crystal.emissive.copy(sp);
+    ctx.mats.crystal.color.copy(sp).multiplyScalar(0.3);
+    ctx.mats.glow.color.copy(lin(RIFT_PAL.glow));
+    // 首领场地的法阵收小、压淡（镜头下太大太花）
+    const sig = group.children.find((m) => m.isMesh && !m.isInstancedMesh && m.scale.x > 5 && Math.abs(m.position.x - zone.bossPos.x) < 0.01 && Math.abs(m.position.z - zone.bossPos.z) < 0.01);
+    if (sig) {
+      sig.scale.multiplyScalar(0.45);
+      sig.material.color.copy(sp).multiplyScalar(0.55);
+    }
+    // ---- 3. 地面：越往坑心越暗（顶点色），坑底最暗一档；伸进虚空的裙边往下弯成崖坡（y 到 -7，越往下越暗），外圈内沿就是一道真的崖口 ----
+    const ground = group.children.find((m) => m.isMesh && !m.isInstancedMesh && m.position.y === 0 && m.geometry.attributes.color && m.geometry.attributes.position.count > 1000);
+    if (ground) {
+      const pa = ground.geometry.attributes.position, ca = ground.geometry.attributes.color;
+      for (let i = 0; i < pa.count; i++) {
+        const x = pa.getX(i), z = pa.getZ(i);
+        const d = Math.hypot(x - pit.x, z - pit.z);
+        let k = 0.82 + 0.18 * smooth01((d - pit.rA + 2) / (pit.rO - pit.rA));
+        if (voidMesh && d < pit.rV1 + 0.1 && H.inside(x, z)) {
+          const sdv = ctx.sd(x, z);
+          if (sdv < 0) {
+            pa.setY(i, Math.max(RIFT_ABYSS_Y, sdv * 2.6));
+            k *= Math.max(0.18, 1 + (0.8 * sdv) / RIFT_SKIRT);
+          }
+        }
+        if (k < 0.999) ca.setXYZ(i, ca.getX(i) * k, ca.getY(i) * k, ca.getZ(i) * (0.96 + 0.04 * k));
+      }
+      pa.needsUpdate = true;
+      ca.needsUpdate = true;
+      ground.geometry.computeBoundingSphere();
+    }
+    // ---- 4. 陨石碎块、封口的落石（同一个实例化网格）+ 水晶（坑底三簇、封口的水晶墙、碎块上的晶刺，共用发光水晶材质）+ 地面光晕 ----
+    const rocks = [], crys = [], glows = [];
+    const crystal = (x, z, h, w, lean, ang) => crys.push(x, h * 0.42, z, Math.cos(ang) * lean, rand(0, TAU), -Math.sin(ang) * lean, w, h, w, 1);
+    for (const f of zone.feats) {
+      if (f.kind === 'meteor') {
+        const s = f.s * (f.big ? 1.12 : 1.05);
+        rocks.push(f.x, s * 0.18, f.z, rand(-0.25, 0.25), rand(0, TAU), rand(-0.25, 0.25), s, s * rand(0.72, 0.9), s, rand(0.9, 1.08));
+        const n = f.big ? 4 : 3;
+        for (let k = 0; k < n; k++) {
+          const a = rand(0, TAU), d = s * rand(0.35, 0.7);
+          crystal(f.x + Math.sin(a) * d, f.z + Math.cos(a) * d, rand(0.6, 1.2) * (f.big ? 1.3 : 1), rand(0.14, 0.22), rand(0.25, 0.6), a);
+        }
+        if (!low) glows.push(f.x, 0.05, f.z, 0, 0, 0, s * 1.7, 1, s * 1.7, 1);
+      } else if (f.kind === 'crystal') {
+        const n = low ? 4 : 6;
+        for (let k = 0; k < n; k++) {
+          const a = (k / n) * TAU + rand(-0.4, 0.4), d = k === 0 ? 0 : f.s * rand(0.3, 0.75);
+          crystal(f.x + Math.sin(a) * d, f.z + Math.cos(a) * d, (k === 0 ? 2.8 : rand(1.2, 2.2)) * (0.9 + f.s * 0.2), k === 0 ? 0.42 : rand(0.22, 0.34), k === 0 ? 0.05 : rand(0.2, 0.5), a);
+        }
+        glows.push(f.x, 0.05, f.z, 0, 0, 0, 3.4, 1, 3.4, 1);
+      } else if (f.kind === 'seal') {
+        // 封口：一道斜插的水晶墙 + 几块落石，横在环带的尽头（岩壁上，不挡路）
+        const tx = Math.sin(f.ang), tz = Math.cos(f.ang);
+        for (let k = -3; k <= 3; k++) {
+          if (low && k % 2) continue;
+          const x = f.x + tx * k * 0.95 + rand(-0.3, 0.3), z = f.z + tz * k * 0.95 + rand(-0.3, 0.3);
+          if (ctx.sd(x, z) > -0.4) continue;
+          crystal(x, z, rand(1.4, 2.8) * (1 - Math.abs(k) * 0.08) * ctx.lowK(x, z), rand(0.22, 0.34), rand(0.1, 0.35), rand(0, TAU));
+        }
+        for (let k = 0; k < 3; k++) {
+          const x = f.x + tx * rand(-3, 3) + rand(-1, 1), z = f.z + tz * rand(-3, 3) + rand(-1, 1);
+          if (ctx.sd(x, z) > -0.6) continue;
+          const s = rand(0.7, 1.2);
+          rocks.push(x, s * 0.2, z, rand(-0.3, 0.3), rand(0, TAU), rand(-0.3, 0.3), s, s * 0.8, s, rand(0.7, 0.9));
+        }
+      }
+    }
+    // 坠星碎屑：路面上零星的小陨石块（不碰撞）和贴着岩壁冒出来的小晶刺，按房间撒，离门、怪群中心、宝箱远一点
+    const busy = zone.links.map((L) => L.door).concat(zone.packs, zone.chests);
+    for (const rm of zone.rooms) {
+      if (rm.kind === 'link' || (rm.tags && rm.tags[0] === 'void')) continue;
+      const c = rm.core, n = rm.kind === 'arena' ? 0 : low ? 2 : 4;
+      for (let k = 0, put = 0; k < 16 && put < n; k++) {
+        const a = rand(0, TAU), d = rand(0.3, 1) * (c.r + 3), x = c.x + Math.sin(a) * d, z = c.z + Math.cos(a) * d, e = ctx.sd(x, z);
+        if (e < 0.6 || e > 2.6 || busy.some((q) => Math.hypot(q.x - x, q.z - z) < 3)) continue;
+        put++;
+        const s = rand(0.22, 0.42);
+        rocks.push(x, s * 0.1, z, rand(-0.4, 0.4), rand(0, TAU), rand(-0.4, 0.4), s, s * 0.7, s, rand(0.85, 1));
+        if (!low && put % 2) crystal(x + rand(-0.5, 0.5), z + rand(-0.5, 0.5), rand(0.35, 0.6), 0.08, rand(0.3, 0.6), a);
+      }
+    }
+    const rockMat = ctx.own(makeToonMat({ flat: true, brush: 0.16, brushScale: 0.5 }));
+    const rIM = ctx.instanced(riftMeteorGeo(), rockMat, rocks, true, new T.Color(1, 1, 1));
+    const cIM = ctx.instanced(gOct(1), ctx.mats.crystal, crys, !low, null);
+    const gIM = ctx.instanced(gQuad(), ctx.mats.glow, glows, false, null);
+    if (gIM) gIM.renderOrder = 1;
+    for (const m of [rIM, cIM, gIM]) if (m) mine.add(m);
+    // ---- 5. 虚空上的浮岩（一个实例化网格，fx 里起伏打转；低画质减半）----
+    const il = zone.feats.filter((f) => f.kind === 'isle' && (!low || f.n % 2 === 0));
+    if (il.length) {
+      const isMat = ctx.own(makeToonMat({ flat: true, emissive: 0x5ef0e0, emissiveIntensity: 0.06 }));
+      const im = new T.InstancedMesh(riftIsleGeo(), isMat, il.length);
+      im.castShadow = false;
+      im.frustumCulled = false;
+      group.add(im);
+      ctx.own(im);
+      out.isles = { im, list: il.map((f, i) => ({ x: f.x, y: f.y, z: f.z, s: f.s, ph: rand(0, TAU), sp: rand(0.25, 0.5), rot: rand(0, TAU), vr: rand(-0.08, 0.08), i })) };
+      riftIsleFrame(out.isles, 0);
+    }
+    // ---- 6. 坡道口的台阶贴花 ----
+    // 横条垂直于坡道的中线（坡道房间的 axis，从上一圈指向下一圈）
+    const ramps = zone.links.filter((L) => L.kind === 'stairs').map((L) => {
+      const rm = zone.rooms[L.a].kind === 'link' ? zone.rooms[L.a] : zone.rooms[L.b], A = rm.axis;
+      return { x: L.door.x, z: L.door.z, ang: Math.atan2(A[1][0] - A[0][0], A[1][1] - A[0][1]), w: rm.core.r * 1.7 };
+    });
+    if (ramps.length) ctx.gfx.stairDecal(ramps, { color: 0x2c3e40 });
+    return out;
+  }
+  const _riQ = new T.Quaternion(), _riE = new T.Euler(), _riM = new T.Matrix4(), _riV = new T.Vector3(), _riS = new T.Vector3();
+  function riftIsleFrame(I, t) {
+    for (const q of I.list) {
+      _riE.set(0, q.rot + t * q.vr, 0);
+      _riM.compose(_riV.set(q.x, q.y + Math.sin(t * q.sp + q.ph) * 0.35, q.z), _riQ.setFromEuler(_riE), _riS.set(q.s, q.s, q.s));
+      I.im.setMatrixAt(q.i, _riM);
+    }
+    I.im.instanceMatrix.needsUpdate = true;
+  }
+  ZONE_TERRAIN.rift = {
+    gen: riftGen,
+    dress: riftDress,
+    fx(dt, st) {
+      if (!st || !st.isles) return;
+      st.t = (st.t || 0) + dt;
+      riftIsleFrame(st.isles, st.t);
+    },
+  };
   // ===== 区域地形：rift 结束 =====
 
   // ---------- 区域：外观 ----------
@@ -3576,15 +4196,14 @@
       }
       return new T.CanvasTexture(c);
     });
+  // 新布局（zones-rift 的生成器）按 zone.feats 摆：星骸碑 'obelisk'（坑壁上）、陨坑 'crater'、天穹碎片 'shard'（坑底四周的岩壁里）；
+  // 浮岩挪到 ZONE_TERRAIN.rift.dress（实例化，悬在外圈内侧的虚空上）。feats 里没有 'pit'（退回 legacy 布局）时照旧按岩壁边采样
   function riftPieces(zone, sd, ringSamples, lowK, accentL, crystalMat) {
-    const def = zone.def;
+    const def = zone.def, feats = zone.feats || [], byFeat = feats.some((f) => f.kind === 'pit');
+    const ofKind = (k) => feats.filter((f) => f.kind === k);
     // 星骸碑
     const obs = [], strips = [], picked = [];
-    ringSamples(5.5, 3.4, (x, z) => {
-      x += rand(-1, 1);
-      z += rand(-1, 1);
-      if (sd(x, z) > -2.4 || lowK(x, z) < 1 || Math.random() < 0.4) return;
-      for (const q of picked) if (Math.hypot(q.x - x, q.z - z) < 12) return;
+    const obelisk = (x, z) => {
       picked.push({ x, z });
       const h = rand(4.5, 7), w = rand(0.9, 1.3), d = rand(0.7, 0.95);
       const rx = rand(-0.35, 0.35), ry = rand(0, TAU), rz = rand(-0.4, 0.4);
@@ -3596,7 +4215,18 @@
           strips.push(x + _v.x, -0.6 + _v.y, z + _v.z, rx, ry, rz, w * (k === 1 ? 0.7 : 0.42), 0.07, 0.04, 1);
         }
       }
-    });
+    };
+    if (byFeat) {
+      for (const f of ofKind('obelisk')) if (lowK(f.x, f.z) >= 1) obelisk(f.x, f.z);
+    } else {
+      ringSamples(5.5, 3.4, (x, z) => {
+        x += rand(-1, 1);
+        z += rand(-1, 1);
+        if (sd(x, z) > -2.4 || lowK(x, z) < 1 || Math.random() < 0.4) return;
+        for (const q of picked) if (Math.hypot(q.x - x, q.z - z) < 12) return;
+        obelisk(x, z);
+      });
+    }
     const obMat = own(new T.MeshStandardMaterial({ color: 0xffffff, roughness: 0.55, metalness: 0.2, flatShading: true }));
     instanced(obeliskGeo(), obMat, obs, true, lin(mixHex(def.rock, 0x0a0f0e, 0.2)));
     instanced(gBox(1, 1, 1), crystalMat, strips, false, null);
@@ -3604,7 +4234,7 @@
     // 浮岩：悬在虚空上方，每块各自慢慢起伏、打转（W.update 里动）
     const isMat = own(new T.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.85, metalness: 0, emissive: accentL, emissiveIntensity: 0.07 }));
     const isles = [], ig = isleGeo();
-    ringSamples(8, 7.5, (x, z) => {
+    if (!byFeat) ringSamples(8, 7.5, (x, z) => {
       x += rand(-2, 2);
       z += rand(-2, 2);
       if (isles.length >= 14 || sd(x, z) > -5.5 || lowK(x, z) < 1 || Math.random() < 0.3) return;
@@ -3619,13 +4249,21 @@
     });
 
     // 陨坑
+    if (byFeat) accentL = lin(RIFT_PAL.spark); // 新布局：星辉用电光青（zones-rift 的配色）
     const crMat = own(new T.MeshBasicMaterial({ map: craterTex(), color: accentL, transparent: true, opacity: 0.5, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false }));
     const dkMat = own(new T.MeshBasicMaterial({ map: blotchTex(), color: lin(mixHex(def.voidc, 0x000000, 0.3)), transparent: true, opacity: 0.6, depthWrite: false }));
     const craters = [], darks = [], shards = [];
-    for (let ci = 1; ci < zone.circles.length - 1; ci++) {
-      const c = zone.circles[ci];
-      if (Math.random() < 0.25) continue;
-      const a = rand(0, TAU), d = rand(0, Math.max(0, c.r - 5.5)), x = c.x + Math.sin(a) * d, z = c.z + Math.cos(a) * d, r = rand(2.6, 3.8);
+    const spots = byFeat ? ofKind('crater').map((f) => ({ x: f.x, z: f.z, r: f.r })) : [];
+    if (!byFeat) {
+      for (let ci = 1; ci < zone.circles.length - 1; ci++) {
+        const c = zone.circles[ci];
+        if (Math.random() < 0.25) continue;
+        const a = rand(0, TAU), d = rand(0, Math.max(0, c.r - 5.5));
+        spots.push({ x: c.x + Math.sin(a) * d, z: c.z + Math.cos(a) * d, r: rand(2.6, 3.8) });
+      }
+    }
+    for (const sp of spots) {
+      const x = sp.x, z = sp.z, r = sp.r;
       craters.push(x, 0.035, z, 0, rand(0, TAU), 0, r, 1, r, 1);
       darks.push(x, 0.025, z, 0, rand(0, TAU), 0, r * 1.2, 1, r * 1.2, 1);
       const n = G.randInt(5, 8);
@@ -3640,9 +4278,15 @@
     if (cIM) cIM.renderOrder = 1;
     instanced(gOct(1), crystalMat, shards, true, null);
 
-    // 首领场地外的天穹碎片
+    // 首领场地外的天穹碎片（新布局：坑底四周那圈岩壁里的 'shard' 锚点，细一点）
     const bp = zone.bossPos, sky = [];
-    for (let k = 0; k < 10; k++) {
+    if (byFeat) {
+      for (const f of ofKind('shard')) {
+        if (lowK(f.x, f.z) < 1) continue;
+        sky.push(f.x, f.h * 0.3, f.z, rand(-0.3, 0.3), rand(0, TAU), rand(-0.3, 0.3), f.h * 0.16, f.h, f.h * 0.16, 1);
+      }
+    }
+    for (let k = 0; k < 10 && !byFeat; k++) {
       const a = (k / 10) * TAU + rand(-0.2, 0.2), d = zone.bossR + rand(3.5, 6.5);
       const x = bp.x + Math.sin(a) * d, z = bp.z + Math.cos(a) * d;
       if (sd(x, z) > -2.8 || lowK(x, z) < 1) continue;
@@ -9344,7 +9988,7 @@
   // ---------------------------------------------------------------------
   function chargerRig() {
     return rigOf('charger', () => {
-      const HIDE = 0x6e6a60, HIDE_D = 0x3e3c36, BELLY = 0x9a9682, PLATE = 0x7e8c84, PLATE_D = 0x46524c, HORN = 0xbfe0d4, HORN_D = 0x6e948a, HOOF = 0x26282a, BONE = 0xd8d0b8; // 卡通：抬亮一档
+      const HIDE = 0x5f5b53, HIDE_D = 0x36342f, BELLY = 0x86826f, PLATE = 0x74827a, PLATE_D = 0x424d47, HORN = 0xbfe0d4, HORN_D = 0x6e948a, HOOF = 0x26282a, BONE = 0xd8d0b8; // 卡通：抬亮一档；zones-rift：皮毛、甲片压回一档（坠星裂谷里受光面原来 77%，超过 75% 的上限）
       const b = rigBuilder('charger', NB_SMALL);
       b.j('root', null, 0, 1.0, -0.1).j('chest', 'root', 0, 1.1, 0.45).j('head', 'chest', 0, 1.05, 1.05).j('jaw', 'head', 0, 0.86, 1.22);
       const LEG = [['FL', 1, 0.72], ['FR', -1, 0.72], ['BL', 1, -0.62], ['BR', -1, -0.62]];
@@ -10522,7 +11166,7 @@
   // ---------------------------------------------------------------------
   function behemothRig() {
     return rigOf('behemoth', () => {
-      const HIDE = 0x6c7a76, HIDE_D = 0x3c4846, BELLY = 0x949c88, PLATE = 0x8e9c96, PLATE_D = 0x505c58, GLASS = 0xc4ece1, GLASS_D = 0x6a988e, HOOF = 0x202424, BONE = 0xe0d8c2, BONE_D = 0x9c9682, DARK = 0x1a1e1e; // 卡通：抬亮一档
+      const HIDE = 0x6e6c86, HIDE_D = 0x3c3a52, BELLY = 0x9a98a6, PLATE = 0x908ea8, PLATE_D = 0x54526a, GLASS = 0xc4f4f4, GLASS_D = 0x5c9aa0, HOOF = 0x20202a, BONE = 0xe0d8c2, BONE_D = 0x9c9682, DARK = 0x1a1a24; // 卡通：抬亮一档；zones-rift：皮甲从灰青换成冷紫灰、晶体电光青，在青绿的坑壁前分得出来
       const b = rigBuilder('behemoth', NB_BIG);
       b.j('root', null, 0, 2.5, -0.6).j('chest', 'root', 0, 2.7, 0.9).j('neck', 'chest', 0, 3.1, 1.9).j('head', 'neck', 0, 3.65, 2.75).j('jaw', 'head', 0, 3.42, 3.05);
       b.j('antL', 'head', 0.32, 4.05, 2.62).j('antR', 'head', -0.32, 4.05, 2.62).j('star', 'chest', 0, 3.85, 0.15);
