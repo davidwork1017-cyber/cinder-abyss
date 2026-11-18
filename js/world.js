@@ -20,19 +20,31 @@
   const UP = new T.Vector3(0, 1, 0);
   const _pr = { x: 0, y: 0, ok: false };
 
-  const CAM_OFF = new T.Vector3(0, 24, 17);
-  // 镜头整体向屏幕下方（+z）让出的距离：玩家因此站在画面中线偏上，
-  // 脚下能看到的范围和头顶差不多（底部还有技能栏要占掉一截）
-  const CAM_LEAD = 3;
+  // 镜头：固定朝向的俯视（等距感），只平移不旋转。调镜头只改 CAMERA（调试时可以 G.world.setCamera({ ... }) 现场试）：
+  //   pitch 俯角（度，从水平面往下）、dist 镜头到焦点的距离、fov 竖直视角（度）、lookY 焦点离地高度、
+  //   lead 焦点向屏幕下方（+z）让出的距离：玩家因此站在画面中线偏上，脚下能看到的范围和头顶差不多（底部还有技能栏要占掉一截）、
+  //   fogNear / fogFar 雾的起止（相对镜头的距离）、shadow 阴影贴图覆盖的半宽（镜头近了可以收小，阴影更清楚）
+  // 旧镜头：pitch ≈ 53.5、dist ≈ 28.6、fov 38、lead 3、雾 27～64（主角在 900 高的画面里约 54 像素）
+  const CAMERA = { pitch: 50, dist: 21, fov: 34, lookY: 1, lead: 2.2, fogNear: 22, fogFar: 52, shadow: 22 };
+  const CAM_OFF = new T.Vector3();
+  let CAM_LEAD = CAMERA.lead;
+  function camDerive() {
+    const a = (CAMERA.pitch * Math.PI) / 180;
+    CAM_OFF.set(0, CAMERA.lookY + Math.sin(a) * CAMERA.dist, Math.cos(a) * CAMERA.dist);
+    CAM_LEAD = CAMERA.lead;
+  }
+  camDerive();
   const HUD_BAND = 140; // 画面底部被技能栏 / 血球占住的高度（CSS 像素），W.inView 把它当作看不见
   const VIEW_PAD = 36; // W.inView 的屏幕边距
-  const SUN_OFF = new T.Vector3(-11, 28, 17);
-  const SHADOW_HALF = 28;
-  const HEMI_I = 0.46;
+  // 主光从左上方略偏镜头一侧打下来：角色身上有一条清楚的明暗交界线，影子落向右上（角色身后），不压在脚前
+  const SUN_OFF = new T.Vector3(-17, 27, 9);
+  let SHADOW_HALF = CAMERA.shadow;
+  const HEMI_I = 0.46; // 旧的半球光强度（ZONE_LIGHT 没写 hemiI 时用）
+  let hemiBase = HEMI_I;
   const camT = new T.Vector3();
   let camSnap = true;
   let shakeAmt = 0;
-  const BASE_FOV = 38;
+  let BASE_FOV = CAMERA.fov;
   // 镜头冲量（顺着打击方向顶一下再弹回）与视角收缩（终结技 / 处决时的一记「推近」）
   let punchX = 0, punchZ = 0, fovK = 0, fovNow = BASE_FOV;
   const sunR = new T.Vector3(), sunU = new T.Vector3();
@@ -63,6 +75,257 @@
     const c = document.createElement('canvas');
     c.width = w;
     c.height = h;
+    return c;
+  }
+
+  // =====================================================================
+  // 卡通渲染基础（toon）：所有角色 / 环境共用的光照阶梯、色调曲线、轮廓光、笔触噪声、竖向渐变。
+  // 这里的数字是唯一的出处，调风格只改这一节。
+  //  · 光照阶梯：改的是 three 的 ShaderChunk（全局），所以每一个 MeshStandardMaterial（地面、岩石、布景、角色、掉落物）
+  //    的直射光都变成 2～3 级的软阶梯；某个材质不要阶梯时 defines.TOON_OFF = 1，要更软的阶梯时 defines.TOON_SOFT = '0.2'。
+  //  · 阴影的颜色不是黑灰：背光面 / 阴影里只剩环境光（半球光），半球光的天空色就是这个区域的「阴影色」（冷紫 / 冷蓝），
+  //    地面色是暖色的反光；主光照到的地方环境光压到 TOON.ambLit，受光面是干净的暖色。见 ZONE_LIGHT。
+  //  · 色调曲线：保持色相的高光肩部 + 一点饱和度（CustomToneMapping），低画质（没有后期）也是同一套颜色。
+  //  · 轮廓光：角色材质（injectLit）按补光（第二盏方向光，镜头对面）的方向在背光一侧的边缘勾一道冷色光，强度 TOON.rimK。
+  //  · makeToonMat / toonPatch / toonBrushTex / toonGradient / toonCast：给环境与角色工作用的工具，见各自注释。
+  // =====================================================================
+  const TOON = {
+    // 阶梯：dot(N, L) 过 t1 进入中间调（亮度 mid），过 t2 进入受光面；soft 是每一级边缘的软化半宽
+    t1: 0.0, t2: 0.42, mid: 0.56, soft: 0.07,
+    ambLit: 0.3, // 主光照到的地方环境光（半球光）只留这么多：受光面是干净的暖色，冷紫只出现在背光面和阴影里（不然暖色会被冷光洗成粉灰）
+    spec: 0.35, // 直射高光的倍率（卡通：高光收着，只在金属 / 冰上留一点）
+    metal: 0.55, // 金属保留多少固有色（1 = 物理上的全黑漫反射；越小金属越像上了色的漆）
+    knee: 0.78, sat: 1.1, // 色调曲线：亮度超过 knee 的部分按指数压向 1（保持色相）；sat 线性空间里的饱和度
+    toe: 0.09, // 色调曲线的暗部：f(x) = x²(1 + toe) / (x + toe)，把暗部往下压、亮部几乎不动（1 → 1），黑色是真的黑，不是灰紫的雾
+    // 阴影色（ZONE_LIGHT 的 shade = 半球光天空色、bounce = 地面色）在应用时统一处理：饱和度只留 shadeSat、强度乘 hemiK。
+    // 表里写的是「这个区域的阴影偏什么色」，这两个数决定阴影有多深、多浓（phase 1b：之前阴影太浅太艳，像一层粉紫的雾）
+    shadeSat: 0.55, hemiK: 0.55,
+    exposure: 1.15, // phase 1b：阴影压深、加了暗部 toe 之后整体提一点曝光，地面回到 25%～35%
+    rimK: 0.85, rimLo: 0.56, rimHi: 0.7, // 角色轮廓光：强度、菲涅尔阶梯的起止（越接近 1 越细）
+    smoothChars: true, // C 模型用平滑法线（低多边形 + 软阶梯 = 一块块干净的明暗，而不是每个面一块颜色）
+  };
+  const fNum = (v) => (Number.isInteger(v) ? v.toFixed(1) : String(v));
+  (function patchToonChunks() {
+    const SC = T.ShaderChunk;
+    const RAMP = [
+      '#ifndef TOON_SOFT',
+      '#define TOON_SOFT ' + fNum(TOON.soft),
+      '#endif',
+      'float toonRamp( const in float x ) {',
+      '#ifdef TOON_OFF',
+      '\treturn saturate( x );',
+      '#else',
+      '\treturn ' + fNum(TOON.mid) + ' * smoothstep( ' + fNum(TOON.t1) + ' - TOON_SOFT, ' + fNum(TOON.t1) + ' + TOON_SOFT, x ) + ' +
+        fNum(1 - TOON.mid) + ' * smoothstep( ' + fNum(TOON.t2) + ' - TOON_SOFT, ' + fNum(TOON.t2) + ' + TOON_SOFT, x );',
+      '#endif',
+      '}',
+    ].join('\n');
+    const rep = (name, a, b) => {
+      if (SC[name].indexOf(a) < 0) {
+        if (window.console) console.warn('[画面] 卡通着色：' + name + ' 里找不到要替换的片段，这一处保持原样');
+        return;
+      }
+      SC[name] = SC[name].replace(a, b);
+    };
+    rep('lights_physical_pars_fragment', 'struct PhysicalMaterial {', RAMP + '\nstruct PhysicalMaterial {');
+    rep('lights_physical_pars_fragment', 'vec3 irradiance = dotNL * directLight.color;', 'vec3 irradiance = toonRamp( dot( geometry.normal, directLight.direction ) ) * directLight.color;');
+    rep(
+      'lights_physical_pars_fragment',
+      'reflectedLight.directSpecular += ( 1.0 - clearcoatDHR ) * irradiance * BRDF_Specular_GGX( directLight, geometry.viewDir, geometry.normal,',
+      'reflectedLight.directSpecular += ( 1.0 - clearcoatDHR ) * ' + fNum(TOON.spec) + ' * irradiance * BRDF_Specular_GGX( directLight, geometry.viewDir, geometry.normal,'
+    );
+    // 主光（第 0 盏方向光：投影的太阳排在最前）的阶梯值 × 阴影，记下来给环境光用（只对 MeshStandard / Physical）
+    rep('lights_fragment_begin', 'GeometricContext geometry;', '#ifdef STANDARD\n\tfloat toonSh = 1.0;\n\tfloat toonKeyLit = 0.0;\n#endif\nGeometricContext geometry;');
+    rep(
+      'lights_fragment_begin',
+      'directLight.color *= all( bvec2( directLight.visible, receiveShadow ) ) ? getShadow( directionalShadowMap[ i ]',
+      '#ifdef STANDARD\n\t\ttoonSh =\n#else\n\t\tdirectLight.color *=\n#endif\n\t\tall( bvec2( directLight.visible, receiveShadow ) ) ? getShadow( directionalShadowMap[ i ]'
+    );
+    rep(
+      'lights_fragment_begin',
+      'vDirectionalShadowCoord[ i ] ) : 1.0;\n\t\t#endif\n\t\tRE_Direct( directLight, geometry, material, reflectedLight );',
+      'vDirectionalShadowCoord[ i ] ) : 1.0;\n\t\t#ifdef STANDARD\n\t\tdirectLight.color *= toonSh;\n\t\t#endif\n\t\t#endif\n\t\tRE_Direct( directLight, geometry, material, reflectedLight );\n' +
+        '\t\t#if defined( STANDARD ) && ( UNROLLED_LOOP_INDEX == 0 )\n\t\ttoonKeyLit = toonRamp( dot( geometry.normal, directLight.direction ) ) * toonSh;\n\t\t#endif'
+    );
+    rep('lights_fragment_end', '#if defined( RE_IndirectDiffuse )\n\tRE_IndirectDiffuse(', '#if defined( STANDARD ) && !defined( TOON_OFF )\n\tirradiance *= mix( 1.0, ' + fNum(TOON.ambLit) + ', toonKeyLit );\n#endif\n#if defined( RE_IndirectDiffuse )\n\tRE_IndirectDiffuse(');
+    rep('lights_physical_fragment', 'material.diffuseColor = diffuseColor.rgb * ( 1.0 - metalnessFactor );', 'material.diffuseColor = diffuseColor.rgb * ( 1.0 - metalnessFactor * ' + fNum(TOON.metal) + ' );');
+    rep(
+      'tonemapping_pars_fragment',
+      'vec3 CustomToneMapping( vec3 color ) { return color; }',
+      [
+        'vec3 CustomToneMapping( vec3 color ) {',
+        '\tvec3 c = max( color * toneMappingExposure, 0.0 );',
+        '\tc = c * c * ' + fNum(1 + TOON.toe) + ' / ( c + ' + fNum(TOON.toe) + ' );',
+        '\tfloat m = max( max( c.r, c.g ), c.b );',
+        '\tif ( m > ' + fNum(TOON.knee) + ' ) c *= ( ' + fNum(TOON.knee) + ' + ' + fNum(1 - TOON.knee) + ' * ( 1.0 - exp( -( m - ' + fNum(TOON.knee) + ' ) / ' + fNum(1 - TOON.knee) + ' ) ) ) / m;',
+        '\tfloat l = dot( c, vec3( 0.2126, 0.7152, 0.0722 ) );',
+        '\treturn saturate( mix( vec3( l ), c, ' + fNum(TOON.sat) + ' ) );',
+        '}',
+      ].join('\n')
+    );
+  })();
+
+  // 笔触噪声贴图（灰度，均值 0.5，四方连续）：几百道带方向的软笔触叠在一层低频斑块上。全局只画一次。
+  let toonBrush = null;
+  function toonBrushTex() {
+    if (toonBrush) return toonBrush;
+    const N = 256, c = makeCanvas(N, N), g = c.getContext('2d');
+    g.fillStyle = 'rgb(128,128,128)';
+    g.fillRect(0, 0, N, N);
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    // 低频斑块
+    for (let i = 0; i < 46; i++) {
+      const x = rnd() * N, y = rnd() * N, r = 20 + rnd() * 46, v = rnd() < 0.5 ? 0 : 255, a = 0.05 + rnd() * 0.07;
+      for (const ox of [-N, 0, N]) for (const oy of [-N, 0, N]) {
+        const gr = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
+        gr.addColorStop(0, `rgba(${v},${v},${v},${a})`);
+        gr.addColorStop(1, `rgba(${v},${v},${v},0)`);
+        g.fillStyle = gr;
+        g.fillRect(x + ox - r, y + oy - r, r * 2, r * 2);
+      }
+    }
+    // 笔触：大多顺着一个主方向（约 -25°），长 10～34 像素，宽 3～7，明暗各半
+    g.lineCap = 'round';
+    for (let i = 0; i < 520; i++) {
+      const x = rnd() * N, y = rnd() * N, len = 10 + rnd() * 24, a = -0.45 + (rnd() - 0.5) * 0.9, w = 3 + rnd() * 4;
+      const v = rnd() < 0.5 ? 0 : 255, al = 0.06 + rnd() * 0.1;
+      const dx = Math.cos(a) * len * 0.5, dy = Math.sin(a) * len * 0.5;
+      g.strokeStyle = `rgba(${v},${v},${v},${al})`;
+      g.lineWidth = w;
+      for (const ox of [-N, 0, N]) for (const oy of [-N, 0, N]) {
+        g.beginPath();
+        g.moveTo(x + ox - dx, y + oy - dy);
+        g.quadraticCurveTo(x + ox + dy * 0.25, y + oy - dx * 0.25, x + ox + dx, y + oy + dy);
+        g.stroke();
+      }
+    }
+    const t = new T.CanvasTexture(c);
+    t.wrapS = t.wrapT = T.RepeatWrapping;
+    t.generateMipmaps = true;
+    t.minFilter = T.LinearMipmapLinearFilter;
+    toonBrush = t;
+    return t;
+  }
+
+  // toonPatch(material, opts)：给一个已有的 MeshStandardMaterial 加卡通的附加项（保留它原来的 onBeforeCompile）。
+  //   brush: 0..1 笔触噪声的明暗幅度（0.15 左右是「看得出是画的」，0.3 是很重的笔触）；brushScale: 每个世界单位重复几次（默认 0.35）；
+  //   brushSpace: 'world'（默认，三向投影）| 'object'（跟着网格走：会动的东西用它，免得纹理在身上游动）；
+  //   grad: [底色, 顶色, y0, y1]，按世界高度乘一层渐变（十六进制色，乘在固有色上；y0..y1 之间平滑过渡）；
+  //   soft: 这个材质的阶梯软化半宽（覆盖 TOON.soft）；off: true 时不要阶梯（物理的 dot(N, L)）。
+  // 返回同一个材质。onBeforeCompile 的程序缓存键会带上这些选项，不同选项不会错用同一个着色器程序。
+  function toonPatch(mat, o) {
+    o = o || {};
+    const prev = mat.onBeforeCompile, prevKey = mat.customProgramCacheKey;
+    if (o.soft !== undefined) mat.defines = Object.assign(mat.defines || {}, { TOON_SOFT: fNum(o.soft) });
+    if (o.off) mat.defines = Object.assign(mat.defines || {}, { TOON_OFF: 1 });
+    const U = {};
+    let head = '', body = '', vHead = '', vBody = '';
+    if (o.brush) {
+      U.tToonBrush = { value: toonBrushTex() };
+      U.uToonBrush = { value: new T.Vector2(o.brush, o.brushScale || 0.35) };
+      vHead += 'varying vec3 vTbP;\nvarying vec3 vTbN;\n';
+      const objSp = o.brushSpace === 'object';
+      vBody += objSp
+        ? '\tvTbP = position; vTbN = normal;\n'
+        : '\tvec4 tbW = vec4( transformed, 1.0 );\n#ifdef USE_INSTANCING\n\ttbW = instanceMatrix * tbW;\n#endif\n\tvTbP = ( modelMatrix * tbW ).xyz;\n\tvTbN = normalize( mat3( modelMatrix ) * objectNormal );\n';
+      head += 'uniform sampler2D tToonBrush;\nuniform vec2 uToonBrush;\nvarying vec3 vTbP;\nvarying vec3 vTbN;\n';
+      body +=
+        '\t{\n\t\tvec3 bw = pow( abs( normalize( vTbN ) ), vec3( 3.0 ) ); bw /= dot( bw, vec3( 1.0 ) );\n' +
+        '\t\tvec3 bp = vTbP * uToonBrush.y;\n' +
+        '\t\tfloat bn = texture2D( tToonBrush, bp.zy ).r * bw.x + texture2D( tToonBrush, bp.xz ).r * bw.y + texture2D( tToonBrush, bp.xy ).r * bw.z;\n' +
+        '\t\tdiffuseColor.rgb *= 1.0 + ( bn - 0.5 ) * 2.0 * uToonBrush.x;\n\t}\n';
+    }
+    if (o.grad) {
+      const a = lin(o.grad[0]), b = lin(o.grad[1]);
+      U.uToonGradA = { value: new T.Vector3(a.r, a.g, a.b) };
+      U.uToonGradB = { value: new T.Vector3(b.r, b.g, b.b) };
+      U.uToonGradY = { value: new T.Vector2(o.grad[2] || 0, o.grad[3] === undefined ? 2 : o.grad[3]) };
+      vHead += 'varying float vTgY;\n';
+      vBody += '\tvec4 tgW = vec4( transformed, 1.0 );\n#ifdef USE_INSTANCING\n\ttgW = instanceMatrix * tgW;\n#endif\n\tvTgY = ( modelMatrix * tgW ).y;\n';
+      head += 'uniform vec3 uToonGradA, uToonGradB;\nuniform vec2 uToonGradY;\nvarying float vTgY;\n';
+      body += '\tdiffuseColor.rgb *= mix( uToonGradA, uToonGradB, smoothstep( uToonGradY.x, uToonGradY.y, vTgY ) );\n';
+    }
+    const key = 'toon:' + (o.brush ? 'b' + (o.brushSpace === 'object' ? 'o' : 'w') : '') + (o.grad ? 'g' : '');
+    mat.userData.toonU = U;
+    mat.onBeforeCompile = function (sh, r) {
+      if (prev) prev.call(this, sh, r);
+      Object.assign(sh.uniforms, U);
+      if (vHead) {
+        sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + vHead).replace('#include <begin_vertex>', '#include <begin_vertex>\n' + vBody);
+        // begin_vertex 可能已经被前一个 onBeforeCompile 换掉了（角色的蒙皮）：那就挂到 project_vertex 前面
+        if (sh.vertexShader.indexOf(vBody) < 0) sh.vertexShader = sh.vertexShader.replace('#include <project_vertex>', vBody + '#include <project_vertex>');
+      }
+      if (head) {
+        const f0 = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + head);
+        // color_fragment 被前一个 onBeforeCompile 换掉了（岩石的三向投影）：挂到 normal_fragment_begin 前面
+        sh.fragmentShader = f0.indexOf('#include <color_fragment>') >= 0 ? f0.replace('#include <color_fragment>', '#include <color_fragment>\n' + body) : f0.replace('#include <normal_fragment_begin>', body + '#include <normal_fragment_begin>');
+      }
+    };
+    mat.customProgramCacheKey = () => key + '|' + (prevKey ? prevKey.call(mat) : '') + '|' + (prev ? prev.toString() : '');
+    mat.needsUpdate = true;
+    return mat;
+  }
+  // makeToonMat(opts)：环境 / 布景 / 程序化道具用的卡通材质。粗糙度 1、不是金属（没有 PBR 的反光），其余同 toonPatch：
+  //   color（十六进制，默认白）、vertexColors（默认 true：顶点色就是画上去的颜色）、map、emissive / emissiveIntensity、
+  //   flat（按面着色：硬朗的石头 / 晶体）、side、transparent / opacity、fog（默认 true）、brush / brushScale / brushSpace / grad / soft / off。
+  // 例：makeToonMat({ brush: 0.18, grad: [0x4a3a66, 0xffffff, 0, 2.5] }) —— 带笔触、底部压成冷紫的岩石。
+  function makeToonMat(o) {
+    o = o || {};
+    const m = new T.MeshStandardMaterial({
+      color: o.color === undefined ? 0xffffff : lin(o.color), vertexColors: o.vertexColors === undefined ? true : !!o.vertexColors,
+      roughness: 1, metalness: 0, flatShading: !!o.flat, side: o.side || T.FrontSide,
+      transparent: !!o.transparent, opacity: o.opacity === undefined ? 1 : o.opacity, fog: o.fog === undefined ? true : o.fog,
+    });
+    if (o.map) m.map = o.map;
+    if (o.emissive !== undefined) {
+      m.emissive = lin(o.emissive);
+      m.emissiveIntensity = o.emissiveIntensity === undefined ? 1 : o.emissiveIntensity;
+    }
+    return o.brush || o.grad || o.soft !== undefined || o.off ? toonPatch(m, o) : m;
+  }
+  // 竖向渐变（CPU，写进顶点色）：toonGradient(geometry, { bottom, top, y0, y1, k })。顶部偏亮偏暖、底部偏暗偏冷，
+  // 乘在已有的 color 属性上（没有就先建一个白色的）；k 是渐变的强度（默认 1）。几何体自己的局部坐标 y。返回同一个几何体。
+  function toonGradient(g, o) {
+    o = o || {};
+    const pos = g.attributes.position, n = pos.count;
+    let col = g.attributes.color;
+    if (!col) {
+      col = new T.BufferAttribute(new Float32Array(n * 3).fill(1), 3);
+      g.setAttribute('color', col);
+    }
+    const a = lin(o.bottom === undefined ? 0x5a4a7a : o.bottom), b = lin(o.top === undefined ? 0xffffff : o.top), k = o.k === undefined ? 1 : o.k;
+    let y0 = o.y0, y1 = o.y1;
+    if (y0 === undefined || y1 === undefined) {
+      if (!g.boundingBox) g.computeBoundingBox();
+      if (y0 === undefined) y0 = g.boundingBox.min.y;
+      if (y1 === undefined) y1 = g.boundingBox.max.y;
+    }
+    const span = Math.max(1e-4, y1 - y0);
+    for (let i = 0; i < n; i++) {
+      const t = smooth01((pos.getY(i) - y0) / span);
+      const r = a.r + (b.r - a.r) * t, gg = a.g + (b.g - a.g) * t, bl = a.b + (b.b - a.b) * t;
+      col.setXYZ(i, col.getX(i) * (1 + (r - 1) * k), col.getY(i) * (1 + (gg - 1) * k), col.getZ(i) * (1 + (bl - 1) * k));
+    }
+    col.needsUpdate = true;
+    return g;
+  }
+  // 调试 / 截图脚本用（游戏代码直接用上面的函数）
+  W.toon = { TOON, makeToonMat, toonPatch, toonGradient, toonBrushTex, toonCast: (c) => toonCast(c) };
+  // 角色固有色的统一处理（线性 rgb，原地改 c = [r, g, b]）：太暗的颜色抬到一个带冷紫的底（卡通里没有死黑），饱和度提一点。
+  // 程序化骨架（bake1）和 C 模型（cApply）的每个顶点色都过一遍；phase 2 换角色配色时直接改各自的调色板，这里只兜底。
+  const TOON_CAST = { floor: 0.03, floorTint: [0.62, 0.55, 1.0], sat: 1.18, max: 0.82 };
+  function toonCast(c) {
+    let l = c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722;
+    const S = TOON_CAST.sat;
+    for (let k = 0; k < 3; k++) c[k] = Math.max(0, l + (c[k] - l) * S);
+    const F = TOON_CAST.floor;
+    if (l < F) {
+      const t = 1 - l / F; // 0 = 正好在底线上，1 = 纯黑
+      for (let k = 0; k < 3; k++) c[k] += F * TOON_CAST.floorTint[k] * t;
+      l = F;
+    }
+    if (l > TOON_CAST.max) for (let k = 0; k < 3; k++) c[k] *= TOON_CAST.max / l;
     return c;
   }
 
@@ -469,22 +732,25 @@
     ash: {
       packs: ['zone-ash', 'rock-dark', 'models'],
       mats: [
-        { tex: 'mud_cracked_dry_03', tile: 4.2, con: 0.95, nrm: 1.2, rough: 1, k: 0.48, sat: 0.35 },
-        { tex: 'burned_ground_01', tile: 4.8, con: 1.0, nrm: 1.3, rough: 1, k: 0.4, sat: 0.8 },
-        { tex: 'dark_rock', tile: 6.5, con: 1.0, nrm: 1.0, rough: 1, k: 1.0 },
+        // 卡通：路面是暗一档的灰褐焦土（不再是粉褐色），贴图的明暗起伏压低，地面不抢角色；路外是更暗、偏灰紫的灰土
+        { tex: 'mud_cracked_dry_03', tile: 4.2, con: 0.45, nrm: 0.5, rough: 1, k: 0.68, sat: 0.85, col: 0x575358 }, // 偏冷的灰：被暖金色的主光一照就是灰褐，不是橙粉
+        { tex: 'burned_ground_01', tile: 4.8, con: 0.6, nrm: 0.7, rough: 1, k: 0.62, sat: 0.9, col: 0x4a474e },
+        { tex: 'dark_rock', tile: 6.5, con: 0.8, nrm: 1.0, rough: 1, k: 0.8, col: 0x2c2226 }, // 岩壁外的虚空地面比路面暗得多，把空地框出来
       ],
-      lava: { mode: 1, color: 0xff5a1a, k: 4.2 },
+      lava: { mode: 1, color: 0xff5a1a, k: 1.7, patch: [0, 0.66] }, // 路面裂缝只在成片的几处发光（patch），不再满地一张发光的网
       rock: { tex: 'dark_rock', tile: 2.6, nrm: 1.2, cap: 0x5e5550, capAll: 0.12 },
-      grade: { sat: 1.06, con: 1.05, lift: 0x060201, gain: 0xfff3e8, vig: 0.42 },
-      bloom: { th: 0.93, k: 0.34, r: 0.42 },
-      mist: { color: 0x3a2218, a: 0.32 },
-      prop: { tint: 0x6e6058, sat: 0.3 },
+      grade: { sat: 1.12, con: 1.1, lift: 0x0a0414, gain: 0xfff6ee, vig: 0.24 },
+      bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
+      mist: { color: 0x4a2636, a: 0.3 },
+      prop: { tint: 0x6e5c54, sat: 0.5 }, // 卡通：布景模型压到岩壁那一档，不比地面亮
       props: {
-        outer: [['kh/tree_dead_large', 3, 0.8, 1.1, 't'], ['kh/tree_dead_medium', 3, 0.9, 1.2, 't'], ['kh/tree_dead_small', 2, 1, 1.3, ''], ['kn/rock_tallA', 2, 2.4, 3.4, 'tr'], ['kn/stump_oldTall', 2, 2.2, 3, '']],
+        // 卡通布景：Kenney 的岩石和树桩去掉（和程序化的倒角岩风格不一致、树桩照片贴图发白），岩石全部是程序化的
+        outer: [['kh/tree_dead_large', 3, 0.8, 1.1, 't'], ['kh/tree_dead_medium', 3, 0.9, 1.2, 't'], ['kh/tree_dead_small', 2, 1, 1.3, '']],
         keep: 0,
-        mid: [['kn/rock_largeD', 1, 1.6, 2.4, 'r'], ['kn/rock_largeF', 1, 1.6, 2.4, 'r'], ['kn/rock_tallH', 1, 2, 2.8, 'r']],
-        midK: 0.3,
-        edge: [['kh/ribcage', 1, 0.9, 1.2, 'l'], ['kh/skull', 2, 0.5, 0.7, ''], ['kh/bone_A', 3, 0.8, 1.1, 'l'], ['kd/sword_shield_broken', 1, 0.7, 0.9, ''], ['kh/gravemarker_A', 1, 0.8, 1, '']],
+        mid: [],
+        midK: 0,
+        // 路边小物件：肋骨架（一个 1240 个三角形）去掉，给起点的植被和碎石腾出三角形预算
+        edge: [['kh/skull', 2, 0.5, 0.7, ''], ['kh/bone_A', 3, 0.8, 1.1, 'l'], ['kd/sword_shield_broken', 1, 0.7, 0.9, ''], ['kh/gravemarker_A', 1, 0.8, 1, '']],
         fire: { m: 'kn/campfire_stones', s: 3.2, h: 0.12, color: 0xff7a2a, size: 1.5 },
         boss: [['kh/pillar', 2, 0.75, 0.95, 't'], ['kd/rubble_large', 1, 0.45, 0.6, '']],
       },
@@ -492,14 +758,14 @@
     frost: {
       packs: ['zone-frost', 'rock-grey', 'models'],
       mats: [
-        { tex: 'Ice002', tile: 7.5, con: 0.38, nrm: 0.55, rough: 0.6, k: 1.0 },
-        { tex: 'Snow013', tile: 4.5, con: 0.9, nrm: 1.4, rough: 1, k: 0.85 },
+        { tex: 'Ice002', tile: 7.5, con: 0.38, nrm: 0.55, rough: 0.6, k: 0.5 },
+        { tex: 'Snow013', tile: 4.5, con: 0.9, nrm: 1.4, rough: 1, k: 0.45 },
         { tex: 'Rock035', tile: 6.5, con: 1.0, nrm: 1.0, rough: 1, k: 1.0 },
       ],
       lava: null,
-      rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0xb4c8d6, capAll: 0.6 },
-      grade: { sat: 0.96, con: 1.06, lift: 0x01040a, gain: 0xeef8ff, vig: 0.4 },
-      bloom: { th: 0.94, k: 0.3, r: 0.4 },
+      rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0x8296aa, capAll: 0.45 }, // phase 3：雪盖 0xb4c8d6 / 0.6 → 0x8296aa / 0.45，岩壁不再比地面亮
+      grade: { sat: 1.12, con: 1.1, lift: 0x04081a, gain: 0xf4faff, vig: 0.22 },
+      bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x3c5566, a: 0.3 },
       prop: { tint: 0x8aa0b0, sat: 0.2 },
       props: {
@@ -515,14 +781,14 @@
     storm: {
       packs: ['zone-storm', 'rock-grey', 'models'],
       mats: [
-        { tex: 'monastery_stone_floor', tile: 4.6, con: 0.9, nrm: 1.1, rough: 1, k: 1.0 },
-        { tex: 'rocky_trail', tile: 4.8, con: 1.0, nrm: 1.2, rough: 1, k: 0.7 },
+        { tex: 'monastery_stone_floor', tile: 4.6, con: 0.9, nrm: 1.1, rough: 1, k: 0.8 },
+        { tex: 'rocky_trail', tile: 4.8, con: 1.0, nrm: 1.2, rough: 1, k: 0.56 },
         { tex: 'Rock035', tile: 6.5, con: 1.0, nrm: 1.0, rough: 1, k: 1.0 },
       ],
       lava: null,
       rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0, capAll: 0 },
-      grade: { sat: 1.02, con: 1.06, lift: 0x03020a, gain: 0xf6f2ff, vig: 0.42 },
-      bloom: { th: 0.94, k: 0.32, r: 0.4 },
+      grade: { sat: 1.12, con: 1.1, lift: 0x080418, gain: 0xfaf6ff, vig: 0.24 },
+      bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x2c2744, a: 0.32 },
       prop: { tint: 0x5f5b74, sat: 0.2 },
       props: {
@@ -544,8 +810,8 @@
       ],
       lava: { mode: 2, color: 0xff3a22, k: 3.0 },
       rock: { tex: 'dark_rock', tile: 2.6, nrm: 1.2, cap: 0, capAll: 0 },
-      grade: { sat: 1.05, con: 1.07, lift: 0x060103, gain: 0xffeeee, vig: 0.45 },
-      bloom: { th: 0.93, k: 0.34, r: 0.42 },
+      grade: { sat: 1.12, con: 1.1, lift: 0x0c0412, gain: 0xfff2f0, vig: 0.26 },
+      bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x2e0d12, a: 0.32 },
       prop: { tint: 0x5e4a4c, sat: 0.25 },
       props: {
@@ -561,14 +827,14 @@
     rift: {
       packs: ['zone-rift', 'rock-grey', 'models'],
       mats: [
-        { tex: 'slate_floor', tile: 5.5, con: 0.8, nrm: 1.0, rough: 0.6, k: 1.15 },
-        { tex: 'moon_01', tile: 6.0, con: 1.0, nrm: 1.3, rough: 1, k: 0.75 },
+        { tex: 'slate_floor', tile: 5.5, con: 0.8, nrm: 1.0, rough: 0.6, k: 0.7 },
+        { tex: 'moon_01', tile: 6.0, con: 1.0, nrm: 1.3, rough: 1, k: 0.46 },
         { tex: 'Rock035', tile: 6.5, con: 1.0, nrm: 1.0, rough: 1, k: 1.0 },
       ],
       lava: null,
       rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0, capAll: 0 },
-      grade: { sat: 1.04, con: 1.06, lift: 0x000604, gain: 0xeefff8, vig: 0.44 },
-      bloom: { th: 0.93, k: 0.34, r: 0.45 },
+      grade: { sat: 1.12, con: 1.1, lift: 0x020a10, gain: 0xf2fff8, vig: 0.24 },
+      bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x123a30, a: 0.32 },
       prop: { tint: 0x4c605a, sat: 0.16 },
       props: {
@@ -583,12 +849,65 @@
     },
   };
 
+  // ----- 卡通光照的区域配色（toon）：key 主光（暖）、shade 阴影色 = 半球光的天空色（冷紫 / 冷蓝，背光面和阴影里就是这个颜色）、
+  //   bounce 半球光的地面色（朝下的面的暖色反光）、rim 补光 / 轮廓光（镜头对面，冷色）、fog 雾和背景色（显示色，不过色调曲线）、
+  //   exposure 色调曲线前的曝光。强度：keyI / hemiI / rimI。没写的区域按 G.ZONES 的配色推一套（toonLightOf）。
+  //   第 0 区是设计稿里的标准色板；其它区域先保证「亮、饱和、不脏」，细调留给各区域的布景工作 -----
+  const ZONE_LIGHT = {
+    ash: { key: 0xffc286, keyI: 1.5, shade: 0x6248de, bounce: 0x9a3e22, hemiI: 0.95, rim: 0x8fb6ff, rimI: 0.9, fog: 0x2a1620, exposure: 1.0 },
+    frost: { key: 0xffe8cc, keyI: 1.45, shade: 0x4c7ae0, bounce: 0x3a6078, hemiI: 0.9, rim: 0xc8ecff, rimI: 0.85, fog: 0x1a2c3e, exposure: 0.76 },
+    storm: { key: 0xffe2a0, keyI: 1.45, shade: 0x5446c8, bounce: 0x5a4468, hemiI: 0.9, rim: 0xe6dcff, rimI: 0.85, fog: 0x221c36, exposure: 0.84 },
+    abyss: { key: 0xffcc9c, keyI: 1.45, shade: 0x5038b0, bounce: 0x8a2a30, hemiI: 0.9, rim: 0xff9cb0, rimI: 0.85, fog: 0x2e121c, exposure: 1.0 },
+    rift: { key: 0xf0ffe0, keyI: 1.45, shade: 0x3a8cc0, bounce: 0x245a48, hemiI: 0.9, rim: 0xa4ffde, rimI: 0.85, fog: 0x0f2a26, exposure: 0.86 },
+  };
+  // 阴影色的统一处理（TOON.shadeSat / hemiK）：线性空间里向亮度收饱和度
+  function toonShade(hex) {
+    const c = lin(hex), l = c.r * 0.2126 + c.g * 0.7152 + c.b * 0.0722, k = TOON.shadeSat;
+    return c.setRGB(l + (c.r - l) * k, l + (c.g - l) * k, l + (c.b - l) * k);
+  }
+  function applyZoneLight(L) {
+    scene.background.set(L.fog);
+    scene.fog.color.set(L.fog);
+    hemi.color.copy(toonShade(L.shade));
+    hemi.groundColor.copy(toonShade(L.bounce));
+    hemi.intensity = hemiBase = L.hemiI * TOON.hemiK;
+    sun.color.copy(lin(L.key));
+    sun.intensity = L.keyI;
+    fill.color.copy(lin(L.rim));
+    fill.intensity = L.rimI;
+    renderer.toneMappingExposure = TOON.exposure * (L.exposure || 1);
+  }
+  // 调试 / 调色用：现场改当前区域的光照或调色（不写回表里，换区域就恢复）。
+  //   G.world.toonTune({ light: { keyI: 1.4, shade: 0x6050c0 }, grade: { sat: 1.1 }, bloom: { k: 0.1 } })，返回当前生效的值
+  W.toonTune = function (o) {
+    o = o || {};
+    const def = W.zone && W.zone.def;
+    if (!def) return null;
+    const L = Object.assign({}, toonLightOf(def), W._toonL && W._toonL.id === def.id ? W._toonL.v : {}, o.light || {});
+    W._toonL = { id: def.id, v: L };
+    applyZoneLight(L);
+    const gx = ZONE_GFX[def.id];
+    const gq = { grade: Object.assign({}, gx && gx.grade, (W._toonG && W._toonG.id === def.id && W._toonG.grade) || {}, o.grade || {}), bloom: Object.assign({}, gx && gx.bloom, (W._toonG && W._toonG.id === def.id && W._toonG.bloom) || {}, o.bloom || {}) };
+    W._toonG = { id: def.id, grade: gq.grade, bloom: gq.bloom };
+    applyZonePost(gq);
+    return { light: L, grade: gq.grade, bloom: gq.bloom };
+  };
+  function toonLightOf(def) {
+    return ZONE_LIGHT[def.id] || {
+      key: mixHex(0xffffff, def.sky, 0.45), keyI: 1.45, shade: mixHex(0x5a48c8, def.accent, 0.2), bounce: mixHex(def.rock, def.accent, 0.35), hemiI: 0.9,
+      rim: mixHex(def.sky, 0xffffff, 0.3), rimI: 0.85, fog: mixHex(def.fog, 0x3a2a4a, 0.4), exposure: 1.0,
+    };
+  }
+
   // ----- 画质档位：dpr 像素比上限（高档封顶 1.5：2 倍屏按原生像素渲染再叠多重采样太贵），post 走后期处理（泛光 / 调色 / 暗角），
   //   bloomRes 泛光链的分辨率比例，msaa 后期渲染目标的多重采样，shadow 阴影贴图边长，mist 贴地薄雾 -----
   const QUALITY = {
     high: { dpr: 1.5, post: true, bloom: true, bloomRes: 1, msaa: 4, shadow: 2048, mist: true },
     mid: { dpr: 1.25, post: true, bloom: true, bloomRes: 0.5, msaa: 2, shadow: 1024, mist: false },
-    low: { dpr: 1, post: false, bloom: false, bloomRes: 1, msaa: 0, shadow: 1024, mist: false },
+    // 低档的 scale：3D 画面按 0.85 倍分辨率渲染（HUD / 血条叠加层仍是原生分辨率）。卡通风格的近镜头让角色、岩壁、粒子在画面里占的像素多了，
+    // 第 0 区起点又多了植被；软件 GL 下 3D 画面和 HUD 图标的画布共用同一个 GPU 进程，画面一重，启动时空闲预热图标就慢（实测每个图标 538 → 601 毫秒）。
+    // 0.85 倍分辨率 + 低档不画起点的草 / 蕨 / 苔（buildAshDress）之后：图标 508～522 毫秒，混战一帧 226～235 毫秒（改前 main 244），1440×900 / 1280×800 SwiftShader
+    low: { dpr: 1, post: false, bloom: false, bloomRes: 1, msaa: 0, shadow: 1024, mist: false, scale: 0.85 },
   };
   let qual = QUALITY.high, qualId = 'high';
   const BLOOM_CAP = 1.1; // 进泛光的单个像素最亮多少（最大分量）
@@ -665,18 +984,22 @@
       if (window.console) console.warn('[画面] 后期处理初始化失败，改为直接渲染', e);
     }
   }
+  // 卡通（phase 1b）：暗部的对比主要交给色调曲线的 toe（低画质没有后期也有），调色里的对比度只用一半
+  // phase 3：暗角也只用一半（GRADE_VIG_K）：岩壁都在画面边缘，满强度的暗角会把它们压到 15% 以下（高画质 11.5%，低画质没有暗角是 21%）
+  const GRADE_LIFT_K = 0, GRADE_CON_K = 0.5, GRADE_VIG_K = 0.5;
   function applyZonePost(gx) {
     if (!post.ok) return;
-    const g = (gx && gx.grade) || { sat: 1, con: 1, lift: 0, gain: 0xffffff, vig: 0.4 };
+    const g = (gx && gx.grade) || { sat: 1.05, con: 1.04, lift: 0, gain: 0xffffff, vig: 0.24 };
     const u = post.grade.uniforms;
     u.uSat.value = g.sat;
-    u.uCon.value = g.con;
-    u.uVig.value = g.vig;
+    u.uCon.value = 1 + (g.con - 1) * GRADE_CON_K;
+    u.uVig.value = g.vig * GRADE_VIG_K;
+    // 卡通（phase 1b）：暗部偏色（lift）会把黑色抬成一层灰紫，不再用；表里的 lift 留着不删，乘 GRADE_LIFT_K
     _c.set(g.lift);
-    u.uLift.value.set(_c.r, _c.g, _c.b);
+    u.uLift.value.set(_c.r, _c.g, _c.b).multiplyScalar(GRADE_LIFT_K);
     _c.set(g.gain);
     u.uGain.value.set(_c.r, _c.g, _c.b);
-    const b = (gx && gx.bloom) || { th: 0.93, k: 0.42, r: 0.45 };
+    const b = (gx && gx.bloom) || { th: 0.97, k: 0.16, r: 0.32 };
     post.bloom.threshold = b.th;
     post.bloom.strength = b.k;
     post.bloom.radius = b.r;
@@ -707,7 +1030,7 @@
   W.quality = () => qualId;
   // 调试 / 测试用：当前画面状态
   W.gfxInfo = () => ({
-    quality: qualId, post: !!(post.ok && qual.post), bloom: !!(post.ok && qual.post && qual.bloom), dpr,
+    quality: qualId, post: !!(post.ok && qual.post), bloom: !!(post.ok && qual.post && qual.bloom), dpr, scale: qual.scale || 1,
     hd: !!(zoneFx && zoneFx.hd), fires: zoneFx && zoneFx.fires ? zoneFx.fires.list.length : 0, mist: !!(zoneFx && zoneFx.mist && zoneFx.mist.visible),
   });
 
@@ -740,7 +1063,7 @@
     'uniform sampler2D tA0, tN0, tR0, tA1, tN1, tR1, tA2, tN2, tR2;',
     'uniform vec3 uS, uC0, uC1, uC2, uV0, uV1, uV2; uniform vec4 uK0, uK1, uK2;',
     'vec3 gSat(vec3 c, float s) { return mix(vec3(dot(c, vec3(0.2126, 0.7152, 0.0722))), c, s); }',
-    'uniform vec4 uLava; uniform vec2 uLavaM; uniform float uVK;',
+    'uniform vec4 uLava; uniform vec2 uLavaM, uLavaP; uniform float uVK;',
     'varying vec2 vW; varying vec3 vWp;',
     'float gHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }',
     'float gNoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);',
@@ -783,7 +1106,7 @@
     'vec3 gLava = vec3(0.0);',
     'if (uLava.a > 0.0) {',
     '  float pulse = 0.72 + 0.28 * sin(uLavaM.y * 1.3 + gNoise(gp * 0.25) * 6.2832);',
-    '  float em = uLavaM.x > 1.5 ? r1.r * r1.r * gb.y : (1.0 - smoothstep(0.1, 0.42, r0.b)) * (0.3 + 0.7 * smoothstep(0.12, 0.5, gNoise(gp * 0.09 + 3.1))) * gb.x;',
+    '  float em = uLavaM.x > 1.5 ? r1.r * r1.r * gb.y : (1.0 - smoothstep(0.1, 0.42, r0.b)) * (uLavaP.x + (1.0 - uLavaP.x) * smoothstep(uLavaP.y, uLavaP.y + 0.38, gNoise(gp * 0.09 + 3.1))) * gb.x;',
     '  gLava = uLava.rgb * uLava.a * em * pulse * smoothstep(uVK + 0.02, uVK + 0.35, vColor.g);',
     '  gA *= 1.0 - 0.6 * min(1.0, em);',
     '}',
@@ -792,13 +1115,14 @@
   function groundMaterial(gx, def) {
     const pathL = lin(def.path), rockL = lin(def.rock), voidL = lin(def.voidc);
     const base = [pathL, pathL.clone().lerp(rockL, 0.5), rockL.clone().lerp(voidL, 0.45)];
-    const U = { uS: { value: new T.Vector3() }, uLava: { value: new T.Vector4(0, 0, 0, 0) }, uLavaM: { value: new T.Vector2(0, 0) }, uVK: { value: GROUND_VK } };
+    // uLavaP：路面裂缝发光的成片程度（处处至少有多少、噪声过多少才开始亮），缺省 (0.3, 0.12)；lava.patch 可按区域改
+    const U = { uS: { value: new T.Vector3() }, uLava: { value: new T.Vector4(0, 0, 0, 0) }, uLavaM: { value: new T.Vector2(0, 0) }, uLavaP: { value: new T.Vector2(0.3, 0.12) }, uVK: { value: GROUND_VK } };
     gx.mats.forEach((m, i) => {
       U['tA' + i] = { value: zoneTexture(m.tex, 'albedo') };
       U['tN' + i] = { value: zoneTexture(m.tex, 'normal') };
       U['tR' + i] = { value: zoneTexture(m.tex, 'arh') };
       U.uS.value.setComponent(i, 1 / m.tile);
-      U['uC' + i] = { value: base[i].clone().multiplyScalar(m.k * 1.25) };
+      U['uC' + i] = { value: (m.col !== undefined ? lin(m.col) : base[i].clone()).multiplyScalar(m.k * 1.25) }; // col：直接给这套材质的颜色（不按区域配色推）
       const avg = G.assets.tex(m.tex).avg;
       U['uV' + i] = { value: new T.Vector3(1 / avg[0], 1 / avg[1], 1 / avg[2]) };
       U['uK' + i] = { value: new T.Vector4(m.con, m.rough, m.nrm, m.sat === undefined ? 1 : m.sat) };
@@ -807,6 +1131,7 @@
       _c.set(gx.lava.color).convertSRGBToLinear();
       U.uLava.value.set(_c.r, _c.g, _c.b, gx.lava.k);
       U.uLavaM.value.x = gx.lava.mode;
+      if (gx.lava.patch) U.uLavaP.value.set(gx.lava.patch[0], gx.lava.patch[1]);
     }
     const mat = own(new T.MeshStandardMaterial({ roughness: 1, metalness: 0, vertexColors: true }));
     mat.onBeforeCompile = (sh) => {
@@ -865,7 +1190,7 @@
       uCapAll: { value: opt.cap ? r.capAll || 0 : 0 }, uCapC: { value: lin(r.cap || 0xffffff) }, uCapK: { value: r.cap ? 1 : 0 }, // 没有覆盖色的区域：Kenney 岩石的草皮顶面也按岩石处理
     };
     const mat = own(new T.MeshStandardMaterial({ color: 0xffffff, roughness: opt.rough, metalness: 0, flatShading: true, vertexColors: !!opt.vc }));
-    mat.onBeforeCompile = (sh) => {
+    mat.onBeforeCompile = function (sh) {
       Object.assign(sh.uniforms, U);
       sh.vertexShader = sh.vertexShader
         .replace('#include <common>', '#include <common>\nattribute float aCap;\nvarying vec3 vTriP;\nvarying float vCap;')
@@ -884,7 +1209,8 @@
         )
         .replace('#include <normal_fragment_maps>', 'normal = tNv;');
     };
-    return mat;
+    // 卡通：岩壁 / 布景在三向投影贴图上再叠一层很淡的笔触噪声（世界空间），大块的面不至于是一整片照片纹理
+    return toonPatch(mat, { brush: 0.1, brushScale: 0.45 });
   }
 
   // ----- 火盆 / 灯的火焰（加色混合、不做色调映射，泛光会把它们点亮） -----
@@ -956,6 +1282,329 @@
     m.visible = qual.mist;
     zoneGroup.add(m);
     return m;
+  }
+
+  // ===== 卡通布景：灰烬荒原起点 =====
+  // 第 0 区的卡通岩石（倒角的大块面、受光的顶面暖、贴地的底部冷紫）整区都用；其余布景只铺在起点附近（ASH_DRESS.r0 以内满密度，到 r1 渐稀）：
+  // 路外的灰堆、碎石、枯草、灰蕨、焰苔和余烬花，可行走区域里的积灰、零星碎石和几道发光的熔岩裂缝（起点原来的法阵去掉了），
+  // 从起点朝出口踩出来的一条路（地面顶点色提亮、偏暖），以及飘落的灰烬（位置在 GPU 里算，每帧只更新中心点和时间）。
+  // 明暗层次（要求方给的目标，sRGB 亮度）：地面 25%～35%、岩壁 15%～25%、角色受光面 55%～75%、熔岩和特效高光 85%～100%。
+  // 所以布景都压在地面那一档上下，只有熔岩裂缝的芯和余烬花是亮点。可行走区域里的东西都贴地、很矮（最高约 0.35），不碰撞、不挡怪和预警圈；
+  // 高的东西（灰堆、蕨、岩石）只放在路外，路外本来就走不进去，碰撞和原来一致。全部实例化，起点布景一共约 10 个 draw call。
+  const ASH_DRESS = { r0: 15, r1: 26 };
+  const ASH_PAL = {
+    rock: 0x6a6472, rockLo: 0x5c4e80, // phase 3：0x5a4a4e / 0x4a3c6c → 0x6a6472 / 0x5c4e80：去掉受光面的赤陶色，岩壁整体抬到 15% 左右（之前 11.5%，比目标暗） // 岩石固有色（比地面暗一档）、贴地的冷紫（乘在固有色上）
+    ash: 0x3c3434, ashLo: 0x5a4a5a, ashFall: 0x9a8a8a, // 灰堆、地上的积灰（贴花，淡淡提亮一层）
+    grass: 0xb07a40, grassLo: 0x4a2e2a, // 枯草
+    fern: 0x3f8e84, fernLo: 0x1e3a48, // 灰蕨（冷色点缀）
+    moss: 0x5a3426, mossLo: 0x2e1a1e, // 焰苔（暗锈色的苔垫，亮点交给余烬花）
+    bloom: 0xffb04a, bloom2: 0xffe08a, // 余烬花（自发光）
+    core: 0xffe08a, mid: 0xff7a2a, edge: 0xd0341c, char: 0x24161c, // 熔岩裂缝：芯 / 中 / 边 / 烧焦的外沿
+  };
+  // 本节自己的确定性随机数（按区域布局取种子）：不消耗 Math.random，刷怪等后续随机序列和改之前一样
+  function ashRng(zone, salt) {
+    let s = (Math.abs(Math.round(zone.circles[1].x * 97 + zone.circles[1].z * 131) + (salt || 0) * 7717) % 2147483646) + 1;
+    return () => ((s = (s * 16807) % 2147483647) - 1) / 2147483646;
+  }
+  // 倒角的大块面岩石：二十面体按几刀平面削出大的平面（顶上一刀、侧面几刀），法线一半取面法线、一半取平滑法线
+  // ——平面是一整块干净的明暗，棱上是软的过渡，看起来是圆钝的大石块而不是一颗颗尖的低多边形。竖向渐变烘焙进顶点色
+  function ashRockGeo(v) {
+    return geo('ashRock' + v, () => {
+      let s = 7919 * (v + 3);
+      const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+      const src = new T.IcosahedronGeometry(1, v < 2 ? 1 : 0);
+      const p = src.attributes.position;
+      const planes = [];
+      const tilt = () => (rnd() - 0.5) * 0.5;
+      planes.push(new T.Vector4(tilt(), 1, tilt(), 0.5 + rnd() * 0.18)); // 顶面
+      planes.push(new T.Vector4(0, -1, 0, 0.42)); // 底面（埋进地里的那一截削平，免得翻出来）
+      const cuts = v < 2 ? 5 : 3;
+      for (let c = 0; c < cuts; c++) {
+        const a = (c / cuts) * TAU + rnd() * 0.9, e = (rnd() - 0.35) * 0.9;
+        planes.push(new T.Vector4(Math.cos(a) * Math.cos(e), Math.sin(e), Math.sin(a) * Math.cos(e), 0.66 + rnd() * 0.2));
+      }
+      for (const q of planes) {
+        const l = Math.hypot(q.x, q.y, q.z);
+        q.x /= l; q.y /= l; q.z /= l;
+      }
+      const sx = 0.95 + rnd() * 0.35, sy = 0.82 + rnd() * 0.22, sz = 0.85 + rnd() * 0.3;
+      const pos = new Float32Array(p.count * 3);
+      for (let i = 0; i < p.count; i++) {
+        _v.fromBufferAttribute(p, i);
+        // 低频起伏（按位置，重合的顶点一起动），再按平面削
+        const h = Math.sin(_v.x * 3.1 + v) * Math.sin(_v.z * 2.7 - v * 0.7) * 0.08;
+        _v.multiplyScalar(1 + h);
+        for (const q of planes) {
+          const dd = _v.x * q.x + _v.y * q.y + _v.z * q.z - q.w;
+          if (dd > 0) _v.set(_v.x - q.x * dd, _v.y - q.y * dd, _v.z - q.z * dd);
+        }
+        pos[i * 3] = _v.x * sx; pos[i * 3 + 1] = _v.y * sy; pos[i * 3 + 2] = _v.z * sz;
+      }
+      const g = new T.BufferGeometry();
+      g.setAttribute('position', new T.BufferAttribute(pos, 3));
+      g.computeVertexNormals(); // 非索引：面法线
+      // 平滑法线：位置重合的顶点累加面法线
+      const fn = g.attributes.normal, acc = new Map(), key = (i) => Math.round(pos[i * 3] * 1e3) + ',' + Math.round(pos[i * 3 + 1] * 1e3) + ',' + Math.round(pos[i * 3 + 2] * 1e3);
+      for (let i = 0; i < p.count; i++) {
+        const k = key(i), a = acc.get(k) || [0, 0, 0];
+        a[0] += fn.getX(i); a[1] += fn.getY(i); a[2] += fn.getZ(i);
+        acc.set(k, a);
+      }
+      for (let i = 0; i < p.count; i++) {
+        const a = acc.get(key(i)), l = Math.hypot(a[0], a[1], a[2]) || 1;
+        _v.set(fn.getX(i) * 0.55 + (a[0] / l) * 0.45, fn.getY(i) * 0.55 + (a[1] / l) * 0.45, fn.getZ(i) * 0.55 + (a[2] / l) * 0.45).normalize();
+        fn.setXYZ(i, _v.x, _v.y, _v.z);
+      }
+      src.dispose();
+      return toonGradient(g, { bottom: ASH_PAL.rockLo, top: 0xffffff, y0: -0.42 * sy, y1: 0.55 * sy });
+    });
+  }
+  // 尖岩：原来的五棱锥换成带竖向渐变的（另存一份，别的区域的缓存几何体不动）
+  const ashSpireGeo = () => geo('ashSpire', () => toonGradient(spireGeo().clone(), { bottom: ASH_PAL.rockLo, top: 0xffffff, y0: 0, y1: 2.4 }));
+  function ashRockMat() {
+    return own(makeToonMat({ color: ASH_PAL.rock, brush: 0.16, brushScale: 0.42, soft: 0.1 }));
+  }
+  // 从起点朝第一条走廊的出口踩出来的一条路（略弯）：返回到这条折线的距离
+  function ashTrail(zone) {
+    const c0 = zone.circles[0], c1 = zone.circles[1];
+    const dx = c1.x - c0.x, dz = c1.z - c0.z, L = Math.hypot(dx, dz), ux = dx / L, uz = dz / L;
+    const end = c0.r + 6, pts = [];
+    for (let i = 0; i <= 8; i++) {
+      const t = (i / 8) * end, w = Math.sin((t / end) * Math.PI * 1.3) * 1.1;
+      pts.push([c0.x + ux * t - uz * w, c0.z + uz * t + ux * w]);
+    }
+    const f = (x, z) => {
+      let d = 1e9;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i], b = pts[i + 1], ex = b[0] - a[0], ez = b[1] - a[1];
+        let t = ((x - a[0]) * ex + (z - a[1]) * ez) / (ex * ex + ez * ez);
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        d = Math.min(d, Math.hypot(x - a[0] - ex * t, z - a[1] - ez * t));
+      }
+      return d;
+    };
+    f.pts = pts;
+    return f;
+  }
+  // 小件的几何体（烘焙顶点色 + 竖向渐变，一种一个实例化网格）
+  const ashGrassGeo = () =>
+    geo('ash/grass', () => {
+      const parts = [];
+      const blade = geo('ash/blade', () => new T.ConeGeometry(0.05, 1, 3, 1, true)); // 不封底的三棱锥：一片叶 3 个三角形
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * TAU + Math.sin(i * 4.1) * 0.4, lean = 0.28 + 0.2 * Math.abs(Math.sin(i * 2.3)), h = 0.38 + 0.22 * Math.abs(Math.sin(i * 1.7));
+        parts.push([blade, i % 2 ? ASH_PAL.grass : mixHex(ASH_PAL.grass, 0x9a6a3a, 0.6), Math.sin(a) * 0.06, h * 0.5, Math.cos(a) * 0.06, Math.cos(a) * lean, a, -Math.sin(a) * lean, 1, h, 1]);
+      }
+      return toonGradient(bake('ash/grass0', parts).clone(), { bottom: ASH_PAL.grassLo, top: 0xffffff, y0: 0, y1: 0.5 });
+    });
+  const ashFernGeo = () =>
+    geo('ash/fern', () => {
+      const parts = [];
+      for (let i = 0; i < 7; i++) {
+        const a = (i / 7) * TAU + Math.sin(i * 3.3) * 0.3;
+        // 一片叶子：压扁拉长的八面体，从根部向外拱出去（一片 8 个三角形）
+        parts.push([gOct(1), i % 2 ? ASH_PAL.fern : mixHex(ASH_PAL.fern, 0x6ac8b8, 0.25), Math.sin(a) * 0.36, 0.22, Math.cos(a) * 0.36, 1.0 * Math.cos(a), a, -1.0 * Math.sin(a), 0.075, 0.46, 0.025]);
+      }
+      return toonGradient(bake('ash/fern0', parts).clone(), { bottom: ASH_PAL.fernLo, top: 0xffffff, y0: 0, y1: 0.45 });
+    });
+  const ashMossGeo = () =>
+    geo('ash/moss', () => toonGradient(bake('ash/moss0', [
+      [gIco(1, 0), ASH_PAL.moss, 0, 0, 0, 0, 0, 0, 1, 0.32, 0.8],
+      [gIco(0.6, 0), mixHex(ASH_PAL.moss, 0x8a4a2a, 0.35), 0.7, 0, 0.3, 0, 0.5, 0, 1, 0.36, 0.9],
+    ]).clone(), { bottom: ASH_PAL.mossLo, top: 0xffffff, y0: -0.1, y1: 0.3 }));
+  const ashDriftGeo = () =>
+    geo('ash/drift', () => toonGradient(bake('ash/drift0', [
+      [gIco(1, 1), ASH_PAL.ash, 0, 0, 0, 0, 0, 0, 1, 0.3, 0.7],
+      [gIco(0.7, 1), mixHex(ASH_PAL.ash, 0xb4a0a8, 0.3), 0.75, 0.02, 0.2, 0, 0.4, 0, 1, 0.34, 0.8],
+    ]).clone(), { bottom: ASH_PAL.ashLo, top: 0xffffff, y0: -0.05, y1: 0.32 }));
+  const ashBloomGeo = () =>
+    geo('ash/bloom', () => bake('ash/bloom0', [
+      [gOct(0.09), ASH_PAL.bloom, 0, 0.16, 0, 0, 0, 0, 1, 1.3, 1],
+      [gOct(0.07), ASH_PAL.bloom2, 0.13, 0.11, 0.05, 0, 0.6, 0, 1, 1.3, 1],
+      [gOct(0.06), ASH_PAL.bloom, -0.08, 0.09, 0.12, 0, 0.3, 0, 1, 1.3, 1],
+    ]));
+  // 熔岩裂缝：一条随机折线（带一两条分叉），按宽度铺成贴地的条带；u = 离中线的远近（0 = 芯，1 = 边）写进顶点色
+  function ashFissure(rnd, x, z, len, w, out) {
+    const branch = (x0, z0, a0, L, w0, depth) => {
+      // 折线：大体沿 a0 走，每一节左右折一下（锯齿状，不是平滑的弧，免得像一道刀光）
+      const n = Math.max(4, Math.round(L / 0.32));
+      let px = x0, pz = z0;
+      const P = [[px, pz]], W0 = [];
+      for (let i = 0; i < n; i++) {
+        const a = a0 + (rnd() < 0.7 ? (i % 2 ? 1 : -1) : 0) * (0.2 + rnd() * 0.45) + (rnd() - 0.5) * 0.35, l = (L / n) * (0.6 + rnd() * 0.8);
+        px += Math.sin(a) * l;
+        pz += Math.cos(a) * l;
+        P.push([px, pz]);
+      }
+      for (let i = 0; i <= n; i++) W0.push(w0 * (0.55 + rnd() * 0.7) * Math.sin(Math.PI * Math.min(1, 0.1 + (i / n) * 0.9)) + 0.01);
+      for (let i = 0; i < P.length - 1; i++) {
+        const ww0 = W0[i], ww1 = W0[i + 1];
+        const ex = P[i + 1][0] - P[i][0], ez = P[i + 1][1] - P[i][1], l = Math.hypot(ex, ez) || 1, nx = -ez / l, nz = ex / l;
+        out.push([P[i][0], P[i][1], P[i + 1][0], P[i + 1][1], nx, nz, ww0, ww1]);
+      }
+      if (depth < 1) {
+        const nb = rnd() < 0.7 ? 1 : 2;
+        for (let b = 0; b < nb; b++) {
+          const k = 1 + Math.floor(rnd() * (P.length - 2));
+          branch(P[k][0], P[k][1], a0 + (rnd() < 0.5 ? -1 : 1) * (0.6 + rnd() * 0.6), L * (0.3 + rnd() * 0.25), w0 * 0.6, depth + 1);
+        }
+      }
+    };
+    branch(x, z, rnd() * TAU, len, w, 0);
+  }
+  // bands：[离中线的距离（× 宽度）, 颜色]，从中线往外一圈圈排（芯 → 橙 → 红边 → 烧焦的外沿），两侧对称
+  function ashFissureGeo(segs, bands, y) {
+    const pos = [], col = [], B = bands.map((q) => [q[0], lin(q[1])]);
+    for (const s of segs) {
+      const [ax, az, bx, bz, nx, nz, w0, w1] = s;
+      for (const sg of [1, -1]) {
+        for (let k = 0; k < B.length - 1; k++) {
+          const i0 = B[k][0] * sg, i1 = B[k + 1][0] * sg, c0 = B[k][1], c1 = B[k + 1][1];
+          const p = [ax + nx * w0 * i0, az + nz * w0 * i0, bx + nx * w1 * i0, bz + nz * w1 * i0, bx + nx * w1 * i1, bz + nz * w1 * i1, ax + nx * w0 * i1, az + nz * w0 * i1];
+          pos.push(p[0], y, p[1], p[2], y, p[3], p[4], y, p[5], p[0], y, p[1], p[4], y, p[5], p[6], y, p[7]);
+          col.push(c0.r, c0.g, c0.b, c0.r, c0.g, c0.b, c1.r, c1.g, c1.b, c0.r, c0.g, c0.b, c1.r, c1.g, c1.b, c1.r, c1.g, c1.b);
+        }
+      }
+    }
+    const g = own(new T.BufferGeometry());
+    g.setAttribute('position', new T.Float32BufferAttribute(pos, 3));
+    g.setAttribute('color', new T.Float32BufferAttribute(col, 3));
+    const nrm = new Float32Array(pos.length);
+    for (let i = 1; i < nrm.length; i += 3) nrm[i] = 1;
+    g.setAttribute('normal', new T.BufferAttribute(nrm, 3));
+    return g;
+  }
+  // 飘落的灰烬：一团点精灵，每个点在一个跟着镜头走的盒子里按自己的速度漂，越出盒子就从另一边绕回来（GPU 里算），
+  // 一成是暖色的火星。低画质不画
+  const ASH_MOTE_VERT = [
+    'attribute vec4 aSeed; uniform float uT, uScale; uniform vec3 uC; varying float vA; varying float vE;',
+    'void main(){',
+    '  vec3 box = vec3(34.0, 6.5, 30.0);',
+    '  vec3 dr = vec3(0.45, -0.32, 0.18) * (0.55 + aSeed.w);',
+    '  vec3 o = uC - box * 0.5;',
+    '  vec3 w = mod(aSeed.xyz * box + dr * uT - o, box) + o;',
+    '  w.x += sin(uT * 0.8 + aSeed.w * 40.0) * 0.35; w.z += cos(uT * 0.6 + aSeed.w * 23.0) * 0.25;',
+    '  w.y = mod(aSeed.y * box.y - 0.32 * (0.55 + aSeed.w) * uT, box.y) + 0.15;',
+    '  vec3 q = abs(w - uC) / (box * 0.5);',
+    '  vA = smoothstep(1.0, 0.75, max(q.x, q.z)) * smoothstep(0.15, 0.9, w.y) * smoothstep(box.y, box.y - 1.0, w.y);',
+    '  vE = step(0.9, aSeed.w);',
+    '  vec4 mv = viewMatrix * vec4(w, 1.0);',
+    '  gl_PointSize = (0.07 + 0.05 * aSeed.w) * (1.0 + vE * 0.3) * uScale / max(0.1, -mv.z);',
+    '  gl_Position = projectionMatrix * mv;',
+    '}',
+  ].join('\n');
+  const ASH_MOTE_FRAG = [
+    'uniform vec3 uAsh, uEmb; varying float vA; varying float vE;',
+    'void main(){',
+    '  float d = length(gl_PointCoord - 0.5); float a = smoothstep(0.5, 0.15, d) * vA;',
+    '  gl_FragColor = vec4(mix(uAsh, uEmb, vE), a * mix(0.55, 0.9, vE));',
+    '}',
+  ].join('\n');
+
+  function buildAshDress(zone, sd) {
+    const rnd = ashRng(zone), st = zone.start, R0 = ASH_DRESS.r0, R1 = ASH_DRESS.r1;
+    const trail = ashTrail(zone);
+    const fade = (x, z) => 1 - smooth01((Math.hypot(x - st.x, z - st.z) - R0) / (R1 - R0));
+    const L = { grass: [], fern: [], moss: [], drift: [], bloom: [], pebble: [], patch: [], glow: [] };
+    const r = (a, b) => a + (b - a) * rnd();
+    // 在起点周围按抖动网格撒点，按「离路边多远」和「离起点多远」决定放什么
+    const G0 = 0.9;
+    for (let gz = st.z - R1; gz <= st.z + R1; gz += G0) {
+      for (let gx = st.x - R1; gx <= st.x + R1; gx += G0) {
+        const x = gx + r(-0.45, 0.45), z = gz + r(-0.45, 0.45);
+        const f = fade(x, z);
+        if (f <= 0 || rnd() > f) continue;
+        const d = sd(x, z), ds = Math.hypot(x - st.x, z - st.z), dt = trail(x, z);
+        const n = vnoise(x * 0.35 + 3.7, z * 0.35 - 1.3); // 成片：同一片里多是同一种植物
+        if (d < -0.15 && d > -4.2) {
+          // 路外：贴着岩石脚的灰堆、蕨、枯草、焰苔，零星几簇余烬花
+          const k = rnd();
+          if (d > -1.6 && k < 0.16) L.drift.push(x, 0, z, 0, r(0, TAU), 0, r(0.7, 1.5), r(0.7, 1.3), r(0.7, 1.4), r(0.85, 1.1));
+          else if (n > 0.55 && k < 0.75) L.fern.push(x, 0, z, 0, r(0, TAU), 0, r(1.1, 1.8), r(1, 1.6), r(1.1, 1.8), r(0.8, 1.15));
+          else if (n < 0.36 && k < 0.45) L.moss.push(x, 0.02, z, r(-0.1, 0.1), r(0, TAU), r(-0.1, 0.1), r(0.4, 0.8), r(0.6, 1), r(0.4, 0.8), r(0.8, 1.15));
+          else if (n > 0.38 && n < 0.56 && k < 0.85) {
+            // 枯草成丛：一处两三簇挤在一起
+            for (let q = 0; q < 3; q++) L.grass.push(x + r(-0.35, 0.35), 0, z + r(-0.35, 0.35), 0, r(0, TAU), 0, r(0.9, 1.4), r(0.9, 1.7), r(0.9, 1.4), r(0.8, 1.2));
+          }
+          if (n < 0.5 && rnd() < 0.26) L.bloom.push(x + r(-0.3, 0.3), 0, z + r(-0.3, 0.3), 0, r(0, TAU), 0, r(0.8, 1.3), r(0.8, 1.3), r(0.8, 1.3), 1);
+        } else if (d >= -0.15 && d < 1.4) {
+          // 可行走区域的边上：矮草、碎石（都很矮，不碰撞）
+          const k = rnd();
+          if (k < 0.3) L.grass.push(x, 0, z, 0, r(0, TAU), 0, r(0.6, 0.95), r(0.55, 0.85), r(0.6, 0.95), r(0.8, 1.1));
+          else if (k < 0.5) L.pebble.push(x, 0.02, z, r(-0.4, 0.4), r(0, TAU), r(-0.4, 0.4), r(0.1, 0.22), r(0.07, 0.14), r(0.1, 0.22), r(0.75, 1.1));
+          else if (k < 0.56 && d < 0.9) L.pebble.push(x, 0.02, z, r(-0.3, 0.3), r(0, TAU), r(-0.3, 0.3), r(0.26, 0.42), r(0.16, 0.26), r(0.26, 0.42), r(0.8, 1.05)); // 从岩壁上掉下来的碎块
+          if (rnd() < 0.08) L.patch.push(x, 0.018, z, 0, r(0, TAU), 0, r(1.2, 2.2), 1, r(0.8, 1.5), 1);
+        } else if (d >= 1.4 && ds > 2.6 && dt > 1.1) {
+          // 空地中间：零星的积灰、碎石
+          const k = rnd();
+          if (k < 0.035) L.patch.push(x, 0.018, z, 0, r(0, TAU), 0, r(1.3, 2.6), 1, r(0.8, 1.6), 1);
+          else if (k < 0.07) L.pebble.push(x, 0.02, z, r(-0.4, 0.4), r(0, TAU), r(-0.4, 0.4), r(0.08, 0.18), r(0.05, 0.11), r(0.08, 0.18), r(0.75, 1.1));
+        }
+      }
+    }
+    // 熔岩裂缝：空地边上几道、路外几道（离起点和路都有距离，不和预警圈混在一起）
+    const fis = [], fr = ashRng(zone, 1), rf = (a, b) => a + (b - a) * fr(); // 单独一路随机数：调植被不会把裂缝挪走
+    let tries = 0, nf = 0;
+    while (nf < 7 && tries++ < 200) {
+      const a = rf(0, TAU), dd = rf(3.5, R0 + 2), x = st.x + Math.sin(a) * dd, z = st.z + Math.cos(a) * dd, d = sd(x, z);
+      if (trail(x, z) < 1.8 || d > 2.2 || d < -3) continue;
+      const len = rf(1.4, 2.8);
+      ashFissure(fr, x, z, len, rf(0.07, 0.11), fis);
+      L.glow.push(x, 0.04, z, 0, 0, 0, len * 0.9, 1, len * 0.9, 1);
+      nf++;
+    }
+
+    const ws = new T.Color(1, 1, 1);
+    const foliage = own(makeToonMat({ brush: 0.12, brushScale: 0.8, soft: 0.14 }));
+    // 低画质不画地上的草 / 蕨 / 苔（软件 GL 下它们和图标的画布共用一个 GPU 进程，见 QUALITY.low 的注释）
+    const lowHide = [instanced(ashGrassGeo(), foliage, L.grass, false, ws), instanced(ashFernGeo(), foliage, L.fern, false, ws), instanced(ashMossGeo(), foliage, L.moss, false, ws)].filter(Boolean);
+    instanced(ashDriftGeo(), own(makeToonMat({ brush: 0.1, brushScale: 0.5, soft: 0.16 })), L.drift, false, ws);
+    instanced(ashRockGeo(2), own(makeToonMat({ color: ASH_PAL.rock, brush: 0.1 })), L.pebble, false, ws);
+    const bloomMat = own(makeToonMat({ emissive: ASH_PAL.bloom, emissiveIntensity: 0.9 }));
+    instanced(ashBloomGeo(), bloomMat, L.bloom, false, ws);
+    // 积灰：贴地的淡灰紫斑（普通混合，不发光）
+    const patchMat = own(new T.MeshBasicMaterial({ map: blotchTex(), color: lin(ASH_PAL.ashFall), transparent: true, opacity: 0.2, depthWrite: false }));
+    const pIM = instanced(gQuad(), patchMat, L.patch, false, null);
+    if (pIM) pIM.renderOrder = 1;
+    // 熔岩裂缝：一张不受光的条带（芯接近白热、往外橙 → 红 → 烧焦的暗沿，不做色调映射）+ 地面上一点暖光
+    let fisMat = null, glowMat = null;
+    if (fis.length) {
+      fisMat = own(new T.MeshBasicMaterial({ vertexColors: true, toneMapped: false, side: T.DoubleSide }));
+      const bands = [[0, ASH_PAL.core], [0.3, ASH_PAL.mid], [0.6, ASH_PAL.edge], [0.85, ASH_PAL.char], [2.2, mixHex(ASH_PAL.char, 0x3a2a30, 0.5)]];
+      const core = new T.Mesh(ashFissureGeo(fis, bands, 0.02), fisMat);
+      core.renderOrder = 1;
+      zoneGroup.add(core);
+      glowMat = own(new T.MeshBasicMaterial({ map: glowTex(), color: lin(ASH_PAL.mid), transparent: true, opacity: 0.22, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false }));
+      const gIM = instanced(gQuad(), glowMat, L.glow, false, null);
+      if (gIM) gIM.renderOrder = 1;
+    }
+    // 飘落的灰烬
+    const NM = 150, seed = new Float32Array(NM * 4);
+    for (let i = 0; i < NM * 4; i++) seed[i] = rnd();
+    const mg = own(new T.BufferGeometry());
+    mg.setAttribute('position', new T.BufferAttribute(new Float32Array(NM * 3), 3));
+    mg.setAttribute('aSeed', new T.BufferAttribute(seed, 4));
+    const mm = own(new T.ShaderMaterial({
+      uniforms: { uT: uTime, uScale: pMat.uniforms.uScale, uC: { value: new T.Vector3(st.x, 0, st.z) }, uAsh: { value: lin(0xb8a8b8) }, uEmb: { value: lin(0xff9a4a) } },
+      vertexShader: ASH_MOTE_VERT, fragmentShader: ASH_MOTE_FRAG, transparent: true, depthWrite: false,
+    }));
+    const motes = new T.Points(mg, mm);
+    motes.frustumCulled = false;
+    motes.renderOrder = 6;
+    motes.visible = qualId !== 'low';
+    zoneGroup.add(motes);
+    for (const m of lowHide) m.visible = qualId !== 'low';
+    return { trail, motes, mm, fisMat, glowMat, bloomMat, lowHide };
+  }
+  // 每帧（W.update 的区域氛围段里一行调用）：灰烬的盒子跟着镜头焦点，熔岩裂缝和余烬花慢慢呼吸
+  function updateAshDress(D) {
+    D.motes.visible = qualId !== 'low';
+    for (let i = 0; i < D.lowHide.length; i++) D.lowHide[i].visible = qualId !== 'low';
+    D.mm.uniforms.uC.value.set(camT.x, 0, camT.z + CAM_LEAD);
+    const k = 0.5 + 0.5 * Math.sin(wtime * 1.3);
+    if (D.fisMat) D.fisMat.color.setScalar(0.92 + 0.16 * k);
+    if (D.glowMat) D.glowMat.opacity = 0.16 + 0.1 * k;
+    D.bloomMat.emissiveIntensity = 0.75 + 0.3 * (0.5 + 0.5 * Math.sin(wtime * 1.7 + 1));
   }
 
   // ----- 按需加载区域素材：没就绪时先用程序化外观，就绪后若还在这个区域就原地重建一次外观 -----
@@ -1116,7 +1765,7 @@
     for (const k in by) {
       const { e, list, small } = by[k];
       const rockish = e[4].indexOf('r') >= 0;
-      instanced(G.assets.geo(k), rockish ? mats.rock : mats.prop, list, !small, rockish ? lin(def.rock).multiplyScalar(1.2) : new T.Color(1, 1, 1));
+      instanced(G.assets.geo(k), rockish ? mats.rock : mats.prop, list, !small, rockish && def.id !== 'ash' ? lin(def.rock).multiplyScalar(1.2) : new T.Color(1, 1, 1)); // 第 0 区的岩石材质自带颜色
     }
     if (!fires.length) return null;
     // 火焰：竖直的方片，朝镜头倾斜；每帧在 W.update 里按各自的相位抖动
@@ -1164,8 +1813,9 @@
     const canvas = document.getElementById('gl');
     renderer = new T.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     renderer.outputEncoding = T.sRGBEncoding;
-    renderer.toneMapping = T.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.12;
+    // 卡通色调曲线（保持色相的高光肩部 + 饱和度，见 TOON / patchToonChunks），代替 ACES：ACES 会把中间调压灰、把饱和色洗淡
+    renderer.toneMapping = T.CustomToneMapping;
+    renderer.toneMappingExposure = TOON.exposure;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = T.PCFSoftShadowMap;
     // 画质档位：存档里的「画质」选项（高 / 中 / 低）；'auto'（玩家没选过）按设备推断（见 G.defaultQuality）
@@ -1178,13 +1828,10 @@
 
     scene = new T.Scene();
     scene.background = new T.Color(0x100c0a);
-    scene.fog = new T.Fog(0x100c0a, 27, 64);
+    scene.fog = new T.Fog(0x100c0a, CAMERA.fogNear, CAMERA.fogFar);
 
     camera = new T.PerspectiveCamera(BASE_FOV, 1, 2, 240);
-    camera.position.copy(CAM_OFF);
-    camera.lookAt(0, 1, 0); // 朝向固定，之后只平移
-    camera.getWorldDirection(camF);
-    camU.set(0, 1, 0).applyQuaternion(camera.quaternion);
+    camAim(); // 朝向固定，之后只平移
 
     hemi = new T.HemisphereLight(0xffffff, 0x222222, HEMI_I);
     scene.add(hemi);
@@ -1202,7 +1849,7 @@
     scene.add(sun.target);
     // 补光：从镜头对面（画面上方）斜照过来的一盏不投影的方向光，按区域配色给角色和岩石勾一道轮廓
     fill = new T.DirectionalLight(0xffffff, 0.3);
-    fill.position.set(6, 10, -14);
+    fill.position.set(12, 9, -14); // 镜头对面偏右：只照亮角色的背面和边缘，相当于轮廓光（角色材质按它的方向勾冷色的边）
     scene.add(fill);
     // 阴影相机的右/上轴：用来把光源位置吸附到纹素网格，避免移动时阴影边缘游动
     _v.copy(SUN_OFF).normalize(); // 指向光源 = 阴影相机的 +z
@@ -1249,11 +1896,45 @@
     clearRibbons();
   };
 
+  // 按 CAMERA 摆镜头的朝向（只在初始化和 W.setCamera 时调用）
+  function camAim() {
+    camera.position.copy(CAM_OFF);
+    camera.lookAt(0, CAMERA.lookY, 0);
+    camera.getWorldDirection(camF);
+    camU.set(0, 1, 0).applyQuaternion(camera.quaternion);
+    camera.fov = fovNow = BASE_FOV;
+    camera.updateProjectionMatrix();
+    if (scene && scene.fog) {
+      scene.fog.near = CAMERA.fogNear;
+      scene.fog.far = CAMERA.fogFar;
+    }
+  }
+  // 调试 / 调镜头：G.world.setCamera({ pitch, dist, fov, lead, lookY, fogNear, fogFar, shadow })，返回当前配置
+  W.setCamera = function (o) {
+    Object.assign(CAMERA, o || {});
+    camDerive();
+    BASE_FOV = CAMERA.fov;
+    if (SHADOW_HALF !== CAMERA.shadow && sun) {
+      SHADOW_HALF = CAMERA.shadow;
+      const sc = sun.shadow.camera;
+      sc.left = -SHADOW_HALF; sc.right = SHADOW_HALF; sc.top = SHADOW_HALF; sc.bottom = -SHADOW_HALF;
+      sc.updateProjectionMatrix();
+    }
+    if (camera) {
+      camAim();
+      camSnap = true;
+      W.resize();
+      W.update(0);
+    }
+    return Object.assign({}, CAMERA);
+  };
+
   W.resize = function () {
     vw = Math.max(1, window.innerWidth);
     vh = Math.max(1, window.innerHeight);
     dpr = Math.min(window.devicePixelRatio || 1, qual.dpr);
-    renderer.setPixelRatio(dpr);
+    const glDpr = dpr * (qual.scale || 1); // 3D 画面的像素比（低档比叠加层低一点，见 QUALITY.low.scale）
+    renderer.setPixelRatio(glDpr);
     renderer.setSize(vw, vh);
     if (post.ok) {
       post.composer.setPixelRatio(dpr);
@@ -1267,7 +1948,7 @@
     ocv.style.width = vw + 'px';
     ocv.style.height = vh + 'px';
     // 粒子按世界单位换算成像素大小
-    pMat.uniforms.uScale.value = (vh * dpr) / (2 * Math.tan((BASE_FOV * Math.PI) / 360));
+    pMat.uniforms.uScale.value = (vh * glDpr) / (2 * Math.tan((BASE_FOV * Math.PI) / 360));
     if (W.zone) buildMinimap(W.zone);
   };
 
@@ -2578,12 +3259,8 @@
     const tx = hd ? null : groundTextures(def, st);
 
     // 氛围：雾在 r128 里是在色调映射和编码之后混合的，所以直接用显示色
-    scene.background.set(def.fog);
-    scene.fog.color.set(def.fog);
-    hemi.color.copy(lin(def.sky));
-    hemi.groundColor.copy(lin(mixHex(def.fog, def.rock, 0.55)));
-    sun.color.copy(lin(mixHex(0xffffff, def.sky, 0.5)));
-    fill.color.copy(lin(mixHex(def.accent, def.sky, 0.55)));
+    // 卡通光照：暖的主光、冷紫的阴影色（半球光天空色）、暖的地面反光、冷色的轮廓补光（ZONE_LIGHT）
+    applyZoneLight(toonLightOf(def));
     applyZonePost(gx);
 
     const sd = (x, z) => zoneSd(zone, x, z);
@@ -2598,6 +3275,8 @@
       Math.min(1, (voidL.b * VOID_K) / (pathL.b * 0.8)),
     ];
     const SKIRT = 2.8, CS = 0.8, M = 5;
+    // 第 0 区（卡通布景）：靠墙的地面压得更暗、范围更宽（把空地框出来），从起点到出口那条踩出来的路提亮一点
+    const ash = def.id === 'ash', ashT = ash ? ashTrail(zone) : null;
     const x0 = b.minX - M, z0 = b.minZ - M;
     const nx = Math.ceil((b.maxX - b.minX + 2 * M) / CS), nz = Math.ceil((b.maxZ - b.minZ + 2 * M) / CS);
     const sx = nx + 1;
@@ -2610,19 +3289,23 @@
       if (vid[k] >= 0) return vid[k];
       const x = x0 + i * CS, z = z0 + j * CS, d = sdv[k];
       const n = 0.84 + 0.3 * vnoise(x * 0.09 + 7.3, z * 0.09 - 2.1);
-      const ao = 0.5 + 0.5 * smooth01(d / 2.6); // 靠近岩壁的地面更暗
+      const ao = ash ? 0.42 + 0.58 * smooth01((d + 0.3) / 3.6) : 0.5 + 0.5 * smooth01(d / 2.6); // 靠近岩壁的地面更暗
       let kk = d >= 0 ? 1 : smooth01(1 + d / SKIRT);
       kk *= kk;
-      const lit = n * ao;
+      let lit = n * ao;
+      const tk = ashT && d > -0.5 ? (1 - smooth01((ashT(x, z) - 0.8) / 1.4)) * smooth01((d + 0.5) / 1.2) : 0; // 踩出来的路
+      lit *= 1 + 0.2 * tk;
       pos.push(x, 0, z);
       uv.push(x / TILE, -z / TILE);
       if (hd) {
         // PBR 地面：顶点色只管明暗（压暗靠墙处、向虚空渐暗），颜色来自材质；aW = (路面权重, 岩壁权重)，其余是粗糙地面
         const v = GROUND_VK + (lit - GROUND_VK) * kk;
-        col.push(v, v, v);
+        const tv = ash ? (vnoise(x * 0.07 - 4.1, z * 0.07 + 8.3) - 0.5) * 0.14 : 0; // 第 0 区：大片的冷暖起伏（画出来的感觉）
+        col.push(v * (1 + 0.07 * tk + tv), v, v * (1 - 0.1 * tk - tv));
         const pn = vnoise(x * 0.17 + 11.3, z * 0.17 - 5.1);
         let wp = smooth01((d + 0.45) / 1.0);
-        wp *= 1 - 0.55 * smooth01((pn - 0.58) / 0.2) * smooth01(d / 2.2); // 路面上零星的粗糙斑块，离路边越远越少
+        // 路面上零星的粗糙斑块，离路边越远越少；第 0 区斑块更多更实（打散满地一样的龟裂纹），踩出来的路上没有
+        wp *= ash ? 1 - 0.85 * smooth01((pn - 0.56) / 0.16) * smooth01((d + 0.5) / 2.5) * (1 - tk) * smooth01((Math.hypot(x - zone.start.x, z - zone.start.z) - 3) / 3) : 1 - 0.55 * smooth01((pn - 0.58) / 0.2) * smooth01(d / 2.2);
         aw.push(wp, smooth01((-d - 0.9) / 2.2) * (1 - wp));
       } else col.push(vm[0] + (lit - vm[0]) * kk, vm[1] + (lit - vm[1]) * kk, vm[2] + (lit - vm[2]) * kk);
       return (vid[k] = pos.length / 3 - 1);
@@ -2711,7 +3394,8 @@
     const lowK = (x, z) => (sd(x, z - 4.5) > sd(x, z) + 2 ? 0.5 : 1);
     const rocksA = [], rocksB = [], spires = [];
     const pushRock = (x, z, s, tall) => {
-      const list = Math.random() < 0.5 ? rocksA : rocksB;
+      const coin = Math.random() < 0.5;
+      const list = ash ? (s < 0.9 ? rocksB : rocksA) : coin ? rocksA : rocksB; // 第 0 区：大石头用多面数的倒角岩，小的用少面数的
       const sy = s * rand(0.65, 1.05) * tall;
       list.push(x, sy * 0.28, z, rand(-0.3, 0.3), rand(0, TAU), rand(-0.3, 0.3), s * rand(0.85, 1.2), sy, s * rand(0.85, 1.2), rand(0.7, 1.12));
     };
@@ -2734,13 +3418,29 @@
       const s = rand(1.2, 2.0);
       spires.push(x, -0.3, z, rand(-0.22, 0.22), rand(0, TAU), rand(-0.22, 0.22), s, s * rand(0.9, 1.6) * lowK(x, z), s, rand(0.4, 0.75));
     });
-    const rockMat = hd
-      ? triMaterial(gx, { con: 1, nrm: 1, sat: 1, rough: 0.92, cap: true })
-      : own(new T.MeshStandardMaterial({ color: 0xffffff, roughness: 0.96, metalness: 0, flatShading: true }));
-    const rockTint = lin(def.rock);
-    instanced(rockGeoA(), rockMat, rocksA, true, rockTint);
-    instanced(rockGeoB(), rockMat, rocksB, true, rockTint);
-    instanced(spireGeo(), rockMat, spires, true, rockTint);
+    // 第 0 区：卡通岩石（纯色 + 笔触 + 竖向渐变，不用照片贴图），程序化外观和 PBR 外观都一样
+    const rockMat = ash
+      ? ashRockMat()
+      : hd
+        ? triMaterial(gx, { con: 1, nrm: 1, sat: 1, rough: 0.92, cap: true })
+        : own(new T.MeshStandardMaterial({ color: 0xffffff, roughness: 0.96, metalness: 0, flatShading: true }));
+    const rockTint = ash ? new T.Color(1, 1, 1) : lin(def.rock);
+    if (ash) {
+      // 同一种几何体换几个变体（每个变体一个实例化网格），不至于所有石头一个样
+      const split = (list, n) => {
+        const out = [];
+        for (let k = 0; k < n; k++) out.push([]);
+        for (let i = 0; i < list.length; i += 10) out[(i / 10) % n].push(...list.slice(i, i + 10));
+        return out;
+      };
+      split(rocksA, 2).forEach((l, k) => instanced(ashRockGeo(k), rockMat, l, true, rockTint));
+      split(rocksB, 2).forEach((l, k) => instanced(ashRockGeo(2 + k), rockMat, l, true, rockTint));
+      instanced(ashSpireGeo(), rockMat, spires, true, rockTint);
+    } else {
+      instanced(rockGeoA(), rockMat, rocksA, true, rockTint);
+      instanced(rockGeoB(), rockMat, rocksB, true, rockTint);
+      instanced(spireGeo(), rockMat, spires, true, rockTint);
+    }
 
     // --- 主题摆件（有 CC0 布景模型时只保留 keep 比例的程序化摆件，其余换成模型，见 buildProps） ---
     const props = [];
@@ -2803,7 +3503,8 @@
       }
     }
     const blotMat = own(
-      new T.MeshBasicMaterial({ map: blotchTex(), color: lin(mixHex(def.voidc, 0x000000, 0.4)), transparent: true, opacity: 0.38, depthWrite: false })
+      // 卡通：污斑不再是近黑的一大片（旧 0.38 不透明度把地面弄脏），颜色偏向这个区域的阴影色、淡一半
+      new T.MeshBasicMaterial({ map: blotchTex(), color: lin(ash ? 0x2a1c1a : mixHex(mixHex(def.voidc, toonLightOf(def).shade, 0.3), 0x000000, 0.3)), transparent: true, opacity: 0.2, depthWrite: false }) // 第 0 区：暖的焦黑，不是冷紫
     );
     const blotIM = instanced(gQuad(), blotMat, blots, false, null);
     if (blotIM) blotIM.renderOrder = 1;
@@ -2821,7 +3522,10 @@
       return q;
     };
     const bossSigil = sigil(zone.bossPos.x, zone.bossPos.z, zone.bossR * 0.84, def.accent, 0.26);
-    sigil(zone.start.x, zone.start.z, 3.4, mixHex(def.sky, 0xffffff, 0.3), 0.16);
+    // 起点的法阵：镜头拉近后原来的 3.4 会铺满半个画面，收成脚下一小圈、更淡（布景工作可以整个换掉）
+    // 第 0 区不要起点法阵（贴在地上像界面，和布景不是一体的）；起点的布景见 buildAshDress
+    if (!ash) sigil(zone.start.x, zone.start.z, 1.9, mixHex(def.sky, 0xffffff, 0.3), 0.1);
+    const dress = ash ? buildAshDress(zone, sd) : null;
     const rp = rift ? riftPieces(zone, sd, ringSamples, lowK, accentL, crystalMat) : null;
     // --- CC0 布景模型、火盆、贴地薄雾 ---
     let fires = null, mist = null;
@@ -2841,7 +3545,7 @@
       ar: _c.r, ag: _c.g, ab: _c.b,
       ambAcc: 0, boltIn: rand(3, 7), boltT: 0,
       isles: rp ? rp.isles : null, skyMat: rp ? rp.skyMat : null, starIn: rand(1.5, 4),
-      fires, mist, gU: hd ? gmat.userData.U : null, hd, props: withProps,
+      fires, mist, gU: hd ? gmat.userData.U : null, hd, props: withProps, dress,
     };
   }
 
@@ -3025,6 +3729,7 @@
     });
   }
 
+  const _tc = [0, 0, 0];
   // ----- 骨架定义 + 零件烘焙 -----
   // 用法：b.j(关节名, 父关节, 枢轴 x,y,z)；b.at(关节).surf(表面).p(几何体, 颜色, 位置…, 旋转…, 缩放…)
   // 所有坐标都是模型空间里的绑定姿态（面朝 +z，+x 是它的左手边，脚踩 y = 0）。
@@ -3126,8 +3831,9 @@
         return B;
       },
       build(o) {
-        // 主角的程序化零件（武器、围巾）保持原色；其余角色统一压成暗色调
-        const tone = o.tone === undefined ? key !== 'player' : o.tone;
+        // 卡通：不再把其余角色压成暗色调（旧的 style C 暗色曲线），所有角色的顶点色统一过 toonCast（抬死黑、提饱和）。
+        // o.tone 保留为开关（false = 连 toonCast 也不过，原样用调色板）
+        const tone = o.tone === undefined ? true : o.tone;
         const bake1 = (list, isGlow) => {
           if (!list.length) return null;
           // 双面零件展开成正反两份：反面翻转绕序和法线，用内侧颜色
@@ -3205,18 +3911,14 @@
                 r += (cB.r - r) * t; g += (cB.g - g) * t; bl += (cB.b - bl) * t;
               }
               if (jit) {
-                // 平涂：明暗抖动按整个三角形取（面心），一面一色
-                const f0 = k - ((k - v0) % 3);
-                const cx = (pos[f0 * 3] + pos[f0 * 3 + 3] + pos[f0 * 3 + 6]) / 3, cy = (pos[f0 * 3 + 1] + pos[f0 * 3 + 4] + pos[f0 * 3 + 7]) / 3, cz = (pos[f0 * 3 + 2] + pos[f0 * 3 + 5] + pos[f0 * 3 + 8]) / 3;
-                const h = Math.sin(cx * 91.7 + cy * 57.3 + cz * 133.1) * 43758.5453;
-                const kk = 1 + (h - Math.floor(h) - 0.5) * jit * 2;
+                // 手绘感的明暗起伏：按位置取平滑噪声（一片片过渡，而不是旧的「一面一色」的平涂抖动），顶部略亮
+                const kk = 1 + (vnoise(px * 5.3 + pz * 2.9 + 11.1, py * 5.3 - pz * 1.7) - 0.5) * jit * 2.2;
                 r *= kk; g *= kk; bl *= kk;
               }
-              // 暗色调：亮度压进炭灰到灰烬灰的一段（线性亮度约 0.03～0.13），亮色压得多、暗色几乎不动，层次的先后不变；
-              // 饱和度也收掉一截——和重新上色的 C 模型（深灰的主角、炭黑的蜘蛛）站在一起是同一套暗色，不发白、不发艳
               if (!isGlow && tone) {
-                const l = r * 0.3 + g * 0.59 + bl * 0.11, f = Math.min(0.78 - 0.54 * smooth01((l - 0.02) / 0.3), 0.125 / Math.max(l, 1e-3) + 0.02);
-                r = (l + (r - l) * 0.62) * f; g = (l + (g - l) * 0.62) * f; bl = (l + (bl - l) * 0.62) * f;
+                _tc[0] = r; _tc[1] = g; _tc[2] = bl;
+                toonCast(_tc);
+                r = _tc[0]; g = _tc[1]; bl = _tc[2];
               }
               // 贴近地面的部分压暗一点（假的环境光遮蔽）
               if (!isGlow && o.shade) {
@@ -3371,7 +4073,7 @@
   }
 
   // =====================================================================
-  // C 模型：Quaternius 的平涂低多边形角色（CC0，2018–2020 的免费包），按烬渊的暗色调重新上色，蒙皮到程序化骨架上
+  // C 模型：Quaternius 的平涂低多边形角色（CC0，2018–2020 的免费包），按卡通配色（设计稿 2.3）重新上色，蒙皮到程序化骨架上
   // =====================================================================
   // 源文件由 tools/convert-chars.mjs 转成精简的 GLB，tools/pack-assets.mjs 打成 js/assets/chars.js（base64，index.html 里同步引入，
   // file:// 双击打开也能用）。这里同步解析 GLB（不经过 GLTFLoader），然后：
@@ -3641,6 +4343,8 @@
       const nv = pr.P.length / 3;
       // 每个顶点：静止姿态的位置 + 并到程序化关节上的权重（最多 4 个）
       const RP = new Float32Array(nv * 3), RJ = new Float32Array(nv * 4), RW = new Float32Array(nv * 4), RC = new Float32Array(nv * 3);
+      // cs.vglow(顶点色) → 这个顶点的自发光亮度（0 = 不发光）：三个顶点都发光的三角形进自发光网格（游魂身上的余烬裂纹）
+      const VG = !gk && cs.vglow && pr.C ? new Float32Array(nv) : null;
       for (let i = 0; i < nv; i++) {
         v.set(pr.P[i * 3], pr.P[i * 3 + 1], pr.P[i * 3 + 2]);
         acc.set(0, 0, 0);
@@ -3671,14 +4375,44 @@
         }
         const sw = ws.reduce((a, b) => a + b, 0) || 1;
         for (let k = 0; k < 4; k++) { RJ[i * 4 + k] = k < js.length ? js[k] : 0; RW[i * 4 + k] = k < js.length ? ws[k] / sw : 0; }
+        if (VG) VG[i] = cs.vglow([pr.C[i * 4], pr.C[i * 4 + 1], pr.C[i * 4 + 2]]);
         if (gk) RC[i * 3] = RC[i * 3 + 1] = RC[i * 3 + 2] = gk;
         else {
           const c = cs.color(pr.mat, pr.name, pr.base, pr.C ? [pr.C[i * 4], pr.C[i * 4 + 1], pr.C[i * 4 + 2]] : null, RP[i * 3 + 1], col, RP[i * 3], RP[i * 3 + 2]);
+          if (cs.toon !== false) toonCast(c);
           RC[i * 3] = c[0]; RC[i * 3 + 1] = c[1]; RC[i * 3 + 2] = c[2];
         }
       }
-      // 按三角形展开（平涂：每个面自己的法线）
+      // 按三角形展开。卡通（TOON.smoothChars）：同一块网格里位置重合的顶点焊在一起，面法线按面积加权平均成平滑法线；
+      // 关掉时是旧的平涂（每个面自己的法线）
       const I = pr.I, cull = cs.cull;
+      let SN = null, wid = null;
+      if (TOON.smoothChars && cs.smooth !== false) {
+        wid = new Int32Array(nv);
+        const wm = new Map();
+        let nw = 0;
+        for (let i = 0; i < nv; i++) {
+          const kk = Math.round(RP[i * 3] * 2000) + ',' + Math.round(RP[i * 3 + 1] * 2000) + ',' + Math.round(RP[i * 3 + 2] * 2000);
+          let w = wm.get(kk);
+          if (w === undefined) wm.set(kk, (w = nw++));
+          wid[i] = w;
+        }
+        SN = new Float32Array(nw * 3);
+        for (let t = 0; t < I.length; t += 3) {
+          const a = I[t], b = I[t + 1], c = I[t + 2];
+          _cv.set(RP[b * 3] - RP[a * 3], RP[b * 3 + 1] - RP[a * 3 + 1], RP[b * 3 + 2] - RP[a * 3 + 2]);
+          _cv2.set(RP[c * 3] - RP[a * 3], RP[c * 3 + 1] - RP[a * 3 + 1], RP[c * 3 + 2] - RP[a * 3 + 2]);
+          _cv.cross(_cv2);
+          for (const k of [a, b, c]) {
+            const w = wid[k] * 3;
+            SN[w] += _cv.x; SN[w + 1] += _cv.y; SN[w + 2] += _cv.z;
+          }
+        }
+        for (let w = 0; w < SN.length; w += 3) {
+          const l = Math.hypot(SN[w], SN[w + 1], SN[w + 2]) || 1;
+          SN[w] /= l; SN[w + 1] /= l; SN[w + 2] /= l;
+        }
+      }
       for (let t = 0; t < I.length; t += 3) {
         const a = I[t], b = I[t + 1], c = I[t + 2];
         // 按三角形剔掉不要的部分（主角的胡子）：给的是静止姿态里的面心
@@ -3686,13 +4420,16 @@
         _cv.set(RP[b * 3] - RP[a * 3], RP[b * 3 + 1] - RP[a * 3 + 1], RP[b * 3 + 2] - RP[a * 3 + 2]);
         _cv2.set(RP[c * 3] - RP[a * 3], RP[c * 3 + 1] - RP[a * 3 + 1], RP[c * 3 + 2] - RP[a * 3 + 2]);
         _cv.cross(_cv2).normalize();
+        const tg = VG && VG[a] > 0 && VG[b] > 0 && VG[c] > 0, o = tg ? glow : out, so = tg ? SURF.glow : sf;
         for (const k of [a, b, c]) {
-          out.P.push(RP[k * 3], RP[k * 3 + 1], RP[k * 3 + 2]);
-          out.N.push(_cv.x, _cv.y, _cv.z);
-          out.C.push(RC[k * 3], RC[k * 3 + 1], RC[k * 3 + 2]);
-          out.J.push(RJ[k * 4], RJ[k * 4 + 1], RJ[k * 4 + 2], RJ[k * 4 + 3]);
-          out.W.push(RW[k * 4], RW[k * 4 + 1], RW[k * 4 + 2], RW[k * 4 + 3]);
-          out.S.push(sf[0], sf[1]);
+          o.P.push(RP[k * 3], RP[k * 3 + 1], RP[k * 3 + 2]);
+          if (SN) o.N.push(SN[wid[k] * 3], SN[wid[k] * 3 + 1], SN[wid[k] * 3 + 2]);
+          else o.N.push(_cv.x, _cv.y, _cv.z);
+          if (tg) o.C.push(VG[k], VG[k], VG[k]);
+          else o.C.push(RC[k * 3], RC[k * 3 + 1], RC[k * 3 + 2]);
+          o.J.push(RJ[k * 4], RJ[k * 4 + 1], RJ[k * 4 + 2], RJ[k * 4 + 3]);
+          o.W.push(RW[k * 4], RW[k * 4 + 1], RW[k * 4 + 2], RW[k * 4 + 3]);
+          o.S.push(so[0], so[1]);
         }
       }
     }
@@ -3701,7 +4438,7 @@
       const xb = rigBuilder(rig.key + '+', rig.NB);
       for (const j of Jn) xb.j(j.name, j.parent >= 0 ? Jn[j.parent].name : null, j.px, j.py, j.pz);
       cs.extra(xb, pos);
-      const xr = xb.build({ height: rig.height, reach: rig.reach, tone: rig.key !== 'player' }); // 'player+'：主角的围巾结和尾巴一样不压暗
+      const xr = xb.build({ height: rig.height, reach: rig.reach }); // 卡通：主角的额外零件（围巾、护肩、后摆）也过 toonCast，和模型本身同一套饱和度
       const z = new Float32Array(nJ * 3);
       cRigid(xr.geoBody, z, body);
       cRigid(xr.geoGlow, z, glow);
@@ -3816,9 +4553,17 @@
     '#include <emissivemap_fragment>',
     'roughnessFactor = vSurf.x;',
     'metalnessFactor = vSurf.y;',
-    // 轮廓光：俯视镜头下把身形从暗色地面上勾出来
+    // 轮廓光：俯视镜头下把身形从地面上勾出来。uRim 是每个实体自己的（精英的金边、受击 / 选中时的变色），
     'float rigRim = 1.0 - saturate( dot( normal, normalize( vViewPosition ) ) );',
     'totalEmissiveRadiance += uRim * rigRim * rigRim * rigRim;',
+    // 卡通轮廓光（TOON.rimK）：补光（第二盏方向光，在镜头对面）那一侧的边缘一条软阶梯的冷色光，另一侧只留很淡的一点——不是一圈描边
+    '#if NUM_DIR_LIGHTS > 1',
+    '{',
+    '  float tRb = smoothstep( ' + fNum(TOON.rimLo) + ', ' + fNum(TOON.rimHi) + ', rigRim );',
+    '  float tRm = smoothstep( -0.25, 0.45, dot( normal, directionalLights[ 1 ].direction ) );',
+    '  totalEmissiveRadiance += directionalLights[ 1 ].color * ( diffuseColor.rgb * 0.6 + 0.4 ) * tRb * ( 0.15 + 0.85 * tRm ) * ' + fNum(TOON.rimK) + ';',
+    '}',
+    '#endif',
     // 死亡消散：按绑定姿态下的小方格逐块烧掉，边缘发亮
     'if ( uDis.a > 0.0 ) {',
     '  vec3 dq = floor( vBP * 9.0 );',
@@ -3852,11 +4597,12 @@
     if (rigEnv) return rigEnv;
     const c = makeCanvas(128, 64), g = c.getContext('2d');
     const gr = g.createLinearGradient(0, 0, 0, 64);
+    // 卡通：下半截不再是近黑（俯视镜头下金属面大多反射的是下半截，旧的会让金属一片黑），换成暖的地面反光
     gr.addColorStop(0, '#fff6e6');
-    gr.addColorStop(0.3, '#b9b2ad');
-    gr.addColorStop(0.5, '#5e5a5c');
-    gr.addColorStop(0.56, '#2a2627');
-    gr.addColorStop(1, '#0c0a0a');
+    gr.addColorStop(0.3, '#d6cde0');
+    gr.addColorStop(0.5, '#9a8ca6');
+    gr.addColorStop(0.56, '#6e5a64');
+    gr.addColorStop(1, '#4a3a3e');
     g.fillStyle = gr;
     g.fillRect(0, 0, 128, 64);
     // 两团高光：一冷一暖，转动时金属面上有东西在滑
@@ -3879,8 +4625,9 @@
     return rigEnv;
   }
 
-  // 角色一律平涂（按面着色、硬边），和 C 模型的低多边形风格一致
-  const RIG_FLAT = true;
+  // 卡通：角色用平滑法线（程序化零件按各自烘焙的法线，C 模型见 TOON.smoothChars），光照阶梯给出干净的大块明暗；
+  // 旧的「一律平涂（按面着色）」在阶梯光照下会碎成满身小色块
+  const RIG_FLAT = false;
   // ----- 建立实体 -----
   // tintHex：躯体整体染色；elemHex：自发光部件的元素色
   // 变体零件里的自发光件不用本体的元素色、改用自己固定颜色的那几组：变体名 → [颜色, 亮度]。
@@ -4163,13 +4910,14 @@
     if (ent.hitT > 0) {
       ent.hitT -= sdt;
       const u = 1 - Math.max(0, ent.hitT) / ent.hitDur, s = ent.hitS;
-      const env = u < 0.16 ? u / 0.16 : (1 - (u - 0.16) / 0.84) * (1 - (u - 0.16) / 0.84);
-      const sq = -Math.sin(u * TAU) * (1 - u) * 0.2 * s; // 负 = 压扁，正 = 拉长
-      const a = 0.36 * s * env;
+      // 卡通版：一仰更快到位（10% 的时间）、幅度大一点，压扁 / 回弹更明显
+      const env = u < 0.1 ? u / 0.1 : (1 - (u - 0.1) / 0.9) * (1 - (u - 0.1) / 0.9);
+      const sq = -Math.sin(u * TAU) * (1 - u) * 0.27 * s; // 负 = 压扁，正 = 拉长
+      const a = 0.42 * s * env;
       o[0] += ent.hitZ * a;
       o[2] -= ent.hitX * a;
-      o[3] += ent.hitX * 0.14 * s * env;
-      o[5] += ent.hitZ * 0.14 * s * env;
+      o[3] += ent.hitX * 0.18 * s * env;
+      o[5] += ent.hitZ * 0.18 * s * env;
       o[7] *= 1 + sq;
       o[6] *= 1 - sq * 0.5;
       o[8] *= 1 - sq * 0.5;
@@ -4311,17 +5059,19 @@
   };
   const sock = (rig, name, joint, x, y, z) => (rig.sockets[name] = { j: rig.JI[joint], x: x || 0, y: y || 0, z: z || 0 });
 
-  // 受击闪白。k：强度（1 普通，2 重击，3 终结 / 处决）——越重越亮、亮得越久，后半段渐隐
+  // 受击闪色。k：强度（1 普通，2 重击，3 终结 / 处决）——越重越亮、亮得越久。
+  // 卡通版：不是整个闪成白模，而是一层暖奶油色的亮光叠在固有色上（FLASH_RGB，线性），分两档跳变：先亮、再半亮、然后收掉
+  const FLASH_RGB = [1, 0.74, 0.5];
   W.flash = function (ent, k) {
     if (ent.removed) return;
     const s = Math.min(3, k === undefined ? 1 : k);
     if (ent.flashT <= 0) flashing.push(ent);
-    ent.flashD = 0.07 + 0.02 * s;
+    ent.flashD = 0.08 + 0.025 * s;
     ent.flashT = ent.flashD;
-    ent.flashK = 0.9 + 0.3 * s;
+    ent.flashK = 0.62 + 0.2 * s;
     const ms = ent.mats;
     for (let i = 0; i < ms.length; i++) {
-      ms[i].emissive.setRGB(1, 1, 1);
+      ms[i].emissive.setRGB(FLASH_RGB[0], FLASH_RGB[1], FLASH_RGB[2]);
       ms[i].emissiveIntensity = ms[i].userData.fi * ent.flashK;
     }
   };
@@ -4580,6 +5330,9 @@
   const G_DAG = 3, G_HAM = 4, G_BOW = 5, G_KAT = 6, G_BAN = 7, G_GAT = 8, G_FLM = 9, G_REV = 10;
   const TWO_HAND = [false, false, false, false, true, false, true, false, true, true, false];
   const GEAR_JOINT = ['wB', 'wS', 'wW', 'wD', 'wH', 'wBo', 'wK', 'wBn', 'wF', 'wF', 'wF'];
+  // 卡通：手持武器整体缩小一点（近镜头下原尺寸的武器比人还抢眼）。按握点缩放武器关节（playerPost），
+  // 挂点（刀光、光晕、枪口）都经关节矩阵换算，跟着一起缩；双手武器的左手握点、弓弦在 playerIK 里按这个比例换算
+  const GEAR_K = 0.88;
   // 武器底材的 type → 序号；弓类都算长弓（旧的 'bow' 即鹰眼长弓）
   const BOW_TYPES = ['huntbow', 'eagle', 'runebow', 'emberbow'];
   const GUN_TYPES = ['gatling', 'flamer', 'revolver'];
@@ -4603,7 +5356,8 @@
   const LEA = 0x4e454b, LEA_D = 0x231f25, CLOTH = 0x272a36, BOOT = [0x17151a, 0x37323b], STRAP = 0x5a4a40, POUCH = 0x4e4038, DARK = 0x14151b;
   // 围巾尾巴：每条三节。len = 各节长度，w = 各节上下端宽度（4 个），kx = 结扣的横向位置（偏左，让开脑后的马尾），
   // x = 两条尾巴离结扣的横向距离，y / z = 第一节枢轴，splay = 两条尾巴静止时往两边分开的角度
-  const SF = { len: [0.28, 0.27, 0.26], w: [0.075, 0.068, 0.056, 0.04], kx: 0.09, x: 0.035, y: 1.6, z: -0.15, splay: 0.13, c: [0x22625a, 0x4fbfa8], ci: 0x1a4a43 };
+  // 卡通：围巾是全身最饱和的一块（设计稿 2.3 的青绿 #2ec4b0，暗部 #1a6a78），尾巴加宽，俯视镜头下背后一抹青绿
+  const SF = { len: [0.28, 0.27, 0.26], w: [0.1, 0.092, 0.078, 0.056], kx: 0.09, x: 0.045, y: 1.6, z: -0.15, splay: 0.13, c: [0x1a6a78, 0x2ec4b0], ci: 0x155866 };
   const SF_SEG = ['sfL1', 'sfL2', 'sfL3', 'sfR1', 'sfR2', 'sfR3'];
   // 马尾各节的枢轴：束在后脑偏高处（俯视也看得到那一撮），绑定姿态里已经往后下方斜，静止时发梢停在围巾圈上方、离开后颈；最后一个点是发梢
   const HAIR_T = [[0, 1.858, -0.172], [0, 1.795, -0.256], [0, 1.728, -0.296], [0, 1.655, -0.316]];
@@ -4844,12 +5598,36 @@
     return out;
   };
   const FINGER = /^(Index|Middle|Ring|Pinky|Thumb)\d[LR]$/;
-  // 主角：Adventurer（Ultimate Modular Men）。深色皮衣、青绿围巾、灰烬银的头发；背包摘掉
+  // 主角：Adventurer（Ultimate Modular Men）。深靛蓝紫皮衣、青绿围巾、灰烬银的头发；背包摘掉
+  // 卡通配色（设计稿 2.3）：每个材质一段竖向渐变 [下端色, 上端色, 下端 y, 上端 y]（静止姿态里的高度），上亮下冷，
+  // 像手绘的明暗；固有色定在受光面落在亮度 55%～75% 的那一档，暗部交给光照阶梯和冷色阴影。
+  // 模型的材质：Green = 短袖皮夹克，LightGreen = 里面的衬衣，Brown = 长裤，Brown2 = 腰带和护膝，Grey = 靴子，Black = 鞋底
   const PL_COL = {
-    Skin: cLin(0xa9826a), Green: cLin(0x4a4247), LightGreen: cLin(0x282c38), Grey: cLin(0x2c282e), Black: cLin(0x151317),
-    Hair: cLin(0xa9adb8), Eyebrows: cLin(0x34353d), Eye: cLin(0x120e0c), Brown: cLin(0x22242d), Brown2: cLin(0x5a4a40), Gold: cLin(0x8c7a52),
+    Hair: [0x9290b4, 0xeceaf6, 1.58, 1.9], // 灰烬银：头顶最亮，发梢压到冷灰紫
+    Eyebrows: [0x5e5c78, 0x5e5c78, 0, 1], Eye: [0x1c1828, 0x1c1828, 0, 1],
+    Skin: [0xc08478, 0xe8b8a4, 0.85, 1.75], // 暖肤色：脸最亮，手往下偏红（主光是暖橙，固有色偏粉一点，免得整张脸发橙）
+    Green: [0x34366e, 0x5a5ca8, 1.02, 1.58], // 深靛蓝紫皮衣：肩头带一层亮边色（偏蓝一点，暖光下不发紫）
+    LightGreen: [0x8e8680, 0xc8c0b4, 1.02, 1.58], // 亚麻衬衣：躯干正中一块浅色，把皮衣和围巾隔开（偏冷的米白，暖光下是奶油色）
+    Brown: [0x2a2e4c, 0x434874, 0.12, 1.04], // 深海军蓝长裤
+    Brown2: [0x402a28, 0x5a3a34, 0.58, 1.04], // 腰带 / 护膝：靴子同色系的深棕
+    Grey: [0x3a2426, 0x5a3a36, 0.02, 0.24], Black: [0x221a20, 0x221a20, 0, 1], // 靴子 / 鞋底：深皮棕（暖光下浅了会像光脚）
+    Gold: [0xc8923a, 0xe8b450, 0, 2],
   };
-  const PL_SURF = { Skin: SURF.leather, Hair: SURF.cloth, Green: SURF.leather, Grey: SURF.leather, Black: SURF.leather, Brown2: SURF.leather, Gold: SURF.gold };
+  for (const k in PL_COL) {
+    const c = PL_COL[k];
+    PL_COL[k] = { lo: cLin(c[0]), hi: cLin(c[1]), y0: c[2], y1: c[3] };
+  }
+  const PL_DEF = { lo: cLin(0x3b3439), hi: cLin(0x3b3439), y0: 0, y1: 1 };
+  // 额外零件（护肩、后摆、护腕）的颜色，和模型的材质同一套：皮衣 [下, 上, 后摆下端, 后摆内侧]、靴子皮 [下, 上]、金饰
+  const PL_LEA = [0x36386e, 0x5a5ca8, 0x2e3064, 0x262448], PL_BOOT = [0x3e2826, 0x664036], PL_GOLD = 0xe8b450;
+  // 主角的顶点色：材质的竖向渐变 + 一层很淡的按位置的明暗起伏（笔触感）+ 贴地压暗
+  const plColor = (mat, y, x, z, out) => {
+    const c = PL_COL[mat] || PL_DEF, t = smooth01((y - c.y0) / (c.y1 - c.y0 || 1));
+    const n = 1 + (vnoise(x * 9.1 + z * 4.3 + 3.7, y * 9.1 - z * 3.1) - 0.5) * 0.12;
+    for (let k = 0; k < 3; k++) out[k] = (c.lo[k] + (c.hi[k] - c.lo[k]) * t) * n;
+    return cShade(out, out, y, 1.9, 0.22);
+  };
+  const PL_SURF = { Skin: SURF.leather, Hair: SURF.cloth, Green: SURF.leather, LightGreen: SURF.cloth, Grey: SURF.leather, Black: SURF.leather, Brown2: SURF.leather, Gold: SURF.gold };
   const PL_MAP = {
     Root: 'root', Body: 'root', Hips: 'root', Abdomen: 'root', Torso: 'spine', Chest: 'chest', ShoulderL: 'chest', ShoulderR: 'chest', Neck: 'head', Head: 'head',
     UpperArmL: 'uaL', LowerArmL: 'faL', WristL: 'hL', UpperArmR: 'uaR', LowerArmR: 'faR', WristR: 'hR',
@@ -4870,13 +5648,35 @@
     Hips: 'root', Spine: 'spine', Spine1: 'spine', Spine2: 'spine', LeftShoulder: 'spine', RightShoulder: 'spine', Neck: 'head', Head: 'head', HeadTop_End: 'head',
     LeftArm: 'uaL', LeftForeArm: 'faL', RightArm: 'uaR', RightForeArm: 'faR', LeftUpLeg: 'thL', LeftLeg: 'shL', LeftFoot: 'ftL', RightUpLeg: 'thR', RightLeg: 'shR', RightFoot: 'ftR',
   };
-  const HK_TINT = [0.27, 0.25, 0.225]; // 灰烬的灰褐：比地面亮一档，游戏镜头下不至于和灰土地面糊成一片
+  // 卡通配色（设计稿 2.3）：模型贴图调色板的几种颜色各换成游魂自己的一套——灰烬灰的冷皮肤、两种暗紫褐的破衣，
+  // 贴图里的血污换成余烬裂纹（自发光，见 vglow），眼白压成深眼窝、瞳孔发光。比地面亮一档、比主角暗、饱和度低。
+  // 每项：[贴图里的原色（最近的那个算数）, 下端色, 上端色]；渐变按静止姿态的高度（0.2 → 1.95）
+  const HK_PAL = [
+    [[0.8, 0.85, 0.45], 0x5a5070, 0xa49aa6], // 皮肤：头肩是灰烬灰 #a49aa6，往下压到冷紫
+    [[0.6, 0.5, 0.4], 0x4c3848, 0x725666], // 破衬衣
+    [[0.1, 0.15, 0.4], 0x2c2234, 0x4a3a52], // 破裤子
+    [[0.7, 0.5, 0.2], 0x4e3a36, 0x5e463e], // 绳带 / 鞋
+    [[0.85, 0.85, 0.6], 0x24161e, 0x24161e], // 眼白 → 深眼窝
+  ].map((e) => ({ src: e[0], lo: cLin(e[1]), hi: cLin(e[2]) }));
+  // 贴图里的血污（暗红）和红瞳 → 余烬裂纹 / 眼窝里的火：返回自发光亮度
+  const HK_GLOW = [[[0.4, 0, 0], 1.25], [[0.65, 0, 0.05], 1.5]];
+  const hkNear = (c, src) => (c[0] - src[0]) ** 2 + (c[1] - src[1]) ** 2 + (c[2] - src[2]) ** 2;
+  const hkGlow = (c) => {
+    let best = 0, bd = 0.02; // 和最近的余烬色足够近才发光
+    for (const [src, k] of HK_GLOW) {
+      const d = hkNear(c, src);
+      if (d < bd) { bd = d; best = k; }
+    }
+    if (!best) return 0;
+    for (const e of HK_PAL) if (hkNear(c, e.src) < bd) return 0;
+    return best;
+  };
   // 骷髅（Skeleton）：模型里 R 开头的骨骼在 +x 一侧（按看着它的人的左右起名），也就是骷髅自己的左边；…001 是手臂
   const TH_MAP = {
     Hips: 'root', Torso: 'chest', Neck: 'head', Head: 'head',
     RUpperLeg001: 'uaL', RDownLeg001: 'faL', LUpperLeg001: 'uaR', LDownLeg001: 'faR', RUpperLeg: 'thL', RDownLeg: 'shL', LUpperLeg: 'thR', LDownLeg: 'shR',
   };
-  const TH_BONE = cLin(0x5a5a5c); // 焦骨：偏冷的灰烬骨色（场景光大多偏暖，骨色再暖就发红、像陶土）
+  const TH_BONE = cLin(0xaaa398); // 骨色：卡通配色下抬亮成浅骨白（旧的焦骨 0x5a5a5c 在新光照下发脏）
   // 焦骨：按位置撒一层焦黑的斑（每个顶点 0～60% 压暗）
   const thChar = (out, c, x, y, z) => {
     const h = Math.sin(x * 41.3 + y * 27.1 + z * 63.7) * 43758.5453, n = h - Math.floor(h);
@@ -4897,7 +5697,8 @@
   };
   // 蜘蛛（Spider）：身体 / 头 / 腹三节，八条腿各三节同名；脚上的 IK 骨骼不参与
   const SP_MAP = { Root: 'root', Body: 'root', Thorax: 'thx', Head: 'head', Abdomen: 'abd' };
-  const SP_COL = cLin(0x1d1a19);
+  // 卡通：苔绿的甲壳（背上亮、腿根暗），在暖褐的地面上冷暖分得开，也和主角围巾的青绿不撞（旧的炭黑 / 深梅在卡通光照下是一团黑）
+  const SP_COL = [cLin(0x2e3a2a), cLin(0x7a8e4e)];
   const CSPEC = {
     player: {
       model: 'adventurer', height: 1.9, yaw: 0, center: 'Hips',
@@ -4925,15 +5726,41 @@
       // 胡子（头发网格在嘴以下、脸前面的部分）剃掉：烬渊的主角是个年轻人
       cull: (mat, x, y, z, pos) => mat === 'Hair' && y < pos('Head')[1] + 0.065 && z > pos('Head')[2] + 0.04,
       keep: (j) => !PL_BODY[j],
-      // 青绿围巾：脖子上绕两圈 + 背后的结（尾巴是程序化骨架原有的 sf 关节）
+      // 青绿围巾：脖子上绕两圈 + 背后的结（尾巴是程序化骨架原有的 sf 关节）；卡通：再加几件让剪影厚实的零件——
+      // 左肩皮护肩（金边）、两条小臂的皮护腕、腰带的金扣、皮衣下摆往下接两片开衩的长后摆（各挂在一条大腿上，迈腿时跟着摆），
+      // 左手掌心前托着的一团余烬（自发光）
       extra: (b, pos) => {
         const n = pos('Neck');
         b.at('chest').surf(SURF.cloth);
-        b.p(gTorus(0.083, 0.042, 6, 14), SF.c[1], n[0], n[1] - 0.005, n[2] + 0.005, HALF_PI + 0.22, 0, 0, 1, 1, 1.2);
-        b.p(gTorus(0.108, 0.04, 6, 14), [SF.c[0], SF.c[1]], n[0], n[1] - 0.05, n[2] + 0.01, HALF_PI - 0.12, 0, 0, 1.08, 0.92, 1.15);
-        b.p(gSph(0.05, 7, 5), SF.c[0], n[0] + PL_KNOT[0], n[1] + PL_KNOT[1] + 0.01, n[2] + PL_KNOT[2], 0, -0.35, 0, 1.4, 1, 0.8);
+        b.p(gTorus(0.088, 0.05, 6, 14), SF.c[1], n[0], n[1] - 0.005, n[2] + 0.008, HALF_PI + 0.22, 0, 0, 1, 1, 1.2);
+        b.p(gTorus(0.114, 0.048, 6, 14), [SF.c[0], SF.c[1]], n[0], n[1] - 0.055, n[2] + 0.012, HALF_PI - 0.12, 0, 0, 1.08, 0.92, 1.15);
+        b.p(gSph(0.058, 7, 5), SF.c[0], n[0] + PL_KNOT[0], n[1] + PL_KNOT[1] + 0.01, n[2] + PL_KNOT[2], 0, -0.35, 0, 1.4, 1, 0.8);
+        // 左肩护肩：一块压在肩头的圆皮甲，外沿一圈金
+        const ua = pos('UpperArmL');
+        b.at('uaL').surf(SURF.leather).p(gDome(0.1, 9, 3, 1.3), [PL_LEA[0], PL_LEA[1]], ua[0] + 0.025, ua[1] + 0.02, ua[2], 0, 0, -0.5, 1.05, 0.72, 1.12);
+        b.surf(SURF.gold).p(gTorus(0.1, 0.011, 4, 12), PL_GOLD, ua[0] + 0.025, ua[1] + 0.02, ua[2], HALF_PI, -0.5, 0, 1.05, 1.12, 1);
+        // 护腕：小臂中段到手腕，靴子同色的皮，手腕那头一道金箍
+        for (const [S, j] of [['L', 'faL'], ['R', 'faR']]) {
+          const a = pos('LowerArm' + S), w = pos('Wrist' + S), f = (t) => [a[0] + (w[0] - a[0]) * t, a[1] + (w[1] - a[1]) * t, a[2] + (w[2] - a[2]) * t];
+          const p0 = f(0.3), p1 = f(0.92);
+          b.at(j).surf(SURF.leather).limb([PL_BOOT[0], PL_BOOT[1]], p0[0], p0[1], p0[2], p1[0], p1[1], p1[2], 0.05, 0.047, 8, 0);
+          const p2 = f(0.86);
+          b.surf(SURF.gold).limb(PL_GOLD, p2[0], p2[1], p2[2], p1[0], p1[1], p1[2], 0.052, 0.05, 8, 0);
+        }
+        // 腰带金扣
+        const hp = pos('Hips');
+        b.at('root').surf(SURF.gold).p(gRBox(0.075, 0.06, 0.026, 0.01), PL_GOLD, hp[0], 1.02, 0.17);
+        // 长后摆：皮衣下摆（y ≈ 1.02）往下接到膝盖上方，两片各包住一条大腿的后外侧，中间开衩
+        for (const [S, j, sn] of [['L', 'thL', 1], ['R', 'thR', -1]]) {
+          const t = pos('UpperLeg' + S);
+          b.at(j).surf(SURF.leather).pd(gDrape('pl/coatTail', [[0.165, 0.5], [0.15, 0.64], [0.13, 0.84], [0.118, 1.04]], 1.9, 7), [PL_LEA[2], PL_LEA[0]], PL_LEA[3], t[0] + sn * 0.012, 0, t[2] + 0.01, 0, sn * 0.62, 0);
+        }
+        // 左手的余烬：拳心前下方一团（元素光 = 余烬橙），外面一圈淡一点的光
+        const wl = pos('WristL'), md = pos('Middle1L');
+        const ex = wl[0] + (md[0] - wl[0]) * 0.8, ey = wl[1] + (md[1] - wl[1]) * 0.8 - 0.05, ez = wl[2] + (md[2] - wl[2]) * 0.8 + 0.07;
+        b.at('hL').g(gOct(0.042), 1.35, ex, ey, ez, 0, 0.6, 0, 1, 1.4, 1).g(gSph(0.05, 7, 5), 0.55, ex, ey + 0.01, ez, 0, 0, 0, 1, 1.25, 1);
       },
-      color: (mat, prim, base, vc, y, out) => cShade(out, PL_COL[mat] || cLin(0x3b3439), y, 1.9, 0.28),
+      color: (mat, prim, base, vc, y, out, x, z) => plColor(mat, y, x, z, out),
       surf: (mat) => PL_SURF[mat] || SURF.cloth,
       sock: { head: ['head', 0, 0.2, 0.02], chest: ['chest', 0, 0.06, 0.12] },
       ankle: (rig) => rig.joints[rig.JI.ftL].py,
@@ -4955,17 +5782,33 @@
         return null;
       },
       keep: () => false,
-      color: (mat, prim, base, vc, y, out) => {
-        const c = vc || base, l = c[0] * 0.3 + c[1] * 0.59 + c[2] * 0.11;
-        for (let k = 0; k < 3; k++) out[k] = (c[k] + (l - c[k]) * 0.72) * HK_TINT[k];
-        return cShade(out, out, y, 2.15, 0.3);
+      color: (mat, prim, base, vc, y, out, x, z) => {
+        const c = vc || base;
+        let e = HK_PAL[0], bd = 9;
+        for (const q of HK_PAL) {
+          const d = hkNear(c, q.src);
+          if (d < bd) { bd = d; e = q; }
+        }
+        const t = smooth01((y - 0.2) / 1.75), n = 1 + (vnoise(x * 8.3 + z * 3.9 - 1.3, y * 8.3 + z * 2.7) - 0.5) * 0.16;
+        for (let k = 0; k < 3; k++) out[k] = (e.lo[k] + (e.hi[k] - e.lo[k]) * t) * n;
+        return cShade(out, out, y, 2.15, 0.25);
       },
+      vglow: hkGlow,
       surf: () => SURF.hide,
       extra: (b, pos) => {
         // 眼窝里两点元素火（模型的眼睛在 Head 骨骼前上方）
         const h = pos('Head');
         b.at('head');
-        for (const s of [1, -1]) b.g(gOct(0.026), 1.1, h[0] + s * 0.05, h[1] + 0.105, h[2] + 0.115, 0, 0, 0, 1, 0.7, 0.6);
+        for (const s of [1, -1]) b.g(gOct(0.026), 1.25, h[0] + s * 0.05, h[1] + 0.105, h[2] + 0.115, 0, 0, 0, 1, 0.7, 0.6);
+        // 腰间挂着的几条破布（双面，锯齿下沿），让剪影不那么光溜
+        const hp = pos('Hips');
+        b.at('root').surf(SURF.cloth);
+        const rag = (k, a, r, y, len, w) =>
+          b.pd(gPlate('hk/rag' + k, [[-w, 0], [w, 0], [w * 0.8, -len * 0.7], [w * 0.35, -len * 0.55], [0, -len], [-w * 0.5, -len * 0.6], [-w * 0.9, -len * 0.8]], 0.006, 0.002),
+            [0x3a2a3a, 0x5a4450], 0x2e2232, hp[0] + Math.sin(a) * r, y, hp[2] + Math.cos(a) * r, 0.12, a, 0);
+        rag(0, 0.45, 0.17, hp[1] + 0.06, 0.36, 0.07);
+        rag(1, -1.35, 0.17, hp[1] + 0.04, 0.3, 0.06);
+        rag(2, Math.PI + 0.35, 0.16, hp[1] + 0.07, 0.42, 0.08);
       },
       sock: { weapon: ['faR', -0.02, -0.42, 0.14], hand: ['faL', 0.02, -0.42, 0.14], head: ['head', 0, 0.2, 0.08], chest: ['spine', 0, 0.32, 0.14] },
       ankle: (rig) => rig.joints[rig.JI.ftL].py,
@@ -5022,7 +5865,11 @@
       map: (n) => (SP_MAP[n] !== undefined ? SP_MAP[n] : /Leg/.test(n) ? n : null),
       pivot: null, // spiderRig 里按骨骼逐个填
       keep: () => false,
-      color: (mat, prim, base, vc, y, out) => cShade(out, SP_COL, y, 0.78, 0.15),
+      color: (mat, prim, base, vc, y, out) => {
+        const t = smooth01((y - 0.12) / 0.5);
+        for (let k = 0; k < 3; k++) out[k] = SP_COL[0][k] + (SP_COL[1][k] - SP_COL[0][k]) * t;
+        return cShade(out, out, y, 0.78, 0.15);
+      },
       surf: () => SURF.chitin,
       glow: (mat) => (mat === 'Material.001' ? 1.1 : 0),
       extra: (b, pos) => {
@@ -5429,9 +6276,9 @@
   // 每帧都要设的东西：只显示当前装备的那把武器，掌心余烬脉动
   function playerPost(ent, o, t, sdt) {
     const J = ent.rig.J, g = ent.gearType, gj = ent.rig.gearJ, gw = g >= 0 ? gj[g] : -1;
-    for (let i = 0; i < gj.length; i++) o[gj[i] + 6] = o[gj[i] + 7] = o[gj[i] + 8] = gj[i] === gw ? 1 : 0;
+    for (let i = 0; i < gj.length; i++) o[gj[i] + 6] = o[gj[i] + 7] = o[gj[i] + 8] = gj[i] === gw ? GEAR_K : 0;
     gunSpinPost(ent, o, sdt || 0);
-    o[J.wDL + 6] = o[J.wDL + 7] = o[J.wDL + 8] = g === G_DAG ? 1 : 0;
+    o[J.wDL + 6] = o[J.wDL + 7] = o[J.wDL + 8] = g === G_DAG ? GEAR_K : 0;
     const c = ent.clip, a = g === G_BOW && c && c.arrow ? o[J.wA + 6] : 0;
     o[J.wA + 6] = o[J.wA + 7] = o[J.wA + 8] = a;
     setGlow(ent, 1 + Math.sin(t * 5) * 0.12);
@@ -5670,8 +6517,10 @@
         const Oz = M[m + 8] * ox + M[m + 9] * oy + M[m + 10] * oz + M[m + 11];
         const sm = rig.armL.uaI * 12;
         let zg = (M[sm + 3] - Ox) * _Rh[2] + (M[sm + 7] - Oy) * _Rh[5] + (M[sm + 11] - Oz) * _Rh[8];
-        zg = zg < gr[0] ? gr[0] : zg > gr[1] ? gr[1] : zg;
-        if (Math.abs(zg - 0.03) < gr[2]) zg = zg < 0.03 && 0.03 - gr[2] >= gr[0] ? 0.03 - gr[2] : 0.03 + gr[2] <= gr[1] ? 0.03 + gr[2] : 0.03 - gr[2];
+        // 柄上的可握范围随武器缩放（GEAR_K）一起缩
+        const g0 = gr[0] * GEAR_K, g1 = gr[1] * GEAR_K, g2 = gr[2] * GEAR_K, gc = 0.03 * GEAR_K;
+        zg = zg < g0 ? g0 : zg > g1 ? g1 : zg;
+        if (Math.abs(zg - gc) < g2) zg = zg < gc && gc - g2 >= g0 ? gc - g2 : gc + g2 <= g1 ? gc + g2 : gc - g2;
         _ikT[0] = Ox + _Rh[2] * zg; _ikT[1] = Oy + _Rh[5] * zg; _ikT[2] = Oz + _Rh[8] * zg;
         _ikT[3] = _Rh[2]; _ikT[4] = _Rh[5]; _ikT[5] = _Rh[8];
         _ikT[6] = -_Rh[1]; _ikT[7] = -_Rh[4]; _ikT[8] = -_Rh[7];
@@ -5697,7 +6546,8 @@
       const hz = M[hm + 8] * gx + M[hm + 9] * gy + M[hm + 10] * gz + M[hm + 11];
       if (dk > 0.001) {
         rotOf(M, bj, _Rh);
-        const qx = hx - M[bm + 3], qy = hy - M[bm + 7], qz = hz - M[bm + 11];
+        // 弓关节带着武器缩放（GEAR_K）：右手的位置换回弓的绑定坐标时除掉这一层
+        const ks = o[J.wBo + 6] || 1, qx = (hx - M[bm + 3]) / ks, qy = (hy - M[bm + 7]) / ks, qz = (hz - M[bm + 11]) / ks;
         const lx = _Rh[0] * qx + _Rh[3] * qy + _Rh[6] * qz + bp.px0;
         const ly = _Rh[1] * qx + _Rh[4] * qy + _Rh[7] * qz + bp.py0;
         const lz = _Rh[2] * qx + _Rh[5] * qy + _Rh[8] * qz + bp.pz0;
@@ -6051,6 +6901,26 @@
       W.entSocket(ent, 'hand', _sk2);
       trailPush(ent, _sk2.x + (_sk.x - _sk2.x) * 0.3, _sk2.y + (_sk.y - _sk2.y) * 0.3, _sk2.z + (_sk.z - _sk2.z) * 0.3, _sk.x, _sk.y, _sk.z);
     }
+    // 投掷（掷焰 / 飞刃）的蓄力：出手前火星往投掷的那只手里聚，出手那一刻手上一颗星 + 两团实心的烟（颜色见 W.castTint）
+    if (c && c.name === 'throw' && ent === trail.ent && !ent.dying && sdt > 0) {
+      const kk = ent.cK, cp = castPal;
+      W.entSocket(ent, ent.gearClips && ent.gearClips.throw === c ? 'hand' : 'handL', _sk);
+      if (kk > 0.08 && kk < 0.5) {
+        ent.gatherAcc = (ent.gatherAcc || 0) + sdt * (qualId === 'low' ? 30 : 60);
+        _c.set(cp[1]);
+        while (ent.gatherAcc >= 1) {
+          ent.gatherAcc -= 1;
+          const a = rand(0, TAU), up = rand(-0.3, 0.6), d = rand(0.45, 0.8), t = rand(0.12, 0.18);
+          const ox = Math.sin(a) * d, oy = up, oz = Math.cos(a) * d;
+          spawnP(_sk.x + ox, _sk.y + oy, _sk.z + oz, -ox / t, -oy / t, -oz / t, t, rand(0.1, 0.16), _c.r, _c.g, _c.b, 0, 0);
+        }
+      }
+      if ((ent.thrK || 0) < 0.5 && kk >= 0.5) {
+        tChunk(1, _sk.x, _sk.y, _sk.z, 0, 0, 0, 0.14, 0.42, cp[0], cp[1], 0);
+        tPuffs(_sk.x, _sk.y, _sk.z, qualId === 'low' ? 1 : 2, 1.2, 0.6, 0.26, 0.2, cp[1], cp[2]);
+      }
+      ent.thrK = kk;
+    } else if (ent.thrK) ent.thrK = 0;
     // 稀有度光晕跟着武器走；稀有武器偶尔掉一点光屑
     const a = ent.aura;
     if (!a || !a.visible) return;
@@ -6107,9 +6977,9 @@
     };
 
     let A1, A2; // 前两段的关键帧，影步连斩的短促出刀照搬它们
-    // 第一段：自右向左的横斩
+    // 第一段：自右向左的横斩（刀光窗口 trail 到 0.64 就收：长杖收招时杖身顺着自己的长度走，再拖下去是一条直板）
     defClip(rig, 'attack1', {
-      dur: 0.45, k0: 0.5, lower: LEGS, fade: 0.06, out: 0.2, trail: [0.3, 0.74],
+      dur: 0.45, k0: 0.5, lower: LEGS, fade: 0.06, out: 0.2, trail: [0.3, 0.64],
       keys: (A1 = stance({
         'root.oz': [0, 0, 0.3, -0.05, -0.5, 0.12, 1, 0.03],
         'root.ry': [0, -0.05, 0.3, -0.18, -0.5, 0.08, 0.72, 0.12, 1, 0.02],
@@ -6129,11 +6999,15 @@
         'faL.rx': [0, -0.6, 0.3, -1.0, -0.5, -0.4, 1, -0.5],
         'cape1.rz': [0, 0, 0.3, -0.12, -0.5, 0.25, 0.8, 0.1, 1, 0],
         'cape2.rz': [0, 0, 0.3, -0.15, -0.56, 0.3, 0.85, 0.1, 1, 0],
+        // 卡通的挤压拉伸：蓄力时压低变宽（k 0.3），出手那一下拉长（命中帧 0.5），收招回弹到 1
+        'root.sx': [0, 1, 0.3, 1.05, -0.5, 0.965, 0.72, 1.01, 1, 1],
+        'root.sy': [0, 1, 0.3, 0.92, -0.5, 1.07, 0.72, 0.985, 1, 1],
+        'root.sz': [0, 1, 0.3, 1.05, -0.5, 0.965, 0.72, 1.01, 1, 1],
       }, 1)),
     });
     // 第二段：反手自左向右、略微上挑
     defClip(rig, 'attack2', {
-      dur: 0.45, k0: 0.5, lower: LEGS, fade: 0.06, out: 0.2, trail: [0.3, 0.74],
+      dur: 0.45, k0: 0.5, lower: LEGS, fade: 0.06, out: 0.2, trail: [0.3, 0.64],
       keys: (A2 = stance({
         'root.oz': [0, 0.03, 0.3, 0, -0.5, 0.14, 1, 0.04],
         'root.ry': [0, 0.08, 0.3, 0.16, -0.5, -0.1, 0.72, -0.14, 1, -0.02],
@@ -6153,11 +7027,14 @@
         'faL.rx': [0, -0.7, 0.3, -0.9, -0.5, -0.5, 1, -0.5],
         'cape1.rz': [0, 0, 0.3, 0.12, -0.5, -0.25, 0.8, -0.1, 1, 0],
         'cape2.rz': [0, 0, 0.3, 0.15, -0.56, -0.3, 0.85, -0.1, 1, 0],
+        'root.sx': [0, 1, 0.3, 1.045, -0.5, 0.97, 0.72, 1.01, 1, 1],
+        'root.sy': [0, 1, 0.3, 0.93, -0.5, 1.065, 0.72, 0.985, 1, 1],
+        'root.sz': [0, 1, 0.3, 1.045, -0.5, 0.97, 0.72, 1.01, 1, 1],
       }, 0.9)),
     });
     // 第三段（终结）：双手举过头顶，跃起后劈到地上，落成弓步
     defClip(rig, 'attack3', {
-      dur: 0.6, k0: 0.5, lower: LEGS, air: 'jump', fade: 0.07, out: 0.26, trail: [0.33, 0.6],
+      dur: 0.6, k0: 0.5, lower: LEGS, air: 'jump', fade: 0.07, out: 0.26, trail: [0.33, 0.56],
       keys: {
         'root.oy': [0, -0.3, 0.16, -0.45, 0.34, 0.36, -0.5, -0.6, 0.8, -0.6, 1, -0.3],
         'root.oz': [0, 0, 0.16, -0.08, 0.34, 0.04, -0.5, 0.22, 0.8, 0.2, 1, 0.05],
@@ -6186,6 +7063,10 @@
         'cape1.rx': [0, 0.1, 0.34, -0.15, -0.5, 0.5, 0.8, 0.3, 1, 0.1],
         'cape2.rx': [0, 0.1, 0.34, -0.2, -0.56, 0.45, 0.85, 0.25, 1, 0.1],
         'cape3.rx': [0, 0.1, 0.34, -0.2, -0.62, 0.4, 0.9, 0.2, 1, 0.1],
+        // 终结的挤压拉伸：下蹲蓄力压扁（0.16）→ 起跳拉长（0.34）→ 砸地压扁（命中帧 0.5）→ 回弹
+        'root.sx': [0, 1, 0.16, 1.08, 0.34, 0.94, -0.5, 1.08, 0.66, 0.98, 1, 1],
+        'root.sy': [0, 1, 0.16, 0.88, 0.34, 1.1, -0.5, 0.88, 0.66, 1.03, 1, 1],
+        'root.sz': [0, 1, 0.16, 1.08, 0.34, 0.94, -0.5, 1.08, 0.66, 0.98, 1, 1],
       },
     });
     // 投掷（投射物技能）：左手从身后甩出
@@ -6205,6 +7086,10 @@
         'uaR.rx': [0, -0.2, 0.32, -0.9, -0.5, 0.6, 1, -0.1],
         'uaR.rz': [0, -0.3, 0.32, -0.4, -0.5, -0.6, 1, -0.2],
         'faR.rx': [0, -0.6, 0.32, -0.9, -0.5, -0.3, 1, -0.5],
+        // 蓄力收身压低（0.32），甩出时拉长（0.5）
+        'root.sx': [0, 1, 0.32, 1.04, -0.5, 0.97, 0.75, 1.01, 1, 1],
+        'root.sy': [0, 1, 0.32, 0.93, -0.5, 1.06, 0.75, 0.99, 1, 1],
+        'root.sz': [0, 1, 0.32, 1.04, -0.5, 0.97, 0.75, 1.01, 1, 1],
       }, 0.8),
     });
     // 施法（新星 / 连锁 / 陨石）：收拢蓄力，然后把武器举向空中
@@ -7045,7 +7930,7 @@
     }
   }
   function makePlayerEnt() {
-    const ent = newEnt('player', playerRig(), WH, 0xffb347, 1.15);
+    const ent = newEnt('player', playerRig(), WH, 0xff8a3a, 1.15); // 元素色 = 左手余烬的橙（设计稿 2.3 #ff8a3a）
     ent.sock = { weapon: { j: 0, x: 0, y: 0, z: 1 }, hand: { j: 0, x: 0, y: -0.06, z: 0.02 } };
     ent.gearType = 0;
     ent.gearClips = null;
@@ -7298,7 +8183,8 @@
   // ---------------------------------------------------------------------
   function bruteRig() {
     return rigOf('brute', () => {
-      const HIDE = 0x8a6c5e, HIDE_D = 0x5a443c, BELLY = 0xa88d7a, DARK = 0x2a2321, STONE = 0x8d8684, STONE_D = 0x5b5654, BONE = 0xd0c4a8, IRON = 0x4a4a52, CLOTH = 0x5a2a26, CLOTH_IN = 0x2a1413;
+      // 卡通：皮换成冷的板岩蓝灰（旧的粉褐和暖褐地面混在一起），背上的石块浅一档，腰布是一块浓红
+      const HIDE = 0x6c76aa, HIDE_D = 0x3a406e, BELLY = 0x98a0c2, DARK = 0x2a2834, STONE = 0x8a86a2, STONE_D = 0x504c68, BONE = 0xd8ccb0, IRON = 0x4e4e5c, CLOTH = 0x9a2e28, CLOTH_IN = 0x3a1414;
       const b = rigBuilder('brute', NB_SMALL);
       b.j('root', null, 0, 1.12, 0).j('chest', 'root', 0, 1.45, 0).j('head', 'chest', 0, 2.2, 0.45).j('jaw', 'head', 0, 2.14, 0.55);
       b.j('uaL', 'chest', 0.92, 2.12, 0.05).j('faL', 'uaL', 1.18, 1.5, 0.12).j('uaR', 'chest', -0.92, 2.12, 0.05).j('faR', 'uaR', -1.18, 1.5, 0.12);
@@ -7724,7 +8610,7 @@
   // ---------------------------------------------------------------------
   function bomberRig() {
     return rigOf('bomber', () => {
-      const SHELL = 0x4a4654, SHELL_D = 0x23212a, PALE = 0x9d93a6, HORN = 0xcfc6b0;
+      const SHELL = 0x5e5876, SHELL_D = 0x343048, PALE = 0xaea4ba, HORN = 0xd6ceb8; // 卡通：甲壳抬亮一档、偏蓝紫
       const b = rigBuilder('bomber', NB_SMALL);
       b.j('root', null, 0, 0.5, 0).j('head', 'root', 0, 0.5, 0.42).j('sac', 'root', 0, 0.74, -0.2).j('ribs', 'root', 0, 0.56, -0.2);
       b.j('antL', 'head', 0.1, 0.62, 0.6).j('antR', 'head', -0.1, 0.62, 0.6);
@@ -7882,7 +8768,7 @@
   // ---------------------------------------------------------------------
   function phaserRig() {
     return rigOf('phaser', () => {
-      const ROBE = 0x26303a, ROBE_L = 0x425262, ROBE_IN = 0x0d1115, MASK = 0xdedccd, MASK_D = 0x9a9a8c, GLASS = 0xa6cdc2, GLASS_D = 0x58786f, DARK = 0x14181c;
+      const ROBE = 0x2e4866, ROBE_L = 0x4c6c92, ROBE_IN = 0x141c28, MASK = 0xe2e0d2, MASK_D = 0x9a9a8c, GLASS = 0xa6cdc2, GLASS_D = 0x58786f, DARK = 0x1a2030; // 卡通：袍子从炭灰换成钢蓝
       const b = rigBuilder('phaser', NB_SMALL);
       b.j('root', null, 0, 1.15, 0).j('body', 'root', 0, 1.45, 0.02).j('head', 'body', 0, 1.98, 0.08);
       b.j('uaL', 'body', 0.27, 1.8, 0.04).j('faL', 'uaL', 0.42, 1.42, 0.12).j('uaR', 'body', -0.27, 1.8, 0.04).j('faR', 'uaR', -0.42, 1.42, 0.12);
@@ -8044,7 +8930,7 @@
   // ---------------------------------------------------------------------
   function chargerRig() {
     return rigOf('charger', () => {
-      const HIDE = 0x5f625a, HIDE_D = 0x34362f, BELLY = 0x8c8a78, PLATE = 0x75837a, PLATE_D = 0x3e4944, HORN = 0xbfe0d4, HORN_D = 0x6e948a, HOOF = 0x1d1f1c, BONE = 0xd2cab2;
+      const HIDE = 0x6e6a60, HIDE_D = 0x3e3c36, BELLY = 0x9a9682, PLATE = 0x7e8c84, PLATE_D = 0x46524c, HORN = 0xbfe0d4, HORN_D = 0x6e948a, HOOF = 0x26282a, BONE = 0xd8d0b8; // 卡通：抬亮一档
       const b = rigBuilder('charger', NB_SMALL);
       b.j('root', null, 0, 1.0, -0.1).j('chest', 'root', 0, 1.1, 0.45).j('head', 'chest', 0, 1.05, 1.05).j('jaw', 'head', 0, 0.86, 1.22);
       const LEG = [['FL', 1, 0.72], ['FR', -1, 0.72], ['BL', 1, -0.62], ['BR', -1, -0.62]];
@@ -8197,10 +9083,12 @@
     // 躯体染一层和地面相反的冷暖色：火焰区地面偏暖 → 怪偏冷灰；其余区域地面偏冷 → 怪偏暖
     _c.set(eh);
     const warmGround = _c.r > 0.8 && _c.g < 0.6;
-    const ent = newEnt(type, MOB_RIG[type](), warmGround ? 0xc3cbe6 : 0xf6dfc4, eh, 1.1);
+    // 卡通：染色收轻（旧的 0xc3cbe6 / 0xf6dfc4 是给暗色调压的，现在各怪的配色本身就按冷暖定好了）；
+    // 冷色地面那一档几乎不偏暖（区域主光本来就是暖的，再染暖会把游魂的灰皮肤染成肉粉），只压暗一点，让主角仍是最亮的
+    const ent = newEnt(type, MOB_RIG[type](), warmGround ? 0xe2e6f4 : 0xece6e0, eh, 1.1);
     if (warmGround) ent.uRim.value.setRGB(0.1, 0.13, 0.2);
     else ent.uRim.value.setRGB(0.2, 0.15, 0.1);
-    if (ent.rig.skin4) ent.uRim.value.multiplyScalar(1.5); // 暗色的 C 模型：轮廓光强一点，游戏镜头下才能从灰土地面上分出来
+    // （旧：暗色的 C 模型轮廓光 ×1.5。卡通配色下角色不再是暗色，靠 TOON 的轮廓光分开，不再加强）
     if (elite) {
       // 精英：更大、发光更强，轮廓上镀一圈金
       ent.k = 1.35;
@@ -8242,7 +9130,7 @@
   // ---------------------------------------------------------------------
   function golemRig() {
     return rigOf('golem', () => {
-      const ROCK = 0x8a8894, ROCK_D = 0x4b4954, SLAG = 0xa59a96, IRON = 0x3a3840, DARK = 0x26242b;
+      const ROCK = 0xaaa6c0, ROCK_D = 0x66628a, SLAG = 0xbcaea6, IRON = 0x464456, DARK = 0x2e2c38; // 卡通：冷的浅板岩，和暖褐地面分开
       const b = rigBuilder('golem', NB_BIG);
       b.j('root', null, 0, 1.75, 0).j('chest', 'root', 0, 2.15, 0).j('head', 'chest', 0, 3.7, 0.35).j('core', 'chest', 0, 2.75, 0.3);
       b.j('uaL', 'chest', 1.75, 3.4, 0).j('faL', 'uaL', 2.1, 2.35, 0.1).j('uaR', 'chest', -1.75, 3.4, 0).j('faR', 'uaR', -2.1, 2.35, 0.1);
@@ -8452,7 +9340,7 @@
   // ---------------------------------------------------------------------
   function weaverRig() {
     return rigOf('weaver', () => {
-      const CHIT = 0xcfdde8, CHIT_D = 0x7f94a6, ROBE = 0x2c3a4c, ROBE_L = 0x47596e, ROBE_IN = 0x141b24, DARK = 0x161c26, SILK = 0xe9f1f6;
+      const CHIT = 0xb4c6da, CHIT_D = 0x6a82a0, ROBE = 0x30506e, ROBE_L = 0x4c7090, ROBE_IN = 0x16202e, DARK = 0x1c2434, SILK = 0xe4eef6; // 卡通：袍子换成亮一档的霜蓝，甲壳带一点蓝
       const b = rigBuilder('weaver', NB_BIG);
       b.j('root', null, 0, 2.2, 0).j('abd', 'root', 0, 2.2, -0.35).j('torso', 'root', 0, 2.55, 0.2).j('head', 'torso', 0, 3.6, 0.3);
       b.j('uaL', 'torso', 0.48, 3.25, 0.28).j('faL', 'uaL', 0.78, 2.62, 0.42).j('uaR', 'torso', -0.48, 3.25, 0.28).j('faR', 'uaR', -0.78, 2.62, 0.42);
@@ -8679,7 +9567,7 @@
   // ---------------------------------------------------------------------
   function wardenRig() {
     return rigOf('warden', () => {
-      const MET = 0x55536f, MET_D = 0x2a2940, BRASS = 0xc79a44, BRASS_D = 0x7a5c26, DARK = 0x191826;
+      const MET = 0x6c6a94, MET_D = 0x383656, BRASS = 0xd8a84a, BRASS_D = 0x86652a, DARK = 0x222034; // 卡通：钢甲抬亮一档的靛蓝
       const b = rigBuilder('warden', NB_BIG);
       b.j('root', null, 0, 2.6, 0).j('head', 'root', 0, 3.75, 0).j('eye', 'head', 0, 4.02, 0.4).j('base', 'root', 0, 1.3, 0);
       b.j('ringA', 'root', 0, 2.75, 0).j('ringB', 'root', 0, 2.75, 0).j('orbit', 'root', 0, 1.7, 0);
@@ -8897,7 +9785,7 @@
   // ---------------------------------------------------------------------
   function lordRig() {
     return rigOf('lord', () => {
-      const OBS = 0x3d2e38, OBS_D = 0x1d151b, OBS_L = 0x5c4653, CLOTH = 0x8a2230, CLOTH_D = 0x4a1019, CLOTH_IN = 0x21070b, BONE = 0xdccdb2, BONE_D = 0x9a8a72, GOLD = 0xb8862e;
+      const OBS = 0x58405a, OBS_D = 0x2e2234, OBS_L = 0x80607e, CLOTH = 0xa82638, CLOTH_D = 0x5a1422, CLOTH_IN = 0x2a0a10, BONE = 0xe0d2b6, BONE_D = 0x9e8e76, GOLD = 0xd09a34; // 卡通：黑曜石抬成深紫红，披风更浓
       const b = rigBuilder('lord', NB_BIG);
       b.j('root', null, 0, 2.0, 0).j('spine', 'root', 0, 2.3, 0).j('chest', 'spine', 0, 2.8, 0).j('head', 'chest', 0, 3.65, 0.1);
       b.j('halo', 'head', 0, 4.75, 0.05).j('core', 'chest', 0, 2.95, 0.5);
@@ -9220,7 +10108,7 @@
   // ---------------------------------------------------------------------
   function behemothRig() {
     return rigOf('behemoth', () => {
-      const HIDE = 0x4f5a55, HIDE_D = 0x252d2a, BELLY = 0x7c8474, PLATE = 0x76837a, PLATE_D = 0x3c4743, GLASS = 0xc4ece1, GLASS_D = 0x6a988e, HOOF = 0x161918, BONE = 0xdcd5bf, BONE_D = 0x9c9682, DARK = 0x121514;
+      const HIDE = 0x6c7a76, HIDE_D = 0x3c4846, BELLY = 0x949c88, PLATE = 0x8e9c96, PLATE_D = 0x505c58, GLASS = 0xc4ece1, GLASS_D = 0x6a988e, HOOF = 0x202424, BONE = 0xe0d8c2, BONE_D = 0x9c9682, DARK = 0x1a1e1e; // 卡通：抬亮一档
       const b = rigBuilder('behemoth', NB_BIG);
       b.j('root', null, 0, 2.5, -0.6).j('chest', 'root', 0, 2.7, 0.9).j('neck', 'chest', 0, 3.1, 1.9).j('head', 'neck', 0, 3.65, 2.75).j('jaw', 'head', 0, 3.42, 3.05);
       b.j('antL', 'head', 0.32, 4.05, 2.62).j('antR', 'head', -0.32, 4.05, 2.62).j('star', 'chest', 0, 3.85, 0.15);
@@ -9614,7 +10502,7 @@
     const eh = hexOf(elemHex);
     _c.set(eh); // 和小怪一样：暖色地面上的首领偏冷，冷色地面上的偏暖
     const warmGround = _c.r > 0.8 && _c.g < 0.6;
-    const ent = newEnt(kind, BOSS_RIG[kind](), warmGround ? 0xd6daee : 0xfff0e0, eh, 1.15);
+    const ent = newEnt(kind, BOSS_RIG[kind](), warmGround ? 0xe6e9f6 : 0xf2ece6, eh, 1.15); // 卡通：染色收轻，同小怪
     if (warmGround) ent.uRim.value.setRGB(0.12, 0.15, 0.24);
     else ent.uRim.value.setRGB(0.24, 0.18, 0.12);
     groundDisc(ent, glowTex(), eh, G.BOSSES[kind].r * 2.4, 0.4);
@@ -10054,7 +10942,7 @@
   function colossusRig() {
     return rigOf('colossus', () => {
       // 风化的暗灰石 + 暗青铜：明度明显低于玩家的白甲，站在一起也分得开
-      const STONE = 0x655e55, STONE_D = 0x38342f, STONE_L = 0x786f63, BRONZE = 0x8a5d2b, BRONZE_D = 0x452c12;
+      const STONE = 0x7e7468, STONE_D = 0x48423a, STONE_L = 0x948a7c, BRONZE = 0x9a6a32, BRONZE_D = 0x4e3216; // 卡通：浅石抬亮一档
       const CLOTH = 0x214f49, CLOTH_L = 0x2f6b63, CLOTH_IN = 0x0e2421, HOLE = 0x0b0d0d;
       const b = rigBuilder('colossus', NB_SMALL);
       b.j('root', null, 0, 1.5, 0).j('chest', 'root', 0, 1.85, 0).j('head', 'chest', 0, 2.85, 0.1);
@@ -10285,7 +11173,7 @@
   // ---------------------------------------------------------------------
   function pyreRig() {
     return rigOf('pyre', () => {
-      const BONE = 0xe4d8bd, BONE_D = 0x9d9179, ROBE = 0x2a2220, ROBE_L = 0x463631, ROBE_IN = 0x120c0a, ASH = 0x5b4c45;
+      const BONE = 0xe4d8bd, BONE_D = 0x9d9179, ROBE = 0x3e3040, ROBE_L = 0x62485a, ROBE_IN = 0x1a1218, ASH = 0x6e5c58; // 卡通：袍子从炭黑抬成深紫褐
       const WOOD = 0x4a3426, WOOD_L = 0x6d4f39, IRON = 0x585d66, IRON_D = 0x2c3036, BRONZE = 0xa77a3e, HOLE = 0x0a0807;
       const b = rigBuilder('pyre', NB_SMALL);
       b.j('root', null, 0, 0.95, 0).j('spine', 'root', 0, 1.08, -0.02).j('chest', 'spine', 0, 1.3, -0.04).j('head', 'chest', 0, 1.58, 0.03);
@@ -10956,7 +11844,9 @@
         ' gl_PointSize = aSize * uScale / max(0.1, -mv.z); gl_Position = projectionMatrix * mv; }',
       fragmentShader:
         'varying vec3 vC;\n' +
-        'void main(){ float d = length(gl_PointCoord - 0.5); float a = smoothstep(0.5, 0.08, d);\n' +
+        // 卡通版：硬边的小圆点，中心一圈更亮（两档），不再是软绵绵的光斑
+        'void main(){ float d = length(gl_PointCoord - 0.5); if (d > 0.5) discard;\n' +
+        ' float a = (1.0 - smoothstep(0.42, 0.5, d)) * (d < 0.24 ? 1.0 : 0.62);\n' +
         ' gl_FragColor = vec4(vC * a, 1.0); }',
       blending: T.AdditiveBlending, transparent: true, depthWrite: false,
     });
@@ -11005,8 +11895,8 @@
       pPos[j + 1] = y;
       pPos[j + 2] += pVel[j + 2] * dt;
       const f = l / pMax[i];
-      // 出生时快速淡入，后半段淡出
-      const a = Math.min(1, f * 2, (1 - f) * 10 + 0.15);
+      // 出生时快速淡入，后半段淡出；卡通版按三档跳变（不是平滑渐隐）
+      const a0 = Math.min(1, f * 2, (1 - f) * 10 + 0.15), a = a0 > 0.66 ? 1 : a0 > 0.33 ? 0.6 : 0.3;
       pCol[j] = pBase[j] * a;
       pCol[j + 1] = pBase[j + 1] * a;
       pCol[j + 2] = pBase[j + 2] * a;
@@ -11047,6 +11937,7 @@
     'void main(){',
     '  float l = length(vP);',
     '  float fade = 1.0 - smoothstep(0.55, 1.0, uK);', // 后半段淡出
+    '  float sfade = uK < 0.45 ? 1.0 : (uK < 0.75 ? 0.62 : 0.3);', // 卡通的几种痕迹：阶梯式淡出
     '  float n = vn(vP * 3.0 + 5.0) * 0.6 + vn(vP * 7.0) * 0.4;',
     '  float an = atan(vP.x, vP.y);',
     '  vec3 col = uColor; float a = 0.0;',
@@ -11055,11 +11946,11 @@
     '    float along = smoothstep(-1.0, -0.2, vP.y) * (1.0 - smoothstep(0.35, 1.0, vP.y));',
     '    a = pow(wv, 4.0) * along * (1.0 - uK) * (1.0 - uK) * 0.6;',
     '    col = mix(uColor, vec3(1.0), pow(wv, 9.0) * 0.6);',
-    '  } else if (uKind < 1.5) {', // 1 焦痕：不规则的黑斑，起初边缘还带着余烬
-    '    float blot = 1.0 - smoothstep(0.3 + n * 0.3, 0.72 + n * 0.26, l);',
-    '    float rim = smoothstep(0.25, 0.6, l) * blot * (1.0 - smoothstep(0.0, 0.6, uK));',
-    '    col = mix(vec3(0.02, 0.012, 0.01), uColor, rim * n * 1.1);',
-    '    a = blot * 0.8 * fade;',
+    '  } else if (uKind < 1.5) {', // 1 焦痕：不规则的焦斑（卡通版：硬边、深紫褐不是死黑），起初边缘一圈余烬色，淡出分三档
+    '    float blot = 1.0 - smoothstep(0.5 + n * 0.3, 0.54 + n * 0.3, l);',
+    '    float rim = step(0.36 + n * 0.22, l) * blot * step(uK, 0.3);',
+    '    col = mix(vec3(0.07, 0.035, 0.05), uColor, rim);',
+    '    a = blot * 0.82 * sfade;',
     '  } else if (uKind < 2.5) {', // 2 霜痕：放射状的冰晶
     '    float sp = pow(abs(cos(an * 4.0 + n * 1.6)), 7.0);',
     '    float body = 1.0 - smoothstep(0.15, 0.95, l);',
@@ -11075,13 +11966,21 @@
     '    float blot = 1.0 - smoothstep(0.25 + n * 0.3, 0.8 + n * 0.2, l);',
     '    col = mix(vec3(0.07, 0.06, 0.05), uColor * 0.25, n * 0.5);',
     '    a = blot * 0.55 * fade;',
-    '  } else {', // 5 地裂：终结技砸出的放射状裂纹，起初缝里透着光
-    '    float cr = 1.0 - smoothstep(0.0, 0.05 + 0.12 * l, abs(sin(an * 4.5 + n * 4.0)));',
-    '    float reach = 1.0 - smoothstep(0.45 + n * 0.45, 1.0, l);',
-    '    float core = 1.0 - smoothstep(0.0, 0.34, l);',
-    '    float hot = 1.0 - smoothstep(0.0, 0.4, uK);',
-    '    a = max(cr * reach, core * 0.7) * fade * 0.92;',
-    '    col = mix(vec3(0.015, 0.01, 0.008), uColor * 1.4, hot * (cr * reach * 0.9 + core * 0.5));',
+    '  } else if (uKind < 5.5) {', // 5 地裂：终结技砸出的放射状裂纹（卡通版：硬边），起初缝里透着光，淡出分三档
+    '    float cr = step(abs(sin(an * 4.5 + n * 4.0)), 0.06 + 0.12 * l);',
+    '    float reach = step(l, 0.6 + n * 0.4);',
+    '    float core = step(l, 0.3 + n * 0.08);',
+    '    float hot = step(uK, 0.3);',
+    '    a = max(cr * reach, core * 0.75) * sfade * 0.92;',
+    '    col = mix(vec3(0.07, 0.035, 0.05), uColor, hot * max(cr * reach, core * 0.6));',
+    '  } else {', // 6 卡通命中印记：顺着打击方向（局部 +z）甩开的一摊星形印子，起初内圈是主色，之后压暗；淡出分三档
+    '    vec2 q = vec2(vP.x, vP.y * 0.78 + 0.12);',
+    '    float lq = length(q), aq = atan(q.x, q.y);',
+    '    float rr = 0.5 + 0.32 * pow(abs(cos(aq * 2.5 + uSeed * 6.0)), 4.0) + 0.16 * cos(aq) + n * 0.12;',
+    '    float body = step(lq, rr * 0.92);',
+    '    float hot = step(lq, rr * 0.5) * step(uK, 0.35);',
+    '    col = mix(uColor * 0.28 + vec3(0.03, 0.015, 0.04), uColor, hot);',
+    '    a = body * 0.8 * sfade;',
     '  }',
     '  if (l > 1.0 && uKind > 0.5) a = 0.0;',
     '  gl_FragColor = vec4(col, a);',
@@ -11123,8 +12022,41 @@
       }
       return new T.CanvasTexture(c);
     });
-  // 刀光：一条跟着武器走的带子。采样点按「绕角色的圆弧」补间，60 帧下的快挥也是顺滑的弧
-  const TRAIL_MAX = 56, TRAIL_LIFE = 0.19;
+  // ---------- 卡通特效色板（sRGB）：刀光 / 斩击弧取 [亮芯, 主色, 内沿]，命中碎片取 [亮芯, 主色, 暗边, 烟尘] ----------
+  // 刀光一律是有颜色的实色月牙，不用纯白、不用加色：物理用青绿（主角围巾的色系，压在暖色地面上最跳），元素各用元素色。
+  // 命中的火花反过来用暖金（青绿的刀光 + 暖色的迸溅，一冷一暖），烟尘是灰烬的冷灰紫
+  const FX_PAL = {
+    phys: [0xd6fff0, 0x4ce6cf, 0x0b7c84],
+    fire: [0xfff0b0, 0xff8424, 0xc22c18],
+    cold: [0xf0fbff, 0x78ccff, 0x2458d0],
+    light: [0xfffbe0, 0xffdc40, 0xc8820e],
+  };
+  const HIT_PAL = {
+    phys: [0xfff6d8, 0xffbe3c, 0xd2561c, 0x8a6a6e],
+    fire: [0xfff0a0, 0xff7a22, 0xb02418, 0x6a4a48],
+    cold: [0xf4fcff, 0x8fdcff, 0x2a62d0, 0xc4dcee],
+    light: [0xfffce0, 0xffe04a, 0xb8700c, 0x9a8c7a],
+  };
+  const _palTmp = [0, 0, 0, 0];
+  // 伤害类型的代表色（G.TYPE_HEX）→ 色板；不认得的颜色就地推一组（浅芯 / 本色 / 压暗）
+  function fxPal(hex, tbl) {
+    const TH = G.TYPE_HEX, P = tbl || FX_PAL;
+    for (const k in P) if (TH[k] === hex) return P[k];
+    _palTmp[0] = mixHex(hex, 0xffffff, 0.75);
+    _palTmp[1] = hex;
+    _palTmp[2] = mixHex(hex, 0x000000, 0.5);
+    _palTmp[3] = mixHex(hex, 0x8a7a86, 0.7);
+    return _palTmp;
+  }
+  // 投掷蓄力的颜色：game.js 开始投掷时用 W.castTint(这一下的伤害类型色) 设置
+  const castPal = FX_PAL.fire.slice();
+  W.castTint = function (hex) {
+    const p = fxPal(hex);
+    for (let i = 0; i < 3; i++) castPal[i] = p[i];
+  };
+  // 刀光：一条跟着武器走的带子。采样点按「绕角色的圆弧」补间，60 帧下的快挥也是顺滑的弧。
+  // 卡通版：越老的采样内沿越往刃尖收（头粗尾尖的月牙），横向三道硬边色带，不透明度只有三档
+  const TRAIL_MAX = 56, TRAIL_LIFE = 0.18;
   const trail = {
     ent: null, n: 0, live: 0, mesh: null, color: null,
     p: new Float32Array(TRAIL_MAX * 6), age: new Float32Array(TRAIL_MAX), mute: new Uint8Array(TRAIL_MAX),
@@ -11164,11 +12096,27 @@
     g.setIndex(new T.BufferAttribute(idx, 1));
     g.setDrawRange(0, 0);
     trail.color = { value: new T.Color(1, 1, 1) };
+    trail.c0 = { value: new T.Color(1, 1, 1) };
+    trail.c2 = { value: new T.Color(1, 1, 1) };
     const mat = new T.ShaderMaterial({
-      uniforms: { uColor: trail.color },
+      uniforms: { uColor: trail.color, uC0: trail.c0, uC2: trail.c2 },
       vertexShader: 'attribute float aA; attribute float aU; varying float vA; varying float vU;\nvoid main(){ vA = aA; vU = aU; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-      fragmentShader: 'uniform vec3 uColor; varying float vA; varying float vU;\nvoid main(){ float e = vU * vU; float a = vA * (0.16 + 0.84 * e);\n gl_FragColor = vec4(mix(uColor, vec3(1.0), e * e * 0.7) * a, 1.0); }',
-      blending: T.AdditiveBlending, transparent: true, depthWrite: false, side: T.DoubleSide,
+      fragmentShader: [
+        'uniform vec3 uColor; uniform vec3 uC0; uniform vec3 uC2; varying float vA; varying float vU;',
+        'void main(){',
+        '  if (vA < 0.02) discard;',
+        // 月牙：新的采样从握点铺到刃尖，越老内沿越往刃尖收
+        '  float lo = 1.0 - pow(vA, 0.55);',
+        '  float s = (vU - lo) / max(1.0 - lo, 0.001);',
+        '  if (s < 0.0) discard;',
+        // 横向三道硬边色带：刃尖一侧亮芯、中间主色、内沿深色
+        '  vec3 col = s > 0.72 ? uC0 : (s > 0.34 ? uColor : uC2);',
+        // 阶梯式淡出：三档不透明度
+        '  float a = vA > 0.6 ? 0.96 : (vA > 0.3 ? 0.74 : 0.45);',
+        '  gl_FragColor = vec4(col, a);',
+        '}',
+      ].join('\n'),
+      transparent: true, depthWrite: false, side: T.DoubleSide,
     });
     trail.mesh = new T.Mesh(g, mat);
     trail.mesh.frustumCulled = false;
@@ -11237,7 +12185,7 @@
     }
     const n = tr.n;
     for (let i = 0; i < n; i++) {
-      const k = 1 - tr.age[i] / TRAIL_LIFE, a = tr.mute[i] || k <= 0 ? 0 : k * Math.sqrt(k);
+      const k = 1 - tr.age[i] / TRAIL_LIFE, a = tr.mute[i] || k <= 0 ? 0 : k; // 卡通版的形状和阶梯都在着色器里按 k 算
       tr.al[i * 2] = tr.al[i * 2 + 1] = a;
     }
     tr.pos.set(n === TRAIL_MAX ? tr.p : tr.p.subarray(0, n * 6));
@@ -11249,7 +12197,10 @@
   }
   // 刀光的颜色（一般取这一击里占比最大的伤害类型）
   W.setTrail = function (hex) {
-    trail.color.value.set(hex);
+    const p = fxPal(hex);
+    trail.c0.value.set(p[0]);
+    trail.color.value.set(p[1]);
+    trail.c2.value.set(p[2]);
   };
 
   // 贴地痕迹。kind：0 擦痕（短促，加色）1 焦痕 2 霜痕 3 电痕 4 灰迹 5 地裂；r 半径（擦痕为长度的一半），
@@ -11323,14 +12274,22 @@
   // 命中特效：火花顺着这一击行进的方向喷出去，按伤害类型换花样，地上留一道短促的擦痕。
   // type：phys / fire / cold / light；w：分量（0 轻击 1 重击 2 终结 3 处决）；crit：暴击再加一把
   const IMPACT_HEX = { phys: 0xfff0d0, fire: 0xff7a2c, cold: 0x9fe0ff, light: 0xffec70 };
+  // 卡通版：命中点一颗硬边的星，顺着打击方向甩出几片实色尖片，脚下扬起实心的烟团，地上留一摊星形的印子；
+  // 原来的细火花只留一小半。低画质碎块减半
   W.impact = function (x, y, z, ang, type, w, crit) {
-    const hex = IMPACT_HEX[type] || IMPACT_HEX.phys;
+    const hex = IMPACT_HEX[type] || IMPACT_HEX.phys, pal = HIT_PAL[type] || HIT_PAL.phys, lo = qualId === 'low';
     _c.set(hex);
     const r = _c.r, g = _c.g, b = _c.b, sn = Math.sin(ang), cs = Math.cos(ang);
-    const n = 7 + w * 5 + (crit ? 6 : 0), sp = 9 + w * 3.5;
+    tChunk(1, x - sn * 0.15, y + 0.1, z - cs * 0.15, 0, 0, 0, 0.16 + w * 0.03, 0.46 + w * 0.12 + (crit ? 0.16 : 0), pal[0], pal[1], 0);
+    for (let i = 0, m = (lo ? 2 : 4) + w * 2 + (crit ? 2 : 0); i < m; i++) {
+      const a = ang + rand(-0.75, 0.75) * (i % 3 === 0 ? 1.8 : 1), v = (7 + w * 2.5) * rand(0.45, 1);
+      tChunk(0, x, y + rand(-0.15, 0.2), z, Math.sin(a) * v, rand(1.5, 5) + w, Math.cos(a) * v, rand(0.2, 0.34) + w * 0.03, rand(0.13, 0.2) + w * 0.03, pal[0], i % 2 ? pal[1] : pal[2], 16);
+    }
+    tPuffs(x + sn * 0.2, 0.3, z + cs * 0.2, (lo ? 1 : 2) + w, 1.6 + w * 0.6, 0.9, 0.36 + w * 0.06, 0.24 + w * 0.05, mixHex(pal[3], 0xf4e2d4, 0.7), pal[3]);
+    const n = 3 + w * 2 + (crit ? 3 : 0), sp = 9 + w * 3.5;
     for (let i = 0; i < n; i++) {
       const a = ang + rand(-0.7, 0.7) * (i % 4 === 0 ? 2.2 : 1), v = sp * rand(0.35, 1);
-      const wh = i % 3 === 0 ? 0.75 : 0.15;
+      const wh = i % 3 === 0 ? 0.35 : 0.08; // 卡通版：火花保留颜色，少混白
       spawnP(x, y + rand(-0.2, 0.2), z, Math.sin(a) * v, rand(0, 5) + w, Math.cos(a) * v, rand(0.14, 0.34) + w * 0.03, rand(0.1, 0.2) + w * 0.025,
         r + (1 - r) * wh, g + (1 - g) * wh, b + (1 - b) * wh, 14, 3.2);
     }
@@ -11352,16 +12311,25 @@
         const a = rand(0, TAU), v = rand(8, 17);
         spawnP(x, y + rand(-0.2, 0.3), z, Math.sin(a) * v, rand(-3, 8), Math.cos(a) * v, rand(0.06, 0.16), 0.13, 1, 1, 0.7, 0, 6);
       }
-    } else {
-      // 尘土
-      for (let i = 0, m = 3 + w; i < m; i++) {
-        spawnP(x + rand(-0.2, 0.2), 0.3, z + rand(-0.2, 0.2), sn * rand(1, 3) + rand(-1, 1), rand(0.5, 1.6), cs * rand(1, 3) + rand(-1, 1), rand(0.3, 0.55), rand(0.3, 0.5), 0.36, 0.32, 0.27, 1, 2.5);
-      }
     }
-    flare(x, y, z, hex, 1.0 + w * 0.45 + (crit ? 0.3 : 0), 0.08 + w * 0.02);
-    const off = 0.9 + w * 0.35;
-    W.decal(0, x + sn * off, z + cs * off, 0.9 + w * 0.5, ang, hex, 0.22 + w * 0.06, 0.16 + w * 0.04);
-    if (w >= 1 || crit) flashLight(x, y + 1, z, hex, 0.9 + w * 0.5);
+    // （物理的尘土由上面的实心烟团代替）
+    W.decal(6, x + sn * 0.35, z + cs * 0.35, 0.5 + w * 0.22 + (crit ? 0.1 : 0), ang, pal[1], 0.55 + w * 0.2);
+    if (w >= 1 || crit) flashLight(x, y + 1, z, hex, 0.5 + w * 0.3);
+  };
+  // 终结技砸地：落点一颗大星，一圈往外推的实心尘团，几片朝前甩的碎石尖片（ang 是劈下去的方向）
+  W.smashFx = function (x, z, R, ang) {
+    const lo = qualId === 'low', P = HIT_PAL.phys;
+    tChunk(1, x, 0.6, z, 0, 0, 0, 0.22, 0.75 + R * 0.08, P[0], P[1], 0);
+    const dust = mixHex(P[3], 0xf4e2d4, 0.7);
+    for (let i = 0, n = lo ? 6 : 11; i < n; i++) {
+      const a = (i / n) * TAU + rand(-0.2, 0.2), v = R * rand(1.8, 2.6);
+      tChunk(2, x + Math.sin(a) * R * 0.35, 0.3, z + Math.cos(a) * R * 0.35, Math.sin(a) * v, rand(0.6, 1.6), Math.cos(a) * v, rand(0.42, 0.58), rand(0.38, 0.55), dust, P[3], -0.6);
+    }
+    for (let i = 0, n = lo ? 4 : 7; i < n; i++) {
+      const a = ang + rand(-1.3, 1.3), v = rand(5, 9);
+      tChunk(0, x, 0.4, z, Math.sin(a) * v, rand(4, 8), Math.cos(a) * v, rand(0.45, 0.65), rand(0.2, 0.3), i % 2 ? P[1] : 0xb07a5c, i % 2 ? P[2] : 0x5a3a4c, 22);
+    }
+    flashLight(x, 1.5, z, 0xffc070, 0.8);
   };
   // 处决冲刺的残影：沿路径撒一串往后飘的光屑
   W.dashFx = function (x0, z0, x1, z1, hex) {
@@ -11445,35 +12413,45 @@
 
   // 冲击环 / 斩击弧用对象池，稳定后不再分配
   const RING_FRAG = [
-    'uniform vec3 uColor; uniform float uK; varying vec2 vP;',
+    'uniform vec3 uColor; uniform vec3 uC0; uniform float uK; varying vec2 vP;',
     'void main(){',
     '  float l = length(vP);',
     '  float rr = 0.12 + 0.88 * (1.0 - (1.0 - uK) * (1.0 - uK));', // 先快后慢地扩张
-    '  float band = smoothstep(rr - 0.2, rr - 0.025, l) * (1.0 - smoothstep(rr - 0.025, rr, l));',
-    '  float fill = (1.0 - smoothstep(rr - 0.05, rr, l)) * 0.07;',
-    '  float a = (band * 0.85 + fill) * (1.0 - uK) * (1.0 - uK * 0.5);',
-    '  gl_FragColor = vec4(mix(uColor, vec3(1.0), band * 0.25), a);',
+    // 卡通版：一道硬边的色环，越扩越细；外缘一条浅色亮边；不透明度三档
+    '  float w = 0.05 + 0.13 * (1.0 - uK);',
+    '  if (l > rr || l < rr - w) discard;',
+    '  float lit = step(rr - w * 0.35, l);',
+    '  float a = uK < 0.45 ? 0.9 : (uK < 0.75 ? 0.62 : 0.32);',
+    '  gl_FragColor = vec4(mix(uColor, uC0, lit), a);',
     '}',
   ].join('\n');
+  // 斩击弧（卡通版）：一弯实色的月牙从弧的一端扫到另一端。前沿最厚、往尾巴收尖，弧的两端也收尖；
+  // 径向三道硬边色带（外沿亮芯 uC0 / 主色 uColor / 内沿深色 uC2），不透明度三档。普通混合，不会叠成一片白
   const SLASH_FRAG = [
-    'uniform vec3 uColor; uniform float uK; uniform float uArc; uniform float uDir; uniform float uIn; varying vec2 vP;',
+    'uniform vec3 uColor; uniform vec3 uC0; uniform vec3 uC2; uniform float uK; uniform float uArc; uniform float uDir; uniform float uIn; varying vec2 vP;',
     'void main(){',
     '  float l = length(vP);',
     '  float an = atan(vP.x, vP.y) / uArc;', // 弧内为 -1..1（vP.y 是局部 +z，即朝向）
     '  if (abs(an) > 1.0 || l > 1.0) discard;',
-    '  float radial = smoothstep(uIn, 0.9, l) * (1.0 - smoothstep(0.93, 1.0, l));', // 月牙：外沿最亮
-    '  float h = (an * uDir) * 0.5 + 0.5;',
-    '  float sweep = uK * 2.4;', // 刀光从弧的一端扫到另一端
-    '  float head = 1.0 - smoothstep(sweep - 0.03, sweep, h);',
-    '  float tail = smoothstep(sweep - 1.1, sweep, h);',
-    '  float ends = smoothstep(0.0, 0.1, 1.0 - abs(an));',
-    '  float a = radial * head * tail * ends * (1.0 - uK * uK * 0.5);',
-    '  gl_FragColor = vec4(mix(uColor, vec3(1.0), radial * radial * 0.65), a);',
+    '  float h = (an * uDir) * 0.5 + 0.5;', // 0 = 起点，1 = 终点
+    '  float d = uK * 2.1 - h;', // 到前沿的距离（> 0 是已经扫过的部分）
+    '  if (d < 0.0 || d > 0.7) discard;',
+    '  float tail = d / 0.7;',
+    '  float ends = min(1.0, min(h, 1.0 - h) * 7.0);',
+    '  float thick = (1.0 - uIn) * (1.0 - tail * tail) * ends;',
+    '  float s = (l - (1.0 - thick)) / max(thick, 0.001);', // 0 = 内沿，1 = 外沿
+    '  if (s < 0.0) discard;',
+    '  vec3 col = s > 0.74 ? uC0 : (s > 0.34 ? uColor : uC2);',
+    '  float a = uK < 0.42 ? 0.9 : (uK < 0.7 ? 0.62 : 0.32);',
+    // phase 3：内沿那一道（暗色带）只留 40% 不透明，月牙压在敌人身上时还看得见敌人；亮芯和主色带不变，形状照样是实色的
+    '  if (s <= 0.34) a *= 0.4;',
+    '  gl_FragColor = vec4(col, a);',
     '}',
   ].join('\n');
 
-  function makePool(frag, extraUniforms, max) {
-    return { items: [], frag, extraUniforms, max };
+  // blend：缺省加色；卡通的斩击弧 / 冲击环用普通混合（T.NormalBlending），颜色才立得住
+  function makePool(frag, extraUniforms, max, blend) {
+    return { items: [], frag, extraUniforms, max, blend: blend || T.AdditiveBlending };
   }
   function poolGet(pool) {
     for (let i = 0; i < pool.items.length; i++) if (!pool.items[i].on) return pool.items[i];
@@ -11484,10 +12462,10 @@
       return o;
     }
     const uniforms = { uColor: { value: new T.Color() }, uK: { value: 0 } };
-    if (pool.extraUniforms) for (const k of pool.extraUniforms) uniforms[k] = { value: 0 };
+    if (pool.extraUniforms) for (const k of pool.extraUniforms) uniforms[k] = { value: k.charAt(1) === 'C' ? new T.Color() : 0 }; // uC0 / uC2：颜色
     const mat = new T.ShaderMaterial({
       uniforms, vertexShader: FX_VERT, fragmentShader: pool.frag,
-      transparent: true, depthWrite: false, blending: T.AdditiveBlending, side: T.DoubleSide,
+      transparent: true, depthWrite: false, blending: pool.blend, side: T.DoubleSide,
     });
     const mesh = new T.Mesh(gQuad(), mat);
     mesh.visible = false;
@@ -11508,42 +12486,50 @@
       } else it.u.uK.value = it.t / it.dur;
     }
   }
-  const ringPool = makePool(RING_FRAG, null, 28);
-  const slashPool = makePool(SLASH_FRAG, ['uArc', 'uDir', 'uIn'], 12);
+  const ringPool = makePool(RING_FRAG, ['uC0'], 28, T.NormalBlending);
+  const slashPool = makePool(SLASH_FRAG, ['uArc', 'uDir', 'uIn', 'uC0', 'uC2'], 12, T.NormalBlending);
 
   W.ring = function (x, z, r, hex, dur) {
     const it = poolGet(ringPool);
     it.on = true;
     it.t = 0;
     it.dur = dur || 0.4;
-    it.u.uColor.value.set(hex);
+    const pal = fxPal(hexOf(hex)); // 卡通版：环身取主色、外缘取亮芯色（伤害类型的代表色映射到色板，其余颜色就地推）
+    it.u.uColor.value.set(pal[1]);
+    it.u.uC0.value.set(pal[0]);
     it.u.uK.value = 0;
     it.mesh.position.set(x, 0.1, z);
     it.mesh.scale.set(r, 1, r);
     it.mesh.visible = true;
   };
 
-  // opts（可选）：{ dir: 1 | -1 刀光扫过的方向, dur 时长, y 高度, inner 月牙内沿（0 ~ 0.9，越大越细） }
+  // opts（可选）：{ dir: 1 | -1 刀光扫过的方向, dur 时长, y 高度, inner 月牙内沿（0 ~ 0.9，越大越细）, tilt 侧倾 / pitch 俯仰（弧度） }
   W.slash = function (x, z, ang, range, arcDeg, hex, opts) {
     const it = poolGet(slashPool), o = opts || {};
     it.on = true;
     it.t = 0;
     it.dur = o.dur || 0.22;
-    it.u.uColor.value.set(hex);
+    const pal = fxPal(hexOf(hex));
+    it.u.uC0.value.set(pal[0]);
+    it.u.uColor.value.set(pal[1]);
+    it.u.uC2.value.set(pal[2]);
     it.u.uK.value = 0;
     const half = (arcDeg * Math.PI) / 360;
     it.u.uArc.value = Math.min(Math.PI, half);
     it.u.uDir.value = o.dir === -1 ? -1 : 1;
     it.u.uIn.value = o.inner === undefined ? 0.3 : o.inner;
     it.mesh.position.set(x, o.y === undefined ? 0.95 : o.y, z);
-    it.mesh.rotation.y = ang;
+    // tilt：绕朝向轴侧倾（弧度，正 = 局部 +x 一侧抬高；dir = 1 时那一侧是刀光的终点），上挑的一刀不再是平铺在地上的一片；
+    // pitch：整片绕自身的横轴俯仰（负 = 弧的中线往上抬）。tilt = π/2 时月牙竖起来，配合 pitch 画从头顶劈到地上的竖劈
+    it.mesh.rotation.order = 'YXZ';
+    it.mesh.rotation.set(o.pitch || 0, ang, o.tilt || 0);
     it.mesh.scale.set(range, 1, range);
     it.mesh.visible = true;
-    // 弧线外沿甩出的碎光
-    _c.set(hex);
-    for (let i = 0; i < 7; i++) {
-      const a = ang + rand(-half, half), d = range * rand(0.75, 0.98);
-      spawnP(x + Math.sin(a) * d, 0.95, z + Math.cos(a) * d, Math.sin(a) * 5, rand(0.5, 2), Math.cos(a) * 5, rand(0.15, 0.3), 0.16, _c.r, _c.g, _c.b, 4, 3);
+    // 弧线外沿甩出的几片实色碎片（低画质减半）
+    const y = o.y === undefined ? 0.95 : o.y;
+    for (let i = 0, n = qualId === 'low' ? 2 : 4; i < n; i++) {
+      const a = ang + rand(-half, half) * 0.9, d = range * rand(0.8, 1.0), v = rand(3.5, 6);
+      tChunk(0, x + Math.sin(a) * d, y, z + Math.cos(a) * d, Math.sin(a) * v, rand(0.5, 2.5), Math.cos(a) * v, rand(0.16, 0.26), rand(0.12, 0.18), pal[0], pal[1], 6);
     }
   };
 
@@ -11858,12 +12844,17 @@
     }
   };
   // 爆燃：以敌人为中心的火焰爆炸
+  // 卡通版：一道硬边色环 + 一颗星 + 一圈实心火团 + 少量火星（原来是两道同心环 + 48 粒软光点）
   W.blastFx = function (x, z, R) {
+    const lo = qualId === 'low', P = HIT_PAL.fire;
     W.ring(x, z, R, 0xff7a2c, 0.42);
-    W.ring(x, z, R * 0.6, 0xffd090, 0.26);
     W.decal(1, x, z, R * 0.8, Math.random() * TAU, 0xff6a2a, 3);
-    W.burst(x, 0.9, z, 0xff7a2c, 34, 8, 0.55);
-    W.burst(x, 0.5, z, 0xffe0a0, 14, 5, 0.4);
+    tChunk(1, x, 1.0, z, 0, 0, 0, 0.2, 0.8 + R * 0.12, P[0], P[1], 0);
+    for (let i = 0, n = lo ? 5 : 9; i < n; i++) {
+      const a = (i / n) * TAU + rand(-0.3, 0.3), v = rand(1.4, 2.4) * R;
+      tChunk(2, x + Math.sin(a) * 0.3, 0.8, z + Math.cos(a) * 0.3, Math.sin(a) * v, rand(1, 2.4), Math.cos(a) * v, rand(0.34, 0.5), rand(0.36, 0.5), i % 3 ? 0xff7a22 : 0xffd060, i % 3 ? P[2] : 0xff7a22, -1.5);
+    }
+    W.burst(x, 0.9, z, 0xff7a2c, lo ? 8 : 14, 8, 0.5);
     W.shake(0.2);
   };
   // 感电的电弧：一道细小的闪电从 (x0,z0) 窜到 (x1,z1)，沿途带着往前飞的火花；self：没有别的目标，绕回自己身上
@@ -13152,6 +14143,29 @@
     pfPart('arc', quad, add(crackleTex()), 120, 6);
     const rockMat = new T.MeshStandardMaterial({ map: basaltTex(), roughness: 0.92, metalness: 0.05, flatShading: true });
     pfPart('debris', rockGeo(0), rockMat, 96, 0);
+    // 卡通碎块（见 tChunk）：实心、不受光、不进雾，颜色就是画上去的颜色
+    const tMat = new T.MeshBasicMaterial({ toneMapped: false, fog: false, side: T.DoubleSide });
+    pfPart('tShard', geo('tShard', () => {
+      const g = new T.BufferGeometry();
+      g.setAttribute('position', new T.Float32BufferAttribute([0, 0.62, 0, 0.5, 0.05, 0, 0, -0.38, 0, -0.5, 0.05, 0], 3));
+      g.setIndex([0, 3, 1, 1, 3, 2]);
+      return g;
+    }), tMat, 128, 0);
+    pfPart('tStar', geo('tStar', () => {
+      const P = [0, 0, 0];
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * TAU, r = i % 2 ? 0.3 : 1;
+        P.push(Math.sin(a) * r, Math.cos(a) * r, 0);
+      }
+      const idx = [];
+      for (let i = 0; i < 8; i++) idx.push(0, 1 + i, 1 + ((i + 1) % 8));
+      const g = new T.BufferGeometry();
+      g.setAttribute('position', new T.Float32BufferAttribute(P, 3));
+      g.setIndex(idx);
+      return g;
+    }), tMat, 64, 0);
+    // 烟团略透（0.8）：几个圆鼓包叠在一起的地方更实，看着是一团烟而不是一块石头
+    pfPart('tPuff', geo('tPuff', () => new T.CircleGeometry(1, 10)), new T.MeshBasicMaterial({ toneMapped: false, fog: false, side: T.DoubleSide, transparent: true, opacity: 0.8, depthWrite: false }), 320, 3);
     initRibbons();
     rangedPfInit(add, vc, flameQuad, quad);
   }
@@ -13453,8 +14467,8 @@
     // 掷焰：白热的核，一团内焰，三条左右摆动、长短闪烁的外焰舌；一路落下火星、拖一缕细烟
     ember(u, x, y, z, dt) {
       const r = u.rad, t = u.age, ph = u.ph;
-      mPose(x, y, z, _pqI, r * 0.45, r * 0.45, r * 0.45);
-      pfPut('core', 1, 0.82, 0.5);
+      mPose(x, y, z, _pqI, r * 0.56, r * 0.56, r * 0.56); // 卡通版：白热的核大一圈，火球有一个清楚的亮芯
+      pfPut('core', 1, 0.88, 0.58);
       const f1 = 1 + 0.16 * Math.sin(t * 37 + ph);
       const tk = u.tinted ? 0.45 : 0;
       _c.setRGB(u.tr, u.tg, u.tb).convertSRGBToLinear();
@@ -13475,15 +14489,22 @@
         const wob = Math.sin(t * 19 + ph + k * 2.7) * 0.25 + (k - 0.5) * 0.3;
         flameTongue(u, x + u.dx * r * 0.2, y + 0.04, z + u.dz * r * 0.2, wob, r * 1.0, r * (3 + Math.sin(t * 29 + k)), or * 0.8, og * 0.8, ob * 0.8);
       }
-      glowPut(u, x, y, z, r * 6, 0.45);
+      // 卡通版：加色的光晕压到一半多（之前和泛光一起把火球冲成白团），形状靠实色火舌和下面的实心火团立住
+      glowPut(u, x, y, z, r * 5, 0.26);
       u.acc += dt;
       while (u.acc > 0.02) {
         u.acc -= 0.02;
         const wh = Math.random();
         // 火星：小而亮，往上飘、往两侧散
         spawnP(x - u.dx * r + rand(-0.12, 0.12), y + rand(-0.1, 0.12), z - u.dz * r + rand(-0.12, 0.12), rand(-1.2, 1.2) - u.dx * 1.5, rand(0.3, 1.8), rand(-1.2, 1.2) - u.dz * 1.5, rand(0.25, 0.5), rand(0.08, 0.14), 1, 0.65 + wh * 0.3, 0.2 + wh * 0.4, -1.5, 1.8);
-        // 尾焰的一团
-        spawnP(x - u.dx * r * 2, y, z - u.dz * r * 2, -u.dx * 2, rand(0.2, 0.8), -u.dz * 2, rand(0.12, 0.2), r * 1.3, 0.7 * (1 - tk) + u.tr * tk * 0.8, 0.2 * (1 - tk) + u.tg * tk * 0.8, 0.03 * (1 - tk) + u.tb * tk * 0.8, -1, 3);
+      }
+      // 尾巴：一串实心的火团（亮橙压在深红上），先胀后缩没；低画质间隔加倍
+      u.acc3 = (u.acc3 || 0) + dt;
+      const pg = qualId === 'low' ? 0.07 : 0.035;
+      if (u.acc3 > pg) {
+        u.acc3 = 0;
+        const fp = tk ? mixHex(0xff8424, u.hex, tk) : 0xff8424;
+        tChunk(2, x - u.dx * r * 1.6 + rand(-0.1, 0.1), y + rand(-0.06, 0.1), z - u.dz * r * 1.6 + rand(-0.1, 0.1), -u.dx * 1.5 + rand(-0.6, 0.6), rand(0.3, 1.1), -u.dz * 1.5 + rand(-0.6, 0.6), rand(0.14, 0.24), r * rand(0.6, 1.0), fp, 0xb4281a, -1);
       }
       u.acc2 += dt;
       if (u.acc2 > 0.05) {
@@ -13752,23 +14773,26 @@
   function fireBurst(x, y, z, R, u) {
     const tint = u && u.tinted ? (_c.setRGB(u.tr, u.tg, u.tb), _c.getHex()) : 0;
     const h = tint ? mixHex(0xff7a2c, tint, 0.45) : 0xff7a2c;
-    W.ring(x, z, R, h, 0.3);
-    W.ring(x, z, R * 0.55, 0xffd7a0, 0.18);
-    flare(x, y, z, 0xffb060, 1.6 + R * 0.3, 0.12);
+    // 卡通版：硬边的色环 + 一颗大星 + 一圈往外翻的实心火团（亮黄压橙、橙压深红）+ 几片焦黑的碎块 + 少量火星，地上一块硬边焦斑
+    const lo = qualId === 'low', P = HIT_PAL.fire;
+    W.ring(x, z, R, h, 0.3); // 只留一道环：两道同心环压在焦斑上像个靶子
+    tChunk(1, x, y + 0.15, z, 0, 0, 0, 0.2, 0.9 + R * 0.25, P[0], tint ? h : P[1], 0);
     flashLight(x, 2, z, 0xff8a3c, 1.6);
-    _c.set(h);
-    const hr = _c.r, hg = _c.g, hb = _c.b;
-    for (let i = 0; i < 16; i++) {
-      // 火团：大、慢、往上翻
-      const a = rand(0, TAU), v = rand(1, 3.2) * R;
-      spawnP(x, y, z, Math.sin(a) * v, rand(0.5, 2.5), Math.cos(a) * v, rand(0.22, 0.4), rand(0.4, 0.65), hr, hg * 0.85, hb * 0.6, -2, 3.5);
+    for (let i = 0, n = lo ? 5 : 9; i < n; i++) {
+      // 火团：大、往外翻、往上飘；三团里一团是亮黄的
+      const a = (i / n) * TAU + rand(-0.3, 0.3), v = rand(1.6, 3) * R;
+      tChunk(2, x + Math.sin(a) * 0.2, y - 0.2, z + Math.cos(a) * 0.2, Math.sin(a) * v, rand(1, 2.6), Math.cos(a) * v, rand(0.32, 0.46), rand(0.32, 0.46) * Math.sqrt(R), i % 3 ? h : 0xffd060, i % 3 ? P[2] : h, -1.5);
     }
-    for (let i = 0; i < 18; i++) {
+    for (let i = 0, n = lo ? 3 : 5; i < n; i++) {
+      const a = rand(0, TAU), v = rand(4, 7) * Math.sqrt(R);
+      tChunk(0, x, y, z, Math.sin(a) * v, rand(3, 6), Math.cos(a) * v, rand(0.35, 0.5), rand(0.14, 0.2), 0xffb040, 0x3a1a20, 16);
+    }
+    for (let i = 0, n = lo ? 6 : 10; i < n; i++) {
       // 火星：小、快、带重力
       const a = rand(0, TAU), v = rand(4, 9) * Math.sqrt(R);
       spawnP(x, y, z, Math.sin(a) * v, rand(1, 6), Math.cos(a) * v, rand(0.3, 0.6), rand(0.08, 0.14), 1, rand(0.7, 0.95), rand(0.3, 0.6), 12, 1.5);
     }
-    W.smoke(x, y + 0.2, z, 0.35 * R, 5, 0x241a16);
+    W.smoke(x, y + 0.2, z, 0.35 * R, lo ? 2 : 3, 0x241a16);
     W.decal(1, x, z, R * 0.7, rand(0, TAU), h, 1.8);
   }
   // 金属火花：顺着飞行方向喷出去的一把亮白火花
@@ -13833,6 +14857,99 @@
   function clearDebris() {
     dbL.fill(0);
     dbLive = 0;
+  }
+  // ----- 卡通碎块：尖片 / 星 / 烟团（实心、硬边，颜色分档跳变而不是渐隐；每种一个 InstancedMesh，环形缓冲，运行时不分配） -----
+  // kind 0 尖片：顺着速度拉长的菱形，前 45% 是亮色 a、之后换成 b，最后 35% 缩没；
+  //      1 星：四芒星，主色 b 垫底 + 亮芯 a，一出来就是八成大，先胀一下再缩没（顿帧时定格在画面上）；
+  //      2 烟团：两层圆片（暗色 b 在下、亮色 a 在上偏左上，像打了光的一团），先胀后缩没，往上飘
+  const CK_N = 192;
+  const ckK = new Uint8Array(CK_N), ckP = new Float32Array(CK_N * 3), ckV = new Float32Array(CK_N * 3);
+  const ckL = new Float32Array(CK_N), ckM = new Float32Array(CK_N), ckS = new Float32Array(CK_N), ckR = new Float32Array(CK_N), ckG = new Float32Array(CK_N);
+  const ckA = new Float32Array(CK_N * 3), ckB = new Float32Array(CK_N * 3);
+  let ckNext = 0, ckLive = 0;
+  function tChunk(kind, x, y, z, vx, vy, vz, life, size, hexA, hexB, grav) {
+    const i = ckNext, j = i * 3;
+    ckNext = (ckNext + 1) % CK_N;
+    ckK[i] = kind;
+    ckP[j] = x; ckP[j + 1] = y; ckP[j + 2] = z;
+    ckV[j] = vx; ckV[j + 1] = vy; ckV[j + 2] = vz;
+    ckL[i] = ckM[i] = life;
+    ckS[i] = size;
+    ckR[i] = rand(0, TAU);
+    ckG[i] = grav || 0;
+    _c.set(hexA).convertSRGBToLinear();
+    ckA[j] = _c.r; ckA[j + 1] = _c.g; ckA[j + 2] = _c.b;
+    _c.set(hexB).convertSRGBToLinear();
+    ckB[j] = _c.r; ckB[j + 1] = _c.g; ckB[j + 2] = _c.b;
+    ckLive = 2;
+  }
+  function toonChunks(dt) {
+    if (ckLive <= 0) return;
+    let any = false;
+    for (let i = 0; i < CK_N; i++) {
+      let l = ckL[i];
+      if (l <= 0) continue;
+      l -= dt;
+      ckL[i] = l;
+      if (l <= 0) continue;
+      any = true;
+      const j = i * 3, k = ckK[i], f = 1 - l / ckM[i]; // f：0 出生 → 1 消失
+      const dr = Math.max(0, 1 - (k === 2 ? 3.2 : 1.6) * dt);
+      ckV[j + 1] -= ckG[i] * dt;
+      ckV[j] *= dr; ckV[j + 1] *= k === 2 ? dr : 1; ckV[j + 2] *= dr;
+      let y = ckP[j + 1] + ckV[j + 1] * dt;
+      if (y < 0.06 && ckV[j + 1] < 0) {
+        y = 0.06;
+        ckV[j + 1] *= -0.25;
+        ckV[j] *= 0.5;
+        ckV[j + 2] *= 0.5;
+      }
+      ckP[j] += ckV[j] * dt;
+      ckP[j + 1] = y;
+      ckP[j + 2] += ckV[j + 2] * dt;
+      const x = ckP[j], z = ckP[j + 2], s = ckS[i];
+      if (k === 0) {
+        const sh = f < 0.65 ? 1 : 1 - (f - 0.65) / 0.35;
+        const sp = Math.hypot(ckV[j], ckV[j + 1], ckV[j + 2]);
+        mStretch(x, y, z, ckV[j], ckV[j + 1], ckV[j + 2], s * 0.5 * sh, s * (1.3 + Math.min(1.2, sp * 0.12)) * sh);
+        const c = f < 0.45 ? ckA : ckB;
+        pfPut('tShard', c[j], c[j + 1], c[j + 2]);
+      } else if (k === 1) {
+        ckR[i] += dt * 3;
+        const sc = s * (f < 0.25 ? 0.8 + 0.8 * f : 1 - (f - 0.25) / 0.75);
+        _pq.copy(camQ).multiply(_pq2.setFromAxisAngle(Z_AXIS, ckR[i]));
+        mPose(x, y, z, _pq, sc, sc, sc);
+        pfPut('tStar', ckB[j], ckB[j + 1], ckB[j + 2]);
+        _pq.multiply(_pq2.setFromAxisAngle(Z_AXIS, Math.PI / 4));
+        mPose(x + camB.x * 0.04, y + camB.y * 0.04, z + camB.z * 0.04, _pq, sc * 0.55, sc * 0.55, sc * 0.55);
+        pfPut('tStar', ckA[j], ckA[j + 1], ckA[j + 2]);
+      } else {
+        // 一小簇云：暗色的底垫在下面，上面三个亮色的圆鼓包（中间大、两边小），看着是一团烟而不是一颗石头
+        const sc = s * (f < 0.3 ? 0.6 + (f / 0.3) * 0.4 : 1 - ((f - 0.3) / 0.7) * ((f - 0.3) / 0.7));
+        const rx = Math.cos(ckR[i]) * sc, ry = Math.sin(ckR[i]) * sc * 0.25;
+        mBill(x - camB.x * 0.03, y - sc * 0.12, z - camB.z * 0.03, sc * 0.9);
+        pfPut('tPuff', ckB[j], ckB[j + 1], ckB[j + 2]);
+        const ox = camB.x * 0.03, oy = camB.y * 0.03, oz = camB.z * 0.03;
+        mBill(x + ox, y + sc * 0.1 + oy, z + oz, sc * 0.62);
+        pfPut('tPuff', ckA[j], ckA[j + 1], ckA[j + 2]);
+        mBill(x - rx * 0.5 + ox, y - ry + oy, z + oz, sc * 0.44);
+        pfPut('tPuff', ckA[j], ckA[j + 1], ckA[j + 2]);
+        mBill(x + rx * 0.5 + ox, y + ry - sc * 0.08 + oy, z + oz, sc * 0.4);
+        pfPut('tPuff', ckA[j], ckA[j + 1], ckA[j + 2]);
+      }
+    }
+    if (!any) ckLive--;
+  }
+  function clearChunks() {
+    ckL.fill(0);
+    ckLive = 0;
+  }
+  // 烟团（实心的两层圆片）：hexA 亮面、hexB 暗面
+  function tPuffs(x, y, z, n, spread, up, life, size, hexA, hexB) {
+    for (let i = 0; i < n; i++) {
+      const a = rand(0, TAU), v = spread * rand(0.4, 1);
+      tChunk(2, x + Math.sin(a) * 0.15, y, z + Math.cos(a) * 0.15, Math.sin(a) * v, up * rand(0.6, 1.2), Math.cos(a) * v, life * rand(0.75, 1.15), size * rand(0.75, 1.2), hexA, hexB, -0.5);
+    }
   }
   // 陨石尾焰：顺着下落方向拉长的大火舌（陨石的位置在 updateMeteors 里算好）
   function meteorFlames(dt) {
@@ -13902,6 +15019,7 @@
     updateDebris(dt);
     rangedPfDraw(dt);
     pyrePfDraw(dt);
+    toonChunks(dt);
     pfEnd();
     updateRibbons(dt);
   }
@@ -13923,6 +15041,7 @@
   function clearProjFx() {
     clearRibbons();
     clearDebris();
+    clearChunks();
     rangedClear();
     for (let i = 0; i < PF_LIST.length; i++) PF_LIST[i].n = 0;
     pfEnd();
@@ -15870,7 +16989,7 @@
     if (shakeAmt > 0.002) {
       sx = (Math.random() - 0.5) * shakeAmt * 1.1;
       sy = (Math.random() - 0.5) * shakeAmt * 1.1;
-      shakeAmt *= Math.exp(-raw * 7);
+      shakeAmt *= Math.exp(-raw * 10);
     } else shakeAmt = 0;
     if (punchX !== 0 || punchZ !== 0) {
       const pk = Math.exp(-raw * 12);
@@ -15913,11 +17032,12 @@
       }
       fx.crystalMat.emissiveIntensity = 0.95 + Math.sin(wtime * 1.7) * 0.2;
       if (fx.fires) updateFires(fx.fires, dt);
+      if (fx.dress) updateAshDress(fx.dress);
       if (fx.gU) fx.gU.uLavaM.value.y = wtime;
       fx.glowMat.opacity = 0.38 + Math.sin(wtime * 1.7) * 0.08;
       fx.bossSigil.material.opacity = 0.24 + Math.sin(wtime * 1.2) * 0.07;
       fx.bossSigil.rotation.y += dt * 0.04;
-      let hi = HEMI_I;
+      let hi = hemiBase;
       if (fx.st.amb === 'spark') {
         // 雷鸣遗迹：不定时的天光闪烁
         fx.boltIn -= dt;
@@ -15979,8 +17099,8 @@
         flashing[i] = flashing[flashing.length - 1];
         flashing.pop();
       } else {
-        // 从峰值一路渐隐
-        const f = e.flashK * (0.3 + 0.7 * (e.flashT / e.flashD)), ms = e.mats;
+        // 卡通版：两档跳变（前 55% 全亮，之后半亮），不是平滑渐隐
+        const f = e.flashK * (e.flashT / e.flashD > 0.45 ? 1 : 0.45), ms = e.mats;
         for (let j = 0; j < ms.length; j++) ms[j].emissiveIntensity = ms[j].userData.fi * f;
       }
     }
