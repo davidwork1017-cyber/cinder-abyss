@@ -1725,7 +1725,9 @@
     } else {
       W.flash(e.ent, 1 + feel * 0.7);
       W.hitReact(e.ent, ang, 0.9 + feel * 0.4); // 顺着这一击的方向一仰
-      W.impact(e.x - sn * e.r * 0.7, h * 0.5, e.z - cs * e.r * 0.7, ang, top, feel, hit.crit);
+      // 持续伤害的跳（黑洞 / 黑旋风，inf.tick）：只甩几片实例化的尖片，不留地面贴花、不打闪光（怪堆里每秒几十跳，贴花每片一次 draw call）
+      if (inf.tick && W.chaosTick) W.chaosTick(e.x - sn * e.r * 0.7, h * 0.5, e.z - cs * e.r * 0.7, ang, hit.crit);
+      else W.impact(e.x - sn * e.r * 0.7, h * 0.5, e.z - cs * e.r * 0.7, ang, top, feel, hit.crit);
       if (ctx.flame > 0 && W.flameHit) W.flameHit(e.x, h * 0.55, e.z, e.r, ang); // 黑焰：命中点甩出几片品红的小火舌
     }
     if (!inf.quiet) {
@@ -3237,6 +3239,7 @@
   const holes = [];
   const vortices = [];
   const HOLE_MAX = 3; // 场上玩家的黑洞（含渊口）最多几个，多了顶掉最老的
+  const VORTEX_MAX = 20; // 场上的黑旋风最多几团（多重投射每次 5 团、寿命 2.2 秒，正常出手节奏下大约 20 团），多了顶掉最老的
   let mouthCd = 0; // 渊口：距离下次能新开还有几秒
   // 和击退一样的豁免：砸地蓄力、引信、陨角兽冲锋中的怪钉在原地（预警圈的位置才对得上）
   const pinned = (e) => e.state === 'fuse' || e.state === 'dash' || (e.state === 'windup' && e.def && e.def.ai === 'slam');
@@ -3313,7 +3316,7 @@
           // 同一个敌人同一时刻只吃一个黑洞的跳（两个重叠的黑洞、渊口都不叠加）
           if (state.time - (e.holeT || -99) < h.tick * 0.95) continue;
           e.holeT = state.time;
-          G.hitEnemy(e, h.ctx, h.mult, { ang: Math.atan2(e.x - h.x, e.z - h.z), w: 0, kb: 0, poise: sk.poise, quiet: true, faint: true });
+          G.hitEnemy(e, h.ctx, h.mult, { ang: Math.atan2(e.x - h.x, e.z - h.z), w: 0, kb: 0, poise: sk.poise, quiet: true, faint: true, tick: true });
         }
       }
       if (h.fx && W.updateHole) W.updateHole(h.fx, h.t / h.dur, dt);
@@ -3468,7 +3471,7 @@
       if (c.n >= (e.isBoss ? sk.bossCap : sk.cap) || state.time < c.next) continue;
       c.next = state.time + sk.tick * 0.95;
       c.n++;
-      G.hitEnemy(e, v.ctx, 1, { ang: v.a, quiet: true });
+      G.hitEnemy(e, v.ctx, 1, { ang: v.a, quiet: true, tick: true });
     }
     return true;
   }
@@ -4010,6 +4013,7 @@
         // 摆动：两路正弦的频率 / 相位，每团不同
         wf: [G.rand(2.2, 3.4), i * 2.1 + G.rand(0, TAU), G.rand(4.5, 6.5), i * 1.3 + G.rand(0, TAU)],
       };
+      while (vortices.length >= VORTEX_MAX) removeVortex(0);
       v.fx = G.world.makeVortex ? G.world.makeVortex(v.x, v.z, R, i) : null;
       vortices.push(v);
     }
