@@ -2707,6 +2707,11 @@
   W.shotFree = function (x, z, pad = 0) {
     const m = W.zone.map;
     if (m.sdShot !== m.sd) {
+      // 区域外面是虚空 / 水 / 熔岩时，网格外也是子弹能飞的地方（gridAt 在网格外一律给 -4；zones-integrate 修：frost 的子弹飞出网格就没了）
+      if (m.pr.outsideShot) {
+        const fx = (x - m.x0) * m.inv, fz = (z - m.z0) * m.inv;
+        if (!(fx >= 0 && fz >= 0 && fx < m.nx - 1 && fz < m.nz - 1)) return pad <= SD_HI;
+      }
       const s = gridAt(m, m.sdShot, x, z);
       if (s > gridAt(m, m.sd, x, z) + 1e-4) {
         const e = s - pad;
@@ -7140,14 +7145,10 @@
       feats.push({ kind: 'crystal', x: c.x, z: c.z, s: r });
     }
 
-    // 场地门内一根「门晶」（WALL r 0.9，离坑心 rA - 1.8，偏开门的轴线 1.2 m：一边留 4 m 多的路）。
-    // 也是给小地图测试的：场地轮廓是 1 像素宽的 4 连通阶梯，测试沿门的轴线取一条线找主题色，只横穿一道边时约 1/10 的布局会从像素角上漏过去；
-    // 门晶的轮廓圈贴着这条线擦过去，线在轮廓像素上走 2 m 左右，漏不过去
-    {
-      const q = P(ph2, rA - 1.8), sg = R() < 0.5 ? 1 : -1, c = { x: q.x + Math.cos(ph2) * 1.2 * sg, z: q.z - Math.sin(ph2) * 1.2 * sg };
-      cuts.push({ prim: { t: 'circle', x: c.x, z: c.z, r: 0.9 }, mat: MAT.WALL });
-      feats.push({ kind: 'crystal', x: c.x, z: c.z, s: 0.9, gate: true });
-    }
+    // 原来场地门内有一根「门晶」（WALL r 0.9），只是为了让小地图测试沿门轴线的单线采样不漏过 1 像素的轮廓；
+    // zones-integrate 把测试改成一圈射线找轮廓，门晶去掉（场地入口不该有障碍，§3.5 中心 r 10 内也没有）。
+    // 它占的那次随机数照旧取掉，后面的怪群 / 宝箱 / 地标位置不受影响
+    R();
     // 怪群：每个环带房间的鼓包中心一群，环带上再放 1–2 群；旁支：精英坑一群精英、宝箱坑一小股守卫
     const placed = [];
     const okPack = (x, z) => sdAt(x, z) >= 3.2 && Math.hypot(x, z) >= 14 && !nearDoor(x, z, 4.5) && placed.every((q) => Math.hypot(q.x - x, q.z - z) >= 9);
