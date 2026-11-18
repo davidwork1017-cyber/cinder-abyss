@@ -401,7 +401,8 @@ async function main() {
 
   await step('图标预热：启动后趁空闲分批画好全部图标，第一次打开背包不用现画', async () => {
     const t0 = Date.now();
-    await until(() => G.icons.ready(), null, 60000).catch(() => {
+    // 只是功能检查的超时：SwiftShader 在单核较慢的机器上安静时也要 60 秒上下才画完，留出一倍余量
+    await until(() => G.icons.ready(), null, 120000).catch(() => {
       throw new Error('启动后图标没有在空闲时预先画好');
     });
     const n = await ev(() => G.icons.keys().length);
@@ -612,7 +613,7 @@ async function main() {
     });
   }
 
-  await step('镜头与远程怪：脚下能看到 11 以上；屏幕下方画面外的喷吐者先走进画面再开火', async () => {
+  await step('镜头与远程怪：脚下能看到 7.5 以上、头顶 9.5 以上（卡通风格的近镜头）；屏幕下方画面外的喷吐者先走进画面再开火', async () => {
     const r = await ev(() => {
       T.arena();
       const P = G.player, S = G.state, W = G.world;
@@ -621,8 +622,8 @@ async function main() {
       T.settle();
       const vw = innerWidth, vh = innerHeight;
       const on = (q) => q.ok && q.x >= 0 && q.x <= vw && q.y >= 0 && q.y <= vh;
-      const out = { down: on(W.project(P.x, 0, P.z + 11)), up: on(W.project(P.x, 0, P.z - 13)), py: W.project(P.x, 0, P.z).y / vh };
-      // 喷吐者放在正下方 11 处：在技能栏后面，算不得看得见
+      const out = { down: on(W.project(P.x, 0, P.z + 7.5)), up: on(W.project(P.x, 0, P.z - 9.5)), py: W.project(P.x, 0, P.z).y / vh };
+      // 喷吐者放在正下方 11 处：在画面外（或技能栏后面），算不得看得见
       const e = G.spawnMob('spitter', c.x, c.z + 4.5, 1, { awake: true });
       e.atkCd = 0;
       out.seen0 = W.inView(e.x, e.z);
@@ -3789,12 +3790,27 @@ async function main() {
       // 一团冻住的游魂（不会动、不会还手），离玩家 8 米（挑一个 10 米内没有墙的方向）
       const dir = T.openDir(12);
       const cx = P.x + dir.x * Math.min(8, dir.len - 1.5), cz = P.z + dir.z * Math.min(8, dir.len - 1.5);
+      // 站位要固定：这个方向跟着区域布局走（每次加载随机），上面召出来的祭司则站在玩家朝准星 (3, 2) 的身后，
+      // 两者夹角每次不同——怪堆正好落在祭司身后那一侧时，祭司离怪堆只有 4～5 米，不用走就开打，量到的距离就不到 5 米。
+      // 所以玩家先转身面朝怪堆（站前排），两位祭司挪到玩家身后固定的两个起点，没有敌人时走 1 秒到各自的跟随点，再放怪
+      [P.face, P.drawFace] = [Math.atan2(dir.x, dir.z), Math.atan2(dir.x, dir.z)];
+      T.aim(cx, cz);
+      S.minions.filter((m) => m.kind === 'pyre' && !m.dead).forEach((m, i) => {
+        m.x = P.x - dir.x * 2.5 + dir.z * (i ? 1 : -1);
+        m.z = P.z - dir.z * 2.5 - dir.x * (i ? 1 : -1);
+        m.target = null;
+        m.spX = m.spZ = 1e9; // 跟随点的「走不过去」计时从头算，不沿用上面召唤时留下的
+        m.spT = m.stuckT = m.navT = 0;
+        G.world.setEnt(m.ent, m.x, m.z, m.ang);
+      });
+      G.debug.step(1.0);
       const pack = [];
       for (let i = 0; i < 5; i++) {
         const e = G.spawnMob('husk', cx + ((i % 3) - 1) * 0.9, cz + (Math.floor(i / 3) - 0.5) * 0.9, 1, { awake: true });
         e.hp = e.maxHp = 1e6;
         e.freeze = 1e9;
         e.atkCd = 1e9;
+        e.mass = 1e6; // 冻住的怪照样会被火弹 / 坠焰推开：推散了坠焰就砸不中 4 个（甚至凑不够 3 个改放灼链），散成什么样又跟着墙走，每次不同
         pack.push(e);
       }
       // 每一帧祭司打中了几个不同的敌人（一枚火弹炸开就是一帧里打中好几个）
@@ -5509,6 +5525,76 @@ async function main() {
     }, bar0);
   });
 
+  await uiStep('准星随时找得到：关面板 / 开场卡片后鼠标不动也立刻显示在鼠标处；层级压过大字提示；鼠标停一阵再动时外圈收拢提示', async () => {
+    await ev(() => {
+      T.arena();
+      T.settle();
+      G.debug.hold(false);
+    });
+    const ret = () =>
+      ev(() => {
+        const r = document.getElementById('reticle');
+        return { cls: r.className, tf: r.style.transform, disp: getComputedStyle(r).display, ping: +(r.dataset.ping || 0) };
+      });
+    const shown = (msg) => until(() => document.getElementById('reticle').className === 'aim', null, 10000).catch(() => {
+      throw new Error(msg);
+    });
+    await page.mouse.move(1000, 620);
+    await shown('准星没有出现');
+    // 面板开关一轮：鼠标移到面板上再按 Esc 关掉，鼠标不动（之前 overCanvas 停在「在面板上」，准星和系统指针一起消失）
+    await page.keyboard.press('KeyI');
+    await until(() => document.getElementById('reticle').className === 'off');
+    await page.mouse.move(720, 450);
+    let r = await ev(() => document.elementFromPoint(720, 450).tagName);
+    assert(r !== 'CANVAS', '面板没有盖住 (720, 450)');
+    let p0 = (await ret()).ping;
+    await page.keyboard.press('Escape');
+    await shown('Esc 关掉面板后鼠标不动，准星没有出现');
+    r = await ret();
+    assert(r.tf === 'translate(720px, 450px)' && r.disp !== 'none', '关掉面板后准星不在鼠标处：' + JSON.stringify(r));
+    assert(r.ping > p0, '准星重新出现时应收拢提示一下：' + JSON.stringify(r));
+    // 点面板右上的「关闭」：鼠标停在原处（按钮的位置）
+    await page.keyboard.press('KeyG');
+    await until(() => document.getElementById('reticle').className === 'off');
+    const b = await ev(() => T.rect('#panel-close'));
+    const bx = Math.round(b.x), by = Math.round(b.y);
+    await page.mouse.move(bx, by);
+    await page.mouse.down();
+    await page.mouse.up();
+    assert(!(await ev(() => G.ui.isOpen())), '点「关闭」没有关掉面板');
+    await shown('点「关闭」后鼠标不动，准星没有出现');
+    r = await ret();
+    assert(r.tf === 'translate(' + bx + 'px, ' + by + 'px)', '点「关闭」后准星不在鼠标处：' + JSON.stringify(r));
+    // 开场卡片：鼠标停在卡片上按回车
+    await page.mouse.move(720, 450);
+    await ev(() => G.ui.showIntro());
+    await until(() => document.getElementById('reticle').className === 'off');
+    await page.keyboard.press('Enter');
+    await shown('回车关掉开场卡片后鼠标不动，准星没有出现');
+    r = await ret();
+    assert(r.tf === 'translate(720px, 450px)', '关掉开场卡片后准星不在鼠标处：' + JSON.stringify(r));
+    // 鼠标停 2.2 秒以上再动：收拢提示一次；接着连续移动不再提示
+    await sleep(2500);
+    p0 = (await ret()).ping;
+    await page.mouse.move(760, 430);
+    await page.mouse.move(780, 420);
+    r = await ret();
+    assert(r.ping === p0 + 1 && r.tf === 'translate(780px, 420px)', '鼠标停了一阵再动应提示一次：' + JSON.stringify({ p0, r }));
+    // 大字提示（烬铸武器）出现在画面中上部时，准星不能被它盖住
+    r = await ev(() => {
+      G.ui.bigToast('测试', '测试', '#ff9b3d', '');
+      return { ret: +getComputedStyle(document.getElementById('reticle')).zIndex, bt: +getComputedStyle(document.getElementById('big-toast')).zIndex, toasts: +getComputedStyle(document.getElementById('toasts')).zIndex, tip: +getComputedStyle(document.getElementById('tip')).zIndex };
+    });
+    assert(r.ret > r.bt && r.ret > r.toasts && r.ret < r.tip, '准星的层级应高过大字提示 / 提示条、低过悬浮提示：' + JSON.stringify(r));
+    await ev(() => {
+      const t = document.getElementById('big-toast');
+      clearTimeout(t._t1);
+      clearTimeout(t._t2);
+      t.classList.remove('on', 'out');
+      G.debug.hold(true);
+    });
+  });
+
   await uiStep('无铭技能宝石：技能页顶部写数量和最高等级；点两下才用掉；学会新技能自动上技能栏；给已学技能升级；总是用最高的那颗；等级不够不能升；第一次捡到有新手提示', async () => {
     // 先让两个技能变回「没学会」，技能栏腾出一格
     await ev(() => {
@@ -7096,7 +7182,8 @@ async function main() {
       const P = G.player, W = G.world, b = window.__B;
       b.brokenT = 4;
       let best = null;
-      for (let dx = 6; dx <= 16 && !best; dx += 0.5) for (let dz = -12; dz <= -4; dz += 0.5) {
+      // 搜索范围按镜头来：卡通风格的近镜头更低更近，小地图底下对应的点（离地 4.1）离玩家近得多（1440×900 下约 dx 8.5～10、dz -2.5 上下）
+      for (let dx = 4; dx <= 22 && !best; dx += 0.5) for (let dz = -16; dz <= 2; dz += 0.5) {
         const q = W.project(P.x + dx, 4.1, P.z + dz);
         if (q.x > innerWidth - 150 && q.x < innerWidth - 40 && q.y > 60 && q.y < 150) { best = { dx, dz }; break; }
       }
