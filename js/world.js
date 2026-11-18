@@ -1539,26 +1539,41 @@
   }
   // bands：[离中线的距离（× 宽度）, 颜色]，从中线往外一圈圈排（芯 → 橙 → 红边 → 烧焦的外沿），两侧对称。
   // opt.hard：每一圈是一整块纯色、圈和圈之间是硬边（卡通的色阶），不做渐变；opt.along：写一个 aL 属性 = 沿条带的累计长度（熔岩流动用）
+  // zones-integrate：直接写进预先分配好的类型数组（原来先 push 进普通数组再拷一遍；整区的熔岩河 + 裂缝有上万个顶点），结果相同
   function ashFissureGeo(segs, bands, y, opt) {
-    const o = opt || {}, pos = [], col = [], al = [], B = bands.map((q) => [q[0], lin(q[1])]);
-    let acc = 0;
+    const o = opt || {}, B = bands.map((q) => [q[0], lin(q[1])]), nv = segs.length * 2 * (B.length - 1) * 6;
+    const pos = new Float32Array(nv * 3), col = new Float32Array(nv * 3), al = o.along ? new Float32Array(nv) : null;
+    let acc = 0, pi = 0, ci = 0, li = 0;
+    const P = (x, z) => {
+      pos[pi++] = x;
+      pos[pi++] = y;
+      pos[pi++] = z;
+    };
+    const C = (c) => {
+      col[ci++] = c.r;
+      col[ci++] = c.g;
+      col[ci++] = c.b;
+    };
     for (const s of segs) {
-      const [ax, az, bx, bz, nx, nz, w0, w1] = s, sl = Math.hypot(bx - ax, bz - az);
-      for (const sg of [1, -1]) {
+      const ax = s[0], az = s[1], bx = s[2], bz = s[3], nx = s[4], nz = s[5], w0 = s[6], w1 = s[7], sl = Math.hypot(bx - ax, bz - az);
+      for (let sg = 1; sg >= -1; sg -= 2) {
         for (let k = 0; k < B.length - 1; k++) {
           const i0 = B[k][0] * sg, i1 = B[k + 1][0] * sg, c0 = B[k][1], c1 = o.hard ? c0 : B[k + 1][1];
-          const p = [ax + nx * w0 * i0, az + nz * w0 * i0, bx + nx * w1 * i0, bz + nz * w1 * i0, bx + nx * w1 * i1, bz + nz * w1 * i1, ax + nx * w0 * i1, az + nz * w0 * i1];
-          pos.push(p[0], y, p[1], p[2], y, p[3], p[4], y, p[5], p[0], y, p[1], p[4], y, p[5], p[6], y, p[7]);
-          col.push(c0.r, c0.g, c0.b, c0.r, c0.g, c0.b, c1.r, c1.g, c1.b, c0.r, c0.g, c0.b, c1.r, c1.g, c1.b, c1.r, c1.g, c1.b);
-          if (o.along) al.push(acc, acc + sl, acc + sl, acc, acc + sl, acc);
+          const p0 = ax + nx * w0 * i0, p1 = az + nz * w0 * i0, p2 = bx + nx * w1 * i0, p3 = bz + nz * w1 * i0;
+          const p4 = bx + nx * w1 * i1, p5 = bz + nz * w1 * i1, p6 = ax + nx * w0 * i1, p7 = az + nz * w0 * i1;
+          P(p0, p1); P(p2, p3); P(p4, p5); P(p0, p1); P(p4, p5); P(p6, p7);
+          C(c0); C(c0); C(c1); C(c0); C(c1); C(c1);
+          if (al) {
+            al[li++] = acc; al[li++] = acc + sl; al[li++] = acc + sl; al[li++] = acc; al[li++] = acc + sl; al[li++] = acc;
+          }
         }
       }
       acc += sl;
     }
     const g = own(new T.BufferGeometry());
-    g.setAttribute('position', new T.Float32BufferAttribute(pos, 3));
-    g.setAttribute('color', new T.Float32BufferAttribute(col, 3));
-    if (o.along) g.setAttribute('aL', new T.Float32BufferAttribute(al, 1));
+    g.setAttribute('position', new T.BufferAttribute(pos, 3));
+    g.setAttribute('color', new T.BufferAttribute(col, 3));
+    if (al) g.setAttribute('aL', new T.BufferAttribute(al, 1));
     const nrm = new Float32Array(pos.length);
     for (let i = 1; i < nrm.length; i += 3) nrm[i] = 1;
     g.setAttribute('normal', new T.BufferAttribute(nrm, 3));
@@ -10381,8 +10396,10 @@
   // 贴图里的血污换成余烬裂纹（自发光，见 vglow），眼白压成深眼窝、瞳孔发光。比地面亮一档、比主角暗、饱和度低。
   // 每项：[贴图里的原色（最近的那个算数）, 下端色, 上端色]；渐变按静止姿态的高度（0.2 → 1.95）
   const HK_PAL = [
-    [[0.8, 0.85, 0.45], 0x5a5070, 0xa49aa6], // 皮肤：头肩是灰烬灰 #a49aa6，往下压到冷紫
-    [[0.6, 0.5, 0.4], 0x4c3848, 0x725666], // 破衬衣
+    // zones-integrate：皮肤和破衬衣提亮（皮肤亮端 ×1.18、暗端 ×1.1，衬衣亮端 ×1.42、暗端 ×1.15）：受光面 p85 在第 0、3 区只有 44–49%（目标 55–75），
+    // 第 1、4 区原来 56–61，提完不超过 75；原值 皮肤 0x5a5070 / 0xa49aa6、衬衣 0x4c3848 / 0x725666
+    [[0.8, 0.85, 0.45], 0x63587b, 0xc2b6c4], // 皮肤：头肩是灰烬灰，往下压到冷紫
+    [[0.6, 0.5, 0.4], 0x574053, 0xa27a91], // 破衬衣
     [[0.1, 0.15, 0.4], 0x2c2234, 0x4a3a52], // 破裤子
     [[0.7, 0.5, 0.2], 0x4e3a36, 0x5e463e], // 绳带 / 鞋
     [[0.85, 0.85, 0.6], 0x24161e, 0x24161e], // 眼白 → 深眼窝
@@ -12714,8 +12731,7 @@
   // ---------------------------------------------------------------------
   function huskRig() {
     return rigOf('husk', () => cTry('husk', (cs) => {
-      // zones-integrate：固有色整体提亮约 7%（受光面在第 0 区只有 48–49%、第 4 区 55.5%，目标 55–75），CLOTH_IN（袍子里子）不动
-      const HIDE = 0x94887e, HIDE_D = 0x4f4844, CLOTH = 0x302a38, CLOTH_L = 0x4f4658, CLOTH_IN = 0x17141b, BONE = 0xeee4c7, BONE_D = 0xa79c83;
+      const HIDE = 0x8a7f76, HIDE_D = 0x4a4340, CLOTH = 0x2d2734, CLOTH_L = 0x4a4152, CLOTH_IN = 0x17141b, BONE = 0xded5ba, BONE_D = 0x9c927a;
       const b = rigBuilder('husk', NB_SMALL, cs);
       b.j('root', null, 0, 0.95, 0).j('spine', 'root', 0, 1.02, 0.02).j('head', 'spine', 0, 1.5, 0.3).j('jaw', 'head', 0, 1.47, 0.36);
       b.j('uaL', 'spine', 0.31, 1.46, 0.12).j('faL', 'uaL', 0.43, 1.1, 0.2).j('uaR', 'spine', -0.31, 1.46, 0.12).j('faR', 'uaR', -0.43, 1.1, 0.2);
