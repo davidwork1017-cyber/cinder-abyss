@@ -3095,6 +3095,9 @@
     }
   }
 
+  // 房间的怪物等级偏移（zones-polish）：区域加长后关键路径不止 4 个房间，按 order 在整条路径上的比例折回改版前的 +0 → +2，
+  // 区域首尾的怪物等级和原来一样。生成器给每个房间写 rm.lv = lvFor(order, 关键路径房间数)，敌人按 rm.lv 定等级（没有 lv 时照旧 ⌊order / 2⌋）
+  const lvFor = (order, nPath) => Math.max(0, Math.min(2, Math.floor((order * 4) / Math.max(1, nPath) / 2 + 1e-9)));
   // ---------- 校验（生成器负责；失败就换种子）----------
   const CHECK = { box: 180, areaMin: 2400, areaMax: 3800, gap: 14, startR: 8, firstR: 7, bossR: 9, packStart: 12, packDoor: 4 };
   // map（可选）：这份 spec 光栅化后的网格。给了就在网格节点上数可走面积、做 BFS（0.5 m 节点正好落在 0.25 m 网格的节点上，
@@ -3334,7 +3337,7 @@
     };
   };
   // 测试 / 调试用的内部函数
-  W.terrain = { zoneSd, primSd, primBox, exactSd, validateSpec, specHash, mulberry32, blob, specBounds, GEN, ZONE_TERRAIN };
+  W.terrain = { zoneSd, primSd, primBox, exactSd, validateSpec, specHash, mulberry32, blob, specBounds, GEN, ZONE_TERRAIN, lvFor };
 
   // ---------- 地形外观的共用工具（B 阶段各区的 dress 只调用、不修改）----------
   // 全部挂在当前的 zoneGroup 上、随换区一起释放；每个工具一次 draw（实例化或合并成一个网格），低画质也能用

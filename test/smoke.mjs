@@ -7446,7 +7446,7 @@ async function main() {
       assert(!r.open, '进入区域后面板应关闭');
       assert(r.idx === zi && r.id === Z.id && r.level === Z.level && r.tier === 0 && r.last === zi, '进入的区域不对：' + JSON.stringify(r));
       assert(r.name === Z.name, 'HUD 区域名没有更新：' + r.name);
-      assert(r.n >= 20 && r.elites <= 4, '怪物数量不对：' + r.n);
+      assert(r.n >= 20 && r.elites <= 6, '怪物数量不对：' + r.n); // zones-polish：区域加长到 ×1.6，精英按面积保持密度，上限 4 → 6
       assert(r.boss === Z.boss && r.bossLv === Z.level + 3, '首领不对：' + r.boss);
       assert(r.types.every((t) => Z.mobs.includes(t)), '出现了不属于该区域的怪：' + r.types);
       assert(r.bad === 0, r.bad + ' 只怪的位置不合法');
