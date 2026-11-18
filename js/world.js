@@ -3736,14 +3736,14 @@
     };
     caveStuff(CVA, cA, tA0, eliteA);
     caveStuff(CVB, cB, tB0, !eliteA);
-    // 全区怪数（按每群平均）收进 47–63：多了就把平台上的第三群改小，少了就把平台的群改大
+    // 全区怪数（按每群平均）收进 51–65（实际刷出来平均少 2 只左右，落在 45–65、和 legacy 的平均 61 只差不多）：多了就把平台上的第三群改小，少了就把平台的群改大
     const avgN = () => packs.reduce((s2, p) => s2 + (p.n[0] + p.n[1]) / 2, 0);
     for (const p of packs.filter((q) => q.n[1] === 6 && !q.elite).reverse()) {
-      if (avgN() <= 63) break;
+      if (avgN() <= 65) break;
       p.n = [3, 4];
     }
     for (const p of packs.filter((q) => q.n[1] === 6)) {
-      if (avgN() >= 47) break;
+      if (avgN() >= 51) break;
       p.n = [5, 6];
     }
 
@@ -3783,7 +3783,7 @@
       }
     }
     (abyssGen.whys || (abyssGen.whys = [])).push({ vents: vents.length, l1: +L1.core.r.toFixed(2), core: +Math.min(L2.core.r, L3.core.r, L4.core.r).toFixed(2), platN, mobs, caveHit });
-    const ok = vents.length >= 2 && L1.core.r >= 7.2 && Math.min(L2.core.r, L3.core.r, L4.core.r) >= 6 && Math.min.apply(null, platN) >= 2 && mobs >= 47 && mobs <= 63 && !caveHit;
+    const ok = vents.length >= 2 && L1.core.r >= 7.2 && Math.min(L2.core.r, L3.core.r, L4.core.r) >= 6 && Math.min.apply(null, platN) >= 2 && mobs >= 51 && mobs <= 65 && !caveHit;
     return { spec, ok };
   }
   function abyssGen(R) {
@@ -3811,15 +3811,16 @@
   const ABYSS_DEEP = 7.2; // 深渊底的深度（只是视觉）
   // 深渊底：整个网格范围一张平面，贴图按材质网格烘：虚空处暗紫，沿深渊中线一道发亮的熔岩缝（远处被雾压暗），零星的火星点
   function abyssDeepTex(zone) {
-    const m = zone.map, mat = matGrid(m), w = m.mx, h = m.mz, S = 1; // 0.5 m 一个像素
-    const c = makeCanvas(w * S, h * S), g = c.getContext('2d'), im = g.createImageData(w * S, h * S), d = im.data;
+    // 1 m 一个像素（深渊底在雾里，0.5 m 的精度看不出来，烘贴图的时间少四分之三）；S = 每个 0.5 m 小格占几个像素
+    const m = zone.map, mat = matGrid(m), w = m.mx, h = m.mz, S = 0.5, cw = Math.ceil(w * S), ch = Math.ceil(h * S);
+    const c = makeCanvas(cw, ch), g = c.getContext('2d'), im = g.createImageData(cw, ch), d = im.data;
     const a = new T.Color(ABYSS_PAL.deep), b = new T.Color(ABYSS_PAL.deepRim); // 画布按 sRGB 写（贴图标成 sRGBEncoding）
-    for (let j = 0; j < h; j++) {
-      for (let i = 0; i < w; i++) {
-        const x = m.x0 + i * m.h2, z = m.z0 + j * m.h2, sd = gridAt(m, m.sd, x, z);
+    for (let j = 0; j < ch; j++) {
+      for (let i = 0; i < cw; i++) {
+        const x = m.x0 + (i / S) * m.h2, z = m.z0 + (j / S) * m.h2, sd = gridAt(m, m.sd, x, z);
         // 靠近崖边亮一点（崖脚的反光），往深处渐暗
         const k = smooth01((sd + 3.5) / 3) * 0.8 + 0.2 * vnoise(x * 0.3, z * 0.3);
-        const o = (j * w + i) * 4;
+        const o = (j * cw + i) * 4;
         d[o] = Math.round(255 * (a.r + (b.r - a.r) * k));
         d[o + 1] = Math.round(255 * (a.g + (b.g - a.g) * k));
         d[o + 2] = Math.round(255 * (a.b + (b.b - a.b) * k));
@@ -3852,7 +3853,7 @@
       if (mat[j * w + i] !== MAT.VOID) continue;
       g.fillStyle = rr() < 0.3 ? '#ffb060' : '#c8441c';
       g.globalAlpha = 0.35 + rr() * 0.5;
-      g.fillRect(i * S, j * S, S, S);
+      g.fillRect(Math.floor(i * S), Math.floor(j * S), 1, 1);
     }
     g.globalAlpha = 1;
     const t = own(new T.CanvasTexture(c));
@@ -4097,7 +4098,7 @@
         rocks.push(x, s * 0.2, z, rand(-0.5, 0.5), rand(0, TAU), rand(-0.5, 0.5), s, s * rand(0.5, 0.9), s, rand(0.55, 0.85));
       }, { kinds: [MAT.VOID], jitter: 0.4 });
     }
-    if (rocks.length) ctx.instanced(rockGeoA(), ctx.mats.rock, rocks, true, lin(ABYSS_PAL.rock));
+    if (rocks.length) ctx.instanced(rockGeoA(), ctx.mats.rock, rocks, false, lin(ABYSS_PAL.rock)); // 小碎石不投影（省掉阴影贴图里的一次 draw）
     if (glow.length) {
       const gm = own(new T.MeshBasicMaterial({ map: glowTex(), color: 0xffffff, transparent: true, opacity: 1, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false }));
       out.glow = ctx.instanced(gQuad(), gm, glow, false, lin(ABYSS_PAL.mid));
@@ -4117,7 +4118,7 @@
         }
       }, { kinds: [MAT.ROCK], jitter: 0.3 });
       const bm = own(makeToonMat({ color: ABYSS_PAL.basalt, brush: 0.14, vertexColors: false, flat: true, grad: [ABYSS_PAL.basaltLo, 0xffffff, -0.2, 2.6] }));
-      if (cols.length) ctx.instanced(gCyl(1, 1, 1, 6), bm, cols, true, new T.Color(1, 1, 1));
+      if (cols.length) ctx.instanced(gCyl(1, 1, 1, 6), bm, cols, false, new T.Color(1, 1, 1)); // 崖壁外的柱子不投影（岩壁本来就在阴影里，省一次 draw）
     }
     out.low = low;
     return out;
