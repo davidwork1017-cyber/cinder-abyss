@@ -7973,6 +7973,78 @@ async function main() {
     return '清完各区域后的等级：' + r.rows.map((x) => x.lvl + '@' + x.zl).join(' ');
   });
 
+  await step('大区小怪（G.BALANCE）：区域刷的普通怪生命 ×0.55、经验和掉落几率按倍率打折，生成器怪群人数 ×1.25；精英、首领召唤、直接刷的怪不打折', async () => {
+    const r = await ev(() => {
+      const B = G.BALANCE, out = { B: JSON.parse(JSON.stringify(B)) };
+      const keep = { zi: G.state.zoneIdx, tier: G.state.tier, k: B.packSize };
+      // 生命：每区进一次，逐只核对
+      out.bad = [];
+      out.cnt = { horde: 0, elite: 0 };
+      for (let z = 0; z < G.ZONES.length; z++) {
+        G.enterZone(z, 0);
+        for (const e of G.state.enemies) {
+          if (e.isBoss) continue;
+          const base = e.def.hp * G.hpScale(e.level);
+          if (e.elite) {
+            out.cnt.elite++;
+            if (e.horde || e.maxHp !== Math.max(1, Math.round(base * 4.5))) out.bad.push('精英 ' + e.type + ' ' + e.maxHp);
+          } else {
+            out.cnt.horde++;
+            if (!e.horde || e.maxHp !== Math.max(1, Math.round(base * B.mobHp))) out.bad.push('普通 ' + e.type + ' ' + e.maxHp);
+          }
+        }
+      }
+      // 首领召唤（pack: null, awake）和调试直接刷的怪：不带 horde，满血
+      const sm = G.spawnMob('husk', G.state.zone.start.x + 3, G.state.zone.start.z, 9, { elite: false, pack: null, awake: true });
+      out.summon = { horde: !!sm.horde, full: sm.maxHp === Math.round(G.MOBS.husk.hp * G.hpScale(9)) };
+      // 经验：普通怪 ×mobXp，精英 ×3、首领 ×20 不变
+      out.xp = { horde: +(G.killXp(sm.horde ? sm : Object.assign({}, sm, { horde: true }), 9) / G.mobXp(9)).toFixed(4), plain: +(G.killXp(sm, 9) / G.mobXp(9)).toFixed(4), elite: +(G.killXp(Object.assign({}, sm, { elite: true, horde: false }), 9) / G.mobXp(9)).toFixed(4) };
+      // 掉落几率：同一只怪带 / 不带 horde 各掷 N 次，比物品 / 通货 / 宝石的个数
+      const N = 20000, cnt = (horde) => {
+        const c = { item: 0, cur: 0, gem: 0 }, s0 = G.spawnLoot, r0 = G.rollItem, c0 = G.rollCurrency;
+        G.spawnLoot = (k) => { c[k === 'item' ? 'item' : k === 'cur' ? 'cur' : 'gem']++; return null; };
+        G.rollItem = () => ({ rarity: 0 });
+        G.rollCurrency = () => 'dust';
+        try { for (let i = 0; i < N; i++) G.dropLoot({ level: 9, x: 0, z: 0, elite: false, isBoss: false, horde }); } finally { G.spawnLoot = s0; G.rollItem = r0; G.rollCurrency = c0; }
+        return c;
+      };
+      out.lootPlain = cnt(false);
+      out.lootHorde = cnt(true);
+      sm.dead = true;
+      G.world.removeEnt(sm.ent);
+      G.state.enemies.splice(G.state.enemies.indexOf(sm), 1);
+      // 怪群人数：同样的固定布局（5 个区 × 3 个种子），packSize = 1 和设计值各刷一遍，比普通怪 + 精英的总数
+      const count = (k) => {
+        B.packSize = k;
+        let n = 0, packs = 0;
+        for (const seed of [11, 22, 33]) for (let z = 0; z < G.ZONES.length; z++) {
+          G.debug.zoneSeed(seed + z);
+          G.enterZone(z, 0);
+          const ids = new Set();
+          for (const e of G.state.enemies) if (!e.isBoss) { n++; ids.add(e.pack); }
+          packs += ids.size;
+        }
+        return { n, packs };
+      };
+      try { out.size1 = count(1); out.sizeK = count(keep.k); } finally { B.packSize = keep.k; G.debug.zoneSeed(null); }
+      G.enterZone(keep.zi, keep.tier);
+      return out;
+    });
+    // 设计值（owner 默认）：生命 ×0.55、每群 ×1.25
+    assert(r.B.mobHp === 0.55 && r.B.packSize === 1.25, 'G.BALANCE 的生命 / 人数倍率应是 0.55 / 1.25：' + JSON.stringify(r.B));
+    assert(r.bad.length === 0 && r.cnt.horde >= 150 && r.cnt.elite >= 1, '区域刷的普通怪应带 horde、生命 ×mobHp，精英不打折：' + JSON.stringify({ cnt: r.cnt, bad: r.bad.slice(0, 8) }));
+    assert(!r.summon.horde && r.summon.full, '召唤 / 直接刷的怪不该打折：' + JSON.stringify(r.summon));
+    assert(Math.abs(r.xp.horde - r.B.mobXp) < 1e-9 && r.xp.plain === 1 && r.xp.elite === 3 && r.B.mobXp > 0.3 && r.B.mobXp < 1, '经验：普通怪 ×mobXp、直接刷的 ×1、精英 ×3：' + JSON.stringify(r.xp));
+    // 期望个数：物品 0.14·N、通货 0.09·N；打折后的比例和倍率差 15% 以内（N = 20000 时抽样误差约 3–5%）
+    const rel = (k) => r.lootHorde[k] / r.lootPlain[k] / r.B.loot[k];
+    assert(r.lootPlain.item > 2400 && r.lootPlain.item < 3200 && r.lootPlain.cur > 1500 && r.lootPlain.cur < 2100, '不打折的掉落几率应和原来一样（物品 14%、通货 9%）：' + JSON.stringify(r.lootPlain));
+    assert(['item', 'cur', 'gem'].every((k) => Math.abs(rel(k) - 1) < 0.15) && r.B.loot.item < 1 && r.B.loot.cur < 1 && r.B.loot.gem < 1, '普通怪的掉落几率应按 G.BALANCE.loot 打折：' + JSON.stringify({ plain: r.lootPlain, horde: r.lootHorde, loot: r.B.loot }));
+    // 同样的布局：怪群数不变，怪的总数约 ×1.25（随机取整的期望正好是倍率；站位半径跟着放大，几乎都摆得下）
+    const kN = r.sizeK.n / r.size1.n;
+    assert(r.sizeK.packs === r.size1.packs && kN > 1.15 && kN < 1.4, '同样的布局下怪群数应不变、怪的总数约 ×1.25：' + JSON.stringify({ size1: r.size1, sizeK: r.sizeK, kN }));
+    return '普通 ' + r.cnt.horde + ' 只 / 精英 ' + r.cnt.elite + ' 只 · 经验 ×' + r.B.mobXp + ' · 掉落 物品 ×' + rel('item').toFixed(2) + ' 通货 ×' + rel('cur').toFixed(2) + '（相对倍率）· 人数 ' + r.size1.n + ' → ' + r.sizeK.n + '（×' + kN.toFixed(2) + '）';
+  });
+
   await step('词缀：物品等级 31 / 38 / 46 / 55 解锁第 7–10 阶，按同样的倍率接着涨（抗性 / 速度类放缓）；24 级以内的 6 阶不变；高阶词缀在物品详情里显示 T7–T10', async () => {
     const r = await ev(() => {
       const out = { ilvl: G.TIER_ILVL.join() };
