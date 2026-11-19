@@ -6628,6 +6628,49 @@ async function main() {
     assert(out.t < 300 && out.n >= 2, '面板关闭后提示应回到屏幕上方并恢复多条：' + JSON.stringify(out));
   });
 
+  await step('按住 Alt 查看详情：只有带详情的技能卡 / 浮窗才有提示行；面板开着时按住 Alt 展开、松开收起', async () => {
+    const keep = await ev(() => {
+      const S = G.save, k = { shadestep: S.skills.shadestep, blade: S.skills.blade };
+      S.skills.shadestep = Math.max(S.skills.shadestep || 0, 1);
+      S.skills.blade = Math.max(S.skills.blade || 0, 1);
+      return k;
+    });
+    try {
+      const pre = await ev(() => ({ shade: !!G.SKILLS.shadestep.alt, blade: !G.SKILLS.blade.alt, relic: !!G.RELICS.qianmu.mechAlt, vb: !!G.VARIANTS.ember.b.alt, va: !G.VARIANTS.nova.a.alt }));
+      assert(pre.shade && pre.blade && pre.relic && pre.vb && pre.va, '数据里的详情字段不对：' + JSON.stringify(pre));
+      await page.keyboard.press('KeyG');
+      await until(() => G.ui.isOpen() && document.querySelectorAll('.skill-card').length > 0);
+      const look = () => ev(() => {
+        const card = (id) => Array.from(document.querySelectorAll('.skill-card')).find((n) => n.querySelector('.sk-name') && n.querySelector('.sk-name').textContent.includes(G.SKILLS[id].name));
+        const sh = card('shadestep'), bl = card('blade');
+        const d = sh && sh.querySelector('.alt-d'), h = sh && sh.querySelector('.alt-h');
+        return { sh: !!sh, bl: !!bl, blBox: bl ? bl.querySelectorAll('.alt-box').length : -1, d: d ? getComputedStyle(d).display : '', h: h ? getComputedStyle(h).visibility : '', hgt: sh ? Math.round(sh.getBoundingClientRect().height) : 0, ht: h ? h.textContent : '', dt: d ? d.textContent : '', alt: G.SKILLS.shadestep.alt, on: document.body.classList.contains('alt-on') };
+      });
+      let r = await look();
+      assert(r.sh && r.bl && r.blBox === 0 && !r.on && r.d === 'none' && r.h === 'visible' && r.ht === '按住 Alt 查看详情' && r.dt === r.alt, '平时只显示提示行、没有详情的卡不出提示：' + JSON.stringify(r));
+      const h0 = r.hgt;
+      await page.keyboard.down('Alt');
+      try {
+        await until(() => document.body.classList.contains('alt-on'));
+        r = await look();
+        assert(r.d === 'block' && r.h === 'hidden' && r.hgt === h0, '按住 Alt 应展开详情（浮在卡上，卡片高度不变）、藏起提示行：' + JSON.stringify(r) + ' 原高 ' + h0);
+      } finally {
+        await page.keyboard.up('Alt');
+      }
+      await until(() => !document.body.classList.contains('alt-on'));
+      r = await look();
+      assert(r.d === 'none' && r.h === 'visible', '松开 Alt 应收起详情：' + JSON.stringify(r));
+      await closePanel();
+    } finally {
+      await ev((k) => {
+        for (const id in k) {
+          if (k[id] === undefined) delete G.save.skills[id];
+          else G.save.skills[id] = k[id];
+        }
+      }, keep);
+    }
+  });
+
   await step('回响：法术自动重复一次，不再扣魔力', async () => {
     const r = await ev(() => {
       T.arena();
