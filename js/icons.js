@@ -1722,8 +1722,50 @@
       spark(g, 12.6, -17.6, 4.8, CH.hi);
     },
   };
+  // =====================================================================
+  // 烛芯（异兆一期，熄烛者的开启材料）：同一根矮蜡烛头，烛芯上一粒余火，各带一个记号
+  //   印：蜡身箍一圈印环；隙：蜡身裂开一道紫缝；誓：缠一道打结的绳；匣：插在一个小铁匣里
+  // =====================================================================
+  function fragCandle(g, col, y0) {
+    const WAX = '#e8dcc4';
+    solid(g, (p) => p.M(-11, y0).Q(-12, 2, -10, -8).Q(-6, -12, 0, -11).Q(7, -12, 10, -8).Q(12, 2, 11, y0).Q(0, y0 + 4, -11, y0).Z(), WAX, { hi: 0.25, lo: 0.4 });
+    // 顶上淌下来的两道蜡泪
+    solid(g, (p) => p.M(-7, -10).Q(-8, -2, -6, 2).Q(-4, 3, -4, -2).Q(-4, -8, -3, -11).Z(), lite(WAX, 0.25), { hi: 0.4, lw: 1.4, bevel: 0.8 });
+    solid(g, (p) => p.M(5, -11).Q(6, -6, 7, -4).Q(9, -3, 8.6, -7).Q(8, -10, 8, -11).Z(), lite(WAX, 0.25), { hi: 0.4, lw: 1.4, bevel: 0.8 });
+    // 烛芯 + 余火
+    line(g, (p) => p.M(0, -11).Q(1.4, -15, 0.2, -18), '#2a2018', 2.4);
+    glow(g, (p) => p.M(0.2, -29).Q(5.5, -22, 3, -17.5).Q(0.2, -15.4, -2.6, -17.6).Q(-5, -22, 0.2, -29).Z(), col, { blur: 9, core: lite(col, 0.45) });
+    glow(g, (p) => p.E(0.4, -19.6, 1.8, 2.6), '#ffffff', { blur: 3, core: '#fffbe8' });
+  }
+  const FRAG_DRAW = {
+    seal(g, col) {
+      fragCandle(g, col, 20);
+      solid(g, (p) => p.M(-12, 3).Q(0, 7, 12, 3).L(12, 9).Q(0, 13, -12, 9).Z(), dark(col, 0.2), { hi: 0.35, bevel: 1, lw: 1.8 });
+      gem(g, 0, 8, 3.2, col, 4, null, { glow: 3, lw: 1.2 });
+    },
+    rift(g, col) {
+      fragCandle(g, col, 20);
+      glow(g, (p) => p.M(1, -10).L(-3, -3).L(2, 3).L(-2, 10).L(1, 19), col, { stroke: 2.2, blur: 6, core: lite(col, 0.5) });
+      line(g, (p) => p.M(1, -10).L(-3, -3).L(2, 3).L(-2, 10).L(1, 19), rgba('#20142e', 0.9), 0.9);
+    },
+    vow(g, col) {
+      fragCandle(g, col, 20);
+      tube(g, (p) => p.M(-12, 4).Q(0, 9, 12, 4), '#8a5a34', 3.2);
+      tube(g, (p) => p.M(-1, 6.6).Q(-6, 13, -4, 19), '#8a5a34', 2.6);
+      tube(g, (p) => p.M(1, 6.6).Q(5, 12, 7, 17), '#8a5a34', 2.6);
+      solid(g, (p) => p.E(0, 6.4, 3, 2.6), dark(col, 0.1), { hi: 0.4, bevel: 0.8, lw: 1.6 });
+    },
+    box(g, col) {
+      fragCandle(g, col, 8);
+      solid(g, (p) => p.M(-17, 4).L(17, 4).L(15, 22).L(-15, 22).Z(), '#6a6470', { hi: 0.3, lo: 0.5 });
+      solid(g, (p) => p.M(-18.5, 1.5).L(18.5, 1.5).L(18.5, 6.5).L(-18.5, 6.5).Z(), '#8a8490', { hi: 0.35, bevel: 1, lw: 1.8 });
+      line(g, (p) => p.M(-8, 7).L(-7.4, 21).M(8, 7).L(7.4, 21), rgba('#1a1620', 0.7), 1.4);
+      gem(g, 0, 14, 3.4, col, 4, null, { glow: 3, lw: 1.2 });
+    },
+  };
   function build(key) {
     const k = key.split('-');
+    if (k[0] === 'fr') return G.FRAGS && G.FRAGS[k[1]] && FRAG_DRAW[k[1]] ? render((g) => { g.scale(1.1, 1.1); FRAG_DRAW[k[1]](g, G.FRAGS[k[1]].color); }) : null;
     if (k[0] === 'it' && k[1] === 'uq') return UQ_DRAW[k[2]] ? render((g) => { g.scale(ITEM_SCALE.weapon, ITEM_SCALE.weapon); UQ_DRAW[k[2]](g); }) : null;
     if (k[0] === 'it') {
       const fn = ITEM_DRAW[k[1]];
@@ -1842,6 +1884,8 @@
     sup: (id, extra) => html('sup-' + id, extra),
     ail: (id, extra) => html('ail-' + id, extra),
     blank: (extra) => html('blank', extra), // 无铭技能宝石
+    frag: (id, extra) => html('fr-' + id, extra), // 烛芯：用到时才画，不进 keys()（低画质的图标预热不多画）
+    fragIcons: () => Object.keys(FRAG_DRAW).map((id) => 'fr-' + id), // 测试用
     basicBlank: (extra) => html('basicnone', extra), // 武器普攻卡没拿远程武器时的空白图标
     wsk: (type, extra) => html('wsk-' + type, extra), // 按武器类型的武器技图标（技能数据还没有时的退路）
     weaponType, // 武器基底下标 → 'blade' | 'staff' | 'wand' | 'daggers' | 'hammer' | 'bow' | 'katana' | 'banner'
