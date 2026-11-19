@@ -12965,7 +12965,7 @@ async function main() {
       return out;
     });
     assert(/^shuangsheng /.test(r.first) && /"first":true/.test(r.first) && r.pts === 2 && r.noClear && r.portal, '首杀不对：' + JSON.stringify(r));
-    assert(r.loot === '3/6/1/2' || /^[34]\/6\/1\/2$/.test(r.loot), '必掉的件数不对（3 稀有、6 通货、1 无铭、2 辅助）：' + r.loot);
+    assert(r.loot === '3/6/1/2', '必掉的件数不对（3 稀有、6 通货、1 无铭、2 辅助）：' + r.loot);
     assert(r.pity === '0001 {"kills":5,"pity":0}' && r.chance === 1 && r.normal === '1+1', '保底 / 几率不对：' + JSON.stringify(r));
     return '首杀 ' + r.first.split(' ')[0] + ' · 保底 ' + r.pity.split(' ')[0];
   });
