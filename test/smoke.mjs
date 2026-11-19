@@ -8409,28 +8409,33 @@ async function main() {
         return f();
       };
       const q0 = G.save.opts.quality;
-      const zones = [];
+      const zones = [], layers = [];
       for (let i = 0; i < G.ZONES.length; i++) {
         G.enterZone(i, 0);
         await wait(() => !W.assetsPending(), 40000);
         const g = W.gfxInfo();
         zones.push(G.ZONES[i].id + ':' + (g.hd ? 'hd' : 'proc') + (g.fires ? '+' + g.fires + '火' : ''));
+        layers.push(G.ZONES[i].id + ':' + (g.layer ? 'layer' : '-') + (g.decals ? '+decals' : ''));
       }
       G.enterZone(0, 0);
-      const qs = [];
+      const qs = [], aa = [];
       for (const q of ['high', 'mid', 'low']) {
         W.setQuality(q);
         G.debug.step(0.1);
         W.render();
         const g = W.gfxInfo();
         qs.push(q + ':' + (g.post ? 'post' : 'direct') + (g.bloom ? '+bloom' : '') + (g.mist ? '+mist' : ''));
+        aa.push(q + ':' + (g.smaa ? 'smaa' : g.fxaa ? 'fxaa' : 'none') + (g.decals ? '+decals' : ''));
       }
       W.setQuality(q0);
-      return { zones, qs, q0, eff: W.quality(), valid: q0 === 'auto' || G.QUALITY_IDS.indexOf(q0) >= 0 };
+      return { zones, layers, aa, qs, q0, eff: W.quality(), valid: q0 === 'auto' || G.QUALITY_IDS.indexOf(q0) >= 0 };
     });
     assert(r.valid, '存档里的画质无效：' + r.q0);
     assert(r.zones.every((z) => z.includes(':hd')), '有区域没换上 PBR 外观（素材没加载到？）：' + r.zones.join(' '));
     assert(r.qs.join() === 'high:post+bloom+mist,mid:post+bloom,low:direct', '画质档位不对：' + r.qs.join());
+    // vf-ground：五个区都有地面覆盖层和贴花层；三档都画得出贴花层，抗锯齿按 QUALITY 的开关（SMAA / FXAA 默认关时都是 none）
+    assert(r.layers.every((z) => z.endsWith(':layer+decals')), '有区域没有地面覆盖层或贴花层：' + r.layers.join(' '));
+    assert(r.aa.every((z) => z.endsWith('+decals')), '有画质档位没有贴花层：' + r.aa.join(' '));
     // 地图页的画质按钮：点了立即生效并写进存档
     await page.keyboard.press('KeyM');
     await page.click('[data-act="quality"][data-q="mid"]');
