@@ -9170,7 +9170,11 @@ async function main() {
       T.unfix();
       T.clearLoot();
       U.pity.warden = G.UNIQUE_DROP.pity;
+      // 这一次只看烬铸：首领那件渊契（真随机数下常常也掉）的大字提示会盖掉烬铸的，先关掉首领来源再放回去
+      const rqBoss = G.RELIC_DROP && G.RELIC_DROP.src.boss;
+      if (G.RELIC_DROP) G.RELIC_DROP.src.boss = false;
       G.dropLoot({ isBoss: true, bossKind: 'warden', level: 28, x: P.x, z: P.z - 3 });
+      if (G.RELIC_DROP) G.RELIC_DROP.src.boss = rqBoss;
       const l = S.loot.find((x) => x.kind === 'item' && x.data.rarity === 3);
       out.full = l ? { uq: l.data.uq, ilvl: l.data.ilvl, color: l.color, label: l.label, beam: l.mesh.children.length } : null;
       out.pityReset = U.pity.warden || 0;
@@ -10662,7 +10666,7 @@ async function main() {
     return r.n + ' 件 · 往返留下 ' + r.kept;
   });
 
-  await step('渊契掉落：首领那一件按层级的几率（层级 1 5%、层级 2 起 8%，N = 4000，±15%），层级 0 不掉也不计保底；连续 10 次没掉第 11 次必掉、掉了清零；和烬铸的判定、保底互不影响；异兆 / 烈印 / 拾烬客的来源都关着（打开后各自按保底掉）', async () => {
+  await step('渊契掉落：首领那一件按层级的几率（和烬铸一样：层级 1 15%、层级 2 起 25%，N = 4000，±15%），烈印 W ≥ 6 时 × 1.5、封顶 35%（层级 1 22.5%、层级 2 35%），层级 0 不掉也不计保底；连续 2 次没掉第 3 次必掉、掉了清零；和烬铸的判定、保底互不影响；异兆 / 烈印 / 拾烬客的来源都关着（打开后各自按保底掉）', async () => {
     const r = await ev(() => {
       RQT.begin(null);
       const P = G.player, U = G.save.relic, D = G.RELIC_DROP, S = G.state;
@@ -10673,9 +10677,18 @@ async function main() {
       Math.random = () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
       const rate = (kind, tier) => { const id = G.RELIC_BY_BOSS[kind]; let n = 0; for (let i = 0; i < 4000; i++) { delete U.pity[id]; if (G.relicBossRoll(kind, tier)) n++; } delete U.pity[id]; return n / 4000; };
       const uq0 = JSON.stringify(G.save.uniq.pity);
+      // 烈印的 W 先按 0（D3 上线后 G.runSealW 是真的，量完放回去）
+      const sw0 = G.runSealW;
+      G.runSealW = () => 0;
       out.r1 = rate('golem', 1);
       out.r2 = rate('warden', 2);
       out.r3 = rate('behemoth', 3);
+      // 烈印 W ≥ 6：× sealMul，最终不超过 sealCap
+      G.runSealW = () => 6;
+      out.s1 = rate('golem', 1);
+      out.s2 = rate('warden', 2);
+      if (sw0) G.runSealW = sw0;
+      else delete G.runSealW;
       let n0 = 0;
       for (let i = 0; i < 4000; i++) if (G.relicBossRoll('lord', 0)) n0++;
       out.t0 = [n0, U.pity.haiwang || 0];
@@ -10724,14 +10737,15 @@ async function main() {
       return out;
     });
     const near = (v, p) => Math.abs(v - p) <= p * 0.15;
-    assert(near(r.r1, 0.05) && near(r.r2, 0.08) && near(r.r3, 0.08), '首领渊契的几率不对：' + JSON.stringify(r));
+    assert(near(r.r1, 0.15) && near(r.r2, 0.25) && near(r.r3, 0.25), '首领渊契的几率不对：' + JSON.stringify(r));
+    assert(near(r.s1, 0.225) && near(r.s2, 0.35), '烈印下首领渊契应 × 1.5、封顶 35%：' + JSON.stringify(r));
     assert(r.t0.join() === '0,0', '层级 0 不该掉、不该计保底：' + r.t0);
-    assert(r.pity.join() === '11,0', '保底应在第 11 次必掉并清零：' + r.pity);
+    assert(r.pity.join() === '3,0', '保底应在第 3 次必掉并清零：' + r.pity);
     assert(r.uqSame && r.rqSame, '渊契和烬铸的保底互相影响了：' + JSON.stringify(r));
     assert(r.map === 'behemoth:yinli,golem:panzhong,lord:haiwang,warden:nuchao,weaver:huixuan', '首领 → 渊契对应不对：' + r.map);
     assert(r.src === 'true,false,false,false' && r.off === 'true,true,true', '异兆 / 烈印 / 拾烬客来源应关着：' + JSON.stringify(r));
     assert(r.encOn.join() === 'dianqiao,0' && r.sealLow && r.sealOn.join() === 'true,0', '打开来源后应按保底掉落：' + JSON.stringify(r));
-    return '层级 1 ' + (r.r1 * 100).toFixed(1) + '% · 层级 2 ' + (r.r2 * 100).toFixed(1) + '% · 保底第 ' + r.pity[0] + ' 次';
+    return '层级 1 ' + (r.r1 * 100).toFixed(1) + '% · 层级 2 ' + (r.r2 * 100).toFixed(1) + '% · 烈印 ' + (r.s1 * 100).toFixed(1) + '% / ' + (r.s2 * 100).toFixed(1) + '% · 保底第 ' + r.pity[0] + ' 次';
   });
 
   await step('踏震（磐踵）：翻滚落地震地，半径 4.5 米（RELIC_MECH.panzhong.r）内的敌人吃 1.1 倍武器伤害（物理攻击，吃伤害加成），外面的不吃；两次至少隔 0.8 秒；翻滚冷却 +30%，摘下就恢复', async () => {
@@ -11230,7 +11244,7 @@ async function main() {
     return '一串 6 个 · 各 ' + r.share;
   });
 
-  await step('渊契图鉴：拾到记进图鉴（最高完美度）、图标马上进预热；保底计数和图鉴存档往返后保留；畸形数据被修正（未知 id 丢、完美度 0–100、计数截到上限）；旧存档没有 relic 也照常读（空图鉴）；背包页列出 13 件', async () => {
+  await step('渊契图鉴：拾到记进图鉴（最高完美度）、图标马上进预热；保底计数和图鉴存档往返后保留；畸形数据被修正（未知 id 丢、完美度 0–100、计数截到上限）；掉率改版前攒下的计数（旧上限 10 / 8 / 15）截到新上限 2 / 3 / 3，满了的下一次首领击杀必掉；旧存档没有 relic 也照常读（空图鉴）；背包页列出 13 件', async () => {
     const r = await ev(() => {
       RQT.begin(null);
       const P = G.player, KEY = 'cinder-abyss-save-v1';
@@ -11242,8 +11256,8 @@ async function main() {
       const loot = G.state.loot[G.state.loot.length - 1];
       const ok = G.pickup(loot);
       const out = { ok, found: !!G.save.relic.found.qianmu, best: G.save.relic.best.qianmu, warm: G.icons.rqWarm().indexOf('qianmu') >= 0 };
-      G.save.relic.pity.panzhong = 7;
-      G.save.relic.pity.seal = 3;
+      G.save.relic.pity.panzhong = 1;
+      G.save.relic.pity.seal = 2;
       G.persist();
       G.loadSave();
       out.round = [!!G.save.relic.found.qianmu, G.save.relic.best.qianmu, G.save.relic.pity.panzhong, G.save.relic.pity.seal].join();
@@ -11254,6 +11268,15 @@ async function main() {
       G.loadSave();
       const s = G.save.relic;
       out.bad = T.canon(s);
+      // 掉率改版前的存档：首领 7 / 2 / 1、异兆 6、烈印 12 → 截到 2 / 2 / 1、3、3；满了的下一次必掉并清零，没满的照常 +1
+      raw.relic = { found: {}, best: {}, pity: { panzhong: 7, huixuan: 2, nuchao: 1, dianqiao: 6, seal: 12 } };
+      localStorage.setItem(KEY, JSON.stringify(raw));
+      G.loadSave();
+      const cp = G.save.relic.pity;
+      out.carry = [cp.panzhong, cp.huixuan, cp.nuchao, cp.dianqiao, cp.seal].join();
+      T.fix(0.999);
+      out.carryDrop = [G.relicBossRoll('golem', 1), G.relicBossRoll('warden', 1), cp.panzhong || 0, cp.nuchao].join();
+      T.unfix();
       // 旧存档：没有 relic，背包里也没有渊契
       delete raw.relic;
       raw.bag = [];
@@ -11272,8 +11295,9 @@ async function main() {
       return out;
     });
     assert(r.ok && r.found && r.best === 100 && r.warm, '拾取应记进图鉴、图标进预热：' + JSON.stringify(r));
-    assert(r.round === 'true,100,7,3', '图鉴 / 保底存档往返不对：' + r.round);
-    assert(r.bad === '{"best":{"qianmu":100},"found":{"qianmu":true},"pity":{"panzhong":10,"yinli":3}}', '畸形数据没修好：' + r.bad);
+    assert(r.round === 'true,100,1,2', '图鉴 / 保底存档往返不对：' + r.round);
+    assert(r.bad === '{"best":{"qianmu":100},"found":{"qianmu":true},"pity":{"panzhong":2,"yinli":2}}', '畸形数据没修好：' + r.bad);
+    assert(r.carry === '2,2,1,3,3' && r.carryDrop === 'panzhong,,0,2', '旧存档的保底计数应截到新上限、满了下一次必掉：' + JSON.stringify(r));
     assert(r.old === '{"best":{},"found":{},"pity":{}}', '旧存档应是空图鉴：' + r.old);
     assert(r.rows === 13 && r.title, '背包页应列出 13 件渊契：' + JSON.stringify(r));
     return '往返 ' + r.round;
