@@ -124,14 +124,14 @@ const COVERS = {
     const a = 0.5 + 0.18 * (n - 0.5) + 0.12 * (plate - 0.5) + 0.08 * (gr - 0.5) - 0.28 * vein;
     return { a: [a, a * 0.96, a * 1.02], h, ao: 0.7 + 0.3 * (1 - vein), r: 0.7 + 0.2 * vein };
   },
-  // 苔尘：一片片圆斑的地衣（边缘一圈略亮），斑和斑之间是细尘
+  // 苔尘：不规则的一片片地衣（两层噪声取阈值，边上一圈略亮），片里有细的斑点，片和片之间是细尘
   rift(u, v) {
-    const n = fbm(u, v, 7, 4, 91), w = worley(u, v, 16, 4, 0.9);
-    const blob = sstep(0.5, 0.42, w[0] + 0.25 * (n - 0.5)) * (w[2] > 0.3 ? 1 : 0), rim = blob * sstep(0.3, 0.42, w[0] + 0.25 * (n - 0.5));
-    const dust = fbm(u, v, 72, 2, 97), speck = hashI(Math.floor(u * 512), Math.floor(v * 512), 7) > 0.97 ? 1 : 0;
-    const h = 0.4 + 0.25 * blob + 0.1 * rim + 0.08 * (dust - 0.5);
-    const a = 0.5 + 0.14 * blob + 0.14 * rim + 0.1 * (dust - 0.5) + 0.1 * speck + 0.06 * (n - 0.5);
-    return { a: [a * 0.96, a * 1.02, a], h, ao: 0.75 + 0.25 * (1 - blob * 0.3), r: 0.9 };
+    const n = fbm(u, v, 8, 4, 91), n2 = fbm(u, v, 28, 3, 93), t = n + 0.3 * (n2 - 0.5);
+    const blob = sstep(0.53, 0.57, t), rim = blob * sstep(0.63, 0.57, t);
+    const dust = fbm(u, v, 72, 2, 97), sp = fbm(u, v, 110, 2, 99), speck = hashI(Math.floor(u * 512), Math.floor(v * 512), 7) > 0.975 ? 1 : 0;
+    const h = 0.4 + 0.22 * blob + 0.06 * rim + 0.06 * (dust - 0.5);
+    const a = 0.5 + 0.12 * blob + 0.12 * rim + 0.1 * blob * (sp - 0.5) + 0.08 * (dust - 0.5) + 0.08 * speck * (1 - blob);
+    return { a: [a * 0.96, a * 1.02, a], h, ao: 0.78 + 0.22 * (1 - rim * 0.5), r: 0.9 };
   },
 };
 function genCover(kind, N = 512) {
