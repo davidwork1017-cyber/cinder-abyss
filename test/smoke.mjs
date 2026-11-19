@@ -11576,7 +11576,7 @@ async function main() {
     return 'W 分布 ' + JSON.stringify(r.W['2:2']) + '（层级 2 烬印），最高危险度 ' + [1, 2, 3].map((t) => r.maxDz[t].toFixed(3)).join(' / ') + '，每次 ' + r.ms + ' ms';
   });
 
-  await step('渊印·应用：厚躯 + 凶戾的普通怪生命 / 伤害；群首精英 ≤ 8；殁爆 0.9 s 预警、上限 8、伤害 70%；幽晦改雾和暖光、下一区复位；领群者每群恰好一只', async () => {
+  await step('渊印·应用：厚躯 + 凶戾的普通怪生命 / 伤害；群首精英 ≤ 8；殁爆 0.9 s 预警、上限 8、伤害 70%、叠在一起只算一下；幽晦改雾和暖光、下一区复位；领群者每群恰好一只', async () => {
     const r = await ev(() => {
       const out = {}, St = G.state, P = G.player;
       const keep = { zi: St.zoneIdx, tier: St.tier, maxTier: G.save.maxTier };
@@ -11629,8 +11629,8 @@ async function main() {
       const hit = vic[0].dmgBase;
       for (const e of vic) G.killEnemy(e);
       const tb = St.telegraphs.filter((t) => t.sealBurst);
-      out.burst = { n: tb.length, dur: tb[0] && tb[0].dur, r: tb[0] && tb[0].r, k: tb[0] && +(tb[0].dmg / hit).toFixed(3) };
-      // 站进第一个圈：0.85 s 时还没炸，0.95 s 时炸了
+      out.burst = { n: tb.length, dur: tb[0] && tb[0].dur, r: tb[0] && tb[0].r, k: tb[0] && +(tb[0].burstDmg / hit).toFixed(3) };
+      // 站进第一个圈（和旁边几个圈叠着）：0.85 s 时还没炸，0.95 s 时炸了；同时炸开的几个只算一下
       const t0 = tb[0];
       T.tp(t0.x, t0.z);
       P.iframe = 0;
@@ -11659,7 +11659,7 @@ async function main() {
     assert(r.more > 0, '群首应多出精英：' + r.el.join(' '));
     assert(r.packs > 4 && r.packBad === 0, '领群者不对：' + JSON.stringify({ packs: r.packs, bad: r.packBad }));
     assert(r.burst.n === 8 && Math.abs(r.burst.dur - 0.9) < 1e-9 && r.burst.r === 1.8 && r.burst.k === 0.7, '殁爆预警不对：' + JSON.stringify(r.burst));
-    assert(r.before >= 1 && r.after < r.before && r.took > 0 && r.took <= r.hit * 0.7 + 1, '殁爆该在 0.9 s 时炸、只扣它一击的 70%：' + JSON.stringify({ b: r.before, a: r.after, took: r.took, hit: r.hit }));
+    assert(r.before >= 1 && r.after < r.before && r.took > 0 && r.took <= r.hit * 0.7 + 1, '殁爆该在 0.9 s 时炸、叠在一起也只扣一下（它一击的 70%）：' + JSON.stringify({ b: r.before, a: r.after, took: r.took, hit: r.hit }));
     assert(r.gloom.near === 17 && r.gloom.far === 38 && r.gloom.lamp === 12 && r.gloom.tag === 18, '幽晦没有改雾 / 暖光：' + JSON.stringify(r.gloom));
     assert(r.gloomOff.near === 22 && r.gloomOff.far === 52 && r.gloomOff.lamp === 16 && r.gloomOff.tag === 0, '幽晦进下一区没复位：' + JSON.stringify(r.gloomOff));
     return '精英 ' + r.el.slice(0, 5).join(' ') + '…（平均 +' + r.more.toFixed(2) + '），领群 ' + r.packs + ' 群，殁爆一下 ' + Math.round(r.took) + ' / 一击 ' + Math.round(r.hit);
