@@ -762,9 +762,13 @@
         if (P.cast && P.cast.id === id && P.cast.st) lit = P.cast.step + 1;
         else if (P.combo.t > 0) lit = P.combo.step;
       }
-      if (lit !== s.lit) {
+      // 连段格按段数显示：原式 3 段；刻式开山 2 段（多的藏起来）、连斩 4 段（不够就补一格）
+      const nc = id && G.SKILLS[id].combo ? G.SKILLS[id].combo.length : 3;
+      while (nc > s.pips.length) s.pips.push(s.pips[0].parentNode.appendChild(document.createElement('i')));
+      if (lit !== s.lit || nc !== s.nc) {
         s.lit = lit;
-        for (let k = 0; k < 3; k++) s.pips[k].className = k < lit ? 'on' : '';
+        s.nc = nc;
+        for (let k = 0; k < s.pips.length; k++) s.pips[k].className = (k >= nc ? 'x' : k < lit ? 'on' : '') + (k === nc - 1 ? ' fin' : '');
       }
       let cdq = 0;
       let numTxt = '';
@@ -2177,10 +2181,10 @@
     return (
       '<div class="skill-card" style="--c:' + sk.color + '">' +
       '<div class="sk-top"><div class="sk-icon" data-drag="skill:' + id + '" data-tip="skdrag:' + id + '">' + IC.skill(id) + '</div>' +
-      '<div class="sk-title"><div class="sk-name">' + sk.name + '<em>Lv ' + S.skills[id] + '</em>' + blankUp + '</div>' +
+      '<div class="sk-title"><div class="sk-name">' + sk.name + (sk.vname ? '<i class="sk-vn">' + sk.vname + '</i>' : '') + '<em>Lv ' + S.skills[id] + '</em>' + blankUp + '</div>' +
       '<div class="sk-tags">' + cardTags(sk).map((t) => '<span>' + G.TAG_NAME[t] + '</span>').join('') + '</div></div>' +
       '<div class="sk-binds">' + binds + '</div></div>' +
-      '<div class="sk-desc">' + sk.desc + '</div>' +
+      '<div class="sk-desc">' + sk.desc + '</div>' + variantRow(id) +
       (sk.combo ? '<div class="sk-combo">' + sk.combo.map((c, i) => '<span' + (c.w >= 2 ? ' class="fin"' : '') + '>' + (c.w >= 2 ? '终结 ' : '第 ' + (i + 1) + ' 段 ') + '×' + c.mult + '</span>').join('<i></i>') + '</div>' : '') +
       '<div class="sk-nums' + (mi ? ' ally' : '') + '">' + nums + '</div>' + note +
       '<div class="sk-socks"><span class="sk-socks-label">辅助</span>' + sockets + '</div>' +
@@ -2882,6 +2886,7 @@
       '<p><b class="c-blank">无铭技能宝石</b>没有刻下技能：每个首领第一次倒下时必掉一颗，精英和普通怪偶尔也会掉。在技能页里点一个没学会的技能就能用它学会，或把等级更低的已学技能升到它的等级；总是先用等级最高的那颗。</p>' +
       '<p>每个技能有 3 个辅助槽。<b>辅助宝石</b>不会单独生效，而是改变它所镶嵌的技能：多几枚投射物、范围更大、自动重复施放……代价是更高的魔力消耗。把宝石拖进辅助槽，或点击空槽挑选；点击已镶嵌的槽取下。</p>' +
       '<p>一颗辅助宝石同一时间只能镶在一个技能上，并且技能要带有它要求的标签。</p>' +
+      '<p><b>刻式</b>：技能宝石到 ' + G.VARIANT_LVL + ' 级后，技能卡上多出「原式 / A / B」三个按钮。A、B 两种刻式各改一种打法（比如裂石击的「开山」两段重击、「连斩」四段快斩），打单个目标的秒伤和原式差不多，取舍在怪群上，悬停按钮可以看到数值。每个技能第一次选免费，之后每换一次（包括改回原式）用掉 ' + G.VARIANT_COST.n + ' 颗' + G.CURRENCY[G.VARIANT_COST.cur].name + '；身边 ' + G.VARIANT_SAFE_R + ' 米内有醒着的敌人时不能换。</p>' +
       '<p>带<b>光环</b>标签的技能（' + (G.SKILLS.nova ? G.SKILLS.nova.name : '霜环') + '）不用按键：放进技能栏任意一格就常驻生效，代价是<b>保留</b>一部分最大魔力——魔力球顶上压暗的那一截，保留的魔力既不能用也不回复（以血为引时改为保留生命）。镶上的辅助宝石按各自的消耗倍率增减保留：节流减少，迅捷、扩域这类增加。回响和投射物类辅助镶不上。</p>' +
       helpSummon() +
       '<div class="sec-title">天赋盘</div>' +
@@ -2974,7 +2979,89 @@
     );
   }
 
+  // ---------- 刻式 ----------
+  // 技能卡上的刻式一行：宝石 ≥ 解锁等级时「原式 / A 名 / B 名」三个按钮 + 价格；没到时一行灰字
+  function variantRow(id) {
+    const V = G.VARIANTS[id];
+    if (!V) return '';
+    const S = G.save;
+    if (!(S.skills[id] >= G.VARIANT_LVL)) return '<div class="sk-var lock"><span class="sv-label">刻式</span><span class="sv-lock">宝石 Lv ' + G.VARIANT_LVL + ' 解锁 A / B 两种刻式</span></div>';
+    const cur = S.variants[id] || 'o', VC = G.VARIANT_COST, cost = G.variantCost(id), have = S.cur[VC.cur] || 0;
+    let btns = '';
+    for (const v of ['o', 'a', 'b']) {
+      btns +=
+        '<button type="button" tabindex="-1" class="sv-btn' + (cur === v ? ' on' : '') + '" data-act="variant" data-skill="' + id + '" data-v="' + v + '" data-tip="var:' + id + '.' + v + '">' +
+        (v === 'o' ? '原式' : '<em>' + G.VARIANT_NAME[v] + '</em>' + V[v].name) + '</button>';
+    }
+    const price = cost
+      ? '<span class="sv-cost' + (have < cost ? ' bad' : '') + '">换一次 ' + cost + ' ' + G.CURRENCY[VC.cur].name + '（持有 ' + have + '）</span>'
+      : '<span class="sv-cost free">第一次选免费</span>';
+    const m = ui.varMsg && ui.varMsg.id === id ? '<div class="sv-msg' + (ui.varMsg.bad ? ' bad' : '') + '">' + ui.varMsg.text + '</div>' : '';
+    return '<div class="sk-var"><span class="sv-label">刻式</span>' + btns + price + '</div>' + m;
+  }
+  // 刻式改动的字段怎么写（悬停里逐条列「原式 → 刻式」）
+  const VAR_FIELD = {
+    time: ['出手', '秒'], cd: ['冷却', '秒'], radius: ['半径', ''], explode: ['爆炸半径', ''], speed: ['弹速', ''], mana: ['魔力消耗', ''],
+    dur: ['持续', '秒'], pull: ['牵引', ''], delay: ['延迟', '秒'], range: ['范围', ''], chain: ['连锁', '次'], pierce: ['穿透', ''],
+    count: ['一次', '团'], rate: ['出手间隔', '秒'], move: ['移动', ''], dr: ['减伤', '%'], cleave: ['横斩带到', '个'], reserve: ['保留', '%'],
+  };
+  function variantTip(key) {
+    const cut = key.lastIndexOf('.');
+    const id = key.slice(0, cut), v = key.slice(cut + 1);
+    const V = G.VARIANTS[id];
+    if (!V || !(v === 'o' || v === 'a' || v === 'b')) return '';
+    const S = G.save, base = G.SKILL_BASE[id];
+    // 数值按这一刻式临时拼好的定义算（宝石、辅助、装备都是现在的）
+    const keep = G.useVariant(id, v);
+    const sk = G.SKILLS[id], ctx = G.skillCtx(id);
+    let nums = '';
+    if (sk.buff) {
+      const F = Math.min(sk.flame.cap, sk.flame.k0 + sk.flame.k1 * ((S.skills[id] || 1) - 1)) * (1 + Math.max(0, G.player.S.flameEff || 0) / 100);
+      nums = '额外混沌 ' + fmt1(F) + '% · 保留 ' + fmt1(ctx.reserve) + '%' + (sk.selfOnly ? ' · 召唤物没有' : '');
+    } else if (sk.kind === 'aura') {
+      nums = '每跳 ' + fmt1(G.avgHit(ctx)) + ' · 半径 ' + fmt1(G.auraRadius(ctx)) + ' · 保留 ' + fmt1(ctx.reserve) + '%';
+    } else if (ctx.minion) {
+      nums = '每击 ' + fmtInt(G.avgHit(ctx)) + ' · 每秒 ' + (1 / ctx.minion.interval).toFixed(2) + ' 击 · 生命 ' + fmtInt(ctx.minion.life) + ' · 上限 ' + ctx.minion.cap + ' · 满员秒伤约 ' + fmtInt(G.skillDps(ctx));
+    } else {
+      nums = (ctx.cd > 0 ? '每次伤害 ' : '平均击中 ') + fmtInt(G.avgHit(ctx)) + ' · 单体秒伤约 ' + fmtInt(G.variantDps(id)) + (ctx.cd > 0 ? ' · 冷却 ' + fmt1(ctx.cd) + ' 秒' : '');
+    }
+    G.SKILLS[id] = keep;
+    const rows = [];
+    if (v !== 'o') {
+      const set = V[v].set;
+      for (const k of Object.keys(set)) {
+        const f = VAR_FIELD[k];
+        if (k === 'dmg' || k === 'wm') {
+          const avg = (s) => (k === 'wm' ? s.wm : Object.keys(s.dmg).reduce((a, t) => a + s.dmg[t][0] + s.dmg[t][1], 0));
+          rows.push('每一击伤害 ×' + (Math.round((avg(sk) / avg(base)) * 100) / 100));
+        } else if (k === 'life' && sk.kind === 'summon') rows.push('召唤物生命 ' + base.life + ' → ' + fmt1(sk.life));
+        else if (k === 'life') rows.push('飞行 ' + base.life + ' → ' + sk.life + ' 秒');
+        else if (k === 'capK') rows.push('数量上限 ×' + (Math.round(set.capK * 100) / 100) + '（凑不成整数的部分折进伤害）');
+        else if (f && typeof set[k] === 'number' && typeof base[k] === 'number' && set[k] !== base[k]) rows.push(f[0] + ' ' + fmt1(base[k]) + ' → ' + fmt1(set[k]) + f[1]);
+      }
+    }
+    const r = v === 'o' ? 1 : G.variantRatio(id, v);
+    const total = sk.kind === 'aura';
+    const cur = (S.variants[id] || 'o') === v;
+    const cost = G.variantCost(id), VC = G.VARIANT_COST, have = S.cur[VC.cur] || 0;
+    const state = cur
+      ? '<div class="tc-state dup">当前刻式</div>'
+      : G.variantBusy()
+        ? '<div class="tc-state dup">战斗中不能换（' + G.VARIANT_SAFE_R + ' 米内还有醒着的敌人）</div>'
+        : '<div class="tc-state new">点击换成它：' + (cost ? cost + ' ' + G.CURRENCY[VC.cur].name + '（持有 ' + have + '）' : '免费（这个技能第一次选）') + '</div>';
+    return (
+      '<div class="tcard" style="--c:' + base.color + '">' + tcHead('<div class="tc-skico">' + IC.skill(id) + '</div>', v === 'o' ? '原式' : V[v].name, base.name + ' · ' + (v === 'o' ? '不选刻式' : '刻式 ' + G.VARIANT_NAME[v])) +
+      '<div class="tc-desc">' + (v === 'o' ? base.desc : V[v].desc) + '</div>' +
+      (rows.length ? '<div class="tc-foot">' + rows.join(' · ') + '</div>' : '') +
+      '<div class="tc-stat">' + nums + '</div>' +
+      (v === 'o' ? '' : '<div class="tc-foot">' + (total ? '总秒伤' : '单体秒伤') + ' <b>×' + r.toFixed(2) + '</b>（相对原式）' + (total ? ' · ' + (sk.buff ? '按你自己每一击的黑焰比例' : '按主力技能 + 霜环') : '') + '</div>' +
+        '<div class="tc-foot">怪群：' + V[v].pack + '</div>') +
+      state + '</div>'
+    );
+  }
+
   function tipHtml(kind, id) {
+    if (kind === 'var') return variantTip(id);
     if (kind === 'item') {
       const f = findItem(id);
       if (!f) return '';
@@ -3380,6 +3467,19 @@
       render();
     },
     // 无铭技能宝石：第一下选中（按钮变成「再点一次」），几秒内再点同一个才真的用掉
+    // 换刻式：点哪个换哪个（扣费、战斗中拒绝都在 G.setVariant 里），结果写在这张卡下面
+    variant(d) {
+      const id = d.skill;
+      if (!G.VARIANTS[id]) return;
+      const r = G.setVariant(id, d.v);
+      const nm = d.v === 'o' ? '原式' : G.VARIANTS[id][d.v].name;
+      ui.varMsg = r.ok
+        ? { id, text: r.same ? '已经是「' + nm + '」' : '「' + G.SKILLS[id].name + '」换成了「' + nm + '」' + (r.cost ? '，用掉 ' + r.cost + ' ' + G.CURRENCY[G.VARIANT_COST.cur].name : '（免费）') }
+        : { id, text: r.msg, bad: true };
+      G.sfx(r.ok && !r.same ? 'gem' : r.ok ? 'click' : 'deny');
+      render();
+      retip();
+    },
     blank(d) {
       const id = d.skill;
       const sk = G.SKILLS[id];
