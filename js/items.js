@@ -9,6 +9,7 @@
     [1, 1, 2], // 魔法
     [3, 3, 6], // 稀有
     [0, 0, 0], // 烬铸：词缀行固定，什么也加不上
+    [0, 0, 0], // 渊契：同上
   ];
 
   let uidCounter = 0;
@@ -210,18 +211,24 @@
   // 第 i 条词缀行在这件物品上的区间 [lo, hi]：取这条词缀在物品等级最高阶的区间，乘上该行的 k（fixed 行是 [v, v]）。
   // 不存档：由烬铸 id 和物品等级推出来（读档时据此把数值修回区间里）
   G.uniqueLineRange = function (uq, ilvl, i) {
-    const U = G.UNIQUES[uq];
+    return lineRange(G.UNIQUES[uq], ilvl, i);
+  };
+  // 烬铸和渊契共用：def 是 G.UNIQUES / G.RELICS 里的一项
+  function lineRange(U, ilvl, i) {
     const ln = U && U.lines[i];
     if (!ln) return [0, 0];
     if (ln.fixed !== undefined) return [ln.fixed, ln.fixed];
     const r = tierRange(G.AFFIX_BY_ID[ln.id], maxTier(ilvl));
     const lo = Math.max(1, Math.round(r[0] * ln.k[0]));
     return [lo, Math.max(lo, Math.round(r[1] * ln.k[1]))];
-  };
-  G.uniqueRange = (item, i) => G.uniqueLineRange(item.uq, item.ilvl, i);
-  // 完美度（0..1）：每条非固定词缀行的数值在自己区间里的位置，取平均
+  }
+  G.relicLineRange = (rq, ilvl, i) => lineRange(G.RELICS[rq], ilvl, i);
+  // 渊契（rarity 4）按 rq 查 G.RELICS，其余按 uq 查 G.UNIQUES
+  const fixedDef = (item) => (!item ? null : item.rarity === 4 ? G.RELICS[item.rq] : G.UNIQUES[item.uq]);
+  G.uniqueRange = (item, i) => lineRange(fixedDef(item), item.ilvl, i);
+  // 完美度（0..1）：每条非固定词缀行的数值在自己区间里的位置，取平均（烬铸、渊契通用）
   G.uniquePerfect = function (item) {
-    const U = item && G.UNIQUES[item.uq];
+    const U = fixedDef(item);
     if (!U) return 0;
     let sum = 0;
     let n = 0;
@@ -259,8 +266,36 @@
     return item;
   };
 
+  // ---------- 渊契 ----------
+  // 掷一件渊契（稀有度 4）：部位、基底、名字、词缀行都按 G.RELICS 定；护甲 / 隐含属性按这个基底和物品等级照常算。q 同 rollUnique
+  G.rollRelic = function (rq, ilvl, q) {
+    const R = G.RELICS[rq];
+    if (!R) return null;
+    ilvl = Math.max(1, Math.round(ilvl) || 1);
+    const base = G.BASES[R.slot][R.base];
+    const nameIdx = Math.min(G.nameTier(ilvl), base.names.length - 1);
+    const item = {
+      uid: newUid(), slot: R.slot, baseIdx: R.base, baseName: base.names[nameIdx], name: R.name,
+      rarity: 4, rq, ilvl,
+      armour: base.armour ? Math.round(base.armour[0] + base.armour[1] * ilvl) : 0,
+      imp: base.imp ? { stat: base.imp.stat, v: rollImp(base.imp, ilvl) } : null,
+      affixes: [],
+    };
+    const tier = maxTier(ilvl);
+    R.lines.forEach((ln, i) => {
+      const r = lineRange(R, ilvl, i);
+      const v = q === undefined ? G.randInt(r[0], r[1]) : Math.round(r[0] + (r[1] - r[0]) * G.clamp(q, 0, 1));
+      item.affixes.push({ id: ln.id, tier, v });
+    });
+    return item;
+  };
+
   // ---------- 命名 ----------
   G.updateItemName = function (item) {
+    if (item.rarity === 4) {
+      if (G.RELICS[item.rq]) item.name = G.RELICS[item.rq].name;
+      return;
+    }
     if (item.rarity === 3) {
       if (G.UNIQUES[item.uq]) item.name = G.UNIQUES[item.uq].name;
       return;
@@ -343,6 +378,7 @@
   // 返回不能使用的原因（中文），可以使用时返回 null
   function craftBlock(item, curId) {
     if (item.rarity === 3) return '烬铸武器无法改造'; // 所有通货（含琢刻石、重铸石）都不认它
+    if (item.rarity === 4) return G.RELIC_NAME + '无法改造';
     const n = item.affixes.length;
     switch (curId) {
       case 'dust':
@@ -451,6 +487,8 @@
     const out = {};
     if (item.rarity === 3) {
       Object.assign(out, G.UNIQUE_SALVAGE); // 固定的一把高阶通货（要确认两次才分得掉，见界面）
+    } else if (item.rarity === 4) {
+      Object.assign(out, G.RELIC_SALVAGE);
     } else if (item.rarity === 1) {
       if (Math.random() < 0.5) out.dust = 1;
     } else if (item.rarity === 2) {

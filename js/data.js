@@ -61,7 +61,7 @@
     farMin: 4, farMax: 14,
   };
   G.GAUGE_NAME = { heat: '热度', focus: '专注' };
-  // 技能页上「武器普攻」卡的 id：辅助宝石镶在 save.sockets[G.BASIC_CARD] 里，换远程武器时不动
+  // 技能页上「武器普攻」卡的 id：辅助宝石镶在 save.sockets[G.BASIC_CARD] 里，换武器时不动（每种武器的普攻都用这张卡）
   G.BASIC_CARD = 'wbasic';
   // 旧存档里长弓（下标 5）的三个名字：读档时换成鹰眼长弓的同阶名字
   G.BOW_OLD_NAMES = ['榆木长弓', '筋角长弓', '渊鸣长弓'];
@@ -73,20 +73,8 @@
   // poise 每次命中削掉的架势。近战削得最多，法术次之。
   // 攻击技能没有自己的伤害区间：wm 是武器倍率（见上面的「武器伤害」），法术 / 召唤照旧用 dmg
   G.SKILLS = {
-    cleave: {
-      name: '裂石击', icon: '斩', color: '#e6dfd0', tags: ['attack', 'melee', 'area', 'phys'], kind: 'melee',
-      // time 是三段的平均段长（界面估算秒伤用），range / arc 是前两段的大致范围
-      wm: 1.25, time: 0.45, mana: 0, cd: 0, range: 3.6, arc: 125,
-      // 三段连击。time：这一段多久之后可以接下一段 / 别的动作；hit：命中时刻；tail：没有后续输入时的收招；
-      // mult 伤害倍率；lunge 出手时朝准星踏出的距离；stop 顿帧毫秒数。
-      // 前两段是扇形（range 半径、arc 角度、dir 刀光扫过的方向），第三段是跃起下劈：落点在身前 reach 处、半径 range 的圆
-      combo: [
-        { clip: 'attack1', time: 0.36, hit: 0.17, tail: 0.14, mult: 0.8, shape: 'arc', range: 3.5, arc: 130, dir: 1, lunge: 0.8, kb: 0.55, poise: 11, stop: 35, w: 0 },
-        { clip: 'attack2', time: 0.36, hit: 0.17, tail: 0.14, mult: 0.95, shape: 'arc', range: 3.8, arc: 120, dir: -1, lunge: 0.9, kb: 0.7, poise: 13, stop: 45, w: 0 },
-        { clip: 'attack3', time: 0.62, hit: 0.3, tail: 0.2, mult: 2.2, shape: 'smash', range: 3.0, reach: 2.5, lunge: 1.9, kb: 3.0, poise: 30, stop: 110, w: 2 },
-      ],
-      desc: '三段连击：横斩、反手上挑，最后一段是跃起下劈的终结技——范围更大、伤害翻倍，并把敌人震飞。不消耗魔力。',
-    },
+    // 裂石击（cleave）已删除：近战的三段连击改成每种武器右键的武器普攻（见下面的「武器普攻」）。
+    // 旧存档里学过的裂石击读档时退成一颗同等级的无铭技能宝石（见 game.js 的 sanitize），连击的机制（combo）留给武器普攻用。
     ember: {
       name: '掷焰', icon: '焰', color: '#ff8a3c', tags: ['spell', 'projectile', 'area', 'fire'], kind: 'proj',
       dmg: { fire: [11, 17] }, time: 0.5, mana: 6, cd: 0, speed: 22, explode: 1.9, projR: 0.32, w: 0, kb: 0.45, poise: 10,
@@ -288,8 +276,8 @@
     },
 
     // ---------- 远程武器（枪械 / 弓）：右键 = 武器普攻，R = 量表技 ----------
-    // 拿着枪械或弓时，右键自动换成这把武器的普攻（basic: true，id 为 basic_<武器类型>）：不掉落、不进技能栏，技能页上是一张「武器普攻」卡，
-    // 3 个辅助孔属于卡片本身（save.sockets[G.BASIC_CARD]），换别的远程武器时宝石不动，只按当前普攻的标签生效。
+    // 右键固定是手里这把武器的普攻（basic: true，id 为 basic_<武器类型>；近战 / 施法 / 魂幡 / 空手的见下面一节）：不掉落、不进技能栏，技能页上是一张「武器普攻」卡，
+    // 3 个辅助孔属于卡片本身（save.sockets[G.BASIC_CARD]），换武器时宝石不动，只按当前普攻的标签生效。
     // 普攻按武器伤害 × wm 成长（等级 = 宝石的成长下限），出手节奏乘武器攻速与出手速度，不消耗魔力。
     // time：两发之间的秒数（机炮是转满之后的最快间隔；喷枪是两跳之间）；draw：弓第一箭的拉弓时间；
     // heat：枪械每秒开火增加的热度（左轮按发：heatShot），见 G.RANGED。conv：伤害转换（{ 元素: 比例 }，'rune' = 符文弓按元素加成取元素）
@@ -347,28 +335,123 @@
       desc: '右键射箭：每支箭命中后迸出冰晶，在附近的敌人之间连跳 2 次，造成冰霜伤害。命中积攒专注。',
     },
 
+    // ---------- 武器普攻（近战 / 施法 / 召唤 / 空手）：每种武器的右键 ----------
+    // 和枪械、弓一样：右键固定是手里这把武器的普攻（id 为 basic_<武器类型>，空手是 basic_fists），不耗魔力、不掉落、不占技能栏，
+    // 辅助宝石镶在同一张「武器普攻」卡上（按这招的标签生效）。btype：对应的武器类型（'fists' = 空手）。
+    // 近战的普攻是连招（combo，机制和原来裂石击的三段连击是同一套）：按住右键或连点接下一段，停手约 0.55 秒（收招之后）、翻滚或放别的技能就从头再来。
+    //   每段的字段同原来的裂石击：clip 动作、time 多久之后能接下一段、hit 命中时刻、tail 收招、mult 倍率、lunge 踏步、stop 顿帧、w 分量；
+    //   shape：'arc' 扇形（range / arc / dir）、'smash' 身前砸地的圆（reach / range）、'line' 身前一条直线（len 长、width 宽）；
+    //   dash：这一段命中时朝准星冲过 dash 米（撞墙截断），冲过的整条路都算 line 的范围；cross：扇形画成交叉的两道；
+    //   wave：砸地之后再荡开的一圈冲击波（r 半径、mult 倍率，已经被砸到的不再吃）。
+    //   time（整招的平均段长）、comboAvg / comboStop 在下面统一算。单体秒伤定在同一把武器配原来裂石击的 0.8 倍左右（四种近战武器按武器秒伤对齐到 ±1%；刃的连招和旋风斩单体持平），
+    //   不比各流派的主力技能强（旋风斩持平、影步连斩略低），打怪群更差：是不耗魔力的稳定输出，不是主力
+    basic_blade: {
+      name: '挥斩', icon: '斩', color: '#e6dfd0', tags: ['attack', 'melee', 'area', 'phys'], kind: 'melee', btype: 'blade', weaponOnly: true, basic: true,
+      wm: 0.97, mana: 0, cd: 0, range: 3.4, arc: 120,
+      combo: [
+        { clip: 'attack1', time: 0.34, hit: 0.15, tail: 0.14, mult: 0.85, shape: 'arc', range: 3.3, arc: 120, dir: 1, lunge: 0.6, kb: 0.5, poise: 12, stop: 30, w: 0 },
+        { clip: 'attack2', time: 0.34, hit: 0.15, tail: 0.14, mult: 0.9, shape: 'arc', range: 3.4, arc: 120, dir: -1, lunge: 0.6, kb: 0.6, poise: 14, stop: 35, w: 0 },
+        { clip: 'b_thrust', time: 0.54, hit: 0.22, tail: 0.22, mult: 1.85, shape: 'line', len: 4.6, width: 1.4, lunge: 1.2, kb: 2.0, poise: 30, stop: 80, w: 2 },
+      ],
+      desc: '右键连招：横斩、回斩，第三下是弓步突刺的终结——贯穿身前一条直线，伤害最高并把敌人顶飞。不消耗魔力。',
+    },
+    basic_daggers: {
+      name: '连刺', icon: '刺', color: '#bdb6ff', tags: ['attack', 'melee', 'area', 'phys'], kind: 'melee', btype: 'daggers', weaponOnly: true, basic: true,
+      wm: 0.85, mana: 0, cd: 0, range: 2.8, arc: 60,
+      combo: [
+        { clip: 'b_stabR', time: 0.2, hit: 0.08, tail: 0.1, mult: 0.6, shape: 'line', len: 2.8, width: 1.1, lunge: 0.35, kb: 0.2, poise: 6, stop: 18, w: 0 },
+        { clip: 'b_stabL', time: 0.2, hit: 0.08, tail: 0.1, mult: 0.6, shape: 'line', len: 2.8, width: 1.1, lunge: 0.35, kb: 0.2, poise: 6, stop: 18, w: 0 },
+        { clip: 'b_stabR', time: 0.22, hit: 0.08, tail: 0.1, mult: 0.7, shape: 'line', len: 2.9, width: 1.1, lunge: 0.4, kb: 0.25, poise: 7, stop: 20, w: 0 },
+        { clip: 'b_cross', time: 0.42, hit: 0.17, tail: 0.2, mult: 1.6, shape: 'arc', range: 3.0, arc: 170, dir: 1, cross: true, lunge: 0.6, kb: 1.2, poise: 22, stop: 70, w: 2 },
+      ],
+      desc: '右键连招：左右手交替快刺三下，第四下双匕交叉横斩的终结，扫开身前一大片。出手极快，不消耗魔力。',
+    },
+    basic_hammer: {
+      name: '重击', icon: '锤', color: '#d8b07a', tags: ['attack', 'melee', 'area', 'phys'], kind: 'melee', btype: 'hammer', weaponOnly: true, basic: true,
+      wm: 1.19, mana: 0, cd: 0, range: 3.6, arc: 140,
+      combo: [
+        { clip: 'attack1', time: 0.52, hit: 0.26, tail: 0.2, mult: 1.0, shape: 'arc', range: 3.6, arc: 140, dir: 1, lunge: 0.5, kb: 1.0, poise: 22, stop: 55, w: 1 },
+        { clip: 'attack2', time: 0.52, hit: 0.26, tail: 0.2, mult: 1.1, shape: 'arc', range: 3.6, arc: 140, dir: -1, lunge: 0.5, kb: 1.1, poise: 24, stop: 60, w: 1 },
+        { clip: 'b_slam', time: 0.78, hit: 0.38, tail: 0.3, mult: 2.2, shape: 'smash', range: 2.4, reach: 2.0, lunge: 0.8, kb: 2.6, poise: 55, stop: 110, w: 2,
+          wave: { r: 4.4, mult: 0.6, kb: 1.6, poise: 20 } },
+      ],
+      desc: '右键连招：两记沉重的抡锤，第三下把锤砸进地里的终结——砸中的敌人吃满伤害，再荡开一圈冲击波。出手慢，每一下都削大量架势。不消耗魔力。',
+    },
+    basic_katana: {
+      name: '拔刀', icon: '拔', color: '#e8f0ff', tags: ['attack', 'melee', 'area', 'phys', 'movement'], kind: 'melee', btype: 'katana', weaponOnly: true, basic: true,
+      wm: 0.95, mana: 0, cd: 0, range: 3.3, arc: 120,
+      combo: [
+        { clip: 'b_iai', time: 0.3, hit: 0.1, tail: 0.14, mult: 0.95, shape: 'arc', range: 3.3, arc: 120, dir: -1, lunge: 0.4, kb: 0.4, poise: 12, stop: 35, w: 0 },
+        { clip: 'attack1', time: 0.32, hit: 0.14, tail: 0.14, mult: 0.85, shape: 'arc', range: 3.2, arc: 110, dir: 1, lunge: 0.4, kb: 0.5, poise: 12, stop: 35, w: 0 },
+        { clip: 'flicker', time: 0.5, hit: 0.14, tail: 0.26, mult: 1.8, shape: 'line', dash: 3.5, len: 0, width: 1.3, lunge: 0, kb: 0.8, poise: 28, stop: 85, w: 2 },
+      ],
+      desc: '右键连招：一记出鞘的横斩、反手回刀，第三下朝准星踏出 3.5 米的冲斩终结，沿途的敌人都被斩到。不消耗魔力。',
+    },
+    basic_fists: {
+      name: '拳击', icon: '拳', color: '#f0d6b8', tags: ['attack', 'melee', 'phys'], kind: 'melee', btype: 'fists', weaponOnly: true, basic: true,
+      wm: 0.87, mana: 0, cd: 0, range: 2.4, arc: 80,
+      combo: [
+        { clip: 'b_jabL', time: 0.24, hit: 0.09, tail: 0.12, mult: 0.8, shape: 'arc', range: 2.4, arc: 70, dir: 1, lunge: 0.3, kb: 0.3, poise: 6, stop: 22, w: 0 },
+        { clip: 'b_jabR', time: 0.24, hit: 0.09, tail: 0.12, mult: 0.8, shape: 'arc', range: 2.4, arc: 70, dir: -1, lunge: 0.3, kb: 0.3, poise: 6, stop: 22, w: 0 },
+        { clip: 'b_hook', time: 0.46, hit: 0.2, tail: 0.22, mult: 1.9, shape: 'arc', range: 2.6, arc: 100, dir: 1, lunge: 0.7, kb: 2.0, poise: 24, stop: 80, w: 2 },
+      ],
+      desc: '空手时的右键连招：左右两记刺拳，接一记把敌人打飞的重拳。不消耗魔力。',
+    },
+    // 施法武器的普攻：法术（spell），不看武器伤害。edmg 是基础伤害，等级 = 武器物品等级 × 0.75（和法术型武器技一样），每级 +20%；
+    // 元素取你火 / 冰 / 雷里伤害加成最高的那一种（并列时取 elem；不取混沌），吃法术的伤害提高、施法速度和镶着的法术辅助。
+    // 单体秒伤约是同等级掷焰的六成：一直按着不耗蓝，打不过主力技能
+    // vk：投射物外形（world 的 PF_DRAW）；bclip：出手动作（施法 / 魂幡的普攻共用一个朝前点出的 b_point）
+    basic_staff: {
+      name: '灵弹', icon: '弹', color: '#ffb07a', tags: ['spell', 'projectile', 'area'], kind: 'proj', btype: 'staff', weaponOnly: true, basic: true, elemHex: true, vk: 'lbolt', bclip: 'b_point',
+      edmg: [8, 12], elem: 'fire', time: 0.55, mana: 0, cd: 0, speed: 20, explode: 1.6, projR: 0.3, w: 0, kb: 0.5, poise: 9,
+      desc: '右键从杖头射出一枚灵弹，命中后小范围炸开。属性取你伤害加成最高的元素，伤害随武器的物品等级成长。不消耗魔力。',
+    },
+    basic_wand: {
+      name: '疾咒', icon: '咒', color: '#c9b4ff', tags: ['spell', 'chaining'], kind: 'chain', btype: 'wand', weaponOnly: true, basic: true, elemHex: true, bclip: 'b_point',
+      edmg: [5, 8.5], elem: 'light', time: 0.34, mana: 0, cd: 0, chain: 1, range: 14, w: 0, kb: 0.2, poise: 5,
+      desc: '右键朝准星附近的敌人甩出一道咒光，再弹向旁边的一个敌人。出手很快，属性取你伤害加成最高的元素。不消耗魔力。',
+    },
+    // 魂幡的普攻：asMinion（同魂潮）——伤害按召唤物算，只吃召唤物伤害加成和镶着的召唤物辅助，等级 = 武器物品等级 × 0.75。
+    // 放出一缕魂灵扑向准星附近（seek 以内）的敌人，碰到就炸开（explode），并把那个敌人标成集火目标（召唤物优先去打它）。
+    // perMinion：你每有一只活着的召唤物，这一下的伤害提高这么多（最多 maxMinion 只）；没有召唤物时照样能打
+    basic_banner: {
+      name: '魂引', icon: '引', color: '#4fe3c8', tags: ['spell', 'minion', 'projectile'], kind: 'bspirit', btype: 'banner', weaponOnly: true, basic: true, asMinion: true, bclip: 'b_point',
+      dmg: { phys: [11, 15] }, time: 0.5, mana: 0, cd: 0, speed: 15, projR: 0.3, life: 1.4, range: 15, seek: 5, turn: 11, explode: 1.6,
+      perMinion: 8, maxMinion: 5, w: 0, kb: 0.4, poise: 6,
+      noSup: ['ossify', 'horde', 'frenzy'], // 只作用于召唤物本身（生命、数量、速度）的辅助对这一缕魂灵没用，不让镶
+      desc: '右键挥幡放出一缕魂灵，扑向准星附近的敌人、碰到即炸开，并让你的召唤物集火它。伤害按召唤物计算（吃召唤物伤害加成），你每有一只召唤物再提高 8%（最多 5 只）。没有召唤物时也能用。不消耗魔力。',
+    },
+
     // R（量表技）：rgauge 为 true——没有冷却、不扣魔力，量表满了才能放，放出去量表清零。枪械的三招按武器伤害成长（吃「热度技伤害」），
     // 弓的四招是限时增益（buff.dur 秒，吃「增益持续时间」）
     meltray: {
       name: '熔光射线', icon: '光', color: '#ffb36a', tags: ['weapon', 'attack', 'fire', 'light'], kind: 'rgatling', weaponOnly: true, wtype: 'gatling', rgauge: true,
-      // 按住 R 蓄力（瞄准线跟着准星），松手放出一道贯穿射线：长 len、宽 width 的直线上所有敌人挨一下 wm 倍伤害（一半火焰一半闪电）。
+      // 按住 R 蓄力（瞄准线跟着准星），松手放出一道贯穿射线：长 len、宽 width 的直线上所有敌人挨一下（一半火焰一半闪电）。
+      // 伤害按机炮普攻折算（basicOf / basicSec，见 game.js 的 G.basicShots）：蓄满一发 = 机炮转满之后扫射 basicSec 秒——
+      //   普攻每发的武器伤害 × 普攻 wm、装备附加 × 普攻 addEff，乘上这几秒的发数（武器攻速、攻击速度算在内，辅助宝石不算），
+      //   再按射线自己的伤害加成、暴击和「热度技伤害」结算。wm 只是标明这是攻击技能，实际倍率由折算决定。
+      //   原来是 wm 40 × 一发的武器伤害：附加伤害只算一份、攻速不算，越往后越不值得放（蓄力加机炮重新转起来要停火约 3.5 秒）
       // 蓄力 charge 秒满；伤害按蓄力程度 minK → 1；蓄满后再按住 hold 秒自动放出。蓄力时移动速度 × move
-      wm: 40, time: 0.3, mana: 0, cd: 0, charge: 1.4, hold: 1.0, minK: 0.3, len: 24, width: 2.4, beamT: 0.4, conv: { fire: 0.5, light: 0.5 }, ailment: 100,
+      wm: 1, basicOf: 'basic_gatling', basicSec: 8, time: 0.3, mana: 0, cd: 0, charge: 1.4, hold: 1.0, minK: 0.3, len: 24, width: 2.4, beamT: 0.4, conv: { fire: 0.5, light: 0.5 }, ailment: 100,
       w: 2, kb: 1.4, poise: 80, stop: 120, move: 0.35,
       wclip: 'r_gatling',
       wt: { phases: [0.3], cancel: 9, dur: 9, clip: { dur: 3.2, at: 0.3 } }, // 时长由蓄力自己管（起手 0.3 秒 + 蓄力 + 射线）
-      useMult: 40,
-      desc: '热度满时可用：按住 R 蓄力，枪口的瞄准线跟着准星走；松手放出一道巨大的熔光射线，贯穿一整条直线上的所有敌人，造成一次性的巨额伤害并重重击退。蓄力越久伤害越高（1.4 秒蓄满，蓄满后再按住 1 秒会自动放出）。伤害一半火焰、一半闪电，同时累积两种异常值。放完热度归零。',
+      useMult: 1, // 一次施放对单体就是一击（倍率已经折算进伤害里）
+      desc: '热度满时可用：按住 R 蓄力，枪口的瞄准线跟着准星走；松手放出一道巨大的熔光射线，贯穿一整条直线上的所有敌人，造成一次性的巨额伤害并重重击退。蓄满的一发相当于机炮转满之后扫射 {basicSec} 秒的伤害（随武器、附加伤害与攻击速度成长）。蓄力越久伤害越高（1.4 秒蓄满，蓄满后再按住 1 秒会自动放出）。伤害一半火焰、一半闪电，同时累积两种异常值。放完热度归零。',
     },
     firestorm: {
       name: '焚天炎爆', icon: '爆', color: '#ff6a2c', tags: ['weapon', 'attack', 'area', 'fire'], kind: 'rflamer', weaponOnly: true, wtype: 'flamer', rgauge: true,
-      // 半径 radius 的火浪，wm 倍武器伤害（全部火焰）；之后留下半径 burn.r 的火场，burn.dur 秒内每 burn.tick 秒 burn.mult 倍武器伤害
-      wm: 14, time: 0.75, mana: 0, cd: 0, radius: 7.5, conv: { fire: 1 }, ailment: 100, burn: { r: 6, dur: 5, tick: 0.5, mult: 1 },
+      // 半径 radius 的火浪（全部火焰）；之后留下半径 burn.r 的火场，burn.dur 秒内每 burn.tick 秒一跳。
+      // 伤害和熔光射线一样按普攻折算（basicOf / basicSec，见 game.js 的 G.basicShots）：火浪 = 喷枪持续喷射 basicSec 秒，
+      //   火场每一跳 = 喷射 burn.sec 秒（不算余烬）；整招单体 = 3.3 + 10 × 0.23 ≈ 5.6 秒。原来是火浪 wm 14、每跳 1 倍武器伤害：
+      //   装备附加只算一份、攻速不算，40 级时放一发只比一直喷多赚约 1.5 秒普攻（镶了辅助只剩 0.5 秒）
+      wm: 1, basicOf: 'basic_flamer', basicSec: 3.3, time: 0.75, mana: 0, cd: 0, radius: 7.5, conv: { fire: 1 }, ailment: 100, burn: { r: 6, dur: 5, tick: 0.5, sec: 0.23 },
       w: 2, kb: 2.6, poise: 70, stop: 110, move: 0.1,
       wclip: 'r_flamer',
       wt: { phases: [0.42], cancel: 0.75, dur: 0.9 },
-      useMult: 24,
-      desc: '热度满时可用：一口气排空所有热度，以你为中心炸开一圈巨大的火浪，重创并震退周围的敌人，并留下 5 秒的大片火场。',
+      // 单体整招按火浪那一击的倍数计：火浪 1 击 + 火场 10 跳 × (0.23 / 3.3) ≈ 1.7（G.SKILLS 定义完之后按 burn.sec 重算一遍）
+      useMult: 1.7,
+      desc: '热度满时可用：一口气排空所有热度，以你为中心炸开一圈巨大的火浪，重创并震退周围的敌人，并留下 5 秒的大片火场。火浪加上火场烧满，相当于喷枪持续喷射约 {basicSec} 秒的伤害（随武器、附加伤害与攻击速度成长）。',
     },
     wildfire: {
       name: '乱射', icon: '乱', color: '#ffcf7a', tags: ['weapon', 'attack', 'projectile', 'phys'], kind: 'rrevolver', weaponOnly: true, wtype: 'revolver', rgauge: true, uskill: true,
@@ -466,6 +549,15 @@
       desc: '把魂幡插进地里：6 位英灵从天而降，落在准星一带，落地时各砸出一圈冲击，随后自动厮杀 8 秒再消散（化作魂火炸开）。英灵的伤害与生命按召唤物计算，吃召唤物加成与继承，不占仆从数量。同时把你现有的召唤物全部治疗到满，并令它们狂热 4 秒。',
     },
   };
+  // 按普攻折算的武器技（熔光射线、焚天炎爆）：描述里的「{basicSec} 秒」按数值填上——火浪 basicSec + 火场每跳 burn.sec × 跳数，
+  // 改 basicSec / burn.sec 时文字跟着变（技能卡上的数字本来就是实时算的）
+  for (const id in G.SKILLS) {
+    const s = G.SKILLS[id];
+    if (!s.basicOf || typeof s.desc !== 'string') continue;
+    const B = s.burn, sec = s.basicSec + (B && B.sec !== undefined ? Math.round(B.dur / B.tick) * B.sec : 0);
+    s.desc = s.desc.replace('{basicSec}', String(Math.round(sec * 10) / 10));
+    s.useMult = sec / s.basicSec; // 单体整招按 ctx 一击的倍数（熔光射线 1，焚天炎爆 = 5.6 / 3.3），和上面写的一致
+  }
   // 混沌技能的前期补偿（只乘在 chaosEarly 的技能上）：倍率按宝石等级从 k0 / k1（1 级）缓缓降到 1（lvl 级），之后不变。
   // 先平后陡（1 − t²）：5–10 级的角色还能拿到大部分补偿，15 级（角色 20 级左右）收回到 0.75 倍的基础
   G.CHAOS_EARLY = { k0: 0.95, k1: 0.75, lvl: 15 };
@@ -480,6 +572,7 @@
     if (sk.combo) {
       sk.comboAvg = sk.combo.reduce((s, c) => s + c.mult, 0) / sk.combo.length; // 连击三段的平均倍率
       sk.comboStop = sk.combo.reduce((s, c) => s + c.stop, 0) / sk.combo.length; // 三段平均的顿帧毫秒数
+      if (sk.basic) sk.time = sk.combo.reduce((s, c) => s + c.time, 0) / sk.combo.length; // 武器普攻的连招：平均段长（秒伤估算用）
     }
   }
 
@@ -820,8 +913,12 @@
   G.SLOT_NAME = { weapon: '武器', helm: '头盔', body: '胸甲', gloves: '手套', boots: '鞋子', belt: '腰带', ring: '戒指', amulet: '护符' };
   G.SLOT_GLYPH = { weapon: '武', helm: '盔', body: '甲', gloves: '手', boots: '靴', belt: '带', ring: '戒', amulet: '坠' };
   // 3 = 烬铸：只有轮回层级里的首领会掉的固定武器（见下面的「烬铸武器」），名字是偏暗的金红色，和稀有的亮黄分开
-  G.RARITY_NAME = ['普通', '魔法', '稀有', '烬铸'];
-  G.RARITY_COLOR = ['#d6d1c4', '#7f9dff', '#ffd75e', '#ff9b3d'];
+  // 4 = 渊契：只出在非武器部位的固定物品（见下面的「渊契」），翠色。名字和颜色各只在这里写一次（界面、光柱、图鉴都读这两个）
+  G.RELIC_RARITY = 4;
+  G.RELIC_NAME = '渊契';
+  G.RELIC_COLOR = '#6fe0b0';
+  G.RARITY_NAME = ['普通', '魔法', '稀有', '烬铸', G.RELIC_NAME];
+  G.RARITY_COLOR = ['#d6d1c4', '#7f9dff', '#ffd75e', '#ff9b3d', G.RELIC_COLOR];
 
   // 武器：type 武器类型；wskill 自带的武器技（G.SKILLS 里的 id）；dmg 1 级时的物理伤害区间（按物品等级成长，见「武器伤害」）；
   // aps 攻击速度：攻击技能的出手速度倍率（1 = 技能本身的节奏），武器秒伤 = 平均伤害 × aps；
@@ -1042,6 +1139,170 @@
     '，每跳伤害按你的黑洞的 ' + pc(G.VOID_MOUTH.dmg) + '。同时最多 ' + G.VOID_MOUTH.max + ' 道，每 ' + G.VOID_MOUTH.gap + ' 秒最多新开一道。武器技秘弹连射的属性固定为混沌。';
   // 分解烬铸武器固定得到的通货
   G.UNIQUE_SALVAGE = { exalt: 2, chaos: 2, divine: 1, chisel: 1 };
+
+  // ---------- 渊契（稀有度 4）----------
+  // 只出在非武器的 7 个部位，和烬铸武器是两条线（不进 G.UNIQUES：syncUniqueBosses 不会把它们挂到首领的烬铸掉落上）。
+  // 词缀行固定，数值按烬铸的同一套规则在掉落时的物品等级上掷（G.relicLineRange）；裸属性比同物品等级的好稀有少一行，强在机制。
+  // base：这个部位 BASES 里的下标；src：掉落来源（boss 区域首领 / enc 异兆 / seal 烈印 / pinnacle 熄烛者，见 G.RELIC_DROP）；
+  // boss / enc：具体哪个首领、哪种异兆。机制按 id 判断（game.js「渊契」一节的 P.relic[id]），数值在 G.RELIC_MECH
+  G.RELICS = {
+    panzhong: {
+      name: '磐踵', slot: 'boots', base: 0, src: 'boss', boss: 'golem', mechName: '踏震',
+      lines: [{ id: 'moveSpeed', k: [0.9, 1.2] }, { id: 'life', k: [1.0, 1.4] }, { id: 'armour', k: [1.0, 1.3] }],
+      lore: '熔渣巨像每走一步都要把地面压出裂纹，它脚下那层铁皮记住了那份分量。',
+    },
+    nuchao: {
+      name: '怒潮', slot: 'gloves', base: 0, src: 'boss', boss: 'warden', mechName: '蓄潮',
+      lines: [{ id: 'incPhys', k: [1.0, 1.4] }, { id: 'speed', k: [0.9, 1.2] }, { id: 'life', k: [0.9, 1.2] }],
+      lore: '雷霆监察者的护手里锁着一场没下完的暴雨，握紧拳头，就能听见浪头在指缝里翻涌。',
+    },
+    duanyue: {
+      name: '断岳', slot: 'belt', base: 0, src: 'enc', enc: 'trial', mechName: '崩势',
+      lines: [{ id: 'life', k: [1.1, 1.5] }, { id: 'armour', k: [1.0, 1.3] }, { id: 'resCold', k: [1.0, 1.3] }],
+      lore: '带扣是一座山的残片。山倒下的那一刻，周围的一切都跟着跪了下去。',
+    },
+    qianmu: {
+      name: '千目', slot: 'helm', base: 0, src: 'enc', enc: 'wanderer', mechName: '必然',
+      lines: [{ id: 'crit', k: [1.3, 1.8] }, { id: 'life', k: [0.9, 1.2] }, { id: 'resLight', k: [1.0, 1.3] }],
+      lore: '七只眼轮流守夜，从不同时睁开。等到中间那只看清了破绽，刀就已经落下了。',
+    },
+    huixuan: {
+      name: '回旋', slot: 'amulet', base: 0, src: 'boss', boss: 'weaver', mechName: '回旋',
+      lines: [{ id: 'critMulti', k: [1.0, 1.4] }, { id: 'incPhys', k: [1.0, 1.3] }],
+      lore: '霜织者的丝线一头系在骨坠上，抛出去的东西，总会顺着线回到手里。',
+    },
+    zhuixing: {
+      name: '陨织袍', slot: 'body', base: 0, src: 'seal', mechName: '星雨',
+      lines: [{ id: 'life', k: [1.0, 1.4] }, { id: 'resFire', k: [1.2, 1.6] }, { id: 'lifeRegen', k: [1.0, 1.3] }],
+      lore: '袍子下摆缀着的不是绣线，是一颗颗还没落地的星。穿上它的人，头顶从不放晴。',
+    },
+    dianqiao: {
+      name: '电桥', slot: 'ring', base: 2, src: 'enc', enc: 'guard', mechName: '电桥',
+      lines: [{ id: 'incLight', k: [1.2, 1.6] }, { id: 'addLight', k: [1.0, 1.3] }, { id: 'mana', k: [1.0, 1.3] }],
+      lore: '戒面上的两颗电珠互相够不着，于是雷每一次落下，都替它们搭一座桥。',
+    },
+    yibian: {
+      name: '异变', slot: 'amulet', base: 2, src: 'enc', enc: 'ember', mechName: '混相',
+      lines: [{ id: 'incFire', k: [0.7, 1.0] }, { id: 'incCold', k: [0.7, 1.0] }, { id: 'incLight', k: [0.7, 1.0] }],
+      lore: '三种元素被硬压进同一颗珠子，谁也分不出谁，炸开的时候也只好一起炸。',
+    },
+    haiwang: {
+      name: '骸王冠', slot: 'helm', base: 0, src: 'boss', boss: 'lord', mechName: '独骸',
+      lines: [{ id: 'minionLife', k: [1.2, 1.6] }, { id: 'life', k: [1.0, 1.3] }, { id: 'resFire', k: [1.0, 1.3] }],
+      lore: '烬渊之主的骸骨不肯与别的骸骨同列。戴上这顶冠，你的仆从里只能站着一位王。',
+    },
+    tongshang: {
+      name: '同殇甲', slot: 'body', base: 0, src: 'enc', enc: 'box', mechName: '同殇',
+      lines: [{ id: 'minionLife', k: [1.2, 1.6] }, { id: 'life', k: [1.0, 1.4] }, { id: 'armour', k: [1.0, 1.3] }],
+      lore: '甲胸前那双骨手扣得很紧。你挨的每一下，都有一份顺着那根细线落到别处。',
+    },
+    zhaohun: {
+      name: '招魂带', slot: 'belt', base: 0, src: 'enc', enc: 'echo', mechName: '随影',
+      lines: [{ id: 'life', k: [1.0, 1.3] }, { id: 'minionLife', k: [1.0, 1.4] }, { id: 'mana', k: [1.0, 1.3] }],
+      lore: '骨铃一响，跟着你的东西就会出现在你落脚的地方，不管它刚才在哪。',
+    },
+    yinli: {
+      name: '引力核', slot: 'ring', base: 3, src: 'boss', boss: 'behemoth', mechName: '随核',
+      lines: [{ id: 'incChaos', k: [1.2, 1.6] }, { id: 'addChaos', k: [1.0, 1.3] }, { id: 'mana', k: [1.0, 1.3] }],
+      lore: '衔星巨兽背上那块坠星掉下的一粒碎屑，小得能镶进戒面，重得能把戒圈拽弯。',
+    },
+    yuanfu: {
+      name: '渊缚链', slot: 'gloves', base: 0, src: 'seal', mechName: '锁链',
+      lines: [{ id: 'addChaos', k: [1.2, 1.6] }, { id: 'bindAil', k: [1.2, 1.6] }, { id: 'life', k: [1.0, 1.3] }],
+      lore: '链子一头断了。另一头还缠着谁，要等下一个被缚住的敌人告诉你。',
+    },
+    // 巅峰专属（熄烛者掉，D5 才接上掉落和机制）：这里只有数据，不进 G.RELIC_IDS，图鉴、随机掉落都不出
+    xizhu: {
+      name: '熄烛冠', slot: 'helm', base: 0, src: 'pinnacle', pinnacle: true, mechName: '无光',
+      lines: [{ id: 'life', k: [1.2, 1.6] }, { id: 'crit', k: [1.2, 1.6] }, { id: 'resCold', k: [1.0, 1.3] }],
+      lore: '冠上一圈烛芯都熄了，只剩一根还在冒烟。',
+    },
+    shuangsheng: {
+      name: '双生坠', slot: 'amulet', base: 0, src: 'pinnacle', pinnacle: true, mechName: '双生',
+      lines: [{ id: 'incAll', k: [1.0, 1.4] }, { id: 'speed', k: [1.0, 1.3] }],
+      lore: '两片半月背靠着背，一片暖，一片冷。',
+    },
+  };
+  // 普通渊契（随机掉落、图鉴、图标都按这个列表）；巅峰专属另列
+  G.RELIC_IDS = Object.keys(G.RELICS).filter((id) => !G.RELICS[id].pinnacle);
+  G.RELIC_PINNACLE = Object.keys(G.RELICS).filter((id) => G.RELICS[id].pinnacle);
+  // 掉落来源：src 是各来源的总开关（boss 现在开；enc 异兆、seal 烈印等 D4 / D3 上线再开；trader 拾烬客的货架随 D4）。
+  // boss：每个区域首领一件、和烬铸分开掷，几率和保底跟烬铸（G.UNIQUE_DROP）一样：层级 1 为 chance[1]（15%）、层级 2 起 chance[2]（25%），
+  //   烈印（W ≥ 6）再 × sealMul、最终几率不超过 sealCap（35%）；连续 pity（2）次没掉，下一次必掉（按渊契 id 计）
+  // enc：异兆成功才掷（层级 ≥ 1，15%、保底 3）；seal：烈印下击杀区域首领（10%、保底 3，陨织袍 / 渊缚链各半，按 'seal' 一起计保底）；trader：拾烬客货架（层级 ≥ 2）摆一件的几率
+  // 旧存档里攒下的保底计数读档时截到新的 pity（见 game.js 的 sanitize），超过的下一次就必掉
+  G.RELIC_DROP = {
+    src: { boss: true, enc: false, seal: false, trader: false },
+    boss: { chance: [0, 0.15, 0.25], pity: 2 },
+    enc: { chance: 0.15, pity: 3, minTier: 1 },
+    seal: { chance: 0.1, pity: 3, minW: 6, ids: ['zhuixing', 'yuanfu'] },
+    trader: { chance: 0.06, minTier: 2 },
+    sealMul: 1.5,
+    sealCap: 0.35,
+  };
+  // 异兆的名字（图鉴里写来源用；D4 的 G.ENCOUNTERS 上线后以那边为准）
+  G.RELIC_ENC_NAME = { guard: '守隙', wanderer: '游荡者', trial: '试锋', box: '缚匣', echo: '残影', ember: '落烬' };
+  G.RELIC_BY_BOSS = {};
+  G.RELIC_BY_ENC = {};
+  for (const id of G.RELIC_IDS) {
+    const R = G.RELICS[id];
+    if (R.src === 'boss') G.RELIC_BY_BOSS[R.boss] = id;
+    if (R.src === 'enc') G.RELIC_BY_ENC[R.enc] = id;
+  }
+  G.relicChance = (tier) => (tier >= 2 ? G.RELIC_DROP.boss.chance[2] : tier >= 1 ? G.RELIC_DROP.boss.chance[1] : 0);
+  // 机制数值（game.js 的「渊契」一节读这里；改数值时说明跟着变）：
+  // 踏震 panzhong：翻滚落地震地，半径 r（吃范围）、mult 倍武器伤害（物理攻击，吃你的加成、不吃辅助）、削架势 poise、击退 kb；两次至少隔 gap 秒；翻滚冷却 × (1 + rollCd)
+  // 蓄潮 nuchao：旋风斩每跳只打 pulse 倍、攒 1 层（上限 max）；松手 / 翻滚 / 被打断时以你为中心炸开，半径 = 旋风半径 × r，每层 burst 倍满额一跳
+  // 崩势 duanyue：精英 / 首领被打出破绽时，r 米内的普通怪同时破绽 t 秒（停手、受伤 × 破绽倍率）；处决时目标 sweepR 米内处于破绽的敌人各吃处决伤害的 sweep
+  // 必然 qianmu：命中把暴击率加进计数器，满 100 必暴并扣 100；暴击伤害 critMulti（点）
+  // 回旋 huixuan：投射物到射程尽头或第一次撞墙时折返，回程 back 倍、可再中；射程 × range
+  // 星雨 zhuixing：陨火每 iv 秒（吃出手速度和迅捷，节流缩短间隔）自动落在 r 米内敌人最密处，伤害 × mult、半径 × area，保留 reserve% 最大魔力、不耗魔力
+  // 电桥 dianqiao：链雷每跳在前后两个目标之间留一道 t 秒、宽 w 米的电桥，每 tick 秒对碰到的敌人造成一跳的 mult 倍闪电伤害；同时最多 max 道
+  // 混相 yibian：火 / 冰 / 雷灌进同一条异常值，累积速度 rate，满了三种效果各 × k
+  // 独骸 haiwang：仆从上限固定 1，多出来的上限每 1 个 +perDmg 伤害、+perLife 生命；骸王体型 × scale、生命 × life、伤害 × dmg，横斩带 cleave 个、arc 度，牵制 hold 只，受伤 −dr%
+  // 同殇 tongshang：你受到的伤害 share 转给 r 米内最近的召唤物；召唤物最大生命 +life%；召唤物倒下时你回复它最大生命的 heal
+  // 随影 zhaohun：翻滚 delay 秒后召唤物闪到你落点周围、各砸一下（半径 r，各自一击 × mult，守像 × multBig）；翻滚冷却 × (1 + rollCd)
+  // 随核 yinli：黑洞以你为中心跟着你走；持续 × dur、半径 × radius、牵引 × pull（首领不变）、每跳伤害 × dmg
+  // 锁链 yuanfu：同一时刻处于渊缚的敌人连成一串（最多 max 个），其中一个受到你的伤害，其余每个分到 share
+  G.RELIC_MECH = {
+    // r 4.5（设计稿 3.0）：从近战距离朝目标翻滚，落地离目标约 4 米，3 米够不着翻过去的那个目标
+    panzhong: { r: 4.5, mult: 1.1, poise: 28, kb: 1.2, gap: 0.8, rollCd: 0.3 },
+    nuchao: { pulse: 0.55, max: 12, burst: 0.5, r: 1.4 },
+    duanyue: { r: 8, t: 2.5, sweepR: 3, sweep: 0.35 },
+    qianmu: { critMulti: -15 },
+    huixuan: { back: 0.6, range: 0.8 },
+    zhuixing: { iv: 1.8, r: 12, mult: 0.4, area: 0.85, reserve: 20 },
+    dianqiao: { t: 1.5, w: 0.9, tick: 0.25, mult: 0.18, max: 8 },
+    yibian: { rate: 1.27, k: 0.6 },
+    haiwang: { perDmg: 0.35, perLife: 0.4, scale: 1.5, life: 3, dmg: 2.9, cleave: 6, arc: 220, hold: 5, dr: 15 },
+    tongshang: { share: 0.3, r: 10, life: 25, heal: 0.08 },
+    zhaohun: { delay: 0.15, r: 1.6, mult: 1.5, multBig: 1.0, rollCd: 0.15 },
+    yinli: { dur: 0.8, radius: 0.85, pull: 0.75, dmg: 1.2 },
+    yuanfu: { max: 6, share: 0.2 },
+  };
+  // 机制说明（物品提示、图鉴用），按上面的数值拼
+  G.relicDescs = function () {
+    const M = G.RELIC_MECH, R = G.RELICS;
+    const a = M.panzhong, b = M.nuchao, c = M.duanyue, d = M.huixuan, f = M.zhuixing, g = M.dianqiao, h = M.yibian, k = M.haiwang, t = M.tongshang, z = M.zhaohun, y = M.yinli, u = M.yuanfu;
+    R.panzhong.mechDesc = '翻滚落地时震地：对周围 ' + a.r + ' 米（吃范围加成）内的敌人造成 ' + pc(a.mult) + ' 武器伤害的物理攻击伤害（吃你的伤害加成，不吃辅助宝石），削架势并击退。两次至少间隔 ' + a.gap + ' 秒。翻滚冷却延长 ' + pc(a.rollCd) + '。';
+    R.nuchao.mechDesc = '旋风斩改为按住蓄力、松手释放：按住时每一跳只造成 ' + pc(b.pulse) + ' 伤害，每跳攒 1 层潮势（最多 ' + b.max + ' 层）。松手、翻滚或被打断时以你为中心炸开，半径是旋风斩的 ' + pc(b.r) + '，每层造成一跳满额伤害的 ' + pc(b.burst) + '。';
+    R.duanyue.mechDesc = '精英或首领被打出破绽时，' + c.r + ' 米内的普通怪同时陷入破绽 ' + c.t + ' 秒（停止行动、受到的伤害提高）。处决时，目标 ' + c.sweepR + ' 米内处于破绽的其他敌人各受到处决伤害的 ' + pc(c.sweep) + '。';
+    R.qianmu.mechDesc = '暴击不再随机：每次命中把这一击的暴击率攒进计数，攒满 100% 这一击必定暴击并扣掉 100%（多出的留着）。暴击伤害 ' + M.qianmu.critMulti + '%。必定暴击的招式照旧必暴，不动计数。召唤物不受影响。';
+    R.huixuan.mechDesc = '飞刃、弓箭（含普攻）和左轮的子弹飞到射程尽头或第一次撞墙时折返，回程伤害 ' + pc(d.back) + '，可以再次打中去程打中过的敌人。射程缩短 ' + pc(1 - d.range) + '。机炮、会爆炸的投射物和万矢分出的箭不会折返。';
+    R.zhuixing.mechDesc = '陨火不能手动施放：只要放在技能栏上，每 ' + f.iv + ' 秒（受出手速度和迅捷影响，节流缩短间隔）自动落在你 ' + f.r + ' 米内敌人最密的地方，伤害 ' + pc(f.mult) + '、半径 ' + pc(f.area) + '。不消耗魔力，改为保留 ' + f.reserve + '% 最大魔力。自动落下的不算施放，回响不生效。';
+    R.dianqiao.mechDesc = '链雷每跳在前后两个目标之间留下一道电桥，持续 ' + g.t + ' 秒，每 ' + g.tick + ' 秒对碰到它的敌人造成链雷一跳 ' + pc(g.mult) + ' 的闪电伤害并累积闪电异常值。同时最多 ' + g.max + ' 道，新的顶掉最老的。电桥的伤害不引发感电电弧。';
+    R.yibian.mechDesc = '火焰、冰霜、闪电伤害灌进同一条「混相」异常值；灌满时同时触发爆燃、冻结（首领为重度冰缓）和感电，三种效果各为 ' + pc(h.k) + '。首领的阈值每次只提高一次。佩戴时三相之心的共鸣不生效。';
+    R.haiwang.mechDesc = '烬骸仆从只剩一具骸王：上限固定为 1，群聚、天赋、护符、万魂旗多给的仆从上限每 1 个折成 +' + pc(k.perDmg) + ' 伤害、+' + pc(k.perLife) + ' 生命。骸王体型更大，生命 ×' + k.life + '、伤害 ×' + k.dmg + '，横斩 ' + k.arc + '° 带到 ' + k.cleave + ' 个敌人，同时牵制 ' + k.hold + ' 只小怪，受到的伤害减少 ' + k.dr + '%。';
+    R.tongshang.mechDesc = '你受到的伤害有 ' + pc(t.share) + ' 转给 ' + t.r + ' 米内离你最近的召唤物（按它的减伤结算）。召唤物最大生命提高 ' + t.life + '%；召唤物倒下时，你回复它最大生命的 ' + pc(t.heal) + '。';
+    R.zhaohun.mechDesc = '翻滚时，所有召唤物在 ' + z.delay + ' 秒后闪到你的落点周围，落地各砸一下（半径 ' + z.r + ' 米，各自一击的 ' + pc(z.mult) + '，石誓守像 ' + pc(z.multBig) + '），削减架势。翻滚冷却延长 ' + pc(z.rollCd) + '。';
+    R.yinli.mechDesc = '黑洞以你为中心并跟着你移动：持续时间 ' + pc(y.dur) + '、半径 ' + pc(y.radius) + '、牵引 ' + pc(y.pull) + '（首领的牵引不变），每跳伤害 ' + pc(y.dmg) + '。冷却不变。星蚀的渊口照常在敌人脚下张开。';
+    R.yuanfu.mechDesc = '同一时刻处于渊缚的敌人连成一串（最多 ' + u.max + ' 个）：其中一个受到你的伤害时，其余每个分到 ' + pc(u.share) + '（不暴击、不触发命中效果、不累积异常值、不带黑焰）。渊缚结束就断开。首领不会被渊缚，不在链上。';
+    R.xizhu.mechDesc = '（巅峰专属，尚未开放）';
+    R.shuangsheng.mechDesc = '（巅峰专属，尚未开放）';
+  };
+  G.relicDescs();
+  // 分解渊契固定得到的通货（同烬铸）
+  G.RELIC_SALVAGE = { exalt: 2, chaos: 2, divine: 1, chisel: 1 };
 
   G.RARE_A = ['灰烬', '霜骨', '雷鸣', '渊影', '残月', '裂魂', '荆棘', '苍白', '余烬', '暮光', '锈蚀', '血誓'];
   G.RARE_B = ['之握', '之誓', '之眼', '壁垒', '挽歌', '獠牙', '回响', '枷锁', '之冠', '低语', '印记', '之怒'];
