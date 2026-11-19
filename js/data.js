@@ -1227,15 +1227,18 @@
   G.RELIC_IDS = Object.keys(G.RELICS).filter((id) => !G.RELICS[id].pinnacle);
   G.RELIC_PINNACLE = Object.keys(G.RELICS).filter((id) => G.RELICS[id].pinnacle);
   // 掉落来源：src 是各来源的总开关（boss 现在开；enc 异兆、seal 烈印等 D4 / D3 上线再开；trader 拾烬客的货架随 D4）。
-  // boss：每个区域首领一件、和烬铸分开掷，层级 1 为 chance[1]、层级 2 起 chance[2]，烈印（W ≥ 6）再 × sealMul；连续 pity 次没掉，下一次必掉（按渊契 id 计）
-  // enc：异兆成功才掷（层级 ≥ 1）；seal：烈印下击杀区域首领（陨织袍 / 渊缚链各半，按 'seal' 一起计保底）；trader：拾烬客货架（层级 ≥ 2）摆一件的几率
+  // boss：每个区域首领一件、和烬铸分开掷，几率和保底跟烬铸（G.UNIQUE_DROP）一样：层级 1 为 chance[1]（15%）、层级 2 起 chance[2]（25%），
+  //   烈印（W ≥ 6）再 × sealMul、最终几率不超过 sealCap（35%）；连续 pity（2）次没掉，下一次必掉（按渊契 id 计）
+  // enc：异兆成功才掷（层级 ≥ 1，15%、保底 3）；seal：烈印下击杀区域首领（10%、保底 3，陨织袍 / 渊缚链各半，按 'seal' 一起计保底）；trader：拾烬客货架（层级 ≥ 2）摆一件的几率
+  // 旧存档里攒下的保底计数读档时截到新的 pity（见 game.js 的 sanitize），超过的下一次就必掉
   G.RELIC_DROP = {
     src: { boss: true, enc: false, seal: false, trader: false },
-    boss: { chance: [0, 0.05, 0.08], pity: 10 },
-    enc: { chance: 0.1, pity: 8, minTier: 1 },
-    seal: { chance: 0.04, pity: 15, minW: 6, ids: ['zhuixing', 'yuanfu'] },
+    boss: { chance: [0, 0.15, 0.25], pity: 2 },
+    enc: { chance: 0.15, pity: 3, minTier: 1 },
+    seal: { chance: 0.1, pity: 3, minW: 6, ids: ['zhuixing', 'yuanfu'] },
     trader: { chance: 0.06, minTier: 2 },
     sealMul: 1.5,
+    sealCap: 0.35,
   };
   // 异兆的名字（图鉴里写来源用；D4 的 G.ENCOUNTERS 上线后以那边为准）
   G.RELIC_ENC_NAME = { guard: '守隙', wanderer: '游荡者', trial: '试锋', box: '缚匣', echo: '残影', ember: '落烬' };
@@ -1661,23 +1664,26 @@
   // ---------- 渊印（区域词缀，轮回层级 ≥ 1） ----------
   // 进区前三选一（浅印 / 深印 / 烬印）外加素印；每枚印 2–4 条印纹。w：权重，一枚印的生效权重 W 每点给数量 / 稀有度 / 经验
   // （G.SEAL.perW，各有上限 cap）；dmgK：这条印纹对「玩家每秒受到的伤害」的估算倍率，只用来算危险预算，不进战斗公式。
+  // dmgK 按 D3 的清图 bot 实测校过（层级 1，单条印纹的 3 s 受伤峰值 ÷ 素印，只往上调、不往下调）：设计稿的估算里
+  // 厚躯 1.0 → 1.15、领群 1.1 → 1.2、殁爆 1.08 → 1.15、疾躁 / 焚染 1.12 → 1.2、群首 1.05 → 1.1、警觉 1.05 → 1.08、回生 1.0 → 1.03
   // side：mob 怪物侧 / player 玩家侧；glyph：HUD 小签上的单字；need：技能栏上没有这类技能时这条的权重按 0 算（面板写「对你无效」）；
   // rage：同一枚印里这一组至多 2 条；p：效果的数值（game.js / enemies.js 的「渊印」各处读这里）
   G.SEAL_MODS = {
     // 焚染 / 霜染 / 雷染：怪物每一击另带 frac 倍伤害的该元素伤害（吃抗性）；元素取本区元素以外的一种，存在印纹的 el 上
-    tint: { name: '染', side: 'mob', w: 1, dmgK: 1.12, p: { frac: 0.3 } },
-    haste: { name: '疾躁', glyph: '躁', side: 'mob', w: 2, dmgK: 1.12, rage: true, p: { speed: 0.2, cd: 0.15 } }, // 起手和预警时长不变
-    elites: { name: '群首', glyph: '首', side: 'mob', w: 2, dmgK: 1.05, p: { chance: 0.7, cap: 8 } }, // 关键路径房间精英几率 45% → chance，全区上限 6 → cap
-    // 殁爆：普通怪死后 delay 秒在尸体处炸开（半径 r，伤害 = 它一击的 k 倍），精英用 eDelay / eR；场上最多 max 个
-    burst: { name: '殁爆', glyph: '殁', side: 'mob', w: 2, dmgK: 1.08, p: { delay: 0.9, r: 1.8, eDelay: 1.1, eR: 2.6, k: 0.7, max: 8 } },
+    tint: { name: '染', side: 'mob', w: 1, dmgK: 1.2, p: { frac: 0.3 } },
+    haste: { name: '疾躁', glyph: '躁', side: 'mob', w: 2, dmgK: 1.2, rage: true, p: { speed: 0.2, cd: 0.15 } }, // 起手和预警时长不变
+    elites: { name: '群首', glyph: '首', side: 'mob', w: 2, dmgK: 1.1, p: { chance: 0.7, cap: 8 } }, // 关键路径房间精英几率 45% → chance，全区上限 6 → cap
+    // 殁爆：普通怪死后 delay 秒在尸体处炸开（半径 r，伤害 = 它一击的 k 倍），精英用 eDelay / eR；场上最多 max 个；
+    // gap 秒内只伤玩家一次（一群怪同时死、几个圈叠在脚下时只算一下，不会一口气打空）
+    burst: { name: '殁爆', glyph: '殁', side: 'mob', w: 2, dmgK: 1.15, p: { delay: 0.9, r: 1.8, eDelay: 1.1, eR: 2.6, k: 0.7, max: 8, gap: 0.35 } },
     ailRes: { name: '坚蜕', glyph: '蜕', side: 'mob', w: 2, dmgK: 1.0, p: { th: 1.6, chillCap: 0.7, dur: 0.75 } }, // 首领只吃异常阈值
     // 领群：每群一只领群者，r 米内同群的怪伤害 +dmg、受到的伤害 −dr；领群者经验 × xp
-    aura: { name: '领群', glyph: '领', side: 'mob', w: 2, dmgK: 1.1, p: { r: 6, dmg: 0.2, dr: 0.15, xp: 2 } },
-    tough: { name: '厚躯', glyph: '厚', side: 'mob', w: 2, dmgK: 1.0, p: { hp: 0.35, boss: 0.2 } },
+    aura: { name: '领群', glyph: '领', side: 'mob', w: 2, dmgK: 1.2, p: { r: 6, dmg: 0.2, dr: 0.15, xp: 2 } },
+    tough: { name: '厚躯', glyph: '厚', side: 'mob', w: 2, dmgK: 1.15, p: { hp: 0.35, boss: 0.2 } },
     fierce: { name: '凶戾', glyph: '戾', side: 'mob', w: 2, dmgK: 1.2, rage: true, p: { dmg: 0.2, boss: 0.15 } },
     volley: { name: '连发', glyph: '连', side: 'mob', w: 1, dmgK: 1.05, p: { n: 2, spread: 14, speed: 0.15 } }, // spread：两发的夹角（度）
-    mend: { name: '回生', glyph: '生', side: 'mob', w: 1, dmgK: 1.0, p: { idle: 3, rate: 0.02, boss: 0.005 } },
-    alert: { name: '警觉', glyph: '觉', side: 'mob', w: 2, dmgK: 1.05, p: { wake: 16, call: 1.5 } },
+    mend: { name: '回生', glyph: '生', side: 'mob', w: 1, dmgK: 1.03, p: { idle: 3, rate: 0.02, boss: 0.005 } },
+    alert: { name: '警觉', glyph: '觉', side: 'mob', w: 2, dmgK: 1.08, p: { wake: 16, call: 1.5 } },
     frenzy: { name: '濒狂', glyph: '狂', side: 'mob', w: 1, dmgK: 1.05, rage: true, p: { th: 0.3, speed: 0.3, dmg: 0.15 } },
     escort: { name: '侍从', glyph: '从', side: 'mob', w: 2, dmgK: 1.08, p: { n: 2, at: 0.5 } },
     cinder: { name: '余烬地', glyph: '烬', side: 'mob', w: 1, dmgK: 1.03, p: { chance: 0.25, t: 3, r: 1.4, max: 6 } },
@@ -1689,6 +1695,8 @@
     lonely: { name: '孤影', glyph: '孤', side: 'player', w: 1, dmgK: 1.0, need: 'summon', p: { life: 0.35, dmg: 0.1 } },
   };
   G.SEAL_MOD_IDS = Object.keys(G.SEAL_MODS);
+  // 群首在这几个区的全区精英上限（风险 1）：烬渊深处、坠星裂谷的混战离 135 个 draw 只差几个，多 2 只精英会超，这里只多 1 只
+  G.SEAL_ELITE_CAP = { abyss: 7, rift: 7 };
   G.SEAL_TINT = { fire: { name: '焚染', glyph: '焚' }, cold: { name: '霜染', glyph: '霜' }, light: { name: '雷染', glyph: '雷' } };
   // perW：每点权重给的物品数量 / 稀有度 / 经验（%），cap 是上限；lieW：「烈印」的门槛（生效 W ≥ lieW）。
   // tiers：轮回层级 1 / 2 / ≥3 各一档。n 每枚印的条数，W[0..2] 浅印 / 深印 / 烬印的权重区间，budget 危险预算（dmgK 乘积上限），
