@@ -5386,7 +5386,8 @@
     };
     VS.pylons.push(py);
     W.bolt([{ x: P.x, z: P.z }, { x, z }], 0xffe45e, true);
-    W.ring(x, z, S.r * Math.sqrt(ctx.area), 0xffe45e, 0.3);
+    if (W.vShock) W.vShock(x, z, S.r * Math.sqrt(ctx.area), 0xffe45e, 0.3, 0); // 电桩的范围：一道往外推的细环
+    else W.ring(x, z, S.r * Math.sqrt(ctx.area), 0xffe45e, 0.3);
     W.decal(3, x, z, 0.9, Math.random() * TAU, 0xffe45e, S.dur);
     py.tt = S.tick * 0.6; // 插下去之后很快电第一下（不当帧电：按住连插也不会多电）
     const e = P.relic.dianqiao ? pylonZap(py) : null;
@@ -5652,8 +5653,8 @@
       kvOff(d.ring);
       const R = D.r * Math.sqrt(d.ctx.area);
       for (const e of enemiesIn(d.x, d.z, R)) G.hitEnemy(e, d.ctx, D.mult, { ang: Math.atan2(e.x - d.x, e.z - d.z), w: 1, kb: 1.2, poise: 18, quiet: true });
-      W.ring(d.x, d.z, R, 0xc7a6ff, 0.35);
-      W.ring(d.x, d.z, R * 0.5, 0xffffff, 0.2);
+      if (W.vShock) W.vShock(d.x, d.z, R, 0xc7a6ff, 0.32, 0);
+      else W.ring(d.x, d.z, R, 0xc7a6ff, 0.35);
       W.burst(d.x, 1.0, d.z, 0xc7a6ff, 22, 6, 0.45);
       W.shake(0.25);
       G.sfx('impact', { type: 'phys', w: 1, crit: false });
@@ -5827,7 +5828,8 @@
     }
     W.smashFx(P.x, P.z, R, ang);
     W.decal(5, P.x, P.z, R * 0.9, Math.random() * TAU, 0xffb050, 2.4);
-    W.ring(P.x, P.z, R, hexOf(sk.color), 0.35);
+    if (W.vShock) W.vShock(P.x, P.z, R, hexOf(sk.color), 0.3, 0);
+    else W.ring(P.x, P.z, R, hexOf(sk.color), 0.35);
     W.shake(0.2 + 0.04 * n);
     G.sfx(k ? 'impact' : 'hit', { type: 'phys', w: 2, crit: false });
     W.play(P.ent, 'attack3', { dur: 0.4, contact: 0.05 });
@@ -5861,7 +5863,7 @@
     G.hitEnemy(e, ctx, M.mult * k, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 1, kb: 0.3, poise: 4 * k, quiet: true });
     // 单只引爆：一圈环 + 一团碎光（四面刀光留给松手时的齐爆，连斩里一刀一爆的话刀光太多、draw call 也多）
     const W = G.world, h = e.height || 2;
-    W.ring(e.x, e.z, e.r + 0.9, 0x9fb4ff, 0.25);
+    if (W.vShock) W.vShock(e.x, e.z, e.r + 0.9, 0x9fb4ff, 0.22, 0);
     W.burst(e.x, h * 0.6, e.z, 0xdfe6ff, 14, 5, 0.3);
     state.stats.vMarkPops = (state.stats.vMarkPops || 0) + 1;
     vCount();
@@ -5995,10 +5997,10 @@
   function holeCollapse(h, k) {
     const W = G.world, C = h.ctx.sk.collapse, R = h.R * C.r, mult = (C.k0 + C.k1 * h.mass) * k;
     for (const e of enemiesIn(h.x, h.z, R)) G.hitEnemy(e, h.ctx, mult, { ang: Math.atan2(e.x - h.x, e.z - h.z), w: 2, kb: 1.0, poise: 10 + h.mass, quiet: true });
-    W.ring(h.x, h.z, R, 0xff6ad2, 0.4);
-    W.ring(h.x, h.z, R * 0.5, 0xffd6f2, 0.25);
-    if (W.voidFx) W.voidFx(h.x, h.z, R);
-    W.burst(h.x, 0.8, h.z, 0xff6ad2, 20 + Math.min(20, h.mass), 7, 0.45);
+    // 空心的冲击环 + 近黑的核一闪（不画实心圆盘：圈里的怪要看得清）
+    if (W.vShock) W.vShock(h.x, h.z, R, 0xff6ad2, 0.38, 1.2);
+    else W.ring(h.x, h.z, R, 0xff6ad2, 0.4);
+    W.burst(h.x, 0.8, h.z, 0xff6ad2, 16 + Math.min(16, h.mass >> 1), 7, 0.4);
     W.shake(0.2 + Math.min(0.3, h.mass * 0.01));
     G.sfx('hit');
     state.stats.vCollapses = (state.stats.vCollapses || 0) + 1;
@@ -6159,8 +6161,8 @@
       const pc = procCtx('chaos', amt);
       if (!e.dead) G.hitEnemy(e, pc, 1, { proc: true, w: 1, kb: 0, poise: 6 });
       for (const o of enemiesIn(e.x, e.z, R)) if (o !== e) G.hitEnemy(o, pc, 0.5, { proc: true, quiet: true, kb: 0.3 });
-      if (W.voidFx) W.voidFx(e.x, e.z, R);
-      W.ring(e.x, e.z, R, 0xe04cc0, 0.3);
+      if (W.vShock) W.vShock(e.x, e.z, R, 0xe04cc0, 0.28, 0.6); // 细环 + 一闪的暗核（渊陷那圈实心的环会盖住怪）
+      else if (W.voidFx) W.voidFx(e.x, e.z, R);
       state.stats.vBrandBursts = (state.stats.vBrandBursts || 0) + 1;
     });
   }
