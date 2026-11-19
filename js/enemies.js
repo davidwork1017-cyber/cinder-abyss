@@ -26,6 +26,7 @@
 
   let packSeq = 1; // 怪群编号
   let spawnZone = null; // spawnZoneMobs 进行中时的 zone（此时 G.state.zone 可能还没赋值）
+  let sealPromote = null; // 渊印「群首」：这次进区多做成精英群的槽位（spawnZoneMobs 里定）
 
   // ---------- 小工具 ----------
   function hexOf(e) {
@@ -212,11 +213,14 @@
     // horde：区域刷出来的普通怪，生命按 G.BALANCE.mobHp 打折（经验 / 掉落也打折，见 killXp、dropLoot）；精英、召唤的、调试刷的不打折
     const horde = !elite && !!o.horde;
     const hordeK = horde ? (G.BALANCE.zoneK && G.BALANCE.zoneK[zone.def.id]) || 1 : 1; // 这一区普通怪经验 / 掉落的系数
-    const hp = Math.max(1, Math.round(def.hp * G.hpScale(level) * (elite ? 4.5 : horde ? G.BALANCE.mobHp : 1))); // 精英血量 4 → 4.5：补偿破绽易伤与处决
+    // 渊印：厚躯（生命）、凶戾（伤害）、疾躁（移速）
+    const RM = G.runMods;
+    const hpK = RM.tough ? 1 + RM.tough.hp : 1, dmgK = RM.fierce ? 1 + RM.fierce.dmg : 1, spdK = RM.haste ? 1 + RM.haste.speed : 1;
+    const hp = Math.max(1, Math.round(def.hp * G.hpScale(level) * (elite ? 4.5 : horde ? G.BALANCE.mobHp : 1) * hpK)); // 精英血量 4 → 4.5：补偿破绽易伤与处决
     const r = def.r * (elite ? 1.25 : 1);
     const e = runtimeFields({
       type, def, name: elite ? '精英' + def.name : def.name, x, z, r, hp, maxHp: hp,
-      dmg: def.dmg * G.dmgScale(level) * (elite ? 1.3 : 1), level, speed: def.speed, elem, elite, horde, hordeK,
+      dmg: def.dmg * G.dmgScale(level) * (elite ? 1.3 : 1) * dmgK, level, speed: def.speed * spdK, elem, elite, horde, hordeK,
       isBoss: false, bossKind: null, pack: o.pack == null ? null : o.pack, awake: !!o.awake,
       dead: false, deathT: 0, height: (def.h || (type === 'brute' ? 2.8 : 2)) * (elite ? 1.35 : 1),
       freeze: 0, stunT: 0, slowK: 1, iced: false,
@@ -225,6 +229,8 @@
       reach: def.range + (r - def.r), // 攻击距离随体型略增
       mass: def.mass * (elite ? 1.7 : 1), poiseMax: elite ? def.poise : 0,
     }, zone);
+    e.dmgBase = e.dmg; // 濒狂 / 领群的伤害加成按它重算 e.dmg
+    e.speedBase = e.speed;
     G.initBuildUp(e); // 元素异常值（阈值按最大生命定）
     e.blinkCd = G.rand(1.5, 3); // 隙影：第一次闪身前的冷却
     G.world.setEnt(e.ent, x, z, e.ang);
@@ -240,10 +246,11 @@
     const def = o.echo ? Object.assign({}, def0, { patterns: def0.patterns.slice(0, o.pats || 2) }) : def0;
     const zone = spawnZone || G.state.zone;
     const elem = zone.def.elem;
-    const hp = Math.max(1, Math.round(def.hp * G.hpScale(level) * (o.echo ? o.hpK || 1 : 1)));
+    const RM = G.runMods; // 渊印：首领的厚躯 / 凶戾用各自的 boss 数值
+    const hp = Math.max(1, Math.round(def.hp * G.hpScale(level) * (RM.tough ? 1 + RM.tough.boss : 1) * (o.echo ? o.hpK || 1 : 1))); // o.echo：异兆「残影」生命 × hpK
     const e = runtimeFields({
       type: kind, def, name: def.name, x, z, r: def.r, hp, maxHp: hp,
-      dmg: def.dmg * G.dmgScale(level), level, speed: def.speed, elem, elite: false,
+      dmg: def.dmg * G.dmgScale(level) * (RM.fierce ? 1 + RM.fierce.boss : 1), level, speed: def.speed * (RM.haste ? 1 + RM.haste.speed : 1), elem, elite: false,
       isBoss: true, bossKind: kind, pack: null, awake: false,
       dead: false, deathT: 0, height: 4.6,
       freeze: 0, stunT: 0, slowK: 1, iced: false,
@@ -252,6 +259,8 @@
       busy: 0, cd: 1, enraged: false, lastPattern: null, dash: null, aim: 0,
       mass: 50, poiseMax: def.poise,
     }, zone);
+    e.dmgBase = e.dmg;
+    e.speedBase = e.speed;
     if (o.echo) {
       e.echo = true;
       e.noRage = true;
@@ -377,7 +386,7 @@
         break;
       }
     }
-    if (slot.elite && members.length) {
+    if ((slot.elite || (sealPromote && sealPromote.has(slot))) && members.length) {
       const m = members.find((q) => q.type !== 'bomber') || members[0];
       if (m.type === 'bomber') m.type = mobs.find((t) => t !== 'bomber') || 'husk';
       m.elite = true;
@@ -390,18 +399,83 @@
     }
   }
 
+  // ---------- 渊印：群首、领群 ----------
+  // 群首：布局给的精英（关键路径房间各 45%）之外，没有精英的关键路径房间再按 (chance − 45%) / (1 − 45%) 补一群，
+  // 全区精英上限 cap。只在布怪时挑槽位，不碰布局的随机源。G.SEAL_ELITE_CAP 里列出的区上限另算（风险 1）
+  const ELITE_BASE = 0.45;
+  function sealElites(zone) {
+    const p = G.runMods.elites, add = new Set(), byRoom = new Map();
+    const cap = (G.SEAL_ELITE_CAP && G.SEAL_ELITE_CAP[zone.def.id]) || p.cap;
+    let n = 0;
+    for (const slot of zone.packs) {
+      if (slot.kind === 'disk' || slot.kind === 'line') continue;
+      if (slot.elite) {
+        n++;
+        byRoom.set(slot.room, null); // 这个房间已经有精英了
+        continue;
+      }
+      const rm = zone.rooms[slot.room];
+      if (!rm || rm.kind !== 'room' || !rm.path || slot.ambush) continue;
+      if (!byRoom.has(slot.room)) byRoom.set(slot.room, []);
+      const list = byRoom.get(slot.room);
+      if (list) list.push(slot);
+    }
+    const k = (p.chance - ELITE_BASE) / (1 - ELITE_BASE);
+    for (const list of byRoom.values()) {
+      if (!list || !list.length || n >= cap) continue;
+      if (Math.random() < k) {
+        add.add(G.pick(list));
+        n++;
+      }
+    }
+    return add;
+  }
+  // 领群：每群（区域刷的、至少 2 只）一只领群者——有精英先选精英，否则体型最大的；同群的怪记下它（e.leaderOf）
+  function sealLeaders() {
+    const best = new Map();
+    for (const e of G.state.enemies) {
+      if (e.isBoss || e.pack == null || !e.horde && !e.elite) continue;
+      const b = best.get(e.pack);
+      const score = (e.elite ? 100 : 0) + e.r * 10 + e.maxHp / 1e6;
+      if (!b) best.set(e.pack, { e, score, n: 1 });
+      else {
+        b.n++;
+        if (score > b.score) {
+          b.e = e;
+          b.score = score;
+        }
+      }
+    }
+    const leaders = [];
+    for (const b of best.values()) {
+      if (b.n < 2) continue;
+      b.e.leader = true;
+      leaders.push(b.e);
+    }
+    for (const e of G.state.enemies) {
+      const b = e.pack != null && best.get(e.pack);
+      if (b && b.n >= 2 && b.e !== e) e.leaderOf = b.e;
+    }
+    return leaders;
+  }
+  G.sealLeaders = () => G.state.enemies.filter((e) => e.leader && !e.dead);
+
   G.spawnZoneMobs = function (zone) {
     spawnZone = zone;
+    sealPromote = G.runMods.elites ? sealElites(zone) : null;
     try {
       for (const slot of zone.packs) {
         if (slot.kind === 'disk') populateClearing(zone, slot);
         else if (slot.kind === 'line') populateCorridor(zone, slot);
         else populatePack(zone, slot);
       }
+      const leaders = G.runMods.aura ? sealLeaders() : null;
+      if (G.world.sealAura) G.world.sealAura(leaders); // 领群光环（实例化，整局一个网格；没有领群时清空）
       const boss = G.spawnBoss(zone.def.boss, zone.bossPos.x, zone.bossPos.z, zone.level + 3);
       if (boss) boss.leash = true; // 区域首领拴在场地里（G.TERRAIN.bossLeash）
     } finally {
       spawnZone = null;
+      sealPromote = null;
     }
   };
 
@@ -410,6 +484,34 @@
     e.awake = true;
     if (e.pack == null) return;
     for (const o of G.state.enemies) if (o.pack === e.pack && !o.dead) o.awake = true;
+    // 渊印「警觉」：同房间的其它怪群 call 秒后也醒（视线规则照旧：同一房间本来就算看得见）
+    const AL = G.runMods.alert;
+    if (AL && !e.alertCalled) {
+      const W = G.world, rm = W.roomAt(e.x, e.z);
+      if (rm >= 0) {
+        for (const o of G.state.enemies) {
+          if (o.dead || o.awake || o.isBoss || o.pack === e.pack || o.alertT > 0 || W.roomAt(o.x, o.z) !== rm) continue;
+          o.alertT = AL.call;
+        }
+      }
+      for (const o of G.state.enemies) if (o.pack === e.pack) o.alertCalled = true;
+    }
+  }
+  // 渊印「侍从」：首领醒来时和半血时各召来 n 只本区精英（落点先亮 0.8 秒的预警环）
+  function sealEscort(e) {
+    const W = G.world, seq = e.seq, hex = hexOf(e), ES = G.runMods.escort;
+    const spots = summonSpots(e, ES.n), mobs = e.zone.def.mobs.filter((t) => t !== 'bomber');
+    for (const s of spots) W.ring(s.x, s.z, 1.6, hex, 0.8);
+    G.after(0.8, () => {
+      if (!live(e, seq)) return;
+      for (const s of spots) {
+        const m = G.spawnMob(G.pick(mobs.length ? mobs : ['husk']), s.x, s.z, e.zone.level, { elite: true, pack: null, awake: true });
+        m.summoned = true; // 玩家重生时直接移除（首领再醒时重新召来）
+        m.atkCd = 0.9;
+        W.burst(s.x, 1, s.z, hex, 14, 4, 0.4);
+      }
+      G.sfx('boss');
+    });
   }
   // 从沉睡到苏醒的那一帧（也覆盖 game.js 命中时直接置 awake 的情况）
   function onWake(e) {
@@ -421,6 +523,10 @@
       G.world.ring(e.x, e.z, e.r + 3, hexOf(e), 0.6);
       G.world.shake(0.3);
       G.sfx('boss');
+      if (G.runMods.escort && !e.escortWake) {
+        e.escortWake = true;
+        sealEscort(e);
+      }
     } else {
       e.atkCd = Math.max(e.atkCd, G.rand(0.15, 0.6)); // 错开同一群怪的首次出手
     }
@@ -647,7 +753,12 @@
       const a = angTo(e, P.x, P.z);
       e.ang = a;
       if (W.clipOf(e.ent) !== 'attack') W.play(e.ent, 'attack');
-      shoot(e, a, 11, e.dmg, 0.35, 2.5, e.r + 0.25);
+      const VO = G.runMods.volley;
+      if (VO) {
+        // 渊印「连发」：两发夹角 spread°、弹速 +15%，同一轮齐射（打中玩家只结算一次）
+        const v = volleySeq++, h = (VO.spread * Math.PI) / 360;
+        for (let i = -1; i <= 1; i += 2) shoot(e, a + i * h, 11 * (1 + VO.speed), e.dmg, 0.35, 2.5, e.r + 0.25, v);
+      } else shoot(e, a, 11, e.dmg, 0.35, 2.5, e.r + 0.25);
       G.sfx('cast');
       e.atkCd = def.cd * G.rand(0.9, 1.25);
       return;
@@ -1397,7 +1508,11 @@
     }
     if (dist > 5) chase(e, P, spd, dt);
     else turn(e, angTo(e, P.x, P.z), 6, dt);
-    e.cd -= dt * sk;
+    e.cd -= dt * sk * hasteK;
+    if (G.runMods.escort && !e.escortHalf && e.hp < e.maxHp * G.runMods.escort.at) {
+      e.escortHalf = true; // 渊印「侍从」：半血时再来一批
+      sealEscort(e);
+    }
     if (e.cd <= 0 && dist <= 26 && !e.dash) {
       e.cd = e.enraged ? 0.6 : 1.0; // busy 结束后才继续倒数，所以这是招式之间的停顿
       startPattern(e, P, dist);
@@ -1540,6 +1655,7 @@
 
   // ---------- 每帧更新 ----------
   const near = [], active = [];
+  let hasteK = 1; // 渊印「疾躁」：出手间隔的计时快 1 / (1 − cd) 倍
   // 冰缓的显示档位（W.chill）：0 没有；轻度冰缓按冰霜异常值分三档；首领的重度冰缓是最高档；冻着的交给冻结的冰色
   function chillBand(e) {
     if (e.freeze > 0 || !e.bu) return 0;
@@ -1557,9 +1673,17 @@
     const TR = G.TERRAIN, hzMask = zone.map ? zone.map.hazAny & (W.HAZ.slow | W.HAZ.burn) : 0;
     if (hazards.length) updateHazards(dt);
     if (cinders.length) updateCinders(dt);
+    // 渊印：标志位进区时算好（G.runMods），这里只读
+    const RM = G.runMods, wakeD = RM.alert ? RM.alert.wake : WAKE_DIST;
+    hasteK = RM.haste ? 1 / (1 - RM.haste.cd) : 1;
+    const dyn = !!(RM.frenzy || RM.aura);
 
     for (let i = list.length - 1; i >= 0; i--) {
       const e = list[i];
+      if (e.alertT > 0 && !e.dead) {
+        e.alertT -= dt;
+        if (e.alertT <= 0 && !e.awake && !P.dead) wakePack(e);
+      }
       if (e.dead) {
         // 死亡收缩，结束后移除
         e.deathT -= dt;
@@ -1577,7 +1701,7 @@
       if (!e.awake && !P.dead) {
         if (e.isBoss && !e.echo) {
           if (bossNear) e.awake = true;
-        } else if (dist < WAKE_DIST && !(G.player.graceT > 0) && (!TR.wakeLos || wakeSees(e, P))) wakePack(e); // 刚重生的几秒内不会被就近的怪发现
+        } else if (dist < wakeD && !(G.player.graceT > 0) && (!TR.wakeLos || wakeSees(e, P))) wakePack(e); // 刚重生的几秒内不会被就近的怪发现
       }
       if (e.awake && !e.wasAwake) onWake(e);
 
@@ -1595,6 +1719,22 @@
           }
         } else if (e.poiseT > 0) e.poiseT -= dt;
         else if (e.poise < e.poiseMax) e.poise = Math.min(e.poiseMax, e.poise + e.poiseMax * G.POISE.regen * dt);
+      }
+      // 渊印：回生（几秒没挨打就回血）、濒狂（低血量提速增伤、泛红）、领群（领群者附近同群的怪增伤，减伤在 G.hitEnemy）
+      if (RM.mend && e.hp < e.maxHp && S.time - (e.hurtAt || 0) >= RM.mend.idle) e.hp = Math.min(e.maxHp, e.hp + e.maxHp * (e.isBoss ? RM.mend.boss : RM.mend.rate) * dt);
+      if (dyn) {
+        let k = 1;
+        const fr = !!(RM.frenzy && !e.isBoss && e.hp < e.maxHp * RM.frenzy.th); // 首领不吃濒狂（40% 起本来就狂暴）
+        if (fr !== !!e.frenzied) {
+          e.frenzied = fr;
+          e.speed = e.speedBase * (fr ? 1 + RM.frenzy.speed : 1);
+          if (W.rage) W.rage(e.ent, fr);
+        }
+        if (fr) k += RM.frenzy.dmg;
+        const L = e.leaderOf;
+        e.auraBuff = !!(L && !L.dead && Math.hypot(L.x - e.x, L.z - e.z) <= RM.aura.r);
+        if (e.auraBuff) k += RM.aura.dmg;
+        e.dmg = e.dmgBase * k;
       }
       const held = e.freeze > 0 || e.stunT > 0 || e.stagT > 0 || e.brokenT > 0 || e.bindT > 0; // 渊缚：定身，和冻结一样暂停 AI
       if (e.freeze > 0) e.freeze -= dt;
@@ -1652,7 +1792,7 @@
           // 冰缓：小怪的 AI 按它自己放慢了的时钟走——移动、出手间隔、起手 / 收招、冲锋一起变慢
           // （移动 = 速度 × 这个时钟，所以传原速；预警圈在 G.updateTelegraphs 里按同一个倍率走，动作在下面按同一个倍率播）
           const ldt = dt * e.slowK;
-          if (e.atkCd > 0) e.atkCd -= ldt;
+          if (e.atkCd > 0) e.atkCd -= ldt * hasteK; // 渊印「疾躁」：出手间隔 −15%（起手 / 预警时长不变）
           MOB_AI[e.def.ai](e, ldt, tg, td, e.speed);
         }
       } else {
@@ -1887,8 +2027,16 @@
       e.blinkCd = G.rand(1.5, 3);
       e.goreCd = 0;
       W.stop(e.ent, 0);
+      e.alertT = 0;
+      e.alertCalled = false;
+      if (e.frenzied) {
+        e.frenzied = false;
+        e.speed = e.speedBase;
+        if (W.rage) W.rage(e.ent, false);
+      }
       if (e.isBoss) {
         e.hp = e.maxHp;
+        e.escortWake = e.escortHalf = false;
         e.busy = 0;
         e.cd = 1;
         e.enraged = false;
