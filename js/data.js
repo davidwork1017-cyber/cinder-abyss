@@ -342,11 +342,11 @@
     //   shape：'arc' 扇形（range / arc / dir）、'smash' 身前砸地的圆（reach / range）、'line' 身前一条直线（len 长、width 宽）；
     //   dash：这一段命中时朝准星冲过 dash 米（撞墙截断），冲过的整条路都算 line 的范围；cross：扇形画成交叉的两道；
     //   wave：砸地之后再荡开的一圈冲击波（r 半径、mult 倍率，已经被砸到的不再吃）。
-    //   time（整招的平均段长）、comboAvg / comboStop 在下面统一算。单体秒伤定在同一把武器配原来裂石击的 0.92 倍（四种近战武器按武器秒伤对齐到 ±1%），
-    //   比按住不放的主力技能（旋风斩、影步连斩）单体略高或持平、打怪群更差：是不耗魔力的稳定输出，不是主力
+    //   time（整招的平均段长）、comboAvg / comboStop 在下面统一算。单体秒伤定在同一把武器配原来裂石击的 0.8 倍左右（四种近战武器按武器秒伤对齐到 ±1%；刃的连招和旋风斩单体持平），
+    //   不比各流派的主力技能强（旋风斩持平、影步连斩略低），打怪群更差：是不耗魔力的稳定输出，不是主力
     basic_blade: {
       name: '挥斩', icon: '斩', color: '#e6dfd0', tags: ['attack', 'melee', 'area', 'phys'], kind: 'melee', btype: 'blade', weaponOnly: true, basic: true,
-      wm: 1.12, mana: 0, cd: 0, range: 3.4, arc: 120,
+      wm: 0.97, mana: 0, cd: 0, range: 3.4, arc: 120,
       combo: [
         { clip: 'attack1', time: 0.34, hit: 0.15, tail: 0.14, mult: 0.85, shape: 'arc', range: 3.3, arc: 120, dir: 1, lunge: 0.6, kb: 0.5, poise: 12, stop: 30, w: 0 },
         { clip: 'attack2', time: 0.34, hit: 0.15, tail: 0.14, mult: 0.9, shape: 'arc', range: 3.4, arc: 120, dir: -1, lunge: 0.6, kb: 0.6, poise: 14, stop: 35, w: 0 },
@@ -356,7 +356,7 @@
     },
     basic_daggers: {
       name: '连刺', icon: '刺', color: '#bdb6ff', tags: ['attack', 'melee', 'area', 'phys'], kind: 'melee', btype: 'daggers', weaponOnly: true, basic: true,
-      wm: 0.98, mana: 0, cd: 0, range: 2.8, arc: 60,
+      wm: 0.85, mana: 0, cd: 0, range: 2.8, arc: 60,
       combo: [
         { clip: 'b_stabR', time: 0.2, hit: 0.08, tail: 0.1, mult: 0.6, shape: 'line', len: 2.8, width: 1.1, lunge: 0.35, kb: 0.2, poise: 6, stop: 18, w: 0 },
         { clip: 'b_stabL', time: 0.2, hit: 0.08, tail: 0.1, mult: 0.6, shape: 'line', len: 2.8, width: 1.1, lunge: 0.35, kb: 0.2, poise: 6, stop: 18, w: 0 },
@@ -367,7 +367,7 @@
     },
     basic_hammer: {
       name: '重击', icon: '锤', color: '#d8b07a', tags: ['attack', 'melee', 'area', 'phys'], kind: 'melee', btype: 'hammer', weaponOnly: true, basic: true,
-      wm: 1.37, mana: 0, cd: 0, range: 3.6, arc: 140,
+      wm: 1.19, mana: 0, cd: 0, range: 3.6, arc: 140,
       combo: [
         { clip: 'attack1', time: 0.52, hit: 0.26, tail: 0.2, mult: 1.0, shape: 'arc', range: 3.6, arc: 140, dir: 1, lunge: 0.5, kb: 1.0, poise: 22, stop: 55, w: 1 },
         { clip: 'attack2', time: 0.52, hit: 0.26, tail: 0.2, mult: 1.1, shape: 'arc', range: 3.6, arc: 140, dir: -1, lunge: 0.5, kb: 1.1, poise: 24, stop: 60, w: 1 },
@@ -378,7 +378,7 @@
     },
     basic_katana: {
       name: '拔刀', icon: '拔', color: '#e8f0ff', tags: ['attack', 'melee', 'area', 'phys', 'movement'], kind: 'melee', btype: 'katana', weaponOnly: true, basic: true,
-      wm: 1.09, mana: 0, cd: 0, range: 3.3, arc: 120,
+      wm: 0.95, mana: 0, cd: 0, range: 3.3, arc: 120,
       combo: [
         { clip: 'b_iai', time: 0.3, hit: 0.1, tail: 0.14, mult: 0.95, shape: 'arc', range: 3.3, arc: 120, dir: -1, lunge: 0.4, kb: 0.4, poise: 12, stop: 35, w: 0 },
         { clip: 'attack1', time: 0.32, hit: 0.14, tail: 0.14, mult: 0.85, shape: 'arc', range: 3.2, arc: 110, dir: 1, lunge: 0.4, kb: 0.5, poise: 12, stop: 35, w: 0 },
@@ -388,7 +388,7 @@
     },
     basic_fists: {
       name: '拳击', icon: '拳', color: '#f0d6b8', tags: ['attack', 'melee', 'phys'], kind: 'melee', btype: 'fists', weaponOnly: true, basic: true,
-      wm: 1.0, mana: 0, cd: 0, range: 2.4, arc: 80,
+      wm: 0.87, mana: 0, cd: 0, range: 2.4, arc: 80,
       combo: [
         { clip: 'b_jabL', time: 0.24, hit: 0.09, tail: 0.12, mult: 0.8, shape: 'arc', range: 2.4, arc: 70, dir: 1, lunge: 0.3, kb: 0.3, poise: 6, stop: 22, w: 0 },
         { clip: 'b_jabR', time: 0.24, hit: 0.09, tail: 0.12, mult: 0.8, shape: 'arc', range: 2.4, arc: 70, dir: -1, lunge: 0.3, kb: 0.3, poise: 6, stop: 22, w: 0 },

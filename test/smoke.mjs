@@ -3554,7 +3554,9 @@ async function main() {
     const gain = (cd, main) => (cd.avg / cd.cd - main.dps * (cd.cd > 0 ? (cd.id === 'blink' ? 0.2 : 0.6) / cd.cd : 0)) / main.dps;
     const gm = gain(m, r.ember), gb = gain(Object.assign({ id: 'blink' }, b), r.melee);
     // 陨火冷却 5 秒（用户定的）：每次伤害高、冷却也不长，穿插收益比闪袭大
-    assert(gm > 0.2 && gm < 0.6 && gb > 0.12 && gb < 0.3, '穿插冷却技能的秒伤收益不对（陨火 20%–60%，闪袭 12%–30%）：' + JSON.stringify({ gm, gb }));
+    // 闪袭的参照从裂石击换成刃的右键连招「挥斩」（裂石击已删除），上限 30% → 36%（编排者定）：闪袭是对着裂石击调的，裂石击比旋风斩高一成半；
+    // 挥斩现在和旋风斩持平（旧裂石击的 0.8 倍），闪袭本身没动，对实际配旋风斩的玩家收益本来就在 0.3–0.35，只是被删掉的参照挪了位置
+    assert(gm > 0.2 && gm < 0.6 && gb > 0.12 && gb < 0.36, '穿插冷却技能的秒伤收益不对（陨火 20%–60%，闪袭对挥斩 12%–36%）：' + JSON.stringify({ gm, gb }));
     assert(r.card.includes('每次伤害') && r.card.includes('冷却技能') && r.card.includes(String(m.cd)), '陨火的技能卡应写每次伤害和冷却：' + r.card);
     return '陨火每次 ' + Math.round(m.avg) + '（掷焰 ' + Math.round(r.ember.avg) + '），穿插收益约 ' + Math.round(gm * 100) + '%；闪袭约 ' + Math.round(gb * 100) + '%';
   });
