@@ -10670,6 +10670,7 @@ async function main() {
         P.god = true;
         TV.d = T.openDir(18);
         TV.st0 = Object.assign({}, G.state.stats);
+        TV.pins = [];
         TV.watch = id;
         TV.cnt = new Map();
         TV.sum = new Map();
@@ -10717,9 +10718,17 @@ async function main() {
         G.execSkill(G.skillCtx(id));
         TV.run(sec || 0);
       },
+      // 钉住：每一帧推进之后把它放回原处
+      pin(e) {
+        TV.pins.push({ e, x: e.x, z: e.z });
+      },
       run(sec) {
         for (let i = 0; i < Math.round(sec * 60); i++) {
           G.tick(1 / 60);
+          for (const q of TV.pins) {
+            q.e.x = q.x;
+            q.e.z = q.z;
+          }
           P.mana = P.maxMana;
           P.life = P.maxLife;
         }
@@ -10759,6 +10768,7 @@ async function main() {
       TV.setup('ember', 'a');
       const st0 = G.state.stats.vSkipLands || 0;
       const m4 = TV.mob(4, 0), m11 = TV.mob(11, 0), off = TV.mob(6, 5);
+      for (const e of [m4, m11, off]) TV.pin(e); // 钉在原地（醒着的靶子会被推开、慢慢挪动，走出火地）
       TV.cast('ember', TV.at(4), 1.4);
       const out = { lands: (G.state.stats.vSkipLands || 0) - st0, fields: G.rangedFields().filter((f) => f.key === 'vSkipT').length, m4: TV.n(m4), m11: TV.n(m11), off: TV.n(off) };
       TV.run(1.6);
@@ -11219,18 +11229,23 @@ async function main() {
       G.save.variants.blackflame = 'a';
       G.applyVariants();
       G.computeStats();
-      const b = TV.boss(6);
+      const b = TV.big(6);
+      TV.pin(b);
       const F = G.flamePct();
-      for (let i = 0; i < 6; i++) TV.cast('ember', TV.at(6), 0.4);
+      let casts = 0;
+      while (casts < 10 && !TV.st('vBrandBursts')) {
+        TV.cast('ember', TV.at(6), 0.4);
+        casts++;
+      }
       TV.run(0.3);
-      const out = { bursts: TV.st('vBrandBursts'), F: +F.toFixed(2), brand: b.vBrand || 0 };
+      const out = { bursts: TV.st('vBrandBursts'), F: +F.toFixed(2), brand: b.vBrand || 0, casts, hits: TV.n(b) };
       G.save.variants.blackflame = 'o';
       TV.done();
       out.Fo = +G.flamePct().toFixed(2);
       return out;
     });
-    assert(r.bursts === 1 && r.brand === 0, '蚀印应 6 层炸开：' + JSON.stringify(r));
-    return '6 击后炸开 1 次，附带 ' + r.F + '%';
+    assert(r.bursts === 1 && r.brand === 0 && r.casts === 6 && Math.abs(r.F * 2 - r.Fo) < 0.05, '蚀印应 6 层炸开、附带比例减半：' + JSON.stringify(r));
+    return '6 击后炸开 1 次，附带 ' + r.F + '%（原式 ' + r.Fo + '%）';
   });
   await step('刻式 v2·黑焰「传焰」：命中点燃黑焰（不直接加伤害），宿主死时带着没烧完的跳到下一个', async () => {
     await ev(TVDEF);
