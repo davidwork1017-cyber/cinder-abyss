@@ -619,6 +619,15 @@
     return setSave(sanitize(raw));
   };
 
+  // 本地有没有存档（标题画面据此决定显示「继续游戏」、新游戏要不要先确认）
+  G.hasSave = function () {
+    try {
+      return !!window.localStorage.getItem(SAVE_KEY);
+    } catch (err) {
+      return false;
+    }
+  };
+
   G.persist = function () {
     try {
       window.localStorage.setItem(SAVE_KEY, JSON.stringify(G.save));
