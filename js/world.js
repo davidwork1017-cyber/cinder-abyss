@@ -19670,15 +19670,16 @@
     }
     if (vk === 'dart' || vk === 'lbolt') { // 灵弹炸开和秘弹同一套（颜色跟着元素）
       if (how === 'hit') return true;
-      const h = u.hex, Rr = R || 0.8;
+      const h = u.hex, Rr = R || 0.8, lb = vk === 'lbolt';
       W.ring(x, z, Rr, h, 0.26);
-      W.ring(x, z, Rr * 0.45, mixHex(h, 0xffffff, 0.6), 0.16);
+      // 灵弹是按住连发的普攻：只留外圈、不留地上的痕迹（环和贴花各占一次 draw call，连发时会叠起来）
+      if (!lb) W.ring(x, z, Rr * 0.45, mixHex(h, 0xffffff, 0.6), 0.16);
       flare(x, y, z, h, 1.3, 0.1);
       for (let i = 0; i < 14; i++) {
         const a = rand(0, TAU), v = rand(2.5, 6) * Math.max(0.6, Rr * 0.6), wh = i % 3 === 0 ? 0.6 : 0.15;
         spawnP(x, y, z, Math.sin(a) * v, rand(-0.5, 2.5), Math.cos(a) * v, rand(0.18, 0.35), rand(0.12, 0.2), u.r + (1 - u.r) * wh, u.g + (1 - u.g) * wh, u.b + (1 - u.b) * wh, 2, 3.5);
       }
-      W.decal(3, x, z, Rr * 0.5, rand(0, TAU), h, 1.2);
+      if (!lb) W.decal(3, x, z, Rr * 0.5, rand(0, TAU), h, 1.2);
       return true;
     }
     if (vk === 'orb') {

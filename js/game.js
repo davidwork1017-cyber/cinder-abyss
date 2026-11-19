@@ -3793,7 +3793,7 @@
         // 落点一圈实心的尘团 + 碎石尖片 + 一颗大星（W.smashFx），地裂是硬边的
         W.slash(P.x, P.z, a.ang, st.reach * k + 0.4, 130, hex, { dur: 0.22, inner: 0.62, y: 1.1, tilt: Math.PI / 2, pitch: -0.52, dir: -1 });
         W.ring(cx, cz, R, hex, 0.34);
-        W.ring(cx, cz, R * 0.55, 0xffe2b0, 0.2);
+        if (!st.wave) W.ring(cx, cz, R * 0.55, 0xffe2b0, 0.2); // 带冲击波的（战锤普攻的终结）外面还要荡一圈：里面这圈省掉，场上同时的环（各占一次 draw call）不多出来
         W.decal(5, cx, cz, R * 0.95, Math.random() * TAU, 0xffb050, 2.6);
         W.smashFx(cx, cz, R, a.ang);
         W.shake(0.24);
@@ -3817,7 +3817,6 @@
         // 锋芒：一道细长的直线刀光（world.thrustFx，没有时用窄扇形顶上）
         const reach = st.dash ? len - dist(x0, z0, P.x, P.z) : len;
         if (!fxOpt('thrustFx', P.x, P.z, a.ang, reach, hex)) W.slash(P.x, P.z, a.ang, reach, 24, hex, { dur: 0.14, inner: 0.15, y: 1.1 });
-        if (st.w >= 2 && !st.dash) W.slash(P.x, P.z, a.ang, reach, 36, hex, { dur: 0.18, inner: 0.55, y: 1.0, dir: 1 });
       } else {
         const half = (st.arc / 2) * DEG;
         for (const e of enemiesIn(P.x, P.z, R)) {
