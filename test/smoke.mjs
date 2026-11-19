@@ -9681,14 +9681,15 @@ async function main() {
   // ------------------------------------------------------------------ D1 刻式（设计稿 §10）
   // 五步共用：进来时把存档存一份，最后一步结束时原样放回（刻式、宝石等级、通货都不带进后面的步骤）
   let varKeep = null;
-  await step('刻式：15 个宝石技能都有 A / B；宝石 9 级不能选、10 级能选；第一次免费，第二次扣 1 乱流石、不够时拒绝；战斗中拒绝；技能页 10 级才有三个按钮', async () => {
+  await step('刻式：裂石击以外的 14 个宝石技能都有 A / B；宝石 9 级不能选、10 级能选；第一次免费，第二次扣 1 乱流石、不够时拒绝；战斗中拒绝；技能页 10 级才有三个按钮', async () => {
     varKeep = await ev(() => { G.persist(); return localStorage.getItem('cinder-abyss-save-v1'); });
     const r = await ev(() => {
       T.arena();
       const s = G.save, P = G.player, out = {};
-      out.n = G.GEM_SKILLS.length;
-      out.missing = G.GEM_SKILLS.filter((id) => !(G.VARIANTS[id] && G.VARIANTS[id].a && G.VARIANTS[id].b && G.VARIANTS[id].a.name && G.VARIANTS[id].b.name && G.VARIANTS[id].a.desc && G.VARIANTS[id].b.desc));
-      out.extra = Object.keys(G.VARIANTS).filter((id) => G.GEM_SKILLS.indexOf(id) < 0);
+      // 裂石击不做刻式（要从可学技能里拿掉，见设计稿实现记录）：其余宝石技能都要有，表里也不能有别的
+      out.n = Object.keys(G.VARIANTS).length;
+      out.missing = G.GEM_SKILLS.filter((id) => id !== 'cleave').filter((id) => !(G.VARIANTS[id] && G.VARIANTS[id].a && G.VARIANTS[id].b && G.VARIANTS[id].a.name && G.VARIANTS[id].b.name && G.VARIANTS[id].a.desc && G.VARIANTS[id].b.desc));
+      out.extra = Object.keys(G.VARIANTS).filter((id) => G.GEM_SKILLS.indexOf(id) < 0 || id === 'cleave');
       out.price = G.VARIANT_LVL === 10 && G.VARIANT_COST.cur === 'chaos' && G.VARIANT_COST.n === 1 && G.CURRENCY.chaos.name === '乱流石';
       s.variants = {};
       s.variantFree = {};
@@ -9725,15 +9726,15 @@ async function main() {
       G.ui.close();
       return out;
     });
-    assert(r.n === 15 && !r.missing.length && !r.extra.length && r.price, '刻式表不全：' + JSON.stringify(r));
+    assert(r.n === 14 && !r.missing.length && !r.extra.length && r.price, '刻式表不全：' + JSON.stringify(r));
     assert(!r.lv9 && r.btn9 === 0 && r.lock9, '宝石 9 级不该能选刻式：' + JSON.stringify(r));
     assert(r.free && r.refuse && r.paid, '价格不对（第一次免费、之后 1 乱流石、不够拒绝）：' + JSON.stringify(r));
     assert(r.combat && r.asleep, '战斗中应拒绝换刻式：' + JSON.stringify(r));
     assert(r.btn10 === 3 && r.on === 'b' && r.clicked, '技能页的刻式按钮不对：' + JSON.stringify(r));
-    return '15 个技能 × A / B；免费 → 拒绝 → 扣 1 → 战斗中拒绝 → 按钮换回原式';
+    return '14 个技能 × A / B；免费 → 拒绝 → 扣 1 → 战斗中拒绝 → 按钮换回原式';
   });
 
-  await step('刻式：没选时 G.SKILLS 和 G.SKILL_BASE 深比较完全相同（30 个刻式各选一遍再改回原式也相同，对象就是原来那个）', async () => {
+  await step('刻式：没选时 G.SKILLS 和 G.SKILL_BASE 深比较完全相同（28 个刻式各选一遍再改回原式也相同，对象就是原来那个）', async () => {
     const r = await ev(() => {
       T.arena();
       const s = G.save, eq = () => T.canon(G.SKILLS) === T.canon(G.SKILL_BASE);
@@ -9741,7 +9742,7 @@ async function main() {
       const same0 = Object.keys(G.SKILL_V).every((id) => G.SKILLS[id] === G.SKILL_V[id].o);
       s.cur.chaos = 99;
       const diff = [];
-      for (const id of G.GEM_SKILLS) {
+      for (const id of Object.keys(G.VARIANTS)) {
         s.skills[id] = Math.max(10, s.skills[id] || 0);
         for (const v of ['a', 'b']) {
           const rr = G.setVariant(id, v);
@@ -9758,10 +9759,10 @@ async function main() {
     });
     assert(r.start && r.back && r.same && r.base, '原式和 G.SKILL_BASE 不一致：' + JSON.stringify(r));
     assert(!r.diff.length, '这些刻式没生效或和原式一样：' + r.diff.join(', '));
-    return '30 个刻式选一遍再改回，G.SKILLS 深比较不变';
+    return '28 个刻式选一遍再改回，G.SKILLS 深比较不变';
   });
 
-  await step('刻式：单体对等——游戏内 avgHit / useMult / time 算出 30 个比值都在 [0.9, 1.1]（霜环、黑焰按总秒伤 [0.95, 1.05]）', async () => {
+  await step('刻式：单体对等——游戏内 avgHit / useMult / time 算出 28 个比值都在 [0.9, 1.1]（霜环、黑焰按总秒伤 [0.95, 1.05]）', async () => {
     const r = await ev(() => {
       T.arena();
       const s = G.save;
@@ -9775,25 +9776,25 @@ async function main() {
       G.applyVariants();
       G.computeStats();
       const rows = [];
-      for (const id of G.GEM_SKILLS) {
+      for (const id of Object.keys(G.VARIANTS)) {
         const sk = G.SKILLS[id], total = sk.kind === 'aura';
         for (const v of ['a', 'b']) rows.push({ id, v, name: G.VARIANTS[id][v].name, total, r: +G.variantRatio(id, v).toFixed(3) });
       }
       return rows;
     });
     const bad = r.filter((x) => (x.total ? x.r < 0.95 || x.r > 1.05 : x.r < 0.9 || x.r > 1.1));
-    assert(r.length === 30 && !bad.length, '比值超出范围：' + JSON.stringify(bad));
+    assert(r.length === 28 && !bad.length, '比值超出范围：' + JSON.stringify(bad));
     return r.map((x) => x.name + ' ' + x.r).join(' / ');
   });
 
-  await step('刻式：机制抽查——开山两段、连斩四段；散焰 3 团；回刃折返命中两次；贯雷打中一条线上的 3 只；星落 5 颗；黑洞奇点内爆；骸卫上限 2、炎祭上限 1', async () => {
+  await step('刻式：机制抽查——散焰 3 团；回刃折返命中两次；贯雷打中一条线上的 3 只；星落 5 颗；黑洞奇点内爆；骸卫上限 2、炎祭上限 1', async () => {
     const r = await ev(() => {
       T.arena();
       const s = G.save, P = G.player, out = {};
       G.debug.hold(true);
       s.cur.chaos = 99;
       for (const id of G.GEM_SKILLS) s.skills[id] = Math.max(15, s.skills[id] || 0);
-      s.bar = ['cleave', 'ember', null, null];
+      s.bar = ['ember', null, null, null];
       G.computeStats();
       P.mana = P.maxMana = 1e6;
       const d = T.openDir(16);
@@ -9820,18 +9821,6 @@ async function main() {
         b.awake = true;
         return b;
       };
-      // 裂石击：按住左键连砍，记下每一段的序号
-      const steps = (v) => {
-        G.setVariant('cleave', v);
-        P.combo.step = 0;
-        const seq = [];
-        for (let i = 0; i < 5; i++) seq.push(T.swing(at(3)).step);
-        P.cast = null;
-        return seq.join('');
-      };
-      out.cleaveA = steps('a');
-      out.cleaveB = steps('b');
-      G.setVariant('cleave', 'o');
       // 散焰：一次 3 团，7 米外的首领三团都吃到
       G.setVariant('ember', 'b');
       let b = boss();
@@ -9896,14 +9885,13 @@ async function main() {
       G.hitEnemy = orig;
       return out; // 前面的步骤留下的就是暂停状态（G.debug.hold(true)），这里不放开
     });
-    assert(r.cleaveA === '01010' && r.cleaveB === '01230', '裂石击的段数不对（开山两段、连斩四段）：' + JSON.stringify(r));
     assert(r.emberBalls === 3 && r.emberBoss === 3, '散焰应一次 3 团、首领三团都吃到：' + JSON.stringify(r));
     assert(r.bladeHits === 2 && r.bladeGone, '回刃应来回各中一次、回到手里收起：' + JSON.stringify(r));
     assert(r.arcLine === '111' && r.arcOff === 0, '贯雷应只打中一条线上的 3 只：' + JSON.stringify(r));
     assert(r.meteorBoss === 5, '星落应 5 颗都砸中首领：' + JSON.stringify(r));
     assert(r.implode === 1 && r.holeBoss >= 6, '奇点应内爆一次：' + JSON.stringify(r));
     assert(r.capT === 2 && r.capP === 1 && r.aliveT === 2 && r.aliveP === 1 && r.bigT, '骸卫上限 2、炎祭上限 1：' + JSON.stringify(r));
-    return '连段 ' + r.cleaveA + ' / ' + r.cleaveB + '，散焰 ' + r.emberBoss + '，回刃 ' + r.bladeHits + '，贯雷 ' + r.arcLine + '，星落 ' + r.meteorBoss + '，奇点 ' + r.holeBoss + ' 跳含内爆';
+    return '散焰 ' + r.emberBoss + '，回刃 ' + r.bladeHits + '，贯雷 ' + r.arcLine + '，星落 ' + r.meteorBoss + '，奇点 ' + r.holeBoss + ' 跳含内爆';
   });
 
   await step('刻式：存档——选了的刻式读档后还在；坏数据（未知 id、\'c\'）被丢掉；旧存档没有这一项，全部原式', async () => {
