@@ -159,8 +159,9 @@
       uniq: { found: {}, best: {}, pity: {} },
       // 渊契图鉴：格式同 uniq；pity 按保底的键计（首领 / 异兆来源按渊契 id，烈印来源按 'seal'）
       relic: { found: {}, best: {}, pity: {} },
-      // 刻式：variants 选了的刻式 { 技能 id: 'a' | 'b' }（没有的就是原式）；variantFree 已经用过免费那一次的技能 { 技能 id: true }
-      variants: {}, variantFree: {},
+      // 刻式：variants 选了的刻式 { 技能 id: 'a' | 'b' }（没有的就是原式）；variantFree 已经用过免费那一次的技能 { 技能 id: true }；
+      // variantGen 刻式的版本（G.VARIANT_GEN）；varNote 读档时刻式重做过、「刻式重做」提示还没看过（见 sanitize）
+      variants: {}, variantFree: {}, variantGen: G.VARIANT_GEN, varNote: false,
       // 渊印：sealSeq 真正进区的次数（择印面板的随机种子，关掉地图再打开还是同样三枚）；
       // run 这一次进区 { zone, tier, seq, seal }（seal 为 null 是素印），读档时区域 / 层级对得上就接着用，倒下重生不动，换区 / 重进清掉
       sealSeq: 0, run: null,
@@ -334,6 +335,7 @@
     G.weaponMigrated = false;
     G.growthMigrated = null;
     G.bowMigrated = 0;
+    G.variantRedone = 0; // 刻式第二版：读档时把旧刻式的免费那一次还了回去，界面层提示一次（见下面「刻式」）
     G.rmbMigrated = null; // 武器普攻改版：右键上的技能挪去了哪（见下面「右键固定是武器普攻」）
     G.cleaveRefund = null; // 裂石击退成的无铭宝石
     G.newZoneNotice = G.zoneNoticeFor(raw); // 第五区上线前打通过烬渊深处的老存档：界面层提示一次新区域
@@ -510,13 +512,20 @@
       const n = toInt(rp[k], 0, G.UNIQUE_DROP.pity, 0);
       if (n > 0) s.uniq.pity[k] = n;
     }
-    // 刻式：只认 G.VARIANTS 里的技能和 a / b（宝石还没到解锁等级的照样保留，到了才生效）；选过刻式的技能免费那一次算用过了
+    // 刻式：只认 G.VARIANTS 里的技能和 a / b（宝石还没到解锁等级的照样保留，到了才生效）；选过刻式的技能免费那一次算用过了。
+    // 第二版之前的存档（没有 variantGen 或比 G.VARIANT_GEN 小）：A / B 的意思整个变了——选择按位置留着（a 还是 a、b 还是 b），
+    // 但每个技能的免费那一次都还给玩家；有到解锁等级的宝石或选过刻式的，提示一次「刻式重做」（varNote，看过 tut.variant2 才清掉）
     const rv = isObj(raw.variants) ? raw.variants : {};
     const rvf = isObj(raw.variantFree) ? raw.variantFree : {};
+    const oldGen = !(isNum(raw.variantGen) && raw.variantGen >= G.VARIANT_GEN);
     for (const id of Object.keys(G.VARIANTS)) {
       if (rv[id] === 'a' || rv[id] === 'b') s.variants[id] = rv[id];
-      if (rvf[id] === true || s.variants[id]) s.variantFree[id] = true;
+      if (!oldGen && (rvf[id] === true || s.variants[id])) s.variantFree[id] = true;
     }
+    s.variantGen = G.VARIANT_GEN;
+    const hadVar = Object.keys(s.variants).length > 0 || Object.keys(G.VARIANTS).some((id) => s.skills[id] >= G.VARIANT_LVL);
+    s.varNote = !s.tut.variant2 && ((oldGen && hadVar) || raw.varNote === true);
+    G.variantRedone = s.varNote ? 1 : 0;
     // 身上 / 背包里已有的烬铸武器也算拾到过（旧数据缺图鉴时补上）
     for (const it of s.bag.concat(s.equip.weapon ? [s.equip.weapon] : [])) if (it.rarity === 3) noteUnique(it, s);
     // 渊契图鉴：同上，只认 G.RELICS 的 id 和保底的键（渊契 id、'seal'）；旧存档没有这一项就是空的。
@@ -716,14 +725,14 @@
     return G.avgHit(ctx) / (Math.max((ctx.cycle || ctx.time) + ctx.stopAvg, 0.01) + (ctx.cd > 0 ? ctx.cd : 0));
   };
   // 刻式 v 和原式的比值。霜环按「主力技能 + 霜环」的总秒伤（主力取技能栏上秒伤最高的非光环技能，没有就按掷焰）；
-  // 黑焰按你自己每一击的 (1 + 黑焰%)（召唤物的部分不算，炽契给召唤物的是 0）
+  // 黑焰按每一击的 (1 + 黑焰%)（蚀印把攒进去的那一份也算上，传焰点在身上的和附带的一样多）
   G.variantRatio = function (id, v) {
     if (!G.SKILL_V[id]) return 1;
     const prev = G.SKILLS[id];
     const val = (w) => {
       G.SKILLS[id] = G.skillVariant(id, w);
       const sk = G.SKILLS[id];
-      if (sk.buff) return 1 + Math.min(sk.flame.cap, sk.flame.k0 + sk.flame.k1 * ((G.save.skills[id] || 1) - 1)) * (1 + Math.max(0, P.S.flameEff || 0) / 100) / 100;
+      if (sk.buff) return 1 + (sk.brand ? 2 : 1) * Math.min(sk.flame.cap, sk.flame.k0 + sk.flame.k1 * ((G.save.skills[id] || 1) - 1)) * (1 + Math.max(0, P.S.flameEff || 0) / 100) / 100; // 蚀印：攒进去的那一份和附带的一样多
       return G.variantDps(id);
     };
     let ref = 0;
@@ -893,16 +902,13 @@
     return Math.round((sk.reserve * k + wane) * 10) / 10;
   };
   // 黑焰：此刻每一击额外的混沌伤害百分比（没放在技能栏上为 0）。F = min(cap, k0 + k1 × (等级 − 1)) × (1 + 黑焰效果%)
-  // minion：算的是召唤物的一击（刻式「炽契」只给你自己，召唤物为 0）
-  G.flamePct = function (minion) {
-    if (!G.auraOn('blackflame') || (minion && G.SKILLS.blackflame.selfOnly)) return 0;
+  G.flamePct = function () {
+    if (!G.auraOn('blackflame')) return 0;
     const f = G.SKILLS.blackflame.flame;
     const lvl = G.save.skills.blackflame || 1;
     const wane = G.runMods.wane ? 1 - G.runMods.wane.eff : 1; // 渊印「蚀环」：黑焰的额外比例 −30%
     return Math.min(f.cap, f.k0 + f.k1 * (lvl - 1)) * (1 + Math.max(0, (P.S && P.S.flameEff) || 0) / 100) * wane;
   };
-  // 刻式「噬契」：黑焰的那一部分按 flameAil 倍累积混沌异常（没放黑焰、或不是噬契时为 0）
-  G.flameAil = () => (G.SKILLS.blackflame.flameAil && G.auraOn('blackflame') ? G.SKILLS.blackflame.flameAil : 0);
   // 技能栏上所有生效的光环一共保留的百分比（封顶 90%）
   G.reservePct = function () {
     let pct = 0;
@@ -1216,8 +1222,8 @@
       // 混沌异常值（渊缚）另外再加的累积速度（异常累积速度 ailment 对它同样生效）
       bindAil: mScale ? 0 : S.bindAil || 0,
       // 黑焰：每一击额外的混沌伤害（%）。光环自己的脉冲（霜环）不带
-      flame: isAura ? 0 : G.flamePct(mScale),
-      flameAil: isAura ? 0 : G.flameAil(), // 刻式「噬契」：黑焰那一部分累积混沌异常的倍率（没有时 0）
+      flame: isAura ? 0 : G.flamePct(),
+      flameDot: !!G.SKILLS.blackflame.flameDot, // 刻式「传焰」：黑焰那一份不直接加在这一击上，改成点在敌人身上慢慢烧（见 G.vHit）
       reserve: isAura ? G.auraReserve(id) : 0,
       minion: null,
       // 攻击技能：attack 为 true，weapon 是此刻的武器面板（G.weaponStats），wm 武器倍率，levelK 等级加成
@@ -1227,6 +1233,9 @@
       levelK: isAttack ? 1 + G.ATTACK_GEM_LVL * (lvl - 1) : mScale ? G.minionDmgK(lvl) : 1 + 0.2 * (lvl - 1),
       asMinion: mScale && !isMinion, // 魂潮：伤害按召唤物算的武器技（ctx.minion 仍为 null）
     };
+    // 刻式：持续存在的东西按补满的间隔（cycle，固定秒数），带收尾 / 起手的按 time 的倍数（cycleK）
+    if (sk.cycle) ctx.cycle = sk.cycle;
+    else if (sk.cycleK) ctx.cycle = ctx.time * sk.cycleK;
     if (sk.basic) {
       // 远程普攻的平均出手间隔（秒伤估算用）：左轮把装填摊进每一发
       if (sk.clip) ctx.cycle = (sk.clip * ctx.time + sk.reload / speed) / sk.clip;
@@ -1243,13 +1252,7 @@
       const spdK = Math.max(0.2, 1 + ((S.minionSpeed || 0) + mSpeed) / 100);
       const atkK = spdK * (1 + speedPct / 100);
       // 数量上限：仆从吃天赋 / 护符的「仆从数量」和镶着的群聚；焚骨祭司只吃镶在它身上的群聚；守像固定 1 尊
-      let cap = sk.cap + (sk.minion === 'thrall' ? Math.max(0, Math.round((S.minionCap || 0) + mCap)) : sk.minion === 'pyre' ? Math.max(0, Math.round(mCap)) : 0);
-      if (sk.capK) {
-        // 刻式（骸卫 / 炎祭）：上限按比例折，凑不成整数的那一点折进每一击的伤害（数量加成越多也不会越超标）
-        const c = Math.max(1, cap * sk.capK);
-        cap = Math.max(1, Math.round(c));
-        ctx.more *= c / cap;
-      }
+      const cap = sk.cap + (sk.minion === 'thrall' ? Math.max(0, Math.round((S.minionCap || 0) + mCap)) : sk.minion === 'pyre' ? Math.max(0, Math.round(mCap)) : 0);
       ctx.minion = {
         kind: sk.minion, cap,
         life: Math.max(1, Math.round((sk.life * G.minionLifeK(lvl) + inh.life) * Math.max(0.1, 1 + ((S.minionLife || 0) + mLife) / 100))),
@@ -1266,7 +1269,7 @@
         arc: ((sk.arc || 0) * Math.PI) / 180,
         radius: (sk.radius || 0) * Math.sqrt(ctx.area),
         taunt: sk.taunt || null,
-        size: sk.size, // 刻式「骸卫」：体型倍率（原式没有）
+        mech: sk.mech, vx: sk.mech ? sk[sk.mech] : null, // 刻式：机制和它的参数（minions.js 按它分支）
       };
       if (sk.minion === 'pyre') {
         // 焚骨祭司：火弹爆炸 / 坠焰的半径吃扩域；多重投射让它一次掷出几枚（分头砸向不同的敌人）
@@ -1276,7 +1279,7 @@
         mi.speed = sk.speed;
         mi.explode = sk.explode * ak;
         mi.bolts = Math.max(1, ctx.proj);
-        mi.charge = sk.noCharge ? null : sk.charge; // 刻式「连焚」：没有焰蓄、没有大招
+        mi.charge = sk.mech === 'link' ? null : sk.charge; // 刻式「魂链」：没有焰蓄、没有大招
         mi.chargeK = 1 + Math.max(0, S.minionCharge || 0) / 100; // 焰蓄攒得快（天赋「焚骨圣咏」）
         mi.meteor = Object.assign({}, sk.meteor, { radius: sk.meteor.radius * ak, r: sk.meteor.r * ak });
         mi.beam = sk.beam;
@@ -1356,6 +1359,13 @@
   // 冷却技能按冷却折算（单独循环施放时的秒伤）；光环是每秒脉冲次数 × 每跳伤害（单体）
   G.skillDps = function (ctx) {
     const mi = ctx.minion;
+    if (mi && mi.mech === 'link') return G.avgHit(ctx) * mi.cap * (mi.vx.k1 / (mi.vx.tick * Math.min(1, mi.interval / ctx.sk.rate))); // 刻式「魂链」：烧满之后的灼链
+    if (mi && mi.mech === 'field') {
+      // 刻式「焰田」打单体：火弹（每秒 r 枚）+ 脚下火地（几片共用一个计时，每 tick 秒一跳）+ 燎原（每 charge.max 枚一次，引爆这期间留下、还没灭的火地）
+      const F = mi.vx, r = mi.cap / mi.interval, gap = (mi.charge.max * mi.interval) / mi.cap;
+      // 燎原时还压在目标脚下的火地实测约三成（火弹落点散、火地先灭）
+      return G.avgHit(ctx) * (r + F.mult / F.tick + (0.3 * Math.min(F.dur, gap) * r * F.burst) / gap);
+    }
     if (mi && mi.beam && mi.charge) {
       // 焚骨祭司打单体：每 charge.max 枚火弹接一轮灼链（单体时一弹只攒 1 点焰蓄）
       const ticks = Math.floor(mi.beam.dur / (mi.beam.tick * Math.min(1, mi.interval / ctx.sk.rate)) + 1e-6); // 召唤物速度也加快灼链的跳数
@@ -1386,7 +1396,7 @@
     // 额外伤害按暴击前的总伤害折算
     for (const t in ctx.extra) parts[t] = (parts[t] || 0) + (pre * ctx.extra[t]) / 100;
     // 黑焰：同一个 pre（和注入相加，不再吃混沌加成）
-    if (ctx.flame > 0) parts.chaos = (parts.chaos || 0) + (pre * ctx.flame) / 100;
+    if (ctx.flame > 0 && !ctx.flameDot) parts.chaos = (parts.chaos || 0) + (pre * ctx.flame) / 100; // 传焰：这一份点在敌人身上慢慢烧
     const crit = P.relic.qianmu ? G.relicCrit(ctx) : Math.random() * 100 < ctx.crit; // 渊契「必然」：暴击按计数
     const k = ctx.more * (crit ? ctx.critMulti / 100 : 1) * m;
     let total = 0;
@@ -1394,14 +1404,14 @@
       parts[t] *= k;
       total += parts[t];
     }
-    // flame：其中黑焰的那一部分（刻式「噬契」累积混沌异常时另算）
+    // flame：其中黑焰的那一部分（刻式「蚀印」攒进蚀印、「传焰」点在敌人身上的都是这个数）
     return { total, parts, crit, flame: ctx.flame > 0 ? ((pre * ctx.flame) / 100) * k : 0 };
   };
 
   G.avgHit = function (ctx) {
     let pre = 0;
     for (const t in ctx.base) pre += ((ctx.base[t][0] + ctx.base[t][1]) / 2) * typeMult(ctx, t);
-    let extraPct = ctx.flame > 0 ? ctx.flame : 0;
+    let extraPct = ctx.flame > 0 ? ctx.flame * (G.SKILLS.blackflame.brand ? 2 : 1) : 0; // 蚀印：附带的那一份之外，再攒一份同样多的进蚀印（满层炸开）
     for (const t in ctx.extra) extraPct += ctx.extra[t];
     const critK = 1 + (ctx.crit / 100) * (ctx.critMulti / 100 - 1);
     // 连击技能按三段的平均倍率折算（ctx.time 也是平均段长）；武器技按一次施放对单体的倍率总和（useMult）折算
@@ -1578,12 +1588,13 @@
         e.bossChill = BU.bossChill;
         W.text(e.x, e.z, '冰缓', '#bfeaff', 26, { kind: 'tag', y: ty, py: -30 });
       } else {
-        // 刻式「寒心」在技能栏上：冻结时长 × freezeK；渊印「坚蜕」：冻结 ×0.75
-        e.freeze = Math.max(e.freeze || 0, (e.elite ? BU.freezeElite : BU.freeze) * (G.SKILLS.nova.freezeK && G.auraOn('nova') ? G.SKILLS.nova.freezeK : 1) * (G.runMods.ailRes ? G.runMods.ailRes.dur : 1));
+        // 渊印「坚蜕」：冻结 ×0.75
+        e.freeze = Math.max(e.freeze || 0, (e.elite ? BU.freezeElite : BU.freeze) * (G.runMods.ailRes ? G.runMods.ailRes.dur : 1));
         W.text(e.x, e.z, '冻结', '#d6f3ff', e.elite ? 24 : 20, { kind: 'tag', y: ty });
       }
       W.freezeFx(e.x, e.z, e.r, h, !!e.isBoss);
       G.sfx('impact', { type: 'cold', w: 1, crit: false });
+      if (G.SKILLS.nova.mech === 'burst' && G.auraOn('nova')) novaBurst(e); // 刻式「冰爆」：光环里冻住的那一刻炸开
     } else if (p.t === 'fire') {
       st.blasts = (st.blasts || 0) + 1;
       e.blastT = 1;
@@ -2086,7 +2097,7 @@
       let d = P.roll.t > 0 ? P.moveSpeed * 2.6 * P.roll.t : 0;
       while (d > 0 && !W.walkable(P.x + P.roll.dx * d, P.z + P.roll.dz * d, 0.6)) d -= 0.4;
       const lx = P.x + P.roll.dx * Math.max(0, d), lz = P.z + P.roll.dz * Math.max(0, d);
-      const ms = state.minions.filter((m) => !m.dead && !(m.rising > 0));
+      const ms = state.minions.filter((m) => !m.dead && !(m.rising > 0) && !(m.ctx && m.ctx.minion && m.ctx.minion.mech === 'bastion')); // 刻式「磐垒」扎根不动，不跟着闪
       const n = ms.length;
       ms.forEach((m, i) => {
         const a = P.face + Math.PI + (i - (n - 1) / 2) * (TAU / Math.max(3, n + 1));
@@ -2260,7 +2271,7 @@
   const BOOM_BASIC = { revolver: 1, huntbow: 1, eagle: 1, runebow: 1, emberbow: 1 };
   G.relicBoomerang = function (p) {
     const sk = p.ctx && p.ctx.sk;
-    if (!sk || p.explode > 0 || p.wisp || p.seeker || p.ret) return; // p.ret：飞刃的刻式「回刃」自己会折返，不再叠一次回旋
+    if (!sk || p.explode > 0 || p.wisp || p.seeker || p.pin) return; // p.pin：刻式「钉刃」钉住就停，不折返
     const ok = p.ctx.id === 'blade' || (sk.basic && BOOM_BASIC[sk.rtype] && !(P.rbuff && P.rbuff.t > 0 && P.rbuff.id === 'volley'));
     if (!ok) return;
     p.boom = 1;
@@ -2607,7 +2618,7 @@
     if (e.voidT > 0) e.voidT -= dt;
     if (e.bu.mix > 0 || e.rqBrk > 0) G.relicEnemyTick(e, dt); // 渊契：混相回落、崩势的破绽倒计时
     // 冰缓 / 重度冰缓 / 首领的渊缚减速：取较大的那个，不相加
-    return Math.max(G.chillSlow(e, e.bu.cold), e.bossChill > 0 ? BU.bossSlow : 0, e.bossBind > 0 ? BU.bossBindSlow : 0);
+    return Math.max(G.chillSlow(e, e.bu.cold), e.bossChill > 0 ? BU.bossSlow : 0, e.bossBind > 0 ? BU.bossBindSlow : 0, G.bastionSlow(e)); // 磐垒的护域：敌人在里面变慢
   };
   // 轻度冰缓的减速比例：冰霜异常值 frac（0..1）大于 0 就有保底，越满越慢（普通 / 精英 / 首领各有上下限，见 G.BUILDUP）
   G.chillSlow = function (e, frac) {
@@ -2629,12 +2640,6 @@
   const procQ = [];
   const PROC_MAX = 200;
   const FAINT_GAP = 0.3;
-  // 刻式「噬契」：累积异常时黑焰那一部分按 k 倍算（只换累积用的数，伤害不变）
-  function flameAilParts(hit, k) {
-    const o = Object.assign({}, hit.parts);
-    o.chaos = (o.chaos || 0) + hit.flame * (k - 1);
-    return o;
-  }
   G.hitEnemy = function (e, ctx, mult, info) {
     if (!e || e.dead) return 0;
     const W = G.world;
@@ -2725,7 +2730,7 @@
 
     // 元素异常值：这一击里的每种元素按伤害累积，满了就触发（结算放到最外层的命中结束时）
     procDepth++;
-    if (!inf.noBuild) addBuildUp(e, ctx.flameAil > 1 && hit.flame > 0 ? flameAilParts(hit, ctx.flameAil) : hit.parts, ctx.ailment, procQ, ctx.bindAil);
+    if (!inf.noBuild) addBuildUp(e, hit.parts, ctx.ailment, procQ, ctx.bindAil);
     // 感电中的敌人挨打：放电弧（电弧本身不再触发）
     if (!inf.bolt && e.shockT > 0 && !(e.shockCd > 0)) {
       e.shockCd = BU.shockGap; // 排进队列时就开始节流：同一击里再挨一下（比如紧跟着的爆燃）不会再排第二次
@@ -2745,6 +2750,7 @@
     }
 
     if (P.relic.yuanfu && e.bindT > 0 && !inf.proc && !inf.minion) G.relicChain(e, hit.total, top); // 渊契「锁链」
+    if (hit.flame > 0 || (VS.cores.length && hit.parts.fire > 0 && !inf.core)) vHit(e, hit, inf); // 刻式：蚀印 / 传焰 / 熔核
     lastHit.crit = hit.crit;
     lastHit.type = top;
     lastHit.total = hit.total;
@@ -2796,6 +2802,7 @@
     const W = G.world;
     const save = G.save;
     const inf = info || NO_INFO;
+    if (e.vDot && e.vDot.pool > 0) dotJump(e); // 刻式「传焰」：宿主死了，没烧完的黑焰跳出去
     e.dead = true;
     e.deathT = 0.25;
     e.hp = 0;
@@ -2914,8 +2921,20 @@
     if (TI && src && !src.sealFx) dmg += amount * TI.frac * (1 - (P.res[TI.el] || 0) / 100);
     dmg *= 1 - Math.min(90, P.S.lessTaken || 0) / 100;
     dmg *= 1 + Math.max(0, P.S.moreTaken || 0) / 100; // 基石「刃舞」的代价
+    dmg *= G.bastionK(P.x, P.z); // 刻式「磐垒」：站在护域里少受伤
     if (src && (src.pin || (src.owner && src.owner.pin))) dmg = Math.min(dmg, P.maxLife * G.PIN.hitCap); // 熄烛者：单次最多扣 hitCap（不会一下打空）
     dmg = Math.max(1, dmg);
+    if (P.vShield && P.vShield.v > 0) {
+      // 刻式「过载」的雷盾：先吸掉这一下
+      const ab = Math.min(P.vShield.v, dmg);
+      P.vShield.v -= ab;
+      dmg -= ab;
+      if (P.vShield.v <= 0) vShieldOff();
+      if (dmg <= 0) {
+        W.text(P.x, P.z, '吸收', '#ffe45e', 14);
+        return true;
+      }
+    }
 
     P.life -= dmg;
     W.text(P.x + G.rand(-0.3, 0.3), P.z, '-' + Math.round(dmg), '#ff5a4a', 17);
@@ -3248,14 +3267,6 @@
     return false;
   }
 
-  // 刻式「回刃」：折返。回程重新记命中（另一份 cast，同一个敌人两趟都能打中）、穿透照原来的数，朝玩家飞回来
-  function bladeTurn(p) {
-    p.retOn = true;
-    p.hit = new Set();
-    p.cast = p.back;
-    p.pierce = p.ctx.pierce;
-    p.life = Math.max(p.life, 30 / p.speed);
-  }
   G.updateProjectiles = function (dt) {
     const W = G.world;
     const list = state.projectiles;
@@ -3295,15 +3306,6 @@
           p.dz = Math.cos(na);
         }
       }
-      if (p.retOn) {
-        // 刻式「回刃」：回程一直朝着玩家飞，回到身边就收起
-        const dx = P.x - p.x, dz = P.z - p.z, d = Math.hypot(dx, dz);
-        if (d < 0.9) alive = false;
-        else {
-          p.dx = dx / d;
-          p.dz = dz / d;
-        }
-      }
       // 分小步前进，快的投射物不会穿过细小目标
       const total = p.speed * dt;
       const steps = Math.max(1, Math.ceil(total / 0.45));
@@ -3312,16 +3314,17 @@
       for (let s = 0; s < steps && alive; s++) {
         p.x += p.dx * step;
         p.z += p.dz * step;
-        if (p.ret && !p.retOn && (p.retD = (p.retD || 0) + step) >= p.ret) bladeTurn(p); // 刻式「回刃」：飞到头折返
+        if (p.skip && (p.skip.d += step) >= p.skip.seg && !skipLand(p)) {
+          alive = false; // 刻式「跳焰」：跳完最后一下
+          break;
+        }
         if (!W.shotFree(p.x, p.z, -0.4)) {
           if (p.boom === 1 && G.relicTurn(p, step)) break; // 渊契「回旋」：第一次撞墙折返
-          if (p.ret && !p.retOn) {
-            // 刻式「回刃」：去程撞墙也折返
+          if (p.skip && skipWall(p, step)) break; // 刻式「跳焰」：撞墙弹回来接着跳
+          if (p.pin) {
+            // 刻式「钉刃」：撞墙就立在墙前
             p.x -= p.dx * step;
             p.z -= p.dz * step;
-            projFx(p, 'wall');
-            bladeTurn(p);
-            break;
           }
           if (p.wisp) {
             // 魂火退回墙前再炸
@@ -3334,25 +3337,33 @@
           break;
         }
         if (p.owner === 'p') {
+          if (p.skip) continue; // 跳焰飞在半空：不碰敌人，落地才炸
           for (const e of state.enemies) {
             if (e.dead || p.hit.has(e)) continue;
             if (dist(e.x, e.z, p.x, p.z) > p.r + e.r) continue;
             p.hit.add(e);
+            if (p.stick) {
+              // 刻式「黏焰」：粘上去，不当场伤害
+              emberStick(p.ctx, e, 0, 1);
+              alive = false;
+              break;
+            }
             // 同一次施放的多枚投射物不叠加命中同一个敌人（多重投射打单体不会变成数倍伤害）；
             // 后到的那枚照常消耗穿透 / 连锁 / 引爆，只是不再对它结算直击
             if (!p.cast || !p.cast.has(e)) {
               if (p.cast) p.cast.add(e);
               // 远程武器的箭 / 子弹：multFn 算这一下的倍率（鹰眼的远距离加成），after 接着结算余烬 / 元素爆炸 / 熔芯弹；src 让专注按箭计数
               const m = (p.multFn ? p.multFn(p, e) : p.mult || 1) * (p.boomK || 1); // boomK：回旋的回程
-              G.hitEnemy(e, p.ctx, m, { ang: Math.atan2(p.dx, p.dz), src: p }); // 顺着弹道推
+              G.hitEnemy(e, p.ctx, m, { ang: Math.atan2(p.dx, p.dz), src: p, aura: p.aura, minion: p.minion }); // 顺着弹道推；aura：霜环「冰棱」的冰棱和光环脉冲一样不算连击；minion：骸弓的骨箭算召唤物的
               if (p.after) p.after(p, e, lastHit.killed, lastHit.crit);
             }
             if (!p.explode) projFx(p, 'hit'); // 飞刃擦过敌人的金属火花（爆炸弹的特效在爆炸那一下）
-            alive = afterPlayerHit(p, e);
-            if (!alive && p.ret && !p.retOn) {
-              bladeTurn(p); // 刻式「回刃」：去程穿透用完也折返
-              alive = true;
+            if (p.pin) {
+              bladePin(p, e); // 刻式「钉刃」：钉住第一个，立在它脚下
+              alive = false;
+              break;
             }
+            alive = afterPlayerHit(p, e);
             break; // 每小步最多命中一个
           }
         } else {
@@ -3375,6 +3386,7 @@
         }
       }
       if (!alive) {
+        if (p.pin && !p.pinned) bladePin(p, null); // 钉刃没碰到敌人：立在飞行的尽头 / 墙前
         // 到达射程尽头的爆炸弹也要炸开（fizzle 的——魂火——没碰到敌人就悄悄散掉）
         if (p.life <= 0 && p.owner === 'p' && p.explode > 0 && !p.fizzle) explodeAt(p, null);
         else if (p.life <= 0 && p.fizzle) W.burst(p.x, 1.1, p.z, p.color, 6, 2, 0.3);
@@ -3383,7 +3395,11 @@
         continue;
       }
       let py = 1.1;
-      if (p.y0 !== undefined) {
+      if (p.skip) {
+        // 跳焰：每一跳一道抛物线（落地 0.3，最高 1.9）
+        const k = Math.min(1, p.skip.d / p.skip.seg);
+        py = 0.3 + 1.6 * 4 * k * (1 - k);
+      } else if (p.y0 !== undefined) {
         p.yT = (p.yT || 0) + dt;
         const k = Math.min(1, p.yT / 0.22);
         py = p.y0 + (1.1 - p.y0) * k * (2 - k);
@@ -3557,6 +3573,10 @@
       if (!id || !G.SKILLS[id] || (!isWs && !G.SKILLS[id].basic && !save.skills[id])) continue;
       if (P.relic.zhuixing && G.relicNoCast(slot, id)) continue; // 渊契「星雨」：陨火只能自动落下
       if (chan && chan.slot === slot) continue; // 还按着正在转的那个键：接着转，不从头起
+      // 刻式：坍缩的黑洞还在时再按引爆、掷旋飞出去时再按召回（不看冷却、不扣消耗）；掷旋飞着时按住不放也不再掷
+      const rc = vRecast(slot, id);
+      if (rc === 1) return true;
+      if (rc === 2) continue;
       if (P.cds[id] > 0) continue;
       if (isWs && G.SKILLS[id].rgauge && !G.gaugeReady()) {
         // 远程武器的 R：量表没满放不出来，轻点只提示一句
@@ -3634,8 +3654,8 @@
         }
       }
       G.input.tap[slot] = 0;
-      if (sk.kind === 'spin') {
-        // 持续施放：没有固定时长，按住就一直转。第一下很快出手，之后每 iv 秒一下；出手之后随时可以接别的动作
+      if (sk.kind === 'spin' && sk.mech !== 'throw') {
+        // 持续施放：没有固定时长，按住就一直转。第一下很快出手，之后每 iv 秒一下；出手之后随时可以接别的动作（刻式「掷旋」是一次普通的掷出）
         comboReset();
         const iv = ctx.time;
         P.cast = {
@@ -3669,7 +3689,7 @@
       });
       // 出手动作：连击三段各有各的挥法，其余按技能类型；命中帧对在生效的时刻
       const kind = sk.kind;
-      const clip = st ? st.clip : sk.bclip || (kind === 'proj' ? 'throw' : kind === 'blink' ? 'blink' : kind === 'melee' ? 'attack1' : 'cast'); // 召唤也用施法动作；bclip：武器普攻自己的出手动作
+      const clip = st ? st.clip : sk.bclip || (kind === 'proj' || sk.mech === 'throw' ? 'throw' : kind === 'blink' ? 'blink' : kind === 'melee' ? 'attack1' : 'cast'); // 召唤也用施法动作；bclip：武器普攻自己的出手动作
       G.world.play(P.ent, clip, { dur: st ? c.dur + 0.1 : ctx.time * 1.3, contact: c.fireT });
       if (st) {
         G.world.setTrail(G.TYPE_HEX[mainType(ctx)]);
@@ -3709,6 +3729,7 @@
 
   // 停下持续施放（松手、魔力不够、键位被换掉）：动作淡回站立 / 移动
   function endChannel() {
+    if (P.cast && P.cast.flicker && VS.marks.size) shadeMarkBurst(); // 刻式「影印」：连斩停下时所有影印一齐引爆
     P.cast = null;
     P.spinning = false;
     if (G.world.clipOf(P.ent) === 'spin') G.world.stop(P.ent, 0.16);
@@ -3719,8 +3740,9 @@
     c.aim = aimInfo().ang;
     P.face = c.aim;
     const held = slotHeld(c.slot) && G.save.bar[c.slot] === c.id;
-    // 至少转出一下；之后一松手就停
+    // 至少转出一下；之后一松手就停（刻式「旋涡斩」松手时砸地收尾）
     if (c.pulses > 0 && !held) {
+      if (G.SKILLS[c.id].mech === 'pull') return whirlSlam(c);
       endChannel();
       return;
     }
@@ -3741,6 +3763,7 @@
     c.pulses++;
     c.nextT += ctx.time; // 出手速度中途变了（迅捷、天赋）也按新的间隔走
     G.execSkill(ctx);
+    if (ctx.sk.mech === 'pull' && c.pulses >= ctx.sk.pull.max && P.cast === c) whirlSlam(c); // 旋涡斩：转满就砸
   }
 
   // ---------- 影步连斩 ----------
@@ -3810,15 +3833,6 @@
       _cand.push({ e, dp, score });
     }
     if (!_cand.length) return false;
-    if (sk.pick === 'big' && _cand.length > 1) {
-      // 刻式「斩首」：只闪向精英 / 首领；都没有就只留最大生命最高的那一个
-      const big = _cand.filter((it) => it.e.elite || it.e.isBoss);
-      if (big.length) _cand.splice(0, _cand.length, ...big);
-      else {
-        const top = _cand.reduce((p, q) => (q.e.maxHp > p.e.maxHp ? q : p));
-        _cand.splice(0, _cand.length, top);
-      }
-    }
     if (c) {
       // 候选全都砍过了：这一轮结束，计数清零
       if (_cand.every((it) => c.hit.get(it.e) > 0)) c.hit.clear();
@@ -3828,7 +3842,6 @@
         let n = 0; // 以它为中心这一刀能砍到几个（含它自己）
         for (const o of state.enemies) if (!o.dead && dist(o.x, o.z, e.x, e.z) - o.r <= R) n++;
         it.score = n * S.crowd - (c.hit.get(e) || 0) * S.hit - (e === c.last ? S.last : 0) - it.dp * S.far;
-        if (sk.noRepeat && e === c.last && _cand.length > 1) it.score -= 1000; // 刻式「乱刃」：有别的目标时不连砍同一个
       }
     }
     _cand.sort((a, b) => b.score - a.score);
@@ -3930,6 +3943,7 @@
     W.slash(P.x, P.z, ang, dist(cx, cz, P.x, P.z) + R * 0.75, 140, hex, { dir: c.alt ? 1 : -1, dur: 0.16 });
     G.sfx('swing', { step: c.alt ? 0 : 1 });
     const hits = enemiesIn(cx, cz, R);
+    if (sk.mech === 'clone') shadeClone(ctx, e, cx, cz, R); // 刻式「影分」：另一侧的影子 0.3 秒后补这一刀
     if (!hits.length) return;
     let crit = false;
     let top = 'phys';
@@ -3937,6 +3951,11 @@
       G.hitEnemy(o, ctx, 1, { ang: Math.atan2(o.x - P.x, o.z - P.z), w: 0, kb: sk.kb, poise: sk.poise, quiet: true });
       crit = crit || lastHit.crit;
       top = lastHit.type;
+      if (sk.mech === 'mark' && !o.dead) {
+        // 刻式「影印」：烙一层；已经烙满的当场引爆它身上的（这一刀不再烙）
+        if ((o.vMark || 0) >= sk.mark.max) markPop(o, ctx, sk.mark);
+        else markAdd(o, sk.mark);
+      }
     }
     const stop = ((sk.stop || 0) + (crit ? 15 : 0)) * ctx.stopK;
     G.hitStop(stop);
@@ -4251,7 +4270,7 @@
     f.tt = Math.min(0.15, f.tick);
     if (fields.length >= MAX_FIELDS) fields.shift();
     fields.push(f);
-    if (!fxOpt('emberGround', f.x, f.z, f.r, f.dur, f.kind === 'burn')) G.world.decal(1, f.x, f.z, f.r * 0.9, Math.random() * TAU, f.hex || 0xff7a2c, f.dur);
+    if (!fxOpt('emberGround', f.x, f.z, f.r, f.dur, f.kind === 'burn', !!f.noDecal)) G.world.decal(1, f.x, f.z, f.r * 0.9, Math.random() * TAU, f.hex || 0xff7a2c, f.dur);
     return f;
   }
   function updateFields(dt) {
@@ -4268,11 +4287,12 @@
       for (const e of enemiesIn(f.x, f.z, f.r)) {
         if (state.time - (e[f.key] || -99) < f.tick * 0.95) continue;
         e[f.key] = state.time;
-        G.hitEnemy(e, f.ctx, f.mult, { ang: Math.atan2(e.x - f.x, e.z - f.z), w: 0, kb: 0, poise: 1, quiet: true, faint: true, extra: true });
+        G.hitEnemy(e, f.ctx, f.mult, { ang: Math.atan2(e.x - f.x, e.z - f.z), w: 0, kb: 0, poise: 1, quiet: true, faint: true, extra: true, minion: f.minion || undefined });
       }
     }
   }
   G.rangedFields = () => fields;
+  G.vField = (f) => addField(f); // 刻式「焰田」：祭司的火弹落地留火地（minions.js 调用）
 
   // =====================================================================
   // 混沌流：黑洞、黑旋风（以及星蚀的渊口）
@@ -4282,7 +4302,7 @@
   //   seen 这一团吸过的「敌人 → 时刻」, lat 正吸着的敌人, latT 吸附剩下的秒数, latN 吸过几次, bounce 剩几次反弹, skip 贯穿剩几个, chain, wf 摆动参数, fx }
   const holes = [];
   const vortices = [];
-  const HOLE_MAX = 3; // 场上玩家的黑洞（含渊口）最多几个，多了顶掉最老的
+  const HOLE_MAX = 4; // 场上玩家的黑洞（含渊口）最多几个，多了顶掉最老的（刻式「双极」一次开两个）
   const VORTEX_MAX = 20; // 场上的黑旋风最多几团（多重投射每次 5 团、寿命 2.2 秒，正常出手节奏下大约 20 团），多了顶掉最老的
   let mouthCd = 0; // 渊口：距离下次能新开还有几秒
   // 和击退一样的豁免：砸地蓄力、引信、陨角兽冲锋中的怪钉在原地（预警圈的位置才对得上）
@@ -4308,6 +4328,18 @@
     const h = holes[i];
     holes.splice(i, 1);
     if (h.fx && G.world.removeHole) G.world.removeHole(h.fx);
+    if (h.tether) {
+      // 双极：一个洞没了，另一个和索一起收
+      G.world.kvOff(h.tether);
+      const o = h.twin;
+      h.tether = null;
+      if (o) {
+        o.tether = null;
+        o.twin = null;
+        const j = holes.indexOf(o);
+        if (j >= 0) removeHole(j);
+      }
+    }
   }
   function removeVortex(i) {
     const v = vortices[i];
@@ -4330,17 +4362,6 @@
     return addHole({ x, z, R, pullR: R * sk.pullR, t: 0, dur: VM.dur, tick: sk.tick, tt: sk.tick, ctx, mult: VM.dmg, pullMul: VM.pull, mouth: true });
   }
   G.voidMouth = voidMouth;
-  // 刻式「奇点」：黑洞结束时向内坍塌，对中心 implode.r（吃范围加成）以内的敌人一次 implode.mult 倍的重击
-  function holeImplode(h) {
-    const W = G.world, I = h.ctx.sk.implode, R = I.r * Math.sqrt(h.ctx.area), hex = hexOf(h.ctx.sk.color);
-    for (const e of enemiesIn(h.x, h.z, R)) G.hitEnemy(e, h.ctx, h.mult * I.mult, { ang: Math.atan2(e.x - h.x, e.z - h.z), w: 2, kb: 0.8, poise: 24 });
-    W.ring(h.x, h.z, R, hex, 0.3);
-    W.ring(h.x, h.z, R * 0.45, 0xffd6f2, 0.2);
-    W.burst(h.x, 0.8, h.z, hex, 22, 7, 0.45);
-    W.shake(0.28);
-    G.sfx('hit');
-    state.stats.implodes = (state.stats.implodes || 0) + 1;
-  }
 
   function updateChaos(dt) {
     const W = G.world;
@@ -4351,14 +4372,26 @@
       h.t += dt;
       if (h.follow) G.relicHoleFollow(h); // 渊契「随核」
       if (h.t >= h.dur) {
-        if (h.ctx.sk.implode && !h.mouth) holeImplode(h); // 刻式「奇点」：结束时内爆
+        if (h.collapse) holeCollapse(h, h.ctx.sk.collapse.end); // 刻式「坍缩」：没按就自己塌，伤害打折
         removeHole(i);
         continue;
       }
+      if (h.twinB) {
+        // 双极的第二个洞：牵引和伤害都由第一个洞连着索一起算，这里只画
+        if (h.fx && W.updateHole) W.updateHole(h.fx, h.t / h.dur, dt);
+        continue;
+      }
       const sk = h.ctx.sk;
+      const tw = h.twin ? h.twin : null; // 双极：拽向两洞之间的那条索（最近的一点）
       for (const e of state.enemies) {
         if (e.dead) continue;
-        const d = dist(e.x, e.z, h.x, h.z);
+        let gx = h.x, gz = h.z;
+        if (tw) {
+          const sx = tw.x - h.x, sz = tw.z - h.z, u = G.clamp(((e.x - h.x) * sx + (e.z - h.z) * sz) / (sx * sx + sz * sz || 1), 0, 1);
+          gx = h.x + sx * u;
+          gz = h.z + sz * u;
+        }
+        const d = dist(e.x, e.z, gx, gz);
         if (d - e.r > h.pullR || d <= sk.core) continue;
         let v;
         if (e.isBoss) v = sk.bossPull * (h.follow ? 1 : h.pullMul); // 随核：首领的牵引不变
@@ -4367,19 +4400,27 @@
           v = G.bindPullSpeed(e, sk.pull) * (0.6 + 0.4 * (1 - Math.min(1, d / h.pullR))) * h.pullMul;
           if (e.freeze > 0 || e.brokenT > 0) v *= 0.35;
         }
-        if (G.pullEnemy) G.pullEnemy(e, h.x, h.z, Math.min(v * dt, d - sk.core));
+        if (G.pullEnemy) G.pullEnemy(e, gx, gz, Math.min(v * dt, d - sk.core));
       }
       h.tt -= dt;
       if (h.tt <= 0) {
         h.tt += h.tick;
-        for (const e of enemiesIn(h.x, h.z, h.R)) {
+        for (const e of tw ? twinTargets(h, tw) : enemiesIn(h.x, h.z, h.R)) {
           // 同一个敌人同一时刻只吃一个黑洞的跳（两个重叠的黑洞、渊口都不叠加）
           if (state.time - (e.holeT || -99) < h.tick * 0.95) continue;
           e.holeT = state.time;
           G.hitEnemy(e, h.ctx, h.mult, { ang: Math.atan2(e.x - h.x, e.z - h.z), w: 0, kb: 0, poise: sk.poise, quiet: true, faint: true, tick: true });
+          if (h.collapse) holeGrow(h); // 坍缩：每伤到一个敌人长一点质量
         }
       }
       if (h.fx && W.updateHole) W.updateHole(h.fx, h.t / h.dur, dt);
+      if (h.tether) {
+        h.tether.x0 = h.x;
+        h.tether.z0 = h.z;
+        h.tether.x1 = tw.x;
+        h.tether.z1 = tw.z;
+        h.tether.a = h.t < 0.3 || h.t > h.dur - 0.3 ? 0.5 : 1;
+      }
     }
     // ---- 黑旋风 ----
     for (let i = vortices.length - 1; i >= 0; i--) {
@@ -4443,6 +4484,8 @@
     v.life -= dt;
     if (v.life <= 0) return false;
     v.t += dt;
+    if (v.guard) return guardStep(v, dt); // 刻式「护涡」：绕着你转
+    if (v.lvl) mergeSteer(v, dt); // 刻式「汇涡」：拐向最近的另一团
     if (v.lat) {
       // 吸附中：贴着那只敌人，绕着它小小地转；把附近的小怪往漩涡拽
       const e = v.lat;
@@ -4531,7 +4574,8 @@
       }
       let c = v.cast.get(e);
       if (!c) v.cast.set(e, (c = { next: 0, n: 0 }));
-      if (c.n >= (e.isBoss ? sk.bossCap : c.lat ? sk.cap : sk.splashCap) || state.time < c.next) continue;
+      // 汇涡：每个敌人能挨的跳数 = 层数 × merge.cap（合进来几团就加几份），不分首领 / 吸附
+      if (c.n >= (v.lvl ? v.lvl * sk.merge.cap : e.isBoss ? sk.bossCap : c.lat ? sk.cap : sk.splashCap) || state.time < c.next) continue;
       c.next = state.time + sk.tick * 0.95;
       c.n++;
       G.hitEnemy(e, v.ctx, 1, { ang: v.a, quiet: true, tick: true });
@@ -4765,6 +4809,7 @@
     P.rstate = null;
     fields.length = 0;
     resetChaos(); // 黑洞、黑旋风一起收起
+    resetVariants(); // 刻式第二版留在场上的东西
     G.relicReset(); // 渊契的电桥、蓄潮
   }
   G.resetRanged = resetRanged;
@@ -4876,25 +4921,26 @@
 
     proj(ctx, a) {
       const sk = ctx.sk;
-      const n = Math.max(1, ctx.proj) + (sk.count > 1 ? sk.count - 1 : 0); // 刻式「散焰」：基础 count 团，多重投射再加
+      if (sk.mech === 'orbit') return bladeOrbit(ctx); // 刻式「环刃」：不飞出去，绕着你转
+      const n = Math.max(1, ctx.proj);
       const spread = Math.min(60, (sk.spread || 12) * (n - 1)) * DEG;
       const stepA = n > 1 ? spread / (n - 1) : 0;
       const hex = sk.elemHex ? G.TYPE_HEX[mainType(ctx)] : hexOf(sk.color); // elemHex：武器普攻按这一下的元素取色
       const cast = new Set(); // 这一次施放里已经受过伤（直击或爆炸）的敌人，所有投射物共用
-      // 刻式：「散焰」每团各记各的（多重投射多出来的轮流并进这几份），同一次施放对同一个敌人最多 count 下；「回刃」回程另记一份
-      const casts = sk.count > 1 ? [] : null;
-      if (casts) for (let i = 0; i < sk.count; i++) casts.push(i ? new Set() : cast);
-      const back = sk.returns ? new Set() : null;
       const tint = infuseHex(ctx);
+      // 刻式「跳焰」：第一跳落在准星处（min..max 米），之后每 hop 米一跳
+      const sp = sk.mech === 'skip' ? sk.skip : null;
+      const d0 = sp ? G.clamp(a.dist, sp.min, sp.max) : 0;
       for (let i = 0; i < n; i++) {
         const ang = a.ang - spread / 2 + stepA * i;
         const dx = Math.sin(ang);
         const dz = Math.cos(ang);
         G.spawnProjectile({
           owner: 'p', x: P.x + dx * 0.7, z: P.z + dz * 0.7, dx, dz,
-          speed: sk.speed, r: sk.projR || 0.3, life: 30 / sk.speed, color: hex,
-          ctx, pierce: ctx.pierce, chain: ctx.chain, explode: sk.explode || 0, hit: new Set(), cast: casts ? casts[i % casts.length] : cast,
-          vk: sk.vk || ctx.id, tint, ret: sk.returns || 0, back,
+          speed: sk.speed, r: sk.projR || 0.3, life: sp ? (d0 + sp.hop * (sp.n - 1)) / sk.speed + 1 : 30 / sk.speed, color: hex,
+          ctx, pierce: sk.mech === 'pin' ? 0 : ctx.pierce, chain: sk.mech ? 0 : ctx.chain, explode: sk.explode || 0, hit: new Set(), cast,
+          vk: sk.vk || ctx.id, tint,
+          skip: sp ? { d: 0, seg: Math.max(0.5, d0 - 0.7), left: sp.n, walls: 3 } : null, stick: sk.mech === 'stick', pin: sk.mech === 'pin',
         });
       }
     },
@@ -4903,7 +4949,8 @@
       const W = G.world;
       const sk = ctx.sk;
       const hex = sk.elemHex ? G.TYPE_HEX[mainType(ctx)] : hexOf(sk.color);
-      if (sk.line) return lineBolt(ctx, a); // 刻式「贯雷」：不连锁，改一道直线
+      if (sk.mech === 'pylon') return arcPylon(ctx, a); // 刻式「雷桩」：插一根导雷桩
+      const ov = sk.mech === 'overload' ? sk.over : null; // 刻式「过载」：一跳比一跳痛，最后折回你身上
       // 首个目标：准星附近优先，其次是瞄准方向上最近的敌人
       let first = null;
       let bd = Infinity;
@@ -4937,17 +4984,19 @@
       let jumps = ctx.chain;
       let px = P.x;
       let pz = P.z;
+      let mk = 1;
       while (cur) {
         hit.add(cur);
         pts.push({ x: cur.x, z: cur.z });
         const cx = cur.x;
         const cz = cur.z;
-        G.hitEnemy(cur, ctx, 1, { ang: Math.atan2(cx - px, cz - pz) }); // 顺着电弧来的方向
+        G.hitEnemy(cur, ctx, mk, { ang: Math.atan2(cx - px, cz - pz) }); // 顺着电弧来的方向
+        if (ov) mk *= ov.k;
         px = cx;
         pz = cz;
         cur = null;
         if (jumps-- <= 0) break;
-        let nd = sk.jump || 7; // 跳距（刻式「雷网」更远）
+        let nd = 7; // 跳距
         for (const e of state.enemies) {
           if (e.dead || hit.has(e)) continue;
           const d = dist(e.x, e.z, cx, cz);
@@ -4959,6 +5008,7 @@
       }
       W.bolt(pts, hex);
       if (P.relic.dianqiao) G.relicBridges(pts, ctx); // 渊契「电桥」
+      if (ov) arcOverload(ctx, pts, hit.size, hex);
     },
 
     // 魂幡的普攻「魂引」：一缕魂灵扑向准星附近的敌人（没有就朝准星飞），碰到即炸开；目标标成集火（召唤物优先打它）
@@ -4998,12 +5048,22 @@
       const z = P.z + a.dz * d;
       const R = sk.radius * Math.sqrt(ctx.area);
       const hex = hexOf(sk.color);
-      if (sk.fall) return starFall(ctx, x, z); // 刻式「星落」：接连落下几颗小陨石
+      // 刻式：熔核 / 犁焰落地那一下打折（k0），之后留下熔核 / 顺着瞄准方向犁出去
+      const vm = sk.mech ? sk[sk.mech] : null, R0 = sk.mech === 'plough' ? vm.r * Math.sqrt(ctx.area) : R;
       W.meteorFall(x, z, sk.delay, hex);
       G.telegraph({
-        shape: 'circle', x, z, r: R, dur: sk.delay, dmg: 0, friendly: true,
+        shape: 'circle', x, z, r: R0, dur: sk.delay, dmg: 0, friendly: true,
         onFire() {
-          for (const e of enemiesIn(x, z, R)) G.hitEnemy(e, ctx, 1, { ang: Math.atan2(e.x - x, e.z - z) }); // 从落点往外炸开
+          for (const e of enemiesIn(x, z, R0)) G.hitEnemy(e, ctx, vm ? vm.k0 : 1, { ang: Math.atan2(e.x - x, e.z - z), core: true, kb: sk.mech === 'plough' ? 0.2 : undefined }); // 从落点往外炸开；core：不点燃自己留下的熔核；犁焰落地不推人（留给犁）
+          if (sk.mech === 'core') meteorCore(ctx, x, z);
+          else if (sk.mech === 'plough') meteorPlough(ctx, x, z, a.dx, a.dz);
+          if (vm) {
+            W.ring(x, z, R0, hex, 0.4);
+            W.burst(x, 0.8, z, hex, 26, 7, 0.6);
+            W.shake(0.35);
+            G.sfx('hit');
+            return;
+          }
           W.decal(1, x, z, R * 0.95, Math.random() * TAU, hex, 5);
           W.ring(x, z, R, hex, 0.45);
           W.burst(x, 0.8, z, hex, 46, 9, 0.7);
@@ -5018,12 +5078,14 @@
     spin(ctx) {
       const W = G.world;
       const sk = ctx.sk;
+      if (sk.mech === 'throw') return whirlThrow(ctx); // 刻式「掷旋」：把旋转的武器掷出去
       const R = sk.radius * Math.sqrt(ctx.area);
       const hex = hexOf(sk.color);
       const c = P.cast;
       const n = c && c.channel ? c.pulses : 0;
       const rk = P.relic.nuchao ? G.relicSpinPulse(ctx) : 1; // 渊契「蓄潮」：每跳打得轻、攒层
-      W.slash(P.x, P.z, Math.random() * TAU, R, 360, hex, { dur: 0.2, inner: 0.6, y: 0.9 });
+      if (sk.mech === 'pull') whirlPull(ctx); // 刻式「旋涡斩」：先把一圈敌人往身边吸
+      W.slash(P.x, P.z, Math.random() * TAU, R, 360, hex, sk.mech === 'pull' ? { dur: 0.2, inner: 0.35, y: 0.6, dir: -1 } : { dur: 0.2, inner: 0.6, y: 0.9 });
       if (n % 2 === 1) W.burst(P.x, 0.25, P.z, 0xbfb3a0, 4, R * 0.9, 0.3); // 脚下扬起的尘
       G.sfx('swing', { step: n % 2 });
       const hits = enemiesIn(P.x, P.z, R);
@@ -5044,9 +5106,11 @@
     blink(ctx, a) {
       const W = G.world;
       const sk = ctx.sk;
+      if (sk.mech === 'swap') return blinkSwap(ctx, a); // 刻式「换影」：和敌人换位置
       const hex = hexOf(sk.color);
       const ox = P.x;
       const oz = P.z;
+      if (sk.mech === 'decoy') blinkDecoy(ctx, ox, oz); // 刻式「残像」：原地留一个嘲讽的残像
       // 从目标点往回退，直到落在可走的地方
       let d = Math.min(sk.range, a.dist);
       while (d > 0 && !W.walkable(ox + a.dx * d, oz + a.dz * d, 0.6)) d -= 0.4;
@@ -5058,13 +5122,14 @@
       }
       P.roll.t = 0;
       P.iframe = Math.max(P.iframe, 0.2);
-      const R = sk.radius * Math.sqrt(ctx.area);
+      const dc = sk.mech === 'decoy' ? sk.decoy : null;
+      const R = (dc ? dc.r0 : sk.radius) * Math.sqrt(ctx.area);
       W.burst(P.x, 1.0, P.z, hex, 24, 6, 0.45);
       W.ring(P.x, P.z, R, hex, 0.3);
       let n = 0;
       let crit = false;
       for (const e of enemiesIn(P.x, P.z, R)) {
-        G.hitEnemy(e, ctx, 1, { quiet: true });
+        G.hitEnemy(e, ctx, dc ? dc.k0 : 1, { quiet: true });
         crit = crit || lastHit.crit;
         n++;
       }
@@ -5078,66 +5143,1247 @@
     },
   };
 
-  // ---------- 刻式的两个新形状 ----------
-  // 贯雷：朝准星放一道 line.len 长、line.width 宽的直线（吃范围加成的是宽度），遇墙即止（虚空 / 熔岩上照样过去），贯穿线上所有敌人
-  function lineBolt(ctx, a) {
-    const W = G.world, sk = ctx.sk, L = sk.line, hex = hexOf(sk.color);
-    let len = 0;
-    while (len + 0.25 <= L.len && W.shotFree(P.x + a.dx * (len + 0.25), P.z + a.dz * (len + 0.25), -0.3)) len += 0.25;
-    const hits = enemiesInLine(P.x, P.z, a.ang, len, (L.width / 2) * Math.sqrt(ctx.area));
-    const along = (e) => (e.x - P.x) * a.dx + (e.z - P.z) * a.dz;
-    hits.sort((p, q) => along(p) - along(q));
-    const pts = [{ x: P.x, z: P.z }];
-    for (const e of hits) {
-      pts.push({ x: e.x, z: e.z });
-      G.hitEnemy(e, ctx, 1, { ang: a.ang });
-    }
-    pts.push({ x: P.x + a.dx * len, z: P.z + a.dz * len });
-    W.bolt(pts, hex);
-    W.bolt([pts[0], pts[pts.length - 1]], hex, true); // 再叠一道细的直线，看得出是一条贯穿线
+  // =====================================================================
+  // 刻式第二版：每个刻式的那条新规则（数据在 data.js 的 G.VARIANTS，mech 标出是哪一条、参数在同名的对象里）
+  // 留在场上的东西都记在 VS 里，每帧 updateVariants 推进；外形用 world 的刻式件（W.kv：实例化，每种外形一次 draw call）
+  // =====================================================================
+  const VS = {
+    n: 0, // 下面这些列表一共几项（为 0 时整个跳过）
+    sticks: [], // 黏焰：{ e, ctx, gen, k, t, fuse, x, z, fx, ring }
+    traps: [], // 钉刃：{ x, z, ctx, t, tt, fx, ring, ph }
+    orbits: [], // 环刃：{ ctx, t, fx, hitAt: Map(敌人 → 时刻) }
+    pylons: [], // 雷桩：{ x, z, ctx, t, tt, fx, top }
+    links: [], // 雷桩之间的电弧：band 句柄
+    cores: [], // 熔核：{ x, z, ctx, t, n, gap, fx, glow }
+    ploughs: [], // 犁焰：{ x, z, dx, dz, d, len, sp, ctx, hit, fx, fd }
+    decoys: [], // 残像：{ decoy, x, z, r, height, dead, rising, hp, t, ctx, ring }
+    clones: 0, // 影分：排在计时器里、还没补出去的刀
+    marks: new Set(), // 影印：身上有影印的敌人（层数在 e.vMark，过期时刻 e.vMarkT，句柄 e.vMarkFx）
+    disc: null, // 掷旋：{ x, z, tx, tz, ph 'out' / 'hover' / 'back', t, hover, ctx, hits: Map, fx }
+    brands: new Set(), // 蚀印：身上有蚀印的敌人（层数 e.vBrand、攒下的伤害 e.vBrandV、句柄 e.vBrandFx）
+    dots: new Set(), // 传焰：身上烧着黑焰的敌人（e.vDot = { pool, depth, tt, fx }）
+    crystals: [], // 冰棱：环身的冰晶句柄
+    shell: null, // 过载：雷盾的罩子句柄
+    orbA: 0, // 环刃的公转角
+  };
+  function vCount() {
+    VS.n = VS.sticks.length + VS.traps.length + VS.orbits.length + VS.pylons.length + VS.cores.length + VS.ploughs.length + VS.decoys.length +
+      VS.marks.size + (VS.disc ? 1 : 0) + VS.brands.size + VS.dots.size + (P.vShield ? 1 : 0) + VS.links.length;
   }
-  // 星落：fall.span 秒内接连落下 fall.n 颗小陨石（半径 radius，各自 delay 秒后落地），
-  // 先在准星 fall.r 以内（吃范围加成）的敌人里按离准星远近轮流挑落点，一颗砸一个，敌人少就轮回来；没有敌人就散落在这一圈里
-  function starFall(ctx, x, z) {
-    const W = G.world, sk = ctx.sk, F = sk.fall, hex = hexOf(sk.color), ak = Math.sqrt(ctx.area);
-    const R = sk.radius * ak, FR = F.r * ak;
-    const tg = enemiesIn(x, z, FR).sort((p, q) => dist(p.x, p.z, x, z) - dist(q.x, q.z, x, z));
-    for (let i = 0; i < F.n; i++) {
-      G.after((F.span * i) / Math.max(1, F.n - 1), () => {
-        let e = tg.length ? tg[i % tg.length] : null;
-        if (e && e.dead) e = tg.find((o) => !o.dead) || null;
-        let px = x, pz = z;
-        if (e) {
-          px = e.x;
-          pz = e.z;
-        } else {
-          const r = FR * Math.sqrt(Math.random()), t = Math.random() * TAU;
-          if (W.walkable(x + Math.sin(t) * r, z + Math.cos(t) * r, 0)) {
-            px = x + Math.sin(t) * r;
-            pz = z + Math.cos(t) * r;
-          }
-        }
-        W.meteorFall(px, pz, sk.delay, hex);
-        G.telegraph({
-          shape: 'circle', x: px, z: pz, r: R, dur: sk.delay, dmg: 0, friendly: true,
-          onFire() {
-            for (const o of enemiesIn(px, pz, R)) G.hitEnemy(o, ctx, 1, { ang: Math.atan2(o.x - px, o.z - pz) });
-            W.decal(1, px, pz, R * 0.95, Math.random() * TAU, hex, 3);
-            W.ring(px, pz, R, hex, 0.35);
-            W.burst(px, 0.7, pz, hex, 16, 6, 0.5);
-            W.shake(0.2);
-            G.sfx('hit');
-          },
-        });
-      });
+  const kvOff = (h) => h && G.world.kvOff(h);
+
+  // ---------- 掷焰「跳焰」 ----------
+  // 落地：小范围爆炸（每个敌人每次落地一次），留一片火地；还有跳数就接着跳（返回 true），没有就收起（返回 false）
+  function skipLand(p) {
+    const W = G.world, sk = p.ctx.sk, S = sk.skip, ak = Math.sqrt(p.ctx.area), R = S.r * ak;
+    for (const e of enemiesIn(p.x, p.z, R)) G.hitEnemy(e, p.ctx, 1, { ang: Math.atan2(e.x - p.x, e.z - p.z), kb: 0.15, poise: sk.poise, quiet: true }); // 推得很轻：留在火地里
+    const F = S.field;
+    addField({ kind: 'burn', x: p.x, z: p.z, r: F.r * ak, dur: F.dur, tick: F.tick, mult: F.mult, ctx: p.ctx, key: 'vSkipT', hex: 0xff7a2c, noDecal: true });
+    W.ring(p.x, p.z, R, 0xff8a3c, 0.25);
+    W.burst(p.x, 0.4, p.z, 0xffb050, 12, 5, 0.35);
+    G.sfx('impact', { type: 'fire', w: 0, crit: false });
+    state.stats.vSkipLands = (state.stats.vSkipLands || 0) + 1;
+    p.skip.left--;
+    if (p.skip.left <= 0) return false;
+    p.skip.d = 0;
+    p.skip.seg = S.hop;
+    return true;
+  }
+  // 撞墙：按墙的法线弹回来（最多 walls 次），这一跳接着走完
+  function skipWall(p, step) {
+    if (p.skip.walls <= 0) return false;
+    p.x -= p.dx * step;
+    p.z -= p.dz * step;
+    const n = vxNormal(p.x + p.dx * step, p.z + p.dz * step, p.x, p.z, p.dx, p.dz);
+    const dn = p.dx * n.x + p.dz * n.z;
+    p.dx = dn < 0 ? p.dx - 2 * dn * n.x : n.x;
+    p.dz = dn < 0 ? p.dz - 2 * dn * n.z : n.z;
+    p.skip.walls--;
+    if (G.world.relicProjTurn) G.world.relicProjTurn(p.mesh, p.dx, p.dz);
+    state.stats.vSkipWalls = (state.stats.vSkipWalls || 0) + 1;
+    return true;
+  }
+
+  // ---------- 掷焰「黏焰」 ----------
+  // 粘上一颗：gen 第几代（0 = 你亲手掷的），k 伤害倍率（往外传一代乘一次 stick.k）
+  function emberStick(ctx, e, gen, k) {
+    const W = G.world, S = ctx.sk.stick;
+    if (VS.sticks.length >= 24) stickBoom(VS.sticks[0]);
+    e.vStick = (e.vStick || 0) + 1;
+    VS.sticks.push({
+      e, ctx, gen, k, t: S.fuse, fuse: S.fuse, x: e.x, z: e.z,
+      fx: W.kv('orb', { hex: 0xffa040, s: 0.34 }), ring: W.kv('glyph', { hex: 0xff7a2c, s: (e.r + 0.7) * 2, y: 0.06 }),
+    });
+    W.burst(e.x, (e.height || 2) * 0.6, e.z, 0xffb050, 6, 2, 0.25);
+    vCount();
+  }
+  function stickBoom(st) {
+    const W = G.world, ctx = st.ctx, S = ctx.sk.stick, ak = Math.sqrt(ctx.area), R = S.r * ak;
+    const i = VS.sticks.indexOf(st);
+    if (i >= 0) VS.sticks.splice(i, 1);
+    kvOff(st.fx);
+    kvOff(st.ring);
+    if (st.e) st.e.vStick = Math.max(0, (st.e.vStick || 0) - 1);
+    const x = st.e && !st.e.dead ? st.e.x : st.x, z = st.e && !st.e.dead ? st.e.z : st.z;
+    const hits = enemiesIn(x, z, R);
+    for (const o of hits) G.hitEnemy(o, ctx, st.k, { ang: Math.atan2(o.x - x, o.z - z), kb: 0.6, poise: 10, quiet: true });
+    if (W.blastFx) W.blastFx(x, z, R);
+    else W.ring(x, z, R, 0xff8a3c, 0.3);
+    G.sfx('impact', { type: 'fire', w: 1, crit: false });
+    state.stats.vStickBooms = (state.stats.vStickBooms || 0) + 1;
+    // 往外传：附近还没粘上的敌人里挑最近的几个
+    if (st.gen < S.gen) {
+      const c = [];
+      for (const o of state.enemies) if (!o.dead && o !== st.e && !(o.vStick > 0) && dist(o.x, o.z, x, z) - o.r <= S.sr * ak) c.push(o);
+      c.sort((p, q) => dist(p.x, p.z, x, z) - dist(q.x, q.z, x, z));
+      for (let j = 0; j < Math.min(S.spread, c.length); j++) {
+        emberStick(ctx, c[j], st.gen + 1, st.k * S.k);
+        W.bolt([{ x, z }, { x: c[j].x, z: c[j].z }], 0xff8a3c, true);
+        state.stats.vStickSpread = (state.stats.vStickSpread || 0) + 1;
+      }
+    }
+    vCount();
+  }
+  function tickSticks(dt) {
+    for (let i = VS.sticks.length - 1; i >= 0; i--) {
+      const st = VS.sticks[i];
+      if (!st) continue;
+      st.t -= dt;
+      const e = st.e;
+      if (e && !e.dead) {
+        st.x = e.x;
+        st.z = e.z;
+      }
+      if (st.t <= 0 || !e || e.dead) {
+        stickBoom(st);
+        continue;
+      }
+      // 火核贴在胸口朝镜头那一面，越临近引爆闪得越快；引信圈的亮段跟着走完
+      const f = 1 - st.t / st.fuse, h = (e.height || 2) * 0.6;
+      st.fx.x = e.x;
+      st.fx.z = e.z + e.r * 0.6;
+      st.fx.y = h;
+      st.fx.k = Math.sin(state.time * (6 + f * 26)) > 0 ? 0.85 : 0.15;
+      st.fx.s = 0.3 + f * 0.14;
+      st.ring.x = e.x;
+      st.ring.z = e.z;
+      st.ring.k = f;
+      st.ring.s = (e.r + 0.7) * 2 * (1.25 - f * 0.25);
     }
   }
 
+  // ---------- 飞刃「钉刃」 ----------
+  // 钉住：e 是钉中的敌人（null 就立在当前位置）。定身 root 秒（首领不会），立起一把旋转的锯刃
+  function bladePin(p, e) {
+    const W = G.world, sk = p.ctx.sk, S = sk.pin;
+    p.pinned = true;
+    let x = p.x, z = p.z;
+    if (e) {
+      x = e.x - p.dx * Math.min(e.r * 0.5, 0.5);
+      z = e.z - p.dz * Math.min(e.r * 0.5, 0.5);
+      if (!e.isBoss && !e.dead) {
+        e.stunT = Math.max(e.stunT || 0, S.root);
+        W.text(e.x, e.z, '钉住', '#cfd6e6', 16, { kind: 'tag', y: Math.min(3, (e.height || 2) + 0.4) });
+      }
+    }
+    while (VS.traps.length >= S.max) trapOff(VS.traps[0]);
+    const R = S.r * Math.sqrt(p.ctx.area);
+    VS.traps.push({
+      x, z, ctx: p.ctx, t: S.dur, tt: 0.05, ph: Math.atan2(p.dx, p.dz), R,
+      fx: W.kv('blade', { hex: 0xdfe6f2, s: 0.75, y: 0.7 }), ring: W.kv('glyph', { hex: 0xcfd6e6, s: R * 2, y: 0.05 }),
+    });
+    W.decal(0, x, z, 0.8, Math.atan2(p.dx, p.dz), 0xcfd6e6, S.dur, 0.12);
+    W.burst(x, 0.6, z, 0xffffff, 10, 4, 0.25);
+    state.stats.vPins = (state.stats.vPins || 0) + 1;
+    vCount();
+  }
+  function trapOff(tr) {
+    const i = VS.traps.indexOf(tr);
+    if (i >= 0) VS.traps.splice(i, 1);
+    kvOff(tr.fx);
+    kvOff(tr.ring);
+    G.world.burst(tr.x, 0.6, tr.z, 0xcfd6e6, 6, 2, 0.25);
+    vCount();
+  }
+  function tickTraps(dt) {
+    for (let i = VS.traps.length - 1; i >= 0; i--) {
+      const tr = VS.traps[i], S = tr.ctx.sk.pin;
+      tr.t -= dt;
+      if (tr.t <= 0) {
+        trapOff(tr);
+        continue;
+      }
+      // 竖着立在地上、绕自己的轴飞快地转，侧面朝着来的方向；最后 0.4 秒往下沉
+      tr.fx.x = tr.x;
+      tr.fx.z = tr.z;
+      tr.fx.ry = tr.ph + Math.PI / 2;
+      tr.fx.rz += dt * 22;
+      tr.fx.y = tr.t < 0.4 ? 0.7 * (tr.t / 0.4) : 0.7;
+      tr.ring.x = tr.x;
+      tr.ring.z = tr.z;
+      tr.ring.k = tr.t / S.dur;
+      tr.tt -= dt;
+      if (tr.tt > 0) continue;
+      tr.tt += S.tick;
+      let n = 0;
+      for (const e of enemiesIn(tr.x, tr.z, tr.R)) {
+        // 同一个敌人同一时刻只吃一把锯刃（几把叠在一起不翻倍）
+        if (state.time - (e.vPinT || -99) < S.tick * 0.95) continue;
+        e.vPinT = state.time;
+        G.hitEnemy(e, tr.ctx, S.mult, { ang: Math.atan2(e.x - tr.x, e.z - tr.z), w: 0, kb: 0.05, poise: 1, quiet: true, faint: true });
+        n++;
+      }
+      if (n) {
+        G.world.burst(tr.x, 0.7, tr.z, 0xfff0d0, 3, 3, 0.15);
+        state.stats.vTrapHits = (state.stats.vTrapHits || 0) + n;
+      }
+    }
+  }
+
+  // ---------- 飞刃「环刃」 ----------
+  function bladeOrbit(ctx) {
+    const W = G.world, O = ctx.sk.orbit, add = Math.max(1, ctx.proj), max = O.max + add - 1;
+    for (let i = 0; i < add; i++) {
+      while (VS.orbits.length >= max) orbitOff(VS.orbits[0]);
+      VS.orbits.push({ ctx, t: O.dur, fx: W.kv('blade', { hex: 0xdfe6f2, s: 0.55, rx: Math.PI / 2 - 0.25, y: 1.0 }), hitAt: new Map() });
+    }
+    W.burst(P.x, 1.0, P.z, 0xcfd6e6, 8, 3, 0.25);
+    G.sfx('swing', { step: 0 });
+    vCount();
+  }
+  function orbitOff(o) {
+    const i = VS.orbits.indexOf(o);
+    if (i >= 0) VS.orbits.splice(i, 1);
+    kvOff(o.fx);
+    vCount();
+  }
+  function tickOrbits(dt) {
+    const L = VS.orbits;
+    if (!L.length) return;
+    const O = L[0].ctx.sk.orbit;
+    VS.orbA += O.w * dt;
+    for (let i = L.length - 1; i >= 0; i--) {
+      const o = L[i];
+      o.t -= dt;
+      if (o.t <= 0 || P.dead) orbitOff(o);
+    }
+    const n = L.length;
+    for (let i = 0; i < n; i++) {
+      const o = L[i], S = o.ctx.sk.orbit, ak = Math.sqrt(o.ctx.area), r = S.r * ak;
+      const a = VS.orbA + (i / n) * TAU, x = P.x + Math.sin(a) * r, z = P.z + Math.cos(a) * r;
+      o.fx.x = x;
+      o.fx.z = z;
+      o.fx.ry = a;
+      o.fx.rz += dt * 18;
+      o.fx.a = o.t < 0.3 ? 0.3 : 1;
+      for (const e of state.enemies) {
+        if (e.dead || dist(e.x, e.z, x, z) > S.hr * ak + e.r) continue;
+        if (state.time - (o.hitAt.get(e) || -99) < S.gap) continue;
+        o.hitAt.set(e, state.time);
+        G.hitEnemy(e, o.ctx, 1, { ang: a + Math.PI / 2, kb: 0.15, quiet: true });
+        G.world.burst(x, 1.0, z, 0xfff0d0, 3, 3, 0.15);
+        state.stats.vOrbitHits = (state.stats.vOrbitHits || 0) + 1;
+      }
+    }
+  }
+
+  // ---------- 霜环「冰棱」「冰爆」 ----------
+  // 冰棱：每次脉冲朝 range 以内（吃范围加成）最近的 n 个看得见的敌人各射一枚追踪冰棱（和光环脉冲一样不算连击）
+  function novaShards(ctx) {
+    const S = ctx.sk.shard, R = S.range * Math.sqrt(ctx.area);
+    const c = [];
+    for (const e of state.enemies) {
+      if (e.dead || dist(e.x, e.z, P.x, P.z) - e.r > R || !losClear(P.x, P.z, e.x, e.z)) continue;
+      c.push(e);
+    }
+    if (!c.length) return 0;
+    c.sort((p, q) => dist(p.x, p.z, P.x, P.z) - dist(q.x, q.z, P.x, P.z));
+    for (let i = 0; i < Math.min(S.n, c.length); i++) {
+      const e = c[i], k = VS.crystals.length ? VS.crystals[i % VS.crystals.length] : null;
+      const x = k ? k.x : P.x, z = k ? k.z : P.z;
+      const dx = e.x - x, dz = e.z - z;
+      G.spawnProjectile({
+        owner: 'p', x, z, y0: 1.6, dx, dz, speed: S.speed, r: 0.22, life: R / S.speed + 0.6, color: 0x9fe4ff,
+        ctx, pierce: 0, chain: 0, explode: 0, hit: new Set(), home: e, turn: 9, seeker: true, aura: true, vk: 'dart',
+      });
+    }
+    state.stats.vShards = (state.stats.vShards || 0) + Math.min(S.n, c.length);
+    return c.length;
+  }
+  // 环身的冰晶：on 时三枚冰晶绕着胸口慢慢转（每帧在 updateAuras 里调用）
+  function novaCrystals(on) {
+    const W = G.world;
+    if (!on) {
+      while (VS.crystals.length) kvOff(VS.crystals.pop());
+      return;
+    }
+    while (VS.crystals.length < 3) VS.crystals.push(W.kv('shard', { hex: 0x9fe4ff, s: 0.32, k: 0.25 }));
+    for (let i = 0; i < 3; i++) {
+      const h = VS.crystals[i], a = state.time * 1.8 + (i / 3) * TAU;
+      h.x = P.x + Math.sin(a) * 0.95;
+      h.z = P.z + Math.cos(a) * 0.95;
+      h.y = 1.55 + Math.sin(state.time * 3 + i * 2) * 0.12;
+      h.ry = a;
+    }
+  }
+  // 冰爆：光环里的敌人被冻住（首领是重度冰缓）的那一刻，以它为中心炸开：伤害 = 每跳的 burst.mult 倍，周围的敌人灌 burst.fill 的冰霜异常值
+  function novaBurst(e) {
+    if (state.time - (e.vBurstT || -99) < G.SKILLS.nova.burst.cd) return;
+    const ctx = G.skillCtx('nova'), B = ctx.sk.burst;
+    if (dist(e.x, e.z, P.x, P.z) - e.r > G.auraRadius(ctx)) return;
+    e.vBurstT = state.time;
+    const R = B.r * Math.sqrt(ctx.area);
+    for (const o of enemiesIn(e.x, e.z, R)) {
+      G.hitEnemy(o, ctx, B.mult, { ang: Math.atan2(o.x - e.x, o.z - e.z), w: 0, kb: 0.3, poise: 4, quiet: true, aura: true, noBuild: o === e });
+      if (o !== e && !o.dead) fillMeter(o, 'cold', B.fill, procQ);
+    }
+    if (G.world.frostBlast) G.world.frostBlast(e.x, e.z, R);
+    state.stats.vNovaBursts = (state.stats.vNovaBursts || 0) + 1;
+  }
+
+  // ---------- 链雷「雷桩」「过载」 ----------
+  function arcPylon(ctx, a) {
+    const W = G.world, sk = ctx.sk, S = sk.pylon;
+    const d = rayLen(P.x, P.z, a.ang, Math.min(sk.range, a.dist), 0.4);
+    let x = P.x + a.dx * d, z = P.z + a.dz * d;
+    if (!W.walkable(x, z, 0.2)) {
+      x = P.x + a.dx * 0.8;
+      z = P.z + a.dz * 0.8;
+    }
+    while (VS.pylons.length >= S.max) pylonOff(VS.pylons[0]);
+    const py = {
+      x, z, ctx, t: S.dur, tt: 0,
+      fx: W.kv('spike', { hex: 0xc9a83a, x, z, sx: 1, sz: 1, sy: 2.3 }), top: W.kv('orb', { hex: 0xffe45e, x, z, y: 2.35, s: 0.42, k: 0.6 }),
+    };
+    VS.pylons.push(py);
+    W.bolt([{ x: P.x, z: P.z }, { x, z }], 0xffe45e, true);
+    if (W.vShock) W.vShock(x, z, S.r * Math.sqrt(ctx.area), 0xffe45e, 0.3, 0); // 电桩的范围：一道往外推的细环
+    else W.ring(x, z, S.r * Math.sqrt(ctx.area), 0xffe45e, 0.3);
+    W.decal(3, x, z, 0.9, Math.random() * TAU, 0xffe45e, S.dur);
+    py.tt = S.tick * 0.6; // 插下去之后很快电第一下（不当帧电：按住连插也不会多电）
+    const e = P.relic.dianqiao ? pylonZap(py) : null;
+    if (e) py.tt = S.tick;
+    if (P.relic.dianqiao && e) G.relicBridges([{ x: P.x, z: P.z }, { x, z }, { x: e.x, z: e.z }], ctx); // 渊契「电桥」：桩和它电到的第一个敌人之间留一道
+    state.stats.vPylons = (state.stats.vPylons || 0) + 1;
+    vCount();
+  }
+  function pylonOff(py) {
+    const i = VS.pylons.indexOf(py);
+    if (i >= 0) VS.pylons.splice(i, 1);
+    kvOff(py.fx);
+    kvOff(py.top);
+    G.world.burst(py.x, 1.4, py.z, 0xffe45e, 8, 3, 0.3);
+    vCount();
+  }
+  // 电一下 r 米内最近的敌人（看得见的），返回电到的敌人
+  function pylonZap(py) {
+    const S = py.ctx.sk.pylon, R = S.r * Math.sqrt(py.ctx.area);
+    let best = null, bd = R;
+    for (const e of state.enemies) {
+      if (e.dead) continue;
+      const d = dist(e.x, e.z, py.x, py.z) - e.r;
+      if (d <= bd && losClear(py.x, py.z, e.x, e.z)) {
+        bd = d;
+        best = e;
+      }
+    }
+    if (!best) return null;
+    G.hitEnemy(best, py.ctx, S.mult, { ang: Math.atan2(best.x - py.x, best.z - py.z), quiet: true });
+    G.world.bolt([{ x: py.x, z: py.z }, { x: best.x, z: best.z }], 0xffe45e, true);
+    py.top.k = 1;
+    state.stats.vZaps = (state.stats.vZaps || 0) + 1;
+    return best;
+  }
+  function tickPylons(dt) {
+    const L = VS.pylons;
+    for (let i = L.length - 1; i >= 0; i--) {
+      const py = L[i];
+      py.t -= dt;
+      if (py.t <= 0) {
+        pylonOff(py);
+        continue;
+      }
+      py.top.k = Math.max(0.35, py.top.k - dt * 3);
+      py.top.y = 2.35 + Math.sin(state.time * 4 + i) * 0.06;
+      py.fx.sy = py.t < 0.3 ? 2.3 * (py.t / 0.3) : 2.3;
+      py.tt -= dt;
+      if (py.tt <= 0) {
+        py.tt += py.ctx.sk.pylon.tick;
+        pylonZap(py);
+        pylonLinkTick(py);
+      }
+    }
+    // 桩与桩之间的电弧：相距 link 以内的每一对一道（最多 3 对），句柄按需增减
+    let k = 0;
+    for (let i = 0; i < L.length; i++) {
+      for (let j = i + 1; j < L.length; j++) {
+        const a = L[i], b = L[j];
+        if (dist(a.x, a.z, b.x, b.z) > a.ctx.sk.pylon.link) continue;
+        if (!VS.links[k]) VS.links[k] = G.world.kv('band', { hex: 0xffe45e, w: a.ctx.sk.pylon.lw, y: 1.6 });
+        const h = VS.links[k++];
+        h.x0 = a.x;
+        h.z0 = a.z;
+        h.x1 = b.x;
+        h.z1 = b.z;
+        h.a = Math.min(a.t, b.t) < 0.4 ? 0.5 : 1;
+      }
+    }
+    while (VS.links.length > k) kvOff(VS.links.pop());
+  }
+  // 电弧扫过：每根桩跳的时候结算它连着的那几道（每道只由编号小的那根结算一次）
+  function pylonLinkTick(py) {
+    const L = VS.pylons, S = py.ctx.sk.pylon, half = (S.lw / 2) * Math.sqrt(py.ctx.area);
+    const i = L.indexOf(py);
+    for (let j = i + 1; j < L.length; j++) {
+      const b = L[j];
+      if (dist(py.x, py.z, b.x, b.z) > S.link) continue;
+      const sx = b.x - py.x, sz = b.z - py.z, L2 = sx * sx + sz * sz || 1;
+      for (const e of state.enemies) {
+        if (e.dead) continue;
+        const u = G.clamp(((e.x - py.x) * sx + (e.z - py.z) * sz) / L2, 0, 1);
+        if (dist(e.x, e.z, py.x + sx * u, py.z + sz * u) - e.r > half) continue;
+        if (state.time - (e.vLinkT || -99) < S.tick * 0.95) continue; // 同一时刻只吃一道
+        e.vLinkT = state.time;
+        G.hitEnemy(e, py.ctx, S.lmult, { ang: Math.atan2(sz, sx), w: 0, kb: 0, poise: 1, quiet: true, faint: true });
+        state.stats.vLinkHits = (state.stats.vLinkHits || 0) + 1;
+      }
+    }
+  }
+  // 过载：最后一下折回你身上，n 个敌人各给一份雷盾、回一点魔力；电弧一跳比一跳粗（后面的段多叠一道）
+  function arcOverload(ctx, pts, n, hex) {
+    const W = G.world, O = ctx.sk.over;
+    for (let i = 2; i < pts.length; i++) W.bolt([pts[i - 1], pts[i]], 0xfffbe6, i < 3);
+    if (!n) return;
+    const last = pts[pts.length - 1];
+    W.bolt([last, { x: P.x, z: P.z }], hex, true);
+    W.burst(P.x, 1.1, P.z, 0xffe45e, 10, 3, 0.3);
+    const v = P.maxLife * O.shield * n;
+    P.vShield = { v: Math.max(v, (P.vShield && P.vShield.v) || 0), t: O.dur };
+    P.mana = Math.min(P.maxMana, P.mana + O.mana * n);
+    if (!VS.shell) VS.shell = W.kv('dome', { hex: 0xffe45e, s: 1.15 });
+    state.stats.vOverloads = (state.stats.vOverloads || 0) + 1;
+    vCount();
+  }
+  function vShieldOff() {
+    P.vShield = null;
+    kvOff(VS.shell);
+    VS.shell = null;
+    vCount();
+  }
+  function tickShield(dt) {
+    const s = P.vShield;
+    s.t -= dt;
+    if (s.t <= 0 || P.dead) return vShieldOff();
+    const h = VS.shell;
+    if (h) {
+      h.x = P.x;
+      h.z = P.z;
+      h.y = 0;
+      h.sy = 1.9;
+      h.sx = h.sz = 1.0;
+      h.a = s.t < 0.5 ? 0.3 : Math.sin(state.time * 30) > -0.3 ? 1 : 0.62;
+    }
+  }
+
+  // ---------- 陨火「熔核」「犁焰」 ----------
+  function meteorCore(ctx, x, z) {
+    const W = G.world, C = ctx.sk.core;
+    while (VS.cores.length >= 3) coreOff(VS.cores[0], true);
+    VS.cores.push({
+      x, z, ctx, t: C.dur, n: 0, gap: 0.3, R: C.r * Math.sqrt(ctx.area),
+      fx: W.kv('rock', { hex: 0x3a1a10, x, z, y: 0.25, s: 1.25, ry: Math.random() * TAU }), glow: W.kv('orb', { hex: 0xff5a1c, x, z, y: 0.45, s: 0.8, k: 0.4 }),
+      ring: W.kv('glyph', { hex: 0xff5a2c, x, z, y: 0.05, s: C.r * Math.sqrt(ctx.area) * 2, k: 1 }),
+    });
+    state.stats.vCores = (state.stats.vCores || 0) + 1;
+    vCount();
+  }
+  function coreBoom(c, mult) {
+    const W = G.world;
+    for (const e of enemiesIn(c.x, c.z, c.R)) G.hitEnemy(e, c.ctx, mult, { ang: Math.atan2(e.x - c.x, e.z - c.z), w: 1, kb: 0.8, poise: 8, quiet: true, core: true });
+    if (W.blastFx) W.blastFx(c.x, c.z, c.R);
+    W.shake(0.15);
+    G.sfx('impact', { type: 'fire', w: 1, crit: false });
+  }
+  function coreOff(c, quietEnd) {
+    const i = VS.cores.indexOf(c);
+    if (i >= 0) VS.cores.splice(i, 1);
+    if (!quietEnd) coreBoom(c, c.ctx.sk.core.end);
+    kvOff(c.fx);
+    kvOff(c.glow);
+    kvOff(c.ring);
+    vCount();
+  }
+  // 你的火焰伤害打中熔核旁边的敌人：熔核再炸一次（gap 秒最多一次，最多 n 次）
+  function coreTouch(e) {
+    for (const c of VS.cores) {
+      const C = c.ctx.sk.core;
+      if (c.gap > 0 || c.n >= C.n || dist(e.x, e.z, c.x, c.z) - e.r > c.R) continue;
+      c.n++;
+      c.gap = C.gap;
+      c.glow.k = 1;
+      state.stats.vCoreRe = (state.stats.vCoreRe || 0) + 1;
+      G.after(0, () => {
+        if (VS.cores.indexOf(c) >= 0) coreBoom(c, C.mult);
+      });
+    }
+  }
+  function tickCores(dt) {
+    for (let i = VS.cores.length - 1; i >= 0; i--) {
+      const c = VS.cores[i];
+      c.t -= dt;
+      if (c.gap > 0) c.gap -= dt;
+      if (c.t <= 0) {
+        coreOff(c);
+        continue;
+      }
+      // 裂纹一明一暗；刚被点爆时整团发白，慢慢暗回去；用掉的次数在地上的符环里少一段
+      c.glow.k = Math.max(0.2 + 0.25 * (Math.sin(state.time * 5 + i) > 0 ? 1 : 0), c.glow.k - dt * 2);
+      c.glow.s = 0.75 + 0.1 * c.glow.k;
+      c.ring.k = 1 - c.n / c.ctx.sk.core.n;
+      c.ring.a = c.t < 0.5 ? 0.3 : 1;
+    }
+  }
+  function meteorPlough(ctx, x, z, dx, dz) {
+    const W = G.world, S = ctx.sk.plough;
+    const len = Math.max(0.5, rayLen(x, z, Math.atan2(dx, dz), S.len, 0.3));
+    VS.ploughs.push({
+      x, z, x0: x, z0: z, dx, dz, d: 0, len, sp: S.len / S.t, ctx, hit: new Set(), fd: -9, // fd：上一片火的位置（落点那一片第一帧就铺）
+      fx: W.kv('rock', { hex: 0x5a2a14, x, z, y: 0.55, s: 1.3 }), glow: W.kv('orb', { hex: 0xff6a20, x, z, y: 0.6, s: 0.95, k: 0.7 }),
+    });
+    // 长条的犁痕一次铺好（贴地擦痕，长度的一半 = len / 2）
+    W.decal(0, x + (dx * len) / 2, z + (dz * len) / 2, len / 2, Math.atan2(dx, dz), 0xff6a2c, S.field.dur + 0.5, S.w * 0.45);
+    state.stats.vPloughs = (state.stats.vPloughs || 0) + 1;
+    vCount();
+  }
+  function tickPloughs(dt) {
+    const W = G.world;
+    for (let i = VS.ploughs.length - 1; i >= 0; i--) {
+      const p = VS.ploughs[i], S = p.ctx.sk.plough, ak = Math.sqrt(p.ctx.area);
+      const step = Math.min(p.sp * dt, p.len - p.d);
+      p.d += step;
+      p.x = p.x0 + p.dx * p.d;
+      p.z = p.z0 + p.dz * p.d;
+      p.fx.x = p.glow.x = p.x;
+      p.fx.z = p.glow.z = p.z;
+      p.fx.rx += dt * 9; // 滚着往前犁
+      const ang = Math.atan2(p.dx, p.dz);
+      for (const e of state.enemies) {
+        if (e.dead || p.hit.has(e) || dist(e.x, e.z, p.x, p.z) - e.r > S.w * ak) continue;
+        p.hit.add(e);
+        // 掀向两侧：看它在犁线的哪一边
+        const side = (e.x - p.x) * p.dz - (e.z - p.z) * p.dx >= 0 ? 1 : -1;
+        G.hitEnemy(e, p.ctx, S.mult, { ang: ang + (side * Math.PI) / 2, w: 1, kb: 1.8, poise: 14, quiet: true, core: true });
+        if (!e.isBoss && W.knockUp) W.knockUp(e.ent, 0.5);
+      }
+      if (Math.random() < 0.6) W.burst(p.x, 0.4, p.z, 0xffa040, 3, 3, 0.3);
+      // 每 2.6 米留一片火（沟里的火）
+      if (p.d - p.fd >= 2.6 || (p.d >= p.len && p.fd < p.len - 0.5)) {
+        p.fd = p.d;
+        const F = S.field;
+        addField({ kind: 'burn', x: p.x, z: p.z, r: F.r * ak, dur: F.dur, tick: F.tick, mult: F.mult, ctx: p.ctx, key: 'vPloughT', hex: 0xff6a2c, noDecal: true });
+      }
+      if (p.d >= p.len) {
+        W.burst(p.x, 0.6, p.z, 0xffb050, 14, 5, 0.4);
+        W.ring(p.x, p.z, 1.6, 0xff6a2c, 0.3);
+        W.shake(0.15);
+        kvOff(p.fx);
+        kvOff(p.glow);
+        VS.ploughs.splice(i, 1);
+        vCount();
+      }
+    }
+  }
+
+  // ---------- 闪袭「残像」「换影」 ----------
+  // 残像：一个不会动的诱饵（敌人把它当召唤物打，受伤直接吃掉），dur 秒后炸开
+  function blinkDecoy(ctx, x, z) {
+    const W = G.world, D = ctx.sk.decoy;
+    const d = { decoy: true, x, z, r: 0.5, height: 1.8, dead: false, rising: 0, hp: D.hp, maxHp: D.hp, t: D.dur, ctx, ring: W.kv('glyph', { hex: 0xc7a6ff, x, z, y: 0.06, s: D.taunt * 2, k: 1 }) };
+    VS.decoys.push(d);
+    W.afterimage(P.ent, x, z, 0xc7a6ff, 1, D.dur + 0.15, 0, P.face);
+    let n = 0;
+    for (const e of state.enemies) {
+      if (e.dead || dist(e.x, e.z, x, z) - e.r > D.taunt) continue;
+      if (G.tauntEnemy && G.tauntEnemy(e, d, D.dur, D.boss)) n++;
+    }
+    if (n) W.text(x, z, '嘲讽', '#c7a6ff', 18, { y: 2.6 });
+    state.stats.vDecoys = (state.stats.vDecoys || 0) + 1;
+    state.stats.vDecoyTaunts = (state.stats.vDecoyTaunts || 0) + n;
+    vCount();
+  }
+  function tickDecoys(dt) {
+    const W = G.world;
+    for (let i = VS.decoys.length - 1; i >= 0; i--) {
+      const d = VS.decoys[i], D = d.ctx.sk.decoy;
+      d.t -= dt;
+      d.ring.k = Math.max(0, d.t / D.dur);
+      d.ring.ry += dt * 1.2;
+      if (d.t > 0) continue;
+      d.dead = true; // 敌人的嘲讽随即失效
+      VS.decoys.splice(i, 1);
+      kvOff(d.ring);
+      const R = D.r * Math.sqrt(d.ctx.area);
+      for (const e of enemiesIn(d.x, d.z, R)) G.hitEnemy(e, d.ctx, D.mult, { ang: Math.atan2(e.x - d.x, e.z - d.z), w: 1, kb: 1.2, poise: 18, quiet: true });
+      if (W.vShock) W.vShock(d.x, d.z, R, 0xc7a6ff, 0.32, 0);
+      else W.ring(d.x, d.z, R, 0xc7a6ff, 0.35);
+      W.burst(d.x, 1.0, d.z, 0xc7a6ff, 22, 6, 0.45);
+      W.shake(0.25);
+      G.sfx('impact', { type: 'phys', w: 1, crit: false });
+      state.stats.vDecoyBursts = (state.stats.vDecoyBursts || 0) + 1;
+      vCount();
+    }
+  }
+  // 换影：准星 seek 米内最近的敌人（看得见、够得着）。首领换不动：闪到它身后，削 poise 倍的架势
+  function blinkSwap(ctx, a) {
+    const W = G.world, sk = ctx.sk, S = sk.swap, hex = hexOf(sk.color);
+    let e = null, bd = S.seek;
+    for (const o of state.enemies) {
+      if (o.dead || o.executed) continue;
+      const dc = dist(o.x, o.z, a.tx, a.tz) - o.r;
+      if (dc <= bd && dist(o.x, o.z, P.x, P.z) - o.r <= sk.range && losClear(P.x, P.z, o.x, o.z)) {
+        bd = dc;
+        e = o;
+      }
+    }
+    const ox = P.x, oz = P.z;
+    if (!e) {
+      // 没有能换的：就地一闪，不打人（冷却照进）
+      W.text(P.x, P.z, '没有目标', '#c9c2b4', 14);
+      W.burst(ox, 1.0, oz, hex, 10, 3, 0.3);
+      return;
+    }
+    const ex = e.x, ez = e.z;
+    let px = ex, pz = ez;
+    if (e.isBoss) {
+      // 闪到首领身后（离你远的那一侧）
+      const ang = Math.atan2(ex - ox, ez - oz);
+      for (let k = 0; k < 6; k++) {
+        const r = e.r + 0.9, aa = ang + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.5;
+        px = ex + Math.sin(aa) * r;
+        pz = ez + Math.cos(aa) * r;
+        if (W.walkable(px, pz, 0.5)) break;
+        px = ox;
+        pz = oz;
+      }
+    } else {
+      if (W.walkable(ox, oz, e.r * 0.8)) {
+        e.x = ox;
+        e.z = oz;
+      }
+      e.stunT = Math.max(e.stunT || 0, S.stun);
+      W.text(e.x, e.z, '定身', '#c7a6ff', 16, { kind: 'tag', y: Math.min(3, (e.height || 2) + 0.4) });
+      if (!W.walkable(px, pz, 0.5)) {
+        px = ox;
+        pz = oz;
+      }
+    }
+    P.x = px;
+    P.z = pz;
+    P.roll.t = 0;
+    P.iframe = Math.max(P.iframe, 0.2);
+    // 两道交叉的闪光、两头各一团旋影
+    W.bolt([{ x: ox, z: oz }, { x: px, z: pz }], hex);
+    if (!e.isBoss) W.bolt([{ x: px + 0.3, z: pz }, { x: e.x + 0.3, z: e.z }], 0xffffff, true);
+    if (W.shadowStep) W.shadowStep(ox, oz, px, pz, hex);
+    W.afterimage(P.ent, ox, oz, hex, 0.8, 0.35, 0, P.face);
+    W.slash(px, pz, Math.random() * TAU, 1.6, 360, hex, { dur: 0.25, inner: 0.7, y: 1.0 });
+    G.hitEnemy(e, ctx, 1, { ang: Math.atan2(e.x - px, e.z - pz), w: 2, poise: (sk.poise || 0) * (e.isBoss ? S.poise : 1), quiet: true });
+    const R = S.r * Math.sqrt(ctx.area);
+    for (const o of enemiesIn(px, pz, R)) if (o !== e) G.hitEnemy(o, ctx, S.side, { ang: Math.atan2(o.x - px, o.z - pz), quiet: true });
+    G.hitStop(((sk.stop || 70) + 10) * ctx.stopK);
+    W.shake(0.3);
+    G.sfx('impact', { type: 'phys', w: 2, crit: lastHit.crit });
+    state.stats.vSwaps = (state.stats.vSwaps || 0) + 1;
+  }
+
+  // ---------- 旋风斩「掷旋」「旋涡斩」 ----------
+  function whirlThrow(ctx) {
+    const W = G.world, S = ctx.sk.throw, ai = aimInfo();
+    const d = G.clamp(ai.dist, S.min, S.range);
+    const len = Math.max(1, rayLen(P.x, P.z, ai.ang, d, 0.3));
+    if (VS.disc) discOff();
+    const flight = len / S.speed;
+    VS.disc = {
+      x: P.x + ai.dx * 0.8, z: P.z + ai.dz * 0.8, tx: P.x + ai.dx * len, tz: P.z + ai.dz * len, ph: 'out', t: 0,
+      hover: Math.max(S.hover, S.trip - 2 * flight), ctx, hits: new Map(),
+      fx: W.kv('blade', { hex: 0xe8c9a0, s: 1.3, rx: Math.PI / 2, y: 1.0 }), ring: W.kv('glyph', { hex: 0xe8c9a0, s: S.r * Math.sqrt(ctx.area) * 2, y: 0.05, k: 1 }),
+    };
+    G.sfx('swing', { step: 1 });
+    state.stats.vThrows = (state.stats.vThrows || 0) + 1;
+    vCount();
+  }
+  function discOff() {
+    const c = VS.disc;
+    if (!c) return;
+    kvOff(c.fx);
+    kvOff(c.ring);
+    VS.disc = null;
+    vCount();
+  }
+  function tickDisc(dt) {
+    const c = VS.disc, S = c.ctx.sk.throw, W = G.world;
+    c.t += dt;
+    let gx = c.tx, gz = c.tz;
+    if (c.ph === 'hover') {
+      if (c.t >= c.hover) {
+        c.ph = 'back';
+        c.t = 0;
+      }
+    }
+    if (c.ph === 'back') {
+      gx = P.x;
+      gz = P.z;
+    }
+    if (c.ph !== 'hover') {
+      const dx = gx - c.x, dz = gz - c.z, d = Math.hypot(dx, dz), st = S.speed * dt;
+      if (d <= st) {
+        c.x = gx;
+        c.z = gz;
+        if (c.ph === 'out') {
+          c.ph = 'hover';
+          c.t = 0;
+        } else {
+          // 回到手里
+          W.burst(P.x, 1.0, P.z, 0xe8c9a0, 6, 2, 0.2);
+          return discOff();
+        }
+      } else {
+        c.x += (dx / d) * st;
+        c.z += (dz / d) * st;
+      }
+    }
+    c.fx.x = c.ring.x = c.x;
+    c.fx.z = c.ring.z = c.z;
+    c.fx.rz += dt * 26;
+    c.fx.y = c.ph === 'hover' ? 0.9 + Math.sin(state.time * 12) * 0.05 : 1.0;
+    c.ring.a = c.ph === 'hover' ? 1 : 0.3;
+    if (Math.random() < 0.5) W.burst(c.x, 0.9, c.z, 0xe8c9a0, 1, 1.5, 0.2);
+    const R = S.r * Math.sqrt(c.ctx.area);
+    let n = 0;
+    for (const e of enemiesIn(c.x, c.z, R)) {
+      let h = c.hits.get(e);
+      if (!h) c.hits.set(e, (h = { n: 0, next: 0 }));
+      if (h.n >= S.cap || state.time < h.next) continue;
+      h.n++;
+      h.next = state.time + S.gap;
+      G.hitEnemy(e, c.ctx, 1, { ang: Math.atan2(e.x - c.x, e.z - c.z) + 1.2, kb: 0.15, poise: 6, quiet: true });
+      n++;
+    }
+    if (n) {
+      W.slash(c.x, c.z, Math.random() * TAU, R, 360, 0xe8c9a0, { dur: 0.14, inner: 0.7, y: 0.95 });
+      G.sfx('impact', { type: 'phys', w: 0, crit: lastHit.crit });
+      state.stats.vDiscHits = (state.stats.vDiscHits || 0) + n;
+    }
+  }
+  // 旋涡斩：每一下把 pull.r 以内的敌人往身边吸（首领不动；被吸到离你 1.2 米就停）
+  function whirlPull(ctx) {
+    const S = ctx.sk.pull, R = S.r * Math.sqrt(ctx.area), stepD = S.v * ctx.time;
+    for (const e of state.enemies) {
+      if (e.dead || e.isBoss || pinned(e)) continue;
+      const d = dist(e.x, e.z, P.x, P.z);
+      if (d - e.r > R || d < 1.2 + e.r) continue;
+      if (G.pullEnemy) G.pullEnemy(e, P.x, P.z, Math.min(G.bindPullSpeed(e, stepD), d - 1.2 - e.r));
+    }
+    G.world.vSuck(P.x, P.z, R, 0xcbbba6, 10);
+  }
+  // 砸地收尾：转了几下就砸几成（封顶 max），之后有一小段收招
+  function whirlSlam(c) {
+    const W = G.world, ctx = G.skillCtx(c.id), sk = ctx.sk, S = sk.pull;
+    const n = Math.min(c.pulses, S.max), R = S.sr * Math.sqrt(ctx.area);
+    endChannel();
+    const ang = P.face;
+    let k = 0;
+    for (const e of enemiesIn(P.x, P.z, R)) {
+      G.hitEnemy(e, ctx, S.slam * n, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 2, kb: 1.4, poise: 6 * n, quiet: true });
+      k++;
+    }
+    W.smashFx(P.x, P.z, R, ang);
+    W.decal(5, P.x, P.z, R * 0.9, Math.random() * TAU, 0xffb050, 2.4);
+    if (W.vShock) W.vShock(P.x, P.z, R, hexOf(sk.color), 0.3, 0);
+    else W.ring(P.x, P.z, R, hexOf(sk.color), 0.35);
+    W.shake(0.2 + 0.04 * n);
+    G.sfx(k ? 'impact' : 'hit', { type: 'phys', w: 2, crit: false });
+    W.play(P.ent, 'attack3', { dur: 0.4, contact: 0.05 });
+    P.cast = { slot: c.slot, id: c.id, t: 0, fired: true, aim: ang, step: -1, st: null, dur: 0.34, fireT: 0, cancelT: 0.22 };
+    state.stats.vSlams = (state.stats.vSlams || 0) + 1;
+    state.stats.vSlamN = n;
+  }
+
+  // ---------- 影步连斩「影印」「影分」 ----------
+  function markAdd(e, M) {
+    e.vMark = Math.min(M.max, (e.vMark || 0) + 1);
+    e.vMarkT = state.time + M.dur;
+    if (!VS.marks.has(e)) {
+      VS.marks.add(e);
+      e.vMarkFx = [];
+      vCount();
+    }
+    while (e.vMarkFx.length < e.vMark) e.vMarkFx.push(G.world.kv('shard', { hex: 0x9fb4ff, s: 0.22, k: 0.5 }));
+    state.stats.vMarks = (state.stats.vMarks || 0) + 1;
+  }
+  function markClear(e) {
+    if (e.vMarkFx) for (const h of e.vMarkFx) kvOff(h);
+    e.vMarkFx = null;
+    e.vMark = 0;
+    VS.marks.delete(e);
+  }
+  // 满层再砍：只引爆这一只身上的
+  function markPop(e, ctx, M) {
+    const k = e.vMark || 0;
+    markClear(e);
+    G.hitEnemy(e, ctx, M.mult * k, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 1, kb: 0.3, poise: 4 * k, quiet: true });
+    // 单只引爆：一圈环 + 一团碎光（四面刀光留给松手时的齐爆，连斩里一刀一爆的话刀光太多、draw call 也多）
+    const W = G.world, h = e.height || 2;
+    if (W.vShock) W.vShock(e.x, e.z, e.r + 0.9, 0x9fb4ff, 0.22, 0);
+    W.burst(e.x, h * 0.6, e.z, 0xdfe6ff, 14, 5, 0.3);
+    state.stats.vMarkPops = (state.stats.vMarkPops || 0) + 1;
+    vCount();
+  }
+  // 连斩停下：所有影印一齐引爆，每层 mark.mult 倍（名字别和残刃的 markBurst(e) 撞上：同一个作用域里后声明的会顶掉前面的）
+  function shadeMarkBurst() {
+    const W = G.world, ctx = G.skillCtx('shadestep'), M = ctx.sk.mark;
+    let fx = 0, n = 0;
+    for (const e of Array.from(VS.marks)) {
+      const k = e.vMark || 0;
+      markClear(e);
+      if (e.dead || !k || !M) continue;
+      G.hitEnemy(e, ctx, M.mult * k, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 1, kb: 0.4, poise: 4 * k, quiet: true });
+      if (fx++ < 2 && W.markBurstFx) W.markBurstFx(e.x, e.z, e.height || 2, e.r, e.r + 0.6); // 四面刀光最多两处，其余只放碎光
+      else W.burst(e.x, (e.height || 2) * 0.6, e.z, 0x9fb4ff, 10, 4, 0.3);
+      n += k;
+    }
+    if (n) {
+      W.shake(0.2);
+      G.sfx('impact', { type: 'phys', w: 1, crit: false });
+      state.stats.vMarkBursts = (state.stats.vMarkBursts || 0) + 1;
+      state.stats.vMarkStacks = (state.stats.vMarkStacks || 0) + n;
+    }
+    vCount();
+  }
+  function tickMarks() {
+    const M = G.SKILLS.shadestep.mark || { max: 3 };
+    let i = 0;
+    for (const e of Array.from(VS.marks)) {
+      if (e.dead || state.time > e.vMarkT) {
+        markClear(e);
+        continue;
+      }
+      // 层数：几枚小晶片绕着头顶转
+      const h = (e.height || 2) + 0.35, n = e.vMarkFx.length;
+      for (let k = 0; k < n; k++) {
+        const f = e.vMarkFx[k], a = state.time * 3 + (k / n) * TAU + i;
+        f.x = e.x + Math.sin(a) * 0.45;
+        f.z = e.z + Math.cos(a) * 0.45;
+        f.y = h;
+        f.ry = a;
+        f.k = e.vMark >= M.max ? 0.9 : 0.45; // 满层更亮
+      }
+      i++;
+    }
+    if (!VS.marks.size) vCount();
+  }
+  // 影分：在目标另一侧留一个影子，delay 秒后它把这一刀再砍一遍（目标还在附近就以它为中心，不然砍原来那一点）
+  function shadeClone(ctx, e, cx, cz, R) {
+    const W = G.world, C = ctx.sk.clone;
+    const ax = cx - P.x, az = cz - P.z, al = Math.hypot(ax, az) || 1;
+    const off = (e.dead ? 0 : e.r) + 0.9;
+    const kx = cx + (ax / al) * off, kz = cz + (az / al) * off;
+    const face = Math.atan2(cx - kx, cz - kz);
+    W.afterimage(P.ent, kx, kz, 0x4a5aa8, 0.9, C.delay + 0.2, 0, face);
+    VS.clones++;
+    G.after(C.delay, () => {
+      VS.clones--;
+      let x = cx, z = cz;
+      if (!e.dead && dist(e.x, e.z, cx, cz) < 3) {
+        x = e.x;
+        z = e.z;
+      }
+      W.slash(kx, kz, Math.atan2(x - kx, z - kz), dist(x, z, kx, kz) + R * 0.75, 140, 0x4a5aa8, { dir: -1, dur: 0.16 });
+      let n = 0;
+      for (const o of enemiesIn(x, z, R)) {
+        G.hitEnemy(o, ctx, C.mult, { ang: Math.atan2(o.x - kx, o.z - kz), w: 0, kb: 0.1, poise: 4, quiet: true });
+        n++;
+      }
+      if (n) G.sfx('impact', { type: 'phys', w: 0, crit: false });
+      state.stats.vCloneStrikes = (state.stats.vCloneStrikes || 0) + 1;
+      state.stats.vCloneHits = (state.stats.vCloneHits || 0) + n;
+    });
+  }
+
+  // ---------- 黑洞「双极」「坍缩」 ----------
+  function holeMark(h, sk) {
+    if (h && sk.mech === 'collapse') {
+      h.collapse = true;
+      h.mass = 0;
+      h.R0 = h.R;
+    }
+    return h;
+  }
+  // 双极：准星两侧各一个（垂直于瞄准方向，相距 gap，撞墙就往中间收），第一个洞管牵引和伤害，第二个只画
+  function holeTwin(ctx, x, z, a, R, dur) {
+    const sk = ctx.sk, T = sk.twin, px = Math.cos(a.ang), pz = -Math.sin(a.ang);
+    const half = T.gap / 2, mk = (s) => {
+      const d = rayLen(x, z, Math.atan2(px * s, pz * s), half, 0.3);
+      return { x: x + px * s * d, z: z + pz * s * d };
+    };
+    const p0 = mk(1), p1 = mk(-1);
+    const base = { R, pullR: R * sk.pullR, t: 0, dur, tick: sk.tick, tt: sk.tick, ctx, mult: 1, pullMul: 1, mouth: false };
+    const h0 = addHole(Object.assign({ x: p0.x, z: p0.z }, base));
+    const h1 = addHole(Object.assign({ x: p1.x, z: p1.z }, base, { twinB: true }));
+    h0.twin = h1;
+    h1.twin = h0;
+    h0.tether = G.world.kv('band', { hex: 0xff6ad2, w: T.w * Math.sqrt(ctx.area), y: 0.35, x0: p0.x, z0: p0.z, x1: p1.x, z1: p1.z });
+    h1.tether = null;
+    state.stats.vTwins = (state.stats.vTwins || 0) + 1;
+    return h0;
+  }
+  // 双极这一跳挨打的：两个洞里的、索上的（索宽 twin.w，吃范围加成）
+  function twinTargets(h, tw) {
+    const out = [], T = h.ctx.sk.twin, half = (T.w / 2) * Math.sqrt(h.ctx.area);
+    const sx = tw.x - h.x, sz = tw.z - h.z, L2 = sx * sx + sz * sz || 1;
+    for (const e of state.enemies) {
+      if (e.dead) continue;
+      if (dist(e.x, e.z, h.x, h.z) - e.r <= h.R || dist(e.x, e.z, tw.x, tw.z) - e.r <= tw.R) {
+        out.push(e);
+        continue;
+      }
+      const u = G.clamp(((e.x - h.x) * sx + (e.z - h.z) * sz) / L2, 0, 1);
+      if (dist(e.x, e.z, h.x + sx * u, h.z + sz * u) - e.r <= half) {
+        out.push(e);
+        state.stats.vTetherHits = (state.stats.vTetherHits || 0) + 1;
+      }
+    }
+    return out;
+  }
+  // 坍缩：长一点质量（封顶 cap），半径和画面跟着变大
+  function holeGrow(h) {
+    const C = h.ctx.sk.collapse;
+    if (h.mass >= C.cap) return;
+    h.mass++;
+    const k = 1 + h.mass / C.grow;
+    h.R = h.R0 * k;
+    h.pullR = h.R * h.ctx.sk.pullR;
+    if (h.fx && G.world.holeScale) G.world.holeScale(h.fx, k);
+  }
+  function holeCollapse(h, k) {
+    const W = G.world, C = h.ctx.sk.collapse, R = h.R * C.r, mult = (C.k0 + C.k1 * h.mass) * k;
+    for (const e of enemiesIn(h.x, h.z, R)) G.hitEnemy(e, h.ctx, mult, { ang: Math.atan2(e.x - h.x, e.z - h.z), w: 2, kb: 1.0, poise: 10 + h.mass, quiet: true });
+    // 空心的冲击环 + 近黑的核一闪（不画实心圆盘：圈里的怪要看得清）
+    if (W.vShock) W.vShock(h.x, h.z, R, 0xff6ad2, 0.38, 1.2);
+    else W.ring(h.x, h.z, R, 0xff6ad2, 0.4);
+    W.burst(h.x, 0.8, h.z, 0xff6ad2, 16 + Math.min(16, h.mass >> 1), 7, 0.4);
+    W.shake(0.2 + Math.min(0.3, h.mass * 0.01));
+    G.sfx('hit');
+    state.stats.vCollapses = (state.stats.vCollapses || 0) + 1;
+    state.stats.vCollapseMass = h.mass;
+    h.collapse = false; // 只塌一次
+  }
+  // 再按一次：坍缩的黑洞还在就当场引爆；掷旋飞出去时召回。返回 1 这一下用掉了，2 这个键这一帧跳过，0 照常施放
+  function vRecast(slot, id) {
+    if (!(G.input.tap[slot] > 0)) return id === 'whirl' && VS.disc && G.SKILLS.whirl.mech === 'throw' ? 2 : 0;
+    if (id === 'blackhole' && G.SKILLS.blackhole.mech === 'collapse') {
+      const i = holes.findIndex((h) => h.collapse && !h.mouth);
+      if (i < 0) return 0;
+      G.input.tap[slot] = 0;
+      holeCollapse(holes[i], 1);
+      removeHole(i);
+      return 1;
+    }
+    if (id === 'whirl' && VS.disc && G.SKILLS.whirl.mech === 'throw') {
+      G.input.tap[slot] = 0;
+      if (VS.disc.ph !== 'back') {
+        VS.disc.ph = 'back';
+        VS.disc.t = 0;
+      }
+      return 1;
+    }
+    return 0;
+  }
+
+  // ---------- 黑旋风「护涡」「汇涡」 ----------
+  // 外形参数：交给 world 的龙卷渲染器（W.makeVortex 的 o / W.vortexSet；没有这套参数的渲染器就忽略）——
+  // 护涡矮、粗、不前倾、不拖尾迹，转得急；汇涡按合并后的半径重算高 / 口子 / 吸尘范围 / 转速，层数越高越像一根粗柱子
+  function vortexLook(v) {
+    if (v.guard) return { H: 1.25, rT: 0.6, taper: 0.32, spin: 13, lean: 0, ground: 0.6, trail: false, motes: 4 };
+    if (v.lvl) {
+      const R = v.R;
+      return { H: Math.min(3.6, 1.3 + 1.65 * R), rT: 0.15 + 0.5 * R, taper: 0.18 + 0.05 * (v.lvl - 1), pull: 1.35 * R + 0.3, spin: 9 * Math.pow(0.9 / R, 0.8), motes: 4 + 2 * v.lvl };
+    }
+    return undefined;
+  }
+  function clearGuard() {
+    for (let i = vortices.length - 1; i >= 0; i--) if (vortices[i].guard) removeVortex(i);
+  }
+  // 护涡：绕着你转（guard.r，吃范围加成），把 guard.pull 以内的小怪往旋风拽，吞掉碰到的敌方弹丸；半径内的敌人每 tick 一跳（不受跳数上限）
+  function guardStep(v, dt) {
+    const sk = v.ctx.sk, Gd = sk.guard, ak = Math.sqrt(v.ctx.area), r = Gd.r * ak;
+    if (P.dead) return false;
+    const a = v.t * Gd.w + (v.guard.i / v.guard.n) * TAU;
+    v.x = P.x + Math.sin(a) * r;
+    v.z = P.z + Math.cos(a) * r;
+    v.a = a + Math.PI / 2;
+    for (const o of state.enemies) {
+      if (o.dead || o.isBoss || pinned(o)) continue;
+      const d = dist(o.x, o.z, v.x, v.z);
+      if (d - o.r > Gd.pull || d < 0.5) continue;
+      if (G.pullEnemy) G.pullEnemy(o, v.x, v.z, Math.min(G.bindPullSpeed(o, sk.latch.pull) * dt, d - 0.5));
+    }
+    const list = state.projectiles;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const p = list[i];
+      if (!p || p.owner === 'p' || dist(p.x, p.z, v.x, v.z) > v.R + p.r + 0.2) continue;
+      G.world.burst(p.x, 1.0, p.z, 0xff6ad2, 5, 2, 0.2);
+      removeProjectile(i);
+      state.stats.vEaten = (state.stats.vEaten || 0) + 1;
+    }
+    for (const e of enemiesIn(v.x, v.z, v.R)) {
+      let c = v.cast.get(e);
+      if (!c) v.cast.set(e, (c = { next: 0, n: 0 }));
+      if (state.time < c.next) continue;
+      c.next = state.time + sk.tick * 0.95;
+      c.n++;
+      G.hitEnemy(e, v.ctx, 1, { ang: v.a, quiet: true, tick: true });
+      state.stats.vGuardHits = (state.stats.vGuardHits || 0) + 1;
+    }
+    if (v.fx && G.world.vortexTighten) G.world.vortexTighten(v.fx, 0.6);
+    return true;
+  }
+  // 汇涡：拐向 seek 米内最近的另一团汇涡；碰上了就并成一团（层数相加，封顶 max；半径按层数的平方根长，寿命接上 life 秒）
+  function mergeSteer(v, dt) {
+    const M = v.ctx.sk.merge;
+    let best = null, bd = M.seek;
+    for (const o of vortices) {
+      if (o === v || !o.lvl || o.dead) continue;
+      const d = dist(o.x, o.z, v.x, v.z);
+      if (d < bd) {
+        bd = d;
+        best = o;
+      }
+    }
+    if (!best) {
+      // 附近没有别的汇涡：拐向 seek 米内最近的敌人，压到它身上就放慢（合得越多越沉）
+      let tg = null, td = M.seek;
+      for (const e of state.enemies) {
+        if (e.dead) continue;
+        const d = dist(e.x, e.z, v.x, v.z) - e.r;
+        if (d < td) {
+          td = d;
+          tg = e;
+        }
+      }
+      if (!tg) return;
+      v.a += G.clamp(angDiff(Math.atan2(tg.x - v.x, tg.z - v.z), v.a), -M.turn * dt, M.turn * dt);
+      v.speed = (v.ctx.sk.speed / Math.sqrt(v.lvl)) * (td < v.R ? 0.35 : 1);
+      return;
+    }
+    if (bd < (v.R + best.R) * 0.6 && v.lvl >= best.lvl && v.t >= M.after && best.t >= M.after) { // 刚放出来的先各飞一会儿，看得出是在靠拢
+      v.lvl = Math.min(M.max, v.lvl + best.lvl);
+      v.R = v.R0 * Math.sqrt(v.lvl);
+      v.life = Math.max(v.life, best.life) + M.life;
+      v.speed = v.ctx.sk.speed / Math.sqrt(v.lvl);
+      for (const [e, c] of best.cast) if (!v.cast.has(e)) v.cast.set(e, c);
+      best.dead = true;
+      best.life = 0; // 下一帧在 updateChaos 里收起
+      const W = G.world;
+      if (v.fx && W.vortexSet) {
+        W.vortexSet(v.fx, vortexLook(v));
+        if (W.vortexPuff) W.vortexPuff(v.x, v.z, 1 + 0.3 * v.lvl);
+      } else if (v.fx && W.makeVortex && W.removeVortex) {
+        W.removeVortex(v.fx);
+        v.fx = W.makeVortex(v.x, v.z, v.R, 0);
+      }
+      W.ring(v.x, v.z, v.R + 0.4, 0xff6ad2, 0.3);
+      W.burst(v.x, 0.8, v.z, 0xff6ad2, 12, 4, 0.35);
+      state.stats.vMerges = (state.stats.vMerges || 0) + 1;
+      state.stats.vMergeTop = Math.max(state.stats.vMergeTop || 0, v.lvl);
+      return;
+    }
+    const want = Math.atan2(best.x - v.x, best.z - v.z);
+    v.a += G.clamp(angDiff(want, v.a), -M.turn * dt, M.turn * dt);
+  }
+
+  // ---------- 黑焰「蚀印」「传焰」 ----------
+  // 命中时的钩子（hitEnemy 里）：带黑焰的一击给蚀印攒上同样多 / 把黑焰那一份点在身上；火焰伤害点燃旁边的熔核
+  function vHit(e, hit, inf) {
+    if (VS.cores.length && hit.parts.fire > 0 && !inf.core) coreTouch(e);
+    if (!(hit.flame > 0) || e.dead) return;
+    const bf = G.SKILLS.blackflame;
+    if (bf.brand) brandAdd(e, hit.flame, bf.brand);
+    else if (bf.flameDot) dotAdd(e, hit.flame, 0);
+  }
+  function brandAdd(e, v, B) {
+    e.vBrand = (e.vBrand || 0) + 1;
+    e.vBrandV = (e.vBrandV || 0) + v;
+    if (!VS.brands.has(e)) {
+      VS.brands.add(e);
+      e.vBrandFx = G.world.kv('glyph', { hex: 0xe04cc0, s: (e.r + 0.5) * 2, y: 0.07 });
+      vCount();
+    }
+    e.vBrandFx.k = e.vBrand / B.n;
+    if (e.vBrand < B.n || e.hp <= 0) return;
+    // 满层：下一帧炸开（不在这一击里面再打一层伤害）
+    const amt = e.vBrandV;
+    e.vBrand = 0;
+    e.vBrandV = 0;
+    e.vBrandFx.k = 0;
+    G.after(0, () => {
+      if (e.dead && !(e.deathT > 0)) return;
+      const W = G.world, R = B.r + e.r * 0.5;
+      const pc = procCtx('chaos', amt);
+      if (!e.dead) G.hitEnemy(e, pc, 1, { proc: true, w: 1, kb: 0, poise: 6 });
+      for (const o of enemiesIn(e.x, e.z, R)) if (o !== e) G.hitEnemy(o, pc, 0.5, { proc: true, quiet: true, kb: 0.3 });
+      if (W.vShock) W.vShock(e.x, e.z, R, 0xe04cc0, 0.28, 0.6); // 细环 + 一闪的暗核（渊陷那圈实心的环会盖住怪）
+      else if (W.voidFx) W.voidFx(e.x, e.z, R);
+      state.stats.vBrandBursts = (state.stats.vBrandBursts || 0) + 1;
+    });
+  }
+  function brandClear(e) {
+    kvOff(e.vBrandFx);
+    e.vBrandFx = null;
+    e.vBrand = e.vBrandV = 0;
+    VS.brands.delete(e);
+  }
+  function tickBrands() {
+    for (const e of Array.from(VS.brands)) {
+      if (e.dead) {
+        brandClear(e);
+        continue;
+      }
+      const f = e.vBrandFx;
+      f.x = e.x;
+      f.z = e.z;
+      f.ry += 0.02;
+    }
+    if (!VS.brands.size) vCount();
+  }
+  // 传焰：把 v 点的伤害加进它身上的黑焰池，dur 秒内匀速烧完；depth 跳过几次（跳过来的已经乘过了）
+  function dotAdd(e, v, depth) {
+    if (!e.vDot) e.vDot = { pool: 0, depth: 0, tt: 0.25, rate: 0, fx: null };
+    const d = e.vDot;
+    d.pool += v;
+    d.depth = Math.max(d.depth, depth);
+    d.rate = d.pool / G.SKILLS.blackflame.dot.dur; // 每秒烧掉多少（池子变大就烧得快）
+    if (!VS.dots.has(e)) {
+      VS.dots.add(e);
+      d.fx = G.world.kv('orb', { hex: 0xb02aa0, s: 0.3, k: 0.4 });
+      vCount();
+    }
+  }
+  function dotOff(e) {
+    if (e.vDot) kvOff(e.vDot.fx);
+    e.vDot = null;
+    VS.dots.delete(e);
+  }
+  function tickDots(dt) {
+    for (const e of Array.from(VS.dots)) {
+      const d = e.vDot;
+      if (!d || e.dead) {
+        dotOff(e);
+        continue;
+      }
+      d.tt -= dt;
+      const h = e.height || 2, f = d.fx;
+      f.x = e.x + Math.sin(state.time * 7) * 0.12;
+      f.z = e.z + e.r * 0.5;
+      f.y = h * 0.75 + Math.abs(Math.sin(state.time * 9)) * 0.15;
+      f.s = 0.24 + 0.06 * (d.depth + 1);
+      f.k = Math.sin(state.time * 13) > 0 ? 0.6 : 0.2;
+      if (d.tt > 0) continue;
+      d.tt += 0.25;
+      const v = Math.min(d.pool, Math.max(d.rate * 0.25, 0.5));
+      d.pool -= v;
+      if (v > 0) G.hitEnemy(e, procCtx('chaos', v), 1, { proc: true, quiet: true, faint: true, tick: true, kb: 0, poise: 0, noBuild: false });
+      if (d.pool <= 0.01) dotOff(e);
+    }
+    if (!VS.dots.size) vCount();
+  }
+  // 宿主死了（killEnemy 开头）：没烧完的跳到 jump 米内最近的敌人，加深 k 倍（最多跳 max 次）
+  function dotJump(e) {
+    const d = e.vDot, D = G.SKILLS.blackflame.dot;
+    if (!d || !D || d.depth >= D.max) return;
+    let best = null, bd = D.jump;
+    for (const o of state.enemies) {
+      if (o.dead || o === e) continue;
+      const dd = dist(o.x, o.z, e.x, e.z) - o.r;
+      if (dd <= bd) {
+        bd = dd;
+        best = o;
+      }
+    }
+    if (!best) return;
+    dotAdd(best, d.pool * D.k, d.depth + 1);
+    d.pool = 0;
+    G.world.bolt([{ x: e.x, z: e.z }, { x: best.x, z: best.z }], 0xe04cc0, true);
+    G.world.burst(best.x, (best.height || 2) * 0.7, best.z, 0xe04cc0, 8, 2.5, 0.3);
+    state.stats.vDotJumps = (state.stats.vDotJumps || 0) + 1;
+  }
+
+  // ---------- 磐垒（守像）：护域里你受到的伤害倍率、敌人的减速 ----------
+  // 场上的磐垒守像在 minions.js 里；这里只按位置查。没有磐垒时 1 / 0
+  function bastionAt(x, z) {
+    for (const m of state.minions) {
+      if (m.dead || m.rising > 0 || !m.ctx || !m.ctx.minion || m.ctx.minion.mech !== 'bastion') continue;
+      const B = m.ctx.minion.vx;
+      if (dist(m.x, m.z, x, z) <= B.r) return B;
+    }
+    return null;
+  }
+  G.bastionK = function (x, z) {
+    if (!state.minions.length) return 1;
+    const B = bastionAt(x, z);
+    return B ? 1 - B.dr / 100 : 1;
+  };
+  G.bastionSlow = function (e) {
+    if (!state.minions.length) return 0;
+    const B = bastionAt(e.x, e.z);
+    return B ? B.slow : 0;
+  };
+
+  // ---------- 每帧 ----------
+  function updateVariants(dt) {
+    if (VS.sticks.length) tickSticks(dt);
+    if (VS.traps.length) tickTraps(dt);
+    if (VS.orbits.length) tickOrbits(dt);
+    if (VS.pylons.length || VS.links.length) tickPylons(dt);
+    if (VS.cores.length) tickCores(dt);
+    if (VS.ploughs.length) tickPloughs(dt);
+    if (VS.decoys.length) tickDecoys(dt);
+    if (VS.disc) tickDisc(dt);
+    if (VS.marks.size) tickMarks();
+    if (VS.brands.size) tickBrands();
+    if (VS.dots.size) tickDots(dt);
+    if (P.vShield) tickShield(dt);
+    vCount();
+  }
+  // 换区域 / 重生：全部收起（不炸、不结算）
+  function resetVariants() {
+    for (const st of VS.sticks) if (st.e) st.e.vStick = 0;
+    VS.sticks.length = VS.traps.length = VS.orbits.length = VS.pylons.length = VS.cores.length = VS.ploughs.length = 0;
+    for (const d of VS.decoys) d.dead = true;
+    VS.decoys.length = 0;
+    VS.links.length = 0;
+    for (const e of VS.marks) e.vMark = 0;
+    VS.marks.clear();
+    for (const e of VS.brands) e.vBrand = e.vBrandV = 0;
+    VS.brands.clear();
+    for (const e of VS.dots) e.vDot = null;
+    VS.dots.clear();
+    VS.disc = null;
+    VS.crystals.length = 0;
+    VS.shell = null;
+    P.vShield = null;
+    if (G.world.kvClear) G.world.kvClear();
+    vCount();
+  }
+  G.variantState = () => VS; // 测试用
+
   // 光环的一次脉冲：身边 radius（吃范围加成）以内的所有敌人各挨一小下（光环不经过施放，这里只在被直接调用时生效）
   SKILL_FX.aura = function (ctx) {
+    if (ctx.sk.mech === 'shard') return novaShards(ctx); // 刻式「冰棱」：不脉冲，朝最近的敌人射冰棱
     const R = G.auraRadius(ctx);
     const hits = enemiesIn(P.x, P.z, R);
-    G.world.auraPulse(hits.length > 0);
+    if (ctx.sk.mech === 'burst') G.world.vSpikeRing(P.x, P.z, 0.8, R, 0x9fe4ff, 0.34, 14); // 刻式「冰爆」：一圈往外冒的冰刺
+    else G.world.auraPulse(hits.length > 0);
     for (const e of hits) G.hitEnemy(e, ctx, 1, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 0, kb: 0, poise: ctx.sk.poise || 0, quiet: true, aura: true });
     return hits.length;
   };
@@ -5155,7 +6401,8 @@
       }
       if (G.SKILLS[id].buff) continue; // 黑焰这类增益光环：不脉冲、不画地上的霜环（特效见 W.setFlame）
       const ctx = G.skillCtx(id);
-      if (!shown) shown = G.auraRadius(ctx);
+      if (!shown && !ctx.sk.mech) shown = G.auraRadius(ctx); // 冰棱 / 冰爆：地上没有那圈霜环
+      if (id === 'nova') novaCrystals(ctx.sk.mech === 'shard');
       if (P.dead) continue;
       if (P.auraT[id] === undefined) P.auraT[id] = Math.min(0.2, ctx.time); // 刚放上技能栏：很快来第一下
       P.auraT[id] -= dt;
@@ -5165,6 +6412,7 @@
         SKILL_FX.aura(ctx);
       }
     }
+    if (!G.auraOn('nova') || P.dead) novaCrystals(false);
     W.setAura(P.dead ? 0 : shown);
     if (W.setFlame) W.setFlame(!P.dead && G.auraOn('blackflame'));
   }
@@ -5181,13 +6429,15 @@
     const d = rayLen(P.x, P.z, a.ang, Math.min(sk.range, a.dist), 0.3); // 撞墙截在墙前
     const R = sk.radius * Math.sqrt(ctx.area);
     const dur = sk.dur * (1 + Math.max(0, P.S.holeDur || 0) / 100);
-    if (P.relic.yinli) return G.relicHole(ctx, R, dur); // 渊契「随核」：黑洞跟着你
+    if (P.relic.yinli) return holeMark(G.relicHole(ctx, R, dur), sk); // 渊契「随核」：黑洞跟着你（坍缩照样能攒质量、再按引爆；双极只开这一个）
     G.sfx('cast');
-    return addHole({ x: P.x + a.dx * d, z: P.z + a.dz * d, R, pullR: R * sk.pullR, t: 0, dur, tick: sk.tick, tt: sk.tick, ctx, mult: 1, pullMul: 1, mouth: false });
+    if (sk.mech === 'twin') return holeTwin(ctx, P.x + a.dx * d, P.z + a.dz * d, a, R, dur); // 刻式「双极」
+    return holeMark(addHole({ x: P.x + a.dx * d, z: P.z + a.dz * d, R, pullR: R * sk.pullR, t: 0, dur, tick: sk.tick, tt: sk.tick, ctx, mult: 1, pullMul: 1, mouth: false }), sk);
   };
 
   SKILL_FX.vortex = function (ctx, a) {
     const sk = ctx.sk;
+    if (sk.mech === 'guard') clearGuard(); // 刻式「护涡」：换一组新的
     const n = sk.count + Math.max(0, ctx.proj - 1); // 基础三团，多重投射再加
     const spread = Math.min(80, sk.spread * (n - 1)) * DEG;
     const stepA = n > 1 ? spread / (n - 1) : 0;
@@ -5205,9 +6455,11 @@
         bounce: sk.bounce, skip: ctx.pierce, chain: ctx.chain,
         // 摆动：两路正弦的频率 / 相位，每团不同
         wf: [G.rand(2.2, 3.4), i * 2.1 + G.rand(0, TAU), G.rand(4.5, 6.5), i * 1.3 + G.rand(0, TAU)],
+        // 刻式：护涡绕着你转（第几团、共几团）；汇涡的层数
+        guard: sk.mech === 'guard' ? { i, n } : null, lvl: sk.mech === 'merge' ? 1 : 0, R0: R,
       };
       while (vortices.length >= VORTEX_MAX) removeVortex(0);
-      v.fx = G.world.makeVortex ? G.world.makeVortex(v.x, v.z, R, i) : null;
+      v.fx = G.world.makeVortex ? G.world.makeVortex(v.x, v.z, R, i, vortexLook(v)) : null;
       vortices.push(v);
     }
     G.sfx('cast');
@@ -6682,6 +7934,7 @@
     for (const id in P.cds) if (P.cds[id] > 0) P.cds[id] = Math.max(0, P.cds[id] - dt);
     tickRanged(dt);
     updateChaos(dt);
+    if (VS.n) updateVariants(dt); // 刻式第二版：留在场上的东西
     if (P.relic.any || G.relicState.bridges.length || G.relicState.spin) G.relicTick(dt); // 渊契：蓄潮、星雨、电桥……
     updateAuras(dt);
     updateAutoSummon(dt);

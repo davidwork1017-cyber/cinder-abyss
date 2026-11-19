@@ -3135,7 +3135,7 @@
       '<p><b class="c-blank">无铭技能宝石</b>没有刻下技能：每个首领第一次倒下时必掉一颗，精英和普通怪偶尔也会掉。在技能页里点一个没学会的技能就能用它学会，或把等级更低的已学技能升到它的等级；总是先用等级最高的那颗。</p>' +
       '<p>每个技能有 3 个辅助槽。<b>辅助宝石</b>不会单独生效，而是改变它所镶嵌的技能：多几枚投射物、范围更大、自动重复施放……代价是更高的魔力消耗。把宝石拖进辅助槽，或点击空槽挑选；点击已镶嵌的槽取下。</p>' +
       '<p>一颗辅助宝石同一时间只能镶在一个技能上，并且技能要带有它要求的标签。</p>' +
-      '<p><b>刻式</b>：技能宝石到 ' + G.VARIANT_LVL + ' 级后，技能卡上多出「原式 / A / B」三个按钮。A、B 两种刻式各改一种打法（比如黑洞的「奇点」小而猛、结束时内爆，「渊域」持续更久、压住一大片），打单个目标的秒伤和原式差不多，取舍在怪群上，悬停按钮可以看到数值。每个技能第一次选免费，之后每换一次（包括改回原式）用掉 ' + G.VARIANT_COST.n + ' 颗' + G.CURRENCY[G.VARIANT_COST.cur].name + '；身边 ' + G.VARIANT_SAFE_R + ' 米内有醒着的敌人时不能换。</p>' +
+      '<p><b>刻式</b>：技能宝石到 ' + G.VARIANT_LVL + ' 级后，技能卡上多出「原式 / A / B」三个按钮。A、B 两种刻式各加一条原式没有的规则（比如黑洞的「双极」一次开两个洞、中间拉一道伤人的引力索，「坍缩」越拽越重、再按一次提前引爆），打单个目标的秒伤和原式差不多，取舍在怪群和打法上，悬停按钮可以看到说明和数值。每个技能第一次选免费，之后每换一次（包括改回原式）用掉 ' + G.VARIANT_COST.n + ' 颗' + G.CURRENCY[G.VARIANT_COST.cur].name + '；身边 ' + G.VARIANT_SAFE_R + ' 米内有醒着的敌人时不能换。</p>' +
       '<p>带<b>光环</b>标签的技能（' + (G.SKILLS.nova ? G.SKILLS.nova.name : '霜环') + '）不用按键：放进技能栏任意一格就常驻生效，代价是<b>保留</b>一部分最大魔力——魔力球顶上压暗的那一截，保留的魔力既不能用也不回复（以血为引时改为保留生命）。镶上的辅助宝石按各自的消耗倍率增减保留：节流减少，迅捷、扩域这类增加。回响和投射物类辅助镶不上。</p>' +
       helpSummon() +
       '<div class="sec-title">天赋盘</div>' +
@@ -3268,7 +3268,7 @@
     let nums = '';
     if (sk.buff) {
       const F = Math.min(sk.flame.cap, sk.flame.k0 + sk.flame.k1 * ((S.skills[id] || 1) - 1)) * (1 + Math.max(0, G.player.S.flameEff || 0) / 100);
-      nums = '额外混沌 ' + fmt1(F) + '% · 保留 ' + fmt1(ctx.reserve) + '%' + (sk.selfOnly ? ' · 召唤物没有' : '');
+      nums = (sk.flameDot ? '黑焰灼烧 ' : '额外混沌 ') + fmt1(F) + '%' + (sk.brand ? ' + 蚀印 ' + fmt1(F) + '%' : '') + ' · 保留 ' + fmt1(ctx.reserve) + '%';
     } else if (sk.kind === 'aura') {
       nums = '每跳 ' + fmt1(G.avgHit(ctx)) + ' · 半径 ' + fmt1(G.auraRadius(ctx)) + ' · 保留 ' + fmt1(ctx.reserve) + '%';
     } else if (ctx.minion) {
@@ -3288,7 +3288,6 @@
           rows.push('每一击伤害 ×' + (Math.round((avg(sk) / avg(base)) * 100) / 100));
         } else if (k === 'life' && sk.kind === 'summon') rows.push('召唤物生命 ' + base.life + ' → ' + fmt1(sk.life));
         else if (k === 'life') rows.push('飞行 ' + base.life + ' → ' + sk.life + ' 秒');
-        else if (k === 'capK') rows.push('数量上限 ×' + (Math.round(set.capK * 100) / 100) + '（凑不成整数的部分折进伤害）');
         else if (f && typeof set[k] === 'number' && typeof base[k] === 'number' && set[k] !== base[k]) rows.push(f[0] + ' ' + fmt1(base[k]) + ' → ' + fmt1(set[k]) + f[1]);
       }
     }
@@ -5479,6 +5478,13 @@
       done: () => false,
     },
     {
+      // 刻式第二版之前的存档：A / B 整个重做了，免费那一次还给了每个技能
+      id: 'variant2', calm: true, max: 16,
+      html: '<b>刻式重做</b>：每个技能的 A / B 两种刻式都换成了新的打法（原来选的按 A / B 的位置保留），每个技能都可以<b class="c-gold">免费重选一次</b>。按 <kbd>G</kbd> 打开技能页，悬停刻式按钮看新的说明',
+      when: () => G.variantRedone > 0,
+      done: () => false,
+    },
+    {
       // 第五区上线前就打通过烬渊深处的老存档：提示一次多了一个区域（文字在数据里；读档时 sanitize 按 G.zoneNoticeFor 把 G.newZoneNotice 置上）
       get id() {
         return (G.NEW_ZONE_NOTICE && G.NEW_ZONE_NOTICE.id) || 'zone5';
@@ -5604,6 +5610,10 @@
   function coachSeen(id) {
     G.save.tut[id] = 1;
     if (id === 'bowmig') G.save.bowMig = false;
+    if (id === 'variant2') {
+      G.save.varNote = false;
+      G.variantRedone = 0;
+    }
     G.persist();
   }
   // 面板里接着提示的那一句（当前提示与这个页签有关时）

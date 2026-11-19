@@ -19777,8 +19777,8 @@
       ghosts.push({ mesh, u, on: false, t: 0, dur: 0.3, a0: 1, wait: 0 });
     }
   }
-  // 在 (x,z) 留一个 ent（玩家）当前姿势的残影；a 初始亮度，dur 淡出秒数，wait 延迟多久才出现
-  W.afterimage = function (ent, x, z, hex, a, dur, wait) {
+  // 在 (x,z) 留一个 ent（玩家）当前姿势的残影；a 初始亮度，dur 淡出秒数，wait 延迟多久才出现，ry（可选）朝向（缺省照 ent 的）
+  W.afterimage = function (ent, x, z, hex, a, dur, wait, ry) {
     if (!ent || ent.removed || ent.rig !== playerRig()) return;
     let g = null;
     for (let i = 0; i < ghosts.length; i++) if (!ghosts[i].on) { g = ghosts[i]; break; }
@@ -19795,7 +19795,7 @@
     g.u.uColor.value.set(hex === undefined ? 0xbfd8ff : hex);
     g.u.uA.value = g.wait > 0 ? 0 : g.a0;
     g.mesh.position.set(x, ent.group.position.y, z);
-    g.mesh.rotation.set(0, ent.group.rotation.y, 0);
+    g.mesh.rotation.set(0, ry === undefined ? ent.group.rotation.y : ry, 0);
     g.mesh.scale.setScalar(ent.group.scale.x * ent.k);
     g.mesh.visible = g.wait <= 0;
   };
@@ -20526,6 +20526,7 @@
     for (const f of flares) { f.on = false; f.sp.visible = false; }
     for (const s of summons) { s.on = false; s.grp.visible = false; }
     clearWeaponFx();
+    W.kvClear(); // 刻式件
     W.focusMark(null);
     trail.n = 0;
     trail.live = 0;
@@ -21733,6 +21734,7 @@
     rangedPfDraw(dt);
     pyrePfDraw(dt);
     chaosPfDraw(dt);
+    W.vTick(dt); // 刻式件
     toonChunks(dt);
     pfEnd();
     updateRibbons(dt);
@@ -21884,14 +21886,14 @@
       flare(_rs2.x, _rs2.y, _rs2.z, kind === 'emberarrow' ? 0x3a9cff : u.tinted ? u.hex : 0xfff0d0, kind === 'emberarrow' ? 0.3 : 0.5, 0.06);
     }
   }
-  // 地上一片燃烧的余烬
-  W.emberGround = function (x, z, r, dur, big) {
+  // 地上一片燃烧的余烬（noDecal：不垫焦痕贴花——刻式「跳焰 / 犁焰 / 焰田」一次铺好几片，每片贴花各占一次 draw call，只留实例化的火）
+  W.emberGround = function (x, z, r, dur, big, noDecal) {
     RF.groundAt = wtime;
     if (RF.fires.length >= 28) RF.fires.shift();
     r = Math.max(0.4, r || 1);
     dur = dur || 3;
     RF.fires.push({ x, z, r, t: 0, dur, seed: rand(0, 100), acc: 0, big: !!big });
-    W.decal(1, x, z, r * 1.05, rand(0, TAU), 0x2a1408, dur + 1.2);
+    if (!noDecal) W.decal(1, x, z, r * 1.05, rand(0, TAU), 0x2a1408, dur + 1.2);
   };
   // 焚天炎爆：脚下炸开一圈火浪，往外推开的火团 + 地上留一大片火
   W.fireNova = function (x, z, R) {
@@ -23787,6 +23789,7 @@
     h.z = z;
     h.R = R;
     h.P = pR > R ? pR : R * 1.35;
+    h.P0 = h.P;
     h.mouth = !!mouth;
     h.k = 0;
     h.open = 0;
@@ -23814,6 +23817,11 @@
     h.mesh.scale.set(s, 1, s);
     h.mesh.rotation.y -= dt * 1.4;
     h.u.uA.value = open > 0.66 ? 1 : open > 0.33 ? 0.62 : 0.3;
+  };
+  // 刻式「坍缩」：黑洞攒了质量，整个画面按 k 倍放大（核的比例不变）
+  W.holeScale = function (h, k) {
+    if (!h || !h.on) return;
+    h.P = h.P0 * k;
   };
   W.removeHole = function (h) {
     if (!h || !h.on) return;
@@ -24478,6 +24486,268 @@
     if (!u || u.dx === undefined) return;
     u.dx = dx;
     u.dz = dz;
+  };
+
+  // =====================================================================
+  // 刻式件（刻式第二版）：刻式留在场上的东西——电桩、立地的钉刃、环身的刃、熔核、黏在身上的火核、冰晶、抛出的巨石、
+  // 护域的罩子、地上的符环、连在两点之间的索。每种外形一个实例网格（一次 draw call；一个实例都没有时整个隐藏），
+  // game.js 用 W.kv(外形) 拿一个句柄，每帧改句柄上的 x / y / z / ry / rx / s（或 sx / sy / sz）/ hex / a / k，
+  // W.update 里统一写进实例缓冲；W.kvOff(句柄) 收起。索（band）用 x0 / z0 / x1 / z1 / w。第一次用到哪种外形才建哪种
+  // 实心件（spike / blade / orb / shard / rock）：两档卡通明暗 + 一道边光，k 是自发光（0 不亮，1 整个发白）；
+  // 发光件（dome / glyph / band）：加色混合，a 按三档阶梯（和别的特效一样，不做平滑淡出），glyph 的 k 是圈上亮着的那一段（引信 / 层数）
+  // =====================================================================
+  const KV_MAX = 40;
+  const kvKinds = {};
+  const KV_SOLID = { spike: 1, blade: 1, orb: 1, shard: 1, rock: 1 };
+  function kvGeo(kind) {
+    let g;
+    if (kind === 'spike') {
+      // 电桩：六棱的细长尖锥，底在 y = 0、尖在 y = 1（sy 就是高度）
+      g = new T.ConeGeometry(0.2, 1, 6, 1);
+      g.translate(0, 0.5, 0);
+    } else if (kind === 'blade') {
+      // 三叶旋刃：立在 xy 面上的薄片（三片弯月形的刃，中间一个小圆毂）。rz 是绕刃面法线的自转，rx = π/2 放平
+      const sh = new T.Shape();
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * TAU, b = a + 0.5, c = a + 1.25;
+        const p = (r, t) => [Math.sin(t) * r, Math.cos(t) * r];
+        const s0 = p(0.16, a), s1 = p(1, b), s2 = p(0.55, c - 0.25), s3 = p(0.16, a + 0.95);
+        if (i === 0) sh.moveTo(s0[0], s0[1]);
+        else sh.lineTo(s0[0], s0[1]);
+        sh.quadraticCurveTo(p(0.7, a + 0.05)[0], p(0.7, a + 0.05)[1], s1[0], s1[1]);
+        sh.quadraticCurveTo(s2[0], s2[1], s3[0], s3[1]);
+      }
+      sh.closePath();
+      g = new T.ExtrudeGeometry(sh, { depth: 0.06, bevelEnabled: false, curveSegments: 4 });
+      g.translate(0, 0, -0.03);
+    } else if (kind === 'orb') g = new T.IcosahedronGeometry(0.5, 1);
+    else if (kind === 'shard') {
+      g = new T.OctahedronGeometry(0.5, 0);
+      g.scale(0.55, 1.6, 0.55);
+    } else if (kind === 'rock') {
+      g = new T.DodecahedronGeometry(0.5, 0);
+      const p = g.getAttribute('position');
+      for (let i = 0; i < p.count; i++) {
+        const k = 0.82 + 0.3 * Math.abs(Math.sin(p.getX(i) * 7.1 + p.getY(i) * 3.3 + p.getZ(i) * 5.7));
+        p.setXYZ(i, p.getX(i) * k, p.getY(i) * k * 0.85, p.getZ(i) * k);
+      }
+      g.computeVertexNormals();
+    } else if (kind === 'dome') g = new T.SphereGeometry(1, 24, 8, 0, TAU, 0, Math.PI / 2);
+    else {
+      // glyph / band：一块平放的方片，花样在片元着色器里画
+      g = new T.PlaneGeometry(1, 1);
+      g.rotateX(-Math.PI / 2);
+    }
+    return g;
+  }
+  const KV_VERT = [
+    'attribute vec3 aC; attribute float aA; attribute float aK; varying vec3 vC; varying float vA; varying float vK; varying vec3 vN; varying vec3 vV; varying vec2 vUv; varying float vY;',
+    'void main(){ vC = aC; vA = aA; vK = aK; vUv = uv; vY = position.y;',
+    '  vec4 wp = modelMatrix * instanceMatrix * vec4(position, 1.0);',
+    '  vN = normalize(mat3(modelMatrix * instanceMatrix) * normal); vV = normalize(cameraPosition - wp.xyz);',
+    '  gl_Position = projectionMatrix * viewMatrix * wp; }',
+  ].join('\n');
+  const KV_FRAG = {
+    // 实心件：两档明暗（亮面 / 暗面）+ 边光，k 往白里提
+    solid: [
+      'varying vec3 vC; varying float vA; varying float vK; varying vec3 vN; varying vec3 vV;',
+      'void main(){ vec3 n = normalize(vN); float l = dot(n, normalize(vec3(0.35, 0.85, 0.4)));',
+      '  float band = l > 0.25 ? 1.0 : 0.62; float rim = 1.0 - abs(dot(n, normalize(vV))); rim = rim > 0.62 ? 0.35 : 0.0;',
+      '  vec3 c = vC * band + vec3(rim); c = mix(c, vec3(1.0), clamp(vK, 0.0, 1.0) * 0.75);',
+      '  gl_FragColor = vec4(c, 1.0); }',
+    ].join('\n'),
+    // 护域的罩子：菲涅尔的边 + 顶上稀疏的经线，越往下越亮（贴地的一圈最亮）
+    dome: [
+      'uniform float uTime; varying vec3 vC; varying float vA; varying vec3 vN; varying vec3 vV; varying vec2 vUv; varying float vY;',
+      'void main(){ float f = 1.0 - abs(dot(normalize(vN), normalize(vV))); float a = f > 0.75 ? 0.26 : (f > 0.5 ? 0.09 : 0.03);',
+      '  float lon = abs(fract(vUv.x * 12.0 + uTime * 0.05) - 0.5); if (lon < 0.015) a = max(a, 0.12);',
+      '  if (vY < 0.05) a = 0.32; float k = vA > 0.66 ? 1.0 : (vA > 0.33 ? 0.62 : 0.3);',
+      '  gl_FragColor = vec4(vC * (0.8 + f * 0.6), a * k); }',
+    ].join('\n'),
+    // 地上的符环：外圈细环 + 内圈断成六段的刻度（慢慢转），k 是外圈亮着的那一段（0..1，从正上方顺时针）
+    glyph: [
+      'uniform float uTime; varying vec3 vC; varying float vA; varying float vK; varying vec2 vUv;',
+      'void main(){ vec2 p = vUv * 2.0 - 1.0; float r = length(p); if (r > 1.0) discard;',
+      '  float t = atan(p.x, p.y) / 6.28318 + 0.5; float a = 0.0;',
+      '  if (vK > 1.5) { if (r < 0.955) discard; gl_FragColor = vec4(mix(vC, vec3(1.0), 0.1), vA > 0.66 ? 0.9 : (vA > 0.33 ? 0.55 : 0.25)); return; }', // 冲击环：只有一道细环（k = 2）
+      '  if (r > 0.9) a = (t <= vK || vK >= 0.999) ? 1.0 : 0.25;',
+      '  else if (r > 0.7 && r < 0.78) { float s = fract(t * 6.0 + uTime * 0.25); a = s < 0.6 ? 0.75 : 0.0; }',
+      '  if (a <= 0.0) discard; float k = vA > 0.66 ? 1.0 : (vA > 0.33 ? 0.62 : 0.3);',
+      '  gl_FragColor = vec4(mix(vC, vec3(1.0), r > 0.9 ? 0.35 : 0.0), a * k); }',
+    ].join('\n'),
+    // 索：中间一道亮芯（缓缓流动的节）+ 两侧颜色的边
+    band: [
+      'uniform float uTime; varying vec3 vC; varying float vA; varying float vK; varying vec2 vUv;',
+      'void main(){ float e = abs(vUv.x - 0.5); float flow = fract(vUv.y * vK * 0.6 - uTime * 1.6);',
+      '  vec3 c; float a; if (e < 0.1) { c = vec3(1.0); a = 1.0; } else if (e < 0.3) { c = vC; a = flow < 0.5 ? 0.85 : 0.5; } else if (e < 0.42 && flow < 0.25) { c = vC; a = 0.35; } else discard;',
+      '  float k = vA > 0.66 ? 1.0 : (vA > 0.33 ? 0.62 : 0.3); gl_FragColor = vec4(c, a * k); }',
+    ].join('\n'),
+  };
+  function kvInit(kind) {
+    if (kvKinds[kind]) return kvKinds[kind];
+    const g = kvGeo(kind);
+    const ig = new T.InstancedBufferGeometry();
+    ig.index = g.index;
+    for (const k of ['position', 'normal', 'uv']) if (g.getAttribute(k)) ig.setAttribute(k, g.getAttribute(k));
+    const aC = new T.InstancedBufferAttribute(new Float32Array(KV_MAX * 3), 3), aA = new T.InstancedBufferAttribute(new Float32Array(KV_MAX), 1), aK = new T.InstancedBufferAttribute(new Float32Array(KV_MAX), 1);
+    ig.setAttribute('aC', aC);
+    ig.setAttribute('aA', aA);
+    ig.setAttribute('aK', aK);
+    const solid = !!KV_SOLID[kind];
+    const mat = new T.ShaderMaterial({
+      uniforms: { uTime }, vertexShader: KV_VERT, fragmentShader: solid ? KV_FRAG.solid : KV_FRAG[kind],
+      transparent: !solid, depthWrite: solid, toneMapped: false, fog: false, side: solid ? T.FrontSide : T.DoubleSide,
+      blending: solid ? T.NormalBlending : T.AdditiveBlending,
+    });
+    const mesh = new T.InstancedMesh(ig, mat, KV_MAX);
+    mesh.count = 0;
+    mesh.visible = false;
+    mesh.frustumCulled = false;
+    mesh.renderOrder = solid ? 0 : 4;
+    scene.add(mesh);
+    return (kvKinds[kind] = { mesh, aC, aA, aK, list: [] });
+  }
+  // 拿一个句柄（字段都有缺省值）；满了顶掉这种外形最早的那个
+  W.kv = function (kind, o) {
+    const K = kvInit(kind);
+    if (K.list.length >= KV_MAX) K.list.shift().on = false;
+    const h = Object.assign({ kind, on: true, x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, s: 1, sx: 0, sy: 0, sz: 0, hex: 0xffffff, a: 1, k: 0, x0: 0, z0: 0, x1: 0, z1: 0, w: 0.5 }, o || {});
+    h.on = true;
+    K.list.push(h);
+    return h;
+  };
+  W.kvOff = function (h) {
+    if (!h || !h.on) return;
+    h.on = false;
+    const K = kvKinds[h.kind];
+    const i = K ? K.list.indexOf(h) : -1;
+    if (i >= 0) K.list.splice(i, 1);
+  };
+  W.kvCount = function (kind) {
+    if (kind) return kvKinds[kind] ? kvKinds[kind].list.length : 0;
+    let n = 0;
+    for (const k in kvKinds) n += kvKinds[k].list.length;
+    return n;
+  };
+  W.kvClear = function () {
+    for (const k in kvKinds) {
+      for (const h of kvKinds[k].list) h.on = false;
+      kvKinds[k].list.length = 0;
+    }
+    kvSpikeRings.length = 0;
+    kvShocks.length = 0;
+  };
+  const _kvm = new T.Matrix4(), _kvq = new T.Quaternion(), _kve = new T.Euler(), _kvp = new T.Vector3(), _kvs = new T.Vector3(), _kvc = new T.Color();
+  function kvFlush() {
+    for (const kind in kvKinds) {
+      const K = kvKinds[kind], L = K.list;
+      if (!L.length && !K.mesh.visible) continue;
+      let n = 0;
+      for (let i = 0; i < L.length; i++) {
+        const h = L[i];
+        if (kind === 'band') {
+          const dx = h.x1 - h.x0, dz = h.z1 - h.z0, len = Math.max(0.2, Math.hypot(dx, dz));
+          _kvp.set((h.x0 + h.x1) / 2, h.y || 1.0, (h.z0 + h.z1) / 2);
+          _kve.set(0, Math.atan2(dx, dz), 0);
+          _kvs.set(h.w, 1, len);
+          K.aK.array[n] = len;
+        } else {
+          _kvp.set(h.x, h.y, h.z);
+          _kve.set(h.rx, h.ry, h.rz, 'YXZ');
+          _kvs.set(h.sx || h.s, h.sy || h.s, h.sz || h.s);
+          K.aK.array[n] = h.k;
+        }
+        _kvq.setFromEuler(_kve);
+        _kvm.compose(_kvp, _kvq, _kvs);
+        K.mesh.setMatrixAt(n, _kvm);
+        _kvc.setHex(h.hex);
+        K.aC.array[n * 3] = _kvc.r;
+        K.aC.array[n * 3 + 1] = _kvc.g;
+        K.aC.array[n * 3 + 2] = _kvc.b;
+        K.aA.array[n] = h.a;
+        n++;
+      }
+      K.mesh.count = n;
+      K.mesh.visible = n > 0;
+      K.mesh.instanceMatrix.needsUpdate = true;
+      K.aC.needsUpdate = K.aA.needsUpdate = K.aK.needsUpdate = true;
+    }
+  }
+  // 往里卷的尘：从 R 那一圈出生、转着往 (x, z) 落的小尘团（旋涡斩）
+  W.vSuck = function (x, z, R, hex, n) {
+    _c.setHex(hex);
+    const lo = qualId === 'low';
+    for (let i = 0, m = lo ? (n >> 1) + 1 : n; i < m; i++) {
+      const a = rand(0, TAU), r = R * rand(0.85, 1.05), sp = r / 0.35;
+      const tx = -Math.sin(a) * sp, tz = -Math.cos(a) * sp;
+      spawnP(x + Math.sin(a) * r, rand(0.15, 0.7), z + Math.cos(a) * r, tx + Math.cos(a) * sp * 0.6, rand(0.2, 0.8), tz - Math.sin(a) * sp * 0.6, 0.34, rand(0.12, 0.22), _c.r, _c.g, _c.b, 0, 1.2);
+    }
+  };
+  // 往外推的冰刺环：一圈 n 根冰刺（shard 外形）从脚下 r0 冒到 r1，dur 秒，冒出来再缩回地里（冰爆的脉冲）
+  const kvSpikeRings = [];
+  W.vSpikeRing = function (x, z, r0, r1, hex, dur, n) {
+    const lo = qualId === 'low', cnt = lo ? Math.max(6, n >> 1) : n, hs = [];
+    const a0 = rand(0, TAU);
+    for (let i = 0; i < cnt; i++) hs.push(W.kv('shard', { hex, s: 0.5, a0: a0 + (i / cnt) * TAU }));
+    kvSpikeRings.push({ x, z, r0, r1, dur, t: 0, hs });
+  };
+  function kvSpikeTick(dt) {
+    for (let i = kvSpikeRings.length - 1; i >= 0; i--) {
+      const s = kvSpikeRings[i];
+      s.t += dt;
+      const k = Math.min(1, s.t / s.dur), r = s.r0 + (s.r1 - s.r0) * k;
+      // 高度三档：冒出（前 30%）、立着、缩回（后 25%）
+      const hk = k < 0.3 ? 0.62 : k > 0.75 ? 0.3 : 1;
+      for (const h of s.hs) {
+        h.x = s.x + Math.sin(h.a0) * r;
+        h.z = s.z + Math.cos(h.a0) * r;
+        h.sy = 0.9 * hk;
+        h.sx = h.sz = 0.42;
+        h.y = h.sy * 0.55;
+        h.rz = 0.35;
+        h.ry = h.a0 + Math.PI / 2;
+      }
+      if (k >= 1) {
+        for (const h of s.hs) W.kvOff(h);
+        kvSpikeRings.splice(i, 1);
+      }
+    }
+  }
+  // 空心冲击：两道细环从 r0 往外推到 R（第二道慢一拍、小一圈），中间一团很快缩没的近黑核；不画实心的圆盘，圈里的怪看得清。
+  // 都是刻式件的实例（glyph / orb），不占对象池的环
+  const kvShocks = [];
+  W.vShock = function (x, z, R, hex, dur, core) {
+    const d = dur || 0.35;
+    const hs = [W.kv('glyph', { x, z, y: 0.12, hex, k: 2, s: 0.1 }), W.kv('glyph', { x, z, y: 0.1, hex, k: 2, s: 0.1 })];
+    const c = core ? W.kv('orb', { x, z, y: 0.6, hex: 0x14040f, s: 0.1, k: 0 }) : null;
+    kvShocks.push({ x, z, R, d, t: 0, hs, c, cs: core || 0 });
+  };
+  function kvShockTick(dt) {
+    for (let i = kvShocks.length - 1; i >= 0; i--) {
+      const w = kvShocks[i];
+      w.t += dt;
+      const k = Math.min(1, w.t / w.d), k2 = Math.min(1, Math.max(0, (w.t - w.d * 0.25) / w.d));
+      const ease = (u) => 1 - (1 - u) * (1 - u);
+      w.hs[0].s = 2 * w.R * (0.25 + 0.75 * ease(k));
+      w.hs[1].s = 2 * w.R * 0.7 * (0.2 + 0.8 * ease(k2));
+      // 三档阶梯淡出
+      w.hs[0].a = k < 0.5 ? 1 : k < 0.8 ? 0.62 : 0.3;
+      w.hs[1].a = k2 < 0.5 ? 0.62 : 0.3;
+      if (w.c) {
+        const ck = k < 0.35 ? 1 : k < 0.6 ? 0.55 : 0.2; // 近黑的核：一闪，三档缩没
+        w.c.s = w.cs * ck;
+      }
+      if (w.t >= w.d * 1.25) {
+        for (const h of w.hs) W.kvOff(h);
+        if (w.c) W.kvOff(w.c);
+        kvShocks.splice(i, 1);
+      }
+    }
+  }
+  W.vTick = function (dt) {
+    if (kvSpikeRings.length) kvSpikeTick(dt);
+    if (kvShocks.length) kvShockTick(dt);
+    kvFlush();
   };
 
   // =====================================================================

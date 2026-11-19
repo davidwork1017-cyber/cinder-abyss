@@ -8077,8 +8077,10 @@ async function main() {
           name: document.getElementById('zone-name').textContent, fr: T.frame(), last: G.save.lastZone,
           loose: S.loot.length + S.projectiles.length + S.telegraphs.length + S.timers.length, portal: S.portal,
         };
-        // 泄漏检查：往场景里塞一堆东西后重进，场景对象数（扣除敌人）应不变
-        const count = () => W.scene.children.length - S.enemies.length;
+        // 泄漏检查：往场景里塞一堆东西后重进，场景对象数（扣除敌人）应不变。
+        // 只扣根节点真的挂在场景上的敌人：正在演死亡的敌人被 W.removeEnt 挪进 corpseRoot（不再是场景的直接子节点）却还在 S.enemies 里，
+        // 原来按 S.enemies.length 扣会偶尔少算出 −1（不是泄漏）。场景里多出来的对象照样一个不漏地数出来
+        const count = () => W.scene.children.length - S.enemies.filter((e) => e.ent && e.ent.group && e.ent.group.parent === W.scene).length;
         const n1 = count();
         const clutter = () => {
           for (let i = 0; i < 6; i++) G.spawnLoot('item', G.rollItem(5, i % 3), 1, 1);
@@ -10560,16 +10562,16 @@ async function main() {
       G.ui.close();
       s.skills.ember = 10;
       const r1 = G.setVariant('ember', 'a');
-      out.free = r1.ok && r1.cost === 0 && s.cur.chaos === 0 && G.SKILLS.ember.vname === '焚球' && s.variants.ember === 'a';
+      out.free = r1.ok && r1.cost === 0 && s.cur.chaos === 0 && G.SKILLS.ember.vname === '跳焰' && s.variants.ember === 'a';
       const r2 = G.setVariant('ember', 'b');
-      out.refuse = !r2.ok && /乱流石/.test(r2.msg) && G.SKILLS.ember.vname === '焚球';
+      out.refuse = !r2.ok && /乱流石/.test(r2.msg) && G.SKILLS.ember.vname === '跳焰';
       s.cur.chaos = 2;
       const r3 = G.setVariant('ember', 'b');
-      out.paid = r3.ok && r3.cost === 1 && s.cur.chaos === 1 && G.SKILLS.ember.vname === '散焰';
+      out.paid = r3.ok && r3.cost === 1 && s.cur.chaos === 1 && G.SKILLS.ember.vname === '黏焰';
       // 战斗中：6 米外一只醒着的怪
       const e = T.mob('husk', 6, 0);
       const r4 = G.setVariant('ember', 'o');
-      out.combat = !r4.ok && /战斗中/.test(r4.msg) && s.cur.chaos === 1 && G.SKILLS.ember.vname === '散焰';
+      out.combat = !r4.ok && /战斗中/.test(r4.msg) && s.cur.chaos === 1 && G.SKILLS.ember.vname === '黏焰';
       e.awake = false;
       out.asleep = G.variantBusy() === false; // 睡着的怪不算
       G.clearEnemies();
@@ -10644,111 +10646,675 @@ async function main() {
     return r.map((x) => x.name + ' ' + x.r).join(' / ');
   });
 
-  await step('刻式：机制抽查——散焰 3 团；回刃折返命中两次；贯雷打中一条线上的 3 只；星落 5 颗；黑洞奇点内爆；骸卫上限 2、炎祭上限 1', async () => {
-    const r = await ev(() => {
-      T.arena();
-      const s = G.save, P = G.player, out = {};
-      G.debug.hold(true);
-      s.cur.chaos = 99;
-      for (const id of G.GEM_SKILLS) s.skills[id] = Math.max(15, s.skills[id] || 0);
-      s.bar = ['ember', null, null, null];
-      G.computeStats();
-      P.mana = P.maxMana = 1e6;
-      const d = T.openDir(16);
-      const at = (k, side) => ({ x: P.x + d.x * k - d.z * (side || 0), z: P.z + d.z * k + d.x * (side || 0) });
-      const cnt = new Map(), orig = G.hitEnemy;
-      let watch = null;
-      G.hitEnemy = function (e, ctx) {
-        if (ctx && ctx.id === watch) cnt.set(e, (cnt.get(e) || 0) + 1);
-        return orig.apply(this, arguments);
-      };
-      const cast = (id, aim, sec) => {
-        cnt.clear();
-        watch = id;
-        T.aim(aim.x, aim.z);
-        G.execSkill(G.skillCtx(id));
-        for (let i = 0; i < Math.round((sec || 1) * 60); i++) G.tick(1 / 60);
-        watch = null;
-      };
-      const boss = () => {
-        const b = G.spawnBoss('golem', at(7).x, at(7).z, 1);
-        b.hp = b.maxHp = 1e8;
+  // ---- 刻式第二版（variants-v2）：每个刻式一步，验它那条新规则真的触发了 ----
+  // TVDEF：页面里的小工具（每步开头装一遍，步骤之间互不依赖）。setup(id, v)：标准场地、角色 40 级、宝石 30 级、只选这一个刻式、魔力无限、暂停主循环；
+  // at(k, side)：沿开阔方向 k 米、往右偏 side 米的点；mob / boss：不动不还手的靶子；cast：朝某点放一次；run(sec)：推进模拟；
+  // n(e) / dmg(e)：这一步里 watch 技能打中 e 的次数 / 伤害（hitEnemy 包一层）；hold(slot, sec)：按住技能键推进；done()：还原
+  const TVDEF = () => {
+    const P = G.player, s = G.save;
+    window.TV = {
+      setup(id, v, bar) {
+        T.unfix();
+        T.arena();
+        G.debug.hold(true);
+        s.level = 40;
+        for (const k of G.GEM_SKILLS) {
+          s.skills[k] = 30;
+          s.sockets[k] = [null, null, null];
+        }
+        s.variants = {};
+        if (v && v !== 'o') s.variants[id] = v;
+        G.applyVariants();
+        s.bar = bar || [id, null, null, null];
+        for (const k in s.autoSummon) s.autoSummon[k] = false;
+        G.computeStats();
+        P.mana = P.maxMana = 1e6;
+        P.god = true;
+        TV.d = T.openDir(18);
+        TV.st0 = Object.assign({}, G.state.stats);
+        TV.pins = [];
+        TV.watch = id;
+        TV.cnt = new Map();
+        TV.sum = new Map();
+        if (!TV.orig) {
+          TV.orig = G.hitEnemy;
+          G.hitEnemy = function (e, ctx) {
+            const r = TV.orig.apply(this, arguments);
+            if (ctx && (ctx.id === TV.watch || (TV.watch === '*proc' && ctx.proc))) {
+              TV.cnt.set(e, (TV.cnt.get(e) || 0) + 1);
+              TV.sum.set(e, (TV.sum.get(e) || 0) + (r || 0));
+            }
+            return r;
+          };
+        }
+        return TV.d;
+      },
+      at(k, side) {
+        const d = TV.d;
+        return { x: P.x + d.x * k + d.z * (side || 0), z: P.z + d.z * k - d.x * (side || 0) };
+      },
+      mob(k, side, o) {
+        const p = TV.at(k, side);
+        return T.mob((o && o.type) || 'husk', p.x - P.x, p.z - P.z, o);
+      },
+      // 统计的增量（G.state.stats 是整局累计的）
+      st: (k) => (G.state.stats[k] || 0) - (TV.st0[k] || 0),
+      // 一只不动不还手的精英巨躯（首领离开竞技场会被拉回去，测久一点的用它）
+      big(k, side) {
+        const e = TV.mob(k, side || 0, { type: 'brute', elite: true });
+        e.hp = e.maxHp = 1e9;
+        e.poiseMax = 0;
+        return e;
+      },
+      boss(k) {
+        const p = TV.at(k);
+        const b = G.spawnBoss('golem', p.x, p.z, 1);
+        b.hp = b.maxHp = 1e9;
         b.atkCd = 1e9;
         b.speed = 0;
         b.awake = true;
         return b;
-      };
-      // 散焰：一次 3 团，7 米外的首领三团都吃到
-      G.setVariant('ember', 'b');
-      let b = boss();
-      const n0 = G.state.projectiles.length;
-      T.aim(at(7).x, at(7).z);
-      G.execSkill(G.skillCtx('ember'));
-      out.emberBalls = G.state.projectiles.length - n0;
-      for (let i = 0; i < 60; i++) G.tick(1 / 60);
-      cnt.clear();
-      cast('ember', at(7), 1);
-      out.emberBoss = cnt.get(b) || 0;
-      G.clearEnemies();
-      G.setVariant('ember', 'o');
-      // 回刃：6 米外一只小怪，去程、回程各中一次；刀飞回手里就收起
-      G.setVariant('blade', 'b');
-      const m1 = T.mob('husk', d.x * 6, d.z * 6);
-      cast('blade', at(6), 1.6);
-      out.bladeHits = cnt.get(m1) || 0;
-      out.bladeGone = !G.state.projectiles.some((p) => p.ctx && p.ctx.id === 'blade');
-      G.clearEnemies();
-      G.setVariant('blade', 'o');
-      // 贯雷：一条线上 3 只（4 / 8 / 12 米）全中，线外 4 米的那只不中
-      G.setVariant('arc', 'a');
-      const line = [4, 8, 12].map((k) => T.mob('husk', d.x * k, d.z * k));
-      const off = T.mob('husk', d.x * 6 - d.z * 4, d.z * 6 + d.x * 4);
-      cast('arc', at(10), 0.2);
-      out.arcLine = line.map((e) => cnt.get(e) || 0).join('');
-      out.arcOff = cnt.get(off) || 0;
-      G.clearEnemies();
-      G.setVariant('arc', 'o');
-      // 星落：5 颗都砸在首领身上
-      G.setVariant('meteor', 'b');
-      b = boss();
-      cast('meteor', at(7), 2.6);
-      out.meteorBoss = cnt.get(b) || 0;
-      G.clearEnemies();
-      G.setVariant('meteor', 'o');
-      // 奇点：1.5 秒后内爆一次
-      G.setVariant('blackhole', 'a');
-      b = boss();
-      const im0 = G.state.stats.implodes || 0;
-      cast('blackhole', at(7), 1.8);
-      out.implode = (G.state.stats.implodes || 0) - im0;
-      out.holeBoss = cnt.get(b) || 0;
-      G.clearEnemies();
-      G.setVariant('blackhole', 'o');
-      // 骸卫上限 2（体型 ×1.25）、炎祭上限 1；召唤 3 次也只留这么多
-      G.setVariant('thrall', 'a');
-      G.setVariant('pyre', 'a');
-      out.capT = G.skillCtx('thrall').minion.cap;
-      out.capP = G.skillCtx('pyre').minion.cap;
-      for (let i = 0; i < 3; i++) {
-        G.summonMinion('thrall', P.x + 2, P.z, G.skillCtx('thrall'));
-        G.summonMinion('pyre', P.x - 2, P.z, G.skillCtx('pyre'));
-      }
-      out.aliveT = G.minionCount('thrall');
-      out.aliveP = G.minionCount('pyre');
-      out.bigT = G.state.minions.filter((m) => m.skill === 'thrall').every((m) => Math.abs(m.r - 0.5 * 1.25) < 1e-6);
-      G.clearMinions();
-      G.setVariant('thrall', 'o');
-      G.setVariant('pyre', 'o');
-      G.hitEnemy = orig;
-      return out; // 前面的步骤留下的就是暂停状态（G.debug.hold(true)），这里不放开
+      },
+      cast(id, p, sec) {
+        T.aim(p.x, p.z);
+        G.execSkill(G.skillCtx(id));
+        TV.run(sec || 0);
+      },
+      // 钉住：每一帧推进之后把它放回原处
+      pin(e) {
+        TV.pins.push({ e, x: e.x, z: e.z });
+      },
+      run(sec) {
+        for (let i = 0; i < Math.round(sec * 60); i++) {
+          G.tick(1 / 60);
+          for (const q of TV.pins) {
+            q.e.x = q.x;
+            q.e.z = q.z;
+          }
+          P.mana = P.maxMana;
+          P.life = P.maxLife;
+        }
+      },
+      hold(slot, p, sec) {
+        const inp = G.input;
+        for (let i = 0; i < Math.round(sec * 60); i++) {
+          T.aim(p.x, p.z);
+          if (slot === 0) inp.mouse.b[0] = true;
+          else inp.keys.KeyQ = true;
+          G.tick(1 / 60);
+          P.mana = P.maxMana;
+        }
+        inp.mouse.b[0] = false;
+        inp.keys.KeyQ = false;
+      },
+      n: (e) => TV.cnt.get(e) || 0,
+      dmg: (e) => TV.sum.get(e) || 0,
+      done() {
+        if (TV.orig) G.hitEnemy = TV.orig;
+        TV.orig = null;
+        G.input.mouse.b[0] = false;
+        G.input.keys.KeyQ = false;
+        G.clearMinions();
+        G.clearEnemies();
+        G.resetRanged();
+        s.variants = {};
+        G.applyVariants();
+        P.god = false;
+        T.unfix();
+      },
+    };
+  };
+  await step('刻式 v2·掷焰「跳焰」：一发落地 4 次、每次落地留火地；落点上的怪被炸、站在火地上接着挨烧', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('ember', 'a');
+      const st0 = G.state.stats.vSkipLands || 0;
+      const m4 = TV.mob(4, 0), m11 = TV.mob(11, 0), off = TV.mob(6, 5);
+      for (const e of [m4, m11, off]) TV.pin(e); // 钉在原地（醒着的靶子会被推开、慢慢挪动，走出火地）
+      TV.cast('ember', TV.at(4), 1.4);
+      const out = { lands: (G.state.stats.vSkipLands || 0) - st0, fields: G.rangedFields().filter((f) => f.key === 'vSkipT').length, m4: TV.n(m4), m11: TV.n(m11), off: TV.n(off) };
+      TV.run(1.6);
+      out.m4b = TV.n(m4);
+      TV.done();
+      return out;
     });
-    assert(r.emberBalls === 3 && r.emberBoss === 3, '散焰应一次 3 团、首领三团都吃到：' + JSON.stringify(r));
-    assert(r.bladeHits === 2 && r.bladeGone, '回刃应来回各中一次、回到手里收起：' + JSON.stringify(r));
-    assert(r.arcLine === '111' && r.arcOff === 0, '贯雷应只打中一条线上的 3 只：' + JSON.stringify(r));
-    assert(r.meteorBoss === 5, '星落应 5 颗都砸中首领：' + JSON.stringify(r));
-    assert(r.implode === 1 && r.holeBoss >= 6, '奇点应内爆一次：' + JSON.stringify(r));
-    assert(r.capT === 2 && r.capP === 1 && r.aliveT === 2 && r.aliveP === 1 && r.bigT, '骸卫上限 2、炎祭上限 1：' + JSON.stringify(r));
-    return '散焰 ' + r.emberBoss + '，回刃 ' + r.bladeHits + '，贯雷 ' + r.arcLine + '，星落 ' + r.meteorBoss + '，奇点 ' + r.holeBoss + ' 跳含内爆';
+    assert(r.lands >= 3 && r.fields >= 3, '跳焰应落地 3 次以上、每次留火地：' + JSON.stringify(r));
+    assert(r.m4 >= 1 && r.m11 >= 1 && r.off === 0 && r.m4b > r.m4, '跳焰的落点 / 火地伤害不对：' + JSON.stringify(r));
+    return '落地 ' + r.lands + ' 次，火地 ' + r.fields + ' 片，第一跳的怪共挨 ' + r.m4b + ' 下';
+  });
+  await step('刻式 v2·掷焰「黏焰」：粘上不当场伤害，1.5 秒后引爆，再给身边的敌人粘上（传两代）', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('ember', 'b');
+      const host = TV.mob(6, 0), s1 = TV.mob(6, 3), s2 = TV.mob(6, -3), g2 = TV.mob(6, 6);
+      TV.cast('ember', TV.at(6), 0.6);
+      const out = { early: TV.n(host), stuck: G.variantState().sticks.length };
+      TV.run(1.5);
+      out.host = TV.n(host);
+      TV.run(3.4);
+      out.s1 = TV.n(s1);
+      out.s2 = TV.n(s2);
+      out.g2 = TV.n(g2);
+      out.spread = TV.st('vStickSpread');
+      TV.done();
+      return out;
+    });
+    assert(r.early === 0 && r.stuck === 1, '黏焰应先粘上、不当场伤害：' + JSON.stringify(r));
+    assert(r.host >= 1 && r.s1 >= 1 && r.s2 >= 1 && r.g2 >= 1 && r.spread >= 3, '黏焰应引爆并往外传两代：' + JSON.stringify(r));
+    return '宿主 ' + r.host + '、两侧 ' + r.s1 + '/' + r.s2 + '、第二代 ' + r.g2;
+  });
+  await step('刻式 v2·飞刃「钉刃」：钉住第一只（定身）、立在原地转 3 秒割身边的怪；不再穿透', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('blade', 'a');
+      const m = TV.mob(6, 0), back = TV.mob(8.5, 0);
+      TV.cast('blade', TV.at(6), 0.5);
+      const out = { traps: G.variantState().traps.length, stun: m.stunT > 0, first: TV.n(m) };
+      TV.run(2.6);
+      out.m = TV.n(m);
+      out.back = TV.n(back);
+      TV.run(0.5);
+      out.gone = G.variantState().traps.length;
+      TV.done();
+      return out;
+    });
+    assert(r.traps === 1 && r.stun && r.first >= 1, '钉刃应钉住第一只并立起锯刃：' + JSON.stringify(r));
+    assert(r.m >= 6 && r.back === 0 && r.gone === 0, '锯刃应持续割身边的怪、不穿透到后面、3 秒后收起：' + JSON.stringify(r));
+    return '钉住的怪 3 秒内挨 ' + r.m + ' 下，身后 2.5 米的怪 0 下';
+  });
+  await step('刻式 v2·飞刃「环刃」：不飞出去，绕着你转；放三次三把，贴身的怪被割、远处的不挨', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('blade', 'b');
+      const near = TV.mob(2, 0), far = TV.mob(7, 0);
+      const p0 = G.state.projectiles.length;
+      for (let i = 0; i < 3; i++) TV.cast('blade', TV.at(7), 0.1);
+      const out = { orbits: G.variantState().orbits.length, proj: G.state.projectiles.length - p0 };
+      TV.run(2.0);
+      out.near = TV.n(near);
+      out.far = TV.n(far);
+      TV.run(2.5);
+      out.left = G.variantState().orbits.length;
+      TV.done();
+      return out;
+    });
+    assert(r.orbits === 3 && r.proj === 0, '环刃应绕身 3 把、不射出投射物：' + JSON.stringify(r));
+    assert(r.near >= 4 && r.far === 0 && r.left === 0, '环刃应割贴身的怪、4 秒后收起：' + JSON.stringify(r));
+    return '2 秒内贴身的怪挨 ' + r.near + ' 下';
+  });
+  await step('刻式 v2·霜环「冰棱」：不再脉冲，朝光环外 9 米内最近的两只射追踪冰棱；身边有三枚冰晶、地上没有霜环', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('nova', 'a', ['ember', null, 'nova', null]);
+      const a = TV.mob(7, 0), b = TV.mob(-7.5, 0), c = TV.mob(0, 8.5);
+      TV.run(2.0);
+      const out = { a: TV.n(a), b: TV.n(b), c: TV.n(c), shards: TV.st('vShards'), crystals: G.variantState().crystals.length, ring: G.world.auraInfo ? G.world.auraInfo().r || 0 : 0 };
+      TV.done();
+      return out;
+    });
+    assert(r.shards >= 4 && r.a >= 1 && r.b >= 1 && r.c === 0, '冰棱应只射最近的两只：' + JSON.stringify(r));
+    assert(r.crystals === 3, '冰棱应有三枚环身的冰晶：' + JSON.stringify(r));
+    return '冰棱 ' + r.shards + ' 枚，两只最近的各中 ' + r.a + '/' + r.b;
+  });
+  await step('刻式 v2·霜环「冰爆」：光环里冻住一只就炸开，伤到身边的怪并灌入冰霜异常', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('nova', 'b', ['ember', null, 'nova', null]);
+      const m = TV.mob(2, 0), n1 = TV.mob(3.5, 0), n2 = TV.mob(2, 1.5);
+      G.initBuildUp(m);
+      m.bu.cold = 0.97;
+      m.buT.cold = 9;
+      TV.run(1.0);
+      const out = { bursts: TV.st('vNovaBursts'), frozen: m.freeze > 0, n1: +(n1.bu.cold || 0).toFixed(2), n2: +(n2.bu.cold || 0).toFixed(2), n1f: n1.freeze > 0 };
+      TV.done();
+      return out;
+    });
+    assert(r.bursts >= 1 && r.frozen, '冰爆应在冻住时炸开：' + JSON.stringify(r));
+    assert((r.n1 >= 0.3 || r.n1f) && (r.n2 >= 0.3 || r.n2 > 0), '冰爆应给身边的怪灌冰霜异常：' + JSON.stringify(r));
+    return '冰爆 ' + r.bursts + ' 次，身边的怪冰霜异常 ' + r.n1 + ' / ' + r.n2;
+  });
+  await step('刻式 v2·链雷「雷桩」：插两根桩连起电弧，桩电最近的怪、站在电弧上的怪也挨电', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('arc', 'a');
+      const near = TV.mob(7, 4.5), mid = TV.mob(7.4, 0);
+      TV.cast('arc', TV.at(7, 3), 0.1);
+      TV.cast('arc', TV.at(7, -3), 1.6);
+      const VS = G.variantState();
+      const out = { pylons: VS.pylons.length, links: VS.links.length, zaps: TV.st('vZaps'), linkHits: TV.st('vLinkHits'), near: TV.n(near), mid: TV.n(mid) };
+      TV.done();
+      return out;
+    });
+    assert(r.pylons === 2 && r.links === 1, '雷桩应两根并连起一道电弧：' + JSON.stringify(r));
+    assert(r.zaps >= 4 && r.linkHits >= 2 && r.near >= 1 && r.mid >= 2, '雷桩的电击 / 电弧不对：' + JSON.stringify(r));
+    return '电击 ' + r.zaps + ' 次，电弧扫中 ' + r.linkHits + ' 次';
+  });
+  await step('刻式 v2·链雷「过载」：一跳比一跳痛（×1.2 / ×1.44），最后折回给你雷盾', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('arc', 'b');
+      T.fix(0.5);
+      const a = TV.mob(5, 0), b = TV.mob(9, 0), c = TV.mob(13, 0), d = TV.mob(17, 0);
+      TV.cast('arc', TV.at(5), 0.05);
+      const P = G.player;
+      const out = { a: TV.dmg(a), k1: +(TV.dmg(b) / TV.dmg(a)).toFixed(3), k2: +(TV.dmg(c) / TV.dmg(a)).toFixed(3), d: TV.n(d), shield: P.vShield ? +(P.vShield.v / P.maxLife).toFixed(3) : 0 };
+      TV.done();
+      return out;
+    });
+    assert(Math.abs(r.k1 - 1.2) < 0.01 && Math.abs(r.k2 - 1.44) < 0.01 && r.d === 0, '过载每跳应 ×1.2、只连锁 2 次：' + JSON.stringify(r));
+    assert(Math.abs(r.shield - 0.12) < 0.005, '过载应给 3 × 4% 最大生命的雷盾：' + JSON.stringify(r));
+    return '三跳 ×1 / ×' + r.k1 + ' / ×' + r.k2 + '，雷盾 ' + r.shield + ' 倍最大生命';
+  });
+  await step('刻式 v2·陨火「熔核」：落地留熔核；掷焰打中熔核旁的敌人时它再炸；6 秒后最后炸一下收起', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('meteor', 'a', ['meteor', null, 'ember', null]);
+      const b = TV.big(7);
+      TV.pin(b);
+      TV.cast('meteor', TV.at(7), 1.0);
+      const VS = G.variantState();
+      const out = { cores: VS.cores.length, hit0: TV.n(b) };
+      for (let i = 0; i < 6; i++) TV.cast('ember', TV.at(7), 0.5);
+      out.re = TV.st('vCoreRe');
+      TV.run(3.4);
+      out.left = VS.cores.length;
+      out.total = TV.n(b);
+      TV.done();
+      return out;
+    });
+    assert(r.cores === 1 && r.hit0 === 1, '熔核应在落地后留下：' + JSON.stringify(r));
+    assert(r.re >= 3 && r.left === 0 && r.total >= 1 + r.re + 1, '火焰伤害应点爆熔核、到时最后炸一下：' + JSON.stringify(r));
+    return '再炸 ' + r.re + ' 次，首领共挨陨火 ' + r.total + ' 下';
+  });
+  await step('刻式 v2·陨火「犁焰」：落地后沿瞄准方向犁 8 米，路上的怪挨一下并被掀向两侧，沟里留火', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('meteor', 'b');
+      const a = TV.mob(9, 0.4), b = TV.mob(12, -0.4), far = TV.mob(16.5, 0);
+      const a0 = { x: a.x, z: a.z };
+      TV.cast('meteor', TV.at(6), 2.0);
+      const d = TV.d, side = (a.x - a0.x) * d.z - (a.z - a0.z) * d.x;
+      const out = { a: TV.n(a), b: TV.n(b), far: TV.n(far), ploughs: TV.st('vPloughs'), fields: G.rangedFields().filter((f) => f.key === 'vPloughT').length, side: +side.toFixed(2) };
+      TV.done();
+      return out;
+    });
+    assert(r.ploughs === 1 && r.a >= 1 && r.b >= 1 && r.far === 0, '犁焰应打中沟里的怪、够不到 8 米外：' + JSON.stringify(r));
+    assert(r.fields >= 2 && Math.abs(r.side) > 0.3, '犁焰应留火沟、把怪掀向两侧：' + JSON.stringify(r));
+    return '沟里两只各中，火 ' + r.fields + ' 片，侧移 ' + r.side + ' 米';
+  });
+  await step('刻式 v2·闪袭「残像」：原地留残像嘲讽身边的怪，1.5 秒后炸开', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('blink', 'a');
+      const a = TV.mob(1.8, 0.5), b = TV.mob(-1.5, 1.2);
+      TV.cast('blink', TV.at(8), 0.3);
+      const VS = G.variantState();
+      const out = { decoys: VS.decoys.length, taunt: !!(a.taunter && a.taunter.decoy && b.taunter && b.taunter.decoy), early: TV.n(a) };
+      TV.run(1.5);
+      out.bursts = TV.st('vDecoyBursts');
+      out.a = TV.n(a);
+      out.b = TV.n(b);
+      out.free = !a.taunter || !!a.taunter.dead;
+      TV.done();
+      return out;
+    });
+    assert(r.decoys === 1 && r.taunt && r.early === 0, '残像应留在原地并嘲讽身边的怪：' + JSON.stringify(r));
+    assert(r.bursts === 1 && r.a >= 1 && r.b >= 1 && r.free, '残像应在 1.5 秒后炸开：' + JSON.stringify(r));
+    return '嘲讽 2 只，炸开后各中 ' + r.a + '/' + r.b;
+  });
+  await step('刻式 v2·闪袭「换影」：和准星附近的怪交换位置并定身它；首领不换位，闪到它身后', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('blink', 'b');
+      const P = G.player, p0 = { x: P.x, z: P.z };
+      const m = TV.mob(6, 0), m0 = { x: m.x, z: m.z };
+      TV.cast('blink', TV.at(6), 0.05);
+      const out = { pMoved: +Math.hypot(P.x - m0.x, P.z - m0.z).toFixed(2), mMoved: +Math.hypot(m.x - p0.x, m.z - p0.z).toFixed(2), stun: m.stunT > 0, hit: TV.n(m) };
+      TV.done();
+      TV.setup('blink', 'b');
+      const q0 = { x: P.x, z: P.z };
+      const b = TV.boss(7), b0 = { x: b.x, z: b.z };
+      TV.cast('blink', TV.at(7), 0.05);
+      out.bossStill = Math.hypot(b.x - b0.x, b.z - b0.z) < 0.01;
+      out.behind = Math.hypot(P.x - q0.x, P.z - q0.z) > Math.hypot(b.x - q0.x, b.z - q0.z);
+      out.bhit = TV.n(b);
+      TV.done();
+      return out;
+    });
+    assert(r.pMoved < 0.6 && r.mMoved < 0.6 && r.stun && r.hit === 1, '换影应交换位置并定身：' + JSON.stringify(r));
+    assert(r.bossStill && r.behind && r.bhit === 1, '换影对首领应闪到身后、不换位：' + JSON.stringify(r));
+    return '换位误差 ' + r.pMoved + ' / ' + r.mMoved + ' 米，首领身后一击';
+  });
+  await step('刻式 v2·旋风斩「掷旋」：掷出旋刃、在尽头悬停再飞回，去 / 停 / 回都伤人，你自己不转', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('whirl', 'a');
+      const m = TV.mob(7, 0);
+      TV.cast('whirl', TV.at(7), 0.2);
+      const VS = G.variantState();
+      const out = { out: !!VS.disc, spin: !!G.player.spinning };
+      TV.run(2.6);
+      out.back = !VS.disc;
+      out.hits = TV.n(m);
+      TV.done();
+      return out;
+    });
+    assert(r.out && !r.spin, '掷旋应掷出旋刃、你自己不转：' + JSON.stringify(r));
+    assert(r.back && r.hits >= 3, '旋刃应去 / 停 / 回都伤到尽头的怪并飞回：' + JSON.stringify(r));
+    return '尽头的怪挨 ' + r.hits + ' 下，旋刃飞回';
+  });
+  await step('刻式 v2·旋风斩「旋涡斩」：按住转把 5 米内的怪吸到身边，转满 6 下砸地收尾', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('whirl', 'b');
+      const P = G.player, m = TV.mob(4.6, 0), d0 = Math.hypot(m.x - P.x, m.z - P.z);
+      TV.hold(0, TV.at(5), 2.4);
+      const out = { d0: +d0.toFixed(2), d1: +Math.hypot(m.x - P.x, m.z - P.z).toFixed(2), slams: TV.st('vSlams'), n: G.state.stats.vSlamN || 0, hits: TV.n(m) };
+      TV.done();
+      return out;
+    });
+    assert(r.d1 < r.d0 - 1.5, '旋涡斩应把怪吸近：' + JSON.stringify(r));
+    assert(r.slams === 1 && r.n === 6 && r.hits >= 3, '旋涡斩转满 6 下应砸地收尾：' + JSON.stringify(r));
+    return '吸近 ' + r.d0 + ' → ' + r.d1 + ' 米，砸地 ' + r.n + ' 层';
+  });
+  await step('刻式 v2·影步连斩「影印」：每刀烙一层影印，松手时一齐引爆', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('shadestep', 'a');
+      const a = TV.mob(3, 0), b = TV.mob(3, 3);
+      TV.hold(0, TV.at(3), 0.5);
+      const VS = G.variantState();
+      // 松手：下一帧连斩停下，影印引爆
+      TV.run(0.4);
+      const out = { bursts: TV.st('vMarkBursts'), stacks: TV.st('vMarkStacks'), left: VS.marks.size, marks: TV.st('vMarks'), a: TV.n(a) };
+      TV.done();
+      return out;
+    });
+    assert(r.marks >= 2 && r.bursts === 1 && r.stacks >= 2 && r.left === 0, '影印应在松手时一齐引爆：' + JSON.stringify(r));
+    return '烙下 ' + r.marks + ' 层，松手引爆 ' + r.stacks + ' 层';
+  });
+  await step('刻式 v2·影步连斩「影分」：每刀在另一侧留影子，0.3 秒后补同一刀', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('shadestep', 'b');
+      const a = TV.mob(3, 0);
+      TV.hold(0, TV.at(3), 0.45);
+      const own = TV.st('vCloneStrikes');
+      TV.run(0.5);
+      const out = { strikes: TV.st('vCloneStrikes'), hits: TV.st('vCloneHits'), during: own, a: TV.n(a) };
+      TV.done();
+      return out;
+    });
+    assert(r.strikes >= 2 && r.hits >= 2, '影分的影子应补刀：' + JSON.stringify(r));
+    return '影子补刀 ' + r.strikes + ' 次、砍中 ' + r.hits + ' 次';
+  });
+  await step('刻式 v2·烬骸仆从「骸弓」：站在后排射骨箭，打中远处的怪、不贴上去', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('thrall', 'a');
+      const P = G.player, m = TV.mob(9, 0);
+      const t = G.summonMinion('thrall', P.x - 1, P.z, G.skillCtx('thrall'));
+      TV.run(4.0);
+      const out = { arrows: TV.st('vArrows'), hits: TV.n(m), gap: +(Math.hypot(t.x - m.x, t.z - m.z) - m.r).toFixed(2) };
+      TV.done();
+      return out;
+    });
+    assert(r.arrows >= 2 && r.hits >= 1 && r.gap > 3.5, '骸弓应远远地射箭：' + JSON.stringify(r));
+    return '骨箭 ' + r.arrows + ' 支、中 ' + r.hits + '，离目标 ' + r.gap + ' 米';
+  });
+  await step('刻式 v2·烬骸仆从「骸爆」：倒下时炸一圈骨片，3 秒后在原地拼回来（期间算在数量里）', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('thrall', 'b');
+      const P = G.player;
+      const t = G.summonMinion('thrall', P.x + 2, P.z, G.skillCtx('thrall'));
+      TV.run(1.0);
+      const m = T.mob('husk', t.x - P.x + 1.2, t.z - P.z);
+      G.hurtMinion(t, 1e9, 'phys', { x: m.x, z: m.z });
+      const out = { bursts: TV.st('vBoneBursts'), hit: TV.n(m), count: G.minionCount('thrall'), alive: G.state.minions.filter((q) => q.skill === 'thrall').length };
+      TV.run(3.3);
+      out.back = TV.st('vBoneBack');
+      out.alive2 = G.state.minions.filter((q) => q.skill === 'thrall' && !q.dead).length;
+      TV.done();
+      return out;
+    });
+    assert(r.bursts === 1 && r.hit >= 1 && r.count === 1 && r.alive === 0, '骸爆应炸开、等着拼回时仍算一具：' + JSON.stringify(r));
+    assert(r.back === 1 && r.alive2 === 1, '骸爆 3 秒后应拼回来：' + JSON.stringify(r));
+    return '炸开打中 ' + r.hit + '，3 秒后拼回';
+  });
+  await step('刻式 v2·石誓守像「磐垒」：扎根不动；护域里你少受 20% 伤害、敌人变慢', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('colossus', 'a');
+      const P = G.player;
+      const c = G.summonMinion('colossus', P.x + 2, P.z, G.skillCtx('colossus'));
+      const m = TV.mob(10, 0);
+      TV.run(2.5);
+      const c0 = { x: c.x, z: c.z };
+      TV.run(2.0);
+      const inside = T.mob('husk', c.x - P.x + 2, c.z - P.z);
+      const out = { still: Math.hypot(c.x - c0.x, c.z - c0.z) < 0.05, k: +G.bastionK(c.x + 1, c.z).toFixed(3), kOut: G.bastionK(c.x + 9, c.z), slow: G.bastionSlow(inside), slowOut: G.bastionSlow(m), fx: G.world.kvCount('dome') };
+      TV.done();
+      return out;
+    });
+    assert(r.still && r.k === 0.8 && r.kOut === 1 && r.slow === 0.25 && r.slowOut === 0 && r.fx >= 1, '磐垒的护域不对：' + JSON.stringify(r));
+    return '扎根不动，护域里受伤 ×' + r.k + '、敌人减速 ' + r.slow;
+  });
+  await step('刻式 v2·石誓守像「掷岩」：朝远处的怪抛巨石，落地砸开', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('colossus', 'b');
+      const P = G.player;
+      G.summonMinion('colossus', P.x - 1, P.z, G.skillCtx('colossus'));
+      const m = TV.mob(9, 0);
+      TV.run(5.0);
+      const out = { rocks: TV.st('vRocks'), hits: TV.st('vRockHits'), n: TV.n(m) };
+      TV.done();
+      return out;
+    });
+    assert(r.rocks >= 1 && r.hits >= 1 && r.n >= 1, '掷岩应抛石砸中远处的怪：' + JSON.stringify(r));
+    return '抛石 ' + r.rocks + '，砸中 ' + r.hits;
+  });
+  await step('刻式 v2·焚骨祭司「焰田」：火弹落地留火地，焰蓄满时燎原——所有火地一齐爆燃', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('pyre', 'a');
+      const P = G.player;
+      G.summonMinion('pyre', P.x - 1, P.z, G.skillCtx('pyre'));
+      for (let i = 0; i < 6; i++) TV.mob(7.5, (i - 2.5) * 0.9);
+      let fields = 0;
+      for (let k = 0; k < 16 && !(TV.st('vFlares') > 0); k++) {
+        TV.run(0.5);
+        fields = Math.max(fields, G.rangedFields().filter((f) => f.pyre).length);
+      }
+      const out = { fields, flares: TV.st('vFlares'), flared: TV.st('vFlareFields'), meteors: TV.st('pyreMeteors') };
+      TV.done();
+      return out;
+    });
+    assert(r.fields >= 1 && r.flares >= 1 && r.flared >= 1 && r.meteors === 0, '焰田应留火地并燎原（不放坠焰）：' + JSON.stringify(r));
+    return '最多 ' + r.fields + ' 片火地，燎原引爆 ' + r.flared + ' 片';
+  });
+  await step('刻式 v2·焚骨祭司「魂链」：不掷火弹，灼链盯着目标越烧越旺，并分一道细链给旁边的怪', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('pyre', 'b');
+      const P = G.player;
+      G.summonMinion('pyre', P.x - 1, P.z, G.skillCtx('pyre'));
+      const b = TV.big(8), side = TV.mob(8, 2.6);
+      TV.run(5.0);
+      const L = G.SKILLS.pyre.link;
+      const out = { ticks: TV.st('vLinkTicks'), side: TV.st('vLinkSide'), k: +(G.state.stats.vLinkK || 0).toFixed(3), k1: L.k1, bolts: G.minionBolts(), hits: TV.st('pyreHits'), sideHit: TV.n(side) };
+      TV.done();
+      return out;
+    });
+    assert(r.ticks >= 10 && r.side >= 5 && r.sideHit >= 5 && r.k === r.k1 && r.bolts === 0 && r.hits === 0, '魂链应只引导灼链、烧满后翻倍、分出细链：' + JSON.stringify(r));
+    return '灼链 ' + r.ticks + ' 跳、细链 ' + r.side + ' 跳，烧满倍率 ' + r.k;
+  });
+  await step('刻式 v2·黑洞「双极」：一次两个小洞，中间的引力索伤人，并把怪拽向索', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('blackhole', 'a');
+      const mid = TV.mob(7.2, 0.3), pulled = TV.mob(9.8, 0.6);
+      const d = TV.d, P = G.player, line = (e) => Math.abs((e.x - P.x) * d.x + (e.z - P.z) * d.z - 7);
+      const l0 = line(pulled);
+      TV.cast('blackhole', TV.at(7), 1.5);
+      const holes = G.chaosHoles();
+      const out = { holes: holes.length, linked: holes.length === 2 && holes[0].twin === holes[1], tether: TV.st('vTetherHits'), mid: TV.n(mid), l0: +l0.toFixed(2), l1: +line(pulled).toFixed(2), band: G.world.kvCount('band') };
+      TV.done();
+      return out;
+    });
+    assert(r.holes === 2 && r.linked && r.band === 1, '双极应开两个连着索的洞：' + JSON.stringify(r));
+    assert(r.tether >= 1 && r.mid >= 3 && r.l1 < r.l0 - 0.5, '引力索应伤人并把怪拽过来：' + JSON.stringify(r));
+    return '索上的怪挨 ' + r.mid + ' 跳，被拽 ' + r.l0 + ' → ' + r.l1 + ' 米';
+  });
+  await step('刻式 v2·黑洞「坍缩」：每跳攒质量、黑洞变大；再按一次技能键提前坍缩，伤害按质量算', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('blackhole', 'b');
+      for (let i = 0; i < 5; i++) TV.mob(7, (i - 2) * 0.7);
+      const b = TV.boss(7.5);
+      TV.cast('blackhole', TV.at(7), 1.5);
+      const h = G.chaosHoles()[0];
+      const out = { mass: h ? h.mass : -1, grew: h ? +(h.R / h.R0).toFixed(2) : 0 };
+      const before = TV.dmg(b);
+      G.input.tap[0] = 0.2; // 再按一次（冷却中照样能引爆）
+      TV.run(0.1);
+      out.collapses = TV.st('vCollapses');
+      out.holes = G.chaosHoles().length;
+      out.burst = +((TV.dmg(b) - before) / Math.max(1, before / Math.max(1, TV.n(b) - 1))).toFixed(1);
+      TV.done();
+      return out;
+    });
+    assert(r.mass >= 20 && r.grew > 1.3, '坍缩应攒质量、变大：' + JSON.stringify(r));
+    assert(r.collapses === 1 && r.holes === 0 && r.burst > 3, '再按一次应提前坍缩、按质量重击：' + JSON.stringify(r));
+    return '质量 ' + r.mass + '、半径 ×' + r.grew + '，坍缩一击约等于 ' + r.burst + ' 跳';
+  });
+  await step('刻式 v2·黑旋风「护涡」：三团旋风绕着你转，绞贴身的怪、吞掉敌方弹丸', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('vortex', 'a');
+      const P = G.player, m = TV.mob(2.4, 0);
+      TV.cast('vortex', TV.at(6), 0.6);
+      const vs = G.chaosVortices().filter((v) => v.guard);
+      const rr = vs.map((v) => Math.hypot(v.x - P.x, v.z - P.z));
+      // 一发朝你飞来的敌方弹丸，穿过旋风那一圈
+      const e0 = TV.st('vEaten');
+      const v0 = vs[0], sx = v0.x + (v0.x - P.x) * 0.1, sz = v0.z + (v0.z - P.z) * 0.1;
+      G.spawnProjectile({ owner: 'e', x: sx, z: sz, dx: P.x - sx, dz: P.z - sz, speed: 2, r: 0.3, life: 5, dmg: 1, dtype: 'phys' });
+      TV.run(1.2);
+      const out = { n: vs.length, rmin: +Math.min.apply(null, rr).toFixed(2), rmax: +Math.max.apply(null, rr).toFixed(2), eaten: TV.st('vEaten') - e0, hits: TV.n(m) };
+      TV.done();
+      return out;
+    });
+    assert(r.n === 3 && r.rmin > 1.8 && r.rmax < 3.0, '护涡应三团绕着你转：' + JSON.stringify(r));
+    assert(r.eaten >= 1 && r.hits >= 3, '护涡应吞掉弹丸、绞贴身的怪：' + JSON.stringify(r));
+    return '绕身半径 ' + r.rmin + '–' + r.rmax + '，吞弹 ' + r.eaten + '，绞中 ' + r.hits;
+  });
+  await step('刻式 v2·黑旋风「汇涡」：旋风互相靠拢，撞到一起合成层数更高的一团', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('vortex', 'b');
+      TV.cast('vortex', TV.at(6), 0.3);
+      G.player.cds = {};
+      TV.cast('vortex', TV.at(6), 1.5);
+      const vs = G.chaosVortices().filter((v) => v.lvl);
+      const out = { merges: TV.st('vMerges'), top: G.state.stats.vMergeTop || 0, n: vs.length, big: vs.some((v) => v.R > v.R0 * 1.3) };
+      TV.done();
+      return out;
+    });
+    assert(r.merges >= 2 && r.top >= 3 && r.big, '汇涡应合成层数更高、更大的一团：' + JSON.stringify(r));
+    return '合并 ' + r.merges + ' 次，最高 ' + r.top + ' 层';
+  });
+  await step('刻式 v2·黑焰「蚀印」：每一击叠一层蚀印，6 层炸开；附带比例是原式的一半', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('ember', 'o', ['ember', null, 'blackflame', null]);
+      G.save.variants.blackflame = 'a';
+      G.applyVariants();
+      G.computeStats();
+      const b = TV.big(6);
+      TV.pin(b);
+      const F = G.flamePct();
+      let casts = 0;
+      while (casts < 10 && !TV.st('vBrandBursts')) {
+        TV.cast('ember', TV.at(6), 0.4);
+        casts++;
+      }
+      TV.run(0.3);
+      const out = { bursts: TV.st('vBrandBursts'), F: +F.toFixed(2), brand: b.vBrand || 0, casts, hits: TV.n(b) };
+      G.save.variants.blackflame = 'o';
+      TV.done();
+      out.Fo = +G.flamePct().toFixed(2);
+      return out;
+    });
+    assert(r.bursts === 1 && r.brand === 0 && r.casts === 6 && Math.abs(r.F * 2 - r.Fo) < 0.05, '蚀印应 6 层炸开、附带比例减半：' + JSON.stringify(r));
+    return '6 击后炸开 1 次，附带 ' + r.F + '%（原式 ' + r.Fo + '%）';
+  });
+  await step('刻式 v2·黑焰「传焰」：命中点燃黑焰（不直接加伤害），宿主死时带着没烧完的跳到下一个', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('ember', 'o', ['ember', null, 'blackflame', null]);
+      G.save.variants.blackflame = 'b';
+      G.applyVariants();
+      G.computeStats();
+      const a = TV.mob(6, 0), b = TV.mob(6, 3.5);
+      T.fix(0.5);
+      TV.cast('ember', TV.at(6), 0.4);
+      const pool = a.vDot ? a.vDot.pool : 0;
+      const parts = G.calcHit(G.skillCtx('ember'), 1).parts;
+      G.killEnemy(a, {});
+      const out = { pool: +pool.toFixed(1), chaosInHit: parts.chaos || 0, jumps: TV.st('vDotJumps'), bPool: b.vDot ? +b.vDot.pool.toFixed(1) : 0, depth: b.vDot ? b.vDot.depth : -1 };
+      TV.watch = '*proc';
+      TV.run(2.4);
+      out.burned = TV.n(b);
+      G.save.variants.blackflame = 'o';
+      TV.done();
+      return out;
+    });
+    assert(r.pool > 0 && r.chaosInHit === 0, '传焰应点在身上、不加进这一击：' + JSON.stringify(r));
+    assert(r.jumps === 1 && r.depth === 1 && r.bPool > 0 && r.burned >= 4, '宿主死时黑焰应跳到下一个并接着烧：' + JSON.stringify(r));
+    return '点燃 ' + r.pool + '，跳过去 ' + r.bPool + '（深 ' + r.depth + '），烧了 ' + r.burned + ' 跳';
+  });
+  await step('刻式 v2·旧存档：第二版之前的刻式按位置留着（a → a、b → b），免费重选一次还回来，并提示一次「刻式重做」', async () => {
+    const r = await ev((keep) => {
+      T.arena();
+      const s = G.save, out = {};
+      s.skills.ember = 20;
+      s.skills.blade = 20;
+      G.persist();
+      const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+      delete raw.variantGen;
+      delete raw.varNote;
+      raw.variants = { ember: 'a', blade: 'b' };
+      raw.variantFree = { ember: true, blade: true, nova: true };
+      if (raw.tut) delete raw.tut.variant2;
+      localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+      G.loadSave();
+      out.vars = T.canon(G.save.variants);
+      out.free = T.canon(G.save.variantFree);
+      out.cost = G.variantCost('ember') + G.variantCost('blade');
+      out.names = G.SKILLS.ember.vname + '/' + G.SKILLS.blade.vname;
+      out.note = G.save.varNote === true && G.variantRedone === 1;
+      out.gen = G.save.variantGen;
+      // 再读一次（提示还没看过）：免费那一次不会再被清，提示照样在
+      G.save.variantFree.ember = true;
+      G.persist();
+      G.loadSave();
+      out.keep = G.save.variantFree.ember === true && G.variantRedone === 1;
+      // 看过提示之后不再提示
+      G.save.tut.variant2 = 1;
+      G.save.varNote = false;
+      G.persist();
+      G.loadSave();
+      out.seen = G.variantRedone === 0 && G.save.varNote === false;
+      if (keep) localStorage.setItem('cinder-abyss-save-v1', keep);
+      G.loadSave();
+      G.computeStats();
+      return out;
+    }, varKeep);
+    assert(r.vars === '{"blade":"b","ember":"a"}' && r.free === '{}' && r.cost === 0 && r.names === '跳焰/环刃' && r.gen === 2, '旧刻式应按位置保留、免费重选还回来：' + JSON.stringify(r));
+    assert(r.note && r.keep && r.seen, '「刻式重做」提示应只出一次：' + JSON.stringify(r));
+    return '旧 a / b 对到 ' + r.names + '，免费重选还回来，提示一次';
   });
 
   await step('刻式：存档——选了的刻式读档后还在；坏数据（未知 id、\'c\'）被丢掉；旧存档没有这一项，全部原式', async () => {
@@ -10762,14 +11328,14 @@ async function main() {
       s.variantFree = { ember: true, vortex: true };
       G.persist();
       G.loadSave();
-      out.kept = G.save.variants.ember === 'b' && G.save.variants.vortex === 'a' && G.SKILLS.ember.vname === '散焰' && G.SKILLS.vortex.vname === '巨涡' && G.save.variantFree.ember === true;
+      out.kept = G.save.variants.ember === 'b' && G.save.variants.vortex === 'a' && G.SKILLS.ember.vname === '黏焰' && G.SKILLS.vortex.vname === '护涡' && G.save.variantFree.ember === true;
       // 坏数据
       const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
       raw.variants = { ember: 'c', nope: 'a', vortex: 'b', riposte: 'a', blade: 5 };
       raw.variantFree = { nope: true, arc: 'yes', blade: true };
       localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
       G.loadSave();
-      out.bad = T.canon(G.save.variants) === '{"vortex":"b"}' && T.canon(G.save.variantFree) === '{"blade":true,"vortex":true}' && G.SKILLS.ember === G.SKILL_V.ember.o && G.SKILLS.vortex.vname === '涡群';
+      out.bad = T.canon(G.save.variants) === '{"vortex":"b"}' && T.canon(G.save.variantFree) === '{"blade":true,"vortex":true}' && G.SKILLS.ember === G.SKILL_V.ember.o && G.SKILLS.vortex.vname === '汇涡';
       // 宝石不到 10 级：保留但不生效
       raw.variants = { ember: 'a' };
       raw.skills.ember = 4;
