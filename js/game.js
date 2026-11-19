@@ -164,6 +164,8 @@
       // 渊印：sealSeq 真正进区的次数（择印面板的随机种子，关掉地图再打开还是同样三枚）；
       // run 这一次进区 { zone, tier, seq, seal }（seal 为 null 是素印），读档时区域 / 层级对得上就接着用，倒下重生不动，换区 / 重进清掉
       sealSeq: 0, run: null,
+      // 烛芯（异兆一期）：各种类的个数（熄烛者的开启材料）和保底计数（box 是缚匣 / 试锋 / 落烬共用）
+      frags: { seal: 0, rift: 0, vow: 0, box: 0 }, fragPity: { seal: 0, rift: 0, vow: 0, box: 0 },
     };
   };
   function autoSummonDefaults() {
@@ -537,6 +539,14 @@
     if (rrun && rrun.zone === s.lastZone && rrun.tier === s.tier) {
       s.run = { zone: s.lastZone, tier: s.tier, seq: toInt(rrun.seq, 0, 1e9, 0), seal: G.cleanSeal(rrun.seal, s.tier, s.bar) };
     }
+    // 烛芯：旧存档没有（全 0）；只认 G.FRAGS 的种类，个数 0–max，保底 0–上限
+    const rfr = isObj(raw.frags) ? raw.frags : {}, rfp = isObj(raw.fragPity) ? raw.fragPity : {};
+    s.frags = {};
+    s.fragPity = {};
+    for (const id of G.FRAG_IDS) {
+      s.frags[id] = toInt(rfr[id], 0, G.FRAG_DROP.max, 0);
+      s.fragPity[id] = toInt(rfp[id], 0, id === 'seal' ? G.SEAL.frag.pity : G.FRAG_DROP.pity, 0);
+    }
     return s;
   }
   // 图鉴记一笔：拾到过、最高完美度
@@ -811,6 +821,7 @@
     }
     const gearLife = S.life;
     for (const id of save.passives) add(G.TREE[id].stats);
+    if (P.encBuff && G.SHRINE_BUFFS[P.encBuff.id] && G.SHRINE_BUFFS[P.encBuff.id].stats) add(G.SHRINE_BUFFS[P.encBuff.id].stats); // 异兆：祈坛的增益
     P.S = S;
     G.relicSync(); // 身上渊契的机制（P.relic）：光环保留（星雨）在下面就要用
 
@@ -1154,6 +1165,7 @@
       if (e.minionSpeed) mSpeed += e.minionSpeed;
       costMult *= sup.cost;
     }
+    if (S.encCdr) cdr += S.encCdr; // 异兆：祈坛「渊涌」的冷却缩短
 
     // 魂幡的普攻：每只活着的召唤物让这一下的伤害提高 perMinion%（最多 maxMinion 只）
     if (sk.perMinion) {
@@ -2566,8 +2578,8 @@
     const inf = info || NO_INFO;
     const PO = G.POISE;
     const broken = e.brokenT > 0;
-    // rqBrk：渊契「崩势」扩散出来的破绽；渊印「领群」：领群者附近同群的怪受到的伤害 −15%
-    const m = (mult === undefined ? 1 : mult) * (broken || e.rqBrk > 0 ? PO.taken : 1) * (e.auraBuff ? 1 - G.runMods.aura.dr : 1);
+    // rqBrk：渊契「崩势」扩散出来的破绽；渊印「领群」：领群者附近同群的怪受到的伤害 −15%；encDR：异兆的减伤（灰誓者有图腾立着时）
+    const m = (mult === undefined ? 1 : mult) * (broken || e.rqBrk > 0 ? PO.taken : 1) * (e.auraBuff ? 1 - G.runMods.aura.dr : 1) * (e.encDR > 0 ? 1 - e.encDR : 1);
     e.hurtAt = state.time; // 渊印「回生」：几秒没挨打才回血
     const hit = G.calcHit(ctx, m);
     const hp0 = e.hp;
@@ -2765,11 +2777,12 @@
       if (e.elite) W.ring(e.x, e.z, 2.6, hex, 0.35);
     }
 
-    G.dropLoot(e);
+    if (!e.encNoLoot) G.encDropLoot(e); // 异兆：游荡者 / 残影 / 静物的奖励走异兆自己的结算；祈坛「丰饶」放大物品 / 通货
     G.gainXp(xp);
     sealOnKill(e);
+    if (e.enc || e.encClones) G.encOnKill(e);
 
-    if (e.isBoss) {
+    if (e.isBoss && !e.echo) {
       const zone = state.zone;
       const zid = zone.def.id;
       const prev = save.cleared[zid];
@@ -6831,6 +6844,10 @@
       label = G.BLANK_GEM.name + ' Lv ' + data.lvl;
       color = G.BLANK_GEM.color;
       beam = true;
+    } else if (kind === 'frag') {
+      label = G.FRAGS[data].name;
+      color = G.FRAGS[data].color;
+      beam = true;
     } else {
       label = '辅助宝石：' + G.SUPPORTS[data].name;
       color = SUP_COLOR;
@@ -6941,6 +6958,13 @@
       }
       G.sfx('gem');
       G.persist();
+    } else if (loot.kind === 'frag') {
+      // 烛芯：按种类计数（熄烛者的开启材料，见 G.FRAGS）
+      const F = save.frags;
+      F[loot.data] = Math.min(G.FRAG_DROP.max, (F[loot.data] || 0) + 1);
+      toast('获得' + G.FRAGS[loot.data].name + '（共 ' + F[loot.data] + ' 个）', G.FRAGS[loot.data].color);
+      G.sfx('gem');
+      G.persist();
     } else if (loot.kind === 'blank') {
       const lvl = loot.data.lvl;
       const B = G.BLANK_GEM;
@@ -6996,7 +7020,10 @@
         bc = c;
       }
     }
-    return bc ? G.openChest(bc) : false;
+    if (bc) return G.openChest(bc);
+    // 再没有宝箱：3.5 m 内能互动的异兆（祈坛、缚匣、拾烬客、落烬的烬核）
+    const en = G.encNearest && G.encNearest(3.5);
+    return en ? G.encUse(en) : false;
   };
 
   G.updateLoot = function (dt) {
@@ -7517,6 +7544,835 @@
   }
 
   // =====================================================================
+  // 异兆（随机遭遇，D4）
+  // =====================================================================
+  // 每次进区刷完怪之后掷一次（G.rollEncounters）：层级 0 只有 ENC.t0Chance 出 1 个，层级 ≥ 1 一定 1 个、ENC.second 再多 1 个。
+  // 选址见 world.js 的「异兆」一节（W.encSite），找不到点位就换下一种。异兆不存档，读档重进跟着重掷。
+  // **懒生成**：进区时只选址，不建道具、不刷怪（state.enemies 不变）；玩家走到 ENC.lazy 内或进了那个房间才「醒来」建道具，
+  // 守隙 / 残影 / 落烬还要等所在房间的怪群死光（enc.roomMobs 全死）才张开。
+  // 一个异兆 enc：{ kind, site, st, seen, live, k, level, roomMobs, mobs, pend }。st：sleep 等房间清空 / open 能开始 / idle 等玩家碰 /
+  // run 进行中 / done 成功 / fail 失败。seen：小地图上换成图样。mobs：它刷出来的怪；pend：还在预警的刷怪 { t, x, z, fn }
+  state.enc = [];
+  // 渊契（relics 分支）合入之前没有 G.RELIC_DROP：异兆来源（6 件）和拾烬客的渊契货架这两处都不做事；合入之后自动打开
+  const ENC_RELIC = !!(G.RELIC_DROP && G.RELIC_DROP.src);
+  if (ENC_RELIC) G.RELIC_DROP.src.enc = G.RELIC_DROP.src.trader = true;
+  G.encRelicOn = () => ENC_RELIC && typeof G.relicEncDrop === 'function';
+  // 静物（不进 G.MOBS）：灰誓者的图腾、落烬的烬晶。生命在 spawnMob 里照常 × hpScale
+  const TOTEM_DEF = { name: '誓灰图腾', hp: 0, dmg: 0, speed: 0, r: 0.5, range: 0, windup: 1, cd: 99, xp: 0.3, ai: 'still', mass: 99, poise: 0, h: 2.1, sturdy: true };
+  const SHARD_DEF = { name: '烬晶', hp: 0, dmg: 0, speed: 0, r: 0.55, range: 0, windup: 1, cd: 99, xp: 0.5, ai: 'still', mass: 99, poise: 0, h: 1.9, sturdy: true };
+  const LIGHT = (mobs) => {
+    const l = mobs.filter((t) => t !== 'brute' && t !== 'charger' && t !== 'bomber');
+    return l.length ? l : ['husk'];
+  };
+  function roomLevel(zone, room) {
+    const rm = zone.rooms && zone.rooms[room];
+    return zone.level + (rm && rm.lv !== undefined ? rm.lv : Math.floor((rm ? rm.order : 0) / 2));
+  }
+  function clearEnc() {
+    state.enc.length = 0;
+    state.trader = null;
+  }
+  // 掷这次进区的异兆。force（调试 / 测试）：按给的种类依次放，不掷个数、不看层级的池
+  G.rollEncounters = function (zone, tier, force) {
+    clearEnc();
+    const W = G.world;
+    if (!zone || !W.encSite || (G.debug && G.debug.noEnc && !force)) return state.enc;
+    const E = G.ENC, t0 = !((tier | 0) >= 1), wi = t0 ? 0 : 1;
+    let n = force ? force.length : t0 ? (Math.random() < E.t0Chance ? 1 : 0) : 1 + (Math.random() < E.second ? 1 : 0);
+    if (!n) return state.enc;
+    const pool = force ? force.slice() : G.ENC_IDS.filter((id) => G.ENCOUNTERS[id].w[wi] > 0);
+    const taken = [];
+    while (n > 0 && pool.length) {
+      const id = force ? pool[0] : G.weighted(pool, (k) => G.ENCOUNTERS[k].w[wi]);
+      pool.splice(pool.indexOf(id), 1);
+      const D = G.ENCOUNTERS[id];
+      const site = W.encSite(D.site, taken, id === 'guard' ? (s) => s.nodeD >= 14 : null); // 雷枢 14 m 内不放守隙
+      if (!site) continue; // 找不到合格点位：换下一种
+      taken.push(site);
+      state.enc.push(makeEnc(id, site, zone, tier));
+      n--;
+    }
+    return state.enc;
+  };
+  function makeEnc(kind, site, zone, tier) {
+    const enc = { kind, site, st: 'sleep', seen: false, live: false, k: 0, t: 0, level: roomLevel(zone, site.room), tier: tier | 0, mobs: [], pend: [], roomMobs: null, mob: null };
+    // 守隙 / 残影 / 落烬：记下这个房间原有的怪（按出生点算房间），全死了就是「房间清空」
+    if (site.type === 'core') {
+      const W = G.world;
+      enc.roomMobs = state.enemies.filter((e) => !e.isBoss && !e.dead && W.roomAt(e.home.x, e.home.z) === site.room);
+    }
+    if (kind === 'box') {
+      const a0 = Math.random() * TAU;
+      enc.anchors = [0, 1, 2].map((i) => a0 + (i * TAU) / 3);
+      site.ang = Math.random() * TAU;
+    }
+    if (kind === 'trader') site.face = Math.atan2(zone.start.x - site.x, zone.start.z - site.z);
+    if (kind === 'wanderer') enc.title = G.pick(G.WANDERER_TITLES);
+    return enc;
+  }
+  const roomClear = (enc) => !enc.roomMobs || enc.roomMobs.every((e) => e.dead);
+  const aliveOf = (list) => {
+    let n = 0;
+    for (const e of list) if (!e.dead) n++;
+    return n;
+  };
+  // 刷怪：先在 (x, z) 打一个 ENC.warn 秒的环形预警（环形池），到点再生成（不走 G.after：倒下重生会清掉计时器，这里自己数）
+  function encSpawn(enc, x, z, hex, fn) {
+    const W = G.world;
+    W.ring(x, z, 1.4, hex, G.ENC.warn);
+    W.burst(x, 0.3, z, hex, 6, 2.5, 0.5);
+    enc.pend.push({ t: G.ENC.warn, x, z, fn });
+  }
+  function tickPend(enc, dt) {
+    for (let i = enc.pend.length - 1; i >= 0; i--) {
+      const p = enc.pend[i];
+      p.t -= dt;
+      if (p.t > 0) continue;
+      enc.pend.splice(i, 1);
+      const e = p.fn(p.x, p.z);
+      if (e) {
+        e.enc = enc;
+        if (enc.tier < 1) e.xpK = G.ENC.t0Xp; // 层级 0 的异兆经验 ×0.5
+        enc.mobs.push(e);
+        G.world.burst(p.x, 0.6, p.z, 0xd8c8ff, 10, 3.5, 0.5);
+      }
+    }
+  }
+  // 在 (cx, cz) 附近 r0–r1 的环上找一个可走、看得见圆心的点（找不到返回 null）
+  function ringSpot(cx, cz, r0, r1, sd, room, tries) {
+    const W = G.world;
+    for (let i = 0; i < (tries || 24); i++) {
+      const a = Math.random() * TAU, d = G.rand(r0, r1);
+      const x = cx + Math.sin(a) * d, z = cz + Math.cos(a) * d;
+      if (!(W.sdAt(x, z) >= sd) || !W.walkable(x, z, 0.8)) continue;
+      if (room !== undefined && W.roomAt(x, z) !== room) continue;
+      let ok = true;
+      const n = Math.ceil(d / 0.5);
+      for (let k = 1; k < n && ok; k++) if (!W.shotFree(cx + ((x - cx) * k) / n, cz + ((z - cz) * k) / n, -0.2)) ok = false;
+      if (ok) return { x, z };
+    }
+    return null;
+  }
+  // 异兆里的怪：普通小怪（区域怪群同一套打折，horde）、awake 直接醒着
+  function encMob(enc, type, x, z, o) {
+    const e = G.spawnMob(type, x, z, (o && o.level) || enc.level, { elite: !!(o && o.elite), awake: true, horde: !(o && (o.elite || o.noHorde)), pack: null });
+    e.wasAwake = false;
+    return e;
+  }
+  // 让一只异兆的怪不打招呼地散掉（试锋超时、落烬失败、镜影客本体死了）：不给经验、不掉东西
+  function encVanish(e) {
+    if (!e || e.dead) return;
+    e.dead = true;
+    e.deathT = 0.25;
+    e.hp = 0;
+    e.seq++;
+    G.world.die(e.ent, { ang: 0, type: 'chaos', over: 0, force: 0 });
+    G.world.burst(e.x, 1, e.z, 0xb8a8d8, 10, 3, 0.5);
+  }
+  G.encVanish = encVanish;
+
+  // ---------- 奖励（自己的掉落代码，不改 G.dropLoot；件数 / 稀有度照样吃渊印的 Q / R）----------
+  function encRm() {
+    return (1 + (P.S.rarity || 0) / 100) * (1 + G.runMods.rar);
+  }
+  function eliteRoll(lvl, x, z, rk) {
+    const rm = encRm() * (rk || 1);
+    for (let i = 0, n = sealCount(2); i < n; i++) G.spawnLoot('item', G.rollItem(lvl, G.rollRarity(rm * 2)), x, z);
+    for (let i = 0, n = sealCount(1); i < n; i++) G.spawnLoot('cur', G.rollCurrency(), x, z);
+    if (Math.random() < SUPPORT_DROP.elite) G.spawnLoot('support', pickSupportGem(0.7), x, z);
+    if (Math.random() < BLANK_DROP.elite) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
+  }
+  G.encReward = function (R, lvl, x, z) {
+    const rm = encRm();
+    for (let i = 0; i < (R.elite || 0); i++) eliteRoll(lvl, x, z, R.rar);
+    for (let i = 0, n = R.rare ? sealCount(R.rare) : 0; i < n; i++) G.spawnLoot('item', G.rollItem(lvl, 2), x, z);
+    for (let i = 0, n = R.items ? sealCount(R.items) : 0; i < n; i++) G.spawnLoot('item', G.rollItem(lvl, G.rollRarity(rm)), x, z);
+    for (let i = 0, n = R.magic ? sealCount(R.magic) : 0; i < n; i++) G.spawnLoot('item', G.rollItem(lvl, Math.max(1, G.rollRarity(rm * (R.magicRar || 1)))), x, z);
+    for (let i = 0, n = R.cur ? sealCount(R.cur) : 0; i < n; i++) G.spawnLoot('cur', G.rollCurrency(), x, z);
+    if (R.gem) {
+      if (Math.random() < 0.5) G.spawnLoot('skill', pickSkillGem(0.7), x, z);
+      else G.spawnLoot('support', pickSupportGem(0.7), x, z);
+    }
+  };
+  // 烛芯：按几率 p 掷一次，连续 max 次没掉这一次必掉（保底计数存档，key 是保底的键：box 三种异兆共用）
+  function fragRoll(key, p, max) {
+    const U = G.save.fragPity;
+    const n = U[key] || 0;
+    if (n >= max || Math.random() < p) {
+      U[key] = 0;
+      return true;
+    }
+    U[key] = n + 1;
+    return false;
+  }
+  G.fragRoll = fragRoll;
+  function dropFrag(id, x, z) {
+    G.spawnLoot('frag', id, x, z);
+    G.world.text(x, z, G.FRAGS[id].name, G.FRAGS[id].color, 22, { kind: 'tag', y: 2.4 });
+    G.sfx('unique');
+    state.stats.frags = (state.stats.frags || 0) + 1;
+  }
+  // 异兆成功掉的烛芯（层级 ≥ 2）：隙 / 誓 / 匣
+  G.encFragDrop = function (kind, x, z) {
+    const D = G.FRAG_DROP, id = G.ENCOUNTERS[kind] && G.ENCOUNTERS[kind].frag;
+    if (!id || !((state.tier || 0) >= D.minTier)) return false;
+    if (!fragRoll(id, D.chance[id], D.pity)) return false;
+    dropFrag(id, x, z);
+    return true;
+  };
+  // 印烛芯：烈印下击杀区域首领（G.dropLoot 首领分支的钩子，几率见 G.sealFragChance，保底 G.SEAL.frag.pity）
+  G.fragSealDrop = function (e, ilvl, W) {
+    const p = G.sealFragChance(W, state.tier || 0);
+    if (!(p > 0)) return false;
+    if (!fragRoll('seal', p, G.SEAL.frag.pity)) return false;
+    dropFrag('seal', e.x, e.z);
+    return true;
+  };
+  // 异兆成功：奖励 + 烛芯 + 渊契（渊契分支合入后才有）
+  function encWin(enc, R, x, z, lvl, frag) {
+    if (R) G.encReward(R, lvl || enc.level, x, z);
+    if (frag !== false) G.encFragDrop(enc.kind, x, z);
+    const D = G.ENCOUNTERS[enc.kind];
+    if (D.relic && G.encRelicOn()) G.relicEncDrop(D.relic, lvl || enc.level, x, z);
+    G.persist();
+  }
+  function finish(enc, ok, msg) {
+    enc.st = ok ? 'done' : 'fail';
+    enc.k = ok ? 1 : enc.k;
+    enc.pend.length = 0;
+    const D = G.ENCOUNTERS[enc.kind];
+    toast(D.name + (msg ? '：' + msg : ok ? '：完成' : '：失败'), ok ? '#c8b0ff' : '#a89a8a');
+    state.stats.encDone = (state.stats.encDone || 0) + (ok ? 1 : 0);
+  }
+
+  // ---------- 各异兆的运行时 ----------
+  // wake(enc)：醒来（建道具 / 刷游荡者）；tick(enc, dt, d, pr)：每个模拟步（d 玩家到点位的距离，pr 玩家所在房间）
+  const ENC_RUN = {
+    guard: {
+      wake(enc) {
+        G.world.encProp(enc);
+      },
+      tick(enc, dt, d) {
+        const D = G.ENCOUNTERS.guard.p, s = enc.site, W = G.world;
+        if (enc.st === 'sleep') {
+          if (!roomClear(enc)) return;
+          enc.st = 'open';
+          W.ring(s.x, s.z, D.r, 0xa98cff, 0.6);
+          W.burst(s.x, 1.4, s.z, 0xb090ff, 30, 5, 0.8);
+          if (d < 40) toast('裂隙张开了：站进圈里坚守 ' + D.hold + ' 秒', '#c8b0ff');
+          return;
+        }
+        if (enc.st === 'open') {
+          if (d > D.r || P.dead) return;
+          enc.st = 'run';
+          enc.t = 0;
+          enc.wave = 0;
+          enc.away = 0;
+          enc.zeroT = 0;
+          enc.queue = [];
+          enc.hold = false;
+          // 刷怪点：r 9–12 的环上、sd ≥ 1.5、看得见圈心
+          enc.pts = [];
+          for (let i = 0; i < D.pts; i++) {
+            const p = ringSpot(s.x, s.z, D.ring[0], D.ring[1], 1.5, undefined, 30) || ringSpot(s.x, s.z, D.r + 1, D.ring[1], 1.0, undefined, 30);
+            if (p) enc.pts.push(p);
+          }
+          if (!enc.pts.length) enc.pts.push({ x: s.x + D.r + 2, z: s.z });
+          return;
+        }
+        if (enc.st !== 'run') return;
+        if (P.dead) return finish(enc, false, '你倒下了，裂隙闭合');
+        // 坚守计时：圈里才走；离圈超过 grace 秒开始倒退；退回 0 之后 failT 秒内没回圈就失败
+        if (d <= D.r) {
+          enc.away = 0;
+          enc.zeroT = 0;
+          enc.t += dt;
+        } else {
+          enc.away += dt;
+          if (enc.away > D.grace) enc.t = Math.max(0, enc.t - D.back * dt);
+          if (enc.t <= 0) {
+            enc.zeroT += dt;
+            if (enc.zeroT > D.failT) return finish(enc, false, '离圈太久，裂隙闭合');
+          }
+        }
+        enc.k = G.clamp(enc.t / D.hold, 0, 1);
+        // 波次：按坚守计时刷出；最后一波另加精英（层级 ≥ 2 两只）
+        while (enc.wave < D.waves.length && enc.t >= D.waves[enc.wave]) {
+          const light = LIGHT(state.zone.def.mobs);
+          for (let i = 0; i < D.n[enc.wave]; i++) enc.queue.push({ type: G.pick(light), elite: false });
+          if (enc.wave === D.waves.length - 1) {
+            const ne = enc.tier >= 2 ? D.elite[1] : D.elite[0];
+            const pool = state.zone.def.mobs.filter((t) => t !== 'bomber');
+            for (let i = 0; i < ne; i++) enc.queue.push({ type: G.pick(pool.length ? pool : ['husk']), elite: true });
+          }
+          enc.wave++;
+        }
+        // 同场 ≤ cap：满了就排队，场上（含预警中的）≤ resume 再接着刷
+        const live = aliveOf(enc.mobs) + enc.pend.length;
+        if (live >= D.cap) enc.hold = true;
+        else if (enc.hold && live <= D.resume) enc.hold = false;
+        if (!enc.hold && enc.queue.length && live < D.cap) {
+          const q = enc.queue.shift(), p = enc.pts[Math.floor(Math.random() * enc.pts.length)];
+          const j = ringSpot(p.x, p.z, 0, 1.4, 1.0, undefined, 8) || p;
+          encSpawn(enc, j.x, j.z, q.elite ? 0xffc04a : 0xa98cff, (x, z) => encMob(enc, q.type, x, z, { elite: q.elite }));
+        }
+        if (enc.t >= D.hold) {
+          finish(enc, true, '坚守成功');
+          encWin(enc, G.ENCOUNTERS.guard.rew, s.x, s.z);
+        }
+      },
+    },
+    box: {
+      wake(enc) {
+        enc.st = 'idle';
+        G.world.encProp(enc);
+      },
+      tick(enc, dt, d) {
+        const D = G.ENCOUNTERS.box.p, s = enc.site;
+        if (enc.st === 'idle') {
+          if (d <= D.touch && !P.dead) ENC_RUN.box.use(enc);
+          return;
+        }
+        if (enc.st !== 'run') return;
+        enc.t -= dt;
+        enc.k = G.clamp(enc.t / D.time, 0, 1);
+        if (enc.pend.length || aliveOf(enc.mobs)) return;
+        const ok = enc.t > 0;
+        enc.how = ok ? 'free' : 'late';
+        finish(enc, true, ok ? '解缚' : '残缚');
+        enc.openT = 0;
+        G.world.burst(s.x, 0.7, s.z, 0xffd36a, 24, 4.5, 0.6);
+        if (ok) encWin(enc, G.ENCOUNTERS.box.rew, s.x, s.z);
+        else G.encReward(G.ENCOUNTERS.box.rewFail, enc.level, s.x, s.z), G.persist();
+      },
+      // 锁链崩开：三个锚点各刷一只匣卫
+      use(enc) {
+        if (enc.st !== 'idle') return false;
+        const D = G.ENCOUNTERS.box.p, s = enc.site, W = G.world;
+        enc.st = 'run';
+        enc.t = D.time;
+        W.burst(s.x, 0.6, s.z, 0x8a8490, 26, 5, 0.6);
+        W.shake(0.25);
+        G.sfx('hit');
+        const pool = state.zone.def.mobs.filter((t) => t !== 'bomber');
+        for (const a of enc.anchors) {
+          let x = s.x + Math.sin(a) * D.anchor, z = s.z + Math.cos(a) * D.anchor;
+          if (!W.walkable(x, z, 0.8)) {
+            const q = ringSpot(s.x, s.z, 1.5, D.anchor, 0.8, undefined, 16);
+            if (q) (x = q.x), (z = q.z);
+          }
+          const type = G.pick(pool.length ? pool : ['husk']);
+          encSpawn(enc, x, z, 0xffc04a, (x2, z2) => {
+            const e = encMob(enc, type, x2, z2, { noHorde: true });
+            e.maxHp = e.hp = Math.max(1, Math.round(e.hp * D.hp));
+            e.dmg *= D.dmg;
+            e.dmgBase = e.dmg; // 渊印的濒狂 / 领群按 dmgBase 重算 e.dmg：一起改
+            e.xpW = D.xpW;
+            e.name = '匣卫·' + e.def.name;
+            G.initBuildUp(e);
+            return e;
+          });
+        }
+        toast('锁链崩开：' + D.time + ' 秒内打倒三只匣卫', '#ffd36a');
+        return true;
+      },
+    },
+    wanderer: {
+      wake(enc) {
+        const Wd = G.WANDERER, s = enc.site, zone = state.zone;
+        const type = Wd.types.find((t) => zone.def.mobs.indexOf(t) >= 0) || zone.def.mobs[0];
+        const e = G.spawnMob(type, s.a.x, s.a.z, enc.level, { elite: true, awake: false, pack: null });
+        e.maxHp = e.hp = Math.max(1, Math.round(e.hp * Wd.hp));
+        e.poiseBase = e.poiseMax = e.poise = Math.round((e.poiseMax || e.def.poise) * Wd.poise);
+        e.r = e.def.r * Wd.size;
+        e.height = (e.def.h || (type === 'brute' ? 2.8 : 2)) * Wd.size;
+        e.reach = e.def.range + (e.r - e.def.r);
+        e.ent.k = Wd.size;
+        e.ent.body.scale.setScalar(Wd.size);
+        e.xpW = Wd.xpW;
+        e.encNoLoot = true; // 奖励走 encWin，不走精英掉落表
+        const N = Wd.names;
+        const a = Math.floor(Math.random() * N.length);
+        const b = (a + 1 + Math.floor(Math.random() * (N.length - 1))) % N.length;
+        e.name = Wd.titles[enc.title].name + '·' + N[a] + N[b];
+        e.enc = enc;
+        if (enc.tier < 1) e.xpK = G.ENC.t0Xp;
+        G.initBuildUp(e);
+        G.makeWanderer(e, enc.title, s.rooms, s.doors, s.a, s.b);
+        enc.mob = e;
+        enc.mobs.push(e);
+        enc.st = 'run';
+      },
+      tick(enc) {
+        const e = enc.mob;
+        if (enc.st === 'run' && e && e.dead && !e.encDone) enc.st = 'fail'; // 被调试 / 测试清掉（正常击杀在 encOnKill 里结算）
+      },
+    },
+    shrine: {
+      wake(enc) {
+        enc.st = 'idle';
+        G.world.encProp(enc);
+      },
+      tick() {},
+      use(enc) {
+        if (enc.used) return false;
+        enc.used = true;
+        enc.st = 'done';
+        const id = G.pick(G.SHRINE_IDS), B = G.SHRINE_BUFFS[id];
+        G.encBuff(id);
+        const W = G.world;
+        W.burst(enc.site.x, 2.4, enc.site.z, 0x9fe7ff, 30, 5, 0.8);
+        W.ring(P.x, P.z, 2.4, 0x9fe7ff, 0.5);
+        W.text(P.x, P.z, B.name, B.color, 26, { kind: 'tag', y: 2.6 });
+        toast('祈坛：' + B.name + '（' + B.desc + '）' + B.dur + ' 秒', B.color);
+        G.sfx('gem');
+        return true;
+      },
+    },
+    trial: {
+      wake(enc) {
+        enc.st = 'idle';
+        G.world.encProp(enc);
+      },
+      tick(enc, dt, d, pr) {
+        const D = G.ENCOUNTERS.trial.p, s = enc.site;
+        if (enc.st === 'idle') {
+          // 跨过门口的符文才开始：在小室里、并且离门比符文还远（站在门洞里不算，免得人还半在门外就开打）
+          if (pr !== s.room || P.dead) return;
+          if (dist(P.x, P.z, s.door.x, s.door.z) < dist(s.rune.x, s.rune.z, s.door.x, s.door.z) - 0.1) return;
+          enc.st = 'run';
+          enc.t = D.time;
+          enc.wave = 0;
+          enc.leaveT = 0;
+          ENC_RUN.trial.wave(enc);
+          toast('试锋开始：' + D.time + ' 秒内打完三波', '#ff8a6a');
+          return;
+        }
+        if (enc.st !== 'run') return;
+        enc.t -= dt;
+        enc.k = G.clamp(enc.t / D.time, 0, 1);
+        // 离开小室超过 leave 秒（倒下重生也算）：弃权
+        const inside = pr === s.room || Math.hypot(P.x - s.door.x, P.z - s.door.z) <= D.door;
+        enc.leaveT = inside && !P.dead ? 0 : enc.leaveT + dt;
+        if (enc.leaveT > D.leave) return ENC_RUN.trial.end(enc, 'quit');
+        if (enc.t <= 0) return ENC_RUN.trial.end(enc, 'late');
+        if (enc.pend.length || aliveOf(enc.mobs)) return;
+        if (enc.wave < D.n.length) ENC_RUN.trial.wave(enc);
+        else ENC_RUN.trial.end(enc, enc.t >= D.good ? 'top' : 'mid');
+      },
+      wave(enc) {
+        const D = G.ENCOUNTERS.trial.p, s = enc.site, W = G.world;
+        const n = D.n[enc.wave], last = enc.wave === D.n.length - 1, mobs = state.zone.def.mobs;
+        const doors = [s.door];
+        for (let i = 0; i < n; i++) {
+          let p = null;
+          for (let k = 0; k < 20 && !p; k++) {
+            const q = ringSpot(s.x, s.z, 0, Math.max(1.5, s.r * 0.8), 1.0, s.room, 1);
+            if (q && Math.hypot(q.x - s.door.x, q.z - s.door.z) >= D.door) p = q;
+          }
+          if (!p) p = { x: s.x, z: s.z };
+          const elite = last && i < D.elite;
+          const type = elite ? G.pick(mobs.filter((t) => t !== 'bomber').concat(['husk'])) : G.pick(mobs);
+          encSpawn(enc, p.x, p.z, elite ? 0xffc04a : 0xff5a4a, (x, z) => {
+            const e = encMob(enc, type, x, z, { elite });
+            e.leashRooms = [s.room];
+            e.leashDoors = doors;
+            return e;
+          });
+        }
+        enc.wave++;
+        if (enc.wave > 1) W.text(P.x, P.z, '第 ' + enc.wave + ' 波', '#ff9a7a', 22, { kind: 'tag', y: 2.6 });
+      },
+      end(enc, how) {
+        const T = G.ENCOUNTERS.trial, s = enc.site;
+        if (how === 'top' || how === 'mid') {
+          finish(enc, true, how === 'top' ? '「上」（剩 ' + Math.floor(enc.t) + ' 秒）' : '「中」');
+          encWin(enc, how === 'top' ? T.rew : T.rewMid, s.x, s.z);
+        } else {
+          // 超时 / 弃权：没清掉的怪淡出消失，给 1 颗通货
+          for (const e of enc.mobs) encVanish(e);
+          finish(enc, false, how === 'quit' ? '弃权' : '超时');
+          G.encReward(T.rewFail, enc.level, s.x, s.z);
+        }
+        enc.how = how;
+      },
+    },
+    trader: {
+      wake(enc) {
+        enc.st = 'idle';
+        G.world.encProp(enc);
+      },
+      tick() {},
+      use(enc) {
+        G.traderOpen(enc);
+        return true;
+      },
+    },
+    echo: {
+      wake() {},
+      tick(enc, dt, d, pr) {
+        if (enc.st === 'run' && enc.mob && enc.mob.dead && !enc.mob.encDone) enc.st = 'fail'; // 被调试 / 测试清掉（正常击杀在 encOnKill 里结算）
+        // 房间清空、玩家就在这个房间里才浮现
+        if (enc.st !== 'sleep' || pr !== enc.site.room || !roomClear(enc)) return;
+        const D = G.ENCOUNTERS.echo.p, s = enc.site, zone = state.zone;
+        enc.st = 'run';
+        const lvl = enc.level + D.lv;
+        encSpawn(enc, s.x, s.z, 0xb090ff, (x, z) => {
+          const e = G.spawnBoss(zone.def.boss, x, z, lvl, { echo: true, hpK: D.hp, pats: D.pats });
+          e.leashRooms = [s.room];
+          e.leashDoors = zone.links.filter((L) => L.door && (L.a === s.room || L.b === s.room)).map((L) => L.door);
+          e.xpW = D.xpW;
+          e.encNoLoot = true;
+          enc.mob = e;
+          return e;
+        });
+        G.world.ring(s.x, s.z, 4, 0xb090ff, G.ENC.warn);
+        toast('「' + G.BOSSES[zone.def.boss].name + '」的残影浮现了', '#c8b0ff');
+      },
+    },
+    ember: {
+      wake(enc) {
+        G.world.encProp(enc);
+      },
+      tick(enc, dt, d) {
+        const D = G.ENCOUNTERS.ember.p, s = enc.site, W = G.world;
+        if (enc.st === 'sleep') {
+          if (roomClear(enc)) enc.st = 'open';
+          return;
+        }
+        if (enc.st === 'open') {
+          if (d <= D.touch && !P.dead) ENC_RUN.ember.use(enc);
+          return;
+        }
+        if (enc.st !== 'run') return;
+        enc.t -= dt;
+        enc.k = G.clamp(enc.t / D.time, 0, 1);
+        if (!enc.pend.length && enc.shards && enc.shards.every((e) => e.dead)) {
+          finish(enc, true, '烬晶全碎');
+          enc.tele.length = 0;
+          return encWin(enc, G.ENCOUNTERS.ember.rew, s.x, s.z);
+        }
+        if (enc.t <= 0) {
+          for (const e of enc.shards || []) encVanish(e);
+          return finish(enc, false, '超时');
+        }
+        // 落烬：每 every 秒一团，同时 ≤ max 个预警；aim 的几率瞄着玩家（玩家在范围里时）
+        enc.fallT -= dt;
+        // 已经结算的（或倒下重生时被整个清掉的）预警不再占名额
+        for (let i = enc.tele.length - 1; i >= 0; i--) if (enc.tele[i].t >= enc.tele[i].dur || state.telegraphs.indexOf(enc.tele[i]) < 0) enc.tele.splice(i, 1);
+        if (enc.fallT > 0 || enc.tele.length >= D.max) return;
+        enc.fallT = D.every;
+        let x, z;
+        const pin = Math.hypot(P.x - s.x, P.z - s.z) <= D.area + 2 && Math.random() < D.aim;
+        if (pin) (x = P.x + G.rand(-0.6, 0.6)), (z = P.z + G.rand(-0.6, 0.6));
+        else {
+          const q = ringSpot(s.x, s.z, 0, D.area, 0.3, undefined, 6);
+          if (!q) return;
+          x = q.x;
+          z = q.z;
+        }
+        const hit = D.hitK * G.MOBS.husk.dmg * G.dmgScale(enc.level);
+        const t = G.telegraph({
+          shape: 'circle', x, z, r: D.r, dur: D.warn, dmg: hit, dtype: 'fire', owner: null, friendly: false,
+          onFire() {
+            W.burst(x, 0.5, z, 0xff8a3c, 16, 5, 0.5);
+            W.decal(1, x, z, D.r * 0.8, Math.random() * TAU, 0xff6a2a, 3);
+            // 打怪 × mobK（烬晶不吃：要你自己打碎）
+            for (const e of state.enemies) if (!e.dead && !e.fixed && !e.isBoss && dist(e.x, e.z, x, z) <= D.r + e.r * 0.5) encHurt(e, hit * D.mobK);
+          },
+        });
+        enc.tele.push(t);
+      },
+      use(enc) {
+        if (enc.st !== 'open') return false;
+        const D = G.ENCOUNTERS.ember.p, s = enc.site;
+        enc.st = 'run';
+        enc.t = D.time;
+        enc.fallT = 1.0;
+        enc.tele = [];
+        enc.shards = [];
+        const a0 = Math.random() * TAU;
+        for (let i = 0; i < D.n; i++) {
+          let p = null;
+          for (let k = 0; k < 10 && !p; k++) {
+            const a = a0 + (i * TAU) / D.n + G.rand(-0.35, 0.35), dd = G.rand(D.ring[0], D.ring[1]);
+            const x = s.x + Math.sin(a) * dd, z = s.z + Math.cos(a) * dd;
+            if (G.world.sdAt(x, z) >= 1.0) p = { x, z };
+          }
+          if (!p) p = ringSpot(s.x, s.z, 3, D.ring[1], 0.8, undefined, 20) || { x: s.x + 3, z: s.z };
+          encSpawn(enc, p.x, p.z, 0xff8a3c, (x, z) => {
+            const def = Object.assign({}, SHARD_DEF, { hp: G.MOBS.husk.hp * D.hp });
+            const e = G.spawnMob('shard', x, z, enc.level, { def, awake: true });
+            e.fixed = true;
+            e.encNoLoot = true;
+            e.ang = 0;
+            enc.shards.push(e);
+            return e;
+          });
+        }
+        G.world.burst(s.x, 1.2, s.z, 0xffa64a, 30, 5, 0.7);
+        toast('余烬开始落下：' + D.time + ' 秒内打碎四块烬晶', '#ffb070');
+        return true;
+      },
+    },
+  };
+  // 余烬打到怪：直接扣血（不算玩家的命中，不触发技能效果）
+  function encHurt(e, dmg) {
+    if (!e || e.dead) return;
+    e.hp -= dmg;
+    e.awake = true;
+    G.world.flash(e.ent, 0.6);
+    G.world.text(e.x, e.z, '-' + Math.round(dmg), '#ff8a3c', 14);
+    if (e.hp <= 0) G.killEnemy(e);
+  }
+
+  // 灰誓者的图腾（enemies.js 在生命过阈值时调）
+  G.encSpawnTotems = function (w, T) {
+    const W = G.world, a0 = Math.random() * TAU;
+    w.encTotems = w.encTotems || [];
+    for (let i = 0; i < T.n; i++) {
+      const a = a0 + (i * TAU) / T.n;
+      let x = w.x + Math.sin(a) * T.ring, z = w.z + Math.cos(a) * T.ring;
+      if (!W.walkable(x, z, 0.6)) {
+        const q = ringSpot(w.x, w.z, 1.5, T.ring + 1, 0.6, undefined, 12);
+        if (!q) continue;
+        x = q.x;
+        z = q.z;
+      }
+      const def = Object.assign({}, TOTEM_DEF, { hp: G.MOBS.husk.hp * T.hp });
+      const t = G.spawnMob('totem', x, z, w.level, { def, awake: true });
+      t.fixed = true;
+      t.summoned = true; // 玩家重生时直接移除（同首领召来的小怪）
+      t.encNoLoot = true;
+      t.ang = 0;
+      w.encTotems.push(t);
+      if (w.enc) w.enc.mobs.push(t);
+      W.ring(x, z, 1.4, 0xc8c0b0, 0.5);
+      W.burst(x, 1, z, 0xc8c0b0, 12, 3, 0.5);
+    }
+    W.text(w.x, w.z, '立誓', '#e8e0d0', 22, { kind: 'tag', y: 3.6 });
+  };
+  // 镜影客的分身：同样的怪、同样的普攻，生命 hp 倍、伤害 dmg 倍，不会再分；本体死了一起散
+  G.encSpawnClone = function (w, T) {
+    const W = G.world;
+    const q = ringSpot(w.x, w.z, 1.5, 3.5, 0.8, undefined, 12) || { x: w.x + 1.5, z: w.z };
+    const c = G.spawnMob(w.type, q.x, q.z, w.level, { elite: false, awake: true, pack: null });
+    c.maxHp = c.hp = Math.max(1, Math.round(w.maxHp * T.hp));
+    c.dmg = (w.dmgBase || w.dmg) * T.dmg;
+    c.dmgBase = c.dmg; // 渊印的濒狂 / 领群按 dmgBase 重算 e.dmg
+    c.name = '镜影';
+    c.summoned = true;
+    c.encNoLoot = true;
+    c.xpK = 0;
+    c.encOwner = w;
+    c.leashRooms = w.leashRooms;
+    c.leashDoors = w.leashDoors;
+    c.ent.k = w.ent.k;
+    c.ent.body.scale.setScalar(w.ent.k);
+    if (W.echoTint) W.echoTint(c.ent);
+    G.initBuildUp(c);
+    (w.encClones || (w.encClones = [])).push(c);
+    if (w.enc) w.enc.mobs.push(c);
+    W.burst(q.x, 1, q.z, 0xb8a8ff, 16, 4, 0.5);
+    W.text(w.x, w.z, '镜影', '#d0c0ff', 22, { kind: 'tag', y: 3.6 });
+  };
+  // G.killEnemy 的钩子：游荡者 / 残影倒下结算奖励；游荡者死了分身一起散
+  G.encOnKill = function (e) {
+    const enc = e.enc;
+    if (e.encClones) for (const c of e.encClones) encVanish(c);
+    if (!enc || e !== enc.mob || enc.st !== 'run') return;
+    e.encDone = true;
+    const D = G.ENCOUNTERS[enc.kind];
+    finish(enc, true, '已击败「' + e.name + '」');
+    encWin(enc, D.rew, e.x, e.z, e.level);
+  };
+
+  // ---------- 每个模拟步（main.js 的 sim 调）----------
+  G.updateEncounters = function (dt) {
+    // 祈坛的增益倒计时（不跟着异兆走：换区也带着）
+    const B = P.encBuff;
+    if (B) {
+      B.t -= dt;
+      if (B.t <= 0) {
+        P.encBuff = null;
+        G.computeStats();
+      }
+    }
+    const list = state.enc;
+    if (!list.length || !state.zone) return;
+    const W = G.world, E = G.ENC;
+    const pr = W.roomAt(P.x, P.z);
+    for (let i = 0; i < list.length; i++) {
+      const enc = list[i], s = enc.site;
+      const d = dist(P.x, P.z, s.x, s.z);
+      const inRoom = pr >= 0 && (pr === s.room || (s.rooms && s.rooms.indexOf(pr) >= 0));
+      if (!enc.seen && (d <= E.reveal || inRoom)) enc.seen = true;
+      if (!enc.live) {
+        // 醒来：走到 lazy 内 / 进了房间；游荡者只看房间：玩家进到巡逻段或它的相邻房间时才生成（不按距离，起点附近不会冒出来）
+        let near = s.rooms ? inRoom : d <= E.lazy || inRoom;
+        if (!near && s.rooms && pr >= 0) for (const r of s.rooms) if (W.roomLink(pr, r) >= 0) near = true;
+        if (!near) continue;
+        enc.live = true;
+        ENC_RUN[enc.kind].wake(enc);
+        // 能互动的几种：醒来时提示一句怎么用（同一种只在这次进区提示一次）
+        const HINT = { shrine: '祈坛：走近按 F 激活', trader: '拾烬客：走近按 F 交易', box: '缚匣：走近崩开锁链（会惊醒匣卫）' };
+        if (HINT[enc.kind]) toast(HINT[enc.kind], '#d8c8a8', 'enc-' + enc.kind, 2600);
+      }
+      if (enc.pend.length) tickPend(enc, dt);
+      ENC_RUN[enc.kind].tick(enc, dt, d, pr);
+    }
+  };
+  // 祈坛增益：P.encBuff = { id, t }，属性在 computeStats 里加
+  G.encBuff = function (id, dur) {
+    const B = G.SHRINE_BUFFS[id];
+    if (!B) return false;
+    P.encBuff = { id, t: dur === undefined ? B.dur : dur };
+    G.computeStats();
+    return true;
+  };
+  // 能互动的异兆（祈坛、缚匣、拾烬客、落烬的烬核）：互动点和最大距离
+  function encUsable(enc) {
+    if (!enc.live) return false;
+    if (enc.kind === 'shrine') return !enc.used;
+    if (enc.kind === 'box') return enc.st === 'idle';
+    if (enc.kind === 'trader') return true;
+    if (enc.kind === 'ember') return enc.st === 'open';
+    return false;
+  }
+  G.encUse = function (enc) {
+    if (!enc || !encUsable(enc) || P.dead) return false;
+    return ENC_RUN[enc.kind].use(enc);
+  };
+  // F 键（附近没有掉落和宝箱时）：3.5 m 内最近的一个
+  G.encNearest = function (r) {
+    let best = null, bd = r || 3.5;
+    for (const enc of state.enc) {
+      if (!encUsable(enc)) continue;
+      const d = dist(enc.site.x, enc.site.z, P.x, P.z);
+      if (d <= bd) (bd = d), (best = enc);
+    }
+    return best;
+  };
+  // 点击（main.js）：鼠标落在互动点 1.4 m 内（同宝箱，判定圆往北挪 0.35 m）
+  G.encAt = function (wx, wz) {
+    let best = null, bd = 1.4;
+    for (const enc of state.enc) {
+      if (!encUsable(enc)) continue;
+      const d = dist(wx, wz, enc.site.x, enc.site.z - 0.35);
+      if (d < bd) (bd = d), (best = enc);
+    }
+    return best;
+  };
+  G.clickEnc = function (enc) {
+    if (!enc || P.dead) return false;
+    if (dist(enc.site.x, enc.site.z, P.x, P.z) > 7) {
+      toast('走近一点', '#c8b89a', 'far', 900);
+      return false;
+    }
+    return G.encUse(enc);
+  };
+  // 祈坛「丰饶」：期间击杀的物品 / 通货件数和几率 × loot（只临时放大渊印的 Q 传给 G.dropLoot，宝石不吃 Q 所以不变）
+  G.encDropLoot = function (e) {
+    const B = P.encBuff && G.SHRINE_BUFFS[P.encBuff.id];
+    if (!B || !B.loot) return G.dropLoot(e);
+    const RM = G.runMods;
+    G.runMods = Object.assign({}, RM, { qty: (1 + RM.qty) * B.loot - 1 });
+    try {
+      G.dropLoot(e);
+    } finally {
+      G.runMods = RM;
+    }
+  };
+
+  // ---------- 拾烬客 ----------
+  // 进店时掷一次货架：items 件当前物品等级的装备（部位优先补空着的或物品等级最低的，至少 1 件稀有）、1 颗技能宝石或辅助、
+  // 层级 ≥ 2 有几率摆一件渊契（G.relicTraderPick，渊契分支合入后才有）
+  G.traderOpen = function (enc) {
+    if (!enc.stock) enc.stock = rollStock(enc);
+    state.trader = enc;
+    if (G.ui && G.ui.open) G.ui.open('trader');
+    return enc.stock;
+  };
+  function rollStock(enc) {
+    const T = G.TRADER, save = G.save, lvl = enc.level;
+    const want = G.SLOTS.slice().sort((a, b) => {
+      const ia = save.equip[a] ? save.equip[a].ilvl || 0 : -1, ib = save.equip[b] ? save.equip[b].ilvl || 0 : -1;
+      return ia - ib || Math.random() - 0.5;
+    });
+    const out = [];
+    for (let i = 0; i < T.items; i++) {
+      const rar = i === 0 ? 2 : Math.max(1, G.rollRarity(encRm()));
+      const item = G.rollItem(lvl, rar, want[i % want.length]);
+      out.push({ kind: 'item', item, price: item.rarity >= 2 ? T.price.rare : T.price.magic });
+    }
+    out.push(Math.random() < 0.5 ? { kind: 'skill', data: pickSkillGem(0.7), price: T.price.gem } : { kind: 'support', data: pickSupportGem(0.7), price: T.price.gem });
+    const rq = ENC_RELIC && typeof G.relicTraderPick === 'function' ? G.relicTraderPick() : null;
+    if (rq && G.rollRelic) out.push({ kind: 'item', item: G.rollRelic(rq, lvl), price: T.price.relic, relic: true });
+    return out;
+  }
+  G.traderCanPay = function (price) {
+    for (const id in price) if ((G.save.cur[id] || 0) < price[id]) return false;
+    return true;
+  };
+  // 买第 i 件：付钱、进背包（宝石照拾取的规则学会 / 升级 / 化尘）。返回 true / 失败原因
+  G.traderBuy = function (i) {
+    const enc = state.trader, save = G.save;
+    const o = enc && enc.stock && enc.stock[i];
+    if (!o || o.sold) return 'none';
+    if (!G.traderCanPay(o.price)) return 'cost';
+    if (o.kind === 'item' && save.bag.length >= BAG_SIZE) return 'bag';
+    for (const id in o.price) save.cur[id] -= o.price[id];
+    o.sold = true;
+    if (o.kind === 'item') {
+      save.bag.push(o.item);
+      if (o.item.rarity === 3) noteUnique(o.item);
+      if (G.ui && G.ui.onPickup) G.ui.onPickup({ kind: 'item', data: o.item }, false);
+    } else {
+      // 宝石：照地上拾取的规则结算（就地生成一个掉落再拾起，省得再写一遍）
+      const l = G.spawnLoot(o.kind, o.data, P.x, P.z);
+      l.x = P.x;
+      l.z = P.z;
+      G.pickup(l);
+    }
+    G.sfx('pickup');
+    G.persist();
+    return true;
+  };
+  // 卖：背包里的一件，按分解的价收（魔法以上再加 1 颗微光尘）
+  G.traderSell = function (item) {
+    const save = G.save, i = save.bag.indexOf(item);
+    if (!state.trader || i < 0) return false;
+    save.bag.splice(i, 1);
+    const res = G.salvageResult(item);
+    if (item.rarity >= 1) res.dust = (res.dust || 0) + 1;
+    for (const id in res) grantCurrency(id, res[id]);
+    const txt = resultText(res);
+    if (txt) toast('卖给拾烬客：' + txt, '#7fe07a');
+    G.sfx('pickup');
+    G.persist();
+    return res;
+  };
+  // 烛芯 2 换 1（层级 ≥ fragTier，不要钱）：从你最多的其它种类里扣 swap 个，换 1 个 want
+  G.traderSwap = function (want) {
+    const T = G.TRADER, F = G.save.frags;
+    if (!state.trader || !G.FRAGS[want] || !((state.tier || 0) >= T.fragTier)) return false;
+    let left = T.swap;
+    const plan = {};
+    const others = G.FRAG_IDS.filter((id) => id !== want).sort((a, b) => (F[b] || 0) - (F[a] || 0));
+    for (const id of others) {
+      const k = Math.min(left, (F[id] || 0) - (plan[id] || 0));
+      if (k > 0) (plan[id] = (plan[id] || 0) + k), (left -= k);
+      if (!left) break;
+    }
+    if (left > 0) return false;
+    for (const id in plan) F[id] -= plan[id];
+    F[want] = Math.min(G.FRAG_DROP.max, (F[want] || 0) + 1);
+    toast('换得 1 个' + G.FRAGS[want].name, G.FRAGS[want].color);
+    G.persist();
+    return plan;
+  };
+
+  // =====================================================================
   // 区域
   // =====================================================================
   // seal（可选）：这次进区的渊印（择印面板选的那一枚，见 G.rollSeals）；'resume' = 读档时接着存档里的那一次
@@ -7561,6 +8417,9 @@
     state.zoneIdx = idx;
     state.tier = tier;
     G.spawnZoneMobs(state.zone);
+    const te = performance.now();
+    G.rollEncounters(state.zone, tier); // 异兆：只选址（道具和怪都懒生成），刷完怪之后才掷，进区时的怪物列表不变
+    state.zone.ms.enc = performance.now() - te;
 
     G.computeStats();
     P.dead = false;
