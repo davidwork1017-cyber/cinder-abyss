@@ -2035,6 +2035,106 @@ async function main() {
     return '机炮首发 ' + g.first + 's、射速 ' + g.early + ' → ' + g.late + '/0.5s · 喷枪 ' + f.inC + '+余烬 ' + f.burn + ' · 左轮 ' + r.rev.shots + ' 发 · 鹰眼 近 ' + r.eagle.near + ' / 远 ' + r.eagle.far;
   });
 
+  await step('拉弓：准星在正前 / 两侧 / 斜后 / 正后、跨过 ±180°、准星扫过身后，站着 / 边走 / 翻滚后 / 高攻速，弦拉开的那段右手都在肩线的胸口一侧、贴着箭线（不往背后拉、不穿模）', async () => {
+    const r = await ev((code) => {
+      eval(code);
+      const P = G.player, W = G.world, S = G.state, inp = G.input, out = { cases: 0, bad: [], minFront: 9, maxLat: 0, shots: 0 };
+      const keepW = G.save.equip.weapon, ctx0 = G.skillCtx;
+      let spdK = 1;
+      // 高攻速：只在这一步里把出手速度乘上去（拉弓起手跟着缩短）
+      G.skillCtx = function (id) {
+        const c = ctx0.call(G, id);
+        if (spdK !== 1 && c) { c.speed *= spdK; c.time /= spdK; }
+        return c;
+      };
+      const kf = (K, k) => {
+        let ka = Math.abs(K[0]);
+        if (k <= ka) return K[1];
+        for (let i = 2; i < K.length; i += 2) {
+          const kb = Math.abs(K[i]);
+          if (k <= kb) {
+            let t = (k - ka) / (kb - ka);
+            t = K[i] < 0 ? t * t * t : t * t * (3 - 2 * t);
+            return K[i - 1] + (K[i + 1] - K[i - 1]) * t;
+          }
+          ka = kb;
+        }
+        return K[K.length - 1];
+      };
+      // 关节 j 上偏移 off 处的点（相对脚下，世界朝向）
+      const pt = (e, j, off) => {
+        const M = e.mdl, m = j * 12, o = off || [0, 0, 0], th = e.group.rotation.y, s = e.group.scale.x, c = Math.cos(th), sn = Math.sin(th);
+        const x = M[m] * o[0] + M[m + 1] * o[1] + M[m + 2] * o[2] + M[m + 3], y = M[m + 4] * o[0] + M[m + 5] * o[1] + M[m + 6] * o[2] + M[m + 7], z = M[m + 8] * o[0] + M[m + 9] * o[1] + M[m + 10] * o[2] + M[m + 11];
+        return [(x * c + z * sn) * s, y * s, (-x * sn + z * c) * s];
+      };
+      const keys = (dx, dz) => { const k = inp.keys; k.KeyW = dz < -0.3; k.KeyS = dz > 0.3; k.KeyA = dx < -0.3; k.KeyD = dx > 0.3; };
+      try {
+        // [弓, 攻速倍率, 状态, 初始朝向（度）, 准星相对朝向（度）, 扫到（度）]
+        const CASES = [];
+        for (const rel of [0, 90, -90, 135, -135, 180]) CASES.push([5, 1, 'stand', 30, rel]);
+        for (const rel of [90, -90, 180]) CASES.push([5, 1, 'move', 30, rel]);
+        for (const rel of [0, 180]) CASES.push([5, 1, 'roll', 30, rel]);
+        CASES.push([5, 1, 'stand', 170, 20], [5, 1, 'stand', -170, -20], [5, 1, 'sweep', 0, 150, 210]);
+        for (const rel of [-90, 180]) CASES.push([5, 2.5, 'stand', 30, rel], [5, 2.5, 'move', 30, rel]);
+        for (const b of [10, 13]) CASES.push([b, 1, 'stand', 30, 180], [b, 1, 'move', 30, 90], [b, 2.5, 'stand', 170, 20]);
+        for (const [b, k, st, face, rel, rel2] of CASES) {
+          T.lane();
+          RW.arm(b);
+          spdK = k;
+          const F = face * Math.PI / 180;
+          P.face = P.drawFace = F;
+          W.setEnt(P.ent, P.x, P.z, F);
+          RW.run(20);
+          if (st === 'move') { keys(Math.sin(F), Math.cos(F)); RW.run(20, { x: P.x + Math.sin(F) * 8, z: P.z + Math.cos(F) * 8 }); }
+          if (st === 'roll') { keys(Math.sin(F), Math.cos(F)); inp.tapDodge = 0.3; G.tick(1 / 60); keys(0, 0); RW.run(8); }
+          const s0 = S.stats.rShots || 0, n = st === 'sweep' ? 80 : 60;
+          let mf = 9, ml = 0, worst = null;
+          for (let i = 0; i < n; i++) {
+            const a = F + (st === 'sweep' ? rel + (rel2 - rel) * i / (n - 1) : rel) * Math.PI / 180;
+            if (st === 'move') keys(Math.sin(F), Math.cos(F));
+            T.aim(P.x + Math.sin(a) * 8, P.z + Math.cos(a) * 8);
+            inp.mouse.b[2] = true;
+            G.tick(1 / 60);
+            const e = P.ent, c = e.clip;
+            const dk = c && c.draw ? kf(c.draw, e.cK) : 0;
+            if (!c || !/^fire_/.test(c.name) || dk <= 0) continue;
+            const JI = e.rig.JI, hand = pt(e, JI.hR, e.rig.armR.grip), grip = pt(e, JI.hL, e.rig.armL.grip), sR = pt(e, JI.uaR), sL = pt(e, JI.uaL);
+            // 躯干前方：两肩连线（左 → 右）转 90°；右手在两肩中点的前方多少
+            const sx = sR[0] - sL[0], sz = sR[2] - sL[2], sl = Math.hypot(sx, sz) || 1, fx = sz / sl, fz = -sx / sl;
+            const front = (hand[0] - (sR[0] + sL[0]) / 2) * fx + (hand[2] - (sR[2] + sL[2]) / 2) * fz;
+            // 箭线：过弓把、沿这一箭的方向；右手离它的水平距离
+            const ad = P.cast ? P.cast.aim : a, ax = Math.sin(ad), az = Math.cos(ad), hx = hand[0] - grip[0], hz = hand[2] - grip[2];
+            const lat = Math.abs(hx * az - hz * ax);
+            // 整段拉弓不许跑到肩线背后；弦拉开四分之一以后（到撒放）还要贴着箭线
+            const drawn = dk >= 0.25 && e.cK <= c.k0;
+            if (drawn && front < mf) mf = front;
+            if (drawn && lat > ml) ml = lat;
+            if ((front < (drawn ? 0.02 : 0) || (drawn && lat > 0.06)) && !worst) worst = { i, k: +e.cK.toFixed(2), dk: +dk.toFixed(2), front: +front.toFixed(3), lat: +lat.toFixed(3) };
+          }
+          inp.mouse.b[2] = false;
+          keys(0, 0);
+          RW.run(20);
+          out.cases++;
+          out.shots += (S.stats.rShots || 0) - s0;
+          out.minFront = Math.min(out.minFront, mf);
+          out.maxLat = Math.max(out.maxLat, ml);
+          if (worst || mf > 8) out.bad.push([b, k, st, face, rel, rel2 === undefined ? '' : rel2].join('/') + ' ' + JSON.stringify(worst || '没拉弓'));
+        }
+      } finally {
+        G.skillCtx = ctx0;
+        keys(0, 0);
+        inp.mouse.b[2] = false;
+        G.save.equip.weapon = keepW;
+        G.computeStats();
+        T.arena();
+      }
+      return out;
+    }, rangedSetup);
+    assert(r.cases >= 24 && r.shots >= r.cases * 2, '拉弓场景没跑起来：' + JSON.stringify(r));
+    assert(!r.bad.length, '拉弓时右手跑到肩线背后 / 离开箭线（前方要 ≥ 0.02 米、离箭线 ≤ 0.06 米）：' + r.bad.slice(0, 6).join(' ｜ ') + ' 共 ' + r.bad.length + ' 例');
+    return r.cases + ' 个场景、' + r.shots + ' 箭 · 右手最少在肩线前 ' + r.minFront.toFixed(3) + ' 米 · 离箭线最多 ' + r.maxLat.toFixed(3) + ' 米';
+  });
+
   await step('量表：热度开火上涨、停火回落、满了不掉；专注命中上涨（暴击 / 远距离更多），挨打掉一点；量表没满时 R 灰着按不出，满了能放、放完清零；不扣魔力、不进冷却', async () => {
     const r = await ev((code) => {
       eval(code);
