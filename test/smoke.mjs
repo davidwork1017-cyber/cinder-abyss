@@ -8400,6 +8400,64 @@ async function main() {
     return '几何体 ' + r.g + '（+' + r.geo + '），贴图 ' + r.t + '（+' + r.tex + '）';
   });
 
+  await step('特效贴图库（vf-vfx）：贴图包载入、五张贴图解码完成；每个区域在高 / 低画质下施放六个旗舰技能（掷焰、陨火、链雷、霜环、黑洞、黑旋风）并渲染，特效着色器编译无报错、序列帧画进光晕零件', async () => {
+    const r = await ev(async () => {
+      const W = G.world, V = G.vfx, S = G.state, P = G.player, save = G.save;
+      const out = { ok: !!(V && V.ok), bytes: V ? V.bytes() : 0, rows: [] };
+      if (!V) return out;
+      out.ready = await V.whenReady;
+      out.mats = V.materials().length;
+      const keep = { zi: S.zoneIdx, tier: S.tier, q: W.quality(), bar: save.bar.slice(), skills: Object.assign({}, save.skills), sockets: JSON.parse(JSON.stringify(save.sockets)), level: save.level };
+      const IDS = ['ember', 'meteor', 'arc', 'blackhole', 'vortex'];
+      try {
+        for (let z = 0; z < G.ZONES.length; z++) {
+          G.enterZone(z, 0);
+          for (const q of ['high', 'low']) {
+            W.setQuality(q);
+            G.clearEnemies();
+            for (const k of IDS.concat('nova')) { save.skills[k] = 10; save.sockets[k] = [null, null, null]; }
+            save.level = Math.max(save.level, 20);
+            save.bar = ['nova', null, null, null];
+            G.computeStats();
+            const row = { z: S.zone.def.id, q, fb: 0, glow: 0, aura: false };
+            for (const id of IDS) {
+              const e = G.spawnMob('husk', P.x + 5, P.z - 1, 5, { awake: true });
+              e.hp = e.maxHp = 1e6;
+              e.atkCd = 1e9;
+              e.speed = 0;
+              G.input.mouse.wx = e.x;
+              G.input.mouse.wz = e.z;
+              P.mana = P.maxMana;
+              P.cast = null;
+              G.execSkill(G.skillCtx(id));
+              for (let i = 0; i < 4; i++) { G.debug.step(0.12); W.render(); }
+              row.fb = Math.max(row.fb, W.fxFlipLive());
+              row.glow = Math.max(row.glow, W.projFxInfo().parts.glow);
+            }
+            row.aura = W.auraInfo().visible;
+            out.rows.push(row);
+            W.clearFx();
+          }
+        }
+      } finally {
+        G.clearEnemies();
+        save.bar = keep.bar;
+        save.skills = keep.skills;
+        save.sockets = keep.sockets;
+        save.level = keep.level;
+        G.computeStats();
+        W.setQuality(keep.q);
+        G.enterZone(keep.zi, keep.tier);
+        G.debug.god(true);
+      }
+      return out;
+    });
+    assert(r.ok && r.ready && r.bytes > 50000 && r.bytes < 400000, '特效贴图包应载入、贴图全部解码（base64 50–400 KB）：' + JSON.stringify({ ok: r.ok, ready: r.ready, bytes: r.bytes }));
+    assert(r.mats >= 2, '投射物的火舌应换成特效贴图库的共用材质：' + r.mats);
+    assert(r.rows.length === 10 && r.rows.every((x) => x.fb > 0 && x.glow > 0 && x.aura), '每个区域、高 / 低画质下都应画出序列帧特效和霜环：' + JSON.stringify(r.rows));
+    return '贴图包 ' + Math.round(r.bytes / 1024) + ' KB，' + r.rows.length + ' 轮施放';
+  });
+
   await step('画面：CC0 素材按区域加载后换成 PBR 地面与布景；画质高 / 中 / 低即时切换、存档，三档都能渲染', async () => {
     const r = await ev(async () => {
       const W = G.world;

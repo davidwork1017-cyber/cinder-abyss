@@ -11412,6 +11412,7 @@
   const dyingEnts = [];
   let corpseRoot = null; // 已被主人「移除」但还没消散完的尸体挂在这里，不占场景的直接子节点
   // 各伤害类型的死法：消散边缘色 / 倒地后多久开始消散 / 消散时长 / 地上留下的痕迹（贴花种类）/ 飘屑的上升速度
+  const DEATH_PUFF = { phys: 0x9a8a7c, fire: 0x4a3a34, cold: 0xcfeeff, light: 0x8a8270, chaos: 0x3a1440 }; // vf-vfx：消散时那团烟的颜色
   const DEATH_STYLE = {
     phys: { edge: 0xe8dcc8, linger: 0.22, fade: 0.5, decal: 4, up: 0.7 },
     fire: { edge: 0xff7a2c, linger: 0.05, fade: 0.6, decal: 1, up: 2.4 },
@@ -11549,6 +11550,10 @@
         if (!d.begun) {
           d.begun = true;
           ent.meshBody.castShadow = false;
+          // vf-vfx：开始消散的那一下，身上腾起一团序列帧烟（颜色按死法：灰土 / 焦烟 / 霜雾 / 暗紫），电死的另加一记星芒
+          const bigE = ent.rig.NB === NB_BIG, sz = (bigE ? 3 : 1.45) * Math.max(1, ent.k);
+          W.fxFlip(VFB.smoke, g.x, g.y + h * 0.42, g.z, sz, bigE ? 1.1 : 0.8, DEATH_PUFF[d.type] || DEATH_PUFF.phys, { vy: 0.45, up: 0.3, grow: 1.4, a: 0.85 });
+          if (d.type === 'light') W.fxFlip(VFB.spark, g.x, g.y + h * 0.5, g.z, sz * 0.9, 0.22, 0xfff2a0, { a: 0.9 });
           if (st) {
             const big = ent.rig.NB === NB_BIG;
             W.decal(st.decal, g.x, g.z, (big ? 2.6 : 0.95 + d.over * 0.35) * Math.max(1, ent.k), rand(0, TAU), st.edge, big ? 7 : 4.5);
@@ -18826,9 +18831,10 @@
     trail.c0 = { value: new T.Color(1, 1, 1) };
     trail.c2 = { value: new T.Color(1, 1, 1) };
     const mat = new T.ShaderMaterial({
-      uniforms: { uColor: trail.color, uC0: trail.c0, uC2: trail.c2 },
+      uniforms: G.vfx.uni({ uColor: trail.color, uC0: trail.c0, uC2: trail.c2 }),
       vertexShader: 'attribute float aA; attribute float aU; varying float vA; varying float vU;\nvoid main(){ vA = aA; vU = aU; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-      fragmentShader: [
+      // vf-vfx：拼上特效贴图库的 GLSL 工具：顺着刀光走向的刀纹（条纹噪声的快变方向放在横向），老的一截被刀纹撕成一缕缕
+      fragmentShader: G.vfx.GLSL + '\n' + [
         'uniform vec3 uColor; uniform vec3 uC0; uniform vec3 uC2; varying float vA; varying float vU;',
         'void main(){',
         '  if (vA < 0.02) discard;',
@@ -18836,8 +18842,10 @@
         '  float lo = 1.0 - pow(vA, 0.55);',
         '  float s = (vU - lo) / max(1.0 - lo, 0.001);',
         '  if (s < 0.0) discard;',
+        '  float st = vfxNB(vec2(s * 0.85 + 0.3, vA * 0.35)).r;',
+        '  if (vA < 0.32 && st < (0.32 - vA) * 2.6) discard;',
         // 横向三道硬边色带：刃尖一侧亮芯、中间主色、内沿深色
-        '  vec3 col = s > 0.72 ? uC0 : (s > 0.34 ? uColor : uC2);',
+        '  vec3 col = s > 0.72 ? uC0 : (s > 0.34 ? (st > 0.82 ? uC0 : uColor) : uC2);',
         // 阶梯式淡出：三档不透明度
         '  float a = vA > 0.6 ? 0.96 : (vA > 0.3 ? 0.74 : 0.45);',
         '  gl_FragColor = vec4(col, a);',
@@ -19078,10 +19086,11 @@
 
   // ---------- 着色器方片特效（预警圈 / 冲击环 / 斩击弧） ----------
   const FX_VERT = 'varying vec2 vP;\nvoid main(){ vP = position.xz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
-  const uTime = { value: 0 };
+  const uTime = G.vfx ? G.vfx.U.uTime : { value: 0 }; // 和特效贴图库（js/vfx.js）的着色器共用同一个时间
 
-  const TELE_FRAG = [
-    'uniform vec3 uColor; uniform vec3 uEdge; uniform vec2 uHalf; uniform float uK; uniform float uShape; uniform float uTime; uniform float uArc; uniform float uIn;',
+  // vf-vfx：前面拼上特效贴图库的 GLSL 工具（G.vfx.GLSL，里面声明了 uTime 和噪声贴图）
+  const TELE_FRAG = G.vfx.GLSL + '\n' + [
+    'uniform vec3 uColor; uniform vec3 uEdge; uniform vec2 uHalf; uniform float uK; uniform float uShape; uniform float uArc; uniform float uIn;',
     'varying vec2 vP;',
     'void main(){',
     '  vec2 p = vP * uHalf;',
@@ -19101,6 +19110,14 @@
     '  float pulse = 0.5 + 0.5 * sin(uTime * 16.0);',
     '  float a = 0.24 + rim * 0.16 + inner * (0.24 + 0.2 * uK) + hot * (0.08 + 0.12 * pulse);',
     '  vec3 col = mix(uColor, uEdge, max(edge, lead * 0.75));',
+    // vf-vfx：已经充满的部分不再是平涂：按世界坐标铺一层慢慢流动的噪声，分出深浅两档的斑块，再叠一层胞腔边的细纹（往外漂），
+    // 只往上加不透明度（任何地面上填充都只会更显眼），外轮廓和推进的前沿亮线不动
+    '  vec2 wq = p * 0.17;',
+    '  float nf = vfxNA(wq + vec2(uTime * 0.05, -uTime * 0.07)).r;',
+    '  float ce = vfxNA(wq * 1.6 + vec2(0.0, uTime * 0.11)).b;',
+    '  float tx = inner * (step(0.56, nf) * 0.1 + ce * 0.07) * (1.0 - edge);',
+    '  a += tx;',
+    '  col = mix(col, uEdge, ce * inner * 0.14 * (1.0 - edge));',
     '  col += hot * pulse * 0.18;',
     '  a = max(a, max(edge * 0.96, lead * 0.7));',
     '  a *= smoothstep(0.0, 0.035, d);',
@@ -19113,7 +19130,7 @@
     const rect = spec.shape === 'rect', arc = spec.shape === 'arc', ringS = spec.shape === 'ring';
     const hx = rect ? spec.w / 2 : spec.r, hz = rect ? spec.len / 2 : spec.r;
     const mat = new T.ShaderMaterial({
-      uniforms: {
+      uniforms: G.vfx.uni({
         uColor: { value: friendly ? new T.Color(1.0, 0.58, 0.16) : new T.Color(0.96, 0.07, 0.05) },
         uEdge: { value: friendly ? new T.Color(0.86, 0.95, 1.0) : new T.Color(1.0, 0.8, 0.62) },
         uHalf: { value: new T.Vector2(hx, hz) },
@@ -19122,7 +19139,7 @@
         uArc: { value: arc ? spec.arc : 0 },
         uIn: { value: ringS ? spec.rin : 0 },
         uTime,
-      },
+      }),
       vertexShader: FX_VERT, fragmentShader: TELE_FRAG,
       transparent: true, depthWrite: false, side: T.DoubleSide,
     });
@@ -19146,14 +19163,19 @@
   };
 
   // 冲击环 / 斩击弧用对象池，稳定后不再分配
-  const RING_FRAG = [
-    'uniform vec3 uColor; uniform vec3 uC0; uniform float uK; varying vec2 vP;',
+  // vf-vfx：冲击环 / 斩击弧拼上特效贴图库的 GLSL 工具（噪声贴图），每个池里的对象一个种子 uSeed
+  const RING_FRAG = G.vfx.GLSL + '\n' + [
+    'uniform vec3 uColor; uniform vec3 uC0; uniform float uK; uniform float uSeed; varying vec2 vP;',
     'void main(){',
     '  float l = length(vP);',
     '  float rr = 0.12 + 0.88 * (1.0 - (1.0 - uK) * (1.0 - uK));', // 先快后慢地扩张
-    // 卡通版：一道硬边的色环，越扩越细；外缘一条浅色亮边；不透明度三档
-    '  float w = 0.05 + 0.13 * (1.0 - uK);',
+    // 卡通版：一道硬边的色环，越扩越细；外缘一条浅色亮边；不透明度三档。
+    // vf-vfx：环身的粗细沿一圈有起伏（噪声），扩到后半程环身被噪声打出几道缺口，散开着消失
+    '  float an = atan(vP.x, vP.y) / 6.2831853;',
+    '  float nz = vfxNA(vec2(an * 5.0 + uSeed * 7.0, uSeed + uK * 0.35)).r;',
+    '  float w = (0.05 + 0.13 * (1.0 - uK)) * (0.7 + 0.6 * nz);',
     '  if (l > rr || l < rr - w) discard;',
+    '  if (uK > 0.4 && nz < (uK - 0.4) * 0.75) discard;',
     '  float lit = step(rr - w * 0.35, l);',
     '  float a = uK < 0.45 ? 0.9 : (uK < 0.75 ? 0.62 : 0.32);',
     '  gl_FragColor = vec4(mix(uColor, uC0, lit), a);',
@@ -19161,8 +19183,8 @@
   ].join('\n');
   // 斩击弧（卡通版）：一弯实色的月牙从弧的一端扫到另一端。前沿最厚、往尾巴收尖，弧的两端也收尖；
   // 径向三道硬边色带（外沿亮芯 uC0 / 主色 uColor / 内沿深色 uC2），不透明度三档。普通混合，不会叠成一片白
-  const SLASH_FRAG = [
-    'uniform vec3 uColor; uniform vec3 uC0; uniform vec3 uC2; uniform float uK; uniform float uArc; uniform float uDir; uniform float uIn; varying vec2 vP;',
+  const SLASH_FRAG = G.vfx.GLSL + '\n' + [
+    'uniform vec3 uColor; uniform vec3 uC0; uniform vec3 uC2; uniform float uK; uniform float uArc; uniform float uDir; uniform float uIn; uniform float uSeed; varying vec2 vP;',
     'void main(){',
     '  float l = length(vP);',
     '  float an = atan(vP.x, vP.y) / uArc;', // 弧内为 -1..1（vP.y 是局部 +z，即朝向）
@@ -19175,7 +19197,10 @@
     '  float thick = (1.0 - uIn) * (1.0 - tail * tail) * ends;',
     '  float s = (l - (1.0 - thick)) / max(thick, 0.001);', // 0 = 内沿，1 = 外沿
     '  if (s < 0.0) discard;',
-    '  vec3 col = s > 0.74 ? uC0 : (s > 0.34 ? uColor : uC2);',
+    // vf-vfx：顺着弧走向的条纹（条纹噪声的快变方向放在径向上）：主色带里几道亮芯色的刀纹，尾巴后半截被条纹撕成一缕缕
+    '  float st = vfxNB(vec2(s * 0.9 + uSeed, h * 0.55 + uSeed * 0.3)).r;',
+    '  if (tail > 0.45 && st < (tail - 0.45) * 1.2) discard;',
+    '  vec3 col = s > 0.74 ? uC0 : (s > 0.34 ? (st > 0.8 ? uC0 : uColor) : uC2);',
     '  float a = uK < 0.42 ? 0.9 : (uK < 0.7 ? 0.62 : 0.32);',
     // phase 3：内沿那一道（暗色带）只留 40% 不透明，月牙压在敌人身上时还看得见敌人；亮芯和主色带不变，形状照样是实色的
     '  if (s <= 0.34) a *= 0.4;',
@@ -19195,7 +19220,7 @@
       for (let i = 1; i < pool.items.length; i++) if (pool.items[i].t / pool.items[i].dur > o.t / o.dur) o = pool.items[i];
       return o;
     }
-    const uniforms = { uColor: { value: new T.Color() }, uK: { value: 0 } };
+    const uniforms = G.vfx.uni({ uColor: { value: new T.Color() }, uK: { value: 0 } }); // vf-vfx：带上特效贴图库的贴图
     if (pool.extraUniforms) for (const k of pool.extraUniforms) uniforms[k] = { value: k.charAt(1) === 'C' ? new T.Color() : 0 }; // uC0 / uC2：颜色
     const mat = new T.ShaderMaterial({
       uniforms, vertexShader: FX_VERT, fragmentShader: pool.frag,
@@ -19220,8 +19245,8 @@
       } else it.u.uK.value = it.t / it.dur;
     }
   }
-  const ringPool = makePool(RING_FRAG, ['uC0'], 28, T.NormalBlending);
-  const slashPool = makePool(SLASH_FRAG, ['uArc', 'uDir', 'uIn', 'uC0', 'uC2'], 12, T.NormalBlending);
+  const ringPool = makePool(RING_FRAG, ['uC0', 'uSeed'], 28, T.NormalBlending);
+  const slashPool = makePool(SLASH_FRAG, ['uArc', 'uDir', 'uIn', 'uC0', 'uC2', 'uSeed'], 12, T.NormalBlending);
 
   W.ring = function (x, z, r, hex, dur) {
     const it = poolGet(ringPool);
@@ -19232,6 +19257,7 @@
     it.u.uColor.value.set(pal[1]);
     it.u.uC0.value.set(pal[0]);
     it.u.uK.value = 0;
+    it.u.uSeed.value = vr(0, 1);
     it.mesh.position.set(x, 0.1, z);
     it.mesh.scale.set(r, 1, r);
     it.mesh.visible = true;
@@ -19248,6 +19274,7 @@
     it.u.uColor.value.set(pal[1]);
     it.u.uC2.value.set(pal[2]);
     it.u.uK.value = 0;
+    it.u.uSeed.value = vr(0, 1);
     const half = (arcDeg * Math.PI) / 360;
     it.u.uArc.value = Math.min(Math.PI, half);
     it.u.uDir.value = o.dir === -1 ? -1 : 1;
@@ -19268,6 +19295,21 @@
   };
 
   // ----- 闪电：预分配的带状网格 -----
+  // vf-vfx：横截面还是原来闪电贴图的「亮芯 + 柔边」，亮芯的宽窄沿着电弧跳动（噪声），柔边里有顺着电弧往前窜的细电丝（条纹噪声），亮芯往白混；加色
+  const BOLT_VERT = 'varying vec2 vUv;\nvoid main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
+  const BOLT_FRAG = G.vfx.GLSL + '\n' + [
+    'uniform vec3 uColor; uniform float uOpacity; uniform float uSeed; varying vec2 vUv;',
+    'void main(){',
+    '  float x = abs(vUv.x - 0.5) * 2.0;', // 0 中线 → 1 边
+    '  float prof = x < 0.12 ? 1.0 : (x < 0.4 ? mix(1.0, 0.22, (x - 0.12) / 0.28) : mix(0.22, 0.0, (x - 0.4) / 0.6));',
+    '  float w = 0.08 + 0.16 * vfxNA(vec2(vUv.y * 0.31 + uSeed, uTime * 3.7)).r;',
+    '  float core = 1.0 - smoothstep(w, w + 0.05, x);',
+    '  float fil = smoothstep(0.6, 0.82, vfxNB(vec2(vUv.x * 0.5 + uSeed * 2.0, vUv.y * 0.18 - uTime * 4.0)).r) * (1.0 - smoothstep(0.3, 0.85, x));',
+    '  float a = max(max(prof * 0.7, fil * 0.85), core);',
+    '  vec3 col = mix(uColor, vec3(1.0), core * 0.7);',
+    '  gl_FragColor = linearToOutputTexel(vec4(col, a * uOpacity));',
+    '}',
+  ].join('\n');
   const BOLT_MAXP = 220, BOLT_MAXIN = 24, BOLT_LIFE = 0.34;
   const bolts = [];
   // minor：感电放出的小电弧。它们同时最多占 BOLT_MINOR 条，池满时先被顶掉，不会挤掉链雷自己的电弧
@@ -19304,13 +19346,18 @@
     g.setAttribute('position', new T.BufferAttribute(pos, 3).setUsage(T.DynamicDrawUsage));
     g.setAttribute('uv', new T.BufferAttribute(uv, 2));
     g.setIndex(new T.BufferAttribute(idx, 1));
-    const mat = new T.MeshBasicMaterial({ map: boltTex(), transparent: true, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide, toneMapped: false, fog: false });
+    // vf-vfx：闪电带换成特效着色器（BOLT_FRAG），所有电弧同一个着色器程序；颜色 / 不透明度走 uniform。
+    // 旧的闪电贴图照旧建一次（建贴图会消耗随机数：先后不变，全局随机序列和原来一致）
+    boltTex();
+    const u = G.vfx.uni({ uColor: { value: new T.Color() }, uOpacity: { value: 1 }, uSeed: { value: 0 } });
+    const mat = new T.ShaderMaterial({ uniforms: u, vertexShader: BOLT_VERT, fragmentShader: BOLT_FRAG, transparent: true, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide });
+    mat.toneMapped = false;
     const mesh = new T.Mesh(g, mat);
     mesh.frustumCulled = false;
     mesh.visible = false;
     mesh.renderOrder = 5;
     scene.add(mesh);
-    const b = { mesh, mat, pos, on: false, t: 0, n: 0, inX: new Float32Array(BOLT_MAXIN), inZ: new Float32Array(BOLT_MAXIN), path: new Float32Array(BOLT_MAXP * 2), wid: new Float32Array(BOLT_MAXP), jit: 0, minor: false, hex: 0 };
+    const b = { mesh, mat, u, pos, on: false, t: 0, n: 0, inX: new Float32Array(BOLT_MAXIN), inZ: new Float32Array(BOLT_MAXIN), path: new Float32Array(BOLT_MAXP * 2), wid: new Float32Array(BOLT_MAXP), jit: 0, minor: false, hex: 0 };
     bolts.push(b);
     return b;
   }
@@ -19397,8 +19444,9 @@
     b.t = 0;
     b.jit = 0;
     b.hex = hex;
-    b.mat.color.set(hex).lerp(_c2.set(0xffffff), 0.35).convertSRGBToLinear();
-    b.mat.opacity = 1;
+    b.u.uColor.value.set(hex).lerp(_c2.set(0xffffff), 0.35).convertSRGBToLinear();
+    b.u.uOpacity.value = 1;
+    b.u.uSeed.value = vr(0, 1);
     boltBuild(b);
     b.mesh.visible = true;
     // 每个落点：一记亮闪 + 一小撮火花 + 一团慢慢熄掉的余辉
@@ -19409,6 +19457,9 @@
         spawnP(x, 1.2, z, rand(-4, 4), rand(0, 4), rand(-4, 4), rand(0.15, 0.35), 0.16, _c.r, _c.g, _c.b, 8, 2);
       }
       if (!minor) {
+        // vf-vfx：每个落点一记星芒火花 + 一小团电弧（序列帧，画进光晕零件）
+        W.fxFlip(VFB.spark, x, 1.25, z, 1.7, 0.2, hex, { a: 0.9 });
+        W.fxFlip(VFB.arc, x, 1.2, z, 1.5, 0.22, hex, { a: 0.8 });
         flare(x, 1.25, z, hex, 1.9, 0.14);
         spawnP(x, 1.2, z, 0, 0, 0, 0.32, 1.1, _c.r * 0.55, _c.g * 0.55, _c.b * 0.55, 0, 0);
         for (let k = 0; k < 4; k++) {
@@ -19439,10 +19490,10 @@
         boltBuild(b);
       }
       const k = b.t / life;
-      if (b.minor || b.t < 0.1) b.mat.opacity = 1 - k * k;
+      if (b.minor || b.t < 0.1) b.u.uOpacity.value = 1 - k * k;
       else {
         const fl = Math.random();
-        b.mat.opacity = Math.pow(1 - k, 1.4) * (fl < 0.2 ? 0.08 : 0.45 + fl * 0.55);
+        b.u.uOpacity.value = Math.pow(1 - k, 1.4) * (fl < 0.2 ? 0.08 : 0.45 + fl * 0.55);
       }
     }
   }
@@ -19465,11 +19516,25 @@
   function meteorMat(hex) {
     return (
       meteorMats[hex] ||
-      (meteorMats[hex] = new T.MeshStandardMaterial({
+      (meteorMats[hex] = vfxMolten(new T.MeshStandardMaterial({
         color: 0x5a524c, map: basaltTex(), emissiveMap: crackTex(), emissive: lin(mixHex(hex, 0xffffff, 0.08)), emissiveIntensity: 2.4,
         roughness: 0.9, metalness: 0.05, flatShading: true,
-      }))
+      })))
     );
+  }
+  // vf-vfx：熔岩裂纹的自发光被一团慢慢流动的噪声调制（裂纹里的岩浆一明一暗地流），同一个着色器程序，所有颜色的陨石共用
+  function vfxMolten(m) {
+    const VU = G.vfx.U;
+    m.onBeforeCompile = (sh) => {
+      sh.uniforms.uTime = VU.uTime;
+      sh.uniforms.tNoiseA = VU.tNoiseA;
+      sh.fragmentShader = 'uniform float uTime; uniform sampler2D tNoiseA;\n' + sh.fragmentShader.replace(
+        '#include <emissivemap_fragment>',
+        '#include <emissivemap_fragment>\n\ttotalEmissiveRadiance *= 0.5 + 1.0 * smoothstep( 0.3, 0.8, texture2D( tNoiseA, vUv * 1.3 + vec2( uTime * 0.35, -uTime * 0.2 ) ).r );'
+      );
+    };
+    m.customProgramCacheKey = () => 'vfxMolten';
+    return m;
   }
   const meteors = [];
   // hostile（可选）：首领召来的落石
@@ -19556,9 +19621,18 @@
       spawnP(x, 0.3, z, Math.sin(a) * sp, rand(1, 6), Math.cos(a) * sp, rand(0.4, 0.9), rand(0.2, 0.4), m.r, m.g, m.b, 10, 1.2);
     }
     debrisBurst(x, z, m.hostile ? 7 : 11, m.hex, m.hostile ? 0.8 : 1);
-    // 尘土：贴地往外推的一圈灰黄色烟
-    for (let j = 0; j < 10; j++) {
-      const a = (j / 10) * TAU + rand(-0.2, 0.2), v = rand(2.5, 4.5);
+    // vf-vfx：序列帧的大火团 + 星芒 + 贴地扩开的冲击环（噪声打出缺口）+ 一圈往上翻的烟团
+    const lo = qualId === 'low';
+    W.fxFlip(VFB.fire, x, 0.9, z, m.hostile ? 2.6 : 3.4, 0.5, m.hex, { grow: 1.35, vy: 0.8 });
+    W.fxFlip(VFB.spark, x, 1.1, z, m.hostile ? 2.4 : 3.2, 0.24, mixHex(m.hex, 0xffffff, 0.5), { a: 0.85 });
+    W.fxFlip(VFB.ring, x, 0.12, z, m.hostile ? 4.6 : 5.6, 0.4, mixHex(m.hex, 0xffffff, 0.3), { flat: true });
+    for (let j = 0, n = lo ? 3 : 5; j < n; j++) {
+      const a = (j / n) * TAU + vr(-0.3, 0.3), v = vr(0.8, 1.4);
+      W.fxFlip(VFB.smoke, x + Math.sin(a) * 1.0, 0.6, z + Math.cos(a) * 1.0, vr(1.3, 1.8), vr(0.85, 1.15), 0x4a3e36, { vx: Math.sin(a) * v, vz: Math.cos(a) * v, vy: 0.5, up: 0.3, grow: 1.6 });
+    }
+    // 尘土：贴地往外推的一圈灰黄色烟（vf-vfx：有了序列帧烟团，点精灵从 10 团减到 6 团）
+    for (let j = 0; j < 6; j++) {
+      const a = (j / 6) * TAU + rand(-0.2, 0.2), v = rand(2.5, 4.5);
       spawnS(x + Math.sin(a) * 0.6, rand(0.2, 0.6), z + Math.cos(a) * 0.6, Math.sin(a) * v, rand(0.3, 1.2), Math.cos(a) * v, rand(0.7, 1.1), rand(1.0, 1.6), 0.3, 0.26, 0.21, 0.55);
     }
     smokeLive = 1.5;
@@ -19621,7 +19695,8 @@
   // =====================================================================
   // ----- 光带：直刺的枪芒 / 冲刺的路径 / 延迟落下的斩线 / 地脉 -----
   // 方片沿 ang 摆放：局部 x 横跨、z 顺着方向；mode 0 = 从尾到头射出再从尾部收掉，1 = 先是一道细暗线、到时刻 uD 骤亮再收细消失
-  const STREAK_FRAG = [
+  // vf-vfx：拼上特效贴图库的 GLSL 工具；光带里顺着长度方向往前窜的能量丝（条纹噪声），不再是一条均匀的光
+  const STREAK_FRAG = G.vfx.GLSL + '\n' + [
     'uniform vec3 uColor; uniform float uK; uniform float uMode; uniform float uD; varying vec2 vP;',
     'void main(){',
     '  float a = abs(vP.x); float s = vP.y * 0.5 + 0.5;',
@@ -19638,7 +19713,9 @@
     '    else { float f = (uK - uD) / max(1.0 - uD, 0.001); float w = mix(1.0, 0.12, f);',
     '      al = exp(-a * a * 9.0 / (w * w + 0.01)) * ends * (1.0 - f * f) * 1.5; wh = exp(-a * a * 60.0 / (w * w + 0.01)); }',
     '  }',
-    '  gl_FragColor = vec4(mix(uColor, vec3(1.0), wh * 0.75), al);',
+    '  float fl = vfxNB(vec2(vP.x * 0.22 + uMode * 0.37, s * 0.45 - uK * 1.4)).r;',
+    '  al *= 0.65 + 0.7 * fl;',
+    '  gl_FragColor = vec4(mix(uColor, vec3(1.0), wh * 0.75 + step(0.82, fl) * 0.25), al);',
     '}',
   ].join('\n');
   const streaks = [];
@@ -19650,7 +19727,7 @@
       for (let i = 1; i < streaks.length; i++) if (streaks[i].t / streaks[i].dur > it.t / it.dur) it = streaks[i];
     }
     if (!it) {
-      const u = { uColor: { value: new T.Color() }, uK: { value: 0 }, uMode: { value: 0 }, uD: { value: 0 } };
+      const u = G.vfx.uni({ uColor: { value: new T.Color() }, uK: { value: 0 }, uMode: { value: 0 }, uD: { value: 0 } });
       const mat = new T.ShaderMaterial({ uniforms: u, vertexShader: FX_VERT, fragmentShader: STREAK_FRAG, transparent: true, depthWrite: false, blending: T.AdditiveBlending, side: T.DoubleSide });
       const mesh = new T.Mesh(gQuad(), mat);
       mesh.visible = false;
@@ -19724,17 +19801,19 @@
     sGeo.setAttribute('aColor', new T.BufferAttribute(sCol, 4).setUsage(T.DynamicDrawUsage));
     sGeo.setAttribute('aSize', new T.BufferAttribute(sSize, 1).setUsage(T.DynamicDrawUsage));
     sMat = new T.ShaderMaterial({
-      uniforms: { uScale: pMat.uniforms.uScale },
+      uniforms: G.vfx.uni({ uScale: pMat.uniforms.uScale }), // vf-vfx：带上噪声贴图
       vertexShader:
         'attribute vec4 aColor; attribute float aSize; uniform float uScale; varying vec4 vC;\n' +
         'void main(){ vC = aColor; vec4 mv = modelViewMatrix * vec4(position, 1.0);\n' +
         ' gl_PointSize = aSize * uScale / max(0.1, -mv.z); gl_Position = projectionMatrix * mv; }',
+      // vf-vfx：烟团的轮廓由噪声贴图打乱（一团团鼓起来的烟，而不是正圆），边缘收得更硬一点，上半边亮一点（像被光照到）；
+      // 噪声坐标跟着这一粒的不透明度慢慢漂，烟在翻滚
       fragmentShader:
-        'varying vec4 vC;\n' +
+        G.vfx.GLSL + '\nvarying vec4 vC;\n' +
         'void main(){ vec2 q = gl_PointCoord - 0.5; float d = length(q);\n' +
-        ' float n = 0.82 + 0.18 * sin(q.x * 23.0 + vC.a * 40.0) * sin(q.y * 19.0 - vC.a * 30.0);\n' +
-        ' float a = smoothstep(0.5, 0.12, d * (1.0 + (1.0 - n))) * vC.a;\n' +
-        ' if (a < 0.01) discard; gl_FragColor = vec4(vC.rgb, a); }',
+        ' float n = vfxNA(q * 0.55 + vec2(vC.a * 1.3, -vC.a * 0.7)).r;\n' +
+        ' float a = smoothstep(0.5, 0.34, d + (0.5 - n) * 0.34) * vC.a;\n' +
+        ' if (a < 0.01) discard; gl_FragColor = vec4(vC.rgb * (0.88 + 0.24 * n + 0.2 * smoothstep(0.15, -0.3, q.y)), a); }',
       transparent: true, depthWrite: false,
     });
     sPts = new T.Points(sGeo, sMat);
@@ -19855,7 +19934,8 @@
   }
 
   // ----- 震地的冲击波：从脚下沿 ang 推出去、越推越宽的一道波前 -----
-  const WAVE_FRAG = [
+  // vf-vfx：波前后面的余波里透出砸裂的地缝（胞腔边），波前本身沿宽度方向有起伏
+  const WAVE_FRAG = G.vfx.GLSL + '\n' + [
     'uniform vec3 uColor; uniform float uK; uniform float uW0; uniform float uW1; varying vec2 vP;',
     'void main(){',
     '  float s = vP.y * 0.5 + 0.5;',
@@ -19865,8 +19945,8 @@
     '  float front = min(uK / 0.72, 1.0);',
     '  float d = front - s - ax * ax * 0.05;', // 波前略微前凸
     '  if (d < 0.0) discard;',
-    '  float band = exp(-d * d * 260.0);',
-    '  float wake = exp(-d * 6.0) * 0.32;',
+    '  float band = exp(-d * d * 260.0) * (0.75 + 0.5 * vfxNA(vec2(vP.x * 0.4, uK * 0.3)).r);',
+    '  float wake = exp(-d * 6.0) * 0.32 * (0.45 + 1.1 * vfxNA(vec2(vP.x * uW1 * 0.12, s * 0.9)).b);',
     '  float edge = 1.0 - smoothstep(0.7, 1.0, ax);',
     '  float fade = 1.0 - smoothstep(0.66, 1.0, uK);',
     '  float a = (band + wake) * edge * fade * smoothstep(0.0, 0.05, s);',
@@ -19879,7 +19959,7 @@
     for (let i = 0; i < waves.length; i++) if (!waves[i].on) { it = waves[i]; break; }
     if (!it && waves.length >= 4) it = waves[0];
     if (!it) {
-      const u = { uColor: { value: new T.Color() }, uK: { value: 0 }, uW0: { value: 1 }, uW1: { value: 1 } };
+      const u = G.vfx.uni({ uColor: { value: new T.Color() }, uK: { value: 0 }, uW0: { value: 1 }, uW1: { value: 1 } });
       const mat = new T.ShaderMaterial({ uniforms: u, vertexShader: FX_VERT, fragmentShader: WAVE_FRAG, transparent: true, depthWrite: false, blending: T.AdditiveBlending, side: T.DoubleSide });
       const mesh = new T.Mesh(gQuad(), mat);
       mesh.visible = false;
@@ -20407,12 +20487,29 @@
   }
   // 预热：每种特效各摆一个出来，让 warmEntities 那一帧把着色器编译掉
   let warmWisp = null;
+  const warmVfx = [];
   function warmWeaponFx(on) {
     if (warmWisp) {
       W.removeMesh(warmWisp);
       warmWisp = null;
     }
+    // vf-vfx：闪电带（特效着色器）、陨石（熔岩噪声）、预警圈第一次出现时不现编着色器：预热这一帧各摆一个临时的（不进对象池、
+    // 在 G.vfx.quiet 里建，不消耗全局随机数；陨石的自发光贴图借用噪声贴图，着色器程序和 meteorMat 的一样）
+    // 只从场景里拿掉、不释放材质：着色器程序一直有人用，不会在最后一个预警圈消失时被回收、下次再现编
+    for (const o of warmVfx) scene.remove(o.mesh || o);
+    warmVfx.length = 0;
     if (on) {
+      G.vfx.quiet(() => {
+        warmVfx.push(W.makeTelegraph({ shape: 'circle', x: 0, z: 2, r: 1 }));
+        const mm = vfxMolten(new T.MeshStandardMaterial({ color: 0x5a524c, map: basaltTex(), emissiveMap: G.vfx.tex.noiseA, emissive: 0xff5a2c, roughness: 0.9, metalness: 0.05, flatShading: true }));
+        const met = new T.Mesh(rockGeo(1), mm);
+        met.position.set(0, 1, 2);
+        const bm = new T.ShaderMaterial({ uniforms: G.vfx.uni({ uColor: { value: new T.Color(1, 1, 1) }, uOpacity: { value: 0 }, uSeed: { value: 0 } }), vertexShader: BOLT_VERT, fragmentShader: BOLT_FRAG, transparent: true, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide });
+        const bolt = new T.Mesh(gQuad(), bm);
+        bolt.position.set(0, 1, 2);
+        warmVfx.push(met, bolt);
+      });
+      for (let i = 1; i < warmVfx.length; i++) scene.add(warmVfx[i]);
       warmWisp = W.makeWisp(ALLY_HEX);
       warmWisp.position.set(0, 1, 2);
       streakGet().mesh.visible = true;
@@ -20431,8 +20528,8 @@
   }
 
   // ---------- 光环：玩家脚下常驻的一圈淡淡的霜环 + 绕身飘的霜粒；每次脉冲有一道向外扩的细环 ----------
-  const AURA_FRAG = [
-    'uniform vec3 uColor; uniform float uA; uniform float uPulse; uniform float uTime; varying vec2 vP;',
+  const AURA_FRAG = G.vfx.GLSL + '\n' + [
+    'uniform vec3 uColor; uniform float uA; uniform float uPulse; varying vec2 vP;',
     'void main(){',
     '  float l = length(vP);',
     '  if (l > 1.0) discard;',
@@ -20444,11 +20541,16 @@
     '  float wave = (1.0 - smoothstep(0.0, 0.03, abs(l - rr))) * uPulse * 0.16;',
     // 亮的霜色细线两侧各垫一道深色描边（外侧那道更宽）：冰面这种浅色地面上也看得出圈在哪
     '  float halo = max(1.0 - smoothstep(0.0, 0.03, abs(l - 0.985)), (1.0 - smoothstep(0.0, 0.016, abs(l - 0.925))) * 0.7) * (1.0 - edge);',
-    '  float aB = (edge * 0.7 + ticks * 0.3 + fill * 1.5 + wave * 1.6) * uA;',
+    // vf-vfx：靠外沿的一圈淡淡的霜花（极坐标里铺胞腔边的细纹，慢慢转），脉冲波扫过的地方霜花亮一下；圈里大部分还是空的，怪看得清
+    '  vec2 pol = vec2(an / 6.2831853 * 7.0 + uTime * 0.015, l * 1.3);',
+    '  float cr = vfxNA(pol).b * (0.6 + 0.4 * vfxNA(pol * 0.5 + 0.3).r);',
+    '  float fb = smoothstep(0.66, 0.88, l) * (1.0 - smoothstep(0.92, 0.95, l));',
+    '  float frost = step(0.45, cr) * fb * (0.13 + wave * 3.0);',
+    '  float aB = (edge * 0.7 + ticks * 0.3 + fill * 1.5 + wave * 1.6 + frost) * uA;',
     '  float aD = halo * 0.42 * uA;',
     '  float a = clamp(aB + aD, 0.0, 1.0);',
     '  if (a < 0.002) discard;',
-    '  vec3 bright = mix(uColor, vec3(1.0), ticks * 0.35 + edge * 0.15);',
+    '  vec3 bright = mix(uColor, vec3(1.0), ticks * 0.35 + edge * 0.15 + frost * 1.5);',
     '  gl_FragColor = vec4((bright * aB + vec3(0.02, 0.07, 0.13) * aD) / max(a, 0.001), a);',
     '}',
   ].join('\n');
@@ -20456,7 +20558,7 @@
   W.setAura = function (r) {
     aura.r = r > 0 ? r : 0;
     if (aura.r > 0 && !aura.mesh && scene) {
-      aura.u = { uColor: { value: new T.Color(0x86d8ff) }, uA: { value: 0 }, uPulse: { value: 0 }, uTime };
+      aura.u = G.vfx.uni({ uColor: { value: new T.Color(0x86d8ff) }, uA: { value: 0 }, uPulse: { value: 0 }, uTime });
       const mat = new T.ShaderMaterial({ uniforms: aura.u, vertexShader: FX_VERT, fragmentShader: AURA_FRAG, transparent: true, depthWrite: false, side: T.DoubleSide });
       aura.mesh = new T.Mesh(gQuad(), mat);
       aura.mesh.renderOrder = 3;
@@ -20820,7 +20922,10 @@
       return facetShade(g, 0.3, 1, 0.4, 0.45);
     });
   }
-  function pfPart(name, geom, mat, cap, order) {
+  // fx：这个零件用特效着色器（js/vfx.js），几何体复制一份挂上逐实例的 aFx（消融进度、种子、亮度、种类）
+  function pfPart(name, geom, mat, cap, order, fx) {
+    if (fx) geom = G.vfx.quiet(() => geom.clone());
+    const fxa = fx ? G.vfx.addFx(geom, cap) : null;
     const mesh = new T.InstancedMesh(geom, mat, cap);
     mesh.instanceMatrix.setUsage(T.DynamicDrawUsage);
     mesh.setColorAt(0, _pc.setRGB(1, 1, 1));
@@ -20830,17 +20935,30 @@
     mesh.visible = false;
     mesh.renderOrder = order || 0;
     scene.add(mesh);
-    const p = { mesh, n: 0, cap };
+    const p = { mesh, n: 0, cap, fx: fxa };
     PF[name] = p;
     PF_LIST.push(p);
+  }
+  // 下一个实例的 aFx（只对 fx 零件有用，写完一个就复位）：进度、种子（< 0 = 按槽位号取，同一颗投射物每帧都是同一个）、亮度、种类
+  let pfA = 0, pfS = -1, pfI = 1, pfW = 0;
+  function pfFx(a, s, i, w) {
+    pfA = a; pfS = s; pfI = i; pfW = w;
   }
   // 用 _pm 作当前矩阵写一个实例；颜色是线性空间
   function pfPut(name, r, g, b) {
     const p = PF[name];
-    if (p.n >= p.cap) return;
+    if (p.n >= p.cap) {
+      pfA = 0; pfS = -1; pfI = 1; pfW = 0;
+      return;
+    }
     p.mesh.setMatrixAt(p.n, _pm);
     _pc.r = r; _pc.g = g; _pc.b = b;
     p.mesh.setColorAt(p.n, _pc);
+    if (p.fx) {
+      const f = p.fx.array, o = p.n * 4;
+      f[o] = pfA; f[o + 1] = pfS < 0 ? (p.n * 0.618034) % 1 : pfS; f[o + 2] = pfI; f[o + 3] = pfW;
+      pfA = 0; pfS = -1; pfI = 1; pfW = 0;
+    }
     p.n++;
   }
   function mPose(x, y, z, q, sx, sy, sz) {
@@ -20871,11 +20989,17 @@
     pfPart('blade', bladeGeo(), vc, 64, 0);
     pfPart('shard', shardGeo(), vc, 64, 0);
     pfPart('blur', gQuad(), add(swooshTex(), T.DoubleSide), 64, 4);
-    pfPart('glow', quad, add(glowTex()), 520, 5);
-    pfPart('flame', flameQuad, add(flameTex()), 480, 6);
-    // 普通混合的火舌：浅色地面（冰原、灰烬）上加色的火会被冲成一片白，垫一层实色的橙红火舌，火的形状和颜色才立得住
-    pfPart('flameN', flameQuad, new T.MeshBasicMaterial({ map: flameHardTex(), transparent: true, depthWrite: false, toneMapped: false, fog: false }), 420, 5);
-    pfPart('arc', quad, add(crackleTex()), 120, 6);
+    // vf-vfx：光晕零件换成特效贴图库的多用途材质（js/vfx.js 的 V.multi），命中的火团 / 烟 / 火花 / 冲击环 / 斩击弧 / 电弧序列帧也画在这里（W.fxFlip），不多占 draw call
+    glowTex(); // 光晕贴图照旧在这里先建好（陨石的光晕精灵还用它；建的先后不变，全局随机序列和原来一致）
+    pfPart('glow', quad, G.vfx.multi(), 640, 5, true);
+    // 火舌：形状还是原来的贴图，外沿被往后滚的条纹噪声啃出缺口（js/vfx.js 的 lick）
+    pfPart('flame', flameQuad, G.vfx.sprite({ shape: 'map', map: flameTex(), lick: 0.55, afx: true, blend: 'add' }), 480, 6, true);
+    // 普通混合的火舌：浅色地面（冰原、灰烬）上加色的火会被冲成一片白，垫一层实色的橙红火舌，火的形状和颜色才立得住。
+    // vf-vfx：三档色带（深红边 / 主色 / 往白混的亮芯，带一点流动的噪声）+ 噪声啃边
+    pfPart('flameN', flameQuad, G.vfx.sprite({ shape: 'map', map: flameHardTex(), lick: 0.42, tone: true, lumLo: 0.5, afx: true, blend: 'normal' }), 420, 5, true);
+    // vf-vfx：雷球表面的电弧换成序列帧图集里的电弧（每秒 24 帧，每条各自的种子错开帧），一闪一折地跳；旧贴图照旧建（随机序列不变）
+    crackleTex();
+    pfPart('arc', quad, G.vfx.sprite({ shape: 'flipB', chan: 2, fps: 24, afx: true, blend: 'add' }), 120, 6, true);
     const rockMat = new T.MeshStandardMaterial({ map: basaltTex(), roughness: 0.92, metalness: 0.05, flatShading: true });
     pfPart('debris', rockGeo(0), rockMat, 96, 0);
     // 卡通碎块（见 tChunk）：实心、不受光、不进雾，颜色就是画上去的颜色
@@ -20900,7 +21024,8 @@
       return g;
     }), tMat, 64, 0);
     // 烟团略透（0.8）：几个圆鼓包叠在一起的地方更实，看着是一团烟而不是一块石头
-    pfPart('tPuff', geo('tPuff', () => new T.CircleGeometry(1, 10)), new T.MeshBasicMaterial({ toneMapped: false, fog: false, side: T.DoubleSide, transparent: true, opacity: 0.8, depthWrite: false }), 320, 3);
+    // vf-vfx：烟团换成特效着色器：实心圆片，后半生被噪声从外圈往里蚀空（一团烟散成几块再没，不再只是缩小）
+    pfPart('tPuff', geo('tPuff', () => new T.CircleGeometry(1, 10)), G.vfx.sprite({ shape: 'solid', erode: true, radial: true, edge: 0, afx: true, blend: 'normal', side: 'double', opacity: 0.8 }), 320, 3, true);
     initRibbons();
     rangedPfInit(add, vc, flameQuad, quad);
   }
@@ -20924,6 +21049,7 @@
       if (p.n) {
         m.instanceMatrix.needsUpdate = true;
         m.instanceColor.needsUpdate = true;
+        if (p.fx) p.fx.needsUpdate = true;
       }
     }
   }
@@ -20956,11 +21082,14 @@
     g.setAttribute('aCol', new T.BufferAttribute(rbClr, 3).setUsage(T.DynamicDrawUsage));
     g.setAttribute('aSide', new T.BufferAttribute(side, 1));
     g.setIndex(new T.BufferAttribute(idx, 1));
+    // vf-vfx：拖尾的亮度被一层世界坐标里慢慢漂的噪声打散（一缕缕的，不再是均匀的一条光），亮芯不动
     const mat = new T.ShaderMaterial({
-      vertexShader: 'attribute vec3 aCol; attribute float aSide; varying vec3 vC; varying float vS;\nvoid main(){ vC = aCol; vS = aSide; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      uniforms: G.vfx.uni({}),
+      vertexShader: 'attribute vec3 aCol; attribute float aSide; varying vec3 vC; varying float vS; varying vec2 vW;\nvoid main(){ vC = aCol; vS = aSide; vW = position.xz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
       fragmentShader:
-        'varying vec3 vC; varying float vS;\n' +
+        G.vfx.GLSL + '\nvarying vec3 vC; varying float vS; varying vec2 vW;\n' +
         'void main(){ float e = 1.0 - abs(vS); float a = smoothstep(0.0, 0.85, e); float core = pow(e, 6.0);\n' +
+        ' a *= 0.55 + 0.75 * vfxNA(vW * 0.32 + vec2(0.0, uTime * 0.6)).r;\n' +
         ' gl_FragColor = vec4(vC * a + vec3(max(vC.r, max(vC.g, vC.b))) * core * 0.55, 1.0); }',
       blending: T.AdditiveBlending, transparent: true, depthWrite: false, side: T.DoubleSide,
     });
@@ -21482,6 +21611,7 @@
         spawnP(x, y, z, Math.sin(a) * v, rand(0.5, 3.5), Math.cos(a) * v, rand(0.35, 0.6), rand(0.13, 0.22), u.r * 0.8, u.g * 0.8, u.b * 0.8, 14, 1);
       }
       W.smoke(x, y - 0.3, z, 0.2, 3, mixHex(u.hex, 0x101010, 0.6));
+      W.fxFlip(VFB.smoke, x, y - 0.2, z, 1.1, 0.6, mixHex(u.hex, 0x202020, 0.45), { vy: 0.3, grow: 1.3, a: 0.8 }); // vf-vfx：溅开的一团带色的雾（序列帧）
       W.decal(4, x, z, 0.75, rand(0, TAU), u.hex, 1.6);
       flare(x, y, z, u.hex, 0.8, 0.07);
       return true;
@@ -21493,6 +21623,7 @@
         spawnP(x, y, z, Math.sin(a) * v, rand(1, 4), Math.cos(a) * v, rand(0.35, 0.6), rand(0.16, 0.3), 0.82, 0.94, 1, 18, 1.4);
       }
       W.smoke(x, y - 0.2, z, 0.25, 3, 0xbfdcec);
+      W.fxFlip(VFB.spark, x, y, z, 1.3, 0.2, 0xd6f3ff, { a: 0.85 }); // vf-vfx：碎开那一下的冰晶星芒（序列帧）
       W.decal(2, x, z, 0.9, rand(0, TAU), 0x9fdcff, 1.4);
       flare(x, y, z, 0xcfefff, 1.0, 0.08);
       return true;
@@ -21503,6 +21634,7 @@
         spawnP(x, y, z, Math.sin(a) * v, rand(-2, 6), Math.cos(a) * v, rand(0.06, 0.16), 0.13, 1, 1, 0.7, 0, 6);
       }
       flare(x, y, z, 0xfff3a0, 1.4, 0.1);
+      W.fxFlip(VFB.arc, x, y, z, 1.6, 0.22, 0xffe45e, { a: 0.85 }); // vf-vfx：炸开的一团电弧（序列帧）
       W.decal(3, x, z, 0.8, rand(0, TAU), 0xffe45e, 1.2);
       flashLight(x, 2, z, 0xffe45e, 0.9);
       return true;
@@ -21513,6 +21645,7 @@
         spawnP(x, y, z, Math.sin(a) * v, rand(0.5, 3), Math.cos(a) * v, rand(0.25, 0.5), rand(0.14, 0.24), 1, rand(0.25, 0.5), 0.06, 4, 2);
       }
       W.smoke(x, y, z, 0.25, 3, 0x1a1010);
+      W.fxFlip(VFB.fire, x, y, z, 1.4, 0.32, 0xc22c18, { grow: 1.3, vy: 0.6 }); // vf-vfx：暗红的一团火（序列帧，比玩家的掷焰深一截）
       W.decal(1, x, z, 0.7, rand(0, TAU), 0xff5a2a, 1.6);
       flare(x, y, z, 0xff7a2c, 1.0, 0.08);
       return true;
@@ -21527,7 +21660,9 @@
     // 卡通版：硬边的色环 + 一颗大星 + 一圈往外翻的实心火团（亮黄压橙、橙压深红）+ 几片焦黑的碎块 + 少量火星，地上一块硬边焦斑
     const lo = qualId === 'low', P = HIT_PAL.fire;
     W.ring(x, z, R, h, 0.3); // 只留一道环：两道同心环压在焦斑上像个靶子
-    tChunk(1, x, y + 0.15, z, 0, 0, 0, 0.2, 0.9 + R * 0.25, P[0], tint ? h : P[1], 0);
+    // vf-vfx：中心的大星换成序列帧的火团（噪声啃边、三档色带）+ 一闪的星芒火花
+    W.fxFlip(VFB.fire, x, y + 0.1, z, 1.2 + R * 0.8, 0.4, tint ? h : P[1], { grow: 1.35, vy: 0.8 });
+    W.fxFlip(VFB.spark, x, y + 0.2, z, 1.1 + R * 0.8, 0.22, P[0], { a: 0.9 });
     flashLight(x, 2, z, 0xff8a3c, 1.6);
     for (let i = 0, n = lo ? 5 : 9; i < n; i++) {
       // 火团：大、往外翻、往上飘；三团里一团是亮黄的
@@ -21543,7 +21678,8 @@
       const a = rand(0, TAU), v = rand(4, 9) * Math.sqrt(R);
       spawnP(x, y, z, Math.sin(a) * v, rand(1, 6), Math.cos(a) * v, rand(0.3, 0.6), rand(0.08, 0.14), 1, rand(0.7, 0.95), rand(0.3, 0.6), 12, 1.5);
     }
-    W.smoke(x, y + 0.2, z, 0.35 * R, lo ? 2 : 3, 0x241a16);
+    // vf-vfx：黑烟换成序列帧的烟团（往上飘、慢慢胀开、边缘被噪声蚀空）
+    for (let i = 0, n = lo ? 1 : 2; i < n; i++) W.fxFlip(VFB.smoke, x + vr(-0.35, 0.35), y + 0.35, z + vr(-0.35, 0.35), 0.8 + R * 0.45, vr(0.7, 0.9), 0x54443e, { vy: 0.6, up: 0.4, grow: 1.5 });
     W.decal(1, x, z, R * 0.7, rand(0, TAU), h, 1.8);
   }
   // 金属火花：顺着飞行方向喷出去的一把亮白火花
@@ -21678,14 +21814,20 @@
         // 一小簇云：暗色的底垫在下面，上面三个亮色的圆鼓包（中间大、两边小），看着是一团烟而不是一颗石头
         const sc = s * (f < 0.3 ? 0.6 + (f / 0.3) * 0.4 : 1 - ((f - 0.3) / 0.7) * ((f - 0.3) / 0.7));
         const rx = Math.cos(ckR[i]) * sc, ry = Math.sin(ckR[i]) * sc * 0.25;
+        // vf-vfx：消融进度（后 55% 才开始蚀）、每片各自的种子（同一团烟每帧一样）
+        const er = f < 0.45 ? 0 : (f - 0.45) / 0.55 * 0.9, sd = (i * 0.618034) % 1;
         mBill(x - camB.x * 0.03, y - sc * 0.12, z - camB.z * 0.03, sc * 0.9);
+        pfFx(er, sd, 1, 0);
         pfPut('tPuff', ckB[j], ckB[j + 1], ckB[j + 2]);
         const ox = camB.x * 0.03, oy = camB.y * 0.03, oz = camB.z * 0.03;
         mBill(x + ox, y + sc * 0.1 + oy, z + oz, sc * 0.62);
+        pfFx(er, (sd + 0.27) % 1, 1, 0);
         pfPut('tPuff', ckA[j], ckA[j + 1], ckA[j + 2]);
         mBill(x - rx * 0.5 + ox, y - ry + oy, z + oz, sc * 0.44);
+        pfFx(er, (sd + 0.51) % 1, 1, 0);
         pfPut('tPuff', ckA[j], ckA[j + 1], ckA[j + 2]);
         mBill(x + rx * 0.5 + ox, y + ry - sc * 0.08 + oy, z + oz, sc * 0.4);
+        pfFx(er, (sd + 0.77) % 1, 1, 0);
         pfPut('tPuff', ckA[j], ckA[j + 1], ckA[j + 2]);
       }
     }
@@ -21702,6 +21844,69 @@
       tChunk(2, x + Math.sin(a) * 0.15, y, z + Math.cos(a) * 0.15, Math.sin(a) * v, up * rand(0.6, 1.2), Math.cos(a) * v, life * rand(0.75, 1.15), size * rand(0.75, 1.2), hexA, hexB, -0.5);
     }
   }
+  // ----- 序列帧特效（vf-vfx）：命中 / 爆炸 / 死亡的火团、烟团、火花、冲击环、斩击弧、电弧，画进「光晕」零件（js/vfx.js 的 V.multi），
+  // 环形缓冲、运行时不分配。kind 见 G.vfx.FB；o（可选）：{ vx, vy, vz 速度, up 上浮加速度, grow 结束时的大小倍率, flat 平躺在地上（冲击环）, ang 朝向, a 亮度 }
+  const FB_N = 128, VFB = G.vfx.FB;
+  const fbK = new Uint8Array(FB_N), fbP = new Float32Array(FB_N * 3), fbV = new Float32Array(FB_N * 3), fbC = new Float32Array(FB_N * 3);
+  const fbL = new Float32Array(FB_N), fbM = new Float32Array(FB_N), fbS = new Float32Array(FB_N), fbG = new Float32Array(FB_N), fbU = new Float32Array(FB_N);
+  const fbA = new Float32Array(FB_N), fbR = new Float32Array(FB_N), fbSd = new Float32Array(FB_N), fbF = new Uint8Array(FB_N);
+  let fbNext = 0, fbLive = 0, fbRnd = 7;
+  // 序列帧自己的伪随机（不消耗 Math.random：加了这些特效以后，玩法里的随机序列和原来一样）
+  const vr = (a, b) => a + ((fbRnd = (fbRnd * 16807) % 2147483647) / 2147483647) * (b - a);
+  W.fxFlip = function (kind, x, y, z, size, dur, hex, o) {
+    const k = typeof kind === 'string' ? VFB[kind] : kind;
+    if (k === undefined) return;
+    o = o || {};
+    const i = fbNext, j = i * 3;
+    fbNext = (fbNext + 1) % FB_N;
+    fbK[i] = k;
+    fbP[j] = x; fbP[j + 1] = y; fbP[j + 2] = z;
+    fbV[j] = o.vx || 0; fbV[j + 1] = o.vy || 0; fbV[j + 2] = o.vz || 0;
+    _c.set(hexOf(hex)).convertSRGBToLinear();
+    fbC[j] = _c.r; fbC[j + 1] = _c.g; fbC[j + 2] = _c.b;
+    fbL[i] = fbM[i] = Math.max(0.02, dur);
+    fbS[i] = size;
+    fbG[i] = o.grow === undefined ? 1 : o.grow;
+    fbU[i] = o.up || 0;
+    fbA[i] = o.a === undefined ? 1 : o.a;
+    fbR[i] = o.ang === undefined ? vr(0, TAU) : o.ang;
+    fbSd[i] = vr(0, 1);
+    fbF[i] = o.flat ? 1 : 0;
+    fbLive = 2;
+  };
+  const _fbq = new T.Quaternion(), _fbq2 = new T.Quaternion(), FB_XAX = new T.Vector3(1, 0, 0);
+  function fbDraw(dt) {
+    if (fbLive <= 0) return;
+    let any = false;
+    for (let i = 0; i < FB_N; i++) {
+      let l = fbL[i];
+      if (l <= 0) continue;
+      l -= dt;
+      fbL[i] = l;
+      if (l <= 0) continue;
+      any = true;
+      const j = i * 3, f = 1 - l / fbM[i];
+      fbV[j + 1] += fbU[i] * dt;
+      fbP[j] += fbV[j] * dt; fbP[j + 1] += fbV[j + 1] * dt; fbP[j + 2] += fbV[j + 2] * dt;
+      const s = fbS[i] * (1 + (fbG[i] - 1) * f);
+      if (fbF[i]) {
+        // 平躺：先绕 x 轴转到地面上，再绕 y 轴转朝向
+        _fbq.setFromAxisAngle(UP, fbR[i]).multiply(_fbq2.setFromAxisAngle(FB_XAX, -Math.PI / 2));
+        mPose(fbP[j], fbP[j + 1], fbP[j + 2], _fbq, s, s, s);
+      } else {
+        _fbq.copy(camQ).multiply(_fbq2.setFromAxisAngle(Z_AXIS, fbK[i] === VFB.slash || fbK[i] === VFB.arc ? fbR[i] : fbR[i] * 0.15));
+        mPose(fbP[j], fbP[j + 1], fbP[j + 2], _fbq, s, s, s);
+      }
+      pfFx(f, fbSd[i], fbA[i], fbK[i]);
+      pfPut('glow', fbC[j], fbC[j + 1], fbC[j + 2]);
+    }
+    if (!any) fbLive--;
+  }
+  W.fxFlipLive = () => {
+    let n = 0;
+    for (let i = 0; i < FB_N; i++) if (fbL[i] > 0) n++;
+    return n;
+  };
   // 陨石尾焰：顺着下落方向拉长的大火舌（陨石的位置在 updateMeteors 里算好）
   function meteorFlames(dt) {
     for (let i = 0; i < meteors.length; i++) {
@@ -21767,6 +21972,7 @@
       else legacyProj(m, u, m.position, dt);
     }
     meteorFlames(dt);
+    fbDraw(dt);
     updateDebris(dt);
     rangedPfDraw(dt);
     pyrePfDraw(dt);
@@ -21792,6 +21998,8 @@
     rbMesh.visible = on;
   }
   function clearProjFx() {
+    fbL.fill(0);
+    fbLive = 0;
     clearRibbons();
     clearDebris();
     clearChunks();
@@ -21844,7 +22052,8 @@
       [gBox(0.012, 0.1, 0.16), 0xf0e8d8, 0, 0, -0.6],
     ]);
     pfPart('arrow', arrowGeo, vc, 96, 0);
-    pfPart('beam', quad, add(laserTex(), T.DoubleSide), 200, 6);
+    // vf-vfx：曳光 / 光束里顺着弹道往前流的亮纹（条纹噪声）
+    pfPart('beam', quad, G.vfx.sprite({ shape: 'map', map: laserTex(), flow: true, afx: true, blend: 'add', side: 'double' }), 200, 6, true);
     pfPart('casing', gCyl(0.014, 0.014, 0.048, 6), pfSolid, 64, 0);
     pfPart('ringF', geo('fxRingThin', () => new T.TorusGeometry(1, 0.035, 3, 40)), add(null, T.DoubleSide), 24, 4);
   }
@@ -23729,8 +23938,8 @@
     '  } else gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);',
     '}',
   ].join('\n');
-  const HOLE_FRAG = [
-    'uniform vec3 uCore; uniform vec3 uRim; uniform vec3 uHi; uniform vec3 uDark; uniform float uA; uniform float uSp; uniform float uC; uniform float uD; uniform float uTime;',
+  const HOLE_FRAG = G.vfx.GLSL + '\n' + [
+    'uniform vec3 uCore; uniform vec3 uRim; uniform vec3 uHi; uniform vec3 uDark; uniform float uA; uniform float uSp; uniform float uC; uniform float uD;',
     'varying vec2 vP; varying float vPart; varying float vF; varying float vT;',
     'void main(){',
     '  vec3 col = uCore; float a = 0.92;',
@@ -23748,8 +23957,11 @@
     '  else if (l < uD) {',
     '    float t = (l - uC - 0.045) / (uD - uC - 0.045);',
     '    float b = t < 0.34 ? 0.3 : (t < 0.67 ? 0.18 : 0.09);', // 三档阶梯透明度
-    '    float sp = fract(an * uSp + log(l) * 1.5 + uTime * 0.7);', // 对数螺旋，随时间往里卷
-    '    if (sp < 0.17) { col = uRim; a = b * 1.8; } else { col = uDark; a = b; }',
+    // vf-vfx：螺旋条被一层流动的噪声扭弯（不再是死板的几何螺旋），暗紫的吸积带里有顺着螺旋往里漂的品红细纹（胞腔边）
+    '    float wv = vfxNA(vec2(an * 2.0 + uTime * 0.05, l * 1.1 - uTime * 0.12)).r - 0.5;',
+    '    float sp = fract(an * uSp + log(l) * 1.5 + uTime * 0.7 + wv * 0.45);', // 对数螺旋，随时间往里卷
+    '    float ce = vfxNA(vec2(an * 4.0 + log(l) * 0.6, log(l) * 0.9 + uTime * 0.35)).b;',
+    '    if (sp < 0.17) { col = uRim; a = b * 1.8; } else if (ce > 0.62) { col = mix(uDark, uRim, 0.55); a = b * 1.45; } else { col = uDark; a = b; }',
     '  }',
     '  else if (l > 0.976) {', // 牵引半径：一圈品红虚线（慢慢转）
     '    if (fract(an * 28.0 + uTime * 0.2) > 0.55) discard;',
@@ -23801,7 +24013,7 @@
   const flame = { on: false, acc: 0, flick: 6 };
   function chUniforms(extra) {
     const u = { uCore: { value: new T.Color(CH_CORE) }, uRim: { value: new T.Color(CH_RIM) }, uHi: { value: new T.Color(CH_HI) }, uTime };
-    return Object.assign(u, extra || {});
+    return G.vfx.uni(Object.assign(u, extra || {})); // vf-vfx：带上特效贴图库的噪声贴图
   }
   // R：伤害半径；pR：牵引半径（圆盘按它画，缺省 1.35 × R）
   W.makeHole = function (x, z, R, mouth, pR) {
@@ -23950,7 +24162,7 @@
     '  gl_Position = projectionMatrix * mv;',
     '}',
   ].join('\n');
-  const VORTEX_FRAG = [
+  const VORTEX_FRAG = G.vfx.GLSL + '\n' + [
     'uniform vec3 uCore; uniform vec3 uRim; uniform vec3 uHi; uniform vec3 uDark;',
     'varying vec2 vP; varying float vH; varying float vFace; varying float vPart; varying vec3 vI; varying vec4 vV;',
     'void main(){',
@@ -23961,7 +24173,8 @@
     // 地面旋涡：三条对数螺旋的尘带，随转角往里卷；品红的前沿、暗紫的尘带，三档透明度（中间实、外圈淡）
     '    float l = length(vP) / 1.6;',
     '    if (l > 1.0 || vV.w < 0.01) discard;',
-    '    float s = fract(3.0 * (an - sp) / 6.2831853 - 0.9 * log(max(l, 0.04)));',
+    // vf-vfx：尘带被噪声扭一扭（转起来像一团被卷起的尘土，不是三条死板的螺旋）
+    '    float s = fract(3.0 * (an - sp) / 6.2831853 - 0.9 * log(max(l, 0.04)) + (vfxNA(vec2(an / 6.2831853 * 2.0, l * 0.8 - sp * 0.05)).r - 0.5) * 0.35);',
     '    float b = l < 0.42 ? 0.5 : (l < 0.72 ? 0.32 : 0.16);',
     '    if (l < 0.13) { col = uCore; a = 0.75; }',
     '    else if (s < 0.08) { col = uRim; a = min(1.0, b * (1.7 + tg)); }',
@@ -23984,10 +24197,15 @@
     '    float k = u / 0.55, c = 0.62 - 0.3 * k, th = 0.2 * (1.0 - pow(abs(2.0 * k - 1.0), 2.0));',
     '    if (abs(fr - c) < th) { arc = 1.0; head = step(0.38, k) * step(abs(fr - c), th * 0.5); }',
     '  }',
+    // vf-vfx：风弧里顺着转向拉开的条纹（条纹噪声换成横向：沿柱身绕圈的方向拉长），弧身被拉出一缕缕的风丝、弧的后半截断续，
+    // 柱身上也偶尔掠过一缕淡品红的风丝；条纹跟着转角走，转起来是风在流，不是贴图在滑
+    '  float st = vfxNB(vec2(h * 1.4 + row * 0.37, (an - sp * 0.6) / 6.2831853 * 2.0)).r;',
+    '  if (arc > 0.5 && head < 0.5 && st < 0.22) arc = 0.0;',
     '  if (vFace >= 0.0) {',
     '    if (arc > 0.5 && head > 0.5 && h > 0.15) { col = uHi; a = 0.95 * tint; }',
     '    else if (arc > 0.5) { col = uRim; a = 0.85 * tint; }',
     '    else if (vFace < 0.3) { col = uCore; a = 0.62; }', // 轮廓边压暗
+    '    else if (st > 0.86 && tint > 0.01) { col = uRim; a = 0.42 * tint; }',
     '    else { col = uCore; a = 0.22 + 0.16 * (1.0 - h) - 0.1 * tg; }', // 吸附时罩在怪身上的近侧壁更透
     '  } else {',
     // 朝里的那面（远侧壁，从近侧壁透过去、从口子里看进去）：近黑、下半截更实，叠出一根暗的芯柱；往上越来越淡，从上往下看口子里不是一块黑盘。
@@ -24594,9 +24812,11 @@
       '  gl_FragColor = vec4(c, 1.0); }',
     ].join('\n'),
     // 护域的罩子：菲涅尔的边 + 顶上稀疏的经线，越往下越亮（贴地的一圈最亮）
-    dome: [
-      'uniform float uTime; varying vec3 vC; varying float vA; varying vec3 vN; varying vec3 vV; varying vec2 vUv; varying float vY;',
+    // vf-vfx：罩面上慢慢漂的胞腔细纹（特效贴图库的胞腔边），只在半透明的那几档里加一点
+    dome: G.vfx.GLSL + '\n' + [
+      'varying vec3 vC; varying float vA; varying vec3 vN; varying vec3 vV; varying vec2 vUv; varying float vY;',
       'void main(){ float f = 1.0 - abs(dot(normalize(vN), normalize(vV))); float a = f > 0.75 ? 0.26 : (f > 0.5 ? 0.09 : 0.03);',
+      '  a = max(a, step(0.55, vfxNA(vec2(vUv.x * 3.0 + uTime * 0.02, vUv.y * 1.2 - uTime * 0.04)).b) * 0.11);',
       '  float lon = abs(fract(vUv.x * 12.0 + uTime * 0.05) - 0.5); if (lon < 0.015) a = max(a, 0.12);',
       '  if (vY < 0.05) a = 0.32; float k = vA > 0.66 ? 1.0 : (vA > 0.33 ? 0.62 : 0.3);',
       '  gl_FragColor = vec4(vC * (0.8 + f * 0.6), a * k); }',
@@ -24613,9 +24833,10 @@
       '  gl_FragColor = vec4(mix(vC, vec3(1.0), r > 0.9 ? 0.35 : 0.0), a * k); }',
     ].join('\n'),
     // 索：中间一道亮芯（缓缓流动的节）+ 两侧颜色的边
-    band: [
-      'uniform float uTime; varying vec3 vC; varying float vA; varying float vK; varying vec2 vUv;',
-      'void main(){ float e = abs(vUv.x - 0.5); float flow = fract(vUv.y * vK * 0.6 - uTime * 1.6);',
+    // vf-vfx：流动的节换成顺着索往前窜的条纹噪声，亮芯的粗细跟着跳一点
+    band: G.vfx.GLSL + '\n' + [
+      'varying vec3 vC; varying float vA; varying float vK; varying vec2 vUv;',
+      'void main(){ float n = vfxNB(vec2(vUv.x * 0.5, vUv.y * vK * 0.12 - uTime * 1.3)).r; float e = abs(vUv.x - 0.5) * (0.8 + 0.4 * n); float flow = n > 0.45 ? 0.2 : 0.7;',
       '  vec3 c; float a; if (e < 0.1) { c = vec3(1.0); a = 1.0; } else if (e < 0.3) { c = vC; a = flow < 0.5 ? 0.85 : 0.5; } else if (e < 0.42 && flow < 0.25) { c = vC; a = 0.35; } else discard;',
       '  float k = vA > 0.66 ? 1.0 : (vA > 0.33 ? 0.62 : 0.3); gl_FragColor = vec4(c, a * k); }',
     ].join('\n'),
@@ -24632,7 +24853,7 @@
     ig.setAttribute('aK', aK);
     const solid = !!KV_SOLID[kind];
     const mat = new T.ShaderMaterial({
-      uniforms: { uTime }, vertexShader: KV_VERT, fragmentShader: solid ? KV_FRAG.solid : KV_FRAG[kind],
+      uniforms: G.vfx.uni({ uTime }), vertexShader: KV_VERT, fragmentShader: solid ? KV_FRAG.solid : KV_FRAG[kind],
       transparent: !solid, depthWrite: solid, toneMapped: false, fog: false, side: solid ? T.FrontSide : T.DoubleSide,
       blending: solid ? T.NormalBlending : T.AdditiveBlending,
     });
