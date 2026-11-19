@@ -980,7 +980,8 @@
   // 随核 yinli：黑洞以你为中心跟着你走；持续 × dur、半径 × radius、牵引 × pull（首领不变）、每跳伤害 × dmg
   // 锁链 yuanfu：同一时刻处于渊缚的敌人连成一串（最多 max 个），其中一个受到你的伤害，其余每个分到 share
   G.RELIC_MECH = {
-    panzhong: { r: 3.0, mult: 1.1, poise: 28, kb: 1.2, gap: 0.8, rollCd: 0.3 },
+    // r 4.5（设计稿 3.0）：从近战距离朝目标翻滚，落地离目标约 4 米，3 米够不着翻过去的那个目标
+    panzhong: { r: 4.5, mult: 1.1, poise: 28, kb: 1.2, gap: 0.8, rollCd: 0.3 },
     nuchao: { pulse: 0.55, max: 12, burst: 0.5, r: 1.4 },
     duanyue: { r: 8, t: 2.5, sweepR: 3, sweep: 0.35 },
     qianmu: { critMulti: -15 },
