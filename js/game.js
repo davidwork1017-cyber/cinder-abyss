@@ -4952,8 +4952,10 @@
     G.sfx('finisher');
     wsStrike(ctx, hits, 1, { ang: (e) => Math.atan2(e.x - P.x, e.z - P.z), w: sk.w, kb: sk.kb, poise: sk.poise, stop: sk.stop });
     const B = sk.burn;
-    // burn.mult 是武器伤害的倍数：ctx 里已经乘了火浪的 wm，这里折回去
-    addField({ kind: 'burn', x: P.x, z: P.z, r: B.r * k, dur: B.dur, tick: B.tick, mult: B.mult / (sk.wm || 1), ctx, key: 'burnAt', hex });
+    // 每一跳按火浪那一击的倍数：按普攻折算时 = burn.sec / basicSec（ctx 的一击是喷射 basicSec 秒）；
+    // 否则 burn.mult 是武器伤害的倍数，ctx 里已经乘了火浪的 wm，这里折回去
+    const tickK = B.sec !== undefined && sk.basicSec ? B.sec / sk.basicSec : B.mult / (sk.wm || 1);
+    addField({ kind: 'burn', x: P.x, z: P.z, r: B.r * k, dur: B.dur, tick: B.tick, mult: tickK, ctx, key: 'burnAt', hex });
   };
 
   // 乱射：脱离施放系统的持续效果（P.rstate）——翻滚、走动、放别的技能都不打断它
