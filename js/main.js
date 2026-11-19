@@ -415,6 +415,7 @@
         bar: save.bar.slice(),
         weaponSkill: G.weaponSkill(),
         ranged: G.rangedWeapon(),
+        basic: G.weaponBasic ? G.weaponBasic() : null, // 右键此刻的武器普攻
         rbuff: G.player.rbuff ? { id: G.player.rbuff.id, t: r2(G.player.rbuff.t) } : null,
         rstate: G.player.rstate ? { id: G.player.rstate.id, t: r2(G.player.rstate.t) } : null,
         weapon: save.equip.weapon ? G.weaponStats(save.equip.weapon) : null,
