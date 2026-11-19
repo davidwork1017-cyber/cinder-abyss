@@ -1503,12 +1503,11 @@
         if (d >= 0.9) {
           if (Math.hypot(x - st.x, z - st.z) < 4 || (o.trail && o.trail(x, z) < 1.4)) continue;
           if (u > fl * 0.15 * smooth01((n - 0.45) / 0.25)) continue;
-          // 盖着覆盖层的地方不放裂纹 / 焦痕（裂纹画在积灰上像树根），只放碎石
-          if (o.cover && o.cover(x, z) > 0.45) decalPush(x, z, r(0.5, 0.9), r(0.5, 0.9), r(0, TAU), C.pebble2, tintL, r(0.5, 0.7));
-          else if (sc && nearLava(x, z) && n2 < 0.5 + sc * 0.4) decalPush(x, z, r(1.1, 2.2), r(1.0, 2.0), r(0, TAU), pick([C.scorch, C.scorch2]), darkL, r(0.3, 0.5));
+          // 盖着覆盖层的地方不放裂纹 / 焦痕（裂纹画在积灰上像树根）；路面上也不放碎石（一颗颗暗点看着像脏东西，路面要干净）
+          if (o.cover && o.cover(x, z) > 0.45) continue;
+          if (sc && nearLava(x, z) && n2 < 0.5 + sc * 0.4) decalPush(x, z, r(1.1, 2.2), r(1.0, 2.0), r(0, TAU), pick([C.scorch, C.scorch2]), darkL, r(0.3, 0.5));
           else if (n2 < 0.55) decalPush(x, z, r(0.9, 1.8), r(0.9, 1.8), r(0, TAU), pick([C.crack, C.crack2]), darkL, r(0.3, 0.45));
-          else if (n2 < 0.82) decalPush(x, z, r(1.3, 2.6), r(1.0, 2.0), r(0, TAU), pick([C.cover, C.cover2]), coverL, r(0.3, 0.5));
-          else decalPush(x, z, r(0.5, 0.9), r(0.5, 0.9), r(0, TAU), C.pebble2, tintL, r(0.55, 0.75));
+          else decalPush(x, z, r(1.3, 2.6), r(1.0, 2.0), r(0, TAU), pick([C.cover, C.cover2]), coverL, r(0.3, 0.5));
         } else {
           if (d < -3.2 || u > wl * 0.22 * (0.25 + 0.75 * smooth01((n - 0.35) / 0.3))) continue;
           const k = pick(D.kinds);
