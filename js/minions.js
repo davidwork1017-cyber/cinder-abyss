@@ -1183,7 +1183,7 @@
     const W = G.world, B = m.ctx.minion.vx;
     if (!W.kv) return;
     if (!m.vfx) m.vfx = [W.kv('dome', { hex: ALLY_HEX }), W.kv('glyph', { hex: ALLY_HEX, y: 0.06, k: 1 })];
-    const up = m.rising > 0 ? 0.3 : 1;
+    const up = m.rising > 0 ? 0.3 : 0.62; // 护域很大：罩子和符环都压一档，不盖住场面
     const d = m.vfx[0], g = m.vfx[1];
     d.x = g.x = m.x;
     d.z = g.z = m.z;
@@ -1191,7 +1191,7 @@
     d.sy = B.r * 0.55;
     d.a = up;
     g.s = B.r * 2;
-    g.a = up;
+    g.a = Math.min(up, 0.3); // 6 米的符环再暗一档
     g.ry += 0.004;
   }
   // 骸弓：射一支骨箭（贯穿 archer.pierce 个），箭归这具仆从（命中算召唤物的）
