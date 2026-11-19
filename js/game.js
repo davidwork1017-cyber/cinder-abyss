@@ -1320,7 +1320,8 @@
     if (mi && mi.mech === 'field') {
       // 刻式「焰田」打单体：火弹（每秒 r 枚）+ 脚下火地（几片共用一个计时，每 tick 秒一跳）+ 燎原（每 charge.max 枚一次，引爆这期间留下、还没灭的火地）
       const F = mi.vx, r = mi.cap / mi.interval, gap = (mi.charge.max * mi.interval) / mi.cap;
-      return G.avgHit(ctx) * (r + F.mult / F.tick + (Math.min(F.dur, gap) * r * F.burst) / gap);
+      // 燎原时还压在目标脚下的火地实测约三成（火弹落点散、火地先灭）
+      return G.avgHit(ctx) * (r + F.mult / F.tick + (0.3 * Math.min(F.dur, gap) * r * F.burst) / gap);
     }
     if (mi && mi.beam && mi.charge) {
       // 焚骨祭司打单体：每 charge.max 枚火弹接一轮灼链（单体时一弹只攒 1 点焰蓄）
@@ -3813,7 +3814,11 @@
       G.hitEnemy(o, ctx, 1, { ang: Math.atan2(o.x - P.x, o.z - P.z), w: 0, kb: sk.kb, poise: sk.poise, quiet: true });
       crit = crit || lastHit.crit;
       top = lastHit.type;
-      if (sk.mech === 'mark' && !o.dead) markAdd(o, sk.mark); // 刻式「影印」：烙一层
+      if (sk.mech === 'mark' && !o.dead) {
+        // 刻式「影印」：烙一层；已经烙满的当场引爆它身上的（这一刀不再烙）
+        if ((o.vMark || 0) >= sk.mark.max) markPop(o, ctx, sk.mark);
+        else markAdd(o, sk.mark);
+      }
     }
     const stop = ((sk.stop || 0) + (crit ? 15 : 0)) * ctx.stopK;
     G.hitStop(stop);
@@ -4912,7 +4917,7 @@
       G.telegraph({
         shape: 'circle', x, z, r: R0, dur: sk.delay, dmg: 0, friendly: true,
         onFire() {
-          for (const e of enemiesIn(x, z, R0)) G.hitEnemy(e, ctx, vm ? vm.k0 : 1, { ang: Math.atan2(e.x - x, e.z - z), core: true }); // 从落点往外炸开；core：不点燃自己留下的熔核
+          for (const e of enemiesIn(x, z, R0)) G.hitEnemy(e, ctx, vm ? vm.k0 : 1, { ang: Math.atan2(e.x - x, e.z - z), core: true, kb: sk.mech === 'plough' ? 0.2 : undefined }); // 从落点往外炸开；core：不点燃自己留下的熔核；犁焰落地不推人（留给犁）
           if (sk.mech === 'core') meteorCore(ctx, x, z);
           else if (sk.mech === 'plough') meteorPlough(ctx, x, z, a.dx, a.dz);
           if (vm) {
@@ -5034,7 +5039,7 @@
   // 落地：小范围爆炸（每个敌人每次落地一次），留一片火地；还有跳数就接着跳（返回 true），没有就收起（返回 false）
   function skipLand(p) {
     const W = G.world, sk = p.ctx.sk, S = sk.skip, ak = Math.sqrt(p.ctx.area), R = S.r * ak;
-    for (const e of enemiesIn(p.x, p.z, R)) G.hitEnemy(e, p.ctx, 1, { ang: Math.atan2(e.x - p.x, e.z - p.z), kb: sk.kb, poise: sk.poise, quiet: true });
+    for (const e of enemiesIn(p.x, p.z, R)) G.hitEnemy(e, p.ctx, 1, { ang: Math.atan2(e.x - p.x, e.z - p.z), kb: 0.15, poise: sk.poise, quiet: true }); // 推得很轻：留在火地里
     const F = S.field;
     addField({ kind: 'burn', x: p.x, z: p.z, r: F.r * ak, dur: F.dur, tick: F.tick, mult: F.mult, ctx: p.ctx, key: 'vSkipT', hex: 0xff7a2c });
     W.ring(p.x, p.z, R, 0xff8a3c, 0.25);
@@ -5504,7 +5509,7 @@
     const W = G.world, S = ctx.sk.plough;
     const len = Math.max(0.5, rayLen(x, z, Math.atan2(dx, dz), S.len, 0.3));
     VS.ploughs.push({
-      x, z, x0: x, z0: z, dx, dz, d: 0, len, sp: S.len / S.t, ctx, hit: new Set(), fd: 0,
+      x, z, x0: x, z0: z, dx, dz, d: 0, len, sp: S.len / S.t, ctx, hit: new Set(), fd: -9, // fd：上一片火的位置（落点那一片第一帧就铺）
       fx: W.kv('rock', { hex: 0x5a2a14, x, z, y: 0.55, s: 1.3 }), glow: W.kv('orb', { hex: 0xff6a20, x, z, y: 0.6, s: 0.95, k: 0.7 }),
     });
     // 长条的犁痕一次铺好（贴地擦痕，长度的一半 = len / 2）
@@ -5783,6 +5788,16 @@
     e.vMark = 0;
     VS.marks.delete(e);
   }
+  // 满层再砍：只引爆这一只身上的
+  function markPop(e, ctx, M) {
+    const k = e.vMark || 0;
+    markClear(e);
+    G.hitEnemy(e, ctx, M.mult * k, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 1, kb: 0.3, poise: 4 * k, quiet: true });
+    const W = G.world;
+    if (W.markBurstFx) W.markBurstFx(e.x, e.z, e.height || 2, e.r, e.r + 0.6);
+    state.stats.vMarkPops = (state.stats.vMarkPops || 0) + 1;
+    vCount();
+  }
   // 连斩停下：所有影印一齐引爆，每层 mark.mult 倍
   function markBurst() {
     const W = G.world, ctx = G.skillCtx('shadestep'), M = ctx.sk.mark;
@@ -6004,7 +6019,22 @@
         best = o;
       }
     }
-    if (!best) return;
+    if (!best) {
+      // 附近没有别的汇涡：拐向 seek 米内最近的敌人，压到它身上就放慢（合得越多越沉）
+      let tg = null, td = M.seek;
+      for (const e of state.enemies) {
+        if (e.dead) continue;
+        const d = dist(e.x, e.z, v.x, v.z) - e.r;
+        if (d < td) {
+          td = d;
+          tg = e;
+        }
+      }
+      if (!tg) return;
+      v.a += G.clamp(angDiff(Math.atan2(tg.x - v.x, tg.z - v.z), v.a), -M.turn * dt, M.turn * dt);
+      v.speed = (v.ctx.sk.speed / Math.sqrt(v.lvl)) * (td < v.R ? 0.35 : 1);
+      return;
+    }
     if (bd < (v.R + best.R) * 0.6 && v.lvl >= best.lvl && v.t >= M.after && best.t >= M.after) { // 刚放出来的先各飞一会儿，看得出是在靠拢
       v.lvl = Math.min(M.max, v.lvl + best.lvl);
       v.R = v.R0 * Math.sqrt(v.lvl);
