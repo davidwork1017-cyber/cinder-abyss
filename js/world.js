@@ -1864,6 +1864,7 @@
   function prefetchNext(def) {
     if (!G.assets) return;
     const i = G.ZONES.indexOf(def);
+    if (i < 0) return; // 余烛殿：不在区域序列里，没有「下一个区域」
     const nx = G.ZONES[i + 1] && ZONE_GFX[G.ZONES[i + 1].id];
     if (!nx) return;
     // 等一个安静的时刻再预取（25 m 内没有醒着的怪、玩家 3 秒没出手），最多等 60 秒。原来固定在进区 1.5 秒后，
@@ -3371,7 +3372,7 @@
   const terrainOf = (def) => ZONE_TERRAIN[def.id] || TERRAIN_FALLBACK;
   // 只跑生成器 + 校验，不建网格、不建模型（测试批量校验种子用）
   W.genLayout = function (id, seed) {
-    const def = G.ZONES.find((z) => z.id === id) || G.ZONES[0];
+    const def = G.ZONES.find((z) => z.id === id) || (G.PINNACLE && id === G.PINNACLE.id ? G.PINNACLE : G.ZONES[0]); // 余烛殿不在 G.ZONES 里
     const gen = terrainOf(def).gen;
     const t0 = performance.now();
     const spec = gen(mulberry32(seed >>> 0), def);
@@ -8785,6 +8786,244 @@
     },
   };
   // ===== 区域地形：rift 结束 =====
+
+  // ===== 区域地形：crown（余烛殿，熄烛者的场地，D5）—— pinnacle 只改这一节 =====
+  // 固定布局（不用随机源，每次都一样）：起点 (0, 0) r 8 的圆，往北 20 m 一条胶囊（hw 3.5，link），场地圆心 (0, −34)、r 17。
+  // 场地里四个火盆台（WALL 圆 r 0.9，挡人挡子弹，可以当掩体）在圆心外 10.5 m、方位 45° / 135° / 225° / 315°。区域外面整片是虚空（spec.outside = VOID），
+  // 悬在深渊上，外观借烬渊的崖边 / 岩顶 / 深渊底，调色是烬渊的炭灰紫底子 + 烛火暖金。不放怪群、宝箱，不出异兆、没有渊印。
+  // 首领的场地半径 bossR = 15（spec.arena.r），门（倒下后的重生点）在场地南缘外 2 m 的通道里：三阶段外圈起火时重生点不在火里。
+  // 玩法（火盆的亮灭、暗潮、焰潮、重燃）在 game.js「余烛殿」一节，这里只有布局、外观和三个给玩法调的外观接口：
+  //   W.crownBraziers(lit, relit, k)：火盆亮灭（lit 是 4 个 0 / 1），relit 正在重燃的那个（进度 k）；
+  //   W.crownTide(k, safeA)：暗潮的内收光环（k 0..1，0 = 不画）和亮着的火盆脚下的安全圈（safeA 不透明度，0 = 不画）；
+  //   W.crownBurn(on)：三阶段外圈的火（焰潮）
+  const CROWN_PAL = {
+    flame: 0xffa83a, flameMid: 0xffd27a, core: 0xfff4d6, ember: 0x5a1a0a, // 火苗三层 / 熄灭时的余烬
+    stone: 0x5e5668, stoneLo: 0x231c2c, bowl: 0x3e3846, brass: 0xa8803e, // 火盆台：石座、铁盆、铜箍
+    safe: 0xffc870, safeEdge: 0xfff2d0, tide: 0x12081c, tideEdge: 0x9a6ad8, // 安全圈（友方的暖金）、暗潮（暗紫，前沿一道冷紫亮线）
+    fire: 0xff6a22, fireHi: 0xffc060,
+  };
+  function crownGen() {
+    const PN = G.PIN, A = PN.arena, BR = PN.braziers;
+    const C = (x, z, r) => ({ t: 'circle', x, z, r });
+    const rooms = [
+      { id: 0, kind: 'start', order: 0, path: true, prims: [C(0, 0, 8)], core: { x: 0, z: 0, r: 8 }, tags: [], lv: 0 },
+      { id: 1, kind: 'link', order: 0, path: true, prims: [{ t: 'capsule', ax: 0, az: -2, bx: 0, bz: -20, hw: 3.5 }], core: { x: 0, z: -12.5, r: 3.5 }, axis: [[0, -2], [0, -20]], ends: [0, 2], tags: [], lv: 0 },
+      { id: 2, kind: 'arena', order: 1, path: true, prims: [C(A.x, A.z, A.r)], core: { x: A.x, z: A.z, r: A.r }, tags: ['arena'], lv: 0 },
+    ];
+    const links = [
+      { a: 0, b: 1, door: { x: 0, z: -8 }, kind: 'neck' },
+      { a: 1, b: 2, door: { x: A.x, z: A.z + A.r }, kind: 'neck' },
+    ];
+    const cuts = [], feats = [];
+    BR.angs.forEach((deg, i) => {
+      const a = (deg * Math.PI) / 180, x = A.x + Math.sin(a) * BR.r, z = A.z - Math.cos(a) * BR.r; // 方位从正北（−z）顺时针量
+      cuts.push({ prim: C(x, z, BR.wall), mat: MAT.WALL });
+      feats.push({ kind: 'brazier', i, x, z, r: BR.wall });
+    });
+    feats.push({ kind: 'altar', x: A.x, z: A.z, r: A.r });
+    const spec = {
+      rooms, links, cuts, haz: [], feats, packs: [], chests: [], outside: MAT.VOID, path: [0, 1, 2],
+      start: { x: 0, z: 0, exit: { x: 0, z: -8, ang: Math.PI } },
+      arena: { room: 2, x: A.x, z: A.z, r: PN.bossR, round: true, door: { x: A.x, z: A.z + A.r + 2 }, dir: { x: 0, z: -1 } },
+    };
+    spec.bounds = specBounds(spec);
+    return spec;
+  }
+  crownGen.live = true; // 固定布局：进区时不按种子重试、不重复校验（校验见 smoke 的「余烛殿·场地」）
+  crownGen.check = { areaMin: 900, areaMax: 1700 }; // 起点 201 + 通道约 80 + 场地 908 − 火盆台
+  // 外观旋钮：在烬渊那一套上改法阵 / 环境火星的颜色，不放 CC0 布景模型（区域外面全是虚空，摆件没处放）
+  ZONE_GFX.crown = Object.assign({}, ZONE_GFX.abyss, {
+    sigil: { r: 0.6, col: 0xffb24a, k: 0.36, start: false },
+    amb: 0xffb24a,
+    props: { outer: [], keep: 0, mid: [], midK: 0, edge: [['kh/skull_candle', 1, 0.6, 0.8, '']], fire: null, boss: [] },
+  });
+  ZONE_LIGHT.crown = Object.assign({}, ZONE_LIGHT.abyss, { key: 0xffd2a0, bounce: 0x5a3a2a });
+  GROUND_STYLE.crown = GROUND_STYLE.abyss;
+  // 火盆台：三级石座 + 石柱 + 铁盆 + 铜箍（顶点色烘进一个几何体，按 y 压暗根部），四个实例一次 draw
+  const crownBrazierGeo = () =>
+    geo('crown/brazier', () => toonGradient(bake('crown/brazier0', [
+      [gCyl(1.0, 1.08, 0.22, 8), CROWN_PAL.stoneLo, 0, 0.11, 0],
+      [gCyl(0.86, 0.92, 0.2, 8), CROWN_PAL.stone, 0, 0.32, 0],
+      [gCyl(0.56, 0.66, 0.9, 8), CROWN_PAL.stone, 0, 0.87, 0],
+      [gCyl(0.82, 0.5, 0.36, 10), CROWN_PAL.bowl, 0, 1.48, 0],
+      [gTorus(0.8, 0.06, 4, 12), CROWN_PAL.brass, 0, 1.66, 0, HALF_PI, 0, 0],
+      [gCyl(0.7, 0.7, 0.04, 10), 0x1a1014, 0, 1.6, 0],
+    ]).clone(), { bottom: 0x3a2c4a, top: 0xffffff, y0: 0, y1: 1.7 }));
+  // 火苗：三层套着的尖锥（外橙、中金、芯白），顶点色；四个实例一次 draw，每帧按实例改缩放来闪动（熄灭的缩成一点暗红的余烬）
+  const crownFlameGeo = () =>
+    geo('crown/flame', () => bake('crown/flame0', [
+      [gCone(0.5, 1.5, 7), CROWN_PAL.flame, 0, 0.75, 0],
+      [gCone(0.34, 1.05, 7), CROWN_PAL.flameMid, 0, 0.55, 0.02],
+      [gCone(0.18, 0.62, 6), CROWN_PAL.core, 0, 0.34, 0.04],
+    ]));
+  // 暗潮 / 安全圈 / 焰潮：一张盖住场地的方片，三件事都在这一个着色器里画（不在场时隐藏，在场也只有一次 draw）
+  const CROWN_FX_FRAG = [
+    'uniform float uR; uniform float uTide; uniform float uSafeA; uniform float uSafe; uniform float uBurn; uniform float uIn; uniform float uTime;',
+    'uniform vec4 uBx; uniform vec4 uBz; uniform vec4 uLit;',
+    'uniform vec3 uTideC; uniform vec3 uTideE; uniform vec3 uSafeC; uniform vec3 uSafeE; uniform vec3 uFire; uniform vec3 uFireHi;',
+    'varying vec2 vP;',
+    'float sdb(vec2 p, float bx, float bz, float lit){ return lit > 0.5 ? length(p - vec2(bx, bz)) - uSafe : 1e3; }',
+    'void main(){',
+    '  vec2 p = vP * uR; float l = length(p);',
+    '  if (l > uR) discard;',
+    '  float sd = min(min(sdb(p, uBx.x, uBz.x, uLit.x), sdb(p, uBx.y, uBz.y, uLit.y)), min(sdb(p, uBx.z, uBz.z, uLit.z), sdb(p, uBx.w, uBz.w, uLit.w)));',
+    '  vec4 col = vec4(0.0);',
+    // 焰潮：外圈一道道往里卷的火舌（三档硬边），内沿一条亮线
+    '  if (uBurn > 0.5 && l > uIn) {',
+    '    float a = atan(p.x, p.y);',
+    '    float w = sin(a * 9.0 + uTime * 2.2) * 0.5 + sin(a * 23.0 - uTime * 3.1) * 0.35 + sin((l - uIn) * 2.6 - uTime * 5.0) * 0.4;',
+    '    float b = (l - uIn) / max(0.01, uR - uIn) + w * 0.18;',
+    '    vec3 fc = b > 0.62 ? uFire * 0.55 : (b > 0.28 ? uFire : uFireHi);',
+    '    col = vec4(fc, b > 0.62 ? 0.42 : 0.62);',
+    '    if (l - uIn < 0.22) col = vec4(uFireHi, 0.95);',
+    '  }',
+    // 暗潮：前沿从场地外缘往圆心收（uTide 0 → 1），扫过的地方压一层暗紫；亮着的火盆 uSafe 米内不压
+    '  if (uTide > 0.0) {',
+    '    float e = uR * (1.0 - uTide);',
+    '    if (l > e && sd > 0.0) col = vec4(uTideC, 0.5 + 0.3 * uTide);',
+    '    if (sd > 0.0 && abs(l - e) < 0.35) col = vec4(uTideE, 0.9);',
+    '  }',
+    // 安全圈：友方的暖金，硬边轮廓 + 很淡的底
+    '  if (uSafeA > 0.0 && sd < 0.0) {',
+    '    col = sd > -0.28 ? vec4(uSafeE, uSafeA) : (sd > -0.6 ? vec4(uSafeC, uSafeA * 0.7) : mix(col, vec4(uSafeC, 1.0), uSafeA * 0.16));',
+    '  }',
+    '  if (col.a < 0.01) discard;',
+    '  gl_FragColor = col;',
+    '}',
+  ].join('\n');
+  let crownSt = null; // 当前余烛殿的外观状态（不在余烛殿时为 null）
+  function crownDress(zone, ctx) {
+    const st = { lit: [1, 1, 1, 1], relit: -1, relitK: 0, br: [], t: 0, flames: null, fx: null, U: null };
+    // ① 虚空：借烬渊的工具（地面裙边收到崖边、岩顶在虚空处挖洞、崖面带、深渊底）
+    if (ctx.ground) abyssEdgeGround(zone, ctx.ground, ctx.sd);
+    if (ctx.voidMesh) {
+      const old = ctx.voidMesh.geometry;
+      ctx.voidMesh.geometry = abyssPlateau(zone, ctx.hd, old);
+      old.dispose();
+    }
+    abyssCliff(zone, ctx);
+    {
+      const m = zone.map, w = (m.mx - 1) * m.h2, h = (m.mz - 1) * m.h2;
+      const pg = own(new T.PlaneGeometry(w, h).rotateX(-Math.PI / 2));
+      const uv = pg.attributes.uv;
+      for (let i = 0; i < uv.count; i++) uv.setY(i, 1 - uv.getY(i));
+      pg.translate(m.x0 + w / 2, -ABYSS_DEEP, m.z0 + h / 2);
+      const deep = new T.Mesh(pg, own(new T.MeshBasicMaterial({ map: abyssDeepTex(zone) })));
+      deep.frustumCulled = false;
+      ctx.group.add(deep);
+    }
+    // ② 火盆台和火苗（各一次 draw）
+    const base = [], fl = [];
+    for (const f of zone.feats) {
+      if (f.kind !== 'brazier') continue;
+      st.br.push({ x: f.x, z: f.z, i: f.i, ph: rand(0, TAU), k: 1 });
+      base.push(f.x, 0, f.z, 0, rand(0, TAU), 0, 1, 1, 1, 1);
+      fl.push(f.x, 1.62, f.z, 0, 0, 0, 1, 1, 1, 1);
+    }
+    const bm = own(makeToonMat({ color: 0xffffff, brush: 0.14, vertexColors: true }));
+    ctx.instanced(crownBrazierGeo(), bm, base, true, new T.Color(1, 1, 1));
+    const fm = own(new T.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.94, depthWrite: false, fog: false, toneMapped: false }));
+    st.flames = ctx.instanced(crownFlameGeo(), fm, fl, false, new T.Color(1, 1, 1));
+    if (st.flames) {
+      st.flames.renderOrder = 2;
+      st.flames.frustumCulled = false;
+    }
+    // ③ 暗潮 / 安全圈 / 焰潮的方片（平时隐藏）
+    const A = G.PIN.arena, BR = st.br;
+    const U = (st.U = {
+      uR: { value: A.r + 0.2 }, uTide: { value: 0 }, uSafeA: { value: 0 }, uSafe: { value: G.PIN.tide.safe }, uBurn: { value: 0 }, uIn: { value: G.PIN.burnIn }, uTime,
+      uBx: { value: new T.Vector4(BR[0].x - A.x, BR[1].x - A.x, BR[2].x - A.x, BR[3].x - A.x) },
+      uBz: { value: new T.Vector4(BR[0].z - A.z, BR[1].z - A.z, BR[2].z - A.z, BR[3].z - A.z) },
+      uLit: { value: new T.Vector4(1, 1, 1, 1) },
+      uTideC: { value: lin(CROWN_PAL.tide) }, uTideE: { value: lin(CROWN_PAL.tideEdge) }, uSafeC: { value: lin(CROWN_PAL.safe) }, uSafeE: { value: lin(CROWN_PAL.safeEdge) },
+      uFire: { value: lin(CROWN_PAL.fire) }, uFireHi: { value: lin(CROWN_PAL.fireHi) },
+    });
+    const qm = own(new T.ShaderMaterial({ uniforms: U, vertexShader: FX_VERT, fragmentShader: CROWN_FX_FRAG, transparent: true, depthWrite: false }));
+    const q = new T.Mesh(gQuad(), qm);
+    q.position.set(A.x, 0.06, A.z);
+    q.scale.set(A.r + 0.2, 1, A.r + 0.2);
+    q.renderOrder = 2;
+    q.visible = false;
+    ctx.group.add(q);
+    st.fx = q;
+    crownSt = st;
+    crownFrame(st, 0);
+    return st;
+  }
+  // 火苗闪动：亮着的按各自的相位抖缩放，熄灭的缩成一点暗红余烬；正在重燃的按进度长回来
+  const _crM = new T.Matrix4(), _crQ = new T.Quaternion(), _crV = new T.Vector3(), _crS = new T.Vector3(), _crC = new T.Color();
+  function crownFrame(st, dt) {
+    st.t += dt;
+    const F = st.flames;
+    if (!F) return;
+    for (let i = 0; i < st.br.length; i++) {
+      const b = st.br[i], on = st.lit[i] > 0, want = on ? 1 : st.relit === i ? 0.15 + 0.6 * st.relitK : 0.12;
+      b.k += (want - b.k) * Math.min(1, dt * 8);
+      const fk = 1 + 0.12 * Math.sin(st.t * 11 + b.ph) + 0.06 * Math.sin(st.t * 23 + b.ph * 2);
+      _crS.set(b.k * (1 + 0.05 * Math.sin(st.t * 9 + b.ph)), b.k * fk, b.k);
+      _crQ.setFromAxisAngle(_v.set(0, 1, 0), st.t * 0.7 + b.ph);
+      _crM.compose(_crV.set(b.x, 1.62, b.z), _crQ, _crS);
+      F.setMatrixAt(i, _crM);
+      if (on || st.relit === i) _crC.setRGB(1, 1, 1);
+      else _crC.set(CROWN_PAL.ember).multiplyScalar(3);
+      if (F.setColorAt) F.setColorAt(i, _crC);
+      // 熄灭的冒一缕灰烟，亮着的偶尔蹦一颗火星（都走粒子池，不加 draw）
+      if (Math.random() < dt * (on ? 2.2 : 1.4)) {
+        if (on) spawnP(b.x + rand(-0.3, 0.3), 2.4, b.z + rand(-0.3, 0.3), rand(-0.3, 0.3), rand(1.2, 2.2), rand(-0.3, 0.3), rand(0.5, 0.9), rand(0.08, 0.14), 1, 0.7, 0.3, -0.4, 0.5);
+        else spawnP(b.x + rand(-0.2, 0.2), 1.9, b.z + rand(-0.2, 0.2), rand(-0.1, 0.1), rand(0.4, 0.8), rand(-0.1, 0.1), rand(1.4, 2.2), rand(0.14, 0.24), 0.32, 0.3, 0.34, -0.15, 0.2);
+      }
+    }
+    F.instanceMatrix.needsUpdate = true;
+    if (F.instanceColor) F.instanceColor.needsUpdate = true;
+  }
+  const crownLive = () => crownSt && W.zone && W.zone.def.id === 'crown';
+  W.crownBraziers = function (lit, relit, k) {
+    if (!crownLive()) return;
+    for (let i = 0; i < 4; i++) crownSt.lit[i] = lit[i] ? 1 : 0;
+    crownSt.relit = relit === undefined ? -1 : relit;
+    crownSt.relitK = k || 0;
+    crownSt.U.uLit.value.set(crownSt.lit[0], crownSt.lit[1], crownSt.lit[2], crownSt.lit[3]);
+  };
+  W.crownTide = function (k, safeA) {
+    if (!crownLive()) return;
+    crownSt.U.uTide.value = k || 0;
+    crownSt.U.uSafeA.value = safeA || 0;
+    crownSt.fx.visible = crownSt.U.uTide.value > 0 || crownSt.U.uSafeA.value > 0 || crownSt.U.uBurn.value > 0;
+  };
+  W.crownBurn = function (on) {
+    if (!crownLive()) return;
+    crownSt.U.uBurn.value = on ? 1 : 0;
+    crownSt.fx.visible = crownSt.U.uTide.value > 0 || crownSt.U.uSafeA.value > 0 || crownSt.U.uBurn.value > 0;
+  };
+  W.crownInfo = () => (crownLive() ? { lit: crownSt.lit.slice(), tide: crownSt.U.uTide.value, safeA: crownSt.U.uSafeA.value, burn: crownSt.U.uBurn.value, fx: crownSt.fx.visible, br: crownSt.br.map((b) => ({ x: b.x, z: b.z })) } : null);
+  // 烛奴（熄烛者召来的游魂）：蜡白的身子、余烬暖光（只改材质颜色，不重编着色器）
+  W.waxTint = function (ent) {
+    if (!ent || ent.removed) return;
+    const bm = ent.bodyMat;
+    bm.color.copy(lin(0xeadcc0));
+    if (bm.emissive) {
+      bm.emissive.copy(lin(0x6a3010));
+      bm.emissiveIntensity = 0.45;
+      bm.userData.e0 = bm.emissive.clone();
+      bm.userData.ei0 = 0.45;
+    }
+    if (ent.glowMat) {
+      ent.glowMat.emissive.copy(lin(0xffb24a));
+      ent.glowMat.userData.e0 = ent.glowMat.emissive.clone();
+    }
+    ent.uRim.value.setRGB(0.7, 0.45, 0.18);
+  };
+  ZONE_TERRAIN.crown = {
+    gen: crownGen,
+    dress: crownDress,
+    fx(dt, st) {
+      if (st) crownFrame(st, dt);
+    },
+    tick(dt) {
+      if (G.pinTick) G.pinTick(dt); // 玩法在 game.js「余烛殿」一节
+    },
+  };
+  // ===== 区域地形：crown 结束 =====
 
   // ---------- 区域：外观 ----------
   let zoneGroup = null;
@@ -16729,7 +16968,216 @@
     if (riftWellObj) riftWellObj.visible = false;
   }
 
-  const BOSS_RIG = { golem: golemRig, weaver: weaverRig, warden: wardenRig, lord: lordRig, behemoth: behemothRig };
+  // ---------------------------------------------------------------------
+  // 熄烛者（余烛殿的巅峰首领，D5）：高瘦的长袍身形，兜帽下一片暗，只有两点冷光；头顶一圈烛芯冠，烛芯都熄了，只有一根冒烟；
+  // 双手各提一盏熄灭的提灯（灯芯一点冷青的残光）。袍子拖地、不露腿，走路是平平地滑过去，下摆跟着摆
+  // ---------------------------------------------------------------------
+  function snufferRig() {
+    return rigOf('snuffer', () => {
+      const ROBE = 0x3a3046, ROBE_L = 0x5a4a6a, ROBE_IN = 0x150f1c, IRON = 0x4a4652, IRON_L = 0x7a7484, WAX = 0xd8ccb4, WAX_D = 0x9a8e7a, BRASS = 0xb08a4a, VOID_ = 0x07050a;
+      const b = rigBuilder('snuffer', NB_BIG);
+      b.j('root', null, 0, 1.7, 0).j('hem', 'root', 0, 0.9, 0).j('spine', 'root', 0, 2.4, 0).j('chest', 'spine', 0, 3.2, 0.02).j('head', 'chest', 0, 4.0, 0.12);
+      b.j('crown', 'head', 0, 4.55, 0.08);
+      b.j('uaL', 'chest', 0.62, 3.55, 0).j('faL', 'uaL', 0.98, 2.7, 0.12).j('hL', 'faL', 1.12, 1.95, 0.22).j('lampL', 'hL', 1.12, 1.62, 0.26);
+      b.j('uaR', 'chest', -0.62, 3.55, 0).j('faR', 'uaR', -0.98, 2.7, 0.12).j('hR', 'faR', -1.12, 1.95, 0.22).j('lampR', 'hR', -1.12, 1.62, 0.26);
+      b.j('cape', 'chest', 0, 3.5, -0.4);
+
+      // 袍：上身一截收腰的车削体，下摆单独一根骨头（走动时摆），拖到地面
+      b.at('hem').surf(SURF.cloth);
+      b.p(gLathe('sn/hem', [[0.95, 0.02], [0.88, 0.35], [0.7, 1.1], [0.52, 1.75]], 12), [ROBE_IN, ROBE], 0, 0, 0);
+      b.p(gTorus(0.92, 0.05, 4, 16), ROBE_L, 0, 0.06, 0, HALF_PI);
+      b.at('root').surf(SURF.cloth).p(gLathe('sn/waist', [[0.54, 1.6], [0.44, 2.0], [0.46, 2.3]], 10), [ROBE, ROBE_L], 0, 0, 0);
+      b.surf(SURF.metal).p(gTorus(0.46, 0.05, 5, 14), BRASS, 0, 2.0, 0, HALF_PI);
+      b.at('spine').surf(SURF.cloth).p(gLathe('sn/torso', [[0.46, 2.25], [0.5, 2.7], [0.58, 3.1], [0.5, 3.45]], 10), [ROBE, ROBE_L], 0, 0, 0);
+      // 前襟一条暗色的垂带，带上一排小烛钉
+      b.surf(SURF.cloth).pd(gPlate('sn/tab', [[-0.16, 0], [0.16, 0], [0.12, -1.5], [0, -1.75], [-0.12, -1.5]], 0.02, 0.006), [ROBE_IN, ROBE], ROBE_IN, 0, 3.2, 0.5, -0.12);
+      b.surf(SURF.metal);
+      for (let i = 0; i < 4; i++) b.p(gOct(0.05), BRASS, 0, 3.0 - i * 0.32, 0.53 + i * 0.03);
+      // 胸肩：高耸的披肩，两侧垂下的袖口
+      b.at('chest').surf(SURF.cloth);
+      b.p(gLathe('sn/mantle', [[0.5, 3.1], [0.78, 3.42], [0.66, 3.7], [0.3, 3.86]], 10), [ROBE_L, ROBE], 0, 0, 0, 0, 0, 0, 1, 1, 0.82);
+      b.surf(SURF.metal).p(gTorus(0.34, 0.04, 5, 12), IRON_L, 0, 3.82, 0.02, HALF_PI);
+      // 兜帽：深罩，里面一团暗，两点冷光
+      b.at('head').surf(SURF.cloth);
+      b.p(gSph(0.42, 10, 8), [ROBE_IN, ROBE_L], 0, 4.05, 0.05, 0, 0, 0, 0.92, 1.12, 1.05);
+      b.p(gCone(0.32, 0.6, 8), ROBE, 0, 4.48, -0.12, -0.5);
+      b.surf(SURF.cloth).p(gSph(0.3, 8, 6), VOID_, 0, 3.98, 0.24, 0, 0, 0, 0.82, 0.95, 0.6);
+      for (const s of [1, -1]) b.g(gSph(0.045, 6, 4), 1, s * 0.1, 4.02, 0.4, 0, 0, s * 0.3, 1.5, 0.6, 1);
+      // 烛芯冠：一圈黑铁冠带，九根矮烛，只有正前方偏右那根顶上还有一点余烬（冒烟另画在 post 里）
+      b.at('crown').surf(SURF.metal).p(gTorus(0.36, 0.05, 5, 16), IRON, 0, 4.55, 0.08, HALF_PI);
+      for (let k = 0; k < 9; k++) {
+        const a = (k / 9) * TAU, x = Math.sin(a) * 0.36, z = 0.08 + Math.cos(a) * 0.36, h = 0.22 + ((k * 37) % 9) * 0.025;
+        b.surf(SURF.bone).p(gCyl(0.045, 0.05, h, 6), [WAX_D, WAX], x, 4.6 + h / 2, z);
+        b.surf(SURF.dark).p(gCyl(0.008, 0.008, 0.06, 4), VOID_, x, 4.6 + h + 0.03, z);
+      }
+      b.g(gSph(0.04, 6, 4), 0.85, Math.sin(TAU / 9) * 0.36, 4.6 + 0.247 + 0.07, 0.08 + Math.cos(TAU / 9) * 0.36);
+      // 手臂：细长的袖子，手是苍白的骨指
+      for (const s of [1, -1]) {
+        const U = s > 0 ? 'uaL' : 'uaR', F = s > 0 ? 'faL' : 'faR', H = s > 0 ? 'hL' : 'hR', L = s > 0 ? 'lampL' : 'lampR';
+        b.at(U).surf(SURF.cloth).limb([ROBE, ROBE_L], s * 0.62, 3.55, 0, s * 0.98, 2.7, 0.12, 0.2, 0.18, 7, 1);
+        b.at(F).surf(SURF.cloth).limb([ROBE_IN, ROBE], s * 0.98, 2.7, 0.12, s * 1.1, 2.08, 0.2, 0.18, 0.26, 7, 0);
+        b.p(gLathe('sn/cuff', [[0.3, -0.18], [0.26, 0], [0.18, 0.14]], 8), ROBE_L, s * 1.1, 2.1, 0.2);
+        b.at(H).surf(SURF.bone).p(gSph(0.11, 6, 5), WAX, s * 1.12, 1.92, 0.22, 0, 0, 0, 1, 1.3, 0.9);
+        // 提灯：铁环 + 链 + 六棱灯笼（顶盖、底座、四根立柱），灯芯一点冷青残光
+        b.at(L).surf(SURF.metal);
+        b.p(gTorus(0.08, 0.02, 4, 8), IRON_L, s * 1.12, 1.84, 0.24);
+        b.p(gCyl(0.015, 0.015, 0.22, 4), IRON, s * 1.12, 1.68, 0.25);
+        b.p(gCone(0.26, 0.2, 6), [IRON, IRON_L], s * 1.12, 1.5, 0.26);
+        b.p(gCyl(0.22, 0.24, 0.08, 6), IRON, s * 1.12, 1.02, 0.26);
+        for (let k = 0; k < 4; k++) {
+          const a = (k / 4) * TAU + 0.4;
+          b.p(gCyl(0.02, 0.02, 0.42, 4), IRON_L, s * 1.12 + Math.sin(a) * 0.2, 1.24, 0.26 + Math.cos(a) * 0.2);
+        }
+        b.surf(SURF.ice).p(gCyl(0.17, 0.19, 0.4, 6), [0x2a3a40, 0x56707a], s * 1.12, 1.24, 0.26);
+        b.g(gOct(0.07), 0.55, s * 1.12, 1.2, 0.26);
+      }
+      // 背后的披风
+      b.at('cape').surf(SURF.cloth).pd(gDrape('sn/cape', [[0.95, 0.4], [0.82, 1.8], [0.62, 3.4]], 2.0, 8), [ROBE_IN, ROBE], ROBE_IN, 0, 0, 0.05);
+
+      const rig = b.build({ height: 5.0, reach: 3.2, stride: 1.0, shade: 0.28 });
+      rig.hitJ = [rig.J.head, rig.J.chest];
+      sock(rig, 'weapon', 'lampR', 0, -0.4, 0);
+      sock(rig, 'hand', 'lampL', 0, -0.4, 0);
+      sock(rig, 'head', 'head', 0, 0.4, 0.1);
+      sock(rig, 'chest', 'chest', 0, 0, 0.4);
+      rig.loco = function (ent, p, t) {
+        const J = rig.J, mv = ent.mv, s = Math.sin(ent.walk), id = 1 - mv;
+        const run = Math.min(1.2, ent.spd / 4) * mv, br = Math.sin(t * 1.1 + ent.phase), fl = Math.sin(t * 1.7 + ent.phase);
+        // 滑行：整个人微微上下浮动，往前倾一点；下摆往后飘
+        p[J.root + 4] = 0.06 * br;
+        p[J.root] = 0.08 * run;
+        p[J.hem] = -0.18 * run + 0.03 * fl;
+        p[J.hem + 2] = 0.04 * s * run;
+        p[J.spine] = 0.04 * br * id;
+        p[J.chest] = 0.03 * br;
+        p[J.head] = 0.06 + 0.03 * br;
+        p[J.head + 1] = 0.14 * Math.sin(t * 0.5 + ent.phase) * id;
+        // 两盏提灯垂着、慢慢晃
+        p[J.uaL] = -0.08 + 0.12 * s * run;
+        p[J.uaR] = -0.08 - 0.12 * s * run;
+        p[J.uaL + 2] = 0.1;
+        p[J.uaR + 2] = -0.1;
+        p[J.faL] = p[J.faR] = -0.25;
+        p[J.lampL] = 0.25 * run + 0.08 * fl;
+        p[J.lampR] = 0.25 * run - 0.08 * fl;
+        p[J.lampL + 2] = 0.06 * Math.sin(t * 1.3 + ent.phase);
+        p[J.lampR + 2] = -0.06 * Math.sin(t * 1.3 + ent.phase + 1);
+        p[J.cape] = 0.08 + 0.25 * run + 0.05 * fl;
+      };
+      rig.post = function (ent, o, t, dt) {
+        const J = rig.J, k = ent.coreK || 1;
+        o[J.crown + 1] = t * 0.4;
+        setGlow(ent, 0.75 + 0.25 * Math.sin(t * 3) + (k - 1) * 0.9);
+        ent.coreK = 1 + (k - 1) * Math.max(0, 1 - dt * 4);
+        // 冠上那一根冒灰烟（只在低处飘一小缕）
+        if (!ent.dying) {
+          ent.emb += dt * 2.2;
+          while (ent.emb > 1) {
+            ent.emb -= 1;
+            const g = ent.group.position, a = ent.group.rotation.y + TAU / 9;
+            spawnP(g.x + Math.sin(a) * 0.36, 5.0, g.z + Math.cos(a) * 0.36, rand(-0.1, 0.1), rand(0.5, 0.9), rand(-0.1, 0.1), rand(1.2, 2), rand(0.1, 0.18), 0.42, 0.4, 0.44, -0.2, 0.15);
+          }
+        }
+      };
+      const glow = (v) => (ent, p, k) => { ent.coreK = 1 + v * k; };
+      // 拂烛：右手提灯从左后方横扫到右前方（双拂打两遍）
+      defClip(rig, 'swipe_w', {
+        dur: 1.0, hold: true, fade: 0.12,
+        keys: {
+          'spine.ry': [0, 0, 1, -0.55], 'chest.ry': [0, 0, 1, -0.45], 'head.ry': [0, 0, 1, 0.3], 'root.rx': [0, 0, 1, -0.06],
+          'uaR.rx': [0, -0.08, 1, -1.1], 'uaR.rz': [0, -0.1, 1, 0.9], 'faR.rx': [0, -0.25, 1, -0.6], 'lampR.rx': [0, 0, 1, -0.6],
+          'uaL.rx': [0, -0.08, 1, 0.3], 'uaL.rz': [0, 0.1, 1, 0.5],
+          'hem.ry': [0, 0, 1, -0.2],
+        },
+        fn: glow(0.4),
+      });
+      defClip(rig, 'swipe', {
+        dur: 0.55, k0: 0.3, fade: 0.03, out: 0.3,
+        keys: {
+          'spine.ry': [0, -0.55, -0.3, 0.6, 0.7, 0.55, 1, 0], 'chest.ry': [0, -0.45, -0.3, 0.5, 0.7, 0.45, 1, 0], 'head.ry': [0, 0.3, -0.3, -0.2, 1, 0], 'root.rx': [0, -0.06, -0.3, 0.12, 1, 0],
+          'uaR.rx': [0, -1.1, -0.3, -1.4, 0.7, -1.3, 1, -0.08], 'uaR.rz': [0, 0.9, -0.3, -1.0, 0.7, -0.95, 1, -0.1], 'faR.rx': [0, -0.6, -0.3, -0.1, 1, -0.25], 'lampR.rx': [0, -0.6, -0.3, 1.0, 0.7, 0.8, 1, 0],
+          'uaL.rx': [0, 0.3, -0.3, -0.2, 1, -0.08], 'uaL.rz': [0, 0.5, -0.3, 0.2, 1, 0.1],
+          'hem.ry': [0, -0.2, -0.3, 0.25, 1, 0], 'cape.rx': [0, 0.08, -0.3, 0.4, 1, 0.08],
+        },
+      });
+      // 举灯：双手把提灯举过头顶（烛泪、冠焰螺旋、坠冕、暗潮、掐灯）
+      defClip(rig, 'lift_w', {
+        dur: 0.8, hold: true, fade: 0.1,
+        keys: {
+          'spine.rx': [0, 0, 1, 0.12], 'chest.rx': [0, 0, 1, 0.14], 'head.rx': [0, 0, 1, 0.3],
+          'uaL.rx': [0, -0.08, 1, -2.6], 'uaL.rz': [0, 0.1, 1, -0.25], 'faL.rx': [0, -0.25, 1, -0.4],
+          'uaR.rx': [0, -0.08, 1, -2.6], 'uaR.rz': [0, -0.1, 1, 0.25], 'faR.rx': [0, -0.25, 1, -0.4],
+          'lampL.rx': [0, 0, 1, 2.4], 'lampR.rx': [0, 0, 1, 2.4], 'root.oy': [0, 0, 1, 0.25], 'hem.rx': [0, 0, 1, -0.06],
+        },
+        fn: glow(0.8),
+      });
+      defClip(rig, 'lift', {
+        dur: 0.9, k0: 0.2, fade: 0.04, out: 0.4,
+        keys: {
+          'spine.rx': [0, 0.12, -0.2, -0.2, 0.8, -0.18, 1, 0], 'chest.rx': [0, 0.14, -0.2, -0.22, 0.8, -0.2, 1, 0], 'head.rx': [0, 0.3, -0.2, -0.25, 1, 0.06],
+          'uaL.rx': [0, -2.6, -0.2, -1.2, 0.8, -1.1, 1, -0.08], 'uaL.rz': [0, -0.25, -0.2, 0.9, 0.8, 0.85, 1, 0.1], 'faL.rx': [0, -0.4, -0.2, -0.2, 1, -0.25],
+          'uaR.rx': [0, -2.6, -0.2, -1.2, 0.8, -1.1, 1, -0.08], 'uaR.rz': [0, 0.25, -0.2, -0.9, 0.8, -0.85, 1, -0.1], 'faR.rx': [0, -0.4, -0.2, -0.2, 1, -0.25],
+          'lampL.rx': [0, 2.4, -0.2, 0.4, 1, 0], 'lampR.rx': [0, 2.4, -0.2, 0.4, 1, 0], 'root.oy': [0, 0.25, -0.2, -0.1, 1, 0],
+          'hem.rx': [0, -0.06, -0.2, 0.12, 1, 0], 'cape.rx': [0, 0.08, -0.2, 0.5, 1, 0.08],
+        },
+        fn(ent, p, k) { if (k < 0.5) ent.coreK = 1.7; },
+      });
+      // 引芯：俯身前冲
+      defClip(rig, 'lunge_w', {
+        dur: 0.9, hold: true, fade: 0.1,
+        keys: {
+          'root.rx': [0, 0, 1, 0.35], 'spine.rx': [0, 0, 1, 0.2], 'head.rx': [0, 0, 1, -0.3],
+          'uaL.rx': [0, -0.08, 1, 0.7], 'uaR.rx': [0, -0.08, 1, 0.7], 'uaL.rz': [0, 0.1, 1, 0.35], 'uaR.rz': [0, -0.1, 1, -0.35],
+          'lampL.rx': [0, 0, 1, -0.6], 'lampR.rx': [0, 0, 1, -0.6], 'hem.rx': [0, 0, 1, -0.3], 'cape.rx': [0, 0.08, 1, 0.5],
+        },
+        fn: glow(0.5),
+      });
+      defClip(rig, 'lunge', {
+        dur: 0.6, k0: 0.15, fade: 0.03, out: 0.35,
+        keys: {
+          'root.rx': [0, 0.35, -0.15, 0.5, 0.7, 0.45, 1, 0], 'spine.rx': [0, 0.2, -0.15, 0.3, 1, 0], 'head.rx': [0, -0.3, -0.15, -0.4, 1, 0.06],
+          'uaL.rx': [0, 0.7, -0.15, 1.1, 1, -0.08], 'uaR.rx': [0, 0.7, -0.15, 1.1, 1, -0.08],
+          'lampL.rx': [0, -0.6, -0.15, -1.2, 1, 0], 'lampR.rx': [0, -0.6, -0.15, -1.2, 1, 0], 'hem.rx': [0, -0.3, -0.15, -0.6, 1, 0], 'cape.rx': [0, 0.5, -0.15, 0.9, 1, 0.08],
+        },
+      });
+      // 破绽：跪伏，提灯落地，冠低垂
+      defClip(rig, 'broken', {
+        dur: 2.2, loop: true, fade: 0.25, out: 0.5,
+        keys: {
+          'root.oy': [0, -0.7, 1, -0.7], 'root.rx': [0, 0.3, 1, 0.3], 'hem.rx': [0, -0.25, 1, -0.25],
+          'uaL.rx': [0, 0.5, 1, 0.5], 'uaR.rx': [0, 0.5, 1, 0.5], 'uaL.rz': [0, 0.3, 1, 0.3], 'uaR.rz': [0, -0.3, 1, -0.3],
+          'lampL.rx': [0, -0.4, 1, -0.4], 'lampR.rx': [0, -0.4, 1, -0.4],
+        },
+        fn(ent, p, k) {
+          const J = rig.J, s2 = Math.sin(k * TAU * 2);
+          p[J.spine] = 0.35 + 0.04 * s2;
+          p[J.head] = 0.5 + 0.05 * s2;
+          ent.coreK = 0.5 + 0.3 * Math.max(0, Math.sin(k * TAU * 3));
+        },
+      });
+      // 死亡：仰头一震，提灯脱手，整个人塌进袍子里，冠坠地
+      defClip(rig, 'death', {
+        dur: 1.8, base: 'rest', hold: true, air: true, fade: 0.1,
+        keys: {
+          'root.oy': [0, 0, 0.25, 0.15, -0.8, -1.5, 1, -1.6], 'root.rx': [0, 0, 0.25, -0.25, 0.8, 0.5, 1, 0.6],
+          'hem.sy': [0, 1, 0.5, 1, 1, 0.45],
+          'head.rx': [0, 0, 0.25, -0.7, 0.8, 0.6, 1, 0.7],
+          'uaL.rx': [0, -0.08, 0.25, -1.6, 1, 0.4], 'uaR.rx': [0, -0.08, 0.25, -1.6, 1, 0.4], 'uaL.rz': [0, 0.1, 0.25, 0.8, 1, 0.6], 'uaR.rz': [0, -0.1, 0.25, -0.8, 1, -0.6],
+          'lampL.oy': [0, 0, 0.3, 0, -0.7, -0.9, 1, -0.9], 'lampR.oy': [0, 0, 0.3, 0, -0.7, -0.9, 1, -0.9],
+          'crown.oy': [0, 0, 0.3, 0.3, -0.85, -3.2, 1, -3.2], 'crown.rx': [0, 0, 1, 1.0],
+          'cape.rx': [0, 0.08, 0.5, 0.6, 1, 0.2],
+        },
+        fn(ent, p, k) { ent.coreK = k < 0.25 ? 1 + k * 4 : Math.max(0.05, 2 - (k - 0.25) * 3); },
+      });
+      bossAliases(rig, { slam: 'swipe', charge: 'lunge', ring: 'lift', fan: 'swipe', barrage: 'lift', summon: 'lift', spiral: 'lift', cross: 'lift' });
+      for (const [pat, c] of [['brush', 'swipe'], ['dbrush', 'swipe'], ['tears', 'lift'], ['crown', 'lift'], ['tide', 'lift'], ['snuff', 'lift'], ['wick', 'lunge']]) {
+        aliasClip(rig, pat, c);
+        aliasClip(rig, pat + '_w', c + '_w');
+      }
+      return rig;
+    });
+  }
+  const BOSS_RIG = { golem: golemRig, weaver: weaverRig, warden: wardenRig, lord: lordRig, behemoth: behemothRig, snuffer: snufferRig };
 
   W.makeBoss = function (kind, elemHex) {
     const eh = hexOf(elemHex);
@@ -18596,13 +19044,17 @@
   const uTime = { value: 0 };
 
   const TELE_FRAG = [
-    'uniform vec3 uColor; uniform vec3 uEdge; uniform vec2 uHalf; uniform float uK; uniform float uShape; uniform float uTime;',
+    'uniform vec3 uColor; uniform vec3 uEdge; uniform vec2 uHalf; uniform float uK; uniform float uShape; uniform float uTime; uniform float uArc; uniform float uIn;',
     'varying vec2 vP;',
     'void main(){',
     '  vec2 p = vP * uHalf;',
     '  float d; float g;', // d：到边缘的世界距离（内部为正）；g：0..1 的填充坐标
     '  if (uShape < 0.5) { float l = length(p); d = uHalf.x - l; g = l / uHalf.x; }',
-    '  else { vec2 q = uHalf - abs(p); d = min(q.x, q.y); g = abs(p.x) / uHalf.x; }',
+    '  else if (uShape < 1.5) { vec2 q = uHalf - abs(p); d = min(q.x, q.y); g = abs(p.x) / uHalf.x; }',
+    // 扇形（熄烛者的拂烛，D5）：局部 +z 是朝向，uArc 是半张角；到两条边的距离按 l·sin(余下的角) 算
+    '  else if (uShape < 2.5) { float l = length(p); float a = abs(atan(p.x, p.y)); d = min(uHalf.x - l, l * sin(clamp(uArc - a, -1.5, 1.5))); g = l / uHalf.x; }',
+    // 圆环（焰潮，D5）：uIn 是内半径，填充从外圈往里推
+    '  else { float l = length(p); d = min(uHalf.x - l, l - uIn); g = (uHalf.x - l) / max(0.01, uHalf.x - uIn); }',
     '  if (d < 0.0) discard;',
     '  float edge = 1.0 - smoothstep(0.1, 0.2, d);', // 外轮廓
     '  float inner = 1.0 - smoothstep(uK - 0.03, uK, g);', // 已经"充满"的部分
@@ -18619,8 +19071,9 @@
     '}',
   ].join('\n');
 
+  // shape：'circle'（r）/ 'rect'（w、len、ang）/ 'arc' 扇形（r、arc 半张角、ang 朝向）/ 'ring' 圆环（r 外半径、rin 内半径）
   W.makeTelegraph = function (spec, friendly) {
-    const rect = spec.shape === 'rect';
+    const rect = spec.shape === 'rect', arc = spec.shape === 'arc', ringS = spec.shape === 'ring';
     const hx = rect ? spec.w / 2 : spec.r, hz = rect ? spec.len / 2 : spec.r;
     const mat = new T.ShaderMaterial({
       uniforms: {
@@ -18628,7 +19081,9 @@
         uEdge: { value: friendly ? new T.Color(0.86, 0.95, 1.0) : new T.Color(1.0, 0.8, 0.62) },
         uHalf: { value: new T.Vector2(hx, hz) },
         uK: { value: 0 },
-        uShape: { value: rect ? 1 : 0 },
+        uShape: { value: rect ? 1 : arc ? 2 : ringS ? 3 : 0 },
+        uArc: { value: arc ? spec.arc : 0 },
+        uIn: { value: ringS ? spec.rin : 0 },
         uTime,
       },
       vertexShader: FX_VERT, fragmentShader: TELE_FRAG,
@@ -18637,7 +19092,7 @@
     const mesh = new T.Mesh(gQuad(), mat);
     mesh.position.set(spec.x, 0.08, spec.z);
     mesh.scale.set(hx, 1, hz);
-    if (rect) mesh.rotation.y = spec.ang; // 长轴 = 局部 +z = (sin ang, cos ang)
+    if (rect || arc) mesh.rotation.y = spec.ang; // 长轴 = 局部 +z = (sin ang, cos ang)
     mesh.renderOrder = 3;
     scene.add(mesh);
     const uK = mat.uniforms.uK;
@@ -24174,14 +24629,23 @@
   };
   // 幽晦：雾的起止、跟随玩家的暖光收近（只改 uniform，不重编着色器）；p 为空复位。
   // 预警圈（ShaderMaterial）、敌方弹体（fog: false）不吃雾，照常看得见；名牌 / 血条在 tag 米外不画（2D 叠加层）
-  let gloomP = null;
+  // 熄烛者二阶段的变暗（D5）也走这里。lampK / fogMin：渊契「无光」（熄烛冠）的暖光倍率、和幽晦叠加时雾近端的下限（W.lampScale 设）
+  let gloomP = null, lampK = 1, fogMin = 0;
   W.setGloom = function (p) {
     gloomP = p || null;
     if (scene && scene.fog) {
-      scene.fog.near = gloomP ? gloomP.near : CAMERA.fogNear;
+      scene.fog.near = gloomP ? Math.max(gloomP.near, fogMin) : CAMERA.fogNear;
       scene.fog.far = gloomP ? gloomP.far : CAMERA.fogFar;
     }
-    if (lamp) lamp.distance = gloomP ? gloomP.lamp : LAMP_DIST;
+    if (lamp) lamp.distance = (gloomP ? gloomP.lamp : LAMP_DIST) * lampK;
+  };
+  W.lampScale = function (k, fmin) {
+    k = k > 0 ? k : 1;
+    fmin = fmin || 0;
+    if (k === lampK && fmin === fogMin) return;
+    lampK = k;
+    fogMin = fmin;
+    W.setGloom(gloomP);
   };
   W.gloomInfo = () => ({ near: scene.fog.near, far: scene.fog.far, lamp: lamp.distance, tag: gloomP ? gloomP.tag : 0 });
 

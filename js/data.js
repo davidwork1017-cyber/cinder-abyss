@@ -1211,7 +1211,7 @@
       lines: [{ id: 'addChaos', k: [1.2, 1.6] }, { id: 'bindAil', k: [1.2, 1.6] }, { id: 'life', k: [1.0, 1.3] }],
       lore: '链子一头断了。另一头还缠着谁，要等下一个被缚住的敌人告诉你。',
     },
-    // 巅峰专属（熄烛者掉，D5 才接上掉落和机制）：这里只有数据，不进 G.RELIC_IDS，图鉴、随机掉落都不出
+    // 巅峰专属（只有熄烛者掉，D5）：不进 G.RELIC_IDS（随机掉落、拾烬客都不出），图鉴另列在普通渊契后面（G.RELIC_CODEX）
     xizhu: {
       name: '熄烛冠', slot: 'helm', base: 0, src: 'pinnacle', pinnacle: true, mechName: '无光',
       lines: [{ id: 'life', k: [1.2, 1.6] }, { id: 'crit', k: [1.2, 1.6] }, { id: 'resCold', k: [1.0, 1.3] }],
@@ -1226,6 +1226,7 @@
   // 普通渊契（随机掉落、图鉴、图标都按这个列表）；巅峰专属另列
   G.RELIC_IDS = Object.keys(G.RELICS).filter((id) => !G.RELICS[id].pinnacle);
   G.RELIC_PINNACLE = Object.keys(G.RELICS).filter((id) => G.RELICS[id].pinnacle);
+  G.RELIC_CODEX = G.RELIC_IDS.concat(G.RELIC_PINNACLE); // 图鉴、图标按这个列表（巅峰专属排在最后）
   // 掉落来源：src 是各来源的总开关（boss 现在开；enc 异兆、seal 烈印等 D4 / D3 上线再开；trader 拾烬客的货架随 D4）。
   // boss：每个区域首领一件、和烬铸分开掷，几率和保底跟烬铸（G.UNIQUE_DROP）一样：层级 1 为 chance[1]（15%）、层级 2 起 chance[2]（25%），
   //   烈印（W ≥ 6）再 × sealMul、最终几率不超过 sealCap（35%）；连续 pity（2）次没掉，下一次必掉（按渊契 id 计）
@@ -1237,6 +1238,9 @@
     enc: { chance: 0.15, pity: 3, minTier: 1 },
     seal: { chance: 0.1, pity: 3, minW: 6, ids: ['zhuixing', 'yuanfu'] },
     trader: { chance: 0.06, minTier: 2 },
+    // 熄烛者（D5）：巅峰专属（熄烛冠 / 双生坠各半）首杀必掉，之后 chance、连续 pity 次没掉下一次必掉（保底按 'pinnacle' 存在 save.pinnacle.pity）；
+    // 另外 normal 的几率掉一件随机普通渊契
+    pinnacle: { chance: 0.3, pity: 3, normal: 0.2 },
     sealMul: 1.5,
     sealCap: 0.35,
   };
@@ -1264,6 +1268,9 @@
   // 随影 zhaohun：翻滚 delay 秒后召唤物闪到你落点周围、各砸一下（半径 r，各自一击 × mult，守像 × multBig）；翻滚冷却 × (1 + rollCd)
   // 随核 yinli：黑洞以你为中心跟着你走；持续 × dur、半径 × radius、牵引 × pull（首领不变）、每跳伤害 × dmg
   // 锁链 yuanfu：同一时刻处于渊缚的敌人连成一串（最多 max 个），其中一个受到你的伤害，其余每个分到 share
+  // 无光 xizhu（巅峰）：暖光半径 × (1 − lamp)；far 米外的怪不会因为距离醒来；已醒的怪在 far 米外 lose 秒看不到你就失去目标、回原地（首领不吃）；
+  //   你对 far 米外的敌人伤害 × (1 + dmg)，还没被发现（没醒）时的第一击必定暴击；和幽晦叠加时雾近端不低于 fogMin
+  // 双生 shuangsheng（巅峰）：选了刻式的技能每次施放在 A / B 之间交替（光环、召唤除外），交替出来的那一下（不是你选的那一种）伤害 × (1 + dmg)
   G.RELIC_MECH = {
     // r 4.5（设计稿 3.0）：从近战距离朝目标翻滚，落地离目标约 4 米，3 米够不着翻过去的那个目标
     panzhong: { r: 4.5, mult: 1.1, poise: 28, kb: 1.2, gap: 0.8, rollCd: 0.3 },
@@ -1279,6 +1286,8 @@
     zhaohun: { delay: 0.15, r: 1.6, mult: 1.5, multBig: 1.0, rollCd: 0.15 },
     yinli: { dur: 0.8, radius: 0.85, pull: 0.75, dmg: 1.2 },
     yuanfu: { max: 6, share: 0.2 },
+    xizhu: { lamp: 0.4, far: 9, lose: 3, dmg: 0.3, fogMin: 14 },
+    shuangsheng: { dmg: 0.1 },
   };
   // 机制说明（物品提示、图鉴用），按上面的数值拼
   G.relicDescs = function () {
@@ -1297,8 +1306,9 @@
     R.zhaohun.mechDesc = '翻滚时，所有召唤物在 ' + z.delay + ' 秒后闪到你的落点周围，落地各砸一下（半径 ' + z.r + ' 米，各自一击的 ' + pc(z.mult) + '，石誓守像 ' + pc(z.multBig) + '），削减架势。翻滚冷却延长 ' + pc(z.rollCd) + '。';
     R.yinli.mechDesc = '黑洞以你为中心并跟着你移动：持续时间 ' + pc(y.dur) + '、半径 ' + pc(y.radius) + '、牵引 ' + pc(y.pull) + '（首领的牵引不变），每跳伤害 ' + pc(y.dmg) + '。冷却不变。星蚀的渊口照常在敌人脚下张开。';
     R.yuanfu.mechDesc = '同一时刻处于渊缚的敌人连成一串（最多 ' + u.max + ' 个）：其中一个受到你的伤害时，其余每个分到 ' + pc(u.share) + '（不暴击、不触发命中效果、不累积异常值、不带黑焰）。渊缚结束就断开。首领不会被渊缚，不在链上。';
-    R.xizhu.mechDesc = '（巅峰专属，尚未开放）';
-    R.shuangsheng.mechDesc = '（巅峰专属，尚未开放）';
+    const x = M.xizhu, s2 = M.shuangsheng;
+    R.xizhu.mechDesc = '跟随你的暖光半径缩小 ' + pc(x.lamp) + '。' + x.far + ' 米外的怪不会因为距离醒来（被打中或同群被叫醒照旧）；已经醒着的怪在 ' + x.far + ' 米外连续 ' + x.lose + ' 秒看不到你就失去目标、回到原地（首领不会）。你对 ' + x.far + ' 米外的敌人伤害提高 ' + pc(x.dmg) + '，对还没发现你的敌人的第一击必定暴击。';
+    R.shuangsheng.mechDesc = '选了刻式的技能，每次施放在 A、B 两种刻式之间交替（光环、召唤技能除外）；交替出来的那一下（不是你选的那一种）伤害提高 ' + pc(s2.dmg) + '。宝石 ' + G.VARIANT_LVL + ' 级并且选过刻式才生效；已经放出去的黑洞、旋风等按施放时的刻式走完。';
   };
   G.relicDescs();
   // 分解渊契固定得到的通货（同烬铸）
@@ -1579,6 +1589,41 @@
   // 取 20 让下一层从 21 接着往上走，不会比上一层的末区（17，首领 20）倒退：层级 n 覆盖 1+20n … 20+20n 级
   G.TIER_LEVELS = 20;
 
+  // ---------- 余烛殿（熄烛者，巅峰首领，D5）----------
+  // 不进 G.ZONES（「最后一区解锁下一层」、烬铸的 bossZone 都按 ZONES 的长度算）；G.enterPinnacle(tier) 进场，state.zoneIdx 保持原值。
+  // 配色沿用烬渊深处的炭灰紫底子，强调色换成烛火的暖金。level 只是写在这里对照：场地等级按 G.pinLevel(tier) 算
+  G.PINNACLE = {
+    id: 'crown', name: '余烛殿', level: 17, elem: 'fire', boss: 'snuffer', pin: true,
+    fog: 0x18121e, voidc: 0x0c0810, path: 0x57525c, rock: 0x48424f, accent: 0xffb24a, sky: 0xffd8a0,
+    mobs: ['husk'], desc: '烬渊尽头一座悬空的殿，四只火盆还亮着，有个东西在等它们熄灭。',
+  };
+  // 两个待拍板的默认值（设计稿 §13 第 2 条）：魂灯 3 盏，失败退还 2 个烛芯。改这两行即可
+  G.PIN_LIVES = 3;
+  G.PIN_REFUND = 2;
+  // minTier：最高层级到这一层才开放；levelAdd：等级 = 17 + 20 × 层级 + levelAdd（层级 2 是 62）；
+  // arena：场地圆心 / 半径（布局见 world.js「区域地形：crown」），bossR：首领的场地半径（苏醒、拴绳）；
+  // braziers：火盆台在场地圆心外 r 米处、方位 angs（度，从正北顺时针），WALL 圆半径 wall；
+  // phase：进入二 / 三阶段的生命比例；pause：三个阶段招式之间的停顿；pats：各阶段的招式（data 里的 patterns 是一阶段，给残影 / 测试用）；
+  // gloom：二阶段的变暗（雾起止、暖光半径，走 W.setGloom）；tide：暗潮（每 iv 秒、预警 warn、伤害 k 倍、火盆 safe 米内安全）；
+  // relight：站在熄灭的火盆 r 米内 t 秒点燃；snuffIv：首领每隔几秒去掐灭一个（至少留 1 个亮着）；
+  // thralls：召「烛奴」的生命阈值、每次几只、同场上限；burnIn / burnOut：三阶段外圈起火的范围，burnWarn 预警，灼烧同地形（G.TERRAIN.burn × dmgScale / burnTick 秒）
+  G.PIN = {
+    minTier: 2, levelAdd: 5,
+    arena: { x: 0, z: -34, r: 17 }, bossR: 15,
+    braziers: { r: 10.5, angs: [45, 135, 225, 315], wall: 0.9 },
+    phase: [0.7, 0.35], pause: [1.0, 0.85, 0.7],
+    pats: [['brush', 'tears', 'wick'], ['brush', 'tears', 'wick'], ['spiral', 'crown', 'dbrush']],
+    gloom: { near: 16, far: 34, lamp: 10, tag: 0 },
+    tide: { iv: 9, warn: 1.6, k: 0.6, safe: 4 },
+    relight: { r: 2, t: 1.5 }, snuffIv: 14, snuffAct: 1.2,
+    thralls: { at: [0.6, 0.45], n: 2, cap: 4 },
+    burnIn: 12, burnOut: 17, burnWarn: 1.5,
+    // 不会一下打空：余烛殿里首领的任何单次伤害（预警圈、暗潮、冲锋）结算后最多扣最大生命的 hitCap。
+    // 层级 2 碰不到（坠冕约 45–56%）；层级 3 起怪物等级超过角色上限，坠冕 / 拂烛原本能到 90–108%
+    hitCap: 0.85,
+  };
+  G.pinLevel = (tier) => G.PINNACLE.level + G.TIER_LEVELS * tier + G.PIN.levelAdd;
+
   // ---------- 怪物 ----------
   G.MOBS = {
     // mass：体重，击退距离按它折算；poise：做成精英时的架势上限（普通小怪没有架势条）；
@@ -1603,6 +1648,9 @@
     // 衔星巨兽：背上嵌着一块坠星的四足古兽。starfall 流星犁地（几道落点沿直线朝外推进）、gravity 坍缩（玩家脚下的引力井把人往里拽，到点内爆）、
     // sweep 衔星吐息（口中射线横扫一大片扇面）、slam 前蹄践踏
     behemoth: { name: '衔星巨兽', hp: 1250, dmg: 15, speed: 4.2, r: 2.0, poise: 600, patterns: ['starfall', 'gravity', 'sweep', 'slam'] },
+    // 熄烛者（余烛殿的巅峰首领，D5）：高瘦的长袍身形，头顶一圈烛芯冠，双手各提一盏熄灭的提灯。生命约衔星巨兽的 2.6 倍。
+    // 招式按阶段换（G.PIN.pats，enemies.js「熄烛者」一节）；这里的 patterns 是一阶段的三种
+    snuffer: { name: '熄烛者', hp: 3300, dmg: 15, speed: 3.6, r: 1.6, poise: 900, patterns: ['brush', 'tears', 'wick'], pin: true },
   };
   // 区域加大后的小怪（zones-balance）：关键路径 / 面积约 ×1.6，怪群数跟着面积走（×1.6），每群的人数再 ×packSize，
   // 普通怪总数约 ×2。区域刷出来的普通怪（e.horde）更脆，每只的经验 / 掉落几率打折，一整区合计约为改版前的 ×1.15。

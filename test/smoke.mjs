@@ -11483,7 +11483,7 @@ async function main() {
     return '一串 6 个 · 各 ' + r.share;
   });
 
-  await step('渊契图鉴：拾到记进图鉴（最高完美度）、图标马上进预热；保底计数和图鉴存档往返后保留；畸形数据被修正（未知 id 丢、完美度 0–100、计数截到上限）；掉率改版前攒下的计数（旧上限 10 / 8 / 15）截到新上限 2 / 3 / 3，满了的下一次首领击杀必掉；旧存档没有 relic 也照常读（空图鉴）；背包页列出 13 件', async () => {
+  await step('渊契图鉴：拾到记进图鉴（最高完美度）、图标马上进预热；保底计数和图鉴存档往返后保留；畸形数据被修正（未知 id 丢、完美度 0–100、计数截到上限）；掉率改版前攒下的计数（旧上限 10 / 8 / 15）截到新上限 2 / 3 / 3，满了的下一次首领击杀必掉；旧存档没有 relic 也照常读（空图鉴）；背包页列出 13 + 2 件（巅峰的两件 D5 接进来）', async () => {
     const r = await ev(() => {
       RQT.begin(null);
       const P = G.player, KEY = 'cinder-abyss-save-v1';
@@ -11522,10 +11522,10 @@ async function main() {
       localStorage.setItem(KEY, JSON.stringify(raw));
       G.loadSave();
       out.old = T.canon(G.save.relic);
-      // 背包页：13 行、拾到 0
+      // 背包页：13 + 巅峰 2 = 15 行（D5 把熄烛冠 / 双生坠接进图鉴）、拾到 0
       G.ui.open('inv');
       out.rows = document.querySelectorAll('.cx-row.rq').length;
-      out.title = /渊契图鉴/.test(T.bodyText()) && /已拾到 0 \/ 13/.test(T.bodyText());
+      out.title = /渊契图鉴/.test(T.bodyText()) && /已拾到 0 \/ 15/.test(T.bodyText());
       G.ui.close();
       if (keep) localStorage.setItem(KEY, keep);
       else localStorage.removeItem(KEY);
@@ -11538,7 +11538,7 @@ async function main() {
     assert(r.bad === '{"best":{"qianmu":100},"found":{"qianmu":true},"pity":{"panzhong":2,"yinli":2}}', '畸形数据没修好：' + r.bad);
     assert(r.carry === '2,2,1,3,3' && r.carryDrop === 'panzhong,,0,2', '旧存档的保底计数应截到新上限、满了下一次必掉：' + JSON.stringify(r));
     assert(r.old === '{"best":{},"found":{},"pity":{}}', '旧存档应是空图鉴：' + r.old);
-    assert(r.rows === 13 && r.title, '背包页应列出 13 件渊契：' + JSON.stringify(r));
+    assert(r.rows === 15 && r.title, '背包页应列出 13 + 2 件渊契：' + JSON.stringify(r));
     return '往返 ' + r.round;
   });
 
@@ -11549,12 +11549,13 @@ async function main() {
       const keys = G.icons.keys();
       const warm = G.icons.rqWarm();
       const base = G.SLOTS.reduce((n, sl) => n + G.BASES[sl].reduce((m, b) => m + b.names.length, 0), 0) + G.icons.uqIcons().length + G.CUR_IDS.length + Object.keys(G.SKILLS).length + Object.keys(G.SUPPORTS).length + 6 + 1;
+      // D5：13 件 + 巅峰 2 件（G.RELIC_CODEX）
       return {
-        n: ids.length, same: ids.slice().sort().join() === G.RELIC_IDS.slice().sort().join(), bad: ids.filter((id, i) => !/^data:image\/png;base64,/.test(urls[i]) || urls[i].length < 1500), uniq: new Set(urls).size,
+        n: ids.length, same: ids.slice().sort().join() === G.RELIC_CODEX.slice().sort().join(), bad: ids.filter((id, i) => !/^data:image\/png;base64,/.test(urls[i]) || urls[i].length < 1500), uniq: new Set(urls).size,
         key: G.icons.itemKey(G.rollRelic('yinli', 30)), rqKeys: keys.filter((k) => k.indexOf('it-rq-') === 0).length, warm: warm.length, total: [keys.length, base + warm.length],
       };
     });
-    assert(r.n === 13 && r.same && r.bad.length === 0 && r.uniq === 13, '渊契图标没画全或重复：' + JSON.stringify(r));
+    assert(r.n === 15 && r.same && r.bad.length === 0 && r.uniq === 15, '渊契图标没画全或重复：' + JSON.stringify(r));
     assert(r.key === 'it-rq-yinli' && r.rqKeys === r.warm && r.total[0] === r.total[1], '图标键 / 总数不对：' + JSON.stringify(r));
     return r.n + ' 个渊契图标 · 预热里 ' + r.warm + ' 个';
   });
@@ -12676,6 +12677,462 @@ async function main() {
     assert(r.wander, '游荡者应掉誓烛芯：' + JSON.stringify(r));
     assert(r.load === '{"seal":2,"rift":99,"vow":0,"box":1}{"seal":3,"rift":6,"vow":2,"box":0}' && r.old === '{"seal":0,"rift":0,"vow":0,"box":0}{"seal":0,"rift":0,"vow":0,"box":0}', '烛芯的存档不对：' + JSON.stringify(r));
     return '层级 0 出现 ' + r.p0 + '，层级 1 两个 ' + r.p2 + '，保底 ' + r.pitySeq;
+  });
+
+  // ================================================================== 熄烛者（D5：巅峰首领，余烛殿）
+  // 放在「localStorage 不可用」之前。每一步最后 G.enterZone(0, 0) 回到普通区域（T.arena 会调 G.respawn，在余烛殿里会熄魂灯，不在那里用）
+  await step('余烛殿·地图：最高层级 < 2 没有节点、≥ 2 才有；烛芯不齐时「点燃」禁用、G.lightPinnacle 拒绝；齐了点燃扣掉四种各 1 个进场；等级 = 17 + 20 × 层级 + 5；state.zoneIdx 不变，存档挂上 run.pin', async () => {
+    const r = await ev(() => {
+      const sv = G.save, S = G.state, out = {};
+      T.arena();
+      const keep = { maxTier: sv.maxTier, frags: JSON.stringify(sv.frags) };
+      sv.maxTier = 1;
+      G.ui.open('map');
+      out.node1 = !!document.querySelector('.pin-node');
+      G.ui.close();
+      sv.maxTier = 3;
+      for (const id of G.FRAG_IDS) sv.frags[id] = 1;
+      sv.frags.vow = 0;
+      G.ui.open('map');
+      out.node3 = !!document.querySelector('.pin-node');
+      const btn = document.querySelector('[data-act="pin-light"]');
+      out.disabled = !!(btn && btn.disabled);
+      out.tiers = Array.from(document.querySelectorAll('[data-act="pin-tier"]')).map((n) => n.dataset.tier).join();
+      G.ui.close();
+      out.refuse = !G.lightPinnacle(2).ok && S.zone.def.id !== 'crown' && sv.frags.seal === 1;
+      sv.frags.vow = 2;
+      out.refuse1 = !G.lightPinnacle(1).ok && S.zone.def.id !== 'crown';
+      const zi = S.zoneIdx;
+      G.ui.open('map');
+      document.querySelector('[data-act="pin-tier"][data-tier="3"]').click();
+      document.querySelector('[data-act="pin-light"]').click();
+      out.closed = T.tab() === null;
+      out.zone = S.zone.def.id;
+      out.level = [S.zone.level, S.boss.level, G.pinLevel(2)].join();
+      out.zi = S.zoneIdx === zi && !G.ZONES.some((z) => z.id === 'crown');
+      out.frags = JSON.stringify(sv.frags);
+      out.run = JSON.stringify(sv.run.pin);
+      G.ui.update(); // HUD 每帧才刷新一次
+      out.hud = document.getElementById('pin-lamps').classList.contains('on') && document.querySelectorAll('#pin-lamps .lamp.on').length;
+      G.enterZone(0, 0);
+      G.ui.update();
+      out.back = !S.pin && !document.getElementById('pin-lamps').classList.contains('on') && !G.save.run.pin;
+      sv.maxTier = keep.maxTier;
+      sv.frags = JSON.parse(keep.frags);
+      return out;
+    });
+    assert(!r.node1 && r.node3 && r.disabled && r.tiers === '2,3' && r.refuse && r.refuse1, '节点 / 禁用 / 拒绝不对：' + JSON.stringify(r));
+    assert(r.closed && r.zone === 'crown' && r.level === '82,82,62' && r.zi, '进场 / 等级不对：' + JSON.stringify(r));
+    assert(r.frags === '{"seal":0,"rift":0,"vow":1,"box":0}' && r.run === '{"tier":3,"lives":3}' && r.hud === 3 && r.back, '扣烛芯 / 存档 / 魂灯 HUD 不对：' + JSON.stringify(r));
+    return '层级 3 首领等级 ' + r.level.split(',')[0] + ' · 烛芯 ' + r.frags;
+  });
+
+  await step('余烛殿·场地：固定布局通过校验（0 条失败）、两次生成哈希相同；起点 r 8、通道、场地 bossR = 15；4 个火盆台是 WALL（挡人挡子弹）、在圆心外 10.5 m；外面是 VOID（挡人不挡子弹）；首领生命 3300 × hpScale、架势 900、伤害 15 × dmgScale', async () => {
+    const r = await ev(() => {
+      const W = G.world, S = G.state, out = {};
+      const g = W.genLayout('crown', 0), g2 = W.genLayout('crown', 12345);
+      out.ok = g.ok;
+      out.why = g.why.join(';');
+      out.same = g.hash === g2.hash;
+      G.save.maxTier = Math.max(G.save.maxTier, 2);
+      G.enterPinnacle(2);
+      const z = S.zone, info = W.layoutInfo();
+      out.kinds = info.rooms.map((q) => q.kind).join();
+      out.start = JSON.stringify(info.rooms[0].core);
+      out.bossR = z.bossR;
+      const br = W.crownInfo().br;
+      out.br = br.map((b) => (W.walkable(b.x, b.z, 0) ? 1 : 0) + '' + (W.matAt(b.x, b.z) === W.MAT.WALL ? 1 : 0) + (W.shotFree(b.x, b.z) ? 1 : 0)).join();
+      out.brR = br.map((b) => Math.round(Math.hypot(b.x - z.bossPos.x, b.z - z.bossPos.z) * 10) / 10).join();
+      out.void = (W.walkable(0, -54, 0) ? 1 : 0) + '' + (W.matAt(0, -54) === W.MAT.VOID ? 1 : 0) + (W.shotFree(0, -54) ? 1 : 0);
+      out.door = W.walkable(z.bossDoor.x, z.bossDoor.z, 0.5) && Math.hypot(z.bossDoor.x - z.bossPos.x, z.bossDoor.z - z.bossPos.z) > G.PIN.burnOut;
+      const B = S.boss;
+      out.hp = Math.round(B.maxHp) === Math.round(3300 * G.hpScale(62));
+      out.poise = B.poiseMax;
+      out.dmg = Math.abs(B.dmg - 15 * G.dmgScale(62)) < 1e-6;
+      out.noPacks = S.enemies.length === 1 && !(S.enc && S.enc.length) && !z.chests.length && !G.state.run.seal;
+      G.enterZone(0, 0);
+      return out;
+    });
+    assert(r.ok && r.same, '余烛殿的布局没通过校验：' + r.why);
+    assert(r.kinds === 'start,link,arena' && r.start === '{"x":0,"z":0,"r":8}' && r.bossR === 15 && r.door, '房间 / 起点 / bossR / 门不对：' + JSON.stringify(r));
+    assert(r.br === '010,010,010,010' && r.brR === '10.5,10.5,10.5,10.5' && r.void === '011', '火盆台 / 虚空不对：' + JSON.stringify(r));
+    assert(r.hp && r.poise === 900 && r.dmg && r.noPacks, '首领数值 / 场地里多了东西：' + JSON.stringify(r));
+    return '布局 0 条失败 · 火盆 ' + r.brR;
+  });
+
+  await step('余烛殿·阶段：71% 不切、70% 以下进熄灯（掐灭 2 个、雾 16 / 34、暖光 10）；暗潮在亮着的火盆 4 m 内不掉血、外面挨 0.6 倍一击；熄灭的火盆旁站 1.5 s 重燃（3.5 m 外不算）；掐灯至少留 1 个亮着；35% 以下进冠焰（全部点燃、亮度复原、外圈预警后起火：外圈掉血、圈内不掉）', async () => {
+    const r = await ev(() => {
+      const W = G.world, S = G.state, P = G.player, out = {};
+      const step = (sec) => { for (let i = 0; i < Math.round(sec * 60); i++) G.tick(1 / 60); };
+      G.save.maxTier = Math.max(G.save.maxTier, 2);
+      G.enterPinnacle(2);
+      const B = S.boss, Q = S.pin, A = G.PIN.arena;
+      T.tp(A.x, A.z + 8);
+      P.god = true;
+      step(0.3);
+      out.awake = B.awake;
+      B.hp = B.maxHp * 0.71;
+      B.busy = 0;
+      step(0.5);
+      out.p71 = B.phase + '' + Q.phase;
+      B.hp = B.maxHp * 0.69;
+      B.busy = 0;
+      step(0.4);
+      out.p69 = B.phase + '' + Q.phase;
+      out.lit2 = Q.lit.reduce((a, b) => a + b, 0);
+      const gi = W.gloomInfo();
+      out.gloom = [gi.near, gi.far, gi.lamp].join();
+      // 暗潮：首领定住，计时器推远
+      B.busy = 1e9;
+      Q.tideT = Q.snuffT = 1e9;
+      const li = Q.lit.indexOf(1), ui = Q.lit.indexOf(0), lb = Q.br[li], ub = Q.br[ui];
+      const away = (b, d) => { const dx = b.x - A.x, dz = b.z - A.z, l = Math.hypot(dx, dz); return { x: b.x - (dx / l) * d, z: b.z - (dz / l) * d }; };
+      const safe = away(lb, 2.6), bad = away(ub, 6);
+      P.god = false;
+      P.iframe = 0;
+      P.life = P.maxLife;
+      T.tp(safe.x, safe.z);
+      G.pinTideHit(B);
+      out.tideSafe = P.life === P.maxLife && G.pinSafeAt(P.x, P.z);
+      T.tp(bad.x, bad.z);
+      G.pinTideHit(B);
+      out.tideHit = P.maxLife - P.life;
+      out.tideRaw = B.dmg * G.PIN.tide.k;
+      P.life = P.maxLife;
+      // 完整的一次暗潮（招式）：站在安全圈里，预警 1.6 s 内画出暗潮 / 安全圈，结算不掉血
+      T.tp(safe.x, safe.z);
+      B.busy = 0;
+      G.snufferPattern(B, 'tide');
+      step(0.8);
+      out.tideMid = +Q.tideK.toFixed(2) + ' ' + W.crownInfo().fx + ' ' + W.crownInfo().safeA;
+      step(1.0);
+      out.tideAfter = Q.tideK + ' ' + (P.life === P.maxLife);
+      B.busy = 1e9;
+      // 重燃
+      const near = away(ub, -2.3), far = away(ub, -3.6);
+      T.tp(far.x, far.z);
+      step(1.6);
+      out.relightFar = Q.lit[ui];
+      T.tp(near.x, near.z);
+      step(1.0);
+      out.relight10 = Q.lit[ui];
+      step(0.6);
+      out.relight16 = Q.lit[ui];
+      // 至少留 1 个
+      const lit0 = Q.lit.slice();
+      Q.lit = [1, 0, 0, 0];
+      out.keepOne = G.pinSnuff(0) === false && Q.lit[0] === 1;
+      Q.lit = lit0;
+      out.snuffOk = G.pinSnuff(Q.lit.indexOf(1)) === true;
+      // 冠焰
+      P.god = true;
+      T.tp(A.x, A.z + 8);
+      B.hp = B.maxHp * 0.34;
+      B.busy = 0;
+      step(0.2);
+      out.p34 = B.phase + '' + Q.phase;
+      B.busy = 1e9;
+      step(1.0);
+      out.allLit = Q.lit.join('') + ' ' + W.gloomInfo().near;
+      out.warn = S.telegraphs.some((t) => t.shape === 'ring' && t.rin === G.PIN.burnIn) && !Q.burn;
+      step(1.6);
+      out.burn = Q.burn && W.crownInfo().burn;
+      P.god = false;
+      P.iframe = 0;
+      P.life = P.maxLife;
+      T.tp(A.x, A.z + 8);
+      step(1.2);
+      out.inner = P.life === P.maxLife;
+      T.tp(A.x, A.z + 14.5);
+      step(1.2);
+      out.outer = P.maxLife - P.life;
+      out.burnRaw = G.TERRAIN.burn * G.dmgScale(Q.level);
+      P.god = true;
+      G.enterZone(0, 0);
+      P.god = false;
+      return out;
+    });
+    assert(r.awake && r.p71 === '00' && r.p69 === '11' && r.lit2 === 2 && r.gloom === '16,34,10', '进熄灯不对：' + JSON.stringify(r));
+    assert(r.tideSafe && r.tideHit > 0 && r.tideHit <= r.tideRaw && r.tideMid.split(' ').slice(1).join(' ') === 'true 1' && r.tideAfter === '0 true', '暗潮不对：' + JSON.stringify(r));
+    assert(r.relightFar === 0 && r.relight10 === 0 && r.relight16 === 1 && r.keepOne && r.snuffOk, '重燃 / 掐灯不对：' + JSON.stringify(r));
+    assert(r.p34 === '22' && /^1111 22$/.test(r.allLit) && r.warn && r.burn && r.inner && r.outer > 0 && r.outer <= r.burnRaw * 2.05, '冠焰不对：' + JSON.stringify(r));
+    return '暗潮外面扣 ' + Math.round(r.tideHit) + ' · 外圈 1.2 s 扣 ' + Math.round(r.outer);
+  });
+
+  await step('余烛殿·魂灯：倒下熄一盏、在门外重生，首领保留生命和阶段、火盆回到这一阶段开始时；第 3 次倒下失败：退还 2 个不同的烛芯、回到原来那一区并打开地图；读档：魂灯数保留、首领满血；坏数据丢掉、旧存档没有 pinnacle', async () => {
+    const r = await ev(() => {
+      const S = G.state, P = G.player, sv = G.save, out = {};
+      const step = (sec) => { for (let i = 0; i < Math.round(sec * 60); i++) G.tick(1 / 60); };
+      const die = () => { P.god = false; P.iframe = 0; P.life = 1; G.hurtPlayer(1e9, 'phys', null); step(1.8); };
+      G.enterZone(2, 0);
+      const keep = JSON.stringify(sv.frags);
+      sv.maxTier = Math.max(sv.maxTier, 2);
+      G.enterPinnacle(2);
+      const B = S.boss, Q = S.pin, A = G.PIN.arena;
+      T.tp(A.x, A.z + 8);
+      P.god = true;
+      step(0.3);
+      B.hp = B.maxHp * 0.6;
+      B.busy = 0;
+      step(0.4);
+      B.busy = 1e9;
+      const start = Q.start.join('');
+      Q.lit = [0, 0, 0, 1];
+      die();
+      out.d1 = [Q.lives, sv.run.pin.lives, (B.hp / B.maxHp).toFixed(2), B.phase, Q.lit.join('') === start, Math.round(P.x) + ',' + Math.round(P.z)].join(' ');
+      out.door = Math.round(S.zone.bossDoor.x) + ',' + Math.round(S.zone.bossDoor.z);
+      G.ui.update();
+      out.hud = document.querySelectorAll('#pin-lamps .lamp.on').length + '/' + document.querySelectorAll('#pin-lamps .lamp').length;
+      // 读档：魂灯数保留，重进首领满血
+      G.persist();
+      G.loadSave();
+      out.saved = JSON.stringify(sv.run.pin);
+      G.enterPinnacle(sv.run.pin.tier, 'resume');
+      out.resume = S.pin.lives + ' ' + (S.boss.hp === S.boss.maxHp);
+      // 第 2、3 次
+      const f0 = {};
+      for (const id of G.FRAG_IDS) f0[id] = sv.frags[id];
+      die();
+      out.d2 = S.pin && S.pin.lives;
+      die();
+      out.fail = !S.pin && S.zone.def.id === G.ZONES[2].id && T.tab() === 'map' && !(sv.run && sv.run.pin);
+      const gain = G.FRAG_IDS.map((id) => sv.frags[id] - f0[id]);
+      out.refund = gain.join('') + ' ' + JSON.stringify(S.pinRefund);
+      out.refundOk = gain.reduce((a, b) => a + b, 0) === G.PIN_REFUND && gain.every((g) => g === 0 || g === 1) && S.pinRefund.length === 2;
+      G.ui.close();
+      // 坏数据：魂灯 9、层级 1 → 丢掉；旧存档没有 pinnacle
+      const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+      raw.run = { zone: raw.lastZone, tier: raw.tier, seq: 1, seal: null, pin: { tier: 2, lives: 9 } };
+      raw.pinnacle = { kills: -4, pity: 99 };
+      localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+      G.loadSave();
+      out.bad = JSON.stringify(sv.run && sv.run.pin) + ' ' + JSON.stringify(sv.pinnacle);
+      raw.run.pin = { tier: 1, lives: 2 };
+      delete raw.pinnacle;
+      localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+      G.loadSave();
+      out.old = JSON.stringify(sv.run && sv.run.pin) + ' ' + JSON.stringify(sv.pinnacle);
+      sv.frags = JSON.parse(keep);
+      G.persist();
+      G.enterZone(0, 0);
+      return out;
+    });
+    const d1 = r.d1.split(' ');
+    assert(d1[0] === '2' && d1[1] === '2' && d1[2] === '0.60' && d1[3] === '1' && d1[4] === 'true' && d1[5] === r.door && r.hud === '2/3', '第一次倒下不对：' + JSON.stringify(r));
+    assert(r.saved === '{"tier":2,"lives":2}' && r.resume === '2 true' && r.d2 === 1, '读档 / 第二次倒下不对：' + JSON.stringify(r));
+    assert(r.fail && r.refundOk, '第 3 次倒下应失败、退还 2 个不同的烛芯：' + JSON.stringify(r));
+    assert(r.bad === 'undefined {"kills":0,"pity":3}' && r.old === 'undefined {"kills":0,"pity":0}', '坏数据 / 旧存档不对：' + JSON.stringify(r));
+    return '倒下 ' + r.d1 + ' · 退还 ' + r.refund;
+  });
+
+  await step('余烛殿·掉落：首杀必掉一件巅峰渊契（熄烛冠 / 双生坠，没拾到过的优先）、记首杀和 2 点天赋；不记区域通关、不开下一层；之后 30%，连续 3 次没掉第 4 次必掉；另 20% 掉一件普通渊契；打完开传送门、读档不再回余烛殿', async () => {
+    const r = await ev(() => {
+      const S = G.state, sv = G.save, out = {};
+      const keep = { kills: JSON.stringify(sv.bossKills), cleared: JSON.stringify(sv.cleared), maxTier: sv.maxTier, pin: JSON.stringify(sv.pinnacle), found: JSON.stringify(sv.relic.found) };
+      sv.maxTier = Math.max(sv.maxTier, 2);
+      const mt = sv.maxTier;
+      delete sv.bossKills.snuffer;
+      sv.pinnacle = { kills: 0, pity: 0 };
+      sv.relic.found.xizhu = true;
+      delete sv.relic.found.shuangsheng;
+      const pts0 = G.passivePoints().total, lv0 = sv.level;
+      const kill = (fix) => {
+        G.enterPinnacle(2);
+        T.clearLoot();
+        if (fix !== undefined) T.fix(fix);
+        G.killEnemy(S.boss, {});
+        T.unfix();
+        return S.loot.filter((l) => l.kind === 'item' && l.data.rarity === 4).map((l) => l.data.rq);
+      };
+      const k1 = kill(0.999);
+      out.first = k1.join() + ' ' + JSON.stringify(S.pinLast);
+      out.pts = G.passivePoints().total - pts0 - (sv.level - lv0); // 击杀的经验可能升级：只看首杀给的那 2 点
+      out.noClear = JSON.stringify(sv.cleared) === keep.cleared && sv.maxTier === mt;
+      out.portal = !!S.portal && !(sv.run && sv.run.pin);
+      out.loot = S.loot.filter((l) => l.kind === 'item' && l.data.rarity === 2).length + '/' + S.loot.filter((l) => l.kind === 'cur').length + '/' + S.loot.filter((l) => l.kind === 'blank').length + '/' + S.loot.filter((l) => l.kind === 'support').length;
+      const seq = [];
+      for (let i = 0; i < 4; i++) seq.push(kill(0.999).length);
+      out.pity = seq.join('') + ' ' + JSON.stringify(sv.pinnacle);
+      const k6 = kill(0.25);
+      out.chance = k6.length;
+      const k7 = kill(0.1);
+      out.normal = k7.filter((id) => G.RELIC_IDS.indexOf(id) >= 0).length + '+' + k7.filter((id) => G.RELIC_PINNACLE.indexOf(id) >= 0).length;
+      G.enterZone(0, 0);
+      sv.bossKills = JSON.parse(keep.kills);
+      sv.pinnacle = JSON.parse(keep.pin);
+      sv.relic.found = JSON.parse(keep.found);
+      sv.maxTier = keep.maxTier;
+      return out;
+    });
+    assert(/^shuangsheng /.test(r.first) && /"first":true/.test(r.first) && r.pts === 2 && r.noClear && r.portal, '首杀不对：' + JSON.stringify(r));
+    assert(r.loot === '3/6/1/2' || /^[34]\/6\/1\/2$/.test(r.loot), '必掉的件数不对（3 稀有、6 通货、1 无铭、2 辅助）：' + r.loot);
+    assert(r.pity === '0001 {"kills":5,"pity":0}' && r.chance === 1 && r.normal === '1+1', '保底 / 几率不对：' + JSON.stringify(r));
+    return '首杀 ' + r.first.split(' ')[0] + ' · 保底 ' + r.pity.split(' ')[0];
+  });
+
+  await step('渊契「双生」：选了刻式的技能每次施放在 A / B 之间交替（你选的那一种先），交替出来的那一种伤害 +10%，放出去的投射物带着自己那份定义；光环、召唤不交替；魔力不够没放出去不算一次；摘下后指回选的那一种', async () => {
+    const r = await ev(() => {
+      const S = G.state, P = G.player, out = {};
+      RQT.begin('shuangsheng');
+      RQT.learn('ember', 0);
+      G.save.variants.ember = 'a';
+      G.applyVariants();
+      T.dummy(0, 7);
+      T.aim(P.x, P.z + 7);
+      const seq = [], projV = [];
+      const sp0 = G.spawnProjectile;
+      let lastV = '-';
+      G.spawnProjectile = function (p) { if (p.owner === 'p' && p.ctx) lastV = p.ctx.sk.variant; return sp0.call(this, p); };
+      for (let i = 0; i < 4; i++) {
+        P.cds = {};
+        P.mana = P.maxMana;
+        G.input.tap[0] = 1;
+        let t = 0;
+        while (!P.cast && t++ < 30) G.debug.step(1 / 60);
+        seq.push(G.SKILLS.ember.variant);
+        lastV = '-';
+        t = 0;
+        while (P.cast && t++ < 120) G.debug.step(1 / 60);
+        projV.push(lastV);
+      }
+      G.spawnProjectile = sp0;
+      out.seq = seq.join('');
+      out.proj = projV.join('');
+      const ka = G.skillCtx('ember').more;
+      G.useVariant('ember', 'a');
+      const kA = G.skillCtx('ember').more;
+      G.useVariant('ember', 'b');
+      const kB = G.skillCtx('ember').more;
+      out.alt = +(kB / kA).toFixed(3);
+      // 没放出去不算一次
+      G.useVariant('ember', 'a');
+      G.relicState.twin.ember = 'b';
+      P.mana = 0;
+      P.cds = {};
+      G.input.tap[0] = 1;
+      G.debug.step(0.1);
+      out.noMana = G.relicState.twin.ember;
+      P.mana = P.maxMana;
+      // 光环 / 召唤
+      RQT.learn('nova', 2);
+      G.save.variants.nova = 'b';
+      RQT.learn('thrall', 3);
+      G.save.variants.thrall = 'a';
+      G.applyVariants();
+      G.relicState.twin = {};
+      out.skip = [G.relicTwin('nova'), G.relicTwin('thrall'), G.relicTwin('ember')].join();
+      // 摘下
+      G.save.equip.amulet = null;
+      G.computeStats();
+      out.off = G.SKILLS.ember === G.skillVariant('ember', 'a') && G.relicState.twinAlt.size === 0 && Math.abs(G.skillCtx('ember').more - kA) < 1e-9;
+      delete G.save.variants.ember;
+      delete G.save.variants.nova;
+      delete G.save.variants.thrall;
+      G.applyVariants();
+      RQT.end();
+      return out;
+    });
+    assert(r.seq === 'abab' && r.proj === 'abab', '交替顺序不对：' + JSON.stringify(r));
+    assert(r.alt === 1.1 && r.noMana === 'b', '交替那一下的伤害 / 没放出去不算：' + JSON.stringify(r));
+    assert(r.skip === ',,a' && r.off, '光环 / 召唤 / 摘下不对：' + JSON.stringify(r));
+    return '施放 ' + r.seq + ' · 交替那一下 ×' + r.alt;
+  });
+
+  await step('渊契「无光」：暖光半径 −40%（摘下复原）；9 m 外睡着的怪不会因为距离醒（不戴时 12 m 内就醒）；已醒的怪在 9 m 外 3 s 失去目标、走回原地（9 m 内不会）；对 9 m 外伤害 ×1.3，没发现你时第一击必暴；首领不会失去目标', async () => {
+    const r = await ev(() => {
+      const S = G.state, P = G.player, W = G.world, out = {};
+      RQT.begin('xizhu');
+      P.graceT = 0; // T.arena 里的重生给了 2.5 秒不被就近发现
+      out.lamp = W.gloomInfo().lamp;
+      const dir = T.openDir(16);
+      const at = (d) => ({ x: P.x + dir.x * d, z: P.z + dir.z * d });
+      const sleeper = (d) => { const q = at(d); const e = G.spawnMob('husk', q.x, q.z, 1, {}); e.hp = e.maxHp = 1e6; e.atkCd = 1e9; return e; };
+      const e1 = sleeper(10.5);
+      G.debug.step(1.0);
+      out.noWake = !e1.awake;
+      G.save.equip.helm = null;
+      G.computeStats();
+      out.lampOff = W.gloomInfo().lamp;
+      G.debug.step(0.5);
+      out.wakeOff = e1.awake;
+      G.clearEnemies();
+      G.save.equip.helm = G.rollRelic('xizhu', 50, 0.5);
+      G.computeStats();
+      // 已醒：12 m 外（不动）3 s 后失去目标，8 m 内的不会
+      const fa = T.mob('husk', dir.x * 12, dir.z * 12), na = T.mob('husk', dir.x * 7, dir.z * 7);
+      fa.speed = na.speed = 0;
+      // 走回原地：这一只离出生点 3 m（出生点也在 9 m 外），失去目标后自己走回去
+      const fb = T.mob('husk', dir.x * 13, dir.z * 13);
+      fb.speed = 0;
+      fb.home = { x: fb.x + dir.z * 3, z: fb.z - dir.x * 3 };
+      G.debug.step(2.9);
+      out.still = fa.awake;
+      G.debug.step(0.5);
+      out.lost = !fa.awake && na.awake && !fb.awake && fb.homing;
+      fb.speed = G.MOBS.husk.speed;
+      G.debug.step(2.5);
+      out.home = +Math.hypot(fb.x - fb.home.x, fb.z - fb.home.z).toFixed(2) + ' ' + fb.awake;
+      // 伤害
+      G.clearEnemies();
+      G.save.bar[0] = 'blade';
+      RQT.learn('blade', 0);
+      const ctx = G.skillCtx('blade');
+      T.fix(0.5);
+      const near = T.mob('husk', dir.x * 5, dir.z * 5), far = T.mob('husk', dir.x * 12, dir.z * 12);
+      const hN = G.relicFarHit(near, ctx, 1), hF = G.relicFarHit(far, ctx, 1);
+      out.far = +(hF.total / hN.total).toFixed(3) + ' ' + hN.crit + hF.crit;
+      far.awake = false;
+      out.sneak = G.relicFarHit(far, ctx, 1).crit;
+      T.unfix();
+      G.clearEnemies();
+      // 首领不吃仇恨这部分
+      const b = G.spawnBoss('golem', P.x + dir.x * 14, P.z + dir.z * 14, 1);
+      b.awake = b.wasAwake = true;
+      b.cd = b.busy = 1e9;
+      b.speed = 0;
+      G.debug.step(3.4);
+      out.boss = b.awake;
+      G.clearEnemies();
+      RQT.end();
+      out.lampEnd = W.gloomInfo().lamp;
+      return out;
+    });
+    assert(Math.abs(r.lamp - 9.6) < 1e-6 && r.lampOff === 16 && r.lampEnd === 16, '暖光不对：' + JSON.stringify(r));
+    assert(r.noWake && r.wakeOff && r.still && r.lost && /^0\.\d+ false$/.test(r.home) && parseFloat(r.home) < 0.8, '醒来 / 失去目标 / 走回原地不对：' + JSON.stringify(r));
+    assert(r.far === '1.3 falsefalse' && r.sneak === true && r.boss, '远处增伤 / 必暴 / 首领不对：' + JSON.stringify(r));
+    return '暖光 ' + r.lamp + ' · 远处 ×' + r.far.split(' ')[0];
+  });
+
+  await step('巅峰渊契：熄烛冠 / 双生坠 × 3 个物品等级都合法（isItem 认、存档往返留着）；图标 it-rq-xizhu / it-rq-shuangsheng 画得出来；图鉴 15 行（巅峰的排在最后、写着熄烛者）；不进随机掉落的池子', async () => {
+    const r = await ev(() => {
+      const out = { bad: [] };
+      for (const id of G.RELIC_PINNACLE) {
+        const R = G.RELICS[id];
+        for (const il of [40, 55, 62]) {
+          const it = G.rollRelic(id, il);
+          if (!(it.rarity === 4 && it.rq === id && it.slot === R.slot && it.affixes.length === R.lines.length && it.name === R.name)) out.bad.push(id + '@' + il);
+        }
+      }
+      out.pool = G.RELIC_PINNACLE.every((id) => G.RELIC_IDS.indexOf(id) < 0) && G.RELIC_CODEX.length === 15;
+      const urls = G.RELIC_PINNACLE.map((id) => G.icons.url('it-rq-' + id));
+      out.icons = urls.every((u) => /^data:image\/png;base64,/.test(u) && u.length > 1500) && urls[0] !== urls[1];
+      out.key = G.icons.itemKey(G.rollRelic('xizhu', 50));
+      out.desc = G.RELICS.xizhu.mechDesc.indexOf('9 米') >= 0 && G.RELICS.shuangsheng.mechDesc.indexOf('交替') >= 0;
+      G.save.bag.length = 0;
+      G.save.bag.push(G.rollRelic('xizhu', 50), G.rollRelic('shuangsheng', 50));
+      G.persist();
+      G.loadSave();
+      out.kept = G.save.bag.filter((it) => it.rarity === 4).length;
+      G.save.bag.length = 0;
+      G.ui.open('inv');
+      const rows = Array.from(document.querySelectorAll('.cx-row.rq'));
+      out.rows = rows.length + ' ' + rows.slice(-2).map((n) => n.dataset.rq).join() + ' ' + /熄烛者/.test(rows[rows.length - 1].textContent);
+      G.ui.close();
+      return out;
+    });
+    assert(r.bad.length === 0 && r.pool && r.icons && r.key === 'it-rq-xizhu' && r.desc && r.kept === 2, '巅峰渊契数据 / 图标不对：' + JSON.stringify(r));
+    assert(r.rows === '15 xizhu,shuangsheng true', '图鉴不对：' + r.rows);
+    return '图鉴 ' + r.rows;
   });
 
   await step('localStorage 不可用时游戏照常运行', async () => {
