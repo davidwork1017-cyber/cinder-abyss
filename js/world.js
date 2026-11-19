@@ -26,6 +26,7 @@
   //   fogNear / fogFar 雾的起止（相对镜头的距离）、shadow 阴影贴图覆盖的半宽（镜头近了可以收小，阴影更清楚）
   // 旧镜头：pitch ≈ 53.5、dist ≈ 28.6、fov 38、lead 3、雾 27～64（主角在 900 高的画面里约 54 像素）
   const CAMERA = { pitch: 50, dist: 21, fov: 34, lookY: 1, lead: 2.2, fogNear: 22, fogFar: 52, shadow: 22 };
+  const LAMP_DIST = 16; // 跟随玩家的暖光半径（渊印「幽晦」收到 12）
   const CAM_OFF = new T.Vector3();
   let CAM_LEAD = CAMERA.lead;
   function camDerive() {
@@ -2094,7 +2095,7 @@
     sunR.crossVectors(UP, _v).normalize();
     sunU.crossVectors(_v, sunR).normalize();
 
-    lamp = new T.PointLight(0xffb878, 1.0, 16, 2); // 跟随玩家的暖光
+    lamp = new T.PointLight(0xffb878, 1.0, LAMP_DIST, 2); // 跟随玩家的暖光
     scene.add(lamp);
     fxLight = new T.PointLight(0xffffff, 0, 20, 2); // 大型特效的瞬时闪光（预先建好，避免运行时重编译着色器）
     scene.add(fxLight);
@@ -2128,10 +2129,12 @@
     const warm = W.makeTelegraph({ shape: 'circle', x: 0, z: 0, r: 1 }, false);
     initAllyFx();
     initGhosts();
+    initSealFx();
     warmEntities(); // 里面会真的渲染一帧，上面这些特效的着色器也一并编译
     W.removeTelegraph(warm);
     meteorOff(meteors[0]);
     clearRibbons();
+    sealFxIdle();
   };
 
   // 按 CAMERA 摆镜头的朝向（只在初始化和 W.setCamera 时调用）
@@ -2143,8 +2146,8 @@
     camera.fov = fovNow = BASE_FOV;
     camera.updateProjectionMatrix();
     if (scene && scene.fog) {
-      scene.fog.near = CAMERA.fogNear;
-      scene.fog.far = CAMERA.fogFar;
+      scene.fog.near = gloomP ? gloomP.near : CAMERA.fogNear; // 渊印「幽晦」期间改镜头也保持收近的雾
+      scene.fog.far = gloomP ? gloomP.far : CAMERA.fogFar;
     }
   }
   // 调试 / 调镜头：G.world.setCamera({ pitch, dist, fov, lead, lookY, fogNear, fogFar, shadow })，返回当前配置
@@ -10507,6 +10510,7 @@
   }
   function unflash(ent) {
     if (ent.iced) return applyIce(ent); // 冻着的：闪白过后回到冰色
+    if (ent.raged) return applyRage(ent); // 渊印「濒狂」：回到泛红
     const ms = ent.mats;
     for (let i = 0; i < ms.length; i++) {
       ms[i].emissive.copy(ms[i].userData.e0);
@@ -22815,6 +22819,166 @@
     flameWreath();
   }
 
+  // =====================================================================
+  // 渊印特效：领群光环、余烬地贴花（各是一个实例化网格，整局只建一次，1 次 draw；没有时隐藏、不占 draw）
+  // =====================================================================
+  // 领群光环：领群者脚下一圈硬边的橙色环（深色描边 + 两档亮度），醒着的每帧跟着挪；死了收掉。
+  // 余烬地：一块带裂纹的暗红炭斑，亮度随剩余时间三档往下掉。都是平躺的方片，不投影、不吃雾（幽晦下也看得清）
+  const SEAL_RING_MAX = 32, SEAL_CINDER_MAX = 8;
+  let sealRing = null, sealCinder = null, sealLeadList = null;
+  const sealRingTex = () =>
+    tex('sealRing', () => {
+      const c = makeCanvas(128, 128), g = c.getContext('2d');
+      const ring = (r, w, col) => {
+        g.beginPath();
+        g.arc(64, 64, r, 0, Math.PI * 2);
+        g.lineWidth = w;
+        g.strokeStyle = col;
+        g.stroke();
+      };
+      ring(55, 12, 'rgba(40,14,4,0.85)'); // 深色描边
+      ring(55, 7, 'rgba(255,150,60,1)');
+      ring(53, 2.5, 'rgba(255,230,170,1)'); // 内侧亮边（左上来光的那一半更亮）
+      g.globalCompositeOperation = 'destination-out';
+      g.fillStyle = 'rgba(0,0,0,0.45)';
+      g.beginPath();
+      g.moveTo(64, 64);
+      g.arc(64, 64, 70, 0.1 * Math.PI, 0.9 * Math.PI); // 右下半圈暗一档
+      g.fill();
+      g.globalCompositeOperation = 'source-over';
+      ring(55, 7, 'rgba(200,96,30,0.55)');
+      // 四个短刻痕：一眼认出是「领群」而不是普通的预警圈
+      g.strokeStyle = 'rgba(255,214,140,1)';
+      g.lineWidth = 5;
+      for (let k = 0; k < 4; k++) {
+        const a = (k * Math.PI) / 2 + Math.PI / 4;
+        g.beginPath();
+        g.moveTo(64 + Math.cos(a) * 44, 64 + Math.sin(a) * 44);
+        g.lineTo(64 + Math.cos(a) * 36, 64 + Math.sin(a) * 36);
+        g.stroke();
+      }
+      return new T.CanvasTexture(c);
+    });
+  const sealCinderTex = () =>
+    tex('sealCinder', () => {
+      const c = makeCanvas(128, 128), g = c.getContext('2d');
+      g.fillStyle = 'rgba(30,8,4,0.8)';
+      g.beginPath();
+      for (let k = 0; k <= 12; k++) {
+        const a = (k / 12) * Math.PI * 2, r = 58 - (k % 2) * 6;
+        g[k ? 'lineTo' : 'moveTo'](64 + Math.cos(a) * r, 64 + Math.sin(a) * r);
+      }
+      g.fill();
+      g.fillStyle = 'rgba(255,92,24,1)';
+      g.beginPath();
+      g.arc(64, 64, 44, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = 'rgba(255,190,90,1)';
+      g.beginPath();
+      g.arc(60, 60, 26, 0, Math.PI * 2);
+      g.fill();
+      // 裂纹：几道深色折线把亮面切开
+      g.strokeStyle = 'rgba(40,10,4,0.95)';
+      g.lineWidth = 4;
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * Math.PI * 2 + 0.3;
+        g.beginPath();
+        g.moveTo(64 + Math.cos(a) * 8, 64 + Math.sin(a) * 8);
+        g.lineTo(64 + Math.cos(a + 0.25) * 28, 64 + Math.sin(a + 0.25) * 28);
+        g.lineTo(64 + Math.cos(a - 0.1) * 50, 64 + Math.sin(a - 0.1) * 50);
+        g.stroke();
+      }
+      return new T.CanvasTexture(c);
+    });
+  function sealIM(texFn, cap, order) {
+    const mat = new T.MeshBasicMaterial({ map: texFn(), transparent: true, depthWrite: false, toneMapped: false, fog: false });
+    const im = new T.InstancedMesh(gQuad(), mat, cap);
+    im.instanceMatrix.setUsage(T.DynamicDrawUsage);
+    im.frustumCulled = false;
+    im.renderOrder = order;
+    im.count = 1; // 开场预热那一帧画一个（着色器跟着编好），之后 sealFxIdle 收起
+    _pm.compose(_pv.set(0, 0.07, 2), _pq.set(0, 0, 0, 1), _ps.set(0.01, 1, 0.01));
+    im.setMatrixAt(0, _pm);
+    scene.add(im);
+    return im;
+  }
+  function initSealFx() {
+    sealRing = sealIM(sealRingTex, SEAL_RING_MAX, 2);
+    sealCinder = sealIM(sealCinderTex, SEAL_CINDER_MAX, 1);
+  }
+  function sealFxIdle() {
+    sealRing.count = sealCinder.count = 0;
+    sealRing.visible = sealCinder.visible = false;
+  }
+  // 进区时（布怪之后）交给这里这一次的领群者（没有领群时传 null）
+  W.sealAura = function (leaders) {
+    sealLeadList = leaders && leaders.length ? leaders.slice(0, SEAL_RING_MAX) : null;
+    if (!sealRing) return;
+    sealRing.count = sealLeadList ? sealLeadList.length : 0;
+    sealRing.visible = !!sealLeadList;
+    if (sealLeadList) for (let i = 0; i < sealLeadList.length; i++) sealRingAt(i, sealLeadList[i], 0);
+  };
+  function sealRingAt(i, e, t) {
+    const r = e.dead ? 0.001 : (e.r || 0.6) + 0.75, k = 1 + 0.05 * Math.sin(t * 3 + i);
+    _pm.compose(_pv.set(e.x, 0.07, e.z), _pq.set(0, 0, 0, 1), _ps.set(r * k, 1, r * k));
+    sealRing.setMatrixAt(i, _pm);
+  }
+  // 余烬地：list 是 game.js 维护的 { x, z, t } 数组（每帧调用；没有时隐藏）
+  W.sealCinders = function (list, C) {
+    if (!sealCinder) return;
+    const n = Math.min(SEAL_CINDER_MAX, list.length);
+    sealCinder.count = n;
+    sealCinder.visible = n > 0;
+    if (!n) return;
+    const R = C ? C.r : 1.4, T0 = C ? C.t : 3;
+    for (let i = 0; i < n; i++) {
+      const c = list[i], f = c.t / T0, k = f > 0.66 ? 1 : f > 0.33 ? 0.92 : 0.8; // 快灭的时候缩一点
+      _pm.compose(_pv.set(c.x, 0.06, c.z), _pq.set(0, 0, 0, 1), _ps.set(R * k, 1, R * k));
+      sealCinder.setMatrixAt(i, _pm);
+    }
+    sealCinder.instanceMatrix.needsUpdate = true;
+  };
+  function sealFxUpdate() {
+    if (!sealLeadList || !sealRing.visible) return;
+    let any = false;
+    for (let i = 0; i < sealLeadList.length; i++) {
+      const e = sealLeadList[i];
+      if (e.awake || e.dead !== !!e.ringDead) {
+        e.ringDead = e.dead;
+        sealRingAt(i, e, wtime);
+        any = true;
+      }
+    }
+    if (any) sealRing.instanceMatrix.needsUpdate = true;
+  }
+  // 濒狂：身上泛红（emissive，只改 uniform）；受击闪白、冻结的冰色都优先，闪完回到红色
+  function applyRage(ent) {
+    const ms = ent.mats;
+    for (let i = 0; i < ms.length; i++) {
+      ms[i].emissive.setRGB(1, 0.16, 0.08);
+      ms[i].emissiveIntensity = ms[i].userData.fi * 0.45;
+    }
+  }
+  W.rage = function (ent, on) {
+    if (!ent || ent.removed) return;
+    ent.raged = !!on;
+    if (ent.flashT > 0 || ent.iced) return;
+    if (on) applyRage(ent);
+    else unflash(ent);
+  };
+  // 幽晦：雾的起止、跟随玩家的暖光收近（只改 uniform，不重编着色器）；p 为空复位。
+  // 预警圈（ShaderMaterial）、敌方弹体（fog: false）不吃雾，照常看得见；名牌 / 血条在 tag 米外不画（2D 叠加层）
+  let gloomP = null;
+  W.setGloom = function (p) {
+    gloomP = p || null;
+    if (scene && scene.fog) {
+      scene.fog.near = gloomP ? gloomP.near : CAMERA.fogNear;
+      scene.fog.far = gloomP ? gloomP.far : CAMERA.fogFar;
+    }
+    if (lamp) lamp.distance = gloomP ? gloomP.lamp : LAMP_DIST;
+  };
+  W.gloomInfo = () => ({ near: scene.fog.near, far: scene.fog.far, lamp: lamp.distance, tag: gloomP ? gloomP.tag : 0 });
+
   // ---------- 每帧更新 ----------
   function spawnAmbient(fx) {
     const x = camT.x + rand(-26, 26), z = camT.z + CAM_LEAD + rand(-22, 13);
@@ -22883,6 +23047,7 @@
     sun.target.position.copy(_v);
     sun.position.copy(_v).add(SUN_OFF);
     lamp.position.set(P.x, 3.2, P.z + 0.6);
+    sealFxUpdate();
     if (fxLight.intensity > 0) {
       fxLight.intensity *= Math.exp(-dt * 10);
       if (fxLight.intensity < 0.02) fxLight.intensity = 0;
@@ -23242,6 +23407,7 @@
       const bu = e.bu;
       const buOn = !!bu && (bu.fire > 0.005 || bu.cold > 0.005 || bu.light > 0.005 || e.freeze > 0 || e.shockT > 0 || e.blastT > 0);
       if (e.dead || e.isBoss || !e.awake || !(e.elite || e.hp < e.maxHp || buOn)) continue;
+      if (gloomP && Math.hypot(e.x - G.player.x, e.z - G.player.z) > gloomP.tag) continue; // 渊印「幽晦」：远处的血条 / 名字不画
       const p = projTo(e.x, e.height * (e.elite ? 1.3 : 1) + 0.35, e.z);
       if (!p.ok || p.x < -40 || p.x > vw + 40 || p.y < -20 || p.y > vh + 20) continue;
       const w = e.elite ? 60 : 40, h = e.elite ? 6 : 4;
@@ -23482,6 +23648,14 @@
         g.fillStyle = e.elite ? '#ffc04a' : 'rgba(255,96,72,0.9)';
         const r = e.elite ? 2.4 : 1.5;
         g.fillRect(X(e.x) - r, Z(e.z) - r, r * 2, r * 2);
+        if (e.leader) {
+          // 渊印「领群」：领群者外面一圈 1 px 的橙环
+          g.strokeStyle = '#ff9a3c';
+          g.lineWidth = 1;
+          g.beginPath();
+          g.arc(X(e.x), Z(e.z), r + 2, 0, TAU);
+          g.stroke();
+        }
       }
       if (ms) {
         g.fillStyle = ALLY_CSS;
