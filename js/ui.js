@@ -3023,7 +3023,8 @@
     } else if (ctx.minion) {
       nums = '每击 ' + fmtInt(G.avgHit(ctx)) + ' · 每秒 ' + (1 / ctx.minion.interval).toFixed(2) + ' 击 · 生命 ' + fmtInt(ctx.minion.life) + ' · 上限 ' + ctx.minion.cap + ' · 满员秒伤约 ' + fmtInt(G.skillDps(ctx));
     } else {
-      nums = (ctx.cd > 0 ? '每次伤害 ' : '平均击中 ') + fmtInt(G.avgHit(ctx)) + ' · 单体秒伤约 ' + fmtInt(G.variantDps(id)) + (ctx.cd > 0 ? ' · 冷却 ' + fmt1(ctx.cd) + ' 秒' : '');
+      // 秒伤和技能卡同一个算法（G.skillDps，冷却技能按冷却折算）；下面的比值按设计稿 §5.2 的口径
+      nums = (ctx.cd > 0 ? '每次伤害 ' : '平均击中 ') + fmtInt(G.avgHit(ctx)) + ' · 估算秒伤约 ' + fmtInt(G.skillDps(ctx)) + (ctx.cd > 0 ? ' · 冷却 ' + fmt1(ctx.cd) + ' 秒' : '');
     }
     G.SKILLS[id] = keep;
     const rows = [];
