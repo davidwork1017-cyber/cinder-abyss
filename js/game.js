@@ -141,7 +141,7 @@
       sockets: { ember: [null, null, null], [G.BASIC_CARD]: [null, null, null] },
       bar: ['ember', null, null, null],
       // 右键固定是武器普攻：旧存档右键上的技能读档时挪到第一个空格（左键 / Q / E）；三格都满时收在这里，
-      // 技能页上标着「收起」，绑到任意一格就取出来（见 syncBasic）。镶着的辅助跟着技能走（save.sockets 按技能 id 记），不会丢
+      // 技能页上标着「收起」，绑到任意一格就取出来（见 sanitize、syncRanged）。镶着的辅助跟着技能走（save.sockets 按技能 id 记），不会丢
       rmbKeep: null,
       bowMig: false, // 读档时把旧长弓改成了鹰眼长弓、「远程改版」提示还没看过（见 sanitize）
       passives: ['start'], cleared: {}, bossKills: {},
@@ -455,6 +455,8 @@
       }
       const socks = isObj(raw.sockets) && Array.isArray(raw.sockets.cleave) ? raw.sockets.cleave.filter((x) => x && G.SUPPORTS[x] && s.supports.indexOf(x) >= 0) : [];
       G.cleaveRefund = { lvl, sups: socks };
+      // 技能栏上只放着裂石击的老存档：腾空之后一个技能都不剩，把已学的第一个技能放进左键（右键的普攻照样能打）
+      if (s.bar.every((b) => !b)) s.bar[0] = Object.keys(s.skills).find((id) => G.SKILLS[id].kind !== 'aura') || null;
     }
     // 自动召唤开关：只认召唤技能，旧存档没有这一项就保持默认（关）
     const ra = isObj(raw.autoSummon) ? raw.autoSummon : {};
