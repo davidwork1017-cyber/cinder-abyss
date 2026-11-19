@@ -4199,7 +4199,7 @@
     f.tt = Math.min(0.15, f.tick);
     if (fields.length >= MAX_FIELDS) fields.shift();
     fields.push(f);
-    if (!fxOpt('emberGround', f.x, f.z, f.r, f.dur, f.kind === 'burn')) G.world.decal(1, f.x, f.z, f.r * 0.9, Math.random() * TAU, f.hex || 0xff7a2c, f.dur);
+    if (!fxOpt('emberGround', f.x, f.z, f.r, f.dur, f.kind === 'burn', !!f.noDecal)) G.world.decal(1, f.x, f.z, f.r * 0.9, Math.random() * TAU, f.hex || 0xff7a2c, f.dur);
     return f;
   }
   function updateFields(dt) {
@@ -5107,7 +5107,7 @@
     const W = G.world, sk = p.ctx.sk, S = sk.skip, ak = Math.sqrt(p.ctx.area), R = S.r * ak;
     for (const e of enemiesIn(p.x, p.z, R)) G.hitEnemy(e, p.ctx, 1, { ang: Math.atan2(e.x - p.x, e.z - p.z), kb: 0.15, poise: sk.poise, quiet: true }); // 推得很轻：留在火地里
     const F = S.field;
-    addField({ kind: 'burn', x: p.x, z: p.z, r: F.r * ak, dur: F.dur, tick: F.tick, mult: F.mult, ctx: p.ctx, key: 'vSkipT', hex: 0xff7a2c });
+    addField({ kind: 'burn', x: p.x, z: p.z, r: F.r * ak, dur: F.dur, tick: F.tick, mult: F.mult, ctx: p.ctx, key: 'vSkipT', hex: 0xff7a2c, noDecal: true });
     W.ring(p.x, p.z, R, 0xff8a3c, 0.25);
     W.burst(p.x, 0.4, p.z, 0xffb050, 12, 5, 0.35);
     G.sfx('impact', { type: 'fire', w: 0, crit: false });
@@ -5608,7 +5608,7 @@
       if (p.d - p.fd >= 2.6 || (p.d >= p.len && p.fd < p.len - 0.5)) {
         p.fd = p.d;
         const F = S.field;
-        addField({ kind: 'burn', x: p.x, z: p.z, r: F.r * ak, dur: F.dur, tick: F.tick, mult: F.mult, ctx: p.ctx, key: 'vPloughT', hex: 0xff6a2c });
+        addField({ kind: 'burn', x: p.x, z: p.z, r: F.r * ak, dur: F.dur, tick: F.tick, mult: F.mult, ctx: p.ctx, key: 'vPloughT', hex: 0xff6a2c, noDecal: true });
       }
       if (p.d >= p.len) {
         W.burst(p.x, 0.6, p.z, 0xffb050, 14, 5, 0.4);
@@ -5859,8 +5859,10 @@
     const k = e.vMark || 0;
     markClear(e);
     G.hitEnemy(e, ctx, M.mult * k, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 1, kb: 0.3, poise: 4 * k, quiet: true });
-    const W = G.world;
-    if (W.markBurstFx) W.markBurstFx(e.x, e.z, e.height || 2, e.r, e.r + 0.6);
+    // 单只引爆：一圈环 + 一团碎光（四面刀光留给松手时的齐爆，连斩里一刀一爆的话刀光太多、draw call 也多）
+    const W = G.world, h = e.height || 2;
+    W.ring(e.x, e.z, e.r + 0.9, 0x9fb4ff, 0.25);
+    W.burst(e.x, h * 0.6, e.z, 0xdfe6ff, 14, 5, 0.3);
     state.stats.vMarkPops = (state.stats.vMarkPops || 0) + 1;
     vCount();
   }
@@ -5873,7 +5875,7 @@
       markClear(e);
       if (e.dead || !k || !M) continue;
       G.hitEnemy(e, ctx, M.mult * k, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 1, kb: 0.4, poise: 4 * k, quiet: true });
-      if (fx++ < 4 && W.markBurstFx) W.markBurstFx(e.x, e.z, e.height || 2, e.r, e.r + 0.6);
+      if (fx++ < 2 && W.markBurstFx) W.markBurstFx(e.x, e.z, e.height || 2, e.r, e.r + 0.6); // 四面刀光最多两处，其余只放碎光
       else W.burst(e.x, (e.height || 2) * 0.6, e.z, 0x9fb4ff, 10, 4, 0.3);
       n += k;
     }
