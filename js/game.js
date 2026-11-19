@@ -438,9 +438,9 @@
     for (const it of s.bag.concat(s.equip.weapon ? [s.equip.weapon] : [])) if (it.rarity === 3) noteUnique(it, s);
     // 渊印：旧存档没有这两项（sealSeq 0、run null）。run 的区域 / 层级要对得上存档的 lastZone / tier，印纹只认表里的 id，W 按表重算
     s.sealSeq = toInt(raw.sealSeq, 0, 1e9, 0);
-    const rr = isObj(raw.run) ? raw.run : null;
-    if (rr && rr.zone === s.lastZone && rr.tier === s.tier) {
-      s.run = { zone: s.lastZone, tier: s.tier, seq: toInt(rr.seq, 0, 1e9, 0), seal: G.cleanSeal(rr.seal, s.tier, s.bar) };
+    const rrun = isObj(raw.run) ? raw.run : null;
+    if (rrun && rrun.zone === s.lastZone && rrun.tier === s.tier) {
+      s.run = { zone: s.lastZone, tier: s.tier, seq: toInt(rrun.seq, 0, 1e9, 0), seal: G.cleanSeal(rrun.seal, s.tier, s.bar) };
     }
     return s;
   }

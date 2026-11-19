@@ -2655,7 +2655,10 @@
   const SEAL_DESC = {
     tint: (p, m) => '怪物每一击另带相当于 ' + sPct(p.frac) + ' 伤害的' + G.TYPE_NAME[m.el] + '伤害（吃你的抗性）',
     haste: (p) => '怪物移速 +' + sPct(p.speed) + '，两次出手的间隔 −' + sPct(p.cd) + '（起手和预警时长不变）',
-    elites: (p) => '关键路径房间的精英几率 45% → ' + sPct(p.chance) + '，全区精英上限 6 → ' + p.cap,
+    elites: (p) => {
+      const cap = G.SEAL_ELITE_CAP || {}, few = G.ZONES.filter((z) => cap[z.id]).map((z) => z.name + ' ' + cap[z.id]);
+      return '关键路径房间的精英几率 45% → ' + sPct(p.chance) + '，全区精英上限 6 → ' + p.cap + (few.length ? '（' + few.join('、') + '）' : '');
+    },
     burst: (p) => '普通怪死后 ' + p.delay + ' 秒在尸体处炸开（半径 ' + p.r + ' 米，精英 ' + p.eR + ' 米、' + p.eDelay + ' 秒），伤害为它一击的 ' + sPct(p.k) + '，地上有预警圈',
     ailRes: (p) => '怪物异常阈值 ×' + p.th + '，冰缓 ×' + p.chillCap + '，冻结和渊缚时长 ×' + p.dur + '（首领只吃阈值）',
     aura: (p) => '每群一只领群者（脚下一圈橙环）：' + p.r + ' 米内同群的怪伤害 +' + sPct(p.dmg) + '、受到的伤害 −' + sPct(p.dr) + '；领群者经验 ×' + p.xp,

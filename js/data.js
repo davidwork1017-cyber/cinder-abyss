@@ -1243,6 +1243,8 @@
     lonely: { name: '孤影', glyph: '孤', side: 'player', w: 1, dmgK: 1.0, need: 'summon', p: { life: 0.35, dmg: 0.1 } },
   };
   G.SEAL_MOD_IDS = Object.keys(G.SEAL_MODS);
+  // 群首在这几个区的全区精英上限（风险 1）：烬渊深处、坠星裂谷的混战离 135 个 draw 只差几个，多 2 只精英会超，这里只多 1 只
+  G.SEAL_ELITE_CAP = { abyss: 7, rift: 7 };
   G.SEAL_TINT = { fire: { name: '焚染', glyph: '焚' }, cold: { name: '霜染', glyph: '霜' }, light: { name: '雷染', glyph: '雷' } };
   // perW：每点权重给的物品数量 / 稀有度 / 经验（%），cap 是上限；lieW：「烈印」的门槛（生效 W ≥ lieW）。
   // tiers：轮回层级 1 / 2 / ≥3 各一档。n 每枚印的条数，W[0..2] 浅印 / 深印 / 烬印的权重区间，budget 危险预算（dmgK 乘积上限），
