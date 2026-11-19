@@ -2952,6 +2952,36 @@ body.panel-open #coach { display: none; }
 #big-toast.rq .bt-t { color: #a8dcc8; }
 #big-toast.rq .bt-n { text-shadow: 0 0 18px color-mix(in srgb, var(--c) 80%, transparent), 0 0 4px rgba(210, 255, 236, 0.9), 0 2px 3px #000; }
 #big-toast.rq .bt-s { color: #8fc4ae; }
+/* 先到、被新的大字挤下去的几条：缩成一行排在大字下面，各自到点淡出 */
+#big-toast-stack {
+  position: fixed;
+  left: 50%;
+  top: calc(34% + 66px);
+  z-index: 31;
+  transform: translateX(-50%);
+  text-align: center;
+  pointer-events: none;
+  visibility: hidden;
+}
+#big-toast-stack.on { visibility: visible; }
+#big-toast-stack .bts-row {
+  margin-top: 4px;
+  padding: 3px 26px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  white-space: nowrap;
+  color: var(--c, #ff9b3d);
+  text-shadow: 0 0 10px rgba(0, 0, 0, 0.9), 0 1px 2px #000;
+  background: radial-gradient(ellipse at center, rgba(10, 6, 4, 0.8), transparent 75%);
+  animation: bts-in 0.35s ease-out both;
+}
+#big-toast-stack .bts-t { margin-right: 10px; font-size: 12px; font-weight: 400; letter-spacing: 3px; color: #cfa47a; }
+#big-toast-stack .bts-more { font-size: 13px; font-weight: 400; color: #cfa47a; }
+@keyframes bts-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: none; }
+}
 
 /* ============================================================
    烬铸技：拿着烬铸武器时 R 上那一招。余烬橙的框 + 缓慢呼吸的光，和普通武器技一眼分开
