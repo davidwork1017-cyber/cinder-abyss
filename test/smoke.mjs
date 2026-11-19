@@ -708,6 +708,9 @@ async function main() {
       T.arena();
       const S = G.state;
       G.save.xp = 0;
+      // zones-polish：「首颗辅助宝石」的前提是存档里还没有辅助宝石。区域加长、小怪 ×2 以后，前面几步的技能偶尔会打死起点附近的小怪，
+      // 掉的辅助宝石被自动拾取，这一步就偶尔随机失败。这里把前提写明：先清空，断言照旧
+      G.save.supports.length = 0;
       const xp0 = G.save.xp;
       // 离玩家远一点：掉落会散在落点 2.4 以内，太近会被自动拾取，下一步就找不到了
       G.spawnMob('husk', 7, 0, 1, { elite: true, awake: true });
