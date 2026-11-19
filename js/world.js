@@ -4294,15 +4294,34 @@
       [gOct(0.22), 0xffa64a, 0.05, 0.3, -0.5, 0.4, 0, 0, 0.6, 1.3, 0.6],
       [gCyl(1, 1, 1, 12), 0x3a2010, 0, 0.01, 0, 0, 0, 0, 0.6, 0.02, 0.6],
     ]);
-  // 拾烬客的兜帽和背上的拾荒包（挂在实体的 group 上，跟着站位走）
+  // 拾烬客的兜帽、斗篷、背上的拾荒包和挑灯的弯杆（挂在实体的 body 上，跟着站位走、随 body 一起放大）
+  // 游魂的破袍是深紫色，远看和灰烬地面糊成一团：外面罩一件浅沙色的斗篷，轮廓成一个浅色的三角；
+  // 灯笼的框和灯罩也烘在这里，灯光是另外的发光贴片（W.encProp 里的 H.lamp / H.pool）
+  const TRADER_K = 1.3; // 拾烬客的体型（游魂 × 1.3，比精英小一点，脚下没有金环）
+  const TRADER_LAMP = [-0.5, 2.42, 0.22]; // 灯罩中心（body 本地坐标，放大前）
   const encHoodGeo = () =>
-    toonGradient(bake('enc/hood', [
-      [gCone(0.34, 0.62, 7), 0x4a4236, 0, 1.98, -0.02, -0.12, 0, 0],
-      [gCyl(0.36, 0.42, 0.2, 7), 0x3c352c, 0, 1.72, 0, 0, 0, 0],
-      [gRBox(0.6, 0.62, 0.34, 0.06), 0x6a5236, 0, 1.25, -0.36, 0.1, 0, 0],
-      [gCyl(0.06, 0.06, 0.7, 5), 0x8a6a40, 0.18, 1.62, -0.42, 0, 0, 0.3],
-      [gSph(0.11, 6, 4), 0xffd27a, 0.32, 1.95, -0.46],
-    ]).clone(), { bottom: 0x2a2430, top: 0xffffff, y0: 1.0, y1: 2.3 });
+    toonGradient(bake('enc/hood', (() => {
+      const [lx, ly, lz] = TRADER_LAMP, WOOD = 0x6a5236, IRON = 0x4a4038;
+      return [
+        [gCone(0.36, 0.64, 7), 0x9a8462, 0, 1.98, -0.02, -0.12, 0, 0],
+        [gCyl(0.38, 0.44, 0.2, 7), 0x7a6648, 0, 1.72, 0, 0, 0, 0],
+        // 斗篷：肩到膝的一圈，前襟一道深色的绿围巾（小地图上拾烬客是绿的）
+        [gLathe('enc/mantle', [[0.58, 0.4], [0.52, 0.7], [0.44, 1.2], [0.36, 1.58], [0.22, 1.76]], 9), 0xc4ac80, 0, 0, 0],
+        [gTorus(0.27, 0.07, 4, 9), 0x3e7a5a, 0, 1.62, 0.04, Math.PI / 2 + 0.25, 0, 0],
+        [gRBox(0.16, 0.42, 0.06, 0.02), 0x3e7a5a, 0.1, 1.36, 0.36, -0.2, 0, 0.08],
+        // 拾荒包：大一圈，捆着一卷铺盖
+        [gRBox(0.72, 0.8, 0.42, 0.06), 0x8a6a44, 0, 1.25, -0.44, 0.1, 0, 0],
+        [gCyl(0.16, 0.16, 0.86, 7), 0x7a8a6a, 0, 1.72, -0.5, 0, 0, Math.PI / 2],
+        // 挑灯的杆：从包侧竖起，顶上往前弯一截，挂一盏灯笼
+        [gCyl(0.045, 0.055, 1.9, 5), WOOD, lx, 1.9, -0.46, 0, 0, 0],
+        [gCyl(0.04, 0.04, lz + 0.5, 5), WOOD, lx, ly + 0.42, (lz - 0.46) / 2, Math.PI / 2, 0, 0],
+        [gCyl(0.012, 0.012, 0.18, 3), IRON, lx, ly + 0.31, lz, 0, 0, 0],
+        [gCone(0.17, 0.12, 6), IRON, lx, ly + 0.2, lz, 0, 0, 0],
+        [gCyl(0.15, 0.15, 0.05, 6), IRON, lx, ly - 0.17, lz, 0, 0, 0],
+        [gCyl(0.12, 0.12, 0.3, 6), 0xffe2a0, lx, ly, lz, 0, 0, 0],
+        ...[0, 1, 2, 3].map((i) => [gCyl(0.014, 0.014, 0.32, 3), IRON, lx + Math.sin(i * 1.5708 + 0.785) * 0.14, ly, lz + Math.cos(i * 1.5708 + 0.785) * 0.14, 0, 0, 0]),
+      ];
+    })()).clone(), { bottom: 0x5a4a50, top: 0xffffff, y0: 0.3, y1: 2.0 });
 
   function encMesh(geom, mat, x, z, y, ry) {
     const m = new T.Mesh(geom, mat);
@@ -4343,13 +4362,24 @@
       H.core = add(encMesh(encCoreGeo(), encGlowMat('core', 0xffffff), s.x, s.z, 0, Math.random() * TAU));
     } else if (kind === 'trader') {
       const ent = W.makeMob('husk', 0x7ad08a, false);
-      // 斗篷：躯体压成褐绿的旧布色，自发光换成灯笼的暖黄（只改 uniform）
-      ent.bodyMat.color.copy(lin(0x9a9078));
+      // 躯体提亮一档的暖色（游魂的皮和破袍本来就暗），自发光换成灯笼的暖黄，轮廓光也偏暖：像是被灯照着（只改 uniform）
+      ent.bodyMat.color.setRGB(1.15, 1.08, 0.92);
       if (ent.glowMat) ent.glowMat.emissive.copy(lin(0xffc86a));
-      ent.uRim.value.setRGB(0.18, 0.16, 0.1);
+      ent.uRim.value.setRGB(0.34, 0.26, 0.12);
+      ent.k = TRADER_K;
+      ent.body.scale.setScalar(TRADER_K);
       const hood = new T.Mesh(encHoodGeo(), encToon());
       hood.castShadow = true;
       ent.body.add(hood);
+      // 灯笼的光：灯罩上一团暖黄的发光贴片 + 脚下一圈暖光（都是加色的面片，不加真的灯：不多编着色器，低画质也不多一盏投影灯）
+      H.lamp = new T.Sprite(spriteMat(0xffb04a));
+      H.lamp.position.set(TRADER_LAMP[0], TRADER_LAMP[1], TRADER_LAMP[2]);
+      H.lamp.scale.setScalar(1.15);
+      ent.body.add(H.lamp);
+      H.pool = add(encMesh(gQuad(), encFlatMat('lampPool', glowTex(), 0xb8682a, true), s.x, s.z, 0.05));
+      H.pool.scale.set(4.6, 1, 4.6);
+      H.pool.renderOrder = 2;
+      H.pool.receiveShadow = false;
       W.setEnt(ent, s.x, s.z, s.face || 0);
       encNpcs.push(ent);
       H.npc = ent;
@@ -4404,6 +4434,12 @@
         H.core.position.y = e.st === 'run' ? 0.15 + 0.1 * Math.sin(t * 6) : 0;
       }
       if (H.npc && !H.npc.removed) W.animEnt(H.npc, dt, false, wtime);
+      if (H.lamp) {
+        // 灯火：两个不同频的正弦叠出轻微的跳动（只缩放，材质是共用的）
+        const f = 1 + 0.06 * Math.sin(t * 7.3) + 0.04 * Math.sin(t * 12.9 + 1.3);
+        H.lamp.scale.setScalar(1.15 * f);
+        H.pool.scale.set(4.6 * (0.98 + 0.02 * f), 1, 4.6 * (0.98 + 0.02 * f));
+      }
     }
   }
   // 预热：第一次进区时把道具的材质编好（W.precompile 调）
@@ -4413,6 +4449,7 @@
       [encRiftGeo(), encGlowMat('rift', 0xffffff)], [gQuad(), encFlatMat('ring', encRingTex(), ENC_PURPLE, false)],
       [chestBodyGeo(), encToon()], [encStoneGeo(), encToon()], [encOrbGeo(), encGlowMat('orb', 0xffffff)],
       [gQuad(), encFlatMat('rune', encRuneTex(), 0xff5040, true)], [encCoreGeo(), encGlowMat('core', 0xffffff)], [encHoodGeo(), encToon()],
+      [gQuad(), encFlatMat('lampPool', glowTex(), 0xb8682a, true)],
     ];
     for (const [gm, mt] of list) {
       const m = new T.Mesh(gm, mt);
@@ -24414,9 +24451,10 @@
   // 世界坐标 (x, z) 上一个半人高的点，此刻是否落在玩家看得见的画面里（底部 HUD 那一条不算）。
   // 按「镜头已经对准玩家」来算，不读平滑中的镜头，也不依赖渲染，所以逻辑层（敌人 AI）可以放心用。
   const camF = new T.Vector3(), camU = new T.Vector3();
-  W.inView = function (x, z) {
+  // y（可省，默认 1 m）：判这个高度上的点（异兆的残影拿脚下和头顶各判一次）
+  W.inView = function (x, z, y) {
     const P = G.player;
-    const rx = x - P.x - CAM_OFF.x, ry = 1 - CAM_OFF.y, rz = z - P.z - CAM_OFF.z - CAM_LEAD;
+    const rx = x - P.x - CAM_OFF.x, ry = (y === undefined ? 1 : y) - CAM_OFF.y, rz = z - P.z - CAM_OFF.z - CAM_LEAD;
     const depth = rx * camF.x + ry * camF.y + rz * camF.z;
     if (depth <= 0.1) return false;
     const th = Math.tan((BASE_FOV * Math.PI) / 360) * depth; // 用基准视角：逻辑判定不受镜头特效影响
@@ -24658,6 +24696,31 @@
         g.fillStyle = e.brokenT > 0 ? '#fff3c0' : '#ffd98a';
         g.fillText(e.name, p.x, y - 5);
       }
+    }
+
+    // --- 拾烬客（异兆）的名牌：和游荡者的名字同一种字，颜色用小地图上它的绿（不是敌人）；渊印「幽晦」时远处的不画。
+    //     画出来的屏幕位置记在道具上（H.tagAt，测试用），没画时清掉 ---
+    for (let i = 0; i < encProps.length; i++) {
+      const H = encProps[i], ent = H.npc;
+      if (!ent) continue;
+      H.tagAt = null;
+      if (ent.removed) continue;
+      const gp = ent.group.position;
+      if (gloomP && Math.hypot(gp.x - P.x, gp.z - P.z) > gloomP.tag) continue;
+      // 镜头朝北，站在它南边几米时头顶出画：只要脚下还在画面里，名牌就压在画面上沿（不跟着出画）
+      const f = projTo(gp.x, 0, gp.z);
+      if (!f.ok || f.x < -60 || f.x > vw + 60 || f.y < 0 || f.y > vh + 20) continue;
+      const p = projTo(gp.x, ent.rig.height * ent.k + 0.75, gp.z);
+      if (!p.ok) continue;
+      const tx = p.x, ty = Math.max(p.y, 16);
+      g.font = '600 13px ' + FONT;
+      g.lineWidth = 3;
+      g.strokeStyle = 'rgba(0,0,0,0.85)';
+      const nm = G.ENCOUNTERS.trader.name;
+      g.strokeText(nm, tx, ty);
+      g.fillStyle = '#a8ecb6';
+      g.fillText(nm, tx, ty);
+      H.tagAt = [Math.round(tx), Math.round(ty)];
     }
 
     // --- 召唤物血条：魂火青，一直显示，左端一颗菱形（和敌人的红条一眼分开）。
