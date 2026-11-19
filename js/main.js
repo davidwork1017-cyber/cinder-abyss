@@ -197,7 +197,7 @@
       if (started) return;
       started = true;
       bindInput();
-      G.enterZone(save.lastZone, save.tier);
+      G.enterZone(save.lastZone, save.tier, 'resume'); // 渊印：存档里这一次进区的印接着用（区域 / 层级对不上就是素印）
       W.update(0); // 首次运行会先停在开场卡片：先把镜头和灯光摆到玩家身上
       if (!save.seenHelp) {
         save.seenHelp = true;

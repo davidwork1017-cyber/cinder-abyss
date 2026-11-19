@@ -154,6 +154,9 @@
       // 烬铸图鉴：found 拾到过的烬铸武器 { id: true }，best 见过的最高完美度 { id: 0..100 }，
       // pity 各首领（层级 1 起）连续多少次没掉它的武器 { 首领: 次数 }
       uniq: { found: {}, best: {}, pity: {} },
+      // 渊印：sealSeq 真正进区的次数（择印面板的随机种子，关掉地图再打开还是同样三枚）；
+      // run 这一次进区 { zone, tier, seq, seal }（seal 为 null 是素印），读档时区域 / 层级对得上就接着用，倒下重生不动，换区 / 重进清掉
+      sealSeq: 0, run: null,
     };
   };
   function autoSummonDefaults() {
@@ -433,6 +436,12 @@
     }
     // 身上 / 背包里已有的烬铸武器也算拾到过（旧数据缺图鉴时补上）
     for (const it of s.bag.concat(s.equip.weapon ? [s.equip.weapon] : [])) if (it.rarity === 3) noteUnique(it, s);
+    // 渊印：旧存档没有这两项（sealSeq 0、run null）。run 的区域 / 层级要对得上存档的 lastZone / tier，印纹只认表里的 id，W 按表重算
+    s.sealSeq = toInt(raw.sealSeq, 0, 1e9, 0);
+    const rr = isObj(raw.run) ? raw.run : null;
+    if (rr && rr.zone === s.lastZone && rr.tier === s.tier) {
+      s.run = { zone: s.lastZone, tier: s.tier, seq: toInt(rr.seq, 0, 1e9, 0), seal: G.cleanSeal(rr.seal, s.tier, s.bar) };
+    }
     return s;
   }
   // 图鉴记一笔：拾到过、最高完美度
@@ -1858,7 +1867,7 @@
     }
 
     // 经验
-    const xp = G.killXp(e, save.level); // 压级衰减 / 越级封顶见 data.js 的「经验」
+    const xp = G.killXp(e, save.level) * (1 + G.runMods.xp); // 压级衰减 / 越级封顶见 data.js 的「经验」；渊印的经验加成 X
 
     if (P.S.lifeOnKill > 0) G.healPlayer(P.S.lifeOnKill);
     const charge = 0.12 + (e.elite ? 1 : 0) + (e.isBoss ? 3 : 0);
@@ -5607,14 +5616,17 @@
   G.dropLoot = function (e) {
     const save = G.save;
     const ilvl = Math.max(1, e.level);
-    const rm = 1 + (P.S.rarity || 0) / 100;
+    // 渊印：稀有度 × (1 + R)；物品 / 通货的件数或几率 × (1 + Q)（sealCount）。技能宝石、辅助、无铭宝石都不吃 Q
+    const RM = G.runMods;
+    const rm = (1 + (P.S.rarity || 0) / 100) * (1 + RM.rar);
+    const qk = 1 + RM.qty;
     const x = e.x;
     const z = e.z;
 
     if (e.isBoss) {
       G.spawnLoot('item', G.rollItem(ilvl, 2), x, z);
-      for (let i = 0; i < 2; i++) G.spawnLoot('item', G.rollItem(ilvl, Math.max(1, G.rollRarity(rm))), x, z);
-      for (let i = 0; i < 4; i++) G.spawnLoot('cur', G.rollCurrency(), x, z);
+      for (let i = 0, n = sealCount(3) - 1; i < n; i++) G.spawnLoot('item', G.rollItem(ilvl, Math.max(1, G.rollRarity(rm))), x, z);
+      for (let i = 0, n = sealCount(4); i < n; i++) G.spawnLoot('cur', G.rollCurrency(), x, z);
       // 首领第一次倒下：另外保底升华石、乱流石各一颗
       if (e.bossKind && !save.bossKills[e.bossKind]) for (const id of G.BOSS_FIRST_CUR) G.spawnLoot('cur', id, x, z);
       G.spawnLoot('skill', pickSkillGem(1), x, z);
@@ -5622,11 +5634,13 @@
       // 无铭技能宝石：每个首领第一次倒下必掉一颗（第一个区域的首领就是新角色的保底），之后再打有小几率
       if ((e.bossKind && !save.bossKills[e.bossKind]) || Math.random() < BLANK_DROP.boss) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
       uniqueDrop(e, ilvl);
+      // 烈印下击杀区域首领：印烛芯（物品和保底随异兆一期，G.fragSealDrop 由那边提供；几率见 G.sealFragChance）
+      if (RM.lie && G.fragSealDrop) G.fragSealDrop(e, ilvl, RM.W);
       return;
     }
     if (e.elite) {
-      for (let i = 0; i < 2; i++) G.spawnLoot('item', G.rollItem(ilvl, G.rollRarity(rm * 2)), x, z);
-      G.spawnLoot('cur', G.rollCurrency(), x, z);
+      for (let i = 0, n = sealCount(2); i < n; i++) G.spawnLoot('item', G.rollItem(ilvl, G.rollRarity(rm * 2)), x, z);
+      for (let i = 0, n = sealCount(1); i < n; i++) G.spawnLoot('cur', G.rollCurrency(), x, z);
       // 还没有任何辅助宝石时，第一只精英必掉一颗
       const needFirst = save.supports.length === 0 && !state.loot.some((l) => l.kind === 'support');
       if (needFirst || Math.random() < SUPPORT_DROP.elite) G.spawnLoot('support', pickSupportGem(needFirst ? 1 : 0.7), x, z);
@@ -5637,8 +5651,8 @@
     // 区域刷的普通怪（horde）掉落几率按 G.BALANCE.loot 打折：怪多了一倍，一整区合计约 ×1.15
     const L = e.horde ? G.BALANCE.loot : null;
     const zk = L ? e.hordeK || 1 : 1, kItem = L ? L.item * zk : 1, kCur = L ? L.cur * zk : 1, kGem = L ? L.gem * zk : 1;
-    if (Math.random() < 0.14 * kItem) G.spawnLoot('item', G.rollItem(ilvl, G.rollRarity(rm)), x, z);
-    if (Math.random() < 0.09 * kCur) G.spawnLoot('cur', G.rollCurrency(), x, z);
+    if (Math.random() < 0.14 * kItem * qk) G.spawnLoot('item', G.rollItem(ilvl, G.rollRarity(rm)), x, z);
+    if (Math.random() < 0.09 * kCur * qk) G.spawnLoot('cur', G.rollCurrency(), x, z);
     if (Math.random() < 0.012 * kGem) G.spawnLoot('skill', pickSkillGem(0.7), x, z);
     if (Math.random() < SUPPORT_DROP.mob * kGem) G.spawnLoot('support', pickSupportGem(0.7), x, z);
     if (Math.random() < BLANK_DROP.mob * kGem) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
@@ -6142,9 +6156,80 @@
   };
 
   // =====================================================================
+  // 渊印（区域词缀）
+  // =====================================================================
+  // 一枚印：{ g 档（0 浅印 / 1 深印 / 2 烬印）, mods: [{ id, el? }], W 生效权重 }。素印 = null。
+  // G.runMods：这次进区生效的印纹，进区时算好一次（各处热路径只读标志位，不查表）：
+  //   W 生效权重、qty / rar / xp 三项奖励（小数）、lie 是否烈印；每条印纹以 id 为键，值是 G.SEAL_MODS 里它的 p（tint 另带 el）
+  const PLAIN_MODS = Object.freeze({ W: 0, qty: 0, rar: 0, xp: 0, lie: false });
+  G.runMods = PLAIN_MODS;
+  state.run = { seal: null, mods: PLAIN_MODS };
+  // 技能栏上有没有这类技能（蚀环要光环、孤影要召唤；没有时这条印纹的权重按 0 算）
+  function barHas(bar, kind) {
+    if (!Array.isArray(bar)) return false;
+    for (const id of bar) if (id && G.SKILLS[id] && G.SKILLS[id].kind === kind) return true;
+    return false;
+  }
+  G.sealModW = (m, bar) => {
+    const d = G.SEAL_MODS[m.id];
+    return !d ? 0 : d.need && !barHas(bar || (G.save && G.save.bar), d.need) ? 0 : d.w;
+  };
+  G.sealW = (seal, bar) => (seal ? seal.mods.reduce((a, m) => a + G.sealModW(m, bar), 0) : 0);
+  // W 换成三项奖励（小数，各有上限）
+  G.sealReward = (W) => {
+    const S = G.SEAL;
+    return {
+      qty: Math.min(S.cap.qty, S.perW.qty * W) / 100,
+      rar: Math.min(S.cap.rar, S.perW.rar * W) / 100,
+      xp: Math.min(S.cap.xp, S.perW.xp * W) / 100,
+    };
+  };
+  // 存档 / 外部传进来的印：只认表里的 id（不重复，tint 至多一条且元素合法），W 按表重算（存档里写的不算数）；层级 0 没有渊印
+  G.cleanSeal = function (raw, tier, bar) {
+    if (!isObj(raw) || !Array.isArray(raw.mods) || !((tier | 0) >= 1)) return null;
+    const mods = [];
+    const seen = {};
+    for (const m of raw.mods.slice(0, 6)) {
+      if (!isObj(m) || !G.SEAL_MODS[m.id] || seen[m.id]) continue;
+      if (m.id === 'tint' && !G.SEAL_TINT[m.el]) continue;
+      seen[m.id] = true;
+      mods.push(m.id === 'tint' ? { id: m.id, el: m.el } : { id: m.id });
+    }
+    if (!mods.length) return null;
+    const seal = { g: toInt(raw.g, 0, G.SEAL.grades.length - 1, 0), mods, W: 0 };
+    seal.W = G.sealW(seal, bar);
+    return seal;
+  };
+  // 印纹的名字 / 单字（焚染 / 霜染 / 雷染按元素）
+  G.sealModName = (m) => (m.id === 'tint' ? G.SEAL_TINT[m.el].name : G.SEAL_MODS[m.id].name);
+  G.sealModGlyph = (m) => (m.id === 'tint' ? G.SEAL_TINT[m.el].glyph : G.SEAL_MODS[m.id].glyph);
+  // 印名：档名 + 前两条的单字，比如「烬印·戾躁」
+  G.sealName = (seal) => (seal ? G.SEAL.grades[seal.g] + '·' + seal.mods.slice(0, 2).map(G.sealModGlyph).join('') : '素印');
+  function sealMods(seal) {
+    if (!seal) return PLAIN_MODS;
+    const r = G.sealReward(seal.W);
+    const o = { W: seal.W, qty: r.qty, rar: r.rar, xp: r.xp, lie: seal.W >= G.SEAL.lieW };
+    for (const m of seal.mods) o[m.id] = m.id === 'tint' ? Object.assign({ el: m.el }, G.SEAL_MODS.tint.p) : G.SEAL_MODS[m.id].p;
+    return o;
+  }
+  // 当前这次进区的生效权重（渊契的烈印来源、首领渊契 ×1.5 读它）
+  G.runSealW = () => G.runMods.W;
+  // 渊契（relics 分支）合入之后：烈印来源随渊印一起打开
+  if (G.RELIC_DROP && G.RELIC_DROP.src) G.RELIC_DROP.src.seal = true;
+  // 固定件数按渊印数量 Q 变成期望 n × (1 + Q)：多出来的整数部分照给，零头按几率补一件
+  function sealCount(n) {
+    const v = n * (1 + G.runMods.qty);
+    const k = Math.floor(v);
+    return k + (v > k && Math.random() < v - k ? 1 : 0); // 素印时不多掷随机数
+  }
+  G.sealCount = sealCount;
+
+  // =====================================================================
   // 区域
   // =====================================================================
-  G.enterZone = function (idx, tier) {
+  // seal（可选）：这次进区的渊印（择印面板选的那一枚，见 G.rollSeals）；'resume' = 读档时接着存档里的那一次
+  // （区域 / 层级对得上才接着用，否则当素印重进）。不带 = 素印：没有任何印纹效果（测试和层级 0 都走这里）
+  G.enterZone = function (idx, tier, seal) {
     P.graceT = 0;
     resetAction(); // 顿帧 / 慢动作 / 处决 / 缓冲的输入都不带进下一个区域
     const W = G.world;
@@ -6152,6 +6237,19 @@
     idx = toInt(idx, 0, G.ZONES.length - 1, 0);
     tier = toInt(tier, 0, 999, 0);
     const def = G.ZONES[idx];
+    // 渊印：先定下这一次的印纹（刷怪时就要读）。真正新进一次区 sealSeq +1（择印面板的种子随之换掉）
+    let run = null;
+    if (seal === 'resume') {
+      const r = save.run;
+      run = r && r.zone === idx && r.tier === tier ? r : null;
+    }
+    if (!run) {
+      run = { zone: idx, tier, seq: save.sealSeq || 0, seal: seal && seal !== 'resume' ? G.cleanSeal(seal, tier, save.bar) : null };
+      save.sealSeq = (save.sealSeq || 0) + 1;
+    }
+    save.run = run;
+    G.runMods = sealMods(run.seal);
+    state.run = { seal: run.seal, mods: G.runMods };
 
     // 清掉上一个区域的所有运行时实体
     G.clearEnemies();
