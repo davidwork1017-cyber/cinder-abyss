@@ -5641,7 +5641,7 @@ async function main() {
     assert(r2[0] === free && r2[2] === r[0], '技能栏内拖动应互换：' + r2);
     await ev((bar) => { bar.forEach((id, i) => G.bindSkill(i, id)); G.ui.refresh(); }, bar0);
     await closePanel();
-    await until((want) => T.hudBar() === want, bar0.map((x) => x || '').join()).catch(() => {
+    await until((want) => T.barHud() === want, bar0.map((x) => x || '').join()).catch(() => {
       throw new Error('HUD 技能栏没有同步');
     });
   });
