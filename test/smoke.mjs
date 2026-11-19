@@ -11735,15 +11735,27 @@ async function main() {
     return '丰饶 物品 ×' + r.bounty[0] + ' 通货 ×' + r.bounty[1];
   });
 
-  await step('异兆「试锋」：跨进旁支开始，3 波 5 / 6 / 6（第 3 波 2 只精英），小室里的怪拴在房间里；打完按剩余时间评级；离开小室超过 4 秒弃权，没清掉的怪散掉', async () => {
+  await step('异兆「试锋」：跨过门口的符文开始（站在门洞里不算），3 波 5 / 6 / 6（第 3 波 2 只精英），小室里的怪拴在房间里；打完按剩余时间评级；离开小室超过 4 秒弃权，没清掉的怪散掉', async () => {
     await encKit();
     const r = await ev(() => {
       const S = G.state, P = G.player, W = G.world, out = {};
       let enc = EK.put('trial', 2, 1);
       const s = enc.site;
-      T.tp(s.door.x, s.door.z);
+      // 站在门外（门点本身可能已经算进小室）：沿「房间芯 → 门」再往外 1.5–4 m，找一个可走、不在小室里的点
+      const ux = s.door.x - s.x, uz = s.door.z - s.z, ul = Math.hypot(ux, uz) || 1;
+      let out0 = null;
+      for (let d = 1.5; d <= 4 && !out0; d += 0.5) {
+        const x = s.door.x + (ux / ul) * d, z = s.door.z + (uz / ul) * d;
+        if (W.walkable(x, z, 0.4) && W.roomAt(x, z) !== s.room) out0 = { x, z };
+      }
+      out.outside = !!out0;
+      T.tp(out0 ? out0.x : s.door.x, out0 ? out0.z : s.door.z);
       EK.step(0.1);
       out.idle = enc.st;
+      // 站在门洞里（门点上，可能已经算进小室）：还没跨过符文，不开始
+      T.tp(s.door.x, s.door.z);
+      EK.step(0.1);
+      out.doorway = enc.st;
       T.tp(s.x, s.z);
       EK.step(1.0);
       out.run = enc.st;
@@ -11777,7 +11789,7 @@ async function main() {
       EK.done();
       return out;
     });
-    assert(r.idle === 'idle' && r.run === 'run' && r.w1 === 5, '试锋应跨进小室才开始、第一波 5 只：' + JSON.stringify(r));
+    assert(r.outside && r.idle === 'idle' && r.doorway === 'idle' && r.run === 'run' && r.w1 === 5, '试锋应跨过门口的符文才开始（门洞里不算）、第一波 5 只：' + JSON.stringify(r));
     assert(r.leash, '试锋的怪应拴在小室里：' + JSON.stringify(r));
     assert(r.waves.join(',') === '5,11,17,17' && r.elites === 2 && r.st === 'done' && r.how === 'top' && r.items >= 3, '试锋的波次 / 评级不对：' + JSON.stringify(r));
     assert(r.quit0 === 'run' && r.quit === 'quit' && r.gone, '离开小室超过 4 秒应弃权、怪散掉：' + JSON.stringify(r));
