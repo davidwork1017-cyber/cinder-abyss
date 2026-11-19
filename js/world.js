@@ -26,6 +26,7 @@
   //   fogNear / fogFar 雾的起止（相对镜头的距离）、shadow 阴影贴图覆盖的半宽（镜头近了可以收小，阴影更清楚）
   // 旧镜头：pitch ≈ 53.5、dist ≈ 28.6、fov 38、lead 3、雾 27～64（主角在 900 高的画面里约 54 像素）
   const CAMERA = { pitch: 50, dist: 21, fov: 34, lookY: 1, lead: 2.2, fogNear: 22, fogFar: 52, shadow: 22 };
+  const LAMP_DIST = 16; // 跟随玩家的暖光半径（渊印「幽晦」收到 12）
   const CAM_OFF = new T.Vector3();
   let CAM_LEAD = CAMERA.lead;
   function camDerive() {
@@ -2094,7 +2095,7 @@
     sunR.crossVectors(UP, _v).normalize();
     sunU.crossVectors(_v, sunR).normalize();
 
-    lamp = new T.PointLight(0xffb878, 1.0, 16, 2); // 跟随玩家的暖光
+    lamp = new T.PointLight(0xffb878, 1.0, LAMP_DIST, 2); // 跟随玩家的暖光
     scene.add(lamp);
     fxLight = new T.PointLight(0xffffff, 0, 20, 2); // 大型特效的瞬时闪光（预先建好，避免运行时重编译着色器）
     scene.add(fxLight);
@@ -2128,10 +2129,12 @@
     const warm = W.makeTelegraph({ shape: 'circle', x: 0, z: 0, r: 1 }, false);
     initAllyFx();
     initGhosts();
+    initSealFx();
     warmEntities(); // 里面会真的渲染一帧，上面这些特效的着色器也一并编译
     W.removeTelegraph(warm);
     meteorOff(meteors[0]);
     clearRibbons();
+    sealFxIdle();
   };
 
   // 按 CAMERA 摆镜头的朝向（只在初始化和 W.setCamera 时调用）
@@ -2143,8 +2146,8 @@
     camera.fov = fovNow = BASE_FOV;
     camera.updateProjectionMatrix();
     if (scene && scene.fog) {
-      scene.fog.near = CAMERA.fogNear;
-      scene.fog.far = CAMERA.fogFar;
+      scene.fog.near = gloomP ? gloomP.near : CAMERA.fogNear; // 渊印「幽晦」期间改镜头也保持收近的雾
+      scene.fog.far = gloomP ? gloomP.far : CAMERA.fogFar;
     }
   }
   // 调试 / 调镜头：G.world.setCamera({ pitch, dist, fov, lead, lookY, fogNear, fogFar, shadow })，返回当前配置
@@ -10507,6 +10510,7 @@
   }
   function unflash(ent) {
     if (ent.iced) return applyIce(ent); // 冻着的：闪白过后回到冰色
+    if (ent.raged) return applyRage(ent); // 渊印「濒狂」：回到泛红
     const ms = ent.mats;
     for (let i = 0; i < ms.length; i++) {
       ms[i].emissive.copy(ms[i].userData.e0);
@@ -22822,13 +22826,176 @@
   }
   W.holeCount = () => chHoles.filter((h) => h.on).length;
 
-  // 黑旋风（第三轮改）：一团团又快又小的漩涡，不再各占一个网格。每团是三层面朝镜头的圆片（品红的边 → 近黑的核 → 一粒亮芯），
-  // 外面几条卷进去的尖片绕着转（高画质 3 条、低画质 2 条），都在 chaosPfDraw 里写进实例缓冲；身后甩出的小尖片走卡通碎块池。
-  // i：同一次施放里的第几团（多重投射），转向和相位错开一点
-  W.makeVortex = function (x, z, R, i) {
-    let v = chVorts.find((o) => !o.on);
+  // 黑旋风（第四轮改：vortex-fx）：每团是一根会走的小黑龙卷，全部画进一个实例缓冲（chFunnel，一次 draw call，不随团数涨）：
+  //   一根下窄上宽的漏斗（开口圆台 14 段 × 7 层），着色器里五层品红的风弧绕着柱身转（弧头一段亮芯）：近黑的身子低透明度（里面的怪看得清），
+  //   朝里的那面更暗、叠出一根暗的芯柱，轮廓边一圈压暗；顶上的口子按转角参差地散开。
+  //   脚下一片贴地的旋涡（对数螺旋的尘带往里卷），和漏斗同一个网格（aPart = 1）。
+  //   漏斗顺着行进方向前倾、柱身慢慢摆；缺省的大小、转速跟着伤害半径走：越大的越高、转得越慢（巨涡粗高慢，涡群细矮快）。
+  //   吸附时收成一根裹住敌人的柱子（远侧壁被敌人挡住，近侧壁半透明），风弧转得更快，尘粒从更远处往里吸。
+  //   往里吸、往上卷的尘粒和飞得快时身后的一缕尾迹画进 chShard（和黑洞的光点共用），不占碎块池。
+  //
+  // ---- 龙卷的接口（黑旋风的刻式、别的技能都可以复用这套样子；只管画，不管伤害和移动）----
+  //   W.makeVortex(x, z, R, i, o) → 句柄 v（场上最多 VX_CAP 团同时画）
+  //     R：伤害半径，缺省的大小 / 转速 / 尘粒按它算；i：同一次施放里的第几团（只错开摆动的相位）；
+  //     o：可选，覆盖下面任意几项（单位：米、弧度 / 秒）
+  //       H 高（缺省 0.8 + 1.65R，1.6–2.8）　rT 口子半径（0.15 + 0.5R）　taper 脚下半径 / 口子半径（0.18；越大越像柱子）
+  //       spin 转速（9 × (0.9 / R)^0.8）　dir 转向 ±1（1）　lean 最大前倾，每米高顶部前移多少米（0.11；0 = 不倾）
+  //       motes 尘粒数（高画质，低画质减半；6）　pull 尘粒从多远处吸进来（1.35R + 0.3）　tint 风弧的浓淡 0..1（1）
+  //       ground 脚下旋涡的浓淡 0..1（1）　trail 飞得快时拖尾迹（true）
+  //   W.updateVortex(v, x, z, dt, lat)：每帧挪到 (x, z)（前倾、尾迹按这里算的速度）；lat = 正吸附在敌人身上（收紧成柱、转快、往里吸几片尖片）
+  //   W.vortexTighten(v, k)：直接给收紧的目标 0..1，不再看 lat（比如绕着玩家转的护盾一直收紧）；k 传 null 交回给 lat
+  //   W.vortexSet(v, o)：随时改 o 里的那些参数（比如两团合并后长大：W.vortexSet(v, { H: 2.6, rT: 0.9 })）
+  //   W.vortexBounce(x, z, rx, rz)：撞墙那一下贴墙鼓起的尘烟 + 顺着反弹方向 (rx, rz) 甩的尖片
+  //   W.vortexPuff(x, z, s)：任意位置一小团尘烟（合并、绕回、换向时用），s 大小倍率；低画质不画
+  //   W.removeVortex(v)：收起（散开的尘烟）；W.vortexCount()：场上画着的团数
+  //
+  // 每个实例的参数：实例颜色 = (转角的圈数小数部分, 收紧程度, 随机种子 × 转向)；aV = (taper, tint, 近侧壁往镜头挪的程度, ground)
+  const VX_CAP = 24;
+  const VORTEX_VERT = [
+    'attribute float aPart; attribute vec4 aV; uniform float uTime;',
+    'varying vec2 vP; varying float vH; varying float vFace; varying float vPart; varying vec3 vI; varying vec4 vV;',
+    'void main(){',
+    '  vec3 p = position; vPart = aPart; vI = instanceColor; vV = aV; vP = p.xz; vH = p.y; vFace = 1.0;',
+    '  float sd = abs(instanceColor.z), tg = instanceColor.y, tp = aV.x;',
+    '  if (aPart < 0.5) {',
+    // 几何体按 taper 0.18 建，这里换成这一团的 taper；吸附时收成一根裹住敌人的柱子（下半截撑开、口子收拢）
+    '    float rb = 0.18 + 0.82 * pow(p.y, 1.3), r0 = tp + (1.0 - tp) * pow(p.y, 1.3), r1 = 0.45 + 0.5 * p.y * p.y;',
+    '    p.xz *= mix(r0, r1, tg) / rb;',
+    '    float w = 0.12 * pow(p.y, 1.5);', // 柱身慢慢摆（两路正弦，脚下不动）
+    '    p.x += w * sin(uTime * 3.3 + sd * 40.0); p.z += w * cos(uTime * 2.6 + sd * 23.0);',
+    '  }',
+    '  vec4 wp = instanceMatrix * vec4(p, 1.0);',
+    '  if (aPart > 0.5) wp.y = instanceMatrix[3].y + 0.06;', // 地面旋涡贴地，不随漏斗的高矮
+    '  vec4 mv = modelViewMatrix * wp;',
+    '  if (aPart < 0.5) {',
+    '    float rT = length(instanceMatrix[0].xyz), hT = length(instanceMatrix[1].xyz);',
+    '    float sl = rT * mix((1.0 - tp) * 1.3 * pow(max(p.y, 0.02), 0.3), p.y, tg) / hT;', // 柱身的斜率：半径对高度求导
+    '    float an = atan(position.x, position.z);',
+    '    vec3 n = normalize(mat3(modelViewMatrix) * normalize(vec3(sin(an), -sl, cos(an))));',
+    '    vFace = dot(n, normalize(-mv.xyz));', // > 0 朝外的一面，接近 0 是轮廓
+    // 朝外的近侧壁沿视线往镜头挪 1.6 米（屏幕上的位置不变，只是深度更近）：吸附在怪堆后排时不被前排的大块头整个挡住；
+    // 远侧壁不挪，吸附时照样被那只怪挡住，怪不被压暗。刚出手的 0.35 秒不挪（aV.z 从 0 涨到 1）：巨涡贴着玩家生出来时不压在玩家身上
+    '    mv.xyz += normalize(-mv.xyz) * 1.6 * aV.z * clamp(vFace * 4.0, 0.0, 1.0);',
+    '  }',
+    '  gl_Position = projectionMatrix * mv;',
+    '}',
+  ].join('\n');
+  const VORTEX_FRAG = [
+    'uniform vec3 uCore; uniform vec3 uRim; uniform vec3 uHi; uniform vec3 uDark;',
+    'varying vec2 vP; varying float vH; varying float vFace; varying float vPart; varying vec3 vI; varying vec4 vV;',
+    'void main(){',
+    '  float sp = vI.x * 6.2831853, tg = vI.y, dr = vI.z < 0.0 ? -1.0 : 1.0, tint = vV.y;',
+    '  float an = atan(vP.x, vP.y) * dr;', // 顺着转向量的角度
+    '  vec3 col = uCore; float a = 0.3;',
+    '  if (vPart > 0.5) {',
+    // 地面旋涡：三条对数螺旋的尘带，随转角往里卷；品红的前沿、暗紫的尘带，三档透明度（中间实、外圈淡）
+    '    float l = length(vP) / 1.6;',
+    '    if (l > 1.0 || vV.w < 0.01) discard;',
+    '    float s = fract(3.0 * (an - sp) / 6.2831853 - 0.9 * log(max(l, 0.04)));',
+    '    float b = l < 0.42 ? 0.5 : (l < 0.72 ? 0.32 : 0.16);',
+    '    if (l < 0.13) { col = uCore; a = 0.75; }',
+    '    else if (s < 0.08) { col = uRim; a = min(1.0, b * (1.7 + tg)); }',
+    '    else if (s < 0.36) { col = uDark; a = b; }',
+    '    else discard;',
+    '    gl_FragColor = vec4(col, a * vV.w); return;',
+    '  }',
+    '  float h = vH;',
+    '  float rag = 0.9 + 0.05 * sin(3.0 * an - sp);', // 顶上的口子参差地散开（三瓣，跟着转）
+    '  if (h > rag) discard;',
+    // 五层绕着柱身的风弧：每层一道斜着的弧（占一圈的 55%，两头收尖），层与层的相位错开，越往上转得越快一点；
+    // 弧的前六成（转向的前沿那头）中间一道亮芯，其余品红：亮芯要有一定的宽度，游戏镜头下才落在特效高光段（85% 以上）。
+    // 远侧壁上同样的弧透过来，前后接成一圈圈裹着柱身的风。
+    // 游戏镜头下漏斗只有七八十像素高，一层十几像素，弧要粗才不糊成噪点
+    '  float N = 5.0, row = floor(h * N), fr = fract(h * N);',
+    '  float ph = fract(sin(row * 12.9898 + 4.1) * 43758.5453) * 6.2831853 + sp * (0.85 + 0.12 * row) * (1.0 + 0.6 * tg);',
+    '  float u = fract((an - ph) / 6.2831853);',
+    '  float arc = 0.0, head = 0.0;',
+    '  if (u < 0.55 && tint > 0.01) {',
+    '    float k = u / 0.55, c = 0.62 - 0.3 * k, th = 0.2 * (1.0 - pow(abs(2.0 * k - 1.0), 2.0));',
+    '    if (abs(fr - c) < th) { arc = 1.0; head = step(0.38, k) * step(abs(fr - c), th * 0.5); }',
+    '  }',
+    '  if (vFace >= 0.0) {',
+    '    if (arc > 0.5 && head > 0.5 && h > 0.15) { col = uHi; a = 0.95 * tint; }',
+    '    else if (arc > 0.5) { col = uRim; a = 0.85 * tint; }',
+    '    else if (vFace < 0.3) { col = uCore; a = 0.62; }', // 轮廓边压暗
+    '    else { col = uCore; a = 0.22 + 0.16 * (1.0 - h) - 0.1 * tg; }', // 吸附时罩在怪身上的近侧壁更透
+    '  } else {',
+    // 朝里的那面（远侧壁，从近侧壁透过去、从口子里看进去）：近黑、下半截更实，叠出一根暗的芯柱；往上越来越淡，从上往下看口子里不是一块黑盘。
+    // 吸附时远侧壁被怪挡住，怪本身不被压暗
+    '    if (arc > 0.5) { col = uRim; a = 0.5 * tint; } else { col = uCore; a = 0.66 - 0.36 * h; }',
+    '  }',
+    '  if (h > rag - 0.1) a *= 0.55;', // 口子边上淡一档
+    '  if (h < 0.05) a *= 0.6;',
+    '  gl_FragColor = vec4(col, a);',
+    '}',
+  ].join('\n');
+  // 漏斗的几何体：地面方片（±1.6 倍口子半径，aPart = 1）+ 开口圆台（半径 0.18 + 0.82 h^1.3，高 0..1：脚下细，往上张开）+ 每团的 aV。
+  // 镜头朝向固定（只平移）：三角形按离镜头的远近排好（远的先画），朝里的远侧壁先画、朝外的近侧壁后画，半透明的两层叠得对
+  function chFunnelGeo() {
+    return geo('chFunnel', () => {
+      const S = 14, L = 7, G = 1.6, pos = [-G, 0, -G, -G, 0, G, G, 0, G, G, 0, -G], part = [1, 1, 1, 1], tris = [];
+      for (let j = 0; j <= L; j++) {
+        const h = j / L, r = 0.18 + 0.82 * Math.pow(h, 1.3);
+        for (let i = 0; i < S; i++) {
+          const a = (i / S) * TAU;
+          pos.push(Math.sin(a) * r, h, Math.cos(a) * r);
+          part.push(0);
+        }
+      }
+      for (let j = 0; j < L; j++) {
+        for (let i = 0; i < S; i++) {
+          const a = 4 + j * S + i, b = 4 + j * S + ((i + 1) % S), c = a + S, d = b + S;
+          tris.push([a, b, d], [a, d, c]);
+        }
+      }
+      const cl = CAM_OFF.length() || 1, cx = CAM_OFF.x / cl, cy = CAM_OFF.y / cl, cz = CAM_OFF.z / cl;
+      const key = (t) => t.reduce((s, k) => s + pos[k * 3] * cx + pos[k * 3 + 1] * 2 * cy + pos[k * 3 + 2] * cz, 0); // 按口子半径 1、高 2 估
+      tris.sort((p, q) => key(p) - key(q));
+      const idx = [0, 1, 2, 0, 2, 3];
+      for (const t of tris) idx.push(t[0], t[1], t[2]);
+      const g = new T.BufferGeometry();
+      g.setAttribute('position', new T.Float32BufferAttribute(pos, 3));
+      g.setAttribute('aPart', new T.Float32BufferAttribute(part, 1));
+      const av = new T.InstancedBufferAttribute(new Float32Array(VX_CAP * 4), 4);
+      av.setUsage(T.DynamicDrawUsage);
+      g.setAttribute('aV', av);
+      g.setIndex(idx);
+      return g;
+    });
+  }
+  // 缺省参数（按伤害半径 R）。大小：原式 0.9 → 高 2.3 米、口子半径 0.6 米；巨涡 2.0 → 2.8 / 1.15；涡群 0.7 → 1.95 / 0.5。
+  // 瘦高（游戏镜头俯角 50°，高度在屏幕上只剩六成多，要比口子宽高出一截才像龙卷）；越大的转得越慢
+  function vxDefaults(v, R) {
+    v.H = Math.min(2.8, Math.max(1.6, 0.8 + 1.65 * R));
+    v.rT = 0.15 + 0.5 * R;
+    v.taper = 0.18;
+    v.w = 9 * Math.pow(0.9 / R, 0.8);
+    v.dir = 1;
+    v.leanMax = 0.11;
+    v.nm = 6;
+    v.pullR = R * 1.35 + 0.3;
+    v.tint = 1;
+    v.ground = 1;
+    v.trail = true;
+  }
+  W.vortexSet = function (v, o) {
+    if (!v || !o) return;
+    if (o.H !== undefined) v.H = o.H;
+    if (o.rT !== undefined) v.rT = o.rT;
+    if (o.taper !== undefined) v.taper = Math.min(0.95, Math.max(0.02, o.taper));
+    if (o.spin !== undefined) v.w = o.spin;
+    if (o.dir !== undefined) v.dir = o.dir < 0 ? -1 : 1;
+    if (o.lean !== undefined) v.leanMax = o.lean;
+    if (o.motes !== undefined) v.nm = Math.max(0, Math.round(o.motes));
+    if (o.pull !== undefined) v.pullR = o.pull;
+    if (o.tint !== undefined) v.tint = Math.min(1, Math.max(0, o.tint));
+    if (o.ground !== undefined) v.ground = Math.min(1, Math.max(0, o.ground));
+    if (o.trail !== undefined) v.trail = !!o.trail;
+  };
+  W.makeVortex = function (x, z, R, i, o) {
+    let v = chVorts.find((q) => !q.on);
     if (!v) {
-      v = { on: false };
+      v = { on: false, hx: [0, 0, 0], hz: [0, 0, 0] };
       chVorts.push(v);
     }
     const k = i || 0;
@@ -22836,46 +23003,77 @@
     v.x = x;
     v.z = z;
     v.R = R;
-    v.acc = 0;
-    v.dir = k % 2 ? -1 : 1;
-    v.spin = k * 1.3;
-    v.ph = k * 0.37;
+    vxDefaults(v, R);
+    W.vortexSet(v, o);
+    // 同一次施放的几团同向、同相位地转：刚出手和一起吸在同一只怪上时重叠在一起，叠成一根更粗的龙卷，不交叉成网格。
+    // 只有摆动的相位（种子）各不相同
+    v.spin = 0;
+    v.seed = 0.1 + ((k * 0.618 + Math.random()) % 1) * 0.9;
     v.lat = false;
-    v.pop = 0; // 吸附那一下的放大（三档跳回）
+    v.tg = 0; // 收紧程度（趋向 tgT，没给 tgT 时趋向 lat）
+    v.tgT = null;
+    v.vx = v.vz = 0; // 平滑过的速度：前倾、尾迹用
+    v.t0 = wtime;
+    v.hAcc = 0;
+    for (let j = 0; j < 3; j++) {
+      v.hx[j] = x;
+      v.hz[j] = z;
+    }
     return v;
   };
-  // lat：正吸附在敌人身上（漩涡大一圈、转得更快，刚吸上时往里吸几片尖片）
+  W.vortexTighten = function (v, k) {
+    if (v) v.tgT = k === null || k === undefined ? null : Math.min(1, Math.max(0, k));
+  };
   W.updateVortex = function (v, x, z, dt, lat) {
     if (!v || !v.on) return;
     const lo = qualId === 'low';
     if (lat && !v.lat) {
-      v.pop = 0.24;
       for (let i = 0, n = lo ? 2 : 4; i < n; i++) {
         const a = (i / n) * TAU + rand(-0.3, 0.3), d = 1.5, w = rand(5, 7);
         tChunk(0, x + Math.sin(a) * d, 0.7, z + Math.cos(a) * d, -Math.sin(a) * w, 0, -Math.cos(a) * w, 0.2, 0.16, CH_HI, CH_RIM, 0);
       }
     }
     v.lat = !!lat;
-    if (v.pop > 0) v.pop -= dt;
+    if (dt > 1e-4) {
+      // 速度：每帧的位移（吸附那一下会跳到敌人身上，单帧封顶 20 米 / 秒）再平滑
+      let ux = (x - v.x) / dt, uz = (z - v.z) / dt;
+      const ul = Math.hypot(ux, uz);
+      if (ul > 20) {
+        ux *= 20 / ul;
+        uz *= 20 / ul;
+      }
+      const kk = 1 - Math.exp(-dt * 10);
+      v.vx += (ux - v.vx) * kk;
+      v.vz += (uz - v.vz) * kk;
+    }
     v.x = x;
     v.z = z;
-    v.spin += dt * (lat ? 16 : 10) * v.dir;
-    // 身后甩出的小尖片：高画质每秒 12 片，低画质 5 片
-    v.acc += dt * (lo ? 5 : 12);
-    while (v.acc > 1) {
-      v.acc -= 1;
-      const a = rand(0, TAU), w = rand(2, 3.5);
-      tChunk(0, x + Math.sin(a) * v.R * 0.5, rand(0.4, 1.0), z + Math.cos(a) * v.R * 0.5, Math.cos(a) * w * v.dir, rand(0.3, 1.2), -Math.sin(a) * w * v.dir, rand(0.16, 0.24), rand(0.11, 0.16), CH_HI, CH_RIM, 3);
+    const tgt = v.tgT !== null ? v.tgT : lat ? 1 : 0;
+    v.tg += (tgt - v.tg) * (1 - Math.exp(-dt * 12));
+    v.spin += dt * v.w * (1 + 0.9 * v.tg);
+    // 尾迹的历史位置：每 0.035 秒记一个
+    v.hAcc += dt;
+    if (v.hAcc >= 0.035) {
+      v.hAcc = 0;
+      v.hx[2] = v.hx[1]; v.hz[2] = v.hz[1];
+      v.hx[1] = v.hx[0]; v.hz[1] = v.hz[0];
+      v.hx[0] = x; v.hz[0] = z;
     }
   };
-  // 撞墙反弹：沿反弹方向甩两片尖片，高画质再一小团暗紫的烟
+  // 低画质不画尘烟（和渊缚一样省 draw call：场上没有别的烟团时，烟团的实例网格会多一次 draw call），只留尖片
+  W.vortexPuff = function (x, z, s) {
+    if (qualId === 'low') return;
+    const k = s || 1;
+    tPuffs(x, 0.4 * k, z, 3, 0.5 * k, 0.7, 0.3, 0.26 * k, CH_DARK, CH_CORE);
+  };
+  // 撞墙反弹：贴着墙鼓起一小团尘烟（暗紫 → 近黑，低画质没有），再顺着反弹方向甩几片尖片
   W.vortexBounce = function (x, z, rx, rz) {
     const lo = qualId === 'low';
+    W.vortexPuff(x - rx * 0.25, z - rz * 0.25, 1);
     for (let i = 0, n = lo ? 1 : 3; i < n; i++) {
       const a = Math.atan2(rx, rz) + rand(-0.8, 0.8), w = rand(4, 6);
-      tChunk(0, x, 0.7, z, Math.sin(a) * w, rand(0.5, 1.5), Math.cos(a) * w, 0.22, 0.16, CH_HI, CH_RIM, 3);
+      tChunk(0, x, 0.6, z, Math.sin(a) * w, rand(0.5, 1.5), Math.cos(a) * w, 0.22, 0.16, CH_HI, CH_RIM, 3);
     }
-    if (!lo) tPuffs(x, 0.6, z, 1, 0.8, 0.5, 0.3, 0.22, CH_DARK, CH_CORE);
   };
   W.removeVortex = function (v) {
     if (!v || !v.on) return;
@@ -22883,26 +23081,70 @@
     tPuffs(v.x, 0.6, v.z, qualId === 'low' ? 1 : 2, 1.2, 0.6, 0.3, 0.24, CH_DARK, CH_CORE);
   };
   W.vortexCount = () => chVorts.filter((v) => v.on).length;
+  // 尘粒：先贴着地面从外圈螺旋着往里吸（前 45%），再顺着漏斗壁往上卷到口子；吸附时从更远处吸、走得更快
+  function vortexMote(v, u, a0, r0, H, r, lx, lz, out) {
+    let rr, y;
+    if (u < 0.45) {
+      const q = u / 0.45;
+      rr = r0 + (r * (v.taper + 0.02) - r0) * Math.pow(q, 0.8);
+      y = 0.06 + 0.06 * q;
+    } else {
+      const hh = 0.06 + 0.86 * ((u - 0.45) / 0.55);
+      const rw = v.taper + (1 - v.taper) * Math.pow(hh, 1.3);
+      rr = r * (rw + (0.45 + 0.5 * hh * hh - rw) * v.tg) * 1.1;
+      y = H * hh;
+    }
+    const th = a0 + v.dir * (v.spin + u * 7);
+    out.x = v.x + Math.sin(th) * rr + lx * y;
+    out.z = v.z + Math.cos(th) * rr + lz * y;
+    out.y = y;
+    return out;
+  }
   function vortexDraw(v) {
-    const lo = qualId === 'low', y = 0.75;
-    const st = v.pop > 0.16 ? 1.45 : v.pop > 0.08 ? 1.3 : 1;
-    const s = v.R * 0.6 * (v.lat ? 1.18 : 1) * st;
-    const ox = camB.x, oy = camB.y, oz = camB.z;
-    mBill(v.x, y, v.z, s);
-    pfPut('chDisc', chLin.rim[0], chLin.rim[1], chLin.rim[2]);
-    mBill(v.x + ox * 0.03, y + oy * 0.03, v.z + oz * 0.03, s * 0.76);
-    pfPut('chDisc', chLin.core[0], chLin.core[1], chLin.core[2]);
-    mBill(v.x + ox * 0.06, y + oy * 0.06, v.z + oz * 0.06, s * 0.15);
-    pfPut('chDisc', chLin.hi[0], chLin.hi[1], chLin.hi[2]);
-    // 卷进去的尖片：水平面上绕着核转，从外圈往里收（外半程品红、内半程亮芯）
-    for (let k = 0, n = lo ? 2 : 3; k < n; k++) {
-      const u = (((wtime * 1.8 + v.ph + k / n) % 1) + 1) % 1;
-      const r = s * (2.2 - 1.3 * u), th = v.spin + (k / n) * TAU + u * 2.4 * v.dir;
-      const x = v.x + Math.sin(th) * r, z = v.z + Math.cos(th) * r;
-      const tx = Math.cos(th) * v.dir - Math.sin(th) * 0.6, tz = -Math.sin(th) * v.dir - Math.cos(th) * 0.6;
-      mStretch(x, y - 0.1, z, tx, 0, tz, s * 0.32, s * 1.3);
-      const c = u < 0.5 ? chLin.rim : chLin.hi;
+    const lo = qualId === 'low', age = wtime - v.t0, P = PF.chFunnel;
+    if (P.n >= P.cap) return;
+    const grow = age < 0.05 ? 0.55 : age < 0.1 ? 0.8 : 1; // 刚放出来时三档长大
+    const sp = Math.hypot(v.vx, v.vz);
+    const lean = Math.min(v.leanMax, sp * 0.008) * (1 - v.tg); // 顺着行进方向前倾（顶部每米高前移的米数），吸附时立直
+    const lx = sp > 0.1 ? (v.vx / sp) * lean : 0, lz = sp > 0.1 ? (v.vz / sp) * lean : 0;
+    const H = v.H * grow * (1 + 0.08 * v.tg), r = v.rT * grow * (1 + 0.1 * v.tg);
+    const av = P.mesh.geometry.attributes.aV, j = P.n * 4;
+    av.array[j] = v.taper;
+    av.array[j + 1] = v.tint;
+    av.array[j + 2] = Math.min(1, age / 0.35);
+    av.array[j + 3] = v.ground;
+    av.needsUpdate = true;
+    _pm.set(r, lx * H, 0, v.x, 0, H, 0, 0, 0, lz * H, r, v.z, 0, 0, 0, 1);
+    pfPut('chFunnel', (v.spin / TAU) % 1, v.tg, v.seed * v.dir);
+    // 尘粒：缺省高画质 6 粒、低画质 3 粒；三粒里一粒是品红 / 亮芯的亮屑，其余是暗紫的尘
+    const n = lo ? v.nm >> 1 : v.nm, rate = 1.1 * (1 + 0.8 * v.tg);
+    const r0 = v.pullR + (Math.max(2.2, v.R * 1.5) - v.pullR) * v.tg;
+    for (let i = 0; i < n; i++) {
+      const u = (((age * rate + i / n + ((i * 0.618) % 1) * 0.2) % 1) + 1) % 1;
+      const a0 = v.seed * 20 + i * 2.39996;
+      vortexMote(v, u, a0, r0, H, r, lx, lz, _ms);
+      const x = _ms.x, y = _ms.y, z = _ms.z;
+      vortexMote(v, Math.min(0.999, u + 0.03), a0, r0, H, r, lx, lz, _ms);
+      const s = (0.1 + 0.05 * v.R) * (u < 0.06 || u > 0.94 ? 0.5 : 1);
+      mStretch(x, y, z, _ms.x - x, _ms.y - y, _ms.z - z, s * 0.55, s * 2.2);
+      const c = i % 3 ? chLin.dark : u > 0.5 ? chLin.hi : chLin.rim;
       pfPut('chShard', c[0], c[1], c[2]);
+    }
+    // 尾迹：飞得快（> 5 米 / 秒）时贴地拖一缕，暗紫的两段 + 一道细的品红（低画质暗紫一段 + 品红）
+    if (v.trail && sp > 5) {
+      let px = v.x, pz = v.z;
+      for (let k = 0, m = lo ? 1 : 2; k < m; k++) {
+        const qx = v.hx[k], qz = v.hz[k], dx = px - qx, dz = pz - qz, d = Math.hypot(dx, dz);
+        if (d < 0.05) break;
+        mStretch((px + qx) / 2, 0.25 + 0.1 * k, (pz + qz) / 2, dx, 0, dz, v.R * 0.34 * (1 - 0.35 * k), d * 0.75);
+        pfPut('chShard', chLin.dark[0], chLin.dark[1], chLin.dark[2]);
+        if (k === 0) {
+          mStretch((px + qx) / 2, 0.4, (pz + qz) / 2, dx, 0, dz, v.R * 0.1, d * 0.85);
+          pfPut('chShard', chLin.rim[0], chLin.rim[1], chLin.rim[2]);
+        }
+        px = qx;
+        pz = qz;
+      }
     }
   }
 
@@ -22985,9 +23227,12 @@
       _c.set({ core: CH_CORE, rim: CH_RIM, hi: CH_HI, dark: CH_DARK }[k]).convertSRGBToLinear();
       chLin[k] = [_c.r, _c.g, _c.b];
     }
-    pfPart('chShard', PF.tShard.mesh.geometry, PF.tShard.mesh.material, 240, 0);
-    // chDisc：黑旋风的圆片（面朝镜头的 14 边形）。不做深度测试、最后画：吸附在怪身上时圆片在胸口高度，不然会被怪的身子挡住
-    pfPart('chDisc', geo('chDisc', () => new T.CircleGeometry(1, 14)), new T.MeshBasicMaterial({ toneMapped: false, fog: false, side: T.DoubleSide, depthTest: false }), 120, 10);
+    pfPart('chShard', PF.tShard.mesh.geometry, PF.tShard.mesh.material, 300, 0);
+    // chFunnel：黑旋风的漏斗 + 地面旋涡（见 VORTEX_VERT），做深度测试：吸附时怪站在漏斗里，远侧壁被怪挡住、近侧壁半透明地罩在怪身上
+    //（近侧壁的深度往镜头挪了 1.6 米，前排的怪挡不住它；飞到岩壁后面时也只透出贴墙那一截）
+    const vu = chUniforms({ uDark: { value: new T.Color(CH_DARK) } });
+    vu.uHi.value.setHex(CH_PIN);
+    pfPart('chFunnel', chFunnelGeo(), new T.ShaderMaterial({ uniforms: vu, vertexShader: VORTEX_VERT, fragmentShader: VORTEX_FRAG, transparent: true, depthWrite: false, side: T.DoubleSide }), VX_CAP, 3);
     // chFlame：黑焰的火舌，圆底、往上收成一个微微勾着的尖（以中心为扇心的一圈轮廓），材质同上
     pfPart('chFlame', geo('chFlame', () => {
       const O = [[0, -0.36], [0.2, -0.31], [0.32, -0.16], [0.33, 0.02], [0.25, 0.2], [0.15, 0.38], [0.09, 0.56], [0.06, 0.74], [-0.05, 0.92], [-0.04, 0.7], [-0.13, 0.5], [-0.24, 0.3], [-0.32, 0.1], [-0.33, -0.08], [-0.27, -0.25], [-0.15, -0.34]];
@@ -23438,6 +23683,166 @@
     kvFlush();
   };
 
+  // =====================================================================
+  // 渊印特效：领群光环、余烬地贴花（各是一个实例化网格，整局只建一次，1 次 draw；没有时隐藏、不占 draw）
+  // =====================================================================
+  // 领群光环：领群者脚下一圈硬边的橙色环（深色描边 + 两档亮度），醒着的每帧跟着挪；死了收掉。
+  // 余烬地：一块带裂纹的暗红炭斑，亮度随剩余时间三档往下掉。都是平躺的方片，不投影、不吃雾（幽晦下也看得清）
+  const SEAL_RING_MAX = 32, SEAL_CINDER_MAX = 8;
+  let sealRing = null, sealCinder = null, sealLeadList = null;
+  const sealRingTex = () =>
+    tex('sealRing', () => {
+      const c = makeCanvas(128, 128), g = c.getContext('2d');
+      const ring = (r, w, col) => {
+        g.beginPath();
+        g.arc(64, 64, r, 0, Math.PI * 2);
+        g.lineWidth = w;
+        g.strokeStyle = col;
+        g.stroke();
+      };
+      ring(55, 12, 'rgba(40,14,4,0.85)'); // 深色描边
+      ring(55, 7, 'rgba(255,150,60,1)');
+      ring(53, 2.5, 'rgba(255,230,170,1)'); // 内侧亮边（左上来光的那一半更亮）
+      g.globalCompositeOperation = 'destination-out';
+      g.fillStyle = 'rgba(0,0,0,0.45)';
+      g.beginPath();
+      g.moveTo(64, 64);
+      g.arc(64, 64, 70, 0.1 * Math.PI, 0.9 * Math.PI); // 右下半圈暗一档
+      g.fill();
+      g.globalCompositeOperation = 'source-over';
+      ring(55, 7, 'rgba(200,96,30,0.55)');
+      // 四个短刻痕：一眼认出是「领群」而不是普通的预警圈
+      g.strokeStyle = 'rgba(255,214,140,1)';
+      g.lineWidth = 5;
+      for (let k = 0; k < 4; k++) {
+        const a = (k * Math.PI) / 2 + Math.PI / 4;
+        g.beginPath();
+        g.moveTo(64 + Math.cos(a) * 44, 64 + Math.sin(a) * 44);
+        g.lineTo(64 + Math.cos(a) * 36, 64 + Math.sin(a) * 36);
+        g.stroke();
+      }
+      return new T.CanvasTexture(c);
+    });
+  const sealCinderTex = () =>
+    tex('sealCinder', () => {
+      const c = makeCanvas(128, 128), g = c.getContext('2d');
+      g.fillStyle = 'rgba(30,8,4,0.8)';
+      g.beginPath();
+      for (let k = 0; k <= 12; k++) {
+        const a = (k / 12) * Math.PI * 2, r = 58 - (k % 2) * 6;
+        g[k ? 'lineTo' : 'moveTo'](64 + Math.cos(a) * r, 64 + Math.sin(a) * r);
+      }
+      g.fill();
+      g.fillStyle = 'rgba(255,92,24,1)';
+      g.beginPath();
+      g.arc(64, 64, 44, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = 'rgba(255,190,90,1)';
+      g.beginPath();
+      g.arc(60, 60, 26, 0, Math.PI * 2);
+      g.fill();
+      // 裂纹：几道深色折线把亮面切开
+      g.strokeStyle = 'rgba(40,10,4,0.95)';
+      g.lineWidth = 4;
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * Math.PI * 2 + 0.3;
+        g.beginPath();
+        g.moveTo(64 + Math.cos(a) * 8, 64 + Math.sin(a) * 8);
+        g.lineTo(64 + Math.cos(a + 0.25) * 28, 64 + Math.sin(a + 0.25) * 28);
+        g.lineTo(64 + Math.cos(a - 0.1) * 50, 64 + Math.sin(a - 0.1) * 50);
+        g.stroke();
+      }
+      return new T.CanvasTexture(c);
+    });
+  function sealIM(texFn, cap, order) {
+    const mat = new T.MeshBasicMaterial({ map: texFn(), transparent: true, depthWrite: false, toneMapped: false, fog: false });
+    const im = new T.InstancedMesh(gQuad(), mat, cap);
+    im.instanceMatrix.setUsage(T.DynamicDrawUsage);
+    im.frustumCulled = false;
+    im.renderOrder = order;
+    im.count = 1; // 开场预热那一帧画一个（着色器跟着编好），之后 sealFxIdle 收起
+    _pm.compose(_pv.set(0, 0.07, 2), _pq.set(0, 0, 0, 1), _ps.set(0.01, 1, 0.01));
+    im.setMatrixAt(0, _pm);
+    scene.add(im);
+    return im;
+  }
+  function initSealFx() {
+    sealRing = sealIM(sealRingTex, SEAL_RING_MAX, 2);
+    sealCinder = sealIM(sealCinderTex, SEAL_CINDER_MAX, 1);
+  }
+  function sealFxIdle() {
+    sealRing.count = sealCinder.count = 0;
+    sealRing.visible = sealCinder.visible = false;
+  }
+  // 进区时（布怪之后）交给这里这一次的领群者（没有领群时传 null）
+  W.sealAura = function (leaders) {
+    sealLeadList = leaders && leaders.length ? leaders.slice(0, SEAL_RING_MAX) : null;
+    if (!sealRing) return;
+    sealRing.count = sealLeadList ? sealLeadList.length : 0;
+    sealRing.visible = !!sealLeadList;
+    if (sealLeadList) for (let i = 0; i < sealLeadList.length; i++) sealRingAt(i, sealLeadList[i], 0);
+  };
+  function sealRingAt(i, e, t) {
+    const r = e.dead ? 0.001 : (e.r || 0.6) + 0.75, k = 1 + 0.05 * Math.sin(t * 3 + i);
+    _pm.compose(_pv.set(e.x, 0.07, e.z), _pq.set(0, 0, 0, 1), _ps.set(r * k, 1, r * k));
+    sealRing.setMatrixAt(i, _pm);
+  }
+  // 余烬地：list 是 game.js 维护的 { x, z, t } 数组（每帧调用；没有时隐藏）
+  W.sealCinders = function (list, C) {
+    if (!sealCinder) return;
+    const n = Math.min(SEAL_CINDER_MAX, list.length);
+    sealCinder.count = n;
+    sealCinder.visible = n > 0;
+    if (!n) return;
+    const R = C ? C.r : 1.4, T0 = C ? C.t : 3;
+    for (let i = 0; i < n; i++) {
+      const c = list[i], f = c.t / T0, k = f > 0.66 ? 1 : f > 0.33 ? 0.92 : 0.8; // 快灭的时候缩一点
+      _pm.compose(_pv.set(c.x, 0.06, c.z), _pq.set(0, 0, 0, 1), _ps.set(R * k, 1, R * k));
+      sealCinder.setMatrixAt(i, _pm);
+    }
+    sealCinder.instanceMatrix.needsUpdate = true;
+  };
+  function sealFxUpdate() {
+    if (!sealLeadList || !sealRing.visible) return;
+    let any = false;
+    for (let i = 0; i < sealLeadList.length; i++) {
+      const e = sealLeadList[i];
+      if (e.awake || e.dead !== !!e.ringDead) {
+        e.ringDead = e.dead;
+        sealRingAt(i, e, wtime);
+        any = true;
+      }
+    }
+    if (any) sealRing.instanceMatrix.needsUpdate = true;
+  }
+  // 濒狂：身上泛红（emissive，只改 uniform）；受击闪白、冻结的冰色都优先，闪完回到红色
+  function applyRage(ent) {
+    const ms = ent.mats;
+    for (let i = 0; i < ms.length; i++) {
+      ms[i].emissive.setRGB(1, 0.1, 0.04);
+      ms[i].emissiveIntensity = ms[i].userData.fi * 0.85; // 和受击闪白差不多亮，但颜色是红的、一直亮着
+    }
+  }
+  W.rage = function (ent, on) {
+    if (!ent || ent.removed) return;
+    ent.raged = !!on;
+    if (ent.flashT > 0 || ent.iced) return;
+    if (on) applyRage(ent);
+    else unflash(ent);
+  };
+  // 幽晦：雾的起止、跟随玩家的暖光收近（只改 uniform，不重编着色器）；p 为空复位。
+  // 预警圈（ShaderMaterial）、敌方弹体（fog: false）不吃雾，照常看得见；名牌 / 血条在 tag 米外不画（2D 叠加层）
+  let gloomP = null;
+  W.setGloom = function (p) {
+    gloomP = p || null;
+    if (scene && scene.fog) {
+      scene.fog.near = gloomP ? gloomP.near : CAMERA.fogNear;
+      scene.fog.far = gloomP ? gloomP.far : CAMERA.fogFar;
+    }
+    if (lamp) lamp.distance = gloomP ? gloomP.lamp : LAMP_DIST;
+  };
+  W.gloomInfo = () => ({ near: scene.fog.near, far: scene.fog.far, lamp: lamp.distance, tag: gloomP ? gloomP.tag : 0 });
+
   // ---------- 每帧更新 ----------
   function spawnAmbient(fx) {
     const x = camT.x + rand(-26, 26), z = camT.z + CAM_LEAD + rand(-22, 13);
@@ -23506,6 +23911,7 @@
     sun.target.position.copy(_v);
     sun.position.copy(_v).add(SUN_OFF);
     lamp.position.set(P.x, 3.2, P.z + 0.6);
+    sealFxUpdate();
     if (fxLight.intensity > 0) {
       fxLight.intensity *= Math.exp(-dt * 10);
       if (fxLight.intensity < 0.02) fxLight.intensity = 0;
@@ -23865,6 +24271,7 @@
       const bu = e.bu;
       const buOn = !!bu && (bu.fire > 0.005 || bu.cold > 0.005 || bu.light > 0.005 || e.freeze > 0 || e.shockT > 0 || e.blastT > 0);
       if (e.dead || e.isBoss || !e.awake || !(e.elite || e.hp < e.maxHp || buOn)) continue;
+      if (gloomP && Math.hypot(e.x - G.player.x, e.z - G.player.z) > gloomP.tag) continue; // 渊印「幽晦」：远处的血条 / 名字不画
       const p = projTo(e.x, e.height * (e.elite ? 1.3 : 1) + 0.35, e.z);
       if (!p.ok || p.x < -40 || p.x > vw + 40 || p.y < -20 || p.y > vh + 20) continue;
       const w = e.elite ? 60 : 40, h = e.elite ? 6 : 4;
@@ -24105,6 +24512,14 @@
         g.fillStyle = e.elite ? '#ffc04a' : 'rgba(255,96,72,0.9)';
         const r = e.elite ? 2.4 : 1.5;
         g.fillRect(X(e.x) - r, Z(e.z) - r, r * 2, r * 2);
+        if (e.leader) {
+          // 渊印「领群」：领群者外面一圈 1 px 的橙环
+          g.strokeStyle = '#ff9a3c';
+          g.lineWidth = 1;
+          g.beginPath();
+          g.arc(X(e.x), Z(e.z), r + 2, 0, TAU);
+          g.stroke();
+        }
       }
       if (ms) {
         g.fillStyle = ALLY_CSS;
