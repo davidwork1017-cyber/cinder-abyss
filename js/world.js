@@ -1103,6 +1103,7 @@
     }
     if (post.ok) post.bloom.enabled = qual.bloom;
     if (zoneFx && zoneFx.mist) zoneFx.mist.visible = qual.mist;
+    zoneShadowPolicy();
     W.resize();
     return id;
   };
@@ -8897,6 +8898,18 @@
       isles: rp ? rp.isles : null, skyMat: rp ? rp.skyMat : null, starIn: rand(1.5, 4),
       fires, mist, gU: hd ? gmat.userData.U : null, hd, props: withProps, dress,
     };
+    zoneShadowPolicy();
+  }
+  // 低画质：区域的静态布景（岩石、摆件、合并的零件网格……）不投影，人物 / 怪 / 首领照旧投影（zones-polish）。
+  // 测试槽位实测：低画质下阴影 pass 是图标预热空闲切片比 dec4bb9 慢的那一截（关掉阴影就回到 dec4bb9 以下）；布景的影子在低画质下看不太出来，人物脚下的影子留着
+  function zoneShadowPolicy() {
+    if (!zoneGroup) return;
+    const off = qualId === 'low';
+    zoneGroup.traverse((o) => {
+      if (!o.isMesh) return;
+      if (o.userData.cs0 === undefined) o.userData.cs0 = o.castShadow;
+      o.castShadow = off ? false : o.userData.cs0;
+    });
   }
 
   // 建外观时 PBR 那条路出了任何错，都退回程序化外观重建一次（不让素材问题拖垮游戏）
