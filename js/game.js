@@ -166,6 +166,8 @@
       sealSeq: 0, run: null,
       // 烛芯（异兆一期）：各种类的个数（熄烛者的开启材料）和保底计数（box 是缚匣 / 试锋 / 落烬共用）
       frags: { seal: 0, rift: 0, vow: 0, box: 0 }, fragPity: { seal: 0, rift: 0, vow: 0, box: 0 },
+      // 熄烛者（D5）：击杀次数、巅峰渊契的保底计数（连续几次没掉）。正在打的那一次挂在 run.pin = { tier, lives }
+      pinnacle: { kills: 0, pity: 0 },
     };
   };
   function autoSummonDefaults() {
@@ -538,7 +540,16 @@
     const rrun = isObj(raw.run) ? raw.run : null;
     if (rrun && rrun.zone === s.lastZone && rrun.tier === s.tier) {
       s.run = { zone: s.lastZone, tier: s.tier, seq: toInt(rrun.seq, 0, 1e9, 0), seal: G.cleanSeal(rrun.seal, s.tier, s.bar) };
+      // 余烛殿（D5）：正在打的那一次。层级要在 minTier..maxTier 里，魂灯 1..G.PIN_LIVES；不合法就丢掉（读档回到那一区）
+      const rp = isObj(rrun.pin) ? rrun.pin : null;
+      if (rp && Number.isInteger(rp.tier) && rp.tier >= G.PIN.minTier && rp.tier <= s.maxTier && Number.isInteger(rp.lives) && rp.lives >= 1 && rp.lives <= G.PIN_LIVES) {
+        s.run.seal = null;
+        s.run.pin = { tier: rp.tier, lives: rp.lives };
+      }
     }
+    // 熄烛者：击杀次数、巅峰渊契保底（旧存档没有 → 0）
+    const rpk = isObj(raw.pinnacle) ? raw.pinnacle : {};
+    s.pinnacle = { kills: toInt(rpk.kills, 0, 1e6, 0), pity: toInt(rpk.pity, 0, G.RELIC_DROP.pinnacle.pity, 0) };
     // 烛芯：旧存档没有（全 0）；只认 G.FRAGS 的种类，个数 0–max，保底 0–上限
     const rfr = isObj(raw.frags) ? raw.frags : {}, rfp = isObj(raw.fragPity) ? raw.fragPity : {};
     s.frags = {};
@@ -1829,10 +1840,11 @@
   const RM = G.RELIC_MECH;
   // 运行时状态（不存档）：crit 必然的暴击计数；spin / spinCtx / spinR 蓄潮的层数和最后一跳的上下文；slamT 踏震的间隔；
   // metT 星雨距离下一次自动落下的秒数；bridges 电桥；chainT 锁链特效的节流；kingT 骸王外形的检查间隔；shareT 同殇连线的节流
-  const RQ = { crit: 0, spin: 0, spinCtx: null, spinR: 0, spinFull: false, slamT: 0, metT: 0, bridges: [], chainT: 0, kingT: 0, shareT: 0 };
+  // twin / twinAlt：双生坠下一次施放用哪种刻式 { 技能 id: 'a' | 'b' }、此刻算「交替出来的那一种」的刻式定义（伤害 +10%）
+  const RQ = { crit: 0, spin: 0, spinCtx: null, spinR: 0, spinFull: false, slamT: 0, metT: 0, bridges: [], chainT: 0, kingT: 0, shareT: 0, twin: {}, twinAlt: new Set(), twinOn: false };
   G.relicState = RQ; // 测试 / 调试用
 
-  // computeStats 里调用：按身上的装备汇总 P.relic（同一种机制穿两件也只算一次）。巅峰专属的数据桩还没有机制，不算
+  // computeStats 里调用：按身上的装备汇总 P.relic（同一种机制穿两件也只算一次）
   G.relicSync = function () {
     const r = P.relic;
     for (const k in r) delete r[k];
@@ -1841,13 +1853,23 @@
     for (const slot of G.SLOTS) {
       const it = slot !== 'weapon' && eq[slot];
       const R = it && it.rarity === 4 && G.RELICS[it.rq];
-      if (R && !R.pinnacle && R.slot === slot) {
+      if (R && R.slot === slot) {
         r[it.rq] = true;
         r.any = true;
       }
     }
     if (!r.qianmu) RQ.crit = 0;
     if (!r.nuchao) RQ.spin = 0;
+    // 双生：摘下时技能定义指回存档里选的那一种
+    if (!r.shuangsheng && RQ.twinOn) {
+      RQ.twinOn = false;
+      RQ.twin = {};
+      RQ.twinAlt.clear();
+      if (G.applyVariants) G.applyVariants();
+    }
+    // 无光：暖光半径缩小（和幽晦叠加时雾近端有下限）
+    const XZ = RM.xizhu;
+    if (G.world && G.world.lampScale) G.world.lampScale(r.xizhu ? 1 - XZ.lamp : 1, r.xizhu ? XZ.fogMin : 0);
     return r;
   };
 
@@ -1923,6 +1945,8 @@
     const r = P.relic, mi = ctx.minion;
     // 必然：你自己的暴击伤害降低（召唤物不受影响）
     if (r.qianmu && !mi && !ctx.asMinion) ctx.critMulti = Math.max(100, ctx.critMulti + RM.qianmu.critMulti);
+    // 双生：交替出来的那一种刻式（不是你选的那一种）伤害提高
+    if (r.shuangsheng && !mi && RQ.twinAlt.has(ctx.sk)) ctx.more *= 1 + RM.shuangsheng.dmg;
     if (!mi) return ctx;
     if (r.tongshang) mi.life = Math.max(1, Math.round(mi.life * (1 + RM.tongshang.life / 100)));
     if (r.haiwang && mi.kind === 'thrall') {
@@ -1953,6 +1977,46 @@
       return true;
     }
     return false;
+  };
+
+  // ---------- 双生（双生坠，巅峰）：tryStartCast 里一行钩子 + 施放成功后一行 ----------
+  // 选了刻式（宝石 ≥ 解锁等级、不是光环 / 召唤）的技能：施放前把 G.SKILLS[id] 指向这一次的刻式（G.useVariant），
+  // 顺序是「你选的、另一种、你选的……」；指向留到下一次施放这个技能（出手帧、持续施放读到的都是这一次的定义）。
+  // 已经放出去的黑洞、旋风、投射物、陨石在生成时拿着自己那份 ctx.sk，之后再换也不影响（框架见「刻式」一节）
+  const twinOther = (v) => (v === 'a' ? 'b' : 'a');
+  G.relicTwin = function (id) {
+    const v = G.variantOf(id);
+    if (v === 'o' || !G.SKILL_V[id]) return null;
+    const mine = G.skillVariant(id, v), other = G.skillVariant(id, twinOther(v));
+    if (mine.kind === 'aura' || mine.kind === 'summon' || mine.buff) return null;
+    const next = RQ.twin[id] === twinOther(v) ? twinOther(v) : v; // twin 记的是「下一次」：还没记过就从你选的那一种开始
+    RQ.twinOn = true;
+    RQ.twinAlt.delete(mine);
+    RQ.twinAlt.add(other);
+    G.useVariant(id, next);
+    return next;
+  };
+  // 真的出手了（tryStartCast 返回 true）才翻到另一种：魔力不够、影步没目标这些没放出去的不算一次
+  G.relicTwinCast = function (id) {
+    const v = G.variantOf(id);
+    if (v === 'o' || !G.SKILL_V[id] || !RQ.twinOn) return;
+    const cur = G.SKILLS[id] && G.SKILLS[id].variant;
+    if (cur !== 'a' && cur !== 'b') return;
+    RQ.twin[id] = twinOther(cur);
+  };
+
+  // ---------- 无光（熄烛冠，巅峰）：hitEnemy 里的一行钩子 ----------
+  // 你对 far 米外的敌人伤害 × (1 + dmg)；还没发现你（没醒）的敌人，第一击必定暴击
+  G.relicFarHit = function (e, ctx, m) {
+    const X = RM.xizhu, far = dist(P.x, P.z, e.x, e.z) > X.far, sneak = !e.awake;
+    if (!far && !sneak) return G.calcHit(ctx, m);
+    const c0 = ctx.crit;
+    if (sneak) ctx.crit = 100;
+    try {
+      return G.calcHit(ctx, far ? m * (1 + X.dmg) : m);
+    } finally {
+      ctx.crit = c0;
+    }
   };
 
   // ---------- 踏震（磐踵）/ 随影（招魂带）：翻滚 ----------
@@ -2581,7 +2645,7 @@
     // rqBrk：渊契「崩势」扩散出来的破绽；渊印「领群」：领群者附近同群的怪受到的伤害 −15%；encDR：异兆的减伤（灰誓者有图腾立着时）
     const m = (mult === undefined ? 1 : mult) * (broken || e.rqBrk > 0 ? PO.taken : 1) * (e.auraBuff ? 1 - G.runMods.aura.dr : 1) * (e.encDR > 0 ? 1 - e.encDR : 1);
     e.hurtAt = state.time; // 渊印「回生」：几秒没挨打才回血
-    const hit = G.calcHit(ctx, m);
+    const hit = P.relic.xizhu && !inf.minion && !ctx.minion && !ctx.asMinion ? G.relicFarHit(e, ctx, m) : G.calcHit(ctx, m); // 渊契「无光」：远处增伤、没发现你时必暴
     const hp0 = e.hp;
     e.hp -= hit.total;
 
@@ -2782,7 +2846,8 @@
     sealOnKill(e);
     if (e.enc || e.encClones) G.encOnKill(e);
 
-    if (e.isBoss && !e.echo) {
+    if (e.isBoss && e.pin) G.pinKill(e); // 熄烛者：不记区域通关、不开下一层，掉落走 §6.6
+    else if (e.isBoss && !e.echo) {
       const zone = state.zone;
       const zid = zone.def.id;
       const prev = save.cleared[zid];
@@ -2849,6 +2914,7 @@
     if (TI && src && !src.sealFx) dmg += amount * TI.frac * (1 - (P.res[TI.el] || 0) / 100);
     dmg *= 1 - Math.min(90, P.S.lessTaken || 0) / 100;
     dmg *= 1 + Math.max(0, P.S.moreTaken || 0) / 100; // 基石「刃舞」的代价
+    if (src && (src.pin || (src.owner && src.owner.pin))) dmg = Math.min(dmg, P.maxLife * G.PIN.hitCap); // 熄烛者：单次最多扣 hitCap（不会一下打空）
     dmg = Math.max(1, dmg);
 
     P.life -= dmg;
@@ -2924,6 +2990,7 @@
   };
 
   G.respawn = function () {
+    if (state.pin && G.pinDeath()) return; // 余烛殿：熄一盏魂灯；第 3 次倒下失败退出（不在这里重生）
     const at = P.respawnAt || state.zone.start;
     P.respawnAt = null;
     P.dead = false;
@@ -2992,7 +3059,10 @@
       const perp = dx * Math.cos(t.ang) - dz * Math.sin(t.ang);
       return Math.abs(along) <= t.len / 2 && Math.abs(perp) <= t.w / 2;
     }
-    return Math.hypot(dx, dz) <= t.r;
+    const l = Math.hypot(dx, dz);
+    if (t.shape === 'arc') return l <= t.r && (l < 1e-6 || Math.abs(angDiff(Math.atan2(dx, dz), t.ang)) <= t.arc); // 扇形（D5 拂烛）
+    if (t.shape === 'ring') return l <= t.r && l >= t.rin; // 圆环（D5 焰潮）
+    return l <= t.r;
   }
 
   G.updateTelegraphs = function (dt) {
@@ -3516,6 +3586,7 @@
       // 召唤技能：按键本身是「自动召唤」开关（main.js 里直接切换，不进缓冲）；
       // 只有 Shift + 按键留下的缓冲才是在准星处手动召唤一次，按住不放也不会连着召唤
       if (G.SKILLS[id].kind === 'summon' && !(G.input.tap[slot] > 0)) continue;
+      if (P.relic.shuangsheng) G.relicTwin(id); // 渊契「双生」：这一次用哪种刻式
       const ctx = G.skillCtx(id);
       if (!G.canAfford(ctx.cost)) {
         const now = Date.now();
@@ -6664,7 +6735,10 @@
         P.moving = P.roll.t > 0;
       } else {
         // 手上没有动作，或上一个动作已经过了可取消的时刻（连击段的收招）：可以开始下一个
-        if (!P.cast || (P.cast.fired && P.cast.t >= P.cast.cancelT)) tryStartCast();
+        if (!P.cast || (P.cast.fired && P.cast.t >= P.cast.cancelT)) {
+          const c0 = P.cast;
+          if (tryStartCast() && P.relic.shuangsheng && P.cast && P.cast !== c0) G.relicTwinCast(P.cast.id); // 渊契「双生」：出手了才轮到另一种
+        }
         if (P.exec) {
           P.moving = false; // 近战键贴身触发了处决
         } else {
@@ -8373,6 +8447,318 @@
   };
 
   // =====================================================================
+  // 余烛殿（熄烛者，巅峰首领，D5）：开启、进场、魂灯、火盆 / 暗潮 / 焰潮 / 重燃、失败退还、掉落
+  // 首领的招式在 enemies.js「熄烛者」一节；场地布局和外观在 world.js「区域地形：crown」。
+  // 运行时状态 state.pin（不在余烛殿时为 null）：tier / level / lives 魂灯，phase 场地阶段（0 残焰、1 熄灯、2 冠焰），
+  //   lit 四个火盆的亮灭、start 这一阶段开始时的亮灭（倒下重生时恢复），tideK 暗潮进度、tideT / snuffT 二阶段的计时（首领读），
+  //   relit / relitT 正在重燃的火盆和进度，popT / warnT 三阶段进场的两段计时，burn 外圈起火了没有
+  // =====================================================================
+  const PINS = G.PIN;
+  G.pinOpen = () => (G.save.maxTier || 0) >= PINS.minTier;
+  G.pinReady = () => G.FRAG_IDS.every((id) => (G.save.frags[id] || 0) >= 1);
+  // 地图页的「点燃」：最高层级 ≥ minTier、四种烛芯各 ≥ 1，扣掉各 1 个进场。返回 { ok, msg }
+  G.lightPinnacle = function (tier) {
+    const save = G.save;
+    tier = toInt(tier, 0, 999, PINS.minTier);
+    if (!G.pinOpen()) return { ok: false, msg: '轮回层级 ' + PINS.minTier + ' 起才开放' };
+    if (tier < PINS.minTier || tier > save.maxTier) return { ok: false, msg: '只能选层级 ' + PINS.minTier + '–' + save.maxTier };
+    if (!G.pinReady()) return { ok: false, msg: '四种烛芯各需要 1 个' };
+    for (const id of G.FRAG_IDS) save.frags[id] -= 1;
+    G.enterPinnacle(tier);
+    return { ok: true };
+  };
+  function pinRingOff() {
+    const S = state.pin;
+    if (S && S.ring) {
+      G.world.removeTelegraph(S.ring);
+      S.ring = null;
+      S.ringI = -1;
+    }
+  }
+  // 换区 / 退出时收尾：重燃的进度环、变暗、场地外观
+  function pinClear() {
+    pinRingOff();
+    if (state.pin && G.world.setGloom) G.world.setGloom(null);
+    state.pin = null;
+  }
+  // 进场。resume = 'resume'：读档接着存档里的魂灯数（首领满血、从头打）
+  G.enterPinnacle = function (tier, resume) {
+    P.graceT = 0;
+    resetAction();
+    const W = G.world, save = G.save;
+    tier = toInt(tier, PINS.minTier, 999, PINS.minTier);
+    const r0 = save.run, lives = resume === 'resume' && r0 && r0.pin && r0.pin.tier === tier ? toInt(r0.pin.lives, 1, G.PIN_LIVES, G.PIN_LIVES) : G.PIN_LIVES;
+    // 存档：run 挂上 pin（区域 / 层级照旧是进来之前那一区，读档时 main.js 看到 pin 就回余烛殿）；没有渊印
+    save.run = { zone: save.lastZone, tier: save.tier, seq: save.sealSeq || 0, seal: null, pin: { tier, lives } };
+    save.sealSeq = (save.sealSeq || 0) + 1;
+    G.runMods = sealMods(null);
+    state.run = { seal: null, mods: G.runMods };
+    G.clearEnemies();
+    clearProjectiles();
+    clearTelegraphs();
+    for (const l of state.loot) W.removeMesh(l.mesh);
+    state.loot.length = 0;
+    state.timers.length = 0;
+    if (state.portal) W.removeMesh(state.portal.mesh);
+    state.portal = null;
+    state.boss = null;
+    clearSealFx();
+    clearEnc();
+    pinClear();
+    const level = G.pinLevel(tier);
+    state.zone = W.buildZone(G.PINNACLE, level);
+    if (W.setGloom) W.setGloom(null);
+    state.tier = tier; // 掉落的层级判定按余烛殿的层级；state.zoneIdx 保持原值（G.ZONES 里没有余烛殿）
+    const br = state.zone.feats.filter((f) => f.kind === 'brazier').sort((a, b) => a.i - b.i).map((f) => ({ x: f.x, z: f.z }));
+    state.pin = {
+      tier, level, lives, phase: 0, lit: [1, 1, 1, 1], start: [1, 1, 1, 1], br,
+      tideK: 0, tideT: PINS.tide.iv, snuffT: PINS.snuffIv, relit: -1, relitT: 0, ring: null, ringI: -1,
+      popT: 0, warnT: 0, burn: false, burnAcc: 0, done: false,
+    };
+    const bp = state.zone.bossPos;
+    const boss = G.spawnBoss('snuffer', bp.x, bp.z, level);
+    boss.leash = true;
+    boss.pin = true;
+    boss.noRage = true; // 40% 狂暴由三阶段代替
+    boss.phase = 0;
+    boss.encNoLoot = true; // 掉落走 pinKill（§6.6），不走区域首领的那一套
+    boss.xpW = 60; // 经验：首领权重 20 × 3
+
+    G.computeStats();
+    P.dead = false;
+    P.deadT = 0;
+    P.cds = {};
+    P.roll.cd = 0;
+    P.iframe = 0.6;
+    P.face = Math.PI;
+    P.ent.group.visible = true;
+    placePlayer(state.zone.start.x, state.zone.start.z);
+    refill();
+    resetRanged();
+    state.focus = null;
+    state.focusT = 0;
+    if (G.regroupMinions) G.regroupMinions();
+    G.autoSummonDelay();
+    if (W.precompile) W.precompile();
+    if (W.crownBraziers) W.crownBraziers(state.pin.lit, -1, 0);
+    G.persist();
+    toast(G.PINNACLE.name + ' · 轮回 ' + tier + '　首领等级 ' + level, '#ffd27a');
+    return state.zone;
+  };
+  const pinHere = () => !!(state.pin && state.zone && state.zone.def.id === G.PINNACLE.id);
+  const pinSafe = (S, x, z) => {
+    for (let i = 0; i < 4; i++) if (S.lit[i] && dist(x, z, S.br[i].x, S.br[i].z) <= PINS.tide.safe) return true;
+    return false;
+  };
+  G.pinSafeAt = (x, z) => (pinHere() ? pinSafe(state.pin, x, z) : false);
+  // 二阶段进场（首领掐灯那一下）：掐灭两个火盆（离玩家近的那两个，逼人挪位），场地变暗
+  G.pinEnterDark = function () {
+    const S = state.pin;
+    if (!pinHere() || S.phase >= 1) return;
+    S.phase = 1;
+    const order = [0, 1, 2, 3].filter((i) => S.lit[i]).sort((a, b) => dist(P.x, P.z, S.br[a].x, S.br[a].z) - dist(P.x, P.z, S.br[b].x, S.br[b].z));
+    for (const i of order.slice(0, Math.min(2, order.length - 1))) pinOut(S, i);
+    S.start = S.lit.slice();
+    S.tideT = PINS.tide.iv;
+    S.snuffT = PINS.snuffIv;
+    if (G.world.setGloom) G.world.setGloom(PINS.gloom);
+    toast('场地暗了下来：站在亮着的火盆旁边躲暗潮，熄灭的火盆可以重新点燃', '#ffd27a', 'pinDark', 4000);
+  };
+  // 三阶段进场：亮着的火盆炸开（首领那边出预警），popT 秒后全部永久点燃、亮度复原，再出外圈的预警环，warnT 秒后起火
+  G.pinEnterCrown = function () {
+    const S = state.pin;
+    if (!pinHere() || S.phase >= 2) return;
+    S.phase = 2;
+    S.tideK = 0;
+    S.popT = 1.0;
+    S.warnT = 0;
+    S.start = S.lit.slice();
+  };
+  G.pinBurnOn = function () {
+    const S = state.pin;
+    if (!pinHere()) return;
+    S.burn = true;
+    S.warnT = 0;
+    if (G.world.crownBurn) G.world.crownBurn(true);
+  };
+  function pinOut(S, i) {
+    if (!S.lit[i]) return;
+    S.lit[i] = 0;
+    const b = S.br[i], W = G.world;
+    W.burst(b.x, 1.8, b.z, 0x5a5462, 16, 2.5, 0.8);
+    W.ring(b.x, b.z, 2.2, 0x9a6ad8, 0.4);
+  }
+  // 首领每 14 s 冲过去掐灭一个；永远留至少 1 个亮着
+  G.pinSnuff = function (i) {
+    const S = state.pin;
+    if (!pinHere() || S.phase !== 1 || !S.lit[i] || S.lit.reduce((a, b) => a + b, 0) < 2) return false;
+    pinOut(S, i);
+    if (S.relit === i) S.relit = -1;
+    return true;
+  };
+  // 暗潮结算（首领的 tide 招式到点时调）：不在亮着的火盆 safe 米内的玩家、召唤物都挨一下
+  G.pinTideHit = function (e) {
+    const S = state.pin;
+    if (!pinHere()) return;
+    const W = G.world, dmg = e.dmg * PINS.tide.k;
+    if (!P.dead && !pinSafe(S, P.x, P.z)) G.hurtPlayer(dmg, 'cold', e);
+    for (let j = state.minions.length - 1; j >= 0; j--) {
+      const m = state.minions[j];
+      if (m && !m.dead && !pinSafe(S, m.x, m.z) && G.hurtMinion) G.hurtMinion(m, dmg * BOSS_VS_MINION, 'cold', e);
+    }
+    W.shake(0.3);
+    W.ring(PINS.arena.x, PINS.arena.z, PINS.arena.r, 0x9a6ad8, 0.4);
+    G.sfx('hit');
+  };
+  // 每个模拟步（world.js 的 ZONE_TERRAIN.crown.tick 调）：重燃、三阶段进场的计时、外圈灼烧，把状态交给外观
+  G.pinTick = function (dt) {
+    if (!pinHere()) return;
+    const S = state.pin, W = G.world, A = PINS.arena, RL = PINS.relight, wall = PINS.braziers.wall;
+    // 重燃：二阶段里站在熄灭的火盆 r 米内（从火盆台边量）t 秒
+    let near = -1;
+    if (S.phase === 1 && !P.dead && !S.done) {
+      for (let i = 0; i < 4; i++) if (!S.lit[i] && dist(P.x, P.z, S.br[i].x, S.br[i].z) <= wall + RL.r) near = i;
+    }
+    if (near >= 0 && near === S.relit) S.relitT += dt;
+    else {
+      S.relit = near;
+      S.relitT = near >= 0 ? dt : 0;
+    }
+    if (S.relit >= 0 && S.relitT >= RL.t) {
+      const b = S.br[S.relit];
+      S.lit[S.relit] = 1;
+      W.burst(b.x, 1.8, b.z, 0xffc060, 28, 6, 0.6);
+      W.ring(b.x, b.z, PINS.tide.safe, 0xffc870, 0.5);
+      G.sfx('pickup');
+      S.relit = -1;
+      S.relitT = 0;
+    }
+    if (S.relit >= 0) {
+      if (!S.ring || S.ringI !== S.relit) {
+        pinRingOff();
+        const b = S.br[S.relit];
+        S.ring = W.makeTelegraph({ shape: 'circle', x: b.x, z: b.z, r: wall + RL.r }, true);
+        S.ringI = S.relit;
+      }
+      S.ring.setProgress(S.relitT / RL.t);
+    } else pinRingOff();
+    // 三阶段：炸完全部点燃、亮度复原，再出外圈预警环（没有主人，首领被打出破绽也照常走完）
+    if (S.popT > 0) {
+      S.popT -= dt;
+      if (S.popT <= 0) {
+        S.lit = [1, 1, 1, 1];
+        S.start = S.lit.slice();
+        if (W.setGloom) W.setGloom(null);
+        S.warnT = PINS.burnWarn;
+        G.telegraph({ shape: 'ring', x: A.x, z: A.z, r: PINS.burnOut, rin: PINS.burnIn, dur: PINS.burnWarn, dmg: 0, dtype: 'fire', owner: null, friendly: false });
+      }
+    } else if (S.warnT > 0) {
+      S.warnT -= dt;
+      if (S.warnT <= 0) G.pinBurnOn();
+    }
+    // 焰潮：外圈 burnIn..burnOut 每 burnTick 秒灼烧一次（同地形灼烧：G.TERRAIN.burn × dmgScale）
+    if (S.burn && !P.dead && !S.done) {
+      const d = dist(P.x, P.z, A.x, A.z);
+      if (d > PINS.burnIn && d <= PINS.burnOut + 0.6) {
+        S.burnAcc += dt;
+        if (S.burnAcc >= G.TERRAIN.burnTick) {
+          S.burnAcc -= G.TERRAIN.burnTick;
+          G.hurtPlayer(G.TERRAIN.burn * G.dmgScale(S.level), 'fire', null);
+        }
+      } else S.burnAcc = 0;
+    }
+    if (W.crownBraziers) W.crownBraziers(S.lit, S.relit, S.relit >= 0 ? S.relitT / RL.t : 0);
+    if (W.crownTide) W.crownTide(S.tideK, S.phase === 1 && !S.done ? (S.tideK > 0 ? 1 : 0.42) : 0);
+  };
+  // 倒下（G.respawn 开头调）：熄一盏魂灯；第 G.PIN_LIVES 次倒下算失败（退还烛芯、回到地图），返回 true 表示已经处理完、不在这里重生
+  G.pinDeath = function () {
+    const S = state.pin;
+    if (!pinHere() || S.done) return false;
+    S.lives = Math.max(0, S.lives - 1);
+    if (G.save.run && G.save.run.pin) G.save.run.pin.lives = S.lives;
+    if (S.lives <= 0) {
+      G.pinFail();
+      return true;
+    }
+    // 重生在场地门外，首领保留生命和阶段；火盆回到这一阶段开始时的样子，二阶段的计时重来
+    S.lit = S.start.slice();
+    S.relit = -1;
+    S.relitT = 0;
+    S.tideK = 0;
+    S.tideT = PINS.tide.iv;
+    S.snuffT = PINS.snuffIv;
+    pinRingOff();
+    G.persist();
+    toast('一盏魂灯熄灭了（还剩 ' + S.lives + ' 盏）', '#ffd27a');
+    return false;
+  };
+  // 魂灯燃尽：四个烛芯里随机退还 G.PIN_REFUND 个（不同种类），回到进来之前那一区、打开地图
+  G.pinFail = function () {
+    const save = G.save, ids = G.FRAG_IDS.slice();
+    for (let i = ids.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = ids[i];
+      ids[i] = ids[j];
+      ids[j] = t;
+    }
+    const back = ids.slice(0, Math.max(0, Math.min(ids.length, G.PIN_REFUND)));
+    for (const id of back) save.frags[id] = Math.min(G.FRAG_DROP.max, (save.frags[id] || 0) + 1);
+    state.stats.pinFails = (state.stats.pinFails || 0) + 1;
+    state.pinRefund = back.slice(); // 界面 / 测试读
+    save.run = null;
+    pinClear();
+    G.enterZone(save.lastZone, save.tier);
+    toast('魂灯燃尽，熄烛者还在等着。退还了 ' + back.map((id) => '「' + G.FRAGS[id].name + '」').join(''), '#ffd27a');
+    if (G.ui && G.ui.open) G.ui.open('map');
+  };
+  // 击杀（killEnemy 的首领分支）：首杀记录、掉落（§6.6）、传送门；场地熄火亮灯
+  G.pinKill = function (e) {
+    const save = G.save, W = G.world, S = state.pin, D = G.RELIC_DROP.pinnacle;
+    const first = !save.bossKills.snuffer;
+    if (first) {
+      save.bossKills.snuffer = true;
+      toast('首次击败「' + e.name + '」：获得 2 点天赋点', '#ffd75e');
+    } else toast('「' + e.name + '」已被击败', '#ffb46a');
+    const PK = save.pinnacle;
+    const ilvl = Math.max(1, e.level), x = e.x, z = e.z, rm = 1 + (P.S.rarity || 0) / 100;
+    for (let i = 0; i < 3; i++) G.spawnLoot('item', G.rollItem(ilvl, 2), x, z);
+    for (const id of ['exalt', 'exalt', 'divine']) G.spawnLoot('cur', id, x, z);
+    for (let i = 0; i < 3; i++) G.spawnLoot('cur', G.rollCurrency(), x, z);
+    G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
+    for (let i = 0; i < 2; i++) G.spawnLoot('support', pickSupportGem(i ? 0.7 : 1), x, z);
+    if (Math.random() < 0.5) G.spawnLoot('item', G.rollItem(ilvl, Math.max(1, G.rollRarity(rm))), x, z);
+    // 巅峰渊契：首杀必掉；之后 chance、连续 pity 次没掉下一次必掉。两件里还没拾到过的优先，都拾到过就各半
+    let pid = null;
+    if (PK.kills === 0 || PK.pity >= D.pity || Math.random() < D.chance) {
+      PK.pity = 0;
+      const miss = G.RELIC_PINNACLE.filter((id) => !save.relic.found[id]);
+      pid = G.pick(miss.length ? miss : G.RELIC_PINNACLE);
+      relicSpawn(pid, ilvl, x, z);
+    } else PK.pity++;
+    if (Math.random() < D.normal) relicSpawn(G.pick(G.RELIC_IDS), ilvl, x, z);
+    PK.kills++;
+    state.stats.pinKills = (state.stats.pinKills || 0) + 1;
+    state.pinLast = { relic: pid, first };
+    if (S) {
+      S.done = true;
+      S.burn = false;
+      S.tideK = 0;
+      pinRingOff();
+      S.lit = [1, 1, 1, 1];
+      if (W.crownBurn) W.crownBurn(false);
+      if (W.setGloom) W.setGloom(null);
+    }
+    if (save.run) save.run.pin = null; // 打完了：读档不再回余烛殿
+    for (let i = state.projectiles.length - 1; i >= 0; i--) if (state.projectiles[i].owner === 'e') removeProjectile(i);
+    if (!state.portal) {
+      const bp = state.zone.bossPos;
+      state.portal = { x: bp.x, z: bp.z, mesh: W.makePortal(bp.x, bp.z), armed: dist(P.x, P.z, bp.x, bp.z) > 3.5 };
+    }
+    G.sfx('boss');
+    G.persist();
+  };
+
+  // =====================================================================
   // 区域
   // =====================================================================
   // seal（可选）：这次进区的渊印（择印面板选的那一枚，见 G.rollSeals）；'resume' = 读档时接着存档里的那一次
@@ -8389,7 +8775,7 @@
     let run = null;
     if (seal === 'resume') {
       const r = save.run;
-      run = r && r.zone === idx && r.tier === tier ? r : null;
+      run = r && r.zone === idx && r.tier === tier && !r.pin ? r : null; // 挂着余烛殿的那一次不接着用（main.js 读档时先看 pin）
     }
     if (!run) {
       run = { zone: idx, tier, seq: save.sealSeq || 0, seal: seal && seal !== 'resume' ? G.cleanSeal(seal, tier, save.bar) : null };
@@ -8411,6 +8797,7 @@
     state.boss = null;
 
     clearSealFx();
+    pinClear(); // 从余烛殿出来：收掉重燃环、变暗
     const level = def.level + tier * G.TIER_LEVELS;
     state.zone = W.buildZone(def, level);
     if (W.setGloom) W.setGloom(G.runMods.gloom || null); // 渊印「幽晦」：雾和暖光收近；不是幽晦就复位

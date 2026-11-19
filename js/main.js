@@ -204,7 +204,9 @@
       if (started) return;
       started = true;
       bindInput();
-      G.enterZone(save.lastZone, save.tier, 'resume'); // 渊印：存档里这一次进区的印接着用（区域 / 层级对不上就是素印）
+      // 余烛殿（D5）：存档里挂着正在打的熄烛者就回余烛殿（首领满血，魂灯数照存档）；否则渊印：这一次进区的印接着用（区域 / 层级对不上就是素印）
+      if (save.run && save.run.pin) G.enterPinnacle(save.run.pin.tier, 'resume');
+      else G.enterZone(save.lastZone, save.tier, 'resume');
       W.update(0); // 首次运行会先停在开场卡片：先把镜头和灯光摆到玩家身上
       if (!save.seenHelp) {
         save.seenHelp = true;

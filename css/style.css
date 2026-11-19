@@ -3303,3 +3303,47 @@ body.panel-open #coach { display: none; }
 .trd-msg { min-height: 20px; margin: 8px 0 0; font-size: 13px; color: #ffd28a; }
 .trd-none { font-size: 13px; color: var(--faint); }
 .frag-row { grid-template-columns: repeat(4, 1fr); }
+
+/* ===== 余烛殿（D5）：HUD 左上的魂灯、地图页的余烛殿节点 ===== */
+#pin-lamps { display: none; align-items: center; gap: 5px; margin-top: 6px; font-size: 12px; color: #c9b896; letter-spacing: 1px; pointer-events: auto; }
+#pin-lamps.on { display: flex; }
+#pin-lamps .pl-k { margin-right: 2px; letter-spacing: 2px; color: #a8987c; }
+#pin-lamps .lamp { position: relative; width: 10px; height: 16px; border-radius: 2px 2px 3px 3px; background: linear-gradient(180deg, #4a4252, #2a2430); border: 1px solid #14101a; }
+#pin-lamps .lamp::before { content: ''; position: absolute; left: 50%; top: -9px; width: 6px; height: 9px; margin-left: -3px; border-radius: 50% 50% 40% 40%; background: #3a3440; }
+#pin-lamps .lamp.on { background: linear-gradient(180deg, #f2e4c8, #b8a688); border-color: #4a3c2a; }
+#pin-lamps .lamp.on::before { background: radial-gradient(ellipse at 50% 70%, #fff4d0, #ffb24a 55%, #d8561c); box-shadow: 0 0 8px #ffb24a, 0 0 2px #fff4d0; }
+#pin-lamps .pl-ph { margin-left: 8px; padding: 0 7px; line-height: 18px; color: #ffe2b0; background: rgba(60, 34, 14, 0.7); border: 1px solid #6a4a24; border-radius: 2px; letter-spacing: 3px; }
+.pin-node { flex: none; display: flex; margin-top: 14px; min-height: 0; background: linear-gradient(90deg, #1a110c, #0e0a08 70%); border: 1px solid #3d2c1e; border-radius: 3px; overflow: hidden; }
+.pin-node.ready { border-color: #8a6a3a; box-shadow: 0 0 22px rgba(255, 178, 74, 0.14); }
+.pin-node.here { border-color: #b08650; }
+.pn-art { position: relative; flex: none; width: 128px; background: radial-gradient(ellipse 70% 60% at 50% 100%, rgba(255, 178, 74, 0.55), transparent 70%), linear-gradient(180deg, #0c0810, #18121e); border-right: 1px solid #3d2c1e; }
+.pn-glyph { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); font-family: var(--serif); font-weight: 700; font-size: 64px; line-height: 1; text-align: center; color: #ffd8a0; text-shadow: 0 0 28px #ffb24a, 0 4px 10px rgba(0, 0, 0, 0.7); mix-blend-mode: screen; }
+.pn-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; padding: 10px 14px 12px; }
+.pn-head { display: flex; align-items: baseline; gap: 14px; }
+.pn-name { font-family: var(--serif); font-weight: 700; font-size: 20px; letter-spacing: 4px; color: #f2dfb8; }
+.pn-boss { font-size: 12.5px; color: var(--faint); letter-spacing: 1px; }
+.pn-boss b { color: #e6d7bd; font-weight: 600; }
+.pn-boss em { margin-left: 8px; font-style: normal; color: #8fc27a; }
+.pn-desc { font-size: 12.5px; line-height: 18px; color: #b9ac96; }
+.pn-slots { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.pn-slot { display: flex; align-items: center; gap: 6px; padding: 3px 8px 3px 4px; font-size: 12.5px; color: #8a7c66; background: #100b08; border: 1px dashed #3d2c1e; border-radius: 3px; }
+.pn-slot.ok { color: color-mix(in srgb, var(--c) 72%, #fff); border-style: solid; border-color: color-mix(in srgb, var(--c) 45%, #2e2219); }
+.pn-slot:not(.ok) .ibox { opacity: 0.35; filter: grayscale(1); }
+.pn-slot span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pn-slot b { color: #fff; font-variant-numeric: tabular-nums; }
+.pn-slot .ibox { flex: none; width: 30px; height: 30px; }
+.pn-slot .ibox .ico { width: 26px; height: 26px; }
+.pn-row { display: flex; align-items: center; gap: 12px; }
+.pn-k { font-size: 12px; letter-spacing: 2px; color: var(--faint); }
+.pn-lv { font-size: 12.5px; color: var(--dim); }
+.pn-lv b { color: var(--gold); }
+.pn-go { margin-left: auto; height: 32px; min-width: 96px; letter-spacing: 4px; }
+.pn-need { font-size: 12px; color: var(--faint); }
+.pn-need.bad { color: #ff8a6a; }
+@media (max-width: 900px) {
+  .pin-node { flex-direction: column; }
+  .pn-art { width: auto; height: 54px; border-right: 0; border-bottom: 1px solid #3d2c1e; }
+  .pn-glyph { font-size: 40px; }
+  .pn-slots { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pn-row { flex-wrap: wrap; }
+}
