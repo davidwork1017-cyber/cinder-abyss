@@ -8902,25 +8902,6 @@
   }
   // 低画质：区域的静态布景（岩石、摆件、合并的零件网格……）不投影，人物 / 怪 / 首领照旧投影（zones-polish）。
   // 测试槽位实测：低画质下阴影 pass 是图标预热空闲切片比 dec4bb9 慢的那一截（关掉阴影就回到 dec4bb9 以下）；布景的影子在低画质下看不太出来，人物脚下的影子留着
-  // 低画质：睡着的、离玩家 12 m 以外的怪不投影（醒着的、近的照旧）。区域加长、小怪 ×2 以后起点阴影相机（半边 22 m）里睡着的怪多了，
-  // 蒙皮网格在阴影 pass 里再蒙皮一遍，软件 GL 下就是图标预热慢下来的那一截（zones-polish 实测）。每帧只比一下距离，状态变了才遍历一次子网格
-  function mobShadowPolicy() {
-    const es = G.state && G.state.enemies, P = G.player;
-    if (!es || !P) return;
-    const low = qualId === 'low';
-    for (let i = 0; i < es.length; i++) {
-      const e = es[i], ent = e.ent;
-      if (!ent || ent.removed) continue;
-      const want = !low || e.awake || e.isBoss || Math.abs(e.x - P.x) + Math.abs(e.z - P.z) < 12;
-      if (ent.csOn === want) continue;
-      ent.csOn = want;
-      ent.group.traverse((o) => {
-        if (!o.isMesh) return;
-        if (o.userData.cs0 === undefined) o.userData.cs0 = o.castShadow;
-        o.castShadow = want && o.userData.cs0;
-      });
-    }
-  }
   function zoneShadowPolicy() {
     if (!zoneGroup) return;
     const off = qualId === 'low';
@@ -22870,7 +22851,6 @@
       camT.z += (P.z - camT.z) * k;
     }
     icullUpdate(camT.x, camT.z + CAM_LEAD); // 远处的实例不画（zones-polish）
-    mobShadowPolicy(); // 低画质：睡着的远处的怪不投影（zones-polish）
     let sx = 0, sy = 0;
     if (shakeAmt > 0.002) {
       sx = (Math.random() - 0.5) * shakeAmt * 1.1;
