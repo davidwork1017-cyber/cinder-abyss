@@ -4361,6 +4361,123 @@ async function main() {
     assert(r.boss > 0 && r.dead, '首领的预警圈应伤到召唤物，打死后移除：' + JSON.stringify(r));
   });
 
+  await summonStep('召唤物挡弹：敌人和玩家之间站着一只仆从，射向玩家的敌弹打中仆从就消失，玩家不挨这一发（同一轮三连扇射只结算一次伤害、三发都被挡下）；落点轰炸的预警圈不受遮挡，照常落在玩家身上', async () => {
+    const r = await ev(() => {
+      T.arena();
+      const P = G.player, S = G.state, out = {};
+      P.life = P.maxLife = 1e6;
+      const d = T.openDir(10); // 一路可走、没有墙的方向（敌弹从那边射过来）
+      out.len = d.len;
+      const at = (k) => ({ x: P.x + d.x * k, z: P.z + d.z * k });
+      const t = G.summonMinion('thrall', at(3).x, at(3).z);
+      G.debug.step(0.8);
+      t.hp = t.maxHp = 1e6;
+      let dealt = 0, hits = 0;
+      const hm0 = G.hurtMinion;
+      G.hurtMinion = function (m, amount) {
+        if (m === t) { dealt += amount; hits++; }
+        return hm0.apply(this, arguments);
+      };
+      // 仆从定在玩家前方 3 m（不让它走开），敌弹从 9 m 外直直射向玩家
+      const pin = () => { t.x = at(3).x; t.z = at(3).z; t.target = null; t.seekT = 1; };
+      const run = (n, f) => { for (let i = 0; i < n; i++) { pin(); if (f) f(); G.tick(1 / 60); } };
+      try {
+        pin();
+        const l0 = P.life;
+        const p = G.spawnProjectile({ owner: 'e', x: at(9).x, z: at(9).z, dx: -d.x, dz: -d.z, speed: 11, r: 0.35, life: 2.5, dmg: 25, dtype: 'phys' });
+        let goneZ = null; // 弹丸消失时离玩家多远（沿来向）
+        run(60, () => { if (goneZ === null && S.projectiles.indexOf(p) < 0) goneZ = -+((p.x - P.x) * d.x + (p.z - P.z) * d.z).toFixed(2); });
+        out.single = { dealt, hits, goneZ, player: l0 - P.life, left: S.projectiles.filter((q) => q.owner === 'e').length };
+        dealt = hits = 0;
+        // 同一轮齐射（volley 相同）的三发：都被挡下，对仆从只结算一次
+        const l1 = P.life;
+        for (let i = -1; i <= 1; i++) G.spawnProjectile({ owner: 'e', x: at(9).x + d.z * i * 0.25, z: at(9).z - d.x * i * 0.25, dx: -d.x, dz: -d.z, speed: 12, r: 0.32, life: 2.3, dmg: 20, dtype: 'light', volley: 987654 });
+        run(60);
+        out.fan = { dealt, hits, player: l1 - P.life, left: S.projectiles.filter((q) => q.owner === 'e').length };
+        // 例外：落点轰炸（首领的落石，地上的预警圈）不看召唤物，照常砸中玩家
+        const l2 = P.life;
+        G.telegraph({ shape: 'circle', x: at(0.5).x, z: at(0.5).z, r: 2.7, dur: 0.3, dmg: 30, dtype: 'cold', friendly: false });
+        run(30);
+        out.lob = { player: l2 - P.life };
+        // 没有召唤物挡着：照常打中玩家
+        const away = () => { t.x = P.x - d.x * 4; t.z = P.z - d.z * 4; t.target = null; t.seekT = 1; }; // 仆从挪到玩家身后
+        away();
+        const l3 = P.life;
+        G.spawnProjectile({ owner: 'e', x: at(6).x, z: at(6).z, dx: -d.x, dz: -d.z, speed: 11, r: 0.35, life: 2.5, dmg: 25, dtype: 'phys' });
+        for (let i = 0; i < 50; i++) { away(); G.tick(1 / 60); }
+        out.open = { player: l3 - P.life };
+      } finally {
+        G.hurtMinion = hm0;
+      }
+      return out;
+    });
+    assert(r.len >= 9.5, '竞技场里找不到 10 m 开阔的方向：' + r.len);
+    assert(r.single.hits === 1 && r.single.dealt === 25 && r.single.player === 0 && r.single.left === 0, '敌弹应打中挡在中间的仆从并消失，玩家不挨这一发：' + JSON.stringify(r.single));
+    assert(r.single.goneZ !== null && r.single.goneZ < -1.8 && r.single.goneZ > -4.2, '敌弹应停在仆从身上（玩家前方约 3 m）：' + JSON.stringify(r.single));
+    assert(r.fan.hits === 1 && r.fan.dealt === 20 && r.fan.player === 0 && r.fan.left === 0, '同一轮三连扇射应都被挡下、只结算一次：' + JSON.stringify(r.fan));
+    assert(r.lob.player > 0, '落点轰炸的预警圈应照常落在玩家身上：' + JSON.stringify(r.lob));
+    assert(r.open.player > 0, '没有召唤物挡着的敌弹应照常打中玩家：' + JSON.stringify(r.open));
+    return '挡下停在玩家前方 ' + -r.single.goneZ + ' m';
+  });
+
+  await summonStep('召唤物寻敌：离玩家约 11 m 的敌人（离身后的召唤物 13 m 多）有召唤物去打；醒着的远程怪在 15 m 外放冷枪也会被找上；还睡着的远处怪（离玩家 14 m）不会被召唤物拉过来', async () => {
+    const r = await ev(() => {
+      T.arena();
+      const P = G.player, S = G.state, W = G.world, out = {};
+      P.life = P.maxLife = 1e6;
+      G.debug.god(true);
+      // 找一个 17 m 都走得通、看得见的方向
+      let dir = null;
+      for (let k = 0; k < 16 && !dir; k++) {
+        const a = (k / 16) * Math.PI * 2, sx = Math.sin(a), sz = Math.cos(a);
+        let ok = W.walkable(P.x - sx * 3, P.z - sz * 3, 0.6);
+        for (let d = 0.5; d <= 17 && ok; d += 0.5) ok = W.walkable(P.x + sx * d, P.z + sz * d, 0.7) && W.shotFree(P.x + sx * d, P.z + sz * d, -0.3);
+        if (ok) dir = { sx, sz };
+      }
+      if (!dir) return { noDir: true };
+      const at = (d) => ({ x: P.x + dir.sx * d, z: P.z + dir.sz * d });
+      const summon = () => {
+        G.clearMinions();
+        const b = at(-2.5);
+        for (let i = 0; i < 2; i++) G.summonMinion('thrall', b.x, b.z);
+        G.debug.step(1.0);
+      };
+      const watch = (e, sec) => {
+        let tEng = -1;
+        for (let i = 0; i < sec * 60; i++) {
+          G.tick(1 / 60);
+          if (tEng < 0 && S.minions.some((m) => m.target === e)) tEng = +((i + 1) / 60).toFixed(2);
+        }
+        return { tEng, hurt: Math.round(e.maxHp - e.hp), awake: !!e.awake };
+      };
+      const put = (type, d, awake) => {
+        const q = at(d);
+        const e = G.spawnMob(type, q.x, q.z, 1, { awake });
+        if (awake) e.wasAwake = true;
+        e.hp = e.maxHp = 1e6;
+        e.atkCd = 1e9;
+        e.speed = 0;
+        return e;
+      };
+      summon();
+      out.d11 = watch(put('husk', 11, true), 4);
+      G.clearEnemies();
+      summon();
+      out.d15 = watch(put('spitter', 15.5, true), 5);
+      G.clearEnemies();
+      summon();
+      const sleeper = put('husk', 14.6, false);
+      out.sleep = watch(sleeper, 3);
+      G.clearEnemies();
+      return out;
+    });
+    assert(!r.noDir, '竞技场里找不到 17 m 开阔的方向');
+    assert(r.d11.tEng >= 0 && r.d11.tEng < 1 && r.d11.hurt > 0, '离玩家 11 m 的敌人应很快有召唤物去打：' + JSON.stringify(r.d11));
+    assert(r.d15.tEng >= 0 && r.d15.tEng < 1 && r.d15.hurt > 0, '醒着的远程怪在 15 m 外也应被召唤物找上：' + JSON.stringify(r.d15));
+    assert(r.sleep.tEng < 0 && !r.sleep.awake, '还睡着的远处怪不应被召唤物拉过来：' + JSON.stringify(r.sleep));
+    return '开打 11 m ' + r.d11.tEng + ' s · 15 m ' + r.d15.tEng + ' s';
+  });
+
   await summonStep('焚骨祭司：Shift + 按键在准星处唤起，自动召唤补到上限 2 位；镶群聚 +1，天赋 / 护符的「仆从数量」不算；站在后排朝怪堆掷火弹，一弹炸到多个敌人，攒满焰蓄召下坠焰', async () => {
     await ev(() => {
       T.arena();
@@ -4700,8 +4817,8 @@ async function main() {
       G.clearEnemies();
       out.respawn = S.minions.length === 4 && S.minions.every((m) => Math.hypot(m.x - P.x, m.z - P.z) < 5);
       G.debug.step(1.2);
-      // 远处的敌人（离玩家 15）不去追
-      const far = T.mob('husk', 15, 0);
+      // 远处的敌人不去追：离玩家 20（量到边缘 19.45），超过醒着的敌人的追击距离（仆从 / 守像 / 英灵 17、祭司 18）和集火目标的 19
+      const far = T.mob('husk', 20, 0);
       G.debug.step(1.5);
       out.chaseFar = S.minions.filter((m) => m.target === far).length;
       out.farHurt = far.maxHp - far.hp;
@@ -9170,7 +9287,11 @@ async function main() {
       T.unfix();
       T.clearLoot();
       U.pity.warden = G.UNIQUE_DROP.pity;
+      // 这一次只看烬铸：首领那件渊契（真随机数下常常也掉）的大字提示会盖掉烬铸的，先关掉首领来源再放回去
+      const rqBoss = G.RELIC_DROP && G.RELIC_DROP.src.boss;
+      if (G.RELIC_DROP) G.RELIC_DROP.src.boss = false;
       G.dropLoot({ isBoss: true, bossKind: 'warden', level: 28, x: P.x, z: P.z - 3 });
+      if (G.RELIC_DROP) G.RELIC_DROP.src.boss = rqBoss;
       const l = S.loot.find((x) => x.kind === 'item' && x.data.rarity === 3);
       out.full = l ? { uq: l.data.uq, ilvl: l.data.ilvl, color: l.color, label: l.label, beam: l.mesh.children.length } : null;
       out.pityReset = U.pity.warden || 0;
@@ -9652,6 +9773,86 @@ async function main() {
     assert(Math.abs(r.spawn.cd - 15) < 1e-6 && r.spawn.dmg > 0, '冷却 15 秒、英灵落地应伤到敌人：' + JSON.stringify(r.spawn));
     assert(r.after.wraiths === 0 && r.after.thralls === 2 && r.after.soul >= 6, '8 秒后英灵应消散（魂火炸开），仆从留着：' + JSON.stringify(r.after));
     return '英灵生命 ' + r.ctx.life + ' · 每击 ' + r.ctx.hit + ' · 消散魂火 ' + r.after.soul;
+  });
+
+  await step('万魂旗不带位移：按住方向键放万魂降临，施放途中人站定不动（英灵照样落在准星一带）；右键魂引不按方向键时原地不动；施放结束后方向键照常能走', async () => {
+    const r = await ev(() => {
+      T.arena();
+      G.debug.god(true);
+      const P = G.player, S = G.state, keys = G.input.keys, out = {};
+      const w0 = G.save.equip.weapon;
+      try {
+        G.save.equip.weapon = G.rollUnique('wanhun', 40, 0.5);
+        G.computeStats();
+        const e = T.mob('husk', 0, -7);
+        T.aim(P.x, P.z - 6);
+        P.cds.soulhost = 0;
+        P.mana = P.maxMana;
+        keys.KeyD = true;
+        G.input.tap[4] = 0.3;
+        // 从起手那一帧量起，量到收招（P.cast 不再是万魂降临）
+        let x0 = null, z0 = null, n = 0, moved = 0;
+        for (let i = 0; i < 90; i++) {
+          G.tick(1 / 60);
+          const on = !!(P.cast && P.cast.id === 'soulhost');
+          if (on && x0 === null) { x0 = P.x; z0 = P.z; }
+          if (on) { n++; moved = Math.max(moved, Math.hypot(P.x - x0, P.z - z0)); }
+          else if (x0 !== null) break;
+        }
+        const cast = n >= 40;
+        out.host = { cast, frames: n, moved: +moved.toFixed(3), wraiths: S.minions.filter((m) => !m.dead && m.kind === 'wraith' && Math.hypot(m.x - P.x, m.z - (P.z - 6)) < 5).length };
+        for (let i = 0; i < 30; i++) G.tick(1 / 60);
+        out.walk = +Math.hypot(P.x - x0, P.z - z0).toFixed(2); // 施放结束后照常走
+        keys.KeyD = false;
+        G.debug.step(0.2);
+        // 右键魂引：不按方向键
+        const x1 = P.x, z1 = P.z;
+        T.aim(e.x, e.z);
+        G.input.tap[1] = 0.3;
+        let wisp = false;
+        for (let i = 0; i < 40; i++) { G.tick(1 / 60); if (S.projectiles.some((p) => p.wisp)) wisp = true; }
+        out.basic = { wisp, moved: +Math.hypot(P.x - x1, P.z - z1).toFixed(3) };
+      } finally {
+        keys.KeyD = false;
+        G.save.equip.weapon = w0;
+        G.computeStats();
+        G.clearMinions();
+      }
+      return out;
+    });
+    assert(r.host.cast && r.host.moved < 0.01 && r.host.wraiths >= 5, '按住方向键放万魂降临，人应站定不动、英灵落在准星一带：' + JSON.stringify(r.host));
+    assert(r.walk > 0.5, '施放结束后方向键应照常能走：' + JSON.stringify(r));
+    assert(r.basic.wisp && r.basic.moved < 0.01, '右键魂引不应带位移：' + JSON.stringify(r.basic));
+    return '施放中位移 ' + r.host.moved + ' m，之后走了 ' + r.walk + ' m';
+  });
+
+  await step('大字提示不互相顶掉：同一帧掉两件珍品（渊契 + 烬铸），新的占正中的大字，先到的缩成一行留在下面，两条都看得见；一下子来 5 条时下面只留 2 条，其余并成「另有 N 件珍品」；各自放完就消失', async () => {
+    const vis = () =>
+      ev(() => {
+        const bt = document.getElementById('big-toast'), st = document.getElementById('big-toast-stack');
+        const seen = (el) => !!el && getComputedStyle(el).visibility === 'visible' && el.getBoundingClientRect().height > 0;
+        return { main: bt ? bt.innerText.replace(/\s+/g, ' ') : '', mainOn: !!bt && bt.classList.contains('on') && seen(bt), stack: st ? st.innerText.replace(/\s+/g, ' ') : '', stackOn: seen(st), rows: st ? st.querySelectorAll('.bts-row').length : 0 };
+      });
+    await ev(() => {
+      G.ui.bigToastReset(); // 前面步骤（首领掉落）留下的大字先收起来
+      G.ui.bigToast(G.RELIC_NAME, '甲之渊契', G.RELIC_COLOR, '机制甲');
+      G.ui.bigToast('烬铸武器', '乙之烬铸', G.RARITY_COLOR[3], '机制乙');
+    });
+    const two = await vis();
+    await ev(() => {
+      for (let i = 1; i <= 3; i++) G.ui.bigToast('烬铸武器', '丙之' + i, G.RARITY_COLOR[3], '');
+    });
+    const five = await vis();
+    await sleep(3000);
+    const later = await vis();
+    await sleep(2200);
+    const gone = await vis();
+    assert(two.mainOn && /乙之烬铸/.test(two.main) && !/甲之渊契/.test(two.main), '后到的应占正中的大字：' + JSON.stringify(two));
+    assert(two.stackOn && /甲之渊契/.test(two.stack) && two.rows === 1, '先到的应缩成一行留在下面：' + JSON.stringify(two));
+    assert(/丙之3/.test(five.main) && five.rows === 3 && /丙之2/.test(five.stack) && /丙之1/.test(five.stack) && /另有 2 件珍品/.test(five.stack), '5 条时下面应只留 2 条、其余并成一行：' + JSON.stringify(five));
+    assert(later.stackOn && later.rows >= 1, '排在下面的应放满自己的时间（3 秒时还在）：' + JSON.stringify(later));
+    assert(!gone.stackOn && !gone.mainOn, '放完之后应全部消失：' + JSON.stringify(gone));
+    return '两条：' + two.main + ' ｜ ' + two.stack;
   });
 
   await step('烬铸技换装冷却：千刃归烬进冷却后换成普通太刀，瞬断带着同样比例的冷却；马上换回烬断，千刃归烬的冷却不会被重置；反过来瞬断进冷却后换上烬断，千刃归烬也带着比例冷却', async () => {
@@ -11210,7 +11411,7 @@ async function main() {
     return r.n + ' 件 · 往返留下 ' + r.kept;
   });
 
-  await step('渊契掉落：首领那一件按层级的几率（层级 1 5%、层级 2 起 8%，N = 4000，±15%），层级 0 不掉也不计保底；连续 10 次没掉第 11 次必掉、掉了清零；和烬铸的判定、保底互不影响；异兆 / 烈印 / 拾烬客的来源都关着（打开后各自按保底掉）', async () => {
+  await step('渊契掉落：首领那一件按层级的几率（和烬铸一样：层级 1 15%、层级 2 起 25%，N = 4000，±15%），烈印 W ≥ 6 时 × 1.5、封顶 35%（层级 1 22.5%、层级 2 35%），层级 0 不掉也不计保底；连续 2 次没掉第 3 次必掉、掉了清零；和烬铸的判定、保底互不影响；异兆 / 烈印 / 拾烬客的来源都关着（打开后各自按保底掉）', async () => {
     const r = await ev(() => {
       RQT.begin(null);
       const P = G.player, U = G.save.relic, D = G.RELIC_DROP, S = G.state;
@@ -11221,9 +11422,18 @@ async function main() {
       Math.random = () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
       const rate = (kind, tier) => { const id = G.RELIC_BY_BOSS[kind]; let n = 0; for (let i = 0; i < 4000; i++) { delete U.pity[id]; if (G.relicBossRoll(kind, tier)) n++; } delete U.pity[id]; return n / 4000; };
       const uq0 = JSON.stringify(G.save.uniq.pity);
+      // 烈印的 W 先按 0（D3 上线后 G.runSealW 是真的，量完放回去）
+      const sw0 = G.runSealW;
+      G.runSealW = () => 0;
       out.r1 = rate('golem', 1);
       out.r2 = rate('warden', 2);
       out.r3 = rate('behemoth', 3);
+      // 烈印 W ≥ 6：× sealMul，最终不超过 sealCap
+      G.runSealW = () => 6;
+      out.s1 = rate('golem', 1);
+      out.s2 = rate('warden', 2);
+      if (sw0) G.runSealW = sw0;
+      else delete G.runSealW;
       let n0 = 0;
       for (let i = 0; i < 4000; i++) if (G.relicBossRoll('lord', 0)) n0++;
       out.t0 = [n0, U.pity.haiwang || 0];
@@ -11272,14 +11482,15 @@ async function main() {
       return out;
     });
     const near = (v, p) => Math.abs(v - p) <= p * 0.15;
-    assert(near(r.r1, 0.05) && near(r.r2, 0.08) && near(r.r3, 0.08), '首领渊契的几率不对：' + JSON.stringify(r));
+    assert(near(r.r1, 0.15) && near(r.r2, 0.25) && near(r.r3, 0.25), '首领渊契的几率不对：' + JSON.stringify(r));
+    assert(near(r.s1, 0.225) && near(r.s2, 0.35), '烈印下首领渊契应 × 1.5、封顶 35%：' + JSON.stringify(r));
     assert(r.t0.join() === '0,0', '层级 0 不该掉、不该计保底：' + r.t0);
-    assert(r.pity.join() === '11,0', '保底应在第 11 次必掉并清零：' + r.pity);
+    assert(r.pity.join() === '3,0', '保底应在第 3 次必掉并清零：' + r.pity);
     assert(r.uqSame && r.rqSame, '渊契和烬铸的保底互相影响了：' + JSON.stringify(r));
     assert(r.map === 'behemoth:yinli,golem:panzhong,lord:haiwang,warden:nuchao,weaver:huixuan', '首领 → 渊契对应不对：' + r.map);
     assert(r.src === 'true,false,false,false' && r.off === 'true,true,true', '异兆 / 烈印 / 拾烬客来源应关着：' + JSON.stringify(r));
     assert(r.encOn.join() === 'dianqiao,0' && r.sealLow && r.sealOn.join() === 'true,0', '打开来源后应按保底掉落：' + JSON.stringify(r));
-    return '层级 1 ' + (r.r1 * 100).toFixed(1) + '% · 层级 2 ' + (r.r2 * 100).toFixed(1) + '% · 保底第 ' + r.pity[0] + ' 次';
+    return '层级 1 ' + (r.r1 * 100).toFixed(1) + '% · 层级 2 ' + (r.r2 * 100).toFixed(1) + '% · 烈印 ' + (r.s1 * 100).toFixed(1) + '% / ' + (r.s2 * 100).toFixed(1) + '% · 保底第 ' + r.pity[0] + ' 次';
   });
 
   await step('踏震（磐踵）：翻滚落地震地，半径 4.5 米（RELIC_MECH.panzhong.r）内的敌人吃 1.1 倍武器伤害（物理攻击，吃伤害加成），外面的不吃；两次至少隔 0.8 秒；翻滚冷却 +30%，摘下就恢复', async () => {
@@ -11778,7 +11989,7 @@ async function main() {
     return '一串 6 个 · 各 ' + r.share;
   });
 
-  await step('渊契图鉴：拾到记进图鉴（最高完美度）、图标马上进预热；保底计数和图鉴存档往返后保留；畸形数据被修正（未知 id 丢、完美度 0–100、计数截到上限）；旧存档没有 relic 也照常读（空图鉴）；背包页列出 13 件', async () => {
+  await step('渊契图鉴：拾到记进图鉴（最高完美度）、图标马上进预热；保底计数和图鉴存档往返后保留；畸形数据被修正（未知 id 丢、完美度 0–100、计数截到上限）；掉率改版前攒下的计数（旧上限 10 / 8 / 15）截到新上限 2 / 3 / 3，满了的下一次首领击杀必掉；旧存档没有 relic 也照常读（空图鉴）；背包页列出 13 件', async () => {
     const r = await ev(() => {
       RQT.begin(null);
       const P = G.player, KEY = 'cinder-abyss-save-v1';
@@ -11790,8 +12001,8 @@ async function main() {
       const loot = G.state.loot[G.state.loot.length - 1];
       const ok = G.pickup(loot);
       const out = { ok, found: !!G.save.relic.found.qianmu, best: G.save.relic.best.qianmu, warm: G.icons.rqWarm().indexOf('qianmu') >= 0 };
-      G.save.relic.pity.panzhong = 7;
-      G.save.relic.pity.seal = 3;
+      G.save.relic.pity.panzhong = 1;
+      G.save.relic.pity.seal = 2;
       G.persist();
       G.loadSave();
       out.round = [!!G.save.relic.found.qianmu, G.save.relic.best.qianmu, G.save.relic.pity.panzhong, G.save.relic.pity.seal].join();
@@ -11802,6 +12013,15 @@ async function main() {
       G.loadSave();
       const s = G.save.relic;
       out.bad = T.canon(s);
+      // 掉率改版前的存档：首领 7 / 2 / 1、异兆 6、烈印 12 → 截到 2 / 2 / 1、3、3；满了的下一次必掉并清零，没满的照常 +1
+      raw.relic = { found: {}, best: {}, pity: { panzhong: 7, huixuan: 2, nuchao: 1, dianqiao: 6, seal: 12 } };
+      localStorage.setItem(KEY, JSON.stringify(raw));
+      G.loadSave();
+      const cp = G.save.relic.pity;
+      out.carry = [cp.panzhong, cp.huixuan, cp.nuchao, cp.dianqiao, cp.seal].join();
+      T.fix(0.999);
+      out.carryDrop = [G.relicBossRoll('golem', 1), G.relicBossRoll('warden', 1), cp.panzhong || 0, cp.nuchao].join();
+      T.unfix();
       // 旧存档：没有 relic，背包里也没有渊契
       delete raw.relic;
       raw.bag = [];
@@ -11820,8 +12040,9 @@ async function main() {
       return out;
     });
     assert(r.ok && r.found && r.best === 100 && r.warm, '拾取应记进图鉴、图标进预热：' + JSON.stringify(r));
-    assert(r.round === 'true,100,7,3', '图鉴 / 保底存档往返不对：' + r.round);
-    assert(r.bad === '{"best":{"qianmu":100},"found":{"qianmu":true},"pity":{"panzhong":10,"yinli":3}}', '畸形数据没修好：' + r.bad);
+    assert(r.round === 'true,100,1,2', '图鉴 / 保底存档往返不对：' + r.round);
+    assert(r.bad === '{"best":{"qianmu":100},"found":{"qianmu":true},"pity":{"panzhong":2,"yinli":2}}', '畸形数据没修好：' + r.bad);
+    assert(r.carry === '2,2,1,3,3' && r.carryDrop === 'panzhong,,0,2', '旧存档的保底计数应截到新上限、满了下一次必掉：' + JSON.stringify(r));
     assert(r.old === '{"best":{},"found":{},"pity":{}}', '旧存档应是空图鉴：' + r.old);
     assert(r.rows === 13 && r.title, '背包页应列出 13 件渊契：' + JSON.stringify(r));
     return '往返 ' + r.round;

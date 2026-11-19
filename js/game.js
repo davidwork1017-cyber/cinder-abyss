@@ -521,7 +521,8 @@
     G.variantRedone = s.varNote ? 1 : 0;
     // 身上 / 背包里已有的烬铸武器也算拾到过（旧数据缺图鉴时补上）
     for (const it of s.bag.concat(s.equip.weapon ? [s.equip.weapon] : [])) if (it.rarity === 3) noteUnique(it, s);
-    // 渊契图鉴：同上，只认 G.RELICS 的 id 和保底的键（渊契 id、'seal'）；旧存档没有这一项就是空的
+    // 渊契图鉴：同上，只认 G.RELICS 的 id 和保底的键（渊契 id、'seal'）；旧存档没有这一项就是空的。
+    // 保底计数截到现在的上限：掉率改版前攒下的（旧上限 10 / 8 / 15）超过新上限时按满计，下一次必掉
     const rr = isObj(raw.relic) ? raw.relic : {};
     const qf = isObj(rr.found) ? rr.found : {};
     const qb = isObj(rr.best) ? rr.best : {};
@@ -1857,11 +1858,12 @@
   // 烈印的总权重 W（D3 的 G.runSealW 提供；还没有渊印时为 0）
   const sealW = () => (typeof G.runSealW === 'function' ? G.runSealW() || 0 : 0);
   // 区域首领的那一件：只掷、不掉（返回掉了的渊契 id 或 null）。和烬铸分开掷、各计各的保底；层级 0 不掉也不计保底
+  // 烈印（W ≥ seal.minW）下几率 × sealMul，最多 sealCap
   G.relicBossRoll = function (kind, tier) {
     const D = G.RELIC_DROP;
     const id = G.RELIC_BY_BOSS[kind];
     if (!D.src.boss || !id || !(tier >= 1)) return null;
-    const p = G.relicChance(tier) * (sealW() >= D.seal.minW ? D.sealMul : 1);
+    const p = sealW() >= D.seal.minW ? Math.min(D.sealCap, G.relicChance(tier) * D.sealMul) : G.relicChance(tier);
     return relicRoll(id, p, D.boss.pity) ? id : null;
   };
   // dropLoot 首领分支的一行钩子：首领那一件 + 烈印来源
@@ -3045,25 +3047,42 @@
 
   const recentVolleys = []; // 最近伤到过玩家的齐射编号
 
-  // 敌方弹丸擦过召唤物（至多五六只，逐个比距离）：每发弹丸对每只召唤物至多结算一次，
-  // 同一轮齐射对同一只召唤物也只结算一次。弹丸不会被挡下：躲在召唤物身后照样挨射
-  function hostileGrazesMinions(p) {
-    const ms = state.minions;
+  // 敌方弹丸撞上召唤物：挡在弹道上的召唤物吃下这一发，弹丸就此消失（p.pierce > 0 的才继续飞，敌方弹丸目前都不穿透）。
+  // 同一轮齐射对同一只召唤物只结算一次伤害（和玩家一样：贴脸吃满一圈弹幕不会被瞬间打空），后到的弹丸照样被它挡下。
+  // 候选：这一帧弹道的包围盒附近的召唤物（minionsNear 每发弹丸每帧筛一次，通常 0～2 只），每小步只和它们比距离
+  const _mNear = [];
+  function minionsNear(p, total) {
+    _mNear.length = 0;
+    const ms = state.minions, pad = p.r + 1.0; // 1.0：最大的召唤物（守像）半径 0.95
+    const x0 = Math.min(p.x, p.x + p.dx * total) - pad, x1 = Math.max(p.x, p.x + p.dx * total) + pad;
+    const z0 = Math.min(p.z, p.z + p.dz * total) - pad, z1 = Math.max(p.z, p.z + p.dz * total) + pad;
     for (let j = 0; j < ms.length; j++) {
       const m = ms[j];
-      if (m.dead || m.rising > 0) continue;
-      if (dist(m.x, m.z, p.x, p.z) > p.r + m.r) continue;
-      if (!p.mHit) p.mHit = [];
-      else if (p.mHit.indexOf(m) >= 0) continue;
-      p.mHit.push(m);
-      const v = p.volley;
-      if (v !== undefined && v !== null) {
-        if (m.volley === v) continue;
-        m.volley = v;
-      }
-      G.hurtMinion(m, p.dmg, p.dtype, { x: p.x - p.dx, z: p.z - p.dz });
-      if (!projFx(p, 'hit')) G.world.burst(p.x, 1.1, p.z, p.color, 4, 3, 0.2);
+      if (m.dead || m.rising > 0 || m.x < x0 || m.x > x1 || m.z < z0 || m.z > z1) continue;
+      _mNear.push(m);
     }
+    return _mNear.length;
+  }
+  // 这一小步撞上了候选里的哪只召唤物：结算并返回 true（弹丸该消失）；没撞上 / 穿透了返回 false
+  function hostileHitsMinion(p) {
+    for (let j = 0; j < _mNear.length; j++) {
+      const m = _mNear[j];
+      if (m.dead || dist(m.x, m.z, p.x, p.z) > p.r + m.r) continue;
+      if (p.mHit && p.mHit.indexOf(m) >= 0) continue; // 穿透弹已经打过它
+      const v = p.volley;
+      if (v === undefined || v === null || m.volley !== v) {
+        if (v !== undefined && v !== null) m.volley = v;
+        G.hurtMinion(m, p.dmg, p.dtype, { x: p.x - p.dx, z: p.z - p.dz });
+      }
+      if (!projFx(p, 'hit')) G.world.burst(p.x, 1.1, p.z, p.color, 6, 3, 0.25);
+      if (p.pierce > 0) {
+        p.pierce--;
+        (p.mHit || (p.mHit = [])).push(m);
+        continue;
+      }
+      return true;
+    }
+    return false;
   }
 
   // 投射物的命中 / 撞墙 / 爆炸特效：world 认得这种外形就由它画（返回 true），否则调用方用通用火花
@@ -3178,6 +3197,7 @@
       const total = p.speed * dt;
       const steps = Math.max(1, Math.ceil(total / 0.45));
       const step = total / steps;
+      const mNear = p.owner !== 'p' && state.minions.length && G.hurtMinion ? minionsNear(p, total) : 0; // 敌方弹丸：这一帧可能撞上的召唤物
       for (let s = 0; s < steps && alive; s++) {
         p.x += p.dx * step;
         p.z += p.dz * step;
@@ -3234,8 +3254,11 @@
             break; // 每小步最多命中一个
           }
         } else {
-          // 擦过召唤物照样结算它的那一份，但弹丸不会被挡下，继续飞向身后的玩家
-          if (G.hurtMinion && state.minions.length) hostileGrazesMinions(p);
+          // 召唤物挡在弹道上：它吃下这一发，弹丸到此为止，身后的玩家不再挨这一下
+          if (mNear && hostileHitsMinion(p)) {
+            alive = false;
+            break;
+          }
           if (P.dead || dist(P.x, P.z, p.x, p.z) > p.r + 0.5) continue;
           // 同一轮齐射（volley 相同）只结算一次伤害：贴脸吃满一圈弹幕不该被瞬间打空
           const v = p.volley;
@@ -6514,7 +6537,8 @@
     const c = {
       slot, id: ctx.id, t: 0, fired: false, aim: ang, step: -1, st: null, ws: true, phase: 0,
       phases: wt.phases.map((t) => t / sp), cancelT: wt.cancel / sp, dur: wt.dur / sp,
-      move: sk.move || 0, fb: false, data: {}, ctx: null, tick: null,
+      // 召唤英灵的技能（万魂降临，sk.champ）：sk.move 是英灵的移速，不是施放时你的走速——施放途中站定不动（原来按 8.2 倍走速冲出去一大截）
+      move: sk.champ ? 0 : sk.move || 0, fb: false, data: {}, ctx: null, tick: null,
     };
     c.fireT = c.phases[0];
     if (sk.kind === 'wdaggers') {

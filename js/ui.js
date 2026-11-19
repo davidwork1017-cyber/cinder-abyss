@@ -1191,8 +1191,46 @@
   }
 
   // ============================================================
-  // 烬铸掉落：屏幕正中的大字提示（几秒后淡出，同时只留一条）
+  // 烬铸 / 渊契掉落：屏幕正中的大字提示（几秒后淡出）。
+  // 上一条还没放完又来一条（同一只首领同时掉渊契和烬铸）：新的占正中的大字，先到的缩成一行排在下面（#big-toast-stack），
+  // 各自放满自己的时间（被挤下去的至少再留 BT_KEEP 毫秒），谁也不会被顶掉；排着的超过 BT_MAX 条时只留最新的 BT_MAX - 1 条，其余并成「另有 N 件珍品」
   // ============================================================
+  const BT_SHOW = 4300, BT_KEEP = 2600, BT_MAX = 3;
+  let btCur = null; // 正中那一条：{ title, name, color, until }
+  const btStack = []; // 缩到下面的几条（先到的在前）
+  function btStackRender() {
+    let box = el.bigToastStack;
+    if (!box) {
+      box = el.bigToastStack = document.createElement('div');
+      box.id = 'big-toast-stack';
+      document.body.appendChild(box);
+    }
+    const now = performance.now();
+    for (let i = btStack.length - 1; i >= 0; i--) if (btStack[i].until <= now) btStack.splice(i, 1);
+    const rows = btStack.length > BT_MAX ? btStack.slice(btStack.length - (BT_MAX - 1)) : btStack.slice();
+    let html = rows
+      .slice()
+      .reverse()
+      .map((b) => '<div class="bts-row" style="--c:' + esc(b.color || '#ff9b3d') + '"><span class="bts-t">' + esc(b.title) + '</span>' + esc(b.name) + '</div>')
+      .join('');
+    if (btStack.length > rows.length) html += '<div class="bts-row bts-more">另有 ' + (btStack.length - rows.length) + ' 件珍品</div>';
+    box.innerHTML = html;
+    box.classList.toggle('on', btStack.length > 0);
+    clearTimeout(box._t);
+    if (btStack.length) box._t = setTimeout(btStackRender, Math.max(30, Math.min.apply(null, btStack.map((b) => b.until)) - now + 5));
+  }
+  // 收起全部大字提示（正中那条和排在下面的）：测试用
+  function bigToastReset() {
+    btCur = null;
+    btStack.length = 0;
+    if (el.bigToastStack) btStackRender();
+    const box = el.bigToast;
+    if (box) {
+      clearTimeout(box._t1);
+      clearTimeout(box._t2);
+      box.classList.remove('on', 'out');
+    }
+  }
   function bigToast(title, name, color, sub) {
     let box = el.bigToast;
     if (!box) {
@@ -1200,6 +1238,13 @@
       box.id = 'big-toast';
       document.body.appendChild(box);
     }
+    const now = performance.now();
+    if (btCur && btCur.until > now) {
+      btCur.until = Math.max(btCur.until, now + BT_KEEP);
+      btStack.push(btCur);
+    }
+    btCur = { title, name, color, until: now + BT_SHOW };
+    btStackRender();
     box.innerHTML = '<div class="bt-t">' + esc(title) + '</div><div class="bt-n">' + esc(name) + '</div>' + (sub ? '<div class="bt-s">' + esc(sub) + '</div>' : '');
     if (color) box.style.setProperty('--c', color);
     box.classList.toggle('rq', color === G.RELIC_COLOR); // 渊契：底色和光晕换成冷的翠色
@@ -5436,6 +5481,7 @@
     showIntro,
     onPickup,
     bigToast,
+    bigToastReset,
     verdict, // 换装评估（只读）：{ badge, score, empty, lines } | null
     hints: () => ({ current: coach.cur ? coach.cur.id : null, state: coach.state, all: HINTS.map((h) => h.id), veteran: coach.vet, minShow: coach.minT, shownFor: coach.t }),
   };
