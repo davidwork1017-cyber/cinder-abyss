@@ -490,39 +490,14 @@
   //   count / spread 掷焰一次几团（每团各算各的命中）；returns 飞刃飞到头折返；line 链雷改直线贯穿；jump 链雷的跳距；
   //   fall 陨火一次落几颗；pick / noRepeat 影步的选目标；implode 黑洞结束时内爆；capK 召唤上限按比例折（凑不成整数的部分折进伤害）；
   //   size 召唤物体型；noCharge 祭司没有焰蓄和大招；freezeK 霜环在技能栏上时冻结时长倍率；selfOnly / flameAil 黑焰只给自己 / 黑焰的混沌异常累积倍率。
-  // name 刻式名，desc 换掉技能说明，pack 怪群上的取舍（技能页悬停显示）。数值的对等见设计稿 §5 和实现记录（单体 ±10%，光环 / 增益按总秒伤 ±5%）
+  // name 刻式名，desc 换掉技能说明，pack 怪群上的取舍（技能页悬停显示）。数值的对等见设计稿 §5 和实现记录（单体 ±10%，光环 / 增益按总秒伤 ±5%）。
+  // 裂石击不做刻式（用户定：它要从可学技能里拿掉，近战的右键连段接替），所以是 14 个技能；G.VARIANTS 里没有的技能照常是原式
   G.SKILL_BASE = JSON.parse(JSON.stringify(G.SKILLS));
   G.VARIANT_LVL = 10; // 宝石等级到这一级才能选
   G.VARIANT_COST = { cur: 'chaos', n: 1 }; // 每个技能第一次选免费，之后每换一次（含改回原式）付 1 颗乱流石
   G.VARIANT_SAFE_R = 25; // 这么远以内有醒着的怪就算在战斗中，不能换
   G.VARIANT_NAME = { o: '原式', a: 'A', b: 'B' };
   G.VARIANTS = {
-    cleave: {
-      a: {
-        name: '开山', pack: '每 1.2 秒一次大范围跃劈，把怪群震飞；出手慢',
-        desc: '两段连击：一记沉重的横斩，接跃起下劈的终结技，范围大、把敌人震飞。出手慢，每一下都重。不消耗魔力。',
-        set: {
-          time: 0.6, range: 3.8, arc: 130,
-          combo: [
-            { clip: 'attack1', time: 0.42, hit: 0.2, tail: 0.16, mult: 1.15, shape: 'arc', range: 3.8, arc: 130, dir: 1, lunge: 0.9, kb: 0.9, poise: 16, stop: 45, w: 1 },
-            { clip: 'attack3', time: 0.78, hit: 0.36, tail: 0.22, mult: 2.6, shape: 'smash', range: 3.6, reach: 2.6, lunge: 2.0, kb: 3.4, poise: 36, stop: 120, w: 2 },
-          ],
-        },
-      },
-      b: {
-        name: '连斩', pack: '扇面更宽、出手不停；不震飞，削架势少',
-        desc: '四段横斩左右交替、出手极快，扇面更宽，没有跃劈。不震飞敌人，削架势也少。不消耗魔力。',
-        set: {
-          time: 0.27, range: 3.4, arc: 150,
-          combo: [
-            { clip: 'attack1', time: 0.27, hit: 0.13, tail: 0.12, mult: 0.78, shape: 'arc', range: 3.4, arc: 150, dir: 1, lunge: 0.5, kb: 0.4, poise: 7, stop: 30, w: 0 },
-            { clip: 'attack2', time: 0.27, hit: 0.13, tail: 0.12, mult: 0.78, shape: 'arc', range: 3.4, arc: 150, dir: -1, lunge: 0.5, kb: 0.4, poise: 7, stop: 30, w: 0 },
-            { clip: 'attack1', time: 0.27, hit: 0.13, tail: 0.12, mult: 0.78, shape: 'arc', range: 3.4, arc: 150, dir: 1, lunge: 0.5, kb: 0.4, poise: 7, stop: 30, w: 0 },
-            { clip: 'attack2', time: 0.27, hit: 0.13, tail: 0.12, mult: 0.78, shape: 'arc', range: 3.4, arc: 150, dir: -1, lunge: 0.5, kb: 0.4, poise: 7, stop: 30, w: 0 },
-          ],
-        },
-      },
-    },
     ember: {
       a: {
         name: '焚球', pack: '每秒覆盖面积约 ×1.4；出手慢、弹速慢',
@@ -669,14 +644,16 @@
     },
     vortex: {
       a: {
-        name: '巨涡', pack: '一团慢慢碾过怪群；出手覆盖窄',
-        desc: '放出一团巨大的黑旋风，飞得慢、存在得久，吸附在敌人身上更久，持续绞碎周围的敌人；撞到墙会弹开。',
-        set: { count: 1, radius: 2.0, speed: 8, life: 3.5, latch: { t: 1.0 }, cap: 8, splashCap: 4, bossCap: 8, dmg: { chaos: [1.488, 2.328] }, useMult: 6 },
+        name: '巨涡', pack: '一团慢慢碾过怪群，把周围的怪拽进来一起绞；出手覆盖窄，飞得慢',
+        desc: '放出一团巨大的黑旋风，飞得慢、存在得久，吸附在敌人身上更久、把更远的小怪拽进来，卷到的敌人也挨得更多跳；撞到墙会弹开。',
+        // 实测（endgame-tools/v-hits.mjs，5 个种子 × 24 次）：单体小怪每次 7.3 跳（原式 2.95）、首领 4.3（原式 2.3）、16 只怪的空地 72.9（原式 21.4）；每跳 ×0.41
+        set: { count: 1, radius: 2.0, speed: 5, life: 3.5, latch: { t: 1.2, r: 3.2 }, cap: 8, splashCap: 8, bossCap: 8, dmg: { chaos: [1.271, 1.9885] }, useMult: 7.3 },
       },
       b: {
-        name: '涡群', pack: '满屏乱飞，铺得开；单团小、吸附短',
-        desc: '放出五团又小又快的黑旋风，路线飘忽，吸附一下就走，满屏乱飞；撞到墙会弹开。',
-        set: { count: 5, radius: 0.7, speed: 18, life: 1.6, latch: { t: 0.25 }, dmg: { chaos: [2.635, 4.1225] }, useMult: 3.4 },
+        name: '涡群', pack: '满屏乱飞，铺得开；单团小、吸附短，只是卷到的怪每次施放只挨 1 跳',
+        desc: '放出五团又小又快的黑旋风，路线飘忽，吸附一下就走，满屏乱飞；撞到墙会弹开。只是被卷到、没被吸附的敌人每次施放只挨一跳。',
+        // 实测（同上）：单体小怪每次 2.23 跳、首领 2.3、16 只怪 21.5；每跳 ×1.30
+        set: { count: 5, radius: 0.7, speed: 18, life: 1.6, latch: { t: 0.25 }, splashCap: 1, dmg: { chaos: [4.03, 6.305] }, useMult: 2.23 },
       },
     },
     blackflame: {
