@@ -400,16 +400,39 @@
     // 施法武器的普攻：法术（spell），不看武器伤害。edmg 是基础伤害，等级 = 武器物品等级 × 0.75（和法术型武器技一样），每级 +20%；
     // 元素取你火 / 冰 / 雷里伤害加成最高的那一种（并列时取 elem；不取混沌），吃法术的伤害提高、施法速度和镶着的法术辅助。
     // 单体秒伤约是同等级掷焰的六成：一直按着不耗蓝，打不过主力技能
-    // vk：投射物外形（world 的 PF_DRAW）；bclip：出手动作（施法 / 魂幡的普攻共用一个朝前点出的 b_point）
+    // vk：投射物外形（world 的 PF_DRAW）；cyc：出手节奏（按住 / 连点一段接一段，停手约 0.55 秒、翻滚或放别的技能从第一段起，
+    //   和近战连招共用 P.combo 的计数，但不是连招：走路、可取消的时刻照普通施法），每段 clip 出手动作、time 段长（再除以施法速度）、
+    //   hit 生效时刻占段长的比例（缺省 0.5）、mult 这一下的倍率。time / comboAvg（平均段长 / 平均倍率）在下面统一算，秒伤估算用
+    // 灵弹：两枚小灵弹接一枚蓄力的重弹（heavy：飞得慢、个头大、炸得大），重弹炸开时按这一下的元素追加 burst 里那一种：
+    //   fire 火：重弹本身改成 ×orb，脚下留一片燃地（r、dur 秒，每 tick 秒 ×tickMult；站着不动的目标正好补回 ×1.8）；
+    //   cold 冰：n 根冰棱从爆心往外飞 len 米（×mult，只打爆炸没炸到的、每个敌人至多一根），炸到的敌人再灌 chill 的冰缓；
+    //   light 雷：电弧弹向爆炸圈外 r 米内最近的 n 个敌人（×mult）。打单体三种元素一样，追加的部分只在怪群里多出伤害
     basic_staff: {
-      name: '灵弹', icon: '弹', color: '#ffb07a', tags: ['spell', 'projectile', 'area'], kind: 'proj', btype: 'staff', weaponOnly: true, basic: true, elemHex: true, vk: 'lbolt', bclip: 'b_point',
-      edmg: [8, 12], elem: 'fire', time: 0.55, mana: 0, cd: 0, speed: 20, explode: 1.6, projR: 0.3, w: 0, kb: 0.5, poise: 9,
-      desc: '右键从杖头射出一枚灵弹，命中后小范围炸开。属性取你伤害加成最高的元素，伤害随武器的物品等级成长。不消耗魔力。',
+      name: '灵弹', icon: '弹', color: '#ffb07a', tags: ['spell', 'projectile', 'area'], kind: 'proj', btype: 'staff', weaponOnly: true, basic: true, elemHex: true, vk: 'lbolt', bclip: 'b_staffA',
+      edmg: [8, 12], elem: 'fire', mana: 0, cd: 0, speed: 20, explode: 1.4, projR: 0.3, w: 0, kb: 0.5, poise: 9,
+      cyc: [
+        { clip: 'b_staffA', time: 0.45, mult: 0.7 },
+        { clip: 'b_staffB', time: 0.45, mult: 0.7 },
+        { clip: 'b_staffH', time: 0.85, hit: 0.62, mult: 1.8, heavy: true, speed: 14, projR: 0.45, explode: 2.4, vk: 'lbolt3', kb: 1.6, poise: 24 },
+      ],
+      burst: {
+        fire: { orb: 1.5, r: 1.8, dur: 1.5, tick: 0.3, tickMult: 0.06 },
+        cold: { n: 4, len: 4, speed: 16, mult: 0.45, chill: 0.2 },
+        light: { n: 2, r: 6, mult: 0.6 },
+      },
+      desc: '右键三下一轮：两枚灵弹，第三枚蓄力重弹 ×1.8 大范围炸开，并按元素追加：火留燃地，冰溅出冰棱并冰缓，雷弹向 2 个敌人。属性取你加成最高的元素，不耗魔力。',
     },
+    // 疾咒：左右手交替甩出咒光（cyc 两段只是换手），弹向旁边 chain 个敌人；每次命中给目标叠 1 层咒痕（mark：最多 max 层、dur 秒不再叠就消失），
+    // 叠到 max 的那一下引爆：它和 r 米内所有带咒痕的敌人各挨「每层 ×mult」，咒痕清空。打单体每 5 下：5 × 0.75 + 5 × 0.25 = 平均每下 ×1
     basic_wand: {
-      name: '疾咒', icon: '咒', color: '#c9b4ff', tags: ['spell', 'chaining'], kind: 'chain', btype: 'wand', weaponOnly: true, basic: true, elemHex: true, bclip: 'b_point',
-      edmg: [5, 8.5], elem: 'light', time: 0.34, mana: 0, cd: 0, chain: 1, range: 14, w: 0, kb: 0.2, poise: 5,
-      desc: '右键朝准星附近的敌人甩出一道咒光，再弹向旁边的一个敌人。出手很快，属性取你伤害加成最高的元素。不消耗魔力。',
+      name: '疾咒', icon: '咒', color: '#c9b4ff', tags: ['spell', 'chaining'], kind: 'chain', btype: 'wand', weaponOnly: true, basic: true, elemHex: true, bclip: 'b_wandL',
+      edmg: [5, 8.5], elem: 'light', mana: 0, cd: 0, chain: 1, range: 14, w: 0, kb: 0.2, poise: 5,
+      cyc: [
+        { clip: 'b_wandL', time: 0.34, mult: 0.75 },
+        { clip: 'b_wandR', time: 0.34, mult: 0.75 },
+      ],
+      mark: { max: 5, dur: 4, mult: 0.25, r: 8 },
+      desc: '右键左右手交替甩出咒光，再弹向 1 个敌人，每次命中叠 1 层咒痕；叠满 5 层时引爆，附近所有带咒痕的敌人一起炸开（每层 ×0.25）。不耗魔力。',
     },
     // 魂幡的普攻：asMinion（同魂潮）——伤害按召唤物算，只吃召唤物伤害加成和镶着的召唤物辅助，等级 = 武器物品等级 × 0.75。
     // 放出一缕魂灵扑向准星附近（seek 以内）的敌人，碰到就炸开（explode），并把那个敌人标成集火目标（召唤物优先去打它）。
@@ -573,6 +596,11 @@
       sk.comboAvg = sk.combo.reduce((s, c) => s + c.mult, 0) / sk.combo.length; // 连击三段的平均倍率
       sk.comboStop = sk.combo.reduce((s, c) => s + c.stop, 0) / sk.combo.length; // 三段平均的顿帧毫秒数
       if (sk.basic) sk.time = sk.combo.reduce((s, c) => s + c.time, 0) / sk.combo.length; // 武器普攻的连招：平均段长（秒伤估算用）
+    }
+    if (sk.cyc) {
+      // 施法武器普攻的出手节奏：平均段长、平均倍率（秒伤估算用）；疾咒每一下留的一层咒痕最终都会引爆，也摊进每一下
+      sk.time = sk.cyc.reduce((s, c) => s + c.time, 0) / sk.cyc.length;
+      sk.comboAvg = sk.cyc.reduce((s, c) => s + c.mult, 0) / sk.cyc.length + (sk.mark ? sk.mark.mult : 0);
     }
   }
 

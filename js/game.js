@@ -3220,8 +3220,9 @@
         if (p.cast.has(e)) continue;
         p.cast.add(e);
       }
-      G.hitEnemy(e, p.ctx, 1, { ang: Math.atan2(e.x - p.x, e.z - p.z) }); // 从爆心往外推
+      G.hitEnemy(e, p.ctx, p.blastMult || 1, { ang: Math.atan2(e.x - p.x, e.z - p.z), kb: p.kb, poise: p.poise }); // 从爆心往外推；blastMult：灵弹这一段的倍率
     }
+    if (p.burst) staffBurst(p, R, skip); // 灵弹的重弹：按元素追加
     // 魂火炸开有自己的特效（world.wispBurst，可选）
     if (!(p.wisp && fxOpt('wispBurst', p.x, p.z, R, p.color)) && !projFx(p, 'blast', R)) {
       W.ring(p.x, p.z, R, p.color, 0.3);
@@ -3352,7 +3353,7 @@
               if (p.cast) p.cast.add(e);
               // 远程武器的箭 / 子弹：multFn 算这一下的倍率（鹰眼的远距离加成），after 接着结算余烬 / 元素爆炸 / 熔芯弹；src 让专注按箭计数
               const m = (p.multFn ? p.multFn(p, e) : p.mult || 1) * (p.boomK || 1); // boomK：回旋的回程
-              G.hitEnemy(e, p.ctx, m, { ang: Math.atan2(p.dx, p.dz), src: p, aura: p.aura, minion: p.minion }); // 顺着弹道推；aura：霜环「冰棱」的冰棱和光环脉冲一样不算连击；minion：骸弓的骨箭算召唤物的
+              G.hitEnemy(e, p.ctx, m, { ang: Math.atan2(p.dx, p.dz), src: p, aura: p.aura, minion: p.minion, kb: p.kb, poise: p.poise }); // 顺着弹道推；aura：霜环「冰棱」的冰棱和光环脉冲一样不算连击；minion：骸弓的骨箭算召唤物的；kb / poise：灵弹的重弹（缺省按技能）
               if (p.after) p.after(p, e, lastHit.killed, lastHit.crit);
             }
             if (!p.explode) projFx(p, 'hit'); // 飞刃擦过敌人的金属火花（爆炸弹的特效在爆炸那一下）
@@ -3674,21 +3675,27 @@
         P.combo.id = id;
         step = P.combo.step % sk.combo.length;
         st = sk.combo[step];
+      } else if (sk.cyc) {
+        // 施法武器普攻的出手节奏（灵弹三下一轮、疾咒左右换手）：借连招的计数（停手、翻滚、放别的技能照样从头来），但这一下仍是普通施法
+        if (P.combo.id !== id) comboReset();
+        P.combo.id = id;
+        step = P.combo.step % sk.cyc.length;
       } else {
         comboReset();
       }
+      const cs = sk.cyc && !st ? sk.cyc[step] : null;
       const sp = ctx.speed;
       // fireT：生效时刻；cancelT：之后可以接下一个动作（下一段 / 别的技能）；dur：没有后续输入时动作自然结束
       const c = (P.cast = {
-        slot, id, t: 0, fired: false, aim: ang, step, st,
-        dur: st ? (st.time + st.tail) / sp : ctx.time,
-        fireT: st ? st.hit / sp : ctx.time * 0.5,
-        cancelT: st ? st.time / sp : ctx.time,
+        slot, id, t: 0, fired: false, aim: ang, step, st, cs,
+        dur: st ? (st.time + st.tail) / sp : cs ? cs.time / sp : ctx.time,
+        fireT: st ? st.hit / sp : cs ? (cs.time * (cs.hit || 0.5)) / sp : ctx.time * 0.5,
+        cancelT: st ? st.time / sp : cs ? cs.time / sp : ctx.time,
       });
       // 出手动作：连击三段各有各的挥法，其余按技能类型；命中帧对在生效的时刻
       const kind = sk.kind;
-      const clip = st ? st.clip : sk.bclip || (kind === 'proj' || sk.mech === 'throw' ? 'throw' : kind === 'blink' ? 'blink' : kind === 'melee' ? 'attack1' : 'cast'); // 召唤也用施法动作；bclip：武器普攻自己的出手动作
-      G.world.play(P.ent, clip, { dur: st ? c.dur + 0.1 : ctx.time * 1.3, contact: c.fireT });
+      const clip = st ? st.clip : cs ? cs.clip : sk.bclip || (kind === 'proj' || sk.mech === 'throw' ? 'throw' : kind === 'blink' ? 'blink' : kind === 'melee' ? 'attack1' : 'cast'); // 召唤也用施法动作；bclip：武器普攻自己的出手动作
+      G.world.play(P.ent, clip, { dur: st ? c.dur + 0.1 : c.dur * 1.3, contact: c.fireT });
       if (st) {
         G.world.setTrail(G.TYPE_HEX[mainType(ctx)]);
         G.sfx('swing', { step });
@@ -3997,12 +4004,17 @@
           P.combo.step = (c.step + 1) % ctx.sk.combo.length;
           P.combo.t = c.cancelT - c.fireT + COMBO_WINDOW;
         } else {
+          if (c.cs) {
+            // 施法普攻的下一段（同连招的窗口）
+            P.combo.step = (c.step + 1) % ctx.sk.cyc.length;
+            P.combo.t = c.cancelT - c.fireT + COMBO_WINDOW;
+          }
           G.sfx('cast');
         }
-        G.execSkill(ctx, c.st);
+        G.execSkill(ctx, c.st || c.cs || undefined);
         for (let i = 1; i <= ctx.echo; i++) {
           G.after(0.22 * i, () => {
-            if (!P.dead) G.execSkill(ctx);
+            if (!P.dead) G.execSkill(ctx, c.cs || undefined); // 回响：灵弹的重弹也重放成重弹
           });
         }
       }
@@ -4291,6 +4303,167 @@
   }
   G.rangedFields = () => fields;
   G.vField = (f) => addField(f); // 刻式「焰田」：祭司的火弹落地留火地（minions.js 调用）
+
+  // =====================================================================
+  // 施法武器的普攻：灵弹（三下一轮，重弹按元素追加）、疾咒（咒痕）
+  // =====================================================================
+  // 灵弹的一枚：和普通投射物一样吃多重投射 / 穿透 / 连锁；倍率、个头、飞行速度、炸开的半径按这一段（cs）。
+  // 重弹带上 burst（这一下的元素和 data 的追加参数），炸开时由 staffBurst 结算
+  function staffBolt(ctx, a, cs) {
+    const sk = ctx.sk;
+    const n = Math.max(1, ctx.proj);
+    const spread = Math.min(60, 12 * (n - 1)) * DEG;
+    const stepA = n > 1 ? spread / (n - 1) : 0;
+    const el = mainType(ctx);
+    const B = cs.heavy && sk.burst ? sk.burst[el] : null; // 伤害被转换成物理之类时没有追加
+    const mult = B && B.orb ? B.orb : cs.mult; // 火的重弹本身轻一些（orb），剩下的在燃地里
+    const cast = new Set();
+    const tint = infuseHex(ctx);
+    const speed = cs.speed || sk.speed;
+    for (let i = 0; i < n; i++) {
+      const ang = a.ang - spread / 2 + stepA * i;
+      const dx = Math.sin(ang);
+      const dz = Math.cos(ang);
+      G.spawnProjectile({
+        owner: 'p', x: P.x + dx * 0.7, z: P.z + dz * 0.7, dx, dz,
+        speed, r: cs.projR || sk.projR, life: 30 / speed, color: G.TYPE_HEX[el],
+        ctx, pierce: ctx.pierce, chain: ctx.chain, explode: cs.explode || sk.explode, hit: new Set(), cast,
+        vk: cs.vk || sk.vk, tint, mult, blastMult: mult, kb: cs.kb, poise: cs.poise,
+        burst: B ? { el, B } : null,
+      });
+    }
+    if (cs.heavy) state.stats.cbHeavy = (state.stats.cbHeavy || 0) + 1;
+  }
+  // 重弹炸开（爆炸已经结算完，p.cast 里是这一次施放炸到 / 直击过的敌人）：按元素追加一次（连锁 / 穿透再炸不再追加）。
+  // 直接打中了敌人（e）时追加的东西以它为中心（燃地铺在它脚下），不然以炸开的那一点为中心
+  function staffBurst(p, R, e0) {
+    const { el, B } = p.burst;
+    p.burst = null;
+    const W = G.world;
+    const ctx = p.ctx;
+    const hex = p.color;
+    const ak = Math.sqrt(ctx.area);
+    const st = state.stats;
+    const ox = e0 ? e0.x : p.x;
+    const oz = e0 ? e0.z : p.z;
+    if (el === 'fire') {
+      // 燃地：吃范围加成，和喷枪的余烬同一套（每个敌人在同一类火里每 tick 秒只挨一下）
+      addField({ kind: 'cbfire', x: ox, z: oz, r: B.r * ak, dur: B.dur, tick: B.tick, mult: B.tickMult, ctx, key: 'cbBurnAt', hex: 0xff7a2c });
+      st.cbFire = (st.cbFire || 0) + 1;
+    } else if (el === 'cold') {
+      // 冰棱：从爆心往外均匀飞出 n 根（第一根顺着弹道），炸到的敌人直接穿过、每个敌人至多挨一根；飞行距离吃范围加成
+      const skip = new Set(p.cast);
+      const cast = new Set();
+      const a0 = Math.atan2(p.dx, p.dz);
+      const len = B.len * ak;
+      for (let i = 0; i < B.n; i++) {
+        const a = a0 + (i * TAU) / B.n + Math.PI / B.n;
+        const dx = Math.sin(a);
+        const dz = Math.cos(a);
+        G.spawnProjectile({
+          owner: 'p', x: ox + dx * 0.4, z: oz + dz * 0.4, dx, dz, speed: B.speed, r: 0.25, life: len / B.speed, color: hex,
+          ctx, pierce: 0, chain: 0, explode: 0, hit: new Set(skip), cast, vk: 'ishard', mult: B.mult, kb: 0.4, poise: 4,
+        });
+      }
+      for (const e of p.cast) if (!e.dead) G.fillMeter(e, 'cold', B.chill); // 炸到的再灌一截冰缓
+      st.cbCold = (st.cbCold || 0) + 1;
+    } else if (el === 'light') {
+      // 电弧：爆炸圈外、r 米内最近的 n 个（看得见的）敌人；一道折线从第一个经爆心连到第二个（一次 draw call）
+      const pick = [];
+      for (const e of state.enemies) {
+        if (e.dead || p.cast.has(e)) continue;
+        const d = dist(e.x, e.z, ox, oz);
+        if (d - e.r > B.r * ak || !losClear(ox, oz, e.x, e.z)) continue;
+        pick.push({ e, d });
+      }
+      pick.sort((u, v) => u.d - v.d);
+      const pts = [{ x: ox, z: oz }];
+      for (let i = 0; i < Math.min(B.n, pick.length); i++) {
+        const e = pick[i].e;
+        if (i === 0) pts.unshift({ x: e.x, z: e.z });
+        else pts.push({ x: e.x, z: e.z });
+        G.hitEnemy(e, ctx, B.mult, { ang: Math.atan2(e.x - ox, e.z - oz), quiet: true });
+        st.cbArcHits = (st.cbArcHits || 0) + 1;
+      }
+      if (pts.length > 1) W.bolt(pts, hex);
+      st.cbLight = (st.cbLight || 0) + 1;
+    }
+    fxOpt('cbBurst', ox, oz, R, el, hex); // 元素的形状（world.cbBurst：火舌 / 冰晶 / 电花），没有时只有爆炸本身
+  }
+
+  // 疾咒的咒痕：CB.marks 是身上有咒痕的敌人（层数 e.cbMark、最后一次叠上的时刻 e.cbMarkT、脚下符环的句柄 e.cbMarkFx）
+  const CB = { marks: new Set() };
+  function wandMark(e, ctx) {
+    if (!e) return;
+    const M = ctx.sk.mark;
+    if (e.dead) {
+      // 这一下打死了它：叠满了照样引爆（跳向其余带咒痕的），没满就算了
+      if ((e.cbMark || 0) + 1 >= M.max) wandPop(e, ctx);
+      else if (CB.marks.has(e)) wandUnmark(e);
+      return;
+    }
+    e.cbMark = Math.min(M.max, (e.cbMark || 0) + 1);
+    e.cbMarkT = state.time;
+    if (!CB.marks.has(e)) {
+      CB.marks.add(e);
+      e.cbMarkFx = G.world.kv('glyph', { hex: G.TYPE_HEX[mainType(ctx)], s: (e.r + 0.55) * 2, y: 0.08, x: e.x, z: e.z });
+    }
+    e.cbMarkFx.hex = G.TYPE_HEX[mainType(ctx)];
+    e.cbMarkFx.k = e.cbMark / M.max; // 外圈亮着的那一段 = 层数
+    state.stats.cbMarks = (state.stats.cbMarks || 0) + 1;
+    if (e.cbMark >= M.max) wandPop(e, ctx);
+  }
+  function wandUnmark(e) {
+    kvOff(e.cbMarkFx);
+    e.cbMarkFx = null;
+    e.cbMark = 0;
+    CB.marks.delete(e);
+  }
+  // 叠满的那一下：它和 r 米内所有带咒痕的敌人各挨「每层 ×mult」，咒痕清空；咒光从它跳向其余的
+  function wandPop(src, ctx) {
+    const W = G.world;
+    const M = ctx.sk.mark;
+    const hex = G.TYPE_HEX[mainType(ctx)];
+    const list = [src];
+    for (const e of CB.marks) if (e !== src && !e.dead && dist(e.x, e.z, src.x, src.z) <= M.r) list.push(e);
+    const pts = [];
+    let n = 0;
+    for (const e of list) {
+      const k = e === src ? M.max : e.cbMark || 0;
+      wandUnmark(e);
+      if (e.dead || !k) continue;
+      if (e !== src) {
+        if (pts.length < 6) pts.push({ x: src.x, z: src.z }, { x: e.x, z: e.z }); // 折线来回：一道 bolt 连起所有跳过去的（最多 3 只，多了不画）
+        n++;
+      }
+      G.hitEnemy(e, ctx, M.mult * k, { ang: Math.atan2(e.x - src.x, e.z - src.z), w: 1, kb: 0.5, poise: 3 * k, quiet: e !== src });
+      state.stats.cbPopHits = (state.stats.cbPopHits || 0) + 1;
+    }
+    if (pts.length) W.bolt(pts, hex);
+    if (!fxOpt('cbPop', src.x, src.z, src.r, hex, src.height || 2) && W.vShock) W.vShock(src.x, src.z, src.r + 1.0, hex, 0.24, 0.5);
+    state.stats.cbPops = (state.stats.cbPops || 0) + 1;
+    state.stats.cbJumps = (state.stats.cbJumps || 0) + n;
+    G.sfx('impact', { type: mainType(ctx), w: 1, crit: false });
+  }
+  function tickWandMarks() {
+    const dur = G.SKILLS.basic_wand.mark.dur;
+    for (const e of Array.from(CB.marks)) {
+      if (e.dead || state.time - e.cbMarkT > dur) {
+        wandUnmark(e);
+        continue;
+      }
+      const f = e.cbMarkFx;
+      f.x = e.x;
+      f.z = e.z;
+      f.ry -= 0.03;
+      // 最后一秒闪着淡掉
+      f.a = state.time - e.cbMarkT > dur - 1 ? 0.5 + 0.5 * Math.sin(state.time * 20) : 1;
+    }
+  }
+  function resetWandMarks() {
+    for (const e of Array.from(CB.marks)) wandUnmark(e);
+  }
+  G.wandMarks = () => CB.marks; // 测试用
 
   // =====================================================================
   // 混沌流：黑洞、黑旋风（以及星蚀的渊口）
@@ -4788,6 +4961,7 @@
     }
     if (P.rstate) updateWildfire(dt);
     updateFields(dt);
+    if (CB.marks.size) tickWandMarks();
   }
   function endBuff() {
     if (!P.rbuff) return;
@@ -4806,6 +4980,7 @@
     endBuff();
     P.rstate = null;
     fields.length = 0;
+    resetWandMarks(); // 疾咒的咒痕
     resetChaos(); // 黑洞、黑旋风一起收起
     resetVariants(); // 刻式第二版留在场上的东西
     G.relicReset(); // 渊契的电桥、蓄潮
@@ -4917,9 +5092,11 @@
       }
     },
 
-    proj(ctx, a) {
+    // cs：施法普攻这一段（灵弹的小弹 / 重弹，见 data.js 的 cyc）
+    proj(ctx, a, cs) {
       const sk = ctx.sk;
       if (sk.mech === 'orbit') return bladeOrbit(ctx); // 刻式「环刃」：不飞出去，绕着你转
+      if (sk.cyc) return staffBolt(ctx, a, cs || sk.cyc[0]);
       const n = Math.max(1, ctx.proj);
       const spread = Math.min(60, (sk.spread || 12) * (n - 1)) * DEG;
       const stepA = n > 1 ? spread / (n - 1) : 0;
@@ -4943,7 +5120,8 @@
       }
     },
 
-    chain(ctx, a) {
+    // cs：疾咒这一下（左 / 右手，见 data.js 的 cyc）
+    chain(ctx, a, cs) {
       const W = G.world;
       const sk = ctx.sk;
       const hex = sk.elemHex ? G.TYPE_HEX[mainType(ctx)] : hexOf(sk.color);
@@ -4982,13 +5160,14 @@
       let jumps = ctx.chain;
       let px = P.x;
       let pz = P.z;
-      let mk = 1;
+      let mk = sk.cyc ? (cs || sk.cyc[0]).mult : 1;
       while (cur) {
         hit.add(cur);
         pts.push({ x: cur.x, z: cur.z });
         const cx = cur.x;
         const cz = cur.z;
         G.hitEnemy(cur, ctx, mk, { ang: Math.atan2(cx - px, cz - pz) }); // 顺着电弧来的方向
+        if (sk.mark) wandMark(cur, ctx); // 疾咒：叠一层咒痕（叠满当场引爆）
         if (ov) mk *= ov.k;
         px = cx;
         pz = cz;
