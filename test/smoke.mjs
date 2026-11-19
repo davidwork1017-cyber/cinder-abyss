@@ -10908,6 +10908,7 @@ async function main() {
     const r = await ev(() => {
       TV.setup('meteor', 'a', ['meteor', null, 'ember', null]);
       const b = TV.big(7);
+      TV.pin(b);
       TV.cast('meteor', TV.at(7), 1.0);
       const VS = G.variantState();
       const out = { cores: VS.cores.length, hit0: TV.n(b) };
