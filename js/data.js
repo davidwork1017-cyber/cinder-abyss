@@ -351,24 +351,32 @@
     // 弓的四招是限时增益（buff.dur 秒，吃「增益持续时间」）
     meltray: {
       name: '熔光射线', icon: '光', color: '#ffb36a', tags: ['weapon', 'attack', 'fire', 'light'], kind: 'rgatling', weaponOnly: true, wtype: 'gatling', rgauge: true,
-      // 按住 R 蓄力（瞄准线跟着准星），松手放出一道贯穿射线：长 len、宽 width 的直线上所有敌人挨一下 wm 倍伤害（一半火焰一半闪电）。
+      // 按住 R 蓄力（瞄准线跟着准星），松手放出一道贯穿射线：长 len、宽 width 的直线上所有敌人挨一下（一半火焰一半闪电）。
+      // 伤害按机炮普攻折算（basicOf / basicSec，见 game.js 的 G.basicShots）：蓄满一发 = 机炮转满之后扫射 basicSec 秒——
+      //   普攻每发的武器伤害 × 普攻 wm、装备附加 × 普攻 addEff，乘上这几秒的发数（武器攻速、攻击速度算在内，辅助宝石不算），
+      //   再按射线自己的伤害加成、暴击和「热度技伤害」结算。wm 只是标明这是攻击技能，实际倍率由折算决定。
+      //   原来是 wm 40 × 一发的武器伤害：附加伤害只算一份、攻速不算，越往后越不值得放（蓄力加机炮重新转起来要停火约 3.5 秒）
       // 蓄力 charge 秒满；伤害按蓄力程度 minK → 1；蓄满后再按住 hold 秒自动放出。蓄力时移动速度 × move
-      wm: 40, time: 0.3, mana: 0, cd: 0, charge: 1.4, hold: 1.0, minK: 0.3, len: 24, width: 2.4, beamT: 0.4, conv: { fire: 0.5, light: 0.5 }, ailment: 100,
+      wm: 1, basicOf: 'basic_gatling', basicSec: 8, time: 0.3, mana: 0, cd: 0, charge: 1.4, hold: 1.0, minK: 0.3, len: 24, width: 2.4, beamT: 0.4, conv: { fire: 0.5, light: 0.5 }, ailment: 100,
       w: 2, kb: 1.4, poise: 80, stop: 120, move: 0.35,
       wclip: 'r_gatling',
       wt: { phases: [0.3], cancel: 9, dur: 9, clip: { dur: 3.2, at: 0.3 } }, // 时长由蓄力自己管（起手 0.3 秒 + 蓄力 + 射线）
-      useMult: 40,
-      desc: '热度满时可用：按住 R 蓄力，枪口的瞄准线跟着准星走；松手放出一道巨大的熔光射线，贯穿一整条直线上的所有敌人，造成一次性的巨额伤害并重重击退。蓄力越久伤害越高（1.4 秒蓄满，蓄满后再按住 1 秒会自动放出）。伤害一半火焰、一半闪电，同时累积两种异常值。放完热度归零。',
+      useMult: 1, // 一次施放对单体就是一击（倍率已经折算进伤害里）
+      desc: '热度满时可用：按住 R 蓄力，枪口的瞄准线跟着准星走；松手放出一道巨大的熔光射线，贯穿一整条直线上的所有敌人，造成一次性的巨额伤害并重重击退。蓄满的一发相当于机炮转满之后扫射 {basicSec} 秒的伤害（随武器、附加伤害与攻击速度成长）。蓄力越久伤害越高（1.4 秒蓄满，蓄满后再按住 1 秒会自动放出）。伤害一半火焰、一半闪电，同时累积两种异常值。放完热度归零。',
     },
     firestorm: {
       name: '焚天炎爆', icon: '爆', color: '#ff6a2c', tags: ['weapon', 'attack', 'area', 'fire'], kind: 'rflamer', weaponOnly: true, wtype: 'flamer', rgauge: true,
-      // 半径 radius 的火浪，wm 倍武器伤害（全部火焰）；之后留下半径 burn.r 的火场，burn.dur 秒内每 burn.tick 秒 burn.mult 倍武器伤害
-      wm: 14, time: 0.75, mana: 0, cd: 0, radius: 7.5, conv: { fire: 1 }, ailment: 100, burn: { r: 6, dur: 5, tick: 0.5, mult: 1 },
+      // 半径 radius 的火浪（全部火焰）；之后留下半径 burn.r 的火场，burn.dur 秒内每 burn.tick 秒一跳。
+      // 伤害和熔光射线一样按普攻折算（basicOf / basicSec，见 game.js 的 G.basicShots）：火浪 = 喷枪持续喷射 basicSec 秒，
+      //   火场每一跳 = 喷射 burn.sec 秒（不算余烬）；整招单体 = 3.3 + 10 × 0.23 ≈ 5.6 秒。原来是火浪 wm 14、每跳 1 倍武器伤害：
+      //   装备附加只算一份、攻速不算，40 级时放一发只比一直喷多赚约 1.5 秒普攻（镶了辅助只剩 0.5 秒）
+      wm: 1, basicOf: 'basic_flamer', basicSec: 3.3, time: 0.75, mana: 0, cd: 0, radius: 7.5, conv: { fire: 1 }, ailment: 100, burn: { r: 6, dur: 5, tick: 0.5, sec: 0.23 },
       w: 2, kb: 2.6, poise: 70, stop: 110, move: 0.1,
       wclip: 'r_flamer',
       wt: { phases: [0.42], cancel: 0.75, dur: 0.9 },
-      useMult: 24,
-      desc: '热度满时可用：一口气排空所有热度，以你为中心炸开一圈巨大的火浪，重创并震退周围的敌人，并留下 5 秒的大片火场。',
+      // 单体整招按火浪那一击的倍数计：火浪 1 击 + 火场 10 跳 × (0.23 / 3.3) ≈ 1.7（G.SKILLS 定义完之后按 burn.sec 重算一遍）
+      useMult: 1.7,
+      desc: '热度满时可用：一口气排空所有热度，以你为中心炸开一圈巨大的火浪，重创并震退周围的敌人，并留下 5 秒的大片火场。火浪加上火场烧满，相当于喷枪持续喷射约 {basicSec} 秒的伤害（随武器、附加伤害与攻击速度成长）。',
     },
     wildfire: {
       name: '乱射', icon: '乱', color: '#ffcf7a', tags: ['weapon', 'attack', 'projectile', 'phys'], kind: 'rrevolver', weaponOnly: true, wtype: 'revolver', rgauge: true, uskill: true,
@@ -466,6 +474,15 @@
       desc: '把魂幡插进地里：6 位英灵从天而降，落在准星一带，落地时各砸出一圈冲击，随后自动厮杀 8 秒再消散（化作魂火炸开）。英灵的伤害与生命按召唤物计算，吃召唤物加成与继承，不占仆从数量。同时把你现有的召唤物全部治疗到满，并令它们狂热 4 秒。',
     },
   };
+  // 按普攻折算的武器技（熔光射线、焚天炎爆）：描述里的「{basicSec} 秒」按数值填上——火浪 basicSec + 火场每跳 burn.sec × 跳数，
+  // 改 basicSec / burn.sec 时文字跟着变（技能卡上的数字本来就是实时算的）
+  for (const id in G.SKILLS) {
+    const s = G.SKILLS[id];
+    if (!s.basicOf || typeof s.desc !== 'string') continue;
+    const B = s.burn, sec = s.basicSec + (B && B.sec !== undefined ? Math.round(B.dur / B.tick) * B.sec : 0);
+    s.desc = s.desc.replace('{basicSec}', String(Math.round(sec * 10) / 10));
+    s.useMult = sec / s.basicSec; // 单体整招按 ctx 一击的倍数（熔光射线 1，焚天炎爆 = 5.6 / 3.3），和上面写的一致
+  }
   // 混沌技能的前期补偿（只乘在 chaosEarly 的技能上）：倍率按宝石等级从 k0 / k1（1 级）缓缓降到 1（lvl 级），之后不变。
   // 先平后陡（1 − t²）：5–10 级的角色还能拿到大部分补偿，15 级（角色 20 级左右）收回到 0.75 倍的基础
   G.CHAOS_EARLY = { k0: 0.95, k1: 0.75, lvl: 15 };
