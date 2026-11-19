@@ -685,6 +685,7 @@
     const st = G.state;
     const now = performance.now();
     updateEncHud();
+    updatePinHud();
 
     setOrb(hud.life, P.life, P.maxLife, P.maxLifeRaw || P.maxLife);
     setOrb(hud.mana, P.mana, P.maxMana, P.maxManaRaw || P.maxMana);
@@ -1690,24 +1691,26 @@
       relicCodexHtml()
     );
   }
-  // 渊契图鉴（排在烬铸后面）：13 件普通渊契，拾到过的显示名字、图标和最高完美度；没拾到的是基底的暗剪影。
-  // 每件写来源（首领 / 异兆 / 烈印；来源还没开放时写「尚未开放」）和保底进度（烈印两件共用一份）
+  // 渊契图鉴（排在烬铸后面）：13 件普通渊契 + 2 件巅峰专属（G.RELIC_CODEX，巅峰的排在最后），拾到过的显示名字、图标和最高完美度；没拾到的是基底的暗剪影。
+  // 每件写来源（首领 / 异兆 / 烈印 / 熄烛者；来源还没开放时写「尚未开放」）和保底进度（烈印两件共用一份，巅峰两件共用 save.pinnacle.pity）
   function relicCodexHtml() {
     const U = G.save.relic || { found: {}, best: {}, pity: {} };
     const D = G.RELIC_DROP;
-    const nFound = G.RELIC_IDS.filter((id) => U.found[id]).length;
+    const list = G.RELIC_CODEX || G.RELIC_IDS;
+    const nFound = list.filter((id) => U.found[id]).length;
     let rows = '';
-    for (const id of G.RELIC_IDS) {
+    for (const id of list) {
       const R = G.RELICS[id];
       const found = !!U.found[id];
+      const pin = R.src === 'pinnacle';
       const key = R.src === 'seal' ? 'seal' : id;
-      const max = G.relicPityMax(key);
-      const n = U.pity[key] || 0;
-      const open = !!D.src[R.src];
-      const src = R.src === 'boss' ? esc(G.BOSSES[R.boss].name) + '（轮回 1 起）' : R.src === 'enc' ? '异兆「' + esc(G.RELIC_ENC_NAME[R.enc] || R.enc) + '」' : '烈印下击杀首领';
+      const max = pin ? D.pinnacle.pity : G.relicPityMax(key);
+      const n = pin ? (G.save.pinnacle && G.save.pinnacle.pity) || 0 : U.pity[key] || 0;
+      const open = pin || !!D.src[R.src];
+      const src = R.src === 'boss' ? esc(G.BOSSES[R.boss].name) + '（轮回 1 起）' : R.src === 'enc' ? '异兆「' + esc(G.RELIC_ENC_NAME[R.enc] || R.enc) + '」' : pin ? esc(G.BOSSES.snuffer.name) + '（巅峰，首杀必掉）' : '烈印下击杀首领';
       const icon = found ? IC.item({ slot: R.slot, baseIdx: R.base, baseName: '', rarity: 4, rq: id }) : IC.item({ slot: R.slot, baseIdx: R.base, baseName: G.BASES[R.slot][R.base].names[2], rarity: 0 });
       rows +=
-        '<div class="cx-row rq' + (found ? ' found' : '') + '" data-rq="' + id + '">' +
+        '<div class="cx-row rq' + (pin ? ' pin' : '') + (found ? ' found' : '') + '" data-rq="' + id + '">' +
         '<span class="ibox r4' + (found ? '' : ' unk') + '">' + icon + '</span>' +
         '<div class="cx-main"><div class="cx-name">' + (found ? esc(R.name) : '？？？') + '<em>' + G.SLOT_NAME[R.slot] + '</em></div>' +
         '<div class="cx-sub"><b>' + esc(R.mechName) + '</b> · ' + src + (open ? '' : ' · 尚未开放') + '</div>' +
@@ -1715,7 +1718,7 @@
         (open ? '<span class="cx-pity">保底 <b>' + n + '</b>/' + max + '<i style="--p:' + Math.round((n / max) * 100) + '%"></i></span>' : '') + '</div></div></div>';
     }
     return (
-      '<div class="sec-title sm codex-t rq">' + G.RELIC_NAME + '图鉴<span class="sec-note">已拾到 ' + nFound + ' / ' + G.RELIC_IDS.length + '</span></div>' +
+      '<div class="sec-title sm codex-t rq">' + G.RELIC_NAME + '图鉴<span class="sec-note">已拾到 ' + nFound + ' / ' + list.length + '</span></div>' +
       '<div class="codex rq">' + rows +
       '<div class="cx-note">区域首领：层级 1 约 ' + Math.round(D.boss.chance[1] * 100) + '%、层级 2 起约 ' + Math.round(D.boss.chance[2] * 100) + '%，和烬铸分开掷，最晚第 ' + (D.boss.pity + 1) + ' 次必掉。' + G.RELIC_NAME + '只出在武器以外的部位，词缀固定，强在机制。</div></div>'
     );
@@ -2890,7 +2893,7 @@
     G.ZONES.forEach((z, i) => {
       const locked = i > 0 && !clearedAt(G.ZONES[i - 1]);
       const cleared = clearedAt(z);
-      const here = st.zoneIdx === i && st.tier === tier;
+      const here = st.zoneIdx === i && st.tier === tier && !st.pin; // 在余烛殿里时不算在哪个区域
       const lvl = z.level + tier * G.TIER_LEVELS;
       const boss = G.BOSSES[z.boss];
       cards +=
@@ -2925,6 +2928,7 @@
         : '') +
       '</div>' +
       '<div class="zones" style="--nz:' + G.ZONES.length + '">' + cards + '</div>' +
+      pinNodeHtml() +
       sealPickHtml() +
       '<div class="map-opts">' +
       '<div class="opt-text"><b>普通物品</b><span>魔法、稀有物品总是自动拾取</span></div>' +
@@ -3868,6 +3872,25 @@
     'seal-pick'(d) {
       pickSeal(+d.i);
     },
+    // 余烛殿（D5）：选层级、点燃
+    'pin-tier'(d) {
+      ui.pinTier = +d.tier;
+      ui.pinMsg = '';
+      G.sfx('click');
+      render();
+    },
+    'pin-light'() {
+      const r = G.lightPinnacle(ui.pinTier || G.PIN.minTier);
+      if (!r.ok) {
+        ui.pinMsg = r.msg;
+        G.sfx('deny');
+        render();
+        return;
+      }
+      ui.pinMsg = '';
+      G.sfx('click');
+      close();
+    },
     'seal-cancel'() {
       ui.sealPick = null;
       G.sfx('click');
@@ -4028,6 +4051,63 @@
   }
 
   // ============================================================
+  // 余烛殿（D5）：魂灯（HUD 左上 3 个小烛，纯 CSS，不画图标画布）、首领血条上的阶段名、地图页的「余烛殿」节点
+  // ============================================================
+  const pinHud = { box: null, key: '', bkey: '' };
+  const PIN_PHASE = ['残焰', '熄灯', '冠焰'];
+  function initPinHud() {
+    const d = document.createElement('div');
+    d.id = 'pin-lamps';
+    $('zone-box').insertBefore(d, $('keyhints'));
+    pinHud.box = d;
+  }
+  function updatePinHud() {
+    const S = G.state.pin;
+    const key = S ? S.lives + '|' + G.PIN_LIVES + '|' + S.phase + '|' + (S.done ? 1 : 0) : '';
+    if (key !== pinHud.key) {
+      pinHud.key = key;
+      pinHud.box.classList.toggle('on', !!S);
+      if (S) {
+        let h = '<span class="pl-k">魂灯</span>';
+        for (let i = 0; i < G.PIN_LIVES; i++) h += '<i class="lamp' + (i < S.lives ? ' on' : '') + '"></i>';
+        h += '<span class="pl-ph">' + (S.done ? '熄烛者已倒下' : PIN_PHASE[S.phase] || '') + '</span>';
+        pinHud.box.innerHTML = h;
+        pinHud.box.dataset.tip = 'txt:倒下会熄灭一盏魂灯，在场地门外重生，首领保留生命和阶段；' + G.PIN_LIVES + ' 盏都熄灭就失败，退还 ' + G.PIN_REFUND + ' 个烛芯';
+      }
+    }
+    // 首领血条上写阶段名
+    const b = G.state.boss, hb = hud.boss;
+    const bkey = b && b.pin && hb.ref === b ? b.name + PIN_PHASE[b.phase || 0] : '';
+    if (bkey && bkey !== pinHud.bkey) hb.name.textContent = b.name + ' · ' + PIN_PHASE[b.phase || 0];
+    pinHud.bkey = bkey;
+  }
+  // 地图页的「余烛殿」节点：最高层级 ≥ G.PIN.minTier 才有。4 个烛芯槽、层级选择、「点燃」（扣 4 个烛芯进场）
+  function pinNodeHtml() {
+    const S = G.save, PN = G.PIN;
+    if (!G.pinOpen || !G.pinOpen()) return '';
+    const ready = G.pinReady();
+    const t = (ui.pinTier = G.clamp(ui.pinTier || PN.minTier, PN.minTier, S.maxTier));
+    let slots = '';
+    for (const id of G.FRAG_IDS) {
+      const f = G.FRAGS[id], n = (S.frags && S.frags[id]) || 0;
+      slots += '<div class="pn-slot' + (n ? ' ok' : '') + '" data-tip="frag:' + id + '" style="--c:' + f.color + '">' + ibox(IC.frag(id), 'curb') + '<span>' + f.name + '</span><b>' + n + '</b></div>';
+    }
+    let tiers = '';
+    for (let k = PN.minTier; k <= S.maxTier; k++) tiers += '<button type="button" tabindex="-1" class="tier' + (k === t ? ' on' : '') + '" data-act="pin-tier" data-tier="' + k + '">' + k + '</button>';
+    const here = !!G.state.pin, kills = (S.pinnacle && S.pinnacle.kills) || 0;
+    return '<div class="pin-node' + (ready ? ' ready' : '') + (here ? ' here' : '') + '">' +
+      '<div class="pn-art"><span class="pn-glyph">烛</span>' + (here ? '<span class="z-here">当前所在</span>' : '') + '</div>' +
+      '<div class="pn-body"><div class="pn-head"><b class="pn-name">' + G.PINNACLE.name + '</b><span class="pn-boss">首领 <b>' + G.BOSSES.snuffer.name + '</b>' + (S.bossKills.snuffer ? '<em>已击败 ' + kills + ' 次</em>' : '') + '</span></div>' +
+      '<div class="pn-desc">' + G.PINNACLE.desc + '四种烛芯各献 1 个，点燃火盆进场；倒下 ' + G.PIN_LIVES + ' 次算失败，退还 ' + G.PIN_REFUND + ' 个烛芯。</div>' +
+      '<div class="pn-slots">' + slots + '</div>' +
+      '<div class="pn-row"><span class="pn-k">层级</span><div class="tiers">' + tiers + '</div><span class="pn-lv">首领等级 <b>' + G.pinLevel(t) + '</b></span>' +
+      '<button type="button" tabindex="-1" class="btn primary pn-go" data-act="pin-light"' + (ready ? '' : ' disabled') + '>点燃</button></div>' +
+      (ready ? '' : '<div class="pn-need">四种烛芯各需要 1 个：层级 ' + PN.minTier + ' 起的异兆、烈印下的区域首领会掉，拾烬客可以 2 换 1</div>') +
+      (ui.pinMsg ? '<div class="pn-need bad">' + esc(ui.pinMsg) + '</div>' : '') +
+      '</div></div>';
+  }
+
+  // ============================================================
   // 异兆（D4）：计时条（守隙 / 缚匣 / 试锋 / 落烬）、祈坛增益小签、拾烬客面板、背包里的烛芯
   // ============================================================
   const encHud = { bar: null, fill: null, name: null, txt: null, buff: null, key: '', bkey: '' };
@@ -4114,7 +4194,12 @@
       '<b style="color:#ff9a3c">游荡者</b>：带名号的精英，各有独门手段。<b style="color:#5fe0f0">祈坛</b>：按 <kbd>F</kbd> 得到一种增益。' +
       '<b style="color:#ff5a4a">试锋</b>：跨过旁支门口的符文开始限时试炼。<b style="color:#5fe07a">拾烬客</b>：按 <kbd>F</kbd> 交易。' +
       '<b style="color:#ff9a9a">残影</b>：清空房间后首领的残影浮现。<b style="color:#ff8a3c">落烬</b>：摸一下烬核，在落下的余烬里打碎四块烬晶。</p>' +
-      '<p>轮回 2 起，异兆和烈印下的首领会掉<b>烛芯</b>，是之后开启巅峰首领的材料。</p>'
+      '<p>轮回 2 起，异兆和烈印下的首领会掉<b>烛芯</b>，是之后开启巅峰首领的材料。</p>' +
+      // 余烛殿（D5）
+      '<div class="sec-title">余烛殿</div>' +
+      '<p>最高轮回层级到 ' + G.PIN.minTier + ' 以后，地图页的区域下面多出<b style="color:#ffb24a">余烛殿</b>：印、隙、誓、匣四种烛芯各献 1 个，选好层级点「点燃」进场，挑战巅峰首领<b style="color:#ffd27a">熄烛者</b>（首领等级 = 17 + ' + G.TIER_LEVELS + ' × 层级 + ' + G.PIN.levelAdd + '）。</p>' +
+      '<p>它有三个阶段：<b>残焰</b>里四只火盆都亮着；生命掉到 ' + Math.round(G.PIN.phase[0] * 100) + '% 进入<b>熄灯</b>，它掐灭火盆、场地变暗，每隔一阵涌来<b style="color:#b48cff">暗潮</b>，只有亮着的火盆脚下的<b style="color:#ffc870">暖金色安全圈</b>能躲；站在熄灭的火盆旁边 ' + G.PIN.relight.t + ' 秒可以把它重新点燃（它会冲过去再掐灭一个，但总会留一个亮着）。掉到 ' + Math.round(G.PIN.phase[1] * 100) + '% 进入<b>冠焰</b>，火盆全部炸开后永久点燃，外圈起火，场地缩小。</p>' +
+      '<p>屏幕左上的<b>魂灯</b>是剩下的机会：倒下熄一盏，在场地门外重生，首领保留生命和阶段；' + G.PIN_LIVES + ' 盏都熄灭就失败，随机退还 ' + G.PIN_REFUND + ' 个烛芯。第一次击败它必定掉落一件巅峰' + G.RELIC_NAME + '（熄烛冠或双生坠）。</p>'
     );
   }
   function renderTrader() {
@@ -5685,6 +5770,7 @@
 
     initHud();
     initEncHud();
+    initPinHud();
     initWorldUi();
     IC.warm(); // 图标趁空闲分批画好，第一次打开背包不再卡顿
     document.documentElement.style.setProperty('--relic', G.RELIC_COLOR); // 渊契的颜色只在 data.js 写一次，样式表里读 --relic

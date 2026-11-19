@@ -1439,10 +1439,322 @@
     },
   };
 
+  // ---------- 熄烛者（余烛殿的巅峰首领，D5）----------
+  // 三个阶段（G.PIN.phase：70% / 35%）。场地的状态（火盆亮灭、暗潮进度、焰潮）在 game.js 的 G.state.pin，这里只读 / 调 G.pinXxx。
+  // 每种招式的预警 / 伤害倍率按设计稿 §6.4：拂烛 半圆 r 8.5、1.0 s、1.3×；烛泪 玩家周围 5 m 内 6 个圆 r 2.2、隔 0.2 s、各 1.1 s、0.8×；
+  // 引芯 冲向一个亮着的火盆（长条宽 3、0.9 s、1.2×），到了炸一圈 r 3（0.8 s、0.6×）；暗潮 每 9 s、1.6 s、0.6×（亮着的火盆 4 m 内不挨）；
+  // 冠焰螺旋 3 臂 × 6 波、弹速 9、起手 0.8、每发 0.6×；坠冕 玩家脚下 r 5、1.4 s、1.5×（最重）；双拂 先前后后两次拂烛、1.0 + 0.6
+  const SN = {
+    brush: { r: 8.5, arc: Math.PI / 2, warn: 1.0, k: 1.3, reach: 9 },
+    tears: { n: 6, spread: 5, r: 2.2, gap: 0.2, warn: 1.1, k: 0.8 },
+    wick: { w: 3, warn: 0.9, k: 1.2, dash: 0.35, burstR: 3, burstWarn: 0.8, burstK: 0.6 },
+    spiral: { arms: 3, waves: 6, gap: 0.2, turn: 0.32, speed: 9, wind: 0.8, k: 0.6 },
+    crown: { r: 5, warn: 1.4, k: 1.5 },
+    dbrush: { gap: 0.6 },
+    pop: { r: 3, warn: 1.0, k: 0.6 }, // 三阶段进场：亮着的火盆各炸一圈
+  };
+  const snState = () => G.state.pin || null;
+  const litIdx = () => {
+    const S = snState(), out = [];
+    if (S) for (let i = 0; i < 4; i++) if (S.lit[i]) out.push(i);
+    return out;
+  };
+  // 拂烛：以首领为圆心、朝目标的半圆
+  function snBrush(e, ang, warn) {
+    const W = G.world, seq = e.seq, B = SN.brush, hex = hexOf(e);
+    G.telegraph({
+      shape: 'arc', x: e.x, z: e.z, r: B.r, arc: B.arc, ang, dur: warn, dmg: e.dmg * B.k, dtype: e.elem,
+      owner: e, cancelIfOwnerDead: true, friendly: false,
+      onFire() {
+        if (!live(e, seq)) return;
+        for (let k = -2; k <= 2; k++) {
+          const a = ang + k * 0.36;
+          W.burst(e.x + Math.sin(a) * B.r * 0.6, 0.5, e.z + Math.cos(a) * B.r * 0.6, hex, 6, 5, 0.35);
+        }
+        W.shake(0.3);
+        G.sfx('hit');
+      },
+    });
+  }
+  Object.assign(PATTERNS, {
+    brush(e, P) {
+      const a = angTo(e, P.x, P.z);
+      e.aim = a;
+      e.busy = SN.brush.warn + 0.45;
+      snBrush(e, a, SN.brush.warn);
+    },
+    // 双拂：先朝前、紧接着朝后（两个半圆合起来是一整圈，躲法是先退出前半圆，再别站到身后）
+    dbrush(e, P) {
+      const seq = e.seq, a = angTo(e, P.x, P.z), B = SN.brush;
+      e.aim = a;
+      e.busy = B.warn + SN.dbrush.gap + 0.45;
+      snBrush(e, a, B.warn);
+      G.after(B.warn, () => {
+        if (!live(e, seq)) return;
+        e.aim = a + Math.PI;
+        snBrush(e, a + Math.PI, SN.dbrush.gap);
+      });
+    },
+    // 烛泪：第一滴正落在玩家脚下，其余在玩家周围 5 m 内，每隔 0.2 s 落一滴（每滴按落下时玩家的位置取）
+    tears(e, P) {
+      const W = G.world, seq = e.seq, T = SN.tears, hex = hexOf(e);
+      e.aim = angTo(e, P.x, P.z);
+      e.busy = 0.4 + T.gap * (T.n - 1) + 0.3;
+      cue(e, 0.4);
+      for (let i = 0; i < T.n; i++) {
+        G.after(0.4 + i * T.gap, () => {
+          if (!live(e, seq)) return;
+          const p = G.player, a = Math.random() * TAU, d = i === 0 ? 0 : Math.sqrt(Math.random()) * T.spread;
+          let x = p.x + Math.sin(a) * d, z = p.z + Math.cos(a) * d;
+          if (!W.walkable(x, z, 0)) (x = p.x), (z = p.z);
+          const meteor = W.meteorFall ? W.meteorFall(x, z, T.warn, 0xffd27a, true) : null;
+          G.telegraph({
+            shape: 'circle', x, z, r: T.r, dur: T.warn, dmg: e.dmg * T.k, dtype: e.elem, owner: e, cancelIfOwnerDead: true, friendly: false, meteor,
+            onFire() {
+              if (G.state.zone === e.zone) W.burst(x, 0.3, z, hex, 10, 4, 0.35);
+            },
+          });
+        });
+      }
+    },
+    // 引芯：冲向一个亮着的火盆（离玩家最近的那个；掐灯时是要掐的那个），到了在火盆边炸一圈。o.snuff：到了把它掐灭
+    wick(e, P, dist, o) {
+      const W = G.world, seq = e.seq, K = SN.wick, hex = hexOf(e), S = snState();
+      const lit = litIdx();
+      if (!S || !lit.length) return PATTERNS.brush(e, P);
+      let bi = o && o.target >= 0 ? o.target : lit[0];
+      if (!(o && o.target >= 0)) {
+        let bd = 1e9;
+        for (const i of lit) {
+          const b = S.br[i], d = Math.hypot(b.x - P.x, b.z - P.z);
+          if (d < bd) (bd = d), (bi = i);
+        }
+      }
+      const b = S.br[bi], dx0 = b.x - e.x, dz0 = b.z - e.z, d0 = Math.hypot(dx0, dz0) || 1;
+      const ux = dx0 / d0, uz = dz0 / d0, stop = G.PIN.braziers.wall + e.r + 0.2, len = Math.max(0.5, d0 - stop), a = Math.atan2(ux, uz);
+      e.aim = a;
+      e.busy = K.warn + K.dash + 0.5;
+      G.telegraph({
+        shape: 'rect', x: e.x + ux * len * 0.5, z: e.z + uz * len * 0.5, len: len + e.r, w: K.w, ang: a, dur: K.warn,
+        dmg: e.dmg * K.k, dtype: 'phys', owner: e, cancelIfOwnerDead: true, friendly: false,
+        onFire() {
+          if (!live(e, seq)) return;
+          e.dash = { dx: ux, dz: uz, t: K.dash, speed: len / K.dash };
+          W.shake(0.3);
+          G.sfx('hit');
+          G.telegraph({
+            shape: 'circle', x: b.x, z: b.z, r: K.burstR, dur: K.burstWarn, dmg: e.dmg * K.burstK, dtype: e.elem, owner: e, cancelIfOwnerDead: true, friendly: false,
+            onFire() {
+              if (!live(e, seq)) return;
+              W.burst(b.x, 1.6, b.z, 0xffb24a, 22, 6, 0.5);
+              W.ring(b.x, b.z, K.burstR, hex, 0.35);
+            },
+          });
+          if (o && o.snuff) G.after(K.dash + 0.05, () => live(e, seq) && G.pinSnuff && G.pinSnuff(bi));
+        },
+      });
+    },
+    // 冠焰螺旋：3 臂 × 6 波，每波转一点
+    cspiral(e, P) {
+      const seq = e.seq, SP = SN.spiral, base = angTo(e, P.x, P.z), dir = Math.random() < 0.5 ? 1 : -1;
+      e.aim = base;
+      e.busy = SP.wind + SP.gap * SP.waves + 0.4;
+      cue(e, SP.wind);
+      for (let w = 0; w < SP.waves; w++) {
+        G.after(SP.wind + w * SP.gap, () => {
+          if (!live(e, seq)) return;
+          const volley = volleySeq++;
+          for (let k = 0; k < SP.arms; k++) shoot(e, base + dir * w * SP.turn + (k * TAU) / SP.arms, SP.speed, e.dmg * SP.k, 0.4, 3.2, e.r * 0.6, volley);
+          G.sfx('cast');
+        });
+      }
+    },
+    // 坠冕：玩家脚下 r 5，预警 1.4 s，全场最重的一下（1.5×）
+    crown(e, P) {
+      const W = G.world, seq = e.seq, C = SN.crown, x = P.x, z = P.z, hex = hexOf(e);
+      e.aim = angTo(e, x, z);
+      e.busy = C.warn + 0.4;
+      const meteor = W.meteorFall ? W.meteorFall(x, z, C.warn, 0xffb24a, true) : null;
+      G.telegraph({
+        shape: 'circle', x, z, r: C.r, dur: C.warn, dmg: e.dmg * C.k, dtype: 'phys', owner: e, cancelIfOwnerDead: true, friendly: false, meteor,
+        onFire() {
+          if (!live(e, seq)) return;
+          W.burst(x, 0.5, z, 0xffd27a, 34, 8, 0.55);
+          W.ring(x, z, C.r, hex, 0.45);
+          W.shake(0.55);
+          G.sfx('hit');
+        },
+      });
+    },
+    // 暗潮：全场暗色内收光环，结算时不在亮着的火盆 safe 米内的都挨打（伤害结算在 game.js 的 G.pinTideHit）
+    tide(e) {
+      const seq = e.seq, T = G.PIN.tide, S = snState();
+      e.aim = e.ang;
+      e.busy = T.warn + 0.4;
+      cue(e, T.warn);
+      let t = 0;
+      addHazard({
+        e, seq,
+        update(dt) {
+          t += dt;
+          if (S) S.tideK = Math.min(1, t / T.warn);
+          if (t < T.warn) return true;
+          if (G.pinTideHit) G.pinTideHit(e);
+          return false;
+        },
+        end() {
+          if (S) S.tideK = 0;
+        },
+      });
+    },
+    // 掐灯（二阶段进场）：举灯 1.2 s，一举灯两个火盆就灭、场地变暗（场地状态当场切，首领这一下被打出破绽也不会漏掉）
+    snuff(e) {
+      const D = G.PIN.snuffAct;
+      e.aim = e.ang;
+      e.busy = D + 0.3;
+      cue(e, D);
+      if (G.pinEnterDark) G.pinEnterDark();
+    },
+  });
+  // 阶段切换：进二阶段掐灯；进三阶段亮着的火盆各炸一圈，随后全部永久点燃，外圈起火（焰潮，预警环 1.5 s）
+  function snPhase(e, ph) {
+    const W = G.world, seq = e.seq, S = snState();
+    e.phase = ph;
+    e.lastPattern = null;
+    W.text(e.x, e.z, ph === 1 ? '熄灯' : '冠焰', '#ffd27a', 28);
+    W.ring(e.x, e.z, e.r + 4, 0xffb24a, 0.6);
+    W.shake(0.4);
+    G.sfx('boss');
+    if (S) S.thrallAt = S.thrallAt || 0;
+    if (ph === 1) {
+      e.lastPattern = 'snuff';
+      PATTERNS.snuff(e);
+      W.play(e.ent, 'lift', { dur: G.PIN.snuffAct });
+      if (S) {
+        S.tideT = G.PIN.tide.iv;
+        S.snuffT = G.PIN.snuffIv;
+      }
+      return;
+    }
+    const P0 = SN.pop, lit = litIdx();
+    e.busy = P0.warn + G.PIN.burnWarn + 0.3;
+    e.lastPattern = 'snuff';
+    W.play(e.ent, 'lift', { dur: P0.warn + 0.3 });
+    if (S) S.tideK = 0;
+    for (const i of lit) {
+      const b = S.br[i];
+      G.telegraph({
+        shape: 'circle', x: b.x, z: b.z, r: P0.r, dur: P0.warn, dmg: e.dmg * P0.k, dtype: e.elem, owner: e, cancelIfOwnerDead: true, friendly: false,
+        onFire() {
+          if (live(e, seq)) W.burst(b.x, 1.6, b.z, 0xffc060, 26, 7, 0.55);
+        },
+      });
+    }
+    // 场地这边当场切到冠焰：炸完（popT）全部点燃、再出外圈预警环、起火，都在 game.js 的 G.pinTick 里按计时走（首领被打出破绽也照常）
+    if (G.pinEnterCrown) G.pinEnterCrown();
+  }
+  // 每帧（忙也走）：二阶段暗潮 / 掐灯的计时；不在余烛殿（测试在别处刷出来）时没有场地机制
+  function snClock(e, dt) {
+    const S = snState();
+    if (!S || e.phase !== 1) return;
+    S.tideT -= dt;
+    S.snuffT -= dt;
+  }
+  // 不忙的时候：先看阶段、召烛奴、暗潮 / 掐灯到点了没有，再按停顿出普通招式
+  function snThink(e, dt, P, dist, spd, sk) {
+    const PN = G.PIN, S = snState(), hpK = e.hp / e.maxHp;
+    if (e.phase < 1 && hpK < PN.phase[0]) return snPhase(e, 1);
+    if (e.phase < 2 && hpK < PN.phase[1]) return snPhase(e, 2);
+    if (dist > 5) chase(e, P, spd, dt);
+    else turn(e, angTo(e, P.x, P.z), 6, dt);
+    e.cd -= dt * sk;
+    if (e.phase === 1) {
+      // 召「烛奴」：60%、45% 各 2 只（换成蜡色的游魂），同场不超过 cap 只
+      const TH = PN.thralls;
+      e.thrallAt = e.thrallAt || 0;
+      if (e.thrallAt < TH.at.length && hpK < TH.at[e.thrallAt]) {
+        e.thrallAt++;
+        snThralls(e);
+      }
+      if (S && S.tideT <= 0) {
+        S.tideT = PN.tide.iv;
+        e.lastPattern = 'tide';
+        snStart(e, P, dist, 'tide');
+        return;
+      }
+      const lit = litIdx();
+      if (S && S.snuffT <= 0 && lit.length >= 2) {
+        S.snuffT = PN.snuffIv;
+        // 掐离玩家最远的那个亮着的（逼玩家跑去重燃），不掐玩家脚下那个
+        let bi = lit[0], bd = -1;
+        for (const i of lit) {
+          const d = Math.hypot(S.br[i].x - P.x, S.br[i].z - P.z);
+          if (d > bd) (bd = d), (bi = i);
+        }
+        e.lastPattern = 'wick';
+        snStart(e, P, dist, 'wick', { snuff: true, target: bi });
+        return;
+      }
+    }
+    if (e.cd <= 0 && dist <= 26 && !e.dash) {
+      e.cd = PN.pause[e.phase] || 1;
+      const lit = litIdx().length;
+      let opts = PN.pats[e.phase].filter((p) => p !== e.lastPattern && (p !== 'brush' || dist <= SN.brush.reach) && (p !== 'dbrush' || dist <= SN.brush.reach) && (p !== 'wick' || lit > 0));
+      if (!opts.length) opts = PN.pats[e.phase].filter((p) => p !== 'wick' || lit > 0);
+      const p = G.pick(opts);
+      e.lastPattern = p;
+      snStart(e, P, dist, p);
+    }
+  }
+  function snThralls(e) {
+    const W = G.world, seq = e.seq, TH = G.PIN.thralls;
+    const alive = G.state.enemies.filter((o) => o.pinThrall && !o.dead).length;
+    const n = Math.max(0, Math.min(TH.n, TH.cap - alive));
+    if (!n) return;
+    const spots = summonSpots(e, n);
+    for (const s of spots) W.ring(s.x, s.z, 1.3, 0xffb24a, 0.8);
+    G.after(0.8, () => {
+      if (!live(e, seq)) return;
+      for (const s of spots) {
+        const m = G.spawnMob('husk', s.x, s.z, e.zone.level, { elite: false, pack: null, awake: true });
+        m.summoned = true;
+        m.pinThrall = true;
+        m.name = '烛奴';
+        m.atkCd = 0.9;
+        if (W.waxTint) W.waxTint(m.ent);
+        W.burst(s.x, 1, s.z, 0xffb24a, 12, 4, 0.4);
+      }
+      G.sfx('boss');
+    });
+  }
+  // 出一招：和 startPattern 一样把蓄力 / 出手动作对在结算的那一刻
+  function snStart(e, P, dist, p, o) {
+    const hold = PATTERNS[p](e, P, dist, o);
+    const W = G.world, seq = e.seq, wind = PATTERN_WIND[p] || 0.5;
+    const lead0 = W.clipLead(e.ent, p);
+    W.play(e.ent, p + '_w', { dur: Math.max(0.1, wind - lead0) });
+    for (const at of PATTERN_HITS[p] || [0]) {
+      const lead = Math.min(lead0, wind + at);
+      const opts = { contact: Math.max(lead, 0.001) };
+      if (hold > 0) opts.dur = hold + lead;
+      G.after(wind + at - lead, () => {
+        if (live(e, seq)) W.play(e.ent, p, opts);
+      });
+    }
+  }
+  G.snufferPattern = function (e, p, o) {
+    // 测试 / 调试用：立刻出某一招（不看阶段和停顿）
+    if (!e || e.dead || !PATTERNS[p]) return false;
+    e.lastPattern = p;
+    snStart(e, G.player, Math.hypot(G.player.x - e.x, G.player.z - e.z), p, o);
+    return true;
+  };
+
   // 各招式从起手到出手的秒数（和上面预警 / 延时的数值对应），以及之后追加出手的时刻
-  const PATTERN_WIND = { slam: 0.95, charge: 0.75, ring: 0.45, fan: 0.4, barrage: 0.3, summon: 0.5, spiral: 0.25, cross: 0.9, starfall: 0.7, gravity: 0.6, sweep: 0.9 };
-  const PATTERN_HITS = { fan: [0, 0.35, 0.7], cross: [0, 0.6] };
+  const PATTERN_WIND = { slam: 0.95, charge: 0.75, ring: 0.45, fan: 0.4, barrage: 0.3, summon: 0.5, spiral: 0.25, cross: 0.9, starfall: 0.7, gravity: 0.6, sweep: 0.9, brush: 1.0, dbrush: 1.0, tears: 0.4, wick: 0.9, cspiral: 0.8, crown: 1.4, tide: 1.6, snuff: 1.2 };
+  const PATTERN_HITS = { fan: [0, 0.35, 0.7], cross: [0, 0.6], dbrush: [0, 0.6] };
   function startPattern(e, P, dist) {
+    if (e.pin) return snStart(e, P, dist, G.pick(e.def.patterns)); // 熄烛者不走这里（见 snThink），保险
     const pats = e.def.patterns;
     const canSummon = nearbyMobCount(e) < 6;
     let opts = pats.filter(
@@ -1501,11 +1813,13 @@
     }
     // 冰缓（重度冰缓 50%）：招式之间的停顿和收招一起拉长
     const sk = e.slowK > 0 ? e.slowK : 1;
+    if (e.pin) snClock(e, dt); // 熄烛者：二阶段暗潮 / 掐灯的计时（出招时也走）
     if (e.busy > 0) {
       e.busy -= dt * sk;
       turn(e, e.aim, 12, dt);
       return;
     }
+    if (e.pin) return snThink(e, dt, P, dist, spd, sk);
     if (dist > 5) chase(e, P, spd, dt);
     else turn(e, angTo(e, P.x, P.z), 6, dt);
     e.cd -= dt * sk * hasteK;
@@ -1674,7 +1988,9 @@
     if (hazards.length) updateHazards(dt);
     if (cinders.length) updateCinders(dt);
     // 渊印：标志位进区时算好（G.runMods），这里只读
-    const RM = G.runMods, wakeD = RM.alert ? RM.alert.wake : WAKE_DIST;
+    // 渊契「无光」（熄烛冠）：far 米外的怪不会因为距离醒来；已醒的在 far 米外 lose 秒就失去目标、走回原地（首领不吃）
+    const XZ = P.relic && P.relic.xizhu ? G.RELIC_MECH.xizhu : null;
+    const RM = G.runMods, wakeD = XZ ? Math.min(XZ.far, RM.alert ? RM.alert.wake : WAKE_DIST) : RM.alert ? RM.alert.wake : WAKE_DIST;
     hasteK = RM.haste ? 1 / (1 - RM.haste.cd) : 1;
     const dyn = !!(RM.frenzy || RM.aura);
 
@@ -1704,6 +2020,20 @@
         } else if (dist < wakeD && !(G.player.graceT > 0) && (!TR.wakeLos || wakeSees(e, P))) wakePack(e); // 刚重生的几秒内不会被就近的怪发现
       }
       if (e.awake && !e.wasAwake) onWake(e);
+      if (XZ && !e.isBoss && !e.enc) {
+        if (e.awake && !P.dead) {
+          e.lostT = dist > XZ.far && S.time - (e.hurtAt || -9) > 0.5 ? (e.lostT || 0) + dt : 0;
+          if (e.lostT >= XZ.lose) {
+            e.awake = e.wasAwake = false;
+            e.lostT = 0;
+            e.homing = true;
+            e.foe = null;
+            e.state = 'idle';
+            e.stateT = 0;
+            G.cancelTelegraphs(e);
+          }
+        } else if (e.awake) e.lostT = 0;
+      }
 
       // 元素异常值：回落、感电 / 重度冰缓倒计时；slow 是冰缓的减速比例（移动和出手节奏一起放慢）
       const slow = G.tickBuildUp(e, dt);
@@ -1798,6 +2128,14 @@
       } else {
         if (e.tauntT > 0) e.tauntT -= dt;
         if (e.encIdle && !held && !e.awake) e.encIdle(e, dt); // 异兆：游荡者没醒时在巡逻段里来回走
+        if (e.homing && !held && !e.awake) {
+          // 渊契「无光」：失去目标的怪走回原地
+          if (Math.hypot(e.home.x - e.x, e.home.z - e.z) < 0.6) e.homing = false;
+          else {
+            updateNav(e, e.home, dt);
+            chase(e, e.home, e.speed * 0.8, dt);
+          }
+        }
       }
       e.moving = Math.hypot(e.x - ox, e.z - oz) > dt * 0.6;
       e.held = held;
@@ -2029,13 +2367,15 @@
       W.stop(e.ent, 0);
       e.alertT = 0;
       e.alertCalled = false;
+      e.homing = false;
+      e.lostT = 0;
       if (e.frenzied) {
         e.frenzied = false;
         e.speed = e.speedBase;
         if (W.rage) W.rage(e.ent, false);
       }
       if (e.isBoss) {
-        e.hp = e.maxHp;
+        if (!e.pin) e.hp = e.maxHp; // 熄烛者：倒下重生时首领保留当前生命和阶段（魂灯，game.js「余烛殿」）
         e.escortWake = e.escortHalf = false;
         e.busy = 0;
         e.cd = 1;
