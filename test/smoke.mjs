@@ -9766,7 +9766,8 @@ async function main() {
       const nm = document.querySelector('.detail-card .icard.r4 .ic-name');
       out.nameColor = nm ? getComputedStyle(nm).color : null;
       const txt = T.bodyText();
-      out.mech = /机制|计数|折返|蓄|电桥|骸王|随影|渊缚/.test(txt) && txt.indexOf('渊契无法改造') >= 0;
+      const selIt = cell && G.save.bag.find((x) => x.uid === cell.dataset.item);
+      out.mech = !!selIt && txt.indexOf(G.RELICS[selIt.rq].mechName) >= 0 && txt.indexOf(G.RELICS[selIt.rq].mechDesc.slice(0, 12)) >= 0 && txt.indexOf('渊契无法改造') >= 0;
       out.locked = !!document.querySelector('.craft-grid.locked');
       G.ui.close();
       G.save.bag.length = 0;
@@ -9922,8 +9923,10 @@ async function main() {
       G.computeStats();
       const h1 = a.hp;
       P.cast = { slot: 0, id: 'whirl', channel: true, pulses: 1, t: 0, nextT: 1e9, cancelT: 0, dur: Infinity, move: 0.6, fired: true };
-      G.execSkill(G.skillCtx('whirl'));
-      out.plain = [Math.round(h1 - a.hp), Math.round(pulse), G.relicState.spin];
+      const c2 = G.skillCtx('whirl');
+      const full = RQT.hit(c2, 1); // 手套的物理伤害提高那一行也摘掉了：按摘下之后的上下文算
+      G.execSkill(c2);
+      out.plain = [Math.round(h1 - a.hp), Math.round(full), G.relicState.spin];
       P.cast = null;
       RQT.end();
       return out;
@@ -10043,6 +10046,7 @@ async function main() {
       const cx = d.x * 8, cz = d.z * 8;
       const c1 = T.mob('husk', cx, cz), c2 = T.mob('husk', cx + 0.9, cz), c3 = T.mob('husk', cx, cz + 0.9);
       const lone = T.mob('husk', d.z * 4, -d.x * 4);
+      for (const o of [c1, c2, c3, lone]) { G.initBuildUp(o); o.buTh = 1e15; } // 不让爆燃掺进陨火的伤害
       T.fix(0.999);
       const ctx = G.skillCtx('meteor');
       const want = RQT.hit(ctx, F.mult);
@@ -10102,8 +10106,10 @@ async function main() {
       const b0 = G.state.stats.bolts || 0;
       G.relicBridges([{ x: P.x, z: P.z }, { x: ax, z: az }, { x: bx, z: bz }], ctx);
       const m2 = T.mob('husk', (ax + bx) / 2 - P.x + d.x * 0.6, (az + bz) / 2 - P.z + d.z * 0.6);
+      G.initBuildUp(m2);
+      m2.buTh = 1e7; // 阈值放大：一跳就灌满会直接感电、把异常值清零
       G.debug.step(0.3);
-      out.build = m2.bu ? +m2.bu.light.toFixed(4) : 0;
+      out.build = m2.bu && m2.bu.light > 0 ? 1 : 0;
       G.debug.step(1.4);
       out.ticks = +((mid.maxHp - mid.hp) / tick).toFixed(2);
       out.off = Math.round(off.maxHp - off.hp);
@@ -10165,10 +10171,14 @@ async function main() {
       G.save.equip.helm = G.rollRelic('haiwang', 50, 0.5);
       G.computeStats();
       const c1 = G.skillCtx('thrall');
+      // 生命按「同一套属性（头盔上的召唤物生命那一行也算）、只关掉独骸」来比
+      G.player.relic.haiwang = false;
+      const c1b = G.skillCtx('thrall');
+      G.computeStats();
       const extra = c0.minion.cap - c0.sk.cap;
       const out = {
         cap: [c0.minion.cap, c1.minion.cap], more: +(c1.more / c0.more).toFixed(4), wantMore: +(H.dmg * (1 + H.perDmg * extra)).toFixed(4),
-        life: +(c1.minion.life / c0.minion.life).toFixed(3), wantLife: +(H.life * (1 + H.perLife * extra)).toFixed(3),
+        life: +(c1.minion.life / c1b.minion.life).toFixed(3), wantLife: +(H.life * (1 + H.perLife * extra)).toFixed(3),
         cleave: c1.minion.cleave, arc: Math.round((c1.minion.arc * 180) / Math.PI), hold: c1.minion.hold, dr: c1.minion.dr - c0.minion.dr, king: !!c1.minion.king,
         dps: extra === 0 ? +(G.skillDps(c1) / G.skillDps(c0)).toFixed(3) : null, soulK: +c1.minion.soulK.toFixed(3),
       };
@@ -10208,10 +10218,12 @@ async function main() {
       RQT.begin(null);
       RQT.learn('thrall', 0);
       const P = G.player, T0 = G.RELIC_MECH.tongshang;
-      const l0 = G.skillCtx('thrall').minion.life;
       G.save.equip.body = G.rollRelic('tongshang', 50, 0.5);
       G.computeStats();
       const l1 = G.skillCtx('thrall').minion.life;
+      P.relic.tongshang = false; // 同一套属性（胸甲上的召唤物生命那一行也算），只关掉同殇来比
+      const l0 = G.skillCtx('thrall').minion.life;
+      G.computeStats();
       const out = { life: +(l1 / l0).toFixed(3) };
       const m = G.summonMinion('thrall', P.x + 2, P.z);
       m.rising = 0;
