@@ -11508,16 +11508,15 @@ async function main() {
       G.uniqueDrop({ bossKind: 'golem', x: P.x, z: P.z, isBoss: true }, 30);
       out.rqSame = U.pity.panzhong === 4;
       G.save.uniq.pity = uqp;
-      // 关着的来源：保底满了也不掉
+      // 关着的来源：保底满了也不掉（D3 渊印、D4 异兆上线后这三个来源默认开着：这里先临时关掉再验）
       out.src = [D.src.boss, D.src.enc, D.src.seal, D.src.trader].join();
-      // 渊印（D3）已经打开了烈印来源：这里临时关上，核对「关着的来源保底满了也不掉」，最后放回
       const srcOrig = Object.assign({}, D.src);
-      D.src.seal = false;
+      D.src.enc = D.src.seal = D.src.trader = false;
       U.pity.dianqiao = 99;
       U.pity.seal = 99;
       out.off = [G.relicEncDrop('guard', 40, P.x, P.z), G.relicSealDrop({ isBoss: true, x: P.x, z: P.z }, 40), G.relicTraderPick()].map((v) => v === null).join();
       // 打开异兆来源：保底满了就掉（层级 ≥ 1）
-      const src0 = Object.assign({}, D.src);
+      const src0 = srcOrig;
       D.src.enc = true;
       U.pity.dianqiao = D.enc.pity;
       const it = G.relicEncDrop('guard', 40, P.x, P.z);
@@ -11546,7 +11545,7 @@ async function main() {
     assert(r.pity.join() === '3,0', '保底应在第 3 次必掉并清零：' + r.pity);
     assert(r.uqSame && r.rqSame, '渊契和烬铸的保底互相影响了：' + JSON.stringify(r));
     assert(r.map === 'behemoth:yinli,golem:panzhong,lord:haiwang,warden:nuchao,weaver:huixuan', '首领 → 渊契对应不对：' + r.map);
-    assert(r.src === 'true,false,true,false' && r.off === 'true,true,true', '异兆 / 拾烬客来源应关着、烈印来源随渊印打开：' + JSON.stringify(r));
+    assert(r.src === 'true,true,true,true' && r.off === 'true,true,true', '异兆 / 烈印 / 拾烬客来源应随 D3 / D4 打开、关掉时不掉：' + JSON.stringify(r));
     assert(r.encOn.join() === 'dianqiao,0' && r.sealLow && r.sealOn.join() === 'true,0', '打开来源后应按保底掉落：' + JSON.stringify(r));
     return '层级 1 ' + (r.r1 * 100).toFixed(1) + '% · 层级 2 ' + (r.r2 * 100).toFixed(1) + '% · 烈印 ' + (r.s1 * 100).toFixed(1) + '% / ' + (r.s2 * 100).toFixed(1) + '% · 保底第 ' + r.pity[0] + ' 次';
   });
@@ -12447,6 +12446,799 @@ async function main() {
       return out;
     });
     assert(!r.bad.length && r.xp, '素印不该有任何效果：' + r.bad.slice(0, 6).join(' | '));
+  });
+
+  // ------------------------------------------------------------------ D4 异兆（设计稿 §10）
+  // 页面里共用的小工具（每一步自己装一遍，单独跑某一步也行）：进区并强制放一种异兆、推进模拟、清房间
+  const encKit = () =>
+    ev(() => {
+      const S = G.state, P = G.player;
+      window.EK = {
+        put(kind, z, t, seed) {
+          for (let k = 0; k < 8; k++) {
+            G.debug.zoneSeed(seed === undefined ? 900 + k * 13 : seed + k);
+            G.enterZone(z, t);
+            G.rollEncounters(S.zone, t, [kind]);
+            if (S.enc.length) break;
+          }
+          G.debug.zoneSeed(null);
+          T.clearLoot();
+          P.god = true;
+          P.iframe = 0;
+          return S.enc[0] || null;
+        },
+        step(sec, fn) {
+          const n = Math.round(sec * 60);
+          for (let i = 0; i < n; i++) {
+            G.tick(1 / 60);
+            if (fn && fn(i)) return i;
+          }
+          return n;
+        },
+        clearRoom(enc) {
+          for (const e of enc.roomMobs || []) if (!e.dead) G.killEnemy(e);
+        },
+        kill(list) {
+          for (const e of list) if (!e.dead) G.killEnemy(e);
+        },
+        items: () => S.loot.filter((l) => l.kind === 'item').length,
+        done() {
+          P.god = false;
+          G.debug.noEnc = false;
+          G.enterZone(0, 0);
+          T.clearLoot();
+        },
+      };
+    });
+
+  await step('异兆选址：5 区 × 20 个种子 × 8 种，点位都合规（离起点 ≥ 12 m、不进场地、离场地门 ≥ 18 m、不在灼烧 / 薄冰上、彼此 ≥ 25 m）；找不到点位时换下一种、不报错', async () => {
+    await encKit();
+    const r = await ev(() => {
+      const W = G.world, S = G.state, E = G.ENC, bad = [], n = {};
+      let placed = 0, msMax = 0;
+      for (let z = 0; z < 5; z++) {
+        for (let s = 1; s <= 20; s++) {
+          G.debug.zoneSeed(3000 + z * 101 + s * 7);
+          G.enterZone(z, 1);
+          msMax = Math.max(msMax, S.zone.ms.enc); // 正常进区（掷 1–2 个）的选址耗时
+          const zone = S.zone, a = zone.arena;
+          // 每种单独放一次（数能不能放上），再 8 种一起放（间距约束最紧；大房间点位被前几种占掉时后面的换不到，属正常）
+          const lists = G.ENC_IDS.map((k) => {
+            const l = G.rollEncounters(zone, 1, [k]).slice();
+            if (l.length) n[k] = (n[k] || 0) + 1;
+            return l;
+          });
+          lists.push(G.rollEncounters(zone, 1, G.ENC_IDS.slice()).slice());
+          for (const list of lists) {
+          placed += list.length;
+          for (const e of list) {
+            const p = e.site, why = [];
+            for (const q of p.type === 'patrol' ? [p.a, p.b] : [p]) {
+              if (Math.hypot(q.x - zone.start.x, q.z - zone.start.z) < E.startGap) why.push('起点');
+              if (a.door && Math.hypot(q.x - a.door.x, q.z - a.door.z) < E.doorGap) why.push('场地门');
+              if (W.roomAt(q.x, q.z) === a.room || W.inArena(q.x, q.z)) why.push('场地');
+              if (W.hazardAt(q.x, q.z) & (W.HAZ.burn | W.HAZ.thin)) why.push('危险区');
+              if (!W.walkable(q.x, q.z, 0.5)) why.push('墙里');
+            }
+            if (p.type === 'core' && !(W.sdAt(p.x, p.z) >= 7)) why.push('sd');
+            if (p.type === 'side' && !p.door) why.push('门');
+            if (e.kind === 'guard' && !(p.nodeD >= 14)) why.push('雷枢');
+            for (const o of list) if (o !== e && Math.hypot(o.site.x - p.x, o.site.z - p.z) < E.gap) why.push('间距');
+            if (why.length) bad.push(zone.def.id + '#' + s + ' ' + e.kind + '：' + why.join('、'));
+          }
+          }
+        }
+      }
+      // 找不到点位：把旁支的候选清空，试锋放不下就换下一种（祈坛）；全部清空时一个都不放、不报错
+      G.debug.zoneSeed(77);
+      G.enterZone(2, 1);
+      S.zone.encCand = { core: [], side: [], nook: S.zone.encCand && S.zone.encCand.nook ? S.zone.encCand.nook : null, patrol: [] };
+      if (!S.zone.encCand.nook) delete S.zone.encCand.nook;
+      const fb = G.rollEncounters(S.zone, 1, ['trial', 'shrine']).map((e) => e.kind).join(',');
+      S.zone.encCand = { core: [], side: [], nook: [], patrol: [] };
+      const none = G.rollEncounters(S.zone, 1, G.ENC_IDS.slice()).length;
+      G.debug.zoneSeed(null);
+      G.enterZone(0, 0);
+      return { bad: bad.slice(0, 6), nBad: bad.length, placed, n, msMax: +msMax.toFixed(2), fb, none };
+    });
+    assert(!r.nBad, '有不合规的点位：' + JSON.stringify(r.bad));
+    for (const k of ['guard', 'box', 'wanderer', 'shrine', 'trial', 'trader', 'echo', 'ember']) assert(r.n[k] >= 60, k + ' 在 100 个布局里单独放能放上的次数太少：' + JSON.stringify(r.n));
+    assert(r.fb === 'shrine' && r.none === 0, '找不到点位时应换下一种 / 一个都不放：' + JSON.stringify(r));
+    assert(r.msMax < 5, '选址耗时太长（设计 < 1 ms）：' + r.msMax);
+    return '放上 ' + r.placed + ' 个，各种 ' + JSON.stringify(r.n) + '，选址最慢 ' + r.msMax + ' ms';
+  });
+
+  await step('异兆懒生成：同一种子进区，开 / 关异兆时 state.enemies 的数量、类型、位置完全一样（进区时不刷异兆的怪，保护「经验」那一步）', async () => {
+    const r = await ev(() => {
+      const S = G.state, out = [];
+      const orig = Math.random;
+      const seeded = (seed) => {
+        let a = seed >>> 0;
+        return () => {
+          a = (a + 0x6d2b79f5) >>> 0;
+          let t = a;
+          t = Math.imul(t ^ (t >>> 15), t | 1);
+          t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+      };
+      const sig = () => S.enemies.map((e) => e.type + (e.elite ? '*' : '') + (e.isBoss ? '!' : '') + '@' + e.x.toFixed(3) + ',' + e.z.toFixed(3) + ':' + e.level + ':' + e.maxHp).join('|');
+      try {
+        for (let z = 0; z < 5; z++) {
+          for (const t of [0, 2]) {
+            G.debug.zoneSeed(4100 + z);
+            Math.random = seeded(777 + z);
+            G.debug.noEnc = true;
+            G.enterZone(z, t);
+            const a = sig(), na = S.enc.length;
+            Math.random = seeded(777 + z);
+            G.debug.noEnc = false;
+            G.enterZone(z, t);
+            const b = sig();
+            out.push({ z: S.zone.def.id, t, same: a === b, n: S.enemies.length, off: na, on: S.enc.length, encMobs: S.enemies.filter((e) => e.enc).length });
+          }
+        }
+      } finally {
+        Math.random = orig;
+        G.debug.noEnc = false;
+        G.debug.zoneSeed(null);
+        G.enterZone(0, 0);
+      }
+      return out;
+    });
+    for (const o of r) assert(o.same && o.off === 0 && o.encMobs === 0, '开 / 关异兆时进区的怪物列表不一样：' + JSON.stringify(o));
+    assert(r.filter((o) => o.t === 2).every((o) => o.on >= 1), '层级 2 应该放了异兆（不然这一步什么也没比）：' + JSON.stringify(r));
+    return r.map((o) => o.z + o.t + ':' + o.n + '只/' + o.on + '个').join(' ');
+  });
+
+  await step('异兆「守隙」：房间清空才张开；站进圈开始，4 波 4 / 5 / 6 / 6 只 + 精英（层级 2 两只），同场 ≤ 8；离圈 5 秒后计时倒退，退到 0 再 6 秒失败；倒下失败；坚守 30 秒成功并掉落', async () => {
+    await encKit();
+    const r = await ev(() => {
+      const S = G.state, P = G.player, out = {};
+      let enc = EK.put('guard', 3, 2);
+      const s = enc.site;
+      T.tp(s.x + 1, s.z);
+      EK.step(0.2);
+      out.sleep = enc.st;
+      out.mobs0 = enc.mobs.length;
+      EK.clearRoom(enc);
+      EK.step(0.1);
+      out.run = enc.st; // 玩家就在圈里：张开即开始
+      let maxLive = 0;
+      const waveN = [];
+      EK.step(31, () => {
+        maxLive = Math.max(maxLive, enc.mobs.filter((e) => !e.dead).length + enc.pend.length);
+        if (waveN.length < enc.wave) waveN.push(enc.mobs.length + enc.pend.length + enc.queue.length);
+        // 只留 3 只活着：让排队的接着刷，同时同场上限还要真的被顶到过一次
+        const live = enc.mobs.filter((e) => !e.dead);
+        if (enc.t > 18 && live.length > 3) EK.kill(live.slice(0, live.length - 3));
+        return enc.st !== 'run';
+      });
+      out.st = enc.st;
+      out.total = enc.mobs.length;
+      out.elites = enc.mobs.filter((e) => e.elite).length;
+      out.maxLive = maxLive;
+      out.waveN = waveN;
+      out.items = EK.items();
+      // 离圈：5 秒内计时不动，之后每秒退 0.5；退到 0 之后再 6 秒失败
+      enc = EK.put('guard', 3, 1);
+      EK.clearRoom(enc);
+      T.tp(enc.site.x, enc.site.z);
+      EK.step(4);
+      const t4 = enc.t;
+      T.tp(enc.site.x + 8, enc.site.z);
+      EK.step(4.5);
+      out.hold = +(enc.t - t4).toFixed(2);
+      EK.step(2);
+      out.back = +(t4 - enc.t).toFixed(2); // 离圈 4.5 → 6.5 秒：倒退了 1.5 秒 × 0.5
+      EK.step(7);
+      out.zero = +enc.t.toFixed(2);
+      out.stFail0 = enc.st;
+      EK.step(6);
+      out.stFail = enc.st;
+      // 倒下：失败
+      enc = EK.put('guard', 3, 1);
+      EK.clearRoom(enc);
+      T.tp(enc.site.x, enc.site.z);
+      EK.step(2);
+      P.dead = true;
+      P.deadT = 1.6; // 同 G.hurtPlayer 打死时：倒地 1.6 秒后才重生
+      EK.step(0.05);
+      out.dead = enc.st;
+      G.respawn();
+      EK.done();
+      return out;
+    });
+    assert(r.sleep === 'sleep' && r.mobs0 === 0 && r.run === 'run', '守隙应在房间清空后才张开、走进圈开始：' + JSON.stringify(r));
+    assert(r.st === 'done' && r.total === 4 + 5 + 6 + 6 + 2 && r.elites === 2, '守隙的波次不对（层级 2：21 只轻怪 + 2 精英）：' + JSON.stringify(r));
+    assert(r.maxLive <= 8 && r.maxLive >= 6, '守隙同场应 ≤ 8：' + JSON.stringify(r));
+    assert(r.items >= 5, '守隙成功应掉落（精英表 2 次 + 1 件稀有）：' + JSON.stringify(r));
+    assert(Math.abs(r.hold) < 0.05 && Math.abs(r.back - 0.75) < 0.1 && r.zero === 0 && r.stFail0 === 'run' && r.stFail === 'fail', '守隙离圈倒退 / 失败不对：' + JSON.stringify(r));
+    assert(r.dead === 'fail', '守隙里倒下应失败：' + JSON.stringify(r));
+    return '23 只（同场最多 ' + r.maxLive + '），离圈 6.5 秒倒退 ' + r.back + ' 秒';
+  });
+
+  await step('异兆「缚匣」：走到跟前崩开锁链，3 只匣卫（普通怪 ×2.2 生命、经验权重 1.5）；25 秒内全杀是解缚（掉落多），超时是残缚', async () => {
+    await encKit();
+    const r = await ev(() => {
+      const S = G.state, out = {};
+      let enc = EK.put('box', 1, 0);
+      const s = enc.site;
+      T.tp(s.x + 3, s.z);
+      EK.step(0.2);
+      out.idle = enc.st;
+      T.tp(s.x + 0.8, s.z);
+      EK.step(1.0);
+      out.run = enc.st;
+      out.n = enc.mobs.length;
+      const g = enc.mobs[0];
+      const ref = G.spawnMob(g.type, s.x + 30, s.z, g.level, {});
+      out.hpK = +(g.maxHp / ref.maxHp).toFixed(2);
+      out.xpK = +(G.killXp(g, 1) / G.killXp(ref, 1)).toFixed(2);
+      G.clearEnemies();
+      EK.kill(enc.mobs);
+      EK.step(0.1);
+      out.st = enc.st;
+      out.how = enc.how;
+      out.items = EK.items();
+      // 超时
+      enc = EK.put('box', 1, 0);
+      T.tp(enc.site.x + 0.8, enc.site.z);
+      EK.step(1.0);
+      EK.step(25);
+      out.late0 = enc.st;
+      EK.kill(enc.mobs);
+      EK.step(0.1);
+      out.late = enc.how;
+      out.lateItems = EK.items();
+      EK.done();
+      return out;
+    });
+    assert(r.idle === 'idle' && r.run === 'run' && r.n === 3, '缚匣应走到跟前才崩开、刷 3 只匣卫：' + JSON.stringify(r));
+    assert(Math.abs(r.hpK - 2.2) < 0.02 && Math.abs(r.xpK - 0.75) < 0.02, '匣卫的生命 / 经验倍率不对（层级 0：权重 1.5 × 层级 0 的 0.5）：' + JSON.stringify(r));
+    assert(r.st === 'done' && r.how === 'free' && r.items >= 4, '25 秒内全杀应是解缚（精英表掷 2 次）：' + JSON.stringify(r));
+    assert(r.late0 === 'run' && r.late === 'late' && r.lateItems >= 2 && r.lateItems < r.items + 4, '超时应是残缚（只掷 1 次）：' + JSON.stringify(r));
+    return '解缚 ' + r.items + ' 件，残缚 ' + r.lateItems + ' 件';
+  });
+
+  await step('异兆「游荡者」：在巡逻段两个房间之间来回走、拴在里面；钩链打中拽 4 m、遇墙停；图腾立着时减伤 40%；分身随本体一起散；燃烧地面最多 10 块；击杀掉落', async () => {
+    await encKit();
+    const r = await ev(() => {
+      const S = G.state, P = G.player, W = G.world, out = {};
+      // 名号逐个强制：每次重新放
+      const make = (title) => {
+        const enc = EK.put('wanderer', 3, 1);
+        enc.title = title;
+        T.tp(enc.site.a.x + 1, enc.site.a.z);
+        EK.step(0.1);
+        return enc;
+      };
+      // 巡逻 + 拴绳
+      // 从 e 出发、一路 sd ≥ 1 的方向（钩链测试要一条直的空路）
+      const clear = (e, len) => {
+        for (let k = 0; k < 24; k++) {
+          const a = (k / 24) * Math.PI * 2, dx = Math.sin(a), dz = Math.cos(a);
+          let ok = true;
+          for (let d = 1; d <= len && ok; d += 0.5) if (!(W.sdAt(e.x + dx * d, e.z + dz * d) >= 1)) ok = false;
+          if (ok) return { x: dx, z: dz };
+        }
+        return { x: 1, z: 0 };
+      };
+      let enc = make('chain'), e = enc.mob;
+      T.tp(e.x + 18, e.z + 18); // 50 m 外的怪整帧跳过：离远一点但别太远，也别叫醒它
+      const x0 = e.x, z0 = e.z;
+      EK.step(3);
+      out.patrol = +Math.hypot(e.x - x0, e.z - z0).toFixed(2);
+      out.name = e.name;
+      let leash = true;
+      for (let i = 0; i < 80; i++) {
+        G.pullEnemy(e, e.x + 3, e.z + 1.5, 0.6);
+        if (!G.leashRoomOk(e, e.x, e.z)) leash = false;
+      }
+      for (let i = 0; i < 80; i++) {
+        G.pullEnemy(e, e.x - 2, e.z - 3, 0.6);
+        if (!G.leashRoomOk(e, e.x, e.z)) leash = false;
+      }
+      out.leash = leash;
+      // 钩链：直接拽 4 m；前面插一道假墙时停在墙前
+      const u = clear(e, 9);
+      T.tp(e.x + u.x * 8, e.z + u.z * 8);
+      const m1 = G.encHookPlayer(e.x, e.z, 4, 0.6);
+      out.hook = +m1.toFixed(2);
+      T.tp(e.x + u.x * 8, e.z + u.z * 8);
+      const wx = P.x - u.x * 1.2, wz = P.z - u.z * 1.2, wk = W.walkable;
+      W.walkable = (x, z, pad) => ((x - wx) * u.x + (z - wz) * u.z < (pad || 0) ? false : wk(x, z, pad)); // 离玩家 1.2 m 处一道垂直于钩链的假墙
+      const m2 = G.encHookPlayer(e.x, e.z, 4, 0.6);
+      W.walkable = wk;
+      out.wallHook = +m2.toFixed(2);
+      // 钩链的预警：醒着、6 m 内，按节奏甩出长条预警，打中就拽
+      T.tp(e.x + u.x * 6, e.z + u.z * 6);
+      e.awake = true;
+      e.encT = 0;
+      e.atkCd = 9;
+      let tele = null;
+      EK.step(0.05, () => (tele = S.telegraphs.find((t) => t.owner === e && t.shape === 'rect')));
+      out.tele = tele ? tele.len + '×' + tele.w + '@' + tele.dur : null;
+      const dA = Math.hypot(P.x - e.x, P.z - e.z);
+      EK.step(0.9);
+      out.pulled = +(dA - Math.hypot(P.x - e.x, P.z - e.z)).toFixed(2);
+      // 灰誓者：75% 立两根图腾，立着时减伤 40%、回血；打碎后恢复
+      enc = make('oath');
+      e = enc.mob;
+      e.awake = true;
+      T.tp(e.x + 3, e.z);
+      e.hp = e.maxHp * 0.7;
+      EK.step(0.1);
+      out.totems = (e.encTotems || []).filter((t) => !t.dead).length;
+      out.dr = e.encDR;
+      const h0 = e.hp;
+      EK.step(1);
+      out.regen = +((e.hp - h0) / e.maxHp).toFixed(3);
+      EK.kill(e.encTotems);
+      EK.step(0.1);
+      out.dr2 = e.encDR;
+      // 镜影客：60% 分一个分身；本体死了分身一起散，分身不给经验
+      enc = make('mirror');
+      e = enc.mob;
+      e.awake = true;
+      T.tp(e.x + 3, e.z);
+      e.hp = e.maxHp * 0.55;
+      EK.step(0.1);
+      const cl = e.encClones || [];
+      out.clones = cl.length;
+      out.cloneHp = cl[0] ? +(cl[0].maxHp / e.maxHp).toFixed(2) : 0;
+      out.cloneXp = cl[0] ? G.killXp(cl[0], 1) : -1;
+      G.killEnemy(e);
+      EK.step(0.1);
+      out.cloneGone = cl.every((c) => c.dead);
+      out.mirrorSt = enc.st;
+      out.items = EK.items();
+      // 拖烬者：边走边留燃烧地面，最多 10 块；50% 一圈 8 个圆形预警
+      enc = make('cinder');
+      e = enc.mob;
+      e.awake = true;
+      e.atkCd = 99;
+      T.tp(e.x + 18, e.z + 18);
+      // 走动时每 0.5 秒一块、4 秒消失（常态最多 8 块）；把间隔临时缩到 0.1 秒验上限 10
+      const CT = G.WANDERER.titles.cinder, ev0 = CT.every;
+      EK.step(3, () => {
+        e.moving = true;
+        e.awake = true;
+      });
+      out.cinders0 = G.encCinders.length;
+      CT.every = 0.1;
+      EK.step(3, () => {
+        e.moving = true;
+        e.awake = true;
+      });
+      CT.every = ev0;
+      out.cinders = G.encCinders.length;
+      e.hp = e.maxHp * 0.45;
+      const nT = S.telegraphs.length;
+      EK.step(0.05);
+      out.ring = S.telegraphs.filter((t) => t.owner === e && t.shape === 'circle').length;
+      out.ringN0 = nT;
+      EK.done();
+      return out;
+    });
+    assert(r.patrol > 1.5 && r.leash, '游荡者应在巡逻段里走动、拽不出拴绳：' + JSON.stringify(r));
+    assert(/^拖链者·../.test(r.name), '游荡者的名字应是「称号·名」：' + r.name);
+    assert(Math.abs(r.hook - 4) < 0.01 && r.wallHook < 1.0, '钩链应拽 4 m、遇墙停：' + JSON.stringify(r));
+    assert(r.tele === '11×1.4@0.85' && r.pulled > 3, '钩链的预警 / 打中拽人不对：' + JSON.stringify(r));
+    assert(r.totems === 2 && r.dr === 0.4 && Math.abs(r.regen - 0.01) < 0.002 && r.dr2 === 0, '灰誓者的图腾 / 减伤 / 回血不对：' + JSON.stringify(r));
+    assert(r.clones === 1 && r.cloneHp === 0.3 && r.cloneXp === 0 && r.cloneGone && r.mirrorSt === 'done' && r.items >= 3, '镜影客的分身 / 击杀结算不对：' + JSON.stringify(r));
+    assert(r.cinders0 === 6 && r.cinders === 10 && r.ring === 8, '拖烬者的燃烧地面上限 / 烬环不对：' + JSON.stringify(r));
+    return r.name + '，钩链 ' + r.hook + ' m（遇墙 ' + r.wallHook + ' m）';
+  });
+
+  await step('异兆「祈坛」：按 F 激活随机一种；四种增益（疾风移速 / 出手、坚壁减伤不被拽、丰饶掉落 ×1.5、渊涌冷却 / 消耗）各自生效，到期恢复', async () => {
+    await encKit();
+    const r = await ev(() => {
+      const S = G.state, P = G.player, out = {};
+      const enc = EK.put('shrine', 1, 0);
+      T.tp(enc.site.x + 1.5, enc.site.z);
+      EK.step(0.1);
+      out.F = G.pickupNearest();
+      out.used = enc.used && enc.st === 'done' && !!P.encBuff;
+      out.again = G.encUse(enc);
+      P.encBuff = null;
+      G.computeStats();
+      const ms0 = P.moveSpeed, mv0 = P.S.moveSpeed, sp0 = P.S.speed;
+      const id = G.save.bar.find((k) => k && G.SKILLS[k].cd > 0 && G.SKILLS[k].mana > 0) || G.save.bar.find((k) => k && G.SKILLS[k].mana > 0);
+      const c0 = G.skillCtx(id);
+      G.encBuff('gale');
+      out.gale = [P.S.moveSpeed - mv0, P.S.speed - sp0, P.moveSpeed > ms0]; // 「提高」类：和装备 / 天赋的同类属性相加
+      G.encBuff('ward');
+      out.ward = [P.S.lessTaken, G.encNoKb()];
+      G.encBuff('surge');
+      const c1 = G.skillCtx(id);
+      out.surge = [c0.cd > 0 ? +(c1.cd / c0.cd).toFixed(2) : 0.6, +(c1.cost / Math.max(1, c0.cost)).toFixed(2), c0.cost];
+      // 丰饶：普通怪的物品 / 通货掉落 ×1.5，宝石不变
+      const count = (n) => {
+        const c = {}, sp = G.spawnLoot;
+        G.spawnLoot = (k) => ((c[k] = (c[k] || 0) + 1), null);
+        try {
+          for (let i = 0; i < n; i++) G.encDropLoot({ level: 30, x: 0, z: 0, def: G.MOBS.husk, horde: true, hordeK: 1 });
+        } finally {
+          G.spawnLoot = sp;
+        }
+        return c;
+      };
+      P.encBuff = null;
+      const a = count(100000);
+      G.encBuff('bounty');
+      const b = count(100000);
+      out.bounty = [+(b.item / a.item).toFixed(2), +(b.cur / a.cur).toFixed(2), a.skill + a.support + a.blank, b.skill + b.support + b.blank];
+      // 到期
+      G.encBuff('gale', 0.5);
+      EK.step(0.6);
+      out.expired = !P.encBuff && Math.abs(P.moveSpeed - ms0) < 1e-6;
+      EK.done();
+      return out;
+    });
+    assert(r.F && r.used && !r.again, '祈坛应按 F 激活、只能用一次：' + JSON.stringify(r));
+    assert(r.gale[0] === 25 && r.gale[1] === 15 && r.gale[2], '疾风不对（移速 +25%、攻击 / 施法速度 +15%）：' + JSON.stringify(r));
+    assert(r.ward[0] === 25 && r.ward[1] === true, '坚壁不对：' + JSON.stringify(r));
+    assert(Math.abs(r.surge[0] - 0.6) < 0.02 && (r.surge[2] < 4 || Math.abs(r.surge[1] - 0.5) < 0.15), '渊涌不对：' + JSON.stringify(r));
+    assert(Math.abs(r.bounty[0] - 1.5) < 0.12 && Math.abs(r.bounty[1] - 1.5) < 0.12 && Math.abs(r.bounty[3] / r.bounty[2] - 1) < 0.15, '丰饶不对（物品 / 通货 ×1.5，宝石不变）：' + JSON.stringify(r));
+    assert(r.expired, '增益到期没有恢复：' + JSON.stringify(r));
+    return '丰饶 物品 ×' + r.bounty[0] + ' 通货 ×' + r.bounty[1];
+  });
+
+  await step('异兆「试锋」：跨过门口的符文开始（站在门洞里不算），3 波 5 / 6 / 6（第 3 波 2 只精英），小室里的怪拴在房间里；打完按剩余时间评级；离开小室超过 4 秒弃权，没清掉的怪散掉', async () => {
+    await encKit();
+    const r = await ev(() => {
+      const S = G.state, P = G.player, W = G.world, out = {};
+      let enc = EK.put('trial', 2, 1);
+      const s = enc.site;
+      // 站在门外（门点本身可能已经算进小室）：沿「房间芯 → 门」再往外 1.5–4 m，找一个可走、不在小室里的点
+      const ux = s.door.x - s.x, uz = s.door.z - s.z, ul = Math.hypot(ux, uz) || 1;
+      let out0 = null;
+      for (let d = 1.5; d <= 4 && !out0; d += 0.5) {
+        const x = s.door.x + (ux / ul) * d, z = s.door.z + (uz / ul) * d;
+        if (W.walkable(x, z, 0.4) && W.roomAt(x, z) !== s.room) out0 = { x, z };
+      }
+      out.outside = !!out0;
+      T.tp(out0 ? out0.x : s.door.x, out0 ? out0.z : s.door.z);
+      EK.step(0.1);
+      out.idle = enc.st;
+      // 站在门洞里（门点上，可能已经算进小室）：还没跨过符文，不开始
+      T.tp(s.door.x, s.door.z);
+      EK.step(0.1);
+      out.doorway = enc.st;
+      T.tp(s.x, s.z);
+      EK.step(1.0);
+      out.run = enc.st;
+      out.w1 = enc.mobs.length;
+      // 拴绳：把一只往门外拽，拽不出去
+      const m = enc.mobs[0];
+      const ox = s.door.x + (s.door.x - s.x) * 3, oz = s.door.z + (s.door.z - s.z) * 3;
+      for (let i = 0; i < 120; i++) G.pullEnemy(m, ox, oz, 0.5);
+      out.leash = G.leashRoomOk(m, m.x, m.z) && (W.roomAt(m.x, m.z) === s.room || Math.hypot(m.x - s.door.x, m.z - s.door.z) <= 3.01);
+      const waves = [enc.mobs.length];
+      for (let w = 0; w < 3; w++) {
+        EK.kill(enc.mobs);
+        EK.step(1.0);
+        waves.push(enc.mobs.length);
+      }
+      out.waves = waves;
+      out.elites = enc.mobs.filter((e) => e.elite).length;
+      out.st = enc.st;
+      out.how = enc.how;
+      out.items = EK.items();
+      // 弃权
+      enc = EK.put('trial', 2, 1);
+      T.tp(enc.site.x, enc.site.z);
+      EK.step(1.0);
+      T.tp(enc.site.door.x + (enc.site.door.x - enc.site.x) * 2, enc.site.door.z + (enc.site.door.z - enc.site.z) * 2);
+      EK.step(3.5);
+      out.quit0 = enc.st;
+      EK.step(1.0);
+      out.quit = enc.how;
+      out.gone = enc.mobs.every((e) => e.dead);
+      EK.done();
+      return out;
+    });
+    assert(r.outside && r.idle === 'idle' && r.doorway === 'idle' && r.run === 'run' && r.w1 === 5, '试锋应跨过门口的符文才开始（门洞里不算）、第一波 5 只：' + JSON.stringify(r));
+    assert(r.leash, '试锋的怪应拴在小室里：' + JSON.stringify(r));
+    assert(r.waves.join(',') === '5,11,17,17' && r.elites === 2 && r.st === 'done' && r.how === 'top' && r.items >= 3, '试锋的波次 / 评级不对：' + JSON.stringify(r));
+    assert(r.quit0 === 'run' && r.quit === 'quit' && r.gone, '离开小室超过 4 秒应弃权、怪散掉：' + JSON.stringify(r));
+    return '波次 ' + r.waves.join(' → ') + '，评级 ' + r.how;
+  });
+
+  await step('异兆「拾烬客」：按 F 打开货架（至少 1 件稀有），买得起才能买、扣对价钱；卖东西按分解价 +1 微光尘；烛芯任意 2 换 1（层级 2 起）', async () => {
+    await encKit();
+    const r = await ev(() => {
+      const S = G.state, P = G.player, sv = G.save, out = {};
+      const cur0 = JSON.stringify(sv.cur), bag0 = sv.bag.slice(), fr0 = JSON.stringify(sv.frags);
+      try {
+        let enc = EK.put('trader', 3, 2);
+        T.tp(enc.site.x + 1.5, enc.site.z);
+        EK.step(0.1);
+        out.F = G.pickupNearest();
+        out.open = G.ui.isOpen();
+        out.html = !!document.querySelector('#panel-body .trader .trd-row');
+        const st = enc.stock;
+        out.rare = st.filter((o) => o.kind === 'item' && o.item.rarity >= 2).length;
+        out.gem = st.some((o) => o.kind === 'skill' || o.kind === 'support');
+        for (const k in sv.cur) sv.cur[k] = 0;
+        out.poor = G.traderBuy(0);
+        sv.cur.regal = 3;
+        sv.cur.exalt = 2;
+        sv.bag.length = 0;
+        out.buy = G.traderBuy(0);
+        out.left = [sv.cur.regal, sv.cur.exalt];
+        out.inBag = sv.bag.length === 1 && sv.bag[0] === st[0].item;
+        out.twice = G.traderBuy(0);
+        // 卖：按分解价，魔法以上 +1 微光尘
+        const it = sv.bag[0], exp = G.salvageResult(it);
+        const d0 = sv.cur.dust || 0;
+        const got = G.traderSell(it);
+        out.sell = (got.dust || 0) === (exp.dust || 0) + 1 && sv.bag.length === 0 && (sv.cur.dust || 0) === d0 + (exp.dust || 0) + 1;
+        // 烛芯 2 换 1
+        sv.frags = { seal: 3, rift: 0, vow: 1, box: 0 };
+        out.swap = JSON.stringify(G.traderSwap('rift'));
+        out.frags = JSON.stringify(sv.frags);
+        sv.frags = { seal: 1, rift: 0, vow: 0, box: 0 };
+        out.short = G.traderSwap('box');
+        G.ui.close();
+        enc = EK.put('trader', 3, 1);
+        T.tp(enc.site.x + 1.5, enc.site.z);
+        EK.step(0.1);
+        G.encUse(enc);
+        sv.frags = { seal: 4, rift: 0, vow: 0, box: 0 };
+        out.t1 = G.traderSwap('rift');
+        G.ui.close();
+      } finally {
+        sv.cur = JSON.parse(cur0);
+        sv.bag = bag0;
+        sv.frags = JSON.parse(fr0);
+        EK.done();
+      }
+      return out;
+    });
+    assert(r.F && r.open && r.html && r.rare >= 1 && r.gem, '拾烬客的货架不对：' + JSON.stringify(r));
+    assert(r.poor === 'cost' && r.buy === true && r.left.join() === '1,1' && r.inBag && r.twice === 'none', '买东西不对：' + JSON.stringify(r));
+    assert(r.sell, '卖东西应按分解价 +1 微光尘：' + JSON.stringify(r));
+    assert(r.swap === '{"seal":2}' && r.frags === '{"seal":1,"rift":1,"vow":1,"box":0}' && r.short === false && r.t1 === false, '烛芯 2 换 1 不对：' + JSON.stringify(r));
+    return '货架 ' + r.rare + ' 件稀有，2 换 1：' + r.frags;
+  });
+
+  await step('异兆「残影」：房间清空后浮现本区首领的残影（首领生命 35%、等级 +2、只用前两种招式、不狂暴、拴在房间里）；不改 G.state.boss，打死不开传送门、不记首杀', async () => {
+    await encKit();
+    const r = await ev(() => {
+      const S = G.state, P = G.player, sv = G.save, out = {};
+      const enc = EK.put('echo', 3, 1);
+      const boss = S.boss, kills0 = JSON.stringify(sv.bossKills), cleared0 = JSON.stringify(sv.cleared);
+      T.tp(enc.site.x + 6, enc.site.z);
+      EK.step(0.2);
+      out.sleep = enc.st;
+      EK.clearRoom(enc);
+      EK.step(1.0);
+      const e = enc.mob;
+      out.spawned = !!e && e.echo && e.isBoss;
+      out.bossSame = S.boss === boss && !boss.echo;
+      const def = G.BOSSES[S.zone.def.boss];
+      out.hpK = +(e.maxHp / Math.round(def.hp * G.hpScale(e.level))).toFixed(3);
+      out.lv = e.level - enc.level;
+      out.pats = e.def.patterns.join(',') === def.patterns.slice(0, 2).join(',');
+      out.leash = e.leashRooms && e.leashRooms[0] === enc.site.room;
+      EK.step(1.0);
+      out.awake = e.awake;
+      e.hp = e.maxHp * 0.3;
+      EK.step(0.3);
+      out.rage = e.enraged;
+      G.killEnemy(e);
+      EK.step(0.1);
+      out.st = enc.st;
+      out.portal = !!S.portal;
+      out.kills = JSON.stringify(sv.bossKills) === kills0 && JSON.stringify(sv.cleared) === cleared0;
+      out.items = EK.items();
+      EK.done();
+      return out;
+    });
+    assert(r.sleep === 'sleep' && r.spawned && r.bossSame, '残影应在房间清空后浮现、不改 G.state.boss：' + JSON.stringify(r));
+    assert(Math.abs(r.hpK - 0.35) < 0.01 && r.lv === 2 && r.pats && r.leash && r.awake && !r.rage, '残影的数值 / 招式 / 拴绳 / 狂暴不对：' + JSON.stringify(r));
+    assert(r.st === 'done' && !r.portal && r.kills && r.items >= 2, '残影的击杀结算不对：' + JSON.stringify(r));
+    return '残影生命 ×' + r.hpK + '，掉落 ' + r.items + ' 件';
+  });
+
+  await step('异兆「落烬」：房间清空后摸烬核开始；余烬预警同时 ≤ 3 个，打怪 ×3；4 块烬晶全打碎判成功并掉落；超时失败', async () => {
+    await encKit();
+    const r = await ev(() => {
+      const S = G.state, P = G.player, out = {};
+      let enc = EK.put('ember', 3, 1);
+      const s = enc.site;
+      T.tp(s.x + 3, s.z);
+      EK.step(0.2);
+      out.sleep = enc.st;
+      EK.clearRoom(enc);
+      EK.step(0.1);
+      out.open = enc.st;
+      T.tp(s.x + 0.8, s.z); // 摸一下烬核
+      EK.step(1.0);
+      out.run = enc.st;
+      out.shards = enc.shards.length;
+      let maxT = 0;
+      for (let i = 0; i < 40; i++) {
+        EK.step(0.25);
+        maxT = Math.max(maxT, S.telegraphs.filter((t) => enc.tele.indexOf(t) >= 0).length);
+      }
+      out.maxTele = maxT;
+      // 余烬打怪：靶子站在玩家脚下，下一团瞄着玩家落（随机数临时压低），挨的是整数倍的 3 × 小怪一击
+      const dummy = G.spawnMob('husk', P.x, P.z, enc.level, { awake: false });
+      dummy.hp = dummy.maxHp = 1e7;
+      dummy.atkCd = 1e9;
+      dummy.speed = 0;
+      const hit = G.ENCOUNTERS.ember.p.hitK * G.MOBS.husk.dmg * G.dmgScale(enc.level) * G.ENCOUNTERS.ember.p.mobK;
+      enc.tele.length = 0;
+      enc.fallT = 0;
+      const rnd = Math.random;
+      Math.random = () => 0.1;
+      EK.step(1 / 60);
+      Math.random = rnd;
+      EK.step(1.2);
+      out.mobHit = +((1e7 - dummy.hp) / hit).toFixed(2);
+      G.killEnemy(dummy);
+      EK.kill(enc.shards);
+      EK.step(0.1);
+      out.st = enc.st;
+      out.items = EK.items();
+      // 超时
+      enc = EK.put('ember', 3, 1);
+      EK.clearRoom(enc);
+      T.tp(enc.site.x + 0.8, enc.site.z);
+      EK.step(26);
+      out.late = enc.st;
+      out.gone = enc.shards.every((e) => e.dead);
+      EK.done();
+      return out;
+    });
+    assert(r.sleep === 'sleep' && r.open === 'open' && r.run === 'run' && r.shards === 4, '落烬应清空房间后摸烬核开始、立 4 块烬晶：' + JSON.stringify(r));
+    assert(r.maxTele >= 1 && r.maxTele <= 3, '余烬预警同时应 ≤ 3：' + JSON.stringify(r));
+    assert(r.mobHit >= 1 && Math.abs(r.mobHit - Math.round(r.mobHit)) < 0.05, '余烬打怪应是 3 倍小怪一击（整数次）：' + JSON.stringify(r));
+    assert(r.st === 'done' && r.items >= 4 && r.late === 'fail' && r.gone, '落烬的成功 / 超时不对：' + JSON.stringify(r));
+    return '预警最多 ' + r.maxTele + ' 个，打怪 ' + r.mobHit + ' 倍一击';
+  });
+
+  await step('异兆小地图：进区就画灰色六边形，走到 24 m 内换成这一种的图样（祈坛：青色十字），用过之后变暗', async () => {
+    await encKit();
+    const r = await ev(() => {
+      const S = G.state, P = G.player, W = G.world, out = {};
+      const enc = EK.put('shrine', 1, 0);
+      const s = enc.site;
+      // 小地图上 (x, z) 周围 radius 像素里有没有满足条件的像素
+      const scan = (x, z, rad, ok) => {
+        const m = W.minimapXY(x, z);
+        let n = 0;
+        for (let dy = -rad; dy <= rad; dy++) for (let dx = -rad; dx <= rad; dx++) if (ok(W.minimapPixel(Math.round(m.x) + dx, Math.round(m.y) + dy))) n++;
+        return n;
+      };
+      const grey = (q) => Math.abs(q[0] - q[1]) < 14 && Math.abs(q[1] - q[2]) < 14 && q[0] > 150;
+      const cyan = (q) => q[1] > 170 && q[2] > 170 && q[0] < 150;
+      // 远处（> 24 m、不同房间）：六边形
+      let far = null;
+      for (const c of S.zone.rooms) if (c.core && Math.hypot(c.core.x - s.x, c.core.z - s.z) > 34 && Math.hypot(c.core.x - s.x, c.core.z - s.z) < 60 && W.walkable(c.core.x, c.core.z, 0.5)) far = c.core;
+      if (!far) far = { x: S.zone.start.x, z: S.zone.start.z };
+      T.tp(far.x, far.z);
+      EK.step(0.05);
+      W.update(0);
+      W.render();
+      out.seen0 = enc.seen;
+      out.grey0 = scan(s.x, s.z, 5, grey);
+      out.cyan0 = scan(s.x, s.z, 5, cyan);
+      // 走到 20 m 内（玩家的圆点不盖住标记）
+      // 找一个离点位 14–20 m、可走的地方站（玩家的圆点不盖住标记）
+      let near = null;
+      for (let rr = 16; rr <= 20 && !near; rr += 2) for (let k = 0; k < 24 && !near; k++) {
+        const a = (k / 24) * Math.PI * 2, x = s.x + Math.sin(a) * rr, z = s.z + Math.cos(a) * rr;
+        if (W.walkable(x, z, 0.5)) near = { x, z };
+      }
+      for (let rr = 14; !near && rr >= 8; rr -= 2) for (let k = 0; k < 24 && !near; k++) {
+        const a = (k / 24) * Math.PI * 2, x = s.x + Math.sin(a) * rr, z = s.z + Math.cos(a) * rr;
+        if (W.walkable(x, z, 0.5)) near = { x, z };
+      }
+      T.tp(near.x, near.z);
+      EK.step(0.05);
+      W.update(0);
+      W.render();
+      out.seen1 = enc.seen;
+      out.cyan1 = scan(s.x, s.z, 5, cyan);
+      const m = W.minimapXY(s.x, s.z);
+      out.c1 = W.minimapPixel(Math.round(m.x), Math.round(m.y));
+      enc.used = true;
+      enc.st = 'done';
+      W.render();
+      out.c2 = W.minimapPixel(Math.round(m.x), Math.round(m.y));
+      EK.done();
+      return out;
+    });
+    assert(!r.seen0 && r.grey0 >= 6 && r.cyan0 === 0, '远处应是灰色六边形：' + JSON.stringify(r));
+    assert(r.seen1 && r.cyan1 >= 10 && r.c1[1] > 170 && r.c1[2] > 170 && r.c1[0] < 150, '走近后应换成青色十字：' + JSON.stringify(r));
+    assert(r.c2[1] < r.c1[1] - 30, '用过之后图样应变暗：' + JSON.stringify(r));
+    return '六边形 ' + r.grey0 + ' 像素 → 十字 ' + r.cyan1 + ' 像素';
+  });
+
+  await step('异兆出现规则 + 烛芯：层级 0 只有 40% 出 1 个、池里没有守隙 / 试锋 / 残影；层级 ≥ 1 一个、40% 两个；烛芯只在层级 ≥ 2 掉、保底第 7 次必掉；印烛芯按 W；存档读回、旧存档为 0', async () => {
+    const r = await ev(() => {
+      const S = G.state, sv = G.save, out = {};
+      G.debug.zoneSeed(5150);
+      G.enterZone(3, 0);
+      const zone = S.zone;
+      const n0 = {}, kinds0 = {};
+      for (let i = 0; i < 3000; i++) {
+        const l = G.rollEncounters(zone, 0);
+        n0[l.length] = (n0[l.length] || 0) + 1;
+        for (const e of l) kinds0[e.kind] = 1;
+      }
+      const n1 = {};
+      for (let i = 0; i < 3000; i++) {
+        const l = G.rollEncounters(zone, 1);
+        n1[l.length] = (n1[l.length] || 0) + 1;
+      }
+      out.p0 = +((n0[1] || 0) / 3000).toFixed(3);
+      out.max0 = Math.max(...Object.keys(n0).map(Number));
+      out.kinds0 = Object.keys(kinds0).sort().join(',');
+      out.p2 = +((n1[2] || 0) / 3000).toFixed(3);
+      out.min1 = Math.min(...Object.keys(n1).map(Number));
+      G.debug.zoneSeed(null);
+      // 烛芯
+      const orig = Math.random, pity0 = JSON.stringify(sv.fragPity), fr0 = JSON.stringify(sv.frags);
+      const drops = [];
+      const sp = G.spawnLoot;
+      G.spawnLoot = (k, d) => (drops.push(k + ':' + d), { x: 0, z: 0 });
+      try {
+        Math.random = () => 0.999;
+        S.tier = 1;
+        out.t1 = G.encFragDrop('guard', 0, 0) || G.encFragDrop('box', 0, 0) || G.fragSealDrop({ x: 0, z: 0 }, 50, 9);
+        out.t1Pity = JSON.stringify(sv.fragPity) === pity0;
+        S.tier = 2;
+        for (const k in sv.fragPity) sv.fragPity[k] = 0;
+        const seq = [];
+        for (let i = 0; i < 8; i++) seq.push(G.encFragDrop('guard', 0, 0) ? 1 : 0);
+        out.pitySeq = seq.join('');
+        // box 三者共用保底
+        for (let i = 0; i < 3; i++) G.encFragDrop('box', 0, 0), G.encFragDrop('trial', 0, 0);
+        out.boxPity = sv.fragPity.box;
+        out.sealW5 = G.fragSealDrop({ x: 0, z: 0 }, 50, 5);
+        Math.random = () => 0.08;
+        out.sealW6 = G.fragSealDrop({ x: 0, z: 0 }, 50, 6); // 7% + 1.5% = 8.5%
+        Math.random = () => 0.09;
+        out.sealW6b = G.fragSealDrop({ x: 0, z: 0 }, 50, 6);
+        Math.random = () => 0.0;
+        out.wander = G.encFragDrop('wanderer', 0, 0) && drops[drops.length - 1] === 'frag:vow';
+        out.drops = drops.slice(0, 3).join(',');
+      } finally {
+        Math.random = orig;
+        G.spawnLoot = sp;
+        S.tier = 0;
+      }
+      // 存档：烛芯读回；坏数据夹回范围；旧存档没有这两项 → 0
+      sv.frags = { seal: 2, rift: 120, vow: -3, box: 1.7 };
+      sv.fragPity = { seal: 3, rift: 99, vow: 2, box: 'x' };
+      G.persist();
+      const s2 = G.loadSave();
+      out.load = JSON.stringify(s2.frags) + JSON.stringify(s2.fragPity);
+      const raw = JSON.parse(JSON.stringify(sv));
+      delete raw.frags;
+      delete raw.fragPity;
+      const k = Object.keys(localStorage).find((q) => /cinder-abyss-save/.test(q));
+      localStorage.setItem(k, JSON.stringify(raw));
+      const s3 = G.loadSave();
+      out.old = JSON.stringify(s3.frags) + JSON.stringify(s3.fragPity);
+      sv.frags = JSON.parse(fr0);
+      sv.fragPity = JSON.parse(pity0);
+      G.persist();
+      G.enterZone(0, 0);
+      return out;
+    });
+    assert(Math.abs(r.p0 - 0.4) < 0.04 && r.max0 === 1 && r.kinds0 === 'box,ember,shrine,trader,wanderer', '层级 0 的出现规则不对：' + JSON.stringify(r));
+    assert(Math.abs(r.p2 - 0.4) < 0.04 && r.min1 === 1, '层级 ≥ 1 的出现规则不对：' + JSON.stringify(r));
+    assert(!r.t1 && r.t1Pity, '层级 1 不该掉烛芯、也不该记保底：' + JSON.stringify(r));
+    assert(r.pitySeq === '00000010' && r.boxPity === 6 && !r.sealW5 && r.sealW6 && !r.sealW6b, '烛芯的保底 / 共用保底 / 印烛芯几率不对：' + JSON.stringify(r));
+    assert(r.wander, '游荡者应掉誓烛芯：' + JSON.stringify(r));
+    assert(r.load === '{"seal":2,"rift":99,"vow":0,"box":1}{"seal":3,"rift":6,"vow":2,"box":0}' && r.old === '{"seal":0,"rift":0,"vow":0,"box":0}{"seal":0,"rift":0,"vow":0,"box":0}', '烛芯的存档不对：' + JSON.stringify(r));
+    return '层级 0 出现 ' + r.p0 + '，层级 1 两个 ' + r.p2 + '，保底 ' + r.pitySeq;
   });
 
   await step('localStorage 不可用时游戏照常运行', async () => {

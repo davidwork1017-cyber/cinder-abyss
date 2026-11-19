@@ -1655,8 +1655,9 @@
   G.xpLevelK = (d) => (d > G.XP_OVER ? Math.max(G.XP_FLOOR, Math.pow(G.XP_FALL, d - G.XP_OVER)) : 1);
   // 击杀一个敌人（{ level, isBoss, elite, def }）在角色 charLvl 级时得到的经验
   G.killXp = function (e, charLvl) {
-    const w = e.isBoss ? 20 : ((e.def && e.def.xp) || 1) * (e.elite ? 3 : e.horde ? G.BALANCE.mobXp * (e.hordeK || 1) : 1); // horde：区域刷的普通怪（见 G.BALANCE）
-    return G.mobXp(Math.min(e.level, charLvl + G.XP_UNDER)) * w * G.xpLevelK(charLvl - e.level);
+    // xpW：异兆里的怪自带的经验权重（匣卫 1.5、游荡者 / 残影 4，乘在 def.xp 上）；xpK：再乘的倍率（层级 0 的异兆 ×0.5）
+    const w = e.xpW ? ((e.def && e.def.xp) || 1) * e.xpW : e.isBoss ? 20 : ((e.def && e.def.xp) || 1) * (e.elite ? 3 : e.horde ? G.BALANCE.mobXp * (e.hordeK || 1) : 1); // horde：区域刷的普通怪（见 G.BALANCE）
+    return G.mobXp(Math.min(e.level, charLvl + G.XP_UNDER)) * w * G.xpLevelK(charLvl - e.level) * (e.xpK === undefined ? 1 : e.xpK);
   };
 
   // ---------- 渊印（区域词缀，轮回层级 ≥ 1） ----------
@@ -1713,6 +1714,111 @@
   };
   G.sealTierDef = (tier) => G.SEAL.tiers[G.clamp((tier | 0) - 1, 0, G.SEAL.tiers.length - 1)];
   G.sealFragChance = (W, tier) => ((tier | 0) >= G.SEAL.frag.minTier && W >= G.SEAL.lieW ? G.SEAL.frag.base + G.SEAL.frag.perW * (W - 5) : 0);
+
+  // ---------- 异兆（随机遭遇，D4） ----------
+  // 每次进区掷一次（不存档，读档重进跟着重掷）。t0Chance：层级 0 出 1 个的几率（只从 w[0] > 0 的 5 种低风险里挑）【需拍板 §13-3，单一常量】；
+  // second：层级 ≥ 1 一定出 1 个，再多 1 个（不重复）的几率。reveal：走到这么近或进了那个房间，小地图上的灰色六边形换成这一种的图样；
+  // lazy：走到这么近或进了那个房间才建道具、刷怪（懒生成：进区时 state.enemies 不变）。gap / startGap / chestGap / doorGap：选址的间距（异兆之间、
+  // 离起点、离宝箱、离场地门）；warn：刷怪前的环形预警秒数；t0Xp：层级 0 异兆里的怪经验倍率
+  G.ENC = { t0Chance: 0.4, second: 0.4, reveal: 24, lazy: 28, gap: 25, startGap: 12, chestGap: 8, doorGap: 18, warn: 0.8, t0Xp: 0.5 };
+  // 8 种异兆。w：[层级 0, 层级 ≥ 1] 的权重；site：点位类型（core 大房间中心 / side 死路旁支 / nook 偏离主线的空地 / patrol 巡逻段）；
+  // frag：成功时掉哪种烛芯（层级 ≥ 2）；relic：成功时掷哪件渊契（G.RELIC_BY_ENC 的键，层级 ≥ 1）；p：机制数值；rew：奖励
+  //   rew.elite 按精英掉落表掷几次、rar 那几次的稀有度倍率、cur 另给几颗通货、rare 另给几件必定稀有、magic 另给几件至少魔法（稀有度 × magicRar）、gem 另给 1 颗技能宝石或辅助
+  G.ENCOUNTERS = {
+    // 守隙：房间清空后张开裂隙，走进 r 的圈开始坚守 hold 秒；离圈超过 grace 秒计时每秒倒退 back；退回 0 后 failT 秒内没回圈（或倒下）算失败。
+    // 波次在坚守计时的 waves 秒刷出 n 只本区轻怪，最后一波另加精英（层级 1 为 elite[0]、≥ 2 为 elite[1]）；刷怪点 pts 个，在 ring 环上；同场 ≤ cap，超了排队，场上 ≤ resume 再刷
+    guard: {
+      name: '守隙', site: 'core', w: [0, 18], frag: 'rift', relic: 'guard',
+      p: { r: 5, hold: 30, grace: 5, back: 0.5, failT: 6, waves: [0, 8, 16, 24], n: [4, 5, 6, 6], elite: [1, 2], ring: [9, 12], pts: 3, cap: 8, resume: 4 },
+      rew: { elite: 2, rare: 1, cur: 2 },
+      desc: '房间清空后裂隙张开。站进圈里坚守 30 秒，挡住四波涌出的怪物。',
+    },
+    // 缚匣：走到 touch 以内或点击，锁链崩开，n 个锚点各刷 1 只匣卫（生命 = 普通怪 × hp、伤害 × dmg、经验权重 xpW）；time 秒内全杀是解缚，否则残缚
+    box: {
+      name: '缚匣', site: 'nook', w: [25, 14], frag: 'box', relic: 'box',
+      p: { touch: 1.4, n: 3, hp: 2.2, dmg: 1.15, xpW: 1.5, time: 25, anchor: 3 },
+      rew: { elite: 2, rar: 2, cur: 1 }, rewFail: { elite: 1 },
+      desc: '被锁链缠住的宝箱。崩开锁链会惊醒三只匣卫，25 秒内全部打倒才能完整解缚。',
+    },
+    wanderer: {
+      name: '游荡者', site: 'patrol', w: [15, 16], frag: 'vow', relic: 'wanderer',
+      rew: { magic: 3, magicRar: 3, cur: 2 },
+      desc: '在两个房间之间来回游荡的名号精英，各有一种独门手段。',
+    },
+    shrine: {
+      name: '祈坛', site: 'nook', w: [30, 10], p: { touch: 3.5 },
+      desc: '一块立石，顶上浮着一团光。走近按 F 激活，随机得到一种增益。',
+    },
+    // 试锋：跨过旁支门口的符文开始，time 秒内打完 n 三波（最后一波含 elite 只精英）；离开小室超过 leave 秒算弃权；剩 good 秒以上是「上」
+    trial: {
+      name: '试锋', site: 'side', w: [0, 12], frag: 'box', relic: 'trial',
+      p: { time: 45, n: [5, 6, 6], elite: 2, leave: 4, good: 15, door: 3, rune: 1.6 },
+      rew: { rare: 2, cur: 3, gem: 1 }, rewMid: { rare: 1, cur: 2 }, rewFail: { cur: 1 },
+      desc: '旁支门口的一道符文。跨过去开始限时试炼，剩下的时间越多奖励越好。',
+    },
+    trader: {
+      name: '拾烬客', site: 'nook', w: [20, 8], p: { touch: 3.5 },
+      desc: '裹着斗篷的拾荒者，收通货换货架上的东西，也收你用不上的装备。',
+    },
+    // 残影：房间清空后浮现本区首领的残影。等级 = 房间等级 + lv，生命 = 首领 × hp，只用前 pats 种招式，不狂暴、拴在房间里；经验权重 xpW
+    echo: {
+      name: '残影', site: 'core', w: [0, 10], relic: 'echo',
+      p: { lv: 2, hp: 0.35, pats: 2, xpW: 4 },
+      rew: { rare: 1, items: 1, cur: 3 },
+      desc: '房间清空后，本区首领的残影会在中心浮现。',
+    },
+    // 落烬：房间清空后摸一下中心的烬核开始。time 秒内每 every 秒落一团余烬（预警 r、warn 秒，落点在 area 内随机，aim 的几率瞄着玩家），
+    // 打玩家 hitK 倍本区小怪一击、打怪 × mobK；同时 ≤ max 个预警。n 块烬晶立在 ring 环上（生命 = 本级游魂 × hp），全部打碎就成功
+    ember: {
+      name: '落烬', site: 'core', w: [10, 12], frag: 'box', relic: 'ember',
+      p: { touch: 1.4, time: 25, every: 0.6, r: 2.0, warn: 1.1, area: 10, aim: 0.4, hitK: 0.5, mobK: 3, max: 3, n: 4, ring: [6, 8], hp: 3 },
+      rew: { elite: 2, rar: 1.5, cur: 1 },
+      desc: '房间清空后摸一下中心的烬核：余烬开始落下，25 秒内打碎四块烬晶。',
+    },
+  };
+  G.ENC_IDS = Object.keys(G.ENCOUNTERS);
+  // 游荡者：本区最结实的那种怪（按 types 的顺序在区域怪物表里找），体型 × size，生命 = 精英 × hp，伤害 × dmg（同精英），架势 = 精英 × poise，
+  // 经验权重 xpW（精英是 3），巡逻速度 × speed。名字「称号·名」，名从 names 里取两个字拼
+  G.WANDERER = {
+    types: ['brute', 'charger', 'husk'], size: 1.4, hp: 1.6, dmg: 1.3, poise: 1.5, xpW: 4, speed: 0.6,
+    names: '戈烬岚朔砾霾溟烛骸刃翳殁苍蚀魇棘',
+    titles: {
+      // 拖链者：每 every 秒甩一次钩链（长 len、宽 w 的长条预警 warn 秒），打中把玩家往它那边拽 pull 米（拽到 sdAt < stop 就停），附带 dmg 倍伤害
+      chain: { name: '拖链者', every: 6, len: 11, w: 1.4, warn: 0.85, pull: 4, stop: 0.6, dmg: 0.6 },
+      // 灰誓者：生命降到 at 各立 n 根图腾（生命 = 普通怪 × hp）；有图腾立着时它受到的伤害 −dr，每秒回 regen
+      oath: { name: '灰誓者', at: [0.75, 0.4], n: 2, hp: 1.2, dr: 0.4, regen: 0.01, ring: 4 },
+      // 镜影客：生命降到 at 各分出 1 个分身（hp 倍最大生命、dmg 倍伤害，不会再分），本体死了分身一起散
+      mirror: { name: '镜影客', at: [0.6, 0.3], hp: 0.3, dmg: 0.6 },
+      // 拖烬者：移动时每 every 秒留一块燃烧地面（r、t 秒，最多 max 块）；生命降到 at 时一圈 ring 个圆形预警（rr、warn 秒，伤害 burst 倍）
+      cinder: { name: '拖烬者', every: 0.5, r: 1.2, t: 4, max: 10, at: 0.5, ring: 8, rr: 2, rd: 4.5, warn: 1.0, burst: 0.6 },
+    },
+  };
+  G.WANDERER_TITLES = Object.keys(G.WANDERER.titles);
+  // 祈坛的四种增益：dur 秒；stats 加进 computeStats（moveSpeed / speed / lessTaken / costReduce 都是现成的属性，encCdr 是技能冷却缩短 %）；
+  // noKb：不会被击退；loot：期间击杀的物品 / 通货掉落 × loot（宝石不算）
+  G.SHRINE_BUFFS = {
+    gale: { name: '疾风', dur: 45, color: '#9fe7ff', stats: { moveSpeed: 25, speed: 15 }, desc: '移动速度 +25%，攻击 / 施法速度 +15%' },
+    ward: { name: '坚壁', dur: 45, color: '#ffd28a', stats: { lessTaken: 25 }, noKb: true, desc: '受到的伤害 −25%，不会被击退' },
+    bounty: { name: '丰饶', dur: 60, color: '#ffe36a', loot: 1.5, desc: '击杀掉落物品 / 通货的几率 ×1.5（宝石不算）' },
+    surge: { name: '渊涌', dur: 30, color: '#d9a0ff', stats: { encCdr: 40, costReduce: 50 }, desc: '技能冷却 −40%，技能消耗 −50%' },
+  };
+  G.SHRINE_IDS = Object.keys(G.SHRINE_BUFFS);
+  // 烛芯：熄烛者（D5）的开启材料，层级 ≥ 2 才掉，按种类计数存档（save.frags，0–max）。seal 的几率见 G.sealFragChance（D3），
+  // 其余见 chance；连续 pity 次合格机会没掉，下一次必掉（save.fragPity，box 是缚匣 / 试锋 / 落烬三者共用）
+  G.FRAGS = {
+    seal: { name: '印烛芯', color: '#f0a6d8', src: '烈印下击杀区域首领' },
+    rift: { name: '隙烛芯', color: '#b48cff', src: '守隙成功' },
+    vow: { name: '誓烛芯', color: '#ffae5c', src: '击杀游荡者' },
+    box: { name: '匣烛芯', color: '#ffd96a', src: '缚匣解缚、试锋「中」以上、落烬成功' },
+  };
+  G.FRAG_IDS = Object.keys(G.FRAGS);
+  G.FRAG_DROP = { minTier: 2, pity: 6, max: 99, chance: { rift: 0.22, vow: 0.22, box: 0.15 } };
+  // 拾烬客的货架（进店时掷一次）：items 件当前物品等级的装备（至少 1 件稀有），1 颗技能宝石或辅助；价格按 price；
+  // swap：任意 swap 个烛芯换 1 个指定种类（层级 ≥ fragTier，不要钱）；渊契（层级 ≥ 2，几率和开关见 G.RELIC_DROP.trader）
+  G.TRADER = {
+    items: 3, fragTier: 2, swap: 2,
+    price: { rare: { regal: 2, exalt: 1 }, magic: { dust: 3 }, gem: { augment: 2 }, relic: { exalt: 4, chaos: 4, divine: 2 } },
+  };
 
   // ---------- 角色基础生命 / 魔力 ----------
   // LIFE_KNEE 级以内和改版前一样（每级 +12 生命、+6 魔力）；再往上每级多给 LIFE_LATE / MANA_LATE，

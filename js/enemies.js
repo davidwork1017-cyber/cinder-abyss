@@ -51,10 +51,21 @@
   // 首领拴绳（G.TERRAIN.bossLeash）：区域首领站在场地里（或门口 3 m 内）时，下一步也必须留在那里；
   // 已经在外面（调试传送、测试摆放）的不管，免得卡死
   function leashOk(e, x, z) {
+    if (e.leashRooms) return roomLeashOk(e, x, z) || !roomLeashOk(e, e.x, e.z); // 异兆的怪：拴在房间里（leashRoom）
     if (!e.leash || !G.TERRAIN.bossLeash) return true;
     const W = G.world;
     return W.leashOk(x, z) || !W.leashOk(e.x, e.z);
   }
+  // 首领拴绳推广到任意房间（异兆：试锋小室、残影的大房间、游荡者的巡逻段）：(x, z) 在 e.leashRooms 里的某个房间，
+  // 或离 e.leashDoors 里的某个门 ≤ 3 m
+  function roomLeashOk(e, x, z) {
+    const r = G.world.roomAt(x, z);
+    if (r >= 0 && e.leashRooms.indexOf(r) >= 0) return true;
+    const D = e.leashDoors;
+    if (D) for (let i = 0; i < D.length; i++) if (Math.hypot(x - D[i].x, z - D[i].z) <= 3) return true;
+    return false;
+  }
+  G.leashRoomOk = (e, x, z) => !e.leashRooms || roomLeashOk(e, x, z);
   function tryMove(e, mx, mz) {
     const W = G.world, pad = e.r * 0.8;
     if (W.walkable(e.x + mx, e.z + mz, pad) && leashOk(e, e.x + mx, e.z + mz)) {
@@ -195,7 +206,7 @@
 
   G.spawnMob = function (type, x, z, level, opts) {
     const o = opts || {};
-    const def = G.MOBS[type];
+    const def = o.def || G.MOBS[type]; // o.def：异兆的静物（灰誓者的图腾、落烬的烬晶）带自己的定义，不进 G.MOBS
     const zone = spawnZone || G.state.zone;
     const elite = !!o.elite;
     const elem = zone.def.elem;
@@ -227,12 +238,16 @@
     return e;
   };
 
-  G.spawnBoss = function (kind, x, z, level) {
-    const def = G.BOSSES[kind];
+  // opts.echo（异兆「残影」）：生命 × hpK，只用前 pats 种招式，不狂暴，按距离 / 视线苏醒（不等进场地），
+  // 不写 G.state.boss（区域首领的重生点、门、小地图、首领血条都靠它）
+  G.spawnBoss = function (kind, x, z, level, opts) {
+    const o = opts || {};
+    const def0 = G.BOSSES[kind];
+    const def = o.echo ? Object.assign({}, def0, { patterns: def0.patterns.slice(0, o.pats || 2) }) : def0;
     const zone = spawnZone || G.state.zone;
     const elem = zone.def.elem;
     const RM = G.runMods; // 渊印：首领的厚躯 / 凶戾用各自的 boss 数值
-    const hp = Math.round(def.hp * G.hpScale(level) * (RM.tough ? 1 + RM.tough.boss : 1));
+    const hp = Math.max(1, Math.round(def.hp * G.hpScale(level) * (RM.tough ? 1 + RM.tough.boss : 1) * (o.echo ? o.hpK || 1 : 1))); // o.echo：异兆「残影」生命 × hpK
     const e = runtimeFields({
       type: kind, def, name: def.name, x, z, r: def.r, hp, maxHp: hp,
       dmg: def.dmg * G.dmgScale(level) * (RM.fierce ? 1 + RM.fierce.boss : 1), level, speed: def.speed * (RM.haste ? 1 + RM.haste.speed : 1), elem, elite: false,
@@ -246,10 +261,16 @@
     }, zone);
     e.dmgBase = e.dmg;
     e.speedBase = e.speed;
+    if (o.echo) {
+      e.echo = true;
+      e.noRage = true;
+      e.name = def.name + '·残影';
+      if (G.world.echoTint) G.world.echoTint(e.ent);
+    }
     G.initBuildUp(e);
     G.world.setEnt(e.ent, x, z, e.ang);
     G.state.enemies.push(e);
-    G.state.boss = e;
+    if (!o.echo) G.state.boss = e;
     return e;
   };
 
@@ -830,6 +851,7 @@
     }
   }
   function clearHazards() {
+    cinders.length = 0; // 拖烬者的燃烧地面随换区 / 重生一起清掉
     const list = hazards.splice(0, hazards.length);
     for (const h of list) if (h.end) h.end();
   }
@@ -1067,7 +1089,7 @@
     else turn(e, angTo(e, P.x, P.z), 8, dt);
   }
 
-  const MOB_AI = { melee: aiMelee, slam: aiSlam, ranged: aiRanged, bomb: aiBomb, blink: aiBlink, charge: aiCharge };
+  const MOB_AI = { melee: aiMelee, slam: aiSlam, ranged: aiRanged, bomb: aiBomb, blink: aiBlink, charge: aiCharge, still: () => {} }; // still：异兆的静物，不动不打
 
   // ---------- 首领招式 ----------
   // 弹幕类招式出手前的蓄力提示
@@ -1102,7 +1124,7 @@
   // 引力井把玩家往 (x, z) 拽：越靠近井心拽得越狠；翻滚时只剩四成；处决途中不动
   function pullPlayer(x, z, R, dt) {
     const P = G.player, W = G.world;
-    if (P.dead || P.exec) return;
+    if (P.dead || P.exec || G.encNoKb()) return; // 异兆：祈坛「坚壁」期间不会被拽动
     const dx = x - P.x, dz = z - P.z, d = Math.hypot(dx, dz);
     if (d >= R || d < 0.25) return;
     let v = 3.4 * (0.55 + 0.45 * (1 - d / R));
@@ -1450,7 +1472,7 @@
 
   function updateBoss(e, dt, P, dist, spd) {
     const W = G.world;
-    if (!e.enraged && e.hp < e.maxHp * 0.4) {
+    if (!e.enraged && !e.noRage && e.hp < e.maxHp * 0.4) {
       e.enraged = true;
       W.ring(e.x, e.z, e.r + 4, 0xff3a2a, 0.6);
       W.text(e.x, e.z, '狂暴', '#ff5040', 26);
@@ -1584,7 +1606,7 @@
 
   // ---------- 互相推开 ----------
   function pushWeight(e) {
-    if (e.isBoss) return 0;
+    if (e.isBoss || e.fixed) return 0; // fixed：异兆的静物（图腾、烬晶）钉在原地
     if (e.brokenT > 0) return 0; // 破绽中钉在原地（处决的落点才对得上）
     if (e.state === 'windup' || e.state === 'fuse' || e.state === 'dash' || e.state === 'blink') return 0; // 出手中不被挤动，预警位置才对得上
     if (e.freeze > 0 || e.stunT > 0) return 0.2;
@@ -1650,6 +1672,7 @@
     // 地形危险区：本区有减速 / 灼烧格子时才逐只去查（legacy 布局没有，整段跳过）
     const TR = G.TERRAIN, hzMask = zone.map ? zone.map.hazAny & (W.HAZ.slow | W.HAZ.burn) : 0;
     if (hazards.length) updateHazards(dt);
+    if (cinders.length) updateCinders(dt);
     // 渊印：标志位进区时算好（G.runMods），这里只读
     const RM = G.runMods, wakeD = RM.alert ? RM.alert.wake : WAKE_DIST;
     hasteK = RM.haste ? 1 / (1 - RM.haste.cd) : 1;
@@ -1676,7 +1699,7 @@
       if (dist > SKIP_DIST) continue;
 
       if (!e.awake && !P.dead) {
-        if (e.isBoss) {
+        if (e.isBoss && !e.echo) {
           if (bossNear) e.awake = true;
         } else if (dist < wakeD && !(G.player.graceT > 0) && (!TR.wakeLos || wakeSees(e, P))) wakePack(e); // 刚重生的几秒内不会被就近的怪发现
       }
@@ -1763,6 +1786,7 @@
         const tg = pickFoe(e, P, dt);
         const td = tg === P ? dist : Math.max(0, Math.hypot(tg.x - e.x, tg.z - e.z) - (tg.r - PLAYER_R)); // 按体型折算成「到玩家那么大的目标」的距离
         updateNav(e, tg, dt);
+        if (e.encAi) e.encAi(e, dt, tg, td); // 异兆：游荡者的名号机制（醒着时）
         if (e.isBoss) updateBoss(e, dt, tg, td, spd);
         else {
           // 冰缓：小怪的 AI 按它自己放慢了的时钟走——移动、出手间隔、起手 / 收招、冲锋一起变慢
@@ -1771,7 +1795,10 @@
           if (e.atkCd > 0) e.atkCd -= ldt * hasteK; // 渊印「疾躁」：出手间隔 −15%（起手 / 预警时长不变）
           MOB_AI[e.def.ai](e, ldt, tg, td, e.speed);
         }
-      } else if (e.tauntT > 0) e.tauntT -= dt;
+      } else {
+        if (e.tauntT > 0) e.tauntT -= dt;
+        if (e.encIdle && !held && !e.awake) e.encIdle(e, dt); // 异兆：游荡者没醒时在巡逻段里来回走
+      }
       e.moving = Math.hypot(e.x - ox, e.z - oz) > dt * 0.6;
       e.held = held;
       near.push(e);
@@ -1797,6 +1824,161 @@
       if (!(e.freeze > 0)) W.animEnt(e.ent, dt, e.moving, S.time, e.isBoss && e.busy > 0 ? 1 : e.slowK);
       W.chill(e.ent, chillBand(e), dt, e.r);
     }
+  };
+
+  // ---------- 异兆：游荡者（名号精英）----------
+  // 刷怪、奖励在 game.js 的「异兆」一节；这里只有它自己的行动：没醒时在巡逻段的两个点之间来回走（速度 × WANDERER.speed，
+  // 拴在巡逻段的房间里），醒着时按名号放招。名号的数值见 data.js 的 G.WANDERER
+  const cinders = []; // 拖烬者留下的燃烧地面 { x, z, t, r, owner }，按时间先后排，超过上限顶掉最老的
+  function updateCinders(dt) {
+    const P = G.player, TR = G.TERRAIN;
+    for (let i = cinders.length - 1; i >= 0; i--) {
+      const c = cinders[i];
+      c.t -= dt;
+      if (c.t <= 0) cinders.splice(i, 1);
+    }
+    // 站在任意一块上：和地形灼烧同一个节奏、同一个伤害（3 × dmgScale，约 0.4 倍游魂一击，不到 0.6 倍的上限）
+    let on = null;
+    if (!P.dead) for (const c of cinders) if (Math.hypot(P.x - c.x, P.z - c.z) <= c.r + PLAYER_R * 0.5) on = c;
+    if (!on) {
+      P.encBurnT = 0;
+      return;
+    }
+    P.encBurnT = (P.encBurnT || 0) + dt;
+    if (P.encBurnT >= TR.burnTick) {
+      P.encBurnT -= TR.burnTick;
+      const z = G.state.zone;
+      G.hurtPlayer(Math.max(1, TR.burn * G.dmgScale(z ? z.level : 1)), 'fire', on);
+    }
+  }
+  G.encCinders = cinders; // 测试读
+  function dropCinder(e, T) {
+    const W = G.world;
+    if (cinders.length >= T.max) cinders.shift();
+    cinders.push({ x: e.x, z: e.z, t: T.t, r: T.r, owner: e });
+    W.decal(1, e.x, e.z, T.r * 1.15, Math.random() * TAU, 0xff6a2a, T.t);
+    W.burst(e.x, 0.3, e.z, 0xff8a3c, 5, 2.2, 0.5);
+  }
+  // 玩家被钩链拽向 (x, z)：一步 0.25 m，前面那一步 sdAt < stop（快到墙、熔岩、虚空边）就停，最多拽 dist 米
+  function hookPlayer(x, z, dist, stop) {
+    const P = G.player, W = G.world;
+    let left = dist;
+    while (left > 1e-3) {
+      const dx = x - P.x, dz = z - P.z, d = Math.hypot(dx, dz);
+      if (d < 1.4) break; // 拽到它跟前为止
+      const m = Math.min(0.25, left);
+      const nx = P.x + (dx / d) * m, nz = P.z + (dz / d) * m;
+      if (!(W.sdAt(nx, nz) >= stop) || !W.walkable(nx, nz, 0.5)) break;
+      P.x = nx;
+      P.z = nz;
+      left -= m;
+    }
+    W.setEnt(P.ent, P.x, P.z, P.face);
+    return dist - left;
+  }
+  G.encHookPlayer = hookPlayer;
+  // 祈坛「坚壁」：不会被击退 / 拽动（钩链、引力井）
+  G.encNoKb = () => {
+    const B = G.player.encBuff;
+    return !!(B && G.SHRINE_BUFFS[B.id] && G.SHRINE_BUFFS[B.id].noKb);
+  };
+  function inRect(x, z, cx, cz, ang, len, w) {
+    const dx = x - cx, dz = z - cz;
+    const along = dx * Math.sin(ang) + dz * Math.cos(ang), perp = dx * Math.cos(ang) - dz * Math.sin(ang);
+    return Math.abs(along) <= len / 2 && Math.abs(perp) <= w / 2;
+  }
+  // 名号机制（醒着时每帧，tg 是它此刻的攻击对象）
+  function wandererAi(e, dt, tg) {
+    const W = G.world, P = G.player, Wd = G.WANDERER, T = Wd.titles[e.title];
+    const k = e.hp / e.maxHp;
+    if (e.title === 'chain') {
+      e.encT -= dt;
+      const d = Math.hypot(P.x - e.x, P.z - e.z);
+      if (e.encT <= 0 && tg === P && d <= T.len && d > 2.2 && e.state === 'idle' && !P.dead) {
+        e.encT = T.every;
+        const a = angTo(e, P.x, P.z), cx = e.x + Math.sin(a) * T.len * 0.5, cz = e.z + Math.cos(a) * T.len * 0.5;
+        const seq = e.seq;
+        e.ang = a;
+        e.atkCd = Math.max(e.atkCd, T.warn + 0.4); // 甩钩时不同时普攻
+        W.play(e.ent, 'windup', { dur: T.warn });
+        G.telegraph({
+          shape: 'rect', x: cx, z: cz, len: T.len, w: T.w, ang: a, dur: T.warn, dmg: e.dmg * T.dmg, dtype: 'phys',
+          owner: e, cancelIfOwnerDead: true, friendly: false,
+          onFire() {
+            if (!live(e, seq)) return;
+            for (let i = 1; i <= 6; i++) W.burst(e.x + Math.sin(a) * i * 1.8, 1.0, e.z + Math.cos(a) * i * 1.8, 0xc8c0b0, 2, 1.5, 0.3);
+            // 预警圈先结算伤害（翻滚无敌时 hurtPlayer 不生效，这时也不拽）
+            if (P.dead || P.iframe > 0.0001 || G.encNoKb() || !inRect(P.x, P.z, cx, cz, a, T.len, T.w)) return;
+            const m = hookPlayer(e.x, e.z, T.pull, T.stop);
+            if (m > 0.2) W.text(P.x, P.z, '钩拽', '#e8d8c0', 18, { kind: 'tag', y: 2.6 });
+          },
+        });
+      }
+    } else if (e.title === 'oath') {
+      // 生命降到阈值：各立 n 根图腾（G.encTotems 由 game.js 提供：生成静物、计入这只游荡者名下）
+      while (e.encStep < T.at.length && k < T.at[e.encStep]) {
+        e.encStep++;
+        if (G.encSpawnTotems) G.encSpawnTotems(e, T);
+      }
+      const up = (e.encTotems || []).some((t) => !t.dead);
+      e.encDR = up ? T.dr : 0;
+      if (up && e.hp < e.maxHp) e.hp = Math.min(e.maxHp, e.hp + e.maxHp * T.regen * dt);
+    } else if (e.title === 'mirror') {
+      while (e.encStep < T.at.length && k < T.at[e.encStep]) {
+        e.encStep++;
+        if (G.encSpawnClone) G.encSpawnClone(e, T);
+      }
+    } else if (e.title === 'cinder') {
+      e.encT -= dt;
+      if (e.encT <= 0 && e.moving) {
+        e.encT = T.every;
+        dropCinder(e, T);
+      }
+      if (e.encStep < 1 && k < T.at) {
+        e.encStep = 1;
+        const seq = e.seq, off = Math.random() * TAU;
+        for (let i = 0; i < T.ring; i++) {
+          const a = off + (i / T.ring) * TAU;
+          const x = e.x + Math.sin(a) * T.rd, z = e.z + Math.cos(a) * T.rd;
+          G.telegraph({
+            shape: 'circle', x, z, r: T.rr, dur: T.warn, dmg: e.dmg * T.burst, dtype: 'fire', owner: e, cancelIfOwnerDead: true, friendly: false,
+            onFire() {
+              if (!live(e, seq)) return;
+              W.burst(x, 0.4, z, 0xff7a30, 12, 4, 0.45);
+              W.decal(1, x, z, T.rr, Math.random() * TAU, 0xff6a2a, 2);
+            },
+          });
+        }
+        W.text(e.x, e.z, '烬环', '#ffb070', 22, { kind: 'tag', y: 3.4 });
+      }
+    }
+  }
+  // 巡逻：没醒的时候在 a、b 两点之间来回走（直线不通时问 W.navNext），到了换方向
+  const _pt = { x: 0, z: 0 };
+  function wandererIdle(e, dt) {
+    const pt = e.patrol;
+    if (!pt) return;
+    const tgt = pt.to ? pt.b : pt.a;
+    if (Math.hypot(tgt.x - e.x, tgt.z - e.z) < 1.6) {
+      pt.to = 1 - pt.to;
+      return;
+    }
+    _pt.x = tgt.x;
+    _pt.z = tgt.z;
+    updateNav(e, _pt, dt);
+    chase(e, _pt, e.speed * G.WANDERER.speed, dt);
+  }
+  // 把一只刚生成的怪变成游荡者（game.js 的异兆运行时调用）：rooms 巡逻段的房间（拴绳），a / b 巡逻的两个端点
+  G.makeWanderer = function (e, title, rooms, doors, a, b) {
+    e.title = title;
+    e.encStep = 0;
+    e.encT = title === 'chain' ? 2.5 : 0;
+    e.leashRooms = rooms.slice();
+    e.leashDoors = doors || null;
+    e.patrol = { a: { x: a.x, z: a.z }, b: { x: b.x, z: b.z }, to: 1 };
+    e.encAi = wandererAi;
+    e.encIdle = wandererIdle;
+    return e;
   };
 
   // ---------- 重置与清空 ----------
