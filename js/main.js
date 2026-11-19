@@ -121,6 +121,12 @@
           G.clickChest(chest);
           return;
         }
+        // 点在异兆的互动点上（祈坛、缚匣、拾烬客、烬核）：同宝箱
+        const enc = G.encAt(input.mouse.wx, input.mouse.wz);
+        if (enc) {
+          G.clickEnc(enc);
+          return;
+        }
       }
       if (e.button >= 0 && e.button <= 2) input.mouse.b[e.button] = true;
       const slot = MOUSE_SLOT[e.button];
@@ -153,6 +159,7 @@
       W.terrainTick(dt); // 区域的定时机关（ZONE_TERRAIN[id].tick）
       G.updateLoot(dt);
       G.updateTimers(dt);
+      G.updateEncounters(dt); // 异兆：懒生成、波次、计时
     }
     W.update(dt, raw);
     saveT += raw;
@@ -339,6 +346,10 @@
     // 固定之后进区用的布局种子（传 null 恢复每次随机）；返回当前固定的种子
     zoneSeed(n) {
       return W.pinZoneSeed(n);
+    },
+    // 异兆：在当前区域按给的种类重新放（找不到点位的跳过），返回 G.state.enc
+    enc(kinds) {
+      return G.rollEncounters(G.state.zone, G.state.tier, kinds || G.ENC_IDS.slice());
     },
     // 当前区域布局的摘要：种子、房间、连接、关键路径、怪群槽位、宝箱、首领场地、网格大小
     layout() {

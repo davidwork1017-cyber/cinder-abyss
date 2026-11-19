@@ -3242,3 +3242,64 @@ body.panel-open #coach { display: none; }
   .sp-head { flex-wrap: wrap; }
   .seal-legend { margin-left: 0; }
 }
+
+/* ============ 异兆（D4）：计时条、祈坛增益小签、拾烬客面板、背包里的烛芯 ============ */
+#enc-bar {
+  position: absolute;
+  top: 92px;
+  left: 50%;
+  width: min(380px, 34vw);
+  transform: translate(-50%, -6px);
+  opacity: 0;
+  transition: opacity 0.3s, transform 0.3s;
+  pointer-events: none;
+  text-align: center;
+  --c: #b48cff;
+}
+#enc-bar.on { opacity: 1; transform: translate(-50%, 0); }
+#enc-bar[data-kind='box'] { --c: #ffd75e; }
+#enc-bar[data-kind='trial'] { --c: #ff6a55; }
+#enc-bar[data-kind='ember'] { --c: #ff8a3c; }
+#enc-bar .eb-name { font-family: var(--serif); font-weight: 700; font-size: 17px; letter-spacing: 4px; color: color-mix(in srgb, var(--c) 55%, #fff); text-shadow: 0 2px 5px #000; }
+#enc-bar .eb-track { height: 9px; margin: 4px 0 3px; background: rgba(10, 6, 4, 0.82); border: 1px solid rgba(0, 0, 0, 0.9); box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 35%, transparent); }
+#enc-bar .eb-fill { display: block; height: 100%; width: 0; background: linear-gradient(180deg, color-mix(in srgb, var(--c) 70%, #fff), var(--c) 55%, color-mix(in srgb, var(--c) 60%, #000)); transition: width 0.15s linear; }
+#enc-bar .eb-txt { font-size: 12.5px; letter-spacing: 1px; color: #e8dcc6; text-shadow: 0 1px 3px #000, 0 0 6px #000; }
+#enc-buff {
+  display: none;
+  margin-top: 6px;
+  width: max-content;
+  padding: 2px 10px 2px 8px;
+  font-size: 12.5px;
+  letter-spacing: 1px;
+  color: #e8dcc6;
+  background: rgba(12, 8, 6, 0.78);
+  border: 1px solid color-mix(in srgb, var(--c, #9fe7ff) 55%, #000);
+  border-left: 3px solid var(--c, #9fe7ff);
+  border-radius: 2px;
+  text-shadow: 0 1px 2px #000;
+}
+#enc-buff.on { display: block; }
+#enc-buff b { color: var(--c, #9fe7ff); font-weight: 700; margin-right: 8px; }
+.trader { height: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 26px; }
+.trader .col { padding-right: 6px; }
+.trd-row { display: flex; align-items: center; gap: 10px; padding: 5px 6px; margin-bottom: 5px; background: #100b08; border: 1px solid #2e2219; border-radius: 3px; }
+.trd-row.relic { border-color: color-mix(in srgb, var(--relic, #6fe0b0) 60%, #2e2219); }
+.trd-row.sold { opacity: 0.45; }
+.trd-row .ibox { flex: none; width: 40px; height: 40px; }
+.trd-row .ibox .ico { width: 36px; height: 36px; }
+.trd-name { flex: 1; min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trd-price { flex: none; display: flex; gap: 6px; }
+.tp { display: inline-flex; align-items: center; gap: 1px; font-size: 12.5px; color: color-mix(in srgb, var(--c) 70%, #fff); }
+.tp .ico { width: 22px; height: 22px; }
+.tp b { color: #fff; font-weight: 600; font-variant-numeric: tabular-nums; }
+.tp.short b { color: #ff6a55; }
+.tp.dim { color: var(--faint); }
+.trd-frags { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.trd-frag { display: flex; align-items: center; gap: 8px; padding: 4px 6px; font-size: 12.5px; color: color-mix(in srgb, var(--c) 70%, #fff); background: #100b08; border: 1px solid #2e2219; border-radius: 3px; }
+.trd-frag span { flex: 1; }
+.trd-frag b { color: #fff; }
+.trd-frag .ibox { flex: none; width: 34px; height: 34px; }
+.trd-frag .ibox .ico { width: 30px; height: 30px; }
+.trd-msg { min-height: 20px; margin: 8px 0 0; font-size: 13px; color: #ffd28a; }
+.trd-none { font-size: 13px; color: var(--faint); }
+.frag-row { grid-template-columns: repeat(4, 1fr); }
