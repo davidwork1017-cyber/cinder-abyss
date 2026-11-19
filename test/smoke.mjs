@@ -9679,6 +9679,7 @@ async function main() {
   });
 
   // ------------------------------------------------------------------ D2 渊契（稀有度 4）
+  // 通用的攻击上下文用飞刃（裂石击会被武器普攻取代、不再是可学的技能）
   // 每一步开头 RQT.begin(id)：标准刃、除武器外的部位全空、只穿这一件渊契（物品等级 50、完美度 0.5）；结尾 RQT.end() 还原装备和技能栏
   await step('渊契数据：G.rollRelic 每件 × 3 个物品等级，部位 / 基底 / 词缀行合法（数值在区间里）、只在非武器部位；存档往返后都留着（isItem 认）、部位不对的被丢掉；稀有度名「渊契」、颜色是单一常量；提示卡是翠色并写着机制、无法改造', async () => {
     // 页面里的渊契测试小工具（RQT），后面几步都用
@@ -9944,7 +9945,7 @@ async function main() {
       const el = T.mob('brute', 0, -3, { elite: true });
       const n1 = T.mob('husk', 1.6, -4.2), n2 = T.mob('husk', -1.6, -4.4), far = T.mob('husk', 0, -3 - C.r - 2.5);
       T.fix(0.999);
-      const ctx = G.skillCtx('cleave');
+      const ctx = G.skillCtx('blade');
       el.poise = 1;
       G.hitEnemy(el, ctx, 1, { quiet: true, poise: 50, kb: 0 });
       const out = { broken: el.brokenT > 0, brk: [n1.rqBrk, n2.rqBrk, far.rqBrk || 0, el.rqBrk || 0].map((v) => +v.toFixed(2)), stun: n1.stunT >= C.t - 0.01 };
@@ -9975,10 +9976,10 @@ async function main() {
   await step('必然（千目）：暴击率攒进计数器，满 100% 必暴并扣 100（溢出保留）——30% 是第 4 / 7 / 10 击、45% 是第 3 / 5 / 7 / 9 击，和随机数无关；暴击伤害 −15；必暴的招式照旧必暴、不动计数；召唤物照常掷骰', async () => {
     const r = await ev(() => {
       RQT.begin(null);
-      const c0 = G.skillCtx('cleave');
+      const c0 = G.skillCtx('blade');
       G.save.equip.helm = G.rollRelic('qianmu', 50, 0.5);
       G.computeStats();
-      const ctx = G.skillCtx('cleave');
+      const ctx = G.skillCtx('blade');
       const out = { cm: ctx.critMulti - c0.critMulti };
       const seq = (crit, rnd) => { T.fix(rnd); G.relicState.crit = 0; const c = Object.assign({}, ctx, { crit }); const s = []; for (let i = 1; i <= 10; i++) if (G.calcHit(c, 1).crit) s.push(i); return s.join('/'); };
       out.s30 = seq(30, 0);
@@ -10333,7 +10334,7 @@ async function main() {
       boss.bindT = 5;
       for (const m of ms) { G.initBuildUp(m); m.bindT = 5; }
       T.fix(0.999);
-      const ctx = G.skillCtx('cleave');
+      const ctx = G.skillCtx('blade');
       const hp = ms.map((m) => m.hp);
       const c0 = G.state.stats.relicChained || 0;
       G.hitEnemy(ms[0], ctx, 1, { quiet: true, kb: 0 });
