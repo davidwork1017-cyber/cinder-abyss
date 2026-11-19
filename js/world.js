@@ -11610,6 +11610,13 @@
       };
       rig.armR = armData('uaR', 'faR', 'hR', 'wB');
       rig.armL = armData('uaL', 'faL', 'hL', 'wBo');
+      // 两只手握着同一张弓（带 draw 的动作）时，模型空间里的手位按两肩中点等比换算：两手之间只缩放、不错开（各按各的肩换算，
+      // C 模型肩窄，右手会被挪到脑后、箭线歪出二十多度）
+      if (rig.armR.rm && rig.armL.rm) {
+        const R = rig.armR.rm, L = rig.armL.rm, mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+        R.u0 = L.u0 = mid(R.m0, L.m0);
+        R.u1 = L.u1 = mid(R.m1, L.m1);
+      }
       playerClips(rig);
       weaponClips(rig);
       rangedClips(rig);
@@ -11860,10 +11867,11 @@
     }
   }
   // C 模型的手臂和程序化的长短 / 肩宽不同：手的目标位置按「从肩出发的位移 × 臂长比」换算，方向不变
-  function remapHand(A, frame, src) {
+  // both：两手握同一张弓（拉弓的动作），模型空间里改从两肩中点出发换算（见 armData 之后的 u0 / u1）
+  function remapHand(A, frame, src, both) {
     const r = A.rm;
     if (!r) return;
-    const a = frame === 'model' ? r.m0 : r.c0, b = frame === 'model' ? r.m1 : r.c1;
+    const a = frame === 'model' ? (both && r.u0 ? r.u0 : r.m0) : r.c0, b = frame === 'model' ? (both && r.u1 ? r.u1 : r.m1) : r.c1;
     for (let i = 0; i < 3; i++) src[i] = b[i] + (src[i] - a[i]) * A.k;
   }
   // 双手武器站立 / 跑动时右手的位置（胸口坐标系：位置、指向、刃口朝向）
@@ -11893,18 +11901,55 @@
     solveArm(ent, A, wx, wy, wz, _hm[0], _hm[1], _hm[2], w, _Rh);
   }
   const _ikT = new Float32Array(9);
+  // 拉弓时上身先转向这一箭（ent.aimYaw：这次出手的世界朝向，game 里设）。朝向（drawFace）还在追准星的那几帧，差的角度（封顶 LEAD_MAX）
+  // 加在脊柱的 ry 上，模型空间里两只手的轨迹也绕同一根轴转同样的角度：箭始终顺着准星拉，右手不会跟着还没转过来的身子往背后拉
+  const LEAD_MAX = 1.2, _lead = { a: 0, x: 0, y: 0, z: 0, ax: 0, ay: 1, az: 0 };
+  function bowLead(ent) {
+    const L = _lead, y = ent.aimYaw;
+    L.a = 0;
+    if (y === null || y === undefined) return;
+    let d = y - ent.group.rotation.y;
+    d -= Math.round(d / TAU) * TAU;
+    d = d > LEAD_MAX ? LEAD_MAX : d < -LEAD_MAX ? -LEAD_MAX : d;
+    if (Math.abs(d) < 1e-4) return;
+    const J = ent.rig.J, JI = ent.rig.JI, M = ent.mdl, o = ent.out;
+    o[J.spine + 1] += d;
+    solveRig(ent);
+    // 转轴：过脊柱枢轴，方向是骨盆的 y 轴再绕脊柱自己的 rx 倾一下（XYZ 欧拉里 ry 的轴）
+    const s = JI.spine * 12, p = ent.rig.joints[JI.spine].parent * 12, ca = Math.cos(o[J.spine]), sa = Math.sin(o[J.spine]);
+    const ax = M[p + 1] * ca + M[p + 2] * sa, ay = M[p + 5] * ca + M[p + 6] * sa, az = M[p + 9] * ca + M[p + 10] * sa, l = Math.hypot(ax, ay, az) || 1;
+    L.a = d; L.x = M[s + 3]; L.y = M[s + 7]; L.z = M[s + 11];
+    L.ax = ax / l; L.ay = ay / l; L.az = az / l;
+  }
+  // 把模型空间的手轨迹值（位置、指向、刃口）绕 bowLead 的轴转过去
+  function leadRot(T) {
+    const L = _lead, c = Math.cos(L.a), s = Math.sin(L.a), kx = L.ax, ky = L.ay, kz = L.az;
+    for (let v = 0; v < 3; v++) {
+      const i = v * 3;
+      let x = T[i], y = T[i + 1], z = T[i + 2];
+      if (!v) { x -= L.x; y -= L.y; z -= L.z; }
+      const kd = (kx * x + ky * y + kz * z) * (1 - c);
+      const nx = x * c + (ky * z - kz * y) * s + kx * kd, ny = y * c + (kz * x - kx * z) * s + ky * kd, nz = z * c + (kx * y - ky * x) * s + kz * kd;
+      T[i] = nx + (v ? 0 : L.x); T[i + 1] = ny + (v ? 0 : L.y); T[i + 2] = nz + (v ? 0 : L.z);
+    }
+  }
   function playerIK(ent, sdt) {
     const rig = ent.rig, c = ent.clip, g = ent.gearType, M = ent.mdl;
     let ik = ent.ik;
     if (!ik) ik = ent.ik = { src: null, t: 1, dur: 0.1, from: new Float32Array(9), cur: new Float32Array(9), fw: 0, w: 0, lw: 0, last: null };
     let re = false;
+    // 拉弓（动作带 draw）：两手按两肩中点换算，上身先转向这一箭
+    const bow = !!(c && c.draw);
+    _lead.a = 0;
+    if (bow) bowLead(ent);
     // ---- 右手：动作给的轨迹，或双手武器的站立 / 跑动姿势 ----
     let src = null, want = 0;
     if (c && c.hand) {
       src = c;
       evalHand(c.hand, ent.cK, _hk);
-      remapHand(rig.armR, c.hand.f, _hk);
+      remapHand(rig.armR, c.hand.f, _hk, bow);
       handToModel(ent, c.hand.f, _hk, _ikT);
+      if (_lead.a && c.hand.f === 'model') leadRot(_ikT);
       want = c.hand.W ? kf(c.hand.W, ent.cK) : 1;
     } else if (!c && LOCO_2H[g]) {
       src = 'loco';
@@ -11920,7 +11965,8 @@
       ik.from.set(ik.cur);
       ik.fw = ik.w;
       ik.t = 0;
-      ik.dur = Math.max(0.05, c ? c.fade : ik.last ? ik.last.out : 0.15);
+      // 拉弓的动作跟着这次播放实际的切入时长（攻速快时 game 会把它缩短），手和侧身一起到位
+      ik.dur = c && c.draw ? Math.max(0.016, ent.fadeDur) : Math.max(0.05, c ? c.fade : ik.last ? ik.last.out : 0.15);
       if (ik.src && typeof ik.src === 'object') ik.last = ik.src;
       ik.src = src;
     }
@@ -11939,8 +11985,9 @@
     // ---- 左手：动作给的轨迹优先；否则双手武器时握在柄上 ----
     if (c && c.handL) {
       evalHand(c.handL, ent.cK, _hk);
-      remapHand(rig.armL, c.handL.f, _hk);
+      remapHand(rig.armL, c.handL.f, _hk, bow);
       handToModel(ent, c.handL.f, _hk, _ikT);
+      if (_lead.a && c.handL.f === 'model') leadRot(_ikT);
       const wl = c.handL.W ? kf(c.handL.W, ent.cK) : 1;
       ik.lw = wl;
       armTo(ent, rig.armL, _ikT, wl * (ent.fadeT < ent.fadeDur ? smooth01(ent.fadeT / ent.fadeDur) : 1), 0.8);
@@ -12828,6 +12875,170 @@
       defGearClip(rig, G_BOW, 'spin', Object.assign({}, s, { keys: mirrorKeys(s.keys), fn(ent, p, k) { p[ent.rig.J.root + 1] = -k * TAU; } }));
     }
 
+    // ===== 武器普攻（右键连招）的专属动作：W.play(ent, 'b_*') =====
+    // 刃「挥斩」的终结：后引蓄力 → 弓步直刺（k0）→ 定住片刻 → 收回。和回锋斩前半段的突刺同一个架势，但不接回旋
+    defClip(rig, 'b_thrust', {
+      dur: 0.55, k0: 0.42, lower: LEGS, fade: 0.05, out: 0.2, trail: [0.3, 0.6],
+      keys: stance({
+        'root.oz': [0, 0, 0.3, -0.12, -0.42, 0.34, 0.65, 0.3, 1, 0.02],
+        'root.rx': [0, 0.06, 0.3, 0, -0.42, 0.26, 0.65, 0.22, 1, 0.04],
+        'root.ry': [0, 0, 0.3, -0.3, -0.42, 0.12, 0.65, 0.1, 1, 0],
+        'spine.ry': [0, 0, 0.3, -0.25, -0.42, 0.15, 0.65, 0.12, 1, 0],
+        'chest.ry': [0, 0, 0.3, -0.45, -0.42, 0.25, 0.65, 0.2, 1, 0],
+        'head.ry': [0, 0, 0.3, 0.6, -0.42, -0.25, 0.65, -0.2, 1, 0],
+        'uaR.rx': [0, -0.2, 0.3, 0.6, -0.42, -1.45, 0.65, -1.4, 1, -0.2],
+        'uaR.rz': [0, -0.3, 0.3, -0.45, -0.42, -0.08, 0.65, -0.1, 1, -0.35],
+        'uaR.ry': C(0),
+        'faR.rx': [0, -0.6, 0.3, -1.7, -0.42, -0.05, 0.65, -0.1, 1, -0.55],
+        'hR.rx': [0, 0.9, 0.3, 1.45, -0.42, 1.55, 0.65, 1.5, 1, 0.8],
+        'hR.ry': C(0), 'hR.rz': C(0),
+        'uaL.rx': [0, -0.2, 0.3, -0.9, -0.42, 0.6, 0.65, 0.5, 1, 0.1],
+        'uaL.rz': [0, 0.3, 0.3, 0.3, -0.42, 0.45, 1, 0.3],
+        'faL.rx': [0, -0.6, -0.42, -0.4, 1, -0.5],
+        'cape1.rx': [0, 0.1, 0.3, 0.2, -0.42, 0.6, 0.7, 0.4, 1, 0.1],
+        'cape2.rx': [0, 0.1, 0.3, 0.15, -0.46, 0.5, 0.75, 0.3, 1, 0.1],
+        'root.sx': [0, 1, 0.3, 1.05, -0.42, 0.96, 0.65, 1.01, 1, 1],
+        'root.sy': [0, 1, 0.3, 0.92, -0.42, 1.07, 0.65, 0.985, 1, 1],
+        'root.sz': [0, 1, 0.3, 1.05, -0.42, 0.96, 0.65, 1.01, 1, 1],
+      }, 1.2),
+    });
+    // 空手「拳击」：左刺拳（左肩送出去，右拳护在下巴前）；右刺拳是它的镜像；重拳是拧腰抡出的右摆拳
+    const JAB = stance({
+      'root.oz': [0, 0, 0.25, -0.04, -0.4, 0.14, 1, 0.02],
+      'chest.ry': [0, 0, 0.25, 0.15, -0.4, -0.32, 0.65, -0.28, 1, 0],
+      'spine.ry': [0, 0, 0.25, 0.08, -0.4, -0.16, 1, 0],
+      'head.ry': [0, 0, -0.4, 0.22, 1, 0],
+      'uaL.rx': [0, -0.6, 0.25, -0.35, -0.4, -1.5, 0.6, -1.45, 1, -0.6],
+      'uaL.rz': [0, 0.3, 0.25, 0.4, -0.4, 0.1, 1, 0.3],
+      'faL.rx': [0, -1.6, 0.25, -1.9, -0.4, -0.08, 0.6, -0.2, 1, -1.6],
+      'hL.rx': C(0),
+      'uaR.rx': C(-0.75), 'uaR.rz': C(-0.35), 'uaR.ry': C(0),
+      'faR.rx': C(-1.85), 'hR.rx': C(0), 'hR.ry': C(0), 'hR.rz': C(0),
+      'root.sx': [0, 1, 0.25, 1.03, -0.4, 0.98, 1, 1],
+      'root.sy': [0, 1, 0.25, 0.95, -0.4, 1.04, 1, 1],
+      'root.sz': [0, 1, 0.25, 1.03, -0.4, 0.98, 1, 1],
+    }, 0.9);
+    defClip(rig, 'b_jabL', { dur: 0.3, k0: 0.4, lower: LEGS, fade: 0.04, out: 0.16, keys: JAB });
+    defClip(rig, 'b_jabR', { dur: 0.3, k0: 0.4, lower: LEGS, fade: 0.04, out: 0.16, keys: mirrorKeys(JAB) });
+    defClip(rig, 'b_hook', {
+      dur: 0.5, k0: 0.42, lower: LEGS, fade: 0.05, out: 0.2,
+      keys: stance({
+        'root.oz': [0, 0, 0.28, -0.08, -0.42, 0.2, 0.7, 0.16, 1, 0.02],
+        'root.oy': [0, 0, 0.28, -0.12, -0.42, -0.06, 1, 0],
+        'root.ry': [0, 0, 0.28, -0.35, -0.42, 0.3, 0.7, 0.25, 1, 0],
+        'spine.ry': [0, 0, 0.28, -0.3, -0.42, 0.25, 1, 0],
+        'chest.ry': [0, 0, 0.28, -0.5, -0.42, 0.45, 0.7, 0.38, 1, 0],
+        'head.ry': [0, 0, 0.28, 0.5, -0.42, -0.3, 1, 0],
+        'uaR.rx': [0, -0.75, 0.28, -0.4, -0.42, -1.4, 0.7, -1.3, 1, -0.75],
+        'uaR.rz': [0, -0.35, 0.28, -0.9, -0.42, -1.1, 0.7, -0.9, 1, -0.35],
+        'uaR.ry': [0, 0, 0.28, -0.6, -0.42, 0.7, 0.7, 0.8, 1, 0],
+        'faR.rx': [0, -1.85, 0.28, -1.7, -0.42, -0.55, 0.7, -0.7, 1, -1.85],
+        'hR.rx': C(0), 'hR.ry': C(0), 'hR.rz': C(0),
+        'uaL.rx': [0, -0.6, 0.28, -0.8, -0.42, -0.3, 1, -0.6],
+        'uaL.rz': C(0.35),
+        'faL.rx': [0, -1.6, 0.28, -1.9, -0.42, -1.5, 1, -1.6],
+        'cape1.rz': [0, 0, 0.28, -0.12, -0.42, 0.25, 0.8, 0.1, 1, 0],
+        'root.sx': [0, 1, 0.28, 1.06, -0.42, 0.96, 0.7, 1.01, 1, 1],
+        'root.sy': [0, 1, 0.28, 0.9, -0.42, 1.08, 0.7, 0.99, 1, 1],
+        'root.sz': [0, 1, 0.28, 1.06, -0.42, 0.96, 0.7, 1.01, 1, 1],
+      }, 1.1),
+    });
+    // 双匕「连刺」：刺拳的架势，匕首尖朝前（腕子压平）；第四下双臂从身前交叉处向两边横扫（k0），两道刀光交成一个叉
+    const STAB = Object.assign({}, JAB, { 'hL.rx': [0, 1.0, 0.25, 1.2, -0.4, 1.5, 1, 1.0], 'hR.rx': C(1.1) });
+    defClip(rig, 'b_stabL', { dur: 0.26, k0: 0.4, lower: LEGS, fade: 0.03, out: 0.14, trail: [0.28, 0.5], keys: STAB });
+    defClip(rig, 'b_stabR', { dur: 0.26, k0: 0.4, lower: LEGS, fade: 0.03, out: 0.14, trail: [0.28, 0.5], keys: mirrorKeys(STAB) });
+    {
+      const R = {
+        'uaR.rx': C(0),
+        'uaR.rz': [0, -0.5, 0.3, -1.3, -0.42, -1.45, 0.7, -1.3, 1, -0.5],
+        'uaR.ry': [0, 0, 0.3, 1.45, -0.42, -0.5, 0.7, -1.0, 1, -0.2],
+        'faR.rx': [0, -0.8, 0.3, -1.3, -0.42, -0.12, 0.7, -0.3, 1, -0.7],
+        'hR.rx': [0, 0.9, 0.3, 1.9, -0.42, 1.45, 0.7, 1.2, 1, 0.9],
+      };
+      const keys = stance(Object.assign({
+        'root.oy': [0, 0, 0.3, -0.16, -0.42, -0.08, 0.7, -0.1, 1, 0],
+        'root.oz': [0, 0, 0.3, -0.06, -0.42, 0.16, 1, 0.02],
+        'chest.rx': [0, 0, 0.3, 0.22, -0.42, -0.12, 0.7, -0.08, 1, 0],
+        'head.rx': [0, 0, 0.3, 0.2, -0.42, -0.1, 1, 0],
+        'cape1.rx': [0, 0.1, 0.3, -0.1, -0.42, 0.5, 0.75, 0.3, 1, 0.1],
+        'root.sx': [0, 1, 0.3, 0.95, -0.42, 1.08, 0.7, 1.0, 1, 1],
+        'root.sy': [0, 1, 0.3, 0.94, -0.42, 1.05, 0.7, 0.99, 1, 1],
+        'root.sz': [0, 1, 0.3, 0.95, -0.42, 1.08, 0.7, 1.0, 1, 1],
+      }, R, mirrorKeys(R)), 1);
+      defClip(rig, 'b_cross', { dur: 0.5, k0: 0.42, lower: LEGS, fade: 0.04, out: 0.2, trail: [0.32, 0.62], keys });
+    }
+    // 施法 / 魂幡的普攻：右手把武器朝准星一点（k0），杖头 / 短杖 / 幡杆指向前方，左手顺势往后收
+    defClip(rig, 'b_point', {
+      dur: 0.45, k0: 0.45, lower: LEGS, fade: 0.05, out: 0.18,
+      keys: stance({
+        'root.oz': [0, 0, 0.3, -0.05, -0.45, 0.1, 1, 0],
+        'chest.ry': [0, 0, 0.3, -0.3, -0.45, 0.25, 0.7, 0.2, 1, 0],
+        'chest.rx': [0, 0, 0.3, 0.1, -0.45, -0.08, 1, 0],
+        'head.ry': [0, 0, 0.3, 0.25, -0.45, -0.15, 1, 0],
+        'uaR.rx': [0, -0.4, 0.3, -0.9, -0.45, -1.55, 0.7, -1.5, 1, -0.4],
+        'uaR.rz': [0, -0.15, 0.3, 0.1, -0.45, -0.05, 1, -0.15],
+        'uaR.ry': C(0),
+        'faR.rx': [0, -0.8, 0.3, -1.6, -0.45, -0.1, 0.7, -0.15, 1, -0.6],
+        'hR.rx': [0, 0.2, 0.3, -0.2, -0.45, 1.2, 0.7, 1.15, 1, 0.3],
+        'hR.ry': C(0), 'hR.rz': C(0),
+        'uaL.rx': [0, -0.2, 0.3, -0.5, -0.45, 0.35, 1, -0.1],
+        'uaL.rz': [0, 0.2, -0.45, 0.4, 1, 0.2],
+        'faL.rx': [0, -0.6, -0.45, -0.3, 1, -0.5],
+        'root.sx': [0, 1, 0.3, 1.03, -0.45, 0.98, 1, 1],
+        'root.sy': [0, 1, 0.3, 0.95, -0.45, 1.04, 1, 1],
+        'root.sz': [0, 1, 0.3, 1.03, -0.45, 0.98, 1, 1],
+      }, 0.7),
+    });
+    // 太刀「拔刀」的第一下：刀从左胯低处出鞘，贴着腰一路横斩到右前方（身子照反手横斩拧，手走自己的轨迹）。别的武器借用横斩
+    aliasClip(rig, 'b_iai', 'attack1');
+    {
+      const I = LOCO_2H[G_KAT].idle;
+      const a2 = base('attack2');
+      defGearClip(rig, G_KAT, 'b_iai', Object.assign({}, a2, {
+        dur: 0.4, k0: 0.4, trail: [0.25, 0.62], keys: noArms(a2.keys),
+        hand: track(I, [
+          [0, 'I'],
+          [0.25, [0.3, -0.34, 0.06], [0.35, -0.25, -0.9], [0, 1, 0]],
+          [-0.4, [0.02, -0.12, 0.52], [-0.15, 0, 0.99], [0.99, 0, 0.15]],
+          [0.7, [-0.3, -0.08, 0.3], [-0.85, 0.05, 0.5], [0.5, 0, 0.85]],
+          [1, 'I'],
+        ]),
+      }));
+    }
+    // 战锤「重击」的终结：不跳，锤从身后抡过头顶、整个人压下去把锤砸进地里（k0），定住。别的武器借用跳劈
+    aliasClip(rig, 'b_slam', 'attack3');
+    {
+      const I = LOCO_2H[G_HAM].idle;
+      defGearClip(rig, G_HAM, 'b_slam', {
+        dur: 0.8, k0: 0.5, lower: null, fade: 0.06, out: 0.26, trail: [0.36, 0.56],
+        hand: track(I, [
+          [0, 'I'],
+          [0.3, [0, 2.2, -0.12], [0, 0.3, -0.95], [0, 1, 0.2]],
+          [-0.5, [0, 0.55, 0.78], [0, -0.45, 0.89], [0, -0.89, -0.45]],
+          [0.78, [0, 0.53, 0.77], [0, -0.47, 0.88], [0, -0.88, -0.47]],
+          [1, 'I'],
+        ], 'model'),
+        keys: {
+          'root.oy': [0, 0, 0.3, -0.06, -0.5, -0.44, 0.78, -0.42, 1, 0],
+          'root.rx': [0, 0.05, 0.3, -0.22, -0.5, 0.34, 0.78, 0.3, 1, 0.05],
+          'spine.rx': [0, 0, 0.3, -0.22, -0.5, 0.16, 0.78, 0.14, 1, 0],
+          'chest.rx': [0, 0, 0.3, -0.2, -0.5, 0.12, 0.78, 0.1, 1, 0],
+          'head.rx': [0, 0, 0.3, 0.18, -0.5, -0.35, 0.78, -0.3, 1, 0],
+          'thL.rx': [0, -0.1, 0.3, -0.5, -0.5, -1.3, 0.78, -1.25, 1, -0.05],
+          'shL.rx': [0, 0.1, 0.3, 0.6, -0.5, 1.45, 0.78, 1.4, 1, 0.08],
+          'thR.rx': [0, 0, 0.3, 0.1, -0.5, 0.25, 0.78, 0.25, 1, 0],
+          'shR.rx': [0, 0.1, 0.3, 0.4, -0.5, 1.2, 0.78, 1.15, 1, 0.08],
+          'thL.rz': [0, 0.07, -0.5, 0.3, 0.78, 0.3, 1, 0.07],
+          'thR.rz': [0, -0.07, -0.5, -0.3, 0.78, -0.3, 1, -0.07],
+          'cape1.rx': [0, 0.1, 0.3, -0.2, -0.5, 0.7, 0.78, 0.4, 1, 0.1],
+          'cape2.rx': [0, 0.1, 0.3, -0.25, -0.54, 0.6, 0.82, 0.35, 1, 0.1],
+          'root.sx': [0, 1, 0.3, 0.95, -0.5, 1.09, 0.7, 0.99, 1, 1],
+          'root.sy': [0, 1, 0.3, 1.08, -0.5, 0.88, 0.7, 1.02, 1, 1],
+          'root.sz': [0, 1, 0.3, 0.95, -0.5, 1.09, 0.7, 0.99, 1, 1],
+        },
+      });
+    }
+
     // ===== 武器技（W.play(ent, 'w_' + type)）=====
     // 刃「回锋斩」：后引 → 弓步直刺（k0）→ 原地拧身一整圈横扫（扫到正后方约在 k = 0.62）
     defClip(rig, 'w_blade', {
@@ -13277,8 +13488,10 @@
       });
     }
     // 弓：侧身举弓平射——左手把弓推到肩前，右手从弦上拉到下巴边（k = 0.15→0.42 拉满）→ 撒放（k0）→ 回身
+    // 侧身（root + chest 共转约 −1.2）之后胸口朝角色的右前方（−x），箭线要落在两肩连线的胸口一侧、贴着右下颌：
+    // 握把在 x = −0.11（原来 +0.08 在肩线背后，右手是往后背拉的），拉距 0.71（C 模型里约 0.5，左臂差不多伸直）
     {
-      const AIM = [0, 0.03, 1], GRIP = [0.08, 1.45, 0.62], DRAW = 0.5;
+      const AIM = [0, 0.03, 1], GRIP = [-0.11, 1.58, 0.75], DRAW = 0.71;
       const nock = GRIP.map((v, i) => v - AIM[i] * DRAW), rest = GRIP.map((v, i) => v - AIM[i] * 0.17);
       const out = [nock[0] - 0.1, nock[1] + 0.02, nock[2] - 0.08];
       const bowD = [0, 0.97, -0.03], handE = [0, -0.03, 1], lowL = [0.4, 0.85, 0.1], lowR = [-0.4, 0.85, 0.05];
@@ -13290,6 +13503,8 @@
         keys: {
           'wA.s': [0, 0, 0.08, 0, 0.12, 1, k0, 1, k0 + 0.01, 0, 1, 0],
           'root.ry': [0, 0, 0.1, -0.85, 0.85, -0.85, 1, 0],
+          // 走动时步态让上身往回拧（spine.ry = −胯角 / 2）：拉弓时不拧，侧身的角度和手的轨迹对得上（边走边射箭线不歪）
+          'spine.ry': C(0),
           'chest.ry': [0, 0, 0.1, -0.35, 0.85, -0.35, 1, 0],
           'head.ry': [0, 0, 0.1, 1.05, 0.85, 1.05, 1, 0],
           'chest.rx': [0, 0, 0.12, -0.05, k0, -0.05, k0 + 0.03, -0.14, 0.85, -0.06, 1, 0],
@@ -17190,6 +17405,8 @@
     const h = hexOf(hex);
     // 烬铸武器：更高更粗的双层光柱、更大的地面光盘、带一点余烬自发光的本体，悬着时不停往上冒火星
     const uq = kind === 'item' && !!slot && typeof slot === 'object' && slot.rarity === 3;
+    // 渊契：光柱、地面光盘和烬铸一样高大（颜色是渊契的翠色），本体不发光、不冒火星
+    const big = uq || (kind === 'item' && !!slot && typeof slot === 'object' && slot.rarity === 4);
     let key = kind;
     if (kind === 'item') {
       const sl = slot && typeof slot === 'object' ? slot.slot : slot;
@@ -17225,17 +17442,17 @@
     grp.add(gem);
     const disc = new T.Mesh(gQuad(), discMat(h));
     disc.position.y = 0.05;
-    const ds = uq ? 2.3 : beam ? 1.5 : 0.85;
+    const ds = big ? 2.3 : beam ? 1.5 : 0.85;
     disc.scale.set(ds, 1, ds);
     disc.renderOrder = 2;
     grp.add(disc);
     if (beam) {
-      const bm = uq
+      const bm = big
         ? new T.Mesh(geo('beamCylU', () => new T.CylinderGeometry(0.13, 0.15, 11, 10, 1, true).translate(0, 5.5, 0)), beamMat(h, 0.34))
         : new T.Mesh(geo('beamCyl', () => new T.CylinderGeometry(0.05, 0.13, 6.5, 8, 1, true).translate(0, 3.25, 0)), beamMat(h));
       bm.renderOrder = 5;
       grp.add(bm);
-      if (uq) {
+      if (big) {
         // 里层一道更细、更亮的芯
         const core = new T.Mesh(geo('beamCylUc', () => new T.CylinderGeometry(0.03, 0.05, 9, 8, 1, true).translate(0, 4.5 + 1.0, 0)), beamMat(mixHex(h, 0xffffff, 0.5), 0.5));
         core.renderOrder = 5;
@@ -17243,7 +17460,7 @@
       }
       const sp = new T.Sprite(spriteMat(h));
       sp.position.y = 0.6;
-      sp.scale.setScalar(uq ? 1.2 : 1.4);
+      sp.scale.setScalar(big ? 1.2 : 1.4);
       grp.add(sp);
       if (uq) grp.userData.glow = sp;
     }
@@ -19800,7 +20017,7 @@
   const HOSTILE_RED = 0xff2a22;
   // 每种外形的拖尾：[半宽, 寿命, 头色混白比例, 尾色亮度]（颜色从投射物的颜色算）
   const RIB_DEF = {
-    ember: [0.24, 0.2], blade: [0.09, 0.1], dart: [0.12, 0.22], orb: [0.18, 0.15],
+    ember: [0.24, 0.2], blade: [0.09, 0.1], dart: [0.12, 0.22], orb: [0.18, 0.15], lbolt: [0.17, 0.2],
     glob: [0.17, 0.15], shard: [0.15, 0.2], spark: [0.13, 0.12], firebolt: [0.28, 0.22], horb: [0.15, 0.12],
     // 远程武器：子弹 / 左轮的重弹 / 箭 / 冰弓的寒冰箭 / 喷枪的火团
     bullet: [0.045, 0.07], slug: [0.07, 0.1], arrow: [0.04, 0.16], emberarrow: [0.11, 0.24], flamelet: [0.2, 0.12],
@@ -19994,6 +20211,21 @@
         spawnP(x + rand(-0.06, 0.06), y + rand(-0.06, 0.06), z + rand(-0.06, 0.06), rand(-0.4, 0.4), rand(-0.2, 0.5), rand(-0.4, 0.4), rand(0.2, 0.35), 0.12, u.r + (1 - u.r) * 0.3, u.g + (1 - u.g) * 0.3, u.b + (1 - u.b) * 0.3, 0, 2);
       }
     },
+    // 长杖普攻「灵弹」：一颗顺着飞行方向拉长的亮核，三粒光点绕着它慢慢转（半径比秘弹大、转得慢），光晕大一圈
+    lbolt(u, x, y, z, dt) {
+      yawQ(u);
+      const c = pfLight(u, 0.6);
+      mPose(x, y, z, _pq, 0.14, 0.14, 0.24);
+      pfPut('core', c.r, c.g, c.b);
+      const sx = u.dz, sz = -u.dx;
+      for (let k = 0; k < 3; k++) {
+        const a = u.age * 11 + (k * TAU) / 3 + u.ph, o = Math.cos(a) * 0.26;
+        mPose(x + sx * o - u.dx * 0.08, y + Math.sin(a) * 0.26, z + sz * o - u.dz * 0.08, _pqI, 0.045, 0.045, 0.045);
+        pfPut('core', c.r, c.g, c.b);
+      }
+      glowPut(u, x, y, z, 1.4, 0.95);
+      pfSpray(u, x, y, z, dt);
+    },
     // 通用光球（没有专门外形的玩家投射物）
     orb(u, x, y, z, dt) {
       const c = pfLight(u, 0.6);
@@ -20151,17 +20383,18 @@
       if (how === 'wall') W.decal(0, x - u.dx * 0.3, z - u.dz * 0.3, 0.6, Math.atan2(u.dx, u.dz), 0xfff0d0, 0.3, 0.14);
       return true;
     }
-    if (vk === 'dart') {
+    if (vk === 'dart' || vk === 'lbolt') { // 灵弹炸开和秘弹同一套（颜色跟着元素）
       if (how === 'hit') return true;
-      const h = u.hex, Rr = R || 0.8;
+      const h = u.hex, Rr = R || 0.8, lb = vk === 'lbolt';
       W.ring(x, z, Rr, h, 0.26);
-      W.ring(x, z, Rr * 0.45, mixHex(h, 0xffffff, 0.6), 0.16);
+      // 灵弹是按住连发的普攻：只留外圈、不留地上的痕迹（环和贴花各占一次 draw call，连发时会叠起来）
+      if (!lb) W.ring(x, z, Rr * 0.45, mixHex(h, 0xffffff, 0.6), 0.16);
       flare(x, y, z, h, 1.3, 0.1);
       for (let i = 0; i < 14; i++) {
         const a = rand(0, TAU), v = rand(2.5, 6) * Math.max(0.6, Rr * 0.6), wh = i % 3 === 0 ? 0.6 : 0.15;
         spawnP(x, y, z, Math.sin(a) * v, rand(-0.5, 2.5), Math.cos(a) * v, rand(0.18, 0.35), rand(0.12, 0.2), u.r + (1 - u.r) * wh, u.g + (1 - u.g) * wh, u.b + (1 - u.b) * wh, 2, 3.5);
       }
-      W.decal(3, x, z, Rr * 0.5, rand(0, TAU), h, 1.2);
+      if (!lb) W.decal(3, x, z, Rr * 0.5, rand(0, TAU), h, 1.2);
       return true;
     }
     if (vk === 'orb') {
@@ -22820,6 +23053,160 @@
   }
 
   // =====================================================================
+  // 渊契特效：电桥（实例化，一次 draw call）、踏震、蓄潮、随影、同殇、骸王的体型、随核的跟随、回旋的折返
+  // 除电桥外都用现成的零件（ring / slash / burst / decal / bolt），不加新的网格
+  // =====================================================================
+  // 电桥：一条平放在胸口高度的窄带，中间一道锯齿亮芯（每秒跳 14 次形状）+ 黄边，两侧两道平行细光；整条按剩余时间三档阶梯透明度。
+  // 最多 8 道，画进同一个实例网格（aK 剩余比例、aSeed 锯齿相位、aLen 长度）。第一次用到时才建
+  const RQB_MAX = 8;
+  let rqb = null;
+  function rqbInit() {
+    if (rqb) return rqb;
+    const g = new T.PlaneGeometry(1, 1);
+    g.rotateX(-Math.PI / 2);
+    const ig = new T.InstancedBufferGeometry();
+    ig.index = g.index;
+    ig.setAttribute('position', g.getAttribute('position'));
+    ig.setAttribute('uv', g.getAttribute('uv'));
+    const aK = new T.InstancedBufferAttribute(new Float32Array(RQB_MAX), 1), aSeed = new T.InstancedBufferAttribute(new Float32Array(RQB_MAX), 1), aLen = new T.InstancedBufferAttribute(new Float32Array(RQB_MAX), 1);
+    ig.setAttribute('aK', aK);
+    ig.setAttribute('aSeed', aSeed);
+    ig.setAttribute('aLen', aLen);
+    const mat = new T.ShaderMaterial({
+      uniforms: { uTime, uCore: { value: new T.Color(0xfffbe6) }, uEdge: { value: new T.Color(0xffe45e) } },
+      vertexShader: [
+        'attribute float aK; attribute float aSeed; attribute float aLen; varying vec2 vUv; varying float vK; varying float vS; varying float vL;',
+        'void main(){ vUv = uv; vK = aK; vS = aSeed; vL = aLen; gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0); }',
+      ].join('\n'),
+      fragmentShader: [
+        'uniform float uTime; uniform vec3 uCore; uniform vec3 uEdge; varying vec2 vUv; varying float vK; varying float vS; varying float vL;',
+        'float tri(float x){ return abs(fract(x) - 0.5) * 2.0; }',
+        'void main(){',
+        '  float st = floor(uTime * 14.0 + vS * 7.0);',
+        '  float ph = fract(sin(st * 12.9898 + vS * 78.233) * 43758.5453);',
+        '  float c = 0.5 + (tri(vUv.y * vL * 0.85 + ph) - 0.5) * 0.6;', // 锯齿亮芯的中线
+        '  float d = abs(vUv.x - c), e = abs(vUv.x - 0.5);',
+        '  vec3 col; float a;',
+        '  if (d < 0.06) { col = uCore; a = 1.0; }',
+        '  else if (d < 0.15) { col = uEdge; a = 0.85; }',
+        '  else if (e > 0.4 && e < 0.45) { col = uEdge; a = 0.3; }', // 两侧的平行细光
+        '  else discard;',
+        '  float k = vK > 0.66 ? 1.0 : (vK > 0.33 ? 0.62 : 0.3);',
+        '  gl_FragColor = vec4(col, a * k);',
+        '}',
+      ].join('\n'),
+      transparent: true, depthWrite: false, toneMapped: false, fog: false, side: T.DoubleSide,
+    });
+    const mesh = new T.InstancedMesh(ig, mat, RQB_MAX);
+    mesh.count = 0;
+    mesh.visible = false;
+    mesh.frustumCulled = false;
+    mesh.renderOrder = 4;
+    scene.add(mesh);
+    rqb = { mesh, aK, aSeed, aLen, slots: [] };
+    for (let i = 0; i < RQB_MAX; i++) rqb.slots.push({ on: false, x0: 0, z0: 0, x1: 0, z1: 0, t: 0, dur: 1, seed: 0 });
+    return rqb;
+  }
+  const _rqm = new T.Matrix4(), _rqq = new T.Quaternion(), _rqp = new T.Vector3(), _rqs = new T.Vector3(), _rqUp = new T.Vector3(0, 1, 0);
+  function rqbFlush() {
+    const B = rqb;
+    let n = 0;
+    for (const s of B.slots) {
+      if (!s.on) continue;
+      const dx = s.x1 - s.x0, dz = s.z1 - s.z0, L = Math.max(0.3, Math.hypot(dx, dz));
+      _rqp.set((s.x0 + s.x1) / 2, 1.05, (s.z0 + s.z1) / 2);
+      _rqq.setFromAxisAngle(_rqUp, Math.atan2(dx, dz));
+      _rqs.set((G.RELIC_MECH.dianqiao.w || 0.9), 1, L);
+      _rqm.compose(_rqp, _rqq, _rqs);
+      B.mesh.setMatrixAt(n, _rqm);
+      B.aK.array[n] = G.clamp(s.t / s.dur, 0, 1);
+      B.aSeed.array[n] = s.seed;
+      B.aLen.array[n] = L;
+      n++;
+    }
+    B.mesh.count = n;
+    B.mesh.visible = n > 0;
+    B.mesh.instanceMatrix.needsUpdate = true;
+    B.aK.needsUpdate = B.aSeed.needsUpdate = B.aLen.needsUpdate = true;
+  }
+  // 新开一道电桥，返回槽位（满了顶掉剩余时间最短的那道；game.js 那边同样最多 8 道，一般不会撞上）
+  W.relicBridgeOn = function (x0, z0, x1, z1) {
+    const B = rqbInit();
+    let i = B.slots.findIndex((s) => !s.on);
+    if (i < 0) {
+      i = 0;
+      for (let j = 1; j < B.slots.length; j++) if (B.slots[j].t < B.slots[i].t) i = j;
+    }
+    const s = B.slots[i];
+    const dur = G.RELIC_MECH.dianqiao.t || 1.5;
+    Object.assign(s, { on: true, x0, z0, x1, z1, t: dur, dur, seed: rand(0, 1) });
+    rqbFlush();
+    return i;
+  };
+  W.relicBridgeOff = function (i) {
+    if (!rqb || !(i >= 0) || !rqb.slots[i]) return;
+    rqb.slots[i].on = false;
+    rqbFlush();
+  };
+  W.relicBridgeTick = function (dt) {
+    if (!rqb) return;
+    for (const s of rqb.slots) if (s.on) s.t -= dt;
+    rqbFlush();
+  };
+  W.relicBridgeCount = () => (rqb ? rqb.mesh.count : 0); // 测试用
+  // 踏震：落点一圈硬边地裂 + 三道往外的冲击弧 + 一点尘
+  W.relicStomp = function (x, z, R, ang) {
+    W.ring(x, z, R, 0xffc070, 0.35);
+    W.ring(x, z, R * 0.55, 0xfff0d0, 0.2);
+    W.decal(5, x, z, R * 0.9, rand(0, TAU), 0xffb050, 2.2);
+    for (let i = 0; i < 3; i++) W.slash(x, z, ang + (i * TAU) / 3, R * 0.95, 70, 0xffe2b0, { dur: 0.2, inner: 0.78, y: 0.35 });
+    W.burst(x, 0.3, z, 0xd8c8a8, qualId === 'low' ? 6 : 12, R * 1.2, 0.35);
+  };
+  // 蓄潮：每攒一层身上甩几粒蓝白水沫；k 是攒满的比例
+  W.relicTide = function (x, z, k) {
+    W.burst(x, 0.7, z, 0xcfe8ff, 2 + Math.round(k * (qualId === 'low' ? 2 : 5)), 2.2, 0.3);
+  };
+  W.relicTideBurst = function (x, z, R, k) {
+    W.slash(x, z, rand(0, TAU), R, 360, 0xcfe8ff, { dur: 0.26, inner: 0.55, y: 0.9 });
+    W.ring(x, z, R, 0x9fd0ff, 0.4);
+    W.ring(x, z, R * 0.6, 0xffffff, 0.24);
+    W.burst(x, 0.8, z, 0xcfe8ff, Math.round((qualId === 'low' ? 6 : 10) + 20 * k), R * 1.4, 0.5);
+    if (k >= 0.5) W.decal(5, x, z, R * 0.8, rand(0, TAU), 0x9fd0ff, 2);
+  };
+  // 随影：召唤物从原地闪到落点（一道魂火青的细电弧）
+  W.relicBlinkFx = function (x0, z0, x1, z1) {
+    W.bolt([{ x: x0, z: z0 }, { x: x1, z: z1 }], ALLY_HEX, true);
+    W.burst(x1, 0.6, z1, ALLY_HEX, qualId === 'low' ? 4 : 8, 2.5, 0.35);
+  };
+  // 同殇：你和替你挨打的召唤物之间牵一道青色细线
+  W.relicShareFx = function (x0, z0, x1, z1) {
+    W.bolt([{ x: x0, z: z0 }, { x: x1, z: z1 }], ALLY_HEX, true);
+  };
+  // 骸王：身体和脚下的圈放大 k 倍（k = 1 还原）。ent.k 让血条、死亡消散、尸体贴花跟着变大
+  W.relicKing = function (ent, k) {
+    if (!ent || ent.dying) return;
+    const prev = ent.rqK || 1;
+    ent.rqK = k;
+    ent.k = (ent.k / prev) * k;
+    ent.body.scale.setScalar((ent.body.scale.x / prev) * k);
+    for (const q of [ent.ring, ent.ringShade]) if (q) q.scale.set((q.scale.x / prev) * k, 1, (q.scale.z / prev) * k);
+  };
+  // 随核：黑洞跟着你走（圆盘和往里卷的光点一起挪）
+  W.relicHoleAt = function (h, x, z) {
+    if (!h || !h.on) return;
+    h.x = x;
+    h.z = z;
+    h.mesh.position.set(x, 0.07, z);
+  };
+  // 回旋：投射物掉头，外形的朝向跟着换
+  W.relicProjTurn = function (mesh, dx, dz) {
+    const u = mesh && mesh.userData;
+    if (!u || u.dx === undefined) return;
+    u.dx = dx;
+    u.dz = dz;
+  };
+
+  // =====================================================================
   // 渊印特效：领群光环、余烬地贴花（各是一个实例化网格，整局只建一次，1 次 draw；没有时隐藏、不占 draw）
   // =====================================================================
   // 领群光环：领群者脚下一圈硬边的橙色环（深色描边 + 两档亮度），醒着的每帧跟着挪；死了收掉。
@@ -23537,9 +23924,9 @@
       g.fillRect(x, y, w, h);
       g.strokeStyle = l.color;
       g.globalAlpha = 0.85;
-      const uqL = l.kind === 'item' && l.data && l.data.rarity === 3;
+      const uqL = l.kind === 'item' && l.data && l.data.rarity >= 3;
       if (uqL) {
-        // 烬铸：名牌外面再描一圈发光的边
+        // 烬铸 / 渊契：名牌外面再描一圈发光的边
         g.shadowColor = l.color;
         g.shadowBlur = 10;
         g.strokeRect(x - 1.5, y - 1.5, w + 3, h + 3);
