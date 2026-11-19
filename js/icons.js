@@ -882,19 +882,7 @@
   // 技能：亮色主体 + 元素色辉光，底板由界面的格子提供
   // =====================================================================
   const SKILL_DRAW = {
-    // 裂石击：一道新月形斩痕
-    cleave(g, col) {
-      const cres = (p, r0, r1, a0, a1, off) => {
-        for (let i = 0; i <= 16; i++) { const a = a0 + ((a1 - a0) * i) / 16; p[i ? 'L' : 'M'](Math.cos(a) * r0, Math.sin(a) * r0); }
-        for (let i = 16; i >= 0; i--) { const a = a0 + ((a1 - a0) * i) / 16; p.L(Math.cos(a) * r1 + off, Math.sin(a) * r1 + off); }
-        return p.Z();
-      };
-      const m = rot(0, 1, -5, 5);
-      glow(g, (p) => cres(p, 24, 19, -2.2, 0.55, 7.5), col, { m, blur: 8, core: col });
-      solid(g, (p) => cres(p, 24, 19, -2.2, 0.55, 7.5), lite(col, 0.55), { m, hi: 0.6, lo: 0.3 });
-      line(g, (p) => p.M(-14, 8).L(-4, -1).M(-8, 16).L(4, 5).M(0, 20).L(8, 13), rgba('#ffffff', 0.75), 1.6, m);
-      spark(g, 17, 8, 5, '#ffffff');
-    },
+    // 裂石击已删除（新月斩痕挪给了刃的普攻「挥斩」，见 BASIC_DRAW.blade）
     // 掷焰：拖着尾焰的火球
     ember(g, col) {
       const m = rot(-48, 1.02, 2, -2);
@@ -1458,7 +1446,7 @@
   };
 
   // =====================================================================
-  // 武器普攻（右键「开火」/「射击」）：按武器类型画，id 为 basic_<type>
+  // 武器普攻（右键）：按武器类型画，id 为 basic_<type>（空手 basic_fists）
   // =====================================================================
   const BASIC_DRAW = {
     // 机炮开火：三道并排的曳光弹扫向右上，枪口一团十字星焰，旁边一圈转动的弧线（转膛）
@@ -1528,6 +1516,82 @@
         glow(g, (p) => p.M(x, y - 3).L(x + 2.2, y).L(x, y + 3).L(x - 2.2, y).Z(), ICE, { blur: 5, core: '#f0faff' });
       }
       spark(g, hx, hy, 6, '#ffffff');
+    },
+    // ---------- 近战 / 施法 / 召唤 / 空手的普攻（右键）----------
+    // 刃「挥斩」：一前一后两道新月斩痕，终结的一记直刺从中间穿向右上
+    blade(g, col) {
+      const cres = (p, r0, r1, a0, a1, off) => {
+        for (let i = 0; i <= 16; i++) { const a = a0 + ((a1 - a0) * i) / 16; p[i ? 'L' : 'M'](Math.cos(a) * r0, Math.sin(a) * r0); }
+        for (let i = 16; i >= 0; i--) { const a = a0 + ((a1 - a0) * i) / 16; p.L(Math.cos(a) * r1 + off, Math.sin(a) * r1 + off); }
+        return p.Z();
+      };
+      const m1 = rot(0, 0.82, -8, 8), m2 = rot(180, 0.62, 10, -4);
+      glow(g, (p) => cres(p, 24, 19, -2.2, 0.55, 7.5), col, { m: m1, blur: 6, core: rgba(lite(col, 0.4), 0.8) });
+      glow(g, (p) => cres(p, 24, 19, -2.2, 0.55, 7.5), col, { m: m2, blur: 6, core: rgba(lite(col, 0.4), 0.65) });
+      const m = rot(45, 1, 0, 0);
+      glow(g, (p) => p.M(-1.6, 22).L(0, -28).L(1.6, 22).Z(), col, { m, blur: 7, core: lite(col, 0.7) });
+      spark(g, 19.5, -19.5, 6, '#ffffff');
+    },
+    // 双匕「连刺」：三道错开的短刺痕朝右上，尽头一个交叉的「×」
+    daggers(g, col) {
+      const m = rot(45, 1, 0, 0);
+      for (const [o, y0, l] of [[-8, 8, 16], [0, 14, 20], [8, 6, 14]]) glow(g, (p) => p.M(o - 1.3, y0).L(o, y0 - l).L(o + 1.3, y0).Z(), col, { m, blur: 5, core: lite(col, 0.6) });
+      const cx = 14, cy = -15;
+      glow(g, (p) => p.M(cx - 9, cy - 9).L(cx + 9, cy + 9).M(cx + 9, cy - 9).L(cx - 9, cy + 9), col, { stroke: 2.6, blur: 6, core: lite(col, 0.7) });
+      spark(g, cx, cy, 5, '#ffffff');
+    },
+    // 战锤「重击」：一道从上往下砸的粗弧，落在一条地线上，地面荡开两圈半环和几块碎石
+    hammer(g, col) {
+      glow(g, (p) => p.M(-20, -22).Q(6, -26, 4, 6).L(-1, 6).Q(0, -18, -20, -16).Z(), col, { blur: 7, core: rgba(lite(col, 0.45), 0.9) });
+      line(g, (p) => p.M(-26, 12).L(26, 12), lite(col, 0.2), 2);
+      for (const [r, a] of [[10, 0.95], [18, 0.6]]) line(g, (p) => { for (let k = 0; k <= 14; k++) { const t = Math.PI + (k / 14) * Math.PI; p[k ? 'L' : 'M'](2 + Math.cos(t) * r, 12 + Math.sin(t) * r * 0.45); } return p; }, rgba(lite(col, 0.3), a), 1.8);
+      for (const [x, y, s] of [[-14, 4, 2.4], [17, 3, 2], [-6, -2, 1.6], [12, -4, 1.4]]) solid(g, (p) => p.P([x - s, y, x, y - s, x + s, y + s * 0.4, x - s * 0.3, y + s]), C.stone, { bevel: 0, lw: 1 });
+      spark(g, 2, 9, 6, '#ffffff');
+    },
+    // 太刀「拔刀」：左下一截刀鞘，一道又长又细的横斩从鞘口拉向右上，后面拖着几条疾冲的速度线
+    katana(g, col) {
+      solid(g, (p) => p.R(-28, 15, 18, 5, 2), C.duskD, { m: rot(-20, 1, 0, 0), bevel: 0.6, lw: 1.4 });
+      glow(g, (p) => p.M(-12, 14).Q(4, -2, 26, -20).Q(2, 2, -12, 17).Z(), col, { blur: 7, core: lite(col, 0.6) });
+      for (const [y, l] of [[-6, 14], [2, 10], [10, 7]]) line(g, (p) => p.M(-26, y - 8).L(-26 + l, y - 8 - l * 0.4), rgba(lite(col, 0.3), 0.75), 1.4);
+      spark(g, 24, -19, 5, '#ffffff');
+    },
+    // 空手「拳击」：一只握紧的拳头朝右上打出，拳面前一圈短促的冲击线
+    fists(g, col) {
+      const m = rot(-40, 1, -4, 4);
+      solid(g, (p) => p.R(-10, -9, 20, 18, 6), lite(col, 0.1), { m, hi: 0.6, lo: 0.3, lw: 1.6 });
+      line(g, (p) => p.M(-3.5, -9).L(-3.5, -3).M(2.5, -9).L(2.5, -3).M(-9, 2).L(-2, 2), dark(col, 0.45), 1.3, m);
+      solid(g, (p) => p.R(-7, 9, 14, 9, 2), dark(col, 0.25), { m, bevel: 0.6, lw: 1.4 });
+      for (let i = 0; i < 5; i++) {
+        const a = -Math.PI / 4 + (i - 2) * 0.42, r0 = 18, r1 = 26;
+        glow(g, (p) => p.M(4 + Math.cos(a) * r0, -4 + Math.sin(a) * r0).L(4 + Math.cos(a) * r1, -4 + Math.sin(a) * r1), col, { stroke: 2, blur: 4, core: lite(col, 0.6) });
+      }
+      spark(g, 18, -18, 4, '#ffffff');
+    },
+    // 长杖「灵弹」：一颗拉长的亮核飞向右上，三粒光点绕着它，身后一条渐细的尾迹
+    staff(g, col) {
+      const m = rot(45, 1, 0, 0);
+      glow(g, (p) => p.M(-4, -2).Q(0, 24, 0, 28).Q(0, 24, 4, -2).Z(), col, { m, blur: 6, core: rgba(lite(col, 0.3), 0.75) });
+      glow(g, (p) => p.E(0, -8, 7, 9), col, { m, blur: 10, core: lite(col, 0.55) });
+      for (let k = 0; k < 3; k++) { const a = (k / 3) * TAU + 0.5; glow(g, (p) => p.E(Math.cos(a) * 13, -8 + Math.sin(a) * 13, 2.4), col, { m, blur: 4, core: '#ffffff' }); }
+      spark(g, 5.7, -5.7, 4, '#ffffff');
+    },
+    // 短杖「疾咒」：一道折线咒光从左下劈到右上的目标点，再折向旁边的第二个点
+    wand(g, col) {
+      glow(g, (p) => p.M(-24, 22).L(-10, 8).L(-13, 3).L(4, -10).L(1, -14).L(14, -20), col, { stroke: 2.6, blur: 6, core: lite(col, 0.65) });
+      line(g, (p) => p.M(14, -20).L(18, -6).L(16, -3).L(22, 8), rgba(lite(col, 0.4), 0.85), 1.6, null, [2.4, 1.8]);
+      glow(g, (p) => p.E(14, -20, 3.6), col, { blur: 6, core: '#ffffff' });
+      glow(g, (p) => p.E(22, 8, 2.6), col, { blur: 5, core: lite(col, 0.7) });
+      spark(g, 14, -20, 6, '#ffffff');
+    },
+    // 魂幡「魂引」：一缕水滴形的魂灵拐着弧线扑向右上的靶点，靶点外两道折角（集火标记）
+    banner(g, col) {
+      line(g, (p) => p.M(-24, 22).Q(-22, -4, 0, -6), rgba(lite(col, 0.3), 0.8), 1.6, null, [3, 2.2]);
+      const m = rot(-60, 1, 2, -6);
+      glow(g, (p) => p.M(0, -9).C(7, -3, 7, 6, 0, 9).C(-7, 6, -7, -3, 0, -9).Z(), col, { m, blur: 9, core: lite(col, 0.45) });
+      glow(g, (p) => p.E(0, -1, 2.6), '#ffffff', { m, blur: 3, core: '#ffffff' });
+      const tx = 17, ty = -16;
+      for (const [sx, sy] of [[-1, -1], [1, 1]]) line(g, (p) => p.M(tx + sx * 9, ty + sy * 4).L(tx + sx * 9, ty + sy * 9).L(tx + sx * 4, ty + sy * 9), lite(col, 0.4), 1.8);
+      glow(g, (p) => p.E(tx, ty, 3), col, { blur: 5, core: lite(col, 0.6) });
     },
   };
   const EMB_C = '#ff9b3d';
@@ -1722,8 +1786,186 @@
       spark(g, 12.6, -17.6, 4.8, CH.hi);
     },
   };
+  // =====================================================================
+  // 渊契（物品图标键 it-rq-<id>）：同一套画法，多数在这个部位的基底剪影上叠机制的记号；部位缩放照 ITEM_SCALE
+  // =====================================================================
+  // 在 (x, y) 处按 s 倍、deg 度画一遍某个基底（复用上面的剪影）
+  const under = (g, fn, x, y, s, deg) => {
+    g.save();
+    g.translate(x, y);
+    if (deg) g.rotate((deg * Math.PI) / 180);
+    g.scale(s, s);
+    fn();
+    g.restore();
+  };
+  const RQ_DRAW = {
+    // 磐踵：厚重铁胫甲侧影，鞋底一圈往外裂开的地纹，三道橙白冲击弧
+    panzhong(g) {
+      for (const [r, a] of [[30, 0.45], [25, 0.7], [20, 0.95]]) glow(g, (p) => p.M(-r, 20).Q(0, 20 + r * 0.42, r, 20), '#ffc070', { stroke: 1.4, blur: 4, core: rgba('#fff0d0', a) });
+      line(g, (p) => p.M(-27, 23).L(-21, 20.5).L(-17, 24).M(27, 23).L(21, 20.5).L(17, 24.5).M(-6, 27.5).L(-1, 24).L(4, 27.8), rgba('#ffb050', 0.95), 1.5);
+      under(g, () => drawBoots(g, 1), 0, -3, 0.9);
+      solid(g, (p) => p.M(-12.4, -12).L(4, -12.8).L(5, -6).L(-12.6, -5).Z(), C.ironD, { bevel: 1.2, lw: 1.8 });
+      solid(g, (p) => p.R(-14, 14.5, 36, 5, 1.4), '#4a4650', { bevel: 1, lw: 1.8 });
+      glow(g, (p) => p.E(-4, -16.5, 2), '#ffb050', { blur: 5, core: '#ffe2b0' });
+    },
+    // 怒潮：铁护手攥成拳，拳心卷起一道浪形白色旋流，指缝溢出三滴蓝白水沫
+    nuchao(g) {
+      under(g, () => drawGloves(g, 1), 0, 2, 0.92);
+      solid(g, (p) => p.R(-10.6, -16, 20.4, 9, 3.4), C.ironD, { bevel: 1.2, lw: 1.9 }); // 握拳时蜷起的指节
+      line(g, (p) => p.M(-5.6, -16).L(-5.6, -7.4).M(-0.6, -16).L(-0.6, -7.4).M(4.4, -16).L(4.4, -7.4), rgba('#000000', 0.45), 1.1);
+      glow(g, (p) => p.M(-9, 2).C(-9, -8, 7, -9, 7, -1).C(7, 5, -1, 6, -1, 0.5).C(-1, -2.6, 3.6, -2.4, 3.4, 0.4), '#bfe4ff', { stroke: 2.4, blur: 6, core: '#f4fbff' });
+      glow(g, (p) => p.M(-12, 4).Q(-6, 0, 0, 4).Q(6, 8, 12, 4), '#9fd0ff', { stroke: 1.5, blur: 4, core: rgba('#e8f6ff', 0.9) });
+      for (const [x, y] of [[-8, -21], [-2.6, -22.5], [3, -21.6]]) glow(g, (p) => p.M(x, y - 3.4).Q(x + 2.2, y, x, y + 1.6).Q(x - 2.2, y, x, y - 3.4).Z(), '#9fd0ff', { blur: 4, core: '#eef8ff' });
+    },
+    // 断岳：宽腰带，带扣是一块裂成两半的山形铁片，裂缝透红光
+    duanyue(g) {
+      tube(g, (p) => p.M(-27, -4).Q(0, 10, 27, -4), C.leatherD, 12, { cap: 'butt' });
+      line(g, (p) => p.M(-25, -8.6).Q(0, 5.6, 25, -8.6).M(-25, 0.6).Q(0, 14.4, 25, 0.6), rgba('#2a160a', 0.55), 0.9, null, [2.2, 2]);
+      glow(g, (p) => p.M(0.4, -15).L(-1.6, -7).L(1.4, 0).L(-1, 8).L(0.6, 14), '#ff4a2a', { stroke: 2.6, blur: 8, core: '#ffb080' });
+      solid(g, (p) => p.P([-1.4, -15.5, -4, -10, -8.5, -12.5, -13, -3, -14, 12, -1.4, 12, -3.4, 7.6, -0.6, 0, -3.2, -7]), C.ironD, { bevel: 1.4 });
+      solid(g, (p) => p.P([1.8, -15.5, 6.4, -6, 9.4, -9, 14, 1, 14.6, 12, 2.2, 12, 4.2, 7.6, 1.6, 0, 4, -7.2]), C.iron, { bevel: 1.4 });
+      line(g, (p) => p.M(-10.5, 2).L(-6.5, -2.6).M(8.6, 4).L(11.5, 0), rgba('#000000', 0.4), 1);
+    },
+    // 千目：头盔正面一圈七只竖眼，只有中间那只睁开，金色瞳孔
+    qianmu(g) {
+      drawHelm(g, 1);
+      for (let i = -3; i <= 3; i++) {
+        if (!i) continue;
+        const x = i * 4.4, y = 4.6 + Math.abs(i) * 0.5 - 13;
+        line(g, (p) => p.M(x, y - 2.6).Q(x + 1.2, y, x, y + 2.6), rgba('#1c232b', 0.85), 1.4);
+      }
+      solid(g, (p) => p.M(0, -14.5).Q(3.6, -8.6, 0, -2.6).Q(-3.6, -8.6, 0, -14.5).Z(), '#f4ecd8', { bevel: 0.8, lw: 1.6 });
+      glow(g, (p) => p.E(0, -8.6, 1.6, 2.9), '#e9b949', { blur: 6, core: '#ffd75e' });
+      g.save();
+      g.beginPath();
+      pen(g).E(-0.5, -9.8, 0.6);
+      g.fillStyle = '#ffffff';
+      g.fill();
+      g.restore();
+    },
+    // 回旋：骨坠上缠一枚弯月回旋刃，刃尾拖一道折返的虚线弧
+    huixuan(g) {
+      drawAmulet(g, 0);
+      line(g, (p) => p.M(17, 6).C(26, -4, 22, -20, 9, -18).C(1, -17, -1, -10, 3, -6), rgba('#e6dfd0', 0.85), 1.4, null, [2.4, 2.2]);
+      solid(g, (p) => p.M(-12, 2).Q(0, -8, 14, 4).Q(2, -2, -8, 10).Q(-6, 5, -12, 2).Z(), C.steel, { bevel: 1.1, lw: 1.8 });
+      glow(g, (p) => p.M(-9, 4.4).Q(1, -4, 11.6, 3.8), '#ffffff', { stroke: 0.9, blur: 3, core: '#ffffff' });
+      spark(g, 14, 4, 4.2, '#ffffff');
+    },
+    // 陨织袍：深色长袍，下摆缀小星，胸口一颗拖尾陨星斜着划下
+    zhuixing(g) {
+      const robe = '#2e2a48', robeD = '#201c34';
+      solid(g, (p) => p.M(-10, -21).Q(0, -14, 10, -21).L(19, -15).L(21, -3).L(15, -2).L(19, 25).L(-19, 25).L(-15, -2).L(-21, -3).L(-19, -15).Z(), robe, {});
+      solid(g, (p) => p.M(-10, -21).Q(0, -14, 10, -21).L(6, -12).Q(0, -8, -6, -12).Z(), robeD, { bevel: 1, lw: 1.8 });
+      line(g, (p) => p.M(0, -10).L(0, 25).M(-18, 19).Q(0, 23, 18, 19), rgba('#000000', 0.45), 1.2);
+      for (const [x, y, r] of [[-13, 21.5, 2.4], [-5, 20.8, 1.8], [4.4, 21, 2.2], [12.6, 21.6, 1.8], [-9, 16, 1.4], [9, 16.4, 1.4]]) spark(g, x, y, r, '#ffe2a0');
+      glow(g, (p) => p.M(12, -14).Q(4, -8, -3.4, 2).L(-1.4, 3.6).Q(6, -6, 13.4, -12.4).Z(), '#ff7a2c', { blur: 6, core: rgba('#ffc890', 0.85) });
+      gem(g, -3.4, 3.6, 3.6, '#ff8a3c', 6, null, { glow: 7 });
+      spark(g, -3.4, 3.6, 3.4, '#ffffff');
+    },
+    // 电桥：雷纹戒上方两颗小电珠，之间一道锯齿电弧，弧下两道平行细光
+    dianqiao(g) {
+      under(g, () => drawRing(g, 2), 0, 5, 0.86);
+      line(g, (p) => p.M(-10, -15.4).L(10, -15.4).M(-9, -13.2).L(9, -13.2), rgba('#fff4b0', 0.8), 0.9);
+      glow(g, (p) => p.M(-11, -22).L(-6, -19).L(-3, -25).L(1, -19.6).L(4, -25.4).L(7, -20).L(11, -22), '#ffe45e', { stroke: 1.7, blur: 6, core: '#fffbe0' });
+      for (const x of [-12.5, 12.5]) {
+        glow(g, (p) => p.E(x, -22, 3.2), '#ffe45e', { blur: 6, core: '#ffe45e' });
+        solid(g, (p) => p.E(x, -22, 2.6), '#fff0a0', { hi: 0.6, lo: 0.3, bevel: 0.8, lw: 1.4 });
+      }
+    },
+    // 异变：星芒坠中心一颗三色交卷的圆珠（橙、冰蓝、黄），外圈白色硬边
+    yibian(g) {
+      drawAmulet(g, 2);
+      const cx = 0, cy = 10, r = 6.8;
+      glow(g, (p) => p.E(cx, cy, r + 0.8), '#ffffff', { blur: 6, core: '#ffffff' });
+      const cols = ['#ff7a2c', '#86d8ff', '#ffe45e'];
+      for (let i = 0; i < 3; i++) {
+        const a0 = (i / 3) * TAU - Math.PI / 2, a1 = a0 + TAU / 3;
+        g.save();
+        g.beginPath();
+        g.moveTo(cx, cy);
+        g.arc(cx, cy, r, a0, a1);
+        // 交卷：每一瓣往下一瓣里卷进去一点
+        g.quadraticCurveTo(cx + Math.cos(a1 - 0.6) * r * 0.5, cy + Math.sin(a1 - 0.6) * r * 0.5, cx, cy);
+        g.fillStyle = cols[i];
+        g.fill();
+        g.restore();
+      }
+      line(g, (p) => p.E(cx, cy, r), '#ffffff', 1.6);
+      line(g, (p) => p.E(cx, cy, r + 1.4), INK, 1.2);
+      g.save();
+      g.beginPath();
+      pen(g).E(cx - 2.2, cy - 2.4, 1.2);
+      g.fillStyle = 'rgba(255,255,255,0.9)';
+      g.fill();
+      g.restore();
+    },
+    // 骸王冠：骨冠，三根肋骨做冠尖，正中一只发青光的眼窝
+    haiwang(g) {
+      for (const [x, h, lean] of [[-11, 18, -0.35], [11, 18, 0.35], [0, 25, 0]]) {
+        solid(g, (p) => p.M(x - 3, 2).Q(x - 3 + lean * 10, -h * 0.55, x + lean * 14, -h).Q(x + 3 + lean * 6, -h * 0.5, x + 3, 2).Z(), C.bone, { bevel: 1.1, lw: 1.9 });
+        line(g, (p) => p.M(x - 1.4 + lean * 3, -h * 0.25).L(x + 1.4 + lean * 3, -h * 0.3).M(x - 1 + lean * 6, -h * 0.5).L(x + 1.2 + lean * 6, -h * 0.55), dark(C.bone, 0.45), 0.9);
+      }
+      solid(g, (p) => p.M(-19, 0).Q(0, -6, 19, 0).L(18, 14).Q(0, 9, -18, 14).Z(), C.bone, {});
+      line(g, (p) => p.M(-17, 4.4).Q(0, -1, 17, 4.4), dark(C.bone, 0.4), 1);
+      solid(g, (p) => p.M(0, 0.6).Q(5.6, 3, 4.6, 7.6).Q(0, 10.6, -4.6, 7.6).Q(-5.6, 3, 0, 0.6).Z(), '#1a1416', { hi: 0.1, lo: 0.2, bevel: 0.8, lw: 1.6 });
+      glow(g, (p) => p.E(0, 5.4, 2.2), ALLY, { blur: 8, core: '#c4fff0' });
+      for (const x of [-12, 12]) solid(g, (p) => p.E(x, 6.8, 1.6), dark(C.bone, 0.3), { bevel: 0, lw: 1.2 });
+    },
+    // 同殇甲：胸甲正中两只交扣的骨手，一道青色细线从胸口牵出甲外
+    tongshang(g) {
+      drawBody(g, 1);
+      glow(g, (p) => p.M(1, 0).Q(14, -3, 20, 8).Q(24, 14, 28, 12), ALLY, { stroke: 1.2, blur: 5, core: '#c4fff0' });
+      const hand = (sx) => {
+        const m = [sx, 0, 0, 1, 0, 0];
+        solid(g, (p) => p.M(-12, 6).Q(-9, -1, -3, -2).L(4, -5.5).Q(5.6, -5, 4.6, -3.4).L(0, 0).L(5, -1.6).Q(6.6, -1, 5.6, 0.6).L(0.6, 2.4).L(5, 2.6).Q(6, 3.6, 4.6, 4.6).L(-1, 5.2).Q(-6, 9, -12, 9).Z(), C.bone, { m, bevel: 0.9, lw: 1.6 });
+      };
+      hand(1);
+      hand(-1);
+      glow(g, (p) => p.E(0, 1.6, 1.8), ALLY, { blur: 5, core: '#c4fff0' });
+    },
+    // 招魂带：符文腰带，带扣挂一串三枚骨铃，铃下飘青色魂丝
+    zhaohun(g) {
+      drawBelt(g, 2);
+      for (const [x, y] of [[-6, 13], [0, 15.5], [6, 13]]) {
+        line(g, (p) => p.M(x, 6).L(x, y - 3), rgba('#2a2230', 0.9), 1.2);
+        solid(g, (p) => p.M(x - 3.2, y + 2.4).Q(x - 3, y - 3.6, x, y - 3.8).Q(x + 3, y - 3.6, x + 3.2, y + 2.4).Z(), C.bone, { bevel: 0.8, lw: 1.5 });
+        glow(g, (p) => p.M(x, y + 3).Q(x + 2.6, y + 7, x - 0.6, y + 10).Q(x - 2.4, y + 12.6, x + 0.6, y + 14.4), ALLY, { stroke: 1, blur: 4, core: rgba('#c4fff0', 0.9) });
+      }
+    },
+    // 引力核：灵石戒的戒面是一颗近黑小球，三道品红轨道环绕，戒圈被拉弯
+    yinli(g) {
+      solid(g, (p) => p.M(-15, 7).C(-16, 22, 16, 22, 15, 7).C(14, 0, 6, -2, 0, -5).C(-6, -2, -14, 0, -15, 7).Z()
+        .M(-9.6, 8).C(-10, 16, 10, 16, 9.6, 8).C(9, 3.6, 4, 2, 0, 0.4).C(-4, 2, -9, 3.6, -9.6, 8).Z(), C.stone, { rule: 'evenodd', bevel: 1.6 });
+      for (const a of [-28, 30, 88]) line(g, (p) => p.E(0, 0, 13, 4.2), rgba(CH.rim, 0.95), 1.3, rot(a, 1, 0, -12));
+      glow(g, (p) => p.E(0, -12, 6.6), CH.rim, { blur: 9, core: CH.rim });
+      solid(g, (p) => p.E(0, -12, 5.6), CH.core, { hi: 0.1, lo: 0.2, bevel: 0.8, lw: 1.8 });
+      g.save();
+      g.beginPath();
+      pen(g).E(-1.8, -14, 1);
+      g.fillStyle = CH.hi;
+      g.fill();
+      g.restore();
+    },
+    // 渊缚链：护手攥一截黑铁链，链环里透品红光，链尾断开
+    yuanfu(g) {
+      under(g, () => drawGloves(g, 2), -3, 1, 0.9);
+      const links = [[-22, 14], [-14, 9], [-6, 4], [10, -5], [17, -10], [23, -15.5]];
+      links.forEach(([x, y], i) => {
+        const m = rot(-32 + (i % 2 ? 60 : 0), 1, x, y);
+        glow(g, (p) => p.E(0, 0, 3.2, 1.4), CH.rim, { m, blur: 5, core: CH.rim });
+        solid(g, (p) => p.E(0, 0, 4.8, 3).E(0, 0, 3, 1.2), '#2a2630', { m, rule: 'evenodd', bevel: 1, lw: 1.6 });
+      });
+      // 断开的最后一环
+      solid(g, (p) => p.M(26.5, -19).Q(30, -22, 28.6, -24.6).L(27, -23.4).Q(27.6, -21.6, 25.4, -20.2).Z(), '#2a2630', { bevel: 0.6, lw: 1.4 });
+      spark(g, 27, -18, 3, CH.hi);
+    },
+  };
   function build(key) {
     const k = key.split('-');
+    if (k[0] === 'it' && k[1] === 'rq') {
+      const R = G.RELICS && G.RELICS[k[2]];
+      return R && RQ_DRAW[k[2]] ? render((g) => { const s = ITEM_SCALE[R.slot] || 1; g.scale(s, s); RQ_DRAW[k[2]](g); }) : null;
+    }
     if (k[0] === 'it' && k[1] === 'uq') return UQ_DRAW[k[2]] ? render((g) => { g.scale(ITEM_SCALE.weapon, ITEM_SCALE.weapon); UQ_DRAW[k[2]](g); }) : null;
     if (k[0] === 'it') {
       const fn = ITEM_DRAW[k[1]];
@@ -1738,7 +1980,7 @@
       const s = G.SKILLS[k[1]];
       if (s && SKILL_DRAW[k[1]]) return render((g) => SKILL_DRAW[k[1]](g, s.color));
       if (s && USKILL_DRAW[k[1]]) return render((g) => USKILL_DRAW[k[1]](g, s.color));
-      if (s && s.basic && BASIC_DRAW[s.rtype]) return render((g) => BASIC_DRAW[s.rtype](g, s.color));
+      if (s && s.basic && BASIC_DRAW[s.rtype || s.btype]) return render((g) => BASIC_DRAW[s.rtype || s.btype](g, s.color));
       const wt = s ? wskillType(k[1]) : null;
       if (s && s.uskill && !USKILL_DRAW[k[1]] && WSKILL_DRAW[wt]) return render((g) => { emberFrame(g); g.scale(0.86, 0.86); WSKILL_DRAW[wt](g, s.color); });
       return wt && WSKILL_DRAW[wt] ? render((g) => WSKILL_DRAW[wt](g, s.color || WSKILL_COLOR[wt])) : null;
@@ -1779,6 +2021,7 @@
   // 物品 → 图标键：部位 + 基底 + 名称档次（由 baseName 在基底名单里的位置决定）
   function itemKey(item) {
     if (item.rarity === 3 && item.uq && UQ_DRAW[item.uq]) return 'it-uq-' + item.uq;
+    if (item.rarity === 4 && item.rq && RQ_DRAW[item.rq]) return 'it-rq-' + item.rq;
     const bases = G.BASES[item.slot] || [];
     const bi = G.clamp(item.baseIdx | 0, 0, Math.max(0, bases.length - 1));
     const base = bases[bi];
@@ -1795,12 +2038,28 @@
       G.BASES[slot].forEach((b, bi) => b.names.forEach((n, ti) => out.push('it-' + slot + '-' + bi + '-' + ti)));
     }
     for (const id of Object.keys(UQ_DRAW)) out.push('it-uq-' + id);
+    // 渊契只算拾到过的（低画质图标预热不为没见过的渊契多画画布，见设计稿的图标预热一节）；没拾到过的在图鉴里用基底的暗剪影
+    for (const id of rqWarm()) out.push('it-rq-' + id);
     for (const id of G.CUR_IDS) out.push('cur-' + id);
     for (const id of Object.keys(G.SKILLS)) out.push('sk-' + id);
     for (const id of Object.keys(G.SUPPORTS)) out.push('sup-' + id);
     for (const id of Object.keys(AIL)) out.push('ail-' + id);
     out.push('blank');
     return out;
+  }
+
+  // 要预热的渊契：存档图鉴里拾到过的，加上这次会话里拾到的（warmRelic）
+  const rqSeen = {};
+  function rqWarm() {
+    const f = (G.save && G.save.relic && G.save.relic.found) || {};
+    return Object.keys(RQ_DRAW).filter((id) => f[id] || rqSeen[id]);
+  }
+  // 拾到一件渊契：它的图标从此进预热列表，并且马上画好（一张图标几毫秒）
+  function warmRelic(id) {
+    if (!RQ_DRAW[id]) return false;
+    rqSeen[id] = true;
+    cls('it-rq-' + id);
+    return true;
   }
 
   // 预热：图标本来是第一次用到才画（两张 128 像素的画布 + 投影 + 转成 data URL，都是同步的），
@@ -1848,6 +2107,9 @@
     wskColor: (type) => WSKILL_COLOR[type] || '#e6dfd0',
     supColor: (id) => SUP_TINT[supKey(id)] || '#d8d8e0',
     uqIcons: () => Object.keys(UQ_DRAW), // 有自己图标的烬铸（测试用）
+    rqIcons: () => Object.keys(RQ_DRAW), // 有自己图标的渊契（测试用）
+    rqWarm, // 此刻在预热列表里的渊契
+    warmRelic,
     ally: ALLY,
   };
 })();

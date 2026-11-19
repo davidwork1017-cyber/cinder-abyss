@@ -10,8 +10,12 @@
 
   const ALLY_HEX = (G.ALLY_HEX = 0x4fe3c8); // 友方召唤物统一的魂火青（与 world 的血条 / 地面圈、界面的 --ally 同色）
   const LEASH = 20; // 离玩家超过这么远：直接回到玩家身边重新现身
-  const ENGAGE = 11; // 离玩家或离自己这么近的敌人才会被盯上（太近了召唤物会干站着等怪走过来，清图慢）
-  const CHASE_MAX = 14; // 不追离玩家超过这么远的敌人
+  // 寻敌（按种类，见 KIND 的 acq / chase，量到敌人边缘）：已经醒着的敌人（在打玩家或召唤物）离玩家 chase 以内都去打；
+  // 还睡着的只认离玩家 acq 以内、和玩家之间没有墙挡着的（玩家自己也快走到了），召唤物不替你去远处拉怪。
+  // 集火目标（玩家亲手打中的）放宽到 FOCUS_R。新种类没写 acq / chase 的用 ACQ / CHASE
+  const ACQ = 13, CHASE = 17, FOCUS_R = 19;
+  const NEAR_R = 20; // 每 NEAR_GAP 秒先筛一遍离玩家这么近的敌人（near），各只召唤物挑目标只看这一份，不再各自扫一遍全区的怪
+  const NEAR_GAP = 0.1;
   const SEEK_GAP = 0.25; // 多久重新挑一次目标
   const REFRESH_GAP = 0.5; // 多久按当前属性 / 辅助刷新一次数值（生命上限、伤害、攻速）
   const STUCK_T = 1.5; // 想走却走不动这么久：跟随时直接回到玩家身边，追击时放弃这个目标
@@ -19,12 +23,12 @@
 
   // 各类召唤物的体型与动作节奏（秒，按 1 倍攻速）
   const KIND = {
-    thrall: { r: 0.5, height: 1.85, rise: 0.7, atkDur: 0.5, atkHit: 0.22, name: '烬骸仆从', fallback: 'husk' },
-    colossus: { r: 0.95, height: 3.0, rise: 1.0, atkDur: 1.0, atkHit: 0.55, tauntDur: 0.8, tauntHit: 0.35, name: '石誓守像', fallback: 'brute' },
+    thrall: { r: 0.5, height: 1.85, rise: 0.7, atkDur: 0.5, atkHit: 0.22, name: '烬骸仆从', fallback: 'husk', acq: 13, chase: 17 },
+    colossus: { r: 0.95, height: 3.0, rise: 1.0, atkDur: 1.0, atkHit: 0.55, tauntDur: 0.8, tauntHit: 0.35, name: '石誓守像', fallback: 'brute', acq: 13, chase: 17 },
     // 万魂降临的英灵（烬铸技）：借仆从的骨架，world 给它一身半透明的魂火躯壳，大一圈；有时限（m.expire），不占仆从的上限
-    wraith: { r: 0.55, height: 2.4, rise: 0.4, atkDur: 0.42, atkHit: 0.19, name: '万魂英灵', fallback: 'husk', scale: 1.2 },
-    // 焚骨祭司：atk 掷一枚火弹；big 坠焰的起手（举杖召星），chan 灼链的引导（时长由技能数据定）
-    pyre: { r: 0.45, height: 2.1, rise: 0.8, atkDur: 0.62, atkHit: 0.36, bigDur: 0.9, bigHit: 0.55, name: '焚骨祭司', fallback: 'spitter' },
+    wraith: { r: 0.55, height: 2.4, rise: 0.4, atkDur: 0.42, atkHit: 0.19, name: '万魂英灵', fallback: 'husk', scale: 1.2, acq: 13, chase: 17 },
+    // 焚骨祭司：atk 掷一枚火弹；big 坠焰的起手（举杖召星），chan 灼链的引导（时长由技能数据定）。后排施法，寻敌范围大一些
+    pyre: { r: 0.45, height: 2.1, rise: 0.8, atkDur: 0.62, atkHit: 0.36, bigDur: 0.9, bigHit: 0.55, name: '焚骨祭司', fallback: 'spitter', acq: 15, chase: 18 },
   };
   const blade = (m) => m.kind === 'thrall' || m.kind === 'wraith'; // 仆从与英灵：近战横斩
   const dodger = (m) => m.kind !== 'colossus'; // 仆从、英灵、祭司都会躲小怪的预警圈（守像太慢不躲）
@@ -293,6 +297,7 @@
     W.hitReact(m.ent, ang, m.kind === 'colossus' ? 0.5 : 0.9);
     if (m.hp <= 0) {
       if (G.soulFire) G.soulFire(m); // 万魂旗：倒下时化作魂火炸开（被替换、换区域时的消失不算）
+      if (P.relic && P.relic.tongshang) G.relicMinionDown(m); // 渊契「同殇」：召唤物倒下时回血
       removeMinion(m, ang, G.TYPE_NAME[dtype] ? dtype : 'phys');
     }
     return true;
@@ -459,19 +464,37 @@
   }
 
   // ---------- 目标 ----------
+  // near：离玩家 NEAR_R 以内的敌人（每 NEAR_GAP 秒重筛一次，里面可能有刚死的，用的时候照常判 dead）；
+  // 其中还睡着、离玩家不超过最大 acq、和玩家之间没有墙的，记 e.allySee = nearSeq（视线每次重筛只算一遍，不是每只召唤物各算）
+  const near = [];
+  let nearT = 0, nearSeq = 0, acqMax = 0;
+  for (const k in KIND) acqMax = Math.max(acqMax, KIND[k].acq || ACQ);
+  function refreshNear() {
+    near.length = 0;
+    nearSeq++;
+    const es = S.enemies;
+    for (let i = 0; i < es.length; i++) {
+      const e = es[i];
+      if (e.dead) continue;
+      const dp = dist(e.x, e.z, P.x, P.z) - e.r;
+      if (dp > NEAR_R) continue;
+      near.push(e);
+      if (!e.awake && dp <= acqMax && los(P.x, P.z, e.x, e.z)) e.allySee = nearSeq;
+    }
+  }
   function inReach(m, e) {
     if (!e || e.dead) return false;
-    const dp = dist(e.x, e.z, P.x, P.z) - e.r;
-    if (dp > CHASE_MAX) return false;
-    return dp <= ENGAGE || dist(e.x, e.z, m.x, m.z) - e.r <= ENGAGE;
+    const K = KIND[m.kind], dp = dist(e.x, e.z, P.x, P.z) - e.r;
+    if (e.awake) return dp <= (K.chase || CHASE);
+    return dp <= (K.acq || ACQ) && e.allySee === nearSeq;
   }
   function pickTarget(m) {
     const skip = m.ignoreT > 0 ? m.ignore : null; // 刚放弃的（够不着的）目标先不考虑
     const f = G.focusTarget();
-    if (f && f !== skip && dist(f.x, f.z, P.x, P.z) - f.r <= CHASE_MAX) return f; // 集火目标：只要不太远就去打它
+    if (f && f !== skip && dist(f.x, f.z, P.x, P.z) - f.r <= FOCUS_R) return f; // 集火目标：只要不太远就去打它
     if (m.target && m.target !== skip && inReach(m, m.target)) return m.target;
     let best = null, bd = Infinity;
-    const es = S.enemies;
+    const es = near;
     for (let i = 0; i < es.length; i++) {
       const e = es[i];
       if (e === skip || !inReach(m, e)) continue;
@@ -631,7 +654,7 @@
   }
   // (x, z) 半径 R 以内（算上敌人半径）还活着的敌人数
   function crowd(x, z, R, skip) {
-    const es = S.enemies;
+    const es = near; // 只数玩家附近的（挑目标、找怪堆都在这一片里）
     let n = 0;
     for (let i = 0; i < es.length; i++) {
       const e = es[i];
@@ -642,7 +665,7 @@
   // 祭司够得着（射程以内、看得见）的敌人
   function castable(m, e, extra) {
     if (!e || e.dead || e.execLock) return false;
-    if (dist(e.x, e.z, P.x, P.z) - e.r > CHASE_MAX) return false;
+    if (dist(e.x, e.z, P.x, P.z) - e.r > (KIND[m.kind].chase || CHASE)) return false;
     return dist(e.x, e.z, m.x, m.z) - e.r <= m.ctx.minion.reach + (extra || 0);
   }
   // 挑目标：集火目标优先（火弹照样炸到它身边的怪）；否则在够得着的敌人里挑身边最挤的一个（同样挤取近的）。
@@ -650,8 +673,8 @@
   function pickCast(m) {
     const f = G.focusTarget();
     const skip = m.ignoreT > 0 ? m.ignore : null;
-    if (f && f !== skip && dist(f.x, f.z, P.x, P.z) - f.r <= CHASE_MAX) return f;
-    const R = m.ctx.minion.explode, es = S.enemies;
+    if (f && f !== skip && dist(f.x, f.z, P.x, P.z) - f.r <= FOCUS_R) return f;
+    const R = m.ctx.minion.explode, es = near;
     let best = null, bs = -Infinity;
     for (let i = 0; i < es.length; i++) {
       const e = es[i];
@@ -668,7 +691,7 @@
   // 最挤的一团：以每个够得着的敌人为圆心数 R 内的敌人，取最多的那一团的重心。返回 { n, x, z } 或 null
   const _clu = { n: 0, x: 0, z: 0 };
   function densest(m, R) {
-    const es = S.enemies;
+    const es = near;
     let bn = 0, bx = 0, bz = 0;
     for (let i = 0; i < es.length; i++) {
       const c = es[i];
@@ -1095,9 +1118,16 @@
     if (bolts.length) updateBolts(dt); // 祭司倒下了，飞在半路的火弹照样落地
     if (!list.length) {
       setMark(null);
+      nearT = 0; // 下一次有召唤物的第一帧就重筛，不用上一批留下的名单（可能是别的区域的怪）
+      near.length = 0;
       return;
     }
     setMark(S.focus && !S.focus.dead ? S.focus : null);
+    nearT -= dt;
+    if (nearT <= 0) {
+      nearT = NEAR_GAP;
+      refreshNear();
+    }
 
     refreshT -= dt;
     if (refreshT <= 0) {

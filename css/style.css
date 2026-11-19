@@ -335,6 +335,8 @@ kbd {
   animation: remind 1.5s ease-in-out infinite;
 }
 #pp-remind.on { display: inline-flex; }
+/* 右键格（武器普攻）的连段指示就在技能栏上沿、正对着这枚提醒：提醒往上让出 6 像素，别压住它 */
+#pp-remind.on { margin-bottom: 6px; }
 #pp-remind b { color: #fff; font-size: 15px; }
 #pp-remind:hover { border-color: #ffc27a; color: #fff; }
 @keyframes remind {
@@ -2867,6 +2869,43 @@ body.panel-open #coach { display: none; }
 .craft-grid.locked { opacity: 0.55; filter: saturate(0.4); }
 .btn.sm.uqb { margin-left: auto; color: #ffb066; border-color: #7a3a14; }
 .btn.sm.uqb.on { background: rgba(120, 50, 12, 0.35); }
+/* ============================================================
+   渊契（稀有度 4）：翠色（--relic，由 ui.js 按 G.RELIC_COLOR 设置），格子 / 卡片带一圈静止的冷光，和烬铸的余烬呼吸分开
+   ============================================================ */
+.icard.r4 {
+  --rc: var(--relic, #6fe0b0);
+  border-color: color-mix(in srgb, var(--relic, #6fe0b0) 62%, #000);
+  background: radial-gradient(120% 60% at 50% 0%, color-mix(in srgb, var(--relic, #6fe0b0) 16%, #06100c), transparent 70%), linear-gradient(180deg, #0c1512, #060a08);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.8), 0 0 0 1px color-mix(in srgb, var(--relic, #6fe0b0) 25%, transparent), 0 0 18px color-mix(in srgb, var(--relic, #6fe0b0) 22%, transparent);
+}
+.icard.r4 .ic-name { color: var(--relic, #6fe0b0); text-shadow: 0 0 8px color-mix(in srgb, var(--relic, #6fe0b0) 55%, transparent), 0 1px 2px #000; }
+.cell.r4, .eq.r4, .ibox.r4 {
+  --rc: color-mix(in srgb, var(--relic, #6fe0b0) 75%, #000);
+  border-color: color-mix(in srgb, var(--relic, #6fe0b0) 75%, #000);
+  background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--relic, #6fe0b0) 28%, #04100b), #030806 82%);
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.6), inset 0 0 10px color-mix(in srgb, var(--relic, #6fe0b0) 30%, transparent), 0 0 6px color-mix(in srgb, var(--relic, #6fe0b0) 30%, transparent);
+}
+.ibox.r4.unk > .ico { filter: brightness(0.18) sepia(1) hue-rotate(110deg); opacity: 0.7; }
+.icard.r4 .ic-line.aff.uq { color: color-mix(in srgb, var(--relic, #6fe0b0) 55%, #fff); }
+.icard.r4 .ic-rng { color: #6a9a86; }
+.icard.r4 .ic-perf { color: #a8d8c4; }
+.icard.r4 .ic-perf b { color: var(--relic, #6fe0b0); }
+.icard.r4 .ic-perf i { background: #0e1d17; border-color: #1f4436; }
+.icard.r4 .ic-perf i::after { background: linear-gradient(90deg, #2a7a5c, var(--relic, #6fe0b0)); box-shadow: 0 0 6px color-mix(in srgb, var(--relic, #6fe0b0) 60%, transparent); }
+.icard.r4 .ic-uq { color: #d6f0e4; background: color-mix(in srgb, var(--relic, #6fe0b0) 12%, transparent); border-left-color: var(--relic, #6fe0b0); }
+.icard.r4 .ic-uq b { color: var(--relic, #6fe0b0); }
+.icard.r4 .ic-lore { color: #6f8f80; }
+.icard.r4 .ic-lock { color: #6aa88c; }
+@media (max-height: 780px) {
+  .icard.r4 .ic-lore, .icard.r4 .ic-lock { display: none; }
+}
+.codex-t.rq { margin-top: 18px; }
+.cx-row.rq.found { border-color: #1f5a44; background: linear-gradient(90deg, color-mix(in srgb, var(--relic, #6fe0b0) 14%, transparent), #08100d 70%); }
+.cx-row.rq.found .cx-name { color: var(--relic, #6fe0b0); }
+.cx-row.rq .cx-sub b { color: #9fdcc4; }
+.cx-row.rq .cx-stat b { color: #9fe8c8; }
+.cx-row.rq .cx-pity i { background: #0e1d17; border-color: #1f4436; }
+.cx-row.rq .cx-pity i::after { background: #2f9a72; }
 /* 烬铸图鉴 */
 .codex-t { margin-top: 14px; }
 .codex { display: flex; flex-direction: column; gap: 6px; }
@@ -2909,6 +2948,40 @@ body.panel-open #coach { display: none; }
 #big-toast .bt-t { font-size: 14px; letter-spacing: 8px; text-indent: 8px; color: #e8c49a; }
 #big-toast .bt-n { margin: 2px 0; font-size: 44px; font-weight: 700; letter-spacing: 10px; text-indent: 10px; color: var(--c); text-shadow: 0 0 18px rgba(255, 110, 30, 0.8), 0 0 4px rgba(255, 200, 140, 0.9), 0 2px 3px #000; }
 #big-toast .bt-s { font-size: 13px; letter-spacing: 4px; text-indent: 4px; color: #cfa47a; }
+#big-toast.rq { background: radial-gradient(ellipse at center, rgba(4, 30, 22, 0.92), rgba(4, 10, 8, 0.75) 55%, transparent 75%); }
+#big-toast.rq .bt-t { color: #a8dcc8; }
+#big-toast.rq .bt-n { text-shadow: 0 0 18px color-mix(in srgb, var(--c) 80%, transparent), 0 0 4px rgba(210, 255, 236, 0.9), 0 2px 3px #000; }
+#big-toast.rq .bt-s { color: #8fc4ae; }
+/* 先到、被新的大字挤下去的几条：缩成一行排在大字下面，各自到点淡出 */
+#big-toast-stack {
+  position: fixed;
+  left: 50%;
+  top: calc(34% + 66px);
+  z-index: 31;
+  transform: translateX(-50%);
+  text-align: center;
+  pointer-events: none;
+  visibility: hidden;
+}
+#big-toast-stack.on { visibility: visible; }
+#big-toast-stack .bts-row {
+  margin-top: 4px;
+  padding: 3px 26px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  white-space: nowrap;
+  color: var(--c, #ff9b3d);
+  text-shadow: 0 0 10px rgba(0, 0, 0, 0.9), 0 1px 2px #000;
+  background: radial-gradient(ellipse at center, rgba(10, 6, 4, 0.8), transparent 75%);
+  animation: bts-in 0.35s ease-out both;
+}
+#big-toast-stack .bts-t { margin-right: 10px; font-size: 12px; font-weight: 400; letter-spacing: 3px; color: #cfa47a; }
+#big-toast-stack .bts-more { font-size: 13px; font-weight: 400; color: #cfa47a; }
+@keyframes bts-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: none; }
+}
 
 /* ============================================================
    烬铸技：拿着烬铸武器时 R 上那一招。余烬橙的框 + 缓慢呼吸的光，和普通武器技一眼分开
@@ -3033,6 +3106,8 @@ body.panel-open #coach { display: none; }
 .slot.basic .s-key { color: #f0d8b0; border-color: #7a5430; background: linear-gradient(180deg, #2e1d10, #170f08); }
 /* 技能页：武器普攻卡（排在技能列表最上面）、锁住的右键 */
 .bind.locked { display: inline-grid; place-items: center; min-width: 38px; height: 26px; padding: 0 7px; font-size: 12px; color: #6a5a48; background: repeating-linear-gradient(135deg, #130d0a 0 5px, #1b130d 5px 10px); border: 1px dashed #4a3622; border-radius: 3px; cursor: default; }
+/* 武器普攻改版时收起来的技能（rmbKeep）：琥珀色的「收起」标签 */
+.bind.locked.kept { color: #e8b870; border-color: #7a5430; border-style: solid; }
 .bind.lock { display: inline-grid; place-items: center; min-width: 38px; height: 26px; padding: 0 7px; font-size: 12px; color: #8c7f6d; background: #130d0a; border: 1px solid #3d2c1e; border-radius: 3px; }
 .bind.lock.on { color: #fff3dc; background: linear-gradient(180deg, #8a5a24, #4a2c0e); border-color: #e8b870; }
 .basic-card { border-color: color-mix(in srgb, var(--c) 45%, #3a2a1c); background: linear-gradient(180deg, color-mix(in srgb, var(--c) 9%, #18110c), #120c09 60%); }
