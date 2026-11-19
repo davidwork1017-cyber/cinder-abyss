@@ -618,6 +618,13 @@
     P.moveSpeed = 7.2 * Math.max(0.2, 1 + S.moveSpeed / 100);
     P.lifeRegen = S.lifeRegen;
     P.manaRegen = (2 + P.maxMana * 0.035) * (1 + S.manaRegen / 100);
+    // 渊印：裂御（元素抗性在 75% 上限之后再扣，同 resLoss）、枯竭（生命 / 魔力回复降低）
+    const RM = G.runMods;
+    if (RM.frail) for (const t of ['fire', 'cold', 'light']) P.res[t] -= RM.frail.res;
+    if (RM.drain) {
+      P.lifeRegen *= 1 - RM.drain.regen;
+      P.manaRegen *= 1 - RM.drain.regen;
+    }
     P.life = Math.min(P.life, P.maxLife);
     P.mana = Math.min(P.mana, P.maxMana);
     // 手里烬铸武器的机制（blade 残刃 / tri 三相共鸣 / soul 魂火轮回），没有时 null
@@ -643,14 +650,16 @@
       const sup = supId && G.SUPPORTS[supId];
       if (sup) k *= sup.cost;
     }
-    return Math.round(sk.reserve * k * 10) / 10;
+    const wane = G.runMods.wane ? G.runMods.wane.reserve : 0; // 渊印「蚀环」：每个光环的保留 +10 个百分点
+    return Math.round((sk.reserve * k + wane) * 10) / 10;
   };
   // 黑焰：此刻每一击额外的混沌伤害百分比（没放在技能栏上为 0）。F = min(cap, k0 + k1 × (等级 − 1)) × (1 + 黑焰效果%)
   G.flamePct = function () {
     if (!G.auraOn('blackflame')) return 0;
     const f = G.SKILLS.blackflame.flame;
     const lvl = G.save.skills.blackflame || 1;
-    return Math.min(f.cap, f.k0 + f.k1 * (lvl - 1)) * (1 + Math.max(0, (P.S && P.S.flameEff) || 0) / 100);
+    const wane = G.runMods.wane ? 1 - G.runMods.wane.eff : 1; // 渊印「蚀环」：黑焰的额外比例 −30%
+    return Math.min(f.cap, f.k0 + f.k1 * (lvl - 1)) * (1 + Math.max(0, (P.S && P.S.flameEff) || 0) / 100) * wane;
   };
   // 技能栏上所有生效的光环一共保留的百分比（封顶 90%）
   G.reservePct = function () {
@@ -1006,6 +1015,7 @@
         mi.beam = sk.beam;
       }
     }
+    G.sealCtx(ctx); // 渊印的玩家侧印纹（迟滞 / 蚀环 / 孤影）
     return ctx;
   };
 
@@ -1210,6 +1220,7 @@
     e.buFire = e.buFireN = 0; // 灌进火焰异常值的火焰伤害（已乘上异常累积速度）与命中次数：爆燃按平均每击算
     e.buLit = e.buLitN = 0; // 同上，闪电：死亡放电按平均每击算
     e.buTh = Math.max(1, e.maxHp * (e.isBoss ? BU.boss : e.elite ? BU.thElite : BU.th));
+    if (G.runMods.ailRes) e.buTh *= G.runMods.ailRes.th; // 渊印「坚蜕」：异常阈值 ×1.6（首领也吃）
     e.shockT = e.shockCd = e.bossChill = e.blastT = 0;
   };
   // 爆燃（含尸爆）的伤害 = 灌进火焰异常值期间平均每击的火焰伤害 × (1 + 异常累积速度%) × blast，封顶为阈值 × blastCap：
@@ -1296,7 +1307,7 @@
         e.bossChill = BU.bossChill;
         W.text(e.x, e.z, '冰缓', '#bfeaff', 26, { kind: 'tag', y: ty, py: -30 });
       } else {
-        e.freeze = Math.max(e.freeze || 0, e.elite ? BU.freezeElite : BU.freeze);
+        e.freeze = Math.max(e.freeze || 0, (e.elite ? BU.freezeElite : BU.freeze) * (G.runMods.ailRes ? G.runMods.ailRes.dur : 1)); // 坚蜕：冻结 ×0.75
         W.text(e.x, e.z, '冻结', '#d6f3ff', e.elite ? 24 : 20, { kind: 'tag', y: ty });
       }
       W.freezeFx(e.x, e.z, e.r, h, !!e.isBoss);
@@ -1351,7 +1362,7 @@
       G.sfx('impact', { type: 'chaos', w: 1, crit: false });
       return;
     }
-    e.bindT = Math.max(e.bindT || 0, e.elite ? BU.bindElite : BU.bind);
+    e.bindT = Math.max(e.bindT || 0, (e.elite ? BU.bindElite : BU.bind) * (G.runMods.ailRes ? G.runMods.ailRes.dur : 1)); // 坚蜕：渊缚 ×0.75
     let tx = null, tz = null;
     const hole = nearestHole(e.x, e.z, BU.bindR);
     if (hole) {
@@ -1671,7 +1682,8 @@
     const boss = e && e.isBoss, el = e && e.elite && !boss;
     const lo = boss ? BU.chillMinBoss : el ? BU.chillMinElite : BU.chillMin;
     const hi = boss ? BU.chillBoss : el ? BU.chillElite : BU.chill;
-    return lo + (hi - lo) * Math.pow(Math.min(1, frac), BU.chillPow);
+    const k = !boss && G.runMods.ailRes ? G.runMods.ailRes.chillCap : 1; // 渊印「坚蜕」：冰缓 ×0.7（首领不吃）
+    return (lo + (hi - lo) * Math.pow(Math.min(1, frac), BU.chillPow)) * k;
   };
 
   // info（可选）：{ ang 这一击行进的方向（缺省 = 从玩家指向敌人）, w 分量（0 轻 / 1 重 / 2 终结；缺省取技能数据）,
@@ -1691,7 +1703,9 @@
     const inf = info || NO_INFO;
     const PO = G.POISE;
     const broken = e.brokenT > 0;
-    const m = (mult === undefined ? 1 : mult) * (broken ? PO.taken : 1);
+    // 渊印「领群」：领群者附近同群的怪受到的伤害 −15%
+    const m = (mult === undefined ? 1 : mult) * (broken ? PO.taken : 1) * (e.auraBuff ? 1 - G.runMods.aura.dr : 1);
+    e.hurtAt = state.time; // 渊印「回生」：几秒没挨打才回血
     const hit = G.calcHit(ctx, m);
     const hp0 = e.hp;
     e.hp -= hit.total;
@@ -1867,10 +1881,11 @@
     }
 
     // 经验
-    const xp = G.killXp(e, save.level) * (1 + G.runMods.xp); // 压级衰减 / 越级封顶见 data.js 的「经验」；渊印的经验加成 X
+    // 压级衰减 / 越级封顶见 data.js 的「经验」；渊印的经验加成 X，领群者另 × 2
+    const xp = G.killXp(e, save.level) * (1 + G.runMods.xp) * (e.leader && G.runMods.aura ? G.runMods.aura.xp : 1);
 
     if (P.S.lifeOnKill > 0) G.healPlayer(P.S.lifeOnKill);
-    const charge = 0.12 + (e.elite ? 1 : 0) + (e.isBoss ? 3 : 0);
+    const charge = (0.12 + (e.elite ? 1 : 0) + (e.isBoss ? 3 : 0)) * (G.runMods.drain ? 1 - G.runMods.drain.flask : 1); // 渊印「枯竭」：充能 −30%
     P.flask.life = Math.min(3, P.flask.life + charge);
     P.flask.mana = Math.min(3, P.flask.mana + charge);
 
@@ -1888,6 +1903,7 @@
 
     G.dropLoot(e);
     G.gainXp(xp);
+    sealOnKill(e);
 
     if (e.isBoss) {
       const zone = state.zone;
@@ -1950,6 +1966,9 @@
     let dmg = amount;
     if (!dtype || dtype === 'phys') dmg *= 1 - Math.min(0.8, P.armour / (P.armour + 10 * amount));
     else dmg *= 1 - (P.res[dtype] || 0) / 100;
+    // 渊印「焚染 / 霜染 / 雷染」：怪物的每一击另带 frac 倍的该元素伤害（吃抗性）；地形、余烬地、殁爆不带（src 为空或 sealFx）
+    const TI = G.runMods.tint;
+    if (TI && src && !src.sealFx) dmg += amount * TI.frac * (1 - (P.res[TI.el] || 0) / 100);
     dmg *= 1 - Math.min(90, P.S.lessTaken || 0) / 100;
     dmg *= 1 + Math.max(0, P.S.moreTaken || 0) / 100; // 基石「刃舞」的代价
     dmg = Math.max(1, dmg);
@@ -2042,6 +2061,7 @@
     clearProjectiles();
     clearTelegraphs();
     G.world.clearFx(); // 还在半空的陨石、冲击环等不该跟到重生之后
+    clearSealFx(); // 余烬地也一起灭掉
     placePlayer(at.x, at.z);
     refill();
     resetRanged();
@@ -5065,6 +5085,7 @@
     r.dx = dx;
     r.dz = dz;
     r.cdMax = 0.9 * (1 - Math.min(90, P.S.dodgeCd || 0) / 100);
+    if (G.runMods.sluggish) r.cdMax *= 1 + G.runMods.sluggish.roll; // 渊印「迟滞」
     r.cd = r.cdMax;
     P.iframe = Math.max(P.iframe, 0.32);
     P.cast = null; // 翻滚取消挥砍：没出手的起手直接作废，已出手的跳过收招
@@ -5501,6 +5522,7 @@
     if (P.iframe > 0) P.iframe = Math.max(0, P.iframe - dt);
     if (P.graceT > 0) P.graceT = Math.max(0, P.graceT - dt);
     terrainTick(dt);
+    sealTick(dt);
     updateChests();
     for (let i = 0; i < 5; i++) if (inp.tap[i] > 0) inp.tap[i] -= adt;
     if (inp.tapDodge > 0) inp.tapDodge -= adt;
@@ -6212,6 +6234,97 @@
     for (const m of seal.mods) o[m.id] = m.id === 'tint' ? Object.assign({ el: m.el }, G.SEAL_MODS.tint.p) : G.SEAL_MODS[m.id].p;
     return o;
   }
+  // ---------- 掷印 ----------
+  // 一枚印：按档位的目标 W 从池里不放回地抽，每次只从「加上它不超 W、不超预算、不和已选的互斥」的印纹里抽；
+  // 抽不出就重来（最多 TRIES 次），仍不行就把目标 W 降 1。烬印在条数上限内凑不到目标 W 时，可以多 1 条（权重最大 2，
+  // 层级 1 的 3 条最多凑到 6，到不了 7）。焚染 / 霜染 / 雷染的元素取本区元素以外的一种
+  const SEAL_TRIES = 20;
+  function sealRng(seed) {
+    let a = seed >>> 0; // mulberry32（同 world.js 的布局随机源），不碰 Math.random
+    return function () {
+      a = (a + 0x6d2b79f5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  const SEAL_ELEMS = ['fire', 'cold', 'light'];
+  function rollOneSeal(R, g, T, elem, bar) {
+    const nMin = Math.max(T.n[0], g === 2 ? T.minN3 : 0);
+    const range = T.W[g];
+    let target = range[0] + Math.floor(R() * (range[1] - range[0] + 1));
+    for (; target >= range[0]; target--) {
+      for (let tryN = 0; tryN < SEAL_TRIES; tryN++) {
+        const nMax = T.n[1] + (g === 2 && tryN >= SEAL_TRIES / 2 ? 1 : 0);
+        const mods = [];
+        let W = 0, prod = 1, rage = 0, dead = 0;
+        while (mods.length < nMax && !(W === target && mods.length >= nMin)) {
+          const cand = [];
+          for (const id of G.SEAL_MOD_IDS) {
+            const d = G.SEAL_MODS[id];
+            if (mods.some((m) => m.id === id)) continue;
+            const w = G.sealModW({ id }, bar);
+            // 「对你无效」的（w = 0）至多 1 条，而且只在条数不够时才进来
+            if (w === 0 && (dead >= 1 || W < target)) continue;
+            if (W + w > target || prod * d.dmgK > T.budget + 1e-9 || (d.rage && rage >= 2)) continue;
+            // 往后还凑得齐：剩下的权重要能用剩下的条数补上（每条 1–2；条数不够下限时每条至少 1）
+            const n1 = mods.length + 1, need = target - W - w, room = nMax - n1;
+            if (w > 0 && (need > room * 2 || need < Math.max(0, nMin - n1))) continue;
+            cand.push(id);
+          }
+          if (!cand.length) break;
+          const id = cand[Math.floor(R() * cand.length)];
+          const d = G.SEAL_MODS[id], w = G.sealModW({ id }, bar);
+          const m = { id };
+          if (id === 'tint') {
+            const els = SEAL_ELEMS.filter((t) => t !== elem);
+            m.el = els[Math.floor(R() * els.length)];
+          }
+          mods.push(m);
+          W += w;
+          prod *= d.dmgK;
+          if (d.rage) rage++;
+          if (w === 0) dead++;
+        }
+        if (W === target && mods.length >= nMin) return { g, mods, W };
+      }
+    }
+    return null;
+  }
+  // 择印面板的三枚（浅印 / 深印 / 烬印）：种子 = sealSeq ^ 区域 × 7919 ^ 层级 × 104729，同一次进区之前怎么开关面板都是这三枚
+  G.rollSeals = function (idx, tier, seq, bar) {
+    if (!((tier | 0) >= 1)) return [];
+    const s = seq === undefined ? G.save.sealSeq || 0 : seq;
+    const R = sealRng((s ^ Math.imul(idx | 0, 7919) ^ Math.imul(tier | 0, 104729)) >>> 0);
+    const T = G.sealTierDef(tier);
+    const elem = G.ZONES[idx] ? G.ZONES[idx].elem : null;
+    const out = [];
+    for (let g = 0; g < 3; g++) {
+      const seal = rollOneSeal(R, g, T, elem, bar || G.save.bar);
+      if (seal) out.push(seal);
+    }
+    return out;
+  };
+  // 危险度：各条 dmgK 的乘积（面板的危险度条按本档预算画满）
+  G.sealDanger = (seal) => (seal ? seal.mods.reduce((a, m) => a * G.SEAL_MODS[m.id].dmgK, 1) : 1);
+
+  // ---------- 玩家侧印纹 ----------
+  // 技能上下文末尾一行钩子：迟滞（冷却 +25%）、蚀环（光环效果 −30%：霜环每跳伤害、半径）、孤影（召唤物生命 −35%、伤害 −10%）
+  G.sealCtx = function (ctx) {
+    const RM = G.runMods;
+    if (RM.sluggish && ctx.cd > 0) ctx.cd *= 1 + RM.sluggish.cd;
+    if (RM.wane && ctx.sk.kind === 'aura') {
+      ctx.more *= 1 - RM.wane.eff;
+      ctx.area *= (1 - RM.wane.eff) * (1 - RM.wane.eff); // 半径 = 基础 × √area
+    }
+    if (RM.lonely && ctx.minion) {
+      ctx.minion.life = Math.max(1, Math.round(ctx.minion.life * (1 - RM.lonely.life)));
+      ctx.more *= 1 - RM.lonely.dmg;
+    }
+    return ctx;
+  };
+
   // 当前这次进区的生效权重（渊契的烈印来源、首领渊契 ×1.5 读它）
   G.runSealW = () => G.runMods.W;
   // 渊契（relics 分支）合入之后：烈印来源随渊印一起打开
@@ -6223,6 +6336,73 @@
     return k + (v > k && Math.random() < v - k ? 1 : 0); // 素印时不多掷随机数
   }
   G.sealCount = sealCount;
+
+  // ---------- 怪物侧：殁爆、余烬地（挂在 killEnemy） ----------
+  // 殁爆：普通怪死后 delay 秒在尸体处炸开，预警圈从死亡那一刻就亮着（走 G.telegraph，每个 1 draw）；同时最多 max 个，多出来的不炸。
+  // 伤害 = 它一击（不算领群 / 濒狂的加成）× k，不带焚染。余烬地：普通怪死亡时 chance 几率留下 t 秒的燃烧地面（同浅滩灼烧，对怪也生效），最多 max 块
+  const cinders = (state.sealCinders = []); // { x, z, t, tick }
+  let cinderPT = 0;
+  function sealOnKill(e) {
+    const RM = G.runMods;
+    if (e.isBoss || (!RM.burst && !RM.cinder)) return;
+    const W = G.world;
+    const B = RM.burst;
+    if (B) {
+      let n = 0;
+      for (const t of state.telegraphs) if (t.sealBurst) n++;
+      if (n < B.max) {
+        const x = e.x, z = e.z, r = e.elite ? B.eR : B.r, hex = G.TYPE_HEX[e.elem] || 0xff6a2a;
+        G.telegraph({
+          shape: 'circle', x, z, r, dur: e.elite ? B.eDelay : B.delay, dmg: (e.dmgBase || e.dmg) * B.k, dtype: 'phys',
+          friendly: false, sealBurst: true, sealFx: true,
+          onFire() {
+            W.burst(x, 0.5, z, hex, e.elite ? 22 : 14, r * 2.6, 0.45);
+            W.ring(x, z, r, hex, 0.3);
+            G.sfx('hit');
+          },
+        });
+      }
+    }
+    const C = RM.cinder;
+    if (C && !e.elite && Math.random() < C.chance) {
+      if (cinders.length >= C.max) cinders.shift(); // 最早的那块先灭
+      cinders.push({ x: e.x, z: e.z, t: C.t, tick: 0 });
+      if (W.sealCinders) W.sealCinders(cinders, C);
+    }
+  }
+  function clearSealFx() {
+    cinders.length = 0;
+    cinderPT = 0;
+    if (G.world.sealCinders) G.world.sealCinders(cinders, null);
+  }
+  // 每帧（updatePlayer 里，地形危险区之后）：余烬地的灼烧和寿命
+  function sealTick(dt) {
+    if (!cinders.length) return;
+    const W = G.world, TR = G.TERRAIN, C = G.runMods.cinder || G.SEAL_MODS.cinder.p;
+    let inP = false;
+    for (let i = cinders.length - 1; i >= 0; i--) {
+      const c = cinders[i];
+      c.t -= dt;
+      if (c.t <= 0) {
+        cinders.splice(i, 1);
+        continue;
+      }
+      if (!P.dead && dist(P.x, P.z, c.x, c.z) <= C.r) inP = true;
+      c.tick += dt;
+      if (c.tick >= TR.burnTick) {
+        c.tick -= TR.burnTick;
+        for (const e of state.enemies) if (!e.dead && dist(e.x, e.z, c.x, c.z) <= C.r + e.r * 0.5) G.terrainBurnEnemy(e);
+      }
+    }
+    if (inP) {
+      cinderPT += dt;
+      if (cinderPT >= TR.burnTick) {
+        cinderPT -= TR.burnTick;
+        G.hurtPlayer(TR.burn * G.dmgScale(state.zone.level), 'fire', null);
+      }
+    } else cinderPT = 0;
+    if (W.sealCinders) W.sealCinders(cinders, C);
+  }
 
   // =====================================================================
   // 区域
@@ -6262,8 +6442,10 @@
     state.portal = null;
     state.boss = null;
 
+    clearSealFx();
     const level = def.level + tier * G.TIER_LEVELS;
     state.zone = W.buildZone(def, level);
+    if (W.setGloom) W.setGloom(G.runMods.gloom || null); // 渊印「幽晦」：雾和暖光收近；不是幽晦就复位
     state.zoneIdx = idx;
     state.tier = tier;
     G.spawnZoneMobs(state.zone);

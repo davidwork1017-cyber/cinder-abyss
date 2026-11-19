@@ -457,6 +457,7 @@
     blankTimer: 0,
     blankMsg: '', // 技能页顶部的一行结果（刚用无铭宝石学会 / 升级了什么）
     mapTier: 0,
+    sealPick: null, // 择印面板（层级 ≥ 1 点「进入」后叠在地图页上）：{ zone, tier, seals: [浅印, 深印, 烬印] }
     delArmed: false,
     tipEl: null,
     mouseX: -1,
@@ -546,7 +547,7 @@
     hud.flaskMana = flask('mana');
     hud.dodge = { root: $('dodge'), cd: $('dodge').querySelector('.d-cd'), q: -1 };
     hud.xp = { fill: $('xp-fill'), lv: $('xp-lv'), pct: $('xp-pct'), level: -1, need: 1, q: -1 };
-    hud.zone = { name: $('zone-name'), sub: $('zone-sub'), ref: null, tier: -1 };
+    hud.zone = { name: $('zone-name'), sub: $('zone-sub'), seal: $('seal-chips'), ref: null, tier: -1 };
     hud.boss = { box: $('boss-box'), name: $('boss-name'), fill: $('boss-fill'), trail: $('boss-trail'), num: $('boss-num'), ail: $('boss-ail'), ailSig: '', on: false, ref: null, q: -1, hp: -1, poise: $('boss-poise-fill'), pq: -1, brk: false, far: false, brkTxt: $('boss-break-txt') };
     // 首领的元素异常值三小段
     hud.boss.bu = {};
@@ -857,6 +858,7 @@
       z.name.textContent = st.zone.def.name;
       z.sub.innerHTML =
         '怪物等级 <b>' + st.zone.level + '</b><i></i>轮回层级 <b>' + st.tier + '</b>';
+      if (z.seal) z.seal.innerHTML = sealChips(st.run && st.run.seal, 'hud');
     }
 
     // 首领血条
@@ -2646,6 +2648,114 @@
   }
 
   // ============================================================
+  // 渊印：择印面板、印纹小签、说明
+  // ============================================================
+  const sPct = (v) => +(v * 100).toFixed(1) + '%';
+  // 每条印纹一行说明（数值都读 G.SEAL_MODS，改数值时说明跟着变）
+  const SEAL_DESC = {
+    tint: (p, m) => '怪物每一击另带相当于 ' + sPct(p.frac) + ' 伤害的' + G.TYPE_NAME[m.el] + '伤害（吃你的抗性）',
+    haste: (p) => '怪物移速 +' + sPct(p.speed) + '，两次出手的间隔 −' + sPct(p.cd) + '（起手和预警时长不变）',
+    elites: (p) => '关键路径房间的精英几率 45% → ' + sPct(p.chance) + '，全区精英上限 6 → ' + p.cap,
+    burst: (p) => '普通怪死后 ' + p.delay + ' 秒在尸体处炸开（半径 ' + p.r + ' 米，精英 ' + p.eR + ' 米、' + p.eDelay + ' 秒），伤害为它一击的 ' + sPct(p.k) + '，地上有预警圈',
+    ailRes: (p) => '怪物异常阈值 ×' + p.th + '，冰缓 ×' + p.chillCap + '，冻结和渊缚时长 ×' + p.dur + '（首领只吃阈值）',
+    aura: (p) => '每群一只领群者（脚下一圈橙环）：' + p.r + ' 米内同群的怪伤害 +' + sPct(p.dmg) + '、受到的伤害 −' + sPct(p.dr) + '；领群者经验 ×' + p.xp,
+    tough: (p) => '怪物生命 +' + sPct(p.hp) + '（首领 +' + sPct(p.boss) + '）',
+    fierce: (p) => '怪物伤害 +' + sPct(p.dmg) + '（首领 +' + sPct(p.boss) + '）',
+    volley: (p) => '喷吐者、隙影每次出手射 ' + p.n + ' 发（夹角 ' + p.spread + '°），弹速 +' + sPct(p.speed),
+    mend: (p) => '怪物 ' + p.idle + ' 秒没挨打后，每秒回复 ' + sPct(p.rate) + ' 最大生命（首领 ' + sPct(p.boss) + '）',
+    alert: (p) => '唤醒距离 12 → ' + p.wake + ' 米；一群怪醒来，同房间的其它怪群 ' + p.call + ' 秒后也醒',
+    frenzy: (p) => '怪物生命低于 ' + sPct(p.th) + ' 时移速 +' + sPct(p.speed) + '、伤害 +' + sPct(p.dmg) + '，身上泛红（首领不受影响）',
+    escort: (p) => '首领醒来时召来 ' + p.n + ' 只本区精英，首领半血时再来 ' + p.n + ' 只',
+    cinder: (p) => '普通怪死亡时 ' + sPct(p.chance) + ' 几率留下 ' + p.t + ' 秒的燃烧地面（对怪也生效）',
+    drain: (p) => '你的生命回复、魔力回复 −' + sPct(p.regen) + '，药剂充能获取 −' + sPct(p.flask),
+    gloom: (p) => '雾和身边的暖光收近，' + p.tag + ' 米外的敌人不显示血条（预警圈、敌方投射物照常可见）',
+    wane: (p) => '光环效果 −' + sPct(p.eff) + '（霜环每跳伤害和半径、黑焰的额外比例），每个光环的保留 +' + p.reserve + '%',
+    sluggish: (p) => '技能冷却 +' + sPct(p.cd) + '，翻滚冷却 +' + sPct(p.roll),
+    frail: (p) => '你的元素抗性各 −' + p.res + '%（在 75% 上限之后扣）',
+    lonely: (p) => '召唤物最大生命 −' + sPct(p.life) + '、伤害 −' + sPct(p.dmg),
+  };
+  G.sealModDesc = (m) => SEAL_DESC[m.id](m.id === 'tint' ? G.SEAL_MODS.tint.p : G.SEAL_MODS[m.id].p, m);
+  function sealRewardText(W) {
+    const r = G.sealReward(W);
+    return '数量 +' + sPct(r.qty) + ' · 稀有度 +' + sPct(r.rar) + ' · 经验 +' + sPct(r.xp);
+  }
+  // 印纹小签：每条一个单字签（怪物侧橙红、玩家侧紫色），最后一个签写总加成（数量）。where：hud / map / card
+  function sealChips(seal, where) {
+    if (!seal) return '';
+    let h = '<span class="seal-chips">';
+    seal.mods.forEach((m, i) => {
+      const d = G.SEAL_MODS[m.id], dead = G.sealModW(m) === 0;
+      h += '<i class="sc ' + d.side + (dead ? ' dead' : '') + '" data-tip="seal:' + where + ':' + i + '">' + G.sealModGlyph(m) + '</i>';
+    });
+    h += '<i class="sc sum' + (seal.W >= G.SEAL.lieW ? ' lie' : '') + '" data-tip="seal:' + where + ':sum">+' + Math.round(G.sealReward(seal.W).qty * 100) + '%</i></span>';
+    return h;
+  }
+  // 悬停说明：hud / map 读这次进区的印，card:<第几张>:<第几条> 读择印面板上的
+  function sealTip(id) {
+    const a = id.split(':');
+    let seal = null, i = a[1];
+    if (a[0] === 'card') {
+      seal = ui.sealPick && ui.sealPick.seals[+a[1]];
+      i = a[2];
+    } else seal = G.state.run && G.state.run.seal;
+    if (!seal) return '';
+    if (i === 'sum') {
+      return '<div class="tcard seal-tc"><div class="tc-name">' + G.sealName(seal) + '</div><div class="tc-kind">渊印 · 权重 ' + seal.W + (seal.W >= G.SEAL.lieW ? ' · 烈印' : '') + '</div>' +
+        '<div class="tc-desc">' + sealRewardText(seal.W) + '</div>' +
+        (seal.W >= G.SEAL.lieW ? '<div class="tc-desc">烈印：击败区域首领时可掉印烛芯、陨织袍、渊缚链</div>' : '') + '</div>';
+    }
+    const m = seal.mods[+i];
+    if (!m) return '';
+    const d = G.SEAL_MODS[m.id], w = G.sealModW(m);
+    return '<div class="tcard seal-tc"><div class="tc-name">' + G.sealModName(m) + '</div><div class="tc-kind">' + (d.side === 'mob' ? '怪物侧' : '玩家侧') + '印纹 · 权重 ' + (w === 0 ? '0（对你无效）' : w) + '</div>' +
+      '<div class="tc-desc">' + G.sealModDesc(m) + '</div></div>';
+  }
+  function sealCardHtml(seal, i, T) {
+    const key = '<kbd>' + (i + 1) + '</kbd>';
+    if (!seal) {
+      return '<button type="button" tabindex="-1" class="seal-card plain" data-act="seal-pick" data-i="0">' + key +
+        '<div class="sk-name">素印</div><div class="sk-none">不加任何词缀，也没有加成</div><div class="sk-fill"></div><div class="sk-rw dim">数量 +0% · 稀有度 +0% · 经验 +0%</div></button>';
+    }
+    const lie = seal.W >= G.SEAL.lieW, dz = G.sealDanger(seal), dk = G.clamp((dz - 1) / Math.max(0.01, T.budget - 1), 0, 1);
+    let rows = '';
+    seal.mods.forEach((m, j) => {
+      const d = G.SEAL_MODS[m.id], dead = G.sealModW(m) === 0;
+      rows += '<div class="sk-mod' + (dead ? ' dead' : '') + '" data-tip="seal:card:' + (i - 1) + ':' + j + '"><i class="sc ' + d.side + '">' + G.sealModGlyph(m) + '</i><b>' + G.sealModName(m) + '</b>' +
+        (dead ? '<em>对你无效</em>' : '') + '<span>' + G.sealModDesc(m) + '</span></div>';
+    });
+    return '<button type="button" tabindex="-1" class="seal-card g' + seal.g + (lie ? ' lie' : '') + '" data-act="seal-pick" data-i="' + i + '">' + key +
+      (lie ? '<span class="sk-lie">烈</span>' : '') +
+      '<div class="sk-name">' + G.sealName(seal) + '</div>' +
+      '<div class="sk-mods">' + rows + '</div><div class="sk-fill"></div>' +
+      '<div class="sk-rw">' + sealRewardText(seal.W) + '</div>' +
+      '<div class="sk-danger"><span>危险度</span><div class="sk-bar"><i style="width:' + Math.round(dk * 100) + '%"></i></div></div>' +
+      (lie ? '<div class="sk-drop">可掉：印烛芯 · 陨织袍 · 渊缚链</div>' : '') + '</button>';
+  }
+  function sealPickHtml() {
+    const sp = ui.sealPick;
+    if (!sp) return '';
+    const z = G.ZONES[sp.zone], T = G.sealTierDef(sp.tier);
+    let cards = sealCardHtml(null, 0, T);
+    sp.seals.forEach((s, i) => (cards += sealCardHtml(s, i + 1, T)));
+    return '<div class="seal-pick"><div class="sp-box">' +
+      '<div class="sp-head"><div class="sec-title">择印 · ' + z.name + ' · 轮回 ' + sp.tier + '</div>' +
+      '<span class="sp-note">选一枚渊印再进入：词缀越凶，掉落和经验越多。这次进区之前，三枚印不会变。数字键 1–4 直接选，Esc 返回</span>' +
+      '<button type="button" tabindex="-1" class="btn sm" data-act="seal-cancel">返回</button></div>' +
+      '<div class="sp-cards">' + cards + '</div></div></div>';
+  }
+  function pickSeal(i) {
+    const sp = ui.sealPick;
+    if (!sp) return false;
+    const seal = i > 0 ? sp.seals[i - 1] : null;
+    if (i > 0 && !seal) return false;
+    ui.sealPick = null;
+    G.sfx('click');
+    G.enterZone(sp.zone, sp.tier, seal);
+    close();
+    return true;
+  }
+
+  // ============================================================
   // 地图页
   // ============================================================
   function renderMap() {
@@ -2683,13 +2793,22 @@
         '</div></div>';
     });
 
+    const run = st.run && st.run.seal;
     el.body.innerHTML =
       '<div class="map">' +
       '<div class="map-top"><div class="sec-title">轮回层级</div>' +
       '<div class="tier-row"><div class="tiers">' + tiers + '</div>' +
       '<div class="tier-note">每提高一层，所有区域的怪物等级 +' + G.TIER_LEVELS + '，掉落的物品等级随之提高。' +
-      (S.maxTier === 0 ? '击败最后一个区域的首领后开启下一层。' : '在当前最高层级击败最后一个区域的首领，开启更高一层。') + '</div></div></div>' +
+      (S.maxTier === 0 ? '击败最后一个区域的首领后开启下一层。' : '在当前最高层级击败最后一个区域的首领，开启更高一层。') + '</div></div>' +
+      // 渊印：这次进区的印（层级 ≥ 1 才有）和图例
+      (S.maxTier >= 1
+        ? '<div class="seal-now"><span class="sn-k">本次进区</span>' +
+          (run ? '<b class="sn-name g' + run.g + '">' + G.sealName(run) + '</b>' + sealChips(run, 'map') + '<span class="sn-rw">' + sealRewardText(run.W) + '</span>' : '<b class="sn-name plain">素印</b><span class="sn-rw">没有词缀</span>') +
+          '<span class="seal-legend"><i class="sc mob">戾</i>怪物侧印纹<i class="sc player">竭</i>玩家侧印纹<i class="lg-ring"></i>小地图上的领群者</span></div>'
+        : '') +
+      '</div>' +
       '<div class="zones" style="--nz:' + G.ZONES.length + '">' + cards + '</div>' +
+      sealPickHtml() +
       '<div class="map-opts">' +
       '<div class="opt-text"><b>普通物品</b><span>魔法、稀有物品总是自动拾取</span></div>' +
       '<div class="seg">' +
@@ -2890,6 +3009,7 @@
       '<div class="sec-title">区域与轮回</div>' +
       '<p>每个区域的尽头盘踞着一名首领。击败它之后会出现传送门，通往地图，可以前往下一个区域。</p>' +
       '<p>击败最后一个区域（第 ' + G.ZONES.length + ' 个，' + G.ZONES[G.ZONES.length - 1].name + '）的首领会开启<b>轮回层级</b>：每高一层，所有区域的怪物等级 +' + G.TIER_LEVELS + '，掉落的物品等级也随之提高。</p>' +
+      '<p><b>渊印</b>：轮回层级 1 起，进入区域前要选一枚印。<b>素印</b>什么都不加；<b>浅印</b>、<b>深印</b>、<b>烬印</b>各带 2–5 条印纹，让怪物更凶（<b class="c-red">橙红</b>的签）或给你添麻烦（<b style="color:#c49cff">紫色</b>的签），权重越高，物品数量、稀有度和经验加得越多（各有上限；宝石不受影响）。总权重 ' + G.SEAL.lieW + ' 以上叫<b>烈印</b>，击败区域首领时另有机会掉落印烛芯和两件渊契。生效的印纹显示在左上角的小签上，悬停看说明；读档、倒下重生都保留，换区或重进就重新选。</p>' +
       '<p>游戏会自动存档。</p>' +
       '<div class="sec-title">素材来源</div>' +
       '<p class="credits">地面与岩壁贴图来自 <b>Poly Haven</b>、<b>ambientCG</b>，布景模型来自 <b>KayKit</b>（Kay Lousberg）与 <b>Kenney</b>，主角、游魂、烬骸仆从与喷吐者的模型来自 <b>Quaternius</b>，均以 CC0 授权公开，在此致谢。</p>' +
@@ -2975,6 +3095,7 @@
   }
 
   function tipHtml(kind, id) {
+    if (kind === 'seal') return sealTip(id);
     if (kind === 'item') {
       const f = findItem(id);
       if (!f) return '';
@@ -3472,8 +3593,22 @@
     },
     enter(d) {
       G.sfx('click');
+      // 渊印：轮回层级 ≥ 1 先弹择印面板（三枚印由 sealSeq 定，关掉再开还是这三枚），层级 0 直接进
+      if (ui.mapTier >= 1) {
+        ui.sealPick = { zone: +d.zone, tier: ui.mapTier, seals: G.rollSeals(+d.zone, ui.mapTier) };
+        render();
+        return;
+      }
       G.enterZone(+d.zone, ui.mapTier);
       close();
+    },
+    'seal-pick'(d) {
+      pickSeal(+d.i);
+    },
+    'seal-cancel'() {
+      ui.sealPick = null;
+      G.sfx('click');
+      render();
     },
     'del-save'() {
       ui.delArmed = true;
@@ -3650,6 +3785,7 @@
       ui.treeMsgBad = false;
       ui.blankMsg = '';
       disarmReset();
+      ui.sealPick = null;
       if (tab === 'map') ui.mapTier = G.clamp(G.state.tier || 0, 0, G.save.maxTier);
     }
     ui.tab = tab;
@@ -3667,6 +3803,7 @@
     ui.isOpen = false;
     ui.picker = null;
     ui.confirm = null;
+    ui.sealPick = null;
     disarmReset();
     el.panel.classList.remove('on');
     el.picker.classList.remove('on');
@@ -5116,7 +5253,15 @@
     window.addEventListener(
       'keydown',
       (e) => {
-        if (e.code === 'Escape' && (drag.on || ui.confirm)) {
+        const sp = ui.isOpen && ui.tab === 'map' && ui.sealPick;
+        const dg = sp && /^(Digit|Numpad)([1-4])$/.exec(e.code);
+        if (dg || (sp && e.code === 'Escape')) {
+          // 择印面板：数字键 1–4 直接选（1 是素印），Esc 只收起面板
+          if (dg) pickSeal(+dg[2] - 1);
+          else ACT['seal-cancel']();
+          e.stopPropagation();
+          e.preventDefault();
+        } else if (e.code === 'Escape' && (drag.on || ui.confirm)) {
           if (!cancelDrag()) {
             ui.confirm = null;
             renderConfirm();
