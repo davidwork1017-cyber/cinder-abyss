@@ -62,7 +62,7 @@
     iframe: 0, flask: { life: 3, mana: 3 },
     hot: { life: null, mana: null }, // 药剂的持续回复 {left, rate}
     dead: false, deadT: 0, moving: false, ent: null, god: false, dustT: 0,
-    combo: { step: 0, t: 0 }, // 连段：下一次近战出第几段（0 起）；t 归零则从头再来
+    combo: { step: 0, t: 0, id: null }, // 连段：下一次近战出第几段（0 起）；t 归零则从头再来；id 这串连段属于哪一招（换了招 / 换了武器的普攻就从头来）
     chain: { n: 0, t: 0, best: 0 }, // 连击计数：连续命中的次数，t 秒内没有新的命中就清零
     exec: null, // 正在进行的处决 { e, t, x0, z0, hit }
     // 远程武器（见 G.RANGED）：gauge 量表（热度 / 专注各自记着，换枪换弓不清零）；heatIdle / focusIdle 距离上次开火 / 命中的秒数
@@ -137,10 +137,12 @@
     return {
       // gv：成长版本。2 = 宝石 / 武器 / 词缀阶不再在 20 / 27 / 24 封顶、天赋盘扩大之后的存档
       v: 1, gv: 2, level: 1, xp: 0, bag: [], equip: { weapon: start }, cur,
-      skills: { cleave: 1, ember: 1 }, supports: [],
-      sockets: { cleave: [null, null, null], ember: [null, null, null], [G.BASIC_CARD]: [null, null, null] },
-      bar: ['cleave', 'ember', null, null],
-      // 拿着远程武器时右键被武器普攻占用：原来右键上的技能记在这里，换回非远程武器时放回去（见 syncRanged）
+      // 裂石击删除之后：起手只学掷焰、放在左键；右键是手里武器的普攻（刃的连招 / 杖的灵弹 / 短杖的疾咒），技能栏的右键格（下标 1）一直空着
+      skills: { ember: 1 }, supports: [],
+      sockets: { ember: [null, null, null], [G.BASIC_CARD]: [null, null, null] },
+      bar: ['ember', null, null, null],
+      // 右键固定是武器普攻：旧存档右键上的技能读档时挪到第一个空格（左键 / Q / E）；三格都满时收在这里，
+      // 技能页上标着「收起」，绑到任意一格就取出来（见 sanitize、syncRanged）。镶着的辅助跟着技能走（save.sockets 按技能 id 记），不会丢
       rmbKeep: null,
       bowMig: false, // 读档时把旧长弓改成了鹰眼长弓、「远程改版」提示还没看过（见 sanitize）
       passives: ['start'], cleared: {}, bossKills: {},
@@ -325,6 +327,8 @@
     G.weaponMigrated = false;
     G.growthMigrated = null;
     G.bowMigrated = 0;
+    G.rmbMigrated = null; // 武器普攻改版：右键上的技能挪去了哪（见下面「右键固定是武器普攻」）
+    G.cleaveRefund = null; // 裂石击退成的无铭宝石
     G.newZoneNotice = G.zoneNoticeFor(raw); // 第五区上线前打通过烬渊深处的老存档：界面层提示一次新区域
     const d = G.newSave();
     if (!isObj(raw) || raw.v !== 1) return d;
@@ -398,6 +402,32 @@
       if (id && s.skills[id] && s.bar.indexOf(id) < 0) s.bar[i] = id;
     }
     s.rmbKeep = typeof raw.rmbKeep === 'string' && s.skills[raw.rmbKeep] && s.bar.indexOf(raw.rmbKeep) < 0 ? raw.rmbKeep : null;
+    // 武器普攻改版：右键固定是武器普攻（改版前只有拿着枪械 / 弓时这样）。右键格上的技能挪到第一个空格（左键 / Q / E），
+    // 三格都满时收进 rmbKeep；改版前拿着远程武器时收起来的 rmbKeep 也趁这时放进空格。G.rmbMigrated 给界面提示一次
+    {
+      const moved = [];
+      const id = s.bar[1];
+      if (id) {
+        s.bar[1] = null;
+        const i = barFree(s.bar);
+        if (i >= 0) {
+          s.bar[i] = id;
+          moved.push({ id, to: i });
+        } else if (!s.rmbKeep) {
+          s.rmbKeep = id;
+          moved.push({ id, to: -1 });
+        } else moved.push({ id, to: -2 }); // 收着的位置也占了：技能还在（已学、辅助照镶），只是不在技能栏上
+      }
+      if (s.rmbKeep) {
+        const i = barFree(s.bar);
+        if (i >= 0) {
+          moved.push({ id: s.rmbKeep, to: i });
+          s.bar[i] = s.rmbKeep;
+          s.rmbKeep = null;
+        }
+      }
+      if (moved.length) G.rmbMigrated = moved;
+    }
 
     // 天赋：只保留存在且与起点连通的节点
     const pas = ['start'];
@@ -444,6 +474,19 @@
     s.blankGems = Array.isArray(raw.blankGems)
       ? raw.blankGems.filter(isNum).slice(0, BLANK_MAX).map((v) => G.clamp(Math.floor(v), 1, MAX_GEM_LEVEL)).sort((a, b) => b - a)
       : [];
+    // 裂石击已删除：学过的退成一颗同等级的无铭技能宝石（上面读技能时它已经被滤掉，技能栏的格子随之空出来；
+    // 镶在它上面的辅助回到「已拥有、没镶」的状态——辅助的归属记在 s.supports，孔只是按技能记的位置）。G.cleaveRefund 给界面提示一次
+    if (isObj(raw.skills) && raw.skills.cleave !== undefined && !G.SKILLS.cleave) {
+      const lvl = toInt(raw.skills.cleave, 1, MAX_GEM_LEVEL, 1);
+      if (s.blankGems.length < BLANK_MAX) {
+        s.blankGems.push(lvl);
+        s.blankGems.sort((a, b) => b - a);
+      }
+      const socks = isObj(raw.sockets) && Array.isArray(raw.sockets.cleave) ? raw.sockets.cleave.filter((x) => x && G.SUPPORTS[x] && s.supports.indexOf(x) >= 0) : [];
+      G.cleaveRefund = { lvl, sups: socks };
+      // 技能栏上只放着裂石击的老存档：腾空之后一个技能都不剩，把已学的第一个技能放进左键（右键的普攻照样能打）
+      if (s.bar.every((b) => !b)) s.bar[0] = Object.keys(s.skills).find((id) => G.SKILLS[id].kind !== 'aura') || null;
+    }
     // 自动召唤开关：只认召唤技能，旧存档没有这一项就保持默认（关）
     const ra = isObj(raw.autoSummon) ? raw.autoSummon : {};
     for (const id of Object.keys(s.autoSummon)) s.autoSummon[id] = ra[id] === true;
@@ -707,30 +750,38 @@
     }
     return g[kind];
   };
-  // 右键接管：拿上远程武器时把右键上的技能收进 save.rmbKeep、右键留空（输入由武器普攻接管）；
-  // 换回非远程武器时放回去（那个技能已经被你放到别的格子上、或者右键已经有了别的技能时就不放）
+  // ---------- 武器普攻：右键 ----------
+  // 手里武器的普攻 id：枪械 / 弓 / 近战 / 施法 / 魂幡都是 basic_<武器类型>，空手是 basic_fists
+  G.basicForWeapon = function (w) {
+    const base = w && w.slot === 'weapon' && G.BASES.weapon[w.baseIdx];
+    const id = base ? 'basic_' + base.type : 'basic_fists';
+    return G.SKILLS[id] ? id : null;
+  };
+  G.weaponBasic = function () {
+    return G.basicForWeapon(G.save && G.save.equip && G.save.equip.weapon);
+  };
+  // 技能栏里除了右键（下标 1）之外的第一个空格，没有时 -1
+  function barFree(bar) {
+    for (const i of [0, 2, 3]) if (!bar[i]) return i;
+    return -1;
+  }
+  // 右键接管（武器普攻改版前只在拿着远程武器时接管，现在一直接管）：右键格（下标 1）上要是还有技能，挪到第一个空格，
+  // 三格都满时收进 save.rmbKeep（rmbKeep 已经有别的技能时不顶掉它：那个技能留在已学里，技能页上照样能绑）。
+  // 读档时 sanitize 已经挪过一遍，这里只兜住运行中意外写进右键格的情况
   function syncRanged() {
     const save = G.save;
     if (!save || !Array.isArray(save.bar)) return;
-    if (G.rangedOf(save.equip && save.equip.weapon)) {
-      const id = save.bar[1];
-      if (id) {
-        save.bar[1] = null;
-        if (!save.rmbKeep || !save.skills[save.rmbKeep] || save.bar.indexOf(save.rmbKeep) >= 0) save.rmbKeep = id;
-      }
-    } else if (save.rmbKeep) {
-      const id = save.rmbKeep;
-      save.rmbKeep = null;
-      if (!save.bar[1] && save.skills[id] && save.bar.indexOf(id) < 0) save.bar[1] = id;
-    }
+    const id = save.bar[1];
+    if (!id) return;
+    save.bar[1] = null;
+    const i = barFree(save.bar);
+    if (i >= 0 && save.bar.indexOf(id) < 0) save.bar[i] = id;
+    else if (!save.rmbKeep || !save.skills[save.rmbKeep] || save.bar.indexOf(save.rmbKeep) >= 0) save.rmbKeep = id;
   }
   G.syncRanged = syncRanged;
-  // 新学的技能自动放进技能栏时用的空格：拿着远程武器时右键不算空格
+  // 新学的技能自动放进技能栏时用的空格：右键一直是武器普攻，不算空格
   G.freeBarSlot = function () {
-    const bar = G.save.bar;
-    const busy = !!G.rangedOf(G.save.equip && G.save.equip.weapon);
-    for (let i = 0; i < bar.length; i++) if (!bar[i] && !(busy && i === 1)) return i;
-    return -1;
+    return barFree(G.save.bar);
   };
 
   // =====================================================================
@@ -819,18 +870,13 @@
     return Math.min(90, pct);
   };
 
-  // 武器普攻卡（G.BASIC_CARD）：能镶任何一种远程普攻用得上的辅助（标签取所有普攻的并集），生效时再按当前普攻的标签筛（G.basicSupports）
-  let basicTags = null;
+  // 武器普攻卡（G.BASIC_CARD）：能镶任何一种武器普攻用得上的辅助（至少对一种普攻适配），生效时再按当前普攻筛（G.basicSupports）。
+  // 改版前只有远程普攻、按它们标签的并集判断；现在普攻里有召唤物（魂幡）也有法术，并集会把「不能给召唤物用」的贯穿 / 连锁 / 汲生误判成镶不上，改成逐个普攻判断
   G.supportFits = function (skillId, supId) {
     if (skillId === G.BASIC_CARD) {
-      const sup = G.SUPPORTS[supId];
-      if (!sup) return false;
-      if (!basicTags) {
-        basicTags = [];
-        for (const id in G.SKILLS) if (G.SKILLS[id].basic) for (const t of G.SKILLS[id].tags) if (basicTags.indexOf(t) < 0) basicTags.push(t);
-      }
-      if (sup.no && sup.no.some((tag) => basicTags.indexOf(tag) >= 0)) return false;
-      return !sup.req || sup.req.some((tag) => basicTags.indexOf(tag) >= 0);
+      if (!G.SUPPORTS[supId]) return false;
+      for (const id in G.SKILLS) if (G.SKILLS[id].basic && G.supportFits(id, supId)) return true;
+      return false;
     }
     const sk = G.SKILLS[skillId];
     const sup = G.SUPPORTS[supId];
@@ -990,6 +1036,8 @@
     const scale = sk.kind === 'summon' || sk.asMinion || sk.champ ? G.minionDmgK(lvl) : 1 + 0.2 * (lvl - 1);
     if (sk.edmg) {
       // 星蚀（渊口）：拿着它时短杖的秘弹连射固定为混沌
+      // 施法武器的普攻（灵弹 / 疾咒）也只取火 / 冰 / 雷里加成最高的那种，不取混沌（编排者定：混沌吃三种元素各自的伤害提高，
+      // 普攻跟着混沌走就比冷却之后的黑旋风还痛）
       const el = sk.kind === 'wwand' && P.uMech === 'void' ? 'chaos' : G.topElem(sk.elem);
       out[el] = [sk.edmg[0] * scale, sk.edmg[1] * scale];
       return out;
@@ -1088,6 +1136,12 @@
       costMult *= sup.cost;
     }
 
+    // 魂幡的普攻：每只活着的召唤物让这一下的伤害提高 perMinion%（最多 maxMinion 只）
+    if (sk.perMinion) {
+      let n = 0;
+      for (const m of state.minions) if (!m.dead) n++;
+      more *= 1 + (sk.perMinion * Math.min(sk.maxMinion || 0, n)) / 100;
+    }
     // 远程武器：热度越高枪械普攻越痛（heatDmg），热度技吃 rDmg
     const fam = sk.basic ? RFAM[sk.rtype] : sk.rgauge ? RFAM[sk.wtype] : null;
     if (fam === 'gun' && sk.basic && S.heatDmg) more *= 1 + (S.heatDmg / 100) * Math.min(1, (P.gauge.heat || 0) / G.RANGED.max);
@@ -2559,7 +2613,7 @@
       // 集火：玩家亲手打中的敌人成为召唤物的优先目标
       state.focus = e;
       state.focusT = FOCUS_KEEP;
-      if (sk.basic) rangedOnHit(e, ctx, hit, inf); // 远程普攻：热度的「最近打中过」、弓的专注
+      if (sk.rtype) rangedOnHit(e, ctx, hit, inf); // 远程普攻：热度的「最近打中过」、弓的专注
     }
 
     // 重击打断普通小怪的起手；所有命中都把小怪推开（首领不被推动）
@@ -3301,13 +3355,10 @@
     return !!inp.keys[slot === 2 ? 'KeyQ' : 'KeyE'];
   }
   // 某个输入槽此刻对应的技能
-  // 拿着远程武器时右键（1）固定是这把武器的普攻
+  // 右键（1）固定是手里武器的普攻（空手是拳击）
   G.slotSkill = function (slot) {
     if (slot === WS_SLOT) return G.weaponSkill();
-    if (slot === 1) {
-      const rw = G.rangedWeapon();
-      if (rw) return rw.basic;
-    }
+    if (slot === 1) return G.weaponBasic();
     return G.save.bar[slot] || null;
   };
 
@@ -3411,11 +3462,12 @@
       }
       const sk = ctx.sk;
       const ang = aimInfo().ang;
-      if (sk.basic) {
+      if (sk.kind === 'rbasic') {
         startRanged(slot, ctx, ang);
         return true;
       }
-      if (sk.weaponOnly) {
+      // 武器普攻（近战连招 / 施法 / 魂幡 / 空手）走下面普通技能的施放；武器技（R）分段施放
+      if (sk.weaponOnly && !sk.basic) {
         if (startWeaponSkill(slot, ctx, ang)) return true;
         continue;
       }
@@ -3464,6 +3516,8 @@
       let st = null;
       let step = -1;
       if (sk.combo) {
+        if (P.combo.id !== id) comboReset(); // 换了一招（换了武器、普攻变了）：从第一段起
+        P.combo.id = id;
         step = P.combo.step % sk.combo.length;
         st = sk.combo[step];
       } else {
@@ -3479,7 +3533,7 @@
       });
       // 出手动作：连击三段各有各的挥法，其余按技能类型；命中帧对在生效的时刻
       const kind = sk.kind;
-      const clip = st ? st.clip : kind === 'proj' ? 'throw' : kind === 'blink' ? 'blink' : kind === 'melee' ? 'attack1' : 'cast'; // 召唤也用施法动作
+      const clip = st ? st.clip : sk.bclip || (kind === 'proj' ? 'throw' : kind === 'blink' ? 'blink' : kind === 'melee' ? 'attack1' : 'cast'); // 召唤也用施法动作；bclip：武器普攻自己的出手动作
       G.world.play(P.ent, clip, { dur: st ? c.dur + 0.1 : ctx.time * 1.3, contact: c.fireT });
       if (st) {
         G.world.setTrail(G.TYPE_HEX[mainType(ctx)]);
@@ -4503,7 +4557,7 @@
   // 远程普攻 / 量表技的命中：枪械记下「最近打中过」（热度按它涨满速），弓的普攻按命中积攒专注
   function rangedOnHit(e, ctx, hit, inf) {
     const sk = ctx.sk;
-    if (!sk.basic || inf.extra) return;
+    if (!sk.basic || !sk.rtype || inf.extra) return; // 近战 / 施法 / 魂幡的普攻没有量表
     const fam = RFAM[sk.rtype];
     P.gun.hitT = 0;
     state.stats.rHits = (state.stats.rHits || 0) + 1;
@@ -4588,12 +4642,14 @@
       if (!st) st = sk.combo ? sk.combo[0] : { shape: 'arc', range: sk.range, arc: sk.arc, mult: 1, dir: 1, w: 0, stop: 35, kb: sk.kb, poise: sk.poise };
       const k = Math.sqrt(ctx.area);
       const hex = hexOf(sk.color);
-      const R = st.range * k;
+      const R = (st.range || 0) * k;
       const hits = [];
+      let cx = P.x;
+      let cz = P.z;
       if (st.shape === 'smash') {
         // 跃起下劈：落点在身前 reach 处，砸出一个圆；贴身的敌人也躲不掉
-        const cx = P.x + a.dx * st.reach * k;
-        const cz = P.z + a.dz * st.reach * k;
+        cx = P.x + a.dx * st.reach * k;
+        cz = P.z + a.dz * st.reach * k;
         for (const e of state.enemies) {
           if (e.dead) continue;
           if (dist(e.x, e.z, cx, cz) - e.r <= R || dist(e.x, e.z, P.x, P.z) <= e.r + 1.0) hits.push(e);
@@ -4602,10 +4658,30 @@
         // 落点一圈实心的尘团 + 碎石尖片 + 一颗大星（W.smashFx），地裂是硬边的
         W.slash(P.x, P.z, a.ang, st.reach * k + 0.4, 130, hex, { dur: 0.22, inner: 0.62, y: 1.1, tilt: Math.PI / 2, pitch: -0.52, dir: -1 });
         W.ring(cx, cz, R, hex, 0.34);
-        W.ring(cx, cz, R * 0.55, 0xffe2b0, 0.2);
+        if (!st.wave) W.ring(cx, cz, R * 0.55, 0xffe2b0, 0.2); // 带冲击波的（战锤普攻的终结）外面还要荡一圈：里面这圈省掉，场上同时的环（各占一次 draw call）不多出来
         W.decal(5, cx, cz, R * 0.95, Math.random() * TAU, 0xffb050, 2.6);
         W.smashFx(cx, cz, R, a.ang);
         W.shake(0.24);
+      } else if (st.shape === 'line') {
+        // 武器普攻的直线（刃的突刺、双匕的快刺、太刀的冲斩）：身前 len × width 的一条，撞墙截断；
+        // dash：先朝准星冲过 dash 米（撞墙截断，冲过敌人不停），冲过的路连同身前 len 都算
+        const half = (st.width / 2) * k;
+        const x0 = P.x;
+        const z0 = P.z;
+        let len = st.len * k;
+        if (st.dash) {
+          const d = rayLen(P.x, P.z, a.ang, st.dash, PLAYER_PAD);
+          if (d > 0) {
+            P.x += a.dx * d;
+            P.z += a.dz * d;
+          }
+          len = d + Math.max(0.9, len);
+          if (!fxOpt('basicDash', x0, z0, P.x, P.z, hex)) W.dashFx(x0, z0, P.x, P.z, hex);
+        } else len = Math.max(0.6, rayLen(x0, z0, a.ang, len, -0.2) + 0.4);
+        for (const e of enemiesInLine(x0, z0, a.ang, len, half)) if (losClear(x0, z0, e.x, e.z)) hits.push(e);
+        // 锋芒：一道细长的直线刀光（world.thrustFx，没有时用窄扇形顶上）
+        const reach = st.dash ? len - dist(x0, z0, P.x, P.z) : len;
+        if (!fxOpt('thrustFx', P.x, P.z, a.ang, reach, hex)) W.slash(P.x, P.z, a.ang, reach, 24, hex, { dur: 0.14, inner: 0.15, y: 1.1 });
       } else {
         const half = (st.arc / 2) * DEG;
         for (const e of enemiesIn(P.x, P.z, R)) {
@@ -4620,6 +4696,19 @@
         // 卡通版：实色月牙只占外圈（inner 0.8），刀光本身由跟着武器的月牙带子画；
         // 月牙的终点一侧抬起来（tilt = dir × k）：横斩微微斜着，反手上挑斜得明显
         W.slash(P.x, P.z, a.ang, R, st.arc, hex, { dir: st.dir, inner: 0.8, dur: 0.2, tilt: st.dir === -1 ? -0.3 : 0.12 }); // phase 3：inner 0.74 → 0.8，月牙带子窄约 23%
+        // 双匕的交叉斩：再反向画一道，两道月牙交成一个叉
+        if (st.cross) W.slash(P.x, P.z, a.ang, R * 0.94, st.arc, hex, { dir: -st.dir, inner: 0.8, dur: 0.2, tilt: st.dir === -1 ? 0.3 : -0.3 });
+      }
+      // 砸地之后荡开的冲击波（战锤普攻的终结）：砸中的不再吃，墙后的不吃
+      if (st.wave) {
+        const wr = st.wave.r * k;
+        if (!fxOpt('basicWave', cx, cz, wr, hex)) {
+          W.ring(cx, cz, wr, 0xffe2b0, 0.42);
+          W.burst(cx, 0.3, cz, 0xcbbba6, 12, 6, 0.4);
+        }
+        const wave = [];
+        for (const e of enemiesIn(cx, cz, wr)) if (hits.indexOf(e) < 0 && losClear(cx, cz, e.x, e.z)) wave.push(e);
+        for (const e of wave) G.hitEnemy(e, ctx, st.wave.mult, { ang: Math.atan2(e.x - cx, e.z - cz), w: 1, kb: st.wave.kb, poise: st.wave.poise, quiet: true });
       }
       if (!hits.length) return;
       let crit = false;
@@ -4627,7 +4716,8 @@
       for (const e of hits) {
         // 击退方向：从玩家指向敌人；横斩再带一点顺着刀势的切向，两段的手感因此不同
         let ang = Math.atan2(e.x - P.x, e.z - P.z);
-        if (st.shape !== 'smash') ang += (st.dir || 1) * 0.4;
+        if (st.shape === 'line') ang = a.ang; // 直线：顺着刺出的方向顶出去
+        else if (st.shape !== 'smash') ang += (st.dir || 1) * 0.4;
         G.hitEnemy(e, ctx, st.mult, { ang, w: st.w, kb: st.kb, poise: st.poise, quiet: true });
         crit = crit || lastHit.crit;
         top = lastHit.type;
@@ -4653,7 +4743,7 @@
       const n = Math.max(1, ctx.proj) + (sk.count > 1 ? sk.count - 1 : 0); // 刻式「散焰」：基础 count 团，多重投射再加
       const spread = Math.min(60, (sk.spread || 12) * (n - 1)) * DEG;
       const stepA = n > 1 ? spread / (n - 1) : 0;
-      const hex = hexOf(sk.color);
+      const hex = sk.elemHex ? G.TYPE_HEX[mainType(ctx)] : hexOf(sk.color); // elemHex：武器普攻按这一下的元素取色
       const cast = new Set(); // 这一次施放里已经受过伤（直击或爆炸）的敌人，所有投射物共用
       // 刻式：「散焰」每团各记各的（多重投射多出来的轮流并进这几份），同一次施放对同一个敌人最多 count 下；「回刃」回程另记一份
       const casts = sk.count > 1 ? [] : null;
@@ -4668,7 +4758,7 @@
           owner: 'p', x: P.x + dx * 0.7, z: P.z + dz * 0.7, dx, dz,
           speed: sk.speed, r: sk.projR || 0.3, life: 30 / sk.speed, color: hex,
           ctx, pierce: ctx.pierce, chain: ctx.chain, explode: sk.explode || 0, hit: new Set(), cast: casts ? casts[i % casts.length] : cast,
-          vk: ctx.id, tint, ret: sk.returns || 0, back,
+          vk: sk.vk || ctx.id, tint, ret: sk.returns || 0, back,
         });
       }
     },
@@ -4676,7 +4766,7 @@
     chain(ctx, a) {
       const W = G.world;
       const sk = ctx.sk;
-      const hex = hexOf(sk.color);
+      const hex = sk.elemHex ? G.TYPE_HEX[mainType(ctx)] : hexOf(sk.color);
       if (sk.line) return lineBolt(ctx, a); // 刻式「贯雷」：不连锁，改一道直线
       // 首个目标：准星附近优先，其次是瞄准方向上最近的敌人
       let first = null;
@@ -4733,6 +4823,35 @@
       }
       W.bolt(pts, hex);
       if (P.relic.dianqiao) G.relicBridges(pts, ctx); // 渊契「电桥」
+    },
+
+    // 魂幡的普攻「魂引」：一缕魂灵扑向准星附近的敌人（没有就朝准星飞），碰到即炸开；目标标成集火（召唤物优先打它）
+    bspirit(ctx, a) {
+      const sk = ctx.sk;
+      const hex = hexOf(sk.color);
+      let e = null;
+      let bd = Infinity;
+      for (const o of state.enemies) {
+        if (o.dead) continue;
+        const dc = dist(o.x, o.z, a.tx, a.tz) - o.r;
+        if (dc <= sk.seek && dist(o.x, o.z, P.x, P.z) - o.r <= sk.range && dc < bd && losClear(P.x, P.z, o.x, o.z)) {
+          bd = dc;
+          e = o;
+        }
+      }
+      if (e) {
+        state.focus = e;
+        state.focusT = FOCUS_KEEP;
+      }
+      const ang = e ? Math.atan2(e.x - P.x, e.z - P.z) : a.ang;
+      const dx = Math.sin(ang);
+      const dz = Math.cos(ang);
+      G.spawnProjectile({
+        owner: 'p', x: P.x + dx * 0.7, z: P.z + dz * 0.7, dx, dz,
+        speed: sk.speed, r: sk.projR, life: sk.life, color: hex,
+        ctx, pierce: 0, chain: 0, explode: sk.explode, hit: new Set(), home: e, turn: sk.turn, wisp: true, fizzle: true,
+      });
+      fxOpt('spiritCall', P.x, P.z, ang, hex, e);
     },
 
     meteor(ctx, a) {
@@ -6086,8 +6205,8 @@
     const save = G.save;
     let best = 0;
     for (const id of save.bar) if (id && save.skills[id]) best = Math.max(best, execHitOf(id));
-    const rw = G.rangedWeapon(); // 拿着远程武器：右键的武器普攻也算
-    if (rw && G.SKILLS[rw.basic]) best = Math.max(best, execHitOf(rw.basic));
+    const bid = G.weaponBasic(); // 右键的武器普攻也算
+    if (bid) best = Math.max(best, execHitOf(bid));
     if (!best) for (const id in save.skills) best = Math.max(best, execHitOf(id));
     return best;
   }
@@ -7034,7 +7153,7 @@
   G.bindSkill = function (slot, skillId) {
     const save = G.save;
     if (!(slot >= 0 && slot < 4) || slot !== Math.floor(slot)) return false;
-    if (slot === 1 && G.rangedWeapon()) return false; // 右键被武器普攻占着：什么也绑不上（换回非远程武器后恢复原来的右键技能）
+    if (slot === 1) return false; // 右键固定是武器普攻：什么也绑不上
     if (!skillId) {
       save.bar[slot] = null;
       return commit();
@@ -7044,7 +7163,7 @@
     const from = save.bar.indexOf(skillId);
     if (from === slot) return true;
     if (from >= 0) save.bar[from] = save.bar[slot];
-    if (save.rmbKeep === skillId) save.rmbKeep = null; // 收着的右键技能被你绑到了别处：不再放回右键
+    if (save.rmbKeep === skillId) save.rmbKeep = null; // 收着的技能被你绑到了技能栏上：不再算收着
     save.bar[slot] = skillId;
     if (P.cast && (P.cast.slot === slot || P.cast.slot === from) && !P.cast.fired) P.cast = null;
     return commit();

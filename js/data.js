@@ -61,7 +61,7 @@
     farMin: 4, farMax: 14,
   };
   G.GAUGE_NAME = { heat: '热度', focus: '专注' };
-  // 技能页上「武器普攻」卡的 id：辅助宝石镶在 save.sockets[G.BASIC_CARD] 里，换远程武器时不动
+  // 技能页上「武器普攻」卡的 id：辅助宝石镶在 save.sockets[G.BASIC_CARD] 里，换武器时不动（每种武器的普攻都用这张卡）
   G.BASIC_CARD = 'wbasic';
   // 旧存档里长弓（下标 5）的三个名字：读档时换成鹰眼长弓的同阶名字
   G.BOW_OLD_NAMES = ['榆木长弓', '筋角长弓', '渊鸣长弓'];
@@ -73,20 +73,8 @@
   // poise 每次命中削掉的架势。近战削得最多，法术次之。
   // 攻击技能没有自己的伤害区间：wm 是武器倍率（见上面的「武器伤害」），法术 / 召唤照旧用 dmg
   G.SKILLS = {
-    cleave: {
-      name: '裂石击', icon: '斩', color: '#e6dfd0', tags: ['attack', 'melee', 'area', 'phys'], kind: 'melee',
-      // time 是三段的平均段长（界面估算秒伤用），range / arc 是前两段的大致范围
-      wm: 1.25, time: 0.45, mana: 0, cd: 0, range: 3.6, arc: 125,
-      // 三段连击。time：这一段多久之后可以接下一段 / 别的动作；hit：命中时刻；tail：没有后续输入时的收招；
-      // mult 伤害倍率；lunge 出手时朝准星踏出的距离；stop 顿帧毫秒数。
-      // 前两段是扇形（range 半径、arc 角度、dir 刀光扫过的方向），第三段是跃起下劈：落点在身前 reach 处、半径 range 的圆
-      combo: [
-        { clip: 'attack1', time: 0.36, hit: 0.17, tail: 0.14, mult: 0.8, shape: 'arc', range: 3.5, arc: 130, dir: 1, lunge: 0.8, kb: 0.55, poise: 11, stop: 35, w: 0 },
-        { clip: 'attack2', time: 0.36, hit: 0.17, tail: 0.14, mult: 0.95, shape: 'arc', range: 3.8, arc: 120, dir: -1, lunge: 0.9, kb: 0.7, poise: 13, stop: 45, w: 0 },
-        { clip: 'attack3', time: 0.62, hit: 0.3, tail: 0.2, mult: 2.2, shape: 'smash', range: 3.0, reach: 2.5, lunge: 1.9, kb: 3.0, poise: 30, stop: 110, w: 2 },
-      ],
-      desc: '三段连击：横斩、反手上挑，最后一段是跃起下劈的终结技——范围更大、伤害翻倍，并把敌人震飞。不消耗魔力。',
-    },
+    // 裂石击（cleave）已删除：近战的三段连击改成每种武器右键的武器普攻（见下面的「武器普攻」）。
+    // 旧存档里学过的裂石击读档时退成一颗同等级的无铭技能宝石（见 game.js 的 sanitize），连击的机制（combo）留给武器普攻用。
     ember: {
       name: '掷焰', icon: '焰', color: '#ff8a3c', tags: ['spell', 'projectile', 'area', 'fire'], kind: 'proj',
       dmg: { fire: [11, 17] }, time: 0.5, mana: 6, cd: 0, speed: 22, explode: 1.9, projR: 0.32, w: 0, kb: 0.45, poise: 10,
@@ -288,8 +276,8 @@
     },
 
     // ---------- 远程武器（枪械 / 弓）：右键 = 武器普攻，R = 量表技 ----------
-    // 拿着枪械或弓时，右键自动换成这把武器的普攻（basic: true，id 为 basic_<武器类型>）：不掉落、不进技能栏，技能页上是一张「武器普攻」卡，
-    // 3 个辅助孔属于卡片本身（save.sockets[G.BASIC_CARD]），换别的远程武器时宝石不动，只按当前普攻的标签生效。
+    // 右键固定是手里这把武器的普攻（basic: true，id 为 basic_<武器类型>；近战 / 施法 / 魂幡 / 空手的见下面一节）：不掉落、不进技能栏，技能页上是一张「武器普攻」卡，
+    // 3 个辅助孔属于卡片本身（save.sockets[G.BASIC_CARD]），换武器时宝石不动，只按当前普攻的标签生效。
     // 普攻按武器伤害 × wm 成长（等级 = 宝石的成长下限），出手节奏乘武器攻速与出手速度，不消耗魔力。
     // time：两发之间的秒数（机炮是转满之后的最快间隔；喷枪是两跳之间）；draw：弓第一箭的拉弓时间；
     // heat：枪械每秒开火增加的热度（左轮按发：heatShot），见 G.RANGED。conv：伤害转换（{ 元素: 比例 }，'rune' = 符文弓按元素加成取元素）
@@ -345,6 +333,93 @@
       wm: 1.1, time: 0.42, mana: 0, cd: 0, draw: 0.13, speed: 34, projR: 0.24, range: 22, spark: { n: 2, r: 6, mult: 0.35 },
       move: 0.6, w: 0, kb: 0.3, poise: 7,
       desc: '右键射箭：每支箭命中后迸出冰晶，在附近的敌人之间连跳 2 次，造成冰霜伤害。命中积攒专注。',
+    },
+
+    // ---------- 武器普攻（近战 / 施法 / 召唤 / 空手）：每种武器的右键 ----------
+    // 和枪械、弓一样：右键固定是手里这把武器的普攻（id 为 basic_<武器类型>，空手是 basic_fists），不耗魔力、不掉落、不占技能栏，
+    // 辅助宝石镶在同一张「武器普攻」卡上（按这招的标签生效）。btype：对应的武器类型（'fists' = 空手）。
+    // 近战的普攻是连招（combo，机制和原来裂石击的三段连击是同一套）：按住右键或连点接下一段，停手约 0.55 秒（收招之后）、翻滚或放别的技能就从头再来。
+    //   每段的字段同原来的裂石击：clip 动作、time 多久之后能接下一段、hit 命中时刻、tail 收招、mult 倍率、lunge 踏步、stop 顿帧、w 分量；
+    //   shape：'arc' 扇形（range / arc / dir）、'smash' 身前砸地的圆（reach / range）、'line' 身前一条直线（len 长、width 宽）；
+    //   dash：这一段命中时朝准星冲过 dash 米（撞墙截断），冲过的整条路都算 line 的范围；cross：扇形画成交叉的两道；
+    //   wave：砸地之后再荡开的一圈冲击波（r 半径、mult 倍率，已经被砸到的不再吃）。
+    //   time（整招的平均段长）、comboAvg / comboStop 在下面统一算。单体秒伤定在同一把武器配原来裂石击的 0.8 倍左右（四种近战武器按武器秒伤对齐到 ±1%；刃的连招和旋风斩单体持平），
+    //   不比各流派的主力技能强（旋风斩持平、影步连斩略低），打怪群更差：是不耗魔力的稳定输出，不是主力
+    basic_blade: {
+      name: '挥斩', icon: '斩', color: '#e6dfd0', tags: ['attack', 'melee', 'area', 'phys'], kind: 'melee', btype: 'blade', weaponOnly: true, basic: true,
+      wm: 0.97, mana: 0, cd: 0, range: 3.4, arc: 120,
+      combo: [
+        { clip: 'attack1', time: 0.34, hit: 0.15, tail: 0.14, mult: 0.85, shape: 'arc', range: 3.3, arc: 120, dir: 1, lunge: 0.6, kb: 0.5, poise: 12, stop: 30, w: 0 },
+        { clip: 'attack2', time: 0.34, hit: 0.15, tail: 0.14, mult: 0.9, shape: 'arc', range: 3.4, arc: 120, dir: -1, lunge: 0.6, kb: 0.6, poise: 14, stop: 35, w: 0 },
+        { clip: 'b_thrust', time: 0.54, hit: 0.22, tail: 0.22, mult: 1.85, shape: 'line', len: 4.6, width: 1.4, lunge: 1.2, kb: 2.0, poise: 30, stop: 80, w: 2 },
+      ],
+      desc: '右键连招：横斩、回斩，第三下是弓步突刺的终结——贯穿身前一条直线，伤害最高并把敌人顶飞。不消耗魔力。',
+    },
+    basic_daggers: {
+      name: '连刺', icon: '刺', color: '#bdb6ff', tags: ['attack', 'melee', 'area', 'phys'], kind: 'melee', btype: 'daggers', weaponOnly: true, basic: true,
+      wm: 0.85, mana: 0, cd: 0, range: 2.8, arc: 60,
+      combo: [
+        { clip: 'b_stabR', time: 0.2, hit: 0.08, tail: 0.1, mult: 0.6, shape: 'line', len: 2.8, width: 1.1, lunge: 0.35, kb: 0.2, poise: 6, stop: 18, w: 0 },
+        { clip: 'b_stabL', time: 0.2, hit: 0.08, tail: 0.1, mult: 0.6, shape: 'line', len: 2.8, width: 1.1, lunge: 0.35, kb: 0.2, poise: 6, stop: 18, w: 0 },
+        { clip: 'b_stabR', time: 0.22, hit: 0.08, tail: 0.1, mult: 0.7, shape: 'line', len: 2.9, width: 1.1, lunge: 0.4, kb: 0.25, poise: 7, stop: 20, w: 0 },
+        { clip: 'b_cross', time: 0.42, hit: 0.17, tail: 0.2, mult: 1.6, shape: 'arc', range: 3.0, arc: 170, dir: 1, cross: true, lunge: 0.6, kb: 1.2, poise: 22, stop: 70, w: 2 },
+      ],
+      desc: '右键连招：左右手交替快刺三下，第四下双匕交叉横斩的终结，扫开身前一大片。出手极快，不消耗魔力。',
+    },
+    basic_hammer: {
+      name: '重击', icon: '锤', color: '#d8b07a', tags: ['attack', 'melee', 'area', 'phys'], kind: 'melee', btype: 'hammer', weaponOnly: true, basic: true,
+      wm: 1.19, mana: 0, cd: 0, range: 3.6, arc: 140,
+      combo: [
+        { clip: 'attack1', time: 0.52, hit: 0.26, tail: 0.2, mult: 1.0, shape: 'arc', range: 3.6, arc: 140, dir: 1, lunge: 0.5, kb: 1.0, poise: 22, stop: 55, w: 1 },
+        { clip: 'attack2', time: 0.52, hit: 0.26, tail: 0.2, mult: 1.1, shape: 'arc', range: 3.6, arc: 140, dir: -1, lunge: 0.5, kb: 1.1, poise: 24, stop: 60, w: 1 },
+        { clip: 'b_slam', time: 0.78, hit: 0.38, tail: 0.3, mult: 2.2, shape: 'smash', range: 2.4, reach: 2.0, lunge: 0.8, kb: 2.6, poise: 55, stop: 110, w: 2,
+          wave: { r: 4.4, mult: 0.6, kb: 1.6, poise: 20 } },
+      ],
+      desc: '右键连招：两记沉重的抡锤，第三下把锤砸进地里的终结——砸中的敌人吃满伤害，再荡开一圈冲击波。出手慢，每一下都削大量架势。不消耗魔力。',
+    },
+    basic_katana: {
+      name: '拔刀', icon: '拔', color: '#e8f0ff', tags: ['attack', 'melee', 'area', 'phys', 'movement'], kind: 'melee', btype: 'katana', weaponOnly: true, basic: true,
+      wm: 0.95, mana: 0, cd: 0, range: 3.3, arc: 120,
+      combo: [
+        { clip: 'b_iai', time: 0.3, hit: 0.1, tail: 0.14, mult: 0.95, shape: 'arc', range: 3.3, arc: 120, dir: -1, lunge: 0.4, kb: 0.4, poise: 12, stop: 35, w: 0 },
+        { clip: 'attack1', time: 0.32, hit: 0.14, tail: 0.14, mult: 0.85, shape: 'arc', range: 3.2, arc: 110, dir: 1, lunge: 0.4, kb: 0.5, poise: 12, stop: 35, w: 0 },
+        { clip: 'flicker', time: 0.5, hit: 0.14, tail: 0.26, mult: 1.8, shape: 'line', dash: 3.5, len: 0, width: 1.3, lunge: 0, kb: 0.8, poise: 28, stop: 85, w: 2 },
+      ],
+      desc: '右键连招：一记出鞘的横斩、反手回刀，第三下朝准星踏出 3.5 米的冲斩终结，沿途的敌人都被斩到。不消耗魔力。',
+    },
+    basic_fists: {
+      name: '拳击', icon: '拳', color: '#f0d6b8', tags: ['attack', 'melee', 'phys'], kind: 'melee', btype: 'fists', weaponOnly: true, basic: true,
+      wm: 0.87, mana: 0, cd: 0, range: 2.4, arc: 80,
+      combo: [
+        { clip: 'b_jabL', time: 0.24, hit: 0.09, tail: 0.12, mult: 0.8, shape: 'arc', range: 2.4, arc: 70, dir: 1, lunge: 0.3, kb: 0.3, poise: 6, stop: 22, w: 0 },
+        { clip: 'b_jabR', time: 0.24, hit: 0.09, tail: 0.12, mult: 0.8, shape: 'arc', range: 2.4, arc: 70, dir: -1, lunge: 0.3, kb: 0.3, poise: 6, stop: 22, w: 0 },
+        { clip: 'b_hook', time: 0.46, hit: 0.2, tail: 0.22, mult: 1.9, shape: 'arc', range: 2.6, arc: 100, dir: 1, lunge: 0.7, kb: 2.0, poise: 24, stop: 80, w: 2 },
+      ],
+      desc: '空手时的右键连招：左右两记刺拳，接一记把敌人打飞的重拳。不消耗魔力。',
+    },
+    // 施法武器的普攻：法术（spell），不看武器伤害。edmg 是基础伤害，等级 = 武器物品等级 × 0.75（和法术型武器技一样），每级 +20%；
+    // 元素取你火 / 冰 / 雷里伤害加成最高的那一种（并列时取 elem；不取混沌），吃法术的伤害提高、施法速度和镶着的法术辅助。
+    // 单体秒伤约是同等级掷焰的六成：一直按着不耗蓝，打不过主力技能
+    // vk：投射物外形（world 的 PF_DRAW）；bclip：出手动作（施法 / 魂幡的普攻共用一个朝前点出的 b_point）
+    basic_staff: {
+      name: '灵弹', icon: '弹', color: '#ffb07a', tags: ['spell', 'projectile', 'area'], kind: 'proj', btype: 'staff', weaponOnly: true, basic: true, elemHex: true, vk: 'lbolt', bclip: 'b_point',
+      edmg: [8, 12], elem: 'fire', time: 0.55, mana: 0, cd: 0, speed: 20, explode: 1.6, projR: 0.3, w: 0, kb: 0.5, poise: 9,
+      desc: '右键从杖头射出一枚灵弹，命中后小范围炸开。属性取你伤害加成最高的元素，伤害随武器的物品等级成长。不消耗魔力。',
+    },
+    basic_wand: {
+      name: '疾咒', icon: '咒', color: '#c9b4ff', tags: ['spell', 'chaining'], kind: 'chain', btype: 'wand', weaponOnly: true, basic: true, elemHex: true, bclip: 'b_point',
+      edmg: [5, 8.5], elem: 'light', time: 0.34, mana: 0, cd: 0, chain: 1, range: 14, w: 0, kb: 0.2, poise: 5,
+      desc: '右键朝准星附近的敌人甩出一道咒光，再弹向旁边的一个敌人。出手很快，属性取你伤害加成最高的元素。不消耗魔力。',
+    },
+    // 魂幡的普攻：asMinion（同魂潮）——伤害按召唤物算，只吃召唤物伤害加成和镶着的召唤物辅助，等级 = 武器物品等级 × 0.75。
+    // 放出一缕魂灵扑向准星附近（seek 以内）的敌人，碰到就炸开（explode），并把那个敌人标成集火目标（召唤物优先去打它）。
+    // perMinion：你每有一只活着的召唤物，这一下的伤害提高这么多（最多 maxMinion 只）；没有召唤物时照样能打
+    basic_banner: {
+      name: '魂引', icon: '引', color: '#4fe3c8', tags: ['spell', 'minion', 'projectile'], kind: 'bspirit', btype: 'banner', weaponOnly: true, basic: true, asMinion: true, bclip: 'b_point',
+      dmg: { phys: [11, 15] }, time: 0.5, mana: 0, cd: 0, speed: 15, projR: 0.3, life: 1.4, range: 15, seek: 5, turn: 11, explode: 1.6,
+      perMinion: 8, maxMinion: 5, w: 0, kb: 0.4, poise: 6,
+      noSup: ['ossify', 'horde', 'frenzy'], // 只作用于召唤物本身（生命、数量、速度）的辅助对这一缕魂灵没用，不让镶
+      desc: '右键挥幡放出一缕魂灵，扑向准星附近的敌人、碰到即炸开，并让你的召唤物集火它。伤害按召唤物计算（吃召唤物伤害加成），你每有一只召唤物再提高 8%（最多 5 只）。没有召唤物时也能用。不消耗魔力。',
     },
 
     // R（量表技）：rgauge 为 true——没有冷却、不扣魔力，量表满了才能放，放出去量表清零。枪械的三招按武器伤害成长（吃「热度技伤害」），
@@ -497,6 +572,7 @@
     if (sk.combo) {
       sk.comboAvg = sk.combo.reduce((s, c) => s + c.mult, 0) / sk.combo.length; // 连击三段的平均倍率
       sk.comboStop = sk.combo.reduce((s, c) => s + c.stop, 0) / sk.combo.length; // 三段平均的顿帧毫秒数
+      if (sk.basic) sk.time = sk.combo.reduce((s, c) => s + c.time, 0) / sk.combo.length; // 武器普攻的连招：平均段长（秒伤估算用）
     }
   }
 
