@@ -832,7 +832,7 @@
     if (dist(b.x, b.z, P.x, P.z) < 16) G.sfx('impact', { type: 'fire', w: 0, crit: false });
     // 刻式「焰田」：落地留一片火地（祭司的火地都记着 pyre，燎原时一齐引爆）
     const F = b.ctx.minion.mech === 'field' ? b.ctx.minion.vx : null;
-    if (F && G.vField) G.vField({ kind: 'burn', x: b.x, z: b.z, r: F.r * Math.sqrt(b.ctx.area), dur: F.dur, tick: F.tick, mult: F.mult, ctx: b.ctx, key: 'vPyreT', hex: 0xff9a4a, pyre: true, minion: m && !m.dead ? m : null });
+    if (F && G.vField) G.vField({ kind: 'burn', x: b.x, z: b.z, r: F.r * Math.sqrt(b.ctx.area), dur: F.dur, tick: F.tick, mult: F.mult, ctx: b.ctx, key: 'vPyreT', hex: 0xff9a4a, pyre: true, minion: m && !m.dead ? m : null, noDecal: true });
     // 焰蓄：每炸到一个敌人 +1（一弹最多 per 点）；祭司已经倒下就不算了
     if (n && m && !m.dead && m.ctx.minion.charge) {
       m.charge = Math.min(m.ctx.minion.charge.max, m.charge + Math.min(b.per, n) * (m.ctx.minion.chargeK || 1));
@@ -1116,7 +1116,6 @@
     W.ring(m.x, m.z, R, 0xe8e0c8, 0.3);
     W.burst(m.x, 0.9, m.z, 0xe8e0c8, 18, 6, 0.45);
     W.burst(m.x, 0.6, m.z, ALLY_HEX, 8, 3, 0.4);
-    W.decal(4, m.x, m.z, 0.9, Math.random() * TAU, 0xd8d0b8, B.back + 0.4);
     boneQ.push({ sk: m.skill, x: m.x, z: m.z, t: B.back });
     S.stats.vBoneBursts = (S.stats.vBoneBursts || 0) + 1;
     S.stats.vBoneHits = (S.stats.vBoneHits || 0) + n;

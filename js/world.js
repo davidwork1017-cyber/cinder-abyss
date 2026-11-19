@@ -21431,14 +21431,14 @@
       flare(_rs2.x, _rs2.y, _rs2.z, kind === 'emberarrow' ? 0x3a9cff : u.tinted ? u.hex : 0xfff0d0, kind === 'emberarrow' ? 0.3 : 0.5, 0.06);
     }
   }
-  // 地上一片燃烧的余烬
-  W.emberGround = function (x, z, r, dur, big) {
+  // 地上一片燃烧的余烬（noDecal：不垫焦痕贴花——刻式「跳焰 / 犁焰 / 焰田」一次铺好几片，每片贴花各占一次 draw call，只留实例化的火）
+  W.emberGround = function (x, z, r, dur, big, noDecal) {
     RF.groundAt = wtime;
     if (RF.fires.length >= 28) RF.fires.shift();
     r = Math.max(0.4, r || 1);
     dur = dur || 3;
     RF.fires.push({ x, z, r, t: 0, dur, seed: rand(0, 100), acc: 0, big: !!big });
-    W.decal(1, x, z, r * 1.05, rand(0, TAU), 0x2a1408, dur + 1.2);
+    if (!noDecal) W.decal(1, x, z, r * 1.05, rand(0, TAU), 0x2a1408, dur + 1.2);
   };
   // 焚天炎爆：脚下炸开一圈火浪，往外推开的火团 + 地上留一大片火
   W.fireNova = function (x, z, R) {
