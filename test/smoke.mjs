@@ -7626,6 +7626,8 @@ async function main() {
     const L1 = lv.first + lv.step, L9 = lv.last + lv.step;
     // 先进区域再断言：断言失败时不把地图面板留在那里，连累后面的步骤
     if (m.enter >= 1) await page.click('[data-act="enter"][data-zone="0"]');
+    // 渊印（D3）：层级 ≥ 1 点「进入」先弹择印面板，这里选第一张「素印」（没有任何词缀，下面的断言照旧）
+    if (await ev(() => !!document.querySelector('.seal-pick'))) await page.keyboard.press('Digit1');
     assert(new RegExp('怪物等级\\s*' + L1).test(m.txt) && new RegExp('怪物等级\\s*' + L9).test(m.txt), '层级 1 的地图没有显示怪物等级 ' + L1 + ' … ' + L9);
     assert(lv.first + lv.step > lv.last, '轮回层级 1 的首区（' + (lv.first + lv.step) + '）不应比层级 0 的末区（' + lv.last + '）低');
     assert(m.enter === 1 && m.locked === lv.n - 1, '层级 1 应只解锁第一个区域');

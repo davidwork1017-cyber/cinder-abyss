@@ -1213,23 +1213,25 @@
   // ---------- 渊印（区域词缀，轮回层级 ≥ 1） ----------
   // 进区前三选一（浅印 / 深印 / 烬印）外加素印；每枚印 2–4 条印纹。w：权重，一枚印的生效权重 W 每点给数量 / 稀有度 / 经验
   // （G.SEAL.perW，各有上限 cap）；dmgK：这条印纹对「玩家每秒受到的伤害」的估算倍率，只用来算危险预算，不进战斗公式。
+  // dmgK 按 D3 的清图 bot 实测校过（层级 1，单条印纹的 3 s 受伤峰值 ÷ 素印，只往上调、不往下调）：设计稿的估算里
+  // 厚躯 1.0 → 1.15、领群 1.1 → 1.2、殁爆 1.08 → 1.15、疾躁 / 焚染 1.12 → 1.2、群首 1.05 → 1.1、警觉 1.05 → 1.08、回生 1.0 → 1.03
   // side：mob 怪物侧 / player 玩家侧；glyph：HUD 小签上的单字；need：技能栏上没有这类技能时这条的权重按 0 算（面板写「对你无效」）；
   // rage：同一枚印里这一组至多 2 条；p：效果的数值（game.js / enemies.js 的「渊印」各处读这里）
   G.SEAL_MODS = {
     // 焚染 / 霜染 / 雷染：怪物每一击另带 frac 倍伤害的该元素伤害（吃抗性）；元素取本区元素以外的一种，存在印纹的 el 上
-    tint: { name: '染', side: 'mob', w: 1, dmgK: 1.12, p: { frac: 0.3 } },
-    haste: { name: '疾躁', glyph: '躁', side: 'mob', w: 2, dmgK: 1.12, rage: true, p: { speed: 0.2, cd: 0.15 } }, // 起手和预警时长不变
-    elites: { name: '群首', glyph: '首', side: 'mob', w: 2, dmgK: 1.05, p: { chance: 0.7, cap: 8 } }, // 关键路径房间精英几率 45% → chance，全区上限 6 → cap
+    tint: { name: '染', side: 'mob', w: 1, dmgK: 1.2, p: { frac: 0.3 } },
+    haste: { name: '疾躁', glyph: '躁', side: 'mob', w: 2, dmgK: 1.2, rage: true, p: { speed: 0.2, cd: 0.15 } }, // 起手和预警时长不变
+    elites: { name: '群首', glyph: '首', side: 'mob', w: 2, dmgK: 1.1, p: { chance: 0.7, cap: 8 } }, // 关键路径房间精英几率 45% → chance，全区上限 6 → cap
     // 殁爆：普通怪死后 delay 秒在尸体处炸开（半径 r，伤害 = 它一击的 k 倍），精英用 eDelay / eR；场上最多 max 个
-    burst: { name: '殁爆', glyph: '殁', side: 'mob', w: 2, dmgK: 1.08, p: { delay: 0.9, r: 1.8, eDelay: 1.1, eR: 2.6, k: 0.7, max: 8 } },
+    burst: { name: '殁爆', glyph: '殁', side: 'mob', w: 2, dmgK: 1.15, p: { delay: 0.9, r: 1.8, eDelay: 1.1, eR: 2.6, k: 0.7, max: 8 } },
     ailRes: { name: '坚蜕', glyph: '蜕', side: 'mob', w: 2, dmgK: 1.0, p: { th: 1.6, chillCap: 0.7, dur: 0.75 } }, // 首领只吃异常阈值
     // 领群：每群一只领群者，r 米内同群的怪伤害 +dmg、受到的伤害 −dr；领群者经验 × xp
-    aura: { name: '领群', glyph: '领', side: 'mob', w: 2, dmgK: 1.1, p: { r: 6, dmg: 0.2, dr: 0.15, xp: 2 } },
-    tough: { name: '厚躯', glyph: '厚', side: 'mob', w: 2, dmgK: 1.0, p: { hp: 0.35, boss: 0.2 } },
+    aura: { name: '领群', glyph: '领', side: 'mob', w: 2, dmgK: 1.2, p: { r: 6, dmg: 0.2, dr: 0.15, xp: 2 } },
+    tough: { name: '厚躯', glyph: '厚', side: 'mob', w: 2, dmgK: 1.15, p: { hp: 0.35, boss: 0.2 } },
     fierce: { name: '凶戾', glyph: '戾', side: 'mob', w: 2, dmgK: 1.2, rage: true, p: { dmg: 0.2, boss: 0.15 } },
     volley: { name: '连发', glyph: '连', side: 'mob', w: 1, dmgK: 1.05, p: { n: 2, spread: 14, speed: 0.15 } }, // spread：两发的夹角（度）
-    mend: { name: '回生', glyph: '生', side: 'mob', w: 1, dmgK: 1.0, p: { idle: 3, rate: 0.02, boss: 0.005 } },
-    alert: { name: '警觉', glyph: '觉', side: 'mob', w: 2, dmgK: 1.05, p: { wake: 16, call: 1.5 } },
+    mend: { name: '回生', glyph: '生', side: 'mob', w: 1, dmgK: 1.03, p: { idle: 3, rate: 0.02, boss: 0.005 } },
+    alert: { name: '警觉', glyph: '觉', side: 'mob', w: 2, dmgK: 1.08, p: { wake: 16, call: 1.5 } },
     frenzy: { name: '濒狂', glyph: '狂', side: 'mob', w: 1, dmgK: 1.05, rage: true, p: { th: 0.3, speed: 0.3, dmg: 0.15 } },
     escort: { name: '侍从', glyph: '从', side: 'mob', w: 2, dmgK: 1.08, p: { n: 2, at: 0.5 } },
     cinder: { name: '余烬地', glyph: '烬', side: 'mob', w: 1, dmgK: 1.03, p: { chance: 0.25, t: 3, r: 1.4, max: 6 } },
