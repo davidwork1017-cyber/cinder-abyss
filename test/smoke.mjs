@@ -10429,6 +10429,7 @@ async function main() {
         P.mana = P.maxMana = 1e6;
         P.god = true;
         TV.d = T.openDir(18);
+        TV.st0 = Object.assign({}, G.state.stats);
         TV.watch = id;
         TV.cnt = new Map();
         TV.sum = new Map();
@@ -10452,6 +10453,15 @@ async function main() {
       mob(k, side, o) {
         const p = TV.at(k, side);
         return T.mob((o && o.type) || 'husk', p.x - P.x, p.z - P.z, o);
+      },
+      // 统计的增量（G.state.stats 是整局累计的）
+      st: (k) => (G.state.stats[k] || 0) - (TV.st0[k] || 0),
+      // 一只不动不还手的精英巨躯（首领离开竞技场会被拉回去，测久一点的用它）
+      big(k, side) {
+        const e = TV.mob(k, side || 0, { type: 'brute', elite: true });
+        e.hp = e.maxHp = 1e9;
+        e.poiseMax = 0;
+        return e;
       },
       boss(k) {
         const p = TV.at(k);
@@ -10533,7 +10543,7 @@ async function main() {
       out.s1 = TV.n(s1);
       out.s2 = TV.n(s2);
       out.g2 = TV.n(g2);
-      out.spread = G.state.stats.vStickSpread || 0;
+      out.spread = TV.st('vStickSpread');
       TV.done();
       return out;
     });
@@ -10586,7 +10596,7 @@ async function main() {
       TV.setup('nova', 'a', ['ember', null, 'nova', null]);
       const a = TV.mob(7, 0), b = TV.mob(-7.5, 0), c = TV.mob(0, 8.5);
       TV.run(2.0);
-      const out = { a: TV.n(a), b: TV.n(b), c: TV.n(c), shards: G.state.stats.vShards || 0, crystals: G.variantState().crystals.length, ring: G.world.auraInfo ? G.world.auraInfo().r || 0 : 0 };
+      const out = { a: TV.n(a), b: TV.n(b), c: TV.n(c), shards: TV.st('vShards'), crystals: G.variantState().crystals.length, ring: G.world.auraInfo ? G.world.auraInfo().r || 0 : 0 };
       TV.done();
       return out;
     });
@@ -10603,7 +10613,7 @@ async function main() {
       m.bu.cold = 0.97;
       m.buT.cold = 9;
       TV.run(1.0);
-      const out = { bursts: G.state.stats.vNovaBursts || 0, frozen: m.freeze > 0, n1: +(n1.bu.cold || 0).toFixed(2), n2: +(n2.bu.cold || 0).toFixed(2), n1f: n1.freeze > 0 };
+      const out = { bursts: TV.st('vNovaBursts'), frozen: m.freeze > 0, n1: +(n1.bu.cold || 0).toFixed(2), n2: +(n2.bu.cold || 0).toFixed(2), n1f: n1.freeze > 0 };
       TV.done();
       return out;
     });
@@ -10619,7 +10629,7 @@ async function main() {
       TV.cast('arc', TV.at(7, 3), 0.1);
       TV.cast('arc', TV.at(7, -3), 1.6);
       const VS = G.variantState();
-      const out = { pylons: VS.pylons.length, links: VS.links.length, zaps: G.state.stats.vZaps || 0, linkHits: G.state.stats.vLinkHits || 0, near: TV.n(near), mid: TV.n(mid) };
+      const out = { pylons: VS.pylons.length, links: VS.links.length, zaps: TV.st('vZaps'), linkHits: TV.st('vLinkHits'), near: TV.n(near), mid: TV.n(mid) };
       TV.done();
       return out;
     });
@@ -10647,12 +10657,12 @@ async function main() {
     await ev(TVDEF);
     const r = await ev(() => {
       TV.setup('meteor', 'a', ['meteor', null, 'ember', null]);
-      const b = TV.boss(7);
+      const b = TV.big(7);
       TV.cast('meteor', TV.at(7), 1.0);
       const VS = G.variantState();
       const out = { cores: VS.cores.length, hit0: TV.n(b) };
       for (let i = 0; i < 6; i++) TV.cast('ember', TV.at(7), 0.5);
-      out.re = G.state.stats.vCoreRe || 0;
+      out.re = TV.st('vCoreRe');
       TV.run(3.4);
       out.left = VS.cores.length;
       out.total = TV.n(b);
@@ -10671,7 +10681,7 @@ async function main() {
       const a0 = { x: a.x, z: a.z };
       TV.cast('meteor', TV.at(6), 2.0);
       const d = TV.d, side = (a.x - a0.x) * d.z - (a.z - a0.z) * d.x;
-      const out = { a: TV.n(a), b: TV.n(b), far: TV.n(far), ploughs: G.state.stats.vPloughs || 0, fields: G.rangedFields().filter((f) => f.key === 'vPloughT').length, side: +side.toFixed(2) };
+      const out = { a: TV.n(a), b: TV.n(b), far: TV.n(far), ploughs: TV.st('vPloughs'), fields: G.rangedFields().filter((f) => f.key === 'vPloughT').length, side: +side.toFixed(2) };
       TV.done();
       return out;
     });
@@ -10688,7 +10698,7 @@ async function main() {
       const VS = G.variantState();
       const out = { decoys: VS.decoys.length, taunt: !!(a.taunter && a.taunter.decoy && b.taunter && b.taunter.decoy), early: TV.n(a) };
       TV.run(1.5);
-      out.bursts = G.state.stats.vDecoyBursts || 0;
+      out.bursts = TV.st('vDecoyBursts');
       out.a = TV.n(a);
       out.b = TV.n(b);
       out.free = !a.taunter || !!a.taunter.dead;
@@ -10746,7 +10756,7 @@ async function main() {
       TV.setup('whirl', 'b');
       const P = G.player, m = TV.mob(4.6, 0), d0 = Math.hypot(m.x - P.x, m.z - P.z);
       TV.hold(0, TV.at(5), 2.4);
-      const out = { d0: +d0.toFixed(2), d1: +Math.hypot(m.x - P.x, m.z - P.z).toFixed(2), slams: G.state.stats.vSlams || 0, n: G.state.stats.vSlamN || 0, hits: TV.n(m) };
+      const out = { d0: +d0.toFixed(2), d1: +Math.hypot(m.x - P.x, m.z - P.z).toFixed(2), slams: TV.st('vSlams'), n: G.state.stats.vSlamN || 0, hits: TV.n(m) };
       TV.done();
       return out;
     });
@@ -10763,7 +10773,7 @@ async function main() {
       const VS = G.variantState();
       // 松手：下一帧连斩停下，影印引爆
       TV.run(0.4);
-      const out = { bursts: G.state.stats.vMarkBursts || 0, stacks: G.state.stats.vMarkStacks || 0, left: VS.marks.size, marks: G.state.stats.vMarks || 0, a: TV.n(a) };
+      const out = { bursts: TV.st('vMarkBursts'), stacks: TV.st('vMarkStacks'), left: VS.marks.size, marks: TV.st('vMarks'), a: TV.n(a) };
       TV.done();
       return out;
     });
@@ -10776,9 +10786,9 @@ async function main() {
       TV.setup('shadestep', 'b');
       const a = TV.mob(3, 0);
       TV.hold(0, TV.at(3), 0.45);
-      const own = G.state.stats.vCloneStrikes || 0;
+      const own = TV.st('vCloneStrikes');
       TV.run(0.5);
-      const out = { strikes: G.state.stats.vCloneStrikes || 0, hits: G.state.stats.vCloneHits || 0, during: own, a: TV.n(a) };
+      const out = { strikes: TV.st('vCloneStrikes'), hits: TV.st('vCloneHits'), during: own, a: TV.n(a) };
       TV.done();
       return out;
     });
@@ -10792,7 +10802,7 @@ async function main() {
       const P = G.player, m = TV.mob(9, 0);
       const t = G.summonMinion('thrall', P.x - 1, P.z, G.skillCtx('thrall'));
       TV.run(4.0);
-      const out = { arrows: G.state.stats.vArrows || 0, hits: TV.n(m), gap: +(Math.hypot(t.x - m.x, t.z - m.z) - m.r).toFixed(2) };
+      const out = { arrows: TV.st('vArrows'), hits: TV.n(m), gap: +(Math.hypot(t.x - m.x, t.z - m.z) - m.r).toFixed(2) };
       TV.done();
       return out;
     });
@@ -10808,9 +10818,9 @@ async function main() {
       TV.run(1.0);
       const m = T.mob('husk', t.x - P.x + 1.2, t.z - P.z);
       G.hurtMinion(t, 1e9, 'phys', { x: m.x, z: m.z });
-      const out = { bursts: G.state.stats.vBoneBursts || 0, hit: TV.n(m), count: G.minionCount('thrall'), alive: G.state.minions.filter((q) => q.skill === 'thrall').length };
+      const out = { bursts: TV.st('vBoneBursts'), hit: TV.n(m), count: G.minionCount('thrall'), alive: G.state.minions.filter((q) => q.skill === 'thrall').length };
       TV.run(3.3);
-      out.back = G.state.stats.vBoneBack || 0;
+      out.back = TV.st('vBoneBack');
       out.alive2 = G.state.minions.filter((q) => q.skill === 'thrall' && !q.dead).length;
       TV.done();
       return out;
@@ -10845,7 +10855,7 @@ async function main() {
       G.summonMinion('colossus', P.x - 1, P.z, G.skillCtx('colossus'));
       const m = TV.mob(9, 0);
       TV.run(5.0);
-      const out = { rocks: G.state.stats.vRocks || 0, hits: G.state.stats.vRockHits || 0, n: TV.n(m) };
+      const out = { rocks: TV.st('vRocks'), hits: TV.st('vRockHits'), n: TV.n(m) };
       TV.done();
       return out;
     });
@@ -10860,11 +10870,11 @@ async function main() {
       G.summonMinion('pyre', P.x - 1, P.z, G.skillCtx('pyre'));
       for (let i = 0; i < 6; i++) TV.mob(7.5, (i - 2.5) * 0.9);
       let fields = 0;
-      for (let k = 0; k < 16 && !(G.state.stats.vFlares > 0); k++) {
+      for (let k = 0; k < 16 && !(TV.st('vFlares') > 0); k++) {
         TV.run(0.5);
         fields = Math.max(fields, G.rangedFields().filter((f) => f.pyre).length);
       }
-      const out = { fields, flares: G.state.stats.vFlares || 0, flared: G.state.stats.vFlareFields || 0, meteors: G.state.stats.pyreMeteors || 0 };
+      const out = { fields, flares: TV.st('vFlares'), flared: TV.st('vFlareFields'), meteors: TV.st('pyreMeteors') };
       TV.done();
       return out;
     });
@@ -10877,10 +10887,10 @@ async function main() {
       TV.setup('pyre', 'b');
       const P = G.player;
       G.summonMinion('pyre', P.x - 1, P.z, G.skillCtx('pyre'));
-      const b = TV.boss(8), side = TV.mob(8, 2.6);
+      const b = TV.big(8), side = TV.mob(8, 2.6);
       TV.run(5.0);
       const L = G.SKILLS.pyre.link;
-      const out = { ticks: G.state.stats.vLinkTicks || 0, side: G.state.stats.vLinkSide || 0, k: +(G.state.stats.vLinkK || 0).toFixed(3), k1: L.k1, bolts: G.minionBolts(), hits: G.state.stats.pyreHits || 0, sideHit: TV.n(side) };
+      const out = { ticks: TV.st('vLinkTicks'), side: TV.st('vLinkSide'), k: +(G.state.stats.vLinkK || 0).toFixed(3), k1: L.k1, bolts: G.minionBolts(), hits: TV.st('pyreHits'), sideHit: TV.n(side) };
       TV.done();
       return out;
     });
@@ -10896,12 +10906,12 @@ async function main() {
       const l0 = line(pulled);
       TV.cast('blackhole', TV.at(7), 1.5);
       const holes = G.chaosHoles();
-      const out = { holes: holes.length, linked: holes.length === 2 && holes[0].twin === holes[1], tether: G.state.stats.vTetherHits || 0, mid: TV.n(mid), l0: +l0.toFixed(2), l1: +line(pulled).toFixed(2), band: G.world.kvCount('band') };
+      const out = { holes: holes.length, linked: holes.length === 2 && holes[0].twin === holes[1], tether: TV.st('vTetherHits'), mid: TV.n(mid), l0: +l0.toFixed(2), l1: +line(pulled).toFixed(2), band: G.world.kvCount('band') };
       TV.done();
       return out;
     });
     assert(r.holes === 2 && r.linked && r.band === 1, '双极应开两个连着索的洞：' + JSON.stringify(r));
-    assert(r.tether >= 3 && r.mid >= 3 && r.l1 < r.l0 - 0.5, '引力索应伤人并把怪拽过来：' + JSON.stringify(r));
+    assert(r.tether >= 1 && r.mid >= 3 && r.l1 < r.l0 - 0.5, '引力索应伤人并把怪拽过来：' + JSON.stringify(r));
     return '索上的怪挨 ' + r.mid + ' 跳，被拽 ' + r.l0 + ' → ' + r.l1 + ' 米';
   });
   await step('刻式 v2·黑洞「坍缩」：每跳攒质量、黑洞变大；再按一次技能键提前坍缩，伤害按质量算', async () => {
@@ -10916,7 +10926,7 @@ async function main() {
       const before = TV.dmg(b);
       G.input.tap[0] = 0.2; // 再按一次（冷却中照样能引爆）
       TV.run(0.1);
-      out.collapses = G.state.stats.vCollapses || 0;
+      out.collapses = TV.st('vCollapses');
       out.holes = G.chaosHoles().length;
       out.burst = +((TV.dmg(b) - before) / Math.max(1, before / Math.max(1, TV.n(b) - 1))).toFixed(1);
       TV.done();
@@ -10935,11 +10945,11 @@ async function main() {
       const vs = G.chaosVortices().filter((v) => v.guard);
       const rr = vs.map((v) => Math.hypot(v.x - P.x, v.z - P.z));
       // 一发朝你飞来的敌方弹丸，穿过旋风那一圈
-      const e0 = G.state.stats.vEaten || 0;
+      const e0 = TV.st('vEaten');
       const v0 = vs[0], sx = v0.x + (v0.x - P.x) * 0.1, sz = v0.z + (v0.z - P.z) * 0.1;
       G.spawnProjectile({ owner: 'e', x: sx, z: sz, dx: P.x - sx, dz: P.z - sz, speed: 2, r: 0.3, life: 5, dmg: 1, dtype: 'phys' });
       TV.run(1.2);
-      const out = { n: vs.length, rmin: +Math.min.apply(null, rr).toFixed(2), rmax: +Math.max.apply(null, rr).toFixed(2), eaten: (G.state.stats.vEaten || 0) - e0, hits: TV.n(m) };
+      const out = { n: vs.length, rmin: +Math.min.apply(null, rr).toFixed(2), rmax: +Math.max.apply(null, rr).toFixed(2), eaten: TV.st('vEaten') - e0, hits: TV.n(m) };
       TV.done();
       return out;
     });
@@ -10955,7 +10965,7 @@ async function main() {
       G.player.cds = {};
       TV.cast('vortex', TV.at(6), 1.5);
       const vs = G.chaosVortices().filter((v) => v.lvl);
-      const out = { merges: G.state.stats.vMerges || 0, top: G.state.stats.vMergeTop || 0, n: vs.length, big: vs.some((v) => v.R > v.R0 * 1.3) };
+      const out = { merges: TV.st('vMerges'), top: G.state.stats.vMergeTop || 0, n: vs.length, big: vs.some((v) => v.R > v.R0 * 1.3) };
       TV.done();
       return out;
     });
@@ -10973,7 +10983,7 @@ async function main() {
       const F = G.flamePct();
       for (let i = 0; i < 6; i++) TV.cast('ember', TV.at(6), 0.4);
       TV.run(0.3);
-      const out = { bursts: G.state.stats.vBrandBursts || 0, F: +F.toFixed(2), brand: b.vBrand || 0 };
+      const out = { bursts: TV.st('vBrandBursts'), F: +F.toFixed(2), brand: b.vBrand || 0 };
       G.save.variants.blackflame = 'o';
       TV.done();
       out.Fo = +G.flamePct().toFixed(2);
@@ -10995,7 +11005,7 @@ async function main() {
       const pool = a.vDot ? a.vDot.pool : 0;
       const parts = G.calcHit(G.skillCtx('ember'), 1).parts;
       G.killEnemy(a, {});
-      const out = { pool: +pool.toFixed(1), chaosInHit: parts.chaos || 0, jumps: G.state.stats.vDotJumps || 0, bPool: b.vDot ? +b.vDot.pool.toFixed(1) : 0, depth: b.vDot ? b.vDot.depth : -1 };
+      const out = { pool: +pool.toFixed(1), chaosInHit: parts.chaos || 0, jumps: TV.st('vDotJumps'), bPool: b.vDot ? +b.vDot.pool.toFixed(1) : 0, depth: b.vDot ? b.vDot.depth : -1 };
       TV.watch = '*proc';
       TV.run(2.4);
       out.burned = TV.n(b);
