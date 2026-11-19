@@ -3658,7 +3658,7 @@
 
   // 停下持续施放（松手、魔力不够、键位被换掉）：动作淡回站立 / 移动
   function endChannel() {
-    if (P.cast && P.cast.flicker && VS.marks.size) markBurst(); // 刻式「影印」：连斩停下时所有影印一齐引爆
+    if (P.cast && P.cast.flicker && VS.marks.size) shadeMarkBurst(); // 刻式「影印」：连斩停下时所有影印一齐引爆
     P.cast = null;
     P.spinning = false;
     if (G.world.clipOf(P.ent) === 'spin') G.world.stop(P.ent, 0.16);
@@ -5866,8 +5866,8 @@
     state.stats.vMarkPops = (state.stats.vMarkPops || 0) + 1;
     vCount();
   }
-  // 连斩停下：所有影印一齐引爆，每层 mark.mult 倍
-  function markBurst() {
+  // 连斩停下：所有影印一齐引爆，每层 mark.mult 倍（名字别和残刃的 markBurst(e) 撞上：同一个作用域里后声明的会顶掉前面的）
+  function shadeMarkBurst() {
     const W = G.world, ctx = G.skillCtx('shadestep'), M = ctx.sk.mark;
     let fx = 0, n = 0;
     for (const e of Array.from(VS.marks)) {
