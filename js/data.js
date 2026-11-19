@@ -1227,15 +1227,18 @@
   G.RELIC_IDS = Object.keys(G.RELICS).filter((id) => !G.RELICS[id].pinnacle);
   G.RELIC_PINNACLE = Object.keys(G.RELICS).filter((id) => G.RELICS[id].pinnacle);
   // 掉落来源：src 是各来源的总开关（boss 现在开；enc 异兆、seal 烈印等 D4 / D3 上线再开；trader 拾烬客的货架随 D4）。
-  // boss：每个区域首领一件、和烬铸分开掷，层级 1 为 chance[1]、层级 2 起 chance[2]，烈印（W ≥ 6）再 × sealMul；连续 pity 次没掉，下一次必掉（按渊契 id 计）
-  // enc：异兆成功才掷（层级 ≥ 1）；seal：烈印下击杀区域首领（陨织袍 / 渊缚链各半，按 'seal' 一起计保底）；trader：拾烬客货架（层级 ≥ 2）摆一件的几率
+  // boss：每个区域首领一件、和烬铸分开掷，几率和保底跟烬铸（G.UNIQUE_DROP）一样：层级 1 为 chance[1]（15%）、层级 2 起 chance[2]（25%），
+  //   烈印（W ≥ 6）再 × sealMul、最终几率不超过 sealCap（35%）；连续 pity（2）次没掉，下一次必掉（按渊契 id 计）
+  // enc：异兆成功才掷（层级 ≥ 1，15%、保底 3）；seal：烈印下击杀区域首领（10%、保底 3，陨织袍 / 渊缚链各半，按 'seal' 一起计保底）；trader：拾烬客货架（层级 ≥ 2）摆一件的几率
+  // 旧存档里攒下的保底计数读档时截到新的 pity（见 game.js 的 sanitize），超过的下一次就必掉
   G.RELIC_DROP = {
     src: { boss: true, enc: false, seal: false, trader: false },
-    boss: { chance: [0, 0.05, 0.08], pity: 10 },
-    enc: { chance: 0.1, pity: 8, minTier: 1 },
-    seal: { chance: 0.04, pity: 15, minW: 6, ids: ['zhuixing', 'yuanfu'] },
+    boss: { chance: [0, 0.15, 0.25], pity: 2 },
+    enc: { chance: 0.15, pity: 3, minTier: 1 },
+    seal: { chance: 0.1, pity: 3, minW: 6, ids: ['zhuixing', 'yuanfu'] },
     trader: { chance: 0.06, minTier: 2 },
     sealMul: 1.5,
+    sealCap: 0.35,
   };
   // 异兆的名字（图鉴里写来源用；D4 的 G.ENCOUNTERS 上线后以那边为准）
   G.RELIC_ENC_NAME = { guard: '守隙', wanderer: '游荡者', trial: '试锋', box: '缚匣', echo: '残影', ember: '落烬' };
