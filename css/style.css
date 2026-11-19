@@ -3235,6 +3235,7 @@ body.panel-open #coach { display: none; }
 .sk-bar i { display: block; height: 100%; background: linear-gradient(90deg, #c8742c, #ff3a22); }
 .sk-lie { position: absolute; right: 36px; top: 7px; padding: 1px 5px; font-family: var(--serif); font-weight: 700; font-size: 13px; color: #fff0e0; background: #b2321a; border: 1px solid #ffa070; }
 .sk-drop { font-size: 12px; color: #ffb48a; }
+.sk-frag { font-size: 12px; color: #ffd27a; }
 .seal-tc .tc-desc { margin-top: 6px; }
 @media (max-width: 900px) {
   .sp-cards { grid-template-columns: 1fr; }
