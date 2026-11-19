@@ -684,6 +684,7 @@
     const S = G.save;
     const st = G.state;
     const now = performance.now();
+    updateEncHud();
 
     setOrb(hud.life, P.life, P.maxLife, P.maxLifeRaw || P.maxLife);
     setOrb(hud.mana, P.mana, P.maxMana, P.maxManaRaw || P.maxMana);
@@ -1841,6 +1842,7 @@
       '<button type="button" tabindex="-1" class="btn sm" data-act="salvage-all"' + (bulkN ? '' : ' disabled') + '>一键分解' + (bulkN ? '（' + bulkN + '）' : '') + '</button></div>' +
       '<div class="bag">' + bag + '</div>' +
       '<div class="sec-title">通货<span class="sec-note">拖到物品上使用</span></div><div class="cur-row">' + cur + '</div>' +
+      fragRow() +
       foot + '</div>' +
       '<div class="col col-r scroll" data-scroll="detail">' + detail + '</div>' +
       '</div>';
@@ -3135,6 +3137,7 @@
       '<div class="sec-title">天赋盘</div>' +
       '<p>每升一级获得 1 点天赋，首次击败每个首领再得 2 点。从中央出发有五条支路：<b style="color:#e2705a">铸躯</b>偏向生命与物理，<b style="color:#7ed67a">迅影</b>偏向速度与暴击，<b style="color:#6fb2ff">秘识</b>偏向魔力与元素，<b class="c-ally">统御</b>强化召唤物，正上方短短的<b style="color:#ff6ad2">噬渊</b>偏向混沌、渊缚与黑洞；相邻支路之间还有<b style="color:#e0be6e">交汇</b>天赋，两头都能点进去。满级也点不满整个盘，要有取舍。</p>' +
       '<p>每条支路有两个<b>基石天赋</b>（中圈一个、最外圈一个），效果强烈但带有代价。天赋可以随时退回或整体重置，不需要任何花费。天赋盘里滚轮缩放、按住拖动平移，「全览」回到整个盘。</p>' +
+      helpEnc() +
       '<div class="sec-title">区域与轮回</div>' +
       '<p>每个区域的尽头盘踞着一名首领。击败它之后会出现传送门，通往地图，可以前往下一个区域。</p>' +
       '<p>击败最后一个区域（第 ' + G.ZONES.length + ' 个，' + G.ZONES[G.ZONES.length - 1].name + '）的首领会开启<b>轮回层级</b>：每高一层，所有区域的怪物等级 +' + G.TIER_LEVELS + '，掉落的物品等级也随之提高。</p>' +
@@ -3162,7 +3165,7 @@
   // ============================================================
   // 渲染调度
   // ============================================================
-  const RENDER = { inv: renderInv, skills: renderSkills, tree: renderTree, map: renderMap, help: renderHelp };
+  const RENDER = { inv: renderInv, skills: renderSkills, tree: renderTree, map: renderMap, help: renderHelp, trader: renderTrader }; // trader：异兆「拾烬客」，不在页签里
 
   function render() {
     if (!ui.isOpen) return;
@@ -3306,6 +3309,11 @@
   }
 
   function tipHtml(kind, id) {
+    if (kind === 'frag') return fragTip(id);
+    if (kind === 'trd') {
+      const o = G.state.trader && G.state.trader.stock && G.state.trader.stock[+id];
+      return o && o.kind === 'item' ? itemTip(o.item, false, '拾烬客的货架 · 点「买下」') : '';
+    }
     if (kind === 'var') return variantTip(id);
     if (kind === 'seal') return sealTip(id);
     if (kind === 'item') {
@@ -3497,6 +3505,34 @@
   }
 
   const ACT = {
+    // ---- 拾烬客（异兆）----
+    'trd-buy'(d) {
+      const r = G.traderBuy(+d.i);
+      ui.trdMsg = r === true ? '成交' : r === 'cost' ? '通货不够' : r === 'bag' ? '背包已满' : '';
+      render();
+    },
+    'trd-sell'(d) {
+      const f = findItem(d.item);
+      if (!f || f.equipped) return;
+      const now = performance.now();
+      // 稀有以上要再点一次确认（同 Shift+点击分解）
+      if (f.item.rarity >= 2 && !(ui.trdArm && ui.trdArm.uid === d.item && now - ui.trdArm.t < 3000)) {
+        ui.trdArm = { uid: d.item, t: now };
+        ui.trdMsg = '再点一次，确认卖掉「' + f.item.name + '」';
+        G.sfx('click');
+        return render();
+      }
+      ui.trdArm = null;
+      const res = G.traderSell(f.item);
+      ui.fresh.delete(d.item);
+      ui.trdMsg = res ? '卖掉了「' + f.item.name + '」' : '';
+      render();
+    },
+    'trd-swap'(d) {
+      const r = G.traderSwap(d.frag);
+      ui.trdMsg = r ? '换得 1 个' + G.FRAGS[d.frag].name : '烛芯不够（要 ' + G.TRADER.swap + ' 个其它种类的）';
+      render();
+    },
     tab(d) {
       G.sfx('click');
       open(d.tab);
@@ -3993,6 +4029,156 @@
   }
 
   // ============================================================
+  // 异兆（D4）：计时条（守隙 / 缚匣 / 试锋 / 落烬）、祈坛增益小签、拾烬客面板、背包里的烛芯
+  // ============================================================
+  const encHud = { bar: null, fill: null, name: null, txt: null, buff: null, key: '', bkey: '' };
+  function initEncHud() {
+    const b = document.createElement('div');
+    b.id = 'enc-bar';
+    b.innerHTML = '<div class="eb-name"></div><div class="eb-track"><i class="eb-fill"></i></div><div class="eb-txt"></div>';
+    $('hud').appendChild(b);
+    encHud.bar = b;
+    encHud.name = b.querySelector('.eb-name');
+    encHud.fill = b.querySelector('.eb-fill');
+    encHud.txt = b.querySelector('.eb-txt');
+    const t = document.createElement('div');
+    t.id = 'enc-buff';
+    $('zone-box').appendChild(t);
+    encHud.buff = t;
+  }
+  const ENC_TIMED = { guard: 1, box: 1, trial: 1, ember: 1 };
+  function updateEncHud() {
+    const st = G.state, P = G.player;
+    let run = null;
+    for (const e of st.enc || []) if (e.st === 'run' && ENC_TIMED[e.kind]) (run = run || e);
+    let key = '';
+    if (run) {
+      const D = G.ENCOUNTERS[run.kind], p = D.p;
+      let txt = '';
+      if (run.kind === 'guard') txt = '坚守 ' + Math.floor(run.t) + ' / ' + p.hold + ' 秒' + (run.away > 0.3 ? (run.away > p.grace ? ' · 正在倒退，回到圈里！' : ' · 回到圈里') : '');
+      else if (run.kind === 'box') txt = run.t > 0 ? '剩 ' + Math.ceil(run.t) + ' 秒 · 匣卫 ' + run.mobs.filter((e) => !e.dead).length + ' 只' : '超时：只能残缚';
+      else if (run.kind === 'trial') txt = '剩 ' + Math.max(0, Math.ceil(run.t)) + ' 秒 · 第 ' + run.wave + ' / ' + p.n.length + ' 波' + (run.leaveT > 0.2 ? ' · 回到小室里！' : '');
+      else if (run.kind === 'ember') txt = '剩 ' + Math.max(0, Math.ceil(run.t)) + ' 秒 · 烬晶 ' + (run.shards ? run.shards.filter((e) => !e.dead).length : p.n) + ' / ' + p.n;
+      key = run.kind + '|' + txt + '|' + Math.round(run.k * 200);
+      if (key !== encHud.key) {
+        encHud.name.textContent = D.name;
+        encHud.txt.textContent = txt;
+        encHud.fill.style.width = (G.clamp(run.k, 0, 1) * 100).toFixed(1) + '%';
+        encHud.bar.dataset.kind = run.kind;
+      }
+    }
+    if (key !== encHud.key) {
+      encHud.key = key;
+      encHud.bar.classList.toggle('on', !!run);
+    }
+    const B = P.encBuff, BD = B && G.SHRINE_BUFFS[B.id];
+    const bkey = BD ? B.id + Math.ceil(B.t) : '';
+    if (bkey !== encHud.bkey) {
+      encHud.bkey = bkey;
+      encHud.buff.classList.toggle('on', !!BD);
+      if (BD) {
+        encHud.buff.style.setProperty('--c', BD.color);
+        encHud.buff.innerHTML = '<b>' + BD.name + '</b><span>' + Math.ceil(B.t) + ' 秒</span>';
+        encHud.buff.dataset.tip = 'txt:' + BD.desc;
+      }
+    }
+  }
+  // 背包：烛芯一行（拾到过才显示，新角色的背包页布局不变）
+  function fragRow() {
+    const F = G.save.frags || {};
+    let total = 0;
+    for (const id of G.FRAG_IDS) total += F[id] || 0;
+    if (!total) return '';
+    let h = '';
+    for (const id of G.FRAG_IDS) {
+      const f = G.FRAGS[id], n = F[id] || 0;
+      h += '<div class="cur frag' + (n ? '' : ' zero') + '" data-tip="frag:' + id + '" style="--c:' + f.color + '">' + IC.frag(id) + '<span class="cur-name">' + f.name + '</span><b>' + n + '</b></div>';
+    }
+    return '<div class="sec-title">烛芯<span class="sec-note">熄烛者的开启材料</span></div><div class="cur-row frag-row">' + h + '</div>';
+  }
+  function fragTip(id) {
+    const f = G.FRAGS[id];
+    if (!f) return '';
+    const n = (G.save.frags && G.save.frags[id]) || 0, D = G.FRAG_DROP;
+    const pm = id === 'seal' ? G.SEAL.frag.pity : D.pity, pn = (G.save.fragPity && G.save.fragPity[id]) || 0;
+    return (
+      '<div class="tcard" style="--c:' + f.color + '">' + tcHead(ibox(IC.frag(id), 'curb'), f.name, '烛芯 · 持有 ' + n) +
+      '<div class="tc-desc">熄烛者的开启材料，四种各需一个。来源：' + f.src + '（轮回 ' + D.minTier + ' 起）。拾烬客那里可以 ' + G.TRADER.swap + ' 换 1。</div>' +
+      '<div class="tc-hint">保底：连续 ' + pn + ' / ' + pm + ' 次没掉</div></div>'
+    );
+  }
+  function helpEnc() {
+    return (
+      '<div class="sec-title">异兆</div>' +
+      '<p>区域里有时会出现<b>异兆</b>：小地图上的<b>灰色六边形</b>标出它的位置，走近之后换成它自己的图样。轮回层级 0 偶尔出一个，轮回 1 起每次进区至少一个。</p>' +
+      '<p><b style="color:#b48cff">守隙</b>：清空房间后裂隙张开，站进圈里坚守 30 秒。<b style="color:#ffd75e">缚匣</b>：崩开锁链，25 秒内打倒三只匣卫。' +
+      '<b style="color:#ff9a3c">游荡者</b>：带名号的精英，各有独门手段。<b style="color:#5fe0f0">祈坛</b>：按 <kbd>F</kbd> 得到一种增益。' +
+      '<b style="color:#ff5a4a">试锋</b>：跨过旁支门口的符文开始限时试炼。<b style="color:#5fe07a">拾烬客</b>：按 <kbd>F</kbd> 交易。' +
+      '<b style="color:#ff9a9a">残影</b>：清空房间后首领的残影浮现。<b style="color:#ff8a3c">落烬</b>：摸一下烬核，在落下的余烬里打碎四块烬晶。</p>' +
+      '<p>轮回 2 起，异兆和烈印下的首领会掉<b>烛芯</b>，是之后开启巅峰首领的材料。</p>'
+    );
+  }
+  function renderTrader() {
+    const enc = G.state.trader, S = G.save;
+    if (!enc || !enc.stock) {
+      el.body.innerHTML = '<div class="trader"><div class="sec-title">拾烬客</div><p class="trd-none">拾烬客不在这里。</p></div>';
+      return;
+    }
+    const price = (pr) =>
+      Object.keys(pr).map((id) => '<span class="tp' + ((S.cur[id] || 0) >= pr[id] ? '' : ' short') + '" data-tip="cur:' + id + '" style="--c:' + G.CURRENCY[id].color + '">' + IC.cur(id) + '<b>' + pr[id] + '</b></span>').join('');
+    let stock = '';
+    enc.stock.forEach((o, i) => {
+      let icon, name, color, tip = '';
+      if (o.kind === 'item') {
+        icon = IC.item(o.item);
+        name = o.item.name;
+        color = G.RARITY_COLOR[o.item.rarity];
+        tip = ' data-tip="trd:' + i + '"';
+      } else if (o.kind === 'skill') {
+        const sk = G.SKILLS[o.data.id];
+        icon = IC.skill(o.data.id);
+        name = '技能宝石 · ' + sk.name + ' Lv ' + o.data.lvl;
+        color = '#3fe0c8';
+      } else {
+        icon = IC.sup(o.data);
+        name = '辅助宝石 · ' + G.SUPPORTS[o.data].name;
+        color = '#f0f0f4';
+      }
+      const ok = !o.sold && G.traderCanPay(o.price);
+      stock +=
+        '<div class="trd-row' + (o.sold ? ' sold' : '') + (o.relic ? ' relic' : '') + '"' + tip + '>' + ibox(icon) + '<span class="trd-name" style="color:' + color + '">' + esc(name) + '</span>' +
+        '<span class="trd-price">' + price(o.price) + '</span>' +
+        '<button type="button" tabindex="-1" class="btn sm" data-act="trd-buy" data-i="' + i + '"' + (ok ? '' : ' disabled') + '>' + (o.sold ? '已售' : '买下') + '</button></div>';
+    });
+    let sell = '';
+    for (const it of S.bag) {
+      const res = G.salvageResult(it);
+      if (it.rarity >= 1) res.dust = (res.dust || 0) + 1;
+      const got = Object.keys(res).map((id) => '<span class="tp" style="--c:' + G.CURRENCY[id].color + '">' + IC.cur(id) + '<b>' + res[id] + '</b></span>').join('') || '<span class="tp dim">—</span>';
+      sell +=
+        '<div class="trd-row" data-tip="item:' + it.uid + '">' + ibox(IC.item(it)) + '<span class="trd-name" style="color:' + G.RARITY_COLOR[it.rarity] + '">' + esc(it.name) + '</span>' +
+        '<span class="trd-price">' + got + '</span><button type="button" tabindex="-1" class="btn sm" data-act="trd-sell" data-item="' + it.uid + '">卖</button></div>';
+    }
+    const F = S.frags || {}, swapOn = (G.state.tier || 0) >= G.TRADER.fragTier;
+    let frags = '';
+    for (const id of G.FRAG_IDS) {
+      const f = G.FRAGS[id];
+      let other = 0;
+      for (const o of G.FRAG_IDS) if (o !== id) other += F[o] || 0;
+      frags +=
+        '<div class="trd-frag" data-tip="frag:' + id + '" style="--c:' + f.color + '">' + ibox(IC.frag(id), 'curb') + '<span>' + f.name + ' <b>' + (F[id] || 0) + '</b></span>' +
+        '<button type="button" tabindex="-1" class="btn sm" data-act="trd-swap" data-frag="' + id + '"' + (swapOn && other >= G.TRADER.swap ? '' : ' disabled') + '>换 1 个</button></div>';
+    }
+    el.body.innerHTML =
+      '<div class="trader">' +
+      '<div class="col scroll" data-scroll="trd1"><div class="sec-title">拾烬客的货架<span class="sec-note">物品等级 ' + enc.level + '</span></div>' + stock +
+      '<div class="sec-title">烛芯换取<span class="sec-note">' + (swapOn ? '任意 ' + G.TRADER.swap + ' 个换 1 个指定种类，不收钱' : '轮回 ' + G.TRADER.fragTier + ' 起开放') + '</span></div><div class="trd-frags">' + frags + '</div>' +
+      '<p class="trd-msg">' + esc(ui.trdMsg || '') + '</p></div>' +
+      '<div class="col scroll" data-scroll="trd2"><div class="sec-title">卖给拾烬客<span class="sec-note">按分解的价，魔法以上多给 1 颗微光尘</span></div>' + (sell || '<p class="trd-none">背包是空的</p>') + '</div>' +
+      '</div>';
+  }
+
+  // ============================================================
   // 打开 / 关闭
   // ============================================================
   function open(tab) {
@@ -4012,6 +4198,8 @@
       ui.treeMsg = '';
       ui.treeMsgBad = false;
       ui.blankMsg = '';
+      ui.trdMsg = '';
+      ui.trdArm = null;
       disarmReset();
       ui.sealPick = null;
       if (tab === 'map') ui.mapTier = G.clamp(G.state.tier || 0, 0, G.save.maxTier);
@@ -5002,6 +5190,9 @@
       const sk = G.SKILLS[loot.data.id];
       if (isSummon(loot.data.id)) summonPing();
       feedPush('s' + loot.data.id + loot.data.lvl, '<span class="ibox sk" style="--c:' + sk.color + '">' + IC.skill(loot.data.id) + '</span>', '技能宝石 · ' + sk.name + ' Lv ' + loot.data.lvl, '#3fe0c8');
+    } else if (loot.kind === 'frag') {
+      const F = G.FRAGS[loot.data];
+      feedPush('f' + loot.data, ibox(IC.frag(loot.data), 'curb'), F.name, F.color, '<em class="fd-note">共 ' + (G.save.frags[loot.data] || 0) + ' 个</em>');
     } else if (loot.kind === 'blank') {
       const B = G.BLANK_GEM;
       feedPush('b' + loot.data.lvl, ibox(IC.blank(), 'gemb'), B.name + ' Lv ' + loot.data.lvl, B.color, '<em class="fd-note">共 ' + G.save.blankGems.length + ' 颗</em>');
@@ -5483,6 +5674,7 @@
     el.tabBtns = Array.from(tabs.children);
 
     initHud();
+    initEncHud();
     initWorldUi();
     IC.warm(); // 图标趁空闲分批画好，第一次打开背包不再卡顿
     document.documentElement.style.setProperty('--relic', G.RELIC_COLOR); // 渊契的颜色只在 data.js 写一次，样式表里读 --relic
