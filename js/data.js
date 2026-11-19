@@ -348,9 +348,9 @@
       name: '挥斩', icon: '斩', color: '#e6dfd0', tags: ['attack', 'melee', 'area', 'phys'], kind: 'melee', btype: 'blade', weaponOnly: true, basic: true,
       wm: 1.12, mana: 0, cd: 0, range: 3.4, arc: 120,
       combo: [
-        { clip: 'attack1', time: 0.34, hit: 0.15, tail: 0.14, mult: 0.85, shape: 'arc', range: 3.3, arc: 120, dir: 1, lunge: 0.6, kb: 0.5, poise: 10, stop: 30, w: 0 },
-        { clip: 'attack2', time: 0.34, hit: 0.15, tail: 0.14, mult: 0.9, shape: 'arc', range: 3.4, arc: 120, dir: -1, lunge: 0.6, kb: 0.6, poise: 12, stop: 35, w: 0 },
-        { clip: 'b_thrust', time: 0.54, hit: 0.22, tail: 0.22, mult: 1.85, shape: 'line', len: 4.6, width: 1.4, lunge: 1.2, kb: 2.0, poise: 26, stop: 80, w: 2 },
+        { clip: 'attack1', time: 0.34, hit: 0.15, tail: 0.14, mult: 0.85, shape: 'arc', range: 3.3, arc: 120, dir: 1, lunge: 0.6, kb: 0.5, poise: 12, stop: 30, w: 0 },
+        { clip: 'attack2', time: 0.34, hit: 0.15, tail: 0.14, mult: 0.9, shape: 'arc', range: 3.4, arc: 120, dir: -1, lunge: 0.6, kb: 0.6, poise: 14, stop: 35, w: 0 },
+        { clip: 'b_thrust', time: 0.54, hit: 0.22, tail: 0.22, mult: 1.85, shape: 'line', len: 4.6, width: 1.4, lunge: 1.2, kb: 2.0, poise: 30, stop: 80, w: 2 },
       ],
       desc: '右键连招：横斩、回斩，第三下是弓步突刺的终结——贯穿身前一条直线，伤害最高并把敌人顶飞。不消耗魔力。',
     },
