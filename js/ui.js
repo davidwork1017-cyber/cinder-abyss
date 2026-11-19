@@ -2771,7 +2771,7 @@
       const cap = G.SEAL_ELITE_CAP || {}, few = G.ZONES.filter((z) => cap[z.id]).map((z) => z.name + ' ' + cap[z.id]);
       return '关键路径房间的精英几率 45% → ' + sPct(p.chance) + '，全区精英上限 6 → ' + p.cap + (few.length ? '（' + few.join('、') + '）' : '');
     },
-    burst: (p) => '普通怪死后 ' + p.delay + ' 秒在尸体处炸开（半径 ' + p.r + ' 米，精英 ' + p.eR + ' 米、' + p.eDelay + ' 秒），伤害为它一击的 ' + sPct(p.k) + '，地上有预警圈',
+    burst: (p) => '普通怪死后 ' + p.delay + ' 秒在尸体处炸开（半径 ' + p.r + ' 米，精英 ' + p.eR + ' 米、' + p.eDelay + ' 秒），伤害为它一击的 ' + sPct(p.k) + '（同时炸开的几个只算一下），地上有预警圈',
     ailRes: (p) => '怪物异常阈值 ×' + p.th + '，冰缓 ×' + p.chillCap + '，冻结和渊缚时长 ×' + p.dur + '（首领只吃阈值）',
     aura: (p) => '每群一只领群者（脚下一圈橙环）：' + p.r + ' 米内同群的怪伤害 +' + sPct(p.dmg) + '、受到的伤害 −' + sPct(p.dr) + '；领群者经验 ×' + p.xp,
     tough: (p) => '怪物生命 +' + sPct(p.hp) + '（首领 +' + sPct(p.boss) + '）',

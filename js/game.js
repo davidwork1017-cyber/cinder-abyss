@@ -7440,6 +7440,7 @@
   // 伤害 = 它一击（不算领群 / 濒狂的加成）× k，不带焚染。余烬地：普通怪死亡时 chance 几率留下 t 秒的燃烧地面（同浅滩灼烧，对怪也生效），最多 max 块
   const cinders = (state.sealCinders = []); // { x, z, t, tick }
   let cinderPT = 0;
+  let burstHitAt = -1e9; // 殁爆上一次伤到玩家的时刻
   function sealOnKill(e) {
     const RM = G.runMods;
     if (e.isBoss || (!RM.burst && !RM.cinder)) return;
@@ -7449,14 +7450,27 @@
       let n = 0;
       for (const t of state.telegraphs) if (t.sealBurst) n++;
       if (n < B.max) {
-        const x = e.x, z = e.z, r = e.elite ? B.eR : B.r, hex = G.TYPE_HEX[e.elem] || 0xff6a2a;
-        G.telegraph({
-          shape: 'circle', x, z, r, dur: e.elite ? B.eDelay : B.delay, dmg: (e.dmgBase || e.dmg) * B.k, dtype: 'phys',
-          friendly: false, sealBurst: true, sealFx: true,
+        // 伤害不走预警圈的通用结算（dmg 0）：在 onFire 里自己判，玩家和每只召唤物都是 gap 秒内只挨一下
+        const x = e.x, z = e.z, r = e.elite ? B.eR : B.r, hex = G.TYPE_HEX[e.elem] || 0xff6a2a, dmg = (e.dmgBase || e.dmg) * B.k;
+        const tele = G.telegraph({
+          shape: 'circle', x, z, r, dur: e.elite ? B.eDelay : B.delay, dmg: 0, dtype: 'phys',
+          friendly: false, sealBurst: true, sealFx: true, burstDmg: dmg,
           onFire() {
             W.burst(x, 0.5, z, hex, e.elite ? 22 : 14, r * 2.6, 0.45);
             W.ring(x, z, r, hex, 0.3);
             G.sfx('hit');
+            if (!P.dead && insideTelegraph(tele, P.x, P.z) && !(state.time - burstHitAt < B.gap)) {
+              burstHitAt = state.time;
+              G.hurtPlayer(dmg, 'phys', tele);
+            }
+            if (G.hurtMinion) {
+              for (let j = state.minions.length - 1; j >= 0; j--) {
+                const m = state.minions[j];
+                if (!m || m.dead || !insideTelegraph(tele, m.x, m.z) || state.time - (m.sealBurstAt || -1e9) < B.gap) continue;
+                m.sealBurstAt = state.time;
+                G.hurtMinion(m, dmg, 'phys', tele);
+              }
+            }
           },
         });
       }

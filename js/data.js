@@ -1672,8 +1672,9 @@
     tint: { name: '染', side: 'mob', w: 1, dmgK: 1.2, p: { frac: 0.3 } },
     haste: { name: '疾躁', glyph: '躁', side: 'mob', w: 2, dmgK: 1.2, rage: true, p: { speed: 0.2, cd: 0.15 } }, // 起手和预警时长不变
     elites: { name: '群首', glyph: '首', side: 'mob', w: 2, dmgK: 1.1, p: { chance: 0.7, cap: 8 } }, // 关键路径房间精英几率 45% → chance，全区上限 6 → cap
-    // 殁爆：普通怪死后 delay 秒在尸体处炸开（半径 r，伤害 = 它一击的 k 倍），精英用 eDelay / eR；场上最多 max 个
-    burst: { name: '殁爆', glyph: '殁', side: 'mob', w: 2, dmgK: 1.15, p: { delay: 0.9, r: 1.8, eDelay: 1.1, eR: 2.6, k: 0.7, max: 8 } },
+    // 殁爆：普通怪死后 delay 秒在尸体处炸开（半径 r，伤害 = 它一击的 k 倍），精英用 eDelay / eR；场上最多 max 个；
+    // gap 秒内只伤玩家一次（一群怪同时死、几个圈叠在脚下时只算一下，不会一口气打空）
+    burst: { name: '殁爆', glyph: '殁', side: 'mob', w: 2, dmgK: 1.15, p: { delay: 0.9, r: 1.8, eDelay: 1.1, eR: 2.6, k: 0.7, max: 8, gap: 0.35 } },
     ailRes: { name: '坚蜕', glyph: '蜕', side: 'mob', w: 2, dmgK: 1.0, p: { th: 1.6, chillCap: 0.7, dur: 0.75 } }, // 首领只吃异常阈值
     // 领群：每群一只领群者，r 米内同群的怪伤害 +dmg、受到的伤害 −dr；领群者经验 × xp
     aura: { name: '领群', glyph: '领', side: 'mob', w: 2, dmgK: 1.2, p: { r: 6, dmg: 0.2, dr: 0.15, xp: 2 } },
