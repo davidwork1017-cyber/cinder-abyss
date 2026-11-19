@@ -6770,7 +6770,7 @@ async function main() {
     });
     let h = await ev(() => ({
       on: document.getElementById('combo').classList.contains('on'), n: document.getElementById('combo-n').textContent,
-      pips: document.querySelectorAll('#slots .slot.has-combo .s-combo i').length, lit: document.querySelectorAll('#slots .slot.has-combo .s-combo i.on').length,
+      pips: document.querySelectorAll('#slots .slot.has-combo .s-combo i:not(.x)').length, lit: document.querySelectorAll('#slots .slot.has-combo .s-combo i.on').length,
       slot: document.querySelector('#slots .slot.has-combo').dataset.skill, vis: +getComputedStyle(document.getElementById('combo')).opacity > 0.3,
       box: T.rect('#combo'), w: innerWidth, h: innerHeight,
     }));
