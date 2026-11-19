@@ -953,6 +953,17 @@ kbd {
 .tc-hint { margin-top: 7px; padding-top: 6px; font-size: 12px; color: var(--ember-2); border-top: 1px solid #2e2219; }
 .tc-hint.ok { color: #9fdc8a; }
 .tc-hint.dim { color: var(--faint); }
+/* 按住 Alt 才展开的详情（ui.js 的 altBox）：平时只有一行灰色提示，body.alt-on 时换成详情 */
+.alt-box { margin-top: 5px; font-size: 11.5px; line-height: 1.55; }
+.alt-d { display: none; padding-left: 7px; color: #cfc3ae; border-left: 2px solid #5a4632; }
+.alt-h { color: var(--faint); }
+.alt-h kbd { font-size: 10.5px; }
+body.alt-on .alt-d { display: block; }
+body.alt-on .alt-h { display: none; }
+/* 技能卡里（不在浮窗里）：详情浮在卡上、不接鼠标，提示行占着原来的位置，按 Alt 时整页不跳，鼠标下的浮窗也不会丢 */
+.sk-desc .alt-box { position: relative; }
+.sk-desc .alt-d { position: absolute; left: -6px; right: -6px; top: -3px; z-index: 6; padding: 4px 8px 5px; background: #1d1611; border: 1px solid #5a4632; border-left-width: 2px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.7); pointer-events: none; }
+body.alt-on .sk-desc .alt-h { display: block; visibility: hidden; }
 
 /* ============================================================
    背包页
@@ -3235,6 +3246,7 @@ body.panel-open #coach { display: none; }
 .sk-bar i { display: block; height: 100%; background: linear-gradient(90deg, #c8742c, #ff3a22); }
 .sk-lie { position: absolute; right: 36px; top: 7px; padding: 1px 5px; font-family: var(--serif); font-weight: 700; font-size: 13px; color: #fff0e0; background: #b2321a; border: 1px solid #ffa070; }
 .sk-drop { font-size: 12px; color: #ffb48a; }
+.sk-frag { font-size: 12px; color: #ffd27a; }
 .seal-tc .tc-desc { margin-top: 6px; }
 @media (max-width: 900px) {
   .sp-cards { grid-template-columns: 1fr; }

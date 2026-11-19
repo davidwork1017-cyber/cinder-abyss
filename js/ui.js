@@ -17,6 +17,9 @@
   // 带稀有度底框的物品图标
   const ibox = (inner, cls) => '<span class="ibox' + (cls ? ' ' + cls : '') + '">' + inner + '</span>';
   const itemIcon = (item, cls) => ibox(IC.item(item), 'r' + item.rarity + (cls ? ' ' + cls : ''));
+  // 按住 Alt 才展开的详情（触发规则、边界情况）：数据里的 alt / mechAlt。没有详情就什么都不加，提示行也不出；
+  // 展开与否由 body 的 alt-on 类切换（见 update），所以浮窗、技能卡都不用重渲染
+  const altBox = (d) => (d ? '<div class="alt-box"><div class="alt-d">' + d + '</div><div class="alt-h">按住 <kbd>Alt</kbd> 查看详情</div></div>' : '');
 
   const KEY_LABEL = ['左键', '右键', 'Q', 'E'];
   const W_SLOT = 4; // 施放系统里武器技的格子号（R 键）；技能栏存档只有前 4 格，这一格由手里的武器决定
@@ -57,7 +60,7 @@
   }
   // 武器技的成长方式：attack 随武器伤害；minion 按召唤物（魂幡）；其余是法术，随武器物品等级与元素加成
   const wGrowKind = (sk) => (sk.tags.indexOf('attack') >= 0 ? 'attack' : sk.tags.indexOf('minion') >= 0 || sk.minion || sk.wtype === 'banner' ? 'minion' : 'spell');
-  const WGROW_TIP = { attack: '攻击型：随武器伤害成长', minion: '召唤型：按召唤物计算，吃召唤物伤害加成', spell: '法术型：随武器物品等级与元素伤害加成成长' };
+  const WGROW_TIP = { attack: '随武器伤害成长', minion: '按召唤物计算', spell: '随武器物品等级与元素加成成长' };
   const isWSkill = (id) => !!(id && G.SKILLS[id] && (G.SKILLS[id].weaponOnly || G.SKILLS[id].tags.indexOf('weapon') >= 0));
   // 某件武器自带的武器技 id（数据里没有时为 null）
   const wSkillOf = (item) => {
@@ -464,6 +467,7 @@
     mouseY: -1,
     overCanvas: false, // 鼠标正停在游戏画面上（不是面板 / HUD 按钮）
     intro: false, // 开场卡片开着（此时游戏暂停，isOpen() 也算打开）
+    altOn: false, // body 上的 alt-on 类现在的状态（跟着 G.input.alt）
     fresh: new Set(), // 刚拾到、还没看过的物品 uid
     bagMsg: '', // 背包页底部的一行结果（一键分解的收获等）
     confirm: null, // { uid, x, y } 正在确认丢弃的稀有物品
@@ -684,6 +688,14 @@
     const S = G.save;
     const st = G.state;
     const now = performance.now();
+    // 按住 Alt：浮窗和技能卡里的详情由 body 上的 alt-on 类切换（不重渲染）；浮窗变高了要重新摆位
+    const altOn = !!(G.input && G.input.alt);
+    if (altOn !== ui.altOn) {
+      ui.altOn = altOn;
+      document.body.classList.toggle('alt-on', altOn);
+      if (ui.tipEl && el.tip.classList.contains('on')) placeTip(ui.tipEl.getBoundingClientRect());
+      else if (ui.groundLoot) wui.tipX = -1;
+    }
     updateEncHud();
     updatePinHud();
 
@@ -1492,7 +1504,7 @@
       });
       const pf = Math.round(G.uniquePerfect(item) * 100);
       h += '<div class="ic-perf"><span>完美度 <b>' + pf + '%</b></span><i style="--p:' + pf + '%"></i></div>';
-      h += '<div class="ic-uq"><b>' + esc(U.mechName) + '</b><span>' + esc(U.mechDesc) + '</span></div>';
+      h += '<div class="ic-uq"><b>' + esc(U.mechName) + '</b><span>' + esc(U.mechDesc) + '</span>' + altBox(U.mechAlt ? esc(U.mechAlt) : '') + '</div>';
       // 背包详情栏（o.compact）里省掉来历和「无法改造」（下面的通货栏已经写了），免得把按钮挤出窗口
       if (!o.compact) {
         h += '<div class="ic-lore">' + esc(U.lore) + '</div>';
@@ -1539,7 +1551,7 @@
         '<div class="ic-line wd"><span>每秒攻击</span><b>' + w.aps.toFixed(2) + '</b>' + (c ? delta(w.aps - c.aps, c.aps, 2) : '') + '</div>' +
         '<div class="ic-line wd dps"><span>武器秒伤</span><b>' + fmt1(w.dps) + '</b>' + (c ? delta(w.dps - c.dps, c.dps) : '') + '</div>';
       const b = wBase(item);
-      if (b && b.caster) h += '<div class="ic-wcmp">施法武器：武器伤害低，只影响攻击技能；法术与召唤不看它</div>';
+      if (b && b.caster) h += '<div class="ic-wcmp">施法武器：武器伤害低，法术与召唤不看它</div>';
       if (c) h += '<div class="ic-wcmp">箭头是与身上那把（秒伤 ' + fmt1(c.dps) + '）相比</div>';
     }
     const wid = wSkillOf(item);
@@ -1720,7 +1732,7 @@
     return (
       '<div class="sec-title sm codex-t rq">' + G.RELIC_NAME + '图鉴<span class="sec-note">已拾到 ' + nFound + ' / ' + list.length + '</span></div>' +
       '<div class="codex rq">' + rows +
-      '<div class="cx-note">区域首领：层级 1 约 ' + Math.round(D.boss.chance[1] * 100) + '%、层级 2 起约 ' + Math.round(D.boss.chance[2] * 100) + '%，和烬铸分开掷，最晚第 ' + (D.boss.pity + 1) + ' 次必掉。' + G.RELIC_NAME + '只出在武器以外的部位，词缀固定，强在机制。</div></div>'
+      '<div class="cx-note">区域首领：层级 1 约 ' + Math.round(D.boss.chance[1] * 100) + '%、层级 2 起约 ' + Math.round(D.boss.chance[2] * 100) + '%，最晚第 ' + (D.boss.pity + 1) + ' 次必掉</div></div>'
     );
   }
 
@@ -1820,9 +1832,9 @@
       detail =
         '<div class="sec-title">物品详情</div>' +
         '<div class="detail-empty"><div class="de-glyph"><span>鉴</span></div>' +
-        '<p>点击物品查看详情，悬停与身上的装备对比。</p>' +
-        '<p><b>右键</b>或<b>拖到装备栏</b>直接穿上，<b class="vd-up">▲</b> 表示比身上的更强。</p>' +
-        '<p>把<b>通货</b>拖到物品上改造它的词缀；把物品拖出窗口丢到地上。</p>' +
+        '<p>点击物品看详情，悬停与身上的对比。</p>' +
+        '<p><b>右键</b>或拖到装备栏穿上，<b class="vd-up">▲</b> 表示更强。</p>' +
+        '<p>把<b>通货</b>拖到物品上改造；拖出窗口丢弃。</p>' +
         (ui.invMsg ? '<p class="inv-msg">' + esc(ui.invMsg) + '</p>' : '') + '</div>' + codexHtml();
     }
     ui.flash = false;
@@ -1839,7 +1851,7 @@
       '<div class="col col-l"><div class="sec-title">装备</div><div class="eq-grid">' + eq + '</div>' +
       '<div class="sec-title">属性<span class="sec-note">等级 ' + S.level + '</span></div><div class="stats scroll" data-scroll="stats">' + statSheet() + '</div></div>' +
       '<div class="col col-m"><div class="sec-title">背包<span class="sec-note">' + S.bag.length + ' / ' + G.BAG_SIZE + '</span>' +
-      '<button type="button" tabindex="-1" class="btn sm uqb' + (sel ? '' : ' on') + '" data-act="codex" data-tip="txt:查看烬铸武器与渊契的收集情况和各自的保底进度">图鉴</button>' +
+      '<button type="button" tabindex="-1" class="btn sm uqb' + (sel ? '' : ' on') + '" data-act="codex" data-tip="txt:烬铸与渊契的收集和保底进度">图鉴</button>' +
       '<button type="button" tabindex="-1" class="btn sm" data-act="sort"' + (S.bag.length > 1 ? '' : ' disabled') + '>整理</button>' +
       '<button type="button" tabindex="-1" class="chk' + (withMagic ? ' on' : '') + '" data-act="opt" data-opt="salvageMagic"><i></i>含魔法</button>' +
       '<button type="button" tabindex="-1" class="btn sm" data-act="salvage-all"' + (bulkN ? '' : ' disabled') + '>一键分解' + (bulkN ? '（' + bulkN + '）' : '') + '</button></div>' +
@@ -1929,7 +1941,7 @@
     const h = ctx.minion && ctx.minion.inherit;
     if (!h) return '';
     if (!(h.weapon > 0 || h.def > 0 || h.lifePct > 0)) {
-      return '<div class="sk-inh off"><i></i>天赋盘统御支路的外圈可以让召唤物继承你的武器伤害、护甲与抗性、装备生命</div>';
+      return '<div class="sk-inh off"><i></i>统御外圈天赋可让召唤物继承武器伤害、护甲与抗性、装备生命</div>';
     }
     const parts = [];
     if (h.add) {
@@ -1958,7 +1970,7 @@
     const lk = ctx.levelK > 1.0005 ? '<span class="wn-op">×</span>宝石 <b>+' + Math.round((ctx.levelK - 1) * 100) + '%</b>' : '';
     return (
       '<div class="sk-anote wpn"><i></i><span>伤害取自武器：' + src + ' <b>' + Math.round(w.min) + '–' + Math.round(w.max) + '</b><span class="wn-op">×</span>倍率 <b>' + Math.round(ctx.wm * 100) + '%</b>' + lk +
-      ' · 攻速 <b>×' + (w.aps > 0 ? w.aps : 1).toFixed(2) + '</b>' + (G.cdAps && G.cdAps(ctx.sk) ? '（有冷却：攻速折进每一击的伤害）' : '') + (item ? '' : '（空手很弱，记得装备武器）') + '</span></div>'
+      ' · 攻速 <b>×' + (w.aps > 0 ? w.aps : 1).toFixed(2) + '</b>' + (G.cdAps && G.cdAps(ctx.sk) ? '（攻速折进伤害）' : '') + (item ? '' : '（空手很弱）') + '</span></div>'
     );
   }
 
@@ -1973,8 +1985,8 @@
     return bi >= 0 ? wTypeName(bi) : t;
   };
   const GAUGE_TXT = {
-    heat: '热度：开火时上涨，停火一会儿后慢慢回落；没有过热惩罚。灌满后 <kbd>R</kbd> 亮起，放出 R 技会把热度排空',
-    focus: '专注：箭矢命中时上涨，暴击和远距离命中涨得更多，挨打会掉一点。灌满后 <kbd>R</kbd> 亮起，放出限时增益并清空专注',
+    heat: '热度：开火上涨，停火回落。满了 <kbd>R</kbd> 亮起，放出时排空',
+    focus: '专注：命中上涨，暴击和远距离更多，挨打会掉。满了 <kbd>R</kbd> 亮起，放出限时增益',
   };
   // 技能名（辅助孔的主人可能是武器普攻卡，它不是一个技能）
   const skName = (id) => (id === BASIC_KEY() ? '武器普攻' : G.SKILLS[id] ? G.SKILLS[id].name : String(id));
@@ -2035,17 +2047,17 @@
       // 元素：施法武器的普攻取你加成最高的元素
       const el = ctx && !ctx.attack && !sk.asMinion ? Object.keys(ctx.base)[0] : null;
       body =
-        '<div class="sk-desc">' + sk.desc + '</div>' +
+        '<div class="sk-desc">' + sk.desc + altBox(sk.alt) + '</div>' +
         (sk.combo ? '<div class="sk-combo">' + sk.combo.map((c, i) => '<span' + (c.w >= 2 ? ' class="fin"' : '') + '>' + (c.w >= 2 ? '终结 ' : '第 ' + (i + 1) + ' 段 ') + '×' + c.mult + '</span>').join('<i></i>') + '</div>' : '') +
         (nums ? '<div class="sk-nums">' + nums + '</div>' : '') +
         (ctx && ctx.attack ? attackNote(ctx) : '') +
-        (el ? '<div class="sk-anote"><i></i><span>法术：伤害随武器的物品等级成长，属性取你伤害加成最高的元素（现在是 <b style="color:' + G.TYPE_COLOR[el] + '">' + G.TYPE_NAME[el] + '</b>），吃施法速度和法术辅助</span></div>' : '') +
-        (sk.asMinion ? '<div class="sk-anote"><i></i><span>伤害按召唤物计算：吃召唤物伤害加成和召唤物辅助，不吃你自己的伤害属性</span></div>' : '') +
+        (el ? '<div class="sk-anote"><i></i><span>法术：随武器物品等级成长，属性取加成最高的元素（现在是 <b style="color:' + G.TYPE_COLOR[el] + '">' + G.TYPE_NAME[el] + '</b>）</span></div>' : '') +
+        (sk.asMinion ? '<div class="sk-anote"><i></i><span>伤害按召唤物计算，吃召唤物加成和辅助</span></div>' : '') +
         (g ? '<div class="sk-anote gauge ' + g.kind + '"><i></i><span>' + (GAUGE_TXT[g.kind] || '') + '</span></div>' : '');
     } else {
       body =
-        '<div class="sk-desc"><kbd>右键</kbd>固定是手里这把武器自己的普攻，伤害随武器成长、不耗魔力。</div>' +
-        '<div class="sk-anote"><i></i><span>下面的 3 个辅助孔属于这张卡：换武器时宝石不动，按当时普攻的标签生效</span></div>';
+        '<div class="sk-desc"><kbd>右键</kbd>是武器自己的普攻，不耗魔力。</div>' +
+        '<div class="sk-anote"><i></i><span>辅助孔属于这张卡，换武器不用取下</span></div>';
     }
     const item = S.equip.weapon;
     return (
@@ -2081,7 +2093,7 @@
     if (!id) {
       main =
         '<div class="wsk-empty"><div class="wsk-slot">R</div><div><b>' + (item ? '这把武器没有武器技' : '没有装备武器') + '</b>' +
-        '<p>每种武器自带一招<b>武器技</b>，固定在 <kbd>R</kbd> 键，换武器就换招。' + (item ? '' : '装备一把武器即可使用。') + '</p></div></div>';
+        '<p>每种武器自带一招 <kbd>R</kbd> 键<b>武器技</b>。' + (item ? '' : '装备武器即可使用。') + '</p></div></div>';
     } else {
       const sk = G.SKILLS[id];
       let ctx = null;
@@ -2147,23 +2159,23 @@
         ? '攻击型：按普攻折算——' + (sk.charge
             ? '蓄满一发 = 机炮转满之后扫射 <b>' + fmt1(sk.basicSec) + ' 秒</b>（每秒约 <b>' + fmt1(G.basicShots(sk) / sk.basicSec) + '</b> 发'
             : '火浪 = 喷枪持续喷射 <b>' + fmt1(sk.basicSec) + ' 秒</b>，火场烧满再加 <b>' + fmt1(sk.basicSec * ((sk.useMult || 1) - 1)) + ' 秒</b>（每秒约 <b>' + fmt1(G.basicShots(sk) / sk.basicSec) + '</b> 跳') +
-          '，武器攻速与攻击速度算在内，辅助宝石不算），伤害取自武器' + (w ? ' <b>' + Math.round(w.min) + '–' + Math.round(w.max) + '</b>' : '') + '，再吃这一招自己的伤害加成，等级随角色等级'
+          '），伤害取自武器' + (w ? ' <b>' + Math.round(w.min) + '–' + Math.round(w.max) + '</b>' : '') + '，等级随角色等级'
         : gk === 'attack'
         ? '攻击型：伤害取自武器' + (w ? ' <b>' + Math.round(w.min) + '–' + Math.round(w.max) + '</b>' : '') + (ctx && ctx.wm > 0 ? '<span class="wn-op">×</span>倍率 <b>' + Math.round(ctx.wm * 100) + '%</b>' : '') + '，等级随角色等级'
         : gk === 'minion'
           ? '召唤型：' + (sk.champ ? '英灵' : '魂火') + '按召唤物计算，等级随武器物品等级' + (lvl ? '（Lv ' + lvl + '）' : '') + '，吃召唤物伤害加成' + (sk.champ ? '、生命加成与继承' : '') + '（辅助宝石不算）'
-          : '法术型：等级 = 武器物品等级 × 0.75' + (lvl ? '（Lv ' + lvl + '）' : '') + (sk.kind === 'wwand' && G.player.uMech === 'void' ? '，属性固定为混沌，吃混沌伤害加成（三种元素的提高都算）' : '，吃元素伤害加成');
+          : '法术型：等级 = 武器物品等级 × 0.75' + (lvl ? '（Lv ' + lvl + '）' : '') + (sk.kind === 'wwand' && G.player.uMech === 'void' ? '，属性固定为混沌' : '，吃元素伤害加成');
       main =
         '<div class="sk-top"><div class="sk-icon">' + IC.skill(id) + '</div>' +
         '<div class="sk-title"><div class="sk-name">' + sk.name + (sk.uskill ? '<em class="usk-tag">烬铸技</em>' : '') + '</div><div class="wsk-src">来自 ' + esc(item ? item.name : '') + ' · ' + wTypeName(item ? item.baseIdx | 0 : 0) +
         (sk.uskill && sk.replaces && G.SKILLS[sk.replaces] ? ' · 替换「' + G.SKILLS[sk.replaces].name + '」' : '') +
         (sk.kind === 'wwand' && G.player.uMech === 'void' ? ' · 属性固定为混沌' : '') + '</div></div></div>' +
-        '<div class="sk-desc">' + sk.desc + '</div>' +
+        '<div class="sk-desc">' + sk.desc + altBox(sk.alt) + '</div>' +
         (nums ? '<div class="sk-nums">' + nums + '</div>' : '') +
         '<div class="sk-anote wpn"><i></i><span>' + grow + '</span></div>' +
         (sk.rgauge
-          ? '<div class="sk-anote gauge ' + (GUN_TYPES.indexOf(sk.wtype) >= 0 ? 'heat' : 'focus') + '"><i></i><span>' + (GUN_TYPES.indexOf(sk.wtype) >= 0 ? '热度' : '专注') + '灌满时 R 亮起，放出后清零；没有冷却、不耗魔力' + (sk.uskill ? '；烬铸武器专属' : '') + '；不能镶辅助宝石</span></div>'
-          : '<div class="sk-anote cd"><i></i><span>' + (sk.uskill ? '烬铸武器专属：冷却长、一次打得狠，换回普通武器时冷却按比例带过去；' : '有冷却，穿插在主力技能之间用；') + '不能镶辅助宝石</span></div>');
+          ? '<div class="sk-anote gauge ' + (GUN_TYPES.indexOf(sk.wtype) >= 0 ? 'heat' : 'focus') + '"><i></i><span>' + (GUN_TYPES.indexOf(sk.wtype) >= 0 ? '热度' : '专注') + '满时 R 亮起，放出后清零' + (sk.uskill ? '；烬铸武器专属' : '') + '；不能镶辅助</span></div>'
+          : '<div class="sk-anote cd"><i></i><span>' + (sk.uskill ? '烬铸武器专属；' : '') + '不能镶辅助</span></div>');
     }
     // 第二排：三把烬铸武器各自的烬铸技（拿着的那把亮起）
     const urow = Object.keys(G.SKILLS).filter(isUSkill).map((u) =>
@@ -2250,7 +2262,7 @@
         bits.push('火弹爆炸半径 ' + fmt1(pm.explode) + (pm.bolts > 1 ? ' · 一次 ' + pm.bolts + ' 枚' : ''));
         bits.push('焰蓄 ' + pm.charge.max + ' 点：坠焰 ' + fmt1(pm.meteor.mult) + ' 倍 / 半径 ' + fmt1(pm.meteor.radius) + '，灼链 ' + fmt1(pm.beam.dur) + ' 秒 × 每跳 ' + fmt1(pm.beam.mult) + ' 倍');
       }
-      if (mi.dps > 0) bits.push((mi.cap > 1 ? '满员秒伤约 ' : '秒伤约 ') + fmtInt(mi.dps) + (pm ? '（单体，含灼链；炸到怪群时成倍）' : ''));
+      if (mi.dps > 0) bits.push((mi.cap > 1 ? '满员秒伤约 ' : '秒伤约 ') + fmtInt(mi.dps) + (pm ? '（单体）' : ''));
       note = '<div class="sk-mnote"><i></i>' + bits.join(' · ') + '</div>' + inheritNote(ctx) + autoRow(id);
     } else if (sk.buff) {
       // 黑焰：不脉冲、自己没有伤害；卡片上是每一击额外的混沌伤害比例和保留
@@ -2259,7 +2271,7 @@
         num('额外混沌', fmt1(F) + '%', 'hl') +
         num(blood ? '生命保留' : '魔力保留', fmt1(ctx.reserve) + '%') +
         num('封顶', fmt1(sk.flame.cap) + '%');
-      note = '<div class="sk-anote"><i></i>' + (G.auraOn(id) ? '生效中' : '放进技能栏任意一格即生效') + ' · 不用按键 · 你和召唤物的每一击都按加成之后的伤害多出这一比例的混沌伤害（和注入相加，触发出来的伤害不带）</div>';
+      note = '<div class="sk-anote"><i></i>' + (G.auraOn(id) ? '生效中' : '放进技能栏即生效') + ' · 不用按键</div>';
     } else if (sk.kind === 'aura') {
       // 光环：没有施放，只有保留；卡片上是每一跳的伤害、每秒几跳和半径
       nums =
@@ -2269,7 +2281,7 @@
         num(blood ? '生命保留' : '魔力保留', fmt1(ctx.reserve) + '%') +
         num('半径', fmt1(G.auraRadius(ctx))) +
         num('暴击率', fmt1(ctx.crit) + '%');
-      note = '<div class="sk-anote"><i></i>' + (G.auraOn(id) ? '生效中' : '放进技能栏任意一格即生效') + ' · 不用按键 · 主要价值是持续累积冰霜异常值</div>';
+      note = '<div class="sk-anote"><i></i>' + (G.auraOn(id) ? '生效中' : '放进技能栏即生效') + ' · 不用按键</div>';
     } else {
       nums =
         num(ctx.cd > 0 ? '每次伤害' : '平均击中', fmtInt(avg), 'hl') +
@@ -2279,11 +2291,11 @@
         num('冷却', ctx.cd > 0 ? fmt1(ctx.cd) + ' 秒' : '无') +
         num('暴击率', fmt1(ctx.crit) + '%');
       // 冷却技能：秒伤按冷却折算（单独循环施放打不过主力技能），价值在于穿插
-      if (ctx.cd > 0) note = '<div class="sk-anote cd"><i></i>冷却技能：每次伤害高，估算秒伤按冷却折算；穿插在主力技能之间施放最划算</div>';
+      if (ctx.cd > 0) note = '<div class="sk-anote cd"><i></i>冷却技能：秒伤按冷却折算</div>';
       // 混沌流的两招：写清每次伤害是怎么算出来的
       if (sk.kind === 'hole') {
         const dur = sk.dur * (1 + Math.max(0, G.player.S.holeDur || 0) / 100);
-        note += '<div class="sk-anote"><i></i>持续 ' + fmt1(dur) + ' 秒 · 每 ' + sk.tick + ' 秒一跳（每次伤害按 ' + sk.useMult + ' 跳计）· 半径 ' + fmt1(sk.radius * Math.sqrt(ctx.area)) + ' · 越轻的敌人拽得越狠，首领几乎拽不动</div>';
+        note += '<div class="sk-anote"><i></i>持续 ' + fmt1(dur) + ' 秒 · 每 ' + sk.tick + ' 秒一跳（每次伤害按 ' + sk.useMult + ' 跳计）· 半径 ' + fmt1(sk.radius * Math.sqrt(ctx.area)) + '</div>';
       } else if (sk.kind === 'vortex') {
         const L = sk.latch, nv = sk.count + Math.max(0, ctx.proj - 1);
         note =
@@ -2299,7 +2311,7 @@
       '<div class="sk-title"><div class="sk-name">' + sk.name + (sk.vname ? '<i class="sk-vn">' + sk.vname + '</i>' : '') + '<em>Lv ' + S.skills[id] + '</em>' + blankUp + '</div>' +
       '<div class="sk-tags">' + cardTags(sk).map((t) => '<span>' + G.TAG_NAME[t] + '</span>').join('') + '</div></div>' +
       '<div class="sk-binds">' + binds + '</div></div>' +
-      '<div class="sk-desc">' + sk.desc + '</div>' + variantRow(id) +
+      '<div class="sk-desc">' + sk.desc + altBox(sk.alt) + '</div>' + variantRow(id) +
       (sk.combo ? '<div class="sk-combo">' + sk.combo.map((c, i) => '<span' + (c.w >= 2 ? ' class="fin"' : '') + '>' + (c.w >= 2 ? '终结 ' : '第 ' + (i + 1) + ' 段 ') + '×' + c.mult + '</span>').join('<i></i>') + '</div>' : '') +
       '<div class="sk-nums' + (mi ? ' ally' : '') + '">' + nums + '</div>' + note +
       '<div class="sk-socks"><span class="sk-socks-label">辅助</span>' + sockets + '</div>' +
@@ -2329,7 +2341,7 @@
       cards +=
         '<div class="skill-more' + (best ? ' can-learn' : '') + '"><div class="sm-title">尚未获得的技能宝石' + (best ? '<span>点一个技能，用 Lv ' + best + ' 的' + B.short + '学会它</span>' : '') + '</div>' +
         '<div class="sm-list">' + unknown.map(item).join('') + '</div>' +
-        '<div class="sm-note">技能宝石由怪物掉落，首领必定掉落一颗。重复拾取更高等级的宝石会提升技能等级。' + B.name + '可以在这里换成任意一个技能。</div></div>';
+        '<div class="sm-note">怪物掉落技能宝石，首领必掉一颗。' + B.name + '可在这里换成任意技能。</div></div>';
     }
     // 顶部：手里的无铭宝石（数量、最高等级、怎么用），以及刚才用掉一颗的结果
     let blank = '';
@@ -2340,7 +2352,7 @@
           (gems.length > 1 ? '<span class="bk-all">' + gems.slice(0, 8).map((v) => 'Lv ' + v).join(' · ') + (gems.length > 8 ? ' …' : '') + '</span>' : '')
         : '<b>' + B.name + '已用完</b>';
       const how = gems.length
-        ? '在下方「尚未获得」里点一个技能学会它，或点技能卡上的「升至 Lv ' + best + '」。每次用最高等级的那颗，点两下才确认'
+        ? '点「尚未获得」里的技能学会，或点卡上的「升至 Lv ' + best + '」，点两下确认'
         : '';
       blank =
         '<div class="blank-bar" style="--c:' + B.color + '">' + ibox(IC.blank(), 'gemb') + '<div class="bk-txt"><div class="bk-top">' + lv + '</div>' +
@@ -2355,7 +2367,7 @@
         // 右键固定是武器普攻：不能拖进拖出
         const bk = G.SKILLS[bidB];
         bar +=
-          '<div class="barslot basic" data-tip="txt:右键固定是武器普攻，跟着手里的武器换' + (S.rmbKeep && G.SKILLS[S.rmbKeep] ? '；收起的技能「' + G.SKILLS[S.rmbKeep].name + '」在下面的列表里，点它的按键标签绑上' : '') + '" style="--c:' + bk.color + '">' +
+          '<div class="barslot basic" data-tip="txt:右键固定是武器普攻' + (S.rmbKeep && G.SKILLS[S.rmbKeep] ? '；收起的「' + G.SKILLS[S.rmbKeep].name + '」在下面列表里，点按键标签绑上' : '') + '" style="--c:' + bk.color + '">' +
           '<div class="bs-icon">' + IC.skill(bidB) + '</div><div class="bs-txt"><span>右键 · 武器普攻</span><b>' + bk.name + '</b></div></div>';
         continue;
       }
@@ -2367,7 +2379,7 @@
     // 第五格：武器技，跟着武器走，不能拖放
     const wid = curWSkill();
     bar +=
-      '<div class="wbarslot' + (wid ? '' : ' empty') + (isUSkill(wid) ? ' uskill' : '') + '"' + (wid ? ' data-tip="wsk:' + wid + '" style="--c:' + G.SKILLS[wid].color + '"' : ' data-tip="txt:' + (S.equip.weapon ? '这把武器没有武器技' : '装备一把武器，R 键就会有它的武器技') + '"') + '>' +
+      '<div class="wbarslot' + (wid ? '' : ' empty') + (isUSkill(wid) ? ' uskill' : '') + '"' + (wid ? ' data-tip="wsk:' + wid + '" style="--c:' + G.SKILLS[wid].color + '"' : ' data-tip="txt:' + (S.equip.weapon ? '这把武器没有武器技' : '装备武器后 R 是它的武器技') + '"') + '>' +
       '<div class="bs-icon">' + (wid ? IC.skill(wid) : '') + '</div><div class="bs-txt"><span>R · ' + (isUSkill(wid) ? '烬铸技' : '武器技') + '</span><b>' + (wid ? G.SKILLS[wid].name : S.equip.weapon ? '无' : '无武器') + '</b></div></div>';
 
     let sups = '';
@@ -2384,17 +2396,17 @@
         '</div></div>';
     }
     if (!sups) {
-      sups = '<div class="sup-none">还没有辅助宝石。<br>精英怪和首领会掉落它们，把它们镶进技能的辅助槽，就能改变技能的行为。</div>';
+      sups = '<div class="sup-none">还没有辅助宝石。<br>精英和首领会掉落。</div>';
     }
     const coach = coachBanner('skills');
 
     el.body.innerHTML =
       '<div class="skills">' +
-      '<div class="col col-main">' + blank + '<div class="sec-title">技能栏<span class="sec-note">把技能图标拖进格子，或点技能卡上的按键标签</span></div>' +
+      '<div class="col col-main">' + blank + '<div class="sec-title">技能栏<span class="sec-note">拖进格子，或点卡上的按键标签</span></div>' +
       '<div class="barstrip">' + bar + '</div>' +
-      '<div class="sec-title">技能<span class="sec-note">点击辅助槽选择宝石，或把右侧的宝石拖进来</span></div>' +
+      '<div class="sec-title">技能<span class="sec-note">点辅助槽，或把宝石拖进来</span></div>' +
       '<div class="skill-list scroll" data-scroll="skills">' + cards + '</div></div>' +
-      '<div class="col col-side"><div class="sec-title">武器技<span class="sec-note"><kbd>R</kbd> 随手中的武器更换</span></div>' + wskillSection() +
+      '<div class="col col-side"><div class="sec-title">武器技<span class="sec-note"><kbd>R</kbd> 随武器更换</span></div>' + wskillSection() +
       '<div class="sec-title">辅助宝石<span class="sec-note">' + S.supports.length + ' / ' + Object.keys(G.SUPPORTS).length + '</span></div>' +
       (coach ? '<div class="side-coach">' + coach + '</div>' : '') +
       '<div class="sup-list scroll" data-scroll="sups">' + sups + '</div></div>' +
@@ -2617,7 +2629,7 @@
     }
     let sumHtml = '';
     for (const k in sum) sumHtml += '<div class="ts-line">' + esc(G.fmtStat(k, sum[k])) + '</div>';
-    if (!sumHtml) sumHtml = '<div class="ts-none">还没有点亮任何天赋。<br>从中央的起点出发，沿着连线向外点亮。</div>';
+    if (!sumHtml) sumHtml = '<div class="ts-none">还没有点亮天赋。<br>从中央起点沿连线向外点亮。</div>';
 
     el.body.innerHTML =
       '<div class="tree">' +
@@ -2633,7 +2645,7 @@
       '<div class="col col-side tree-side">' +
       '<div class="sec-title">天赋点</div>' +
       '<div class="pts' + (pts.free > 0 ? ' has' : '') + '"><b>' + pts.free + '</b><div><span>可用天赋点</span><em>已用 ' + pts.used + ' · 共 ' + pts.total + '</em></div></div>' +
-      '<div class="pts-note">每升一级获得 1 点；首次击败每个首领额外获得 2 点。</div>' +
+      '<div class="pts-note">每级 1 点；首次击败每个首领 +2 点。</div>' +
       (coachBanner('tree') ? '<div class="side-coach">' + coachBanner('tree') + '</div>' : '') +
       '<div class="arms">' + arms + '</div>' +
       '<div class="sec-title">已获得的加成</div>' +
@@ -2771,27 +2783,27 @@
   // 每条印纹一行说明（数值都读 G.SEAL_MODS，改数值时说明跟着变）
   const SEAL_DESC = {
     tint: (p, m) => '怪物每一击另带相当于 ' + sPct(p.frac) + ' 伤害的' + G.TYPE_NAME[m.el] + '伤害（吃你的抗性）',
-    haste: (p) => '怪物移速 +' + sPct(p.speed) + '，两次出手的间隔 −' + sPct(p.cd) + '（起手和预警时长不变）',
+    haste: (p) => '怪物移速 +' + sPct(p.speed) + '，出手间隔 −' + sPct(p.cd),
     elites: (p) => {
       const cap = G.SEAL_ELITE_CAP || {}, few = G.ZONES.filter((z) => cap[z.id]).map((z) => z.name + ' ' + cap[z.id]);
       return '关键路径房间的精英几率 45% → ' + sPct(p.chance) + '，全区精英上限 6 → ' + p.cap + (few.length ? '（' + few.join('、') + '）' : '');
     },
-    burst: (p) => '普通怪死后 ' + p.delay + ' 秒在尸体处炸开（半径 ' + p.r + ' 米，精英 ' + p.eR + ' 米、' + p.eDelay + ' 秒），伤害为它一击的 ' + sPct(p.k) + '（同时炸开的几个只算一下），地上有预警圈',
+    burst: (p) => '普通怪死后 ' + p.delay + ' 秒炸开（半径 ' + p.r + ' 米；精英 ' + p.eR + ' 米、' + p.eDelay + ' 秒），伤害为它一击的 ' + sPct(p.k) + '，有预警圈',
     ailRes: (p) => '怪物异常阈值 ×' + p.th + '，冰缓 ×' + p.chillCap + '，冻结和渊缚时长 ×' + p.dur + '（首领只吃阈值）',
-    aura: (p) => '每群一只领群者（脚下一圈橙环）：' + p.r + ' 米内同群的怪伤害 +' + sPct(p.dmg) + '、受到的伤害 −' + sPct(p.dr) + '；领群者经验 ×' + p.xp,
+    aura: (p) => '每群一只领群者（橙环）：' + p.r + ' 米内同群的怪伤害 +' + sPct(p.dmg) + '、受到的伤害 −' + sPct(p.dr) + '；领群者经验 ×' + p.xp,
     tough: (p) => '怪物生命 +' + sPct(p.hp) + '（首领 +' + sPct(p.boss) + '）',
     fierce: (p) => '怪物伤害 +' + sPct(p.dmg) + '（首领 +' + sPct(p.boss) + '）',
     volley: (p) => '喷吐者、隙影每次出手射 ' + p.n + ' 发（夹角 ' + p.spread + '°），弹速 +' + sPct(p.speed),
     mend: (p) => '怪物 ' + p.idle + ' 秒没挨打后，每秒回复 ' + sPct(p.rate) + ' 最大生命（首领 ' + sPct(p.boss) + '）',
     alert: (p) => '唤醒距离 12 → ' + p.wake + ' 米；一群怪醒来，同房间的其它怪群 ' + p.call + ' 秒后也醒',
-    frenzy: (p) => '怪物生命低于 ' + sPct(p.th) + ' 时移速 +' + sPct(p.speed) + '、伤害 +' + sPct(p.dmg) + '，身上泛红（首领不受影响）',
+    frenzy: (p) => '怪物生命低于 ' + sPct(p.th) + ' 时移速 +' + sPct(p.speed) + '、伤害 +' + sPct(p.dmg) + '（首领除外）',
     escort: (p) => '首领醒来时召来 ' + p.n + ' 只本区精英，首领半血时再来 ' + p.n + ' 只',
     cinder: (p) => '普通怪死亡时 ' + sPct(p.chance) + ' 几率留下 ' + p.t + ' 秒的燃烧地面（对怪也生效）',
     drain: (p) => '你的生命回复、魔力回复 −' + sPct(p.regen) + '，药剂充能获取 −' + sPct(p.flask),
-    gloom: (p) => '雾和身边的暖光收近，' + p.tag + ' 米外的敌人不显示血条（预警圈、敌方投射物照常可见）',
-    wane: (p) => '光环效果 −' + sPct(p.eff) + '（霜环每跳伤害和半径、黑焰的额外比例），每个光环的保留 +' + p.reserve + '%',
+    gloom: (p) => '视野收近，' + p.tag + ' 米外的敌人不显示血条',
+    wane: (p) => '光环效果 −' + sPct(p.eff) + '，每个光环保留 +' + p.reserve + '%',
     sluggish: (p) => '技能冷却 +' + sPct(p.cd) + '，翻滚冷却 +' + sPct(p.roll),
-    frail: (p) => '你的元素抗性各 −' + p.res + '%（在 75% 上限之后扣）',
+    frail: (p) => '你的元素抗性各 −' + p.res + '%（上限之后扣）',
     lonely: (p) => '召唤物最大生命 −' + sPct(p.life) + '、伤害 −' + sPct(p.dmg),
   };
   G.sealModDesc = (m) => SEAL_DESC[m.id](m.id === 'tint' ? G.SEAL_MODS.tint.p : G.SEAL_MODS[m.id].p, m);
@@ -2822,7 +2834,8 @@
     if (i === 'sum') {
       return '<div class="tcard seal-tc"><div class="tc-name">' + G.sealName(seal) + '</div><div class="tc-kind">渊印 · 权重 ' + seal.W + (seal.W >= G.SEAL.lieW ? ' · 烈印' : '') + '</div>' +
         '<div class="tc-desc">' + sealRewardText(seal.W) + '</div>' +
-        (seal.W >= G.SEAL.lieW ? '<div class="tc-desc">烈印：击败区域首领时可掉印烛芯、陨织袍、渊缚链</div>' : '') + '</div>';
+        (seal.W >= G.SEAL.lieW ? '<div class="tc-desc">烈印：击败区域首领时可掉陨织袍、渊缚链</div>' : '') +
+        fragLine(seal, a[0] === 'card' ? ui.sealPick && ui.sealPick.tier : G.state.tier, 'tc-desc') + '</div>';
     }
     const m = seal.mods[+i];
     if (!m) return '';
@@ -2834,7 +2847,8 @@
     const key = '<kbd>' + (i + 1) + '</kbd>';
     if (!seal) {
       return '<button type="button" tabindex="-1" class="seal-card plain" data-act="seal-pick" data-i="0">' + key +
-        '<div class="sk-name">素印</div><div class="sk-none">不加任何词缀，也没有加成</div><div class="sk-fill"></div><div class="sk-rw dim">数量 +0% · 稀有度 +0% · 经验 +0%</div></button>';
+        '<div class="sk-name">素印</div><div class="sk-none">没有词缀和加成</div><div class="sk-fill"></div><div class="sk-rw dim">数量 +0% · 稀有度 +0% · 经验 +0%</div>' +
+        fragLine(null, ui.sealPick && ui.sealPick.tier, 'sk-frag') + '</button>';
     }
     const lie = seal.W >= G.SEAL.lieW, dz = G.sealDanger(seal), dk = G.clamp((dz - 1) / Math.max(0.01, T.budget - 1), 0, 1);
     let rows = '';
@@ -2849,7 +2863,8 @@
       '<div class="sk-mods">' + rows + '</div><div class="sk-fill"></div>' +
       '<div class="sk-rw">' + sealRewardText(seal.W) + '</div>' +
       '<div class="sk-danger"><span>危险度</span><div class="sk-bar"><i style="width:' + Math.round(dk * 100) + '%"></i></div></div>' +
-      (lie ? '<div class="sk-drop">可掉：印烛芯 · 陨织袍 · 渊缚链</div>' : '') + '</button>';
+      fragLine(seal, ui.sealPick && ui.sealPick.tier, 'sk-frag') +
+      (lie ? '<div class="sk-drop">可掉：陨织袍 · 渊缚链</div>' : '') + '</button>';
   }
   function sealPickHtml() {
     const sp = ui.sealPick;
@@ -2859,7 +2874,7 @@
     sp.seals.forEach((s, i) => (cards += sealCardHtml(s, i + 1, T)));
     return '<div class="seal-pick"><div class="sp-box">' +
       '<div class="sp-head"><div class="sec-title">择印 · ' + z.name + ' · 轮回 ' + sp.tier + '</div>' +
-      '<span class="sp-note">选一枚渊印再进入：词缀越凶，掉落和经验越多。这次进区之前，三枚印不会变。数字键 1–4 直接选，Esc 返回</span>' +
+      '<span class="sp-note">词缀越凶，掉落和经验越多。数字键 1–4 选择，Esc 返回</span>' +
       '<button type="button" tabindex="-1" class="btn sm" data-act="seal-cancel">返回</button></div>' +
       '<div class="sp-cards">' + cards + '</div></div></div>';
   }
@@ -2918,8 +2933,8 @@
       '<div class="map">' +
       '<div class="map-top"><div class="sec-title">轮回层级</div>' +
       '<div class="tier-row"><div class="tiers">' + tiers + '</div>' +
-      '<div class="tier-note">每提高一层，所有区域的怪物等级 +' + G.TIER_LEVELS + '，掉落的物品等级随之提高。' +
-      (S.maxTier === 0 ? '击败最后一个区域的首领后开启下一层。' : '在当前最高层级击败最后一个区域的首领，开启更高一层。') + '</div></div>' +
+      '<div class="tier-note">每高一层，怪物等级 +' + G.TIER_LEVELS + '，物品等级随之提高。' +
+      (S.maxTier === 0 ? '击败最后一个区域的首领后开启下一层。' : '在最高层级击败最后一个区域的首领开启下一层。') + '</div></div>' +
       // 渊印：这次进区的印（层级 ≥ 1 才有）和图例
       (S.maxTier >= 1
         ? '<div class="seal-now"><span class="sn-k">本次进区</span>' +
@@ -2933,7 +2948,7 @@
       '<div class="map-opts">' +
       '<div class="opt-text"><b>普通物品</b><span>魔法、稀有物品总是自动拾取</span></div>' +
       '<div class="seg">' +
-      [['manual', '手动拾取', '走过不捡，按 F 或点击名牌拾取'], ['auto', '自动拾取', '走过就捡进背包'], ['scrap', '自动丢弃', '走过就地丢弃，不进背包（普通物品分解不出通货）']]
+      [['manual', '手动拾取', '走过不捡，按 F 或点击名牌拾取'], ['auto', '自动拾取', '走过就捡进背包'], ['scrap', '自动丢弃', '走过就地丢弃']]
         .map((o) => '<button type="button" tabindex="-1" class="seg-b' + (normMode() === o[0] ? ' on' : '') + '" data-act="normmode" data-mode="' + o[0] + '" data-tip="txt:' + o[2] + '">' + o[1] + '</button>')
         .join('') +
       '</div>' +
@@ -2976,13 +2991,13 @@
     const blocked = ['echo', 'leech', 'pierce', 'chain'].filter((id) => G.SUPPORTS[id]).map((id) => G.SUPPORTS[id].name).join('、');
     return (
       '<div class="sec-title">召唤与集火</div>' +
-      '<p>召唤技能的按键是<b class="c-ally">自动召唤</b>的开关（每个技能分别记住，技能页的卡片上也能切换）：开着时，只要数量没到上限、魔力够、冷却好了，就在你身边隔一小会儿召唤一只，倒下的也会自动补上，正常扣魔力、进冷却；魔力不够就暂停，回上来接着补（点了以血为引则扣生命，付完低于四成生命时不自动召唤）。自动召唤不播动作，不打断你的施法、连招和翻滚，处决途中暂停。想把召唤物放到指定位置，按住 <kbd>Shift</kbd> 再按那个键，就在准星处手动召唤一次。技能从技能栏上拿下时自动召唤不生效，放回去接着补。</p>' +
-      '<p><b class="c-ally">' + name('thrall', '烬骸仆从') + '</b>唤起迅捷的骸骨剑士，数量满了再手动召唤会替换伤得最重的那具；<b class="c-ally">' + name('colossus', '石誓守像') + '</b>只有一尊，缓慢而坚韧，会砸地伤害一圈敌人，并不时<b>嘲讽</b>，让周围的敌人（首领也会被吸引一阵）转而攻击它。</p>' +
-      '<p><b class="c-ally">' + name('pyre', '焚骨祭司') + '</b>是召唤师清怪的主力：站在前排身后远远施法，把焚骨火弹掷向怪最密的地方，落地炸开一片。每炸到一个敌人攒一点<b>焰蓄</b>，攒满了放大招——怪多时召下<b>坠焰</b>砸向最挤的一团，单个强敌（首领、精英、你的集火目标）则引导<b>灼链</b>持续灼烧。祭司很脆，敌人贴近会先往你身边退，最好让仆从和守像挡在前面。基础上限 2 位，只有镶在它身上的群聚能多唤一位（天赋和护符的「仆从数量」只算仆从）；多重投射让它一次掷出几枚火弹，分头砸向不同的敌人；拿着杖、短杖或魂幡时它继承的武器伤害更多。屏幕左下的图标下方那道橙条就是它的焰蓄。</p>' +
-      '<p>召唤物全自动：跟在你身边，自己挑身边的敌人打。你<b>亲手打中</b>的敌人会被标记几秒，召唤物优先<b>集火</b>它——想先清掉谁，就先打它一下。敌人也会还手：一具仆从最多缠住两只怪、守像四只，多出来的照样冲你来，远程怪和爆裂虫更是认准了你。仆从会闪开小怪的预警圈，却躲不开首领的招式，挨得也更重；倒下的召唤物没开自动召唤时需要重新施放。</p>' +
-      '<p>召唤物<b>不吃你自己的伤害属性</b>，只随宝石等级、带「召唤物」字样的属性（装备词缀与<b class="c-ally">统御</b>支路的天赋）和镶在召唤技能上的辅助宝石成长；统御支路外圈的天赋还能让召唤物<b>继承你的武器伤害、护甲与抗性、装备生命</b>（武器的物品等级越高继承得越完整，魂幡按倍数计），后期靠装备继续变强。屏幕左下、生命球旁边的一排小图标是它们的血量，守像的嘲讽冷却也在那里；技能页的卡片上有每一击的伤害、生命与数量。</p>' +
+      '<p>召唤技能的按键开关<b class="c-ally">自动召唤</b>（技能卡上也能切换）：没到上限、魔力够时自动补，魔力不够暂停（以血为引时低于四成生命不补）。按住 <kbd>Shift</kbd> 再按键，在准星处手动召唤。</p>' +
+      '<p><b class="c-ally">' + name('thrall', '烬骸仆从') + '</b>满了再召唤会替换伤得最重的那具；<b class="c-ally">' + name('colossus', '石誓守像') + '</b>只有一尊，会<b>嘲讽</b>周围的敌人（含首领）。</p>' +
+      '<p><b class="c-ally">' + name('pyre', '焚骨祭司') + '</b>是清怪主力：在后排掷火弹、攒<b>焰蓄</b>放大招，很脆。上限 2 位，只有镶在它身上的群聚能多唤一位；多重投射让它分头掷；拿杖或魂幡时继承更多武器伤害。</p>' +
+      '<p>召唤物优先<b>集火</b>你<b>亲手打中</b>的敌人。仆从最多缠住两只怪、守像四只。</p>' +
+      '<p>召唤物<b>不吃你自己的伤害属性</b>，只随宝石等级、「召唤物」属性和辅助成长；<b class="c-ally">统御</b>外圈天赋让它们<b>继承武器伤害、护甲与抗性、装备生命</b>。</p>' +
       (gems ? '<div class="hc-list">' + gems + '</div>' : '') +
-      '<p>通用辅助也能镶在召唤技能上：迅捷加快召唤物出手，注入、蛮力、致命、震慑、蚀染作用于召唤物的每一击，扩域放大守像的砸地和祭司的火弹、坠焰，多重投射只对祭司有用，节流照常减少消耗与冷却。' + (blocked ? blocked + '镶不上召唤技能。' : '') + '</p>'
+      '<p>通用辅助也能镶：迅捷、注入、蛮力、致命、震慑、蚀染作用于召唤物，扩域放大守像砸地和祭司火弹。' + (blocked ? blocked + '镶不上召唤技能。' : '') + '</p>'
     );
   }
 
@@ -2993,20 +3008,19 @@
     const pc = (v) => Math.round(v * 100) + '%';
     return (
       '<div class="sec-title">元素异常值</div>' +
-      '<p>每个敌人有' + c('fire', '火焰') + '、' + c('cold', '冰霜') + '、' + c('light', '闪电') + '三条<b>异常值</b>，就是头顶血条下（首领在血条下方）那三小段。每次命中，这一击里的每种元素伤害都会往对应的一条里灌：伤害越高灌得越多，敌人生命越厚灌得越慢。普通敌人受到相当于其生命 ' + pc(B.th) + ' 的火焰伤害就灌满火焰那一条，精英要 ' + pc(B.thElite) + '，首领最慢，而且首领每触发一次，那一条就更难灌满。' +
-      '三种元素灌得不一样快：' + c('light', '闪电 ×' + B.rate.light) + '、' + c('cold', '冰霜 ×' + B.rate.cold) + '、' + c('fire', '火焰 ×' + B.rate.fire) + '——闪电最快，适合打一大群；火焰最慢，但爆燃伤害高。' +
-      '技能、注入辅助、装备上的附加伤害、光环和召唤物的命中都算。几秒没有再受到某种元素的伤害，那一条就会慢慢回落。</p>' +
-      '<p>灌满即触发，然后清空重来：</p>' +
-      '<p>' + c('cold', '冰霜 → 冻结') + '：冻住 ' + B.freeze + ' 秒（精英 ' + B.freezeElite + ' 秒），动弹不得。首领不会被冻住，改为 ' + B.bossChill + ' 秒的重度冰缓，移动和出手都慢 ' + pc(B.bossSlow) + '。冰霜异常值没满的时候也有轻度冰缓：挨上一下冰就慢 ' + pc(B.chillMin) + '，越满越慢，冻住前最多慢 ' + pc(B.chill) + '（精英 ' + pc(B.chillMinElite) + '～' + pc(B.chillElite) + '，首领 ' + pc(B.chillMinBoss) + '～' + pc(B.chillBoss) + '）。冰缓放慢的是移动、出手和动作，中了冰缓的敌人身上泛青、脚下冒冰屑。</p>' +
-      '<p>' + c('fire', '火焰 → 爆燃') + '：以它为中心炸开一团火焰，波及周围 ' + B.blastR + ' 米内的敌人，伤害' + (B.blast === 1 ? '相当于灌满期间你平均一击的火焰伤害' : '是灌满期间你平均一击火焰伤害的 ' + pc(B.blast)) + '，再吃异常累积速度的加成——你的火焰越强，炸得越狠（但不超过这只敌人生命的一定比例）。爆炸本身不会再引发爆燃。</p>' +
-      '<p>' + c('light', '闪电 → 感电') + '：' + B.shock + ' 秒内它每挨一下，就射出至多 ' + B.shockN + ' 道电弧，每道是那一击伤害的 ' + pc(B.bolt) + '，射向身边最近的别的敌人；身边一个别的敌人都没有时，只有一道电弧打回它自己。电弧不会再引发电弧。</p>' +
-      '<p><b>死亡时的异常</b>：每一小段正中有一道刻度。敌人死的时候哪一条过了刻度（灌到 ' + pc(B.deathMin) + ' 以上；正冻着的算冰霜、正感电的算闪电），就在尸体处再触发一次：' +
-      c('fire', '尸爆') + '（和爆燃一样的爆炸）、' + c('light', '放电') + '（向身边最近的 ' + B.deathBoltN + ' 个敌人各射一道电弧，每道是灌闪电时你平均一击闪电伤害的 ' + pc(B.deathBolt) + '）、' +
-      c('cold', '碎冰') + '（尸体碎成冰碴，给周围 ' + B.shatterR + ' 米内的敌人灌一截冰霜异常值）。死亡触发打死的敌人还能接着触发，但一串最多连 ' + B.deathGen + ' 层。</p>' +
-      '<p><b>异常累积速度</b>（蚀染辅助、秘识支路的「侵蚀」「元素使」天赋）让异常值涨得更快。物理伤害不累积异常值，它削的是架势。</p>' +
-      '<p>' + c('chaos', '混沌') + '伤害有自己的一条异常值（敌人头顶的第四段），满了就' + c('chaos', '渊缚') + '：小怪定住 ' + B.bind + ' 秒（精英 ' + B.bindElite + ' 秒），并被拽向 ' + B.bindR +
-      ' 米内最近的黑洞，附近没有黑洞就拽向身边的怪群中心；首领不定不拽，改为 ' + B.bossBind + ' 秒减速 ' + Math.round(B.bossBindSlow * 100) + '%。渊缚期间不再累积混沌异常值。正被渊缚或混沌异常值过半的敌人死时会' +
-      c('chaos', '渊陷') + '：把尸体身边的小怪往里拽一下（不造成伤害）。混沌伤害吃火焰、冰霜、闪电三种伤害提高的总和（元素伤害提高只算一次），不吃「元素过载」。</p>'
+      '<p>每个敌人有' + c('fire', '火焰') + '、' + c('cold', '冰霜') + '、' + c('light', '闪电') + '三条<b>异常值</b>（血条下三小段），命中时按元素伤害灌入：普通敌人受到其生命 ' + pc(B.th) + ' 的火焰伤害灌满，精英 ' + pc(B.thElite) + '，首领最慢且越打越难。' +
+      '累积速度：' + c('light', '闪电 ×' + B.rate.light) + '、' + c('cold', '冰霜 ×' + B.rate.cold) + '、' + c('fire', '火焰 ×' + B.rate.fire) + '。' +
+      '几秒不受该元素伤害就回落。</p>' +
+      '<p>' + c('cold', '冰霜 → 冻结') + '：冻住 ' + B.freeze + ' 秒（精英 ' + B.freezeElite + ' 秒）。首领改为 ' + B.bossChill + ' 秒重度冰缓，移动和出手慢 ' + pc(B.bossSlow) + '。未满时也有冰缓：挨一下冰就慢 ' + pc(B.chillMin) + '，越满越慢，最多 ' + pc(B.chill) + '（精英 ' + pc(B.chillMinElite) + '～' + pc(B.chillElite) + '，首领 ' + pc(B.chillMinBoss) + '～' + pc(B.chillBoss) + '）。</p>' +
+      '<p>' + c('fire', '火焰 → 爆燃') + '：炸伤周围 ' + B.blastR + ' 米内的敌人，伤害' + (B.blast === 1 ? '为灌满期间你平均一击的火焰伤害' : '为灌满期间平均一击火焰伤害的 ' + pc(B.blast)) + '，吃异常累积速度加成（有上限）。爆炸不再引发爆燃。</p>' +
+      '<p>' + c('light', '闪电 → 感电') + '：' + B.shock + ' 秒内它每挨一下，射出至多 ' + B.shockN + ' 道电弧打向最近的其他敌人，每道为该击伤害的 ' + pc(B.bolt) + '；身边没有别的敌人时打回它自己。电弧不再引发电弧。</p>' +
+      '<p><b>死亡时的异常</b>：死时某条过了中间的刻度（' + pc(B.deathMin) + ' 以上；正冻着算冰霜、正感电算闪电），在尸体处再触发一次：' +
+      c('fire', '尸爆') + '（同爆燃）、' + c('light', '放电') + '（向最近 ' + B.deathBoltN + ' 个敌人各射一道电弧，每道为平均一击闪电伤害的 ' + pc(B.deathBolt) + '）、' +
+      c('cold', '碎冰') + '（给 ' + B.shatterR + ' 米内的敌人灌一截冰霜异常值）。一串最多连 ' + B.deathGen + ' 层。</p>' +
+      '<p><b>异常累积速度</b>（蚀染、侵蚀、元素使）让异常值涨得更快。物理伤害不累积异常值，它削架势。</p>' +
+      '<p>' + c('chaos', '混沌') + '伤害有自己的一条（第四段），满了就' + c('chaos', '渊缚') + '：小怪定住 ' + B.bind + ' 秒（精英 ' + B.bindElite + ' 秒），并被拽向 ' + B.bindR +
+      ' 米内最近的黑洞，没有就拽向怪群中心；首领改为 ' + B.bossBind + ' 秒减速 ' + Math.round(B.bossBindSlow * 100) + '%。正被渊缚或混沌过半的敌人死时' +
+      c('chaos', '渊陷') + '：把身边的小怪往里拽（无伤害）。混沌伤害吃火焰、冰霜、闪电伤害提高的总和，不吃「元素过载」。</p>'
     );
   }
 
@@ -3048,9 +3062,9 @@
     }).join('');
     return (
       '<div class="sec-title">武器与武器技</div>' +
-      '<p>武器决定<b>攻击</b>技能' + (atk.length ? '（' + atk.join('、') + '）' : '') + '的伤害：每一击 = 武器的物理伤害 × 技能的<b>武器倍率</b>，宝石每高一级再多 ' + gl + '%（攻击技能主要靠换更高物品等级的武器变强）；出手速度还要乘上武器的<b>攻击速度</b>——有冷却的攻击技能（如闪袭）出手次数由冷却决定，攻速改为折进每一击的伤害。法术和召唤不看武器伤害。空手只有 ' + F.min + '–' + F.max + ' 的拳头伤害。</p>' +
-      '<p>武器详情里列出物理伤害、每秒攻击和<b>武器秒伤</b>（平均伤害 × 每秒攻击），后面的箭头是与身上那把的比较。魔法、稀有武器可能带「武器物理伤害提高」「附加物理伤害」这类<b>本地词缀</b>，已经算进这把武器的伤害里。</p>' +
-      '<p>每种武器自带一招<b>武器技</b>，固定在 <kbd>R</kbd> 键：换武器就换招，不占技能栏，也不能镶辅助宝石。武器技都有冷却，单次伤害高，穿插在主力技能之间施放最划算。攻击型的随武器伤害成长；长杖、短杖的法术型武器技随武器的物品等级和你的元素伤害加成成长；魂幡的魂火按召唤物计算，吃召唤物伤害加成，还会让身边的召唤物短暂狂热。技能页右栏顶上有当前武器技的数值。</p>' +
+      '<p>武器决定<b>攻击</b>技能' + (atk.length ? '（' + atk.join('、') + '）' : '') + '的伤害：每一击 = 武器物理伤害 × 技能<b>武器倍率</b>，宝石每级再 +' + gl + '%，出手速度乘武器<b>攻击速度</b>。法术和召唤不看武器。空手只有 ' + F.min + '–' + F.max + ' 的拳头伤害。</p>' +
+      '<p><b>本地词缀</b>（如「附加物理伤害」）已算进武器伤害。</p>' +
+      '<p>每种武器自带 <kbd>R</kbd> 键<b>武器技</b>，换武器就换招，不能镶辅助。</p>' +
       helpBasics() +
       helpRanged() +
       helpUSkills() +
@@ -3063,9 +3077,8 @@
     if (!G.SKILLS.basic_blade) return '';
     return (
       '<div class="sec-title">武器普攻（右键）</div>' +
-      '<p><kbd>右键</kbd>固定是手里这把武器自己的<b>普攻</b>，不占技能栏、不耗魔力，换武器就换招：刃「挥斩」、双匕「连刺」、战锤「重击」、太刀「拔刀」是<b>连招</b>，' +
-      '长杖「灵弹」、短杖「疾咒」是法术（属性取你伤害加成最高的元素），魂幡「魂引」放出一缕按召唤物计算的魂灵，空手是「拳击」。右键不能绑别的技能，左键、Q、E 放学会的技能。</p>' +
-      '<p>技能页最上面是<b>「武器普攻」卡</b>，自带 3 个辅助孔：辅助按当前普攻的标签生效，换武器不用取下来（对当前普攻不适用的会标「不生效」）。</p>'
+      '<p><kbd>右键</kbd>是武器自己的<b>普攻</b>，不耗魔力：近战武器是<b>连招</b>，杖是法术，魂幡放出魂灵。</p>' +
+      '<p>技能页最上面的<b>「武器普攻」卡</b>有 3 个辅助孔，按当前普攻的标签生效，换武器不用取下。</p>'
     );
   }
 
@@ -3075,11 +3088,10 @@
     const R = G.RANGED || {};
     return (
       '<div class="sec-title">枪械与弓</div>' +
-      '<p>拿着<b>枪械</b>（机炮、喷枪、烬铸左轮）或<b>弓</b>（猎弓、鹰眼长弓、符文弓、霜弓）时，<kbd>右键</kbd>的武器普攻是这把武器自己的射击——枪械「开火」、弓「射击」，按住连发。左键、Q、E 照常使用。</p>' +
-      '<p>技能页最上面是<b>「武器普攻」卡</b>，自带 3 个辅助孔：多重、贯穿、连锁、注能、迅捷之类按普攻的标签生效。宝石镶在卡上，换不同的远程武器也不用取下来（对当前普攻不适用的会标「不生效」）。</p>' +
-      '<p><kbd>R</kbd> 被一根<b>量表</b>卡着，就是技能栏 R 格左边那根竖条：没满时 R 格是暗的，满了亮起，放出 R 技量表清零。' +
-      '枪械攒<b style="color:#ffb36a">热度</b>：开火时上涨，停火一会儿慢慢回落，没有过热惩罚——R 是一记排空热度的大招。' +
-      '弓攒<b style="color:#9fe0b8">专注</b>：箭矢命中时上涨，暴击和' + (R.farD ? ' ' + R.farD + ' 米外的' : '远距离') + '命中涨得更多，挨打会掉一点——R 是一段约 8 秒的强力增益（增益期间不涨专注）。天赋盘里有提高热度 / 专注积攒、热度技伤害和增益持续时间的天赋。</p>'
+      '<p>拿着<b>枪械</b>或<b>弓</b>时，<kbd>右键</kbd>是这把武器的射击，按住连发。</p>' +
+      '<p><kbd>R</kbd> 被<b>量表</b>卡着（R 格左边的竖条），满了才亮，放出后清零。' +
+      '枪械攒<b style="color:#ffb36a">热度</b>：开火上涨，停火回落，R 是排空热度的大招。' +
+      '弓攒<b style="color:#9fe0b8">专注</b>：命中上涨，暴击和' + (R.farD ? ' ' + R.farD + ' 米外' : '远距离') + '命中涨得更多，挨打会掉，R 是约 8 秒的增益（期间不涨）。</p>'
     );
   }
 
@@ -3092,7 +3104,7 @@
       return '<div class="hc hw uskill" style="--c:' + sk.color + '">' + IC.skill(id) + '<b>' + sk.name + '</b><span><em>' + esc(uSkillSrc(id)) + '</em>' + (sk.cd > 0 ? '冷却 ' + fmt1(sk.cd) + ' 秒。' : '') + sk.desc + '</span></div>';
     }).join('');
     return (
-      '<p><b style="color:' + G.RARITY_COLOR[3] + '">烬铸技</b>：拿着烬铸武器时，<kbd>R</kbd> 上的武器技换成这把武器专属的烬铸技——比普通武器技强得多、也更花哨，冷却也长得多（R 格会亮起余烬光）。它照样按武器成长：太刀的随武器伤害，长杖的随物品等级和元素伤害加成，魂幡的按召唤物计算。在烬铸武器和普通武器之间换来换去不会重置冷却，剩下的冷却按比例带过去。</p>' +
+      '<p><b style="color:' + G.RARITY_COLOR[3] + '">烬铸技</b>：拿着烬铸武器时 <kbd>R</kbd> 换成它专属的烬铸技，更强、冷却更长。</p>' +
       '<div class="hc-list">' + rows + '</div>'
     );
   }
@@ -3100,15 +3112,15 @@
   // 按键表：帮助页和标题画面 / 暂停菜单里的「操作说明」共用
   const HELP_KEYS = [
     [['W', 'A', 'S', 'D'], '移动（方向键亦可）'],
-    [['左键', 'Q', 'E'], '朝准星施放技能栏上的技能，可按住'],
-    [['右键'], '武器普攻：随手中的武器而变，近战武器是连招，按住连打，不耗魔力'],
-    [['R'], '武器技：随手中的武器而变（烬铸武器换成它的烬铸技；枪械和弓要先攒满热度 / 专注）'],
-    [['空格'], '翻滚，途中短暂无敌；可以取消挥砍'],
-    [['1', '2'], '生命 / 魔力药剂，击杀怪物会充能'],
-    [['F'], '处决露出破绽的敌人；否则拾取最近的掉落'],
-    [['Alt'], '按住：展开地上所有名牌的概要'],
+    [['左键', 'Q', 'E'], '朝准星施放技能，可按住'],
+    [['右键'], '武器普攻，随武器而变'],
+    [['R'], '武器技（枪械和弓要先攒满量表）'],
+    [['空格'], '翻滚，短暂无敌，可取消挥砍'],
+    [['1', '2'], '生命 / 魔力药剂'],
+    [['F'], '处决破绽中的敌人，否则拾取'],
+    [['Alt'], '按住：展开名牌概要和浮窗详情'],
     [['I', 'G', 'P', 'M'], '背包 / 技能 / 天赋 / 地图'],
-    [['H', 'Esc'], '打开帮助 / 关闭面板；没有面板开着时 Esc 暂停'],
+    [['H', 'Esc'], '打开帮助 / 关闭面板；没有面板时 Esc 暂停'],
   ];
   function renderHelp() {
     const key = (k, t) => '<div class="hk"><span class="hk-keys">' + k.map((x) => '<kbd>' + x + '</kbd>').join('') + '</span><span>' + t + '</span></div>';
@@ -3122,34 +3134,32 @@
       '<div class="col scroll" data-scroll="help1"><div class="sec-title">操作</div>' +
       HELP_KEYS.map((k) => key(k[0], k[1])).join('') +
       '<div class="sec-title">战斗须知</div>' +
-      '<p>地面上的<b class="c-red">红色区域</b>是敌人即将落下的攻击，在它填满之前走出去或翻滚穿过。</p>' +
-      '<p>元素伤害会在敌人身上累积<b>异常值</b>，满了就触发异常（详见下面「元素异常值」）。把准星移到敌人身上可以看到它的等级和身上的异常状态。</p>' +
-      '<p>护甲减少受到的物理伤害，抗性减少对应元素的伤害，上限为 75%。</p>' +
+      '<p>地上的<b class="c-red">红色区域</b>是即将落下的攻击，填满前走出去或翻滚穿过。</p>' +
+      '<p>护甲减少物理伤害，抗性减少对应元素伤害（上限 75%）。</p>' +
       helpBuildUp() +
       '<div class="sec-title">连击、架势与处决</div>' +
-      '<p><b>连击</b>：近战武器的<kbd>右键</kbd>普攻是一串连招，按住或连按会一段接一段打出去（刃三段、双匕四段、战锤三段、太刀三段、空手三段）。最后一段是<b>终结技</b>：范围更大、伤害最高、把敌人打飞，还能打断小怪的起手。停手太久、翻滚或改用别的技能，连段就从头再来；右键图标上方的小格显示打到了第几段。</p>' +
-      '<p><b>出招的节奏</b>：动作途中按下的攻击、技能和翻滚会被记住，能出手的一瞬间立刻放出，不必掐着时间狂点。<b>翻滚可以取消挥砍</b>——起手和收招都行。</p>' +
-      '<p><b>架势</b>：精英和首领的血条下面有一道白条。每次命中都会削掉一些（近战最多，终结技尤其多，暴击更多），几秒不挨打才会回复。打空之后敌人露出<b class="c-gold">破绽</b>：停下手上的一切招式，在几秒内受到的伤害提高 25%。</p>' +
-      '<p><b>处决</b>：对破绽中的敌人按 <kbd>F</kbd>（贴身时按近战键也行）。你会冲到它身前给出一记重创，全程无敌，并回复生命、魔力和药剂充能。精英多半当场毙命；首领会失去一大截生命，之后重新站稳——而且每被击破一次，架势就更难打空。</p>' +
-      '<p>脚下的两道弧是生命（左）与魔力（右）。屏幕边缘的箭头指向画面外已经盯上你的精英、首领和传送门。</p>' +
-      '<p>死亡不会损失经验和物品：你会在区域入口重生（倒在首领战里，则在它的竞技场门外），怪物回到原位，首领恢复全部生命。</p>' +
+      '<p><b>连击</b>：近战普攻按住逐段打出（双匕四段，其余三段），末段<b>终结技</b>伤害最高、打飞敌人。停手、翻滚或换技能会从头开始。</p>' +
+      '<p>动作中的按键会被记住，能出手时立刻放出。<b>翻滚可以取消挥砍</b>。</p>' +
+      '<p><b>架势</b>：精英和首领血条下的白条，命中削减，几秒不挨打回复。打空后露出<b class="c-gold">破绽</b>：停止出招，受到的伤害 +25%。</p>' +
+      '<p><b>处决</b>：对破绽中的敌人按 <kbd>F</kbd>，无敌重创，回复生命、魔力和药剂。首领每被击破一次，架势更难打空。</p>' +
+      '<p>屏幕边缘的箭头指向画面外的精英、首领和传送门。</p>' +
+      '<p>死亡不损失经验和物品：在区域入口重生（首领战则在竞技场门外），怪物回到原位，首领回满生命。</p>' +
       '</div>' +
       '<div class="col scroll" data-scroll="help2"><div class="sec-title">技能与辅助宝石</div>' +
-      '<p>怪物会掉落<b class="c-teal">技能宝石</b>。学会的技能在「技能」页拖到技能栏的格子里（左键 / 右键 / Q / E），或点技能卡上的按键标签；再次拾到更高等级的同名宝石会直接升级。</p>' +
-      '<p><b class="c-blank">无铭技能宝石</b>没有刻下技能：每个首领第一次倒下时必掉一颗，精英和普通怪偶尔也会掉。在技能页里点一个没学会的技能就能用它学会，或把等级更低的已学技能升到它的等级；总是先用等级最高的那颗。</p>' +
-      '<p>每个技能有 3 个辅助槽。<b>辅助宝石</b>不会单独生效，而是改变它所镶嵌的技能：多几枚投射物、范围更大、自动重复施放……代价是更高的魔力消耗。把宝石拖进辅助槽，或点击空槽挑选；点击已镶嵌的槽取下。</p>' +
-      '<p>一颗辅助宝石同一时间只能镶在一个技能上，并且技能要带有它要求的标签。</p>' +
-      '<p><b>刻式</b>：技能宝石到 ' + G.VARIANT_LVL + ' 级后，技能卡上多出「原式 / A / B」三个按钮。A、B 两种刻式各加一条原式没有的规则（比如黑洞的「双极」一次开两个洞、中间拉一道伤人的引力索，「坍缩」越拽越重、再按一次提前引爆），打单个目标的秒伤和原式差不多，取舍在怪群和打法上，悬停按钮可以看到说明和数值。每个技能第一次选免费，之后每换一次（包括改回原式）用掉 ' + G.VARIANT_COST.n + ' 颗' + G.CURRENCY[G.VARIANT_COST.cur].name + '；身边 ' + G.VARIANT_SAFE_R + ' 米内有醒着的敌人时不能换。</p>' +
-      '<p>带<b>光环</b>标签的技能（' + (G.SKILLS.nova ? G.SKILLS.nova.name : '霜环') + '）不用按键：放进技能栏任意一格就常驻生效，代价是<b>保留</b>一部分最大魔力——魔力球顶上压暗的那一截，保留的魔力既不能用也不回复（以血为引时改为保留生命）。镶上的辅助宝石按各自的消耗倍率增减保留：节流减少，迅捷、扩域这类增加。回响和投射物类辅助镶不上。</p>' +
+      '<p>怪物掉落<b class="c-teal">技能宝石</b>，更高等级的同名宝石直接升级。在技能页把技能拖到技能栏。</p>' +
+      '<p><b class="c-blank">无铭技能宝石</b>可学会任一技能，或把更低等级的已学技能升到它的等级，先用最高的那颗。每个首领首次倒下必掉一颗。</p>' +
+      '<p>每个技能有 3 个辅助槽。<b>辅助宝石</b>改变所镶的技能，代价是更高的魔力消耗。一颗只能镶一个技能，技能要带它要求的标签。</p>' +
+      '<p><b>刻式</b>：宝石 ' + G.VARIANT_LVL + ' 级后可选 A / B 两种刻式，各加一条新规则。首次免费，之后每换一次 ' + G.VARIANT_COST.n + ' 颗' + G.CURRENCY[G.VARIANT_COST.cur].name + '；' + G.VARIANT_SAFE_R + ' 米内有醒着的敌人时不能换。</p>' +
+      '<p><b>光环</b>（' + (G.SKILLS.nova ? G.SKILLS.nova.name : '霜环') + '）放进技能栏即常驻生效，<b>保留</b>一部分最大魔力（以血为引时保留生命）。</p>' +
       helpSummon() +
       '<div class="sec-title">天赋盘</div>' +
-      '<p>每升一级获得 1 点天赋，首次击败每个首领再得 2 点。从中央出发有五条支路：<b style="color:#e2705a">铸躯</b>偏向生命与物理，<b style="color:#7ed67a">迅影</b>偏向速度与暴击，<b style="color:#6fb2ff">秘识</b>偏向魔力与元素，<b class="c-ally">统御</b>强化召唤物，正上方短短的<b style="color:#ff6ad2">噬渊</b>偏向混沌、渊缚与黑洞；相邻支路之间还有<b style="color:#e0be6e">交汇</b>天赋，两头都能点进去。满级也点不满整个盘，要有取舍。</p>' +
-      '<p>每条支路有两个<b>基石天赋</b>（中圈一个、最外圈一个），效果强烈但带有代价。天赋可以随时退回或整体重置，不需要任何花费。天赋盘里滚轮缩放、按住拖动平移，「全览」回到整个盘。</p>' +
+      '<p>每升一级得 1 点天赋，首次击败每个首领再得 2 点。五条支路：<b style="color:#e2705a">铸躯</b>（生命与物理）、<b style="color:#7ed67a">迅影</b>（速度与暴击）、<b style="color:#6fb2ff">秘识</b>（魔力与元素）、<b class="c-ally">统御</b>（召唤物）、<b style="color:#ff6ad2">噬渊</b>（混沌、渊缚与黑洞）；相邻支路间有<b style="color:#e0be6e">交汇</b>天赋。满级也点不满，要有取舍。</p>' +
+      '<p>每条支路有两个<b>基石天赋</b>，效果强但有代价。天赋可随时免费退回。</p>' +
       helpEnc() +
       '<div class="sec-title">区域与轮回</div>' +
-      '<p>每个区域的尽头盘踞着一名首领。击败它之后会出现传送门，通往地图，可以前往下一个区域。</p>' +
-      '<p>击败最后一个区域（第 ' + G.ZONES.length + ' 个，' + G.ZONES[G.ZONES.length - 1].name + '）的首领会开启<b>轮回层级</b>：每高一层，所有区域的怪物等级 +' + G.TIER_LEVELS + '，掉落的物品等级也随之提高。</p>' +
-      '<p><b>渊印</b>：轮回层级 1 起，进入区域前要选一枚印。<b>素印</b>什么都不加；<b>浅印</b>、<b>深印</b>、<b>烬印</b>各带 2–5 条印纹，让怪物更凶（<b class="c-red">橙红</b>的签）或给你添麻烦（<b style="color:#c49cff">紫色</b>的签），权重越高，物品数量、稀有度和经验加得越多（各有上限；宝石不受影响）。总权重 ' + G.SEAL.lieW + ' 以上叫<b>烈印</b>，击败区域首领时另有机会掉落印烛芯和两件渊契。生效的印纹显示在左上角的小签上，悬停看说明；读档、倒下重生都保留，换区或重进就重新选。</p>' +
+      '<p>每个区域尽头有一名首领，击败后出现通往地图的传送门。</p>' +
+      '<p>击败最后一个区域（' + G.ZONES[G.ZONES.length - 1].name + '）的首领开启<b>轮回层级</b>：每高一层，怪物等级 +' + G.TIER_LEVELS + '，物品等级随之提高。</p>' +
+      '<p><b>渊印</b>：轮回 1 起进区前选印。印纹越多越凶（<b class="c-red">橙红</b>签强化怪物，<b style="color:#c49cff">紫色</b>签削弱你），物品数量、稀有度和经验加得越多。总权重 ' + G.SEAL.lieW + ' 以上为<b>烈印</b>，首领可掉两件渊契。轮回 ' + G.FRAG_DROP.minTier + ' 起，印还决定<b>烛芯</b>几率：' + fragRates() + '。</p>' +
       '<p>游戏会自动存档。</p>' +
       '<div class="sec-title">素材来源</div>' +
       '<p class="credits">地面与岩壁贴图来自 <b>Poly Haven</b>、<b>ambientCG</b>，布景模型来自 <b>KayKit</b>（Kay Lousberg）与 <b>Kenney</b>，主角、游魂、烬骸仆从与喷吐者的模型来自 <b>Quaternius</b>，均以 CC0 授权公开，在此致谢。</p>' +
@@ -3157,16 +3167,16 @@
       '<span>' + (ui.tutMsg || '已看过 ' + Object.keys(G.save.tut).length + ' / ' + HINTS.length + ' 条') + '</span></div>' +
       '</div>' +
       '<div class="col scroll" data-scroll="help3">' + helpWeapons() + '<div class="sec-title">装备与词缀</div>' +
-      '<p>装备分为<b style="color:' + G.RARITY_COLOR[0] + '">普通</b>、<b style="color:' + G.RARITY_COLOR[1] + '">魔法</b>（最多 2 条词缀）和<b style="color:' + G.RARITY_COLOR[2] + '">稀有</b>（最多 6 条词缀）。词缀分前缀与后缀，各占一半位置。</p>' +
-      '<p>词缀前的 <span class="ic-tier t4">T4</span> 是它的阶级，数字越大数值越高；物品等级越高，能出现的阶级越高。在详情里悬停一条词缀可以看到每一阶的数值范围。</p>' +
-      '<p>物品角上的 <b class="vd-up">▲</b> <b class="vd-down">▼</b> 是与身上同部位装备的比较：按技能栏上技能的秒伤、最大生命、护甲与抗性估算。把鼠标停在背包格子或<b>地上的名牌</b>上，都能看到完整属性和换上之后的变化。</p>' +
-      '<p><b style="color:' + G.RARITY_COLOR[3] + '">烬铸</b>武器只在轮回层级里由首领掉落：名字、武器类型和词缀行都是固定的，数值在区间内掷出，详情里的<b>完美度</b>是各条数值在区间里的平均位置。每把都带一个独有的机制。它们无法用任何通货改造，分解时要点两次确认。拿着烬铸武器时，<kbd>R</kbd> 上的武器技换成它专属的<b>烬铸技</b>（见「武器与武器技」）。背包页的「烬铸图鉴」记录拾到过的武器、最高完美度和各首领的保底进度。</p>' +
-      '<p><b>背包操作</b>：右键装备 / 卸下；拖到装备栏换装，拖到别的格子整理，拖出窗口丢到地上；Shift+点击分解（稀有物品需要再点一次）。</p>' +
+      '<p>装备分<b style="color:' + G.RARITY_COLOR[0] + '">普通</b>、<b style="color:' + G.RARITY_COLOR[1] + '">魔法</b>（最多 2 条词缀）和<b style="color:' + G.RARITY_COLOR[2] + '">稀有</b>（最多 6 条）。词缀分前缀与后缀，各占一半。</p>' +
+      '<p><span class="ic-tier t4">T4</span> 是词缀阶级，物品等级决定最高阶。</p>' +
+      '<p><b class="vd-up">▲</b> <b class="vd-down">▼</b> 是与身上同部位的比较。悬停背包格子或<b>地上的名牌</b>看完整属性。</p>' +
+      '<p><b style="color:' + G.RARITY_COLOR[3] + '">烬铸</b>武器由轮回层级的首领掉落：词缀行固定、数值在区间内掷出（<b>完美度</b>），带独有机制并把 <kbd>R</kbd> 换成<b>烬铸技</b>。无法改造。「烬铸图鉴」记录收集和保底。</p>' +
+      '<p><b>背包操作</b>：右键装备 / 卸下；拖动换装、整理，拖出窗口丢弃；Shift+点击分解（稀有需再点一次）。</p>' +
       '<div class="sec-title">通货</div>' +
-      '<p>通货不是用来买东西的，而是直接改造装备。把通货<b>拖到一件物品上</b>，或者选中物品后点击右侧的通货按钮。</p>' +
+      '<p>通货用来改造装备：<b>拖到一件物品上</b>，或选中物品后点右侧的通货按钮。</p>' +
       '<div class="hc-list">' + curs + '</div>' +
-      '<p><b style="color:' + G.CURRENCY.chisel.color + '">' + G.CURRENCY.chisel.name + '</b>用法稍有不同：拖到魔法或稀有物品上之后会弹出它的词缀列表，点选其中一条，只把这一条重洗成同类的另一条词缀（新词缀照样受部位、物品等级和不能重复的限制），其他词缀原封不动。点「取消」或按 <kbd>Esc</kbd> 不会消耗。</p>' +
-      '<p>分解魔法物品有机会得到微光尘；分解稀有物品必得增幅尘，还有机会得到冠冕石、升华石或乱流石。每个首领第一次被击败时，除了随机通货，还保底掉落升华石和乱流石各一颗。</p>' +
+      '<p><b style="color:' + G.CURRENCY.chisel.color + '">' + G.CURRENCY.chisel.name + '</b>：拖到物品上后点选一条词缀，只重洗这一条。取消或 <kbd>Esc</kbd> 不消耗。</p>' +
+      '<p>分解魔法物品可能得微光尘，稀有物品必得增幅尘。首领首次被击败保底掉升华石和乱流石各一颗。</p>' +
       '</div></div>';
   }
 
@@ -3230,7 +3240,7 @@
     return (
       '<div class="tcard" style="--c:' + B.color + '">' + tcHead(ibox(IC.blank(), 'gemb'), B.name, kind) +
       '<div class="tc-desc">' + B.desc + '。</div>' +
-      '<div class="tc-foot">学会的技能等级就是宝石的等级；同时有好几颗时，总是先用等级最高的那颗</div>' + state + '</div>'
+      '<div class="tc-foot">技能等级 = 宝石等级；先用最高的那颗</div>' + state + '</div>'
     );
   }
 
@@ -3306,7 +3316,7 @@
         : '<div class="tc-state new">点击换成它：' + (cost ? cost + ' ' + G.CURRENCY[VC.cur].name + '（持有 ' + have + '）' : '免费（这个技能第一次选）') + '</div>';
     return (
       '<div class="tcard" style="--c:' + base.color + '">' + tcHead('<div class="tc-skico">' + IC.skill(id) + '</div>', v === 'o' ? '原式' : V[v].name, base.name + ' · ' + (v === 'o' ? '不选刻式' : '刻式 ' + G.VARIANT_NAME[v])) +
-      '<div class="tc-desc">' + (v === 'o' ? base.desc : V[v].desc) + '</div>' +
+      '<div class="tc-desc">' + (v === 'o' ? base.desc : V[v].desc) + '</div>' + altBox(v === 'o' ? base.alt : V[v].alt) +
       (rows.length ? '<div class="tc-foot">' + rows.join(' · ') + '</div>' : '') +
       '<div class="tc-stat">' + nums + '</div>' +
       (v === 'o' ? '' : '<div class="tc-foot">' + (total ? '总秒伤' : '单体秒伤') + ' <b>×' + r.toFixed(2) + '</b>（相对原式）' + (total ? ' · ' + (sk.buff ? '按你自己每一击的黑焰比例' : '按主力技能 + 霜环') : '') + '</div>' +
@@ -3334,7 +3344,7 @@
       return (
         '<div class="tcard" style="--c:' + c.color + '">' + tcHead(ibox(IC.cur(id), 'curb'), c.name, '通货 · 持有 ' + n) +
         '<div class="tc-desc">' + c.desc + '</div>' +
-        '<div class="tc-hint' + (n ? '' : ' dim') + '">' + (n ? (id === 'chisel' ? '拖到一件物品上，再点选要重洗的词缀' : '拖到一件物品上使用') : '还没有这种通货 · 怪物掉落，或分解装备获得') + '</div></div>'
+        '<div class="tc-hint' + (n ? '' : ' dim') + '">' + (n ? (id === 'chisel' ? '拖到一件物品上，再点选要重洗的词缀' : '拖到一件物品上使用') : '还没有 · 怪物掉落或分解获得') + '</div></div>'
       );
     }
     if (kind === 'aff') {
@@ -3381,8 +3391,8 @@
         const grow = sk.combo ? sk.combo.length + ' 段连招 · 伤害随武器成长' : sk.asMinion ? '伤害按召唤物计算' : sk.edmg ? '法术 · 随武器的物品等级成长' : '伤害随武器成长';
         return (
           '<div class="tcard" style="--c:' + sk.color + '">' + tcHead('<span class="tc-skico">' + IC.skill(id) + '</span>', sk.name, '武器普攻 · ' + bName + ' · 右键') +
-          '<div class="tc-desc">' + sk.desc + '</div>' +
-          '<div class="tc-foot">' + grow + ' · 不耗魔力 · 辅助宝石镶在技能页的「武器普攻」卡上（换武器时不动）' + (sk.rtype ? ' · 积攒' + gName : '') + '</div>' +
+          '<div class="tc-desc">' + sk.desc + '</div>' + altBox(sk.alt) +
+          '<div class="tc-foot">' + grow + ' · 不耗魔力' + (sk.rtype ? ' · 积攒' + gName : '') + '</div>' +
           '<div class="tc-hint' + (on ? ' ok' : '') + '">' + (on ? '正在右键上' : sk.btype === 'fists' ? '空手时右键' : '装备' + bName + '即可用右键') + '</div></div>'
         );
       }
@@ -3390,8 +3400,8 @@
         const U = sk.uskill ? uOfSkill(id) : null;
         return (
           '<div class="tcard' + (sk.uskill ? ' uskill' : '') + '" style="--c:' + sk.color + '">' + tcHead('<span class="tc-skico">' + IC.skill(id) + '</span>', sk.name, (sk.uskill ? '烬铸技' : '武器技') + ' · ' + rName + ' · ' + gName + '技') +
-          '<div class="tc-desc">' + sk.desc + '</div>' +
-          '<div class="tc-foot">' + gName + '灌满时 R 亮起 · 没有冷却、不耗魔力 · 放出后' + gName + '清零' + (sk.buff ? ' · 限时增益，吃「增益持续时间」' : ' · 吃「热度技伤害」') + ' · 不能镶辅助宝石</div>' +
+          '<div class="tc-desc">' + sk.desc + '</div>' + altBox(sk.alt) +
+          '<div class="tc-foot">' + gName + '满时 R 亮起，放出后清零' + (sk.buff ? ' · 吃增益持续时间' : ' · 吃热度技伤害') + ' · 不能镶辅助</div>' +
           '<div class="tc-hint' + (cur ? ' ok' : '') + '">' + (cur ? '正在 R 键上' : '装备' + (U ? '「' + U.name + '」' : rName) + '即可在 R 键使用') + '</div></div>'
         );
       }
@@ -3401,16 +3411,16 @@
         const rp = sk.replaces && G.SKILLS[sk.replaces];
         return (
           '<div class="tcard uskill" style="--c:' + sk.color + '">' + tcHead('<span class="tc-skico">' + IC.skill(id) + '</span>', sk.name, '烬铸技 · ' + esc(uSkillSrc(id)) + (sk.cd > 0 ? ' · 冷却 ' + fmt1(sk.cd) + ' 秒' : '')) +
-          '<div class="tc-desc">' + sk.desc + '</div>' +
-          '<div class="tc-foot">' + WGROW_TIP[wGrowKind(sk)] + ' · 不能镶辅助宝石' + (rp ? ' · 拿着' + (U ? '「' + U.name + '」' : '这把烬铸武器') + '时，R 上的「' + rp.name + '」换成它；换回普通武器就换回来，冷却按比例带过去' : '') + '</div>' +
+          '<div class="tc-desc">' + sk.desc + '</div>' + altBox(sk.alt) +
+          '<div class="tc-foot">' + WGROW_TIP[wGrowKind(sk)] + ' · 不能镶辅助' + (rp ? ' · 替换「' + rp.name + '」' : '') + '</div>' +
           '<div class="tc-hint' + (cur ? ' ok' : '') + '">' + (cur ? '正在 R 键上' : '装备' + (U ? '「' + U.name + '」' : '对应的烬铸武器') + '即可在 R 键使用') + '</div></div>'
         );
       }
       const bi = (G.BASES.weapon || []).findIndex((b) => b && b.wskill === id);
       return (
         '<div class="tcard" style="--c:' + sk.color + '">' + tcHead('<span class="tc-skico">' + IC.skill(id) + '</span>', sk.name, '武器技 · ' + (bi >= 0 ? wTypeName(bi) : '武器') + (sk.cd > 0 ? ' · 冷却 ' + fmt1(sk.cd) + ' 秒' : '')) +
-        '<div class="tc-desc">' + sk.desc + '</div>' +
-        '<div class="tc-foot">' + WGROW_TIP[wGrowKind(sk)] + ' · 不能镶辅助宝石</div>' +
+        '<div class="tc-desc">' + sk.desc + '</div>' + altBox(sk.alt) +
+        '<div class="tc-foot">' + WGROW_TIP[wGrowKind(sk)] + ' · 不能镶辅助</div>' +
         '<div class="tc-hint' + (cur ? ' ok' : '') + '">' + (cur ? '正在 R 键上' : '装备一把' + (bi >= 0 ? wTypeName(bi) : '这种武器') + '即可在 R 键使用') + '</div></div>'
       );
     }
@@ -3436,7 +3446,7 @@
       if (n.kind === 'start') hint = '<div class="tc-desc">所有支路从这里出发。</div>';
       else if (alloc) hint = '<div class="tc-hint ok">已点亮 · 点击退回</div>';
       else if (avail) hint = '<div class="tc-hint">' + (G.passivePoints().free > 0 ? '点击点亮' : '可点亮 · 没有可用的天赋点') + '</div>';
-      else hint = '<div class="tc-hint dim">尚未连接 · 需要先点亮相邻的天赋</div>';
+      else hint = '<div class="tc-hint dim">未连接 · 先点亮相邻的天赋</div>';
       return (
         '<div class="tcard" style="--c:' + (n.color || '#ffb066') + '"><div class="tc-name">' + n.name + '</div>' +
         '<div class="tc-kind">' + KIND_NAME[n.kind] + (ARM_INFO[n.arm] ? ' · ' + ARM_INFO[n.arm].name : '') + '</div>' + lines + hint + '</div>'
@@ -4046,7 +4056,7 @@
     }
     box.innerHTML =
       '<div class="cf-top">' + itemIcon(f.item) + '<div><b style="color:' + G.RARITY_COLOR[f.item.rarity] + '">' + esc(f.item.name) + '</b>' +
-      '<span>把这件稀有物品丢到地上？<br>它会留在脚边，离开区域后消失。</span></div></div>' +
+      '<span>把这件稀有物品丢到地上？<br>离开区域后消失。</span></div></div>' +
       '<div class="cf-row"><button type="button" tabindex="-1" class="btn danger" data-act="drop-yes">丢下</button>' +
       '<button type="button" tabindex="-1" class="btn" data-act="drop-no">取消</button></div>';
     box.classList.add('on');
@@ -4076,7 +4086,7 @@
         for (let i = 0; i < G.PIN_LIVES; i++) h += '<i class="lamp' + (i < S.lives ? ' on' : '') + '"></i>';
         h += '<span class="pl-ph">' + (S.done ? '熄烛者已倒下' : PIN_PHASE[S.phase] || '') + '</span>';
         pinHud.box.innerHTML = h;
-        pinHud.box.dataset.tip = 'txt:倒下会熄灭一盏魂灯，在场地门外重生，首领保留生命和阶段；' + G.PIN_LIVES + ' 盏都熄灭就失败，退还 ' + G.PIN_REFUND + ' 个烛芯';
+        pinHud.box.dataset.tip = 'txt:倒下熄一盏魂灯，在门外重生；' + G.PIN_LIVES + ' 盏都熄灭即失败，退还 ' + G.PIN_REFUND + ' 个烛芯';
       }
     }
     // 首领血条上写阶段名
@@ -4102,11 +4112,11 @@
     return '<div class="pin-node' + (ready ? ' ready' : '') + (here ? ' here' : '') + '">' +
       '<div class="pn-art"><span class="pn-glyph">烛</span>' + (here ? '<span class="z-here">当前所在</span>' : '') + '</div>' +
       '<div class="pn-body"><div class="pn-head"><b class="pn-name">' + G.PINNACLE.name + '</b><span class="pn-boss">首领 <b>' + G.BOSSES.snuffer.name + '</b>' + (S.bossKills.snuffer ? '<em>已击败 ' + kills + ' 次</em>' : '') + '</span></div>' +
-      '<div class="pn-desc">' + G.PINNACLE.desc + '四种烛芯各献 1 个，点燃火盆进场；倒下 ' + G.PIN_LIVES + ' 次算失败，退还 ' + G.PIN_REFUND + ' 个烛芯。</div>' +
+      '<div class="pn-desc">' + G.PINNACLE.desc + '四种烛芯各献 1 个进场；倒下 ' + G.PIN_LIVES + ' 次失败，退还 ' + G.PIN_REFUND + ' 个。</div>' +
       '<div class="pn-slots">' + slots + '</div>' +
       '<div class="pn-row"><span class="pn-k">层级</span><div class="tiers">' + tiers + '</div><span class="pn-lv">首领等级 <b>' + G.pinLevel(t) + '</b></span>' +
       '<button type="button" tabindex="-1" class="btn primary pn-go" data-act="pin-light"' + (ready ? '' : ' disabled') + '>点燃</button></div>' +
-      (ready ? '' : '<div class="pn-need">四种烛芯各需要 1 个：层级 ' + PN.minTier + ' 起的异兆、烈印下的区域首领会掉，拾烬客可以 2 换 1</div>') +
+      (ready ? '' : '<div class="pn-need">四种烛芯各需 1 个：轮回 ' + G.FRAG_DROP.minTier + ' 起的首领和异兆会掉（' + fragRates() + '），拾烬客 2 换 1</div>') +
       (ui.pinMsg ? '<div class="pn-need bad">' + esc(ui.pinMsg) + '</div>' : '') +
       '</div></div>';
   }
@@ -4183,27 +4193,36 @@
     const f = G.FRAGS[id];
     if (!f) return '';
     const n = (G.save.frags && G.save.frags[id]) || 0, D = G.FRAG_DROP;
-    const pm = id === 'seal' ? G.SEAL.frag.pity : D.pity, pn = (G.save.fragPity && G.save.fragPity[id]) || 0;
     return (
       '<div class="tcard" style="--c:' + f.color + '">' + tcHead(ibox(IC.frag(id), 'curb'), f.name, '烛芯 · 持有 ' + n) +
-      '<div class="tc-desc">熄烛者的开启材料，四种各需一个。来源：' + f.src + '（轮回 ' + D.minTier + ' 起）。拾烬客那里可以 ' + G.TRADER.swap + ' 换 1。</div>' +
-      '<div class="tc-hint">保底：连续 ' + pn + ' / ' + pm + ' 次没掉</div></div>'
+      '<div class="tc-desc">开启熄烛者用，四种各需一个。来源：' + f.src + '（轮回 ' + D.minTier + ' 起）；拾烬客 ' + G.TRADER.swap + ' 换 1。</div>' +
+      '<div class="tc-hint">几率看择的印：' + fragRates() + '</div></div>'
     );
+  }
+  // 烛芯几率（G.fragChance）：「素印 40%、浅印 40%、深印 70%、烬印 100%」
+  function fragRates() {
+    const D = G.FRAG_DROP, pc = (v) => Math.round(v * 100) + '%';
+    return '素印 ' + pc(D.plain) + '、' + G.SEAL.grades.map((g, i) => g + ' ' + pc(D.bySeal[i])).join('、');
+  }
+  // 择印卡片 / 印的悬停里的一行「烛芯 70%」：层级 < minTier 不写
+  function fragLine(seal, tier, cls) {
+    const p = G.fragChance(seal, tier || 0);
+    return p > 0 ? '<div class="' + cls + '">烛芯 ' + Math.round(p * 100) + '%</div>' : '';
   }
   function helpEnc() {
     return (
       '<div class="sec-title">异兆</div>' +
-      '<p>区域里有时会出现<b>异兆</b>：小地图上的<b>灰色六边形</b>标出它的位置，走近之后换成它自己的图样。轮回层级 0 偶尔出一个，轮回 1 起每次进区至少一个。</p>' +
-      '<p><b style="color:#b48cff">守隙</b>：清空房间后裂隙张开，站进圈里坚守 30 秒。<b style="color:#ffd75e">缚匣</b>：崩开锁链，25 秒内打倒三只匣卫。' +
-      '<b style="color:#ff9a3c">游荡者</b>：带名号的精英，各有独门手段。<b style="color:#5fe0f0">祈坛</b>：按 <kbd>F</kbd> 得到一种增益。' +
-      '<b style="color:#ff5a4a">试锋</b>：跨过旁支门口的符文开始限时试炼。<b style="color:#5fe07a">拾烬客</b>：按 <kbd>F</kbd> 交易。' +
-      '<b style="color:#ff9a9a">残影</b>：清空房间后首领的残影浮现。<b style="color:#ff8a3c">落烬</b>：摸一下烬核，在落下的余烬里打碎四块烬晶。</p>' +
-      '<p>轮回 2 起，异兆和烈印下的首领会掉<b>烛芯</b>，是之后开启巅峰首领的材料。</p>' +
+      '<p><b>异兆</b>在小地图上是<b>灰色六边形</b>。轮回 1 起每次进区至少一个。</p>' +
+      '<p><b style="color:#b48cff">守隙</b>：清空房间后站进圈里坚守 30 秒。<b style="color:#ffd75e">缚匣</b>：崩开锁链，25 秒内打倒三只匣卫。' +
+      '<b style="color:#ff9a3c">游荡者</b>：带名号的精英。<b style="color:#5fe0f0">祈坛</b>：按 <kbd>F</kbd> 得到一种增益。' +
+      '<b style="color:#ff5a4a">试锋</b>：跨过符文开始限时试炼。<b style="color:#5fe07a">拾烬客</b>：按 <kbd>F</kbd> 交易。' +
+      '<b style="color:#ff9a9a">残影</b>：清空房间后首领残影浮现。<b style="color:#ff8a3c">落烬</b>：触碰烬核，打碎四块烬晶。</p>' +
+      '<p>轮回 ' + G.FRAG_DROP.minTier + ' 起，区域首领和异兆（守隙、游荡者、缚匣、试锋、落烬）会掉<b>烛芯</b>，用来开启巅峰首领。几率看这次进区择的印：' + fragRates() + '，没有保底。</p>' +
       // 余烛殿（D5）
       '<div class="sec-title">余烛殿</div>' +
-      '<p>最高轮回层级到 ' + G.PIN.minTier + ' 以后，地图页的区域下面多出<b style="color:#ffb24a">余烛殿</b>：印、隙、誓、匣四种烛芯各献 1 个，选好层级点「点燃」进场，挑战巅峰首领<b style="color:#ffd27a">熄烛者</b>（首领等级 = 17 + ' + G.TIER_LEVELS + ' × 层级 + ' + G.PIN.levelAdd + '）。</p>' +
-      '<p>它有三个阶段：<b>残焰</b>里四只火盆都亮着；生命掉到 ' + Math.round(G.PIN.phase[0] * 100) + '% 进入<b>熄灯</b>，它掐灭火盆、场地变暗，每隔一阵涌来<b style="color:#b48cff">暗潮</b>，只有亮着的火盆脚下的<b style="color:#ffc870">暖金色安全圈</b>能躲；站在熄灭的火盆旁边 ' + G.PIN.relight.t + ' 秒可以把它重新点燃（它会冲过去再掐灭一个，但总会留一个亮着）。掉到 ' + Math.round(G.PIN.phase[1] * 100) + '% 进入<b>冠焰</b>，火盆全部炸开后永久点燃，外圈起火，场地缩小。</p>' +
-      '<p>屏幕左上的<b>魂灯</b>是剩下的机会：倒下熄一盏，在场地门外重生，首领保留生命和阶段；' + G.PIN_LIVES + ' 盏都熄灭就失败，随机退还 ' + G.PIN_REFUND + ' 个烛芯。第一次击败它必定掉落一件巅峰' + G.RELIC_NAME + '（熄烛冠或双生坠）。</p>'
+      '<p>最高轮回层级到 ' + G.PIN.minTier + ' 后，地图页出现<b style="color:#ffb24a">余烛殿</b>：印、隙、誓、匣四种烛芯各献 1 个，选好层级点「点燃」，挑战<b style="color:#ffd27a">熄烛者</b>（首领等级 = 17 + ' + G.TIER_LEVELS + ' × 层级 + ' + G.PIN.levelAdd + '）。</p>' +
+      '<p>三个阶段：<b>残焰</b>；' + Math.round(G.PIN.phase[0] * 100) + '% 进入<b>熄灯</b>，场地变暗，定时涌来<b style="color:#b48cff">暗潮</b>，站在亮着的火盆<b style="color:#ffc870">暖金色圈</b>里躲，熄灭的火盆旁站 ' + G.PIN.relight.t + ' 秒可重新点燃；' + Math.round(G.PIN.phase[1] * 100) + '% 进入<b>冠焰</b>，外圈起火、场地缩小。</p>' +
+      '<p><b>魂灯</b>：倒下熄一盏并在门外重生，首领保留进度；' + G.PIN_LIVES + ' 盏熄灭即失败，退还 ' + G.PIN_REFUND + ' 个烛芯。首次击败必掉一件巅峰' + G.RELIC_NAME + '。</p>'
     );
   }
   function renderTrader() {
@@ -4262,7 +4281,7 @@
       '<div class="col scroll" data-scroll="trd1"><div class="sec-title">拾烬客的货架<span class="sec-note">物品等级 ' + enc.level + '</span></div>' + stock +
       '<div class="sec-title">烛芯换取<span class="sec-note">' + (swapOn ? '任意 ' + G.TRADER.swap + ' 个换 1 个指定种类，不收钱' : '轮回 ' + G.TRADER.fragTier + ' 起开放') + '</span></div><div class="trd-frags">' + frags + '</div>' +
       '<p class="trd-msg">' + esc(ui.trdMsg || '') + '</p></div>' +
-      '<div class="col scroll" data-scroll="trd2"><div class="sec-title">卖给拾烬客<span class="sec-note">按分解的价，魔法以上多给 1 颗微光尘</span></div>' + (sell || '<p class="trd-none">背包是空的</p>') + '</div>' +
+      '<div class="col scroll" data-scroll="trd2"><div class="sec-title">卖给拾烬客<span class="sec-note">按分解价，魔法以上多 1 颗微光尘</span></div>' + (sell || '<p class="trd-none">背包是空的</p>') + '</div>' +
       '</div>';
   }
 
@@ -4388,7 +4407,7 @@
     const q = G.world.quality ? G.world.quality() : S.opts.quality;
     const row = (name, note, ctrl) => '<div class="m-row"><div class="opt-text"><b>' + name + '</b><span>' + note + '</span></div>' + ctrl + '</div>';
     return (
-      row('画质', S.opts.quality === 'auto' ? '自动选择，明显掉帧时会自动调低' : '电脑吃力时调低；低档关掉泛光、调色和贴地薄雾',
+      row('画质', S.opts.quality === 'auto' ? '自动选择，明显掉帧时会自动调低' : '电脑吃力时调低',
         '<div class="seg">' + SET_Q.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (q === o[0] ? ' on' : '') + '" data-tact="quality" data-q="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') +
       row('普通物品', '魔法、稀有物品总是自动拾取',
         '<div class="seg">' + SET_N.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (normMode() === o[0] ? ' on' : '') + '" data-tact="normmode" data-mode="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') +
@@ -5213,7 +5232,7 @@
       return (
         '<div class="tcard" style="--c:' + sk.color + '">' + tcHead('<span class="ibox sk" style="--c:' + sk.color + '">' + IC.skill(id) + '</span>', sk.name, '技能宝石 · Lv ' + l.data.lvl) +
         '<div class="tc-tags">' + cardTags(sk).map((t) => '<span>' + G.TAG_NAME[t] + '</span>').join('') + '</div>' +
-        '<div class="tc-desc">' + sk.desc + '</div>' +
+        '<div class="tc-desc">' + sk.desc + '</div>' + altBox(sk.alt) +
         '<div class="tc-foot">' + (sk.buff ? '额外混沌 ' + fmt1(Math.min(sk.flame.cap, sk.flame.k0 + sk.flame.k1 * (l.data.lvl - 1))) + '%（每一击）' : (sk.kind === 'summon' ? '' : sk.kind === 'aura' ? '每跳基础伤害 ' : sk.useMult > 1 && !sk.weaponOnly ? '每跳基础伤害 ' : '基础伤害 ') + dmg) + '<br>' +
         (sk.buff
           ? '魔力保留 ' + sk.reserve + '%'
@@ -5228,7 +5247,7 @@
       const ok = G.blankUseful(l.data.lvl);
       return blankTip(null, l.data.lvl).replace(/<\/div>$/, '') +
         (ok
-          ? '<div class="tc-state new">拾取后存起来，到技能页（<kbd>G</kbd>）挑一个技能学会，或给 Lv ' + l.data.lvl + ' 以下的技能升级</div>'
+          ? '<div class="tc-state new">到技能页（<kbd>G</kbd>）学会任一技能，或升级 Lv ' + l.data.lvl + ' 以下的技能</div>'
           : '<div class="tc-state dup">所有技能都已学会且不低于 Lv ' + l.data.lvl + ' · 拾取后化为 1 ' + G.CURRENCY.dust.name + '</div>') +
         foot + '</div>';
     }
@@ -5242,7 +5261,7 @@
       '<br>你的技能里可镶嵌：' + (fits.length ? fits.join('、') : '暂无') + '</div>' +
       (have
         ? '<div class="tc-state dup">已经拥有 · 拾取后化为 1 ' + G.CURRENCY.augment.name + '</div>'
-        : '<div class="tc-state new">新的辅助宝石 · 镶进技能的辅助槽才会生效</div>') +
+        : '<div class="tc-state new">新的辅助宝石</div>') +
       foot + '</div>'
     );
   }
@@ -5624,20 +5643,20 @@
   const HINTS = [
     {
       id: 'execute', urgent: true, max: 10,
-      html: '敌人露出<b class="c-gold">破绽</b>了：靠近按 <kbd>F</kbd>（贴身时按攻击键也行）<b>处决</b>——一记重创，并回复生命、魔力和药剂',
+      html: '敌人露出<b class="c-gold">破绽</b>：靠近按 <kbd>F</kbd> <b>处决</b>，重创并回复生命、魔力和药剂',
       when: () => enemyNear(16, (e) => e.brokenT > 0.8 && !e.executed),
       done: (b) => G.state.stats.execs > b.execs,
     },
     {
       id: 'flask', urgent: true, max: 14,
-      html: '生命见底了：按 <kbd>1</kbd> 喝<b>生命药剂</b>（<kbd>2</kbd> 是魔力药剂）。击杀敌人会重新充能',
+      html: '生命见底：按 <kbd>1</kbd> 喝<b>生命药剂</b>（<kbd>2</kbd> 魔力）。击杀敌人充能',
       when: () => lifeFrac() < 0.5 && G.player.flask.life >= 1,
       done: (b) => G.player.flask.life < b.flask - 0.5 || lifeFrac() > 0.9,
     },
     {
       // 旧存档第一次读进来（武器补上了伤害）：说一次攻击技能改为吃武器伤害
       id: 'wmig', calm: true, max: 14,
-      html: '<b>武器改版</b>：攻击技能（飞刃、旋风斩等）的伤害现在取自<b>手中武器</b>，旧武器已按角色等级折算好伤害。长杖、短杖和魂幡的武器伤害偏低，走攻击路线就换一把刃、双匕、战锤、太刀或长弓。每种武器还自带一招 <kbd>R</kbd> 键的<b>武器技</b>',
+      html: '<b>武器改版</b>：攻击技能的伤害改取自<b>手中武器</b>，旧武器已按等级折算。杖和魂幡的武器伤害低，走攻击路线请换刃、双匕、战锤、太刀或长弓。每种武器自带一招 <kbd>R</kbd> 键<b>武器技</b>',
       when: () => !!G.weaponMigrated,
       done: () => false,
     },
@@ -5647,9 +5666,9 @@
       get html() {
         const free = G.passivePoints().free;
         const n = Object.keys(G.TREE).length - 1;
-        return '<b>成长改版</b>：天赋盘扩大到 <b>' + n + '</b> 个节点，你原来点亮的天赋全部保留' + (free > 0 ? '，还有 <b class="c-gold">' + free + '</b> 点天赋点可以接着点（<kbd>P</kbd>）' : '') +
-          '。技能宝石的成长上限提高到 Lv ' + G.MAX_GEM_LEVEL + '，武器伤害随物品等级一直成长，物品等级 31 以上会出现更高阶的词缀。' +
-          '升级改为跟着怪物等级走：等级比怪物高出 3 级以上时经验迅速减少，你的经验条进度已按新的升级所需经验折算';
+        return '<b>成长改版</b>：天赋盘扩大到 <b>' + n + '</b> 个节点，原有天赋全部保留' + (free > 0 ? '，还有 <b class="c-gold">' + free + '</b> 点可用（<kbd>P</kbd>）' : '') +
+          '。宝石上限提到 Lv ' + G.MAX_GEM_LEVEL + '，武器伤害随物品等级成长，物品等级 31 起出现更高阶词缀。' +
+          '比怪物高 3 级以上时经验迅速减少，经验条已折算';
       },
       when: () => !!G.growthMigrated,
       done: () => false,
@@ -5659,13 +5678,13 @@
       id: 'basicmig', calm: true, max: 20,
       get html() {
         const kn = ['左键', '右键', 'Q', 'E'];
-        let h = '<b>武器普攻改版</b>：<kbd>右键</kbd>现在固定是手里武器自己的普攻（近战武器是一串连招，不耗魔力）。';
+        let h = '<b>武器普攻改版</b>：<kbd>右键</kbd>固定为武器自己的普攻（近战是连招，不耗魔力）。';
         const cr = G.cleaveRefund;
-        if (cr) h += '<b>裂石击</b>已移除，退还了一颗 <b class="c-teal">Lv ' + cr.lvl + ' 无铭技能宝石</b>（<kbd>G</kbd> 技能页里挑一个技能）' + (cr.sups && cr.sups.length ? '，镶在上面的辅助已取下、还在你手里' : '') + '。';
+        if (cr) h += '<b>裂石击</b>已移除，退还一颗 <b class="c-teal">Lv ' + cr.lvl + ' 无铭技能宝石</b>' + (cr.sups && cr.sups.length ? '，辅助已取下' : '') + '。';
         for (const m of G.rmbMigrated || []) {
           const sk = G.SKILLS[m.id];
           if (!sk) continue;
-          h += '原来右键上的「' + sk.name + '」' + (m.to >= 0 ? '挪到了 <kbd>' + kn[m.to] + '</kbd>' : '先收了起来（技能栏满了），在技能页点它的按键标签绑上') + '，辅助宝石跟着它。';
+          h += '「' + sk.name + '」' + (m.to >= 0 ? '移到 <kbd>' + kn[m.to] + '</kbd>' : '已收起（技能栏满），在技能页重新绑定') + '。';
         }
         return h;
       },
@@ -5685,14 +5704,14 @@
         const bid = G.weaponBasic ? G.weaponBasic() : null;
         const bk = bid && G.SKILLS[bid];
         const l = G.save && G.save.bar[0] && G.SKILLS[G.save.bar[0]];
-        return '按住 <kbd>右键</kbd> 用武器普攻' + (bk ? '「' + bk.name + '」' : '') + (bk && bk.combo ? '连打' : '攻击') + '，<kbd>左键</kbd> ' + (l ? '施放「' + l.name + '」' : '放技能') + '——都朝准星的方向。两个都试一下';
+        return '按住 <kbd>右键</kbd> 武器普攻' + (bk ? '「' + bk.name + '」' : '') + '，<kbd>左键</kbd> ' + (l ? '施放「' + l.name + '」' : '放技能') + '，都朝准星方向';
       },
       when: () => true,
       done: () => coach.cast[0] && coach.cast[1],
     },
     {
       id: 'dodge', basic: true, need: 'attack', max: 40,
-      html: '<kbd>空格</kbd> 翻滚，途中无敌。地上的<b class="c-red">红色区域</b>是敌人即将打到的地方，滚出去',
+      html: '<kbd>空格</kbd> 翻滚，途中无敌。滚出地上的<b class="c-red">红色区域</b>',
       when: () => G.state.enemies.some((e) => e.awake && !e.dead),
       done: () => coach.rolled,
     },
@@ -5702,7 +5721,7 @@
         const bid = G.weaponBasic ? G.weaponBasic() : null;
         const sk = bid && G.SKILLS[bid];
         const n = sk && sk.combo ? sk.combo.length : 3;
-        return '按住 <kbd>右键</kbd> 连出<b>' + (['', '一', '两', '三', '四'][n] || n) + '段</b>' + (sk ? '「' + sk.name + '」' : '') + '，最后一段是<b>终结技</b>——伤害最高，把敌人打飞。出招途中随时可以按 <kbd>空格</kbd> 翻滚取消';
+        return '按住 <kbd>右键</kbd> 连出<b>' + (['', '一', '两', '三', '四'][n] || n) + '段</b>' + (sk ? '「' + sk.name + '」' : '') + '，末段是<b>终结技</b>，伤害最高。出招中可按 <kbd>空格</kbd> 翻滚取消';
       },
       when: () => comboOnBar() && enemyNear(9, (e) => e.awake),
       done: (b) => G.state.stats.finishers > b.finishers,
@@ -5713,7 +5732,7 @@
       get html() {
         const id = curWSkill();
         const sk = id ? G.SKILLS[id] : null;
-        return '按 <kbd>R</kbd> 施放<b>武器技</b>' + (sk ? '「' + sk.name + '」' : '') + '：每种武器自带一招，换武器就换招。有冷却、单次伤害高，穿插在普通攻击之间用';
+        return '按 <kbd>R</kbd> 放<b>武器技</b>' + (sk ? '「' + sk.name + '」' : '') + '：每种武器自带一招，有冷却、单次伤害高';
       },
       when: () => {
         const id = curWSkill();
@@ -5733,7 +5752,7 @@
         const bk = rw && G.SKILLS[rw.basic];
         const g = rw ? rw.gauge.name : '量表';
         return '拿上了' + (gun ? '<b>枪械</b>' : '<b>弓</b>') + '：<kbd>右键</kbd>现在是它的普攻「' + (bk ? bk.name : gun ? '开火' : '射击') + '」。' +
-          (gun ? '持续开火积攒' : '箭矢命中积攒') + '<b class="c-gold">' + g + '</b>，技能栏 R 格旁边那根竖条就是它；灌满了 <kbd>R</kbd> 才亮。普攻的辅助宝石镶在 <kbd>G</kbd> 技能页最上面的「武器普攻」卡上';
+          (gun ? '开火' : '命中') + '积攒<b class="c-gold">' + g + '</b>（R 格旁的竖条），满了 <kbd>R</kbd> 才亮';
       },
       when: () => !!rangedNow(),
       done: () => {
@@ -5746,8 +5765,7 @@
       id: 'rgauge', urgent: true, need: 'ranged', max: 18,
       get html() {
         const rw = rangedNow(), id = curWSkill(), sk = id ? G.SKILLS[id] : null;
-        return '<b class="c-gold">' + (rw ? rw.gauge.name : '量表') + '满了</b>：按 <kbd>R</kbd> 放出' + (sk ? '「' + sk.name + '」' : '这把武器的 R 技') + '。' +
-          (rw && rw.family === 'bow' ? '弓的 R 是一段限时增益，放出后专注清空' : '放完热度排空，接着打又会慢慢攒满');
+        return '<b class="c-gold">' + (rw ? rw.gauge.name : '量表') + '满了</b>：按 <kbd>R</kbd> 放出' + (sk ? '「' + sk.name + '」' : '这把武器的 R 技');
       },
       when: () => {
         const rw = rangedNow();
@@ -5761,15 +5779,15 @@
     {
       // 远程改版前的存档里有长弓：读档时改成了鹰眼长弓（箭雨换成了一矢穿心）
       id: 'bowmig', calm: true, max: 16,
-      html: '<b>远程改版</b>：长弓分成了追猎弓、鹰眼长弓、符文弓三种，你原来的长弓已改为<b>鹰眼长弓</b>（伤害与词缀不变）。' +
-        '拿着弓时 <kbd>右键</kbd> 固定是「射击」，命中积攒<b class="c-gold">专注</b>，满了按 <kbd>R</kbd> 放出限时增益「一矢穿心」（箭雨已移除）',
+      html: '<b>远程改版</b>：长弓分为追猎弓、鹰眼长弓、符文弓，你的长弓已改为<b>鹰眼长弓</b>（伤害与词缀不变）。' +
+        '命中积攒<b class="c-gold">专注</b>，满了按 <kbd>R</kbd> 放「一矢穿心」',
       when: () => G.bowMigrated > 0,
       done: () => false,
     },
     {
       // 刻式第二版之前的存档：A / B 整个重做了，免费那一次还给了每个技能
       id: 'variant2', calm: true, max: 16,
-      html: '<b>刻式重做</b>：每个技能的 A / B 两种刻式都换成了新的打法（原来选的按 A / B 的位置保留），每个技能都可以<b class="c-gold">免费重选一次</b>。按 <kbd>G</kbd> 打开技能页，悬停刻式按钮看新的说明',
+      html: '<b>刻式重做</b>：A / B 刻式都换成了新打法，原选择按位置保留。每个技能可<b class="c-gold">免费重选一次</b>（<kbd>G</kbd>）',
       when: () => G.variantRedone > 0,
       done: () => false,
     },
@@ -5780,14 +5798,14 @@
       },
       calm: true, max: 16,
       get html() {
-        return (G.NEW_ZONE_NOTICE && G.NEW_ZONE_NOTICE.html) || '<b>新区域开放</b>：「烬渊深处」之后多了一个区域。按 <kbd>M</kbd> 打开地图';
+        return (G.NEW_ZONE_NOTICE && G.NEW_ZONE_NOTICE.html) || '<b>新区域</b>：烬渊深处之后新增一个区域。<kbd>M</kbd> 打开地图';
       },
       when: () => !!G.newZoneNotice,
       done: () => false,
     },
     {
       id: 'poise', max: 30,
-      html: '精英和首领血条下的<b>白条是架势</b>。连续命中把它打空，敌人就会露出<b class="c-gold">破绽</b>——近战削得最多，终结技尤其多',
+      html: '精英和首领血条下的<b>白条是架势</b>，打空后敌人露出<b class="c-gold">破绽</b>。近战和终结技削得最多',
       when: () => enemyNear(12, (e) => e.awake && e.poiseMax > 0 && !(e.brokenT > 0)),
       done: (b) => G.state.stats.breaks > b.breaks,
     },
@@ -5800,9 +5818,9 @@
         for (let k = 0; k < bar.length && i < 0; k++) if (bar[k] && G.SKILLS[bar[k]] && G.SKILLS[bar[k]].kind === 'summon') i = k;
         const k = i >= 0 && KEY_LABEL[i] ? KEY_LABEL[i] : '';
         const how = k
-          ? '按 <kbd>' + k + '</kbd> 开关<b>自动召唤</b>：开着时召唤物在身边补到上限，倒下自动补，魔力不够就暂停；<kbd>Shift</kbd>+<kbd>' + k + '</kbd> 在准星处召唤一次'
+          ? '按 <kbd>' + k + '</kbd> 开关<b>自动召唤</b>（补到上限，魔力不够时暂停），<kbd>Shift</kbd>+<kbd>' + k + '</kbd> 在准星处召唤'
           : '放进技能栏，按它的键开关<b>自动召唤</b>';
-        return '学会了<b class="c-ally">召唤</b>：' + how + '。召唤物会自己寻敌厮杀，优先<b>集火</b>你亲手打中的敌人。数值与辅助宝石在 <kbd>G</kbd> 技能页';
+        return '学会了<b class="c-ally">召唤</b>：' + how + '。召唤物优先<b>集火</b>你打中的敌人';
       },
       when: () => coach.summonPing,
       done: () => minionCount() > 0 && !!focusNow(),
@@ -5810,54 +5828,54 @@
     {
       // 第一次唤起焚骨祭司：讲清楚它站后排、靠焰蓄放大招、怕被贴身
       id: 'pyre', max: 30,
-      html: '<b class="c-ally">焚骨祭司</b>站在后排朝怪堆掷火弹，每炸到一个敌人攒一点<b>焰蓄</b>（图标下的橙条），攒满就召下<b>坠焰</b>或引导<b>灼链</b>。它很脆：让仆从和守像挡在前面',
+      html: '<b class="c-ally">焚骨祭司</b>在后排掷火弹，炸到敌人攒<b>焰蓄</b>（图标下的橙条），满了放<b>坠焰</b>或<b>灼链</b>。它很脆，让仆从挡在前面',
       when: () => G.state.minions.some((m) => m && !m.dead && m.kind === 'pyre' && !(m.rising > 0)),
       done: () => (G.state.stats.pyreMeteors || 0) + (G.state.stats.pyreBeamTicks || 0) > 0,
     },
     {
       id: 'loot', calm: true, max: 22,
-      html: '有东西掉了：魔法、稀有物品走过去就捡，普通物品按 <kbd>F</kbd> 或点它的名牌。<br>准星<b>停在名牌上</b>看完整属性，按住 <kbd>Alt</kbd> 看概要',
+      html: '有掉落：魔法、稀有物品走过去就捡，普通物品按 <kbd>F</kbd> 或点名牌。<br>准星停在名牌上看属性，按住 <kbd>Alt</kbd> 看概要',
       when: () => G.state.loot.some((l) => l.kind === 'item' && Math.hypot(l.x - G.player.x, l.z - G.player.z) < 9),
       done: (b) => coach.sawGround || G.save.bag.length > b.bag,
     },
     {
       id: 'bag', calm: true, max: 45,
-      html: '背包里有装备了：按 <kbd>I</kbd> 打开，<b>右键</b>或<b>拖到装备栏</b>穿上。角上的 <b class="vd-up">▲</b> 表示比身上的强',
+      html: '背包里有装备：按 <kbd>I</kbd>，<b>右键</b>或拖到装备栏穿上。<b class="vd-up">▲</b> 表示比身上的强',
       when: () => G.save.bag.length > 0,
       done: (b) => equipSig() !== b.equip,
-      panel: { tab: 'inv', html: '把带 <b class="vd-up">▲</b> 的装备<b>右键</b>穿上，或者拖到左边对应的装备栏' },
+      panel: { tab: 'inv', html: '<b>右键</b>穿上带 <b class="vd-up">▲</b> 的装备，或拖到左边装备栏' },
     },
     {
       id: 'craft', calm: true, max: 45,
-      html: '捡到了<b>通货</b>：它不是钱，而是用来改造装备的。按 <kbd>I</kbd>，把通货<b>拖到一件物品上</b>',
+      html: '捡到<b>通货</b>：用来改造装备。按 <kbd>I</kbd>，把它<b>拖到一件物品上</b>',
       when: () => curTotal() > coach.cur0 && G.save.bag.length + Object.keys(G.save.equip).length > 0,
       done: (b) => curTotal() < b.cur,
-      panel: { tab: 'inv', html: '把下面的通货<b>拖到一件物品上</b>——微光尘能让普通物品长出一条词缀' },
+      panel: { tab: 'inv', html: '把通货<b>拖到一件物品上</b>；微光尘让普通物品长出一条词缀' },
     },
     {
       id: 'support', calm: true, max: 45,
-      html: '得到了<b>辅助宝石</b>：按 <kbd>G</kbd>，把它<b>拖进技能的辅助槽</b>，那个技能就会随之改变',
+      html: '得到<b>辅助宝石</b>：按 <kbd>G</kbd>，<b>拖进技能的辅助槽</b>',
       when: () => G.save.supports.length > 0 && socketCount() === 0,
       done: () => socketCount() > 0,
-      panel: { tab: 'skills', html: '把宝石<b>拖进</b>左边某个技能的辅助槽（技能要带有它要求的标签）' },
+      panel: { tab: 'skills', html: '把宝石<b>拖进</b>技能的辅助槽（技能要有它要求的标签）' },
     },
     {
       id: 'blank', calm: true, max: 45,
-      html: '捡到了<b class="c-blank">无铭技能宝石</b>：按 <kbd>G</kbd> 打开技能页，<b>任选一个技能</b>用它学会，或给等级更低的技能升级',
+      html: '捡到<b class="c-blank">无铭技能宝石</b>：按 <kbd>G</kbd> 在技能页<b>任选一个技能</b>学会或升级',
       when: () => G.save.blankGems.length > 0,
       done: (b) => G.save.blankGems.length < b.blank,
-      panel: { tab: 'skills', html: '点左边「尚未获得」里的一个技能（或技能卡上的「升至 Lv」），<b>再点一次</b>确认，就会用掉等级最高的那颗无铭技能宝石' },
+      panel: { tab: 'skills', html: '点「尚未获得」里的技能（或卡上的「升至 Lv」），<b>再点一次</b>确认，用掉最高等级的那颗' },
     },
     {
       id: 'passive', calm: true, max: 45,
       html: '有<b>天赋点</b>可用：按 <kbd>P</kbd> 打开天赋盘',
       when: () => G.passivePoints().free > 0,
       done: (b) => G.save.passives.length > b.passives || G.passivePoints().free <= 0,
-      panel: { tab: 'tree', html: '从中央出发，点亮与已点亮节点<b>相邻</b>的天赋。随时可以退回' },
+      panel: { tab: 'tree', html: '从中央出发，点亮<b>相邻</b>的天赋，随时可退回' },
     },
     {
       id: 'boss', urgent: true, max: 9,
-      html: '前面是<b>首领</b>的竞技场。看清地上的红色预警再出手，留好翻滚和药剂',
+      html: '前方是<b>首领</b>竞技场。看清红色预警，留好翻滚和药剂',
       when: () => {
         const st = G.state;
         const z = st.zone;
@@ -5867,7 +5885,7 @@
     },
     {
       id: 'portal', calm: true, max: 40,
-      html: '首领倒下了。捡完战利品后走进<b>传送门</b>，在地图上选择下一个区域',
+      html: '首领倒下了。捡完战利品走进<b>传送门</b>，在地图上选下一个区域',
       when: () => !!G.state.portal,
       done: (b) => (ui.isOpen && ui.tab === 'map') || G.state.zone !== b.zone,
     },
