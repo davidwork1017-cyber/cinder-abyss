@@ -157,6 +157,8 @@
       uniq: { found: {}, best: {}, pity: {} },
       // 渊契图鉴：格式同 uniq；pity 按保底的键计（首领 / 异兆来源按渊契 id，烈印来源按 'seal'）
       relic: { found: {}, best: {}, pity: {} },
+      // 刻式：variants 选了的刻式 { 技能 id: 'a' | 'b' }（没有的就是原式）；variantFree 已经用过免费那一次的技能 { 技能 id: true }
+      variants: {}, variantFree: {},
     };
   };
   function autoSummonDefaults() {
@@ -176,6 +178,7 @@
       G.save = s;
     }
     G.syncGemLevels();
+    G.applyVariants(); // 刻式：按这份存档重新拼 G.SKILLS
     return G.save;
   }
 
@@ -196,6 +199,7 @@
         up.push(id);
       }
     }
+    if (up.length && G.applyVariants) G.applyVariants(); // 存档里记着、宝石刚到解锁等级的刻式这时生效
     return up;
   };
 
@@ -456,6 +460,13 @@
       const n = toInt(rp[k], 0, G.UNIQUE_DROP.pity, 0);
       if (n > 0) s.uniq.pity[k] = n;
     }
+    // 刻式：只认 G.VARIANTS 里的技能和 a / b（宝石还没到解锁等级的照样保留，到了才生效）；选过刻式的技能免费那一次算用过了
+    const rv = isObj(raw.variants) ? raw.variants : {};
+    const rvf = isObj(raw.variantFree) ? raw.variantFree : {};
+    for (const id of Object.keys(G.VARIANTS)) {
+      if (rv[id] === 'a' || rv[id] === 'b') s.variants[id] = rv[id];
+      if (rvf[id] === true || s.variants[id]) s.variantFree[id] = true;
+    }
     // 身上 / 背包里已有的烬铸武器也算拾到过（旧数据缺图鉴时补上）
     for (const it of s.bag.concat(s.equip.weapon ? [s.equip.weapon] : [])) if (it.rarity === 3) noteUnique(it, s);
     // 渊契图鉴：同上，只认 G.RELICS 的 id 和保底的键（渊契 id、'seal'）；旧存档没有这一项就是空的
@@ -544,6 +555,111 @@
     G.computeStats();
     G.persist();
     return G.save;
+  };
+
+  // ---------- 刻式 ----------
+  // G.SKILL_V[id] = { o, a, b }：o 就是 data.js 里原来那个对象（原式一字不差），a / b 第一次用到时按 G.SKILL_BASE + set 拼一份、之后复用。
+  // G.applyVariants 按存档把 G.SKILLS[id] 指向其中一份（读档、换刻式、宝石到解锁等级时调用）；游戏里读 G.SKILLS[...] 的地方都不用改。
+  // 双生坠（D5）：施放前用 G.useVariant(id, 'a' / 'b') 临时指向另一份，返回原来那份，施放完指回去。
+  //   黑洞、黑旋风、投射物、陨石在生成时拿着自己那份 ctx（ctx.sk），之后再换也不影响已经放出去的
+  G.SKILL_V = {};
+  for (const id of Object.keys(G.VARIANTS)) if (G.SKILLS[id]) G.SKILL_V[id] = { o: G.SKILLS[id] };
+  const isPlain = (o) => !!o && typeof o === 'object' && !Array.isArray(o);
+  function deepSet(dst, set) {
+    for (const k of Object.keys(set)) {
+      const v = set[k];
+      if (isPlain(v) && isPlain(dst[k])) deepSet(dst[k], v);
+      else dst[k] = v && typeof v === 'object' ? JSON.parse(JSON.stringify(v)) : v;
+    }
+  }
+  function buildVariant(id, v) {
+    const V = G.VARIANTS[id][v];
+    const sk = JSON.parse(JSON.stringify(G.SKILL_BASE[id]));
+    deepSet(sk, V.set);
+    if (V.set.combo) {
+      sk.comboAvg = sk.combo.reduce((s, c) => s + c.mult, 0) / sk.combo.length;
+      sk.comboStop = sk.combo.reduce((s, c) => s + c.stop, 0) / sk.combo.length;
+    }
+    sk.variant = v;
+    sk.vname = V.name;
+    sk.desc = V.desc;
+    return sk;
+  }
+  // 这一刻生效的刻式：'o' / 'a' / 'b'（存档里记着、但宝石还没到解锁等级的不生效）
+  G.variantOf = function (id) {
+    const s = G.save, v = s && s.variants && s.variants[id];
+    return (v === 'a' || v === 'b') && G.VARIANTS[id] && s.skills && s.skills[id] >= G.VARIANT_LVL ? v : 'o';
+  };
+  G.skillVariant = function (id, v) {
+    const C = G.SKILL_V[id];
+    if (!C) return G.SKILLS[id];
+    if (!C[v]) C[v] = buildVariant(id, v);
+    return C[v];
+  };
+  G.applyVariants = function () {
+    for (const id of Object.keys(G.SKILL_V)) G.SKILLS[id] = G.skillVariant(id, G.variantOf(id));
+  };
+  G.useVariant = function (id, v) {
+    const prev = G.SKILLS[id];
+    if (G.SKILL_V[id] && (v === 'o' || v === 'a' || v === 'b')) G.SKILLS[id] = G.skillVariant(id, v);
+    return prev;
+  };
+  // 换刻式的价格：这个技能第一次选免费，之后每换一次 G.VARIANT_COST
+  G.variantCost = (id) => (G.save.variantFree && G.save.variantFree[id] ? G.VARIANT_COST.n : 0);
+  // 战斗中：G.VARIANT_SAFE_R 以内有醒着的敌人
+  G.variantBusy = function () {
+    const R = G.VARIANT_SAFE_R;
+    return state.enemies.some((e) => !e.dead && e.awake && dist(e.x, e.z, P.x, P.z) <= R);
+  };
+  // 换刻式（技能页）：v = 'o' 原式 / 'a' / 'b'。返回 { ok, msg, cost }
+  G.setVariant = function (id, v) {
+    const save = G.save, VC = G.VARIANT_COST;
+    if (!G.VARIANTS[id] || !(v === 'o' || v === 'a' || v === 'b')) return { ok: false, msg: '没有这种刻式' };
+    if (!(save.skills[id] >= G.VARIANT_LVL)) return { ok: false, msg: '宝石 ' + G.VARIANT_LVL + ' 级才能选刻式' };
+    if ((save.variants[id] || 'o') === v) return { ok: true, cost: 0, same: true };
+    if (G.variantBusy()) return { ok: false, msg: '战斗中不能换刻式（' + G.VARIANT_SAFE_R + ' 米内还有醒着的敌人）' };
+    const cost = G.variantCost(id);
+    if ((save.cur[VC.cur] || 0) < cost) return { ok: false, msg: '需要 ' + cost + ' 颗' + G.CURRENCY[VC.cur].name };
+    save.cur[VC.cur] -= cost;
+    save.variantFree[id] = true;
+    if (v === 'o') delete save.variants[id];
+    else save.variants[id] = v;
+    G.applyVariants();
+    // 旧定义的残留：连段从头来，正在转的旋风 / 连斩停下，光环的计时重来
+    comboReset();
+    if (P.cast && P.cast.id === id) endChannel();
+    delete P.auraT[id];
+    G.computeStats(); // 保留比例可能变了
+    if (G.refreshMinions) G.refreshMinions(); // 召唤物的上限、数值、体型
+    G.persist();
+    return { ok: true, cost };
+  };
+  // 单体秒伤（设计稿 §5.2 的口径）：平均击中 × 每次施放对单体的倍率 ÷ 一轮的时间（出手 + 顿帧，冷却技能再加冷却）；
+  // 召唤按满编的 skillDps，光环按脉冲。技能页的刻式悬停和测试用
+  G.variantDps = function (id) {
+    const ctx = G.skillCtx(id);
+    if (ctx.minion) return G.skillDps(ctx);
+    return G.avgHit(ctx) / (Math.max((ctx.cycle || ctx.time) + ctx.stopAvg, 0.01) + (ctx.cd > 0 ? ctx.cd : 0));
+  };
+  // 刻式 v 和原式的比值。霜环按「主力技能 + 霜环」的总秒伤（主力取技能栏上秒伤最高的非光环技能，没有就按掷焰）；
+  // 黑焰按你自己每一击的 (1 + 黑焰%)（召唤物的部分不算，炽契给召唤物的是 0）
+  G.variantRatio = function (id, v) {
+    if (!G.SKILL_V[id]) return 1;
+    const prev = G.SKILLS[id];
+    const val = (w) => {
+      G.SKILLS[id] = G.skillVariant(id, w);
+      const sk = G.SKILLS[id];
+      if (sk.buff) return 1 + Math.min(sk.flame.cap, sk.flame.k0 + sk.flame.k1 * ((G.save.skills[id] || 1) - 1)) * (1 + Math.max(0, P.S.flameEff || 0) / 100) / 100;
+      return G.variantDps(id);
+    };
+    let ref = 0;
+    if (G.SKILLS[id].kind === 'aura' && !G.SKILLS[id].buff) {
+      for (const b of G.save.bar) if (b && b !== id && G.SKILLS[b] && G.SKILLS[b].kind !== 'aura' && !G.SKILLS[b].weaponOnly && G.save.skills[b]) ref = Math.max(ref, G.variantDps(b));
+      if (!ref) ref = G.variantDps('ember');
+    }
+    const o = val('o'), x = val(v);
+    G.SKILLS[id] = prev;
+    return (ref + x) / Math.max(1e-9, ref + o);
   };
 
   G.passivePoints = function () {
@@ -686,12 +802,15 @@
     return Math.round(sk.reserve * k * 10) / 10;
   };
   // 黑焰：此刻每一击额外的混沌伤害百分比（没放在技能栏上为 0）。F = min(cap, k0 + k1 × (等级 − 1)) × (1 + 黑焰效果%)
-  G.flamePct = function () {
-    if (!G.auraOn('blackflame')) return 0;
+  // minion：算的是召唤物的一击（刻式「炽契」只给你自己，召唤物为 0）
+  G.flamePct = function (minion) {
+    if (!G.auraOn('blackflame') || (minion && G.SKILLS.blackflame.selfOnly)) return 0;
     const f = G.SKILLS.blackflame.flame;
     const lvl = G.save.skills.blackflame || 1;
     return Math.min(f.cap, f.k0 + f.k1 * (lvl - 1)) * (1 + Math.max(0, (P.S && P.S.flameEff) || 0) / 100);
   };
+  // 刻式「噬契」：黑焰的那一部分按 flameAil 倍累积混沌异常（没放黑焰、或不是噬契时为 0）
+  G.flameAil = () => (G.SKILLS.blackflame.flameAil && G.auraOn('blackflame') ? G.SKILLS.blackflame.flameAil : 0);
   // 技能栏上所有生效的光环一共保留的百分比（封顶 90%）
   G.reservePct = function () {
     let pct = 0;
@@ -845,6 +964,16 @@
   // 技能卡 / 宝石提示用；lvl 缺省取已学等级
   // 攻速折进伤害的攻击技能：有冷却、不是武器技（武器技各自按自己的武器定好了数值）
   G.cdAps = (sk) => !!(sk && sk.wm && sk.cd > 0 && !sk.weaponOnly && sk.kind !== 'summon');
+  // 按普攻折算的量表技（熔光射线：basicOf / basicSec）：一发 = 普攻转满之后扫射 basicSec 秒的发数。
+  // 每秒发数 = 武器攻速 × 攻击速度 ÷ 普攻的 time（不算辅助宝石：武器技镶不了辅助）；没拿着对应的武器时按 1.0 攻速算
+  G.basicShots = function (sk) {
+    const b = G.SKILLS[sk.basicOf];
+    if (!b) return 1;
+    const wp = G.weaponStats(G.save.equip.weapon);
+    return (sk.basicSec * (P.speedMult || 1) * (wp.aps > 0 ? wp.aps : 1)) / b.time;
+  };
+  // 攻击技能实际的武器倍率：按普攻折算的 = 普攻的 wm × 折算的发数，其余就是 wm
+  G.skillWm = (sk) => (sk.basicOf && G.SKILLS[sk.basicOf] ? G.SKILLS[sk.basicOf].wm * G.basicShots(sk) : sk.wm);
   G.skillBase = function (id, lvl) {
     const sk = G.SKILLS[id];
     if (!sk) return {};
@@ -854,7 +983,7 @@
       const wp = G.weaponStats(G.save.equip.weapon);
       // 有冷却的攻击技能（闪袭）出手次数由冷却决定，攻速快也多打不了几下：把武器攻速折进每一击的伤害（G.cdAps），
       // 否则慢而重的战锤配冷却技能会比双匕强出四成
-      const k = sk.wm * (1 + G.ATTACK_GEM_LVL * (lvl - 1)) * (G.cdAps(sk) ? wp.aps : 1);
+      const k = G.skillWm(sk) * (1 + G.ATTACK_GEM_LVL * (lvl - 1)) * (G.cdAps(sk) ? wp.aps : 1);
       out.phys = [wp.min * k, wp.max * k];
       return convertBase(sk, out);
     }
@@ -896,7 +1025,9 @@
       base.phys[1] += inh.add[1];
     }
     // 装备上的「附加 X 伤害」每一击都加一份：机炮、喷枪这类一秒十几跳的普攻只按 addEff 计（不然附加伤害按发数翻好几倍）
-    const addEff = sk.addEff === undefined ? 1 : sk.addEff;
+    // 按普攻折算的量表技：普攻每发的那一份 × 折算的发数（和武器伤害一样按扫射 basicSec 秒算）
+    const bsk = sk.basicOf && G.SKILLS[sk.basicOf];
+    const addEff = bsk ? (bsk.addEff === undefined ? 1 : bsk.addEff) * G.basicShots(sk) : sk.addEff === undefined ? 1 : sk.addEff;
     if (!mScale) for (const t of TYPES) {
       const v = (S['add' + G.CAP[t]] || 0) * addEff;
       if (v > 0) {
@@ -989,13 +1120,14 @@
       // 混沌异常值（渊缚）另外再加的累积速度（异常累积速度 ailment 对它同样生效）
       bindAil: mScale ? 0 : S.bindAil || 0,
       // 黑焰：每一击额外的混沌伤害（%）。光环自己的脉冲（霜环）不带
-      flame: isAura ? 0 : G.flamePct(),
+      flame: isAura ? 0 : G.flamePct(mScale),
+      flameAil: isAura ? 0 : G.flameAil(), // 刻式「噬契」：黑焰那一部分累积混沌异常的倍率（没有时 0）
       reserve: isAura ? G.auraReserve(id) : 0,
       minion: null,
       // 攻击技能：attack 为 true，weapon 是此刻的武器面板（G.weaponStats），wm 武器倍率，levelK 等级加成
       attack: isAttack,
       weapon: wp,
-      wm: isAttack ? sk.wm : 0,
+      wm: isAttack ? G.skillWm(sk) : 0,
       levelK: isAttack ? 1 + G.ATTACK_GEM_LVL * (lvl - 1) : mScale ? G.minionDmgK(lvl) : 1 + 0.2 * (lvl - 1),
       asMinion: mScale && !isMinion, // 魂潮：伤害按召唤物算的武器技（ctx.minion 仍为 null）
     };
@@ -1015,7 +1147,13 @@
       const spdK = Math.max(0.2, 1 + ((S.minionSpeed || 0) + mSpeed) / 100);
       const atkK = spdK * (1 + speedPct / 100);
       // 数量上限：仆从吃天赋 / 护符的「仆从数量」和镶着的群聚；焚骨祭司只吃镶在它身上的群聚；守像固定 1 尊
-      const cap = sk.cap + (sk.minion === 'thrall' ? Math.max(0, Math.round((S.minionCap || 0) + mCap)) : sk.minion === 'pyre' ? Math.max(0, Math.round(mCap)) : 0);
+      let cap = sk.cap + (sk.minion === 'thrall' ? Math.max(0, Math.round((S.minionCap || 0) + mCap)) : sk.minion === 'pyre' ? Math.max(0, Math.round(mCap)) : 0);
+      if (sk.capK) {
+        // 刻式（骸卫 / 炎祭）：上限按比例折，凑不成整数的那一点折进每一击的伤害（数量加成越多也不会越超标）
+        const c = Math.max(1, cap * sk.capK);
+        cap = Math.max(1, Math.round(c));
+        ctx.more *= c / cap;
+      }
       ctx.minion = {
         kind: sk.minion, cap,
         life: Math.max(1, Math.round((sk.life * G.minionLifeK(lvl) + inh.life) * Math.max(0.1, 1 + ((S.minionLife || 0) + mLife) / 100))),
@@ -1032,6 +1170,7 @@
         arc: ((sk.arc || 0) * Math.PI) / 180,
         radius: (sk.radius || 0) * Math.sqrt(ctx.area),
         taunt: sk.taunt || null,
+        size: sk.size, // 刻式「骸卫」：体型倍率（原式没有）
       };
       if (sk.minion === 'pyre') {
         // 焚骨祭司：火弹爆炸 / 坠焰的半径吃扩域；多重投射让它一次掷出几枚（分头砸向不同的敌人）
@@ -1041,7 +1180,7 @@
         mi.speed = sk.speed;
         mi.explode = sk.explode * ak;
         mi.bolts = Math.max(1, ctx.proj);
-        mi.charge = sk.charge;
+        mi.charge = sk.noCharge ? null : sk.charge; // 刻式「连焚」：没有焰蓄、没有大招
         mi.chargeK = 1 + Math.max(0, S.minionCharge || 0) / 100; // 焰蓄攒得快（天赋「焚骨圣咏」）
         mi.meteor = Object.assign({}, sk.meteor, { radius: sk.meteor.radius * ak, r: sk.meteor.r * ak });
         mi.beam = sk.beam;
@@ -1120,7 +1259,7 @@
   // 冷却技能按冷却折算（单独循环施放时的秒伤）；光环是每秒脉冲次数 × 每跳伤害（单体）
   G.skillDps = function (ctx) {
     const mi = ctx.minion;
-    if (mi && mi.beam) {
+    if (mi && mi.beam && mi.charge) {
       // 焚骨祭司打单体：每 charge.max 枚火弹接一轮灼链（单体时一弹只攒 1 点焰蓄）
       const ticks = Math.floor(mi.beam.dur / (mi.beam.tick * Math.min(1, mi.interval / ctx.sk.rate)) + 1e-6); // 召唤物速度也加快灼链的跳数
       const cyc = mi.charge.max * mi.interval + mi.beam.dur;
@@ -1158,7 +1297,8 @@
       parts[t] *= k;
       total += parts[t];
     }
-    return { total, parts, crit };
+    // flame：其中黑焰的那一部分（刻式「噬契」累积混沌异常时另算）
+    return { total, parts, crit, flame: ctx.flame > 0 ? ((pre * ctx.flame) / 100) * k : 0 };
   };
 
   G.avgHit = function (ctx) {
@@ -1340,7 +1480,8 @@
         e.bossChill = BU.bossChill;
         W.text(e.x, e.z, '冰缓', '#bfeaff', 26, { kind: 'tag', y: ty, py: -30 });
       } else {
-        e.freeze = Math.max(e.freeze || 0, e.elite ? BU.freezeElite : BU.freeze);
+        // 刻式「寒心」在技能栏上：冻结时长 × freezeK
+        e.freeze = Math.max(e.freeze || 0, (e.elite ? BU.freezeElite : BU.freeze) * (G.SKILLS.nova.freezeK && G.auraOn('nova') ? G.SKILLS.nova.freezeK : 1));
         W.text(e.x, e.z, '冻结', '#d6f3ff', e.elite ? 24 : 20, { kind: 'tag', y: ty });
       }
       W.freezeFx(e.x, e.z, e.r, h, !!e.isBoss);
@@ -1967,7 +2108,7 @@
   const BOOM_BASIC = { revolver: 1, huntbow: 1, eagle: 1, runebow: 1, emberbow: 1 };
   G.relicBoomerang = function (p) {
     const sk = p.ctx && p.ctx.sk;
-    if (!sk || p.explode > 0 || p.wisp || p.seeker) return;
+    if (!sk || p.explode > 0 || p.wisp || p.seeker || p.ret) return; // p.ret：飞刃的刻式「回刃」自己会折返，不再叠一次回旋
     const ok = p.ctx.id === 'blade' || (sk.basic && BOOM_BASIC[sk.rtype] && !(P.rbuff && P.rbuff.t > 0 && P.rbuff.id === 'volley'));
     if (!ok) return;
     p.boom = 1;
@@ -2335,6 +2476,12 @@
   const procQ = [];
   const PROC_MAX = 200;
   const FAINT_GAP = 0.3;
+  // 刻式「噬契」：累积异常时黑焰那一部分按 k 倍算（只换累积用的数，伤害不变）
+  function flameAilParts(hit, k) {
+    const o = Object.assign({}, hit.parts);
+    o.chaos = (o.chaos || 0) + hit.flame * (k - 1);
+    return o;
+  }
   G.hitEnemy = function (e, ctx, mult, info) {
     if (!e || e.dead) return 0;
     const W = G.world;
@@ -2423,7 +2570,7 @@
 
     // 元素异常值：这一击里的每种元素按伤害累积，满了就触发（结算放到最外层的命中结束时）
     procDepth++;
-    if (!inf.noBuild) addBuildUp(e, hit.parts, ctx.ailment, procQ, ctx.bindAil);
+    if (!inf.noBuild) addBuildUp(e, ctx.flameAil > 1 && hit.flame > 0 ? flameAilParts(hit, ctx.flameAil) : hit.parts, ctx.ailment, procQ, ctx.bindAil);
     // 感电中的敌人挨打：放电弧（电弧本身不再触发）
     if (!inf.bolt && e.shockT > 0 && !(e.shockCd > 0)) {
       e.shockCd = BU.shockGap; // 排进队列时就开始节流：同一击里再挨一下（比如紧跟着的爆燃）不会再排第二次
@@ -2916,6 +3063,14 @@
     return false;
   }
 
+  // 刻式「回刃」：折返。回程重新记命中（另一份 cast，同一个敌人两趟都能打中）、穿透照原来的数，朝玩家飞回来
+  function bladeTurn(p) {
+    p.retOn = true;
+    p.hit = new Set();
+    p.cast = p.back;
+    p.pierce = p.ctx.pierce;
+    p.life = Math.max(p.life, 30 / p.speed);
+  }
   G.updateProjectiles = function (dt) {
     const W = G.world;
     const list = state.projectiles;
@@ -2955,6 +3110,15 @@
           p.dz = Math.cos(na);
         }
       }
+      if (p.retOn) {
+        // 刻式「回刃」：回程一直朝着玩家飞，回到身边就收起
+        const dx = P.x - p.x, dz = P.z - p.z, d = Math.hypot(dx, dz);
+        if (d < 0.9) alive = false;
+        else {
+          p.dx = dx / d;
+          p.dz = dz / d;
+        }
+      }
       // 分小步前进，快的投射物不会穿过细小目标
       const total = p.speed * dt;
       const steps = Math.max(1, Math.ceil(total / 0.45));
@@ -2962,8 +3126,17 @@
       for (let s = 0; s < steps && alive; s++) {
         p.x += p.dx * step;
         p.z += p.dz * step;
+        if (p.ret && !p.retOn && (p.retD = (p.retD || 0) + step) >= p.ret) bladeTurn(p); // 刻式「回刃」：飞到头折返
         if (!W.shotFree(p.x, p.z, -0.4)) {
           if (p.boom === 1 && G.relicTurn(p, step)) break; // 渊契「回旋」：第一次撞墙折返
+          if (p.ret && !p.retOn) {
+            // 刻式「回刃」：去程撞墙也折返
+            p.x -= p.dx * step;
+            p.z -= p.dz * step;
+            projFx(p, 'wall');
+            bladeTurn(p);
+            break;
+          }
           if (p.wisp) {
             // 魂火退回墙前再炸
             p.x -= p.dx * step;
@@ -2990,6 +3163,10 @@
             }
             if (!p.explode) projFx(p, 'hit'); // 飞刃擦过敌人的金属火花（爆炸弹的特效在爆炸那一下）
             alive = afterPlayerHit(p, e);
+            if (!alive && p.ret && !p.retOn) {
+              bladeTurn(p); // 刻式「回刃」：去程穿透用完也折返
+              alive = true;
+            }
             break; // 每小步最多命中一个
           }
         } else {
@@ -3443,6 +3620,15 @@
       _cand.push({ e, dp, score });
     }
     if (!_cand.length) return false;
+    if (sk.pick === 'big' && _cand.length > 1) {
+      // 刻式「斩首」：只闪向精英 / 首领；都没有就只留最大生命最高的那一个
+      const big = _cand.filter((it) => it.e.elite || it.e.isBoss);
+      if (big.length) _cand.splice(0, _cand.length, ...big);
+      else {
+        const top = _cand.reduce((p, q) => (q.e.maxHp > p.e.maxHp ? q : p));
+        _cand.splice(0, _cand.length, top);
+      }
+    }
     if (c) {
       // 候选全都砍过了：这一轮结束，计数清零
       if (_cand.every((it) => c.hit.get(it.e) > 0)) c.hit.clear();
@@ -3452,6 +3638,7 @@
         let n = 0; // 以它为中心这一刀能砍到几个（含它自己）
         for (const o of state.enemies) if (!o.dead && dist(o.x, o.z, e.x, e.z) - o.r <= R) n++;
         it.score = n * S.crowd - (c.hit.get(e) || 0) * S.hit - (e === c.last ? S.last : 0) - it.dp * S.far;
+        if (sk.noRepeat && e === c.last && _cand.length > 1) it.score -= 1000; // 刻式「乱刃」：有别的目标时不连砍同一个
       }
     }
     _cand.sort((a, b) => b.score - a.score);
@@ -3665,7 +3852,8 @@
       P.cast.cancelT = 0;
       P.cast.clipOk = playFire(sk.rtype, { loop: true, dur: 0.6 });
     }
-    else if (sk.draw) playFire(sk.rtype, { dur: Math.max(0.2, first + 0.18), contact: Math.max(0.02, first) });
+    // 弓：切入过渡不长于拉弓起手的 0.4（攻速很快时第一箭不会还没摆好侧身、手还在半路就开始拉弦）
+    else if (sk.draw) playFire(sk.rtype, { dur: Math.max(0.2, first + 0.18), contact: Math.max(0.02, first), fade: Math.min(0.06, Math.max(0.02, first) * 0.4) });
     return true;
   }
 
@@ -3744,7 +3932,7 @@
     } else {
       fireBow(ctx, c);
       // 下一箭：拉弓的动作对到下一次放箭的时刻
-      if (held) playFire(sk.rtype, { dur: Math.max(0.2, ctx.time + 0.05), contact: ctx.time * 0.92 });
+      if (held) playFire(sk.rtype, { dur: Math.max(0.2, ctx.time + 0.05), contact: ctx.time * 0.92, fade: Math.min(0.06, ctx.time * 0.92 * 0.4) });
     }
   }
   // 打出了一发：之后随时可以接别的动作；记进统计（新手提示读）
@@ -3942,13 +4130,27 @@
     if (mouthCd > 0 || !G.SKILLS.blackhole) return null;
     if (holes.filter((h) => h.mouth).length >= VM.max) return null;
     mouthCd = VM.gap;
+    // 渊口按黑洞的原式算（刻式改的持续、伤害、牵引不带到渊口上）
+    const keep = G.useVariant('blackhole', 'o');
     const ctx = G.skillCtx('blackhole');
+    G.SKILLS.blackhole = keep;
     if (!G.save.skills.blackhole) ctx.base = G.skillBase('blackhole', G.gemFloor());
     const sk = ctx.sk, R = VM.radius * Math.sqrt(ctx.area);
     state.stats.mouths = (state.stats.mouths || 0) + 1;
     return addHole({ x, z, R, pullR: R * sk.pullR, t: 0, dur: VM.dur, tick: sk.tick, tt: sk.tick, ctx, mult: VM.dmg, pullMul: VM.pull, mouth: true });
   }
   G.voidMouth = voidMouth;
+  // 刻式「奇点」：黑洞结束时向内坍塌，对中心 implode.r（吃范围加成）以内的敌人一次 implode.mult 倍的重击
+  function holeImplode(h) {
+    const W = G.world, I = h.ctx.sk.implode, R = I.r * Math.sqrt(h.ctx.area), hex = hexOf(h.ctx.sk.color);
+    for (const e of enemiesIn(h.x, h.z, R)) G.hitEnemy(e, h.ctx, h.mult * I.mult, { ang: Math.atan2(e.x - h.x, e.z - h.z), w: 2, kb: 0.8, poise: 24 });
+    W.ring(h.x, h.z, R, hex, 0.3);
+    W.ring(h.x, h.z, R * 0.45, 0xffd6f2, 0.2);
+    W.burst(h.x, 0.8, h.z, hex, 22, 7, 0.45);
+    W.shake(0.28);
+    G.sfx('hit');
+    state.stats.implodes = (state.stats.implodes || 0) + 1;
+  }
 
   function updateChaos(dt) {
     const W = G.world;
@@ -3959,6 +4161,7 @@
       h.t += dt;
       if (h.follow) G.relicHoleFollow(h); // 渊契「随核」
       if (h.t >= h.dur) {
+        if (h.ctx.sk.implode && !h.mouth) holeImplode(h); // 刻式「奇点」：结束时内爆
         removeHole(i);
         continue;
       }
@@ -4447,11 +4650,15 @@
 
     proj(ctx, a) {
       const sk = ctx.sk;
-      const n = Math.max(1, ctx.proj);
-      const spread = Math.min(60, 12 * (n - 1)) * DEG;
+      const n = Math.max(1, ctx.proj) + (sk.count > 1 ? sk.count - 1 : 0); // 刻式「散焰」：基础 count 团，多重投射再加
+      const spread = Math.min(60, (sk.spread || 12) * (n - 1)) * DEG;
       const stepA = n > 1 ? spread / (n - 1) : 0;
       const hex = hexOf(sk.color);
       const cast = new Set(); // 这一次施放里已经受过伤（直击或爆炸）的敌人，所有投射物共用
+      // 刻式：「散焰」每团各记各的（多重投射多出来的轮流并进这几份），同一次施放对同一个敌人最多 count 下；「回刃」回程另记一份
+      const casts = sk.count > 1 ? [] : null;
+      if (casts) for (let i = 0; i < sk.count; i++) casts.push(i ? new Set() : cast);
+      const back = sk.returns ? new Set() : null;
       const tint = infuseHex(ctx);
       for (let i = 0; i < n; i++) {
         const ang = a.ang - spread / 2 + stepA * i;
@@ -4460,8 +4667,8 @@
         G.spawnProjectile({
           owner: 'p', x: P.x + dx * 0.7, z: P.z + dz * 0.7, dx, dz,
           speed: sk.speed, r: sk.projR || 0.3, life: 30 / sk.speed, color: hex,
-          ctx, pierce: ctx.pierce, chain: ctx.chain, explode: sk.explode || 0, hit: new Set(), cast,
-          vk: ctx.id, tint,
+          ctx, pierce: ctx.pierce, chain: ctx.chain, explode: sk.explode || 0, hit: new Set(), cast: casts ? casts[i % casts.length] : cast,
+          vk: ctx.id, tint, ret: sk.returns || 0, back,
         });
       }
     },
@@ -4470,6 +4677,7 @@
       const W = G.world;
       const sk = ctx.sk;
       const hex = hexOf(sk.color);
+      if (sk.line) return lineBolt(ctx, a); // 刻式「贯雷」：不连锁，改一道直线
       // 首个目标：准星附近优先，其次是瞄准方向上最近的敌人
       let first = null;
       let bd = Infinity;
@@ -4513,7 +4721,7 @@
         pz = cz;
         cur = null;
         if (jumps-- <= 0) break;
-        let nd = 7;
+        let nd = sk.jump || 7; // 跳距（刻式「雷网」更远）
         for (const e of state.enemies) {
           if (e.dead || hit.has(e)) continue;
           const d = dist(e.x, e.z, cx, cz);
@@ -4535,6 +4743,7 @@
       const z = P.z + a.dz * d;
       const R = sk.radius * Math.sqrt(ctx.area);
       const hex = hexOf(sk.color);
+      if (sk.fall) return starFall(ctx, x, z); // 刻式「星落」：接连落下几颗小陨石
       W.meteorFall(x, z, sk.delay, hex);
       G.telegraph({
         shape: 'circle', x, z, r: R, dur: sk.delay, dmg: 0, friendly: true,
@@ -4613,6 +4822,61 @@
       }
     },
   };
+
+  // ---------- 刻式的两个新形状 ----------
+  // 贯雷：朝准星放一道 line.len 长、line.width 宽的直线（吃范围加成的是宽度），遇墙即止（虚空 / 熔岩上照样过去），贯穿线上所有敌人
+  function lineBolt(ctx, a) {
+    const W = G.world, sk = ctx.sk, L = sk.line, hex = hexOf(sk.color);
+    let len = 0;
+    while (len + 0.25 <= L.len && W.shotFree(P.x + a.dx * (len + 0.25), P.z + a.dz * (len + 0.25), -0.3)) len += 0.25;
+    const hits = enemiesInLine(P.x, P.z, a.ang, len, (L.width / 2) * Math.sqrt(ctx.area));
+    const along = (e) => (e.x - P.x) * a.dx + (e.z - P.z) * a.dz;
+    hits.sort((p, q) => along(p) - along(q));
+    const pts = [{ x: P.x, z: P.z }];
+    for (const e of hits) {
+      pts.push({ x: e.x, z: e.z });
+      G.hitEnemy(e, ctx, 1, { ang: a.ang });
+    }
+    pts.push({ x: P.x + a.dx * len, z: P.z + a.dz * len });
+    W.bolt(pts, hex);
+    W.bolt([pts[0], pts[pts.length - 1]], hex, true); // 再叠一道细的直线，看得出是一条贯穿线
+  }
+  // 星落：fall.span 秒内接连落下 fall.n 颗小陨石（半径 radius，各自 delay 秒后落地），
+  // 先在准星 fall.r 以内（吃范围加成）的敌人里按离准星远近轮流挑落点，一颗砸一个，敌人少就轮回来；没有敌人就散落在这一圈里
+  function starFall(ctx, x, z) {
+    const W = G.world, sk = ctx.sk, F = sk.fall, hex = hexOf(sk.color), ak = Math.sqrt(ctx.area);
+    const R = sk.radius * ak, FR = F.r * ak;
+    const tg = enemiesIn(x, z, FR).sort((p, q) => dist(p.x, p.z, x, z) - dist(q.x, q.z, x, z));
+    for (let i = 0; i < F.n; i++) {
+      G.after((F.span * i) / Math.max(1, F.n - 1), () => {
+        let e = tg.length ? tg[i % tg.length] : null;
+        if (e && e.dead) e = tg.find((o) => !o.dead) || null;
+        let px = x, pz = z;
+        if (e) {
+          px = e.x;
+          pz = e.z;
+        } else {
+          const r = FR * Math.sqrt(Math.random()), t = Math.random() * TAU;
+          if (W.walkable(x + Math.sin(t) * r, z + Math.cos(t) * r, 0)) {
+            px = x + Math.sin(t) * r;
+            pz = z + Math.cos(t) * r;
+          }
+        }
+        W.meteorFall(px, pz, sk.delay, hex);
+        G.telegraph({
+          shape: 'circle', x: px, z: pz, r: R, dur: sk.delay, dmg: 0, friendly: true,
+          onFire() {
+            for (const o of enemiesIn(px, pz, R)) G.hitEnemy(o, ctx, 1, { ang: Math.atan2(o.x - px, o.z - pz) });
+            W.decal(1, px, pz, R * 0.95, Math.random() * TAU, hex, 3);
+            W.ring(px, pz, R, hex, 0.35);
+            W.burst(px, 0.7, pz, hex, 16, 6, 0.5);
+            W.shake(0.2);
+            G.sfx('hit');
+          },
+        });
+      });
+    }
+  }
 
   // 光环的一次脉冲：身边 radius（吃范围加成）以内的所有敌人各挨一小下（光环不经过施放，这里只在被直接调用时生效）
   SKILL_FX.aura = function (ctx) {
@@ -5611,8 +5875,10 @@
     G.sfx('finisher');
     wsStrike(ctx, hits, 1, { ang: (e) => Math.atan2(e.x - P.x, e.z - P.z), w: sk.w, kb: sk.kb, poise: sk.poise, stop: sk.stop });
     const B = sk.burn;
-    // burn.mult 是武器伤害的倍数：ctx 里已经乘了火浪的 wm，这里折回去
-    addField({ kind: 'burn', x: P.x, z: P.z, r: B.r * k, dur: B.dur, tick: B.tick, mult: B.mult / (sk.wm || 1), ctx, key: 'burnAt', hex });
+    // 每一跳按火浪那一击的倍数：按普攻折算时 = burn.sec / basicSec（ctx 的一击是喷射 basicSec 秒）；
+    // 否则 burn.mult 是武器伤害的倍数，ctx 里已经乘了火浪的 wm，这里折回去
+    const tickK = B.sec !== undefined && sk.basicSec ? B.sec / sk.basicSec : B.mult / (sk.wm || 1);
+    addField({ kind: 'burn', x: P.x, z: P.z, r: B.r * k, dur: B.dur, tick: B.tick, mult: tickK, ctx, key: 'burnAt', hex });
   };
 
   // 乱射：脱离施放系统的持续效果（P.rstate）——翻滚、走动、放别的技能都不打断它
@@ -6095,12 +6361,36 @@
     if (!zone || !c || c.open) return false;
     c.open = true;
     const rm = zone.rooms && zone.rooms[c.room];
-    const level = zone.level + Math.floor((rm ? rm.order : 0) / 2);
+    const level = zone.level + (rm && rm.lv !== undefined ? rm.lv : Math.floor((rm ? rm.order : 0) / 2)); // rm.lv：和房间里的怪同一个等级（zones-polish，加长后的区域按路径比例折算）
     G.dropLoot({ elite: true, level, x: c.x, z: c.z });
     G.world.openChest(c);
     G.sfx('pickup');
     state.stats.chests = (state.stats.chests || 0) + 1;
     return true;
+  };
+  // 点击打开（zones-polish）：和点掉落名牌一样，7 m 以内直接打开，远了提示走近。
+  // 点在箱体上时，鼠标射线落到地面的点会比宝箱的中心往远处偏一点（镜头俯角 50°，箱高约 0.9 m），所以判定圆往北挪 0.35 m
+  G.chestAt = function (wx, wz) {
+    const list = state.zone && state.zone.chests;
+    if (!list) return null;
+    let best = null, bd = 1.4;
+    for (const c of list) {
+      if (c.open) continue;
+      const d = dist(wx, wz, c.x, c.z - 0.35);
+      if (d < bd) {
+        bd = d;
+        best = c;
+      }
+    }
+    return best;
+  };
+  G.clickChest = function (c) {
+    if (!c || c.open || P.dead) return false;
+    if (dist(c.x, c.z, P.x, P.z) > 7) {
+      toast('走近一点', '#c8b89a', 'far', 900);
+      return false;
+    }
+    return G.openChest(c);
   };
   function updateChests() {
     const list = state.zone && state.zone.chests;
@@ -6226,8 +6516,11 @@
       }
     }
 
-    // 朝向做一点平滑，逻辑朝向仍是即时的
-    P.drawFace += angDiff(P.face, P.drawFace) * Math.min(1, (P.exec ? adt : dt) * 24);
+    // 朝向做一点平滑，逻辑朝向仍是即时的。拉弓时转得快一些（约 3 帧转过来）；这次出手的方向交给动画，
+    // 身子还没转过来的那几帧由上身先转向准星（world 的 bowLead，只对带 draw 的拉弓动作生效）
+    const bowDraw = !!(P.cast && P.cast.ranged && RFAM[P.cast.rtype] === 'bow');
+    P.drawFace += angDiff(P.face, P.drawFace) * Math.min(1, (P.exec ? adt : dt) * (bowDraw ? 40 : 24));
+    P.ent.aimYaw = P.cast && P.cast.aim !== undefined ? P.cast.aim : null;
     W.setEnt(P.ent, P.x, P.z, P.drawFace);
     W.animEnt(P.ent, P.exec ? adt : dt, P.moving, state.time); // 处决的动作按动作时间播，世界放慢时这一击照常利落
   };
@@ -6286,11 +6579,14 @@
       if (Math.random() < BLANK_DROP.elite) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
       return;
     }
-    if (Math.random() < 0.14) G.spawnLoot('item', G.rollItem(ilvl, G.rollRarity(rm)), x, z);
-    if (Math.random() < 0.09) G.spawnLoot('cur', G.rollCurrency(), x, z);
-    if (Math.random() < 0.012) G.spawnLoot('skill', pickSkillGem(0.7), x, z);
-    if (Math.random() < SUPPORT_DROP.mob) G.spawnLoot('support', pickSupportGem(0.7), x, z);
-    if (Math.random() < BLANK_DROP.mob) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
+    // 区域刷的普通怪（horde）掉落几率按 G.BALANCE.loot 打折：怪多了一倍，一整区合计约 ×1.15
+    const L = e.horde ? G.BALANCE.loot : null;
+    const zk = L ? e.hordeK || 1 : 1, kItem = L ? L.item * zk : 1, kCur = L ? L.cur * zk : 1, kGem = L ? L.gem * zk : 1;
+    if (Math.random() < 0.14 * kItem) G.spawnLoot('item', G.rollItem(ilvl, G.rollRarity(rm)), x, z);
+    if (Math.random() < 0.09 * kCur) G.spawnLoot('cur', G.rollCurrency(), x, z);
+    if (Math.random() < 0.012 * kGem) G.spawnLoot('skill', pickSkillGem(0.7), x, z);
+    if (Math.random() < SUPPORT_DROP.mob * kGem) G.spawnLoot('support', pickSupportGem(0.7), x, z);
+    if (Math.random() < BLANK_DROP.mob * kGem) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
   };
 
   // 烬铸武器：五个首领都会掉（层级 1 起），各掉各的那一把；连续 pity 次没掉，下一次必掉（计数存档，掉了清零）
@@ -6510,7 +6806,18 @@
         best = l;
       }
     }
-    return best ? G.pickup(best) : false;
+    if (best) return G.pickup(best);
+    // 附近没有掉落：打开 3.5 以内最近的宝箱（zones-polish）
+    const list = state.zone && state.zone.chests;
+    let bc = null, cd = 3.5;
+    if (list) for (const c of list) {
+      const d = dist(c.x, c.z, P.x, P.z);
+      if (!c.open && d <= cd) {
+        cd = d;
+        bc = c;
+      }
+    }
+    return bc ? G.openChest(bc) : false;
   };
 
   G.updateLoot = function (dt) {
