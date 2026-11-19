@@ -76,7 +76,7 @@
     m.stuckT = 0;
     m.riseClip = G.world.play(m.ent, 'rise', { dur: k.rise });
     if (!m.riseClip) G.world.setEntScale(m.ent, 0.25 * (m.size || 1)); // 没有破土动作：从地里长出来
-    else if (m.size) G.world.setEntScale(m.ent, m.size); // 刻式「骸卫」：体型更大
+    else if (m.size) G.world.setEntScale(m.ent, m.size); // 体型倍率（召唤物数据里的 size，目前没有技能用到）
     G.world.setEnt(m.ent, m.x, m.z, m.ang);
     if (m.kind === 'wraith' && typeof G.world.champFx === 'function') G.world.champFx(m.x, m.z);
     else riseFx(m.x, m.z, m.kind === 'colossus');
@@ -129,8 +129,10 @@
   }
 
   // ---------- 召唤 / 解散 ----------
+  const boneQ = []; // 刻式「骸爆」：倒下后正等着拼回来的仆从 { sk, x, z, t }（算进现存数量，自动召唤不会另补一具）
   function aliveOf(skill) {
     let n = 0;
+    for (let i = 0; i < boneQ.length; i++) if (boneQ[i].sk === skill) n++;
     for (let i = 0; i < list.length; i++) if (!list[i].dead && list[i].skill === skill) n++;
     return n;
   }
@@ -162,6 +164,7 @@
     W.removeEnt(m.ent);
     const i = list.indexOf(m);
     if (i >= 0) list.splice(i, 1);
+    vfxOff(m);
   }
 
   // 召唤一只（由技能的施放调用）：落点限制在 range 以内的可走地面；数量已满时先替换受伤最重的那只
@@ -182,7 +185,7 @@
     }
     const m = {
       kind, skill: skillId, name: K.name, ent: makeEnt(kind),
-      x, z, ang: Math.atan2(x - P.x, z - P.z), r: K.r * (mi.size || 1), height: K.height * (mi.size || 1), size: mi.size, // size：刻式「骸卫」的体型倍率
+      x, z, ang: Math.atan2(x - P.x, z - P.z), r: K.r * (mi.size || 1), height: K.height * (mi.size || 1), size: mi.size, // size：体型倍率（缺省 1）
       hp: mi.life, maxHp: mi.life, dr: mi.dr, armour: mi.armour || 0, res: mi.res || null, dead: false,
       target: null, atkT: 0.25, tauntCd: mi.taunt ? 1.5 : 0, tauntCdMax: mi.taunt ? mi.taunt.cd : 0,
       state: 'idle', stateT: 0, strikeT: -1, rising: 0, riseMax: K.rise, riseClip: true,
@@ -233,12 +236,15 @@
   // 散掉所有召唤物（删档 / 换存档时）
   G.clearMinions = function () {
     clearBolts();
+    clearRocks();
+    boneQ.length = 0;
     for (let i = list.length - 1; i >= 0; i--) {
       const m = list[i];
       if (m.beamOn) endBeam(m);
       m.dead = true;
       m.target = null;
       if (G.world && m.ent) G.world.removeEnt(m.ent);
+      vfxOff(m);
     }
     list.length = 0;
     S.focus = null;
@@ -275,6 +281,12 @@
   }
   G.regroupMinions = function () {
     for (let i = 0; i < list.length; i++) regroup(list[i], i, list.length);
+    // 等着拼回来的骸爆仆从：换区域 / 重生时在你身边一起拼好
+    for (const b of boneQ) {
+      b.x = P.x;
+      b.z = P.z;
+      b.t = Math.min(b.t, 0.5);
+    }
     S.focus = null;
     S.focusT = 0;
     setMark(null);
@@ -283,6 +295,7 @@
   // 召唤物受到伤害（敌人近战、预警圈、弹丸都走这里）。src：伤害来源 { x, z }
   G.hurtMinion = function (m, amount, dtype, src) {
     if (!m || m.dead || !(amount > 0)) return false;
+    if (m.decoy) return true; // 刻式「残像」：诱饵挨打不掉血，时间到了自己炸开
     const W = G.world;
     // 继承来的护甲 / 抗性和玩家受击同一套结算：护甲减物理（封顶 80%），抗性减对应元素；再乘自带的减伤
     let k = 1 - (m.dr || 0) / 100;
@@ -298,6 +311,7 @@
     if (m.hp <= 0) {
       if (G.soulFire) G.soulFire(m); // 万魂旗：倒下时化作魂火炸开（被替换、换区域时的消失不算）
       if (P.relic && P.relic.tongshang) G.relicMinionDown(m); // 渊契「同殇」：召唤物倒下时回血
+      if (m.ctx.minion.mech === 'bone') boneBurst(m); // 刻式「骸爆」：炸一圈骨片，过一会儿拼回来
       removeMinion(m, ang, G.TYPE_NAME[dtype] ? dtype : 'phys');
     }
     return true;
@@ -534,6 +548,15 @@
   // 命中帧：仆从砍面前的目标；守像在身前砸出一圈
   function strike(m) {
     const W = G.world, ctx = m.ctx;
+    const mech = ctx.minion.mech;
+    if (mech === 'archer' || mech === 'boulder') {
+      // 刻式「骸弓」射箭 /「掷岩」抛石：目标死了就不出手
+      const e = m.target;
+      if (!e || e.dead || e.execLock) return;
+      if (mech === 'archer') shootArrow(m, e);
+      else throwRock(m, e);
+      return;
+    }
     if (blade(m)) {
       const e = m.target;
       // 玩家正在处决的目标不去抢（处决只属于玩家）
@@ -783,7 +806,7 @@
       mesh.position.set(_sk.x, _sk.y, _sk.z);
       bolts.push({
         m, ctx: m.ctx, tg: t, x: _sk.x, z: _sk.z, y0: _sk.y, d0: dd, tx, tz, life: 2.2, mesh, cast,
-        R: mi.explode, per: mi.charge ? mi.charge.per : 0, wob: Math.random() * TAU, // 刻式「连焚」没有焰蓄
+        R: mi.explode, per: mi.charge ? mi.charge.per : 0, wob: Math.random() * TAU,
       });
     }
     G.sfx('cast');
@@ -807,6 +830,9 @@
       W.burst(b.x, 1, b.z, 0xff8a3c, 14, 5, 0.4);
     }
     if (dist(b.x, b.z, P.x, P.z) < 16) G.sfx('impact', { type: 'fire', w: 0, crit: false });
+    // 刻式「焰田」：落地留一片火地（祭司的火地都记着 pyre，燎原时一齐引爆）
+    const F = b.ctx.minion.mech === 'field' ? b.ctx.minion.vx : null;
+    if (F && G.vField) G.vField({ kind: 'burn', x: b.x, z: b.z, r: F.r * Math.sqrt(b.ctx.area), dur: F.dur, tick: F.tick, mult: F.mult, ctx: b.ctx, key: 'vPyreT', hex: 0xff9a4a, pyre: true, minion: m && !m.dead ? m : null, noDecal: true });
     // 焰蓄：每炸到一个敌人 +1（一弹最多 per 点）；祭司已经倒下就不算了
     if (n && m && !m.dead && m.ctx.minion.charge) {
       m.charge = Math.min(m.ctx.minion.charge.max, m.charge + Math.min(b.per, n) * (m.ctx.minion.chargeK || 1));
@@ -879,6 +905,22 @@
   // 大招：怪够多 → 坠焰砸向最挤的一团；否则灼链烧单个强敌。都不成（没有看得见的目标）就先不放
   function startBig(m) {
     const K = KIND.pyre, mi = m.ctx.minion;
+    if (mi.mech === 'field') {
+      // 刻式「焰田」：燎原——场上有祭司的火地才放，举杖之后所有火地一齐爆燃
+      const fs = G.rangedFields ? G.rangedFields().filter((f) => f.pyre) : [];
+      if (!fs.length) return false;
+      m.state = 'meteor';
+      m.stateT = K.bigDur;
+      m.strikeT = K.bigHit;
+      m.bigX = fs[fs.length - 1].x;
+      m.bigZ = fs[fs.length - 1].z;
+      m.ang = Math.atan2(m.bigX - m.x, m.bigZ - m.z);
+      m.charge = 0;
+      m.atkT = mi.interval;
+      G.world.play(m.ent, 'cast2', { dur: K.bigDur, contact: K.bigHit });
+      if (G.world.pyreCharge) G.world.pyreCharge(m.ent, 0, true);
+      return true;
+    }
     const c = densest(m, mi.meteor.r);
     if (c && c.n >= mi.meteor.min) {
       m.state = 'meteor';
@@ -908,7 +950,34 @@
     G.sfx('cast');
     return true;
   }
+  // 燎原：所有祭司留下的火地各炸一圈（每片 field.br 半径、field.burst 倍），炸完收起
+  function flareFields(m) {
+    const W = G.world, F = m.ctx.minion.vx, ctx = m.ctx, ak = Math.sqrt(ctx.area);
+    const fs = G.rangedFields ? G.rangedFields() : [];
+    let n = 0, hit = 0;
+    for (let i = fs.length - 1; i >= 0; i--) {
+      const f = fs[i];
+      if (!f.pyre) continue;
+      const R = F.br * ak;
+      for (const e of S.enemies) {
+        if (e.dead || e.execLock || dist(e.x, e.z, f.x, f.z) - e.r > R) continue;
+        G.hitEnemy(e, f.ctx, F.burst, { ang: Math.atan2(e.x - f.x, e.z - f.z), w: 1, kb: 0.8, poise: 8, quiet: true, minion: m });
+        hit++;
+      }
+      if (W.blastFx) W.blastFx(f.x, f.z, R);
+      fs.splice(i, 1);
+      n++;
+    }
+    if (n) {
+      if (dist(m.x, m.z, P.x, P.z) < 16) W.shake(0.25);
+      G.sfx('hit');
+    }
+    S.stats.vFlares = (S.stats.vFlares || 0) + 1;
+    S.stats.vFlareFields = (S.stats.vFlareFields || 0) + n;
+    S.stats.vFlareHits = (S.stats.vFlareHits || 0) + hit;
+  }
   function castMeteor(m) {
+    if (m.ctx.minion.mech === 'field') return flareFields(m);
     const W = G.world, mi = m.ctx.minion, M = mi.meteor, ctx = m.ctx;
     const x = m.bigX, z = m.bigZ, R = M.radius;
     if (W.pyreMeteor) W.pyreMeteor(x, z, R, M.delay);
@@ -943,6 +1012,7 @@
   // 灼链每帧：目标死了 / 跑出射程 / 被墙挡住就换身边最近的另一个；没有就收手
   function updateBeam(m, dt) {
     const W = G.world, mi = m.ctx.minion, B = mi.beam;
+    if (mi.mech === 'link') return updateLink(m, dt);
     let e = m.target;
     if (!e || e.dead || !castable(m, e, 2) || !los(m.x, m.z, e.x, e.z)) {
       e = m.target = beamTarget(m);
@@ -962,6 +1032,226 @@
       S.stats.pyreBeamTicks = (S.stats.pyreBeamTicks || 0) + 1;
     }
     if (W.pyreBeam) W.pyreBeam(m.ent, e);
+  }
+
+  // 刻式「魂链」：一直引导灼链。盯着同一个目标越烧越旺（ramp 秒从 k0 涨到 k1），换目标从头涨；
+  // 目标身边 sr 米内最近的另一个敌人再分一道细链（side 倍）。目标没了就换（射程内、看得见），都没有就收手回到空闲
+  function updateLink(m, dt) {
+    const W = G.world, mi = m.ctx.minion, L = mi.vx;
+    let e = m.target;
+    if (!e || e.dead || !castable(m, e, 2) || !los(m.x, m.z, e.x, e.z)) {
+      const n = pickCast(m);
+      if (n !== e) m.linkT = 0;
+      e = m.target = n;
+      if (!e) {
+        endBeam(m);
+        linkOff(m);
+        m.state = 'idle';
+        m.stateT = 0;
+        G.world.stop(m.ent);
+        return;
+      }
+    }
+    m.stateT = 1e9;
+    m.linkT = (m.linkT || 0) + dt;
+    turn(m, Math.atan2(e.x - m.x, e.z - m.z), 8, dt);
+    // 细链：目标身边最近的另一个
+    let o = null, od = L.sr;
+    for (const q of S.enemies) {
+      if (q === e || q.dead || q.execLock) continue;
+      const d = dist(q.x, q.z, e.x, e.z) - q.r;
+      if (d < od) {
+        od = d;
+        o = q;
+      }
+    }
+    const k = L.k0 + (L.k1 - L.k0) * Math.min(1, m.linkT / L.ramp);
+    m.beamTick -= dt;
+    if (m.beamTick <= 0) {
+      m.beamTick += L.tick * pyreSpeedK(m);
+      G.hitEnemy(e, m.ctx, k, { ang: Math.atan2(e.x - m.x, e.z - m.z), w: 0, kb: 0, poise: 2, quiet: true, minion: m });
+      if (o) G.hitEnemy(o, m.ctx, k * L.side, { ang: Math.atan2(o.x - e.x, o.z - e.z), w: 0, kb: 0, poise: 1, quiet: true, minion: m, faint: true });
+      S.stats.vLinkTicks = (S.stats.vLinkTicks || 0) + 1;
+      if (o) S.stats.vLinkSide = (S.stats.vLinkSide || 0) + 1;
+      S.stats.vLinkK = k;
+    }
+    if (W.pyreBeam) W.pyreBeam(m.ent, e);
+    if (o && W.kv) {
+      if (!m.vLink) m.vLink = W.kv('band', { hex: 0xff9a4a, w: 0.35, y: 1.2 });
+      m.vLink.x0 = e.x;
+      m.vLink.z0 = e.z;
+      m.vLink.x1 = o.x;
+      m.vLink.z1 = o.z;
+    } else linkOff(m);
+    // 烧满了：链子发白一档
+    if (W.pyreCharge && m.linkT >= L.ramp && !m.linkFull) W.pyreCharge(m.ent, 1, false);
+    m.linkFull = m.linkT >= L.ramp;
+  }
+  function linkOff(m) {
+    if (m.vLink && G.world.kvOff) G.world.kvOff(m.vLink);
+    m.vLink = null;
+  }
+  function startLink(m, e) {
+    m.state = 'beam';
+    m.target = e;
+    m.stateT = 1e9;
+    m.strikeT = -1;
+    m.beamTick = 0.05;
+    m.linkT = 0;
+    m.ang = Math.atan2(e.x - m.x, e.z - m.z);
+    m.beamOn = true;
+    G.world.play(m.ent, 'channel', { dur: 30 });
+    G.sfx('cast');
+  }
+
+  // ---------- 刻式「骸爆」：倒下时炸开，back 秒后在原地拼回来 ----------
+  function boneBurst(m) {
+    const W = G.world, ctx = m.ctx, B = ctx.minion.vx, R = B.r * Math.sqrt(ctx.area);
+    let n = 0;
+    for (const e of S.enemies) {
+      if (e.dead || e.execLock || dist(e.x, e.z, m.x, m.z) - e.r > R) continue;
+      G.hitEnemy(e, ctx, B.mult, { ang: Math.atan2(e.x - m.x, e.z - m.z), w: 1, kb: 0.9, poise: 8, quiet: true, minion: m });
+      n++;
+    }
+    W.ring(m.x, m.z, R, 0xe8e0c8, 0.3);
+    W.burst(m.x, 0.9, m.z, 0xe8e0c8, 18, 6, 0.45);
+    W.burst(m.x, 0.6, m.z, ALLY_HEX, 8, 3, 0.4);
+    boneQ.push({ sk: m.skill, x: m.x, z: m.z, t: B.back });
+    S.stats.vBoneBursts = (S.stats.vBoneBursts || 0) + 1;
+    S.stats.vBoneHits = (S.stats.vBoneHits || 0) + n;
+  }
+  function updateBones(dt) {
+    for (let i = boneQ.length - 1; i >= 0; i--) {
+      const b = boneQ[i];
+      b.t -= dt;
+      if (b.t > 0 || P.dead) continue;
+      boneQ.splice(i, 1);
+      const sk = b.sk;
+      if (!G.save.skills[sk] || !S.zone || G.SKILLS[sk].mech !== 'bone') continue;
+      if (aliveOf(sk) >= G.skillCtx(sk).minion.cap) continue;
+      // 不耗魔力、不进冷却：在原地（离你太远就在你身边）重新拼起来
+      const near = dist(b.x, b.z, P.x, P.z) <= 12 && G.world.walkable(b.x, b.z, 0.6);
+      const m2 = G.summonMinion(sk, near ? b.x : P.x, near ? b.z : P.z);
+      if (m2 && near) {
+        m2.x = b.x;
+        m2.z = b.z;
+        G.world.setEnt(m2.ent, b.x, b.z, m2.ang);
+      }
+      if (m2) S.stats.vBoneBack = (S.stats.vBoneBack || 0) + 1;
+    }
+  }
+  G.minionBones = () => boneQ.length; // 测试用
+
+  // ---------- 刻式「掷岩」：守像抛出的巨石（高抛，flight 秒落地，砸开 r 一圈） ----------
+  const rocks = [];
+  function throwRock(m, e) {
+    const B = m.ctx.minion.vx, W = G.world;
+    const h = W.kv ? W.kv('rock', { hex: 0x7a6a58, s: 0.9, x: m.x, z: m.z, y: 2.4 }) : null;
+    rocks.push({ m, ctx: m.ctx, x0: m.x, z0: m.z, tx: e.x, tz: e.z, tg: e, t: 0, T: B.flight, h });
+    G.sfx('swing', { step: 1 });
+    S.stats.vRocks = (S.stats.vRocks || 0) + 1;
+  }
+  function updateRocks(dt) {
+    const W = G.world;
+    for (let i = rocks.length - 1; i >= 0; i--) {
+      const r = rocks[i];
+      r.t += dt;
+      // 落点跟着目标走到半路为止（后半程定住，看得出落在哪）
+      if (r.t < r.T * 0.5 && r.tg && !r.tg.dead) {
+        r.tx = r.tg.x;
+        r.tz = r.tg.z;
+      }
+      const k = Math.min(1, r.t / r.T);
+      if (r.h) {
+        r.h.x = r.x0 + (r.tx - r.x0) * k;
+        r.h.z = r.z0 + (r.tz - r.z0) * k;
+        r.h.y = 2.4 * (1 - k) + 0.4 + Math.sin(k * Math.PI) * 3.2;
+        r.h.rx += dt * 6;
+        r.h.rz += dt * 4;
+      }
+      if (k < 1) continue;
+      rocks.splice(i, 1);
+      if (r.h) W.kvOff(r.h);
+      const B = r.ctx.minion.vx, R = B.r * Math.sqrt(r.ctx.area);
+      let n = 0;
+      for (const e of S.enemies) {
+        if (e.dead || e.execLock || dist(e.x, e.z, r.tx, r.tz) - e.r > R) continue;
+        G.hitEnemy(e, r.ctx, 1, { ang: Math.atan2(e.x - r.tx, e.z - r.tz), w: 1, kb: 1.1, poise: 9, quiet: true, minion: r.m });
+        n++;
+      }
+      W.smashFx(r.tx, r.tz, R, Math.random() * TAU);
+      W.decal(5, r.tx, r.tz, R * 0.8, Math.random() * TAU, 0x9fe8da, 2.2);
+      if (dist(r.tx, r.tz, P.x, P.z) < 14) W.shake(0.12);
+      G.sfx(n ? 'impact' : 'hit', { type: 'phys', w: 1, crit: false });
+      S.stats.vRockHits = (S.stats.vRockHits || 0) + n;
+    }
+  }
+  function clearRocks() {
+    for (const r of rocks) if (r.h && G.world) G.world.kvOff(r.h);
+    rocks.length = 0;
+  }
+  G.minionRocks = () => rocks.length; // 测试用
+
+  // ---------- 刻式「磐垒」的护域 / 骸弓的箭：召唤物身上的刻式件 ----------
+  function vfxOff(m) {
+    linkOff(m);
+    if (!m.vfx || !G.world.kvOff) return;
+    for (const h of m.vfx) G.world.kvOff(h);
+    m.vfx = null;
+    linkOff(m);
+  }
+  function bastionFx(m) {
+    const W = G.world, B = m.ctx.minion.vx;
+    if (!W.kv) return;
+    if (!m.vfx) m.vfx = [W.kv('dome', { hex: ALLY_HEX }), W.kv('glyph', { hex: ALLY_HEX, y: 0.06, k: 1 })];
+    const up = m.rising > 0 ? 0.3 : 0.62; // 护域很大：罩子和符环都压一档，不盖住场面
+    const d = m.vfx[0], g = m.vfx[1];
+    d.x = g.x = m.x;
+    d.z = g.z = m.z;
+    d.sx = d.sz = B.r;
+    d.sy = B.r * 0.55;
+    d.a = up;
+    g.s = B.r * 2;
+    g.a = Math.min(up, 0.3); // 6 米的符环再暗一档
+    g.ry += 0.004;
+  }
+  // 骸弓：射一支骨箭（贯穿 archer.pierce 个），箭归这具仆从（命中算召唤物的）
+  function shootArrow(m, e) {
+    const A = m.ctx.minion.vx, W = G.world, mi = m.ctx.minion;
+    const a = Math.atan2(e.x - m.x, e.z - m.z), dx = Math.sin(a), dz = Math.cos(a);
+    G.spawnProjectile({
+      owner: 'p', x: m.x + dx * 0.6, z: m.z + dz * 0.6, y0: 1.3, dx, dz, speed: A.speed, r: 0.25, life: (mi.reach + 3) / A.speed, color: 0xe8e0c8,
+      ctx: m.ctx, pierce: A.pierce, chain: 0, explode: 0, hit: new Set(), vk: 'arrow', tint: ALLY_HEX, minion: m,
+    });
+    W.burst(m.x + dx * 0.6, 1.3, m.z + dz * 0.6, 0xe8e0c8, 3, 2, 0.15);
+    S.stats.vArrows = (S.stats.vArrows || 0) + 1;
+  }
+  // 骸弓 / 掷岩：离 keep 米以内有醒着的敌人就往后（偏向玩家）退一步。返回 true 表示这一帧在退
+  function kite(m, dt, keepR) {
+    let th = null, bd = keepR;
+    for (const e of S.enemies) {
+      if (e.dead || !e.awake) continue;
+      const d = dist(e.x, e.z, m.x, m.z) - e.r - m.r;
+      if (d < bd) {
+        bd = d;
+        th = e;
+      }
+    }
+    if (!th) return false;
+    let dx = m.x - th.x, dz = m.z - th.z;
+    const d = Math.hypot(dx, dz) || 1;
+    dx /= d;
+    dz /= d;
+    const px = P.x - m.x, pz = P.z - m.z, pd = Math.hypot(px, pz);
+    if (pd > 1.5) {
+      dx += (px / pd) * 0.6;
+      dz += (pz / pd) * 0.6;
+    }
+    const l = Math.hypot(dx, dz) || 1;
+    turn(m, Math.atan2(dx, dz), 12, dt);
+    const ok = step(m, dx / l, dz / l, m.ctx.minion.move * frenzyMul() * dt);
+    m.moving = true;
+    return ok;
   }
 
   // 祭司空闲时的一帧：躲预警圈 → 敌人贴身就往玩家那边退 → 焰蓄满了放大招 → 射程内看得见就掷火弹 → 否则走近 / 跟随
@@ -1029,7 +1319,8 @@
       if (d <= mi.reach && m.losOk) {
         m.stuckT = 0;
         turn(m, Math.atan2(e.x - m.x, e.z - m.z), 10, dt);
-        if (m.atkT <= 0) startBolt(m, e);
+        if (mi.mech === 'link') startLink(m, e); // 刻式「魂链」：不掷火弹，接上灼链
+        else if (m.atkT <= 0) startBolt(m, e);
         return;
       }
       // 走到射程以内（看不见就再走近些），但不越过 keep：站在后排
@@ -1116,6 +1407,8 @@
     if (frenzyT > 0) frenzyT = Math.max(0, frenzyT - dt);
     const fz = frenzyMul();
     if (bolts.length) updateBolts(dt); // 祭司倒下了，飞在半路的火弹照样落地
+    if (rocks.length) updateRocks(dt); // 守像倒下了，抛在半空的巨石照样落地
+    if (boneQ.length) updateBones(dt);
     if (!list.length) {
       setMark(null);
       nearT = 0; // 下一次有召唤物的第一帧就重筛，不用上一批留下的名单（可能是别的区域的怪）
@@ -1164,7 +1457,8 @@
           if (!m.riseClip) W.setEntScale(m.ent, m.size || 1);
         }
       } else if (!P.dead) {
-        if (dist(m.x, m.z, P.x, P.z) > LEASH) {
+        // 磐垒扎根不动：你走开 30 米以上才在你身边重铸
+        if (dist(m.x, m.z, P.x, P.z) > (mi.mech === 'bastion' ? 30 : LEASH)) {
           regroup(m, i, list.length);
           continue;
         }
@@ -1209,7 +1503,34 @@
             step(m, esc.x, esc.z, mi.move * fz * dt);
             m.moving = true;
           } else if (m.kind === 'colossus' && canTaunt(m)) startTaunt(m);
-          else if (e) {
+          else if (mi.mech === 'bastion') {
+            // 刻式「磐垒」：不走动，只砸走进砸地范围的敌人
+            if (e && dist(e.x, e.z, m.x, m.z) - e.r - m.r <= Math.max(mi.reach, mi.radius * 0.7) + 0.45) {
+              turn(m, Math.atan2(e.x - m.x, e.z - m.z), 6, dt);
+              if (m.atkT <= 0) startAttack(m, e);
+            } else if (e) m.seekT = Math.min(m.seekT, 0.1);
+          } else if ((mi.mech === 'archer' || mi.mech === 'boulder') && e) {
+            // 刻式「骸弓」/「掷岩」：保持距离；射程内看得见就出手，否则走近到射程的八成
+            const d = dist(e.x, e.z, m.x, m.z) - e.r;
+            m.losT = (m.losT || 0) - dt;
+            if (m.losT <= 0) {
+              m.losT = 0.2;
+              m.losOk = los(m.x, m.z, e.x, e.z);
+            }
+            if (!kite(m, dt, mi.mech === 'archer' ? mi.vx.flee : 2.6)) {
+              if (d <= mi.reach && m.losOk) {
+                m.stuckT = 0;
+                turn(m, Math.atan2(e.x - m.x, e.z - m.z), 10, dt);
+                if (m.atkT <= 0) startAttack(m, e);
+              } else if (!moveTo(m, e.x, e.z, mi.move * fz, m.losOk ? Math.max(mi.vx.keep, mi.reach * 0.8) : 2, dt, 0.3) && m.stuckT > STUCK_T) {
+                m.ignore = e;
+                m.ignoreT = 2.5;
+                m.target = null;
+                m.seekT = 1;
+                m.stuckT = 0;
+              }
+            }
+          } else if (e) {
             const gap = m.kind === 'colossus' ? Math.max(mi.reach, mi.radius * 0.7) : mi.reach;
             const stop = e.r + m.r + gap * 0.85;
             if (moveTo(m, e.x, e.z, mi.move * fz, stop, dt, 0.45)) {
@@ -1227,9 +1548,10 @@
         }
         if (blade(m)) ti++;
         else if (m.kind === 'pyre') pi++;
-        separate(m, dt);
+        if (mi.mech !== 'bastion') separate(m, dt); // 磐垒扎根：不被挤开
       }
       m.moving0 = m.moving;
+      if (mi.mech === 'bastion') bastionFx(m); // 刻式「磐垒」的护域跟着守像（扎根了也照样画）
       // 站在玩家和镜头之间（镜头在 +z 一侧俯视）、身子正好盖住玩家：镂空显示，玩家不会被挡没
       if (W.allyOcclude) {
         const oz = m.z - P.z;
