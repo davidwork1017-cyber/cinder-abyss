@@ -959,12 +959,6 @@
     }
     return best;
   };
-  // 施法武器普攻（灵弹 / 疾咒）的元素：同 topElem，再把混沌也算进来——混沌伤害提高（incChaos）比三种元素各自的都高时取混沌
-  G.basicElem = function (def) {
-    const el = G.topElem(def);
-    const S = P.S;
-    return (S.incChaos || 0) > (S['inc' + G.CAP[el]] || 0) + 1e-6 ? 'chaos' : el;
-  };
   // 远程武器类型 → 'gun' / 'bow'
   const RFAM = {};
   for (const b of G.BASES.weapon) if (b.ranged) RFAM[b.type] = b.ranged;
@@ -1042,10 +1036,10 @@
     const scale = sk.kind === 'summon' || sk.asMinion || sk.champ ? G.minionDmgK(lvl) : 1 + 0.2 * (lvl - 1);
     if (sk.edmg) {
       // 星蚀（渊口）：拿着它时短杖的秘弹连射固定为混沌
-      const el = sk.kind === 'wwand' && P.uMech === 'void' ? 'chaos' : sk.basic ? G.basicElem(sk.elem) : G.topElem(sk.elem);
-      // 施法武器的普攻取到混沌时，和混沌技能一样打 0.75 折、再按宝石等级给前期补偿（混沌吃三种元素各自的伤害提高，不折就比主力技能还痛）
-      const ck = sk.basic && el === 'chaos' && G.chaosEarlyK ? G.CHAOS_EARLY.k1 * G.chaosEarlyK(lvl) : 1;
-      out[el] = [sk.edmg[0] * scale * ck, sk.edmg[1] * scale * ck];
+      // 施法武器的普攻（灵弹 / 疾咒）也只取火 / 冰 / 雷里加成最高的那种，不取混沌（编排者定：混沌吃三种元素各自的伤害提高，
+      // 普攻跟着混沌走就比冷却之后的黑旋风还痛）
+      const el = sk.kind === 'wwand' && P.uMech === 'void' ? 'chaos' : G.topElem(sk.elem);
+      out[el] = [sk.edmg[0] * scale, sk.edmg[1] * scale];
       return out;
     }
     // 混沌技能的前期补偿（G.chaosEarlyK：宝石 1 级相当于 0.95 倍，15 级起 0.75 倍）
