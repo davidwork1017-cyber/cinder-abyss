@@ -515,7 +515,8 @@
     }
     // 身上 / 背包里已有的烬铸武器也算拾到过（旧数据缺图鉴时补上）
     for (const it of s.bag.concat(s.equip.weapon ? [s.equip.weapon] : [])) if (it.rarity === 3) noteUnique(it, s);
-    // 渊契图鉴：同上，只认 G.RELICS 的 id 和保底的键（渊契 id、'seal'）；旧存档没有这一项就是空的
+    // 渊契图鉴：同上，只认 G.RELICS 的 id 和保底的键（渊契 id、'seal'）；旧存档没有这一项就是空的。
+    // 保底计数截到现在的上限：掉率改版前攒下的（旧上限 10 / 8 / 15）超过新上限时按满计，下一次必掉
     const rr = isObj(raw.relic) ? raw.relic : {};
     const qf = isObj(rr.found) ? rr.found : {};
     const qb = isObj(rr.best) ? rr.best : {};
@@ -1867,11 +1868,12 @@
   // 烈印的总权重 W（D3 的 G.runSealW 提供；还没有渊印时为 0）
   const sealW = () => (typeof G.runSealW === 'function' ? G.runSealW() || 0 : 0);
   // 区域首领的那一件：只掷、不掉（返回掉了的渊契 id 或 null）。和烬铸分开掷、各计各的保底；层级 0 不掉也不计保底
+  // 烈印（W ≥ seal.minW）下几率 × sealMul，最多 sealCap
   G.relicBossRoll = function (kind, tier) {
     const D = G.RELIC_DROP;
     const id = G.RELIC_BY_BOSS[kind];
     if (!D.src.boss || !id || !(tier >= 1)) return null;
-    const p = G.relicChance(tier) * (sealW() >= D.seal.minW ? D.sealMul : 1);
+    const p = sealW() >= D.seal.minW ? Math.min(D.sealCap, G.relicChance(tier) * D.sealMul) : G.relicChance(tier);
     return relicRoll(id, p, D.boss.pity) ? id : null;
   };
   // dropLoot 首领分支的一行钩子：首领那一件 + 烈印来源
