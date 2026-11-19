@@ -2126,7 +2126,9 @@ async function main() {
         const th = G.skillCtx('thrall');
         for (let i = 0; i < 3; i++) G.summonMinion('thrall', P.x - 1, P.z + i - 1, th);
         out.three = hit() / out.base;
-        for (let i = 0; i < 4; i++) G.summonMinion('thrall', P.x - 2, P.z + i - 2, th);
+        P.S.minionCap = (P.S.minionCap || 0) + 4; // 仆从上限 3：抬到 7 只
+        const th7 = G.skillCtx('thrall');
+        for (let i = 0; i < 4; i++) G.summonMinion('thrall', P.x - 2, P.z + i - 2, th7);
         out.many = { k: hit() / out.base, n: S.minions.filter((m) => !m.dead).length };
         G.clearMinions();
         // 驭灵（召唤物伤害额外 +30%）镶在武器普攻卡上：对魂引生效；坚骨（召唤物生命）对它没用、镶不上
@@ -5488,7 +5490,7 @@ async function main() {
     cleanText(await ev(() => T.bodyText()), '技能页');
     // 武器普攻卡（.basic-card，拿着远程武器时才生效）另算
     const cards = await ev(() => ({ n: document.querySelectorAll('.skill-card:not(.wsk-card):not(.basic-card)').length, ws: document.querySelectorAll('.wsk-card').length }));
-    assert(cards.n === 15 && cards.ws === 1, '技能卡数量不对（15 张技能卡 + 1 张武器技卡）：' + JSON.stringify(cards));
+    assert(cards.n === 14 && cards.ws === 1, '技能卡数量不对（14 张技能卡（裂石击已删除）+ 1 张武器技卡）：' + JSON.stringify(cards));
     await page.click('[data-act="bind"][data-skill="nova"][data-slot="2"]');
     let r = await ev(() => ({ bar: G.save.bar.slice(), on: document.querySelector('[data-act="bind"][data-skill="nova"][data-slot="2"]').classList.contains('on') }));
     assert(r.bar[2] === 'nova' && r.on && r.bar.filter((b) => b === 'nova').length === 1, '界面绑定失败：' + r.bar);
@@ -5608,7 +5610,7 @@ async function main() {
       // 武器普攻卡的 3 个孔（data-skill = G.BASIC_CARD）不算在内：它能镶投射物类的辅助，亮不亮看界面
       mid = await ev(() => { const own = (sel) => Array.from(document.querySelectorAll(sel)).filter((n) => n.dataset.skill !== G.BASIC_CARD).length; return { lit: own('.sock.drop-ok'), dim: own('.sock.drop-no'), cap: document.querySelector('#drag-ghost em').textContent }; });
     });
-    assert(mid.lit === 12 && mid.dim === 33 && mid.cap === '镶进 掷焰', '拖辅助宝石时只有带「投射物」标签的技能的槽应亮起（掷焰、飞刃、焚骨祭司、黑旋风）：' + JSON.stringify(mid));
+    assert(mid.lit === 12 && mid.dim === 30 && mid.cap === '镶进 掷焰', '拖辅助宝石时只有带「投射物」标签的技能的槽应亮起（掷焰、飞刃、焚骨祭司、黑旋风）：' + JSON.stringify(mid));
     let r = await ev(() => ({ e: G.save.sockets.ember.slice(), proj: G.skillCtx('ember').proj }));
     assert(r.e[0] === 'multi' && r.proj === 3, '宝石没有镶上：' + JSON.stringify(r));
     await dragTo(sup('brutal'), sock('ember', 1), async () => {
@@ -6319,10 +6321,11 @@ async function main() {
       T.dummy(4, 0);
       G.input.mouse.wx = 4;
       G.input.mouse.wz = 0;
+      G.bindSkill(0, 'ember'); // 掷焰放左键（右键是不耗魔力的武器普攻）
       const life0 = P.life, mana0 = P.mana;
-      G.input.mouse.b[2] = true;
+      G.input.mouse.b[0] = true;
       G.debug.step(0.3);
-      G.input.mouse.b[2] = false;
+      G.input.mouse.b[0] = false;
       out.lifeSpent = life0 - P.life;
       out.manaSame = P.mana === mana0;
       G.debug.step(1);
@@ -7663,10 +7666,10 @@ async function main() {
     cleanText(help, '帮助页');
     for (const w of ['连击', '终结技', '架势', '破绽', '处决', '翻滚可以取消挥砍']) assert(help.includes(w), '帮助页缺少「' + w + '」的说明');
     await closePanel();
-    // 技能页：裂石击的卡片列出三段倍率
+    // 技能页：最上面的武器普攻卡（拿着刃）列出连招每一段的倍率
     await page.keyboard.press('KeyG');
     const card = await ev(() => { const n = document.querySelector('.sk-combo'); return n ? n.innerText.replace(/\s+/g, ' ') : ''; });
-    assert(/×0\.8/.test(card) && /终结 ×2\.2/.test(card), '技能卡没有列出连击倍率：' + card);
+    assert(/第 1 段 ×0\.85/.test(card) && /终结 ×1\.85/.test(card), '武器普攻卡没有列出连击倍率：' + card);
     await closePanel();
   });
 
