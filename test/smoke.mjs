@@ -13007,6 +13007,86 @@ async function main() {
     return '货架 ' + r.rare + ' 件稀有，2 换 1：' + r.frags;
   });
 
+  await step('异兆「拾烬客」看得清：体型放大、头顶画着「拾烬客」名牌、提着一盏灯（加色的发光贴片 + 脚下一圈暖光，场景里不多一盏灯）；换区后一起清掉', async () => {
+    await encKit();
+    const r = await ev(() => {
+      const W = G.world, out = {};
+      const lights = () => {
+        let n = 0;
+        W.scene.traverse((o) => { if (o.isLight) n++; });
+        return n;
+      };
+      try {
+        const enc = EK.put('trader', 0, 2);
+        const l0 = lights();
+        T.tp(enc.site.x + 5, enc.site.z + 1);
+        EK.step(0.3);
+        W.update(0, 5);
+        W.render();
+        const H = enc.prop;
+        out.k = H && H.npc ? +H.npc.body.scale.x.toFixed(2) : 0;
+        out.tag = H && H.tagAt;
+        const foot = W.project(enc.site.x, 0, enc.site.z);
+        out.tagOk = !!out.tag && out.tag[1] > 0 && out.tag[1] < foot.y - 40 && Math.abs(out.tag[0] - foot.x) < 40;
+        out.lamp = !!(H && H.lamp && H.lamp.visible && H.lamp.material.blending === THREE.AdditiveBlending && H.lamp.parent === H.npc.body);
+        out.pool = !!(H && H.pool && H.pool.visible && H.pool.material.blending === THREE.AdditiveBlending && !H.pool.castShadow);
+        out.lights = lights() - l0;
+        G.enterZone(0, 0);
+        out.gone = H.npc.removed === true && !(H.pool.parent && H.pool.parent.parent);
+      } finally {
+        EK.done();
+      }
+      return out;
+    });
+    assert(r.k >= 1.25 && r.tagOk && r.lamp && r.pool && r.lights === 0 && r.gone, '拾烬客的体型 / 名牌 / 灯不对：' + JSON.stringify(r));
+    return '体型 ×' + r.k + '，名牌在 ' + r.tag.join(',');
+  });
+
+  await step('异兆「残影」的浮现点：玩家站在房间芯南边（芯在画面顶上、残影的头出画）时，浮现点挪到房间里画面看得见的地方（离玩家 5–9 m、脚下和头顶都在画面里），预警环和残影都在那里；芯本来就在画面里时不挪', async () => {
+    await encKit();
+    const r = await ev(() => {
+      const S = G.state, P = G.player, W = G.world, out = {};
+      try {
+        for (let k = 0; k < 6 && !out.found; k++) {
+          const enc = EK.put('echo', 3, 1, 1700 + k * 11);
+          if (!enc) continue;
+          const s = enc.site;
+          let spot = null;
+          for (const d of [7.5, 7, 6.5, 6]) for (const dx of [0, 1.5, -1.5]) {
+            const x = s.x + dx, z = s.z + d;
+            if (!spot && W.roomAt(x, z) === s.room && W.walkable(x, z, 0.6)) spot = { x, z };
+          }
+          if (!spot) continue;
+          T.tp(spot.x, spot.z, Math.PI);
+          EK.step(0.1);
+          if (W.inView(s.x, s.z, 4.6)) continue; // 芯在画面里（这个布局测不了挪动）
+          out.found = true;
+          EK.clearRoom(enc);
+          EK.step(0.1, () => enc.st === 'run');
+          const at = enc.at;
+          out.moved = !!at && (at.x !== s.x || at.z !== s.z);
+          out.room = W.roomAt(at.x, at.z) === s.room;
+          out.d = +Math.hypot(at.x - P.x, at.z - P.z).toFixed(1);
+          out.seen = W.inView(at.x, at.z, 0.2) && W.inView(at.x, at.z, 4.6);
+          EK.step(1.2, () => !!enc.mob);
+          out.mobAt = !!enc.mob && Math.hypot(enc.mob.x - at.x, enc.mob.z - at.z) < 0.5;
+        }
+        // 芯本来就在画面里：不挪
+        const enc = EK.put('echo', 3, 1);
+        T.tp(enc.site.x + 6, enc.site.z);
+        EK.step(0.1);
+        EK.clearRoom(enc);
+        EK.step(0.1, () => enc.st === 'run');
+        out.stay = !!enc.at && enc.at.x === enc.site.x && enc.at.z === enc.site.z;
+      } finally {
+        EK.done();
+      }
+      return out;
+    });
+    assert(r.found && r.moved && r.room && r.d >= 5 && r.d <= 9 && r.seen && r.mobAt && r.stay, '残影的浮现点不对：' + JSON.stringify(r));
+    return '挪到离玩家 ' + r.d + ' m';
+  });
+
   await step('异兆「残影」：房间清空后浮现本区首领的残影（首领生命 35%、等级 +2、只用前两种招式、不狂暴、拴在房间里）；不改 G.state.boss，打死不开传送门、不记首杀', async () => {
     await encKit();
     const r = await ev(() => {
