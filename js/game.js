@@ -8720,13 +8720,12 @@
       toast('首次击败「' + e.name + '」：获得 2 点天赋点', '#ffd75e');
     } else toast('「' + e.name + '」已被击败', '#ffb46a');
     const PK = save.pinnacle;
-    const ilvl = Math.max(1, e.level), x = e.x, z = e.z, rm = 1 + (P.S.rarity || 0) / 100;
+    const ilvl = Math.max(1, e.level), x = e.x, z = e.z;
     for (let i = 0; i < 3; i++) G.spawnLoot('item', G.rollItem(ilvl, 2), x, z);
     for (const id of ['exalt', 'exalt', 'divine']) G.spawnLoot('cur', id, x, z);
     for (let i = 0; i < 3; i++) G.spawnLoot('cur', G.rollCurrency(), x, z);
     G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
     for (let i = 0; i < 2; i++) G.spawnLoot('support', pickSupportGem(i ? 0.7 : 1), x, z);
-    if (Math.random() < 0.5) G.spawnLoot('item', G.rollItem(ilvl, Math.max(1, G.rollRarity(rm))), x, z);
     // 巅峰渊契：首杀必掉；之后 chance、连续 pity 次没掉下一次必掉。两件里还没拾到过的优先，都拾到过就各半
     let pid = null;
     if (PK.kills === 0 || PK.pity >= D.pity || Math.random() < D.chance) {
