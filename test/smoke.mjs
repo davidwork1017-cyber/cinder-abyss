@@ -9170,7 +9170,11 @@ async function main() {
       T.unfix();
       T.clearLoot();
       U.pity.warden = G.UNIQUE_DROP.pity;
+      // 这一次只看烬铸：首领那件渊契（真随机数下常常也掉）的大字提示会盖掉烬铸的，先关掉首领来源再放回去
+      const rqBoss = G.RELIC_DROP && G.RELIC_DROP.src.boss;
+      if (G.RELIC_DROP) G.RELIC_DROP.src.boss = false;
       G.dropLoot({ isBoss: true, bossKind: 'warden', level: 28, x: P.x, z: P.z - 3 });
+      if (G.RELIC_DROP) G.RELIC_DROP.src.boss = rqBoss;
       const l = S.loot.find((x) => x.kind === 'item' && x.data.rarity === 3);
       out.full = l ? { uq: l.data.uq, ilvl: l.data.ilvl, color: l.color, label: l.label, beam: l.mesh.children.length } : null;
       out.pityReset = U.pity.warden || 0;
