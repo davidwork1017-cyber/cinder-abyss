@@ -165,8 +165,8 @@
       // 渊印：sealSeq 真正进区的次数（择印面板的随机种子，关掉地图再打开还是同样三枚）；
       // run 这一次进区 { zone, tier, seq, seal }（seal 为 null 是素印），读档时区域 / 层级对得上就接着用，倒下重生不动，换区 / 重进清掉
       sealSeq: 0, run: null,
-      // 烛芯（异兆一期）：各种类的个数（熄烛者的开启材料）和保底计数（box 是缚匣 / 试锋 / 落烬共用）
-      frags: { seal: 0, rift: 0, vow: 0, box: 0 }, fragPity: { seal: 0, rift: 0, vow: 0, box: 0 },
+      // 烛芯（异兆一期）：各种类的个数（熄烛者的开启材料）
+      frags: { seal: 0, rift: 0, vow: 0, box: 0 },
       // 熄烛者（D5）：击杀次数、巅峰渊契的保底计数（连续几次没掉）。正在打的那一次挂在 run.pin = { tier, lives }
       pinnacle: { kills: 0, pity: 0 },
     };
@@ -559,14 +559,10 @@
     // 熄烛者：击杀次数、巅峰渊契保底（旧存档没有 → 0）
     const rpk = isObj(raw.pinnacle) ? raw.pinnacle : {};
     s.pinnacle = { kills: toInt(rpk.kills, 0, 1e6, 0), pity: toInt(rpk.pity, 0, G.RELIC_DROP.pinnacle.pity, 0) };
-    // 烛芯：旧存档没有（全 0）；只认 G.FRAGS 的种类，个数 0–max，保底 0–上限
-    const rfr = isObj(raw.frags) ? raw.frags : {}, rfp = isObj(raw.fragPity) ? raw.fragPity : {};
+    // 烛芯：旧存档没有（全 0）；只认 G.FRAGS 的种类，个数 0–max。旧存档的保底计数 fragPity 不再读，也不再存
+    const rfr = isObj(raw.frags) ? raw.frags : {};
     s.frags = {};
-    s.fragPity = {};
-    for (const id of G.FRAG_IDS) {
-      s.frags[id] = toInt(rfr[id], 0, G.FRAG_DROP.max, 0);
-      s.fragPity[id] = toInt(rfp[id], 0, id === 'seal' ? G.SEAL.frag.pity : G.FRAG_DROP.pity, 0);
-    }
+    for (const id of G.FRAG_IDS) s.frags[id] = toInt(rfr[id], 0, G.FRAG_DROP.max, 0);
     return s;
   }
   // 图鉴记一笔：拾到过、最高完美度
@@ -8086,8 +8082,8 @@
       if ((e.bossKind && !save.bossKills[e.bossKind]) || Math.random() < BLANK_DROP.boss) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
       uniqueDrop(e, ilvl);
       G.relicBossDrop(e, ilvl); // 渊契：和烬铸分开掷
-      // 烈印下击杀区域首领：印烛芯（物品和保底随异兆一期，G.fragSealDrop 由那边提供；几率见 G.sealFragChance）
-      if (RM.lie && G.fragSealDrop) G.fragSealDrop(e, ilvl, RM.W);
+      // 击杀区域首领：印烛芯（任何印下都掷，几率按这次进区的印，见 G.fragChance）
+      if (G.fragSealDrop) G.fragSealDrop(e);
       return;
     }
     if (e.elite) {
@@ -9046,16 +9042,10 @@
       else G.spawnLoot('support', pickSupportGem(0.7), x, z);
     }
   };
-  // 烛芯：按几率 p 掷一次，连续 max 次没掉这一次必掉（保底计数存档，key 是保底的键：box 三种异兆共用）
-  function fragRoll(key, p, max) {
-    const U = G.save.fragPity;
-    const n = U[key] || 0;
-    if (n >= max || Math.random() < p) {
-      U[key] = 0;
-      return true;
-    }
-    U[key] = n + 1;
-    return false;
+  // 烛芯：按这次进区择的印掷一次（层级 < minTier 为 0；没有保底）
+  function fragRoll() {
+    const p = G.fragChance(state.run && state.run.seal, state.tier || 0);
+    return p > 0 && Math.random() < p;
   }
   G.fragRoll = fragRoll;
   function dropFrag(id, x, z) {
@@ -9066,17 +9056,14 @@
   }
   // 异兆成功掉的烛芯（层级 ≥ 2）：隙 / 誓 / 匣
   G.encFragDrop = function (kind, x, z) {
-    const D = G.FRAG_DROP, id = G.ENCOUNTERS[kind] && G.ENCOUNTERS[kind].frag;
-    if (!id || !((state.tier || 0) >= D.minTier)) return false;
-    if (!fragRoll(id, D.chance[id], D.pity)) return false;
+    const id = G.ENCOUNTERS[kind] && G.ENCOUNTERS[kind].frag;
+    if (!id || !fragRoll()) return false;
     dropFrag(id, x, z);
     return true;
   };
-  // 印烛芯：烈印下击杀区域首领（G.dropLoot 首领分支的钩子，几率见 G.sealFragChance，保底 G.SEAL.frag.pity）
-  G.fragSealDrop = function (e, ilvl, W) {
-    const p = G.sealFragChance(W, state.tier || 0);
-    if (!(p > 0)) return false;
-    if (!fragRoll('seal', p, G.SEAL.frag.pity)) return false;
+  // 印烛芯：击杀区域首领（G.dropLoot 首领分支的钩子；任何印下都掷，几率同上）
+  G.fragSealDrop = function (e) {
+    if (!fragRoll()) return false;
     dropFrag('seal', e.x, e.z);
     return true;
   };
