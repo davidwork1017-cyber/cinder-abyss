@@ -787,19 +787,22 @@
       mats: [
         // 卡通：路面是暗一档的灰褐焦土（不再是粉褐色），贴图的明暗起伏压低，地面不抢角色；路外是更暗、偏灰紫的灰土
         { tex: 'mud_cracked_dry_03', tile: 4.2, con: 0.45, nrm: 0.5, rough: 1, k: 0.53, sat: 0.8, col: 0x5a5753 }, // 中性灰（zones-ash：0x575358 → 0x5a5753，去掉偏紫的那一点，主光一照是暖灰烬色，不是粉紫褐）
-        { tex: 'burned_ground_01', tile: 4.8, con: 0.55, nrm: 0.7, rough: 1, k: 0.52, sat: 0.85, col: 0x4e4b4a }, // zones-ash：0x4a474e → 0x4e4b4a，路上的粗糙斑块不那么脏
+        { tex: 'burned_ground_01', tile: 4.8, con: 0.7, nrm: 0.9, rough: 1, k: 0.46, sat: 0.85, col: 0x4a4644 }, // zones-ash：0x4a474e → 0x4e4b4a，路上的粗糙斑块不那么脏。vf-ground：成片的烧焦地和路边的碎砂带用它，压暗一点、纹理起伏加大（k 0.52 → 0.46，con 0.55 → 0.7）
         { tex: 'dark_rock', tile: 6.5, con: 0.8, nrm: 1.0, rough: 1, k: 0.8, col: 0x282224 }, // 岩壁外的虚空地面比路面暗得多，把空地框出来
       ],
       lava: { mode: 1, color: 0xff5a1a, k: 1.7, patch: [0, 0.66] }, // 路面裂缝只在成片的几处发光（patch），不再满地一张发光的网
       rock: { tex: 'dark_rock', tile: 2.6, nrm: 1.2, cap: 0x5e5550, capAll: 0.12 },
-      grade: { sat: 1.12, con: 1.1, lift: 0x0a0414, gain: 0xfff6ee, vig: 0.24, sh: 0x6c64b0, hi: 0xffd2a0, tk: 0.1 }, // vf-ground：暗部偏一点冷紫、亮部偏一点暖（sh / hi / tk）
+      grade: { sat: 1.12, con: 1.1, lift: 0x0a0414, gain: 0xfff6ee, vig: 0.24, sh: 0x708aa8, hi: 0xffd0a0, tk: 0.14, shS: 0.8 }, // vf-ground：暗部冷紫、去一点饱和（shS），亮部暖（sh / hi / tk）
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x3c2a30, a: 0.3 }, // zones-ash：0x4a2636 → 0x3c2a30，少一点酒红
       prop: { tint: 0x6e5c54, sat: 0.5 }, // 卡通：布景模型压到岩壁那一档，不比地面亮
       patch: 0.3, // zones-polish：路面上的暗色粗糙斑块（带点状的暗纹，看着像脏印子）0.55 → 0.3
       // vf-ground：龟裂的焦土上一片片软的积灰（比路面略亮略冷），墙脚和石头脚下堆得厚；路边沿着裂缝起伏，过渡带是烧过的碎土
-      layer: { tex: 'g_cover_ash', tile: 4.5, con: 0.8, rough: 1, k: 0.6, sat: 0.45, col: 0x5e5e5e, path: 0.85, pT: 0.55, edge: 0.9, jag: 1.4, blend: 0.09 },
-      deco: { cover: 0x6e6a68, floor: 1, wild: 1, ao: 0.6, scorch: 0.5, kinds: [4, 5, 7, 8, 11, 13], tint: 0x4e4846 },
+      // 第二轮（要求方：在游戏镜头下要看得出层次）：大尺度的明暗 / 冷暖起伏（mv / mh）、成片的烧焦地（scorch：粗糙地面那一套压暗）、
+      // 硬一点的路边（edgeW）、墙脚 / 石脚的接触阴影（ao2 烘在顶点色里，低档也有）
+      layer: { tex: 'g_cover_ash', tile: 4.5, con: 0.8, rough: 1, k: 0.62, sat: 0.4, col: 0x625f5c, path: 0.85, pT: 0.53, edge: 1, jag: 2.0, blend: 0.08, edgeW: 0.55, mv: 0.17, mh: 0.12, scorch: 0.6, sT: 0.63, ao2: 0.24 },
+      deco: { cover: 0x7a7672, floor: 1, wild: 1, ao: 0.85, aoR: 0.9, scorch: 0.6, clusters: 0.6, kinds: [4, 5, 7, 8, 11, 13], tint: 0x55504c },
+      pool: { col: 0xff7a2a, k: 1.4, r: 3, gain: 1.6 }, // 熔岩 / 余烬裂缝 / 火盆周围映暖的地面（烘在顶点色里）
       blots: { k: 0.35, r: 0.65, op: 0.3, tex: 'crack' }, // zones-polish：细裂纹代替软边的暗块（op 0.16 → 0.3：线细，同样的不透明度几乎看不见）。zones-ash：污斑看着像脏印子，少放、放小，路面的细节交给布景里的积灰和余烬裂缝
       sigil: { r: 0.52, dark: 0.55, start: false }, // zones-ash：熔渣坑的法阵收小、压暗一半；不要起点法阵（起点布景见 buildAshDress）
       props: {
@@ -999,6 +1002,7 @@
     if (!gx) return null;
     if (o.layer) gx.layer = Object.assign({}, gx.layer, o.layer);
     if (o.deco) gx.deco = Object.assign({}, gx.deco, o.deco);
+    if (o.pool) gx.pool = Object.assign({}, gx.pool, o.pool);
     disposeZone();
     safeBuildVisuals(z);
     return { layer: gx.layer, deco: gx.deco };
@@ -1031,11 +1035,11 @@
     uniforms: {
       tDiffuse: { value: null }, uSat: { value: 1 }, uCon: { value: 1 }, uVig: { value: 0.4 }, uAspect: { value: 1.6 },
       uLift: { value: new T.Vector3(0, 0, 0) }, uGain: { value: new T.Vector3(1, 1, 1) },
-      uSh: { value: new T.Vector3(1, 1, 1) }, uHi: { value: new T.Vector3(1, 1, 1) }, // vf-ground：分区的暗部 / 亮部偏色（亮度归一，只改色相不改明暗）
+      uSh: { value: new T.Vector3(1, 1, 1) }, uHi: { value: new T.Vector3(1, 1, 1) }, uShS: { value: 1 }, // vf-ground：分区的暗部 / 亮部偏色（亮度归一，只改色相不改明暗）、暗部的饱和度
     },
     vertexShader: 'varying vec2 vUv;\nvoid main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
     fragmentShader: [
-      'uniform sampler2D tDiffuse; uniform float uSat, uCon, uVig, uAspect; uniform vec3 uLift, uGain, uSh, uHi; varying vec2 vUv;',
+      'uniform sampler2D tDiffuse; uniform float uSat, uCon, uVig, uAspect, uShS; uniform vec3 uLift, uGain, uSh, uHi; varying vec2 vUv;',
       'void main(){',
       '  vec3 c = max(texture2D(tDiffuse, vUv).rgb, 0.0);',
       // 高光肩部：超过 0.8 的部分按指数压向 1（色调映射过的材质很少到这里，主要压的是不做色调映射的加色特效 + 泛光），
@@ -1045,6 +1049,7 @@
       '  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));',
       '  c = mix(vec3(l), c, uSat);',
       '  c = c * uGain + uLift * (1.0 - clamp(l, 0.0, 1.0));',
+      '  c = mix(vec3(l), c, mix(uShS, 1.0, smoothstep(0.08, 0.45, l)));',
       '  c *= mix(uSh, uHi, smoothstep(0.12, 0.7, clamp(l, 0.0, 1.0)));',
       '  vec2 q = (vUv - vec2(0.5, 0.47)) * vec2(uAspect, 1.0);',
       '  c *= mix(1.0, smoothstep(1.05, 0.32, length(q)), uVig);',
@@ -1151,6 +1156,7 @@
     };
     tone(g.sh, u.uSh.value);
     tone(g.hi, u.uHi.value);
+    u.uShS.value = g.shS === undefined ? 1 : g.shS;
     const b = (gx && gx.bloom) || { th: 0.97, k: 0.16, r: 0.32 };
     post.bloom.threshold = b.th;
     post.bloom.strength = b.k;
@@ -1431,6 +1437,51 @@
     mesh.castShadow = false;
     return mesh;
   }
+  // vf-ground：暖色光池（gx.pool = { col, k, r 扩散半径 m, gain }）：熔岩（材质网格）和点光源（余烬裂缝、火盆：[x, z, 半径, 强度]）周围的地面映暖，
+  // 乘进地面的顶点色（低档也有、不加 draw）。熔岩按 1 m 降采样成 0/1，点光源按半径画进去，再做两遍半径 r 的方框模糊，地面顶点双线性取
+  function lightPools(zone, ground, gx, pts) {
+    const LP = gx.pool;
+    if (!LP || !ground || !ground.geometry.attributes.color) return;
+    const m = zone.map, mat = matGrid(m), k = Math.max(1, Math.round(1 / m.h2)), cs = k * m.h2, W1 = Math.ceil(m.mx / k), H1 = Math.ceil(m.mz / k);
+    const F = new Float32Array(W1 * H1), tmp = new Float32Array(W1 * H1);
+    for (let j = 0; j < H1; j++) for (let i = 0; i < W1; i++) if (mat[j * k * m.mx + i * k] === MAT.LAVA) F[j * W1 + i] = 1;
+    for (const p of pts) {
+      const ci = (p[0] - m.x0) / cs, cj = (p[1] - m.z0) / cs, rr = Math.max(0.5, p[2] / cs);
+      for (let j = Math.max(0, Math.floor(cj - rr)); j <= Math.min(H1 - 1, Math.ceil(cj + rr)); j++) {
+        for (let i = Math.max(0, Math.floor(ci - rr)); i <= Math.min(W1 - 1, Math.ceil(ci + rr)); i++) {
+          const d = Math.hypot(i - ci, j - cj) / rr;
+          if (d < 1) F[j * W1 + i] = Math.max(F[j * W1 + i], p[3] * (1 - d * d));
+        }
+      }
+    }
+    const R = Math.max(1, Math.round(LP.r / cs)), D2 = 2 * R + 1;
+    const blur = (src, dst, horiz) => {
+      const n1 = horiz ? H1 : W1, n2 = horiz ? W1 : H1;
+      for (let a = 0; a < n1; a++) {
+        const at = (bb) => (horiz ? a * W1 + bb : bb * W1 + a);
+        let acc = 0;
+        for (let bb = 0; bb <= R && bb < n2; bb++) acc += src[at(bb)];
+        for (let bb = 0; bb < n2; bb++) {
+          dst[at(bb)] = acc / D2;
+          if (bb + R + 1 < n2) acc += src[at(bb + R + 1)];
+          if (bb - R >= 0) acc -= src[at(bb - R)];
+        }
+      }
+    };
+    for (let pass = 0; pass < 2; pass++) {
+      blur(F, tmp, true);
+      blur(tmp, F, false);
+    }
+    const g = ground.geometry, P = g.attributes.position, Cc = g.attributes.color, tint = lin(LP.col);
+    for (let i = 0; i < P.count; i++) {
+      const fx = Math.min(W1 - 1.001, Math.max(0, (P.getX(i) - m.x0) / cs)), fz = Math.min(H1 - 1.001, Math.max(0, (P.getZ(i) - m.z0) / cs));
+      const i0 = Math.floor(fx), j0 = Math.floor(fz), u = fx - i0, w = fz - j0, o = j0 * W1 + i0;
+      const f = Math.min(1, (F[o] * (1 - u) * (1 - w) + F[o + 1] * u * (1 - w) + F[o + W1] * (1 - u) * w + F[o + W1 + 1] * u * w) * LP.gain) * LP.k;
+      if (f < 0.004) continue;
+      Cc.setXYZ(i, Cc.getX(i) * (1 + tint.r * f), Cc.getY(i) * (1 + tint.g * f), Cc.getZ(i) * (1 + tint.b * f));
+    }
+    Cc.needsUpdate = true;
+  }
   // 朝上的面在卡通光照下的大致亮度（线性）：每盏方向光 × 卡通阶梯（按光的仰角）+ 半球光的天空色 × 受光处保留的环境光（TOON.ambLit）
   function decalLit() {
     const out = new T.Color(0, 0, 0), ramp = (x) => TOON.mid * smooth01((x - TOON.t1 + TOON.soft) / (2 * TOON.soft)) + (1 - TOON.mid) * smooth01((x - TOON.t2 + TOON.soft) / (2 * TOON.soft));
@@ -1470,27 +1521,51 @@
         _m4.decompose(_v, _q, _s);
         const rb = hw * Math.max(_s.x, _s.z), y0 = _v.y + bb.min.y * _s.y, y1 = _v.y + bb.max.y * _s.y;
         if (rb < 0.16 || rb > 7 || y0 > 0.35 || y1 < 0.08 || sd(_v.x, _v.z) < -6 || soft(_v.x, _v.z)) continue;
-        decalPush(_v.x, _v.z, rb * 1.3, rb * 1.3 * r(0.85, 1.1), r(0, TAU), rb < 0.9 ? C.ao : C.ao2, black, D.ao * Math.min(1, 0.55 + rb * 0.22));
+        // 脚下往外 aoR 米的软边（缺省 0.6 倍半径）；低档只给大件（半径 0.7 m 以上）
+        const ar = D.aoR !== undefined ? rb + D.aoR : rb * 1.3;
+        decalPush(_v.x, _v.z, ar, ar * r(0.85, 1.1), r(0, TAU), rb < 0.9 ? C.ao : C.ao2, black, D.ao * Math.min(1, 0.55 + rb * 0.22), rb >= 0.7);
       }
     }
     // ② 成簇岩石的脚下：碎石 + 覆盖斑（簇在 ashRocks / 通用岩石里定）
+    // 一簇 = 大石 + 中石 + 碎石（ashRocks / clusterRocks 摆）+ 脚下一圈覆盖斑 + 碎块 / 碎石贴花（高 / 中档）
     for (const c of o.clusters || []) {
       const [x, z, rad] = c;
-      for (let k = 0; k < 2; k++) {
-        const a = r(0, TAU), d = rad * r(0.7, 1.15), px = x + Math.sin(a) * d, pz = z + Math.cos(a) * d;
-        if (!soft(px, pz)) decalPush(px, pz, r(0.6, 1.0), r(0.6, 1.0), r(0, TAU), k ? C.rubble : C.pebble, tintL, r(0.75, 0.95), false);
+      if (soft(x, z)) continue;
+      decalPush(x, z, rad * r(1.9, 2.4), rad * r(1.6, 2.0), r(0, TAU), pick([C.cover, C.cover2]), coverL, r(0.6, 0.8), false);
+      for (let k = 0; k < 4; k++) {
+        const a = r(0, TAU), d = rad * r(0.9, 1.6), px = x + Math.sin(a) * d, pz = z + Math.cos(a) * d;
+        if (!soft(px, pz)) decalPush(px, pz, r(0.7, 1.2), r(0.7, 1.2), r(0, TAU), k % 2 ? C.rubble : C.pebble, tintL, r(0.8, 0.95), false);
       }
-      const a = r(0, TAU);
-      if (!soft(x, z)) decalPush(x + Math.sin(a) * rad * 0.5, z + Math.cos(a) * rad * 0.5, rad * r(1.3, 1.8), rad * r(1.0, 1.4), r(0, TAU), pick([C.cover, C.cover2]), coverL, r(0.5, 0.75), false);
     }
     // ③ 路边的过渡带：沿岩壁 / 墙的边（不取水、熔岩、虚空的边）一段段碎砂带，零星的碎石和墙脚的覆盖斑；按位置的低频噪声成段，不是一整圈
     W.edgeSamples(1.7, 0, (x, z, kind, nx, nz) => {
       const n = vnoise(x * 0.21 + 4.1, z * 0.21 - 2.9);
       if (soft(x + nx, z + nz) || soft(x - nx * 0.6, z - nz * 0.6)) return;
       const along = Math.atan2(nx, -nz); // 局部 x 轴 = 切线方向 (-nz, nx)
-      if (rng() < 0.7 * smooth01((n - 0.25) / 0.3)) decalPush(x + nx * r(-0.2, 0.5), z + nz * r(-0.2, 0.5), r(1.2, 2.1), r(0.4, 0.62), along + r(-0.15, 0.15), C.grit, tintL, r(0.55, 0.8));
+      if (rng() < 0.85 * smooth01((n - 0.2) / 0.3)) decalPush(x + nx * r(-0.1, 0.5), z + nz * r(-0.1, 0.5), r(1.4, 2.4), r(0.5, 0.75), along + r(-0.15, 0.15), C.grit, tintL, r(0.8, 0.95));
       if (rng() < 0.22) decalPush(x + nx * r(0.1, 0.8), z + nz * r(0.1, 0.8), r(0.45, 0.8), r(0.45, 0.8), r(0, TAU), pick([C.pebble, C.pebble2]), tintL, r(0.7, 0.9));
     }, { kinds: [MAT.ROCK, MAT.WALL] });
+    // ⑤ 路外成簇的碎斑（高 / 中档；要求方：簇要大到游戏镜头下看得出）：每 7 m 一个候选簇心，按噪声留一部分。
+    // 一簇 = 一大片积层（熔岩边换成焦痕）+ 3–6 块碎石 / 碎块 + 一两道裂纹 + 一块本区的碎斑
+    const CL = D.clusters || 0;
+    for (let gz = b.minZ - 4; CL && gz <= b.maxZ + 4; gz += 7) {
+      for (let gxx = b.minX - 4; gxx <= b.maxX + 4; gxx += 7) {
+        const x = gxx + r(-2.2, 2.2), z = gz + r(-2.2, 2.2), u = rng();
+        const d = sd(x, z);
+        if (d > -0.9 || d < -4.6 || soft(x, z)) continue;
+        if (u > CL * smooth01((vnoise(x * 0.09 - 1.3, z * 0.09 + 6.1) - 0.25) / 0.3)) continue;
+        if (D.scorch && nearLava(x, z)) decalPush(x, z, r(1.8, 2.8), r(1.6, 2.4), r(0, TAU), pick([C.scorch, C.scorch2]), darkL, r(0.65, 0.85), false);
+        else decalPush(x, z, r(1.6, 2.6), r(1.2, 2.0), r(0, TAU), pick([C.cover, C.cover2]), coverL, r(0.65, 0.85), false);
+        const nk = 3 + Math.floor(rng() * 4);
+        for (let k = 0; k < nk; k++) {
+          const a = r(0, TAU), dd = r(0.5, 2.3), px = x + Math.sin(a) * dd, pz = z + Math.cos(a) * dd;
+          if (sd(px, pz) < -0.4 && !soft(px, pz)) decalPush(px, pz, r(0.5, 0.95), r(0.5, 0.95), r(0, TAU), pick([C.rubble, C.pebble, C.pebble2]), tintL, r(0.8, 0.95), false);
+        }
+        if (rng() < 0.6) decalPush(x + r(-1, 1), z + r(-1, 1), r(1.2, 1.9), r(1.2, 1.9), r(0, TAU), pick([C.crack, C.crack2]), darkL, r(0.55, 0.75), false);
+        const kk = pick(D.kinds);
+        decalPush(x + r(-1.5, 1.5), z + r(-1.5, 1.5), r(0.9, 1.6), r(0.9, 1.6), r(0, TAU), kk, big(kk) ? coverL : tintL, r(0.7, 0.9), false);
+      }
+    }
     // ④ 整区按抖动网格撒：路面上稀、成片（不让可走的地面变花），路外密
     const S = 2.3, fl = D.floor === undefined ? 1 : D.floor, wl = D.wild === undefined ? 1 : D.wild, sc = D.scorch || 0;
     for (let gz = b.minZ - 4; gz <= b.maxZ + 4; gz += S) {
@@ -9756,12 +9831,20 @@
       uv.push(x / TILE, -z / TILE);
       if (hd) {
         // PBR 地面：顶点色只管明暗（压暗靠墙处、向虚空渐暗），颜色来自材质；aW = (路面权重, 岩壁权重)，其余是粗糙地面
-        const v = GROUND_VK + (lit - GROUND_VK) * kk;
-        const tv = ash ? (vnoise(x * 0.07 - 4.1, z * 0.07 + 8.3) - 0.5) * 0.14 : 0; // 第 0 区：大片的冷暖起伏（画出来的感觉）
+        let v = GROUND_VK + (lit - GROUND_VK) * kk;
+        let tv = ash ? (vnoise(x * 0.07 - 4.1, z * 0.07 + 8.3) - 0.5) * 0.14 : 0; // 第 0 区：大片的冷暖起伏（画出来的感觉）
+        if (LY) {
+          // vf-ground：几米一个周期的明暗（mv）和冷暖（mh）起伏，地面不再是一整片同样的平铺；墙脚 / 岩壁脚下一圈接触阴影（ao2）
+          if (LY.mv) v *= 1 + LY.mv * 2 * (vnoise(x * 0.065 + 3.3, z * 0.065 - 1.9) * 0.6 + vnoise(x * 0.15 - 7.1, z * 0.15 + 2.2) * 0.4 - 0.5);
+          if (LY.mh) tv += LY.mh * 2 * (vnoise(x * 0.045 + 9.2, z * 0.045 - 4.4) - 0.5);
+          if (LY.ao2) v *= 1 - LY.ao2 * (1 - smooth01((d + 0.3) / 1.0)) * smooth01((d + 2.4) / 1.0);
+        }
         col.push(v * (1 + 0.07 * tk + tv), v, v * (1 - 0.1 * tk - tv));
         const pn = vnoise(x * 0.17 + 11.3, z * 0.17 - 5.1);
         const dj = LY && LY.jag && d > -2.2 && d < 1.6 && !vfOff('jag') ? d + (vnoise(x * 0.55 - 3.3, z * 0.55 + 7.9) - 0.5) * LY.jag : d;
-        let wp = smooth01((dj + 0.45) / 1.0);
+        let wp = smooth01((dj + 0.45) / (LY && LY.edgeW ? LY.edgeW : 1.0));
+        // vf-ground：成片的烧焦地（大尺度噪声，离路边 0.6 m 以内和踩出来的路上没有）
+        if (LY && LY.scorch && d > 0.6) wp *= 1 - LY.scorch * smooth01((vnoise(x * 0.075 - 6.6, z * 0.075 + 3.9) * 0.7 + vnoise(x * 0.19 + 2.5, z * 0.19 - 8.1) * 0.3 - LY.sT) / 0.05) * (1 - tk) * smooth01((d - 0.6) / 1.0);
         // 路面上零星的粗糙斑块，离路边越远越少；第 0 区斑块更多更实（打散满地一样的龟裂纹），踩出来的路上没有
         wp *= ash ? 1 - patchK * smooth01((pn - 0.6) / 0.16) * smooth01((d + 0.5) / 2.5) * (1 - tk) * smooth01((Math.hypot(x - zone.start.x, z - zone.start.z) - 3) / 3) : 1 - patchK * smooth01((pn - 0.58) / 0.2) * smooth01(d / 2.2);
         aw.push(wp, smooth01((-d - 0.9) / 2.2) * (1 - wp));
@@ -9876,9 +9959,17 @@
         const x = src[i], z = src[i + 2], sx = src[i + 6];
         if (sx < 1.4) continue;
         clusters.push([x, z, sx]);
-        const n = cr() < 0.5 ? 3 : 2;
+        // 一两块中石（贴着大石、偏开一个方向）+ 三四块碎石散在外圈
+        const nm = cr() < 0.5 ? 2 : 1, a0 = q(0, TAU);
+        for (let k = 0; k < nm; k++) {
+          const a = a0 + (k ? q(1.6, 2.6) : 0) + q(-0.3, 0.3), d = sx * q(0.95, 1.25), px = x + Math.sin(a) * d, pz = z + Math.cos(a) * d, s2 = sx * q(0.4, 0.55);
+          if (sd(px, pz) > -0.6 || (ash ? ashNoRock(zone, px, pz, s2) : !edgeOk(px, pz))) continue;
+          const sy = s2 * q(0.7, 1.0);
+          (ash ? rocksA : rocksB).push(px, sy * 0.28, pz, q(-0.3, 0.3), q(0, TAU), q(-0.3, 0.3), s2 * q(0.9, 1.15), sy, s2 * q(0.9, 1.15), q(0.5, 0.7));
+        }
+        const n = cr() < 0.5 ? 4 : 3;
         for (let k = 0; k < n; k++) {
-          const a = q(0, TAU), d = sx * q(0.85, 1.3), px = x + Math.sin(a) * d, pz = z + Math.cos(a) * d, s2 = q(0.26, 0.5);
+          const a = q(0, TAU), d = sx * q(1.1, 1.7), px = x + Math.sin(a) * d, pz = z + Math.cos(a) * d, s2 = q(0.24, 0.45);
           if (sd(px, pz) > -0.3 || (ash ? ashNoRock(zone, px, pz, s2) : !edgeOk(px, pz))) continue;
           const sy = s2 * q(0.6, 0.95);
           rocksB.push(px, sy * 0.28, pz, q(-0.3, 0.3), q(0, TAU), q(-0.3, 0.3), s2 * q(0.85, 1.2), sy, s2 * q(0.85, 1.2), q(0.6, 0.86));
@@ -10064,6 +10155,7 @@
     // 第 0 区不要起点法阵（贴在地上像界面，和布景不是一体的）；起点的布景见 buildAshDress
     if (!SG || SG.start !== false) startSigil = sigil(zone.start.x, zone.start.z, 1.9, mixHex(def.sky, 0xffffff, 0.3), 0.1);
     const dress = ash ? buildAshDress(zone, sd) : null;
+    const ashGlow = ashFisPending ? ashFisPending.glow.slice() : []; // vf-ground：起点余烬裂缝的位置（光池用；之后会被区域布景拼进熔岩网格）
     const rp = rift ? riftPieces(zone, sd, ringSamples, lowK, accentL, crystalMat) : null;
     // --- CC0 布景模型、火盆、贴地薄雾 ---
     let fires = null, mist = null;
@@ -10081,6 +10173,15 @@
     const TZ = terrainOf(def);
     const tctx = terrainCtx(zone, { sd, lowK, hd, gx, rock: rockMat, rockTint, prop: propMat, crystal: crystalMat, glow: glowMat, blot: blotMat, ground, voidMesh, bossSigil, startSigil });
     const tstate = TZ.dress ? TZ.dress(zone, tctx) : null;
+    // vf-ground：暖色光池（火盆 + 余烬裂缝 + 熔岩），烘进地面顶点色
+    if (hd && gx.pool) {
+      const pts = [];
+      if (fires) for (const f of fires.list) pts.push(f.x, f.z, 2.4, 1);
+      for (let i = 0; i < ashGlow.length; i += 10) pts.push(ashGlow[i], ashGlow[i + 2], ashGlow[i + 6] * 1.1, 0.8);
+      const P4 = [];
+      for (let i = 0; i < pts.length; i += 4) P4.push(pts.slice(i, i + 4));
+      lightPools(zone, ground, gx, P4);
+    }
     // vf-ground：贴花层（接触阴影要等各区布景都摆好，所以放在最后），整区一张网格
     if (decalQ) {
       const t0 = performance.now();
