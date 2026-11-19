@@ -292,6 +292,7 @@
     W.hitReact(m.ent, ang, m.kind === 'colossus' ? 0.5 : 0.9);
     if (m.hp <= 0) {
       if (G.soulFire) G.soulFire(m); // 万魂旗：倒下时化作魂火炸开（被替换、换区域时的消失不算）
+      if (P.relic && P.relic.tongshang) G.relicMinionDown(m); // 渊契「同殇」：召唤物倒下时回血
       removeMinion(m, ang, G.TYPE_NAME[dtype] ? dtype : 'phys');
     }
     return true;
