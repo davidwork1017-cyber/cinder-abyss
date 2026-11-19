@@ -2299,6 +2299,78 @@ async function main() {
     return r.map((o) => '物品等级 ' + o.il + '：普攻 ' + o.basic + '/s · 射线 ' + o.avg + '（折合 ' + o.secs + ' 秒）').join(' · ');
   });
 
+  await step('焚天炎爆按喷枪普攻折算：火浪加 5 秒火场打在木桩上 ≥ 4.5 秒喷枪普攻（不镶辅助、含余烬的秒伤），物品等级 10 和 40（带上附加伤害与攻速）都成立；技能卡上的整招伤害对得上', async () => {
+    const r = await ev((code) => {
+      eval(code);
+      const save = G.save, P = G.player, out = [];
+      const keepW = save.equip.weapon;
+      const keepSock = (save.sockets[G.BASIC_CARD] || [null, null, null]).slice();
+      // 典型的成长：物品等级 40 时身上带着全局附加伤害和攻击速度（折算要把它们一起算进去）；
+      // 天赋里的「热度满时普攻更痛 / 热度技更痛」不算，只比折算本身
+      const GEAR = { 10: { add: 6, speed: 0 }, 40: { add: 50, speed: 15 } };
+      const kit = (il) => {
+        P.S.heatDmg = 0;
+        P.S.rDmg = 0;
+        P.S.addFire = GEAR[il].add;
+        P.S.speed = GEAR[il].speed;
+        P.speedMult = 1 + GEAR[il].speed / 100;
+        G.resetRanged();
+      };
+      // 木桩：打不死，也不破架势、不积异常（血量是生成之后才改大的，异常阈值还按原来的血量算，会一直触发爆燃 / 破绽，顿帧还会吃掉模拟时间）
+      const stake = (x) => {
+        const e = T.mob('brute', x, 0, { hp: 1e9 });
+        e.buTh = 1e15;
+        e.poiseMax = 0;
+        return e;
+      };
+      try {
+        save.sockets[G.BASIC_CARD] = [null, null, null];
+        T.fix(0.5);
+        for (const il of [10, 40]) {
+          const arm = () => {
+            T.lane();
+            RW.arm(9, il);
+            kit(il);
+          };
+          // 普攻：按住右键 4 秒喷一只木桩（含地上的余烬），取 1–4 秒的秒伤
+          arm();
+          const d = stake(3);
+          let hp1 = 0;
+          for (let i = 0; i < 240; i++) {
+            T.aim(d.x, d.z);
+            G.input.mouse.b[2] = true;
+            G.tick(1 / 60);
+            if (i === 59) hp1 = d.hp;
+          }
+          G.input.mouse.b[2] = false;
+          const basic = (hp1 - d.hp) / 3;
+          // 焚天炎爆：贴身的木桩吃火浪，再站在火场里烧满 5 秒
+          arm();
+          const e = stake(2);
+          G.debug.gauge();
+          G.input.tap[4] = 0.3;
+          RW.run(60 * 5.6);
+          const dmg = 1e9 - e.hp;
+          const ctx = G.skillCtx('firestorm');
+          out.push({ il, add: P.S.addFire, basic: Math.round(basic), dmg: Math.round(dmg), secs: +(dmg / basic).toFixed(2), card: Math.round(G.avgHit(ctx)), fields: G.rangedFields().length });
+        }
+      } finally {
+        T.unfix();
+        save.sockets[G.BASIC_CARD] = keepSock;
+        save.equip.weapon = keepW;
+        G.computeStats();
+        T.arena();
+      }
+      return out;
+    }, rangedSetup);
+    for (const o of r) {
+      assert(o.add === (o.il >= 40 ? 50 : 6), '测试设的附加伤害没保持住：' + JSON.stringify(o));
+      assert(o.secs >= 4.5 && o.secs <= 7, '火浪加火场应折合 4.5–7 秒喷枪普攻（物品等级 ' + o.il + '）：' + JSON.stringify(o));
+      assert(Math.abs(o.card - o.dmg) <= o.dmg * 0.1, '技能卡上「整招伤害」应和实际打出来的对得上：' + JSON.stringify(o));
+    }
+    assert(r[1].basic > r[0].basic * 2 && Math.abs(r[1].secs - r[0].secs) <= 0.8, '武器升级后普攻和炎爆应一起涨：' + JSON.stringify(r));
+    return r.map((o) => '物品等级 ' + o.il + '：普攻 ' + o.basic + '/s · 炎爆 ' + o.dmg + '（折合 ' + o.secs + ' 秒）').join(' · ');
+  });
 
   await step('弓的 R 增益（约 8 秒）：万矢每箭分 5 支追踪箭；一矢穿心必定暴击、贯穿所有；元素满溢火冰雷轮流、异常翻倍、命中炸开；凛冬 3 支寒冰箭、冰晶多跳、打死的碎成冰爆；换掉弓增益就没了', async () => {
     const r = await ev((code) => {

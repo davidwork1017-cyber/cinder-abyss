@@ -365,14 +365,17 @@
     },
     firestorm: {
       name: '焚天炎爆', icon: '爆', color: '#ff6a2c', tags: ['weapon', 'attack', 'area', 'fire'], kind: 'rflamer', weaponOnly: true, wtype: 'flamer', rgauge: true,
-      // 半径 radius 的火浪，wm 倍武器伤害（全部火焰）；之后留下半径 burn.r 的火场，burn.dur 秒内每 burn.tick 秒 burn.mult 倍武器伤害
-      wm: 14, time: 0.75, mana: 0, cd: 0, radius: 7.5, conv: { fire: 1 }, ailment: 100, burn: { r: 6, dur: 5, tick: 0.5, mult: 1 },
+      // 半径 radius 的火浪（全部火焰）；之后留下半径 burn.r 的火场，burn.dur 秒内每 burn.tick 秒一跳。
+      // 伤害和熔光射线一样按普攻折算（basicOf / basicSec，见 game.js 的 G.basicShots）：火浪 = 喷枪持续喷射 basicSec 秒，
+      //   火场每一跳 = 喷射 burn.sec 秒（不算余烬）；整招单体 = 3.3 + 10 × 0.23 ≈ 5.6 秒。原来是火浪 wm 14、每跳 1 倍武器伤害：
+      //   装备附加只算一份、攻速不算，40 级时放一发只比一直喷多赚约 1.5 秒普攻（镶了辅助只剩 0.5 秒）
+      wm: 1, basicOf: 'basic_flamer', basicSec: 3.3, time: 0.75, mana: 0, cd: 0, radius: 7.5, conv: { fire: 1 }, ailment: 100, burn: { r: 6, dur: 5, tick: 0.5, sec: 0.23 },
       w: 2, kb: 2.6, poise: 70, stop: 110, move: 0.1,
       wclip: 'r_flamer',
       wt: { phases: [0.42], cancel: 0.75, dur: 0.9 },
-      // 单体整招按火浪那一击的倍数计：火浪 1 击 + 火场 10 跳 × (1 / 14) ≈ 1.71（原来写 24，把 wm 又乘了一遍，技能卡显示的是实际的 14 倍）
-      useMult: 1.71,
-      desc: '热度满时可用：一口气排空所有热度，以你为中心炸开一圈巨大的火浪，重创并震退周围的敌人，并留下 5 秒的大片火场。',
+      // 单体整招按火浪那一击的倍数计：火浪 1 击 + 火场 10 跳 × (0.23 / 3.3) ≈ 1.7
+      useMult: 1.7,
+      desc: '热度满时可用：一口气排空所有热度，以你为中心炸开一圈巨大的火浪，重创并震退周围的敌人，并留下 5 秒的大片火场。火浪加上火场烧满，相当于喷枪持续喷射约 5.6 秒的伤害（随武器、附加伤害与攻击速度成长）。',
     },
     wildfire: {
       name: '乱射', icon: '乱', color: '#ffcf7a', tags: ['weapon', 'attack', 'projectile', 'phys'], kind: 'rrevolver', weaponOnly: true, wtype: 'revolver', rgauge: true, uskill: true,
