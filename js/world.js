@@ -24114,6 +24114,7 @@
       'uniform float uTime; varying vec3 vC; varying float vA; varying float vK; varying vec2 vUv;',
       'void main(){ vec2 p = vUv * 2.0 - 1.0; float r = length(p); if (r > 1.0) discard;',
       '  float t = atan(p.x, p.y) / 6.28318 + 0.5; float a = 0.0;',
+      '  if (vK > 1.5) { if (r < 0.955) discard; gl_FragColor = vec4(mix(vC, vec3(1.0), 0.1), vA > 0.66 ? 0.9 : (vA > 0.33 ? 0.55 : 0.25)); return; }', // 冲击环：只有一道细环（k = 2）
       '  if (r > 0.9) a = (t <= vK || vK >= 0.999) ? 1.0 : 0.25;',
       '  else if (r > 0.7 && r < 0.78) { float s = fract(t * 6.0 + uTime * 0.25); a = s < 0.6 ? 0.75 : 0.0; }',
       '  if (a <= 0.0) discard; float k = vA > 0.66 ? 1.0 : (vA > 0.33 ? 0.62 : 0.3);',
@@ -24179,6 +24180,7 @@
       kvKinds[k].list.length = 0;
     }
     kvSpikeRings.length = 0;
+    kvShocks.length = 0;
   };
   const _kvm = new T.Matrix4(), _kvq = new T.Quaternion(), _kve = new T.Euler(), _kvp = new T.Vector3(), _kvs = new T.Vector3(), _kvc = new T.Color();
   function kvFlush() {
@@ -24256,8 +24258,40 @@
       }
     }
   }
+  // 空心冲击：两道细环从 r0 往外推到 R（第二道慢一拍、小一圈），中间一团很快缩没的近黑核；不画实心的圆盘，圈里的怪看得清。
+  // 都是刻式件的实例（glyph / orb），不占对象池的环
+  const kvShocks = [];
+  W.vShock = function (x, z, R, hex, dur, core) {
+    const d = dur || 0.35;
+    const hs = [W.kv('glyph', { x, z, y: 0.12, hex, k: 2, s: 0.1 }), W.kv('glyph', { x, z, y: 0.1, hex, k: 2, s: 0.1 })];
+    const c = core ? W.kv('orb', { x, z, y: 0.6, hex: 0x14040f, s: 0.1, k: 0 }) : null;
+    kvShocks.push({ x, z, R, d, t: 0, hs, c, cs: core || 0 });
+  };
+  function kvShockTick(dt) {
+    for (let i = kvShocks.length - 1; i >= 0; i--) {
+      const w = kvShocks[i];
+      w.t += dt;
+      const k = Math.min(1, w.t / w.d), k2 = Math.min(1, Math.max(0, (w.t - w.d * 0.25) / w.d));
+      const ease = (u) => 1 - (1 - u) * (1 - u);
+      w.hs[0].s = 2 * w.R * (0.25 + 0.75 * ease(k));
+      w.hs[1].s = 2 * w.R * 0.7 * (0.2 + 0.8 * ease(k2));
+      // 三档阶梯淡出
+      w.hs[0].a = k < 0.5 ? 1 : k < 0.8 ? 0.62 : 0.3;
+      w.hs[1].a = k2 < 0.5 ? 0.62 : 0.3;
+      if (w.c) {
+        const ck = k < 0.35 ? 1 : k < 0.6 ? 0.55 : 0.2; // 近黑的核：一闪，三档缩没
+        w.c.s = w.cs * ck;
+      }
+      if (w.t >= w.d * 1.25) {
+        for (const h of w.hs) W.kvOff(h);
+        if (w.c) W.kvOff(w.c);
+        kvShocks.splice(i, 1);
+      }
+    }
+  }
   W.vTick = function (dt) {
     if (kvSpikeRings.length) kvSpikeTick(dt);
+    if (kvShocks.length) kvShockTick(dt);
     kvFlush();
   };
 
