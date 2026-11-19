@@ -1343,6 +1343,15 @@
     // sweep 衔星吐息（口中射线横扫一大片扇面）、slam 前蹄践踏
     behemoth: { name: '衔星巨兽', hp: 1250, dmg: 15, speed: 4.2, r: 2.0, poise: 600, patterns: ['starfall', 'gravity', 'sweep', 'slam'] },
   };
+  // 区域加大后的小怪（zones-balance）：关键路径 / 面积约 ×1.6，怪群数跟着面积走（×1.6），每群的人数再 ×packSize，
+  // 普通怪总数约 ×2。区域刷出来的普通怪（e.horde）更脆，每只的经验 / 掉落几率打折，一整区合计约为改版前的 ×1.15。
+  // 精英、首领、首领召唤的小怪、宝箱都不打折；怪物伤害不变。
+  //   mobHp：普通怪生命倍率；packSize：生成器怪群人数的倍率（随机取整，期望值正好 ×packSize），站位半径 ×√packSize；
+  //   多出来的人手只放轻怪（游魂 / 喷吐者 / 隙影），巨躯、陨角兽、爆裂虫的数量和以前一样（见 enemies.js 的 populatePack）；
+  //   mobXp：普通怪经验倍率；loot：普通怪掉落几率的倍率（item 物品、cur 通货、gem 技能 / 辅助 / 无铭宝石）
+  //   zoneK：各区普通怪的经验 / 掉落再乘一个系数，补各区布局加长后普通怪 / 精英涨得不一样多（普通怪灰烬、霜骨约 ×2.2，雷鸣、烬渊、裂谷约 ×1.9），
+  //   让每区合计都落在 ×1.15 附近
+  G.BALANCE = { mobHp: 0.55, packSize: 1.25, mobXp: 0.6, loot: { item: 0.38, cur: 0.5, gem: 0.57 }, zoneK: { ash: 1, frost: 0.97, storm: 1.08, abyss: 1.15, rift: 1.15 } };
   // 怪物成长：MOB_KNEE（16，前四个区域的最高怪物等级）以内是原来的 1.2 / 1.15 倍每级，一位不差；
   // 再往上分三段，对上轮回层级里角色的实际成长（宝石 / 武器 / 词缀阶 / 生命都不再封顶，经验曲线也让角色等级跟着怪物等级走），
   // 用平衡机器人在层级 0 末区（第五区）、层级 1 中段与末区、层级 2 中段与末区量出来（每层 5 个区域、+TIER_LEVELS = 20 级）：
@@ -1386,7 +1395,7 @@
   G.xpLevelK = (d) => (d > G.XP_OVER ? Math.max(G.XP_FLOOR, Math.pow(G.XP_FALL, d - G.XP_OVER)) : 1);
   // 击杀一个敌人（{ level, isBoss, elite, def }）在角色 charLvl 级时得到的经验
   G.killXp = function (e, charLvl) {
-    const w = e.isBoss ? 20 : ((e.def && e.def.xp) || 1) * (e.elite ? 3 : 1);
+    const w = e.isBoss ? 20 : ((e.def && e.def.xp) || 1) * (e.elite ? 3 : e.horde ? G.BALANCE.mobXp * (e.hordeK || 1) : 1); // horde：区域刷的普通怪（见 G.BALANCE）
     return G.mobXp(Math.min(e.level, charLvl + G.XP_UNDER)) * w * G.xpLevelK(charLvl - e.level);
   };
 
