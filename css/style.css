@@ -335,6 +335,8 @@ kbd {
   animation: remind 1.5s ease-in-out infinite;
 }
 #pp-remind.on { display: inline-flex; }
+/* 右键格（武器普攻）的连段指示就在技能栏上沿、正对着这枚提醒：提醒往上让出 6 像素，别压住它 */
+#pp-remind.on { margin-bottom: 6px; }
 #pp-remind b { color: #fff; font-size: 15px; }
 #pp-remind:hover { border-color: #ffc27a; color: #fff; }
 @keyframes remind {
