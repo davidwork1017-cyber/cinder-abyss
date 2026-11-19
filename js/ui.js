@@ -719,7 +719,7 @@
     const rw = rangedNow();
     for (let i = 0; i < hud.slots.length; i++) {
       const s = hud.slots[i];
-      const basic = i === 1 && rw && G.SKILLS[rw.basic] ? rw.basic : null; // 拿着远程武器：右键就是武器普攻
+      const basic = i === 1 && G.weaponBasic ? G.weaponBasic() : null; // 右键就是手里武器的普攻（空手是拳击）
       const id = (i === W_SLOT ? curWSkill() : basic || S.bar[i]) || null;
       if (i === 1 && !!basic !== !!s.basic) {
         s.basic = !!basic;
@@ -739,6 +739,13 @@
           s.img.className = 's-img ico ' + IC.cls('sk-' + id);
           s.icon.style.setProperty('--c', sk.color);
           s.el.classList.toggle('has-combo', !!sk.combo);
+          // 连段指示的格数跟着这一招的段数走（双匕的普攻 4 段，别的 3 段）
+          if (sk.combo && s.pips.length !== sk.combo.length && s.pips[0]) {
+            const box = s.pips[0].parentNode;
+            box.innerHTML = '<i></i>'.repeat(sk.combo.length);
+            s.pips = Array.from(box.children);
+            s.lit = -1;
+          }
           s.el.classList.toggle('aura', sk.kind === 'aura');
           if (i === W_SLOT) {
             // 烬铸技：R 格换上余烬光框，键位下的字换成「烬铸技」
@@ -764,7 +771,7 @@
       }
       if (lit !== s.lit) {
         s.lit = lit;
-        for (let k = 0; k < 3; k++) s.pips[k].className = k < lit ? 'on' : '';
+        for (let k = 0; k < s.pips.length; k++) s.pips[k].className = k < lit ? 'on' : '';
       }
       let cdq = 0;
       let numTxt = '';
@@ -1259,14 +1266,14 @@
     const P = G.player;
     const save = G.save;
     const dps = {};
-    // 武器普攻（basic）不是学会的技能，但拿着远程武器时它就是右键
+    // 武器普攻（basic）不是学会的技能，但它就是右键
     const usable = (id) => !!(id && G.SKILLS[id] && (G.SKILLS[id].basic || save.skills[id]));
     for (const i of [0, 2, 3]) {
       const id = save.bar[i];
       if (!usable(id) || dps[id] !== undefined) continue;
       dps[id] = G.skillDps(G.skillCtx(id));
     }
-    // 右键单独记：换上 / 换下远程武器会把右键换成武器普攻，或把记住的技能换回来
+    // 右键单独记：换武器会换掉右键的武器普攻（换了类型）或改变它的伤害
     const rid = G.slotSkill(1);
     const rmb = usable(rid) ? { id: rid, dps: dps[rid] !== undefined ? dps[rid] : G.skillDps(G.skillCtx(rid)) } : null;
     // R 键的武器技：换武器会换掉它（换类型）或改变它的伤害（同类型，等级 / 武器伤害不同）
@@ -1870,9 +1877,16 @@
     );
   }
 
-  // ---------- 武器普攻卡：拿着枪械或弓时右键是这把武器的普攻；3 个辅助孔属于卡片本身（save.sockets[G.BASIC_CARD]） ----------
+  // ---------- 武器普攻卡：右键固定是手里武器的普攻（空手是拳击）；3 个辅助孔属于卡片本身（save.sockets[G.BASIC_CARD]） ----------
   const BASIC_KEY = () => G.BASIC_CARD || 'wbasic';
   const RANGED_ORDER = ['gatling', 'flamer', 'revolver', 'huntbow', 'eagle', 'runebow', 'emberbow'];
+  // 卡片底下一排：每种武器各自的普攻（近战、施法、魂幡、空手在前，远程在后）
+  const BASIC_ORDER = ['blade', 'daggers', 'hammer', 'katana', 'staff', 'wand', 'banner', 'fists'].concat(RANGED_ORDER);
+  const basicTypeName = (t) => {
+    if (t === 'fists') return '空手';
+    const bi = (G.BASES.weapon || []).findIndex((b) => b && b.type === t);
+    return bi >= 0 ? wTypeName(bi) : t;
+  };
   const GAUGE_TXT = {
     heat: '热度：开火时上涨，停火一会儿后慢慢回落；没有过热惩罚。灌满后 <kbd>R</kbd> 亮起，放出 R 技会把热度排空',
     focus: '专注：箭矢命中时上涨，暴击和远距离命中涨得更多，挨打会掉一点。灌满后 <kbd>R</kbd> 亮起，放出限时增益并清空专注',
@@ -1881,7 +1895,7 @@
   const skName = (id) => (id === BASIC_KEY() ? '武器普攻' : G.SKILLS[id] ? G.SKILLS[id].name : String(id));
   function basicCard() {
     const S = G.save, key = BASIC_KEY(), rw = rangedNow();
-    const id = rw && G.SKILLS[rw.basic] ? rw.basic : null;
+    const id = G.weaponBasic ? G.weaponBasic() : null;
     const sk = id ? G.SKILLS[id] : null;
     const socks = S.sockets[key] || [null, null, null];
     let live = [];
@@ -1903,10 +1917,9 @@
         sockets += '<button type="button" tabindex="-1" class="sock' + (picking ? ' picking' : '') + '" data-act="socket" data-skill="' + key + '" data-idx="' + i + '"><i></i>空槽</button>';
       }
     }
-    const row = RANGED_ORDER.filter((t) => G.SKILLS['basic_' + t]).map((t) => {
+    const row = BASIC_ORDER.filter((t) => G.SKILLS['basic_' + t]).map((t) => {
       const bid = 'basic_' + t, bs = G.SKILLS[bid];
-      const bi = (G.BASES.weapon || []).findIndex((b) => b && b.type === t);
-      return '<span class="wsl' + (bid === id ? ' on' : '') + '" style="--c:' + bs.color + '" data-tip="wsk:' + bid + '">' + IC.skill(bid) + '<em>' + (bi >= 0 ? wTypeName(bi) : bs.name) + '</em></span>';
+      return '<span class="wsl' + (bid === id ? ' on' : '') + '" style="--c:' + bs.color + '" data-tip="wsk:' + bid + '">' + IC.skill(bid) + '<em>' + basicTypeName(t) + '</em></span>';
     }).join('');
     const num = (label, val, cls) => '<div class="sk-num' + (cls ? ' ' + cls : '') + '"><span>' + label + '</span><b>' + val + '</b></div>';
     let body;
@@ -1919,31 +1932,42 @@
       } catch (e) {
         ctx = null;
       }
-      const g = rw.gauge;
-      const nums = ctx
-        ? num(sk.rtype === 'flamer' ? '每一跳' : '每发伤害', fmtDmg(avg), 'hl') +
+      const g = sk.rtype && rw ? rw.gauge : null;
+      let nums = '';
+      if (ctx && sk.combo) {
+        // 近战连招：每段平均、整套的段数和秒伤（按住右键一路打完、攻速快慢整串一起缩放）
+        nums = num('每段平均', fmtDmg(avg), 'hl') + num('连招', sk.combo.length + ' 段') + num('估算秒伤', fmtDmg(avg * rate)) +
+          num('暴击率', fmt1(ctx.crit) + '%') + num('魔力消耗', '无');
+      } else if (ctx) {
+        nums = num(sk.rtype === 'flamer' ? '每一跳' : '每发伤害', fmtDmg(avg), 'hl') +
           num(sk.rtype === 'flamer' ? '每秒几跳' : '每秒几发', rate > 0 ? rate.toFixed(2) : '—') +
           num('估算秒伤', fmtDmg(avg * rate)) +
           num('暴击率', fmt1(ctx.crit) + '%') +
-          num(g.name, Math.floor(g.v) + ' / ' + g.max, g.full ? 'full' : '') +
-          num('魔力消耗', '无')
-        : '';
+          (g ? num(g.name, Math.floor(g.v) + ' / ' + g.max, g.full ? 'full' : '') : '') +
+          (sk.perMinion ? num('召唤物加成', '+' + Math.round(((ctx.more / Math.max(1e-6, 1 + (G.player.S.minionMore || 0) / 100)) - 1) * 100) + '%') : '') +
+          num('魔力消耗', '无');
+      }
+      // 元素：施法武器的普攻取你加成最高的元素
+      const el = ctx && !ctx.attack && !sk.asMinion ? Object.keys(ctx.base)[0] : null;
       body =
         '<div class="sk-desc">' + sk.desc + '</div>' +
+        (sk.combo ? '<div class="sk-combo">' + sk.combo.map((c, i) => '<span' + (c.w >= 2 ? ' class="fin"' : '') + '>' + (c.w >= 2 ? '终结 ' : '第 ' + (i + 1) + ' 段 ') + '×' + c.mult + '</span>').join('<i></i>') + '</div>' : '') +
         (nums ? '<div class="sk-nums">' + nums + '</div>' : '') +
-        (ctx ? attackNote(ctx) : '') +
-        '<div class="sk-anote gauge ' + g.kind + '"><i></i><span>' + (GAUGE_TXT[g.kind] || '') + '</span></div>';
+        (ctx && ctx.attack ? attackNote(ctx) : '') +
+        (el ? '<div class="sk-anote"><i></i><span>法术：伤害随武器的物品等级成长，属性取你伤害加成最高的元素（现在是 <b style="color:' + G.TYPE_COLOR[el] + '">' + G.TYPE_NAME[el] + '</b>），吃施法速度和法术辅助</span></div>' : '') +
+        (sk.asMinion ? '<div class="sk-anote"><i></i><span>伤害按召唤物计算：吃召唤物伤害加成和召唤物辅助，不吃你自己的伤害属性</span></div>' : '') +
+        (g ? '<div class="sk-anote gauge ' + g.kind + '"><i></i><span>' + (GAUGE_TXT[g.kind] || '') + '</span></div>' : '');
     } else {
       body =
-        '<div class="sk-desc">拿上<b>枪械</b>或<b>弓</b>时，<kbd>右键</kbd>自动变成这把武器自己的普攻（枪械「开火」、弓「射击」），伤害随武器成长、不耗魔力。' +
-        '原来放在右键上的技能先收起来，换回其他武器时放回去。</div>' +
-        '<div class="sk-anote"><i></i><span>下面的 3 个辅助孔属于这张卡：换不同的远程武器时宝石不动，按当时普攻的标签生效</span></div>';
+        '<div class="sk-desc"><kbd>右键</kbd>固定是手里这把武器自己的普攻，伤害随武器成长、不耗魔力。</div>' +
+        '<div class="sk-anote"><i></i><span>下面的 3 个辅助孔属于这张卡：换武器时宝石不动，按当时普攻的标签生效</span></div>';
     }
+    const item = S.equip.weapon;
     return (
       '<div class="skill-card basic-card' + (sk ? '' : ' off') + (sk && /revolver|emberbow/.test(sk.rtype) ? ' uq' : '') + '" style="--c:' + (sk ? sk.color : '#a08868') + '">' +
       '<div class="sk-top"><div class="sk-icon"' + (id ? ' data-tip="wsk:' + id + '"' : '') + '>' + (id ? IC.skill(id) : IC.basicBlank ? IC.basicBlank() : '') + '</div>' +
       '<div class="sk-title"><div class="sk-name">武器普攻' + (sk ? '<em class="bc-name">' + sk.name + '</em>' : '') + '</div>' +
-      '<div class="wsk-src">' + (sk ? '来自 ' + esc(S.equip.weapon ? S.equip.weapon.name : '') + ' · ' + wTypeName(S.equip.weapon.baseIdx | 0) : '没有拿着枪械或弓') + '</div></div>' +
+      '<div class="wsk-src">' + (item ? '来自 ' + esc(item.name) + ' · ' + wTypeName(item.baseIdx | 0) : '空手') + '</div></div>' +
       '<div class="sk-binds"><span class="bind lock' + (sk ? ' on' : '') + '">右键</span></div></div>' +
       body +
       '<div class="wsk-row">' + row + '</div>' +
@@ -2079,10 +2103,11 @@
     const socks = S.sockets[id] || [null, null, null];
 
     let binds = '';
-    const rmbLock = !!rangedNow();
     for (let i = 0; i < 4; i++) {
-      if (i === 1 && rmbLock) {
-        binds += '<span class="bind locked" data-tip="txt:拿着枪械或弓时右键是武器普攻，不能绑别的技能">' + KEY_LABEL[i] + '</span>';
+      if (i === 1) {
+        binds += '<span class="bind locked" data-tip="txt:右键固定是武器普攻，不能绑别的技能">' + KEY_LABEL[i] + '</span>';
+        // 右键改版时三格都满、被收起来的技能：标一下，点任意一个按键标签绑上就取出来
+        if (S.rmbKeep === id) binds += '<span class="bind locked kept" data-tip="txt:武器普攻改版：右键固定是普攻，这个技能原来在右键上、当时没有空格，先收在这里。点左键 / Q / E 绑上">收起</span>';
         continue;
       }
       binds +=
@@ -2230,14 +2255,14 @@
 
     // 技能栏：四个格子，可以把技能图标拖进来
     let bar = '';
-    const rwB = rangedNow();
+    const bidB = G.weaponBasic ? G.weaponBasic() : null;
     for (let i = 0; i < 4; i++) {
-      if (i === 1 && rwB && G.SKILLS[rwB.basic]) {
-        // 右键被武器普攻占着：不能拖进拖出
-        const bk = G.SKILLS[rwB.basic];
+      if (i === 1 && bidB) {
+        // 右键固定是武器普攻：不能拖进拖出
+        const bk = G.SKILLS[bidB];
         bar +=
-          '<div class="barslot basic" data-tip="txt:拿着枪械或弓时右键固定是武器普攻；原来的右键技能' + (S.rmbKeep && G.SKILLS[S.rmbKeep] ? '（' + G.SKILLS[S.rmbKeep].name + '）' : '') + '换回其他武器时放回去" style="--c:' + bk.color + '">' +
-          '<div class="bs-icon">' + IC.skill(rwB.basic) + '</div><div class="bs-txt"><span>右键 · 武器普攻</span><b>' + bk.name + '</b></div></div>';
+          '<div class="barslot basic" data-tip="txt:右键固定是武器普攻，跟着手里的武器换' + (S.rmbKeep && G.SKILLS[S.rmbKeep] ? '；收起的技能「' + G.SKILLS[S.rmbKeep].name + '」在下面的列表里，点它的按键标签绑上' : '') + '" style="--c:' + bk.color + '">' +
+          '<div class="bs-icon">' + IC.skill(bidB) + '</div><div class="bs-txt"><span>右键 · 武器普攻</span><b>' + bk.name + '</b></div></div>';
         continue;
       }
       const id = S.bar[i];
@@ -2802,7 +2827,7 @@
       if (imp) bits.push(esc(imp));
       return (
         '<div class="hc hw" style="--c:' + (sk ? sk.color : '#c9b48e') + '">' + IC.html('it-weapon-' + bi + '-0') + '<b>' + wTypeName(bi) + '</b>' +
-        '<span>' + bits.join(' · ') + (b.ranged && G.SKILLS['basic_' + b.type] ? '<br><em>右键「' + G.SKILLS['basic_' + b.type].name + '」</em>' + G.SKILLS['basic_' + b.type].desc : '') +
+        '<span>' + bits.join(' · ') + (G.SKILLS['basic_' + b.type] ? '<br><em>右键「' + G.SKILLS['basic_' + b.type].name + '」</em>' + G.SKILLS['basic_' + b.type].desc : '') +
         (sk ? '<br><em>' + (sk.rgauge ? (b.ranged === 'gun' ? '热度技' : '专注技') : '武器技') + '「' + sk.name + '」</em>' + (sk.cd > 0 ? '冷却 ' + fmt1(sk.cd) + ' 秒。' : '') + sk.desc : '') + '</span></div>'
       );
     }).join('');
@@ -2811,9 +2836,21 @@
       '<p>武器决定<b>攻击</b>技能' + (atk.length ? '（' + atk.join('、') + '）' : '') + '的伤害：每一击 = 武器的物理伤害 × 技能的<b>武器倍率</b>，宝石每高一级再多 ' + gl + '%（攻击技能主要靠换更高物品等级的武器变强）；出手速度还要乘上武器的<b>攻击速度</b>——有冷却的攻击技能（如闪袭）出手次数由冷却决定，攻速改为折进每一击的伤害。法术和召唤不看武器伤害。空手只有 ' + F.min + '–' + F.max + ' 的拳头伤害。</p>' +
       '<p>武器详情里列出物理伤害、每秒攻击和<b>武器秒伤</b>（平均伤害 × 每秒攻击），后面的箭头是与身上那把的比较。魔法、稀有武器可能带「武器物理伤害提高」「附加物理伤害」这类<b>本地词缀</b>，已经算进这把武器的伤害里。</p>' +
       '<p>每种武器自带一招<b>武器技</b>，固定在 <kbd>R</kbd> 键：换武器就换招，不占技能栏，也不能镶辅助宝石。武器技都有冷却，单次伤害高，穿插在主力技能之间施放最划算。攻击型的随武器伤害成长；长杖、短杖的法术型武器技随武器的物品等级和你的元素伤害加成成长；魂幡的魂火按召唤物计算，吃召唤物伤害加成，还会让身边的召唤物短暂狂热。技能页右栏顶上有当前武器技的数值。</p>' +
+      helpBasics() +
       helpRanged() +
       helpUSkills() +
       (rows ? '<div class="hc-list">' + rows + '</div>' : '')
+    );
+  }
+
+  // 帮助页：武器普攻（右键）——每种武器一招，近战是连招
+  function helpBasics() {
+    if (!G.SKILLS.basic_blade) return '';
+    return (
+      '<div class="sec-title">武器普攻（右键）</div>' +
+      '<p><kbd>右键</kbd>固定是手里这把武器自己的<b>普攻</b>，不占技能栏、不耗魔力，换武器就换招：刃「挥斩」、双匕「连刺」、战锤「重击」、太刀「拔刀」是<b>连招</b>，' +
+      '长杖「灵弹」、短杖「疾咒」是法术（属性取你伤害加成最高的元素），魂幡「魂引」放出一缕按召唤物计算的魂灵，空手是「拳击」。右键不能绑别的技能，左键、Q、E 放学会的技能。</p>' +
+      '<p>技能页最上面是<b>「武器普攻」卡</b>，自带 3 个辅助孔：辅助按当前普攻的标签生效，换武器不用取下来（对当前普攻不适用的会标「不生效」）。</p>'
     );
   }
 
@@ -2823,7 +2860,7 @@
     const R = G.RANGED || {};
     return (
       '<div class="sec-title">枪械与弓</div>' +
-      '<p>拿着<b>枪械</b>（机炮、喷枪、烬铸左轮）或<b>弓</b>（猎弓、鹰眼长弓、符文弓、霜弓）时，<kbd>右键</kbd>自动变成这把武器自己的<b>普攻</b>——枪械「开火」、弓「射击」。普攻按武器伤害成长、不耗魔力；这期间右键不能绑别的技能，原来的右键技能先收起来，换回其他武器时放回去。左键、Q、E 照常使用。</p>' +
+      '<p>拿着<b>枪械</b>（机炮、喷枪、烬铸左轮）或<b>弓</b>（猎弓、鹰眼长弓、符文弓、霜弓）时，<kbd>右键</kbd>的武器普攻是这把武器自己的射击——枪械「开火」、弓「射击」，按住连发。左键、Q、E 照常使用。</p>' +
       '<p>技能页最上面是<b>「武器普攻」卡</b>，自带 3 个辅助孔：多重、贯穿、连锁、注能、迅捷之类按普攻的标签生效。宝石镶在卡上，换不同的远程武器也不用取下来（对当前普攻不适用的会标「不生效」）。</p>' +
       '<p><kbd>R</kbd> 被一根<b>量表</b>卡着，就是技能栏 R 格左边那根竖条：没满时 R 格是暗的，满了亮起，放出 R 技量表清零。' +
       '枪械攒<b style="color:#ffb36a">热度</b>：开火时上涨，停火一会儿慢慢回落，没有过热惩罚——R 是一记排空热度的大招。' +
@@ -2856,7 +2893,8 @@
       '<div class="help">' +
       '<div class="col scroll" data-scroll="help1"><div class="sec-title">操作</div>' +
       key(['W', 'A', 'S', 'D'], '移动（方向键亦可）') +
-      key(['左键', '右键', 'Q', 'E'], '朝准星施放技能栏上的技能，可按住；拿着枪械或弓时右键是武器普攻') +
+      key(['左键', 'Q', 'E'], '朝准星施放技能栏上的技能，可按住') +
+      key(['右键'], '武器普攻：随手中的武器而变，近战武器是连招，按住连打，不耗魔力') +
       key(['R'], '武器技：随手中的武器而变（烬铸武器换成它的烬铸技；枪械和弓要先攒满热度 / 专注）') +
       key(['空格'], '翻滚，途中短暂无敌；可以取消挥砍') +
       key(['1', '2'], '生命 / 魔力药剂，击杀怪物会充能') +
@@ -2870,7 +2908,7 @@
       '<p>护甲减少受到的物理伤害，抗性减少对应元素的伤害，上限为 75%。</p>' +
       helpBuildUp() +
       '<div class="sec-title">连击、架势与处决</div>' +
-      '<p><b>连击</b>：按住或连按<b>裂石击</b>会连出三段——横斩、反手上挑、跃起下劈。第三段是<b>终结技</b>：范围更大、伤害翻倍、把敌人震飞，还能打断小怪的起手。停手太久、翻滚或改用别的技能，连段就从头再来；技能图标上方的三格显示打到了第几段。</p>' +
+      '<p><b>连击</b>：近战武器的<kbd>右键</kbd>普攻是一串连招，按住或连按会一段接一段打出去（刃三段、双匕四段、战锤三段、太刀三段、空手三段）。最后一段是<b>终结技</b>：范围更大、伤害最高、把敌人打飞，还能打断小怪的起手。停手太久、翻滚或改用别的技能，连段就从头再来；右键图标上方的小格显示打到了第几段。</p>' +
       '<p><b>出招的节奏</b>：动作途中按下的攻击、技能和翻滚会被记住，能出手的一瞬间立刻放出，不必掐着时间狂点。<b>翻滚可以取消挥砍</b>——起手和收招都行。</p>' +
       '<p><b>架势</b>：精英和首领的血条下面有一道白条。每次命中都会削掉一些（近战最多，终结技尤其多，暴击更多），几秒不挨打才会回复。打空之后敌人露出<b class="c-gold">破绽</b>：停下手上的一切招式，在几秒内受到的伤害提高 25%。</p>' +
       '<p><b>处决</b>：对破绽中的敌人按 <kbd>F</kbd>（贴身时按近战键也行）。你会冲到它身前给出一记重创，全程无敌，并回复生命、魔力和药剂充能。精英多半当场毙命；首领会失去一大截生命，之后重新站稳——而且每被击破一次，架势就更难打空。</p>' +
@@ -3028,12 +3066,14 @@
       const rt = sk.rtype || sk.wtype, rbi = (G.BASES.weapon || []).findIndex((b) => b && b.type === rt), rName = rbi >= 0 ? wTypeName(rbi) : '远程武器';
       const gName = GUN_TYPES.indexOf(rt) >= 0 ? '热度' : '专注';
       if (sk.basic) {
-        const rw = rangedNow(), on = !!(rw && rw.basic === id);
+        const on = !!(G.weaponBasic && G.weaponBasic() === id);
+        const bName = sk.rtype ? rName : basicTypeName(sk.btype);
+        const grow = sk.combo ? sk.combo.length + ' 段连招 · 伤害随武器成长' : sk.asMinion ? '伤害按召唤物计算' : sk.edmg ? '法术 · 随武器的物品等级成长' : '伤害随武器成长';
         return (
-          '<div class="tcard" style="--c:' + sk.color + '">' + tcHead('<span class="tc-skico">' + IC.skill(id) + '</span>', sk.name, '武器普攻 · ' + rName + ' · 右键') +
+          '<div class="tcard" style="--c:' + sk.color + '">' + tcHead('<span class="tc-skico">' + IC.skill(id) + '</span>', sk.name, '武器普攻 · ' + bName + ' · 右键') +
           '<div class="tc-desc">' + sk.desc + '</div>' +
-          '<div class="tc-foot">伤害随武器成长 · 不耗魔力 · 辅助宝石镶在技能页的「武器普攻」卡上（换远程武器时不动）· 积攒' + gName + '</div>' +
-          '<div class="tc-hint' + (on ? ' ok' : '') + '">' + (on ? '正在右键上' : '装备' + rName + '即可用右键') + '</div></div>'
+          '<div class="tc-foot">' + grow + ' · 不耗魔力 · 辅助宝石镶在技能页的「武器普攻」卡上（换武器时不动）' + (sk.rtype ? ' · 积攒' + gName : '') + '</div>' +
+          '<div class="tc-hint' + (on ? ' ok' : '') + '">' + (on ? '正在右键上' : sk.btype === 'fists' ? '空手时右键' : '装备' + bName + '即可用右键') + '</div></div>'
         );
       }
       if (sk.rgauge) {
@@ -4676,7 +4716,8 @@
     const P = G.player;
     return G.state.enemies.some((e) => !e.dead && Math.hypot(e.x - P.x, e.z - P.z) < r && fn(e));
   };
-  const comboOnBar = () => G.save.bar.some((id) => id && G.SKILLS[id] && G.SKILLS[id].combo);
+  // 右键的武器普攻是连招（近战武器 / 空手），或者技能栏上有连招技能
+  const comboOnBar = () => !!(G.weaponBasic && G.weaponBasic() && G.SKILLS[G.weaponBasic()].combo) || G.save.bar.some((id) => id && G.SKILLS[id] && G.SKILLS[id].combo);
   const lifeFrac = () => (G.player.maxLife > 0 ? G.player.life / G.player.maxLife : 1);
   const inFight = () => enemyNear(14, (e) => e.awake); // 身边有醒着的敌人
   const isSummon = (id) => !!(id && G.SKILLS[id] && G.SKILLS[id].kind === 'summon');
@@ -4707,7 +4748,7 @@
     {
       // 旧存档第一次读进来（武器补上了伤害）：说一次攻击技能改为吃武器伤害
       id: 'wmig', calm: true, max: 14,
-      html: '<b>武器改版</b>：攻击技能（裂石击、飞刃等）的伤害现在取自<b>手中武器</b>，旧武器已按角色等级折算好伤害。长杖、短杖和魂幡的武器伤害偏低，走攻击路线就换一把刃、双匕、战锤、太刀或长弓。每种武器还自带一招 <kbd>R</kbd> 键的<b>武器技</b>',
+      html: '<b>武器改版</b>：攻击技能（飞刃、旋风斩等）的伤害现在取自<b>手中武器</b>，旧武器已按角色等级折算好伤害。长杖、短杖和魂幡的武器伤害偏低，走攻击路线就换一把刃、双匕、战锤、太刀或长弓。每种武器还自带一招 <kbd>R</kbd> 键的<b>武器技</b>',
       when: () => !!G.weaponMigrated,
       done: () => false,
     },
@@ -4725,6 +4766,24 @@
       done: () => false,
     },
     {
+      // 武器普攻改版（右键固定是武器普攻、裂石击删除）之前的存档第一次读进来：说清右键变了什么、原来的东西去了哪
+      id: 'basicmig', calm: true, max: 20,
+      get html() {
+        const kn = ['左键', '右键', 'Q', 'E'];
+        let h = '<b>武器普攻改版</b>：<kbd>右键</kbd>现在固定是手里武器自己的普攻（近战武器是一串连招，不耗魔力）。';
+        const cr = G.cleaveRefund;
+        if (cr) h += '<b>裂石击</b>已移除，退还了一颗 <b class="c-teal">Lv ' + cr.lvl + ' 无铭技能宝石</b>（<kbd>G</kbd> 技能页里挑一个技能）' + (cr.sups && cr.sups.length ? '，镶在上面的辅助已取下、还在你手里' : '') + '。';
+        for (const m of G.rmbMigrated || []) {
+          const sk = G.SKILLS[m.id];
+          if (!sk) continue;
+          h += '原来右键上的「' + sk.name + '」' + (m.to >= 0 ? '挪到了 <kbd>' + kn[m.to] + '</kbd>' : '先收了起来（技能栏满了），在技能页点它的按键标签绑上') + '，辅助宝石跟着它。';
+        }
+        return h;
+      },
+      when: () => !!(G.cleaveRefund || (G.rmbMigrated && G.rmbMigrated.length)),
+      done: () => false,
+    },
+    {
       id: 'move', basic: true, max: 40,
       html: '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动，沿着路一直往前走',
       when: () => true,
@@ -4732,7 +4791,13 @@
     },
     {
       id: 'attack', basic: true, need: 'move', max: 60,
-      html: '按住 <kbd>左键</kbd> 挥砍，<kbd>右键</kbd> 掷出火焰——都朝准星的方向。两个都试一下',
+      // 右键是武器普攻（刃起手是「挥斩」连招，杖类是「灵弹」/「疾咒」），左键是起手的掷焰
+      get html() {
+        const bid = G.weaponBasic ? G.weaponBasic() : null;
+        const bk = bid && G.SKILLS[bid];
+        const l = G.save && G.save.bar[0] && G.SKILLS[G.save.bar[0]];
+        return '按住 <kbd>右键</kbd> 用武器普攻' + (bk ? '「' + bk.name + '」' : '') + (bk && bk.combo ? '连打' : '攻击') + '，<kbd>左键</kbd> ' + (l ? '施放「' + l.name + '」' : '放技能') + '——都朝准星的方向。两个都试一下';
+      },
       when: () => true,
       done: () => coach.cast[0] && coach.cast[1],
     },
@@ -4744,7 +4809,12 @@
     },
     {
       id: 'combo', need: 'attack', max: 30,
-      html: '按住 <kbd>左键</kbd> 连出<b>三段</b>：横斩、上挑，第三段是跃起下劈的<b>终结技</b>——伤害翻倍，把敌人震飞。出招途中随时可以按 <kbd>空格</kbd> 翻滚取消',
+      get html() {
+        const bid = G.weaponBasic ? G.weaponBasic() : null;
+        const sk = bid && G.SKILLS[bid];
+        const n = sk && sk.combo ? sk.combo.length : 3;
+        return '按住 <kbd>右键</kbd> 连出<b>' + (['', '一', '两', '三', '四'][n] || n) + '段</b>' + (sk ? '「' + sk.name + '」' : '') + '，最后一段是<b>终结技</b>——伤害最高，把敌人打飞。出招途中随时可以按 <kbd>空格</kbd> 翻滚取消';
+      },
       when: () => comboOnBar() && enemyNear(9, (e) => e.awake),
       done: (b) => G.state.stats.finishers > b.finishers,
     },
@@ -4773,7 +4843,7 @@
         const gun = rw && rw.family === 'gun';
         const bk = rw && G.SKILLS[rw.basic];
         const g = rw ? rw.gauge.name : '量表';
-        return '拿上了' + (gun ? '<b>枪械</b>' : '<b>弓</b>') + '：<kbd>右键</kbd>现在是它的普攻「' + (bk ? bk.name : gun ? '开火' : '射击') + '」（原来的右键技能先收起来，换回别的武器就回来）。' +
+        return '拿上了' + (gun ? '<b>枪械</b>' : '<b>弓</b>') + '：<kbd>右键</kbd>现在是它的普攻「' + (bk ? bk.name : gun ? '开火' : '射击') + '」。' +
           (gun ? '持续开火积攒' : '箭矢命中积攒') + '<b class="c-gold">' + g + '</b>，技能栏 R 格旁边那根竖条就是它；灌满了 <kbd>R</kbd> 才亮。普攻的辅助宝石镶在 <kbd>G</kbd> 技能页最上面的「武器普攻」卡上';
       },
       when: () => !!rangedNow(),

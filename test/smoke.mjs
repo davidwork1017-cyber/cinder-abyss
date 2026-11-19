@@ -147,9 +147,13 @@ async function install() {
         const b = n.getBoundingClientRect();
         return { x: b.left + b.width / 2, y: b.top + b.height / 2, l: b.left, t: b.top, r: b.right, b: b.bottom, w: b.width, h: b.height };
       },
-      // 技能栏四格里的技能 id（空格为 ''）
+      // 技能栏四格里的技能 id（空格为 ''）。右键格显示的是武器普攻（basic_<武器类型>）
       hudBar() {
         return Array.from(document.querySelectorAll('#slots .slot')).map((n) => n.dataset.skill).join(',');
+      },
+      // 同上，但右键格的武器普攻记成 ''：和 save.bar（右键格一直是 null）对照用
+      barHud() {
+        return Array.from(document.querySelectorAll('#slots .slot')).map((n, i) => (i === 1 && /^basic_/.test(n.dataset.skill) ? '' : n.dataset.skill)).join(',');
       },
       // 某个掉落名牌上的一个点（名牌会互相避让，往上找）
       labelPt(l) {
@@ -216,13 +220,13 @@ async function install() {
         else delete G.save.equip.weapon;
         G.computeStats();
       },
-      // 按住左键，推进到下一次连击命中帧为止；返回这一段的信息
+      // 按住右键（武器普攻的连招；T.arena 换上的标准刃是「挥斩」），推进到下一次连击命中帧为止；返回这一段的信息
       swing(target, max) {
         const out = { step: -1, clip: null, ticks: 0, stop: 0, fired: false };
         let seen = null;
         for (let i = 0; i < (max || 150); i++) {
           if (target) T.aim(target.x, target.z);
-          G.input.mouse.b[0] = true;
+          G.input.mouse.b[2] = true;
           const c0 = P.cast, f0 = c0 ? c0.fired : false;
           G.tick(1 / 60);
           out.ticks++;
@@ -240,7 +244,7 @@ async function install() {
             break;
           }
         }
-        G.input.mouse.b[0] = false;
+        G.input.mouse.b[2] = false;
         return out;
       },
       // 清场，并把玩家挪到起点空地的左侧：朝 +x 方向有一条 12 长的直线可用
@@ -312,7 +316,9 @@ function cleanText(txt, where) {
   assert(!/undefined|NaN|\[object|\{[a-z]\}/.test(txt), where + ' 里出现了未格式化的文本：' + (txt.match(/.{0,20}(undefined|NaN|\[object|\{[a-z]\}).{0,20}/) || [''])[0]);
 }
 
-const SKILL_IDS = ['cleave', 'ember', 'blade', 'nova', 'arc', 'meteor', 'blink', 'whirl', 'shadestep', 'thrall', 'colossus'];
+// 裂石击已删除（近战的连招在右键的武器普攻上，见「武器普攻」那几步）
+const SKILL_IDS = ['ember', 'blade', 'nova', 'arc', 'meteor', 'blink', 'whirl', 'shadestep', 'thrall', 'colossus'];
+const BAR_SLOTS = [0, 2, 3]; // 能绑技能的三格（右键固定是武器普攻）
 const INPUT_NAME = ['左键', '右键', 'Q', 'E'];
 async function holdInput(slot, down) {
   if (slot === 0) await page.mouse[down ? 'down' : 'up']({ button: 'left' });
@@ -335,7 +341,7 @@ async function main() {
     assert(s.sum.enemies.total >= 20, '怪物太少：' + s.sum.enemies.total);
     assert(s.sum.boss && s.sum.boss.kind === 'golem' && !s.sum.boss.awake, '首领状态不对');
     assert(s.sum.player.level === 1 && s.sum.player.life === 100 && s.sum.player.mana === 60, '初始角色数值不对');
-    assert(s.sum.bar[0] === 'cleave' && s.sum.bar[1] === 'ember' && s.sum.cur.dust === 2, '新存档内容不对');
+    assert(s.sum.bar.join() === 'ember,,,' && Object.keys(s.sum.skills).join() === 'ember' && /^basic_(blade|staff|wand)$/.test(s.sum.basic) && s.sum.cur.dust === 2, '新存档内容不对：' + JSON.stringify({ bar: s.sum.bar, skills: s.sum.skills, basic: s.sum.basic }));
     assert(s.key, '启动后应已写入存档');
     const t0 = await ev(() => G.state.time);
     await frames(2);
@@ -388,7 +394,7 @@ async function main() {
     assert(r.vis, '玩家模型不在场景里');
     assert(r.p.ok && Math.abs(r.p.x - r.w / 2) < 60 && r.p.y > r.h * 0.35 && r.p.y < r.h * 0.7, '镜头没有对准玩家：' + JSON.stringify(r.p));
     assert(r.zone === '灰烬荒原' && /怪物等级\s*1/.test(r.sub), '区域信息不对：' + r.zone + ' / ' + r.sub);
-    assert(r.slots === 4 && r.bar === 'cleave,ember,,' && r.icons === 'true,true,false,false', '技能栏不对：' + r.bar + ' / 图标 ' + r.icons);
+    assert(r.slots === 4 && /^ember,basic_(blade|staff|wand),,$/.test(r.bar) && r.icons === 'true,true,false,false', '技能栏不对（左键掷焰、右键起手武器的普攻）：' + r.bar + ' / 图标 ' + r.icons);
     assert(r.life === '100' && r.mana === '60' && r.lv === '等级 1', '生命 / 魔力 / 等级显示不对');
     for (const k of Object.keys(r.rects)) {
       const b = r.rects[k];
@@ -1034,19 +1040,19 @@ async function main() {
   });
 
   // ------------------------------------------------------------------ 技能
-  await step('learnAll：15 个技能与 20 个辅助宝石全部到手（混沌流加了黑洞 / 黑旋风 / 黑焰与混沌注入）', async () => {
+  await step('learnAll：14 个技能（裂石击已删除）与 20 个辅助宝石全部到手（混沌流加了黑洞 / 黑旋风 / 黑焰与混沌注入）；右键格不放技能', async () => {
     const r = await ev(() => {
       G.debug.learnAll();
-      return { skills: Object.keys(G.save.skills).length, sups: G.save.supports.length, bar: G.save.bar.slice() };
+      return { skills: Object.keys(G.save.skills).length, sups: G.save.supports.length, bar: G.save.bar.slice(), cleave: !!G.SKILLS.cleave || G.GEM_SKILLS.indexOf('cleave') >= 0 };
     });
-    assert(r.skills === 15 && r.sups === 20 && r.bar.every((b) => b), JSON.stringify(r));
+    assert(r.skills === 14 && r.sups === 20 && [0, 2, 3].every((i) => r.bar[i]) && r.bar[1] === null && !r.cleave, JSON.stringify(r));
   });
 
   for (let i = 0; i < SKILL_IDS.length; i++) {
     const id = SKILL_IDS[i];
-    const slot = i % 4;
+    const slot = BAR_SLOTS[i % 3];
     await step('技能：' + id + ' 绑定到' + INPUT_NAME[slot] + '，按住后对敌人造成伤害', async () => {
-      const dist = id === 'cleave' || id === 'whirl' ? 2.4 : 5;
+      const dist = id === 'whirl' ? 2.4 : 5;
       const s = await ev(([id, slot, dist]) => {
         T.arena();
         G.debug.god(true);
@@ -1099,9 +1105,9 @@ async function main() {
         const lo = G.weaponBaseDmg(b, 1), hi = G.weaponBaseDmg(b, 13);
         if (!(it.baseIdx === b && Array.isArray(it.dmg) && it.dmg[0] >= 1 && it.dmg[1] >= it.dmg[0] && it.dmg.every(Number.isInteger) && it.aps === B[b].aps && s.type === B[b].type && Math.abs(s.dps - ((s.min + s.max) / 2) * s.aps) < 1e-9))
           out.bad.push('stats:' + b + JSON.stringify(s));
-        // 远程武器的 R 不进冷却、由量表卡住（rgauge）；普攻 basic_<type> 也得在
+        // 远程武器的 R 不进冷却、由量表卡住（rgauge）；每种武器的普攻 basic_<type> 也得在（不进宝石池）
         if (!(sk && sk.weaponOnly && sk.tags.indexOf('weapon') >= 0 && sk.wtype === B[b].type && (B[b].ranged ? sk.rgauge && !sk.cd : sk.cd > 0) && G.GEM_SKILLS.indexOf(B[b].wskill) < 0)) out.bad.push('skill:' + b);
-        if (B[b].ranged && !(G.SKILLS['basic_' + B[b].type] && G.SKILLS['basic_' + B[b].type].basic && G.GEM_SKILLS.indexOf('basic_' + B[b].type) < 0)) out.bad.push('basic:' + b);
+        if (!(G.SKILLS['basic_' + B[b].type] && G.SKILLS['basic_' + B[b].type].basic && G.GEM_SKILLS.indexOf('basic_' + B[b].type) < 0)) out.bad.push('basic:' + b);
         if (!(hi[0] + hi[1] > (lo[0] + lo[1]) * 1.8)) out.bad.push('grow:' + b + lo + '/' + hi);
         if (!(it.imp && G.STAT_FMT[it.imp.stat])) out.bad.push('imp:' + b);
       }
@@ -1204,11 +1210,11 @@ async function main() {
       const mk = (b, ilvl) => { const it = G.rollItem(ilvl, 0, 'weapon', b); it.wbase = G.weaponBaseDmg(b, ilvl); it.imp = null; G.refreshWeapon(it); return it; };
       const read = () => {
         G.computeStats();
-        const c = G.skillCtx('cleave'), e = G.skillCtx('ember'), t = G.skillCtx('thrall');
+        const c = G.skillCtx('blade'), e = G.skillCtx('ember'), t = G.skillCtx('thrall');
         return { cl: c.base.phys.map((v) => +v.toFixed(3)), clSpeed: c.speed, clDps: G.skillDps(c), em: JSON.stringify(e.base), emSpeed: e.speed, th: JSON.stringify(t.base), wm: c.wm, k: c.levelK, attack: c.attack, emAttack: e.attack };
       };
       try {
-        const lv = save.skills.cleave;
+        const lv = (save.skills.blade || 1);
         save.equip.weapon = mk(0, 9);
         const a = read();
         save.equip.weapon = mk(0, 15);
@@ -1218,28 +1224,28 @@ async function main() {
         delete save.equip.weapon;
         const f = read();
         const wA = G.weaponBaseDmg(0, 9);
-        out.formula = Math.abs(a.cl[0] - wA[0] * 1.25 * (1 + G.ATTACK_GEM_LVL * (lv - 1))) < 0.01 && a.wm === 1.25 && a.attack && !a.emAttack;
+        out.formula = Math.abs(a.cl[0] - wA[0] * G.SKILLS.blade.wm * (1 + G.ATTACK_GEM_LVL * (lv - 1))) < 0.01 && a.wm === G.SKILLS.blade.wm && a.attack && !a.emAttack;
         out.scale = b.cl[1] / a.cl[1];
         out.spellSame = a.em === b.em && a.em === f.em && a.em === dg.em && a.th === f.th && a.emSpeed === dg.emSpeed;
         out.aps = +(dg.clSpeed / a.clSpeed).toFixed(3);
-        out.fists = f.cl.join() === [2 * 1.25 * a.k, 4 * 1.25 * a.k].map((v) => +v.toFixed(3)).join();
+        out.fists = f.cl.join() === [2 * a.wm * a.k, 4 * a.wm * a.k].map((v) => +v.toFixed(3)).join();
         out.fistDps = f.clDps / a.clDps;
         // 有冷却的闪袭：出手次数由冷却定，攻速改为折进每一击（战锤 0.8 / 双匕 1.2 的平均伤害 × 攻速一样时，闪袭每一击一样）
         save.skills.blink = save.skills.blink || 1;
         const bl = (b, base) => { const w = mk(b, 9); w.wbase = base.slice(); G.refreshWeapon(w); save.equip.weapon = w; G.computeStats(); return G.skillCtx('blink').base.phys[1]; };
-        out.cdAps = { hammer: +bl(4, [10, 15]).toFixed(3), daggers: +bl(3, [10, 15]).toFixed(3), blade: +bl(0, [10, 15]).toFixed(3), cleaveDg: +G.skillCtx('cleave').base.phys[1].toFixed(3) };
-        // 换装评估：更强的武器 → 裂石击秒伤上升、角标 ▲；评估结果和真换上去一致
-        save.bar[0] = 'cleave';
+        out.cdAps = { hammer: +bl(4, [10, 15]).toFixed(3), daggers: +bl(3, [10, 15]).toFixed(3), blade: +bl(0, [10, 15]).toFixed(3), bladeDg: +G.skillCtx('blade').base.phys[1].toFixed(3) };
+        // 换装评估：更强的武器 → 飞刃（攻击技能，裂石击已删除）秒伤上升、角标 ▲；评估结果和真换上去一致
+        save.bar[0] = 'blade';
         save.equip.weapon = mk(0, 9);
         G.computeStats();
         const strong = mk(0, 15);
         strong.uid = 'vd-strong-' + Date.now();
         save.bag.push(strong);
         const v = G.ui.verdict(strong);
-        const before = G.skillDps(G.skillCtx('cleave'));
+        const before = G.skillDps(G.skillCtx('blade'));
         G.equip(strong);
-        const after = G.skillDps(G.skillCtx('cleave'));
-        const line = v.lines.find((l) => l.label === G.SKILLS.cleave.name + ' 秒伤');
+        const after = G.skillDps(G.skillCtx('blade'));
+        const line = v.lines.find((l) => l.label === G.SKILLS.blade.name + ' 秒伤');
         out.vd = { badge: v.badge, line: line && parseFloat(line.text), real: Math.round((after - before) * 10) / 10 };
       } finally {
         save.bag = bag0;
@@ -1255,7 +1261,7 @@ async function main() {
     assert(r.aps === 1.2, '双匕的攻速应让攻击技能出手快 1.2 倍：' + r.aps);
     assert(r.fists && r.fistDps < 0.4, '空手应该很弱：' + JSON.stringify(r));
     const ca = r.cdAps;
-    assert(Math.abs(ca.hammer / ca.blade - 0.8) < 0.002 && Math.abs(ca.daggers / ca.blade - 1.2) < 0.002 && ca.cleaveDg < ca.daggers, '有冷却的攻击技能应把武器攻速折进每一击：' + JSON.stringify(ca));
+    assert(Math.abs(ca.hammer / ca.blade - 0.8) < 0.002 && Math.abs(ca.daggers / ca.blade - 1.2) < 0.002 && ca.bladeDg < ca.daggers, '有冷却的攻击技能应把武器攻速折进每一击：' + JSON.stringify(ca));
     assert(r.vd.badge === 'up' && r.vd.line > 0 && Math.abs(r.vd.line - r.vd.real) <= 0.11, '换装评估应反映武器秒伤：' + JSON.stringify(r.vd));
     return '物品等级 9 → 15 ×' + r.scale.toFixed(2) + '，空手 ' + Math.round(r.fistDps * 100) + '%，评估 +' + r.vd.line;
   });
@@ -1377,17 +1383,16 @@ async function main() {
         G.dodge();
         run(40, P.x + 4, P.z);
         out.roll = { casting, cd: P.cds.quake || 0, mana: +(m0 - P.mana).toFixed(2) };
-        // 缓冲：挥砍途中按 R，挥完立刻出武器技
+        // 缓冲：右键挥砍（刃的普攻「挥斩」）途中按 R，挥完立刻出武器技
         lane();
         save.equip.weapon = G.rollItem(5, 0, 'weapon', 0);
-        save.bar[0] = 'cleave';
         G.computeStats();
         const tgt = T.mob('brute', 2.2, 0);
         T.aim(tgt.x, tgt.z);
-        G.input.tap[0] = 0.3;
+        G.input.tap[1] = 0.3;
         G.tick(1 / 60);
         const first = P.cast && P.cast.id;
-        G.input.tap[0] = 0;
+        G.input.tap[1] = 0;
         G.input.tap[4] = G.bufferTime('cast');
         let at = -1;
         for (let i = 0; i < 60 && at < 0; i++) {
@@ -1432,7 +1437,7 @@ async function main() {
     assert(w.daggers.ifr >= 0.25 && w.katana.ifr >= 0.2, '影刺 / 瞬断途中应无敌：' + JSON.stringify(w));
     assert(w.katana.x > 1.5 && w.daggers.x > 1, '瞬断应冲到墙前、影刺应闪到目标身后：' + JSON.stringify(w));
     assert(r.roll.casting && r.roll.cd === 0 && r.roll.mana <= 0, '出手前翻滚取消不应扣魔力 / 进冷却：' + JSON.stringify(r.roll));
-    assert(r.buffer.first === 'cleave' && r.buffer.at >= 0, '挥砍途中按下的 R 应在挥完后放出：' + JSON.stringify(r.buffer));
+    assert(r.buffer.first === 'basic_blade' && r.buffer.at >= 0, '挥砍途中按下的 R 应在挥完后放出：' + JSON.stringify(r.buffer));
     assert(r.feel.chain >= 2 && r.feel.poise > 30, '武器技应计入连击并削架势：' + JSON.stringify(r.feel));
     assert(r.elem === 'cold' && r.bu.base.indexOf('cold') >= 0 && (r.bu.cold > 0 || r.bu.frozen), '地脉涌应取加成最高的元素并累积其异常值：' + JSON.stringify(r));
     return '墙前伤害 ' + Object.keys(w).map((k) => k + ' ' + w[k].front).join(' / ');
@@ -1623,9 +1628,9 @@ async function main() {
         const v1 = G.ui.verdict(st2), v2 = G.ui.verdict(bw);
         const l1 = v1.lines.find((l) => l.label.indexOf('武器技') === 0), l2 = v2.lines.find((l) => l.label === '武器技');
         out.vd = { badge: v1.badge, l1: l1 && l1.label + ' ' + l1.text, l2: l2 && l2.text };
-        // 4) 处决基数：同样武器秒伤的战锤和双匕一样重
+        // 4) 处决基数：同样武器秒伤的战锤和双匕一样重（技能栏清空，基数取右键的武器普攻：两种连招按武器秒伤对齐过）
         T.arena();
-        save.bar = ['cleave', null, null, null];
+        save.bar = [null, null, null, null];
         const ex = (b, base) => { const w = G.rollItem(9, 0, 'weapon', b); w.wbase = base; w.imp = null; G.refreshWeapon(w); save.equip.weapon = w; G.computeStats(); return G.execBase(); };
         out.exec = { hammer: ex(4, [15, 15]), daggers: ex(3, [10, 10]) };
       } finally {
@@ -1753,7 +1758,7 @@ async function main() {
       },
     };`;
 
-  await step('远程武器：拿上枪械 / 弓时右键自动换成武器普攻（右键绑不上别的、新学的技能也不进右键），原来的右键技能记着，换回近战武器原样放回；存档刷新后不丢', async () => {
+  await step('右键接管（武器普攻改版）：任何武器（含空手）右键都是这把武器的普攻 basic_<类型>；右键绑不上别的、新学的技能也不进右键；右键格残留的旧数据挪到空格、三格都满时收进 rmbKeep，绑上之后取出；存档刷新后不丢', async () => {
     const r = await ev((code) => {
       eval(code);
       const save = G.save, P = G.player, out = {};
@@ -1761,54 +1766,73 @@ async function main() {
       const keepW = save.equip.weapon;
       try {
         T.lane();
-        save.bar = ['cleave', 'ember', null, null];
+        for (const id of ['blade', 'ember', 'arc']) {
+          save.skills[id] = save.skills[id] || 1;
+          save.sockets[id] = save.sockets[id] || [null, null, null];
+        }
+        save.bar = ['blade', null, 'ember', null];
         save.rmbKeep = null;
         G.computeStats();
         out.before = G.slotSkill(1);
         for (const b of [8, 9, 5, 10, 11]) {
           RW.arm(b);
           const rw = G.rangedWeapon();
-          (out.rw = out.rw || []).push(rw.type + ':' + rw.family + ':' + rw.basic + ':' + rw.gauge.kind + ':' + G.slotSkill(1) + ':' + (save.bar[1] === null) + ':' + save.rmbKeep);
+          (out.rw = out.rw || []).push(rw.type + ':' + rw.family + ':' + rw.basic + ':' + rw.gauge.kind + ':' + G.slotSkill(1) + ':' + (save.bar[1] === null));
         }
+        // 近战 / 施法 / 魂幡 / 空手：右键同样是自己的普攻
+        out.melee = [];
+        for (const b of [0, 1, 2, 3, 4, 6, 7, -1]) {
+          if (b >= 0) save.equip.weapon = G.rollItem(5, 0, 'weapon', b);
+          else delete save.equip.weapon;
+          G.computeStats();
+          const want = 'basic_' + (b >= 0 ? G.BASES.weapon[b].type : 'fists');
+          out.melee.push(G.slotSkill(1) === want && G.weaponBasic() === want && save.bar[1] === null ? 'ok' : b + ':' + G.slotSkill(1));
+        }
+        save.equip.weapon = T.stdBlade(10);
+        G.computeStats();
         // 右键绑不上；别的格子照常
-        out.bindR = G.bindSkill(1, 'cleave');
-        out.bindQ = G.bindSkill(2, 'ember');
-        out.barQ = save.bar.join();
-        // 收着的右键技能被你绑到了 Q：换回近战武器时右键空着（不会一个技能占两格）
-        out.keepAfterQ = save.rmbKeep;
-        G.bindSkill(2, null);
-        save.rmbKeep = 'ember';
+        out.bindR = G.bindSkill(1, 'blade');
+        out.bindE = G.bindSkill(3, 'arc');
+        out.barE = save.bar.join();
         // 新学的技能：右键不算空格
         delete save.skills.meteor;
-        save.bar = ['cleave', null, null, 'arc'];
-        save.skills.arc = save.skills.arc || 1;
+        save.bar = ['blade', null, null, 'arc'];
         G.computeStats();
-        G.debug.learnAll && null;
         G.state.loot.length = 0;
         const l = G.spawnLoot('skill', { id: 'meteor', lvl: 3 }, P.x, P.z);
         G.pickup(l);
         out.learn = save.bar.join();
-        // 按右键：放出的是普攻（不是收着的掷焰）
+        // 按右键：放出的是普攻
         const tg = T.mob('brute', 6, 0);
         RW.arm(10);
         RW.hold(40, tg);
         out.cast = { hp: Math.round(tg.maxHp - tg.hp), shots: G.state.stats.rShots || 0 };
-        // 存档：刷新（读档）后 rmbKeep 还在、右键仍是普攻
+        // 存档：刷新（读档）后右键仍是普攻、技能栏不变
         G.persist();
         G.loadSave();
         G.computeStats();
         out.reload = save.rmbKeep + '|' + save.bar.join() + '|' + G.slotSkill(1);
-        // 换回刃：放回原来的右键技能
+        // 右键格里残留着技能（理论上绑不上；直接写进去模拟旧数据）：挪到第一个空格
+        save.bar = ['blade', 'ember', 'meteor', null];
+        G.computeStats();
+        out.stray = save.bar.join() + '|' + save.rmbKeep;
+        // 三格都满：收进 rmbKeep；绑到任意一格就取出来
+        save.bar = ['blade', 'arc', 'meteor', 'ember'];
+        G.computeStats();
+        out.full = save.bar.join() + '|' + save.rmbKeep;
+        G.bindSkill(0, 'arc');
+        out.rebind = save.bar.join() + '|' + save.rmbKeep;
+        save.bar = ['blade', null, 'meteor', 'arc'];
+        save.rmbKeep = null;
+        // 换装评估：刃 → 机炮时右键「挥斩 → 开火」，比两边右键的秒伤（不出 NaN）；试穿完技能栏原样
         save.equip.weapon = T.stdBlade(10);
         G.computeStats();
-        out.restored = save.bar.join() + '|' + save.rmbKeep + '|' + G.slotSkill(1);
-        // 换装评估：近战 → 远程时右键换成普攻，单列「右键：掷焰 → 开火」并比两边右键的秒伤（不出 NaN）；试穿完技能栏原样
         const fin = (v) => isFinite(v.score) && v.lines.every((l) => !/NaN/.test(l.text) && (l.pct === null || isFinite(l.pct)));
         const gun = G.rollItem(40, 2, 'weapon', 8);
         gun.uid = 'vd-gun-' + Date.now();
         const vg = G.ui.verdict(gun);
         out.vdGun = { badge: vg.badge, fin: fin(vg), rmb: (vg.lines.find((x) => x.label === '右键') || {}).text, rd: !!vg.lines.find((x) => x.label === '右键秒伤'), bar: save.bar.join() + '|' + save.rmbKeep };
-        // 远程 → 近战：反过来，掷焰回到右键
+        // 远程 → 近战：反过来
         save.equip.weapon = gun;
         G.computeStats();
         const bl = T.stdBlade(2);
@@ -1823,14 +1847,6 @@ async function main() {
         strong.uid = 'vd-bow-' + Date.now();
         const vw = G.ui.verdict(strong);
         out.vdBow = { badge: vw.badge, fin: fin(vw), basic: !!vw.lines.find((x) => x.label === '射击 秒伤' && x.good) };
-        save.equip.weapon = T.stdBlade(10);
-        G.computeStats();
-        // 换回近战时右键已经有了别的技能：不覆盖，收着的那个丢开
-        RW.arm(8);
-        save.bar[1] = 'arc'; // 理论上绑不上；直接写进去模拟旧数据
-        save.bar[3] = null;
-        G.computeStats();
-        out.clash = save.bar.join() + '|' + save.rmbKeep;
       } finally {
         save.equip.weapon = keepW;
         T.buildRestore(snap);
@@ -1839,23 +1855,23 @@ async function main() {
       }
       return out;
     }, rangedSetup);
-    assert(r.before === 'ember', '起点右键应是掷焰：' + r.before);
-    assert(r.rw.length === 5 && r.rw.every((x) => /:basic_\w+:(heat|focus):basic_\w+:true:ember$/.test(x)), '拿上远程武器时右键应是武器普攻、原技能收进 rmbKeep：' + r.rw.join(' | '));
+    assert(r.before === 'basic_blade', '拿着刃时右键应是「挥斩」：' + r.before);
+    assert(r.rw.length === 5 && r.rw.every((x) => /:basic_\w+:(heat|focus):basic_\w+:true$/.test(x)), '拿上远程武器时右键应是武器普攻：' + r.rw.join(' | '));
     assert(/^gatling:gun:basic_gatling:heat/.test(r.rw[0]) && /^eagle:bow:basic_eagle:focus/.test(r.rw[2]), '武器族 / 量表不对：' + r.rw.join(' | '));
-    assert(r.bindR === false && r.bindQ === true && r.barQ === 'cleave,,ember,' && r.keepAfterQ === null, '右键应绑不上、别的格子照常；收着的技能绑到别处后不再放回：' + JSON.stringify(r));
-    assert(r.learn.split(',')[1] === '' && r.learn.indexOf('meteor') >= 0, '新学的技能不应放进被占着的右键：' + r.learn);
+    assert(r.melee.every((x) => x === 'ok'), '近战 / 施法 / 魂幡 / 空手的右键应是各自的普攻：' + r.melee.join(' | '));
+    assert(r.bindR === false && r.bindE === true && r.barE === 'blade,,ember,arc', '右键应绑不上、别的格子照常：' + JSON.stringify(r));
+    assert(r.learn === 'blade,,meteor,arc', '新学的技能应放进 Q（右键不算空格）：' + r.learn);
     assert(r.cast.hp > 0 && r.cast.shots > 0, '按右键应射出武器普攻：' + JSON.stringify(r.cast));
-    assert(r.reload === 'ember|cleave,,meteor,arc|basic_huntbow', '读档后右键接管与收着的技能应保留：' + r.reload);
-    assert(r.restored === 'cleave,ember,meteor,arc|null|ember', '换回近战武器应放回原来的右键技能：' + r.restored);
-    assert(r.vdGun.fin && r.vdGun.badge !== 'eq' && r.vdGun.rmb === '「掷焰」 → 「开火」' && r.vdGun.rd && r.vdGun.bar === 'cleave,ember,meteor,arc|null', '近战换远程的评估应列出右键的变化、数值有限、试穿后技能栏不变：' + JSON.stringify(r.vdGun));
-    assert(r.vdBlade.fin && r.vdBlade.rmb === '「开火」 → 「掷焰」', '远程换近战的评估应列出右键换回来：' + JSON.stringify(r.vdBlade));
+    assert(r.reload === 'null|blade,,meteor,arc|basic_huntbow', '读档后右键仍是普攻、技能栏不变：' + r.reload);
+    assert(r.stray === 'blade,,meteor,ember|null', '右键格残留的技能应挪到第一个空格：' + r.stray);
+    assert(r.full === 'blade,,meteor,ember|arc' && r.rebind === 'arc,,meteor,ember|null', '三格都满时应收进 rmbKeep，绑上之后取出：' + JSON.stringify({ full: r.full, rebind: r.rebind }));
+    assert(r.vdGun.fin && r.vdGun.badge !== 'eq' && r.vdGun.rmb === '「挥斩」 → 「开火」' && r.vdGun.rd && r.vdGun.bar === 'blade,,meteor,arc|null', '近战换远程的评估应列出右键的变化、数值有限、试穿后技能栏不变：' + JSON.stringify(r.vdGun));
+    assert(r.vdBlade.fin && r.vdBlade.rmb === '「开火」 → 「挥斩」', '远程换近战的评估应列出右键换回来：' + JSON.stringify(r.vdBlade));
     assert(r.vdBow.fin && r.vdBow.badge === 'up' && r.vdBow.basic, '弓换更强的弓应把射击的秒伤算进去：' + JSON.stringify(r.vdBow));
-    // 已经收着一个（掷焰）时又冒出一个：右键照样清空，收着的仍是原来那个
-    assert(r.clash === 'cleave,,meteor,|ember', '拿着远程武器时右键上的技能应被清掉、原来收着的不变：' + r.clash);
-    return r.rw.map((x) => x.split(':').slice(0, 2).join('/')).join('、') + ' · 换回 ' + r.restored.split('|')[0];
+    return r.rw.map((x) => x.split(':').slice(0, 2).join('/')).join('、') + ' · 近战 ' + r.melee.length + ' 种';
   });
 
-  await step('武器普攻卡：3 个辅助孔属于卡片（换远程武器时宝石不动），按当前普攻的标签生效（多重投射对机炮生效、对喷枪不生效；扩域反过来）；伤害按武器伤害 × 倍率；存档修正', async () => {
+  await step('武器普攻卡：3 个辅助孔属于卡片（换武器时宝石不动），对任一种普攻适配就能镶（回响给灵弹 / 疾咒、驭灵给魂引；坚骨哪种都不适配），按当前普攻的标签生效（多重投射对机炮生效、对喷枪不生效；扩域反过来）；伤害按武器伤害 × 倍率；存档修正', async () => {
     const r = await ev((code) => {
       eval(code);
       const save = G.save, out = {};
@@ -1863,12 +1879,12 @@ async function main() {
       const keepW = save.equip.weapon;
       try {
         T.lane();
-        for (const id of ['multi', 'expanse', 'brutal', 'echo', 'dominion']) if (save.supports.indexOf(id) < 0) save.supports.push(id);
+        for (const id of ['multi', 'expanse', 'brutal', 'echo', 'dominion', 'ossify', 'pierce', 'chain', 'leech']) if (save.supports.indexOf(id) < 0) save.supports.push(id);
         const card = G.BASIC_CARD;
         save.sockets[card] = [null, null, null];
         RW.arm(8);
-        out.fits = ['multi', 'expanse', 'brutal', 'echo', 'dominion', 'pierce', 'haste'].map((s) => s + ':' + G.supportFits(card, s)).join(' ');
-        out.sock = [G.socketSupport(card, 0, 'multi'), G.socketSupport(card, 1, 'expanse'), G.socketSupport(card, 2, 'echo')];
+        out.fits = ['multi', 'expanse', 'brutal', 'echo', 'dominion', 'ossify', 'pierce', 'chain', 'leech', 'haste'].map((s) => s + ':' + G.supportFits(card, s)).join(' ');
+        out.sock = [G.socketSupport(card, 0, 'multi'), G.socketSupport(card, 1, 'expanse'), G.socketSupport(card, 2, 'ossify')];
         const g = G.skillCtx('basic_gatling');
         out.gat = { proj: g.proj, area: g.area, active: G.basicSupports('basic_gatling').join() };
         // 普攻伤害 = 武器伤害 × wm × 等级加成，出手节奏乘武器攻速
@@ -1878,8 +1894,8 @@ async function main() {
         const f = G.skillCtx('basic_flamer');
         out.fla = { proj: f.proj, area: f.area, active: G.basicSupports('basic_flamer').join(), fire: Object.keys(f.base).join() };
         out.still = save.sockets[card].join();
-        // 存档：卡片的宝石刷新后还在；不适配的（回响）、没有的宝石被丢掉
-        save.sockets[card] = ['multi', 'expanse', 'echo'];
+        // 存档：卡片的宝石刷新后还在；不适配的（坚骨）、没有的宝石被丢掉
+        save.sockets[card] = ['multi', 'expanse', 'ossify'];
         G.persist();
         G.loadSave();
         G.computeStats();
@@ -1911,7 +1927,7 @@ async function main() {
       }
       return out;
     }, rangedSetup);
-    assert(/multi:true/.test(r.fits) && /expanse:true/.test(r.fits) && /brutal:true/.test(r.fits) && /echo:false/.test(r.fits) && /dominion:false/.test(r.fits), '武器普攻卡能镶的辅助不对：' + r.fits);
+    assert(/multi:true/.test(r.fits) && /expanse:true/.test(r.fits) && /brutal:true/.test(r.fits) && /echo:true/.test(r.fits) && /dominion:true/.test(r.fits) && /ossify:false/.test(r.fits) && /pierce:true/.test(r.fits) && /chain:true/.test(r.fits) && /leech:true/.test(r.fits), '武器普攻卡能镶的辅助不对：' + r.fits);
     assert(r.sock[0] && r.sock[1] && !r.sock[2], '镶嵌结果不对：' + JSON.stringify(r.sock));
     assert(r.gat.proj === 3 && r.gat.area === 1 && r.gat.active === 'multi', '机炮应吃多重投射、不吃扩域：' + JSON.stringify(r.gat));
     assert(r.fla.proj === 1 && r.fla.area > 1.3 && r.fla.active === 'expanse' && r.fla.fire === 'fire', '喷枪应吃扩域、不吃多重投射，伤害全是火焰：' + JSON.stringify(r.fla));
@@ -1920,6 +1936,275 @@ async function main() {
     assert(r.saved === 'multi,expanse,', '存档里卡片的宝石应保留、不适配的丢掉：' + r.saved);
     assert(r.perShot === 3 && r.multiShots >= 3, '多重投射的机炮每次应出 3 发：' + JSON.stringify([r.perShot, r.multiShots]));
     return '机炮 ' + r.gat.active + ' · 喷枪 ' + r.fla.active + ' · 存档 ' + r.saved;
+  });
+
+  // ------------------------------------------------------------------ 武器普攻（右键）：近战连招 / 施法 / 魂幡 / 空手
+  await step('武器普攻：每种近战武器和空手的右键是各自的连招（刃 3 段、双匕 4 段、战锤 3 段、太刀 3 段、空手 3 段），按住一路打完、动作和数据对得上、最后一段是终结；长杖 / 短杖 / 魂幡的右键各放自己的普攻并造成伤害；都不耗魔力', async () => {
+    const r = await ev((code) => {
+      eval(code);
+      const save = G.save, P = G.player, S = G.state, W = G.world, out = { melee: {}, cast: {} };
+      const snap = T.buildSnap();
+      const keepW = save.equip.weapon;
+      try {
+        for (const k of Object.keys(save.sockets)) save.sockets[k] = [null, null, null];
+        for (const [b, type] of [[0, 'blade'], [3, 'daggers'], [4, 'hammer'], [6, 'katana'], [-1, 'fists']]) {
+          T.lane();
+          if (b >= 0) RW.arm(b);
+          else { delete save.equip.weapon; G.computeStats(); }
+          const id = 'basic_' + type, sk = G.SKILLS[id];
+          const tg = T.mob('brute', 2.4, 0, { hp: 1e7 });
+          tg.mass = 1e6;
+          const m0 = P.mana, fin0 = S.stats.finishers, h0 = tg.hp;
+          const seq = [], clips = [];
+          let last = null;
+          for (let i = 0; i < 300 && seq.length < sk.combo.length + 1; i++) {
+            T.aim(tg.x, tg.z);
+            G.input.mouse.b[2] = true;
+            G.tick(1 / 60);
+            const c = P.cast;
+            if (c && c.st && c !== last) { last = c; seq.push(c.step); clips.push(W.clipOf(P.ent)); }
+          }
+          G.input.mouse.b[2] = false;
+          G.debug.step(1);
+          out.melee[type] = {
+            id: G.weaponBasic(), n: sk.combo.length, seq: seq.join(), clips: clips.join(), want: sk.combo.map((c) => c.clip).concat([sk.combo[0].clip]).join(),
+            fin: S.stats.finishers - fin0, finW: sk.combo[sk.combo.length - 1].w, dmg: h0 - tg.hp, mana: +(m0 - P.mana).toFixed(3),
+            weaponOnly: sk.weaponOnly && sk.basic && G.GEM_SKILLS.indexOf(id) < 0, tags: sk.tags.join(),
+          };
+        }
+        // 施法 / 召唤：右键点几下，打中准星附近的靶子
+        for (const [b, type] of [[1, 'staff'], [2, 'wand'], [7, 'banner']]) {
+          T.lane();
+          RW.arm(b);
+          G.clearMinions();
+          const tg = T.mob('brute', 6, 0, { hp: 1e7 });
+          const m0 = P.mana, h0 = tg.hp, sp0 = S.projectiles.length;
+          let proj = 0, cast = null;
+          for (let i = 0; i < 90; i++) {
+            T.aim(tg.x, tg.z);
+            G.input.mouse.b[2] = true;
+            G.tick(1 / 60);
+            if (P.cast && !cast) cast = P.cast.id + ':' + W.clipOf(P.ent);
+            proj = Math.max(proj, S.projectiles.length - sp0);
+          }
+          G.input.mouse.b[2] = false;
+          G.debug.step(1.5);
+          const ctx = G.skillCtx('basic_' + type);
+          out.cast[type] = { id: G.weaponBasic(), cast, proj, dmg: h0 - tg.hp, mana: +(m0 - P.mana).toFixed(3), spell: ctx.sk.tags.indexOf('spell') >= 0, attack: ctx.attack, cost: ctx.cost, el: Object.keys(ctx.base).join() };
+        }
+        // 图标：每个普攻都有自己的程序化图标
+        out.icons = Object.keys(G.SKILLS).filter((id) => G.SKILLS[id].basic).map((id) => id + ':' + /^data:image\/png/.test(G.icons ? G.icons.url('sk-' + id) : 'data:image/png'));
+      } finally {
+        save.equip.weapon = keepW;
+        T.buildRestore(snap);
+        G.clearMinions();
+        T.arena();
+      }
+      return out;
+    }, rangedSetup);
+    const want = { blade: 3, daggers: 4, hammer: 3, katana: 3, fists: 3 };
+    for (const k of Object.keys(want)) {
+      const m = r.melee[k];
+      const seq = Array.from({ length: want[k] }, (_, i) => i).concat([0]).join();
+      assert(m.id === 'basic_' + k && m.n === want[k] && m.seq === seq, k + '：按住右键应一路打完 ' + want[k] + ' 段再从头来：' + JSON.stringify(m));
+      assert(m.clips === m.want, k + '：每段的动作应和数据一致：' + JSON.stringify(m));
+      assert(m.fin === 1 && m.finW === 2 && m.dmg > 0 && m.mana === 0 && m.weaponOnly && /attack/.test(m.tags) && /melee/.test(m.tags), k + '：终结 / 伤害 / 不耗魔力 / 不进宝石池：' + JSON.stringify(m));
+    }
+    for (const k of ['staff', 'wand', 'banner']) {
+      const c = r.cast[k];
+      assert(c.id === 'basic_' + k && c.cast && c.cast.indexOf('basic_' + k + ':b_point') === 0 && c.dmg > 0 && c.mana === 0 && c.cost === 0 && c.spell && !c.attack, k + '：右键应放出自己的普攻（朝前点出的动作）、打中靶子、不耗魔力、是法术：' + JSON.stringify(c));
+    }
+    assert(r.cast.staff.proj >= 1 && r.cast.banner.proj >= 1 && r.cast.wand.proj === 0, '灵弹 / 魂引是投射物，疾咒是瞬发的咒光：' + JSON.stringify(r.cast));
+    assert(r.icons.length === 15 && r.icons.every((x) => /:true$/.test(x)), '每个普攻都应有图标：' + r.icons.join(' '));
+    return Object.keys(r.melee).map((k) => k + ' ' + r.melee[k].seq).join(' · ');
+  });
+
+  await step('近战连招的节奏：停手约 0.55 秒（收招之后）从头再来、翻滚 / 放别的技能也重置；收招途中轻点右键记进缓冲、一到能接招的时刻接下一段；换武器时换成新武器的连招、从第一段起；迅捷让整串一起变快', async () => {
+    const r = await ev((code) => {
+      eval(code);
+      const save = G.save, P = G.player, out = {};
+      const snap = T.buildSnap();
+      const keepW = save.equip.weapon;
+      try {
+        T.lane();
+        RW.arm(3); // 双匕：4 段
+        for (const k of Object.keys(save.sockets)) save.sockets[k] = [null, null, null];
+        save.bar = ['ember', null, null, null];
+        G.computeStats();
+        const A = T.mob('brute', 2.4, 0, { hp: 1e7 });
+        A.mass = 1e6;
+        out.a = T.swing(A).step;
+        out.b = T.swing(A).step;
+        // 收招途中轻点：缓冲着，到可接招的那一刻放出下一段
+        let c0 = P.cast;
+        G.input.tap[1] = G.bufferTime('cast');
+        const tap = G.input.tap[1];
+        let at = -1;
+        for (let i = 0; i < 60 && at < 0; i++) { T.aim(A.x, A.z); G.tick(1 / 60); if (P.cast && P.cast !== c0) at = c0.t - c0.cancelT; }
+        out.buf = { tap, at, step: P.cast && P.cast.step };
+        G.debug.step(0.4);
+        // 停手：窗口里还算接上，过了窗口从头来
+        G.debug.step(0.2);
+        out.within = T.swing(A).step; // 3（终结）
+        G.debug.step(1.4);
+        out.reset = T.swing(A).step; // 0
+        // 翻滚重置
+        out.mid = T.swing(A).step; // 1
+        P.roll.cd = 0;
+        G.dodge();
+        G.debug.step(0.6);
+        out.afterRoll = T.swing(A).step; // 0
+        // 放别的技能重置
+        T.swing(A);
+        P.mana = P.maxMana;
+        G.input.tap[0] = 0.3;
+        for (let i = 0; i < 40 && !(P.cast && P.cast.id === 'ember' && P.cast.fired); i++) { T.aim(A.x, A.z); G.tick(1 / 60); }
+        G.debug.step(0.6);
+        out.afterSkill = T.swing(A).step; // 0
+        // 换武器：连段跟着新武器的普攻、从第一段起
+        T.swing(A);
+        out.before = P.combo.id + ':' + P.combo.step;
+        RW.arm(4); // 战锤
+        const s = T.swing(A);
+        out.swap = { id: P.cast && P.cast.id, step: s.step };
+        // 迅捷（武器普攻卡）：每一段都按出手速度缩短
+        G.debug.step(1.5);
+        const t0 = G.skillCtx('basic_hammer').time;
+        if (save.supports.indexOf('haste') < 0) save.supports.push('haste');
+        G.socketSupport(G.BASIC_CARD, 0, 'haste');
+        out.haste = { ratio: G.skillCtx('basic_hammer').time / t0, active: G.basicSupports('basic_hammer').join() };
+        const s2 = T.swing(A);
+        out.haste.fireT = P.cast.fireT;
+        out.haste.want = G.SKILLS.basic_hammer.combo[s2.step].hit / G.skillCtx('basic_hammer').speed;
+      } finally {
+        save.equip.weapon = keepW;
+        T.buildRestore(snap);
+        save.sockets[G.BASIC_CARD] = [null, null, null];
+        T.arena();
+      }
+      return out;
+    }, rangedSetup);
+    assert(r.a === 0 && r.b === 1, '前两段应是 0、1：' + JSON.stringify(r));
+    assert(r.buf.tap > 0.2 && r.buf.at >= -1e-6 && r.buf.at < 0.06 && r.buf.step === 2, '收招途中轻点的右键应在可接招的那一刻接出第三段：' + JSON.stringify(r.buf));
+    assert(r.within === 3 && r.reset === 0, '窗口内接上终结、停手超过窗口从头来：' + JSON.stringify(r));
+    assert(r.mid === 1 && r.afterRoll === 0, '翻滚应让连段从头来：' + JSON.stringify(r));
+    assert(r.afterSkill === 0, '放别的技能应让连段从头来：' + JSON.stringify(r));
+    assert(/^basic_daggers:[1-3]$/.test(r.before) && r.swap.id === 'basic_hammer' && r.swap.step === 0, '换了武器应换成新武器的连招、从第一段起：' + JSON.stringify(r));
+    assert(Math.abs(r.haste.ratio - 0.8) < 0.01 && r.haste.active === 'haste' && Math.abs(r.haste.fireT - r.haste.want) < 1e-6, '迅捷应让整串连招按出手速度变快：' + JSON.stringify(r.haste));
+    return '缓冲在可接招后 ' + (r.buf.at * 1000).toFixed(0) + ' ms 接上';
+  });
+
+  await step('魂幡的普攻「魂引」：没有召唤物也能打；伤害按召唤物算（吃召唤物伤害提高，不吃你的物理伤害提高）；每只召唤物 +8%（最多 5 只）；打中的目标成为召唤物的集火目标；召唤物辅助（驭灵）对它生效', async () => {
+    const r = await ev((code) => {
+      eval(code);
+      const save = G.save, P = G.player, S = G.state, out = {};
+      const snap = T.buildSnap();
+      const keepW = save.equip.weapon;
+      try {
+        T.lane();
+        RW.arm(7, 20);
+        G.clearMinions();
+        for (const k of Object.keys(save.sockets)) save.sockets[k] = [null, null, null];
+        G.computeStats();
+        const hit = () => G.avgHit(G.skillCtx('basic_banner'));
+        out.base = hit();
+        P.S.incPhys = (P.S.incPhys || 0) + 100;
+        out.phys = hit();
+        P.S.incPhys -= 100;
+        P.S.minionDmg = (P.S.minionDmg || 0) + 50;
+        out.minionDmg = hit();
+        P.S.minionDmg -= 50;
+        // 0 只召唤物：照样打中
+        const tg = T.mob('brute', 7, 0, { hp: 1e7 });
+        S.focus = null;
+        const h0 = tg.hp;
+        for (let i = 0; i < 40; i++) { T.aim(tg.x, tg.z); G.input.mouse.b[2] = true; G.tick(1 / 60); }
+        G.input.mouse.b[2] = false;
+        G.debug.step(1.5);
+        out.zero = { dmg: h0 - tg.hp, focus: S.focus === tg, minions: S.minions.filter((m) => !m.dead).length };
+        // 召唤物越多越痛：3 只仆从 → +24%；7 只 → 封顶 +40%
+        const th = G.skillCtx('thrall');
+        for (let i = 0; i < 3; i++) G.summonMinion('thrall', P.x - 1, P.z + i - 1, th);
+        out.three = hit() / out.base;
+        for (let i = 0; i < 4; i++) G.summonMinion('thrall', P.x - 2, P.z + i - 2, th);
+        out.many = { k: hit() / out.base, n: S.minions.filter((m) => !m.dead).length };
+        G.clearMinions();
+        // 驭灵（召唤物伤害额外 +30%）镶在武器普攻卡上：对魂引生效；坚骨（召唤物生命）对它没用、镶不上
+        if (save.supports.indexOf('dominion') < 0) save.supports.push('dominion');
+        if (save.supports.indexOf('ossify') < 0) save.supports.push('ossify');
+        out.dom = G.socketSupport(G.BASIC_CARD, 0, 'dominion');
+        out.oss = G.supportFits('basic_banner', 'ossify');
+        out.domK = hit() / out.base;
+      } finally {
+        save.equip.weapon = keepW;
+        T.buildRestore(snap);
+        save.sockets[G.BASIC_CARD] = [null, null, null];
+        G.clearMinions();
+        T.arena();
+      }
+      return out;
+    }, rangedSetup);
+    assert(Math.abs(r.phys / r.base - 1) < 1e-9 && r.minionDmg / r.base > 1.45, '魂引应吃召唤物伤害、不吃你的物理伤害提高：' + JSON.stringify(r));
+    assert(r.zero.dmg > 0 && r.zero.focus && r.zero.minions === 0, '没有召唤物时魂引照样打中、并标记集火目标：' + JSON.stringify(r.zero));
+    assert(Math.abs(r.three - 1.24) < 0.005 && r.many.n === 7 && Math.abs(r.many.k - 1.4) < 0.005, '每只召唤物 +8%、最多 5 只：' + JSON.stringify(r));
+    assert(r.dom && !r.oss && Math.abs(r.domK - 1.3) < 0.005, '驭灵应对魂引生效、坚骨不适配：' + JSON.stringify(r));
+    return '0 只 ' + Math.round(r.base) + ' / 3 只 ×' + r.three.toFixed(2) + ' / 封顶 ×' + r.many.k.toFixed(2);
+  });
+
+  await step('存档迁移（武器普攻改版）：学过的裂石击退成同等级的无铭技能宝石，镶在它上面的辅助回到手里；右键上的技能带着辅助挪到第一个空格，三格都满时收进 rmbKeep；改版前拿远程武器时收起来的 rmbKeep 放回空格；读档后会提示一次', async () => {
+    const r = await ev(() => {
+      const KEY = 'cinder-abyss-save-v1';
+      const keep = localStorage.getItem(KEY);
+      G.persist();
+      const base = JSON.parse(localStorage.getItem(KEY));
+      const load = (patch) => {
+        const raw = Object.assign(JSON.parse(JSON.stringify(base)), patch);
+        localStorage.setItem(KEY, JSON.stringify(raw));
+        G.loadSave();
+        G.computeStats();
+        const s = G.save;
+        return { bar: s.bar.join(), keep: s.rmbKeep, skills: Object.keys(s.skills).sort().join(), blank: s.blankGems.join(), sups: s.supports.slice().sort().join(), sock: JSON.stringify(s.sockets), refund: G.cleaveRefund, moved: G.rmbMigrated, basic: G.slotSkill(1) };
+      };
+      const out = {};
+      try {
+        const eq = { weapon: Object.assign({}, base.equip.weapon, { baseIdx: 0 }) };
+        // 1) 改版前的新角色：裂石击（Lv 6，镶着蛮力 / 迅捷）在左键、掷焰（镶着多重）在右键
+        out.a = load({ equip: eq, skills: { cleave: 6, ember: 5 }, supports: ['brutal', 'haste', 'multi'], blankGems: [], rmbKeep: null,
+          sockets: { cleave: ['brutal', 'haste', null], ember: ['multi', null, null], wbasic: [null, null, null] }, bar: ['cleave', 'ember', null, null] });
+        // 2) 右键上有技能、另外三格都满：收进 rmbKeep，技能和辅助都还在
+        out.b = load({ equip: eq, skills: { ember: 3, arc: 3, meteor: 3, blink: 3 }, supports: ['multi'], blankGems: [], rmbKeep: null,
+          sockets: { ember: [null, null, null], arc: ['multi', null, null], meteor: [null, null, null], blink: [null, null, null] }, bar: ['ember', 'arc', 'meteor', 'blink'] });
+        // 3) 改版前拿着远程武器存的档：右键空着、原来的右键技能收在 rmbKeep，Q 空着 → 放进 Q
+        out.c = load({ equip: { weapon: Object.assign({}, base.equip.weapon, { baseIdx: 5 }) }, skills: { ember: 3, arc: 3, nova: 3 }, supports: [], blankGems: [2], rmbKeep: 'arc',
+          sockets: { ember: [null, null, null], arc: [null, null, null], nova: [null, null, null] }, bar: ['ember', null, null, 'nova'] });
+        // 4) 读档两次：不会再退一次宝石、不会再提示
+        G.persist();
+        G.loadSave();
+        out.again = { blank: G.save.blankGems.join(), refund: G.cleaveRefund, moved: G.rmbMigrated };
+        // 提示文字（第 1 份存档）
+        load({ equip: eq, skills: { cleave: 6, ember: 5 }, supports: ['brutal', 'haste', 'multi'], blankGems: [], rmbKeep: null,
+          sockets: { cleave: ['brutal', 'haste', null], ember: ['multi', null, null], wbasic: [null, null, null] }, bar: ['cleave', 'ember', null, null] });
+        const h = G.ui.hints().all.indexOf('basicmig') >= 0;
+        out.hint = h;
+      } finally {
+        if (keep) localStorage.setItem(KEY, keep);
+        G.loadSave();
+        G.computeStats();
+        T.arena();
+      }
+      return out;
+    });
+    const a = r.a;
+    assert(a.skills === 'ember' && a.blank === '6' && a.refund && a.refund.lvl === 6 && a.refund.sups.join() === 'brutal,haste', '裂石击应退成 Lv 6 无铭宝石、记下取下的辅助：' + JSON.stringify(a));
+    assert(a.sups === 'brutal,haste,multi' && !/brutal|haste/.test(a.sock), '镶在裂石击上的辅助应回到手里（仍拥有、不在任何孔里）：' + JSON.stringify(a));
+    assert(a.bar === 'ember,,,' && JSON.parse(a.sock).ember[0] === 'multi' && a.basic === 'basic_blade' && a.moved.length === 1 && a.moved[0].id === 'ember' && a.moved[0].to === 0, '右键上的掷焰应带着多重挪到空出来的左键：' + JSON.stringify(a));
+    const b = r.b;
+    assert(b.bar === 'ember,,meteor,blink' && b.keep === 'arc' && /"arc":\["multi"/.test(b.sock) && b.skills === 'arc,blink,ember,meteor', '三格都满时右键的链雷应收进 rmbKeep，技能和辅助都在：' + JSON.stringify(b));
+    const c = r.c;
+    assert(c.bar === 'ember,,arc,nova' && c.keep === null && c.basic === 'basic_eagle', '远程武器时收起来的链雷应放进空着的 Q：' + JSON.stringify(c));
+    assert(r.again.refund === null && r.again.moved === null, '第二次读档不应再迁移 / 提示：' + JSON.stringify(r.again));
+    assert(r.hint, '应有「武器普攻改版」的提示');
+    return '裂石击 → Lv ' + a.refund.lvl + ' 无铭宝石；掷焰 → 左键；满格 → 收起';
   });
 
   await step('远程普攻：机炮先空转约 0.5 秒才开火、射速越打越快、开火时走得慢；喷枪的扇面灼烧并留下余烬；左轮 6 发后自动装填；弓的箭有拉弓、追猎会拐弯、鹰眼远距离更痛、符文带元素', async () => {
@@ -2365,7 +2650,8 @@ async function main() {
     assert(r.mech2 === 'ember' && r.ember.jumps >= 1 && r.ember.b > 0 && (r.ember.cold > 0 || r.ember.frozen > 0), '凛羽的冰晶应连跳并灌冰霜异常值：' + JSON.stringify(r.ember));
     const m = r.mig;
     assert(m.base === '鹰眼长弓' && m.name === '锋锐的鹰眼长弓' && m.type === 'eagle' && m.ws === 'pierceheart' && m.rare === '渊鸣鹰眼弓/灰烬之眼' && m.flag === 2 && m.noRain, '旧长弓应换成鹰眼长弓（名字同阶、稀有名不动），R 是一矢穿心：' + JSON.stringify(m));
-    assert(m.bar === 'cleave,,,' && m.slot1 === 'basic_eagle', '读进拿着长弓的旧存档：右键应接管为射击：' + JSON.stringify(m));
+    // 这份旧存档的技能栏是改版前的 ['cleave', 'ember', ...]：裂石击退成无铭宝石、右键的掷焰挪到左键
+    assert(m.bar === 'ember,,,' && m.slot1 === 'basic_eagle', '读进拿着长弓的旧存档：右键应接管为射击、原来右键的掷焰挪到空格：' + JSON.stringify(m));
     return '熔芯弹 ' + r.core.rounds + ' 发 · 余烬 ' + r.ember.jumps + ' 跳 · ' + m.name;
   });
 
@@ -2648,8 +2934,7 @@ async function main() {
     const r = await ev(() => {
       T.arena();
       const P = G.player, S = G.state;
-      G.bindSkill(0, 'cleave');
-      G.bindSkill(1, 'ember');
+      G.bindSkill(0, 'ember'); // 右键固定是武器普攻：掷焰放在左键
       G.bindSkill(2, 'meteor');
       G.bindSkill(3, 'blink');
       T.dummy(4, 0);
@@ -2658,9 +2943,9 @@ async function main() {
       const out = {};
       // 魔力不足
       P.mana = 2;
-      G.input.mouse.b[2] = true;
+      G.input.mouse.b[0] = true;
       G.debug.step(0.6);
-      G.input.mouse.b[2] = false;
+      G.input.mouse.b[0] = false;
       out.noMana = T.d.hp === T.d.maxHp && S.projectiles.length === 0;
       // 冷却
       P.mana = P.maxMana;
@@ -2676,9 +2961,9 @@ async function main() {
       // 投射物飞出场外后被清掉
       G.clearEnemies();
       P.mana = P.maxMana;
-      G.input.mouse.b[2] = true;
+      G.input.mouse.b[0] = true;
       G.debug.step(0.4);
-      G.input.mouse.b[2] = false;
+      G.input.mouse.b[0] = false;
       out.spawned = S.projectiles.length >= 1;
       const mesh = out.spawned ? S.projectiles[0].mesh : null;
       G.debug.step(3);
@@ -2700,7 +2985,7 @@ async function main() {
       G.debug.god(true);
       const P = G.player, W = G.world, S = G.state, out = {};
       G.save.sockets.nova = [null, null, null];
-      G.save.bar = ['cleave', 'ember', null, null];
+      G.save.bar = ['blade', null, null, 'ember'];
       G.computeStats();
       P.mana = P.maxMana;
       out.off = { raw: P.maxManaRaw, max: P.maxMana, res: P.reserved, on: G.auraOn('nova') };
@@ -2754,7 +3039,7 @@ async function main() {
       // 从地上捡起霜环：自动绑进空格，保留当场生效（不用等别的操作来重算属性）；保留的那部分魔力也不再回复
       const lvl0 = G.save.skills.nova || 1;
       delete G.save.skills.nova;
-      G.save.bar = ['cleave', 'ember', null, null];
+      G.save.bar = ['blade', null, null, 'ember'];
       G.computeStats();
       G.pickup(G.spawnLoot('skill', { id: 'nova', lvl: lvl0 }, P.x, P.z));
       out.pick = { on: G.auraOn('nova'), bar: G.save.bar.slice(), res: P.reserved, max: P.maxMana, raw: P.maxManaRaw, regen: P.manaRegen };
@@ -2914,7 +3199,7 @@ async function main() {
         G.addBuildUp(s0, { light: G.buThreshold(s0, 'light') }, 0);
         a.shockT = 4; // 电弧打在感电的敌人身上也不会再放电弧
         out.shock = { t: s0.shockT, bu: s0.bu.light, text: texts.includes('感电') };
-        const ctx = G.skillCtx('cleave');
+        const ctx = G.skillCtx('basic_blade'); // 纯物理的攻击（刃的普攻；裂石击已删除）
         const hp = () => [a, b, c2, far2].map((e) => e.maxHp - e.hp);
         const bolts0 = S.stats.bolts || 0;
         const sh0 = s0.hp;
@@ -3250,7 +3535,7 @@ async function main() {
       out.meteor = one('meteor');
       out.blink = one('blink');
       out.ember = one('ember');
-      out.cleave = one('cleave');
+      out.melee = one('basic_blade'); // 近战的主力：刃的右键连招「挥斩」（裂石击已删除）
       out.arc = one('arc');
       G.ui.open('skills');
       const card = (name) => { const c = Array.from(document.querySelectorAll('.skill-card')).find((n) => n.querySelector('.sk-name').textContent.startsWith(name)); return c ? c.innerText : ''; };
@@ -3261,11 +3546,11 @@ async function main() {
     const m = r.meteor, b = r.blink;
     assert(Math.abs(m.rate - 1 / m.cd) < 1e-9 && Math.abs(b.rate - 1 / b.cd) < 1e-9, '冷却技能的出手频率应按冷却算：' + JSON.stringify(r));
     assert(m.avg > r.ember.avg * 4 && m.avg > r.arc.avg * 4, '陨火每次的伤害应是掷焰 / 链雷一下的 4 倍以上：' + JSON.stringify(r));
-    assert(b.avg > (r.cleave.avg / 1.3) * 2.5, '闪袭每次的伤害应明显高于裂石击的一刀：' + JSON.stringify(r));
-    assert(m.dps < r.ember.dps && m.dps < r.arc.dps && b.dps < r.cleave.dps, '单独按冷却循环施放不应打过主力技能：' + JSON.stringify(r));
+    assert(b.avg > (r.melee.avg / 1.3) * 2.5, '闪袭每次的伤害应明显高于挥斩的一刀：' + JSON.stringify(r));
+    assert(m.dps < r.ember.dps && m.dps < r.arc.dps && b.dps < r.melee.dps, '单独按冷却循环施放不应打过主力技能：' + JSON.stringify(r));
     // 穿插的收益：每个冷却周期多出一次大伤害，少放（施放时间 ÷ 主力出手间隔）下主力技能
     const gain = (cd, main) => (cd.avg / cd.cd - main.dps * (cd.cd > 0 ? (cd.id === 'blink' ? 0.2 : 0.6) / cd.cd : 0)) / main.dps;
-    const gm = gain(m, r.ember), gb = gain(Object.assign({ id: 'blink' }, b), r.cleave);
+    const gm = gain(m, r.ember), gb = gain(Object.assign({ id: 'blink' }, b), r.melee);
     // 陨火冷却 5 秒（用户定的）：每次伤害高、冷却也不长，穿插收益比闪袭大
     assert(gm > 0.2 && gm < 0.6 && gb > 0.12 && gb < 0.3, '穿插冷却技能的秒伤收益不对（陨火 20%–60%，闪袭 12%–30%）：' + JSON.stringify({ gm, gb }));
     assert(r.card.includes('每次伤害') && r.card.includes('冷却技能') && r.card.includes(String(m.cd)), '陨火的技能卡应写每次伤害和冷却：' + r.card);
@@ -3376,7 +3661,7 @@ async function main() {
       G.debug.god(true);
       for (const id of Object.keys(G.save.sockets)) G.save.sockets[id] = [null, null, null];
       G.save.bar = G.save.bar.map((b) => (b === 'nova' ? null : b)); // 霜环保留魔力会干扰魔力的账
-      G.bindSkill(1, 'ember');
+      G.bindSkill(0, 'ember'); // 右键固定是武器普攻：掷焰放左键
       G.bindSkill(2, 'thrall');
       G.bindSkill(3, 'colossus');
       G.computeStats();
@@ -3483,17 +3768,17 @@ async function main() {
       P.cds = {};
       G.debug.step(0.6); // 间隔走完
       T.aim(P.x + 5, P.z);
-      G.input.tap[1] = 0.3;
+      G.input.tap[0] = 0.3;
       G.tick(1 / 60);
       const c1 = P.cast;
       out.started = !!c1 && c1.id === 'ember' && !c1.fired;
       G.hurtMinion(thralls()[0], 1e9, 'phys', null);
-      G.input.tap[1] = 0.6; // 施法途中又按了一下：缓冲着
+      G.input.tap[0] = 0.6; // 施法途中又按了一下：缓冲着
       const n0 = thralls().length;
       G.tick(1 / 60);
       out.summonedMidCast = thralls().length === n0 + 1;
       out.sameCast = P.cast === c1;
-      out.bufKept = G.input.tap[1] > 0.5;
+      out.bufKept = G.input.tap[0] > 0.5;
       let fired = false, second = null;
       for (let i = 0; i < 120; i++) {
         G.tick(1 / 60);
@@ -3709,7 +3994,7 @@ async function main() {
         for (let i = 0; i < 3; i++) G.summonMinion('thrall', P.x + 2, P.z + i - 1);
         G.debug.step(1.5);
         out.before = S.minions.filter((m) => m.target === near).length;
-        G.hitEnemy(far, G.skillCtx('cleave'), 1);
+        G.hitEnemy(far, G.skillCtx('basic_blade'), 1);
         out.focus = G.focusTarget() === far;
         G.debug.step(0.1);
         out.marked = marks.length > 0 && marks[marks.length - 1] === far.ent;
@@ -3977,7 +4262,7 @@ async function main() {
       const far = G.spawnMob('brute', P.x + dir.x * (bd - 3) - dir.z * 2, P.z + dir.z * (bd - 3) + dir.x * 2, 1, { awake: true });
       far.hp = far.maxHp = 1e7;
       far.freeze = 1e9;
-      G.hitEnemy(far, G.skillCtx('cleave'), 0.01, {});
+      G.hitEnemy(far, G.skillCtx('basic_blade'), 0.01, {});
       G.debug.step(0.4);
       out.focus = G.focusTarget() === far && ps.every((m) => m.dead || m.target === far || m.state === 'beam');
       G.clearEnemies();
@@ -4184,7 +4469,7 @@ async function main() {
       out.fits = fits;
       out.expanseC = G.supportFits('colossus', 'expanse');
       out.hordeC = G.supportFits('colossus', 'horde'); // 守像只有 1 尊，群聚对它只有坏处
-      out.minionOnCleave = ['dominion', 'ossify', 'horde', 'frenzy'].some((s) => G.supportFits('cleave', s));
+      out.minionOnAttack = ['dominion', 'ossify', 'horde', 'frenzy'].some((s) => G.supportFits('blade', s));
       const base = G.minionInfo('thrall');
       const baseC = G.minionInfo('colossus');
       const baseCtx = G.skillCtx('thrall');
@@ -4231,7 +4516,7 @@ async function main() {
     const f = r.fits;
     assert(!f.echo && !f.leech && !f.multi && !f.pierce && !f.chain, '回响 / 汲生 / 投射物类不应能镶在召唤技能上：' + JSON.stringify(f));
     assert(f.dominion && f.ossify && f.horde && f.frenzy && f.haste && f.fire && f.brutal && f.precise && f.stagger && f.ailment && f.frugal && !f.expanse && r.expanseC && !r.hordeC, '召唤技能可镶的辅助不对：' + JSON.stringify(f));
-    assert(!r.minionOnCleave, '召唤物辅助不应能镶在非召唤技能上');
+    assert(!r.minionOnAttack, '召唤物辅助不应能镶在非召唤技能上');
     assert(Math.abs(r.dmgK - 1.3 * 0.85 * 1.35) < 1e-6 && r.capA === 4, '驭灵 / 群聚 / 蛮力：' + JSON.stringify(r));
     assert(Math.abs(r.rateK - 1.2 * 1.25) < 1e-6 && Math.abs(r.castK - 1.25) < 1e-6 && r.fireExtra === 30 && Math.abs(r.moveK - 1.2) < 1e-6, '狂怒 / 迅捷 / 灼炎注入：' + JSON.stringify(r));
     assert(Math.abs(r.lifeK - 1.4) < 0.01 && r.dr === 40 && Math.abs(r.radiusK - Math.sqrt(1.4)) < 1e-6 && Math.abs(r.cdK - 0.75) < 1e-6, '坚骨 / 扩域 / 节流：' + JSON.stringify(r));
@@ -4347,7 +4632,7 @@ async function main() {
       G.resetPassives();
       const e = T.mob('husk', 2, 0);
       T.fix(0.5);
-      const hit = () => { const h = e.hp; G.hitEnemy(e, G.skillCtx('cleave'), 1); return h - e.hp; };
+      const hit = () => { const h = e.hp; G.hitEnemy(e, G.skillCtx('basic_blade'), 1); return h - e.hp; };
       const own0 = hit();
       const info0 = G.minionInfo('thrall');
       const md0 = P.S.minionDmg, ml0 = P.S.minionLife; // 身上的装备可能也带召唤物词缀
@@ -5516,21 +5801,21 @@ async function main() {
 
     // 放不出来：魔力不足 / 冷却中；冷却转好闪一下
     const slotOf = await ev(() => {
-      G.bindSkill(1, 'ember');
+      G.bindSkill(0, 'ember'); // 右键固定是武器普攻：掷焰放左键
       G.bindSkill(2, 'meteor');
-      return 1;
+      return 0;
     });
     await frames(3);
     await ev(() => { G.player.mana = 0; });
     await holdInput(slotOf, true);
     try {
-      await until(() => document.querySelectorAll('#slots .slot')[1].classList.contains('deny')).catch(() => {
+      await until(() => document.querySelectorAll('#slots .slot')[0].classList.contains('deny')).catch(() => {
         throw new Error('魔力不足时技能格没有反馈');
       });
     } finally {
       await holdInput(slotOf, false);
     }
-    r = await ev(() => { const s = document.querySelectorAll('#slots .slot')[1]; const b = s.querySelector('.s-bubble').getBoundingClientRect(), bar = document.getElementById('bar').getBoundingClientRect(); return { txt: s.querySelector('.s-bubble').textContent, inBar: b.left >= bar.left && b.right <= bar.right && b.top >= bar.top && b.bottom <= bar.bottom }; });
+    r = await ev(() => { const s = document.querySelectorAll('#slots .slot')[0]; const b = s.querySelector('.s-bubble').getBoundingClientRect(), bar = document.getElementById('bar').getBoundingClientRect(); return { txt: s.querySelector('.s-bubble').textContent, inBar: b.left >= bar.left && b.right <= bar.right && b.top >= bar.top && b.bottom <= bar.bottom }; });
     assert(r.txt === '魔力不足' && r.inBar, '魔力不足的反馈不对：' + JSON.stringify(r));
     await ev(() => { G.player.mana = G.player.maxMana; G.player.cds.meteor = 30; G.player.cdMax.meteor = 30; });
     await frames(2);
@@ -5696,7 +5981,7 @@ async function main() {
         const i = s.bar.indexOf(id);
         if (i >= 0) s.bar[i] = null;
       }
-      s.bar = ['cleave', 'ember', 'nova', null];
+      s.bar = ['ember', null, 'nova', null];
       s.skills.nova = 3;
       s.skills.blade = 8;
       s.blankGems = [7, 5, 2];
@@ -5729,7 +6014,7 @@ async function main() {
     await page.click('.sm-learn[data-skill="meteor"]');
     r = await ev(() => ({ gems: G.save.blankGems.join(), lvl: G.save.skills.meteor, sock: JSON.stringify(G.save.sockets.meteor), bar: G.save.bar.join(), msg: (document.querySelector('.bk-msg') || {}).innerText || '', toast: T.toasts(), card: !!document.querySelector('.skill-card [data-act="bind"][data-skill="meteor"]'), stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).blankGems.join() }));
     assert(r.lvl === 7 && r.gems === '5,2' && r.stored === '5,2', '应用掉最高的 Lv 7 那颗学会陨火：' + JSON.stringify(r));
-    assert(r.sock === '[null,null,null]' && r.bar === 'cleave,ember,nova,meteor' && r.card, '学会后应开好辅助槽并自动放进技能栏的空格：' + JSON.stringify(r));
+    assert(r.sock === '[null,null,null]' && r.bar === 'ember,,nova,meteor' && r.card, '学会后应开好辅助槽并自动放进技能栏的空格（右键不算空格）：' + JSON.stringify(r));
     assert(r.msg.includes('陨火') && r.msg.includes('Lv 7') && r.toast.includes('习得技能：陨火 Lv 7'), '学会后应给出提示：' + JSON.stringify(r));
     await until(() => document.querySelectorAll('#slots .slot')[3].dataset.skill === 'meteor').catch(() => {
       throw new Error('HUD 技能栏没有同步');
@@ -5748,7 +6033,7 @@ async function main() {
     assert(!r.btn, '剩下的 Lv 2 不高于霜环的 Lv 5，卡上不应再有升级入口');
 
     // 等级不够：不能升级（接口直接拒绝，界面上不给入口）
-    r = await ev(() => ({ api: G.useBlankGem('nova'), gems: G.save.blankGems.join(), lvl: G.save.skills.nova, ups: document.querySelectorAll('.blank-up').length, cleave: G.save.skills.cleave }));
+    r = await ev(() => ({ api: G.useBlankGem('nova'), gems: G.save.blankGems.join(), lvl: G.save.skills.nova, ups: document.querySelectorAll('.blank-up').length }));
     assert(r.api === null && r.gems === '2' && r.lvl === 5, '等级不高于当前时不应能升级：' + JSON.stringify(r));
     // 用完最后一颗：顶部写「已用完」，「尚未获得」变回不可点的列表
     r = await ev(() => {
@@ -5810,8 +6095,7 @@ async function main() {
     const keep = await ev(() => {
       T.arena();
       const k = { level: G.save.level, xp: G.save.xp, bar: G.save.bar.slice() };
-      G.bindSkill(0, 'cleave');
-      G.bindSkill(1, 'ember');
+      G.bindSkill(0, 'ember'); // 新角色的样子：左键掷焰，右键是刃的普攻（T.arena 换上的标准刃）
       G.save.level = 1;
       G.computeStats();
       G.save.bag.length = 0;
@@ -6001,7 +6285,7 @@ async function main() {
     const base = await ev(() => {
       G.debug.setLevel(12);
       G.resetPassives();
-      return { life: G.player.maxLife, pts: G.passivePoints(), inc: G.skillCtx('cleave').inc.phys };
+      return { life: G.player.maxLife, pts: G.passivePoints(), inc: G.skillCtx('basic_blade').inc.phys };
     });
     assert(base.pts.total === 11 && base.pts.free === 11, '12 级应有 11 点天赋：' + JSON.stringify(base.pts));
     await page.keyboard.press('KeyP');
@@ -6015,13 +6299,13 @@ async function main() {
     let r = await ev(() => ({ has: G.save.passives.includes('sm0'), life: G.player.maxLife, cls: document.querySelector('[data-node="sm0"]').getAttribute('class'), free: G.passivePoints().free }));
     assert(r.has && r.life === base.life + 15 && /alloc/.test(r.cls) && r.free === 10, '点亮体魄失败：' + JSON.stringify(r));
     await page.click(node('sm1'), { force: true });
-    r = await ev(() => ({ has: G.save.passives.includes('sm1'), inc: G.skillCtx('cleave').inc.phys }));
+    r = await ev(() => ({ has: G.save.passives.includes('sm1'), inc: G.skillCtx('basic_blade').inc.phys }));
     assert(r.has && r.inc === base.inc + 8, '点亮膂力后物理伤害加成没变');
     await page.click(node('sm0'), { force: true }); // 退回会断开 sm1：应被拒绝
     r = await ev(() => ({ has: G.save.passives.includes('sm0'), bad: !!document.querySelector('.tree-msg.bad') }));
     assert(r.has && r.bad, '退回会造成断连的天赋应被拒绝并提示');
     await page.click(node('sm1'), { force: true });
-    r = await ev(() => ({ has: G.save.passives.includes('sm1'), inc: G.skillCtx('cleave').inc.phys, free: G.passivePoints().free }));
+    r = await ev(() => ({ has: G.save.passives.includes('sm1'), inc: G.skillCtx('basic_blade').inc.phys, free: G.passivePoints().free }));
     assert(!r.has && r.inc === base.inc && r.free === 10, '退回膂力失败：' + JSON.stringify(r));
     await page.hover(node('dm0'), { force: true });
     r = await ev(() => ({ on: document.getElementById('tip').classList.contains('on'), txt: document.getElementById('tip').innerText }));
@@ -6072,14 +6356,14 @@ async function main() {
       const P = G.player, S = G.state;
       for (const k of Object.keys(G.save.sockets)) G.save.sockets[k] = [null, null, null];
       G.socketSupport('blade', 0, 'multi');
-      G.bindSkill(1, 'blade');
+      G.bindSkill(0, 'blade');
       T.fix(0.5); // 随机装备上的附加元素伤害可能让靶子感电 / 着火，多算伤害：随机数钉死
       T.dummy(2.2, 0); // 贴脸：3 枚飞刃都会碰到它
       G.input.mouse.wx = P.x + 2.2;
       G.input.mouse.wz = P.z;
       const ctx = G.skillCtx('blade');
       const maxOne = ctx.base.phys[1] * (1 + ctx.inc.phys / 100) * ctx.moreType.phys * ctx.more * (ctx.critMulti / 100);
-      G.input.tap[1] = 0.25;
+      G.input.tap[0] = 0.25;
       let maxProj = 0;
       for (let i = 0; i < 72; i++) {
         G.tick(1 / 60);
@@ -6098,12 +6382,12 @@ async function main() {
       }
       G.input.mouse.wx = P.x + 5;
       G.input.mouse.wz = P.z;
-      G.input.tap[1] = 0.25;
+      G.input.tap[0] = 0.25;
       G.debug.step(1.2);
       out.spread = ds.filter((e) => e.hp < e.maxHp).length;
       G.socketSupport('blade', 0, null);
       // 掷焰 + 多重 / 贯穿 / 连锁 打挤在一起的 4 只：直击加爆炸，每只每次施放最多挨一下
-      G.bindSkill(1, 'ember');
+      G.bindSkill(0, 'ember');
       const hitEnemy = G.hitEnemy;
       const hits = [];
       G.hitEnemy = function (e, c, m, inf) {
@@ -6125,13 +6409,13 @@ async function main() {
         P.mana = P.maxMana;
         G.input.mouse.wx = P.x + 5;
         G.input.mouse.wz = P.z;
-        G.input.tap[1] = 0.25;
+        G.input.tap[0] = 0.25;
         G.debug.step(2);
         out.ember[sups.join('+') || 'none'] = pk.map((e) => hits.filter((h) => h === e).length);
       }
       G.hitEnemy = hitEnemy;
       G.save.sockets.ember = [null, null, null];
-      G.bindSkill(1, 'blade');
+      G.bindSkill(0, 'blade');
       // 敌方齐射
       G.clearEnemies();
       G.debug.god(false);
@@ -6161,20 +6445,19 @@ async function main() {
   });
 
   // ------------------------------------------------------------------ 动作战斗（v2-C）：连击 / 缓冲 / 受击反馈 / 架势 / 处决
-  await uiStep('连击：裂石击三段动作、范围、伤害各不相同，终结技更重、击退更远、顿帧更长；停手、翻滚或换技能后从头再来；辅助宝石对每一段生效；连击计数与连段指示', async () => {
+  await uiStep('连击（刃的右键普攻「挥斩」，裂石击已删除）：三段动作、范围、伤害各不相同，终结的突刺更重、击退更远、顿帧更长；停手、翻滚或换技能后从头再来；武器普攻卡上的辅助对每一段生效；连击计数与连段指示', async () => {
     const r = await ev(() => {
       T.lane();
       G.debug.god(true);
       const P = G.player, S = G.state, W = G.world;
       for (const k of Object.keys(G.save.sockets)) G.save.sockets[k] = [null, null, null];
-      G.bindSkill(0, 'cleave');
-      G.bindSkill(1, 'ember');
+      G.bindSkill(0, 'ember'); // 右键是 T.lane 换上的标准刃的「挥斩」
       G.computeStats();
       const out = { walk: W.walkable(P.x + 7.4, P.z, 1), x0: P.x };
       T.fix(0.5); // 不暴击、伤害取中值：三段之间只差倍率
       const A = T.mob('husk', 2.6, 0); // 正前方
-      const F = T.mob('husk', 6.6, 0); // 更远：扇形够不着，只有跃劈的落点能盖到
-      const ctx = G.skillCtx('cleave');
+      const F = T.mob('husk', 6.6, 0); // 更远：扇形够不着，只有终结的突刺（弓步前冲 + 一条直线）够得着
+      const ctx = G.skillCtx('basic_blade');
       const mid = G.calcHit(ctx, 1).total; // 随机数钉死后的一次标准命中（含装备附加的各类伤害）
       out.steps = [];
       const st0 = Object.assign({}, S.stats);
@@ -6194,7 +6477,7 @@ async function main() {
       out.hits = S.stats.hits - st0.hits;
       out.chain = P.chain.n;
       out.moved = P.x - out.x0;
-      out.comboData = G.SKILLS.cleave.combo.map((c) => ({ mult: c.mult, stop: c.stop, clip: c.clip, time: c.time }));
+      out.comboData = G.SKILLS.basic_blade.combo.map((c) => ({ mult: c.mult, stop: c.stop, clip: c.clip, time: c.time }));
       out.speed = ctx.speed;
       out.stopK = ctx.stopK;
       // 第 4 次出手是新一轮的第一段：现在连段应该指向第二段
@@ -6203,16 +6486,16 @@ async function main() {
     });
     assert(r.walk, '测试场地不够宽');
     const s = r.steps;
-    assert(s.every((x) => x.fired), '按住左键没有连续打出四次：' + JSON.stringify(s));
+    assert(s.every((x) => x.fired), '按住右键没有连续打出四次：' + JSON.stringify(s));
     assert(s.map((x) => x.step).join() === '0,1,2,0', '连段顺序应为 0,1,2,0，实际 ' + s.map((x) => x.step).join());
-    assert(s.map((x) => x.clip).join() === 'attack1,attack2,attack3,attack1', '三段应各用各的动作：' + s.map((x) => x.clip).join());
+    assert(s.map((x) => x.clip).join() === 'attack1,attack2,b_thrust,attack1', '三段应各用各的动作（第三段是突刺）：' + s.map((x) => x.clip).join());
     for (let i = 0; i < 3; i++) {
       assert(Math.abs(s[i].mult - r.comboData[i].mult) < 0.01, '第 ' + (i + 1) + ' 段伤害倍率应为 ' + r.comboData[i].mult + '，实际 ' + s[i].mult.toFixed(3));
       assert(Math.abs(s[i].stop * 1000 - r.comboData[i].stop * r.stopK) < 0.5, '第 ' + (i + 1) + ' 段顿帧应为 ' + (r.comboData[i].stop * r.stopK).toFixed(1) + ' 毫秒（基础 ' + r.comboData[i].stop + ' × 出手速度系数 ' + r.stopK.toFixed(3) + '），实际 ' + (s[i].stop * 1000).toFixed(1));
     }
     assert(s[2].mult > s[0].mult * 2 && s[2].mult > s[1].mult * 2, '终结技的伤害应明显更高');
     assert(s[2].kv > s[0].kv * 3 && s[2].kv > s[1].kv * 3 && s[0].kv > 1, '终结技的击退应远大于前两段：' + s.map((x) => x.kv.toFixed(1)).join(' / '));
-    assert(s[0].dmgF === 0 && s[1].dmgF === 0 && s[2].dmgF > 0, '远处的敌人应只被第三段（跃劈的落点）打到：' + s.map((x) => x.dmgF.toFixed(0)).join(' / '));
+    assert(s[0].dmgF === 0 && s[1].dmgF === 0 && s[2].dmgF > 0, '远处的敌人应只被第三段（突刺）打到：' + s.map((x) => x.dmgF.toFixed(0)).join(' / '));
     assert(r.moved > 0.8, '出手时应朝准星踏步前冲，实际位移 ' + r.moved.toFixed(2));
     assert(r.fin === 1 && r.hits === 5 && r.chain === 5, '命中统计不对：' + JSON.stringify({ fin: r.fin, hits: r.hits, chain: r.chain }));
     assert(r.stepAfter === 1, '第四次出手后连段应指向第二段');
@@ -6233,7 +6516,7 @@ async function main() {
     }));
     assert(h.on && h.n === '5' && h.vis, '连击计数没有显示 5：' + JSON.stringify(h));
     assert(h.box.r <= h.w && h.box.l > h.w * 0.7 && h.box.t > 190 && h.box.b < h.h - 200, '连击计数的位置不对（应在右侧中部，不压小地图和血球）：' + JSON.stringify(h.box));
-    assert(h.slot === 'cleave' && h.pips === 3 && h.lit === 1, '技能格上的连段指示不对：' + JSON.stringify(h));
+    assert(h.slot === 'basic_blade' && h.pips === 3 && h.lit === 1, '右键格上的连段指示不对：' + JSON.stringify(h));
 
     // 窗口内再按接下一段；停手太久从头再来；翻滚、换技能也会重置
     const q = await ev(() => {
@@ -6265,28 +6548,28 @@ async function main() {
       // 换技能重置
       const st2 = P.combo.step;
       P.mana = P.maxMana;
-      G.input.tap[1] = 0.3;
+      G.input.tap[0] = 0.3;
       for (let i = 0; i < 40 && !(P.cast && P.cast.id === 'ember' && P.cast.fired); i++) { T.aim(A.x, A.z); G.tick(1 / 60); }
       out.ember = !!(P.cast && P.cast.id === 'ember');
       out.afterSkill = [st2, P.combo.step];
       G.debug.step(0.6);
-      // 辅助宝石对每一段都生效：蛮力（物理 +35%）、迅捷（速度 +25%）
+      // 武器普攻卡上的辅助宝石对每一段都生效：蛮力（物理 +35%）、迅捷（速度 +25%）
       T.fix(0.5);
-      const dmg = (st) => { const h0 = A.hp; T.aim(A.x, A.z); P.x = A.x - 2; P.z = A.z; G.execSkill(G.skillCtx('cleave'), G.SKILLS.cleave.combo[st]); return h0 - A.hp; };
+      const dmg = (st) => { const h0 = A.hp; T.aim(A.x, A.z); P.x = A.x - 2; P.z = A.z; G.execSkill(G.skillCtx('basic_blade'), G.SKILLS.basic_blade.combo[st]); return h0 - A.hp; };
       const base = [dmg(0), dmg(1), dmg(2)];
-      const dur0 = G.skillCtx('cleave').time;
-      const unit0 = G.calcHit(G.skillCtx('cleave'), 1).total;
-      G.socketSupport('cleave', 0, 'brutal');
-      G.socketSupport('cleave', 1, 'haste');
+      const dur0 = G.skillCtx('basic_blade').time;
+      const unit0 = G.calcHit(G.skillCtx('basic_blade'), 1).total;
+      G.socketSupport(G.BASIC_CARD, 0, 'brutal');
+      G.socketSupport(G.BASIC_CARD, 1, 'haste');
       const sup = [dmg(0), dmg(1), dmg(2)];
       out.ratio = sup.map((v, i) => v / base[i]);
-      out.wantRatio = G.calcHit(G.skillCtx('cleave'), 1).total / unit0; // 纯物理时正好 1.35；装备带元素附伤时略低
-      out.durRatio = G.skillCtx('cleave').time / dur0;
+      out.wantRatio = G.calcHit(G.skillCtx('basic_blade'), 1).total / unit0; // 纯物理时正好 1.35；装备带元素附伤时略低
+      out.durRatio = G.skillCtx('basic_blade').time / dur0;
       G.debug.step(0.3);
       const s = T.swing(A);
       out.hasteHit = P.cast ? P.cast.fireT : 0;
-      out.hitData = G.SKILLS.cleave.combo[s.step].hit;
-      out.speed = G.skillCtx('cleave').speed;
+      out.hitData = G.SKILLS.basic_blade.combo[s.step].hit;
+      out.speed = G.skillCtx('basic_blade').speed;
       T.unfix();
       G.debug.step(3);
       return out;
@@ -6312,8 +6595,7 @@ async function main() {
     await ev(() => {
       T.arena();
       G.debug.god(true);
-      G.bindSkill(0, 'cleave');
-      G.bindSkill(1, 'ember');
+      G.bindSkill(0, 'ember'); // 右键是刃的「挥斩」连招（裂石击已删除）；左键掷焰
       G.bindSkill(2, 'arc');
       G.bindSkill(3, null);
       for (const k of Object.keys(G.save.sockets)) G.save.sockets[k] = [null, null, null];
@@ -6323,9 +6605,9 @@ async function main() {
     });
     await aim();
     // 1. 挥砍途中按 Q：收招一到可取消的时刻就放出链雷
-    await page.mouse.click(...Object.values(await ev(() => { const p = T.scr(G.player.x + 4, G.player.z); return { x: Math.round(p.x), y: Math.round(p.y) }; })));
+    await page.mouse.click(...Object.values(await ev(() => { const p = T.scr(G.player.x + 4, G.player.z); return { x: Math.round(p.x), y: Math.round(p.y) }; })), { button: 'right' });
     let r = await ev(() => { for (let i = 0; i < 6; i++) G.tick(1 / 60); const c = G.player.cast; return { id: c && c.id, step: c && c.step, t: c && c.t, cancelT: c && c.cancelT, fireT: c && c.fireT }; });
-    assert(r.id === 'cleave' && r.step === 0 && r.t < r.fireT, '点击左键没有开始第一段：' + JSON.stringify(r));
+    assert(r.id === 'basic_blade' && r.step === 0 && r.t < r.fireT, '点击右键没有开始第一段：' + JSON.stringify(r));
     await page.keyboard.press('KeyQ');
     let b = await ev(() => {
       const P = G.player;
@@ -6342,8 +6624,9 @@ async function main() {
     r = await ev(() => {
       const P = G.player;
       G.debug.step(1.5);
-      P.combo.step = 2; // 直接出终结技：0.62 秒后才能接别的动作
-      G.input.tap[0] = 0.3;
+      P.combo.step = 2; // 直接出终结技：0.54 秒后才能接别的动作
+      P.combo.id = 'basic_blade';
+      G.input.tap[1] = 0.3;
       for (let i = 0; i < 3; i++) G.tick(1 / 60);
       return { step: P.cast && P.cast.step, cancelT: P.cast && P.cast.cancelT, t: P.cast && P.cast.t, buf: G.BUFFER };
     });
@@ -6360,11 +6643,11 @@ async function main() {
     assert(r.tap > r.cancelT - 0.06 && r.tap < 0.9, '终结技途中按下的输入，缓冲应覆盖到它可以接招为止：' + JSON.stringify(r));
     assert(r.at >= r.cancelT - 1e-6 && r.at < r.cancelT + 0.06 && r.spent > 5, '终结技起手时轻点的链雷应在可接招的那一刻放出：' + JSON.stringify(r));
     assert(Math.abs(r.want - 0.3) < 1e-6, '手上没有动作时缓冲应回到 0.3 秒：' + r.want);
-    //    掷焰（法术）途中轻点 Q 也一样
+    //    掷焰（法术，左键）途中轻点 Q 也一样
     await ev(() => { G.debug.step(1); G.player.mana = G.player.maxMana; });
-    await page.mouse.click(...Object.values(await ev(() => { const p = T.scr(G.player.x + 4, G.player.z); return { x: Math.round(p.x), y: Math.round(p.y) }; })), { button: 'right' });
+    await page.mouse.click(...Object.values(await ev(() => { const p = T.scr(G.player.x + 4, G.player.z); return { x: Math.round(p.x), y: Math.round(p.y) }; })), { button: 'left' });
     r = await ev(() => { for (let i = 0; i < 2; i++) G.tick(1 / 60); const c = G.player.cast; return { id: c && c.id, t: c && c.t }; });
-    assert(r.id === 'ember' && r.t < 0.06, '右键没有开始掷焰：' + JSON.stringify(r));
+    assert(r.id === 'ember' && r.t < 0.06, '左键没有开始掷焰：' + JSON.stringify(r));
     await page.keyboard.press('KeyQ');
     r = await ev(() => { const P = G.player; let nova = false; for (let i = 0; i < 70; i++) { G.tick(1 / 60); if (P.cast && P.cast.id === 'arc') nova = true; } return { nova }; });
     assert(r.nova, '掷焰起手时轻点的链雷被吃掉了');
@@ -6375,11 +6658,11 @@ async function main() {
     assert(r.tap > 0.2 && r.tap < 0.35 && !r.nova && r.cd === 0, '过期的缓冲不应再放出技能：' + JSON.stringify(r));
     //    挥砍途中按了 Q 又翻滚：翻滚之前缓冲着的技能作废，滚完不会突然放出来
     await ev(() => { const P = G.player; P.mana = P.maxMana; P.roll.cd = 0; });
-    await page.mouse.click(...Object.values(await ev(() => { const p = T.scr(G.player.x + 4, G.player.z); return { x: Math.round(p.x), y: Math.round(p.y) }; })));
+    await page.mouse.click(...Object.values(await ev(() => { const p = T.scr(G.player.x + 4, G.player.z); return { x: Math.round(p.x), y: Math.round(p.y) }; })), { button: 'right' });
     await ev(() => { for (let i = 0; i < 4; i++) G.tick(1 / 60); });
     await page.keyboard.press('KeyQ');
     r = await ev(() => ({ tap: G.input.tap[2], cast: G.player.cast && G.player.cast.id }));
-    assert(r.tap > 0.2 && r.cast === 'cleave', '挥砍途中按 Q 应记入缓冲：' + JSON.stringify(r));
+    assert(r.tap > 0.2 && r.cast === 'basic_blade', '挥砍途中按 Q 应记入缓冲：' + JSON.stringify(r));
     await page.keyboard.press('Space');
     r = await ev(() => { const P = G.player; const o = { tap: G.input.tap[2], roll: P.roll.t > 0 }; let nova = false; for (let i = 0; i < 80; i++) { G.tick(1 / 60); if (P.cast && P.cast.id === 'arc') nova = true; } o.nova = nova; return o; });
     assert(r.roll && r.tap === 0 && !r.nova, '翻滚应清掉之前缓冲的技能输入：' + JSON.stringify(r));
@@ -6387,7 +6670,7 @@ async function main() {
     await ev(() => { G.player.roll.cd = 0; });
     await page.keyboard.press('Space');
     await ev(() => { for (let i = 0; i < 6; i++) G.tick(1 / 60); });
-    await page.mouse.click(...Object.values(await ev(() => { const p = T.scr(G.player.x + 4, G.player.z); return { x: Math.round(p.x), y: Math.round(p.y) }; })));
+    await page.mouse.click(...Object.values(await ev(() => { const p = T.scr(G.player.x + 4, G.player.z); return { x: Math.round(p.x), y: Math.round(p.y) }; })), { button: 'right' });
     r = await ev(() => {
       const P = G.player;
       const rolling = P.roll.t > 0, cast0 = !!P.cast;
@@ -6395,7 +6678,7 @@ async function main() {
       for (let i = 0; i < 40 && at < 0; i++) { G.tick(1 / 60); if (P.cast) at = P.roll.t; }
       return { rolling, cast0, at, id: P.cast && P.cast.id };
     });
-    assert(r.rolling && !r.cast0 && r.id === 'cleave' && r.at <= 0 && r.at > -0.04, '翻滚途中按下的攻击应在翻滚结束的那一帧放出：' + JSON.stringify(r));
+    assert(r.rolling && !r.cast0 && r.id === 'basic_blade' && r.at <= 0 && r.at > -0.04, '翻滚途中按下的攻击应在翻滚结束的那一帧放出：' + JSON.stringify(r));
     // 4. 翻滚冷却快好时按空格：冷却一到就滚；离得还远则作废
     await ev(() => { const P = G.player; G.debug.step(1.2); P.roll.cd = 0.2; P.roll.cdMax = 0.9; });
     await page.keyboard.press('Space');
@@ -6415,9 +6698,9 @@ async function main() {
     // 5. 翻滚取消起手：不出伤害；取消收招：立刻能动
     await ev(() => { G.debug.step(0.5); G.player.roll.cd = 0; });
     await aim();
-    await page.mouse.click(...Object.values(await ev(() => { const p = T.scr(G.player.x + 4, G.player.z); return { x: Math.round(p.x), y: Math.round(p.y) }; })));
+    await page.mouse.click(...Object.values(await ev(() => { const p = T.scr(G.player.x + 4, G.player.z); return { x: Math.round(p.x), y: Math.round(p.y) }; })), { button: 'right' });
     r = await ev(() => { const P = G.player, e = G.state.enemies[0]; T.aim(e.x, e.z); for (let i = 0; i < 5; i++) G.tick(1 / 60); return { id: P.cast && P.cast.id, fired: P.cast && P.cast.fired, hp: e.hp }; });
-    assert(r.id === 'cleave' && r.fired === false, '没有进入起手：' + JSON.stringify(r));
+    assert(r.id === 'basic_blade' && r.fired === false, '没有进入起手：' + JSON.stringify(r));
     await page.keyboard.press('Space');
     let c = await ev((hp) => {
       const P = G.player, e = G.state.enemies[0], W = G.world;
@@ -6429,7 +6712,7 @@ async function main() {
     }, r.hp);
     assert(c.roll && !c.cast && c.clip === 'roll' && c.step === 0 && c.dmg === 0, '翻滚应取消起手且不出伤害：' + JSON.stringify(c));
     await aim();
-    await page.mouse.click(...Object.values(await ev(() => { const p = T.scr(G.player.x + 4, G.player.z); return { x: Math.round(p.x), y: Math.round(p.y) }; })));
+    await page.mouse.click(...Object.values(await ev(() => { const p = T.scr(G.player.x + 4, G.player.z); return { x: Math.round(p.x), y: Math.round(p.y) }; })), { button: 'right' });
     r = await ev(() => { const P = G.player, e = G.state.enemies[0]; const s = T.swing(e); for (let i = 0; i < 4; i++) G.tick(1 / 60); return { fired: P.cast && P.cast.fired, t: P.cast && P.cast.t, cancelT: P.cast && P.cast.cancelT }; });
     assert(r.fired && r.t < r.cancelT, '应处在收招阶段：' + JSON.stringify(r));
     await page.keyboard.press('Space');
@@ -6437,7 +6720,7 @@ async function main() {
     assert(c.roll && !c.cast, '翻滚应取消收招：' + JSON.stringify(c));
     // 6. 缓冲的输入不会带进打开的面板
     await aim();
-    await page.mouse.click(...Object.values(await ev(() => { const p = T.scr(G.player.x + 4, G.player.z); return { x: Math.round(p.x), y: Math.round(p.y) }; })));
+    await page.mouse.click(...Object.values(await ev(() => { const p = T.scr(G.player.x + 4, G.player.z); return { x: Math.round(p.x), y: Math.round(p.y) }; })), { button: 'right' });
     await ev(() => { for (let i = 0; i < 4; i++) G.tick(1 / 60); });
     await page.keyboard.press('Space');
     await page.keyboard.press('KeyQ'); // 翻滚途中按下：留到滚完再出
@@ -6463,7 +6746,7 @@ async function main() {
       G.debug.god(false);
       P.iframe = 0;
       P.roll.cd = 0.25;
-      G.input.tap[0] = 0.3;
+      G.input.tap[1] = 0.3;
       G.input.tap[2] = 0.3;
       G.input.tapDodge = 0.3;
       G.input.tapExec = 0.3;
@@ -6488,10 +6771,10 @@ async function main() {
     const r = await ev(() => {
       const P = G.player, S = G.state, W = G.world;
       const out = {};
-      const fin = G.SKILLS.cleave.combo[2];
-      const smash = () => G.execSkill(G.skillCtx('cleave'), fin);
+      // 重击：战锤普攻的终结（砸地，w 2、击退 2.6）；裂石击的跃劈已删除。伤害按手里的标准刃算
+      const fin = G.SKILLS.basic_hammer.combo[2];
+      const smash = () => G.execSkill(G.skillCtx('basic_hammer'), fin);
       const place = (x, z) => { T.arena(); G.debug.god(true); T.tp(x, z); };
-      G.bindSkill(0, 'cleave');
       for (const k of Object.keys(G.save.sockets)) G.save.sockets[k] = [null, null, null];
       G.computeStats();
 
@@ -6611,7 +6894,7 @@ async function main() {
         G.hitEnemy(e, G.skillCtx(skill), mult);
         return e.dead;
       };
-      out.kills = [kill('cleave', 0.001, 0.01), kill('ember', 0.001, 0.01), kill('nova', 0.001, 0.01), kill('arc', 0.001, 0.01), kill('cleave', 30, 50)];
+      out.kills = [kill('basic_blade', 0.001, 0.01), kill('ember', 0.001, 0.01), kill('nova', 0.001, 0.01), kill('arc', 0.001, 0.01), kill('basic_blade', 30, 50)];
       const n0 = decs.length;
       G.debug.step(2.2);
       W.die = od;
@@ -6649,7 +6932,6 @@ async function main() {
       T.arena();
       G.debug.god(true);
       const P = G.player, S = G.state, W = G.world, F = G.flow;
-      G.bindSkill(0, 'cleave');
       for (const k of Object.keys(G.save.sockets)) G.save.sockets[k] = [null, null, null];
       G.computeStats();
       const out = {};
@@ -6667,14 +6949,14 @@ async function main() {
         const st0 = S.stats.hits;
         let frozen = 0, stopSum = 0;
         while (ticks < 400 && (ev.timer === undefined || ev.tele === undefined || ev.cd === undefined)) {
-          if (hit) { T.aim(A.x, A.z); G.input.mouse.b[0] = true; }
+          if (hit) { T.aim(A.x, A.z); G.input.mouse.b[2] = true; } // 右键：刃的「挥斩」连招
           const tm = S.time;
           G.tick(1 / 60);
           ticks++;
           if (S.time === tm) frozen++;
           if (ev.cd === undefined && !(P.cds.meteor > 0)) ev.cd = ticks;
         }
-        G.input.mouse.b[0] = false;
+        G.input.mouse.b[2] = false;
         ev.ticks = ticks;
         ev.frozen = frozen;
         ev.game = S.time - t0;
@@ -6765,8 +7047,8 @@ async function main() {
       out.elite = [E.poiseMax, E.poise, G.MOBS.husk.poise];
       // 各种来源削掉多少
       const loss = (fn) => { const p = E.poise; fn(); return +(p - E.poise).toFixed(3); };
-      const combo = G.SKILLS.cleave.combo;
-      const cl = G.skillCtx('cleave');
+      const combo = G.SKILLS.basic_blade.combo;
+      const cl = G.skillCtx('basic_blade');
       const pd0 = P.S.poiseDmg; // 手里若是战锤，隐含的「架势削减提高」会放大削减：先归零比对数据表，最后单独验证
       P.S.poiseDmg = 0;
       out.loss = {
@@ -6839,7 +7121,7 @@ async function main() {
         P.iframe = 0;
         P.life = P.maxLife;
         T.fix(0.5);
-        G.hitEnemy(b, G.skillCtx('cleave'), 1, { poise: 30 });
+        G.hitEnemy(b, G.skillCtx('basic_blade'), 1, { poise: 30 });
         o.broken = b.brokenT;
         o.tel = S.telegraphs.filter((q) => q.owner === b).length;
         o.clip = W.clipOf(b.ent);
@@ -6935,8 +7217,7 @@ async function main() {
       const P = G.player, S = G.state;
       T.lane();
       G.debug.god(!!o.god);
-      G.bindSkill(0, 'cleave');
-      G.bindSkill(1, 'ember');
+      G.bindSkill(0, 'ember');
       G.bindSkill(2, null);
       G.bindSkill(3, null);
       for (const k of Object.keys(G.save.sockets)) G.save.sockets[k] = [null, null, null];
@@ -6947,7 +7228,7 @@ async function main() {
       else {
         e.atkCd = 1e9;
         // 血量相对角色的输出足够厚：处决伤害正好取「四成最大生命」这一档，和测试角色穿了什么无关
-        const best = Math.max(G.avgHit(G.skillCtx('cleave')), G.avgHit(G.skillCtx('ember')));
+        const best = Math.max(G.avgHit(G.skillCtx('basic_blade')), G.avgHit(G.skillCtx('ember')));
         e.hp = e.maxHp = Math.max(e.maxHp, best * G.POISE.execHits * 4);
       }
       if (o.hpK) e.hp = e.maxHp * o.hpK;
@@ -7022,14 +7303,14 @@ async function main() {
     const bossPct = (r.dmg / s.max) * 100;
     r = await ev(() => { G.debug.step(1.3); const b = window.E; return { t: b.brokenT, poise: b.poise, max: b.poiseMax, base: b.poiseBase, flask: G.player.flask.life }; });
     assert(r.t === 0 && r.poise === r.max && r.max > r.base, '首领被处决后应重新站稳、架势更硬：' + JSON.stringify(r));
-    // 4. 贴身按近战键：处决而不是挥砍
+    // 4. 贴身按近战键（右键的近战普攻）：处决而不是挥砍
     s = await setup({ dx: 2.6, god: true });
     const pt = await ev(() => { const q = T.scr(E.x, E.z); return { x: Math.round(q.x), y: Math.round(q.y) }; });
     await page.mouse.move(pt.x, pt.y);
     await frames(2);
-    await page.mouse.down();
+    await page.mouse.down({ button: 'right' });
     r = await ev(() => { const P = G.player; for (let i = 0; i < 3; i++) G.tick(1 / 60); return { exec: !!P.exec, cast: !!P.cast }; });
-    await page.mouse.up();
+    await page.mouse.up({ button: 'right' });
     assert(r.exec && !r.cast, '贴身按近战键应触发处决：' + JSON.stringify(r));
     await ev(() => { G.debug.step(1.5); });
     // 没有破绽目标时 F 仍然是拾取
@@ -7058,7 +7339,7 @@ async function main() {
       G.killEnemy(e, { type: 'fire' });
       G.tick(1 / 60);
       const o = { ok, mid, exec: !!P.exec, slow: G.flow.slow, iframe: P.iframe, execs: S.stats.execs - st0, gain: (P.life - life0) / P.maxLife, clip: G.world.clipOf(P.ent) };
-      G.input.tap[0] = 0.3;
+      G.input.tap[1] = 0.3;
       T.aim(P.x + 3, P.z);
       for (let i = 0; i < 4; i++) G.tick(1 / 60);
       o.canAct = !!P.cast;
@@ -7086,7 +7367,7 @@ async function main() {
       G.tryExecute();
       for (let i = 0; i < 5; i++) G.tick(1 / 60);
       G.hitStop(110);
-      G.input.tap[0] = 0.3;
+      G.input.tap[1] = 0.3;
       G.input.tapDodge = 0.3;
       const mid = { exec: !!P.exec, slow: G.flow.slow, stop: G.flow.stop };
       G.enterZone(S.zoneIdx, S.tier);
@@ -7160,7 +7441,7 @@ async function main() {
     const r0fmt = r.husk.maxStep.toFixed(2);
     assert(r.boss && r.boss.same && r.boss.lead > 0.05 && Math.abs(r.boss.cT - r.boss.lead) < 0.04, '首领砸地的伤害应落在砸地动作的命中帧上：' + JSON.stringify(r.boss));
 
-    // 2. 准星贴在身前、面前没有敌人时按住左键：踏步不越过准星，角色不会冲过头再原地掉头
+    // 2. 准星贴在身前、面前没有敌人时按住右键（近战普攻的连招）：踏步不越过准星，角色不会冲过头再原地掉头
     r = await ev(() => {
       const P = G.player;
       T.lane();
@@ -7168,17 +7449,17 @@ async function main() {
       let maxX = x0, flips = 0;
       for (let i = 0; i < 240; i++) {
         T.aim(x0 + 1.2, z0);
-        G.input.mouse.b[0] = true;
+        G.input.mouse.b[2] = true;
         G.tick(1 / 60);
         maxX = Math.max(maxX, P.x);
         if (P.cast && Math.sin(P.face) < 0.5) flips++;
       }
-      G.input.mouse.b[0] = false;
+      G.input.mouse.b[2] = false;
       G.debug.step(1);
       // 准星放远：踏步照常
       const x1 = P.x;
-      for (let i = 0; i < 100; i++) { T.aim(x1 + 8, z0); G.input.mouse.b[0] = true; G.tick(1 / 60); }
-      G.input.mouse.b[0] = false;
+      for (let i = 0; i < 100; i++) { T.aim(x1 + 8, z0); G.input.mouse.b[2] = true; G.tick(1 / 60); }
+      G.input.mouse.b[2] = false;
       const far = P.x - x1;
       G.debug.step(1);
       return { over: maxX - x0, flips, far };
@@ -7195,19 +7476,18 @@ async function main() {
       try {
         for (const haste of [false, true]) {
           T.lane();
-          G.bindSkill(0, 'cleave');
           for (const k of Object.keys(G.save.sockets)) G.save.sockets[k] = [null, null, null];
-          if (haste) G.socketSupport('cleave', 0, 'haste');
+          if (haste) G.socketSupport(G.BASIC_CARD, 0, 'haste'); // 右键的「挥斩」：辅助镶在武器普攻卡上
           G.computeStats();
           const e = T.mob('brute', 2.6, 0);
           e.mass = 1e6;
-          const ctx = G.skillCtx('cleave');
+          const ctx = G.skillCtx('basic_blade');
           const first = T.swing(e);
           G.debug.step(1.5);
           const hp0 = e.hp;
           const secs = 24;
-          for (let i = 0; i < secs * 60; i++) { T.aim(e.x, e.z); G.input.mouse.b[0] = true; G.tick(1 / 60); }
-          G.input.mouse.b[0] = false;
+          for (let i = 0; i < secs * 60; i++) { T.aim(e.x, e.z); G.input.mouse.b[2] = true; G.tick(1 / 60); }
+          G.input.mouse.b[2] = false;
           const critK = 1 + (ctx.crit / 100) * (ctx.critMulti / 100 - 1);
           out[haste ? 'haste' : 'base'] = { speed: ctx.speed, stopK: ctx.stopK, stop: first.stop, stopAvg: ctx.stopAvg, real: (hp0 - e.hp) / secs, est: G.skillDps(ctx) / critK, old: G.avgHit(ctx) / ctx.time / critK };
           G.debug.step(1);
@@ -7218,8 +7498,9 @@ async function main() {
       }
       return out;
     });
-    assert(Math.abs(r.base.stopK - Math.min(1, Math.max(0.6, 1 / r.base.speed))) < 1e-9 && Math.abs(r.base.stop - 0.035 * r.base.stopK) < 1e-6, '不带迅捷时顿帧应只随角色自身的出手速度缩放：' + JSON.stringify(r.base));
-    assert(r.haste.speed > 1.2 && Math.abs(r.haste.stopK - 1 / r.haste.speed) < 1e-6 && Math.abs(r.haste.stop - 0.035 / r.haste.speed) < 1e-6, '迅捷应让顿帧按出手速度缩短：' + JSON.stringify(r.haste));
+    const S1 = await ev(() => G.SKILLS.basic_blade.combo[0].stop); // 第一段的顿帧（毫秒）
+    assert(Math.abs(r.base.stopK - Math.min(1, Math.max(0.6, 1 / r.base.speed))) < 1e-9 && Math.abs(r.base.stop - (S1 / 1000) * r.base.stopK) < 1e-6, '不带迅捷时顿帧应只随角色自身的出手速度缩放：' + JSON.stringify(r.base));
+    assert(r.haste.speed > 1.2 && Math.abs(r.haste.stopK - 1 / r.haste.speed) < 1e-6 && Math.abs(r.haste.stop - S1 / 1000 / r.haste.speed) < 1e-6, '迅捷应让顿帧按出手速度缩短：' + JSON.stringify(r.haste));
     for (const k of ['base', 'haste']) {
       const m = r[k];
       assert(Math.abs(m.real / m.est - 1) < 0.07, (k === 'haste' ? '带迅捷' : '基础') + '的估算秒伤应与实打一致（差 7% 以内）：' + JSON.stringify(m));
@@ -7344,7 +7625,6 @@ async function main() {
     await ev(() => {
       T.arena();
       G.debug.god(true);
-      G.bindSkill(0, 'cleave');
       for (const k of Object.keys(G.save.sockets)) G.save.sockets[k] = [null, null, null];
       G.computeStats();
       T.hintsSeen();
@@ -7536,7 +7816,7 @@ async function main() {
         const lvl0 = save.level;
         // 用真实的技能上下文打出致命一击
         let n = 0;
-        while (!b.dead && n < 50) { G.hitEnemy(b, G.skillCtx('cleave'), 1e5); n++; }
+        while (!b.dead && n < 50) { G.hitEnemy(b, G.skillCtx('basic_blade'), 1e5); n++; }
         const kinds = {};
         for (const l of S.loot) kinds[l.kind] = (kinds[l.kind] || 0) + 1;
         const out = {
@@ -7644,7 +7924,7 @@ async function main() {
       G.debug.tpBoss();
       let t = 0;
       while (!b.awake && t < 3) { G.tick(1 / 60); t += 1 / 60; }
-      G.hitEnemy(b, G.skillCtx('cleave'), 1); // 打一下
+      G.hitEnemy(b, G.skillCtx('basic_blade'), 1); // 打一下
       b.hp = b.maxHp * 0.5;
       G.debug.step(2);
       const before = { level: save.level, xp: save.xp, bag: save.bag.length, cur: JSON.stringify(save.cur) };
@@ -7805,9 +8085,8 @@ async function main() {
       G.allocPassive('dm0');
       G.allocPassive('dm1');
       G.socketSupport('ember', 0, 'multi');
-      G.socketSupport('cleave', 2, 'brutal');
-      G.bindSkill(0, 'cleave');
-      G.bindSkill(1, 'ember');
+      G.socketSupport(G.BASIC_CARD, 2, 'brutal'); // 右键的武器普攻卡（裂石击已删除）
+      G.bindSkill(0, 'ember');
       G.bindSkill(2, 'nova');
       G.bindSkill(3, 'blink');
       save.opts.autoWhite = true;
@@ -7850,7 +8129,7 @@ async function main() {
     assert(JSON.stringify(r.zone) === JSON.stringify(snap.zone), '刷新后没有回到上次的区域 / 层级：' + JSON.stringify(r.zone));
     assert(!r.open, '已看过开场卡片，刷新后不应再弹出');
     assert(r.uniq, '刷新后新生成的物品 uid 与旧物品冲突');
-    assert(r.bar === 'cleave,ember,nova,blink' && r.lv === '等级 ' + snap.level, 'HUD 没有按存档恢复：' + r.bar + ' ' + r.lv);
+    assert(r.bar === 'ember,basic_blade,nova,blink' && r.lv === '等级 ' + snap.level, 'HUD 没有按存档恢复（右键格是刃的普攻）：' + r.bar + ' ' + r.lv);
     assert(r.fr.mean > 5, '刷新后画面过暗');
     // 自动存档：模拟里过 10 秒会写一次
     const auto = await ev(() => {
@@ -8137,7 +8416,7 @@ async function main() {
         level: s.level, xp: s.xp, n: s.passives.length - 1, mig: G.growthMigrated && G.growthMigrated.kept, gv: s.gv,
         frac0: 1234 / G.xpNeedOld(42), frac: s.xp / G.xpNeed(42),
         wbase: s.equip.weapon.wbase.join('-'), want: [Math.round(33 * G.weaponLvlK(31) / G.weaponLvlK(27)), Math.round(49 * G.weaponLvlK(31) / G.weaponLvlK(27))].join('-'),
-        gems: [s.skills.cleave, s.skills.ember, s.skills.thrall].join(), free: G.passivePoints().free,
+        gems: [s.skills.ember, s.skills.thrall].join(), cleave: s.skills.cleave, blank: s.blankGems.join(), free: G.passivePoints().free,
       };
       // 存档再读一遍：不会再放大第二次，也不再提示
       G.persist();
@@ -8151,7 +8430,8 @@ async function main() {
     assert(r.level === 42 && r.gv === 2 && Math.abs(r.frac - r.frac0) < 1e-9 && r.frac0 > 0.1 && Math.abs(r.xp2 - r.xp) < 1e-6, '等级应保持不变、经验条进度按新的升级所需经验折算一次：' + JSON.stringify(r));
     assert(r.n === 49 && r.mig === 49 && r.free === 0, '旧存档的 49 个天赋应全部保留：' + JSON.stringify(r));
     assert(r.wbase === r.want && r.again === r.want, '高物品等级的旧武器应按新成长放大一次：' + JSON.stringify(r));
-    assert(r.gems === '32,32,32' && r.mig2 === null, '宝石应补到 42 级的成长下限 32，第二次读档不再提示：' + JSON.stringify(r));
+    // 这份旧存档里的裂石击 20 级：退成一颗 Lv 20 的无铭技能宝石（不补成长下限，用的时候学会的技能照常补）
+    assert(r.gems === '32,32' && r.cleave === undefined && r.blank.split(',').includes('20') && r.mig2 === null, '宝石应补到 42 级的成长下限 32（裂石击退成 Lv 20 无铭宝石），第二次读档不再提示：' + JSON.stringify(r));
     // 提示：读进旧存档后出现一次「成长改版」
     await ev(() => {
       const KEY = 'cinder-abyss-save-v1';
@@ -8218,7 +8498,7 @@ async function main() {
         G.enterZone(zi, 3);
         const b = G.state.boss;
         let n = 0;
-        while (!b.dead && n < 50) { G.hitEnemy(b, G.skillCtx('cleave'), 1e6); n++; }
+        while (!b.dead && n < 50) { G.hitEnemy(b, G.skillCtx('basic_blade'), 1e6); n++; }
         return G.save.maxTier;
       };
       out.afterAbyss = kill(3);
@@ -8591,7 +8871,7 @@ async function main() {
       const near = T.mob('husk', 1.6, -3);
       const far = T.mob('husk', -1 - e.r - G.MARK.r - 1.5, -3);
       for (const o of [e, near, far]) o.buTh = 1e15; // 不触发异常（感电的电弧会打到旁边的靶子，混进波及的伤害里）
-      const ctx = G.skillCtx('cleave');
+      const ctx = G.skillCtx('basic_blade');
       T.fix(0); // 必定暴击、伤害取下限
       const hits = [];
       const b0 = S.stats.markBursts || 0;
@@ -8741,7 +9021,7 @@ async function main() {
       const P = G.player, S = G.state, save = G.save;
       save.skills.thrall = Math.max(save.skills.thrall || 1, 20);
       save.sockets.thrall = [null, null, null];
-      save.bar = ['cleave', 'thrall', null, null];
+      save.bar = ['ember', null, 'thrall', null];
       const rare = G.rollItem(44, 2, 'weapon', 7);
       const uq = G.rollUnique('wanhun', 44, 0.5);
       const out = {};
@@ -9157,7 +9437,7 @@ async function main() {
     const r = await ev(() => ({ sum: G.debug.summary(), open: T.introOpen(), equip: Object.keys(G.save.equip).join(), maxTier: G.save.maxTier }));
     assert(r.sum.player.level === 1 && r.sum.bag === 0 && r.equip === 'weapon' && r.maxTier === 0, '删除后不是全新存档：' + JSON.stringify(r.sum.player));
     assert(r.sum.zone.idx === 0 && r.sum.zone.tier === 0, '删除后应回到第一个区域');
-    assert(Object.keys(r.sum.skills).join() === 'cleave,ember' && r.sum.supports.length === 0, '删除后技能没有重置');
+    assert(Object.keys(r.sum.skills).join() === 'ember' && r.sum.supports.length === 0, '删除后技能没有重置（新角色只学掷焰）');
     assert(r.open, '全新存档应再次弹出开场卡片');
     await closePanel();
   });
@@ -9185,7 +9465,7 @@ async function main() {
     await install();
     await frames(2);
     let r = await ev(() => ({ level: G.save.level, bar: G.save.bar.slice(), zone: G.state.zone.def.id }));
-    assert(r.level === 1 && r.bar[0] === 'cleave' && r.zone === 'ash', '损坏的 JSON 应回退到新存档');
+    assert(r.level === 1 && r.bar.join() === 'ember,,,' && r.zone === 'ash', '损坏的 JSON 应回退到新存档');
     await page.reload({ timeout: 90000 }); // 机器负载高时软件渲染加载很慢
     await install();
     await frames(2);
@@ -9464,7 +9744,7 @@ async function main() {
       if (!save.skills.thrall) save.skills.thrall = 1;
       for (const id of ['frugal', 'cold', 'haste']) if (save.supports.indexOf(id) < 0) save.supports.push(id);
       for (const k of Object.keys(save.sockets)) save.sockets[k] = (save.sockets[k] || []).map((s) => (s === 'frugal' || s === 'cold' ? null : s));
-      save.bar = ['cleave', 'ember', 'blackflame', null];
+      save.bar = ['ember', null, 'blackflame', null];
       G.computeStats();
       const out = { reserve: P.reservePct, F: G.flamePct() };
       save.sockets.blackflame = ['frugal', null, null];
@@ -9479,11 +9759,11 @@ async function main() {
         for (const t in ctx.base) base += h.parts[t] && !(ctx.extra[t] > 0) ? h.parts[t] : 0;
         return { chaos: (h.parts.chaos || 0) / base, cold: (h.parts.cold || 0) / base };
       };
-      out.attack = ratio(G.skillCtx('cleave'));
+      out.attack = ratio(G.skillCtx('basic_blade')); // 攻击：右键刃的普攻（裂石击已删除）
       out.spell = ratio(G.skillCtx('ember'));
-      save.sockets.cleave = ['cold', null, null];
-      out.attackCold = ratio(G.skillCtx('cleave'));
-      save.sockets.cleave = [null, null, null];
+      save.sockets[G.BASIC_CARD] = ['cold', null, null];
+      out.attackCold = ratio(G.skillCtx('basic_blade'));
+      save.sockets[G.BASIC_CARD] = [null, null, null];
       // 召唤物真打一下：记下召唤物那一击的伤害组成
       let minion = null, proc = null;
       const oc = G.calcHit;
@@ -9505,7 +9785,7 @@ async function main() {
       G.calcHit = oc;
       out.minion = minion ? minion.chaos / minion.phys : null;
       out.proc = proc;
-      save.bar = ['cleave', 'ember', null, null];
+      save.bar = ['ember', null, null, null];
       G.computeStats();
       out.off = G.flamePct();
       out.offCtx = G.skillCtx('ember').flame;
@@ -9659,7 +9939,7 @@ async function main() {
       G.computeStats();
       const s = G.save;
       const out = {
-        skills: T.canon(s.skills), sups: s.supports.join(), ember: (s.sockets.ember || []).join(), bar: s.bar.join(), passives: s.passives.join(),
+        skills: T.canon(s.skills), blank: s.blankGems.join(), sups: s.supports.join(), ember: (s.sockets.ember || []).join(), bar: s.bar.join(), passives: s.passives.join(),
         weapon: s.equip.weapon && s.equip.weapon.uq, pity: s.uniq.pity.behemoth || 0, found: !!s.uniq.found.jinyu, xs: !!s.uniq.found.xingshi,
         chaosLearned: ['blackhole', 'vortex', 'blackflame'].some((id) => s.skills[id]), flame: G.flamePct(),
       };
@@ -9672,7 +9952,8 @@ async function main() {
       G.computeStats();
       return out;
     });
-    assert(r.skills === '{"cleave":18,"ember":18,"nova":18}' && r.sups === 'cold,multi,frugal' && r.ember === 'multi,cold,' && r.bar === 'cleave,ember,nova,', '技能数据没有原样保留：' + JSON.stringify(r));
+    // 裂石击已删除：退成一颗 Lv 18 的无铭技能宝石；原来右键上的掷焰挪到空出来的左键，镶着的辅助跟着它
+    assert(r.skills === '{"ember":18,"nova":18}' && r.blank.split(',').includes('18') && r.sups === 'cold,multi,frugal' && r.ember === 'multi,cold,' && r.bar === 'ember,,nova,', '技能数据没有原样保留：' + JSON.stringify(r));
     assert(r.passives === 'start,im0,im1,im2,mm0' && r.weapon === 'sanxiang' && r.pity === 1 && r.found && !r.xs, '天赋 / 烬铸 / 保底没有原样保留：' + JSON.stringify(r));
     assert(!r.chaosLearned && r.flame === 0 && !r.sheet, '旧存档不该凭空多出混沌：' + JSON.stringify(r));
     return '读档后原样：' + r.passives;
@@ -10328,7 +10609,7 @@ async function main() {
       let t = 0;
       while (!S.boss.awake && t < 3) { G.tick(1 / 60); t += 1 / 60; }
       const awake = S.boss.awake;
-      G.hitEnemy(S.boss, G.skillCtx('cleave'), 1);
+      G.hitEnemy(S.boss, G.skillCtx('basic_blade'), 1);
       G.debug.god(false);
       Pl.life = 1;
       let dt = 0;
