@@ -1357,22 +1357,28 @@
   // 测性能用（A/B 归因）：页面加载前设 window.CA_VF_OFF = 'decals,layer,jag'，关掉对应的部分
   const vfOff = (k) => !!(window.CA_VF_OFF && String(window.CA_VF_OFF).split(',').indexOf(k) >= 0);
   let vfMs = { cover: 0, decals: 0, mesh: 0 };
-  let decalQ = null; // 建外观期间的贴花队列，每块 10 个数：x, z, 半径 x, 半径 z, 转角, 格, r, g, b（线性）, 不透明度
+  let decalQ = null; // 建外观期间的贴花队列，每块 11 个数：x, z, 半径 x, 半径 z, 转角, 格, r, g, b（线性）, 不透明度, 低档也画（1 / 0）
   const decalOn = (gx) => !!(gx && gx.deco && G.assets && G.assets.tex('g_decals')) && !vfOff('decals');
-  function decalPush(x, z, rx, rz, ang, cell, cl, op) {
-    if (decalQ && op > 0.01) decalQ.push(x, z, rx, rz, ang, cell, cl.r, cl.g, cl.b, op);
+  // lo：低档也画（接触阴影、路边碎砂、路面上的贴花、原来的污斑）；路外的碎斑和石头簇脚下的只在高 / 中档画（低档按 drawRange 只画前一段）
+  function decalPush(x, z, rx, rz, ang, cell, cl, op, lo) {
+    if (decalQ && op > 0.01) decalQ.push(x, z, rx, rz, ang, cell, cl.r, cl.g, cl.b, op, lo === false ? 0 : 1);
   }
   function decalMesh(q) {
-    const n = q.length / 10;
+    const Q = 11, n = q.length / Q;
     if (!n) return null;
     const ord = [];
-    for (let i = 0; i < n; i++) ord.push(i);
-    ord.sort((a, b) => DECAL_PRIO[q[a * 10 + 5]] - DECAL_PRIO[q[b * 10 + 5]] || a - b);
+    let nLo = 0;
+    for (let i = 0; i < n; i++) {
+      ord.push(i);
+      nLo += q[i * Q + 10];
+    }
+    // 低档那一段在前（各自按 DECAL_PRIO 排），只在高 / 中档画的在后
+    ord.sort((a, b) => q[b * Q + 10] - q[a * Q + 10] || DECAL_PRIO[q[a * Q + 5]] - DECAL_PRIO[q[b * Q + 5]] || a - b);
     const pos = new Float32Array(n * 12), uv = new Float32Array(n * 8), col = new Float32Array(n * 12), op = new Float32Array(n * 4), nrm = new Float32Array(n * 12);
     const idx = n * 4 > 65535 ? new Uint32Array(n * 6) : new Uint16Array(n * 6);
     const PAD = 10 / 256, CX = [-1, 1, 1, -1], CZ = [-1, -1, 1, 1];
     ord.forEach((i, k) => {
-      const o = i * 10, x = q[o], z = q[o + 1], rx = q[o + 2], rz = q[o + 3], ca = Math.cos(q[o + 4]), sa = Math.sin(q[o + 4]), c = q[o + 5];
+      const o = i * Q, x = q[o], z = q[o + 1], rx = q[o + 2], rz = q[o + 3], ca = Math.cos(q[o + 4]), sa = Math.sin(q[o + 4]), c = q[o + 5];
       const u0 = (c % 4 + PAD) / 4, u1 = (c % 4 + 1 - PAD) / 4, row = Math.floor(c / 4), v0 = 1 - (row + PAD) / 4, v1 = 1 - (row + 1 - PAD) / 4;
       for (let j = 0; j < 4; j++) {
         const lx = CX[j] * rx, lz = CZ[j] * rz, p = k * 4 + j;
@@ -1417,6 +1423,8 @@
     flat.color.copy(decalLit());
     const mesh = new T.Mesh(g, qualId === 'low' ? flat : mat);
     mesh.userData.mats = { lit: mat, flat };
+    mesh.userData.lowRange = nLo * 6;
+    if (qualId === 'low') g.setDrawRange(0, nLo * 6);
     mesh.name = 'groundDecals';
     mesh.renderOrder = 1;
     mesh.receiveShadow = true;
@@ -1470,10 +1478,10 @@
       const [x, z, rad] = c;
       for (let k = 0; k < 2; k++) {
         const a = r(0, TAU), d = rad * r(0.7, 1.15), px = x + Math.sin(a) * d, pz = z + Math.cos(a) * d;
-        if (!soft(px, pz)) decalPush(px, pz, r(0.6, 1.0), r(0.6, 1.0), r(0, TAU), k ? C.rubble : C.pebble, tintL, r(0.75, 0.95));
+        if (!soft(px, pz)) decalPush(px, pz, r(0.6, 1.0), r(0.6, 1.0), r(0, TAU), k ? C.rubble : C.pebble, tintL, r(0.75, 0.95), false);
       }
       const a = r(0, TAU);
-      if (!soft(x, z)) decalPush(x + Math.sin(a) * rad * 0.5, z + Math.cos(a) * rad * 0.5, rad * r(1.3, 1.8), rad * r(1.0, 1.4), r(0, TAU), pick([C.cover, C.cover2]), coverL, r(0.5, 0.75));
+      if (!soft(x, z)) decalPush(x + Math.sin(a) * rad * 0.5, z + Math.cos(a) * rad * 0.5, rad * r(1.3, 1.8), rad * r(1.0, 1.4), r(0, TAU), pick([C.cover, C.cover2]), coverL, r(0.5, 0.75), false);
     }
     // ③ 路边的过渡带：沿岩壁 / 墙的边（不取水、熔岩、虚空的边）一段段碎砂带，零星的碎石和墙脚的覆盖斑；按位置的低频噪声成段，不是一整圈
     W.edgeSamples(1.7, 0, (x, z, kind, nx, nz) => {
@@ -1502,10 +1510,10 @@
           else if (n2 < 0.82) decalPush(x, z, r(1.3, 2.6), r(1.0, 2.0), r(0, TAU), pick([C.cover, C.cover2]), coverL, r(0.3, 0.5));
           else decalPush(x, z, r(0.5, 0.9), r(0.5, 0.9), r(0, TAU), C.pebble2, tintL, r(0.55, 0.75));
         } else {
-          if (u > wl * 0.5 * (0.25 + 0.75 * smooth01((n - 0.35) / 0.3))) continue;
+          if (d < -3.2 || u > wl * 0.22 * (0.25 + 0.75 * smooth01((n - 0.35) / 0.3))) continue;
           const k = pick(D.kinds);
-          const s = big(k) ? r(1.4, 2.8) : r(0.6, 1.2);
-          decalPush(x, z, s, s * r(0.7, 1.1), u2 * TAU, k, big(k) ? coverL : tintL, r(0.6, 0.9));
+          const s = big(k) ? r(1.0, 2.0) : r(0.55, 1.0);
+          decalPush(x, z, s, s * r(0.7, 1.1), u2 * TAU, k, big(k) ? coverL : tintL, r(0.6, 0.9), false);
         }
       }
     }
@@ -10104,7 +10112,11 @@
     const off = qualId === 'low';
     zoneGroup.traverse((o) => {
       if (!o.isMesh) return;
-      if (o.userData.mats) o.material = off ? o.userData.mats.flat : o.userData.mats.lit; // vf-ground：贴花层按画质换材质
+      if (o.userData.mats) {
+        // vf-ground：贴花层按画质换材质，低档只画前一段（drawRange）
+        o.material = off ? o.userData.mats.flat : o.userData.mats.lit;
+        o.geometry.setDrawRange(0, off ? o.userData.lowRange : Infinity);
+      }
       if (o.userData.cs0 === undefined) o.userData.cs0 = o.castShadow;
       o.castShadow = off ? false : o.userData.cs0;
     });
