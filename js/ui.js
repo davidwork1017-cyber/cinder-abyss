@@ -1219,6 +1219,18 @@
     clearTimeout(box._t);
     if (btStack.length) box._t = setTimeout(btStackRender, Math.max(30, Math.min.apply(null, btStack.map((b) => b.until)) - now + 5));
   }
+  // 收起全部大字提示（正中那条和排在下面的）：测试用
+  function bigToastReset() {
+    btCur = null;
+    btStack.length = 0;
+    if (el.bigToastStack) btStackRender();
+    const box = el.bigToast;
+    if (box) {
+      clearTimeout(box._t1);
+      clearTimeout(box._t2);
+      box.classList.remove('on', 'out');
+    }
+  }
   function bigToast(title, name, color, sub) {
     let box = el.bigToast;
     if (!box) {
@@ -5459,6 +5471,7 @@
     showIntro,
     onPickup,
     bigToast,
+    bigToastReset,
     verdict, // 换装评估（只读）：{ badge, score, empty, lines } | null
     hints: () => ({ current: coach.cur ? coach.cur.id : null, state: coach.state, all: HINTS.map((h) => h.id), veteran: coach.vet, minShow: coach.minT, shownFor: coach.t }),
   };
