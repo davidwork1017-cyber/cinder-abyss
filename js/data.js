@@ -350,14 +350,18 @@
     // 弓的四招是限时增益（buff.dur 秒，吃「增益持续时间」）
     meltray: {
       name: '熔光射线', icon: '光', color: '#ffb36a', tags: ['weapon', 'attack', 'fire', 'light'], kind: 'rgatling', weaponOnly: true, wtype: 'gatling', rgauge: true,
-      // 按住 R 蓄力（瞄准线跟着准星），松手放出一道贯穿射线：长 len、宽 width 的直线上所有敌人挨一下 wm 倍伤害（一半火焰一半闪电）。
+      // 按住 R 蓄力（瞄准线跟着准星），松手放出一道贯穿射线：长 len、宽 width 的直线上所有敌人挨一下（一半火焰一半闪电）。
+      // 伤害按机炮普攻折算（basicOf / basicSec，见 game.js 的 G.basicShots）：蓄满一发 = 机炮转满之后扫射 basicSec 秒——
+      //   普攻每发的武器伤害 × 普攻 wm、装备附加 × 普攻 addEff，乘上这几秒的发数（武器攻速、攻击速度算在内，辅助宝石不算），
+      //   再按射线自己的伤害加成、暴击和「热度技伤害」结算。wm 只是标明这是攻击技能，实际倍率由折算决定。
+      //   原来是 wm 40 × 一发的武器伤害：附加伤害只算一份、攻速不算，越往后越不值得放（蓄力加机炮重新转起来要停火约 3.5 秒）
       // 蓄力 charge 秒满；伤害按蓄力程度 minK → 1；蓄满后再按住 hold 秒自动放出。蓄力时移动速度 × move
-      wm: 40, time: 0.3, mana: 0, cd: 0, charge: 1.4, hold: 1.0, minK: 0.3, len: 24, width: 2.4, beamT: 0.4, conv: { fire: 0.5, light: 0.5 }, ailment: 100,
+      wm: 1, basicOf: 'basic_gatling', basicSec: 8, time: 0.3, mana: 0, cd: 0, charge: 1.4, hold: 1.0, minK: 0.3, len: 24, width: 2.4, beamT: 0.4, conv: { fire: 0.5, light: 0.5 }, ailment: 100,
       w: 2, kb: 1.4, poise: 80, stop: 120, move: 0.35,
       wclip: 'r_gatling',
       wt: { phases: [0.3], cancel: 9, dur: 9, clip: { dur: 3.2, at: 0.3 } }, // 时长由蓄力自己管（起手 0.3 秒 + 蓄力 + 射线）
-      useMult: 40,
-      desc: '热度满时可用：按住 R 蓄力，枪口的瞄准线跟着准星走；松手放出一道巨大的熔光射线，贯穿一整条直线上的所有敌人，造成一次性的巨额伤害并重重击退。蓄力越久伤害越高（1.4 秒蓄满，蓄满后再按住 1 秒会自动放出）。伤害一半火焰、一半闪电，同时累积两种异常值。放完热度归零。',
+      useMult: 1, // 一次施放对单体就是一击（倍率已经折算进伤害里）
+      desc: '热度满时可用：按住 R 蓄力，枪口的瞄准线跟着准星走；松手放出一道巨大的熔光射线，贯穿一整条直线上的所有敌人，造成一次性的巨额伤害并重重击退。蓄满的一发相当于机炮转满之后扫射 8 秒的伤害（随武器、附加伤害与攻击速度成长）。蓄力越久伤害越高（1.4 秒蓄满，蓄满后再按住 1 秒会自动放出）。伤害一半火焰、一半闪电，同时累积两种异常值。放完热度归零。',
     },
     firestorm: {
       name: '焚天炎爆', icon: '爆', color: '#ff6a2c', tags: ['weapon', 'attack', 'area', 'fire'], kind: 'rflamer', weaponOnly: true, wtype: 'flamer', rgauge: true,

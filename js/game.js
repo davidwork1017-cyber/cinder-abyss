@@ -795,6 +795,16 @@
   // 技能卡 / 宝石提示用；lvl 缺省取已学等级
   // 攻速折进伤害的攻击技能：有冷却、不是武器技（武器技各自按自己的武器定好了数值）
   G.cdAps = (sk) => !!(sk && sk.wm && sk.cd > 0 && !sk.weaponOnly && sk.kind !== 'summon');
+  // 按普攻折算的量表技（熔光射线：basicOf / basicSec）：一发 = 普攻转满之后扫射 basicSec 秒的发数。
+  // 每秒发数 = 武器攻速 × 攻击速度 ÷ 普攻的 time（不算辅助宝石：武器技镶不了辅助）；没拿着对应的武器时按 1.0 攻速算
+  G.basicShots = function (sk) {
+    const b = G.SKILLS[sk.basicOf];
+    if (!b) return 1;
+    const wp = G.weaponStats(G.save.equip.weapon);
+    return (sk.basicSec * (P.speedMult || 1) * (wp.aps > 0 ? wp.aps : 1)) / b.time;
+  };
+  // 攻击技能实际的武器倍率：按普攻折算的 = 普攻的 wm × 折算的发数，其余就是 wm
+  G.skillWm = (sk) => (sk.basicOf && G.SKILLS[sk.basicOf] ? G.SKILLS[sk.basicOf].wm * G.basicShots(sk) : sk.wm);
   G.skillBase = function (id, lvl) {
     const sk = G.SKILLS[id];
     if (!sk) return {};
@@ -804,7 +814,7 @@
       const wp = G.weaponStats(G.save.equip.weapon);
       // 有冷却的攻击技能（闪袭）出手次数由冷却决定，攻速快也多打不了几下：把武器攻速折进每一击的伤害（G.cdAps），
       // 否则慢而重的战锤配冷却技能会比双匕强出四成
-      const k = sk.wm * (1 + G.ATTACK_GEM_LVL * (lvl - 1)) * (G.cdAps(sk) ? wp.aps : 1);
+      const k = G.skillWm(sk) * (1 + G.ATTACK_GEM_LVL * (lvl - 1)) * (G.cdAps(sk) ? wp.aps : 1);
       out.phys = [wp.min * k, wp.max * k];
       return convertBase(sk, out);
     }
@@ -846,7 +856,9 @@
       base.phys[1] += inh.add[1];
     }
     // 装备上的「附加 X 伤害」每一击都加一份：机炮、喷枪这类一秒十几跳的普攻只按 addEff 计（不然附加伤害按发数翻好几倍）
-    const addEff = sk.addEff === undefined ? 1 : sk.addEff;
+    // 按普攻折算的量表技：普攻每发的那一份 × 折算的发数（和武器伤害一样按扫射 basicSec 秒算）
+    const bsk = sk.basicOf && G.SKILLS[sk.basicOf];
+    const addEff = bsk ? (bsk.addEff === undefined ? 1 : bsk.addEff) * G.basicShots(sk) : sk.addEff === undefined ? 1 : sk.addEff;
     if (!mScale) for (const t of TYPES) {
       const v = (S['add' + G.CAP[t]] || 0) * addEff;
       if (v > 0) {
@@ -945,7 +957,7 @@
       // 攻击技能：attack 为 true，weapon 是此刻的武器面板（G.weaponStats），wm 武器倍率，levelK 等级加成
       attack: isAttack,
       weapon: wp,
-      wm: isAttack ? sk.wm : 0,
+      wm: isAttack ? G.skillWm(sk) : 0,
       levelK: isAttack ? 1 + G.ATTACK_GEM_LVL * (lvl - 1) : mScale ? G.minionDmgK(lvl) : 1 + 0.2 * (lvl - 1),
       asMinion: mScale && !isMinion, // 魂潮：伤害按召唤物算的武器技（ctx.minion 仍为 null）
     };
