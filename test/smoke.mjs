@@ -9633,6 +9633,43 @@ async function main() {
     return r.n + ' 团（多重 ' + r.nMulti + '）· 吸附拽近 ' + r.latch.n + ' 米（首领 ' + r.latch.boss + '）· 撞墙 ' + r.wall.bounces + ' 次 · 五团绞一只 ' + r.cap.hits + ' 跳';
   });
 
+  await step('黑旋风的漏斗走实例缓冲：场上 1 团和 15 团时场景里的物体数一样，漏斗的实例数跟着团数走', async () => {
+    const r = await ev(() => {
+      const P = G.player, save = G.save, W = G.world;
+      const snap = T.buildSnap();
+      const objs = () => { let n = 0; W.scene.traverse(() => n++); return n; };
+      const out = {};
+      try {
+        T.arena();
+        T.fix(0.5);
+        save.skills.vortex = 1;
+        save.sockets.vortex = [null, null, null];
+        const d = T.openDir(12);
+        const cast = () => { T.aim(P.x + d.x * 10, P.z + d.z * 10); G.execSkill(G.skillCtx('vortex')); };
+        const frame = () => { G.tick(1 / 60); W.update(1 / 60); };
+        const SK = G.SKILLS.vortex, keep = SK.count;
+        SK.count = 1;
+        try { cast(); } finally { SK.count = keep; }
+        frame();
+        out.one = { n: G.chaosVortices().length, inst: W.projFxInfo().parts.chFunnel, objs: objs() };
+        for (let i = 0; i < 5; i++) cast();
+        frame();
+        out.many = { n: G.chaosVortices().length, inst: W.projFxInfo().parts.chFunnel, objs: objs() };
+      } finally {
+        T.unfix();
+        T.arena();
+        T.buildRestore(snap);
+      }
+      out.cleared = G.chaosVortices().length;
+      return out;
+    });
+    assert(r.one.n === 1 && r.one.inst === 1, '1 团时漏斗应只有 1 个实例：' + JSON.stringify(r));
+    assert(r.many.n >= 15 && r.many.inst === r.many.n, '漏斗的实例数应等于场上的团数：' + JSON.stringify(r));
+    assert(r.many.objs === r.one.objs, '多放漩涡不该往场景里加物体（漏斗、尘粒都画进实例缓冲）：' + JSON.stringify(r));
+    assert(r.cleared === 0, '清场后不该留漩涡：' + JSON.stringify(r));
+    return '1 团 → ' + r.many.n + ' 团：漏斗实例 ' + r.one.inst + ' → ' + r.many.inst + '，场景物体 ' + r.one.objs + ' → ' + r.many.objs;
+  });
+
   await step('黑焰：放上技能栏保留 35% 魔力（节流后 21%）；攻击、法术、召唤物的每一击都多出 F% 的混沌伤害，和注入相加；触发出来的伤害不带；取下即失效', async () => {
     const r = await ev(() => {
       T.arena();
