@@ -533,6 +533,54 @@
       }
       return new T.CanvasTexture(c);
     });
+  // 地面细节（zones-polish）：替代污斑的「有意的」地面纹路：从中心往外几道锯齿状的细裂纹，带分叉，越往外越细；
+  // 一圈很淡的碎屑点。白色 + alpha，颜色由材质给。污斑那种一大团软边的暗块看着像脏印子
+  const groundCrackTex = () =>
+    tex('crackDetail', () => {
+      const S = 128, c = makeCanvas(S, S), g = c.getContext('2d');
+      let sd = 7;
+      const rnd = () => ((sd = (sd * 16807) % 2147483647) - 1) / 2147483646;
+      g.strokeStyle = 'rgba(255,255,255,1)';
+      g.lineCap = 'round';
+      g.lineJoin = 'round';
+      const branch = (x, y, a, len, w, depth) => {
+        g.lineWidth = w;
+        g.beginPath();
+        g.moveTo(x, y);
+        const n = Math.max(3, Math.round(len / 6));
+        for (let i = 0; i < n; i++) {
+          a += (rnd() - 0.5) * 0.9;
+          x += Math.cos(a) * (len / n);
+          y += Math.sin(a) * (len / n);
+          g.lineTo(x, y);
+          if (depth < 2 && rnd() < 0.28) {
+            g.stroke();
+            branch(x, y, a + (rnd() < 0.5 ? -1 : 1) * (0.5 + rnd() * 0.6), len * (0.35 + rnd() * 0.25), w * 0.6, depth + 1);
+            g.lineWidth = w;
+            g.beginPath();
+            g.moveTo(x, y);
+          }
+          w *= 0.88;
+          g.lineWidth = Math.max(0.6, w);
+        }
+        g.stroke();
+      };
+      const nb = 5;
+      for (let i = 0; i < nb; i++) branch(S / 2 + (rnd() - 0.5) * 6, S / 2 + (rnd() - 0.5) * 6, (i / nb) * TAU + rnd() * 0.8, 34 + rnd() * 22, 3.2, 0);
+      g.fillStyle = 'rgba(255,255,255,0.35)';
+      for (let i = 0; i < 40; i++) {
+        const a = rnd() * TAU, d = 10 + rnd() * 44;
+        g.fillRect(S / 2 + Math.cos(a) * d, S / 2 + Math.sin(a) * d, 1 + rnd() * 1.5, 1 + rnd() * 1.5);
+      }
+      // 外圈淡出（贴花的方块边不露出来）
+      g.globalCompositeOperation = 'destination-in';
+      const gr = g.createRadialGradient(S / 2, S / 2, S * 0.3, S / 2, S / 2, S * 0.5);
+      gr.addColorStop(0, 'rgba(255,255,255,1)');
+      gr.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = gr;
+      g.fillRect(0, 0, S, S);
+      return new T.CanvasTexture(c);
+    });
   // 传送门旋涡
   const swirlTex = () =>
     tex('swirl', () => {
@@ -743,7 +791,8 @@
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x3c2a30, a: 0.3 }, // zones-ash：0x4a2636 → 0x3c2a30，少一点酒红
       prop: { tint: 0x6e5c54, sat: 0.5 }, // 卡通：布景模型压到岩壁那一档，不比地面亮
-      blots: { k: 0.35, r: 0.65, op: 0.16 }, // zones-ash：污斑看着像脏印子，少放、放小，路面的细节交给布景里的积灰和余烬裂缝
+      patch: 0.3, // zones-polish：路面上的暗色粗糙斑块（带点状的暗纹，看着像脏印子）0.55 → 0.3
+      blots: { k: 0.35, r: 0.65, op: 0.3, tex: 'crack' }, // zones-polish：细裂纹代替软边的暗块（op 0.16 → 0.3：线细，同样的不透明度几乎看不见）。zones-ash：污斑看着像脏印子，少放、放小，路面的细节交给布景里的积灰和余烬裂缝
       sigil: { r: 0.52, dark: 0.55, start: false }, // zones-ash：熔渣坑的法阵收小、压暗一半；不要起点法阵（起点布景见 buildAshDress）
       props: {
         // 卡通布景：Kenney 的岩石和树桩去掉（和程序化的倒角岩风格不一致、树桩照片贴图发白），岩石全部是程序化的
@@ -769,7 +818,8 @@
       rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0x6a7a8a, capAll: 0.3 }, // phase 3：雪盖 0xb4c8d6 / 0.6 → 0x8296aa / 0.45；zones-frost：再压一档（水边的石头是这一区的「岩壁」）
       grade: { sat: 1.12, con: 1.1, lift: 0x04081a, gain: 0xf4faff, vig: 0.22 },
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
-      blots: { k: 0.35, r: 0.7, op: 0.15 }, // zones-frost：岛上的污斑少一半多、小一圈（zones-ash 加的旋钮）
+      patch: 0.15, // zones-polish：岛上的粗糙地面斑块像泥印子，0.55 → 0.15
+      blots: { k: 0.35, r: 0.7, op: 0.28, tex: 'crack' }, // zones-polish：冻土上的细冰裂，不是暗块。zones-frost：岛上的污斑少一半多、小一圈（zones-ash 加的旋钮）
       sigil: { k: 0.4 }, // zones-frost：冰湖上的法阵颜色压到 4 成（加色混合，等于淡一半多），不那么像界面
       mist: null, // zones-frost：路外整片是水（dress 画），贴地薄雾在水面上是一块块的亮斑，去掉（高 / 低画质也就一致了）
       prop: { tint: 0x8aa0b0, sat: 0.2 },
@@ -794,7 +844,7 @@
       lava: null,
       rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0, capAll: 0 },
       grade: { sat: 1.12, con: 1.1, lift: 0x080418, gain: 0xfaf6ff, vig: 0.24 },
-      blots: { k: 0.35, r: 0.7 }, // zones-storm：地砖上的污斑少一些、小一些（zones-ash 的开关）
+      blots: { k: 0.35, r: 0.7, op: 0.3, tex: 'crack' }, // zones-polish：地砖上是细裂纹，不是暗块。zones-storm：地砖上的污斑少一些、小一些（zones-ash 的开关）
       sigil: { r: 0.55, op: 0.12 }, // zones-storm：监察大厅的法阵原来又大又满，收小、压淡
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x2c2744, a: 0.32 },
@@ -815,7 +865,7 @@
       // 红橙只留给路面上零星几片发光的裂缝（lava.patch）、余烬口、深渊底的熔岩缝和火星
       mats: [
         { tex: 'dark_rock_02', tile: 5.0, con: 0.55, nrm: 0.9, rough: 1, k: 0.6, sat: 0.45, col: 0x57525c },
-        { tex: 'Lava001', tile: 6.0, con: 0.4, nrm: 0.8, rough: 1, k: 0.56, sat: 0.3, col: 0x4e4652 },
+        { tex: 'dark_rock_02', tile: 5.0, con: 0.62, nrm: 0.9, rough: 1, k: 0.5, sat: 0.4, col: 0x47424e }, // zones-polish：原来是 Lava001（熔岩流的暗纹在路面上是一块块脏斑），换成同一种石板的暗一档：斑块读成颜色深一点的石板，靠崖、靠墙的路边也暗一些
         { tex: 'dark_rock', tile: 6.5, con: 0.8, nrm: 1.0, rough: 1, k: 0.9, col: 0x3a3442 }, // 岩壁外的岩顶：岩石之间露出来的地方也要落在岩壁那一档（15–25%）
       ],
       lava: { mode: 1, color: 0xff6a22, k: 1.6, patch: [0, 0.72] },
@@ -824,7 +874,7 @@
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x1c1622, a: 0.3 },
       prop: { tint: 0x4a4450, sat: 0.15 },
-      blots: { k: 0.4, r: 0.6, op: 0.08 }, // zones-ash 的污斑开关：少、小、淡到几乎看不见（原来在 dress 里把不透明度改成 0.08）
+      blots: { k: 0.12, r: 0.6, op: 0.3, tex: 'crack' }, // zones-polish：owner 说地上一块块暗斑，砍到 0.12、换成细裂纹（路面的变化交给石板和崖沿的压暗）。zones-ash 的污斑开关：少、小、淡到几乎看不见（原来在 dress 里把不透明度改成 0.08）
       // 下面四个旋钮原来是 abyss 的 dress / fx 运行时改的（zones-integrate 收进表里）：法阵收小、压暗、换余烬橙，没有起点法阵；
       // 晶簇是闷烧的余烬橙；环境火星余烬橙；通用岩石成簇留空
       sigil: { r: 0.42, col: 0xff7a2a, k: 0.32, start: false },
@@ -855,7 +905,8 @@
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x16303a, a: 0.3 },
       prop: { tint: 0x3e5250, sat: 0.12 },
-      blots: { k: 0.4, r: 0.7 }, // 污斑少一半多、小一点（zones-ash 加的旋钮）
+      patch: 0.2, // zones-polish：板岩路面上的暗色软斑 0.55 → 0.2
+      blots: { k: 0.4, r: 0.7, op: 0.3, tex: 'crack' }, // zones-polish：细裂纹代替暗块。污斑少一半多、小一点（zones-ash 加的旋钮）
       // 下面三个旋钮原来是 rift 的 dress 运行时找网格改的（zones-integrate 收进表里）：法阵缩到 0.45、电光青压淡；水晶和光晕电光青；
       // 通用岩石换成卡通材质（底色 = rockTop / def.rock，高画质 ×0.88、低画质 ×0.7），按低频噪声成簇留空
       sigil: { r: 0.378, col: 0x7aeeff, k: 0.55 },
@@ -1052,6 +1103,7 @@
     }
     if (post.ok) post.bloom.enabled = qual.bloom;
     if (zoneFx && zoneFx.mist) zoneFx.mist.visible = qual.mist;
+    zoneShadowPolicy();
     W.resize();
     return id;
   };
@@ -1660,8 +1712,63 @@
       nf++;
     }
 
+    // 起点空地中间的景（zones-polish：owner 说空地中间太空）：偏开出口一侧一圈裂开的旧石板（炉址，贴地、不碰撞），从它往外裂开几道余烬裂缝；
+    // 北侧（离镜头远、不挡人）一块倒下的界碑和它的断座；空地边外两三截矮残墙；残墙和界碑脚下堆点积灰、几簇枯草和碎石。
+    // 起点圆盘里不能有障碍（起点契约），所以都不碰撞、都很矮（石板 0.06 m、界碑 0.45 m），空地中间照样能打。合成一个网格（视锥剔除，打架时不在画面里就不画）
+    const poi = [], pr = ashRng(zone, 3), rp = (a, b) => a + (b - a) * pr();
+    {
+      const ex = st.exit || { ang: 0 }, ea = ex.ang !== undefined ? ex.ang : Math.atan2(ex.x - st.x, ex.z - st.z);
+      // 垂直于出口的两个方向里取偏北（-z）的那个
+      const a1 = ea + Math.PI / 2, a2 = ea - Math.PI / 2, side = Math.cos(a1) < Math.cos(a2) ? a1 : a2;
+      const hx = st.x + Math.sin(side) * 2.2 + Math.sin(ea + Math.PI) * 1.2, hz = st.z + Math.cos(side) * 2.2 + Math.cos(ea + Math.PI) * 1.2;
+      const stoneK = (k) => mixHex(ASH_LAY.stone, ASH_PAL.ashFall || 0x8a817c, k);
+      // 炉址：一圈不规则的石板，缺几块，中间一块裂成两半
+      for (let i = 0, n = 14; i < n; i++) {
+        if (pr() < 0.14) continue;
+        const a = (i / n) * TAU + rp(-0.12, 0.12), d = rp(1.6, 2.3);
+        poi.push([ashBoxGeo(stoneK(0.12)), hx + Math.sin(a) * d, 0.025, hz + Math.cos(a) * d, rp(-0.04, 0.04), a + rp(-0.3, 0.3), rp(-0.04, 0.04), rp(0.8, 1.15), 0.07, rp(0.55, 0.8), rp(0.82, 0.98)]);
+      }
+      for (const sg of [-1, 1]) poi.push([ashBoxGeo(stoneK(0.05)), hx + sg * 0.32, 0.03, hz + sg * 0.12, sg * 0.05, side + rp(-0.2, 0.2), 0, 0.55, 0.08, 1.1, rp(0.75, 0.88)]);
+      // 从炉址往外裂开的余烬裂缝（并进熔岩网格，和起点别的裂缝一起呼吸）
+      for (let k = 0; k < 3; k++) {
+        const a = side + Math.PI + (k - 1) * 0.9 + rp(-0.25, 0.25), d = 2.5;
+        ashFissure(pr, hx + Math.sin(a) * d, hz + Math.cos(a) * d, rp(1.6, 2.6), rp(0.07, 0.1), fis);
+      }
+      // 倒下的界碑：北侧离中心 5.5–6.5 m，横躺着，旁边是断掉的碑座
+      const ma = side + rp(-0.35, 0.35), md = rp(5.6, 6.4), mx = st.x + Math.sin(ma) * md, mz = st.z + Math.cos(ma) * md, mang = ma + Math.PI / 2 + rp(-0.4, 0.4);
+      poi.push([ashBlockGeo(stoneK(0.08)), mx, 0.22, mz, rp(-0.06, 0.06), mang, 0.12, 0.62, 0.42, 2.5, rp(0.88, 0.98)]);
+      poi.push([ashBlockGeo(stoneK(0.08)), mx + Math.sin(mang) * 1.25, 0.34, mz + Math.cos(mang) * 1.25, 0.3, mang, 0, 0.7, 0.5, 0.35, 0.86]); // 碑头
+      const bx = mx + Math.sin(mang) * -1.75 + Math.sin(ma) * 0.4, bz = mz + Math.cos(mang) * -1.75 + Math.cos(ma) * 0.4;
+      poi.push([ashBlockGeo(stoneK(0.04)), bx, 0.32, bz, rp(-0.05, 0.05), mang + 0.3, rp(-0.05, 0.05), 0.82, 0.64, 0.72, 0.84]);
+      poi.push([ashBlockGeo(stoneK(0.04)), bx + rp(-0.2, 0.2), 0.7, bz + rp(-0.2, 0.2), 0.25, mang + 0.6, -0.2, 0.5, 0.18, 0.46, 0.8]); // 断口的碎块
+      L.drift.push(mx - Math.sin(mang) * 0.9, 0, mz - Math.cos(mang) * 0.9, 0, rp(0, TAU), 0, 1.1, 0.7, 1.2, 1);
+      for (let q = 0; q < 4; q++) L.grass.push(mx + rp(-1.4, 1.4), 0, mz + rp(-0.9, 0.9), 0, rp(0, TAU), 0, rp(0.7, 1.1), rp(0.7, 1.2), rp(0.7, 1.1), rp(0.85, 1.1));
+      for (let q = 0; q < 6; q++) L.pebble.push(hx + rp(-3, 3), 0.02, hz + rp(-3, 3), rp(-0.4, 0.4), rp(0, TAU), rp(-0.4, 0.4), rp(0.08, 0.2), rp(0.05, 0.12), rp(0.08, 0.2), rp(0.75, 1.05));
+      // 空地边外的矮残墙：北半圈、避开出口，贴着可走区域外 0.4–1.5 m
+      let made = 0;
+      for (let t = 0; t < 24 && made < 3; t++) {
+        const a = side + rp(-1.3, 1.3), d0 = rp(8.6, 11);
+        const x = st.x + Math.sin(a) * d0, z = st.z + Math.cos(a) * d0, dd = sd(x, z);
+        if (dd > -0.4 || dd < -2.2 || Math.abs(Math.atan2(Math.sin(a - ea), Math.cos(a - ea))) < 0.9) continue;
+        const wa = a + Math.PI / 2 + rp(-0.3, 0.3), wl = rp(1.4, 2.4);
+        for (let b = 0, nb = Math.round(wl / 0.6); b < nb; b++) {
+          const u = -wl / 2 + (b + 0.5) * (wl / nb), hh = rp(0.35, 0.95) * (1 - Math.abs(u) / wl * 0.6);
+          poi.push([ashBlockGeo(ASH_LAY.wall), x + Math.sin(wa) * u, hh / 2, z + Math.cos(wa) * u, rp(-0.04, 0.04), wa + rp(-0.06, 0.06), rp(-0.04, 0.04), 0.5, hh, wl / nb * 0.95, rp(0.78, 0.96)]);
+        }
+        L.drift.push(x + rp(-0.6, 0.6), 0, z + rp(-0.6, 0.6), 0, rp(0, TAU), 0, rp(0.9, 1.4), rp(0.6, 1), rp(0.9, 1.4), 1);
+        made++;
+      }
+    }
+
     const ws = new T.Color(1, 1, 1);
     const foliage = own(makeToonMat({ brush: 0.12, brushScale: 0.8, soft: 0.14 }));
+    if (poi.length) {
+      const pm = new T.Mesh(ashMerge(poi), own(makeToonMat({ brush: 0.12, brushScale: 0.6, soft: 0.1 })));
+      pm.name = 'ashStartPoi';
+      pm.castShadow = pm.receiveShadow = true;
+      pm.geometry.computeBoundingSphere();
+      zoneGroup.add(pm);
+    }
     // 低画质不画地上的草 / 蕨 / 苔（软件 GL 下它们和图标的画布共用一个 GPU 进程，见 QUALITY.low 的注释）
     const lowHide = [instanced(ashGrassGeo(), foliage, L.grass, false, ws), instanced(ashFernGeo(), foliage, L.fern, false, ws), instanced(ashMossGeo(), foliage, L.moss, false, ws)].filter(Boolean);
     instanced(ashDriftGeo(), own(makeToonMat({ brush: 0.1, brushScale: 0.5, soft: 0.16 })), L.drift, false, ws);
@@ -1894,7 +2001,9 @@
     for (const k in by) {
       const { e, list, small } = by[k];
       const rockish = e[4].indexOf('r') >= 0;
-      instanced(G.assets.geo(k), rockish ? mats.rock : mats.prop, list, !small, rockish && def.id !== 'ash' ? lin(def.rock).multiplyScalar(1.2) : new T.Color(1, 1, 1)); // 第 0 区的岩石材质自带颜色
+      // zones-polish：只有两三个、又不大的一组（顶点 < 600）不投影：影子几乎看不出来，每组却多一次阴影 draw（区域加长以后摆件的种类多了）
+      const gk = G.assets.geo(k), fewSmall = list.length / 10 <= 3 && gk && gk.attributes && gk.attributes.position.count < 600;
+      instanced(gk, rockish ? mats.rock : mats.prop, list, !small && !fewSmall, rockish && def.id !== 'ash' ? lin(def.rock).multiplyScalar(1.2) : new T.Color(1, 1, 1)); // 第 0 区的岩石材质自带颜色
     }
     if (!fires.length) return null;
     // 火焰：竖直的方片，朝镜头倾斜；每帧在 W.update 里按各自的相位抖动
@@ -2503,8 +2612,8 @@
     const t0 = performance.now();
     const pr = terrPrep(spec);
     let h = CELL;
-    // 内存上限：sd + sdShot 每区不超过约 4 MB（外接框 ≤ 180 m 时 0.25 m 格距远在上限之内）
-    while (((pr.x1 - pr.x0) / h + 1) * ((pr.z1 - pr.z0) / h + 1) > (pr.hasShotCut ? 500000 : 1000000)) h *= 2;
+    // 内存上限：sd + sdShot 每区不超过约 6.4 MB（zones-polish：区域加长到 ×1.6，原 4 MB / 50 万格；ash 的外接框到 205 × 170 m，0.25 m 格距约 60 万格）
+    while (((pr.x1 - pr.x0) / h + 1) * ((pr.z1 - pr.z0) / h + 1) > (pr.hasShotCut ? 800000 : 1600000)) h *= 2;
     const x0 = pr.x0, z0 = pr.z0;
     const nx = Math.ceil((pr.x1 - x0) / h) + 1, nz = Math.ceil((pr.z1 - z0) / h) + 1;
     const sd = new Float32Array(nx * nz).fill(SD_LO);
@@ -3095,6 +3204,9 @@
     }
   }
 
+  // 房间的怪物等级偏移（zones-polish）：区域加长后关键路径不止 4 个房间，按 order 在整条路径上的比例折回改版前的 +0 → +2，
+  // 区域首尾的怪物等级和原来一样。生成器给每个房间写 rm.lv = lvFor(order, 关键路径房间数)，敌人按 rm.lv 定等级（没有 lv 时照旧 ⌊order / 2⌋）
+  const lvFor = (order, nPath) => Math.max(0, Math.min(2, Math.floor((order * 4) / Math.max(1, nPath) / 2 + 1e-9)));
   // ---------- 校验（生成器负责；失败就换种子）----------
   const CHECK = { box: 180, areaMin: 2400, areaMax: 3800, gap: 14, startR: 8, firstR: 7, bossR: 9, packStart: 12, packDoor: 4 };
   // map（可选）：这份 spec 光栅化后的网格。给了就在网格节点上数可走面积、做 BFS（0.5 m 节点正好落在 0.25 m 网格的节点上，
@@ -3334,7 +3446,7 @@
     };
   };
   // 测试 / 调试用的内部函数
-  W.terrain = { zoneSd, primSd, primBox, exactSd, validateSpec, specHash, mulberry32, blob, specBounds, GEN, ZONE_TERRAIN };
+  W.terrain = { zoneSd, primSd, primBox, exactSd, validateSpec, specHash, mulberry32, blob, specBounds, GEN, ZONE_TERRAIN, lvFor };
 
   // ---------- 地形外观的共用工具（B 阶段各区的 dress 只调用、不修改）----------
   // 全部挂在当前的 zoneGroup 上、随换区一起释放；每个工具一次 draw（实例化或合并成一个网格），低画质也能用
@@ -3585,25 +3697,46 @@
         }
       }
       const crustK = o.crust === undefined ? 0.45 : o.crust, cc = lin(o.crustCol || 0x34221e);
+      // 卡通熔岩（zones-polish，可选）：opt.crustSide = 冷壳离中线至少多远（× 半宽），芯那一条露出来；opt.crustSeam = 壳底下一圈发红的缝（比壳大一点，先画）；
+      // opt.crustR = 壳的半径范围（× min(1.4, 半宽 / 3)），opt.crustHi = 壳顶面中间一小块亮一点的颜色（受光的硬壳）
+      const cs = o.crustSide || 0, seam = o.crustSeam ? lin(o.crustSeam) : null, cR = o.crustR || [0.25, 0.75], chi = o.crustHi ? lin(o.crustHi) : null;
       if (crustK > 0) {
-        const plate = (x, z, r) => {
-          const m = 5, ph = prnd() * TAU;
+        const plate = (x, z, r, c, yy, sk) => {
+          const m = 5;
           for (let i = 0; i < m; i++) {
-            const a0 = ph + (i / m) * TAU, a1 = ph + ((i + 1) / m) * TAU, r0 = r * (0.7 + 0.5 * prnd()), r1 = r * (0.7 + 0.5 * prnd());
-            tri(x, z, x + Math.sin(a0) * r0, z + Math.cos(a0) * r0, x + Math.sin(a1) * r1, z + Math.cos(a1) * r1, cc, y + 0.004, 0);
+            const a0 = sk[5] + (i / m) * TAU, a1 = sk[5] + ((i + 1) / m) * TAU, r0 = r * sk[i], r1 = r * sk[(i + 1) % m];
+            tri(x, z, x + Math.sin(a0) * r0, z + Math.cos(a0) * r0, x + Math.sin(a1) * r1, z + Math.cos(a1) * r1, c, yy, 0);
           }
         };
+        const plate3 = (x, z, r) => {
+          const sk = [0, 1, 2, 3, 4].map(() => 0.7 + 0.5 * prnd()).concat(prnd() * TAU);
+          if (seam) plate(x, z, r * 1.16 + 0.06, seam, y + 0.003, sk);
+          plate(x, z, r, cc, y + 0.004, sk);
+          if (chi) plate(x + r * 0.08, z - r * 0.1, r * 0.48, chi, y + 0.005, sk);
+        };
         pseed = 977;
+        const placedP = []; // 卡通冷壳不互相叠（叠在一起的两块在同一个高度上会打架、出条纹）
         for (const sg of segs) {
           const l = Math.hypot(sg[2] - sg[0], sg[3] - sg[1]), n = Math.floor(l * crustK + prnd());
           for (let k = 0; k < n; k++) {
-            const t = prnd(), w = sg[6] + (sg[7] - sg[6]) * t, u = (prnd() * 2 - 1) * 0.62 * w;
-            plate(sg[0] + (sg[2] - sg[0]) * t + sg[4] * u, sg[1] + (sg[3] - sg[1]) * t + sg[5] * u, (0.25 + 0.5 * prnd()) * Math.min(1.4, w / 3));
+            const t = prnd(), w = sg[6] + (sg[7] - sg[6]) * t, sgn = prnd() < 0.5 ? -1 : 1, q = prnd();
+            const u = cs ? sgn * (cs + (0.66 - cs) * q) * w : (q * 2 - 1) * 0.62 * w;
+            const px = sg[0] + (sg[2] - sg[0]) * t + sg[4] * u, pz = sg[1] + (sg[3] - sg[1]) * t + sg[5] * u, pr0 = (cR[0] + (cR[1] - cR[0]) * prnd()) * Math.min(1.4, w / 3);
+            if (cs) {
+              if (placedP.some((p) => Math.hypot(p[0] - px, p[1] - pz) < (p[2] + pr0) * 1.25 + 0.15)) continue;
+              placedP.push([px, pz, pr0]);
+            }
+            plate3(px, pz, pr0);
           }
         }
-        for (const P of o.pools || []) for (let k = 0, n = Math.round(P.r * 0.8); k < n; k++) {
-          const a = prnd() * TAU, d = prnd() * P.r * 0.55;
-          plate(P.x + Math.sin(a) * d, P.z + Math.cos(a) * d, 0.2 + 0.25 * prnd());
+        for (const P of o.pools || []) for (let k = 0, n = Math.round(P.r * (cs ? 1.3 : 0.8)); k < n; k++) {
+          const a = prnd() * TAU, d = (cs ? 0.3 + 0.35 * prnd() : prnd() * 0.55) * P.r;
+          const px = P.x + Math.sin(a) * d, pz = P.z + Math.cos(a) * d, pr0 = cs ? 0.35 + 0.35 * prnd() : 0.2 + 0.25 * prnd();
+          if (cs) {
+            if (placedP.some((p) => Math.hypot(p[0] - px, p[1] - pz) < (p[2] + pr0) * 1.25 + 0.15)) continue;
+            placedP.push([px, pz, pr0]);
+          }
+          plate3(px, pz, pr0);
         }
       }
       let g = geoS;
@@ -3665,7 +3798,8 @@
     plankBridge(pts, w, opt) {
       const o = opt || {}, list = [], stone = !!o.stone, y = o.y !== undefined ? o.y : 0.04, th = o.th || (stone ? 0.2 : 0.08);
       const pitch = stone ? 0.9 : 0.55, depth = stone ? 0.86 : 0.46;
-      for (let i = 0; i + 1 < pts.length; i++) {
+      // opt.pairs（zones-polish）：pts 两两一组是互不相连的几座桥（同一个实例化网格，一次 draw），每座两头都有桥墩
+      for (let i = 0; i + 1 < pts.length; i += o.pairs ? 2 : 1) {
         const a = pts[i], b = pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1], l = Math.hypot(dx, dz), ang = Math.atan2(dx, dz);
         const n = Math.max(1, Math.floor(l / pitch)), cx = Math.cos(ang), sx = -Math.sin(ang);
         for (let k = 0; k < n; k++) {
@@ -3685,7 +3819,7 @@
             }
           }
         }
-        if (stone && i === 0) for (const e of [[a[0], a[1]], [b[0], b[1]]]) for (const sd of [-1, 1]) {
+        if (stone && (i === 0 || o.pairs)) for (const e of [[a[0], a[1]], [b[0], b[1]]]) for (const sd of [-1, 1]) {
           list.push(e[0] + cx * sd * (w * 0.5 + 0.2), 0.45, e[1] + sx * sd * (w * 0.5 + 0.2), 0, ang + rand(-0.1, 0.1), 0, 0.7, 0.9, 0.7, rand(0.7, 0.85));
         }
       }
@@ -3817,10 +3951,12 @@
   }
 
   // ---------- 宝箱：模型和打开动画（玩法在 game.js 的 G.openChest）----------
-  // 两个实例化网格：箱体、箱盖（铰链在后上沿，锁扣朝镜头）；打开时箱盖往后翻、冒一团金色火星。整区 2 次 draw。
+  // 两个实例化网格：箱体（带贴地的接触阴影）、箱盖（铰链在后上沿，锁扣朝镜头）；打开时箱盖往后翻、冒一团金色火星。整区 2 次 draw。
   // 宝箱的状态（open）存在 zone.chests 的每一项上，素材到了原地重建外观时照状态重建
   const chestBodyGeo = () =>
     geo('chest/body', () => toonGradient(bake('chest/body0', [
+      // 贴地的接触阴影（zones-polish）：烘进箱体的一块暗色扁圆片，低画质没有阴影贴图也压得住地，不多一次 draw
+      [gCyl(1, 1, 1, 14), 0x16121c, 0.04, 0.008, -0.03, 0, 0, 0, 0.66, 0.012, 0.5],
       [gBox(1, 1, 1), 0x7a4e2a, 0, 0.25, 0, 0, 0, 0, 0.9, 0.5, 0.6],
       [gBox(1, 1, 1), 0x8c8a86, -0.33, 0.25, 0, 0, 0, 0, 0.08, 0.52, 0.63],
       [gBox(1, 1, 1), 0x8c8a86, 0.33, 0.25, 0, 0, 0, 0, 0.08, 0.52, 0.63],
@@ -3853,7 +3989,7 @@
     const mat = own(makeToonMat({ brush: 0.1, brushScale: 0.6 }));
     const body = gfxAdd(new T.InstancedMesh(chestBodyGeo(), mat, list.length));
     const lid = gfxAdd(new T.InstancedMesh(chestLidGeo(), mat, list.length));
-    body.castShadow = lid.castShadow = true;
+    body.castShadow = lid.castShadow = false; // zones-polish：箱体烘了贴地的接触阴影，不再投实时阴影（每区省两次阴影 draw）
     body.receiveShadow = lid.receiveShadow = true;
     const H = { body, lid, list, t: [], anim: false };
     for (let i = 0; i < list.length; i++) chestMatrices(H, i);
@@ -3904,8 +4040,10 @@
   // ② 整体转一个角度，让外接框落在 150 × 125 以内；③ 按镜头方向（北 = -z，离镜头远）摆树干、矮墙、烟囱、地标、灯位，最后排怪群和宝箱。
   // 只用传进来的随机源（种子），不碰 Math.random
   const ASH_GEN = {
-    area: [3110, 3300], // 骨架的可走面积目标（m²）；校验按 3000–3400（树干、矮墙还要再挖掉一点）
-    box: [150, 125], // 外接框上限（长边 / 短边）
+    area: [4950, 5250], // 骨架的可走面积目标（m²）；校验按 4800–5450（树干、矮墙还要再挖掉一点）。zones-polish：×1.6（原 3110–3300）
+    box: [205, 170], // 外接框上限（长边 / 短边）；zones-polish：原 150 × 125
+    nPath: 7, // 关键路径房间数（不算起点和场地）；zones-polish：4 → 7
+    ditch: [2.2, 2.8], // 第二道熔岩沟的半宽（zones-polish）
     neck: [4.2, 5.6], // 颈口半宽（9–11 m 宽）
     river: [3.2, 4.2], // 熔岩河半宽（6.4–8.4 m）
     bridgeW: 5, // 石桥宽
@@ -3982,8 +4120,22 @@
     } else for (const q of p.pts || [[p.x, p.z]]) o.push(q);
     return o;
   }
+  const ashRoomBox = (rm) => {
+    let x0 = 1e18, z0 = 1e18, x1 = -1e18, z1 = -1e18;
+    for (const p of rm.prims) {
+      const b = primBox(p);
+      if (b[0] < x0) x0 = b[0];
+      if (b[1] < z0) z0 = b[1];
+      if (b[2] > x1) x1 = b[2];
+      if (b[3] > z1) z1 = b[3];
+    }
+    return [x0, z0, x1, z1];
+  };
   // 两个房间是否分开了至少 gap（按图元边上的采样点近似）
   function ashApart(A, B, gap) {
+    // 外接框隔得比 gap 还远就不用逐点量（zones-polish：加长后每摆一个房间都要和前面所有关键路径房间比一次）
+    const ba = ashRoomBox(A), bb = ashRoomBox(B);
+    if (ba[0] - bb[2] > gap || bb[0] - ba[2] > gap || ba[1] - bb[3] > gap || bb[1] - ba[3] > gap) return true;
     for (const p of A.prims) for (const q of ashOutline(p)) if (ashRoomSd(B, q[0], q[1]) > -gap) return false;
     for (const p of B.prims) for (const q of ashOutline(p)) if (ashRoomSd(A, q[0], q[1]) > -gap) return false;
     return true;
@@ -4022,17 +4174,21 @@
     return rooms[id];
   }
   // ① 骨架（局部坐标）。失败（河碰到别的房间、旁支放不下……）返回 ok = false，外面换一串随机数重来
+  // zones-polish：区域加长到 ×1.6。关键路径 7 个房间：R1 焦木林 → R2 灰原 → R3 河岸 →（石桥过熔岩河）→ R4 废弃农庄 → R5 → R6 →
+  //（第二道熔岩沟上的窄石桥）→ R7 → 场地。旁支 3 个：A 过浅滩（宝箱）、B 农庄后院（精英 + 宝箱）、C 从 R5 / R6 岔出去的焦土空地（宝箱）。
+  // 路径前半朝一边弯，过河以后多半往回弯（S 形），外接框不至于太长；不相邻的关键路径房间至少隔开 15 m
   function ashSkeleton(r, k) {
     const AG = ASH_GEN, rnd = (a, b) => a + r() * (b - a), sgn = () => (r() < 0.5 ? -1 : 1);
     const rooms = [], links = [], cuts = [], haz = [], feats = [];
     const fail = (why) => ({ ok: false, why });
-    // 关键路径整体朝一边弯（外接框紧凑），最后两段可以回折一点
-    const bend = sgn();
-    const h0 = 0, h1 = h0 + bend * rnd(0.15, 0.6), h2 = h1 + bend * rnd(0.1, 0.5), h3 = h2 + (r() < 0.35 ? -bend : bend) * rnd(0.15, 0.55), h4 = h3 + rnd(-0.5, 0.5);
+    const NP = AG.nPath, bend = sgn(), back = r() < 0.75 ? -bend : bend, H = [0];
+    for (let i = 1; i <= NP; i++) H.push(H[i - 1] + (i <= 3 ? bend : i === 4 ? (r() < 0.5 ? bend : back) : back) * rnd(0.1, i === NP ? 0.5 : 0.42));
+    const HR = H[3], lvOf = (o) => lvFor(o, NP); // HR：过熔岩河的方向（R3 → R4）
     // 起点：r=8 圆盘 + 朝出口方向长出去的一小块
-    const la = h0 + rnd(-0.55, 0.55), lr = rnd(4, 5);
-    rooms.push({ id: 0, kind: 'start', order: 0, path: true, prims: [{ t: 'circle', x: 0, z: 0, r: 8 }, { t: 'circle', x: Math.sin(la) * 6, z: Math.cos(la) * 6, r: lr }], core: { x: 0, z: 0, r: 8 }, tags: [] });
-    // 下一个房间：先在原点建好，量出背面到边的距离，再挪到「上一个房间的边 + 颈口 + 背面」
+    const la = H[0] + rnd(-0.55, 0.55), lr = rnd(4, 5);
+    rooms.push({ id: 0, kind: 'start', order: 0, lv: 0, path: true, prims: [{ t: 'circle', x: 0, z: 0, r: 8 }, { t: 'circle', x: Math.sin(la) * 6, z: Math.cos(la) * 6, r: lr }], core: { x: 0, z: 0, r: 8 }, tags: [] });
+    // 下一个房间：先在原点建好，量出背面到边的距离，再挪到「上一个房间的边 + 颈口 + 背面」；离不相邻的关键路径房间太近就算失败
+    let tooClose = false;
     const place = (prev, h, gap, mk) => {
       const P = rooms[prev], rp = ashRay(P, P.core.x, P.core.z, h);
       const rm = mk();
@@ -4042,26 +4198,37 @@
       rm.core.x += cx;
       rm.core.z += cz;
       rm.id = rooms.length;
+      for (let j = 0; j < prev; j++) if (rooms[j].path && rooms[j].kind !== 'link' && !ashApart(rm, rooms[j], 15)) tooClose = true;
       rooms.push(rm);
       return rm;
     };
     const blobRoom = (kind, order, path, along, across, ang, amp, coreMax, sym) => {
-      const prims = ashBlob(r, 0, 0, along, across, ang, amp, sym), rm = { id: -1, kind, order, path, prims, core: { x: 0, z: 0, r: 0 }, tags: [] };
+      const prims = ashBlob(r, 0, 0, along, across, ang, amp, sym), rm = { id: -1, kind, order, lv: lvOf(order), path, prims, core: { x: 0, z: 0, r: 0 }, tags: [] };
       rm.core.r = Math.min(coreMax, ashRoomSd(rm, 0, 0) - 0.4);
       return rm;
     };
-    const R1 = place(0, h0, rnd(3.5, 6), () => blobRoom('room', 1, true, Math.max(10, 10 * k), 13.5 * k, h0, 0.15, 7.2));
+    const R1 = place(0, H[0], rnd(3.5, 6), () => blobRoom('room', 1, true, Math.max(10, 10 * k), 13.5 * k, H[0], 0.15, 7.2));
     R1.tags.push('grove');
-    const R2 = place(1, h1, rnd(3, 5.5), () => blobRoom('room', 2, true, 9.5 * k, 11 * k, h1, 0.2, 8));
-    // 熔岩河：R2 的边 + 近岸 → 河 → 远岸 + R3
+    const R2 = place(1, H[1], rnd(3, 5.5), () => blobRoom('room', 2, true, 10.5 * k, 12.5 * k, H[1], 0.22, 8));
+    R2.tags.push('flat');
+    const R3 = place(2, H[2], rnd(3, 5.5), () => blobRoom('room', 3, true, 9.5 * k, 11 * k, H[2], 0.2, 8));
+    // 熔岩河：R3 的边 + 近岸 → 河 → 远岸 + R4
     const hwB = rnd(AG.river[0], AG.river[1]), bankN = rnd(2.8, 4), bankF = rnd(2.8, 4);
-    const rR2 = ashRay(R2, R2.core.x, R2.core.z, h2);
-    const C = [R2.core.x + Math.sin(h2) * (rR2 + bankN + hwB), R2.core.z + Math.cos(h2) * (rR2 + bankN + hwB)];
-    const R3 = place(2, h2, bankN + 2 * hwB + bankF, () => blobRoom('room', 3, true, 12 * k, 14 * k, h2, 0.15, 6));
-    R3.tags.push('farm');
-    const R4 = place(3, h3, rnd(3, 5.5), () => blobRoom('room', 4, true, 9.5 * k, 11 * k, h3, 0.2, 8));
-    const AR = place(4, h4, rnd(4.5, 6.5), () => blobRoom('arena', 5, true, 14, 17, h4, 0.1, 10, true));
+    const rR3 = ashRay(R3, R3.core.x, R3.core.z, HR);
+    const C = [R3.core.x + Math.sin(HR) * (rR3 + bankN + hwB), R3.core.z + Math.cos(HR) * (rR3 + bankN + hwB)];
+    const R4 = place(3, HR, bankN + 2 * hwB + bankF, () => blobRoom('room', 4, true, 12 * k, 14 * k, HR, 0.15, 6));
+    R4.tags.push('farm');
+    const R5 = place(4, H[4], rnd(3, 5.5), () => blobRoom('room', 5, true, 9.5 * k, 11 * k, H[4], 0.2, 8));
+    // 第二道熔岩沟：R6 和 R7 之间横过去，窄一点（半宽 2.2–2.8），颈口里一座窄石桥
+    const R6 = place(5, H[5], rnd(3, 5.5), () => blobRoom('room', 6, true, 10 * k, 12 * k, H[5], 0.2, 8));
+    const hwD = rnd(AG.ditch[0], AG.ditch[1]), bN2 = rnd(3.2, 4), bF2 = rnd(3.2, 4);
+    const rR6 = ashRay(R6, R6.core.x, R6.core.z, H[6]);
+    const C2 = [R6.core.x + Math.sin(H[6]) * (rR6 + bN2 + hwD), R6.core.z + Math.cos(H[6]) * (rR6 + bN2 + hwD)];
+    const R7 = place(6, H[6], bN2 + 2 * hwD + bF2, () => blobRoom('room', 7, true, 9.5 * k, 11.5 * k, H[6], 0.2, 8));
+    const AR = place(7, H[7], rnd(4.5, 6.5), () => blobRoom('arena', 8, true, 14, 17, H[7], 0.1, 10, true));
+    if (tooClose) return fail('不相邻的房间太近');
     if (R1.core.r < 7.2) return fail('R1 太窄');
+    const h4 = H[7];
     // 场地的熔岩池：3 个，嵌在边上（离门那一侧 ±40° 以外），让边缘不规则；中间空着（冲锋要长直线）
     const pools = [];
     for (const rel of [rnd(0.9, 1.75), -rnd(0.9, 1.75), sgn() * rnd(2.0, 2.35)]) {
@@ -4076,18 +4243,19 @@
     for (const q of pools) arIns = Math.min(arIns, Math.hypot(q.x - AR.core.x, q.z - AR.core.z) - q.r - 0.5);
     AR.core.r = Math.min(10, arIns);
     if (AR.core.r < 8) return fail('场地中间太挤');
-    // 旁支 A：过浅滩的焦木林空地（宝箱）。浅滩在河的一侧（sF），离桥 F m，F 加到 A 和 R3 分开为止
-    const sF = sgn(), lat = [Math.cos(h2), -Math.sin(h2)], alo = [Math.sin(h2), Math.cos(h2)];
+    const pathRooms = [rooms[0], R1, R2, R3, R4, R5, R6, R7, AR];
+    // 旁支 A：过浅滩的焦木林空地（宝箱）。浅滩在河的一侧（sF），离桥 F m，F 加到 A 和对岸的房间分开为止
+    const sF = sgn(), lat = [Math.cos(HR), -Math.sin(HR)], alo = [Math.sin(HR), Math.cos(HR)];
     const at = (l, o) => [C[0] + lat[0] * l + alo[0] * o, C[1] + lat[1] * l + alo[1] * o];
     const hwF = rnd(3.1, 3.7), Ar = 6.4 * k;
     let F = 0, SA = null, oF = rnd(-0.6, 0.6);
     for (let f = 21; f <= 31 && !SA; f += 1) {
       const c = at(sF * f, oF + hwF + 1.6 + Ar * 0.85);
-      const rm = blobRoom('side', 3, false, Ar, Ar * 1.1, h2, 0.2, 5);
+      const rm = blobRoom('side', 3, false, Ar, Ar * 1.1, HR, 0.2, 5);
       for (const p of rm.prims) ashShift(p, c[0], c[1]);
       rm.core.x = c[0];
       rm.core.z = c[1];
-      if (ashApart(rm, R3, 5) && ashApart(rm, R4, 5) && ashApart(rm, AR, 5)) {
+      if (pathRooms.every((o) => o === R3 || ashApart(rm, o, 5))) {
         SA = rm;
         F = f;
       }
@@ -4096,18 +4264,18 @@
     SA.id = rooms.length;
     SA.tags.push('chest');
     rooms.push(SA);
-    // 旁支 B：农庄后院（精英群 + 宝箱），从 R3 朝浅滩的另一侧、略往前岔出去
+    // 旁支 B：农庄后院（精英群 + 宝箱），从 R4 朝浅滩的另一侧、略往前岔出去
     let SB = null;
     for (const side of [-sF, sF]) {
       for (const tilt of [0.4, 0.75, 0.1]) {
-        const hb = h2 + side * (Math.PI / 2 - tilt), Br = 7 * k;
-        const rR3 = ashRay(R3, R3.core.x, R3.core.z, hb), d = rR3 + rnd(4.5, 6) + Br * 0.9;
+        const hb = HR + side * (Math.PI / 2 - tilt), Br = 7 * k;
+        const rR4 = ashRay(R4, R4.core.x, R4.core.z, hb), d = rR4 + rnd(4.5, 6) + Br * 0.9;
         const rm = blobRoom('side', 4, false, Br, Br * 1.05, hb, 0.2, 5);
-        const c = [R3.core.x + Math.sin(hb) * d, R3.core.z + Math.cos(hb) * d];
+        const c = [R4.core.x + Math.sin(hb) * d, R4.core.z + Math.cos(hb) * d];
         for (const p of rm.prims) ashShift(p, c[0], c[1]);
         rm.core.x = c[0];
         rm.core.z = c[1];
-        if ([R1, R2, R4, AR, SA].every((o) => ashApart(rm, o, 5)) && (C[0] - c[0]) * alo[0] + (C[1] - c[1]) * alo[1] < -(hwB + Br * 1.3 + 4)) {
+        if (pathRooms.concat([SA]).every((o) => o === R4 || ashApart(rm, o, 5)) && (C[0] - c[0]) * alo[0] + (C[1] - c[1]) * alo[1] < -(hwB + Br * 1.3 + 4)) {
           SB = rm;
           break;
         }
@@ -4118,6 +4286,34 @@
     SB.id = rooms.length;
     SB.tags.push('elite', 'chest');
     rooms.push(SB);
+    // 旁支 C：从 R5 或 R6 横着岔出去的焦土空地（宝箱 + 一小群）
+    let SC = null, cHost = null, cHb = 0;
+    for (const host of r() < 0.5 ? [R5, R6] : [R6, R5]) {
+      const hh = H[host.order - 1] * 0.5 + H[host.order] * 0.5;
+      for (const side of r() < 0.5 ? [-1, 1] : [1, -1]) {
+        for (const tilt of [0.2, 0.55, -0.2]) {
+          const hb = hh + side * (Math.PI / 2 - tilt), Cr = 6.6 * k;
+          const d = ashRay(host, host.core.x, host.core.z, hb) + rnd(4.5, 6) + Cr * 0.9;
+          const rm = blobRoom('side', host.order, false, Cr, Cr * 1.08, hb, 0.2, 5);
+          const c = [host.core.x + Math.sin(hb) * d, host.core.z + Math.cos(hb) * d];
+          for (const p of rm.prims) ashShift(p, c[0], c[1]);
+          rm.core.x = c[0];
+          rm.core.z = c[1];
+          if (pathRooms.concat([SA, SB]).every((o) => o === host || ashApart(rm, o, 6))) {
+            SC = rm;
+            cHost = host;
+            cHb = hb;
+            break;
+          }
+        }
+        if (SC) break;
+      }
+      if (SC) break;
+    }
+    if (!SC) return fail('旁支 C 放不下');
+    SC.id = rooms.length;
+    SC.tags.push('chest', 'scorch');
+    rooms.push(SC);
     // 熔岩河的中线（横坐标 l = 沿河离桥多远，o = 顺着关键路径方向的偏移）：桥两边、浅滩两边、塌桥那一段都是直的
     const Lc = rnd(10.5, 12.5), hwR = hwB; // 塌桥离桥 Lc m，在浅滩的另一侧
     const P = [];
@@ -4136,11 +4332,13 @@
     l = Lc + 2.5;
     for (let i = 0; i < 3; i++) add(-sF * (l += rnd(8, 11)), rnd(-2.5, 2.5), rnd(3.0, 4.3));
     P.sort((a, b) => a.l - b.l);
-    // 河不能碰到起点、R1、R4、场地、旁支 B；两头碰到了就截短（截完太短算失败）
-    const avoid = [rooms[0], R1, R4, AR, SB];
+    // 河不能碰到别的房间（只有两岸的 R3 / R4 和过浅滩的旁支 A 挨着它）；两头碰到了就截短（截完太短算失败）
+    const avoid = [rooms[0], R1, R2, R5, R6, R7, AR, SB, SC];
+    // 旁支 B / C 的小路（房间中心之间的直线，半宽 3.4）也不能被熔岩截断
+    const corr = [[R4, SB], [cHost, SC]], offCorr = (p, m) => corr.every(([u, v]) => segD(p[0], p[1], u.core.x, u.core.z, v.core.x, v.core.z) > m + 3.4 + 1);
     const clear = (q) => {
       const p = at(q.l, q.o);
-      return avoid.every((rm) => ashRoomSd(rm, p[0], p[1]) < -(q.hw + 3));
+      return avoid.every((rm) => ashRoomSd(rm, p[0], p[1]) < -(q.hw + 3)) && offCorr(p, q.hw);
     };
     let i0 = P.findIndex((q) => Math.abs(q.l) < sB + 0.01), i1 = i0;
     while (i0 > 0 && clear(P[i0 - 1])) i0--;
@@ -4151,80 +4349,111 @@
     for (const q of river) if (!clear(q) && Math.abs(q.l) > sB + 0.01) return fail('熔岩河碰到房间');
     // 挖空：河按桥（|l| ≤ 2.5）和浅滩（|l - sF·F| ≤ 3）断开，每段一条平头的多边形条带
     const gaps = [[-AG.bridgeW / 2, AG.bridgeW / 2], [sF * F - AG.fordW / 2, sF * F + AG.fordW / 2]].sort((a, b) => a[0] - b[0]);
-    const lerpAt = (lv) => {
-      for (let i = 0; i + 1 < river.length; i++) {
-        const a = river[i], b = river[i + 1];
-        if (lv >= a.l && lv <= b.l) {
-          const t = (lv - a.l) / (b.l - a.l || 1);
-          return { l: lv, o: a.o + (b.o - a.o) * t, hw: a.hw + (b.hw - a.hw) * t };
+    const cutRiver = (rv, gp, atF) => {
+      const lerpAt = (lv) => {
+        for (let i = 0; i + 1 < rv.length; i++) {
+          const a = rv[i], b = rv[i + 1];
+          if (lv >= a.l && lv <= b.l) {
+            const t = (lv - a.l) / (b.l - a.l || 1);
+            return { l: lv, o: a.o + (b.o - a.o) * t, hw: a.hw + (b.hw - a.hw) * t };
+          }
         }
+        return null;
+      };
+      const pieces = [];
+      let cur = [rv[0]];
+      for (let i = 1; i < rv.length; i++) {
+        const q = rv[i];
+        for (const g of gp) {
+          if (cur.length && g[0] > cur[cur.length - 1].l && g[0] <= q.l) {
+            cur.push(lerpAt(g[0]));
+            pieces.push(cur);
+            cur = [lerpAt(g[1])];
+          }
+        }
+        if (q.l > cur[cur.length - 1].l) cur.push(q);
       }
-      return null;
+      pieces.push(cur);
+      for (const pc of pieces) {
+        if (pc.length < 2) continue;
+        ashStrip(pc.map((q) => atF(q.l, q.o)), pc.map((q) => q.hw), MAT.LAVA, cuts);
+      }
     };
-    const pieces = [];
-    let cur = [river[0]];
-    for (let i = 1; i < river.length; i++) {
-      const q = river[i];
-      for (const g of gaps) {
-        if (cur.length && g[0] > cur[cur.length - 1].l && g[0] <= q.l) {
-          cur.push(lerpAt(g[0]));
-          pieces.push(cur);
-          cur = [lerpAt(g[1])];
-        }
-      }
-      if (q.l > cur[cur.length - 1].l) cur.push(q);
-    }
-    pieces.push(cur);
-    for (const pc of pieces) {
-      if (pc.length < 2) continue;
-      ashStrip(pc.map((q) => at(q.l, q.o)), pc.map((q) => q.hw), MAT.LAVA, cuts);
-    }
+    cutRiver(river, gaps, at);
     const rpts = river.map((q) => at(q.l, q.o)), rhw = river.map((q) => q.hw);
     feats.push({ kind: 'river', pts: rpts, hw: rhw });
+    // 第二道熔岩沟：直一点的短沟（4–6 个点），中间断开 5 m 给窄石桥；两头碰到别的房间就截短
+    const lat2 = [Math.cos(H[6]), -Math.sin(H[6])], alo2 = [Math.sin(H[6]), Math.cos(H[6])];
+    const at2 = (l2, o) => [C2[0] + lat2[0] * l2 + alo2[0] * o, C2[1] + lat2[1] * l2 + alo2[1] * o];
+    const sB2 = AG.bridgeW / 2 + hwD + 0.6, P2 = [{ l: -sB2, o: 0, hw: hwD }, { l: sB2, o: 0, hw: hwD }];
+    for (const s of [-1, 1]) {
+      let l2 = sB2;
+      for (let i = 0; i < 2; i++) P2.push({ l: s * (l2 += rnd(6, 8.5)), o: rnd(-1.5, 1.5), hw: rnd(hwD * 0.8, hwD * 1.15) });
+    }
+    P2.sort((a, b) => a.l - b.l);
+    const avoid2 = pathRooms.concat([SA, SB, SC]);
+    const clear2 = (q) => {
+      const p = at2(q.l, q.o);
+      return avoid2.every((rm) => ashRoomSd(rm, p[0], p[1]) < -(q.hw + (rm === R6 || rm === R7 ? 2.6 : 3))) && offCorr(p, q.hw);
+    };
+    let j0 = P2.findIndex((q) => Math.abs(q.l) < sB2 + 0.01), j1 = j0 + 1;
+    if (!clear2(P2[j0]) || !clear2(P2[j1])) return fail('熔岩沟碰到房间');
+    while (j0 > 0 && clear2(P2[j0 - 1])) j0--;
+    while (j1 < P2.length - 1 && clear2(P2[j1 + 1])) j1++;
+    const ditch = P2.slice(j0, j1 + 1);
+    if (ditch[0].l > -(sB2 + 5) || ditch[ditch.length - 1].l < sB2 + 5) return fail('熔岩沟太短');
+    cutRiver(ditch, [[-AG.bridgeW / 2, AG.bridgeW / 2]], at2);
+    feats.push({ kind: 'river', pts: ditch.map((q) => at2(q.l, q.o)), hw: ditch.map((q) => q.hw), ditch: true });
     // 颈口（关键路径）
     const neck = AG.neck;
     ashNeck(r, rooms, 0, 1, neck, 'neck', links);
     ashNeck(r, rooms, 1, 2, neck, 'neck', links);
-    const LB = ashNeck(r, rooms, 2, 3, [4.8, 6], 'bridge', links);
+    ashNeck(r, rooms, 2, 3, neck, 'neck', links);
+    const LB = ashNeck(r, rooms, 3, 4, [4.8, 6], 'bridge', links);
     // 河边小路：近岸朝塌桥那一侧伸出去，尽头就是塌桥的桥头
     const sa = at(-sF * 1.5, -hwB - 2.4), sb = at(-sF * (Lc + 0.5), -hwR - 2.4);
     LB.prims.push({ t: 'capsule', ax: sa[0], az: sa[1], bx: sb[0], bz: sb[1], hw: 2.3 });
-    ashNeck(r, rooms, 3, 4, neck, 'neck', links);
-    const LA = ashNeck(r, rooms, 4, 5, [4.4, 5.2], 'neck', links);
-    // 旁支 A 的小路：从 R2 沿近岸走到浅滩，过浅滩到 A
+    ashNeck(r, rooms, 4, 5, neck, 'neck', links);
+    ashNeck(r, rooms, 5, 6, neck, 'neck', links);
+    ashNeck(r, rooms, 6, 7, [4.2, 5.2], 'bridge', links);
+    const LA = ashNeck(r, rooms, 7, 8, [4.4, 5.2], 'neck', links);
+    // 旁支 A 的小路：从 R3 沿近岸走到浅滩，过浅滩到 A
     const fn = at(sF * F, oF - hwF - 2.6), ff = at(sF * F, oF + hwF + 2.6), fc = at(sF * F, oF);
     const idA = rooms.length;
     rooms.push({
-      id: idA, kind: 'link', order: 2, path: false,
-      prims: [{ t: 'capsule', ax: R2.core.x, az: R2.core.z, bx: fn[0], bz: fn[1], hw: 2.8 }, { t: 'rbox', x: fc[0], z: fc[1], hx: AG.fordW / 2, hz: hwF + 2.8, ang: h2, round: 0.3 }],
-      core: { x: fn[0], z: fn[1], r: 2.6 }, axis: [[R2.core.x, R2.core.z], fn, ff, [SA.core.x, SA.core.z]], ends: [2, SA.id], tags: ['ford'],
+      id: idA, kind: 'link', order: 3, lv: lvOf(3), path: false,
+      prims: [{ t: 'capsule', ax: R3.core.x, az: R3.core.z, bx: fn[0], bz: fn[1], hw: 2.8 }, { t: 'rbox', x: fc[0], z: fc[1], hx: AG.fordW / 2, hz: hwF + 2.8, ang: HR, round: 0.3 },
+        { t: 'capsule', ax: ff[0], az: ff[1], bx: SA.core.x, bz: SA.core.z, hw: 2.6 }], // 浅滩远端接到旁支 A 的中心（zones-polish：A 的鼓包偶尔离浅滩口太远，断开了）
+      core: { x: fn[0], z: fn[1], r: 2.6 }, axis: [[R3.core.x, R3.core.z], fn, ff, [SA.core.x, SA.core.z]], ends: [3, SA.id], tags: ['ford'],
     });
-    const dA2 = ashRay(R2, R2.core.x, R2.core.z, Math.atan2(fn[0] - R2.core.x, fn[1] - R2.core.z));
-    const ua = Math.atan2(fn[0] - R2.core.x, fn[1] - R2.core.z);
-    links.push({ a: 2, b: idA, door: { x: R2.core.x + Math.sin(ua) * dA2, z: R2.core.z + Math.cos(ua) * dA2 }, kind: 'corr' });
-    const dSA = ashRay(SA, SA.core.x, SA.core.z, h2 + Math.PI);
+    const ua = Math.atan2(fn[0] - R3.core.x, fn[1] - R3.core.z), dA2 = ashRay(R3, R3.core.x, R3.core.z, ua);
+    links.push({ a: 3, b: idA, door: { x: R3.core.x + Math.sin(ua) * dA2, z: R3.core.z + Math.cos(ua) * dA2 }, kind: 'corr' });
+    const dSA = ashRay(SA, SA.core.x, SA.core.z, HR + Math.PI);
     links.push({ a: idA, b: SA.id, door: { x: SA.core.x - alo[0] * dSA, z: SA.core.z - alo[1] * dSA }, kind: 'ford' });
     // 浅滩两边的灼烧（贴着熔岩的 1 m）
     for (const s of [-1, 1]) {
       const c = at(sF * F + s * (AG.fordW / 2 - 0.5), oF);
-      haz.push({ prim: { t: 'rbox', x: c[0], z: c[1], hx: 0.5, hz: hwF + 0.2, ang: h2, round: 0 }, kind: 'burn' });
+      haz.push({ prim: { t: 'rbox', x: c[0], z: c[1], hx: 0.5, hz: hwF + 0.2, ang: HR, round: 0 }, kind: 'burn' });
     }
-    ashNeck(r, rooms, 3, SB.id, [3, 3.3], 'corr', links);
-    // 地标：石桥、浅滩、塌桥
-    feats.push({ kind: 'bridge', x: C[0], z: C[1], ang: h2, len: 2 * hwB + 2.4, w: AG.bridgeW });
-    feats.push({ kind: 'ford', x: fc[0], z: fc[1], ang: h2, len: 2 * hwF + 0.6, w: AG.fordW });
+    ashNeck(r, rooms, 4, SB.id, [3, 3.3], 'corr', links);
+    ashNeck(r, rooms, cHost.id, SC.id, [3, 3.4], 'corr', links);
+    for (const rm of rooms) if (rm.lv === undefined) rm.lv = lvOf(rm.order);
+    // 地标：石桥、浅滩、塌桥；第二座窄石桥
+    feats.push({ kind: 'bridge', x: C[0], z: C[1], ang: HR, len: 2 * hwB + 2.4, w: AG.bridgeW });
+    feats.push({ kind: 'ford', x: fc[0], z: fc[1], ang: HR, len: 2 * hwF + 0.6, w: AG.fordW });
     const rc = at(-sF * Lc, 0);
-    feats.push({ kind: 'ruin', x: rc[0], z: rc[1], ang: h2, len: 2 * hwR + 3, w: 4.2 });
+    feats.push({ kind: 'ruin', x: rc[0], z: rc[1], ang: HR, len: 2 * hwR + 3, w: 4.2 });
+    feats.push({ kind: 'bridge', x: C2[0], z: C2[1], ang: H[6], len: 2 * hwD + 2.2, w: AG.bridgeW, small: true });
     // 场地：门在颈口里离场地边 2.5 m（bossR = |门 - 中心| - 2）
-    const back = h4 + Math.PI, rd = ashRay(AR, AR.core.x, AR.core.z, back) + 2.5;
-    const door = { x: AR.core.x + Math.sin(back) * rd, z: AR.core.z + Math.cos(back) * rd };
+    const bk = h4 + Math.PI, rd = ashRay(AR, AR.core.x, AR.core.z, bk) + 2.5;
+    const door = { x: AR.core.x + Math.sin(bk) * rd, z: AR.core.z + Math.cos(bk) * rd };
     if (LA.len < 3.2) return fail('场地颈口太短');
     const spec = {
       rooms, links, cuts, haz, feats, packs: [], chests: [],
-      start: { x: 0, z: 0, exit: { x: links[0].door.x, z: links[0].door.z, ang: h0 } },
-      arena: { room: 5, x: AR.core.x, z: AR.core.z, door, dir: { x: Math.sin(h4), z: Math.cos(h4) } },
+      start: { x: 0, z: 0, exit: { x: links[0].door.x, z: links[0].door.z, ang: H[0] } },
+      arena: { room: AR.id, x: AR.core.x, z: AR.core.z, door, dir: { x: Math.sin(h4), z: Math.cos(h4) } },
     };
-    return { ok: true, spec, C, sF, F, h2, hwB, hwF, oF, Lc };
+    return { ok: true, spec, C, sF, F, h2: HR, hwB, hwF, oF, Lc };
   }
   // 可走面积的估计（1 m 格子）
   // zones-integrate：改成按图元盖章（每个图元只算自己外接框里的格子），和原来逐格 exactSd 的判定逐格相同，快几倍
@@ -4307,7 +4536,7 @@
   // ③ 按镜头方向摆的东西 + 怪群 + 宝箱（世界坐标）
   function ashFinish(r, L) {
     const AG = ASH_GEN, S = L.spec, rooms = S.rooms, rnd = (a, b) => a + r() * (b - a);
-    const R1 = rooms[1], R3 = rooms[3];
+    const R1 = rooms[1], R3 = rooms.find((rm) => rm.tags.indexOf('farm') >= 0); // R3 = 农庄（zones-polish 之后是第 4 个房间）
     const doors = S.links.map((k) => k.door).concat([S.arena.door]);
     let pr = terrPrep(S);
     const sdf = (x, z) => exactSd(pr, x, z, false);
@@ -4370,7 +4599,7 @@
       for (let t = 0; t <= 1.001; t += 0.25) {
         const x = ax + (bx - ax) * t, z = az + (bz - az) * t;
         if (ashRoomSd(R3, x, z) < 1.5 || Math.hypot(x - R3.core.x, z - R3.core.z) < R3.core.r + 0.5) return false;
-        if (nearDoor(x, z, 4.5) || axisD(3, x, z) < 3.0) return false;
+        if (nearDoor(x, z, 4.5) || axisD(R3.id, x, z) < 3.0) return false;
         if (walls.some((w) => segD(x, z, w[0], w[1], w[2], w[3]) < 2.8)) return false;
       }
       return true;
@@ -4394,7 +4623,7 @@
     for (const da of [0, 0.45, -0.45, 0.9, -0.9, 1.35, -1.35]) {
       const a = Math.PI + da, d = ashRay(R3, R3.core.x, R3.core.z, a) - 2.3;
       const x = R3.core.x + Math.sin(a) * d, z = R3.core.z + Math.cos(a) * d;
-      if (d < R3.core.r + 1.5 || nearDoor(x, z, 5) || axisD(3, x, z) < 3.4) continue;
+      if (d < R3.core.r + 1.5 || nearDoor(x, z, 5) || axisD(R3.id, x, z) < 3.4) continue;
       const tg = a + Math.PI / 2 * (r() < 0.5 ? 1 : -1);
       if (!tryL(x, z, tg, rnd(3.6, 5.2), a + Math.PI, rnd(1.8, 2.6))) continue;
       const cang = Math.atan2(Math.sin(tg), Math.cos(tg));
@@ -4411,7 +4640,8 @@
       if (tryL(x, z, tg, rnd(2.8, 4.6), a + (r() < 0.5 ? 0 : Math.PI), rnd(2.2, 3.4))) made++;
     }
     // 灯位：关键路径房间北边各两个（给火盆用）
-    for (const ri of [1, 2, 3, 4, 5]) {
+    const pathIds = rooms.filter((rm) => rm.path && rm.kind !== 'link' && rm.kind !== 'start').map((rm) => rm.id);
+    for (const ri of pathIds) {
       const rm = rooms[ri];
       for (const da of [-0.7, 0.7]) {
         const a = Math.PI + da, d = ashRay(rm, rm.core.x, rm.core.z, a) + 1.25;
@@ -4438,13 +4668,14 @@
         if (out.length >= n) break;
         if (sdf(x, z) < minSd || Math.hypot(x - S.start.x, z - S.start.z) < 14 || nearDoor(x, z, 4.5)) continue;
         if (ends.some((e) => Math.hypot(e[0] - x, e[1] - z) < 6)) continue;
-        if (packs.concat(out).some((p) => Math.hypot(p.x - x, p.z - z) < 6.5) || (avoid || []).some((p) => Math.hypot(p.x - x, p.z - z) < (gap || 6.5))) continue;
+        if (packs.concat(out).some((p) => Math.hypot(p.x - x, p.z - z) < 8.5) || (avoid || []).some((p) => Math.hypot(p.x - x, p.z - z) < (gap || 6.5))) continue; // zones-polish：群间距 6.5 → 8.5（怪群放大以后一团挤得太密）
         out.push({ x, z });
       }
       return out;
     };
     const pathElite = [];
-    for (const ri of [1, 2, 3, 4]) {
+    for (const ri of pathIds) {
+      if (rooms[ri].kind === 'arena') continue;
       const a = roomArea(ri), n = a < 250 ? 1 : a <= 500 ? (r() < 0.35 ? 3 : 2) : 3;
       const spots = pickSpots(ri, n, 3);
       const el = r() < AG.elite ? Math.floor(r() * spots.length) : -1;
@@ -4454,9 +4685,8 @@
       });
     }
     // 旁支：A 一小群守着宝箱；B 一群精英（保底）+ 宝箱。宝箱在房间远端，锁扣朝入口
-    const SA = rooms.find((rm) => rm.kind === 'side' && rm.tags.indexOf('chest') >= 0 && rm.tags.indexOf('elite') < 0);
-    const SB = rooms.find((rm) => rm.kind === 'side' && rm.tags.indexOf('elite') >= 0);
-    for (const [rm, elite] of [[SA, false], [SB, true]]) {
+    for (const rm of rooms.filter((q) => q.kind === 'side')) {
+      const elite = rm.tags.indexOf('elite') >= 0;
       const dLk = S.links.find((k) => k.b === rm.id || k.a === rm.id && k.kind !== 'corr');
       const dr = (dLk || S.links.find((k) => k.b === rm.id)).door;
       const ax = rm.core.x - dr.x, az = rm.core.z - dr.z, al = Math.hypot(ax, az) || 1;
@@ -4469,14 +4699,15 @@
       const sp = pickSpots(rm.id, 1, 2.2, [{ x: cx, z: cz }], 3.2);
       if (sp.length) packs.push({ room: rm.id, x: sp[0].x, z: sp[0].z, n: elite ? [4, 5] : [3, 4], r: 2.4, elite, ambush: false });
     }
-    // 精英上限 4（关键路径最多 3 个 + 旁支 B 的 1 个）
-    while (pathElite.length > 3) packs[pathElite.splice(Math.floor(r() * pathElite.length), 1)[0]].elite = false;
+    // 精英上限 6（关键路径最多 5 个 + 旁支 B 的 1 个）；zones-polish：原 3 + 1
+    while (pathElite.length > 5) packs[pathElite.splice(Math.floor(r() * pathElite.length), 1)[0]].elite = false;
     S.bounds = specBounds(S);
   }
   function ashGen(R, def) {
     const sub = (R() * 4294967296) >>> 0;
-    let att = 0, k = 1, L = null;
-    for (let it = 0; it < 12; it++) {
+    let att = 0, k = 1, L = null, best = 0, base = null;
+    // zones-polish：外接框转不进上限也换一串随机数重摆骨架（加长以后 S 形偶尔太舒展，原来只能等校验失败、整个换种子）
+    for (let it = 0; it < 16; it++) {
       L = ashSkeleton(mulberry32((sub + Math.imul(att, 0x9e3779b1)) >>> 0), k);
       if (!L.ok) {
         att++;
@@ -4484,34 +4715,47 @@
         continue;
       }
       const a = ashArea(L.spec);
-      if (a >= ASH_GEN.area[0] && a <= ASH_GEN.area[1]) break;
-      k = Math.max(0.82, Math.min(1.2, k * Math.pow(3200 / a, 0.6)));
+      if (a < ASH_GEN.area[0] || a > ASH_GEN.area[1]) {
+        if (it < 15) {
+          k = Math.max(0.82, Math.min(1.25, k * Math.pow(5100 / a, 0.6)));
+          continue;
+        }
+      }
+      // 外接框：从一个随机角度起每 15° 试一次，长边 ≤ box[0]、短边 ≤ box[1]
+      const r2 = mulberry32((sub ^ 0x27d4eb2f ^ Math.imul(att, 0x85ebca6b)) >>> 0), th0 = r2() * TAU;
+      let bestV = 1e9;
+      best = th0;
+      const OL = [];
+      for (const rm of L.spec.rooms) for (const p of rm.prims) for (const q of ashOutline(p)) OL.push(q[0], q[1]); // 轮廓点只算一次（zones-polish）
+      for (let j = 0; j < 24; j++) {
+        const th = th0 + (j * Math.PI) / 12, c = Math.cos(th), s = Math.sin(th);
+        let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
+        for (let k = 0; k < OL.length; k += 2) {
+          const x = OL[k] * c + OL[k + 1] * s, z = OL[k + 1] * c - OL[k] * s;
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (z < z0) z0 = z;
+          if (z > z1) z1 = z;
+        }
+        const w = x1 - x0 + 2, h = z1 - z0 + 2, v = Math.max(0, Math.max(w, h) - ASH_GEN.box[0]) + Math.max(0, Math.min(w, h) - ASH_GEN.box[1]);
+        if (v < bestV - 1e-6) {
+          bestV = v;
+          best = th;
+        }
+        if (v <= 0) break;
+      }
+      if (bestV <= 0 || it === 15) break;
+      att++;
+      k = 1;
     }
     if (!L.ok) return GEN.legacy(mulberry32(sub), def); // 实在摆不下（极少见）：这一个种子退回 legacy，校验会让外面换种子
-    // 外接框：从一个随机角度起每 15° 试一次，长边 ≤ 150、短边 ≤ 125
-    const r2 = mulberry32((sub ^ 0x27d4eb2f) >>> 0), th0 = r2() * TAU;
-    let best = th0, bestV = 1e9;
-    const base = JSON.stringify(L.spec);
-    for (let j = 0; j < 24; j++) {
-      const th = th0 + (j * Math.PI) / 12, c = Math.cos(th), s = Math.sin(th);
-      let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
-      for (const rm of L.spec.rooms) for (const p of rm.prims) for (const q of ashOutline(p)) {
-        const x = q[0] * c + q[1] * s, z = q[1] * c - q[0] * s;
-        x0 = Math.min(x0, x); z0 = Math.min(z0, z); x1 = Math.max(x1, x); z1 = Math.max(z1, z);
-      }
-      const w = x1 - x0 + 2, h = z1 - z0 + 2, v = Math.max(0, Math.max(w, h) - ASH_GEN.box[0]) + Math.max(0, Math.min(w, h) - ASH_GEN.box[1]);
-      if (v < bestV - 1e-6) {
-        bestV = v;
-        best = th;
-      }
-      if (v <= 0) break;
-    }
+    base = JSON.stringify(L.spec);
     L.spec = JSON.parse(base);
     ashRotate(L, best);
     ashFinish(mulberry32((sub ^ 0x51ed27) >>> 0), L);
     return L.spec;
   }
-  ashGen.check = { box: ASH_GEN.box[0], areaMin: 3000, areaMax: 3400 };
+  ashGen.check = { box: ASH_GEN.box[0], areaMin: 4800, areaMax: 5450 }; // zones-polish：×1.6（原 3000–3400）
 
   // ---------- 布景（dress）：熔岩河、石桥、浅滩、塌桥、焦木、农舍、熔渣坑，以及起点 26 m 以外沿路的枯树、积灰、余烬裂缝 ----------
   // 色板（中性的暖灰烬色，暗部冷紫；明暗目标同 ASH_PAL 的注释：地面 25–35%、岩壁 / 障碍 15–25%、熔岩高光 85–100%）
@@ -4525,6 +4769,10 @@
     // 熔岩河的色阶（zones-integrate：原来用 lavaStrip 的缺省色阶，橙红两档又宽又饱和，整条河是一条亮带）：
     // 白热的芯只占很窄一条（特效那一档 85–100%），往外很快压成低饱和的暗红褐，再到焦黑的冷壳；叠加的地面暖光也压到 0.1（原来 0.2，整条河被提成一片橙）
     lava: [[0, 0xffd890], [0.06, 0xf08a3a], [0.14, 0xb0502a], [0.3, 0x7c3626], [0.56, 0x502a26], [0.88, 0x30242a], [1.16, 0x201a1c]],
+    // zones-polish：卡通熔岩。三级硬边色阶（白热的芯 → 橙 → 暗熔红），往外很快落到低饱和的冷壳和焦黑的沿；
+    // 河面上大块的暗色冷壳（顶面中间一小块受光的灰）漂在两侧，壳底下一圈发红的缝，只有芯那一条是特效亮度
+    lavaToon: [[0, 0xffe4a0], [0.055, 0xec8e3c], [0.13, 0xa8462a], [0.24, 0x5a2c26], [0.42, 0x3a2c2a], [0.9, 0x2a2428], [1.16, 0x1c191b]],
+    lavaCrust: 0x2e2626, crustHi: 0x4a403c, crustSeam: 0x8a3420,
   };
   // 零件合成一个静态网格（不是实例化：每种零件只有几个，合成一次 draw 更省）。part = [几何体, x, y, z, rx, ry, rz, sx, sy, sz, 亮度]
   function ashMerge(parts) {
@@ -4589,6 +4837,10 @@
       [gBox(0.7, 0.5, 0.6), ASH_LAY.stone, 1.0, 0.25, 0.4, 0, 0.5, 0.2],
       [gBox(0.5, 0.36, 0.5), ASH_LAY.stone, -0.9, 0.18, -0.6, 0.3, 0.2, 0],
     ]).clone(), { bottom: ASH_LAY.stoneLo, top: 0xffffff, y0: 0, y1: 3.2 }));
+  // 便宜的石块（zones-polish）：倒角方块（ashSlabGeo，圆角盒）每块约 300 个顶点，起点的景和农舍残墙各几十块，低画质下拖慢图标预热（软件 GL 同一个 GPU 进程）。
+  // 平铺的石板用普通方块（36 个顶点），砌墙的石块用八棱柱（竖边切角，96 个顶点），同样带竖向渐变
+  const ashBoxGeo = (col) => geo('ash/box' + col, () => toonGradient(bake('ash/box0' + col, [[gBox(1, 1, 1), col, 0, 0, 0]]).clone(), { bottom: ASH_LAY.stoneLo, top: 0xffffff, y0: -0.5, y1: 0.5 }));
+  const ashBlockGeo = (col) => geo('ash/blk' + col, () => toonGradient(bake('ash/blk0' + col, [[gCyl(0.5412, 0.5412, 1, 8), col, 0, 0, 0, 0, Math.PI / 8, 0]]).clone(), { bottom: ASH_LAY.stoneLo, top: 0xffffff, y0: -0.5, y1: 0.5 }));
   const ashSlabGeo = (col) => geo('ash/slab' + (col || ASH_LAY.stone), () => toonGradient(bake('ash/slab0' + (col || ASH_LAY.stone), [[gRBox(1, 1, 1, 0.08), col || ASH_LAY.stone, 0, 0, 0]]).clone(), { bottom: ASH_LAY.stoneLo, top: 0xffffff, y0: -0.5, y1: 0.5 }));
 
   // 余烬条带（不受光的硬边色阶）：沿 [x0, z0] → [x1, z1] 的锯齿折线
@@ -4609,18 +4861,50 @@
     const F = (k) => feats.filter((f) => f.kind === k);
     const out = { lowHide: [] };
     // 熔岩河 + 场地的熔岩池：一个网格（硬边色阶、冷壳、流纹），地面暖光低画质不画
-    const river = F('river')[0], pools = F('pool');
+    const river = F('river').find((f) => !f.ditch), pools = F('pool'), rivers = F('river');
     // 石桥：石板 + 一节节矮石墙 + 两头桥墩
+    // zones-polish：两座桥（河上的石桥 + 熔岩沟上的窄桥）一个网格，同宽
+    const bp = [];
     for (const b of F('bridge')) {
       const dx = Math.sin(b.ang) * b.len * 0.5, dz = Math.cos(b.ang) * b.len * 0.5;
-      out.bridge = ctx.gfx.plankBridge([[b.x - dx, b.z - dz], [b.x + dx, b.z + dz]], b.w, { stone: true, rail: true, color: ASH_LAY.stone });
-      if (out.bridge) out.bridge.castShadow = false; // 平的桥不投影（省一次阴影 draw），矮石墙的影子看不出来
+      bp.push([b.x - dx, b.z - dz], [b.x + dx, b.z + dz]);
     }
-    // 农舍矮墙（L 形的墙挖空沿边一节节砌起来）：墙厚的一半，矮、高低错落
-    if (F('wall').length) out.walls = ctx.gfx.wallRun({ kinds: [MAT.WALL], step: 1.1, h: 1.25, t: 0.38, color: ASH_LAY.wall });
-    if (out.walls) out.walls.castShadow = false; // 矮墙不投影：省一次阴影 draw（墙只在农庄，实例化网格不做视锥剔除，每帧都画）
-    // 静态的零件合成一个网格：焦木残桩、巨大的枯树、烟囱、塌桥、浅滩的硬壳
+    if (bp.length) out.bridge = ctx.gfx.plankBridge(bp, ASH_GEN.bridgeW, { stone: true, rail: true, color: ASH_LAY.stone, pairs: true });
+    if (out.bridge) out.bridge.castShadow = false; // 平的桥不投影（省一次阴影 draw），矮石墙的影子看不出来
+    // 静态的零件合成一个网格：焦木残桩、巨大的枯树、烟囱、塌桥、浅滩的硬壳、农舍的残墙
     const parts = [];
+    // 农舍残墙（zones-polish：原来是 wallRun 一节节方块，太方正）：按墙挖空的方块一层层砌倒角的石块（三层，块长不一、左右错缝），
+    // 顶上一层缺块、一头塌低，墙顶搭一根烧黑的木梁（有的斜着塌下来），两头偶尔立一根焦木柱，墙脚散几块落石。并进静态零件网格，省掉墙那一次 draw
+    for (const f of F('wall')) {
+      const ux = Math.sin(f.ang), uz = Math.cos(f.ang), L = f.hz * 2, th = f.hx * 2, crs = 3, ch = 0.4;
+      const drop = rnd() < 0.5 ? -1 : 1, lowK = r(0.35, 0.6); // 塌低的一头、塌到原高的几成
+      for (let c = 0; c < crs; c++) {
+        let a = -L / 2, first = c % 2 === 1; // 奇数层先砌一块短的，和下一层错缝
+        while (a < L / 2 - 0.05) {
+          const bl = Math.min(L / 2 - a, first ? r(0.2, 0.45) : r(0.5, 0.95)), mid = a + bl / 2, t = (mid / L + 0.5) * drop * 0.5 + 0.5; // t：0 = 塌低的一头
+          a += bl;
+          first = false;
+          const top = crs * ch * (lowK + (1 - lowK) * Math.min(1, t * 1.6));
+          if (ch * c > top - 0.05 || (c === crs - 1 && rnd() < 0.3)) continue; // 塌掉 / 缺块
+          const hh = Math.min(ch, top - ch * c) * r(0.9, 1.0);
+          parts.push([ashBlockGeo(ASH_LAY.wall), f.x + ux * mid + uz * r(-0.03, 0.03), ch * c + hh / 2, f.z + uz * mid - ux * r(-0.03, 0.03), r(-0.03, 0.03), f.ang + r(-0.05, 0.05), r(-0.04, 0.04), th * r(0.98, 1.08), hh, bl * 0.96, r(0.78, 1.05)]);
+        }
+      }
+      // 木梁：搭在墙顶（高的那一段），有的一头塌到地上
+      if (rnd() < 0.7) {
+        const fall = rnd() < 0.4, bl = L * r(0.55, 0.85), cx = drop * L * r(0.05, 0.2);
+        parts.push([ashBoxGeo(ASH_LAY.char), f.x + ux * cx, crs * ch + 0.08 - (fall ? 0.5 : 0), f.z + uz * cx, fall ? drop * 0.28 : 0, f.ang, r(-0.06, 0.06), 0.26, 0.2, bl, r(0.9, 1.1)]);
+      }
+      if (rnd() < 0.5) {
+        const e = drop * (L / 2 - 0.1);
+        parts.push([ashBoxGeo(ASH_LAY.char), f.x + ux * e, 0.8, f.z + uz * e, r(-0.08, 0.08), f.ang + r(0, 1), r(-0.08, 0.08), 0.24, 1.6, 0.24, r(0.9, 1.1)]);
+      }
+      // 墙脚的落石（塌低的那头多一点）
+      for (let k = 0, n = 2 + Math.floor(rnd() * 3); k < n; k++) {
+        const sd = rnd() < 0.5 ? -1 : 1, along = -drop * L * r(0.1, 0.5);
+        parts.push([ashBlockGeo(ASH_LAY.wall), f.x + ux * along + uz * sd * (th / 2 + r(0.25, 0.7)), 0.1, f.z + uz * along - ux * sd * (th / 2 + r(0.25, 0.7)), r(-0.3, 0.3), r(0, TAU), r(-0.3, 0.3), r(0.3, 0.55), r(0.18, 0.3), r(0.3, 0.6), r(0.75, 0.95)]);
+      }
+    }
     for (const t of F('trunk')) parts.push([ashSnagGeo(), t.x, 0, t.z, r(-0.06, 0.06), r(0, TAU), r(-0.06, 0.06), t.r * 1.05, t.r * r(1.15, 1.6), t.r * 1.05, r(0.85, 1.05)]);
     for (const t of F('tree')) parts.push([ashBigTreeGeo(), t.x, 0, t.z, 0, r(0, TAU), 0, r(0.95, 1.12), r(0.95, 1.1), r(0.95, 1.12), 1]);
     for (const c of F('chimney')) parts.push([ashChimneyGeo(), c.x, 0, c.z, 0, c.ang, 0, 1, r(0.9, 1.05), 1, 1]);
@@ -4658,7 +4942,7 @@
     const far = (x, z) => Math.hypot(x - st.x, z - st.z) > ASH_DRESS.r1 - 2;
     const onLava = (x, z) => {
       if (W.matAt(x, z) === MAT.LAVA) return true;
-      if (river) for (let i = 0; i + 1 < river.pts.length; i++) if (segD(x, z, river.pts[i][0], river.pts[i][1], river.pts[i + 1][0], river.pts[i + 1][1]) < river.hw[i] * 1.3 + 1) return true;
+      for (const rv of rivers) for (let i = 0; i + 1 < rv.pts.length; i++) if (segD(x, z, rv.pts[i][0], rv.pts[i][1], rv.pts[i + 1][0], rv.pts[i + 1][1]) < rv.hw[i] * 1.3 + 1) return true;
       return pools.some((q) => Math.hypot(q.x - x, q.z - z) < q.r + 1.5);
     };
     const nearProp = (x, z, m) => feats.some((f) => (f.kind === 'trunk' || f.kind === 'tree' || f.kind === 'chimney') && Math.hypot(f.x - x, f.z - z) < (f.r || 1) + m);
@@ -4670,7 +4954,7 @@
     const cracks = [];
     for (const rm of zone.rooms) {
       if (rm.kind === 'start' || rm.kind === 'link') continue;
-      const c = rm.core, nf = rm.kind === 'arena' ? 5 : rm.kind === 'side' ? 1 : 3;
+      const c = rm.core, nf = rm.kind === 'arena' ? 5 : rm.kind === 'side' ? 1 : 2; // zones-polish：关键路径房间 3 → 2 道（房间从 4 个变 7 个，全区的裂缝数和原来差不多）
       let made = 0;
       for (let t = 0; t < 30 && made < nf; t++) {
         const a = r(0, TAU), d = r(c.r * 0.5, c.r + 4), x = c.x + Math.sin(a) * d, z = c.z + Math.cos(a) * d, dd = sd(x, z);
@@ -4687,10 +4971,23 @@
     const pend = ashFisPending;
     ashFisPending = null;
     const extra = [{ segs: cracks, bands: eb, y: 0.022, al }, { segs: embers, bands: [[0, 0xff9a3a], [0.3, 0xe0481c], [0.7, 0x9a2616], [1, 0x2a1a1c]], y: 0.06, al }];
+    // 第二道熔岩沟（zones-polish）：同样的色阶，按 1.6 m 一节拼进同一个网格
+    for (const dv of rivers) {
+      if (!dv.ditch) continue;
+      const ds = [];
+      for (let i = 0; i + 1 < dv.pts.length; i++) {
+        const a = dv.pts[i], b = dv.pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1], l = Math.hypot(dx, dz) || 1, n = Math.max(1, Math.round(l / 1.6));
+        const wk = (t) => (dv.hw[i] + (dv.hw[i + 1] - dv.hw[i]) * t) * (1 + 0.1 * (vnoise((a[0] + dx * t) * 0.45 + 3.1, (a[1] + dz * t) * 0.45 - 7.3) * 2 - 1));
+        for (let q = 0; q < n; q++) ds.push([a[0] + (dx * q) / n, a[1] + (dz * q) / n, a[0] + (dx * (q + 1)) / n, a[1] + (dz * (q + 1)) / n, -dz / l, dx / l, wk(q / n), wk((q + 1) / n)]);
+      }
+      extra.push({ segs: ds, bands: ASH_LAY.lavaToon, y: 0.015, al });
+    }
     if (pend) extra.push({ segs: pend.segs, bands: pend.bands, y: 0.02, hard: false, al });
     if (river || pools.length || cracks.length || embers.length || pend) {
-      out.lava = ctx.gfx.lavaStrip(river ? river.pts : [], river ? river.hw : 1, { pools, crust: 0.4, glowA: 0.1, bands: ASH_LAY.lava, extra, glowQuads: pend ? pend.glow : null });
+      out.lava = ctx.gfx.lavaStrip(river ? river.pts : [], river ? river.hw : 1, { pools, crust: 0.95, crustSide: 0.24, crustR: [0.55, 1.05], crustCol: ASH_LAY.lavaCrust, crustHi: ASH_LAY.crustHi, crustSeam: ASH_LAY.crustSeam, glowA: 0.08, bands: ASH_LAY.lavaToon, extra, glowQuads: pend ? pend.glow : null });
     }
+    if (out.lava && out.lava.mesh) out.lava.mesh.name = 'ashLava';
+    if (out.props) out.props.name = 'ashProps';
     out.rockHi = ctx.mats.rock && ctx.mats.rock.color.clone();
     return out;
   }
@@ -4727,19 +5024,23 @@
 
   // ===== 区域地形：frost（霜骨沼泽）—— zones-frost 只改这一节 =====
   // 一串冰封的小岛，岛与岛之间是深水（挡移动、不挡子弹和视线）。规格见 zones-notes/design.md §3.2，实现记录 §8.frost。
-  //   关键路径：起点岛 → I1 → I2 → I3 → I4 → 场地岛「冰湖」，5 段连接 = 3 段栈道（折线 2–4 个弯，hw 2–2.25）+ 2 段冰桥（直，hw 2.5）；
+  //   关键路径：起点岛 → I1 … I6 / I7 → 场地岛「冰湖」，7–8 段连接 = 栈道（折线 2–4 个弯，hw 2–2.25）+ 3 段冰桥（直，hw 2.5）；
   //   进场地的那段冰桥末端放宽成 8 m 多的颈口，首领门就在颈口上、场地边缘外 1 m 多。
-  //   旁支：3 条死路栈道通向藏宝小岛（2 个宝箱 + 1 个精英群）。危险区：岛沿的浅水（减速）、2 块薄冰（站久了会裂）。
+  //   旁支：4–5 条死路栈道通向小岛（3 个宝箱 + 1 个精英群，第 5 条是普通怪群）。危险区：岛沿的浅水（减速）、2 块薄冰（站久了会裂）。
+  //   size-frost（区域加长）：岛 4 → 6–7、旁支 3 → 4–5、宝箱 2 → 3，关键路径约 159 → 250 m，可走面积约 2800 → 4450 m²。
   //   地标：一段栈道旁边半沉在水里的巨兽脊椎，肋骨拱过栈道；一颗巨兽头骨占一个岛的一角（WALL）；场地里 4 根肋骨柱（WALL，可以躲弹幕）。
-  // 区域外面整片是开阔的水面：spec.outside 用 VOID（玩法上和深水一样，挡移动、不挡子弹；小地图按 §3.2 不画深水），外观由 dress 画成水
+  // 区域外面整片是开阔的水面：spec.outside 用 WATER（zones-polish：原来是 VOID；玩法上一样，挡移动、不挡子弹；小地图按 §3.2 不画区域外面的深水），外观由 dress 画成水
+  // size-frost：靠多摆岛把区域加长，栈道 / 冰桥的长度不变。外接框要卡在网格上限里（FROST.cells），所以岛链是弯来弯去的
   const FROST = {
-    isleR: [7.6, 10], // 岛的半径（主圆 + 3–4 个小圆，见 isle）
+    isles: [6, 7], // 关键路径上的岛（不算起点岛和场地）
+    isleR: [8.8, 11.4], // 岛的半径（主圆 + 3–4 个小圆，见 isle；改版前 7.6–10）
     walk: [12.5, 18], walkHw: [2, 2.25], // 栈道：岸到岸的长度、半宽
     bridge: [8, 11.5], bridgeHw: 2.5, neckHw: 4.3, // 冰桥；进场地那段末端的颈口半宽
     arenaR: 14.3, // 场地：正圆，半径 arenaR + 0.8 ≈ 15
     sideWalk: [9, 13], sideR: [5, 6], // 旁支栈道长度、藏宝小岛半径
-    area: [2680, 3120], // 生成器自己先按估算面积筛一遍（校验按 0.5 m 网格精确量 2600–3200）
-    mobs: [47, 62], // 全区怪数（按每群的平均数估）：少于 47 补一群，多于 62 撤一群，补完仍少于 45 换一组
+    area: [3850, 4950], // 生成器自己先按估算面积筛一遍（校验按 0.5 m 网格精确量 3800–5100）
+    cells: 480000, // 网格格数上限：区域外面是虚空（有透弹挖空），rasterize 超过 50 万格就把格距放大一倍，留点余量
+    mobs: [76, 100], // 全区怪数（按每群的平均数估）：少于 76 补一群，多于 100 撤一群，补完仍少于 72 换一组（改版前 47 / 62 / 45 的约 1.6 倍）
     noBrute: ['husk', 'spitter', 'bomber'], // 栈道中点的小群不放蛮兵（populatePack 认 slot.mobs，zones-integrate 起生效）
   };
   // 一次尝试：摆不下（重叠、太大、面积不对）就返回 null，外面换一组随机数再来
@@ -4770,17 +5071,55 @@
     };
     // ---- 关键路径上的岛：随机游走 ----
     const isl = [], links = [], rooms = [], cuts = [], haz = [], feats = [], packs = [], chests = [];
-    const bridgeAt = 1 + Math.floor(R() * 3); // 第二段冰桥放在第 1–3 段连接（第 4 段固定是进场地的冰桥）
-    let head = rnd(0, TAU);
-    isl.push({ x: 0, z: 0, rad: 8 });
-    for (let i = 1; i <= 5; i++) {
-      const prev = isl[i - 1], rad = i === 5 ? FROST.arenaR + 0.8 : i === 1 ? rnd(9, FROST.isleR[1] + 0.5) : rnd(FROST.isleR[0], FROST.isleR[1]); // I1 大一点：第 1 个房间 core r ≥ 7
-      if (i > 1) head += rnd(-1.0, 1.0);
-      const kind = i - 1 === 4 || i - 1 === bridgeAt ? 'bridge' : 'walk';
-      const gap = kind === 'bridge' ? rnd(FROST.bridge[0], FROST.bridge[1]) : rnd(FROST.walk[0], FROST.walk[1]);
-      const d = prev.rad + gap + rad;
-      isl.push({ x: prev.x + Math.sin(head) * d, z: prev.z + Math.cos(head) * d, rad, kind });
+    // size-frost：关键路径上 nI 个岛（6–7），场地是第 AI = nI + 1 个房间
+    const nI = R() < 0.3 ? FROST.isles[0] : FROST.isles[1], AI = nI + 1; // 7 个岛的占七成：关键路径中位数才到 250 m 上下
+    // 冰桥：进场地的那段固定是冰桥，另外在第 1 … nI−1 段连接里挑 2 段（出起点岛的第 0 段是栈道）
+    const bridgeAt = [];
+    while (bridgeAt.length < 2) {
+      const k = 1 + Math.floor(R() * (nI - 1));
+      if (!bridgeAt.includes(k)) bridgeAt.push(k);
     }
+    // 岛链往前长：每个岛试 4 个朝向（上一段朝向 ±1.4），离前面不相邻的岛够远的里面取外接框最小的（先看长边，加一点随机），
+    // 岛链就会自己弯回来，外接框卡得住网格上限。只按圆心粗算，很便宜：摆不下就在这里重走一遍（岛数不变，最多 40 遍）
+    const ibox = (L) => {
+      let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
+      for (const I of L) {
+        x0 = Math.min(x0, I.x - I.rad); x1 = Math.max(x1, I.x + I.rad);
+        z0 = Math.min(z0, I.z - I.rad); z1 = Math.max(z1, I.z + I.rad);
+      }
+      return [x1 - x0, z1 - z0];
+    };
+    const walkOnce = () => {
+      isl.length = 0;
+      isl.push({ x: 0, z: 0, rad: 8 });
+      let head = rnd(0, TAU);
+      for (let i = 1; i <= AI; i++) {
+        const prev = isl[i - 1], rad = i === AI ? FROST.arenaR + 0.8 : i === 1 ? rnd(9, FROST.isleR[1] + 0.5) : rnd(FROST.isleR[0], FROST.isleR[1]); // I1 大一点：第 1 个房间 core r ≥ 7
+        const kind = i - 1 === nI || bridgeAt.includes(i - 1) ? 'bridge' : 'walk';
+        const gap = kind === 'bridge' ? rnd(FROST.bridge[0], FROST.bridge[1]) : rnd(FROST.walk[0], FROST.walk[1]);
+        const d = prev.rad + gap + rad;
+        let best = null;
+        for (let k = 0; k < (i === 1 ? 1 : 4); k++) {
+          const h = i === 1 ? head : head + rnd(-1.4, 1.4), c = { x: prev.x + Math.sin(h) * d, z: prev.z + Math.cos(h) * d, rad, kind, h };
+          let ok = true;
+          for (let j = 0; j < i - 1 && ok; j++) if (Math.hypot(isl[j].x - c.x, isl[j].z - c.z) - isl[j].rad - rad < 16) ok = false;
+          if (!ok) continue;
+          const b = ibox(isl.concat([c]));
+          c.s = Math.max(b[0], b[1]) * 160 + (b[0] + 24) * (b[1] + 24) + rnd(0, 6000); // 先看长边（太长的一条也不行），再看面积
+          if (!best || c.s < best.s) best = c;
+        }
+        if (!best) return frostFail('walk'), false;
+        head = best.h;
+        isl.push({ x: best.x, z: best.z, rad, kind });
+      }
+      // 旁支往外伸、四周各留 4 m：粗算的长边 / 格数明显超了就重走
+      const b = ibox(isl);
+      if (Math.max(b[0], b[1]) > 166 || (b[0] + 24) * (b[1] + 24) * 16 > FROST.cells * 1.08) return frostFail('walkBox'), false;
+      return true;
+    };
+    let walked = false;
+    for (let w = 0; w < 40 && !walked; w++) walked = walkOnce();
+    if (!walked) return null;
     // 岛 = 一个主圆 + 3–4 个错开的小圆（海岸线有凸有凹）。都用圆：光栅化和校验对圆有快速路径，比多边形快一个数量级
     const isle = (x, z, rad, nl, kMain) => {
       const pr = [{ t: 'circle', x, z, r: rad * kMain }], ph = R() * TAU;
@@ -4793,8 +5132,8 @@
     // 起点岛：r=8 的圆盘（起点契约）+ 朝出口一侧的一团，背面贴着 r=8
     const a0 = Math.atan2(isl[1].x, isl[1].z);
     rooms.push({ id: 0, kind: 'start', order: 0, path: true, prims: [{ t: 'circle', x: 0, z: 0, r: 8 }, { t: 'circle', x: Math.sin(a0 + 0.4) * 4.6, z: Math.cos(a0 + 0.4) * 4.6, r: 4.8 }, { t: 'circle', x: Math.sin(a0 - 0.5) * 5, z: Math.cos(a0 - 0.5) * 5, r: 4.2 }], core: { x: 0, z: 0, r: 8 }, tags: [] });
-    for (let i = 1; i <= 5; i++) {
-      const I = isl[i], arena = i === 5;
+    for (let i = 1; i <= AI; i++) {
+      const I = isl[i], arena = i === AI;
       // 场地「冰湖」：正圆（首领门、bossR、小地图的场地轮廓都按它算）
       const prims = arena ? [{ t: 'circle', x: I.x, z: I.z, r: FROST.arenaR + 0.8 }] : isle(I.x, I.z, I.rad, 3 + (R() < 0.5 ? 1 : 0), i === 1 ? 0.9 : rnd(0.72, 0.84));
       rooms.push({ id: i, kind: arena ? 'arena' : 'room', order: i, path: true, prims, core: { x: I.x, z: I.z, r: 0 }, tags: [] });
@@ -4805,7 +5144,7 @@
       for (let k = 0; k < 16; k++) m = Math.max(m, rimDist(rm, x, z, (k / 16) * TAU, 30));
       return m;
     };
-    for (let i = 0; i <= 5; i++) isl[i].R = maxR(rooms[i], isl[i].x, isl[i].z);
+    for (let i = 0; i <= AI; i++) isl[i].R = maxR(rooms[i], isl[i].x, isl[i].z);
 
     // ---- 连接：栈道（折线）/ 冰桥（直）----
     // 返回 { pts, hw, pA, pB }：pA / pB 是出 A、进 B 的岸边点（门），折线两端各伸进岛里 1.5 m
@@ -4844,17 +5183,21 @@
       return out;
     };
     const LG = [];
-    for (let i = 0; i < 5; i++) LG.push(Object.assign(linkGeo(i, i + 1, isl[i + 1].kind, i === 4), { a: i, b: i + 1, kind: isl[i + 1].kind, path: true }));
+    for (let i = 0; i < AI; i++) LG.push(Object.assign(linkGeo(i, i + 1, isl[i + 1].kind, i === nI), { a: i, b: i + 1, kind: isl[i + 1].kind, path: true }));
     // 首领门：沿进场地的冰桥，离场地中心 = 背面岸线距离 + 1.2（且至少在这一侧岸线外 0.6）——
     // 这样 bossR（= 门距 − 2）正好卡在场地边缘内侧，门外重生、小地图的场地轮廓都对得上
-    const AR = rooms[5], ac = isl[5], LA = LG[4];
+    const AR = rooms[AI], ac = isl[AI], LA = LG[nI];
     const nearRim = rimDist(AR, ac.x, ac.z, LA.ang + Math.PI), farRim = rimDist(AR, ac.x, ac.z, LA.ang);
     const doorD = Math.max(farRim + 1.2, nearRim + 0.6);
     const door = { x: ac.x - Math.sin(LA.ang) * doorD, z: ac.z - Math.cos(LA.ang) * doorD };
 
-    // ---- 旁支：从 I1–I4 里挑 3 个岛，垂直于路径方向岔出去，死路栈道 + 藏宝小岛 ----
-    const sideOf = [1, 2, 3, 4].sort(() => R() - 0.5).slice(0, 3).sort((a, b) => a - b);
-    const roles = ['chest', 'chest', 'elite'].sort(() => R() - 0.5);
+    // ---- 旁支：从关键路径的岛里挑 4–5 个，垂直于路径方向岔出去，死路栈道 + 小岛 ----
+    // size-frost：前 4 条必须有（3 个宝箱 + 1 个精英群，角色随机排），第 5 条是放普通怪群的小岛，摆不下就不要；
+    // 候选的父岛排好随机顺序，一个岛两侧都摆不下就换下一个岛
+    const sideOf = [];
+    for (let i = 1; i <= nI; i++) sideOf.push(i);
+    sideOf.sort(() => R() - 0.5);
+    const roles = ['chest', 'chest', 'chest', 'elite'].sort(() => R() - 0.5).concat(['pack']);
     const sides = [];
     // 两个圆 / 折线之间的粗略间距（排布检查用）
     const segDist = (px, pz, ax, az, bx, bz) => {
@@ -4875,23 +5218,40 @@
       return d;
     };
     const hwMax = (L) => (typeof L.hw === 'number' ? L.hw : Math.max.apply(null, L.hw));
-    for (let k = 0; k < 3; k++) {
-      const p = sideOf[k], I = isl[p], dirA = Math.atan2(isl[p + 1].x - isl[p - 1].x, isl[p + 1].z - isl[p - 1].z);
+    // 外接框（岛按外接半径算，含已摆的旁支）的面积：旁支两侧都摆得下时取让外接框长得少的一侧
+    const boxWith = (c) => {
+      const L = isl.slice(0, AI + 1).map((I) => ({ x: I.x, z: I.z, rad: I.R })).concat(sides);
+      if (c) L.push(c);
+      const b = ibox(L);
+      return b[0] * b[1];
+    };
+    for (let k = 0, pi = 0; k < roles.length && pi < sideOf.length; pi++) {
+      const p = sideOf[pi], I = isl[p], dirA = Math.atan2(isl[p + 1].x - isl[p - 1].x, isl[p + 1].z - isl[p - 1].z);
       let best = null;
       for (const sg of R() < 0.5 ? [1, -1] : [-1, 1]) {
         const a = dirA + sg * (Math.PI / 2) + rnd(-0.4, 0.4), rad = rnd(FROST.sideR[0], FROST.sideR[1]), len = rnd(FROST.sideWalk[0], FROST.sideWalk[1]);
         const rd = rimDist(rooms[p], I.x, I.z, a), d = rd + len + rad;
         const c = { x: I.x + Math.sin(a) * d, z: I.z + Math.cos(a) * d, rad, a, len };
-        // 离其它岛（父岛除外）≥ 12.5、离其它连接 ≥ 6 才算数，取间距最大的一侧
+        // 离其它岛（父岛除外）≥ 12.5、离其它连接 ≥ 6 才算数
         let clr = 1e9;
-        for (let q = 0; q <= 5; q++) if (q !== p) clr = Math.min(clr, Math.hypot(c.x - isl[q].x, c.z - isl[q].z) - isl[q].R - rad - 12.5);
+        for (let q = 0; q <= AI; q++) if (q !== p) clr = Math.min(clr, Math.hypot(c.x - isl[q].x, c.z - isl[q].z) - isl[q].R - rad - 12.5);
         for (const L of LG) clr = Math.min(clr, polyDist(L.pts, c.x, c.z) - hwMax(L) - rad - 6);
         for (const s of sides) clr = Math.min(clr, Math.hypot(c.x - s.x, c.z - s.z) - s.rad - rad - 8);
-        if (!best || clr > best.clr) best = Object.assign(c, { clr });
+        if (clr < 0) continue;
+        c.box = boxWith(c);
+        if (!best || c.box < best.box) best = Object.assign(c, { clr });
       }
-      if (best.clr < 0) return frostFail('side');
+      if (!best) continue;
       sides.push(Object.assign(best, { parent: p, role: roles[k] }));
+      k++;
     }
+    if (sides.length < 4) return frostFail('side');
+    {
+      // 旁支摆好以后外接框基本定了（岛按外接半径、四周 4 m）：先粗查一遍，超了就别往下算
+      const L = isl.slice(0, AI + 1).map((I) => ({ x: I.x, z: I.z, rad: I.R })).concat(sides), b = ibox(L);
+      if (Math.max(b[0], b[1]) > 172 || (b[0] + 8) * (b[1] + 8) * 16 > FROST.cells) return frostFail('sideBox');
+    }
+    sides.sort((a, b) => a.parent - b.parent);
     const sideBase = rooms.length;
     for (const s of sides) {
       rooms.push({ id: rooms.length, kind: 'side', order: s.parent + 1, path: false, prims: isle(s.x, s.z, s.rad, 2, 0.86), core: { x: s.x, z: s.z, r: 0 }, tags: [s.role] });
@@ -4902,8 +5262,8 @@
     for (const s of sides) LG.push(Object.assign(linkGeo(s.parent, s.room, 'walk', false), { a: s.parent, b: s.room, kind: 'walk', path: false }));
 
     // ---- 排布检查（按圆和折线粗算，宁可多扔几次）----
-    for (let i = 0; i <= 5; i++) {
-      for (let j = i + 2; j <= 5; j++) if (Math.hypot(isl[i].x - isl[j].x, isl[i].z - isl[j].z) - isl[i].R - isl[j].R < 15) return frostFail('isleGap');
+    for (let i = 0; i <= AI; i++) {
+      for (let j = i + 2; j <= AI; j++) if (Math.hypot(isl[i].x - isl[j].x, isl[i].z - isl[j].z) - isl[i].R - isl[j].R < 15) return frostFail('isleGap');
     }
     for (let li = 0; li < LG.length; li++) {
       const L = LG[li];
@@ -4927,7 +5287,7 @@
       });
       L.room = rooms.length - 1;
       const kind = L.kind === 'bridge' ? 'bridge' : 'boardwalk';
-      links.push({ a: L.a, b: L.room, door: L.pA, kind }, { a: L.room, b: L.b, door: L.b === 5 ? door : L.pB, kind });
+      links.push({ a: L.a, b: L.room, door: L.pA, kind }, { a: L.room, b: L.b, door: L.b === AI ? door : L.pB, kind });
       feats.push({ kind: L.kind, room: L.room, pts: L.pts, hw: L.hw, side: !L.path });
     });
 
@@ -4961,7 +5321,7 @@
       return { a: best, gap: bv };
     };
     // 头骨：I1–I4 里一个岛的一角（一半压在岸上、一半在水里），朝岛心
-    const skullIs = 2 + Math.floor(R() * 3), sk = freeDir(skullIs, 16); // 不放在 I1（第 1 个房间要留够 core）
+    const skullIs = 2 + Math.floor(R() * (nI - 1)), sk = freeDir(skullIs, 16); // 不放在 I1（第 1 个房间要留够 core）
     if (sk.gap < 0.8) return frostFail('skull');
     dirs[skullIs].push(sk.a);
     {
@@ -5007,7 +5367,7 @@
     }
 
     // ---- 危险区：浅水（岛沿往外 2–3 m，减速）、薄冰 ----
-    const shallowIs = [1, 2, 3, 4].sort(() => R() - 0.5).slice(0, 2 + (R() < 0.5 ? 1 : 0));
+    const shallowIs = sideOf.slice().sort(() => R() - 0.5).slice(0, Math.round(nI / 2) + (R() < 0.5 ? 1 : 0)); // 3–5 个岛（改版前 4 个岛里 2–3 个）
     for (const i of shallowIs) {
       const n = R() < 0.45 ? 2 : 1;
       for (let k = 0; k < n; k++) {
@@ -5017,7 +5377,8 @@
         const c = { x: I.x + Math.sin(f.a) * (rd + 0.6), z: I.z + Math.cos(f.a) * (rd + 0.6) };
         // 别贴到别的房间上
         let ok = true;
-        for (let q = 0; q < rooms.length && ok; q++) if (q !== i && rooms[q].kind !== 'link' && Math.hypot(c.x - isl[q].x, c.z - isl[q].z) < isl[q].R + r + 6) ok = false;
+        // size-frost：不相邻的关键路径岛还要守住校验的 14 m 间距（岛链弯回来以后，浅水会伸到隔一个的岛跟前）
+        for (let q = 0; q < rooms.length && ok; q++) if (q !== i && rooms[q].kind !== 'link' && Math.hypot(c.x - isl[q].x, c.z - isl[q].z) < isl[q].R + r + (q <= AI && Math.abs(q - i) >= 2 ? 14.5 : 6)) ok = false;
         for (const L of LG) if (ok && L.a !== i && L.b !== i && polyDist(L.pts, c.x, c.z) < hwMax(L) + r + 4) ok = false;
         if (!ok) continue;
         dirs[i].push(f.a);
@@ -5057,7 +5418,9 @@
       const I = isl[i];
       let best = { x: I.x, z: I.z, r: fullSd(I.x, I.z) };
       for (let t = 0; t < 60; t++) {
-        const a = R() * TAU, d = Math.sqrt(R()) * I.R * 0.6, x = I.x + Math.sin(a) * d, z = I.z + Math.cos(a) * d, v = Math.min(fullSd(x, z), roomSd(rooms[i], x, z));
+        const a = R() * TAU, d = Math.sqrt(R()) * I.R * 0.6, x = I.x + Math.sin(a) * d, z = I.z + Math.cos(a) * d, rs = roomSd(rooms[i], x, z);
+        if (rs <= best.r) continue; // min(fullSd, roomSd) ≤ roomSd：这一点不可能更大，省掉整体的 sd（结果不变）
+        const v = Math.min(fullSd(x, z), rs);
         if (v > best.r) best = { x, z, r: v };
       }
       return best;
@@ -5068,11 +5431,11 @@
       rooms[i].core = { x: c.x, z: c.z, r: Math.max(1, Math.floor(c.r * 10) / 10) };
     }
     // 场地：core 就是中心（首领站在这里），半径取到柱子内侧
-    rooms[5].core = { x: ac.x, z: ac.z, r: Math.max(5, Math.min(...pillars.map((p) => Math.hypot(p.x - ac.x, p.z - ac.z) - p.r)) - 0.2) };
+    rooms[AI].core = { x: ac.x, z: ac.z, r: Math.max(5, Math.min(...pillars.map((p) => Math.hypot(p.x - ac.x, p.z - ac.z) - p.r)) - 0.2) };
     if (rooms[1].core.r < 7.2) return frostFail('firstCore');
     // 薄冰：候选的岛排好随机顺序，放够 2 块为止；一个岛放不下就换下一个（zones-integrate：原来前两个里有一个放不下就整张重摆，
     // 生成器平均要摆 2.9 次、最慢的种子 30 多 ms；前两个都放得下的种子结果和原来逐位相同）
-    const thinIs = [1, 2, 3, 4].filter((i) => i !== skullIs).sort(() => R() - 0.5);
+    const thinIs = sideOf.filter((i) => i !== skullIs).sort(() => R() - 0.5);
     const thins = [];
     for (const i of thinIs) {
       if (thins.length >= 2) break;
@@ -5088,15 +5451,23 @@
 
     // ---- 怪群（§3.0）：岛上按面积，栈道只在中点放 2–3 只的小群（不放蛮兵）----
     // 面积：多边形用鞋带公式 + 圆角（周长 × round + π round²）；圆按整圆；浅水圆和岛重叠的部分按一半估
-    // 面积：在岛的外接框里按 0.7 m 撒点数（只算这个房间自己的图元）
+    // 面积：在房间图元的外接框里按 1 m 撒点数（只算这个房间自己的图元）
+    // size-frost：只撒这个房间图元的外接框（原来是外接圆外扩 5 m 的方框，大部分点都在水里），每个房间只算一次（岛的面积在下面分怪群时还要用）
+    const areaOf = new Map();
     const polyArea = (rm) => {
-      const I = isl[rm.id], ext = I.R + 5, st = 0.7;
+      if (areaOf.has(rm.id)) return areaOf.get(rm.id);
+      const st = 1, bx = [1e18, 1e18, -1e18, -1e18]; // 1 m 一个点：只是估算（筛面积、按面积分怪群），校验另按 0.5 m 网格精确量
+      for (const p of rm.prims) {
+        const b = W.terrain.primBox(p);
+        bx[0] = Math.min(bx[0], b[0]); bx[1] = Math.min(bx[1], b[1]); bx[2] = Math.max(bx[2], b[2]); bx[3] = Math.max(bx[3], b[3]);
+      }
       let n = 0;
-      for (let z = I.z - ext; z <= I.z + ext; z += st) for (let x = I.x - ext; x <= I.x + ext; x += st) if (roomSd(rm, x, z) >= 0) n++;
+      for (let z = bx[1] + st / 2; z <= bx[3]; z += st) for (let x = bx[0] + st / 2; x <= bx[2]; x += st) if (roomSd(rm, x, z) >= 0) n++;
+      areaOf.set(rm.id, n * st * st);
       return n * st * st;
     };
     let area = 0, mobs = 0, elites = 0;
-    for (let i = 0; i < sideBase + 3; i++) area += polyArea(rooms[i]);
+    for (let i = 0; i < sideBase + sides.length; i++) area += polyArea(rooms[i]);
     for (const L of LG) area += Math.max(0, L.gap) * 2 * (typeof L.hw === 'number' ? L.hw : 3.2);
     if (area < FROST.area[0] || area > FROST.area[1]) return frostFail('area');
     const placed = [];
@@ -5109,7 +5480,7 @@
       if (elite) elites++;
     };
     const spaced = (x, z) => placed.every((q) => Math.hypot(q.x - x, q.z - z) >= 6.5);
-    for (let i = 1; i <= 4; i++) {
+    for (let i = 1; i <= nI; i++) {
       const ar = polyArea(rooms[i]), want = ar < 250 ? 2 : ar < 500 ? (R() < 0.4 ? 3 : 2) : 3 + (R() < 0.5 ? 1 : 0);
       const mine = [];
       for (let k = 0; k < want; k++) {
@@ -5119,7 +5490,7 @@
         mine.push(packs.length - 1);
       }
       if (!mine.length) return frostFail('packs');
-      if (R() < 0.45 && elites < 3) {
+      if (R() < 0.45 && elites < 5) { // 关键路径上的精英最多 5 个，加上精英旁支全区 ≤ 6（size-frost；改版前 3 + 1）
         packs[pick(mine)].elite = true;
         elites++;
       }
@@ -5132,6 +5503,7 @@
     for (const s of sides) {
       const c = rooms[s.room].core;
       if (s.role === 'elite') addPack(s.room, c, [4, 5], 2.2, true);
+      else if (s.role === 'pack') addPack(s.room, c, [4, 6], 2.2, false); // 第 5 条旁支：普通怪群
       else {
         // 宝箱：小岛中间，锁扣朝来的方向
         const L = LG.find((q) => q.b === s.room);
@@ -5140,8 +5512,8 @@
     }
     // 怪太多就从怪群最多的岛上撤一群（不撤精英），太少就在最大的岛上补一群
     while (mobs > FROST.mobs[1]) {
-      const cnt = [0, 0, 0, 0, 0];
-      packs.forEach((p) => p.room >= 1 && p.room <= 4 && cnt[p.room]++);
+      const cnt = new Array(AI).fill(0);
+      packs.forEach((p) => p.room >= 1 && p.room <= nI && cnt[p.room]++);
       const rm = cnt.indexOf(Math.max(...cnt)), k = packs.findIndex((p) => p.room === rm && !p.elite);
       if (cnt[rm] <= 1 || k < 0) break;
       mobs -= 5;
@@ -5149,10 +5521,10 @@
       placed.splice(k, 1);
     }
     for (let t = 0; t < 4 && mobs < FROST.mobs[0]; t++) {
-      const i = 1 + Math.floor(R() * 4), p = spotIn(i, 3, 5, 15.5, spaced, 50);
+      const i = 1 + Math.floor(R() * nI), p = spotIn(i, 3, 5, 15.5, spaced, 50);
       if (p) addPack(i, p, [4, 6], 2.6, false);
     }
-    if (mobs < 45) return frostFail('mobs');
+    if (mobs < 72) return frostFail('mobs');
 
     // ---- 灯：每段栈道两头各一盏（外观用）----
     for (const L of LG) {
@@ -5163,14 +5535,17 @@
       }
     }
 
+    // 怪物等级：按 order 在关键路径（nI 个岛）上的比例折算；旁支按它挂着的那个岛算（旁支的 order 是父岛 + 1），连接按起端房间
+    for (const rm of rooms) rm.lv = W.terrain.lvFor(rm.kind === 'side' ? rm.order - 1 : rm.order, nI);
     const spec = {
-      rooms, links, cuts, haz, feats, packs, chests, outside: MAT.VOID,
+      rooms, links, cuts, haz, feats, packs, chests, outside: MAT.WATER, // zones-polish：VOID → WATER（区域外面真的是水；小地图跳过区域外面的材质，深水照旧不画）
       start: { x: 0, z: 0, exit: { x: LG[0].pA.x, z: LG[0].pA.z, ang: LG[0].ang } },
-      arena: { room: 5, x: ac.x, z: ac.z, door, dir: { x: (ac.x - door.x) / doorD, z: (ac.z - door.z) / doorD } },
+      arena: { room: AI, x: ac.x, z: ac.z, door, dir: { x: (ac.x - door.x) / doorD, z: (ac.z - door.z) / doorD } },
     };
     spec.bounds = W.terrain.specBounds(spec);
-    const bw = spec.bounds.maxX - spec.bounds.minX - 8, bh = spec.bounds.maxZ - spec.bounds.minZ - 8;
-    if (Math.max(bw, bh) > 170 || Math.min(bw, bh) > 150) return frostFail('box');
+    // 外接框：长边 ≤ 172 m；网格（外接框四周已含 4 m）0.25 m 一格不超过 FROST.cells（size-frost：原来是 170 × 150 的长宽上限）
+    const BW = spec.bounds.maxX - spec.bounds.minX, BH = spec.bounds.maxZ - spec.bounds.minZ;
+    if (Math.max(BW, BH) - 8 > 172 || (BW / 0.25 + 2) * (BH / 0.25 + 2) > FROST.cells) return frostFail('box');
     spec.est = { area: Math.round(area), mobs, elites };
     return spec;
   }
@@ -5180,7 +5555,7 @@
     frostGen.tries = k; // 调试：这次摆了几次
     return spec || GEN.legacy(R, def); // 80 次都摆不下（实测没出现过）：退回 legacy，照样能玩
   }
-  frostGen.check = { box: 170, areaMin: 2600, areaMax: 3200 };
+  frostGen.check = { box: 176, areaMin: 3800, areaMax: 5100 }; // size-frost：原来 170 / 2600 / 3200
   frostGen.fails = {};
 
   // ---------- 霜骨沼泽的外观 ----------
@@ -5190,7 +5565,8 @@
     deep: 0x29444f, mid: 0x2f4c58, shore: 0x365562, foam: 0x7898a4, shallow: 0x3a6c80,
     wood: [0x5a4c42, 0x4e4239, 0x635447, 0x463c36], post: 0x342c30, rope: 0x7c6e5c, under: 0x0e1c24,
     ice: [0x365666, 0x325060, 0x3c5c6c], iceEdge: 0x56788a, iceCol: 0x48697a,
-    bone: 0x9e9c94, boneShade: 0x403a5c, socket: 0x12131e,
+    bone: 0xaab0b0, boneShade: 0x403a5c, socket: 0x12131e, // zones-polish：骨色 0x9e9c94 → 0xaab0b0（偏冷的灰白，暖主光下不再发黄发褐）
+    iceShard: 0x6e94a6, // zones-polish：场地肋骨柱根部包着的冰棱
     reed: 0x34483f, reedHead: 0x4e3c30, floe: 0x3e5866, thin: 0x8cbcd0, crack: 0x6cc8e8, lamp: 0x8fdcff,
   };
   // 每个零件 [几何体, 颜色, 变换矩阵]，合并成一个带顶点色的几何体（整区的骨头一次 draw）
@@ -5344,10 +5720,10 @@
       };
       ell(0, 0.55, -0.7, 1.45, 1.2, 1.4); // 颅顶
       ell(0, 0.05, 0.75, 1.05, 0.72, 1.55, 0, 1); // 长吻
-      for (const sg of [-1, 1]) {
-        ell(sg * 0.6, 0.84, 0.3, 0.6, 0.17, 0.5, -0.2); // 眉骨（眼窝上沿，贴着颅顶）
-        ell(sg * 1.02, 0.12, 0.05, 0.42, 0.34, 0.75); // 颧骨
-      }
+      // 眉骨（zones-polish：原来两边各一个扁椭球，像两块盖子）：一道连着的弧形骨脊横过额前，中间略低、两头往下收进颧骨
+      ell(0, 0.86, 0.34, 1.22, 0.2, 0.42, -0.22);
+      ell(0, 0.78, 0.5, 0.42, 0.16, 0.3, -0.1); // 眉心的凹槽上沿（中间压低一点）
+      for (const sg of [-1, 1]) ell(sg * 1.02, 0.12, 0.05, 0.42, 0.34, 0.75); // 颧骨
       ell(0, -0.62, 0.55, 0.88, 0.26, 1.35, 0.14, 0.8); // 下颌（微张）
       for (let k = 0; k < 8; k++) {
         const t = (k / 7) * 2 - 1;
@@ -5366,6 +5742,19 @@
       g.setAttribute('position', new T.BufferAttribute(pos, 3));
       return g;
     });
+  // 变粗细的管子（zones-polish）：TubeGeometry 先按半径 1 建，再把每一圈相对中线按 rFn(t) 缩放（t = 0..1 沿曲线）
+  function frostTaper(cv, n, rs, rFn) {
+    const g = new T.TubeGeometry(cv, n, 1, rs, false), pa = g.attributes.position, c = new T.Vector3();
+    for (let i = 0; i <= n; i++) {
+      cv.getPointAt(i / n, c);
+      const r = rFn(i / n);
+      for (let j = 0; j <= rs; j++) {
+        const k = i * (rs + 1) + j;
+        pa.setXYZ(k, c.x + (pa.getX(k) - c.x) * r, c.y + (pa.getY(k) - c.y) * r, c.z + (pa.getZ(k) - c.z) * r);
+      }
+    }
+    return g;
+  }
   // 巨兽骨：脊椎节 + 拱过栈道的肋骨 + 头骨 + 场地里的肋骨柱，合并成一个网格
   function frostBones(zone, ctx) {
     const parts = [], B = FROST_PAL.bone;
@@ -5386,24 +5775,33 @@
       if (f.kind === 'rib') {
         const h = rand(3.0, 3.6), mx = (f.ax + f.bx) / 2, mz = (f.az + f.bz) / 2;
         const cv = new T.QuadraticBezierCurve3(new T.Vector3(f.ax, -0.3, f.az), new T.Vector3(mx + (f.ax - mx) * 0.25, h * 2, mz + (f.az - mz) * 0.25), new T.Vector3(f.bx, -0.4, f.bz));
-        add(ctx.own(new T.TubeGeometry(cv, 10, 0.15, 5, false)), B, new T.Matrix4());
+        // zones-polish：两头粗、拱顶细（原来是等粗 0.15 的管子，像一根木条）
+        add(ctx.own(frostTaper(cv, 12, 6, (t) => 0.13 + 0.09 * Math.pow(Math.abs(t * 2 - 1), 1.5))), B, new T.Matrix4());
       } else if (f.kind === 'skull') {
         // 头骨：局部 +z 朝 ang（岛心）
         const S = 1.05, base = frostM4(f.x, -0.25, f.z, 0, f.ang, 0, S);
         const pc = (g, col, x, y, z, rx, ry, rz, sx, sy, sz) => add(g, col, base.clone().multiply(frostM4(x, y, z, rx, ry, rz, sx, sy, sz)));
         pc(frostSkullGeo(), B, 0, 1.0, 0, 0, 0, 0, 1, 1, 1);
         for (const sg of [-1, 1]) {
-          pc(gIco(0.34, 0), FROST_PAL.socket, sg * 0.62, 1.68, 0.62, 0, 0, 0, 1, 0.75, 0.6); // 眼窝（眉骨下面的暗窝）
+          pc(gIco(0.4, 0), FROST_PAL.socket, sg * 0.6, 1.6, 0.68, 0, 0, 0, 1, 0.8, 0.62); // 眼窝（眉骨下面的暗窝，zones-polish 加大、往下挪到眉脊底下）
           pc(gIco(0.13, 0), FROST_PAL.socket, sg * 0.2, 1.08, 2.22, 0, 0, 0, 1, 0.8, 0.6); // 鼻孔
           pc(gCone(0.16, 1.1, 5), B, sg * 0.62, 0.55, 2.0, 1.35, 0, sg * -0.2, 1); // 獠牙（从吻侧往前下方伸出；缩放要给，原来漏了，frostM4 拿到 undefined 整个看不见）
           pc(gCone(0.3, 2.4, 5), B, sg * 1.35, 2.35, -1.1, -0.95, 0, sg * 0.75, 1); // 角（颅顶两侧往后上方）
         }
       } else if (f.kind === 'pillar') {
-        // 肋骨柱：从冰壳里拔起、朝场地中心弯过去的一根粗肋骨
+        // 肋骨柱（zones-polish：原来是等粗的管子插在八棱冰座上，像一根褐色木棍）：冰里拔起的一根巨兽獠牙 / 肋骨——
+        // 根部一个骨节，往上越来越细、一圈圈生长纹（略粗的环），朝场地中心弯过去收成尖；根部一圈斜插的冰棱和一块冰壳（同一个网格，不再另画冰座）
         const ox = -Math.sin(f.ang), oz = -Math.cos(f.ang), h = rand(4.2, 5);
-        const cv = new T.QuadraticBezierCurve3(new T.Vector3(f.x, 0, f.z), new T.Vector3(f.x - ox * 0.3, h * 0.75, f.z - oz * 0.3), new T.Vector3(f.x + ox * 1.4, h, f.z + oz * 1.4));
-        add(ctx.own(new T.TubeGeometry(cv, 8, 0.36, 6, false)), B, new T.Matrix4());
-        add(gCone(0.36, 1.0, 6), B, frostM4(f.x + ox * 1.4 + ox * 0.45, h - 0.12, f.z + oz * 1.4 + oz * 0.45, Math.PI / 2 + 0.5, f.ang + Math.PI, 0, 1));
+        const cv = new T.QuadraticBezierCurve3(new T.Vector3(f.x, -0.2, f.z), new T.Vector3(f.x - ox * 0.35, h * 0.72, f.z - oz * 0.35), new T.Vector3(f.x + ox * 1.6, h, f.z + oz * 1.6));
+        add(ctx.own(frostTaper(cv, 14, 8, (t) => (0.62 - 0.5 * Math.pow(t, 0.85)) * (1 + 0.1 * Math.pow(Math.max(0, Math.cos(t * Math.PI * 9)), 6)))), B, new T.Matrix4());
+        const tip = cv.getPointAt(1), tg = cv.getTangentAt(1);
+        add(gCone(0.12, 0.7, 6), B, new T.Matrix4().compose(tip.clone().addScaledVector(tg, 0.33), new T.Quaternion().setFromUnitVectors(new T.Vector3(0, 1, 0), tg), new T.Vector3(1, 1, 1)));
+        add(gIco(0.78, 1), B, frostM4(f.x, 0.15, f.z, 0, f.ang, 0, 1, 0.55, 1)); // 根部的骨节
+        add(gCyl(1.05, 1.15, 0.22, 9), FROST_PAL.iceCol, frostM4(f.x, 0.08, f.z, 0, rand(0, TAU), 0, 1)); // 冰壳
+        for (let k = 0; k < 6; k++) {
+          const a = (k / 6) * TAU + rand(-0.3, 0.3), d = rand(0.65, 0.95), hh = rand(0.8, 1.5), rk = rand(0.75, 1.25); // 同一个缓存的锥按比例缩放（几何体缓存的键不能带随机数）
+          add(gCone(0.27, 1, 5), k % 2 ? FROST_PAL.iceShard : FROST_PAL.iceEdge, frostM4(f.x + Math.sin(a) * d, hh * 0.4, f.z + Math.cos(a) * d, rand(0.25, 0.45), a, 0, rk, hh, rk));
+        }
       }
     }
     if (!parts.length) return null;
@@ -5553,7 +5951,7 @@
       st.deck = frostDeck(zone, ctx);
       st.bones = frostBones(zone, ctx);
       const pl = zone.feats.filter((f) => f.kind === 'pillar');
-      st.collars = pl.length ? ctx.gfx.pillars(pl.map((p) => ({ x: p.x, z: p.z, r: 0.95, h: 0.55 })), { color: FROST_PAL.iceCol }) : null;
+      st.collars = null; // zones-polish：冰座并进骨头网格（frostBones 里的冰壳和冰棱），少一次 draw
       st.thin = frostThin(zone, ctx);
       st.shore = frostShore(zone, ctx);
       st.lamps = frostLamps(zone, ctx);
@@ -5623,14 +6021,16 @@
   // ===== 区域地形：storm（雷鸣遗迹）—— zones-storm 只改这一节 =====
   // 雷鸣遗迹：直角的废墟大厅（设计稿 §3.3）。整区一个随机朝向 th，所有大厅、走廊都按 0° / 90° 对齐：
   // 生成时在局部坐标 (u, v) 里摆轴对齐的盒子，输出时转成 ang = th 的 rbox。
-  // 关键路径：起点圆厅（r=8 圆盘契约）→ H1 → H2 机关厅（一对雷枢）→ H3 柱廊厅（两排柱）→ H4 → 监察大厅（30 × 30，四根粗柱）。
+  // 关键路径：起点圆厅（r=8 圆盘契约）→ H1 → H2 机关厅（一对雷枢）→ H3 柱廊厅（两排柱）→ H4 … → 监察大厅（30 × 30，四根粗柱）。
+  // size-storm：区域加长到约 ×1.6，靠多摆大厅（关键路径 4 → 6–7 个，后半段再一个机关厅），不拉长走廊；旁支 3–5 个，宝箱 3 个。
   // 大厅之间是直的或 L 形（一个弯）的走廊，宽 5–6 m；门口两侧是门框柱（WALL），把门收窄到 4 m。
   // 区域外面整片是墙（spec.outside = WALL）：边上没有通用岩石圈，墙身由 dress 里的 wallRun 沿边画出来。
   const STORM = {
     tries: 120, // 一个种子里最多重摆几次（只用 R，结果仍由种子决定）
     gap: 3.5, // 不相干的两块之间至少隔这么厚的墙
-    area: [3000, 3500], // 目标可走面积（按盒子面积估，校验时实测）
-    box: 148, // 世界坐标外接框上限（设计稿 ≤ 150）
+    area: [5000, 6000], // 目标可走面积（按盒子面积估，校验时实测；size-storm：3000–3500 → ×1.6）
+    box: 172, // 世界坐标外接框上限（size-storm：148 → 172，§2.3 的上限 180）
+    halls7: 0.65, // 关键路径 7 个大厅的概率（其余 6 个）
     hw: [2.5, 3], // 关键路径走廊的半宽
     door: 2, // 门口收窄后的半宽（门框柱之间 4 m）
     frameR: 0.55, // 门框柱（外观）的半宽
@@ -5648,7 +6048,7 @@
     return GEN.legacy(R, def); // 几乎不会走到：交给校验换种子
   }
   // 放宽的校验阈值：区域外面整片是墙，不相邻的大厅之间隔着实心墙、视线本来就不通，所以「边到边 ≥ 14 m」放宽到 3 m
-  stormGen.check = { box: 150, areaMin: 2850, areaMax: 3700, gap: 3 };
+  stormGen.check = { box: 175, areaMin: 4600, areaMax: 6200, gap: 3 }; // size-storm：box 150 → 175、面积 2850–3700 → 4600–6200
 
   function stormTry(R) {
     const rnd = (a, b) => a + R() * (b - a);
@@ -5714,10 +6114,24 @@
       cors.push(C);
       return C;
     };
-    // ---------- 关键路径：H1..H4 + 场地 ----------
+    // 摆的过程中就记着世界坐标的外接框：会把外接框撑过 STORM.box 的大厅 / 旁支当作摆不下，换方向再试（不必整张摆完才发现）
+    const wb = [-8, -8, 8, 8];
+    const fitW = (list, commit) => {
+      const q = wb.slice();
+      for (const b of list) for (const [a, c] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        const p = toW(b.u + a * b.hu, b.v + c * b.hv);
+        q[0] = Math.min(q[0], p[0]); q[1] = Math.min(q[1], p[1]); q[2] = Math.max(q[2], p[0]); q[3] = Math.max(q[3], p[1]);
+      }
+      if (q[2] - q[0] > STORM.box || q[3] - q[1] > STORM.box) return false;
+      if (commit) for (let i = 0; i < 4; i++) wb[i] = q[i];
+      return true;
+    };
+    // ---------- 关键路径：H1..H6 / H7 + 场地 ----------
+    // 大厅的种类：H2 机关厅、H3 柱廊厅照旧，后半段再一个机关厅（倒数第二个大厅），其余是普通大厅
     let P = st, d = SDIRS[Math.floor(R() * 4)], nIn = null;
-    const KIND = ['', 'hall', 'machine', 'colonnade', 'hall', 'arena'];
-    for (let k = 1; k <= 5; k++) {
+    const nH = R() < STORM.halls7 ? 7 : 6;
+    const KIND = nH === 7 ? ['', 'hall', 'machine', 'colonnade', 'hall', 'hall', 'machine', 'hall', 'arena'] : ['', 'hall', 'machine', 'colonnade', 'hall', 'machine', 'hall', 'arena'];
+    for (let k = 1; k <= nH + 1; k++) {
       const kind = KIND[k], arena = kind === 'arena';
       let B, pts, n, C, hw, sA, y, ok = false;
       // 摆不下（撞到已有的房间 / 走廊）就换个方向、换个尺寸再试，最多 8 次
@@ -5735,14 +6149,14 @@
       if (arena) len = wid = 15;
       else if (kind === 'colonnade') { len = rnd(12.5, 14); wid = rnd(8, 9); }
       else if (kind === 'machine') { len = rnd(9.5, 12); wid = rnd(8.5, 11); }
-      else { len = rnd(8.5, 12.5); wid = rnd(8.5, 11); if (R() < 0.35) { const t = len; len = wid; wid = t; } }
+      else { len = rnd(9, 13); wid = rnd(9, 11.5); if (R() < 0.35) { const t = len; len = wid; wid = t; } } // size-storm：普通大厅大一点（8.5–12.5 × 8.5–11 → 9–13 × 9–11.5）
       hw = arena ? 4 : rnd(STORM.hw[0], STORM.hw[1]);
       sA = dotP(P.u, P.v, d) + alongH(P, d);
       const yA0 = dotP(P.u, P.v, lat(d)), Alat = latH(P, d);
       // 走廊离开上一个房间的横向位置：起点圆厅从圆心出去；其余在门框柱之外留够墙
       const ySpan = P.disk ? 0 : Math.max(0, Alat - STORM.door - STORM.frameR * 2 - 1.2 - (arena ? 2 : 0));
       y = yA0 + rnd(-ySpan, ySpan);
-      const L = !arena && !P.disk && R() < 0.4 && k < 5; // L 形：从 P 的墙出去，沿着 B 的侧墙走，转个弯从侧墙进 B
+      const L = !arena && !P.disk && R() < 0.4 && k <= nH; // L 形：从 P 的墙出去，沿着 B 的侧墙走，转个弯从侧墙进 B
       if (!L) {
         const g = arena ? rnd(8, 11) : rnd(8, 13.5);
         const sB = sA + g, yb = arena ? y : y + rnd(-1, 1) * Math.max(0, wid - STORM.door - STORM.frameR * 2 - 1.5) * 0.75;
@@ -5766,7 +6180,7 @@
       C = addCor(P, B, pts, hw, arena ? 'neck' : 'corr', P.disk || arena ? 0 : STORM.door, arena ? 0 : STORM.door);
       C.order = k - 1;
       // 和已有的东西隔开：新大厅只能挨着这条走廊，走廊只能挨着两端
-      ok = clear(B, (h) => h === C) && C.legs.every((b) => clear(b, (h) => h === P || h === C));
+      ok = clear(B, (h) => h === C) && C.legs.every((b) => clear(b, (h) => h === P || h === C)) && fitW([B].concat(C.legs), true);
       if (!ok) cors.pop();
       }
       if (!ok) return stormFail('hall');
@@ -5782,9 +6196,9 @@
       P = B;
       nIn = n;
     }
-    const pathHalls = halls.slice(1, 5), arena = halls[5];
-    // ---------- 旁支小室：2–3 个，从关键路径大厅没开门的墙岔出去 ----------
-    const want = R() < 0.4 ? 3 : 2, sides = [];
+    const pathHalls = halls.slice(1, nH + 1), arena = halls[nH + 1];
+    // ---------- 旁支小室：3–5 个，从关键路径大厅没开门的墙岔出去 ----------
+    const want = R() < 0.5 ? 3 : R() < 0.7 ? 4 : 5, sides = [];
     const order = pathHalls.slice().sort(() => R() - 0.5);
     for (let pass = 0; pass < 2 && sides.length < want; pass++) {
       for (const H of order) {
@@ -5802,6 +6216,7 @@
           if (!clear(S, null)) continue;
           if (!clear(tmp.legs[0], (h) => h === H)) continue;
           if (boxGap(S, tmp.legs[0]) > 0.01) continue;
+          if (!fitW([S, tmp.legs[0]], true)) continue;
           halls.push(S);
           const C = addCor(H, S, [pt(q, sA - OV, y), pt(q, sA + g + OV, y)], hw, 'corr', 0, 1.5);
           C.order = H.order;
@@ -5815,7 +6230,7 @@
         }
       }
     }
-    if (sides.length < 2) return stormFail('sides');
+    if (sides.length < 3) return stormFail('sides');
     // ---------- 外接框、面积 ----------
     let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9, area = 0;
     const grow = (b) => {
@@ -5851,17 +6266,16 @@
     if (area < STORM.area[0] || area > STORM.area[1]) return stormFail('area');
     // ---------- 雷枢：H2 里横跨大厅一对；另有 0–1 对在某条走廊上 ----------
     const nodes = [];
-    const mach = pathHalls.find((H) => H.hk === 'machine');
-    if (mach) {
+    for (const mach of pathHalls.filter((H) => H.hk === 'machine')) {
       const n = mach.entry.n, l = lat(n), len = alongH(mach, n), wid = latH(mach, n);
-      for (let t = 0; t < 8; t++) {
-        const s = rnd(0, 0.32) * len, o = wid - 0.25; // 雷线偏向出口一侧，门内留出伏击的位置
+      for (let t = 0; t < 10; t++) {
+        const s = (t < 5 ? rnd(0, 0.32) : rnd(-0.3, 0.6)) * len, o = wid - 0.25; // 雷线偏向出口一侧，门内留出伏击的位置（前几次摆不开再放宽）
         const a = [mach.u + n[0] * s - l[0] * o, mach.v + n[1] * s - l[1] * o], b = [mach.u + n[0] * s + l[0] * o, mach.v + n[1] * s + l[1] * o];
         if (nearDoor(mach, a[0], a[1], 4) || nearDoor(mach, b[0], b[1], 4)) continue;
         nodes.push({ a, b, room: mach, r: 0.75 });
         break;
       }
-      if (!nodes.length) return stormFail('node');
+      if (!nodes.some((N) => N.room === mach)) return stormFail('node');
     }
     if (R() < 0.55) {
       const cand = cors.filter((C) => !C.side && C.kind === 'corr');
@@ -5903,17 +6317,24 @@
     for (const H of halls) for (const D of H.doors) allDoors.push(D.p);
     // ---------- 怪群 ----------
     const packsL = [];
-    const okPack = (u, v, minSd, ambush) => {
-      if (sdL(u, v) < minSd) return false;
+    // sdL(u, v) ≥ minSd 的快速判定（结果和直接算 sdL 一样）：点在大厅 H 里离墙已经 ≥ minSd 时，房间那一半的 max 不用再算别的盒子，只查挖空
+    const sdOk = (u, v, minSd, H) => {
+      if (!H || H.disk || boxSd(H, u, v) < minSd) return sdL(u, v) >= minSd;
+      for (const c of cutsL) if (Math.hypot(u - c.u, v - c.v) - c.r < minSd) return false;
+      for (const b of wallsL) if (-boxSd(b, u, v) < minSd) return false;
+      return true;
+    };
+    const okPack = (u, v, minSd, ambush, H) => {
+      if (!sdOk(u, v, minSd, H)) return false;
       if (Math.hypot(u, v) < 12.5) return false;
       if (!ambush && allDoors.some((p) => Math.hypot(p[0] - u, p[1] - v) < 4.6)) return false;
       if (nodes.some((N) => segDist(u, v, N.a, N.b) < (ambush ? 3 : 4))) return false;
-      if (packsL.some((p) => Math.hypot(p.u - u, p.v - v) < (ambush || p.ambush ? 5.5 : 7))) return false;
+      if (packsL.some((p) => Math.hypot(p.u - u, p.v - v) < (ambush || p.ambush ? 7.5 : 9.5))) return false; // zones-polish：群间距 7 / 5.5 → 9.5 / 7.5（怪群放大到 ×1.25 以后，12 m 里能挤进 21 只，混战一屏 draw call 超预算）
       return true;
     };
     const placeIn = (H, n, extra) => {
       const c = [];
-      for (let u = H.u - H.hu + 3; u <= H.u + H.hu - 3; u += 1.5) for (let v = H.v - H.hv + 3; v <= H.v + H.hv - 3; v += 1.5) if (okPack(u, v, 3, false)) c.push([u, v]);
+      for (let u = H.u - H.hu + 3; u <= H.u + H.hu - 3; u += 1.5) for (let v = H.v - H.hv + 3; v <= H.v + H.hv - 3; v += 1.5) if (okPack(u, v, 3, false, H)) c.push([u, v]);
       if (!c.length) return null;
       const p = c[Math.floor(R() * c.length)];
       const pk = Object.assign({ u: p[0], v: p[1], H, n, r: 2.6 }, extra || {});
@@ -5931,7 +6352,7 @@
         if (Lmax < 4.4) continue;
         const L = rnd(4.4, Lmax), dep = rnd(2.6, Math.max(2.6, Math.min(5.2, dl * 2 - 2.4, 1.5 * L - 3.3)));
         const u = D.p[0] + D.n[0] * dep + l[0] * sd * L, v = D.p[1] + D.n[1] * dep + l[1] * sd * L;
-        if (boxSd(H, u, v) < 2.4 || !okPack(u, v, 2.4, true)) continue;
+        if (boxSd(H, u, v) < 2.4 || !okPack(u, v, 2.4, true, H)) continue;
         if (sees([D.p[0] - D.n[0] * 3, D.p[1] - D.n[1] * 3], [u, v])) continue;
         packsL.push({ u, v, H, n: [3, 5], r: 2.2, ambush: true });
         done = true;
@@ -5944,58 +6365,59 @@
         const u = D.p[0] + D.n[0] * 6.2 + l[0] * sd * 4.4, v = D.p[1] + D.n[1] * 6.2 + l[1] * sd * 4.4;
         wallsL.push(wb);
         const endOk = [-1, 1].every((e) => boxSd(H, wc[0] + l[0] * e * 2.4, wc[1] + l[1] * e * 2.4) >= 1.2); // 残墙两头离侧墙留出能走的缝
-        const why = boxSd(H, wc[0], wc[1]) < 2.9 || !endOk ? 'aw' : boxSd(H, u, v) < 2.4 ? 'ab' : !okPack(u, v, 2.4, true) ? 'ap' : sees([D.p[0] - D.n[0] * 3, D.p[1] - D.n[1] * 3], [u, v]) ? 'as' : '';
+        const why = boxSd(H, wc[0], wc[1]) < 2.9 || !endOk ? 'aw' : boxSd(H, u, v) < 2.4 ? 'ab' : !okPack(u, v, 2.4, true, H) ? 'ap' : sees([D.p[0] - D.n[0] * 3, D.p[1] - D.n[1] * 3], [u, v]) ? 'as' : '';
         if (why) { stormFail(why); wallsL.pop(); continue; }
         packsL.push({ u, v, H, n: [3, 5], r: 2.2, ambush: true });
         done = true;
       }
     }
     // 每个大厅按面积：< 250 m² 1–2 群、250–500 2–3 群、> 500 3–4 群（伏击那一群算在里面）
-    const target = Math.round(rnd(50, 58));
+    const target = Math.round(rnd(80, 93)); // size-storm：50–58 → ×1.6（每群的只数归 zones-balance，这里只多摆群）
     const expect = () => packsL.reduce((a, p) => a + (Array.isArray(p.n) ? (p.n[0] + p.n[1]) / 2 : p.n), 0);
     const lim = pathHalls.map((H) => { const a = 4 * H.hu * H.hv; return a < 250 ? [1, 2] : a < 500 ? [2, 3] : [3, 4]; });
     pathHalls.forEach((H, i) => {
       while (packsL.filter((p) => p.H === H).length < lim[i][0]) if (!placeIn(H, [4, 6])) break;
     });
-    // 旁支：精英室（保底精英）、可选的第三间（小群）
+    // 旁支：精英室（保底精英）、第三间起各一个小群（第三间还有宝箱）
     const eliteRoom = sides[1], chestRoom = sides[0];
     packsL.push({ u: eliteRoom.u, v: eliteRoom.v, H: eliteRoom, n: [4, 5], r: 2.4, elite: true });
-    if (sides[2]) packsL.push({ u: sides[2].u, v: sides[2].v, H: sides[2], n: [3, 4], r: 2.2 });
+    for (const S of sides.slice(2)) packsL.push({ u: S.u, v: S.v, H: S, n: [3, 4], r: 2.2 });
     // 长走廊（> 14 m、宽 6 m 的）中点：2–3 只的小群
     for (const C of cors) {
       if (C.side || C.kind !== 'corr' || C.len < 14 || C.hw < 2.75 || R() < 0.5) continue;
       const m = W.terrainGfx.axisAt(C.axis, 0.5);
       if (okPack(m.x, m.z, Math.min(2.6, C.hw - 0.2), false)) packsL.push({ u: m.x, v: m.z, H: C, n: [2, 3], r: 1.7, cor: true }); // 走廊中点的小群不放蛮兵（下面输出 noBrute）
     }
-    for (let guard = 0; guard < 12 && expect() < target; guard++) {
+    for (let guard = 0; guard < 20 && expect() < target; guard++) {
       const i = Math.floor(R() * pathHalls.length);
       if (packsL.filter((p) => p.H === pathHalls[i]).length >= lim[i][1]) continue;
       placeIn(pathHalls[i], [4, 6]);
     }
     const tot = expect();
-    if (tot < 45 || tot > 64) return stormFail('mobs');
-    // 精英：关键路径大厅各 45%（落在非伏击的一群上），加上精英室保底，全区上限 4
+    if (tot < 72 || tot > 102) return stormFail('mobs'); // size-storm：45–64 → ×1.6
+    // 精英：关键路径大厅各 45%（落在非伏击的一群上），关键路径最多 5 个，加上精英室保底，全区上限 6
     let elites = 1;
     for (const H of pathHalls) {
-      if (elites >= 4 || R() >= 0.45) continue;
+      if (elites >= 6 || R() >= 0.45) continue;
       const c = packsL.filter((p) => p.H === H && !p.ambush);
       if (!c.length) continue;
       c[Math.floor(R() * c.length)].elite = true;
       elites++;
     }
-    // ---------- 宝箱：宝箱室、精英室各一个，放在背对门的那面墙前 ----------
-    const chestsL = [chestRoom, eliteRoom].map((S) => ({ u: S.u + S.entry.n[0] * (S.hu - 1.8), v: S.v + S.entry.n[1] * (S.hv - 1.8), S }));
+    // ---------- 宝箱：宝箱室、精英室、第三间旁支各一个，放在背对门的那面墙前 ----------
+    const chestsL = [chestRoom, eliteRoom, sides[2]].map((S) => ({ u: S.u + S.entry.n[0] * (S.hu - 1.8), v: S.v + S.entry.n[1] * (S.hv - 1.8), S }));
 
     // ---------- 输出 spec（世界坐标）----------
     const rooms = [], links = [], cuts = [], packs = [], chests = [];
     const W2 = (p) => toW(p[0], p[1]);
     const rb = (b, round) => { const c = toW(b.u, b.v); return { t: 'rbox', x: c[0], z: c[1], hx: b.hu, hz: b.hv, ang: th, round }; };
     // 房间顺序 = 重叠处的优先级：大厅在前、走廊在后
+    // 怪物等级偏移 lv = lvFor(order, 关键路径大厅数)：旁支取它岔出来的那个大厅的 order，走廊取进口那一端
     halls.forEach((H, i) => {
       H.id = i;
       const c = toW(H.u, H.v);
       rooms.push({
-        id: i, kind: H.kind, order: H.order, path: H.path,
+        id: i, kind: H.kind, order: H.order, path: H.path, lv: lvFor(H.parent ? H.parent.order : H.order, nH),
         prims: [H.disk ? { t: 'circle', x: 0, z: 0, r: 8 } : rb(H, 0.6)],
         core: { x: c[0], z: c[1], r: H.disk ? 8 : Math.min(H.hu, H.hv) - 0.3 },
         tags: H.kind === 'side' ? [H === eliteRoom ? 'elite' : H === chestRoom ? 'chest' : 'room'] : H.hk ? [H.hk] : [],
@@ -6006,7 +6428,7 @@
       const lg = C.legs.reduce((a, b) => (Math.max(b.hu, b.hv) > Math.max(a.hu, a.hv) ? b : a));
       const c = toW(lg.u, lg.v);
       rooms.push({
-        id: C.id, kind: 'link', order: C.order, path: !C.side, prims: C.legs.map((b) => rb(b, 0.3)),
+        id: C.id, kind: 'link', order: C.order, lv: lvFor(C.order, nH), path: !C.side, prims: C.legs.map((b) => rb(b, 0.3)),
         core: { x: c[0], z: c[1], r: C.hw }, axis: C.axis.map(W2), ends: [C.a.id, C.b.id], tags: [C.kind],
       });
       const da = W2(C.doorA.p), db = W2(C.doorB.p);
@@ -6171,7 +6593,7 @@
       const len = Math.hypot(N.bx - N.ax, N.bz - N.az), ang = Math.atan2(N.bx - N.ax, N.bz - N.az);
       cond.push((N.ax + N.bx) / 2, 0.012, (N.az + N.bz) / 2, 0, ang, 0, 0.42, 0.03, len, 1);
     }
-    // 北墙（朝镜头的那面）上隔一段立一根小避雷针：同一套柱子模型缩小，顶上也是发光晶体
+    // 北墙（朝镜头的那面）上隔一段立一根小避雷针：同一套柱子模型缩小，顶上也是发光晶体；转轮最多 9 个（size-storm：区域加长，6 → 9，仍是一次 draw）
     const rods = [], wheels = [];
     let lastRod = null, lastWheel = null;
     stormEdges(3.2, 0.5, (x, z, nx, nz) => {
@@ -6186,7 +6608,7 @@
           tips.push(x, top + 1.32, z, 0, rand(0, TAU), 0, 0.12, 0.22, 0.12, 1);
         }
       }
-      if (wheels.length < 6 && (!lastWheel || Math.hypot(lastWheel[0] - x, lastWheel[1] - z) > 16) && Math.random() < 0.35) {
+      if (wheels.length < 9 && (!lastWheel || Math.hypot(lastWheel[0] - x, lastWheel[1] - z) > 16) && Math.random() < 0.35) {
         lastWheel = [x, z];
         wheels.push({ x: x - nx * 0.42, y: 1.35, z: z - nz * 0.42, ang: Math.atan2(nx, nz), s: rand(0.85, 1.15), ph: rand(0, TAU), sp: rand(0.25, 0.5) * (Math.random() < 0.5 ? -1 : 1) });
       }
@@ -6324,16 +6746,20 @@
   // ===== 区域地形：storm 结束 =====
 
   // ===== 区域地形：abyss（烬渊深处）—— zones-abyss 只改这一节 =====
-  // 布局（design.md §3.4）：一条深渊（VOID）顺着关键路径延伸，两岸是贴着深渊的崖路和鼓出来的平台，外侧是高崖壁（ROCK）。
-  // 生成时用局部坐标 (u, v)：u 顺着深渊，v 横过深渊。起点在 (0, 0)、在 A 岸（v 大的一侧），深渊的 A 岸边是 v = eA，B 岸边是 v = eB。
-  // 关键路径：起点 → 崖路 P0 → L1 → 桥 B1 → L2（B 岸）→ 崖路 P2 → L3 → 桥 B2 → L4（A 岸）→ 桥 B3 → 场地（悬在深渊里的圆台）。
-  // 旁支：两个凿进崖壁的洞穴（隧道 + 圆洞），一个放宝箱，一个放精英群（洞底也放一个宝箱）。
-  // 挖空：深渊每两座桥之间一段 rbox（端面和桥边齐平），沿岸撒一些小圆缺口让崖边不那么直；场地四周一圈 arc，桥两侧各一块多边形补齐。
+  // 布局（design.md §3.4，size-abyss 加长到约 1.6 倍）：一条深渊（VOID）顺着关键路径延伸、中途拐一个直角，两岸是贴着深渊的崖路和鼓出来的平台，外侧是高崖壁（ROCK）。
+  // 生成时用局部坐标 (u, v)。第一段深渊顺着 u：起点在 (0, 0)、在 A 岸（v 大的一侧），A 岸边是 v = eA，B 岸边是 v = eB；
+  // 到 u ≈ cL 朝 A 岸一侧拐弯，第二段深渊顺着 +v：A 岸（拐角的内侧）在 u < cL，B 岸（外侧）在 u > cR。
+  // 关键路径：起点 → 崖路 P0 → L1 → 桥 B1 → L2（B 岸）→ 崖路 P2 → L3 → 桥 B2 → L4（A 岸）→ 崖路 P4 → L5（拐角内侧）
+  //   → 桥 B3 → L6（第二段的 B 岸）→ 崖路 P6 → L7 → 桥 B4 → 场地（悬在深渊里的圆台）。
+  // 拐角内侧只放 L4、L5（路径序号相邻），第二段的 A 岸整段是崖壁：不相邻的平台隔着深渊离得太近，校验第 4 条（间距 ≥ 14 m）过不了。
+  // 旁支：三个凿进崖壁的洞穴（隧道 + 圆洞），一个放精英群（洞底也放一个宝箱），另外两个放宝箱。
+  // 挖空：深渊每两座桥之间一段 rbox（端面和桥边齐平），沿岸撒一些小圆缺口让崖边不那么直；场地四周一圈 rbox，桥两侧各一块补齐。
   // 平台、崖路都往深渊里多画一截，被挖空切掉以后崖边就是虚空边。最后整体按 90° 的倍数旋转、可能镜像（外接框不会变大）。
   const ABYSS = {
     hwPath: 3.25, over: 1, // 崖路图元半宽、伸进深渊被切掉的部分（路宽 5.5）
     hwBridge: 2.25, // 石桥宽 4.5
     arenaR: 14, // 场地半径
+    nPath: 7, // 关键路径上的平台数（不算起点和场地），怪物等级按它折算（W.terrain.lvFor）
     vent: { r: 1.6, period: 6, warn: 0.8, range: 14, dmg: 5, mobK: 0.12, eliteK: 0.06 }, // 余烬口：半径、周期、预警、玩家多近才运转、伤害（× dmgScale）、对怪按最大生命的比例
   };
   // 生成一次；自查不过（余烬口不够、平台太小、怪太少、洞穴碰到别的房间）时 ok = false，abyssGen 接着用同一个随机源重来
@@ -6351,24 +6777,35 @@
       const hu = (u1 - u0) / 2, hv = (v1 - v0) / 2, uc = (u0 + u1) / 2, vc = (v0 + v1) / 2;
       return { t: 'rbox', x: X(uc, vc), z: Z(uc, vc), hx: odd ? hv : hu, hz: odd ? hu : hv, ang: 0, round: 0 };
     };
-    const hwB = ABYSS.hwBridge, hwP = ABYSS.hwPath, over = ABYSS.over, AR = ABYSS.arenaR;
+    const hwB = ABYSS.hwBridge, hwP = ABYSS.hwPath, over = ABYSS.over, AR = ABYSS.arenaR, NP = ABYSS.nPath;
+    const lvOf = (o) => lvFor(o, NP);
 
-    // ---- 深渊三段：A 岸边 eA、宽 g（桥长 10–18）----
+    // ---- 第一段深渊三截：A 岸边 eA、宽 g（桥长 10–18）----
     const eA = [-8.05, -8.05 + rnd(-0.8, 0.8), -8.05 + rnd(-0.8, 0.8)];
-    const g = [rnd(11, 14.5), rnd(11, 15), rnd(11, 14.5)];
+    const g = [rnd(10.5, 14), rnd(10.5, 14.5), rnd(10.5, 14)];
     const eB = eA.map((a, i) => a - g[i]);
-    // ---- 关键路径上的尺寸 ----
-    const P0len = rnd(10, 14), P2len = rnd(27, 33), span3 = rnd(12, 15.5);
-    const Rl = [0, rnd(9.3, 10.4), rnd(8.8, 10), rnd(8.8, 10), rnd(9, 10.2)]; // L1..L4 的半径
+    // ---- 关键路径上的尺寸：P2 / P6 上要放鼓包、洞口和余烬口（23–27 m，和改前的 P2 差不多长）；P4 只放鼓包和一个余烬口，
+    // 但 L3 和 L5 要隔着深渊相距 ≥ 14 m，不能短于 16 m ----
+    const P0len = rnd(9, 12), P2len = rnd(23, 27), P4len = rnd(16.5, 19), P6len = rnd(23, 26.5), span3 = rnd(11, 14.5);
+    const Rl = [0, rnd(9.9, 10.9), rnd(9.5, 10.7), rnd(9.5, 10.7), rnd(9.5, 10.7), rnd(9.9, 10.9), rnd(9.5, 10.7), rnd(9.7, 10.9)]; // L1..L7 的半径
     const u1 = 8 + P0len + Rl[1] * 0.92, ub1 = u1 + rnd(-1.5, 1.5);
     const u2 = ub1 + rnd(-2, 2);
     const u3 = u2 + Rl[2] * 0.92 + P2len + Rl[3] * 0.92, ub2 = u3 + rnd(-1.5, 1.5);
     const u4 = ub2 + rnd(-2, 2);
+    const u5 = u4 + Rl[4] * 0.92 + P4len + Rl[5] * 0.92;
     const eA01 = Math.max(eA[0], eA[1]), eB01 = Math.min(eB[0], eB[1]), eA12 = Math.max(eA[1], eA[2]), eB12 = Math.min(eB[1], eB[2]);
     const v1 = eA01 + Rl[1] - 2, v2 = eB01 - Rl[2] + 2, v3 = eB[1] - Rl[3] + 2, v4 = eA12 + Rl[4] - 2;
-    const vB3 = eA[2] + hwB + 0.6; // B3 沿 A 岸往前，桥下是深渊第三段
-    const Ro = AR + span3; // 场地四周虚空环的外半径（桥 B3 的跨度 = span3）
-    const au = u4 + Rl[4] * 0.8 + Ro + 0.9, av = vB3;
+    // ---- 拐角：L5 在内角，离第一段的 A 岸边、第二段的 A 岸边（u = cL）都是 R − 2；第二段两截（B3 上下）各自的岸边 cL / cR ----
+    const v5 = eA[2] + Rl[5] - 2, cL0 = u5 + Rl[5] - 2;
+    const cL = [cL0 + rnd(0, 0.6), cL0 + rnd(0, 0.6)], cR = [cL[0] + rnd(11, 13.5), 0];
+    cR[1] = cL[1] + Math.max(10.5, Math.min(14, cR[0] - cL[1] + rnd(-0.8, 0.8)));
+    const cR01 = Math.max(cR[0], cR[1]);
+    const vb3 = Math.max(eA[2] + hwB + 2, v5 + rnd(-1.5, 1.5)); // 桥 B3 横过第二段（桥下面是拐角那一截，上面是第二截）
+    const u6 = cR01 + Rl[6] - 2, v6 = vb3 + rnd(-1, 2);
+    const v7 = v6 + Rl[6] * 0.92 + P6len + Rl[7] * 0.92, u7 = cR[1] + Rl[7] - 2;
+    const uP6 = cR[1] + hwP - over; // 第二段 B 岸的崖路 P6（B 岸在 +u 一侧）
+    const Ro = AR + span3; // 场地四周虚空环的外半径（桥 B4 的跨度 = span3）
+    const au = cR[1] + hwB + 0.6, av = v7 + Rl[7] * 0.8 + Ro + 0.9; // B4 沿 B 岸往 +v，桥下是深渊第二截的尽头
 
     const rooms = [], links = [], cuts = [], haz = [], feats = [], packs = [], chests = [];
     const addRoom = (o) => {
@@ -6378,14 +6815,16 @@
       return o;
     };
     // 平台：一个大圆 + 外侧两个小圆（凹凸的崖壁）+ 伸进深渊的「脚」（保证平台整条边都顶到深渊、被切成崖边）。
-    // 只用圆和 rbox：光栅化走快速路径（多边形每格要逐边算，四个平台就要 7 ms）
-    const plat = (u, v, rad, side, eEdge) => {
+    // 只用圆和 rbox：光栅化走快速路径（多边形每格要逐边算，四个平台就要 7 ms）。
+    // ax：外侧（崖壁）在哪根轴上（'v' 第一段、'u' 第二段），side：外侧的正负，eEdge：深渊边在这根轴上的坐标
+    const plat = (u, v, rad, side, eEdge, ax) => {
       const out = [C(u, v, rad)];
       for (let k = 0; k < 2; k++) {
         const a = (k ? 1 : -1) * rnd(0.35, 1.15), d = rad * rnd(0.42, 0.62), r = rad * rnd(0.48, 0.66);
-        out.push(C(u + Math.sin(a) * d, v + side * Math.cos(a) * d, r));
+        out.push(ax === 'u' ? C(u + side * Math.cos(a) * d, v + Math.sin(a) * d, r) : C(u + Math.sin(a) * d, v + side * Math.cos(a) * d, r));
       }
-      out.push(side > 0 ? RB(u - rad * 0.72, u + rad * 0.72, eEdge - 2, eEdge + 3.5) : RB(u - rad * 0.72, u + rad * 0.72, eEdge - 3.5, eEdge + 2));
+      const f0 = side > 0 ? eEdge - 2 : eEdge - 3.5, f1 = side > 0 ? eEdge + 3.5 : eEdge + 2, t = rad * 0.72;
+      out.push(ax === 'u' ? RB(f0, f1, v - t, v + t) : RB(u - t, u + t, f0, f1));
       return out;
     };
     const S = addRoom({ kind: 'start', order: 0, path: true, prims: [C(0, 0, 8)], core: { x: 0, z: 0, r: 8 } });
@@ -6393,41 +6832,91 @@
     const L2 = addRoom({ kind: 'room', order: 2, path: true, prims: plat(u2, v2, Rl[2], -1, eB01) });
     const L3 = addRoom({ kind: 'room', order: 3, path: true, prims: plat(u3, v3, Rl[3], -1, eB[1]) });
     const L4 = addRoom({ kind: 'room', order: 4, path: true, prims: plat(u4, v4, Rl[4], 1, eA12) });
-    const AREN = addRoom({ kind: 'arena', order: 5, path: true, prims: [C(au, av, AR)], core: { x: X(au, av), z: Z(au, av), r: AR }, tags: ['arena'] });
-    // 洞穴：一个挂在 L1 或 L4 的外侧（A 岸崖壁），一个挂在 P2 的外侧（B 岸崖壁）
+    // L5 在拐角内侧：外侧的两个小圆朝内角的对角线（-u, +v），两只脚分别伸进两段深渊
+    const L5p = [C(u5, v5, Rl[5])];
+    for (let k = 0; k < 2; k++) {
+      const a = Math.PI * 0.75 + (k ? 1 : -1) * rnd(0.35, 0.8), d = Rl[5] * rnd(0.42, 0.62), r = Rl[5] * rnd(0.48, 0.66);
+      L5p.push(C(u5 + Math.cos(a) * d, v5 + Math.sin(a) * d, r));
+    }
+    L5p.push(RB(u5 - Rl[5] * 0.72, u5 + Rl[5] * 0.72, eA[2] - 2, eA[2] + 3.5), RB(cL0 - 3.5, cL0 + 2, v5 - Rl[5] * 0.72, v5 + Rl[5] * 0.72));
+    const L5 = addRoom({ kind: 'room', order: 5, path: true, prims: L5p });
+    const L6 = addRoom({ kind: 'room', order: 6, path: true, prims: plat(u6, v6, Rl[6], 1, cR01, 'u') });
+    const L7 = addRoom({ kind: 'room', order: 7, path: true, prims: plat(u7, v7, Rl[7], 1, cR[1], 'u') });
+    const AREN = addRoom({ kind: 'arena', order: 8, path: true, prims: [C(au, av, AR)], core: { x: X(au, av), z: Z(au, av), r: AR }, tags: ['arena'] });
+    // 洞穴：一个挂在 L1 或 L4 的外侧（第一段 A 岸崖壁），一个挂在 P2 的外侧（第一段 B 岸崖壁），一个挂在 P6 的外侧（第二段 B 岸崖壁）
     const caveOnL4 = R() < 0.5;
     const pA = caveOnL4 ? { u: u4 + rnd(-4, -1.5), v: v4, r: Rl[4] } : { u: u1 + rnd(-2.5, 2.5), v: v1, r: Rl[1] };
-    const tlA = rnd(5, 7), rcA = rnd(5, 6);
+    const tlA = rnd(5, 7), rcA = rnd(5.5, 6.8);
     const tA0 = [pA.u, pA.v + pA.r * 0.55], tA1 = [pA.u, pA.v + pA.r + tlA];
     const cA = [pA.u + rnd(-1.5, 1.5), tA1[1] + rcA - 1.2];
-    const CVA = addRoom({ kind: 'side', order: (caveOnL4 ? 4 : 1) + 1, path: false, prims: [C(cA[0], cA[1], rcA)], core: { x: X(cA[0], cA[1]), z: Z(cA[0], cA[1]), r: rcA } });
+    const oA = caveOnL4 ? 4 : 1;
+    const CVA = addRoom({ kind: 'side', order: oA + 1, lv: lvOf(oA), path: false, prims: [C(cA[0], cA[1], rcA)], core: { x: X(cA[0], cA[1]), z: Z(cA[0], cA[1]), r: rcA } });
+    // 崖路上的洞口放在哪：在 [0.3, 0.7] 里挑洞穴离两头平台最远的位置（平台外侧的小圆会伸到和洞一样深，太靠近一头就碰上），
+    // 怪群鼓包放在洞口的另一边。at(t) → 洞穴圆心（局部坐标），rms：两头的平台
+    const caveT = (at, rc, rms) => {
+      let best = 0.5, bd = -1e9;
+      for (let t = 0.3; t < 0.701; t += 0.05) {
+        const c = at(t);
+        let d = 1e9;
+        for (let k = 0; k < 24; k++) {
+          const a = (k / 24) * TAU, x = X(c[0] + Math.sin(a) * (rc + 1.5), c[1] + Math.cos(a) * (rc + 1.5)), z = Z(c[0] + Math.sin(a) * (rc + 1.5), c[1] + Math.cos(a) * (rc + 1.5));
+          for (const rm2 of rms) for (const p of rm2.prims) d = Math.min(d, -primSd(p, x, z));
+        }
+        if (d > bd + 1e-9) {
+          bd = d;
+          best = t;
+        }
+      }
+      return best;
+    };
+    const bulgeT = (tc) => (tc < 0.5 ? Math.min(0.78, tc + rnd(0.3, 0.36)) : Math.max(0.22, tc - rnd(0.3, 0.36)));
     // P2 上：怪群鼓包和洞穴口一前一后
     const p2a = u2 + Rl[2] * 0.6, p2b = u3 - Rl[3] * 0.6, vP2 = eB[1] - hwP + over;
     const p2u = (t) => u2 + Rl[2] * 0.92 + P2len * t; // P2 露在两个平台之外那一段，按比例取 u
-    const bulgeFirst = R() < 0.5;
-    const tBul = bulgeFirst ? rnd(0.28, 0.36) : rnd(0.64, 0.72), tCav = bulgeFirst ? rnd(0.6, 0.68) : rnd(0.32, 0.4);
+    const tlB = rnd(5, 7), rcB = rnd(5.5, 6.8), jB = rnd(-1.5, 1.5);
+    const tCav = caveT((t) => [p2u(t) + jB, eB[1] - 5.5 - tlB - rcB + 1.2], rcB, [L2, L3]), tBul = bulgeT(tCav);
     const ubu = p2u(tBul), ucv = p2u(tCav);
-    const tlB = rnd(5, 7), rcB = rnd(5, 6);
     const tB0 = [ucv, vP2 - 1], tB1 = [ucv, eB[1] - 5.5 - tlB];
-    const cB = [ucv + rnd(-1.5, 1.5), tB1[1] - rcB + 1.2];
-    const CVB = addRoom({ kind: 'side', order: 3, path: false, prims: [C(cB[0], cB[1], rcB)], core: { x: X(cB[0], cB[1]), z: Z(cB[0], cB[1]), r: rcB } });
+    const cB = [ucv + jB, tB1[1] - rcB + 1.2];
+    const CVB = addRoom({ kind: 'side', order: 3, lv: lvOf(2), path: false, prims: [C(cB[0], cB[1], rcB)], core: { x: X(cB[0], cB[1]), z: Z(cB[0], cB[1]), r: rcB } });
+    // P6 上：同样一个鼓包、一个洞口（往 +u 凿进第二段 B 岸的崖壁）
+    const p6a = v6 + Rl[6] * 0.6, p6b = v7 - Rl[7] * 0.6;
+    const p6v = (t) => v6 + Rl[6] * 0.92 + P6len * t;
+    const tlC = rnd(5, 7), rcC = rnd(5.5, 6.8), jC = rnd(-1.5, 1.5);
+    const tCav6 = caveT((t) => [cR[1] + 5.5 + tlC + rcC - 1.2, p6v(t) + jC], rcC, [L6, L7]), tBul6 = bulgeT(tCav6);
+    const vbu6 = p6v(tBul6), vcv6 = p6v(tCav6);
+    const tC0 = [uP6 + 1, vcv6], tC1 = [cR[1] + 5.5 + tlC, vcv6];
+    const cC = [tC1[0] + rcC - 1.2, vcv6 + jC];
+    const CVC = addRoom({ kind: 'side', order: 7, lv: lvOf(6), path: false, prims: [C(cC[0], cC[1], rcC)], core: { x: X(cC[0], cC[1]), z: Z(cC[0], cC[1]), r: rcC } });
     // 崖路和桥（通道房间：axis + ends，寻路沿中线走）
     const P0a = [3, eA[0] + hwP - over], P0b = [u1 - Rl[1] * 0.5, eA[0] + hwP - over];
     const P0 = addRoom({ kind: 'link', order: 0, path: true, prims: [CAP(P0a[0], P0a[1], P0b[0], P0b[1], hwP)], axis: [P0a, P0b].map(P2W), ends: [S.id, L1.id] });
     const B1a = [ub1, eA01 + 2], B1b = [ub1, eB01 - 2];
     const B1 = addRoom({ kind: 'link', order: 1, path: true, prims: [CAP(B1a[0], B1a[1], B1b[0], B1b[1], hwB)], axis: [B1a, B1b].map(P2W), ends: [L1.id, L2.id], tags: ['bridge'] });
-    const hb = 4.7, bw = 3.6; // 鼓包：往崖壁一侧多出来的宽度（路宽 5.5 → 约 8）、半长
+    const hb = 5.2, bw = 3.9; // 鼓包：往崖壁一侧多出来的宽度（路宽 5.5 → 约 8.5）、半长
     const P2prims = [CAP(p2a, vP2, p2b, vP2, hwP), RB(ubu - bw, ubu + bw, vP2 - hb, vP2)];
     P2prims[1].round = 1.4;
     const P2 = addRoom({ kind: 'link', order: 2, path: true, prims: P2prims, axis: [[p2a, vP2], [p2b, vP2]].map(P2W), ends: [L2.id, L3.id] });
     const B2a = [ub2, eB12 - 2], B2b = [ub2, eA12 + 2];
     const B2 = addRoom({ kind: 'link', order: 3, path: true, prims: [CAP(B2a[0], B2a[1], B2b[0], B2b[1], hwB)], axis: [B2a, B2b].map(P2W), ends: [L3.id, L4.id], tags: ['bridge'] });
-    const B3a = [au - Ro - 3, vB3], B3b = [au - AR + 1.5, vB3];
-    const B3 = addRoom({ kind: 'link', order: 4, path: true, prims: [CAP(B3a[0], B3a[1], B3b[0], B3b[1], hwB)], axis: [B3a, B3b].map(P2W), ends: [L4.id, AREN.id], tags: ['bridge'] });
-    const TA = addRoom({ kind: 'link', order: CVA.order, path: false, prims: [CAP(tA0[0], tA0[1], tA1[0], tA1[1], 2.25)], axis: [tA0, tA1].map(P2W), ends: [caveOnL4 ? L4.id : L1.id, CVA.id] });
-    const TB = addRoom({ kind: 'link', order: 3, path: false, prims: [CAP(tB0[0], tB0[1], tB1[0], tB1[1], 2.25)], axis: [tB0, tB1].map(P2W), ends: [P2.id, CVB.id] });
+    // P4：第一段 A 岸、拐角前的崖路，中间一个往崖壁鼓出去的怪群鼓包
+    const p4a = u4 + Rl[4] * 0.6, p4b = u5 - Rl[5] * 0.6, vP4 = eA[2] + hwP - over;
+    const ubu4 = u4 + Rl[4] * 0.92 + P4len * rnd(0.38, 0.62);
+    const P4prims = [CAP(p4a, vP4, p4b, vP4, hwP), RB(ubu4 - bw, ubu4 + bw, vP4, vP4 + hb)];
+    P4prims[1].round = 1.4;
+    const P4 = addRoom({ kind: 'link', order: 4, path: true, prims: P4prims, axis: [[p4a, vP4], [p4b, vP4]].map(P2W), ends: [L4.id, L5.id] });
+    const B3a = [cL0 - 2, vb3], B3b = [cR01 + 2, vb3];
+    const B3 = addRoom({ kind: 'link', order: 5, path: true, prims: [CAP(B3a[0], B3a[1], B3b[0], B3b[1], hwB)], axis: [B3a, B3b].map(P2W), ends: [L5.id, L6.id], tags: ['bridge'] });
+    const P6prims = [CAP(uP6, p6a, uP6, p6b, hwP), RB(uP6, uP6 + hb, vbu6 - bw, vbu6 + bw)];
+    P6prims[1].round = 1.4;
+    const P6 = addRoom({ kind: 'link', order: 6, path: true, prims: P6prims, axis: [[uP6, p6a], [uP6, p6b]].map(P2W), ends: [L6.id, L7.id] });
+    const B4a = [au, av - Ro - 3], B4b = [au, av - AR + 1.5];
+    const B4 = addRoom({ kind: 'link', order: 7, path: true, prims: [CAP(B4a[0], B4a[1], B4b[0], B4b[1], hwB)], axis: [B4a, B4b].map(P2W), ends: [L7.id, AREN.id], tags: ['bridge'] });
+    const TA = addRoom({ kind: 'link', order: CVA.order, lv: CVA.lv, path: false, prims: [CAP(tA0[0], tA0[1], tA1[0], tA1[1], 2.25)], axis: [tA0, tA1].map(P2W), ends: [caveOnL4 ? L4.id : L1.id, CVA.id] });
+    const TB = addRoom({ kind: 'link', order: 3, lv: CVB.lv, path: false, prims: [CAP(tB0[0], tB0[1], tB1[0], tB1[1], 2.25)], axis: [tB0, tB1].map(P2W), ends: [P2.id, CVB.id] });
+    const TC = addRoom({ kind: 'link', order: 7, lv: CVC.lv, path: false, prims: [CAP(tC0[0], tC0[1], tC1[0], tC1[1], 2.25)], axis: [tC0, tC1].map(P2W), ends: [P6.id, CVC.id] });
 
-    // ---- 挖空：深渊三段 + 场地的虚空环 + 桥两侧 ----
+    // ---- 挖空：深渊五截（第一段三截、第二段两截）+ 场地的虚空环 + 桥两侧 ----
     const V = MAT.VOID, voidGroups = [];
     // 虚空挖空：同时记进「虚空房间」的分组（见下面 voidGroups 的说明）
     const vcut = (prim, grp) => {
@@ -6438,13 +6927,15 @@
     };
     vcut(RB(-14, ub1 - hwB, eB[0], eA[0]));
     vcut(RB(ub1 + hwB, ub2 - hwB, eB[1], eA[1]));
-    vcut(RB(ub2 + hwB, au - AR - 0.15, eB[2], eA[2]));
+    vcut(RB(ub2 + hwB, cR[0], eB[2], eA[2])); // 一直挖到拐角外侧，和第二段的第一截拼成直角
+    vcut(RB(cL[0], cR[0], eB[2], vb3 - hwB));
+    vcut(RB(cL[1], cR[1], vb3 + hwB, av - AR - 0.15));
     // 场地四周的虚空环：正八边形的七条边各一块 rbox（内边贴着场地圆周外 0.05，角上的缝最宽约 1.2 m），
     // 角上的缝用小圆补到 ≤ 0.35 m（这条细缝在材质网格里也算虚空，子弹照样飞过）；朝桥的那条边不要，
     // 换成桥两侧各一块贴着桥边的 rbox，靠近场地边的楔形缝再用几个贴着场地圆周的小圆补上。
     // 全是 rbox 和圆：arc 每格要 atan2，一圈要 10 ms；一圈圆因为每个都要按 8 m 的影响范围盖章，也要 7 ms
-    const ring = (ang, r, k) => [au - Math.cos(ang) * r, av + Math.sin(ang) * r * k]; // ang 从桥的方向（-u）量起
-    const ca = X(au, av), cz = Z(au, av), bwx = X(-1, 0) - X(0, 0), bwz = Z(-1, 0) - Z(0, 0), ga = Math.atan2(bwx, bwz); // 世界坐标里朝桥的角度
+    const ring = (ang, r, k) => [au + Math.sin(ang) * r * k, av - Math.cos(ang) * r]; // ang 从桥的方向（-v）量起
+    const ca = X(au, av), cz = Z(au, av), bwx = X(0, -1) - X(0, 0), bwz = Z(0, -1) - Z(0, 0), ga = Math.atan2(bwx, bwz); // 世界坐标里朝桥的角度
     const Wr = 10, hl = (AR + 0.05 + Wr) * Math.tan(Math.PI / 8) + 0.3; // 外边也要和相邻的边接上，不留岩石尖角
     for (let k = 1; k < 8; k++) {
       const a = ga + (k * Math.PI) / 4, d = AR + 0.05 + Wr / 2;
@@ -6455,34 +6946,41 @@
       }
     }
     for (const s of [1, -1]) {
-      vcut(s > 0 ? RB(au - Ro - 1, au - AR - 0.1, av + hwB, av + hwB + Ro * 0.5) : RB(au - Ro - 1, au - AR - 0.1, av - hwB - Ro * 0.5, av - hwB));
+      vcut(s > 0 ? RB(au + hwB, au + hwB + Ro * 0.5, av - Ro - 1, av - AR - 0.1) : RB(au - hwB - Ro * 0.5, au - hwB, av - Ro - 1, av - AR - 0.1));
       const grp = voidGroups[voidGroups.length - 1];
       // 贴着场地圆周的小圆（φ 是切点的角度，半径 r 让它离桥边 ≥ 0.15）
       for (const [phi, r] of [[0.28, 2], [0.42, 3], [0.55, 3.4]]) {
         const p = ring(phi, AR + r + 0.02, s);
-        if (Math.abs(p[1] - av) - r >= hwB + 0.15) vcut(C(p[0], p[1], r), grp);
+        if (Math.abs(p[0] - au) - r >= hwB + 0.15) vcut(C(p[0], p[1], r), grp);
       }
     }
     // 「虚空房间」voidGroups：和上面这些挖空同样的图元，排在所有房间最后。区域外面是岩壁，挡子弹的 sd（sdShot）只是不算虚空挖空的房间 sd，
     // 深渊中间如果不在任何房间里，子弹照样被挡；有了它们，深渊和场地四周的虚空里 sdShot > 0，子弹 / 视线飞得过去，可走的 sd 还是被挖空切掉。
     // 分成十来个小房间（每段深渊、八边形的每条边各一个）：房间号网格按每个房间的外接框逐格算它的全部图元，合成一个大房间要 20 ms
-    // 崖边的小缺口：只咬路宽的一小截（崖路最窄处 ≥ 4.3 m），离桥 / 门口 / 起点远一点
-    const bridgesU = [ub1, ub2];
-    const bite = (u, e, side, deep) => {
-      const r = rnd(2, 3.2);
-      return { prim: C(u, e + side * (deep - r), r), mat: V };
+    // 崖边的小缺口：只咬路宽的一小截（崖路最窄处 ≥ 4.3 m），离桥 / 门口 / 起点远一点。
+    // 每截深渊两岸各撒一串：[顺着哪根轴, 起, 止, 岸边坐标, 陆地在哪一侧, 这一串是不是崖路]
+    const bite = (a, e, side, deep, ax) => {
+      const r = rnd(2, 3.2), c = e + side * (deep - r);
+      return { prim: ax === 'u' ? C(a, c, r) : C(c, a, r), mat: V };
     };
-    for (let seg = 0; seg < 3; seg++) {
-      const u0 = seg === 0 ? -10 : bridgesU[seg - 1] + hwB + 4, uEnd = seg === 0 ? ub1 - hwB - 4 : seg === 1 ? ub2 - hwB - 4 : au - Ro - 4;
-      for (const side of [1, -1]) {
-        let u = u0 + rnd(2, 6);
-        while (u < uEnd) {
-          const e = side > 0 ? eA[seg] : eB[seg];
-          const onPath = (seg === 0 && side > 0 && u > 4 && u < P0b[0]) || (seg === 1 && side < 0 && u > p2a && u < p2b);
-          const nearStart = Math.hypot(u, e) < 14;
-          if (!nearStart && !(seg === 2 && side > 0)) cuts.push(bite(u, e, side, onPath ? rnd(0.5, 1.1) : rnd(0.8, 1.9)));
-          u += rnd(10, 16);
-        }
+    const biteRuns = [
+      ['u', -10, ub1 - hwB - 4, eA[0], 1, [4, P0b[0]]],
+      ['u', -10, ub1 - hwB - 4, eB[0], -1, null],
+      ['u', ub1 + hwB + 4, ub2 - hwB - 4, eA[1], 1, null],
+      ['u', ub1 + hwB + 4, ub2 - hwB - 4, eB[1], -1, [p2a, p2b]],
+      ['u', ub2 + hwB + 4, cL[0] - 4, eA[2], 1, [p4a, p4b]],
+      ['u', ub2 + hwB + 4, cR[0] - 2, eB[2], -1, null],
+      ['v', eB[2] + 2, vb3 - hwB - 4, cR[0], 1, null],
+      ['v', vb3 + hwB + 4, av - Ro - 4, cL[1], -1, null],
+      ['v', vb3 + hwB + 4, av - Ro - 4, cR[1], 1, [p6a, p6b]],
+    ];
+    for (const [ax, a0, aEnd, e, side, path] of biteRuns) {
+      let a = a0 + rnd(2, 6);
+      while (a < aEnd) {
+        const onPath = path && a > path[0] && a < path[1];
+        const nearStart = ax === 'u' && Math.hypot(a, e) < 14;
+        if (!nearStart) cuts.push(bite(a, e, side, onPath ? rnd(0.5, 1.1) : rnd(0.8, 1.9), ax));
+        a += rnd(10, 16);
       }
     }
 
@@ -6521,8 +7019,9 @@
       for (const p of rm2.prims) d = Math.max(d, primSd(p, x, z));
       return d;
     };
+    const PL = [L1, L2, L3, L4, L5, L6, L7];
     // 平台的 core：房间里离边（含挖空）最远的点
-    for (const L of [L1, L2, L3, L4]) {
+    for (const L of PL) {
       const bx = L.prims.map(primBox).reduce((a, b) => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])]);
       const cutClear = clearOf(near(bx, cuts, (c) => c.prim));
       L.clear = cutClear; // 怪群面积也用（生成完删掉，不进 spec）
@@ -6543,9 +7042,9 @@
       L.core = { x: best.x, z: best.z, r: Math.max(0.5, best.r - 0.05) };
     }
     const mid = (A) => ({ x: (A[0][0] + A[A.length - 1][0]) / 2, z: (A[0][1] + A[A.length - 1][1]) / 2 });
-    for (const L of [P0, B1, P2, B2, B3, TA, TB]) {
+    for (const L of [P0, B1, P2, B2, P4, B3, P6, B4, TA, TB, TC]) {
       const m = mid(L.axis);
-      L.core = { x: m.x, z: m.z, r: L === P2 || L === P0 ? hwP - over : hwB };
+      L.core = { x: m.x, z: m.z, r: L === P0 || L === P2 || L === P4 || L === P6 ? hwP - over : hwB };
     }
     // 门：从 a（在 rA 里）沿直线走到 b，rA 的 sd 过 0 的地方
     const edgeOn = (rmA, a, b) => {
@@ -6568,36 +7067,54 @@
     link(P2, L3, edgeOn(L3, [u3, vP2], [u3 - 25, vP2]), 'neck');
     link(L3, B2, { x: X(ub2, eB12), z: Z(ub2, eB12) }, 'bridge');
     link(B2, L4, { x: X(ub2, eA12), z: Z(ub2, eA12) }, 'bridge');
-    link(L4, B3, { x: X(au - Ro, av), z: Z(au - Ro, av) }, 'bridge');
-    link(B3, AREN, { x: X(au - AR, av), z: Z(au - AR, av) }, 'bridge');
+    link(L4, P4, edgeOn(L4, [u4, vP4], [u4 + 25, vP4]), 'neck');
+    link(P4, L5, edgeOn(L5, [u5, vP4], [u5 - 25, vP4]), 'neck');
+    link(L5, B3, { x: X(cL0, vb3), z: Z(cL0, vb3) }, 'bridge');
+    link(B3, L6, { x: X(cR01, vb3), z: Z(cR01, vb3) }, 'bridge');
+    link(L6, P6, edgeOn(L6, [uP6, v6], [uP6, v6 + 25]), 'neck');
+    link(P6, L7, edgeOn(L7, [uP6, v7], [uP6, v7 - 25]), 'neck');
+    link(L7, B4, { x: X(au, av - Ro), z: Z(au, av - Ro) }, 'bridge');
+    link(B4, AREN, { x: X(au, av - AR), z: Z(au, av - AR) }, 'bridge');
     link(caveOnL4 ? L4 : L1, TA, edgeOn(caveOnL4 ? L4 : L1, [pA.u, pA.v], tA1), 'door');
     link(TA, CVA, edgeOn(CVA, cA, tA0), 'door');
     link(P2, TB, { x: X(ucv, eB[1] - 5.5), z: Z(ucv, eB[1] - 5.5) }, 'door');
     link(TB, CVB, edgeOn(CVB, cB, tB0), 'door');
+    link(P6, TC, { x: X(cR[1] + 5.5, vcv6), z: Z(cR[1] + 5.5, vcv6) }, 'door');
+    link(TC, CVC, edgeOn(CVC, cC, tC0), 'door');
     const doors = links.map((L) => L.door);
 
-    // ---- 余烬口：P2 上两个（避开鼓包和洞口），P0 够长时再放一个；偏向崖壁一侧 1 m，靠深渊一侧留出过路的宽度 ----
+    // ---- 余烬口：P2 上两个（避开鼓包和洞口），P4、P6 上各一个，P0 够长时再放一个；偏向崖壁一侧 1 m，靠深渊一侧留出过路的宽度 ----
     const vents = [];
     const ventAt = (u, v) => {
       const x = X(u, v), z = Z(u, v);
       if (Math.hypot(x, z) < 16 || doors.some((d) => Math.hypot(d.x - x, d.z - z) < 5) || sdAll(x, z) < 1.4) return false;
+      if (vents.some((q) => Math.hypot(q.x - x, q.z - z) < 6)) return false;
       vents.push({ kind: 'vent', x, z, r: ABYSS.vent.r, ph: rnd(0, ABYSS.vent.period) });
       return true;
     };
-    const vv = vP2 - 1;
-    // P2 上随机找两处：离洞口、两头的门够远，两个余烬口之间至少 6 m（可以挨着怪群鼓包：怪站在口边上，正好能引过去烧）
-    for (let k = 0; k < 40 && vents.length < 2; k++) {
-      const u = rnd(p2a, p2b);
-      if (Math.abs(u - ubu) < 1.5 || Math.abs(u - ucv) < 4.6 || vents.some((v) => Math.hypot(v.x - X(u, vv), v.z - Z(u, vv)) < 6)) continue;
-      ventAt(u, vv);
+    // 每条崖路随机找几处：离洞口、两头的门够远，两个余烬口之间至少 6 m（可以挨着怪群鼓包：怪站在口边上，正好能引过去烧）
+    // [起, 止, 崖路中线往崖壁偏 1 m 的点, 鼓包, 洞口, 要几个]
+    const ventRuns = [
+      [p2a, p2b, (t) => [t, vP2 - 1], ubu, ucv, 2],
+      [p4a, p4b, (t) => [t, vP4 + 1], ubu4, null, 1],
+      [p6a, p6b, (t) => [uP6 + 1, t], vbu6, vcv6, 1],
+    ];
+    for (const [a0, a1, at, bul, cav, want] of ventRuns) {
+      const n0 = vents.length;
+      for (let k = 0; k < 40 && vents.length - n0 < want; k++) {
+        const t = rnd(a0, a1);
+        if (Math.abs(t - bul) < 1.5 || (cav !== null && Math.abs(t - cav) < 4.6)) continue;
+        const p = at(t);
+        ventAt(p[0], p[1]);
+      }
     }
     if (P0len >= 12.5) ventAt(3 + P0len, eA[0] + hwP - over + 1);
     feats.push(...vents);
 
-    // ---- 怪群：平台按面积 2–3 群，P2 的鼓包一小群，精英洞一群（精英）----
+    // ---- 怪群：平台按面积 2–3 群，P2 / P4 / P6 的鼓包各一小群，精英洞一群（精英）----
     const okPack = (x, z, list, minSd) =>
       sdAll(x, z) >= minSd && Math.hypot(x, z) >= 13 && doors.every((d) => Math.hypot(d.x - x, d.z - z) >= 5.5) &&
-      vents.every((v) => Math.hypot(v.x - x, v.z - z) >= 4.5) && list.every((p) => Math.hypot(p.x - x, p.z - z) >= 6);
+      vents.every((v) => Math.hypot(v.x - x, v.z - z) >= 4.5) && list.every((p) => Math.hypot(p.x - x, p.z - z) >= 8); // zones-polish：群间距 6 → 8（怪群放大以后平台上挤得太密）
     const platPacks = (L) => {
       const bx = L.prims.map(primBox).reduce((a, b) => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])]);
       let area = 0;
@@ -6610,23 +7127,26 @@
       return { got, area };
     };
     const elitePlat = [];
-    for (const L of [L1, L2, L3, L4]) {
+    for (const L of PL) {
       const { got } = platPacks(L);
       const el = R() < 0.45;
       got.forEach((p, i) => packs.push({ room: L.id, x: p.x, z: p.z, n: [4, 6], r: 2.8, elite: el && i === 0, ambush: false }));
       if (el && got.length) elitePlat.push(packs.length - got.length);
     }
-    // 精英上限 4（4 个平台都掷中时，最后一个让给精英洞）
-    while (elitePlat.length > 3) packs[elitePlat.pop()].elite = false;
-    for (const du of [0, -1.6, 1.6, -2.6, 2.6]) {
-      const x = X(ubu + du, vP2 - 1.2), z = Z(ubu + du, vP2 - 1.2);
-      if (okPack(x, z, packs, 2.6)) {
-        packs.push({ room: P2.id, x, z, n: [2, 3], r: 2.2, elite: false, ambush: false, noBrute: true }); // 崖路宽 5–6 m，不放蛮兵（zones-integrate）
-        break;
+    // 关键路径上的精英最多 5 个（再加精英洞，全区 ≤ 6）：多掷中的从后往前取消
+    while (elitePlat.length > 5) packs[elitePlat.pop()].elite = false;
+    // 鼓包上的小群：沿崖路前后挪一点找个合规的位置
+    for (const [P, at] of [[P2, (d) => [ubu + d, vP2 - 1.2]], [P4, (d) => [ubu4 + d, vP4 + 1.2]], [P6, (d) => [uP6 + 1.2, vbu6 + d]]]) {
+      for (const du of [0, -1.6, 1.6, -2.6, 2.6]) {
+        const p = at(du), x = X(p[0], p[1]), z = Z(p[0], p[1]);
+        if (okPack(x, z, packs, 2.6)) {
+          packs.push({ room: P.id, x, z, n: [2, 3], r: 2.2, elite: false, ambush: false, noBrute: true }); // 崖路宽 5–6 m，不放蛮兵（zones-integrate）
+          break;
+        }
       }
     }
-    // 旁支：哪个洞放宝箱、哪个放精英群
-    const eliteA = R() < 0.5;
+    // 旁支：三个洞里随机一个放精英群，其余放宝箱
+    const eliteCave = Math.floor(R() * 3);
     const caveStuff = (cv, c, t0, elite) => {
       // 洞底：从洞口往里的方向
       const du = c[0] - t0[0], dv = c[1] - t0[1], dl = Math.hypot(du, dv) || 1, nu = du / dl, nvv = dv / dl;
@@ -6638,56 +7158,80 @@
       } else cv.tags.push('chest');
       chests.push({ x: X(back[0], back[1]), z: Z(back[0], back[1]), room: cv.id, ang });
     };
-    caveStuff(CVA, cA, tA0, eliteA);
-    caveStuff(CVB, cB, tB0, !eliteA);
-    // 全区怪数（按每群平均）收进 51–65（实际刷出来平均少 2 只左右，落在 45–65、和 legacy 的平均 61 只差不多）：多了就把平台上的第三群改小，少了就把平台的群改大
+    caveStuff(CVA, cA, tA0, eliteCave === 0);
+    caveStuff(CVB, cB, tB0, eliteCave === 1);
+    caveStuff(CVC, cC, tC0, eliteCave === 2);
+    // 全区怪数（按每群平均）收进 82–104（改前 51–65 的 1.6 倍，跟着怪群数一起放大；每群几只归 zones-balance）：多了就把平台上的第三群改小，少了就把平台的群改大
     const avgN = () => packs.reduce((s2, p) => s2 + (p.n[0] + p.n[1]) / 2, 0);
     for (const p of packs.filter((q) => q.n[1] === 6 && !q.elite).reverse()) {
-      if (avgN() <= 65) break;
+      if (avgN() <= 104) break;
       p.n = [3, 4];
     }
     for (const p of packs.filter((q) => q.n[1] === 6)) {
-      if (avgN() >= 51) break;
+      if (avgN() >= 82) break;
       p.n = [5, 6];
     }
 
     // ---- 地标 / 外观锚点 ----
-    for (const B of [B1, B2, B3]) feats.push({ kind: 'bridge', pts: B.axis.map((p) => p.slice()), w: hwB * 2, room: B.id });
+    for (const B of [B1, B2, B3, B4]) feats.push({ kind: 'bridge', pts: B.axis.map((p) => p.slice()), w: hwB * 2, room: B.id });
     feats.push({ kind: 'altar', x: X(au, av), z: Z(au, av), r: AR });
-    // 深渊底的熔岩缝：沿深渊中线（外观画在深处，只是点缀）
-    const seam = [];
+    // 深渊底的熔岩缝：沿深渊中线，第一段顺着 u 到拐角，再顺着第二段到场地（外观画在深处，只是点缀）
+    const seam = [], ucn = (cL[0] + cR[0]) / 2, vcn = (eA[2] + eB[2]) / 2;
     for (let k = 0; k <= 14; k++) {
-      const u = -12 + ((au - AR - 1 + 12) * k) / 14, seg = u < ub1 ? 0 : u < ub2 ? 1 : 2;
+      const u = -12 + ((ucn + 12) * k) / 14, seg = u < ub1 ? 0 : u < ub2 ? 1 : 2;
       seam.push(P2W([u, (eA[seg] + eB[seg]) / 2 + rnd(-1.5, 1.5)]));
     }
+    for (let k = 1; k <= 8; k++) {
+      const v = vcn + ((av - AR - 1 - vcn) * k) / 8, seg = v < vb3 ? 0 : 1;
+      seam.push(P2W([(cL[seg] + cR[seg]) / 2 + rnd(-1.5, 1.5), v]));
+    }
     feats.push({ kind: 'seam', pts: seam });
-    for (const L of [L1, L2, L3, L4]) feats.push({ kind: 'plat', room: L.id, x: L.core.x, z: L.core.z, r: L.core.r, order: L.order });
+    for (const L of PL) feats.push({ kind: 'plat', room: L.id, x: L.core.x, z: L.core.z, r: L.core.r, order: L.order });
 
-    const dAr = { x: X(1, 0) - X(0, 0), z: Z(1, 0) - Z(0, 0) }; // 门 → 场地中心
+    const dAr = { x: X(0, 1) - X(0, 0), z: Z(0, 1) - Z(0, 0) }; // 门 → 场地中心
+    // 怪物等级：关键路径房间按自己的序号折算，旁支 / 隧道按挂着的那个房间（上面建的时候已经给了）
+    for (const rm2 of rooms) if (rm2.lv === undefined) rm2.lv = lvOf(rm2.order);
     const spec = {
       rooms, links, cuts, haz, feats, packs, chests,
-      path: [S.id, P0.id, L1.id, B1.id, L2.id, P2.id, L3.id, B2.id, L4.id, B3.id, AREN.id],
+      path: [S.id, P0.id, L1.id, B1.id, L2.id, P2.id, L3.id, B2.id, L4.id, P4.id, L5.id, B3.id, L6.id, P6.id, L7.id, B4.id, AREN.id],
       start: { x: 0, z: 0, exit: { x: links[0].door.x, z: links[0].door.z, ang: Math.atan2(X(1, 0) - X(0, 0), Z(1, 0) - Z(0, 0)) } },
       arena: {
         room: AREN.id, x: X(au, av), z: Z(au, av), r: AR, round: true,
-        door: { x: X(au - AR - 2, av), z: Z(au - AR - 2, av) }, dir: dAr,
+        door: { x: X(au, av - AR - 2), z: Z(au, av - AR - 2) }, dir: dAr,
       },
-      abyss: { rot, mir, eA, eB, ub: [ub1, ub2], au, av, Ro }, // 外观用（局部坐标的几个关键数）
+      abyss: { rot, mir, eA, eB, ub: [ub1, ub2], cL, cR, vb3, au, av, Ro }, // 外观用（局部坐标的几个关键数）
     };
-    for (const L of [L1, L2, L3, L4]) delete L.clear;
+    for (const L of PL) delete L.clear;
     spec.bounds = specBounds(spec);
     // 自查
-    const platN = [L1, L2, L3, L4].map((L) => packs.filter((p) => p.room === L.id).length);
+    const platN = PL.map((L) => packs.filter((p) => p.room === L.id).length);
     const mobs = packs.reduce((s2, p) => s2 + (p.n[0] + p.n[1]) / 2, 0);
     let caveHit = false;
-    for (const [cv, own] of [[CVA, [TA.id, caveOnL4 ? L4.id : L1.id]], [CVB, [TB.id, P2.id]]]) {
+    for (const [cv, own] of [[CVA, [TA.id, caveOnL4 ? L4.id : L1.id]], [CVB, [TB.id, P2.id]], [CVC, [TC.id, P6.id]]]) {
       for (let k = 0; k < 24 && !caveHit; k++) {
         const a = (k / 24) * TAU, x = cv.core.x + Math.sin(a) * (cv.core.r + 1.5), z = cv.core.z + Math.cos(a) * (cv.core.r + 1.5);
         for (const o of rooms) if (o !== cv && o.kind !== 'void' && own.indexOf(o.id) < 0 && roomSd(o, x, z) > -1) caveHit = o.kind + o.id;
       }
     }
-    (abyssGen.whys || (abyssGen.whys = [])).push({ vents: vents.length, l1: +L1.core.r.toFixed(2), core: +Math.min(L2.core.r, L3.core.r, L4.core.r).toFixed(2), platN, mobs, caveHit });
-    const ok = vents.length >= 2 && L1.core.r >= 7.2 && Math.min(L2.core.r, L3.core.r, L4.core.r) >= 6 && Math.min.apply(null, platN) >= 2 && mobs >= 51 && mobs <= 65 && !caveHit;
+    // 不相邻的关键路径平台（序号差 ≥ 2）：图元之间边到边 ≥ 14.2 m。校验第 4 条在 0.5 m 的格子上量，量出来只会更大；
+    // 这里先按图元精确算一遍，过不了就重来（同一岸上的 L1 和 L4 隔着 P2 和两座桥，平台抖动大的时候会贴到 14 m 以内）
+    const primGap = (p, q) => {
+      if (p.t === 'circle') return -primSd(q, p.x, p.z) - p.r;
+      if (q.t === 'circle') return -primSd(p, q.x, q.z) - q.r;
+      let d = 1e9;
+      for (const [a, b] of [[p, q], [q, p]]) for (const sx of [-1, 1]) for (const sz of [-1, 1]) d = Math.min(d, -primSd(b, a.x + sx * a.hx, a.z + sz * a.hz));
+      return d;
+    };
+    let gapBad = false;
+    const PG = [S, ...PL, AREN];
+    for (let a = 0; a < PG.length && !gapBad; a++) {
+      for (let b = a + 2; b < PG.length && !gapBad; b++) {
+        for (const p of PG[a].prims) for (const q of PG[b].prims) if (!gapBad && primGap(p, q) < 14.2) gapBad = PG[a].id + '-' + PG[b].id;
+      }
+    }
+    const coreMin = Math.min.apply(null, PL.slice(1).map((L) => L.core.r));
+    (abyssGen.whys || (abyssGen.whys = [])).push({ vents: vents.length, l1: +L1.core.r.toFixed(2), core: +coreMin.toFixed(2), platN, mobs, caveHit, gap: gapBad });
+    const ok = vents.length >= 4 && L1.core.r >= 7.2 && coreMin >= 6 && Math.min.apply(null, platN) >= 2 && mobs >= 82 && mobs <= 104 && !caveHit && !gapBad;
     // zones-integrate：核心的 sdShot 已经把透弹挖空的图元算成子弹能到的地方，「虚空房间」不用再进布局说明；
     // 上面的摆放和自查照旧带着它们算（结果不变），输出前去掉（它们排在最后，没有别的东西引用它们的 id）
     while (rooms.length && rooms[rooms.length - 1].kind === 'void') rooms.pop();
@@ -6704,13 +7248,14 @@
     abyssGen.tries = k + 1; // 调试：上一次生成用了几次
     return r.spec;
   }
-  abyssGen.check = { areaMin: 2400, areaMax: 2800 };
+  abyssGen.check = { areaMin: 3840, areaMax: 4600 }; // 改前 2400–2800：下限按 1.6 倍，上限按 200 个种子的实测（4070–4440）留余量
   // ---- 外观：卡通配色（owner 11-18：烬渊太红太饱和 → 炭色 / 深紫褐的低饱和底子，红橙只给熔岩、余烬口、火星和首领的光）----
   const ABYSS_PAL = {
     rock: 0x48424f, // 岩壁 / 岩石固有色（替换区域配色里偏红的 0x3f2a2c，按比例改实例色）
     stone: 0x4a4450, stoneLo: 0x241e2c, // 石桥：受光的桥面、桥身底部（冷紫）
     basalt: 0x504a58, basaltLo: 0x3c3448, // 崖壁上的玄武岩柱（底部别压到近黑，岩壁那一档 15–25%）
     cliffTop: 0x3c3342, cliffBot: 0x0c0810, // 虚空边往下挂的崖面（不受光的渐变）
+    lip: 0x5a5462, lipEdge: 0x6a6272, // zones-polish：崖沿一道浅色的石唇（路面往里 0.45 m 到崖口），崖口最外那一线再亮一点，一眼看出哪里是边
     deep: 0x0c0810, deepRim: 0x150f1b, // 深渊底：中间、靠崖壁一侧
     core: 0xffd08a, mid: 0xff7a2a, edge: 0xc8341c, // 余烬：芯 / 中 / 边
     crystal: 0xff6a2a, // 岩壁上的晶簇改成闷烧的余烬橙（原来是区域强调色的正红）
@@ -6792,7 +7337,7 @@
     const vert = (x, y, z, dark) => {
       pos.push(x, y, z);
       uv.push(x / TILE, -z / TILE);
-      const v = GROUND_VK * (dark ? 0.25 : 1);
+      const v = GROUND_VK * (dark ? 0.1 : 1); // zones-polish：沉进深渊的岩顶 0.25 → 0.1（原来受光后是一片暗红紫的斜面，看不出往下）
       col.push(v, v, v);
       aw.push(0, 1);
       return pos.length / 3 - 1;
@@ -6845,6 +7390,15 @@
     let moved = 0;
     for (let i = 0; i < P.count; i++) {
       const x = P.getX(i), z = P.getZ(i), d = sd(x, z);
+      // zones-polish：路面离崖口 2.6 m 以内（外面是虚空的那一侧）压暗到 0.7 倍，路和深渊分得开
+      if (d >= 0 && d < 2.6 && Cc) {
+        const gx = sd(x + e, z) - sd(x - e, z), gz = sd(x, z + e) - sd(x, z - e), l = Math.hypot(gx, gz);
+        if (l > 1e-5 && W.matAt(x - (gx / l) * (d + 0.6), z - (gz / l) * (d + 0.6)) === MAT.VOID) {
+          const k = 0.7 + 0.3 * smooth01(d / 2.6);
+          Cc.setXYZ(i, Cc.getX(i) * k, Cc.getY(i) * k, Cc.getZ(i) * k);
+        }
+        continue;
+      }
       if (d >= 0 || W.matAt(x, z) !== MAT.VOID) continue;
       const gx = sd(x + e, z) - sd(x - e, z), gz = sd(x, z + e) - sd(x, z - e), l = Math.hypot(gx, gz);
       if (l < 1e-5) continue;
@@ -6865,8 +7419,11 @@
   // 崖面：沿外侧是虚空的边往下挂一圈岩面（受光的卡通材质，竖向渐暗，几层横向的凹凸像岩层），桥的两侧不挂（桥是薄的）。
   // 本区自己的工具：共用的 cliffBand 是不受光的一整片，而且会在桥下挂出一面黑墙
   function abyssCliff(zone, ctx) {
-    const rows = [[0, 0], [-0.9, 0.35], [-2.6, -0.2], [-ABYSS_DEEP, 0.5]]; // [y, 往外凸多少]
-    const pos = [], col = [], idx = [], top = new T.Color(ABYSS_PAL.cliffTop), bot = new T.Color(ABYSS_PAL.cliffBot);
+    // [y, 往外凸多少, 颜色]：zones-polish 在崖口上面加了一道石唇（前两行，平铺在路面上 0.03 m，往里 0.45 m），
+    // 崖面从石唇下沿起往下更快地压暗（原来是 [0,0] [-0.9] [-2.6] [-深] 四行、按 t^0.7 渐暗，一大片暗红紫的斜面看不出深）
+    const top = new T.Color(ABYSS_PAL.cliffTop), bot = new T.Color(ABYSS_PAL.cliffBot), lipC = new T.Color(ABYSS_PAL.lip), lipE = new T.Color(ABYSS_PAL.lipEdge);
+    const rows = [[0.03, -0.45, lipC], [0.03, 0.04, lipE], [-0.32, 0.16, top], [-0.9, 0.35, top.clone().lerp(bot, 0.45)], [-2.6, -0.2, top.clone().lerp(bot, 0.85)], [-ABYSS_DEEP, 0.5, bot]];
+    const pos = [], col = [], idx = [];
     const isBridge = (x, z) => {
       const r = W.roomAt(x, z);
       return r >= 0 && zone.rooms[r].tags && zone.rooms[r].tags.indexOf('bridge') >= 0;
@@ -6880,10 +7437,10 @@
           continue;
         }
         const base = pos.length / 3, jit = vnoise(x * 0.7 + 3.1, z * 0.7 - 1.7) - 0.5;
-        rows.forEach(([y, o], k) => {
-          const w = k ? o + jit * 0.7 * k : 0.04;
+        rows.forEach(([y, o, cc], k) => {
+          const w = k > 1 ? o + jit * 0.7 * (k - 1) : o;
           pos.push(x + nx * w, y, z + nz * w);
-          const t = k / (rows.length - 1), c = top.clone().lerp(bot, Math.pow(t, 0.7)).convertSRGBToLinear();
+          const c = cc.clone().convertSRGBToLinear();
           col.push(c.r, c.g, c.b);
         });
         if (prev >= 0) for (let k = 0; k + 1 < rows.length; k++) idx.push(prev + k, base + k, base + k + 1, prev + k, base + k + 1, prev + k + 1);
@@ -7003,7 +7560,7 @@
       st.base = { sun: sun.intensity, hemi: hemiBase, fog: scene.fog.color.clone(), bg: scene.background.clone(), sunNow: sun.intensity, hemiNow: hemiBase };
     }
     const r = W.roomAt(P.x, P.z), rm = r >= 0 ? zone.rooms[r] : null;
-    if (rm) st.target = Math.min(1, rm.order / 5);
+    if (rm) st.target = Math.min(1, rm.order / (zone.rooms[zone.arena.room].order || 5)); // 场地的序号（加长后是 8）
     st.k += ((st.target || 0) - st.k) * (1 - Math.exp(-dt * 1.2));
     const b = st.base, k = st.k;
     sun.intensity = b.sunNow = b.sun * (1 - 0.18 * k);
@@ -7083,8 +7640,11 @@
   //   地标：环路边上的陨石碎块（WALL，可当掩体）、坑底边缘 3 簇水晶（WALL）、坑壁上的星骸碑、虚空上的浮岩、撞击坑。
   //   角度 = atan2(dx, dz)（和 arc 图元同一套），坑心 O；s = 绕圈方向（±1）
   const RIFT_G = {
-    rS: [54, 57], rO: [37.2, 38.6], rM: [24.0, 24.6], hw: 4, rA: 16, spanO: [128, 136], spanM: [130, 138],
-    rampHw: 3.5, neckHw: 4, linkHw: 3.75, bulge: [8.1, 8.6], bulgeOut: 0.28, side: [5.6, 6.1], sideNeck: [8, 9.5], sideHw: 3,
+    // zones-polish：区域加长到 ×1.6：两圈都放大、绕得更远（外圈 r 37–39 / 128–136° → r 43–45 / 193–199°，中圈 r 24 / 130–138° → r 27–28 / 187–193°），
+    // 每圈 3 个房间（各带一个鼓包），旁支 2 → 3。两圈的角度合起来超过一圈：中圈的末尾转回到外圈的开头底下（隔着 ≥ 7 m 坑壁），
+    // 外圈内侧的虚空只放在没有中圈的那一段
+    rS: [60.5, 63.5], rO: [43.2, 44.8], rM: [27.2, 28.0], hw: 4.4, rA: 16, spanO: [193, 199], spanM: [187, 193],
+    rampHw: 3.5, neckHw: 4, linkHw: 3.75, bulge: [9.4, 10], bulgeOut: 0.28, side: [6.2, 6.8], sideNeck: [8, 9.5], sideHw: 3, // zones-polish：环带宽 8 → 8.8、鼓包 8.1–8.6 → 9.4–10、撞击坑 5.6–6.1 → 6.2–6.8
     meteor: [1.5, 2.0], crystal: [0.85, 1.2], crystalR: 13,
   };
   function riftGen(R, def) {
@@ -7127,67 +7687,77 @@
       return { ph, prims: [{ t: 'circle', x: c.x, z: c.z, r: rad }], x: c.x, z: c.z, rad, r: rad - 0.05, root: P(ph, ringR), door0: P(ph, ringR + hw), door1: P(ph, ringR + hw + neck - 0.15 * rad) };
     };
     const at = (a, b, t) => a + (b - a) * t;
-    const phO = ph0 + s * spO * 0.5, phMs = ph1 + s * spM * 0.5;
-    const B1 = bulge(ph0 + s * spO * rnd(0.2, 0.26), rO), B2 = bulge(ph0 + s * spO * rnd(0.74, 0.8), rO);
-    const B3 = bulge(ph1 + s * spM * rnd(0.2, 0.25), rM), B4 = bulge(ph1 + s * spM * rnd(0.73, 0.78), rM);
-    const SA = side(ph0 + s * spO * rnd(0.47, 0.53), rO), SB = side(ph1 + s * spM * rnd(0.47, 0.53), rM);
-    const parA = (SA.ph - phO) * s < 0 ? 1 : 2, parB = (SB.ph - phMs) * s < 0 ? 3 : 4; // 旁支挂在哪个环带房间上
-    const eliteA = R() < 0.5;
-    // 外圈内侧的虚空：环带 [rV0, 外圈内沿 + 0.25]（一串胶囊，两端是圆头），两端离坡道 / 起点那头留足岩壁。
+    // 每圈三等分成 3 个房间；鼓包在各自那一段的中间，旁支挂在分界附近（外圈两个、中圈一个）
+    const phO1 = ph0 + (s * spO) / 3, phO2 = ph0 + (2 * s * spO) / 3, phM1 = ph1 + (s * spM) / 3, phM2 = ph1 + (2 * s * spM) / 3;
+    const B1 = bulge(ph0 + s * spO * rnd(0.14, 0.19), rO), B2 = bulge(ph0 + s * spO * rnd(0.47, 0.53), rO), B3 = bulge(ph0 + s * spO * rnd(0.8, 0.85), rO);
+    // 中圈的鼓包往外鼓：t > 0.7 以后外面是外圈的开头和起点连接，鼓包不放那里
+    const B4 = bulge(ph1 + s * spM * rnd(0.13, 0.18), rM), B5 = bulge(ph1 + s * spM * rnd(0.4, 0.45), rM), B6 = bulge(ph1 + s * spM * rnd(0.62, 0.66), rM);
+    const SA = side(ph0 + s * spO * rnd(0.31, 0.35), rO), SC = side(ph0 + s * spO * rnd(0.64, 0.68), rO), SB = side(ph1 + s * spM * rnd(0.27, 0.3), rM);
+    const parA = (SA.ph - phO1) * s < 0 ? 1 : 2, parC = (SC.ph - phO2) * s < 0 ? 2 : 3, parB = (SB.ph - phM1) * s < 0 ? 4 : 5; // 旁支挂在哪个环带房间上
+    const eliteK = Math.floor(R() * 3); // 三个旁支里哪个是精英坑（0 = A、1 = B、2 = C）
+    // 外圈内侧的虚空：环带 [rV0, 外圈内沿 + 0.25]（一串胶囊，两端是圆头）。起点那头让开中圈的末尾（转回来的那一段 + 封口 + 坑壁），坡道那头留足岩壁。
     // 同一串胶囊既是一个单独的「垫底」房间（不在关键路径上、没有门；sdShot 为正，子弹和视线能飞过），又是 VOID 挖空（不可走）。
-    // 不放进 R1 / R2：校验第 4 条按房间图元的外接框逐格量距离，图元多了很慢
+    // 不放进外圈的房间：校验第 4 条按房间图元的外接框逐格量距离，图元多了很慢
     const rV0 = rA + 5, rV1 = rO - hw + 0.25, vMid = (rV0 + rV1) / 2, vHw = (rV1 - rV0) / 2;
-    const vA = ph0 + s * (16 * D + vHw / vMid), vB = ph1 - s * ((K.rampHw + 5 + vHw) / vMid);
+    const wrap = Math.max(0, spO + spM - TAU); // 中圈末尾转到外圈开头底下的角度
+    const vA = ph0 + s * (wrap + (hw + 9) / rM + vHw / vMid), vB = ph1 - s * ((K.rampHw + 5 + vHw) / vMid);
     const cover = chain(vMid, vA, vB, vHw, 15);
     // 起点连到外圈起端
     const phJ = ph0 + s * 7 * D, join = P(phJ, rO), jd = Math.hypot(join.x, join.z), ux = join.x / jd, uz = join.z / jd;
     const exit = { x: ux * 8, z: uz * 8, ang: Math.atan2(ux, uz) };
     const rooms = [], links = [], cuts = [], feats = [], packs = [], chests = [];
+    const NP = 6, lvOf = (o) => lvFor(o, NP);
     const room = (kind, order, path, prims, core, extra) => {
-      const r = Object.assign({ id: rooms.length, kind, order, path, prims, core, tags: [] }, extra || {});
+      const r = Object.assign({ id: rooms.length, kind, order, lv: lvOf(order), path, prims, core, tags: [] }, extra || {});
       rooms.push(r);
       return r;
     };
     const cOf = (b) => ({ x: b.x, z: b.z, r: b.r });
     // 房间顺序 = 重叠处的优先级：起点、环带、场地、旁支在前，通道在后
     const rStart = room('start', 0, true, [{ t: 'circle', x: 0, z: 0, r: 8 }], { x: 0, z: 0, r: 8 });
-    const r1 = room('room', 1, true, chain(rO, ph0, phO, hw).concat(B1.prims), cOf(B1), { axis: arcAxis(rO, ph0, phO) });
-    const r2 = room('room', 2, true, chain(rO, phO, ph1, hw).concat(B2.prims), cOf(B2), { axis: arcAxis(rO, phO, ph1) });
-    const r3 = room('room', 3, true, chain(rM, ph1, phMs, hw).concat(B3.prims), cOf(B3), { axis: arcAxis(rM, ph1, phMs) });
-    const r4 = room('room', 4, true, chain(rM, phMs, ph2, hw).concat(B4.prims), cOf(B4), { axis: arcAxis(rM, phMs, ph2) });
-    const rArena = room('arena', 5, true, [{ t: 'circle', x: O.x, z: O.z, r: rA }], { x: O.x, z: O.z, r: rA });
-    const ringRooms = [null, r1, r2, r3, r4];
-    const rSA = room('side', ringRooms[parA].order + 1, false, SA.prims, cOf(SA), { tags: [eliteA ? 'elite' : 'chest'] });
-    const rSB = room('side', ringRooms[parB].order + 1, false, SB.prims, cOf(SB), { tags: [eliteA ? 'chest' : 'elite'] });
+    const r1 = room('room', 1, true, chain(rO, ph0, phO1, hw).concat(B1.prims), cOf(B1), { axis: arcAxis(rO, ph0, phO1) });
+    const r2 = room('room', 2, true, chain(rO, phO1, phO2, hw).concat(B2.prims), cOf(B2), { axis: arcAxis(rO, phO1, phO2) });
+    const r3 = room('room', 3, true, chain(rO, phO2, ph1, hw).concat(B3.prims), cOf(B3), { axis: arcAxis(rO, phO2, ph1) });
+    const r4 = room('room', 4, true, chain(rM, ph1, phM1, hw).concat(B4.prims), cOf(B4), { axis: arcAxis(rM, ph1, phM1) });
+    const r5 = room('room', 5, true, chain(rM, phM1, phM2, hw).concat(B5.prims), cOf(B5), { axis: arcAxis(rM, phM1, phM2) });
+    const r6 = room('room', 6, true, chain(rM, phM2, ph2, hw).concat(B6.prims), cOf(B6), { axis: arcAxis(rM, phM2, ph2) });
+    const rArena = room('arena', 7, true, [{ t: 'circle', x: O.x, z: O.z, r: rA }], { x: O.x, z: O.z, r: rA });
+    const ringRooms = [null, r1, r2, r3, r4, r5, r6];
+    const sideOf = (S, par, k) => room('side', ringRooms[par].order, false, S.prims, cOf(S), { tags: [eliteK === k ? 'elite' : 'chest'] });
+    const rSA = sideOf(SA, parA, 0), rSB = sideOf(SB, parB, 1), rSC = sideOf(SC, parC, 2);
     const lStart = room('link', 0, true, [capsule({ x: 0, z: 0 }, join, K.linkHw)], { x: (exit.x + join.x) / 2, z: (exit.z + join.z) / 2, r: K.linkHw }, { axis: [[0, 0], xz(join)] });
     const ramp1a = P(ph1, rO), ramp1b = P(ph1, rM), ramp2a = P(ph2, rM), ramp2b = P(ph2, rA - 2);
-    const lRamp1 = room('link', 2, true, [capsule(ramp1a, ramp1b, K.rampHw)], Object.assign(P(ph1, (rO + rM) / 2), { r: K.rampHw }), { axis: [xz(ramp1a), xz(ramp1b)] });
-    const lRamp2 = room('link', 4, true, [capsule(ramp2a, ramp2b, K.neckHw)], Object.assign(P(ph2, (rM - hw + rA) / 2), { r: K.neckHw }), { axis: [xz(ramp2a), xz(P(ph2, rA))] });
+    const lRamp1 = room('link', 3, true, [capsule(ramp1a, ramp1b, K.rampHw)], Object.assign(P(ph1, (rO + rM) / 2), { r: K.rampHw }), { axis: [xz(ramp1a), xz(ramp1b)] });
+    const lRamp2 = room('link', 6, true, [capsule(ramp2a, ramp2b, K.neckHw)], Object.assign(P(ph2, (rM - hw + rA) / 2), { r: K.neckHw }), { axis: [xz(ramp2a), xz(P(ph2, rA))] });
     const neck = (S, par, rs) => room('link', par.order, false, [capsule(S.root, { x: S.x, z: S.z }, K.sideHw)], { x: (S.door0.x + S.door1.x) / 2, z: (S.door0.z + S.door1.z) / 2, r: K.sideHw }, { axis: [xz(S.root), [S.x, S.z]], ends: [par.id, rs.id] });
-    const lSA = neck(SA, ringRooms[parA], rSA), lSB = neck(SB, ringRooms[parB], rSB);
+    const lSA = neck(SA, ringRooms[parA], rSA), lSB = neck(SB, ringRooms[parB], rSB), lSC = neck(SC, ringRooms[parC], rSC);
     // 虚空的垫底房间：axis 放在外圈中线上（通用外观的污斑沿 axis 撒，撒在外圈路面上，不会浮在深渊上）
     const rVoid = room('room', 2, false, cover, Object.assign(P((vA + vB) / 2, rO), { r: 1 }), { axis: arcAxis(rO, vA, vB), tags: ['void'] });
     lStart.ends = [rStart.id, r1.id];
-    lRamp1.ends = [r2.id, r3.id];
-    lRamp2.ends = [r4.id, rArena.id];
+    lRamp1.ends = [r3.id, r4.id];
+    lRamp2.ends = [r6.id, rArena.id];
     r1.ends = [lStart.id, r2.id];
-    r2.ends = [r1.id, lRamp1.id];
-    r3.ends = [lRamp1.id, r4.id];
-    r4.ends = [r3.id, lRamp2.id];
+    r2.ends = [r1.id, r3.id];
+    r3.ends = [r2.id, lRamp1.id];
+    r4.ends = [lRamp1.id, r5.id];
+    r5.ends = [r4.id, r6.id];
+    r6.ends = [r5.id, lRamp2.id];
     const door = P(ph2, rA + 1.5);
     const link = (a, b, d, kind) => links.push({ a: a.id, b: b.id, door: { x: d.x, z: d.z }, kind });
     link(rStart, lStart, exit, 'neck');
     link(lStart, r1, { x: join.x - ux * hw, z: join.z - uz * hw }, 'neck');
-    link(r1, r2, P(phO, rO), 'neck');
-    link(r2, lRamp1, P(ph1, rO - hw), 'stairs');
-    link(lRamp1, r3, P(ph1, rM + hw), 'stairs');
-    link(r3, r4, P(phMs, rM), 'neck');
-    link(r4, lRamp2, P(ph2, rM - hw), 'stairs');
+    link(r1, r2, P(phO1, rO), 'neck');
+    link(r2, r3, P(phO2, rO), 'neck');
+    link(r3, lRamp1, P(ph1, rO - hw), 'stairs');
+    link(lRamp1, r4, P(ph1, rM + hw), 'stairs');
+    link(r4, r5, P(phM1, rM), 'neck');
+    link(r5, r6, P(phM2, rM), 'neck');
+    link(r6, lRamp2, P(ph2, rM - hw), 'stairs');
     link(lRamp2, rArena, door, 'stairs');
-    link(ringRooms[parA], lSA, SA.door0, 'neck');
-    link(lSA, rSA, SA.door1, 'neck');
-    link(ringRooms[parB], lSB, SB.door0, 'neck');
-    link(lSB, rSB, SB.door1, 'neck');
+    for (const [S, par, ls, rs] of [[SA, parA, lSA, rSA], [SB, parB, lSB, rSB], [SC, parC, lSC, rSC]]) {
+      link(ringRooms[par], ls, S.door0, 'neck');
+      link(ls, rs, S.door1, 'neck');
+    }
     for (const p of cover) cuts.push({ prim: p, mat: MAT.VOID });
 
     // 本地 sd（只用于摆放：怪群、碎块、地标），和光栅化同一个合成规则
@@ -7206,12 +7776,12 @@
     const doors = links.map((L) => L.door);
     const nearDoor = (x, z, d) => doors.some((q) => Math.hypot(q.x - x, q.z - z) < d);
     // 陨石碎块：外圈贴着外沿（内沿是虚空）、中圈贴着内沿（外沿有鼓包和旁支），嵌进岩壁 0.7 m，剩下的路宽 ≥ 4.6 m
-    const avoid = [B1, B2, B3, B4];
+    const avoid = [B1, B2, B3, B4, B5, B6], sides = [SA, SB, SC];
     const placeMeteor = (ringR, pa, pb, outerEdge) => {
       for (let k = 0; k < 10; k++) {
         const rm = rr(K.meteor), ph = at(pa, pb, R()), rc = outerEdge ? ringR + hw - rm + 0.7 : ringR - hw + rm - 0.7, c = P(ph, rc);
         if (avoid.some((b) => Math.hypot(b.x - c.x, b.z - c.z) < b.rad + rm + 2.5)) continue;
-        if ([SA, SB].some((q) => segD(c.x, c.z, q.root.x, q.root.z, q.x, q.z) < K.sideHw + rm + 2.5)) continue;
+        if (sides.some((q) => segD(c.x, c.z, q.root.x, q.root.z, q.x, q.z) < K.sideHw + rm + 2.5)) continue;
         if (nearDoor(c.x, c.z, rm + 4.5) || Math.hypot(c.x - join.x, c.z - join.z) < K.linkHw + rm + 4) continue;
         cuts.push({ prim: { t: 'circle', x: c.x, z: c.z, r: rm }, mat: MAT.WALL });
         feats.push({ kind: 'meteor', x: c.x, z: c.z, ang: ph, s: rm });
@@ -7219,12 +7789,15 @@
       }
       return false;
     };
-    placeMeteor(rO, ph0 + s * spO * 0.33, ph0 + s * spO * 0.43, true);
-    placeMeteor(rO, ph0 + s * spO * 0.57, ph0 + s * spO * 0.67, true);
-    placeMeteor(rM, ph1 + s * spM * 0.12, ph1 + s * spM * 0.42, false);
-    if (R() < 0.6) placeMeteor(rM, ph1 + s * spM * 0.58, ph1 + s * spM * 0.88, false);
+    placeMeteor(rO, ph0 + s * spO * 0.22, ph0 + s * spO * 0.29, true);
+    placeMeteor(rO, ph0 + s * spO * 0.38, ph0 + s * spO * 0.44, true);
+    placeMeteor(rO, ph0 + s * spO * 0.57, ph0 + s * spO * 0.62, true);
+    placeMeteor(rO, ph0 + s * spO * 0.72, ph0 + s * spO * 0.78, true);
+    placeMeteor(rM, ph1 + s * spM * 0.2, ph1 + s * spM * 0.36, false);
+    placeMeteor(rM, ph1 + s * spM * 0.48, ph1 + s * spM * 0.58, false);
+    if (R() < 0.6) placeMeteor(rM, ph1 + s * spM * 0.7, ph1 + s * spM * 0.9, false);
     // 撞击坑里的陨石（精英坑在坑底后方，宝箱坑在宝箱后面）
-    for (const S of [SA, SB]) {
+    for (const S of sides) {
       const ox = (S.x - S.root.x), oz = (S.z - S.root.z), ol = Math.hypot(ox, oz), rm = rnd(1.4, 1.8), back = S.rad * 0.5;
       const mx = S.x + (ox / ol) * back + (-oz / ol) * rnd(-1.5, 1.5), mz = S.z + (oz / ol) * back + (ox / ol) * rnd(-1.5, 1.5);
       cuts.push({ prim: { t: 'circle', x: mx, z: mz, r: rm }, mat: MAT.WALL });
@@ -7269,17 +7842,19 @@
       return mine;
     };
     const byRoom = [
-      ringPacks(r1, B1, rO, ph0, phO, 1),
-      ringPacks(r2, B2, rO, phO, ph1, 2),
-      ringPacks(r3, B3, rM, ph1, phMs, R() < 0.5 ? 1 : 2),
-      ringPacks(r4, B4, rM, phMs, ph2, 2),
+      ringPacks(r1, B1, rO, ph0, phO1, 1),
+      ringPacks(r2, B2, rO, phO1, phO2, 2),
+      ringPacks(r3, B3, rO, phO2, ph1, 2),
+      ringPacks(r4, B4, rM, ph1, phM1, R() < 0.5 ? 1 : 2),
+      ringPacks(r5, B5, rM, phM1, phM2, R() < 0.5 ? 1 : 2),
+      ringPacks(r6, B6, rM, phM2, ph2, 2),
     ];
-    // 精英：关键路径房间各 45%（挑这个房间里的一群），加上精英坑保底，全区上限 4
+    // 精英：关键路径房间各 45%（挑这个房间里的一群），加上精英坑保底，全区上限 6（zones-polish：原 4，关键路径最多 3 → 5）
     const elites = [];
     for (const list of byRoom) if (R() < 0.45) elites.push(list[Math.floor(R() * list.length)]);
-    while (elites.length > 3) elites.splice(Math.floor(R() * elites.length), 1);
+    while (elites.length > 5) elites.splice(Math.floor(R() * elites.length), 1);
     for (const p of elites) p.elite = true;
-    for (const [S, rs] of [[SA, rSA], [SB, rSB]]) {
+    for (const [S, rs] of [[SA, rSA], [SB, rSB], [SC, rSC]]) {
       const isElite = rs.tags[0] === 'elite';
       if (isElite) pack(rs, S.x - S.ux * S.rad * 0.05, S.z - S.uz * S.rad * 0.05, [5, 6], 2.6, { elite: true });
       else pack(rs, S.x - S.ux * S.rad * 0.05, S.z - S.uz * S.rad * 0.05, [2, 3], 2.0);
@@ -7317,7 +7892,7 @@
       if (sdAt(c.x, c.z) > -1.6) continue;
       feats.push({ kind: 'shard', x: c.x, z: c.z, h: rnd(2.6, 4.6) });
     }
-    for (const B of [B1, B2, B3, B4]) if (R() < 0.5) feats.push({ kind: 'crater', x: B.x + rnd(-2, 2), z: B.z + rnd(-2, 2), r: rnd(2.4, 3.2) });
+    for (const B of avoid) if (R() < 0.5) feats.push({ kind: 'crater', x: B.x + rnd(-2, 2), z: B.z + rnd(-2, 2), r: rnd(2.4, 3.2) });
 
     // zones-integrate：核心的 sdShot 已经把透弹挖空的图元算成子弹能到的地方，垫底房间不用再进布局说明；
     // 上面的摆放（本地 sdAt）照旧带着它算，输出前去掉（它是最后一个房间，没有连接、怪群、宝箱引用它）
@@ -7326,14 +7901,14 @@
       rooms, links, cuts, haz: [], feats, packs, chests,
       start: { x: 0, z: 0, exit },
       arena: { room: rArena.id, x: O.x, z: O.z, door, dir: { x: (O.x - door.x) / (rA + 1.5), z: (O.z - door.z) / (rA + 1.5) } },
-      path: [rStart.id, lStart.id, r1.id, r2.id, lRamp1.id, r3.id, r4.id, lRamp2.id, rArena.id],
+      path: [rStart.id, lStart.id, r1.id, r2.id, r3.id, lRamp1.id, r4.id, r5.id, r6.id, lRamp2.id, rArena.id],
     };
     spec.bounds = specBounds(spec);
     return spec;
   }
   // 校验阈值：中圈和坑底之间只有 4 m 岩壁（挡视线，§2.8 第 4 条「中间是 ROCK 也行」A1 没实现，这里把 gap 放到 3.5）；
   // 面积按 §3.5 收在 2700–3500
-  riftGen.check = { gap: 3.5, areaMin: 2700, areaMax: 3500 };
+  riftGen.check = { gap: 3.5, areaMin: 4600, areaMax: 5700 }; // zones-polish：×1.6（原 2700–3500）
 
   // ----- 坠星裂谷的布景（dress / fx）-----
   // 卡通配色：坑壁是偏青的墨绿岩（受光 #4e7a72、侧面 #2c4a46、底部压成冷紫 #2a2c4a），星辉是电光青白（#bffcff 核、#5ef0e0 辉），
@@ -7594,7 +8169,7 @@
     }
     const rockMat = ctx.own(makeToonMat({ flat: true, brush: 0.16, brushScale: 0.5 }));
     const rIM = ctx.instanced(riftMeteorGeo(), rockMat, rocks, true, new T.Color(1, 1, 1));
-    const cIM = ctx.instanced(gOct(1), ctx.mats.crystal, crys, !low, null);
+    const cIM = ctx.instanced(gOct(1), ctx.mats.crystal, crys, false, null); // 发光水晶不投影（zones-polish：原来高画质投影，省一次阴影 draw）
     const gIM = ctx.instanced(gQuad(), ctx.mats.glow, glows, false, null);
     if (gIM) gIM.renderOrder = 1;
     for (const m of [rIM, cIM, gIM]) if (m) mine.add(m);
@@ -7644,7 +8219,77 @@
   let zoneDisp = []; // 换区时要 dispose 的东西
   let zoneFx = null; // 每帧要动的区域元素（水晶脉动、法阵、环境粒子配置）
 
+  // ----- 远处的实例不画（zones-polish）-----
+  // 区域加长到 ×1.6 以后，沿岩壁的岩石 / 摆件这些实例化网格的实例数跟着边长涨，一张图的实例每帧全画，
+  // 混战里三角形超过 23 万。这里不加 draw call：镜头焦点每挪 ICULL.step 米，把离焦点 R + 实例半径以外的实例从缓冲区里挤掉（count 变小）。
+  // 一屏约 21 × 18.5 m、阴影范围也在焦点附近，R = 34 m 时屏幕边上的高物（≤ 11 m）也照样画。
+  // 只管实例数 ≥ ICULL.min 的静态网格；有别的代码在改矩阵（动画）的网格一发现就复原、不再管。W.icull(false) 关掉（调试俯视图用）
+  const ICULL = { R: 34, step: 4, min: 12, on: true };
+  let icull = null;
+  function icullInit() {
+    const list = [];
+    zoneGroup.traverse((o) => {
+      if (!o.isInstancedMesh || o.count < ICULL.min || o.userData.noCull) return;
+      const n = o.count, M = o.instanceMatrix.array.slice(0, n * 16), C = o.instanceColor ? o.instanceColor.array.slice(0, n * 3) : null;
+      if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
+      const gr = o.geometry.boundingSphere.radius + Math.hypot(o.geometry.boundingSphere.center.x, o.geometry.boundingSphere.center.z);
+      const P = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) {
+        const b = i * 16, sx = Math.hypot(M[b], M[b + 1], M[b + 2]), sy = Math.hypot(M[b + 4], M[b + 5], M[b + 6]), sz = Math.hypot(M[b + 8], M[b + 9], M[b + 10]);
+        P[i * 3] = M[b + 12];
+        P[i * 3 + 1] = M[b + 14];
+        P[i * 3 + 2] = gr * Math.max(sx, sy, sz);
+      }
+      list.push({ im: o, n, M, C, P, ver: -1, off: false });
+    });
+    icull = { group: zoneGroup, list, cx: 1e9, cz: 1e9 };
+  }
+  function icullRestore(e) {
+    e.im.instanceMatrix.array.set(e.M);
+    if (e.C) e.im.instanceColor.array.set(e.C), (e.im.instanceColor.needsUpdate = true);
+    e.im.count = e.n;
+    e.im.instanceMatrix.needsUpdate = true;
+  }
+  function icullUpdate(x, z) {
+    if (!zoneGroup) return;
+    if (!icull || icull.group !== zoneGroup) icullInit();
+    if (!ICULL.on || Math.hypot(x - icull.cx, z - icull.cz) < ICULL.step) return;
+    icull.cx = x;
+    icull.cz = z;
+    const R = ICULL.R;
+    for (const e of icull.list) {
+      if (e.off) continue;
+      const im = e.im;
+      if (e.ver >= 0 && im.instanceMatrix.version !== e.ver) {
+        e.off = true; // 别处在改这个网格的矩阵：复原，不再管
+        icullRestore(e);
+        continue;
+      }
+      const A = im.instanceMatrix.array, CA = e.C ? im.instanceColor.array : null, M = e.M, C = e.C, P = e.P;
+      let k = 0;
+      for (let i = 0; i < e.n; i++) {
+        const dx = P[i * 3] - x, dz = P[i * 3 + 1] - z, rr = R + P[i * 3 + 2];
+        if (dx * dx + dz * dz > rr * rr) continue;
+        for (let j = 0; j < 16; j++) A[k * 16 + j] = M[i * 16 + j];
+        if (C) for (let j = 0; j < 3; j++) CA[k * 3 + j] = C[i * 3 + j];
+        k++;
+      }
+      im.count = k;
+      im.instanceMatrix.needsUpdate = true;
+      if (CA) im.instanceColor.needsUpdate = true;
+      e.ver = im.instanceMatrix.version;
+    }
+  }
+  W.icull = (on) => {
+    ICULL.on = on !== false;
+    if (icull && icull.group === zoneGroup) {
+      for (const e of icull.list) if (!e.off) icullRestore(e), (e.ver = e.im.instanceMatrix.version);
+      icull.cx = icull.cz = 1e9;
+    }
+    return { on: ICULL.on, n: icull ? icull.list.length : 0 };
+  };
   function disposeZone() {
+    icull = null;
     if (!zoneGroup) return;
     scene.remove(zoneGroup);
     for (const d of zoneDisp) d.dispose();
@@ -7842,7 +8487,6 @@
     // 陨坑
     if (byFeat) accentL = lin(RIFT_PAL.spark); // 新布局：星辉用电光青（zones-rift 的配色）
     const crMat = own(new T.MeshBasicMaterial({ map: craterTex(), color: accentL, transparent: true, opacity: 0.5, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false }));
-    const dkMat = own(new T.MeshBasicMaterial({ map: blotchTex(), color: lin(mixHex(def.voidc, 0x000000, 0.3)), transparent: true, opacity: 0.6, depthWrite: false }));
     const craters = [], darks = [], shards = [];
     const spots = byFeat ? ofKind('crater').map((f) => ({ x: f.x, z: f.z, r: f.r })) : [];
     if (!byFeat) {
@@ -7863,11 +8507,10 @@
         shards.push(x + Math.sin(b) * rr, h * 0.35, z + Math.cos(b) * rr, Math.cos(b) * 0.6, rand(0, TAU), -Math.sin(b) * 0.6, 0.12, h, 0.12, 1);
       }
     }
-    const dIM = instanced(gQuad(), dkMat, darks, false, null);
-    if (dIM) dIM.renderOrder = 1;
+    // zones-polish：陨坑底下那块暗斑（不透明度 0.6 的一大团）不画了：看着像地上的脏印子，还多一次 draw（随机数照旧取，后面的摆放不变）
     const cIM = instanced(gQuad(), crMat, craters, false, null);
     if (cIM) cIM.renderOrder = 1;
-    instanced(gOct(1), crystalMat, shards, true, null);
+    instanced(gOct(1), crystalMat, shards, false, null); // 发光的小晶刺不投影（zones-polish：省一次阴影 draw）
 
     // 首领场地外的天穹碎片（新布局：坑底四周那圈岩壁里的 'shard' 锚点，细一点）
     const bp = zone.bossPos, sky = [];
@@ -7940,6 +8583,8 @@
     }
     const vid = new Int32Array(sx * (nz + 1)).fill(-1);
     const pos = [], uv = [], col = [], idx = [], aw = [];
+    // 路面上粗糙斑块的强度（zones-polish：ZONE_GFX.<id>.patch，缺省 0.55 和原来一样）：frost / rift 的粗糙地面贴图在路面上是一块块像泥、像脏印子的软边斑，压下去
+    const patchK = gx && gx.patch !== undefined ? gx.patch : 0.55;
     const vert = (i, j) => {
       const k = j * sx + i;
       if (vid[k] >= 0) return vid[k];
@@ -7961,7 +8606,7 @@
         const pn = vnoise(x * 0.17 + 11.3, z * 0.17 - 5.1);
         let wp = smooth01((d + 0.45) / 1.0);
         // 路面上零星的粗糙斑块，离路边越远越少；第 0 区斑块更多更实（打散满地一样的龟裂纹），踩出来的路上没有
-        wp *= ash ? 1 - 0.55 * smooth01((pn - 0.6) / 0.16) * smooth01((d + 0.5) / 2.5) * (1 - tk) * smooth01((Math.hypot(x - zone.start.x, z - zone.start.z) - 3) / 3) : 1 - 0.55 * smooth01((pn - 0.58) / 0.2) * smooth01(d / 2.2);
+        wp *= ash ? 1 - patchK * smooth01((pn - 0.6) / 0.16) * smooth01((d + 0.5) / 2.5) * (1 - tk) * smooth01((Math.hypot(x - zone.start.x, z - zone.start.z) - 3) / 3) : 1 - patchK * smooth01((pn - 0.58) / 0.2) * smooth01(d / 2.2);
         aw.push(wp, smooth01((-d - 0.9) / 2.2) * (1 - wp));
       } else col.push(vm[0] + (lit - vm[0]) * kk, vm[1] + (lit - vm[1]) * kk, vm[2] + (lit - vm[2]) * kk);
       return (vid[k] = pos.length / 3 - 1);
@@ -8154,7 +8799,7 @@
     const crystalMat = own(
       new T.MeshStandardMaterial({ color: accentL.clone().multiplyScalar(0.3), emissive: accentL, emissiveIntensity: 1.0, roughness: 0.3, flatShading: true, toneMapped: false })
     );
-    instanced(gOct(1), crystalMat, crystals, true, null);
+    instanced(gOct(1), crystalMat, crystals, false, null); // 发光的水晶不投影（zones-polish：影子看不出来，每区省一次阴影 draw；第 0 区原来就在 dress 里关掉了）
     const glowMat = own(
       new T.MeshBasicMaterial({ map: glowTex(), color: accentL, transparent: true, opacity: 0.4, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false })
     );
@@ -8169,7 +8814,8 @@
     if (glowIM) glowIM.renderOrder = 1;
 
     // --- 地面暗斑 ---
-    // 每区可以在 ZONE_GFX.<id>.blots = { k: 块数倍率（默认 1）, r: 大小倍率（默认 1）, op: 不透明度（默认 0.2）} 调污斑（zones-ash 加的旋钮）
+    // 每区可以在 ZONE_GFX.<id>.blots = { k: 块数倍率（默认 1）, r: 大小倍率（默认 1）, op: 不透明度（默认 0.2）, tex: 'crack' } 调污斑（zones-ash 加的旋钮）。
+    // zones-polish：tex: 'crack' 把软边的暗块换成细裂纹（groundCrackTex），读起来是地面的纹路而不是脏印子
     const BL = Object.assign({ k: 1, r: 1, op: 0.2 }, gx && gx.blots);
     const blots = [];
     const blot = (x, z, r) => {
@@ -8193,7 +8839,7 @@
     }
     const blotMat = own(
       // 卡通：污斑不再是近黑的一大片（旧 0.38 不透明度把地面弄脏），颜色偏向这个区域的阴影色、淡一半
-      new T.MeshBasicMaterial({ map: blotchTex(), color: lin(ash ? 0x2a1c1a : mixHex(mixHex(def.voidc, toonLightOf(def).shade, 0.3), 0x000000, 0.3)), transparent: true, opacity: BL.op, depthWrite: false }) // 第 0 区：暖的焦黑，不是冷紫
+      new T.MeshBasicMaterial({ map: BL.tex === 'crack' ? groundCrackTex() : blotchTex(), color: lin(ash ? 0x2a1c1a : mixHex(mixHex(def.voidc, toonLightOf(def).shade, 0.3), 0x000000, 0.3)), transparent: true, opacity: BL.op, depthWrite: false }) // 第 0 区：暖的焦黑，不是冷紫
     );
     const blotIM = instanced(gQuad(), blotMat, blots, false, null);
     if (blotIM) blotIM.renderOrder = 1;
@@ -8252,6 +8898,18 @@
       isles: rp ? rp.isles : null, skyMat: rp ? rp.skyMat : null, starIn: rand(1.5, 4),
       fires, mist, gU: hd ? gmat.userData.U : null, hd, props: withProps, dress,
     };
+    zoneShadowPolicy();
+  }
+  // 低画质：区域的静态布景（岩石、摆件、合并的零件网格……）不投影，人物 / 怪 / 首领照旧投影（zones-polish）。
+  // 测试槽位实测：低画质下阴影 pass 是图标预热空闲切片比 dec4bb9 慢的那一截（关掉阴影就回到 dec4bb9 以下）；布景的影子在低画质下看不太出来，人物脚下的影子留着
+  function zoneShadowPolicy() {
+    if (!zoneGroup) return;
+    const off = qualId === 'low';
+    zoneGroup.traverse((o) => {
+      if (!o.isMesh) return;
+      if (o.userData.cs0 === undefined) o.userData.cs0 = o.castShadow;
+      o.castShadow = off ? false : o.userData.cs0;
+    });
   }
 
   // 建外观时 PBR 那条路出了任何错，都退回程序化外观重建一次（不让素材问题拖垮游戏）
@@ -22192,6 +22850,7 @@
       camT.x += (P.x - camT.x) * k;
       camT.z += (P.z - camT.z) * k;
     }
+    icullUpdate(camT.x, camT.z + CAM_LEAD); // 远处的实例不画（zones-polish）
     let sx = 0, sy = 0;
     if (shakeAmt > 0.002) {
       sx = (Math.random() - 0.5) * shakeAmt * 1.1;
@@ -22416,31 +23075,40 @@
   };
 
   // 小地图：静态部分（空地、走廊）在建区时画到离屏画布
-  const MM = { size: 172, pad: 12, cv: null, s: 1, ox: 0, oz: 0 };
+  // zones-polish：区域加长以后整张图缩进 172 px 会小于 minS（每米 0.9 像素，最窄的 4 m 路不到 3.6 px）。
+  // 这时底图按 minS 画成比小地图大的一张（cw × ch），每帧截取以玩家为中心的 172 × 172 一块（vx / vy 是截取框在底图上的左上角，贴边时夹住）
+  const MM = { size: 172, pad: 12, minS: 0.9, cv: null, s: 1, ox: 0, oz: 0, cw: 172, ch: 172, win: false, vx: 0, vy: 0 };
   function buildMinimap(zone) {
     const S = MM.size, b = zone.bounds;
     const cv = MM.cv || (MM.cv = makeCanvas(1, 1));
-    cv.width = cv.height = Math.round(S * dpr);
+    const bw = b.maxX - b.minX, bh = b.maxZ - b.minZ;
+    const fit = (S - MM.pad * 2) / Math.max(bw, bh), s = Math.max(fit, MM.minS);
+    MM.win = fit < MM.minS;
+    const CW = MM.win ? Math.max(S, Math.ceil(bw * s + MM.pad * 2)) : S, CH = MM.win ? Math.max(S, Math.ceil(bh * s + MM.pad * 2)) : S;
+    MM.cw = CW;
+    MM.ch = CH;
+    MM.vx = MM.vy = 0;
+    MM.vDirty = true;
+    cv.width = Math.round(CW * dpr);
+    cv.height = Math.round(CH * dpr);
     const g = cv.getContext('2d');
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.clearRect(0, 0, S, S);
+    g.clearRect(0, 0, CW, CH);
     g.fillStyle = 'rgba(12,9,8,0.88)';
-    g.fillRect(0, 0, S, S);
-    const bw = b.maxX - b.minX, bh = b.maxZ - b.minZ;
-    const s = (S - MM.pad * 2) / Math.max(bw, bh);
+    g.fillRect(0, 0, CW, CH);
     MM.s = s;
-    MM.ox = MM.pad + (S - MM.pad * 2 - bw * s) / 2 - b.minX * s;
-    MM.oz = MM.pad + (S - MM.pad * 2 - bh * s) / 2 - b.minZ * s;
+    MM.ox = MM.pad + (CW - MM.pad * 2 - bw * s) / 2 - b.minX * s;
+    MM.oz = MM.pad + (CH - MM.pad * 2 - bh * s) / 2 - b.minZ * s;
     const X = (x) => x * s + MM.ox, Z = (z) => z * s + MM.oz;
     // 按地形网格逐像素画（设备像素）：可走处路面色（按 sd 算覆盖率，自带抗锯齿），外面 1.5 px 一圈深色描边；
     // 深水深蓝、熔岩橙红、浅水在路面上偏浅蓝；虚空、岩壁不画（底色）
-    const m = zone.map, N = cv.width, im = g.createImageData(N, N), D = im.data;
+    const m = zone.map, N = cv.width, NY = cv.height, im = g.createImageData(N, NY), D = im.data;
     const pc3 = new T.Color(mixHex(zone.def.path, 0xffffff, 0.12)), PC = [pc3.r * 255, pc3.g * 255, pc3.b * 255];
     const COL = { [MAT.WATER]: [26, 58, 92], [MAT.LAVA]: [214, 78, 34] }, SLOW = [120, 176, 206];
     const kpx = s * dpr; // 每米多少设备像素
     const hasMat = m.pr.cp.length > 0, hasSlow = !!(m.hazAny & HAZ.slow);
-    const arenaMask = zone.arena.round ? null : new Uint8Array(N * N);
-    for (let j = 0; j < N; j++) {
+    const arenaMask = zone.arena.round ? null : new Uint8Array(N * NY);
+    for (let j = 0; j < NY; j++) {
       const wz = ((j + 0.5) / dpr - MM.oz) / s;
       for (let i = 0; i < N; i++) {
         const wx = ((i + 0.5) / dpr - MM.ox) / s, o = (j * N + i) * 4;
@@ -22453,7 +23121,7 @@
           a = a + cd * (1 - a);
         }
         if (hasMat && d < 0.5) {
-          const mt = matAt(m, wx, wz), c = COL[mt];
+          const mt = matAt(m, wx, wz), c = mt === m.pr.outside ? null : COL[mt]; // 区域外面的材质不画（frost 外面整片是水，§3.2 深水不画；zones-polish）
           if (c) {
             // 熔岩 / 深水上照样描一圈深色边（zones-integrate）：跨熔岩的桥就是两条描边夹着路面（§3.1），岸线也更清楚
             r = c[0] * (1 - cd); gg = c[1] * (1 - cd); bb = c[2] * (1 - cd); a = 1;
@@ -22479,7 +23147,7 @@
     const acc = new T.Color(zone.def.accent);
     if (arenaMask) {
       const AC = [acc.r * 255, acc.g * 255, acc.b * 255];
-      for (let j = 1; j < N - 1; j++) {
+      for (let j = 1; j < NY - 1; j++) {
         for (let i = 1; i < N - 1; i++) {
           const k = j * N + i;
           if (!arenaMask[k] || (arenaMask[k - 1] && arenaMask[k + 1] && arenaMask[k - N] && arenaMask[k + N])) continue;
@@ -22498,16 +23166,28 @@
       g.stroke();
     }
     g.globalAlpha = 1;
+    if (MM.win) return; // 截取模式的边框每帧画在截取框上
     g.strokeStyle = 'rgba(214,160,92,0.55)';
     g.lineWidth = 1;
     g.strokeRect(0.5, 0.5, S - 1, S - 1);
   }
+  // 截取框：以 (x, z) 为中心，贴着底图的边夹住（只在截取模式下有用）
+  function minimapView(x, z) {
+    const S = MM.size;
+    MM.vx = MM.win ? Math.round(Math.max(0, Math.min(MM.cw - S, x * MM.s + MM.ox - S / 2)) * dpr) / dpr : 0;
+    MM.vy = MM.win ? Math.round(Math.max(0, Math.min(MM.ch - S, z * MM.s + MM.oz - S / 2)) * dpr) / dpr : 0;
+  }
 
   // 测试用：世界坐标 → 小地图在画面上的位置（CSS 像素）；读小地图上一个像素（static：只读建区时画好的静态底图，否则读叠加层）
-  W.minimapXY = (x, z) => ({ x: vw - MM.size - 14 + x * MM.s + MM.ox, y: 14 + z * MM.s + MM.oz });
+  // 截取模式下按最近一帧的截取框换算（view：先把截取框挪到以 (view.x, view.z) 为中心，测试看整张底图用）
+  W.minimapXY = (x, z, view) => {
+    if (view) minimapView(view.x, view.z);
+    return { x: vw - MM.size - 14 + x * MM.s + MM.ox - MM.vx, y: 14 + z * MM.s + MM.oz - MM.vy };
+  };
+  W.minimapInfo = () => ({ s: MM.s, win: MM.win, cw: MM.cw, ch: MM.ch, size: MM.size });
   W.minimapPixel = function (cx, cy, stat) {
     if (stat) {
-      const g = MM.cv.getContext('2d'), mx = vw - MM.size - 14, my = 14;
+      const g = MM.cv.getContext('2d'), mx = vw - MM.size - 14 - MM.vx, my = 14 - MM.vy;
       return Array.from(g.getImageData(Math.floor((cx - mx) * dpr), Math.floor((cy - my) * dpr), 1, 1).data);
     }
     return Array.from(octx.getImageData(Math.floor(cx * dpr), Math.floor(cy * dpr), 1, 1).data);
@@ -22770,11 +23450,35 @@
     // --- 小地图 ---
     if (MM.cv) {
       const S = MM.size, mx = vw - S - 14, my = 14;
-      g.drawImage(MM.cv, mx, my, S, S);
-      const X = (x) => mx + x * MM.s + MM.ox, Z = (z) => my + z * MM.s + MM.oz;
+      if (MM.win) {
+        // 截取模式：以玩家为中心截一块底图。截取框动了才把那一块拷进一张固定 172 × 172 的画布（MM.view），
+        // 每帧照旧整张 drawImage（和不截取时一样便宜）；标记出了框就不画，不用 clip（2D 画布的 clip / 带源矩形的 drawImage
+        // 每帧都在 GPU 进程里多做一遍，低画质下拖慢图标预热，zones-polish 实测）
+        const ox = MM.vx, oy = MM.vy;
+        minimapView(P.x, P.z);
+        if (!MM.view || MM.view.width !== Math.round(S * dpr)) {
+          MM.view = makeCanvas(Math.round(S * dpr), Math.round(S * dpr));
+          MM.vDirty = true;
+        }
+        if (MM.vDirty || ox !== MM.vx || oy !== MM.vy) {
+          const vg = MM.view.getContext('2d');
+          vg.clearRect(0, 0, MM.view.width, MM.view.height);
+          vg.drawImage(MM.cv, Math.round(MM.vx * dpr), Math.round(MM.vy * dpr), MM.view.width, MM.view.height, 0, 0, MM.view.width, MM.view.height);
+          vg.strokeStyle = 'rgba(214,160,92,0.55)';
+          vg.lineWidth = dpr;
+          vg.strokeRect(0.5 * dpr, 0.5 * dpr, MM.view.width - dpr, MM.view.height - dpr);
+          MM.vDirty = false;
+        }
+        g.drawImage(MM.view, mx, my, S, S);
+      } else {
+        MM.vx = MM.vy = 0;
+        g.drawImage(MM.cv, mx, my, S, S);
+      }
+      const X = (x) => mx + x * MM.s + MM.ox - MM.vx, Z = (z) => my + z * MM.s + MM.oz - MM.vy;
+      const inMM = (px, pz) => px > mx - 3 && px < mx + S + 3 && pz > my - 3 && pz < my + S + 3; // 截取模式下框外的标记不画
       for (let i = 0; i < es.length; i++) {
         const e = es[i];
-        if (e.dead || e.isBoss || !e.awake) continue;
+        if (e.dead || e.isBoss || !e.awake || !inMM(X(e.x), Z(e.z))) continue;
         g.fillStyle = e.elite ? '#ffc04a' : 'rgba(255,96,72,0.9)';
         const r = e.elite ? 2.4 : 1.5;
         g.fillRect(X(e.x) - r, Z(e.z) - r, r * 2, r * 2);
@@ -22785,11 +23489,12 @@
           const m = ms[i], ent = m && m.ent;
           if (!ent || m.dead || ent.removed) continue;
           const r = ent.kind === 'colossus' ? 2.6 : 1.7, gp = ent.group.position;
+          if (!inMM(X(gp.x), Z(gp.z))) continue;
           g.fillRect(X(gp.x) - r, Z(gp.z) - r, r * 2, r * 2);
         }
       }
       const zn = W.zone;
-      if (st.boss && !st.boss.dead) {
+      if (st.boss && !st.boss.dead && inMM(X(st.boss.x), Z(st.boss.z))) {
         // 首领：脉动的红色菱形
         const bx = X(st.boss.x), bz = Z(st.boss.z), r = 5 + Math.sin(wtime * 4) * 0.8;
         g.fillStyle = '#ff4a3a';
@@ -22804,7 +23509,7 @@
         g.stroke();
         g.fill();
       }
-      if (st.portal) {
+      if (st.portal && inMM(X(st.portal.x), Z(st.portal.z))) {
         const px = X(st.portal.x), pz = Z(st.portal.z);
         g.strokeStyle = '#b9a4ff';
         g.lineWidth = 2;
@@ -22816,9 +23521,10 @@
       }
       if (zn) {
         g.fillStyle = 'rgba(255,255,255,0.35)';
-        g.fillRect(X(zn.start.x) - 1.5, Z(zn.start.z) - 1.5, 3, 3);
+        if (inMM(X(zn.start.x), Z(zn.start.z))) g.fillRect(X(zn.start.x) - 1.5, Z(zn.start.z) - 1.5, 3, 3);
         // 宝箱：金色小方块，打开以后变暗
         for (const c of zn.chests) {
+          if (!inMM(X(c.x), Z(c.z))) continue;
           g.fillStyle = c.open ? 'rgba(150,126,84,0.55)' : '#ffd75e';
           g.strokeStyle = 'rgba(0,0,0,0.8)';
           g.lineWidth = 1;

@@ -198,11 +198,14 @@
     const zone = spawnZone || G.state.zone;
     const elite = !!o.elite;
     const elem = zone.def.elem;
-    const hp = Math.max(1, Math.round(def.hp * G.hpScale(level) * (elite ? 4.5 : 1))); // 精英血量 4 → 4.5：补偿破绽易伤与处决
+    // horde：区域刷出来的普通怪，生命按 G.BALANCE.mobHp 打折（经验 / 掉落也打折，见 killXp、dropLoot）；精英、召唤的、调试刷的不打折
+    const horde = !elite && !!o.horde;
+    const hordeK = horde ? (G.BALANCE.zoneK && G.BALANCE.zoneK[zone.def.id]) || 1 : 1; // 这一区普通怪经验 / 掉落的系数
+    const hp = Math.max(1, Math.round(def.hp * G.hpScale(level) * (elite ? 4.5 : horde ? G.BALANCE.mobHp : 1))); // 精英血量 4 → 4.5：补偿破绽易伤与处决
     const r = def.r * (elite ? 1.25 : 1);
     const e = runtimeFields({
       type, def, name: elite ? '精英' + def.name : def.name, x, z, r, hp, maxHp: hp,
-      dmg: def.dmg * G.dmgScale(level) * (elite ? 1.3 : 1), level, speed: def.speed, elem, elite,
+      dmg: def.dmg * G.dmgScale(level) * (elite ? 1.3 : 1), level, speed: def.speed, elem, elite, horde, hordeK,
       isBoss: false, bossKind: null, pack: o.pack == null ? null : o.pack, awake: !!o.awake,
       dead: false, deathT: 0, height: (def.h || (type === 'brute' ? 2.8 : 2)) * (elite ? 1.35 : 1),
       freeze: 0, stunT: 0, slowK: 1, iced: false,
@@ -262,7 +265,7 @@
   // 槽位所在房间按关键路径序号加怪物等级：+⌊order/2⌋
   function slotLevel(zone, slot) {
     const rm = zone.rooms[slot.room];
-    return zone.level + Math.floor((rm ? rm.order : 0) / 2);
+    return zone.level + (rm && rm.lv !== undefined ? rm.lv : Math.floor((rm ? rm.order : 0) / 2)); // rm.lv：加长后的区域按路径比例折算（world.js lvFor）
   }
   // 「圆盘」槽位（legacy 的空地）里的若干怪群：先排好位置和类型，再决定精英，最后统一生成
   function populateClearing(zone, slot) {
@@ -307,7 +310,7 @@
     }
     for (const members of packs) {
       const pack = packSeq++;
-      for (const m of members) G.spawnMob(m.type, m.x, m.z, level, { elite: m.elite, pack, awake: false });
+      for (const m of members) G.spawnMob(m.type, m.x, m.z, level, { elite: m.elite, pack, awake: false, horde: true });
     }
   }
   // 「中点」槽位（legacy 的通道：露在两端空地之外那一段的中点，生成器已经算好）：2–3 只的小群
@@ -321,12 +324,13 @@
         const x = mid.x + Math.sin(a) * d, z = mid.z + Math.cos(a) * d;
         if (!W.walkable(x, z, 1) || !farFromStart(zone, x, z) || !spaced(members, x, z, 1.3)) continue;
         members.push({ x, z });
-        G.spawnMob(packType(mobs, main, zone), x, z, level, { elite: false, pack, awake: false });
+        G.spawnMob(packType(mobs, main, zone), x, z, level, { elite: false, pack, awake: false, horde: true });
         break;
       }
     }
   }
 
+  const HEAVY = { brute: true, charger: true, bomber: true }; // 重手（一下伤害大）的小怪：怪群加人时多出来的不放这几种
   // 生成器排好的怪群：{ room, x, z, n（数或 [下限, 上限]）, r, elite, ambush, mobs, noBrute }，成员在 (x, z) 周围 r 以内。
   // mobs：这一群的怪物表（缺省用区域的）；noBrute：不放蛮兵（窄路上的小群，体型大的躲不开），zones-integrate 加
   function populatePack(zone, slot) {
@@ -334,14 +338,21 @@
     let mobs = slot.mobs || zone.def.mobs;
     if (slot.noBrute) mobs = mobs.filter((t) => t !== 'brute');
     if (!mobs.length) mobs = ['husk'];
-    const n = Array.isArray(slot.n) ? G.randInt(slot.n[0], slot.n[1]) : slot.n || G.randInt(4, 6), R = slot.r || 2.6;
+    // 人数 ×G.BALANCE.packSize（随机取整，期望值正好是倍率），站位半径 ×√packSize，成员之间的间距照旧
+    const K = G.BALANCE.packSize;
+    const n0 = Array.isArray(slot.n) ? G.randInt(slot.n[0], slot.n[1]) : slot.n || G.randInt(4, 6);
+    const n = Math.floor(n0 * K + Math.random()), R = (slot.r || 2.6) * Math.sqrt(K);
     const main = G.pick(mobs), members = [];
+    // 多出来的人手（第 n0 只以后）只放轻怪：巨躯、陨角兽这种重手和爆裂虫的数量和以前一样，大群不会叠出一波打死人的重击
+    const light = mobs.filter((t) => !HEAVY[t]);
     for (let m = 0; m < n; m++) {
       for (let tries = 0; tries < 12; tries++) {
         const a = Math.random() * TAU, d = G.rand(0.4, R);
         const x = slot.x + Math.sin(a) * d, z = slot.z + Math.cos(a) * d;
         if (!W.walkable(x, z, 1) || !farFromStart(zone, x, z) || !spaced(members, x, z, 1.4)) continue;
-        members.push({ x, z, type: packType(mobs, main, zone), elite: false });
+        let type = packType(mobs, main, zone);
+        if (m >= n0 && HEAVY[type]) type = light.length ? (HEAVY[main] ? G.pick(light) : main) : 'husk';
+        members.push({ x, z, type, elite: false, extra: m >= n0 });
         break;
       }
     }
@@ -352,8 +363,9 @@
     }
     const pack = packSeq++;
     for (const m of members) {
-      const e = G.spawnMob(m.type, m.x, m.z, level, { elite: m.elite, pack, awake: false });
+      const e = G.spawnMob(m.type, m.x, m.z, level, { elite: m.elite, pack, awake: false, horde: true });
       if (e && slot.ambush) e.ambush = true;
+      if (e && m.extra) e.packExtra = true; // 加人加出来的那几只（测试核对它们都是轻怪）
     }
   }
 
