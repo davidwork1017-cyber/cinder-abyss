@@ -1,5 +1,5 @@
 {
-  "_comment": "烬渊的外部素材清单（全部 CC0）。prep-textures.mjs 按 textures 下载 1k 原图并压成 assets/ 下的三张贴图；pack-assets.mjs 按 packs 把 assets/ 打成 js/assets/*.js；chars 包是角色模型（convert-chars.mjs 从 Quaternius 源文件转出的 GLB），index.html 直接同步引入。",
+  "_comment": "烬渊的外部素材清单（全部 CC0；src 为 generated 的是 tools/gen-ground-textures.mjs 程序化生成的原创贴图，prep-textures.mjs 跳过）。prep-textures.mjs 按 textures 下载 1k 原图并压成 assets/ 下的三张贴图；pack-assets.mjs 按 packs 把 assets/ 打成 js/assets/*.js；chars 包是角色模型（convert-chars.mjs 从 Quaternius 源文件转出的 GLB），index.html 直接同步引入。",
   "textures": {
     "mud_cracked_dry_03": { "src": "polyhaven", "page": "https://polyhaven.com/a/mud_cracked_dry_03" },
     "burned_ground_01": { "src": "polyhaven", "page": "https://polyhaven.com/a/burned_ground_01" },
@@ -12,17 +12,24 @@
     "Ice002": { "src": "ambientcg", "page": "https://ambientcg.com/a/Ice002" },
     "Snow013": { "src": "ambientcg", "page": "https://ambientcg.com/a/Snow013" },
     "Rock035": { "src": "ambientcg", "page": "https://ambientcg.com/a/Rock035" },
-    "Lava001": { "src": "ambientcg", "page": "https://ambientcg.com/a/Lava001", "rFrom": "Emission" }
+    "Lava001": { "src": "ambientcg", "page": "https://ambientcg.com/a/Lava001", "rFrom": "Emission" },
+    "g_decals": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）" },
+    "g_cover_ash": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）" },
+    "g_cover_frost": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）" },
+    "g_cover_storm": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）" },
+    "g_cover_abyss": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）" },
+    "g_cover_rift": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）" }
   },
   "packs": {
     "models": { "models": "*" },
     "chars": { "chars": { "adventurer": "quaternius-modular-men/Adventurer.glb", "zombie": "quaternius-animated-zombie/Zombie.glb", "skeleton": "quaternius-animated-monster/Skeleton.glb", "spider": "quaternius-easy-enemy/Spider.glb" } },
     "rock-dark": { "textures": ["dark_rock"] },
     "rock-grey": { "textures": ["Rock035"] },
-    "zone-ash": { "textures": ["mud_cracked_dry_03", "burned_ground_01"] },
-    "zone-frost": { "textures": ["Ice002", "Snow013"] },
-    "zone-storm": { "textures": ["monastery_stone_floor", "rocky_trail"] },
-    "zone-abyss": { "textures": ["dark_rock_02", "Lava001"] },
-    "zone-rift": { "textures": ["slate_floor", "moon_01"] }
+    "ground": { "textures": ["g_decals"] },
+    "zone-ash": { "textures": ["mud_cracked_dry_03", "burned_ground_01", "g_cover_ash"] },
+    "zone-frost": { "textures": ["Ice002", "Snow013", "g_cover_frost"] },
+    "zone-storm": { "textures": ["monastery_stone_floor", "rocky_trail", "g_cover_storm"] },
+    "zone-abyss": { "textures": ["dark_rock_02", "Lava001", "g_cover_abyss"] },
+    "zone-rift": { "textures": ["slate_floor", "moon_01", "g_cover_rift"] }
   }
 }
