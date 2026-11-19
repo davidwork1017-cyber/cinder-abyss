@@ -4030,6 +4030,575 @@
     H.anim = more;
   }
 
+  // =====================================================================
+  // 异兆（D4）：选址、道具、静物的骨架、残影的调色、小地图图样。玩法在 game.js 的「异兆」一节
+  // =====================================================================
+  // ---------- 选址（所有生成器通用：只读 zone.rooms / links / packs / chests / feats 和 W.sdAt，不碰布局）----------
+  // 点位 { type, room, x, z, r }：
+  //   core   关键路径上的大房间（kind 'room'，order 在 [2, 场地 − 1]），点在房间芯附近 sd 最大处，要 sd ≥ 7，房间里至少 1 个怪群槽位；
+  //          nodeD 离雷枢（storm 的 node）的距离（守隙要 ≥ 14）
+  //   side   死路旁支（kind 'side'，不是精英房，只有一扇门）：点在房间芯，door 门，rune 符文（门往里 rune 米）
+  //   nook   起点 / 场地 / link 以外任意房间里偏离主线的空地：sd ≥ 3、离门 ≥ 6 m、离这个房间的门连线 ≥ 4 m，撒 24 个候选取离连线最远的
+  //   patrol 巡逻段：关键路径上相邻的两个房间 a、b（order ≥ 2，都不是场地），rooms 是两者和中间的 link，doors 是它们之间的门
+  // 通用：离起点 ≥ ENC.startGap、离场地门 ≥ ENC.doorGap、场地房间整个排除、不在灼烧 / 薄冰上、离宝箱 ≥ ENC.chestGap（旁支不算：宝箱留在里面）、
+  // 离余烬口（abyss 的 vent）≥ 4 m；异兆之间 ≥ ENC.gap（由调用方传 taken）
+  const ENC_SD = { core: 7, nook: 3, nodeGap: 14, ventGap: 4, nookDoor: 6, nookLine: 4, nookN: 24, ambush: 8 };
+  function segD(x, z, ax, az, bx, bz) {
+    const ex = bx - ax, ez = bz - az, l2 = ex * ex + ez * ez;
+    const t = l2 > 0 ? G.clamp(((x - ax) * ex + (z - az) * ez) / l2, 0, 1) : 0;
+    return Math.hypot(x - ax - ex * t, z - az - ez * t);
+  }
+  function encBase(zone, x, z, side) {
+    const E = G.ENC, a = zone.arena;
+    if (Math.hypot(x - zone.start.x, z - zone.start.z) < E.startGap) return false;
+    if (a.door && Math.hypot(x - a.door.x, z - a.door.z) < E.doorGap) return false;
+    if (Math.hypot(x - a.x, z - a.z) < zone.bossR + 12) return false; // 首领唤醒 / 拴绳之外（圆形场地没有房间号也能排除）
+    if (W.roomAt(x, z) === a.room) return false;
+    if (W.hazardAt(x, z) & (HAZ.burn | HAZ.thin)) return false;
+    if (!side) for (const c of zone.chests) if (Math.hypot(x - c.x, z - c.z) < E.chestGap) return false;
+    const V = zone.encVents || (zone.encVents = zone.feats.filter((f) => f.kind === 'vent'));
+    for (const f of V) if (Math.hypot(x - f.x, z - f.z) < (f.r || 0) + ENC_SD.ventGap) return false;
+    return true;
+  }
+  function roomDoors(zone, id) {
+    const out = [];
+    for (const L of zone.links) if ((L.a === id || L.b === id) && L.door) out.push(L.door);
+    return out;
+  }
+  // 这一区某一类合格的点位，第一次问到这一类时才算（进区只算用得上的那一两类）、存在 zone 上
+  function encCands(zone, type) {
+    const C = zone.encCand || (zone.encCand = {});
+    if (C[type]) return C[type];
+    const rooms = zone.rooms, aRoom = rooms[zone.arena.room], aOrd = aRoom ? aRoom.order : 1e9;
+    const out = { core: [], side: [], nook: [], patrol: [] };
+    const want = { core: type === 'core', side: type === 'side', nook: type === 'nook', patrol: type === 'patrol' };
+    const nodes = zone.feats.filter((f) => f.kind === 'node');
+    const ambush = zone.packs.filter((p) => p.ambush);
+    for (const rm of rooms) {
+      if (!rm.core || rm.id === zone.arena.room) continue;
+      const c = rm.core;
+      // core：房间芯附近找 sd 最大的点
+      if (want.core && rm.path && rm.kind === 'room' && rm.order >= 2 && rm.order <= aOrd - 1 && zone.packs.some((p) => p.room === rm.id)) {
+        let bx = c.x, bz = c.z, bs = W.sdAt(c.x, c.z);
+        const rr = Math.min(4, (c.r || 4) * 0.5);
+        for (let k = 0; k < 12; k++) {
+          const ang = (k / 12) * TAU, d = k & 1 ? rr : rr * 0.5;
+          const x = c.x + Math.sin(ang) * d, z = c.z + Math.cos(ang) * d;
+          const s = W.sdAt(x, z);
+          if (s > bs && W.roomAt(x, z) === rm.id) (bx = x), (bz = z), (bs = s);
+        }
+        if (bs >= ENC_SD.core && encBase(zone, bx, bz)) {
+          let nodeD = 1e9;
+          for (const n of nodes) nodeD = Math.min(nodeD, segD(bx, bz, n.ax, n.az, n.bx, n.bz));
+          out.core.push({ type: 'core', room: rm.id, x: bx, z: bz, r: bs, nodeD });
+        }
+      }
+      // side：只有一扇门的死路旁支
+      if (!want.side && !want.nook) continue;
+      const doors = roomDoors(zone, rm.id);
+      if (want.side && rm.kind === 'side' && !(rm.tags || []).includes('elite') && doors.length === 1 && W.sdAt(c.x, c.z) >= 1.5 && encBase(zone, c.x, c.z, true)) {
+        const d = doors[0], dx = c.x - d.x, dz = c.z - d.z, dl = Math.hypot(dx, dz) || 1, ru = Math.min(G.ENCOUNTERS.trial.p.rune, dl * 0.4);
+        out.side.push({ type: 'side', room: rm.id, x: c.x, z: c.z, r: c.r || 4, door: { x: d.x, z: d.z }, rune: { x: d.x + (dx / dl) * ru, z: d.z + (dz / dl) * ru, ang: Math.atan2(dx, dz) } });
+      }
+      // nook：撒点，取离门连线最远的
+      if (want.nook && rm.kind !== 'start' && rm.kind !== 'arena' && rm.kind !== 'link') {
+        const lines = [];
+        for (let i = 0; i < doors.length; i++) for (let j = i + 1; j < doors.length; j++) lines.push([doors[i], doors[j]]);
+        if (doors.length === 1) lines.push([doors[0], c]); // 死路：门到房间芯这条就是走进去的路
+        let best = null, bestD = -1;
+        const R = (c.r || 4) * 0.95;
+        for (let k = 0; k < ENC_SD.nookN; k++) {
+          const ang = Math.random() * TAU, d = Math.sqrt(Math.random()) * R;
+          const x = c.x + Math.sin(ang) * d, z = c.z + Math.cos(ang) * d;
+          if (W.roomAt(x, z) !== rm.id || !(W.sdAt(x, z) >= ENC_SD.nook)) continue;
+          if (doors.some((q) => Math.hypot(x - q.x, z - q.z) < ENC_SD.nookDoor)) continue;
+          if (ambush.some((p) => Math.hypot(x - p.x, z - p.z) < ENC_SD.ambush)) continue;
+          let ld = 1e9;
+          for (const L of lines) ld = Math.min(ld, segD(x, z, L[0].x, L[0].z, L[1].x, L[1].z));
+          if (ld < ENC_SD.nookLine || !encBase(zone, x, z)) continue;
+          if (ld > bestD) (bestD = ld), (best = { type: 'nook', room: rm.id, x, z, r: W.sdAt(x, z) });
+        }
+        if (best) out.nook.push(best);
+      }
+    }
+    // patrol：关键路径上相邻的两个非 link 房间，中间的 link 一并拴进去
+    const path = want.patrol ? zone.path.map((id) => rooms[id]).filter(Boolean) : [];
+    for (let i = 0; i < path.length; i++) {
+      const A = path[i];
+      if (A.kind === 'link' || A.order < 2 || A.id === zone.arena.room) continue;
+      let j = i + 1;
+      const mid = [];
+      while (j < path.length && path[j].kind === 'link') mid.push(path[j++]);
+      const B = path[j];
+      if (!B || B.id === zone.arena.room || B.kind === 'link') continue;
+      const a = A.core, b = B.core;
+      if (!encBase(zone, a.x, a.z) || !encBase(zone, b.x, b.z) || !(W.sdAt(a.x, a.z) >= 1.5) || !(W.sdAt(b.x, b.z) >= 1.5)) continue;
+      const rs = [A.id].concat(mid.map((m) => m.id), [B.id]);
+      const doors = [];
+      for (const L of zone.links) if (L.door && rs.indexOf(L.a) >= 0 && rs.indexOf(L.b) >= 0) doors.push({ x: L.door.x, z: L.door.z });
+      out.patrol.push({ type: 'patrol', room: A.id, x: a.x, z: a.z, r: 3, rooms: rs, doors, a: { x: a.x, z: a.z }, b: { x: b.x, z: b.z } });
+    }
+    return (C[type] = out[type]);
+  }
+  // 给一种点位挑一个：和已选的（taken）都隔开 ENC.gap，ok(site) 是这种异兆另外的条件；没有合格的返回 null
+  W.encSite = function (type, taken, ok) {
+    const zone = W.zone;
+    if (!zone) return null;
+    const list = encCands(zone, type);
+    const gap = G.ENC.gap, pool = [];
+    for (const s of list) {
+      if (ok && !ok(s)) continue;
+      if (taken.some((t) => Math.hypot(t.x - s.x, t.z - s.z) < gap || t.room === s.room)) continue;
+      if (s.type === 'patrol' && taken.some((t) => s.rooms.indexOf(t.room) >= 0 || (t.rooms && t.rooms.some((r) => s.rooms.indexOf(r) >= 0)))) continue;
+      pool.push(s);
+    }
+    return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+  };
+  W.encCands = () => (W.zone ? { core: encCands(W.zone, 'core'), side: encCands(W.zone, 'side'), nook: encCands(W.zone, 'nook'), patrol: encCands(W.zone, 'patrol') } : null); // 测试用
+
+  // ---------- 道具：只在异兆「醒来」（玩家走近 / 进房间）时才建，材质全局共用、第一次进区随 W.precompile 预热 ----------
+  // 每种异兆 1–3 个网格，都按点位摆好（普通网格，按包围球裁剪，不在镜头里就不画）。玩法状态由 game.js 写在 enc 上：
+  //   enc.st 阶段（sleep 等房间清空 / open 可以开始 / run 进行中 / done 成功 / fail 失败），enc.k 进度 0..1，enc.used（祈坛用过）
+  const encMats = Object.create(null);
+  const encMat = (key, make) => encMats[key] || (encMats[key] = make());
+  const ENC_PURPLE = 0xa98cff, ENC_GOLD = 0xffd26a;
+  let encGroup = null;
+  const encProps = [], encNpcs = [], encDisp = [];
+  const encOwn = (m) => (encDisp.push(m), m); // 每个异兆自己的一份材质（颜色随进度变）：换区时释放
+  function encRoot() {
+    if (!encGroup) {
+      encGroup = new T.Group();
+      scene.add(encGroup);
+    }
+    return encGroup;
+  }
+  // 换区：道具整组移走（几何体、材质都是缓存的，不释放），拾烬客这类实体删掉
+  W.encClear = function () {
+    if (encGroup) scene.remove(encGroup);
+    encGroup = null;
+    encProps.length = 0;
+    for (const e of encNpcs) W.removeEnt(e);
+    encNpcs.length = 0;
+    for (const m of encDisp) m.dispose();
+    encDisp.length = 0;
+  };
+  // 贴地的圆环（守隙的圈）：一道硬边亮环 + 很淡的内圈
+  const encRingTex = () =>
+    tex('encRing', () => {
+      const S = 128, c = makeCanvas(S, S), g = c.getContext('2d');
+      g.translate(S / 2, S / 2);
+      g.fillStyle = 'rgba(255,255,255,0.10)';
+      g.beginPath();
+      g.arc(0, 0, 60, 0, TAU);
+      g.fill();
+      g.strokeStyle = '#fff';
+      g.lineWidth = 5;
+      g.beginPath();
+      g.arc(0, 0, 60, 0, TAU);
+      g.stroke();
+      g.globalAlpha = 0.5;
+      g.lineWidth = 2;
+      g.setLineDash([6, 7]);
+      g.beginPath();
+      g.arc(0, 0, 52, 0, TAU);
+      g.stroke();
+      return new T.CanvasTexture(c);
+    });
+  // 试锋的门口符文：外圈两道细环夹一圈刻痕，中间一个尖朝里的楔形
+  const encRuneTex = () =>
+    tex('encRune', () => {
+      const S = 128, c = makeCanvas(S, S), g = c.getContext('2d');
+      g.translate(S / 2, S / 2);
+      g.strokeStyle = g.fillStyle = '#fff';
+      g.lineWidth = 3;
+      for (const r of [58, 46]) {
+        g.beginPath();
+        g.arc(0, 0, r, 0, TAU);
+        g.stroke();
+      }
+      for (let i = 0; i < 18; i++) {
+        const a = (i / 18) * TAU;
+        g.save();
+        g.rotate(a);
+        g.fillRect(-1.5, -56, 3, i % 3 === 0 ? 10 : 6);
+        g.restore();
+      }
+      g.beginPath();
+      g.moveTo(0, -30);
+      g.lineTo(18, 16);
+      g.lineTo(0, 6);
+      g.lineTo(-18, 16);
+      g.closePath();
+      g.fill();
+      return new T.CanvasTexture(c);
+    });
+  const encFlatMat = (key, map, hex, add) =>
+    encMat(key, () => new T.MeshBasicMaterial({ map, color: lin(hex), transparent: true, depthWrite: false, toneMapped: false, blending: add ? T.AdditiveBlending : T.NormalBlending }));
+  const encGlowMat = (key, hex) => encMat(key, () => new T.MeshBasicMaterial({ color: lin(hex), transparent: true, opacity: 0.9, depthWrite: false, toneMapped: false, blending: T.AdditiveBlending, vertexColors: true }));
+  const encToon = () => encMat('toon', () => makeToonMat({ brush: 0.1, brushScale: 0.6 }));
+  // 守隙的裂隙：竖着的一道锯齿裂缝（几段斜的亮片拼成，烘成一个几何体），芯白、边紫
+  const encRiftGeo = () =>
+    bake('enc/rift', (() => {
+      const P = [], pts = [[0, 0.1], [0.22, 0.55], [-0.12, 0.95], [0.18, 1.4], [-0.16, 1.85], [0.1, 2.3], [0, 2.75]];
+      for (let i = 0; i + 1 < pts.length; i++) {
+        const [x0, y0] = pts[i], [x1, y1] = pts[i + 1], len = Math.hypot(x1 - x0, y1 - y0), a = Math.atan2(x1 - x0, y1 - y0);
+        const w = 0.34 - Math.abs(i - 2.5) * 0.06;
+        P.push([gBox(1, 1, 0.02), 0xffffff, (x0 + x1) / 2, (y0 + y1) / 2, 0, 0, 0, -a, w * 0.45, len * 1.08, 1]);
+        P.push([gBox(1, 1, 0.02), 0x8a5cff, (x0 + x1) / 2, (y0 + y1) / 2, -0.01, 0, 0, -a, w, len * 1.12, 1]);
+        P.push([gBox(1, 1, 0.02), 0x8a5cff, (x0 + x1) / 2, (y0 + y1) / 2, -0.01, 0, Math.PI / 2, -a, w, len * 1.12, 1]);
+      }
+      for (let k = 0; k < 7; k++) P.push([gOct(0.07), 0xc8b0ff, Math.sin(k * 2.3) * 0.6, 0.4 + k * 0.33, Math.cos(k * 1.7) * 0.4, k, k * 0.7, 0]);
+      return P;
+    })());
+  // 缚匣的锁链：两道交叉箍住箱体的黑铁链带 + 正面一把挂锁 + 三根往外拉的链子和锚桩（锚桩在 3 m 外，和匣卫的出生点对齐）
+  const encChainGeo = (anchors) =>
+    bake('enc/chain' + anchors.map((a) => a.toFixed(2)).join(','), (() => {
+      const IRON = 0x3a3640, IRON_L = 0x6a6470, P = [];
+      P.push([gBox(1, 1, 1), IRON, 0, 0.36, 0, 0, 0.6, 0, 1.12, 0.06, 0.12]);
+      P.push([gBox(1, 1, 1), IRON, 0, 0.36, 0, 0, -0.6, 0, 1.12, 0.06, 0.12]);
+      P.push([gBox(1, 1, 1), IRON, 0, 0.3, 0, 0, 0, 0, 0.12, 0.62, 0.8]);
+      P.push([gRBox(0.22, 0.24, 0.1, 0.03), IRON_L, 0, 0.42, 0.42, 0, 0, 0]);
+      P.push([gTorus(0.07, 0.025, 4, 10), IRON_L, 0, 0.58, 0.42, 0, 0, 0]);
+      for (const a of anchors) {
+        const ax = Math.sin(a) * 3, az = Math.cos(a) * 3, n = 7;
+        for (let i = 1; i <= n; i++) {
+          const k = i / (n + 1), x = ax * k * 0.82 + Math.sin(a) * 0.4, z = az * k * 0.82 + Math.cos(a) * 0.4, y = 0.32 * (1 - k) + 0.05;
+          P.push([gTorus(0.09, 0.03, 4, 8), i & 1 ? IRON : IRON_L, x, y, z, 0, a + (i & 1 ? Math.PI / 2 : 0), Math.PI / 2]);
+        }
+        P.push([gCyl(0.08, 0.12, 0.7, 6), IRON, ax, 0.2, az, 0, 0, 0]);
+        P.push([gSph(0.1, 6, 4), IRON_L, ax, 0.58, az]);
+      }
+      return P;
+    })());
+  // 祈坛：一块微斜的立石（底下压着两块碎石）
+  const encStoneGeo = () =>
+    toonGradient(bake('enc/stone', [
+      [gCyl(1, 1, 1, 14), 0x16121c, 0, 0.01, 0, 0, 0, 0, 1.1, 0.02, 1.0],
+      [gRBox(0.7, 1.9, 0.42, 0.06), 0x6c6878, 0, 0.95, 0, 0.04, 0.2, 0.03],
+      [gRBox(0.42, 0.18, 0.32, 0.04), 0x7a7684, 0, 1.94, 0, 0, 0.2, 0],
+      [gRBox(0.36, 0.22, 0.3, 0.04), 0x5a5664, 0.5, 0.11, 0.2, 0, 0.6, 0.1],
+      [gRBox(0.3, 0.18, 0.26, 0.04), 0x5a5664, -0.42, 0.09, -0.24, 0, -0.4, 0],
+      [gBox(0.36, 0.05, 0.02), 0x9adcf0, 0, 1.25, 0.22, 0, 0.2, 0],
+      [gBox(0.05, 0.5, 0.02), 0x9adcf0, 0, 1.05, 0.22, 0, 0.2, 0],
+    ]).clone(), { bottom: 0x3a3450, top: 0xffffff, y0: 0, y1: 2.0 });
+  const encOrbGeo = () => bake('enc/orb', [[gIco(0.32, 1), 0xffffff, 0, 0, 0], [gIco(0.5, 0), 0x6ad8ff, 0, 0, 0, 0.3, 0.5, 0]]);
+  // 落烬的烬核：一根竖着的大晶体 + 三根小的（芯亮、尖暗）
+  const encCoreGeo = () =>
+    bake('enc/core', [
+      [gOct(0.5), 0xffe0a0, 0, 1.0, 0, 0, 0.3, 0, 0.8, 2.0, 0.8],
+      [gOct(0.3), 0xff8a3c, 0.5, 0.45, 0.2, 0.3, 0, 0.4, 0.7, 1.5, 0.7],
+      [gOct(0.26), 0xff6a2a, -0.42, 0.4, -0.25, -0.2, 0, -0.5, 0.7, 1.4, 0.7],
+      [gOct(0.22), 0xffa64a, 0.05, 0.3, -0.5, 0.4, 0, 0, 0.6, 1.3, 0.6],
+      [gCyl(1, 1, 1, 12), 0x3a2010, 0, 0.01, 0, 0, 0, 0, 0.9, 0.02, 0.9],
+    ]);
+  // 拾烬客的兜帽和背上的拾荒包（挂在实体的 group 上，跟着站位走）
+  const encHoodGeo = () =>
+    toonGradient(bake('enc/hood', [
+      [gCone(0.34, 0.62, 7), 0x4a4236, 0, 1.98, -0.02, -0.12, 0, 0],
+      [gCyl(0.36, 0.42, 0.2, 7), 0x3c352c, 0, 1.72, 0, 0, 0, 0],
+      [gRBox(0.6, 0.62, 0.34, 0.06), 0x6a5236, 0, 1.25, -0.36, 0.1, 0, 0],
+      [gCyl(0.06, 0.06, 0.7, 5), 0x8a6a40, 0.18, 1.62, -0.42, 0, 0, 0.3],
+      [gSph(0.11, 6, 4), 0xffd27a, 0.32, 1.95, -0.46],
+    ]).clone(), { bottom: 0x2a2430, top: 0xffffff, y0: 1.0, y1: 2.3 });
+
+  function encMesh(geom, mat, x, z, y, ry) {
+    const m = new T.Mesh(geom, mat);
+    m.position.set(x, y || 0, z);
+    m.rotation.y = ry || 0;
+    m.receiveShadow = true;
+    encRoot().add(m);
+    return m;
+  }
+  // 建一个异兆的道具（game.js 在它醒来时调一次）
+  W.encProp = function (enc) {
+    const s = enc.site, kind = enc.kind, H = { enc, t: 0, meshes: [] };
+    const add = (m) => (H.meshes.push(m), m);
+    if (kind === 'guard') {
+      H.rift = add(encMesh(encRiftGeo(), encGlowMat('rift', 0xffffff), s.x, s.z, 0.1, Math.random() * TAU));
+      H.ring = add(encMesh(gQuad(), encOwn(encFlatMat('ring', encRingTex(), ENC_PURPLE, false).clone()), s.x, s.z, 0.07));
+      const r = G.ENCOUNTERS.guard.p.r;
+      H.ring.scale.set(r, 1, r);
+      H.ring.renderOrder = 2;
+      H.ring.material.color.copy(lin(ENC_PURPLE));
+    } else if (kind === 'box') {
+      const ang = s.ang || 0;
+      H.body = add(encMesh(chestBodyGeo(), encToon(), s.x, s.z, 0, ang));
+      H.lid = add(encMesh(chestLidGeo(), encToon(), s.x, s.z, 0, ang));
+      H.body.scale.setScalar(1.15);
+      H.lid.scale.setScalar(1.15);
+      H.chain = add(encMesh(encChainGeo(enc.anchors.map((a) => a - ang)), encToon(), s.x, s.z, 0, ang));
+      H.ang = ang;
+    } else if (kind === 'shrine') {
+      H.stone = add(encMesh(encStoneGeo(), encToon(), s.x, s.z, 0, Math.random() * TAU));
+      H.orb = add(encMesh(encOrbGeo(), encGlowMat('orb', 0xffffff), s.x, s.z, 2.55));
+    } else if (kind === 'trial') {
+      const R = s.rune;
+      H.rune = add(encMesh(gQuad(), encOwn(encFlatMat('rune', encRuneTex(), 0xff5040, true).clone()), R.x, R.z, 0.06, R.ang));
+      H.rune.scale.set(1.3, 1, 1.3);
+      H.rune.renderOrder = 2;
+    } else if (kind === 'ember') {
+      H.core = add(encMesh(encCoreGeo(), encGlowMat('core', 0xffffff), s.x, s.z, 0, Math.random() * TAU));
+    } else if (kind === 'trader') {
+      const ent = W.makeMob('husk', 0x7ad08a, false);
+      // 斗篷：躯体压成褐绿的旧布色，自发光换成灯笼的暖黄（只改 uniform）
+      ent.bodyMat.color.copy(lin(0x9a9078));
+      if (ent.glowMat) ent.glowMat.emissive.copy(lin(0xffc86a));
+      ent.uRim.value.setRGB(0.18, 0.16, 0.1);
+      const hood = new T.Mesh(encHoodGeo(), encToon());
+      hood.castShadow = true;
+      ent.body.add(hood);
+      W.setEnt(ent, s.x, s.z, s.face || 0);
+      encNpcs.push(ent);
+      H.npc = ent;
+    }
+    encProps.push(H);
+    enc.prop = H;
+    return H;
+  };
+  // 每帧的道具动画（W.update 里调；只读 enc 上的状态）
+  function encUpdate(dt) {
+    for (const H of encProps) {
+      const e = H.enc;
+      H.t += dt;
+      const t = H.t;
+      if (H.rift) {
+        const open = e.st !== 'sleep' && e.st !== 'fail';
+        H.rift.visible = open || e.st === 'fail';
+        H.rift.material.opacity = e.st === 'fail' ? 0.25 : e.st === 'done' ? 0.4 : 0.75 + 0.2 * Math.sin(t * 5);
+        H.rift.rotation.y += dt * 0.4;
+        H.rift.scale.setScalar(e.st === 'done' ? 0.6 : 1 + 0.04 * Math.sin(t * 3));
+        H.ring.visible = open && e.st !== 'done';
+        // 圈边随进度从紫色变成金色
+        H.ring.material.color.copy(lin(ENC_PURPLE)).lerp(lin(ENC_GOLD), G.clamp(e.k || 0, 0, 1));
+        H.ring.material.opacity = e.st === 'run' ? 0.95 : 0.7 + 0.2 * Math.sin(t * 3);
+      }
+      if (H.chain) {
+        H.chain.visible = e.st === 'idle';
+        const k = e.st === 'done' ? Math.min(1, (e.openT || 0) / 0.35) : 0, ee = 1 - (1 - k) * (1 - k);
+        // 箱盖绕后上沿往后翻（同宝箱的铰链：箱盖网格的原点就在铰链上）
+        _v.set(0, 0.5, -0.3).multiplyScalar(1.15).applyAxisAngle(_ky, H.ang);
+        H.lid.position.set(e.site.x + _v.x, _v.y, e.site.z + _v.z);
+        H.lid.rotation.set(0, 0, 0);
+        H.lid.rotateY(H.ang);
+        H.lid.rotateX(-CHEST_OPEN * ee);
+        if (e.st === 'done' && (e.openT || 0) < 1) e.openT = (e.openT || 0) + dt;
+      }
+      if (H.orb) {
+        H.orb.visible = !e.used;
+        H.orb.position.y = 2.55 + 0.12 * Math.sin(t * 2.2);
+        H.orb.rotation.y += dt * 1.1;
+        H.orb.material.opacity = 0.75 + 0.2 * Math.sin(t * 4);
+      }
+      if (H.rune) {
+        const on = e.st === 'idle' || e.st === 'run';
+        H.rune.material.color.copy(lin(on ? (e.st === 'run' ? 0xffb040 : 0xff5040) : 0x6a6470));
+        H.rune.material.opacity = on ? 0.7 + 0.25 * Math.sin(t * (e.st === 'run' ? 8 : 3)) : 0.35;
+        H.rune.rotation.y += dt * (e.st === 'run' ? 1.2 : 0.3);
+      }
+      if (H.core) {
+        H.core.visible = e.st !== 'sleep';
+        H.core.material.opacity = e.st === 'done' || e.st === 'fail' ? 0.3 : 0.7 + 0.25 * Math.sin(t * (e.st === 'run' ? 9 : 2.5));
+        H.core.position.y = e.st === 'run' ? 0.15 + 0.1 * Math.sin(t * 6) : 0;
+      }
+      if (H.npc && !H.npc.removed) W.animEnt(H.npc, dt, false, wtime);
+    }
+  }
+  // 预热：第一次进区时把道具的材质编好（W.precompile 调）
+  function encWarm() {
+    const g = new T.Group();
+    const list = [
+      [encRiftGeo(), encGlowMat('rift', 0xffffff)], [gQuad(), encFlatMat('ring', encRingTex(), ENC_PURPLE, false)],
+      [chestBodyGeo(), encToon()], [encStoneGeo(), encToon()], [encOrbGeo(), encGlowMat('orb', 0xffffff)],
+      [gQuad(), encFlatMat('rune', encRuneTex(), 0xff5040, true)], [encCoreGeo(), encGlowMat('core', 0xffffff)], [encHoodGeo(), encToon()],
+    ];
+    for (const [gm, mt] of list) {
+      const m = new T.Mesh(gm, mt);
+      m.position.set(camT.x, -50, camT.z);
+      m.frustumCulled = false;
+      g.add(m);
+    }
+    return g;
+  }
+
+  // ---------- 静物的骨架（灰誓者的图腾、落烬的烬晶）：一根骨骼、不会走，走实体那一套（受击闪白、死亡消散、冰冻都现成）----------
+  function stillClips(rig, sway) {
+    defClip(rig, 'windup', { dur: 0.5, hold: true, fade: 0.08, keys: { 'root.oy': [0, 0, 1, 0.05] } });
+    defClip(rig, 'attack', { dur: 0.3, hold: true, fade: 0.04, keys: { 'root.oy': [0, 0.05, 1, 0] } });
+    defClip(rig, 'stagger', { dur: 0.6, loop: true, fade: 0.1, out: 0.2, keys: { 'root.rz': [0, 0, 0.25, sway, 0.75, -sway, 1, 0] } });
+    defClip(rig, 'death', { dur: 0.45, base: 'rest', hold: true, fade: 0.04, keys: { 'root.oy': [0, 0, 1, -0.5], 'root.rz': [0, 0, 1, 0.35], 'root.s': [0, 1, 1, 0.7] } });
+  }
+  function totemRig() {
+    return rigOf('totem', () => {
+      const ST = 0x5c5866, ST_D = 0x34303c, BONE = 0xc8bfae;
+      const b = rigBuilder('totem', NB_SMALL);
+      b.j('root', null, 0, 0.2, 0).j('top', 'root', 0, 1.7, 0);
+      b.at('root').surf(SURF.stone, true);
+      b.p(gCyl(0.4, 0.48, 0.28, 6), [ST_D, ST], 0, 0.14, 0);
+      b.p(gRBox(0.42, 1.2, 0.36, 0.05), [ST_D, ST], 0, 0.86, 0, 0, 0.3, 0);
+      b.surf(SURF.bone).p(gCone(0.1, 0.42, 5), BONE, 0.24, 1.3, 0, 0, 0, -1.0).p(gCone(0.1, 0.42, 5), BONE, -0.24, 1.3, 0, 0, 0, 1.0);
+      b.g(gBox(0.06, 0.62, 0.04), 0.9, 0, 0.86, 0.2, 0, 0.3, 0).g(gBox(0.26, 0.05, 0.04), 0.9, 0, 1.0, 0.2, 0, 0.3, 0);
+      b.at('top').surf(SURF.stone, true).p(gRBox(0.34, 0.26, 0.3, 0.04), ST, 0, 1.6, 0, 0, 0.3, 0);
+      b.g(gOct(0.17), 1, 0, 1.95, 0);
+      const rig = b.build({ height: 2.1, reach: 0.5, stride: 1, shade: 0.2 });
+      rig.hitJ = [rig.J.top];
+      sock(rig, 'weapon', 'top', 0, 0.3, 0);
+      sock(rig, 'hand', 'top', 0, 0.3, 0);
+      sock(rig, 'head', 'top', 0, 0.35, 0);
+      sock(rig, 'chest', 'root', 0, 0.8, 0);
+      rig.loco = function (ent, p, t) {
+        p[rig.J.top + 1] = t * 0.9 + ent.phase; // 顶上的晶体慢慢转
+        p[rig.J.top + 4] = 0.04 * Math.sin(t * 2 + ent.phase);
+      };
+      stillClips(rig, 0.06);
+      return rig;
+    });
+  }
+  function shardRig() {
+    return rigOf('shard', () => {
+      const b = rigBuilder('shard', NB_SMALL);
+      b.j('root', null, 0, 0.2, 0).j('top', 'root', 0, 1.0, 0);
+      b.at('root').surf(SURF.stone, true).p(gCyl(0.42, 0.5, 0.22, 6), [0x2a1c18, 0x4a3428], 0, 0.11, 0);
+      b.at('top').surf(SURF.ice, true);
+      b.p(gOct(0.34), [0x8a3a1a, 0xffb060], 0, 0.95, 0, 0, 0.4, 0, 0.9, 2.2, 0.9);
+      b.g(gOct(0.2), 1, 0, 1.0, 0, 0, 0.4, 0, 0.8, 2.0, 0.8);
+      b.p(gOct(0.18), [0x8a3a1a, 0xff9a4a], 0.3, 0.4, 0.1, 0, 0, -0.5, 0.8, 1.8, 0.8);
+      const rig = b.build({ height: 1.9, reach: 0.5, stride: 1, shade: 0.2 });
+      rig.hitJ = [rig.J.top];
+      sock(rig, 'weapon', 'top', 0, 0.5, 0);
+      sock(rig, 'hand', 'top', 0, 0.5, 0);
+      sock(rig, 'head', 'top', 0, 0.9, 0);
+      sock(rig, 'chest', 'top', 0, 0.3, 0);
+      rig.loco = function (ent, p, t) {
+        p[rig.J.top + 4] = 0.06 * Math.sin(t * 3 + ent.phase);
+        p[rig.J.top + 1] = 0.3 * Math.sin(t * 0.8 + ent.phase);
+      };
+      stillClips(rig, 0.1);
+      return rig;
+    });
+  }
+
+  // ---------- 残影：首领模型换一身半透明的紫灰（只改材质参数，不换模型）----------
+  W.echoTint = function (ent) {
+    const bm = ent.bodyMat;
+    bm.transparent = true;
+    bm.opacity = 0.7;
+    bm.color.copy(lin(0xb4a8cc));
+    if (bm.emissive) {
+      bm.emissive.copy(lin(0x3a2c5a));
+      bm.emissiveIntensity = 0.8;
+      bm.userData.e0 = bm.emissive.clone();
+      bm.userData.ei0 = 0.8;
+    }
+    bm.needsUpdate = true;
+    if (ent.glowMat) {
+      ent.glowMat.emissive.copy(lin(0xb090ff));
+      ent.glowMat.userData.e0 = ent.glowMat.emissive.clone();
+    }
+    ent.uRim.value.setRGB(0.5, 0.36, 0.8);
+  };
+
+  // ---------- 小地图图样（drawOverlay 的小地图段，宝箱后面调）----------
+  // 没走近：灰色空心六边形；走到 ENC.reveal 内或进了房间（enc.seen）：这一种的图样；完成 / 失败之后变暗（同打开过的宝箱）
+  function hexPath(g, x, y, r) {
+    g.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * TAU + Math.PI / 6;
+      if (i) g.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+      else g.moveTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+    }
+    g.closePath();
+  }
+  const ENC_MM = { guard: '#b48cff', box: '#ffd75e', wanderer: '#ff9a3c', shrine: '#5fe0f0', trial: '#ff5a4a', trader: '#5fe07a', echo: '#ff9a9a', ember: '#ff8a3c' };
+  // 完成 / 失败之后：同色压暗、去掉一半饱和（同打开过的宝箱那样一眼看得出「用过了」）
+  const ENC_MM_DIM = {};
+  for (const k in ENC_MM) {
+    const c = parseInt(ENC_MM[k].slice(1), 16), m = (v) => Math.round(v * 0.45 + 72 * 0.55);
+    ENC_MM_DIM[k] = 'rgb(' + m(c >> 16) + ',' + m((c >> 8) & 255) + ',' + m(c & 255) + ')';
+  }
+  function drawEncMarkers(g, X, Z, inMM) {
+    const list = G.state && G.state.enc;
+    if (!list || !list.length) return;
+    const P = G.player;
+    g.lineWidth = 1.5;
+    for (const e of list) {
+      let x = e.site.x, z = e.site.z;
+      if (e.kind === 'wanderer' && e.seen) {
+        const m = e.mob;
+        if (!m || m.dead || !(m.awake || Math.hypot(m.x - P.x, m.z - P.z) <= G.ENC.reveal)) continue;
+        x = m.x;
+        z = m.z;
+      }
+      if (!inMM(X(x), Z(z))) continue;
+      const px = Math.round(X(x)) + 0.5, pz = Math.round(Z(z)) + 0.5;
+      g.strokeStyle = 'rgba(0,0,0,0.85)';
+      if (!e.seen) {
+        hexPath(g, px, pz, 4.2);
+        g.lineWidth = 3;
+        g.stroke();
+        g.lineWidth = 1.5;
+        g.strokeStyle = '#b8b8b8';
+        g.stroke();
+        continue;
+      }
+      const dim = e.st === 'done' || e.st === 'fail';
+      g.globalAlpha = dim ? 0.8 : 1;
+      const col = (dim ? ENC_MM_DIM : ENC_MM)[e.kind];
+      g.fillStyle = g.strokeStyle = col;
+      g.lineWidth = 2;
+      if (e.kind === 'guard') {
+        g.beginPath();
+        g.arc(px, pz, 4, 0, TAU);
+        g.moveTo(px - 2.8, pz + 2.8);
+        g.lineTo(px + 2.8, pz - 2.8);
+        g.stroke();
+      } else if (e.kind === 'box') {
+        g.fillRect(px - 3, pz - 3, 6, 6);
+        g.strokeStyle = 'rgba(40,20,0,0.95)';
+        g.lineWidth = 1.5;
+        g.beginPath();
+        g.moveTo(px - 2.6, pz - 2.6);
+        g.lineTo(px + 2.6, pz + 2.6);
+        g.moveTo(px + 2.6, pz - 2.6);
+        g.lineTo(px - 2.6, pz + 2.6);
+        g.stroke();
+      } else if (e.kind === 'wanderer') {
+        g.beginPath();
+        g.moveTo(px, pz - 4.5);
+        g.lineTo(px + 4, pz + 3.2);
+        g.lineTo(px - 4, pz + 3.2);
+        g.closePath();
+        g.fill();
+      } else if (e.kind === 'shrine') {
+        g.fillRect(px - 1.2, pz - 4, 2.4, 8);
+        g.fillRect(px - 4, pz - 1.2, 8, 2.4);
+      } else if (e.kind === 'trial') {
+        g.strokeRect(px - 3.5, pz - 3.5, 7, 7);
+      } else if (e.kind === 'trader') {
+        g.beginPath();
+        g.arc(px, pz, 3.6, 0, TAU);
+        g.fill();
+      } else if (e.kind === 'echo') {
+        g.beginPath();
+        g.moveTo(px, pz - 4.6);
+        g.lineTo(px + 4.6, pz);
+        g.lineTo(px, pz + 4.6);
+        g.lineTo(px - 4.6, pz);
+        g.closePath();
+        g.stroke();
+      } else if (e.kind === 'ember') {
+        g.beginPath();
+        g.arc(px, pz, 1.8, 0, TAU);
+        g.fill();
+        g.lineWidth = 1.3;
+        g.beginPath();
+        g.arc(px, pz, 4.2, 0, TAU);
+        g.stroke();
+      }
+      g.globalAlpha = 1;
+    }
+    g.lineWidth = 1.5;
+  }
+
   // ===== 区域地形：ash（灰烬荒原）—— zones-ash 只改这一节 =====
   // 布局（zones-notes/design.md §3.1）：起点（r=8 圆盘 + 朝出口长出去的一小块）→ R1 焦木林（树干是掩体）→ R2 河岸 →
   // 石桥过熔岩河 → R3 废弃农庄（L 形矮墙 + 烟囱）→ R4 → 熔渣坑场地（边上嵌 3 个熔岩池）。
@@ -8935,6 +9504,8 @@
     if (!z || warmed.has(z.def.id)) return;
     warmed.add(z.def.id);
     const t0 = performance.now();
+    const ew = encWarm(); // 异兆道具的材质一起编好：异兆第一次出现时不现编着色器
+    scene.add(ew);
     try {
       renderer.compile(scene, camera);
       const seen = new Set();
@@ -8954,10 +9525,12 @@
     } catch (e) {
       if (window.console) console.warn('[画面] 进区预热失败（不影响游戏）', e);
     }
+    scene.remove(ew);
     if (z.ms) z.ms.compile = performance.now() - t0;
   };
   W.buildZone = function (def, level) {
     disposeZone();
+    W.encClear(); // 异兆的道具随区域一起清掉
     W.clearFx();
     hideRiftFx();
     const t0 = performance.now();
@@ -14515,7 +15088,7 @@
     });
   }
 
-  const MOB_RIG = { husk: huskRig, brute: bruteRig, spitter: spitterRig, bomber: bomberRig, phaser: phaserRig, charger: chargerRig };
+  const MOB_RIG = { husk: huskRig, brute: bruteRig, spitter: spitterRig, bomber: bomberRig, phaser: phaserRig, charger: chargerRig, totem: totemRig, shard: shardRig }; // totem / shard：异兆的静物
 
   W.makeMob = function (type, elemHex, elite) {
     const eh = hexOf(elemHex);
@@ -17110,6 +17683,11 @@
       bake('lt/sackG', [[gOct(0.045), WH, 0, -0.04, 0.2]]),
     ],
     // 通货：一簇碎晶；技能宝石：竖长的六棱晶柱套着金箍；辅助宝石：扁圆的切面宝石嵌在金环里
+    // 烛芯（异兆）：一截矮蜡烛头，烛芯上一团按种类着色的余火
+    frag: () => [
+      bake('lt/frag', [[gCyl(0.1, 0.11, 0.24, 8), 0xe8dcc4, 0, -0.08, 0], [gCyl(0.035, 0.05, 0.12, 5), 0xf2e8d4, 0.07, -0.02, 0.05, 0, 0, 0.2], [gCyl(0.008, 0.008, 0.06, 4), 0x2a2018, 0, 0.07, 0]]),
+      bake('lt/fragG', [[gOct(0.06), WH, 0, 0.15, 0, 0, 0, 0, 0.8, 1.6, 0.8]]),
+    ],
     cur: () => [null, bake('lt/cur', [[gOct(0.17), WH, 0, 0.02, 0, 0, 0.4, 0, 0.7, 1.25, 0.7], [gOct(0.1), WH, 0.14, -0.08, 0.04, 0, 0, -0.5, 0.7, 1.2, 0.7], [gOct(0.09), WH, -0.12, -0.1, -0.05, 0.3, 0, 0.5, 0.7, 1.2, 0.7]])],
     skill: () => [
       bake('lt/skill', [[gTorus(0.15, 0.028, 4, 6), LC.gold, 0, 0, 0, Math.PI / 2], [gTorus(0.1, 0.022, 4, 6), LC.gold, 0, -0.22, 0, Math.PI / 2]]),
@@ -22901,6 +23479,7 @@
       if (fx.dress) updateAshDress(fx.dress);
       if (fx.tz && fx.tz.fx) fx.tz.fx(dt, fx.terrain, fx.tctx); // 各区自己的布景动画（ZONE_TERRAIN[id].fx）
       if (fx.chests) updateChests(fx.chests, dt);
+      if (encProps.length) encUpdate(dt); // 异兆的道具动画
       if (fx.gU) fx.gU.uLavaM.value.y = wtime;
       fx.glowMat.opacity = 0.38 + Math.sin(wtime * 1.7) * 0.08;
       if (fx.bossSigil) {
@@ -23241,15 +23820,15 @@
       // 元素异常值不为空（或刚触发）的也画：满血的怪被光环 / 异常灌着的时候也看得见进度
       const bu = e.bu;
       const buOn = !!bu && (bu.fire > 0.005 || bu.cold > 0.005 || bu.light > 0.005 || e.freeze > 0 || e.shockT > 0 || e.blastT > 0);
-      if (e.dead || e.isBoss || !e.awake || !(e.elite || e.hp < e.maxHp || buOn)) continue;
+      if (e.dead || (e.isBoss && !e.echo) || !e.awake || !(e.elite || e.echo || e.hp < e.maxHp || buOn)) continue; // echo：异兆「残影」不占首领血条，头顶画一条
       const p = projTo(e.x, e.height * (e.elite ? 1.3 : 1) + 0.35, e.z);
       if (!p.ok || p.x < -40 || p.x > vw + 40 || p.y < -20 || p.y > vh + 20) continue;
-      const w = e.elite ? 60 : 40, h = e.elite ? 6 : 4;
+      const w = e.echo ? 90 : e.elite ? 60 : 40, h = e.elite || e.echo ? 6 : 4;
       const x = Math.round(p.x - w / 2), y = Math.round(p.y);
       g.fillStyle = 'rgba(0,0,0,0.72)';
       g.fillRect(x - 1, y - 1, w + 2, h + 2);
       const k = Math.max(0, Math.min(1, e.hp / e.maxHp));
-      g.fillStyle = e.freeze > 0 ? '#9fe2ff' : e.elite ? '#ffb53c' : '#d9412f';
+      g.fillStyle = e.freeze > 0 ? '#9fe2ff' : e.echo ? '#b48cff' : e.elite ? '#ffb53c' : '#d9412f';
       g.fillRect(x, y, w * k, h);
       if (e.shockT > 0 && Math.sin(wtime * 30) > 0.2) {
         // 感电：血条边上噼啪闪一下
@@ -23532,6 +24111,7 @@
           g.fillRect(cx - 2, cz - 2, 5, 5);
           if (!c.open) g.strokeRect(cx - 2.5, cz - 2.5, 6, 6);
         }
+        drawEncMarkers(g, X, Z, inMM); // 异兆：灰色六边形 / 走近后的图样（D4，和渊印的领群环错开：这段在宝箱后面）
       }
       g.fillStyle = P.dead ? '#888888' : '#ffffff';
       g.strokeStyle = 'rgba(0,0,0,0.9)';
