@@ -8906,6 +8906,29 @@
     }
     return null;
   }
+  // 残影的浮现点：默认是房间芯 s。玩家多半一进门就触发，芯常在镜头北边六到九米，首领那么高的残影连同预警环都在画面顶上之外。
+  // 芯的脚下和头顶都在画面里就不动；否则在这个房间里找离芯最近、离玩家 5–9 m、整个身子都在画面里、玩家看得见的点，
+  // 找不到再退一步只要半身在画面里，都没有就还是芯（只挪浮现的位置，拴绳、等级、招式都不变；不用随机数）
+  const ECHO_H = 4.6;
+  function echoSpot(s) {
+    const W = G.world;
+    const seen = (x, z, h) => W.inView(x, z, 0.2) && W.inView(x, z, h);
+    if (seen(s.x, s.z, ECHO_H)) return s;
+    for (const h of [ECHO_H, ECHO_H * 0.5]) {
+      for (let r = 1; r <= 12; r++) {
+        for (let k = 0; k < 16; k++) {
+          const a = (k / 16) * TAU, x = s.x + Math.sin(a) * r, z = s.z + Math.cos(a) * r;
+          const dp = Math.hypot(x - P.x, z - P.z);
+          if (dp < 5 || dp > 9 || W.roomAt(x, z) !== s.room || !(W.sdAt(x, z) >= 2) || !W.walkable(x, z, 1) || !seen(x, z, h)) continue;
+          let ok = true;
+          const n = Math.ceil(dp / 0.5);
+          for (let i = 1; i < n && ok; i++) if (!W.shotFree(P.x + ((x - P.x) * i) / n, P.z + ((z - P.z) * i) / n, -0.2)) ok = false;
+          if (ok) return { x, z };
+        }
+      }
+    }
+    return s;
+  }
   // 异兆里的怪：普通小怪（区域怪群同一套打折，horde）、awake 直接醒着
   function encMob(enc, type, x, z, o) {
     const e = G.spawnMob(type, x, z, (o && o.level) || enc.level, { elite: !!(o && o.elite), awake: true, horde: !(o && (o.elite || o.noHorde)), pack: null });
@@ -9270,7 +9293,8 @@
         const D = G.ENCOUNTERS.echo.p, s = enc.site, zone = state.zone;
         enc.st = 'run';
         const lvl = enc.level + D.lv;
-        encSpawn(enc, s.x, s.z, 0xb090ff, (x, z) => {
+        const at = (enc.at = echoSpot(s));
+        encSpawn(enc, at.x, at.z, 0xb090ff, (x, z) => {
           const e = G.spawnBoss(zone.def.boss, x, z, lvl, { echo: true, hpK: D.hp, pats: D.pats });
           e.leashRooms = [s.room];
           e.leashDoors = zone.links.filter((L) => L.door && (L.a === s.room || L.b === s.room)).map((L) => L.door);
@@ -9279,7 +9303,7 @@
           enc.mob = e;
           return e;
         });
-        G.world.ring(s.x, s.z, 4, 0xb090ff, G.ENC.warn);
+        G.world.ring(at.x, at.z, 4, 0xb090ff, G.ENC.warn);
         toast('「' + G.BOSSES[zone.def.boss].name + '」的残影浮现了', '#c8b0ff');
       },
     },
