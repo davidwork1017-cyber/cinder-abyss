@@ -7718,7 +7718,9 @@
       tick(enc, dt, d, pr) {
         const D = G.ENCOUNTERS.trial.p, s = enc.site;
         if (enc.st === 'idle') {
+          // 跨过门口的符文才开始：在小室里、并且离门比符文还远（站在门洞里不算，免得人还半在门外就开打）
           if (pr !== s.room || P.dead) return;
+          if (dist(P.x, P.z, s.door.x, s.door.z) < dist(s.rune.x, s.rune.z, s.door.x, s.door.z) - 0.1) return;
           enc.st = 'run';
           enc.t = D.time;
           enc.wave = 0;
