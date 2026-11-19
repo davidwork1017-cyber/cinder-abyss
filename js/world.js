@@ -23342,8 +23342,8 @@
   function applyRage(ent) {
     const ms = ent.mats;
     for (let i = 0; i < ms.length; i++) {
-      ms[i].emissive.setRGB(1, 0.16, 0.08);
-      ms[i].emissiveIntensity = ms[i].userData.fi * 0.45;
+      ms[i].emissive.setRGB(1, 0.1, 0.04);
+      ms[i].emissiveIntensity = ms[i].userData.fi * 0.85; // 和受击闪白差不多亮，但颜色是红的、一直亮着
     }
   }
   W.rage = function (ent, on) {
