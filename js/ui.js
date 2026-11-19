@@ -1202,6 +1202,7 @@
     }
     box.innerHTML = '<div class="bt-t">' + esc(title) + '</div><div class="bt-n">' + esc(name) + '</div>' + (sub ? '<div class="bt-s">' + esc(sub) + '</div>' : '');
     if (color) box.style.setProperty('--c', color);
+    box.classList.toggle('rq', color === G.RELIC_COLOR); // 渊契：底色和光晕换成冷的翠色
     box.classList.remove('on', 'out');
     void box.offsetWidth; // 重新触发入场动画
     box.classList.add('on');
@@ -1431,7 +1432,7 @@
     if (isW) h += weaponBlock(item, o.cmp);
     if (L.armour) h += '<div class="ic-line arm">护甲 <b>' + L.armour + '</b></div>';
     if (L.imp) h += '<div class="ic-line imp">' + esc(L.imp) + '</div>';
-    const U = item.rarity === 3 && G.UNIQUES[item.uq];
+    const U = (item.rarity === 3 && G.UNIQUES[item.uq]) || (item.rarity === 4 && G.RELICS[item.rq]);
     if (U) {
       // 烬铸：词缀行后面写区间（固定行不写），再给完美度、机制、来历和「无法改造」
       h += '<div class="ic-sep"></div>';
@@ -1446,7 +1447,7 @@
       // 背包详情栏（o.compact）里省掉来历和「无法改造」（下面的通货栏已经写了），免得把按钮挤出窗口
       if (!o.compact) {
         h += '<div class="ic-lore">' + esc(U.lore) + '</div>';
-        h += '<div class="ic-lock">烬铸武器无法改造</div>';
+        h += '<div class="ic-lock">' + lockText(item) + '</div>';
       }
     } else if (L.affixes.length) {
       h += '<div class="ic-sep"></div>';
@@ -1466,6 +1467,9 @@
     h += '</div>';
     return h;
   }
+
+  // 烬铸 / 渊契「无法改造」的说法
+  const lockText = (it) => G.RARITY_NAME[it.rarity] + (it.rarity === 3 ? '武器' : '') + '无法改造';
 
   // 武器卡片上的伤害一节：物理伤害、每秒攻击、武器秒伤（cmp 给出时，每行后面标出与它相比的变化），以及自带的武器技
   function weaponBlock(item, cmp) {
@@ -1634,7 +1638,38 @@
     return (
       '<div class="sec-title sm codex-t">烬铸图鉴<span class="sec-note">已拾到 ' + nFound + ' / ' + G.UNIQUE_IDS.length + '</span></div>' +
       '<div class="codex">' + rows +
-      '<div class="cx-note">层级 1 约 ' + Math.round(G.UNIQUE_DROP.chance[1] * 100) + '%、层级 2 起约 ' + Math.round(G.UNIQUE_DROP.chance[2] * 100) + '%，最晚第 ' + (pity + 1) + ' 次必掉</div></div>'
+      '<div class="cx-note">层级 1 约 ' + Math.round(G.UNIQUE_DROP.chance[1] * 100) + '%、层级 2 起约 ' + Math.round(G.UNIQUE_DROP.chance[2] * 100) + '%，最晚第 ' + (pity + 1) + ' 次必掉</div></div>' +
+      relicCodexHtml()
+    );
+  }
+  // 渊契图鉴（排在烬铸后面）：13 件普通渊契，拾到过的显示名字、图标和最高完美度；没拾到的是基底的暗剪影。
+  // 每件写来源（首领 / 异兆 / 烈印；来源还没开放时写「尚未开放」）和保底进度（烈印两件共用一份）
+  function relicCodexHtml() {
+    const U = G.save.relic || { found: {}, best: {}, pity: {} };
+    const D = G.RELIC_DROP;
+    const nFound = G.RELIC_IDS.filter((id) => U.found[id]).length;
+    let rows = '';
+    for (const id of G.RELIC_IDS) {
+      const R = G.RELICS[id];
+      const found = !!U.found[id];
+      const key = R.src === 'seal' ? 'seal' : id;
+      const max = G.relicPityMax(key);
+      const n = U.pity[key] || 0;
+      const open = !!D.src[R.src];
+      const src = R.src === 'boss' ? esc(G.BOSSES[R.boss].name) + '（轮回 1 起）' : R.src === 'enc' ? '异兆「' + esc(G.RELIC_ENC_NAME[R.enc] || R.enc) + '」' : '烈印下击杀首领';
+      const icon = found ? IC.item({ slot: R.slot, baseIdx: R.base, baseName: '', rarity: 4, rq: id }) : IC.item({ slot: R.slot, baseIdx: R.base, baseName: G.BASES[R.slot][R.base].names[2], rarity: 0 });
+      rows +=
+        '<div class="cx-row rq' + (found ? ' found' : '') + '" data-rq="' + id + '">' +
+        '<span class="ibox r4' + (found ? '' : ' unk') + '">' + icon + '</span>' +
+        '<div class="cx-main"><div class="cx-name">' + (found ? esc(R.name) : '？？？') + '<em>' + G.SLOT_NAME[R.slot] + '</em></div>' +
+        '<div class="cx-sub"><b>' + esc(R.mechName) + '</b> · ' + src + (open ? '' : ' · 尚未开放') + '</div>' +
+        '<div class="cx-stat"><span>' + (found ? '最高完美度 <b>' + (U.best[id] || 0) + '%</b>' : '尚未拾到') + '</span>' +
+        (open ? '<span class="cx-pity">保底 <b>' + n + '</b>/' + max + '<i style="--p:' + Math.round((n / max) * 100) + '%"></i></span>' : '') + '</div></div></div>';
+    }
+    return (
+      '<div class="sec-title sm codex-t rq">' + G.RELIC_NAME + '图鉴<span class="sec-note">已拾到 ' + nFound + ' / ' + G.RELIC_IDS.length + '</span></div>' +
+      '<div class="codex rq">' + rows +
+      '<div class="cx-note">区域首领：层级 1 约 ' + Math.round(D.boss.chance[1] * 100) + '%、层级 2 起约 ' + Math.round(D.boss.chance[2] * 100) + '%，和烬铸分开掷，最晚第 ' + (D.boss.pity + 1) + ' 次必掉。' + G.RELIC_NAME + '只出在武器以外的部位，词缀固定，强在机制。</div></div>'
     );
   }
 
@@ -1708,7 +1743,7 @@
           (ok ? '' : ' disabled') + '>' + IC.cur(id) + '<span>' + c.name + '</span><b>' + n + '</b></button>';
       }
       const acts =
-        '<div class="act-row' + (it.rarity === 3 ? ' top' : '') + '">' +
+        '<div class="act-row' + (it.rarity >= 3 ? ' top' : '') + '">' +
         (sel.equipped
           ? '<button type="button" tabindex="-1" class="btn" data-act="unequip">卸下</button>'
           : '<button type="button" tabindex="-1" class="btn primary" data-act="equip">装备</button>' +
@@ -1716,19 +1751,20 @@
             '<button type="button" tabindex="-1" class="btn" data-act="drop">丢弃</button>') +
         '</div>' +
         (ui.invMsg ? '<div class="inv-msg">' + esc(ui.invMsg) + '</div>' : ui.invOk ? '<div class="inv-msg ok">' + esc(ui.invOk) + '</div>' : '');
-      // 烬铸武器的卡片很长（区间、完美度、机制说明）：按钮放到卡片上面，小窗口里也不用往下滚就能点到
+      // 烬铸武器 / 渊契的卡片很长（区间、完美度、机制说明）：按钮放到卡片上面，小窗口里也不用往下滚就能点到
+      const fixed = it.rarity >= 3;
       detail =
         '<div class="sec-title">' + (sel.equipped ? '已装备' : '背包物品') + '</div>' +
-        (it.rarity === 3 ? acts : '') +
+        (fixed ? acts : '') +
         '<div class="detail-card' + (ui.flash ? ' flash' : '') + '" data-item="' + it.uid + '">' +
-        itemCard(it, { vd: sel.equipped ? null : verdict(it), affTips: it.rarity !== 3, compact: it.rarity === 3, cmp: sel.equipped ? null : S.equip[it.slot] }) + '</div>' +
-        (it.rarity === 3
+        itemCard(it, { vd: sel.equipped ? null : verdict(it), affTips: !fixed, compact: fixed, cmp: sel.equipped ? null : S.equip[it.slot] }) + '</div>' +
+        (fixed
           ? ''
           : (cap
             ? '<div class="aff-count">前缀 <b>' + np + '</b>/' + cap + '<i></i>后缀 <b>' + ns + '</b>/' + cap + '<i></i>悬停词缀查看阶级</div>'
             : '<div class="aff-count">普通物品没有词缀，可以用通货改造</div>') + acts) +
-        '<div class="sec-title sm">通货改造<span class="sec-note">' + (it.rarity === 3 ? '烬铸武器无法改造' : '点击，或把通货拖到物品上') + '</span></div>' +
-        '<div class="craft-grid' + (it.rarity === 3 ? ' locked' : '') + '">' + craft + '</div>';
+        '<div class="sec-title sm">通货改造<span class="sec-note">' + (fixed ? lockText(it) : '点击，或把通货拖到物品上') + '</span></div>' +
+        '<div class="craft-grid' + (fixed ? ' locked' : '') + '">' + craft + '</div>';
     } else {
       detail =
         '<div class="sec-title">物品详情</div>' +
@@ -1752,7 +1788,7 @@
       '<div class="col col-l"><div class="sec-title">装备</div><div class="eq-grid">' + eq + '</div>' +
       '<div class="sec-title">属性<span class="sec-note">等级 ' + S.level + '</span></div><div class="stats scroll" data-scroll="stats">' + statSheet() + '</div></div>' +
       '<div class="col col-m"><div class="sec-title">背包<span class="sec-note">' + S.bag.length + ' / ' + G.BAG_SIZE + '</span>' +
-      '<button type="button" tabindex="-1" class="btn sm uqb' + (sel ? '' : ' on') + '" data-act="codex" data-tip="txt:查看三把烬铸武器的收集情况与各首领的保底进度">烬铸图鉴</button>' +
+      '<button type="button" tabindex="-1" class="btn sm uqb' + (sel ? '' : ' on') + '" data-act="codex" data-tip="txt:查看烬铸武器与渊契的收集情况和各自的保底进度">图鉴</button>' +
       '<button type="button" tabindex="-1" class="btn sm" data-act="sort"' + (S.bag.length > 1 ? '' : ' disabled') + '>整理</button>' +
       '<button type="button" tabindex="-1" class="chk' + (withMagic ? ' on' : '') + '" data-act="opt" data-opt="salvageMagic"><i></i>含魔法</button>' +
       '<button type="button" tabindex="-1" class="btn sm" data-act="salvage-all"' + (bulkN ? '' : ' disabled') + '>一键分解' + (bulkN ? '（' + bulkN + '）' : '') + '</button></div>' +
@@ -3280,7 +3316,7 @@
         } else if (f.item.rarity >= 2 && !(ui.salvArm.uid === d.item && now - ui.salvArm.t < 3000)) {
           ui.salvArm = { uid: d.item, t: now };
           ui.sel = d.item;
-          ui.invMsg = '再 Shift+点击一次，确认分解' + G.RARITY_NAME[f.item.rarity] + (f.item.rarity === 3 ? '武器' : '物品') + '「' + f.item.name + '」';
+          ui.invMsg = '再 Shift+点击一次，确认分解' + G.RARITY_NAME[f.item.rarity] + (f.item.rarity === 3 ? '武器' : f.item.rarity === 4 ? '' : '物品') + '「' + f.item.name + '」';
           G.sfx('click');
         } else {
           ui.salvArm = { uid: null, t: 0 };
@@ -3325,10 +3361,11 @@
       const f = selItem();
       if (!f) return;
       const now = performance.now();
-      if (f.item.rarity === 3 && !(ui.salvArm.uid === f.item.uid && now - ui.salvArm.t < 4000)) {
-        // 烬铸武器：第一次点只是上膛，4 秒内再点一次「分解」才真的分解
+      if (f.item.rarity >= 3 && !(ui.salvArm.uid === f.item.uid && now - ui.salvArm.t < 4000)) {
+        // 烬铸武器 / 渊契：第一次点只是上膛，4 秒内再点一次「分解」才真的分解
         ui.salvArm = { uid: f.item.uid, t: now };
-        const got = Object.keys(G.UNIQUE_SALVAGE).map((id) => G.CURRENCY[id].name + ' ×' + G.UNIQUE_SALVAGE[id]).join('、');
+        const SV = f.item.rarity === 4 ? G.RELIC_SALVAGE : G.UNIQUE_SALVAGE;
+        const got = Object.keys(SV).map((id) => G.CURRENCY[id].name + ' ×' + SV[id]).join('、');
         ui.invMsg = '再点一次「分解」确认：分解「' + f.item.name + '」可得 ' + got;
         G.sfx('click');
         render();
@@ -3436,8 +3473,8 @@
         ui.flash = true;
         G.sfx('craft');
       } else {
-        ui.invMsg = f.item.rarity === 3 ? '烬铸武器无法改造' : '这件物品现在不能使用' + G.CURRENCY[d.cur].name;
-        if (f.item.rarity === 3) G.sfx('deny');
+        ui.invMsg = f.item.rarity >= 3 ? lockText(f.item) : '这件物品现在不能使用' + G.CURRENCY[d.cur].name;
+        if (f.item.rarity >= 3) G.sfx('deny');
       }
       render();
     },
@@ -5200,6 +5237,7 @@
     initHud();
     initWorldUi();
     IC.warm(); // 图标趁空闲分批画好，第一次打开背包不再卡顿
+    document.documentElement.style.setProperty('--relic', G.RELIC_COLOR); // 渊契的颜色只在 data.js 写一次，样式表里读 --relic
 
     const panel = el.panel;
     panel.addEventListener('click', onPanelClick);

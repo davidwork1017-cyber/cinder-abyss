@@ -261,6 +261,17 @@
         refreshUi();
         return u;
       }
+      // 渊契：rarity 传 4，slot 传渊契 id（不认识时随机一件普通渊契），baseIdx 位置同样可以改传完美度
+      if (rarity === 4) {
+        const id = G.RELICS[slot] ? slot : G.pick(G.RELIC_IDS);
+        const q = typeof baseIdx === 'number' && baseIdx >= 0 && baseIdx <= 1 && G.RELICS[slot] ? baseIdx : undefined;
+        const r = G.rollRelic(id, Math.max(1, ilvl), q);
+        G.save.bag.push(r);
+        G.noteRelic(r);
+        if (G.icons && G.icons.warmRelic) G.icons.warmRelic(id);
+        refreshUi();
+        return r;
+      }
       const item = G.rollItem(Math.max(1, ilvl), rarity || 0, slot, baseIdx);
       G.save.bag.push(item);
       refreshUi();
