@@ -16898,7 +16898,8 @@
     if (!riftBeamObj) {
       const g = new T.Group(), parts = [];
       const add = (w, white, vert) => {
-        const m = new T.Mesh(gQuad(), new T.MeshBasicMaterial({ map: boltTex(), color: 0xffffff, transparent: true, opacity: 1, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false, side: T.DoubleSide, fog: false }));
+        // vf-vfx：光束换成特效着色器（形状还是闪电贴图的亮芯 + 柔边，里面顺着射线往前流的亮纹），四段各自一个材质（颜色不同），着色器程序共用
+        const m = new T.Mesh(gQuad(), G.vfx.sprite({ shape: 'map', map: boltTex(), flow: true, blend: 'add', side: 'double' }, true));
         m.scale.set(w, 1, 1);
         if (vert) m.rotation.z = HALF_PI;
         m.renderOrder = 5;
@@ -16920,7 +16921,7 @@
     const g = riftBeamObj, u = g.userData, y0 = 3.1, y1 = 0.35;
     if (u.hex !== hex) {
       u.hex = hex;
-      for (const q of u.parts) q.m.material.color.copy(lin(q.white ? mixHex(hex, 0xffffff, 0.75) : hex));
+      for (const q of u.parts) q.m.material.uniforms.uColor.value.copy(lin(q.white ? mixHex(hex, 0xffffff, 0.75) : hex));
       u.s0.material = u.s1.material = spriteMat(mixHex(hex, 0xffffff, 0.4));
     }
     const len = Math.hypot(x1 - x0, y1 - y0, z1 - z0);
@@ -19064,6 +19065,8 @@
       const a = ang + rand(-1.3, 1.3), v = rand(5, 9);
       tChunk(0, x, 0.4, z, Math.sin(a) * v, rand(4, 8), Math.cos(a) * v, rand(0.45, 0.65), rand(0.2, 0.3), i % 2 ? P[1] : 0xb07a5c, i % 2 ? P[2] : 0x5a3a4c, 22);
     }
+    // vf-vfx：砸地扬起的一道贴地尘环（序列帧冲击环，尘土色）
+    W.fxFlip(VFB.ring, x, 0.12, z, R * 2.3, 0.42, dust, { flat: true, a: 0.9 });
     flashLight(x, 1.5, z, 0xffc070, 0.8);
   };
   // 处决冲刺的残影：沿路径撒一串往后飘的光屑
@@ -19170,15 +19173,14 @@
     '  float l = length(vP);',
     '  float rr = 0.12 + 0.88 * (1.0 - (1.0 - uK) * (1.0 - uK));', // 先快后慢地扩张
     // 卡通版：一道硬边的色环，越扩越细；外缘一条浅色亮边；不透明度三档。
-    // vf-vfx：环身的粗细沿一圈有起伏（噪声），扩到后半程环身被噪声打出几道缺口，散开着消失
+    // vf-vfx：环身的粗细沿一圈有起伏（噪声），亮边里有几段更亮的光斑。环始终是连着的一整圈：怪的起手提示、落点预警也用它，不能断
     '  float an = atan(vP.x, vP.y) / 6.2831853;',
-    '  float nz = vfxNA(vec2(an * 5.0 + uSeed * 7.0, uSeed + uK * 0.35)).r;',
+    '  float nz = vfxNA(vec2(an * 6.0 + uSeed * 7.0, uSeed + uK * 0.35)).r;',
     '  float w = (0.05 + 0.13 * (1.0 - uK)) * (0.7 + 0.6 * nz);',
     '  if (l > rr || l < rr - w) discard;',
-    '  if (uK > 0.4 && nz < (uK - 0.4) * 0.75) discard;',
     '  float lit = step(rr - w * 0.35, l);',
     '  float a = uK < 0.45 ? 0.9 : (uK < 0.75 ? 0.62 : 0.32);',
-    '  gl_FragColor = vec4(mix(uColor, uC0, lit), a);',
+    '  gl_FragColor = vec4(mix(mix(uColor, uC0, lit), vec3(1.0), lit * step(0.72, nz) * 0.35), a);',
     '}',
   ].join('\n');
   // 斩击弧（卡通版）：一弯实色的月牙从弧的一端扫到另一端。前沿最厚、往尾巴收尖，弧的两端也收尖；
@@ -19305,7 +19307,7 @@
     '  float w = 0.08 + 0.16 * vfxNA(vec2(vUv.y * 0.31 + uSeed, uTime * 3.7)).r;',
     '  float core = 1.0 - smoothstep(w, w + 0.05, x);',
     '  float fil = smoothstep(0.6, 0.82, vfxNB(vec2(vUv.x * 0.5 + uSeed * 2.0, vUv.y * 0.18 - uTime * 4.0)).r) * (1.0 - smoothstep(0.3, 0.85, x));',
-    '  float a = max(max(prof * 0.7, fil * 0.85), core);',
+    '  float a = max(max(prof * 0.85, fil * 0.9), core);',
     '  vec3 col = mix(uColor, vec3(1.0), core * 0.7);',
     '  gl_FragColor = linearToOutputTexel(vec4(col, a * uOpacity));',
     '}',
@@ -20260,6 +20262,9 @@
       spawnP(x + Math.sin(a) * d, 0.2, z + Math.cos(a) * d, Math.sin(a) * rand(0.2, 1.5), rand(5, 10), Math.cos(a) * rand(0.2, 1.5), rand(0.35, 0.7), rand(0.18, 0.32), _c.r + (1 - _c.r) * wh, _c.g + (1 - _c.g) * wh, _c.b + (1 - _c.b) * wh, 9, 1.2);
     }
     W.burst(x, 0.6, z, hex, 22, 6, 0.5);
+    // vf-vfx：贴地扩开的序列帧冲击环（噪声打出缺口）+ 中心一记星芒
+    W.fxFlip(VFB.ring, x, 0.12, z, r * 2.15, 0.45, mixHex(hex, 0xffffff, 0.25), { flat: true });
+    W.fxFlip(VFB.spark, x, 0.9, z, 1.4 + r * 0.35, 0.22, mixHex(hex, 0xffffff, 0.4), { a: 0.85 });
     flare(x, 0.8, z, hex, 2.2, 0.14);
     W.shake(0.3);
   };
@@ -20542,7 +20547,7 @@
     // 亮的霜色细线两侧各垫一道深色描边（外侧那道更宽）：冰面这种浅色地面上也看得出圈在哪
     '  float halo = max(1.0 - smoothstep(0.0, 0.03, abs(l - 0.985)), (1.0 - smoothstep(0.0, 0.016, abs(l - 0.925))) * 0.7) * (1.0 - edge);',
     // vf-vfx：靠外沿的一圈淡淡的霜花（极坐标里铺胞腔边的细纹，慢慢转），脉冲波扫过的地方霜花亮一下；圈里大部分还是空的，怪看得清
-    '  vec2 pol = vec2(an / 6.2831853 * 7.0 + uTime * 0.015, l * 1.3);',
+    '  vec2 pol = vec2(an / 6.2831853 * 8.0 + uTime * 0.015, l * 1.3);',
     '  float cr = vfxNA(pol).b * (0.6 + 0.4 * vfxNA(pol * 0.5 + 0.3).r);',
     '  float fb = smoothstep(0.66, 0.88, l) * (1.0 - smoothstep(0.92, 0.95, l));',
     '  float frost = step(0.45, cr) * fb * (0.13 + wave * 3.0);',
@@ -20995,8 +21000,8 @@
     // 火舌：形状还是原来的贴图，外沿被往后滚的条纹噪声啃出缺口（js/vfx.js 的 lick）
     pfPart('flame', flameQuad, G.vfx.sprite({ shape: 'map', map: flameTex(), lick: 0.55, afx: true, blend: 'add' }), 480, 6, true);
     // 普通混合的火舌：浅色地面（冰原、灰烬）上加色的火会被冲成一片白，垫一层实色的橙红火舌，火的形状和颜色才立得住。
-    // vf-vfx：三档色带（深红边 / 主色 / 往白混的亮芯，带一点流动的噪声）+ 噪声啃边
-    pfPart('flameN', flameQuad, G.vfx.sprite({ shape: 'map', map: flameHardTex(), lick: 0.42, tone: true, lumLo: 0.5, afx: true, blend: 'normal' }), 420, 5, true);
+    // vf-vfx：三档色带（深红边 / 主色 / 往白混的亮芯），色带的分界跟着一层往后流的噪声起伏。轮廓不啃：长火舌的尾巴又细又淡，一啃就短一截，掷焰的样子就变了
+    pfPart('flameN', flameQuad, G.vfx.sprite({ shape: 'map', map: flameHardTex(), tone: true, lumLo: 0.5, afx: true, blend: 'normal' }), 420, 5, true);
     // vf-vfx：雷球表面的电弧换成序列帧图集里的电弧（每秒 24 帧，每条各自的种子错开帧），一闪一折地跳；旧贴图照旧建（随机序列不变）
     crackleTex();
     pfPart('arc', quad, G.vfx.sprite({ shape: 'flipB', chan: 2, fps: 24, afx: true, blend: 'add' }), 120, 6, true);
@@ -22951,7 +22956,8 @@
 
   // ---------- 召唤法阵 / 聚焦标记（友方特效：开场建好，运行时只改参数，不分配） ----------
   // 法阵：沿圆周「画」出来的一张符阵（复用竞技场法阵的贴图），一边转一边淡出；中间升起一截魂火光柱
-  const SIGIL_FRAG = [
+  // vf-vfx：淡入淡出改成噪声消融（符阵一块块浮现 / 散掉，门限边上一道亮边），拼上特效贴图库的 GLSL 工具
+  const SIGIL_FRAG = G.vfx.GLSL + '\n' + [
     'uniform sampler2D uMap; uniform vec3 uColor; uniform float uK; uniform float uA; uniform float uRot; varying vec2 vP;',
     'void main(){',
     '  float l = length(vP);',
@@ -22962,8 +22968,9 @@
     '  float an = atan(vP.x, vP.y) / 6.2831853 + 0.5;', // 0..1 绕一圈
     '  float rev = smoothstep(an - 0.06, an, uK * 1.08);', // 符线沿圆周依次亮起
     '  float core = (1.0 - smoothstep(0.0, 0.95, l)) * 0.22;',
-    '  float a = (t * rev + core) * uA;',
-    '  gl_FragColor = vec4(mix(uColor, vec3(1.0), t * rev * 0.4) * a, 1.0);',
+    '  vec2 er = vfxErode(vfxNA(q * 0.7 + 0.31).r * 0.9 + 0.05, 1.0 - uA, 0.07);',
+    '  float a = (t * rev + core) * er.x * (0.45 + 0.55 * uA);',
+    '  gl_FragColor = vec4(mix(uColor, vec3(1.0), t * rev * 0.4 + er.y * 0.5) * a, 1.0);',
     '}',
   ].join('\n');
   const SUMMON_N = 6;
@@ -22998,7 +23005,7 @@
   function initAllyFx() {
     const colGeo = geo('summonCol', () => new T.CylinderGeometry(0.62, 0.9, 3, 14, 1, true).translate(0, 1.5, 0));
     for (let i = 0; i < SUMMON_N; i++) {
-      const u = { uMap: { value: sigilTex() }, uColor: { value: new T.Color(ALLY_HEX) }, uK: { value: 0 }, uA: { value: 0 }, uRot: { value: 0 } };
+      const u = G.vfx.uni({ uMap: { value: sigilTex() }, uColor: { value: new T.Color(ALLY_HEX) }, uK: { value: 0 }, uA: { value: 0 }, uRot: { value: 0 } });
       const sm = new T.ShaderMaterial({ uniforms: u, vertexShader: FX_VERT, fragmentShader: SIGIL_FRAG, transparent: true, depthWrite: false, blending: T.AdditiveBlending, side: T.DoubleSide });
       const grp = new T.Group();
       const sig = new T.Mesh(gQuad(), sm);
@@ -23157,6 +23164,7 @@
     }
     for (let i = 0; i < 6; i++) spawnP(x + rand(-R, R) * 0.5, 0.4, z + rand(-R, R) * 0.5, rand(-0.4, 0.4), rand(1.2, 2.6), rand(-0.4, 0.4), rand(0.5, 0.9), rand(0.1, 0.16), ALLY_RGB.r, ALLY_RGB.g, ALLY_RGB.b, -0.8, 1);
     W.smoke(x, y + 0.2, z, 0.3 * R, 4, 0x241a16);
+    W.fxFlip(VFB.fire, x, y, z, 1.1 + R * 0.75, 0.36, 0xff8424, { grow: 1.3, vy: 0.7 }); // vf-vfx：焚火弹炸开的序列帧火团
     W.decal(1, x, z, R * 0.65, rand(0, TAU), 0xff7a2c, 1.6);
   };
   // 坠焰：一颗裹着焚火的陨石从天而降（地上的预警圈由 game.js 的友方预警画），落点先亮一圈魂火青的咒环
@@ -23181,6 +23189,7 @@
     }
     for (let i = 0; i < 10; i++) spawnP(x + rand(-1, 1) * R * 0.6, 0.3, z + rand(-1, 1) * R * 0.6, rand(-0.5, 0.5), rand(1.5, 3.5), rand(-0.5, 0.5), rand(0.6, 1.1), rand(0.12, 0.2), ALLY_RGB.r, ALLY_RGB.g, ALLY_RGB.b, -0.6, 0.9);
     flare(x, 1, z, 0xff8a3c, 2.8, 0.18);
+    W.fxFlip(VFB.ring, x, 0.12, z, R * 2.1, 0.45, ALLY_HEX, { flat: true, a: 0.85 }); // vf-vfx：魂火青的贴地冲击环（序列帧）
     flashLight(x, 2.4, z, 0xff7a2c, 2.6);
     W.emberGround(x, z, R * 0.7, 2.2);
   };

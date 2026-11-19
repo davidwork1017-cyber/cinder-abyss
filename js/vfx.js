@@ -134,11 +134,12 @@
   //   o.tone：亮度分三档上色（暗边 / 主色 / 亮芯，都从实例色推），卡通的硬色带；o.ground：离地这么高以内渐隐（贴地的部分不切出硬线）
   //   o.flow：顺着 v 方向往前流的条纹噪声调制亮度（光束、曳光）
   //   o.blend：'add' 加色 / 'normal'；o.flipV：形状上下翻转（火舌的宽底朝前）
+  // own = true：不走缓存、单独建一个（自己的 uColor / uFx，比如几段颜色不同的光束；着色器程序照样共用）
   const cache = Object.create(null);
-  V.sprite = function (o) {
+  V.sprite = function (o, own) {
     // 缓存键：贴图只取 uuid（不能让 JSON.stringify 碰到纹理本身：它的 toJSON 会生成新的 uuid、消耗 Math.random）
     const key = JSON.stringify(Object.assign({}, o, { map: o.map ? o.map.uuid : 0 }));
-    if (cache[key]) return cache[key];
+    if (!own && cache[key]) return cache[key];
     const defs = {};
     if (o.shape === 'flipA' || o.shape === 'flipB') defs.VFX_FLIP = 1;
     if (o.shape === 'solid') defs.VFX_SOLID = 1;
@@ -177,7 +178,7 @@
     });
     m.toneMapped = false;
     m.userData.vfx = true;
-    cache[key] = m;
+    if (!own) cache[key] = m;
     return m;
   };
   V.materials = () => Object.keys(cache).map((k) => cache[k]);
@@ -256,6 +257,8 @@
     '      a = s; col = mix(col, vec3(1.0), smoothstep(0.7, 1.0, s) * 0.5);',
     '    }',
     '  }',
+    // 贴地渐隐：火团 / 烟团 / 火花这些立着的公告板，插进地面的那一截不切出一道硬线（平躺的冲击环不算）
+    '  if (kind > 0.5 && kind < 3.5) a *= smoothstep(0.0, 0.35, vWy);',
     '  a *= vFx.z;',
     '  if (a < 0.004) discard;',
     '  vec3 o = linearToOutputTexel(vec4(col, 1.0)).rgb;',
@@ -332,7 +335,7 @@
     '#endif',
     // 卡通的三档色带：亮度低的外沿压暗、中间主色、最里面一档往白混（都从实例色推出来，注入元素色的投射物照样跟着变色）
     '#ifdef VFX_TONE',
-    '  float t = clamp((lum - uLumLo) / (1.0 - uLumLo), 0.0, 1.0) * (0.8 + 0.4 * vfxNA(uv * vec2(0.6, 0.3) + vec2(seed, uTime * 0.9)).r);',
+    '  float t = clamp((lum - uLumLo) / (1.0 - uLumLo), 0.0, 1.0) * (0.75 + 0.5 * vfxNA(uv * vec2(0.6, 0.3) + vec2(seed, uTime * 0.9)).r);',
     '  col = t < 0.3 ? col * 0.5 : (t < 0.78 ? col * 0.92 : col * 0.5 + vec3(0.5) * max(col.r, max(col.g, col.b)));',
     '#endif',
     '#ifdef VFX_GROUND',
