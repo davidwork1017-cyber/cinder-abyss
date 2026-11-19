@@ -2171,9 +2171,9 @@ async function main() {
         // 1) 改版前的新角色：裂石击（Lv 6，镶着蛮力 / 迅捷）在左键、掷焰（镶着多重）在右键
         out.a = load({ equip: eq, skills: { cleave: 6, ember: 5 }, supports: ['brutal', 'haste', 'multi'], blankGems: [], rmbKeep: null,
           sockets: { cleave: ['brutal', 'haste', null], ember: ['multi', null, null], wbasic: [null, null, null] }, bar: ['cleave', 'ember', null, null] });
-        // 2) 右键上有技能、另外三格都满：收进 rmbKeep，技能和辅助都还在
-        out.b = load({ equip: eq, skills: { ember: 3, arc: 3, meteor: 3, blink: 3 }, supports: ['multi'], blankGems: [], rmbKeep: null,
-          sockets: { ember: [null, null, null], arc: ['multi', null, null], meteor: [null, null, null], blink: [null, null, null] }, bar: ['ember', 'arc', 'meteor', 'blink'] });
+        // 2) 右键上有技能（链雷，镶着连锁）、另外三格都满：收进 rmbKeep，技能和辅助都还在
+        out.b = load({ equip: eq, skills: { ember: 3, arc: 3, meteor: 3, blink: 3 }, supports: ['chain'], blankGems: [], rmbKeep: null,
+          sockets: { ember: [null, null, null], arc: ['chain', null, null], meteor: [null, null, null], blink: [null, null, null] }, bar: ['ember', 'arc', 'meteor', 'blink'] });
         // 3) 改版前拿着远程武器存的档：右键空着、原来的右键技能收在 rmbKeep，Q 空着 → 放进 Q
         out.c = load({ equip: { weapon: Object.assign({}, base.equip.weapon, { baseIdx: 5 }) }, skills: { ember: 3, arc: 3, nova: 3 }, supports: [], blankGems: [2], rmbKeep: 'arc',
           sockets: { ember: [null, null, null], arc: [null, null, null], nova: [null, null, null] }, bar: ['ember', null, null, 'nova'] });
@@ -2199,7 +2199,7 @@ async function main() {
     assert(a.sups === 'brutal,haste,multi' && !/brutal|haste/.test(a.sock), '镶在裂石击上的辅助应回到手里（仍拥有、不在任何孔里）：' + JSON.stringify(a));
     assert(a.bar === 'ember,,,' && JSON.parse(a.sock).ember[0] === 'multi' && a.basic === 'basic_blade' && a.moved.length === 1 && a.moved[0].id === 'ember' && a.moved[0].to === 0, '右键上的掷焰应带着多重挪到空出来的左键：' + JSON.stringify(a));
     const b = r.b;
-    assert(b.bar === 'ember,,meteor,blink' && b.keep === 'arc' && /"arc":\["multi"/.test(b.sock) && b.skills === 'arc,blink,ember,meteor', '三格都满时右键的链雷应收进 rmbKeep，技能和辅助都在：' + JSON.stringify(b));
+    assert(b.bar === 'ember,,meteor,blink' && b.keep === 'arc' && /"arc":\["chain"/.test(b.sock) && b.skills === 'arc,blink,ember,meteor', '三格都满时右键的链雷应收进 rmbKeep，技能和辅助（连锁）都在：' + JSON.stringify(b));
     const c = r.c;
     assert(c.bar === 'ember,,arc,nova' && c.keep === null && c.basic === 'basic_eagle', '远程武器时收起来的链雷应放进空着的 Q：' + JSON.stringify(c));
     assert(r.again.refund === null && r.again.moved === null, '第二次读档不应再迁移 / 提示：' + JSON.stringify(r.again));
