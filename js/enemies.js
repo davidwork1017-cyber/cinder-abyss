@@ -380,7 +380,7 @@
 
   // ---------- 渊印：群首、领群 ----------
   // 群首：布局给的精英（关键路径房间各 45%）之外，没有精英的关键路径房间再按 (chance − 45%) / (1 − 45%) 补一群，
-  // 全区精英上限 cap。只在布怪时挑槽位，不碰布局的随机源。capAt：在这些区里上限另算（风险 1，见 G.SEAL_ELITE_CAP）
+  // 全区精英上限 cap。只在布怪时挑槽位，不碰布局的随机源。G.SEAL_ELITE_CAP 里列出的区上限另算（风险 1）
   const ELITE_BASE = 0.45;
   function sealElites(zone) {
     const p = G.runMods.elites, add = new Set(), byRoom = new Map();
