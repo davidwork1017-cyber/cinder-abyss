@@ -3174,7 +3174,8 @@
       P.cast.cancelT = 0;
       P.cast.clipOk = playFire(sk.rtype, { loop: true, dur: 0.6 });
     }
-    else if (sk.draw) playFire(sk.rtype, { dur: Math.max(0.2, first + 0.18), contact: Math.max(0.02, first) });
+    // 弓：切入过渡不长于拉弓起手的 0.4（攻速很快时第一箭不会还没摆好侧身、手还在半路就开始拉弦）
+    else if (sk.draw) playFire(sk.rtype, { dur: Math.max(0.2, first + 0.18), contact: Math.max(0.02, first), fade: Math.min(0.06, Math.max(0.02, first) * 0.4) });
     return true;
   }
 
@@ -3253,7 +3254,7 @@
     } else {
       fireBow(ctx, c);
       // 下一箭：拉弓的动作对到下一次放箭的时刻
-      if (held) playFire(sk.rtype, { dur: Math.max(0.2, ctx.time + 0.05), contact: ctx.time * 0.92 });
+      if (held) playFire(sk.rtype, { dur: Math.max(0.2, ctx.time + 0.05), contact: ctx.time * 0.92, fade: Math.min(0.06, ctx.time * 0.92 * 0.4) });
     }
   }
   // 打出了一发：之后随时可以接别的动作；记进统计（新手提示读）
@@ -5673,12 +5674,36 @@
     if (!zone || !c || c.open) return false;
     c.open = true;
     const rm = zone.rooms && zone.rooms[c.room];
-    const level = zone.level + Math.floor((rm ? rm.order : 0) / 2);
+    const level = zone.level + (rm && rm.lv !== undefined ? rm.lv : Math.floor((rm ? rm.order : 0) / 2)); // rm.lv：和房间里的怪同一个等级（zones-polish，加长后的区域按路径比例折算）
     G.dropLoot({ elite: true, level, x: c.x, z: c.z });
     G.world.openChest(c);
     G.sfx('pickup');
     state.stats.chests = (state.stats.chests || 0) + 1;
     return true;
+  };
+  // 点击打开（zones-polish）：和点掉落名牌一样，7 m 以内直接打开，远了提示走近。
+  // 点在箱体上时，鼠标射线落到地面的点会比宝箱的中心往远处偏一点（镜头俯角 50°，箱高约 0.9 m），所以判定圆往北挪 0.35 m
+  G.chestAt = function (wx, wz) {
+    const list = state.zone && state.zone.chests;
+    if (!list) return null;
+    let best = null, bd = 1.4;
+    for (const c of list) {
+      if (c.open) continue;
+      const d = dist(wx, wz, c.x, c.z - 0.35);
+      if (d < bd) {
+        bd = d;
+        best = c;
+      }
+    }
+    return best;
+  };
+  G.clickChest = function (c) {
+    if (!c || c.open || P.dead) return false;
+    if (dist(c.x, c.z, P.x, P.z) > 7) {
+      toast('走近一点', '#c8b89a', 'far', 900);
+      return false;
+    }
+    return G.openChest(c);
   };
   function updateChests() {
     const list = state.zone && state.zone.chests;
@@ -5802,8 +5827,11 @@
       }
     }
 
-    // 朝向做一点平滑，逻辑朝向仍是即时的
-    P.drawFace += angDiff(P.face, P.drawFace) * Math.min(1, (P.exec ? adt : dt) * 24);
+    // 朝向做一点平滑，逻辑朝向仍是即时的。拉弓时转得快一些（约 3 帧转过来）；这次出手的方向交给动画，
+    // 身子还没转过来的那几帧由上身先转向准星（world 的 bowLead，只对带 draw 的拉弓动作生效）
+    const bowDraw = !!(P.cast && P.cast.ranged && RFAM[P.cast.rtype] === 'bow');
+    P.drawFace += angDiff(P.face, P.drawFace) * Math.min(1, (P.exec ? adt : dt) * (bowDraw ? 40 : 24));
+    P.ent.aimYaw = P.cast && P.cast.aim !== undefined ? P.cast.aim : null;
     W.setEnt(P.ent, P.x, P.z, P.drawFace);
     W.animEnt(P.ent, P.exec ? adt : dt, P.moving, state.time); // 处决的动作按动作时间播，世界放慢时这一击照常利落
   };
@@ -5861,11 +5889,14 @@
       if (Math.random() < BLANK_DROP.elite) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
       return;
     }
-    if (Math.random() < 0.14) G.spawnLoot('item', G.rollItem(ilvl, G.rollRarity(rm)), x, z);
-    if (Math.random() < 0.09) G.spawnLoot('cur', G.rollCurrency(), x, z);
-    if (Math.random() < 0.012) G.spawnLoot('skill', pickSkillGem(0.7), x, z);
-    if (Math.random() < SUPPORT_DROP.mob) G.spawnLoot('support', pickSupportGem(0.7), x, z);
-    if (Math.random() < BLANK_DROP.mob) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
+    // 区域刷的普通怪（horde）掉落几率按 G.BALANCE.loot 打折：怪多了一倍，一整区合计约 ×1.15
+    const L = e.horde ? G.BALANCE.loot : null;
+    const zk = L ? e.hordeK || 1 : 1, kItem = L ? L.item * zk : 1, kCur = L ? L.cur * zk : 1, kGem = L ? L.gem * zk : 1;
+    if (Math.random() < 0.14 * kItem) G.spawnLoot('item', G.rollItem(ilvl, G.rollRarity(rm)), x, z);
+    if (Math.random() < 0.09 * kCur) G.spawnLoot('cur', G.rollCurrency(), x, z);
+    if (Math.random() < 0.012 * kGem) G.spawnLoot('skill', pickSkillGem(0.7), x, z);
+    if (Math.random() < SUPPORT_DROP.mob * kGem) G.spawnLoot('support', pickSupportGem(0.7), x, z);
+    if (Math.random() < BLANK_DROP.mob * kGem) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
   };
 
   // 烬铸武器：五个首领都会掉（层级 1 起），各掉各的那一把；连续 pity 次没掉，下一次必掉（计数存档，掉了清零）
@@ -6079,7 +6110,18 @@
         best = l;
       }
     }
-    return best ? G.pickup(best) : false;
+    if (best) return G.pickup(best);
+    // 附近没有掉落：打开 3.5 以内最近的宝箱（zones-polish）
+    const list = state.zone && state.zone.chests;
+    let bc = null, cd = 3.5;
+    if (list) for (const c of list) {
+      const d = dist(c.x, c.z, P.x, P.z);
+      if (!c.open && d <= cd) {
+        cd = d;
+        bc = c;
+      }
+    }
+    return bc ? G.openChest(bc) : false;
   };
 
   G.updateLoot = function (dt) {
