@@ -23281,9 +23281,9 @@
     // 护域的罩子：菲涅尔的边 + 顶上稀疏的经线，越往下越亮（贴地的一圈最亮）
     dome: [
       'uniform float uTime; varying vec3 vC; varying float vA; varying vec3 vN; varying vec3 vV; varying vec2 vUv; varying float vY;',
-      'void main(){ float f = 1.0 - abs(dot(normalize(vN), normalize(vV))); float a = f > 0.7 ? 0.5 : (f > 0.45 ? 0.2 : 0.07);',
-      '  float lon = abs(fract(vUv.x * 12.0 + uTime * 0.05) - 0.5); if (lon < 0.02) a = max(a, 0.28);',
-      '  if (vY < 0.08) a = 0.7; float k = vA > 0.66 ? 1.0 : (vA > 0.33 ? 0.62 : 0.3);',
+      'void main(){ float f = 1.0 - abs(dot(normalize(vN), normalize(vV))); float a = f > 0.75 ? 0.26 : (f > 0.5 ? 0.09 : 0.03);',
+      '  float lon = abs(fract(vUv.x * 12.0 + uTime * 0.05) - 0.5); if (lon < 0.015) a = max(a, 0.12);',
+      '  if (vY < 0.05) a = 0.32; float k = vA > 0.66 ? 1.0 : (vA > 0.33 ? 0.62 : 0.3);',
       '  gl_FragColor = vec4(vC * (0.8 + f * 0.6), a * k); }',
     ].join('\n'),
     // 地上的符环：外圈细环 + 内圈断成六段的刻度（慢慢转），k 是外圈亮着的那一段（0..1，从正上方顺时针）

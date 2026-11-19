@@ -5668,7 +5668,7 @@
     VS.disc = {
       x: P.x + ai.dx * 0.8, z: P.z + ai.dz * 0.8, tx: P.x + ai.dx * len, tz: P.z + ai.dz * len, ph: 'out', t: 0,
       hover: Math.max(S.hover, S.trip - 2 * flight), ctx, hits: new Map(),
-      fx: W.kv('blade', { hex: 0xe8c9a0, s: 0.95, rx: Math.PI / 2, y: 1.0 }), ring: W.kv('glyph', { hex: 0xe8c9a0, s: S.r * Math.sqrt(ctx.area) * 2, y: 0.05, k: 1 }),
+      fx: W.kv('blade', { hex: 0xe8c9a0, s: 1.3, rx: Math.PI / 2, y: 1.0 }), ring: W.kv('glyph', { hex: 0xe8c9a0, s: S.r * Math.sqrt(ctx.area) * 2, y: 0.05, k: 1 }),
     };
     G.sfx('swing', { step: 1 });
     state.stats.vThrows = (state.stats.vThrows || 0) + 1;
