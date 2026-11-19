@@ -2007,6 +2007,8 @@
     G.useVariant(id, next);
     return next;
   };
+  // 测试 / 调试用：此刻留在场上的持续类东西（黑洞、黑旋风、刻式第二版的 VS），看它们各自拿着哪份刻式定义
+  G.twinProbe = () => ({ holes, vortices, VS });
   // 真的出手了（tryStartCast 返回 true）才翻到另一种：魔力不够、影步没目标这些没放出去的不算一次
   G.relicTwinCast = function (id) {
     const v = G.variantOf(id);
