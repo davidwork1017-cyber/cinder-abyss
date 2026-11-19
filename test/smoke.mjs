@@ -4817,8 +4817,8 @@ async function main() {
       G.clearEnemies();
       out.respawn = S.minions.length === 4 && S.minions.every((m) => Math.hypot(m.x - P.x, m.z - P.z) < 5);
       G.debug.step(1.2);
-      // 远处的敌人（离玩家 15）不去追
-      const far = T.mob('husk', 15, 0);
+      // 远处的敌人不去追：离玩家 20（量到边缘 19.45），超过醒着的敌人的追击距离（仆从 / 守像 / 英灵 17、祭司 18）和集火目标的 19
+      const far = T.mob('husk', 20, 0);
       G.debug.step(1.5);
       out.chaseFar = S.minions.filter((m) => m.target === far).length;
       out.farHurt = far.maxHp - far.hp;
