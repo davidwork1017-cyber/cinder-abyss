@@ -739,13 +739,6 @@
           s.img.className = 's-img ico ' + IC.cls('sk-' + id);
           s.icon.style.setProperty('--c', sk.color);
           s.el.classList.toggle('has-combo', !!sk.combo);
-          // 连段指示的格数跟着这一招的段数走（双匕的普攻 4 段，别的 3 段）
-          if (sk.combo && s.pips.length !== sk.combo.length && s.pips[0]) {
-            const box = s.pips[0].parentNode;
-            box.innerHTML = '<i></i>'.repeat(sk.combo.length);
-            s.pips = Array.from(box.children);
-            s.lit = -1;
-          }
           s.el.classList.toggle('aura', sk.kind === 'aura');
           if (i === W_SLOT) {
             // 烬铸技：R 格换上余烬光框，键位下的字换成「烬铸技」
@@ -769,9 +762,13 @@
         if (P.cast && P.cast.id === id && P.cast.st) lit = P.cast.step + 1;
         else if (P.combo.t > 0) lit = P.combo.step;
       }
-      if (lit !== s.lit) {
+      // 连段格按这一招的段数显示：武器普攻的连招大多 3 段（多的藏起来），双匕 4 段（不够就补一格）
+      const nc = id && G.SKILLS[id].combo ? G.SKILLS[id].combo.length : 3;
+      while (nc > s.pips.length) s.pips.push(s.pips[0].parentNode.appendChild(document.createElement('i')));
+      if (lit !== s.lit || nc !== s.nc) {
         s.lit = lit;
-        for (let k = 0; k < s.pips.length; k++) s.pips[k].className = k < lit ? 'on' : '';
+        s.nc = nc;
+        for (let k = 0; k < s.pips.length; k++) s.pips[k].className = (k >= nc ? 'x' : k < lit ? 'on' : '') + (k === nc - 1 ? ' fin' : '');
       }
       let cdq = 0;
       let numTxt = '';
@@ -1205,6 +1202,7 @@
     }
     box.innerHTML = '<div class="bt-t">' + esc(title) + '</div><div class="bt-n">' + esc(name) + '</div>' + (sub ? '<div class="bt-s">' + esc(sub) + '</div>' : '');
     if (color) box.style.setProperty('--c', color);
+    box.classList.toggle('rq', color === G.RELIC_COLOR); // 渊契：底色和光晕换成冷的翠色
     box.classList.remove('on', 'out');
     void box.offsetWidth; // 重新触发入场动画
     box.classList.add('on');
@@ -1434,7 +1432,7 @@
     if (isW) h += weaponBlock(item, o.cmp);
     if (L.armour) h += '<div class="ic-line arm">护甲 <b>' + L.armour + '</b></div>';
     if (L.imp) h += '<div class="ic-line imp">' + esc(L.imp) + '</div>';
-    const U = item.rarity === 3 && G.UNIQUES[item.uq];
+    const U = (item.rarity === 3 && G.UNIQUES[item.uq]) || (item.rarity === 4 && G.RELICS[item.rq]);
     if (U) {
       // 烬铸：词缀行后面写区间（固定行不写），再给完美度、机制、来历和「无法改造」
       h += '<div class="ic-sep"></div>';
@@ -1449,7 +1447,7 @@
       // 背包详情栏（o.compact）里省掉来历和「无法改造」（下面的通货栏已经写了），免得把按钮挤出窗口
       if (!o.compact) {
         h += '<div class="ic-lore">' + esc(U.lore) + '</div>';
-        h += '<div class="ic-lock">烬铸武器无法改造</div>';
+        h += '<div class="ic-lock">' + lockText(item) + '</div>';
       }
     } else if (L.affixes.length) {
       h += '<div class="ic-sep"></div>';
@@ -1469,6 +1467,9 @@
     h += '</div>';
     return h;
   }
+
+  // 烬铸 / 渊契「无法改造」的说法
+  const lockText = (it) => G.RARITY_NAME[it.rarity] + (it.rarity === 3 ? '武器' : '') + '无法改造';
 
   // 武器卡片上的伤害一节：物理伤害、每秒攻击、武器秒伤（cmp 给出时，每行后面标出与它相比的变化），以及自带的武器技
   function weaponBlock(item, cmp) {
@@ -1637,7 +1638,38 @@
     return (
       '<div class="sec-title sm codex-t">烬铸图鉴<span class="sec-note">已拾到 ' + nFound + ' / ' + G.UNIQUE_IDS.length + '</span></div>' +
       '<div class="codex">' + rows +
-      '<div class="cx-note">层级 1 约 ' + Math.round(G.UNIQUE_DROP.chance[1] * 100) + '%、层级 2 起约 ' + Math.round(G.UNIQUE_DROP.chance[2] * 100) + '%，最晚第 ' + (pity + 1) + ' 次必掉</div></div>'
+      '<div class="cx-note">层级 1 约 ' + Math.round(G.UNIQUE_DROP.chance[1] * 100) + '%、层级 2 起约 ' + Math.round(G.UNIQUE_DROP.chance[2] * 100) + '%，最晚第 ' + (pity + 1) + ' 次必掉</div></div>' +
+      relicCodexHtml()
+    );
+  }
+  // 渊契图鉴（排在烬铸后面）：13 件普通渊契，拾到过的显示名字、图标和最高完美度；没拾到的是基底的暗剪影。
+  // 每件写来源（首领 / 异兆 / 烈印；来源还没开放时写「尚未开放」）和保底进度（烈印两件共用一份）
+  function relicCodexHtml() {
+    const U = G.save.relic || { found: {}, best: {}, pity: {} };
+    const D = G.RELIC_DROP;
+    const nFound = G.RELIC_IDS.filter((id) => U.found[id]).length;
+    let rows = '';
+    for (const id of G.RELIC_IDS) {
+      const R = G.RELICS[id];
+      const found = !!U.found[id];
+      const key = R.src === 'seal' ? 'seal' : id;
+      const max = G.relicPityMax(key);
+      const n = U.pity[key] || 0;
+      const open = !!D.src[R.src];
+      const src = R.src === 'boss' ? esc(G.BOSSES[R.boss].name) + '（轮回 1 起）' : R.src === 'enc' ? '异兆「' + esc(G.RELIC_ENC_NAME[R.enc] || R.enc) + '」' : '烈印下击杀首领';
+      const icon = found ? IC.item({ slot: R.slot, baseIdx: R.base, baseName: '', rarity: 4, rq: id }) : IC.item({ slot: R.slot, baseIdx: R.base, baseName: G.BASES[R.slot][R.base].names[2], rarity: 0 });
+      rows +=
+        '<div class="cx-row rq' + (found ? ' found' : '') + '" data-rq="' + id + '">' +
+        '<span class="ibox r4' + (found ? '' : ' unk') + '">' + icon + '</span>' +
+        '<div class="cx-main"><div class="cx-name">' + (found ? esc(R.name) : '？？？') + '<em>' + G.SLOT_NAME[R.slot] + '</em></div>' +
+        '<div class="cx-sub"><b>' + esc(R.mechName) + '</b> · ' + src + (open ? '' : ' · 尚未开放') + '</div>' +
+        '<div class="cx-stat"><span>' + (found ? '最高完美度 <b>' + (U.best[id] || 0) + '%</b>' : '尚未拾到') + '</span>' +
+        (open ? '<span class="cx-pity">保底 <b>' + n + '</b>/' + max + '<i style="--p:' + Math.round((n / max) * 100) + '%"></i></span>' : '') + '</div></div></div>';
+    }
+    return (
+      '<div class="sec-title sm codex-t rq">' + G.RELIC_NAME + '图鉴<span class="sec-note">已拾到 ' + nFound + ' / ' + G.RELIC_IDS.length + '</span></div>' +
+      '<div class="codex rq">' + rows +
+      '<div class="cx-note">区域首领：层级 1 约 ' + Math.round(D.boss.chance[1] * 100) + '%、层级 2 起约 ' + Math.round(D.boss.chance[2] * 100) + '%，和烬铸分开掷，最晚第 ' + (D.boss.pity + 1) + ' 次必掉。' + G.RELIC_NAME + '只出在武器以外的部位，词缀固定，强在机制。</div></div>'
     );
   }
 
@@ -1711,7 +1743,7 @@
           (ok ? '' : ' disabled') + '>' + IC.cur(id) + '<span>' + c.name + '</span><b>' + n + '</b></button>';
       }
       const acts =
-        '<div class="act-row' + (it.rarity === 3 ? ' top' : '') + '">' +
+        '<div class="act-row' + (it.rarity >= 3 ? ' top' : '') + '">' +
         (sel.equipped
           ? '<button type="button" tabindex="-1" class="btn" data-act="unequip">卸下</button>'
           : '<button type="button" tabindex="-1" class="btn primary" data-act="equip">装备</button>' +
@@ -1719,19 +1751,20 @@
             '<button type="button" tabindex="-1" class="btn" data-act="drop">丢弃</button>') +
         '</div>' +
         (ui.invMsg ? '<div class="inv-msg">' + esc(ui.invMsg) + '</div>' : ui.invOk ? '<div class="inv-msg ok">' + esc(ui.invOk) + '</div>' : '');
-      // 烬铸武器的卡片很长（区间、完美度、机制说明）：按钮放到卡片上面，小窗口里也不用往下滚就能点到
+      // 烬铸武器 / 渊契的卡片很长（区间、完美度、机制说明）：按钮放到卡片上面，小窗口里也不用往下滚就能点到
+      const fixed = it.rarity >= 3;
       detail =
         '<div class="sec-title">' + (sel.equipped ? '已装备' : '背包物品') + '</div>' +
-        (it.rarity === 3 ? acts : '') +
+        (fixed ? acts : '') +
         '<div class="detail-card' + (ui.flash ? ' flash' : '') + '" data-item="' + it.uid + '">' +
-        itemCard(it, { vd: sel.equipped ? null : verdict(it), affTips: it.rarity !== 3, compact: it.rarity === 3, cmp: sel.equipped ? null : S.equip[it.slot] }) + '</div>' +
-        (it.rarity === 3
+        itemCard(it, { vd: sel.equipped ? null : verdict(it), affTips: !fixed, compact: fixed, cmp: sel.equipped ? null : S.equip[it.slot] }) + '</div>' +
+        (fixed
           ? ''
           : (cap
             ? '<div class="aff-count">前缀 <b>' + np + '</b>/' + cap + '<i></i>后缀 <b>' + ns + '</b>/' + cap + '<i></i>悬停词缀查看阶级</div>'
             : '<div class="aff-count">普通物品没有词缀，可以用通货改造</div>') + acts) +
-        '<div class="sec-title sm">通货改造<span class="sec-note">' + (it.rarity === 3 ? '烬铸武器无法改造' : '点击，或把通货拖到物品上') + '</span></div>' +
-        '<div class="craft-grid' + (it.rarity === 3 ? ' locked' : '') + '">' + craft + '</div>';
+        '<div class="sec-title sm">通货改造<span class="sec-note">' + (fixed ? lockText(it) : '点击，或把通货拖到物品上') + '</span></div>' +
+        '<div class="craft-grid' + (fixed ? ' locked' : '') + '">' + craft + '</div>';
     } else {
       detail =
         '<div class="sec-title">物品详情</div>' +
@@ -1755,7 +1788,7 @@
       '<div class="col col-l"><div class="sec-title">装备</div><div class="eq-grid">' + eq + '</div>' +
       '<div class="sec-title">属性<span class="sec-note">等级 ' + S.level + '</span></div><div class="stats scroll" data-scroll="stats">' + statSheet() + '</div></div>' +
       '<div class="col col-m"><div class="sec-title">背包<span class="sec-note">' + S.bag.length + ' / ' + G.BAG_SIZE + '</span>' +
-      '<button type="button" tabindex="-1" class="btn sm uqb' + (sel ? '' : ' on') + '" data-act="codex" data-tip="txt:查看三把烬铸武器的收集情况与各首领的保底进度">烬铸图鉴</button>' +
+      '<button type="button" tabindex="-1" class="btn sm uqb' + (sel ? '' : ' on') + '" data-act="codex" data-tip="txt:查看烬铸武器与渊契的收集情况和各自的保底进度">图鉴</button>' +
       '<button type="button" tabindex="-1" class="btn sm" data-act="sort"' + (S.bag.length > 1 ? '' : ' disabled') + '>整理</button>' +
       '<button type="button" tabindex="-1" class="chk' + (withMagic ? ' on' : '') + '" data-act="opt" data-opt="salvageMagic"><i></i>含魔法</button>' +
       '<button type="button" tabindex="-1" class="btn sm" data-act="salvage-all"' + (bulkN ? '' : ' disabled') + '>一键分解' + (bulkN ? '（' + bulkN + '）' : '') + '</button></div>' +
@@ -2048,13 +2081,22 @@
         if (sk.buff) {
           const dur = sk.buff.dur * Math.max(0.1, 1 + ((G.player.S && G.player.S.buffDur) || 0) / 100);
           nums = num('增益持续', fmt1(dur) + ' 秒', 'hl') + gN + num('冷却', '无') + num('魔力消耗', '无') + num('暴击率', fmt1(ctx.crit) + '%') + num('等级', lvl ? 'Lv ' + lvl : '—');
+        } else if (sk.basicOf) {
+          // 按普攻折算的（熔光射线、焚天炎爆）：蓄满一发 / 整招的伤害，冷却那格换成折合几秒普攻
+          nums = num(sk.charge ? '蓄满一发' : '整招伤害', fmtDmg(avg), 'hl') + gN + num('折合普攻', fmt1(sk.basicSec * (sk.useMult || 1)) + ' 秒') + num('魔力消耗', '无') + num('暴击率', fmt1(ctx.crit) + '%') + num('等级', lvl ? 'Lv ' + lvl : '—');
         } else {
           nums = num(sk.useMult > 1 ? '整招伤害' : '每次伤害', fmtDmg(avg), 'hl') + gN + num('冷却', '无') + num('魔力消耗', '无') + num('暴击率', fmt1(ctx.crit) + '%') + num('等级', lvl ? 'Lv ' + lvl : '—');
         }
       }
       const w = ctx && ctx.weapon ? ctx.weapon : wStats(item);
       const gk = wGrowKind(sk);
-      const grow = gk === 'attack'
+      const bsk = sk.basicOf && G.SKILLS[sk.basicOf];
+      const grow = gk === 'attack' && bsk && ctx
+        ? '攻击型：按普攻折算——' + (sk.charge
+            ? '蓄满一发 = 机炮转满之后扫射 <b>' + fmt1(sk.basicSec) + ' 秒</b>（每秒约 <b>' + fmt1(G.basicShots(sk) / sk.basicSec) + '</b> 发'
+            : '火浪 = 喷枪持续喷射 <b>' + fmt1(sk.basicSec) + ' 秒</b>，火场烧满再加 <b>' + fmt1(sk.basicSec * ((sk.useMult || 1) - 1)) + ' 秒</b>（每秒约 <b>' + fmt1(G.basicShots(sk) / sk.basicSec) + '</b> 跳') +
+          '，武器攻速与攻击速度算在内，辅助宝石不算），伤害取自武器' + (w ? ' <b>' + Math.round(w.min) + '–' + Math.round(w.max) + '</b>' : '') + '，再吃这一招自己的伤害加成，等级随角色等级'
+        : gk === 'attack'
         ? '攻击型：伤害取自武器' + (w ? ' <b>' + Math.round(w.min) + '–' + Math.round(w.max) + '</b>' : '') + (ctx && ctx.wm > 0 ? '<span class="wn-op">×</span>倍率 <b>' + Math.round(ctx.wm * 100) + '%</b>' : '') + '，等级随角色等级'
         : gk === 'minion'
           ? '召唤型：' + (sk.champ ? '英灵' : '魂火') + '按召唤物计算，等级随武器物品等级' + (lvl ? '（Lv ' + lvl + '）' : '') + '，吃召唤物伤害加成' + (sk.champ ? '、生命加成与继承' : '') + '（辅助宝石不算）'
@@ -2202,10 +2244,10 @@
     return (
       '<div class="skill-card" style="--c:' + sk.color + '">' +
       '<div class="sk-top"><div class="sk-icon" data-drag="skill:' + id + '" data-tip="skdrag:' + id + '">' + IC.skill(id) + '</div>' +
-      '<div class="sk-title"><div class="sk-name">' + sk.name + '<em>Lv ' + S.skills[id] + '</em>' + blankUp + '</div>' +
+      '<div class="sk-title"><div class="sk-name">' + sk.name + (sk.vname ? '<i class="sk-vn">' + sk.vname + '</i>' : '') + '<em>Lv ' + S.skills[id] + '</em>' + blankUp + '</div>' +
       '<div class="sk-tags">' + cardTags(sk).map((t) => '<span>' + G.TAG_NAME[t] + '</span>').join('') + '</div></div>' +
       '<div class="sk-binds">' + binds + '</div></div>' +
-      '<div class="sk-desc">' + sk.desc + '</div>' +
+      '<div class="sk-desc">' + sk.desc + '</div>' + variantRow(id) +
       (sk.combo ? '<div class="sk-combo">' + sk.combo.map((c, i) => '<span' + (c.w >= 2 ? ' class="fin"' : '') + '>' + (c.w >= 2 ? '终结 ' : '第 ' + (i + 1) + ' 段 ') + '×' + c.mult + '</span>').join('<i></i>') + '</div>' : '') +
       '<div class="sk-nums' + (mi ? ' ally' : '') + '">' + nums + '</div>' + note +
       '<div class="sk-socks"><span class="sk-socks-label">辅助</span>' + sockets + '</div>' +
@@ -2920,6 +2962,7 @@
       '<p><b class="c-blank">无铭技能宝石</b>没有刻下技能：每个首领第一次倒下时必掉一颗，精英和普通怪偶尔也会掉。在技能页里点一个没学会的技能就能用它学会，或把等级更低的已学技能升到它的等级；总是先用等级最高的那颗。</p>' +
       '<p>每个技能有 3 个辅助槽。<b>辅助宝石</b>不会单独生效，而是改变它所镶嵌的技能：多几枚投射物、范围更大、自动重复施放……代价是更高的魔力消耗。把宝石拖进辅助槽，或点击空槽挑选；点击已镶嵌的槽取下。</p>' +
       '<p>一颗辅助宝石同一时间只能镶在一个技能上，并且技能要带有它要求的标签。</p>' +
+      '<p><b>刻式</b>：技能宝石到 ' + G.VARIANT_LVL + ' 级后，技能卡上多出「原式 / A / B」三个按钮。A、B 两种刻式各改一种打法（比如黑洞的「奇点」小而猛、结束时内爆，「渊域」持续更久、压住一大片），打单个目标的秒伤和原式差不多，取舍在怪群上，悬停按钮可以看到数值。每个技能第一次选免费，之后每换一次（包括改回原式）用掉 ' + G.VARIANT_COST.n + ' 颗' + G.CURRENCY[G.VARIANT_COST.cur].name + '；身边 ' + G.VARIANT_SAFE_R + ' 米内有醒着的敌人时不能换。</p>' +
       '<p>带<b>光环</b>标签的技能（' + (G.SKILLS.nova ? G.SKILLS.nova.name : '霜环') + '）不用按键：放进技能栏任意一格就常驻生效，代价是<b>保留</b>一部分最大魔力——魔力球顶上压暗的那一截，保留的魔力既不能用也不回复（以血为引时改为保留生命）。镶上的辅助宝石按各自的消耗倍率增减保留：节流减少，迅捷、扩域这类增加。回响和投射物类辅助镶不上。</p>' +
       helpSummon() +
       '<div class="sec-title">天赋盘</div>' +
@@ -3012,7 +3055,90 @@
     );
   }
 
+  // ---------- 刻式 ----------
+  // 技能卡上的刻式一行：宝石 ≥ 解锁等级时「原式 / A 名 / B 名」三个按钮 + 价格；没到时一行灰字
+  function variantRow(id) {
+    const V = G.VARIANTS[id];
+    if (!V) return '';
+    const S = G.save;
+    if (!(S.skills[id] >= G.VARIANT_LVL)) return '<div class="sk-var lock"><span class="sv-label">刻式</span><span class="sv-lock">宝石 Lv ' + G.VARIANT_LVL + ' 解锁 A / B 两种刻式</span></div>';
+    const cur = S.variants[id] || 'o', VC = G.VARIANT_COST, cost = G.variantCost(id), have = S.cur[VC.cur] || 0;
+    let btns = '';
+    for (const v of ['o', 'a', 'b']) {
+      btns +=
+        '<button type="button" tabindex="-1" class="sv-btn' + (cur === v ? ' on' : '') + '" data-act="variant" data-skill="' + id + '" data-v="' + v + '" data-tip="var:' + id + '.' + v + '">' +
+        (v === 'o' ? '原式' : '<em>' + G.VARIANT_NAME[v] + '</em>' + V[v].name) + '</button>';
+    }
+    const price = cost
+      ? '<span class="sv-cost' + (have < cost ? ' bad' : '') + '">换一次 ' + cost + ' ' + G.CURRENCY[VC.cur].name + '（持有 ' + have + '）</span>'
+      : '<span class="sv-cost free">第一次选免费</span>';
+    const m = ui.varMsg && ui.varMsg.id === id ? '<div class="sv-msg' + (ui.varMsg.bad ? ' bad' : '') + '">' + ui.varMsg.text + '</div>' : '';
+    return '<div class="sk-var"><span class="sv-label">刻式</span>' + btns + price + '</div>' + m;
+  }
+  // 刻式改动的字段怎么写（悬停里逐条列「原式 → 刻式」）
+  const VAR_FIELD = {
+    time: ['出手', '秒'], cd: ['冷却', '秒'], radius: ['半径', ''], explode: ['爆炸半径', ''], speed: ['弹速', ''], mana: ['魔力消耗', ''],
+    dur: ['持续', '秒'], pull: ['牵引', ''], delay: ['延迟', '秒'], range: ['范围', ''], chain: ['连锁', '次'], pierce: ['穿透', ''],
+    count: ['一次', '团'], rate: ['出手间隔', '秒'], move: ['移动', ''], dr: ['减伤', '%'], cleave: ['横斩带到', '个'], reserve: ['保留', '%'],
+  };
+  function variantTip(key) {
+    const cut = key.lastIndexOf('.');
+    const id = key.slice(0, cut), v = key.slice(cut + 1);
+    const V = G.VARIANTS[id];
+    if (!V || !(v === 'o' || v === 'a' || v === 'b')) return '';
+    const S = G.save, base = G.SKILL_BASE[id];
+    // 数值按这一刻式临时拼好的定义算（宝石、辅助、装备都是现在的）
+    const keep = G.useVariant(id, v);
+    const sk = G.SKILLS[id], ctx = G.skillCtx(id);
+    let nums = '';
+    if (sk.buff) {
+      const F = Math.min(sk.flame.cap, sk.flame.k0 + sk.flame.k1 * ((S.skills[id] || 1) - 1)) * (1 + Math.max(0, G.player.S.flameEff || 0) / 100);
+      nums = '额外混沌 ' + fmt1(F) + '% · 保留 ' + fmt1(ctx.reserve) + '%' + (sk.selfOnly ? ' · 召唤物没有' : '');
+    } else if (sk.kind === 'aura') {
+      nums = '每跳 ' + fmt1(G.avgHit(ctx)) + ' · 半径 ' + fmt1(G.auraRadius(ctx)) + ' · 保留 ' + fmt1(ctx.reserve) + '%';
+    } else if (ctx.minion) {
+      nums = '每击 ' + fmtInt(G.avgHit(ctx)) + ' · 每秒 ' + (1 / ctx.minion.interval).toFixed(2) + ' 击 · 生命 ' + fmtInt(ctx.minion.life) + ' · 上限 ' + ctx.minion.cap + ' · 满员秒伤约 ' + fmtInt(G.skillDps(ctx));
+    } else {
+      // 秒伤和技能卡同一个算法（G.skillDps，冷却技能按冷却折算）；下面的比值按设计稿 §5.2 的口径
+      nums = (ctx.cd > 0 ? '每次伤害 ' : '平均击中 ') + fmtInt(G.avgHit(ctx)) + ' · 估算秒伤约 ' + fmtInt(G.skillDps(ctx)) + (ctx.cd > 0 ? ' · 冷却 ' + fmt1(ctx.cd) + ' 秒' : '');
+    }
+    G.SKILLS[id] = keep;
+    const rows = [];
+    if (v !== 'o') {
+      const set = V[v].set;
+      for (const k of Object.keys(set)) {
+        const f = VAR_FIELD[k];
+        if (k === 'dmg' || k === 'wm') {
+          const avg = (s) => (k === 'wm' ? s.wm : Object.keys(s.dmg).reduce((a, t) => a + s.dmg[t][0] + s.dmg[t][1], 0));
+          rows.push('每一击伤害 ×' + (Math.round((avg(sk) / avg(base)) * 100) / 100));
+        } else if (k === 'life' && sk.kind === 'summon') rows.push('召唤物生命 ' + base.life + ' → ' + fmt1(sk.life));
+        else if (k === 'life') rows.push('飞行 ' + base.life + ' → ' + sk.life + ' 秒');
+        else if (k === 'capK') rows.push('数量上限 ×' + (Math.round(set.capK * 100) / 100) + '（凑不成整数的部分折进伤害）');
+        else if (f && typeof set[k] === 'number' && typeof base[k] === 'number' && set[k] !== base[k]) rows.push(f[0] + ' ' + fmt1(base[k]) + ' → ' + fmt1(set[k]) + f[1]);
+      }
+    }
+    const r = v === 'o' ? 1 : G.variantRatio(id, v);
+    const total = sk.kind === 'aura';
+    const cur = (S.variants[id] || 'o') === v;
+    const cost = G.variantCost(id), VC = G.VARIANT_COST, have = S.cur[VC.cur] || 0;
+    const state = cur
+      ? '<div class="tc-state dup">当前刻式</div>'
+      : G.variantBusy()
+        ? '<div class="tc-state dup">战斗中不能换（' + G.VARIANT_SAFE_R + ' 米内还有醒着的敌人）</div>'
+        : '<div class="tc-state new">点击换成它：' + (cost ? cost + ' ' + G.CURRENCY[VC.cur].name + '（持有 ' + have + '）' : '免费（这个技能第一次选）') + '</div>';
+    return (
+      '<div class="tcard" style="--c:' + base.color + '">' + tcHead('<div class="tc-skico">' + IC.skill(id) + '</div>', v === 'o' ? '原式' : V[v].name, base.name + ' · ' + (v === 'o' ? '不选刻式' : '刻式 ' + G.VARIANT_NAME[v])) +
+      '<div class="tc-desc">' + (v === 'o' ? base.desc : V[v].desc) + '</div>' +
+      (rows.length ? '<div class="tc-foot">' + rows.join(' · ') + '</div>' : '') +
+      '<div class="tc-stat">' + nums + '</div>' +
+      (v === 'o' ? '' : '<div class="tc-foot">' + (total ? '总秒伤' : '单体秒伤') + ' <b>×' + r.toFixed(2) + '</b>（相对原式）' + (total ? ' · ' + (sk.buff ? '按你自己每一击的黑焰比例' : '按主力技能 + 霜环') : '') + '</div>' +
+        '<div class="tc-foot">怪群：' + V[v].pack + '</div>') +
+      state + '</div>'
+    );
+  }
+
   function tipHtml(kind, id) {
+    if (kind === 'var') return variantTip(id);
     if (kind === 'item') {
       const f = findItem(id);
       if (!f) return '';
@@ -3223,7 +3349,7 @@
         } else if (f.item.rarity >= 2 && !(ui.salvArm.uid === d.item && now - ui.salvArm.t < 3000)) {
           ui.salvArm = { uid: d.item, t: now };
           ui.sel = d.item;
-          ui.invMsg = '再 Shift+点击一次，确认分解' + G.RARITY_NAME[f.item.rarity] + (f.item.rarity === 3 ? '武器' : '物品') + '「' + f.item.name + '」';
+          ui.invMsg = '再 Shift+点击一次，确认分解' + G.RARITY_NAME[f.item.rarity] + (f.item.rarity === 3 ? '武器' : f.item.rarity === 4 ? '' : '物品') + '「' + f.item.name + '」';
           G.sfx('click');
         } else {
           ui.salvArm = { uid: null, t: 0 };
@@ -3268,10 +3394,11 @@
       const f = selItem();
       if (!f) return;
       const now = performance.now();
-      if (f.item.rarity === 3 && !(ui.salvArm.uid === f.item.uid && now - ui.salvArm.t < 4000)) {
-        // 烬铸武器：第一次点只是上膛，4 秒内再点一次「分解」才真的分解
+      if (f.item.rarity >= 3 && !(ui.salvArm.uid === f.item.uid && now - ui.salvArm.t < 4000)) {
+        // 烬铸武器 / 渊契：第一次点只是上膛，4 秒内再点一次「分解」才真的分解
         ui.salvArm = { uid: f.item.uid, t: now };
-        const got = Object.keys(G.UNIQUE_SALVAGE).map((id) => G.CURRENCY[id].name + ' ×' + G.UNIQUE_SALVAGE[id]).join('、');
+        const SV = f.item.rarity === 4 ? G.RELIC_SALVAGE : G.UNIQUE_SALVAGE;
+        const got = Object.keys(SV).map((id) => G.CURRENCY[id].name + ' ×' + SV[id]).join('、');
         ui.invMsg = '再点一次「分解」确认：分解「' + f.item.name + '」可得 ' + got;
         G.sfx('click');
         render();
@@ -3379,8 +3506,8 @@
         ui.flash = true;
         G.sfx('craft');
       } else {
-        ui.invMsg = f.item.rarity === 3 ? '烬铸武器无法改造' : '这件物品现在不能使用' + G.CURRENCY[d.cur].name;
-        if (f.item.rarity === 3) G.sfx('deny');
+        ui.invMsg = f.item.rarity >= 3 ? lockText(f.item) : '这件物品现在不能使用' + G.CURRENCY[d.cur].name;
+        if (f.item.rarity >= 3) G.sfx('deny');
       }
       render();
     },
@@ -3420,6 +3547,19 @@
       render();
     },
     // 无铭技能宝石：第一下选中（按钮变成「再点一次」），几秒内再点同一个才真的用掉
+    // 换刻式：点哪个换哪个（扣费、战斗中拒绝都在 G.setVariant 里），结果写在这张卡下面
+    variant(d) {
+      const id = d.skill;
+      if (!G.VARIANTS[id]) return;
+      const r = G.setVariant(id, d.v);
+      const nm = d.v === 'o' ? '原式' : G.VARIANTS[id][d.v].name;
+      ui.varMsg = r.ok
+        ? { id, text: r.same ? '已经是「' + nm + '」' : '「' + G.SKILLS[id].name + '」换成了「' + nm + '」' + (r.cost ? '，用掉 ' + r.cost + ' ' + G.CURRENCY[G.VARIANT_COST.cur].name : '（免费）') }
+        : { id, text: r.msg, bad: true };
+      G.sfx(r.ok && !r.same ? 'gem' : r.ok ? 'click' : 'deny');
+      render();
+      retip();
+    },
     blank(d) {
       const id = d.skill;
       const sk = G.SKILLS[id];
@@ -5160,6 +5300,7 @@
     initHud();
     initWorldUi();
     IC.warm(); // 图标趁空闲分批画好，第一次打开背包不再卡顿
+    document.documentElement.style.setProperty('--relic', G.RELIC_COLOR); // 渊契的颜色只在 data.js 写一次，样式表里读 --relic
 
     const panel = el.panel;
     panel.addEventListener('click', onPanelClick);

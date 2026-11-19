@@ -2425,9 +2425,10 @@ body.panel-open #coach { display: none; }
 .s-combo { position: absolute; left: 50%; top: -17px; display: none; gap: 3px; transform: translateX(-50%); }
 .slot.has-combo .s-combo { display: flex; }
 .s-combo i { display: block; width: 10px; height: 5px; background: #1c130d; border: 1px solid #5e4329; transform: skewX(-18deg); transition: background 0.08s, box-shadow 0.08s; }
-.s-combo i:last-child { width: 16px; }
+.s-combo i.fin { width: 16px; } /* 最后一段（终结）：格子宽一点；段数随刻式变，按 fin 认、不按 :last-child */
+.s-combo i.x { display: none; }
 .s-combo i.on { background: #ffd9a0; border-color: #fff3dc; box-shadow: 0 0 7px rgba(255, 176, 102, 0.9); }
-.s-combo i:last-child.on { background: #ff7a2c; border-color: #ffd0a0; box-shadow: 0 0 10px rgba(255, 122, 44, 1); }
+.s-combo i.fin.on { background: #ff7a2c; border-color: #ffd0a0; box-shadow: 0 0 10px rgba(255, 122, 44, 1); }
 
 /* ---- 首领架势条 ---- */
 .boss-poise {
@@ -2531,6 +2532,22 @@ body.panel-open #coach { display: none; }
 .sk-combo span { padding: 1px 8px; background: #17100c; border: 1px solid #3d2c1e; border-radius: 2px; font-variant-numeric: tabular-nums; }
 .sk-combo span.fin { color: #ffd0a0; border-color: #b4551c; }
 .sk-combo i { width: 10px; height: 1px; background: #5e4329; }
+
+/* 技能卡上的刻式：原式 / A / B 三个按钮 + 价格；卡名后面跟着当前刻式的名字 */
+.sk-name .sk-vn { margin-left: 6px; padding: 0 6px; font-style: normal; font-size: 12px; letter-spacing: 1px; color: var(--c); border: 1px solid color-mix(in srgb, var(--c) 55%, #000); border-radius: 2px; vertical-align: 2px; }
+.sk-var { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: -2px 0 8px; font-size: 12px; color: #cdbfa6; }
+.sk-var .sv-label { margin-right: 2px; color: var(--dim); letter-spacing: 2px; }
+.sv-btn { padding: 1px 9px; font: inherit; font-size: 12px; color: #cdbfa6; background: #17100c; border: 1px solid #3d2c1e; border-radius: 2px; cursor: pointer; }
+.sv-btn em { margin-right: 4px; font-style: normal; color: var(--dim); }
+.sv-btn:hover { color: #fff; border-color: color-mix(in srgb, var(--c) 70%, #000); }
+.sv-btn.on { color: #fff; background: color-mix(in srgb, var(--c) 18%, #120c09); border-color: var(--c); box-shadow: 0 0 6px color-mix(in srgb, var(--c) 35%, transparent); }
+.sv-btn.on em { color: var(--c); }
+.sv-cost { margin-left: auto; color: var(--dim); }
+.sv-cost.free { color: #9fdc8a; }
+.sv-cost.bad { color: #ff8a7a; }
+.sk-var.lock .sv-lock { color: var(--faint); }
+.sv-msg { margin: -4px 0 8px; font-size: 12px; color: #9fdc8a; }
+.sv-msg.bad { color: #ff8a7a; }
 
 /* ============================================================
    召唤物：HUD 上的召唤物条、悬停名牌、技能卡上的召唤物数值
@@ -2852,6 +2869,43 @@ body.panel-open #coach { display: none; }
 .craft-grid.locked { opacity: 0.55; filter: saturate(0.4); }
 .btn.sm.uqb { margin-left: auto; color: #ffb066; border-color: #7a3a14; }
 .btn.sm.uqb.on { background: rgba(120, 50, 12, 0.35); }
+/* ============================================================
+   渊契（稀有度 4）：翠色（--relic，由 ui.js 按 G.RELIC_COLOR 设置），格子 / 卡片带一圈静止的冷光，和烬铸的余烬呼吸分开
+   ============================================================ */
+.icard.r4 {
+  --rc: var(--relic, #6fe0b0);
+  border-color: color-mix(in srgb, var(--relic, #6fe0b0) 62%, #000);
+  background: radial-gradient(120% 60% at 50% 0%, color-mix(in srgb, var(--relic, #6fe0b0) 16%, #06100c), transparent 70%), linear-gradient(180deg, #0c1512, #060a08);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.8), 0 0 0 1px color-mix(in srgb, var(--relic, #6fe0b0) 25%, transparent), 0 0 18px color-mix(in srgb, var(--relic, #6fe0b0) 22%, transparent);
+}
+.icard.r4 .ic-name { color: var(--relic, #6fe0b0); text-shadow: 0 0 8px color-mix(in srgb, var(--relic, #6fe0b0) 55%, transparent), 0 1px 2px #000; }
+.cell.r4, .eq.r4, .ibox.r4 {
+  --rc: color-mix(in srgb, var(--relic, #6fe0b0) 75%, #000);
+  border-color: color-mix(in srgb, var(--relic, #6fe0b0) 75%, #000);
+  background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--relic, #6fe0b0) 28%, #04100b), #030806 82%);
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.6), inset 0 0 10px color-mix(in srgb, var(--relic, #6fe0b0) 30%, transparent), 0 0 6px color-mix(in srgb, var(--relic, #6fe0b0) 30%, transparent);
+}
+.ibox.r4.unk > .ico { filter: brightness(0.18) sepia(1) hue-rotate(110deg); opacity: 0.7; }
+.icard.r4 .ic-line.aff.uq { color: color-mix(in srgb, var(--relic, #6fe0b0) 55%, #fff); }
+.icard.r4 .ic-rng { color: #6a9a86; }
+.icard.r4 .ic-perf { color: #a8d8c4; }
+.icard.r4 .ic-perf b { color: var(--relic, #6fe0b0); }
+.icard.r4 .ic-perf i { background: #0e1d17; border-color: #1f4436; }
+.icard.r4 .ic-perf i::after { background: linear-gradient(90deg, #2a7a5c, var(--relic, #6fe0b0)); box-shadow: 0 0 6px color-mix(in srgb, var(--relic, #6fe0b0) 60%, transparent); }
+.icard.r4 .ic-uq { color: #d6f0e4; background: color-mix(in srgb, var(--relic, #6fe0b0) 12%, transparent); border-left-color: var(--relic, #6fe0b0); }
+.icard.r4 .ic-uq b { color: var(--relic, #6fe0b0); }
+.icard.r4 .ic-lore { color: #6f8f80; }
+.icard.r4 .ic-lock { color: #6aa88c; }
+@media (max-height: 780px) {
+  .icard.r4 .ic-lore, .icard.r4 .ic-lock { display: none; }
+}
+.codex-t.rq { margin-top: 18px; }
+.cx-row.rq.found { border-color: #1f5a44; background: linear-gradient(90deg, color-mix(in srgb, var(--relic, #6fe0b0) 14%, transparent), #08100d 70%); }
+.cx-row.rq.found .cx-name { color: var(--relic, #6fe0b0); }
+.cx-row.rq .cx-sub b { color: #9fdcc4; }
+.cx-row.rq .cx-stat b { color: #9fe8c8; }
+.cx-row.rq .cx-pity i { background: #0e1d17; border-color: #1f4436; }
+.cx-row.rq .cx-pity i::after { background: #2f9a72; }
 /* 烬铸图鉴 */
 .codex-t { margin-top: 14px; }
 .codex { display: flex; flex-direction: column; gap: 6px; }
@@ -2894,6 +2948,10 @@ body.panel-open #coach { display: none; }
 #big-toast .bt-t { font-size: 14px; letter-spacing: 8px; text-indent: 8px; color: #e8c49a; }
 #big-toast .bt-n { margin: 2px 0; font-size: 44px; font-weight: 700; letter-spacing: 10px; text-indent: 10px; color: var(--c); text-shadow: 0 0 18px rgba(255, 110, 30, 0.8), 0 0 4px rgba(255, 200, 140, 0.9), 0 2px 3px #000; }
 #big-toast .bt-s { font-size: 13px; letter-spacing: 4px; text-indent: 4px; color: #cfa47a; }
+#big-toast.rq { background: radial-gradient(ellipse at center, rgba(4, 30, 22, 0.92), rgba(4, 10, 8, 0.75) 55%, transparent 75%); }
+#big-toast.rq .bt-t { color: #a8dcc8; }
+#big-toast.rq .bt-n { text-shadow: 0 0 18px color-mix(in srgb, var(--c) 80%, transparent), 0 0 4px rgba(210, 255, 236, 0.9), 0 2px 3px #000; }
+#big-toast.rq .bt-s { color: #8fc4ae; }
 
 /* ============================================================
    烬铸技：拿着烬铸武器时 R 上那一招。余烬橙的框 + 缓慢呼吸的光，和普通武器技一眼分开

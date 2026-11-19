@@ -115,6 +115,12 @@
           G.pickup(loot);
           return;
         }
+        // 点在没打开的宝箱上：打开（远了提示走近），也不施法（zones-polish）
+        const chest = G.chestAt(input.mouse.wx, input.mouse.wz);
+        if (chest) {
+          G.clickChest(chest);
+          return;
+        }
       }
       if (e.button >= 0 && e.button <= 2) input.mouse.b[e.button] = true;
       const slot = MOUSE_SLOT[e.button];
@@ -254,6 +260,17 @@
         G.noteUnique(u);
         refreshUi();
         return u;
+      }
+      // 渊契：rarity 传 4，slot 传渊契 id（不认识时随机一件普通渊契），baseIdx 位置同样可以改传完美度
+      if (rarity === 4) {
+        const id = G.RELICS[slot] ? slot : G.pick(G.RELIC_IDS);
+        const q = typeof baseIdx === 'number' && baseIdx >= 0 && baseIdx <= 1 && G.RELICS[slot] ? baseIdx : undefined;
+        const r = G.rollRelic(id, Math.max(1, ilvl), q);
+        G.save.bag.push(r);
+        G.noteRelic(r);
+        if (G.icons && G.icons.warmRelic) G.icons.warmRelic(id);
+        refreshUi();
+        return r;
       }
       const item = G.rollItem(Math.max(1, ilvl), rarity || 0, slot, baseIdx);
       G.save.bag.push(item);
