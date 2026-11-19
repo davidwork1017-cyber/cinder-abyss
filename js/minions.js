@@ -71,7 +71,8 @@
     m.moving = false;
     m.stuckT = 0;
     m.riseClip = G.world.play(m.ent, 'rise', { dur: k.rise });
-    if (!m.riseClip) G.world.setEntScale(m.ent, 0.25); // 没有破土动作：从地里长出来
+    if (!m.riseClip) G.world.setEntScale(m.ent, 0.25 * (m.size || 1)); // 没有破土动作：从地里长出来
+    else if (m.size) G.world.setEntScale(m.ent, m.size); // 刻式「骸卫」：体型更大
     G.world.setEnt(m.ent, m.x, m.z, m.ang);
     if (m.kind === 'wraith' && typeof G.world.champFx === 'function') G.world.champFx(m.x, m.z);
     else riseFx(m.x, m.z, m.kind === 'colossus');
@@ -177,7 +178,7 @@
     }
     const m = {
       kind, skill: skillId, name: K.name, ent: makeEnt(kind),
-      x, z, ang: Math.atan2(x - P.x, z - P.z), r: K.r, height: K.height,
+      x, z, ang: Math.atan2(x - P.x, z - P.z), r: K.r * (mi.size || 1), height: K.height * (mi.size || 1), size: mi.size, // size：刻式「骸卫」的体型倍率
       hp: mi.life, maxHp: mi.life, dr: mi.dr, armour: mi.armour || 0, res: mi.res || null, dead: false,
       target: null, atkT: 0.25, tauntCd: mi.taunt ? 1.5 : 0, tauntCdMax: mi.taunt ? mi.taunt.cd : 0,
       state: 'idle', stateT: 0, strikeT: -1, rising: 0, riseMax: K.rise, riseClip: true,
@@ -292,6 +293,7 @@
     W.hitReact(m.ent, ang, m.kind === 'colossus' ? 0.5 : 0.9);
     if (m.hp <= 0) {
       if (G.soulFire) G.soulFire(m); // 万魂旗：倒下时化作魂火炸开（被替换、换区域时的消失不算）
+      if (P.relic && P.relic.tongshang) G.relicMinionDown(m); // 渊契「同殇」：召唤物倒下时回血
       removeMinion(m, ang, G.TYPE_NAME[dtype] ? dtype : 'phys');
     }
     return true;
@@ -357,6 +359,14 @@
         m.maxHp = mi.life;
       }
       if (mi.taunt) m.tauntCdMax = mi.taunt.cd;
+      if ((m.size || 1) !== (mi.size || 1)) {
+        // 刻式换了（技能页，非战斗时）：体型跟着变
+        const K = KIND[m.kind];
+        m.size = mi.size;
+        m.r = K.r * (mi.size || 1);
+        m.height = K.height * (mi.size || 1);
+        if (!(m.rising > 0)) G.world.setEntScale(m.ent, mi.size || 1);
+      }
     }
     for (const id in G.SKILLS) {
       if (G.SKILLS[id].kind !== 'summon' || !aliveOf(id)) continue;
@@ -365,6 +375,8 @@
       while (aliveOf(id) > cap && guard++ < 20) removeMinion(weakestOf(id));
     }
   }
+
+  G.refreshMinions = refreshAll; // 换刻式之后立刻刷新（上限、数值、体型）
 
   // ---------- 移动 ----------
   const SLIDE = [0.7, -0.7, 1.3, -1.3];
@@ -749,7 +761,7 @@
       mesh.position.set(_sk.x, _sk.y, _sk.z);
       bolts.push({
         m, ctx: m.ctx, tg: t, x: _sk.x, z: _sk.z, y0: _sk.y, d0: dd, tx, tz, life: 2.2, mesh, cast,
-        R: mi.explode, per: mi.charge.per, wob: Math.random() * TAU,
+        R: mi.explode, per: mi.charge ? mi.charge.per : 0, wob: Math.random() * TAU, // 刻式「连焚」没有焰蓄
       });
     }
     G.sfx('cast');
@@ -774,7 +786,7 @@
     }
     if (dist(b.x, b.z, P.x, P.z) < 16) G.sfx('impact', { type: 'fire', w: 0, crit: false });
     // 焰蓄：每炸到一个敌人 +1（一弹最多 per 点）；祭司已经倒下就不算了
-    if (n && m && !m.dead) {
+    if (n && m && !m.dead && m.ctx.minion.charge) {
       m.charge = Math.min(m.ctx.minion.charge.max, m.charge + Math.min(b.per, n) * (m.ctx.minion.chargeK || 1));
       S.stats.pyreHits = (S.stats.pyreHits || 0) + n;
     }
@@ -973,7 +985,7 @@
       return;
     }
     m.fleeT = Math.max(0, m.fleeT - dt);
-    if (m.charge >= mi.charge.max && m.atkT <= 0 && startBig(m)) return;
+    if (mi.charge && m.charge >= mi.charge.max && m.atkT <= 0 && startBig(m)) return;
     const e = m.target;
     if (e) {
       const d = dist(e.x, e.z, m.x, m.z) - e.r;
@@ -1117,10 +1129,10 @@
 
       if (m.rising > 0) {
         m.rising -= dt;
-        if (!m.riseClip) W.setEntScale(m.ent, 0.25 + 0.75 * G.clamp(1 - m.rising / m.riseMax, 0, 1));
+        if (!m.riseClip) W.setEntScale(m.ent, (0.25 + 0.75 * G.clamp(1 - m.rising / m.riseMax, 0, 1)) * (m.size || 1));
         if (m.rising <= 0) {
           m.rising = 0;
-          if (!m.riseClip) W.setEntScale(m.ent, 1);
+          if (!m.riseClip) W.setEntScale(m.ent, m.size || 1);
         }
       } else if (!P.dead) {
         if (dist(m.x, m.z, P.x, P.z) > LEASH) {
