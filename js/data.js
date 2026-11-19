@@ -1210,6 +1210,56 @@
     return G.mobXp(Math.min(e.level, charLvl + G.XP_UNDER)) * w * G.xpLevelK(charLvl - e.level);
   };
 
+  // ---------- 渊印（区域词缀，轮回层级 ≥ 1） ----------
+  // 进区前三选一（浅印 / 深印 / 烬印）外加素印；每枚印 2–4 条印纹。w：权重，一枚印的生效权重 W 每点给数量 / 稀有度 / 经验
+  // （G.SEAL.perW，各有上限 cap）；dmgK：这条印纹对「玩家每秒受到的伤害」的估算倍率，只用来算危险预算，不进战斗公式。
+  // side：mob 怪物侧 / player 玩家侧；glyph：HUD 小签上的单字；need：技能栏上没有这类技能时这条的权重按 0 算（面板写「对你无效」）；
+  // rage：同一枚印里这一组至多 2 条；p：效果的数值（game.js / enemies.js 的「渊印」各处读这里）
+  G.SEAL_MODS = {
+    // 焚染 / 霜染 / 雷染：怪物每一击另带 frac 倍伤害的该元素伤害（吃抗性）；元素取本区元素以外的一种，存在印纹的 el 上
+    tint: { name: '染', side: 'mob', w: 1, dmgK: 1.12, p: { frac: 0.3 } },
+    haste: { name: '疾躁', glyph: '躁', side: 'mob', w: 2, dmgK: 1.12, rage: true, p: { speed: 0.2, cd: 0.15 } }, // 起手和预警时长不变
+    elites: { name: '群首', glyph: '首', side: 'mob', w: 2, dmgK: 1.05, p: { chance: 0.7, cap: 8 } }, // 关键路径房间精英几率 45% → chance，全区上限 6 → cap
+    // 殁爆：普通怪死后 delay 秒在尸体处炸开（半径 r，伤害 = 它一击的 k 倍），精英用 eDelay / eR；场上最多 max 个
+    burst: { name: '殁爆', glyph: '殁', side: 'mob', w: 2, dmgK: 1.08, p: { delay: 0.9, r: 1.8, eDelay: 1.1, eR: 2.6, k: 0.7, max: 8 } },
+    ailRes: { name: '坚蜕', glyph: '蜕', side: 'mob', w: 2, dmgK: 1.0, p: { th: 1.6, chillCap: 0.7, dur: 0.75 } }, // 首领只吃异常阈值
+    // 领群：每群一只领群者，r 米内同群的怪伤害 +dmg、受到的伤害 −dr；领群者经验 × xp
+    aura: { name: '领群', glyph: '领', side: 'mob', w: 2, dmgK: 1.1, p: { r: 6, dmg: 0.2, dr: 0.15, xp: 2 } },
+    tough: { name: '厚躯', glyph: '厚', side: 'mob', w: 2, dmgK: 1.0, p: { hp: 0.35, boss: 0.2 } },
+    fierce: { name: '凶戾', glyph: '戾', side: 'mob', w: 2, dmgK: 1.2, rage: true, p: { dmg: 0.2, boss: 0.15 } },
+    volley: { name: '连发', glyph: '连', side: 'mob', w: 1, dmgK: 1.05, p: { n: 2, spread: 14, speed: 0.15 } }, // spread：两发的夹角（度）
+    mend: { name: '回生', glyph: '生', side: 'mob', w: 1, dmgK: 1.0, p: { idle: 3, rate: 0.02, boss: 0.005 } },
+    alert: { name: '警觉', glyph: '觉', side: 'mob', w: 2, dmgK: 1.05, p: { wake: 16, call: 1.5 } },
+    frenzy: { name: '濒狂', glyph: '狂', side: 'mob', w: 1, dmgK: 1.05, rage: true, p: { th: 0.3, speed: 0.3, dmg: 0.15 } },
+    escort: { name: '侍从', glyph: '从', side: 'mob', w: 2, dmgK: 1.08, p: { n: 2, at: 0.5 } },
+    cinder: { name: '余烬地', glyph: '烬', side: 'mob', w: 1, dmgK: 1.03, p: { chance: 0.25, t: 3, r: 1.4, max: 6 } },
+    drain: { name: '枯竭', glyph: '竭', side: 'player', w: 2, dmgK: 1.0, p: { regen: 0.4, flask: 0.3 } },
+    gloom: { name: '幽晦', glyph: '晦', side: 'player', w: 1, dmgK: 1.0, p: { near: 17, far: 38, lamp: 12, tag: 18 } },
+    wane: { name: '蚀环', glyph: '蚀', side: 'player', w: 2, dmgK: 1.0, need: 'aura', p: { eff: 0.3, reserve: 10 } },
+    sluggish: { name: '迟滞', glyph: '滞', side: 'player', w: 2, dmgK: 1.05, p: { cd: 0.25, roll: 0.25 } },
+    frail: { name: '裂御', glyph: '裂', side: 'player', w: 2, dmgK: 1.12, p: { res: 20 } },
+    lonely: { name: '孤影', glyph: '孤', side: 'player', w: 1, dmgK: 1.0, need: 'summon', p: { life: 0.35, dmg: 0.1 } },
+  };
+  G.SEAL_MOD_IDS = Object.keys(G.SEAL_MODS);
+  G.SEAL_TINT = { fire: { name: '焚染', glyph: '焚' }, cold: { name: '霜染', glyph: '霜' }, light: { name: '雷染', glyph: '雷' } };
+  // perW：每点权重给的物品数量 / 稀有度 / 经验（%），cap 是上限；lieW：「烈印」的门槛（生效 W ≥ lieW）。
+  // tiers：轮回层级 1 / 2 / ≥3 各一档。n 每枚印的条数，W[0..2] 浅印 / 深印 / 烬印的权重区间，budget 危险预算（dmgK 乘积上限），
+  // minN3：烬印至少几条。frag：烈印下击杀区域首领掉印烛芯的几率 base + perW × (W − 5)，层级 ≥ minTier，保底 pity（烛芯本身随 D4）
+  G.SEAL = {
+    perW: { qty: 5, rar: 6, xp: 4 },
+    cap: { qty: 45, rar: 60, xp: 35 },
+    lieW: 6,
+    grades: ['浅印', '深印', '烬印'],
+    tiers: [
+      { n: [2, 3], W: [[2, 3], [4, 5], [6, 7]], budget: 1.25, minN3: 0 },
+      { n: [2, 4], W: [[2, 3], [4, 6], [7, 9]], budget: 1.35, minN3: 0 },
+      { n: [3, 4], W: [[3, 4], [5, 7], [8, 10]], budget: 1.45, minN3: 3 },
+    ],
+    frag: { base: 0.07, perW: 0.015, pity: 6, minTier: 2 },
+  };
+  G.sealTierDef = (tier) => G.SEAL.tiers[G.clamp((tier | 0) - 1, 0, G.SEAL.tiers.length - 1)];
+  G.sealFragChance = (W, tier) => ((tier | 0) >= G.SEAL.frag.minTier && W >= G.SEAL.lieW ? G.SEAL.frag.base + G.SEAL.frag.perW * (W - 5) : 0);
+
   // ---------- 角色基础生命 / 魔力 ----------
   // LIFE_KNEE 级以内和改版前一样（每级 +12 生命、+6 魔力）；再往上每级多给 LIFE_LATE / MANA_LATE，
   // 跟上轮回层级里怪物伤害的成长
