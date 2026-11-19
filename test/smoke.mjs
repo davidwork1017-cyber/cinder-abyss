@@ -8077,8 +8077,10 @@ async function main() {
           name: document.getElementById('zone-name').textContent, fr: T.frame(), last: G.save.lastZone,
           loose: S.loot.length + S.projectiles.length + S.telegraphs.length + S.timers.length, portal: S.portal,
         };
-        // 泄漏检查：往场景里塞一堆东西后重进，场景对象数（扣除敌人）应不变
-        const count = () => W.scene.children.length - S.enemies.length;
+        // 泄漏检查：往场景里塞一堆东西后重进，场景对象数（扣除敌人）应不变。
+        // 只扣根节点真的挂在场景上的敌人：正在演死亡的敌人被 W.removeEnt 挪进 corpseRoot（不再是场景的直接子节点）却还在 S.enemies 里，
+        // 原来按 S.enemies.length 扣会偶尔少算出 −1（不是泄漏）。场景里多出来的对象照样一个不漏地数出来
+        const count = () => W.scene.children.length - S.enemies.filter((e) => e.ent && e.ent.group && e.ent.group.parent === W.scene).length;
         const n1 = count();
         const clutter = () => {
           for (let i = 0; i < 6; i++) G.spawnLoot('item', G.rollItem(5, i % 3), 1, 1);
