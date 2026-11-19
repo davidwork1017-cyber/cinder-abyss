@@ -11606,6 +11606,13 @@
       };
       rig.armR = armData('uaR', 'faR', 'hR', 'wB');
       rig.armL = armData('uaL', 'faL', 'hL', 'wBo');
+      // 两只手握着同一张弓（带 draw 的动作）时，模型空间里的手位按两肩中点等比换算：两手之间只缩放、不错开（各按各的肩换算，
+      // C 模型肩窄，右手会被挪到脑后、箭线歪出二十多度）
+      if (rig.armR.rm && rig.armL.rm) {
+        const R = rig.armR.rm, L = rig.armL.rm, mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+        R.u0 = L.u0 = mid(R.m0, L.m0);
+        R.u1 = L.u1 = mid(R.m1, L.m1);
+      }
       playerClips(rig);
       weaponClips(rig);
       rangedClips(rig);
@@ -11856,10 +11863,11 @@
     }
   }
   // C 模型的手臂和程序化的长短 / 肩宽不同：手的目标位置按「从肩出发的位移 × 臂长比」换算，方向不变
-  function remapHand(A, frame, src) {
+  // both：两手握同一张弓（拉弓的动作），模型空间里改从两肩中点出发换算（见 armData 之后的 u0 / u1）
+  function remapHand(A, frame, src, both) {
     const r = A.rm;
     if (!r) return;
-    const a = frame === 'model' ? r.m0 : r.c0, b = frame === 'model' ? r.m1 : r.c1;
+    const a = frame === 'model' ? (both && r.u0 ? r.u0 : r.m0) : r.c0, b = frame === 'model' ? (both && r.u1 ? r.u1 : r.m1) : r.c1;
     for (let i = 0; i < 3; i++) src[i] = b[i] + (src[i] - a[i]) * A.k;
   }
   // 双手武器站立 / 跑动时右手的位置（胸口坐标系：位置、指向、刃口朝向）
@@ -11889,18 +11897,55 @@
     solveArm(ent, A, wx, wy, wz, _hm[0], _hm[1], _hm[2], w, _Rh);
   }
   const _ikT = new Float32Array(9);
+  // 拉弓时上身先转向这一箭（ent.aimYaw：这次出手的世界朝向，game 里设）。朝向（drawFace）还在追准星的那几帧，差的角度（封顶 LEAD_MAX）
+  // 加在脊柱的 ry 上，模型空间里两只手的轨迹也绕同一根轴转同样的角度：箭始终顺着准星拉，右手不会跟着还没转过来的身子往背后拉
+  const LEAD_MAX = 1.2, _lead = { a: 0, x: 0, y: 0, z: 0, ax: 0, ay: 1, az: 0 };
+  function bowLead(ent) {
+    const L = _lead, y = ent.aimYaw;
+    L.a = 0;
+    if (y === null || y === undefined) return;
+    let d = y - ent.group.rotation.y;
+    d -= Math.round(d / TAU) * TAU;
+    d = d > LEAD_MAX ? LEAD_MAX : d < -LEAD_MAX ? -LEAD_MAX : d;
+    if (Math.abs(d) < 1e-4) return;
+    const J = ent.rig.J, JI = ent.rig.JI, M = ent.mdl, o = ent.out;
+    o[J.spine + 1] += d;
+    solveRig(ent);
+    // 转轴：过脊柱枢轴，方向是骨盆的 y 轴再绕脊柱自己的 rx 倾一下（XYZ 欧拉里 ry 的轴）
+    const s = JI.spine * 12, p = ent.rig.joints[JI.spine].parent * 12, ca = Math.cos(o[J.spine]), sa = Math.sin(o[J.spine]);
+    const ax = M[p + 1] * ca + M[p + 2] * sa, ay = M[p + 5] * ca + M[p + 6] * sa, az = M[p + 9] * ca + M[p + 10] * sa, l = Math.hypot(ax, ay, az) || 1;
+    L.a = d; L.x = M[s + 3]; L.y = M[s + 7]; L.z = M[s + 11];
+    L.ax = ax / l; L.ay = ay / l; L.az = az / l;
+  }
+  // 把模型空间的手轨迹值（位置、指向、刃口）绕 bowLead 的轴转过去
+  function leadRot(T) {
+    const L = _lead, c = Math.cos(L.a), s = Math.sin(L.a), kx = L.ax, ky = L.ay, kz = L.az;
+    for (let v = 0; v < 3; v++) {
+      const i = v * 3;
+      let x = T[i], y = T[i + 1], z = T[i + 2];
+      if (!v) { x -= L.x; y -= L.y; z -= L.z; }
+      const kd = (kx * x + ky * y + kz * z) * (1 - c);
+      const nx = x * c + (ky * z - kz * y) * s + kx * kd, ny = y * c + (kz * x - kx * z) * s + ky * kd, nz = z * c + (kx * y - ky * x) * s + kz * kd;
+      T[i] = nx + (v ? 0 : L.x); T[i + 1] = ny + (v ? 0 : L.y); T[i + 2] = nz + (v ? 0 : L.z);
+    }
+  }
   function playerIK(ent, sdt) {
     const rig = ent.rig, c = ent.clip, g = ent.gearType, M = ent.mdl;
     let ik = ent.ik;
     if (!ik) ik = ent.ik = { src: null, t: 1, dur: 0.1, from: new Float32Array(9), cur: new Float32Array(9), fw: 0, w: 0, lw: 0, last: null };
     let re = false;
+    // 拉弓（动作带 draw）：两手按两肩中点换算，上身先转向这一箭
+    const bow = !!(c && c.draw);
+    _lead.a = 0;
+    if (bow) bowLead(ent);
     // ---- 右手：动作给的轨迹，或双手武器的站立 / 跑动姿势 ----
     let src = null, want = 0;
     if (c && c.hand) {
       src = c;
       evalHand(c.hand, ent.cK, _hk);
-      remapHand(rig.armR, c.hand.f, _hk);
+      remapHand(rig.armR, c.hand.f, _hk, bow);
       handToModel(ent, c.hand.f, _hk, _ikT);
+      if (_lead.a && c.hand.f === 'model') leadRot(_ikT);
       want = c.hand.W ? kf(c.hand.W, ent.cK) : 1;
     } else if (!c && LOCO_2H[g]) {
       src = 'loco';
@@ -11916,7 +11961,8 @@
       ik.from.set(ik.cur);
       ik.fw = ik.w;
       ik.t = 0;
-      ik.dur = Math.max(0.05, c ? c.fade : ik.last ? ik.last.out : 0.15);
+      // 拉弓的动作跟着这次播放实际的切入时长（攻速快时 game 会把它缩短），手和侧身一起到位
+      ik.dur = c && c.draw ? Math.max(0.016, ent.fadeDur) : Math.max(0.05, c ? c.fade : ik.last ? ik.last.out : 0.15);
       if (ik.src && typeof ik.src === 'object') ik.last = ik.src;
       ik.src = src;
     }
@@ -11935,8 +11981,9 @@
     // ---- 左手：动作给的轨迹优先；否则双手武器时握在柄上 ----
     if (c && c.handL) {
       evalHand(c.handL, ent.cK, _hk);
-      remapHand(rig.armL, c.handL.f, _hk);
+      remapHand(rig.armL, c.handL.f, _hk, bow);
       handToModel(ent, c.handL.f, _hk, _ikT);
+      if (_lead.a && c.handL.f === 'model') leadRot(_ikT);
       const wl = c.handL.W ? kf(c.handL.W, ent.cK) : 1;
       ik.lw = wl;
       armTo(ent, rig.armL, _ikT, wl * (ent.fadeT < ent.fadeDur ? smooth01(ent.fadeT / ent.fadeDur) : 1), 0.8);
@@ -13273,8 +13320,10 @@
       });
     }
     // 弓：侧身举弓平射——左手把弓推到肩前，右手从弦上拉到下巴边（k = 0.15→0.42 拉满）→ 撒放（k0）→ 回身
+    // 侧身（root + chest 共转约 −1.2）之后胸口朝角色的右前方（−x），箭线要落在两肩连线的胸口一侧、贴着右下颌：
+    // 握把在 x = −0.11（原来 +0.08 在肩线背后，右手是往后背拉的），拉距 0.71（C 模型里约 0.5，左臂差不多伸直）
     {
-      const AIM = [0, 0.03, 1], GRIP = [0.08, 1.45, 0.62], DRAW = 0.5;
+      const AIM = [0, 0.03, 1], GRIP = [-0.11, 1.58, 0.75], DRAW = 0.71;
       const nock = GRIP.map((v, i) => v - AIM[i] * DRAW), rest = GRIP.map((v, i) => v - AIM[i] * 0.17);
       const out = [nock[0] - 0.1, nock[1] + 0.02, nock[2] - 0.08];
       const bowD = [0, 0.97, -0.03], handE = [0, -0.03, 1], lowL = [0.4, 0.85, 0.1], lowR = [-0.4, 0.85, 0.05];
@@ -13286,6 +13335,8 @@
         keys: {
           'wA.s': [0, 0, 0.08, 0, 0.12, 1, k0, 1, k0 + 0.01, 0, 1, 0],
           'root.ry': [0, 0, 0.1, -0.85, 0.85, -0.85, 1, 0],
+          // 走动时步态让上身往回拧（spine.ry = −胯角 / 2）：拉弓时不拧，侧身的角度和手的轨迹对得上（边走边射箭线不歪）
+          'spine.ry': C(0),
           'chest.ry': [0, 0, 0.1, -0.35, 0.85, -0.35, 1, 0],
           'head.ry': [0, 0, 0.1, 1.05, 0.85, 1.05, 1, 0],
           'chest.rx': [0, 0, 0.12, -0.05, k0, -0.05, k0 + 0.03, -0.14, 0.85, -0.06, 1, 0],
