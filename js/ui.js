@@ -2822,7 +2822,8 @@
     if (i === 'sum') {
       return '<div class="tcard seal-tc"><div class="tc-name">' + G.sealName(seal) + '</div><div class="tc-kind">渊印 · 权重 ' + seal.W + (seal.W >= G.SEAL.lieW ? ' · 烈印' : '') + '</div>' +
         '<div class="tc-desc">' + sealRewardText(seal.W) + '</div>' +
-        (seal.W >= G.SEAL.lieW ? '<div class="tc-desc">烈印：击败区域首领时可掉印烛芯、陨织袍、渊缚链</div>' : '') + '</div>';
+        (seal.W >= G.SEAL.lieW ? '<div class="tc-desc">烈印：击败区域首领时可掉陨织袍、渊缚链</div>' : '') +
+        fragLine(seal, a[0] === 'card' ? ui.sealPick && ui.sealPick.tier : G.state.tier, 'tc-desc') + '</div>';
     }
     const m = seal.mods[+i];
     if (!m) return '';
@@ -2834,7 +2835,8 @@
     const key = '<kbd>' + (i + 1) + '</kbd>';
     if (!seal) {
       return '<button type="button" tabindex="-1" class="seal-card plain" data-act="seal-pick" data-i="0">' + key +
-        '<div class="sk-name">素印</div><div class="sk-none">不加任何词缀，也没有加成</div><div class="sk-fill"></div><div class="sk-rw dim">数量 +0% · 稀有度 +0% · 经验 +0%</div></button>';
+        '<div class="sk-name">素印</div><div class="sk-none">不加任何词缀，也没有加成</div><div class="sk-fill"></div><div class="sk-rw dim">数量 +0% · 稀有度 +0% · 经验 +0%</div>' +
+        fragLine(null, ui.sealPick && ui.sealPick.tier, 'sk-frag') + '</button>';
     }
     const lie = seal.W >= G.SEAL.lieW, dz = G.sealDanger(seal), dk = G.clamp((dz - 1) / Math.max(0.01, T.budget - 1), 0, 1);
     let rows = '';
@@ -2849,7 +2851,8 @@
       '<div class="sk-mods">' + rows + '</div><div class="sk-fill"></div>' +
       '<div class="sk-rw">' + sealRewardText(seal.W) + '</div>' +
       '<div class="sk-danger"><span>危险度</span><div class="sk-bar"><i style="width:' + Math.round(dk * 100) + '%"></i></div></div>' +
-      (lie ? '<div class="sk-drop">可掉：印烛芯 · 陨织袍 · 渊缚链</div>' : '') + '</button>';
+      fragLine(seal, ui.sealPick && ui.sealPick.tier, 'sk-frag') +
+      (lie ? '<div class="sk-drop">可掉：陨织袍 · 渊缚链</div>' : '') + '</button>';
   }
   function sealPickHtml() {
     const sp = ui.sealPick;
@@ -3145,7 +3148,7 @@
       '<div class="sec-title">区域与轮回</div>' +
       '<p>每个区域的尽头盘踞着一名首领。击败它之后会出现传送门，通往地图，可以前往下一个区域。</p>' +
       '<p>击败最后一个区域（第 ' + G.ZONES.length + ' 个，' + G.ZONES[G.ZONES.length - 1].name + '）的首领会开启<b>轮回层级</b>：每高一层，所有区域的怪物等级 +' + G.TIER_LEVELS + '，掉落的物品等级也随之提高。</p>' +
-      '<p><b>渊印</b>：轮回层级 1 起，进入区域前要选一枚印。<b>素印</b>什么都不加；<b>浅印</b>、<b>深印</b>、<b>烬印</b>各带 2–5 条印纹，让怪物更凶（<b class="c-red">橙红</b>的签）或给你添麻烦（<b style="color:#c49cff">紫色</b>的签），权重越高，物品数量、稀有度和经验加得越多（各有上限；宝石不受影响）。总权重 ' + G.SEAL.lieW + ' 以上叫<b>烈印</b>，击败区域首领时另有机会掉落印烛芯和两件渊契。生效的印纹显示在左上角的小签上，悬停看说明；读档、倒下重生都保留，换区或重进就重新选。</p>' +
+      '<p><b>渊印</b>：轮回层级 1 起，进入区域前要选一枚印。<b>素印</b>什么都不加；<b>浅印</b>、<b>深印</b>、<b>烬印</b>各带 2–5 条印纹，让怪物更凶（<b class="c-red">橙红</b>的签）或给你添麻烦（<b style="color:#c49cff">紫色</b>的签），权重越高，物品数量、稀有度和经验加得越多（各有上限；宝石不受影响）。总权重 ' + G.SEAL.lieW + ' 以上叫<b>烈印</b>，击败区域首领时另有机会掉落两件渊契。轮回 ' + G.FRAG_DROP.minTier + ' 起，选的印还决定这一次掉<b>烛芯</b>的几率：' + fragRates() + '。生效的印纹显示在左上角的小签上，悬停看说明；读档、倒下重生都保留，换区或重进就重新选。</p>' +
       '<p>游戏会自动存档。</p>' +
       '<div class="sec-title">素材来源</div>' +
       '<p class="credits">地面与岩壁贴图来自 <b>Poly Haven</b>、<b>ambientCG</b>，布景模型来自 <b>KayKit</b>（Kay Lousberg）与 <b>Kenney</b>，主角、游魂、烬骸仆从与喷吐者的模型来自 <b>Quaternius</b>，均以 CC0 授权公开，在此致谢。</p>' +
@@ -4102,7 +4105,7 @@
       '<div class="pn-slots">' + slots + '</div>' +
       '<div class="pn-row"><span class="pn-k">层级</span><div class="tiers">' + tiers + '</div><span class="pn-lv">首领等级 <b>' + G.pinLevel(t) + '</b></span>' +
       '<button type="button" tabindex="-1" class="btn primary pn-go" data-act="pin-light"' + (ready ? '' : ' disabled') + '>点燃</button></div>' +
-      (ready ? '' : '<div class="pn-need">四种烛芯各需要 1 个：层级 ' + PN.minTier + ' 起的异兆、烈印下的区域首领会掉，拾烬客可以 2 换 1</div>') +
+      (ready ? '' : '<div class="pn-need">四种烛芯各需要 1 个：层级 ' + G.FRAG_DROP.minTier + ' 起的区域首领和异兆会掉，几率看择的印（' + fragRates() + '），拾烬客可以 2 换 1</div>') +
       (ui.pinMsg ? '<div class="pn-need bad">' + esc(ui.pinMsg) + '</div>' : '') +
       '</div></div>';
   }
@@ -4179,12 +4182,21 @@
     const f = G.FRAGS[id];
     if (!f) return '';
     const n = (G.save.frags && G.save.frags[id]) || 0, D = G.FRAG_DROP;
-    const pm = id === 'seal' ? G.SEAL.frag.pity : D.pity, pn = (G.save.fragPity && G.save.fragPity[id]) || 0;
     return (
       '<div class="tcard" style="--c:' + f.color + '">' + tcHead(ibox(IC.frag(id), 'curb'), f.name, '烛芯 · 持有 ' + n) +
       '<div class="tc-desc">熄烛者的开启材料，四种各需一个。来源：' + f.src + '（轮回 ' + D.minTier + ' 起）。拾烬客那里可以 ' + G.TRADER.swap + ' 换 1。</div>' +
-      '<div class="tc-hint">保底：连续 ' + pn + ' / ' + pm + ' 次没掉</div></div>'
+      '<div class="tc-hint">几率看这次进区择的印：' + fragRates() + '</div></div>'
     );
+  }
+  // 烛芯几率（G.fragChance）：「素印 40%、浅印 40%、深印 70%、烬印 100%」
+  function fragRates() {
+    const D = G.FRAG_DROP, pc = (v) => Math.round(v * 100) + '%';
+    return '素印 ' + pc(D.plain) + '、' + G.SEAL.grades.map((g, i) => g + ' ' + pc(D.bySeal[i])).join('、');
+  }
+  // 择印卡片 / 印的悬停里的一行「烛芯 70%」：层级 < minTier 不写
+  function fragLine(seal, tier, cls) {
+    const p = G.fragChance(seal, tier || 0);
+    return p > 0 ? '<div class="' + cls + '">烛芯 ' + Math.round(p * 100) + '%</div>' : '';
   }
   function helpEnc() {
     return (
@@ -4194,7 +4206,7 @@
       '<b style="color:#ff9a3c">游荡者</b>：带名号的精英，各有独门手段。<b style="color:#5fe0f0">祈坛</b>：按 <kbd>F</kbd> 得到一种增益。' +
       '<b style="color:#ff5a4a">试锋</b>：跨过旁支门口的符文开始限时试炼。<b style="color:#5fe07a">拾烬客</b>：按 <kbd>F</kbd> 交易。' +
       '<b style="color:#ff9a9a">残影</b>：清空房间后首领的残影浮现。<b style="color:#ff8a3c">落烬</b>：摸一下烬核，在落下的余烬里打碎四块烬晶。</p>' +
-      '<p>轮回 2 起，异兆和烈印下的首领会掉<b>烛芯</b>，是之后开启巅峰首领的材料。</p>' +
+      '<p>轮回 ' + G.FRAG_DROP.minTier + ' 起，区域首领和异兆（守隙、游荡者、缚匣、试锋、落烬）会掉<b>烛芯</b>，是之后开启巅峰首领的材料。每次掉不掉看这次进区择的印：' + fragRates() + '，没有保底。</p>' +
       // 余烛殿（D5）
       '<div class="sec-title">余烛殿</div>' +
       '<p>最高轮回层级到 ' + G.PIN.minTier + ' 以后，地图页的区域下面多出<b style="color:#ffb24a">余烛殿</b>：印、隙、誓、匣四种烛芯各献 1 个，选好层级点「点燃」进场，挑战巅峰首领<b style="color:#ffd27a">熄烛者</b>（首领等级 = 17 + ' + G.TIER_LEVELS + ' × 层级 + ' + G.PIN.levelAdd + '）。</p>' +

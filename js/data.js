@@ -1747,7 +1747,7 @@
   G.SEAL_TINT = { fire: { name: '焚染', glyph: '焚' }, cold: { name: '霜染', glyph: '霜' }, light: { name: '雷染', glyph: '雷' } };
   // perW：每点权重给的物品数量 / 稀有度 / 经验（%），cap 是上限；lieW：「烈印」的门槛（生效 W ≥ lieW）。
   // tiers：轮回层级 1 / 2 / ≥3 各一档。n 每枚印的条数，W[0..2] 浅印 / 深印 / 烬印的权重区间，budget 危险预算（dmgK 乘积上限），
-  // minN3：烬印至少几条。frag：烈印下击杀区域首领掉印烛芯的几率 base + perW × (W − 5)，层级 ≥ minTier，保底 pity（烛芯本身随 D4）
+  // minN3：烬印至少几条。烛芯的几率按档位，见 G.FRAG_DROP.bySeal
   G.SEAL = {
     perW: { qty: 5, rar: 6, xp: 4 },
     cap: { qty: 45, rar: 60, xp: 35 },
@@ -1758,10 +1758,8 @@
       { n: [2, 4], W: [[2, 3], [4, 6], [7, 9]], budget: 1.35, minN3: 0 },
       { n: [3, 4], W: [[3, 4], [5, 7], [8, 10]], budget: 1.45, minN3: 3 },
     ],
-    frag: { base: 0.07, perW: 0.015, pity: 6, minTier: 2 },
   };
   G.sealTierDef = (tier) => G.SEAL.tiers[G.clamp((tier | 0) - 1, 0, G.SEAL.tiers.length - 1)];
-  G.sealFragChance = (W, tier) => ((tier | 0) >= G.SEAL.frag.minTier && W >= G.SEAL.lieW ? G.SEAL.frag.base + G.SEAL.frag.perW * (W - 5) : 0);
 
   // ---------- 异兆（随机遭遇，D4） ----------
   // 每次进区掷一次（不存档，读档重进跟着重掷）。t0Chance：层级 0 出 1 个的几率（只从 w[0] > 0 的 5 种低风险里挑）【需拍板 §13-3，单一常量】；
@@ -1851,16 +1849,22 @@
     surge: { name: '渊涌', dur: 30, color: '#d9a0ff', stats: { encCdr: 40, costReduce: 50 }, desc: '技能冷却 −40%，技能消耗 −50%' },
   };
   G.SHRINE_IDS = Object.keys(G.SHRINE_BUFFS);
-  // 烛芯：熄烛者（D5）的开启材料，层级 ≥ 2 才掉，按种类计数存档（save.frags，0–max）。seal 的几率见 G.sealFragChance（D3），
-  // 其余见 chance；连续 pity 次合格机会没掉，下一次必掉（save.fragPity，box 是缚匣 / 试锋 / 落烬三者共用）
+  // 烛芯：熄烛者（D5）的开启材料，层级 ≥ minTier 才掉，按种类计数存档（save.frags，0–max）。没有保底：
+  // 每个合格机会（区域首领 / 守隙 / 游荡者 / 缚匣 / 试锋 / 落烬）按这次进区择的印掷一次，bySeal[seal.g] 是浅印 / 深印 / 烬印，
+  // 素印（没有印，包括读档 / 跳过择印进来的）用 plain。几率见 G.fragChance
   G.FRAGS = {
-    seal: { name: '印烛芯', color: '#f0a6d8', src: '烈印下击杀区域首领' },
+    seal: { name: '印烛芯', color: '#f0a6d8', src: '击杀区域首领' },
     rift: { name: '隙烛芯', color: '#b48cff', src: '守隙成功' },
     vow: { name: '誓烛芯', color: '#ffae5c', src: '击杀游荡者' },
     box: { name: '匣烛芯', color: '#ffd96a', src: '缚匣解缚、试锋「中」以上、落烬成功' },
   };
   G.FRAG_IDS = Object.keys(G.FRAGS);
-  G.FRAG_DROP = { minTier: 2, pity: 6, max: 99, chance: { rift: 0.22, vow: 0.22, box: 0.15 } };
+  G.FRAG_DROP = { minTier: 2, max: 99, bySeal: [0.4, 0.7, 1.0], plain: 0.4 };
+  G.fragChance = (seal, tier) => {
+    const D = G.FRAG_DROP;
+    if (!((tier | 0) >= D.minTier)) return 0;
+    return seal ? D.bySeal[G.clamp(seal.g | 0, 0, D.bySeal.length - 1)] : D.plain;
+  };
   // 拾烬客的货架（进店时掷一次）：items 件当前物品等级的装备（至少 1 件稀有），1 颗技能宝石或辅助；价格按 price；
   // swap：任意 swap 个烛芯换 1 个指定种类（层级 ≥ fragTier，不要钱）；渊契（层级 ≥ 2，几率和开关见 G.RELIC_DROP.trader）
   G.TRADER = {
