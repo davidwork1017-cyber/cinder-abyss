@@ -165,8 +165,8 @@
       // 渊印：sealSeq 真正进区的次数（择印面板的随机种子，关掉地图再打开还是同样三枚）；
       // run 这一次进区 { zone, tier, seq, seal }（seal 为 null 是素印），读档时区域 / 层级对得上就接着用，倒下重生不动，换区 / 重进清掉
       sealSeq: 0, run: null,
-      // 烛芯（异兆一期）：各种类的个数（熄烛者的开启材料）和保底计数（box 是缚匣 / 试锋 / 落烬共用）
-      frags: { seal: 0, rift: 0, vow: 0, box: 0 }, fragPity: { seal: 0, rift: 0, vow: 0, box: 0 },
+      // 烛芯（异兆一期）：各种类的个数（熄烛者的开启材料）
+      frags: { seal: 0, rift: 0, vow: 0, box: 0 },
       // 熄烛者（D5）：击杀次数、巅峰渊契的保底计数（连续几次没掉）。正在打的那一次挂在 run.pin = { tier, lives }
       pinnacle: { kills: 0, pity: 0 },
     };
@@ -559,14 +559,10 @@
     // 熄烛者：击杀次数、巅峰渊契保底（旧存档没有 → 0）
     const rpk = isObj(raw.pinnacle) ? raw.pinnacle : {};
     s.pinnacle = { kills: toInt(rpk.kills, 0, 1e6, 0), pity: toInt(rpk.pity, 0, G.RELIC_DROP.pinnacle.pity, 0) };
-    // 烛芯：旧存档没有（全 0）；只认 G.FRAGS 的种类，个数 0–max，保底 0–上限
-    const rfr = isObj(raw.frags) ? raw.frags : {}, rfp = isObj(raw.fragPity) ? raw.fragPity : {};
+    // 烛芯：旧存档没有（全 0）；只认 G.FRAGS 的种类，个数 0–max。旧存档的保底计数 fragPity 不再读，也不再存
+    const rfr = isObj(raw.frags) ? raw.frags : {};
     s.frags = {};
-    s.fragPity = {};
-    for (const id of G.FRAG_IDS) {
-      s.frags[id] = toInt(rfr[id], 0, G.FRAG_DROP.max, 0);
-      s.fragPity[id] = toInt(rfp[id], 0, id === 'seal' ? G.SEAL.frag.pity : G.FRAG_DROP.pity, 0);
-    }
+    for (const id of G.FRAG_IDS) s.frags[id] = toInt(rfr[id], 0, G.FRAG_DROP.max, 0);
     return s;
   }
   // 图鉴记一笔：拾到过、最高完美度
@@ -675,6 +671,7 @@
     sk.variant = v;
     sk.vname = V.name;
     sk.desc = V.desc;
+    sk.alt = V.alt || ''; // 按住 Alt 的详情跟着刻式换（原式的留在 SKILL_BASE 里）
     return sk;
   }
   // 这一刻生效的刻式：'o' / 'a' / 'b'（存档里记着、但宝石还没到解锁等级的不生效）
@@ -7777,7 +7774,7 @@
     const max = isLife ? P.maxLife : P.maxMana;
     if (cur >= max && !P.hot[kind]) return false; // 满的时候不浪费
     if (P.flask[kind] < 1) {
-      toast(isLife ? '生命药剂已用尽，击杀敌人可补充' : '魔力药剂已用尽，击杀敌人可补充', '#c8b89a', 'flask-' + kind, 2000);
+      toast(isLife ? '生命药剂已空，击杀敌人补充' : '魔力药剂已空，击杀敌人补充', '#c8b89a', 'flask-' + kind, 2000);
       return false;
     }
     P.flask[kind] -= 1;
@@ -8095,8 +8092,8 @@
       if ((e.bossKind && !save.bossKills[e.bossKind]) || Math.random() < BLANK_DROP.boss) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
       uniqueDrop(e, ilvl);
       G.relicBossDrop(e, ilvl); // 渊契：和烬铸分开掷
-      // 烈印下击杀区域首领：印烛芯（物品和保底随异兆一期，G.fragSealDrop 由那边提供；几率见 G.sealFragChance）
-      if (RM.lie && G.fragSealDrop) G.fragSealDrop(e, ilvl, RM.W);
+      // 击杀区域首领：印烛芯（任何印下都掷，几率按这次进区的印，见 G.fragChance）
+      if (G.fragSealDrop) G.fragSealDrop(e);
       return;
     }
     if (e.elite) {
@@ -8228,7 +8225,7 @@
     let slot = -1;
     if (!have) {
       slot = learnSkill(id, lvl);
-      toast('习得技能：' + sk.name + ' Lv ' + save.skills[id] + (slot >= 0 ? '' : '（在技能页绑定到技能栏）') + ' · 用掉一颗' + B.short, GEM_COLOR);
+      toast('习得技能：' + sk.name + ' Lv ' + save.skills[id] + (slot >= 0 ? '' : '（去技能页绑定）') + ' · 用掉一颗' + B.short, GEM_COLOR);
     } else {
       save.skills[id] = lvl;
       toast(sk.name + ' 升至 Lv ' + lvl + ' · 用掉一颗' + B.short, GEM_COLOR);
@@ -8286,7 +8283,7 @@
       const have = save.skills[id];
       if (!have) {
         const free = learnSkill(id, lvl);
-        toast('习得技能：' + name + ' Lv ' + save.skills[id] + (free >= 0 ? '' : '（按 G 绑定到技能栏）'), GEM_COLOR);
+        toast('习得技能：' + name + ' Lv ' + save.skills[id] + (free >= 0 ? '' : '（按 G 绑定）'), GEM_COLOR);
       } else if (lvl > have) {
         save.skills[id] = lvl;
         toast(name + ' 升至 Lv ' + lvl, GEM_COLOR);
@@ -8313,7 +8310,7 @@
       } else {
         save.blankGems.push(lvl);
         save.blankGems.sort((a, b) => b - a);
-        toast('获得' + B.name + ' Lv ' + lvl + '（共 ' + save.blankGems.length + ' 颗，按 G 在技能页挑选技能）', B.color);
+        toast('获得' + B.name + ' Lv ' + lvl + '（共 ' + save.blankGems.length + ' 颗，按 G 使用）', B.color);
       }
       G.sfx('gem');
       G.persist();
@@ -9055,16 +9052,10 @@
       else G.spawnLoot('support', pickSupportGem(0.7), x, z);
     }
   };
-  // 烛芯：按几率 p 掷一次，连续 max 次没掉这一次必掉（保底计数存档，key 是保底的键：box 三种异兆共用）
-  function fragRoll(key, p, max) {
-    const U = G.save.fragPity;
-    const n = U[key] || 0;
-    if (n >= max || Math.random() < p) {
-      U[key] = 0;
-      return true;
-    }
-    U[key] = n + 1;
-    return false;
+  // 烛芯：按这次进区择的印掷一次（层级 < minTier 为 0；没有保底）
+  function fragRoll() {
+    const p = G.fragChance(state.run && state.run.seal, state.tier || 0);
+    return p > 0 && Math.random() < p;
   }
   G.fragRoll = fragRoll;
   function dropFrag(id, x, z) {
@@ -9075,17 +9066,14 @@
   }
   // 异兆成功掉的烛芯（层级 ≥ 2）：隙 / 誓 / 匣
   G.encFragDrop = function (kind, x, z) {
-    const D = G.FRAG_DROP, id = G.ENCOUNTERS[kind] && G.ENCOUNTERS[kind].frag;
-    if (!id || !((state.tier || 0) >= D.minTier)) return false;
-    if (!fragRoll(id, D.chance[id], D.pity)) return false;
+    const id = G.ENCOUNTERS[kind] && G.ENCOUNTERS[kind].frag;
+    if (!id || !fragRoll()) return false;
     dropFrag(id, x, z);
     return true;
   };
-  // 印烛芯：烈印下击杀区域首领（G.dropLoot 首领分支的钩子，几率见 G.sealFragChance，保底 G.SEAL.frag.pity）
-  G.fragSealDrop = function (e, ilvl, W) {
-    const p = G.sealFragChance(W, state.tier || 0);
-    if (!(p > 0)) return false;
-    if (!fragRoll('seal', p, G.SEAL.frag.pity)) return false;
+  // 印烛芯：击杀区域首领（G.dropLoot 首领分支的钩子；任何印下都掷，几率同上）
+  G.fragSealDrop = function (e) {
+    if (!fragRoll()) return false;
     dropFrag('seal', e.x, e.z);
     return true;
   };
@@ -9850,7 +9838,7 @@
     S.tideT = PINS.tide.iv;
     S.snuffT = PINS.snuffIv;
     if (G.world.setGloom) G.world.setGloom(PINS.gloom);
-    toast('场地暗了下来：站在亮着的火盆旁边躲暗潮，熄灭的火盆可以重新点燃', '#ffd27a', 'pinDark', 4000);
+    toast('场地暗了：站在亮着的火盆旁躲暗潮，熄灭的可重新点燃', '#ffd27a', 'pinDark', 4000);
   };
   // 三阶段进场：亮着的火盆炸开（首领那边出预警），popT 秒后全部永久点燃、亮度复原，再出外圈的预警环，warnT 秒后起火
   G.pinEnterCrown = function () {
@@ -9996,7 +9984,7 @@
     save.run = null;
     pinClear();
     G.enterZone(save.lastZone, save.tier);
-    toast('魂灯燃尽，熄烛者还在等着。退还了 ' + back.map((id) => '「' + G.FRAGS[id].name + '」').join(''), '#ffd27a');
+    toast('魂灯燃尽。退还了 ' + back.map((id) => '「' + G.FRAGS[id].name + '」').join(''), '#ffd27a');
     if (G.ui && G.ui.open) G.ui.open('map');
   };
   // 击杀（killEnemy 的首领分支）：首杀记录、掉落（§6.6）、传送门；场地熄火亮灯

@@ -6628,6 +6628,49 @@ async function main() {
     assert(out.t < 300 && out.n >= 2, '面板关闭后提示应回到屏幕上方并恢复多条：' + JSON.stringify(out));
   });
 
+  await step('按住 Alt 查看详情：只有带详情的技能卡 / 浮窗才有提示行；面板开着时按住 Alt 展开、松开收起', async () => {
+    const keep = await ev(() => {
+      const S = G.save, k = { shadestep: S.skills.shadestep, blade: S.skills.blade };
+      S.skills.shadestep = Math.max(S.skills.shadestep || 0, 1);
+      S.skills.blade = Math.max(S.skills.blade || 0, 1);
+      return k;
+    });
+    try {
+      const pre = await ev(() => ({ shade: !!G.SKILLS.shadestep.alt, blade: !G.SKILLS.blade.alt, relic: !!G.RELICS.qianmu.mechAlt, vb: !!G.VARIANTS.ember.b.alt, va: !G.VARIANTS.nova.a.alt }));
+      assert(pre.shade && pre.blade && pre.relic && pre.vb && pre.va, '数据里的详情字段不对：' + JSON.stringify(pre));
+      await page.keyboard.press('KeyG');
+      await until(() => G.ui.isOpen() && document.querySelectorAll('.skill-card').length > 0);
+      const look = () => ev(() => {
+        const card = (id) => Array.from(document.querySelectorAll('.skill-card')).find((n) => n.querySelector('.sk-name') && n.querySelector('.sk-name').textContent.includes(G.SKILLS[id].name));
+        const sh = card('shadestep'), bl = card('blade');
+        const d = sh && sh.querySelector('.alt-d'), h = sh && sh.querySelector('.alt-h');
+        return { sh: !!sh, bl: !!bl, blBox: bl ? bl.querySelectorAll('.alt-box').length : -1, d: d ? getComputedStyle(d).display : '', h: h ? getComputedStyle(h).visibility : '', hgt: sh ? Math.round(sh.getBoundingClientRect().height) : 0, ht: h ? h.textContent : '', dt: d ? d.textContent : '', alt: G.SKILLS.shadestep.alt, on: document.body.classList.contains('alt-on') };
+      });
+      let r = await look();
+      assert(r.sh && r.bl && r.blBox === 0 && !r.on && r.d === 'none' && r.h === 'visible' && r.ht === '按住 Alt 查看详情' && r.dt === r.alt, '平时只显示提示行、没有详情的卡不出提示：' + JSON.stringify(r));
+      const h0 = r.hgt;
+      await page.keyboard.down('Alt');
+      try {
+        await until(() => document.body.classList.contains('alt-on'));
+        r = await look();
+        assert(r.d === 'block' && r.h === 'hidden' && r.hgt === h0, '按住 Alt 应展开详情（浮在卡上，卡片高度不变）、藏起提示行：' + JSON.stringify(r) + ' 原高 ' + h0);
+      } finally {
+        await page.keyboard.up('Alt');
+      }
+      await until(() => !document.body.classList.contains('alt-on'));
+      r = await look();
+      assert(r.d === 'none' && r.h === 'visible', '松开 Alt 应收起详情：' + JSON.stringify(r));
+      await closePanel();
+    } finally {
+      await ev((k) => {
+        for (const id in k) {
+          if (k[id] === undefined) delete G.save.skills[id];
+          else G.save.skills[id] = k[id];
+        }
+      }, keep);
+    }
+  });
+
   await step('回响：法术自动重复一次，不再扣魔力', async () => {
     const r = await ev(() => {
       T.arena();
@@ -12386,7 +12429,7 @@ async function main() {
     return r.name + '，sealSeq ' + r.seq0 + ' → ' + r.seq1;
   });
 
-  await step('渊印·界面：层级 1 点进入弹择印面板（4 张卡、素印在第一张）、数字键选印；层级 0 不弹；HUD 小签条数对、悬停有说明；地图页写着这次的印', async () => {
+  await step('渊印·界面：层级 1 点进入弹择印面板（4 张卡、素印在第一张）、数字键选印；层级 0 不弹；HUD 小签条数对、悬停有说明；地图页写着这次的印；层级 2 的卡片写烛芯几率', async () => {
     const keep = await ev(() => {
       const k = { zi: G.state.zoneIdx, tier: G.state.tier, maxTier: G.save.maxTier };
       G.save.maxTier = Math.max(1, G.save.maxTier);
@@ -12399,7 +12442,7 @@ async function main() {
     await page.click('[data-act="enter"][data-zone="0"]'); // 第一个区域总是开着
     const a = await ev(() => {
       const cards = [...document.querySelectorAll('.seal-pick .seal-card')];
-      return { n: cards.length, first: cards[0] && cards[0].classList.contains('plain'), names: cards.map((c) => c.querySelector('.sk-name').textContent), open: G.ui.isOpen() };
+      return { n: cards.length, first: cards[0] && cards[0].classList.contains('plain'), names: cards.map((c) => c.querySelector('.sk-name').textContent), open: G.ui.isOpen(), frag: document.querySelectorAll('.seal-pick .sk-frag').length };
     });
     await page.keyboard.press('Digit3'); // 第三张 = 深印
     await frames(2);
@@ -12421,6 +12464,17 @@ async function main() {
     await page.click('[data-act="enter"][data-zone="0"]');
     await frames(2);
     const c = await ev(() => ({ open: G.ui.isOpen(), pick: !!document.querySelector('.seal-pick'), zi: G.state.zoneIdx, tier: G.state.tier, seal: G.state.run.seal, chips: document.querySelectorAll('#seal-chips .sc').length }));
+    // 层级 2：每张卡写这一档的烛芯几率（层级 1 不写）；Esc 返回，不进区
+    await ev(() => (G.save.maxTier = Math.max(2, G.save.maxTier)));
+    await page.keyboard.press('KeyM');
+    await until(() => G.ui.isOpen() && document.querySelector('[data-act="tier"][data-tier="2"]'));
+    await page.click('[data-act="tier"][data-tier="2"]');
+    await page.click('[data-act="enter"][data-zone="0"]');
+    await until(() => document.querySelector('.seal-pick .seal-card'));
+    const d = await ev(() => [...document.querySelectorAll('.seal-pick .seal-card')].map((el) => (el.querySelector('.sk-frag') || { textContent: '' }).textContent).join('/'));
+    await page.keyboard.press('Escape');
+    await frames(2);
+    await ev(() => G.ui.close());
     await ev((k) => { G.save.maxTier = k.maxTier; G.enterZone(k.zi, k.tier); }, keep);
     assert(a.open && a.n === 4 && a.first && a.names[0] === '素印' && /^浅印/.test(a.names[1]) && /^深印/.test(a.names[2]) && /^烬印/.test(a.names[3]), '择印面板不对：' + JSON.stringify(a));
     assert(!b.open && b.zi === 0 && b.tier === 1 && b.g === 1 && b.name === a.names[2], '数字键 3 应选深印进区：' + JSON.stringify(b));
@@ -12428,6 +12482,7 @@ async function main() {
     assert(tip.length > 8 && /印纹/.test(tip), '小签悬停没有说明：' + tip);
     assert(mapTxt.indexOf('本次进区') >= 0 && mapTxt.indexOf(b.name) >= 0, '地图页没写这次的印');
     assert(!c.open && !c.pick && c.zi === 0 && c.tier === 0 && c.seal === null && c.chips === 0, '层级 0 不该弹面板 / 有小签：' + JSON.stringify(c));
+    assert(a.frag === 0 && d === '烛芯 40%/烛芯 40%/烛芯 70%/烛芯 100%', '择印卡片的烛芯几率不对（层级 1 不写，层级 2 素印 / 浅印 / 深印 / 烬印）：' + a.frag + ' ' + d);
     return a.names.join(' / ') + '；小签 ' + b.chips + ' 个';
   });
 
@@ -13243,7 +13298,7 @@ async function main() {
     return '六边形 ' + r.grey0 + ' 像素 → 十字 ' + r.cyan1 + ' 像素';
   });
 
-  await step('异兆出现规则 + 烛芯：层级 0 只有 40% 出 1 个、池里没有守隙 / 试锋 / 残影；层级 ≥ 1 一个、40% 两个；烛芯只在层级 ≥ 2 掉、保底第 7 次必掉；印烛芯按 W；存档读回、旧存档为 0', async () => {
+  await step('异兆出现规则 + 烛芯：层级 0 只有 40% 出 1 个、池里没有守隙 / 试锋 / 残影；层级 ≥ 1 一个、40% 两个；烛芯只在层级 ≥ 2 掉、几率按择的印（素印 = 浅印 40%、深印 70%、烬印 100%，没有保底），六个来源都一样；印烛芯非烈印的首领也掉；存档读回、旧存档为 0、旧的 fragPity 丢掉不再存', async () => {
     const r = await ev(() => {
       const S = G.state, sv = G.save, out = {};
       G.debug.zoneSeed(5150);
@@ -13266,63 +13321,77 @@ async function main() {
       out.p2 = +((n1[2] || 0) / 3000).toFixed(3);
       out.min1 = Math.min(...Object.keys(n1).map(Number));
       G.debug.zoneSeed(null);
-      // 烛芯
-      const orig = Math.random, pity0 = JSON.stringify(sv.fragPity), fr0 = JSON.stringify(sv.frags);
+      // 烛芯：按这次进区择的印掷一次（S.run.seal 的档位 g；null 是素印）
+      const orig = Math.random, fr0 = JSON.stringify(sv.frags), run0 = S.run, rm0 = G.runMods;
       const drops = [];
       const sp = G.spawnLoot;
       G.spawnLoot = (k, d) => (drops.push(k + ':' + d), { x: 0, z: 0 });
+      const seal = (g) => (g == null ? null : { g, mods: [{ id: 'swift' }], W: 4 });
+      // 六个来源各掷一次：守隙 / 游荡者 / 缚匣 / 试锋 / 落烬 / 区域首领，掉了记 1
+      const at = (g, r) => {
+        S.run = { seal: seal(g), mods: rm0 };
+        Math.random = () => r;
+        return [G.encFragDrop('guard', 0, 0), G.encFragDrop('wanderer', 0, 0), G.encFragDrop('box', 0, 0), G.encFragDrop('trial', 0, 0), G.encFragDrop('ember', 0, 0), G.fragSealDrop({ x: 0, z: 0 })].map((b) => (b ? 1 : 0)).join('');
+      };
       try {
-        Math.random = () => 0.999;
         S.tier = 1;
-        out.t1 = G.encFragDrop('guard', 0, 0) || G.encFragDrop('box', 0, 0) || G.fragSealDrop({ x: 0, z: 0 }, 50, 9);
-        out.t1Pity = JSON.stringify(sv.fragPity) === pity0;
+        out.t1 = at(2, 0) + at(null, 0);
+        out.t1Drops = drops.length;
         S.tier = 2;
-        for (const k in sv.fragPity) sv.fragPity[k] = 0;
-        const seq = [];
-        for (let i = 0; i < 8; i++) seq.push(G.encFragDrop('guard', 0, 0) ? 1 : 0);
-        out.pitySeq = seq.join('');
-        // box 三者共用保底
-        for (let i = 0; i < 3; i++) G.encFragDrop('box', 0, 0), G.encFragDrop('trial', 0, 0);
-        out.boxPity = sv.fragPity.box;
-        out.sealW5 = G.fragSealDrop({ x: 0, z: 0 }, 50, 5);
-        Math.random = () => 0.08;
-        out.sealW6 = G.fragSealDrop({ x: 0, z: 0 }, 50, 6); // 7% + 1.5% = 8.5%
-        Math.random = () => 0.09;
-        out.sealW6b = G.fragSealDrop({ x: 0, z: 0 }, 50, 6);
-        Math.random = () => 0.0;
-        out.wander = G.encFragDrop('wanderer', 0, 0) && drops[drops.length - 1] === 'frag:vow';
-        out.drops = drops.slice(0, 3).join(',');
+        out.plain = at(null, 0.399) + '/' + at(null, 0.4);
+        out.g0 = at(0, 0.399) + '/' + at(0, 0.4);
+        out.g1 = at(1, 0.699) + '/' + at(1, 0.7);
+        out.g2 = at(2, 0.9999);
+        out.g2Drops = drops.slice(-6).join(',');
+        out.chance = [null, 0, 1, 2].map((g) => G.fragChance(seal(g), 2)).join(',') + '|' + G.fragChance(seal(2), 1);
+        // 首领掉落的钩子：非烈印（W 4）的烬印下击杀区域首领也掉印烛芯；层级 1 不掉
+        Math.random = orig;
+        S.run = { seal: seal(2), mods: rm0 };
+        out.lie = !!G.runMods.lie;
+        drops.length = 0;
+        G.dropLoot({ isBoss: true, bossKind: null, level: 50, x: 0, z: 0 });
+        out.boss = drops.filter((d) => d === 'frag:seal').length;
+        S.tier = 1;
+        drops.length = 0;
+        G.dropLoot({ isBoss: true, bossKind: null, level: 50, x: 0, z: 0 });
+        out.boss1 = drops.filter((d) => d.indexOf('frag:') === 0).length;
       } finally {
         Math.random = orig;
         G.spawnLoot = sp;
         S.tier = 0;
+        S.run = run0;
+        G.runMods = rm0;
       }
-      // 存档：烛芯读回；坏数据夹回范围；旧存档没有这两项 → 0
+      // 存档：烛芯读回；坏数据夹回范围；旧存档没有 frags → 0；旧存档的保底计数 fragPity 读档丢掉，存档里也不再写
+      out.fresh = 'fragPity' in G.newSave();
       sv.frags = { seal: 2, rift: 120, vow: -3, box: 1.7 };
       sv.fragPity = { seal: 3, rift: 99, vow: 2, box: 'x' };
       G.persist();
       const s2 = G.loadSave();
-      out.load = JSON.stringify(s2.frags) + JSON.stringify(s2.fragPity);
+      out.load = JSON.stringify(s2.frags) + ('fragPity' in s2);
+      G.persist();
+      const k = Object.keys(localStorage).find((q) => /cinder-abyss-save/.test(q));
+      out.resaved = /fragPity/.test(localStorage.getItem(k));
       const raw = JSON.parse(JSON.stringify(sv));
       delete raw.frags;
-      delete raw.fragPity;
-      const k = Object.keys(localStorage).find((q) => /cinder-abyss-save/.test(q));
+      raw.fragPity = { seal: 1 };
       localStorage.setItem(k, JSON.stringify(raw));
       const s3 = G.loadSave();
-      out.old = JSON.stringify(s3.frags) + JSON.stringify(s3.fragPity);
+      out.old = JSON.stringify(s3.frags) + ('fragPity' in s3);
       sv.frags = JSON.parse(fr0);
-      sv.fragPity = JSON.parse(pity0);
       G.persist();
       G.enterZone(0, 0);
       return out;
     });
     assert(Math.abs(r.p0 - 0.4) < 0.04 && r.max0 === 1 && r.kinds0 === 'box,ember,shrine,trader,wanderer', '层级 0 的出现规则不对：' + JSON.stringify(r));
     assert(Math.abs(r.p2 - 0.4) < 0.04 && r.min1 === 1, '层级 ≥ 1 的出现规则不对：' + JSON.stringify(r));
-    assert(!r.t1 && r.t1Pity, '层级 1 不该掉烛芯、也不该记保底：' + JSON.stringify(r));
-    assert(r.pitySeq === '00000010' && r.boxPity === 6 && !r.sealW5 && r.sealW6 && !r.sealW6b, '烛芯的保底 / 共用保底 / 印烛芯几率不对：' + JSON.stringify(r));
-    assert(r.wander, '游荡者应掉誓烛芯：' + JSON.stringify(r));
-    assert(r.load === '{"seal":2,"rift":99,"vow":0,"box":1}{"seal":3,"rift":6,"vow":2,"box":0}' && r.old === '{"seal":0,"rift":0,"vow":0,"box":0}{"seal":0,"rift":0,"vow":0,"box":0}', '烛芯的存档不对：' + JSON.stringify(r));
-    return '层级 0 出现 ' + r.p0 + '，层级 1 两个 ' + r.p2 + '，保底 ' + r.pitySeq;
+    assert(r.t1 === '000000000000' && r.t1Drops === 0, '层级 1 不该掉烛芯（烬印、几率掷 0 也不掉）：' + JSON.stringify(r));
+    assert(r.chance === '0.4,0.4,0.7,1|0', '烛芯几率（素印 / 浅印 / 深印 / 烬印 | 层级 1）不对：' + JSON.stringify(r));
+    assert(r.plain === '111111/000000' && r.g0 === '111111/000000' && r.g1 === '111111/000000' && r.g2 === '111111', '烛芯按档位的几率不对（0.399 / 0.4、0.699 / 0.7、烬印 0.9999）：' + JSON.stringify(r));
+    assert(r.g2Drops === 'frag:rift,frag:vow,frag:box,frag:box,frag:box,frag:seal', '六个来源掉的烛芯种类不对：' + JSON.stringify(r));
+    assert(!r.lie && r.boss === 1 && r.boss1 === 0, '非烈印的区域首领应掉印烛芯、层级 1 不掉：' + JSON.stringify(r));
+    assert(!r.fresh && r.load === '{"seal":2,"rift":99,"vow":0,"box":1}false' && !r.resaved && r.old === '{"seal":0,"rift":0,"vow":0,"box":0}false', '烛芯的存档不对（fragPity 应丢掉）：' + JSON.stringify(r));
+    return '层级 0 出现 ' + r.p0 + '，层级 1 两个 ' + r.p2 + '，烛芯 ' + r.chance;
   });
 
   // ================================================================== 熄烛者（D5：巅峰首领，余烛殿）

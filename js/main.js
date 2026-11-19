@@ -19,12 +19,13 @@
   const PANEL_KEYS = { KeyI: 'inv', KeyG: 'skills', KeyP: 'tree', KeyM: 'map', KeyH: 'help' };
   const NO_SCROLL = { Space: 1, ArrowUp: 1, ArrowDown: 1, ArrowLeft: 1, ArrowRight: 1, Tab: 1 };
 
-  function clearInput() {
+  // keepAlt：面板开着时每帧都清一次输入，但 Alt 要留着（浮窗里「按住 Alt 查看详情」读它）
+  function clearInput(keepAlt) {
     for (const k in input.keys) input.keys[k] = false;
     input.mouse.b[0] = input.mouse.b[1] = input.mouse.b[2] = false;
     input.tap[0] = input.tap[1] = input.tap[2] = input.tap[3] = input.tap[4] = 0;
     input.tapDodge = input.tapExec = 0;
-    input.alt = false;
+    if (keepAlt !== true) input.alt = false;
   }
 
   // 按下技能栏的一格（0 左键 / 1 右键 / 2 Q / 3 E / 4 R）。召唤技能的格子：按一下切换它的「自动召唤」，
@@ -51,7 +52,7 @@
       if (e.ctrlKey || e.metaKey) return; // 浏览器快捷键照常工作
       if (e.code === 'AltLeft' || e.code === 'AltRight') {
         e.preventDefault(); // 不让 Alt 把焦点交给浏览器菜单
-        if (!G.ui.isOpen()) input.alt = true;
+        input.alt = true; // 面板开着也记下：浮窗详情要用；名牌只在面板关着时展开（ui.js 的 syncLabels 自己判断）
         return;
       }
       if (e.altKey) e.preventDefault(); // 按住 Alt 看名牌时，移动 / 技能键照常生效，不触发浏览器的 Alt 组合键
@@ -180,7 +181,7 @@
     const open = G.ui.isOpen();
     G.state.paused = open;
     if (open) {
-      clearInput(); // 面板关掉后不会带着按住的键继续跑
+      clearInput(true); // 面板关掉后不会带着按住的键继续跑（Alt 除外）
       if (G.ui.titleOn()) G.ui.titleFrame(dt); // 标题画面：模拟照样不推进，只让区域的火光、飘尘动起来，镜头缓慢漂移
     } else {
       refreshMouseWorld();
