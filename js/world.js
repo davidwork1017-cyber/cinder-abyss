@@ -22834,7 +22834,7 @@
   //   W.vortexTighten(v, k)：直接给收紧的目标 0..1，不再看 lat（比如绕着玩家转的护盾一直收紧）；k 传 null 交回给 lat
   //   W.vortexSet(v, o)：随时改 o 里的那些参数（比如两团合并后长大：W.vortexSet(v, { H: 2.6, rT: 0.9 })）
   //   W.vortexBounce(x, z, rx, rz)：撞墙那一下贴墙鼓起的尘烟 + 顺着反弹方向 (rx, rz) 甩的尖片
-  //   W.vortexPuff(x, z, s)：任意位置一小团尘烟（合并、绕回、换向时用），s 大小倍率
+  //   W.vortexPuff(x, z, s)：任意位置一小团尘烟（合并、绕回、换向时用），s 大小倍率；低画质不画
   //   W.removeVortex(v)：收起（散开的尘烟）；W.vortexCount()：场上画着的团数
   //
   // 每个实例的参数：实例颜色 = (转角的圈数小数部分, 收紧程度, 随机种子 × 转向)；aV = (taper, tint, 近侧壁往镜头挪的程度, ground)
@@ -23048,11 +23048,13 @@
       v.hx[0] = x; v.hz[0] = z;
     }
   };
+  // 低画质不画尘烟（和渊缚一样省 draw call：场上没有别的烟团时，烟团的实例网格会多一次 draw call），只留尖片
   W.vortexPuff = function (x, z, s) {
+    if (qualId === 'low') return;
     const k = s || 1;
-    tPuffs(x, 0.4 * k, z, qualId === 'low' ? 1 : 3, 0.5 * k, 0.7, 0.3, 0.26 * k, CH_DARK, CH_CORE);
+    tPuffs(x, 0.4 * k, z, 3, 0.5 * k, 0.7, 0.3, 0.26 * k, CH_DARK, CH_CORE);
   };
-  // 撞墙反弹：贴着墙鼓起一小团尘烟（暗紫 → 近黑），再顺着反弹方向甩几片尖片
+  // 撞墙反弹：贴着墙鼓起一小团尘烟（暗紫 → 近黑，低画质没有），再顺着反弹方向甩几片尖片
   W.vortexBounce = function (x, z, rx, rz) {
     const lo = qualId === 'low';
     W.vortexPuff(x - rx * 0.25, z - rz * 0.25, 1);
