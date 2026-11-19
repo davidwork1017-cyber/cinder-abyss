@@ -72,6 +72,7 @@
     gun: { spin: 0, ramp: 0, ammo: 6, reloadT: 0, cdT: 0, hitT: 99, cycle: 0, emberT: 0, firing: false },
     rbuff: null, // 弓的专注技增益 { id, t, dur }
     rstate: null, // 乱射这类脱离施放系统、不会被打断的持续效果 { id, t, dur, nextT, i, ctx }
+    relic: {}, // 身上渊契的机制：{ 渊契 id: true, any: 至少一件 }（computeStats 里由 G.relicSync 汇总，见「渊契」一节）
   });
 
   // ---------- 时间流：顿帧与慢动作 ----------
@@ -154,6 +155,8 @@
       // 烬铸图鉴：found 拾到过的烬铸武器 { id: true }，best 见过的最高完美度 { id: 0..100 }，
       // pity 各首领（层级 1 起）连续多少次没掉它的武器 { 首领: 次数 }
       uniq: { found: {}, best: {}, pity: {} },
+      // 渊契图鉴：格式同 uniq；pity 按保底的键计（首领 / 异兆来源按渊契 id，烈印来源按 'seal'）
+      relic: { found: {}, best: {}, pity: {} },
       // 刻式：variants 选了的刻式 { 技能 id: 'a' | 'b' }（没有的就是原式）；variantFree 已经用过免费那一次的技能 { 技能 id: true }
       variants: {}, variantFree: {},
     };
@@ -206,7 +209,8 @@
   const isItem = (it) =>
     isObj(it) && G.SLOTS.indexOf(it.slot) >= 0 && typeof it.uid === 'string' &&
     typeof it.name === 'string' && typeof it.baseName === 'string' &&
-    (it.rarity === 0 || it.rarity === 1 || it.rarity === 2 || (it.rarity === 3 && it.slot === 'weapon' && typeof it.uq === 'string' && !!G.UNIQUES[it.uq])) && isNum(it.ilvl) &&
+    (it.rarity === 0 || it.rarity === 1 || it.rarity === 2 || (it.rarity === 3 && it.slot === 'weapon' && typeof it.uq === 'string' && !!G.UNIQUES[it.uq]) ||
+      (it.rarity === 4 && typeof it.rq === 'string' && !!G.RELICS[it.rq] && it.slot === G.RELICS[it.rq].slot)) && isNum(it.ilvl) &&
     (it.armour === undefined || isNum(it.armour)) &&
     (it.imp == null || (isObj(it.imp) && typeof it.imp.stat === 'string' && isNum(it.imp.v))) &&
     Array.isArray(it.affixes) &&
@@ -220,6 +224,7 @@
   // 把 wbase 按「现在这个物品等级的成长 ÷ 27 级的成长」放大一次（成色不变），老角色手里的高等级武器不吃亏
   function fixItem(it, charLvl, oldGrowth) {
     if (it.rarity === 3) fixUnique(it);
+    if (it.rarity === 4) fixRelic(it);
     const bases = G.BASES[it.slot];
     if (!(it.baseIdx >= 0 && it.baseIdx < bases.length) || it.baseIdx !== Math.floor(it.baseIdx)) it.baseIdx = 0;
     // 远程改版：长弓（下标 5）改成鹰眼长弓。旧名字换成同阶的新名字，普通 / 魔法物品的显示名跟着重拼（稀有的随机名不动）
@@ -275,6 +280,26 @@
       return { id: ln.id, tier, v };
     });
     it.armour = 0;
+    return it;
+  }
+
+  // 渊契：基底、名字、词缀行按定义修回来，数值夹回各自的区间（缺的行取区间中点）；护甲 / 隐含属性照旧（随基底和物品等级）
+  function fixRelic(it) {
+    const R = G.RELICS[it.rq];
+    it.ilvl = G.clamp(Math.round(it.ilvl), 1, 999);
+    it.baseIdx = R.base;
+    it.name = R.name;
+    const base = G.BASES[R.slot][R.base];
+    if (base.names.indexOf(it.baseName) < 0) it.baseName = base.names[Math.min(G.nameTier(it.ilvl), base.names.length - 1)];
+    const tier = G.clamp(G.TIER_ILVL.filter((l) => l <= it.ilvl).length - 1, 0, G.TIER_ILVL.length - 1);
+    it.affixes = R.lines.map((ln, i) => {
+      const r = G.relicLineRange(it.rq, it.ilvl, i);
+      const old = it.affixes.find((a) => a.id === ln.id);
+      const v = old ? G.clamp(Math.round(old.v), r[0], r[1]) : Math.round((r[0] + r[1]) / 2);
+      return { id: ln.id, tier, v };
+    });
+    if (!base.armour) it.armour = 0;
+    if (!base.imp) it.imp = null;
     return it;
   }
 
@@ -444,6 +469,21 @@
     }
     // 身上 / 背包里已有的烬铸武器也算拾到过（旧数据缺图鉴时补上）
     for (const it of s.bag.concat(s.equip.weapon ? [s.equip.weapon] : [])) if (it.rarity === 3) noteUnique(it, s);
+    // 渊契图鉴：同上，只认 G.RELICS 的 id 和保底的键（渊契 id、'seal'）；旧存档没有这一项就是空的
+    const rr = isObj(raw.relic) ? raw.relic : {};
+    const qf = isObj(rr.found) ? rr.found : {};
+    const qb = isObj(rr.best) ? rr.best : {};
+    const qp = isObj(rr.pity) ? rr.pity : {};
+    for (const id of Object.keys(G.RELICS)) {
+      if (qf[id] === true) s.relic.found[id] = true;
+      if (isNum(qb[id]) && qb[id] > 0) s.relic.best[id] = G.clamp(Math.round(qb[id]), 0, 100);
+    }
+    for (const k of G.relicPityKeys()) {
+      const n = toInt(qp[k], 0, G.relicPityMax(k), 0);
+      if (n > 0) s.relic.pity[k] = n;
+    }
+    for (const slot of G.SLOTS) if (s.equip[slot] && s.equip[slot].rarity === 4) noteRelic(s.equip[slot], s);
+    for (const it of s.bag) if (it.rarity === 4) noteRelic(it, s);
     return s;
   }
   // 图鉴记一笔：拾到过、最高完美度
@@ -455,6 +495,14 @@
     if (!(U.best[it.uq] >= p)) U.best[it.uq] = p;
   }
   G.noteUnique = (it) => noteUnique(it);
+  function noteRelic(it, save) {
+    const U = (save || G.save).relic;
+    if (!it || it.rarity !== 4 || !U) return;
+    const p = Math.round(G.uniquePerfect(it) * 100);
+    U.found[it.rq] = true;
+    if (!(U.best[it.rq] >= p)) U.best[it.rq] = p;
+  }
+  G.noteRelic = (it) => noteRelic(it);
 
   // 画质档位：桌面默认高，手机 / 平板默认中
   G.QUALITY_IDS = ['high', 'mid', 'low'];
@@ -703,6 +751,7 @@
     const gearLife = S.life;
     for (const id of save.passives) add(G.TREE[id].stats);
     P.S = S;
+    G.relicSync(); // 身上渊契的机制（P.relic）：光环保留（星雨）在下面就要用
 
     P.gearLife = gearLife; // 装备给的「+最大生命」（召唤物继承生命用）
     P.maxLifeRaw = Math.max(1, Math.round((G.baseLife(save.level) + S.life) * (1 + S.incLife / 100) * (1 + S.moreLife / 100)));
@@ -766,6 +815,7 @@
   G.reservePct = function () {
     let pct = 0;
     for (const id of Object.keys(G.SKILLS)) if (G.auraOn(id)) pct += G.auraReserve(id);
+    if (P.relic.zhuixing) pct += G.relicReserve(); // 渊契「星雨」：自动陨火改为保留魔力
     return Math.min(90, pct);
   };
 
@@ -1136,6 +1186,7 @@
         mi.beam = sk.beam;
       }
     }
+    if (P.relic.any) G.relicCtx(ctx); // 渊契：必然、独骸、同殇等改上下文
     return ctx;
   };
 
@@ -1239,7 +1290,7 @@
     for (const t in ctx.extra) parts[t] = (parts[t] || 0) + (pre * ctx.extra[t]) / 100;
     // 黑焰：同一个 pre（和注入相加，不再吃混沌加成）
     if (ctx.flame > 0) parts.chaos = (parts.chaos || 0) + (pre * ctx.flame) / 100;
-    const crit = Math.random() * 100 < ctx.crit;
+    const crit = P.relic.qianmu ? G.relicCrit(ctx) : Math.random() * 100 < ctx.crit; // 渊契「必然」：暴击按计数
     const k = ctx.more * (crit ? ctx.critMulti / 100 : 1) * m;
     let total = 0;
     for (const t in parts) {
@@ -1390,6 +1441,7 @@
         fillMeter(e, t, (v / G.buThreshold(e, t)) * Math.max(0, k + (bindAil || 0) / 100) * BU.rate.chaos, procs);
         continue;
       }
+      if (P.relic.yibian && relicMix(e, t, v, k, procs)) continue; // 渊契「混相」：三种元素灌进同一条
       // 锁定中（见 fillMeter）的这一击不计入平均每击
       if (t === 'cold' && (e.freeze > 0 || e.bossChill > 0 || e.brokenT > 0)) continue;
       if (t === 'light' && e.shockT > 0) continue;
@@ -1416,6 +1468,7 @@
     const h = e.height || 2;
     const ty = Math.min(3.4, h * (e.elite ? 1.3 : 1)) + 0.3;
     const st = state.stats;
+    if (p.t === 'mix') return relicMixFire(p); // 渊契「混相」灌满
     e.buTrig[p.t]++;
     // 三相共鸣直接灌满的那一下不让首领的阈值变高（不然共鸣越多，首领反而越难触发异常）
     // 拿着三相之心时，正常触发让首领阈值变高的幅度 × TRI.grow；烬铸技「三相天灾」打出来的触发不打这个折扣（首领照常越打越难）
@@ -1456,7 +1509,7 @@
       return; // 混沌不是元素：不引发三相共鸣
     }
     // 三相之心：正常触发的异常引发共鸣；共鸣直接灌满触发的（p.spread）不再引发，链条到此为止
-    if (P.uMech === 'tri' && !p.spread) triSpread(e, p.t, p.t === 'fire' ? p.fire : e.buFireN > 0 ? Math.min((e.buFire / e.buFireN) * BU.blast, e.buTh * BU.blastCap) : 0);
+    if (P.uMech === 'tri' && !p.spread && !P.relic.yibian) triSpread(e, p.t, p.t === 'fire' ? p.fire : e.buFireN > 0 ? Math.min((e.buFire / e.buFireN) * BU.blast, e.buTh * BU.blastCap) : 0);
   }
 
   // ---------- 渊缚（混沌异常）----------
@@ -1628,7 +1681,7 @@
   // 魂火轮回：召唤物倒下时炸开，对周围 SOULFIRE.r 内的敌人造成它最大生命 × SOULFIRE.k 的火焰伤害（不暴击、不累积异常值）
   G.soulFire = function (m) {
     if (P.uMech !== 'soul' || !m || !state.zone) return 0;
-    const v = (m.maxHp || 0) * G.SOULFIRE.k;
+    const v = (m.maxHp || 0) * G.SOULFIRE.k * ((m.ctx && m.ctx.minion && m.ctx.minion.soulK) || 1); // 骸王按普通仆从的生命算
     const R = G.SOULFIRE.r + (m.r || 0.5) * 0.5;
     const x = m.x, z = m.z;
     if (G.world.soulFireFx) G.world.soulFireFx(x, z, R, m.height || 2);
@@ -1681,6 +1734,612 @@
       G.hitEnemy(o, ctx, 1, { ang: Math.atan2(o.x - e.x, o.z - e.z), w: 0, kb: 0.15, poise: 0, quiet: true, proc: true, bolt: true, noBuild: true, faint: true });
     }
   }
+
+  // =====================================================================
+  // 渊契（稀有度 4）：身上的机制汇总、各技能函数里一行钩子调用的实现、掉落与保底
+  // 判断点都是 P.relic[id]；数值在 data.js 的 G.RELIC_MECH。技能函数里只留一行 G.relicXxx(...) 的调用，逻辑都在这里
+  // =====================================================================
+  const RM = G.RELIC_MECH;
+  // 运行时状态（不存档）：crit 必然的暴击计数；spin / spinCtx / spinR 蓄潮的层数和最后一跳的上下文；slamT 踏震的间隔；
+  // metT 星雨距离下一次自动落下的秒数；bridges 电桥；chainT 锁链特效的节流；kingT 骸王外形的检查间隔；shareT 同殇连线的节流
+  const RQ = { crit: 0, spin: 0, spinCtx: null, spinR: 0, spinFull: false, slamT: 0, metT: 0, bridges: [], chainT: 0, kingT: 0, shareT: 0 };
+  G.relicState = RQ; // 测试 / 调试用
+
+  // computeStats 里调用：按身上的装备汇总 P.relic（同一种机制穿两件也只算一次）。巅峰专属的数据桩还没有机制，不算
+  G.relicSync = function () {
+    const r = P.relic;
+    for (const k in r) delete r[k];
+    const eq = G.save && G.save.equip;
+    if (!eq) return r;
+    for (const slot of G.SLOTS) {
+      const it = slot !== 'weapon' && eq[slot];
+      const R = it && it.rarity === 4 && G.RELICS[it.rq];
+      if (R && !R.pinnacle && R.slot === slot) {
+        r[it.rq] = true;
+        r.any = true;
+      }
+    }
+    if (!r.qianmu) RQ.crit = 0;
+    if (!r.nuchao) RQ.spin = 0;
+    return r;
+  };
+
+  // ---------- 保底和掉落 ----------
+  // 保底的键：首领 / 异兆来源按渊契 id，烈印来源两件共用 'seal'
+  G.relicPityKeys = () => G.RELIC_IDS.filter((id) => G.RELICS[id].src === 'boss' || G.RELICS[id].src === 'enc').concat(['seal']);
+  G.relicPityMax = (k) => (k === 'seal' ? G.RELIC_DROP.seal.pity : G.RELICS[k] && G.RELICS[k].src === 'enc' ? G.RELIC_DROP.enc.pity : G.RELIC_DROP.boss.pity);
+  // 按几率 p 掷一次：连续 max 次没掉，这一次必掉；掉了清零，没掉 +1（计数存档）
+  function relicRoll(key, p, max) {
+    const U = G.save.relic;
+    const n = U.pity[key] || 0;
+    if (n >= max || Math.random() < p) {
+      delete U.pity[key];
+      return true;
+    }
+    U.pity[key] = n + 1;
+    return false;
+  }
+  G.relicRoll = relicRoll;
+  // 掉一件渊契：大字提示、计数（和烬铸一样）
+  function relicSpawn(id, ilvl, x, z) {
+    const item = G.rollRelic(id, ilvl);
+    if (!item) return null;
+    G.spawnLoot('item', item, x, z);
+    G.sfx('unique');
+    if (G.ui.bigToast) G.ui.bigToast(G.RELIC_NAME, item.name, G.RELIC_COLOR, G.RELICS[id].mechName);
+    state.stats.relicDrops = (state.stats.relicDrops || 0) + 1;
+    return item;
+  }
+  // 烈印的总权重 W（D3 的 G.runSealW 提供；还没有渊印时为 0）
+  const sealW = () => (typeof G.runSealW === 'function' ? G.runSealW() || 0 : 0);
+  // 区域首领的那一件：只掷、不掉（返回掉了的渊契 id 或 null）。和烬铸分开掷、各计各的保底；层级 0 不掉也不计保底
+  G.relicBossRoll = function (kind, tier) {
+    const D = G.RELIC_DROP;
+    const id = G.RELIC_BY_BOSS[kind];
+    if (!D.src.boss || !id || !(tier >= 1)) return null;
+    const p = G.relicChance(tier) * (sealW() >= D.seal.minW ? D.sealMul : 1);
+    return relicRoll(id, p, D.boss.pity) ? id : null;
+  };
+  // dropLoot 首领分支的一行钩子：首领那一件 + 烈印来源
+  G.relicBossDrop = function (e, ilvl) {
+    if (!e || !e.isBoss) return null;
+    const id = G.relicBossRoll(e.bossKind, state.tier || 0);
+    const item = id ? relicSpawn(id, ilvl, e.x, e.z) : null;
+    G.relicSealDrop(e, ilvl);
+    return item;
+  };
+  // 烈印（W ≥ minW）下击杀区域首领：陨织袍 / 渊缚链各半，两件共用 'seal' 保底。来源开关 src.seal 由 D3 打开
+  G.relicSealDrop = function (e, ilvl) {
+    const D = G.RELIC_DROP, S = D.seal;
+    if (!D.src.seal || !e || !e.isBoss || !(sealW() >= S.minW)) return null;
+    if (!relicRoll('seal', S.chance, S.pity)) return null;
+    return relicSpawn(G.pick(S.ids), ilvl, e.x, e.z);
+  };
+  // 异兆成功：这种异兆对应的那一件（D4 的异兆运行时调用；来源开关 src.enc 由 D4 打开）
+  G.relicEncDrop = function (enc, ilvl, x, z) {
+    const D = G.RELIC_DROP;
+    const id = G.RELIC_BY_ENC[enc];
+    if (!D.src.enc || !id || !((state.tier || 0) >= D.enc.minTier)) return null;
+    if (!relicRoll(id, D.enc.chance, D.enc.pity)) return null;
+    return relicSpawn(id, ilvl, x, z);
+  };
+  // 拾烬客的货架（层级 ≥ 2）：返回要摆上的渊契 id，没有时 null（来源开关 src.trader 随 D4）
+  G.relicTraderPick = function () {
+    const D = G.RELIC_DROP;
+    if (!D.src.trader || !((state.tier || 0) >= D.trader.minTier) || Math.random() >= D.trader.chance) return null;
+    return G.pick(G.RELIC_IDS);
+  };
+
+  // ---------- 技能上下文（skillCtx 末尾的一行钩子） ----------
+  G.relicCtx = function (ctx) {
+    const r = P.relic, mi = ctx.minion;
+    // 必然：你自己的暴击伤害降低（召唤物不受影响）
+    if (r.qianmu && !mi && !ctx.asMinion) ctx.critMulti = Math.max(100, ctx.critMulti + RM.qianmu.critMulti);
+    if (!mi) return ctx;
+    if (r.tongshang) mi.life = Math.max(1, Math.round(mi.life * (1 + RM.tongshang.life / 100)));
+    if (r.haiwang && mi.kind === 'thrall') {
+      // 独骸：多出来的仆从上限（群聚、天赋、护符、万魂旗）每个折成伤害和生命
+      const H = RM.haiwang, extra = Math.max(0, mi.cap - ctx.sk.cap);
+      ctx.more *= H.dmg * (1 + H.perDmg * extra);
+      mi.life = Math.max(1, Math.round(mi.life * H.life * (1 + H.perLife * extra)));
+      mi.soulK = ctx.sk.cap / (H.life * (1 + H.perLife * extra)); // 万魂旗的魂火按「普通上限那么多具普通仆从」的生命算
+      mi.cap = 1;
+      mi.cleave = H.cleave;
+      mi.arc = (H.arc * Math.PI) / 180;
+      mi.hold = H.hold;
+      mi.dr = Math.min(75, mi.dr + H.dr);
+      mi.reach *= 1.3;
+      mi.king = true;
+    }
+    return ctx;
+  };
+
+  // ---------- 必然（千目）：calcHit 里的一行钩子 ----------
+  G.relicCrit = function (ctx) {
+    if (ctx.proc || ctx.minion || ctx.asMinion) return Math.random() * 100 < ctx.crit;
+    if (ctx.crit >= 100) return true; // 必暴的招式照旧必暴，不动计数
+    if (!(ctx.crit > 0)) return false;
+    RQ.crit += ctx.crit;
+    if (RQ.crit >= 100) {
+      RQ.crit -= 100;
+      return true;
+    }
+    return false;
+  };
+
+  // ---------- 踏震（磐踵）/ 随影（招魂带）：翻滚 ----------
+  // 翻滚冷却的倍率（dodge 里的一行钩子）
+  G.relicRollK = () => 1 + (P.relic.panzhong ? RM.panzhong.rollCd : 0) + (P.relic.zhaohun ? RM.zhaohun.rollCd : 0);
+  // 物理攻击的上下文（踏震、蓄潮之外的「武器一击」）：武器伤害 × mult，吃你的伤害属性、暴击，不吃任何辅助宝石
+  function relicAtkCtx(mult, w, kb, poise) {
+    const S = P.S, wp = G.weaponStats(G.save.equip.weapon);
+    const base = { phys: [wp.min * mult, wp.max * mult] };
+    for (const t of TYPES) {
+      const v = S['add' + G.CAP[t]] || 0;
+      if (v > 0) {
+        if (!base[t]) base[t] = [0, 0];
+        base[t][0] += v * 0.7;
+        base[t][1] += v * 1.3;
+      }
+    }
+    const inc = {}, moreType = {};
+    for (const t of TYPES) {
+      inc[t] = (S.incAll || 0) + (t === 'phys' ? S.incPhys || 0 : (S.incElem || 0) + (S['inc' + G.CAP[t]] || 0));
+      moreType[t] = t !== 'phys' && t !== 'chaos' ? Math.max(0, 1 + (S.moreElem || 0) / 100) : 1;
+    }
+    inc.chaos += (S.incFire || 0) + (S.incCold || 0) + (S.incLight || 0);
+    moreType.chaos = Math.max(0, 1 + (S.moreChaos || 0) / 100);
+    return {
+      id: 'relic', sk: { w, kb, poise, tags: ['attack', 'melee', 'area', 'phys'] }, lvl: 1, base, inc, moreType,
+      more: Math.max(0, (1 + (S.moreDmg || 0) / 100) * (1 - Math.min(90, S.ownLess || 0) / 100)), extra: {},
+      crit: G.clamp(5 * (1 + (S.crit || 0) / 100), 0, 100),
+      critMulti: Math.max(100, 150 + (S.critMulti || 0) + (P.relic.qianmu ? RM.qianmu.critMulti : 0)),
+      proj: 1, pierce: 0, chain: 0, area: Math.max(0.1, 1 + (S.area || 0) / 100), speed: P.speedMult, time: 1, stopK: 1, stopAvg: 0, cost: 0, cd: 0,
+      leech: 0, stun: 0, ailment: S.ailment || 0, echo: 0, bindAil: S.bindAil || 0, flame: G.flamePct(), reserve: 0, minion: null, attack: true, weapon: wp, wm: mult, levelK: 1,
+    };
+  }
+  G.relicAtkCtx = relicAtkCtx;
+  // 翻滚落地（updatePlayer 翻滚那一段的一行钩子）
+  G.relicLand = function () {
+    if (!P.relic.panzhong || RQ.slamT > 0 || P.dead) return 0;
+    const A = RM.panzhong;
+    RQ.slamT = A.gap;
+    const ctx = relicAtkCtx(A.mult, 1, A.kb, A.poise);
+    const R = A.r * Math.sqrt(ctx.area);
+    const W = G.world;
+    let n = 0, crit = false;
+    for (const e of enemiesIn(P.x, P.z, R)) {
+      G.hitEnemy(e, ctx, 1, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 1, kb: A.kb, poise: A.poise, quiet: true });
+      crit = crit || lastHit.crit;
+      n++;
+    }
+    if (W.relicStomp) W.relicStomp(P.x, P.z, R, P.face);
+    else W.ring(P.x, P.z, R, 0xffc070, 0.35);
+    W.shake(n ? 0.22 : 0.1);
+    if (n) {
+      G.hitStop(40);
+      G.sfx('impact', { type: 'phys', w: 1, crit });
+    }
+    state.stats.relicStomps = (state.stats.relicStomps || 0) + 1;
+    return n;
+  };
+  // 随影：翻滚 delay 秒后召唤物闪到落点周围、各砸一下（dodge 里的一行钩子）
+  G.relicRollCall = function () {
+    if (!P.relic.zhaohun) return;
+    const Z = RM.zhaohun;
+    G.after(Z.delay, () => {
+      if (P.dead || !state.zone) return;
+      const W = G.world;
+      // 落点：按翻滚剩下的路程往前推，撞墙就截在墙前
+      let d = P.roll.t > 0 ? P.moveSpeed * 2.6 * P.roll.t : 0;
+      while (d > 0 && !W.walkable(P.x + P.roll.dx * d, P.z + P.roll.dz * d, 0.6)) d -= 0.4;
+      const lx = P.x + P.roll.dx * Math.max(0, d), lz = P.z + P.roll.dz * Math.max(0, d);
+      const ms = state.minions.filter((m) => !m.dead && !(m.rising > 0));
+      const n = ms.length;
+      ms.forEach((m, i) => {
+        const a = P.face + Math.PI + (i - (n - 1) / 2) * (TAU / Math.max(3, n + 1));
+        let rr = 1.8 + m.r, x = lx, z = lz;
+        for (let k = 0; k < 4; k++, rr *= 0.7) {
+          const tx = lx + Math.sin(a) * rr, tz = lz + Math.cos(a) * rr;
+          if (W.walkable(tx, tz, m.r + 0.1)) {
+            x = tx;
+            z = tz;
+            break;
+          }
+        }
+        if (W.relicBlinkFx) W.relicBlinkFx(m.x, m.z, x, z);
+        m.x = x;
+        m.z = z;
+        m.target = null;
+        m.stuckT = 0;
+        if (m.state !== 'attack') m.stateT = 0;
+        W.setEnt(m.ent, x, z, m.ang);
+        const mult = m.kind === 'colossus' ? Z.multBig : Z.mult;
+        for (const e of enemiesIn(x, z, Z.r + m.r)) {
+          if (e.execLock) continue;
+          G.hitEnemy(e, m.ctx, mult, { ang: Math.atan2(e.x - x, e.z - z), w: 1, kb: 0.8, poise: 12, quiet: true, minion: m });
+        }
+        W.ring(x, z, Z.r + m.r, G.ALLY_HEX || 0x4fe3c8, 0.3);
+      });
+      if (n) G.sfx('impact', { type: 'phys', w: 1, crit: false });
+      state.stats.relicCalls = (state.stats.relicCalls || 0) + 1;
+    });
+  };
+
+  // ---------- 蓄潮（怒潮）：旋风斩每一跳的一行钩子，返回这一跳的伤害倍率 ----------
+  G.relicSpinPulse = function (ctx) {
+    const B = RM.nuchao;
+    RQ.spin = Math.min(B.max, RQ.spin + 1);
+    RQ.spinCtx = ctx;
+    RQ.spinR = ctx.sk.radius * Math.sqrt(ctx.area);
+    if (RQ.spin >= B.max && !RQ.spinFull) {
+      RQ.spinFull = true;
+      G.world.text(P.x, P.z, '潮满', '#cfe8ff', 18, { kind: 'tag', y: 2.4 });
+    }
+    if (G.world.relicTide) G.world.relicTide(P.x, P.z, RQ.spin / B.max);
+    return B.pulse;
+  };
+  // 松手 / 翻滚 / 被打断 / 换了别的技能：以你为中心炸开（每帧在 relicTick 里检查）
+  function relicTideBurst() {
+    const n = RQ.spin, ctx = RQ.spinCtx;
+    RQ.spin = 0;
+    RQ.spinFull = false;
+    if (!ctx || n <= 0 || P.dead) return 0;
+    const B = RM.nuchao, W = G.world;
+    const R = RQ.spinR * B.r;
+    let hits = 0, crit = false;
+    for (const e of enemiesIn(P.x, P.z, R)) {
+      G.hitEnemy(e, ctx, n * B.burst, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: n >= B.max / 2 ? 2 : 1, kb: 0.6 + n * 0.12, poise: (ctx.sk.poise || 0) * n * B.burst, quiet: true });
+      crit = crit || lastHit.crit;
+      hits++;
+    }
+    if (W.relicTideBurst) W.relicTideBurst(P.x, P.z, R, n / B.max);
+    else W.ring(P.x, P.z, R, 0xcfe8ff, 0.4);
+    W.shake(0.12 + 0.3 * (n / B.max));
+    if (hits) {
+      G.hitStop(30 + 5 * n);
+      G.sfx('impact', { type: 'phys', w: n >= B.max / 2 ? 2 : 1, crit });
+    }
+    state.stats.relicTides = (state.stats.relicTides || 0) + 1;
+    return hits;
+  }
+  G.relicTideBurst = relicTideBurst;
+
+  // ---------- 崩势（断岳） ----------
+  // 精英 / 首领被打出破绽（hitEnemy 削架势那一行的钩子）：r 米内的普通怪一起破绽 t 秒
+  G.relicSpread = function (e) {
+    if (!e || !(e.elite || e.isBoss)) return 0;
+    const C = RM.duanyue, W = G.world;
+    let n = 0;
+    for (const o of state.enemies) {
+      if (o === e || o.dead || o.elite || o.isBoss || dist(o.x, o.z, e.x, e.z) > C.r) continue;
+      o.rqBrk = C.t;
+      o.stunT = Math.max(o.stunT || 0, C.t);
+      if (tagOk('rqbrk', o.x, o.z)) W.text(o.x, o.z, '破绽', '#fff0c0', 20, { kind: 'tag', y: Math.min(3.4, o.height || 2) + 0.3 });
+      W.ring(o.x, o.z, o.r + 0.9, 0xfff0c0, 0.3);
+      n++;
+    }
+    if (n) W.ring(e.x, e.z, C.r, 0xfff0c0, 0.4);
+    state.stats.relicSpread = (state.stats.relicSpread || 0) + n;
+    return n;
+  };
+  // 处决之后（execHit 末尾的一行钩子）：目标身边处于破绽的敌人各吃一部分处决伤害
+  G.relicSweep = function (e, dmg) {
+    const C = RM.duanyue;
+    if (!(dmg > 0)) return 0;
+    const ctx = procCtx('phys', dmg * C.sweep);
+    let n = 0;
+    for (const o of enemiesIn(e.x, e.z, C.sweepR)) {
+      if (o === e || !(o.brokenT > 0 || o.rqBrk > 0)) continue;
+      G.hitEnemy(o, ctx, 1, { ang: Math.atan2(o.x - e.x, o.z - e.z), w: 2, kb: 1.6, poise: 0, quiet: true, proc: true, noBuild: true });
+      n++;
+    }
+    if (n) G.world.slash(e.x, e.z, P.face, C.sweepR + e.r, 360, 0xfff0c0, { dur: 0.22, inner: 0.7, y: 0.9 });
+    return n;
+  };
+  // 每个敌人每帧（tickBuildUp 里的一行钩子）：崩势的破绽倒计时、混相的回落
+  G.relicEnemyTick = function (e, dt) {
+    if (e.rqBrk > 0) {
+      e.rqBrk -= dt;
+      if (e.rqBrk <= 0) e.rqBrk = 0;
+    }
+    if (e.bu.mix > 0) {
+      if (e.buT.mix > 0) e.buT.mix -= dt;
+      else e.bu.mix = Math.max(0, e.bu.mix - BU.decay * dt);
+    }
+  };
+
+  // ---------- 混相（异变）：addBuildUp 里的一行钩子。火 / 冰 / 雷都灌进 e.bu.mix ----------
+  function relicMix(e, t, v, k, procs) {
+    if (e.bu.mix === undefined) {
+      e.bu.mix = 0;
+      e.buT.mix = 0;
+      e.buGrow.mix = 1;
+      e.buTrig.mix = 0;
+    }
+    // 混相的三种效果还在身上时（冻着 / 重度冰缓 / 感电 / 破绽）不再累积
+    if (e.freeze > 0 || e.bossChill > 0 || e.shockT > 0 || e.brokenT > 0) return true;
+    if (t === 'fire') {
+      e.buFire += v * k;
+      e.buFireN++;
+    } else if (t === 'light') {
+      e.buLit += v * k;
+      e.buLitN++;
+    }
+    e.bu.mix += (v / (e.buTh * e.buGrow.mix)) * k * RM.yibian.rate;
+    e.buT.mix = BU.hold;
+    if (e.bu.mix < 1) return true;
+    if (e.hp <= 0) {
+      e.bu.mix = 1;
+      return true;
+    }
+    e.bu.mix = 0;
+    queueProc(procs, { t: 'mix', e, fire: blastDmg(e) * RM.yibian.k });
+    e.buFire = e.buFireN = 0;
+    return true;
+  }
+  G.relicMix = relicMix;
+  // 混相灌满：爆燃、冻结（首领重度冰缓）、感电同时触发，各 × k；首领的阈值只涨一次（triggerAilment 开头的一行钩子）
+  function relicMixFire(p) {
+    const W = G.world, e = p.e, K = RM.yibian.k, st = state.stats;
+    const h = e.height || 2;
+    const ty = Math.min(3.4, h * (e.elite ? 1.3 : 1)) + 0.3;
+    e.buTrig.mix = (e.buTrig.mix || 0) + 1;
+    if (e.isBoss) e.buGrow.mix = Math.min(BU.bossGrowMax, (e.buGrow.mix || 1) + BU.bossGrow);
+    st.mixes = (st.mixes || 0) + 1;
+    W.text(e.x, e.z, '混相', '#e8f0ff', e.isBoss ? 26 : 22, { kind: 'tag', y: ty, py: e.isBoss ? -30 : 0 });
+    // 火：爆燃（打周围一圈，含它自己）
+    const R = BU.blastR + e.r * 0.5;
+    W.blastFx(e.x, e.z, R);
+    fireBlast(e.x, e.z, R, p.fire);
+    if (e.dead) return;
+    // 冰：冻结 / 首领重度冰缓
+    if (e.isBoss) e.bossChill = BU.bossChill * K;
+    else e.freeze = Math.max(e.freeze || 0, (e.elite ? BU.freezeElite : BU.freeze) * K);
+    W.freezeFx(e.x, e.z, e.r, h, !!e.isBoss);
+    // 雷：感电
+    e.shockT = BU.shock * K;
+    e.shockCd = 0;
+    W.burst(e.x, h * 0.6, e.z, 0xffe45e, 14, 5, 0.35);
+    G.sfx('impact', { type: 'fire', w: 2, crit: false });
+  }
+
+  // ---------- 回旋：spawnProjectile 里的一行钩子（标记这一发会不会折返），updateProjectiles 里两处折返 ----------
+  const BOOM_BASIC = { revolver: 1, huntbow: 1, eagle: 1, runebow: 1, emberbow: 1 };
+  G.relicBoomerang = function (p) {
+    const sk = p.ctx && p.ctx.sk;
+    if (!sk || p.explode > 0 || p.wisp || p.seeker || p.ret) return; // p.ret：飞刃的刻式「回刃」自己会折返，不再叠一次回旋
+    const ok = p.ctx.id === 'blade' || (sk.basic && BOOM_BASIC[sk.rtype] && !(P.rbuff && P.rbuff.t > 0 && P.rbuff.id === 'volley'));
+    if (!ok) return;
+    p.boom = 1;
+    p.life *= RM.huixuan.range;
+  };
+  // 折返：到射程尽头（step 为 0）或撞墙（先退回墙前一步）时调用；成功返回 true。回程朝着你飞，飞到你身边为止，
+  // 穿过路上所有敌人（每个敌人一次，同一次施放的几发共用一份），伤害 × back
+  G.relicTurn = function (p, step) {
+    if (p.boom !== 1) return false;
+    if (step) {
+      p.x -= p.dx * step;
+      p.z -= p.dz * step;
+    }
+    const d = dist(P.x, P.z, p.x, p.z);
+    if (d < 1.2 || P.dead) return false;
+    p.boom = 2;
+    p.dx = (P.x - p.x) / d;
+    p.dz = (P.z - p.z) / d;
+    p.life = d / p.speed + 0.05;
+    p.hit = new Set();
+    if (p.cast) p.cast = p.cast.ret || (p.cast.ret = new Set());
+    p.pierce = 99;
+    p.chain = 0;
+    p.home = null;
+    p.reseek = 0;
+    p.boomK = RM.huixuan.back;
+    if (G.world.relicProjTurn) G.world.relicProjTurn(p.mesh, p.dx, p.dz);
+    state.stats.relicTurns = (state.stats.relicTurns || 0) + 1;
+    return true;
+  };
+
+  // ---------- 星雨（陨织袍） ----------
+  const meteorOn = () => !!(P.relic.zhuixing && G.save.skills.meteor && G.save.bar.indexOf('meteor') >= 0);
+  // 光环保留里多算的那一份（reservePct 里的一行钩子）
+  G.relicReserve = () => (meteorOn() ? RM.zhuixing.reserve : 0);
+  // 陨火不能手动施放（tryStartCast 里的一行钩子）：轻点只提示一句。返回 true 表示这个键跳过
+  G.relicNoCast = function (slot, id) {
+    if (id !== 'meteor' || !P.relic.zhuixing) return false;
+    if (G.input.tap[slot] > 0) {
+      G.input.tap[slot] = 0;
+      if (Date.now() - (toastAt.relic || 0) > 1500) {
+        toastAt.relic = Date.now();
+        G.world.text(P.x, P.z, '星雨：陨火自动落下', G.RELIC_COLOR, 15);
+      }
+    }
+    return true;
+  };
+  // 自动落下：r 米内敌人最密的地方（每个敌人当圆心数一遍半径内的敌人）
+  function relicMeteorDue(dt) {
+    if (!meteorOn() || P.dead || P.exec) {
+      RQ.metT = Math.min(RQ.metT, 0.5);
+      return;
+    }
+    RQ.metT -= dt;
+    if (RQ.metT > 0) return;
+    const F = RM.zhuixing;
+    const ctx = G.skillCtx('meteor');
+    const sk = ctx.sk;
+    const iv = (F.iv / ctx.speed) * (sk.cd > 0 ? ctx.cd / sk.cd : 1); // 迅捷 / 出手速度加快，节流缩短间隔
+    const R = sk.radius * Math.sqrt(ctx.area) * F.area;
+    let best = null, bn = 0;
+    for (const e of state.enemies) {
+      if (e.dead || dist(e.x, e.z, P.x, P.z) - e.r > F.r) continue;
+      let n = 0;
+      for (const o of state.enemies) if (!o.dead && dist(o.x, o.z, e.x, e.z) - o.r <= R) n++;
+      if (n > bn) {
+        bn = n;
+        best = e;
+      }
+    }
+    if (!best) {
+      RQ.metT = 0.25; // 附近没有敌人：过一会儿再找
+      return;
+    }
+    RQ.metT = iv;
+    ctx.more *= F.mult;
+    ctx.area *= F.area * F.area;
+    const dx = best.x - P.x, dz = best.z - P.z, d = Math.hypot(dx, dz) || 1;
+    SKILL_FX.meteor(ctx, { dx: dx / d, dz: dz / d, dist: d, ang: Math.atan2(dx, dz), tx: best.x, tz: best.z });
+    state.stats.relicMeteors = (state.stats.relicMeteors || 0) + 1;
+  }
+
+  // ---------- 电桥 ----------
+  // 链雷施放之后（SKILL_FX.chain 末尾的一行钩子）：pts[0] 是你，之后是依次打中的目标，相邻两个目标之间各留一道
+  G.relicBridges = function (pts, ctx) {
+    const D = RM.dianqiao;
+    for (let i = 1; i + 1 < pts.length; i++) {
+      while (RQ.bridges.length >= D.max) relicBridgeOff(0);
+      const b = { x0: pts[i].x, z0: pts[i].z, x1: pts[i + 1].x, z1: pts[i + 1].z, t: D.t, tt: D.tick, ctx };
+      b.fx = G.world.relicBridgeOn ? G.world.relicBridgeOn(b.x0, b.z0, b.x1, b.z1) : -1;
+      RQ.bridges.push(b);
+    }
+  };
+  function relicBridgeOff(i) {
+    const b = RQ.bridges[i];
+    RQ.bridges.splice(i, 1);
+    if (G.world.relicBridgeOff) G.world.relicBridgeOff(b.fx);
+  }
+  function relicBridgeTick(dt) {
+    const D = RM.dianqiao, half = D.w / 2;
+    for (let i = RQ.bridges.length - 1; i >= 0; i--) {
+      const b = RQ.bridges[i];
+      b.t -= dt;
+      if (b.t <= 0) {
+        relicBridgeOff(i);
+        continue;
+      }
+      b.tt -= dt;
+      if (b.tt > 0) continue;
+      b.tt += D.tick;
+      const sx = b.x1 - b.x0, sz = b.z1 - b.z0, L2 = sx * sx + sz * sz || 1;
+      for (const e of state.enemies) {
+        if (e.dead) continue;
+        const u = G.clamp(((e.x - b.x0) * sx + (e.z - b.z0) * sz) / L2, 0, 1);
+        if (dist(e.x, e.z, b.x0 + sx * u, b.z0 + sz * u) - e.r > half) continue;
+        // 同一个敌人同一时刻只吃一道电桥的跳（重叠的电桥不叠加）
+        if (state.time - (e.bridgeT || -99) < D.tick * 0.95) continue;
+        e.bridgeT = state.time;
+        G.hitEnemy(e, b.ctx, D.mult, { ang: Math.atan2(sz, sx), w: 0, kb: 0, poise: 1, quiet: true, faint: true, bolt: true });
+      }
+    }
+    if (G.world.relicBridgeTick) G.world.relicBridgeTick(dt);
+  }
+
+  // ---------- 同殇（同殇甲） ----------
+  // 你挨打（hurtPlayer 开头的一行钩子）：share 转给 r 米内最近的召唤物，返回你自己还要挨的部分
+  G.relicShareHurt = function (amount, dtype, src) {
+    const T = RM.tongshang;
+    let best = null, bd = T.r;
+    for (const m of state.minions) {
+      if (m.dead || m.rising > 0) continue;
+      const d = dist(m.x, m.z, P.x, P.z);
+      if (d <= bd) {
+        bd = d;
+        best = m;
+      }
+    }
+    if (!best || !G.hurtMinion) return amount;
+    if (RQ.shareT <= 0 && G.world.relicShareFx) {
+      RQ.shareT = 0.3;
+      G.world.relicShareFx(P.x, P.z, best.x, best.z);
+    }
+    G.hurtMinion(best, amount * T.share, dtype, src);
+    state.stats.relicShared = (state.stats.relicShared || 0) + amount * T.share;
+    return amount * (1 - T.share);
+  };
+  // 召唤物倒下（minions.js 的 hurtMinion 里的一行钩子）：回复它最大生命的一部分
+  G.relicMinionDown = function (m) {
+    if (!P.relic.tongshang || !m) return;
+    G.healPlayer((m.maxHp || 0) * RM.tongshang.heal);
+    G.world.burst(P.x, 1.1, P.z, G.ALLY_HEX || 0x4fe3c8, 8, 2, 0.4);
+  };
+
+  // ---------- 骸王（骸王冠）：外形跟着数值走（每 0.25 秒对一遍，戴上 / 摘下都对得上） ----------
+  function relicKings() {
+    for (const m of state.minions) {
+      if (m.dead || m.kind !== 'thrall' || !m.ctx || !m.ctx.minion) continue;
+      const want = !!m.ctx.minion.king;
+      if (!!m.king === want) continue;
+      m.king = want;
+      if (m.r0 === undefined) {
+        m.r0 = m.r;
+        m.h0 = m.height;
+      }
+      const k = want ? RM.haiwang.scale : 1;
+      m.r = m.r0 * k;
+      m.height = m.h0 * k;
+      if (G.world.relicKing) G.world.relicKing(m.ent, k);
+    }
+  }
+
+  // ---------- 随核（引力核）：黑洞施放（SKILL_FX.hole 里的一行钩子）和跟随 ----------
+  G.relicHole = function (ctx, R, dur) {
+    const Y = RM.yinli, sk = ctx.sk;
+    const r = R * Y.radius;
+    G.sfx('cast');
+    return addHole({ x: P.x, z: P.z, R: r, pullR: r * sk.pullR, t: 0, dur: dur * Y.dur, tick: sk.tick, tt: sk.tick, ctx, mult: Y.dmg, pullMul: Y.pull, mouth: false, follow: true });
+  };
+  G.relicHoleList = () => holes.filter((h) => h.follow); // 测试用：场上跟着你的黑洞
+  G.relicHoleFollow = function (h) {
+    h.x = P.x;
+    h.z = P.z;
+    if (h.fx && G.world.relicHoleAt) G.world.relicHoleAt(h.fx, h.x, h.z);
+  };
+
+  // ---------- 锁链（渊缚链）：hitEnemy 里的一行钩子 ----------
+  // 渊缚中的 e 受到你的伤害：其余处于渊缚的敌人（离 e 最近的至多 max − 1 个）各分到 share。分到的伤害不暴击、不触发命中效果、
+  // 不累积异常、不带黑焰，也不会再分出去（proc）
+  G.relicChain = function (e, total, type) {
+    const U = RM.yuanfu;
+    if (!(total > 0)) return 0;
+    const list = [];
+    for (const o of state.enemies) if (o !== e && !o.dead && !o.isBoss && o.bindT > 0) list.push(o);
+    if (!list.length) return 0;
+    list.sort((a, b) => dist(a.x, a.z, e.x, e.z) - dist(b.x, b.z, e.x, e.z));
+    list.length = Math.min(list.length, U.max - 1);
+    const ctx = procCtx(G.TYPE_NAME[type] ? type : 'chaos', total * U.share);
+    for (const o of list) G.hitEnemy(o, ctx, 1, { ang: Math.atan2(o.x - e.x, o.z - e.z), w: 0, kb: 0, poise: 0, quiet: true, faint: true, proc: true, noBuild: true, bolt: true });
+    if (RQ.chainT <= 0) {
+      RQ.chainT = 0.2;
+      const pts = [{ x: e.x, z: e.z }];
+      for (const o of list) pts.push({ x: o.x, z: o.z });
+      G.world.bolt(pts, 0xe0279f);
+    }
+    state.stats.relicChained = (state.stats.relicChained || 0) + list.length;
+    return list.length;
+  };
+
+  // ---------- 每帧（updatePlayer 里的一行钩子） ----------
+  G.relicTick = function (dt) {
+    if (RQ.slamT > 0) RQ.slamT -= dt;
+    if (RQ.chainT > 0) RQ.chainT -= dt;
+    if (RQ.shareT > 0) RQ.shareT -= dt;
+    // 蓄潮：不在转旋风斩了（松手、翻滚、被打断、换了别的技能、摘下手套），攒着的层数炸开
+    if (RQ.spin > 0 && !(P.relic.nuchao && P.cast && P.cast.channel && P.cast.id === 'whirl')) relicTideBurst();
+    if (P.relic.zhuixing) relicMeteorDue(dt);
+    if (RQ.bridges.length) relicBridgeTick(dt);
+    RQ.kingT -= dt;
+    if (RQ.kingT <= 0) {
+      RQ.kingT = 0.25;
+      if (state.minions.length) relicKings();
+    }
+  };
+  // 换区域 / 重生（resetRanged 里的一行钩子）：电桥收起，蓄潮、星雨的计时清零
+  G.relicReset = function () {
+    while (RQ.bridges.length) relicBridgeOff(0);
+    RQ.spin = 0;
+    RQ.spinFull = false;
+    RQ.metT = 0.6;
+    RQ.slamT = 0;
+  };
 
   // ---------- 死亡时的异常 ----------
   // 敌人死的那一刻（G.killEnemy 调 queueDeathProcs）查它的三条异常值：≥ deathMin 的（冰霜另算上正冻着的、闪电另算上正感电的）各在尸体处触发一次，
@@ -1794,6 +2453,7 @@
     }
     if (e.bossBind > 0) e.bossBind -= dt;
     if (e.voidT > 0) e.voidT -= dt;
+    if (e.bu.mix > 0 || e.rqBrk > 0) G.relicEnemyTick(e, dt); // 渊契：混相回落、崩势的破绽倒计时
     // 冰缓 / 重度冰缓 / 首领的渊缚减速：取较大的那个，不相加
     return Math.max(G.chillSlow(e, e.bu.cold), e.bossChill > 0 ? BU.bossSlow : 0, e.bossBind > 0 ? BU.bossBindSlow : 0);
   };
@@ -1829,7 +2489,7 @@
     const inf = info || NO_INFO;
     const PO = G.POISE;
     const broken = e.brokenT > 0;
-    const m = (mult === undefined ? 1 : mult) * (broken ? PO.taken : 1);
+    const m = (mult === undefined ? 1 : mult) * (broken || e.rqBrk > 0 ? PO.taken : 1); // rqBrk：渊契「崩势」扩散出来的破绽
     const hit = G.calcHit(ctx, m);
     const hp0 = e.hp;
     e.hp -= hit.total;
@@ -1929,6 +2589,7 @@
       if (W.bladeMarks) W.bladeMarks(e.ent, e.marks, e);
     }
 
+    if (P.relic.yuanfu && e.bindT > 0 && !inf.proc && !inf.minion) G.relicChain(e, hit.total, top); // 渊契「锁链」
     lastHit.crit = hit.crit;
     lastHit.type = top;
     lastHit.total = hit.total;
@@ -1946,7 +2607,7 @@
         e.poise -= pd;
         e.poiseT = PO.delay;
         e.poiseHit = 0.12;
-        if (e.poise <= 0) G.breakEnemy(e, ang);
+        if (e.poise <= 0 && G.breakEnemy(e, ang) && P.relic.duanyue) G.relicSpread(e); // 渊契「崩势」
       }
     }
     procDepth--;
@@ -2084,6 +2745,7 @@
   G.hurtPlayer = function (amount, dtype, src) {
     if (P.dead || P.iframe > 0 || P.god) return false;
     if (!(amount > 0)) return false;
+    if (P.relic.tongshang) amount = G.relicShareHurt(amount, dtype, src); // 渊契「同殇」
     const W = G.world;
     let dmg = amount;
     if (!dtype || dtype === 'phys') dmg *= 1 - Math.min(0.8, P.armour / (P.armour + 10 * amount));
@@ -2287,6 +2949,7 @@
       p.pierce = p.pierce || 0;
       p.chain = p.chain || 0;
       p.explode = p.explode || 0;
+      if (P.relic.huixuan) G.relicBoomerang(p); // 渊契「回旋」
     } else {
       if (!p.dtype) p.dtype = 'phys';
       if (p.dmg === undefined) p.dmg = 0;
@@ -2416,6 +3079,7 @@
       if (!p) continue; // 命中回调里可能批量移除过投射物（首领死亡清弹幕）
       p.life -= dt;
       let alive = p.life > 0;
+      if (!alive && p.boom === 1) alive = G.relicTurn(p, 0); // 渊契「回旋」：到射程尽头折返
       // 追踪弹（秘弹连射）：每秒最多转 turn 弧度拐向目标；目标死了就直飞
       // 追猎弓的箭：目标没了就在 reseek 米内重新找一个（每 0.1 秒找一次）
       if (p.reseek > 0 && (!p.home || p.home.dead)) {
@@ -2464,6 +3128,7 @@
         p.z += p.dz * step;
         if (p.ret && !p.retOn && (p.retD = (p.retD || 0) + step) >= p.ret) bladeTurn(p); // 刻式「回刃」：飞到头折返
         if (!W.shotFree(p.x, p.z, -0.4)) {
+          if (p.boom === 1 && G.relicTurn(p, step)) break; // 渊契「回旋」：第一次撞墙折返
           if (p.ret && !p.retOn) {
             // 刻式「回刃」：去程撞墙也折返
             p.x -= p.dx * step;
@@ -2492,7 +3157,7 @@
             if (!p.cast || !p.cast.has(e)) {
               if (p.cast) p.cast.add(e);
               // 远程武器的箭 / 子弹：multFn 算这一下的倍率（鹰眼的远距离加成），after 接着结算余烬 / 元素爆炸 / 熔芯弹；src 让专注按箭计数
-              const m = p.multFn ? p.multFn(p, e) : p.mult || 1;
+              const m = (p.multFn ? p.multFn(p, e) : p.mult || 1) * (p.boomK || 1); // boomK：回旋的回程
               G.hitEnemy(e, p.ctx, m, { ang: Math.atan2(p.dx, p.dz), src: p }); // 顺着弹道推
               if (p.after) p.after(p, e, lastHit.killed, lastHit.crit);
             }
@@ -2704,6 +3369,7 @@
         continue;
       }
       if (!id || !G.SKILLS[id] || (!isWs && !G.SKILLS[id].basic && !save.skills[id])) continue;
+      if (P.relic.zhuixing && G.relicNoCast(slot, id)) continue; // 渊契「星雨」：陨火只能自动落下
       if (chan && chan.slot === slot) continue; // 还按着正在转的那个键：接着转，不从头起
       if (P.cds[id] > 0) continue;
       if (isWs && G.SKILLS[id].rgauge && !G.gaugeReady()) {
@@ -3493,6 +4159,7 @@
     for (let i = holes.length - 1; i >= 0; i--) {
       const h = holes[i];
       h.t += dt;
+      if (h.follow) G.relicHoleFollow(h); // 渊契「随核」
       if (h.t >= h.dur) {
         if (h.ctx.sk.implode && !h.mouth) holeImplode(h); // 刻式「奇点」：结束时内爆
         removeHole(i);
@@ -3504,7 +4171,7 @@
         const d = dist(e.x, e.z, h.x, h.z);
         if (d - e.r > h.pullR || d <= sk.core) continue;
         let v;
-        if (e.isBoss) v = sk.bossPull * h.pullMul;
+        if (e.isBoss) v = sk.bossPull * (h.follow ? 1 : h.pullMul); // 随核：首领的牵引不变
         else {
           if (pinned(e)) continue;
           v = G.bindPullSpeed(e, sk.pull) * (0.6 + 0.4 * (1 - Math.min(1, d / h.pullR))) * h.pullMul;
@@ -3908,6 +4575,7 @@
     P.rstate = null;
     fields.length = 0;
     resetChaos(); // 黑洞、黑旋风一起收起
+    G.relicReset(); // 渊契的电桥、蓄潮
   }
   G.resetRanged = resetRanged;
 
@@ -4064,6 +4732,7 @@
         }
       }
       W.bolt(pts, hex);
+      if (P.relic.dianqiao) G.relicBridges(pts, ctx); // 渊契「电桥」
     },
 
     meteor(ctx, a) {
@@ -4098,6 +4767,7 @@
       const hex = hexOf(sk.color);
       const c = P.cast;
       const n = c && c.channel ? c.pulses : 0;
+      const rk = P.relic.nuchao ? G.relicSpinPulse(ctx) : 1; // 渊契「蓄潮」：每跳打得轻、攒层
       W.slash(P.x, P.z, Math.random() * TAU, R, 360, hex, { dur: 0.2, inner: 0.6, y: 0.9 });
       if (n % 2 === 1) W.burst(P.x, 0.25, P.z, 0xbfb3a0, 4, R * 0.9, 0.3); // 脚下扬起的尘
       G.sfx('swing', { step: n % 2 });
@@ -4107,7 +4777,7 @@
       let top = 'phys';
       for (const e of hits) {
         const ang = Math.atan2(e.x - P.x, e.z - P.z) + 1.15; // 旋转是逆时针（俯视），切向偏一点向外
-        G.hitEnemy(e, ctx, 1, { ang, w: 0, kb: sk.kb, poise: sk.poise, quiet: true });
+        G.hitEnemy(e, ctx, rk, { ang, w: 0, kb: sk.kb, poise: sk.poise, quiet: true });
         crit = crit || lastHit.crit;
         top = lastHit.type;
       }
@@ -4256,6 +4926,7 @@
     const d = rayLen(P.x, P.z, a.ang, Math.min(sk.range, a.dist), 0.3); // 撞墙截在墙前
     const R = sk.radius * Math.sqrt(ctx.area);
     const dur = sk.dur * (1 + Math.max(0, P.S.holeDur || 0) / 100);
+    if (P.relic.yinli) return G.relicHole(ctx, R, dur); // 渊契「随核」：黑洞跟着你
     G.sfx('cast');
     return addHole({ x: P.x + a.dx * d, z: P.z + a.dz * d, R, pullR: R * sk.pullR, t: 0, dur, tick: sk.tick, tt: sk.tick, ctx, mult: 1, pullMul: 1, mouth: false });
   };
@@ -5321,7 +5992,7 @@
     G.world.play(P.ent, 'roll', { dur: 0.32 });
     r.dx = dx;
     r.dz = dz;
-    r.cdMax = 0.9 * (1 - Math.min(90, P.S.dodgeCd || 0) / 100);
+    r.cdMax = 0.9 * (1 - Math.min(90, P.S.dodgeCd || 0) / 100) * (P.relic.any ? G.relicRollK() : 1); // 渊契：踏震 / 随影延长翻滚冷却
     r.cd = r.cdMax;
     P.iframe = Math.max(P.iframe, 0.32);
     P.cast = null; // 翻滚取消挥砍：没出手的起手直接作废，已出手的跳过收招
@@ -5333,6 +6004,7 @@
     P.face = Math.atan2(dx, dz);
     G.world.burst(P.x, 0.3, P.z, 0xbfb3a0, 8, 2.5, 0.35);
     G.sfx('roll');
+    if (P.relic.zhaohun) G.relicRollCall(); // 渊契「随影」
     return true;
   };
 
@@ -5538,6 +6210,7 @@
         e.kvz = cs * v;
       }
     }
+    if (P.relic.duanyue) G.relicSweep(e, dmg); // 渊契「崩势」：处决横扫
     return hp0 - Math.max(0, e.hp);
   }
 
@@ -5752,6 +6425,7 @@
     for (const id in P.cds) if (P.cds[id] > 0) P.cds[id] = Math.max(0, P.cds[id] - dt);
     tickRanged(dt);
     updateChaos(dt);
+    if (P.relic.any || G.relicState.bridges.length || G.relicState.spin) G.relicTick(dt); // 渊契：蓄潮、星雨、电桥……
     updateAuras(dt);
     updateAutoSummon(dt);
     if (P.roll.cd > 0) P.roll.cd = Math.max(0, P.roll.cd - dt);
@@ -5782,6 +6456,7 @@
       // 翻滚：固定方向冲刺，期间不施法（按下的技能留在缓冲里，滚完就出）
       const step = Math.min(dt, P.roll.t);
       P.roll.t -= dt;
+      if (P.roll.t <= 0 && P.relic.panzhong) G.relicLand(); // 渊契「踏震」：翻滚落地
       const sp = P.moveSpeed * 2.6 * step * terr.roll; // 地形减速时翻滚距离也短一点
       movePlayer(P.roll.dx * sp, P.roll.dz * sp);
       P.moving = true;
@@ -5891,6 +6566,7 @@
       // 无铭技能宝石：每个首领第一次倒下必掉一颗（第一个区域的首领就是新角色的保底），之后再打有小几率
       if ((e.bossKind && !save.bossKills[e.bossKind]) || Math.random() < BLANK_DROP.boss) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
       uniqueDrop(e, ilvl);
+      G.relicBossDrop(e, ilvl); // 渊契：和烬铸分开掷
       return;
     }
     if (e.elite) {
@@ -6056,6 +6732,12 @@
       save.bag.push(loot.data);
       if (loot.data.rarity === 3) {
         noteUnique(loot.data);
+        G.persist();
+      }
+      if (loot.data.rarity === 4) {
+        // 渊契：记进图鉴；它的图标从这时起才进低画质的预热（见 icons.js 的 warm）
+        noteRelic(loot.data);
+        if (G.icons && G.icons.warmRelic) G.icons.warmRelic(loot.data.rq);
         G.persist();
       }
       G.sfx('pickup');
@@ -6272,6 +6954,10 @@
     if (!item || !G.CURRENCY[curId] || !(save.cur[curId] > 0)) return false;
     if (item.rarity === 3) {
       toast('烬铸武器无法改造', '#ff8a6a', 'uqlock', 600);
+      return false;
+    }
+    if (item.rarity === 4) {
+      toast(G.RELIC_NAME + '无法改造', '#ff8a6a', 'uqlock', 600);
       return false;
     }
     if (!G.canCraft(item, curId)) return false;

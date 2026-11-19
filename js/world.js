@@ -17237,6 +17237,8 @@
     const h = hexOf(hex);
     // 烬铸武器：更高更粗的双层光柱、更大的地面光盘、带一点余烬自发光的本体，悬着时不停往上冒火星
     const uq = kind === 'item' && !!slot && typeof slot === 'object' && slot.rarity === 3;
+    // 渊契：光柱、地面光盘和烬铸一样高大（颜色是渊契的翠色），本体不发光、不冒火星
+    const big = uq || (kind === 'item' && !!slot && typeof slot === 'object' && slot.rarity === 4);
     let key = kind;
     if (kind === 'item') {
       const sl = slot && typeof slot === 'object' ? slot.slot : slot;
@@ -17272,17 +17274,17 @@
     grp.add(gem);
     const disc = new T.Mesh(gQuad(), discMat(h));
     disc.position.y = 0.05;
-    const ds = uq ? 2.3 : beam ? 1.5 : 0.85;
+    const ds = big ? 2.3 : beam ? 1.5 : 0.85;
     disc.scale.set(ds, 1, ds);
     disc.renderOrder = 2;
     grp.add(disc);
     if (beam) {
-      const bm = uq
+      const bm = big
         ? new T.Mesh(geo('beamCylU', () => new T.CylinderGeometry(0.13, 0.15, 11, 10, 1, true).translate(0, 5.5, 0)), beamMat(h, 0.34))
         : new T.Mesh(geo('beamCyl', () => new T.CylinderGeometry(0.05, 0.13, 6.5, 8, 1, true).translate(0, 3.25, 0)), beamMat(h));
       bm.renderOrder = 5;
       grp.add(bm);
-      if (uq) {
+      if (big) {
         // 里层一道更细、更亮的芯
         const core = new T.Mesh(geo('beamCylUc', () => new T.CylinderGeometry(0.03, 0.05, 9, 8, 1, true).translate(0, 4.5 + 1.0, 0)), beamMat(mixHex(h, 0xffffff, 0.5), 0.5));
         core.renderOrder = 5;
@@ -17290,7 +17292,7 @@
       }
       const sp = new T.Sprite(spriteMat(h));
       sp.position.y = 0.6;
-      sp.scale.setScalar(uq ? 1.2 : 1.4);
+      sp.scale.setScalar(big ? 1.2 : 1.4);
       grp.add(sp);
       if (uq) grp.userData.glow = sp;
     }
@@ -22866,6 +22868,160 @@
     flameWreath();
   }
 
+  // =====================================================================
+  // 渊契特效：电桥（实例化，一次 draw call）、踏震、蓄潮、随影、同殇、骸王的体型、随核的跟随、回旋的折返
+  // 除电桥外都用现成的零件（ring / slash / burst / decal / bolt），不加新的网格
+  // =====================================================================
+  // 电桥：一条平放在胸口高度的窄带，中间一道锯齿亮芯（每秒跳 14 次形状）+ 黄边，两侧两道平行细光；整条按剩余时间三档阶梯透明度。
+  // 最多 8 道，画进同一个实例网格（aK 剩余比例、aSeed 锯齿相位、aLen 长度）。第一次用到时才建
+  const RQB_MAX = 8;
+  let rqb = null;
+  function rqbInit() {
+    if (rqb) return rqb;
+    const g = new T.PlaneGeometry(1, 1);
+    g.rotateX(-Math.PI / 2);
+    const ig = new T.InstancedBufferGeometry();
+    ig.index = g.index;
+    ig.setAttribute('position', g.getAttribute('position'));
+    ig.setAttribute('uv', g.getAttribute('uv'));
+    const aK = new T.InstancedBufferAttribute(new Float32Array(RQB_MAX), 1), aSeed = new T.InstancedBufferAttribute(new Float32Array(RQB_MAX), 1), aLen = new T.InstancedBufferAttribute(new Float32Array(RQB_MAX), 1);
+    ig.setAttribute('aK', aK);
+    ig.setAttribute('aSeed', aSeed);
+    ig.setAttribute('aLen', aLen);
+    const mat = new T.ShaderMaterial({
+      uniforms: { uTime, uCore: { value: new T.Color(0xfffbe6) }, uEdge: { value: new T.Color(0xffe45e) } },
+      vertexShader: [
+        'attribute float aK; attribute float aSeed; attribute float aLen; varying vec2 vUv; varying float vK; varying float vS; varying float vL;',
+        'void main(){ vUv = uv; vK = aK; vS = aSeed; vL = aLen; gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0); }',
+      ].join('\n'),
+      fragmentShader: [
+        'uniform float uTime; uniform vec3 uCore; uniform vec3 uEdge; varying vec2 vUv; varying float vK; varying float vS; varying float vL;',
+        'float tri(float x){ return abs(fract(x) - 0.5) * 2.0; }',
+        'void main(){',
+        '  float st = floor(uTime * 14.0 + vS * 7.0);',
+        '  float ph = fract(sin(st * 12.9898 + vS * 78.233) * 43758.5453);',
+        '  float c = 0.5 + (tri(vUv.y * vL * 0.85 + ph) - 0.5) * 0.6;', // 锯齿亮芯的中线
+        '  float d = abs(vUv.x - c), e = abs(vUv.x - 0.5);',
+        '  vec3 col; float a;',
+        '  if (d < 0.06) { col = uCore; a = 1.0; }',
+        '  else if (d < 0.15) { col = uEdge; a = 0.85; }',
+        '  else if (e > 0.4 && e < 0.45) { col = uEdge; a = 0.3; }', // 两侧的平行细光
+        '  else discard;',
+        '  float k = vK > 0.66 ? 1.0 : (vK > 0.33 ? 0.62 : 0.3);',
+        '  gl_FragColor = vec4(col, a * k);',
+        '}',
+      ].join('\n'),
+      transparent: true, depthWrite: false, toneMapped: false, fog: false, side: T.DoubleSide,
+    });
+    const mesh = new T.InstancedMesh(ig, mat, RQB_MAX);
+    mesh.count = 0;
+    mesh.visible = false;
+    mesh.frustumCulled = false;
+    mesh.renderOrder = 4;
+    scene.add(mesh);
+    rqb = { mesh, aK, aSeed, aLen, slots: [] };
+    for (let i = 0; i < RQB_MAX; i++) rqb.slots.push({ on: false, x0: 0, z0: 0, x1: 0, z1: 0, t: 0, dur: 1, seed: 0 });
+    return rqb;
+  }
+  const _rqm = new T.Matrix4(), _rqq = new T.Quaternion(), _rqp = new T.Vector3(), _rqs = new T.Vector3(), _rqUp = new T.Vector3(0, 1, 0);
+  function rqbFlush() {
+    const B = rqb;
+    let n = 0;
+    for (const s of B.slots) {
+      if (!s.on) continue;
+      const dx = s.x1 - s.x0, dz = s.z1 - s.z0, L = Math.max(0.3, Math.hypot(dx, dz));
+      _rqp.set((s.x0 + s.x1) / 2, 1.05, (s.z0 + s.z1) / 2);
+      _rqq.setFromAxisAngle(_rqUp, Math.atan2(dx, dz));
+      _rqs.set((G.RELIC_MECH.dianqiao.w || 0.9), 1, L);
+      _rqm.compose(_rqp, _rqq, _rqs);
+      B.mesh.setMatrixAt(n, _rqm);
+      B.aK.array[n] = G.clamp(s.t / s.dur, 0, 1);
+      B.aSeed.array[n] = s.seed;
+      B.aLen.array[n] = L;
+      n++;
+    }
+    B.mesh.count = n;
+    B.mesh.visible = n > 0;
+    B.mesh.instanceMatrix.needsUpdate = true;
+    B.aK.needsUpdate = B.aSeed.needsUpdate = B.aLen.needsUpdate = true;
+  }
+  // 新开一道电桥，返回槽位（满了顶掉剩余时间最短的那道；game.js 那边同样最多 8 道，一般不会撞上）
+  W.relicBridgeOn = function (x0, z0, x1, z1) {
+    const B = rqbInit();
+    let i = B.slots.findIndex((s) => !s.on);
+    if (i < 0) {
+      i = 0;
+      for (let j = 1; j < B.slots.length; j++) if (B.slots[j].t < B.slots[i].t) i = j;
+    }
+    const s = B.slots[i];
+    const dur = G.RELIC_MECH.dianqiao.t || 1.5;
+    Object.assign(s, { on: true, x0, z0, x1, z1, t: dur, dur, seed: rand(0, 1) });
+    rqbFlush();
+    return i;
+  };
+  W.relicBridgeOff = function (i) {
+    if (!rqb || !(i >= 0) || !rqb.slots[i]) return;
+    rqb.slots[i].on = false;
+    rqbFlush();
+  };
+  W.relicBridgeTick = function (dt) {
+    if (!rqb) return;
+    for (const s of rqb.slots) if (s.on) s.t -= dt;
+    rqbFlush();
+  };
+  W.relicBridgeCount = () => (rqb ? rqb.mesh.count : 0); // 测试用
+  // 踏震：落点一圈硬边地裂 + 三道往外的冲击弧 + 一点尘
+  W.relicStomp = function (x, z, R, ang) {
+    W.ring(x, z, R, 0xffc070, 0.35);
+    W.ring(x, z, R * 0.55, 0xfff0d0, 0.2);
+    W.decal(5, x, z, R * 0.9, rand(0, TAU), 0xffb050, 2.2);
+    for (let i = 0; i < 3; i++) W.slash(x, z, ang + (i * TAU) / 3, R * 0.95, 70, 0xffe2b0, { dur: 0.2, inner: 0.78, y: 0.35 });
+    W.burst(x, 0.3, z, 0xd8c8a8, qualId === 'low' ? 6 : 12, R * 1.2, 0.35);
+  };
+  // 蓄潮：每攒一层身上甩几粒蓝白水沫；k 是攒满的比例
+  W.relicTide = function (x, z, k) {
+    W.burst(x, 0.7, z, 0xcfe8ff, 2 + Math.round(k * (qualId === 'low' ? 2 : 5)), 2.2, 0.3);
+  };
+  W.relicTideBurst = function (x, z, R, k) {
+    W.slash(x, z, rand(0, TAU), R, 360, 0xcfe8ff, { dur: 0.26, inner: 0.55, y: 0.9 });
+    W.ring(x, z, R, 0x9fd0ff, 0.4);
+    W.ring(x, z, R * 0.6, 0xffffff, 0.24);
+    W.burst(x, 0.8, z, 0xcfe8ff, Math.round((qualId === 'low' ? 6 : 10) + 20 * k), R * 1.4, 0.5);
+    if (k >= 0.5) W.decal(5, x, z, R * 0.8, rand(0, TAU), 0x9fd0ff, 2);
+  };
+  // 随影：召唤物从原地闪到落点（一道魂火青的细电弧）
+  W.relicBlinkFx = function (x0, z0, x1, z1) {
+    W.bolt([{ x: x0, z: z0 }, { x: x1, z: z1 }], ALLY_HEX, true);
+    W.burst(x1, 0.6, z1, ALLY_HEX, qualId === 'low' ? 4 : 8, 2.5, 0.35);
+  };
+  // 同殇：你和替你挨打的召唤物之间牵一道青色细线
+  W.relicShareFx = function (x0, z0, x1, z1) {
+    W.bolt([{ x: x0, z: z0 }, { x: x1, z: z1 }], ALLY_HEX, true);
+  };
+  // 骸王：身体和脚下的圈放大 k 倍（k = 1 还原）。ent.k 让血条、死亡消散、尸体贴花跟着变大
+  W.relicKing = function (ent, k) {
+    if (!ent || ent.dying) return;
+    const prev = ent.rqK || 1;
+    ent.rqK = k;
+    ent.k = (ent.k / prev) * k;
+    ent.body.scale.setScalar((ent.body.scale.x / prev) * k);
+    for (const q of [ent.ring, ent.ringShade]) if (q) q.scale.set((q.scale.x / prev) * k, 1, (q.scale.z / prev) * k);
+  };
+  // 随核：黑洞跟着你走（圆盘和往里卷的光点一起挪）
+  W.relicHoleAt = function (h, x, z) {
+    if (!h || !h.on) return;
+    h.x = x;
+    h.z = z;
+    h.mesh.position.set(x, 0.07, z);
+  };
+  // 回旋：投射物掉头，外形的朝向跟着换
+  W.relicProjTurn = function (mesh, dx, dz) {
+    const u = mesh && mesh.userData;
+    if (!u || u.dx === undefined) return;
+    u.dx = dx;
+    u.dz = dz;
+  };
+
   // ---------- 每帧更新 ----------
   function spawnAmbient(fx) {
     const x = camT.x + rand(-26, 26), z = camT.z + CAM_LEAD + rand(-22, 13);
@@ -23422,9 +23578,9 @@
       g.fillRect(x, y, w, h);
       g.strokeStyle = l.color;
       g.globalAlpha = 0.85;
-      const uqL = l.kind === 'item' && l.data && l.data.rarity === 3;
+      const uqL = l.kind === 'item' && l.data && l.data.rarity >= 3;
       if (uqL) {
-        // 烬铸：名牌外面再描一圈发光的边
+        // 烬铸 / 渊契：名牌外面再描一圈发光的边
         g.shadowColor = l.color;
         g.shadowBlur = 10;
         g.strokeRect(x - 1.5, y - 1.5, w + 3, h + 3);

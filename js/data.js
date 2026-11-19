@@ -837,8 +837,12 @@
   G.SLOT_NAME = { weapon: '武器', helm: '头盔', body: '胸甲', gloves: '手套', boots: '鞋子', belt: '腰带', ring: '戒指', amulet: '护符' };
   G.SLOT_GLYPH = { weapon: '武', helm: '盔', body: '甲', gloves: '手', boots: '靴', belt: '带', ring: '戒', amulet: '坠' };
   // 3 = 烬铸：只有轮回层级里的首领会掉的固定武器（见下面的「烬铸武器」），名字是偏暗的金红色，和稀有的亮黄分开
-  G.RARITY_NAME = ['普通', '魔法', '稀有', '烬铸'];
-  G.RARITY_COLOR = ['#d6d1c4', '#7f9dff', '#ffd75e', '#ff9b3d'];
+  // 4 = 渊契：只出在非武器部位的固定物品（见下面的「渊契」），翠色。名字和颜色各只在这里写一次（界面、光柱、图鉴都读这两个）
+  G.RELIC_RARITY = 4;
+  G.RELIC_NAME = '渊契';
+  G.RELIC_COLOR = '#6fe0b0';
+  G.RARITY_NAME = ['普通', '魔法', '稀有', '烬铸', G.RELIC_NAME];
+  G.RARITY_COLOR = ['#d6d1c4', '#7f9dff', '#ffd75e', '#ff9b3d', G.RELIC_COLOR];
 
   // 武器：type 武器类型；wskill 自带的武器技（G.SKILLS 里的 id）；dmg 1 级时的物理伤害区间（按物品等级成长，见「武器伤害」）；
   // aps 攻击速度：攻击技能的出手速度倍率（1 = 技能本身的节奏），武器秒伤 = 平均伤害 × aps；
@@ -1059,6 +1063,167 @@
     '，每跳伤害按你的黑洞的 ' + pc(G.VOID_MOUTH.dmg) + '。同时最多 ' + G.VOID_MOUTH.max + ' 道，每 ' + G.VOID_MOUTH.gap + ' 秒最多新开一道。武器技秘弹连射的属性固定为混沌。';
   // 分解烬铸武器固定得到的通货
   G.UNIQUE_SALVAGE = { exalt: 2, chaos: 2, divine: 1, chisel: 1 };
+
+  // ---------- 渊契（稀有度 4）----------
+  // 只出在非武器的 7 个部位，和烬铸武器是两条线（不进 G.UNIQUES：syncUniqueBosses 不会把它们挂到首领的烬铸掉落上）。
+  // 词缀行固定，数值按烬铸的同一套规则在掉落时的物品等级上掷（G.relicLineRange）；裸属性比同物品等级的好稀有少一行，强在机制。
+  // base：这个部位 BASES 里的下标；src：掉落来源（boss 区域首领 / enc 异兆 / seal 烈印 / pinnacle 熄烛者，见 G.RELIC_DROP）；
+  // boss / enc：具体哪个首领、哪种异兆。机制按 id 判断（game.js「渊契」一节的 P.relic[id]），数值在 G.RELIC_MECH
+  G.RELICS = {
+    panzhong: {
+      name: '磐踵', slot: 'boots', base: 0, src: 'boss', boss: 'golem', mechName: '踏震',
+      lines: [{ id: 'moveSpeed', k: [0.9, 1.2] }, { id: 'life', k: [1.0, 1.4] }, { id: 'armour', k: [1.0, 1.3] }],
+      lore: '熔渣巨像每走一步都要把地面压出裂纹，它脚下那层铁皮记住了那份分量。',
+    },
+    nuchao: {
+      name: '怒潮', slot: 'gloves', base: 0, src: 'boss', boss: 'warden', mechName: '蓄潮',
+      lines: [{ id: 'incPhys', k: [1.0, 1.4] }, { id: 'speed', k: [0.9, 1.2] }, { id: 'life', k: [0.9, 1.2] }],
+      lore: '雷霆监察者的护手里锁着一场没下完的暴雨，握紧拳头，就能听见浪头在指缝里翻涌。',
+    },
+    duanyue: {
+      name: '断岳', slot: 'belt', base: 0, src: 'enc', enc: 'trial', mechName: '崩势',
+      lines: [{ id: 'life', k: [1.1, 1.5] }, { id: 'armour', k: [1.0, 1.3] }, { id: 'resCold', k: [1.0, 1.3] }],
+      lore: '带扣是一座山的残片。山倒下的那一刻，周围的一切都跟着跪了下去。',
+    },
+    qianmu: {
+      name: '千目', slot: 'helm', base: 0, src: 'enc', enc: 'wanderer', mechName: '必然',
+      lines: [{ id: 'crit', k: [1.3, 1.8] }, { id: 'life', k: [0.9, 1.2] }, { id: 'resLight', k: [1.0, 1.3] }],
+      lore: '七只眼轮流守夜，从不同时睁开。等到中间那只看清了破绽，刀就已经落下了。',
+    },
+    huixuan: {
+      name: '回旋', slot: 'amulet', base: 0, src: 'boss', boss: 'weaver', mechName: '回旋',
+      lines: [{ id: 'critMulti', k: [1.0, 1.4] }, { id: 'incPhys', k: [1.0, 1.3] }],
+      lore: '霜织者的丝线一头系在骨坠上，抛出去的东西，总会顺着线回到手里。',
+    },
+    zhuixing: {
+      name: '陨织袍', slot: 'body', base: 0, src: 'seal', mechName: '星雨',
+      lines: [{ id: 'life', k: [1.0, 1.4] }, { id: 'resFire', k: [1.2, 1.6] }, { id: 'lifeRegen', k: [1.0, 1.3] }],
+      lore: '袍子下摆缀着的不是绣线，是一颗颗还没落地的星。穿上它的人，头顶从不放晴。',
+    },
+    dianqiao: {
+      name: '电桥', slot: 'ring', base: 2, src: 'enc', enc: 'guard', mechName: '电桥',
+      lines: [{ id: 'incLight', k: [1.2, 1.6] }, { id: 'addLight', k: [1.0, 1.3] }, { id: 'mana', k: [1.0, 1.3] }],
+      lore: '戒面上的两颗电珠互相够不着，于是雷每一次落下，都替它们搭一座桥。',
+    },
+    yibian: {
+      name: '异变', slot: 'amulet', base: 2, src: 'enc', enc: 'ember', mechName: '混相',
+      lines: [{ id: 'incFire', k: [0.7, 1.0] }, { id: 'incCold', k: [0.7, 1.0] }, { id: 'incLight', k: [0.7, 1.0] }],
+      lore: '三种元素被硬压进同一颗珠子，谁也分不出谁，炸开的时候也只好一起炸。',
+    },
+    haiwang: {
+      name: '骸王冠', slot: 'helm', base: 0, src: 'boss', boss: 'lord', mechName: '独骸',
+      lines: [{ id: 'minionLife', k: [1.2, 1.6] }, { id: 'life', k: [1.0, 1.3] }, { id: 'resFire', k: [1.0, 1.3] }],
+      lore: '烬渊之主的骸骨不肯与别的骸骨同列。戴上这顶冠，你的仆从里只能站着一位王。',
+    },
+    tongshang: {
+      name: '同殇甲', slot: 'body', base: 0, src: 'enc', enc: 'box', mechName: '同殇',
+      lines: [{ id: 'minionLife', k: [1.2, 1.6] }, { id: 'life', k: [1.0, 1.4] }, { id: 'armour', k: [1.0, 1.3] }],
+      lore: '甲胸前那双骨手扣得很紧。你挨的每一下，都有一份顺着那根细线落到别处。',
+    },
+    zhaohun: {
+      name: '招魂带', slot: 'belt', base: 0, src: 'enc', enc: 'echo', mechName: '随影',
+      lines: [{ id: 'life', k: [1.0, 1.3] }, { id: 'minionLife', k: [1.0, 1.4] }, { id: 'mana', k: [1.0, 1.3] }],
+      lore: '骨铃一响，跟着你的东西就会出现在你落脚的地方，不管它刚才在哪。',
+    },
+    yinli: {
+      name: '引力核', slot: 'ring', base: 3, src: 'boss', boss: 'behemoth', mechName: '随核',
+      lines: [{ id: 'incChaos', k: [1.2, 1.6] }, { id: 'addChaos', k: [1.0, 1.3] }, { id: 'mana', k: [1.0, 1.3] }],
+      lore: '衔星巨兽背上那块坠星掉下的一粒碎屑，小得能镶进戒面，重得能把戒圈拽弯。',
+    },
+    yuanfu: {
+      name: '渊缚链', slot: 'gloves', base: 0, src: 'seal', mechName: '锁链',
+      lines: [{ id: 'addChaos', k: [1.2, 1.6] }, { id: 'bindAil', k: [1.2, 1.6] }, { id: 'life', k: [1.0, 1.3] }],
+      lore: '链子一头断了。另一头还缠着谁，要等下一个被缚住的敌人告诉你。',
+    },
+    // 巅峰专属（熄烛者掉，D5 才接上掉落和机制）：这里只有数据，不进 G.RELIC_IDS，图鉴、随机掉落都不出
+    xizhu: {
+      name: '熄烛冠', slot: 'helm', base: 0, src: 'pinnacle', pinnacle: true, mechName: '无光',
+      lines: [{ id: 'life', k: [1.2, 1.6] }, { id: 'crit', k: [1.2, 1.6] }, { id: 'resCold', k: [1.0, 1.3] }],
+      lore: '冠上一圈烛芯都熄了，只剩一根还在冒烟。',
+    },
+    shuangsheng: {
+      name: '双生坠', slot: 'amulet', base: 0, src: 'pinnacle', pinnacle: true, mechName: '双生',
+      lines: [{ id: 'incAll', k: [1.0, 1.4] }, { id: 'speed', k: [1.0, 1.3] }],
+      lore: '两片半月背靠着背，一片暖，一片冷。',
+    },
+  };
+  // 普通渊契（随机掉落、图鉴、图标都按这个列表）；巅峰专属另列
+  G.RELIC_IDS = Object.keys(G.RELICS).filter((id) => !G.RELICS[id].pinnacle);
+  G.RELIC_PINNACLE = Object.keys(G.RELICS).filter((id) => G.RELICS[id].pinnacle);
+  // 掉落来源：src 是各来源的总开关（boss 现在开；enc 异兆、seal 烈印等 D4 / D3 上线再开；trader 拾烬客的货架随 D4）。
+  // boss：每个区域首领一件、和烬铸分开掷，层级 1 为 chance[1]、层级 2 起 chance[2]，烈印（W ≥ 6）再 × sealMul；连续 pity 次没掉，下一次必掉（按渊契 id 计）
+  // enc：异兆成功才掷（层级 ≥ 1）；seal：烈印下击杀区域首领（陨织袍 / 渊缚链各半，按 'seal' 一起计保底）；trader：拾烬客货架（层级 ≥ 2）摆一件的几率
+  G.RELIC_DROP = {
+    src: { boss: true, enc: false, seal: false, trader: false },
+    boss: { chance: [0, 0.05, 0.08], pity: 10 },
+    enc: { chance: 0.1, pity: 8, minTier: 1 },
+    seal: { chance: 0.04, pity: 15, minW: 6, ids: ['zhuixing', 'yuanfu'] },
+    trader: { chance: 0.06, minTier: 2 },
+    sealMul: 1.5,
+  };
+  // 异兆的名字（图鉴里写来源用；D4 的 G.ENCOUNTERS 上线后以那边为准）
+  G.RELIC_ENC_NAME = { guard: '守隙', wanderer: '游荡者', trial: '试锋', box: '缚匣', echo: '残影', ember: '落烬' };
+  G.RELIC_BY_BOSS = {};
+  G.RELIC_BY_ENC = {};
+  for (const id of G.RELIC_IDS) {
+    const R = G.RELICS[id];
+    if (R.src === 'boss') G.RELIC_BY_BOSS[R.boss] = id;
+    if (R.src === 'enc') G.RELIC_BY_ENC[R.enc] = id;
+  }
+  G.relicChance = (tier) => (tier >= 2 ? G.RELIC_DROP.boss.chance[2] : tier >= 1 ? G.RELIC_DROP.boss.chance[1] : 0);
+  // 机制数值（game.js 的「渊契」一节读这里；改数值时说明跟着变）：
+  // 踏震 panzhong：翻滚落地震地，半径 r（吃范围）、mult 倍武器伤害（物理攻击，吃你的加成、不吃辅助）、削架势 poise、击退 kb；两次至少隔 gap 秒；翻滚冷却 × (1 + rollCd)
+  // 蓄潮 nuchao：旋风斩每跳只打 pulse 倍、攒 1 层（上限 max）；松手 / 翻滚 / 被打断时以你为中心炸开，半径 = 旋风半径 × r，每层 burst 倍满额一跳
+  // 崩势 duanyue：精英 / 首领被打出破绽时，r 米内的普通怪同时破绽 t 秒（停手、受伤 × 破绽倍率）；处决时目标 sweepR 米内处于破绽的敌人各吃处决伤害的 sweep
+  // 必然 qianmu：命中把暴击率加进计数器，满 100 必暴并扣 100；暴击伤害 critMulti（点）
+  // 回旋 huixuan：投射物到射程尽头或第一次撞墙时折返，回程 back 倍、可再中；射程 × range
+  // 星雨 zhuixing：陨火每 iv 秒（吃出手速度和迅捷，节流缩短间隔）自动落在 r 米内敌人最密处，伤害 × mult、半径 × area，保留 reserve% 最大魔力、不耗魔力
+  // 电桥 dianqiao：链雷每跳在前后两个目标之间留一道 t 秒、宽 w 米的电桥，每 tick 秒对碰到的敌人造成一跳的 mult 倍闪电伤害；同时最多 max 道
+  // 混相 yibian：火 / 冰 / 雷灌进同一条异常值，累积速度 rate，满了三种效果各 × k
+  // 独骸 haiwang：仆从上限固定 1，多出来的上限每 1 个 +perDmg 伤害、+perLife 生命；骸王体型 × scale、生命 × life、伤害 × dmg，横斩带 cleave 个、arc 度，牵制 hold 只，受伤 −dr%
+  // 同殇 tongshang：你受到的伤害 share 转给 r 米内最近的召唤物；召唤物最大生命 +life%；召唤物倒下时你回复它最大生命的 heal
+  // 随影 zhaohun：翻滚 delay 秒后召唤物闪到你落点周围、各砸一下（半径 r，各自一击 × mult，守像 × multBig）；翻滚冷却 × (1 + rollCd)
+  // 随核 yinli：黑洞以你为中心跟着你走；持续 × dur、半径 × radius、牵引 × pull（首领不变）、每跳伤害 × dmg
+  // 锁链 yuanfu：同一时刻处于渊缚的敌人连成一串（最多 max 个），其中一个受到你的伤害，其余每个分到 share
+  G.RELIC_MECH = {
+    // r 4.5（设计稿 3.0）：从近战距离朝目标翻滚，落地离目标约 4 米，3 米够不着翻过去的那个目标
+    panzhong: { r: 4.5, mult: 1.1, poise: 28, kb: 1.2, gap: 0.8, rollCd: 0.3 },
+    nuchao: { pulse: 0.55, max: 12, burst: 0.5, r: 1.4 },
+    duanyue: { r: 8, t: 2.5, sweepR: 3, sweep: 0.35 },
+    qianmu: { critMulti: -15 },
+    huixuan: { back: 0.6, range: 0.8 },
+    zhuixing: { iv: 1.8, r: 12, mult: 0.4, area: 0.85, reserve: 20 },
+    dianqiao: { t: 1.5, w: 0.9, tick: 0.25, mult: 0.18, max: 8 },
+    yibian: { rate: 1.27, k: 0.6 },
+    haiwang: { perDmg: 0.35, perLife: 0.4, scale: 1.5, life: 3, dmg: 2.9, cleave: 6, arc: 220, hold: 5, dr: 15 },
+    tongshang: { share: 0.3, r: 10, life: 25, heal: 0.08 },
+    zhaohun: { delay: 0.15, r: 1.6, mult: 1.5, multBig: 1.0, rollCd: 0.15 },
+    yinli: { dur: 0.8, radius: 0.85, pull: 0.75, dmg: 1.2 },
+    yuanfu: { max: 6, share: 0.2 },
+  };
+  // 机制说明（物品提示、图鉴用），按上面的数值拼
+  G.relicDescs = function () {
+    const M = G.RELIC_MECH, R = G.RELICS;
+    const a = M.panzhong, b = M.nuchao, c = M.duanyue, d = M.huixuan, f = M.zhuixing, g = M.dianqiao, h = M.yibian, k = M.haiwang, t = M.tongshang, z = M.zhaohun, y = M.yinli, u = M.yuanfu;
+    R.panzhong.mechDesc = '翻滚落地时震地：对周围 ' + a.r + ' 米（吃范围加成）内的敌人造成 ' + pc(a.mult) + ' 武器伤害的物理攻击伤害（吃你的伤害加成，不吃辅助宝石），削架势并击退。两次至少间隔 ' + a.gap + ' 秒。翻滚冷却延长 ' + pc(a.rollCd) + '。';
+    R.nuchao.mechDesc = '旋风斩改为按住蓄力、松手释放：按住时每一跳只造成 ' + pc(b.pulse) + ' 伤害，每跳攒 1 层潮势（最多 ' + b.max + ' 层）。松手、翻滚或被打断时以你为中心炸开，半径是旋风斩的 ' + pc(b.r) + '，每层造成一跳满额伤害的 ' + pc(b.burst) + '。';
+    R.duanyue.mechDesc = '精英或首领被打出破绽时，' + c.r + ' 米内的普通怪同时陷入破绽 ' + c.t + ' 秒（停止行动、受到的伤害提高）。处决时，目标 ' + c.sweepR + ' 米内处于破绽的其他敌人各受到处决伤害的 ' + pc(c.sweep) + '。';
+    R.qianmu.mechDesc = '暴击不再随机：每次命中把这一击的暴击率攒进计数，攒满 100% 这一击必定暴击并扣掉 100%（多出的留着）。暴击伤害 ' + M.qianmu.critMulti + '%。必定暴击的招式照旧必暴，不动计数。召唤物不受影响。';
+    R.huixuan.mechDesc = '飞刃、弓箭（含普攻）和左轮的子弹飞到射程尽头或第一次撞墙时折返，回程伤害 ' + pc(d.back) + '，可以再次打中去程打中过的敌人。射程缩短 ' + pc(1 - d.range) + '。机炮、会爆炸的投射物和万矢分出的箭不会折返。';
+    R.zhuixing.mechDesc = '陨火不能手动施放：只要放在技能栏上，每 ' + f.iv + ' 秒（受出手速度和迅捷影响，节流缩短间隔）自动落在你 ' + f.r + ' 米内敌人最密的地方，伤害 ' + pc(f.mult) + '、半径 ' + pc(f.area) + '。不消耗魔力，改为保留 ' + f.reserve + '% 最大魔力。自动落下的不算施放，回响不生效。';
+    R.dianqiao.mechDesc = '链雷每跳在前后两个目标之间留下一道电桥，持续 ' + g.t + ' 秒，每 ' + g.tick + ' 秒对碰到它的敌人造成链雷一跳 ' + pc(g.mult) + ' 的闪电伤害并累积闪电异常值。同时最多 ' + g.max + ' 道，新的顶掉最老的。电桥的伤害不引发感电电弧。';
+    R.yibian.mechDesc = '火焰、冰霜、闪电伤害灌进同一条「混相」异常值；灌满时同时触发爆燃、冻结（首领为重度冰缓）和感电，三种效果各为 ' + pc(h.k) + '。首领的阈值每次只提高一次。佩戴时三相之心的共鸣不生效。';
+    R.haiwang.mechDesc = '烬骸仆从只剩一具骸王：上限固定为 1，群聚、天赋、护符、万魂旗多给的仆从上限每 1 个折成 +' + pc(k.perDmg) + ' 伤害、+' + pc(k.perLife) + ' 生命。骸王体型更大，生命 ×' + k.life + '、伤害 ×' + k.dmg + '，横斩 ' + k.arc + '° 带到 ' + k.cleave + ' 个敌人，同时牵制 ' + k.hold + ' 只小怪，受到的伤害减少 ' + k.dr + '%。';
+    R.tongshang.mechDesc = '你受到的伤害有 ' + pc(t.share) + ' 转给 ' + t.r + ' 米内离你最近的召唤物（按它的减伤结算）。召唤物最大生命提高 ' + t.life + '%；召唤物倒下时，你回复它最大生命的 ' + pc(t.heal) + '。';
+    R.zhaohun.mechDesc = '翻滚时，所有召唤物在 ' + z.delay + ' 秒后闪到你的落点周围，落地各砸一下（半径 ' + z.r + ' 米，各自一击的 ' + pc(z.mult) + '，石誓守像 ' + pc(z.multBig) + '），削减架势。翻滚冷却延长 ' + pc(z.rollCd) + '。';
+    R.yinli.mechDesc = '黑洞以你为中心并跟着你移动：持续时间 ' + pc(y.dur) + '、半径 ' + pc(y.radius) + '、牵引 ' + pc(y.pull) + '（首领的牵引不变），每跳伤害 ' + pc(y.dmg) + '。冷却不变。星蚀的渊口照常在敌人脚下张开。';
+    R.yuanfu.mechDesc = '同一时刻处于渊缚的敌人连成一串（最多 ' + u.max + ' 个）：其中一个受到你的伤害时，其余每个分到 ' + pc(u.share) + '（不暴击、不触发命中效果、不累积异常值、不带黑焰）。渊缚结束就断开。首领不会被渊缚，不在链上。';
+    R.xizhu.mechDesc = '（巅峰专属，尚未开放）';
+    R.shuangsheng.mechDesc = '（巅峰专属，尚未开放）';
+  };
+  G.relicDescs();
+  // 分解渊契固定得到的通货（同烬铸）
+  G.RELIC_SALVAGE = { exalt: 2, chaos: 2, divine: 1, chisel: 1 };
 
   G.RARE_A = ['灰烬', '霜骨', '雷鸣', '渊影', '残月', '裂魂', '荆棘', '苍白', '余烬', '暮光', '锈蚀', '血誓'];
   G.RARE_B = ['之握', '之誓', '之眼', '壁垒', '挽歌', '獠牙', '回响', '枷锁', '之冠', '低语', '印记', '之怒'];

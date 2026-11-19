@@ -10272,6 +10272,744 @@ async function main() {
     return '读档保留、坏数据丢弃、低等级不生效、旧存档原式';
   });
 
+  // ------------------------------------------------------------------ D2 渊契（稀有度 4）
+  // 通用的攻击上下文用飞刃（裂石击会被武器普攻取代、不再是可学的技能）
+  // 每一步开头 RQT.begin(id)：标准刃、除武器外的部位全空、只穿这一件渊契（物品等级 50、完美度 0.5）；结尾 RQT.end() 还原装备和技能栏
+  await step('渊契数据：G.rollRelic 每件 × 3 个物品等级，部位 / 基底 / 词缀行合法（数值在区间里）、只在非武器部位；存档往返后都留着（isItem 认）、部位不对的被丢掉；稀有度名「渊契」、颜色是单一常量；提示卡是翠色并写着机制、无法改造', async () => {
+    // 页面里的渊契测试小工具（RQT），后面几步都用
+    await ev(() => {
+      const P = G.player;
+      window.RQT = {
+        begin(id) {
+          T.unfix();
+          T.arena();
+          RQT.keep = { equip: Object.assign({}, G.save.equip), build: T.buildSnap(), sup: G.save.supports.slice() };
+          for (const sl of G.SLOTS) if (sl !== 'weapon') G.save.equip[sl] = null;
+          G.save.bar = [null, null, null, null];
+          if (id) G.save.equip[G.RELICS[id].slot] = G.rollRelic(id, 50, 0.5);
+          G.computeStats();
+          G.relicReset();
+          G.relicState.crit = 0;
+          P.life = P.maxLife;
+          P.mana = P.maxMana;
+          P.cds = {};
+          P.roll.cd = 0;
+          for (const k of ['KeyW', 'KeyA', 'KeyS', 'KeyD']) G.input.keys[k] = false;
+        },
+        learn(id, slot) {
+          G.save.skills[id] = Math.max(G.save.skills[id] || 1, 10);
+          if (!Array.isArray(G.save.sockets[id])) G.save.sockets[id] = [null, null, null];
+          else G.save.sockets[id] = [null, null, null];
+          if (slot !== undefined) G.save.bar[slot] = id;
+          G.computeStats();
+        },
+        // 伤害按固定随机数（0.999：不暴击、取区间上沿）算的一击
+        hit(ctx, mult) {
+          return G.calcHit(ctx, mult === undefined ? 1 : mult).total;
+        },
+        end() {
+          T.unfix();
+          G.clearMinions();
+          G.relicReset();
+          if (RQT.keep) {
+            Object.assign(G.save.equip, RQT.keep.equip);
+            G.save.supports = RQT.keep.sup;
+            T.buildRestore(RQT.keep.build);
+          }
+          G.computeStats();
+          T.arena();
+        },
+      };
+    });
+    const r = await ev(() => {
+      RQT.begin(null);
+      const out = { bad: [], n: 0 };
+      for (const id of G.RELIC_IDS) {
+        const R = G.RELICS[id];
+        for (const il of [21, 37, 57]) {
+          const it = G.rollRelic(id, il);
+          out.n++;
+          const lines = it.affixes.length === R.lines.length && it.affixes.every((a, i) => { const rg = G.relicLineRange(id, il, i); return a.id === R.lines[i].id && a.v >= rg[0] && a.v <= rg[1] && rg[1] >= rg[0] && rg[0] >= 1; });
+          if (!(it.rarity === 4 && it.rq === id && it.slot === R.slot && R.slot !== 'weapon' && it.baseIdx === R.base && G.BASES[R.slot][R.base].names.indexOf(it.baseName) >= 0 && it.name === R.name && lines)) out.bad.push(id + '@' + il);
+        }
+      }
+      out.ids = G.RELIC_IDS.length;
+      out.weaponless = Object.keys(G.RELICS).every((id) => G.RELICS[id].slot !== 'weapon');
+      out.notUq = G.RELIC_IDS.every((id) => !G.UNIQUES[id]);
+      out.name = G.RARITY_NAME[4];
+      out.color = G.RARITY_COLOR[4] === G.RELIC_COLOR ? G.RELIC_COLOR : 'mismatch';
+      // 存档往返：13 件放进背包，再塞一件部位被改坏的
+      G.save.bag.length = 0;
+      for (const id of G.RELIC_IDS) G.save.bag.push(G.rollRelic(id, 44));
+      G.persist();
+      const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+      const wrong = G.rollRelic('panzhong', 44);
+      wrong.slot = 'ring';
+      const off = G.rollRelic('qianmu', 44);
+      off.affixes[0].v = 99999; // 数值超出区间：读档时夹回去
+      raw.bag.push(wrong, off);
+      localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+      G.loadSave();
+      const rel = G.save.bag.filter((it) => it.rarity === 4);
+      out.kept = rel.length;
+      const q = rel[rel.length - 1];
+      out.clamp = q && q.rq === 'qianmu' ? [q.affixes[0].v, G.relicLineRange('qianmu', 44, 0)[1]] : null;
+      // 提示卡
+      G.ui.open('inv');
+      const cell = document.querySelector('.cell.r4[data-item]');
+      if (cell) cell.click();
+      const nm = document.querySelector('.detail-card .icard.r4 .ic-name');
+      out.nameColor = nm ? getComputedStyle(nm).color : null;
+      const txt = T.bodyText();
+      const selIt = cell && G.save.bag.find((x) => x.uid === cell.dataset.item);
+      out.mech = !!selIt && txt.indexOf(G.RELICS[selIt.rq].mechName) >= 0 && txt.indexOf(G.RELICS[selIt.rq].mechDesc.slice(0, 12)) >= 0 && txt.indexOf('渊契无法改造') >= 0;
+      out.locked = !!document.querySelector('.craft-grid.locked');
+      G.ui.close();
+      G.save.bag.length = 0;
+      RQT.end();
+      return out;
+    });
+    assert(r.bad.length === 0 && r.n === 39 && r.ids === 13, '掷出来的渊契不合法：' + JSON.stringify(r.bad));
+    assert(r.weaponless && r.notUq && r.name === '渊契' && r.color === '#6fe0b0', '稀有度 / 部位 / 颜色不对：' + JSON.stringify(r));
+    assert(r.kept === 14 && r.clamp && r.clamp[0] === r.clamp[1], '存档往返应留下 13 + 1 件（部位不对的丢掉、数值夹回区间）：' + JSON.stringify(r));
+    assert(r.nameColor === 'rgb(111, 224, 176)' && r.mech && r.locked, '提示卡应是翠色、写着机制和无法改造：' + JSON.stringify(r));
+    return r.n + ' 件 · 往返留下 ' + r.kept;
+  });
+
+  await step('渊契掉落：首领那一件按层级的几率（层级 1 5%、层级 2 起 8%，N = 4000，±15%），层级 0 不掉也不计保底；连续 10 次没掉第 11 次必掉、掉了清零；和烬铸的判定、保底互不影响；异兆 / 烈印 / 拾烬客的来源都关着（打开后各自按保底掉）', async () => {
+    const r = await ev(() => {
+      RQT.begin(null);
+      const P = G.player, U = G.save.relic, D = G.RELIC_DROP, S = G.state;
+      const out = {};
+      // 固定种子的伪随机：几率检查不随运行抖动
+      const rand0 = Math.random;
+      let a = 20261118;
+      Math.random = () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+      const rate = (kind, tier) => { const id = G.RELIC_BY_BOSS[kind]; let n = 0; for (let i = 0; i < 4000; i++) { delete U.pity[id]; if (G.relicBossRoll(kind, tier)) n++; } delete U.pity[id]; return n / 4000; };
+      const uq0 = JSON.stringify(G.save.uniq.pity);
+      out.r1 = rate('golem', 1);
+      out.r2 = rate('warden', 2);
+      out.r3 = rate('behemoth', 3);
+      let n0 = 0;
+      for (let i = 0; i < 4000; i++) if (G.relicBossRoll('lord', 0)) n0++;
+      out.t0 = [n0, U.pity.haiwang || 0];
+      out.uqSame = JSON.stringify(G.save.uniq.pity) === uq0;
+      Math.random = rand0;
+      out.map = Object.keys(G.RELIC_BY_BOSS).sort().map((k) => k + ':' + G.RELIC_BY_BOSS[k]).join();
+      // 保底：掷骰永远不中
+      T.fix(0.999);
+      delete U.pity.huixuan;
+      let k = 0;
+      while (!G.relicBossRoll('weaver', 1) && k < 30) k++;
+      out.pity = [k + 1, U.pity.huixuan || 0];
+      // 烬铸掉落不动渊契的保底
+      U.pity.panzhong = 4;
+      const tier0 = S.tier;
+      S.tier = 1;
+      const uqp = Object.assign({}, G.save.uniq.pity);
+      G.uniqueDrop({ bossKind: 'golem', x: P.x, z: P.z, isBoss: true }, 30);
+      out.rqSame = U.pity.panzhong === 4;
+      G.save.uniq.pity = uqp;
+      // 关着的来源：保底满了也不掉
+      out.src = [D.src.boss, D.src.enc, D.src.seal, D.src.trader].join();
+      U.pity.dianqiao = 99;
+      U.pity.seal = 99;
+      out.off = [G.relicEncDrop('guard', 40, P.x, P.z), G.relicSealDrop({ isBoss: true, x: P.x, z: P.z }, 40), G.relicTraderPick()].map((v) => v === null).join();
+      // 打开异兆来源：保底满了就掉（层级 ≥ 1）
+      const src0 = Object.assign({}, D.src);
+      D.src.enc = true;
+      U.pity.dianqiao = D.enc.pity;
+      const it = G.relicEncDrop('guard', 40, P.x, P.z);
+      out.encOn = [it && it.rq, U.pity.dianqiao || 0];
+      // 烈印：W 不够不掉，够了按 'seal' 保底掉陨织袍 / 渊缚链
+      D.src.seal = true;
+      U.pity.seal = D.seal.pity;
+      out.sealLow = G.relicSealDrop({ isBoss: true, x: P.x, z: P.z }, 40) === null;
+      G.runSealW = () => 6;
+      const s2 = G.relicSealDrop({ isBoss: true, x: P.x, z: P.z }, 40);
+      out.sealOn = [s2 && D.seal.ids.indexOf(s2.rq) >= 0, U.pity.seal || 0];
+      delete G.runSealW;
+      Object.assign(D.src, src0);
+      S.tier = tier0;
+      T.unfix();
+      T.clearLoot();
+      U.pity = {};
+      RQT.end();
+      return out;
+    });
+    const near = (v, p) => Math.abs(v - p) <= p * 0.15;
+    assert(near(r.r1, 0.05) && near(r.r2, 0.08) && near(r.r3, 0.08), '首领渊契的几率不对：' + JSON.stringify(r));
+    assert(r.t0.join() === '0,0', '层级 0 不该掉、不该计保底：' + r.t0);
+    assert(r.pity.join() === '11,0', '保底应在第 11 次必掉并清零：' + r.pity);
+    assert(r.uqSame && r.rqSame, '渊契和烬铸的保底互相影响了：' + JSON.stringify(r));
+    assert(r.map === 'behemoth:yinli,golem:panzhong,lord:haiwang,warden:nuchao,weaver:huixuan', '首领 → 渊契对应不对：' + r.map);
+    assert(r.src === 'true,false,false,false' && r.off === 'true,true,true', '异兆 / 烈印 / 拾烬客来源应关着：' + JSON.stringify(r));
+    assert(r.encOn.join() === 'dianqiao,0' && r.sealLow && r.sealOn.join() === 'true,0', '打开来源后应按保底掉落：' + JSON.stringify(r));
+    return '层级 1 ' + (r.r1 * 100).toFixed(1) + '% · 层级 2 ' + (r.r2 * 100).toFixed(1) + '% · 保底第 ' + r.pity[0] + ' 次';
+  });
+
+  await step('踏震（磐踵）：翻滚落地震地，半径 4.5 米（RELIC_MECH.panzhong.r）内的敌人吃 1.1 倍武器伤害（物理攻击，吃伤害加成），外面的不吃；两次至少隔 0.8 秒；翻滚冷却 +30%，摘下就恢复', async () => {
+    const r = await ev(() => {
+      RQT.begin('panzhong');
+      const P = G.player, S = P.S, A = G.RELIC_MECH.panzhong;
+      const d = T.openDir(10);
+      T.aim(P.x + d.x * 10, P.z + d.z * 10);
+      const L = P.moveSpeed * 2.6 * 0.32;
+      const lx = P.x + d.x * L, lz = P.z + d.z * L;
+      const R = A.r * Math.sqrt(Math.max(0.1, 1 + (S.area || 0) / 100));
+      const near = T.mob('husk', lx + d.z * 1.4 - P.x, lz - d.x * 1.4 - P.z);
+      const far = T.mob('husk', lx - d.z * (R + 2.5) - P.x, lz + d.x * (R + 2.5) - P.z);
+      T.fix(0.999);
+      const st0 = G.state.stats.relicStomps || 0;
+      const ok = G.dodge();
+      const out = { ok, cd: [P.roll.cdMax, 0.9 * (1 - Math.min(90, S.dodgeCd || 0) / 100) * (1 + A.rollCd)] };
+      G.debug.step(0.5);
+      const wp = G.weaponStats(G.save.equip.weapon);
+      const expect = (wp.min + (wp.max - wp.min) * 0.999) * A.mult * (1 + ((S.incAll || 0) + (S.incPhys || 0)) / 100) * (1 + (S.moreDmg || 0) / 100) * (1 - Math.min(90, S.ownLess || 0) / 100);
+      out.near = [Math.round(near.maxHp - near.hp), Math.round(expect)];
+      out.far = Math.round(far.maxHp - far.hp);
+      out.stomps = (G.state.stats.relicStomps || 0) - st0;
+      out.gap = G.relicLand();
+      G.save.equip.boots = null;
+      G.computeStats();
+      P.roll.cd = 0;
+      G.debug.step(0.1);
+      G.dodge();
+      out.cd0 = [P.roll.cdMax, 0.9 * (1 - Math.min(90, P.S.dodgeCd || 0) / 100)];
+      G.debug.step(0.5);
+      RQT.end();
+      return out;
+    });
+    assert(r.ok && Math.abs(r.cd[0] - r.cd[1]) < 1e-6 && Math.abs(r.cd0[0] - r.cd0[1]) < 1e-6, '翻滚冷却不对：' + JSON.stringify(r));
+    assert(Math.abs(r.near[0] - r.near[1]) <= Math.max(2, r.near[1] * 0.02) && r.far === 0 && r.stomps === 1, '踏震的伤害 / 范围不对：' + JSON.stringify(r));
+    assert(r.gap === 0, '0.8 秒内不该再震一次');
+    return '踏震 ' + r.near[0] + ' · 冷却 ' + r.cd[0].toFixed(2) + ' 秒';
+  });
+
+  await step('蓄潮（怒潮）：旋风斩每跳只打 55%、攒 1 层（上限 12）；松手后以你为中心炸开（半径 × 1.4），每层 0.5 倍满额一跳，层数清零；没穿时每跳照常满额', async () => {
+    const r = await ev(() => {
+      RQT.begin('nuchao');
+      RQT.learn('whirl', 0);
+      const P = G.player, B = G.RELIC_MECH.nuchao;
+      const ctx = G.skillCtx('whirl');
+      const R = ctx.sk.radius * Math.sqrt(ctx.area);
+      const a = T.mob('husk', 0, -1.2);
+      const ring = T.mob('husk', 0, -(R * 1.2 + 0.55));
+      T.fix(0.999);
+      const pulse = RQT.hit(ctx, 1);
+      P.cast = { slot: 0, id: 'whirl', channel: true, pulses: 0, t: 0, nextT: 1e9, cancelT: 0, dur: Infinity, move: 0.6, fired: true };
+      const per = [];
+      for (let i = 0; i < 14; i++) {
+        a.x = P.x;
+        a.z = P.z - 1.2;
+        const h0 = a.hp;
+        P.cast.pulses++;
+        G.execSkill(G.skillCtx('whirl'));
+        per.push(h0 - a.hp);
+      }
+      const out = { per: [Math.round(per[0]), Math.round(pulse * B.pulse)], spin: G.relicState.spin, ringPulse: Math.round(ring.maxHp - ring.hp) };
+      const r0 = ring.hp;
+      P.cast = null;
+      G.relicTick(1 / 60);
+      out.burst = [Math.round(r0 - ring.hp), Math.round(pulse * B.max * B.burst)];
+      out.after = G.relicState.spin;
+      // 没穿：每跳满额、不攒层
+      G.save.equip.gloves = null;
+      G.computeStats();
+      const h1 = a.hp;
+      P.cast = { slot: 0, id: 'whirl', channel: true, pulses: 1, t: 0, nextT: 1e9, cancelT: 0, dur: Infinity, move: 0.6, fired: true };
+      const c2 = G.skillCtx('whirl');
+      const full = RQT.hit(c2, 1); // 手套的物理伤害提高那一行也摘掉了：按摘下之后的上下文算
+      G.execSkill(c2);
+      out.plain = [Math.round(h1 - a.hp), Math.round(full), G.relicState.spin];
+      P.cast = null;
+      RQT.end();
+      return out;
+    });
+    assert(Math.abs(r.per[0] - r.per[1]) <= Math.max(2, r.per[1] * 0.02) && r.spin === 12 && r.ringPulse === 0, '每跳的伤害 / 层数不对：' + JSON.stringify(r));
+    assert(Math.abs(r.burst[0] - r.burst[1]) <= Math.max(3, r.burst[1] * 0.02) && r.after === 0, '松手的炸开不对：' + JSON.stringify(r));
+    assert(Math.abs(r.plain[0] - r.plain[1]) <= Math.max(2, r.plain[1] * 0.02) && r.plain[2] === 0, '没穿时应照常满额：' + JSON.stringify(r));
+    return '每跳 ' + r.per[0] + ' · 12 层炸开 ' + r.burst[0];
+  });
+
+  await step('崩势（断岳）：精英被打出破绽时，8 米内的普通怪一起破绽 2.5 秒（停手、受伤 ×1.25），远的和精英自己不算；处决精英时 3 米内破绽中的敌人各吃处决伤害的 35%', async () => {
+    const r = await ev(() => {
+      RQT.begin('duanyue');
+      const C = G.RELIC_MECH.duanyue;
+      const el = T.mob('brute', 0, -3, { elite: true });
+      const n1 = T.mob('husk', 1.6, -4.2), n2 = T.mob('husk', -1.6, -4.4), far = T.mob('husk', 0, -3 - C.r - 2.5);
+      T.fix(0.999);
+      const ctx = G.skillCtx('blade');
+      el.poise = 1;
+      G.hitEnemy(el, ctx, 1, { quiet: true, poise: 50, kb: 0 });
+      const out = { broken: el.brokenT > 0, brk: [n1.rqBrk, n2.rqBrk, far.rqBrk || 0, el.rqBrk || 0].map((v) => +v.toFixed(2)), stun: n1.stunT >= C.t - 0.01 };
+      let h0 = n1.hp;
+      G.hitEnemy(n1, ctx, 1, { quiet: true, kb: 0 });
+      const dB = h0 - n1.hp;
+      h0 = far.hp;
+      G.hitEnemy(far, ctx, 1, { quiet: true, kb: 0 });
+      out.taken = +(dB / (h0 - far.hp)).toFixed(3);
+      const e0 = el.hp, a0 = n1.hp, f0 = far.hp;
+      out.exec = G.execute(el);
+      G.debug.step(0.6);
+      out.sweep = +((a0 - n1.hp) / (e0 - el.hp)).toFixed(3);
+      out.farSweep = Math.round(f0 - far.hp);
+      out.want = +(C.sweep * G.POISE.taken).toFixed(3);
+      G.debug.step(3);
+      out.end = n1.rqBrk || 0;
+      RQT.end();
+      return out;
+    });
+    assert(r.broken && r.brk[0] > 2.4 && r.brk[1] > 2.4 && r.brk[2] === 0 && r.brk[3] === 0 && r.stun, '破绽扩散不对：' + JSON.stringify(r));
+    assert(Math.abs(r.taken - 1.25) < 0.01, '扩散出来的破绽应受伤 ×1.25：' + r.taken);
+    assert(r.exec && Math.abs(r.sweep - r.want) < 0.01 && r.farSweep === 0, '处决横扫不对：' + JSON.stringify(r));
+    assert(r.end === 0, '2.5 秒后破绽应结束：' + r.end);
+    return '扩散 2 只 · 横扫 ' + r.sweep;
+  });
+
+  await step('必然（千目）：暴击率攒进计数器，满 100% 必暴并扣 100（溢出保留）——30% 是第 4 / 7 / 10 击、45% 是第 3 / 5 / 7 / 9 击，和随机数无关；暴击伤害 −15；必暴的招式照旧必暴、不动计数；召唤物照常掷骰', async () => {
+    const r = await ev(() => {
+      RQT.begin(null);
+      const c0 = G.skillCtx('blade');
+      G.save.equip.helm = G.rollRelic('qianmu', 50, 0.5);
+      G.computeStats();
+      const ctx = G.skillCtx('blade');
+      const out = { cm: ctx.critMulti - c0.critMulti };
+      const seq = (crit, rnd) => { T.fix(rnd); G.relicState.crit = 0; const c = Object.assign({}, ctx, { crit }); const s = []; for (let i = 1; i <= 10; i++) if (G.calcHit(c, 1).crit) s.push(i); return s.join('/'); };
+      out.s30 = seq(30, 0);
+      out.s30b = seq(30, 0.999);
+      out.s45 = seq(45, 0.5);
+      G.relicState.crit = 37;
+      out.sure = [G.calcHit(Object.assign({}, ctx, { crit: 100 }), 1).crit, G.relicState.crit];
+      T.fix(0.999);
+      out.minion = G.calcHit(Object.assign({}, ctx, { crit: 99, minion: {} }), 1).crit;
+      RQT.end();
+      return out;
+    });
+    assert(r.cm === -15, '暴击伤害应 −15：' + r.cm);
+    assert(r.s30 === '4/7/10' && r.s30b === '4/7/10' && r.s45 === '3/5/7/9', '必然的计数不对：' + JSON.stringify(r));
+    assert(r.sure[0] === true && r.sure[1] === 37 && r.minion === false, '必暴 / 召唤物不该动计数：' + JSON.stringify(r));
+    return '30% → ' + r.s30;
+  });
+
+  await step('回旋：飞刃到射程尽头（射程 ×0.8）折返，回程 ×0.6 再中一次去程打过的敌人（靶子共吃 1.6 击）；机炮的子弹和会爆的掷焰不回旋', async () => {
+    const r = await ev(() => {
+      RQT.begin('huixuan');
+      RQT.learn('blade', 0);
+      const P = G.player, H = G.RELIC_MECH.huixuan;
+      const d = T.openDir(30);
+      const m = T.mob('husk', d.x * 5, d.z * 5);
+      T.aim(m.x, m.z);
+      T.fix(0.999);
+      const ctx = G.skillCtx('blade');
+      const one = RQT.hit(ctx, 1);
+      const t0 = G.state.stats.relicTurns || 0;
+      G.execSkill(ctx);
+      const p = G.state.projectiles[G.state.projectiles.length - 1];
+      const out = { boom: p.boom, life: [+p.life.toFixed(3), +((30 / ctx.sk.speed) * H.range).toFixed(3)], open: Math.round(d.len) };
+      G.debug.step(3);
+      out.dmg = [Math.round(m.maxHp - m.hp), Math.round(one * (1 + H.back))];
+      out.turns = (G.state.stats.relicTurns || 0) - t0;
+      out.left = G.state.projectiles.filter((q) => q.owner === 'p').length;
+      // 不回旋：机炮、掷焰
+      const g = G.spawnProjectile({ owner: 'p', ctx: G.skillCtx('basic_gatling'), x: P.x, z: P.z, dx: 1, dz: 0, speed: 30, life: 0.5 });
+      RQT.learn('ember');
+      const em = G.spawnProjectile({ owner: 'p', ctx: G.skillCtx('ember'), x: P.x, z: P.z, dx: 1, dz: 0, speed: 20, life: 0.5, explode: 1.9 });
+      out.no = [g.boom || 0, em.boom || 0];
+      G.debug.step(1);
+      RQT.end();
+      return out;
+    });
+    assert(r.boom === 1 && Math.abs(r.life[0] - r.life[1]) < 0.02, '飞刃应标记回旋、射程 ×0.8：' + JSON.stringify(r));
+    assert(r.turns === 1 && Math.abs(r.dmg[0] - r.dmg[1]) <= Math.max(3, r.dmg[1] * 0.02) && r.left === 0, '回程应再中一次（×0.6）：' + JSON.stringify(r));
+    assert(r.no.join() === '0,0', '机炮 / 掷焰不该回旋：' + r.no);
+    return '靶子吃到 ' + r.dmg[0] + '（单击 ×1.6）';
+  });
+
+  await step('星雨（陨织袍）：陨火在技能栏上时保留 20% 魔力、不能手动放；每 1.8 秒（吃出手速度）自动落在 12 米内敌人最密处，伤害 ×0.4、半径 ×0.85，不耗魔力', async () => {
+    const r = await ev(() => {
+      RQT.begin('zhuixing');
+      RQT.learn('meteor', 0);
+      const P = G.player, F = G.RELIC_MECH.zhuixing;
+      const out = { reserve: P.reservePct };
+      // 手动：轻点技能键什么也不放
+      G.input.tap[0] = 0.3;
+      G.debug.step(0.2);
+      out.manual = [!!(P.cast && P.cast.id === 'meteor'), P.cds.meteor || 0, G.state.stats.relicMeteors || 0];
+      // 一团 3 只（8 米外）+ 一只单独的（4 米）
+      const d = T.openDir(12);
+      const cx = d.x * 8, cz = d.z * 8;
+      const c1 = T.mob('husk', cx, cz), c2 = T.mob('husk', cx + 0.9, cz), c3 = T.mob('husk', cx, cz + 0.9);
+      const lone = T.mob('husk', d.z * 4, -d.x * 4);
+      for (const o of [c1, c2, c3, lone]) { G.initBuildUp(o); o.buTh = 1e15; } // 不让爆燃掺进陨火的伤害
+      T.fix(0.999);
+      const ctx = G.skillCtx('meteor');
+      const want = RQT.hit(ctx, F.mult);
+      const m0 = G.state.stats.relicMeteors || 0;
+      G.relicState.metT = 0;
+      P.mana = P.maxMana * 0.5;
+      const mana0 = P.mana;
+      G.debug.step(1 / 60);
+      const tg = G.state.telegraphs.filter((t) => t.friendly).pop();
+      const gx = (c1.x + c2.x + c3.x) / 3, gz = (c1.z + c2.z + c3.z) / 3;
+      out.at = tg ? +Math.hypot(tg.x - gx, tg.z - gz).toFixed(2) : -1;
+      out.r = tg ? [+tg.r.toFixed(2), +(ctx.sk.radius * Math.sqrt(ctx.area) * F.area).toFixed(2)] : null;
+      out.mana = P.mana >= mana0 - 1e-6;
+      G.debug.step(0.9);
+      out.dmg = [Math.round(c1.maxHp - c1.hp), Math.round(want)];
+      out.lone = Math.round(lone.maxHp - lone.hp);
+      const iv = F.iv / ctx.speed;
+      G.debug.step(iv * 2 + 0.1);
+      out.n = (G.state.stats.relicMeteors || 0) - m0;
+      out.iv = +iv.toFixed(2);
+      RQT.end();
+      return out;
+    });
+    assert(r.reserve === 20, '应保留 20% 魔力：' + r.reserve);
+    assert(r.manual.join() === 'false,0,0', '陨火不该能手动放：' + JSON.stringify(r.manual));
+    assert(r.at >= 0 && r.at < 1 && r.r && Math.abs(r.r[0] - r.r[1]) < 0.02 && r.mana, '自动陨火应落在最密处、半径 ×0.85、不耗魔力：' + JSON.stringify(r));
+    assert(Math.abs(r.dmg[0] - r.dmg[1]) <= Math.max(2, r.dmg[1] * 0.02) && r.lone === 0, '自动陨火的伤害应 ×0.4：' + JSON.stringify(r));
+    assert(r.n === 3, (r.iv * 2 + 0.1).toFixed(2) + ' 秒内应落 3 次（间隔 ' + r.iv + ' 秒）：' + r.n);
+    return '间隔 ' + r.iv + ' 秒 · 每发 ' + r.dmg[0];
+  });
+
+  await step('电桥：链雷每跳在前后两个目标之间留一道电桥（4 只排一行 → 3 道），最多 8 道（实例化一次 draw call）；站在桥上的敌人每 0.25 秒吃一跳的 18%、累积闪电异常，不放感电电弧；1.5 秒后消失', async () => {
+    const r = await ev(() => {
+      RQT.begin('dianqiao');
+      RQT.learn('arc', 0);
+      const P = G.player, D = G.RELIC_MECH.dianqiao;
+      const d = T.openDir(16);
+      const ms = [4, 7, 10, 13].map((k) => T.mob('husk', d.x * k, d.z * k));
+      T.aim(ms[0].x, ms[0].z);
+      const ctx = G.skillCtx('arc');
+      G.execSkill(ctx);
+      const out = { n1: [G.relicState.bridges.length, G.world.relicBridgeCount()] };
+      G.execSkill(ctx);
+      G.execSkill(ctx);
+      out.cap = [G.relicState.bridges.length, G.world.relicBridgeCount()];
+      G.relicReset();
+      out.cleared = G.world.relicBridgeCount();
+      G.clearEnemies();
+      // 桥上的靶子（两头没有敌人）：感电中的不放电弧，没感电的累积闪电异常
+      const ax = P.x + d.x * 3 + d.z * 2, az = P.z + d.z * 3 - d.x * 2, bx = P.x + d.x * 9 + d.z * 2, bz = P.z + d.z * 9 - d.x * 2;
+      const mid = T.mob('husk', (ax + bx) / 2 - P.x, (az + bz) / 2 - P.z);
+      const off = T.mob('husk', (ax + bx) / 2 - P.x - d.z * 3, (az + bz) / 2 - P.z + d.x * 3);
+      G.initBuildUp(mid);
+      mid.shockT = 9;
+      T.fix(0.999);
+      const tick = RQT.hit(ctx, D.mult);
+      const b0 = G.state.stats.bolts || 0;
+      G.relicBridges([{ x: P.x, z: P.z }, { x: ax, z: az }, { x: bx, z: bz }], ctx);
+      const m2 = T.mob('husk', (ax + bx) / 2 - P.x + d.x * 0.6, (az + bz) / 2 - P.z + d.z * 0.6);
+      G.initBuildUp(m2);
+      m2.buTh = 1e7; // 阈值放大：一跳就灌满会直接感电、把异常值清零
+      G.debug.step(0.3);
+      out.build = m2.bu && m2.bu.light > 0 ? 1 : 0;
+      G.debug.step(1.4);
+      out.ticks = +((mid.maxHp - mid.hp) / tick).toFixed(2);
+      out.off = Math.round(off.maxHp - off.hp);
+      out.bolts = (G.state.stats.bolts || 0) - b0;
+      out.gone = [G.relicState.bridges.length, G.world.relicBridgeCount()];
+      RQT.end();
+      return out;
+    });
+    assert(r.n1.join() === '3,3', '4 只排一行应留 3 道电桥：' + r.n1);
+    assert(r.cap.join() === '8,8' && r.cleared === 0, '电桥最多 8 道：' + JSON.stringify(r));
+    assert(r.ticks >= 4.95 && r.ticks <= 6.05 && r.off === 0 && r.build > 0, '桥上的跳数 / 范围 / 异常不对：' + JSON.stringify(r));
+    assert(r.bolts === 0 && r.gone.join() === '0,0', '电桥不该放感电电弧、1.5 秒后应消失：' + JSON.stringify(r));
+    return '桥上 ' + r.ticks + ' 跳';
+  });
+
+  await step('混相（异变）：火 / 冰 / 雷都灌进同一条混相异常值（三条单独的不涨），满了同时爆燃 + 冻结 + 感电，各 ×0.6；首领只涨一次阈值、重度冰缓；拿着三相之心也不共鸣', async () => {
+    const r = await ev(() => {
+      RQT.begin('yibian');
+      const K = G.RELIC_MECH.yibian.k, BU = G.BUILDUP;
+      const ctx = { sk: { w: 0, kb: 0, poise: 0 }, base: { fire: [40, 40], cold: [40, 40], light: [40, 40] }, inc: {}, moreType: {}, more: 1, extra: {}, crit: 0, critMulti: 100, ailment: 0, stun: 0, leech: 0, echo: 0, area: 1, bindAil: 0, flame: 0 };
+      const e = T.mob('husk', 0, -3), nb = T.mob('husk', 1.5, -3), far = T.mob('husk', 4.5, -3);
+      for (const o of [e, nb, far]) { G.initBuildUp(o); o.buTh = 300; }
+      const m0 = G.state.stats.mixes || 0;
+      G.hitEnemy(e, ctx, 1, { quiet: true, kb: 0 });
+      const out = { one: [e.bu.fire, e.bu.cold, e.bu.light, +e.bu.mix.toFixed(3)] };
+      G.hitEnemy(e, ctx, 1, { quiet: true, kb: 0 });
+      out.fire = [(G.state.stats.mixes || 0) - m0, +e.freeze.toFixed(2), +e.shockT.toFixed(2), +(BU.freeze * K).toFixed(2), +(BU.shock * K).toFixed(2)];
+      out.blast = Math.round(nb.maxHp - nb.hp) > 0;
+      // 首领（假的：打不死、不动的靶子标成首领）
+      const b = T.mob('husk', -3, -3);
+      b.isBoss = true;
+      G.initBuildUp(b);
+      b.buTh = 300;
+      for (let i = 0; i < 2; i++) G.hitEnemy(b, ctx, 1, { quiet: true, kb: 0 });
+      out.boss = [+b.buGrow.mix.toFixed(2), b.buGrow.fire, b.buGrow.cold, +b.bossChill.toFixed(2), +(BU.bossChill * K).toFixed(2), b.freeze || 0];
+      // 三相之心 + 异变：不共鸣
+      G.save.equip.weapon = G.rollUnique('sanxiang', 44, 0.5);
+      G.computeStats();
+      const t = T.mob('husk', 0, -8), t2 = T.mob('husk', 1.2, -8);
+      for (const o of [t, t2]) { G.initBuildUp(o); o.buTh = 300; }
+      for (let i = 0; i < 2; i++) G.hitEnemy(t, ctx, 1, { quiet: true, kb: 0 });
+      out.tri = [G.player.uMech, +(t2.bu.cold || 0).toFixed(3), +(t2.bu.light || 0).toFixed(3), +(t2.bu.fire || 0).toFixed(3)];
+      RQT.end();
+      return out;
+    });
+    assert(r.one[0] === 0 && r.one[1] === 0 && r.one[2] === 0 && Math.abs(r.one[3] - (40 / 300) * 3 * 1.27) < 0.01, '应只灌混相：' + JSON.stringify(r.one));
+    assert(r.fire[0] === 1 && r.fire[1] === r.fire[3] && r.fire[2] === r.fire[4] && r.blast, '混相灌满应三种一起触发（×0.6）：' + JSON.stringify(r));
+    assert(r.boss[0] === 1.5 && r.boss[1] === 1 && r.boss[2] === 1 && r.boss[3] === r.boss[4] && r.boss[5] === 0, '首领：阈值只涨一次、重度冰缓：' + JSON.stringify(r.boss));
+    assert(r.tri[0] === 'tri' && r.tri[1] === 0 && r.tri[2] === 0, '异变在身时三相之心不该共鸣：' + JSON.stringify(r.tri));
+    return '混相 ' + r.one[3] + ' / 击';
+  });
+
+  await step('独骸（骸王冠）：烬骸仆从上限固定 1，伤害 ×2.9（单体秒伤 = 3 具的 0.967）、生命 ×3、横斩带 6 个 / 220°、牵制 5 只、减伤 +15；群聚多给的上限折成 +35% 伤害 / +40% 生命；骸王体型 ×1.5；魂火按普通仆从算', async () => {
+    const r = await ev(() => {
+      RQT.begin(null);
+      RQT.learn('thrall', 0);
+      const H = G.RELIC_MECH.haiwang;
+      const c0 = G.skillCtx('thrall');
+      G.save.equip.helm = G.rollRelic('haiwang', 50, 0.5);
+      G.computeStats();
+      const c1 = G.skillCtx('thrall');
+      // 生命按「同一套属性（头盔上的召唤物生命那一行也算）、只关掉独骸」来比
+      G.player.relic.haiwang = false;
+      const c1b = G.skillCtx('thrall');
+      G.computeStats();
+      const extra = c0.minion.cap - c0.sk.cap;
+      const out = {
+        cap: [c0.minion.cap, c1.minion.cap], more: +(c1.more / c0.more).toFixed(4), wantMore: +(H.dmg * (1 + H.perDmg * extra)).toFixed(4),
+        life: +(c1.minion.life / c1b.minion.life).toFixed(3), wantLife: +(H.life * (1 + H.perLife * extra)).toFixed(3),
+        cleave: c1.minion.cleave, arc: Math.round((c1.minion.arc * 180) / Math.PI), hold: c1.minion.hold, dr: c1.minion.dr - c0.minion.dr, king: !!c1.minion.king,
+        dps: extra === 0 ? +(G.skillDps(c1) / G.skillDps(c0)).toFixed(3) : null, soulK: +c1.minion.soulK.toFixed(3),
+      };
+      // 群聚：多 1 个上限
+      if (G.save.supports.indexOf('horde') < 0) G.save.supports.push('horde');
+      for (const k in G.save.sockets) G.save.sockets[k] = (G.save.sockets[k] || []).map((s) => (s === 'horde' ? null : s));
+      G.save.sockets.thrall = ['horde', null, null];
+      G.save.equip.helm = null;
+      G.computeStats();
+      const h0 = G.skillCtx('thrall');
+      G.save.equip.helm = G.rollRelic('haiwang', 50, 0.5);
+      G.computeStats();
+      const h1 = G.skillCtx('thrall');
+      const ex2 = h0.minion.cap - h0.sk.cap;
+      out.horde = [ex2 - extra, +(h1.more / h0.more).toFixed(4), +(H.dmg * (1 + H.perDmg * ex2)).toFixed(4), h1.minion.cap];
+      // 召唤两次：始终只有 1 具，体型变大
+      const P = G.player;
+      G.summonMinion('thrall', P.x + 2, P.z);
+      G.summonMinion('thrall', P.x - 2, P.z);
+      G.relicTick(0.3);
+      const ms = G.state.minions.filter((m) => !m.dead && m.skill === 'thrall');
+      out.count = ms.length;
+      out.big = ms[0] ? [!!ms[0].king, +(ms[0].r / ms[0].r0).toFixed(2), +ms[0].ent.body.scale.x.toFixed(2)] : null;
+      RQT.end();
+      return out;
+    });
+    assert(r.cap[1] === 1 && r.king && Math.abs(r.more - r.wantMore) < 1e-3 && Math.abs(r.life - r.wantLife) < 0.02, '骸王的上限 / 伤害 / 生命不对：' + JSON.stringify(r));
+    assert(r.cleave === 6 && r.arc === 220 && r.hold === 5 && r.dr === 15, '骸王的横斩 / 牵制 / 减伤不对：' + JSON.stringify(r));
+    assert((r.dps === null || Math.abs(r.dps - 0.967) < 0.01) && r.soulK > 0 && r.soulK <= 1, '单体秒伤应约为 3 具的 0.967、魂火按普通仆从算：' + JSON.stringify(r));
+    assert(r.horde[0] === 1 && Math.abs(r.horde[1] - r.horde[2]) < 1e-3 && r.horde[3] === 1, '群聚多给的上限应折成伤害：' + JSON.stringify(r.horde));
+    assert(r.count === 1 && r.big && r.big[0] && r.big[1] === 1.5 && r.big[2] === 1.5, '骸王应只有 1 具、体型 ×1.5：' + JSON.stringify(r));
+    return '上限 ' + r.cap.join('→') + ' · 伤害 ×' + r.more;
+  });
+
+  await step('同殇（同殇甲）：你受到的伤害 30% 转给 10 米内最近的召唤物（按它的减伤结算）、10 米外不转；召唤物最大生命 +25%；召唤物倒下时你回复它最大生命的 8%', async () => {
+    const r = await ev(() => {
+      RQT.begin(null);
+      RQT.learn('thrall', 0);
+      const P = G.player, T0 = G.RELIC_MECH.tongshang;
+      G.save.equip.body = G.rollRelic('tongshang', 50, 0.5);
+      G.computeStats();
+      const l1 = G.skillCtx('thrall').minion.life;
+      P.relic.tongshang = false; // 同一套属性（胸甲上的召唤物生命那一行也算），只关掉同殇来比
+      const l0 = G.skillCtx('thrall').minion.life;
+      G.computeStats();
+      const out = { life: +(l1 / l0).toFixed(3) };
+      const m = G.summonMinion('thrall', P.x + 2, P.z);
+      m.rising = 0;
+      m.res = null;
+      m.dr = 0;
+      P.god = false;
+      P.iframe = 0;
+      P.life = P.maxLife;
+      const mh = m.hp;
+      const pl = P.life;
+      const res = P.res.fire || 0;
+      const k = (1 - Math.min(90, P.S.lessTaken || 0) / 100) * (1 + Math.max(0, P.S.moreTaken || 0) / 100);
+      G.hurtPlayer(100, 'fire', { x: P.x + 1, z: P.z });
+      out.p = [+(pl - P.life).toFixed(2), +(Math.max(1, 70 * (1 - res / 100) * k)).toFixed(2)];
+      out.m = [+(mh - m.hp).toFixed(2), 30];
+      // 10 米外：不转
+      m.x = P.x + T0.r + 2;
+      P.life = P.maxLife;
+      P.iframe = 0;
+      const m2 = m.hp;
+      G.hurtPlayer(100, 'fire', { x: P.x + 1, z: P.z });
+      out.far = [+(P.maxLife - P.life).toFixed(2), +(Math.max(1, 100 * (1 - res / 100) * k)).toFixed(2), +(m2 - m.hp).toFixed(2)];
+      // 倒下回血
+      P.life = P.maxLife * 0.3;
+      const before = P.life;
+      const heal = m.maxHp * T0.heal;
+      G.hurtMinion(m, 1e9, 'phys');
+      out.heal = [+(P.life - before).toFixed(2), +Math.min(heal, P.maxLife - before).toFixed(2)];
+      P.god = true;
+      RQT.end();
+      return out;
+    });
+    assert(Math.abs(r.life - 1.25) < 0.02, '召唤物生命应 +25%：' + r.life);
+    assert(Math.abs(r.p[0] - r.p[1]) < 0.05 && Math.abs(r.m[0] - r.m[1]) < 0.05, '应转走 30%：' + JSON.stringify(r));
+    assert(Math.abs(r.far[0] - r.far[1]) < 0.05 && r.far[2] === 0, '10 米外不该转：' + JSON.stringify(r.far));
+    assert(Math.abs(r.heal[0] - r.heal[1]) < 0.05 && r.heal[0] > 0, '召唤物倒下应回血：' + JSON.stringify(r.heal));
+    return '你挨 ' + r.p[0] + ' · 召唤物挨 ' + r.m[0];
+  });
+
+  await step('随影（招魂带）：翻滚 0.15 秒后召唤物闪到落点周围，各砸一下（各自一击 ×1.5，守像 ×1.0）；翻滚冷却 +15%', async () => {
+    const r = await ev(() => {
+      RQT.begin('zhaohun');
+      RQT.learn('thrall', 0);
+      const P = G.player, Z = G.RELIC_MECH.zhaohun;
+      const d = T.openDir(10);
+      const ms = [G.summonMinion('thrall', P.x - d.x * 5, P.z - d.z * 5), G.summonMinion('thrall', P.x - d.x * 5 + d.z, P.z - d.z * 5 - d.x)];
+      for (const m of ms) m.rising = 0;
+      T.aim(P.x + d.x * 10, P.z + d.z * 10);
+      const L = P.moveSpeed * 2.6 * 0.32;
+      const lx = P.x + d.x * L, lz = P.z + d.z * L;
+      const tgt = T.mob('husk', lx - P.x, lz - P.z);
+      T.fix(0.999);
+      const one = RQT.hit(ms[0].ctx, Z.mult);
+      const c0 = G.state.stats.relicCalls || 0;
+      G.dodge();
+      const out = { cd: [+P.roll.cdMax.toFixed(4), +(0.9 * (1 - Math.min(90, P.S.dodgeCd || 0) / 100) * (1 + Z.rollCd)).toFixed(4)] };
+      const h0 = tgt.hp;
+      G.debug.step(0.17);
+      out.calls = (G.state.stats.relicCalls || 0) - c0;
+      out.near = ms.map((m) => +Math.hypot(m.x - lx, m.z - lz).toFixed(1));
+      out.dmg = [Math.round(h0 - tgt.hp), Math.round(one * 2)];
+      G.debug.step(0.4);
+      RQT.end();
+      return out;
+    });
+    assert(Math.abs(r.cd[0] - r.cd[1]) < 1e-3, '翻滚冷却应 +15%：' + r.cd);
+    assert(r.calls === 1 && r.near.every((v) => v < 3.6), '召唤物应闪到落点周围：' + JSON.stringify(r));
+    assert(r.dmg[0] >= r.dmg[1] * 0.98, '落地应各砸一下（×1.5）：' + JSON.stringify(r.dmg));
+    return '离落点 ' + r.near.join(' / ') + ' 米 · 砸 ' + r.dmg[0];
+  });
+
+  await step('随核（引力核）：黑洞开在你身上并跟着你走；持续 ×0.8、半径 ×0.85、牵引 ×0.75（首领不变）、每跳 ×1.2', async () => {
+    const r = await ev(() => {
+      RQT.begin('yinli');
+      RQT.learn('blackhole', 0);
+      const P = G.player, Y = G.RELIC_MECH.yinli;
+      const ctx = G.skillCtx('blackhole');
+      T.aim(P.x, P.z - 8);
+      G.execSkill(ctx);
+      const h = G.relicHoleList()[0];
+      const R = ctx.sk.radius * Math.sqrt(ctx.area);
+      const dur = ctx.sk.dur * (1 + Math.max(0, P.S.holeDur || 0) / 100);
+      const out = h ? { at: +Math.hypot(h.x - P.x, h.z - P.z).toFixed(2), R: [+h.R.toFixed(3), +(R * Y.radius).toFixed(3)], dur: [+h.dur.toFixed(3), +(dur * Y.dur).toFixed(3)], mult: h.mult, pull: h.pullMul } : { none: true };
+      const d = T.openDir(4);
+      T.tp(P.x + d.x * 2, P.z + d.z * 2);
+      G.debug.step(0.1);
+      out.follow = h ? +Math.hypot(h.x - P.x, h.z - P.z).toFixed(3) : -1;
+      G.debug.step(3);
+      out.gone = G.relicHoleList().length;
+      RQT.end();
+      return out;
+    });
+    assert(!r.none && r.at === 0 && r.follow === 0, '黑洞应开在你身上并跟着你：' + JSON.stringify(r));
+    assert(Math.abs(r.R[0] - r.R[1]) < 1e-3 && Math.abs(r.dur[0] - r.dur[1]) < 1e-3 && r.mult === 1.2 && r.pull === 0.75 && r.gone === 0, '随核的数值不对：' + JSON.stringify(r));
+    return '半径 ' + r.R[0] + ' · 持续 ' + r.dur[0];
+  });
+
+  await step('锁链（渊缚链）：渊缚中的敌人受到你的伤害时，其余渊缚中的（最多 6 个一串）各分到 20%（不暴击、不累积异常），没被缚的不分；分到的不会再分出去；首领不在链上', async () => {
+    const r = await ev(() => {
+      RQT.begin('yuanfu');
+      const U = G.RELIC_MECH.yuanfu;
+      const ms = [];
+      for (let i = 0; i < 8; i++) ms.push(T.mob('husk', (i % 4) * 1.6 - 2.4, -3 - Math.floor(i / 4) * 1.6));
+      const free = T.mob('husk', 3, -7);
+      const boss = T.mob('husk', -3, -7);
+      boss.isBoss = true;
+      boss.bindT = 5;
+      for (const m of ms) { G.initBuildUp(m); m.bindT = 5; }
+      T.fix(0.999);
+      const ctx = G.skillCtx('blade');
+      const hp = ms.map((m) => m.hp);
+      const c0 = G.state.stats.relicChained || 0;
+      G.hitEnemy(ms[0], ctx, 1, { quiet: true, kb: 0 });
+      const X = hp[0] - ms[0].hp;
+      const got = ms.slice(1).map((m, i) => +((hp[i + 1] - m.hp) / X).toFixed(3)).filter((v) => v > 0);
+      const out = { n: got.length, share: got[0], all: got.every((v) => Math.abs(v - U.share) < 0.002), free: free.maxHp - free.hp, boss: boss.maxHp - boss.hp, chained: (G.state.stats.relicChained || 0) - c0 };
+      out.build = ms.slice(1).every((m) => !(m.bu.chaos > 0));
+      RQT.end();
+      return out;
+    });
+    assert(r.n === 5 && r.all && r.chained === 5, '应有 5 个各分到 20%：' + JSON.stringify(r));
+    assert(r.free === 0 && r.boss === 0 && r.build, '没被缚的 / 首领不该分到、分到的不累积异常：' + JSON.stringify(r));
+    return '一串 6 个 · 各 ' + r.share;
+  });
+
+  await step('渊契图鉴：拾到记进图鉴（最高完美度）、图标马上进预热；保底计数和图鉴存档往返后保留；畸形数据被修正（未知 id 丢、完美度 0–100、计数截到上限）；旧存档没有 relic 也照常读（空图鉴）；背包页列出 13 件', async () => {
+    const r = await ev(() => {
+      RQT.begin(null);
+      const P = G.player, KEY = 'cinder-abyss-save-v1';
+      const keep = localStorage.getItem(KEY);
+      G.save.relic = { found: {}, best: {}, pity: {} };
+      G.save.bag.length = 0;
+      const it = G.rollRelic('qianmu', 40, 1);
+      G.spawnLoot('item', it, P.x + 1, P.z);
+      const loot = G.state.loot[G.state.loot.length - 1];
+      const ok = G.pickup(loot);
+      const out = { ok, found: !!G.save.relic.found.qianmu, best: G.save.relic.best.qianmu, warm: G.icons.rqWarm().indexOf('qianmu') >= 0 };
+      G.save.relic.pity.panzhong = 7;
+      G.save.relic.pity.seal = 3;
+      G.persist();
+      G.loadSave();
+      out.round = [!!G.save.relic.found.qianmu, G.save.relic.best.qianmu, G.save.relic.pity.panzhong, G.save.relic.pity.seal].join();
+      // 畸形数据
+      const raw = JSON.parse(localStorage.getItem(KEY));
+      raw.relic = { found: { qianmu: true, bogus: true, haiwang: 1 }, best: { qianmu: 250, nope: 50, yinli: -4 }, pity: { panzhong: 99, seal: -3, haiwang: 'x', bogus: 4, yinli: 3.7 } };
+      localStorage.setItem(KEY, JSON.stringify(raw));
+      G.loadSave();
+      const s = G.save.relic;
+      out.bad = T.canon(s);
+      // 旧存档：没有 relic，背包里也没有渊契
+      delete raw.relic;
+      raw.bag = [];
+      localStorage.setItem(KEY, JSON.stringify(raw));
+      G.loadSave();
+      out.old = T.canon(G.save.relic);
+      // 背包页：13 行、拾到 0
+      G.ui.open('inv');
+      out.rows = document.querySelectorAll('.cx-row.rq').length;
+      out.title = /渊契图鉴/.test(T.bodyText()) && /已拾到 0 \/ 13/.test(T.bodyText());
+      G.ui.close();
+      if (keep) localStorage.setItem(KEY, keep);
+      else localStorage.removeItem(KEY);
+      G.loadSave();
+      RQT.end();
+      return out;
+    });
+    assert(r.ok && r.found && r.best === 100 && r.warm, '拾取应记进图鉴、图标进预热：' + JSON.stringify(r));
+    assert(r.round === 'true,100,7,3', '图鉴 / 保底存档往返不对：' + r.round);
+    assert(r.bad === '{"best":{"qianmu":100},"found":{"qianmu":true},"pity":{"panzhong":10,"yinli":3}}', '畸形数据没修好：' + r.bad);
+    assert(r.old === '{"best":{},"found":{},"pity":{}}', '旧存档应是空图鉴：' + r.old);
+    assert(r.rows === 13 && r.title, '背包页应列出 13 件渊契：' + JSON.stringify(r));
+    return '往返 ' + r.round;
+  });
+
+  await step('渊契图标：rqIcons() 里每个键都画得出来（各不相同）、物品图标键是 it-rq-<id>；图标总数 = 原有的 + 拾到过的渊契（没拾到的不进预热）', async () => {
+    const r = await ev(() => {
+      const ids = G.icons.rqIcons();
+      const urls = ids.map((id) => G.icons.url('it-rq-' + id));
+      const keys = G.icons.keys();
+      const warm = G.icons.rqWarm();
+      const base = G.SLOTS.reduce((n, sl) => n + G.BASES[sl].reduce((m, b) => m + b.names.length, 0), 0) + G.icons.uqIcons().length + G.CUR_IDS.length + Object.keys(G.SKILLS).length + Object.keys(G.SUPPORTS).length + 6 + 1;
+      return {
+        n: ids.length, same: ids.slice().sort().join() === G.RELIC_IDS.slice().sort().join(), bad: ids.filter((id, i) => !/^data:image\/png;base64,/.test(urls[i]) || urls[i].length < 1500), uniq: new Set(urls).size,
+        key: G.icons.itemKey(G.rollRelic('yinli', 30)), rqKeys: keys.filter((k) => k.indexOf('it-rq-') === 0).length, warm: warm.length, total: [keys.length, base + warm.length],
+      };
+    });
+    assert(r.n === 13 && r.same && r.bad.length === 0 && r.uniq === 13, '渊契图标没画全或重复：' + JSON.stringify(r));
+    assert(r.key === 'it-rq-yinli' && r.rqKeys === r.warm && r.total[0] === r.total[1], '图标键 / 总数不对：' + JSON.stringify(r));
+    return r.n + ' 个渊契图标 · 预热里 ' + r.warm + ' 个';
+  });
+
   await step('localStorage 不可用时游戏照常运行', async () => {
     await page.addInitScript(() => {
       const boom = () => { throw new Error('storage blocked'); };
