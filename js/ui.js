@@ -3109,6 +3109,19 @@
     );
   }
 
+  // 按键表：帮助页和标题画面 / 暂停菜单里的「操作说明」共用
+  const HELP_KEYS = [
+    [['W', 'A', 'S', 'D'], '移动（方向键亦可）'],
+    [['左键', 'Q', 'E'], '朝准星施放技能，可按住'],
+    [['右键'], '武器普攻，随武器而变'],
+    [['R'], '武器技（枪械和弓要先攒满量表）'],
+    [['空格'], '翻滚，短暂无敌，可取消挥砍'],
+    [['1', '2'], '生命 / 魔力药剂'],
+    [['F'], '处决破绽中的敌人，否则拾取'],
+    [['Alt'], '按住：展开名牌概要和浮窗详情'],
+    [['I', 'G', 'P', 'M'], '背包 / 技能 / 天赋 / 地图'],
+    [['H', 'Esc'], '打开帮助 / 关闭面板；没有面板时 Esc 暂停'],
+  ];
   function renderHelp() {
     const key = (k, t) => '<div class="hk"><span class="hk-keys">' + k.map((x) => '<kbd>' + x + '</kbd>').join('') + '</span><span>' + t + '</span></div>';
     let curs = '';
@@ -3119,16 +3132,7 @@
     el.body.innerHTML =
       '<div class="help">' +
       '<div class="col scroll" data-scroll="help1"><div class="sec-title">操作</div>' +
-      key(['W', 'A', 'S', 'D'], '移动（方向键亦可）') +
-      key(['左键', 'Q', 'E'], '朝准星施放技能，可按住') +
-      key(['右键'], '武器普攻，随武器而变') +
-      key(['R'], '武器技（枪械和弓要先攒满量表）') +
-      key(['空格'], '翻滚，短暂无敌，可取消挥砍') +
-      key(['1', '2'], '生命 / 魔力药剂') +
-      key(['F'], '处决破绽中的敌人，否则拾取') +
-      key(['Alt'], '按住：展开名牌概要和浮窗详情') +
-      key(['I', 'G', 'P', 'M'], '背包 / 技能 / 天赋 / 地图') +
-      key(['H', 'Esc'], '打开帮助 / 关闭面板') +
+      HELP_KEYS.map((k) => key(k[0], k[1])).join('') +
       '<div class="sec-title">战斗须知</div>' +
       '<p>地上的<b class="c-red">红色区域</b>是即将落下的攻击，填满前走出去或翻滚穿过。</p>' +
       '<p>护甲减少物理伤害，抗性减少对应元素伤害（上限 75%）。</p>' +
@@ -4285,8 +4289,10 @@
   // 打开 / 关闭
   // ============================================================
   function open(tab) {
+    if (menu.title) return; // 标题画面上不开面板
     if (!RENDER[tab]) tab = 'inv';
     if (ui.intro) closeIntro();
+    closePause();
     const wasOpen = ui.isOpen;
     if (!wasOpen || tab !== ui.tab) {
       // 换页时清掉各页的临时状态
@@ -4317,6 +4323,7 @@
 
   function close() {
     if (ui.intro) closeIntro();
+    closePause();
     if (!ui.isOpen) return;
     cancelDrag();
     ui.isOpen = false;
@@ -4359,6 +4366,288 @@
     ui.intro = false;
     el.intro.classList.remove('on');
     G.sfx('click');
+  }
+
+  // ============================================================
+  // 标题画面与暂停菜单
+  // ============================================================
+  // 标题画面：载入时盖在存档所在的区域上（main.js 照常进区；模拟不推进，敌人先藏起来，镜头绕着角色缓慢漂移）。
+  // 暂停菜单：没有面板开着时按 Esc 打开。两者开着时 isOpen() 都算打开，主循环不推进模拟，冷却、增益都停着
+  const menu = {
+    title: false,
+    pause: false,
+    ready: false, // 区域建好了（main.js 调 titleReady）：继续 / 新游戏才能点
+    view: null, // 菜单里打开的子页：settings / help / credits / confirm
+    hidden: [], // 标题画面期间藏起来的敌人 / 召唤物模型
+    after: null, // 离开标题画面后要做的事（首次运行的开场卡片）
+    t: 0, // 标题画面开了多久（秒，镜头漂移的相位）
+    q0: null, // 进标题画面前镜头的朝向（游戏镜头只平移不旋转，离开时还原）
+    focus: null,
+    off: null,
+  };
+  const hasSave = () => (G.hasSave ? G.hasSave() : true);
+
+  // 存档概要：等级 / 手里的武器 / 轮回层级 / 所在区域（游戏没有职业，起手武器类型就是这个角色的路子）
+  function saveLine() {
+    const S = G.save;
+    const w = S.equip && S.equip.weapon;
+    const zone = S.run && S.run.pin ? G.PINNACLE.name : (G.ZONES[S.lastZone | 0] || G.ZONES[0]).name;
+    return (
+      '<i>' + (S.level || 1) + ' 级</i>' +
+      '<i>' + (w && w.slot === 'weapon' ? esc(wTypeName(w.baseIdx | 0)) : '空手') + '</i>' +
+      '<i>' + (S.tier > 0 ? '轮回 ' + S.tier : '初入') + '</i>' +
+      '<i>' + esc(zone) + '</i>'
+    );
+  }
+
+  const SET_Q = [['high', '高'], ['mid', '中'], ['low', '低']];
+  const SET_N = [['manual', '手动拾取'], ['auto', '自动拾取'], ['scrap', '自动丢弃']];
+  function menuSettings() {
+    const S = G.save;
+    const q = G.world.quality ? G.world.quality() : S.opts.quality;
+    const row = (name, note, ctrl) => '<div class="m-row"><div class="opt-text"><b>' + name + '</b><span>' + note + '</span></div>' + ctrl + '</div>';
+    return (
+      row('画质', S.opts.quality === 'auto' ? '自动选择，明显掉帧时会自动调低' : '电脑吃力时调低',
+        '<div class="seg">' + SET_Q.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (q === o[0] ? ' on' : '') + '" data-tact="quality" data-q="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') +
+      row('普通物品', '魔法、稀有物品总是自动拾取',
+        '<div class="seg">' + SET_N.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (normMode() === o[0] ? ' on' : '') + '" data-tact="normmode" data-mode="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') +
+      row('折叠普通物品的名牌', '地上只留一个小点，悬停或按住 Alt 展开',
+        '<button type="button" tabindex="-1" class="switch' + (S.opts.hideNormal ? ' on' : '') + '" data-tact="opt" data-opt="hideNormal"><i></i></button>') +
+      '<p class="m-note">游戏没有音量设置；设置会存进存档，在游戏里的地图页也能改。</p>'
+    );
+  }
+  function menuHelp() {
+    return (
+      '<div class="m-keys">' + HELP_KEYS.map((k) => '<div class="hk"><span class="hk-keys">' + k[0].map((x) => '<kbd>' + x + '</kbd>').join('') + '</span><span>' + k[1] + '</span></div>').join('') + '</div>' +
+      '<p class="m-note">沿着路一直向前，击败尽头的首领。战斗、宝石、天赋和通货的说明在游戏里按 <kbd>H</kbd> 查看。</p>'
+    );
+  }
+  // 素材致谢：和 assets/README.md 的清单一致（全部 CC0）
+  const CREDITS = [
+    ['Poly Haven', '地面与岩壁贴图'],
+    ['ambientCG', '地面与岩壁贴图'],
+    ['KayKit Dungeon Remastered、Halloween Bits（Kay Lousberg）', '布景模型'],
+    ['Kenney Nature Kit', '布景模型'],
+    ['Quaternius Ultimate Modular Men', '主角模型'],
+    ['Quaternius Animated Zombie、Animated Monster、Easy Enemy', '游魂、烬骸仆从、喷吐者等角色模型'],
+  ];
+  function menuCredits() {
+    return (
+      '<div class="m-credits">' + CREDITS.map((c) => '<div class="m-cr"><b>' + c[0] + '</b><span>' + c[1] + ' · CC0</span></div>').join('') + '</div>' +
+      '<p class="m-note">以上素材均以 CC0 授权公开，在此致谢。渲染用 three.js r128（MIT 许可）。其余美术、音效与玩法均为原创。</p>'
+    );
+  }
+  function menuConfirm() {
+    return (
+      '<p class="m-warn">开始新游戏会覆盖现有的存档，无法恢复：</p>' +
+      '<div class="m-save">' + saveLine() + '</div>' +
+      '<div class="m-acts"><button type="button" tabindex="-1" class="btn danger" data-tact="new-confirm">覆盖存档，开始新游戏</button>' +
+      '<button type="button" tabindex="-1" class="btn" data-tact="back">取消</button></div>'
+    );
+  }
+  const MENU_VIEW = {
+    settings: ['设置', menuSettings],
+    help: ['操作说明', menuHelp],
+    credits: ['致谢', menuCredits],
+    confirm: ['新游戏', menuConfirm],
+  };
+
+  function renderMenu() {
+    if (menu.title) {
+      const has = hasSave();
+      el.tContinue.classList.toggle('has', has); // 没有存档时不显示「继续游戏」
+      el.tSave.innerHTML = has ? saveLine() : '';
+      el.title.classList.toggle('ready', menu.ready);
+    }
+    const host = menu.title ? el.tView : el.pView;
+    const list = menu.title ? el.tMenu : el.pMenu;
+    const v = MENU_VIEW[menu.view];
+    list.style.display = v ? 'none' : '';
+    host.innerHTML = v
+      ? '<div class="m-view" data-view="' + menu.view + '"><div class="m-head"><b>' + v[0] + '</b>' +
+        '<button type="button" tabindex="-1" class="btn sm" data-tact="back">返回<kbd>Esc</kbd></button></div>' +
+        '<div class="m-body">' + v[1]() + '</div></div>'
+      : '';
+    (menu.title ? el.title : el.pause).classList.toggle('sub', !!v);
+  }
+
+  // 标题画面期间敌人 / 召唤物先藏起来（模拟不推进，它们会定在原地）
+  function hideActors() {
+    const st = G.state;
+    for (const list of [st.enemies, st.minions || []]) {
+      for (const e of list) {
+        const g = e.ent && e.ent.group;
+        if (g && g.visible) {
+          g.visible = false;
+          menu.hidden.push(g);
+        }
+      }
+    }
+  }
+  function showActors() {
+    for (const g of menu.hidden) g.visible = true;
+    menu.hidden.length = 0;
+  }
+
+  // fromGame：从暂停菜单回来（区域早就建好了）；false：载入时，等 main.js 进区后调 titleReady
+  function showTitle(fromGame) {
+    if (ui.isOpen) close();
+    closeIntro();
+    closePause();
+    menu.title = true;
+    menu.view = null;
+    menu.ready = !!fromGame;
+    menu.t = 0;
+    menu.focus = null;
+    const cam = G.world.camera;
+    menu.q0 = cam ? cam.quaternion.clone() : null;
+    document.documentElement.classList.add('title-on');
+    el.title.classList.add('on');
+    hideTip();
+    if (fromGame) hideActors();
+    renderMenu();
+  }
+  function titleReady() {
+    menu.ready = true;
+    hideActors();
+    if (menu.title) renderMenu();
+  }
+  function hideTitle() {
+    if (!menu.title) return;
+    menu.title = false;
+    menu.view = null;
+    document.documentElement.classList.remove('title-on');
+    el.title.classList.remove('on', 'sub');
+    showActors();
+    const cam = G.world.camera;
+    if (cam && menu.q0) {
+      cam.quaternion.copy(menu.q0); // 镜头位置下一帧由 W.update 摆回角色身上
+      cam.updateMatrixWorld();
+    }
+    G.world.update(0);
+    const f = menu.after;
+    menu.after = null;
+    if (f) f();
+  }
+  // 每帧（标题画面开着时，由 main.js 调用）：区域的火光、飘尘照常动，角色原地站着呼吸，镜头绕着角色慢慢转一点、平移一点
+  function titleFrame(dt) {
+    const W = G.world, P = G.player, cam = W.camera;
+    if (!cam || !menu.ready) return;
+    menu.t += dt;
+    W.update(dt);
+    if (P.ent) W.animEnt(P.ent, dt, false);
+    if (!menu.focus) {
+      // 游戏镜头的焦点：视线和 1 米高的水平面的交点；镜头相对焦点的偏移在整个标题画面期间不变
+      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(menu.q0 || cam.quaternion);
+      const k = (1 - cam.position.y) / fwd.y;
+      menu.focus = new THREE.Vector3(cam.position.x + fwd.x * k, 1, cam.position.z + fwd.z * k);
+      menu.off = cam.position.clone().sub(menu.focus).multiplyScalar(1.12);
+    }
+    const t = menu.t;
+    const yaw = Math.sin(t * 0.06) * 0.26; // 左右各转约 15 度，一个来回约 100 秒
+    const c = Math.cos(yaw), s = Math.sin(yaw), o = menu.off;
+    // 焦点往镜头左边让 3.5 米：角色站在画面右侧，左边一栏留给标志和按钮
+    const fx = menu.focus.x + Math.sin(t * 0.045) * 1.6 - 3.5 * c, fz = menu.focus.z + Math.cos(t * 0.07) * 1.0 + 3.5 * s;
+    cam.position.set(fx + o.x * c + o.z * s, menu.focus.y + o.y, fz - o.x * s + o.z * c);
+    cam.lookAt(fx, menu.focus.y, fz);
+    cam.updateMatrixWorld();
+  }
+
+  function openPause() {
+    if (menu.title || menu.pause || ui.isOpen || ui.intro) return false;
+    menu.pause = true;
+    menu.view = null;
+    el.pause.classList.add('on');
+    document.body.classList.add('paused');
+    hideTip();
+    renderMenu();
+    G.sfx('click');
+    return true;
+  }
+  function closePause() {
+    if (!menu.pause) return;
+    menu.pause = false;
+    menu.view = null;
+    el.pause.classList.remove('on', 'sub');
+    document.body.classList.remove('paused');
+    el.pView.innerHTML = '';
+    el.pMenu.style.display = '';
+    hideTip();
+  }
+
+  // 新游戏：没有存档时直接开始（区域已经在背后建好）；有存档时先确认，确认后走原来的删档流程（重置存档后重载页面，重载后跳过标题画面）
+  function newGame() {
+    if (hasSave()) {
+      menu.view = 'confirm';
+      G.sfx('click');
+      renderMenu();
+      return;
+    }
+    if (G.holdSave) G.holdSave(false);
+    G.persist();
+    G.sfx('click');
+    hideTitle();
+  }
+  const MENU_ACT = {
+    continue() {
+      G.sfx('click');
+      hideTitle();
+    },
+    new: newGame,
+    'new-confirm'() {
+      G.resetSave();
+      try {
+        window.sessionStorage.setItem(G.PLAY_ONCE_KEY, '1');
+      } catch (err) {
+        /* 存储不可用：重载后还是先到标题画面，「继续游戏」就是新角色 */
+      }
+      location.reload();
+    },
+    resume() {
+      G.sfx('click');
+      closePause();
+    },
+    // 返回主菜单：先存档，再盖上标题画面；「继续游戏」回到刚才的位置
+    menu() {
+      G.persist();
+      G.sfx('click');
+      showTitle(true);
+    },
+    back() {
+      menu.view = null;
+      G.sfx('click');
+      renderMenu();
+    },
+  };
+  function onMenuClick(e) {
+    const a = e.target.closest('[data-tact]');
+    if (!a) return;
+    const d = a.dataset;
+    const k = d.tact;
+    if ((k === 'continue' || k === 'new') && !menu.ready) return;
+    if (MENU_VIEW[k] && k !== 'confirm') {
+      menu.view = k;
+      G.sfx('click');
+      renderMenu();
+    } else if (k === 'quality' || k === 'opt' || k === 'normmode') {
+      ACT[k](d); // 和地图页的选项走同一套：立即生效并存档
+      renderMenu();
+    } else if (MENU_ACT[k]) MENU_ACT[k](d);
+  }
+  // 标题画面 / 暂停菜单的按键（抢在 main.js 之前）：子页里 Esc 返回上一层；标题画面上回车 = 第一个按钮，其余按键都不进游戏
+  function onMenuKey(e) {
+    if (!menu.title && !menu.pause) return;
+    if (e.code === 'Escape' && menu.view) {
+      MENU_ACT.back();
+    } else if (menu.title) {
+      if ((e.code === 'Enter' || e.code === 'NumpadEnter') && !menu.view && menu.ready) {
+        if (hasSave()) MENU_ACT.continue();
+        else newGame();
+      }
+      if (e.ctrlKey || e.metaKey) return; // 浏览器快捷键照常
+    } else return;
+    e.stopPropagation();
+    e.preventDefault();
   }
 
   // ============================================================
@@ -5645,7 +5934,7 @@
     const st = G.state;
     const dt = Math.min(0.1, Math.max(0, (now - coach.last) / 1000));
     coach.last = now;
-    if (ui.intro) return;
+    if (ui.intro || menu.pause) return;
 
     // 累计：走了多远、用过哪几个键、有没有翻滚过
     if (coach.px !== null && !st.paused) {
@@ -5779,6 +6068,14 @@
     el.confirm = $('confirm');
     el.coach = $('coach');
     el.coachBody = el.coach.querySelector('.co-body');
+    el.title = $('title');
+    el.tMenu = $('t-menu');
+    el.tView = $('t-view');
+    el.tContinue = $('t-continue');
+    el.tSave = $('t-save');
+    el.pause = $('pause');
+    el.pMenu = $('p-menu');
+    el.pView = $('p-view');
 
     const tabs = $('tabs');
     tabs.innerHTML = TABS.map(
@@ -5845,6 +6142,15 @@
       e.stopPropagation();
       e.preventDefault();
     });
+    // 标题画面 / 暂停菜单：点击不是游戏输入，按钮不拿焦点
+    window.addEventListener('keydown', onMenuKey, true);
+    for (const m of [el.title, el.pause]) {
+      m.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+        if (e.target.closest('button')) e.preventDefault();
+      });
+      m.addEventListener('click', onMenuClick);
+    }
     el.intro.addEventListener('click', (e) => {
       if (e.target === el.intro || e.target.closest('#intro-go')) closeIntro();
     });
@@ -5917,12 +6223,21 @@
     open,
     close,
     toggle,
-    isOpen: () => ui.isOpen || ui.intro, // 面板或开场卡片开着：游戏暂停
+    isOpen: () => ui.isOpen || ui.intro || menu.pause || menu.title, // 面板、开场卡片、暂停菜单或标题画面开着：游戏暂停
     refresh,
     toast,
     hurt,
     showHelp,
     showIntro,
+    pause: openPause, // 暂停菜单（没有面板开着时才打开，返回是否打开了）
+    paused: () => menu.pause,
+    showTitle,
+    titleReady,
+    titleOn: () => menu.title,
+    titleFrame,
+    afterTitle: (f) => {
+      menu.after = f;
+    },
     onPickup,
     bigToast,
     bigToastReset,
