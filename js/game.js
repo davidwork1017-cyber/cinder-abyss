@@ -144,6 +144,7 @@
       // 右键固定是武器普攻：旧存档右键上的技能读档时挪到第一个空格（左键 / Q / E）；三格都满时收在这里，
       // 技能页上标着「收起」，绑到任意一格就取出来（见 sanitize、syncRanged）。镶着的辅助跟着技能走（save.sockets 按技能 id 记），不会丢
       rmbKeep: null,
+      twinMig: false, // 读档时把旧双生坠升成了四行、「双生坠升级」提示还没看过（见 migrateTwin）
       bowMig: false, // 读档时把旧长弓改成了鹰眼长弓、「远程改版」提示还没看过（见 sanitize）
       passives: ['start'], cleared: {}, bossKills: {},
       tier: 0, maxTier: 0, lastZone: 0,
@@ -234,6 +235,7 @@
   // 把 wbase 按「现在这个物品等级的成长 ÷ 27 级的成长」放大一次（成色不变），老角色手里的高等级武器不吃亏
   function fixItem(it, charLvl, oldGrowth) {
     if (it.rarity === 3) fixUnique(it);
+    if (it.rarity === 4 && it.rq === 'shuangsheng') migrateTwin(it);
     if (it.rarity === 4) fixRelic(it);
     const bases = G.BASES[it.slot];
     if (!(it.baseIdx >= 0 && it.baseIdx < bases.length) || it.baseIdx !== Math.floor(it.baseIdx)) it.baseIdx = 0;
@@ -313,6 +315,36 @@
     return it;
   }
 
+  // 双生坠升级（twin-rework）：旧版只有两行（伤害提高 k 1.0–1.4、攻击与施法速度 k 1.0–1.3）。
+  // 原有两行保留在旧区间里的位置（百分位），换算到新区间；新加的行按物品 uid 定一个位置（同一件每次读档结果一样）。
+  // 已经是新版（有「双生」那一行）的不动；升过的记 it.rqv = 2。G.twinMigrated 给界面层提示一次
+  const TWIN_OLD_K = { incAll: [1.0, 1.4], speed: [1.0, 1.3] };
+  function twinSeed(uid, i) {
+    const str = String(uid) + ':' + i;
+    let h = 2166136261;
+    for (let j = 0; j < str.length; j++) h = Math.imul(h ^ str.charCodeAt(j), 16777619);
+    return ((h >>> 0) % 10007) / 10006;
+  }
+  function migrateTwin(it) {
+    const R = G.RELICS.shuangsheng;
+    if (it.rqv >= 2 || !Array.isArray(it.affixes) || it.affixes.some((a) => a.id === 'uAllMore')) return;
+    const ilvl = G.clamp(Math.round(it.ilvl) || 1, 1, 999);
+    const tier = G.clamp(G.TIER_ILVL.filter((l) => l <= ilvl).length - 1, 0, G.TIER_ILVL.length - 1);
+    it.affixes = R.lines.map((ln, i) => {
+      const r = G.relicLineRange('shuangsheng', ilvl, i);
+      const old = it.affixes.find((a) => a.id === ln.id);
+      const ok = old && TWIN_OLD_K[ln.id];
+      let q;
+      if (ok) {
+        const b = G.affixRange(G.AFFIX_BY_ID[ln.id], tier), lo = Math.max(1, Math.round(b[0] * ok[0])), hi = Math.max(lo, Math.round(b[1] * ok[1]));
+        q = hi > lo ? G.clamp((old.v - lo) / (hi - lo), 0, 1) : 1;
+      } else q = twinSeed(it.uid, i);
+      return { id: ln.id, tier, v: Math.round(r[0] + (r[1] - r[0]) * q) };
+    });
+    it.rqv = 2;
+    G.twinMigrated = (G.twinMigrated || 0) + 1;
+  }
+
   // 从 start 出发，在给定节点集合内能走到的节点
   function reachable(ids) {
     const set = new Set(ids);
@@ -334,6 +366,7 @@
   function sanitize(raw) {
     G.weaponMigrated = false;
     G.growthMigrated = null;
+    G.twinMigrated = 0;
     G.bowMigrated = 0;
     G.variantRedone = 0; // 刻式第二版：读档时把旧刻式的免费那一次还了回去，界面层提示一次（见下面「刻式」）
     G.rmbMigrated = null; // 武器普攻改版：右键上的技能挪去了哪（见下面「右键固定是武器普攻」）
@@ -476,6 +509,9 @@
         if (raw.tut[k] && /^[a-z][a-z0-9_]{0,23}$/i.test(k)) s.tut[k] = 1;
       }
     }
+    // 双生坠升级同长弓改名：记一笔 twinMig，直到「双生坠升级」提示看过（tut.sxmig）才清掉
+    s.twinMig = G.twinMigrated > 0 || (raw.twinMig === true && !s.tut.sxmig);
+    if (s.twinMig) G.twinMigrated = Math.max(1, G.twinMigrated);
     // 长弓改名只在第一次读档时发生（改完的名字随即存回去）：存档里记一笔 bowMig，直到「远程改版」提示看过（tut.bowmig）才清掉，
     // 不让第一次会话在提示弹出前就结束的玩家永远看不到它
     s.bowMig = G.bowMigrated > 0 || (raw.bowMig === true && !s.tut.bowmig);
@@ -1175,6 +1211,7 @@
 
     // 基石「万骸之主」：你自己（非召唤物）的伤害总额外降低（处决也算你自己的伤害）
     let more = mScale ? 1 + (S.minionMore || 0) / 100 : (1 + (S.moreDmg || 0) / 100) * (1 - Math.min(90, S.ownLess || 0) / 100);
+    if (S.allMore) more *= 1 + S.allMore / 100; // 双生坠：你和召唤物的总伤害额外
     const extra = {};
     // 长弓的隐含穿透作用于你所有的投射物技能
     let proj = 0, pierce = !mScale && sk.tags.indexOf('projectile') >= 0 ? S.pierce || 0 : 0, chain = 0, area = mScale ? S.minionArea || 0 : S.area || 0, speedPct = 0; // 召唤物的范围只吃「召唤物的范围效果」
@@ -1404,9 +1441,11 @@
       const cyc = mi.charge.max * mi.interval + mi.beam.dur;
       return (G.avgHit(ctx) * mi.cap * (mi.charge.max + ticks * mi.beam.mult)) / cyc;
     }
-    if (mi) return (G.avgHit(ctx) * mi.cap) / Math.max(0.05, mi.interval);
-    return G.avgHit(ctx) * G.skillRate(ctx);
+    if (mi) return ((G.avgHit(ctx) * mi.cap) / Math.max(0.05, mi.interval)) * twinDpsK(ctx);
+    return G.avgHit(ctx) * G.skillRate(ctx) * twinDpsK(ctx);
   };
+  // 双生坠「余响」：刻式技能的秒伤多算一份 k（技能页、换装对比都读 skillDps；单次伤害 avgHit 不变，处决的基数不受影响）
+  const twinDpsK = (ctx) => (P.relic.shuangsheng && G.twinOn && G.twinOn(ctx.id) ? 1 + G.RELIC_MECH.shuangsheng.k : 1);
   // 每秒出手（施放 / 斩击 / 脉冲）次数：含命中时的顿帧，受冷却限制
   G.skillRate = function (ctx) {
     return 1 / Math.max((ctx.cycle || ctx.time) + ctx.stopAvg, ctx.cd || 0, 0.01);
@@ -1918,7 +1957,7 @@
     const k = G.MARK.mult;
     const ctx = {
       sk: MARK_SK, base: { phys: [ws.min * k, ws.max * k] }, inc: { phys: (S.incAll || 0) + (S.incPhys || 0) }, moreType: { phys: 1 },
-      more: Math.max(0, (1 + (S.moreDmg || 0) / 100) * (1 - Math.min(90, S.ownLess || 0) / 100)), extra: {},
+      more: Math.max(0, (1 + (S.moreDmg || 0) / 100) * (1 + (S.allMore || 0) / 100) * (1 - Math.min(90, S.ownLess || 0) / 100)), extra: {},
       crit: 100, critMulti: Math.max(100, 150 + (S.critMulti || 0)), ailment: 0, stun: 0, leech: 0, echo: 0, area: 1, proc: true,
     };
     const h = e.height || 2;
@@ -2027,8 +2066,8 @@
   const RM = G.RELIC_MECH;
   // 运行时状态（不存档）：crit 必然的暴击计数；spin / spinCtx / spinR 蓄潮的层数和最后一跳的上下文；slamT 踏震的间隔；
   // metT 星雨距离下一次自动落下的秒数；bridges 电桥；chainT 锁链特效的节流；kingT 骸王外形的检查间隔；shareT 同殇连线的节流
-  // twin / twinAlt：双生坠下一次施放用哪种刻式 { 技能 id: 'a' | 'b' }、此刻算「交替出来的那一种」的刻式定义（伤害 +10%）
-  const RQ = { crit: 0, spin: 0, spinCtx: null, spinR: 0, spinFull: false, slamT: 0, metT: 0, bridges: [], chainT: 0, kingT: 0, shareT: 0, twin: {}, twinAlt: new Set(), twinOn: false };
+  // twinQ / twinFx：双生坠挂着待发双生一击的敌人、正在播的双月特效
+  const RQ = { crit: 0, spin: 0, spinCtx: null, spinR: 0, spinFull: false, slamT: 0, metT: 0, bridges: [], chainT: 0, kingT: 0, shareT: 0, twinQ: new Set(), twinFx: [] };
   G.relicState = RQ; // 测试 / 调试用
 
   // computeStats 里调用：按身上的装备汇总 P.relic（同一种机制穿两件也只算一次）
@@ -2047,13 +2086,8 @@
     }
     if (!r.qianmu) RQ.crit = 0;
     if (!r.nuchao) RQ.spin = 0;
-    // 双生：摘下时技能定义指回存档里选的那一种
-    if (!r.shuangsheng && RQ.twinOn) {
-      RQ.twinOn = false;
-      RQ.twin = {};
-      RQ.twinAlt.clear();
-      if (G.applyVariants) G.applyVariants();
-    }
+    // 双生：摘下时还没落下的双生一击当场作废
+    if (!r.shuangsheng && (RQ.twinQ.size || RQ.twinFx.length)) twinClear();
     // 无光：暖光半径缩小（和幽晦叠加时雾近端有下限）
     const XZ = RM.xizhu;
     if (G.world && G.world.lampScale) G.world.lampScale(r.xizhu ? 1 - XZ.lamp : 1, r.xizhu ? XZ.fogMin : 0);
@@ -2132,8 +2166,6 @@
     const r = P.relic, mi = ctx.minion;
     // 必然：你自己的暴击伤害降低（召唤物不受影响）
     if (r.qianmu && !mi && !ctx.asMinion) ctx.critMulti = Math.max(100, ctx.critMulti + RM.qianmu.critMulti);
-    // 双生：交替出来的那一种刻式（不是你选的那一种）伤害提高
-    if (r.shuangsheng && !mi && RQ.twinAlt.has(ctx.sk)) ctx.more *= 1 + RM.shuangsheng.dmg;
     if (!mi) return ctx;
     if (r.tongshang) mi.life = Math.max(1, Math.round(mi.life * (1 + RM.tongshang.life / 100)));
     if (r.haiwang && mi.kind === 'thrall' && !ctx.sk.mech) {
@@ -2166,33 +2198,103 @@
     return false;
   };
 
-  // ---------- 双生（双生坠，巅峰）：tryStartCast 里一行钩子 + 施放成功后一行 ----------
-  // 选了刻式（宝石 ≥ 解锁等级、不是光环 / 召唤）的技能：施放前把 G.SKILLS[id] 指向这一次的刻式（G.useVariant），
-  // 顺序是「你选的、另一种、你选的……」；指向留到下一次施放这个技能（出手帧、持续施放读到的都是这一次的定义）。
-  // 已经放出去的黑洞、旋风、投射物、陨石在生成时拿着自己那份 ctx.sk，之后再换也不影响（框架见「刻式」一节）
-  const twinOther = (v) => (v === 'a' ? 'b' : 'a');
-  G.relicTwin = function (id) {
-    const v = G.variantOf(id);
-    if (v === 'o' || !G.SKILL_V[id]) return null;
-    const mine = G.skillVariant(id, v), other = G.skillVariant(id, twinOther(v));
-    if (mine.kind === 'aura' || mine.kind === 'summon' || mine.buff) return null;
-    const next = RQ.twin[id] === twinOther(v) ? twinOther(v) : v; // twin 记的是「下一次」：还没记过就从你选的那一种开始
-    RQ.twinOn = true;
-    RQ.twinAlt.delete(mine);
-    RQ.twinAlt.add(other);
-    G.useVariant(id, next);
-    return next;
+  // ---------- 双生（双生坠，巅峰）：hitEnemy 末尾一行钩子 ----------
+  // 刻式技能（宝石 ≥ 解锁等级，或选着渊式）的每一次命中——你亲手的、它的召唤物的、光环脉冲——把这一下结算后伤害的 k 记在敌人身上，
+  // delay 秒后在同一个敌人身上落一记「双生一击」。黑焰附带的那一份也算（传焰点上的、蚀印攒进去的按施加时记）。
+  // 同一个敌人身上的累加成一记（每个敌人最多一记待发）；双生一击只扣生命：不暴击、不累积异常值、不削架势、不吸血、不触发命中效果，
+  // 也不攒层数（蓄潮、影印、坍缩的质量、蚀印都不吃）。只看命中，不碰技能自己的状态，所以原式 / A / B / 渊式、持续施放、再按、召唤、光环都一样
+  const TW = RM.shuangsheng;
+  G.twinOn = (id) => !!(id && G.SKILL_V[id]) && ((G.save.skills[id] || 0) >= G.VARIANT_LVL || G.variantOf(id) === 'c');
+  G.relicTwinHit = function (e, ctx, hit, inf) {
+    if (inf.proc || inf.twin || ctx.proc || !(hit.total > 0 || hit.flame > 0)) return;
+    const own = G.twinOn(ctx.id);
+    let v = own ? hit.total : 0;
+    if (hit.flame > 0 && G.twinOn('blackflame')) {
+      // 黑焰：直接附带的那份在 hit.total 里（自己的技能不是刻式时单算）；传焰点上的、蚀印攒进去的不在 total 里，另算
+      const inTotal = ctx.flameDot ? 0 : hit.flame, stored = ctx.flameDot || G.SKILLS.blackflame.brand ? hit.flame : 0;
+      v += (own ? 0 : inTotal) + stored;
+    }
+    if (!(v > 0)) return;
+    const src = own ? ctx.id : 'blackflame';
+    if (!e.twin) e.twin = { v: 0, t: 0, by: {} };
+    const q = e.twin;
+    if (!RQ.twinQ.has(e)) {
+      q.v = 0;
+      q.by = {};
+      q.t = TW.delay;
+      RQ.twinQ.add(e);
+    }
+    q.v += v * TW.k;
+    q.by[src] = (q.by[src] || 0) + v * TW.k;
   };
-  // 测试 / 调试用：此刻留在场上的持续类东西（黑洞、黑旋风、刻式第二版的 VS），看它们各自拿着哪份刻式定义
-  G.twinProbe = () => ({ holes, vortices, VS });
-  // 真的出手了（tryStartCast 返回 true）才翻到另一种：魔力不够、影步没目标这些没放出去的不算一次
-  G.relicTwinCast = function (id) {
-    const v = G.variantOf(id);
-    if (v === 'o' || !G.SKILL_V[id] || !RQ.twinOn) return;
-    const cur = G.SKILLS[id] && G.SKILLS[id].variant;
-    if (cur !== 'a' && cur !== 'b') return;
-    RQ.twin[id] = twinOther(cur);
-  };
+  // 每帧（relicTick）：到时间的落下；敌人死了 / 不在场上的作废
+  function twinTick(dt) {
+    for (const e of RQ.twinQ) {
+      if (e.dead || state.enemies.indexOf(e) < 0) {
+        RQ.twinQ.delete(e);
+        continue;
+      }
+      e.twin.t -= dt;
+      if (e.twin.t <= 0) {
+        RQ.twinQ.delete(e);
+        twinStrike(e);
+      }
+    }
+    for (let i = RQ.twinFx.length - 1; i >= 0; i--) {
+      const f = RQ.twinFx[i];
+      f.t += dt;
+      const u = f.t / 0.28;
+      if (u >= 1 || !f.h.on) {
+        G.world.kvOff(f.h);
+        RQ.twinFx.splice(i, 1);
+        continue;
+      }
+      f.h.s = f.s * (1 + u * 0.35);
+      f.h.a = 1 - u;
+    }
+  }
+  function twinStrike(e) {
+    const q = e.twin, dmg = q.v, W = G.world;
+    q.v = 0;
+    if (!(dmg > 0)) return;
+    const hp0 = e.hp;
+    e.hp -= dmg;
+    e.hurtAt = state.time;
+    const st = state.stats;
+    st.twinHits = (st.twinHits || 0) + 1;
+    st.twinDmg = (st.twinDmg || 0) + dmg;
+    if (!st.twinBy) st.twinBy = {};
+    for (const id in q.by) st.twinBy[id] = (st.twinBy[id] || 0) + q.by[id];
+    // 双月：一暖一冷两片背靠背的半月，在胸口一闪（实例化，场上再多也是一次 draw call），数字是冷白色的小字
+    const h = e.height || 2, ang = Math.atan2(e.x - P.x, e.z - P.z);
+    if (W.kv) {
+      // 平铺在脚下：两片半月的内缘落在身形外 0.15 米，身子挡住后半圈（深度测试），不画在怪身上（灰度检查要求怪的亮面不被抬高）
+      const s = Math.min(4, (e.r + 0.15) * 3.05);
+      RQ.twinFx.push({ t: 0, s, h: W.kv('twin', { x: e.x, y: 0.08, z: e.z, s, hex: twinHex(), a: 1, k: ang + Math.PI / 2 }) });
+    }
+    const jx = ((st.twinHits % 3) - 1) * 0.3; // 数字左右错开一点（不用随机数：不扰动暴击、伤害的随机序列）
+    W.text(e.x + jx, e.z, Math.max(1, Math.round(dmg)), '#cfe8ff', 13, { kind: 'faint', y: Math.min(2.8, h * 0.62) });
+    wake(e);
+    if (e.hp <= 0) {
+      // 打死时的异常（尸爆 / 放电 / 碎冰）照常排进触发队列，当场结算
+      procDepth++;
+      G.killEnemy(e, { ang, type: 'phys', w: 0, over: Math.min(2, (dmg - hp0) / e.maxHp) });
+      procDepth--;
+      flushProcs();
+    }
+  }
+  // 双月的颜色：暖金 #ffc070 × fx（另一片取它的 bgr，冷蓝）。fx 压着怪群脚边的亮度（灰度检查：不抬高旁边怪的亮面）
+  function twinHex() {
+    const f = G.clamp(TW.fx, 0, 1), r = Math.round(0xff * f), g = Math.round(0xc0 * f), b = Math.round(0x70 * f);
+    return (r << 16) | (g << 8) | b;
+  }
+  function twinClear() {
+    for (const e of RQ.twinQ) if (e.twin) e.twin.v = 0;
+    RQ.twinQ.clear();
+    for (const f of RQ.twinFx) G.world.kvOff(f.h);
+    RQ.twinFx.length = 0;
+  }
+  G.twinClear = twinClear;
 
   // ---------- 无光（熄烛冠，巅峰）：hitEnemy 里的一行钩子 ----------
   // 你对 far 米外的敌人伤害 × (1 + dmg)；还没发现你（没醒）的敌人，第一击必定暴击
@@ -2232,7 +2334,7 @@
     moreType.chaos = Math.max(0, 1 + (S.moreChaos || 0) / 100);
     return {
       id: 'relic', sk: { w, kb, poise, tags: ['attack', 'melee', 'area', 'phys'] }, lvl: 1, base, inc, moreType,
-      more: Math.max(0, (1 + (S.moreDmg || 0) / 100) * (1 - Math.min(90, S.ownLess || 0) / 100)), extra: {},
+      more: Math.max(0, (1 + (S.moreDmg || 0) / 100) * (1 + (S.allMore || 0) / 100) * (1 - Math.min(90, S.ownLess || 0) / 100)), extra: {},
       crit: G.clamp(5 * (1 + (S.crit || 0) / 100), 0, 100),
       critMulti: Math.max(100, 150 + (S.critMulti || 0) + (P.relic.qianmu ? RM.qianmu.critMulti : 0)),
       proj: 1, pierce: 0, chain: 0, area: Math.max(0.1, 1 + (S.area || 0) / 100), speed: P.speedMult, time: 1, stopK: 1, stopAvg: 0, cost: 0, cd: 0,
@@ -2667,6 +2769,7 @@
     // 蓄潮：不在转旋风斩了（松手、翻滚、被打断、换了别的技能、摘下手套），攒着的层数炸开
     if (RQ.spin > 0 && !(P.relic.nuchao && P.cast && P.cast.channel && P.cast.id === 'whirl')) relicTideBurst();
     if (starOn()) relicMeteorDue(dt);
+    if (RQ.twinQ.size || RQ.twinFx.length) twinTick(dt);
     if (RQ.bridges.length) relicBridgeTick(dt);
     RQ.kingT -= dt;
     if (RQ.kingT <= 0) {
@@ -2681,6 +2784,7 @@
     RQ.spinFull = false;
     RQ.metT = 0.6;
     RQ.slamT = 0;
+    twinClear();
   };
 
   // ---------- 死亡时的异常 ----------
@@ -2935,6 +3039,7 @@
 
     if (P.relic.yuanfu && e.bindT > 0 && !inf.proc && !inf.minion) G.relicChain(e, hit.total, top); // 渊契「锁链」
     if (hit.flame > 0 || (VS.cores.length && hit.parts.fire > 0 && !inf.core)) vHit(e, hit, inf); // 刻式：蚀印 / 传焰 / 熔核
+    if (P.relic.shuangsheng) G.relicTwinHit(e, ctx, hit, inf); // 渊契「双生」：刻式技能的命中，稍后余响一次
     lastHit.crit = hit.crit;
     lastHit.type = top;
     lastHit.total = hit.total;
@@ -3792,7 +3897,6 @@
       // 召唤技能：按键本身是「自动召唤」开关（main.js 里直接切换，不进缓冲）；
       // 只有 Shift + 按键留下的缓冲才是在准星处手动召唤一次，按住不放也不会连着召唤
       if (G.SKILLS[id].kind === 'summon' && !(G.input.tap[slot] > 0)) continue;
-      if (P.relic.shuangsheng) G.relicTwin(id); // 渊契「双生」：这一次用哪种刻式
       const ctx = G.skillCtx(id);
       if (!G.canAfford(ctx.cost)) {
         const now = Date.now();
@@ -8351,10 +8455,7 @@
         P.moving = P.roll.t > 0;
       } else {
         // 手上没有动作，或上一个动作已经过了可取消的时刻（连击段的收招）：可以开始下一个
-        if (!P.cast || (P.cast.fired && P.cast.t >= P.cast.cancelT)) {
-          const c0 = P.cast;
-          if (tryStartCast() && P.relic.shuangsheng && P.cast && P.cast !== c0) G.relicTwinCast(P.cast.id); // 渊契「双生」：出手了才轮到另一种
-        }
+        if (!P.cast || (P.cast.fired && P.cast.t >= P.cast.cancelT)) tryStartCast();
         if (P.exec) {
           P.moving = false; // 近战键贴身触发了处决
         } else {
