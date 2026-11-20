@@ -303,8 +303,16 @@
     '  vec2 p = vUv * 2.0 - 1.0; float l = length(p);',
     '  if (l > 1.0) discard;',
     '  float kind = floor(vFx.w + 0.5), k = vFx.x, seed = vFx.y;',
+    // 闪光不取贴图，先画完返回；霜痕只有外沿一圈，里面先丢掉（同一个实例的像素走同一支，贴图导数不受影响）
+    '  if (kind > 2.5) {',
+    '    float f = (1.0 - l) * (1.0 - l) * (1.0 - k) * (1.0 - k) * vFx.z;',
+    '    if (f < 0.004) discard;',
+    '    gl_FragColor = vec4(linearToOutputTexel(vec4(vCol, 1.0)).rgb * f * 1.2, 0.0); return;',
+    '  }',
+    '  if (kind > 0.5 && kind < 1.5 && l < 0.6) discard;',
     '  vec2 q = vUv * 0.8 + seed * 7.31;',
-    '  float n = vfxNA(q).r, ce = vfxNA(q * 1.5 + 0.37).b;',
+    '  float n = vfxNA(q).r;',
+    '  float ce = uLo > 0.5 ? n : vfxNA(q * 1.5 + 0.37).b;', // 低画质少取一次贴图
     '  float er = k < 0.45 ? 0.0 : (k - 0.45) / 0.55;', // 消融进度
     '  float edge = 1.0 - l + (n - 0.5) * 0.5;', // 不规则的外沿
     '  float m = smoothstep(0.0, 0.05, edge - er * (1.1 - n * 0.4));',
