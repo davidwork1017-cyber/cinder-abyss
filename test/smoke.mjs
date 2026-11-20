@@ -1043,12 +1043,12 @@ async function main() {
   });
 
   // ------------------------------------------------------------------ 技能
-  await step('learnAll：14 个技能（裂石击已删除）与 20 个辅助宝石全部到手（混沌流加了黑洞 / 黑旋风 / 黑焰与混沌注入）；右键格不放技能', async () => {
+  await step('learnAll：14 个技能（裂石击已删除）与 21 个辅助宝石全部到手（混沌流加了黑洞 / 黑旋风 / 黑焰与混沌注入，敌人抗性加了破障）；右键格不放技能', async () => {
     const r = await ev(() => {
       G.debug.learnAll();
       return { skills: Object.keys(G.save.skills).length, sups: G.save.supports.length, bar: G.save.bar.slice(), cleave: !!G.SKILLS.cleave || G.GEM_SKILLS.indexOf('cleave') >= 0 };
     });
-    assert(r.skills === 14 && r.sups === 20 && [0, 2, 3].every((i) => r.bar[i]) && r.bar[1] === null && !r.cleave, JSON.stringify(r));
+    assert(r.skills === 14 && r.sups === 21 && [0, 2, 3].every((i) => r.bar[i]) && r.bar[1] === null && !r.cleave, JSON.stringify(r));
   });
 
   for (let i = 0; i < SKILL_IDS.length; i++) {
@@ -3981,7 +3981,7 @@ async function main() {
       const e = T.mob('husk', 3, 0), el = T.mob('husk', 3, 2, { elite: true });
       out.spawn = [G.state.zone.def.id, e.elem, G.enemyRes(e, e.elem), G.enemyRes(el, el.elem)].join();
       const ctx = (base, pen, proc) => ({ sk: { w: 0, kb: 0, poise: 0 }, base, inc: {}, moreType: {}, more: 1, extra: {}, crit: 0, critMulti: 100, ailment: 0, stun: 0, leech: 0, pen: pen || 0, proc: !!proc });
-      const loss = (tgt, c, inf) => { tgt.hp = tgt.maxHp = 1e6; G.initBuildUp(tgt); return Math.round((1e6 - (G.hitEnemy(tgt, c, 1, Object.assign({ quiet: true, noBuild: true }, inf || {})), tgt.hp)) * 10) / 10; };
+      const loss = (tgt, c, inf) => { const sh = tgt.shockT; tgt.hp = tgt.maxHp = 1e6; G.initBuildUp(tgt); tgt.shockT = sh; return Math.round((1e6 - (G.hitEnemy(tgt, c, 1, Object.assign({ quiet: true, noBuild: true }, inf || {})), tgt.hp)) * 10) / 10; };
       const own = e.elem, other = G.ELEMS.find((t) => t !== own);
       const S0 = P.S.elemPen;
       P.S.elemPen = 0;
@@ -4040,7 +4040,7 @@ async function main() {
     assert(r.gear.own === 95 && r.gear.minion === 85 && r.gear.both === 120, '装备穿透不对（召唤物不吃）：' + JSON.stringify(r.gear));
     assert(r.bu === '85/100' && r.override === 0, '异常值应按扣过抗性的伤害累积 / 区域覆盖不生效：' + r.bu + ' ' + r.override);
     const g = r.gem;
-    assert(g.name === '破障' && g.cost === 1.15 && g.pen === 25 && g.req === null && g.fitsEmber && g.fitsWhirl && g.fitsThrall && g.desc === '元素伤害穿透 25% 抗性' && /15%/.test(g.alt) && /−30%|-30%/.test(g.alt), '破障的数据不对：' + JSON.stringify(g));
+    assert(g.name === '破障' && g.cost === 1.15 && g.pen === 25 && g.req === null && g.fitsEmber && g.fitsWhirl && g.fitsThrall && g.desc === '元素伤害穿透 25% 抗性' && /15%/.test(g.alt) && /最低 −30%/.test(g.alt), '破障的数据不对：' + JSON.stringify(g));
     assert(r.ctxPen === '25,25,0', '镶了破障的技能 / 召唤物没有带上穿透：' + r.ctxPen);
     assert(r.affix === 'suffix|weapon/amulet|true|元素伤害穿透 {v}% 抗性', '元素穿透词缀不对：' + r.affix);
     // 首领血条：左上的小签按数据写，感电时变暗、写压低后的数
@@ -4063,6 +4063,15 @@ async function main() {
     u = await ev(() => document.getElementById('boss-res').innerText.replace(/\s+/g, ' ').trim());
     assert(u === '抗火 0%', '感电时首领的抗性小签应写 0%：' + u);
     await ev(() => G.clearEnemies());
+    // 帮助页那一段：数字从 G.ENEMY_RES 读
+    u = await ev(() => {
+      G.ui.open('help');
+      const p = Array.from(document.querySelectorAll('p')).find((n) => /敌人的抗性/.test(n.innerText));
+      const t = p ? p.innerText : '';
+      G.ui.close();
+      return t;
+    });
+    assert(/自己颜色的元素 15%/.test(u) && /各降 15%/.test(u) && /最低 −30%/.test(u) && /破障/.test(u), '帮助页的抗性说明不对：' + u);
     return r.zones.length + ' 区 · 伤害 ' + [d.own, d.pen, d.penOther, d.penFloor].join('/') + ' · 感电 ' + r.shock.own + ' · 装备 ' + r.gear.own + '/' + r.gear.minion;
   });
 

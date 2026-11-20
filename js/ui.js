@@ -1236,10 +1236,11 @@
       if (!r0) continue;
       const r = G.enemyResNow(e, t);
       h += '<span class="res-chip' + (r < r0 ? ' low' : '') + '" style="--ac:' + G.TYPE_COLOR[t] + '"><i></i>抗' + RES_CH[t] + ' ' + r + '%</span>';
-      d += G.TYPE_NAME[t] + '伤害 −' + r0 + '%，感电时 −' + Math.max(0, r0 - G.ENEMY_RES.shock) + '%。';
+      const rs = Math.max(0, r0 - G.ENEMY_RES.shock);
+      d += G.TYPE_NAME[t] + '伤害 −' + r0 + '%，感电时' + (rs > 0 ? ' −' + rs + '%' : '不减') + '。';
     }
     if (!h) return '';
-    return h + (alt ? altBox(d + '穿透（破障、元素穿透）能把抗性压到负数，最低 ' + G.ENEMY_RES.floor + '%。') : '');
+    return h + (alt ? altBox(d + '破障、元素穿透能把抗性压到负数（最低 −' + Math.abs(G.ENEMY_RES.floor) + '%）。') : '');
   }
 
   // ============================================================
@@ -3176,7 +3177,7 @@
       '<p>护甲减少物理伤害，抗性减少对应元素伤害（上限 75%）。</p>' +
       // 敌人的元素抗性（数值读 G.ENEMY_RES）
       '<p><b>敌人的抗性</b>：敌人抗自己颜色的元素' + (G.ENEMY_RES.boss === G.ENEMY_RES.mob ? ' ' + G.ENEMY_RES.mob + '%' : '，小怪和精英 ' + G.ENEMY_RES.mob + '%，首领 ' + G.ENEMY_RES.boss + '%') + '（名牌和首领血条上的「抗火」这类小签）。物理、混沌不受抗性影响。' +
-      '感电让三种元素抗性各降 ' + G.ENEMY_RES.shock + '%（不会降到 0 以下）；辅助<b>破障</b>和装备上的<b>元素穿透</b>能把抗性压到负数，最低 ' + G.ENEMY_RES.floor + '%。</p>' +
+      '感电让三种元素抗性各降 ' + G.ENEMY_RES.shock + '%（不会降到 0 以下）；辅助<b>破障</b>和装备上的<b>元素穿透</b>能把抗性压到负数，最低 −' + Math.abs(G.ENEMY_RES.floor) + '%。</p>' +
       helpBuildUp() +
       '<div class="sec-title">连击、架势与处决</div>' +
       '<p><b>连击</b>：近战普攻按住逐段打出（双匕四段，其余三段），末段<b>终结技</b>伤害最高、打飞敌人。停手、翻滚或换技能会从头开始。</p>' +
