@@ -2158,6 +2158,10 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
   box-shadow: 0 0 6px color-mix(in srgb, var(--ally) 45%, transparent);
   pointer-events: none;
 }
+/* 储能：连段小格改成存货格，加大一号、亮着的用储能的青色（1024 宽的窗口里也认得出） */
+.slot.chg .s-combo { top: -20px; gap: 4px; }
+.slot.chg .s-combo i, .slot.chg .s-combo i.fin { width: 16px; height: 8px; background: #10181a; border-color: #4a7a7e; }
+.slot.chg .s-combo i.on, .slot.chg .s-combo i.fin.on { background: #7ff0f6; border-color: #e8fdff; box-shadow: 0 0 8px rgba(95, 224, 232, 0.95); }
 /* 光环保留放不下（超过 90%）：格子变暗、不呼吸，角标借用 s-auto 写「保留不足」 */
 .slot.aoff .s-icon { animation: none; filter: grayscale(0.85) brightness(0.55); }
 .slot.aoff .s-auto {

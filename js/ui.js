@@ -790,6 +790,7 @@
       if (!!chg !== !!s.chg) {
         s.chg = !!chg;
         s.el.classList.toggle('has-combo', !!chg || !!(id && comboSteps(G.SKILLS[id])));
+        s.el.classList.toggle('chg', !!chg); // 储能的小格：更大、亮着的是青色
       }
       while (nc > s.pips.length) s.pips.push(s.pips[0].parentNode.appendChild(document.createElement('i')));
       if (lit !== s.lit || nc !== s.nc) {
