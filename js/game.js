@@ -1415,9 +1415,11 @@
       const cyc = mi.charge.max * mi.interval + mi.beam.dur;
       return (G.avgHit(ctx) * mi.cap * (mi.charge.max + ticks * mi.beam.mult)) / cyc;
     }
-    if (mi) return (G.avgHit(ctx) * mi.cap) / Math.max(0.05, mi.interval);
-    return G.avgHit(ctx) * G.skillRate(ctx);
+    if (mi) return ((G.avgHit(ctx) * mi.cap) / Math.max(0.05, mi.interval)) * twinDpsK(ctx);
+    return G.avgHit(ctx) * G.skillRate(ctx) * twinDpsK(ctx);
   };
+  // 双生坠「余响」：刻式技能的秒伤多算一份 k（技能页、换装对比都读 skillDps；单次伤害 avgHit 不变，处决的基数不受影响）
+  const twinDpsK = (ctx) => (P.relic.shuangsheng && G.twinOn && G.twinOn(ctx.id) ? 1 + G.RELIC_MECH.shuangsheng.k : 1);
   // 每秒出手（施放 / 斩击 / 脉冲）次数：含命中时的顿帧，受冷却限制
   G.skillRate = function (ctx) {
     return 1 / Math.max((ctx.cycle || ctx.time) + ctx.stopAvg, ctx.cd || 0, 0.01);
@@ -2096,7 +2098,7 @@
     // 双月：一暖一冷两片背靠背的半月，在胸口一闪（实例化，场上再多也是一次 draw call），数字是冷白色的小字
     const h = e.height || 2, ang = Math.atan2(e.x - P.x, e.z - P.z);
     if (W.kv) {
-      const s = Math.min(2.6, 1.1 + e.r * 0.9);
+      const s = Math.min(1.8, 0.8 + e.r * 0.7); // 比身形略宽，圈里还看得见怪
       RQ.twinFx.push({ t: 0, s, h: W.kv('twin', { x: e.x, y: Math.min(2.4, h * 0.55), z: e.z + 0.2, rx: 0.7, s, hex: 0xffc070, a: 1, k: ang + Math.PI / 2 }) });
     }
     const jx = ((st.twinHits % 3) - 1) * 0.3; // 数字左右错开一点（不用随机数：不扰动暴击、伤害的随机序列）

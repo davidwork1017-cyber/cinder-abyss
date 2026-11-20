@@ -13865,7 +13865,7 @@ async function main() {
     return '首杀 ' + r.first.split(' ')[0] + ' · 保底 ' + r.pity.split(' ')[0];
   });
 
-  await step('渊契「余响」（双生坠）：刻式技能（宝石 ≥ 10，原式也算）每次命中，0.2 秒后同一目标再受该次伤害的 60%；同一目标的多次命中累加成一记；不暴击、不累积异常、不削架势；召唤物 / 光环 / 黑焰都算，异常触发和宝石 < 10 的不算；记到来源技能；余响打死照常结算；摘下当场作废', async () => {
+  await step('渊契「余响」（双生坠）：刻式技能（宝石 ≥ 10，原式也算）每次命中，0.2 秒后同一目标再受该次伤害的 60%；同一目标的多次命中累加成一记；不暴击、不累积异常、不削架势；召唤物 / 光环 / 黑焰都算，异常触发和宝石 < 10 的不算；记到来源技能；余响打死照常结算；秒伤估算 ×1.6；摘下当场作废', async () => {
     const r = await ev(() => {
       const S = G.state, P = G.player, RQ = G.relicState, out = {};
       RQT.begin('shuangsheng');
@@ -13922,6 +13922,20 @@ async function main() {
       f.hp = Math.min(f.hp, df * 0.3);
       G.debug.step(0.25);
       out.kill = f.dead && S.stats.kills === k0 + 1;
+      // 技能页 / 换装对比的秒伤把余响算进去（词缀清空只看机制）：刻式技能 ×1.6，处决的基数（单次伤害）不变
+      const am = G.save.equip.amulet, keepAff = am.affixes, keepImp = am.imp;
+      am.affixes = [];
+      am.imp = null;
+      G.computeStats();
+      const dOn = G.skillDps(G.skillCtx('ember')), hOn = G.avgHit(G.skillCtx('ember'));
+      G.save.equip.amulet = null;
+      G.computeStats();
+      const dOff = G.skillDps(G.skillCtx('ember')), hOff = G.avgHit(G.skillCtx('ember'));
+      out.dps = +(dOn / dOff).toFixed(4) + ' ' + +(hOn / hOff).toFixed(4);
+      am.affixes = keepAff;
+      am.imp = keepImp;
+      G.save.equip.amulet = am;
+      G.computeStats();
       // 摘下：挂着的当场作废、之后的命中也不再余响
       G.hitEnemy(e, ctx, 1, {});
       out.qOn = RQ.twinQ.size;
@@ -13942,6 +13956,7 @@ async function main() {
     assert(r.crit && r.q === 1 && r.early === 0 && r.ratio === 0.6 && r.by === 0.6 && r.clean, '余响的时机 / 倍率 / 不暴击不累积不削架势不对：' + JSON.stringify(r));
     assert(r.proc === 0 && r.low === 0 && r.mn && r.flame && r.kill, '够格的命中不对（异常触发 / 宝石 < 10 / 召唤物 / 光环 / 黑焰 / 打死）：' + JSON.stringify(r));
     assert(r.qOn === 1 && r.qOff === 0 && r.off, '摘下后应当场作废：' + JSON.stringify(r));
+    assert(r.dps === '1.6 1', '秒伤估算应 ×1.6、单次伤害不变：' + JSON.stringify(r));
     return '0.2 秒后 ×' + r.ratio;
   });
 
@@ -13970,7 +13985,7 @@ async function main() {
       RQT.end();
       return out;
     });
-    assert(r.lines === 'incAll=173 speed=50 critMulti=100 uAllMore=14' && r.rng === '78-173 25-50 49-100 10-14' && r.rqv === 2, '词缀行 / 区间不对：' + JSON.stringify(r));
+    assert(r.lines === 'incAll=173 speed=50 critMulti=101 uAllMore=14' && r.rng === '78-173 25-50 49-101 10-14' && r.rqv === 2, '词缀行 / 区间不对：' + JSON.stringify(r));
     assert(r.k === r.want + ' ' + r.want && r.back && r.fmt === '你和召唤物的总伤害额外 +14%', '总伤害额外应同时作用于你和召唤物：' + JSON.stringify(r));
     return r.lines + ' · ×' + r.want;
   });
@@ -14117,6 +14132,14 @@ async function main() {
       }
       return d;
     };
+    // 记到别的技能的余响：留下第一处的来路（诊断用）
+    const th0 = G.relicTwinHit;
+    G.relicTwinHit = function (e, ctx, hit, inf) {
+      if (!out.foreign && ctx && ctx.id && ctx.id !== id && ctx.id !== 'blackflame' && G.twinOn(ctx.id) && !ctx.proc && !(inf && inf.proc)) {
+        out.foreign = ctx.id + ' ' + (ctx.sk && ctx.sk.mech) + ' ' + JSON.stringify(Object.keys(inf || {})) + ' ' + String(new Error().stack).split('\n').slice(2, 6).join(' < ').replace(/https?:\/\/[^ )]*\//g, '');
+      }
+      return th0.apply(this, arguments);
+    };
     const mx = { enemies: 0, minions: 0, proj: 0, kv: 0, q: 0 };
     let tDmgOff = 0;
     const dt = 1 / 60, N = Math.round(secs * 60);
@@ -14176,11 +14199,12 @@ async function main() {
     if (out.offGain !== 0) out.bad.push('摘着时还在余响 ' + out.offGain);
     const src = id === 'blackflame' ? 'blackflame' : id;
     if (!(by[src] > 0)) out.bad.push('没有余响记到 ' + src);
-    for (const k in by) if (k !== id && k !== 'blackflame') out.bad.push('记到了别的技能 ' + k);
+    for (const k in by) if (k !== id && k !== 'blackflame') out.bad.push('记到了别的技能 ' + k + '（' + (out.foreign || '?') + '）');
     if (id !== 'blackflame' && !(out.mine <= elig * 0.6 * 1.001 + 1)) out.bad.push('余响超过够格命中的 60%：' + out.mine + ' / ' + Math.round(elig));
     if (mx.enemies > 11 || mx.minions > 8 || mx.proj > 300 || mx.kv > 400 || mx.q > mx.enemies) out.bad.push('数量越界 ' + JSON.stringify(mx));
     // 收拾
     G.hitEnemy = h0;
+    G.relicTwinHit = th0;
     G.clearMinions();
     G.clearEnemies();
     for (const k in G.save.autoSummon || {}) G.save.autoSummon[k] = false;
