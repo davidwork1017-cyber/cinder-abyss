@@ -24804,6 +24804,16 @@
       '  if (a <= 0.0) discard; float k = vA > 0.66 ? 1.0 : (vA > 0.33 ? 0.62 : 0.3);',
       '  gl_FragColor = vec4(mix(vC, vec3(1.0), r > 0.9 ? 0.35 : 0.0), a * k); }',
     ].join('\n'),
+    // 双月（双生坠的双生一击）：两片背靠背的半月，一片取实例色（暖）、一片冷白；k 是整对的转角，a 按三档阶梯
+    twin: [
+      'varying vec3 vC; varying float vA; varying float vK; varying vec2 vUv;',
+      'void main(){ vec2 p = vUv * 2.0 - 1.0; float c = cos(vK), s = sin(vK); p = vec2(c * p.x - s * p.y, s * p.x + c * p.y);',
+      '  float side = p.x < 0.0 ? -1.0 : 1.0; vec2 q = vec2(abs(p.x), p.y);',
+      '  float outer = length(q - vec2(0.08, 0.0)), inner = length(q - vec2(-0.2, 0.0));',
+      '  if (outer > 0.9 || inner < 0.86) discard; float edge = outer > 0.8 ? 1.0 : 0.6;',
+      '  vec3 col = side < 0.0 ? vC : vec3(0.72, 0.88, 1.0); float k = vA > 0.66 ? 1.0 : (vA > 0.33 ? 0.62 : 0.3);',
+      '  gl_FragColor = vec4(mix(col, vec3(1.0), edge > 0.9 ? 0.35 : 0.0), edge * k); }',
+    ].join('\n'),
     // 索：中间一道亮芯（缓缓流动的节）+ 两侧颜色的边
     band: [
       'uniform float uTime; varying vec3 vC; varying float vA; varying float vK; varying vec2 vUv;',
