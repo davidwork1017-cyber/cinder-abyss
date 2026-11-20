@@ -13065,6 +13065,59 @@ async function main() {
     return '随核 → 双极，摘 / 戴 / 读档都还是双极';
   });
 
+  await step('渊式·技能卡：飞刃卡上刻式下面多一行「渊式 回旋」，没戴回旋时按钮灰着、写「装备回旋解锁」，点了不换（提示同一句）；戴上后能点、点了亮起来写「使用中」；选着渊式时摘下：亮的是替下的 B、渊式一行写「已选，戴上恢复」；宝石不到 10 级时 A / B 是一行灰字，渊式照样能选', async () => {
+    const r = await ev(() => {
+      RQT.begin(null);
+      RQT.learn('blade', 0);
+      RQT.learn('whirl', 2);
+      const s = G.save, out = {};
+      s.skills.blade = 20;
+      s.skills.whirl = 6;
+      s.rqAuto.blade = s.rqAuto.whirl = true;
+      s.variants.blade = 'b';
+      s.variantFree.blade = true;
+      G.applyVariants();
+      G.computeStats();
+      const card = () => document.querySelector('.sv-btn.sv-rq[data-skill="blade"]');
+      const row = (id) => { const b = document.querySelector('.sv-btn.sv-rq[data-skill="' + id + '"]'); return b ? b.closest('.sk-var').textContent : ''; };
+      const on = (id) => { const b = document.querySelector('.sk-var:not(.sk-rq) .sv-btn.on[data-skill="' + id + '"]'); return b ? b.dataset.v : ''; };
+      G.ui.open('skills');
+      out.lock = [!!card(), card() && card().classList.contains('lock'), row('blade')];
+      card().click();
+      out.lockClick = [s.variants.blade, (document.querySelector('.sv-msg.bad') || {}).textContent || ''];
+      s.equip.amulet = G.rollRelic('huixuan', 50, 0.5);
+      G.computeStats();
+      G.ui.close();
+      G.ui.open('skills');
+      out.free = [card().classList.contains('lock'), row('blade')];
+      card().click();
+      out.picked = [s.variants.blade, card().classList.contains('on'), row('blade'), (document.querySelector('.sv-msg') || {}).textContent || ''];
+      s.equip.amulet = null;
+      G.computeStats();
+      G.ui.close();
+      G.ui.open('skills');
+      out.kept = [card().classList.contains('lock'), on('blade'), row('blade')];
+      // 宝石 6 级的旋风斩：A / B 灰字，渊式一行照样在（怒潮戴上能选）
+      s.equip.gloves = G.rollRelic('nuchao', 50, 0.5);
+      G.computeStats();
+      G.ui.close();
+      G.ui.open('skills');
+      const wcard = document.querySelector('.sv-btn.sv-rq[data-skill="whirl"]');
+      out.low = [!!document.querySelector('.sk-var.lock') , !!wcard, wcard && wcard.classList.contains('lock')];
+      if (wcard) wcard.click();
+      out.lowPick = [s.variants.whirl, G.SKILLS.whirl.mech];
+      G.ui.close();
+      RQT.end();
+      return out;
+    });
+    assert(r.lock[0] && r.lock[1] && /装备回旋解锁/.test(r.lock[2]) && /回旋/.test(r.lock[2]), '没戴时渊式按钮应灰着、写装备回旋解锁：' + JSON.stringify(r.lock));
+    assert(r.lockClick[0] === 'b' && /装备回旋解锁/.test(r.lockClick[1]), '没戴时点了不该换：' + JSON.stringify(r.lockClick));
+    assert(r.free[0] === false && /免费切换/.test(r.free[1]) && r.picked[0] === 'c' && r.picked[1] && /使用中/.test(r.picked[2]), '戴上后应能选、亮起来：' + JSON.stringify(r));
+    assert(r.kept[0] && r.kept[1] === 'b' && /已选，戴上恢复/.test(r.kept[2]), '选着渊式时摘下应亮替下的 B：' + JSON.stringify(r.kept));
+    assert(r.low.join() === 'true,true,false' && r.lowPick.join() === 'c,tide', '宝石不到 10 级时渊式照样能选：' + JSON.stringify(r));
+    return '锁着 / 能选 / 摘下退回 B / 低级宝石 都对';
+  });
+
   await step('渊式·施放中换装：按住旋风斩（蓄潮）时摘下怒潮——旋转停下、攒着的潮势当场拍下、技能退回原式；已经放出去的回旋飞刃照样飞回来；双生坠不交替渊式（光环 / 召唤 / 渊式写在说明里），A / B 照旧交替', async () => {
     const r = await ev(() => {
       RQT.begin('nuchao');
