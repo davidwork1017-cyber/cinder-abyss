@@ -886,7 +886,7 @@
     // 烈爆 / 深寒 / 雷涌作用于召唤物打出来的爆燃 / 冻结 / 感电；远劲、储能、分岔、溅击镶不上
     narrow: { name: '收束', req: ['area'], cost: 1.2, eff: { area: -35, more: 25 }, desc: '范围缩小 35%，伤害 +25%',
       alt: '伤害是总额外加成。半径约为原来的八成。' },
-    farshot: { name: '远劲', req: ['projectile'], no: ['minion'], cost: 1.15, eff: { projSpd: 50, more: 20, noPass: 1 }, desc: '投射物速度、射程 +50%，伤害 +20%，不穿透',
+    farshot: { name: '远劲', req: ['projectile'], no: ['minion'], cost: 1.15, eff: { projSpd: 50, more: 20, noPass: 1 }, desc: '弹速与射程 +50%，伤害 +20%，不穿透',
       alt: '也不再连锁：装备、贯穿、连锁给的穿透和连锁都失效；弓的「一矢穿心」照样贯穿。黑旋风只是飞得更快更远。' },
     swell: { name: '盛环', req: ['aura'], auraUp: true, cost: 1.5, eff: { auraEff: 30 }, desc: '光环效果 +30%，保留 ×1.5',
       alt: '霜环、护涡的伤害 +30%；黑焰附带的混沌伤害比例 +30%。光环一共最多保留 90%。' },
