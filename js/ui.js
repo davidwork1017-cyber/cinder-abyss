@@ -1682,6 +1682,7 @@
     if (s('moreTaken')) h += row('承受伤害', '+' + fmt1(s('moreTaken')) + '%', '#ff7a6a');
     if (s('resLoss')) h += row('元素抗性（上限后）', '-' + fmt1(s('resLoss')) + '%', '#ff7a6a');
     if (s('moreDmg')) h += row('总伤害', pct(s('moreDmg')), s('moreDmg') > 0 ? '#ffb066' : '#ff7a6a');
+    if (s('allMore')) h += row('你和召唤物总伤害', pct(s('allMore')), '#ffb066');
     if (s('lessTaken')) h += row('承受伤害', '-' + fmt1(s('lessTaken')) + '%', '#9fdc8a');
     if (s('moreLife')) h += row('生命总量', pct(s('moreLife')), s('moreLife') > 0 ? '#9fdc8a' : '#ff7a6a');
     if (s('bloodMagic')) h += row('技能消耗', '生命', '#ff7a6a');
@@ -5853,6 +5854,13 @@
       done: () => false,
     },
     {
+      // 旧版双生坠：读档时升成四行（见 game.js 的 migrateTwin）
+      id: 'sxmig', calm: true, max: 16,
+      html: '<b>双生坠升级</b>：多了暴击伤害和总伤害两行，原有两行按原来的成色换算到新数值；效果改为「余响」',
+      when: () => G.twinMigrated > 0,
+      done: () => false,
+    },
+    {
       // 第五区上线前就打通过烬渊深处的老存档：提示一次多了一个区域（文字在数据里；读档时 sanitize 按 G.zoneNoticeFor 把 G.newZoneNotice 置上）
       get id() {
         return (G.NEW_ZONE_NOTICE && G.NEW_ZONE_NOTICE.id) || 'zone5';
@@ -5977,6 +5985,10 @@
   }
   function coachSeen(id) {
     G.save.tut[id] = 1;
+    if (id === 'sxmig') {
+      G.save.twinMig = false;
+      G.twinMigrated = 0;
+    }
     if (id === 'bowmig') G.save.bowMig = false;
     if (id === 'variant2') {
       G.save.varNote = false;
