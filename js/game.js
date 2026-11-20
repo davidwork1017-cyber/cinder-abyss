@@ -615,6 +615,15 @@
     return setSave(sanitize(raw));
   };
 
+  // 本地有没有存档（标题画面据此决定显示「继续游戏」、新游戏要不要先确认）
+  G.hasSave = function () {
+    try {
+      return !!window.localStorage.getItem(SAVE_KEY);
+    } catch (err) {
+      return false;
+    }
+  };
+
   G.persist = function () {
     try {
       window.localStorage.setItem(SAVE_KEY, JSON.stringify(G.save));
@@ -662,6 +671,7 @@
     sk.variant = v;
     sk.vname = V.name;
     sk.desc = V.desc;
+    sk.alt = V.alt || ''; // 按住 Alt 的详情跟着刻式换（原式的留在 SKILL_BASE 里）
     return sk;
   }
   // 这一刻生效的刻式：'o' / 'a' / 'b'（存档里记着、但宝石还没到解锁等级的不生效）
@@ -7943,7 +7953,7 @@
     const max = isLife ? P.maxLife : P.maxMana;
     if (cur >= max && !P.hot[kind]) return false; // 满的时候不浪费
     if (P.flask[kind] < 1) {
-      toast(isLife ? '生命药剂已用尽，击杀敌人可补充' : '魔力药剂已用尽，击杀敌人可补充', '#c8b89a', 'flask-' + kind, 2000);
+      toast(isLife ? '生命药剂已空，击杀敌人补充' : '魔力药剂已空，击杀敌人补充', '#c8b89a', 'flask-' + kind, 2000);
       return false;
     }
     P.flask[kind] -= 1;
@@ -8394,7 +8404,7 @@
     let slot = -1;
     if (!have) {
       slot = learnSkill(id, lvl);
-      toast('习得技能：' + sk.name + ' Lv ' + save.skills[id] + (slot >= 0 ? '' : '（在技能页绑定到技能栏）') + ' · 用掉一颗' + B.short, GEM_COLOR);
+      toast('习得技能：' + sk.name + ' Lv ' + save.skills[id] + (slot >= 0 ? '' : '（去技能页绑定）') + ' · 用掉一颗' + B.short, GEM_COLOR);
     } else {
       save.skills[id] = lvl;
       toast(sk.name + ' 升至 Lv ' + lvl + ' · 用掉一颗' + B.short, GEM_COLOR);
@@ -8452,7 +8462,7 @@
       const have = save.skills[id];
       if (!have) {
         const free = learnSkill(id, lvl);
-        toast('习得技能：' + name + ' Lv ' + save.skills[id] + (free >= 0 ? '' : '（按 G 绑定到技能栏）'), GEM_COLOR);
+        toast('习得技能：' + name + ' Lv ' + save.skills[id] + (free >= 0 ? '' : '（按 G 绑定）'), GEM_COLOR);
       } else if (lvl > have) {
         save.skills[id] = lvl;
         toast(name + ' 升至 Lv ' + lvl, GEM_COLOR);
@@ -8479,7 +8489,7 @@
       } else {
         save.blankGems.push(lvl);
         save.blankGems.sort((a, b) => b - a);
-        toast('获得' + B.name + ' Lv ' + lvl + '（共 ' + save.blankGems.length + ' 颗，按 G 在技能页挑选技能）', B.color);
+        toast('获得' + B.name + ' Lv ' + lvl + '（共 ' + save.blankGems.length + ' 颗，按 G 使用）', B.color);
       }
       G.sfx('gem');
       G.persist();
@@ -10007,7 +10017,7 @@
     S.tideT = PINS.tide.iv;
     S.snuffT = PINS.snuffIv;
     if (G.world.setGloom) G.world.setGloom(PINS.gloom);
-    toast('场地暗了下来：站在亮着的火盆旁边躲暗潮，熄灭的火盆可以重新点燃', '#ffd27a', 'pinDark', 4000);
+    toast('场地暗了：站在亮着的火盆旁躲暗潮，熄灭的可重新点燃', '#ffd27a', 'pinDark', 4000);
   };
   // 三阶段进场：亮着的火盆炸开（首领那边出预警），popT 秒后全部永久点燃、亮度复原，再出外圈的预警环，warnT 秒后起火
   G.pinEnterCrown = function () {
@@ -10153,7 +10163,7 @@
     save.run = null;
     pinClear();
     G.enterZone(save.lastZone, save.tier);
-    toast('魂灯燃尽，熄烛者还在等着。退还了 ' + back.map((id) => '「' + G.FRAGS[id].name + '」').join(''), '#ffd27a');
+    toast('魂灯燃尽。退还了 ' + back.map((id) => '「' + G.FRAGS[id].name + '」').join(''), '#ffd27a');
     if (G.ui && G.ui.open) G.ui.open('map');
   };
   // 击杀（killEnemy 的首领分支）：首杀记录、掉落（§6.6）、传送门；场地熄火亮灯
