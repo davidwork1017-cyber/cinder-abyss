@@ -12040,7 +12040,7 @@
   };
   // opts：{ ang 击杀这一下行进的方向, force 飞出的初速度（默认 0）, color 消散边缘的颜色（默认元素色）,
   //         linger 倒地后多停留的秒数, type 致命伤害的类型（phys / fire / cold / light，决定死法与地上的痕迹）,
-  //         over 过量击杀的程度（0 ~ 2：越大飞得越远、碎得越快） }。
+  //         over 过量击杀的程度（0 ~ 2：越大飞得越远、碎得越快）, stand 不演倒地、站着原地消散（召唤物被解散）, fade 消散时长 }。
   // 对玩家调用时会留下一具替身来演，玩家本体不受影响。
   W.die = function (ent, opts) {
     if (!ent || ent.removed || ent.dying) return;
@@ -12057,18 +12057,18 @@
       applyGear(dbl, ent.gearType, ent.gearRar, ent.gearVar);
       ent = dbl;
     }
-    const c = ent.rig.clips.death;
+    const c = o.stand ? null : ent.rig.clips.death;
     const st = DEATH_STYLE[o.type] || null, big = ent.rig.NB === NB_BIG && ent.kind !== 'player';
     const over = big ? 0 : Math.max(0, Math.min(2, o.over || 0));
     const f = (o.force || 0) * (1 + over * 0.6), a = o.ang === undefined ? ent.group.rotation.y + Math.PI : o.ang;
     const violent = over >= 0.6;
-    let clipDur = c ? c.dur : 0.4;
+    let clipDur = o.stand ? 0 : c ? c.dur : 0.4;
     if (o.type === 'cold') clipDur = Math.min(clipDur, 0.3); // 冻住：没倒完就僵在半道
     if (violent) clipDur = Math.min(clipDur, 0.26); // 过量击杀：还在半空就碎了
     ent.dying = {
       t: 0, clipDur, acc: 0, type: st ? o.type : '', st, over, begun: false,
       linger: violent ? 0 : o.linger !== undefined ? o.linger : st ? st.linger : 0.25,
-      fade: (big ? 0.9 : st ? st.fade : 0.5) * (violent ? 0.6 : 1),
+      fade: (o.fade !== undefined ? o.fade : big ? 0.9 : st ? st.fade : 0.5) * (violent ? 0.6 : 1),
       vx: Math.sin(a) * f, vz: Math.cos(a) * f,
       vy: f > 5 ? Math.min(9, 2 + f * 0.32) : 0, // 力道够大才离地
       spin: f > 5 ? (Math.random() < 0.5 ? -1 : 1) * Math.min(16, f * 0.9) : 0,
@@ -12083,7 +12083,7 @@
     if (ent.shT > 0) ent.shT = 1e-4;
     if (ent.ring) ent.ring.visible = false;
     if (ent.ringShade) ent.ringShade.visible = false;
-    W.play(ent, 'death', { hold: true });
+    if (!o.stand) W.play(ent, 'death', { hold: true });
     dyingEnts.push(ent);
     if (st) {
       const g = ent.group.position, h = ent.rig.height * ent.k, m = ent.bodyMat.userData;
