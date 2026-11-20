@@ -13781,6 +13781,7 @@ async function main() {
     await encKit();
     const r = await ev(() => {
       const S = G.state, out = {};
+      const unquiet = EK.quiet(); // 整步只让测试自己杀匣卫：技能栏上的光环（霜环）在 25 秒里会把匣卫磨死，「超时」那一半就测不到了
       let enc = EK.put('box', 1, 0);
       const s = enc.site;
       T.tp(s.x + 3, s.z);
@@ -13811,6 +13812,7 @@ async function main() {
       out.late = enc.how;
       out.lateItems = EK.items();
       EK.done();
+      unquiet();
       return out;
     });
     assert(r.idle === 'idle' && r.run === 'run' && r.n === 3, '缚匣应走到跟前才崩开、刷 3 只匣卫：' + JSON.stringify(r));
