@@ -12414,8 +12414,10 @@ async function main() {
       // 读档①：掷焰上的绵延（哪种刻式都用不上）→ 取下，宝石还在、提示一次
       G.persist();
       const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+      for (const k of ['lasting', 'echo']) if (raw.supports.indexOf(k) < 0) raw.supports.push(k); // 两颗都得在手里（前面的步骤可能换过辅助宝石栏）
       raw.sockets.ember = ['lasting', null, null];
       raw.sockets.arc = [null, 'echo', null];
+      for (const id of Object.keys(raw.sockets)) if (id !== 'ember' && id !== 'arc') raw.sockets[id] = (raw.sockets[id] || []).map((x) => (x === 'lasting' || x === 'echo' ? null : x));
       raw.variants = raw.variants || {};
       delete raw.variants.arc;
       localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
