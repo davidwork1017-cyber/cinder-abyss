@@ -1377,7 +1377,24 @@
   function decalPush(x, z, rx, rz, ang, cell, cl, op, lo) {
     if (decalQ && op > 0.01) decalQ.push(x, z, rx, rz, ang, cell, cl.r, cl.g, cl.b, op, lo === false ? 0 : 1);
   }
+  // 建区时先放一张只有一块（不可见）贴花的网格和材质（着色器跟着区域一起预编译），真正的贴花在进区之后的空档里摆好、换上几何体（decalFill）
+  const DECAL_EMPTY = [0, 0, 0.01, 0.01, 0, 9, 0, 0, 0, 0, 1];
+  function decalFill(mesh, q) {
+    const r = decalGeo(q);
+    if (!r) return;
+    const old = mesh.geometry;
+    mesh.geometry = r.g;
+    old.dispose();
+    mesh.userData.lowRange = r.nLo * 6;
+    r.g.setDrawRange(0, qualId === 'low' ? r.nLo * 6 : Infinity);
+  }
   function decalMesh(q) {
+    const r = decalGeo(q);
+    if (!r) return null;
+    const g = r.g, nLo = r.nLo;
+    return decalMeshOf(g, nLo);
+  }
+  function decalGeo(q) {
     const Q = 11, n = q.length / Q;
     if (!n) return null;
     const ord = [];
@@ -1418,6 +1435,9 @@
     g.setAttribute('aOp', new T.BufferAttribute(op, 1));
     g.setIndex(new T.BufferAttribute(idx, 1));
     g.computeBoundingSphere();
+    return { g, nLo };
+  }
+  function decalMeshOf(g, nLo) {
     const im = G.assets.tex('g_decals');
     const map = own(new T.Texture(im.albedo));
     map.encoding = T.sRGBEncoding;
@@ -9769,7 +9789,7 @@
     scene.add(zoneGroup);
     const hd = gfxReady(gx);
     const tx = hd ? null : groundTextures(def, st);
-    vfMs = { cover: 0, decals: 0, mesh: 0 };
+    vfMs = { cover: 0, decals: 0, mesh: 0, t0: performance.now() };
     decalQ = hd && decalOn(gx) ? [] : null; // vf-ground：贴花队列（建完布景后合成一张网格，见 buildDecals）
 
     // 氛围：雾在 r128 里是在色调映射和编码之后混合的，所以直接用显示色
@@ -9814,30 +9834,33 @@
     // 路面边界按噪声往里往外推（jag，米），踩出来的路和起点脚下保持干净
     const LY = hd && gx.layer && G.assets.tex(gx.layer.tex) && !vfOff('layer') ? gx.layer : null;
     const trailK = (x, z, d) => (ashT && d > -0.5 ? (1 - smooth01((ashT(x, z) - 0.8) / 1.4)) * smooth01((d + 0.5) / 1.2) : 0); // 踩出来的路
-    const coverW = (x, z, d, tk) => {
+    // pn0：调用方已经算好的 vnoise(x * 0.17 + 11.3, z * 0.17 - 5.1)（地面顶点循环里本来就有），墙脚堆积的断续用它，不再多算一次噪声
+    const coverW = (x, z, d, tk, pn0) => {
       if (d < -2.4 || tk >= 1) return 0;
-      const pc = vnoise(x * 0.09 + 5.3, z * 0.09 - 9.1) * 0.62 + vnoise(x * 0.23 - 2.2, z * 0.23 + 4.4) * 0.38;
+      const pc = MF ? MF(x, z, 3) : vnoise(x * 0.09 + 5.3, z * 0.09 - 9.1) * 0.62 + vnoise(x * 0.23 - 2.2, z * 0.23 + 4.4) * 0.38;
       const patch = smooth01((pc - LY.pT) / 0.07) * LY.path * smooth01((d - 0.4) / 1.2);
-      const acc = LY.edge * (1 - smooth01((d - 0.1) / 1.7)) * smooth01((d + 2.4) / 1.1) * smooth01(0.2 + 1.6 * (vnoise(x * 0.42 + 1.7, z * 0.42 - 6.2) - 0.35));
+      const an = pn0 !== undefined ? pn0 : vnoise(x * 0.17 + 11.3, z * 0.17 - 5.1);
+      const acc = d > 1.8 ? 0 : LY.edge * (1 - smooth01((d - 0.1) / 1.7)) * smooth01((d + 2.4) / 1.1) * smooth01(0.2 + 1.6 * (an - 0.35));
       const clr = (1 - tk) * smooth01((Math.hypot(x - zone.start.x, z - zone.start.z) - 2.2) / 2.5);
       return Math.min(1, Math.max(patch, acc)) * clr;
     };
     // vf-ground：大尺度的明暗 / 冷暖 / 烧焦地噪声（周期 5 m 以上）先按 2 m 的粗网格算好，顶点上双线性取（省掉每个顶点 5 次值噪声，建区快几毫秒）
     let MF = null;
-    if (LY && (LY.mv || LY.mh || LY.scorch)) {
-      const S2 = 2, fw = Math.ceil((nx * CS) / S2) + 2, fh = Math.ceil((nz * CS) / S2) + 2, A = new Float32Array(fw * fh * 3);
+    if (LY) {
+      const S2 = 2, fw = Math.ceil((nx * CS) / S2) + 2, fh = Math.ceil((nz * CS) / S2) + 2, A = new Float32Array(fw * fh * 4);
       for (let j = 0; j < fh; j++) {
         for (let i = 0; i < fw; i++) {
-          const x = x0 + i * S2, z = z0 + j * S2, o = (j * fw + i) * 3;
+          const x = x0 + i * S2, z = z0 + j * S2, o = (j * fw + i) * 4;
           A[o] = vnoise(x * 0.065 + 3.3, z * 0.065 - 1.9) * 0.6 + vnoise(x * 0.15 - 7.1, z * 0.15 + 2.2) * 0.4;
           A[o + 1] = vnoise(x * 0.045 + 9.2, z * 0.045 - 4.4);
           A[o + 2] = vnoise(x * 0.075 - 6.6, z * 0.075 + 3.9) * 0.7 + vnoise(x * 0.19 + 2.5, z * 0.19 - 8.1) * 0.3;
+          A[o + 3] = vnoise(x * 0.09 + 5.3, z * 0.09 - 9.1) * 0.62 + vnoise(x * 0.23 - 2.2, z * 0.23 + 4.4) * 0.38; // 覆盖层斑块（coverW 的 pc）
         }
       }
       MF = (x, z, k) => {
         const fx = Math.min(fw - 1.001, Math.max(0, (x - x0) / S2)), fz = Math.min(fh - 1.001, Math.max(0, (z - z0) / S2));
-        const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, w = fz - j, o = (j * fw + i) * 3 + k, r = fw * 3;
-        return A[o] * (1 - u) * (1 - w) + A[o + 3] * u * (1 - w) + A[o + r] * (1 - u) * w + A[o + r + 3] * u * w;
+        const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, w = fz - j, o = (j * fw + i) * 4 + k, r = fw * 4;
+        return A[o] * (1 - u) * (1 - w) + A[o + 4] * u * (1 - w) + A[o + r] * (1 - u) * w + A[o + r + 4] * u * w;
       };
     }
     // 路面上粗糙斑块的强度（zones-polish：ZONE_GFX.<id>.patch，缺省 0.55 和原来一样）：frost / rift 的粗糙地面贴图在路面上是一块块像泥、像脏印子的软边斑，压下去
@@ -9867,14 +9890,14 @@
         }
         col.push(v * (1 + 0.07 * tk + tv), v, v * (1 - 0.1 * tk - tv));
         const pn = vnoise(x * 0.17 + 11.3, z * 0.17 - 5.1);
-        const dj = LY && LY.jag && d > -2.2 && d < 1.6 && !vfOff('jag') ? d + (vnoise(x * 0.55 - 3.3, z * 0.55 + 7.9) - 0.5) * LY.jag : d;
+        const dj = LY && LY.jag && d > -2.2 && d < 1.6 && !vfOff('jag') ? d + (pn - 0.5) * LY.jag : d; // 路边起伏用现成的 pn（周期约 6 m）
         let wp = smooth01((dj + 0.45) / (LY && LY.edgeW ? LY.edgeW : 1.0));
         // vf-ground：成片的烧焦地（大尺度噪声，离路边 0.6 m 以内和踩出来的路上没有）
         if (MF && LY.scorch && d > 0.6) wp *= 1 - LY.scorch * smooth01((MF(x, z, 2) - LY.sT) / 0.05) * (1 - tk) * smooth01((d - 0.6) / 1.0);
         // 路面上零星的粗糙斑块，离路边越远越少；第 0 区斑块更多更实（打散满地一样的龟裂纹），踩出来的路上没有
         wp *= ash ? 1 - patchK * smooth01((pn - 0.6) / 0.16) * smooth01((d + 0.5) / 2.5) * (1 - tk) * smooth01((Math.hypot(x - zone.start.x, z - zone.start.z) - 3) / 3) : 1 - patchK * smooth01((pn - 0.58) / 0.2) * smooth01(d / 2.2);
         aw.push(wp, smooth01((-d - 0.9) / 2.2) * (1 - wp));
-        ac.push(LY ? coverW(x, z, d, tk) : 0);
+        ac.push(LY ? coverW(x, z, d, tk, pn) : 0);
       } else col.push(vm[0] + (lit - vm[0]) * kk, vm[1] + (lit - vm[1]) * kk, vm[2] + (lit - vm[2]) * kk);
       return (vid[k] = pos.length / 3 - 1);
     };
@@ -9979,6 +10002,7 @@
     const clusters = [];
     const clusterRocks = () => {
       if (!decalQ) return;
+      const tc0 = performance.now();
       const cr = ashRng(zone, 12), q = (a, b) => a + (b - a) * cr();
       const src = ash ? rocksA.slice() : rocksA.concat(rocksB);
       for (let i = 0; i < src.length; i += 10) {
@@ -10001,6 +10025,7 @@
           rocksB.push(px, sy * 0.28, pz, q(-0.3, 0.3), q(0, TAU), q(-0.3, 0.3), s2 * q(0.85, 1.2), sy, s2 * q(0.85, 1.2), q(0.6, 0.86));
         }
       }
+      vfMs.cl = +(performance.now() - tc0).toFixed(2);
     };
     if (ash) clusterRocks();
     else {
@@ -10056,6 +10081,7 @@
       instanced(spireGeo(), rockMat, spires, true, rockTint);
     }
 
+    vfMs.rocks = +(performance.now() - vfMs.t0).toFixed(2); // 建外观开始到岩石摆完（调试）
     // --- 主题摆件（有 CC0 布景模型时只保留 keep 比例的程序化摆件，其余换成模型，见 buildProps） ---
     const props = [];
     const withProps = hd && propsReady(gx);
@@ -10199,8 +10225,9 @@
     const TZ = terrainOf(def);
     const tctx = terrainCtx(zone, { sd, lowK, hd, gx, rock: rockMat, rockTint, prop: propMat, crystal: crystalMat, glow: glowMat, blot: blotMat, ground, voidMesh, bossSigil, startSigil });
     const tstate = TZ.dress ? TZ.dress(zone, tctx) : null;
-    // vf-ground：暖色光池（火盆 + 余烬裂缝 + 熔岩），烘进地面顶点色
-    if (hd && gx.pool) {
+    // vf-ground：暖色光池（火盆 + 余烬裂缝 + 熔岩），烘进地面顶点色。和贴花一起放到进区之后的空档里做（不算进建区耗时）
+    const vfJobs = [];
+    if (hd && gx.pool) vfJobs.push(() => {
       const pts = [];
       if (fires) for (const f of fires.list) pts.push(f.x, f.z, 2.4, 1);
       for (let i = 0; i < ashGlow.length; i += 10) pts.push(ashGlow[i], ashGlow[i + 2], ashGlow[i + 6] * 1.1, 0.8);
@@ -10210,17 +10237,33 @@
       const tp0 = performance.now();
       lightPools(zone, ground, gx, P4);
       vfMs.pools = +(performance.now() - tp0).toFixed(2);
-    }
+    });
     // vf-ground：贴花层（接触阴影要等各区布景都摆好，所以放在最后），整区一张网格
     if (decalQ) {
-      const t0 = performance.now();
-      buildDecals(zone, gx, sd, { trail: ashT, clusters, cover: LY ? (x, z) => { const d = sd(x, z); return coverW(x, z, d, trailK(x, z, d)); } : null });
-      const t1 = performance.now();
-      const dm = vfIso(() => decalMesh(decalQ));
-      if (dm) zoneGroup.add(dm);
-      vfMs = { cover: vfMs.cover, pools: vfMs.pools, decals: +(t1 - t0).toFixed(2), mesh: +(performance.now() - t1).toFixed(2), n: decalQ.length / 11 };
+      const dm = vfIso(() => decalMesh(DECAL_EMPTY)), q0 = decalQ;
+      zoneGroup.add(dm);
+      const dctx = { trail: ashT, clusters, cover: LY ? (x, z) => { const d = sd(x, z); return coverW(x, z, d, trailK(x, z, d)); } : null };
+      vfJobs.push(() => {
+        const t0 = performance.now();
+        decalQ = q0;
+        try {
+          buildDecals(zone, gx, sd, dctx);
+          const t1 = performance.now();
+          vfIso(() => decalFill(dm, decalQ));
+          vfMs = Object.assign(vfMs, { decals: +(t1 - t0).toFixed(2), mesh: +(performance.now() - t1).toFixed(2), n: decalQ.length / 11 });
+        } finally {
+          decalQ = null;
+        }
+      });
     }
     decalQ = null;
+    if (vfJobs.length) {
+      const zg = zoneGroup;
+      setTimeout(() => {
+        if (zoneGroup !== zg || W.zone !== zone) return; // 已经换区 / 重建了
+        for (const f of vfJobs) f();
+      }, 0);
+    }
 
     _c.set(gx && gx.amb !== undefined ? gx.amb : def.accent); // 环境火星的颜色：ZONE_GFX.<id>.amb（缺省区域强调色，zones-integrate）
     const chests = buildChests(zone);
