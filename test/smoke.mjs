@@ -8848,9 +8848,9 @@ async function main() {
       // vf-ground：进区后马上换区（第 0 区空档里的顶点重算 / 岩石簇 / 光池 / 贴花还没跑）：旧区的空档任务放弃，新区照常填好，场景里只有一张贴花网格
       G.enterZone(0, 0);
       G.enterZone(1, 0);
-      await new Promise((res) => setTimeout(res, 150));
-      const dm = [];
-      W.scene.traverse((o) => { if (o.name === 'groundDecals') dm.push(o.geometry.index ? o.geometry.index.count : 0); });
+      const decalIdx = () => { const d = []; W.scene.traverse((o) => { if (o.name === 'groundDecals') d.push(o.geometry.index ? o.geometry.index.count : 0); }); return d; };
+      await wait(() => (decalIdx()[0] || 0) > 6, 5000); // 等空档任务跑完（防卡死的上限，不是计时断言）
+      const dm = decalIdx();
       const bail = { n: dm.length, idx: dm[0] || 0, zone: G.state.zone.def.id };
       G.enterZone(0, 0);
       const qs = [], aa = [];
