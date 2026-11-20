@@ -804,7 +804,7 @@
     c: {
       name: '回旋', relic: 'huixuan', pack: '一条线来回两遍',
       desc: '更宽的利刃穿透所有敌人，飞到尽头或撞墙后折返，回程再伤一遍路上的敌人。', alt: '回程朝你飞，飞到你身边为止。同一个敌人去程、回程各挨一下。',
-      set: { mech: 'boom', wm: 0.85, pierce: 99, projR: 0.5, useMult: 1.7, boom: { back: 0.7, range: 1.0 } },
+      set: { mech: 'boom', wm: 0.85, pierce: 99, projR: 0.7, useMult: 1.7, boom: { back: 0.7, range: 1.0 } },
     },
   });
   Object.assign(G.VARIANTS.whirl, {
@@ -832,7 +832,7 @@
     c: {
       name: '独骸', relic: 'haiwang', pack: '只有一具，更大更硬',
       desc: '仆从上限固定为 1：召唤一具骸王，体型更大、更耐打，横斩 270° 扫一大片。', alt: '够得更远；受到的伤害 −15%，同时牵制 5 只小怪。多出的仆从上限（群聚、天赋、护符、万魂旗）每个折成 +35% 伤害、+40% 生命。',
-      set: { mech: 'king', king: { perDmg: 0.35, perLife: 0.4, scale: 1.5, life: 3, dmg: 3.9, cleave: 10, arc: 270, reach: 2, hold: 5, dr: 15 } },
+      set: { mech: 'king', king: { perDmg: 0.35, perLife: 0.4, scale: 1.5, life: 3, dmg: 3.9, cleave: 12, arc: 270, reach: 2.8, hold: 5, dr: 15 } },
     },
   });
   Object.assign(G.VARIANTS.blackhole, {

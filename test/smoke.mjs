@@ -12939,7 +12939,7 @@ async function main() {
     return '混相 ' + r.one[3] + ' / 击';
   });
 
-  await step('渊式·独骸（骸王冠解锁）：烬骸仆从上限固定 1，伤害 ×3.9（单体秒伤 = 3 具的 1.3）、生命 ×3、横斩带 10 个 / 270°、够得 ×2 远、牵制 5 只、减伤 +15；群聚多给的上限折成 +35% 伤害 / +40% 生命；骸王体型 ×1.5、头顶冠环；魂火按普通仆从算；摘下退回原式（上限 3）', async () => {
+  await step('渊式·独骸（骸王冠解锁）：烬骸仆从上限固定 1，伤害 ×3.9（单体秒伤 = 3 具的 1.3）、生命 ×3、横斩带 12 个 / 270°、够得 ×2.8 远、牵制 5 只、减伤 +15；群聚多给的上限折成 +35% 伤害 / +40% 生命；骸王体型 ×1.5、头顶冠环；魂火按普通仆从算；摘下退回原式（上限 3）', async () => {
     const r = await ev(() => {
       const bar0 = T.slotSummon('thrall'); // 召唤物只在技能放在技能栏上时存在
       RQT.begin(null);
@@ -12993,7 +12993,7 @@ async function main() {
       return out;
     });
     assert(r.cap[1] === 1 && r.king && Math.abs(r.more - r.wantMore) < 1e-3 && Math.abs(r.life - r.wantLife) < 0.02, '骸王的上限 / 伤害 / 生命不对：' + JSON.stringify(r));
-    assert([r.cleave, r.arc, r.hold, r.dr, r.reach].join() === r.want.join() && r.want.join() === '10,270,5,15,2', '骸王的横斩 / 够得着 / 牵制 / 减伤不对：' + JSON.stringify(r));
+    assert([r.cleave, r.arc, r.hold, r.dr, r.reach].join() === r.want.join() && r.want.join() === '12,270,5,15,2.8', '骸王的横斩 / 够得着 / 牵制 / 减伤不对：' + JSON.stringify(r));
     assert((r.dps === null || Math.abs(r.dps - r.kdmg / 3) < 0.01) && r.soulK > 0 && r.soulK <= 1, '单体秒伤应约为 3 具的 骸王倍率 / 3、魂火按普通仆从算：' + JSON.stringify(r));
     assert(r.horde[0] === 1 && Math.abs(r.horde[1] - r.horde[2]) < 1e-3 && r.horde[3] === 1, '群聚多给的上限应折成伤害：' + JSON.stringify(r.horde));
     assert(r.count === 1 && r.big && r.big[0] && r.big[1] === 1.5 && r.big[2] === 1.5 && r.crown === 1, '骸王应只有 1 具、体型 ×1.5、头顶冠环：' + JSON.stringify(r));
