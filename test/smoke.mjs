@@ -310,6 +310,22 @@ async function closePanel() {
   assert(!(await ev(() => G.ui.isOpen())), 'Esc 没有关掉面板');
 }
 
+// 面板打开时有 0.16 秒的入场动画（缩放 0.99 → 1），getBoundingClientRect 量到的宽高跟着变；机器忙时这段动画会拖到一两秒。
+// 量技能卡尺寸之前：等面板上没有在播的动画，再连续两帧量所有技能卡的位置和大小，一样才算排好
+async function panelSettled() {
+  for (let i = 0; i < 300; i++) {
+    const ok = await ev(() => new Promise((res) => {
+      const win = document.getElementById('panel-win');
+      if (!win || win.getAnimations().some((a) => a.playState === 'running' || a.playState === 'pending')) return requestAnimationFrame(() => res(false));
+      const m = () => Array.from(document.querySelectorAll('#panel .skill-card')).map((c) => { const r = c.getBoundingClientRect(); return [r.left, r.top, r.width, r.height].join(','); }).join('|');
+      const a = m();
+      requestAnimationFrame(() => requestAnimationFrame(() => res(a === m())));
+    }));
+    if (ok) return;
+  }
+  throw new Error('技能页一直没排好（入场动画没播完或卡片尺寸一直在变）');
+}
+
 // 确认面板里的文字没有漏出 undefined / NaN
 function cleanText(txt, where) {
   assert(txt.length > 40, where + ' 内容太少：' + JSON.stringify(txt.slice(0, 60)));
@@ -6640,6 +6656,7 @@ async function main() {
       assert(pre.shade && pre.blade && pre.relic && pre.vb && pre.va, '数据里的详情字段不对：' + JSON.stringify(pre));
       await page.keyboard.press('KeyG');
       await until(() => G.ui.isOpen() && document.querySelectorAll('.skill-card').length > 0);
+      await panelSettled();
       const look = () => ev(() => {
         const card = (id) => Array.from(document.querySelectorAll('.skill-card')).find((n) => n.querySelector('.sk-name') && n.querySelector('.sk-name').textContent.includes(G.SKILLS[id].name));
         const sh = card('shadestep'), bl = card('blade');
@@ -6682,7 +6699,7 @@ async function main() {
     try {
       await page.keyboard.press('KeyG');
       await until(() => G.ui.isOpen() && document.querySelectorAll('.skill-list > .skill-card').length > 2);
-      await frames(4);
+      await panelSettled();
       const lay = await ev(() => {
         const list = document.querySelector('.skill-list'), lr = list.getBoundingClientRect();
         return Array.from(list.querySelectorAll(':scope > .skill-card')).map((c) => {
