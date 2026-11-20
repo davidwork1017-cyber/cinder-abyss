@@ -8646,6 +8646,7 @@
   function commit() {
     G.computeStats();
     syncWsCd();
+    if (G.refreshMinions) G.refreshMinions(); // 技能栏 / 装备变了：来源不在的召唤物马上解散，上限降了的马上裁掉
     G.persist();
     return true;
   }
