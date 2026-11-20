@@ -12540,6 +12540,23 @@ async function main() {
         kill(list) {
           for (const e of list) if (!e.dead) G.killEnemy(e);
         },
+        // 收起玩家这边会自己出手的伤害来源：召唤物（换区会跟过来）、自动召唤、技能栏上的光环（每隔一阵打身边所有怪）、
+        // 前面步骤留下的按住的键鼠（右键按着就一直挥武器）。要量「只有异兆在打怪」的步骤用；返回还原函数
+        quiet() {
+          const auto = Object.assign({}, G.save.autoSummon || {}), bar = G.save.bar.slice();
+          for (const k in G.save.autoSummon || {}) G.save.autoSummon[k] = false;
+          G.clearMinions();
+          G.save.bar = bar.map((id) => (id && G.SKILLS[id] && G.SKILLS[id].kind === 'aura' ? null : id));
+          G.computeStats();
+          for (const k in G.input.keys) G.input.keys[k] = false;
+          G.input.mouse.b[0] = G.input.mouse.b[1] = G.input.mouse.b[2] = false;
+          P.cast = null;
+          return () => {
+            Object.assign(G.save.autoSummon || {}, auto);
+            G.save.bar = bar;
+            G.computeStats();
+          };
+        },
         items: () => S.loot.filter((l) => l.kind === 'item').length,
         done() {
           P.god = false;
@@ -13187,6 +13204,7 @@ async function main() {
     const r = await ev(() => {
       const S = G.state, P = G.player, out = {};
       let enc = EK.put('ember', 3, 1);
+      const unquiet = EK.quiet(); // 整步只有余烬在打怪：不然召唤物 / 光环 / 按住的右键会在量伤害的窗口里补刀，烬晶也可能被它们打碎
       const s = enc.site;
       T.tp(s.x + 3, s.z);
       EK.step(0.2);
@@ -13204,19 +13222,32 @@ async function main() {
         maxT = Math.max(maxT, S.telegraphs.filter((t) => enc.tele.indexOf(t) >= 0).length);
       }
       out.maxTele = maxT;
-      // 余烬打怪：靶子站在玩家脚下，下一团瞄着玩家落（随机数临时压低），挨的是整数倍的 3 × 小怪一击
+      // 余烬打怪：靶子站在玩家脚下，下一团瞄着玩家落（随机数临时压低），挨的是整数倍的 3 × 小怪一击。
+      // 窗口里只许余烬扣血：附近别的怪先清掉（掉落一起清，不混进后面的件数），靶子不攒异常、不吃架势
+      for (const e of S.enemies) if (!e.dead && !e.fixed && !e.isBoss && Math.hypot(e.x - P.x, e.z - P.z) < 16) G.killEnemy(e);
+      T.clearLoot();
       const dummy = G.spawnMob('husk', P.x, P.z, enc.level, { awake: false });
       dummy.hp = dummy.maxHp = 1e7;
       dummy.atkCd = 1e9;
       dummy.speed = 0;
+      dummy.buTh = 1e15;
+      dummy.poiseMax = 0;
       const hit = G.ENCOUNTERS.ember.p.hitK * G.MOBS.husk.dmg * G.dmgScale(enc.level) * G.ENCOUNTERS.ember.p.mobK;
       enc.tele.length = 0;
       enc.fallT = 0;
+      // 逐帧记靶子掉的血：每一下都得正好是整数团余烬（同一帧落两团就是 2 倍），别的来源哪怕一点点也算错
+      let hp0 = dummy.hp;
+      const drops = [];
+      const watch = () => {
+        if (dummy.hp !== hp0) drops.push(+((hp0 - dummy.hp) / hit).toFixed(6));
+        hp0 = dummy.hp;
+      };
       const rnd = Math.random;
       Math.random = () => 0.1;
-      EK.step(1 / 60);
+      EK.step(1 / 60, watch);
       Math.random = rnd;
-      EK.step(1.2);
+      EK.step(1.2, watch);
+      out.drops = drops;
       out.mobHit = +((1e7 - dummy.hp) / hit).toFixed(2);
       G.killEnemy(dummy);
       EK.kill(enc.shards);
@@ -13231,11 +13262,12 @@ async function main() {
       out.late = enc.st;
       out.gone = enc.shards.every((e) => e.dead);
       EK.done();
+      unquiet();
       return out;
     });
     assert(r.sleep === 'sleep' && r.open === 'open' && r.run === 'run' && r.shards === 4, '落烬应清空房间后摸烬核开始、立 4 块烬晶：' + JSON.stringify(r));
     assert(r.maxTele >= 1 && r.maxTele <= 3, '余烬预警同时应 ≤ 3：' + JSON.stringify(r));
-    assert(r.mobHit >= 1 && Math.abs(r.mobHit - Math.round(r.mobHit)) < 0.05, '余烬打怪应是 3 倍小怪一击（整数次）：' + JSON.stringify(r));
+    assert(r.drops.length >= 1 && r.drops.every((d) => d >= 1 && Math.abs(d - Math.round(d)) < 1e-6), '余烬打怪应是 3 倍小怪一击，每一下都是整数团、没有别的伤害：' + JSON.stringify(r));
     assert(r.st === 'done' && r.items >= 4 && r.late === 'fail' && r.gone, '落烬的成功 / 超时不对：' + JSON.stringify(r));
     return '预警最多 ' + r.maxTele + ' 个，打怪 ' + r.mobHit + ' 倍一击';
   });
