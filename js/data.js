@@ -968,7 +968,7 @@
     moveSpeed: '移动速度提高 {v}%', rarity: '掉落物品稀有度提高 {v}%',
     area: '技能范围扩大 {v}%', ailment: '异常值累积速度加快 {v}%（含渊缚）', costReduce: '技能消耗降低 {v}%',
     dodgeCd: '翻滚冷却缩短 {v}%', moreDmg: '总伤害额外 {s}{v}%', lessTaken: '受到的伤害减少 {v}%',
-    moreLife: '最大生命额外 {s}{v}%', bloodMagic: '技能消耗生命而非魔力，光环改为保留生命',
+    moreLife: '最大生命额外 {s}{v}%', allMore: '你和召唤物的总伤害额外 {s}{v}%', bloodMagic: '技能消耗生命而非魔力，光环改为保留生命',
     minionDmg: '召唤物伤害提高 {v}%', minionLife: '召唤物最大生命提高 {v}%',
     minionSpeed: '召唤物攻击与移动速度提高 {v}%', minionCap: '烬骸仆从数量上限 +{v}',
     minionMore: '召唤物总伤害额外 {s}{v}%', ownLess: '你自身（非召唤物）的总伤害额外 -{v}%',
@@ -1126,6 +1126,8 @@
     // 只出现在烬铸武器上的词缀行（slots 为空、权重 0：随机掉落和打造都不会出）
     A('uIncElem', 'prefix', '三相', 'incElem', 8, 13, 1.35, [], 0),
     A('uAilment', 'suffix', '蚀相', 'ailment', 8, 13, 1.3, [], 0),
+    // 只出现在双生坠上：你和召唤物的总伤害额外（g 1：不分阶，区间就是 lo–hi）
+    A('uAllMore', 'prefix', '双生', 'allMore', 10, 14, 1, [], 0),
   ];
   G.AFFIX_BY_ID = {};
   for (const a of G.AFFIXES) G.AFFIX_BY_ID[a.id] = a;
@@ -1317,8 +1319,9 @@
       lore: '只剩一根烛芯在冒烟。',
     },
     shuangsheng: {
-      name: '双生坠', slot: 'amulet', base: 0, src: 'pinnacle', pinnacle: true, mechName: '双生',
-      lines: [{ id: 'incAll', k: [1.0, 1.4] }, { id: 'speed', k: [1.0, 1.3] }],
+      name: '双生坠', slot: 'amulet', base: 0, src: 'pinnacle', pinnacle: true, mechName: '余响', rqv: 2,
+      // 巅峰护符：四行都比普通渊契（k 1.0–1.4）高一截；最后一行只有它有（旧存档的升级见 game.js 的 migrateTwin）
+      lines: [{ id: 'incAll', k: [1.5, 1.9] }, { id: 'speed', k: [1.3, 1.6] }, { id: 'critMulti', k: [1.3, 1.6] }, { id: 'uAllMore', k: [1, 1] }],
       lore: '一半暖，一半冷。',
     },
   };
@@ -1365,7 +1368,8 @@
   // 锁链 yuanfu：同一时刻处于渊缚的敌人连成一串（最多 max 个），其中一个受到你的伤害，其余每个分到 share
   // 无光 xizhu（巅峰）：暖光半径 × (1 − lamp)；far 米外的怪不会因为距离醒来；已醒的怪在 far 米外 lose 秒看不到你就失去目标、回原地（首领不吃）；
   //   你对 far 米外的敌人伤害 × (1 + dmg)，还没被发现（没醒）时的第一击必定暴击；和幽晦叠加时雾近端不低于 fogMin
-  // 双生 shuangsheng（巅峰）：选了刻式的技能每次施放在 A / B 之间交替（光环、召唤除外），交替出来的那一下（不是你选的那一种）伤害 × (1 + dmg)
+  // 双生 shuangsheng（巅峰）：刻式技能（宝石 ≥ 解锁等级或选着渊式）的每次命中，delay 秒后在同一目标上落一记这一下伤害 × k 的双生一击
+  //   （召唤物、光环的命中和黑焰那一份都算；同一目标累加成一记；不暴击、不累积异常、不触发命中效果、不攒层数）
   G.RELIC_MECH = {
     // r 4.5（设计稿 3.0）：从近战距离朝目标翻滚，落地离目标约 4 米，3 米够不着翻过去的那个目标
     panzhong: { r: 4.5, mult: 1.1, poise: 28, kb: 1.2, gap: 0.8, rollCd: 0.3 },
@@ -1377,7 +1381,7 @@
     zhaohun: { delay: 0.15, r: 1.6, mult: 1.5, multBig: 1.0, rollCd: 0.15 },
     yuanfu: { max: 6, share: 0.2 },
     xizhu: { lamp: 0.4, far: 9, lose: 3, dmg: 0.3, fogMin: 14 },
-    shuangsheng: { dmg: 0.1 },
+    shuangsheng: { k: 0.6, delay: 0.2, fx: 0.32 }, // fx：脚下双月的亮度（1 = 暖金原色）；0.32 时压在怪群脚边、怪的亮面只高 1–2 个点（灰度同帧对照）
   };
   // 机制说明（物品提示、图鉴用），按上面的数值拼
   G.relicDescs = function () {
@@ -1414,8 +1418,8 @@
     const x = M.xizhu, s2 = M.shuangsheng;
     R.xizhu.mechDesc = '暖光半径缩小 ' + pc(x.lamp) + '。' + x.far + ' 米外的怪不会因距离醒来；你对 ' + x.far + ' 米外的敌人伤害提高 ' + pc(x.dmg) + '，对没发现你的敌人第一击必定暴击。';
     R.xizhu.mechAlt = '被打中或同群被叫醒照旧。已醒的怪在 ' + x.far + ' 米外连续 ' + x.lose + ' 秒看不到你，就失去目标、回到原地（首领不会）。';
-    R.shuangsheng.mechDesc = '有刻式的技能每次施放在 A、B 间交替，不是你选的那一下伤害提高 ' + pc(s2.dmg) + '。';
-    R.shuangsheng.mechAlt = '光环、召唤和渊式不交替，始终是你选的那种。宝石 ' + G.VARIANT_LVL + ' 级并选过刻式才生效；已放出的黑洞、旋风等按施放时的刻式走完。';
+    R.shuangsheng.mechDesc = '刻式技能每次命中，' + s2.delay + ' 秒后余响一次，造成该次伤害的 ' + pc(s2.k) + '。';
+    R.shuangsheng.mechAlt = '宝石 ' + G.VARIANT_LVL + ' 级起算刻式技能（原式也算）。召唤物、光环的命中和黑焰都算，和辅助宝石「回响」叠加。余响不暴击、不累积异常值、不触发命中效果、不攒层数；同一目标同时只挂一次，期间的命中累加进去。';
   };
   G.relicDescs();
   // 分解渊契固定得到的通货（同烬铸）
