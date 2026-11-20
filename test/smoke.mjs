@@ -1465,20 +1465,24 @@ async function main() {
       await holdInput(slot, true);
       let r;
       try {
-        // 按模拟时间推进（G.tick = 实时循环里的同一步），不等真实时间的帧：召唤物要走过去再打（巨像的模拟时间要好几秒），机器一忙按帧等会超时。
+        // 按模拟时间推进（G.tick = 实时循环里的同一步，内含 W.update，命中帧、动作都照走；判定只看模拟状态，不需要渲染），不等真实时间的帧：
+        // 召唤物要走过去再打（巨像的模拟时间要好几秒），机器一忙按帧等会超时。每次 evaluate 推进 1 秒（60 步），中间让页面喘口气，最多 45 秒模拟时间。
         // 鼠标 / 按键照样是真的；先让渲染循环跑两帧，把准星的世界坐标更新到靶子上
         await frames(2);
-        const hit = await ev(() => {
-          const M = G.input.mouse;
-          for (let i = 0; i < 45 * 60; i++) {
-            if (T.d.hp < T.d.maxHp) return true;
-            const g = G.world.screenToGround(M.x, M.y); // 和实时循环的每一帧一样：先按当前镜头重算准星落点，再推进一步
-            M.wx = g.x;
-            M.wz = g.z;
-            G.tick(1 / 60);
-          }
-          return T.d.hp < T.d.maxHp;
-        });
+        let hit = false;
+        for (let c = 0; c < 45 && !hit; c++) {
+          hit = await ev(() => {
+            const M = G.input.mouse;
+            for (let i = 0; i < 60; i++) {
+              if (T.d.hp < T.d.maxHp) return true;
+              const g = G.world.screenToGround(M.x, M.y); // 和实时循环的每一帧一样：先按当前镜头重算准星落点，再推进一步
+              M.wx = g.x;
+              M.wz = g.z;
+              G.tick(1 / 60);
+            }
+            return T.d.hp < T.d.maxHp;
+          });
+        }
         if (!hit) throw new Error('按住 45 秒（模拟时间）也没有打到靶子');
         r = await ev((id) => ({
           dmg: T.d.maxHp - T.d.hp, mana: G.player.mana, max: G.player.maxMana, cdMax: G.player.cdMax[id] || 0,
