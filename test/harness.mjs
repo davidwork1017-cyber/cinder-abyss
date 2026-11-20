@@ -17,9 +17,11 @@ else {
 }
 export const GAME_URL = url0;
 
+// dpr：给游戏看的 window.devicePixelRatio（测试省渲染用，见 test/README.md「省渲染」）。每次导航前都装上；
+// 页面里 sessionStorage 的 cinder-test-dpr 优先（单步临时改回 1 时重载页面也保持），null = 不改
 // title：要不要显示标题画面。默认 false——测试和各种截图 / 计时脚本一进页面就和以前一样直接进区（每次导航前设 window.__skipTitle，
 // 重载页面也一样跳过）；只有测标题画面本身的步骤传 title: true
-export async function launch({ width = 1440, height = 900, url = GAME_URL, title = false } = {}) {
+export async function launch({ width = 1440, height = 900, url = GAME_URL, title = false, dpr = null } = {}) {
   const browser = await chromium.launch({
     channel: 'chrome',
     headless: true,
@@ -27,6 +29,15 @@ export async function launch({ width = 1440, height = 900, url = GAME_URL, title
   });
   const page = await browser.newPage({ viewport: { width, height } });
   if (!title) await page.addInitScript(() => { window.__skipTitle = true; });
+  if (dpr)
+    await page.addInitScript((d) => {
+      let v = d;
+      try {
+        if (sessionStorage.getItem('cinder-test-dpr')) v = +sessionStorage.getItem('cinder-test-dpr');
+      } catch (e) {}
+      window.__testDpr = v;
+      Object.defineProperty(window, 'devicePixelRatio', { get: () => window.__testDpr, configurable: true });
+    }, dpr);
   const errors = [];
   page.on('pageerror', (e) => errors.push('pageerror: ' + (e.stack || e.message)));
   page.on('console', (m) => {
