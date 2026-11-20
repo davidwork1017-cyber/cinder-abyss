@@ -797,14 +797,14 @@
       sigil: { r: 0.52, dark: 0.55, start: false }, // zones-ash：熔渣坑的法阵收小、压暗一半；不要起点法阵（起点布景见 buildAshDress）
       props: {
         // 卡通布景：Kenney 的岩石和树桩去掉（和程序化的倒角岩风格不一致、树桩照片贴图发白），岩石全部是程序化的
-        outer: [['kh/tree_dead_large', 3, 0.8, 1.1, 't'], ['kh/tree_dead_medium', 3, 0.9, 1.2, 't'], ['kh/tree_dead_small', 2, 1, 1.3, '']], // 立在熔岩上的由本区布景剔掉（ashDress）
+        outer: [['ca/ash_tree_dead_a', 3, 0.8, 1.1, 't'], ['ca/ash_tree_dead_b', 3, 0.9, 1.2, 't'], ['ca/ash_tree_dead_c', 2, 1, 1.3, '']], // 立在熔岩上的由本区布景剔掉（ashDress）。asset-lib：ca/ 开头的是自产件（art/catalog.py 生成，包 kit-ash），scale 1 时和原来的 KayKit 件同尺寸
         keep: 0,
         mid: [],
         midK: 0,
         // 路边小物件：肋骨架（一个 1240 个三角形）去掉，给起点的植被和碎石腾出三角形预算
-        edge: [['kh/skull', 2, 0.5, 0.7, ''], ['kh/bone_A', 3, 0.8, 1.1, 'l'], ['kd/sword_shield_broken', 1, 0.7, 0.9, ''], ['kh/gravemarker_A', 1, 0.8, 1, '']],
-        fire: { m: 'kn/campfire_stones', s: 3.2, h: 0.12, color: 0xff7a2a, size: 1.5 },
-        boss: [['kh/pillar', 2, 0.75, 0.95, 't'], ['kd/rubble_large', 1, 0.45, 0.6, '']],
+        edge: [['ca/ash_skull', 2, 0.5, 0.7, ''], ['ca/ash_bones', 3, 0.8, 1.1, 'l'], ['ca/ash_blade', 1, 0.7, 0.9, ''], ['ca/ash_marker', 1, 0.8, 1, '']],
+        fire: { m: 'ca/ash_firepit', s: 3.2, h: 0.12, color: 0xff7a2a, size: 1.5 },
+        boss: [['ca/ash_pillar', 2, 0.75, 0.95, 't'], ['ca/ash_rubble', 1, 0.45, 0.6, '']],
       },
     },
     frost: {
@@ -1114,6 +1114,21 @@
     quality: qualId, post: !!(post.ok && qual.post), bloom: !!(post.ok && qual.post && qual.bloom), dpr, scale: qual.scale || 1,
     hd: !!(zoneFx && zoneFx.hd), fires: zoneFx && zoneFx.fires ? zoneFx.fires.list.length : 0, mist: !!(zoneFx && zoneFx.mist && zoneFx.mist.visible),
   });
+  // 测试用（asset-lib）：当前区域摆放表里每个布景模型 key → 来自哪个素材包、实际摆了几个（场景里用这个几何体的实例数）
+  W.propSources = () => {
+    const def = W.zone && W.zone.def, gx = def && ZONE_GFX[def.id], out = [];
+    if (!gx || !G.assets) return out;
+    const P = gx.props, keys = [];
+    for (const l of [P.outer, P.mid, P.edge, P.boss]) for (const e of l || []) if (keys.indexOf(e[0]) < 0) keys.push(e[0]);
+    if (P.fire && keys.indexOf(P.fire.m) < 0) keys.push(P.fire.m);
+    for (const k of keys) {
+      const g = G.assets.geo(k);
+      let n = 0;
+      if (g && zoneGroup) zoneGroup.traverse((o) => { if (o.isInstancedMesh && o.geometry === g) n += o.count; });
+      out.push({ key: k, pack: G.assets.geoPack(k), placed: n });
+    }
+    return out;
+  };
 
   // ----- 贴图（每个区域进入时从解码好的图像建纹理，离开时释放显存） -----
   let zoneTex = Object.create(null);

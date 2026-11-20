@@ -1,6 +1,7 @@
 // 端到端冒烟测试：无头 Chrome 里把整个游戏流程走一遍。
 // 每一步打印一行 ok / FAIL；任何一步失败或页面出现报错，进程以非 0 退出。
 import { launch } from './harness.mjs';
+import { checkArt } from '../tools/check-art.mjs';
 
 const SAVE_KEY = 'cinder-abyss-save-v1';
 let G_CUR_N = 8, G_UQ_COLOR = '#ff9b3d', G_SOUL_INH = 1.5, G_SOUL_K = 0.2;
@@ -327,6 +328,14 @@ async function holdInput(slot, down) {
 }
 
 async function main() {
+  // ------------------------------------------------------------------ 自产素材（只用 Node，不起浏览器）
+  await step('素材：自产布景件（assets/ca/manifest.json 里的每个 GLB）符合预算、命名、原点 / 单位规矩，打进包的就是这一份（tools/check-art.mjs）', async () => {
+    const { fails, count } = checkArt();
+    assert(count > 0, '清单里一件都没有');
+    assert(!fails.length, fails.length + ' 条问题：' + fails.slice(0, 8).join(' ｜ '));
+    return count + ' 件';
+  });
+
   // ------------------------------------------------------------------ 启动
   await step('启动：页面无报错，首次运行弹出开场卡片（游戏暂停），回车关闭', async () => {
     ({ browser, page, errors } = await launch({ width: 1440, height: 900 }));
@@ -8672,6 +8681,35 @@ async function main() {
       G.debug.god(true);
     });
     return r.zones.join(' ') + ' ｜ ' + r.qs.join(' ') + ' ｜ 默认 ' + r.q0 + '（' + r.eff + '）';
+  });
+
+  await step('画面：第 0 区的布景全部来自自产件包 kit-ash（ca/ 开头），确实摆出来了；别的区照旧用 CC0 模型包', async () => {
+    const r = await ev(async () => {
+      const W = G.world;
+      const wait = async (f, ms) => {
+        const t = performance.now();
+        while (!f() && performance.now() - t < ms) await new Promise((res) => setTimeout(res, 50));
+        return f();
+      };
+      const look = async (i) => {
+        G.enterZone(i, 0);
+        await wait(() => !W.assetsPending(), 40000);
+        return { id: G.ZONES[i].id, hd: W.gfxInfo().hd, fires: W.gfxInfo().fires, src: W.propSources() };
+      };
+      const ash = await look(0), frost = await look(1);
+      G.enterZone(0, 1);
+      return { ash, frost };
+    });
+    const { ash, frost } = r;
+    const fmt = (z) => z.src.map((s) => s.key + '@' + s.pack + '×' + s.placed).join(' ');
+    assert(ash.id === 'ash' && ash.hd, '第 0 区不是 ash 或没换上 PBR 外观：' + JSON.stringify(ash).slice(0, 300));
+    assert(ash.src.length >= 8 && ash.src.every((s) => s.key.startsWith('ca/') && s.pack === 'kit-ash'), '第 0 区的布景不全是自产件：' + fmt(ash));
+    const placed = (z, re) => z.src.filter((s) => re.test(s.key)).reduce((a, s) => a + s.placed, 0);
+    assert(placed(ash, /tree_dead/) >= 10, '第 0 区枯树摆得太少：' + fmt(ash));
+    assert(placed(ash, /firepit/) === ash.fires && ash.fires > 0, '第 0 区火坑的实例数和火焰数对不上：' + fmt(ash) + ' 火 ' + ash.fires);
+    assert(ash.src.reduce((a, s) => a + s.placed, 0) >= 30, '第 0 区布景总数太少：' + fmt(ash));
+    assert(frost.hd && frost.src.length && frost.src.every((s) => s.pack === 'models') && frost.src.reduce((a, s) => a + s.placed, 0) > 0, '第 1 区的 CC0 布景不对：' + fmt(frost));
+    return fmt(ash);
   });
 
   // ------------------------------------------------------------------ 存档

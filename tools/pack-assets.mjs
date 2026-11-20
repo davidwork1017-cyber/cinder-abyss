@@ -76,6 +76,9 @@ function allModels() {
   return out;
 }
 
+let caMan = null;
+const caManifest = () => caMan || (caMan = JSON.parse(fs.readFileSync(path.join(root, 'assets/ca/manifest.json'), 'utf8')));
+
 const index = { packs: {}, textures: {} };
 let total = 0;
 for (const [name, pk] of Object.entries(manifest.packs)) {
@@ -88,6 +91,8 @@ for (const [name, pk] of Object.entries(manifest.packs)) {
     index.textures[id] = name;
   }
   if (pk.models === '*') for (const [k, buf] of Object.entries(allModels())) data.models[k] = buf.toString('base64');
+  // 自产布景件（npm run build:art 生成，见 docs/art-pipeline.md）：assets/ca/manifest.json 里这个区、ship 为 true 的件，key 就是件的 id（ca/...）
+  if (pk.kit) for (const a of caManifest().assets) if (a.zone === pk.kit && a.ship) data.models[a.id] = fs.readFileSync(path.join(root, a.file)).toString('base64');
   // 角色模型（GLB，由 tools/convert-chars.mjs 生成）：游戏端同步解析，不经过 assets.js 的布景烘焙
   for (const [k, rel] of Object.entries(pk.chars || {})) data.models[k] = fs.readFileSync(path.join(root, 'assets', rel)).toString('base64');
   const body =
@@ -95,6 +100,7 @@ for (const [name, pk] of Object.entries(manifest.packs)) {
     "(window.CA_ASSETS = window.CA_ASSETS || {})['" + name + "'] = " + JSON.stringify(data) + ';\n';
   fs.writeFileSync(path.join(outDir, name + '.js'), body);
   index.packs[name] = { file: 'js/assets/' + name + '.js', bytes: body.length };
+  if (pk.with) index.packs[name].with = pk.with; // 依赖包：游戏要这个包时连带加载（zone-ash 带上 kit-ash，摆放表的 packs 不用改）
   total += body.length;
   console.log(name.padEnd(12), (body.length / 1024).toFixed(0) + ' KB', Object.keys(data.tex).join(' '), Object.keys(data.models).length ? Object.keys(data.models).length + ' 个模型' : '');
 }

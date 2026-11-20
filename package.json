@@ -4,7 +4,9 @@
   "version": "0.1.0",
   "description": "烬渊：原创网页动作 RPG（Three.js）",
   "scripts": {
-    "test": "node test/smoke.mjs"
+    "test": "node test/smoke.mjs",
+    "build:art": "node tools/build-art.mjs",
+    "check:art": "node tools/check-art.mjs"
   },
   "devDependencies": {
     "playwright-core": "^1.65.0"

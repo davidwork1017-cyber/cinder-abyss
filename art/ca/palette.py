@@ -1,0 +1,60 @@
+# 共享调色板图集：所有布景件共用一张 64×16 的小图（8 行 × 每行 2 像素高），每行是一条从暗到亮的色带。
+# 面的 UV 落在某一行的某个位置（u = 明暗），游戏端烘焙时按 UV 取色进顶点色（见 js/assets.js 的 bakeGltf），
+# 所以换色只改这里、重新 npm run build:art，所有件一起变；也方便以后在引擎里直接采样同一张图做批量绘制。
+# 颜色是 sRGB 十六进制；色带内按 u 在相邻色标之间线性插值（在 sRGB 里插，色带短，差别看不出来）。
+import struct
+import zlib
+
+W, H = 64, 16
+ROW_H = 2
+
+# 行号固定（GLB 里的 UV 依赖它），新增只往后加，不要改已有行的顺序
+ROWS = [
+    ('stone', ['#2b2725', '#5a524c', '#857b72', '#a39789']),  # 0 灰烬岩 / 砌石
+    ('char', ['#120f0e', '#261e1b', '#3a2e29', '#55443b']),  # 1 焦黑树皮 / 炭
+    ('bone', ['#5e5446', '#8f826d', '#b6a88e', '#d6c9ad']),  # 2 骨
+    ('iron', ['#1c1a1a', '#3a302c', '#5c463a', '#7d5f49']),  # 3 锈铁
+    ('ember', ['#4a1205', '#9a2f0a', '#d4561a', '#ff9a3a']),  # 4 余烬（裂缝里透出的火光色）
+    ('slag', ['#191516', '#2e2728', '#463c3c', '#615453']),  # 5 熔渣 / 暗岩
+    ('dust', ['#474039', '#6f665d', '#958a7d', '#b7aa9a']),  # 6 积灰（朝上的面）
+    ('wood', ['#24180f', '#3e2a1c', '#5a3d28', '#734f34']),  # 7 焦褐木
+]
+ROW = {name: i for i, (name, _) in enumerate(ROWS)}
+
+
+def _hex(h):
+    h = h.lstrip('#')
+    return [int(h[i:i + 2], 16) for i in (0, 2, 4)]
+
+
+def ramp(row, u):
+    """色带上 u（0–1）处的 sRGB 颜色（0–255 整数三元组）"""
+    stops = [_hex(c) for c in ROWS[row][1]]
+    u = min(1.0, max(0.0, u)) * (len(stops) - 1)
+    i = min(len(stops) - 2, int(u))
+    t = u - i
+    return [round(stops[i][k] * (1 - t) + stops[i + 1][k] * t) for k in range(3)]
+
+
+def uv_of(row, u):
+    """调色板行 + 明暗 → Blender UV（v 朝上；导出 glTF 时会翻成朝下，正好对上 PNG 的行序）"""
+    x = (min(W - 1, max(0, int(u * W))) + 0.5) / W
+    y = (row * ROW_H + ROW_H * 0.5) / H
+    return (x, 1.0 - y)
+
+
+def atlas_png():
+    """调色板图集的 PNG 字节（自己写编码器：同样的输入永远得到同样的字节）"""
+    raw = bytearray()
+    for y in range(H):
+        row = min(len(ROWS) - 1, y // ROW_H)
+        raw.append(0)  # 每行的过滤类型：无
+        for x in range(W):
+            raw.extend(ramp(row, (x + 0.5) / W))
+
+    def chunk(t, data):
+        c = struct.pack('>I', len(data)) + t + data
+        return c + struct.pack('>I', zlib.crc32(t + data) & 0xFFFFFFFF)
+
+    ihdr = struct.pack('>IIBBBBB', W, H, 8, 2, 0, 0, 0)
+    return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', ihdr) + chunk(b'IDAT', zlib.compress(bytes(raw), 9)) + chunk(b'IEND', b'')

@@ -17,6 +17,7 @@
   const imgs = Object.create(null); // 贴图 id → { albedo, normal, arh, avg: [r,g,b]（反照率的线性平均色） }
   const geos = Object.create(null); // 模型 key → BufferGeometry
   const geoInfo = Object.create(null); // 模型 key → { h, r }（高度、水平半径）
+  const geoPack = Object.create(null); // 模型 key → 来自哪个包（测试用来核对第 0 区的布景是不是自产件）
 
   const s2l = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
 
@@ -90,6 +91,8 @@
       const mat = Array.isArray(o.material) ? o.material[0] : o.material;
       const base = mat && mat.color ? mat.color : col.setRGB(1, 1, 1);
       const px = mat && mat.map && mat.map.image ? pixelsOf(mat.map.image) : null;
+      // asset-lib：自产布景件带 COLOR_0（烘焙好的 AO / 边缘磨损 / 高度渐变，线性），乘在调色板颜色上；归一化的整数按 glTF 规则换成 0–1
+      const vc = g.attributes.color, vcK = vc && vc.normalized ? 1 / (vc.array instanceof Uint8Array ? 255 : 65535) : 1;
       const cap = mat && /grass/i.test(mat.name || '') ? 1 : 0;
       nm.getNormalMatrix(o.matrixWorld);
       for (let i = 0; i < pos.count; i++) {
@@ -108,6 +111,11 @@
           r *= s2l(px.d[k] / 255);
           gg *= s2l(px.d[k + 1] / 255);
           b *= s2l(px.d[k + 2] / 255);
+        }
+        if (vc) {
+          r *= vc.getX(i) * vcK;
+          gg *= vc.getY(i) * vcK;
+          b *= vc.getZ(i) * vcK;
         }
         C.push(r, gg, b);
         K.push(cap);
@@ -188,7 +196,7 @@
         })
       );
     }
-    for (const key in data.models || {}) jobs.push(parseModel(key, data.models[key]));
+    for (const key in data.models || {}) jobs.push(parseModel(key, data.models[key]).then((g) => g && (geoPack[key] = name)));
     await Promise.all(jobs);
     // 解码完就丢掉 base64 原文（图像和几何体已经各自留了一份），省几 MB 内存
     data.tex = null;
@@ -226,16 +234,30 @@
     return st.p;
   }
 
+  // asset-lib：包的依赖（素材清单里的 with，比如 zone-ash 带上自产布景件包 kit-ash）展开进来，要一个包就连带要它的依赖
+  function withDeps(names) {
+    const out = [];
+    const add = (n) => {
+      if (out.indexOf(n) >= 0) return;
+      out.push(n);
+      const info = INDEX.packs[n];
+      if (info && info.with) info.with.forEach(add);
+    };
+    names.forEach(add);
+    return out;
+  }
   // 一组包都加载完（不论成败）后 resolve 为「是否全部成功」
   A.need = function (names) {
-    return Promise.all(names.map(loadPack)).then((r) => r.every(Boolean));
+    return Promise.all(withDeps(names).map(loadPack)).then((r) => r.every(Boolean));
   };
   // 同步查询：这组包是否已经全部加载成功 / 是否已经有了结果（成功或失败）
+  // ready 不展开依赖：布景件包坏了不该拖累地面贴图（世界层按 G.assets.geo 有没有模型单独判断布景）；settled 展开，等依赖也有了结果
   A.ready = (names) => names.every((n) => packState[n] && packState[n].ok);
-  A.settled = (names) => names.every((n) => packState[n] && packState[n].done);
+  A.settled = (names) => withDeps(names).every((n) => packState[n] && packState[n].done);
   A.known = (name) => !!(INDEX.packs[name] || STORE[name]);
   A.tex = (id) => imgs[id] || null;
   A.geo = (key) => geos[key] || null;
   A.geoInfo = (key) => geoInfo[key] || null;
+  A.geoPack = (key) => geoPack[key] || null;
   A.packOfTex = (id) => INDEX.textures[id] || null;
 })();
