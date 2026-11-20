@@ -14153,6 +14153,10 @@ async function main() {
     const { id, v, secs } = a;
     const P = G.player, S = G.state, W = G.world, RQ = G.relicState, SK0 = G.skillVariant(id, 'o');
     const out = { id, v, bad: [] };
+    // 每格用固定种子的随机数（格与格之间渲染循环消耗的随机数不定，不钉死就不可复现），结束时还原
+    const rnd0 = Math.random;
+    let sd = (a.seed >>> 0) || 1;
+    Math.random = () => { sd = (sd + 0x6d2b79f5) >>> 0; let t = sd; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
     G.clearMinions();
     for (const k in G.save.autoSummon || {}) G.save.autoSummon[k] = false;
     G.clearEnemies();
@@ -14301,6 +14305,7 @@ async function main() {
     if (G.applyVariants) G.applyVariants();
     G.debug.god(false);
     G.respawn();
+    Math.random = rnd0;
     return out;
   };
   await step('余响测试矩阵：每个刻式技能 × 原式 / A / B / 渊式 × 戴着双生坠，各 20 秒模拟：不报错、不卡施放 / 冷却 / 光环、数量有界、伤害记到来源、摘下当场作废', async () => {
@@ -14308,8 +14313,8 @@ async function main() {
     const bad = [];
     let n = 0;
     for (const c of cells) {
-      const r = await page.evaluate('(' + TWIN_CELL.toString() + ')(' + JSON.stringify({ id: c.id, v: c.v, secs: 20 }) + ')');
       n++;
+      const r = await page.evaluate('(' + TWIN_CELL.toString() + ')(' + JSON.stringify({ id: c.id, v: c.v, secs: 20, seed: 7919 * n }) + ')');
       if (r.bad.length) bad.push(c.id + ':' + c.v + ' ' + r.bad.join('，'));
       if (errors.length) bad.push(c.id + ':' + c.v + ' 页面报错 ' + errors.splice(0).join(' | ').slice(0, 300));
     }
