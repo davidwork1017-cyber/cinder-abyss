@@ -11,7 +11,7 @@
    "ship": false,
    "replaces": null,
    "tris": 528,
-   "verts": 1552,
+   "verts": 1554,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -43,7 +43,7 @@
      "grad": 1
     }
    },
-   "sha256": "b8051eb6ea63c34a7312eea976858149af4869ab6bc6a25a62d9b5bcd65bbd8e"
+   "sha256": "43f70a744748bb082436098a81518bc68f30e026e08514c429b70388c2d5b0af"
   },
   {
    "id": "ca/ash_blade",
@@ -53,7 +53,7 @@
    "ship": true,
    "replaces": "kd/sword_shield_broken",
    "tris": 116,
-   "verts": 318,
+   "verts": 334,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -84,7 +84,7 @@
      "grad": 0.5
     }
    },
-   "sha256": "f662bc829e995d49d0156bd55476f6abf36e019abbe7b05f2ccc9728d8413695"
+   "sha256": "627e7f78f40b864217601022d9b38813599b5cd61b23e964792cc076e2e31809"
   },
   {
    "id": "ca/ash_bones",
@@ -94,7 +94,7 @@
    "ship": true,
    "replaces": "kh/bone_A",
    "tris": 150,
-   "verts": 424,
+   "verts": 432,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -123,10 +123,11 @@
     },
     "bake": {
      "ao": 0.08,
-     "grad": 0.1
+     "grad": 0.1,
+     "gtint": 0.5
     }
    },
-   "sha256": "278a4eb87b77333999761110b57128da0b42cd0ac1e34d353263ed4ea8aa1d54"
+   "sha256": "fd76a69142dd41a775198686d3c15354c2396cbbac880d8606e01689d27abd97"
   },
   {
    "id": "ca/ash_brazier_a",
@@ -135,8 +136,8 @@
    "file": "assets/ca/ash/ash_brazier_a.glb",
    "ship": false,
    "replaces": null,
-   "tris": 86,
-   "verts": 175,
+   "tris": 159,
+   "verts": 451,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -167,7 +168,7 @@
      "grad": 0.4
     }
    },
-   "sha256": "5376dee0485d8f883fab8e5ef9a1ee947e1afe42b748e419244c291caef72f4f"
+   "sha256": "4c1dcb6f3c6ad628740c73703c565e1b61aa1a25568bd62bf96ca6cb8751f389"
   },
   {
    "id": "ca/ash_cliff_a",
@@ -210,7 +211,7 @@
      "grad": 1.2
     }
    },
-   "sha256": "4a113fb4a171c19fccb0b13afabf87e1b16c6e4cca64d6c2aead79aa96bd4c5d"
+   "sha256": "6b23734748da2deb63afcfe86602cf519121769e50de8c9c4faf7f2865ea4919"
   },
   {
    "id": "ca/ash_firepit",
@@ -219,20 +220,20 @@
    "file": "assets/ca/ash/ash_firepit.glb",
    "ship": true,
    "replaces": "kn/campfire_stones",
-   "tris": 162,
-   "verts": 426,
+   "tris": 245,
+   "verts": 721,
    "materials": 1,
    "textures": 1,
    "bounds": {
     "min": [
-     -0.287,
+     -0.285,
      -0.003,
-     -0.287
+     -0.272
     ],
     "max": [
      0.315,
      0.075,
-     0.254
+     0.29
     ]
    },
    "h": 0.078,
@@ -248,10 +249,11 @@
     },
     "bake": {
      "ao": 0.05,
-     "grad": 0.06
+     "grad": 0.06,
+     "gtint": 0.6
     }
    },
-   "sha256": "99bc657a0968d3bc7f6eeaca26893cd2f7cabd94e624d2383f2217df7e7f2f42"
+   "sha256": "b7ac41e85c5c9079e0f5182853ac9299c1f0dce46fcceffdd9dc91757b72fab7"
   },
   {
    "id": "ca/ash_marker",
@@ -292,7 +294,7 @@
      "grad": 0.5
     }
    },
-   "sha256": "370fd906d63dfcf6b36c6f5ec68ee781d5317ae7f0be446094e79293c9f7688b"
+   "sha256": "f2ddbe747989a98ce0ef8ed4cb0a940cdae2e3960ee78d16fd8d0e687b620d9c"
   },
   {
    "id": "ca/ash_pillar",
@@ -302,7 +304,7 @@
    "ship": true,
    "replaces": "kh/pillar",
    "tris": 170,
-   "verts": 434,
+   "verts": 498,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -332,7 +334,7 @@
     },
     "bake": {}
    },
-   "sha256": "b59e6b3d4970b98b8b66a812f181cba581596b3825a18a28ff322911658ab7c2"
+   "sha256": "700607fb3fc2cfccbbaeb5cf6161c4dd48b09ec314e2ebb31cab9d8036dfb527"
   },
   {
    "id": "ca/ash_rock_a",
@@ -372,7 +374,7 @@
     },
     "bake": {}
    },
-   "sha256": "7419683af5c3e55625d61576620bfa0ddaa46c8ad715970a810bce09bebf40f1"
+   "sha256": "500f1088d3d7e21afe3cb98536d30bbb41ffd0e6d7bd3adeccabca70144dcd55"
   },
   {
    "id": "ca/ash_rock_b",
@@ -382,7 +384,7 @@
    "ship": false,
    "replaces": null,
    "tris": 46,
-   "verts": 134,
+   "verts": 138,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -415,7 +417,7 @@
     },
     "bake": {}
    },
-   "sha256": "9816afcfb1d25dd4825287501b4ba0b80dc65a2f7e3c35ca52c7136e73c03f10"
+   "sha256": "6bf4c5c510e17a80844c5e3b664fdd85700ca5b3d6d8fe742f5f7137fad1b36d"
   },
   {
    "id": "ca/ash_rock_c",
@@ -425,7 +427,7 @@
    "ship": false,
    "replaces": null,
    "tris": 44,
-   "verts": 129,
+   "verts": 132,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -456,7 +458,7 @@
     },
     "bake": {}
    },
-   "sha256": "4fd95a213490274e359d7e06229a83365dd41825adcd165c2145203b51fc4acb"
+   "sha256": "b0da3f1a3148b6288a3819c0b5383a9d95f4f1dee7c325fe47bea4ca70f8f7a5"
   },
   {
    "id": "ca/ash_rubble",
@@ -466,7 +468,7 @@
    "ship": true,
    "replaces": "kd/rubble_large",
    "tris": 344,
-   "verts": 830,
+   "verts": 962,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -498,7 +500,7 @@
      "grad": 1.2
     }
    },
-   "sha256": "03c1f21c4de8143665df33881580ff487f8200b6f60bc24789bcc56d6da72d9d"
+   "sha256": "cac3d8898aad53ae12119265e53fea3d0275991893fbe83a11e654f10197936f"
   },
   {
    "id": "ca/ash_skull",
@@ -508,7 +510,7 @@
    "ship": true,
    "replaces": "kh/skull",
    "tris": 144,
-   "verts": 425,
+   "verts": 430,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -536,10 +538,13 @@
     },
     "bake": {
      "ao": 0.25,
-     "grad": 0.4
+     "grad": 0.4,
+     "grime": 0.45,
+     "gtint": 1.6,
+     "wear": 0.4
     }
    },
-   "sha256": "73e3dc9704d010d8c43b9a68323e9f47d4d47a643b7f2c9dc805c02e3172a675"
+   "sha256": "62527fcdff55dc5a871c8235f760843f03fd128f15ccd65a2e7753b0530a2c48"
   },
   {
    "id": "ca/ash_tree_dead_a",
@@ -581,7 +586,7 @@
     },
     "bake": {}
    },
-   "sha256": "aa7d413fcdb9f6c8f267315475149cd8df1fb1df5566c776ab6d345268a80f87"
+   "sha256": "b1f46f5d749e2aface2616a38e1a9f62267cb39b4a54e84dc43b355740a3c054"
   },
   {
    "id": "ca/ash_tree_dead_b",
@@ -591,7 +596,7 @@
    "ship": true,
    "replaces": "kh/tree_dead_medium",
    "tris": 172,
-   "verts": 510,
+   "verts": 514,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -624,7 +629,7 @@
     },
     "bake": {}
    },
-   "sha256": "a427343a62b849c8cad69362558ba512e6095dd8f872bdf277b06264b0c9c37f"
+   "sha256": "96a7cdb2ae8bee5f3d7e92d6d95712de10b96f6251d15063d22fd22b8043e3c7"
   },
   {
    "id": "ca/ash_tree_dead_c",
@@ -634,7 +639,7 @@
    "ship": true,
    "replaces": "kh/tree_dead_small",
    "tris": 173,
-   "verts": 511,
+   "verts": 513,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -667,7 +672,7 @@
     },
     "bake": {}
    },
-   "sha256": "141b57a06696951616a2104bbeabc57255dfbd6c5f89027f209a4afc833be695"
+   "sha256": "19e56590322d20f5873f130b67408492a006e8824d66bc40d9aaa63a8ff0fcf0"
   },
   {
    "id": "ca/ash_wall_a",
@@ -677,7 +682,7 @@
    "ship": false,
    "replaces": null,
    "tris": 748,
-   "verts": 2208,
+   "verts": 2196,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -711,7 +716,7 @@
      "grad": 0.9
     }
    },
-   "sha256": "c11cd687166a7690c4da586a8d34cf15cb6d37b689f5dad16197eb7b9f0d79ec"
+   "sha256": "0a0ca2144ebe176e9bde73b57c2ae88b6a26a33d3dbccc1cb0ede8497b9de023"
   }
  ]
 }

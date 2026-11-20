@@ -1284,18 +1284,20 @@
       uRS: { value: 1 / r.tile }, uRCon: { value: opt.con }, uRNrm: { value: r.nrm * opt.nrm }, uSat: { value: opt.sat },
       uRV: { value: new T.Vector3(1 / avg[0], 1 / avg[1], 1 / avg[2]) }, uTint: { value: new T.Vector3(_c.r, _c.g, _c.b).multiplyScalar(opt.tintK || 1) },
       uCapAll: { value: opt.cap ? r.capAll || 0 : 0 }, uCapC: { value: lin(r.cap || 0xffffff) }, uCapK: { value: r.cap ? 1 : 0 }, // 没有覆盖色的区域：Kenney 岩石的草皮顶面也按岩石处理
+      uGlowK: { value: 1.6 }, // asset-lib：自产件的余烬面（aGlow）按顶点色自发光的强度；没有 aGlow 的模型属性缺省 0，不受影响
     };
     const mat = own(new T.MeshStandardMaterial({ color: 0xffffff, roughness: opt.rough, metalness: 0, flatShading: true, vertexColors: !!opt.vc }));
     mat.onBeforeCompile = function (sh) {
       Object.assign(sh.uniforms, U);
       sh.vertexShader = sh.vertexShader
-        .replace('#include <common>', '#include <common>\nattribute float aCap;\nvarying vec3 vTriP;\nvarying float vCap;')
+        .replace('#include <common>', '#include <common>\nattribute float aCap;\nattribute float aGlow;\nvarying vec3 vTriP;\nvarying float vCap;\nvarying float vGlow;')
         .replace(
           '#include <begin_vertex>',
-          '#include <begin_vertex>\n\tvec4 trp = vec4(transformed, 1.0);\n#ifdef USE_INSTANCING\n\ttrp = instanceMatrix * trp;\n#endif\n\tvTriP = (modelMatrix * trp).xyz;\n\tvCap = aCap;'
+          '#include <begin_vertex>\n\tvec4 trp = vec4(transformed, 1.0);\n#ifdef USE_INSTANCING\n\ttrp = instanceMatrix * trp;\n#endif\n\tvTriP = (modelMatrix * trp).xyz;\n\tvCap = aCap;\n\tvGlow = aGlow;'
         );
       sh.fragmentShader = sh.fragmentShader
-        .replace('#include <common>', '#include <common>\n' + TRI_HEAD)
+        .replace('#include <common>', '#include <common>\n' + TRI_HEAD + '\nvarying float vGlow;\nuniform float uGlowK;')
+        .replace('#include <emissivemap_fragment>', opt.vc ? '#include <emissivemap_fragment>\n\ttotalEmissiveRadiance += vColor * vGlow * uGlowK;' : '#include <emissivemap_fragment>')
         .replace('#include <map_fragment>', TRI_MAIN)
         .replace(
           '#include <color_fragment>',

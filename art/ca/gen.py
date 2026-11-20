@@ -216,6 +216,29 @@ def arch(k, span=3.2, h=4.0, r=0.36):
 
 
 # ---------------------------------------------------------------- 火：火坑 / 火盆
+def _coals(k, cx, cy, z0, r, n=8, size=0.11):
+    """余烬床：一片不规则的焦黑灰底 + 几块不规则的炭块；炭块朝上的面发光（强弱不一），侧面偶尔透一点火光。
+    比一整块发光的八边形自然：俯视时是一簇亮点，中间夹着暗的炭和灰。"""
+    m = 11
+    bed = [k.bm.verts.new((cx + math.cos(TAU * i / m) * r * k.r(0.7, 1.05), cy + math.sin(TAU * i / m) * r * k.r(0.7, 1.05), z0)) for i in range(m)]
+    k.tag([k.bm.faces.new(bed)], 'dust', 0.5, 0.05, dust=0)  # 灰白的炉灰，衬出暗的炭块
+    for i in range(n):
+        a = TAU * (i + k.r(0, 0.7)) / n
+        d = r * (0.25 + 0.55 * k.r()) if i else r * 0.1
+        px, py = cx + math.cos(a) * d, cy + math.sin(a) * d
+        sz = r * size * k.r(0.75, 1.35)
+        pts = [(px + q[0], py + q[1], max(z0, z0 + sz * 0.35 + q[2])) for q in _blob(k, sz * 1.3, sz, sz * 0.7, 7)]
+        vs = k.hull(pts, row='char', tone=0.15, jitter=0.08, dust=0)
+        fs = _sorted_faces_of(vs)
+        hot = 1.0 if k.r() < 0.6 else 0.55
+        for f in fs:
+            if f.normal.z > 0.45:
+                k.tag([f], 'ember', 0.55 + 0.4 * hot, 0.12, glow=hot, dust=0)
+            elif k.r() < 0.18:
+                k.tag([f], 'ember', 0.45, 0.1, glow=0.4, dust=0)
+
+
+
 def firepit(k, r=0.29, stones=9, h=0.075):
     """火坑：一圈压扁的石块 + 交叉的焦木 + 中间发光的余烬床（替换 kn/campfire_stones 的尺度，游戏里放大 3.2 倍）"""
     for i in range(stones):
@@ -223,16 +246,18 @@ def firepit(k, r=0.29, stones=9, h=0.075):
         cx, cy = math.cos(a) * r * 0.82, math.sin(a) * r * 0.82
         s = r * k.r(0.17, 0.24)
         pts = [(cx + p[0], cy + p[1], max(-0.01, p[2] + h * 0.35)) for p in _blob(k, s * 1.2, s, h * 0.65, 8)]
-        k.hull(pts, row='stone', tone=0.95, jitter=0.05)
+        vs = k.hull(pts, row='pale', tone=0.94, jitter=0.06)
+        # 朝火的一侧熏黑：内侧的面换成焦黑
+        for f in _sorted_faces_of(vs):
+            if f.normal.x * cx + f.normal.y * cy < -0.5 * math.hypot(cx, cy) and k.r() < 0.4:
+                k.tag([f], 'char', 0.35, 0.1)
     for i in range(3):
         a = k.r(0, TAU)
         L = r * 0.62
         p0 = (math.cos(a) * L, math.sin(a) * L, h * 0.25)
         p1 = (-math.cos(a) * L * 0.4, -math.sin(a) * L * 0.4, h * 0.75)
         k.tube([p0, p1], [r * 0.08, r * 0.07], sides=5, row='char', tone=0.4, tip=False, cap0=True)
-    bed = [k.bm.verts.new((math.cos(TAU * i / 8) * r * 0.55, math.sin(TAU * i / 8) * r * 0.55, h * 0.12)) for i in range(8)]
-    f = k.bm.faces.new(bed)
-    k.tag([f], 'ember', 0.85, 0.05, glow=1, dust=0)
+    _coals(k, 0, 0, h * 0.06, r * 0.6, n=8, size=0.13)
 
 
 def brazier(k, h=1.1, r=0.38):
@@ -243,8 +268,7 @@ def brazier(k, h=1.1, r=0.38):
     # 碗：开口的八棱台（外壁 + 内壁），碗底封口
     k.tube([(0, 0, h * 0.78), (0, 0, h)], [r * 0.35, r], sides=8, row='iron', tone=0.45, tip=False, cap0=True, cap1=False)
     k.tube([(0, 0, h - 0.002), (0, 0, h * 0.86)], [r * 0.96, r * 0.4], sides=8, row='iron', tone=0.3, tip=False, cap0=False, cap1=True)
-    bed = [k.bm.verts.new((math.cos(TAU * i / 8) * r * 0.6, math.sin(TAU * i / 8) * r * 0.6, h - 0.03)) for i in range(8)]
-    k.tag([k.bm.faces.new(bed)], 'ember', 0.85, 0.05, glow=1, dust=0)
+    _coals(k, 0, 0, h * 0.87, r * 0.62, n=7, size=0.16)
 
 
 # ---------------------------------------------------------------- 骨 / 残兵
@@ -264,7 +288,7 @@ def skull(k, s=0.5, glow_eyes=True):
             nz = -0.5 * 0.78
         v.co = Vector((nx, ny, nz + 0.39))
     faces = _sorted_faces_of(vs)
-    k.tag(faces, 'bone', 0.86, 0.08)
+    k.tag(faces, 'bone', 0.6, 0.12)
     # 眼窝：前上方左右各一个面，深深压进去（窝壁焦黑，窝底余烬 / 焦黑）
     for sx in (-1, 1):
         # 眼窝要大：取目标点附近的一小片面（3–4 个），整片往里收、压深，窝壁焦黑，窝底一小块余烬
@@ -278,15 +302,15 @@ def skull(k, s=0.5, glow_eyes=True):
         core_f = min(grp, key=lambda f: (f.calc_center_median() - tgt).length)
         k.tag([core_f], 'ember' if glow_eyes else 'char', 0.6, 0.05, glow=1 if glow_eyes else 0, dust=0)
     # 上颌（吻部）：前伸的楔形凸包，鼻孔是顶面一道暗缝
-    up = k.hull([(sx * 0.46, 0.5, z) for sx in (-1, 1) for z in (0.05, 0.58)] + [(sx * 0.3, 0.5 + 0.95 * sn, z) for sx in (-1, 1) for z in (0.06, 0.36)] + [(0, 1.0, 0.56)], row='bone', tone=0.84)
+    up = k.hull([(sx * 0.46, 0.5, z) for sx in (-1, 1) for z in (0.05, 0.58)] + [(sx * 0.3, 0.5 + 0.95 * sn, z) for sx in (-1, 1) for z in (0.06, 0.36)] + [(0, 1.0, 0.56)], row='bone', tone=0.56)
     top = max(_sorted_faces_of(up), key=lambda f: f.normal.z)
     k.slit(top, width=0.25, depth=0.05, row='char')
     # 下颌：贴地的一块，略微张开
-    k.hull([(sx * 0.42, 0.4, z) for sx in (-1, 1) for z in (0.0, 0.1)] + [(sx * 0.26, 0.4 + 0.95 * sn, z) for sx in (-1, 1) for z in (0.0, 0.07)], row='bone', tone=0.72)
+    k.hull([(sx * 0.42, 0.4, z) for sx in (-1, 1) for z in (0.0, 0.1)] + [(sx * 0.26, 0.4 + 0.95 * sn, z) for sx in (-1, 1) for z in (0.0, 0.07)], row='bone', tone=0.42)
     # 牙：上颌前缘两颗朝下的尖牙
     for sx in (-1, 1):
         ty = 0.4 + 0.95 * sn - 0.05
-        k.hull([(sx * 0.22 + dx, ty + dy, 0.1) for dx, dy in ((-0.05, -0.04), (0.05, -0.04), (0, 0.05))] + [(sx * 0.22, ty + 0.02, -0.01)], row='bone', tone=0.85, dust=0)
+        k.hull([(sx * 0.22 + dx, ty + dy, 0.1) for dx, dy in ((-0.05, -0.04), (0.05, -0.04), (0, 0.05))] + [(sx * 0.22, ty + 0.02, -0.01)], row='bone', tone=0.7, dust=0)
     allv = list(k.bm.verts)
     k.xform(allv, k.place((0, -0.25 * s, 0), (0, 0, 0), (s, s, s)))
     for v in allv:
@@ -361,7 +385,7 @@ def marker(k, h=1.2, w=0.62, d=0.2, ember=1):
     pts.append((0, 0, h * 1.04))
     pts.append((0, d / 2 * 0.9, h * 1.02))
     pts.append((0, -d / 2 * 0.9, h * 1.02))
-    vs = k.hull(pts, row='stone', tone=0.55, jitter=0.1)
+    vs = k.hull(pts, row='stone', tone=0.36, jitter=0.1)
     fs = sorted([f for f in _sorted_faces_of(vs) if abs(f.normal.y) > 0.8], key=lambda f: round(f.calc_area(), 5))
     if fs and ember:
         k.slit(fs[-1], width=0.16, depth=0.03)

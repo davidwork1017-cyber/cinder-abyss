@@ -25,7 +25,7 @@ class Kit:
         self.bm = bmesh.new()
         self.L_pal = self.bm.faces.layers.int.new('pal')  # 调色板行 + 1（0 = 还没标，收尾时从相邻面继承）
         self.L_tone = self.bm.faces.layers.float.new('tone')  # 色带上的位置 0–1
-        self.L_glow = self.bm.faces.layers.int.new('glow')  # 1 = 余烬面：不压 AO、不加磨损，保持亮
+        self.L_glow = self.bm.faces.layers.float.new('glow')  # 0–1 = 余烬面：自发光强度（写进 COLOR_0 的 α：α = 1 - glow），也不压 AO、不加磨损
         self.L_dust = self.bm.faces.layers.int.new('dust')  # 1 = 朝上的面可以盖积灰
 
     # ---------- 随机 ----------
@@ -171,8 +171,44 @@ class Kit:
                 continue
             v.co += Vector((self.r(-amt, amt), self.r(-amt, amt), self.r(-amt, amt)))
 
+    # ---------- 材质线索（docs/art-style.md「材质线索」一节） ----------
+    def material_cues(self, val=0.36, second=True, lichen=0.26):
+        """按低频噪声给面加三样东西，让同一材质近看不是一整片：
+        1. 明暗斑块：色带位置按噪声上下偏 ±val/2（一面一色之外，大块的深浅起伏）；
+        2. 第二色调：另一层噪声高过阈值的斑块换成这一材质的第二色（石 → 灰白石、焦木 → 焦褐木、铁 → 锈、骨 → 污垢）；
+        3. 灰苔：石头的侧面（不朝天也不朝地）偶尔一小片灰绿。
+        斑块大小跟着件的尺寸走（整件大约三块），余烬面不动。"""
+        bm = self.bm
+        if not bm.faces:
+            return
+        xs = [v.co.x for v in bm.verts]
+        ys = [v.co.y for v in bm.verts]
+        zs = [v.co.z for v in bm.verts]
+        D = max(max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs), 0.05)
+        fq = 3.0 / D
+        sd = self.seed
+        names = [n for n, _ in palette.ROWS]
+        for f in bm.faces:
+            if f[self.L_glow] > 0:
+                continue
+            c = f.calc_center_median()
+            row = names[f[self.L_pal] - 1]
+            n1 = vnoise(c.x * fq, c.y * fq, c.z * fq, sd)
+            f[self.L_tone] = min(0.98, max(0.02, f[self.L_tone] + (n1 - 0.5) * val))
+            if second and row in SECOND:
+                n2 = vnoise(c.x * fq * 1.7 + 17.3, c.y * fq * 1.7 - 4.1, c.z * fq * 1.7 + 9.7, sd + 1)
+                to, th = SECOND[row]
+                if n2 > th:
+                    f[self.L_pal] = ROW[to] + 1
+                    row = to
+            if lichen > 0 and row in LICHEN_ON and 0.2 < f.normal.z < 0.8:
+                n3 = vnoise(c.x * fq * 2.3 + 41.0, c.y * fq * 2.3 + 3.0, c.z * fq * 2.3 - 11.0, sd + 2)
+                if n3 > 1 - lichen * 0.5:
+                    f[self.L_pal] = ROW['lichen'] + 1
+                    f[self.L_tone] = min(0.9, max(0.2, f[self.L_tone]))
+
     # ---------- 收尾 ----------
-    def finish(self, dust=0.35, dust_dot=0.78):
+    def finish(self, dust=0.35, dust_dot=0.78, cues=True, cue_args=None):
         bm = self.bm
         bm.faces.ensure_lookup_table()
         # 没标签的面（倒角 / 凸包新生成的）继承相邻面的标签
@@ -195,12 +231,38 @@ class Kit:
         # 自己三角化（固定方法，单线程）：交给导出器时 Blender 对多边形的三角化顺序偶尔会变，同一份几何导出的索引就不逐字节一致
         bmesh.ops.triangulate(bm, faces=list(bm.faces), quad_method='FIXED', ngon_method='EAR_CLIP')
         bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
+        if cues:
+            self.material_cues(**(cue_args or {}))
         # 积灰：朝上的面按概率换成积灰色（灰烬地带的辨识度），余烬面不盖
         if dust > 0:
             for f in bm.faces:
-                if f[self.L_dust] and not f[self.L_glow] and f.normal.z > dust_dot and self.rng.random() < dust:
+                if f[self.L_dust] and f[self.L_glow] <= 0 and f.normal.z > dust_dot and self.rng.random() < dust:
                     f[self.L_pal] = ROW['dust'] + 1
                     f[self.L_tone] = min(0.95, 0.45 + 0.4 * self.rng.random())
+
+
+# 每种材质的第二色调（低频斑块里换成它）和出现的阈值：阈值越高斑块越少
+SECOND = {'stone': ('pale', 0.68), 'char': ('wood', 0.7), 'iron': ('rust', 0.56), 'bone': ('grime', 0.6), 'slag': ('stone', 0.72)}
+LICHEN_ON = ('stone', 'pale', 'slag')
+
+
+def vnoise(x, y, z, seed):
+    """三维值噪声（0–1），整数哈希 + 平滑插值：同样的输入永远同样的输出"""
+    import math as _m
+    xi, yi, zi = _m.floor(x), _m.floor(y), _m.floor(z)
+    fx, fy, fz = x - xi, y - yi, z - zi
+    sx, sy, sz = fx * fx * (3 - 2 * fx), fy * fy * (3 - 2 * fy), fz * fz * (3 - 2 * fz)
+
+    def h(i, j, k):
+        n = (i * 73856093) ^ (j * 19349663) ^ (k * 83492791) ^ (seed * 2654435761)
+        n = (n ^ (n >> 13)) * 1274126177
+        return ((n ^ (n >> 16)) & 0xFFFFFFFF) / 4294967295.0
+
+    def lerp(a, b, t):
+        return a + (b - a) * t
+    c = [[[h(xi + a, yi + b, zi + cc) for cc in (0, 1)] for b in (0, 1)] for a in (0, 1)]
+    return lerp(lerp(lerp(c[0][0][0], c[0][0][1], sz), lerp(c[0][1][0], c[0][1][1], sz), sy),
+                lerp(lerp(c[1][0][0], c[1][0][1], sz), lerp(c[1][1][0], c[1][1][1], sz), sy), sx)
 
 
 def _uniq(seq):
@@ -292,9 +354,10 @@ def to_object(kit, name):
     return ob
 
 
-def bake_colors(ob, ao_dist=0.6, grad_h=0.8, grad_lo=0.72, wear=0.22, grime=0.18):
-    """顶点色 = AO（Cycles CPU 烘焙，带一块地面，底部有接触阴影）× 底部压暗的高度渐变 × 边缘磨损（凸边提亮、凹处压暗）。
-    余烬面写 1（不压暗）。返回烘焙秒数。"""
+def bake_colors(ob, ao_dist=0.6, grad_h=0.8, grad_lo=0.72, wear=0.34, grime=0.3, gtint=1.0):
+    """顶点色（COLOR_0，线性）= AO（Cycles CPU 烘焙，带一块地面，底部有接触阴影）× 底部压暗、偏暖的烟熏渐变 × 边缘磨损（凸边提亮）
+    × 缝里的污垢（凹处、AO 暗处压暗并偏暖褐，gtint 调污垢色的浓淡）。余烬面按 glow 往 1 拉（不压暗），α = 1 - glow（游戏里当自发光）。
+    返回烘焙秒数。"""
     sc = bpy.context.scene
     me = ob.data
     ao = me.color_attributes.new('ao', 'FLOAT_COLOR', 'POINT')
@@ -335,20 +398,26 @@ def bake_colors(ob, ao_dist=0.6, grad_h=0.8, grad_lo=0.72, wear=0.22, grime=0.18
     glow = me.attributes['glow'].data
     aod = ao.data
     q = lambda x: round(min(1.0, max(0.0, x)) * 255) / 255
+    cl = lambda x: min(1.0, max(0.0, x))
+    GRIME = (0.8, 0.68, 0.54)  # 污垢的色偏（乘在缝里）
+    SOOT = (1.0, 0.95, 0.9)  # 烟熏渐变的色偏（底部偏暖）
     for p in me.polygons:
+        gl = glow[p.index].value
         for li in p.loop_indices:
             vi = me.loops[li].vertex_index
-            if glow[p.index].value:
-                c = 1.0
-            else:
-                a = aod[vi].color[0]
-                z = me.vertices[vi].co.z
-                gr = grad_lo + (1 - grad_lo) * min(1.0, max(0.0, z / grad_h))
-                cv = conv[vi]
-                we = 1 + wear * min(1.0, max(0.0, cv / 0.9)) - grime * min(1.0, max(0.0, -cv / 0.9))
-                c = (0.25 + 0.75 * a) * gr * we
-            c = q(c)
-            col.data[li].color = (c, c, c, 1.0)
+            a = aod[vi].color[0]
+            z = me.vertices[vi].co.z
+            t = cl(z / grad_h)
+            gr = grad_lo + (1 - grad_lo) * t
+            cv = conv[vi]
+            we = 1 + wear * cl(cv / 0.9) - grime * cl(-cv / 0.9)
+            k = (0.25 + 0.75 * a) * gr * we
+            gm = cl((cl(-cv / 0.9) * 0.7 + cl((0.62 - a) / 0.62) * 0.6) * gtint)
+            rgb = []
+            for ch in range(3):
+                v = k * (1 + (GRIME[ch] - 1) * gm) * (1 + (SOOT[ch] - 1) * (1 - t))
+                rgb.append(q(v + (1 - v) * gl))
+            col.data[li].color = (rgb[0], rgb[1], rgb[2], q(1 - gl))
     me.color_attributes.active_color = col
     me.color_attributes.remove(me.color_attributes['ao'])
     me.color_attributes.active_color = me.color_attributes['Col']

@@ -82,7 +82,7 @@
   }
   function bakeGltf(scene) {
     scene.updateMatrixWorld(true);
-    const P = [], N = [], C = [], K = [];
+    const P = [], N = [], C = [], K = [], GL = [];
     const v = new T.Vector3(), n = new T.Vector3(), nm = new T.Matrix3(), col = new T.Color();
     scene.traverse((o) => {
       if (!o.isMesh || !o.geometry || !o.geometry.attributes.position) return;
@@ -119,6 +119,7 @@
         }
         C.push(r, gg, b);
         K.push(cap);
+        GL.push(vc && vc.itemSize === 4 ? Math.max(0, 1 - vc.getW(i) * vcK) : 0); // asset-lib：自产件把自发光强度写在 COLOR_0 的 α 里（α = 1 - 发光）
       }
       if (g !== o.geometry) g.dispose();
     });
@@ -128,6 +129,7 @@
     out.setAttribute('normal', new T.Float32BufferAttribute(N, 3));
     out.setAttribute('color', new T.Float32BufferAttribute(C, 3));
     if (K.some((k) => k > 0)) out.setAttribute('aCap', new T.Float32BufferAttribute(K, 1));
+    if (GL.some((k) => k > 0.01)) out.setAttribute('aGlow', new T.Float32BufferAttribute(GL, 1)); // 余烬（布景材质里当自发光，见 world.js 的 triMaterial）
     out.computeBoundingBox();
     out.computeBoundingSphere();
     return out;

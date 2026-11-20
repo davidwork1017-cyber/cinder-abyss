@@ -28,14 +28,14 @@ def make(item, seed=None, name=None):
     name = name or item['id'].replace('/', '_')
     k = core.Kit(seed, name)
     getattr(gen, item['gen'])(k, **item.get('args', {}))
-    k.finish()
+    k.finish(cue_args=item.get('cues'))  # 清单里的 cues：材质线索的参数（val / second / lichen），缺省按 docs/art-style.md
     tris = sum(len(f.verts) - 2 for f in k.bm.faces)
     ob = core.to_object(k, name)
     k.bm.free()
     if DRY:
         return ob, tris, 0.0
     b = item.get('bake', {})
-    dt = core.bake_colors(ob, ao_dist=b.get('ao', 0.6), grad_h=b.get('grad', 0.8))
+    dt = core.bake_colors(ob, ao_dist=b.get('ao', 0.6), grad_h=b.get('grad', 0.8), wear=b.get('wear', 0.34), grime=b.get('grime', 0.3), gtint=b.get('gtint', 1.0))
     return ob, tris, dt
 
 
