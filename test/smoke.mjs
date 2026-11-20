@@ -12870,8 +12870,9 @@ async function main() {
   await step('区域存档：站在雷枢峡谷 / 霜骨沼泽里存的档（布局生成器改过之后布局会不一样）读回来，从区域入口重新进区——玩家站在可走的地上、区域和层级 / 渊印接着用；存档里不记位置（塞进去的坐标被丢掉）', async () => {
     const r = await ev(() => {
       const keep = localStorage.getItem('cinder-abyss-save-v1'), out = {};
-      const P = G.player, W = G.world;
+      const P = G.player, W = G.world, mt0 = G.save.maxTier;
       try {
+        G.save.maxTier = Math.max(1, G.save.maxTier || 0); // 层级 1 要先解锁（读档时 tier 截到 maxTier）
         for (const id of ['storm', 'frost']) {
           const zi = G.ZONES.findIndex((z) => z.id === id);
           G.enterZone(zi, 1);
@@ -12897,6 +12898,7 @@ async function main() {
       } finally {
         if (keep) localStorage.setItem('cinder-abyss-save-v1', keep);
         G.loadSave();
+        G.save.maxTier = mt0;
         G.computeStats();
         G.enterZone(0, 0);
       }
@@ -14708,7 +14710,7 @@ async function main() {
       let tg = null, i = 0;
       for (; i < 60 * 7 && !tg; i++) {
         G.tick(1 / 60);
-        tg = S.telegraphs.find((t) => t.storm) || null;
+        tg = S.telegraphs.find((t) => t.storm && Math.hypot(t.x - mx, t.z - mz) < 0.01) || null; // 认准这一对柱子的预警（布局里别的雷枢也可能在附近起手）
         P.x = mx; P.z = mz; husk.x = mx + (f.bx - f.ax) * 0.2; husk.z = mz + (f.bz - f.az) * 0.2;
       }
       out.node = { warnAt: +(i / 60).toFixed(2), shape: tg && tg.shape, w: tg && tg.w, dur: tg && tg.dur };
