@@ -1039,8 +1039,8 @@ async function main() {
     assert(r.fingerHk === 'faL' && r.fingerTh === 'hR', '手指没有并到手 / 小臂：' + r.fingerHk + ' / ' + r.fingerTh);
     assert(r.clavHk === 'spine' && r.clavTh === 'chest', '锁骨的关节不对：' + r.clavHk + ' / ' + r.clavTh);
     assert(r.driveHk.spine === 'spine_03' && r.driveHk.head === 'Head' && r.driveHk.thL === 'thigh_l', '游魂的带动骨骼不对：' + JSON.stringify(r.driveHk));
-    // 面数预算（杂兵 高 ≤ 4000 / 低 ≤ 2500；模型没换，两档同一份网格）
-    assert(r.tris[0] <= 2500 && r.tris[1] <= 2500, '面数超预算：' + r.tris);
+    // 面数预算（模型没换，两档同一份网格）：游魂是成群的杂兵（低画质 ≤ 2500），仆从按精英一档（≤ 4000，带剑和盾）
+    assert(r.tris[0] <= 2500 && r.tris[1] <= 4000, '面数超预算：' + r.tris);
     return '游魂 ' + r.hkNames.length + ' 根、仆从 ' + r.thNames.length + ' 根骨骼；三角形 ' + r.tris.join(' / ');
   });
 
@@ -1050,7 +1050,7 @@ async function main() {
       // A：边走边扑，B：只走，C：站着扑，D：站着受击，E：站着不动
       const mk = () => { const e = W.makeMob('husk', 0xff8844, false); W.setEnt(e, 0, 0, 0); return e; };
       const A = mk(), B = mk(), C = mk(), D = mk(), E = mk(), all = [A, B, C, D, E];
-      const rig = A.rig, JI = rig.JI, CH = A.pose.length / rig.joints.length;
+      const rig = A.rig, JI = rig.JI, CH = 9; // world.js 的 CH：每个关节 9 个姿态通道（rx ry rz ox oy oz sx sy sz）
       const ch = (e, j, c) => e.pose[JI[j] * CH + c], oc = (e, j, c) => e.out[JI[j] * CH + c];
       let z = 0, f1 = null;
       for (let f = 0; f < 70; f++) {
@@ -1073,8 +1073,11 @@ async function main() {
       const out = {
         f1, std: rig.std, mask: rig.mask, lowJ: [...lowJ].sort().join(','), hit: rig.hitTrack ? rig.hitTrack.ci.map((i) => rig.joints[Math.floor(i / CH)].name) : [],
         death: rig.clips.death.dur, dieClip: E.dying && E.dying.clipDur, deathKeys: Object.keys(rig.clips.death.spec.keys),
-        stride: rig.stride, thHit: W.makeMinion('thrall').rig.hitTrack ? 1 : 0,
+        stride: rig.stride,
       };
+      const th = W.makeMinion('thrall');
+      out.thHit = th.rig.hitTrack ? 1 : 0;
+      W.removeEnt(th);
       for (const e of all) W.removeEnt(e);
       return out;
     });
