@@ -14559,8 +14559,9 @@ async function main() {
           out.bad.push(s + '：怪 ' + mobs + ' 精英 ' + el + '（关键路径 ' + pel + '）宝箱 ' + sp.chests.length + ' 大厅 ' + nP + ' 旁支 ' + sides.length + ' 伏击 ' + amb + ' lv ' + lvOk);
         }
       }
-      // 固定种子进区
+      // 固定种子进区。异兆关掉：随机掷到的游荡者会在雷枢边上醒来，把关了无敌的玩家打倒，倒下时雷枢不运转（约 3% 的概率整步失败）
       G.debug.zoneSeed(4242);
+      G.debug.noEnc = true;
       G.enterZone(zi, 0);
       const z = S.zone, info = G.debug.layout();
       out.zone = {
@@ -14611,6 +14612,7 @@ async function main() {
       out.respawn = { dead: P.dead, door: +(Math.hypot(P.x - z2.bossPos.x, P.z - z2.bossPos.z) - z2.bossR).toFixed(3), walk: W.walkable(P.x, P.z, 0.5) };
       G.debug.god(true);
       G.debug.zoneSeed(null);
+      G.debug.noEnc = false;
       G.enterZone(0, 0);
       return out;
     });
