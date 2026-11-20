@@ -7006,6 +7006,8 @@ async function main() {
     let r = await ev(() => document.elementFromPoint(720, 450).tagName);
     assert(r !== 'CANVAS', '面板没有盖住 (720, 450)');
     let p0 = (await ret()).ping;
+    // 收拢提示两次之间至少隔 700 ms（ui.js 的 retPing）：开头移鼠标那一下可能刚提示过，帧快的时候面板开关一轮不到 700 ms，这一下会被吞掉。先等过冷却
+    await sleep(750);
     await page.keyboard.press('Escape');
     await shown('Esc 关掉面板后鼠标不动，准星没有出现');
     r = await ret();
