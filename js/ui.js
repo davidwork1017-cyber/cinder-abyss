@@ -2304,7 +2304,7 @@
       nums =
         num(ctx.cd > 0 ? '每次伤害' : '平均击中', fmtInt(avg), 'hl') +
         num(sk.kind === 'spin' || sk.kind === 'flicker' ? '每秒斩击' : '每秒施放', rate.toFixed(2)) +
-        num('估算秒伤', fmtInt(avg * rate)) +
+        num('估算秒伤', fmtInt(avg * rate * G.durDpsK(ctx))) + // 绵延：黑洞 / 黑旋风多跳几下、雷桩 / 环刃多一个
         num((blood ? '生命消耗' : '魔力消耗') + (sk.kind === 'spin' || sk.kind === 'flicker' ? ' / 每下' : ''), ctx.cost > 0 ? fmt1(ctx.cost) : '无') +
         num('冷却', ctx.cd > 0 ? fmt1(ctx.cd) + ' 秒' : '无') +
         num('暴击率', fmt1(ctx.crit) + '%');

@@ -729,7 +729,7 @@
   G.variantDps = function (id) {
     const ctx = G.skillCtx(id);
     if (ctx.minion) return G.skillDps(ctx);
-    return G.avgHit(ctx) / (Math.max((ctx.cycle || ctx.time) + ctx.stopAvg, 0.01) + (ctx.cd > 0 ? ctx.cd : 0));
+    return (G.avgHit(ctx) * G.durDpsK(ctx)) / (Math.max((ctx.cycle || ctx.time) + ctx.stopAvg, 0.01) + (ctx.cd > 0 ? ctx.cd : 0));
   };
   // 刻式 v 和原式的比值。霜环按「主力技能 + 霜环」的总秒伤（主力取技能栏上秒伤最高的非光环技能，没有就按掷焰）；
   // 黑焰按每一击的 (1 + 黑焰%)（蚀印把攒进去的那一份也算上，传焰点在身上的和附带的一样多）
@@ -1401,7 +1401,16 @@
       return (G.avgHit(ctx) * mi.cap * (mi.charge.max + ticks * mi.beam.mult)) / cyc;
     }
     if (mi) return (G.avgHit(ctx) * mi.cap) / Math.max(0.05, mi.interval);
-    return G.avgHit(ctx) * G.skillRate(ctx);
+    return G.avgHit(ctx) * G.skillRate(ctx) * G.durDpsK(ctx);
+  };
+  // 绵延对秒伤估算的折算：黑洞、黑旋风原式的跳数随持续时间变多；雷桩、环刃满编时多一个（补的节奏按 寿命 ÷ 上限，几乎不变）
+  G.durDpsK = function (ctx) {
+    const sk = ctx.sk;
+    if (!ctx.durCap && ctx.durK === 1) return 1;
+    if (sk.mech === 'pylon') return (sk.pylon.max + ctx.durCap) / sk.pylon.max;
+    if (sk.mech === 'orbit') return (sk.orbit.max + ctx.durCap) / sk.orbit.max;
+    if (sk.kind === 'hole' || (sk.kind === 'vortex' && !sk.mech)) return ctx.durK;
+    return 1;
   };
   // 每秒出手（施放 / 斩击 / 脉冲）次数：含命中时的顿帧，受冷却限制
   G.skillRate = function (ctx) {
@@ -4771,15 +4780,17 @@
           v.latT = L.t * v.ctx.durK; // 绵延：吸附得更久
           v.latN++;
           let lc = v.cast.get(e);
-          if (!lc) v.cast.set(e, (lc = { next: 0, n: 0 }));
+          if (!lc) v.cast.set(e, (lc = { next: 0, n: 0, g: (v.cast.size * 0.618034) % 1 }));
           lc.lat = true;
           state.stats.vortexLatches = (state.stats.vortexLatches || 0) + 1;
         }
       }
       let c = v.cast.get(e);
-      if (!c) v.cast.set(e, (c = { next: 0, n: 0 }));
-      // 汇涡：每个敌人能挨的跳数 = 层数 × merge.cap（合进来几团就加几份），不分首领 / 吸附。绵延：上限按持续时间的倍率放大（四舍五入）
-      if (c.n >= Math.round((v.lvl ? v.lvl * sk.merge.cap : e.isBoss ? sk.bossCap : c.lat ? sk.cap : sk.splashCap) * v.ctx.durK) || state.time < c.next) continue;
+      if (!c) v.cast.set(e, (c = { next: 0, n: 0, g: (v.cast.size * 0.618034) % 1 }));
+      // 汇涡：每个敌人能挨的跳数 = 层数 × merge.cap（合进来几团就加几份），不分首领 / 吸附。
+      // 绵延：上限 × 持续时间的倍率；小数部分按敌人分摊（c.g：这次施放里第几个碰到的敌人，取黄金分割序列——2 × 1.3 = 2.6 就是六成敌人 3 跳、四成 2 跳）
+      const capX = (v.lvl ? v.lvl * sk.merge.cap : e.isBoss ? sk.bossCap : c.lat ? sk.cap : sk.splashCap) * v.ctx.durK, capN = Math.floor(capX + 1e-9);
+      if (c.n >= capN + ((c.g || 0) < capX - capN - 1e-9 ? 1 : 0) || state.time < c.next) continue;
       c.next = state.time + sk.tick * 0.95;
       c.n++;
       G.hitEnemy(e, v.ctx, 1, { ang: v.a, quiet: true, tick: true });

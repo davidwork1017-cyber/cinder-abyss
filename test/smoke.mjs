@@ -11529,14 +11529,14 @@ async function main() {
     return '合并 ' + r.merges + ' 次，最高 ' + r.top + ' 层';
   });
   // ---- 绵延（持续辅助，dur-support）：适配哪些技能 / 刻式、真的更久、上限 +1、换刻式不生效、读档 ----
-  await step('绵延：只镶得上带「持续」的技能 / 刻式（黑洞全部、黑旋风原式与汇涡、雷桩、环刃、焰田）；回响只对黑洞排除（雷桩、黑旋风照旧能镶）；说明里的数字按数据拼', async () => {
+  await step('绵延：只镶得上带「持续」的技能 / 刻式（黑洞全部、黑旋风原式、雷桩、环刃、焰田；汇涡不带）；回响只对黑洞排除（雷桩、黑旋风照旧能镶）；说明里的数字按数据拼', async () => {
     const r = await ev(() => {
       const s = G.save, L = G.SUPPORTS.lasting;
       if (s.supports.indexOf('lasting') < 0) s.supports.push('lasting');
       const keep = {};
       for (const id of G.GEM_SKILLS) keep[id] = G.SKILLS[id];
       // 渊式（c）：电桥带持续；随核跟着黑洞带持续；其余渊式不带
-      const want = { blackhole: 'oabc', vortex: 'ob', arc: 'ac', blade: 'b', pyre: 'a' };
+      const want = { blackhole: 'oabc', vortex: 'o', arc: 'ac', blade: 'b', pyre: 'a' };
       const huwoAura = G.skillVariant('vortex', 'a').kind === 'aura'; // 护涡改成光环之后不吃绵延、也镶不上回响
       if (!huwoAura) want.vortex += 'a';
       const bad = [], echoBad = [];
@@ -11667,7 +11667,7 @@ async function main() {
       const base = G.skillCtx('arc').cost;
       out.sock = G.socketSupport('arc', 0, 'lasting');
       const on = G.skillCtx('arc');
-      out.on = { durK: on.durK, cap: on.durCap, cost: on.cost > base };
+      out.on = { durK: on.durK, cap: on.durCap, cost: on.cost > base, dpsK: +G.durDpsK(on).toFixed(3) };
       delete s.variants.arc;
       G.applyVariants();
       G.computeStats();
@@ -11726,7 +11726,7 @@ async function main() {
       G.computeStats();
       return out;
     }, keep);
-    assert(r.sock && r.on.durK === 1.3 && r.on.cap === 1 && r.on.cost, '雷桩镶上绵延应生效、算消耗：' + JSON.stringify(r));
+    assert(r.sock && r.on.durK === 1.3 && r.on.cap === 1 && r.on.cost && r.on.dpsK === 1.333, '雷桩镶上绵延应生效、算消耗，秒伤估算按 4 根：' + JSON.stringify(r));
     assert(r.off.durK === 1 && r.off.cap === 0 && r.off.still === 'lasting' && r.off.cost === r.costO, '换回原式应镶着但不生效、不算消耗：' + JSON.stringify(r));
     assert(r.card && r.card.idle && /不生效/.test(r.card.txt), '技能卡上应标「不生效」：' + JSON.stringify(r.card));
     assert(/持续时间 \+30%/.test(tip.txt) && /上限 \+1/.test(tip.txt) && /雷桩最多 4 根/.test(tip.alt) && /Alt/.test(tip.txt), '绵延提示卡不对：' + JSON.stringify(tip));

@@ -776,7 +776,7 @@
       b: {
         name: '汇涡', pack: '同一处连放越滚越大',
         desc: '三团较慢的黑旋风相互靠拢，撞到一起合成更大的一团：范围更大、更持久，最多 5 层。每跳较轻。', alt: '附近没有别的旋风时拐向最近的敌人，压在它身上就放慢。合成后的跳数是合进来的几团相加；没散的旋风会和下一次施放的合到一起。',
-        set: { mech: 'merge', speed: 7, life: 3, spread: 28, dmg: { chaos: [1.86, 2.91] }, useMult: 4.9, latch: { t: 0, max: 0 }, merge: { seek: 8, turn: 3, cap: 3, max: 5, life: 1.2, after: 0.35 } },
+        set: { mech: 'merge', tags: ['spell', 'projectile', 'area', 'chaos'], speed: 7, life: 3, spread: 28, dmg: { chaos: [1.86, 2.91] }, useMult: 4.9, latch: { t: 0, max: 0 }, merge: { seek: 8, turn: 3, cap: 3, max: 5, life: 1.2, after: 0.35 } },
       },
     },
     blackflame: {
@@ -874,7 +874,8 @@
     ailment: { name: '蚀染', req: null, cost: 1.1, eff: { ailment: 35 }, desc: '异常值累积速度加快 35%' },
     frugal: { name: '节流', req: null, cost: 0.6, eff: { cdr: 25 }, desc: '魔力消耗与光环保留减少 40%，冷却缩短 25%' },
     // 绵延：持续类效果（黑洞、黑旋风、雷桩、环刃、焰田……带「持续」标签的技能或刻式）存在的时间 × (1 + dur%)。
-    //   有同时存在数量上限的（雷桩、环刃、焰田的火地）上限再 +cap；黑旋风每次施放对同一个敌人的跳数上限跟着时间放大
+    //   有同时存在数量上限的（雷桩、环刃）上限再 +cap；黑旋风原式吸附得更久，每次施放对吸附的敌人 / 首领的跳数上限跟着时间放大。
+    //   汇涡不带持续：它对一个敌人的伤害卡在每 tick 一跳上，活得久不多打（实测单体 +0%、怪群 +14%）
     lasting: { name: '绵延', req: ['duration'], cost: 1.15, eff: { dur: 30, cap: 1 } }, // 说明按数值拼（见下面）
     // 召唤物专用
     dominion: { name: '驭灵', req: ['minion'], cost: 1.25, eff: { minionMore: 30 }, desc: '召唤物伤害额外提高 30%' },
@@ -888,7 +889,7 @@
     // 绵延的说明：按 eff 和雷桩 / 环刃的上限拼，改数值时跟着变
     const L = G.SUPPORTS.lasting, e = L.eff, VA = G.VARIANTS;
     L.desc = '持续时间 +' + e.dur + '%；有数量上限的效果上限 +' + e.cap;
-    L.alt = '黑洞、黑旋风、雷桩、环刃、焰田的火地存在得更久，伤害跳数随之增加；黑旋风吸附得更久，每次施放对同一个敌人的跳数上限也按比例提高。雷桩最多 ' +
+    L.alt = '黑洞、黑旋风、雷桩、环刃、焰田的火地存在得更久，伤害跳数随之增加；黑旋风吸附得更久，每次施放对吸附住的敌人的跳数上限也按比例提高。雷桩最多 ' +
       (VA.arc.a.set.pylon.max + e.cap) + ' 根、环刃最多 ' + (VA.blade.b.set.orbit.max + e.cap) + ' 把。冷却、增益、控制和异常的时间不变。';
   }
 
