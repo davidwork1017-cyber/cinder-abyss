@@ -1209,10 +1209,12 @@
     },
     dianqiao: {
       name: '电桥', slot: 'ring', base: 2, src: 'enc', enc: 'guard', mechName: '电桥',
-      lines: [{ id: 'incLight', k: [1.2, 1.6] }, { id: 'addLight', k: [1.0, 1.3] }, { id: 'mana', k: [1.0, 1.3] }],    },
+      lines: [{ id: 'incLight', k: [1.2, 1.6] }, { id: 'addLight', k: [1.0, 1.3] }, { id: 'mana', k: [1.0, 1.3] }],
+    },
     yibian: {
       name: '异变', slot: 'amulet', base: 2, src: 'enc', enc: 'ember', mechName: '混相',
-      lines: [{ id: 'incFire', k: [0.7, 1.0] }, { id: 'incCold', k: [0.7, 1.0] }, { id: 'incLight', k: [0.7, 1.0] }],    },
+      lines: [{ id: 'incFire', k: [0.7, 1.0] }, { id: 'incCold', k: [0.7, 1.0] }, { id: 'incLight', k: [0.7, 1.0] }],
+    },
     haiwang: {
       name: '骸王冠', slot: 'helm', base: 0, src: 'boss', boss: 'lord', mechName: '独骸',
       lines: [{ id: 'minionLife', k: [1.2, 1.6] }, { id: 'life', k: [1.0, 1.3] }, { id: 'resFire', k: [1.0, 1.3] }],
@@ -1221,7 +1223,6 @@
     tongshang: {
       name: '同殇甲', slot: 'body', base: 0, src: 'enc', enc: 'box', mechName: '同殇',
       lines: [{ id: 'minionLife', k: [1.2, 1.6] }, { id: 'life', k: [1.0, 1.4] }, { id: 'armour', k: [1.0, 1.3] }],
-      lore: '疼，大家一起疼。',
     },
     zhaohun: {
       name: '招魂带', slot: 'belt', base: 0, src: 'enc', enc: 'echo', mechName: '随影',
@@ -1235,7 +1236,8 @@
     },
     yuanfu: {
       name: '渊缚链', slot: 'gloves', base: 0, src: 'seal', mechName: '锁链',
-      lines: [{ id: 'addChaos', k: [1.2, 1.6] }, { id: 'bindAil', k: [1.2, 1.6] }, { id: 'life', k: [1.0, 1.3] }],    },
+      lines: [{ id: 'addChaos', k: [1.2, 1.6] }, { id: 'bindAil', k: [1.2, 1.6] }, { id: 'life', k: [1.0, 1.3] }],
+    },
     // 巅峰专属（只有熄烛者掉，D5）：不进 G.RELIC_IDS（随机掉落、拾烬客都不出），图鉴另列在普通渊契后面（G.RELIC_CODEX）
     xizhu: {
       name: '熄烛冠', slot: 'helm', base: 0, src: 'pinnacle', pinnacle: true, mechName: '无光',
