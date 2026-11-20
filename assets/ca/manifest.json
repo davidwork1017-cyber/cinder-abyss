@@ -43,7 +43,7 @@
      "grad": 1
     }
    },
-   "sha256": "2256f9bac5db226f73e430d875476c3534ba548c515f5d0339c9bc0a3e24ed0f"
+   "sha256": "b8051eb6ea63c34a7312eea976858149af4869ab6bc6a25a62d9b5bcd65bbd8e"
   },
   {
    "id": "ca/ash_blade",
@@ -84,7 +84,7 @@
      "grad": 0.5
     }
    },
-   "sha256": "f52b5ba35acc5b72c4e4ff3c5e3c2b5910628143eedf500e56fe54c997262ee8"
+   "sha256": "f662bc829e995d49d0156bd55476f6abf36e019abbe7b05f2ccc9728d8413695"
   },
   {
    "id": "ca/ash_bones",
@@ -126,7 +126,7 @@
      "grad": 0.1
     }
    },
-   "sha256": "ccc7ddc6a8273b7650fc1faf9425336976e9f6c56d403550f56806032609f21b"
+   "sha256": "278a4eb87b77333999761110b57128da0b42cd0ac1e34d353263ed4ea8aa1d54"
   },
   {
    "id": "ca/ash_brazier_a",
@@ -167,7 +167,7 @@
      "grad": 0.4
     }
    },
-   "sha256": "fd38978439b9154a7d4a47b4efd89efb98dba1966e6cf2a9156dbbe6bd447bfb"
+   "sha256": "5376dee0485d8f883fab8e5ef9a1ee947e1afe42b748e419244c291caef72f4f"
   },
   {
    "id": "ca/ash_cliff_a",
@@ -210,7 +210,7 @@
      "grad": 1.2
     }
    },
-   "sha256": "04a7255dd8747601475897525084a38d53c16e4ba7abe463a8ffeea5e1848fe0"
+   "sha256": "4a113fb4a171c19fccb0b13afabf87e1b16c6e4cca64d6c2aead79aa96bd4c5d"
   },
   {
    "id": "ca/ash_firepit",
@@ -251,7 +251,7 @@
      "grad": 0.06
     }
    },
-   "sha256": "ee0d153ce50626294afb35e135ec3d147af95d3c7653e08a4ba53fc0279292c7"
+   "sha256": "99bc657a0968d3bc7f6eeaca26893cd2f7cabd94e624d2383f2217df7e7f2f42"
   },
   {
    "id": "ca/ash_marker",
@@ -292,7 +292,7 @@
      "grad": 0.5
     }
    },
-   "sha256": "0c8a389212f0ee9c1135939083698209f240e4e4706edc1e3a55a09bec7a9167"
+   "sha256": "370fd906d63dfcf6b36c6f5ec68ee781d5317ae7f0be446094e79293c9f7688b"
   },
   {
    "id": "ca/ash_pillar",
@@ -302,7 +302,7 @@
    "ship": true,
    "replaces": "kh/pillar",
    "tris": 170,
-   "verts": 436,
+   "verts": 434,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -332,7 +332,7 @@
     },
     "bake": {}
    },
-   "sha256": "53baeec4de505401ffbeaa2ce566f06e80efb8b69508d84d8848c4254dba1cde"
+   "sha256": "b59e6b3d4970b98b8b66a812f181cba581596b3825a18a28ff322911658ab7c2"
   },
   {
    "id": "ca/ash_rock_a",
@@ -372,7 +372,7 @@
     },
     "bake": {}
    },
-   "sha256": "4932f2bc049550544776cdb67180942b6490cb5f9d0d4899bb15337e35a91919"
+   "sha256": "7419683af5c3e55625d61576620bfa0ddaa46c8ad715970a810bce09bebf40f1"
   },
   {
    "id": "ca/ash_rock_b",
@@ -415,7 +415,7 @@
     },
     "bake": {}
    },
-   "sha256": "e1a54349177b22f6df7cd46a013681701fcb97991cd83e5d1e79f80ea0903bd2"
+   "sha256": "9816afcfb1d25dd4825287501b4ba0b80dc65a2f7e3c35ca52c7136e73c03f10"
   },
   {
    "id": "ca/ash_rock_c",
@@ -456,7 +456,7 @@
     },
     "bake": {}
    },
-   "sha256": "6eab7275c93c7a9f9be9ac874c6d8afc57a67320b7cb789c74974ee456102427"
+   "sha256": "4fd95a213490274e359d7e06229a83365dd41825adcd165c2145203b51fc4acb"
   },
   {
    "id": "ca/ash_rubble",
@@ -498,7 +498,7 @@
      "grad": 1.2
     }
    },
-   "sha256": "8535ef070cf8781187b3fb484d3d589126f365c97072f11f14eb11003e191164"
+   "sha256": "03c1f21c4de8143665df33881580ff487f8200b6f60bc24789bcc56d6da72d9d"
   },
   {
    "id": "ca/ash_skull",
@@ -539,7 +539,7 @@
      "grad": 0.4
     }
    },
-   "sha256": "fd64920dd4ad839b06399f2c3be696b0102abd04692915e38cd57ba90900ccb9"
+   "sha256": "73e3dc9704d010d8c43b9a68323e9f47d4d47a643b7f2c9dc805c02e3172a675"
   },
   {
    "id": "ca/ash_tree_dead_a",
@@ -581,7 +581,7 @@
     },
     "bake": {}
    },
-   "sha256": "aad0aa000d38cb60bb904cae53c1354f78710c58235876f925e5100cfbefa173"
+   "sha256": "aa7d413fcdb9f6c8f267315475149cd8df1fb1df5566c776ab6d345268a80f87"
   },
   {
    "id": "ca/ash_tree_dead_b",
@@ -624,7 +624,7 @@
     },
     "bake": {}
    },
-   "sha256": "efb1ca374916a2c25446952c3131c92857ab73503e7f3e70dd166581fd9e58f3"
+   "sha256": "a427343a62b849c8cad69362558ba512e6095dd8f872bdf277b06264b0c9c37f"
   },
   {
    "id": "ca/ash_tree_dead_c",
@@ -667,7 +667,7 @@
     },
     "bake": {}
    },
-   "sha256": "53a6e84c52c9bf7f26249719090792ed7af3607f67d6e67726aa464764115d42"
+   "sha256": "141b57a06696951616a2104bbeabc57255dfbd6c5f89027f209a4afc833be695"
   },
   {
    "id": "ca/ash_wall_a",
@@ -711,7 +711,7 @@
      "grad": 0.9
     }
    },
-   "sha256": "e7f94e60a4cc425cf4156431e055ad063213d111839afdcb7dd5f7f0cde1b49c"
+   "sha256": "c11cd687166a7690c4da586a8d34cf15cb6d37b689f5dad16197eb7b9f0d79ec"
   }
  ]
 }

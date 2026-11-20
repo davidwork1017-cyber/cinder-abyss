@@ -52,6 +52,7 @@ mv ~/opt/blender-5.2.4-linux-x64 ~/opt/blender-5.2.4
 npm run build:art                       # 全部重新生成 → 写清单 → 重新打包 js/assets/*.js
 node tools/build-art.mjs --only ca/ash_skull,ca/ash_bones   # 只生成几件（清单里其余的保留）
 node tools/build-art.mjs --no-pack      # 只生成 GLB 和清单，不打包
+node tools/build-art.mjs --jobs 17      # 同时起 17 个 Blender 进程（每个分几件），生成物和串行逐字节相同
 npm run check:art                       # 检查（不需要 Blender）
 ```
 
@@ -62,7 +63,7 @@ npm run check:art                       # 检查（不需要 Blender）
   --lineup /tmp/lineup.png --res 1600x1800 --samples 24 [--gens tree,rock]
 ```
 
-在共享机器上：构建脚本开跑前查测试槽位文件（`CA_SLOT_FILE`，缺省 `~/dev/zones-notes/SLOT`），被占用就每 60 秒查一次、最多等 60 分钟；Blender 以 `nice 15`、`ionice idle`、`taskset 0-15` 运行，烘焙线程数由 `CA_THREADS` 定（缺省 8）。
+每个 Blender 进程的烘焙线程数由 `CA_THREADS` 定（缺省：串行 8，并行 1）。构建脚本本身不管机器调度。共享机器上用机器自己的调度包一层：烬渊的 devbox 上是 `cc-slot batch <名字> build -- npm run build:art -- --jobs 17`，它以最低优先级跑、计时测试占着槽位时自动暂停。
 
 ## 一件是怎么生成的
 

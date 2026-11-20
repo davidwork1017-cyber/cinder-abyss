@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { readGlb, stats, isIdentity } from './glb.mjs';
+import { readGlb, stats, isIdentity, bakedMean } from './glb.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const rd = (p) => JSON.parse(fs.readFileSync(path.join(root, p), 'utf8'));
@@ -62,7 +62,13 @@ export function checkArt() {
     }
     const h = s.max[1] - s.min[1];
     const r = Math.max(-s.min[0], s.max[0], -s.min[2], s.max[2]);
-    rows.push({ id, cat: a.category, tris: s.tris, budget: cat.tris, h, r, mats: s.materials, tex: s.textures, ship: a.ship });
+    let lum = NaN;
+    try {
+      lum = bakedMean(g).lum;
+    } catch (e) {
+      bad(id, '算不出烘焙后的平均颜色：' + e.message);
+    }
+    rows.push({ id, cat: a.category, tris: s.tris, budget: cat.tris, h, r, mats: s.materials, tex: s.textures, ship: a.ship, lum });
     // 预算
     if (s.tris > cat.tris) bad(id, '三角形 ' + s.tris + ' 超过 ' + a.category + ' 预算 ' + cat.tris);
     if (s.materials > cat.materials) bad(id, '材质 ' + s.materials + ' 个，上限 ' + cat.materials);
@@ -116,8 +122,8 @@ export function checkArt() {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { fails, rows } = checkArt();
   for (const r of rows)
-    console.log(r.id.padEnd(22), (r.cat + (r.ship ? '' : '*')).padEnd(9), String(r.tris).padStart(5) + ' / ' + String(r.budget).padEnd(6), 'h ' + r.h.toFixed(2).padStart(5), 'r ' + r.r.toFixed(2).padStart(5), 'mat ' + r.mats, 'tex ' + r.tex);
-  console.log('（* = 备选件，没打进游戏）');
+    console.log(r.id.padEnd(22), (r.cat + (r.ship ? '' : '*')).padEnd(9), String(r.tris).padStart(5) + ' / ' + String(r.budget).padEnd(6), 'h ' + r.h.toFixed(2).padStart(5), 'r ' + r.r.toFixed(2).padStart(5), 'mat ' + r.mats, 'tex ' + r.tex, '亮度 ' + r.lum.toFixed(3));
+  console.log('（* = 备选件，没打进游戏；亮度 = 烘焙后的面积加权平均线性亮度，口径见 docs/art-style.md 的调色板一节）');
   if (fails.length) {
     for (const f of fails) console.error('check-art FAIL ' + f);
     process.exit(1);

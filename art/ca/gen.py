@@ -173,17 +173,17 @@ def pillar(k, h=4.4, r=0.42, sides=8, broken=0.35, plinth=True, chunks=1):
     zb = 0.0
     if plinth:
         pw = r * 2.5
-        k.box((pw, pw, 0.36), k.place((0, 0, 0.13)), row='stone', tone=0.4, jitter=0.08, bevel=0.05)
-        k.box((pw * 0.82, pw * 0.82, 0.18), k.place((0, 0, 0.38)), row='stone', tone=0.48, jitter=0.08, bevel=0.03)
+        k.box((pw, pw, 0.36), k.place((0, 0, 0.13)), row='stone', tone=0.62, jitter=0.08, bevel=0.05)
+        k.box((pw * 0.82, pw * 0.82, 0.18), k.place((0, 0, 0.38)), row='stone', tone=0.7, jitter=0.08, bevel=0.03)
         zb = 0.45
     top = h * (1 - broken * k.r(0.7, 1.0))
     n = 4
     pts = [(0, 0, zb + (top - zb) * i / (n - 1)) for i in range(n)]
     rad = [r * (1.0 - 0.06 * i / (n - 1)) for i in range(n)]
-    vs, segs = k.tube(pts, rad, sides=sides, row='stone', tone=0.56, jitter=0.1, tip=False, cap0=False, twist=0)
+    vs, segs = k.tube(pts, rad, sides=sides, row='stone', tone=0.76, jitter=0.1, tip=False, cap0=False, twist=0)
     for v in vs[-sides:]:
         v.co.z += k.r(-0.35, 0.05) * r * 1.6
-    k.tag(segs[-1][-1:], 'stone', 0.7, 0.06)
+    k.tag(segs[-1][-1:], 'stone', 0.88, 0.06)
     # 柱身中段错开一点：像几节石鼓叠起来
     for v in vs[sides:2 * sides]:
         v.co.x += 0.015 * math.cos(k.seed)
@@ -193,7 +193,7 @@ def pillar(k, h=4.4, r=0.42, sides=8, broken=0.35, plinth=True, chunks=1):
         L = r * k.r(1.3, 2.0)
         cx, cy = math.cos(a) * d, math.sin(a) * d
         dx, dy = math.cos(a + 1.4) * L / 2, math.sin(a + 1.4) * L / 2
-        cv, cs = k.tube([(cx - dx, cy - dy, r * 0.82), (cx + dx, cy + dy, r * 0.82)], [r * 0.85, r * 0.85], sides=sides, row='stone', tone=0.5, tip=False, cap0=True)
+        cv, cs = k.tube([(cx - dx, cy - dy, r * 0.82), (cx + dx, cy + dy, r * 0.82)], [r * 0.85, r * 0.85], sides=sides, row='stone', tone=0.72, tip=False, cap0=True)
         for v in cv:
             v.co.z = max(-0.04, v.co.z)
 
@@ -223,7 +223,7 @@ def firepit(k, r=0.29, stones=9, h=0.075):
         cx, cy = math.cos(a) * r * 0.82, math.sin(a) * r * 0.82
         s = r * k.r(0.17, 0.24)
         pts = [(cx + p[0], cy + p[1], max(-0.01, p[2] + h * 0.35)) for p in _blob(k, s * 1.2, s, h * 0.65, 8)]
-        k.hull(pts, row='stone', tone=0.45, jitter=0.18)
+        k.hull(pts, row='stone', tone=0.95, jitter=0.05)
     for i in range(3):
         a = k.r(0, TAU)
         L = r * 0.62
@@ -264,7 +264,7 @@ def skull(k, s=0.5, glow_eyes=True):
             nz = -0.5 * 0.78
         v.co = Vector((nx, ny, nz + 0.39))
     faces = _sorted_faces_of(vs)
-    k.tag(faces, 'bone', 0.62, 0.1)
+    k.tag(faces, 'bone', 0.86, 0.08)
     # 眼窝：前上方左右各一个面，深深压进去（窝壁焦黑，窝底余烬 / 焦黑）
     for sx in (-1, 1):
         # 眼窝要大：取目标点附近的一小片面（3–4 个），整片往里收、压深，窝壁焦黑，窝底一小块余烬
@@ -278,11 +278,11 @@ def skull(k, s=0.5, glow_eyes=True):
         core_f = min(grp, key=lambda f: (f.calc_center_median() - tgt).length)
         k.tag([core_f], 'ember' if glow_eyes else 'char', 0.6, 0.05, glow=1 if glow_eyes else 0, dust=0)
     # 上颌（吻部）：前伸的楔形凸包，鼻孔是顶面一道暗缝
-    up = k.hull([(sx * 0.46, 0.5, z) for sx in (-1, 1) for z in (0.05, 0.58)] + [(sx * 0.3, 0.5 + 0.95 * sn, z) for sx in (-1, 1) for z in (0.06, 0.36)] + [(0, 1.0, 0.56)], row='bone', tone=0.6)
+    up = k.hull([(sx * 0.46, 0.5, z) for sx in (-1, 1) for z in (0.05, 0.58)] + [(sx * 0.3, 0.5 + 0.95 * sn, z) for sx in (-1, 1) for z in (0.06, 0.36)] + [(0, 1.0, 0.56)], row='bone', tone=0.84)
     top = max(_sorted_faces_of(up), key=lambda f: f.normal.z)
     k.slit(top, width=0.25, depth=0.05, row='char')
     # 下颌：贴地的一块，略微张开
-    k.hull([(sx * 0.42, 0.4, z) for sx in (-1, 1) for z in (0.0, 0.1)] + [(sx * 0.26, 0.4 + 0.95 * sn, z) for sx in (-1, 1) for z in (0.0, 0.07)], row='bone', tone=0.48)
+    k.hull([(sx * 0.42, 0.4, z) for sx in (-1, 1) for z in (0.0, 0.1)] + [(sx * 0.26, 0.4 + 0.95 * sn, z) for sx in (-1, 1) for z in (0.0, 0.07)], row='bone', tone=0.72)
     # 牙：上颌前缘两颗朝下的尖牙
     for sx in (-1, 1):
         ty = 0.4 + 0.95 * sn - 0.05
@@ -310,11 +310,11 @@ def bones(k, n=3, L=0.7):
         cx, cy = k.r(-0.12, 0.12), k.r(-0.12, 0.12)
         dx, dy = math.cos(a) * l / 2, math.sin(a) * l / 2
         z = 0.045 + i * 0.03
-        k.tube([(cx - dx, cy - dy, z), (cx, cy, z + 0.01), (cx + dx, cy + dy, z)], [0.035, 0.028, 0.035], sides=5, row='bone', tone=0.6, tip=False, cap0=True)
+        k.tube([(cx - dx, cy - dy, z), (cx, cy, z + 0.01), (cx + dx, cy + dy, z)], [0.035, 0.028, 0.035], sides=5, row='bone', tone=0.86, tip=False, cap0=True)
         for e in (-1, 1):
             ex, ey = cx + e * dx, cy + e * dy
             pts = [(ex + p[0], ey + p[1], max(0.0, z + p[2])) for p in _blob(k, 0.065, 0.065, 0.05, 8)]
-            k.hull(pts, row='bone', tone=0.68, jitter=0.08)
+            k.hull(pts, row='bone', tone=0.92, jitter=0.06)
 
 
 def blade(k, h=1.25, w=0.16):
@@ -330,8 +330,8 @@ def blade(k, h=1.25, w=0.16):
         pts.append((0, -0.03, z))
     pts.append((w * 0.3, 0, bl + 0.12))
     pts.append((-w * 0.2, 0, bl + 0.05))
-    vb = k.hull(pts, row='iron', tone=0.62, jitter=0.1)
-    vg = k.box((w * 2.4, 0.07, 0.07), k.place((0, 0, -0.17)), row='iron', tone=0.4)
+    vb = k.hull(pts, row='iron', tone=0.82, jitter=0.1)
+    vg = k.box((w * 2.4, 0.07, 0.07), k.place((0, 0, -0.17)), row='iron', tone=0.62)
     vh, _ = k.tube([(0, 0, -0.2), (0, 0, -0.5)], [0.03, 0.03], sides=5, row='wood', tone=0.4, tip=False)
     vp = k.hull([(p[0], p[1], p[2] - 0.55) for p in _blob(k, 0.05, 0.05, 0.05, 7)], row='iron', tone=0.5)
     sword = vb + vg + vh + vp
@@ -339,7 +339,7 @@ def blade(k, h=1.25, w=0.16):
     k.xform(sword, k.place((0, 0, h * 0.62), (math.pi + lean, 0, az)))
     # 盾：八边形扁盘，斜靠
     ring = [(math.cos(TAU * i / 8) * 0.26, 0, math.sin(TAU * i / 8) * 0.26) for i in range(8)]
-    sh = k.hull([(x, -0.025, z) for x, _, z in ring] + [(x * 0.8, 0.035, z * 0.8) for x, _, z in ring], row='iron', tone=0.68, jitter=0.1)
+    sh = k.hull([(x, -0.025, z) for x, _, z in ring] + [(x * 0.8, 0.035, z * 0.8) for x, _, z in ring], row='iron', tone=0.82, jitter=0.1)
     k.xform(sh, k.place((math.cos(az + 1.2) * 0.38, math.sin(az + 1.2) * 0.38, 0.3), (1.1, 0, az + 1.2)))
     for v in sh:
         v.co.z = max(-0.02, v.co.z)

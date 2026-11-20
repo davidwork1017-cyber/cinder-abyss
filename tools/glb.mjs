@@ -84,3 +84,74 @@ export function stats(g) {
   out.attrs = [...out.attrs].sort();
   return out;
 }
+
+// ---------- 烘焙后的平均颜色（和游戏 js/assets.js 的 bakeGltf 同口径：底色贴图按 UV 取色 × baseColorFactor × COLOR_0） ----------
+import zlib from 'node:zlib';
+const s2l = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+// 8 位 PNG（灰度 / 灰度 + α / RGB / RGBA，非隔行）解码成原始像素
+export function decodePng(buf) {
+  let o = 8, w, h, ct, bd, il;
+  const idat = [];
+  while (o < buf.length) {
+    const L = buf.readUInt32BE(o), t = buf.toString('ascii', o + 4, o + 8), d = buf.subarray(o + 8, o + 8 + L);
+    if (t === 'IHDR') [w, h, bd, ct, il] = [d.readUInt32BE(0), d.readUInt32BE(4), d[8], d[9], d[12]];
+    if (t === 'IDAT') idat.push(d);
+    o += 12 + L;
+  }
+  const bpp = { 0: 1, 2: 3, 4: 2, 6: 4 }[ct];
+  if (bd !== 8 || !bpp || il) throw new Error('只支持 8 位非隔行的灰度 / RGB / RGBA PNG');
+  const raw = zlib.inflateSync(Buffer.concat(idat)), st = w * bpp, out = Buffer.alloc(w * h * bpp);
+  for (let y = 0; y < h; y++) {
+    const f = raw[y * (st + 1)], line = raw.subarray(y * (st + 1) + 1, (y + 1) * (st + 1));
+    for (let x = 0; x < st; x++) {
+      const a = x >= bpp ? out[y * st + x - bpp] : 0, b = y ? out[(y - 1) * st + x] : 0, c = x >= bpp && y ? out[(y - 1) * st + x - bpp] : 0;
+      let v = line[x];
+      if (f === 1) v += a;
+      else if (f === 2) v += b;
+      else if (f === 3) v += (a + b) >> 1;
+      else if (f === 4) {
+        const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
+        v += pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+      }
+      out[y * st + x] = v & 255;
+    }
+  }
+  return { w, h, bpp, d: out };
+}
+// 面积加权的平均线性颜色和亮度（每个三角形取第一个顶点的颜色，游戏里是平直着色、一面一色）
+export function bakedMean(g) {
+  const j = g.json, acc = [0, 0, 0];
+  let A = 0;
+  for (const mesh of j.meshes)
+    for (const p of mesh.primitives) {
+      const pbr = ((j.materials || [])[p.material] || {}).pbrMetallicRoughness || {}, bf = pbr.baseColorFactor || [1, 1, 1, 1];
+      let im = null;
+      if (pbr.baseColorTexture) {
+        const bv = j.bufferViews[j.images[j.textures[pbr.baseColorTexture.index].source].bufferView];
+        im = decodePng(g.bin.subarray(bv.byteOffset || 0, (bv.byteOffset || 0) + bv.byteLength));
+      }
+      const P = accessor(g, p.attributes.POSITION);
+      const U = p.attributes.TEXCOORD_0 !== undefined ? accessor(g, p.attributes.TEXCOORD_0) : null;
+      const C = p.attributes.COLOR_0 !== undefined ? accessor(g, p.attributes.COLOR_0) : null;
+      const I = p.indices !== undefined ? accessor(g, p.indices).map((v) => v[0]) : P.map((_, i) => i);
+      for (let t = 0; t < I.length; t += 3) {
+        const [a, b, c] = [P[I[t]], P[I[t + 1]], P[I[t + 2]]];
+        const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        const ar = Math.hypot(u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]) / 2;
+        const i0 = I[t];
+        let col = [bf[0], bf[1], bf[2]];
+        if (im && U) {
+          let uu = U[i0][0], vv = U[i0][1];
+          uu -= Math.floor(uu);
+          vv -= Math.floor(vv);
+          const k = (Math.min(im.h - 1, Math.floor(vv * im.h)) * im.w + Math.min(im.w - 1, Math.floor(uu * im.w))) * im.bpp;
+          col = col.map((x, q) => x * s2l(im.d[k + Math.min(q, im.bpp - 1)] / 255));
+        }
+        if (C) col = col.map((x, q) => x * C[i0][q]);
+        for (let q = 0; q < 3; q++) acc[q] += col[q] * ar;
+        A += ar;
+      }
+    }
+  const m = acc.map((x) => x / (A || 1));
+  return { rgb: m, lum: 0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2] };
+}

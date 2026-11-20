@@ -1,15 +1,15 @@
 // npm run build:art：无头 Blender 跑 art/build.py，按 art/catalog.py 生成全部布景件 → assets/ca/<区>/*.glb，
 // 再写 assets/ca/manifest.json（尺寸、三角形数、来源脚本 + 种子），最后跑 tools/pack-assets.mjs 把要上线的件打进 js/assets/kit-<区>.js。
 // 游戏和 npm test 都不需要 Blender：生成物一起提交。安装和用法见 docs/art-pipeline.md。
-//   node tools/build-art.mjs [--only id,id] [--no-pack]
-//   BLENDER=/path/to/blender 指定 Blender（缺省 ~/opt/blender-5.2.4/blender）；CA_THREADS 烘焙线程数（缺省 8）
-// 共享机器上的规矩：开跑前查测试槽位文件（CA_SLOT_FILE，缺省 ~/dev/zones-notes/SLOT），被占用就每 60 秒查一次、最多等 60 分钟；
-// Blender 以 nice 15 / ionice idle / taskset 0-15 运行（Linux 上；没有这些命令就直接跑）。
+//   node tools/build-art.mjs [--only id,id] [--jobs N] [--no-pack]
+//   --jobs N：同时起 N 个 Blender 进程，每个分几件（缺省 1 = 一个进程按顺序做完）；并行和串行的生成物逐字节相同
+//   BLENDER=/path/to/blender 指定 Blender（缺省 ~/opt/blender-5.2.4/blender）；CA_THREADS 每个进程的烘焙线程数（缺省：串行 8，并行 1）
+// 这里不管机器调度：共享机器上请用机器自己的调度包一层（烬渊的 devbox 上是 cc-slot batch，见 docs/art-pipeline.md）。
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { readGlb, stats } from './glb.mjs';
 
@@ -22,43 +22,40 @@ const opt = (k) => {
 export const BLENDER_VERSION = '5.2.4';
 const blender = process.env.BLENDER || path.join(os.homedir(), 'opt/blender-' + BLENDER_VERSION + '/blender');
 const outDir = path.join(root, 'assets/ca');
+const BASE = ['-b', '--factory-startup', '--python-exit-code', '1', '--python', path.join(root, 'art/build.py'), '--'];
 
-function waitSlot() {
-  const f = process.env.CA_SLOT_FILE || path.join(os.homedir(), 'dev/zones-notes/SLOT');
-  for (let i = 0; i < 60; i++) {
-    if (!fs.existsSync(f)) return;
-    console.log('测试槽位被占用（' + fs.readFileSync(f, 'utf8').trim() + '），60 秒后再查');
-    spawnSync('sleep', ['60']);
-  }
-  console.error('测试槽位 60 分钟没空出来，不跑 Blender');
-  process.exit(3);
-}
-
-const has = (cmd) => spawnSync('sh', ['-c', 'command -v ' + cmd], { encoding: 'utf8' }).status === 0;
-
-function runBlender(extra) {
+function checkBlender() {
   if (!fs.existsSync(blender)) {
     console.error('找不到 Blender：' + blender + '（安装见 docs/art-pipeline.md，或用 BLENDER=... 指定）');
     process.exit(2);
   }
   const ver = spawnSync(blender, ['-b', '--factory-startup', '--version'], { encoding: 'utf8' }).stdout || '';
   if (!ver.includes('Blender ' + BLENDER_VERSION)) console.warn('警告：Blender 版本不是 ' + BLENDER_VERSION + '，生成物可能和仓库里的逐字节不同：' + ver.split('\n')[0]);
-  waitSlot();
-  let cmd = [blender, '-b', '--factory-startup', '--python-exit-code', '1', '--python', path.join(root, 'art/build.py'), '--', ...extra];
-  if (process.platform === 'linux') {
-    if (has('taskset')) cmd = ['taskset', '-c', '0-15', ...cmd];
-    if (has('ionice')) cmd = ['ionice', '-c3', ...cmd];
-    if (has('nice')) cmd = ['nice', '-n', '15', ...cmd];
-  }
-  const t0 = Date.now();
-  const r = spawnSync(cmd[0], cmd.slice(1), { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20, env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } });
-  const lines = (r.stdout || '').split('\n');
-  if (r.status !== 0) {
-    console.error((r.stdout || '').slice(-4000) + (r.stderr || '').slice(-4000));
-    console.error('Blender 失败（退出码 ' + r.status + '）');
-    process.exit(1);
-  }
-  return { lines, ms: Date.now() - t0 };
+}
+
+function runOne(extra, threads) {
+  return new Promise((res) => {
+    const env = { ...process.env, PYTHONDONTWRITEBYTECODE: '1', CA_THREADS: String(threads) };
+    const p = spawn(blender, [...BASE, ...extra], { cwd: root, env });
+    let out = '', err = '';
+    p.stdout.on('data', (d) => (out += d));
+    p.stderr.on('data', (d) => (err += d));
+    p.on('close', (code) => {
+      if (code !== 0) {
+        console.error(out.slice(-4000) + err.slice(-4000));
+        console.error('Blender 失败（退出码 ' + code + '）：' + extra.join(' '));
+        process.exit(1);
+      }
+      res(out.split('\n'));
+    });
+  });
+}
+
+// 清单里的全部 id（让 Blender 读 art/catalog.py，免得 Node 这边再解析一遍 Python）
+async function catalogIds() {
+  const lines = await runOne(['--list', '1'], 1);
+  const l = lines.find((x) => x.startsWith('CA_IDS '));
+  return JSON.parse(l.slice(7));
 }
 
 export function manifestEntry(st) {
@@ -87,25 +84,35 @@ export function manifestEntry(st) {
   };
 }
 
-function main() {
+async function main() {
+  checkBlender();
   const only = opt('only');
-  const statsFile = path.join(os.tmpdir(), 'ca-build-' + process.pid + '.json');
-  const extra = ['--out', outDir, '--stats', statsFile];
-  if (only) extra.push('--only', only);
-  const { lines, ms } = runBlender(extra);
-  for (const l of lines) if (l.startsWith('CA_ASSET ')) {
-    const st = JSON.parse(l.slice(9));
-    console.log(st.id.padEnd(22), String(st.tris).padStart(5) + ' tris', '烘焙 ' + st.bake_s.toFixed(3) + ' s', '共 ' + st.total_s.toFixed(3) + ' s');
+  const jobs = Math.max(1, +(opt('jobs') || 1));
+  const ids = only ? only.split(',') : await catalogIds();
+  const threads = +(process.env.CA_THREADS || (jobs > 1 ? 1 : 8));
+  // 分组：按清单顺序轮流分给各个进程
+  const groups = Array.from({ length: Math.min(jobs, ids.length) }, () => []);
+  ids.forEach((id, i) => groups[i % groups.length].push(id));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ca-build-'));
+  const t0 = Date.now();
+  await Promise.all(groups.map((g, gi) => runOne(['--out', outDir, '--stats', path.join(tmp, gi + '.json'), '--only', g.join(',')], threads)));
+  const ms = Date.now() - t0;
+  const built = [];
+  groups.forEach((g, gi) => built.push(...JSON.parse(fs.readFileSync(path.join(tmp, gi + '.json'), 'utf8'))));
+  fs.rmSync(tmp, { recursive: true });
+  built.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+  for (const st of built) console.log(st.id.padEnd(22), String(st.tris).padStart(5) + ' tris', '烘焙 ' + st.bake_s.toFixed(3) + ' s', '共 ' + st.total_s.toFixed(3) + ' s');
+  if (built.length !== ids.length) {
+    console.error('有件没生成出来：期望 ' + ids.length + ' 件，实际 ' + built.length + ' 件');
+    process.exit(1);
   }
-  const built = JSON.parse(fs.readFileSync(statsFile, 'utf8'));
-  fs.unlinkSync(statsFile);
   const mfile = path.join(outDir, 'manifest.json');
   const old = fs.existsSync(mfile) ? JSON.parse(fs.readFileSync(mfile, 'utf8')) : { assets: [] };
   const byId = new Map(old.assets.map((a) => [a.id, a]));
   for (const st of built) byId.set(st.id, manifestEntry(st));
   // 清单里有、catalog 里已经删掉的件：只在全量构建时清掉
-  const ids = new Set(built.map((b) => b.id));
-  const assets = [...byId.values()].filter((a) => only || ids.has(a.id)).sort((a, b) => (a.id < b.id ? -1 : 1));
+  const builtIds = new Set(built.map((b) => b.id));
+  const assets = [...byId.values()].filter((a) => only || builtIds.has(a.id)).sort((a, b) => (a.id < b.id ? -1 : 1));
   const man = {
     _comment: '自动生成（npm run build:art），不要手改。布景件清单：来源脚本 + 种子、尺寸（米，Y 朝上，原点在底面中心）、三角形数；tools/check-art.mjs 按它检查。',
     blender: BLENDER_VERSION,
@@ -119,11 +126,11 @@ function main() {
     const bv = first.json.bufferViews[first.json.images[0].bufferView];
     fs.writeFileSync(path.join(outDir, 'palette.png'), first.bin.subarray(bv.byteOffset || 0, (bv.byteOffset || 0) + bv.byteLength));
   }
-  console.log('Blender ' + (ms / 1000).toFixed(1) + ' s，' + built.length + ' 件 → assets/ca/，清单 ' + assets.length + ' 件');
+  console.log('Blender ' + (ms / 1000).toFixed(1) + ' s（' + groups.length + ' 个进程 × 烘焙线程 ' + threads + '），' + built.length + ' 件 → assets/ca/，清单 ' + assets.length + ' 件');
   if (opt('no-pack') === null) {
     const r = spawnSync(process.execPath, [path.join(root, 'tools/pack-assets.mjs')], { cwd: root, stdio: 'inherit' });
     if (r.status !== 0) process.exit(r.status || 1);
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

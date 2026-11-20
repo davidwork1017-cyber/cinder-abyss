@@ -161,7 +161,9 @@ DRY = False
 if __name__ == '__main__':
     o = argv()
     DRY = o.get('dry') == '1'  # 只搭形、数三角形，不烘焙不导出（查生成器报错用，很轻）
-    if o.get('lineup'):
+    if o.get('list'):
+        print('CA_IDS ' + json.dumps([it['id'] for it in CATALOG]), flush=True)
+    elif o.get('lineup'):
         lineup(o)
     else:
         build(o)
