@@ -890,7 +890,7 @@
     // 破障（enemy-resist；support-expand 那一组的第 5 颗，等那一组上了 main 挪到它们的块末尾）：元素伤害穿透敌人的元素抗性（见 G.ENEMY_RES），
     // 可以压到负数。镶在召唤技能上作用于召唤物的每一击
     breach: { name: '破障', req: null, cost: 1.15, eff: { pen: 25 }, desc: '元素伤害穿透 25% 抗性',
-      alt: '敌人抗自己颜色的元素 ' + G.ENEMY_RES.mob + '%。穿透能把抗性压到负数，最低 −' + Math.abs(G.ENEMY_RES.floor) + '%：对不抗的敌人也是 +25%。物理、混沌不受影响。' },
+      alt: '每个区的敌人抗本区的元素 ' + G.ENEMY_RES.mob + '%（首领也是）。穿透能把抗性压到负数（最低 −' + Math.abs(G.ENEMY_RES.floor) + '%），对不抗的敌人也是 +25%。物理、混沌不受影响。' },
   };
 
   // ---------- 属性显示 ----------
