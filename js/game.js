@@ -7421,7 +7421,7 @@
       const pool = enemiesIn(x, z, R).filter((e) => losClear(x, z, e.x, e.z));
       let px, pz;
       if (pool.length) {
-        pool.sort((p, q) => (storm.struck.get(p) || 0) - (storm.struck.get(q) || 0) + (Math.random() - 0.5) * 1.2);
+        G.shuffle(pool).sort((p, q) => (storm.struck.get(p) || 0) - (storm.struck.get(q) || 0)); // 先洗牌再稳定排序：砸得一样少的随机挑
         const e = pool[0];
         storm.struck.set(e, (storm.struck.get(e) || 0) + 1);
         px = e.x + G.rand(-0.4, 0.4);
@@ -9823,9 +9823,9 @@
   };
   function rollStock(enc) {
     const T = G.TRADER, save = G.save, lvl = enc.level;
-    const want = G.SLOTS.slice().sort((a, b) => {
+    const want = G.shuffle(G.SLOTS.slice()).sort((a, b) => { // 先洗牌再稳定排序：物品等级一样的部位随机先后
       const ia = save.equip[a] ? save.equip[a].ilvl || 0 : -1, ib = save.equip[b] ? save.equip[b].ilvl || 0 : -1;
-      return ia - ib || Math.random() - 0.5;
+      return ia - ib;
     });
     const out = [];
     for (let i = 0; i < T.items; i++) {

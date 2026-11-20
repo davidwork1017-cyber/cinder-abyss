@@ -4,6 +4,15 @@
   const G = (window.G = {});
 
   G.rand = (a, b) => a + Math.random() * (b - a);
+  // 原地洗牌（Fisher–Yates，返回同一个数组）。不要用 arr.sort(() => Math.random() - 0.5)：比较函数前后矛盾时，排出来的结果取决于引擎的排序怎么走
+  G.shuffle = (arr) => {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1)), t = arr[i];
+      arr[i] = arr[j];
+      arr[j] = t;
+    }
+    return arr;
+  };
   G.randInt = (a, b) => Math.floor(a + Math.random() * (b - a + 1));
   G.pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
   G.clamp = (v, a, b) => Math.max(a, Math.min(b, v));
