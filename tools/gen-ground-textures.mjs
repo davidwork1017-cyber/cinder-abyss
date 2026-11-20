@@ -97,15 +97,15 @@ const COVERS = {
     const a = 0.6 + 0.1 * (lo - 0.5) + 0.1 * (mid - 0.5) + 0.07 * (gr - 0.5) + 0.16 * fl - 0.3 * ch;
     return { a: [a * 0.99, a * 0.99, a], h, ao: 0.88 + 0.12 * mid, r: 0.97 };
   },
-  // 霜壳：冻住的薄壳裂成一块块（Worley），块边隆起发白，块里有细的结晶纹和零星的亮点
+  // 霜壳：冻住的一层白霜，大块的明暗起伏 + 很淡的裂纹（Worley 的块边，只提亮一点）+ 细的结晶噪声和零星的亮点；不要成「铺地砖」的网格
   frost(u, v) {
-    const w = worley(u, v, 9, 3, 0.9), e = w[1] - w[0];
-    const ridge = sstep(0.16, 0.0, e), plate = 0.5 + 0.5 * (w[2] - 0.5);
-    const fine = fbm(u, v, 48, 3, 17), crys = worley(u, v, 70, 9, 0.9);
-    const spark = hashI(Math.floor(u * 512), Math.floor(v * 512), 99) > 0.985 ? 1 : 0;
-    const h = 0.45 + 0.25 * plate + 0.22 * ridge + 0.08 * (fine - 0.5);
-    const a = 0.62 + 0.1 * (plate - 0.5) + 0.2 * ridge + 0.1 * (fine - 0.5) + 0.08 * sstep(0.12, 0.0, crys[1] - crys[0]) + 0.18 * spark;
-    return { a: [a * 0.97, a, a * 1.03], h, ao: 0.78 + 0.22 * (1 - ridge * 0.4), r: 0.55 + 0.3 * (1 - ridge) };
+    const lo = fbm(u, v, 4, 4, 13), w = worley(u, v, 6, 3, 0.9), e = w[1] - w[0];
+    const ridge = sstep(0.08, 0.0, e) * (0.4 + 0.6 * fbm(u, v, 12, 2, 15));
+    const fine = fbm(u, v, 64, 3, 17), crys = fbm(u, v, 140, 2, 19);
+    const spark = hashI(Math.floor(u * 512), Math.floor(v * 512), 99) > 0.988 ? 1 : 0;
+    const h = 0.45 + 0.2 * lo + 0.06 * ridge + 0.08 * (fine - 0.5);
+    const a = 0.64 + 0.12 * (lo - 0.5) + 0.07 * ridge + 0.1 * (fine - 0.5) + 0.06 * (crys - 0.5) + 0.16 * spark;
+    return { a: [a * 0.97, a, a * 1.03], h, ao: 0.85 + 0.15 * lo, r: 0.6 + 0.2 * (1 - ridge) };
   },
   // 砂砾：密的小卵石（每颗明暗不一）+ 石缝里的细砂
   storm(u, v) {

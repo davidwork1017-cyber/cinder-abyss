@@ -827,12 +827,12 @@
       ],
       lava: null,
       rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0x6a7a8a, capAll: 0.3 }, // phase 3：雪盖 0xb4c8d6 / 0.6 → 0x8296aa / 0.45；zones-frost：再压一档（水边的石头是这一区的「岩壁」）
-      grade: { sat: 1.12, con: 1.1, lift: 0x04081a, gain: 0xf4faff, vig: 0.22, sh: 0x5a70c0, hi: 0xfff0e0, tk: 0.08 },
+      grade: { sat: 1.12, con: 1.1, lift: 0x04081a, gain: 0xf4faff, vig: 0.22, sh: 0x5a70c0, hi: 0xfff0e0, tk: 0.1, shS: 0.85 },
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       patch: 0.15, // zones-polish：岛上的粗糙地面斑块像泥印子，0.55 → 0.15
       // vf-ground：冻土上一片片霜壳（略亮略冷），岸边和石头脚下结得厚；路外撒霜点、结晶和碎石
-      layer: { tex: 'g_cover_frost', tile: 4, con: 0.7, rough: 0.8, k: 0.42, sat: 0.5, col: 0x6a7e88, path: 0.7, pT: 0.55, edge: 0.8, jag: 1.0, blend: 0.1 },
-      deco: { cover: 0x8aa0ac, floor: 0.8, wild: 1, ao: 0.55, scorch: 0, kinds: [14, 13, 7, 8, 4], tint: 0x56646e },
+      layer: { tex: 'g_cover_frost', tile: 6, con: 0.6, rough: 0.8, k: 0.42, sat: 0.5, col: 0x6e8490, path: 0.7, pT: 0.58, edge: 0.9, jag: 1.6, blend: 0.08, edgeW: 0.6, mv: 0.14, mh: 0.1, scorch: 0.5, sT: 0.62, ao2: 0.22 }, // scorch 在这一区是成片的积雪（粗糙地面那一套是雪）
+      deco: { cover: 0x8aa0ac, floor: 0.8, wild: 1, ao: 0.8, aoR: 0.9, scorch: 0, clusters: 0.6, kinds: [14, 13, 7, 8, 4], tint: 0x56646e },
       blots: { k: 0.35, r: 0.7, op: 0.28, tex: 'crack' }, // zones-polish：冻土上的细冰裂，不是暗块。zones-frost：岛上的污斑少一半多、小一圈（zones-ash 加的旋钮）
       sigil: { k: 0.4 }, // zones-frost：冰湖上的法阵颜色压到 4 成（加色混合，等于淡一半多），不那么像界面
       mist: null, // zones-frost：路外整片是水（dress 画），贴地薄雾在水面上是一块块的亮斑，去掉（高 / 低画质也就一致了）
@@ -857,11 +857,12 @@
       ],
       lava: null,
       rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0, capAll: 0 },
-      grade: { sat: 1.12, con: 1.1, lift: 0x080418, gain: 0xfaf6ff, vig: 0.24, sh: 0x6a58c0, hi: 0xfff0e4, tk: 0.08 },
+      grade: { sat: 1.12, con: 1.1, lift: 0x080418, gain: 0xfaf6ff, vig: 0.24, sh: 0x6a6ab0, hi: 0xfff0e4, tk: 0.1, shS: 0.85 },
       blots: { k: 0.35, r: 0.7, op: 0.3, tex: 'crack' }, // zones-polish：地砖上是细裂纹，不是暗块。zones-storm：地砖上的污斑少一些、小一些（zones-ash 的开关）
       // vf-ground：地砖缝和墙脚积着风吹进来的砂砾；路外是碎砂带、碎石块和水渍
-      layer: { tex: 'g_cover_storm', tile: 3.5, con: 0.8, rough: 1, k: 0.46, sat: 0.4, col: 0x4e4c5e, path: 0.6, pT: 0.58, edge: 0.9, jag: 0.8, blend: 0.1 },
-      deco: { cover: 0x5e5c6e, floor: 0.8, wild: 1, ao: 0.6, scorch: 0, kinds: [6, 7, 8, 11, 12, 13], tint: 0x4a4858 },
+      layer: { tex: 'g_cover_storm', tile: 3.5, con: 0.6, rough: 1, k: 0.46, sat: 0.4, col: 0x4e4c5e, path: 0.6, pT: 0.56, edge: 1, jag: 1.2, blend: 0.08, edgeW: 0.6, mv: 0.14, mh: 0.08, scorch: 0.45, sT: 0.64, ao2: 0.24 }, // scorch：成片的碎石地（粗糙地面那一套）
+      deco: { cover: 0x5e5c6e, floor: 0.8, wild: 1, ao: 0.85, aoR: 0.9, scorch: 0, clusters: 0.6, kinds: [6, 7, 8, 11, 12, 13], tint: 0x4a4858 },
+      pool: { col: 0xffd27a, k: 1.0, r: 3, gain: 1.4 }, // 路边立灯脚下映暖
       sigil: { r: 0.55, op: 0.12 }, // zones-storm：监察大厅的法阵原来又大又满，收小、压淡
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x2c2744, a: 0.32 },
@@ -887,13 +888,14 @@
       ],
       lava: { mode: 1, color: 0xff6a22, k: 1.6, patch: [0, 0.72] },
       rock: { tex: 'dark_rock', tile: 2.6, nrm: 1.2, cap: 0x5a5262, capAll: 0.18 }, // 朝上的面盖一层很淡的灰烬，岩石的顶面不至于一片死黑
-      grade: { sat: 1.0, con: 1.08, lift: 0x0a0612, gain: 0xf8f4f8, vig: 0.26, sh: 0x5a4aa0, hi: 0xffc89a, tk: 0.1 },
+      grade: { sat: 1.0, con: 1.08, lift: 0x0a0612, gain: 0xf8f4f8, vig: 0.26, sh: 0x5a5a98, hi: 0xffc89a, tk: 0.12, shS: 0.8 },
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x1c1622, a: 0.3 },
       prop: { tint: 0x4a4450, sat: 0.15 },
       // vf-ground：石板上一片片发黑的腐壳，崖边和墙脚厚；路外是腐根脉络、水渍、碎石，熔岩边有焦痕
-      layer: { tex: 'g_cover_abyss', tile: 4.5, con: 0.8, rough: 0.9, k: 0.55, sat: 0.4, col: 0x4a4450, path: 0.6, pT: 0.56, edge: 0.85, jag: 1.0, blend: 0.1 },
-      deco: { cover: 0x4e4656, floor: 0.8, wild: 1, ao: 0.6, scorch: 0.6, kinds: [15, 12, 7, 11, 13], tint: 0x3e3844 },
+      layer: { tex: 'g_cover_abyss', tile: 4.5, con: 0.8, rough: 0.9, k: 0.55, sat: 0.4, col: 0x4a4450, path: 0.6, pT: 0.55, edge: 0.95, jag: 1.4, blend: 0.08, edgeW: 0.55, mv: 0.15, mh: 0.1, scorch: 0.5, sT: 0.63, ao2: 0.24 },
+      deco: { cover: 0x4e4656, floor: 0.8, wild: 1, ao: 0.85, aoR: 0.9, scorch: 0.6, clusters: 0.6, kinds: [15, 12, 7, 11, 13], tint: 0x3e3844 },
+      pool: { col: 0xff6a22, k: 1.4, r: 3, gain: 1.6, glows: true }, // 熔岩、余烬口、晶簇（余烬橙）周围映暖
       blots: { k: 0.12, r: 0.6, op: 0.3, tex: 'crack' }, // zones-polish：owner 说地上一块块暗斑，砍到 0.12、换成细裂纹（路面的变化交给石板和崖沿的压暗）。zones-ash 的污斑开关：少、小、淡到几乎看不见（原来在 dress 里把不透明度改成 0.08）
       // 下面四个旋钮原来是 abyss 的 dress / fx 运行时改的（zones-integrate 收进表里）：法阵收小、压暗、换余烬橙，没有起点法阵；
       // 晶簇是闷烧的余烬橙；环境火星余烬橙；通用岩石成簇留空
@@ -921,14 +923,15 @@
       ],
       lava: null,
       rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0, capAll: 0 },
-      grade: { sat: 1.04, con: 1.1, lift: 0x020a10, gain: 0xf4fbff, vig: 0.24, sh: 0x4a80b0, hi: 0xfff2dc, tk: 0.08 },
+      grade: { sat: 1.04, con: 1.1, lift: 0x020a10, gain: 0xf4fbff, vig: 0.24, sh: 0x4a80b0, hi: 0xfff2dc, tk: 0.1, shS: 0.85 },
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x16303a, a: 0.3 },
       prop: { tint: 0x3e5250, sat: 0.12 },
       patch: 0.2, // zones-polish：板岩路面上的暗色软斑 0.55 → 0.2
       // vf-ground：板岩上一片片苔尘（青灰的地衣），岩脚厚；路外是苔点、晶尘和碎石
-      layer: { tex: 'g_cover_rift', tile: 5, con: 0.8, rough: 1, k: 0.55, sat: 0.6, col: 0x4a5e58, path: 0.6, pT: 0.56, edge: 0.8, jag: 1.0, blend: 0.1 },
-      deco: { cover: 0x5a7a70, floor: 0.8, wild: 1, ao: 0.6, scorch: 0, kinds: [13, 4, 7, 8, 11, 14], tint: 0x3a4a4a },
+      layer: { tex: 'g_cover_rift', tile: 5, con: 0.55, rough: 1, k: 0.5, sat: 0.6, col: 0x47584f, path: 0.6, pT: 0.58, edge: 0.9, jag: 1.4, blend: 0.08, edgeW: 0.6, mv: 0.14, mh: 0.1, scorch: 0.45, sT: 0.64, ao2: 0.22 }, // scorch：成片的月岩地
+      deco: { cover: 0x5a7a70, floor: 0.8, wild: 1, ao: 0.85, aoR: 0.9, scorch: 0, clusters: 0.6, kinds: [13, 4, 7, 8, 11, 14], tint: 0x3a4a4a },
+      pool: { col: 0x5ad8e8, k: 0.8, r: 3, gain: 1.4, glows: true }, // 晶簇周围映出电光青
       blots: { k: 0.4, r: 0.7, op: 0.3, tex: 'crack' }, // zones-polish：细裂纹代替暗块。污斑少一半多、小一点（zones-ash 加的旋钮）
       // 下面三个旋钮原来是 rift 的 dress 运行时找网格改的（zones-integrate 收进表里）：法阵缩到 0.45、电光青压淡；水晶和光晕电光青；
       // 通用岩石换成卡通材质（底色 = rockTop / def.rock，高画质 ×0.88、低画质 ×0.7），按低频噪声成簇留空
@@ -10201,6 +10204,7 @@
       const pts = [];
       if (fires) for (const f of fires.list) pts.push(f.x, f.z, 2.4, 1);
       for (let i = 0; i < ashGlow.length; i += 10) pts.push(ashGlow[i], ashGlow[i + 2], ashGlow[i + 6] * 1.1, 0.8);
+      if (gx.pool.glows) for (let i = 0; i < glows.length; i += 10) pts.push(glows[i], glows[i + 2], glows[i + 6] * 0.9, 0.7); // 晶簇脚下的光晕
       const P4 = [];
       for (let i = 0; i < pts.length; i += 4) P4.push(pts.slice(i, i + 4));
       const tp0 = performance.now();
