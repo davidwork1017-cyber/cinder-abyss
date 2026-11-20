@@ -14465,6 +14465,35 @@ async function main() {
     return '层级 0 出现 ' + r.p0 + '，层级 1 两个 ' + r.p2 + '，烛芯 ' + r.chance;
   });
 
+  // 「区域 N」的泄漏检查数基线前会先把醒来的异兆收掉（不然懒生成会让基线时有时无），所以「醒来的异兆换区时收干净」单独在这里测
+  await step('异兆换区清理：醒来的缚匣（道具组）和拾烬客（道具组 + 实体）在换区时都从场景里收掉', async () => {
+    await encKit();
+    const r = await ev(() => {
+      const W = G.world, S = G.state, out = {};
+      const enemyGroup = (o) => S.enemies.some((e) => e.ent && e.ent.group === o);
+      for (const kind of ['box', 'trader']) {
+        const enc = EK.put(kind, 1, 0, kind === 'box' ? 4100 : 4150);
+        if (!enc) {
+          out[kind] = { none: true };
+          continue;
+        }
+        // 走到点位上推进一步：懒生成在这一步醒来，记下它往场景里加了哪些对象（匣卫这类敌人不算）
+        const before = new Set(W.scene.children);
+        T.tp(enc.site.x, enc.site.z);
+        G.tick(1 / 60);
+        const added = W.scene.children.filter((o) => !before.has(o) && !enemyGroup(o));
+        const live = enc.live;
+        G.enterZone(S.zoneIdx, S.tier); // 换区（重进同一区，模拟停着，新掷的异兆不会醒）
+        out[kind] = { live, added: added.length, left: added.filter((o) => o.parent).length };
+      }
+      G.enterZone(0, 0);
+      return out;
+    });
+    assert(r.box.live && r.box.added >= 1 && r.trader.live && r.trader.added >= 2, '异兆没有醒来，或者醒来时没有建出道具 / 拾烬客：' + JSON.stringify(r));
+    assert(r.box.left === 0 && r.trader.left === 0, '换区后醒来的异兆道具 / 拾烬客还留在场景里：' + JSON.stringify(r));
+    return '缚匣醒来加了 ' + r.box.added + ' 个、拾烬客 ' + r.trader.added + ' 个，换区后都收掉';
+  });
+
   // ================================================================== 熄烛者（D5：巅峰首领，余烛殿）
   // 放在「localStorage 不可用」之前。每一步最后 G.enterZone(0, 0) 回到普通区域（T.arena 会调 G.respawn，在余烛殿里会熄魂灯，不在那里用）
   await step('余烛殿·地图：最高层级 < 2 没有节点、≥ 2 才有；烛芯不齐时「点燃」禁用、G.lightPinnacle 拒绝；齐了点燃扣掉四种各 1 个进场；等级 = 17 + 20 × 层级 + 5；state.zoneIdx 不变，存档挂上 run.pin', async () => {
