@@ -15167,72 +15167,386 @@ async function main() {
     return '首杀 ' + r.first.split(' ')[0] + ' · 保底 ' + r.pity.split(' ')[0];
   });
 
-  await step('渊契「双生」：选了刻式的技能每次施放在 A / B 之间交替（你选的那一种先），交替出来的那一种伤害 +10%，放出去的投射物带着自己那份定义；光环、召唤不交替；魔力不够没放出去不算一次；摘下后指回选的那一种', async () => {
+  await step('渊契「余响」（双生坠）：刻式技能（宝石 ≥ 10，原式也算）每次命中，0.2 秒后同一目标再受该次伤害的 60%；同一目标的多次命中累加成一记；不暴击、不累积异常、不削架势；召唤物 / 光环 / 黑焰都算，异常触发和宝石 < 10 的不算；记到来源技能；余响打死照常结算；秒伤估算 ×1.6；摘下当场作废', async () => {
     const r = await ev(() => {
-      const S = G.state, P = G.player, out = {};
+      const S = G.state, P = G.player, RQ = G.relicState, out = {};
       RQT.begin('shuangsheng');
       RQT.learn('ember', 0);
       G.save.variants.ember = 'a';
       G.applyVariants();
-      T.dummy(0, 7);
-      T.aim(P.x, P.z + 7);
-      const seq = [], projV = [];
-      const sp0 = G.spawnProjectile;
-      let lastV = '-';
-      G.spawnProjectile = function (p) { if (p.owner === 'p' && p.ctx) lastV = p.ctx.sk.variant; return sp0.call(this, p); };
-      for (let i = 0; i < 4; i++) {
-        P.cds = {};
-        P.mana = P.maxMana;
-        G.input.tap[0] = 1;
-        let t = 0;
-        while (!P.cast && t++ < 30) G.debug.step(1 / 60);
-        seq.push(G.SKILLS.ember.variant);
-        lastV = '-';
-        t = 0;
-        while (P.cast && t++ < 120) G.debug.step(1 / 60);
-        projV.push(lastV);
-      }
-      G.spawnProjectile = sp0;
-      out.seq = seq.join('');
-      out.proj = projV.join('');
-      const ka = G.skillCtx('ember').more;
-      G.useVariant('ember', 'a');
-      const kA = G.skillCtx('ember').more;
-      G.useVariant('ember', 'b');
-      const kB = G.skillCtx('ember').more;
-      out.alt = +(kB / kA).toFixed(3);
-      // 没放出去不算一次
-      G.useVariant('ember', 'a');
-      G.relicState.twin.ember = 'b';
-      P.mana = 0;
-      P.cds = {};
-      G.input.tap[0] = 1;
+      T.fix(0);
+      const e = T.mob('husk', 5, 0);
+      e.buTh = 1e15;
+      e.poiseMax = e.poise = 500;
+      const ctx = G.skillCtx('ember');
+      S.stats.twinBy = {};
+      const hp0 = e.hp, d1 = G.hitEnemy(e, ctx, 1, {}), d2 = G.hitEnemy(e, ctx, 1, {});
+      out.crit = G.calcHit(ctx, 1).crit;
+      out.q = RQ.twinQ.size;
+      const bu = JSON.stringify(e.bu), po = e.poise;
       G.debug.step(0.1);
-      out.noMana = G.relicState.twin.ember;
-      P.mana = P.maxMana;
-      // 光环 / 召唤
-      RQT.learn('nova', 2);
-      G.save.variants.nova = 'b';
-      RQT.learn('thrall', 3);
-      G.save.variants.thrall = 'a';
-      G.applyVariants();
-      G.relicState.twin = {};
-      out.skip = [G.relicTwin('nova'), G.relicTwin('thrall'), G.relicTwin('ember')].join();
-      // 摘下
+      out.early = Math.round(hp0 - e.hp - d1 - d2);
+      G.debug.step(0.15);
+      out.ratio = +((hp0 - e.hp - d1 - d2) / (d1 + d2)).toFixed(4);
+      out.clean = JSON.stringify(e.bu) === bu && e.poise === po && RQ.twinQ.size === 0;
+      out.by = +(S.stats.twinBy.ember / (d1 + d2)).toFixed(4);
+      T.unfix();
+      T.fix(0.5);
+      // 不算的：异常触发、宝石 < 10
+      G.hitEnemy(e, ctx, 1, { proc: true });
+      out.proc = RQ.twinQ.size;
+      G.save.skills.ember = 9;
+      G.computeStats();
+      G.hitEnemy(e, G.skillCtx('ember'), 1, {});
+      out.low = RQ.twinQ.size;
+      G.save.skills.ember = 10;
+      G.computeStats();
+      // 召唤物、光环
+      RQT.learn('thrall', 2);
+      const mc = G.skillCtx('thrall');
+      G.hitEnemy(e, mc, 1, { minion: true });
+      RQT.learn('nova', 3);
+      G.hitEnemy(e, G.skillCtx('nova'), 1, { aura: true });
+      G.debug.step(0.25);
+      out.mn = S.stats.twinBy.thrall > 0 && S.stats.twinBy.nova > 0;
+      // 黑焰：右键普攻（不是刻式技能）附带的那一份也会余响
+      RQT.learn('blackflame', 2);
+      G.save.bar[3] = null;
+      G.computeStats();
+      const bc = G.skillCtx(G.weaponBasic());
+      const hb = G.hitEnemy(e, bc, 1, {});
+      G.debug.step(0.25);
+      out.flame = bc.flame > 0 && S.stats.twinBy.blackflame > 0 && S.stats.twinBy.blackflame < hb;
+      // 余响打死：照常记击杀
+      const k0 = S.stats.kills, f = T.mob('husk', 4, 2);
+      f.hp = f.maxHp = 1000;
+      const df = G.hitEnemy(f, ctx, 1, {});
+      f.hp = Math.min(f.hp, df * 0.3);
+      G.debug.step(0.25);
+      out.kill = f.dead && S.stats.kills === k0 + 1;
+      // 技能页 / 换装对比的秒伤把余响算进去（词缀清空只看机制）：刻式技能 ×1.6，处决的基数（单次伤害）不变
+      const am = G.save.equip.amulet, keepAff = am.affixes, keepImp = am.imp;
+      am.affixes = [];
+      am.imp = null;
+      G.computeStats();
+      const dOn = G.skillDps(G.skillCtx('ember')), hOn = G.avgHit(G.skillCtx('ember'));
       G.save.equip.amulet = null;
       G.computeStats();
-      out.off = G.SKILLS.ember === G.skillVariant('ember', 'a') && G.relicState.twinAlt.size === 0 && Math.abs(G.skillCtx('ember').more - kA) < 1e-9;
+      const dOff = G.skillDps(G.skillCtx('ember')), hOff = G.avgHit(G.skillCtx('ember'));
+      out.dps = +(dOn / dOff).toFixed(4) + ' ' + +(hOn / hOff).toFixed(4);
+      am.affixes = keepAff;
+      am.imp = keepImp;
+      G.save.equip.amulet = am;
+      G.computeStats();
+      // 摘下：挂着的当场作废、之后的命中也不再余响
+      G.hitEnemy(e, ctx, 1, {});
+      out.qOn = RQ.twinQ.size;
+      G.save.equip.amulet = null;
+      G.computeStats();
+      out.qOff = RQ.twinQ.size;
+      const hpA = e.hp;
+      G.hitEnemy(e, ctx, 1, {});
+      const hpB = e.hp;
+      G.debug.step(0.3);
+      out.off = RQ.twinQ.size === 0 && e.hp === hpB && hpB < hpA;
       delete G.save.variants.ember;
-      delete G.save.variants.nova;
-      delete G.save.variants.thrall;
       G.applyVariants();
+      G.clearEnemies();
       RQT.end();
       return out;
     });
-    assert(r.seq === 'abab' && r.proj === 'abab', '交替顺序不对：' + JSON.stringify(r));
-    assert(r.alt === 1.1 && r.noMana === 'b', '交替那一下的伤害 / 没放出去不算：' + JSON.stringify(r));
-    assert(r.skip === ',,a' && r.off, '光环 / 召唤 / 摘下不对：' + JSON.stringify(r));
-    return '施放 ' + r.seq + ' · 交替那一下 ×' + r.alt;
+    assert(r.crit && r.q === 1 && r.early === 0 && r.ratio === 0.6 && r.by === 0.6 && r.clean, '余响的时机 / 倍率 / 不暴击不累积不削架势不对：' + JSON.stringify(r));
+    assert(r.proc === 0 && r.low === 0 && r.mn && r.flame && r.kill, '够格的命中不对（异常触发 / 宝石 < 10 / 召唤物 / 光环 / 黑焰 / 打死）：' + JSON.stringify(r));
+    assert(r.qOn === 1 && r.qOff === 0 && r.off, '摘下后应当场作废：' + JSON.stringify(r));
+    assert(r.dps === '1.6 1', '秒伤估算应 ×1.6、单次伤害不变：' + JSON.stringify(r));
+    return '0.2 秒后 ×' + r.ratio;
+  });
+
+  await step('双生坠的词缀：伤害提高 / 攻击与施法速度 / +暴击伤害 / 「你和召唤物的总伤害额外」四行都在区间里，比普通渊契高一截；最后一行按掷出的百分比同时提高你和召唤物的伤害（不戴时复原）', async () => {
+    const r = await ev(() => {
+      const P = G.player, out = {};
+      RQT.begin(null);
+      const it = G.rollRelic('shuangsheng', 62, 1);
+      out.lines = it.affixes.map((a) => a.id + '=' + a.v).join(' ');
+      out.rng = G.RELICS.shuangsheng.lines.map((ln, i) => G.relicLineRange('shuangsheng', 62, i).join('-')).join(' ');
+      out.rqv = it.rqv;
+      RQT.learn('ember', 0);
+      RQT.learn('thrall', 2);
+      const pm = G.skillCtx('ember').more, mm = G.skillCtx('thrall').more;
+      G.save.equip.amulet = it;
+      G.computeStats();
+      const am = it.affixes[3].v;
+      out.am = am;
+      out.k = +(G.skillCtx('ember').more / pm).toFixed(4) + ' ' + +(G.skillCtx('thrall').more / mm).toFixed(4);
+      out.want = +(1 + am / 100).toFixed(4);
+      out.stats = [P.S.incAll, P.S.speed, P.S.critMulti, P.S.allMore].join(' ');
+      out.fmt = G.fmtStat('allMore', am);
+      G.save.equip.amulet = null;
+      G.computeStats();
+      out.back = G.skillCtx('ember').more === pm && G.skillCtx('thrall').more === mm;
+      RQT.end();
+      return out;
+    });
+    assert(r.lines === 'incAll=173 speed=50 critMulti=101 uAllMore=14' && r.rng === '78-173 25-50 49-101 10-14' && r.rqv === 2, '词缀行 / 区间不对：' + JSON.stringify(r));
+    assert(r.k === r.want + ' ' + r.want && r.back && r.fmt === '你和召唤物的总伤害额外 +14%', '总伤害额外应同时作用于你和召唤物：' + JSON.stringify(r));
+    return r.lines + ' · ×' + r.want;
+  });
+
+  await step('旧双生坠读档升级：原有两行保留在旧区间里的成色，换算到新区间；新加的两行按物品 uid 定数（同一件每次一样）；记 rqv 2，只提示一次「双生坠升级」，再读档不再动；id 不变', async () => {
+    const r = await ev((KEY) => {
+      const out = {};
+      RQT.begin(null);
+      const it = G.rollRelic('shuangsheng', 62, 0.5);
+      delete it.rqv;
+      // 旧版的两行：伤害提高 k 1.0–1.4（物品等级 62 → 52–127）、速度 k 1.0–1.3（19–40）
+      it.affixes = [{ id: 'incAll', tier: 9, v: 71 }, { id: 'speed', tier: 9, v: 36 }];
+      it.uid = 'tw-mig-1';
+      G.save.bag.length = 0;
+      G.save.bag.push(it);
+      delete G.save.tut.sxmig;
+      G.persist();
+      const raw = localStorage.getItem(KEY);
+      G.loadSave();
+      const a = G.save.bag[0];
+      out.v = a.affixes.map((x) => x.id + '=' + x.v).join(' ');
+      out.rqv = a.rqv + ' ' + a.rq + ' ' + a.uid;
+      out.note = G.twinMigrated + ' ' + G.save.twinMig + ' ' + G.ui.hints().all.indexOf('sxmig');
+      // 同一件再读一次（旧存档原样）：结果一样
+      localStorage.setItem(KEY, raw);
+      G.loadSave();
+      out.same = G.save.bag[0].affixes.map((x) => x.id + '=' + x.v).join(' ') === out.v;
+      // 提示看过：存回去再读，不再迁移、不再提示
+      G.save.tut.sxmig = 1;
+      G.save.twinMig = false;
+      G.persist();
+      G.loadSave();
+      out.again = G.twinMigrated + ' ' + G.save.twinMig + ' ' + (G.save.bag[0].affixes.map((x) => x.id + '=' + x.v).join(' ') === out.v);
+      G.save.bag.length = 0;
+      G.persist();
+      RQT.end();
+      return out;
+    }, SAVE_KEY);
+    // 伤害提高 71 在 52–127 里是 0.253 → 78 + 0.253 × 95 = 102.1 → 102；速度 36 在 19–40 里是 0.810 → 25 + 0.810 × 25 = 45.2 → 45
+    assert(/^incAll=102 speed=45 critMulti=\d+ uAllMore=1[0-4]$/.test(r.v) && r.rqv === '2 shuangsheng tw-mig-1', '升级后的词缀不对：' + JSON.stringify(r));
+    assert(r.note.indexOf('1 true ') === 0 && !/ -1$/.test(r.note) && r.same && r.again === '0 false true', '提示 / 确定性 / 不再迁移不对：' + JSON.stringify(r));
+    return r.v;
+  });
+
+  await step('双生坠的提示卡按数据拼：一行「余响」写着 0.2 秒和 60%，按住 Alt 的详情写着不暴击、召唤物和光环也算；四行词缀带区间；熄烛者对你的单次伤害仍然最多扣 85% 最大生命（戴着双生坠也一样）', async () => {
+    const r = await ev(() => {
+      const P = G.player, out = {};
+      RQT.begin(null);
+      const it = G.rollRelic('shuangsheng', 62, 0.5);
+      G.save.bag.length = 0;
+      G.save.bag.push(it);
+      G.ui.open('inv');
+      const cell = document.querySelector('.cell.r4[data-item]');
+      if (cell) cell.click();
+      const card = document.querySelector('.detail-card .icard.r4');
+      const txt = card ? card.textContent : '';
+      const M = G.RELIC_MECH.shuangsheng, R = G.RELICS.shuangsheng;
+      out.mech = txt.indexOf('余响') >= 0 && txt.indexOf(R.mechDesc) >= 0 && R.mechDesc.indexOf(M.delay + ' 秒') >= 0 && R.mechDesc.indexOf(Math.round(M.k * 100) + '%') >= 0;
+      out.alt = txt.indexOf(R.mechAlt) >= 0 && /不暴击/.test(R.mechAlt) && /召唤物、光环/.test(R.mechAlt) && /回响/.test(R.mechAlt);
+      out.rows = card ? card.querySelectorAll('.ic-line.aff.uq').length : 0;
+      out.rng = /（10–14）/.test(txt) && /你和召唤物的总伤害额外/.test(txt);
+      G.ui.close();
+      G.save.bag.length = 0;
+      // 85%：熄烛者的一下打不空（戴着双生坠）
+      G.save.equip.amulet = it;
+      G.computeStats();
+      P.life = P.maxLife;
+      P.iframe = 0;
+      G.hurtPlayer(P.maxLife * 5, 'fire', { x: P.x + 1, z: P.z, pin: true });
+      out.cap = +(1 - P.life / P.maxLife).toFixed(3);
+      P.life = P.maxLife;
+      RQT.end();
+      return out;
+    });
+    assert(r.mech && r.alt && r.rows === 4 && r.rng, '提示卡不对：' + JSON.stringify(r));
+    assert(r.cap === 0.85, '85% 单次上限不对：' + JSON.stringify(r));
+    return '4 行 · 余响';
+  });
+
+  // 余响的测试矩阵：每个刻式技能 × 原式 / A / B / 渊式（有的话）× 戴着双生坠，各模拟 20 秒（一半时摘下、六成时戴回）。
+  // 查：没有异常 / 页面报错；松手 3 秒后没有卡住的施放、冷却、光环计时；怪 / 召唤物 / 投射物 / 刻式件 / 待发余响的数量有界；
+  // 余响只记到这个技能（黑焰记到黑焰）、不超过够格命中的 60%；摘下时挂着的当场作废、摘着的期间一下都不落
+  const TWIN_CELL = (a) => {
+    // 一格：技能 id × 刻式 v，戴着双生坠，20 秒模拟（10 秒时摘下、12 秒时戴回）
+    const { id, v, secs } = a;
+    const P = G.player, S = G.state, W = G.world, RQ = G.relicState, SK0 = G.skillVariant(id, 'o');
+    const out = { id, v, bad: [] };
+    // 每格用固定种子的随机数（格与格之间渲染循环消耗的随机数不定，不钉死就不可复现），结束时还原
+    const rnd0 = Math.random;
+    let sd = (a.seed >>> 0) || 1;
+    Math.random = () => { sd = (sd + 0x6d2b79f5) >>> 0; let t = sd; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    G.clearMinions();
+    for (const k in G.save.autoSummon || {}) G.save.autoSummon[k] = false;
+    G.clearEnemies();
+    G.respawn();
+    const keepEq = Object.assign({}, G.save.equip), keepBar = G.save.bar.slice(), keepV = Object.assign({}, G.save.variants), keepVP = G.save.variantPrev ? Object.assign({}, G.save.variantPrev) : null;
+    const keepLvl = G.save.skills[id], keepSock = G.save.sockets[id];
+    S.stats.twinBy = {}; // 前面的步骤留下的余响记账不带进来
+    S.stats.twinDmg = 0;
+    for (const sl of G.SLOTS) if (sl !== 'weapon') G.save.equip[sl] = null;
+    const twin = G.rollRelic('shuangsheng', 62, 0.5);
+    G.save.equip.amulet = twin;
+    const relic = v === 'c' ? G.VARIANTS[id].c.relic : null;
+    if (relic) G.save.equip[G.RELICS[relic].slot] = G.rollRelic(relic, 50, 0.5);
+    G.save.skills[id] = 12;
+    G.save.sockets[id] = [null, null, null];
+    if (v === 'o') delete G.save.variants[id];
+    else G.save.variants[id] = v;
+    G.save.bar = [id, null, null, null];
+    if (SK0.kind === 'summon') G.save.autoSummon[id] = true;
+    G.computeStats();
+    if (G.applyVariants) G.applyVariants();
+    out.var = G.SKILLS[id].variant || 'o';
+    G.debug.god(true);
+    P.cds = {};
+    P.cast = null;
+    // 5 只会死的小怪（每 4 秒把死了的补上；倒下的尸体还要 0.25 秒才从列表里拿掉，所以最多 6 + 5 只）+ 1 只打不死的精英，都在面前 5–8 米，会走过来、不出手
+    const c0 = { x: P.x, z: P.z };
+    let dir = { x: 0, z: 1, len: 0 };
+    for (let k = 0; k < 24; k++) {
+      const ang = (k * Math.PI) / 12, x = Math.sin(ang), z = Math.cos(ang);
+      let d = 0.5;
+      for (; d <= 10; d += 0.5) if (!W.walkable(c0.x + x * d, c0.z + z * d, 0.8)) break;
+      if (d > dir.len) dir = { x, z, len: d };
+    }
+    const spot = (d, side) => ({ x: c0.x + dir.x * d + dir.z * side, z: c0.z + dir.z * d - dir.x * side });
+    const mk = (type, d, side, o) => {
+      const q = spot(d, side), e = G.spawnMob(type, q.x, q.z, 20, { awake: true, elite: !!o.elite });
+      e.wasAwake = true;
+      e.atkCd = 1e9;
+      e.encNoLoot = true; // 不掉东西：捡到技能宝石会自动学会、放上技能栏（光环一上栏就开打，记到别的技能）
+      if (o.hp) e.hp = e.maxHp = o.hp;
+      e.buTh = Math.max(e.buTh || 0, 1);
+      return e;
+    };
+    const elite = mk('brute', 7, 0, { elite: true, hp: 1e9 });
+    elite.speed = 0;
+    const smalls = [];
+    const fill = () => {
+      for (let i = 0; i < 5; i++) if (!smalls[i] || smalls[i].dead) smalls[i] = mk('husk', 5 + (i % 3), (i - 2) * 1.3, {});
+    };
+    fill();
+    // 记下这个技能每一次够格的命中（自己的、召唤物的、光环的；不含异常触发）
+    const h0 = G.hitEnemy;
+    let elig = 0, eligOff = 0, on = true;
+    G.hitEnemy = function (e, ctx, m, inf) {
+      const d = h0.apply(this, arguments);
+      if (ctx && ctx.id === id && !ctx.proc && !(inf && (inf.proc || inf.twin)) && d > 0) {
+        if (on) elig += d;
+        else eligOff += d;
+      }
+      return d;
+    };
+    // 记到别的技能的余响：留下第一处的来路（诊断用）
+    const th0 = G.relicTwinHit;
+    G.relicTwinHit = function (e, ctx, hit, inf) {
+      if (!out.foreign && ctx && ctx.id && ctx.id !== id && ctx.id !== 'blackflame' && G.twinOn(ctx.id) && !ctx.proc && !(inf && inf.proc)) {
+        out.foreign = ctx.id + ' ' + (ctx.sk && ctx.sk.mech) + ' ' + JSON.stringify(Object.keys(inf || {})) + ' ' + String(new Error().stack).split('\n').slice(2, 6).join(' < ').replace(/https?:\/\/[^ )]*\//g, '');
+      }
+      return th0.apply(this, arguments);
+    };
+    const mx = { enemies: 0, minions: 0, proj: 0, kv: 0, q: 0 };
+    let tDmgOff = 0;
+    const dt = 1 / 60, N = Math.round(secs * 60);
+    try {
+      for (let i = 0; i < N; i++) {
+        const t = i * dt;
+        const tgt = smalls.find((e) => e && !e.dead) || elite;
+        G.input.mouse.wx = tgt.x;
+        G.input.mouse.wz = tgt.z;
+        G.input.mouse.b[0] = true;
+        if (id === 'blackflame') G.input.mouse.b[2] = true; // 黑焰是附带在别的命中上：按住右键普攻
+        if (i % 30 === 0) G.input.tap[0] = 0.2; // 每 0.5 秒补按一次：再按类（坍缩 / 掷旋）、手动召唤
+        if (i % 60 === 0) {
+          P.mana = P.maxMana;
+          P.life = P.maxLife;
+        }
+        if (i % 240 === 0) fill();
+        if (i === Math.round(secs * 0.5 * 60)) {
+          // 摘下：待发的余响当场作废，摘着的期间一下都不再落
+          G.save.equip.amulet = null;
+          G.computeStats();
+          on = false;
+          out.qOff = RQ.twinQ.size + RQ.twinFx.length;
+          tDmgOff = S.stats.twinDmg || 0;
+        }
+        if (i === Math.round(secs * 0.6 * 60)) {
+          out.offGain = (S.stats.twinDmg || 0) - tDmgOff;
+          G.save.equip.amulet = twin;
+          G.computeStats();
+          on = true;
+        }
+        G.debug.step(dt);
+        mx.enemies = Math.max(mx.enemies, S.enemies.length);
+        mx.minions = Math.max(mx.minions, S.minions.length);
+        mx.proj = Math.max(mx.proj, S.projectiles.length);
+        mx.kv = Math.max(mx.kv, W.kvCount ? W.kvCount() : 0);
+        mx.q = Math.max(mx.q, RQ.twinQ.size);
+      }
+    } catch (err) {
+      out.bad.push('异常 ' + String(err && err.stack || err).slice(0, 300));
+    }
+    // 松手再走 3 秒：持续施放 / 冷却 / 节奏不该卡住
+    G.input.mouse.b[0] = G.input.mouse.b[2] = false;
+    G.input.tap[0] = 0;
+    G.debug.step(3);
+    const by = S.stats.twinBy || {};
+    out.by = {};
+    for (const k in by) out.by[k] = Math.round(by[k]);
+    out.elig = Math.round(elig);
+    out.eligOff = Math.round(eligOff);
+    out.mine = Math.round(by[id] || 0);
+    out.mx = mx;
+    if (P.cast) out.bad.push('松手 3 秒后还在施放 ' + P.cast.id);
+    if (G.save.bar.join() !== id + ',,,') out.bad.push('技能栏被改了 ' + G.save.bar.join());
+    for (const k in P.cds) if (!(P.cds[k] <= 60)) out.bad.push('冷却卡住 ' + k + '=' + P.cds[k]);
+    for (const k in P.auraT || {}) if (!isFinite(P.auraT[k])) out.bad.push('光环计时 ' + k);
+    if (out.qOff !== 0) out.bad.push('摘下时还挂着 ' + out.qOff);
+    if (out.offGain !== 0) out.bad.push('摘着时还在余响 ' + out.offGain);
+    const src = id === 'blackflame' ? 'blackflame' : id;
+    if (!(by[src] > 0)) out.bad.push('没有余响记到 ' + src);
+    for (const k in by) if (k !== id && k !== 'blackflame') out.bad.push('记到了别的技能 ' + k + '（' + (out.foreign || '?') + '）');
+    if (id !== 'blackflame' && !(out.mine <= elig * 0.6 * 1.001 + 1)) out.bad.push('余响超过够格命中的 60%：' + out.mine + ' / ' + Math.round(elig));
+    if (mx.enemies > 11 || mx.minions > 8 || mx.proj > 300 || mx.kv > 400 || mx.q > mx.enemies) out.bad.push('数量越界 ' + JSON.stringify(mx));
+    // 收拾
+    G.hitEnemy = h0;
+    G.relicTwinHit = th0;
+    G.clearMinions();
+    G.clearEnemies();
+    for (const k in G.save.autoSummon || {}) G.save.autoSummon[k] = false;
+    Object.assign(G.save.equip, keepEq);
+    G.save.bar = keepBar;
+    G.save.variants = keepV;
+    if (keepVP) G.save.variantPrev = keepVP;
+    if (keepLvl === undefined) delete G.save.skills[id];
+    else G.save.skills[id] = keepLvl;
+    G.save.sockets[id] = keepSock;
+    delete S.stats.twinBy;
+    S.stats.twinDmg = 0;
+    G.computeStats();
+    if (G.applyVariants) G.applyVariants();
+    G.debug.god(false);
+    G.respawn();
+    Math.random = rnd0;
+    return out;
+  };
+  await step('余响测试矩阵：每个刻式技能 × 原式 / A / B / 渊式 × 戴着双生坠，各 20 秒模拟：不报错、不卡施放 / 冷却 / 光环、数量有界、伤害记到来源、摘下当场作废', async () => {
+    const cells = await ev(() => Object.keys(G.VARIANTS).flatMap((id) => ['o', 'a', 'b'].concat(G.VARIANTS[id].c ? ['c'] : []).map((v) => ({ id, v }))));
+    const bad = [];
+    let n = 0;
+    for (const c of cells) {
+      n++;
+      const r = await page.evaluate('(' + TWIN_CELL.toString() + ')(' + JSON.stringify({ id: c.id, v: c.v, secs: 20, seed: 7919 * n }) + ')');
+      if (r.bad.length) bad.push(c.id + ':' + c.v + ' ' + r.bad.join('，'));
+      if (errors.length) bad.push(c.id + ':' + c.v + ' 页面报错 ' + errors.splice(0).join(' | ').slice(0, 300));
+    }
+    await ev(() => T.arena());
+    assert(bad.length === 0, '矩阵里有 ' + bad.length + ' 格不对：' + bad.join(' ／ ').slice(0, 1500));
+    return n + ' 格';
   });
 
   await step('渊契「暗域」（熄烛冠）：暖光半径 −40%（摘下复原）；9 m 外睡着的怪不会因为距离醒（不戴时 12 m 内就醒）；已醒的怪在 9 m 外 3 s 失去目标、走回原地（9 m 内不会）；首领不会失去目标', async () => {
@@ -15449,7 +15763,7 @@ async function main() {
       const urls = G.RELIC_PINNACLE.map((id) => G.icons.url('it-rq-' + id));
       out.icons = urls.every((u) => /^data:image\/png;base64,/.test(u) && u.length > 1500) && urls[0] !== urls[1];
       out.key = G.icons.itemKey(G.rollRelic('xizhu', 50));
-      out.desc = G.RELICS.xizhu.mechDesc.indexOf('8 米') >= 0 && G.RELICS.xizhu.mechAlt.indexOf('9 米') >= 0 && G.RELICS.shuangsheng.mechDesc.indexOf('交替') >= 0;
+      out.desc = G.RELICS.xizhu.mechDesc.indexOf('8 米') >= 0 && G.RELICS.xizhu.mechAlt.indexOf('9 米') >= 0 && G.RELICS.shuangsheng.mechDesc.indexOf('余响') >= 0;
       G.save.bag.length = 0;
       G.save.bag.push(G.rollRelic('xizhu', 50), G.rollRelic('shuangsheng', 50));
       G.persist();
