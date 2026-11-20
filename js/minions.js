@@ -167,6 +167,40 @@
     vfxOff(m);
   }
 
+  // ---------- 来源：召唤物只在它的来源还在时存在 ----------
+  // 召唤技能：学会了，而且放在技能栏上（拿下来、收进右键备用都不算）；英灵（万魂降临，有 m.expire）：手里还拿着给这招的武器。
+  // 判断只在这里：以后装备给的召唤 / 刻式要加条件，改 sourceOn 这一处即可
+  function skillOn(id) {
+    const save = G.save;
+    return !!(save && save.skills[id] && Array.isArray(save.bar) && save.bar.indexOf(id) >= 0);
+  }
+  function sourceOn(m) {
+    if (m.expire) return !!G.save && G.weaponSkill() === m.skill;
+    return skillOn(m.skill);
+  }
+  G.minionSourceOn = sourceOn;
+  // 解散（不是倒下）：来源没了、上限降了被裁掉、满编时被新召唤的顶掉，都走这里。站着原地化作魂火青的碎屑消散，不演倒地；
+  // 不触发魂火轮回、同殇、骸爆这些倒下才有的效果（召唤物本来就不掉落、不给经验）。quiet：直接消失，不演（换区域时）
+  function dismissMinion(m, quiet) {
+    if (!m || m.dead) return false;
+    if (!quiet) {
+      G.world.die(m.ent, { stand: true, linger: 0, fade: 0.4, color: ALLY_HEX });
+      G.world.burst(m.x, m.height * 0.55, m.z, ALLY_HEX, 8, 1.6, 0.45);
+    }
+    removeMinion(m, undefined, undefined, true);
+    S.stats.minionsDismissed = (S.stats.minionsDismissed || 0) + 1;
+    return true;
+  }
+  G.dismissMinion = dismissMinion;
+  // 来源已经不在的召唤物全部解散，等着拼回来的骸爆仆从也作废。返回解散了几只
+  function checkSources(quiet) {
+    let n = 0;
+    for (let i = list.length - 1; i >= 0; i--) if (!list[i].dead && !sourceOn(list[i]) && dismissMinion(list[i], quiet)) n++;
+    for (let i = boneQ.length - 1; i >= 0; i--) if (!skillOn(boneQ[i].sk)) boneQ.splice(i, 1);
+    return n;
+  }
+  G.checkMinionSources = checkSources;
+
   // 召唤一只（由技能的施放调用）：落点限制在 range 以内的可走地面；数量已满时先替换受伤最重的那只
   G.summonMinion = function (skillId, tx, tz, ctxIn) {
     const sk = G.SKILLS[skillId];
@@ -181,7 +215,7 @@
     while (aliveOf(skillId) >= mi.cap && guard++ < 20) {
       const w = weakestOf(skillId);
       if (!w) break;
-      removeMinion(w);
+      dismissMinion(w);
     }
     const m = {
       kind, skill: skillId, name: K.name, ent: makeEnt(kind),
@@ -202,7 +236,7 @@
   };
 
   // 万魂降临：在 (x, z) 附近落下一位英灵，dur 秒后消散（拿着万魂旗时化作魂火炸开）。ctx 是武器技的上下文（ctx.minion 是英灵的数值）。
-  // 英灵不占任何召唤技能的上限，也不受「没学这个技能就解散」的刷新影响
+  // 英灵不占任何召唤技能的上限；换下武器就解散（见 sourceOn）
   G.summonChampion = function (skillId, x, z, ctx, dur) {
     if (!S.zone || !ctx || !ctx.minion) return null;
     const mi = ctx.minion;
@@ -280,6 +314,7 @@
     startRise(m);
   }
   G.regroupMinions = function () {
+    checkSources(true); // 来源已经不在的不带进新区域
     for (let i = 0; i < list.length; i++) regroup(list[i], i, list.length);
     // 等着拼回来的骸爆仆从：换区域 / 重生时在你身边一起拼好
     for (const b of boneQ) {
@@ -359,14 +394,10 @@
 
   // ---------- 数值刷新：属性 / 辅助变了以后，生命上限按比例跟着变；超出上限的解散 ----------
   function refreshAll() {
-    const save = G.save;
+    checkSources(); // 技能拿下了 / 武器换了：先解散
     for (let i = list.length - 1; i >= 0; i--) {
       const m = list[i];
       if (m.expire) continue; // 英灵：数值定在降临那一刻，到时自己消散
-      if (!save.skills[m.skill]) {
-        removeMinion(m);
-        continue;
-      }
       const ctx = G.skillCtx(m.skill);
       const mi = ctx.minion;
       m.ctx = ctx;
@@ -391,11 +422,11 @@
       if (G.SKILLS[id].kind !== 'summon' || !aliveOf(id)) continue;
       const cap = G.skillCtx(id).minion.cap;
       let guard = 0;
-      while (aliveOf(id) > cap && guard++ < 20) removeMinion(weakestOf(id));
+      while (aliveOf(id) > cap && guard++ < 20) dismissMinion(weakestOf(id)); // 上限降了：多出来的解散
     }
   }
 
-  G.refreshMinions = refreshAll; // 换刻式之后立刻刷新（上限、数值、体型）
+  G.refreshMinions = refreshAll; // 换刻式、换技能栏 / 装备之后立刻刷新（来源、上限、数值、体型）
 
   // ---------- 移动 ----------
   const SLIDE = [0.7, -0.7, 1.3, -1.3];
@@ -1128,7 +1159,7 @@
       if (b.t > 0 || P.dead) continue;
       boneQ.splice(i, 1);
       const sk = b.sk;
-      if (!G.save.skills[sk] || !S.zone || G.SKILLS[sk].mech !== 'bone') continue;
+      if (!skillOn(sk) || !S.zone || G.SKILLS[sk].mech !== 'bone') continue;
       if (aliveOf(sk) >= G.skillCtx(sk).minion.cap) continue;
       // 不耗魔力、不进冷却：在原地（离你太远就在你身边）重新拼起来
       const near = dist(b.x, b.z, P.x, P.z) <= 12 && G.world.walkable(b.x, b.z, 0.6);
