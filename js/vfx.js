@@ -293,7 +293,7 @@
     '    float s = vfxFlip(tFlipA, ch, k * 15.99, vUv);',
     '    if (kind < 1.5) {',
     // 火团：卡通的三档色带（暗红边 / 主色 / 亮芯往白混），噪声啃一下边，普通混合，最亮的一档再叠一点加色
-    '      float n = vfxNA(vUv * 0.7 + seed * 5.3 + vec2(0.0, -uTime * 0.6)).r;',
+    '      float n = uLo > 0.5 ? 0.5 : vfxNA(vUv * 0.7 + seed * 5.3 + vec2(0.0, -uTime * 0.6)).r;',
     '      float kf = mix(k, 0.1, loop);',
     '      float t = s * (0.75 + 0.4 * n) * (1.0 - 0.45 * kf);',
     '      a = smoothstep(0.1, 0.18, t) * (1.0 - smoothstep(0.75, 1.0, kf));',
@@ -302,7 +302,7 @@
     '      add = 0.0; boost = t > 0.78 ? 0.15 : 0.0;',
     '    } else if (kind < 2.5) {',
     // 烟团：普通混合，上亮下暗（像打了光），边缘按噪声蚀出硬边、三档透明度
-    '      float n = vfxNA(vUv * 0.9 + seed * 3.1).r;',
+    '      float n = uLo > 0.5 ? 0.5 + 0.3 * (vUv.x - 0.5) : vfxNA(vUv * 0.9 + seed * 3.1).r;',
     '      a = smoothstep(0.12, 0.2, s * (0.75 + 0.5 * n)) * (0.55 + 0.35 * step(0.55, s));',
     '      col *= 0.75 + 0.45 * smoothstep(0.3, 0.9, vUv.y + n * 0.2);',
     '      add = 0.0;',
