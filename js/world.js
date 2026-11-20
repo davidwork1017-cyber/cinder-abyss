@@ -21704,10 +21704,10 @@
   W.cbPop = function (x, z, r, hex, h) {
     const lo = qualId === 'low';
     W.vShock(x, z, r + 1.0, hex, 0.24, 0); // 不要那一闪的实心核：看图时它和感电的光一起把怪糊成一团
-    flare(x, h * 0.6, z, hex, 0.8, 0.07);
+    flare(x, h * 0.6, z, hex, 0.6, 0.06);
     _c.set(hex);
-    for (let i = 0; i < (lo ? 8 : 14); i++) {
-      const a = (i / (lo ? 8 : 14)) * TAU, v = rand(2, 3.5), wh = i % 2 ? 0.5 : 0.1;
+    for (let i = 0; i < (lo ? 8 : 12); i++) {
+      const a = (i / (lo ? 8 : 12)) * TAU, v = rand(2, 3.5), wh = i % 3 ? 0.15 : 0.4;
       spawnP(x + Math.sin(a) * r, h * 0.5, z + Math.cos(a) * r, Math.sin(a) * v, rand(1.5, 3), Math.cos(a) * v, rand(0.3, 0.5), rand(0.1, 0.16), _c.r + (1 - _c.r) * wh, _c.g + (1 - _c.g) * wh, _c.b + (1 - _c.b) * wh, -1, 3);
     }
   };
