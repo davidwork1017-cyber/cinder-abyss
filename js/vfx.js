@@ -196,10 +196,66 @@
   // aFx = (进度 0..1, 种子, 亮度倍率, 种类)。种类：0 光晕（和原来的 glowTex 同一条径向曲线）/ 1 火团 / 2 烟团 / 3 火花 / 4 冲击环 / 5 斩击弧 / 6 电弧
   // 7 = 循环的火团（帧号跟着时间转、不淡出，投射物的火头用）
   V.FB = { glow: 0, fire: 1, smoke: 2, spark: 3, ring: 4, slash: 5, arc: 6, fireLoop: 7 };
-  let multiMat = null;
-  V.multi = function () {
-    if (multiMat) return multiMat;
-    multiMat = new T.ShaderMaterial({
+  V.VD = { scorch: 0, frost: 1, void: 2, flash: 3 }; // 地面痕迹的种类（着色器里是 10 + 种类）
+  const DECAL_FN = [
+    // 地面痕迹（种类 10..13 → 0..3）：前 45% 完整，之后被噪声从外圈往里蚀掉；焦痕刚落下时裂缝里透着余烬（实例色），霜痕只有外沿一圈冰带
+    'void vfxDecal(float kind, float k, float seed){',
+    '  vec2 p = vUv * 2.0 - 1.0; float l = length(p);',
+    '  if (l > 1.0) discard;',
+    // 闪光不取贴图，先画完返回；霜痕只有外沿一圈，里面先丢掉（同一个实例的像素走同一支，贴图导数不受影响）
+    '  if (kind > 2.5) {',
+    '    float f = (1.0 - l) * (1.0 - l) * (1.0 - k) * (1.0 - k) * vFx.z;',
+    '    if (f < 0.004) discard;',
+    '    gl_FragColor = vec4(linearToOutputTexel(vec4(vCol, 1.0)).rgb * f * 1.2, 0.0); return;',
+    '  }',
+    '  if (kind > 0.5 && kind < 1.5 && l < 0.6) discard;',
+    '  vec2 q = vUv * 0.8 + seed * 7.31;',
+    '  float n = vfxNA(q).r;',
+    '  float ce = uLo > 0.5 ? n : vfxNA(q * 1.5 + 0.37).b;', // 低画质少取一次贴图
+    '  float er = k < 0.45 ? 0.0 : (k - 0.45) / 0.55;', // 消融进度
+    '  float edge = 1.0 - l + (n - 0.5) * 0.5;', // 不规则的外沿
+    '  float m = smoothstep(0.0, 0.05, edge - er * (1.1 - n * 0.4));',
+    '  vec3 rgb = vec3(0.0); float a = 0.0;',
+    '  if (kind < 0.5) {',
+    // 焦痕：近黑的焦斑（带一点褐紫，不是死黑），前 35% 裂缝里透着余烬的亮色（加色）
+    '    vec3 c = vec3(0.075, 0.045, 0.05) * (0.8 + 0.4 * n);',
+    '    a = m * 0.8;',
+    '    float hot = step(0.55, ce) * (1.0 - smoothstep(0.1, 0.38, k)) * step(l, 0.8);',
+    '    rgb = linearToOutputTexel(vec4(c, 1.0)).rgb * a + linearToOutputTexel(vec4(vCol * 1.3, 1.0)).rgb * hot * m;',
+    '  } else if (kind < 1.5) {',
+    // 霜痕：只有外沿的一圈冰带（跟着半径扩开，像霜从里往外扫过去），冰带上胞腔边是更亮的冰缝，往里长着一根根尖的冰晶；
+    // 圈里是空的（光环常驻，整片铺满会把脚下的地面和怪都罩成一片白）。灰度里靠尖的形状认得出是冰
+    '    float an = atan(p.y, p.x);',
+    '    float band = smoothstep(0.68, 0.74, l + (n - 0.5) * 0.12);',
+    '    float spk = step(0.93, pow(abs(cos(an * 9.0 + n * 2.0 + seed * 6.0)), 14.0) + (l - 0.6) * 0.12) * step(0.64, l) * step(l, 0.95);',
+    '    vec3 c = mix(vCol * 0.75, vec3(0.92, 0.97, 1.0), clamp(ce * 0.7 + spk, 0.0, 1.0));',
+    '    a = m * band * (0.22 + 0.26 * ce) + spk * 0.38 * (1.0 - er) * m;',
+    '    rgb = linearToOutputTexel(vec4(c, 1.0)).rgb * a;',
+    '  } else if (kind < 2.5) {',
+    // 渊痕：近黑的暗紫，胞腔边是品红的细纹
+    '    float vein = step(0.72, ce) * step(l, 0.8);',
+    '    vec3 c = mix(vec3(0.035, 0.01, 0.045), vCol, vein * 0.5);',
+    '    a = m * (0.55 + 0.12 * vein);',
+    '    rgb = linearToOutputTexel(vec4(c, 1.0)).rgb * a;',
+    '  } else {',
+    // 地面闪光：中心亮、往外快速衰减，整体按 (1 − k)² 熄掉，加色
+    '    float f = (1.0 - l) * (1.0 - l) * (1.0 - k) * (1.0 - k);',
+    '    rgb = linearToOutputTexel(vec4(vCol, 1.0)).rgb * f * 1.2;',
+    '    a = 0.0;',
+    '  }',
+    '  rgb *= vFx.z; a *= vFx.z;',
+    '  if (a < 0.004 && dot(rgb, vec3(1.0)) < 0.004) discard;',
+    '  gl_FragColor = vec4(rgb, a);',
+    '}',
+  ].join('\n');
+
+  // V.multi()：投射物光晕零件用；V.multi(true)：地面痕迹 + 序列帧合用的那一个实例网格（同一个着色器程序，多一点多边形偏移，贴地的痕迹不和地面打架）。
+  // 种类 10..13 是地面痕迹（焦痕 / 霜痕 / 渊痕 / 地面闪光，见 V.VD），画在平躺的方片上
+  const multiMats = {};
+  V.multi = function (ground) {
+    const key = ground ? 'g' : 'p';
+    if (multiMats[key]) return multiMats[key];
+    const multiMat = (multiMats[key] = new T.ShaderMaterial({
       uniforms: V.uni({ uColor: { value: new T.Color(1, 1, 1) }, uFx: { value: new T.Vector4(0, 0, 1, 0) } }),
       defines: { VFX_AFX: 1 },
       vertexShader: SPRITE_VERT,
@@ -210,16 +266,21 @@
       blendEquation: T.AddEquation,
       blendSrc: T.OneFactor,
       blendDst: T.OneMinusSrcAlphaFactor,
+      polygonOffset: !!ground,
+      polygonOffsetFactor: ground ? -2 : 0,
+      polygonOffsetUnits: ground ? -2 : 0,
       fog: false,
-    });
+    }));
     multiMat.toneMapped = false;
     multiMat.userData.vfx = true;
     return multiMat;
   };
   const MULTI_FRAG = [
     'varying vec2 vUv; varying vec3 vCol; varying vec4 vFx; varying float vWy;',
+    'void vfxDecal(float kind, float k, float seed);',
     'void main(){',
     '  float kind = floor(vFx.w + 0.5), k = vFx.x, seed = vFx.y;',
+    '  if (kind > 9.5) { vfxDecal(kind - 10.0, k, seed); return; }',
     '  float loop = step(6.5, kind);',
     '  if (loop > 0.5) { kind = 1.0; k = fract(uTime * 1.6 + seed); }',
     '  vec3 col = vCol; float a = 0.0; float add = 1.0; float boost = 0.0;',
@@ -269,86 +330,7 @@
     '  vec3 o = linearToOutputTexel(vec4(col, 1.0)).rgb;',
     '  gl_FragColor = vec4(o * a * (1.0 + boost), (1.0 - add) * a);',
     '}',
-  ].join('\n');
-
-  // ---------- 地面瞬时痕迹（焦痕 / 霜痕 / 渊痕 / 地面闪光）：一个实例网格画全部，预乘 alpha 混合（闪光是加色） ----------
-  // aFx = (进度 0..1, 种子, 亮度, 种类)。前 45% 完整，之后被噪声从外圈往里蚀掉；焦痕刚落下时裂缝里透着余烬（实例色），霜痕带放射状的冰晶
-  V.VD = { scorch: 0, frost: 1, void: 2, flash: 3 };
-  let decalMat = null;
-  V.decalMat = function () {
-    if (decalMat) return decalMat;
-    decalMat = new T.ShaderMaterial({
-      uniforms: V.uni({ uColor: { value: new T.Color(1, 1, 1) }, uFx: { value: new T.Vector4(0, 0, 1, 0) } }),
-      defines: { VFX_AFX: 1 },
-      vertexShader: SPRITE_VERT,
-      fragmentShader: V.GLSL + '\n' + DECAL_FRAG,
-      transparent: true,
-      depthWrite: false,
-      polygonOffset: true,
-      polygonOffsetFactor: -2,
-      polygonOffsetUnits: -2,
-      blending: T.CustomBlending,
-      blendEquation: T.AddEquation,
-      blendSrc: T.OneFactor,
-      blendDst: T.OneMinusSrcAlphaFactor,
-      fog: false,
-    });
-    decalMat.toneMapped = false;
-    decalMat.userData.vfx = true;
-    return decalMat;
-  };
-  const DECAL_FRAG = [
-    'varying vec2 vUv; varying vec3 vCol; varying vec4 vFx; varying float vWy;',
-    'void main(){',
-    '  vec2 p = vUv * 2.0 - 1.0; float l = length(p);',
-    '  if (l > 1.0) discard;',
-    '  float kind = floor(vFx.w + 0.5), k = vFx.x, seed = vFx.y;',
-    // 闪光不取贴图，先画完返回；霜痕只有外沿一圈，里面先丢掉（同一个实例的像素走同一支，贴图导数不受影响）
-    '  if (kind > 2.5) {',
-    '    float f = (1.0 - l) * (1.0 - l) * (1.0 - k) * (1.0 - k) * vFx.z;',
-    '    if (f < 0.004) discard;',
-    '    gl_FragColor = vec4(linearToOutputTexel(vec4(vCol, 1.0)).rgb * f * 1.2, 0.0); return;',
-    '  }',
-    '  if (kind > 0.5 && kind < 1.5 && l < 0.6) discard;',
-    '  vec2 q = vUv * 0.8 + seed * 7.31;',
-    '  float n = vfxNA(q).r;',
-    '  float ce = uLo > 0.5 ? n : vfxNA(q * 1.5 + 0.37).b;', // 低画质少取一次贴图
-    '  float er = k < 0.45 ? 0.0 : (k - 0.45) / 0.55;', // 消融进度
-    '  float edge = 1.0 - l + (n - 0.5) * 0.5;', // 不规则的外沿
-    '  float m = smoothstep(0.0, 0.05, edge - er * (1.1 - n * 0.4));',
-    '  vec3 rgb = vec3(0.0); float a = 0.0;',
-    '  if (kind < 0.5) {',
-    // 焦痕：近黑的焦斑（带一点褐紫，不是死黑），前 35% 裂缝里透着余烬的亮色（加色）
-    '    vec3 c = vec3(0.075, 0.045, 0.05) * (0.8 + 0.4 * n);',
-    '    a = m * 0.8;',
-    '    float hot = step(0.55, ce) * (1.0 - smoothstep(0.1, 0.38, k)) * step(l, 0.8);',
-    '    rgb = linearToOutputTexel(vec4(c, 1.0)).rgb * a + linearToOutputTexel(vec4(vCol * 1.3, 1.0)).rgb * hot * m;',
-    '  } else if (kind < 1.5) {',
-    // 霜痕：只有外沿的一圈冰带（跟着半径扩开，像霜从里往外扫过去），冰带上胞腔边是更亮的冰缝，往里长着一根根尖的冰晶；
-    // 圈里是空的（光环常驻，整片铺满会把脚下的地面和怪都罩成一片白）。灰度里靠尖的形状认得出是冰
-    '    float an = atan(p.y, p.x);',
-    '    float band = smoothstep(0.68, 0.74, l + (n - 0.5) * 0.12);',
-    '    float spk = step(0.93, pow(abs(cos(an * 9.0 + n * 2.0 + seed * 6.0)), 14.0) + (l - 0.6) * 0.12) * step(0.64, l) * step(l, 0.95);',
-    '    vec3 c = mix(vCol * 0.75, vec3(0.92, 0.97, 1.0), clamp(ce * 0.7 + spk, 0.0, 1.0));',
-    '    a = m * band * (0.22 + 0.26 * ce) + spk * 0.38 * (1.0 - er) * m;',
-    '    rgb = linearToOutputTexel(vec4(c, 1.0)).rgb * a;',
-    '  } else if (kind < 2.5) {',
-    // 渊痕：近黑的暗紫，胞腔边是品红的细纹
-    '    float vein = step(0.72, ce) * step(l, 0.8);',
-    '    vec3 c = mix(vec3(0.035, 0.01, 0.045), vCol, vein * 0.5);',
-    '    a = m * (0.55 + 0.12 * vein);',
-    '    rgb = linearToOutputTexel(vec4(c, 1.0)).rgb * a;',
-    '  } else {',
-    // 地面闪光：中心亮、往外快速衰减，整体按 (1 − k)² 熄掉，加色
-    '    float f = (1.0 - l) * (1.0 - l) * (1.0 - k) * (1.0 - k);',
-    '    rgb = linearToOutputTexel(vec4(vCol, 1.0)).rgb * f * 1.2;',
-    '    a = 0.0;',
-    '  }',
-    '  rgb *= vFx.z; a *= vFx.z;',
-    '  if (a < 0.004 && dot(rgb, vec3(1.0)) < 0.004) discard;',
-    '  gl_FragColor = vec4(rgb, a);',
-    '}',
-  ].join('\n');
+  ].join('\n') + '\n' + DECAL_FN;
 
   const SPRITE_VERT = [
     'uniform vec3 uColor; uniform vec4 uFx;',

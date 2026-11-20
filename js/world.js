@@ -21969,8 +21969,7 @@
         _fbq.copy(camQ).multiply(_fbq2.setFromAxisAngle(Z_AXIS, fbK[i] === VFB.slash || fbK[i] === VFB.arc ? fbR[i] : fbR[i] * 0.15));
         mPose(fbP[j], fbP[j + 1], fbP[j + 2], _fbq, s, s, s);
       }
-      pfFx(f, fbSd[i], fbA[i], fbK[i]);
-      pfPut('glow', fbC[j], fbC[j + 1], fbC[j + 2]);
+      cmbPut(fbC[j], fbC[j + 1], fbC[j + 2], f, fbSd[i], fbA[i], fbK[i]);
     }
     if (!any) fbLive--;
   }
@@ -21979,18 +21978,40 @@
     for (let i = 0; i < FB_N; i++) if (fbL[i] > 0) n++;
     return n;
   };
-  // ----- 地面瞬时痕迹（vf-vfx）：焦痕 / 霜痕 / 渊痕 / 地面闪光，一个实例网格（一次 draw call）、环形缓冲，2～4 秒内被噪声蚀掉。
+  // ----- 地面瞬时痕迹（vf-vfx）：焦痕 / 霜痕 / 渊痕 / 地面闪光，2～4 秒内被噪声蚀掉，环形缓冲。
+  // 和上面的序列帧画在同一个实例网格里（V.multi(true)，一次 draw call；先写痕迹、再写序列帧，痕迹在下面）：
+  // 场上没有投射物时光晕零件是隐藏的，序列帧不能挂在它上面，不然会多出一次 draw call。
   // 只是技能命中留下的一时的痕迹，和区域布景的贴花（vf-ground）是两套东西。kind 见 G.vfx.VD；o（可选）：{ r1 长到的半径（扩开的霜痕）, grow 长到 r1 用几秒, a 亮度 }
   const VD_N = 48, VVD = G.vfx.VD;
   const vdK = new Uint8Array(VD_N), vdX = new Float32Array(VD_N), vdZ = new Float32Array(VD_N), vdR0 = new Float32Array(VD_N), vdR1 = new Float32Array(VD_N), vdGr = new Float32Array(VD_N);
   const vdT = new Float32Array(VD_N), vdD = new Float32Array(VD_N), vdC = new Float32Array(VD_N * 3), vdSd = new Float32Array(VD_N), vdAng = new Float32Array(VD_N), vdA = new Float32Array(VD_N);
-  let vdMesh = null, vdFx = null, vdNext = 0, vdLive = 0;
+  let vdMesh = null, vdFx = null, vdNext = 0, vdLive = 0, cmbN = 0;
+  const CMB_N = VD_N + FB_N;
+  // 用 _pm 作当前矩阵往合用的实例网格里写一个（颜色线性；进度、种子、亮度、种类）
+  function cmbPut(r, g, b, k, sd, a, w) {
+    if (cmbN >= CMB_N) return;
+    vdMesh.setMatrixAt(cmbN, _pm);
+    vdMesh.setColorAt(cmbN, _pc.setRGB(r, g, b));
+    const f = vdFx.array, o = cmbN * 4;
+    f[o] = k; f[o + 1] = sd; f[o + 2] = a; f[o + 3] = w;
+    cmbN++;
+  }
+  function cmbEnd() {
+    if (!vdMesh) return;
+    vdMesh.count = cmbN;
+    vdMesh.visible = cmbN > 0;
+    if (cmbN) {
+      vdMesh.instanceMatrix.needsUpdate = true;
+      vdMesh.instanceColor.needsUpdate = true;
+      vdFx.needsUpdate = true;
+    }
+  }
   function vdInit() {
     // 新加的对象：在 quiet 里建（不消耗全局随机数）
     G.vfx.quiet(() => {
       const g = gQuad().clone();
-      vdFx = G.vfx.addFx(g, VD_N);
-      vdMesh = new T.InstancedMesh(g, G.vfx.decalMat(), VD_N);
+      vdFx = G.vfx.addFx(g, CMB_N);
+      vdMesh = new T.InstancedMesh(g, G.vfx.multi(true), CMB_N);
       vdMesh.instanceMatrix.setUsage(T.DynamicDrawUsage);
       vdMesh.setColorAt(0, _pc.setRGB(1, 1, 1));
       vdMesh.instanceColor.setUsage(T.DynamicDrawUsage);
@@ -22022,9 +22043,9 @@
     vdLive = 2;
   };
   function vdDraw(dt) {
+    cmbN = 0;
     if (vdLive <= 0 || !vdMesh) return;
     let n = 0;
-    const f = vdFx.array;
     for (let i = 0; i < VD_N; i++) {
       if (vdT[i] >= vdD[i]) continue;
       vdT[i] += dt;
@@ -22032,21 +22053,16 @@
       const k = vdT[i] / vdD[i], g = vdGr[i] > 0 ? Math.min(1, vdT[i] / vdGr[i]) : 1, r = vdR0[i] + (vdR1[i] - vdR0[i]) * (1 - (1 - g) * (1 - g));
       _pq.setFromAxisAngle(UP, vdAng[i]);
       _pm.compose(_pv.set(vdX[i], 0.045 + (i % 8) * 0.002, vdZ[i]), _pq, _ps.set(r, 1, r));
-      vdMesh.setMatrixAt(n, _pm);
-      vdMesh.setColorAt(n, _pc.setRGB(vdC[i * 3], vdC[i * 3 + 1], vdC[i * 3 + 2]));
-      const o = n * 4;
-      f[o] = k; f[o + 1] = vdSd[i]; f[o + 2] = vdA[i]; f[o + 3] = vdK[i];
+      cmbPut(vdC[i * 3], vdC[i * 3 + 1], vdC[i * 3 + 2], k, vdSd[i], vdA[i], 10 + vdK[i]);
       n++;
     }
-    vdMesh.count = n;
-    vdMesh.visible = n > 0;
-    if (n) {
-      vdMesh.instanceMatrix.needsUpdate = true;
-      vdMesh.instanceColor.needsUpdate = true;
-      vdFx.needsUpdate = true;
-    } else vdLive--;
+    if (!n) vdLive--;
   }
-  W.vDecalLive = () => (vdMesh ? vdMesh.count : 0); // 测试用
+  W.vDecalLive = () => {
+    let n = 0;
+    for (let i = 0; i < VD_N; i++) if (vdT[i] < vdD[i]) n++;
+    return n;
+  }; // 测试用
   // 陨石尾焰：顺着下落方向拉长的大火舌（陨石的位置在 updateMeteors 里算好）
   function meteorFlames(dt) {
     for (let i = 0; i < meteors.length; i++) {
@@ -22112,8 +22128,9 @@
       else legacyProj(m, u, m.position, dt);
     }
     meteorFlames(dt);
+    vdDraw(dt); // 先写地面痕迹，再写序列帧（同一个实例网格）
     fbDraw(dt);
-    vdDraw(dt);
+    cmbEnd();
     updateDebris(dt);
     rangedPfDraw(dt);
     pyrePfDraw(dt);
@@ -22150,7 +22167,9 @@
     fbLive = 0;
     vdT.fill(0);
     vdD.fill(0);
-    vdLive = 1;
+    vdLive = 0;
+    cmbN = 0;
+    cmbEnd();
     clearRibbons();
     clearDebris();
     clearChunks();
