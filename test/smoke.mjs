@@ -13933,7 +13933,7 @@ async function main() {
     return '施放 ' + r.seq + ' · 交替那一下 ×' + r.alt;
   });
 
-  await step('渊契「无光」：暖光半径 −40%（摘下复原）；9 m 外睡着的怪不会因为距离醒（不戴时 12 m 内就醒）；已醒的怪在 9 m 外 3 s 失去目标、走回原地（9 m 内不会）；对 9 m 外伤害 ×1.3，没发现你时第一击必暴；首领不会失去目标', async () => {
+  await step('渊契「暗域」（熄烛冠）：暖光半径 −40%（摘下复原）；9 m 外睡着的怪不会因为距离醒（不戴时 12 m 内就醒）；已醒的怪在 9 m 外 3 s 失去目标、走回原地（9 m 内不会）；首领不会失去目标', async () => {
     const r = await ev(() => {
       const S = G.state, P = G.player, W = G.world, out = {};
       RQT.begin('xizhu');
@@ -13967,19 +13967,6 @@ async function main() {
       fb.speed = G.MOBS.husk.speed;
       G.debug.step(2.5);
       out.home = +Math.hypot(fb.x - fb.home.x, fb.z - fb.home.z).toFixed(2) + ' ' + fb.awake;
-      // 伤害
-      G.clearEnemies();
-      G.save.bar[0] = 'blade';
-      RQT.learn('blade', 0);
-      const ctx = G.skillCtx('blade');
-      T.fix(0.5);
-      const near = T.mob('husk', dir.x * 5, dir.z * 5), far = T.mob('husk', dir.x * 12, dir.z * 12);
-      const hN = G.relicFarHit(near, ctx, 1), hF = G.relicFarHit(far, ctx, 1);
-      out.far = +(hF.total / hN.total).toFixed(3) + ' ' + hN.crit + hF.crit;
-      far.awake = false;
-      out.sneak = G.relicFarHit(far, ctx, 1).crit;
-      T.unfix();
-      G.clearEnemies();
       // 首领不吃仇恨这部分
       const b = G.spawnBoss('golem', P.x + dir.x * 14, P.z + dir.z * 14, 1);
       b.awake = b.wasAwake = true;
@@ -13994,8 +13981,143 @@ async function main() {
     });
     assert(Math.abs(r.lamp - 9.6) < 1e-6 && r.lampOff === 16 && r.lampEnd === 16, '暖光不对：' + JSON.stringify(r));
     assert(r.noWake && r.wakeOff && r.still && r.lost && /^0\.\d+ false$/.test(r.home) && parseFloat(r.home) < 0.8, '醒来 / 失去目标 / 走回原地不对：' + JSON.stringify(r));
-    assert(r.far === '1.3 falsefalse' && r.sneak === true && r.boss, '远处增伤 / 必暴 / 首领不对：' + JSON.stringify(r));
-    return '暖光 ' + r.lamp + ' · 远处 ×' + r.far.split(' ')[0];
+    assert(r.boss, '首领不对：' + JSON.stringify(r));
+    return '暖光 ' + r.lamp;
+  });
+
+  await step('渊契「暗域」（熄烛冠）：身周 8 m / 召唤物身周 2.5 m 内的敌人在域内；暗域增伤（词缀，中值 24%）对你的伤害近处远处都 ×1.24、召唤物只对域内 ×1.24；没发现你时第一击必暴；域内的怪打你 / 打召唤物 ×0.8（首领 ×0.9、熄烛者 ×1）；熄烛者单次仍封顶 85%；暗域圈 1 次 draw（玩家 + 召唤物）；摘下当场复原', async () => {
+    const r = await ev(() => {
+      const S = G.state, P = G.player, W = G.world, out = {};
+      RQT.begin('xizhu');
+      P.graceT = 0;
+      out.v = P.S.darkDmg;
+      const dir = T.openDir(16);
+      G.save.bar[0] = 'blade';
+      RQT.learn('blade', 0);
+      const ctx = G.skillCtx('blade');
+      // 近 5 m（域内）、12 m（域外）、10 m 处一只给召唤物贴着
+      const near = T.mob('husk', dir.x * 5, dir.z * 5), far = T.mob('husk', dir.x * 12, dir.z * 12), mid = T.mob('husk', dir.x * 10 + dir.z * 3, dir.z * 10 - dir.x * 3);
+      G.debug.step(0.05);
+      out.flags1 = [near.dark, far.dark, mid.dark].join();
+      const th = G.summonMinion('thrall', P.x, P.z, G.skillCtx('thrall'));
+      th.x = mid.x - dir.x * 1.6; th.z = mid.z - dir.z * 1.6;
+      th.speed = 0;
+      G.debug.step(0.05);
+      th.x = mid.x - dir.x * 1.6; th.z = mid.z - dir.z * 1.6;
+      G.debug.step(0.02);
+      out.flags2 = [near.dark, far.dark, mid.dark].join();
+      out.ring = W.darkInfo();
+      // 伤害：随机数钉在 0.5（不暴击）
+      T.fix(0.5);
+      const base = G.calcHit(ctx, 1).total;
+      const k = (h) => +(h.total / base).toFixed(3);
+      out.you = [k(G.relicDarkHit(near, ctx, 1, false)), k(G.relicDarkHit(far, ctx, 1, false))].join();
+      out.mine = [k(G.relicDarkHit(mid, ctx, 1, true)), k(G.relicDarkHit(far, ctx, 1, true))].join();
+      // hitEnemy 走的是同一条路：域外的靶子挨一下飞刃 = 基础 × 1.24
+      const hp0 = far.hp;
+      G.hitEnemy(far, ctx, 1, {});
+      out.hitFar = +((hp0 - far.hp) / base).toFixed(3);
+      far.awake = false;
+      out.sneak = G.relicDarkHit(far, ctx, 1, false).crit + ' ' + G.relicDarkHit(mid, ctx, 1, true).crit;
+      far.awake = true;
+      T.unfix();
+      // 受到的伤害（火焰：只吃抗性，线性）
+      P.god = false;
+      const hurt = (src) => { P.iframe = 0; P.life = P.maxLife; G.hurtPlayer(100, 'fire', src); return P.maxLife - P.life; };
+      const dNear = hurt(near), dFar = hurt(far), dProj = hurt({ x: near.x, z: near.z, owner: near });
+      out.weak = [+(dNear / dFar).toFixed(3), +(dProj / dFar).toFixed(3)].join();
+      const golem = G.spawnBoss('golem', P.x + dir.x * 6, P.z + dir.z * 6, 1);
+      golem.cd = golem.busy = 1e9; golem.speed = 0;
+      G.debug.step(0.02);
+      out.weakBoss = [golem.dark, G.darkWeakK(golem), G.darkWeakK({ dark: true, isBoss: true, pin: true })].join();
+      // 熄烛者：不吃削弱，单次照样封顶 85%
+      P.iframe = 0; P.life = P.maxLife;
+      G.hurtPlayer(1e9, 'fire', { x: near.x, z: near.z, dark: true, isBoss: true, pin: true });
+      out.cap = +(1 - P.life / P.maxLife).toFixed(3);
+      P.life = P.maxLife;
+      // 召唤物挨打
+      const mh = (src) => { th.hp = th.maxHp; G.hurtMinion(th, 100, 'fire', src); return th.maxHp - th.hp; };
+      out.minionWeak = +(mh(mid) / mh(far)).toFixed(3);
+      // 摘下：当场复原
+      G.save.equip.helm = null;
+      G.computeStats();
+      G.debug.step(0.02);
+      out.off = [near.dark, mid.dark, P.relic.xizhu === undefined, W.darkInfo().r].join();
+      out.offHit = +(G.calcHit(ctx, 1).total > 0) + ' ' + +(hurt(near) / dFar).toFixed(3);
+      G.debug.step(1.0);
+      out.offRing = W.darkInfo().visible;
+      P.god = true;
+      G.clearEnemies();
+      RQT.end();
+      return out;
+    });
+    assert(r.v === 24, '暗域增伤词缀（中值）不对：' + JSON.stringify(r));
+    assert(r.flags1 === 'true,false,false' && r.flags2 === 'true,false,true', '域内判定不对：' + JSON.stringify(r));
+    assert(r.ring.visible && r.ring.r === 8 && r.ring.mr === 2.5 && r.ring.n === 2, '暗域圈不对：' + JSON.stringify(r));
+    assert(r.you === '1.24,1.24' && r.mine === '1.24,1' && r.hitFar === 1.24 && r.sneak === 'true false', '增伤 / 必暴不对：' + JSON.stringify(r));
+    assert(r.weak === '0.8,0.8' && r.weakBoss === 'true,0.9,1' && r.minionWeak === 0.8 && r.cap === 0.85, '削弱 / 85% 上限不对：' + JSON.stringify(r));
+    assert(r.off === 'false,false,true,0' && r.offHit === '1 1' && r.offRing === false, '摘下没复原：' + JSON.stringify(r));
+    return '增伤 ×' + r.you.split(',')[0] + ' · 域内伤害 ×' + r.weak.split(',')[0] + ' · 首领 ×0.9 · 上限 ' + r.cap;
+  });
+
+  await step('熄烛冠改版的存档迁移：旧熄烛冠（生命 / 暴击 / 冰霜抗性）读档后原地升级，各行分位不变（冰霜抗性 → 生命回复），新增暗域增伤按 uid 固定；只迁一次、提示一次（看过不再出）；新掉的直接是新版', async () => {
+    const r = await ev(() => {
+      const out = {};
+      const OLD = [['life', [1.2, 1.6]], ['crit', [1.2, 1.6]], ['resCold', [1.0, 1.3]]], tier = 8, il = 50;
+      const oldItem = (q, uid) => {
+        const it = G.rollRelic('xizhu', il, 0.5);
+        delete it.rqv;
+        it.uid = uid;
+        it.affixes = OLD.map(([id, k]) => { const t = G.affixRange(G.AFFIX_BY_ID[id], tier); const lo = Math.max(1, Math.round(t[0] * k[0])), hi = Math.max(lo, Math.round(t[1] * k[1])); return { id, tier, v: Math.round(lo + (hi - lo) * q) }; });
+        return it;
+      };
+      const a = oldItem(0.25, 'xzA'), b = oldItem(1, 'xzB');
+      const keep = { bag: G.save.bag.slice(), helm: G.save.equip.helm, tut: Object.assign({}, G.save.tut), xzMig: G.save.xzMig };
+      delete G.save.tut.xzmig;
+      G.save.bag.length = 0;
+      G.save.bag.push(JSON.parse(JSON.stringify(b)));
+      G.save.equip.helm = JSON.parse(JSON.stringify(a));
+      G.persist();
+      G.loadSave();
+      const A = G.save.equip.helm, B = G.save.bag.find((x) => x.rq === 'xizhu');
+      const q = (it, i) => { const rg = G.relicLineRange('xizhu', il, i); return +((it.affixes[i].v - rg[0]) / (rg[1] - rg[0])).toFixed(2); };
+      out.ids = A.affixes.map((x) => x.id).join();
+      // 分位：两次取整（旧值、新值）各差不到半格，按 ±0.02 比
+      out.qA = [0, 1, 2].map((i) => q(A, i)).join();
+      out.qB = [0, 1, 2].map((i) => q(B, i)).join();
+      out.qOk = [0, 1, 2].every((i) => Math.abs(q(A, i) - 0.25) <= 0.02 && q(B, i) === 1);
+      const rgD = G.relicLineRange('xizhu', il, 3);
+      out.dark = A.affixes[3].v >= rgD[0] && A.affixes[3].v <= rgD[1] && A.rqv === 2 && B.rqv === 2;
+      out.flag = G.xizhuMigrated + ' ' + G.save.xzMig;
+      // 同一件旧物品再迁一次：暗域增伤一样（按 uid）
+      const a2 = oldItem(0.25, 'xzA');
+      G.migrateXizhu(a2);
+      out.same = a2.affixes[3].v === A.affixes[3].v;
+      // 存回去再读：不再迁移（数值不变）、提示还在（没看过）
+      const sig = JSON.stringify(A.affixes);
+      G.persist();
+      G.loadSave();
+      out.stable = JSON.stringify(G.save.equip.helm.affixes) === sig && G.xizhuMigrated === 1;
+      // 看过提示：存档里的标记清掉，再读档不再提示
+      G.save.tut.xzmig = 1;
+      G.save.xzMig = false;
+      G.persist();
+      G.loadSave();
+      out.after = G.xizhuMigrated + ' ' + G.save.xzMig;
+      out.fresh = G.rollRelic('xizhu', 62).rqv;
+      G.save.bag.length = 0;
+      for (const x of keep.bag) G.save.bag.push(x);
+      G.save.equip.helm = keep.helm;
+      G.save.tut = keep.tut;
+      G.save.xzMig = keep.xzMig;
+      G.computeStats();
+      G.persist();
+      return out;
+    });
+    assert(r.ids === 'life,crit,lifeRegen,darkDmg', '迁移后的词缀行不对：' + JSON.stringify(r));
+    assert(r.qOk && r.dark && r.same, '分位 / 新词缀不对：' + JSON.stringify(r));
+    assert(r.flag === '2 true' && r.stable && r.after === '0 false' && r.fresh === 2, '只迁一次 / 提示一次不对：' + JSON.stringify(r));
+    return '分位 ' + r.qA + ' / ' + r.qB;
   });
 
   await step('巅峰渊契：熄烛冠 / 双生坠 × 3 个物品等级都合法（isItem 认、存档往返留着）；图标 it-rq-xizhu / it-rq-shuangsheng 画得出来；图鉴 15 行（巅峰的排在最后、写着熄烛者）；不进随机掉落的池子', async () => {
@@ -14012,7 +14134,7 @@ async function main() {
       const urls = G.RELIC_PINNACLE.map((id) => G.icons.url('it-rq-' + id));
       out.icons = urls.every((u) => /^data:image\/png;base64,/.test(u) && u.length > 1500) && urls[0] !== urls[1];
       out.key = G.icons.itemKey(G.rollRelic('xizhu', 50));
-      out.desc = G.RELICS.xizhu.mechDesc.indexOf('9 米') >= 0 && G.RELICS.shuangsheng.mechDesc.indexOf('交替') >= 0;
+      out.desc = G.RELICS.xizhu.mechDesc.indexOf('8 米') >= 0 && G.RELICS.xizhu.mechAlt.indexOf('9 米') >= 0 && G.RELICS.shuangsheng.mechDesc.indexOf('交替') >= 0;
       G.save.bag.length = 0;
       G.save.bag.push(G.rollRelic('xizhu', 50), G.rollRelic('shuangsheng', 50));
       G.persist();

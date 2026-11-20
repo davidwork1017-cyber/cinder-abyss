@@ -912,6 +912,8 @@
     wInc: '武器物理伤害提高 {v}%', wAdd: '附加 {a}–{b} 物理伤害',
     // 远程武器（见 G.RANGED）：枪械的热度、弓的专注
     heatGain: '热度积攒速度加快 {v}%', heatDmg: '热度满时枪械普攻伤害提高 {v}%（随热度线性）', rDmg: '枪械热度技（R）伤害提高 {v}%',
+    // 熄烛冠专属：你对所有敌人、召唤物对暗域内的敌人（见 G.RELIC_MECH.xizhu）
+    darkDmg: '暗域增伤 {v}%',
     focusGain: '专注积攒速度加快 {v}%', buffDur: '弓的专注技（R）增益持续时间延长 {v}%', rangeDmg: '远距离命中时弓的伤害提高 {v}%',
   };
   G.LOCAL_STATS = { wInc: 1, wAdd: 1 };
@@ -1054,6 +1056,8 @@
     // 只出现在烬铸武器上的词缀行（slots 为空、权重 0：随机掉落和打造都不会出）
     A('uIncElem', 'prefix', '三相', 'incElem', 8, 13, 1.35, [], 0),
     A('uAilment', 'suffix', '蚀相', 'ailment', 8, 13, 1.3, [], 0),
+    // 只出现在熄烛冠上（巅峰渊契的专属行）：不随物品等级变（g 1），区间就是 [lo, hi]
+    A('darkDmg', 'suffix', '暗域', 'darkDmg', 20, 28, 1, [], 0),
   ];
   G.AFFIX_BY_ID = {};
   for (const a of G.AFFIXES) G.AFFIX_BY_ID[a.id] = a;
@@ -1245,8 +1249,10 @@
     },
     // 巅峰专属（只有熄烛者掉，D5）：不进 G.RELIC_IDS（随机掉落、拾烬客都不出），图鉴另列在普通渊契后面（G.RELIC_CODEX）
     xizhu: {
-      name: '熄烛冠', slot: 'helm', base: 0, src: 'pinnacle', pinnacle: true, mechName: '无光',
-      lines: [{ id: 'life', k: [1.2, 1.6] }, { id: 'crit', k: [1.2, 1.6] }, { id: 'resCold', k: [1.0, 1.3] }],
+      // rqv 2：巅峰改版（机制「暗域」、四行词缀，冰霜抗性换成生命回复、新增专属的暗域增伤）。
+      // 旧存档里的熄烛冠读档时按原来的分位原地升级，见 game.js 的 migrateXizhu
+      name: '熄烛冠', slot: 'helm', base: 0, src: 'pinnacle', pinnacle: true, mechName: '暗域', rqv: 2,
+      lines: [{ id: 'life', k: [1.6, 2.0] }, { id: 'crit', k: [1.8, 2.3] }, { id: 'lifeRegen', k: [1.4, 1.8] }, { id: 'darkDmg', k: [1, 1] }],
       lore: '冠上烛芯都熄了，只剩一根冒烟。',
     },
     shuangsheng: {
@@ -1300,8 +1306,10 @@
   // 随影 zhaohun：翻滚 delay 秒后召唤物闪到你落点周围、各砸一下（半径 r，各自一击 × mult，守像 × multBig）；翻滚冷却 × (1 + rollCd)
   // 随核 yinli：黑洞以你为中心跟着你走；持续 × dur、半径 × radius、牵引 × pull（首领不变）、每跳伤害 × dmg
   // 锁链 yuanfu：同一时刻处于渊缚的敌人连成一串（最多 max 个），其中一个受到你的伤害，其余每个分到 share
-  // 无光 xizhu（巅峰）：暖光半径 × (1 − lamp)；far 米外的怪不会因为距离醒来；已醒的怪在 far 米外 lose 秒看不到你就失去目标、回原地（首领不吃）；
-  //   你对 far 米外的敌人伤害 × (1 + dmg)，还没被发现（没醒）时的第一击必定暴击；和幽晦叠加时雾近端不低于 fogMin
+  // 暗域 xizhu（巅峰，熄烛冠）：你身周 r 米、每个召唤物身周 mr 米是暗域。域内的敌人造成的伤害 × (1 − weak)（首领 weakBoss，熄烛者不吃）；
+  //   暗域增伤（专属词缀 darkDmg）：你的伤害对所有敌人、召唤物的伤害对域内的敌人 × (1 + darkDmg%)；
+  //   far 米外的怪不会因为距离醒来；已醒的怪在 far 米外 lose 秒看不到你就失去目标、回原地（首领不吃）；还没被发现（没醒）时你的第一击必定暴击；
+  //   暖光半径 × (1 − lamp)，和幽晦叠加时雾近端不低于 fogMin
   // 双生 shuangsheng（巅峰）：选了刻式的技能每次施放在 A / B 之间交替（光环、召唤除外），交替出来的那一下（不是你选的那一种）伤害 × (1 + dmg)
   G.RELIC_MECH = {
     // r 4.5（设计稿 3.0）：从近战距离朝目标翻滚，落地离目标约 4 米，3 米够不着翻过去的那个目标
@@ -1318,7 +1326,7 @@
     zhaohun: { delay: 0.15, r: 1.6, mult: 1.5, multBig: 1.0, rollCd: 0.15 },
     yinli: { dur: 0.8, radius: 0.85, pull: 0.75, dmg: 1.2 },
     yuanfu: { max: 6, share: 0.2 },
-    xizhu: { lamp: 0.4, far: 9, lose: 3, dmg: 0.3, fogMin: 14 },
+    xizhu: { r: 8, mr: 2.5, weak: 0.2, weakBoss: 0.1, far: 9, lose: 3, lamp: 0.4, fogMin: 14 },
     shuangsheng: { dmg: 0.1 },
   };
   // 机制说明（物品提示、图鉴用），按上面的数值拼
@@ -1351,8 +1359,9 @@
     R.yuanfu.mechDesc = '渊缚中的敌人连成一串（最多 ' + u.max + ' 个）：其中一个受你伤害时，其余各分到 ' + pc(u.share) + '。';
     R.yuanfu.mechAlt = '分到的伤害不暴击、不触发命中效果、不累积异常值、不带黑焰。渊缚结束即断开。首领不会被渊缚。';
     const x = M.xizhu, s2 = M.shuangsheng;
-    R.xizhu.mechDesc = '暖光半径缩小 ' + pc(x.lamp) + '。' + x.far + ' 米外的怪不会因距离醒来；你对 ' + x.far + ' 米外的敌人伤害提高 ' + pc(x.dmg) + '，对没发现你的敌人第一击必定暴击。';
-    R.xizhu.mechAlt = '被打中或同群被叫醒照旧。已醒的怪在 ' + x.far + ' 米外连续 ' + x.lose + ' 秒看不到你，就失去目标、回到原地（首领不会）。';
+    R.xizhu.mechDesc = '身周 ' + x.r + ' 米是暗域：域内敌人伤害降低 ' + pc(x.weak) + '。暗域增伤对你的所有伤害生效，召唤物对域内敌人生效。';
+    R.xizhu.mechAlt = '召唤物身周 ' + x.mr + ' 米也算暗域。首领在域内只降低 ' + pc(x.weakBoss) + '，熄烛者不受影响。' + x.far + ' 米外的怪不会因距离醒来；已醒的怪在 ' + x.far +
+      ' 米外连续 ' + x.lose + ' 秒看不到你就失去目标（首领不会）。对没发现你的敌人第一击必定暴击。暖光半径缩小 ' + pc(x.lamp) + '。';
     R.shuangsheng.mechDesc = '有刻式的技能每次施放在 A、B 间交替，不是你选的那一下伤害提高 ' + pc(s2.dmg) + '。';
     R.shuangsheng.mechAlt = '光环和召唤技能不交替，始终是你选的那种。宝石 ' + G.VARIANT_LVL + ' 级并选过刻式才生效；已放出的黑洞、旋风等按施放时的刻式走完。';
   };

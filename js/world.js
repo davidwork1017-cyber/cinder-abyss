@@ -20588,6 +20588,83 @@
     }
   }
 
+  // ---------- 暗域（渊契熄烛冠）：你脚下 r 米、每个召唤物脚下 mr 米的一圈暗边 ----------
+  // 只画圈的边：外缘一道浅烟紫细线（深色地面上也看得出圈在哪），往里 0.9 米淡出的一道暗带，圈里面完全透明——不盖住预警圈、敌人和玩家。
+  // 所有圈共用一个 InstancedMesh（1 次 draw），画在预警圈下面（renderOrder 2 < 3）；域内的敌人偶尔冒一缕浅灰的熄烟（共用粒子）
+  const DARK_VERT = 'varying vec2 vP; varying float vR;\nvoid main(){ vP = position.xz; vR = length(instanceMatrix[0].xyz);' +
+    ' gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0); }';
+  const DARK_FRAG = [
+    'uniform float uA; uniform float uTime; varying vec2 vP; varying float vR;',
+    'void main(){',
+    '  float l = length(vP);',
+    '  if (l > 1.0) discard;',
+    '  float d = (1.0 - l) * vR;', // 离圈边的米数
+    '  float an = atan(vP.x, vP.y);',
+    '  float sm = 0.55 + 0.45 * sin(an * floor(vR * 2.0) + uTime * 0.7) * sin(an * 3.0 - uTime * 0.45);', // 边上的烟缕慢慢流动
+    '  float line = 1.0 - smoothstep(0.03, 0.09, abs(d - 0.07));',
+    '  float band = (1.0 - smoothstep(0.0, 0.9, d)) * (0.55 + 0.45 * sm);',
+    '  float aD = band * 0.34 * uA;',
+    '  float aL = line * 0.62 * uA;',
+    '  float a = clamp(aD + aL, 0.0, 1.0);',
+    '  if (a < 0.004) discard;',
+    '  gl_FragColor = vec4((vec3(0.04, 0.02, 0.07) * aD + vec3(0.72, 0.66, 0.86) * aL) / max(a, 0.001), a);',
+    '}',
+  ].join('\n');
+  const DARK_MAX = 25; // 玩家 1 个 + 召唤物最多 24 个
+  const dark = { mesh: null, u: null, r: 0, mr: 0, a: 0, acc: 0 };
+  W.setDark = function (r, mr) {
+    dark.r = r > 0 ? r : 0;
+    dark.mr = mr > 0 ? mr : 0;
+    if (dark.r > 0 && !dark.mesh && scene) {
+      dark.u = { uA: { value: 0 }, uTime };
+      const mat = new T.ShaderMaterial({ uniforms: dark.u, vertexShader: DARK_VERT, fragmentShader: DARK_FRAG, transparent: true, depthWrite: false, side: T.DoubleSide });
+      dark.mesh = new T.InstancedMesh(gQuad(), mat, DARK_MAX);
+      dark.mesh.renderOrder = 2;
+      dark.mesh.frustumCulled = false;
+      dark.mesh.count = 0;
+      dark.mesh.visible = false;
+      scene.add(dark.mesh);
+    }
+  };
+  W.darkInfo = () => ({ r: dark.r, mr: dark.mr, a: dark.a, n: dark.mesh ? dark.mesh.count : 0, visible: !!(dark.mesh && dark.mesh.visible) });
+  function updateDark(dt) {
+    const want = dark.r > 0 ? 1 : 0;
+    dark.a += (want - dark.a) * Math.min(1, dt * 6);
+    if (dark.a < 0.01 && !want) dark.a = 0;
+    if (!dark.mesh) return;
+    dark.mesh.visible = dark.a > 0;
+    if (!dark.mesh.visible) return;
+    const P = G.player, S = G.state;
+    let n = 0;
+    const put = (x, z, r) => {
+      _m4.makeScale(r, 1, r);
+      _m4.setPosition(x, 0.05, z);
+      dark.mesh.setMatrixAt(n++, _m4);
+    };
+    if (dark.r > 0) put(P.x, P.z, dark.r);
+    if (dark.mr > 0 && S.minions) {
+      for (const m of S.minions) {
+        if (n >= DARK_MAX) break;
+        if (!m.dead && !m.decoy) put(m.x, m.z, dark.mr);
+      }
+    }
+    dark.mesh.count = n;
+    dark.mesh.instanceMatrix.needsUpdate = true;
+    dark.u.uA.value = dark.a;
+    // 域内的敌人：每秒约 2 缕浅灰熄烟从头顶飘起（亮色，不压暗敌人本身）
+    if (want && S.enemies) {
+      dark.acc += dt * 2;
+      if (dark.acc >= 1) {
+        dark.acc -= 1;
+        for (const e of S.enemies) {
+          if (!e.dark || e.dead) continue;
+          const h = (e.height || 2) * 1.02;
+          spawnP(e.x + rand(-0.2, 0.2), h, e.z + rand(-0.2, 0.2), rand(-0.15, 0.15), rand(0.5, 0.9), rand(-0.15, 0.15), rand(0.7, 1.0), rand(0.09, 0.14), 0.7, 0.66, 0.8, -0.1, 0.6);
+        }
+      }
+    }
+  }
+
   // ---------- 飘字 ----------
   const TEXT_DUR = 0.8;
   const texts = [];
@@ -25288,6 +25365,7 @@
     poolUpdate(slashPool, dt);
     updateBolts(dt);
     updateAura(dt);
+    updateDark(dt);
     updateMeteors(dt);
     updateSummons(dt);
     updateFocus(raw);

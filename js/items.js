@@ -281,6 +281,7 @@
       imp: base.imp ? { stat: base.imp.stat, v: rollImp(base.imp, ilvl) } : null,
       affixes: [],
     };
+    if (R.rqv) item.rqv = R.rqv; // 渊契改版：新掉的物品直接记成新版，读档时不再迁移
     const tier = maxTier(ilvl);
     R.lines.forEach((ln, i) => {
       const r = lineRange(R, ilvl, i);
