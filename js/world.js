@@ -860,7 +860,7 @@
       grade: { sat: 1.12, con: 1.1, lift: 0x080418, gain: 0xfaf6ff, vig: 0.24, sh: 0x6a6ab0, hi: 0xfff0e4, tk: 0.1, shS: 0.85 },
       blots: { k: 0.35, r: 0.7, op: 0.3, tex: 'crack' }, // zones-polish：地砖上是细裂纹，不是暗块。zones-storm：地砖上的污斑少一些、小一些（zones-ash 的开关）
       // vf-ground：地砖缝和墙脚积着风吹进来的砂砾；路外是碎砂带、碎石块和水渍
-      layer: { tex: 'g_cover_storm', tile: 3.5, con: 0.6, rough: 1, k: 0.46, sat: 0.4, col: 0x4e4c5e, path: 0.6, pT: 0.56, edge: 1, jag: 1.2, blend: 0.08, edgeW: 0.6, mv: 0.14, mh: 0.08, scorch: 0.45, sT: 0.64, ao2: 0.24 }, // scorch：成片的碎石地（粗糙地面那一套）
+      layer: { tex: 'g_cover_storm', tile: 3.5, con: 0.6, rough: 1, k: 0.52, sat: 0.4, col: 0x4e4c5e, path: 0.6, pT: 0.56, edge: 1, jag: 1.2, blend: 0.08, edgeW: 0.6, mv: 0.14, mh: 0.08, scorch: 0.45, sT: 0.64, ao2: 0.12 }, // ao2 0.24 → 0.12、k 0.46 → 0.52：新布局下墙边地面掉到 23%、低档砂砾斑太暗 // scorch：成片的碎石地（粗糙地面那一套）
       deco: { cover: 0x5e5c6e, floor: 0.8, wild: 1, ao: 0.85, aoR: 0.9, scorch: 0, clusters: 0.6, kinds: [6, 7, 8, 11, 12, 13], tint: 0x4a4858 },
       pool: { col: 0xffd27a, k: 1.0, r: 3, gain: 1.4 }, // 路边立灯脚下映暖
       sigil: { r: 0.55, op: 0.12 }, // zones-storm：监察大厅的法阵原来又大又满，收小、压淡
