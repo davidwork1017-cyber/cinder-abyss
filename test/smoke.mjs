@@ -291,11 +291,58 @@ async function uiStep(name, fn) {
   });
 }
 
+// 拖之前把两端一起带进可视区（上一步可能把列表滚到了别处）。两端在同一个滚动容器里：都露着就不动，否则把两者的中点滚到容器中间；
+// 不在同一个容器里：各自就近滚进来。技能列表上下各 40 像素是贴边自动滚动带（ui.js 的 EDGE_SCROLL），摆位置时尽量避开；
+// 避不开也行（进带后要停 EDGE_DELAY 才滚，这里拖起、松手都在那之前）。然后核对每一端的中心：在视口里、在每一层裁剪它的容器里，
+// elementFromPoint 打到的是它自己或它里面的节点。不满足就报错，不去拖
+async function dragView(from, to) {
+  const bad = await ev(([sels, edge]) => {
+    const els = sels.map((s) => (s ? document.querySelector(s) : null));
+    const lost = sels.filter((s, i) => s && !els[i]);
+    if (lost.length) return '找不到 ' + lost.join('、');
+    const clips = (n) => { const out = []; for (let p = n.parentElement; p && p !== document.body; p = p.parentElement) { const cs = getComputedStyle(p); if (cs.overflowY !== 'visible' || cs.overflowX !== 'visible') out.push(p); } return out; };
+    const scroller = (n) => clips(n).find((p) => /auto|scroll/.test(getComputedStyle(p).overflowY) && p.scrollHeight > p.clientHeight + 1) || null;
+    // 技能列表的自动滚动带：已经滚到顶 / 底的那一边不会再滚，不用避
+    const inset = (p, end) => (p.classList.contains('skill-list') && (end ? p.scrollTop < p.scrollHeight - p.clientHeight - 1 : p.scrollTop > 0) ? edge : 0);
+    // 中心是否落在容器 p 的内容区里（不含滚动条）；band：再避开技能列表的自动滚动带
+    const inside = (n, p, band) => { const b = n.getBoundingClientRect(), r = p.getBoundingClientRect(), y = b.top + b.height / 2, x = b.left + b.width / 2, top = r.top + p.clientTop, k0 = band ? inset(p, 0) : 0, k1 = band ? inset(p, 1) : 0; return x >= r.left + p.clientLeft && x <= r.left + p.clientLeft + p.clientWidth && y >= top + k0 && y <= top + p.clientHeight - k1; };
+    const sc = els.map((n) => (n ? scroller(n) : null));
+    if (els[0] && els[1] && sc[0] && sc[0] === sc[1]) {
+      const p = sc[0];
+      if (!els.every((n) => inside(n, p, true))) {
+        const box = p.getBoundingClientRect();
+        const ys = els.map((n) => { const b = n.getBoundingClientRect(); return b.top + b.height / 2; });
+        p.scrollTop += (ys[0] + ys[1]) / 2 - (box.top + p.clientTop + p.clientHeight / 2);
+      }
+    } else {
+      els.forEach((n, i) => {
+        if (!n) return;
+        n.scrollIntoView({ block: 'nearest' });
+        if (sc[i] && !inside(n, sc[i], true)) n.scrollIntoView({ block: 'center' });
+      });
+    }
+    const errs = [];
+    els.forEach((n, i) => {
+      if (!n) return;
+      const b = n.getBoundingClientRect(), x = b.left + b.width / 2, y = b.top + b.height / 2;
+      const where = (i ? '终点 ' : '起点 ') + sels[i] + ' 的中心 (' + Math.round(x) + ',' + Math.round(y) + ')';
+      if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) errs.push(where + ' 在视口外（' + innerWidth + '×' + innerHeight + '）');
+      for (const p of clips(n)) {
+        if (inside(n, p)) continue;
+        const r = p.getBoundingClientRect();
+        errs.push(where + ' 不在容器 .' + String(p.className).trim().split(/\s+/).join('.') + ' 的可见区里（' + [r.left, r.top, r.right, r.bottom].map(Math.round).join(',') + '，scrollTop ' + Math.round(p.scrollTop) + '）');
+      }
+      const hit = document.elementFromPoint(x, y);
+      if (!hit || !(hit === n || n.contains(hit))) errs.push(where + ' 被挡住：elementFromPoint 打到 ' + (hit ? hit.tagName.toLowerCase() + (hit.id ? '#' + hit.id : '') + '.' + String(hit.className).trim().split(/\s+/).join('.') : 'null'));
+    });
+    return errs.join('；');
+  }, [[from, to].map((s) => (typeof s === 'string' ? s : null)), 40]);
+  assert(!bad, '拖拽两端没法同时露在视野里：' + bad);
+}
+
 // 用真鼠标把 from 拖到 to（选择器或坐标）；mid 在松手前执行
 async function dragTo(from, to, mid) {
-  // 目标和起点都先滚进可视区（上一步可能把列表滚到了别处）
-  if (typeof to === 'string') await page.locator(to).scrollIntoViewIfNeeded();
-  if (typeof from === 'string') await page.locator(from).scrollIntoViewIfNeeded();
+  if (typeof from === 'string' || typeof to === 'string') await dragView(from, to);
   const a = typeof from === 'string' ? await ev((s) => T.rect(s), from) : from;
   await page.mouse.move(a.x, a.y);
   await page.mouse.down();
@@ -312,6 +359,22 @@ async function dragTo(from, to, mid) {
 async function closePanel() {
   if (await ev(() => G.ui.isOpen())) await page.keyboard.press('Escape');
   assert(!(await ev(() => G.ui.isOpen())), 'Esc 没有关掉面板');
+}
+
+// 面板打开时有 0.16 秒的入场动画（缩放 0.99 → 1），getBoundingClientRect 量到的宽高跟着变；机器忙时这段动画会拖到一两秒。
+// 量技能卡尺寸之前：等面板上没有在播的动画，再连续两帧量所有技能卡的位置和大小，一样才算排好
+async function panelSettled() {
+  for (let i = 0; i < 300; i++) {
+    const ok = await ev(() => new Promise((res) => {
+      const win = document.getElementById('panel-win');
+      if (!win || win.getAnimations().some((a) => a.playState === 'running' || a.playState === 'pending')) return requestAnimationFrame(() => res(false));
+      const m = () => Array.from(document.querySelectorAll('#panel .skill-card')).map((c) => { const r = c.getBoundingClientRect(); return [r.left, r.top, r.width, r.height].join(','); }).join('|');
+      const a = m();
+      requestAnimationFrame(() => requestAnimationFrame(() => res(a === m())));
+    }));
+    if (ok) return;
+  }
+  throw new Error('技能页一直没排好（入场动画没播完或卡片尺寸一直在变）');
 }
 
 // 确认面板里的文字没有漏出 undefined / NaN
@@ -6408,6 +6471,72 @@ async function main() {
     });
   });
 
+  await uiStep('技能页拖拽贴边自动滚动：拖着宝石时滚轮照常能滚；指针离列表下边 40 像素以外不滚，贴到下边就往下滚；滚到开拖时看不见的远处孔上松手能镶上', async () => {
+    await ev(() => {
+      for (const id of Object.keys(G.save.sockets)) G.save.sockets[id] = [null, null, null];
+      G.socketSupport('ember', 0, 'multi');
+      G.computeStats();
+    });
+    await page.keyboard.press('KeyG');
+    await panelSettled();
+    const src = '.skill-list .sock[data-skill="ember"][data-idx="0"]';
+    // 把起点的孔滚到列表顶下 80 像素（单列时掷焰卡排在武器普攻卡下面，滚到顶它不在视野里）；
+    // 远处的孔 = 列表里能镶多重投射、离顶最远的那个孔（武器普攻卡除外）
+    const g = await ev((src) => {
+      const L = document.querySelector('.skill-list');
+      L.scrollTop += T.rect(src).y - (L.getBoundingClientRect().top + L.clientTop + 80);
+      const lr = L.getBoundingClientRect();
+      const far = Array.from(L.querySelectorAll('.sock')).filter((n) => n.dataset.skill !== G.BASIC_CARD && n.dataset.skill !== 'ember' && G.supportFits(n.dataset.skill, 'multi')).sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top)[0];
+      return { far: far ? '.skill-list .sock[data-skill="' + far.dataset.skill + '"][data-idx="' + far.dataset.idx + '"]' : null, skill: far && far.dataset.skill, idx: far && +far.dataset.idx, farY: far && T.rect(far).y, a: T.rect(src), top: lr.top, bottom: lr.top + L.clientHeight, x: lr.left + L.clientWidth / 2, s0: L.scrollTop, max: L.scrollHeight - L.clientHeight };
+    }, src);
+    assert(g.far && g.farY > g.bottom && g.s0 < g.max, '远处的孔开拖时应在列表可见区下面：' + JSON.stringify(g));
+    assert(g.a.y > g.top + 40 && g.a.y < g.bottom - 40, '起点的孔应在列表上部、贴边带以外：' + JSON.stringify(g));
+    const top = () => ev(() => document.querySelector('.skill-list').scrollTop);
+    await page.mouse.move(g.a.x, g.a.y);
+    await page.mouse.down();
+    await page.mouse.move(g.a.x + 9, g.a.y + 6, { steps: 2 });
+    assert(await ev(() => document.getElementById('drag-ghost').classList.contains('on')), '没有拖起来');
+    // 拖着的时候滚轮照常能滚
+    await page.mouse.wheel(0, 120);
+    await until((s0) => document.querySelector('.skill-list').scrollTop > s0, g.s0).catch(() => {
+      throw new Error('拖拽中滚轮滚不动技能列表');
+    });
+    // 离下边 60 像素（贴边带外）：等滚轮的平滑滚动停下，再停 10 帧，不滚
+    await page.mouse.move(g.x, g.bottom - 60, { steps: 3 });
+    let s1 = await top();
+    for (let i = 0; i < 60; i++) {
+      await frames(3);
+      const s = await top();
+      if (s === s1) break;
+      s1 = s;
+    }
+    await frames(10);
+    const s2 = await top();
+    assert(s2 === s1, '指针在贴边带以外时列表不应自己滚：' + s1 + ' → ' + s2);
+    // 贴到下边：往下滚，直到远处的孔进了可见区、离开贴边带（或者滚到了底）
+    await page.mouse.move(g.x, g.bottom - 6, { steps: 2 });
+    await until((s2) => document.querySelector('.skill-list').scrollTop > s2 + 40, s2).catch(async () => {
+      throw new Error('指针贴到列表下边没有自动往下滚：scrollTop ' + s2 + ' → ' + (await top()));
+    });
+    await until(([far, edge]) => {
+      const L = document.querySelector('.skill-list'), r = L.getBoundingClientRect(), y = T.rect(far).y;
+      return L.scrollTop >= L.scrollHeight - L.clientHeight - 1 || (y > r.top + edge && y < r.top + L.clientHeight - edge - 60);
+    }, [g.far, 40]).catch(async () => {
+      throw new Error('贴边自动滚动没有把远处的孔带进视野：scrollTop ' + (await top()));
+    });
+    // 先挪进来（离开贴边带就不再滚），再对准孔的中心
+    let b = await ev((s) => T.rect(s), g.far);
+    await page.mouse.move(b.x, b.y, { steps: 4 });
+    b = await ev((s) => T.rect(s), g.far);
+    await page.mouse.move(b.x, b.y);
+    await frames(2);
+    const mid = await ev((far) => ({ cap: document.querySelector('#drag-ghost em').textContent, hover: document.querySelector(far).classList.contains('drop-hover'), top: document.querySelector('.skill-list').scrollTop }), g.far);
+    await page.mouse.up();
+    const r = await ev((g) => ({ e: G.save.sockets.ember.slice(), t: G.save.sockets[g.skill].slice() }), g);
+    assert(mid.hover && mid.cap.startsWith('镶进 ') && r.e[0] === null && r.t[g.idx] === 'multi', '自动滚到远处的孔上松手应把宝石挪过去：' + JSON.stringify({ g, mid, r }));
+    await closePanel();
+  });
+
   // ------------------------------------------------------------------ v2 界面：地面掉落 / 战斗信息 / 新手提示
   await uiStep('地面掉落：悬停名牌显示完整属性与换装对比，通货 / 宝石有说明；升降标记；按住 Alt 展开概要且不影响操作', async () => {
     await ev(() => {
@@ -7025,28 +7154,103 @@ async function main() {
       assert(pre.shade && pre.blade && pre.relic && pre.vb && pre.va, '数据里的详情字段不对：' + JSON.stringify(pre));
       await page.keyboard.press('KeyG');
       await until(() => G.ui.isOpen() && document.querySelectorAll('.skill-card').length > 0);
+      await panelSettled();
       const look = () => ev(() => {
         const card = (id) => Array.from(document.querySelectorAll('.skill-card')).find((n) => n.querySelector('.sk-name') && n.querySelector('.sk-name').textContent.includes(G.SKILLS[id].name));
         const sh = card('shadestep'), bl = card('blade');
         const d = sh && sh.querySelector('.alt-d'), h = sh && sh.querySelector('.alt-h');
-        return { sh: !!sh, bl: !!bl, blBox: bl ? bl.querySelectorAll('.alt-box').length : -1, d: d ? getComputedStyle(d).display : '', h: h ? getComputedStyle(h).visibility : '', hgt: sh ? Math.round(sh.getBoundingClientRect().height) : 0, ht: h ? h.textContent : '', dt: d ? d.textContent : '', alt: G.SKILLS.shadestep.alt, on: document.body.classList.contains('alt-on') };
+        return { sh: !!sh, bl: !!bl, blBox: bl ? bl.querySelectorAll('.alt-box').length : -1, d: d ? (getComputedStyle(d).display !== 'none' && getComputedStyle(d).visibility === 'visible' ? 'shown' : 'hidden') : '', h: h ? getComputedStyle(h).visibility : '', hgt: sh ? Math.round(sh.getBoundingClientRect().height) : 0, ht: h ? h.textContent : '', dt: d ? d.textContent : '', alt: G.SKILLS.shadestep.alt, on: document.body.classList.contains('alt-on') };
       });
       let r = await look();
-      assert(r.sh && r.bl && r.blBox === 0 && !r.on && r.d === 'none' && r.h === 'visible' && r.ht === '按住 Alt 查看详情' && r.dt === r.alt, '平时只显示提示行、没有详情的卡不出提示：' + JSON.stringify(r));
+      assert(r.sh && r.bl && r.blBox === 0 && !r.on && r.d === 'hidden' && r.h === 'visible' && r.ht === '按住 Alt 查看详情' && r.dt === r.alt, '平时只显示提示行、没有详情的卡不出提示：' + JSON.stringify(r));
       const h0 = r.hgt;
       await page.keyboard.down('Alt');
       try {
         await until(() => document.body.classList.contains('alt-on'));
         r = await look();
-        assert(r.d === 'block' && r.h === 'hidden' && r.hgt === h0, '按住 Alt 应展开详情（浮在卡上，卡片高度不变）、藏起提示行：' + JSON.stringify(r) + ' 原高 ' + h0);
+        assert(r.d === 'shown' && r.h === 'hidden' && r.hgt === h0, '按住 Alt 应展开详情（盖在说明上，卡片高度不变）、藏起提示行：' + JSON.stringify(r) + ' 原高 ' + h0);
       } finally {
         await page.keyboard.up('Alt');
       }
       await until(() => !document.body.classList.contains('alt-on'));
       r = await look();
-      assert(r.d === 'none' && r.h === 'visible', '松开 Alt 应收起详情：' + JSON.stringify(r));
+      assert(r.d === 'hidden' && r.h === 'visible', '松开 Alt 应收起详情：' + JSON.stringify(r));
       await closePanel();
     } finally {
+      await ev((k) => {
+        for (const id in k) {
+          if (k[id] === undefined) delete G.save.skills[id];
+          else G.save.skills[id] = k[id];
+        }
+      }, keep);
+    }
+  });
+
+  await step('技能卡版式：1280×720 下两列等宽、不溢出列表；卡名一行、标签横排成小块；按住 Alt 时详情不盖刻式按钮，悬停的刻式浮窗不丢', async () => {
+    const keep = await ev(() => {
+      const S = G.save, k = { shadestep: S.skills.shadestep, blade: S.skills.blade };
+      S.skills.shadestep = Math.max(S.skills.shadestep || 0, G.VARIANT_LVL);
+      S.skills.blade = Math.max(S.skills.blade || 0, 1);
+      return k;
+    });
+    await page.setViewportSize({ width: 1280, height: 720 });
+    try {
+      await page.keyboard.press('KeyG');
+      await until(() => G.ui.isOpen() && document.querySelectorAll('.skill-list > .skill-card').length > 2);
+      await panelSettled();
+      const lay = await ev(() => {
+        const list = document.querySelector('.skill-list'), lr = list.getBoundingClientRect();
+        return Array.from(list.querySelectorAll(':scope > .skill-card')).map((c) => {
+          const nm = c.querySelector('.sk-name'), cr = c.getBoundingClientRect();
+          // 单行高度：同样式的一个字
+          const one = nm.cloneNode(false);
+          one.textContent = '影';
+          one.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap';
+          nm.parentNode.appendChild(one);
+          const lh = one.getBoundingClientRect().height;
+          one.remove();
+          const tags = c.querySelector('.sk-tags'), chips = tags ? Array.from(tags.children) : [];
+          const tops = new Set(chips.map((t) => Math.round(t.getBoundingClientRect().top)));
+          return { n: nm.firstChild.textContent, w: Math.round(cr.width), out: cr.right > lr.right - 6 + 1 || cr.left < lr.left - 1, ox: c.scrollWidth > c.clientWidth + 1, nameH: Math.round(nm.getBoundingClientRect().height), lh: Math.round(lh), chips: chips.length, rows: tops.size, dir: tags ? getComputedStyle(tags).flexDirection : '' };
+        });
+      });
+      const ws = lay.map((c) => c.w).filter((w) => w < 500);
+      assert(lay.length > 2 && lay.every((c) => !c.out && !c.ox), '技能卡不应溢出列表、卡内也不应横向溢出：' + JSON.stringify(lay));
+      assert(ws.length > 1 && Math.max(...ws) - Math.min(...ws) <= 1, '1280×720 下两列应等宽：' + JSON.stringify(lay));
+      assert(lay.every((c) => c.nameH <= 1.5 * c.lh), '卡名应只占一行：' + JSON.stringify(lay));
+      assert(lay.every((c) => c.chips < 2 || (c.dir === 'row' && c.rows <= 2 && c.rows < c.chips)), '标签应横排（最多两行）：' + JSON.stringify(lay));
+      // 悬停影步连斩的刻式 B，再按住 Alt
+      const card = '.skill-list > .skill-card:has([data-act="variant"][data-skill="shadestep"])';
+      await page.locator(card).scrollIntoViewIfNeeded();
+      await page.locator(card + ' .sv-btn[data-v="b"]').hover();
+      await until(() => document.getElementById('tip').classList.contains('on'), null, 5000);
+      const h0 = await ev((sel) => Math.round(document.querySelector(sel).getBoundingClientRect().height), card);
+      await page.keyboard.down('Alt');
+      let r;
+      try {
+        await until(() => document.body.classList.contains('alt-on'));
+        await frames(3);
+        r = await ev((sel) => {
+          const c = document.querySelector(sel), d = c.querySelector('.sk-desc .alt-d'), dr = d.getBoundingClientRect();
+          const btns = Array.from(c.querySelectorAll('.sv-btn')).map((b) => {
+            const br = b.getBoundingClientRect(), hit = document.elementFromPoint(br.left + br.width / 2, br.top + br.height / 2);
+            return { hit: !!hit && (hit === b || b.contains(hit)), over: dr.right > br.left && dr.left < br.right && dr.bottom > br.top && dr.top < br.bottom };
+          });
+          return { shown: getComputedStyle(d).visibility === 'visible' && dr.height > 0, btns, tip: document.getElementById('tip').classList.contains('on'), h: Math.round(c.getBoundingClientRect().height) };
+        }, card);
+      } finally {
+        await page.keyboard.up('Alt');
+      }
+      assert(r.shown && r.btns.length === 3, '按住 Alt 应显示详情、卡上有 3 个刻式按钮：' + JSON.stringify(r));
+      assert(r.btns.every((b) => b.hit && !b.over), '按住 Alt 时刻式按钮不应被详情盖住：' + JSON.stringify(r));
+      assert(r.tip, '按住 Alt 时悬停的刻式浮窗不应消失：' + JSON.stringify(r));
+      assert(r.h === h0, '按下 Alt 卡片高度不应变：' + h0 + ' → ' + r.h);
+      await until(() => !document.body.classList.contains('alt-on'));
+      await page.mouse.move(5, 5);
+      await closePanel();
+      return lay.length + ' 张卡，宽 ' + [...new Set(lay.map((c) => c.w))].join(' / ');
+    } finally {
+      await page.setViewportSize({ width: 1440, height: 900 });
       await ev((k) => {
         for (const id in k) {
           if (k[id] === undefined) delete G.save.skills[id];
@@ -13013,6 +13217,23 @@ async function main() {
         kill(list) {
           for (const e of list) if (!e.dead) G.killEnemy(e);
         },
+        // 收起玩家这边会自己出手的伤害来源：召唤物（换区会跟过来）、自动召唤、技能栏上的光环（每隔一阵打身边所有怪）、
+        // 前面步骤留下的按住的键鼠（右键按着就一直挥武器）。要量「只有异兆在打怪」的步骤用；返回还原函数
+        quiet() {
+          const auto = Object.assign({}, G.save.autoSummon || {}), bar = G.save.bar.slice();
+          for (const k in G.save.autoSummon || {}) G.save.autoSummon[k] = false;
+          G.clearMinions();
+          G.save.bar = bar.map((id) => (id && G.SKILLS[id] && G.SKILLS[id].kind === 'aura' ? null : id));
+          G.computeStats();
+          for (const k in G.input.keys) G.input.keys[k] = false;
+          G.input.mouse.b[0] = G.input.mouse.b[1] = G.input.mouse.b[2] = false;
+          P.cast = null;
+          return () => {
+            Object.assign(G.save.autoSummon || {}, auto);
+            G.save.bar = bar;
+            G.computeStats();
+          };
+        },
         items: () => S.loot.filter((l) => l.kind === 'item').length,
         done() {
           P.god = false;
@@ -13660,6 +13881,7 @@ async function main() {
     const r = await ev(() => {
       const S = G.state, P = G.player, out = {};
       let enc = EK.put('ember', 3, 1);
+      const unquiet = EK.quiet(); // 整步只有余烬在打怪：不然召唤物 / 光环 / 按住的右键会在量伤害的窗口里补刀，烬晶也可能被它们打碎
       const s = enc.site;
       T.tp(s.x + 3, s.z);
       EK.step(0.2);
@@ -13677,19 +13899,32 @@ async function main() {
         maxT = Math.max(maxT, S.telegraphs.filter((t) => enc.tele.indexOf(t) >= 0).length);
       }
       out.maxTele = maxT;
-      // 余烬打怪：靶子站在玩家脚下，下一团瞄着玩家落（随机数临时压低），挨的是整数倍的 3 × 小怪一击
+      // 余烬打怪：靶子站在玩家脚下，下一团瞄着玩家落（随机数临时压低），挨的是整数倍的 3 × 小怪一击。
+      // 窗口里只许余烬扣血：附近别的怪先清掉（掉落一起清，不混进后面的件数），靶子不攒异常、不吃架势
+      for (const e of S.enemies) if (!e.dead && !e.fixed && !e.isBoss && Math.hypot(e.x - P.x, e.z - P.z) < 16) G.killEnemy(e);
+      T.clearLoot();
       const dummy = G.spawnMob('husk', P.x, P.z, enc.level, { awake: false });
       dummy.hp = dummy.maxHp = 1e7;
       dummy.atkCd = 1e9;
       dummy.speed = 0;
+      dummy.buTh = 1e15;
+      dummy.poiseMax = 0;
       const hit = G.ENCOUNTERS.ember.p.hitK * G.MOBS.husk.dmg * G.dmgScale(enc.level) * G.ENCOUNTERS.ember.p.mobK;
       enc.tele.length = 0;
       enc.fallT = 0;
+      // 逐帧记靶子掉的血：每一下都得正好是整数团余烬（同一帧落两团就是 2 倍），别的来源哪怕一点点也算错
+      let hp0 = dummy.hp;
+      const drops = [];
+      const watch = () => {
+        if (dummy.hp !== hp0) drops.push(+((hp0 - dummy.hp) / hit).toFixed(6));
+        hp0 = dummy.hp;
+      };
       const rnd = Math.random;
       Math.random = () => 0.1;
-      EK.step(1 / 60);
+      EK.step(1 / 60, watch);
       Math.random = rnd;
-      EK.step(1.2);
+      EK.step(1.2, watch);
+      out.drops = drops;
       out.mobHit = +((1e7 - dummy.hp) / hit).toFixed(2);
       G.killEnemy(dummy);
       EK.kill(enc.shards);
@@ -13704,11 +13939,12 @@ async function main() {
       out.late = enc.st;
       out.gone = enc.shards.every((e) => e.dead);
       EK.done();
+      unquiet();
       return out;
     });
     assert(r.sleep === 'sleep' && r.open === 'open' && r.run === 'run' && r.shards === 4, '落烬应清空房间后摸烬核开始、立 4 块烬晶：' + JSON.stringify(r));
     assert(r.maxTele >= 1 && r.maxTele <= 3, '余烬预警同时应 ≤ 3：' + JSON.stringify(r));
-    assert(r.mobHit >= 1 && Math.abs(r.mobHit - Math.round(r.mobHit)) < 0.05, '余烬打怪应是 3 倍小怪一击（整数次）：' + JSON.stringify(r));
+    assert(r.drops.length >= 1 && r.drops.every((d) => d >= 1 && Math.abs(d - Math.round(d)) < 1e-6), '余烬打怪应是 3 倍小怪一击，每一下都是整数团、没有别的伤害：' + JSON.stringify(r));
     assert(r.st === 'done' && r.items >= 4 && r.late === 'fail' && r.gone, '落烬的成功 / 超时不对：' + JSON.stringify(r));
     return '预警最多 ' + r.maxTele + ' 个，打怪 ' + r.mobHit + ' 倍一击';
   });
