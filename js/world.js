@@ -9804,6 +9804,20 @@
         sdv[j * sx + i] = g < -3.6 ? -3.6 : g > 4.6 ? 4.6 : g;
       }
     }
+    const vid = new Int32Array(sx * (nz + 1)).fill(-1);
+    const pos = [], uv = [], col = [], idx = [], aw = [], ac = [];
+    // vf-ground：覆盖层的权重 + 路边起伏（gx.layer）：成片的斑块（两层低频噪声，过 path 阈值才有）、墙脚的堆积（edge）、
+    // 路面边界按噪声往里往外推（jag，米），踩出来的路和起点脚下保持干净
+    const LY = hd && gx.layer && G.assets.tex(gx.layer.tex) && !vfOff('layer') ? gx.layer : null;
+    const trailK = (x, z, d) => (ashT && d > -0.5 ? (1 - smooth01((ashT(x, z) - 0.8) / 1.4)) * smooth01((d + 0.5) / 1.2) : 0); // 踩出来的路
+    const coverW = (x, z, d, tk) => {
+      if (d < -2.4 || tk >= 1) return 0;
+      const pc = vnoise(x * 0.09 + 5.3, z * 0.09 - 9.1) * 0.62 + vnoise(x * 0.23 - 2.2, z * 0.23 + 4.4) * 0.38;
+      const patch = smooth01((pc - LY.pT) / 0.07) * LY.path * smooth01((d - 0.4) / 1.2);
+      const acc = LY.edge * (1 - smooth01((d - 0.1) / 1.7)) * smooth01((d + 2.4) / 1.1) * smooth01(0.2 + 1.6 * (vnoise(x * 0.42 + 1.7, z * 0.42 - 6.2) - 0.35));
+      const clr = (1 - tk) * smooth01((Math.hypot(x - zone.start.x, z - zone.start.z) - 2.2) / 2.5);
+      return Math.min(1, Math.max(patch, acc)) * clr;
+    };
     // vf-ground：大尺度的明暗 / 冷暖 / 烧焦地噪声（周期 5 m 以上）先按 2 m 的粗网格算好，顶点上双线性取（省掉每个顶点 5 次值噪声，建区快几毫秒）
     let MF = null;
     if (LY && (LY.mv || LY.mh || LY.scorch)) {
@@ -9822,20 +9836,6 @@
         return A[o] * (1 - u) * (1 - w) + A[o + 3] * u * (1 - w) + A[o + r] * (1 - u) * w + A[o + r + 3] * u * w;
       };
     }
-    const vid = new Int32Array(sx * (nz + 1)).fill(-1);
-    const pos = [], uv = [], col = [], idx = [], aw = [], ac = [];
-    // vf-ground：覆盖层的权重 + 路边起伏（gx.layer）：成片的斑块（两层低频噪声，过 path 阈值才有）、墙脚的堆积（edge）、
-    // 路面边界按噪声往里往外推（jag，米），踩出来的路和起点脚下保持干净
-    const LY = hd && gx.layer && G.assets.tex(gx.layer.tex) && !vfOff('layer') ? gx.layer : null;
-    const trailK = (x, z, d) => (ashT && d > -0.5 ? (1 - smooth01((ashT(x, z) - 0.8) / 1.4)) * smooth01((d + 0.5) / 1.2) : 0); // 踩出来的路
-    const coverW = (x, z, d, tk) => {
-      if (d < -2.4 || tk >= 1) return 0;
-      const pc = vnoise(x * 0.09 + 5.3, z * 0.09 - 9.1) * 0.62 + vnoise(x * 0.23 - 2.2, z * 0.23 + 4.4) * 0.38;
-      const patch = smooth01((pc - LY.pT) / 0.07) * LY.path * smooth01((d - 0.4) / 1.2);
-      const acc = LY.edge * (1 - smooth01((d - 0.1) / 1.7)) * smooth01((d + 2.4) / 1.1) * smooth01(0.2 + 1.6 * (vnoise(x * 0.42 + 1.7, z * 0.42 - 6.2) - 0.35));
-      const clr = (1 - tk) * smooth01((Math.hypot(x - zone.start.x, z - zone.start.z) - 2.2) / 2.5);
-      return Math.min(1, Math.max(patch, acc)) * clr;
-    };
     // 路面上粗糙斑块的强度（zones-polish：ZONE_GFX.<id>.patch，缺省 0.55 和原来一样）：frost / rift 的粗糙地面贴图在路面上是一块块像泥、像脏印子的软边斑，压下去
     const patchK = gx && gx.patch !== undefined ? gx.patch : 0.55;
     const vert = (i, j) => {
