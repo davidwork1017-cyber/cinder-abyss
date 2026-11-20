@@ -2099,7 +2099,8 @@
       const s = Math.min(2.6, 1.1 + e.r * 0.9);
       RQ.twinFx.push({ t: 0, s, h: W.kv('twin', { x: e.x, y: Math.min(2.4, h * 0.55), z: e.z + 0.2, rx: 0.7, s, hex: 0xffc070, a: 1, k: ang + Math.PI / 2 }) });
     }
-    W.text(e.x + G.rand(-0.3, 0.3), e.z + G.rand(-0.2, 0.2), Math.max(1, Math.round(dmg)), '#cfe8ff', 13, { kind: 'faint', y: Math.min(2.8, h * 0.62) });
+    const jx = ((st.twinHits % 3) - 1) * 0.3; // 数字左右错开一点（不用随机数：不扰动暴击、伤害的随机序列）
+    W.text(e.x + jx, e.z, Math.max(1, Math.round(dmg)), '#cfe8ff', 13, { kind: 'faint', y: Math.min(2.8, h * 0.62) });
     wake(e);
     if (e.hp <= 0) {
       // 打死时的异常（尸爆 / 放电 / 碎冰）照常排进触发队列，当场结算

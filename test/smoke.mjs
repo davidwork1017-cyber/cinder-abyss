@@ -14081,7 +14081,7 @@ async function main() {
     G.debug.god(true);
     P.cds = {};
     P.cast = null;
-    // 5 只会死的小怪（死了 4 秒后补上）+ 1 只打不死的精英，都在面前 5–8 米，会走过来、不出手
+    // 5 只会死的小怪（每 4 秒把死了的补上；倒下的尸体还要 0.25 秒才从列表里拿掉，所以最多 6 + 5 只）+ 1 只打不死的精英，都在面前 5–8 米，会走过来、不出手
     const c0 = { x: P.x, z: P.z };
     let dir = { x: 0, z: 1, len: 0 };
     for (let k = 0; k < 24; k++) {
@@ -14178,7 +14178,7 @@ async function main() {
     if (!(by[src] > 0)) out.bad.push('没有余响记到 ' + src);
     for (const k in by) if (k !== id && k !== 'blackflame') out.bad.push('记到了别的技能 ' + k);
     if (id !== 'blackflame' && !(out.mine <= elig * 0.6 * 1.001 + 1)) out.bad.push('余响超过够格命中的 60%：' + out.mine + ' / ' + Math.round(elig));
-    if (mx.enemies > 6 || mx.minions > 8 || mx.proj > 300 || mx.kv > 400 || mx.q > 6) out.bad.push('数量越界 ' + JSON.stringify(mx));
+    if (mx.enemies > 11 || mx.minions > 8 || mx.proj > 300 || mx.kv > 400 || mx.q > mx.enemies) out.bad.push('数量越界 ' + JSON.stringify(mx));
     // 收拾
     G.hitEnemy = h0;
     G.clearMinions();
