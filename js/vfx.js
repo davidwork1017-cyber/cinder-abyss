@@ -320,7 +320,7 @@
     // 圈里是空的（光环常驻，整片铺满会把脚下的地面和怪都罩成一片白）。灰度里靠尖的形状认得出是冰
     '    float an = atan(p.y, p.x);',
     '    float band = smoothstep(0.68, 0.74, l + (n - 0.5) * 0.12);',
-    '    float spk = step(0.93, pow(abs(cos(an * 9.0 + n * 2.0 + seed * 6.0)), 14.0) + (l - 0.45) * 0.12) * step(0.5, l) * step(l, 0.95);',
+    '    float spk = step(0.93, pow(abs(cos(an * 9.0 + n * 2.0 + seed * 6.0)), 14.0) + (l - 0.6) * 0.12) * step(0.64, l) * step(l, 0.95);',
     '    vec3 c = mix(vCol * 0.75, vec3(0.92, 0.97, 1.0), clamp(ce * 0.7 + spk, 0.0, 1.0));',
     '    a = m * band * (0.22 + 0.26 * ce) + spk * 0.38 * (1.0 - er) * m;',
     '    rgb = linearToOutputTexel(vec4(c, 1.0)).rgb * a;',
