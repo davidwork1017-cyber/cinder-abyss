@@ -22156,7 +22156,7 @@
     fbF[i] = o.flat ? 1 : 0;
     fbLive = 2;
   };
-  const _fbq = new T.Quaternion(), _fbq2 = new T.Quaternion(), FB_XAX = new T.Vector3(1, 0, 0);
+  const _fbq = new T.Quaternion(), _fbq2 = new T.Quaternion(), _fbq3 = new T.Quaternion(), FB_XAX = new T.Vector3(1, 0, 0);
   function fbDraw(dt) {
     fbSmokeLive = 0;
     if (fbLive <= 0) return;
@@ -22172,13 +22172,14 @@
       const j = i * 3, f = 1 - l / fbM[i];
       fbV[j + 1] += fbU[i] * dt;
       fbP[j] += fbV[j] * dt; fbP[j + 1] += fbV[j + 1] * dt; fbP[j + 2] += fbV[j + 2] * dt;
-      const s = fbS[i] * (1 + (fbG[i] - 1) * f);
+      // 合用的实例网格是平躺在 XZ 平面上的 −1..1 方片（gQuad，边长 2）：大小按一半给；立着的公告板先绕 x 轴转 +90° 立起来（局部 −z 朝上 = 贴图的上方）
+      const s = fbS[i] * (1 + (fbG[i] - 1) * f) * 0.5;
       if (fbF[i]) {
-        // 平躺：先绕 x 轴转到地面上，再绕 y 轴转朝向
-        _fbq.setFromAxisAngle(UP, fbR[i]).multiply(_fbq2.setFromAxisAngle(FB_XAX, -Math.PI / 2));
+        // 平躺：方片本来就是平的，只绕 y 轴转朝向
+        _fbq.setFromAxisAngle(UP, fbR[i]);
         mPose(fbP[j], fbP[j + 1], fbP[j + 2], _fbq, s, s, s);
       } else {
-        _fbq.copy(camQ).multiply(_fbq2.setFromAxisAngle(Z_AXIS, fbK[i] === VFB.slash || fbK[i] === VFB.arc ? fbR[i] : fbR[i] * 0.15));
+        _fbq.copy(camQ).multiply(_fbq2.setFromAxisAngle(Z_AXIS, fbK[i] === VFB.slash || fbK[i] === VFB.arc ? fbR[i] : fbR[i] * 0.15)).multiply(_fbq3.setFromAxisAngle(FB_XAX, Math.PI / 2));
         mPose(fbP[j], fbP[j + 1], fbP[j + 2], _fbq, s, s, s);
       }
       cmbPut(fbC[j], fbC[j + 1], fbC[j + 2], f, fbSd[i], fbA[i], fbK[i]);
