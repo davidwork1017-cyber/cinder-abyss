@@ -2,7 +2,7 @@
 // 每一步打印一行 ok / FAIL；任何一步失败或页面出现报错，进程以非 0 退出。
 // 分两份（见 test/README.md）：main() 是 test:func（不看墙钟，可以和别的 Chrome 一起跑），timedMain() 是 test:timed（要独占机器）。
 // node test/smoke.mjs = 两份都跑（先 func 后 timed）；--func / --timed 只跑一份。
-import { launch } from './harness.mjs';
+import { launch as launchFull } from './harness.mjs';
 import { execSync } from 'node:child_process';
 
 const SAVE_KEY = 'cinder-abyss-save-v1';
@@ -11,6 +11,23 @@ const G_USK = { jinduan: 'ashcuts', sanxiang: 'tristorm', wanhun: 'soulhost', ro
 let browser, page, errors;
 let failed = 0;
 let passed = 0;
+// 省渲染（test/README.md「省渲染」）：test:func 默认让游戏按 devicePixelRatio 0.5 渲染（3D 画面和叠加层的像素只剩四分之一，
+// CSS 布局和鼠标坐标不变），CINDER_FULL=1 关掉；test:timed 一直按原样。下面这些步骤要看像素 / 画面数值 / 指定尺寸下的布局，临时改回 1
+const CHEAP_DPR = 0.5;
+let cheap = false;
+const FULL_RES = ['首屏：', '怪物：远处沉睡', '区域 ', '首领「', '画面：', '存档：刷新页面后', '技能卡版式：', '标题画面与暂停菜单在小窗口', '异兆小地图：', '宝箱：', '小地图：', '特效贴图库'];
+const launch = (o) => launchFull(Object.assign({ dpr: cheap ? CHEAP_DPR : null }, o));
+const setDpr = (d) =>
+  page &&
+  page
+    .evaluate((d) => {
+      try {
+        sessionStorage.setItem('cinder-test-dpr', String(d));
+      } catch (e) {}
+      window.__testDpr = d;
+      window.dispatchEvent(new Event('resize'));
+    }, d)
+    .catch(() => {});
 let NC_TAG = ''; // 本次的耗时 / ms 数字不可比时（只跑 test:func，或在池里跑）挂在每行 ok 后面，见文件末尾
 
 function assert(cond, msg) {
@@ -33,6 +50,8 @@ const until = (fn, arg, timeout) => page.waitForFunction(fn, arg, { timeout: tim
 
 async function step(name, fn) {
   const t0 = Date.now();
+  const full = cheap && FULL_RES.some((p) => name.startsWith(p));
+  if (full) await setDpr(1);
   try {
     const info = await fn();
     await sleep(30); // 给异步报错一点冒出来的时间
@@ -44,6 +63,7 @@ async function step(name, fn) {
     const extra = errors && errors.length ? ' ｜页面报错：' + errors.splice(0).join(' | ').slice(0, 600) : '';
     console.log('FAIL ' + name + ' — ' + String(e && e.message ? e.message : e).split('\n').slice(0, 6).join(' / ') + extra);
   }
+  if (full) await setDpr(CHEAP_DPR);
 }
 
 // 页面内的测试小工具（每次加载页面后重新装一遍）
@@ -602,6 +622,99 @@ async function timedMain() {
     });
     assert(r.ms < 2, '掷一次三枚印太慢：' + r.ms + ' ms');
     return '每次 ' + r.ms + ' ms';
+  });
+
+  // 原步骤：main() 里的「异兆选址」。S.zone.ms.enc 是 enterZone 里按 performance.now 量的选址耗时；下面照原步骤的种子把 100 个布局各进一次
+  await step('计时｜异兆选址：100 个布局正常进区时，选址最慢一次不到 5 ms', async () => {
+    const r = await ev(() => {
+      const S = G.state;
+      let msMax = 0;
+      for (let z = 0; z < 5; z++) {
+        for (let s = 1; s <= 20; s++) {
+          G.debug.zoneSeed(3000 + z * 101 + s * 7);
+          G.enterZone(z, 1);
+          msMax = Math.max(msMax, S.zone.ms.enc); // 正常进区（掷 1–2 个）的选址耗时
+        }
+      }
+      G.debug.zoneSeed(null);
+      G.enterZone(0, 0);
+      return { msMax: +msMax.toFixed(2) };
+    });
+    assert(r.msMax < 5, '选址耗时太长（设计 < 1 ms）：' + r.msMax);
+    return '选址最慢 ' + r.msMax + ' ms';
+  });
+
+  // 原步骤：整步从 main() 搬来（ui-batch 的「技能页拖拽贴边自动滚动」，断言一字不改）。贴边自动滚动按 performance.now 走：进边带停 250 ms 才滚、
+  // 最快每秒 900 像素，拖起 / 松手要在这段停顿之内做完。前面补上它要的构筑：学会全部技能和辅助宝石（main() 里走到这一步时前面的步骤已经学过）
+  await ev(() => {
+    G.debug.learnAll();
+    G.computeStats();
+  });
+  await uiStep('计时｜技能页拖拽贴边自动滚动：拖着宝石时滚轮照常能滚；指针离列表下边 40 像素以外不滚，贴到下边就往下滚；滚到开拖时看不见的远处孔上松手能镶上', async () => {
+    await ev(() => {
+      for (const id of Object.keys(G.save.sockets)) G.save.sockets[id] = [null, null, null];
+      G.socketSupport('ember', 0, 'multi');
+      G.computeStats();
+    });
+    await page.keyboard.press('KeyG');
+    await panelSettled();
+    const src = '.skill-list .sock[data-skill="ember"][data-idx="0"]';
+    // 把起点的孔滚到列表顶下 80 像素（单列时掷焰卡排在武器普攻卡下面，滚到顶它不在视野里）；
+    // 远处的孔 = 列表里能镶多重投射、离顶最远的那个孔（武器普攻卡除外）
+    const g = await ev((src) => {
+      const L = document.querySelector('.skill-list');
+      L.scrollTop += T.rect(src).y - (L.getBoundingClientRect().top + L.clientTop + 80);
+      const lr = L.getBoundingClientRect();
+      const far = Array.from(L.querySelectorAll('.sock')).filter((n) => n.dataset.skill !== G.BASIC_CARD && n.dataset.skill !== 'ember' && G.supportFits(n.dataset.skill, 'multi')).sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top)[0];
+      return { far: far ? '.skill-list .sock[data-skill="' + far.dataset.skill + '"][data-idx="' + far.dataset.idx + '"]' : null, skill: far && far.dataset.skill, idx: far && +far.dataset.idx, farY: far && T.rect(far).y, a: T.rect(src), top: lr.top, bottom: lr.top + L.clientHeight, x: lr.left + L.clientWidth / 2, s0: L.scrollTop, max: L.scrollHeight - L.clientHeight };
+    }, src);
+    assert(g.far && g.farY > g.bottom && g.s0 < g.max, '远处的孔开拖时应在列表可见区下面：' + JSON.stringify(g));
+    assert(g.a.y > g.top + 40 && g.a.y < g.bottom - 40, '起点的孔应在列表上部、贴边带以外：' + JSON.stringify(g));
+    const top = () => ev(() => document.querySelector('.skill-list').scrollTop);
+    await page.mouse.move(g.a.x, g.a.y);
+    await page.mouse.down();
+    await page.mouse.move(g.a.x + 9, g.a.y + 6, { steps: 2 });
+    assert(await ev(() => document.getElementById('drag-ghost').classList.contains('on')), '没有拖起来');
+    // 拖着的时候滚轮照常能滚
+    await page.mouse.wheel(0, 120);
+    await until((s0) => document.querySelector('.skill-list').scrollTop > s0, g.s0).catch(() => {
+      throw new Error('拖拽中滚轮滚不动技能列表');
+    });
+    // 离下边 60 像素（贴边带外）：等滚轮的平滑滚动停下，再停 10 帧，不滚
+    await page.mouse.move(g.x, g.bottom - 60, { steps: 3 });
+    let s1 = await top();
+    for (let i = 0; i < 60; i++) {
+      await frames(3);
+      const s = await top();
+      if (s === s1) break;
+      s1 = s;
+    }
+    await frames(10);
+    const s2 = await top();
+    assert(s2 === s1, '指针在贴边带以外时列表不应自己滚：' + s1 + ' → ' + s2);
+    // 贴到下边：往下滚，直到远处的孔进了可见区、离开贴边带（或者滚到了底）
+    await page.mouse.move(g.x, g.bottom - 6, { steps: 2 });
+    await until((s2) => document.querySelector('.skill-list').scrollTop > s2 + 40, s2).catch(async () => {
+      throw new Error('指针贴到列表下边没有自动往下滚：scrollTop ' + s2 + ' → ' + (await top()));
+    });
+    await until(([far, edge]) => {
+      const L = document.querySelector('.skill-list'), r = L.getBoundingClientRect(), y = T.rect(far).y;
+      return L.scrollTop >= L.scrollHeight - L.clientHeight - 1 || (y > r.top + edge && y < r.top + L.clientHeight - edge - 60);
+    }, [g.far, 40]).catch(async () => {
+      const d = await ev((far) => new Promise((res) => { const L = document.querySelector('.skill-list'), r = L.getBoundingClientRect(), g = document.getElementById('drag-ghost'), t0 = performance.now(), s0 = L.scrollTop; let n = 0; const f = () => (++n, performance.now() - t0 < 1000 ? requestAnimationFrame(f) : res({ fps: n, moved1s: L.scrollTop - s0, top: L.scrollTop, max: L.scrollHeight - L.clientHeight, list: [Math.round(r.top), Math.round(r.top + L.clientHeight)], farY: Math.round(T.rect(far).y), ghost: g.className, cap: g.textContent, lists: document.querySelectorAll('.skill-list').length, weapon: G.weaponBasic() })); requestAnimationFrame(f); }), g.far);
+      throw new Error('贴边自动滚动没有把远处的孔带进视野：' + JSON.stringify({ far: g.far, ptr: [Math.round(g.x), Math.round(g.bottom - 6)], ...d }));
+    });
+    // 先挪进来（离开贴边带就不再滚），再对准孔的中心
+    let b = await ev((s) => T.rect(s), g.far);
+    await page.mouse.move(b.x, b.y, { steps: 4 });
+    b = await ev((s) => T.rect(s), g.far);
+    await page.mouse.move(b.x, b.y);
+    await frames(2);
+    const mid = await ev((far) => ({ cap: document.querySelector('#drag-ghost em').textContent, hover: document.querySelector(far).classList.contains('drop-hover'), top: document.querySelector('.skill-list').scrollTop }), g.far);
+    await page.mouse.up();
+    const r = await ev((g) => ({ e: G.save.sockets.ember.slice(), t: G.save.sockets[g.skill].slice() }), g);
+    assert(mid.hover && mid.cap.startsWith('镶进 ') && r.e[0] === null && r.t[g.idx] === 'multi', '自动滚到远处的孔上松手应把宝石挪过去：' + JSON.stringify({ g, mid, r }));
+    await closePanel();
   });
 }
 
@@ -6634,73 +6747,6 @@ async function main() {
     });
   });
 
-  await uiStep('技能页拖拽贴边自动滚动：拖着宝石时滚轮照常能滚；指针离列表下边 40 像素以外不滚，贴到下边就往下滚；滚到开拖时看不见的远处孔上松手能镶上', async () => {
-    await ev(() => {
-      for (const id of Object.keys(G.save.sockets)) G.save.sockets[id] = [null, null, null];
-      G.socketSupport('ember', 0, 'multi');
-      G.computeStats();
-    });
-    await page.keyboard.press('KeyG');
-    await panelSettled();
-    const src = '.skill-list .sock[data-skill="ember"][data-idx="0"]';
-    // 把起点的孔滚到列表顶下 80 像素（单列时掷焰卡排在武器普攻卡下面，滚到顶它不在视野里）；
-    // 远处的孔 = 列表里能镶多重投射、离顶最远的那个孔（武器普攻卡除外）
-    const g = await ev((src) => {
-      const L = document.querySelector('.skill-list');
-      L.scrollTop += T.rect(src).y - (L.getBoundingClientRect().top + L.clientTop + 80);
-      const lr = L.getBoundingClientRect();
-      const far = Array.from(L.querySelectorAll('.sock')).filter((n) => n.dataset.skill !== G.BASIC_CARD && n.dataset.skill !== 'ember' && G.supportFits(n.dataset.skill, 'multi')).sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top)[0];
-      return { far: far ? '.skill-list .sock[data-skill="' + far.dataset.skill + '"][data-idx="' + far.dataset.idx + '"]' : null, skill: far && far.dataset.skill, idx: far && +far.dataset.idx, farY: far && T.rect(far).y, a: T.rect(src), top: lr.top, bottom: lr.top + L.clientHeight, x: lr.left + L.clientWidth / 2, s0: L.scrollTop, max: L.scrollHeight - L.clientHeight };
-    }, src);
-    assert(g.far && g.farY > g.bottom && g.s0 < g.max, '远处的孔开拖时应在列表可见区下面：' + JSON.stringify(g));
-    assert(g.a.y > g.top + 40 && g.a.y < g.bottom - 40, '起点的孔应在列表上部、贴边带以外：' + JSON.stringify(g));
-    const top = () => ev(() => document.querySelector('.skill-list').scrollTop);
-    await page.mouse.move(g.a.x, g.a.y);
-    await page.mouse.down();
-    await page.mouse.move(g.a.x + 9, g.a.y + 6, { steps: 2 });
-    assert(await ev(() => document.getElementById('drag-ghost').classList.contains('on')), '没有拖起来');
-    // 拖着的时候滚轮照常能滚
-    await page.mouse.wheel(0, 120);
-    await until((s0) => document.querySelector('.skill-list').scrollTop > s0, g.s0).catch(() => {
-      throw new Error('拖拽中滚轮滚不动技能列表');
-    });
-    // 离下边 60 像素（贴边带外）：等滚轮的平滑滚动停下，再停 10 帧，不滚
-    await page.mouse.move(g.x, g.bottom - 60, { steps: 3 });
-    let s1 = await top();
-    for (let i = 0; i < 60; i++) {
-      await frames(3);
-      const s = await top();
-      if (s === s1) break;
-      s1 = s;
-    }
-    await frames(10);
-    const s2 = await top();
-    assert(s2 === s1, '指针在贴边带以外时列表不应自己滚：' + s1 + ' → ' + s2);
-    // 贴到下边：往下滚，直到远处的孔进了可见区、离开贴边带（或者滚到了底）
-    await page.mouse.move(g.x, g.bottom - 6, { steps: 2 });
-    await until((s2) => document.querySelector('.skill-list').scrollTop > s2 + 40, s2).catch(async () => {
-      throw new Error('指针贴到列表下边没有自动往下滚：scrollTop ' + s2 + ' → ' + (await top()));
-    });
-    await until(([far, edge]) => {
-      const L = document.querySelector('.skill-list'), r = L.getBoundingClientRect(), y = T.rect(far).y;
-      return L.scrollTop >= L.scrollHeight - L.clientHeight - 1 || (y > r.top + edge && y < r.top + L.clientHeight - edge - 60);
-    }, [g.far, 40]).catch(async () => {
-      const d = await ev((far) => new Promise((res) => { const L = document.querySelector('.skill-list'), r = L.getBoundingClientRect(), g = document.getElementById('drag-ghost'), t0 = performance.now(), s0 = L.scrollTop; let n = 0; const f = () => (++n, performance.now() - t0 < 1000 ? requestAnimationFrame(f) : res({ fps: n, moved1s: L.scrollTop - s0, top: L.scrollTop, max: L.scrollHeight - L.clientHeight, list: [Math.round(r.top), Math.round(r.top + L.clientHeight)], farY: Math.round(T.rect(far).y), ghost: g.className, cap: g.textContent, lists: document.querySelectorAll('.skill-list').length, weapon: G.weaponBasic() })); requestAnimationFrame(f); }), g.far);
-      throw new Error('贴边自动滚动没有把远处的孔带进视野：' + JSON.stringify({ far: g.far, ptr: [Math.round(g.x), Math.round(g.bottom - 6)], ...d }));
-    });
-    // 先挪进来（离开贴边带就不再滚），再对准孔的中心
-    let b = await ev((s) => T.rect(s), g.far);
-    await page.mouse.move(b.x, b.y, { steps: 4 });
-    b = await ev((s) => T.rect(s), g.far);
-    await page.mouse.move(b.x, b.y);
-    await frames(2);
-    const mid = await ev((far) => ({ cap: document.querySelector('#drag-ghost em').textContent, hover: document.querySelector(far).classList.contains('drop-hover'), top: document.querySelector('.skill-list').scrollTop }), g.far);
-    await page.mouse.up();
-    const r = await ev((g) => ({ e: G.save.sockets.ember.slice(), t: G.save.sockets[g.skill].slice() }), g);
-    assert(mid.hover && mid.cap.startsWith('镶进 ') && r.e[0] === null && r.t[g.idx] === 'multi', '自动滚到远处的孔上松手应把宝石挪过去：' + JSON.stringify({ g, mid, r }));
-    await closePanel();
-  });
-
   // ------------------------------------------------------------------ v2 界面：地面掉落 / 战斗信息 / 新手提示
   await uiStep('地面掉落：悬停名牌显示完整属性与换装对比，通货 / 宝石有说明；升降标记；按住 Alt 展开概要且不影响操作', async () => {
     await ev(() => {
@@ -6981,6 +7027,8 @@ async function main() {
     let r = await ev(() => document.elementFromPoint(720, 450).tagName);
     assert(r !== 'CANVAS', '面板没有盖住 (720, 450)');
     let p0 = (await ret()).ping;
+    // 收拢提示两次之间至少隔 700 ms（ui.js 的 retPing）：开头移鼠标那一下可能刚提示过，帧快的时候面板开关一轮不到 700 ms，这一下会被吞掉。先等过冷却
+    await sleep(750);
     await page.keyboard.press('Escape');
     await shown('Esc 关掉面板后鼠标不动，准星没有出现');
     r = await ret();
@@ -8938,7 +8986,21 @@ async function main() {
         // 先把来源已经不在的召唤物解散掉（前面的步骤可能改过技能栏却没推进模拟，还没来得及刷新）：
         // 否则换区域时它们才被清走，场景对象数会少一个，和泄漏无关
         G.checkMinionSources(true);
+        // 异兆是懒生成的：进区那 3 帧模拟里，起点 28 m（ENC.lazy）内的异兆可能已经醒来，world 第一次醒来时才把道具组 encGroup 挂到场景上
+        // （缚匣 = 匣身 / 匣盖 / 锁链三块），拾烬客还会多一个实体。下面重进时模拟停着、不会醒，基线就比重进后多出这一组，报「多了 -1 个」。
+        // 先记下醒了哪几个，再把醒来的异兆道具收掉（换区时用的同一个 W.encClear），基线和重进后一样都不含它
+        out.encWoke = (S.enc || []).filter((e) => e.live).map((e) => e.kind);
+        W.encClear();
         const n1 = count();
+        // 诊断：泄漏数不为 0 时列出前后差了哪些场景对象（类型 | 名字 | 召唤物 / 敌人 | 子节点数 | 前两个网格）
+        const desc = (o) => {
+          const tag = o === P.ent.group ? 'player' : (S.minions || []).some((x) => x.ent && x.ent.group === o) ? 'minion' : S.enemies.some((e) => e.ent && e.ent.group === o) ? 'enemy' : '';
+          if (tag === 'enemy') return 'enemy';
+          const kids = o.children.map((c) => c.type + (c.name ? ':' + c.name : '') + (c.isMesh && c.geometry ? '/' + c.geometry.type + '/' + c.material.type : '')).slice(0, 4).join(',');
+          return [o.type, o.name, tag, o.visible ? 'vis' : 'hid', o.children.length, kids, [o.position.x, o.position.z].map((v) => v.toFixed(1)).join(',')].join('|');
+        };
+        const snap1 = W.scene.children.map(desc);
+        const en1 = snap1.filter((d) => d === 'enemy').length;
         const clutter = () => {
           for (let i = 0; i < 6; i++) G.spawnLoot('item', G.rollItem(5, i % 3), 1, 1);
           G.spawnLoot('skill', { id: 'nova', lvl: 3 }, 2, 0);
@@ -8955,6 +9017,10 @@ async function main() {
         W.render();
         G.enterZone(S.zoneIdx, S.tier);
         out.leak = count() - n1;
+        if (out.leak) {
+          const snap2 = W.scene.children.map(desc), left = snap2.slice();
+          out.leakDiff = { kids: [snap1.length, snap2.length], enemiesInScene: [en1, snap2.filter((d) => d === 'enemy').length], gone: snap1.filter((d) => { const i = left.indexOf(d); if (i < 0) return true; left.splice(i, 1); return false; }).filter((d) => d !== 'enemy'), added: left.filter((d) => d !== 'enemy') };
+        }
         G.debug.step(1.5);
         out.loose2 = S.loot.length + S.projectiles.length + S.telegraphs.length + S.timers.length + (S.portal ? 1 : 0);
         return out;
@@ -8970,9 +9036,10 @@ async function main() {
       assert(r.loose === 0 && !r.portal, '新区域里残留了上一个区域的东西');
       assert(r.fr.mean > 5 && r.fr.colors > 40, '画面像是黑屏：' + JSON.stringify(r.fr));
       assert(r.cluttered === 13, '杂物应往场景里加 13 个对象，实际 ' + r.cluttered);
+      if (r.leakDiff) console.log('     泄漏诊断：' + JSON.stringify(r.leakDiff).slice(0, 4000));
       assert(r.leak === 0, '重新进入后场景里多了 ' + r.leak + ' 个对象');
       assert(r.loose2 === 0, '换区后仍有残留的运行时对象');
-      return '怪物 ' + r.n + '，精英 ' + r.elites + '，亮度 ' + r.fr.mean.toFixed(1);
+      return '怪物 ' + r.n + '，精英 ' + r.elites + '，亮度 ' + r.fr.mean.toFixed(1) + (r.encWoke.length ? '，进区时已醒的异兆 ' + r.encWoke.join('/') : '');
     });
 
     await step('首领「' + Z.boss + '」：苏醒，' + Z.patterns.join('/') + ' 全部放过（含狂暴），能伤到玩家', async () => {
@@ -13593,7 +13660,7 @@ async function main() {
     assert(!r.nBad, '有不合规的点位：' + JSON.stringify(r.bad));
     for (const k of ['guard', 'box', 'wanderer', 'shrine', 'trial', 'trader', 'echo', 'ember']) assert(r.n[k] >= 60, k + ' 在 100 个布局里单独放能放上的次数太少：' + JSON.stringify(r.n));
     assert(r.fb === 'shrine' && r.none === 0, '找不到点位时应换下一种 / 一个都不放：' + JSON.stringify(r));
-    assert(r.msMax < 5, '选址耗时太长（设计 < 1 ms）：' + r.msMax);
+    // 「选址单次不到 5 ms」是游戏用 performance.now 量的耗时，在 test:timed 里（计时｜异兆选址）
     return '放上 ' + r.placed + ' 个，各种 ' + JSON.stringify(r.n) + '，选址最慢 ' + r.msMax + ' ms';
   });
 
@@ -15902,7 +15969,8 @@ const sum = (p, f) => (f ? '失败 ' + f + ' 项，' : '') + '通过 ' + p + ' �
   const per = [];
   for (const part of PARTS) {
     NC_TAG = POOL || (part === 'func' && PARTS.length === 1) ? ' [pool, not comparable]' : '';
-    console.log('== test:' + part + ' · HEAD ' + head + ' · ' + new Date().toISOString() + ' · 槽位 ' + (process.env.CC_SLOT_HELD || '无') + (NC_TAG ? ' · 耗时数字不可比' + NC_TAG : '') + (part === 'timed' && POOL ? ' · 警告：计时步骤在池里跑，结果不作数' : ''));
+    cheap = part === 'func' && !process.env.CINDER_FULL;
+    console.log('== test:' + part + ' · HEAD ' + head + ' · ' + new Date().toISOString() + ' · 槽位 ' + (process.env.CC_SLOT_HELD || '无') + (cheap ? ' · 省渲染 dpr ' + CHEAP_DPR + '（' + FULL_RES.length + ' 类步骤按 1）' : '') + (NC_TAG ? ' · 耗时数字不可比' + NC_TAG : '') + (part === 'timed' && POOL ? ' · 警告：计时步骤在池里跑，结果不作数' : ''));
     const p0 = passed, f0 = failed;
     try {
       await (part === 'func' ? main() : timedMain());
