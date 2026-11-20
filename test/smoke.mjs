@@ -12137,7 +12137,7 @@ async function main() {
     return '混相 ' + r.one[3] + ' / 击';
   });
 
-  await step('渊式·独骸（骸王冠解锁）：烬骸仆从上限固定 1，伤害 ×3.7（单体秒伤 = 3 具的 1.233）、生命 ×3、横斩带 6 个 / 220°、牵制 5 只、减伤 +15；群聚多给的上限折成 +35% 伤害 / +40% 生命；骸王体型 ×1.5、头顶冠环；魂火按普通仆从算；摘下退回原式（上限 3）', async () => {
+  await step('渊式·独骸（骸王冠解锁）：烬骸仆从上限固定 1，伤害 ×3.9（单体秒伤 = 3 具的 1.3）、生命 ×3、横斩带 10 个 / 270°、够得 ×2 远、牵制 5 只、减伤 +15；群聚多给的上限折成 +35% 伤害 / +40% 生命；骸王体型 ×1.5、头顶冠环；魂火按普通仆从算；摘下退回原式（上限 3）', async () => {
     const r = await ev(() => {
       RQT.begin(null);
       RQT.learn('thrall', 0);
@@ -12154,8 +12154,8 @@ async function main() {
       const out = {
         cap: [c0.minion.cap, c1.minion.cap], more: +(c1.more / c0.more).toFixed(4), wantMore: +(H.dmg * (1 + H.perDmg * extra)).toFixed(4),
         life: +(c1.minion.life / c1b.minion.life).toFixed(3), wantLife: +(H.life * (1 + H.perLife * extra)).toFixed(3),
-        cleave: c1.minion.cleave, arc: Math.round((c1.minion.arc * 180) / Math.PI), hold: c1.minion.hold, dr: c1.minion.dr - c0.minion.dr, king: !!c1.minion.king,
-        dps: extra === 0 ? +(G.skillDps(c1) / G.skillDps(c0)).toFixed(3) : null, soulK: +c1.minion.soulK.toFixed(3),
+        cleave: c1.minion.cleave, arc: Math.round((c1.minion.arc * 180) / Math.PI), hold: c1.minion.hold, dr: c1.minion.dr - c0.minion.dr, king: !!c1.minion.king, reach: +(c1.minion.reach / c0.minion.reach).toFixed(3), want: [H.cleave, H.arc, H.hold, H.dr, H.reach],
+        dps: extra === 0 ? +(G.skillDps(c1) / G.skillDps(c0)).toFixed(3) : null, kdmg: H.dmg, soulK: +c1.minion.soulK.toFixed(3),
       };
       // 群聚：多 1 个上限
       if (G.save.supports.indexOf('horde') < 0) G.save.supports.push('horde');
@@ -12189,8 +12189,8 @@ async function main() {
       return out;
     });
     assert(r.cap[1] === 1 && r.king && Math.abs(r.more - r.wantMore) < 1e-3 && Math.abs(r.life - r.wantLife) < 0.02, '骸王的上限 / 伤害 / 生命不对：' + JSON.stringify(r));
-    assert(r.cleave === 6 && r.arc === 220 && r.hold === 5 && r.dr === 15, '骸王的横斩 / 牵制 / 减伤不对：' + JSON.stringify(r));
-    assert((r.dps === null || Math.abs(r.dps - 3.7 / 3) < 0.01) && r.soulK > 0 && r.soulK <= 1, '单体秒伤应约为 3 具的 1.233、魂火按普通仆从算：' + JSON.stringify(r));
+    assert([r.cleave, r.arc, r.hold, r.dr, r.reach].join() === r.want.join() && r.want.join() === '10,270,5,15,2', '骸王的横斩 / 够得着 / 牵制 / 减伤不对：' + JSON.stringify(r));
+    assert((r.dps === null || Math.abs(r.dps - r.kdmg / 3) < 0.01) && r.soulK > 0 && r.soulK <= 1, '单体秒伤应约为 3 具的 骸王倍率 / 3、魂火按普通仆从算：' + JSON.stringify(r));
     assert(r.horde[0] === 1 && Math.abs(r.horde[1] - r.horde[2]) < 1e-3 && r.horde[3] === 1, '群聚多给的上限应折成伤害：' + JSON.stringify(r.horde));
     assert(r.count === 1 && r.big && r.big[0] && r.big[1] === 1.5 && r.big[2] === 1.5 && r.crown === 1, '骸王应只有 1 具、体型 ×1.5、头顶冠环：' + JSON.stringify(r));
     assert(r.plain.join() === 'true,false,o' && r.crownGone === 0, '摘下后应退回原式、外形还原：' + JSON.stringify(r));
@@ -12279,7 +12279,7 @@ async function main() {
     return '离落点 ' + r.near.join(' / ') + ' 米 · 砸 ' + r.dmg[0];
   });
 
-  await step('渊式·随核（引力核解锁）：黑洞开在你身上并跟着你走（碎石绕着转）；持续 ×1、半径 ×0.9、牵引 ×0.75（首领不变）、每跳 ×1.3；摘下退回原式（开在准星处）', async () => {
+  await step('渊式·随核（引力核解锁）：黑洞开在你身上并跟着你走（碎石绕着转）；持续 ×1、半径 ×1.1、牵引 ×1.2（首领不变）、每跳 ×1.8；每 0.75 秒把半径 2.2 倍内的敌人往你身边拽（最多 2.5 米，首领不动）；摘下退回原式（开在准星处）', async () => {
     const r = await ev(() => {
       RQT.begin('yinli');
       RQT.learn('blackhole', 0);
@@ -12293,8 +12293,17 @@ async function main() {
       const out = h ? { at: +Math.hypot(h.x - P.x, h.z - P.z).toFixed(2), R: [+h.R.toFixed(3), +(R * Y.radius).toFixed(3)], dur: [+h.dur.toFixed(3), +(dur * Y.dur).toFixed(3)], mult: h.mult, pull: h.pullMul } : { none: true };
       const d = T.openDir(4);
       T.tp(P.x + d.x * 2, P.z + d.z * 2);
+      // 拽一把：半径 × 2.2 以内、牵引圈外的小怪往你身边挪（每次最多 2.5 米），首领不动
+      const Wv = Y.wave, far = h ? h.R * (Wv.k - 0.3) : 6;
+      const m = T.mob('husk', d.z * far, -d.x * far), bo = T.mob('brute', -d.z * far, d.x * far);
+      bo.isBoss = true;
+      const d0 = [Math.hypot(m.x - P.x, m.z - P.z), Math.hypot(bo.x - P.x, bo.z - P.z)];
       G.debug.step(0.1);
       out.follow = h ? +Math.hypot(h.x - P.x, h.z - P.z).toFixed(3) : -1;
+      G.debug.step(Wv.iv);
+      out.wave = [+(d0[0] - Math.hypot(m.x - P.x, m.z - P.z)).toFixed(2), +(d0[1] - Math.hypot(bo.x - P.x, bo.z - P.z)).toFixed(2)];
+      bo.isBoss = false;
+      G.clearEnemies();
       out.orbit = G.world.rvCount('orbit');
       G.debug.step(3.1);
       out.gone = G.relicHoleList().length;
@@ -12312,7 +12321,8 @@ async function main() {
       return out;
     });
     assert(!r.none && r.at === 0 && r.follow === 0, '黑洞应开在你身上并跟着你：' + JSON.stringify(r));
-    assert(Math.abs(r.R[0] - r.R[1]) < 1e-3 && Math.abs(r.dur[0] - r.dur[1]) < 1e-3 && r.mult === 1.3 && r.pull === 0.75 && r.gone === 0 && r.orbit === 1 && r.orbitGone === 0, '随核的数值 / 碎石不对：' + JSON.stringify(r));
+    assert(Math.abs(r.R[0] - r.R[1]) < 1e-3 && Math.abs(r.dur[0] - r.dur[1]) < 1e-3 && r.mult === 1.8 && r.pull === 1.2 && r.gone === 0 && r.orbit === 1 && r.orbitGone === 0, '随核的数值 / 碎石不对：' + JSON.stringify(r));
+    assert(r.wave[0] >= 1.5 && Math.abs(r.wave[1]) < 0.3, '随核应把周围小怪拽过来、首领不动：' + JSON.stringify(r.wave));
     assert(r.plain.join() === '0,1,o', '摘下后应退回原式：' + JSON.stringify(r.plain));
     return '半径 ' + r.R[0] + ' · 持续 ' + r.dur[0];
   });
@@ -12368,7 +12378,7 @@ async function main() {
       const it = s.equip.amulet;
       s.bag.length = 0;
       G.unequip('amulet');
-      out.off = [s.variants.blade, G.SKILLS.blade.variant, G.variantOf('blade')];
+      out.off = [s.variants.blade, G.SKILLS.blade.variant, G.variantOf('blade'), G.variantFallback('blade')];
       const lockOff = G.setVariant('blade', 'c');
       out.lockOff = lockOff.ok;
       // 没戴时点 A：改的是替下的那种，照常付钱
@@ -12407,13 +12417,161 @@ async function main() {
     });
     assert(r.lock[0] === false && r.lock[1] === '装备回旋解锁' && r.lock[2] === 'b', '没戴渊契时应选不了：' + JSON.stringify(r.lock));
     assert(r.noAuto.join() === 'b,b' && r.pick.join() === 'true,0,10,c,b,boom', '选进渊式应免费、记下替下的 B：' + JSON.stringify(r));
-    assert(r.off.join() === 'c,b,b' && r.lockOff === false && r.on.join() === 'c,c', '摘下应退回 B、再戴上恢复：' + JSON.stringify(r));
+    assert(r.off.join() === 'c,b,b,b' && r.lockOff === false && r.on.join() === 'c,c', '摘下应退回 B、再戴上恢复：' + JSON.stringify(r));
     assert(r.offA.join() === 'true,1,9,c,a,a', '没戴时点 A 应改替下的那种并付钱：' + JSON.stringify(r.offA));
     assert(r.back.join() === 'true,0,9,a,true' && r.other.join() === 'true,1,8,b', '退回替下的免费、换到另一种付钱：' + JSON.stringify(r));
     assert(r.busy.join() === 'false,true', '战斗中不该能换：' + JSON.stringify(r.busy));
     assert(r.auto.join() === 'c,b,true' && r.autoOnce === 'b', '第一次戴上应自动选一次：' + JSON.stringify(r));
     assert(r.sold[0] === 'c' && r.sold[1] === 'b' && r.sold[2] < 0, '分解后应退回替下的那种：' + JSON.stringify(r.sold));
     return '选 / 退 / 摘 / 戴 / 卖 都对得上，乱流石 10 → ' + r.other[2];
+  });
+
+  await step('渊式·只在选渊式时生效：六件渊契各戴着，技能选原式 / A / B 时照常是那一种的打法（钉刃钉住、环刃绕身、掷旋飞出、旋涡斩砸地、熔核 / 犁焰、雷桩 / 过载、骸弓 / 骸爆、双极 / 坍缩），没有一点渊契的机制（不回旋、不攒潮势、不自动落星、不留桥、不变骸王、黑洞不跟着你）', async () => {
+    const r = await ev(() => {
+      const P = G.player, s = G.save, rows = {};
+      const PAIRS = [['huixuan', 'blade'], ['nuchao', 'whirl'], ['zhuixing', 'meteor'], ['dianqiao', 'arc'], ['haiwang', 'thrall'], ['yinli', 'blackhole']];
+      for (const [rq, id] of PAIRS) {
+        for (const v of ['o', 'a', 'b']) {
+          RQT.begin(rq);
+          RQT.learn(id, 0);
+          s.skills[id] = 20;
+          s.variantPrev = {};
+          if (v === 'o') delete s.variants[id];
+          else s.variants[id] = v;
+          G.applyVariants();
+          G.computeStats();
+          P.mana = P.maxMana = 1e6;
+          const st0 = Object.assign({}, G.state.stats), dS = (k) => (G.state.stats[k] || 0) - (st0[k] || 0);
+          const d = T.openDir(14);
+          const at = (k, side) => ({ x: P.x + d.x * k + d.z * (side || 0), z: P.z + d.z * k - d.x * (side || 0) });
+          const mob = (k, side) => {
+            const p = at(k, side);
+            const e = T.mob('husk', p.x - P.x, p.z - P.z);
+            G.initBuildUp(e);
+            e.buTh = 1e15;
+            e.poiseMax = 0;
+            return e;
+          };
+          const cast = (p) => {
+            T.aim(p.x, p.z);
+            G.execSkill(G.skillCtx(id));
+          };
+          const hold = (sec) => {
+            G.input.mouse.b[0] = true;
+            G.debug.step(sec);
+            G.input.mouse.b[0] = false;
+          };
+          let sig = false, free = false, info = '';
+          const sk = G.SKILLS[id];
+          if (id === 'blade') {
+            const ms = [mob(2, 0), mob(5, 0), mob(7, 0)];
+            T.aim(at(5).x, at(5).z);
+            G.input.mouse.b[0] = false;
+            cast(at(5));
+            G.debug.step(0.05);
+            const booms = G.state.projectiles.filter((q) => q.owner === 'p' && q.boom).length, th = G.world.rvCount('thread');
+            G.debug.step(v === 'b' ? 1.5 : 2.5);
+            sig = v === 'o' ? ms[1].hp < ms[1].maxHp && ms[2].hp < ms[2].maxHp : v === 'a' ? dS('vPins') >= 1 : dS('vOrbitHits') >= 1;
+            free = booms === 0 && th === 0 && dS('relicTurns') === 0;
+            info = [booms, th, dS('vPins'), dS('vOrbitHits')].join('/');
+          } else if (id === 'whirl') {
+            if (v === 'a') {
+              mob(6, 0);
+              cast(at(6));
+              G.debug.step(1.5);
+              sig = dS('vThrows') >= 1;
+            } else {
+              const e = mob(v === 'b' ? 4 : 1.5, 0);
+              s.bar[0] = 'whirl';
+              T.aim(at(2).x, at(2).z);
+              hold(1.0);
+              const spin = G.relicState.spin;
+              G.debug.step(0.4);
+              sig = v === 'o' ? e.hp < e.maxHp : dS('vSlams') >= 1;
+              info = spin + '';
+            }
+            free = G.relicState.spin === 0 && dS('relicTides') === 0;
+          } else if (id === 'meteor') {
+            const e = mob(6, 0);
+            G.relicState.metT = 0;
+            cast(at(6));
+            G.debug.step(1.6);
+            sig = v === 'o' ? e.hp < e.maxHp : v === 'a' ? dS('vCores') >= 1 : dS('vPloughs') >= 1;
+            G.debug.step(2.2);
+            free = P.reservePct === 0 && !G.relicNoCast(0, 'meteor') && dS('relicMeteors') === 0;
+            info = [P.reservePct, dS('relicMeteors')].join('/');
+          } else if (id === 'arc') {
+            const ms = [mob(5, 0), mob(7, 0), mob(9, 0)];
+            cast(at(5));
+            G.debug.step(0.4);
+            sig = v === 'o' ? ms.every((e) => e.hp < e.maxHp) : v === 'a' ? dS('vPylons') >= 1 : dS('vOverloads') >= 1;
+            free = G.relicState.bridges.length === 0 && G.world.relicBridgeCount() === 0;
+            info = G.relicState.bridges.length + '';
+          } else if (id === 'thrall') {
+            const ctx = G.skillCtx(id);
+            for (let i = 0; i < 4; i++) G.summonMinion(id, P.x + i - 1.5, P.z + 1.5, G.skillCtx(id));
+            G.relicTick(0.3);
+            const ms = G.state.minions.filter((m) => !m.dead && m.skill === id);
+            const want = v === 'o' ? undefined : v === 'a' ? 'archer' : 'bone';
+            sig = ms.length === ctx.minion.cap && ms.every((m) => m.ctx.minion.mech === want);
+            free = ctx.minion.cap === ctx.sk.cap && !ctx.minion.king && ms.every((m) => !m.king) && G.world.rvCount('crown') === 0;
+            info = [ms.length, ctx.minion.cap].join('/');
+          } else {
+            for (let i = 0; i < 3; i++) mob(7, (i - 1) * 0.7);
+            const tgt = at(7);
+            cast(tgt);
+            G.debug.step(0.4);
+            const hs = G.chaosHoles();
+            sig = v === 'o' ? hs.length === 1 && Math.hypot(hs[0].x - tgt.x, hs[0].z - tgt.z) < 1.5 : v === 'a' ? hs.length === 2 && hs[0].twin === hs[1] : !!hs.find((h) => h.collapse);
+            free = G.relicHoleList().length === 0 && G.world.rvCount('orbit') === 0;
+            info = hs.length + '';
+          }
+          rows[rq + '.' + v] = [sig, free, (sk.variant || 'o') === v, info];
+          RQT.end();
+        }
+      }
+      return rows;
+    });
+    const bad = Object.keys(r).filter((k) => !(r[k][0] && r[k][1] && r[k][2]));
+    assert(bad.length === 0, '戴着渊契、选原式 / A / B 时应照常：' + bad.map((k) => k + ' ' + JSON.stringify(r[k])).join(' | '));
+    return Object.keys(r).length + ' 组都照常';
+  });
+
+  await step('渊式·不再自动改回：第一次戴上引力核时自动选上随核；改成双极之后摘下、再戴上、存档读档，都还是双极（自动选只有一次）', async () => {
+    const r = await ev((keep) => {
+      RQT.begin(null);
+      RQT.learn('blackhole', 0);
+      const s = G.save, out = {};
+      s.skills.blackhole = 20;
+      delete s.rqAuto.blackhole;
+      delete s.variants.blackhole;
+      s.cur.chaos = 5;
+      G.applyVariants();
+      s.equip.ring = G.rollRelic('yinli', 50, 0.5);
+      G.computeStats();
+      out.first = s.variants.blackhole;
+      const pick = G.setVariant('blackhole', 'a');
+      out.pick = [pick.ok, s.variants.blackhole, G.SKILLS.blackhole.mech];
+      const it = s.equip.ring;
+      s.bag.length = 0;
+      G.unequip('ring');
+      G.equip(it);
+      out.reEquip = [s.variants.blackhole, G.SKILLS.blackhole.mech];
+      G.persist();
+      G.loadSave();
+      G.computeStats();
+      out.load = [G.save.variants.blackhole, G.SKILLS.blackhole.mech, G.save.rqAuto.blackhole === true, G.rqMigrated || 0];
+      if (keep) localStorage.setItem('cinder-abyss-save-v1', keep);
+      G.loadSave();
+      G.computeStats();
+      RQT.keep = null; // 存档已经整份换回进来时的那份：装备、刻式都不再按 begin 时记下的还原
+      RQT.keepVar = null;
+      RQT.end();
+      return out;
+    }, varKeep);
+    assert(r.first === 'c' && r.pick.join() === 'true,a,twin', '第一次戴上应自动选随核、之后能改成双极：' + JSON.stringify(r));
+    assert(r.reEquip.join() === 'a,twin' && r.load.join() === 'a,twin,true,0', '摘下再戴上、读档后应还是双极：' + JSON.stringify(r));
+    return '随核 → 双极，摘 / 戴 / 读档都还是双极';
   });
 
   await step('渊式·施放中换装：按住旋风斩（蓄潮）时摘下怒潮——旋转停下、攒着的潮势当场拍下、技能退回原式；已经放出去的回旋飞刃照样飞回来；双生坠不交替渊式（光环 / 召唤 / 渊式写在说明里），A / B 照旧交替', async () => {

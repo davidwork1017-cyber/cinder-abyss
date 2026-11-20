@@ -700,11 +700,15 @@
   // 渊式 'c'：戴着解锁它的渊契才生效（不看宝石等级），没戴就是替下的那种（variantPrev，没有就是原式）
   G.variantOf = function (id) {
     const s = G.save;
+    if (s && s.variants && s.variants[id] === 'c' && G.variantRelicOn(id)) return 'c';
+    return G.variantFallback(id);
+  };
+  // 替下的那种：选着渊式时是 variantPrev（没有就是原式），没选渊式时就是选着的 A / B；宝石没到解锁等级的 A / B 算原式。
+  // 返回 'a' / 'b' / 'o'（不看渊契戴没戴；双生坠等需要「渊式之外那一种」的地方用它，别直接读存档）
+  G.variantFallback = function (id) {
+    const s = G.save;
     let v = s && s.variants && s.variants[id];
-    if (v === 'c') {
-      if (G.variantRelicOn(id)) return 'c';
-      v = s.variantPrev && s.variantPrev[id];
-    }
+    if (v === 'c') v = s.variantPrev && s.variantPrev[id];
     return (v === 'a' || v === 'b') && G.VARIANTS[id] && s.skills && s.skills[id] >= G.VARIANT_LVL ? v : 'o';
   };
   // 这个技能的渊式此刻能不能用：身上那个部位戴着解锁它的渊契（直接看存档的装备，不等 computeStats）
@@ -2072,7 +2076,7 @@
       mi.arc = (H.arc * Math.PI) / 180;
       mi.hold = H.hold;
       mi.dr = Math.min(75, mi.dr + H.dr);
-      mi.reach *= 1.3;
+      mi.reach *= H.reach || 1.3;
       mi.king = true;
     }
     return ctx;
@@ -2574,10 +2578,21 @@
     return h;
   };
   G.relicHoleList = () => holes.filter((h) => h.follow); // 测试用：场上跟着你的黑洞
+  // 跟着你走（updateChaos 每帧调用）；每 wave.iv 秒把 R × wave.k 内的敌人往你身边拽一把（最多 step 米，首领 / 定身的不动）
   G.relicHoleFollow = function (h) {
     h.x = P.x;
     h.z = P.z;
     if (h.fx && G.world.relicHoleAt) G.world.relicHoleAt(h.fx, h.x, h.z);
+    const Wv = h.ctx.sk.follow && h.ctx.sk.follow.wave;
+    if (!Wv || h.t < (h.waveN || 0) * Wv.iv) return;
+    h.waveN = (h.waveN || 0) + 1;
+    const R = h.R * Wv.k, core = h.ctx.sk.core;
+    for (const e of enemiesIn(h.x, h.z, R)) {
+      if (e.isBoss || pinned(e) || !G.pullEnemy) continue;
+      const d = dist(e.x, e.z, h.x, h.z);
+      if (d > core + e.r) G.pullEnemy(e, h.x, h.z, Math.min(Wv.step, d - core - e.r));
+    }
+    if (G.world.vSuck) G.world.vSuck(h.x, h.z, R, 0xe8c8ff, 8);
   };
 
   // ---------- 锁链（渊缚链）：hitEnemy 里的一行钩子 ----------

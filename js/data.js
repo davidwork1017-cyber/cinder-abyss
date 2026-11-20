@@ -803,8 +803,8 @@
   Object.assign(G.VARIANTS.blade, {
     c: {
       name: '回旋', relic: 'huixuan', pack: '一条线来回两遍',
-      desc: '利刃穿透所有敌人，飞到尽头或撞墙后折返，回程再伤一遍路上的敌人。', alt: '回程朝你飞，飞到你身边为止。同一个敌人去程、回程各挨一下。',
-      set: { mech: 'boom', wm: 0.85, pierce: 99, useMult: 1.7, boom: { back: 0.7, range: 1.0 } },
+      desc: '更宽的利刃穿透所有敌人，飞到尽头或撞墙后折返，回程再伤一遍路上的敌人。', alt: '回程朝你飞，飞到你身边为止。同一个敌人去程、回程各挨一下。',
+      set: { mech: 'boom', wm: 0.85, pierce: 99, projR: 0.5, useMult: 1.7, boom: { back: 0.7, range: 1.0 } },
     },
   });
   Object.assign(G.VARIANTS.whirl, {
@@ -818,7 +818,7 @@
     c: {
       name: '星雨', relic: 'zhuixing', pack: '自动砸怪最密处',
       desc: '不用按：每隔片刻自动落下一颗星，砸向附近敌人最密的地方。不耗魔力，改为保留最大魔力。', alt: '间隔受出手速度和迅捷影响，节流缩短间隔。不能手动施放；自动落下的不算施放，回响不生效。',
-      set: { mech: 'star', useMult: 1.24, star: { iv: 1.8, r: 12, mult: 0.4, area: 0.85, reserve: 20 } },
+      set: { mech: 'star', kb: 0.8, useMult: 1.24, star: { iv: 1.8, r: 12, mult: 0.4, area: 0.85, reserve: 20 } },
     },
   });
   Object.assign(G.VARIANTS.arc, {
@@ -831,15 +831,15 @@
   Object.assign(G.VARIANTS.thrall, {
     c: {
       name: '独骸', relic: 'haiwang', pack: '只有一具，更大更硬',
-      desc: '仆从上限固定为 1：召唤一具骸王，体型更大、更耐打，横斩 220° 扫一大片。', alt: '受到的伤害 −15%，同时牵制 5 只小怪。多出的仆从上限（群聚、天赋、护符、万魂旗）每个折成 +35% 伤害、+40% 生命。',
-      set: { mech: 'king', king: { perDmg: 0.35, perLife: 0.4, scale: 1.5, life: 3, dmg: 3.7, cleave: 6, arc: 220, hold: 5, dr: 15 } },
+      desc: '仆从上限固定为 1：召唤一具骸王，体型更大、更耐打，横斩 270° 扫一大片。', alt: '够得更远；受到的伤害 −15%，同时牵制 5 只小怪。多出的仆从上限（群聚、天赋、护符、万魂旗）每个折成 +35% 伤害、+40% 生命。',
+      set: { mech: 'king', king: { perDmg: 0.35, perLife: 0.4, scale: 1.5, life: 3, dmg: 3.9, cleave: 10, arc: 270, reach: 2, hold: 5, dr: 15 } },
     },
   });
   Object.assign(G.VARIANTS.blackhole, {
     c: {
       name: '随核', relic: 'yinli', pack: '跟着你走；贴身打',
-      desc: '黑洞开在你身上并跟着你移动 3 秒，把身边的敌人往你脚下拽。', alt: '半径 90%、牵引 75%（首领的牵引不变）。冷却不变。星蚀的渊口照常在敌人脚下张开。',
-      set: { mech: 'follow', useMult: 15.6, follow: { dur: 1, radius: 0.9, pull: 0.75, dmg: 1.3 } },
+      desc: '黑洞开在你身上并跟着你移动 3 秒，每隔片刻把周围的敌人往你脚下拽一把。', alt: '首领的牵引不变，也不被拽。冷却不变。星蚀的渊口照常在敌人脚下张开。',
+      set: { mech: 'follow', useMult: 21.6, follow: { dur: 1, radius: 1.1, pull: 1.2, dmg: 1.8, wave: { iv: 0.75, k: 2.2, step: 2.5 } } },
     },
   });
   G.VARIANT_RELIC = {}; // 渊契 id → 它解锁渊式的技能 id
@@ -1387,7 +1387,7 @@
     VC('meteor').line = '放在技能栏上就自动落星，每 ' + st.iv + ' 秒砸向 ' + st.r + ' 米内敌人最密处，伤害 ' + pc(st.mult) + '；不耗魔力，保留 ' + st.reserve + '% 最大魔力。';
     VC('arc').line = '电弧经过的每一段都留下 ' + br.t + ' 秒电桥，每 ' + br.tick + ' 秒电一下碰到的敌人（' + pc(br.mult) + '）。';
     VC('thrall').line = '只召唤一具骸王：生命 ×' + kg.life + '、伤害 ×' + kg.dmg + '，横斩 ' + kg.arc + '° 带到 ' + kg.cleave + ' 个敌人。';
-    VC('blackhole').line = '黑洞开在你身上、跟着你走，每跳伤害 ' + pc(fo.dmg) + '，半径 ' + pc(fo.radius) + '。';
+    VC('blackhole').line = '黑洞开在你身上、跟着你走，每跳伤害 ' + pc(fo.dmg) + '；每 ' + fo.wave.iv + ' 秒把 ' + Math.round(SK.blackhole.radius * fo.radius * fo.wave.k) + ' 米内的敌人往你身边拽。';
     for (const rq of Object.keys(G.VARIANT_RELIC)) {
       const sid = G.VARIANT_RELIC[rq], V = G.VARIANTS[sid].c;
       R[rq].mechDesc = '解锁 ' + SK[sid].name + '·' + V.name + '：' + V.line;
