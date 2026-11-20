@@ -4160,7 +4160,8 @@ async function main() {
         save.equip.weapon = T.std;
         G.computeStats();
         G.clearMinions();
-        const v0 = save.variants.thrall;
+        const v0 = save.variants.thrall, gl0 = save.skills.thrall;
+        save.skills.thrall = Math.max(gl0, G.VARIANT_LVL); // 刻式要宝石 10 级
         save.variants.thrall = 'b';
         G.applyVariants();
         const b = G.summonMinion('thrall', P.x + 2, P.z);
@@ -4173,6 +4174,7 @@ async function main() {
         out.bone.th = n('thrall');
         if (v0) save.variants.thrall = v0;
         else delete save.variants.thrall;
+        save.skills.thrall = gl0;
         G.applyVariants();
         // 5. 换区域：栏上直接被改掉（不经过 bindSkill）的召唤物不跟进新区域；栏上的照常跟着
         G.clearMinions();
@@ -4188,8 +4190,11 @@ async function main() {
         G.clearMinions();
         save.bar[3] = null;
         save.autoSummon.thrall = true;
+        // 读档会让新手提示把当前（高等级）角色当成老角色：读完把存档世代还原（同「自动召唤」那一步）
+        const epoch = G.saveEpoch;
         G.persist();
         G.loadSave();
+        G.saveEpoch = epoch;
         G.computeStats();
         P.cds = {};
         P.mana = P.maxMana;
@@ -4657,8 +4662,16 @@ async function main() {
       G.telegraph({ shape: 'circle', x: t.x, z: t.z, r: 1.5, dur: 0.1, dmg: 40, dtype: 'fire' });
       G.debug.step(0.2);
       out.tele = took();
-      G.spawnProjectile({ owner: 'e', x: t.x, z: t.z - 3, dx: 0, dz: 1, speed: 12, dmg: 25, dtype: 'phys' });
-      G.debug.step(0.5);
+      // 仆从定在原地（同「召唤物挡弹」）：不然它跟着玩家走开，弹丸打不打得到取决于区域的地形
+      const tx = t.x, tz = t.z;
+      G.spawnProjectile({ owner: 'e', x: tx, z: tz - 3, dx: 0, dz: 1, speed: 12, dmg: 25, dtype: 'phys' });
+      for (let i = 0; i < 30; i++) {
+        t.x = tx;
+        t.z = tz;
+        t.target = null;
+        t.seekT = 1;
+        G.tick(1 / 60);
+      }
       out.proj = took();
       const l0 = P.life;
       G.spawnProjectile({ owner: 'e', x: P.x, z: P.z - 3, dx: 0, dz: 1, speed: 12, dmg: 25, dtype: 'phys' });
