@@ -20702,7 +20702,7 @@
     if (aura.r > 0 && P) {
       aura.sweep = (aura.sweep || 0) + 1;
       // 霜痕铺满光环那么大：低画质不铺（软件渲染下整片重叠太贵），高画质每次 1.2 秒（同时最多两三片）
-      if (qualId !== 'low') W.vDecal(VVD.frost, P.x, P.z, aura.r * 0.62, 1.2, 0x86d8ff, { r1: aura.r * 0.98, grow: 0.35, a: 0.7 });
+      if (qualId !== 'low' && hit) W.vDecal(VVD.frost, P.x, P.z, aura.r * 0.62, 1.2, 0x86d8ff, { r1: aura.r * 0.98, grow: 0.35, a: 0.7 }); // 只在打中时铺
       if (hit) {
         const n = qualId === 'low' ? 5 : 9, a0 = vr(0, TAU);
         for (let i = 0; i < n; i++) {
@@ -22128,7 +22128,7 @@
   // 序列帧自己的伪随机（不消耗 Math.random：加了这些特效以后，玩法里的随机序列和原来一样）
   const vr = (a, b) => a + ((fbRnd = (fbRnd * 16807) % 2147483647) / 2147483647) * (b - a);
   // 烟团的预算：同时画着的烟团最多这么多（大方片叠在一起最费填充率），低画质更少；超了新的就不放
-  const FB_SMOKE_CAP = { high: 24, mid: 18, low: 6 };
+  const FB_SMOKE_CAP = { high: 14, mid: 10, low: 6 };
   let fbSmokeLive = 0;
   W.fxFlip = function (kind, x, y, z, size, dur, hex, o) {
     const k = typeof kind === 'string' ? VFB[kind] : kind;
