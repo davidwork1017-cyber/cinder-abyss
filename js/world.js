@@ -800,7 +800,7 @@
       // vf-ground：龟裂的焦土上一片片软的积灰（比路面略亮略冷），墙脚和石头脚下堆得厚；路边沿着裂缝起伏，过渡带是烧过的碎土
       // 第二轮（要求方：在游戏镜头下要看得出层次）：大尺度的明暗 / 冷暖起伏（mv / mh）、成片的烧焦地（scorch：粗糙地面那一套压暗）、
       // 硬一点的路边（edgeW）、墙脚 / 石脚的接触阴影（ao2 烘在顶点色里，低档也有）
-      layer: { tex: 'g_cover_ash', tile: 4.5, con: 0.8, rough: 1, k: 0.62, sat: 0.4, col: 0x625f5c, path: 0.85, pT: 0.53, edge: 1, jag: 2.0, blend: 0.08, edgeW: 0.55, mv: 0.17, mh: 0.12, scorch: 0.6, sT: 0.63, ao2: 0.24 },
+      layer: { tex: 'g_cover_ash', tile: 4.5, con: 0.8, rough: 1, k: 0.62, sat: 0.4, col: 0x625f5c, path: 0.85, pT: 0.53, edge: 1, jag: 2.0, blend: 0.08, edgeW: 0.55, mv: 0.17, mh: 0.12, scorch: 0.6, sT: 0.66, ao2: 0.24 },
       deco: { cover: 0x7a7672, floor: 1, wild: 1, ao: 0.85, aoR: 0.9, scorch: 0.6, clusters: 0.6, kinds: [4, 5, 7, 8, 11, 13], tint: 0x55504c },
       pool: { col: 0xff7a2a, k: 1.4, r: 3, gain: 1.6 }, // 熔岩 / 余烬裂缝 / 火盆周围映暖的地面（烘在顶点色里）
       blots: { k: 0.35, r: 0.65, op: 0.3, tex: 'crack' }, // zones-polish：细裂纹代替软边的暗块（op 0.16 → 0.3：线细，同样的不透明度几乎看不见）。zones-ash：污斑看着像脏印子，少放、放小，路面的细节交给布景里的积灰和余烬裂缝
@@ -9835,9 +9835,9 @@
         let tv = ash ? (vnoise(x * 0.07 - 4.1, z * 0.07 + 8.3) - 0.5) * 0.14 : 0; // 第 0 区：大片的冷暖起伏（画出来的感觉）
         if (LY) {
           // vf-ground：几米一个周期的明暗（mv）和冷暖（mh）起伏，地面不再是一整片同样的平铺；墙脚 / 岩壁脚下一圈接触阴影（ao2）
-          if (LY.mv) v *= 1 + LY.mv * 2 * (vnoise(x * 0.065 + 3.3, z * 0.065 - 1.9) * 0.6 + vnoise(x * 0.15 - 7.1, z * 0.15 + 2.2) * 0.4 - 0.5);
+          if (LY.mv) v *= 1 + LY.mv * 2 * (vnoise(x * 0.065 + 3.3, z * 0.065 - 1.9) * 0.6 + vnoise(x * 0.15 - 7.1, z * 0.15 + 2.2) * 0.4 - 0.42); // 偏亮一点（-0.42）：暗的那一半不掉出地面 25% 的下限
           if (LY.mh) tv += LY.mh * 2 * (vnoise(x * 0.045 + 9.2, z * 0.045 - 4.4) - 0.5);
-          if (LY.ao2) v *= 1 - LY.ao2 * (1 - smooth01((d + 0.3) / 1.0)) * smooth01((d + 2.4) / 1.0);
+          if (LY.ao2) v *= 1 - LY.ao2 * (1 - smooth01((d + 0.3) / 0.7)) * smooth01((d + 2.4) / 1.0);
         }
         col.push(v * (1 + 0.07 * tk + tv), v, v * (1 - 0.1 * tk - tv));
         const pn = vnoise(x * 0.17 + 11.3, z * 0.17 - 5.1);
