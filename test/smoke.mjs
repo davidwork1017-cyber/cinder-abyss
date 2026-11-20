@@ -6628,6 +6628,49 @@ async function main() {
     assert(out.t < 300 && out.n >= 2, '面板关闭后提示应回到屏幕上方并恢复多条：' + JSON.stringify(out));
   });
 
+  await step('按住 Alt 查看详情：只有带详情的技能卡 / 浮窗才有提示行；面板开着时按住 Alt 展开、松开收起', async () => {
+    const keep = await ev(() => {
+      const S = G.save, k = { shadestep: S.skills.shadestep, blade: S.skills.blade };
+      S.skills.shadestep = Math.max(S.skills.shadestep || 0, 1);
+      S.skills.blade = Math.max(S.skills.blade || 0, 1);
+      return k;
+    });
+    try {
+      const pre = await ev(() => ({ shade: !!G.SKILLS.shadestep.alt, blade: !G.SKILLS.blade.alt, relic: !!G.RELICS.qianmu.mechAlt, vb: !!G.VARIANTS.ember.b.alt, va: !G.VARIANTS.nova.a.alt }));
+      assert(pre.shade && pre.blade && pre.relic && pre.vb && pre.va, '数据里的详情字段不对：' + JSON.stringify(pre));
+      await page.keyboard.press('KeyG');
+      await until(() => G.ui.isOpen() && document.querySelectorAll('.skill-card').length > 0);
+      const look = () => ev(() => {
+        const card = (id) => Array.from(document.querySelectorAll('.skill-card')).find((n) => n.querySelector('.sk-name') && n.querySelector('.sk-name').textContent.includes(G.SKILLS[id].name));
+        const sh = card('shadestep'), bl = card('blade');
+        const d = sh && sh.querySelector('.alt-d'), h = sh && sh.querySelector('.alt-h');
+        return { sh: !!sh, bl: !!bl, blBox: bl ? bl.querySelectorAll('.alt-box').length : -1, d: d ? getComputedStyle(d).display : '', h: h ? getComputedStyle(h).visibility : '', hgt: sh ? Math.round(sh.getBoundingClientRect().height) : 0, ht: h ? h.textContent : '', dt: d ? d.textContent : '', alt: G.SKILLS.shadestep.alt, on: document.body.classList.contains('alt-on') };
+      });
+      let r = await look();
+      assert(r.sh && r.bl && r.blBox === 0 && !r.on && r.d === 'none' && r.h === 'visible' && r.ht === '按住 Alt 查看详情' && r.dt === r.alt, '平时只显示提示行、没有详情的卡不出提示：' + JSON.stringify(r));
+      const h0 = r.hgt;
+      await page.keyboard.down('Alt');
+      try {
+        await until(() => document.body.classList.contains('alt-on'));
+        r = await look();
+        assert(r.d === 'block' && r.h === 'hidden' && r.hgt === h0, '按住 Alt 应展开详情（浮在卡上，卡片高度不变）、藏起提示行：' + JSON.stringify(r) + ' 原高 ' + h0);
+      } finally {
+        await page.keyboard.up('Alt');
+      }
+      await until(() => !document.body.classList.contains('alt-on'));
+      r = await look();
+      assert(r.d === 'none' && r.h === 'visible', '松开 Alt 应收起详情：' + JSON.stringify(r));
+      await closePanel();
+    } finally {
+      await ev((k) => {
+        for (const id in k) {
+          if (k[id] === undefined) delete G.save.skills[id];
+          else G.save.skills[id] = k[id];
+        }
+      }, keep);
+    }
+  });
+
   await step('回响：法术自动重复一次，不再扣魔力', async () => {
     const r = await ev(() => {
       T.arena();
@@ -12391,7 +12434,7 @@ async function main() {
     return r.name + '，sealSeq ' + r.seq0 + ' → ' + r.seq1;
   });
 
-  await step('渊印·界面：层级 1 点进入弹择印面板（4 张卡、素印在第一张）、数字键选印；层级 0 不弹；HUD 小签条数对、悬停有说明；地图页写着这次的印', async () => {
+  await step('渊印·界面：层级 1 点进入弹择印面板（4 张卡、素印在第一张）、数字键选印；层级 0 不弹；HUD 小签条数对、悬停有说明；地图页写着这次的印；层级 2 的卡片写烛芯几率', async () => {
     const keep = await ev(() => {
       const k = { zi: G.state.zoneIdx, tier: G.state.tier, maxTier: G.save.maxTier };
       G.save.maxTier = Math.max(1, G.save.maxTier);
@@ -12404,7 +12447,7 @@ async function main() {
     await page.click('[data-act="enter"][data-zone="0"]'); // 第一个区域总是开着
     const a = await ev(() => {
       const cards = [...document.querySelectorAll('.seal-pick .seal-card')];
-      return { n: cards.length, first: cards[0] && cards[0].classList.contains('plain'), names: cards.map((c) => c.querySelector('.sk-name').textContent), open: G.ui.isOpen() };
+      return { n: cards.length, first: cards[0] && cards[0].classList.contains('plain'), names: cards.map((c) => c.querySelector('.sk-name').textContent), open: G.ui.isOpen(), frag: document.querySelectorAll('.seal-pick .sk-frag').length };
     });
     await page.keyboard.press('Digit3'); // 第三张 = 深印
     await frames(2);
@@ -12426,6 +12469,17 @@ async function main() {
     await page.click('[data-act="enter"][data-zone="0"]');
     await frames(2);
     const c = await ev(() => ({ open: G.ui.isOpen(), pick: !!document.querySelector('.seal-pick'), zi: G.state.zoneIdx, tier: G.state.tier, seal: G.state.run.seal, chips: document.querySelectorAll('#seal-chips .sc').length }));
+    // 层级 2：每张卡写这一档的烛芯几率（层级 1 不写）；Esc 返回，不进区
+    await ev(() => (G.save.maxTier = Math.max(2, G.save.maxTier)));
+    await page.keyboard.press('KeyM');
+    await until(() => G.ui.isOpen() && document.querySelector('[data-act="tier"][data-tier="2"]'));
+    await page.click('[data-act="tier"][data-tier="2"]');
+    await page.click('[data-act="enter"][data-zone="0"]');
+    await until(() => document.querySelector('.seal-pick .seal-card'));
+    const d = await ev(() => [...document.querySelectorAll('.seal-pick .seal-card')].map((el) => (el.querySelector('.sk-frag') || { textContent: '' }).textContent).join('/'));
+    await page.keyboard.press('Escape');
+    await frames(2);
+    await ev(() => G.ui.close());
     await ev((k) => { G.save.maxTier = k.maxTier; G.enterZone(k.zi, k.tier); }, keep);
     assert(a.open && a.n === 4 && a.first && a.names[0] === '素印' && /^浅印/.test(a.names[1]) && /^深印/.test(a.names[2]) && /^烬印/.test(a.names[3]), '择印面板不对：' + JSON.stringify(a));
     assert(!b.open && b.zi === 0 && b.tier === 1 && b.g === 1 && b.name === a.names[2], '数字键 3 应选深印进区：' + JSON.stringify(b));
@@ -12433,6 +12487,7 @@ async function main() {
     assert(tip.length > 8 && /印纹/.test(tip), '小签悬停没有说明：' + tip);
     assert(mapTxt.indexOf('本次进区') >= 0 && mapTxt.indexOf(b.name) >= 0, '地图页没写这次的印');
     assert(!c.open && !c.pick && c.zi === 0 && c.tier === 0 && c.seal === null && c.chips === 0, '层级 0 不该弹面板 / 有小签：' + JSON.stringify(c));
+    assert(a.frag === 0 && d === '烛芯 40%/烛芯 40%/烛芯 70%/烛芯 100%', '择印卡片的烛芯几率不对（层级 1 不写，层级 2 素印 / 浅印 / 深印 / 烬印）：' + a.frag + ' ' + d);
     return a.names.join(' / ') + '；小签 ' + b.chips + ' 个';
   });
 
@@ -13248,7 +13303,7 @@ async function main() {
     return '六边形 ' + r.grey0 + ' 像素 → 十字 ' + r.cyan1 + ' 像素';
   });
 
-  await step('异兆出现规则 + 烛芯：层级 0 只有 40% 出 1 个、池里没有守隙 / 试锋 / 残影；层级 ≥ 1 一个、40% 两个；烛芯只在层级 ≥ 2 掉、保底第 7 次必掉；印烛芯按 W；存档读回、旧存档为 0', async () => {
+  await step('异兆出现规则 + 烛芯：层级 0 只有 40% 出 1 个、池里没有守隙 / 试锋 / 残影；层级 ≥ 1 一个、40% 两个；烛芯只在层级 ≥ 2 掉、几率按择的印（素印 = 浅印 40%、深印 70%、烬印 100%，没有保底），六个来源都一样；印烛芯非烈印的首领也掉；存档读回、旧存档为 0、旧的 fragPity 丢掉不再存', async () => {
     const r = await ev(() => {
       const S = G.state, sv = G.save, out = {};
       G.debug.zoneSeed(5150);
@@ -13271,63 +13326,77 @@ async function main() {
       out.p2 = +((n1[2] || 0) / 3000).toFixed(3);
       out.min1 = Math.min(...Object.keys(n1).map(Number));
       G.debug.zoneSeed(null);
-      // 烛芯
-      const orig = Math.random, pity0 = JSON.stringify(sv.fragPity), fr0 = JSON.stringify(sv.frags);
+      // 烛芯：按这次进区择的印掷一次（S.run.seal 的档位 g；null 是素印）
+      const orig = Math.random, fr0 = JSON.stringify(sv.frags), run0 = S.run, rm0 = G.runMods;
       const drops = [];
       const sp = G.spawnLoot;
       G.spawnLoot = (k, d) => (drops.push(k + ':' + d), { x: 0, z: 0 });
+      const seal = (g) => (g == null ? null : { g, mods: [{ id: 'swift' }], W: 4 });
+      // 六个来源各掷一次：守隙 / 游荡者 / 缚匣 / 试锋 / 落烬 / 区域首领，掉了记 1
+      const at = (g, r) => {
+        S.run = { seal: seal(g), mods: rm0 };
+        Math.random = () => r;
+        return [G.encFragDrop('guard', 0, 0), G.encFragDrop('wanderer', 0, 0), G.encFragDrop('box', 0, 0), G.encFragDrop('trial', 0, 0), G.encFragDrop('ember', 0, 0), G.fragSealDrop({ x: 0, z: 0 })].map((b) => (b ? 1 : 0)).join('');
+      };
       try {
-        Math.random = () => 0.999;
         S.tier = 1;
-        out.t1 = G.encFragDrop('guard', 0, 0) || G.encFragDrop('box', 0, 0) || G.fragSealDrop({ x: 0, z: 0 }, 50, 9);
-        out.t1Pity = JSON.stringify(sv.fragPity) === pity0;
+        out.t1 = at(2, 0) + at(null, 0);
+        out.t1Drops = drops.length;
         S.tier = 2;
-        for (const k in sv.fragPity) sv.fragPity[k] = 0;
-        const seq = [];
-        for (let i = 0; i < 8; i++) seq.push(G.encFragDrop('guard', 0, 0) ? 1 : 0);
-        out.pitySeq = seq.join('');
-        // box 三者共用保底
-        for (let i = 0; i < 3; i++) G.encFragDrop('box', 0, 0), G.encFragDrop('trial', 0, 0);
-        out.boxPity = sv.fragPity.box;
-        out.sealW5 = G.fragSealDrop({ x: 0, z: 0 }, 50, 5);
-        Math.random = () => 0.08;
-        out.sealW6 = G.fragSealDrop({ x: 0, z: 0 }, 50, 6); // 7% + 1.5% = 8.5%
-        Math.random = () => 0.09;
-        out.sealW6b = G.fragSealDrop({ x: 0, z: 0 }, 50, 6);
-        Math.random = () => 0.0;
-        out.wander = G.encFragDrop('wanderer', 0, 0) && drops[drops.length - 1] === 'frag:vow';
-        out.drops = drops.slice(0, 3).join(',');
+        out.plain = at(null, 0.399) + '/' + at(null, 0.4);
+        out.g0 = at(0, 0.399) + '/' + at(0, 0.4);
+        out.g1 = at(1, 0.699) + '/' + at(1, 0.7);
+        out.g2 = at(2, 0.9999);
+        out.g2Drops = drops.slice(-6).join(',');
+        out.chance = [null, 0, 1, 2].map((g) => G.fragChance(seal(g), 2)).join(',') + '|' + G.fragChance(seal(2), 1);
+        // 首领掉落的钩子：非烈印（W 4）的烬印下击杀区域首领也掉印烛芯；层级 1 不掉
+        Math.random = orig;
+        S.run = { seal: seal(2), mods: rm0 };
+        out.lie = !!G.runMods.lie;
+        drops.length = 0;
+        G.dropLoot({ isBoss: true, bossKind: null, level: 50, x: 0, z: 0 });
+        out.boss = drops.filter((d) => d === 'frag:seal').length;
+        S.tier = 1;
+        drops.length = 0;
+        G.dropLoot({ isBoss: true, bossKind: null, level: 50, x: 0, z: 0 });
+        out.boss1 = drops.filter((d) => d.indexOf('frag:') === 0).length;
       } finally {
         Math.random = orig;
         G.spawnLoot = sp;
         S.tier = 0;
+        S.run = run0;
+        G.runMods = rm0;
       }
-      // 存档：烛芯读回；坏数据夹回范围；旧存档没有这两项 → 0
+      // 存档：烛芯读回；坏数据夹回范围；旧存档没有 frags → 0；旧存档的保底计数 fragPity 读档丢掉，存档里也不再写
+      out.fresh = 'fragPity' in G.newSave();
       sv.frags = { seal: 2, rift: 120, vow: -3, box: 1.7 };
       sv.fragPity = { seal: 3, rift: 99, vow: 2, box: 'x' };
       G.persist();
       const s2 = G.loadSave();
-      out.load = JSON.stringify(s2.frags) + JSON.stringify(s2.fragPity);
+      out.load = JSON.stringify(s2.frags) + ('fragPity' in s2);
+      G.persist();
+      const k = Object.keys(localStorage).find((q) => /cinder-abyss-save/.test(q));
+      out.resaved = /fragPity/.test(localStorage.getItem(k));
       const raw = JSON.parse(JSON.stringify(sv));
       delete raw.frags;
-      delete raw.fragPity;
-      const k = Object.keys(localStorage).find((q) => /cinder-abyss-save/.test(q));
+      raw.fragPity = { seal: 1 };
       localStorage.setItem(k, JSON.stringify(raw));
       const s3 = G.loadSave();
-      out.old = JSON.stringify(s3.frags) + JSON.stringify(s3.fragPity);
+      out.old = JSON.stringify(s3.frags) + ('fragPity' in s3);
       sv.frags = JSON.parse(fr0);
-      sv.fragPity = JSON.parse(pity0);
       G.persist();
       G.enterZone(0, 0);
       return out;
     });
     assert(Math.abs(r.p0 - 0.4) < 0.04 && r.max0 === 1 && r.kinds0 === 'box,ember,shrine,trader,wanderer', '层级 0 的出现规则不对：' + JSON.stringify(r));
     assert(Math.abs(r.p2 - 0.4) < 0.04 && r.min1 === 1, '层级 ≥ 1 的出现规则不对：' + JSON.stringify(r));
-    assert(!r.t1 && r.t1Pity, '层级 1 不该掉烛芯、也不该记保底：' + JSON.stringify(r));
-    assert(r.pitySeq === '00000010' && r.boxPity === 6 && !r.sealW5 && r.sealW6 && !r.sealW6b, '烛芯的保底 / 共用保底 / 印烛芯几率不对：' + JSON.stringify(r));
-    assert(r.wander, '游荡者应掉誓烛芯：' + JSON.stringify(r));
-    assert(r.load === '{"seal":2,"rift":99,"vow":0,"box":1}{"seal":3,"rift":6,"vow":2,"box":0}' && r.old === '{"seal":0,"rift":0,"vow":0,"box":0}{"seal":0,"rift":0,"vow":0,"box":0}', '烛芯的存档不对：' + JSON.stringify(r));
-    return '层级 0 出现 ' + r.p0 + '，层级 1 两个 ' + r.p2 + '，保底 ' + r.pitySeq;
+    assert(r.t1 === '000000000000' && r.t1Drops === 0, '层级 1 不该掉烛芯（烬印、几率掷 0 也不掉）：' + JSON.stringify(r));
+    assert(r.chance === '0.4,0.4,0.7,1|0', '烛芯几率（素印 / 浅印 / 深印 / 烬印 | 层级 1）不对：' + JSON.stringify(r));
+    assert(r.plain === '111111/000000' && r.g0 === '111111/000000' && r.g1 === '111111/000000' && r.g2 === '111111', '烛芯按档位的几率不对（0.399 / 0.4、0.699 / 0.7、烬印 0.9999）：' + JSON.stringify(r));
+    assert(r.g2Drops === 'frag:rift,frag:vow,frag:box,frag:box,frag:box,frag:seal', '六个来源掉的烛芯种类不对：' + JSON.stringify(r));
+    assert(!r.lie && r.boss === 1 && r.boss1 === 0, '非烈印的区域首领应掉印烛芯、层级 1 不掉：' + JSON.stringify(r));
+    assert(!r.fresh && r.load === '{"seal":2,"rift":99,"vow":0,"box":1}false' && !r.resaved && r.old === '{"seal":0,"rift":0,"vow":0,"box":0}false', '烛芯的存档不对（fragPity 应丢掉）：' + JSON.stringify(r));
+    return '层级 0 出现 ' + r.p0 + '，层级 1 两个 ' + r.p2 + '，烛芯 ' + r.chance;
   });
 
   // ================================================================== 熄烛者（D5：巅峰首领，余烛殿）
@@ -14315,8 +14384,9 @@ async function main() {
           out.bad.push(s + '：怪 ' + mobs + ' 精英 ' + el + '（关键路径 ' + pel + '）宝箱 ' + sp.chests.length + ' 大厅 ' + nP + ' 旁支 ' + sides.length + ' 伏击 ' + amb + ' lv ' + lvOk);
         }
       }
-      // 固定种子进区
+      // 固定种子进区。异兆关掉：随机掷到的游荡者会在雷枢边上醒来，把关了无敌的玩家打倒，倒下时雷枢不运转（约 3% 的概率整步失败）
       G.debug.zoneSeed(4242);
+      G.debug.noEnc = true;
       G.enterZone(zi, 0);
       const z = S.zone, info = G.debug.layout();
       out.zone = {
@@ -14367,6 +14437,7 @@ async function main() {
       out.respawn = { dead: P.dead, door: +(Math.hypot(P.x - z2.bossPos.x, P.z - z2.bossPos.z) - z2.bossR).toFixed(3), walk: W.walkable(P.x, P.z, 0.5) };
       G.debug.god(true);
       G.debug.zoneSeed(null);
+      G.debug.noEnc = false;
       G.enterZone(0, 0);
       return out;
     });
@@ -14543,6 +14614,233 @@ async function main() {
     assert(r.resp.bossHome, '首领没有复位回满：' + JSON.stringify(r.resp));
     const avg = (k) => (r.stats.reduce((a, s) => a + s[k], 0) / r.stats.length).toFixed(0);
     return '20 个种子：面积 ' + avg('area') + ' m²、关键路径 ' + avg('len') + ' m、怪 ' + avg('mobs') + '；进区怪 ' + r.enter.map((e) => e.n + '（布局 + 光栅化 ' + e.ms + 'ms）').join(' / ');
+  });
+
+  await titleSteps();
+}
+
+// ------------------------------------------------------------------ 标题画面与暂停菜单（title-menu）
+// 前面的步骤都跳过标题画面（harness 默认设 window.__skipTitle）。这里另开一个不跳过的浏览器，从空存档开始走一遍
+async function titleSteps() {
+  const titleState = () =>
+    ev(() => {
+      const vis = (sel) => {
+        const n = document.querySelector(sel);
+        return !!n && getComputedStyle(n).display !== 'none' && n.getClientRects().length > 0;
+      };
+      return {
+        title: G.ui.titleOn(), open: G.ui.isOpen(), pause: G.ui.paused(), ready: document.getElementById('title').classList.contains('ready'),
+        shown: vis('#title'), cont: vis('#t-continue'), save: document.getElementById('t-save').innerText, hud: vis('#hud'), intro: T.introOpen(),
+        view: (document.querySelector('#title .m-view, #pause .m-view') || { dataset: {} }).dataset.view || null,
+        has: G.hasSave(), stored: localStorage.getItem('cinder-abyss-save-v1'), time: G.state.time,
+      };
+    });
+  const waitReady = () => until(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, 90000);
+  // 回到标题画面：Esc 打开暂停菜单 → 返回主菜单
+  const toTitle = async () => {
+    await page.keyboard.press('Escape');
+    assert(await ev(() => G.ui.paused()), 'Esc 没有打开暂停菜单');
+    await page.click('#p-menu [data-tact="menu"]');
+    assert(await ev(() => G.ui.titleOn()), '返回主菜单之后不在标题画面');
+  };
+
+  await step('标题画面：不跳过时载入先到标题画面（游戏暂停、HUD 隐藏）；没有存档时不显示「继续游戏」，也不写存档；设置 / 操作说明 / 致谢子页', async () => {
+    if (browser) await browser.close().catch(() => {});
+    ({ browser, page, errors } = await launch({ width: 1280, height: 720, title: true }));
+    await install();
+    await waitReady();
+    await frames(3);
+    let s = await titleState();
+    assert(s.title && s.open && s.shown && !s.hud && !s.intro, '载入后应停在标题画面：' + JSON.stringify(s));
+    assert(!s.cont && !s.has && s.stored === null, '没有存档时不该有「继续游戏」，也不该写存档：' + JSON.stringify({ cont: s.cont, has: s.has, stored: !!s.stored }));
+    await frames(5);
+    assert((await ev(() => G.state.time)) === s.time, '标题画面开着时模拟应暂停');
+    const lay = await ev(() => ({ name: document.querySelector('.t-name').innerText, foot: document.querySelector('.t-foot').innerText, b: [...document.querySelectorAll('#t-menu .m-btn')].filter((n) => n.getClientRects().length).map((n) => T.rect(n)), w: innerWidth, h: innerHeight }));
+    assert(lay.name === '烬渊' && lay.foot.includes('致谢') && lay.b.length === 3, '标题、致谢或按钮不对：' + JSON.stringify(lay));
+    assert(lay.b.every((r) => r.l >= 0 && r.t >= 0 && r.r <= lay.w && r.b <= lay.h), '标题画面的按钮跑出了窗口：' + JSON.stringify(lay.b));
+    // 子页：设置、操作说明、致谢；Esc 返回
+    const sub = {};
+    for (const [act, need] of [['settings', ['画质', '普通物品', '折叠普通物品的名牌']], ['help', ['翻滚', '武器普攻', 'Esc']], ['credits', ['Poly Haven', 'ambientCG', 'KayKit', 'Kenney', 'Quaternius', 'CC0']]]) {
+      await page.click('#title [data-tact="' + act + '"]');
+      const t = await ev(() => ({ view: document.querySelector('#title .m-view').dataset.view, txt: document.querySelector('#title .m-view').innerText, menu: getComputedStyle(document.getElementById('t-menu')).display, box: T.rect('#title .m-view'), w: innerWidth, h: innerHeight }));
+      assert(t.view === act && t.menu === 'none' && need.every((w) => t.txt.includes(w)), act + ' 子页内容不对：' + JSON.stringify(t).slice(0, 300));
+      assert(t.box.t >= 0 && t.box.b <= t.h && t.box.r <= t.w, act + ' 子页跑出了窗口：' + JSON.stringify(t.box));
+      cleanText(t.txt, act + ' 子页');
+      await page.keyboard.press('Escape');
+      s = await titleState();
+      assert(s.title && !s.view, 'Esc 应从子页返回标题菜单：' + JSON.stringify(s));
+      sub[act] = t.txt.length;
+    }
+    assert((await titleState()).stored === null, '看了一圈子页还是不该写存档');
+    return '子页字数 ' + JSON.stringify(sub);
+  });
+
+  await step('标题画面：新游戏（没有存档）直接开始、开场卡片随后弹出；没有面板时 Esc 打开暂停菜单，时间、冷却、无敌时间都停住，再按 Esc 继续', async () => {
+    await page.click('#t-new');
+    let s = await titleState();
+    assert(!s.title && !s.shown && s.intro && s.hud && s.has, '新游戏后应进区并弹出开场卡片、写入存档：' + JSON.stringify(s));
+    await page.keyboard.press('Enter');
+    assert(!(await ev(() => G.ui.isOpen())), '回车应关闭开场卡片');
+    await ev(() => { G.debug.god(true); G.debug.hold(false); }); // install() 停住了实时模拟（同第一步），这里要看真实的主循环
+    await frames(3);
+    const t1 = await ev(() => G.state.time);
+    assert(t1 > s.time, '离开标题画面后模拟应恢复：' + t1 + ' / ' + s.time);
+    const arm = () => ev(() => { const P = G.player; P.cds.ember = 2; P.roll.cd = 0.8; P.iframe = 1.5; return { t: G.state.time, cd: P.cds.ember, roll: P.roll.cd, ifr: P.iframe }; });
+    const now = () => ev(() => { const P = G.player; return { t: G.state.time, cd: P.cds.ember, roll: P.roll.cd, ifr: P.iframe, paused: G.ui.paused(), open: G.ui.isOpen(), st: G.state.paused }; });
+    await page.keyboard.press('Escape');
+    const a = await arm();
+    await frames(12);
+    const b = await now();
+    assert(b.paused && b.open && b.st, 'Esc（没有面板）应打开暂停菜单：' + JSON.stringify(b));
+    assert(b.t === a.t && b.cd === a.cd && b.roll === a.roll && b.ifr === a.ifr, '暂停时时间 / 冷却 / 无敌时间不该走：' + JSON.stringify({ a, b }));
+    const box = await ev(() => ({ r: T.rect('.pause-card'), txt: document.querySelector('.pause-card').innerText, w: innerWidth, h: innerHeight }));
+    assert(['继续', '设置', '操作说明', '返回主菜单'].every((w) => box.txt.includes(w)), '暂停菜单的按钮不全：' + box.txt);
+    assert(box.r.l >= 0 && box.r.t >= 0 && box.r.r <= box.w && box.r.b <= box.h, '暂停菜单跑出了窗口');
+    await page.keyboard.press('Escape');
+    await frames(12);
+    const c = await now();
+    assert(!c.paused && !c.open && c.t > b.t && c.roll < b.roll && c.ifr < b.ifr, '再按 Esc 应继续，时间和冷却接着走：' + JSON.stringify(c));
+    // 「继续」按钮同样能关掉
+    await page.keyboard.press('Escape');
+    await page.click('#p-menu [data-tact="resume"]');
+    assert(!(await ev(() => G.ui.isOpen())), '点「继续」应关闭暂停菜单');
+    return '暂停 12 帧：时间 ' + a.t.toFixed(2) + ' → ' + b.t.toFixed(2) + '，继续后 ' + c.t.toFixed(2);
+  });
+
+  await step('暂停菜单：面板开着时 Esc 只关面板、不暂停；暂停菜单的子页里 Esc 返回上一层；暂停时按 I 打开背包', async () => {
+    await page.keyboard.press('KeyI');
+    assert((await ev(() => T.tab())) === 'inv', 'I 应打开背包');
+    await page.keyboard.press('Escape');
+    let r = await ev(() => ({ open: G.ui.isOpen(), pause: G.ui.paused(), tab: T.tab() }));
+    assert(!r.open && !r.pause && r.tab === null, '面板开着时 Esc 应只关面板：' + JSON.stringify(r));
+    await page.keyboard.press('Escape');
+    await page.click('#p-menu [data-tact="settings"]');
+    r = await ev(() => ({ pause: G.ui.paused(), view: (document.querySelector('#pause .m-view') || { dataset: {} }).dataset.view, menu: getComputedStyle(document.getElementById('p-menu')).display }));
+    assert(r.pause && r.view === 'settings' && r.menu === 'none', '暂停菜单里应能打开设置：' + JSON.stringify(r));
+    await page.keyboard.press('Escape');
+    r = await ev(() => ({ pause: G.ui.paused(), view: !!document.querySelector('#pause .m-view'), menu: getComputedStyle(document.getElementById('p-menu')).display }));
+    assert(r.pause && !r.view && r.menu !== 'none', '子页里 Esc 应回到暂停菜单：' + JSON.stringify(r));
+    await page.click('#p-menu [data-tact="help"]');
+    cleanText(await ev(() => document.querySelector('#pause .m-view').innerText), '暂停菜单的操作说明');
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('KeyI');
+    r = await ev(() => ({ pause: G.ui.paused(), tab: T.tab() }));
+    assert(!r.pause && r.tab === 'inv', '暂停时按 I 应换成背包：' + JSON.stringify(r));
+    await closePanel();
+    assert(!(await ev(() => G.ui.paused())), '关掉背包后不该还在暂停');
+  });
+
+  await step('返回主菜单：先存档，再回到标题画面（继续游戏显示等级 / 武器 / 层级 / 区域）；继续回到原处，存档不变', async () => {
+    const before = await ev(() => {
+      G.debug.setLevel(7);
+      G.debug.give('dust', 40);
+      const P = G.player;
+      T.tp(P.x + 1.5, P.z - 2);
+      G.state.time += 0; // 不动
+      return { canon: T.canon(G.save), x: P.x, z: P.z, zone: G.state.zone.def.name, idx: G.state.zoneIdx, w: G.save.equip.weapon ? G.save.equip.weapon.baseIdx : -1 };
+    });
+    await toTitle();
+    await frames(5);
+    let s = await titleState();
+    const stored = await ev(() => T.canon(JSON.parse(localStorage.getItem('cinder-abyss-save-v1'))));
+    assert(stored === before.canon, '返回主菜单前应先存档（localStorage 和内存不一致）');
+    assert(s.title && s.shown && s.ready && s.cont && !s.hud, '应回到标题画面并显示「继续游戏」：' + JSON.stringify(s));
+    const wname = await ev(() => document.querySelector('#t-save').innerText);
+    assert(s.save.includes('7 级') && s.save.includes('初入') && s.save.includes(before.zone), '「继续游戏」的存档概要不对：' + s.save);
+    assert(/刃|长杖|短杖|空手|武器/.test(wname), '存档概要里没有武器类型：' + wname);
+    await frames(5);
+    assert((await ev(() => G.state.time)) === s.time, '标题画面开着时模拟应暂停');
+    await page.click('#t-continue');
+    const after = await ev(() => ({ canon: T.canon(G.save), x: G.player.x, z: G.player.z, idx: G.state.zoneIdx, title: G.ui.titleOn(), open: G.ui.isOpen(), hud: getComputedStyle(document.getElementById('hud')).display }));
+    assert(!after.title && !after.open && after.hud !== 'none', '继续之后应回到游戏：' + JSON.stringify(after));
+    assert(after.canon === before.canon && after.idx === before.idx && Math.abs(after.x - before.x) < 1e-6 && Math.abs(after.z - before.z) < 1e-6, '往返一趟后存档 / 位置变了');
+    return s.save.replace(/\s+/g, ' ');
+  });
+
+  await step('有存档时载入：标题画面显示继续游戏（等级 / 武器 / 层级 / 区域），继续进入存档所在的区域，存档不变', async () => {
+    const prep = await ev(() => {
+      G.debug.setLevel(12);
+      G.save.maxTier = Math.max(1, G.save.maxTier);
+      G.save.cleared[G.ZONES[0].id] = 1; // 第二个区域在层级 1 解锁
+      G.enterZone(1, 1);
+      G.persist();
+      return { canon: T.canon(G.save), zone: G.ZONES[1].name, lvl: G.state.zone.level };
+    });
+    await page.reload({ timeout: 90000 });
+    await install();
+    await waitReady();
+    let s = await titleState();
+    assert(s.title && s.cont && s.save.includes('12 级') && s.save.includes('轮回 1') && s.save.includes(prep.zone), '有存档时「继续游戏」的概要不对：' + JSON.stringify(s.save));
+    await page.click('#t-continue');
+    const r = await ev(() => ({ idx: G.state.zoneIdx, tier: G.state.tier, lvl: G.state.zone.level, canon: T.canon(G.save), title: G.ui.titleOn(), intro: T.introOpen(), lvlSave: G.save.level }));
+    assert(!r.title && !r.intro && r.idx === 1 && r.tier === 1 && r.lvl === prep.lvl && r.lvlSave === 12, '继续应进入存档所在的区域（不再弹开场卡片）：' + JSON.stringify(r));
+    assert(r.canon === prep.canon, '载入 → 标题画面 → 继续之后存档变了');
+    return s.save.replace(/\s+/g, ' ');
+  });
+
+  await step('新游戏（有存档）先确认：取消保留存档，确认后从新角色开始（重载后跳过标题画面、弹出开场卡片）', async () => {
+    await toTitle();
+    const keep = await ev(() => localStorage.getItem('cinder-abyss-save-v1'));
+    await page.click('#t-new');
+    let s = await titleState();
+    const txt = await ev(() => document.querySelector('#title .m-view').innerText);
+    assert(s.title && s.view === 'confirm' && txt.includes('覆盖') && txt.includes('12 级'), '有存档时新游戏应先确认：' + JSON.stringify({ view: s.view, txt }));
+    await page.click('#title [data-tact="back"]');
+    s = await titleState();
+    assert(s.title && !s.view && s.stored === keep && s.cont, '取消后应保留存档、回到标题菜单：' + JSON.stringify({ view: s.view, same: s.stored === keep }));
+    await page.click('#t-new');
+    await Promise.all([page.waitForEvent('load', { timeout: 90000 }), page.click('#title [data-tact="new-confirm"]')]);
+    await install();
+    await frames(2);
+    const r = await ev(() => ({ title: G.ui.titleOn(), intro: T.introOpen(), lvl: G.save.level, zone: G.state.zone.def.id, tier: G.state.tier, maxTier: G.save.maxTier, once: sessionStorage.getItem('cinder-abyss-play-once'), stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).level }));
+    assert(!r.title && r.intro && r.lvl === 1 && r.zone === 'ash' && r.tier === 0 && r.maxTier === 0 && r.stored === 1, '确认后应是新角色、直接进区并弹开场卡片：' + JSON.stringify(r));
+    assert(r.once === null, '一次性的跳过标记应已清掉');
+    await page.keyboard.press('Enter');
+  });
+
+  await step('标题画面的设置：改画质、开关选项立即生效并存档，继续游戏、重新载入后仍是这一档', async () => {
+    await toTitle();
+    const q0 = await ev(() => G.world.quality());
+    const q = q0 === 'mid' ? 'low' : 'mid';
+    await page.click('#title [data-tact="settings"]');
+    const h0 = await ev(() => G.save.opts.hideNormal);
+    await page.click('#title [data-tact="quality"][data-q="' + q + '"]');
+    await page.click('#title [data-tact="opt"][data-opt="hideNormal"]');
+    let r = await ev(() => ({ live: G.world.quality(), opt: G.save.opts.quality, hide: G.save.opts.hideNormal, stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).opts, on: document.querySelector('#title .seg-b.on[data-tact="quality"]').dataset.q }));
+    assert(r.live === q && r.opt === q && r.stored.quality === q && r.on === q, '标题画面上改画质应立即生效并存档：' + JSON.stringify(r));
+    assert(r.hide === !h0 && r.stored.hideNormal === !h0, '标题画面上的开关应存档：' + JSON.stringify(r));
+    await page.keyboard.press('Escape');
+    await page.click('#t-continue');
+    await page.keyboard.press('KeyM');
+    r = await ev(() => ({ live: G.world.quality(), on: (document.querySelector('#panel-body .seg-b.on[data-act="quality"]') || { dataset: {} }).dataset.q }));
+    assert(r.live === q && r.on === q, '进游戏后画质应还是标题画面上选的那一档：' + JSON.stringify(r));
+    await closePanel();
+    await page.reload({ timeout: 90000 });
+    await install();
+    await waitReady();
+    r = await ev(() => ({ live: G.world.quality(), opt: G.save.opts.quality, hide: G.save.opts.hideNormal }));
+    assert(r.live === q && r.opt === q && r.hide === !h0, '重新载入后画质 / 开关应保持：' + JSON.stringify(r));
+    return q0 + ' → ' + q;
+  });
+
+  await step('标题画面与暂停菜单在小窗口（1024×640）里放得下', async () => {
+    await page.setViewportSize({ width: 1024, height: 640 });
+    await frames(2);
+    const fit = (sel) => ev((sel) => [...document.querySelectorAll(sel)].filter((n) => n.getClientRects().length).map((n) => T.rect(n)).every((b) => b.l >= 0 && b.t >= 0 && b.r <= innerWidth && b.b <= innerHeight), sel);
+    assert(await fit('.t-logo, #t-menu .m-btn, .t-foot'), '1024×640 下标题画面跑出了窗口');
+    for (const act of ['settings', 'help', 'credits']) {
+      await page.click('#title [data-tact="' + act + '"]');
+      assert(await fit('#title .m-view, #title .m-head'), '1024×640 下 ' + act + ' 子页跑出了窗口');
+      await page.keyboard.press('Escape');
+    }
+    await page.click('#t-continue');
+    await page.keyboard.press('Escape');
+    assert(await fit('.pause-card, #p-menu .m-btn'), '1024×640 下暂停菜单跑出了窗口');
+    await page.click('#p-menu [data-tact="help"]');
+    assert(await fit('.pause-card'), '1024×640 下暂停菜单的操作说明跑出了窗口');
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    assert(!(await ev(() => G.ui.isOpen())), '收尾：暂停菜单没关掉');
   });
 }
 

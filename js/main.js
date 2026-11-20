@@ -19,12 +19,13 @@
   const PANEL_KEYS = { KeyI: 'inv', KeyG: 'skills', KeyP: 'tree', KeyM: 'map', KeyH: 'help' };
   const NO_SCROLL = { Space: 1, ArrowUp: 1, ArrowDown: 1, ArrowLeft: 1, ArrowRight: 1, Tab: 1 };
 
-  function clearInput() {
+  // keepAlt：面板开着时每帧都清一次输入，但 Alt 要留着（浮窗里「按住 Alt 查看详情」读它）
+  function clearInput(keepAlt) {
     for (const k in input.keys) input.keys[k] = false;
     input.mouse.b[0] = input.mouse.b[1] = input.mouse.b[2] = false;
     input.tap[0] = input.tap[1] = input.tap[2] = input.tap[3] = input.tap[4] = 0;
     input.tapDodge = input.tapExec = 0;
-    input.alt = false;
+    if (keepAlt !== true) input.alt = false;
   }
 
   // 按下技能栏的一格（0 左键 / 1 右键 / 2 Q / 3 E / 4 R）。召唤技能的格子：按一下切换它的「自动召唤」，
@@ -51,7 +52,7 @@
       if (e.ctrlKey || e.metaKey) return; // 浏览器快捷键照常工作
       if (e.code === 'AltLeft' || e.code === 'AltRight') {
         e.preventDefault(); // 不让 Alt 把焦点交给浏览器菜单
-        if (!G.ui.isOpen()) input.alt = true;
+        input.alt = true; // 面板开着也记下：浮窗详情要用；名牌只在面板关着时展开（ui.js 的 syncLabels 自己判断）
         return;
       }
       if (e.altKey) e.preventDefault(); // 按住 Alt 看名牌时，移动 / 技能键照常生效，不触发浏览器的 Alt 组合键
@@ -66,6 +67,7 @@
       }
       if (code === 'Escape') {
         if (G.ui.isOpen()) G.ui.close();
+        else if (!e.repeat) G.ui.pause(); // 没有面板开着：打开暂停菜单
         return;
       }
       if (G.ui.isOpen()) return; // 面板打开时不接受游戏输入
@@ -179,21 +181,42 @@
     const open = G.ui.isOpen();
     G.state.paused = open;
     if (open) {
-      clearInput(); // 面板关掉后不会带着按住的键继续跑
+      clearInput(true); // 面板关掉后不会带着按住的键继续跑（Alt 除外）
+      if (G.ui.titleOn()) G.ui.titleFrame(dt); // 标题画面：模拟照样不推进，只让区域的火光、飘尘动起来，镜头缓慢漂移
     } else {
       refreshMouseWorld();
       if (!held) sim(dt);
     }
     W.render();
-    G.ui.update();
+    if (!G.ui.titleOn()) G.ui.update(); // 标题画面盖着 HUD，不用每帧刷新
   }
 
+  // 标题画面开着、而且本地原本没有存档时，先不写存档：只是打开页面又关掉，下次不会凭空多出一个「继续游戏」。
+  // 点了「新游戏」才放开（G.holdSave(false)）
+  let holdSave = false;
+  const persistRaw = G.persist;
+  G.persist = () => (holdSave ? false : persistRaw());
+  G.holdSave = (on) => {
+    holdSave = !!on;
+    return holdSave;
+  };
+
   function boot() {
+    const hadSave = G.hasSave();
+    // 标题画面：index.html 开头已经按 ?play / window.__skipTitle / 一次性标记定好了（html 上有没有 title-on）
+    const title = document.documentElement.classList.contains('title-on');
+    try {
+      window.sessionStorage.removeItem(G.PLAY_ONCE_KEY); // 「新游戏」重载后的一次性标记：用过就清掉
+    } catch (err) {
+      /* 存储不可用就算了 */
+    }
+    holdSave = title && !hadSave;
     const save = G.loadSave();
     // 首个区域的 CC0 素材包先开始下载（和下面的初始化同时进行），最多等 2.5 秒；等的时候盖一层「正在载入场景…」
     const pre = W.preloadZone(save.lastZone, 2500);
     W.init();
     G.ui.init();
+    if (title) G.ui.showTitle(false);
     G.player.ent = W.makePlayer();
     G.computeStats();
     G.player.life = G.player.maxLife;
@@ -209,15 +232,22 @@
       else G.enterZone(save.lastZone, save.tier, 'resume');
       W.update(0); // 首次运行会先停在开场卡片：先把镜头和灯光摆到玩家身上
       if (!save.seenHelp) {
-        save.seenHelp = true;
-        G.persist();
-        G.ui.showIntro();
+        const intro = () => {
+          save.seenHelp = true;
+          G.persist();
+          G.ui.showIntro();
+        };
+        if (G.ui.titleOn()) G.ui.afterTitle(intro); // 开场卡片等离开标题画面再弹
+        else intro();
       }
+      if (G.ui.titleOn()) G.ui.titleReady(); // 区域建好了：「继续游戏」「新游戏」可以点了
       last = performance.now();
       requestAnimationFrame(frame);
     };
     pre.then(start, start);
   }
+
+  G.PLAY_ONCE_KEY = 'cinder-abyss-play-once'; // 和 index.html 开头的判断用同一个键
 
   // ---------- 自动化测试用的调试接口 ----------
   const refreshUi = () => {

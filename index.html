@@ -5,6 +5,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>烬渊</title>
 <link rel="stylesheet" href="css/style.css">
+<!-- 没有站点图标：给一个空的，免得浏览器去请求 /favicon.ico（HTTP 下 404 会在控制台报错） -->
+<link rel="icon" href="data:,">
+<script>
+  // 标题画面：地址带 ?play、window.__skipTitle 为真（测试脚本默认这样，见 test/harness.mjs）、或「新游戏」重载后留下的一次性标记时跳过。
+  // 在这里先定下来（main.js 读 html 上的 title-on），标题画面不用等后面的脚本加载完就能画出来
+  (function () {
+    var skip = !!window.__skipTitle || /[?&]play\b/.test(location.search);
+    try {
+      skip = skip || !!sessionStorage.getItem('cinder-abyss-play-once');
+    } catch (e) {
+      /* 存储不可用就照常显示 */
+    }
+    if (!skip) document.documentElement.classList.add('title-on');
+  })();
+</script>
 </head>
 <body>
 
@@ -147,6 +162,70 @@
     <button type="button" id="intro-go" class="btn primary" tabindex="-1">开始<kbd>Enter</kbd></button>
     <div class="intro-foot">随时按 <kbd>H</kbd> 查看完整帮助</div>
   </div>
+</div>
+
+<!-- 暂停菜单：没有面板开着时按 Esc 打开，游戏暂停（内容由 ui.js 填） -->
+<div id="pause">
+  <div class="pause-card">
+    <div class="pause-title">暂停</div>
+    <div class="m-menu" id="p-menu">
+      <button type="button" class="m-btn primary" tabindex="-1" data-tact="resume"><b>继续</b><kbd>Esc</kbd></button>
+      <button type="button" class="m-btn" tabindex="-1" data-tact="settings"><b>设置</b></button>
+      <button type="button" class="m-btn" tabindex="-1" data-tact="help"><b>操作说明</b></button>
+      <button type="button" class="m-btn" tabindex="-1" data-tact="menu"><b>返回主菜单</b><span>先存档</span></button>
+    </div>
+    <div class="m-host" id="p-view"></div>
+  </div>
+</div>
+
+<!-- 标题画面：载入时显示（地址带 ?play 或 window.__skipTitle 为真时跳过）；背后是存档所在的区域，模拟不推进，镜头缓慢漂移 -->
+<div id="title">
+  <div class="t-shade"></div>
+  <div class="t-veil"></div>
+  <div class="t-main">
+    <div class="t-logo">
+      <svg class="t-emblem" viewBox="0 0 120 120" aria-hidden="true">
+        <defs>
+          <linearGradient id="t-fl" x1="0" y1="1" x2="0" y2="0">
+            <stop offset="0" stop-color="#ff5a1c"/>
+            <stop offset="0.55" stop-color="#ff9a3c"/>
+            <stop offset="1" stop-color="#ffe2a8"/>
+          </linearGradient>
+          <linearGradient id="t-ring" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#e6c58a"/>
+            <stop offset="1" stop-color="#6b4a28"/>
+          </linearGradient>
+          <radialGradient id="t-pit" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0" stop-color="#000" stop-opacity="0.9"/>
+            <stop offset="1" stop-color="#000" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <!-- 外环在下方断开：渊口 -->
+        <path d="M44.5 107.5 A50 50 0 1 1 75.5 107.5" fill="none" stroke="url(#t-ring)" stroke-width="2.4" stroke-linecap="round"/>
+        <circle cx="60" cy="60" r="41" fill="none" stroke="#5e4329" stroke-width="1" stroke-dasharray="2 5"/>
+        <path d="M60 4 l4 6 -4 6 -4 -6z M8 60 l6 -4 6 4 -6 4z M112 60 l-6 -4 -6 4 6 4z" fill="#b08650"/>
+        <ellipse cx="60" cy="99" rx="26" ry="6" fill="url(#t-pit)"/>
+        <path d="M34 99 Q60 93 86 99" fill="none" stroke="#ff7a2c" stroke-width="1.2" stroke-opacity="0.7"/>
+        <!-- 从渊口升起的一簇余烬 -->
+        <path class="t-flame" d="M60 96 C45 87 41 70 51 55 C52 64 56 67 59 62 C58 49 64 39 63 24 C77 38 83 59 75 78 C71 88 66 93 60 96Z" fill="url(#t-fl)"/>
+        <path d="M60 92 C53 86 52 77 57 70 C58 75 61 76 62 72 C63 67 66 64 66 58 C71 66 72 77 68 85 C66 89 63 91 60 92Z" fill="#fff1d2" fill-opacity="0.75"/>
+        <circle class="t-spark a" cx="44" cy="40" r="1.6" fill="#ffb066"/>
+        <circle class="t-spark b" cx="78" cy="30" r="1.2" fill="#ffd28a"/>
+        <circle class="t-spark c" cx="84" cy="52" r="1" fill="#ff8a3c"/>
+      </svg>
+      <div class="t-name">烬渊</div>
+      <div class="t-sub">大火烧尽之后，余烬里有东西在动。</div>
+    </div>
+    <div class="m-menu" id="t-menu">
+      <button type="button" class="m-btn primary" tabindex="-1" id="t-continue" data-tact="continue"><b>继续游戏</b><span id="t-save"></span></button>
+      <button type="button" class="m-btn" tabindex="-1" id="t-new" data-tact="new"><b>新游戏</b></button>
+      <button type="button" class="m-btn" tabindex="-1" data-tact="settings"><b>设置</b></button>
+      <button type="button" class="m-btn" tabindex="-1" data-tact="help"><b>操作说明</b></button>
+      <div class="t-wait">余烬正在点燃……</div>
+    </div>
+    <div class="m-host" id="t-view"></div>
+  </div>
+  <div class="t-foot"><span>烬渊 v0.1.0 · 原创网页动作 RPG</span><button type="button" class="t-link" tabindex="-1" data-tact="credits">致谢</button></div>
 </div>
 
 <div id="drag-ghost"></div>
