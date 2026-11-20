@@ -850,6 +850,15 @@
   // 有异常值的伤害类型：三种元素 + 混沌（混沌另有自己的触发「渊缚」）
   G.BUILD_TYPES = ['fire', 'cold', 'light', 'chaos'];
 
+  // ---------- 敌人的元素抗性 ----------
+  // 一条规则：每个敌人抗自己的元素（e.elem，就是它身上发光的颜色 = 所在区域的元素：灰烬 / 烬渊 / 余烛殿火焰，霜骨冰霜，雷鸣 / 裂谷闪电）。
+  // mob 普通怪（含异兆里的怪、首领召唤的小怪）、elite 精英、boss 首领（含熄烛者）的抗性（%），不随层级变。物理、混沌没有抗性。
+  // zone：按区域 id 覆盖，{ 区域 id: { fire: 0, … } }（缺省为空：全按上面那条规则）。
+  // 生效的抗性 = max(floor, min(cap, 抗性) − 感电 − 穿透)：感电（shock）把三种元素抗性各降 shock 点，但单靠感电不会降到 0 以下；
+  // 只有穿透（辅助「破障」、词缀「元素穿透」）能压到负数，最低 floor。伤害 × (1 − 生效的抗性 / 100)，在 game.js 的 G.hitEnemy 里一处结算
+  // 首领原定 20%：木桩实测熄烛者（纯火）用时 ×1.25、层级 0 的区域首领到 ×1.28（异常值也累积得慢一点），超过「首领用时 ≤ +25%」，按约定降到和小怪一样的 15%
+  G.ENEMY_RES = { mob: 15, elite: 15, boss: 15, cap: 75, floor: -30, shock: 15, zone: {} };
+
   // ---------- 辅助宝石 ----------
   // req：技能需带有其中任一标签；no：带有其中任一标签的技能不能镶（可缺省）；eff：效果；cost：魔力消耗倍率。
   // 镶在召唤技能上时，通用辅助作用在召唤物身上：迅捷也加快召唤物出手，注入 / 蛮力 / 致命 / 震慑 / 蚀染作用于召唤物的每一击，
@@ -878,6 +887,10 @@
     // noKind：这些召唤物镶不上（守像只能有 1 尊）。镶在焚骨祭司上时是祭司 +1
     horde: { name: '群聚', req: ['minion'], noKind: ['colossus'], cost: 1.3, eff: { minionCap: 1, minionMore: -15 }, desc: '召唤数量上限 +1（仆从或祭司，守像镶不上），召唤物伤害额外降低 15%' },
     frenzy: { name: '狂怒', req: ['minion'], cost: 1.2, eff: { minionSpeed: 20 }, desc: '召唤物攻击与移动速度 +20%' },
+    // 破障（enemy-resist；support-expand 那一组的第 5 颗，等那一组上了 main 挪到它们的块末尾）：元素伤害穿透敌人的元素抗性（见 G.ENEMY_RES），
+    // 可以压到负数。镶在召唤技能上作用于召唤物的每一击
+    breach: { name: '破障', req: null, cost: 1.15, eff: { pen: 25 }, desc: '元素伤害穿透 25% 抗性',
+      alt: '敌人抗自己颜色的元素 ' + G.ENEMY_RES.mob + '%。穿透能把抗性压到负数，最低 ' + G.ENEMY_RES.floor + '%：对不抗的敌人也是 +25%。物理、混沌不受影响。' },
   };
 
   // ---------- 属性显示 ----------
@@ -889,7 +902,7 @@
     addPhys: '附加 {a}–{b} 物理伤害', addFire: '附加 {a}–{b} 火焰伤害',
     addCold: '附加 {a}–{b} 冰霜伤害', addLight: '附加 {a}–{b} 闪电伤害',
     incChaos: '混沌伤害提高 {v}%', addChaos: '附加 {a}–{b} 混沌伤害', moreChaos: '混沌伤害总额外 {s}{v}%',
-    bindAil: '渊缚累积速度加快 {v}%', flameEff: '黑焰的额外混沌伤害提高 {v}%', holeDur: '黑洞持续时间延长 {v}%', pullK: '黑洞与渊缚的牵引力提高 {v}%',
+    elemPen: '元素伤害穿透 {v}% 抗性', bindAil: '渊缚累积速度加快 {v}%', flameEff: '黑焰的额外混沌伤害提高 {v}%', holeDur: '黑洞持续时间延长 {v}%', pullK: '黑洞与渊缚的牵引力提高 {v}%',
     resFire: '+{v}% 火焰抗性', resCold: '+{v}% 冰霜抗性', resLight: '+{v}% 闪电抗性',
     speed: '攻击与施法速度提高 {v}%', crit: '暴击率提高 {v}%', critMulti: '+{v}% 暴击伤害',
     lifeRegen: '每秒回复 {v} 生命', manaRegen: '魔力回复速度提高 {v}%', lifeOnKill: '击杀回复 {v} 生命',
@@ -1037,6 +1050,8 @@
     A('incChaos', 'prefix', '渊蚀', 'incChaos', 6, 10, 1.35, ['weapon'].concat(JEW), 4),
     A('addChaos', 'prefix', '蚀刻', 'addChaos', 1, 3, 1.5, ['weapon', 'gloves'].concat(JEW), 3),
     A('bindAil', 'suffix', '缚渊', 'bindAil', 8, 13, 1.3, ['weapon', 'gloves', 'amulet'], 4),
+    // 元素穿透（enemy-resist）：你亲手的元素伤害穿透敌人的元素抗性（召唤物不吃），和辅助「破障」相加，压到负数时最低 G.ENEMY_RES.floor
+    A('elemPen', 'suffix', '透元', 'elemPen', 3, 4, 1.07, ['weapon', 'amulet'], 3),
     // 召唤物词缀。baseW：按基底（BASES 里的下标）调整出现权重——杖类武器（木杖 / 骨杖）更容易出召唤物伤害；
     // minIlvl / rareOnly：只在物品等级够高的稀有物品上出现
     Object.assign(A('minionDmg', 'prefix', '统御', 'minionDmg', 6, 10, 1.35, ['weapon'].concat(JEW), 5), { baseW: { weapon: [0.4, 1.8, 1.8, 0.4, 0.4, 0.4, 0.4, 2.6, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2] } }),
@@ -1057,7 +1072,7 @@
   ];
   G.AFFIX_BY_ID = {};
   for (const a of G.AFFIXES) G.AFFIX_BY_ID[a.id] = a;
-  for (const id of ['moveSpeed', 'resFire', 'resCold', 'resLight', 'speed', 'crit', 'critMulti', 'manaRegen', 'rarity', 'uAilment', 'heatGain', 'focusGain', 'bindAil']) G.AFFIX_BY_ID[id].soft = true;
+  for (const id of ['moveSpeed', 'resFire', 'resCold', 'resLight', 'speed', 'crit', 'critMulti', 'manaRegen', 'rarity', 'uAilment', 'heatGain', 'focusGain', 'bindAil', 'elemPen']) G.AFFIX_BY_ID[id].soft = true;
 
   // ---------- 烬铸武器（稀有度 3）----------
   // 名字、武器类型和词缀行都是固定的，只有数值在区间里掷。区间跟着物品等级走：每一行取这条词缀在该物品等级最高阶的区间，
