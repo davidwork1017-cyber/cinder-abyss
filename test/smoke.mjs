@@ -34,6 +34,16 @@ function assert(cond, msg) {
   if (!cond) throw new Error(msg);
 }
 const ev = (fn, arg) => page.evaluate(fn, arg);
+// 测的不是敌人元素抗性的步骤（技能卡数字对实打、异常值公式、爆燃 / 混相触发）：这一步期间把敌人抗性清零，结束时无论成败都还原。
+// 抗性本身、以及「异常值按扣过抗性的伤害累积」在「敌人元素抗性」那一步里测
+const noRes = (fn) => async () => {
+  await ev(() => T.noRes(true));
+  try {
+    return await fn();
+  } finally {
+    await ev(() => T.noRes(false)).catch(() => {});
+  }
+};
 const sleep = (ms) => page.waitForTimeout(ms);
 // 等游戏主循环实际跑过 n 帧（无头软件渲染很慢，不能按固定时间等）
 const frames = (n) =>
@@ -217,6 +227,17 @@ async function install() {
         if (T._rand) {
           Math.random = T._rand;
           T._rand = null;
+        }
+      },
+      // 敌人元素抗性清零 / 还原（见文件头的 noRes）
+      noRes(on) {
+        const R = G.ENEMY_RES;
+        if (on && !T._res) {
+          T._res = [R.mob, R.elite, R.boss];
+          R.mob = R.elite = R.boss = 0;
+        } else if (!on && T._res) {
+          [R.mob, R.elite, R.boss] = T._res;
+          T._res = null;
         }
       },
       // 一只醒着的靶子：默认打不死、不还手、站着不动（但可以被击退）
@@ -3185,7 +3206,7 @@ async function main() {
     return '射线 ' + r.line.join('/') + '（蓄满 ' + r.castT + 's，轻点 ' + r.turn + '）· 炎爆 ' + r.nova.hit.join('/') + ' + 火场 ' + r.nova.burn + ' · 乱射 ' + r.wild.shots + ' 发';
   });
 
-  await step('熔光射线按机炮普攻折算：蓄满一发打在一排木桩上，每个都吃到 ≥ 7 秒机炮普攻（不镶辅助、转满之后的秒伤），物品等级 10 和 40（带上附加伤害与攻速）都成立；技能卡上的数字和实际打出来的对得上', async () => {
+  await step('熔光射线按机炮普攻折算：蓄满一发打在一排木桩上，每个都吃到 ≥ 7 秒机炮普攻（不镶辅助、转满之后的秒伤），物品等级 10 和 40（带上附加伤害与攻速）都成立；技能卡上的数字和实际打出来的对得上', noRes(async () => {
     const r = await ev((code) => {
       eval(code);
       const save = G.save, P = G.player, S = G.state, out = [];
@@ -3262,9 +3283,9 @@ async function main() {
     }
     assert(r[1].basic > r[0].basic * 2 && Math.abs(r[1].secs - r[0].secs) <= 0.8, '武器升级后普攻和射线应一起涨：' + JSON.stringify(r));
     return r.map((o) => '物品等级 ' + o.il + '：普攻 ' + o.basic + '/s · 射线 ' + o.avg + '（折合 ' + o.secs + ' 秒）').join(' · ');
-  });
+  }));
 
-  await step('焚天炎爆按喷枪普攻折算：火浪加 5 秒火场打在木桩上 ≥ 4.5 秒喷枪普攻（不镶辅助、含余烬的秒伤），物品等级 10 和 40（带上附加伤害与攻速）都成立；技能卡上的整招伤害对得上', async () => {
+  await step('焚天炎爆按喷枪普攻折算：火浪加 5 秒火场打在木桩上 ≥ 4.5 秒喷枪普攻（不镶辅助、含余烬的秒伤），物品等级 10 和 40（带上附加伤害与攻速）都成立；技能卡上的整招伤害对得上', noRes(async () => {
     const r = await ev((code) => {
       eval(code);
       const save = G.save, P = G.player, out = [];
@@ -3335,7 +3356,7 @@ async function main() {
     }
     assert(r[1].basic > r[0].basic * 2 && Math.abs(r[1].secs - r[0].secs) <= 0.8, '武器升级后普攻和炎爆应一起涨：' + JSON.stringify(r));
     return r.map((o) => '物品等级 ' + o.il + '：普攻 ' + o.basic + '/s · 炎爆 ' + o.dmg + '（折合 ' + o.secs + ' 秒）').join(' · ');
-  });
+  }));
 
   await step('弓的 R 增益（约 8 秒）：万矢每箭分 5 支追踪箭；一矢穿心必定暴击、贯穿所有；元素满溢火冰雷轮流、异常翻倍、命中炸开；凛冬 3 支寒冰箭、冰晶多跳、打死的碎成冰爆；换掉弓增益就没了', async () => {
     const r = await ev((code) => {
@@ -3908,7 +3929,7 @@ async function main() {
     return '两秒脉冲 ' + r.pulses.toFixed(1) + ' 次，半径 ' + r.R[0].toFixed(1) + '，保留 ' + r.on.res + ' 魔力';
   });
 
-  await summonStep('元素异常值：按每种元素的伤害累积（物理不算），各元素速度不同（闪电 > 冰霜 > 火焰），阈值随生命 / 精英 / 首领而定，异常累积速度加快累积，几秒没挨打后回落；冰霜异常值带来轻度冰缓', async () => {
+  await summonStep('元素异常值：按每种元素的伤害累积（物理不算），各元素速度不同（闪电 > 冰霜 > 火焰），阈值随生命 / 精英 / 首领而定，异常累积速度加快累积，几秒没挨打后回落；冰霜异常值带来轻度冰缓', noRes(async () => {
     const r = await ev(() => {
       T.arena();
       const P = G.player, B = G.BUILDUP, out = {};
@@ -3972,9 +3993,9 @@ async function main() {
     assert(Math.abs(r.ratio.normal - B.th) < 0.02 && Math.abs(r.ratio.elite - B.thElite) < 0.02 && Math.abs(r.ratio.boss - B.boss) < 1e-6 && B.thElite * 4.5 > B.th, '阈值比例不对：' + JSON.stringify(r.ratio));
     // 普通敌人打掉不到五分之一生命的火焰伤害就该灌满（改版前要一半），精英约三成
     assert(B.th <= 0.2 && B.th >= 0.12 && B.thElite <= 0.35 && B.thElite > B.th, '阈值应降到普通约 18%、精英约 30%：' + JSON.stringify({ th: B.th, el: B.thElite }));
-  });
+  }));
 
-  await summonStep('异常触发：冰霜满 → 冻结（精英更短，冻结中不再累积）；火焰满 → 爆燃波及周围且不连锁；闪电满 → 感电，挨打时向附近敌人射电弧（不连锁、有节流，身边没人则打回自己）', async () => {
+  await summonStep('异常触发：冰霜满 → 冻结（精英更短，冻结中不再累积）；火焰满 → 爆燃波及周围且不连锁；闪电满 → 感电，挨打时向附近敌人射电弧（不连锁、有节流，身边没人则打回自己）', noRes(async () => {
     const r = await ev(() => {
       T.arena();
       const P = G.player, W = G.world, S = G.state, B = G.BUILDUP, out = {};
@@ -4082,7 +4103,7 @@ async function main() {
     assert(JSON.stringify(r.shock.d2) === JSON.stringify(d1) && r.shock.d3.some((d, i) => d > d1[i]), '同一个敌人 ' + B.shockGap + ' 秒内最多放一次电弧：' + JSON.stringify(r.shock));
     assert(r.shock.expired === 0, '感电结束后不再放电弧');
     assert(r.solo.bolts === 1 && Math.abs(r.solo.dmg - r.solo.base * (1 + B.bolt)) < r.solo.base * 0.03, '身边没有别的敌人时只有一道电弧打回它自己：' + JSON.stringify(r.solo));
-  });
+  }));
 
   await summonStep('首领与异常：不会被冻结，冰霜灌满是重度冰缓（移动与出手放慢）；每触发一次阈值就提高（封顶），不会被永久控住；首领血条下有三段异常值', async () => {
     const r = await ev(() => {
@@ -12953,7 +12974,7 @@ async function main() {
     return '桥上 ' + r.ticks + ' 跳';
   });
 
-  await step('混相（异变）：火 / 冰 / 雷都灌进同一条混相异常值（三条单独的不涨），满了同时爆燃 + 冻结 + 感电，各 ×0.6；首领只涨一次阈值、重度冰缓；拿着三相之心也不共鸣', async () => {
+  await step('混相（异变）：火 / 冰 / 雷都灌进同一条混相异常值（三条单独的不涨），满了同时爆燃 + 冻结 + 感电，各 ×0.6；首领只涨一次阈值、重度冰缓；拿着三相之心也不共鸣', noRes(async () => {
     const r = await ev(() => {
       RQT.begin('yibian');
       const K = G.RELIC_MECH.yibian.k, BU = G.BUILDUP;
@@ -12988,7 +13009,7 @@ async function main() {
     assert(r.boss[0] === 1.5 && r.boss[1] === 1 && r.boss[2] === 1 && r.boss[3] === r.boss[4] && r.boss[5] === 0, '首领：阈值只涨一次、重度冰缓：' + JSON.stringify(r.boss));
     assert(r.tri[0] === 'tri' && r.tri[1] === 0 && r.tri[2] === 0, '异变在身时三相之心不该共鸣：' + JSON.stringify(r.tri));
     return '混相 ' + r.one[3] + ' / 击';
-  });
+  }));
 
   await step('独骸（骸王冠）：烬骸仆从上限固定 1，伤害 ×2.9（单体秒伤 = 3 具的 0.967）、生命 ×3、横斩带 6 个 / 220°、牵制 5 只、减伤 +15；群聚多给的上限折成 +35% 伤害 / +40% 生命；骸王体型 ×1.5；魂火按普通仆从算', async () => {
     const r = await ev(() => {
