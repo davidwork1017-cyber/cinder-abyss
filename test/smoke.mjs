@@ -722,7 +722,8 @@ async function timedMain() {
       const L = document.querySelector('.skill-list'), r = L.getBoundingClientRect(), y = T.rect(far).y;
       return L.scrollTop >= L.scrollHeight - L.clientHeight - 1 || (y > r.top + edge && y < r.top + L.clientHeight - edge - 60);
     }, [g.far, 40]).catch(async () => {
-      throw new Error('贴边自动滚动没有把远处的孔带进视野：scrollTop ' + (await top()));
+      const d = await ev((far) => new Promise((res) => { const L = document.querySelector('.skill-list'), r = L.getBoundingClientRect(), g = document.getElementById('drag-ghost'), t0 = performance.now(), s0 = L.scrollTop; let n = 0; const f = () => (++n, performance.now() - t0 < 1000 ? requestAnimationFrame(f) : res({ fps: n, moved1s: L.scrollTop - s0, top: L.scrollTop, max: L.scrollHeight - L.clientHeight, list: [Math.round(r.top), Math.round(r.top + L.clientHeight)], farY: Math.round(T.rect(far).y), ghost: g.className, cap: g.textContent, lists: document.querySelectorAll('.skill-list').length, weapon: G.weaponBasic() })); requestAnimationFrame(f); }), g.far);
+      throw new Error('贴边自动滚动没有把远处的孔带进视野：' + JSON.stringify({ far: g.far, ptr: [Math.round(g.x), Math.round(g.bottom - 6)], ...d }));
     });
     // 先挪进来（离开贴边带就不再滚），再对准孔的中心
     let b = await ev((s) => T.rect(s), g.far);
@@ -7590,9 +7591,67 @@ async function main() {
       await until(() => !document.body.classList.contains('alt-on'));
       await page.mouse.move(5, 5);
       await closePanel();
-      return lay.length + ' 张卡，宽 ' + [...new Set(lay.map((c) => c.w))].join(' / ');
+      // 技能栏五格：法杖 / 魔杖 / 近战三类武器，1024×640 和 1440×900 各量一遍。五格等宽（差 ≤ 1 像素）；
+      // 文字框在格子里；格子里没有横向溢出的元素；「按键 · 用途」只占一行（高 ≤ 1.3 倍行高）
+      const kinds = await ev(() => {
+        window.__sbW = G.save.equip.weapon;
+        const got = {};
+        for (let b = 0; b < 60 && Object.keys(got).length < 3; b++) {
+          G.save.equip.weapon = G.rollItem(10, 2, 'weapon', b);
+          G.computeStats();
+          const k = G.weaponBasic();
+          if (/^basic_(staff|wand|blade)$/.test(k) && !(k in got)) got[k] = b;
+        }
+        G.save.equip.weapon = window.__sbW;
+        G.computeStats();
+        return got;
+      });
+      assert(['basic_staff', 'basic_wand', 'basic_blade'].every((k) => k in kinds), '找不到法杖 / 魔杖 / 近战武器的基底：' + JSON.stringify(kinds));
+      const barBad = [];
+      for (const [w, h] of [[1024, 640], [1440, 900]]) {
+        await page.setViewportSize({ width: w, height: h });
+        for (const k of ['basic_staff', 'basic_wand', 'basic_blade']) {
+          await ev((b) => { G.save.equip.weapon = G.rollItem(10, 2, 'weapon', b); G.computeStats(); }, kinds[k]);
+          await page.keyboard.press('KeyG');
+          await until(() => G.ui.isOpen() && document.querySelectorAll('.barstrip > div').length === 5);
+          await panelSettled();
+          const m = await ev(() => Array.from(document.querySelectorAll('.barstrip > div')).map((s) => {
+            const r = s.getBoundingClientRect(), t = s.querySelector('.bs-txt'), tr = t.getBoundingClientRect(), sp = t.querySelector('span');
+            // 单行高度：同样式的一个字（line-height 是 normal 时中文字体的行盒比 1.2 倍字号高）
+            const one = sp.cloneNode(false);
+            one.textContent = '键';
+            one.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap';
+            sp.parentNode.appendChild(one);
+            const lh = one.getBoundingClientRect().height;
+            one.remove();
+            return {
+              txt: t.textContent, w: r.width, spanH: Math.round(sp.getBoundingClientRect().height), lh: Math.round(lh * 10) / 10,
+              inside: tr.left >= r.left - 0.5 && tr.right <= r.right + 0.5 && tr.top >= r.top - 0.5 && tr.bottom <= r.bottom + 0.5,
+              over: [s, ...s.querySelectorAll('*')].filter((n) => n.scrollWidth > n.clientWidth && getComputedStyle(n).display !== 'inline').map((n) => n.tagName.toLowerCase() + '.' + n.className + ' ' + n.scrollWidth + '>' + n.clientWidth),
+            };
+          }));
+          const ws = m.map((q) => q.w);
+          const why = [];
+          if (Math.max(...ws) - Math.min(...ws) > 1) why.push('不等宽 ' + ws.map(Math.round).join('/'));
+          for (const q of m) {
+            if (!q.inside) why.push(q.txt + ' 文字出了格子');
+            if (q.over.length) why.push(q.txt + ' 横向溢出 ' + q.over.join(','));
+            if (q.spanH > 1.3 * q.lh) why.push(q.txt + ' 按键行折成多行 ' + q.spanH + '/' + q.lh);
+          }
+          if (why.length) barBad.push(w + '×' + h + ' ' + k + '：' + why.join('；'));
+          await closePanel();
+        }
+      }
+      assert(!barBad.length, '技能栏格子排不下：' + barBad.join(' ｜ '));
+      return lay.length + ' 张卡，宽 ' + [...new Set(lay.map((c) => c.w))].join(' / ') + '；技能栏 2 种宽度 × 3 类武器';
     } finally {
       await page.setViewportSize({ width: 1440, height: 900 });
+      await ev(() => {
+        if (!('__sbW' in window)) return;
+        G.save.equip.weapon = window.__sbW;
+        delete window.__sbW;
+        G.computeStats();
+      });
       await ev((k) => {
         for (const id in k) {
           if (k[id] === undefined) delete G.save.skills[id];
