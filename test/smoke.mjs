@@ -11412,12 +11412,13 @@ async function main() {
     assert(r.collapses === 1 && r.holes === 0 && r.burst > 3, '再按一次应提前坍缩、按质量重击：' + JSON.stringify(r));
     return '质量 ' + r.mass + '、半径 ×' + r.grew + '，坍缩一击约等于 ' + r.burst + ' 跳';
   });
-  await step('刻式 v2·黑旋风「护涡」：三团旋风绕着你转，绞贴身的怪、吞掉敌方弹丸', async () => {
+  await step('刻式 v2·黑旋风「护涡」（光环）：放上技能栏就有三团旋风绕着你转，绞贴身的怪、吞掉敌方弹丸；按键不施放', async () => {
     await ev(TVDEF);
     const r = await ev(() => {
       TV.setup('vortex', 'a');
       const P = G.player, m = TV.mob(2.4, 0);
-      TV.cast('vortex', TV.at(6), 0.6);
+      TV.pin(m);
+      TV.run(0.6);
       const vs = G.chaosVortices().filter((v) => v.guard);
       const rr = vs.map((v) => Math.hypot(v.x - P.x, v.z - P.z));
       // 一发朝你飞来的敌方弹丸，穿过旋风那一圈
@@ -11425,13 +11426,121 @@ async function main() {
       const v0 = vs[0], sx = v0.x + (v0.x - P.x) * 0.1, sz = v0.z + (v0.z - P.z) * 0.1;
       G.spawnProjectile({ owner: 'e', x: sx, z: sz, dx: P.x - sx, dz: P.z - sz, speed: 2, r: 0.3, life: 5, dmg: 1, dtype: 'phys' });
       TV.run(1.2);
-      const out = { n: vs.length, rmin: +Math.min.apply(null, rr).toFixed(2), rmax: +Math.max.apply(null, rr).toFixed(2), eaten: TV.st('vEaten') - e0, hits: TV.n(m) };
+      // 轻点技能键：光环不施放、不扣魔力、不进冷却，旋风还是原来那一组
+      const mana0 = P.mana;
+      G.input.tap[0] = 0.2;
+      TV.run(0.3);
+      const out = { n: vs.length, aura: G.SKILLS.vortex.kind === 'aura' && G.auraOn('vortex'), rmin: +Math.min.apply(null, rr).toFixed(2), rmax: +Math.max.apply(null, rr).toFixed(2), eaten: TV.st('vEaten') - e0, hits: TV.n(m) };
+      out.press = !P.cast && !(P.cds.vortex > 0) && P.mana === mana0 && TV.st('vGuardSpawn') === 1 && G.chaosVortices().filter((v) => v.guard).every((v) => vs.indexOf(v) >= 0);
       TV.done();
       return out;
     });
-    assert(r.n === 3 && r.rmin > 1.8 && r.rmax < 3.0, '护涡应三团绕着你转：' + JSON.stringify(r));
+    assert(r.aura && r.n === 3 && r.rmin > 1.8 && r.rmax < 3.0, '护涡应是光环、三团绕着你转：' + JSON.stringify(r));
     assert(r.eaten >= 1 && r.hits >= 3, '护涡应吞掉弹丸、绞贴身的怪：' + JSON.stringify(r));
+    assert(r.press, '按护涡的键不该施放、扣魔力或换一组：' + JSON.stringify(r));
     return '绕身半径 ' + r.rmin + '–' + r.rmax + '，吞弹 ' + r.eaten + '，绞中 ' + r.hits;
+  });
+  await step('刻式 v2·黑旋风「护涡」（光环）：保留魔力 30%、20 秒一直在跳；拿下技能栏 / 换回原式 / 宝石没了当场消散并还回保留', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      const P = G.player, s = G.save, out = {};
+      const guards = () => G.chaosVortices().filter((v) => v.guard).length;
+      TV.setup('vortex', 'a', [null, null, null, null]);
+      T.fix(0.5);
+      G.computeStats();
+      out.off = { pct: P.reservePct, res: P.reserved, max: P.maxMana === P.maxManaRaw };
+      // 放上技能栏 = 开：保留 30%，当前魔力压到新的上限以内（保留不够时照常扣，现有光环规则：总保留封顶 90%，不会拒绝）
+      P.mana = P.maxManaRaw;
+      G.bindSkill(2, 'vortex');
+      out.on = { pct: P.reservePct, one: G.auraReserve('vortex'), res: P.reserved, want: Math.round(P.maxManaRaw * 0.3), max: P.maxMana === P.maxManaRaw - P.reserved, clamp: P.mana <= P.maxMana };
+      // 辅助照样乘在保留上：扩域 ×1.2 → 36%；和霜环一起放是 36 + 25
+      s.supports = Array.from(new Set((s.supports || []).concat(['expanse'])));
+      G.socketSupport('vortex', 0, 'expanse');
+      s.bar[3] = 'nova';
+      G.computeStats();
+      out.sup = { one: G.auraReserve('vortex'), pct: P.reservePct };
+      G.socketSupport('vortex', 0, null);
+      s.bar[3] = null;
+      G.computeStats();
+      out.back = P.reservePct;
+      // 20 秒：一只钉在贴身处的靶子一直挨跳，旋风从头到尾是同一组（没重放过）
+      const e = TV.big(2.4, 0);
+      e.buTh = 1e15;
+      e.poiseMax = 0;
+      TV.pin(e);
+      TV.run(15);
+      const n15 = TV.n(e);
+      TV.run(5);
+      out.keep = { hits: TV.n(e), last5: TV.n(e) - n15, n: guards(), spawn: TV.st('vGuardSpawn') };
+      // 拿下技能栏：不用等下一帧，旋风和保留当场没了
+      G.bindSkill(2, null);
+      out.unbind = { n: guards(), pct: P.reservePct, max: P.maxMana === P.maxManaRaw };
+      const h0 = TV.n(e);
+      TV.run(1);
+      out.unbind.after = TV.n(e) - h0;
+      // 放回去接着转；换回原式（技能页换刻式）也当场收起
+      G.bindSkill(2, 'vortex');
+      TV.run(0.3);
+      out.rebind = guards();
+      G.clearEnemies();
+      s.variantFree.vortex = false;
+      out.swap = G.setVariant('vortex', 'o').ok && guards() === 0 && P.reservePct === 0 && G.SKILLS.vortex.kind === 'vortex';
+      s.variantFree.vortex = false;
+      G.setVariant('vortex', 'a');
+      TV.run(0.3);
+      out.swapBack = guards();
+      // 宝石没了（存档里不再有这个技能）：同样当场收起
+      const lvl = s.skills.vortex;
+      delete s.skills.vortex;
+      G.computeStats();
+      out.gem = guards() === 0 && P.reservePct === 0;
+      s.skills.vortex = lvl;
+      TV.done();
+      return out;
+    });
+    assert(r.off.pct === 0 && r.off.res === 0 && r.off.max, '不在技能栏上不该保留：' + JSON.stringify(r));
+    assert(r.on.pct === 30 && r.on.one === 30 && r.on.res === r.on.want && r.on.max && r.on.clamp, '放上技能栏应保留 30% 最大魔力：' + JSON.stringify(r));
+    assert(r.sup.one === 36 && r.sup.pct === 61 && r.back === 30, '辅助应乘在保留上、和别的光环相加：' + JSON.stringify(r));
+    assert(r.keep.n === 3 && r.keep.spawn === 1 && r.keep.hits >= 60 && r.keep.last5 >= 15, '护涡应 20 秒一直在、一直跳：' + JSON.stringify(r));
+    assert(r.unbind.n === 0 && r.unbind.pct === 0 && r.unbind.max && r.unbind.after === 0, '拿下技能栏应当场消散、还回保留：' + JSON.stringify(r));
+    assert(r.rebind === 3 && r.swap && r.swapBack === 3 && r.gem, '放回 / 换刻式 / 宝石没了应跟着开关：' + JSON.stringify(r));
+    return '保留 ' + r.on.pct + '%（' + r.on.res + ' 点），20 秒绞中 ' + r.keep.hits + ' 跳（最后 5 秒 ' + r.keep.last5 + '），拿下即散';
+  });
+  await step('刻式 v2·黑旋风「护涡」（光环）：存档——选着护涡读档还是护涡；在技能栏上读档后接着转、不在就不保留；原式旋风飞在半空时换成护涡读档不出错', async () => {
+    await ev(TVDEF);
+    const r = await ev((keep) => {
+      const P = G.player, s = G.save, out = {};
+      const guards = () => G.chaosVortices().filter((v) => v.guard).length;
+      TV.setup('vortex', 'o');
+      // 原式放出去一组（旋风在飞、冷却在走），存档里改成护涡、在技能栏上，再读档
+      TV.cast('vortex', TV.at(6), 0.2);
+      out.flying = G.chaosVortices().filter((v) => !v.guard).length;
+      s.variants = { vortex: 'a' };
+      s.variantFree = { vortex: true };
+      G.persist();
+      G.loadSave();
+      G.computeStats();
+      TV.run(2.5);
+      out.on = { v: G.save.variants.vortex, name: G.SKILLS.vortex.vname, aura: G.auraOn('vortex'), pct: P.reservePct, n: guards(), left: G.chaosVortices().filter((v) => !v.guard).length };
+      // 不在技能栏上存档、读档：不保留、没有旋风；刻式还是护涡
+      s.bar = [null, null, null, null];
+      G.computeStats();
+      G.persist();
+      G.loadSave();
+      G.computeStats();
+      TV.run(0.5);
+      out.off = { v: G.save.variants.vortex, aura: G.auraOn('vortex'), pct: P.reservePct, n: guards() };
+      if (keep) localStorage.setItem('cinder-abyss-save-v1', keep);
+      else localStorage.removeItem('cinder-abyss-save-v1');
+      G.loadSave();
+      G.computeStats();
+      TV.done();
+      return out;
+    }, varKeep);
+    assert(r.flying >= 3, '原式应先放出去一组：' + JSON.stringify(r));
+    assert(r.on.v === 'a' && r.on.name === '护涡' && r.on.aura && r.on.pct === 30 && r.on.n === 3 && r.on.left === 0, '读档后护涡应接着转、半空的原式旋风照常散掉：' + JSON.stringify(r));
+    assert(r.off.v === 'a' && !r.off.aura && r.off.pct === 0 && r.off.n === 0, '不在技能栏上读档不该保留、不该有旋风：' + JSON.stringify(r));
+    return '读档：在栏上保留 ' + r.on.pct + '%、' + r.on.n + ' 团；不在栏上 0%';
   });
   await step('刻式 v2·黑旋风「汇涡」：旋风互相靠拢，撞到一起合成层数更高的一团', async () => {
     await ev(TVDEF);
