@@ -90,7 +90,7 @@
     // 伤害本身很低，主要价值是不断累积冰霜异常值
     nova: {
       name: '霜环', icon: '霜', color: '#86d8ff', tags: ['spell', 'area', 'cold', 'aura'], kind: 'aura',
-      dmg: { cold: [3.2, 4.8] }, time: 0.5, mana: 0, reserve: 25, cd: 0, radius: 4.5, w: 0, kb: 0, poise: 0,
+      dmg: { cold: [3.2, 4.8] }, time: 0.5, mana: 0, reserve: 18, cd: 0, radius: 4.5, w: 0, kb: 0, poise: 0, // 保留 25 → 18（用户定：三个光环一起约 63%，见 G.auraFits）
       desc: '光环：身边一圈寒气定时刺痛所有敌人，伤害低，但持续累积冰霜异常值，冰缓乃至冻结。',
     },
     arc: {
@@ -203,7 +203,7 @@
     //   爆燃 / 电弧这类触发伤害与霜环的脉冲不带黑焰。只能镶节流
     blackflame: {
       name: '黑焰', icon: '冥', color: '#e04cc0', tags: ['spell', 'aura', 'chaos'], kind: 'aura', buff: true,
-      mana: 0, reserve: 35, cd: 0, time: 1, w: 0, kb: 0, poise: 0,
+      mana: 0, reserve: 25, cd: 0, time: 1, w: 0, kb: 0, poise: 0, // 保留 35 → 25（同上）
       flame: { k0: 6, k1: 0.25, cap: 15 },
       desc: '光环：你和召唤物的每一击附带一缕黑焰，造成该击一定比例的额外混沌伤害。只能镶节流。',
     },
@@ -883,6 +883,26 @@
     // noKind：这些召唤物镶不上（守像只能有 1 尊）。镶在焚骨祭司上时是祭司 +1
     horde: { name: '群聚', req: ['minion'], noKind: ['colossus'], cost: 1.3, eff: { minionCap: 1, minionMore: -15 }, desc: '召唤数量上限 +1（仆从或祭司，守像镶不上），召唤物伤害额外降低 15%' },
     frenzy: { name: '狂怒', req: ['minion'], cost: 1.2, eff: { minionSpeed: 20 }, desc: '召唤物攻击与移动速度 +20%' },
+
+    // ---------- 取舍型 / 改玩法的辅助（support-expand） ----------
+    // eff 里的新字段由 game.js 的 G.supXCtx 汇总进 ctx.x（more / area 这类老字段照常在 skillCtx 的循环里算）。
+    // 额外的适用条件：needCd 技能要有冷却；noId 这些技能镶不上（标签对得上、机制用不上）；auraUp 能镶在黑焰这类增益光环上。
+    // 镶在召唤技能上时：收束缩小守像的砸地、祭司的火弹爆炸并提高召唤物伤害；断命、化元作用于召唤物的每一击；
+    // 烈爆 / 深寒 / 雷涌作用于召唤物打出来的爆燃 / 冻结 / 感电；远劲、储能、分岔、溅击镶不上
+    narrow: { name: '收束', req: ['area'], cost: 1.2, eff: { area: -35, more: 25 }, desc: '范围缩小 35%，伤害 +25%',
+      alt: '伤害是总额外加成。半径约为原来的八成。' },
+    farshot: { name: '远劲', req: ['projectile'], no: ['minion'], cost: 1.15, eff: { projSpd: 50, more: 20, noPass: 1 }, desc: '弹速与射程 +50%，伤害 +20%，不穿透',
+      alt: '也不再连锁：装备、贯穿、连锁给的穿透和连锁都失效；弓的「一矢穿心」照样贯穿。黑旋风只是飞得更快更远。' },
+    swell: { name: '盛环', req: ['aura'], auraUp: true, cost: 1.5, eff: { auraEff: 30 }, desc: '光环效果 +30%，保留 ×1.5',
+      alt: '霜环、护涡的伤害 +30%；黑焰附带的混沌伤害比例 +30%。光环一共最多保留 90%。' },
+    charge: { name: '储能', req: null, needCd: true, no: ['minion'], cost: 1.1, eff: { charges: 1, cdMore: 30 }, desc: '多存 1 次施放，冷却延长 30%',
+      alt: '存满 2 次后可以连放两下；每次冷却结束补 1 次。只能镶在有冷却的技能上。' },
+    blaze: { name: '烈爆', req: null, cost: 1.1, eff: { blastK: 60, blastR: 30, blastCap: 60 }, desc: '爆燃伤害 +60%，范围 +30%',
+      alt: '只对这个技能打满的爆燃生效，爆燃的伤害上限同样提高 60%。不加快火焰异常值的累积。' },
+    deepfreeze: { name: '深寒', req: null, cost: 1.1, eff: { freezeK: 50, chillK: 25 }, desc: '冻结时间 +50%，冰缓减速 +25%',
+      alt: '只对这个技能打满的冻结、首领的重度冰缓生效；冰缓按最近一次灌冰霜的技能算。不加快冰霜异常值的累积。' },
+    surge: { name: '雷涌', req: null, cost: 1.1, eff: { shockN: 1, shockT: 25 }, desc: '感电多放 1 道电弧，时间 +25%',
+      alt: '只对这个技能打满的感电生效：每次挨打射出 3 道电弧（原来 2 道），感电 5 秒（原来 4 秒）。' },
   };
 
   {
