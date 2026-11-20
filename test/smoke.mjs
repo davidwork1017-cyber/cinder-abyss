@@ -3965,6 +3965,107 @@ async function main() {
     return '尸爆 ' + Math.round(r.fire.n) + '，放电 ' + B.deathBoltN + ' × ' + r.light.want + '，碎冰灌 ' + r.cold.n.toFixed(2) + '（精英 ' + r.cold.el.toFixed(2) + '），连锁 ' + r.chain.blasts + ' 代';
   });
 
+  await step('敌人元素抗性：抗自己颜色的元素 15%，感电压到 0、破障 / 元素穿透压到负数（最低 −30%）、召唤物不吃装备穿透、异常触发不重复扣；名牌 / 首领血条小签', async () => {
+    const r = await ev(() => {
+      const R = G.ENEMY_RES, P = G.player, out = {};
+      const zi0 = G.state.zoneIdx;
+      // 每个区（含余烛殿）刷一只普通 / 精英 / 首领，抗性只在本区元素上
+      out.zones = [];
+      for (let i = 0; i < G.ZONES.length; i++) {
+        const z = G.ZONES[i];
+        const fake = { elem: z.elem, elite: false, isBoss: false }, el = { elem: z.elem, elite: true, isBoss: false }, bo = { elem: z.elem, elite: false, isBoss: true };
+        out.zones.push(z.id + ':' + G.ELEMS.map((t) => G.enemyRes(fake, t) + '/' + G.enemyRes(el, t) + '/' + G.enemyRes(bo, t)).join(',') + ':' + G.enemyRes(fake, 'phys') + G.enemyRes(fake, 'chaos'));
+      }
+      // 真正刷出来的怪：e.elem 跟着区域走
+      G.clearEnemies();
+      const e = T.mob('husk', 3, 0), el = T.mob('husk', 3, 2, { elite: true });
+      out.spawn = [G.state.zone.def.id, e.elem, G.enemyRes(e, e.elem), G.enemyRes(el, el.elem)].join();
+      const ctx = (base, pen, proc) => ({ sk: { w: 0, kb: 0, poise: 0 }, base, inc: {}, moreType: {}, more: 1, extra: {}, crit: 0, critMulti: 100, ailment: 0, stun: 0, leech: 0, pen: pen || 0, proc: !!proc });
+      const loss = (tgt, c, inf) => { tgt.hp = tgt.maxHp = 1e6; G.initBuildUp(tgt); return Math.round((1e6 - (G.hitEnemy(tgt, c, 1, Object.assign({ quiet: true, noBuild: true }, inf || {})), tgt.hp)) * 10) / 10; };
+      const own = e.elem, other = G.ELEMS.find((t) => t !== own);
+      const S0 = P.S.elemPen;
+      P.S.elemPen = 0;
+      out.dmg = {
+        own: loss(e, ctx({ [own]: [100, 100] })), other: loss(e, ctx({ [other]: [100, 100] })), phys: loss(e, ctx({ phys: [100, 100] })), chaos: loss(e, ctx({ chaos: [100, 100] })),
+        mixed: loss(e, ctx({ [own]: [100, 100], phys: [100, 100] })),
+        pen: loss(e, ctx({ [own]: [100, 100] }, 25)), penOther: loss(e, ctx({ [other]: [100, 100] }, 25)), penFloor: loss(e, ctx({ [own]: [100, 100] }, 200)),
+        penPhys: loss(e, ctx({ phys: [100, 100] }, 25)),
+        proc: loss(e, ctx({ [own]: [100, 100] }, 0, true)),
+      };
+      // 感电：三种元素各降 shock 点，单靠感电不会降到 0 以下
+      e.shockT = 5;
+      out.shock = { own: loss(e, ctx({ [own]: [100, 100] })), other: loss(e, ctx({ [other]: [100, 100] })), now: G.enemyResNow(e, own), pen: loss(e, ctx({ [own]: [100, 100] }, 25)) };
+      e.shockT = 0;
+      // 装备上的「元素穿透」：只给你亲手的命中，召唤物不吃；和破障相加
+      P.S.elemPen = 10;
+      out.gear = { own: loss(e, ctx({ [own]: [100, 100] })), minion: loss(e, ctx({ [own]: [100, 100] }), { minion: {} }), both: loss(e, ctx({ [own]: [100, 100] }, 25)) };
+      P.S.elemPen = S0;
+      // 异常值按扣过抗性的伤害累积：同样的火焰伤害，抗火的怪灌得少
+      e.hp = e.maxHp = 1e6; G.initBuildUp(e); e.buTh = 1000;
+      const free = T.mob('husk', 3, 4); free.hp = free.maxHp = 1e6; G.initBuildUp(free); free.buTh = 1000;
+      G.ENEMY_RES.zone.__t = 1; // 占位：zone 覆盖表能放别的 id
+      delete G.ENEMY_RES.zone.__t;
+      G.hitEnemy(e, ctx({ [own]: [100, 100] }), 1, { quiet: true });
+      const zid = G.state.zone.def.id;
+      G.ENEMY_RES.zone[zid] = { [own]: 0 }; // 区域覆盖：本区这一元素不抗
+      out.override = G.enemyRes(free, own);
+      G.hitEnemy(free, ctx({ [own]: [100, 100] }), 1, { quiet: true });
+      delete G.ENEMY_RES.zone[zid];
+      out.bu = [Math.round(e.bu[own] * 1000), Math.round(free.bu[own] * 1000)].join('/');
+      // 辅助「破障」：数据、镶上后技能和召唤物的 ctx 都带穿透
+      const sp = G.SUPPORTS.breach;
+      out.gem = { name: sp.name, cost: sp.cost, pen: sp.eff.pen, req: sp.req, fitsEmber: G.supportFits('ember', 'breach'), fitsWhirl: G.supportFits('whirl', 'breach'), fitsThrall: G.supportFits('thrall', 'breach'), desc: sp.desc, alt: sp.alt };
+      const sv = G.save, keepSup = sv.supports.slice(), keepSock = JSON.parse(JSON.stringify(sv.sockets)), keepSk = Object.assign({}, sv.skills);
+      if (sv.supports.indexOf('breach') < 0) sv.supports.push('breach');
+      sv.skills.ember = sv.skills.ember || 1;
+      sv.skills.thrall = sv.skills.thrall || 1;
+      sv.sockets.ember = ['breach', null, null];
+      sv.sockets.thrall = ['breach', null, null];
+      out.ctxPen = [G.skillCtx('ember').pen, G.skillCtx('thrall').pen, G.skillCtx('arc').pen || 0].join();
+      sv.supports = keepSup; sv.sockets = keepSock; sv.skills = keepSk;
+      // 元素穿透词缀：武器 / 护符，3–6%，参与属性汇总
+      const a = G.AFFIX_BY_ID.elemPen;
+      out.affix = [a.type, a.slots.join('/'), a.soft, G.STAT_FMT.elemPen].join('|');
+      G.clearEnemies();
+      return out;
+    });
+    const want = ['ash:15/15/15,0/0/0,0/0/0:00', 'frost:0/0/0,15/15/15,0/0/0:00', 'storm:0/0/0,0/0/0,15/15/15:00', 'abyss:15/15/15,0/0/0,0/0/0:00', 'rift:0/0/0,0/0/0,15/15/15:00'];
+    assert(r.zones.join(' ') === want.join(' '), '各区的抗性表不对：' + r.zones.join(' '));
+    assert(/^ash,fire,15,15$/.test(r.spawn), '刷出来的怪没有按区域带上抗性：' + r.spawn);
+    const d = r.dmg;
+    assert(d.own === 85 && d.other === 100 && d.phys === 100 && d.chaos === 100 && d.mixed === 185, '抗性扣得不对：' + JSON.stringify(d));
+    assert(d.pen === 110 && d.penOther === 125 && d.penFloor === 130 && d.penPhys === 100, '穿透 / 负抗下限不对：' + JSON.stringify(d));
+    assert(d.proc === 100, '异常触发的伤害（ctx.proc）不应再扣抗性：' + d.proc);
+    assert(r.shock.own === 100 && r.shock.other === 100 && r.shock.now === 0 && r.shock.pen === 125, '感电降抗不对：' + JSON.stringify(r.shock));
+    assert(r.gear.own === 95 && r.gear.minion === 85 && r.gear.both === 120, '装备穿透不对（召唤物不吃）：' + JSON.stringify(r.gear));
+    assert(r.bu === '85/100' && r.override === 0, '异常值应按扣过抗性的伤害累积 / 区域覆盖不生效：' + r.bu + ' ' + r.override);
+    const g = r.gem;
+    assert(g.name === '破障' && g.cost === 1.15 && g.pen === 25 && g.req === null && g.fitsEmber && g.fitsWhirl && g.fitsThrall && g.desc === '元素伤害穿透 25% 抗性' && /15%/.test(g.alt) && /−30%|-30%/.test(g.alt), '破障的数据不对：' + JSON.stringify(g));
+    assert(r.ctxPen === '25,25,0', '镶了破障的技能 / 召唤物没有带上穿透：' + r.ctxPen);
+    assert(r.affix === 'suffix|weapon/amulet|true|元素伤害穿透 {v}% 抗性', '元素穿透词缀不对：' + r.affix);
+    // 首领血条：左上的小签按数据写，感电时变暗、写压低后的数
+    await ev(() => {
+      G.clearEnemies();
+      const b = G.spawnBoss('golem', G.player.x, G.player.z - 9, 1);
+      b.awake = true;
+      b.hp = b.maxHp = 1e7;
+      b.atkCd = 1e9;
+    });
+    await until(() => document.getElementById('boss-box').classList.contains('on') && document.querySelector('#boss-res .res-chip')).catch(() => {
+      throw new Error('首领血条上没有抗性小签');
+    });
+    let u = await ev(() => ({ txt: document.getElementById('boss-res').innerText.replace(/\s+/g, ' ').trim(), low: !!document.querySelector('#boss-res .res-chip.low'), res: T.rect('#boss-res'), box: T.rect('#boss-box'), ail: T.rect('#boss-ail') }));
+    assert(u.txt === '抗火 15%' && !u.low && u.res.l >= u.box.l - 1 && u.res.r < u.ail.l, '首领血条的抗性小签不对：' + JSON.stringify(u));
+    await ev(() => { G.state.boss.shockT = 1e9; });
+    await until(() => document.querySelector('#boss-res .res-chip.low')).catch(() => {
+      throw new Error('感电时首领的抗性小签没有变');
+    });
+    u = await ev(() => document.getElementById('boss-res').innerText.replace(/\s+/g, ' ').trim());
+    assert(u === '抗火 0%', '感电时首领的抗性小签应写 0%：' + u);
+    await ev(() => G.clearEnemies());
+    return r.zones.length + ' 区 · 伤害 ' + [d.own, d.pen, d.penOther, d.penFloor].join('/') + ' · 感电 ' + r.shock.own + ' · 装备 ' + r.gear.own + '/' + r.gear.minion;
+  });
+
   await step('冷却 / 延迟技能：每次的伤害明显高于主力技能的一下；单独按冷却循环的秒伤打不过主力技能；技能卡写「每次伤害」并说明冷却', async () => {
     const r = await ev(() => {
       const out = {};

@@ -1159,6 +1159,7 @@
     let critFlat = sk.critFlat || 0, critMulti = 150 + (mScale ? 0 : S.critMulti || 0) + (sk.critMulti || 0); // 鹰眼长弓的普攻自带暴击
     let leech = 0, stun = 0, ailment = (mScale ? 0 : S.ailment || 0) + (sk.ailment || 0), echo = 0, cdr = 0, costMult = 1;
     let mLife = 0, mDR = 0, mCap = 0, mSpeed = 0;
+    let pen = 0; // 辅助「破障」的元素穿透（装备上的「元素穿透」在 G.hitEnemy 里按你亲手的命中另加）
 
     // 远程普攻：辅助镶在武器普攻卡上（只取对这个普攻生效的）；别的武器技不吃辅助
     const sups = sk.basic ? G.basicSupports(id) : (!isWs && save.sockets[id]) || [];
@@ -1186,6 +1187,7 @@
       if (e.minionDR) mDR += e.minionDR;
       if (e.minionCap) mCap += e.minionCap;
       if (e.minionSpeed) mSpeed += e.minionSpeed;
+      if (e.pen) pen += e.pen;
       costMult *= sup.cost;
     }
     if (S.encCdr) cdr += S.encCdr; // 异兆：祈坛「渊涌」的冷却缩短
@@ -1225,6 +1227,7 @@
       // 烬断（残刃）：瞬断的冷却减半
       cd: sk.cd * (1 - Math.min(80, cdr) / 100),
       leech, stun, ailment, echo: isAura ? 0 : echo,
+      pen,
       // 混沌异常值（渊缚）另外再加的累积速度（异常累积速度 ailment 对它同样生效）
       bindAil: mScale ? 0 : S.bindAil || 0,
       // 黑焰：每一击额外的混沌伤害（%）。光环自己的脉冲（霜环）不带
@@ -1412,6 +1415,39 @@
     }
     // flame：其中黑焰的那一部分（刻式「蚀印」攒进蚀印、「传焰」点在敌人身上的都是这个数）
     return { total, parts, crit, flame: ctx.flame > 0 ? ((pre * ctx.flame) / 100) * k : 0 };
+  };
+
+  // ---------- 敌人的元素抗性（数值见 data.js 的 G.ENEMY_RES）----------
+  // e 对伤害类型 t 的抗性（%，未算感电和穿透）：抗自己的元素（e.elem），区域可以按 id 覆盖；物理、混沌为 0
+  G.enemyRes = function (e, t) {
+    if (t !== 'fire' && t !== 'cold' && t !== 'light') return 0;
+    const R = G.ENEMY_RES, zd = G.state.zone && G.state.zone.def, zo = zd && R.zone[zd.id];
+    const r = zo && zo[t] !== undefined ? zo[t] : t === e.elem ? (e.isBoss ? R.boss : e.elite ? R.elite : R.mob) : 0;
+    return Math.min(R.cap, r);
+  };
+  // 算上感电：三种元素抗性各降 shock 点，单靠感电不会降到 0 以下
+  G.enemyResNow = function (e, t) {
+    const r = G.enemyRes(e, t);
+    return e.shockT > 0 && r > 0 ? Math.max(0, r - G.ENEMY_RES.shock) : r;
+  };
+  // 这一类伤害打到 e 身上的倍率：穿透 pen 能把抗性压到负数，最低 floor
+  G.resistMul = function (e, t, pen) {
+    if (t !== 'fire' && t !== 'cold' && t !== 'light') return 1;
+    const r = G.enemyResNow(e, t);
+    if (!r && !(pen > 0)) return 1;
+    return 1 - Math.max(G.ENEMY_RES.floor, r - (pen || 0)) / 100;
+  };
+  // 一击结算抗性（只在 G.hitEnemy 里调这一处）：各元素那一份 × resistMul，total 跟着减；物理、混沌、黑焰那一份不变
+  G.applyResist = function (e, hit, pen) {
+    const parts = hit.parts;
+    for (let i = 0; i < G.ELEMS.length; i++) {
+      const t = G.ELEMS[i], v = parts[t];
+      if (!(v > 0)) continue;
+      const k = G.resistMul(e, t, pen);
+      if (k === 1) continue;
+      parts[t] = v * k;
+      hit.total -= v - v * k;
+    }
   };
 
   G.avgHit = function (ctx) {
@@ -2661,6 +2697,9 @@
     e.hurtAt = state.time; // 渊印「回生」：几秒没挨打才回血
     const hit = P.relic.xizhu && !inf.minion && !ctx.minion && !ctx.asMinion ? G.relicFarHit(e, ctx, m) : G.calcHit(ctx, m); // 渊契「无光」：远处增伤、没发现你时必暴
     const hp0 = e.hp;
+    // 敌人的元素抗性：穿透 = 技能的（破障）+ 你亲手的命中再加装备上的「元素穿透」（召唤物不吃）。
+    // 异常触发的伤害（ctx.proc：爆燃 / 电弧 / 尸爆 / 放电 / 锁链等）本来就是按扣过抗性的伤害算的，不再扣一次
+    if (!ctx.proc) G.applyResist(e, hit, (ctx.pen || 0) + (inf.minion || ctx.minion || ctx.asMinion ? 0 : P.S.elemPen || 0));
     e.hp -= hit.total;
 
     // 数字颜色 / 特效花样取占比最大的伤害类型

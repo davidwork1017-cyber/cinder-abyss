@@ -1642,6 +1642,9 @@
     m_speed: (p) => p.M(-9, 5.4).Q(-6.4, -3.4, -1.6, -9.4).M(-4, 9.4).Q(-1, -0.4, 4.4, -7.4).M(1.8, 9.8).Q(5, 2.4, 9.6, -3.6),
     // 混沌注入：一个小圆加三道向心的弧（乱流石是一笔连续的螺旋，这里分成三段）
     chaos: (p) => { p.E(0, 0, 2.6); for (let k = 0; k < 3; k++) { const a0 = (k / 3) * TAU; for (let i = 0; i <= 6; i++) { const t = i / 6, a = a0 + t * 1.5, r = 9.4 - t * 4.6; p[i ? 'L' : 'M'](Math.cos(a) * r, Math.sin(a) * r); } } return p; },
+    // 破障（enemy-resist）：一面从中间裂成两半、错开一点的盾（坚骨是整面盾里一根骨；贯穿是箭穿过一道线）
+    breach: (p) => p.M(-1.4, -9.6).L(-8.4, -6.6).C(-8.4, 1.6, -5.2, 6.6, -1.4, 9.6).L(0.2, 4.2).L(-2.6, 0.8).L(-0.2, -3.6).Z()
+      .M(1.4, -9.6).L(8.4, -6.6).C(8.4, 1.6, 5.2, 6.6, 1.4, 9.6).L(3, 4.2).L(0.2, 0.8).L(2.6, -3.6).Z(),
     // 渊缚：一个空心圆，四道从外往里的短箭头
     bind: (p) => { p.E(0, 0, 3.4); for (let i = 0; i < 4; i++) { const a = (i / 4) * TAU + Math.PI / 4, c = Math.cos(a), s = Math.sin(a); p.M(c * 9.6, s * 9.6).L(c * 5.6, s * 5.6).M(c * 5.6 - s * 1.8 + c * 1.8, s * 5.6 + c * 1.8 + s * 1.8).L(c * 5.6, s * 5.6).L(c * 5.6 + s * 1.8 + c * 1.8, s * 5.6 - c * 1.8 + s * 1.8); } return p; },
   };
@@ -1650,6 +1653,7 @@
     multi: '#ffb066', pierce: '#b9c6dc', chain: '#ffe45e', expanse: '#7fe0c0', haste: '#7ed67a', fire: '#ff7a2c', cold: '#86d8ff', light: '#ffe45e',
     brutal: '#e2705a', precise: '#ffd75e', leech: '#ff6a8a', echo: '#c7a6ff', stagger: '#f2e6b0', ailment: '#b6e05c', frugal: '#6fb2ff',
     m_dmg: '#3fe0c8', m_life: '#d2b47a', m_horde: '#e28ad6', m_speed: '#ff5a46', chaos: '#f03cb4',
+    breach: '#5b7bff', // 破障（enemy-resist）
   };
   // 仆从辅助宝石的 id 由数据那边定；按 id 认不出时按名字认，两边怎么起名都对得上
   const SUP_BY_NAME = { 驭灵: 'm_dmg', 坚骨: 'm_life', 群聚: 'm_horde', 狂怒: 'm_speed' };
