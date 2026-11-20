@@ -831,7 +831,7 @@
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       patch: 0.15, // zones-polish：岛上的粗糙地面斑块像泥印子，0.55 → 0.15
       // vf-ground：冻土上一片片霜壳（略亮略冷），岸边和石头脚下结得厚；路外撒霜点、结晶和碎石
-      layer: { tex: 'g_cover_frost', tile: 6, con: 0.6, rough: 0.8, k: 0.42, sat: 0.5, col: 0x6e8490, path: 0.7, pT: 0.58, edge: 0.9, jag: 1.6, blend: 0.08, edgeW: 0.6, mv: 0.14, mh: 0.1, scorch: 0.5, sT: 0.62, ao2: 0.22 }, // scorch 在这一区是成片的积雪（粗糙地面那一套是雪）
+      layer: { tex: 'g_cover_frost', tile: 6, con: 0.6, rough: 0.8, k: 0.37, sat: 0.5, col: 0x6e8490, path: 0.7, pT: 0.6, edge: 0.9, jag: 1.6, blend: 0.08, edgeW: 0.6, mv: 0.14, mh: 0.1, scorch: 0.5, sT: 0.62, ao2: 0.22 }, // scorch 在这一区是成片的积雪（粗糙地面那一套是雪）
       deco: { cover: 0x8aa0ac, floor: 0.8, wild: 1, ao: 0.8, aoR: 0.9, scorch: 0, clusters: 0.6, kinds: [14, 13, 7, 8, 4], tint: 0x56646e },
       blots: { k: 0.35, r: 0.7, op: 0.28, tex: 'crack' }, // zones-polish：冻土上的细冰裂，不是暗块。zones-frost：岛上的污斑少一半多、小一圈（zones-ash 加的旋钮）
       sigil: { k: 0.4 }, // zones-frost：冰湖上的法阵颜色压到 4 成（加色混合，等于淡一半多），不那么像界面
@@ -1548,7 +1548,8 @@
         im.getMatrixAt(i, _m4);
         _m4.decompose(_v, _q, _s);
         const rb = hw * Math.max(_s.x, _s.z), y0 = _v.y + bb.min.y * _s.y, y1 = _v.y + bb.max.y * _s.y;
-        if (rb < 0.16 || rb > 7 || y0 > 0.35 || y1 < 0.08 || sd(_v.x, _v.z) < -6 || soft(_v.x, _v.z)) continue;
+        // 扁平宽大的（栈道、木桥、地砖、石板）不贴：它们本身就贴着地面 / 架在水上，脚下的暗斑像一块污渍
+        if (rb < 0.16 || rb > 7 || y0 > 0.35 || y1 < 0.08 || y1 - y0 < rb * 0.5 || sd(_v.x, _v.z) < -6 || soft(_v.x, _v.z)) continue;
         // 脚下往外 aoR 米的软边（缺省 0.6 倍半径）；只在高 / 中档（低档的接触阴影靠地面顶点色，见 layer.ao2）
         const ar = D.aoR !== undefined ? rb + D.aoR : rb * 1.3;
         decalPush(_v.x, _v.z, ar, ar * r(0.85, 1.1), r(0, TAU), rb < 0.9 ? C.ao : C.ao2, black, D.ao * Math.min(1, 0.55 + rb * 0.22), false);
@@ -9890,7 +9891,7 @@
       const dj = L && L.jag && d > -2.2 && d < 1.6 && !offJag ? d + (pn - 0.5) * L.jag : d; // 路边起伏用现成的 pn（周期约 6 m）
       let wp = smooth01((dj + 0.45) / (L && L.edgeW ? L.edgeW : 1.0));
       // vf-ground：成片的烧焦地（大尺度噪声，离路边 0.6 m 以内和踩出来的路上没有）
-      if (L && L.scorch && d > 0.6) wp *= 1 - L.scorch * smooth01((mf4[2] - L.sT) / 0.05) * (1 - tk) * smooth01((d - 0.6) / 1.0);
+      if (L && L.scorch && d > 0.6) wp *= 1 - L.scorch * smooth01((mf4[2] - L.sT) / 0.05) * (1 - tk) * smooth01((d - 0.6) / 1.0) * smooth01((Math.hypot(x - zone.start.x, z - zone.start.z) - 3) / 3); // 起点脚下也没有
       // 路面上零星的粗糙斑块，离路边越远越少；第 0 区斑块更多更实（打散满地一样的龟裂纹），踩出来的路上没有
       wp *= ash ? 1 - patchK * smooth01((pn - 0.6) / 0.16) * smooth01((d + 0.5) / 2.5) * (1 - tk) * smooth01((Math.hypot(x - zone.start.x, z - zone.start.z) - 3) / 3) : 1 - patchK * smooth01((pn - 0.58) / 0.2) * smooth01(d / 2.2);
       o[3] = wp;
