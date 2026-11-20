@@ -19116,12 +19116,14 @@
     '  vec3 col = mix(uColor, uEdge, max(edge, lead * 0.75));',
     // vf-vfx：已经充满的部分不再是平涂：按世界坐标铺一层慢慢流动的噪声，分出深浅两档的斑块，再叠一层胞腔边的细纹（往外漂），
     // 只往上加不透明度（任何地面上填充都只会更显眼），外轮廓和推进的前沿亮线不动
-    '  vec2 wq = p * 0.17;',
-    '  float nf = vfxNA(wq + vec2(uTime * 0.05, -uTime * 0.07)).r;',
-    '  float ce = vfxNA(wq * 1.6 + vec2(0.0, uTime * 0.11)).b;',
-    '  float tx = inner * (step(0.56, nf) * 0.1 + ce * 0.07) * (1.0 - edge) * (1.0 - 0.5 * uLo);', // 低画质没有调色压对比，纹理减半
-    '  a += tx;',
-    '  col = mix(col, uEdge, ce * inner * 0.14 * (1.0 - edge) * (1.0 - 0.5 * uLo));',
+    // 低画质不取贴图（预警圈常常铺满半屏，软件渲染下这两次取样最贵），只留原来的平涂
+    '  if (uLo < 0.5) {',
+    '    vec2 wq = p * 0.17;',
+    '    float nf = vfxNA(wq + vec2(uTime * 0.05, -uTime * 0.07)).r;',
+    '    float ce = vfxNA(wq * 1.6 + vec2(0.0, uTime * 0.11)).b;',
+    '    a += inner * (step(0.56, nf) * 0.1 + ce * 0.07) * (1.0 - edge);',
+    '    col = mix(col, uEdge, ce * inner * 0.14 * (1.0 - edge));',
+    '  }',
     '  col += hot * pulse * 0.18;',
     '  a = max(a, max(edge * 0.96, lead * 0.7));',
     '  a *= smoothstep(0.0, 0.035, d);',
@@ -20575,7 +20577,7 @@
     '  float sw = (0.16 + 0.24 * h3) * tt;', // 冰棱的半宽：尖在里、根在外沿
     '  float shard = gap * step(inner, l) * step(l, base) * step(dx, sw);',
     '  float rimS = gap * (1.0 - shard) * step(inner - 0.02, l) * step(l, base + 0.01) * step(dx, sw + 0.09);',
-    '  float cr = vfxNA(vec2(uA0 * 0.25, l * 2.0)).b;',
+    '  float cr = uLo > 0.5 ? 0.5 : vfxNA(vec2(uA0 * 0.25, l * 2.0)).b;',
     '  float frost = shard * (0.42 + 0.25 * cr + wave * 2.5);',
     '  float aB = (edge * 0.7 + ticks * 0.3 + fill * 1.5 + wave * 1.6 + frost) * uA;',
     '  float aD = max(halo * 0.42, rimS * 0.5) * uA;',
@@ -20604,7 +20606,8 @@
     const P = G.player;
     if (aura.r > 0 && P) {
       aura.sweep = (aura.sweep || 0) + 1;
-      if (qualId !== 'low' || aura.sweep % 2) W.vDecal(VVD.frost, P.x, P.z, aura.r * 0.62, qualId === 'low' ? 1.4 : 2, 0x86d8ff, { r1: aura.r * 0.98, grow: 0.35, a: 0.7 });
+      // 霜痕铺满光环那么大：低画质不铺（软件渲染下整片重叠太贵），高画质每次 1.2 秒（同时最多两三片）
+      if (qualId !== 'low') W.vDecal(VVD.frost, P.x, P.z, aura.r * 0.62, 1.2, 0x86d8ff, { r1: aura.r * 0.98, grow: 0.35, a: 0.7 });
       if (hit) {
         const n = qualId === 'low' ? 5 : 9, a0 = vr(0, TAU);
         for (let i = 0; i < n; i++) {
@@ -24114,17 +24117,17 @@
     '  else if (l < uC + 0.016) { col = uHi; a = 1.0; }', // 视界：一道细亮芯
     '  else if (l < uC + 0.045) { col = uRim; a = 0.95; }', // 再一道品红
     // vf-vfx：视界外一圈参差的暗边（近黑，外沿被噪声啃得高低不平），吸积带从暗边外开始
-    '  else if (l < uC + 0.07 + 0.05 * vfxNA(vec2(an * 6.0 + uTime * 0.1, uTime * 0.2)).r) { col = uCore; a = 0.78; }',
+    '  else if (l < uC + 0.07 + (uLo > 0.5 ? 0.025 : 0.05 * vfxNA(vec2(an * 6.0 + uTime * 0.1, uTime * 0.2)).r)) { col = uCore; a = 0.78; }',
     '  else if (l < uD) {',
     '    float t = (l - uC - 0.045) / (uD - uC - 0.045);',
     '    float b = t < 0.34 ? 0.3 : (t < 0.67 ? 0.18 : 0.09);', // 三档阶梯透明度
     // vf-vfx：螺旋条被一层流动的噪声扭弯（不再是死板的几何螺旋），暗紫的吸积带里有顺着螺旋往里漂的品红细纹（胞腔边）
-    '    float wv = vfxNA(vec2(an * 2.0 + uTime * 0.05, l * 1.1 - uTime * 0.12)).r - 0.5;',
+    '    float wv = uLo > 0.5 ? 0.0 : vfxNA(vec2(an * 2.0 + uTime * 0.05, l * 1.1 - uTime * 0.12)).r - 0.5;',
     '    float sp = fract(an * uSp + log(l) * 1.5 + uTime * 0.7 + wv * 0.45);', // 对数螺旋，随时间往里卷
-    '    float ce = vfxNA(vec2(an * 4.0 + log(l) * 0.6, log(l) * 0.9 + uTime * 0.35)).b;',
+    '    float ce = uLo > 0.5 ? 0.0 : vfxNA(vec2(an * 4.0 + log(l) * 0.6, log(l) * 0.9 + uTime * 0.35)).b;',
     // 顺着螺旋被拖进去的细条：密一倍的螺旋线，被噪声截成一段一段，往里流；离核越近越亮
     '    float s2 = fract(an * 12.0 + log(l) * 3.2 + uTime * 1.5 + wv * 0.6);',
-    '    float m2 = step(0.48, vfxNA(vec2(an * 4.0 + log(l) * 1.1, log(l) * 0.8 - uTime * 0.6)).r);',
+    '    float m2 = uLo > 0.5 ? step(0.5, fract(log(l) * 2.0 - uTime * 0.6 + an * 4.0)) : step(0.48, vfxNA(vec2(an * 4.0 + log(l) * 1.1, log(l) * 0.8 - uTime * 0.6)).r);',
     '    float strk = step(s2, 0.07) * m2;',
     '    if (strk > 0.5) { col = mix(uRim, uHi, 0.45 * (1.0 - t)); a = 0.78 - 0.35 * t; }',
     '    else if (sp < 0.2) { col = uRim; a = b * 1.9; } else if (ce > 0.62) { col = mix(uDark, uRim, 0.55); a = b * 1.45; } else { col = uDark; a = b; }',
@@ -24366,7 +24369,7 @@
     '  }',
     // vf-vfx：风弧里顺着转向拉开的条纹（条纹噪声换成横向：沿柱身绕圈的方向拉长），弧身被拉出一缕缕的风丝、弧的后半截断续，
     // 柱身上也偶尔掠过一缕淡品红的风丝；条纹跟着转角走，转起来是风在流，不是贴图在滑
-    '  float st = vfxNB(vec2(h * 1.4 + row * 0.37, (an - sp * 0.6) / 6.2831853 * 2.0)).r;',
+    '  float st = uLo > 0.5 ? 0.5 : vfxNB(vec2(h * 1.4 + row * 0.37, (an - sp * 0.6) / 6.2831853 * 2.0)).r;',
     '  if (arc > 0.5 && head < 0.5 && st < 0.22) arc = 0.0;',
     '  if (vFace >= 0.0) {',
     '    if (arc > 0.5 && head > 0.5 && h > 0.15) { col = uHi; a = 0.98 * tint; }',
