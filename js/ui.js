@@ -1509,7 +1509,7 @@
       h += '<div class="ic-uq"><b>' + esc(U.mechName) + '</b><span>' + esc(U.mechDesc) + '</span>' + altBox(U.mechAlt ? esc(U.mechAlt) : '') + '</div>';
       // 背包详情栏（o.compact）里省掉来历和「无法改造」（下面的通货栏已经写了），免得把按钮挤出窗口
       if (!o.compact) {
-        h += '<div class="ic-lore">' + esc(U.lore) + '</div>';
+        if (U.lore) h += '<div class="ic-lore">' + esc(U.lore) + '</div>'; // 有几件没有来历，整行不出
         h += '<div class="ic-lock">' + lockText(item) + '</div>';
       }
     } else if (L.affixes.length) {
