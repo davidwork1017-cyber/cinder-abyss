@@ -59,32 +59,33 @@
    "bounds": {
     "min": [
      -0.435,
-     -0.022,
+     -0.02,
      -0.568
     ],
     "max": [
      0.347,
-     1.336,
+     1.367,
      0.302
     ]
    },
-   "h": 1.358,
+   "h": 1.387,
    "r": 0.568,
-   "y0": -0.022,
+   "y0": -0.02,
    "source": {
     "script": "art/ca/gen.py",
     "gen": "blade",
     "catalog": "art/catalog.py",
     "seed": 7,
     "args": {
-     "h": 1.25
+     "h": 1.3,
+     "w": 0.24
     },
     "bake": {
      "ao": 0.3,
      "grad": 0.5
     }
    },
-   "sha256": "7abbaacd1c262afc6a67c8460717dc9f56b4e159acf8bbf63a8047673805e15a"
+   "sha256": "f5ae40dddafbe6e9b9f6cac16d4a8b4a7ea4d3b13dcfcaaeaa1448bc1d1ec39c"
   },
   {
    "id": "ca/ash_bones",
@@ -94,24 +95,24 @@
    "ship": true,
    "replaces": "kh/bone_A",
    "tris": 150,
-   "verts": 432,
+   "verts": 434,
    "materials": 1,
    "textures": 1,
    "bounds": {
     "min": [
-     -0.293,
-     0.012,
-     -0.269
+     -0.336,
+     0.02,
+     -0.309
     ],
     "max": [
-     0.362,
-     0.151,
-     0.443
+     0.403,
+     0.257,
+     0.484
     ]
    },
-   "h": 0.139,
-   "r": 0.443,
-   "y0": 0.012,
+   "h": 0.237,
+   "r": 0.484,
+   "y0": 0.02,
    "source": {
     "script": "art/ca/gen.py",
     "gen": "bones",
@@ -119,7 +120,8 @@
     "seed": 3,
     "args": {
      "n": 3,
-     "L": 0.7
+     "L": 0.72,
+     "thick": 1.7
     },
     "bake": {
      "ao": 0.08,
@@ -127,7 +129,7 @@
      "gtint": 0.5
     }
    },
-   "sha256": "7f547eb6a18519bfefd18c4c18f222c75dbdd1810ab7b1018ad97656d1e5b641"
+   "sha256": "d8d331c9b33cb68885367d0839cc7c9ef93ceff67f26f0cafabfd68dbd24d159"
   },
   {
    "id": "ca/ash_brazier_a",
@@ -512,41 +514,41 @@
    "ship": true,
    "replaces": "kh/skull",
    "tris": 144,
-   "verts": 430,
+   "verts": 429,
    "materials": 1,
    "textures": 1,
    "bounds": {
     "min": [
-     -0.4,
-     -0.005,
-     -0.661
+     -0.591,
+     -0.007,
+     -0.978
     ],
     "max": [
-     0.4,
-     0.572,
-     0.55
+     0.591,
+     0.847,
+     0.814
     ]
    },
-   "h": 0.577,
-   "r": 0.661,
-   "y0": -0.005,
+   "h": 0.855,
+   "r": 0.978,
+   "y0": -0.007,
    "source": {
     "script": "art/ca/gen.py",
     "gen": "skull",
     "catalog": "art/catalog.py",
     "seed": 5,
     "args": {
-     "s": 0.5
+     "s": 0.74
     },
     "bake": {
-     "ao": 0.25,
-     "grad": 0.4,
-     "grime": 0.45,
-     "gtint": 1.6,
-     "wear": 0.4
+     "ao": 0.3,
+     "grad": 0.5,
+     "grime": 0.4,
+     "gtint": 1.15,
+     "wear": 0.45
     }
    },
-   "sha256": "d51467f6c3e602b8b380922b8c0bf9d3d91b496289c901be6fe2c12ecc929cd0"
+   "sha256": "a5eeb906e9b48b8cecacbd227f560b18ce2ea430cab5d3a155204b0cfd87cfb1"
   },
   {
    "id": "ca/ash_tree_dead_a",

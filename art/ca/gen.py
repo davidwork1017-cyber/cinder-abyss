@@ -288,7 +288,7 @@ def skull(k, s=0.5, glow_eyes=True):
             nz = -0.5 * 0.78
         v.co = Vector((nx, ny, nz + 0.39))
     faces = _sorted_faces_of(vs)
-    k.tag(faces, 'bone', 0.6, 0.12)
+    k.tag(faces, 'bone', 0.74, 0.12)
     # 眼窝：前上方左右各一个面，深深压进去（窝壁焦黑，窝底余烬 / 焦黑）
     for sx in (-1, 1):
         # 眼窝要大：取目标点附近的一小片面（3–4 个），整片往里收、压深，窝壁焦黑，窝底一小块余烬
@@ -302,7 +302,7 @@ def skull(k, s=0.5, glow_eyes=True):
         core_f = min(grp, key=lambda f: (f.calc_center_median() - tgt).length)
         k.tag([core_f], 'ember' if glow_eyes else 'char', 0.6, 0.05, glow=1 if glow_eyes else 0, dust=0)
     # 上颌（吻部）：前伸的楔形凸包，鼻孔是顶面一道暗缝
-    up = k.hull([(sx * 0.46, 0.5, z) for sx in (-1, 1) for z in (0.05, 0.58)] + [(sx * 0.3, 0.5 + 0.95 * sn, z) for sx in (-1, 1) for z in (0.06, 0.36)] + [(0, 1.0, 0.56)], row='bone', tone=0.56)
+    up = k.hull([(sx * 0.46, 0.5, z) for sx in (-1, 1) for z in (0.05, 0.58)] + [(sx * 0.3, 0.5 + 0.95 * sn, z) for sx in (-1, 1) for z in (0.06, 0.36)] + [(0, 1.0, 0.56)], row='bone', tone=0.7)
     top = max(_sorted_faces_of(up), key=lambda f: f.normal.z)
     k.slit(top, width=0.25, depth=0.05, row='char')
     # 下颌：贴地的一块，略微张开
@@ -326,18 +326,18 @@ def _sorted_faces_of(vs):
     return out
 
 
-def bones(k, n=3, L=0.7):
+def bones(k, n=3, L=0.7, thick=1.0):
     """几根交叠的长骨（平放）：五棱骨干 + 两头的骨节"""
     for i in range(n):
         a = k.r(0, math.pi) + i * 1.1
         l = L * k.r(0.6, 1.0)
         cx, cy = k.r(-0.12, 0.12), k.r(-0.12, 0.12)
         dx, dy = math.cos(a) * l / 2, math.sin(a) * l / 2
-        z = 0.045 + i * 0.03
-        k.tube([(cx - dx, cy - dy, z), (cx, cy, z + 0.01), (cx + dx, cy + dy, z)], [0.035, 0.028, 0.035], sides=5, row='bone', tone=0.86, tip=False, cap0=True)
+        z = 0.045 * thick + i * 0.03 * thick
+        k.tube([(cx - dx, cy - dy, z), (cx, cy, z + 0.01), (cx + dx, cy + dy, z)], [0.035 * thick, 0.028 * thick, 0.035 * thick], sides=5, row='bone', tone=0.86, tip=False, cap0=True)
         for e in (-1, 1):
             ex, ey = cx + e * dx, cy + e * dy
-            pts = [(ex + p[0], ey + p[1], max(0.0, z + p[2])) for p in _blob(k, 0.065, 0.065, 0.05, 8)]
+            pts = [(ex + p[0], ey + p[1], max(0.0, z + p[2])) for p in _blob(k, 0.065 * thick, 0.065 * thick, 0.05 * thick, 8)]
             k.hull(pts, row='bone', tone=0.92, jitter=0.06)
 
 
@@ -355,7 +355,7 @@ def blade(k, h=1.25, w=0.16):
     pts.append((w * 0.3, 0, bl + 0.12))
     pts.append((-w * 0.2, 0, bl + 0.05))
     vb = k.hull(pts, row='iron', tone=0.82, jitter=0.1)
-    vg = k.box((w * 2.4, 0.07, 0.07), k.place((0, 0, -0.17)), row='iron', tone=0.62)
+    vg = k.box((w * 2.4, 0.09, 0.09), k.place((0, 0, -0.17)), row='iron', tone=0.62)
     vh, _ = k.tube([(0, 0, -0.2), (0, 0, -0.5)], [0.03, 0.03], sides=5, row='wood', tone=0.4, tip=False)
     vp = k.hull([(p[0], p[1], p[2] - 0.55) for p in _blob(k, 0.05, 0.05, 0.05, 7)], row='iron', tone=0.5)
     sword = vb + vg + vh + vp

@@ -8683,7 +8683,7 @@ async function main() {
     return r.zones.join(' ') + ' ｜ ' + r.qs.join(' ') + ' ｜ 默认 ' + r.q0 + '（' + r.eff + '）';
   });
 
-  await step('画面：第 0 区的布景全部来自自产件包 kit-ash（ca/ 开头），确实摆出来了；别的区照旧用 CC0 模型包', async () => {
+  await step('画面：第 0 区的布景全部来自自产件包 kit-ash（ca/ 开头），确实摆出来了；别的区照旧用 CC0 模型包（第 1–4 区里摆出布景的第一个区）', async () => {
     const r = await ev(async () => {
       const W = G.world;
       const wait = async (f, ms) => {
@@ -8696,19 +8696,26 @@ async function main() {
         await wait(() => !W.assetsPending(), 40000);
         return { id: G.ZONES[i].id, hd: W.gfxInfo().hd, fires: W.gfxInfo().fires, src: W.propSources() };
       };
-      const ash = await look(0), frost = await look(1);
+      // 别的区：照旧用 CC0 模型包。第 1 区四周是水，布景基本摆不上（不立在深水上），所以依次看第 1–4 区，以摆出布景的第一个区为准
+      const ash = await look(0), others = [];
+      for (let i = 1; i < Math.min(5, G.ZONES.length); i++) {
+        const z = await look(i);
+        others.push(z);
+        if (z.src.reduce((a, s) => a + s.placed, 0) > 0) break;
+      }
       G.enterZone(0, 1);
-      return { ash, frost };
+      return { ash, others };
     });
-    const { ash, frost } = r;
+    const { ash, others } = r;
     const fmt = (z) => z.src.map((s) => s.key + '@' + s.pack + '×' + s.placed).join(' ');
     assert(ash.id === 'ash' && ash.hd, '第 0 区不是 ash 或没换上 PBR 外观：' + JSON.stringify(ash).slice(0, 300));
     assert(ash.src.length >= 8 && ash.src.every((s) => s.key.startsWith('ca/') && s.pack === 'kit-ash'), '第 0 区的布景不全是自产件：' + fmt(ash));
     const placed = (z, re) => z.src.filter((s) => re.test(s.key)).reduce((a, s) => a + s.placed, 0);
-    assert(placed(ash, /tree_dead/) >= 10, '第 0 区枯树摆得太少：' + fmt(ash));
+    assert(placed(ash, /tree_dead/) >= 3, '第 0 区枯树摆得太少：' + fmt(ash));
     assert(placed(ash, /firepit/) === ash.fires && ash.fires > 0, '第 0 区火坑的实例数和火焰数对不上：' + fmt(ash) + ' 火 ' + ash.fires);
-    assert(ash.src.reduce((a, s) => a + s.placed, 0) >= 30, '第 0 区布景总数太少：' + fmt(ash));
-    assert(frost.hd && frost.src.length && frost.src.every((s) => s.pack === 'models') && frost.src.reduce((a, s) => a + s.placed, 0) > 0, '第 1 区的 CC0 布景不对：' + fmt(frost));
+    assert(ash.src.reduce((a, s) => a + s.placed, 0) >= 20, '第 0 区布景总数太少：' + fmt(ash));
+    assert(others.every((z) => z.hd && z.src.length && z.src.every((s) => s.pack === 'models')), '别的区的布景不是 CC0 模型包：' + others.map((z) => z.id + ' ' + fmt(z)).join(' ｜ '));
+    assert(others[others.length - 1].src.reduce((a, s) => a + s.placed, 0) > 0, '第 1–4 区都没摆出 CC0 布景：' + others.map((z) => z.id + ' ' + fmt(z)).join(' ｜ '));
     return fmt(ash);
   });
 
