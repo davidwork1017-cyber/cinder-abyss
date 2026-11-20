@@ -8927,6 +8927,11 @@ async function main() {
         // 先把来源已经不在的召唤物解散掉（前面的步骤可能改过技能栏却没推进模拟，还没来得及刷新）：
         // 否则换区域时它们才被清走，场景对象数会少一个，和泄漏无关
         G.checkMinionSources(true);
+        // 异兆是懒生成的：进区那 3 帧模拟里，起点 28 m（ENC.lazy）内的异兆可能已经醒来，world 第一次醒来时才把道具组 encGroup 挂到场景上
+        // （缚匣 = 匣身 / 匣盖 / 锁链三块），拾烬客还会多一个实体。下面重进时模拟停着、不会醒，基线就比重进后多出这一组，报「多了 -1 个」。
+        // 先记下醒了哪几个，再把醒来的异兆道具收掉（换区时用的同一个 W.encClear），基线和重进后一样都不含它
+        out.encWoke = (S.enc || []).filter((e) => e.live).map((e) => e.kind);
+        W.encClear();
         const n1 = count();
         // 诊断：泄漏数不为 0 时列出前后差了哪些场景对象（类型 | 名字 | 召唤物 / 敌人 | 子节点数 | 前两个网格）
         const desc = (o) => {
@@ -8975,7 +8980,7 @@ async function main() {
       if (r.leakDiff) console.log('     泄漏诊断：' + JSON.stringify(r.leakDiff).slice(0, 4000));
       assert(r.leak === 0, '重新进入后场景里多了 ' + r.leak + ' 个对象');
       assert(r.loose2 === 0, '换区后仍有残留的运行时对象');
-      return '怪物 ' + r.n + '，精英 ' + r.elites + '，亮度 ' + r.fr.mean.toFixed(1);
+      return '怪物 ' + r.n + '，精英 ' + r.elites + '，亮度 ' + r.fr.mean.toFixed(1) + (r.encWoke.length ? '，进区时已醒的异兆 ' + r.encWoke.join('/') : '');
     });
 
     await step('首领「' + Z.boss + '」：苏醒，' + Z.patterns.join('/') + ' 全部放过（含狂暴），能伤到玩家', async () => {
