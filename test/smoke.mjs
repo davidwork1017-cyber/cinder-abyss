@@ -11412,6 +11412,86 @@ async function main() {
     assert(r.collapses === 1 && r.holes === 0 && r.burst > 3, '再按一次应提前坍缩、按质量重击：' + JSON.stringify(r));
     return '质量 ' + r.mass + '、半径 ×' + r.grew + '，坍缩一击约等于 ' + r.burst + ' 跳';
   });
+
+  await step('渊契只改原式：戴着引力核时双极照常开两个连着索的洞、坍缩照常再按引爆（原式才跟着你）；怒潮下旋涡斩不攒潮势；电桥戒下过载 / 雷桩不留桥；骸王冠下骸弓照常 3 具；陨织袍下熔核照常手动放、不保留魔力', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      const s = G.save, P = G.player, out = {}, keep = Object.assign({}, s.equip);
+      const wear = (rq) => {
+        s.equip[G.RELICS[rq].slot] = G.rollRelic(rq, 50, 0.5);
+        G.computeStats();
+      };
+      const off = (rq) => {
+        s.equip[G.RELICS[rq].slot] = null;
+        G.computeStats();
+      };
+      // 引力核 + 双极
+      TV.setup('blackhole', 'a');
+      wear('yinli');
+      TV.cast('blackhole', TV.at(7), 0.5);
+      const hs = G.chaosHoles();
+      out.twin = [hs.length, hs.length === 2 && hs[0].twin === hs[1], G.relicHoleList().length];
+      TV.done();
+      // 引力核 + 坍缩：再按一次当场引爆
+      TV.setup('blackhole', 'b');
+      wear('yinli');
+      for (let i = 0; i < 3; i++) TV.mob(7, (i - 1) * 0.7);
+      TV.cast('blackhole', TV.at(7), 1.2);
+      const c0 = !!G.chaosHoles().find((h) => h.collapse);
+      G.input.tap[0] = 0.2;
+      TV.run(0.1);
+      out.collapse = [c0, TV.st('vCollapses'), G.relicHoleList().length];
+      TV.done();
+      // 引力核 + 原式：照旧跟着你
+      TV.setup('blackhole', 'o');
+      wear('yinli');
+      TV.cast('blackhole', TV.at(7), 0.1);
+      out.plain = G.relicHoleList().length;
+      TV.done();
+      off('yinli');
+      // 怒潮 + 旋涡斩：不攒潮势
+      TV.setup('whirl', 'b');
+      wear('nuchao');
+      TV.mob(1.5, 0);
+      TV.hold(0, TV.at(2), 0.8);
+      out.tide = G.relicState.spin;
+      TV.done();
+      G.relicTick(1 / 60);
+      off('nuchao');
+      // 电桥戒 + 过载 / 雷桩：不留桥
+      out.bridge = [];
+      for (const v of ['b', 'a']) {
+        TV.setup('arc', v);
+        wear('dianqiao');
+        for (let i = 0; i < 3; i++) TV.mob(5 + i * 2, 0);
+        TV.cast('arc', TV.at(5), 0.6);
+        out.bridge.push(G.relicState.bridges.length);
+        TV.done();
+        G.relicReset();
+      }
+      off('dianqiao');
+      // 骸王冠 + 骸弓：照常 3 具、不是骸王
+      TV.setup('thrall', 'a');
+      wear('haiwang');
+      const mc = G.skillCtx('thrall').minion;
+      out.king = [mc.cap, !!mc.king];
+      TV.done();
+      off('haiwang');
+      // 陨织袍 + 熔核：照常手动放、不保留魔力
+      TV.setup('meteor', 'a');
+      wear('zhuixing');
+      out.star = [P.reservePct, G.relicNoCast(0, 'meteor')];
+      TV.done();
+      Object.assign(s.equip, keep);
+      G.computeStats();
+      return out;
+    });
+    assert(r.twin.join() === '2,true,0', '戴着引力核时双极应照常开两个连着的洞：' + JSON.stringify(r.twin));
+    assert(r.collapse.join() === 'true,1,0', '戴着引力核时坍缩应照常再按引爆：' + JSON.stringify(r.collapse));
+    assert(r.plain === 1, '原式黑洞仍应跟着你：' + r.plain);
+    assert(r.tide === 0 && r.bridge.join() === '0,0' && r.king.join() === '3,false' && r.star.join() === '0,false', '其余渊契不该改刻式 A / B：' + JSON.stringify(r));
+    return '双极 ' + r.twin[0] + ' 洞 · 坍缩引爆 ' + r.collapse[1] + ' · 原式随核 ' + r.plain;
+  });
   await step('刻式 v2·黑旋风「护涡」：三团旋风绕着你转，绞贴身的怪、吞掉敌方弹丸', async () => {
     await ev(TVDEF);
     const r = await ev(() => {
