@@ -615,6 +615,78 @@ async function timedMain() {
     assert(r.ms < 2, '掷一次三枚印太慢：' + r.ms + ' ms');
     return '每次 ' + r.ms + ' ms';
   });
+
+  // 原步骤：整步从 main() 搬来（ui-batch 的「技能页拖拽贴边自动滚动」，断言一字不改）。贴边自动滚动按 performance.now 走：进边带停 250 ms 才滚、
+  // 最快每秒 900 像素，拖起 / 松手要在这段停顿之内做完。前面补上它要的构筑：学会全部技能和辅助宝石（main() 里走到这一步时前面的步骤已经学过）
+  await ev(() => {
+    G.debug.learnAll();
+    G.computeStats();
+  });
+  await uiStep('计时｜技能页拖拽贴边自动滚动：拖着宝石时滚轮照常能滚；指针离列表下边 40 像素以外不滚，贴到下边就往下滚；滚到开拖时看不见的远处孔上松手能镶上', async () => {
+    await ev(() => {
+      for (const id of Object.keys(G.save.sockets)) G.save.sockets[id] = [null, null, null];
+      G.socketSupport('ember', 0, 'multi');
+      G.computeStats();
+    });
+    await page.keyboard.press('KeyG');
+    await panelSettled();
+    const src = '.skill-list .sock[data-skill="ember"][data-idx="0"]';
+    // 把起点的孔滚到列表顶下 80 像素（单列时掷焰卡排在武器普攻卡下面，滚到顶它不在视野里）；
+    // 远处的孔 = 列表里能镶多重投射、离顶最远的那个孔（武器普攻卡除外）
+    const g = await ev((src) => {
+      const L = document.querySelector('.skill-list');
+      L.scrollTop += T.rect(src).y - (L.getBoundingClientRect().top + L.clientTop + 80);
+      const lr = L.getBoundingClientRect();
+      const far = Array.from(L.querySelectorAll('.sock')).filter((n) => n.dataset.skill !== G.BASIC_CARD && n.dataset.skill !== 'ember' && G.supportFits(n.dataset.skill, 'multi')).sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top)[0];
+      return { far: far ? '.skill-list .sock[data-skill="' + far.dataset.skill + '"][data-idx="' + far.dataset.idx + '"]' : null, skill: far && far.dataset.skill, idx: far && +far.dataset.idx, farY: far && T.rect(far).y, a: T.rect(src), top: lr.top, bottom: lr.top + L.clientHeight, x: lr.left + L.clientWidth / 2, s0: L.scrollTop, max: L.scrollHeight - L.clientHeight };
+    }, src);
+    assert(g.far && g.farY > g.bottom && g.s0 < g.max, '远处的孔开拖时应在列表可见区下面：' + JSON.stringify(g));
+    assert(g.a.y > g.top + 40 && g.a.y < g.bottom - 40, '起点的孔应在列表上部、贴边带以外：' + JSON.stringify(g));
+    const top = () => ev(() => document.querySelector('.skill-list').scrollTop);
+    await page.mouse.move(g.a.x, g.a.y);
+    await page.mouse.down();
+    await page.mouse.move(g.a.x + 9, g.a.y + 6, { steps: 2 });
+    assert(await ev(() => document.getElementById('drag-ghost').classList.contains('on')), '没有拖起来');
+    // 拖着的时候滚轮照常能滚
+    await page.mouse.wheel(0, 120);
+    await until((s0) => document.querySelector('.skill-list').scrollTop > s0, g.s0).catch(() => {
+      throw new Error('拖拽中滚轮滚不动技能列表');
+    });
+    // 离下边 60 像素（贴边带外）：等滚轮的平滑滚动停下，再停 10 帧，不滚
+    await page.mouse.move(g.x, g.bottom - 60, { steps: 3 });
+    let s1 = await top();
+    for (let i = 0; i < 60; i++) {
+      await frames(3);
+      const s = await top();
+      if (s === s1) break;
+      s1 = s;
+    }
+    await frames(10);
+    const s2 = await top();
+    assert(s2 === s1, '指针在贴边带以外时列表不应自己滚：' + s1 + ' → ' + s2);
+    // 贴到下边：往下滚，直到远处的孔进了可见区、离开贴边带（或者滚到了底）
+    await page.mouse.move(g.x, g.bottom - 6, { steps: 2 });
+    await until((s2) => document.querySelector('.skill-list').scrollTop > s2 + 40, s2).catch(async () => {
+      throw new Error('指针贴到列表下边没有自动往下滚：scrollTop ' + s2 + ' → ' + (await top()));
+    });
+    await until(([far, edge]) => {
+      const L = document.querySelector('.skill-list'), r = L.getBoundingClientRect(), y = T.rect(far).y;
+      return L.scrollTop >= L.scrollHeight - L.clientHeight - 1 || (y > r.top + edge && y < r.top + L.clientHeight - edge - 60);
+    }, [g.far, 40]).catch(async () => {
+      throw new Error('贴边自动滚动没有把远处的孔带进视野：scrollTop ' + (await top()));
+    });
+    // 先挪进来（离开贴边带就不再滚），再对准孔的中心
+    let b = await ev((s) => T.rect(s), g.far);
+    await page.mouse.move(b.x, b.y, { steps: 4 });
+    b = await ev((s) => T.rect(s), g.far);
+    await page.mouse.move(b.x, b.y);
+    await frames(2);
+    const mid = await ev((far) => ({ cap: document.querySelector('#drag-ghost em').textContent, hover: document.querySelector(far).classList.contains('drop-hover'), top: document.querySelector('.skill-list').scrollTop }), g.far);
+    await page.mouse.up();
+    const r = await ev((g) => ({ e: G.save.sockets.ember.slice(), t: G.save.sockets[g.skill].slice() }), g);
+    assert(mid.hover && mid.cap.startsWith('镶进 ') && r.e[0] === null && r.t[g.idx] === 'multi', '自动滚到远处的孔上松手应把宝石挪过去：' + JSON.stringify({ g, mid, r }));
+    await closePanel();
+  });
 }
 
 async function main() {
@@ -6489,72 +6561,6 @@ async function main() {
     await until((want) => T.barHud() === want, bar0.map((x) => x || '').join()).catch(() => {
       throw new Error('HUD 技能栏没有同步');
     });
-  });
-
-  await uiStep('技能页拖拽贴边自动滚动：拖着宝石时滚轮照常能滚；指针离列表下边 40 像素以外不滚，贴到下边就往下滚；滚到开拖时看不见的远处孔上松手能镶上', async () => {
-    await ev(() => {
-      for (const id of Object.keys(G.save.sockets)) G.save.sockets[id] = [null, null, null];
-      G.socketSupport('ember', 0, 'multi');
-      G.computeStats();
-    });
-    await page.keyboard.press('KeyG');
-    await panelSettled();
-    const src = '.skill-list .sock[data-skill="ember"][data-idx="0"]';
-    // 把起点的孔滚到列表顶下 80 像素（单列时掷焰卡排在武器普攻卡下面，滚到顶它不在视野里）；
-    // 远处的孔 = 列表里能镶多重投射、离顶最远的那个孔（武器普攻卡除外）
-    const g = await ev((src) => {
-      const L = document.querySelector('.skill-list');
-      L.scrollTop += T.rect(src).y - (L.getBoundingClientRect().top + L.clientTop + 80);
-      const lr = L.getBoundingClientRect();
-      const far = Array.from(L.querySelectorAll('.sock')).filter((n) => n.dataset.skill !== G.BASIC_CARD && n.dataset.skill !== 'ember' && G.supportFits(n.dataset.skill, 'multi')).sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top)[0];
-      return { far: far ? '.skill-list .sock[data-skill="' + far.dataset.skill + '"][data-idx="' + far.dataset.idx + '"]' : null, skill: far && far.dataset.skill, idx: far && +far.dataset.idx, farY: far && T.rect(far).y, a: T.rect(src), top: lr.top, bottom: lr.top + L.clientHeight, x: lr.left + L.clientWidth / 2, s0: L.scrollTop, max: L.scrollHeight - L.clientHeight };
-    }, src);
-    assert(g.far && g.farY > g.bottom && g.s0 < g.max, '远处的孔开拖时应在列表可见区下面：' + JSON.stringify(g));
-    assert(g.a.y > g.top + 40 && g.a.y < g.bottom - 40, '起点的孔应在列表上部、贴边带以外：' + JSON.stringify(g));
-    const top = () => ev(() => document.querySelector('.skill-list').scrollTop);
-    await page.mouse.move(g.a.x, g.a.y);
-    await page.mouse.down();
-    await page.mouse.move(g.a.x + 9, g.a.y + 6, { steps: 2 });
-    assert(await ev(() => document.getElementById('drag-ghost').classList.contains('on')), '没有拖起来');
-    // 拖着的时候滚轮照常能滚
-    await page.mouse.wheel(0, 120);
-    await until((s0) => document.querySelector('.skill-list').scrollTop > s0, g.s0).catch(() => {
-      throw new Error('拖拽中滚轮滚不动技能列表');
-    });
-    // 离下边 60 像素（贴边带外）：等滚轮的平滑滚动停下，再停 10 帧，不滚
-    await page.mouse.move(g.x, g.bottom - 60, { steps: 3 });
-    let s1 = await top();
-    for (let i = 0; i < 60; i++) {
-      await frames(3);
-      const s = await top();
-      if (s === s1) break;
-      s1 = s;
-    }
-    await frames(10);
-    const s2 = await top();
-    assert(s2 === s1, '指针在贴边带以外时列表不应自己滚：' + s1 + ' → ' + s2);
-    // 贴到下边：往下滚，直到远处的孔进了可见区、离开贴边带（或者滚到了底）
-    await page.mouse.move(g.x, g.bottom - 6, { steps: 2 });
-    await until((s2) => document.querySelector('.skill-list').scrollTop > s2 + 40, s2).catch(async () => {
-      throw new Error('指针贴到列表下边没有自动往下滚：scrollTop ' + s2 + ' → ' + (await top()));
-    });
-    await until(([far, edge]) => {
-      const L = document.querySelector('.skill-list'), r = L.getBoundingClientRect(), y = T.rect(far).y;
-      return L.scrollTop >= L.scrollHeight - L.clientHeight - 1 || (y > r.top + edge && y < r.top + L.clientHeight - edge - 60);
-    }, [g.far, 40]).catch(async () => {
-      throw new Error('贴边自动滚动没有把远处的孔带进视野：scrollTop ' + (await top()));
-    });
-    // 先挪进来（离开贴边带就不再滚），再对准孔的中心
-    let b = await ev((s) => T.rect(s), g.far);
-    await page.mouse.move(b.x, b.y, { steps: 4 });
-    b = await ev((s) => T.rect(s), g.far);
-    await page.mouse.move(b.x, b.y);
-    await frames(2);
-    const mid = await ev((far) => ({ cap: document.querySelector('#drag-ghost em').textContent, hover: document.querySelector(far).classList.contains('drop-hover'), top: document.querySelector('.skill-list').scrollTop }), g.far);
-    await page.mouse.up();
-    const r = await ev((g) => ({ e: G.save.sockets.ember.slice(), t: G.save.sockets[g.skill].slice() }), g);
-    assert(mid.hover && mid.cap.startsWith('镶进 ') && r.e[0] === null && r.t[g.idx] === 'multi', '自动滚到远处的孔上松手应把宝石挪过去：' + JSON.stringify({ g, mid, r }));
-    await closePanel();
   });
 
   // ------------------------------------------------------------------ v2 界面：地面掉落 / 战斗信息 / 新手提示
