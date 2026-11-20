@@ -11627,7 +11627,7 @@ async function main() {
           G.clearMinions();
           G.relicReset();
           if (RQT.keep) {
-            Object.assign(G.save.equip, RQT.keep.equip);
+            for (const sl of G.SLOTS) G.save.equip[sl] = RQT.keep.equip[sl] || null; // 存档里原本没有这个部位的键时也要清掉（只跑几步时的新存档）
             G.save.supports = RQT.keep.sup;
             T.buildRestore(RQT.keep.build);
           }
@@ -13999,6 +13999,7 @@ async function main() {
       const near = T.mob('husk', dir.x * 5, dir.z * 5), far = T.mob('husk', dir.x * 12, dir.z * 12), mid = T.mob('husk', dir.x * 10 + dir.z * 3, dir.z * 10 - dir.x * 3);
       G.debug.step(0.05);
       out.flags1 = [near.dark, far.dark, mid.dark].join();
+      RQT.learn('thrall', 2); // 没学的召唤技能，召唤物会被解散
       const th = G.summonMinion('thrall', P.x, P.z, G.skillCtx('thrall'));
       th.x = mid.x - dir.x * 1.6; th.z = mid.z - dir.z * 1.6;
       th.speed = 0;
@@ -14038,7 +14039,11 @@ async function main() {
       // 召唤物挨打
       const mh = (src) => { th.hp = th.maxHp; G.hurtMinion(th, 100, 'fire', src); return th.maxHp - th.hp; };
       out.minionWeak = +(mh(mid) / mh(far)).toFixed(3);
-      // 摘下：当场复原
+      // 摘下：当场复原（面板秒伤也跟着回去）
+      const cB = G.skillCtx('blade'), dps1 = G.skillDps(cB), v0 = P.S.darkDmg;
+      P.S.darkDmg = 0;
+      out.dps = +(dps1 / G.skillDps(cB)).toFixed(2);
+      P.S.darkDmg = v0;
       G.save.equip.helm = null;
       G.computeStats();
       G.debug.step(0.02);
@@ -14056,7 +14061,7 @@ async function main() {
     assert(r.ring.visible && r.ring.r === 8 && r.ring.mr === 2.5 && r.ring.n === 2, '暗域圈不对：' + JSON.stringify(r));
     assert(r.you === '1.24,1.24' && r.mine === '1.24,1' && r.hitFar === 1.24 && r.sneak === 'true false', '增伤 / 必暴不对：' + JSON.stringify(r));
     assert(r.weak === '0.8,0.8' && r.weakBoss === 'true,0.9,1' && r.minionWeak === 0.8 && r.cap === 0.85, '削弱 / 85% 上限不对：' + JSON.stringify(r));
-    assert(r.off === 'false,false,true,0' && r.offHit === '1 1' && r.offRing === false, '摘下没复原：' + JSON.stringify(r));
+    assert(r.off === 'false,false,true,0' && r.offHit === '1 1' && r.offRing === false && r.dps === 1.24, '摘下没复原 / 面板秒伤没算暗域增伤：' + JSON.stringify(r));
     return '增伤 ×' + r.you.split(',')[0] + ' · 域内伤害 ×' + r.weak.split(',')[0] + ' · 首领 ×0.9 · 上限 ' + r.cap;
   });
 

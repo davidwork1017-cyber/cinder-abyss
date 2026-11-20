@@ -2081,6 +2081,9 @@
       ctx.crit = c0;
     }
   };
+  // 面板秒伤（技能卡、物品对比、技能页）把暗域增伤算进去：你的技能对所有敌人都吃；召唤物按目标在暗域里算（它们身边 mr 米就是暗域）
+  const skillDps0 = G.skillDps;
+  G.skillDps = (ctx) => skillDps0(ctx) * (P.relic.xizhu ? 1 + Math.max(0, (P.S && P.S.darkDmg) || 0) / 100 : 1);
   // 暗域内的敌人造成的伤害倍率：src 是敌人本身，或带 owner 的预警圈 / 弹丸。首领 1 − weakBoss，熄烛者（pin）不吃
   G.darkWeakK = function (src) {
     const e = src && src.owner && typeof src.owner === 'object' ? src.owner : src;
