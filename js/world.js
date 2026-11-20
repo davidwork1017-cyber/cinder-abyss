@@ -19650,7 +19650,9 @@
   // ---------- 元素异常的特效 ----------
   // 冻结（首领是重度冰缓）：脚下一片霜痕、一圈冰晶碎屑
   W.freezeFx = function (x, z, r, h, boss) {
-    W.decal(2, x, z, r + (boss ? 1.6 : 0.7), Math.random() * TAU, 0x9fdcff, boss ? 3 : 2);
+    // vf-vfx：霜痕换到痕迹池（从脚下往外扩开、放射状的冰晶），身上一记冰晶星芒
+    W.vDecal(VVD.frost, x, z, (r + (boss ? 1.6 : 0.7)) * 0.5, boss ? 3 : 2.2, 0x9fdcff, { r1: r + (boss ? 1.6 : 0.7), grow: 0.25 });
+    W.fxFlip(VFB.spark, x, h * 0.55, z, 1.2 + r, 0.24, 0xe6f8ff, { a: 0.9 });
     W.ring(x, z, r + 1.4, 0xbfeaff, 0.35);
     W.burst(x, h * 0.5, z, 0xd6f3ff, boss ? 26 : 16, 4, 0.5);
     _c.set(0xd6f3ff);
@@ -19664,8 +19666,11 @@
   W.blastFx = function (x, z, R) {
     const lo = qualId === 'low', P = HIT_PAL.fire;
     W.ring(x, z, R, 0xff7a2c, 0.42);
-    W.decal(1, x, z, R * 0.8, Math.random() * TAU, 0xff6a2a, 3);
-    tChunk(1, x, 1.0, z, 0, 0, 0, 0.2, 0.8 + R * 0.12, P[0], P[1], 0);
+    // vf-vfx：焦痕换到痕迹池（透着余烬、被噪声蚀掉）+ 地面闪光；中心的星换成序列帧火团 + 星芒
+    W.vDecal(VVD.scorch, x, z, R * 0.8, 3, 0xff6a2a);
+    W.vDecal(VVD.flash, x, z, R * 1.4, 0.3, 0xff9a40);
+    W.fxFlip(VFB.fire, x, 0.9, z, 1.2 + R * 0.6, 0.4, P[1], { grow: 1.35, vy: 0.8 });
+    W.fxFlip(VFB.spark, x, 1.0, z, 1.0 + R * 0.5, 0.22, P[0], { a: 0.9 });
     for (let i = 0, n = lo ? 5 : 9; i < n; i++) {
       const a = (i / n) * TAU + rand(-0.3, 0.3), v = rand(1.4, 2.4) * R;
       tChunk(2, x + Math.sin(a) * 0.3, 0.8, z + Math.cos(a) * 0.3, Math.sin(a) * v, rand(1, 2.4), Math.cos(a) * v, rand(0.34, 0.5), rand(0.36, 0.5), i % 3 ? 0xff7a22 : 0xffd060, i % 3 ? P[2] : 0xff7a22, -1.5);
@@ -20557,12 +20562,19 @@
     // 冰棱里是胞腔边的冰缝；脉冲波扫过时冰棱亮一下。冰棱只占外圈 0.62–0.955 一带，圈里大部分还是空的，怪看得清
     '  float uA0 = (an / 6.2831853 + 0.5) * 44.0 + uTime * 0.18;',
     '  float si = floor(uA0), sf = fract(uA0) - 0.5;',
-    '  float hs = fract(sin(mod(si, 44.0) * 91.7 + 3.1) * 43758.5453);',
-    '  float len = 0.07 + 0.26 * hs * hs;',
-    '  float inner = 0.955 - len;',
-    '  float sw = 0.46 * clamp((l - inner) / len, 0.0, 1.0);', // 冰棱的半宽：尖在里、根在外沿
-    '  float shard = step(inner, l) * step(l, 0.955) * step(abs(sf), sw);',
-    '  float rimS = (1.0 - shard) * step(inner - 0.02, l) * step(l, 0.955) * step(abs(sf), sw + 0.09);',
+    // 每一格一根冰棱：长短、粗细、在格里的位置、尖往哪边歪都按格号随机，约两成的格子空着（冰棱三三两两地成簇，不是齿轮），根部的外沿也参差
+    '  float sm = mod(si, 44.0);',
+    '  float h1 = fract(sin(sm * 91.7 + 3.1) * 43758.5453), h2 = fract(sin(sm * 37.3 + 7.7) * 24634.6345);',
+    '  float h3 = fract(sin(sm * 13.1 + 1.9) * 35617.1234), h4 = fract(sin(sm * 57.9 + 5.3) * 18734.9876);',
+    '  float gap = step(0.22, h2);',
+    '  float len = (0.05 + 0.3 * h1 * h1) * gap;',
+    '  float base = 0.955 - 0.03 * h4;',
+    '  float inner = base - len;',
+    '  float tt = clamp((l - inner) / max(len, 0.001), 0.0, 1.0);', // 0 尖 → 1 根
+    '  float dx = abs(sf - (h4 - 0.5) * 0.24 - (h3 - 0.5) * 0.6 * (1.0 - tt));',
+    '  float sw = (0.16 + 0.24 * h3) * tt;', // 冰棱的半宽：尖在里、根在外沿
+    '  float shard = gap * step(inner, l) * step(l, base) * step(dx, sw);',
+    '  float rimS = gap * (1.0 - shard) * step(inner - 0.02, l) * step(l, base + 0.01) * step(dx, sw + 0.09);',
     '  float cr = vfxNA(vec2(uA0 * 0.25, l * 2.0)).b;',
     '  float frost = shard * (0.42 + 0.25 * cr + wave * 2.5);',
     '  float aB = (edge * 0.7 + ticks * 0.3 + fill * 1.5 + wave * 1.6 + frost) * uA;',
@@ -20592,7 +20604,7 @@
     const P = G.player;
     if (aura.r > 0 && P) {
       aura.sweep = (aura.sweep || 0) + 1;
-      if (qualId !== 'low' || aura.sweep % 2) W.vDecal(VVD.frost, P.x, P.z, aura.r * 0.35, qualId === 'low' ? 1.4 : 2, 0x86d8ff, { r1: aura.r * 0.98, grow: 0.35, a: 0.7 });
+      if (qualId !== 'low' || aura.sweep % 2) W.vDecal(VVD.frost, P.x, P.z, aura.r * 0.62, qualId === 'low' ? 1.4 : 2, 0x86d8ff, { r1: aura.r * 0.98, grow: 0.35, a: 0.7 });
       if (hit) {
         const n = qualId === 'low' ? 5 : 9, a0 = vr(0, TAU);
         for (let i = 0; i < n; i++) {
@@ -23929,11 +23941,15 @@
   W.triStrikeLand = function (x, z, t, r) {
     const hx = STORM_HEX[t === 'fire' ? 0 : t === 'cold' ? 1 : 2];
     W.ring(x, z, r, hx, 0.3);
+    // vf-vfx：三种落点各换成序列帧 + 地面瞬时痕迹（火：火团 + 焦痕 + 闪光；冰：冰晶星芒 + 霜痕；雷：电弧 + 闪光 + 小焦痕），痕迹从对象池贴花换到痕迹池
     if (t === 'fire') {
-      W.decal(1, x, z, r * 0.7, rand(0, TAU), hx, 2.2);
+      W.vDecal(VVD.scorch, x, z, r * 0.75, 2.4, hx);
+      W.vDecal(VVD.flash, x, z, r * 1.4, 0.28, 0xff9a40);
+      W.fxFlip(VFB.fire, x, 0.6, z, 1.2 + r * 0.7, 0.36, hx, { grow: 1.3, vy: 0.7 });
       W.burst(x, 0.6, z, 0xffb070, 14, 6, 0.45);
     } else if (t === 'cold') {
-      W.decal(2, x, z, r * 0.85, rand(0, TAU), 0x9fdcff, 2.4);
+      W.vDecal(VVD.frost, x, z, r * 0.5, 2.4, 0x86d8ff, { r1: r * 0.95, grow: 0.2 });
+      W.fxFlip(VFB.spark, x, 0.8, z, 1.4 + r * 0.6, 0.24, 0xe6f8ff, { a: 0.9 });
       flare(x, 0.8, z, 0xd6f3ff, 2.4, 0.12);
       _c.set(0xd6f3ff);
       for (let i = 0; i < 18; i++) {
@@ -23948,6 +23964,9 @@
       W.bolt([{ x, z }, { x: x + Math.sin(a) * r * 1.3, z: z + Math.cos(a) * r * 1.3 }], hx, true);
       W.bolt([{ x, z }, { x: x - Math.sin(a + 0.6) * r * 1.2, z: z - Math.cos(a + 0.6) * r * 1.2 }], hx, true);
       flare(x, 1.0, z, 0xffffff, 3, 0.12);
+      W.vDecal(VVD.flash, x, z, r * 1.6, 0.25, hx);
+      W.vDecal(VVD.scorch, x, z, r * 0.5, 2, hx, { a: 0.8 });
+      W.fxFlip(VFB.arc, x, 0.9, z, 1.6 + r * 0.5, 0.24, hx, { a: 0.85 });
       flashLight(x, 3, z, hx, 2.6);
       W.burst(x, 0.8, z, hx, 16, 7, 0.35);
     }
