@@ -4959,7 +4959,7 @@
     edge.raf = 0;
     if (!drag.on || (drag.kind !== 'sup' && drag.kind !== 'skill') || ui.tab !== 'skills') return;
     edge.raf = requestAnimationFrame(edgeScroll);
-    const dt = edge.t ? Math.min(0.05, (now - edge.t) / 1000) : 0; // 掉帧时一帧最多按 50 毫秒算，不会一下跳很远
+    const dt = edge.t ? Math.min(0.25, (now - edge.t) / 1000) : 0; // 按真实时间滚，帧率低时速度不变；一帧最多按 250 毫秒算，卡顿后不会一下跳很远
     edge.t = now;
     const list = el.body.querySelector('.skill-list');
     if (!list || !dt) return;
