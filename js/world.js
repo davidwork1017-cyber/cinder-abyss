@@ -25269,6 +25269,16 @@
       '  if (a <= 0.0) discard; float k = vA > 0.66 ? 1.0 : (vA > 0.33 ? 0.62 : 0.3);',
       '  gl_FragColor = vec4(mix(vC, vec3(1.0), r > 0.9 ? 0.35 : 0.0), a * k); }',
     ].join('\n'),
+    // 双月（双生坠的余响）：平铺在脚下的两片细半月，一片取实例色（暖）、一片取它的 bgr（冷），亮度由实例色定（game.js 按 RELIC_MECH.shuangsheng.fx 压暗）；k 是整对的转角，a 按三档阶梯
+    twin: [
+      'varying vec3 vC; varying float vA; varying float vK; varying vec2 vUv;',
+      'void main(){ vec2 p = vUv * 2.0 - 1.0; float c = cos(vK), s = sin(vK); p = vec2(c * p.x - s * p.y, s * p.x + c * p.y);',
+      '  float side = p.x < 0.0 ? -1.0 : 1.0; vec2 q = vec2(abs(p.x), p.y);',
+      '  float outer = length(q - vec2(0.08, 0.0)), inner = length(q - vec2(-0.1, 0.0));',
+      '  if (outer > 0.9 || inner < 0.86) discard; float edge = outer > 0.84 ? 1.0 : 0.55;',
+      '  vec3 col = side < 0.0 ? vC : vC.bgr; float k = vA > 0.66 ? 1.0 : (vA > 0.33 ? 0.62 : 0.3);',
+      '  gl_FragColor = vec4(col * (edge > 0.9 ? 1.15 : 1.0), edge * k); }',
+    ].join('\n'),
     // 索：中间一道亮芯（缓缓流动的节）+ 两侧颜色的边
     // vf-vfx：流动的节换成顺着索往前窜的条纹噪声，亮芯的粗细跟着跳一点
     band: G.vfx.GLSL + '\n' + [
