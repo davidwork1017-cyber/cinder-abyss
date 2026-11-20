@@ -1,6 +1,9 @@
 // 端到端冒烟测试：无头 Chrome 里把整个游戏流程走一遍。
 // 每一步打印一行 ok / FAIL；任何一步失败或页面出现报错，进程以非 0 退出。
+// 分两份（见 test/README.md）：main() 是 test:func（不看墙钟，可以和别的 Chrome 一起跑），timedMain() 是 test:timed（要独占机器）。
+// node test/smoke.mjs = 两份都跑（先 func 后 timed）；--func / --timed 只跑一份。
 import { launch } from './harness.mjs';
+import { execSync } from 'node:child_process';
 
 const SAVE_KEY = 'cinder-abyss-save-v1';
 let G_CUR_N = 8, G_UQ_COLOR = '#ff9b3d', G_SOUL_INH = 1.5, G_SOUL_K = 0.2;
@@ -8,6 +11,7 @@ const G_USK = { jinduan: 'ashcuts', sanxiang: 'tristorm', wanhun: 'soulhost', ro
 let browser, page, errors;
 let failed = 0;
 let passed = 0;
+let NC_TAG = ''; // 本次的耗时 / ms 数字不可比时（只跑 test:func，或在池里跑）挂在每行 ok 后面，见文件末尾
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
@@ -34,7 +38,7 @@ async function step(name, fn) {
     await sleep(30); // 给异步报错一点冒出来的时间
     if (errors && errors.length) throw new Error('页面报错：' + errors.splice(0).join(' | '));
     passed++;
-    console.log('ok   ' + name + (info ? ' — ' + info : '') + '  (' + (Date.now() - t0) + 'ms)');
+    console.log('ok   ' + name + (info ? ' — ' + info : '') + '  (' + (Date.now() - t0) + 'ms)' + NC_TAG);
   } catch (e) {
     failed++;
     const extra = errors && errors.length ? ' ｜页面报错：' + errors.splice(0).join(' | ').slice(0, 600) : '';
@@ -326,6 +330,210 @@ async function holdInput(slot, down) {
   else await page.keyboard[down ? 'down' : 'up'](slot === 2 ? 'KeyQ' : 'KeyE');
 }
 
+// ------------------------------------------------------------------ test:timed（计时步骤）
+// 这些断言看的是墙钟时间：空闲回调里的图标预热、按 performance.now 计时的 R 格气泡 / 新手提示 / 大字提示、单次耗时上限。
+// 机器一忙就会误报，所以单独成一份：npm run test:timed，要独占机器（cc-slot run <名字> test -- npm run test:timed）。
+// main()（test:func）里对应的步骤只留功能部分。每条计时断言从原步骤原样搬来（条件和上限一个字不改），前面补上它要的最少准备。
+// 新加的计时断言写进这里、不写进 main()：步骤名用「计时｜」开头，并在 test/README.md 的表里记一行。
+async function timedMain() {
+  // 准备：和 main() 开头「启动」「首屏」两步同样的操作（不含断言），图标预热的起点和原来一样
+  ({ browser, page, errors } = await launch({ width: 1440, height: 900 }));
+  await install();
+  await ev(() => G.debug.hold(false));
+  await frames(3);
+  await ev(() => G.state.time);
+  await frames(2);
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('KeyH');
+  await ev(() => T.bodyText());
+  await closePanel();
+  await sleep(30);
+  await frames(2);
+  await ev(() => T.frame());
+  await sleep(30);
+
+  // 原步骤：main() 里的「图标预热」（那边只等它画完，不计时）
+  await step('计时｜图标预热：启动后趁空闲分批画好全部图标（120 秒内），第一次打开背包不用现画', async () => {
+    const t0 = Date.now();
+    // 只是功能检查的超时：SwiftShader 在单核较慢的机器上安静时也要 60 秒上下才画完，留出一倍余量
+    await until(() => G.icons.ready(), null, 120000).catch(() => {
+      throw new Error('启动后图标没有在空闲时预先画好');
+    });
+    const n = await ev(() => G.icons.keys().length);
+    assert(n >= 60, '图标数量不对：' + n);
+    return n + ' 个图标，启动后 ' + ((Date.now() - t0) / 1000).toFixed(1) + ' 秒内就绪';
+  });
+
+  // 原步骤：main() 里的「武器界面：HUD 的 R 格……」。气泡的 deny 样式按 performance.now 留 620 ms，等两三帧后还得在：帧一慢就没了
+  await uiStep('计时｜武器界面：空手按 R 时 R 格抖一下、冒出「没有武器」（气泡留 620 ms，两三帧后还在）', async () => {
+    const r = await ev(async () => {
+      const wait = (n) => new Promise((res) => { let i = 0; const f = () => (++i > n ? res() : requestAnimationFrame(f)); requestAnimationFrame(f); });
+      const keep = G.save.equip.weapon;
+      const ws = () => document.getElementById('wslot');
+      const out = {};
+      try {
+        G.player.cds = {};
+        // 空手：格子空着、写「无武器」，按 R 时冒出说明
+        delete G.save.equip.weapon;
+        G.computeStats();
+        await wait(2);
+        out.none = { empty: ws().classList.contains('empty') && ws().classList.contains('nowpn'), txt: ws().querySelector('.s-none').offsetParent ? ws().querySelector('.s-none').textContent : '' };
+        G.input.keys.KeyR = true;
+        await wait(2);
+        out.none.deny = ws().classList.contains('deny') && ws().querySelector('.s-bubble').textContent;
+        G.input.keys.KeyR = false;
+      } finally {
+        G.save.equip.weapon = keep;
+        G.input.keys.KeyR = false;
+        G.player.cds = {};
+        G.computeStats();
+      }
+      return out;
+    });
+    assert(r.none.empty && r.none.txt === '无武器' && r.none.deny === '没有武器', '空手时 R 格应写「无武器」，按 R 时说明：' + JSON.stringify(r.none));
+    return '气泡：' + r.none.deny;
+  });
+
+  // 原步骤：main() 里的「新手提示：……」。提示按真实时间走（coach 用 performance.now）
+  const hint = () => ev(() => Object.assign(G.ui.hints(), { cls: document.getElementById('coach').className, txt: document.getElementById('coach').innerText, tut: Object.keys(G.save.tut).join() }));
+  const shown = (id) => until((id) => G.ui.hints().current === id && G.ui.hints().state === 'show' && document.getElementById('coach').classList.contains('on'), id).catch(() => {
+    throw new Error('提示「' + id + '」没有出现');
+  });
+  const seen = (id) => until((id) => !!G.save.tut[id], id).catch(() => {
+    throw new Error('提示「' + id + '」没有在做到之后标记为看过');
+  });
+  const hintsEnd = () =>
+    ev(() => {
+      G.debug.hold(true);
+      G.clearEnemies();
+      G.player.roll.cd = 0;
+      T.hintsSeen();
+      G.save.level = 1;
+      G.computeStats();
+      G.player.life = G.player.maxLife;
+      G.player.mana = G.player.maxMana;
+      G.persist();
+    });
+  await uiStep('计时｜新手提示：做到之后「做到了」不会一闪而过（按下翻滚 1.9 秒后才换掉）', async () => {
+    // 和原步骤走到这里时一样：本次从 1 级玩上来的角色升到 3 级，基础提示只差翻滚，身边一只不动的敌人
+    await ev(() => {
+      T.arena();
+      G.save.bag.length = 0;
+      G.save.blankGems = [];
+      G.save.tut = { move: 1, attack: 1, bag: 1, craft: 1, support: 1, passive: 1, combo: 1, poise: 1, wskill: 1 };
+      G.save.level = 3;
+      G.computeStats();
+      G.ui.refresh();
+      G.debug.hold(false);
+      T.mob('husk', 9, 0, { speed: 0, atkCd: 1e9 });
+    });
+    await page.mouse.move(900, 450);
+    await shown('dodge');
+    const t0 = Date.now();
+    await page.keyboard.press('Space');
+    await seen('dodge');
+    await hint(); // 原步骤在这里读一次提示状态（「做到了」的断言在 test:func 里），往返照样做一次
+    await until(() => G.ui.hints().current !== 'dodge');
+    assert(Date.now() - t0 >= 1900, '提示在做到之后消失得太快：' + (Date.now() - t0) + ' ms');
+    const ms = Date.now() - t0;
+    await hintsEnd();
+    return ms + ' ms 后换掉';
+  });
+  await uiStep('计时｜新手提示：濒死时喝药的提示 5 秒内顶掉正在显示的面板提示（天赋）', async () => {
+    // 和原步骤走到这里时一样：5 级、有天赋点，天赋提示正亮着
+    await ev(() => {
+      T.arena();
+      G.save.bag.length = 0;
+      G.save.blankGems = [];
+      G.save.level = 5;
+      G.computeStats();
+      G.save.tut = { move: 1, attack: 1, dodge: 1, combo: 1, poise: 1, loot: 1, bag: 1, craft: 1, support: 1, execute: 1, boss: 1, portal: 1, wskill: 1 };
+      G.resetPassives();
+      G.player.flask.life = 3;
+      G.ui.refresh();
+      G.debug.hold(false);
+    });
+    await page.mouse.move(900, 450);
+    await shown('passive');
+    await ev(() => { G.player.life = G.player.maxLife * 0.2; });
+    const tf = Date.now();
+    await shown('flask');
+    const r = await hint();
+    assert(Date.now() - tf < 5000 && !r.tut.includes('passive') && r.txt.includes('生命药剂'), '濒死时喝药的提示应立刻顶掉正在显示的面板提示：' + JSON.stringify(r));
+    const ms = Date.now() - tf;
+    await hintsEnd();
+    return ms + ' ms 顶上来';
+  });
+
+  // 原步骤：main() 里的「大字提示不互相顶掉……」。大字按 performance.now 放 4.3 秒，3 秒时还得在、5.2 秒时得没了
+  await step('计时｜大字提示：排在下面的放满自己的时间（3 秒时还在），放完之后全部消失', async () => {
+    const vis = () =>
+      ev(() => {
+        const bt = document.getElementById('big-toast'), st = document.getElementById('big-toast-stack');
+        const seen = (el) => !!el && getComputedStyle(el).visibility === 'visible' && el.getBoundingClientRect().height > 0;
+        return { main: bt ? bt.innerText.replace(/\s+/g, ' ') : '', mainOn: !!bt && bt.classList.contains('on') && seen(bt), stack: st ? st.innerText.replace(/\s+/g, ' ') : '', stackOn: seen(st), rows: st ? st.querySelectorAll('.bts-row').length : 0 };
+      });
+    await ev(() => {
+      G.ui.bigToastReset();
+      G.ui.bigToast(G.RELIC_NAME, '甲之渊契', G.RELIC_COLOR, '机制甲');
+      G.ui.bigToast('烬铸武器', '乙之烬铸', G.RARITY_COLOR[3], '机制乙');
+    });
+    await vis(); // 原步骤在这两处各读一次（「两条」「5 条」的断言在 test:func 里），往返照样做
+    await ev(() => {
+      for (let i = 1; i <= 3; i++) G.ui.bigToast('烬铸武器', '丙之' + i, G.RARITY_COLOR[3], '');
+    });
+    await vis();
+    await sleep(3000);
+    const later = await vis();
+    await sleep(2200);
+    const gone = await vis();
+    assert(later.stackOn && later.rows >= 1, '排在下面的应放满自己的时间（3 秒时还在）：' + JSON.stringify(later));
+    assert(!gone.stackOn && !gone.mainOn, '放完之后应全部消失：' + JSON.stringify(gone));
+    return '3 秒时下面还有 ' + later.rows + ' 行';
+  });
+
+  // 原步骤：main() 里的「渊印·生成……」。下面这段循环和那一步的逐字相同（计的就是这段活的单次耗时，少做一点都等于放宽）；改那一步的循环时这里跟着改
+  await step('计时｜渊印·生成：掷一次三枚印（连同校验）平均不到 2 ms', async () => {
+    const r = await ev(() => {
+      const out = { bad: [], W: {}, n: {}, maxDz: {} };
+      const bars = [['cleave', 'ember', null, null], ['vortex', 'nova', 'blackhole', 'thrall']];
+      const t0 = performance.now();
+      let rolls = 0;
+      for (const tier of [1, 2, 3]) {
+        const T = G.sealTierDef(tier);
+        out.maxDz[tier] = 0;
+        for (let seq = 0; seq < 1000; seq++) {
+          const zi = seq % 5, bar = bars[seq % 2];
+          const seals = G.rollSeals(zi, tier, seq, bar);
+          rolls++;
+          if (seals.length !== 3 || seals.some((s, g) => s.g !== g)) out.bad.push('三枚印不全 ' + tier + '/' + seq);
+          if (JSON.stringify(G.rollSeals(zi, tier, seq, bar)) !== JSON.stringify(seals)) out.bad.push('同种子结果不同 ' + seq);
+          for (const s of seals) {
+            const ids = s.mods.map((m) => m.id), n = ids.length;
+            const nMin = Math.max(T.n[0], s.g === 2 ? T.minN3 : 0), nMax = T.n[1] + (s.g === 2 ? 1 : 0);
+            const W = G.sealW(s, bar), dz = G.sealDanger(s), rage = ids.filter((id) => G.SEAL_MODS[id].rage).length;
+            const dead = s.mods.filter((m) => G.sealModW(m, bar) === 0).length;
+            const tint = s.mods.filter((m) => m.id === 'tint');
+            out.maxDz[tier] = Math.max(out.maxDz[tier], dz);
+            const key = tier + ':' + s.g;
+            out.W[key] = out.W[key] || {};
+            out.W[key][W] = (out.W[key][W] || 0) + 1;
+            if (n < nMin || n > nMax) out.bad.push('条数 ' + key + ' ' + n);
+            if (W !== s.W || W < T.W[s.g][0] || W > T.W[s.g][1]) out.bad.push('W ' + key + ' ' + W);
+            if (dz > T.budget + 1e-9) out.bad.push('预算 ' + key + ' ' + dz);
+            if (rage > 2 || dead > 1 || new Set(ids).size !== n || tint.length > 1) out.bad.push('互斥 ' + ids.join());
+            if (tint.length && (tint[0].el === G.ZONES[zi].elem || !G.SEAL_TINT[tint[0].el])) out.bad.push('焚染元素 ' + tint[0].el);
+          }
+        }
+      }
+      out.ms = +((performance.now() - t0) / rolls).toFixed(3);
+      return out;
+    });
+    assert(r.ms < 2, '掷一次三枚印太慢：' + r.ms + ' ms');
+    return '每次 ' + r.ms + ' ms';
+  });
+}
+
 async function main() {
   // ------------------------------------------------------------------ 启动
   await step('启动：页面无报错，首次运行弹出开场卡片（游戏暂停），回车关闭', async () => {
@@ -407,8 +615,8 @@ async function main() {
 
   await step('图标预热：启动后趁空闲分批画好全部图标，第一次打开背包不用现画', async () => {
     const t0 = Date.now();
-    // 只是功能检查的超时：SwiftShader 在单核较慢的机器上安静时也要 60 秒上下才画完，留出一倍余量
-    await until(() => G.icons.ready(), null, 120000).catch(() => {
+    // test:func 里只等它画完（安全超时 5 分钟，机器忙时也不误报）；「120 秒内画完」的计时断言在 test:timed 里（计时｜图标预热）
+    await until(() => G.icons.ready(), null, 300000).catch(() => {
       throw new Error('启动后图标没有在空闲时预先画好');
     });
     const n = await ev(() => G.icons.keys().length);
@@ -5983,7 +6191,7 @@ async function main() {
         out.none = { empty: ws().classList.contains('empty') && ws().classList.contains('nowpn'), txt: ws().querySelector('.s-none').offsetParent ? ws().querySelector('.s-none').textContent : '' };
         G.input.keys.KeyR = true;
         await wait(2);
-        out.none.deny = ws().classList.contains('deny') && ws().querySelector('.s-bubble').textContent;
+        out.none.deny = ws().querySelector('.s-bubble').textContent; // 气泡文字；deny 样式还在不在看墙钟，在 test:timed 里测（计时｜武器界面）
         G.input.keys.KeyR = false;
         // 布局：五格都在技能栏里，不压生命 / 魔力球
         const bar = T.rect('#bar'), w = T.rect('#wslot'), life = T.rect('.orb.life'), mana = T.rect('.orb.mana');
@@ -6713,14 +6921,12 @@ async function main() {
     await shown('dodge');
     r = await hint();
     assert(!r.veteran && r.txt.includes('翻滚') && !r.tut.includes('dodge'), '升到 3 级的新角色应照常看到翻滚提示：' + JSON.stringify(r));
-    // 做到了：立刻记为看过，但卡片要留到读得完为止（至少 4 秒），不会一闪而过
-    const t0 = Date.now();
+    // 做到了：立刻记为看过，但卡片要留到读得完为止（至少 4 秒），不会一闪而过（「1.9 秒后才换掉」看墙钟，在 test:timed 里）
     await page.keyboard.press('Space');
     await seen('dodge');
     r = await hint();
     assert(r.state === 'done' && r.cls.includes('done') && r.minShow >= 4, '做到之后应显示「做到了」：' + JSON.stringify(r));
     await until(() => G.ui.hints().current !== 'dodge');
-    assert(Date.now() - t0 >= 1900, '提示在做到之后消失得太快：' + (Date.now() - t0) + ' ms');
     await ev(() => { G.clearEnemies(); G.player.roll.cd = 0; });
     // 读档时已经 3 级以上的老角色：基础操作的提示直接跳过（只在读档那一刻判定）
     await ev(() => {
@@ -6743,10 +6949,9 @@ async function main() {
     });
     await shown('passive');
     await ev(() => { G.player.life = G.player.maxLife * 0.2; });
-    const tf = Date.now();
     await shown('flask');
     r = await hint();
-    assert(Date.now() - tf < 5000 && !r.tut.includes('passive') && r.txt.includes('生命药剂'), '濒死时喝药的提示应立刻顶掉正在显示的面板提示：' + JSON.stringify(r));
+    assert(!r.tut.includes('passive') && r.txt.includes('生命药剂'), '濒死时喝药的提示应立刻顶掉正在显示的面板提示：' + JSON.stringify(r)); // 「5 秒内」看墙钟，在 test:timed 里
     await ev(() => { G.player.life = G.player.maxLife; });
     await seen('flask');
     await shown('passive');
@@ -10070,15 +10275,10 @@ async function main() {
       for (let i = 1; i <= 3; i++) G.ui.bigToast('烬铸武器', '丙之' + i, G.RARITY_COLOR[3], '');
     });
     const five = await vis();
-    await sleep(3000);
-    const later = await vis();
-    await sleep(2200);
-    const gone = await vis();
+    // 「3 秒时还在、放完就消失」看墙钟，在 test:timed 里（计时｜大字提示）
     assert(two.mainOn && /乙之烬铸/.test(two.main) && !/甲之渊契/.test(two.main), '后到的应占正中的大字：' + JSON.stringify(two));
     assert(two.stackOn && /甲之渊契/.test(two.stack) && two.rows === 1, '先到的应缩成一行留在下面：' + JSON.stringify(two));
     assert(/丙之3/.test(five.main) && five.rows === 3 && /丙之2/.test(five.stack) && /丙之1/.test(five.stack) && /另有 2 件珍品/.test(five.stack), '5 条时下面应只留 2 条、其余并成一行：' + JSON.stringify(five));
-    assert(later.stackOn && later.rows >= 1, '排在下面的应放满自己的时间（3 秒时还在）：' + JSON.stringify(later));
-    assert(!gone.stackOn && !gone.mainOn, '放完之后应全部消失：' + JSON.stringify(gone));
     return '两条：' + two.main + ' ｜ ' + two.stack;
   });
 
@@ -12478,7 +12678,7 @@ async function main() {
     for (const [k, lo, hi] of [['1:0', 2, 3], ['1:1', 4, 5], ['1:2', 6, 7], ['2:0', 2, 3], ['2:1', 4, 6], ['2:2', 7, 9], ['3:0', 3, 4], ['3:1', 5, 7], ['3:2', 8, 10]]) {
       for (let w = lo; w <= hi; w++) assert(r.W[k] && r.W[k][w] > 0, '档 ' + k + ' 掷不到 W ' + w + '：' + JSON.stringify(r.W[k]));
     }
-    assert(r.ms < 2, '掷一次三枚印太慢：' + r.ms + ' ms');
+    // 「单次不到 2 ms」的耗时断言在 test:timed 里（计时｜渊印·生成）
     return 'W 分布 ' + JSON.stringify(r.W['2:2']) + '（层级 2 烬印），最高危险度 ' + [1, 2, 3].map((t) => r.maxDz[t].toFixed(3)).join(' / ') + '，每次 ' + r.ms + ' ms';
   });
 
@@ -15099,13 +15299,32 @@ async function titleSteps() {
   });
 }
 
-main()
-  .catch((e) => {
-    failed++;
-    console.log('FAIL 测试脚本自身出错 — ' + (e && e.stack ? e.stack : e));
-  })
-  .finally(async () => {
+// 跑哪几份：默认两份都跑（先 func 后 timed，各用一个新浏览器）；--func / --timed 只跑一份。
+// 只跑 func，或在 cc-slot 的池里跑（CC_SLOT_HELD=pool:…，或手动设 CC_POOL=1）时，每行的耗时和 ms 数字标成不可比
+const PARTS = process.argv.includes('--func') ? ['func'] : process.argv.includes('--timed') ? ['timed'] : ['func', 'timed'];
+const POOL = !!process.env.CC_POOL || /^pool:/.test(process.env.CC_SLOT_HELD || '');
+const sum = (p, f) => (f ? '失败 ' + f + ' 项，' : '') + '通过 ' + p + ' 项';
+(async () => {
+  let head = '?';
+  try {
+    head = execSync('git rev-parse --short HEAD', { cwd: new URL('..', import.meta.url).pathname, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+  } catch (e) {}
+  const per = [];
+  for (const part of PARTS) {
+    NC_TAG = POOL || (part === 'func' && PARTS.length === 1) ? ' [pool, not comparable]' : '';
+    console.log('== test:' + part + ' · HEAD ' + head + ' · ' + new Date().toISOString() + ' · 槽位 ' + (process.env.CC_SLOT_HELD || '无') + (NC_TAG ? ' · 耗时数字不可比' + NC_TAG : '') + (part === 'timed' && POOL ? ' · 警告：计时步骤在池里跑，结果不作数' : ''));
+    const p0 = passed, f0 = failed;
+    try {
+      await (part === 'func' ? main() : timedMain());
+    } catch (e) {
+      failed++;
+      console.log('FAIL 测试脚本自身出错 — ' + (e && e.stack ? e.stack : e));
+    }
     if (browser) await browser.close().catch(() => {});
-    console.log('\n' + (failed ? '失败 ' + failed + ' 项，' : '') + '通过 ' + passed + ' 项');
-    process.exit(failed ? 1 : 0);
-  });
+    browser = page = errors = null;
+    per.push('test:' + part + ' ' + sum(passed - p0, failed - f0));
+  }
+  console.log('\n' + per.join(' · '));
+  console.log(sum(passed, failed));
+  process.exit(failed ? 1 : 0);
+})();
