@@ -14194,6 +14194,7 @@ async function main() {
       const q = spot(d, side), e = G.spawnMob(type, q.x, q.z, 20, { awake: true, elite: !!o.elite });
       e.wasAwake = true;
       e.atkCd = 1e9;
+      e.encNoLoot = true; // 不掉东西：捡到技能宝石会自动学会、放上技能栏（光环一上栏就开打，记到别的技能）
       if (o.hp) e.hp = e.maxHp = o.hp;
       e.buTh = Math.max(e.buTh || 0, 1);
       return e;
@@ -14277,6 +14278,7 @@ async function main() {
     out.mine = Math.round(by[id] || 0);
     out.mx = mx;
     if (P.cast) out.bad.push('松手 3 秒后还在施放 ' + P.cast.id);
+    if (G.save.bar.join() !== id + ',,,') out.bad.push('技能栏被改了 ' + G.save.bar.join());
     for (const k in P.cds) if (!(P.cds[k] <= 60)) out.bad.push('冷却卡住 ' + k + '=' + P.cds[k]);
     for (const k in P.auraT || {}) if (!isFinite(P.auraT[k])) out.bad.push('光环计时 ' + k);
     if (out.qOff !== 0) out.bad.push('摘下时还挂着 ' + out.qOff);
