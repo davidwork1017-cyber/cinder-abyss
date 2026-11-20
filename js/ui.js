@@ -5795,6 +5795,13 @@
       done: () => false,
     },
     {
+      // 渊式之前的存档：身上戴着的渊契原来直接改技能打法，读档时换成了这个技能的渊式（G.rqMigrated，见 game.js 的 sanitize）
+      id: 'rqvar', calm: true, max: 16,
+      html: '<b>渊式</b>：改技能打法的渊契换成了技能的第三种刻式，已替你选上；摘下渊契退回原来的刻式（<kbd>G</kbd>）',
+      when: () => G.rqMigrated > 0,
+      done: () => false,
+    },
+    {
       // 第五区上线前就打通过烬渊深处的老存档：提示一次多了一个区域（文字在数据里；读档时 sanitize 按 G.zoneNoticeFor 把 G.newZoneNotice 置上）
       get id() {
         return (G.NEW_ZONE_NOTICE && G.NEW_ZONE_NOTICE.id) || 'zone5';
@@ -5923,6 +5930,10 @@
     if (id === 'variant2') {
       G.save.varNote = false;
       G.variantRedone = 0;
+    }
+    if (id === 'rqvar') {
+      G.save.rqNote = false;
+      G.rqMigrated = 0;
     }
     G.persist();
   }

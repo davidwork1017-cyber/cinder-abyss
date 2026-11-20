@@ -22907,6 +22907,7 @@
 
   W.removeMesh = function (mesh) {
     if (mesh.parent) mesh.parent.remove(mesh);
+    if (mesh.userData.rvTok) mesh.userData.rvTok = null; // 渊式「回旋」的丝线跟着收
     const kind = mesh.userData.kind;
     if (kind === 'proj') {
       const i = projObjs.indexOf(mesh);
@@ -24569,7 +24570,7 @@
   // =====================================================================
   // 电桥：一条平放在胸口高度的窄带，中间一道锯齿亮芯（每秒跳 14 次形状）+ 黄边，两侧两道平行细光；整条按剩余时间三档阶梯透明度。
   // 最多 8 道，画进同一个实例网格（aK 剩余比例、aSeed 锯齿相位、aLen 长度）。第一次用到时才建
-  const RQB_MAX = 8;
+  const RQB_MAX = 9; // 渊式「电桥」最多 9 道（你 → 第一个目标那一段也留）
   let rqb = null;
   function rqbInit() {
     if (rqb) return rqb;
@@ -24627,7 +24628,7 @@
       const dx = s.x1 - s.x0, dz = s.z1 - s.z0, L = Math.max(0.3, Math.hypot(dx, dz));
       _rqp.set((s.x0 + s.x1) / 2, 1.05, (s.z0 + s.z1) / 2);
       _rqq.setFromAxisAngle(_rqUp, Math.atan2(dx, dz));
-      _rqs.set((G.RELIC_MECH.dianqiao.w || 0.9), 1, L);
+      _rqs.set(s.w || 0.9, 1, L);
       _rqm.compose(_rqp, _rqq, _rqs);
       B.mesh.setMatrixAt(n, _rqm);
       B.aK.array[n] = G.clamp(s.t / s.dur, 0, 1);
@@ -24641,7 +24642,7 @@
     B.aK.needsUpdate = B.aSeed.needsUpdate = B.aLen.needsUpdate = true;
   }
   // 新开一道电桥，返回槽位（满了顶掉剩余时间最短的那道；game.js 那边同样最多 8 道，一般不会撞上）
-  W.relicBridgeOn = function (x0, z0, x1, z1) {
+  W.relicBridgeOn = function (x0, z0, x1, z1, dur0, w) {
     const B = rqbInit();
     let i = B.slots.findIndex((s) => !s.on);
     if (i < 0) {
@@ -24649,8 +24650,8 @@
       for (let j = 1; j < B.slots.length; j++) if (B.slots[j].t < B.slots[i].t) i = j;
     }
     const s = B.slots[i];
-    const dur = G.RELIC_MECH.dianqiao.t || 1.5;
-    Object.assign(s, { on: true, x0, z0, x1, z1, t: dur, dur, seed: rand(0, 1) });
+    const dur = dur0 || 1.5;
+    Object.assign(s, { on: true, x0, z0, x1, z1, t: dur, dur, w: w || 0.9, seed: rand(0, 1) });
     rqbFlush();
     return i;
   };
@@ -24865,6 +24866,7 @@
     }
     kvSpikeRings.length = 0;
     kvShocks.length = 0;
+    if (W.rvClear) W.rvClear(); // 渊式件：挂在刻式件上的一起收
   };
   const _kvm = new T.Matrix4(), _kvq = new T.Quaternion(), _kve = new T.Euler(), _kvp = new T.Vector3(), _kvs = new T.Vector3(), _kvc = new T.Color();
   function kvFlush() {
@@ -24976,7 +24978,162 @@
   W.vTick = function (dt) {
     if (kvSpikeRings.length) kvSpikeTick(dt);
     if (kvShocks.length) kvShockTick(dt);
+    if (rvList.length) rvTick(dt);
     kvFlush();
+  };
+
+  // =====================================================================
+  // 渊式件（六件渊契解锁的第三种刻式）：都走这一个工厂，搭在上面的刻式件实例网格上（band / glyph / shard / rock / orb，
+  // 每种外形仍是一次 draw）。挂在别的东西上的（回旋的丝线、骸王的冠环、随核的碎石、蓄潮的潮环）记在 rvList，
+  // 每帧在 W.vTick 里跟着宿主挪，宿主没了自己收起。颜色统一用淡翠白（灰度 90% 上下），和 A / B 的颜色分开。
+  // 以后共享的特效着色器（W.vDecal 等）上线时只换这一节
+  // =====================================================================
+  const RV_HEX = 0xc8ffe8, RV_HI = 0xffffff, RV_DEEP = 0x6fe0b0;
+  const rvList = [];
+  function rvAdd(o) {
+    rvList.push(o);
+    return o;
+  }
+  function rvOff(o) {
+    for (const h of o.hs) W.kvOff(h);
+    o.dead = true;
+  }
+  function rvTick(dt) {
+    const P = G.player;
+    for (let i = rvList.length - 1; i >= 0; i--) {
+      const o = rvList[i];
+      if (!o.dead) o.t += dt;
+      if (o.dead || o.tick(o, dt, P) === false) {
+        if (!o.dead) rvOff(o);
+        rvList.splice(i, 1);
+      }
+    }
+  }
+  W.rvCount = (kind) => rvList.filter((o) => !o.dead && (!kind || o.kind === kind)).length; // 测试用
+  W.rvClear = function () {
+    for (const o of rvList) rvOff(o);
+    rvList.length = 0;
+  };
+  // 回旋：你和飞着的利刃之间牵一根细丝线（投射物的网格从场景里拿掉时自己收起）
+  W.rvThread = function (mesh) {
+    if (!mesh || !mesh.userData) return null;
+    const tok = {}; // 投射物的网格可能是对象池里的：换了主人（rvTok 变了）也收起
+    mesh.userData.rvTok = tok;
+    mesh.userData.boom2 = false;
+    return rvAdd({
+      kind: 'thread', t: 0, hs: [W.kv('band', { hex: RV_HEX, w: 0.16, y: 0.95 })],
+      tick(o, dt, P) {
+        if (!mesh.parent || mesh.userData.rvTok !== tok || !P) return false;
+        const h = o.hs[0];
+        h.x0 = P.x;
+        h.z0 = P.z;
+        h.x1 = mesh.position.x;
+        h.z1 = mesh.position.z;
+        h.a = mesh.userData && mesh.userData.boom2 ? 1 : 0.62; // 回程那一段更亮
+      },
+    });
+  };
+  // 回旋折返的一闪：一圈细环 + 几点白光
+  W.rvTurn = function (x, z) {
+    if (W.vShock) W.vShock(x, z, 1.2, RV_HEX, 0.22, 0);
+    W.burst(x, 0.9, z, RV_HI, qualId === 'low' ? 4 : 8, 3, 0.25);
+  };
+  // 蓄潮：脚下一圈潮环，亮着的那一段 = 攒的层数比例（k = 0 收起）
+  let rvTideRing = null;
+  W.rvTide = function (k) {
+    if (!(k > 0)) {
+      if (rvTideRing) rvOff(rvTideRing);
+      rvTideRing = null;
+      return;
+    }
+    if (!rvTideRing || rvTideRing.dead) {
+      rvTideRing = rvAdd({
+        kind: 'tide', t: 0, k: 0, hs: [W.kv('glyph', { hex: 0x9fe0ff, y: 0.09, s: 4.2 })],
+        tick(o, dt, P) {
+          if (!P) return false;
+          const h = o.hs[0];
+          h.x = P.x;
+          h.z = P.z;
+          h.k = o.k;
+          h.a = o.k >= 0.999 ? 1 : 0.62;
+        },
+      });
+    }
+    rvTideRing.k = G.clamp(k, 0, 1);
+  };
+  // 蓄潮的潮涌：往里卷的水沫（拽怪）+ 两道往外推的空心环 + 一圈刀光，k 是层数比例
+  W.rvTideBurst = function (x, z, R, k) {
+    if (W.vSuck) W.vSuck(x, z, R, 0xd8f4ff, 10);
+    if (W.vShock) W.vShock(x, z, R, 0xd8f4ff, 0.34, 0);
+    W.slash(x, z, rand(0, TAU), R * 0.55, 360, RV_HI, { dur: 0.22, inner: 0.5, y: 0.8 });
+    W.burst(x, 0.8, z, 0xcfe8ff, Math.round((qualId === 'low' ? 6 : 10) + 14 * k), R * 0.9, 0.45);
+  };
+  // 星雨：落点一圈慢慢转的符环（落下前 delay 秒），落地时一道空心冲击 + 白色星屑
+  W.rvStar = function (x, z, R, delay) {
+    return rvAdd({
+      kind: 'star', t: 0, hs: [W.kv('glyph', { x, z, y: 0.1, hex: RV_HEX, s: R * 1.6, a: 0.62 })],
+      tick(o) {
+        const u = Math.min(1, o.t / Math.max(0.05, delay));
+        o.hs[0].k = u;
+        o.hs[0].a = u > 0.66 ? 1 : 0.62;
+        if (o.t >= delay) return false;
+      },
+    });
+  };
+  W.rvStarHit = function (x, z, R) {
+    if (W.vShock) W.vShock(x, z, R, RV_HEX, 0.3, 0);
+    W.burst(x, 1.0, z, RV_HI, qualId === 'low' ? 8 : 16, 6, 0.45);
+    W.burst(x, 0.5, z, 0xffe0a0, qualId === 'low' ? 4 : 8, 4, 0.4);
+  };
+  // 独骸：骸王头顶一圈慢慢转的冠环（on = false 时收起；骸王倒下、散掉也收起）
+  W.rvCrown = function (ent, on) {
+    for (const o of rvList) if (o.kind === 'crown' && o.ent === ent && !o.dead) {
+      if (!on) rvOff(o);
+      return o;
+    }
+    if (!on || !ent) return null;
+    return rvAdd({
+      kind: 'crown', ent, t: 0, hs: [W.kv('glyph', { hex: RV_HEX, s: 0.9, a: 1 })],
+      tick(o) {
+        const g = ent.group;
+        if (!g || !g.parent || ent.dying) return false;
+        const h = o.hs[0];
+        h.x = g.position.x;
+        h.z = g.position.z;
+        h.y = g.position.y + 2.15 * (ent.k || 1);
+        h.k = 0.5 + 0.5 * Math.abs(Math.sin(o.t * 1.3));
+      },
+    });
+  };
+  // 独骸的横斩：一道淡翠的宽扇面刀光
+  W.rvCleave = function (x, z, ang, R, arcDeg) {
+    W.slash(x, z, ang, R, arcDeg, RV_HEX, { dur: 0.2, inner: 0.55, y: 0.9 });
+  };
+  // 随核：几块碎石绕着跟随的黑洞转（洞收起时一起收）
+  W.rvOrbit = function (hole, R) {
+    if (!hole) return null;
+    const n = qualId === 'low' ? 3 : 5, hs = [];
+    for (let i = 0; i < n; i++) hs.push(W.kv('rock', { hex: 0x3a2a40, s: 0.28 + (i % 2) * 0.1, k: 0.15 }));
+    hs.push(W.kv('glyph', { hex: RV_DEEP, y: 0.11, s: R * 2, k: 1, a: 0.62 }));
+    const t0 = hole.t0; // 黑洞的网格是对象池里的：换了一个洞（t0 变了）也算收起
+    return rvAdd({
+      kind: 'orbit', t: 0, hs,
+      tick(o) {
+        if (!hole.on || hole.t0 !== t0) return false;
+        for (let i = 0; i < n; i++) {
+          const a = o.t * 2.4 + (i / n) * TAU, rr = R * (0.8 + 0.12 * Math.sin(o.t * 3 + i));
+          const h = hs[i];
+          h.x = hole.x + Math.sin(a) * rr;
+          h.z = hole.z + Math.cos(a) * rr;
+          h.y = 0.6 + 0.25 * Math.sin(o.t * 4 + i * 1.7);
+          h.ry = a;
+          h.rx = o.t * 3 + i;
+        }
+        const g = hs[n];
+        g.x = hole.x;
+        g.z = hole.z;
+      },
+    });
   };
 
   // =====================================================================

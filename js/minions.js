@@ -580,6 +580,7 @@
           extra--;
         }
       }
+      if (m.king && G.world.rvCleave) G.world.rvCleave(m.x, m.z, a0, reach, (ctx.minion.arc * 180) / Math.PI); // 渊式「独骸」：淡翠的宽扇面刀光
       G.sfx('impact', { type, w: 0, crit });
       return;
     }

@@ -162,6 +162,9 @@
       // 刻式：variants 选了的刻式 { 技能 id: 'a' | 'b' }（没有的就是原式）；variantFree 已经用过免费那一次的技能 { 技能 id: true }；
       // variantGen 刻式的版本（G.VARIANT_GEN）；varNote 读档时刻式重做过、「刻式重做」提示还没看过（见 sanitize）
       variants: {}, variantFree: {}, variantGen: G.VARIANT_GEN, varNote: false,
+      // 渊式（第三种刻式 'c'，戴着对应的渊契才生效）：variantPrev 选渊式时替下的那种 { 技能 id: 'a' | 'b' }（没有 = 原式），摘下渊契就退回它；
+      // rqAuto 已经自动选过一次渊式的技能（第一次戴上渊契时替你选上，之后不再自动改）；rqVar 读档迁移过的标记；rqNote「渊式」提示还没看过
+      variantPrev: {}, rqAuto: {}, rqVar: 1, rqNote: false,
       // 渊印：sealSeq 真正进区的次数（择印面板的随机种子，关掉地图再打开还是同样三枚）；
       // run 这一次进区 { zone, tier, seq, seal }（seal 为 null 是素印），读档时区域 / 层级对得上就接着用，倒下重生不动，换区 / 重进清掉
       sealSeq: 0, run: null,
@@ -519,9 +522,28 @@
     const rvf = isObj(raw.variantFree) ? raw.variantFree : {};
     const oldGen = !(isNum(raw.variantGen) && raw.variantGen >= G.VARIANT_GEN);
     for (const id of Object.keys(G.VARIANTS)) {
-      if (rv[id] === 'a' || rv[id] === 'b') s.variants[id] = rv[id];
-      if (!oldGen && (rvf[id] === true || s.variants[id])) s.variantFree[id] = true;
+      if (rv[id] === 'a' || rv[id] === 'b' || (rv[id] === 'c' && G.VARIANTS[id].c)) s.variants[id] = rv[id];
+      if (!oldGen && (rvf[id] === true || (s.variants[id] && s.variants[id] !== 'c'))) s.variantFree[id] = true;
     }
+    // 渊式：替下的那种只认 a / b（而且只在选着渊式时留着）；rqAuto 只认有渊式的技能。
+    // 渊式之前的存档（没有 rqVar）：身上戴着的这六件渊契原来直接改技能打法——迁移成选上它的渊式，原来的 A / B 记成替下的那种，提示一次（rqNote）
+    const rvp = isObj(raw.variantPrev) ? raw.variantPrev : {}, rqa = isObj(raw.rqAuto) ? raw.rqAuto : {};
+    let rqMoved = false;
+    for (const rq of Object.keys(G.VARIANT_RELIC)) {
+      const id = G.VARIANT_RELIC[rq];
+      if (s.variants[id] === 'c' && (rvp[id] === 'a' || rvp[id] === 'b')) s.variantPrev[id] = rvp[id];
+      if (rqa[id] === true) s.rqAuto[id] = true;
+      const it = s.equip[G.RELICS[rq].slot];
+      if (raw.rqVar === undefined && it && it.rarity === 4 && it.rq === rq) {
+        if (s.variants[id] === 'a' || s.variants[id] === 'b') s.variantPrev[id] = s.variants[id];
+        s.variants[id] = 'c';
+        s.rqAuto[id] = true;
+        rqMoved = true;
+      }
+    }
+    s.rqVar = 1;
+    s.rqNote = !s.tut.rqvar && (rqMoved || raw.rqNote === true);
+    G.rqMigrated = s.rqNote ? 1 : 0;
     s.variantGen = G.VARIANT_GEN;
     const hadVar = Object.keys(s.variants).length > 0 || Object.keys(G.VARIANTS).some((id) => s.skills[id] >= G.VARIANT_LVL);
     s.varNote = !s.tut.variant2 && ((oldGen && hadVar) || raw.varNote === true);
@@ -674,11 +696,25 @@
     sk.alt = V.alt || ''; // 按住 Alt 的详情跟着刻式换（原式的留在 SKILL_BASE 里）
     return sk;
   }
-  // 这一刻生效的刻式：'o' / 'a' / 'b'（存档里记着、但宝石还没到解锁等级的不生效）
+  // 这一刻生效的刻式：'o' / 'a' / 'b' / 'c'（存档里记着、但宝石还没到解锁等级的 A / B 不生效）。
+  // 渊式 'c'：戴着解锁它的渊契才生效（不看宝石等级），没戴就是替下的那种（variantPrev，没有就是原式）
   G.variantOf = function (id) {
-    const s = G.save, v = s && s.variants && s.variants[id];
+    const s = G.save;
+    let v = s && s.variants && s.variants[id];
+    if (v === 'c') {
+      if (G.variantRelicOn(id)) return 'c';
+      v = s.variantPrev && s.variantPrev[id];
+    }
     return (v === 'a' || v === 'b') && G.VARIANTS[id] && s.skills && s.skills[id] >= G.VARIANT_LVL ? v : 'o';
   };
+  // 这个技能的渊式此刻能不能用：身上那个部位戴着解锁它的渊契（直接看存档的装备，不等 computeStats）
+  G.variantRelicOn = function (id) {
+    const V = G.VARIANTS[id] && G.VARIANTS[id].c, eq = G.save && G.save.equip;
+    if (!V || !eq) return false;
+    const it = eq[G.RELICS[V.relic].slot];
+    return !!(it && it.rarity === 4 && it.rq === V.relic);
+  };
+  const isVar = (id, v) => v === 'o' || v === 'a' || v === 'b' || (v === 'c' && !!G.VARIANTS[id] && !!G.VARIANTS[id].c);
   G.skillVariant = function (id, v) {
     const C = G.SKILL_V[id];
     if (!C) return G.SKILLS[id];
@@ -690,7 +726,7 @@
   };
   G.useVariant = function (id, v) {
     const prev = G.SKILLS[id];
-    if (G.SKILL_V[id] && (v === 'o' || v === 'a' || v === 'b')) G.SKILLS[id] = G.skillVariant(id, v);
+    if (G.SKILL_V[id] && isVar(id, v)) G.SKILLS[id] = G.skillVariant(id, v);
     return prev;
   };
   // 换刻式的价格：这个技能第一次选免费，之后每换一次 G.VARIANT_COST
@@ -700,19 +736,43 @@
     const R = G.VARIANT_SAFE_R;
     return state.enemies.some((e) => !e.dead && e.awake && dist(e.x, e.z, P.x, P.z) <= R);
   };
-  // 换刻式（技能页）：v = 'o' 原式 / 'a' / 'b'。返回 { ok, msg, cost }
+  // 换刻式（技能页）：v = 'o' 原式 / 'a' / 'b' / 'c' 渊式。返回 { ok, msg, cost }
+  // 渊式：戴着渊契才能选，选进去不花钱，替下的那种记在 variantPrev；退回替下的那种也不花钱（相当于没换过）。
+  // 渊式选着、但渊契没戴（技能此刻用的是替下的那种）时点别的 A / B：改的是替下的那种（照常付钱），渊式仍记着，戴上就恢复
   G.setVariant = function (id, v) {
     const save = G.save, VC = G.VARIANT_COST;
-    if (!G.VARIANTS[id] || !(v === 'o' || v === 'a' || v === 'b')) return { ok: false, msg: '没有这种刻式' };
-    if (!(save.skills[id] >= G.VARIANT_LVL)) return { ok: false, msg: '宝石 ' + G.VARIANT_LVL + ' 级才能选刻式' };
-    if ((save.variants[id] || 'o') === v) return { ok: true, cost: 0, same: true };
-    if (G.variantBusy()) return { ok: false, msg: '战斗中不能换刻式（' + G.VARIANT_SAFE_R + ' 米内还有醒着的敌人）' };
-    const cost = G.variantCost(id);
-    if ((save.cur[VC.cur] || 0) < cost) return { ok: false, msg: '需要 ' + cost + ' 颗' + G.CURRENCY[VC.cur].name };
-    save.cur[VC.cur] -= cost;
-    save.variantFree[id] = true;
-    if (v === 'o') delete save.variants[id];
-    else save.variants[id] = v;
+    if (!G.VARIANTS[id] || !isVar(id, v)) return { ok: false, msg: '没有这种刻式' };
+    const cur = save.variants[id] || 'o', prev = cur === 'c' ? save.variantPrev[id] || 'o' : cur;
+    let cost = 0;
+    if (v === 'c') {
+      if (!G.variantRelicOn(id)) return { ok: false, msg: '装备' + G.RELICS[G.VARIANTS[id].c.relic].name + '解锁' };
+      if (cur === 'c') return { ok: true, cost: 0, same: true };
+      if (G.variantBusy()) return { ok: false, msg: '战斗中不能换刻式（' + G.VARIANT_SAFE_R + ' 米内还有醒着的敌人）' };
+      if (cur === 'a' || cur === 'b') save.variantPrev[id] = cur;
+      else delete save.variantPrev[id];
+      save.variants[id] = 'c';
+    } else if (cur === 'c' && v === prev) {
+      if (G.variantBusy()) return { ok: false, msg: '战斗中不能换刻式（' + G.VARIANT_SAFE_R + ' 米内还有醒着的敌人）' };
+      delete save.variantPrev[id];
+      if (v === 'o') delete save.variants[id];
+      else save.variants[id] = v;
+    } else {
+      if (!(save.skills[id] >= G.VARIANT_LVL)) return { ok: false, msg: '宝石 ' + G.VARIANT_LVL + ' 级才能选刻式' };
+      if (cur !== 'c' && cur === v) return { ok: true, cost: 0, same: true };
+      if (G.variantBusy()) return { ok: false, msg: '战斗中不能换刻式（' + G.VARIANT_SAFE_R + ' 米内还有醒着的敌人）' };
+      cost = G.variantCost(id);
+      if ((save.cur[VC.cur] || 0) < cost) return { ok: false, msg: '需要 ' + cost + ' 颗' + G.CURRENCY[VC.cur].name };
+      save.cur[VC.cur] -= cost;
+      save.variantFree[id] = true;
+      if (cur === 'c' && !G.variantRelicOn(id)) {
+        if (v === 'o') delete save.variantPrev[id];
+        else save.variantPrev[id] = v;
+      } else {
+        delete save.variantPrev[id];
+        if (v === 'o') delete save.variants[id];
+        else save.variants[id] = v;
+      }
+    }
     G.applyVariants();
     // 旧定义的残留：连段从头来，正在转的旋风 / 连斩停下，光环的计时重来
     comboReset();
@@ -919,7 +979,7 @@
   G.reservePct = function () {
     let pct = 0;
     for (const id of Object.keys(G.SKILLS)) if (G.auraOn(id)) pct += G.auraReserve(id);
-    if (P.relic.zhuixing) pct += G.relicReserve(); // 渊契「星雨」：自动陨火改为保留魔力
+    pct += G.relicReserve(); // 渊式「星雨」：自动落星改为保留魔力
     return Math.min(90, pct);
   };
 
@@ -1291,7 +1351,7 @@
         mi.beam = sk.beam;
       }
     }
-    if (P.relic.any) G.relicCtx(ctx); // 渊契：必然、独骸、同殇等改上下文
+    if (P.relic.any || ctx.sk.mech === 'king') G.relicCtx(ctx); // 渊契：必然、同殇等改上下文；渊式「独骸」
     G.sealCtx(ctx); // 渊印的玩家侧印纹（迟滞 / 蚀环 / 孤影）
     return ctx;
   };
@@ -1857,8 +1917,9 @@
   const RM = G.RELIC_MECH;
   // 运行时状态（不存档）：crit 必然的暴击计数；spin / spinCtx / spinR 蓄潮的层数和最后一跳的上下文；slamT 踏震的间隔；
   // metT 星雨距离下一次自动落下的秒数；bridges 电桥；chainT 锁链特效的节流；kingT 骸王外形的检查间隔；shareT 同殇连线的节流
+  // varEff：有渊式的技能上一次对账时生效的刻式（戴上 / 摘下渊契时据此判断要不要换定义）
   // twin / twinAlt：双生坠下一次施放用哪种刻式 { 技能 id: 'a' | 'b' }、此刻算「交替出来的那一种」的刻式定义（伤害 +10%）
-  const RQ = { crit: 0, spin: 0, spinCtx: null, spinR: 0, spinFull: false, slamT: 0, metT: 0, bridges: [], chainT: 0, kingT: 0, shareT: 0, twin: {}, twinAlt: new Set(), twinOn: false };
+  const RQ = { crit: 0, spin: 0, spinCtx: null, spinR: 0, spinFull: false, slamT: 0, metT: 0, bridges: [], chainT: 0, kingT: 0, shareT: 0, twin: {}, twinAlt: new Set(), twinOn: false, varEff: {} };
   G.relicState = RQ; // 测试 / 调试用
 
   // computeStats 里调用：按身上的装备汇总 P.relic（同一种机制穿两件也只算一次）
@@ -1876,7 +1937,7 @@
       }
     }
     if (!r.qianmu) RQ.crit = 0;
-    if (!r.nuchao) RQ.spin = 0;
+    relicVariantSync();
     // 双生：摘下时技能定义指回存档里选的那一种
     if (!r.shuangsheng && RQ.twinOn) {
       RQ.twinOn = false;
@@ -1889,6 +1950,40 @@
     if (G.world && G.world.lampScale) G.world.lampScale(r.xizhu ? 1 - XZ.lamp : 1, r.xizhu ? XZ.fogMin : 0);
     return r;
   };
+
+  // 渊式（relicSync 里调用）：戴上 / 摘下 / 卖掉 / 丢掉这六件渊契时技能定义跟着换——摘下退回替下的那种，再戴上恢复渊式；
+  // 换的那一刻正在转的旋风斩停下（蓄潮攒着的潮势在 relicTick 里拍下），已经放出去的投射物 / 黑洞 / 电桥按施放时的定义走完。
+  // 某件渊契第一次戴上时替你选上它的渊式（每个技能只自动一次，之后全看技能页）
+  function relicVariantSync() {
+    const save = G.save;
+    if (!save || !save.variants || !G.SKILL_V) return;
+    if (!save.variantPrev) save.variantPrev = {};
+    if (!save.rqAuto) save.rqAuto = {};
+    for (const rq of Object.keys(G.VARIANT_RELIC)) {
+      const id = G.VARIANT_RELIC[rq];
+      if (!G.SKILL_V[id]) continue;
+      if (!save.rqAuto[id] && G.variantRelicOn(id)) {
+        save.rqAuto[id] = true;
+        if (save.variants[id] !== 'c') {
+          const cur = save.variants[id];
+          if (cur === 'a' || cur === 'b') save.variantPrev[id] = cur;
+          else delete save.variantPrev[id];
+          save.variants[id] = 'c';
+          if (G.ui && G.ui.toast) toast(G.SKILLS[id].name + '换成了渊式「' + G.VARIANTS[id].c.name + '」，技能页可换回', G.RELIC_COLOR);
+        }
+      }
+      const eff = G.variantOf(id);
+      if (RQ.varEff[id] === eff) continue;
+      const was = RQ.varEff[id];
+      RQ.varEff[id] = eff;
+      if (was === undefined && (G.SKILLS[id].variant || 'o') === eff) continue; // 第一次对账：已经是这一种
+      G.SKILLS[id] = G.skillVariant(id, eff);
+      if (G.SKILLS[id].kind === 'summon') RQ.varMin = true; // 召唤物的上限 / 数值 / 体型：下一帧在 relicTick 里刷新（这里还在 computeStats 当中）
+      delete RQ.twin[id];
+      if (P.cast && P.cast.id === id) endChannel();
+      if (P.auraT) delete P.auraT[id];
+    }
+  }
 
   // ---------- 保底和掉落 ----------
   // 保底的键：首领 / 异兆来源按渊契 id，烈印来源两件共用 'seal'
@@ -1966,9 +2061,9 @@
     if (r.shuangsheng && !mi && RQ.twinAlt.has(ctx.sk)) ctx.more *= 1 + RM.shuangsheng.dmg;
     if (!mi) return ctx;
     if (r.tongshang) mi.life = Math.max(1, Math.round(mi.life * (1 + RM.tongshang.life / 100)));
-    if (r.haiwang && mi.kind === 'thrall') {
-      // 独骸：多出来的仆从上限（群聚、天赋、护符、万魂旗）每个折成伤害和生命
-      const H = RM.haiwang, extra = Math.max(0, mi.cap - ctx.sk.cap);
+    if (mi.kind === 'thrall' && ctx.sk.mech === 'king') {
+      // 渊式「独骸」：多出来的仆从上限（群聚、天赋、护符、万魂旗）每个折成伤害和生命
+      const H = ctx.sk.king, extra = Math.max(0, mi.cap - ctx.sk.cap);
       ctx.more *= H.dmg * (1 + H.perDmg * extra);
       mi.life = Math.max(1, Math.round(mi.life * H.life * (1 + H.perLife * extra)));
       mi.soulK = ctx.sk.cap / (H.life * (1 + H.perLife * extra)); // 万魂旗的魂火按「普通上限那么多具普通仆从」的生命算
@@ -1997,13 +2092,13 @@
   };
 
   // ---------- 双生（双生坠，巅峰）：tryStartCast 里一行钩子 + 施放成功后一行 ----------
-  // 选了刻式（宝石 ≥ 解锁等级、不是光环 / 召唤）的技能：施放前把 G.SKILLS[id] 指向这一次的刻式（G.useVariant），
+  // 选了刻式 A / B（宝石 ≥ 解锁等级、不是光环 / 召唤；渊式不交替）的技能：施放前把 G.SKILLS[id] 指向这一次的刻式（G.useVariant），
   // 顺序是「你选的、另一种、你选的……」；指向留到下一次施放这个技能（出手帧、持续施放读到的都是这一次的定义）。
   // 已经放出去的黑洞、旋风、投射物、陨石在生成时拿着自己那份 ctx.sk，之后再换也不影响（框架见「刻式」一节）
   const twinOther = (v) => (v === 'a' ? 'b' : 'a');
   G.relicTwin = function (id) {
     const v = G.variantOf(id);
-    if (v === 'o' || !G.SKILL_V[id]) return null;
+    if (v === 'o' || v === 'c' || !G.SKILL_V[id]) return null; // 渊式不交替
     const mine = G.skillVariant(id, v), other = G.skillVariant(id, twinOther(v));
     if (mine.kind === 'aura' || mine.kind === 'summon' || mine.buff) return null;
     const next = RQ.twin[id] === twinOther(v) ? twinOther(v) : v; // twin 记的是「下一次」：还没记过就从你选的那一种开始
@@ -2018,7 +2113,7 @@
   // 真的出手了（tryStartCast 返回 true）才翻到另一种：魔力不够、影步没目标这些没放出去的不算一次
   G.relicTwinCast = function (id) {
     const v = G.variantOf(id);
-    if (v === 'o' || !G.SKILL_V[id] || !RQ.twinOn) return;
+    if (v === 'o' || v === 'c' || !G.SKILL_V[id] || !RQ.twinOn) return;
     const cur = G.SKILLS[id] && G.SKILLS[id].variant;
     if (cur !== 'a' && cur !== 'b') return;
     RQ.twin[id] = twinOther(cur);
@@ -2137,34 +2232,38 @@
     });
   };
 
-  // ---------- 蓄潮（怒潮）：旋风斩每一跳的一行钩子，返回这一跳的伤害倍率 ----------
+  // ---------- 蓄潮（渊式，怒潮解锁）：旋风斩每一跳的一行钩子，返回这一跳的伤害倍率 ----------
   G.relicSpinPulse = function (ctx) {
-    const B = RM.nuchao;
+    const B = ctx.sk.tide;
     RQ.spin = Math.min(B.max, RQ.spin + 1);
     RQ.spinCtx = ctx;
     RQ.spinR = ctx.sk.radius * Math.sqrt(ctx.area);
-    if (RQ.spin >= B.max && !RQ.spinFull) {
-      RQ.spinFull = true;
-      G.world.text(P.x, P.z, '潮满', '#cfe8ff', 18, { kind: 'tag', y: 2.4 });
-    }
     if (G.world.relicTide) G.world.relicTide(P.x, P.z, RQ.spin / B.max);
+    if (G.world.rvTide) G.world.rvTide(RQ.spin / B.max);
     return B.pulse;
   };
-  // 松手 / 翻滚 / 被打断 / 换了别的技能：以你为中心炸开（每帧在 relicTick 里检查）
+  // 满层（旋风斩那一下打完）/ 松手 / 翻滚 / 被打断 / 换了别的技能：卷起潮涌——先把 R 内的敌人拽到你脚下（首领不动），
+  // 再以你为中心按层数拍下（松手等情况每帧在 relicTick 里检查）。每层 burst 倍满额一跳，拆成拽进来之后的一下，不另加大招
   function relicTideBurst() {
     const n = RQ.spin, ctx = RQ.spinCtx;
     RQ.spin = 0;
     RQ.spinFull = false;
+    if (G.world.rvTide) G.world.rvTide(0);
     if (!ctx || n <= 0 || P.dead) return 0;
-    const B = RM.nuchao, W = G.world;
+    const B = ctx.sk.tide, W = G.world;
     const R = RQ.spinR * B.r;
+    for (const e of enemiesIn(P.x, P.z, R)) {
+      if (e.isBoss || pinned(e) || !G.pullEnemy) continue;
+      const d = dist(e.x, e.z, P.x, P.z);
+      if (d > B.pull + e.r) G.pullEnemy(e, P.x, P.z, d - B.pull - e.r);
+    }
     let hits = 0, crit = false;
     for (const e of enemiesIn(P.x, P.z, R)) {
-      G.hitEnemy(e, ctx, n * B.burst, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: n >= B.max / 2 ? 2 : 1, kb: 0.6 + n * 0.12, poise: (ctx.sk.poise || 0) * n * B.burst, quiet: true });
+      G.hitEnemy(e, ctx, n * B.burst, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: n >= B.max / 2 ? 2 : 1, kb: 0.2, poise: (ctx.sk.poise || 0) * n * B.burst, quiet: true });
       crit = crit || lastHit.crit;
       hits++;
     }
-    if (W.relicTideBurst) W.relicTideBurst(P.x, P.z, R, n / B.max);
+    if (W.rvTideBurst) W.rvTideBurst(P.x, P.z, R, n / B.max);
     else W.ring(P.x, P.z, R, 0xcfe8ff, 0.4);
     W.shake(0.12 + 0.3 * (n / B.max));
     if (hits) {
@@ -2276,13 +2375,21 @@
   }
 
   // ---------- 回旋：spawnProjectile 里的一行钩子（标记这一发会不会折返），updateProjectiles 里两处折返 ----------
+  // 飞刃的渊式「回旋」按 sk.boom（去程穿透所有敌人，回程 back 倍）；戴着回旋时弓 / 左轮的普攻照旧折返（RM.huixuan）
   const BOOM_BASIC = { revolver: 1, huntbow: 1, eagle: 1, runebow: 1, emberbow: 1 };
   G.relicBoomerang = function (p) {
     const sk = p.ctx && p.ctx.sk;
-    if (!sk || p.explode > 0 || p.wisp || p.seeker || p.pin) return; // p.pin：刻式「钉刃」钉住就停，不折返
-    const ok = p.ctx.id === 'blade' || (sk.basic && BOOM_BASIC[sk.rtype] && !(P.rbuff && P.rbuff.t > 0 && P.rbuff.id === 'volley'));
+    if (!sk || p.explode > 0 || p.wisp || p.seeker || p.pin) return;
+    if (sk.mech === 'boom') {
+      p.boom = 1;
+      p.boomBack = sk.boom.back;
+      p.life *= sk.boom.range;
+      return;
+    }
+    const ok = P.relic.huixuan && sk.basic && BOOM_BASIC[sk.rtype] && !(P.rbuff && P.rbuff.t > 0 && P.rbuff.id === 'volley');
     if (!ok) return;
     p.boom = 1;
+    p.boomBack = RM.huixuan.back;
     p.life *= RM.huixuan.range;
   };
   // 折返：到射程尽头（step 为 0）或撞墙（先退回墙前一步）时调用；成功返回 true。回程朝着你飞，飞到你身边为止，
@@ -2305,19 +2412,25 @@
     p.chain = 0;
     p.home = null;
     p.reseek = 0;
-    p.boomK = RM.huixuan.back;
+    p.boomK = p.boomBack || RM.huixuan.back;
     if (G.world.relicProjTurn) G.world.relicProjTurn(p.mesh, p.dx, p.dz);
+    if (p.ctx.sk.mech === 'boom') {
+      if (p.mesh && p.mesh.userData) p.mesh.userData.boom2 = true; // 丝线回程变亮
+      if (G.world.rvTurn) G.world.rvTurn(p.x, p.z);
+    }
     state.stats.relicTurns = (state.stats.relicTurns || 0) + 1;
     return true;
   };
 
   // ---------- 星雨（陨织袍） ----------
-  const meteorOn = () => !!(P.relic.zhuixing && G.save.skills.meteor && G.save.bar.indexOf('meteor') >= 0);
+  // 渊式「星雨」（陨织袍解锁）：陨火选着星雨、学了、放在技能栏上
+  const starOn = () => G.SKILLS.meteor.mech === 'star';
+  const meteorOn = () => !!(starOn() && G.save.skills.meteor && G.save.bar.indexOf('meteor') >= 0);
   // 光环保留里多算的那一份（reservePct 里的一行钩子）
-  G.relicReserve = () => (meteorOn() ? RM.zhuixing.reserve : 0);
+  G.relicReserve = () => (meteorOn() ? G.SKILLS.meteor.star.reserve : 0);
   // 陨火不能手动施放（tryStartCast 里的一行钩子）：轻点只提示一句。返回 true 表示这个键跳过
   G.relicNoCast = function (slot, id) {
-    if (id !== 'meteor' || !P.relic.zhuixing) return false;
+    if (id !== 'meteor' || !starOn()) return false;
     if (G.input.tap[slot] > 0) {
       G.input.tap[slot] = 0;
       if (Date.now() - (toastAt.relic || 0) > 1500) {
@@ -2335,9 +2448,8 @@
     }
     RQ.metT -= dt;
     if (RQ.metT > 0) return;
-    const F = RM.zhuixing;
     const ctx = G.skillCtx('meteor');
-    const sk = ctx.sk;
+    const sk = ctx.sk, F = sk.star;
     const iv = (F.iv / ctx.speed) * (sk.cd > 0 ? ctx.cd / sk.cd : 1); // 迅捷 / 出手速度加快，节流缩短间隔
     const R = sk.radius * Math.sqrt(ctx.area) * F.area;
     let best = null, bn = 0;
@@ -2363,13 +2475,14 @@
   }
 
   // ---------- 电桥 ----------
-  // 链雷施放之后（SKILL_FX.chain 末尾的一行钩子）：pts[0] 是你，之后是依次打中的目标，相邻两个目标之间各留一道
+  // 渊式「电桥」（电桥戒解锁）：链雷施放之后（SKILL_FX.chain 末尾的一行钩子）。pts[0] 是你，之后是依次打中的目标；
+  // 电弧走过的每一段（你 → 第一个目标、目标之间）各留一道，参数在 ctx.sk.bridge
   G.relicBridges = function (pts, ctx) {
-    const D = RM.dianqiao;
-    for (let i = 1; i + 1 < pts.length; i++) {
+    const D = ctx.sk.bridge;
+    for (let i = 0; i + 1 < pts.length; i++) {
       while (RQ.bridges.length >= D.max) relicBridgeOff(0);
-      const b = { x0: pts[i].x, z0: pts[i].z, x1: pts[i + 1].x, z1: pts[i + 1].z, t: D.t, tt: D.tick, ctx };
-      b.fx = G.world.relicBridgeOn ? G.world.relicBridgeOn(b.x0, b.z0, b.x1, b.z1) : -1;
+      const b = { x0: pts[i].x, z0: pts[i].z, x1: pts[i + 1].x, z1: pts[i + 1].z, t: D.t, tt: D.tick, ctx, D };
+      b.fx = G.world.relicBridgeOn ? G.world.relicBridgeOn(b.x0, b.z0, b.x1, b.z1, D.t, D.w) : -1;
       RQ.bridges.push(b);
     }
   };
@@ -2379,9 +2492,8 @@
     if (G.world.relicBridgeOff) G.world.relicBridgeOff(b.fx);
   }
   function relicBridgeTick(dt) {
-    const D = RM.dianqiao, half = D.w / 2;
     for (let i = RQ.bridges.length - 1; i >= 0; i--) {
-      const b = RQ.bridges[i];
+      const b = RQ.bridges[i], D = b.D, half = D.w / 2;
       b.t -= dt;
       if (b.t <= 0) {
         relicBridgeOff(i);
@@ -2444,19 +2556,22 @@
         m.r0 = m.r;
         m.h0 = m.height;
       }
-      const k = want ? RM.haiwang.scale : 1;
+      const k = want ? G.VARIANTS.thrall.c.set.king.scale : 1;
       m.r = m.r0 * k;
       m.height = m.h0 * k;
       if (G.world.relicKing) G.world.relicKing(m.ent, k);
+      if (G.world.rvCrown) G.world.rvCrown(m.ent, want);
     }
   }
 
   // ---------- 随核（引力核）：黑洞施放（SKILL_FX.hole 里的一行钩子）和跟随 ----------
   G.relicHole = function (ctx, R, dur) {
-    const Y = RM.yinli, sk = ctx.sk;
+    const sk = ctx.sk, Y = sk.follow;
     const r = R * Y.radius;
     G.sfx('cast');
-    return addHole({ x: P.x, z: P.z, R: r, pullR: r * sk.pullR, t: 0, dur: dur * Y.dur, tick: sk.tick, tt: sk.tick, ctx, mult: Y.dmg, pullMul: Y.pull, mouth: false, follow: true });
+    const h = addHole({ x: P.x, z: P.z, R: r, pullR: r * sk.pullR, t: 0, dur: dur * Y.dur, tick: sk.tick, tt: sk.tick, ctx, mult: Y.dmg, pullMul: Y.pull, mouth: false, follow: true });
+    if (h.fx && G.world.rvOrbit) G.world.rvOrbit(h.fx, r);
+    return h;
   };
   G.relicHoleList = () => holes.filter((h) => h.follow); // 测试用：场上跟着你的黑洞
   G.relicHoleFollow = function (h) {
@@ -2490,12 +2605,16 @@
 
   // ---------- 每帧（updatePlayer 里的一行钩子） ----------
   G.relicTick = function (dt) {
+    if (RQ.varMin) {
+      RQ.varMin = false;
+      if (G.refreshMinions) G.refreshMinions();
+    }
     if (RQ.slamT > 0) RQ.slamT -= dt;
     if (RQ.chainT > 0) RQ.chainT -= dt;
     if (RQ.shareT > 0) RQ.shareT -= dt;
     // 蓄潮：不在转旋风斩了（松手、翻滚、被打断、换了别的技能、摘下手套），攒着的层数炸开
-    if (RQ.spin > 0 && !(P.relic.nuchao && P.cast && P.cast.channel && P.cast.id === 'whirl')) relicTideBurst();
-    if (P.relic.zhuixing) relicMeteorDue(dt);
+    if (RQ.spin > 0 && !(P.cast && P.cast.channel && P.cast.id === 'whirl' && G.SKILLS.whirl.mech === 'tide')) relicTideBurst();
+    if (starOn()) relicMeteorDue(dt);
     if (RQ.bridges.length) relicBridgeTick(dt);
     RQ.kingT -= dt;
     if (RQ.kingT <= 0) {
@@ -2508,6 +2627,7 @@
     while (RQ.bridges.length) relicBridgeOff(0);
     RQ.spin = 0;
     RQ.spinFull = false;
+    if (G.world.rvTide) G.world.rvTide(0);
     RQ.metT = 0.6;
     RQ.slamT = 0;
   };
@@ -3144,7 +3264,7 @@
       p.pierce = p.pierce || 0;
       p.chain = p.chain || 0;
       p.explode = p.explode || 0;
-      if (P.relic.huixuan) G.relicBoomerang(p); // 渊契「回旋」
+      if (P.relic.huixuan || (p.ctx && p.ctx.sk && p.ctx.sk.mech === 'boom')) G.relicBoomerang(p); // 渊式「回旋」/ 渊契「回旋」的普攻折返
     } else {
       if (!p.dtype) p.dtype = 'phys';
       if (p.dmg === undefined) p.dmg = 0;
@@ -3162,6 +3282,7 @@
       : W0.makeProjectile(p.color, p.r, p.owner !== 'p', look);
     // p.y0：出手高度（矮个子的嘴边），飞出去一小段后升到统一的弹道高度 1.1
     p.mesh.position.set(p.x, p.y0 !== undefined ? p.y0 : 1.1, p.z);
+    if (p.boom && p.ctx.sk.mech === 'boom' && W0.rvThread) W0.rvThread(p.mesh); // 渊式「回旋」：你和利刃之间的丝线
     state.projectiles.push(p);
     return p;
   };
@@ -3580,7 +3701,7 @@
         continue;
       }
       if (!id || !G.SKILLS[id] || (!isWs && !G.SKILLS[id].basic && !save.skills[id])) continue;
-      if (P.relic.zhuixing && G.relicNoCast(slot, id)) continue; // 渊契「星雨」：陨火只能自动落下
+      if (id === 'meteor' && G.relicNoCast(slot, id)) continue; // 渊式「星雨」：陨火只能自动落下
       if (chan && chan.slot === slot) continue; // 还按着正在转的那个键：接着转，不从头起
       // 刻式：坍缩的黑洞还在时再按引爆、掷旋飞出去时再按召回（不看冷却、不扣消耗）；掷旋飞着时按住不放也不再掷
       const rc = vRecast(slot, id);
@@ -5194,7 +5315,7 @@
         }
       }
       W.bolt(pts, hex);
-      if (P.relic.dianqiao) G.relicBridges(pts, ctx); // 渊契「电桥」
+      if (sk.mech === 'bridge') G.relicBridges(pts, ctx); // 渊式「电桥」
       if (ov) arcOverload(ctx, pts, hit.size, hex);
     },
 
@@ -5236,14 +5357,22 @@
       const R = sk.radius * Math.sqrt(ctx.area);
       const hex = hexOf(sk.color);
       // 刻式：熔核 / 犁焰落地那一下打折（k0），之后留下熔核 / 顺着瞄准方向犁出去
-      const vm = sk.mech ? sk[sk.mech] : null, R0 = sk.mech === 'plough' ? vm.r * Math.sqrt(ctx.area) : R;
-      W.meteorFall(x, z, sk.delay, hex);
+      const vm = sk.mech === 'core' || sk.mech === 'plough' ? sk[sk.mech] : null, R0 = sk.mech === 'plough' ? vm.r * Math.sqrt(ctx.area) : R;
+      const star = sk.mech === 'star'; // 渊式「星雨」：自动落下的星（淡翠白的星、落点符环）
+      W.meteorFall(x, z, sk.delay, star ? 0xd8fff0 : hex);
+      if (star && W.rvStar) W.rvStar(x, z, R, sk.delay);
       G.telegraph({
         shape: 'circle', x, z, r: R0, dur: sk.delay, dmg: 0, friendly: true,
         onFire() {
           for (const e of enemiesIn(x, z, R0)) G.hitEnemy(e, ctx, vm ? vm.k0 : 1, { ang: Math.atan2(e.x - x, e.z - z), core: true, kb: sk.mech === 'plough' ? 0.2 : undefined }); // 从落点往外炸开；core：不点燃自己留下的熔核；犁焰落地不推人（留给犁）
           if (sk.mech === 'core') meteorCore(ctx, x, z);
           else if (sk.mech === 'plough') meteorPlough(ctx, x, z, a.dx, a.dz);
+          if (star) {
+            if (W.rvStarHit) W.rvStarHit(x, z, R);
+            W.shake(0.2);
+            G.sfx('hit');
+            return;
+          }
           if (vm) {
             W.ring(x, z, R0, hex, 0.4);
             W.burst(x, 0.8, z, hex, 26, 7, 0.6);
@@ -5270,13 +5399,17 @@
       const hex = hexOf(sk.color);
       const c = P.cast;
       const n = c && c.channel ? c.pulses : 0;
-      const rk = P.relic.nuchao ? G.relicSpinPulse(ctx) : 1; // 渊契「蓄潮」：每跳打得轻、攒层
+      const rk = sk.mech === 'tide' ? G.relicSpinPulse(ctx) : 1; // 渊式「蓄潮」：每跳打得轻、攒层
       if (sk.mech === 'pull') whirlPull(ctx); // 刻式「旋涡斩」：先把一圈敌人往身边吸
       W.slash(P.x, P.z, Math.random() * TAU, R, 360, hex, sk.mech === 'pull' ? { dur: 0.2, inner: 0.35, y: 0.6, dir: -1 } : { dur: 0.2, inner: 0.6, y: 0.9 });
       if (n % 2 === 1) W.burst(P.x, 0.25, P.z, 0xbfb3a0, 4, R * 0.9, 0.3); // 脚下扬起的尘
       G.sfx('swing', { step: n % 2 });
       const hits = enemiesIn(P.x, P.z, R);
-      if (!hits.length) return;
+      const full = sk.mech === 'tide' && G.relicState.spin >= sk.tide.max; // 渊式「蓄潮」：满层这一下打完就卷起潮涌
+      if (!hits.length) {
+        if (full) G.relicTideBurst();
+        return;
+      }
       let crit = false;
       let top = 'phys';
       for (const e of hits) {
@@ -5288,6 +5421,7 @@
       G.hitStop(((sk.stop || 0) + (crit ? 15 : 0)) * ctx.stopK);
       W.shake(crit ? 0.14 : 0.06);
       G.sfx('impact', { type: top, w: 0, crit });
+      if (full) G.relicTideBurst();
     },
 
     blink(ctx, a) {
@@ -5648,9 +5782,6 @@
     else W.ring(x, z, S.r * Math.sqrt(ctx.area), 0xffe45e, 0.3);
     W.decal(3, x, z, 0.9, Math.random() * TAU, 0xffe45e, S.dur);
     py.tt = S.tick * 0.6; // 插下去之后很快电第一下（不当帧电：按住连插也不会多电）
-    const e = P.relic.dianqiao ? pylonZap(py) : null;
-    if (e) py.tt = S.tick;
-    if (P.relic.dianqiao && e) G.relicBridges([{ x: P.x, z: P.z }, { x, z }, { x: e.x, z: e.z }], ctx); // 渊契「电桥」：桩和它电到的第一个敌人之间留一道
     state.stats.vPylons = (state.stats.vPylons || 0) + 1;
     vCount();
   }
@@ -6616,7 +6747,7 @@
     const d = rayLen(P.x, P.z, a.ang, Math.min(sk.range, a.dist), 0.3); // 撞墙截在墙前
     const R = sk.radius * Math.sqrt(ctx.area);
     const dur = sk.dur * (1 + Math.max(0, P.S.holeDur || 0) / 100);
-    if (P.relic.yinli) return holeMark(G.relicHole(ctx, R, dur), sk); // 渊契「随核」：黑洞跟着你（坍缩照样能攒质量、再按引爆；双极只开这一个）
+    if (sk.mech === 'follow') return holeMark(G.relicHole(ctx, R, dur), sk); // 渊式「随核」：黑洞开在你身上、跟着你走
     G.sfx('cast');
     if (sk.mech === 'twin') return holeTwin(ctx, P.x + a.dx * d, P.z + a.dz * d, a, R, dur); // 刻式「双极」
     return holeMark(addHole({ x: P.x + a.dx * d, z: P.z + a.dz * d, R, pullR: R * sk.pullR, t: 0, dur, tick: sk.tick, tt: sk.tick, ctx, mult: 1, pullMul: 1, mouth: false }), sk);
@@ -8122,7 +8253,7 @@
     tickRanged(dt);
     updateChaos(dt);
     if (VS.n) updateVariants(dt); // 刻式第二版：留在场上的东西
-    if (P.relic.any || G.relicState.bridges.length || G.relicState.spin) G.relicTick(dt); // 渊契：蓄潮、星雨、电桥……
+    if (P.relic.any || G.relicState.bridges.length || G.relicState.spin || state.minions.length) G.relicTick(dt); // 渊契 / 渊式：蓄潮、星雨、电桥、骸王外形……
     updateAuras(dt);
     updateAutoSummon(dt);
     if (P.roll.cd > 0) P.roll.cd = Math.max(0, P.roll.cd - dt);

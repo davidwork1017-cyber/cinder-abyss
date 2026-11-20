@@ -11599,9 +11599,11 @@ async function main() {
           T.unfix();
           T.arena();
           RQT.keep = { equip: Object.assign({}, G.save.equip), build: T.buildSnap(), sup: G.save.supports.slice() };
+          RQT.keepVar = JSON.stringify({ v: G.save.variants, p: G.save.variantPrev || {}, a: G.save.rqAuto || {} });
           for (const sl of G.SLOTS) if (sl !== 'weapon') G.save.equip[sl] = null;
           G.save.bar = [null, null, null, null];
           if (id) G.save.equip[G.RELICS[id].slot] = G.rollRelic(id, 50, 0.5);
+          if (id && G.VARIANT_RELIC[id]) G.save.variants[G.VARIANT_RELIC[id]] = 'c'; // 渊式：这件渊契解锁的刻式
           G.computeStats();
           G.relicReset();
           G.relicState.crit = 0;
@@ -11631,7 +11633,15 @@ async function main() {
             G.save.supports = RQT.keep.sup;
             T.buildRestore(RQT.keep.build);
           }
+          if (RQT.keepVar) {
+            const kv = JSON.parse(RQT.keepVar);
+            G.save.variants = kv.v;
+            G.save.variantPrev = kv.p;
+            G.save.rqAuto = kv.a;
+            RQT.keepVar = null;
+          }
           G.computeStats();
+          G.applyVariants();
           T.arena();
         },
       };
@@ -11814,34 +11824,42 @@ async function main() {
     return '踏震 ' + r.near[0] + ' · 冷却 ' + r.cd[0].toFixed(2) + ' 秒';
   });
 
-  await step('蓄潮（怒潮）：旋风斩每跳只打 55%、攒 1 层（上限 12）；松手后以你为中心炸开（半径 × 1.4），每层 0.5 倍满额一跳，层数清零；没穿时每跳照常满额', async () => {
+  await step('渊式·蓄潮（怒潮解锁）：旋风斩每跳 60%、攒 1 层；第 10 下打完自动卷起潮涌——把 6 米内的敌人拽到脚下、每层 0.8 倍满额一下，层数清零；松手时攒着的也拍下；摘下手套退回原式，每跳照常满额', async () => {
     const r = await ev(() => {
       RQT.begin('nuchao');
       RQT.learn('whirl', 0);
-      const P = G.player, B = G.RELIC_MECH.nuchao;
+      const P = G.player, B = G.VARIANTS.whirl.c.set.tide;
       const ctx = G.skillCtx('whirl');
       const R = ctx.sk.radius * Math.sqrt(ctx.area);
       const a = T.mob('husk', 0, -1.2);
       const ring = T.mob('husk', 0, -(R * 1.2 + 0.55));
+      for (const o of [a, ring]) { G.initBuildUp(o); o.buTh = 1e15; o.poiseMax = 0; }
       T.fix(0.999);
       const pulse = RQT.hit(ctx, 1);
       P.cast = { slot: 0, id: 'whirl', channel: true, pulses: 0, t: 0, nextT: 1e9, cancelT: 0, dur: Infinity, move: 0.6, fired: true };
       const per = [];
-      for (let i = 0; i < 14; i++) {
+      const pulseAt = () => {
         a.x = P.x;
         a.z = P.z - 1.2;
         const h0 = a.hp;
         P.cast.pulses++;
         G.execSkill(G.skillCtx('whirl'));
         per.push(h0 - a.hp);
-      }
-      const out = { per: [Math.round(per[0]), Math.round(pulse * B.pulse)], spin: G.relicState.spin, ringPulse: Math.round(ring.maxHp - ring.hp) };
+      };
+      for (let i = 0; i < B.max - 1; i++) pulseAt();
+      const out = { mech: ctx.sk.mech, per: [Math.round(per[0]), Math.round(pulse * B.pulse)], spin: G.relicState.spin, ringPulse: Math.round(ring.maxHp - ring.hp), ringR: +Math.hypot(ring.x - P.x, ring.z - P.z).toFixed(2) };
       const r0 = ring.hp;
+      pulseAt(); // 第 10 下：打完自动卷起潮涌
+      out.burst = [Math.round(r0 - ring.hp), Math.round(pulse * B.max * B.burst)];
+      out.pulled = +Math.hypot(ring.x - P.x, ring.z - P.z).toFixed(2);
+      out.pullMax = +(B.pull + ring.r + 0.05).toFixed(2);
+      out.after = G.relicState.spin;
+      for (let i = 0; i < 3; i++) pulseAt();
+      const a0 = a.hp;
       P.cast = null;
       G.relicTick(1 / 60);
-      out.burst = [Math.round(r0 - ring.hp), Math.round(pulse * B.max * B.burst)];
-      out.after = G.relicState.spin;
-      // 没穿：每跳满额、不攒层
+      out.release = [Math.round(a0 - a.hp), Math.round(pulse * 3 * B.burst), G.relicState.spin];
+      // 摘下：退回原式，每跳满额、不攒层
       G.save.equip.gloves = null;
       G.computeStats();
       const h1 = a.hp;
@@ -11849,17 +11867,17 @@ async function main() {
       const c2 = G.skillCtx('whirl');
       const full = RQT.hit(c2, 1); // 手套的物理伤害提高那一行也摘掉了：按摘下之后的上下文算
       G.execSkill(c2);
-      out.plain = [Math.round(h1 - a.hp), Math.round(full), G.relicState.spin];
+      out.plain = [Math.round(h1 - a.hp), Math.round(full), G.relicState.spin, G.SKILLS.whirl.variant || 'o'];
       P.cast = null;
       RQT.end();
       return out;
     });
-    assert(Math.abs(r.per[0] - r.per[1]) <= Math.max(2, r.per[1] * 0.02) && r.spin === 12 && r.ringPulse === 0, '每跳的伤害 / 层数不对：' + JSON.stringify(r));
-    assert(Math.abs(r.burst[0] - r.burst[1]) <= Math.max(3, r.burst[1] * 0.02) && r.after === 0, '松手的炸开不对：' + JSON.stringify(r));
-    assert(Math.abs(r.plain[0] - r.plain[1]) <= Math.max(2, r.plain[1] * 0.02) && r.plain[2] === 0, '没穿时应照常满额：' + JSON.stringify(r));
-    return '每跳 ' + r.per[0] + ' · 12 层炸开 ' + r.burst[0];
+    assert(r.mech === 'tide' && Math.abs(r.per[0] - r.per[1]) <= Math.max(2, r.per[1] * 0.02) && r.spin === 9 && r.ringPulse === 0 && r.ringR > 3.3, '每跳的伤害 / 层数不对：' + JSON.stringify(r));
+    assert(Math.abs(r.burst[0] - r.burst[1]) <= Math.max(3, r.burst[1] * 0.02) && r.after === 0 && r.pulled <= r.pullMax, '满层的潮涌不对（拽进来、按层数拍下）：' + JSON.stringify(r));
+    assert(Math.abs(r.release[0] - r.release[1]) <= Math.max(3, r.release[1] * 0.02) && r.release[2] === 0, '松手时应把攒着的拍下：' + JSON.stringify(r));
+    assert(Math.abs(r.plain[0] - r.plain[1]) <= Math.max(2, r.plain[1] * 0.02) && r.plain[2] === 0 && r.plain[3] === 'o', '摘下后应退回原式、照常满额：' + JSON.stringify(r));
+    return '每跳 ' + r.per[0] + ' · 10 层潮涌 ' + r.burst[0] + ' · 拽到 ' + r.pulled + ' 米';
   });
-
   await step('崩势（断岳）：精英被打出破绽时，8 米内的普通怪一起破绽 2.5 秒（停手、受伤 ×1.25），远的和精英自己不算；处决精英时 3 米内破绽中的敌人各吃处决伤害的 35%', async () => {
     const r = await ev(() => {
       RQT.begin('duanyue');
@@ -11920,13 +11938,13 @@ async function main() {
     return '30% → ' + r.s30;
   });
 
-  await step('回旋：飞刃到射程尽头（射程 ×0.8）折返，回程 ×0.6 再中一次去程打过的敌人（靶子共吃 1.6 击）；机炮的子弹和会爆的掷焰不回旋', async () => {
+  await step('渊式·回旋（回旋解锁）：飞刃穿透所有敌人，到射程尽头折返，回程 ×0.7 再中一次（靶子共吃 1.7 击）、牵一根丝线；退回原式不回旋（免费）；戴着时弓的普攻照旧折返（×0.6、射程 ×0.8），机炮和会爆的掷焰不回旋', async () => {
     const r = await ev(() => {
       RQT.begin('huixuan');
       RQT.learn('blade', 0);
-      const P = G.player, H = G.RELIC_MECH.huixuan;
+      const P = G.player, H = G.VARIANTS.blade.c.set.boom, HB = G.RELIC_MECH.huixuan;
       const d = T.openDir(30);
-      const m = T.mob('husk', d.x * 5, d.z * 5);
+      const m = T.mob('husk', d.x * 5, d.z * 5), m2 = T.mob('husk', d.x * 7, d.z * 7), m3 = T.mob('husk', d.x * 9, d.z * 9);
       T.aim(m.x, m.z);
       T.fix(0.999);
       const ctx = G.skillCtx('blade');
@@ -11934,32 +11952,47 @@ async function main() {
       const t0 = G.state.stats.relicTurns || 0;
       G.execSkill(ctx);
       const p = G.state.projectiles[G.state.projectiles.length - 1];
-      const out = { boom: p.boom, life: [+p.life.toFixed(3), +((30 / ctx.sk.speed) * H.range).toFixed(3)], open: Math.round(d.len) };
+      const out = { mech: ctx.sk.mech, boom: p.boom, life: [+p.life.toFixed(3), +((30 / ctx.sk.speed) * H.range).toFixed(3)], open: Math.round(d.len) };
+      G.debug.step(0.05);
+      out.thread = G.world.rvCount('thread');
       G.debug.step(3);
-      out.dmg = [Math.round(m.maxHp - m.hp), Math.round(one * (1 + H.back))];
+      out.dmg = [Math.round(m.maxHp - m.hp), Math.round(one * (1 + H.back)), Math.round(m3.maxHp - m3.hp)];
       out.turns = (G.state.stats.relicTurns || 0) - t0;
       out.left = G.state.projectiles.filter((q) => q.owner === 'p').length;
-      // 不回旋：机炮、掷焰
+      G.world.update(1 / 60);
+      out.threadGone = G.world.rvCount('thread');
+      // 退回原式（替下的是原式：免费），不再回旋
+      G.clearEnemies();
+      const c0 = G.save.cur.chaos || 0;
+      const sw = G.setVariant('blade', 'o');
+      const pc = G.skillCtx('blade');
+      G.execSkill(pc);
+      const p2 = G.state.projectiles[G.state.projectiles.length - 1];
+      out.plain = [sw.ok, sw.cost, (G.save.cur.chaos || 0) - c0, p2.boom || 0, pc.sk.mech || ''];
+      G.debug.step(2);
+      // 戴着回旋：弓的普攻照旧折返；机炮、掷焰不回旋
+      const bow = G.spawnProjectile({ owner: 'p', ctx: G.skillCtx('basic_huntbow'), x: P.x, z: P.z, dx: 1, dz: 0, speed: 30, life: 0.5 });
       const g = G.spawnProjectile({ owner: 'p', ctx: G.skillCtx('basic_gatling'), x: P.x, z: P.z, dx: 1, dz: 0, speed: 30, life: 0.5 });
       RQT.learn('ember');
       const em = G.spawnProjectile({ owner: 'p', ctx: G.skillCtx('ember'), x: P.x, z: P.z, dx: 1, dz: 0, speed: 20, life: 0.5, explode: 1.9 });
+      out.bow = [bow.boom || 0, +bow.life.toFixed(3), +(0.5 * HB.range).toFixed(3), bow.boomBack];
       out.no = [g.boom || 0, em.boom || 0];
       G.debug.step(1);
       RQT.end();
       return out;
     });
-    assert(r.boom === 1 && Math.abs(r.life[0] - r.life[1]) < 0.02, '飞刃应标记回旋、射程 ×0.8：' + JSON.stringify(r));
-    assert(r.turns === 1 && Math.abs(r.dmg[0] - r.dmg[1]) <= Math.max(3, r.dmg[1] * 0.02) && r.left === 0, '回程应再中一次（×0.6）：' + JSON.stringify(r));
-    assert(r.no.join() === '0,0', '机炮 / 掷焰不该回旋：' + r.no);
-    return '靶子吃到 ' + r.dmg[0] + '（单击 ×1.6）';
+    assert(r.mech === 'boom' && r.boom === 1 && Math.abs(r.life[0] - r.life[1]) < 0.02 && r.thread === 1, '飞刃应标记回旋、射程不变、牵着丝线：' + JSON.stringify(r));
+    assert(r.turns === 1 && Math.abs(r.dmg[0] - r.dmg[1]) <= Math.max(3, r.dmg[1] * 0.02) && r.dmg[2] > 0 && r.left === 0 && r.threadGone === 0, '去程应穿透、回程再中一次（×0.7）、丝线跟着收：' + JSON.stringify(r));
+    assert(r.plain.join() === 'true,0,0,0,', '退回原式应免费、不回旋：' + JSON.stringify(r.plain));
+    assert(r.bow[0] === 1 && Math.abs(r.bow[1] - r.bow[2]) < 0.01 && r.bow[3] === 0.6 && r.no.join() === '0,0', '弓的普攻应照旧折返，机炮 / 掷焰不该回旋：' + JSON.stringify(r));
+    return '靶子吃到 ' + r.dmg[0] + '（单击 ×1.7）';
   });
-
-  await step('星雨（陨织袍）：陨火在技能栏上时保留 20% 魔力、不能手动放；每 1.8 秒（吃出手速度）自动落在 12 米内敌人最密处，伤害 ×0.4、半径 ×0.85，不耗魔力', async () => {
+  await step('渊式·星雨（陨织袍解锁）：陨火在技能栏上时保留 20% 魔力、不能手动放；每 1.8 秒（吃出手速度）自动落在 12 米内敌人最密处，伤害 ×0.4、半径 ×0.85，不耗魔力、落点有符环；摘下退回原式：不保留魔力、能手动放', async () => {
     const r = await ev(() => {
       RQT.begin('zhuixing');
       RQT.learn('meteor', 0);
-      const P = G.player, F = G.RELIC_MECH.zhuixing;
-      const out = { reserve: P.reservePct };
+      const P = G.player, F = G.VARIANTS.meteor.c.set.star;
+      const out = { reserve: P.reservePct, mech: G.SKILLS.meteor.mech };
       // 手动：轻点技能键什么也不放
       G.input.tap[0] = 0.3;
       G.debug.step(0.2);
@@ -11983,6 +12016,7 @@ async function main() {
       out.at = tg ? +Math.hypot(tg.x - gx, tg.z - gz).toFixed(2) : -1;
       out.r = tg ? [+tg.r.toFixed(2), +(ctx.sk.radius * Math.sqrt(ctx.area) * F.area).toFixed(2)] : null;
       out.mana = P.mana >= mana0 - 1e-6;
+      out.rune = G.world.rvCount('star');
       G.debug.step(0.9);
       out.dmg = [Math.round(c1.maxHp - c1.hp), Math.round(want)];
       out.lone = Math.round(lone.maxHp - lone.hp);
@@ -11990,22 +12024,31 @@ async function main() {
       G.debug.step(iv * 2 + 0.1);
       out.n = (G.state.stats.relicMeteors || 0) - m0;
       out.iv = +iv.toFixed(2);
+      // 摘下：退回原式（不保留魔力、能手动放）
+      G.save.equip.body = null;
+      G.computeStats();
+      P.cds = {};
+      P.mana = P.maxMana;
+      G.input.tap[0] = 0.3;
+      G.debug.step(1);
+      out.plain = [P.reservePct, !!(P.cds.meteor > 0), G.SKILLS.meteor.variant || 'o'];
       RQT.end();
       return out;
     });
-    assert(r.reserve === 20, '应保留 20% 魔力：' + r.reserve);
+    assert(r.reserve === 20 && r.mech === 'star', '应保留 20% 魔力：' + r.reserve);
     assert(r.manual.join() === 'false,0,0', '陨火不该能手动放：' + JSON.stringify(r.manual));
     assert(r.at >= 0 && r.at < 1 && r.r && Math.abs(r.r[0] - r.r[1]) < 0.02 && r.mana, '自动陨火应落在最密处、半径 ×0.85、不耗魔力：' + JSON.stringify(r));
     assert(Math.abs(r.dmg[0] - r.dmg[1]) <= Math.max(2, r.dmg[1] * 0.02) && r.lone === 0, '自动陨火的伤害应 ×0.4：' + JSON.stringify(r));
+    assert(r.rune === 1 && r.plain.join() === '0,true,o', '落点符环 / 摘下后的退回不对：' + JSON.stringify(r));
     assert(r.n === 3, (r.iv * 2 + 0.1).toFixed(2) + ' 秒内应落 3 次（间隔 ' + r.iv + ' 秒）：' + r.n);
     return '间隔 ' + r.iv + ' 秒 · 每发 ' + r.dmg[0];
   });
 
-  await step('电桥：链雷每跳在前后两个目标之间留一道电桥（4 只排一行 → 3 道），最多 8 道（实例化一次 draw call）；站在桥上的敌人每 0.25 秒吃一跳的 18%、累积闪电异常，不放感电电弧；1.5 秒后消失', async () => {
+  await step('渊式·电桥（电桥解锁）：电弧走过的每一段（你 → 第一个、目标之间）各留一道电桥（4 只排一行 → 4 道），最多 9 道（实例化一次 draw call）；站在桥上的敌人每 0.25 秒吃一跳的 18%、累积闪电异常，不放感电电弧；1.5 秒后消失；摘下退回原式不留桥', async () => {
     const r = await ev(() => {
       RQT.begin('dianqiao');
       RQT.learn('arc', 0);
-      const P = G.player, D = G.RELIC_MECH.dianqiao;
+      const P = G.player, D = G.VARIANTS.arc.c.set.bridge;
       const d = T.openDir(16);
       const ms = [4, 7, 10, 13].map((k) => T.mob('husk', d.x * k, d.z * k));
       T.aim(ms[0].x, ms[0].z);
@@ -12038,13 +12081,22 @@ async function main() {
       out.off = Math.round(off.maxHp - off.hp);
       out.bolts = (G.state.stats.bolts || 0) - b0;
       out.gone = [G.relicState.bridges.length, G.world.relicBridgeCount()];
+      // 摘下：退回原式，不留桥
+      G.clearEnemies();
+      G.save.equip.ring = null;
+      G.computeStats();
+      const ms2 = [4, 7].map((k) => T.mob('husk', d.x * k, d.z * k));
+      T.aim(ms2[0].x, ms2[0].z);
+      G.execSkill(G.skillCtx('arc'));
+      out.plain = [G.relicState.bridges.length, G.SKILLS.arc.variant || 'o'];
       RQT.end();
       return out;
     });
-    assert(r.n1.join() === '3,3', '4 只排一行应留 3 道电桥：' + r.n1);
-    assert(r.cap.join() === '8,8' && r.cleared === 0, '电桥最多 8 道：' + JSON.stringify(r));
+    assert(r.n1.join() === '4,4', '4 只排一行应留 4 道电桥：' + r.n1);
+    assert(r.cap.join() === '9,9' && r.cleared === 0, '电桥最多 9 道：' + JSON.stringify(r));
     assert(r.ticks >= 4.95 && r.ticks <= 6.05 && r.off === 0 && r.build > 0, '桥上的跳数 / 范围 / 异常不对：' + JSON.stringify(r));
     assert(r.bolts === 0 && r.gone.join() === '0,0', '电桥不该放感电电弧、1.5 秒后应消失：' + JSON.stringify(r));
+    assert(r.plain.join() === '0,o', '摘下后应退回原式、不留桥：' + JSON.stringify(r.plain));
     return '桥上 ' + r.ticks + ' 跳';
   });
 
@@ -12085,19 +12137,19 @@ async function main() {
     return '混相 ' + r.one[3] + ' / 击';
   });
 
-  await step('独骸（骸王冠）：烬骸仆从上限固定 1，伤害 ×2.9（单体秒伤 = 3 具的 0.967）、生命 ×3、横斩带 6 个 / 220°、牵制 5 只、减伤 +15；群聚多给的上限折成 +35% 伤害 / +40% 生命；骸王体型 ×1.5；魂火按普通仆从算', async () => {
+  await step('渊式·独骸（骸王冠解锁）：烬骸仆从上限固定 1，伤害 ×3.7（单体秒伤 = 3 具的 1.233）、生命 ×3、横斩带 6 个 / 220°、牵制 5 只、减伤 +15；群聚多给的上限折成 +35% 伤害 / +40% 生命；骸王体型 ×1.5、头顶冠环；魂火按普通仆从算；摘下退回原式（上限 3）', async () => {
     const r = await ev(() => {
       RQT.begin(null);
       RQT.learn('thrall', 0);
-      const H = G.RELIC_MECH.haiwang;
+      const H = G.VARIANTS.thrall.c.set.king;
       const c0 = G.skillCtx('thrall');
       G.save.equip.helm = G.rollRelic('haiwang', 50, 0.5);
       G.computeStats();
       const c1 = G.skillCtx('thrall');
-      // 生命按「同一套属性（头盔上的召唤物生命那一行也算）、只关掉独骸」来比
-      G.player.relic.haiwang = false;
+      // 生命按「同一套属性（头盔上的召唤物生命那一行也算）、只关掉独骸（临时指回原式）」来比
+      const kv = G.useVariant('thrall', 'o');
       const c1b = G.skillCtx('thrall');
-      G.computeStats();
+      G.SKILLS.thrall = kv;
       const extra = c0.minion.cap - c0.sk.cap;
       const out = {
         cap: [c0.minion.cap, c1.minion.cap], more: +(c1.more / c0.more).toFixed(4), wantMore: +(H.dmg * (1 + H.perDmg * extra)).toFixed(4),
@@ -12125,14 +12177,23 @@ async function main() {
       const ms = G.state.minions.filter((m) => !m.dead && m.skill === 'thrall');
       out.count = ms.length;
       out.big = ms[0] ? [!!ms[0].king, +(ms[0].r / ms[0].r0).toFixed(2), +ms[0].ent.body.scale.x.toFixed(2)] : null;
+      out.crown = G.world.rvCount('crown');
+      // 摘下：退回原式，上限回到 3、外形还原
+      G.save.equip.helm = null;
+      G.computeStats();
+      G.relicTick(0.3);
+      out.plain = [G.skillCtx('thrall').minion.cap === h0.minion.cap, !!(ms[0] && ms[0].king), G.SKILLS.thrall.variant || 'o'];
+      G.world.update(1 / 60);
+      out.crownGone = G.world.rvCount('crown');
       RQT.end();
       return out;
     });
     assert(r.cap[1] === 1 && r.king && Math.abs(r.more - r.wantMore) < 1e-3 && Math.abs(r.life - r.wantLife) < 0.02, '骸王的上限 / 伤害 / 生命不对：' + JSON.stringify(r));
     assert(r.cleave === 6 && r.arc === 220 && r.hold === 5 && r.dr === 15, '骸王的横斩 / 牵制 / 减伤不对：' + JSON.stringify(r));
-    assert((r.dps === null || Math.abs(r.dps - 0.967) < 0.01) && r.soulK > 0 && r.soulK <= 1, '单体秒伤应约为 3 具的 0.967、魂火按普通仆从算：' + JSON.stringify(r));
+    assert((r.dps === null || Math.abs(r.dps - 3.7 / 3) < 0.01) && r.soulK > 0 && r.soulK <= 1, '单体秒伤应约为 3 具的 1.233、魂火按普通仆从算：' + JSON.stringify(r));
     assert(r.horde[0] === 1 && Math.abs(r.horde[1] - r.horde[2]) < 1e-3 && r.horde[3] === 1, '群聚多给的上限应折成伤害：' + JSON.stringify(r.horde));
-    assert(r.count === 1 && r.big && r.big[0] && r.big[1] === 1.5 && r.big[2] === 1.5, '骸王应只有 1 具、体型 ×1.5：' + JSON.stringify(r));
+    assert(r.count === 1 && r.big && r.big[0] && r.big[1] === 1.5 && r.big[2] === 1.5 && r.crown === 1, '骸王应只有 1 具、体型 ×1.5、头顶冠环：' + JSON.stringify(r));
+    assert(r.plain.join() === 'true,false,o' && r.crownGone === 0, '摘下后应退回原式、外形还原：' + JSON.stringify(r));
     return '上限 ' + r.cap.join('→') + ' · 伤害 ×' + r.more;
   });
 
@@ -12218,11 +12279,11 @@ async function main() {
     return '离落点 ' + r.near.join(' / ') + ' 米 · 砸 ' + r.dmg[0];
   });
 
-  await step('随核（引力核）：黑洞开在你身上并跟着你走；持续 ×0.8、半径 ×0.85、牵引 ×0.75（首领不变）、每跳 ×1.2', async () => {
+  await step('渊式·随核（引力核解锁）：黑洞开在你身上并跟着你走（碎石绕着转）；持续 ×1、半径 ×0.9、牵引 ×0.75（首领不变）、每跳 ×1.3；摘下退回原式（开在准星处）', async () => {
     const r = await ev(() => {
       RQT.begin('yinli');
       RQT.learn('blackhole', 0);
-      const P = G.player, Y = G.RELIC_MECH.yinli;
+      const P = G.player, Y = G.VARIANTS.blackhole.c.set.follow;
       const ctx = G.skillCtx('blackhole');
       T.aim(P.x, P.z - 8);
       G.execSkill(ctx);
@@ -12234,13 +12295,25 @@ async function main() {
       T.tp(P.x + d.x * 2, P.z + d.z * 2);
       G.debug.step(0.1);
       out.follow = h ? +Math.hypot(h.x - P.x, h.z - P.z).toFixed(3) : -1;
-      G.debug.step(3);
+      out.orbit = G.world.rvCount('orbit');
+      G.debug.step(3.1);
       out.gone = G.relicHoleList().length;
+      G.world.update(1 / 60);
+      out.orbitGone = G.world.rvCount('orbit');
+      // 摘下：退回原式，开在准星处、不跟着你
+      G.save.equip.ring = null;
+      G.computeStats();
+      P.cds = {};
+      const n0 = G.chaosHoles().length;
+      G.execSkill(G.skillCtx('blackhole'));
+      out.plain = [G.relicHoleList().length, G.chaosHoles().length - n0, G.SKILLS.blackhole.variant || 'o'];
+      G.debug.step(3.2);
       RQT.end();
       return out;
     });
     assert(!r.none && r.at === 0 && r.follow === 0, '黑洞应开在你身上并跟着你：' + JSON.stringify(r));
-    assert(Math.abs(r.R[0] - r.R[1]) < 1e-3 && Math.abs(r.dur[0] - r.dur[1]) < 1e-3 && r.mult === 1.2 && r.pull === 0.75 && r.gone === 0, '随核的数值不对：' + JSON.stringify(r));
+    assert(Math.abs(r.R[0] - r.R[1]) < 1e-3 && Math.abs(r.dur[0] - r.dur[1]) < 1e-3 && r.mult === 1.3 && r.pull === 0.75 && r.gone === 0 && r.orbit === 1 && r.orbitGone === 0, '随核的数值 / 碎石不对：' + JSON.stringify(r));
+    assert(r.plain.join() === '0,1,o', '摘下后应退回原式：' + JSON.stringify(r.plain));
     return '半径 ' + r.R[0] + ' · 持续 ' + r.dur[0];
   });
 
@@ -12270,6 +12343,249 @@ async function main() {
     assert(r.n === 5 && r.all && r.chained === 5, '应有 5 个各分到 20%：' + JSON.stringify(r));
     assert(r.free === 0 && r.boss === 0 && r.build, '没被缚的 / 首领不该分到、分到的不累积异常：' + JSON.stringify(r));
     return '一串 6 个 · 各 ' + r.share;
+  });
+
+  // ------------------------------------------------------------------ 渊式（六件渊契解锁的第三种刻式）
+  await step('渊式·选择：没戴渊契时选不了（「装备回旋解锁」）；戴上后从 B 选进渊式免费、B 记成替下的那种；摘下退回 B、再戴上恢复渊式；没戴时点 A 改的是替下的那种（照常付钱、渊式还记着）；退回替下的那种免费，换到另一种照常付钱；战斗中不能换；第一次戴上自动选上一次、之后不再自动', async () => {
+    const r = await ev(() => {
+      RQT.begin(null);
+      RQT.learn('blade', 0);
+      const P = G.player, s = G.save, out = {};
+      s.rqAuto.blade = true; // 先不让「第一次戴上自动选」掺进来
+      s.variants.blade = 'b';
+      s.variantFree.blade = true;
+      s.cur.chaos = 10;
+      G.applyVariants();
+      const chaos = () => s.cur.chaos;
+      const lock = G.setVariant('blade', 'c');
+      out.lock = [lock.ok, lock.msg, s.variants.blade];
+      s.equip.amulet = G.rollRelic('huixuan', 50, 0.5);
+      G.computeStats();
+      out.noAuto = [s.variants.blade, G.SKILLS.blade.variant];
+      const pick = G.setVariant('blade', 'c');
+      out.pick = [pick.ok, pick.cost, chaos(), s.variants.blade, s.variantPrev.blade, G.SKILLS.blade.mech];
+      // 摘下（卸到背包）：退回 B；再戴上：恢复渊式
+      const it = s.equip.amulet;
+      s.bag.length = 0;
+      G.unequip('amulet');
+      out.off = [s.variants.blade, G.SKILLS.blade.variant, G.variantOf('blade')];
+      const lockOff = G.setVariant('blade', 'c');
+      out.lockOff = lockOff.ok;
+      // 没戴时点 A：改的是替下的那种，照常付钱
+      const a = G.setVariant('blade', 'a');
+      out.offA = [a.ok, a.cost, chaos(), s.variants.blade, s.variantPrev.blade, G.SKILLS.blade.variant];
+      G.equip(it);
+      out.on = [s.variants.blade, G.SKILLS.blade.variant];
+      // 退回替下的那种（A）：免费
+      const back = G.setVariant('blade', 'a');
+      out.back = [back.ok, back.cost, chaos(), s.variants.blade, s.variantPrev.blade === undefined];
+      // 渊式 → 另一种（B）：照常付钱
+      G.setVariant('blade', 'c');
+      const other = G.setVariant('blade', 'b');
+      out.other = [other.ok, other.cost, chaos(), s.variants.blade];
+      // 战斗中不能选
+      const e = T.mob('husk', 3, 0);
+      const busy = G.setVariant('blade', 'c');
+      out.busy = [busy.ok, /战斗中/.test(busy.msg || '')];
+      G.clearEnemies();
+      // 第一次戴上自动选一次：之后摘了改回 B、再戴上不再自动
+      G.unequip('amulet');
+      delete s.rqAuto.blade;
+      G.equip(it);
+      out.auto = [s.variants.blade, s.variantPrev.blade, s.rqAuto.blade === true];
+      G.setVariant('blade', 'b');
+      G.unequip('amulet');
+      G.equip(it);
+      out.autoOnce = s.variants.blade;
+      // 分解（卖掉）身上摘下来的渊契：退回替下的那种
+      G.setVariant('blade', 'c');
+      G.unequip('amulet');
+      G.salvage(it);
+      out.sold = [s.variants.blade, G.SKILLS.blade.variant, s.bag.indexOf(it)];
+      RQT.end();
+      return out;
+    });
+    assert(r.lock[0] === false && r.lock[1] === '装备回旋解锁' && r.lock[2] === 'b', '没戴渊契时应选不了：' + JSON.stringify(r.lock));
+    assert(r.noAuto.join() === 'b,b' && r.pick.join() === 'true,0,10,c,b,boom', '选进渊式应免费、记下替下的 B：' + JSON.stringify(r));
+    assert(r.off.join() === 'c,b,b' && r.lockOff === false && r.on.join() === 'c,c', '摘下应退回 B、再戴上恢复：' + JSON.stringify(r));
+    assert(r.offA.join() === 'true,1,9,c,a,a', '没戴时点 A 应改替下的那种并付钱：' + JSON.stringify(r.offA));
+    assert(r.back.join() === 'true,0,9,a,true' && r.other.join() === 'true,1,8,b', '退回替下的免费、换到另一种付钱：' + JSON.stringify(r));
+    assert(r.busy.join() === 'false,true', '战斗中不该能换：' + JSON.stringify(r.busy));
+    assert(r.auto.join() === 'c,b,true' && r.autoOnce === 'b', '第一次戴上应自动选一次：' + JSON.stringify(r));
+    assert(r.sold[0] === 'c' && r.sold[1] === 'b' && r.sold[2] < 0, '分解后应退回替下的那种：' + JSON.stringify(r.sold));
+    return '选 / 退 / 摘 / 戴 / 卖 都对得上，乱流石 10 → ' + r.other[2];
+  });
+
+  await step('渊式·施放中换装：按住旋风斩（蓄潮）时摘下怒潮——旋转停下、攒着的潮势当场拍下、技能退回原式；已经放出去的回旋飞刃照样飞回来；双生坠不交替渊式（光环 / 召唤 / 渊式写在说明里），A / B 照旧交替', async () => {
+    const r = await ev(() => {
+      RQT.begin('nuchao');
+      RQT.learn('whirl', 0);
+      const P = G.player, s = G.save, out = {};
+      const a = T.mob('husk', 0, -1.2);
+      G.initBuildUp(a);
+      a.buTh = 1e15;
+      a.poiseMax = 0;
+      T.aim(P.x, P.z - 3);
+      G.input.mouse.b[0] = true;
+      s.bar[0] = 'whirl';
+      G.debug.step(1.2);
+      out.spinning = [!!(P.cast && P.cast.id === 'whirl'), G.relicState.spin > 0];
+      const h0 = a.hp;
+      s.equip.gloves = null;
+      G.computeStats();
+      out.stopped = !(P.cast && P.cast.id === 'whirl' && P.cast.ctx && P.cast.ctx.sk.mech === 'tide');
+      G.debug.step(1 / 60);
+      out.burst = [G.relicState.spin, Math.round(h0 - a.hp) > 0, G.SKILLS.whirl.variant || 'o'];
+      G.input.mouse.b[0] = false;
+      G.debug.step(0.3);
+      G.clearEnemies();
+      // 已经放出去的回旋：摘下项链也照样飞回来
+      s.equip.amulet = G.rollRelic('huixuan', 50, 0.5);
+      RQT.learn('blade', 1);
+      s.variants.blade = 'c';
+      G.computeStats();
+      const d = T.openDir(30);
+      T.aim(P.x + d.x * 10, P.z + d.z * 10);
+      G.execSkill(G.skillCtx('blade'));
+      const p = G.state.projectiles[G.state.projectiles.length - 1];
+      s.equip.amulet = null;
+      G.computeStats();
+      const t0 = G.state.stats.relicTurns || 0;
+      G.debug.step(2.5);
+      out.flying = [p.boom, (G.state.stats.relicTurns || 0) - t0, G.SKILLS.blade.variant || 'o'];
+      // 双生坠 + 电桥戒：链雷选着渊式不交替；飞刃选着 A 照旧交替
+      s.equip.amulet = G.rollRelic('shuangsheng', 50, 0.5);
+      s.equip.ring = G.rollRelic('dianqiao', 50, 0.5);
+      RQT.learn('arc', 2);
+      s.skills.blade = 20;
+      s.variants.arc = 'c';
+      s.variants.blade = 'a';
+      G.computeStats();
+      G.applyVariants();
+      const seq = (id) => {
+        const v = [];
+        for (let i = 0; i < 4; i++) {
+          const next = G.relicTwin(id);
+          v.push(G.SKILLS[id].variant || 'o');
+          if (next) G.relicTwinCast(id);
+        }
+        return v.join('');
+      };
+      out.twinArc = seq('arc');
+      out.twinBlade = seq('blade');
+      out.twinDesc = /渊式不交替/.test(G.RELICS.shuangsheng.mechAlt);
+      RQT.end();
+      return out;
+    });
+    assert(r.spinning.join() === 'true,true' && r.stopped, '摘下时旋风斩（蓄潮）应停下：' + JSON.stringify(r));
+    assert(r.burst[0] === 0 && r.burst[1] && r.burst[2] === 'o', '攒着的潮势应拍下、退回原式：' + JSON.stringify(r.burst));
+    assert(r.flying[0] === 2 && r.flying[1] === 1 && r.flying[2] === 'o', '放出去的回旋应照样飞回：' + JSON.stringify(r.flying));
+    assert(r.twinArc === 'cccc' && r.twinBlade === 'abab' && r.twinDesc, '双生坠：渊式不交替、A / B 交替：' + JSON.stringify(r));
+    return '链雷 ' + r.twinArc + ' · 飞刃 ' + r.twinBlade;
+  });
+
+  await step('渊式·旧存档：戴着改技能的渊契（电桥戒，链雷原选 B）→ 读档后选上渊式、B 记成替下的那种、提示一次「渊式」；只在背包里的不动；存档往返留着渊式和替下的那种，坏数据（没有渊式的技能选 c、替下的写成 c）被丢掉；看过提示不再提示', async () => {
+    const r = await ev((keep) => {
+      T.arena();
+      const s = G.save, out = {};
+      s.skills.arc = 20;
+      s.skills.blade = 20;
+      s.equip.ring = G.rollRelic('dianqiao', 50, 0.5);
+      s.bag.length = 0;
+      s.bag.push(G.rollRelic('huixuan', 50, 0.5));
+      s.equip.amulet = null;
+      G.persist();
+      const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+      delete raw.rqVar;
+      delete raw.rqNote;
+      delete raw.variantPrev;
+      delete raw.rqAuto;
+      raw.variants = { arc: 'b', blade: 'a' };
+      if (raw.tut) delete raw.tut.rqvar;
+      localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+      G.loadSave();
+      G.computeStats();
+      out.vars = T.canon(G.save.variants);
+      out.prev = T.canon(G.save.variantPrev);
+      out.skill = [G.SKILLS.arc.mech, G.SKILLS.blade.vname];
+      out.note = [G.save.rqNote, G.rqMigrated];
+      // 往返：留着
+      G.persist();
+      G.loadSave();
+      G.computeStats();
+      out.round = [T.canon(G.save.variants), T.canon(G.save.variantPrev), G.SKILLS.arc.mech, G.rqMigrated];
+      // 坏数据
+      const raw2 = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+      raw2.variants = { arc: 'c', ember: 'c', blade: 'c' };
+      raw2.variantPrev = { arc: 'c', blade: 'a', ember: 'b', nope: 'a' };
+      raw2.rqAuto = { arc: true, ember: true, nope: true };
+      localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw2));
+      G.loadSave();
+      G.computeStats();
+      out.bad = [T.canon(G.save.variants), T.canon(G.save.variantPrev), T.canon(G.save.rqAuto), G.SKILLS.blade.variant || 'o'];
+      // 看过提示之后不再提示
+      G.save.tut.rqvar = 1;
+      G.save.rqNote = false;
+      G.persist();
+      G.loadSave();
+      out.seen = [G.rqMigrated, G.save.rqNote];
+      if (keep) localStorage.setItem('cinder-abyss-save-v1', keep);
+      G.loadSave();
+      G.computeStats();
+      return out;
+    }, varKeep);
+    assert(r.vars === '{"arc":"c","blade":"a"}' && r.prev === '{"arc":"b"}' && r.skill.join() === 'bridge,钉刃', '戴着的渊契应迁移成渊式、B 记成替下的：' + JSON.stringify(r));
+    assert(r.note.join() === 'true,1', '应提示一次「渊式」：' + JSON.stringify(r.note));
+    assert(r.round[0] === r.vars && r.round[1] === r.prev && r.round[2] === 'bridge' && r.round[3] === 1, '存档往返应留着：' + JSON.stringify(r.round));
+    assert(r.bad[0] === '{"arc":"c","blade":"c"}' && r.bad[1] === '{"blade":"a"}' && r.bad[2] === '{"arc":true}' && r.bad[3] === 'a', '坏数据没修好：' + JSON.stringify(r.bad));
+    assert(r.seen.join() === '0,false', '看过提示不该再提示：' + JSON.stringify(r.seen));
+    return '链雷 B → 渊式「电桥」（替下 B），提示一次';
+  });
+
+  await step('渊式·说明：六件渊契的机制说明都是「解锁 技能·渊式名：」+ 一句按参数拼的话（数值跟着 G.VARIANTS 变）、详情里写着在技能页选；提示卡和图鉴都显示这一句；没有渊式的渊契说明照旧；刻式悬停公式的渊式比值都高过 A / B', async () => {
+    const r = await ev(() => {
+      const out = { bad: [], rows: 0 };
+      const pc = (x) => Math.round(x * 100) + '%';
+      const num = { huixuan: pc(G.VARIANTS.blade.c.set.boom.back), nuchao: pc(G.VARIANTS.whirl.c.set.tide.burst), zhuixing: pc(G.VARIANTS.meteor.c.set.star.mult), dianqiao: pc(G.VARIANTS.arc.c.set.bridge.mult), haiwang: '×' + G.VARIANTS.thrall.c.set.king.dmg, yinli: pc(G.VARIANTS.blackhole.c.set.follow.dmg) };
+      for (const rq of Object.keys(G.VARIANT_RELIC)) {
+        const id = G.VARIANT_RELIC[rq], R = G.RELICS[rq], V = G.VARIANTS[id].c;
+        const head = '解锁 ' + G.SKILLS[id].name + '·' + V.name + '：';
+        if (R.mechDesc.indexOf(head) !== 0 || R.mechDesc.indexOf(num[rq]) < 0 || !/技能页/.test(R.mechAlt) || V.relic !== rq || R.mechName !== V.name) out.bad.push(rq + ':' + R.mechDesc);
+        out.rows++;
+      }
+      // 背包里的提示卡写着这一句
+      const keepBag = G.save.bag.slice();
+      G.save.bag.length = 0;
+      for (const rq of Object.keys(G.VARIANT_RELIC)) G.save.bag.push(G.rollRelic(rq, 50, 0.5));
+      G.ui.open('inv');
+      out.tips = 0;
+      for (const it of G.save.bag.slice()) {
+        const cell = document.querySelector('.cell.r4[data-item="' + it.uid + '"]'); // 每点一次背包重画：按 uid 重新找格子
+        if (cell) cell.click();
+        if (!cell || T.bodyText().indexOf(G.RELICS[it.rq].mechDesc.slice(0, 16)) < 0) out.bad.push('tip ' + it.rq);
+        out.tips++;
+      }
+      G.ui.close();
+      G.save.bag.length = 0;
+      G.save.bag.push(...keepBag);
+      // 数值变了，说明跟着变
+      const keep = G.VARIANTS.blade.c.set.boom.back;
+      G.VARIANTS.blade.c.set.boom.back = 0.55;
+      G.relicDescs();
+      out.live = G.RELICS.huixuan.mechDesc.indexOf('55%') >= 0;
+      G.VARIANTS.blade.c.set.boom.back = keep;
+      G.relicDescs();
+      out.generic = /解锁/.test(G.RELICS.qianmu.mechDesc + G.RELICS.panzhong.mechDesc + G.RELICS.tongshang.mechDesc);
+      // 公式（技能页悬停）：渊式比 A / B 都高
+      G.save.skills.blade = G.save.skills.whirl = G.save.skills.arc = G.save.skills.blackhole = 20;
+      out.formula = {};
+      for (const id of ['blade', 'whirl', 'arc', 'blackhole']) out.formula[id] = [G.variantRatio(id, 'a'), G.variantRatio(id, 'b'), G.variantRatio(id, 'c')].map((x) => +x.toFixed(2));
+      return out;
+    });
+    assert(r.rows === 6 && r.tips === 6 && r.bad.length === 0, '渊契的机制说明 / 提示卡不对：' + r.bad.join(' | '));
+    assert(r.live && !r.generic, '说明应跟着数值变、通用渊契照旧：' + JSON.stringify(r));
+    for (const id in r.formula) assert(r.formula[id][2] > Math.max(r.formula[id][0], r.formula[id][1]), id + ' 的渊式公式比值应高过 A / B：' + r.formula[id]);
+    return '6 件 · 公式 ' + Object.keys(r.formula).map((k) => k + ' ' + r.formula[k][2]).join(' / ');
   });
 
   await step('渊契图鉴：拾到记进图鉴（最高完美度）、图标马上进预热；保底计数和图鉴存档往返后保留；畸形数据被修正（未知 id 丢、完美度 0–100、计数截到上限）；掉率改版前攒下的计数（旧上限 10 / 8 / 15）截到新上限 2 / 3 / 3，满了的下一次首领击杀必掉；旧存档没有 relic 也照常读（空图鉴）；背包页列出 13 + 2 件（巅峰的两件 D5 接进来）', async () => {
