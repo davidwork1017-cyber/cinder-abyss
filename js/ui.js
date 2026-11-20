@@ -2371,7 +2371,7 @@
         const bk = G.SKILLS[bidB];
         bar +=
           '<div class="barslot basic" data-tip="txt:右键固定是武器普攻' + (S.rmbKeep && G.SKILLS[S.rmbKeep] ? '；收起的「' + G.SKILLS[S.rmbKeep].name + '」在下面列表里，点按键标签绑上' : '') + '" style="--c:' + bk.color + '">' +
-          '<div class="bs-icon">' + IC.skill(bidB) + '</div><div class="bs-txt"><span>右键 · 武器普攻</span><b>' + bk.name + '</b></div></div>';
+          '<div class="bs-icon">' + IC.skill(bidB) + '</div><div class="bs-txt"><span>右键 · <i class="bs-long">武器</i>普攻</span><b>' + bk.name + '</b></div></div>';
         continue;
       }
       const id = S.bar[i];
