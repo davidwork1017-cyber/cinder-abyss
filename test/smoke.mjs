@@ -1312,7 +1312,7 @@ async function main() {
     return '首杀掉 Lv ' + r.first[0].lvl + '，几率 ' + JSON.stringify(r.rates);
   });
 
-  await step('掉落：升华石 / 乱流石 / 重铸石权重提高，琢刻石介于其间；首领首杀保底升华石和乱流石各一颗；分解稀有物品有几率给其一；辅助宝石掉率提高、首领掉两颗；重复的辅助宝石照旧化为增幅尘', async () => {
+  await step('掉落：升华石 / 乱流石 / 重铸石权重提高，琢刻石介于其间；首领首杀保底升华石和乱流石各一颗；分解稀有物品有几率给其一；辅助宝石掉率提高、首领掉三颗；重复的辅助宝石照旧化为增幅尘', async () => {
     const r = await ev(() => {
       const S = G.state, save = G.save, P = G.player;
       T.arena();
@@ -1397,7 +1397,7 @@ async function main() {
     assert(w.exalt >= 12 && w.chaos >= 12 && w.chisel > w.divine && w.chisel < w.exalt && w.chisel < w.chaos && w.divine >= 5, '通货权重不对：' + JSON.stringify(w));
     assert(w.pExalt > 0.1 && w.pDivine > 0.04, '升华石 / 重铸石的实际几率应比原来（9% / 4%）高：' + JSON.stringify(w));
     assert(Math.abs(r.roll.exalt - w.pExalt) < 0.015 && Math.abs(r.roll.chisel - w.chisel / w.tot) < 0.012, 'rollCurrency 的分布和权重对不上：' + JSON.stringify(r.roll));
-    assert(r.first.sup === 2 && r.again.sup === 2, '首领应固定掉 2 颗辅助宝石：' + JSON.stringify(r));
+    assert(r.first.sup === 3 && r.again.sup === 3, '首领应固定掉 3 颗辅助宝石：' + JSON.stringify(r));
     const firstCur = r.first.cur.split(','), againCur = r.again.cur.split(',');
     const n = (a, id) => a.filter((x) => x === id).length;
     assert(firstCur.length === 6 && n(firstCur, 'exalt') === 1 && n(firstCur, 'chaos') === 1, '首领首杀应在 4 颗随机通货之外保底升华石、乱流石各一颗：' + r.first.cur);
@@ -1406,7 +1406,7 @@ async function main() {
     assert(r.salvLucky.augment === 1 && (r.salvLucky.exalt === 1) !== (r.salvLucky.chaos === 1), '分解稀有物品几率中了应给升华石或乱流石之一：' + JSON.stringify(r.salvLucky));
     assert(!r.salvUnlucky.exalt && !r.salvUnlucky.chaos && !r.salvMagic.exalt && !r.salvMagic.chaos, '没中几率 / 魔法物品不应给：' + JSON.stringify(r));
     assert(r.salvRate > 0.12 && r.salvRate < 0.3, '分解稀有物品给升华石 / 乱流石的比例不对：' + r.salvRate);
-    assert(r.supRate.mob > 0.018 && r.supRate.mob < 0.035 && r.supRate.elite > 0.22 && r.supRate.elite < 0.4, '辅助宝石掉率应比原来（普通 1%、精英 7.5%）高：' + JSON.stringify(r.supRate));
+    assert(r.supRate.mob > 0.027 && r.supRate.mob < 0.0525 && r.supRate.elite > 0.33 && r.supRate.elite < 0.6, '辅助宝石掉率应是普通 3.75%、精英 45%（辅助加到 32 种后 ×1.5，区间按原来的相对宽度）：' + JSON.stringify(r.supRate));
     assert(r.dup.picked && r.dup.aug === 1 && r.dup.n === 1 && r.dup.toast.includes('增幅尘'), '重复的辅助宝石应化为 1 增幅尘：' + JSON.stringify(r.dup));
     return '升华石 ' + (w.pExalt * 100).toFixed(1) + '%，琢刻石 ' + ((w.chisel / w.tot) * 100).toFixed(1) + '%，辅助宝石 普通 ' + (r.supRate.mob * 100).toFixed(1) + '% / 精英 ' + (r.supRate.elite * 100).toFixed(0) + '%';
   });
@@ -1435,12 +1435,12 @@ async function main() {
   });
 
   // ------------------------------------------------------------------ 技能
-  await step('learnAll：14 个技能（裂石击已删除）与 20 个辅助宝石全部到手（混沌流加了黑洞 / 黑旋风 / 黑焰与混沌注入）；右键格不放技能', async () => {
+  await step('learnAll：14 个技能（裂石击已删除）与 27 个辅助宝石全部到手（混沌流加了黑洞 / 黑旋风 / 黑焰与混沌注入）；右键格不放技能', async () => {
     const r = await ev(() => {
       G.debug.learnAll();
       return { skills: Object.keys(G.save.skills).length, sups: G.save.supports.length, bar: G.save.bar.slice(), cleave: !!G.SKILLS.cleave || G.GEM_SKILLS.indexOf('cleave') >= 0 };
     });
-    assert(r.skills === 14 && r.sups === 20 && [0, 2, 3].every((i) => r.bar[i]) && r.bar[1] === null && !r.cleave, JSON.stringify(r));
+    assert(r.skills === 14 && r.sups === 27 && [0, 2, 3].every((i) => r.bar[i]) && r.bar[1] === null && !r.cleave, JSON.stringify(r));
   });
 
   for (let i = 0; i < SKILL_IDS.length; i++) {
@@ -3812,7 +3812,7 @@ async function main() {
 
   // ------------------------------------------------------------------ 光环与元素异常值
   // 这几步借用 summonStep：进来时记下构筑，结束时还原构筑、清场
-  await summonStep('霜环光环：绑在技能栏上即生效、保留 25% 魔力（节流按消耗倍率降低）；按键只提示；定时脉冲伤害一圈敌人（不算连击、不扣魔力）；回响 / 投射物类镶不上；取下即失效', async () => {
+  await summonStep('霜环光环：绑在技能栏上即生效、保留 18% 魔力（节流按消耗倍率降低）；按键只提示；定时脉冲伤害一圈敌人（不算连击、不扣魔力）；回响 / 投射物类镶不上；取下即失效', async () => {
     const r = await ev(() => {
       T.arena();
       G.debug.god(true);
@@ -3888,8 +3888,8 @@ async function main() {
       return out;
     });
     assert(!r.off.on && r.off.res === 0 && r.off.max === r.off.raw, '没绑光环时不应保留魔力：' + JSON.stringify(r.off));
-    assert(r.on.on && r.on.pct === 25 && r.on.res === Math.round(r.on.raw * 0.25) && r.on.max === r.on.raw - r.on.res && r.on.mana <= r.on.max, '绑上霜环应保留 25% 最大魔力并压住当前魔力：' + JSON.stringify(r.on));
-    assert(Math.abs(r.frugal.pct - 15) < 1e-9 && Math.abs(r.frugal.ctx - 15) < 1e-9 && r.frugal.max > r.on.max, '节流应把保留降到 15%：' + JSON.stringify(r.frugal));
+    assert(r.on.on && r.on.pct === 18 && r.on.res === Math.round(r.on.raw * 0.18) && r.on.max === r.on.raw - r.on.res && r.on.mana <= r.on.max, '绑上霜环应保留 18% 最大魔力并压住当前魔力：' + JSON.stringify(r.on));
+    assert(Math.abs(r.frugal.pct - 10.8) < 1e-9 && Math.abs(r.frugal.ctx - 10.8) < 1e-9 && r.frugal.max > r.on.max, '节流应把保留降到 10.8%：' + JSON.stringify(r.frugal));
     assert(r.fit.every((f) => !f) && r.fitOk.every((f) => f), '光环可镶的辅助不对：' + JSON.stringify([r.fit, r.fitOk]));
     assert(r.cast === null && r.tap === 0 && r.hint, '按光环的键不应施放，只提示「光环常驻生效」：' + JSON.stringify(r));
     assert(r.pulses > 3.5 && r.pulses < 4.6 && r.far === 0, '两秒应脉冲约 4 次、只打圈内：' + JSON.stringify(r));
@@ -3898,14 +3898,14 @@ async function main() {
     assert(r.ring.r > 4 && r.ring.visible, '脚下应有常驻的霜环：' + JSON.stringify(r.ring));
     assert(Math.abs(r.haste - r.time / 1.25) < 1e-9 && r.R[1] > r.R[0] * 1.1, '迅捷加快脉冲、扩域扩大半径：' + JSON.stringify(r));
     assert(!r.after.on && r.after.res === 0 && r.after.max === r.after.raw && r.after.dmg === 0 && r.after.ring === 0, '取下光环后应解除保留、停止脉冲：' + JSON.stringify(r.after));
-    assert(r.pick.on && r.pick.bar[2] === 'nova' && r.pick.res === Math.round(r.pick.raw * 0.25) && r.pick.max === r.pick.raw - r.pick.res, '捡起霜环自动绑上技能栏后应立刻保留魔力：' + JSON.stringify(r.pick));
+    assert(r.pick.on && r.pick.bar[2] === 'nova' && r.pick.res === Math.round(r.pick.raw * 0.18) && r.pick.max === r.pick.raw - r.pick.res, '捡起霜环自动绑上技能栏后应立刻保留魔力：' + JSON.stringify(r.pick));
     assert(r.pick.regen < r.after.regen, '保留的魔力不应再回复（回复按保留后的上限算）：' + JSON.stringify([r.pick, r.after]));
-    assert(r.blood.res === Math.round(r.blood.lifeRaw * 0.25) && r.blood.life === r.blood.lifeRaw - r.blood.res && r.blood.max === r.blood.raw && r.blood.card, '以血为引时光环应改为保留生命：' + JSON.stringify(r.blood));
+    assert(r.blood.res === Math.round(r.blood.lifeRaw * 0.18) && r.blood.life === r.blood.lifeRaw - r.blood.res && r.blood.max === r.blood.raw && r.blood.card, '以血为引时光环应改为保留生命：' + JSON.stringify(r.blood));
     // 技能卡：保留、每跳伤害、秒伤
     await ev(() => { G.bindSkill(2, 'nova'); G.ui.open('skills'); });
     const txt = await ev(() => { const c = Array.from(document.querySelectorAll('.skill-card')).find((n) => n.querySelector('.sk-name').textContent.startsWith('霜环')); return c ? c.innerText : ''; });
     await ev(() => G.ui.close());
-    assert(txt.includes('魔力保留') && txt.includes('25%') && txt.includes('每跳伤害') && txt.includes('每秒脉冲') && txt.includes('估算秒伤') && txt.includes('生效中') && !txt.includes('魔力消耗'), '霜环的技能卡应写魔力保留和每跳伤害：' + txt);
+    assert(txt.includes('魔力保留') && txt.includes('18%') && txt.includes('每跳伤害') && txt.includes('每秒脉冲') && txt.includes('估算秒伤') && txt.includes('生效中') && !txt.includes('魔力消耗'), '霜环的技能卡应写魔力保留和每跳伤害：' + txt);
     return '两秒脉冲 ' + r.pulses.toFixed(1) + ' 次，半径 ' + r.R[0].toFixed(1) + '，保留 ' + r.on.res + ' 魔力';
   });
 
@@ -6600,7 +6600,7 @@ async function main() {
     });
     // 霜环是光环：一绑上就保留魔力，魔力球顶上出现保留的那一截，技能格带「光环」的样式
     r = await ev(() => ({ res: G.player.reserved, pct: G.player.reservePct, max: G.player.maxMana, raw: G.player.maxManaRaw, band: document.getElementById('mana-res').classList.contains('on'), aura: document.querySelectorAll('#slots .slot')[2].classList.contains('aura') }));
-    assert(r.pct === 25 && r.res > 0 && r.max === r.raw - r.res && r.aura, '绑上霜环应保留 25% 魔力：' + JSON.stringify(r));
+    assert(r.pct === 18 && r.res > 0 && r.max === r.raw - r.res && r.aura, '绑上霜环应保留 18% 魔力：' + JSON.stringify(r));
     await until(() => document.getElementById('mana-res').classList.contains('on')).catch(() => {
       throw new Error('魔力球上没有显示光环保留');
     });
@@ -6792,7 +6792,7 @@ async function main() {
     r = await hover('cur');
     assert(r.txt.includes('点金石') && r.txt.includes('把普通物品升为稀有物品') && r.txt.includes('拖到一件物品上'), '通货的地面提示不对');
     r = await hover('skill');
-    assert(r.txt.includes('霜环') && r.txt.includes('光环') && r.txt.includes('魔力保留 25%') && r.txt.includes('新技能') && r.txt.includes('每跳基础伤害'), '技能宝石的地面提示应说明它做什么：' + r.txt.slice(0, 200));
+    assert(r.txt.includes('霜环') && r.txt.includes('光环') && r.txt.includes('魔力保留 18%') && r.txt.includes('新技能') && r.txt.includes('每跳基础伤害'), '技能宝石的地面提示应说明它做什么：' + r.txt.slice(0, 200));
     r = await hover('sup');
     assert(r.txt.includes('多重投射') && r.txt.includes('额外发射 2 个投射物') && r.txt.includes('可镶嵌') && r.txt.includes('掷焰'), '辅助宝石的地面提示应说明它做什么');
     await page.mouse.move(1000, 620);
@@ -11308,7 +11308,7 @@ async function main() {
     return '1 团 → ' + r.many.n + ' 团：漏斗实例 ' + r.one.inst + ' → ' + r.many.inst + '，场景物体 ' + r.one.objs + ' → ' + r.many.objs;
   });
 
-  await step('黑焰：放上技能栏保留 35% 魔力（节流后 21%）；攻击、法术、召唤物的每一击都多出 F% 的混沌伤害，和注入相加；触发出来的伤害不带；取下即失效', async () => {
+  await step('黑焰：放上技能栏保留 25% 魔力（节流后 15%）；攻击、法术、召唤物的每一击都多出 F% 的混沌伤害，和注入相加；触发出来的伤害不带；取下即失效', async () => {
     const r = await ev(() => {
       T.arena();
       T.fix(0.5);
@@ -11370,11 +11370,375 @@ async function main() {
       return out;
     });
     const f = r.F / 100, near = (a, b) => Math.abs(a - b) < 0.005;
-    assert(r.reserve === 35 && Math.abs(r.reserveFrugal - 21) < 0.01 && r.haste === false && near(f, 0.06), '保留 / 数值 / 辅助不对：' + JSON.stringify(r));
+    assert(r.reserve === 25 && Math.abs(r.reserveFrugal - 15) < 0.01 && r.haste === false && near(f, 0.06), '保留 / 数值 / 辅助不对：' + JSON.stringify(r));
     assert(near(r.attack.chaos, f) && near(r.spell.chaos, f) && r.minion !== null && near(r.minion, f), '攻击 / 法术 / 召唤物都应多出 F% 的混沌：' + JSON.stringify(r));
     assert(near(r.attackCold.chaos, f) && near(r.attackCold.cold, 0.3), '黑焰和注入应相加（按同一个底数）：' + JSON.stringify(r));
     assert(r.proc === 'fire' && r.off === 0 && r.offCtx === 0, '触发伤害不该带黑焰、取下应失效：' + JSON.stringify(r));
     return 'F = ' + r.F + '% · 攻击 ' + (r.attack.chaos * 100).toFixed(1) + '% · 法术 ' + (r.spell.chaos * 100).toFixed(1) + '% · 召唤物 ' + (r.minion * 100).toFixed(1) + '%';
+  });
+
+  // ---------- 取舍型 / 改玩法的辅助（support-expand） ----------
+  await step('新辅助（收束 / 远劲 / 盛环 / 储能 / 烈爆 / 深寒 / 雷涌）：镶嵌规则按标签（含召唤物、光环、增益光环、武器普攻卡），镶不上的写明原因', async () => {
+    const r = await ev(() => {
+      const f = (sk, sup) => (G.supportFits(sk, sup) ? 1 : 0);
+      const row = (sup, list) => list.map((sk) => f(sk, sup)).join('');
+      const B = G.BASIC_CARD;
+      return {
+        narrow: row('narrow', ['ember', 'meteor', 'nova', 'whirl', 'colossus', 'pyre', B, 'blade', 'arc', 'thrall', 'blackflame']),
+        farshot: row('farshot', ['ember', 'blade', 'vortex', B, 'arc', 'pyre', 'whirl', 'nova']),
+        swell: row('swell', ['nova', 'blackflame', 'ember', 'thrall', 'meteor']),
+        charge: row('charge', ['meteor', 'blink', 'blackhole', 'vortex', 'colossus', 'ember', 'nova', B, 'thrall']),
+        ail: ['blaze', 'deepfreeze', 'surge'].map((s) => row(s, ['ember', 'arc', 'thrall', 'nova', B, 'blackflame'])).join(' '),
+        hasteBf: f('blackflame', 'haste'),
+        frugalBf: f('blackflame', 'frugal'),
+        n: Object.keys(G.SUPPORTS).length,
+        names: ['narrow', 'farshot', 'swell', 'charge', 'blaze', 'deepfreeze', 'surge'].map((id) => G.SUPPORTS[id].name).join(''),
+        alt: ['narrow', 'farshot', 'swell', 'charge', 'blaze', 'deepfreeze', 'surge'].every((id) => G.SUPPORTS[id].alt && G.SUPPORTS[id].desc.length <= 24),
+      };
+    });
+    // 收束：带范围的才能镶（召唤物里守像、祭司有范围，仆从没有）；黑焰是增益光环，只认降消耗和盛环
+    assert(r.narrow === '11111110000', '收束的镶嵌规则不对：' + r.narrow);
+    assert(r.farshot === '11110000', '远劲的镶嵌规则不对（召唤物 / 非投射物镶不上）：' + r.farshot);
+    assert(r.swell === '11000' && r.hasteBf === 0 && r.frugalBf === 1, '盛环只能镶在光环上（含黑焰），黑焰照旧不认迅捷：' + JSON.stringify(r));
+    assert(r.charge === '111100000', '储能只能镶在有冷却的非召唤技能上：' + r.charge);
+    assert(r.ail === '111110 111110 111110', '烈爆 / 深寒 / 雷涌任何技能都能镶（黑焰除外）：' + r.ail);
+    assert(r.names === '收束远劲盛环储能烈爆深寒雷涌' && r.alt, '名字 / 说明不对：' + JSON.stringify(r));
+    // 镶不上的原因写在选择器里
+    const why = await ev(() => {
+      const snap = T.buildSnap(), save = G.save;
+      for (const id of ['charge', 'swell']) if (save.supports.indexOf(id) < 0) save.supports.push(id);
+      save.skills.ember = save.skills.ember || 1;
+      save.sockets.ember = [null, null, null]; // 空槽：点满的槽是取下宝石
+      G.ui.open('skills');
+      const btn = document.querySelector('[data-act="socket"][data-skill="ember"][data-idx="0"]');
+      if (btn) btn.click();
+      const txt = document.getElementById('picker').innerText;
+      G.ui.close();
+      T.buildRestore(snap);
+      return txt;
+    });
+    assert(why.includes('储能') && why.includes('只能用于有冷却的技能') && why.includes('盛环') && why.includes('需要标签：光环'), '选择器里应写明镶不上的原因：' + why.slice(0, 300));
+    return r.n + ' 种辅助 · 收束 ' + r.narrow + ' · 储能 ' + r.charge;
+  });
+
+  await step('新辅助的数值：收束范围 −35% 伤害 +25%；远劲投射物快 50%（射程跟着放大）+20% 伤害、穿透连锁归零；盛环光环伤害与黑焰比例 ×1.3、保留 ×1.5', async () => {
+    const r = await ev(() => {
+      T.arena();
+      T.fix(0.5);
+      const P = G.player, save = G.save, snap = T.buildSnap();
+      for (const id of Object.keys(G.SUPPORTS)) if (save.supports.indexOf(id) < 0) save.supports.push(id);
+      for (const id of ['ember', 'blade', 'nova', 'blackflame', 'meteor']) save.skills[id] = save.skills[id] || 1;
+      for (const k of Object.keys(save.sockets)) save.sockets[k] = [null, null, null];
+      const out = {};
+      const c0 = G.skillCtx('ember');
+      save.sockets.ember = ['narrow', null, null];
+      const c1 = G.skillCtx('ember');
+      out.narrow = { area: c1.area / c0.area, more: c1.more / c0.more, avg: G.avgHit(c1) / G.avgHit(c0) };
+      // 远劲：贯穿 + 远劲 → 穿透 0；伤害 ×1.2；放出去的投射物速度 ×1.5、飞行时间不变
+      save.sockets.blade = ['pierce', null, null];
+      const b0 = G.skillCtx('blade');
+      save.sockets.blade = ['pierce', 'farshot', null];
+      const b1 = G.skillCtx('blade');
+      out.farshot = { p0: b0.pierce, p1: b1.pierce, more: b1.more / b0.more };
+      const d = T.openDir(10);
+      T.aim(P.x + d.x * 8, P.z + d.z * 8);
+      const shoot = (socks) => {
+        save.sockets.ember = socks;
+        const n0 = G.state.projectiles.length;
+        G.execSkill(G.skillCtx('ember'));
+        const p = G.state.projectiles[n0];
+        const o = p ? { speed: p.speed, life: p.life } : null;
+        for (const q of G.state.projectiles.slice(n0)) G.world.removeMesh(q.mesh);
+        G.state.projectiles.length = n0;
+        return o;
+      };
+      const s0 = shoot([null, null, null]), s1 = shoot(['farshot', null, null]);
+      out.proj = { speed: s1.speed / s0.speed, range: (s1.speed * s1.life) / (s0.speed * s0.life) };
+      // 盛环：霜环每跳伤害 ×1.3，保留 18 → 27；黑焰比例 ×1.3，保留 25 → 37.5
+      save.bar = ['ember', null, 'nova', null];
+      G.computeStats();
+      const n0 = G.avgHit(G.skillCtx('nova')), r0 = P.reservePct;
+      save.sockets.nova = ['swell', null, null];
+      G.computeStats();
+      out.nova = { dmg: G.avgHit(G.skillCtx('nova')) / n0, r0, r1: P.reservePct };
+      save.bar = ['ember', null, 'blackflame', null];
+      G.computeStats();
+      const f0 = G.flamePct(), q0 = P.reservePct;
+      save.sockets.blackflame = ['swell', null, null];
+      G.computeStats();
+      out.bf = { k: G.flamePct() / f0, r0: q0, r1: P.reservePct, ctx: G.skillCtx('ember').flame / f0 };
+      T.unfix();
+      T.buildRestore(snap);
+      return out;
+    });
+    const near = (a, b, e) => Math.abs(a - b) < (e || 1e-6);
+    assert(near(r.narrow.area, 0.65) && near(r.narrow.more, 1.25) && near(r.narrow.avg, 1.25), '收束的数值不对：' + JSON.stringify(r.narrow));
+    assert(r.farshot.p0 >= 3 && r.farshot.p1 === 0 && near(r.farshot.more, 1.2), '远劲应让穿透归零、伤害 ×1.2：' + JSON.stringify(r.farshot));
+    assert(near(r.proj.speed, 1.5) && near(r.proj.range, 1.5), '远劲的投射物应快 50%、射程跟着放大：' + JSON.stringify(r.proj));
+    assert(near(r.nova.dmg, 1.3) && r.nova.r0 === 18 && r.nova.r1 === 27, '盛环 · 霜环不对：' + JSON.stringify(r.nova));
+    assert(near(r.bf.k, 1.3) && near(r.bf.ctx, 1.3) && r.bf.r0 === 25 && r.bf.r1 === 37.5, '盛环 · 黑焰不对：' + JSON.stringify(r.bf));
+    return '收束 ×' + r.narrow.avg.toFixed(2) + ' · 远劲射程 ×' + r.proj.range.toFixed(2) + ' · 盛环霜环 ×' + r.nova.dmg.toFixed(2) + ' 保留 ' + r.nova.r1 + '%';
+  });
+
+  await step('储能：陨火存 2 次、连放两下，第三下要等；冷却 5 → 6.5 秒，每次冷却补 1 次；技能栏的小格显示存货；取下储能后照常冷却', async () => {
+    const r = await ev(() => {
+      T.arena();
+      const P = G.player, save = G.save, snap = T.buildSnap(), inp = G.input;
+      if (save.supports.indexOf('charge') < 0) save.supports.push('charge');
+      save.skills.meteor = save.skills.meteor || 1;
+      for (const k of Object.keys(save.sockets)) save.sockets[k] = [null, null, null];
+      save.bar = ['meteor', null, null, null];
+      save.sockets.meteor = ['charge', null, null];
+      G.computeStats();
+      P.cds = {};
+      const d = T.openDir(10);
+      T.aim(P.x + d.x * 6, P.z + d.z * 6);
+      const n = () => (G.chargeInfo('meteor') || { n: -1 }).n;
+      const press = () => {
+        const before = n();
+        for (let i = 0; i < 90; i++) {
+          if (!P.cast) inp.tap[0] = 0.05;
+          G.tick(1 / 60);
+          P.mana = P.maxMana;
+          if (n() < before) {
+            for (let k = 0; k < 40 && P.cast; k++) G.tick(1 / 60);
+            return true;
+          }
+        }
+        inp.tap[0] = 0;
+        return false;
+      };
+      const out = { full: n(), cd: G.skillCtx('meteor').cd };
+      out.c1 = press();
+      out.n1 = n();
+      out.cd1 = P.cds.meteor || 0;
+      out.c2 = press();
+      out.n2 = n();
+      out.cd2 = +(P.cds.meteor || 0).toFixed(2);
+      out.c3 = press();
+      // HUD：小格亮 0 格（共 2 格）
+      G.ui.update && G.ui.update();
+      for (let i = 0; i < 6; i++) G.tick(1 / 60);
+      const slot = document.querySelectorAll('#slots .slot')[0];
+      out.pips = slot ? Array.from(slot.querySelectorAll('.s-combo > i')).filter((i) => !i.classList.contains('x')).length : -1;
+      out.hasPips = slot ? slot.classList.contains('has-combo') : false;
+      // 补满：每 6.5 秒补 1 次
+      for (let i = 0; i < 60 * 7; i++) G.tick(1 / 60);
+      out.n7 = n();
+      for (let i = 0; i < 60 * 7; i++) G.tick(1 / 60);
+      out.n14 = n();
+      // 取下储能：照常 5 秒冷却
+      save.sockets.meteor = [null, null, null];
+      G.computeStats();
+      P.cds = {};
+      for (let i = 0; i < 90 && !(P.cds.meteor > 0); i++) {
+        if (!P.cast) inp.tap[0] = 0.05;
+        G.tick(1 / 60);
+        P.mana = P.maxMana;
+      }
+      out.plain = +(P.cds.meteor || 0).toFixed(2);
+      out.plainInfo = G.chargeInfo('meteor');
+      inp.tap[0] = 0;
+      T.buildRestore(snap);
+      return out;
+    });
+    assert(r.full === 2 && Math.abs(r.cd - 6.5) < 1e-6, '储能应存 2 次、冷却 6.5 秒：' + JSON.stringify(r));
+    assert(r.c1 && r.n1 === 1 && r.cd1 === 0 && r.c2 && r.n2 === 0 && r.cd2 > 5.5 && r.cd2 <= 6.5 && !r.c3, '应能连放两下、第三下等冷却：' + JSON.stringify(r));
+    assert(r.pips === 2 && r.hasPips, '技能栏应显示 2 格存货：' + JSON.stringify(r));
+    assert(r.n7 === 1 && r.n14 === 2, '每 6.5 秒补 1 次：' + JSON.stringify(r));
+    assert(r.plain > 4.5 && r.plain <= 5 && r.plainInfo === null, '取下储能后应照常冷却 5 秒：' + JSON.stringify(r));
+    return '两下连放，冷却 ' + r.cd + ' 秒，补满 ' + r.n14;
+  });
+
+  await step('烈爆 / 深寒 / 雷涌：只加强这个技能打满的异常——爆燃伤害 ×1.6、范围 ×1.3；冻结 1.5 → 2.25 秒、首领重度冰缓 3 → 4.5 秒、冰缓减速 ×1.25；感电 4 → 5 秒、电弧 2 → 3 道', async () => {
+    const r = await ev(() => {
+      T.arena();
+      T.fix(0.5);
+      const P = G.player, save = G.save, snap = T.buildSnap();
+      for (const id of ['blaze', 'deepfreeze', 'surge']) if (save.supports.indexOf(id) < 0) save.supports.push(id);
+      for (const id of ['ember', 'nova', 'arc']) save.skills[id] = save.skills[id] || 1;
+      for (const k of Object.keys(save.sockets)) save.sockets[k] = [null, null, null];
+      save.bar = ['ember', null, null, null];
+      G.computeStats();
+      const d = T.openDir(12), px = -d.z, pz = d.x;
+      const at = (k, s) => [d.x * k + px * s, d.z * k + pz * s];
+      const out = {};
+      // 爆燃：灌到差一点，再用镶 / 不镶烈爆的掷焰打一下；记下爆炸打到旁边那只的伤害（触发伤害 proc）
+      const blast = (socks, side) => {
+        G.clearEnemies();
+        const e = T.mob('husk', ...at(6, 0)), nb = T.mob('husk', ...at(6, side));
+        G.initBuildUp(e);
+        e.buTh = 1e5;
+        e.bu.fire = 0.99999;
+        e.buFire = 400;
+        e.buFireN = 1;
+        save.sockets.ember = socks;
+        let got = 0;
+        const oh = G.hitEnemy;
+        G.hitEnemy = function (o, ctx, m, inf) {
+          const v = oh.apply(this, arguments);
+          if (o === nb && inf && inf.proc) got += v;
+          return v;
+        };
+        oh(e, G.skillCtx('ember'), 1, {});
+        G.hitEnemy = oh;
+        return { got, R: 3 + e.r * 0.5 };
+      };
+      const b0 = blast([null, null, null], 1.5), b1 = blast(['blaze', null, null], 1.5);
+      out.blast = { k: b1.got / b0.got, b0: b0.got };
+      // 范围：放在 1.15 倍半径处的那只只有烈爆炸得到
+      const R = b0.R;
+      out.far0 = blast([null, null, null], R * 1.15 + 0.3).got;
+      out.far1 = blast(['blaze', null, null], R * 1.15 + 0.3).got;
+      // 冻结 / 首领重度冰缓 / 冰缓
+      const freeze = (socks, boss) => {
+        G.clearEnemies();
+        const e = T.mob(boss ? 'brute' : 'husk', ...at(5, 0));
+        if (boss) e.isBoss = true;
+        G.initBuildUp(e);
+        e.bu.cold = 0.99999;
+        save.sockets.nova = socks;
+        G.hitEnemy(e, G.skillCtx('nova'), 1, { aura: true });
+        return boss ? e.bossChill : e.freeze;
+      };
+      out.freeze = [freeze([null, null, null]), freeze(['deepfreeze', null, null])];
+      out.bossChill = [freeze([null, null, null], true), freeze(['deepfreeze', null, null], true)];
+      const chill = (socks) => {
+        G.clearEnemies();
+        const e = T.mob('husk', ...at(5, 0));
+        G.initBuildUp(e);
+        e.buTh = 1e6;
+        save.sockets.nova = socks;
+        G.hitEnemy(e, G.skillCtx('nova'), 1, { aura: true });
+        return G.chillSlow(e, e.bu.cold);
+      };
+      out.chill = [chill([null, null, null]), chill(['deepfreeze', null, null])];
+      // 感电：中间一只灌满，旁边 4 只；感电后再挨一下，数电弧
+      const shock = (socks) => {
+        G.clearEnemies();
+        const e = T.mob('husk', ...at(6, 0));
+        for (const s of [-2, -1, 1, 2]) T.mob('husk', ...at(6 + (s % 2 ? 0.8 : -0.8), s * 1.2));
+        G.initBuildUp(e);
+        e.bu.light = 0.99999;
+        save.sockets.arc = socks;
+        G.hitEnemy(e, G.skillCtx('arc'), 1, {});
+        const t = e.shockT, b0 = G.state.stats.bolts || 0;
+        for (let i = 0; i < 12; i++) G.tick(1 / 60);
+        G.hitEnemy(e, G.skillCtx('ember'), 1, {});
+        return { t, bolts: (G.state.stats.bolts || 0) - b0 };
+      };
+      out.shock = [shock([null, null, null]), shock(['surge', null, null])];
+      // 没镶的技能再灌冰：冰缓按最近一次灌冰的技能算
+      G.clearEnemies();
+      const e2 = T.mob('husk', ...at(5, 0));
+      G.initBuildUp(e2);
+      e2.buTh = 1e6;
+      save.sockets.nova = ['deepfreeze', null, null];
+      G.hitEnemy(e2, G.skillCtx('nova'), 1, { aura: true });
+      const k1 = e2.chillK;
+      save.sockets.nova = [null, null, null];
+      G.hitEnemy(e2, G.skillCtx('nova'), 1, { aura: true });
+      out.chillReset = [k1, e2.chillK];
+      T.unfix();
+      G.clearEnemies();
+      T.buildRestore(snap);
+      return out;
+    });
+    const near = (a, b, e) => Math.abs(a - b) < (e || 1e-6);
+    assert(r.blast.b0 > 0 && near(r.blast.k, 1.6, 1e-3), '烈爆的爆燃伤害应 ×1.6：' + JSON.stringify(r.blast));
+    assert(r.far0 === 0 && r.far1 > 0, '烈爆的爆燃范围应扩大 30%：' + JSON.stringify([r.far0, r.far1]));
+    assert(near(r.freeze[0], 1.5) && near(r.freeze[1], 2.25) && near(r.bossChill[0], 3) && near(r.bossChill[1], 4.5), '深寒的冻结 / 重度冰缓时间不对：' + JSON.stringify(r));
+    assert(r.chill[0] > 0 && near(r.chill[1] / r.chill[0], 1.25, 1e-6) && r.chillReset[0] === 1.25 && r.chillReset[1] === 0, '深寒的冰缓不对：' + JSON.stringify(r));
+    assert(near(r.shock[0].t, 4) && near(r.shock[1].t, 5) && r.shock[0].bolts === 2 && r.shock[1].bolts === 3, '雷涌的感电不对：' + JSON.stringify(r.shock));
+    return '爆燃 ×' + r.blast.k.toFixed(2) + ' · 冻结 ' + r.freeze.join(' → ') + ' 秒 · 电弧 ' + r.shock[0].bolts + ' → ' + r.shock[1].bolts;
+  });
+
+  await step('光环保留：三个光环一共约 63%（霜环 18 / 黑焰 25）；超过 90% 时按技能栏从左到右，放不下的那个光环不生效（格子变暗、标「保留不足」、技能卡写明），魔力不会变负', async () => {
+    const r = await ev(() => {
+      T.arena();
+      const P = G.player, save = G.save, snap = T.buildSnap();
+      for (const id of ['swell', 'haste', 'expanse']) if (save.supports.indexOf(id) < 0) save.supports.push(id);
+      for (const id of ['nova', 'blackflame', 'ember']) save.skills[id] = save.skills[id] || 1;
+      for (const k of Object.keys(save.sockets)) save.sockets[k] = [null, null, null];
+      const out = {};
+      const set = (bar, socks) => {
+        save.bar = bar;
+        for (const k of Object.keys(save.sockets)) save.sockets[k] = [null, null, null];
+        Object.assign(save.sockets, socks || {});
+        G.computeStats();
+        G.updateAuras(1 / 60);
+        return { pct: P.reservePct, nova: G.auraOn('nova'), bf: G.auraOn('blackflame'), max: P.maxMana, flame: G.flamePct() };
+      };
+      out.both = set(['ember', null, 'nova', 'blackflame']);
+      out.one = set(['ember', null, 'nova', 'blackflame'], { nova: ['swell', null, null], blackflame: ['swell', null, null] }); // 27 + 37.5
+      // 人为把上限压到 60：霜环 27 先算，黑焰 37.5 放不下 → 黑焰不生效
+      const cap = G.RESERVE_CAP;
+      out.capOk = cap === 90;
+      const keep = G.SKILLS.blackflame.reserve;
+      G.SKILLS.blackflame.reserve = 60; // 60 × 1.5 = 90，加上霜环 27 → 超出
+      out.over = set(['ember', null, 'nova', 'blackflame'], { nova: ['swell', null, null], blackflame: ['swell', null, null] });
+      out.overMana = P.mana >= 0 && P.maxMana >= 0;
+      for (let i = 0; i < 4; i++) G.tick(1 / 60);
+      G.ui.update(); // 技能栏在渲染循环里刷新：这里手动刷一次
+      const slots = document.querySelectorAll('#slots .slot');
+      out.hud = { dim: slots[3].classList.contains('aoff'), tag: slots[3].innerText.includes('保留不足'), novaDim: slots[2].classList.contains('aoff') };
+      G.ui.open('skills');
+      const card = Array.from(document.querySelectorAll('.skill-card')).find((n) => n.querySelector('.sk-name').textContent.startsWith('黑焰'));
+      out.card = card ? card.innerText.includes('保留不足，未生效') : false;
+      G.ui.close();
+      // 换个顺序：黑焰在左 → 黑焰生效、霜环不生效
+      out.swap = set(['ember', null, 'blackflame', 'nova'], { nova: ['swell', null, null], blackflame: ['swell', null, null] });
+      G.SKILLS.blackflame.reserve = keep;
+      out.back = set(['ember', null, 'nova', 'blackflame']);
+      for (let i = 0; i < 4; i++) G.tick(1 / 60);
+      G.ui.update();
+      out.hudBack = !document.querySelectorAll('#slots .slot')[3].classList.contains('aoff');
+      T.buildRestore(snap);
+      return out;
+    });
+    assert(r.both.pct === 43 && r.both.nova && r.both.bf, '霜环 18 + 黑焰 25 = 43%：' + JSON.stringify(r.both));
+    assert(r.one.pct === 64.5 && r.one.nova && r.one.bf && r.capOk, '两个光环都镶盛环也放得下：' + JSON.stringify(r.one));
+    assert(r.over.nova && !r.over.bf && r.over.pct === 27 && r.over.flame === 0 && r.overMana, '放不下的光环（右边的黑焰）应不生效、不算保留：' + JSON.stringify(r.over));
+    assert(r.hud.dim && r.hud.tag && !r.hud.novaDim && r.card, '不生效的光环格子应变暗、标「保留不足」，技能卡写明：' + JSON.stringify(r));
+    assert(r.swap.bf && !r.swap.nova && r.swap.pct === 90, '按技能栏从左到右算：' + JSON.stringify(r.swap));
+    assert(r.back.nova && r.back.bf && r.hudBack, '放得下之后应恢复：' + JSON.stringify(r.back));
+    return '43% · 双盛环 64.5% · 溢出时右边的不生效';
+  });
+
+  await step('辅助宝石的掉落和拾烬客：几率 ×1.5（首领 3 颗）；新辅助会掉、货架多一格辅助；带着新辅助的存档照常读回', async () => {
+    const r = await ev((KEY) => {
+      const save = G.save, out = {};
+      out.drop = JSON.stringify(G.SUPPORT_DROP);
+      const NEW = ['narrow', 'farshot', 'swell', 'charge', 'blaze', 'deepfreeze', 'surge'];
+      const sup0 = save.supports.slice();
+      // 老辅助都有了：精英掉的那颗（优先新的）应是新辅助
+      save.supports = Object.keys(G.SUPPORTS).filter((id) => NEW.indexOf(id) < 0);
+      T.clearLoot();
+      T.fix(0.01);
+      G.dropLoot({ level: 10, x: G.player.x, z: G.player.z, elite: true });
+      T.unfix();
+      out.drops = G.state.loot.filter((l) => l.kind === 'support').map((l) => l.data);
+      T.clearLoot();
+      save.supports = sup0;
+      // 存档：新辅助和它的镶嵌照常读回（先存一次，读完换回此刻的存档，后面的步骤接着用内存里的状态）
+      G.persist();
+      const bak = localStorage.getItem(KEY);
+      const raw = JSON.parse(JSON.stringify(save));
+      raw.supports = raw.supports.concat(NEW.filter((id) => raw.supports.indexOf(id) < 0));
+      raw.skills.meteor = raw.skills.meteor || 1;
+      raw.sockets.meteor = ['charge', 'narrow', null];
+      localStorage.setItem(KEY, JSON.stringify(raw));
+      G.loadSave();
+      out.loaded = { sups: NEW.every((id) => G.save.supports.indexOf(id) >= 0), socks: (G.save.sockets.meteor || []).join(',') };
+      localStorage.setItem(KEY, bak);
+      G.loadSave();
+      G.computeStats();
+      return out;
+    }, SAVE_KEY);
+    assert(r.drop === '{"boss":3,"elite":0.45,"mob":0.0375}', '辅助宝石的掉率应 ×1.5：' + r.drop);
+    assert(r.drops.length === 1 && ['narrow', 'farshot', 'swell', 'charge', 'blaze', 'deepfreeze', 'surge'].indexOf(r.drops[0]) >= 0, '老辅助都有了时应掉新辅助：' + JSON.stringify(r.drops));
+    assert(r.loaded.sups && r.loaded.socks === 'charge,narrow,', '带新辅助的存档应照常读回：' + JSON.stringify(r.loaded));
+    return '掉率 ' + r.drop + ' · 掉了「' + r.drops[0] + '」';
   });
 
   await step('渊缚：混沌异常值满了定身并拽向怪群中心（附近有黑洞时拽向黑洞），期间不再累积；精英时间短；冻结中不拽；首领不定不拽、只减速且和冰缓取较大的', async () => {
@@ -14126,6 +14490,7 @@ async function main() {
         const st = enc.stock;
         out.rare = st.filter((o) => o.kind === 'item' && o.item.rarity >= 2).length;
         out.gem = st.some((o) => o.kind === 'skill' || o.kind === 'support');
+        out.sup = st.filter((o) => o.kind === 'support').length; // 另外固定一格辅助（support-expand）
         for (const k in sv.cur) sv.cur[k] = 0;
         out.poor = G.traderBuy(0);
         sv.cur.regal = 3;
@@ -14162,7 +14527,7 @@ async function main() {
       }
       return out;
     });
-    assert(r.F && r.open && r.html && r.rare >= 1 && r.gem, '拾烬客的货架不对：' + JSON.stringify(r));
+    assert(r.F && r.open && r.html && r.rare >= 1 && r.gem && r.sup >= 1, '拾烬客的货架不对：' + JSON.stringify(r));
     assert(r.poor === 'cost' && r.buy === true && r.left.join() === '1,1' && r.inBag && r.twice === 'none', '买东西不对：' + JSON.stringify(r));
     assert(r.sell, '卖东西应按分解价 +1 微光尘：' + JSON.stringify(r));
     assert(r.swap === '{"seal":2}' && r.frags === '{"seal":1,"rift":1,"vow":1,"box":0}' && r.short === false && r.t1 === false, '烛芯 2 换 1 不对：' + JSON.stringify(r));
