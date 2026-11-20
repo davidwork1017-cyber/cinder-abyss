@@ -15,7 +15,7 @@ let passed = 0;
 // CSS 布局和鼠标坐标不变），CINDER_FULL=1 关掉；test:timed 一直按原样。下面这些步骤要看像素 / 画面数值 / 指定尺寸下的布局，临时改回 1
 const CHEAP_DPR = 0.5;
 let cheap = false;
-const FULL_RES = ['首屏：', '怪物：远处沉睡', '区域 ', '首领「', '画面：', '存档：刷新页面后', '技能卡版式：', '标题画面与暂停菜单在小窗口', '异兆小地图：', '宝箱：', '小地图：'];
+const FULL_RES = ['首屏：', '怪物：远处沉睡', '区域 ', '首领「', '画面：', '存档：刷新页面后', '技能卡版式：', '标题画面与暂停菜单在小窗口', '异兆小地图：', '宝箱：', '小地图：', '特效贴图库'];
 const launch = (o) => launchFull(Object.assign({ dpr: cheap ? CHEAP_DPR : null }, o));
 const setDpr = (d) =>
   page &&
