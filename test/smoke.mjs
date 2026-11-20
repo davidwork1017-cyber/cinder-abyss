@@ -2,7 +2,7 @@
 // 每一步打印一行 ok / FAIL；任何一步失败或页面出现报错，进程以非 0 退出。
 // 分两份（见 test/README.md）：main() 是 test:func（不看墙钟，可以和别的 Chrome 一起跑），timedMain() 是 test:timed（要独占机器）。
 // node test/smoke.mjs = 两份都跑（先 func 后 timed）；--func / --timed 只跑一份。
-import { launch } from './harness.mjs';
+import { launch as launchFull } from './harness.mjs';
 import { execSync } from 'node:child_process';
 
 const SAVE_KEY = 'cinder-abyss-save-v1';
@@ -11,6 +11,23 @@ const G_USK = { jinduan: 'ashcuts', sanxiang: 'tristorm', wanhun: 'soulhost', ro
 let browser, page, errors;
 let failed = 0;
 let passed = 0;
+// 省渲染（test/README.md「省渲染」）：test:func 默认让游戏按 devicePixelRatio 0.5 渲染（3D 画面和叠加层的像素只剩四分之一，
+// CSS 布局和鼠标坐标不变），CINDER_FULL=1 关掉；test:timed 一直按原样。下面这些步骤要看像素 / 画面数值 / 指定尺寸下的布局，临时改回 1
+const CHEAP_DPR = 0.5;
+let cheap = false;
+const FULL_RES = ['首屏：', '怪物：远处沉睡', '区域 ', '首领「', '画面：', '存档：刷新页面后', '技能卡版式：', '标题画面与暂停菜单在小窗口', '异兆小地图：', '宝箱：', '小地图：'];
+const launch = (o) => launchFull(Object.assign({ dpr: cheap ? CHEAP_DPR : null }, o));
+const setDpr = (d) =>
+  page &&
+  page
+    .evaluate((d) => {
+      try {
+        sessionStorage.setItem('cinder-test-dpr', String(d));
+      } catch (e) {}
+      window.__testDpr = d;
+      window.dispatchEvent(new Event('resize'));
+    }, d)
+    .catch(() => {});
 let NC_TAG = ''; // 本次的耗时 / ms 数字不可比时（只跑 test:func，或在池里跑）挂在每行 ok 后面，见文件末尾
 
 function assert(cond, msg) {
@@ -33,6 +50,8 @@ const until = (fn, arg, timeout) => page.waitForFunction(fn, arg, { timeout: tim
 
 async function step(name, fn) {
   const t0 = Date.now();
+  const full = cheap && FULL_RES.some((p) => name.startsWith(p));
+  if (full) await setDpr(1);
   try {
     const info = await fn();
     await sleep(30); // 给异步报错一点冒出来的时间
@@ -44,6 +63,7 @@ async function step(name, fn) {
     const extra = errors && errors.length ? ' ｜页面报错：' + errors.splice(0).join(' | ').slice(0, 600) : '';
     console.log('FAIL ' + name + ' — ' + String(e && e.message ? e.message : e).split('\n').slice(0, 6).join(' / ') + extra);
   }
+  if (full) await setDpr(CHEAP_DPR);
 }
 
 // 页面内的测试小工具（每次加载页面后重新装一遍）
@@ -15548,7 +15568,8 @@ const sum = (p, f) => (f ? '失败 ' + f + ' 项，' : '') + '通过 ' + p + ' �
   const per = [];
   for (const part of PARTS) {
     NC_TAG = POOL || (part === 'func' && PARTS.length === 1) ? ' [pool, not comparable]' : '';
-    console.log('== test:' + part + ' · HEAD ' + head + ' · ' + new Date().toISOString() + ' · 槽位 ' + (process.env.CC_SLOT_HELD || '无') + (NC_TAG ? ' · 耗时数字不可比' + NC_TAG : '') + (part === 'timed' && POOL ? ' · 警告：计时步骤在池里跑，结果不作数' : ''));
+    cheap = part === 'func' && !process.env.CINDER_FULL;
+    console.log('== test:' + part + ' · HEAD ' + head + ' · ' + new Date().toISOString() + ' · 槽位 ' + (process.env.CC_SLOT_HELD || '无') + (cheap ? ' · 省渲染 dpr ' + CHEAP_DPR + '（' + FULL_RES.length + ' 类步骤按 1）' : '') + (NC_TAG ? ' · 耗时数字不可比' + NC_TAG : '') + (part === 'timed' && POOL ? ' · 警告：计时步骤在池里跑，结果不作数' : ''));
     const p0 = passed, f0 = failed;
     try {
       await (part === 'func' ? main() : timedMain());
