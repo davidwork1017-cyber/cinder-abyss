@@ -6272,15 +6272,16 @@ async function main() {
     await page.keyboard.press('KeyG');
     await panelSettled();
     const src = '.skill-list .sock[data-skill="ember"][data-idx="0"]';
-    // 列表滚回顶；远处的孔 = 列表里能镶多重投射、离顶最远的那个孔（武器普攻卡除外）
+    // 把起点的孔滚到列表顶下 80 像素（单列时掷焰卡排在武器普攻卡下面，滚到顶它不在视野里）；
+    // 远处的孔 = 列表里能镶多重投射、离顶最远的那个孔（武器普攻卡除外）
     const g = await ev((src) => {
       const L = document.querySelector('.skill-list');
-      L.scrollTop = 0;
+      L.scrollTop += T.rect(src).y - (L.getBoundingClientRect().top + L.clientTop + 80);
       const lr = L.getBoundingClientRect();
       const far = Array.from(L.querySelectorAll('.sock')).filter((n) => n.dataset.skill !== G.BASIC_CARD && n.dataset.skill !== 'ember' && G.supportFits(n.dataset.skill, 'multi')).sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top)[0];
-      return { far: far ? '.skill-list .sock[data-skill="' + far.dataset.skill + '"][data-idx="' + far.dataset.idx + '"]' : null, skill: far && far.dataset.skill, idx: far && +far.dataset.idx, farY: far && T.rect(far).y, a: T.rect(src), top: lr.top, bottom: lr.top + L.clientHeight, x: lr.left + L.clientWidth / 2, max: L.scrollHeight - L.clientHeight };
+      return { far: far ? '.skill-list .sock[data-skill="' + far.dataset.skill + '"][data-idx="' + far.dataset.idx + '"]' : null, skill: far && far.dataset.skill, idx: far && +far.dataset.idx, farY: far && T.rect(far).y, a: T.rect(src), top: lr.top, bottom: lr.top + L.clientHeight, x: lr.left + L.clientWidth / 2, s0: L.scrollTop, max: L.scrollHeight - L.clientHeight };
     }, src);
-    assert(g.far && g.farY > g.bottom && g.max > 0, '远处的孔开拖时应在列表可见区下面：' + JSON.stringify(g));
+    assert(g.far && g.farY > g.bottom && g.s0 < g.max, '远处的孔开拖时应在列表可见区下面：' + JSON.stringify(g));
     assert(g.a.y > g.top + 40 && g.a.y < g.bottom - 40, '起点的孔应在列表上部、贴边带以外：' + JSON.stringify(g));
     const top = () => ev(() => document.querySelector('.skill-list').scrollTop);
     await page.mouse.move(g.a.x, g.a.y);
@@ -6289,7 +6290,7 @@ async function main() {
     assert(await ev(() => document.getElementById('drag-ghost').classList.contains('on')), '没有拖起来');
     // 拖着的时候滚轮照常能滚
     await page.mouse.wheel(0, 120);
-    await until(() => document.querySelector('.skill-list').scrollTop > 0).catch(() => {
+    await until((s0) => document.querySelector('.skill-list').scrollTop > s0, g.s0).catch(() => {
       throw new Error('拖拽中滚轮滚不动技能列表');
     });
     // 离下边 60 像素（贴边带外）：等滚轮的平滑滚动停下，再停 10 帧，不滚
