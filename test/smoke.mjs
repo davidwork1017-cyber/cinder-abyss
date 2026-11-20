@@ -4381,7 +4381,7 @@ async function main() {
     return '尸爆 ' + Math.round(r.fire.n) + '，放电 ' + B.deathBoltN + ' × ' + r.light.want + '，碎冰灌 ' + r.cold.n.toFixed(2) + '（精英 ' + r.cold.el.toFixed(2) + '），连锁 ' + r.chain.blasts + ' 代';
   });
 
-  await step('敌人元素抗性：抗自己颜色的元素 15%，感电压到 0、破障 / 元素穿透压到负数（最低 −30%）、召唤物不吃装备穿透、异常触发不重复扣；名牌 / 首领血条小签', async () => {
+  await step('敌人元素抗性：每个区的敌人抗本区的元素 15%，感电压到 0、破障 / 元素穿透压到负数（最低 −30%）、召唤物不吃装备穿透、异常触发不重复扣；名牌 / 首领血条小签', async () => {
     const r = await ev(() => {
       const R = G.ENEMY_RES, P = G.player, out = {};
       const zi0 = G.state.zoneIdx;
@@ -4487,7 +4487,7 @@ async function main() {
       G.ui.close();
       return t;
     });
-    assert(/自己颜色的元素 15%/.test(u) && /各降 15%/.test(u) && /最低 −30%/.test(u) && /破障/.test(u), '帮助页的抗性说明不对：' + u);
+    assert(/抗本区的元素 15%（首领也是）/.test(u) && /各降 15%/.test(u) && /最低 −30%/.test(u) && /破障/.test(u), '帮助页的抗性说明不对：' + u);
     return r.zones.length + ' 区 · 伤害 ' + [d.own, d.pen, d.penOther, d.penFloor].join('/') + ' · 感电 ' + r.shock.own + ' · 装备 ' + r.gear.own + '/' + r.gear.minion;
   });
 

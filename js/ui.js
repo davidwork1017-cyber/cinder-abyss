@@ -1237,7 +1237,7 @@
       const r = G.enemyResNow(e, t);
       h += '<span class="res-chip' + (r < r0 ? ' low' : '') + '" style="--ac:' + G.TYPE_COLOR[t] + '"><i></i>抗' + RES_CH[t] + ' ' + r + '%</span>';
       const rs = Math.max(0, r0 - G.ENEMY_RES.shock);
-      d += G.TYPE_NAME[t] + '伤害 −' + r0 + '%，感电时' + (rs > 0 ? ' −' + rs + '%' : '不减') + '。';
+      d += G.TYPE_NAME[t] + '伤害 −' + r0 + '%；感电时' + (rs > 0 ? '抗性降到 ' + rs + '%' : '抗性归零') + '。';
     }
     if (!h) return '';
     return h + (alt ? altBox(d + '破障、元素穿透能把抗性压到负数（最低 −' + Math.abs(G.ENEMY_RES.floor) + '%）。') : '');
@@ -3176,7 +3176,7 @@
       '<p>地上的<b class="c-red">红色区域</b>是即将落下的攻击，填满前走出去或翻滚穿过。</p>' +
       '<p>护甲减少物理伤害，抗性减少对应元素伤害（上限 75%）。</p>' +
       // 敌人的元素抗性（数值读 G.ENEMY_RES）
-      '<p><b>敌人的抗性</b>：敌人抗自己颜色的元素' + (G.ENEMY_RES.boss === G.ENEMY_RES.mob ? ' ' + G.ENEMY_RES.mob + '%' : '，小怪和精英 ' + G.ENEMY_RES.mob + '%，首领 ' + G.ENEMY_RES.boss + '%') + '（名牌和首领血条上的「抗火」这类小签）。物理、混沌不受抗性影响。' +
+      '<p><b>敌人的抗性</b>：每个区的敌人抗本区的元素' + (G.ENEMY_RES.boss === G.ENEMY_RES.mob ? ' ' + G.ENEMY_RES.mob + '%（首领也是）' : '，小怪和精英 ' + G.ENEMY_RES.mob + '%，首领 ' + G.ENEMY_RES.boss + '%') + '，名牌和首领血条上写着「抗火」这类小签。物理、混沌不受抗性影响。' +
       '感电让三种元素抗性各降 ' + G.ENEMY_RES.shock + '%（不会降到 0 以下）；辅助<b>破障</b>和装备上的<b>元素穿透</b>能把抗性压到负数，最低 −' + Math.abs(G.ENEMY_RES.floor) + '%。</p>' +
       helpBuildUp() +
       '<div class="sec-title">连击、架势与处决</div>' +
