@@ -13294,6 +13294,51 @@ async function main() {
     return '放上 ' + r.placed + ' 个，各种 ' + JSON.stringify(r.n) + '，选址最慢 ' + r.msMax + ' ms';
   });
 
+  await step('区域存档：站在雷枢峡谷 / 霜骨沼泽里存的档（布局生成器改过之后布局会不一样）读回来，从区域入口重新进区——玩家站在可走的地上、区域和层级 / 渊印接着用；存档里不记位置（塞进去的坐标被丢掉）', async () => {
+    const r = await ev(() => {
+      const keep = localStorage.getItem('cinder-abyss-save-v1'), out = {};
+      const P = G.player, W = G.world, mt0 = G.save.maxTier;
+      try {
+        G.save.maxTier = Math.max(1, G.save.maxTier || 0); // 层级 1 要先解锁（读档时 tier 截到 maxTier）
+        for (const id of ['storm', 'frost']) {
+          const zi = G.ZONES.findIndex((z) => z.id === id);
+          G.enterZone(zi, 1);
+          const d = T.openDir(10);
+          T.tp(P.x + d.x * 8, P.z + d.z * 8); // 走进区里再存
+          G.persist();
+          const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+          raw.player = { x: 9999, z: -9999 }; // 塞一个不认识的坐标：读档应丢掉
+          raw.pos = [9999, -9999];
+          localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+          const run0 = JSON.stringify(raw.run);
+          G.loadSave();
+          // 读档后进区和 main.js 的读档一样：接着存档里的那一次
+          G.enterZone(G.save.lastZone, G.save.tier, 'resume');
+          G.computeStats();
+          const Z = G.state.zone;
+          out[id] = {
+            zone: Z.def.id, tier: G.state.tier, run: JSON.stringify(G.save.run) === run0,
+            walk: W.walkable(P.x, P.z, 0.4), atStart: Math.hypot(P.x - Z.start.x, P.z - Z.start.z) < 2,
+            junk: 'player' in G.save || 'pos' in G.save, boss: !!G.state.boss, enemies: G.state.enemies.length,
+          };
+        }
+      } finally {
+        if (keep) localStorage.setItem('cinder-abyss-save-v1', keep);
+        G.loadSave();
+        G.save.maxTier = mt0;
+        G.computeStats();
+        G.enterZone(0, 0);
+      }
+      return out;
+    });
+    for (const id of ['storm', 'frost']) {
+      const o = r[id];
+      assert(o && o.zone === id && o.tier === 1 && o.run, id + '：读档后区域 / 层级 / 渊印应接着用：' + JSON.stringify(o));
+      assert(o.walk && o.atStart && !o.junk && o.boss && o.enemies > 20, id + '：读档后应从入口进区、站在可走的地上，存档里不该有坐标：' + JSON.stringify(o));
+    }
+    return '雷枢 / 霜骨：读档从入口进区、站在可走的地上';
+  });
+
   await step('异兆懒生成：同一种子进区，开 / 关异兆时 state.enemies 的数量、类型、位置完全一样（进区时不刷异兆的怪，保护「经验」那一步）', async () => {
     const r = await ev(() => {
       const S = G.state, out = [];
@@ -15107,7 +15152,7 @@ async function main() {
       let tg = null, i = 0;
       for (; i < 60 * 7 && !tg; i++) {
         G.tick(1 / 60);
-        tg = S.telegraphs.find((t) => t.storm) || null;
+        tg = S.telegraphs.find((t) => t.storm && Math.hypot(t.x - mx, t.z - mz) < 0.01) || null; // 认准这一对柱子的预警（布局里别的雷枢也可能在附近起手）
         P.x = mx; P.z = mz; husk.x = mx + (f.bx - f.ax) * 0.2; husk.z = mz + (f.bz - f.az) * 0.2;
       }
       out.node = { warnAt: +(i / 60).toFixed(2), shape: tg && tg.shape, w: tg && tg.w, dur: tg && tg.dur };
