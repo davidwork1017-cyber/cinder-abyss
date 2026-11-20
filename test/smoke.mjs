@@ -624,6 +624,26 @@ async function timedMain() {
     return '每次 ' + r.ms + ' ms';
   });
 
+  // 原步骤：main() 里的「异兆选址」。S.zone.ms.enc 是 enterZone 里按 performance.now 量的选址耗时；下面照原步骤的种子把 100 个布局各进一次
+  await step('计时｜异兆选址：100 个布局正常进区时，选址最慢一次不到 5 ms', async () => {
+    const r = await ev(() => {
+      const S = G.state;
+      let msMax = 0;
+      for (let z = 0; z < 5; z++) {
+        for (let s = 1; s <= 20; s++) {
+          G.debug.zoneSeed(3000 + z * 101 + s * 7);
+          G.enterZone(z, 1);
+          msMax = Math.max(msMax, S.zone.ms.enc); // 正常进区（掷 1–2 个）的选址耗时
+        }
+      }
+      G.debug.zoneSeed(null);
+      G.enterZone(0, 0);
+      return { msMax: +msMax.toFixed(2) };
+    });
+    assert(r.msMax < 5, '选址耗时太长（设计 < 1 ms）：' + r.msMax);
+    return '选址最慢 ' + r.msMax + ' ms';
+  });
+
   // 原步骤：整步从 main() 搬来（ui-batch 的「技能页拖拽贴边自动滚动」，断言一字不改）。贴边自动滚动按 performance.now 走：进边带停 250 ms 才滚、
   // 最快每秒 900 像素，拖起 / 松手要在这段停顿之内做完。前面补上它要的构筑：学会全部技能和辅助宝石（main() 里走到这一步时前面的步骤已经学过）
   await ev(() => {
@@ -13503,7 +13523,7 @@ async function main() {
     assert(!r.nBad, '有不合规的点位：' + JSON.stringify(r.bad));
     for (const k of ['guard', 'box', 'wanderer', 'shrine', 'trial', 'trader', 'echo', 'ember']) assert(r.n[k] >= 60, k + ' 在 100 个布局里单独放能放上的次数太少：' + JSON.stringify(r.n));
     assert(r.fb === 'shrine' && r.none === 0, '找不到点位时应换下一种 / 一个都不放：' + JSON.stringify(r));
-    assert(r.msMax < 5, '选址耗时太长（设计 < 1 ms）：' + r.msMax);
+    // 「选址单次不到 5 ms」是游戏用 performance.now 量的耗时，在 test:timed 里（计时｜异兆选址）
     return '放上 ' + r.placed + ' 个，各种 ' + JSON.stringify(r.n) + '，选址最慢 ' + r.msMax + ' ms';
   });
 
