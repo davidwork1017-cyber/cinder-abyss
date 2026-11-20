@@ -1988,7 +1988,7 @@
     if (r.shuangsheng && !mi && RQ.twinAlt.has(ctx.sk)) ctx.more *= 1 + RM.shuangsheng.dmg;
     if (!mi) return ctx;
     if (r.tongshang) mi.life = Math.max(1, Math.round(mi.life * (1 + RM.tongshang.life / 100)));
-    if (r.haiwang && mi.kind === 'thrall') {
+    if (r.haiwang && mi.kind === 'thrall' && !ctx.sk.mech) {
       // 独骸：多出来的仆从上限（群聚、天赋、护符、万魂旗）每个折成伤害和生命
       const H = RM.haiwang, extra = Math.max(0, mi.cap - ctx.sk.cap);
       ctx.more *= H.dmg * (1 + H.perDmg * extra);
@@ -2334,12 +2334,13 @@
   };
 
   // ---------- 星雨（陨织袍） ----------
-  const meteorOn = () => !!(P.relic.zhuixing && G.save.skills.meteor && G.save.bar.indexOf('meteor') >= 0);
+  const starOn = () => !!(P.relic.zhuixing && !G.SKILLS.meteor.mech); // 渊契「星雨」只改原式（熔核 / 犁焰照常手动放）
+  const meteorOn = () => !!(starOn() && G.save.skills.meteor && G.save.bar.indexOf('meteor') >= 0);
   // 光环保留里多算的那一份（reservePct 里的一行钩子）
   G.relicReserve = () => (meteorOn() ? RM.zhuixing.reserve : 0);
   // 陨火不能手动施放（tryStartCast 里的一行钩子）：轻点只提示一句。返回 true 表示这个键跳过
   G.relicNoCast = function (slot, id) {
-    if (id !== 'meteor' || !P.relic.zhuixing) return false;
+    if (id !== 'meteor' || !starOn()) return false;
     if (G.input.tap[slot] > 0) {
       G.input.tap[slot] = 0;
       if (Date.now() - (toastAt.relic || 0) > 1500) {
@@ -2517,7 +2518,7 @@
     if (RQ.shareT > 0) RQ.shareT -= dt;
     // 蓄潮：不在转旋风斩了（松手、翻滚、被打断、换了别的技能、摘下手套），攒着的层数炸开
     if (RQ.spin > 0 && !(P.relic.nuchao && P.cast && P.cast.channel && P.cast.id === 'whirl')) relicTideBurst();
-    if (P.relic.zhuixing) relicMeteorDue(dt);
+    if (starOn()) relicMeteorDue(dt);
     if (RQ.bridges.length) relicBridgeTick(dt);
     RQ.kingT -= dt;
     if (RQ.kingT <= 0) {
@@ -5216,7 +5217,7 @@
         }
       }
       W.bolt(pts, hex);
-      if (P.relic.dianqiao) G.relicBridges(pts, ctx); // 渊契「电桥」
+      if (P.relic.dianqiao && !sk.mech) G.relicBridges(pts, ctx); // 渊契「电桥」（只改原式）
       if (ov) arcOverload(ctx, pts, hit.size, hex);
     },
 
@@ -5292,7 +5293,7 @@
       const hex = hexOf(sk.color);
       const c = P.cast;
       const n = c && c.channel ? c.pulses : 0;
-      const rk = P.relic.nuchao ? G.relicSpinPulse(ctx) : 1; // 渊契「蓄潮」：每跳打得轻、攒层
+      const rk = P.relic.nuchao && !sk.mech ? G.relicSpinPulse(ctx) : 1; // 渊契「蓄潮」：每跳打得轻、攒层（只改原式）
       if (sk.mech === 'pull') whirlPull(ctx); // 刻式「旋涡斩」：先把一圈敌人往身边吸
       W.slash(P.x, P.z, Math.random() * TAU, R, 360, hex, sk.mech === 'pull' ? { dur: 0.2, inner: 0.35, y: 0.6, dir: -1 } : { dur: 0.2, inner: 0.6, y: 0.9 });
       if (n % 2 === 1) W.burst(P.x, 0.25, P.z, 0xbfb3a0, 4, R * 0.9, 0.3); // 脚下扬起的尘
@@ -5670,9 +5671,6 @@
     else W.ring(x, z, S.r * Math.sqrt(ctx.area), 0xffe45e, 0.3);
     W.decal(3, x, z, 0.9, Math.random() * TAU, 0xffe45e, py.t);
     py.tt = S.tick * 0.6; // 插下去之后很快电第一下（不当帧电：按住连插也不会多电）
-    const e = P.relic.dianqiao ? pylonZap(py) : null;
-    if (e) py.tt = S.tick;
-    if (P.relic.dianqiao && e) G.relicBridges([{ x: P.x, z: P.z }, { x, z }, { x: e.x, z: e.z }], ctx); // 渊契「电桥」：桩和它电到的第一个敌人之间留一道
     state.stats.vPylons = (state.stats.vPylons || 0) + 1;
     vCount();
   }
@@ -6638,7 +6636,7 @@
     const d = rayLen(P.x, P.z, a.ang, Math.min(sk.range, a.dist), 0.3); // 撞墙截在墙前
     const R = sk.radius * Math.sqrt(ctx.area);
     const dur = sk.dur * (1 + Math.max(0, P.S.holeDur || 0) / 100) * ctx.durK; // 绵延另外再乘
-    if (P.relic.yinli) return holeMark(G.relicHole(ctx, R, dur), sk); // 渊契「随核」：黑洞跟着你（坍缩照样能攒质量、再按引爆；双极只开这一个）
+    if (P.relic.yinli && !sk.mech) return holeMark(G.relicHole(ctx, R, dur), sk); // 渊契「随核」：黑洞跟着你（只改原式；刻式 A / B 照常）
     G.sfx('cast');
     if (sk.mech === 'twin') return holeTwin(ctx, P.x + a.dx * d, P.z + a.dz * d, a, R, dur); // 刻式「双极」
     return holeMark(addHole({ x: P.x + a.dx * d, z: P.z + a.dz * d, R, pullR: R * sk.pullR, t: 0, dur, tick: sk.tick, tt: sk.tick, ctx, mult: 1, pullMul: 1, mouth: false }), sk);
