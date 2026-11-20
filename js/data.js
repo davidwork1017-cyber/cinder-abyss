@@ -1121,23 +1121,23 @@
     jinduan: {
       name: '烬断', base: 6, boss: 'warden', mech: 'blade', mechName: '残刃', uskill: 'ashcuts',
       lines: [{ id: 'wInc', k: [1.7, 2.3] }, { id: 'crit', k: [1.6, 2.2] }, { id: 'critMulti', k: [1.1, 1.5] }, { id: 'speed', k: [0.9, 1.3] }],
-      lore: '监察者的刑刀，断口至今发烫。',
+      lore: '监察者的断刀，还烫手。',
     },
     sanxiang: {
       name: '三相之心', base: 1, boss: 'weaver', mech: 'tri', mechName: '三相共鸣', uskill: 'tristorm',
       lines: [{ id: 'uIncElem', k: [1.15, 1.65] }, { id: 'uAilment', k: [1.0, 1.5] }, { id: 'speed', k: [1.0, 1.4] }, { id: 'addLight', k: [0.95, 1.35] }],
-      lore: '三种元素织进一颗心，仍在互相拉扯。',
+      lore: '三种元素，谁也不服谁。',
     },
     wanhun: {
       name: '万魂旗', base: 7, boss: 'lord', mech: 'soul', mechName: '魂火轮回', uskill: 'soulhost',
       lines: [{ id: 'minionDmg', k: [0.1, 0.2] }, { id: 'minionLife', k: [0.3, 0.6] }, { id: 'minionCap', fixed: 1 }, { id: 'wInc', k: [2.0, 2.8] }],
-      lore: '亡魂系在旗上，倒下一个，烧起一团。',
+      lore: '旗上拴着亡魂。',
     },
     // 熔芯（左轮）：熔渣巨像掉。R 是它专属的「乱射」；机制「熔芯弹」——每一轮的最后一发必定暴击，并在命中处炸开
     rongxin: {
       name: '熔芯', base: 12, boss: 'golem', mech: 'core', mechName: '熔芯弹', uskill: 'wildfire',
       lines: [{ id: 'wInc', k: [1.7, 2.3] }, { id: 'critMulti', k: [1.1, 1.5] }, { id: 'heatGain', k: [1.2, 1.7] }, { id: 'speed', k: [0.9, 1.3] }],
-      lore: '巨像胸中烧不化的芯，车成了枪膛。',
+      lore: '巨像的芯做的枪。',
     },
     // 凛羽（弓，内部 id 仍是 jinyu）：第五个区域（坠星裂谷）的首领衔星巨兽掉（bossZone 兜底：首领 id 对不上时取这个区域的首领，见 G.syncUniqueBosses）。
     // R 是专属的「凛冬」；机制「碎晶连跳」写在它的普攻里（basic_emberbow 的 spark），这里加强：冰晶给目标灌冰霜异常值
@@ -1145,14 +1145,14 @@
     jinyu: {
       name: '凛羽', base: 13, boss: 'behemoth', bossZone: 'rift', mech: 'ember', mechName: '碎晶连跳', uskill: 'emberstorm',
       lines: [{ id: 'wInc', k: [1.6, 2.2] }, { id: 'incCold', k: [1.2, 1.7] }, { id: 'focusGain', k: [1.2, 1.7] }, { id: 'crit', k: [1.2, 1.7] }],
-      lore: '星辰冻成的冰，削成了羽箭。',
+      lore: '用坠星的冰削的弓。',
     },
     // 星蚀（短杖）：衔星巨兽掉，和凛羽共用一次掉落判定与保底（G.UNIQUE_ALT）。没有专属烬铸技：拿着它时武器技秘弹连射的属性固定为混沌。
     // 机制「渊口」见 G.VOID_MOUTH
     xingshi: {
       name: '星蚀', base: 2, boss: 'behemoth', bossZone: 'rift', mech: 'void', mechName: '渊口',
       lines: [{ id: 'incChaos', k: [1.6, 2.2] }, { id: 'addChaos', k: [1.2, 1.6] }, { id: 'bindAil', k: [1.3, 1.8] }, { id: 'speed', k: [1.0, 1.4] }],
-      lore: '烧空的坠星，握着能听见它在往里塌。',
+      lore: '一颗烧空的坠星。',
     },
   };
   G.UNIQUE_IDS = Object.keys(G.UNIQUES);
@@ -1233,78 +1233,73 @@
     panzhong: {
       name: '磐踵', slot: 'boots', base: 0, src: 'boss', boss: 'golem', mechName: '踏震',
       lines: [{ id: 'moveSpeed', k: [0.9, 1.2] }, { id: 'life', k: [1.0, 1.4] }, { id: 'armour', k: [1.0, 1.3] }],
-      lore: '巨像脚下的铁皮，记得那份分量。',
+      lore: '从巨像脚上扒下来的。',
     },
     nuchao: {
       name: '怒潮', slot: 'gloves', base: 0, src: 'boss', boss: 'warden', mechName: '蓄潮',
       lines: [{ id: 'incPhys', k: [1.0, 1.4] }, { id: 'speed', k: [0.9, 1.2] }, { id: 'life', k: [0.9, 1.2] }],
-      lore: '护手里锁着一场没下完的暴雨。',
     },
     duanyue: {
       name: '断岳', slot: 'belt', base: 0, src: 'enc', enc: 'trial', mechName: '崩势',
       lines: [{ id: 'life', k: [1.1, 1.5] }, { id: 'armour', k: [1.0, 1.3] }, { id: 'resCold', k: [1.0, 1.3] }],
-      lore: '带扣是一座山的残片。',
+      lore: '带扣是块山石。',
     },
     qianmu: {
       name: '千目', slot: 'helm', base: 0, src: 'enc', enc: 'wanderer', mechName: '必然',
       lines: [{ id: 'crit', k: [1.3, 1.8] }, { id: 'life', k: [0.9, 1.2] }, { id: 'resLight', k: [1.0, 1.3] }],
-      lore: '七只眼轮流守夜，从不同时睁开。',
+      lore: '七只眼，轮流睁着。',
     },
     huixuan: {
       name: '回旋', slot: 'amulet', base: 0, src: 'boss', boss: 'weaver', mechName: '回旋',
       lines: [{ id: 'critMulti', k: [1.0, 1.4] }, { id: 'incPhys', k: [1.0, 1.3] }],
-      lore: '抛出去的，总会顺着丝线回来。',
+      lore: '扔出去的总会回来。',
     },
     zhuixing: {
       name: '陨织袍', slot: 'body', base: 0, src: 'seal', mechName: '星雨',
       lines: [{ id: 'life', k: [1.0, 1.4] }, { id: 'resFire', k: [1.2, 1.6] }, { id: 'lifeRegen', k: [1.0, 1.3] }],
-      lore: '下摆缀着一颗颗还没落地的星。',
+      lore: '下摆缀满了星星。',
     },
     dianqiao: {
       name: '电桥', slot: 'ring', base: 2, src: 'enc', enc: 'guard', mechName: '电桥',
       lines: [{ id: 'incLight', k: [1.2, 1.6] }, { id: 'addLight', k: [1.0, 1.3] }, { id: 'mana', k: [1.0, 1.3] }],
-      lore: '两颗电珠够不着彼此，雷替它们搭桥。',
     },
     yibian: {
       name: '异变', slot: 'amulet', base: 2, src: 'enc', enc: 'ember', mechName: '混相',
       lines: [{ id: 'incFire', k: [0.7, 1.0] }, { id: 'incCold', k: [0.7, 1.0] }, { id: 'incLight', k: [0.7, 1.0] }],
-      lore: '三种元素压进一颗珠子，只好一起炸。',
     },
     haiwang: {
       name: '骸王冠', slot: 'helm', base: 0, src: 'boss', boss: 'lord', mechName: '独骸',
       lines: [{ id: 'minionLife', k: [1.2, 1.6] }, { id: 'life', k: [1.0, 1.3] }, { id: 'resFire', k: [1.0, 1.3] }],
-      lore: '你的仆从里只能站着一位王。',
+      lore: '王只能有一个。',
     },
     tongshang: {
       name: '同殇甲', slot: 'body', base: 0, src: 'enc', enc: 'box', mechName: '同殇',
       lines: [{ id: 'minionLife', k: [1.2, 1.6] }, { id: 'life', k: [1.0, 1.4] }, { id: 'armour', k: [1.0, 1.3] }],
-      lore: '你挨的每一下，都有一份落到别处。',
     },
     zhaohun: {
       name: '招魂带', slot: 'belt', base: 0, src: 'enc', enc: 'echo', mechName: '随影',
       lines: [{ id: 'life', k: [1.0, 1.3] }, { id: 'minionLife', k: [1.0, 1.4] }, { id: 'mana', k: [1.0, 1.3] }],
-      lore: '骨铃一响，跟着你的都会赶到。',
+      lore: '铃一响，都会赶来。',
     },
     yinli: {
       name: '引力核', slot: 'ring', base: 3, src: 'boss', boss: 'behemoth', mechName: '随核',
       lines: [{ id: 'incChaos', k: [1.2, 1.6] }, { id: 'addChaos', k: [1.0, 1.3] }, { id: 'mana', k: [1.0, 1.3] }],
-      lore: '小得能镶进戒面，重得能拽弯戒圈。',
+      lore: '个头小，分量重。',
     },
     yuanfu: {
       name: '渊缚链', slot: 'gloves', base: 0, src: 'seal', mechName: '锁链',
       lines: [{ id: 'addChaos', k: [1.2, 1.6] }, { id: 'bindAil', k: [1.2, 1.6] }, { id: 'life', k: [1.0, 1.3] }],
-      lore: '另一头缠着谁，要问下一个被缚的敌人。',
     },
     // 巅峰专属（只有熄烛者掉，D5）：不进 G.RELIC_IDS（随机掉落、拾烬客都不出），图鉴另列在普通渊契后面（G.RELIC_CODEX）
     xizhu: {
       name: '熄烛冠', slot: 'helm', base: 0, src: 'pinnacle', pinnacle: true, mechName: '无光',
       lines: [{ id: 'life', k: [1.2, 1.6] }, { id: 'crit', k: [1.2, 1.6] }, { id: 'resCold', k: [1.0, 1.3] }],
-      lore: '冠上烛芯都熄了，只剩一根冒烟。',
+      lore: '只剩一根烛芯在冒烟。',
     },
     shuangsheng: {
       name: '双生坠', slot: 'amulet', base: 0, src: 'pinnacle', pinnacle: true, mechName: '双生',
       lines: [{ id: 'incAll', k: [1.0, 1.4] }, { id: 'speed', k: [1.0, 1.3] }],
-      lore: '两片半月背靠背，一暖一冷。',
+      lore: '一半暖，一半冷。',
     },
   };
   // 普通渊契（随机掉落、图鉴、图标都按这个列表）；巅峰专属另列
@@ -1638,29 +1633,29 @@
     {
       id: 'ash', name: '灰烬荒原', level: 1, elem: 'fire', boss: 'golem',
       fog: 0x1c130f, voidc: 0x130d0b, path: 0x7a6252, rock: 0x4b3a33, accent: 0xff6a2a, sky: 0xffc9a0,
-      mobs: ['husk', 'husk', 'spitter', 'brute'], desc: '大火烧尽之后的荒地，余烬里有东西在动。',
+      mobs: ['husk', 'husk', 'spitter', 'brute'], desc: '烧光了的荒地。',
     },
     {
       id: 'frost', name: '霜骨沼泽', level: 5, elem: 'cold', boss: 'weaver',
       fog: 0x0e161c, voidc: 0x0a1014, path: 0x56707a, rock: 0x33454f, accent: 0x7fd4ff, sky: 0xbfe6ff,
-      mobs: ['husk', 'spitter', 'bomber', 'brute'], desc: '冻住的沼地，冰层下埋着旧时代的骨头。',
+      mobs: ['husk', 'spitter', 'bomber', 'brute'], desc: '冰下全是骨头。',
     },
     {
       id: 'storm', name: '雷鸣遗迹', level: 9, elem: 'light', boss: 'warden',
       fog: 0x14131f, voidc: 0x0c0b14, path: 0x6a6480, rock: 0x3d3a52, accent: 0xffe45e, sky: 0xe0d8ff,
-      mobs: ['husk', 'spitter', 'bomber', 'brute', 'spitter'], desc: '仍在运转的古代机关，雷声从不停歇。',
+      mobs: ['husk', 'spitter', 'bomber', 'brute', 'spitter'], desc: '老机关还在转，雷没停过。',
     },
     {
       // zones-integrate：配色改成 zones-abyss 定的炭灰紫底子（原 fog 0x1a0c10、voidc 0x0f0709、path 0x6e4a4a、rock 0x3f2a2c、accent 0xff3a4a，太红太饱和），红橙只做点缀
       id: 'abyss', name: '烬渊深处', level: 13, elem: 'fire', boss: 'lord',
       fog: 0x18121e, voidc: 0x0c0810, path: 0x57525c, rock: 0x48424f, accent: 0xff6a2a, sky: 0xffb0a0,
-      mobs: ['husk', 'bomber', 'spitter', 'brute', 'brute'], desc: '一切灰烬的源头。',
+      mobs: ['husk', 'bomber', 'spitter', 'brute', 'brute'], desc: '灰烬从这里来。',
     },
     {
       // 第五区：烬渊之下，天穹裂开、星骸坠落的谷地。地面是墨绿的熔融琉璃，裂纹里流着星辉
       id: 'rift', name: '坠星裂谷', level: 17, elem: 'light', boss: 'behemoth',
       fog: 0x0a1613, voidc: 0x050c0a, path: 0x44685a, rock: 0x263a35, accent: 0x6effc8, sky: 0xc4ffe6,
-      mobs: ['husk', 'phaser', 'charger', 'spitter', 'brute', 'phaser', 'charger'], desc: '天穹裂开的口子下，星骸还在放电。',
+      mobs: ['husk', 'phaser', 'charger', 'spitter', 'brute', 'phaser', 'charger'], desc: '天裂了，星星往下掉。',
     },
   ];
   // 第五区上线之前就打通过烬渊深处的老存档：读档时提示一次「烬渊深处之后多了一个区域」。
@@ -1686,7 +1681,7 @@
   G.PINNACLE = {
     id: 'crown', name: '余烛殿', level: 17, elem: 'fire', boss: 'snuffer', pin: true,
     fog: 0x18121e, voidc: 0x0c0810, path: 0x57525c, rock: 0x48424f, accent: 0xffb24a, sky: 0xffd8a0,
-    mobs: ['husk'], desc: '烬渊尽头悬空的殿，四只火盆还亮着。',
+    mobs: ['husk'], desc: '殿里四只火盆还亮着。',
   };
   // 两个待拍板的默认值（设计稿 §13 第 2 条）：魂灯 3 盏，失败退还 2 个烛芯。改这两行即可
   G.PIN_LIVES = 3;
