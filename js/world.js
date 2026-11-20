@@ -11553,8 +11553,8 @@
           ent.meshBody.castShadow = false;
           // vf-vfx：开始消散的那一下，身上腾起一团序列帧烟（颜色按死法：灰土 / 焦烟 / 霜雾 / 暗紫），电死的另加一记星芒
           const bigE = ent.rig.NB === NB_BIG, sz = (bigE ? 3 : 1.45) * Math.max(1, ent.k);
-          if (bigE || qualId !== 'low') W.fxFlip(VFB.smoke, g.x, g.y + h * 0.42, g.z, sz, bigE ? 1.1 : 0.8, DEATH_PUFF[d.type] || DEATH_PUFF.phys, { vy: 0.45, up: 0.3, grow: 1.4, a: 0.85 });
-          if (d.type === 'light') W.fxFlip(VFB.spark, g.x, g.y + h * 0.5, g.z, sz * 0.9, 0.22, 0xfff2a0, { a: 0.9 });
+          if (qualId !== 'low') W.fxFlip(VFB.smoke, g.x, g.y + h * 0.42, g.z, sz, bigE ? 1.1 : 0.8, DEATH_PUFF[d.type] || DEATH_PUFF.phys, { vy: 0.45, up: 0.3, grow: 1.4, a: 0.85 });
+          if (d.type === 'light' && qualId !== 'low') W.fxFlip(VFB.spark, g.x, g.y + h * 0.5, g.z, sz * 0.9, 0.22, 0xfff2a0, { a: 0.9 });
           if (st) {
             const big = ent.rig.NB === NB_BIG;
             W.decal(st.decal, g.x, g.z, (big ? 2.6 : 0.95 + d.over * 0.35) * Math.max(1, ent.k), rand(0, TAU), st.edge, big ? 7 : 4.5);
@@ -19561,7 +19561,7 @@
         W.fxFlip(VFB.spark, x, 1.25, z, 1.7, 0.2, hex, { a: 0.9 });
         if (qualId !== 'low') W.fxFlip(VFB.arc, x, 1.2, z, 1.5, 0.22, hex, { a: 0.8 });
         W.vDecal(VVD.flash, x, z, 1.6, 0.22, hex);
-        W.vDecal(VVD.scorch, x, z, 0.65, 2, hex, { a: 0.8 });
+        if (qualId !== 'low') W.vDecal(VVD.scorch, x, z, 0.65, 2, hex, { a: 0.8 });
         flare(x, 1.25, z, hex, 1.9, 0.14);
         spawnP(x, 1.2, z, 0, 0, 0, 0.32, 1.1, _c.r * 0.55, _c.g * 0.55, _c.b * 0.55, 0, 0);
         for (let k = 0; k < 4; k++) {
@@ -19748,8 +19748,11 @@
   // 冻结（首领是重度冰缓）：脚下一片霜痕、一圈冰晶碎屑
   W.freezeFx = function (x, z, r, h, boss) {
     // vf-vfx：霜痕换到痕迹池（从脚下往外扩开、放射状的冰晶），身上一记冰晶星芒
-    W.vDecal(VVD.frost, x, z, (r + (boss ? 1.6 : 0.7)) * 0.5, boss ? 3 : 2.2, 0x9fdcff, { r1: r + (boss ? 1.6 : 0.7), grow: 0.25 });
-    W.fxFlip(VFB.spark, x, h * 0.55, z, 1.2 + r, 0.24, 0xe6f8ff, { a: 0.9 });
+    if (qualId === 'low') W.decal(2, x, z, r + (boss ? 1.6 : 0.7), Math.random() * TAU, 0x9fdcff, boss ? 3 : 2); // 低画质照旧
+    else {
+      W.vDecal(VVD.frost, x, z, (r + (boss ? 1.6 : 0.7)) * 0.5, boss ? 3 : 2.2, 0x9fdcff, { r1: r + (boss ? 1.6 : 0.7), grow: 0.25 });
+      W.fxFlip(VFB.spark, x, h * 0.55, z, 1.2 + r, 0.24, 0xe6f8ff, { a: 0.9 });
+    }
     W.ring(x, z, r + 1.4, 0xbfeaff, 0.35);
     W.burst(x, h * 0.5, z, 0xd6f3ff, boss ? 26 : 16, 4, 0.5);
     _c.set(0xd6f3ff);
@@ -19764,10 +19767,15 @@
     const lo = qualId === 'low', P = HIT_PAL.fire;
     W.ring(x, z, R, 0xff7a2c, 0.42);
     // vf-vfx：焦痕换到痕迹池（透着余烬、被噪声蚀掉）+ 地面闪光；中心的星换成序列帧火团 + 星芒
-    W.vDecal(VVD.scorch, x, z, R * 0.8, 3, 0xff6a2a);
-    W.vDecal(VVD.flash, x, z, R * 1.4, 0.3, 0xff9a40);
-    W.fxFlip(VFB.fire, x, 0.9, z, 1.2 + R * 0.6, 0.4, P[1], { grow: 1.35, vy: 0.8 });
-    W.fxFlip(VFB.spark, x, 1.0, z, 1.0 + R * 0.5, 0.22, P[0], { a: 0.9 });
+    if (lo) {
+      W.decal(1, x, z, R * 0.8, Math.random() * TAU, 0xff6a2a, 3); // 低画质：爆燃在怪群里一连串地炸，照旧用原来的样子（省填充率）
+      tChunk(1, x, 1.0, z, 0, 0, 0, 0.2, 0.8 + R * 0.12, P[0], P[1], 0);
+    } else {
+      W.vDecal(VVD.scorch, x, z, R * 0.8, 3, 0xff6a2a);
+      W.vDecal(VVD.flash, x, z, R * 1.4, 0.3, 0xff9a40);
+      W.fxFlip(VFB.fire, x, 0.9, z, 1.2 + R * 0.6, 0.4, P[1], { grow: 1.35, vy: 0.8 });
+      W.fxFlip(VFB.spark, x, 1.0, z, 1.0 + R * 0.5, 0.22, P[0], { a: 0.9 });
+    }
     for (let i = 0, n = lo ? 5 : 9; i < n; i++) {
       const a = (i / n) * TAU + rand(-0.3, 0.3), v = rand(1.4, 2.4) * R;
       tChunk(2, x + Math.sin(a) * 0.3, 0.8, z + Math.cos(a) * 0.3, Math.sin(a) * v, rand(1, 2.4), Math.cos(a) * v, rand(0.34, 0.5), rand(0.36, 0.5), i % 3 ? 0xff7a22 : 0xffd060, i % 3 ? P[2] : 0xff7a22, -1.5);
@@ -21835,7 +21843,7 @@
         spawnP(x, y, z, Math.sin(a) * v, rand(0.5, 3.5), Math.cos(a) * v, rand(0.35, 0.6), rand(0.13, 0.22), u.r * 0.8, u.g * 0.8, u.b * 0.8, 14, 1);
       }
       W.smoke(x, y - 0.3, z, 0.2, 3, mixHex(u.hex, 0x101010, 0.6));
-      W.fxFlip(VFB.smoke, x, y - 0.2, z, 1.1, 0.6, mixHex(u.hex, 0x202020, 0.45), { vy: 0.3, grow: 1.3, a: 0.8 }); // vf-vfx：溅开的一团带色的雾（序列帧）
+      if (qualId !== 'low') W.fxFlip(VFB.smoke, x, y - 0.2, z, 1.1, 0.6, mixHex(u.hex, 0x202020, 0.45), { vy: 0.3, grow: 1.3, a: 0.8 }); // vf-vfx：溅开的一团带色的雾（序列帧）
       W.decal(4, x, z, 0.75, rand(0, TAU), u.hex, 1.6);
       flare(x, y, z, u.hex, 0.8, 0.07);
       return true;
@@ -21847,7 +21855,7 @@
         spawnP(x, y, z, Math.sin(a) * v, rand(1, 4), Math.cos(a) * v, rand(0.35, 0.6), rand(0.16, 0.3), 0.82, 0.94, 1, 18, 1.4);
       }
       W.smoke(x, y - 0.2, z, 0.25, 3, 0xbfdcec);
-      W.fxFlip(VFB.spark, x, y, z, 1.3, 0.2, 0xd6f3ff, { a: 0.85 }); // vf-vfx：碎开那一下的冰晶星芒（序列帧）
+      if (qualId !== 'low') W.fxFlip(VFB.spark, x, y, z, 1.3, 0.2, 0xd6f3ff, { a: 0.85 }); // vf-vfx：碎开那一下的冰晶星芒（序列帧）
       W.decal(2, x, z, 0.9, rand(0, TAU), 0x9fdcff, 1.4);
       flare(x, y, z, 0xcfefff, 1.0, 0.08);
       return true;
@@ -21858,7 +21866,7 @@
         spawnP(x, y, z, Math.sin(a) * v, rand(-2, 6), Math.cos(a) * v, rand(0.06, 0.16), 0.13, 1, 1, 0.7, 0, 6);
       }
       flare(x, y, z, 0xfff3a0, 1.4, 0.1);
-      W.fxFlip(VFB.arc, x, y, z, 1.6, 0.22, 0xffe45e, { a: 0.85 }); // vf-vfx：炸开的一团电弧（序列帧）
+      if (qualId !== 'low') W.fxFlip(VFB.arc, x, y, z, 1.6, 0.22, 0xffe45e, { a: 0.85 }); // vf-vfx：炸开的一团电弧（序列帧）
       W.decal(3, x, z, 0.8, rand(0, TAU), 0xffe45e, 1.2);
       flashLight(x, 2, z, 0xffe45e, 0.9);
       return true;
@@ -21869,7 +21877,7 @@
         spawnP(x, y, z, Math.sin(a) * v, rand(0.5, 3), Math.cos(a) * v, rand(0.25, 0.5), rand(0.14, 0.24), 1, rand(0.25, 0.5), 0.06, 4, 2);
       }
       W.smoke(x, y, z, 0.25, 3, 0x1a1010);
-      W.fxFlip(VFB.fire, x, y, z, 1.4, 0.32, 0xc22c18, { grow: 1.3, vy: 0.6 }); // vf-vfx：暗红的一团火（序列帧，比玩家的掷焰深一截）
+      if (qualId !== 'low') W.fxFlip(VFB.fire, x, y, z, 1.4, 0.32, 0xc22c18, { grow: 1.3, vy: 0.6 }); // vf-vfx：暗红的一团火（序列帧，比玩家的掷焰深一截）
       W.decal(1, x, z, 0.7, rand(0, TAU), 0xff5a2a, 1.6);
       flare(x, y, z, 0xff7a2c, 1.0, 0.08);
       return true;
