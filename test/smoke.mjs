@@ -1048,7 +1048,8 @@ async function main() {
     const r = await ev(() => {
       const W = G.world;
       // A：边走边扑，B：只走，C：站着扑，D：站着受击，E：站着不动
-      const mk = () => { const e = W.makeMob('husk', 0xff8844, false); W.setEnt(e, 0, 0, 0); return e; };
+      // 每只实体的步态相位 / 时钟 / 待机相位本来是随机的（成群时不同步），这里统一成 0，几只之间才能逐通道比较
+      const mk = () => { const e = W.makeMob('husk', 0xff8844, false); W.setEnt(e, 0, 0, 0); e.phase = e.clock = e.walk = 0; return e; };
       const A = mk(), B = mk(), C = mk(), D = mk(), E = mk(), all = [A, B, C, D, E];
       const rig = A.rig, JI = rig.JI, CH = 9; // world.js 的 CH：每个关节 9 个姿态通道（rx ry rz ox oy oz sx sy sz）
       const ch = (e, j, c) => e.pose[JI[j] * CH + c], oc = (e, j, c) => e.out[JI[j] * CH + c];
