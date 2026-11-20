@@ -3060,6 +3060,17 @@
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
   }
+  // 按 R 洗牌（Fisher–Yates，原地，返回同一个数组）。不要用 arr.sort(() => R() - 0.5)：比较函数前后矛盾时排序的结果取决于引擎里排序怎么走，
+  // 同一个种子在浏览器里会摆出两种布局（霜骨沼泽 / 雷枢峡谷偶发，冒烟「异兆懒生成」那一步因此偶尔对不上）
+  function shuffleR(arr, R) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(R() * (i + 1));
+      const t = arr[i];
+      arr[i] = arr[j];
+      arr[j] = t;
+    }
+    return arr;
+  }
   // 凹多边形「一团」：n 个顶点，半径 R·(1 + amp·噪声)，round 圆角（荒原、岛屿、平台用）
   function blob(R, x, z, rad, amp, n, round) {
     const pts = [], ph = R() * TAU, f1 = 2 + Math.floor(R() * 2), f2 = 3 + Math.floor(R() * 3), k1 = R(), k2 = R();
@@ -5806,8 +5817,8 @@
     // 候选的父岛排好随机顺序，一个岛两侧都摆不下就换下一个岛
     const sideOf = [];
     for (let i = 1; i <= nI; i++) sideOf.push(i);
-    sideOf.sort(() => R() - 0.5);
-    const roles = ['chest', 'chest', 'chest', 'elite'].sort(() => R() - 0.5).concat(['pack']);
+    shuffleR(sideOf, R);
+    const roles = shuffleR(['chest', 'chest', 'chest', 'elite'], R).concat(['pack']);
     const sides = [];
     // 两个圆 / 折线之间的粗略间距（排布检查用）
     const segDist = (px, pz, ax, az, bx, bz) => {
@@ -5977,7 +5988,7 @@
     }
 
     // ---- 危险区：浅水（岛沿往外 2–3 m，减速）、薄冰 ----
-    const shallowIs = sideOf.slice().sort(() => R() - 0.5).slice(0, Math.round(nI / 2) + (R() < 0.5 ? 1 : 0)); // 3–5 个岛（改版前 4 个岛里 2–3 个）
+    const shallowIs = shuffleR(sideOf.slice(), R).slice(0, Math.round(nI / 2) + (R() < 0.5 ? 1 : 0)); // 3–5 个岛（改版前 4 个岛里 2–3 个）
     for (const i of shallowIs) {
       const n = R() < 0.45 ? 2 : 1;
       for (let k = 0; k < n; k++) {
@@ -6045,7 +6056,7 @@
     if (rooms[1].core.r < 7.2) return frostFail('firstCore');
     // 薄冰：候选的岛排好随机顺序，放够 2 块为止；一个岛放不下就换下一个（zones-integrate：原来前两个里有一个放不下就整张重摆，
     // 生成器平均要摆 2.9 次、最慢的种子 30 多 ms；前两个都放得下的种子结果和原来逐位相同）
-    const thinIs = sideOf.filter((i) => i !== skullIs).sort(() => R() - 0.5);
+    const thinIs = shuffleR(sideOf.filter((i) => i !== skullIs), R);
     const thins = [];
     for (const i of thinIs) {
       if (thins.length >= 2) break;
@@ -6809,7 +6820,7 @@
     const pathHalls = halls.slice(1, nH + 1), arena = halls[nH + 1];
     // ---------- 旁支小室：3–5 个，从关键路径大厅没开门的墙岔出去 ----------
     const want = R() < 0.5 ? 3 : R() < 0.7 ? 4 : 5, sides = [];
-    const order = pathHalls.slice().sort(() => R() - 0.5);
+    const order = shuffleR(pathHalls.slice(), R);
     for (let pass = 0; pass < 2 && sides.length < want; pass++) {
       for (const H of order) {
         if (sides.length >= want) break;
@@ -11421,7 +11432,7 @@
   };
   // opts：{ ang 击杀这一下行进的方向, force 飞出的初速度（默认 0）, color 消散边缘的颜色（默认元素色）,
   //         linger 倒地后多停留的秒数, type 致命伤害的类型（phys / fire / cold / light，决定死法与地上的痕迹）,
-  //         over 过量击杀的程度（0 ~ 2：越大飞得越远、碎得越快） }。
+  //         over 过量击杀的程度（0 ~ 2：越大飞得越远、碎得越快）, stand 不演倒地、站着原地消散（召唤物被解散）, fade 消散时长 }。
   // 对玩家调用时会留下一具替身来演，玩家本体不受影响。
   W.die = function (ent, opts) {
     if (!ent || ent.removed || ent.dying) return;
@@ -11438,18 +11449,18 @@
       applyGear(dbl, ent.gearType, ent.gearRar, ent.gearVar);
       ent = dbl;
     }
-    const c = ent.rig.clips.death;
+    const c = o.stand ? null : ent.rig.clips.death;
     const st = DEATH_STYLE[o.type] || null, big = ent.rig.NB === NB_BIG && ent.kind !== 'player';
     const over = big ? 0 : Math.max(0, Math.min(2, o.over || 0));
     const f = (o.force || 0) * (1 + over * 0.6), a = o.ang === undefined ? ent.group.rotation.y + Math.PI : o.ang;
     const violent = over >= 0.6;
-    let clipDur = c ? c.dur : 0.4;
+    let clipDur = o.stand ? 0 : c ? c.dur : 0.4;
     if (o.type === 'cold') clipDur = Math.min(clipDur, 0.3); // 冻住：没倒完就僵在半道
     if (violent) clipDur = Math.min(clipDur, 0.26); // 过量击杀：还在半空就碎了
     ent.dying = {
       t: 0, clipDur, acc: 0, type: st ? o.type : '', st, over, begun: false,
       linger: violent ? 0 : o.linger !== undefined ? o.linger : st ? st.linger : 0.25,
-      fade: (big ? 0.9 : st ? st.fade : 0.5) * (violent ? 0.6 : 1),
+      fade: (o.fade !== undefined ? o.fade : big ? 0.9 : st ? st.fade : 0.5) * (violent ? 0.6 : 1),
       vx: Math.sin(a) * f, vz: Math.cos(a) * f,
       vy: f > 5 ? Math.min(9, 2 + f * 0.32) : 0, // 力道够大才离地
       spin: f > 5 ? (Math.random() < 0.5 ? -1 : 1) * Math.min(16, f * 0.9) : 0,
@@ -11464,7 +11475,7 @@
     if (ent.shT > 0) ent.shT = 1e-4;
     if (ent.ring) ent.ring.visible = false;
     if (ent.ringShade) ent.ringShade.visible = false;
-    W.play(ent, 'death', { hold: true });
+    if (!o.stand) W.play(ent, 'death', { hold: true });
     dyingEnts.push(ent);
     if (st) {
       const g = ent.group.position, h = ent.rig.height * ent.k, m = ent.bodyMat.userData;
