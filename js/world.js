@@ -9942,6 +9942,8 @@
     if (hd) gg.setAttribute('aW', new T.Float32BufferAttribute(aw, 2));
     if (hd) gg.setAttribute('aC', new T.Float32BufferAttribute(ac, 1));
     gg.setIndex(pos.length / 3 > 65535 ? new T.Uint32BufferAttribute(idx, 1) : new T.Uint16BufferAttribute(idx, 1));
+    // vf-ground：数据已经拷进几何体了，把这几个大的普通数组清空——空档任务的闭包和它们在同一个作用域里，不清的话会一直留到任务跑完（连续换区时堆起来、触发 GC）
+    pos.length = uv.length = col.length = idx.length = aw.length = ac.length = 0;
     const gmat = hd ? groundMaterial(gx, def) : own(
       new T.MeshStandardMaterial({
         map: tx.map, bumpMap: tx.bump, bumpScale: st.bump, emissiveMap: tx.emis,
