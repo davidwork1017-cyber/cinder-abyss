@@ -1043,12 +1043,12 @@ async function main() {
   });
 
   // ------------------------------------------------------------------ 技能
-  await step('learnAll：14 个技能（裂石击已删除）与 20 个辅助宝石全部到手（混沌流加了黑洞 / 黑旋风 / 黑焰与混沌注入）；右键格不放技能', async () => {
+  await step('learnAll：14 个技能（裂石击已删除）与 21 个辅助宝石全部到手（混沌流加了黑洞 / 黑旋风 / 黑焰与混沌注入，持续辅助绵延）；右键格不放技能', async () => {
     const r = await ev(() => {
       G.debug.learnAll();
       return { skills: Object.keys(G.save.skills).length, sups: G.save.supports.length, bar: G.save.bar.slice(), cleave: !!G.SKILLS.cleave || G.GEM_SKILLS.indexOf('cleave') >= 0 };
     });
-    assert(r.skills === 14 && r.sups === 20 && [0, 2, 3].every((i) => r.bar[i]) && r.bar[1] === null && !r.cleave, JSON.stringify(r));
+    assert(r.skills === 14 && r.sups === 21 && [0, 2, 3].every((i) => r.bar[i]) && r.bar[1] === null && !r.cleave, JSON.stringify(r));
   });
 
   for (let i = 0; i < SKILL_IDS.length; i++) {
@@ -11447,6 +11447,214 @@ async function main() {
     });
     assert(r.merges >= 2 && r.top >= 3 && r.big, '汇涡应合成层数更高、更大的一团：' + JSON.stringify(r));
     return '合并 ' + r.merges + ' 次，最高 ' + r.top + ' 层';
+  });
+  // ---- 绵延（持续辅助，dur-support）：适配哪些技能 / 刻式、真的更久、上限 +1、换刻式不生效、读档 ----
+  await step('绵延：只镶得上带「持续」的技能 / 刻式（黑洞全部、黑旋风原式与汇涡、雷桩、环刃、焰田）；回响只对黑洞排除（雷桩、黑旋风照旧能镶）；说明里的数字按数据拼', async () => {
+    const r = await ev(() => {
+      const s = G.save, L = G.SUPPORTS.lasting;
+      if (s.supports.indexOf('lasting') < 0) s.supports.push('lasting');
+      const keep = {};
+      for (const id of G.GEM_SKILLS) keep[id] = G.SKILLS[id];
+      // 渊式（c）：电桥带持续；随核跟着黑洞带持续；其余渊式不带
+      const want = { blackhole: 'oabc', vortex: 'ob', arc: 'ac', blade: 'b', pyre: 'a' };
+      const huwoAura = G.skillVariant('vortex', 'a').kind === 'aura'; // 护涡改成光环之后不吃绵延、也镶不上回响
+      if (!huwoAura) want.vortex += 'a';
+      const bad = [], echoBad = [];
+      for (const id of G.GEM_SKILLS) {
+        for (const v of ['o'].concat(Object.keys(G.VARIANTS[id] || {}))) {
+          G.SKILLS[id] = G.skillVariant(id, v);
+          const fit = G.supportFits(id, 'lasting');
+          if (fit !== (want[id] || '').indexOf(v) >= 0) bad.push(id + '.' + v + (fit ? '+' : '-'));
+          const e = G.supportFits(id, 'echo');
+          const eWant = id === 'blackhole' ? false : id === 'arc' || (id === 'vortex' && !(v === 'a' && huwoAura)) ? true : null;
+          if (eWant !== null && e !== eWant) echoBad.push(id + '.' + v + (e ? '+' : '-'));
+        }
+        G.SKILLS[id] = keep[id];
+      }
+      // 换刻式才镶得上：链雷原式拒绝，雷桩可以
+      s.skills.arc = Math.max(10, s.skills.arc || 0);
+      const v0 = s.variants.arc;
+      delete s.variants.arc;
+      G.applyVariants();
+      const sockO = G.socketSupport('arc', 0, 'lasting');
+      s.variants.arc = 'a';
+      G.applyVariants();
+      const sockA = G.socketSupport('arc', 0, 'lasting');
+      s.sockets.arc[0] = null;
+      if (v0) s.variants.arc = v0;
+      else delete s.variants.arc;
+      G.applyVariants();
+      G.computeStats();
+      const e = L.eff, VA = G.VARIANTS;
+      return {
+        bad, echoBad, sockO, sockA,
+        data: L.req.join() === 'duration' && L.cost === 1.15 && e.dur === 30 && e.cap === 1,
+        desc: L.desc.indexOf('+' + e.dur + '%') >= 0 && L.desc.indexOf('上限 +' + e.cap) >= 0,
+        alt: L.alt.indexOf('雷桩最多 ' + (VA.arc.a.set.pylon.max + e.cap) + ' 根') >= 0 && L.alt.indexOf('环刃最多 ' + (VA.blade.b.set.orbit.max + e.cap) + ' 把') >= 0,
+        others: !G.supportFits('nova', 'echo') && !G.supportFits('thrall', 'echo') && G.supportFits('ember', 'echo') && !G.supportFits('blackflame', 'lasting'),
+      };
+    });
+    assert(r.data && r.desc && r.alt, '绵延的数值 / 说明不对：' + JSON.stringify(r));
+    assert(!r.bad.length, '绵延适配的技能 / 刻式不对（+ 多了、- 少了）：' + r.bad.join(' '));
+    assert(!r.echoBad.length && r.others, '回响的适配变了：' + r.echoBad.join(' ') + ' ' + JSON.stringify(r));
+    assert(!r.sockO && r.sockA, '链雷原式应镶不上绵延、雷桩能镶：' + JSON.stringify(r));
+    return '适配表对得上，回响只排除黑洞';
+  });
+  await step('绵延：实测更久——黑洞、雷桩、环刃、黑旋风、焰田的火地存在时间 ×1.3（黑洞的跳数跟着多）；雷桩、环刃上限 3 → 4', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      const P = G.player, s = G.save, VS = G.variantState();
+      if (s.supports.indexOf('lasting') < 0) s.supports.push('lasting');
+      const go = (id, v, sup) => {
+        TV.setup(id, v);
+        if (sup) G.socketSupport(id, 0, 'lasting');
+        G.computeStats();
+        return G.skillCtx(id);
+      };
+      // 一直推进到 alive() 变 0，返回秒数（最多 12 秒）
+      const lifeOf = (alive) => {
+        let t = 0;
+        while (alive() > 0 && t < 12) {
+          TV.run(1 / 60);
+          t += 1 / 60;
+        }
+        return +t.toFixed(2);
+      };
+      const out = {};
+      for (const sup of [false, true]) {
+        const k = sup ? 'on' : 'off', o = (out[k] = {});
+        // 黑洞：持续时间、对一只木桩的跳数
+        o.ctx = go('blackhole', 'o', sup).durK;
+        const b = TV.big(7);
+        b.buTh = 1e15;
+        TV.pin(b);
+        TV.cast('blackhole', TV.at(7));
+        o.hole = lifeOf(() => G.chaosHoles().length);
+        o.holeHits = TV.n(b);
+        TV.done();
+        // 雷桩：一根的寿命；连插 6 根时同时最多几根
+        go('arc', 'a', sup);
+        TV.cast('arc', TV.at(7, 3));
+        o.pylon = lifeOf(() => VS.pylons.length);
+        for (let i = 0; i < 6; i++) TV.cast('arc', TV.at(7, i - 2.5), 0.1);
+        o.pylonMax = VS.pylons.length;
+        TV.done();
+        // 环刃：一把的寿命；连放 6 次同时最多几把
+        go('blade', 'b', sup);
+        TV.cast('blade', TV.at(7));
+        o.orbit = lifeOf(() => VS.orbits.length);
+        for (let i = 0; i < 6; i++) TV.cast('blade', TV.at(7), 0.1);
+        o.orbitMax = VS.orbits.length;
+        TV.done();
+        // 黑旋风：放出来时的寿命
+        go('vortex', 'o', sup);
+        TV.cast('vortex', TV.at(7));
+        o.vortex = +Math.max.apply(null, G.chaosVortices().map((v) => v.life)).toFixed(2);
+        TV.done();
+        // 焰田：祭司火弹落地留下的火地
+        go('pyre', 'a', sup);
+        G.summonMinion('pyre', P.x - 1, P.z, G.skillCtx('pyre'));
+        TV.mob(7.5, 0);
+        let f = null;
+        for (let i = 0; i < 16 && !f; i++) {
+          TV.run(0.25);
+          f = G.rangedFields().find((x) => x.pyre);
+        }
+        o.field = f ? +f.dur.toFixed(2) : 0;
+        TV.done();
+      }
+      return out;
+    });
+    const a = r.off, b = r.on, K = 1.3, near = (x, y, k) => y > 0 && Math.abs(x / y - k) <= 0.03;
+    assert(a.ctx === 1 && b.ctx === K, '绵延的持续倍率应为 ' + K + '：' + JSON.stringify(r));
+    assert(near(b.hole, a.hole, K) && b.holeHits / Math.max(1, a.holeHits) >= K - 0.1 && b.holeHits / Math.max(1, a.holeHits) <= K + 0.1, '黑洞应持续 ×' + K + '、跳数跟着多：' + JSON.stringify(r));
+    assert(near(b.pylon, a.pylon, K) && near(b.orbit, a.orbit, K), '雷桩 / 环刃应存在 ×' + K + '：' + JSON.stringify(r));
+    assert(a.pylonMax === 3 && b.pylonMax === 4 && a.orbitMax === 3 && b.orbitMax === 4, '雷桩 / 环刃的上限应 3 → 4：' + JSON.stringify(r));
+    assert(near(b.vortex, a.vortex, K) && near(b.field, a.field, K), '黑旋风 / 焰田的火地应 ×' + K + '：' + JSON.stringify(r));
+    return '黑洞 ' + a.hole + ' → ' + b.hole + ' 秒（' + a.holeHits + ' → ' + b.holeHits + ' 跳），雷桩 ' + a.pylon + ' → ' + b.pylon + '，环刃 ' + a.orbit + ' → ' + b.orbit + '，上限 ' + a.pylonMax + ' → ' + b.pylonMax;
+  });
+  await step('绵延：换到不带持续的刻式时照样镶着、显示「不生效」、不算消耗；提示卡有按住 Alt 的详情；读档时有一种刻式用得上就留着，哪种都用不上的取下放回宝石栏并提示；雷桩上的回响照旧生效', async () => {
+    const keep = await ev(() => { G.persist(); return localStorage.getItem('cinder-abyss-save-v1'); });
+    const r = await ev(() => {
+      T.arena();
+      const s = G.save, out = {};
+      if (s.supports.indexOf('lasting') < 0) s.supports.push('lasting');
+      for (const id of Object.keys(s.sockets)) s.sockets[id] = [null, null, null];
+      s.skills.arc = Math.max(10, s.skills.arc || 0);
+      s.variants.arc = 'a';
+      G.applyVariants();
+      G.computeStats();
+      const base = G.skillCtx('arc').cost;
+      out.sock = G.socketSupport('arc', 0, 'lasting');
+      const on = G.skillCtx('arc');
+      out.on = { durK: on.durK, cap: on.durCap, cost: on.cost > base };
+      delete s.variants.arc;
+      G.applyVariants();
+      G.computeStats();
+      const off = G.skillCtx('arc');
+      out.off = { durK: off.durK, cap: off.durCap, cost: off.cost === G.skillCtx('arc').cost, still: s.sockets.arc[0] };
+      s.sockets.arc[0] = null;
+      out.off.cost = off.cost;
+      out.costO = G.skillCtx('arc').cost;
+      s.sockets.arc[0] = 'lasting';
+      G.ui.open('skills');
+      const sock = document.querySelector('.sock[data-skill="arc"][data-idx="0"]');
+      out.card = sock ? { idle: sock.classList.contains('idle'), txt: sock.innerText } : null;
+      return out;
+    });
+    // 先把链雷那张卡滚到中间（滚动会收起提示卡），停稳了再把鼠标挪上去
+    await ev(() => document.querySelector('.sock[data-skill="arc"][data-idx="0"]').scrollIntoView({ block: 'center' }));
+    await sleep(200);
+    const sp = await ev(() => T.rect('.sock[data-skill="arc"][data-idx="0"]'));
+    await page.mouse.move(sp.x - 30, sp.y - 60);
+    await page.mouse.move(sp.x, sp.y);
+    await until(() => document.getElementById('tip').classList.contains('on')).catch(() => {
+      throw new Error('绵延的提示卡没出来');
+    });
+    const tip = await ev(() => ({ txt: document.getElementById('tip').innerText, alt: (document.querySelector('#tip .alt-d') || {}).textContent || '' }));
+    await page.mouse.move(1000, 620);
+    const r2 = await ev((keep) => {
+      G.ui.close();
+      const out = {};
+      // 读档①：掷焰上的绵延（哪种刻式都用不上）→ 取下，宝石还在、提示一次
+      G.persist();
+      const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+      raw.sockets.ember = ['lasting', null, null];
+      raw.sockets.arc = [null, 'echo', null];
+      raw.variants = raw.variants || {};
+      delete raw.variants.arc;
+      localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+      G.loadSave();
+      G.computeStats();
+      const s = G.save;
+      out.load1 = { arc: s.sockets.arc.join(), ember: s.sockets.ember.join(), owned: s.supports.indexOf('lasting') >= 0, dropped: JSON.stringify(G.sockDropped) };
+      // 读档②：链雷选着原式、镶着绵延（雷桩用得上）→ 留着、不生效；回响照旧
+      s.sockets.arc[0] = 'lasting';
+      G.persist();
+      G.loadSave();
+      G.computeStats();
+      out.load2 = { arc: G.save.sockets.arc.join(), dropped: G.sockDropped.length, durK: G.skillCtx('arc').durK, echo: G.skillCtx('arc').echo };
+      // 读档③：选着雷桩 → 绵延、回响都生效
+      G.save.variants.arc = 'a';
+      G.persist();
+      G.loadSave();
+      G.computeStats();
+      out.load3 = { arc: G.save.sockets.arc.join(), dropped: G.sockDropped.length, durK: G.skillCtx('arc').durK, echo: G.skillCtx('arc').echo };
+      if (keep) localStorage.setItem('cinder-abyss-save-v1', keep);
+      else localStorage.removeItem('cinder-abyss-save-v1');
+      G.loadSave();
+      G.computeStats();
+      return out;
+    }, keep);
+    assert(r.sock && r.on.durK === 1.3 && r.on.cap === 1 && r.on.cost, '雷桩镶上绵延应生效、算消耗：' + JSON.stringify(r));
+    assert(r.off.durK === 1 && r.off.cap === 0 && r.off.still === 'lasting' && r.off.cost === r.costO, '换回原式应镶着但不生效、不算消耗：' + JSON.stringify(r));
+    assert(r.card && r.card.idle && /不生效/.test(r.card.txt), '技能卡上应标「不生效」：' + JSON.stringify(r.card));
+    assert(/持续时间 \+30%/.test(tip.txt) && /上限 \+1/.test(tip.txt) && /雷桩最多 4 根/.test(tip.alt) && /Alt/.test(tip.txt), '绵延提示卡不对：' + JSON.stringify(tip));
+    const l1 = r2.load1, l2 = r2.load2, l3 = r2.load3;
+    assert(l1.arc === ',echo,' && l1.ember === ',,' && l1.owned && l1.dropped === '[{"sup":"lasting","id":"ember"}]', '读档：哪种刻式都用不上的应取下放回宝石栏：' + JSON.stringify(r2));
+    assert(l2.arc === 'lasting,echo,' && l2.dropped === 0 && l2.durK === 1 && l2.echo === 1, '读档：原式下绵延应留着但不生效、回响生效：' + JSON.stringify(r2));
+    assert(l3.arc === 'lasting,echo,' && l3.dropped === 0 && l3.durK === 1.3 && l3.echo === 1, '读档：雷桩上绵延、回响都应生效：' + JSON.stringify(r2));
+    return '原式不生效（不算消耗），读档留下 / 取下各对';
   });
   await step('刻式 v2·黑焰「蚀印」：每一击叠一层蚀印，6 层炸开；附带比例是原式的一半', async () => {
     await ev(TVDEF);

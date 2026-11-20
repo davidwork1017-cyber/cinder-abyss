@@ -338,6 +338,7 @@
     G.variantRedone = 0; // 刻式第二版：读档时把旧刻式的免费那一次还了回去，界面层提示一次（见下面「刻式」）
     G.rmbMigrated = null; // 武器普攻改版：右键上的技能挪去了哪（见下面「右键固定是武器普攻」）
     G.cleaveRefund = null; // 裂石击退成的无铭宝石
+    G.sockDropped = []; // 读档时取下的辅助（技能的哪种刻式都用不上了）：{ sup, id }
     G.newZoneNotice = G.zoneNoticeFor(raw); // 第五区上线前打通过烬渊深处的老存档：界面层提示一次新区域
     const d = G.newSave();
     if (!isObj(raw) || raw.v !== 1) return d;
@@ -383,10 +384,10 @@
       const arr = [null, null, null];
       for (let i = 0; i < 3; i++) {
         const sup = src[i];
-        if (sup && s.supports.indexOf(sup) >= 0 && !used.has(sup) && G.supportFits(id, sup)) {
+        if (sup && s.supports.indexOf(sup) >= 0 && !used.has(sup) && G.supportFitsAny(id, sup)) {
           arr[i] = sup;
           used.add(sup);
-        }
+        } else if (sup && s.supports.indexOf(sup) >= 0 && !used.has(sup) && G.SKILLS[id]) G.sockDropped.push({ sup, id }); // 哪种刻式都用不上了：取下放回宝石栏（宝石还在），界面层提示一次
       }
       s.sockets[id] = arr;
     }
@@ -902,7 +903,7 @@
     let k = 1;
     for (const supId of (G.save.sockets && G.save.sockets[id]) || []) {
       const sup = supId && G.SUPPORTS[supId];
-      if (sup) k *= sup.cost;
+      if (sup && G.supportFits(id, supId)) k *= sup.cost; // 对这一刻的刻式不生效的辅助不算
     }
     const wane = G.runMods.wane ? G.runMods.wane.reserve : 0; // 渊印「蚀环」：每个光环的保留 +10 个百分点
     return Math.round((sk.reserve * k + wane) * 10) / 10;
@@ -940,6 +941,22 @@
     if (sup.noKind && sk.minion && sup.noKind.indexOf(sk.minion) >= 0) return false;
     if (!sup.req) return true;
     return sup.req.some((tag) => sk.tags.indexOf(tag) >= 0);
+  };
+
+  // 某个辅助能不能镶在这个技能的任意一种刻式上（读档时用：刻式会换标签，镶着的辅助只要有一种刻式用得上就留着，换到用不上的刻式时显示「不生效」）
+  G.supportFitsAny = function (skillId, supId) {
+    if (G.supportFits(skillId, supId)) return true;
+    const V = G.SKILL_V && G.SKILL_V[skillId];
+    if (!V || !G.VARIANTS[skillId]) return false;
+    const keep = G.SKILLS[skillId];
+    let ok = false;
+    for (const v of ['o'].concat(Object.keys(G.VARIANTS[skillId]))) {
+      G.SKILLS[skillId] = G.skillVariant(skillId, v);
+      if (G.supportFits(skillId, supId)) ok = true;
+      if (ok) break;
+    }
+    G.SKILLS[skillId] = keep;
+    return ok;
   };
 
   // 武器普攻卡上对这个普攻生效的辅助（卡上镶着、标签对得上）；不适用的照样镶着，换到合适的远程武器再生效
@@ -1158,10 +1175,11 @@
     let proj = 0, pierce = !mScale && sk.tags.indexOf('projectile') >= 0 ? S.pierce || 0 : 0, chain = 0, area = mScale ? S.minionArea || 0 : S.area || 0, speedPct = 0; // 召唤物的范围只吃「召唤物的范围效果」
     let critFlat = sk.critFlat || 0, critMulti = 150 + (mScale ? 0 : S.critMulti || 0) + (sk.critMulti || 0); // 鹰眼长弓的普攻自带暴击
     let leech = 0, stun = 0, ailment = (mScale ? 0 : S.ailment || 0) + (sk.ailment || 0), echo = 0, cdr = 0, costMult = 1;
-    let mLife = 0, mDR = 0, mCap = 0, mSpeed = 0;
+    let mLife = 0, mDR = 0, mCap = 0, mSpeed = 0, durPct = 0, durCap = 0;
 
-    // 远程普攻：辅助镶在武器普攻卡上（只取对这个普攻生效的）；别的武器技不吃辅助
-    const sups = sk.basic ? G.basicSupports(id) : (!isWs && save.sockets[id]) || [];
+    // 远程普攻：辅助镶在武器普攻卡上（只取对这个普攻生效的）；别的武器技不吃辅助。
+    // 刻式换了标签（例如只有雷桩带「持续」）：对这一刻的刻式不适用的辅助照样镶着，但不生效、不算消耗
+    const sups = sk.basic ? G.basicSupports(id) : isWs ? [] : (save.sockets[id] || []).filter((supId) => supId && G.supportFits(id, supId));
     for (const supId of sups) {
       const sup = supId && G.SUPPORTS[supId];
       if (!sup) continue;
@@ -1186,6 +1204,8 @@
       if (e.minionDR) mDR += e.minionDR;
       if (e.minionCap) mCap += e.minionCap;
       if (e.minionSpeed) mSpeed += e.minionSpeed;
+      if (e.dur) durPct += e.dur;
+      if (e.cap) durCap += e.cap;
       costMult *= sup.cost;
     }
     if (S.encCdr) cdr += S.encCdr; // 异兆：祈坛「渊涌」的冷却缩短
@@ -1225,6 +1245,8 @@
       // 烬断（残刃）：瞬断的冷却减半
       cd: sk.cd * (1 - Math.min(80, cdr) / 100),
       leech, stun, ailment, echo: isAura ? 0 : echo,
+      // 绵延：持续效果存在的时间倍率；有同时存在数量上限的效果，上限再加 durCap
+      durK: Math.max(0.1, 1 + durPct / 100), durCap,
       // 混沌异常值（渊缚）另外再加的累积速度（异常累积速度 ailment 对它同样生效）
       bindAil: mScale ? 0 : S.bindAil || 0,
       // 黑焰：每一击额外的混沌伤害（%）。光环自己的脉冲（霜环）不带
@@ -1370,7 +1392,7 @@
       // 刻式「焰田」打单体：火弹（每秒 r 枚）+ 脚下火地（几片共用一个计时，每 tick 秒一跳）+ 燎原（每 charge.max 枚一次，引爆这期间留下、还没灭的火地）
       const F = mi.vx, r = mi.cap / mi.interval, gap = (mi.charge.max * mi.interval) / mi.cap;
       // 燎原时还压在目标脚下的火地实测约三成（火弹落点散、火地先灭）
-      return G.avgHit(ctx) * (r + F.mult / F.tick + (0.3 * Math.min(F.dur, gap) * r * F.burst) / gap);
+      return G.avgHit(ctx) * (r + F.mult / F.tick + (0.3 * Math.min(F.dur * ctx.durK, gap) * r * F.burst) / gap); // 绵延：火地更久
     }
     if (mi && mi.beam && mi.charge) {
       // 焚骨祭司打单体：每 charge.max 枚火弹接一轮灼链（单体时一弹只攒 1 点焰蓄）
@@ -4745,7 +4767,7 @@
         if (v.skip > 0) v.skip--; // 贯穿：这一只不吸，直接穿过
         else {
           v.lat = e;
-          v.latT = L.t;
+          v.latT = L.t * v.ctx.durK; // 绵延：吸附得更久
           v.latN++;
           let lc = v.cast.get(e);
           if (!lc) v.cast.set(e, (lc = { next: 0, n: 0 }));
@@ -4755,8 +4777,8 @@
       }
       let c = v.cast.get(e);
       if (!c) v.cast.set(e, (c = { next: 0, n: 0 }));
-      // 汇涡：每个敌人能挨的跳数 = 层数 × merge.cap（合进来几团就加几份），不分首领 / 吸附
-      if (c.n >= (v.lvl ? v.lvl * sk.merge.cap : e.isBoss ? sk.bossCap : c.lat ? sk.cap : sk.splashCap) || state.time < c.next) continue;
+      // 汇涡：每个敌人能挨的跳数 = 层数 × merge.cap（合进来几团就加几份），不分首领 / 吸附。绵延：上限按持续时间的倍率放大（四舍五入）
+      if (c.n >= Math.round((v.lvl ? v.lvl * sk.merge.cap : e.isBoss ? sk.bossCap : c.lat ? sk.cap : sk.splashCap) * v.ctx.durK) || state.time < c.next) continue;
       c.next = state.time + sk.tick * 0.95;
       c.n++;
       G.hitEnemy(e, v.ctx, 1, { ang: v.a, quiet: true, tick: true });
@@ -5529,10 +5551,10 @@
 
   // ---------- 飞刃「环刃」 ----------
   function bladeOrbit(ctx) {
-    const W = G.world, O = ctx.sk.orbit, add = Math.max(1, ctx.proj), max = O.max + add - 1;
+    const W = G.world, O = ctx.sk.orbit, add = Math.max(1, ctx.proj), max = O.max + add - 1 + ctx.durCap; // 绵延：上限 +1、每把转得更久
     for (let i = 0; i < add; i++) {
       while (VS.orbits.length >= max) orbitOff(VS.orbits[0]);
-      VS.orbits.push({ ctx, t: O.dur, fx: W.kv('blade', { hex: 0xdfe6f2, s: 0.55, rx: Math.PI / 2 - 0.25, y: 1.0 }), hitAt: new Map() });
+      VS.orbits.push({ ctx, t: O.dur * ctx.durK, fx: W.kv('blade', { hex: 0xdfe6f2, s: 0.55, rx: Math.PI / 2 - 0.25, y: 1.0 }), hitAt: new Map() });
     }
     W.burst(P.x, 1.0, P.z, 0xcfd6e6, 8, 3, 0.25);
     G.sfx('swing', { step: 0 });
@@ -5637,16 +5659,16 @@
       x = P.x + a.dx * 0.8;
       z = P.z + a.dz * 0.8;
     }
-    while (VS.pylons.length >= S.max) pylonOff(VS.pylons[0]);
+    while (VS.pylons.length >= S.max + ctx.durCap) pylonOff(VS.pylons[0]); // 绵延：上限 +1
     const py = {
-      x, z, ctx, t: S.dur, tt: 0,
+      x, z, ctx, t: S.dur * ctx.durK, tt: 0,
       fx: W.kv('spike', { hex: 0xc9a83a, x, z, sx: 1, sz: 1, sy: 2.3 }), top: W.kv('orb', { hex: 0xffe45e, x, z, y: 2.35, s: 0.42, k: 0.6 }),
     };
     VS.pylons.push(py);
     W.bolt([{ x: P.x, z: P.z }, { x, z }], 0xffe45e, true);
     if (W.vShock) W.vShock(x, z, S.r * Math.sqrt(ctx.area), 0xffe45e, 0.3, 0); // 电桩的范围：一道往外推的细环
     else W.ring(x, z, S.r * Math.sqrt(ctx.area), 0xffe45e, 0.3);
-    W.decal(3, x, z, 0.9, Math.random() * TAU, 0xffe45e, S.dur);
+    W.decal(3, x, z, 0.9, Math.random() * TAU, 0xffe45e, py.t);
     py.tt = S.tick * 0.6; // 插下去之后很快电第一下（不当帧电：按住连插也不会多电）
     const e = P.relic.dianqiao ? pylonZap(py) : null;
     if (e) py.tt = S.tick;
@@ -6366,7 +6388,7 @@
     if (bd < (v.R + best.R) * 0.6 && v.lvl >= best.lvl && v.t >= M.after && best.t >= M.after) { // 刚放出来的先各飞一会儿，看得出是在靠拢
       v.lvl = Math.min(M.max, v.lvl + best.lvl);
       v.R = v.R0 * Math.sqrt(v.lvl);
-      v.life = Math.max(v.life, best.life) + M.life;
+      v.life = Math.max(v.life, best.life) + M.life * v.ctx.durK;
       v.speed = v.ctx.sk.speed / Math.sqrt(v.lvl);
       for (const [e, c] of best.cast) if (!v.cast.has(e)) v.cast.set(e, c);
       best.dead = true;
@@ -6615,7 +6637,7 @@
     const sk = ctx.sk;
     const d = rayLen(P.x, P.z, a.ang, Math.min(sk.range, a.dist), 0.3); // 撞墙截在墙前
     const R = sk.radius * Math.sqrt(ctx.area);
-    const dur = sk.dur * (1 + Math.max(0, P.S.holeDur || 0) / 100);
+    const dur = sk.dur * (1 + Math.max(0, P.S.holeDur || 0) / 100) * ctx.durK; // 绵延另外再乘
     if (P.relic.yinli) return holeMark(G.relicHole(ctx, R, dur), sk); // 渊契「随核」：黑洞跟着你（坍缩照样能攒质量、再按引爆；双极只开这一个）
     G.sfx('cast');
     if (sk.mech === 'twin') return holeTwin(ctx, P.x + a.dx * d, P.z + a.dz * d, a, R, dur); // 刻式「双极」
@@ -6638,7 +6660,7 @@
         z = P.z;
       }
       const v = {
-        x, z, a: ang, speed: sk.speed, life: sk.life, t: 0, R, ctx, cast, seen: new Map(), lat: null, latT: 0, latN: 0,
+        x, z, a: ang, speed: sk.speed, life: sk.life * ctx.durK, t: 0, R, ctx, cast, seen: new Map(), lat: null, latT: 0, latN: 0, // 绵延：寿命更长
         bounce: sk.bounce, skip: ctx.pierce, chain: ctx.chain,
         // 摆动：两路正弦的频率 / 相位，每团不同
         wf: [G.rand(2.2, 3.4), i * 2.1 + G.rand(0, TAU), G.rand(4.5, 6.5), i * 1.3 + G.rand(0, TAU)],
