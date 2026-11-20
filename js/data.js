@@ -1360,7 +1360,7 @@
     R.yuanfu.mechAlt = '分到的伤害不暴击、不触发命中效果、不累积异常值、不带黑焰。渊缚结束即断开。首领不会被渊缚。';
     for (const id of ['nuchao', 'zhuixing', 'dianqiao', 'haiwang', 'yinli']) R[id].mechAlt = (R[id].mechAlt || '') + '只改原式，刻式 A / B 下不生效。';
     const x = M.xizhu, s2 = M.shuangsheng;
-    R.xizhu.mechDesc = '身周 ' + x.r + ' 米是暗域：域内敌人伤害降低 ' + pc(x.weak) + '。暗域增伤对你的所有伤害生效，召唤物对域内敌人生效。';
+    R.xizhu.mechDesc = '身周 ' + x.r + ' 米是暗域：域内敌人伤害降低 ' + pc(x.weak) + '。暗域增伤：你的伤害对所有敌人生效，召唤物只对域内敌人生效。';
     R.xizhu.mechAlt = '召唤物身周 ' + x.mr + ' 米也算暗域。首领在域内只降低 ' + pc(x.weakBoss) + '，熄烛者不受影响。' + x.far + ' 米外的怪不会因距离醒来；已醒的怪在 ' + x.far +
       ' 米外连续 ' + x.lose + ' 秒看不到你就失去目标（首领不会）。对没发现你的敌人第一击必定暴击。暖光半径缩小 ' + pc(x.lamp) + '。';
     R.shuangsheng.mechDesc = '有刻式的技能每次施放在 A、B 间交替，不是你选的那一下伤害提高 ' + pc(s2.dmg) + '。';
