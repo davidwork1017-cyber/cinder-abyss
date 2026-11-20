@@ -9852,7 +9852,8 @@
     let MF = null;
     const mf4 = new Float32Array(4);
     if (LY) {
-      const S2 = 2, fw = Math.ceil((nx * CS) / S2) + 2, fh = Math.ceil((nz * CS) / S2) + 2, A = new Float32Array(fw * fh * 4).fill(NaN);
+      const S2 = 2, fw = Math.ceil((nx * CS) / S2) + 2, fh = Math.ceil((nz * CS) / S2) + 2;
+      let A = null; // 第一次用到时才分配（通常在空档任务里）
       const cell = (i, j) => {
         const o = (j * fw + i) * 4;
         if (A[o] === A[o]) return o;
@@ -9864,6 +9865,7 @@
         return o;
       };
       MF = (x, z) => {
+        if (!A) A = new Float32Array(fw * fh * 4).fill(NaN);
         const fx = Math.min(fw - 1.001, Math.max(0, (x - x0) / S2)), fz = Math.min(fh - 1.001, Math.max(0, (z - z0) / S2));
         const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, w = fz - j;
         const a = cell(i, j), b = cell(i + 1, j), c = cell(i, j + 1), d = cell(i + 1, j + 1);
@@ -9920,7 +9922,6 @@
         hdV(x, z, d, tk, pn, lit, kk, null, hv);
         col.push(hv[0], hv[1], hv[2]);
         aw.push(hv[3], hv[4]);
-        ac.push(0);
       } else col.push(vm[0] + (lit - vm[0]) * kk, vm[1] + (lit - vm[1]) * kk, vm[2] + (lit - vm[2]) * kk);
       return (vid[k] = pos.length / 3 - 1);
     };
@@ -9942,7 +9943,7 @@
     gg.setAttribute('uv', new T.Float32BufferAttribute(uv, 2));
     gg.setAttribute('color', new T.Float32BufferAttribute(col, 3));
     if (hd) gg.setAttribute('aW', new T.Float32BufferAttribute(aw, 2));
-    if (hd) gg.setAttribute('aC', new T.Float32BufferAttribute(ac, 1));
+    if (hd) gg.setAttribute('aC', new T.BufferAttribute(new Float32Array(pos.length / 3), 1)); // 覆盖层权重：建区时全是 0，空档任务里填
     gg.setIndex(pos.length / 3 > 65535 ? new T.Uint32BufferAttribute(idx, 1) : new T.Uint16BufferAttribute(idx, 1));
     // vf-ground：数据已经拷进几何体了，把这几个大的普通数组清空——空档任务的闭包和它们在同一个作用域里，不清的话会一直留到任务跑完（连续换区时堆起来、触发 GC）
     pos.length = uv.length = col.length = idx.length = aw.length = ac.length = 0;
