@@ -4436,7 +4436,7 @@
         if (pts.length < 6) pts.push({ x: src.x, z: src.z }, { x: e.x, z: e.z }); // 折线来回：一道 bolt 连起所有跳过去的（最多 3 只，多了不画）
         n++;
       }
-      G.hitEnemy(e, ctx, M.mult * k, { ang: Math.atan2(e.x - src.x, e.z - src.z), w: 1, kb: 0.5, poise: 3 * k, quiet: e !== src });
+      G.hitEnemy(e, ctx, M.mult * k, { ang: Math.atan2(e.x - src.x, e.z - src.z), w: 0, kb: 0.5, poise: 3 * k, quiet: e !== src }); // w 0：几只一起炸时命中的亮星别连成一片
       state.stats.cbPopHits = (state.stats.cbPopHits || 0) + 1;
     }
     if (pts.length) W.bolt(pts, hex);
