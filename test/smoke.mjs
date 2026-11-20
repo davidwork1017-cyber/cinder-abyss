@@ -2015,7 +2015,8 @@ async function main() {
     }
     for (const k of ['staff', 'wand', 'banner']) {
       const c = r.cast[k];
-      assert(c.id === 'basic_' + k && c.cast && c.cast.indexOf('basic_' + k + ':b_point') === 0 && c.dmg > 0 && c.mana === 0 && c.cost === 0 && c.spell && !c.attack, k + '：右键应放出自己的普攻（朝前点出的动作）、打中靶子、不耗魔力、是法术：' + JSON.stringify(c));
+      const clip0 = { staff: 'b_staffA', wand: 'b_wandL', banner: 'b_point' }[k]; // 长杖 / 短杖有自己的出手动作，魂幡仍是朝前一点
+      assert(c.id === 'basic_' + k && c.cast && c.cast.indexOf('basic_' + k + ':' + clip0) === 0 && c.dmg > 0 && c.mana === 0 && c.cost === 0 && c.spell && !c.attack, k + '：右键应放出自己的普攻（朝前点出的动作）、打中靶子、不耗魔力、是法术：' + JSON.stringify(c));
     }
     assert(r.cast.staff.proj >= 1 && r.cast.banner.proj >= 1 && r.cast.wand.proj === 0, '灵弹 / 魂引是投射物，疾咒是瞬发的咒光：' + JSON.stringify(r.cast));
     assert(r.icons.length === 15 && r.icons.every((x) => /:true$/.test(x)), '每个普攻都应有图标：' + r.icons.join(' '));
@@ -2095,6 +2096,185 @@ async function main() {
     assert(/^basic_daggers:[1-3]$/.test(r.before) && r.swap.id === 'basic_hammer' && r.swap.step === 0, '换了武器应换成新武器的连招、从第一段起：' + JSON.stringify(r));
     assert(Math.abs(r.haste.ratio - 0.8) < 0.01 && r.haste.active === 'haste' && Math.abs(r.haste.fireT - r.haste.want) < 1e-6, '迅捷应让整串连招按出手速度变快：' + JSON.stringify(r.haste));
     return '缓冲在可接招后 ' + (r.buf.at * 1000).toFixed(0) + ' ms 接上';
+  });
+
+  await step('长杖的普攻「灵弹」：三下一轮（两枚小弹接一枚蓄力重弹，各有各的动作），停手约 0.55 秒 / 翻滚后从第一下起；迅捷让三下一起变快；不耗魔力；重弹炸开按元素追加：火留燃地（之后还在掉血）、冰溅出 4 根冰棱打中爆炸圈外的敌人并冰缓炸到的、雷弹向圈外最近的 2 个敌人', async () => {
+    const r = await ev((code) => {
+      eval(code);
+      const save = G.save, P = G.player, S = G.state, W = G.world, out = {};
+      const snap = T.buildSnap();
+      const keepW = save.equip.weapon;
+      const top0 = G.topElem;
+      const sk = G.SKILLS.basic_staff;
+      // 按住右键直到出下一发（返回这一发的段、动作、时刻）
+      const cast = (A, max) => {
+        const c0 = P.cast;
+        for (let i = 0; i < (max || 120); i++) {
+          T.aim(A.x, A.z);
+          G.input.mouse.b[2] = true;
+          G.tick(1 / 60);
+          const c = P.cast;
+          if (c && c !== c0 && c.id === 'basic_staff') {
+            G.input.mouse.b[2] = false;
+            return { step: c.step, clip: W.clipOf(P.ent), fireT: c.fireT, cancelT: c.cancelT, st: !!c.st };
+          }
+        }
+        G.input.mouse.b[2] = false;
+        return { step: -1 };
+      };
+      try {
+        T.lane();
+        RW.arm(1, 20);
+        for (const k of Object.keys(save.sockets)) save.sockets[k] = [null, null, null];
+        G.computeStats();
+        P.combo.step = 0;
+        P.combo.t = 0;
+        const A = T.mob('husk', 5, 0, { hp: 1e7 });
+        A.mass = 1e6;
+        const m0 = P.mana;
+        // 节奏：0、1、2（重弹）、0
+        out.seq = [cast(A), cast(A), cast(A), cast(A)];
+        out.mana = +(m0 - P.mana).toFixed(3);
+        out.cost = G.skillCtx('basic_staff').cost;
+        // 停手：过了窗口从头来；翻滚也从头来
+        G.debug.step(1.4);
+        out.reset = cast(A).step;
+        cast(A);
+        G.debug.step(0.5);
+        P.roll.cd = 0;
+        G.dodge();
+        G.debug.step(0.5);
+        out.afterRoll = cast(A).step;
+        // 迅捷：每一下的生效 / 可接招时刻都按施法速度缩短
+        G.debug.step(1.5);
+        const sp0 = G.skillCtx('basic_staff').speed;
+        if (save.supports.indexOf('haste') < 0) save.supports.push('haste');
+        G.socketSupport(G.BASIC_CARD, 0, 'haste');
+        const sp1 = G.skillCtx('basic_staff').speed;
+        const h = [cast(A), cast(A), cast(A)];
+        out.haste = { k: sp1 / sp0, ok: h.every((c, i) => Math.abs(c.cancelT - sk.cyc[i].time / sp1) < 1e-6 && Math.abs(c.fireT - (sk.cyc[i].time * (sk.cyc[i].hit || 0.5)) / sp1) < 1e-6), steps: h.map((c) => c.step).join() };
+        save.sockets[G.BASIC_CARD] = [null, null, null];
+        G.computeStats();
+        // 元素：直接放一发重弹（第三下），等它炸开
+        const heavy = (el, setup) => {
+          T.lane();
+          G.topElem = () => el;
+          const M = T.mob('husk', 4, 0, { hp: 1e7 });
+          M.mass = 1e6;
+          const side = setup(M);
+          for (const e of [M].concat(side)) e.buTh = 1e15; // 靶子血量改大了：异常阈值也抬上去，不让命中自带的冰冻 / 感电 / 爆燃掺进来
+          const ctx = G.skillCtx('basic_staff');
+          const k0 = S.stats['cb' + el[0].toUpperCase() + el.slice(1)] || 0, a0 = S.stats.cbArcHits || 0;
+          T.aim(M.x, M.z);
+          P.face = Math.atan2(M.x - P.x, M.z - P.z);
+          G.execSkill(ctx, sk.cyc[2]);
+          const proj = S.projectiles.filter((p) => p.burst && p.burst.el === el).map((p) => ({ vk: p.vk, ex: p.explode, m: p.blastMult }));
+          let boomed = false, shards = [];
+          for (let i = 0; i < 90 && !boomed; i++) {
+            G.tick(1 / 60);
+            boomed = (S.stats['cb' + el[0].toUpperCase() + el.slice(1)] || 0) > k0;
+          }
+          const chill = +(M.bu ? M.bu.cold : 0).toFixed(2); // 冰缓要在回落之前读
+          if (el === 'cold') {
+            // 冰棱：每根前方 1.6 米摆一只靶子，看哪几根打中；炸到的主目标不再挨冰棱
+            shards = S.projectiles.filter((p) => p.vk === 'ishard');
+            shards.forEach((p, i) => { side[i].x = p.x + p.dx * 1.6; side[i].z = p.z + p.dz * 1.6; });
+          }
+          const hp0 = side.map((e) => e.hp), mh = M.hp;
+          G.debug.step(1.2);
+          return { boomed, proj, side: side.map((e, i) => +(hp0[i] - e.hp > 0)), sideHit: side.map((e) => +(e.hp < 1e7)), later: mh - M.hp, shards: shards.length, chill, arcs: (S.stats.cbArcHits || 0) - a0, field: G.rangedFields().filter((f) => f.kind === 'cbfire').length };
+        };
+        out.fire = heavy('fire', () => []);
+        out.cold = heavy('cold', (M) => [0, 1, 2, 3].map(() => { const e = T.mob('husk', 4, 6, { hp: 1e7 }); e.mass = 1e6; return e; }));
+        out.light = heavy('light', (M) => [[0, 3.4], [0, -3.4], [3.6, 0.2]].map(([dx, dz]) => { const e = G.spawnMob('husk', M.x + dx, M.z + dz, 1, { awake: true }); e.hp = e.maxHp = 1e7; e.atkCd = 1e9; e.speed = 0; e.mass = 1e6; return e; }));
+      } finally {
+        G.topElem = top0;
+        save.equip.weapon = keepW;
+        T.buildRestore(snap);
+        save.sockets[G.BASIC_CARD] = [null, null, null];
+        T.arena();
+      }
+      return out;
+    }, rangedSetup);
+    const s = r.seq;
+    assert(s.map((c) => c.step).join() === '0,1,2,0' && s.map((c) => c.clip).join() === 'b_staffA,b_staffB,b_staffH,b_staffA' && s.every((c) => !c.st), '灵弹应三下一轮、各段动作对得上（不是近战连招）：' + JSON.stringify(s));
+    assert(s[2].cancelT > s[0].cancelT * 1.7 && s[2].fireT > s[0].fireT * 2, '第三下（重弹）应明显慢一拍、先蓄力：' + JSON.stringify(s));
+    assert(r.mana === 0 && r.cost === 0, '灵弹不耗魔力：' + JSON.stringify([r.mana, r.cost]));
+    assert(r.reset === 0 && r.afterRoll === 0, '停手 / 翻滚后应从第一下起：' + JSON.stringify([r.reset, r.afterRoll]));
+    assert(Math.abs(r.haste.k - 1.25) < 0.01 && r.haste.ok && r.haste.steps === '0,1,2', '迅捷应让三下一起按施法速度变快：' + JSON.stringify(r.haste));
+    for (const el of ['fire', 'cold', 'light']) {
+      const x = r[el];
+      assert(x.boomed && x.proj.length === 1 && x.proj[0].vk === 'lbolt3' && x.proj[0].ex === 2.4, el + '：重弹（lbolt3、炸开半径 2.4）应炸开并追加：' + JSON.stringify(x));
+    }
+    assert(r.fire.field === 1 && r.fire.later > 0 && r.fire.proj[0].m === 1.5, '火：重弹 ×1.5、留一片燃地，炸完之后站在里面的目标还在掉血：' + JSON.stringify(r.fire));
+    assert(r.cold.shards === 4 && r.cold.side.reduce((a, b) => a + b, 0) >= 3 && r.cold.chill >= 0.2, '冰：应溅出 4 根冰棱打中前方的敌人、炸到的目标被冰缓：' + JSON.stringify(r.cold));
+    assert(r.light.arcs === 2 && r.light.sideHit.reduce((a, b) => a + b, 0) === 2, '雷：电弧应弹向爆炸圈外最近的 2 个敌人（第三个不挨）：' + JSON.stringify(r.light));
+    return '节奏 ' + s.map((c) => c.clip).join(' → ') + ' · 冰棱打中 ' + r.cold.side.join('') + ' · 电弧 ' + r.light.sideHit.join('');
+  });
+
+  await step('短杖的普攻「疾咒」：左右手交替甩出咒光、弹向旁边 1 个敌人，每次命中叠 1 层咒痕；叠满 5 层的那一下引爆，跳向附近所有带咒痕的敌人（没有咒痕的不挨）、咒痕清空；不耗魔力；4 秒不再叠就消失', async () => {
+    const r = await ev((code) => {
+      eval(code);
+      const save = G.save, P = G.player, S = G.state, W = G.world, out = {};
+      const snap = T.buildSnap();
+      const keepW = save.equip.weapon;
+      try {
+        T.lane();
+        RW.arm(2, 20);
+        for (const k of Object.keys(save.sockets)) save.sockets[k] = [null, null, null];
+        G.computeStats();
+        P.combo.step = 0;
+        P.combo.t = 0;
+        // A：准星对着的目标；B：A 旁边 2.4 米（咒光弹过去）；D：A 旁边 5 米（弹不到、没有咒痕）
+        const A = T.mob('husk', 5, 0, { hp: 1e7 });
+        const B = T.mob('husk', 5, 2.4, { hp: 1e7 });
+        const D = T.mob('husk', 5, -5, { hp: 1e7 });
+        for (const e of [A, B, D]) {
+          e.mass = 1e6;
+          e.buTh = 1e15; // 不让感电 / 冰冻之类的异常掺进来（感电放电会打到 D）
+        }
+        T.fix(); // 伤害取中值、不暴击：B 每一下挨的伤害好比
+        const m0 = P.mana, p0 = S.stats.cbPops || 0, j0 = S.stats.cbJumps || 0;
+        const fires = [];
+        let last = null;
+        for (let i = 0; i < 240 && fires.length < 5; i++) {
+          T.aim(A.x, A.z);
+          G.input.mouse.b[2] = true;
+          const c0 = P.cast, f0 = c0 && c0.fired;
+          const hb = B.hp;
+          G.tick(1 / 60);
+          if (c0 && c0.id === 'basic_wand' && c0.fired && !f0) fires.push({ a: A.cbMark || 0, b: B.cbMark || 0, d: D.cbMark || 0, clip: last, bHit: hb - B.hp });
+          if (P.cast && P.cast !== c0) last = W.clipOf(P.ent);
+        }
+        G.input.mouse.b[2] = false;
+        out.fires = fires;
+        out.clips = fires.map((f) => f.clip).join();
+        out.pops = (S.stats.cbPops || 0) - p0;
+        out.jumps = (S.stats.cbJumps || 0) - j0;
+        out.dHp = 1e7 - D.hp;
+        out.mana = +(m0 - P.mana).toFixed(3);
+        out.cost = G.skillCtx('basic_wand').cost;
+        out.glyphs = G.wandMarks().size;
+        // 4 秒没再叠：咒痕消失
+        G.debug.step(4.3);
+        out.after = { b: B.cbMark || 0, size: G.wandMarks().size };
+      } finally {
+        T.unfix();
+        save.equip.weapon = keepW;
+        T.buildRestore(snap);
+        T.arena();
+      }
+      return out;
+    }, rangedSetup);
+    const f = r.fires;
+    assert(f.length === 5 && f.slice(0, 4).map((x) => x.a + ':' + x.b).join() === '1:1,2:2,3:3,4:4', '前四下应给目标和弹到的敌人各叠一层咒痕：' + JSON.stringify(f));
+    assert(f[4].a === 0 && f[4].b === 1 && r.pops === 1 && r.jumps === 1, '第五下叠满引爆：目标和带咒痕的 B 一起炸、咒痕清空（B 再被这一下的咒光叠回 1 层）：' + JSON.stringify({ f: f[4], pops: r.pops, jumps: r.jumps }));
+    assert(f[4].bHit > f[3].bHit * 1.5, '引爆应跳到 B 身上（这一下 B 挨得比平时多）：' + JSON.stringify(f.map((x) => Math.round(x.bHit))));
+    assert(r.dHp === 0 && f.every((x) => x.d === 0), '没有咒痕的 D 不该挨引爆：' + r.dHp);
+    assert(/^b_wandL,b_wandR,b_wandL,b_wandR,b_wandL$|^b_wandR,b_wandL,b_wandR,b_wandL,b_wandR$/.test(r.clips), '应左右手交替出手：' + r.clips);
+    assert(r.mana === 0 && r.cost === 0, '疾咒不耗魔力：' + JSON.stringify([r.mana, r.cost]));
+    assert(r.after.b === 0 && r.after.size === 0, '咒痕 4 秒不再叠应消失：' + JSON.stringify(r.after));
+    return '咒痕 ' + f.map((x) => x.a).join('→') + ' · 引爆跳 ' + r.jumps;
   });
 
   await step('魂幡的普攻「魂引」：没有召唤物也能打；伤害按召唤物算（吃召唤物伤害提高，不吃你的物理伤害提高）；每只召唤物 +8%（最多 5 只）；打中的目标成为召唤物的集火目标；召唤物辅助（驭灵）对它生效', async () => {
@@ -14411,8 +14591,9 @@ async function main() {
           out.bad.push(s + '：怪 ' + mobs + ' 精英 ' + el + '（关键路径 ' + pel + '）宝箱 ' + sp.chests.length + ' 大厅 ' + nP + ' 旁支 ' + sides.length + ' 伏击 ' + amb + ' lv ' + lvOk);
         }
       }
-      // 固定种子进区
+      // 固定种子进区。异兆关掉：随机掷到的游荡者会在雷枢边上醒来，把关了无敌的玩家打倒，倒下时雷枢不运转（约 3% 的概率整步失败）
       G.debug.zoneSeed(4242);
+      G.debug.noEnc = true;
       G.enterZone(zi, 0);
       const z = S.zone, info = G.debug.layout();
       out.zone = {
@@ -14463,6 +14644,7 @@ async function main() {
       out.respawn = { dead: P.dead, door: +(Math.hypot(P.x - z2.bossPos.x, P.z - z2.bossPos.z) - z2.bossR).toFixed(3), walk: W.walkable(P.x, P.z, 0.5) };
       G.debug.god(true);
       G.debug.zoneSeed(null);
+      G.debug.noEnc = false;
       G.enterZone(0, 0);
       return out;
     });

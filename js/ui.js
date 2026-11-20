@@ -667,6 +667,8 @@
     }
   }
 
+  // 技能格下面的连段格：近战连招按段数；施法普攻三下以上一轮的（灵弹）也亮，疾咒只是左右换手、不显示
+  const comboSteps = (sk) => sk.combo || (sk.cyc && sk.cyc.length > 2 ? sk.cyc : null);
   function setFlask(f, charges) {
     for (let i = 0; i < 3; i++) {
       const q = Math.round(G.clamp(charges - i, 0, 1) * 20) / 20;
@@ -753,7 +755,7 @@
           const sk = G.SKILLS[id];
           s.img.className = 's-img ico ' + IC.cls('sk-' + id);
           s.icon.style.setProperty('--c', sk.color);
-          s.el.classList.toggle('has-combo', !!sk.combo);
+          s.el.classList.toggle('has-combo', !!comboSteps(sk));
           s.el.classList.toggle('aura', sk.kind === 'aura');
           if (i === W_SLOT) {
             // 烬铸技：R 格换上余烬光框，键位下的字换成「烬铸技」
@@ -773,12 +775,12 @@
       }
       // 连段指示：正在出第几段（出手中算上这一段），窗口过了就熄灭
       let lit = 0;
-      if (id && G.SKILLS[id].combo && !P.dead) {
-        if (P.cast && P.cast.id === id && P.cast.st) lit = P.cast.step + 1;
+      if (id && comboSteps(G.SKILLS[id]) && !P.dead) {
+        if (P.cast && P.cast.id === id && (P.cast.st || P.cast.cs)) lit = P.cast.step + 1;
         else if (P.combo.t > 0) lit = P.combo.step;
       }
       // 连段格按这一招的段数显示：武器普攻的连招大多 3 段（多的藏起来），双匕 4 段（不够就补一格）
-      const nc = id && G.SKILLS[id].combo ? G.SKILLS[id].combo.length : 3;
+      const nc = id && comboSteps(G.SKILLS[id]) ? comboSteps(G.SKILLS[id]).length : 3;
       while (nc > s.pips.length) s.pips.push(s.pips[0].parentNode.appendChild(document.createElement('i')));
       if (lit !== s.lit || nc !== s.nc) {
         s.lit = lit;
@@ -2036,7 +2038,7 @@
         nums = num('每段平均', fmtDmg(avg), 'hl') + num('连招', sk.combo.length + ' 段') + num('估算秒伤', fmtDmg(avg * rate)) +
           num('暴击率', fmt1(ctx.crit) + '%') + num('魔力消耗', '无');
       } else if (ctx) {
-        nums = num(sk.rtype === 'flamer' ? '每一跳' : '每发伤害', fmtDmg(avg), 'hl') +
+        nums = num(sk.rtype === 'flamer' ? '每一跳' : sk.cyc ? '每发平均' : '每发伤害', fmtDmg(avg), 'hl') +
           num(sk.rtype === 'flamer' ? '每秒几跳' : '每秒几发', rate > 0 ? rate.toFixed(2) : '—') +
           num('估算秒伤', fmtDmg(avg * rate)) +
           num('暴击率', fmt1(ctx.crit) + '%') +
@@ -2049,6 +2051,7 @@
       body =
         '<div class="sk-desc">' + sk.desc + altBox(sk.alt) + '</div>' +
         (sk.combo ? '<div class="sk-combo">' + sk.combo.map((c, i) => '<span' + (c.w >= 2 ? ' class="fin"' : '') + '>' + (c.w >= 2 ? '终结 ' : '第 ' + (i + 1) + ' 段 ') + '×' + c.mult + '</span>').join('<i></i>') + '</div>' : '') +
+        (comboSteps(sk) && !sk.combo ? '<div class="sk-combo">' + sk.cyc.map((c, i) => '<span' + (c.heavy ? ' class="fin">重弹 ' : '>第 ' + (i + 1) + ' 发 ') + '×' + c.mult + '</span>').join('<i></i>') + '</div>' : '') + // 灵弹：三下一轮
         (nums ? '<div class="sk-nums">' + nums + '</div>' : '') +
         (ctx && ctx.attack ? attackNote(ctx) : '') +
         (el ? '<div class="sk-anote"><i></i><span>法术：随武器物品等级成长，属性取加成最高的元素（现在是 <b style="color:' + G.TYPE_COLOR[el] + '">' + G.TYPE_NAME[el] + '</b>）</span></div>' : '') +
