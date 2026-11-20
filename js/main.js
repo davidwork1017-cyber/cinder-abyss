@@ -67,6 +67,7 @@
       }
       if (code === 'Escape') {
         if (G.ui.isOpen()) G.ui.close();
+        else if (!e.repeat) G.ui.pause(); // 没有面板开着：打开暂停菜单
         return;
       }
       if (G.ui.isOpen()) return; // 面板打开时不接受游戏输入
@@ -181,20 +182,41 @@
     G.state.paused = open;
     if (open) {
       clearInput(true); // 面板关掉后不会带着按住的键继续跑（Alt 除外）
+      if (G.ui.titleOn()) G.ui.titleFrame(dt); // 标题画面：模拟照样不推进，只让区域的火光、飘尘动起来，镜头缓慢漂移
     } else {
       refreshMouseWorld();
       if (!held) sim(dt);
     }
     W.render();
-    G.ui.update();
+    if (!G.ui.titleOn()) G.ui.update(); // 标题画面盖着 HUD，不用每帧刷新
   }
 
+  // 标题画面开着、而且本地原本没有存档时，先不写存档：只是打开页面又关掉，下次不会凭空多出一个「继续游戏」。
+  // 点了「新游戏」才放开（G.holdSave(false)）
+  let holdSave = false;
+  const persistRaw = G.persist;
+  G.persist = () => (holdSave ? false : persistRaw());
+  G.holdSave = (on) => {
+    holdSave = !!on;
+    return holdSave;
+  };
+
   function boot() {
+    const hadSave = G.hasSave();
+    // 标题画面：index.html 开头已经按 ?play / window.__skipTitle / 一次性标记定好了（html 上有没有 title-on）
+    const title = document.documentElement.classList.contains('title-on');
+    try {
+      window.sessionStorage.removeItem(G.PLAY_ONCE_KEY); // 「新游戏」重载后的一次性标记：用过就清掉
+    } catch (err) {
+      /* 存储不可用就算了 */
+    }
+    holdSave = title && !hadSave;
     const save = G.loadSave();
     // 首个区域的 CC0 素材包先开始下载（和下面的初始化同时进行），最多等 2.5 秒；等的时候盖一层「正在载入场景…」
     const pre = W.preloadZone(save.lastZone, 2500);
     W.init();
     G.ui.init();
+    if (title) G.ui.showTitle(false);
     G.player.ent = W.makePlayer();
     G.computeStats();
     G.player.life = G.player.maxLife;
@@ -210,15 +232,22 @@
       else G.enterZone(save.lastZone, save.tier, 'resume');
       W.update(0); // 首次运行会先停在开场卡片：先把镜头和灯光摆到玩家身上
       if (!save.seenHelp) {
-        save.seenHelp = true;
-        G.persist();
-        G.ui.showIntro();
+        const intro = () => {
+          save.seenHelp = true;
+          G.persist();
+          G.ui.showIntro();
+        };
+        if (G.ui.titleOn()) G.ui.afterTitle(intro); // 开场卡片等离开标题画面再弹
+        else intro();
       }
+      if (G.ui.titleOn()) G.ui.titleReady(); // 区域建好了：「继续游戏」「新游戏」可以点了
       last = performance.now();
       requestAnimationFrame(frame);
     };
     pre.then(start, start);
   }
+
+  G.PLAY_ONCE_KEY = 'cinder-abyss-play-once'; // 和 index.html 开头的判断用同一个键
 
   // ---------- 自动化测试用的调试接口 ----------
   const refreshUi = () => {
