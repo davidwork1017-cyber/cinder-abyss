@@ -929,7 +929,7 @@
       prop: { tint: 0x3e5250, sat: 0.12 },
       patch: 0.2, // zones-polish：板岩路面上的暗色软斑 0.55 → 0.2
       // vf-ground：板岩上一片片苔尘（青灰的地衣），岩脚厚；路外是苔点、晶尘和碎石
-      layer: { tex: 'g_cover_rift', tile: 5, con: 0.55, rough: 1, k: 0.46, sat: 0.6, col: 0x47584f, path: 0.6, pT: 0.58, edge: 0.9, jag: 1.4, blend: 0.08, edgeW: 0.6, mv: 0.1, mh: 0.1, scorch: 0.45, sT: 0.64, ao2: 0.22 }, // scorch：成片的月岩地（mv 小一点：这一区 main 的地面已经在 33% 上下）
+      layer: { tex: 'g_cover_rift', tile: 5, con: 0.55, rough: 1, k: 0.46, sat: 0.6, col: 0x47584f, path: 0.6, pT: 0.58, edge: 0.9, jag: 1.0, blend: 0.08, edgeW: 1.0, mv: 0.1, mh: 0.1, scorch: 0.45, sT: 0.64, ao2: 0.22 }, // scorch：成片的月岩地（mv 小一点：这一区 main 的地面已经在 33% 上下）
       deco: { cover: 0x46605a, floor: 0.8, wild: 1, ao: 0.85, aoR: 0.9, scorch: 0, clusters: 0.6, kinds: [13, 4, 7, 8, 11, 14], tint: 0x3a4a4a }, // 覆盖斑贴近板岩的明暗（原来 0x5a7a70 太亮，路面上一块块亮斑）
       pool: { col: 0x5ad8e8, k: 0.25, r: 3, gain: 1.2, glows: true }, // 晶簇周围映出电光青（淡一些：墙边晶簇多，地面别亮出 35%）
       blots: { k: 0.4, r: 0.7, op: 0.3, tex: 'crack' }, // zones-polish：细裂纹代替暗块。污斑少一半多、小一点（zones-ash 加的旋钮）
