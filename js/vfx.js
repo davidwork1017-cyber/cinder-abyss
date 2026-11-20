@@ -91,6 +91,7 @@
   // ---------- 共用 uniform：所有特效材质都引用同一批对象（世界层每帧只改 uTime 一处） ----------
   V.U = {
     uTime: { value: 0 },
+    uLo: { value: 0 }, // 低画质 = 1（世界层的 setQuality 设）：大面积的特效在低画质下把噪声纹理收一点
     tNoiseA: { value: V.tex.noiseA },
     tNoiseB: { value: V.tex.noiseB },
     tRamp: { value: V.tex.ramps },
@@ -111,7 +112,7 @@
   //   vfxErode(v, th, w)：噪声门限消融：x = 硬边不透明度（v 过 th），y = 门限上方宽 w 的一道亮边
   //   vfxSteps(a)：不透明度按卡通的三档跳（1 / 0.62 / 0.3）
   V.GLSL = [
-    'uniform float uTime; uniform sampler2D tNoiseA; uniform sampler2D tNoiseB; uniform sampler2D tRamp; uniform sampler2D tFlipA; uniform sampler2D tFlipB;',
+    'uniform float uTime; uniform float uLo; uniform sampler2D tNoiseA; uniform sampler2D tNoiseB; uniform sampler2D tRamp; uniform sampler2D tFlipA; uniform sampler2D tFlipB;',
     'vec3 vfxNA(vec2 p){ return texture2D(tNoiseA, p).rgb; }',
     'vec3 vfxNB(vec2 p){ return texture2D(tNoiseB, p).rgb; }',
     'vec3 vfxRamp(float t, float row){ return texture2D(tRamp, vec2(clamp(t, 0.008, 0.992), (row + 0.5) / 8.0)).rgb; }',
@@ -193,7 +194,8 @@
   // ---------- 一个材质画好几种公告板：光晕 + 六种序列帧（预乘 alpha 混合：加色的种类输出 alpha = 0，普通混合的输出 alpha） ----------
   // 世界层把它挂在投射物的「光晕」零件上：光晕和所有序列帧特效（命中的火团、烟、火花、冲击环、斩击弧、电弧）共用一个实例缓冲、一次 draw call。
   // aFx = (进度 0..1, 种子, 亮度倍率, 种类)。种类：0 光晕（和原来的 glowTex 同一条径向曲线）/ 1 火团 / 2 烟团 / 3 火花 / 4 冲击环 / 5 斩击弧 / 6 电弧
-  V.FB = { glow: 0, fire: 1, smoke: 2, spark: 3, ring: 4, slash: 5, arc: 6 };
+  // 7 = 循环的火团（帧号跟着时间转、不淡出，投射物的火头用）
+  V.FB = { glow: 0, fire: 1, smoke: 2, spark: 3, ring: 4, slash: 5, arc: 6, fireLoop: 7 };
   let multiMat = null;
   V.multi = function () {
     if (multiMat) return multiMat;
@@ -218,6 +220,8 @@
     'varying vec2 vUv; varying vec3 vCol; varying vec4 vFx; varying float vWy;',
     'void main(){',
     '  float kind = floor(vFx.w + 0.5), k = vFx.x, seed = vFx.y;',
+    '  float loop = step(6.5, kind);',
+    '  if (loop > 0.5) { kind = 1.0; k = fract(uTime * 1.6 + seed); }',
     '  vec3 col = vCol; float a = 0.0; float add = 1.0; float boost = 0.0;',
     '  if (kind < 0.5) {',
     // 光晕：glowTex 的径向渐变（0 → 1、0.25 → 0.55、0.6 → 0.14、1 → 0），加色
@@ -229,8 +233,9 @@
     '    if (kind < 1.5) {',
     // 火团：卡通的三档色带（暗红边 / 主色 / 亮芯往白混），噪声啃一下边，普通混合，最亮的一档再叠一点加色
     '      float n = vfxNA(vUv * 0.7 + seed * 5.3 + vec2(0.0, -uTime * 0.6)).r;',
-    '      float t = s * (0.75 + 0.4 * n) * (1.0 - 0.45 * k);',
-    '      a = smoothstep(0.1, 0.18, t) * (1.0 - smoothstep(0.75, 1.0, k));',
+    '      float kf = mix(k, 0.1, loop);',
+    '      float t = s * (0.75 + 0.4 * n) * (1.0 - 0.45 * kf);',
+    '      a = smoothstep(0.1, 0.18, t) * (1.0 - smoothstep(0.75, 1.0, kf));',
     '      float mx = max(col.r, max(col.g, col.b));',
     '      col = t < 0.34 ? col * 0.4 : (t < 0.78 ? col : mix(col, vec3(mx, mx * 0.86, mx * 0.55), 0.55));',
     '      add = 0.0; boost = t > 0.78 ? 0.15 : 0.0;',
@@ -263,6 +268,77 @@
     '  if (a < 0.004) discard;',
     '  vec3 o = linearToOutputTexel(vec4(col, 1.0)).rgb;',
     '  gl_FragColor = vec4(o * a * (1.0 + boost), (1.0 - add) * a);',
+    '}',
+  ].join('\n');
+
+  // ---------- 地面瞬时痕迹（焦痕 / 霜痕 / 渊痕 / 地面闪光）：一个实例网格画全部，预乘 alpha 混合（闪光是加色） ----------
+  // aFx = (进度 0..1, 种子, 亮度, 种类)。前 45% 完整，之后被噪声从外圈往里蚀掉；焦痕刚落下时裂缝里透着余烬（实例色），霜痕带放射状的冰晶
+  V.VD = { scorch: 0, frost: 1, void: 2, flash: 3 };
+  let decalMat = null;
+  V.decalMat = function () {
+    if (decalMat) return decalMat;
+    decalMat = new T.ShaderMaterial({
+      uniforms: V.uni({ uColor: { value: new T.Color(1, 1, 1) }, uFx: { value: new T.Vector4(0, 0, 1, 0) } }),
+      defines: { VFX_AFX: 1 },
+      vertexShader: SPRITE_VERT,
+      fragmentShader: V.GLSL + '\n' + DECAL_FRAG,
+      transparent: true,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+      blending: T.CustomBlending,
+      blendEquation: T.AddEquation,
+      blendSrc: T.OneFactor,
+      blendDst: T.OneMinusSrcAlphaFactor,
+      fog: false,
+    });
+    decalMat.toneMapped = false;
+    decalMat.userData.vfx = true;
+    return decalMat;
+  };
+  const DECAL_FRAG = [
+    'varying vec2 vUv; varying vec3 vCol; varying vec4 vFx; varying float vWy;',
+    'void main(){',
+    '  vec2 p = vUv * 2.0 - 1.0; float l = length(p);',
+    '  if (l > 1.0) discard;',
+    '  float kind = floor(vFx.w + 0.5), k = vFx.x, seed = vFx.y;',
+    '  vec2 q = vUv * 0.8 + seed * 7.31;',
+    '  float n = vfxNA(q).r, ce = vfxNA(q * 1.5 + 0.37).b;',
+    '  float er = k < 0.45 ? 0.0 : (k - 0.45) / 0.55;', // 消融进度
+    '  float edge = 1.0 - l + (n - 0.5) * 0.5;', // 不规则的外沿
+    '  float m = smoothstep(0.0, 0.05, edge - er * (1.1 - n * 0.4));',
+    '  vec3 rgb = vec3(0.0); float a = 0.0;',
+    '  if (kind < 0.5) {',
+    // 焦痕：近黑的焦斑（带一点褐紫，不是死黑），前 35% 裂缝里透着余烬的亮色（加色）
+    '    vec3 c = vec3(0.075, 0.045, 0.05) * (0.8 + 0.4 * n);',
+    '    a = m * 0.8;',
+    '    float hot = step(0.55, ce) * (1.0 - smoothstep(0.1, 0.38, k)) * step(l, 0.8);',
+    '    rgb = linearToOutputTexel(vec4(c, 1.0)).rgb * a + linearToOutputTexel(vec4(vCol * 1.3, 1.0)).rgb * hot * m;',
+    '  } else if (kind < 1.5) {',
+    // 霜痕：只有外沿的一圈冰带（跟着半径扩开，像霜从里往外扫过去），冰带上胞腔边是更亮的冰缝，往里长着一根根尖的冰晶；
+    // 圈里是空的（光环常驻，整片铺满会把脚下的地面和怪都罩成一片白）。灰度里靠尖的形状认得出是冰
+    '    float an = atan(p.y, p.x);',
+    '    float band = smoothstep(0.68, 0.74, l + (n - 0.5) * 0.12);',
+    '    float spk = step(0.93, pow(abs(cos(an * 9.0 + n * 2.0 + seed * 6.0)), 14.0) + (l - 0.45) * 0.12) * step(0.5, l) * step(l, 0.95);',
+    '    vec3 c = mix(vCol * 0.75, vec3(0.92, 0.97, 1.0), clamp(ce * 0.7 + spk, 0.0, 1.0));',
+    '    a = m * band * (0.22 + 0.26 * ce) + spk * 0.38 * (1.0 - er) * m;',
+    '    rgb = linearToOutputTexel(vec4(c, 1.0)).rgb * a;',
+    '  } else if (kind < 2.5) {',
+    // 渊痕：近黑的暗紫，胞腔边是品红的细纹
+    '    float vein = step(0.72, ce) * step(l, 0.8);',
+    '    vec3 c = mix(vec3(0.035, 0.01, 0.045), vCol, vein * 0.5);',
+    '    a = m * (0.55 + 0.12 * vein);',
+    '    rgb = linearToOutputTexel(vec4(c, 1.0)).rgb * a;',
+    '  } else {',
+    // 地面闪光：中心亮、往外快速衰减，整体按 (1 − k)² 熄掉，加色
+    '    float f = (1.0 - l) * (1.0 - l) * (1.0 - k) * (1.0 - k);',
+    '    rgb = linearToOutputTexel(vec4(vCol, 1.0)).rgb * f * 1.2;',
+    '    a = 0.0;',
+    '  }',
+    '  rgb *= vFx.z; a *= vFx.z;',
+    '  if (a < 0.004 && dot(rgb, vec3(1.0)) < 0.004) discard;',
+    '  gl_FragColor = vec4(rgb, a);',
     '}',
   ].join('\n');
 
