@@ -9835,36 +9835,68 @@
     const LY = hd && gx.layer && G.assets.tex(gx.layer.tex) && !vfOff('layer') ? gx.layer : null;
     const trailK = (x, z, d) => (ashT && d > -0.5 ? (1 - smooth01((ashT(x, z) - 0.8) / 1.4)) * smooth01((d + 0.5) / 1.2) : 0); // 踩出来的路
     // pn0：调用方已经算好的 vnoise(x * 0.17 + 11.3, z * 0.17 - 5.1)（地面顶点循环里本来就有），墙脚堆积的断续用它，不再多算一次噪声
-    const coverW = (x, z, d, tk, pn0) => {
+    const coverW = (x, z, d, tk, pn0, pc0) => {
       if (d < -2.4 || tk >= 1) return 0;
-      const pc = MF ? MF(x, z, 3) : vnoise(x * 0.09 + 5.3, z * 0.09 - 9.1) * 0.62 + vnoise(x * 0.23 - 2.2, z * 0.23 + 4.4) * 0.38;
+      const pc = pc0 !== undefined ? pc0 : MF ? MF(x, z)[3] : vnoise(x * 0.09 + 5.3, z * 0.09 - 9.1) * 0.62 + vnoise(x * 0.23 - 2.2, z * 0.23 + 4.4) * 0.38;
       const patch = smooth01((pc - LY.pT) / 0.07) * LY.path * smooth01((d - 0.4) / 1.2);
       const an = pn0 !== undefined ? pn0 : vnoise(x * 0.17 + 11.3, z * 0.17 - 5.1);
       const acc = d > 1.8 ? 0 : LY.edge * (1 - smooth01((d - 0.1) / 1.7)) * smooth01((d + 2.4) / 1.1) * smooth01(0.2 + 1.6 * (an - 0.35));
       const clr = (1 - tk) * smooth01((Math.hypot(x - zone.start.x, z - zone.start.z) - 2.2) / 2.5);
       return Math.min(1, Math.max(patch, acc)) * clr;
     };
-    // vf-ground：大尺度的明暗 / 冷暖 / 烧焦地噪声（周期 5 m 以上）先按 2 m 的粗网格算好，顶点上双线性取（省掉每个顶点 5 次值噪声，建区快几毫秒）
+    // vf-ground：大尺度的明暗 / 冷暖 / 烧焦地 / 覆盖层斑块噪声（周期 4 m 以上）按 2 m 的粗网格算，格点用到时才算（只有地面网格附近的格点会被用到），
+    // 顶点上一次双线性取四个通道（写进 mf4）。比每个顶点算 7 次值噪声省得多，建区快几毫秒
     let MF = null;
+    const mf4 = new Float32Array(4);
     if (LY) {
-      const S2 = 2, fw = Math.ceil((nx * CS) / S2) + 2, fh = Math.ceil((nz * CS) / S2) + 2, A = new Float32Array(fw * fh * 4);
-      for (let j = 0; j < fh; j++) {
-        for (let i = 0; i < fw; i++) {
-          const x = x0 + i * S2, z = z0 + j * S2, o = (j * fw + i) * 4;
-          A[o] = vnoise(x * 0.065 + 3.3, z * 0.065 - 1.9) * 0.6 + vnoise(x * 0.15 - 7.1, z * 0.15 + 2.2) * 0.4;
-          A[o + 1] = vnoise(x * 0.045 + 9.2, z * 0.045 - 4.4);
-          A[o + 2] = vnoise(x * 0.075 - 6.6, z * 0.075 + 3.9) * 0.7 + vnoise(x * 0.19 + 2.5, z * 0.19 - 8.1) * 0.3;
-          A[o + 3] = vnoise(x * 0.09 + 5.3, z * 0.09 - 9.1) * 0.62 + vnoise(x * 0.23 - 2.2, z * 0.23 + 4.4) * 0.38; // 覆盖层斑块（coverW 的 pc）
-        }
-      }
-      MF = (x, z, k) => {
+      const S2 = 2, fw = Math.ceil((nx * CS) / S2) + 2, fh = Math.ceil((nz * CS) / S2) + 2, A = new Float32Array(fw * fh * 4).fill(NaN);
+      const cell = (i, j) => {
+        const o = (j * fw + i) * 4;
+        if (A[o] === A[o]) return o;
+        const x = x0 + i * S2, z = z0 + j * S2;
+        A[o] = vnoise(x * 0.065 + 3.3, z * 0.065 - 1.9) * 0.6 + vnoise(x * 0.15 - 7.1, z * 0.15 + 2.2) * 0.4;
+        A[o + 1] = vnoise(x * 0.045 + 9.2, z * 0.045 - 4.4);
+        A[o + 2] = vnoise(x * 0.075 - 6.6, z * 0.075 + 3.9) * 0.7 + vnoise(x * 0.19 + 2.5, z * 0.19 - 8.1) * 0.3;
+        A[o + 3] = vnoise(x * 0.09 + 5.3, z * 0.09 - 9.1) * 0.62 + vnoise(x * 0.23 - 2.2, z * 0.23 + 4.4) * 0.38; // 覆盖层斑块（coverW 的 pc）
+        return o;
+      };
+      MF = (x, z) => {
         const fx = Math.min(fw - 1.001, Math.max(0, (x - x0) / S2)), fz = Math.min(fh - 1.001, Math.max(0, (z - z0) / S2));
-        const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, w = fz - j, o = (j * fw + i) * 4 + k, r = fw * 4;
-        return A[o] * (1 - u) * (1 - w) + A[o + 4] * u * (1 - w) + A[o + r] * (1 - u) * w + A[o + r + 4] * u * w;
+        const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, w = fz - j;
+        const a = cell(i, j), b = cell(i + 1, j), c = cell(i, j + 1), d = cell(i + 1, j + 1);
+        const ka = (1 - u) * (1 - w), kb = u * (1 - w), kc = (1 - u) * w, kd = u * w;
+        for (let k = 0; k < 4; k++) mf4[k] = A[a + k] * ka + A[b + k] * kb + A[c + k] * kc + A[d + k] * kd;
+        return mf4;
       };
     }
+    const offJag = vfOff('jag');
     // 路面上粗糙斑块的强度（zones-polish：ZONE_GFX.<id>.patch，缺省 0.55 和原来一样）：frost / rift 的粗糙地面贴图在路面上是一块块像泥、像脏印子的软边斑，压下去
     const patchK = gx && gx.patch !== undefined ? gx.patch : 0.55;
+    // 一个地面顶点（hd）的颜色 / 权重：o = [r, g, b, 路面权重, 岩壁权重, 覆盖层权重]；L = LY 时带上 vf-ground 的各层，L = null 时和 main 逐位相同
+    const hv = new Float32Array(6), vfV = [];
+    const hdV = (x, z, d, tk, pn, lit, kk, L, o) => {
+      let v = GROUND_VK + (lit - GROUND_VK) * kk;
+      let tv = ash ? (vnoise(x * 0.07 - 4.1, z * 0.07 + 8.3) - 0.5) * 0.14 : 0; // 第 0 区：大片的冷暖起伏（画出来的感觉）
+      if (L) {
+        MF(x, z); // 这个顶点的四个大尺度通道（mf4）
+        // vf-ground：几米一个周期的明暗（mv）和冷暖（mh）起伏，地面不再是一整片同样的平铺；墙脚 / 岩壁脚下一圈接触阴影（ao2）
+        if (L.mv) v *= 1 + L.mv * 2 * (mf4[0] - 0.42); // 偏亮一点（-0.42）：暗的那一半不掉出地面 25% 的下限
+        if (L.mh) tv += L.mh * 2 * (mf4[1] - 0.5);
+        if (L.ao2) v *= 1 - L.ao2 * (1 - smooth01((d + 0.3) / 0.7)) * smooth01((d + 2.4) / 1.0);
+      }
+      o[0] = v * (1 + 0.07 * tk + tv);
+      o[1] = v;
+      o[2] = v * (1 - 0.1 * tk - tv);
+      const dj = L && L.jag && d > -2.2 && d < 1.6 && !offJag ? d + (pn - 0.5) * L.jag : d; // 路边起伏用现成的 pn（周期约 6 m）
+      let wp = smooth01((dj + 0.45) / (L && L.edgeW ? L.edgeW : 1.0));
+      // vf-ground：成片的烧焦地（大尺度噪声，离路边 0.6 m 以内和踩出来的路上没有）
+      if (L && L.scorch && d > 0.6) wp *= 1 - L.scorch * smooth01((mf4[2] - L.sT) / 0.05) * (1 - tk) * smooth01((d - 0.6) / 1.0);
+      // 路面上零星的粗糙斑块，离路边越远越少；第 0 区斑块更多更实（打散满地一样的龟裂纹），踩出来的路上没有
+      wp *= ash ? 1 - patchK * smooth01((pn - 0.6) / 0.16) * smooth01((d + 0.5) / 2.5) * (1 - tk) * smooth01((Math.hypot(x - zone.start.x, z - zone.start.z) - 3) / 3) : 1 - patchK * smooth01((pn - 0.58) / 0.2) * smooth01(d / 2.2);
+      o[3] = wp;
+      o[4] = smooth01((-d - 0.9) / 2.2) * (1 - wp);
+      o[5] = L ? coverW(x, z, d, tk, pn, mf4[3]) : 0;
+    };
     const vert = (i, j) => {
       const k = j * sx + i;
       if (vid[k] >= 0) return vid[k];
@@ -9880,24 +9912,13 @@
       uv.push(x / TILE, -z / TILE);
       if (hd) {
         // PBR 地面：顶点色只管明暗（压暗靠墙处、向虚空渐暗），颜色来自材质；aW = (路面权重, 岩壁权重)，其余是粗糙地面
-        let v = GROUND_VK + (lit - GROUND_VK) * kk;
-        let tv = ash ? (vnoise(x * 0.07 - 4.1, z * 0.07 + 8.3) - 0.5) * 0.14 : 0; // 第 0 区：大片的冷暖起伏（画出来的感觉）
-        if (LY) {
-          // vf-ground：几米一个周期的明暗（mv）和冷暖（mh）起伏，地面不再是一整片同样的平铺；墙脚 / 岩壁脚下一圈接触阴影（ao2）
-          if (LY.mv) v *= 1 + LY.mv * 2 * (MF(x, z, 0) - 0.42); // 偏亮一点（-0.42）：暗的那一半不掉出地面 25% 的下限
-          if (LY.mh) tv += LY.mh * 2 * (MF(x, z, 1) - 0.5);
-          if (LY.ao2) v *= 1 - LY.ao2 * (1 - smooth01((d + 0.3) / 0.7)) * smooth01((d + 2.4) / 1.0);
-        }
-        col.push(v * (1 + 0.07 * tk + tv), v, v * (1 - 0.1 * tk - tv));
+        // vf-ground：建区时先按 main 的算法出顶点（hdV 不带 LY），覆盖层 / 路边 / 烧焦地 / 大尺度明暗这些放到进区后的空档里重算（见 vfJobs）
         const pn = vnoise(x * 0.17 + 11.3, z * 0.17 - 5.1);
-        const dj = LY && LY.jag && d > -2.2 && d < 1.6 && !vfOff('jag') ? d + (pn - 0.5) * LY.jag : d; // 路边起伏用现成的 pn（周期约 6 m）
-        let wp = smooth01((dj + 0.45) / (LY && LY.edgeW ? LY.edgeW : 1.0));
-        // vf-ground：成片的烧焦地（大尺度噪声，离路边 0.6 m 以内和踩出来的路上没有）
-        if (MF && LY.scorch && d > 0.6) wp *= 1 - LY.scorch * smooth01((MF(x, z, 2) - LY.sT) / 0.05) * (1 - tk) * smooth01((d - 0.6) / 1.0);
-        // 路面上零星的粗糙斑块，离路边越远越少；第 0 区斑块更多更实（打散满地一样的龟裂纹），踩出来的路上没有
-        wp *= ash ? 1 - patchK * smooth01((pn - 0.6) / 0.16) * smooth01((d + 0.5) / 2.5) * (1 - tk) * smooth01((Math.hypot(x - zone.start.x, z - zone.start.z) - 3) / 3) : 1 - patchK * smooth01((pn - 0.58) / 0.2) * smooth01(d / 2.2);
-        aw.push(wp, smooth01((-d - 0.9) / 2.2) * (1 - wp));
-        ac.push(LY ? coverW(x, z, d, tk, pn) : 0);
+        hdV(x, z, d, tk, pn, lit, kk, null, hv);
+        col.push(hv[0], hv[1], hv[2]);
+        aw.push(hv[3], hv[4]);
+        ac.push(0);
+        if (LY) vfV.push(pos.length / 3 - 1, x, z, d, tk, pn, lit, kk, hv[0], hv[1], hv[2], hv[3], hv[4]);
       } else col.push(vm[0] + (lit - vm[0]) * kk, vm[1] + (lit - vm[1]) * kk, vm[2] + (lit - vm[2]) * kk);
       return (vid[k] = pos.length / 3 - 1);
     };
@@ -9999,9 +10020,8 @@
     if (ash) ashRocks(zone, sd, lowK, pushRock, spires);
     // vf-ground：成簇的岩石：大石（实例横向缩放 ≥ 1.4）脚下添两三块小碎石（进 rocksB，同一个实例化网格，不加 draw），
     // 脚下再贴碎石 / 覆盖斑（buildDecals 的 clusters）。只在路外（sd ≤ -0.3）放，碰撞照旧来自地形；随机数走自己的一路（ashRng），原有岩石的摆放不变
-    const clusters = [];
+    const clusters = [], rockIM = { A: null, B: null };
     const clusterRocks = () => {
-      if (!decalQ) return;
       const tc0 = performance.now();
       const cr = ashRng(zone, 12), q = (a, b) => a + (b - a) * cr();
       const src = ash ? rocksA.slice() : rocksA.concat(rocksB);
@@ -10027,8 +10047,7 @@
       }
       vfMs.cl = +(performance.now() - tc0).toFixed(2);
     };
-    if (ash) clusterRocks();
-    else {
+    if (!ash) {
       ringSamples(1.2, 0.72, (x, z) => {
         if (sd(x, z) > -0.5) return;
         pushRock(x + rand(-0.2, 0.2), z + rand(-0.2, 0.2), rand(0.5, 0.85), 1);
@@ -10049,7 +10068,7 @@
         pushSpire([x, -0.3, z, rand(-0.22, 0.22), rand(0, TAU), rand(-0.22, 0.22), s, s * rand(0.9, 1.6) * lowK(x, z), s, rand(0.4, 0.75)]);
       });
     }
-    if (!ash) clusterRocks();
+
     // 第 0 区：卡通岩石（纯色 + 笔触 + 竖向渐变，不用照片贴图），程序化外观和 PBR 外观都一样
     let rockMat = ash
       ? ashRockMat()
@@ -10072,12 +10091,12 @@
         return out;
       };
       // zones-ash：每种大小只留一个变体（原来各 2 个）：省 4 次 draw（实例化网格不做视锥剔除，投影再画一遍），石头靠缩放和朝向就够不一样了
-      split(rocksA, ASH_ROCK.variants).forEach((l, k) => instanced(ashRockGeo(k), rockMat, l, true, rockTint));
-      split(rocksB, ASH_ROCK.variants).forEach((l, k) => instanced(ashRockGeo(2 + k), rockMat, l, true, rockTint));
+      split(rocksA, ASH_ROCK.variants).forEach((l, k) => (rockIM.A = instanced(ashRockGeo(k), rockMat, l, true, rockTint)));
+      split(rocksB, ASH_ROCK.variants).forEach((l, k) => (rockIM.B = instanced(ashRockGeo(2 + k), rockMat, l, true, rockTint)));
       instanced(ashSpireGeo(), rockMat, spires, true, rockTint);
     } else {
-      instanced(rockGeoA(), rockMat, rocksA, true, rockTint);
-      instanced(rockGeoB(), rockMat, rocksB, true, rockTint);
+      rockIM.A = instanced(rockGeoA(), rockMat, rocksA, true, rockTint);
+      rockIM.B = instanced(rockGeoB(), rockMat, rocksB, true, rockTint);
       instanced(spireGeo(), rockMat, spires, true, rockTint);
     }
 
@@ -10227,6 +10246,44 @@
     const tstate = TZ.dress ? TZ.dress(zone, tctx) : null;
     // vf-ground：暖色光池（火盆 + 余烬裂缝 + 熔岩），烘进地面顶点色。和贴花一起放到进区之后的空档里做（不算进建区耗时）
     const vfJobs = [];
+    // ① 地面顶点按 vf-ground 的各层重算（颜色按比例乘，各区布景改过的权重不动）
+    if (LY && vfV.length) vfJobs.push(() => {
+      const tv0 = performance.now(), g = ground.geometry, P = g.attributes.position.array, Cc = g.attributes.color, Aw = g.attributes.aW, Ac = g.attributes.aC;
+      if (!Cc || !Aw || !Ac) return;
+      const C = Cc.array, W2 = Aw.array, A1 = Ac.array;
+      for (let q = 0; q < vfV.length; q += 13) {
+        const vi = vfV[q];
+        if (Math.abs(P[vi * 3] - vfV[q + 1]) > 1e-4 || Math.abs(P[vi * 3 + 2] - vfV[q + 2]) > 1e-4) continue; // 被布景挪过的顶点（深渊崖边）不动
+        hdV(vfV[q + 1], vfV[q + 2], vfV[q + 3], vfV[q + 4], vfV[q + 5], vfV[q + 6], vfV[q + 7], LY, hv);
+        for (let c = 0; c < 3; c++) C[vi * 3 + c] *= hv[c] / Math.max(1e-5, vfV[q + 8 + c]);
+        if (Math.abs(W2[vi * 2] - vfV[q + 11]) < 1e-5 && Math.abs(W2[vi * 2 + 1] - vfV[q + 12]) < 1e-5) {
+          W2[vi * 2] = hv[3];
+          W2[vi * 2 + 1] = hv[4];
+        }
+        A1[vi] = hv[5];
+      }
+      Cc.needsUpdate = Aw.needsUpdate = Ac.needsUpdate = true;
+      vfMs.verts = +(performance.now() - tv0).toFixed(2);
+    });
+    // ② 成簇的岩石：算出伴生的中石 / 碎石，换上更大的实例化网格（同一个几何体和材质，draw 不变）
+    if (decalQ) vfJobs.push(() => {
+      const tc0 = performance.now(), nA = rocksA.length, nB = rocksB.length;
+      vfIso(() => {
+        clusterRocks();
+        const swap = (old, list, n0) => {
+          if (!old || list.length === n0) return;
+          const im = instanced(old.geometry, old.material, list, true, rockTint);
+          if (!im) return;
+          im.userData.cs0 = true;
+          im.castShadow = qualId !== 'low';
+          zoneGroup.remove(old);
+          old.dispose();
+        };
+        swap(rockIM.A, rocksA, nA);
+        swap(rockIM.B, rocksB, nB);
+      });
+      vfMs.cl = +(performance.now() - tc0).toFixed(2);
+    });
     if (hd && gx.pool) vfJobs.push(() => {
       const pts = [];
       if (fires) for (const f of fires.list) pts.push(f.x, f.z, 2.4, 1);
