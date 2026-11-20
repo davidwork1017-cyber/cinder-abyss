@@ -14674,6 +14674,13 @@ async function main() {
   await step('渊契「无光」：暖光半径 −40%（摘下复原）；9 m 外睡着的怪不会因为距离醒（不戴时 12 m 内就醒）；已醒的怪在 9 m 外 3 s 失去目标、走回原地（9 m 内不会）；对 9 m 外伤害 ×1.3，没发现你时第一击必暴；首领不会失去目标', async () => {
     const r = await ev(() => {
       const S = G.state, P = G.player, W = G.world, out = {};
+      // 「走回原地」看地形：方向（T.openDir）和侧面 3 m 的出生点都取决于区域布局。原来继承前面几步留下的随机布局，
+      // 灰烬荒原约 1.5% 的布局（种子 4、54、102……）里那个出生点落在石头上，怪走不进去、停在 0.9–1.6 m 外，这一步偶发失败。
+      // 固定成一张已知布局（同一个种子同一张图），结束时回到原来的区域
+      const keepZ = { zi: S.zoneIdx, tier: S.tier };
+      G.debug.zoneSeed(1);
+      G.enterZone(0, 0);
+      G.debug.zoneSeed(null);
       RQT.begin('xizhu');
       P.graceT = 0; // T.arena 里的重生给了 2.5 秒不被就近发现
       out.lamp = W.gloomInfo().lamp;
@@ -14728,6 +14735,7 @@ async function main() {
       G.clearEnemies();
       RQT.end();
       out.lampEnd = W.gloomInfo().lamp;
+      G.enterZone(keepZ.zi, keepZ.tier);
       return out;
     });
     assert(Math.abs(r.lamp - 9.6) < 1e-6 && r.lampOff === 16 && r.lampEnd === 16, '暖光不对：' + JSON.stringify(r));
