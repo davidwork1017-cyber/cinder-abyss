@@ -10375,8 +10375,9 @@
     for (let i = 0; i < nb; i++) B.push(new T.Matrix4().fromArray(ibm, i * 16).invert());
     const names = sk.joints.map((ni) => nodes[ni].name);
     const loc = sk.joints.map((ni) => ({ t: nodes[ni].translation || [0, 0, 0], q: nodes[ni].rotation || [0, 0, 0, 1] }));
-    const mats = json.materials.map((m) => ({ name: m.name, c: m.pbrMetallicRoughness.baseColorFactor }));
-    const prims = json.meshes[0].primitives.map((p) => ({
+    // 只有骨架和动作、没有网格的 GLB（人形标准骨架的动作包 ual）：prims 为空
+    const mats = (json.materials || []).map((m) => ({ name: m.name, c: m.pbrMetallicRoughness.baseColorFactor }));
+    const prims = (json.meshes ? json.meshes[0].primitives : []).map((p) => ({
       name: (p.extras && p.extras.name) || '', mat: mats[p.material].name, base: mats[p.material].c,
       P: acc(p.attributes.POSITION), J: acc(p.attributes.JOINTS_0), W: acc(p.attributes.WEIGHTS_0),
       C: p.attributes.COLOR_0 !== undefined ? acc(p.attributes.COLOR_0) : null, I: acc(p.indices),
@@ -10385,7 +10386,7 @@
     for (const a of json.animations || []) {
       const times = acc(a.samplers[a.channels[0].sampler].input);
       const ch = a.channels.map((c) => ({ b: boneOf.get(c.target.node), path: c.target.path, v: acc(a.samplers[c.sampler].output) })).filter((c) => c.b !== undefined);
-      clips[a.name] = { n: times.length, dur: times[times.length - 1], ch };
+      clips[a.name] = { n: times.length, dur: times[times.length - 1], ch, ex: a.extras || null };
     }
     const bi = Object.create(null);
     names.forEach((nm, i) => (bi[nm] = i));
@@ -10420,7 +10421,16 @@
     const sp = CSPEC[key];
     if (!sp || window.CA_PROCEDURAL_CHARS) return null;
     const md = cModel(sp.model);
-    return md ? Object.assign({ key, md }, sp) : null;
+    if (!md) return null;
+    const cs = Object.assign({ key, md }, sp);
+    if (sp.alias) {
+      // 人形标准骨架：骨骼名换成标准名（同一个模型只换一次），枢轴先取 STD_PIVOT 里模型有的骨骼，再叠上配置自己写的
+      stdRename(md, sp.alias);
+      const pv = {};
+      for (const jn in STD_PIVOT) if (md.bi[STD_PIVOT[jn]] !== undefined) pv[jn] = STD_PIVOT[jn];
+      cs.pivot = Object.assign(pv, sp.pivot || {});
+    }
+    return cs;
   }
   // 先按 C 模型建骨架，出错就退回纯程序化
   function cTry(key, make) {
@@ -10589,7 +10599,7 @@
     // C 骨骼 → 程序化关节：没写的跟最近的父骨骼走
     const jOf = new Int16Array(md.nb);
     for (const i of md.order) {
-      const t = cs.map(md.names[i]);
+      const t = cs.map(md.names[i], rig.JI);
       jOf[i] = t && rig.JI[t] !== undefined ? rig.JI[t] : md.parent[i] >= 0 ? jOf[md.parent[i]] : 0;
     }
     // 蒙皮矩阵：原始顶点 → 静止姿态（程序化骨架的模型空间）
@@ -10735,17 +10745,20 @@
   }
 
   // 模型自带的动作 → 程序化关节通道的关键帧（defClip 的 keys）。drive：程序化关节 → 带动它的模型骨骼（默认用 cs.pivot 里的骨骼名）
-  // opts：{ from, to（截取的秒数）, fps（采样率，默认 20）, joints（只采这些关节）, trans（这些关节也采位移，默认只有 root）}
+  // opts：{ from, to（截取的秒数）, fps（采样率，默认 20）, joints（只采这些关节）, trans（这些关节也采位移，默认只有 root）,
+  //   src（{ md, cp }：从另一副骨架的动作采样，例如人形标准骨架的动作包，见 stdSrc；这时只用 opts.drive）}
   const _cA = [], _cl = new T.Matrix4(), _cpos = new T.Vector3(), _csc = new T.Vector3(1, 1, 1);
   function cClipKeys(rig, cs, name, opts) {
-    const md = cs.md, clip = md.clips[name], cp = rig.cPose;
-    if (!clip || !cp) throw new Error('没有动作 ' + name);
     const o = opts || {};
+    const md = o.src ? o.src.md : cs.md, clip = md.clips[name], cp = o.src ? o.src.cp : rig.cPose;
+    if (!clip || !cp) throw new Error('没有动作 ' + name);
     const t0 = o.from || 0, t1 = Math.min(clip.dur, o.to === undefined ? clip.dur : o.to), fps = o.fps || 20;
     const nF = Math.max(2, Math.round((t1 - t0) * fps) + 1);
     const drive = Object.assign({}, o.drive || {});
-    for (const jn in cs.pivot) if (drive[jn] === undefined && typeof cs.pivot[jn] === 'string') drive[jn] = cs.pivot[jn];
-    for (const jn in cs.drive || {}) if (drive[jn] === undefined) drive[jn] = cs.drive[jn];
+    if (!o.src) {
+      for (const jn in cs.pivot) if (drive[jn] === undefined && typeof cs.pivot[jn] === 'string') drive[jn] = cs.pivot[jn];
+      for (const jn in cs.drive || {}) if (drive[jn] === undefined) drive[jn] = cs.drive[jn];
+    }
     const Jn = rig.joints, nJ = Jn.length;
     const use = Jn.map((j) => drive[j.name] !== undefined && md.bi[drive[j.name]] !== undefined && (!o.joints || o.joints.indexOf(j.name) >= 0));
     const trans = o.trans || ['root'];
@@ -11199,6 +11212,15 @@
         for (let i = 0; i < hj.length; i++) {
           o[hj[i]] += ent.hitZ * 0.32 * s * lag;
           o[hj[i] + 2] -= ent.hitX * 0.32 * s * lag;
+        }
+      }
+      // 人形标准骨架的受击动作（UAL Hit_Chest，只有上身）：相对第一帧的变化量叠上去，压进这次受击的时长（rig-std，移植自 vf-chars 原型）
+      const ht = rig.hitTrack;
+      if (ht) {
+        const hw = Math.min(1.2, s) * 0.9;
+        for (let i = 0; i < ht.ci.length; i++) {
+          const K = ht.cK[i];
+          o[ht.ci[i]] += (kf(K, u) - K[1]) * hw;
         }
       }
     }
@@ -11950,11 +11972,6 @@
   };
   // 上臂静止时比程序化骨架多张开一点（这个模型肩窄、胸厚，垂直放下会插进躯干）
   const PL_ARM = [0.3, -1, 0.0], PL_FORE = [0.06, -1, 0.1];
-  // 游魂（Zombie）的骨骼 → 关节
-  const HK_MAP = {
-    Hips: 'root', Spine: 'spine', Spine1: 'spine', Spine2: 'spine', LeftShoulder: 'spine', RightShoulder: 'spine', Neck: 'head', Head: 'head', HeadTop_End: 'head',
-    LeftArm: 'uaL', LeftForeArm: 'faL', RightArm: 'uaR', RightForeArm: 'faR', LeftUpLeg: 'thL', LeftLeg: 'shL', LeftFoot: 'ftL', RightUpLeg: 'thR', RightLeg: 'shR', RightFoot: 'ftR',
-  };
   // 卡通配色（设计稿 2.3）：模型贴图调色板的几种颜色各换成游魂自己的一套——灰烬灰的冷皮肤、两种暗紫褐的破衣，
   // 贴图里的血污换成余烬裂纹（自发光，见 vglow），眼白压成深眼窝、瞳孔发光。比地面亮一档、比主角暗、饱和度低。
   // 每项：[贴图里的原色（最近的那个算数）, 下端色, 上端色]；渐变按静止姿态的高度（0.2 → 1.95）
@@ -11980,11 +11997,6 @@
     for (const e of HK_PAL) if (hkNear(c, e.src) < bd) return 0;
     return best;
   };
-  // 骷髅（Skeleton）：模型里 R 开头的骨骼在 +x 一侧（按看着它的人的左右起名），也就是骷髅自己的左边；…001 是手臂
-  const TH_MAP = {
-    Hips: 'root', Torso: 'chest', Neck: 'head', Head: 'head',
-    RUpperLeg001: 'uaL', RDownLeg001: 'faL', LUpperLeg001: 'uaR', LDownLeg001: 'faR', RUpperLeg: 'thL', RDownLeg: 'shL', LUpperLeg: 'thR', LDownLeg: 'shR',
-  };
   const TH_BONE = cLin(0xaaa398); // 骨色：卡通配色下抬亮成浅骨白（旧的焦骨 0x5a5a5c 在新光照下发脏）
   // 焦骨：按位置撒一层焦黑的斑（每个顶点 0～60% 压暗）
   const thChar = (out, c, x, y, z) => {
@@ -12008,6 +12020,140 @@
   const SP_MAP = { Root: 'root', Body: 'root', Thorax: 'thx', Head: 'head', Abdomen: 'abd' };
   // 卡通：苔绿的甲壳（背上亮、腿根暗），在暖褐的地面上冷暖分得开，也和主角围巾的青绿不撞（旧的炭黑 / 深梅在卡通光照下是一团黑）
   const SP_COL = [cLin(0x2e3a2a), cLin(0x7a8e4e)];
+
+  // ----- 人形标准骨架（rig-std）：UAL / UBC 的 65 骨骼骨架（UE 风格骨骼名）当人形角色的统一命名层 -----
+  // 运行时仍由程序化关节驱动，模型骨架只是交换格式。人形模型（游魂的 Zombie、烬骸仆从的 Skeleton）载入时按各自的 STD_ALIAS
+  // 把骨骼名换成标准名（stdRename），之后蒙皮、枢轴、摆姿势、采样动作都只认标准名：
+  //   STD_JOINT：标准骨骼 → 程序化关节；骨架里没有这个关节就按 STD_FALL 往上并（胸口并到 spine、手并到小臂）。手指一律并到手，不单独驱动
+  //   STD_PIVOT：程序化关节的枢轴默认取哪根骨骼（模型里没有的跳过，配置可以再覆盖）
+  //   stdDrive：采样动作时哪根骨骼带动关节——取这一段最末的那根，这一段里的弯曲累计起来（游魂没有胸口关节，spine 由 spine_03 带）
+  //   STD_MASK：逐骨骼的分区（lower 腿 / upper 其余），stdMask 换算成每副骨架的 rig.mask：
+  //     程序化出手写 lower: rig.mask.lower 时，边走边打只管上身，腿留给模型的走路；受击动作只叠在 upper 上（脚不打滑）
+  // 动作来自 assets/ual/ual-clips.glb（tools/ual-pack.mjs 从 UAL1 / UAL2 挑出来的几段，手指和末端骨骼已去掉），
+  // stdSrc 把它摆到某副骨架的静止姿态上，再经 cClipKeys 采样成这副骨架的关节通道。
+  const STD_JOINT = {
+    pelvis: 'root', spine_01: 'spine', spine_02: 'chest', spine_03: 'chest', clavicle_l: 'chest', clavicle_r: 'chest', neck_01: 'head', Head: 'head', head_leaf: 'head',
+    upperarm_l: 'uaL', lowerarm_l: 'faL', hand_l: 'hL', upperarm_r: 'uaR', lowerarm_r: 'faR', hand_r: 'hR',
+    thigh_l: 'thL', calf_l: 'shL', foot_l: 'ftL', ball_l: 'ftL', ball_leaf_l: 'ftL', thigh_r: 'thR', calf_r: 'shR', foot_r: 'ftR', ball_r: 'ftR', ball_leaf_r: 'ftR',
+  };
+  const STD_FALL = { chest: 'spine', spine: 'root', hL: 'faL', hR: 'faR' };
+  const STD_FINGER = /^(index|middle|ring|pinky|thumb)_\d+(_leaf)?_([lr])$/;
+  function stdJoint(n, JI) {
+    let j = STD_JOINT[n];
+    if (!j) {
+      const m = STD_FINGER.exec(n);
+      if (m) j = 'h' + m[3].toUpperCase();
+    }
+    while (j && JI && JI[j] === undefined) j = STD_FALL[j];
+    return j || null;
+  }
+  const STD_PIVOT = {
+    root: 'pelvis', spine: 'spine_01', chest: 'spine_03', head: 'neck_01',
+    uaL: 'upperarm_l', faL: 'lowerarm_l', hL: 'hand_l', uaR: 'upperarm_r', faR: 'lowerarm_r', hR: 'hand_r',
+    thL: 'thigh_l', shL: 'calf_l', ftL: 'foot_l', thR: 'thigh_r', shR: 'calf_r', ftR: 'foot_r',
+  };
+  function stdDrive(rig) {
+    const d = {};
+    for (const jn in STD_PIVOT) if (rig.JI[jn] !== undefined) d[jn] = STD_PIVOT[jn];
+    if (rig.JI.chest === undefined && d.spine) d.spine = 'spine_03';
+    if (d.head) d.head = 'Head';
+    return d;
+  }
+  const STD_MASK = { thigh_l: 'lower', calf_l: 'lower', foot_l: 'lower', ball_l: 'lower', thigh_r: 'lower', calf_r: 'lower', foot_r: 'lower', ball_r: 'lower' };
+  function stdMask(rig) {
+    const lower = [], upper = [];
+    for (const n in STD_JOINT) {
+      const j = stdJoint(n, rig.JI);
+      if (!j || j === 'root') continue;
+      const L = STD_MASK[n] === 'lower' ? lower : upper;
+      if (L.indexOf(j) < 0) L.push(j);
+    }
+    return { lower, upper };
+  }
+  // 各家骨骼名 → 标准名
+  const STD_MIXAMO_SIDE = { Shoulder: 'clavicle', Arm: 'upperarm', ForeArm: 'lowerarm', Hand: 'hand', UpLeg: 'thigh', Leg: 'calf', Foot: 'foot', ToeBase: 'ball', Toe_End: 'ball_leaf' };
+  const STD_ALIAS = {
+    // Mixamo 骨骼名（Animated Zombie）
+    mixamo: (n) => {
+      const M = { Hips: 'pelvis', Spine: 'spine_01', Spine1: 'spine_02', Spine2: 'spine_03', Neck: 'neck_01', Head: 'Head', HeadTop_End: 'head_leaf' };
+      if (M[n]) return M[n];
+      const m = /^(Left|Right)(\w+?)(?:(Thumb|Index|Middle|Ring|Pinky)(\d))?$/.exec(n);
+      if (!m) return null;
+      const sd = m[1] === 'Left' ? '_l' : '_r';
+      if (m[3]) return m[2] === 'Hand' ? m[3].toLowerCase() + '_0' + m[4] + sd : null;
+      return STD_MIXAMO_SIDE[m[2]] ? STD_MIXAMO_SIDE[m[2]] + sd : null;
+    },
+    // Animated Monster 的骷髅：R 开头的骨骼在 +x 一侧（骷髅自己的左边），…001 是手臂；Torso 是胸口
+    monster: (n) => ({
+      Hips: 'pelvis', Torso: 'spine_03', Neck: 'neck_01', Head: 'Head',
+      RUpperLeg001: 'upperarm_l', RDownLeg001: 'lowerarm_l', LUpperLeg001: 'upperarm_r', LDownLeg001: 'lowerarm_r',
+      RUpperLeg: 'thigh_l', RDownLeg: 'calf_l', LUpperLeg: 'thigh_r', LDownLeg: 'calf_r',
+    })[n] || null,
+  };
+  function stdRename(md, alias) {
+    if (md.std) return;
+    md.names = md.names.map((n) => STD_ALIAS[alias](n) || n);
+    md.bi = Object.create(null);
+    md.names.forEach((nm, i) => (md.bi[nm] = i));
+    md.std = alias;
+  }
+  // 动作包摆到骨架 rig（已 cApply）的静止姿态上：按骨盆高度等比缩放（腿长比），骨盆对准 root；四肢、脊柱按这副骨架自己的 aim 摆
+  //（和模型摆姿势是同一张表，所以两边的「静止姿态」一致；目标骨骼包里没有时取它的第一个子骨骼）。返回 cClipKeys 的 src
+  function stdSrc(rig, cs) {
+    const md = cModel('ual');
+    if (!md || !rig.cPose) return null;
+    const Jn = rig.joints, r = Jn[rig.JI.root];
+    const piv0 = (n) => {
+      const j = Jn[rig.JI[n]];
+      return [j.px0 === undefined ? j.px : j.px0, j.py0 === undefined ? j.py : j.py0, j.pz0 === undefined ? j.pz : j.pz0];
+    };
+    const bp = new T.Vector3().setFromMatrixPosition(md.B[md.bi.pelvis]);
+    const s = r.py / bp.y;
+    const G = new T.Matrix4().makeTranslation(r.px - bp.x * s, 0, r.pz - bp.z * s).multiply(new T.Matrix4().makeScale(s, s, s));
+    const Gi = new T.Matrix4().makeScale(1 / s, 1 / s, 1 / s);
+    const Bg = md.B.map((m) => G.clone().multiply(m).multiply(Gi)), Bgi = Bg.map((m) => m.clone().invert());
+    const aim = (n) => {
+      const a = cs.aim && cs.aim(n);
+      if (!a) return null;
+      if (md.bi[a[0]] !== undefined) return a;
+      const i = md.bi[n], c = i === undefined ? -1 : md.parent.indexOf(i);
+      return c >= 0 ? [md.names[c], a[1]] : null;
+    };
+    return { md, s, cp: { G, Gi, P: cPose(md, { aim }, Bg, Bgi, piv0) } };
+  }
+  // 把动作包里的动作装到骨架上。use：{ loco: [站立, 走], hit: 受击, death: [死亡, 起, 止（秒）] }
+  //   站立 / 走：盖在程序化的移动姿态上（没有骨骼带动的关节——下颌、破布——仍是程序化的）；走路的相位来自走过的距离
+  //     （rig.stride = 2π / 一个周期走多远，按动作包里记的周期距离 × 缩放），减速、冰缓时脚步跟着地面走，不打滑；
+  //   受击：只采上身（rig.mask.upper），相对第一帧的变化量叠在程序化受击上（见 finishPose）；
+  //   死亡：换掉程序化死亡的关键帧，时长等其余参数照旧（死亡、掉落的时机不变）；没有骨骼带动的关节保留原来的关键帧
+  function stdAnim(rig, cs, use) {
+    const src = stdSrc(rig, cs);
+    if (!src) return false;
+    const drive = stdDrive(rig);
+    const keys = (name, o) => cClipKeys(rig, cs, name, Object.assign({ src, drive }, o));
+    if (use.loco) {
+      const idle = keys(use.loco[0], { fps: 20 }), walk = keys(use.loco[1], { fps: 30 });
+      const idleT = cTrack(rig, idle.keys), walkT = cTrack(rig, walk.keys), proc = rig.loco;
+      const ex = src.md.clips[use.loco[1]].ex;
+      if (ex && ex.cycle) rig.stride = TAU / (ex.cycle * src.s);
+      rig.loco = function (ent, p, t, sdt) {
+        proc(ent, p, t, sdt);
+        cTrackEval(idleT, p, (((t + ent.phase * 3) / idle.dur) % 1 + 1) % 1, 1);
+        if (ent.mv > 0.01) cTrackEval(walkT, p, (((ent.walk / TAU) % 1) + 1) % 1, Math.min(1, ent.mv * 1.2));
+      };
+    }
+    if (use.hit) rig.hitTrack = cTrack(rig, keys(use.hit, { fps: 30, joints: rig.mask.upper }).keys);
+    if (use.death) {
+      const d = keys(use.death[0], { fps: 30, from: use.death[1], to: use.death[2] }), old = rig.clips.death, k = {};
+      if (old) for (const key in old.spec.keys) if (drive[key.slice(0, key.indexOf('.'))] === undefined) k[key] = old.spec.keys[key];
+      defClip(rig, 'death', Object.assign({}, old ? old.spec : { dur: 0.6, base: 'rest', hold: true, air: true, fade: 0.05 }, { keys: Object.assign(k, d.keys) }));
+    }
+    rig.std = use;
+    return true;
+  }
+  // 调试 / 冒烟测试用：标准骨架的对照表和动作包
+  W.std = { JOINT: STD_JOINT, PIVOT: STD_PIVOT, MASK: STD_MASK, joint: stdJoint, mask: stdMask, drive: stdDrive, pack: () => cModel('ual') };
+
   const CSPEC = {
     player: {
       model: 'adventurer', height: 1.9, yaw: 0, center: 'Hips',
@@ -12076,18 +12222,18 @@
     },
     // 游魂：Zombie（Animated Zombie）。贴图调色板的颜色去饱和、压向灰烬的灰褐；驼背、双臂前伸（对齐程序化游魂的静止姿态）；眼窝两点元素火
     husk: {
-      model: 'zombie', height: 2.15, yaw: -HALF_PI, center: 'Hips',
-      map: (n) => HK_MAP[n] || (/^LeftHand/.test(n) ? 'faL' : /^RightHand/.test(n) ? 'faR' : /^LeftToe/.test(n) ? 'ftL' : /^RightToe/.test(n) ? 'ftR' : null),
-      pivot: { root: 'Hips', spine: 'Spine', head: 'Neck', uaL: 'LeftArm', faL: 'LeftForeArm', uaR: 'RightArm', faR: 'RightForeArm', thL: 'LeftUpLeg', shL: 'LeftLeg', ftL: 'LeftFoot', thR: 'RightUpLeg', shR: 'RightLeg', ftR: 'RightFoot' },
+      // 人形标准骨架：骨骼名换成标准名（STD_ALIAS.mixamo），蒙皮按 STD_JOINT（游魂没有胸口和手：并到 spine / 小臂），枢轴按 STD_PIVOT
+      model: 'zombie', alias: 'mixamo', height: 2.15, yaw: -HALF_PI, center: 'pelvis',
+      map: stdJoint,
       aim: (n) => {
-        const L = n.indexOf('Left') === 0, s = L ? 1 : -1, S = L ? 'Left' : 'Right', j = L ? 'L' : 'R';
-        if (n === 'Spine') return ['Neck', ['spine', 'head']];
-        if (n === 'Neck') return ['HeadTop_End', [0, 1, 0.3]];
-        if (n === S + 'Arm') return [S + 'ForeArm', ['ua' + j, 'fa' + j]];
-        if (n === S + 'ForeArm') return [S + 'Hand', [s * 0.1, -1, 0.45]];
-        if (n === S + 'Hand') return [S + 'HandIndex1', [s * 0.1, -1, 0.45]];
-        if (n === S + 'UpLeg') return [S + 'Leg', ['th' + j, 'sh' + j]];
-        if (n === S + 'Leg') return [S + 'Foot', ['sh' + j, 'ft' + j]];
+        const sd = n.slice(-2), s = sd === '_l' ? 1 : -1, j = sd === '_l' ? 'L' : 'R';
+        if (n === 'spine_01') return ['neck_01', ['spine', 'head']];
+        if (n === 'neck_01') return ['head_leaf', [0, 1, 0.3]];
+        if (n === 'upperarm' + sd) return ['lowerarm' + sd, ['ua' + j, 'fa' + j]];
+        if (n === 'lowerarm' + sd) return ['hand' + sd, [s * 0.1, -1, 0.45]];
+        if (n === 'hand' + sd) return ['index_01' + sd, [s * 0.1, -1, 0.45]];
+        if (n === 'thigh' + sd) return ['calf' + sd, ['th' + j, 'sh' + j]];
+        if (n === 'calf' + sd) return ['foot' + sd, ['sh' + j, 'ft' + j]];
         return null;
       },
       keep: () => false,
@@ -12110,7 +12256,7 @@
         b.at('head');
         for (const s of [1, -1]) b.g(gOct(0.026), 1.25, h[0] + s * 0.05, h[1] + 0.105, h[2] + 0.115, 0, 0, 0, 1, 0.7, 0.6);
         // 腰间挂着的几条破布（双面，锯齿下沿），让剪影不那么光溜
-        const hp = pos('Hips');
+        const hp = pos('pelvis');
         b.at('root').surf(SURF.cloth);
         const rag = (k, a, r, y, len, w) =>
           b.pd(gPlate('hk/rag' + k, [[-w, 0], [w, 0], [w * 0.8, -len * 0.7], [w * 0.35, -len * 0.55], [0, -len], [-w * 0.5, -len * 0.6], [-w * 0.9, -len * 0.8]], 0.006, 0.002),
@@ -12125,29 +12271,29 @@
     // 烬骸仆从：Skeleton（Animated Monster）。焦骨色、透着一层很淡的余烬光；头骨缩小一点，腿拉长一些（原模型是大头短腿）；
     // 前臂末端那一截拆给手腕关节（模型没有手骨），剑和小圆盾沿用程序化的
     thrall: {
-      model: 'skeleton', height: 1.62, yaw: 0, center: 'Hips',
-      map: (n) => TH_MAP[n] || null,
+      // 人形标准骨架：骨骼名换成标准名（STD_ALIAS.monster），蒙皮按 STD_JOINT，枢轴按 STD_PIVOT（模型没有手骨 / 脚骨：按前臂、小腿换算）
+      model: 'skeleton', alias: 'monster', height: 1.62, yaw: 0, center: 'pelvis',
+      map: stdJoint,
       pivot: {
-        root: 'Hips', chest: 'Torso', head: 'Neck', uaL: 'RUpperLeg001', faL: 'RDownLeg001', uaR: 'LUpperLeg001', faR: 'LDownLeg001', thL: 'RUpperLeg', shL: 'RDownLeg', thR: 'LUpperLeg', shR: 'LDownLeg',
-        hL: (pos) => thSeg(pos, 'RUpperLeg001', 'RDownLeg001', 0.66), hR: (pos) => thSeg(pos, 'LUpperLeg001', 'LDownLeg001', 0.66),
-        ftL: (pos) => { const k = pos('RDownLeg'); return [k[0], 0.085, k[2]]; }, ftR: (pos) => { const k = pos('LDownLeg'); return [k[0], 0.085, k[2]]; },
+        hL: (pos) => thSeg(pos, 'upperarm_l', 'lowerarm_l', 0.66), hR: (pos) => thSeg(pos, 'upperarm_r', 'lowerarm_r', 0.66),
+        ftL: (pos) => { const k = pos('calf_l'); return [k[0], 0.085, k[2]]; }, ftR: (pos) => { const k = pos('calf_r'); return [k[0], 0.085, k[2]]; },
       },
       aim: (n) => {
-        if (n === 'RUpperLeg001') return ['RDownLeg001', [0.2, -1, 0.02]];
-        if (n === 'LUpperLeg001') return ['LDownLeg001', [-0.2, -1, 0.02]];
-        if (n === 'RUpperLeg') return ['RDownLeg', ['thL', 'shL']];
-        if (n === 'LUpperLeg') return ['LDownLeg', ['thR', 'shR']];
+        if (n === 'upperarm_l') return ['lowerarm_l', [0.2, -1, 0.02]];
+        if (n === 'upperarm_r') return ['lowerarm_r', [-0.2, -1, 0.02]];
+        if (n === 'thigh_l') return ['calf_l', ['thL', 'shL']];
+        if (n === 'thigh_r') return ['calf_r', ['thR', 'shR']];
         return null;
       },
       scale: (n) => (n === 'Head' ? 0.84 : null),
-      stretch: (n) => (n === 'RUpperLeg' || n === 'LUpperLeg' ? [n.replace('Upper', 'Down'), 1.7] : null),
+      stretch: (n) => (n === 'thigh_l' || n === 'thigh_r' ? ['calf' + n.slice(-2), 1.7] : null),
       ground: 0, // 拉长大腿把小腿和脚推到了地面以下：整个模型抬回来，脚底贴地
       // 前臂末端 34% 是手：权重给手腕关节；小腿末端是脚：给脚踝关节
       split: (n, pos) => {
-        if (n === 'RDownLeg001') return thSplit(pos, 'RUpperLeg001', 'RDownLeg001', 'hL', 0.66);
-        if (n === 'LDownLeg001') return thSplit(pos, 'LUpperLeg001', 'LDownLeg001', 'hR', 0.66);
-        if (n === 'RDownLeg') return thSplit(pos, 'RUpperLeg', 'RDownLeg', 'ftL', 0.82, 0.085);
-        if (n === 'LDownLeg') return thSplit(pos, 'LUpperLeg', 'LDownLeg', 'ftR', 0.82, 0.085);
+        if (n === 'lowerarm_l') return thSplit(pos, 'upperarm_l', 'lowerarm_l', 'hL', 0.66);
+        if (n === 'lowerarm_r') return thSplit(pos, 'upperarm_r', 'lowerarm_r', 'hR', 0.66);
+        if (n === 'calf_l') return thSplit(pos, 'thigh_l', 'calf_l', 'ftL', 0.82, 0.085);
+        if (n === 'calf_r') return thSplit(pos, 'thigh_r', 'calf_r', 'ftR', 0.82, 0.085);
         return null;
       },
       keep: (j, kind, tag) => tag === 'gear',
@@ -12156,7 +12302,7 @@
       emis: [0xff5a1e, 0.015], // 很淡：整身的橙色自发光会把焦骨染成陶土色，余烬主要靠胸腔和眼窝的魂火
       extra: (b, pos) => {
         // 胸腔里的魂火（肋骨缝里透出来）+ 眼窝里两点魂火
-        const t = pos('Torso'), n = pos('Neck'), h = pos('Head');
+        const t = pos('spine_03'), n = pos('neck_01'), h = pos('Head');
         b.at('chest').g(gSph(0.075, 7, 5), 1.4, t[0], t[1] + (n[1] - t[1]) * 0.55, t[2] + 0.01, 0, 0, 0, 1, 1.4, 0.9);
         b.at('head');
         for (const s of [1, -1]) b.g(gSph(0.026, 6, 4), 1.7, h[0] + s * 0.058, h[1] + 0.155, h[2] + 0.125, 0, 0, 0, 1.1, 0.9, 0.6);
@@ -14687,6 +14833,7 @@
       }
 
       const rig = b.build({ height: 2.1, reach: 1.6, stride: 3.6, shade: 0.3 });
+      rig.mask = stdMask(rig); // 人形标准骨架的逐关节分区：出手只管上身（lower 的腿在走动时让给步态）
       rig.hitJ = [rig.J.head, rig.J.spine];
       rig.feet = [rig.JI.ftL, rig.JI.ftR];
       rig.ankle = 0.1;
@@ -14726,7 +14873,7 @@
       };
       // 蓄力：后仰，双爪高举
       defClip(rig, 'windup', {
-        dur: 0.35, hold: true, fade: 0.06,
+        dur: 0.35, hold: true, fade: 0.06, lower: rig.mask.lower,
         keys: {
           'root.oz': [0, 0, 1, -0.12],
           'spine.rx': [0, 0.15, 1, -0.5],
@@ -14739,9 +14886,9 @@
           'rag1.rx': [0, 0.15, 1, -0.2],
         },
       });
-      // 扑击：整个上身砸下来，双爪交叉着撕过去
+      // 扑击：整个上身砸下来，双爪交叉着撕过去（边走边扑时腿继续走：模型的 Zombie_Walk 在下、程序化的扑击在上）
       defClip(rig, 'attack', {
-        dur: 0.4, k0: 0.3, fade: 0.03, out: 0.2,
+        dur: 0.4, k0: 0.3, fade: 0.03, out: 0.2, lower: rig.mask.lower,
         keys: {
           'root.oz': [0, -0.12, -0.3, 0.3, 0.7, 0.2, 1, 0],
           'spine.rx': [0, -0.5, -0.3, 0.7, 0.65, 0.6, 1, 0.15],
@@ -14793,6 +14940,9 @@
           'rag1.rx': [0, 0.2, 0.5, 0.9, 1, -0.3], 'rag2.rx': [0, 0.2, 0.6, 0.8, 1, -0.2],
         },
       });
+      // 人形标准骨架的模型动作：UAL 的 Zombie_Idle / Zombie_Walk（佝偻、前倾的走路）、Hit_Chest 叠在上身、
+      // Death01 截掉开头的 0.1 s 和躺平之后的部分（0.1–1.3 s），压进上面程序化死亡的 0.6 s
+      if (cs) stdAnim(rig, cs, { loco: ['Zombie_Idle', 'Zombie_Walk'], hit: 'Hit_Chest', death: ['Death01', 0.1, 1.3] });
       return rig;
     }));
   }
@@ -17615,6 +17765,7 @@
       b.at('thL').surf(SURF.gold).p(gDome(0.058, 7, 2, 1.3), BRONZE, 0.12, 0.53, 0.05, HALF_PI - 0.2, 0, 0, 1, 0.9, 1.1);
 
       const rig = b.build({ height: 1.85, reach: 1.7, stride: 2.7, shade: 0.25 });
+      rig.mask = stdMask(rig);
       rig.hitJ = [rig.J.head, rig.J.chest];
       rig.feet = [rig.JI.ftL, rig.JI.ftR];
       rig.ankle = 0.09;
@@ -17667,6 +17818,8 @@
         p[J.ragB] = 0.08 + 0.3 * run + 0.05 * Math.sin(t * 2.7 + ent.phase);
       };
       thrallClips(rig);
+      // 人形标准骨架：受击叠一层 UAL 的 Hit_Chest（上身）；持盾的步态和散架的死法是这个角色自己的，保留程序化
+      if (cs) stdAnim(rig, cs, { hit: 'Hit_Chest' });
       return rig;
     }));
   }
