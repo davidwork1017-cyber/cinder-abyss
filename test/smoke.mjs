@@ -9257,6 +9257,79 @@ async function main() {
     return '几何体 ' + r.g + '（+' + r.geo + '），贴图 ' + r.t + '（+' + r.tex + '）';
   });
 
+  await step('特效贴图库（vf-vfx）：贴图包载入、五张贴图解码完成；每个区域在高 / 低画质下施放六个旗舰技能（掷焰、陨火、链雷、霜环、黑洞、黑旋风）并渲染，特效着色器编译无报错，画出序列帧和地面瞬时痕迹', async () => {
+    const r = await ev(async () => {
+      const W = G.world, V = G.vfx, S = G.state, P = G.player, save = G.save;
+      const out = { ok: !!(V && V.ok), bytes: V ? V.bytes() : 0, rows: [], faceMin: 9, flatMin: 9 };
+      if (!V) return out;
+      out.ready = await V.whenReady;
+      out.mats = V.materials().length;
+      const keep = { zi: S.zoneIdx, tier: S.tier, q: W.quality(), bar: save.bar.slice(), skills: Object.assign({}, save.skills), sockets: JSON.parse(JSON.stringify(save.sockets)), level: save.level };
+      const IDS = ['ember', 'meteor', 'arc', 'blackhole', 'vortex'];
+      try {
+        for (let z = 0; z < G.ZONES.length; z++) {
+          G.enterZone(z, 0);
+          for (const q of ['high', 'low']) {
+            W.setQuality(q);
+            G.clearEnemies();
+            for (const k of IDS.concat('nova')) { save.skills[k] = 10; save.sockets[k] = [null, null, null]; }
+            save.level = Math.max(save.level, 20);
+            save.bar = ['nova', null, null, null];
+            G.computeStats();
+            const row = { z: S.zone.def.id, q, fb: 0, dec: 0, aura: false };
+            // 方片朝向（防 6347625 那种错）：合用网格里立着的序列帧要正对镜头，冲击环（种类 4）和地面痕迹（种类 ≥ 10）要平躺
+            const quadCheck = () => {
+              let mesh = null;
+              W.scene.traverse((o) => { if (o.isInstancedMesh && o.material && o.material.userData && o.material.userData.vfx && o.material.polygonOffset) mesh = o; });
+              if (!mesh || !mesh.count) return;
+              const fx = mesh.geometry.getAttribute('aFx'), m4 = new THREE.Matrix4(), n = new THREE.Vector3(), back = new THREE.Vector3(0, 0, 1).applyQuaternion(W.camera.quaternion);
+              for (let i = 0; i < mesh.count; i++) {
+                mesh.getMatrixAt(i, m4);
+                n.set(0, 1, 0).transformDirection(m4);
+                const kind = Math.round(fx.getW(i));
+                if (kind === 4 || kind >= 10) out.flatMin = Math.min(out.flatMin, n.y);
+                else if (kind >= 1) out.faceMin = Math.min(out.faceMin, n.dot(back));
+              }
+            };
+            for (const id of IDS) {
+              const e = G.spawnMob('husk', P.x + 5, P.z - 1, 5, { awake: true });
+              e.hp = e.maxHp = 1e6;
+              e.atkCd = 1e9;
+              e.speed = 0;
+              G.input.mouse.wx = e.x;
+              G.input.mouse.wz = e.z;
+              P.mana = P.maxMana;
+              P.cast = null;
+              G.execSkill(G.skillCtx(id));
+              for (let i = 0; i < 4; i++) { G.debug.step(0.12); W.render(); if (i === 0) quadCheck(); }
+              row.fb = Math.max(row.fb, W.fxFlipLive());
+              row.dec = Math.max(row.dec, W.vDecalLive());
+            }
+            row.aura = W.auraInfo().visible;
+            out.rows.push(row);
+            W.clearFx();
+          }
+        }
+      } finally {
+        G.clearEnemies();
+        save.bar = keep.bar;
+        save.skills = keep.skills;
+        save.sockets = keep.sockets;
+        save.level = keep.level;
+        G.computeStats();
+        W.setQuality(keep.q);
+        G.enterZone(keep.zi, keep.tier);
+        G.debug.god(true);
+      }
+      return out;
+    });
+    assert(r.ok && r.ready && r.bytes > 50000 && r.bytes < 400000, '特效贴图包应载入、贴图全部解码（base64 50–400 KB）：' + JSON.stringify({ ok: r.ok, ready: r.ready, bytes: r.bytes }));
+    assert(r.mats >= 2, '投射物的火舌应换成特效贴图库的共用材质：' + r.mats);
+    assert(r.rows.length === 10 && r.rows.every((x) => x.fb > 0 && x.dec > 0 && x.aura), '每个区域、高 / 低画质下都应画出序列帧特效、地面瞬时痕迹和霜环：' + JSON.stringify(r.rows));
+    assert(r.faceMin > 0.95 && r.faceMin <= 1.0001 && r.flatMin > 0.95 && r.flatMin <= 1.0001, '立着的序列帧应正对镜头、冲击环和地面痕迹应平躺（方片法线）：' + JSON.stringify({ faceMin: r.faceMin, flatMin: r.flatMin }));
+    return '贴图包 ' + Math.round(r.bytes / 1024) + ' KB，' + r.rows.length + ' 轮施放，方片朝向 ' + r.faceMin.toFixed(3) + ' / ' + r.flatMin.toFixed(3);
+  });
+
   await step('画面：CC0 素材按区域加载后换成 PBR 地面与布景；画质高 / 中 / 低即时切换、存档，三档都能渲染', async () => {
     const r = await ev(async () => {
       const W = G.world;
