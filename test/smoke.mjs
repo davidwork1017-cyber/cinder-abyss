@@ -6644,24 +6644,98 @@ async function main() {
         const card = (id) => Array.from(document.querySelectorAll('.skill-card')).find((n) => n.querySelector('.sk-name') && n.querySelector('.sk-name').textContent.includes(G.SKILLS[id].name));
         const sh = card('shadestep'), bl = card('blade');
         const d = sh && sh.querySelector('.alt-d'), h = sh && sh.querySelector('.alt-h');
-        return { sh: !!sh, bl: !!bl, blBox: bl ? bl.querySelectorAll('.alt-box').length : -1, d: d ? getComputedStyle(d).display : '', h: h ? getComputedStyle(h).visibility : '', hgt: sh ? Math.round(sh.getBoundingClientRect().height) : 0, ht: h ? h.textContent : '', dt: d ? d.textContent : '', alt: G.SKILLS.shadestep.alt, on: document.body.classList.contains('alt-on') };
+        return { sh: !!sh, bl: !!bl, blBox: bl ? bl.querySelectorAll('.alt-box').length : -1, d: d ? (getComputedStyle(d).display !== 'none' && getComputedStyle(d).visibility === 'visible' ? 'shown' : 'hidden') : '', h: h ? getComputedStyle(h).visibility : '', hgt: sh ? Math.round(sh.getBoundingClientRect().height) : 0, ht: h ? h.textContent : '', dt: d ? d.textContent : '', alt: G.SKILLS.shadestep.alt, on: document.body.classList.contains('alt-on') };
       });
       let r = await look();
-      assert(r.sh && r.bl && r.blBox === 0 && !r.on && r.d === 'none' && r.h === 'visible' && r.ht === '按住 Alt 查看详情' && r.dt === r.alt, '平时只显示提示行、没有详情的卡不出提示：' + JSON.stringify(r));
+      assert(r.sh && r.bl && r.blBox === 0 && !r.on && r.d === 'hidden' && r.h === 'visible' && r.ht === '按住 Alt 查看详情' && r.dt === r.alt, '平时只显示提示行、没有详情的卡不出提示：' + JSON.stringify(r));
       const h0 = r.hgt;
       await page.keyboard.down('Alt');
       try {
         await until(() => document.body.classList.contains('alt-on'));
         r = await look();
-        assert(r.d === 'block' && r.h === 'hidden' && r.hgt === h0, '按住 Alt 应展开详情（浮在卡上，卡片高度不变）、藏起提示行：' + JSON.stringify(r) + ' 原高 ' + h0);
+        assert(r.d === 'shown' && r.h === 'hidden' && r.hgt === h0, '按住 Alt 应展开详情（盖在说明上，卡片高度不变）、藏起提示行：' + JSON.stringify(r) + ' 原高 ' + h0);
       } finally {
         await page.keyboard.up('Alt');
       }
       await until(() => !document.body.classList.contains('alt-on'));
       r = await look();
-      assert(r.d === 'none' && r.h === 'visible', '松开 Alt 应收起详情：' + JSON.stringify(r));
+      assert(r.d === 'hidden' && r.h === 'visible', '松开 Alt 应收起详情：' + JSON.stringify(r));
       await closePanel();
     } finally {
+      await ev((k) => {
+        for (const id in k) {
+          if (k[id] === undefined) delete G.save.skills[id];
+          else G.save.skills[id] = k[id];
+        }
+      }, keep);
+    }
+  });
+
+  await step('技能卡版式：1280×720 下两列等宽、不溢出列表；卡名一行、标签横排成小块；按住 Alt 时详情不盖刻式按钮，悬停的刻式浮窗不丢', async () => {
+    const keep = await ev(() => {
+      const S = G.save, k = { shadestep: S.skills.shadestep, blade: S.skills.blade };
+      S.skills.shadestep = Math.max(S.skills.shadestep || 0, G.VARIANT_LVL);
+      S.skills.blade = Math.max(S.skills.blade || 0, 1);
+      return k;
+    });
+    await page.setViewportSize({ width: 1280, height: 720 });
+    try {
+      await page.keyboard.press('KeyG');
+      await until(() => G.ui.isOpen() && document.querySelectorAll('.skill-list > .skill-card').length > 2);
+      await frames(4);
+      const lay = await ev(() => {
+        const list = document.querySelector('.skill-list'), lr = list.getBoundingClientRect();
+        return Array.from(list.querySelectorAll(':scope > .skill-card')).map((c) => {
+          const nm = c.querySelector('.sk-name'), cr = c.getBoundingClientRect();
+          // 单行高度：同样式的一个字
+          const one = nm.cloneNode(false);
+          one.textContent = '影';
+          one.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap';
+          nm.parentNode.appendChild(one);
+          const lh = one.getBoundingClientRect().height;
+          one.remove();
+          const tags = c.querySelector('.sk-tags'), chips = tags ? Array.from(tags.children) : [];
+          const tops = new Set(chips.map((t) => Math.round(t.getBoundingClientRect().top)));
+          return { n: nm.firstChild.textContent, w: Math.round(cr.width), out: cr.right > lr.right - 6 + 1 || cr.left < lr.left - 1, ox: c.scrollWidth > c.clientWidth + 1, nameH: Math.round(nm.getBoundingClientRect().height), lh: Math.round(lh), chips: chips.length, rows: tops.size, dir: tags ? getComputedStyle(tags).flexDirection : '' };
+        });
+      });
+      const ws = lay.map((c) => c.w).filter((w) => w < 500);
+      assert(lay.length > 2 && lay.every((c) => !c.out && !c.ox), '技能卡不应溢出列表、卡内也不应横向溢出：' + JSON.stringify(lay));
+      assert(ws.length > 1 && Math.max(...ws) - Math.min(...ws) <= 1, '1280×720 下两列应等宽：' + JSON.stringify(lay));
+      assert(lay.every((c) => c.nameH <= 1.5 * c.lh), '卡名应只占一行：' + JSON.stringify(lay));
+      assert(lay.every((c) => c.chips < 2 || (c.dir === 'row' && c.rows <= 2 && c.rows < c.chips)), '标签应横排（最多两行）：' + JSON.stringify(lay));
+      // 悬停影步连斩的刻式 B，再按住 Alt
+      const card = '.skill-list > .skill-card:has([data-act="variant"][data-skill="shadestep"])';
+      await page.locator(card).scrollIntoViewIfNeeded();
+      await page.locator(card + ' .sv-btn[data-v="b"]').hover();
+      await until(() => document.getElementById('tip').classList.contains('on'), null, 5000);
+      const h0 = await ev((sel) => Math.round(document.querySelector(sel).getBoundingClientRect().height), card);
+      await page.keyboard.down('Alt');
+      let r;
+      try {
+        await until(() => document.body.classList.contains('alt-on'));
+        await frames(3);
+        r = await ev((sel) => {
+          const c = document.querySelector(sel), d = c.querySelector('.sk-desc .alt-d'), dr = d.getBoundingClientRect();
+          const btns = Array.from(c.querySelectorAll('.sv-btn')).map((b) => {
+            const br = b.getBoundingClientRect(), hit = document.elementFromPoint(br.left + br.width / 2, br.top + br.height / 2);
+            return { hit: !!hit && (hit === b || b.contains(hit)), over: dr.right > br.left && dr.left < br.right && dr.bottom > br.top && dr.top < br.bottom };
+          });
+          return { shown: getComputedStyle(d).visibility === 'visible' && dr.height > 0, btns, tip: document.getElementById('tip').classList.contains('on'), h: Math.round(c.getBoundingClientRect().height) };
+        }, card);
+      } finally {
+        await page.keyboard.up('Alt');
+      }
+      assert(r.shown && r.btns.length === 3, '按住 Alt 应显示详情、卡上有 3 个刻式按钮：' + JSON.stringify(r));
+      assert(r.btns.every((b) => b.hit && !b.over), '按住 Alt 时刻式按钮不应被详情盖住：' + JSON.stringify(r));
+      assert(r.tip, '按住 Alt 时悬停的刻式浮窗不应消失：' + JSON.stringify(r));
+      assert(r.h === h0, '按下 Alt 卡片高度不应变：' + h0 + ' → ' + r.h);
+      await until(() => !document.body.classList.contains('alt-on'));
+      await page.mouse.move(5, 5);
+      await closePanel();
+      return lay.length + ' 张卡，宽 ' + [...new Set(lay.map((c) => c.w))].join(' / ');
+    } finally {
+      await page.setViewportSize({ width: 1440, height: 900 });
       await ev((k) => {
         for (const id in k) {
           if (k[id] === undefined) delete G.save.skills[id];

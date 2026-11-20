@@ -2047,7 +2047,7 @@
       // 元素：施法武器的普攻取你加成最高的元素
       const el = ctx && !ctx.attack && !sk.asMinion ? Object.keys(ctx.base)[0] : null;
       body =
-        '<div class="sk-desc">' + sk.desc + altBox(sk.alt) + '</div>' +
+        '<div class="sk-desc"><span class="sk-dt">' + sk.desc + '</span>' + altBox(sk.alt) + '</div>' +
         (sk.combo ? '<div class="sk-combo">' + sk.combo.map((c, i) => '<span' + (c.w >= 2 ? ' class="fin"' : '') + '>' + (c.w >= 2 ? '终结 ' : '第 ' + (i + 1) + ' 段 ') + '×' + c.mult + '</span>').join('<i></i>') + '</div>' : '') +
         (nums ? '<div class="sk-nums">' + nums + '</div>' : '') +
         (ctx && ctx.attack ? attackNote(ctx) : '') +
@@ -2311,7 +2311,7 @@
       '<div class="sk-title"><div class="sk-name">' + sk.name + (sk.vname ? '<i class="sk-vn">' + sk.vname + '</i>' : '') + '<em>Lv ' + S.skills[id] + '</em>' + blankUp + '</div>' +
       '<div class="sk-tags">' + cardTags(sk).map((t) => '<span>' + G.TAG_NAME[t] + '</span>').join('') + '</div></div>' +
       '<div class="sk-binds">' + binds + '</div></div>' +
-      '<div class="sk-desc">' + sk.desc + altBox(sk.alt) + '</div>' + variantRow(id) +
+      '<div class="sk-desc"><span class="sk-dt">' + sk.desc + '</span>' + altBox(sk.alt) + '</div>' + variantRow(id) +
       (sk.combo ? '<div class="sk-combo">' + sk.combo.map((c, i) => '<span' + (c.w >= 2 ? ' class="fin"' : '') + '>' + (c.w >= 2 ? '终结 ' : '第 ' + (i + 1) + ' 段 ') + '×' + c.mult + '</span>').join('<i></i>') + '</div>' : '') +
       '<div class="sk-nums' + (mi ? ' ally' : '') + '">' + nums + '</div>' + note +
       '<div class="sk-socks"><span class="sk-socks-label">辅助</span>' + sockets + '</div>' +
