@@ -1203,7 +1203,7 @@
   W.gfxInfo = () => ({
     quality: qualId, post: !!(post.ok && qual.post), bloom: !!(post.ok && qual.post && qual.bloom), dpr, scale: qual.scale || 1,
     smaa: !!(post.ok && qual.post && post.smaa && post.smaa.enabled), fxaa: !!(!(post.ok && qual.post) && post.fx && qual.fxaa),
-    decals: !!(zoneGroup && zoneGroup.getObjectByName('groundDecals')), layer: !!(zoneFx && zoneFx.layer),
+    decals: !!(zoneGroup && zoneGroup.getObjectByName('groundDecals')), decalsOn: !!(zoneGroup && zoneGroup.getObjectByName('groundDecals') && zoneGroup.getObjectByName('groundDecals').visible), layer: !!(zoneFx && zoneFx.layer),
     hd: !!(zoneFx && zoneFx.hd), fires: zoneFx && zoneFx.fires ? zoneFx.fires.list.length : 0, mist: !!(zoneFx && zoneFx.mist && zoneFx.mist.visible),
   });
 
@@ -1263,7 +1263,8 @@
     'vec3 gw = vec3(vW.x, max(0.0, 1.0 - vW.x - vW.y), vW.y) * (1.0 - gc);',
     // vf-ground：低档只取权重最大的那一套（每个像素只采一套贴图，交界是硬边），软件 GL 下地面不比 main 贵
     // 比较前按值噪声（纯计算、不采贴图）推一推各套的权重，交界是不规则的硬边，不顺着网格的三角形走
-    'if (uLowQ > 0.5) { float gn = gNoise(gp * 1.6) - 0.5; vec4 gq = vec4(gw, gc) + vec4(0.3, -0.15, 0.0, -0.3) * gn; float gmx = max(max(gq.x, gq.y), max(gq.z, gq.w)); gw = step(vec3(gmx), gq.xyz); gc = step(gmx, gq.w); }',
+    // 噪声只在交界处算（最大权重 < 0.9 的像素），大片单一材质的像素不算，低档整屏地面不多花
+    'if (uLowQ > 0.5) { vec4 gq = vec4(gw, gc); if (max(max(gq.x, gq.y), max(gq.z, gq.w)) < 0.9) gq += vec4(0.3, -0.15, 0.0, -0.3) * (gNoise(gp * 1.6) - 0.5); float gmx = max(max(gq.x, gq.y), max(gq.z, gq.w)); gw = step(vec3(gmx), gq.xyz); gc = step(gmx, gq.w); }',
     'vec3 a0 = vec3(0.5), n0 = vec3(0.5, 0.5, 1.0), r0 = vec3(1.0, 0.8, 0.0);',
     'vec3 a1 = a0, n1 = n0, r1 = r0, a2 = a0, n2 = n0, r2 = r0;',
     'if (gw.x > 0.003) gSample2(tA0, tN0, tR0, gp * uS.x, gk, a0, n0, r0);',
@@ -1456,6 +1457,7 @@
     const flat = patch(new T.MeshBasicMaterial(opt));
     flat.color.copy(decalLit());
     const mesh = new T.Mesh(g, qualId === 'low' ? flat : mat);
+    mesh.visible = qualId !== 'low';
     mesh.userData.mats = { lit: mat, flat };
     mesh.userData.lowRange = nLo * 6;
     if (qualId === 'low') g.setDrawRange(0, nLo * 6);
@@ -10354,9 +10356,10 @@
       if (!o.isMesh) return;
       if (o.material && o.material.userData && o.material.userData.U && o.material.userData.U.uLowQ) o.material.userData.U.uLowQ.value = off ? 1 : 0; // vf-ground：地面低档只取一套
       if (o.userData.mats) {
-        // vf-ground：贴花层按画质换材质，低档只画前一段（drawRange）
+        // vf-ground：贴花层低档整张不画（测试槽位：低档图标预热空闲切片还比 main 慢 4%，接触阴影 / 光池在顶点色里照旧有）；高 / 中档受光材质全画
         o.material = off ? o.userData.mats.flat : o.userData.mats.lit;
         o.geometry.setDrawRange(0, off ? o.userData.lowRange : Infinity);
+        o.visible = !off;
       }
       if (o.userData.cs0 === undefined) o.userData.cs0 = o.castShadow;
       o.castShadow = off ? false : o.userData.cs0;
