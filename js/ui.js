@@ -780,7 +780,17 @@
         else if (P.combo.t > 0) lit = P.combo.step;
       }
       // 连段格按这一招的段数显示：武器普攻的连招大多 3 段（多的藏起来），双匕 4 段（不够就补一格）
-      const nc = id && comboSteps(G.SKILLS[id]) ? comboSteps(G.SKILLS[id]).length : 3;
+      let nc = id && comboSteps(G.SKILLS[id]) ? comboSteps(G.SKILLS[id]).length : 3;
+      // 储能：格子上方的小格改成显示存着几次（亮着的是存货）
+      const chg = id && !P.dead ? G.chargeInfo(id) : null;
+      if (chg) {
+        nc = chg.max;
+        lit = chg.n;
+      }
+      if (!!chg !== !!s.chg) {
+        s.chg = !!chg;
+        s.el.classList.toggle('has-combo', !!chg || !!(id && comboSteps(G.SKILLS[id])));
+      }
       while (nc > s.pips.length) s.pips.push(s.pips[0].parentNode.appendChild(document.createElement('i')));
       if (lit !== s.lit || nc !== s.nc) {
         s.lit = lit;
@@ -807,7 +817,7 @@
         if (held && !s.held) {
           const sk = G.SKILLS[id];
           const shift = !!(G.input.keys.ShiftLeft || G.input.keys.ShiftRight);
-          if (sk.kind === 'aura') slotFx(s, 'ready', '', now); // 光环：按了也只是亮一下，提示它一直生效
+          if (sk.kind === 'aura') slotFx(s, s.aoff ? 'deny' : 'ready', s.aoff ? '保留不足' : '', now); // 光环：按了也只是亮一下，提示它一直生效（保留放不下时说明为什么没生效）
           else if (sk.kind === 'summon' && !shift) slotFx(s, 'ready', '', now); // 召唤：按键是自动召唤的开关，不是施放
           else if (i === W_SLOT && rw && !rw.gauge.full) slotFx(s, 'deny', rw.gauge.name + '未满', now); // 远程武器的 R 要量表灌满
           else if (left > 0.15) slotFx(s, 'deny', '冷却中', now);
@@ -818,6 +828,14 @@
       }
       s.left = left;
       s.held = held;
+      // 光环保留放不下（超过 90%，见 G.auraFits）：格子变暗、角标「保留不足」
+      const aoff = !!(id && G.SKILLS[id] && G.SKILLS[id].kind === 'aura' && !G.auraOn(id));
+      if (aoff !== !!s.aoff) {
+        s.aoff = aoff;
+        s.el.classList.toggle('aoff', aoff);
+        const tag = s.el.querySelector('.s-auto');
+        if (tag) tag.textContent = aoff ? '保留不足' : '自动';
+      }
       if (s.fx && now - s.fxT > 620) {
         s.el.classList.remove(s.fx);
         s.fx = '';
@@ -1885,12 +1903,14 @@
     const sk = G.SKILLS[skillId];
     const bad = sup.no && sk ? sup.no.filter((t) => sk.tags.indexOf(t) >= 0) : [];
     if (bad.length) return '不能用于' + bad.map((t) => G.TAG_NAME[t] || t).join(' / ') + '技能';
+    if (sup.needCd && sk && !(sk.cd > 0)) return '只能用于有冷却的技能'; // 储能
+    if (sup.noId && sup.noId.indexOf(skillId) >= 0) return sk.name + '用不上';
     return '需要标签：' + reqText(sup);
   }
   // 适用范围的一句话：「任意技能」/ 「物理」/ 「任意技能（召唤物除外）」
   function scopeText(sup) {
     const no = sup.no && sup.no.length ? '（' + sup.no.map((t) => G.TAG_NAME[t] || t).join(' / ') + '除外）' : '';
-    return (sup.req ? reqText(sup) : '任意技能') + no;
+    return (sup.req ? reqText(sup) : sup.needCd ? '有冷却的技能' : '任意技能') + no;
   }
 
   // 召唤技能的召唤物数值：优先用 G.minionInfo（minions.js），缺的字段按 ctx.minion 自己算，都没有就给个不出错的空值
@@ -2274,7 +2294,7 @@
         num('额外混沌', fmt1(F) + '%', 'hl') +
         num(blood ? '生命保留' : '魔力保留', fmt1(ctx.reserve) + '%') +
         num('封顶', fmt1(sk.flame.cap) + '%');
-      note = '<div class="sk-anote"><i></i>' + (G.auraOn(id) ? '生效中' : '放进技能栏即生效') + ' · 不用按键</div>';
+      note = '<div class="sk-anote"><i></i>' + (G.auraOn(id) ? '生效中' : G.auraSlotted(id) ? '保留不足，未生效' : '放进技能栏即生效') + ' · 不用按键</div>';
     } else if (sk.kind === 'aura') {
       // 光环：没有施放，只有保留；卡片上是每一跳的伤害、每秒几跳和半径
       nums =
@@ -2284,7 +2304,7 @@
         num(blood ? '生命保留' : '魔力保留', fmt1(ctx.reserve) + '%') +
         num('半径', fmt1(G.auraRadius(ctx))) +
         num('暴击率', fmt1(ctx.crit) + '%');
-      note = '<div class="sk-anote"><i></i>' + (G.auraOn(id) ? '生效中' : '放进技能栏即生效') + ' · 不用按键</div>';
+      note = '<div class="sk-anote"><i></i>' + (G.auraOn(id) ? '生效中' : G.auraSlotted(id) ? '保留不足，未生效' : '放进技能栏即生效') + ' · 不用按键</div>';
     } else {
       nums =
         num(ctx.cd > 0 ? '每次伤害' : '平均击中', fmtInt(avg), 'hl') +
@@ -2393,7 +2413,7 @@
       sups +=
         '<div class="sup' + (loc ? ' used' : '') + '" data-drag="sup:' + id + '" style="--c:' + IC.supColor(id) + '"><div class="sup-top">' + IC.sup(id) + '<b>' + sp.name + '</b>' +
         '<span class="sup-req">' + scopeText(sp) + '</span></div>' +
-        '<div class="sup-desc">' + sp.desc + '</div>' +
+        '<div class="sup-desc">' + sp.desc + altBox(sp.alt) + '</div>' +
         '<div class="sup-foot"><span>消耗 ×' + sp.cost + '</span>' +
         (loc ? '<span class="sup-loc">镶于 ' + skName(loc.skill) + '</span>' : '<span class="sup-free">未使用</span>') +
         '</div></div>';
@@ -3450,7 +3470,7 @@
     if (kind === 'sock') {
       const sp = G.SUPPORTS[id];
       return (
-        '<div class="tcard" style="--c:' + IC.supColor(id) + '">' + tcHead(ibox(IC.sup(id), 'gemb'), sp.name, '辅助宝石') + '<div class="tc-desc">' + sp.desc + '</div>' +
+        '<div class="tcard" style="--c:' + IC.supColor(id) + '">' + tcHead(ibox(IC.sup(id), 'gemb'), sp.name, '辅助宝石') + '<div class="tc-desc">' + sp.desc + '</div>' + altBox(sp.alt) +
         '<div class="tc-foot">魔力消耗 ×' + sp.cost + (sp.req || sp.no ? ' · 适用：' + scopeText(sp) : '') + '</div>' +
         '<div class="tc-hint">点击取下 · 拖到别的辅助槽移动</div></div>'
       );
@@ -5314,7 +5334,7 @@
     const fits = Object.keys(save.skills).filter((id) => G.supportFits(id, l.data)).map((id) => G.SKILLS[id].name);
     return (
       '<div class="tcard" style="--c:' + IC.supColor(l.data) + '">' + tcHead(ibox(IC.sup(l.data), 'gemb'), sp.name, '辅助宝石') +
-      '<div class="tc-desc">' + sp.desc + '</div>' +
+      '<div class="tc-desc">' + sp.desc + '</div>' + altBox(sp.alt) +
       '<div class="tc-foot">魔力消耗 ×' + sp.cost + ' · 适用：' + scopeText(sp) +
       '<br>你的技能里可镶嵌：' + (fits.length ? fits.join('、') : '暂无') + '</div>' +
       (have
