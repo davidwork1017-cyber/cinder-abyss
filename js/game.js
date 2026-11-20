@@ -2098,8 +2098,9 @@
     // 双月：一暖一冷两片背靠背的半月，在胸口一闪（实例化，场上再多也是一次 draw call），数字是冷白色的小字
     const h = e.height || 2, ang = Math.atan2(e.x - P.x, e.z - P.z);
     if (W.kv) {
-      const s = Math.min(3.2, 0.8 + e.r * 1.9); // 两片半月落在身形外侧（框住，不压在身上）：内缘约在身宽之外 0.1 米
-      RQ.twinFx.push({ t: 0, s, h: W.kv('twin', { x: e.x, y: Math.min(2.4, h * 0.55), z: e.z + 0.2, rx: 0.7, s, hex: 0xffc070, a: 1, k: ang + Math.PI / 2 }) });
+      // 平铺在脚下：两片半月的内缘落在身形外 0.15 米，身子挡住后半圈（深度测试），不画在怪身上（灰度检查要求怪的亮面不被抬高）
+      const s = Math.min(4, (e.r + 0.15) * 3.05);
+      RQ.twinFx.push({ t: 0, s, h: W.kv('twin', { x: e.x, y: 0.08, z: e.z, s, hex: 0xffc070, a: 1, k: ang + Math.PI / 2 }) });
     }
     const jx = ((st.twinHits % 3) - 1) * 0.3; // 数字左右错开一点（不用随机数：不扰动暴击、伤害的随机序列）
     W.text(e.x + jx, e.z, Math.max(1, Math.round(dmg)), '#cfe8ff', 13, { kind: 'faint', y: Math.min(2.8, h * 0.62) });
