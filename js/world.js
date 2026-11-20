@@ -3460,6 +3460,17 @@
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
   }
+  // 按 R 洗牌（Fisher–Yates，原地，返回同一个数组）。不要用 arr.sort(() => R() - 0.5)：比较函数前后矛盾时排序的结果取决于引擎里排序怎么走，
+  // 同一个种子在浏览器里会摆出两种布局（霜骨沼泽 / 雷枢峡谷偶发，冒烟「异兆懒生成」那一步因此偶尔对不上）
+  function shuffleR(arr, R) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(R() * (i + 1));
+      const t = arr[i];
+      arr[i] = arr[j];
+      arr[j] = t;
+    }
+    return arr;
+  }
   // 凹多边形「一团」：n 个顶点，半径 R·(1 + amp·噪声)，round 圆角（荒原、岛屿、平台用）
   function blob(R, x, z, rad, amp, n, round) {
     const pts = [], ph = R() * TAU, f1 = 2 + Math.floor(R() * 2), f2 = 3 + Math.floor(R() * 3), k1 = R(), k2 = R();
@@ -6206,8 +6217,8 @@
     // 候选的父岛排好随机顺序，一个岛两侧都摆不下就换下一个岛
     const sideOf = [];
     for (let i = 1; i <= nI; i++) sideOf.push(i);
-    sideOf.sort(() => R() - 0.5);
-    const roles = ['chest', 'chest', 'chest', 'elite'].sort(() => R() - 0.5).concat(['pack']);
+    shuffleR(sideOf, R);
+    const roles = shuffleR(['chest', 'chest', 'chest', 'elite'], R).concat(['pack']);
     const sides = [];
     // 两个圆 / 折线之间的粗略间距（排布检查用）
     const segDist = (px, pz, ax, az, bx, bz) => {
@@ -6377,7 +6388,7 @@
     }
 
     // ---- 危险区：浅水（岛沿往外 2–3 m，减速）、薄冰 ----
-    const shallowIs = sideOf.slice().sort(() => R() - 0.5).slice(0, Math.round(nI / 2) + (R() < 0.5 ? 1 : 0)); // 3–5 个岛（改版前 4 个岛里 2–3 个）
+    const shallowIs = shuffleR(sideOf.slice(), R).slice(0, Math.round(nI / 2) + (R() < 0.5 ? 1 : 0)); // 3–5 个岛（改版前 4 个岛里 2–3 个）
     for (const i of shallowIs) {
       const n = R() < 0.45 ? 2 : 1;
       for (let k = 0; k < n; k++) {
@@ -6445,7 +6456,7 @@
     if (rooms[1].core.r < 7.2) return frostFail('firstCore');
     // 薄冰：候选的岛排好随机顺序，放够 2 块为止；一个岛放不下就换下一个（zones-integrate：原来前两个里有一个放不下就整张重摆，
     // 生成器平均要摆 2.9 次、最慢的种子 30 多 ms；前两个都放得下的种子结果和原来逐位相同）
-    const thinIs = sideOf.filter((i) => i !== skullIs).sort(() => R() - 0.5);
+    const thinIs = shuffleR(sideOf.filter((i) => i !== skullIs), R);
     const thins = [];
     for (const i of thinIs) {
       if (thins.length >= 2) break;
@@ -7209,7 +7220,7 @@
     const pathHalls = halls.slice(1, nH + 1), arena = halls[nH + 1];
     // ---------- 旁支小室：3–5 个，从关键路径大厅没开门的墙岔出去 ----------
     const want = R() < 0.5 ? 3 : R() < 0.7 ? 4 : 5, sides = [];
-    const order = pathHalls.slice().sort(() => R() - 0.5);
+    const order = shuffleR(pathHalls.slice(), R);
     for (let pass = 0; pass < 2 && sides.length < want; pass++) {
       for (const H of order) {
         if (sides.length >= want) break;
