@@ -11553,7 +11553,7 @@
           ent.meshBody.castShadow = false;
           // vf-vfx：开始消散的那一下，身上腾起一团序列帧烟（颜色按死法：灰土 / 焦烟 / 霜雾 / 暗紫），电死的另加一记星芒
           const bigE = ent.rig.NB === NB_BIG, sz = (bigE ? 3 : 1.45) * Math.max(1, ent.k);
-          W.fxFlip(VFB.smoke, g.x, g.y + h * 0.42, g.z, sz, bigE ? 1.1 : 0.8, DEATH_PUFF[d.type] || DEATH_PUFF.phys, { vy: 0.45, up: 0.3, grow: 1.4, a: 0.85 });
+          if (bigE || qualId !== 'low') W.fxFlip(VFB.smoke, g.x, g.y + h * 0.42, g.z, sz, bigE ? 1.1 : 0.8, DEATH_PUFF[d.type] || DEATH_PUFF.phys, { vy: 0.45, up: 0.3, grow: 1.4, a: 0.85 });
           if (d.type === 'light') W.fxFlip(VFB.spark, g.x, g.y + h * 0.5, g.z, sz * 0.9, 0.22, 0xfff2a0, { a: 0.9 });
           if (st) {
             const big = ent.rig.NB === NB_BIG;
@@ -19728,7 +19728,7 @@
     W.fxFlip(VFB.fire, x, 0.9, z, m.hostile ? 2.6 : 3.4, 0.5, m.hex, { grow: 1.35, vy: 0.8 });
     W.fxFlip(VFB.spark, x, 1.1, z, m.hostile ? 2.4 : 3.2, 0.24, mixHex(m.hex, 0xffffff, 0.5), { a: 0.85 });
     W.fxFlip(VFB.ring, x, 0.12, z, m.hostile ? 4.6 : 5.6, 0.4, mixHex(m.hex, 0xffffff, 0.3), { flat: true });
-    for (let j = 0, n = lo ? 3 : 5; j < n; j++) {
+    for (let j = 0, n = lo ? 1 : 5; j < n; j++) {
       const a = (j / n) * TAU + vr(-0.3, 0.3), v = vr(0.8, 1.4);
       W.fxFlip(VFB.smoke, x + Math.sin(a) * 1.0, 0.6, z + Math.cos(a) * 1.0, vr(1.3, 1.8), vr(1.2, 1.6), 0x4a3e36, { vx: Math.sin(a) * v, vz: Math.cos(a) * v, vy: 0.5, up: 0.3, grow: 1.6 });
     }
@@ -20726,9 +20726,9 @@
     aura.pulse = Math.max(0, aura.pulse - dt * 2.6);
     aura.u.uA.value = aura.a;
     aura.u.uPulse.value = aura.pulse;
-    // vf-vfx：沿圈飘出去的冷雾（序列帧烟团，浅冰色，低画质一半）
-    if (want && P.ent && P.ent.group.visible) {
-      aura.mist = (aura.mist || 0) + dt * (qualId === 'low' ? 3 : 6);
+    // vf-vfx：沿圈飘出去的冷雾（序列帧烟团，浅冰色）
+    if (want && qualId !== 'low' && P.ent && P.ent.group.visible) { // 低画质不放
+      aura.mist = (aura.mist || 0) + dt * 6;
       while (aura.mist > 1) {
         aura.mist -= 1;
         const a = vr(0, TAU), d = aura.r * vr(0.85, 1.0);
@@ -21529,14 +21529,14 @@
       }
       // vf-vfx：身后一缕缕序列帧烟（往上飘、胀开、被噪声蚀空），火头上一片片舔下来往后甩的小火舌（序列帧火团）；低画质间隔加倍
       u.acc2 += dt;
-      if (u.acc2 > (qualId === 'low' ? 0.09 : 0.045)) {
+      if (qualId !== 'low' && u.acc2 > 0.045) { // 低画质不放：软件渲染下这些大方片叠起来最费
         u.acc2 = 0;
         W.fxFlip(VFB.smoke, x - u.dx * r * 3, y + 0.08, z - u.dz * r * 3, r * 3, vr(0.6, 0.85), 0x4e3c36, { vx: -u.dx * 1.2 + vr(-0.2, 0.2), vz: -u.dz * 1.2 + vr(-0.2, 0.2), vy: 0.7, up: 0.4, grow: 2.2, a: 0.9 });
         // 火球把脚下的地面照亮：一串跟着它、很快熄掉的地面闪光（加色，痕迹池里画，不另占 draw call）
         W.vDecal(VVD.flash, x, z, 1.5, 0.22, 0xff8a3c, { a: 0.75 });
       }
       u.acc4 = (u.acc4 || 0) + dt;
-      if (u.acc4 > (qualId === 'low' ? 0.07 : 0.035)) {
+      if (u.acc4 > (qualId === 'low' ? 0.1 : 0.035)) {
         u.acc4 = 0;
         W.fxFlip(VFB.fire, x - u.dx * r * 0.9 + vr(-0.08, 0.08), y + vr(0, 0.1), z - u.dz * r * 0.9 + vr(-0.08, 0.08), r * 2.4, vr(0.22, 0.3), fp, { vx: -u.dx * 4 + vr(-0.8, 0.8), vy: vr(0.5, 1.4), vz: -u.dz * 4 + vr(-0.8, 0.8), grow: 0.5 });
       }
@@ -21951,7 +21951,7 @@
     }
     // vf-vfx：黑烟换成序列帧的烟团（往上飘、慢慢胀开、边缘被噪声蚀空，比火团活得久：散的那一段看得见），
     // 地上一块裂缝里透着余烬的焦痕（2.8 秒内被噪声蚀掉）+ 一记地面闪光，再飘几粒慢慢升起的余烬
-    for (let i = 0, n = lo ? 2 : 3; i < n; i++) W.fxFlip(VFB.smoke, x + vr(-0.4, 0.4), y + 0.3, z + vr(-0.4, 0.4), 0.8 + R * 0.5, vr(1.0, 1.35), 0x54443e, { vy: 0.5, up: 0.35, grow: 1.7, a: 0.85 });
+    for (let i = 0, n = lo ? 1 : 3; i < n; i++) W.fxFlip(VFB.smoke, x + vr(-0.4, 0.4), y + 0.3, z + vr(-0.4, 0.4), 0.8 + R * 0.5, vr(1.0, 1.35), 0x54443e, { vy: 0.5, up: 0.35, grow: 1.7, a: 0.85 });
     W.vDecal(VVD.scorch, x, z, R * 0.78, 2.8, h);
     W.vDecal(VVD.flash, x, z, R * 1.5, 0.3, 0xff9a40);
     for (let i = 0, n = lo ? 3 : 6; i < n; i++) spawnP(x + vr(-R, R) * 0.5, 0.3, z + vr(-R, R) * 0.5, vr(-0.4, 0.4), vr(0.8, 1.8), vr(-0.4, 0.4), vr(0.9, 1.5), vr(0.08, 0.13), 1, vr(0.45, 0.7), 0.12, -0.8, 0.8);
@@ -22127,9 +22127,16 @@
   let fbNext = 0, fbLive = 0, fbRnd = 7;
   // 序列帧自己的伪随机（不消耗 Math.random：加了这些特效以后，玩法里的随机序列和原来一样）
   const vr = (a, b) => a + ((fbRnd = (fbRnd * 16807) % 2147483647) / 2147483647) * (b - a);
+  // 烟团的预算：同时画着的烟团最多这么多（大方片叠在一起最费填充率），低画质更少；超了新的就不放
+  const FB_SMOKE_CAP = { high: 24, mid: 18, low: 6 };
+  let fbSmokeLive = 0;
   W.fxFlip = function (kind, x, y, z, size, dur, hex, o) {
     const k = typeof kind === 'string' ? VFB[kind] : kind;
     if (k === undefined) return;
+    if (k === VFB.smoke) {
+      if (fbSmokeLive >= (FB_SMOKE_CAP[qualId] || 18)) return;
+      fbSmokeLive++;
+    }
     o = o || {};
     const i = fbNext, j = i * 3;
     fbNext = (fbNext + 1) % FB_N;
@@ -22150,6 +22157,7 @@
   };
   const _fbq = new T.Quaternion(), _fbq2 = new T.Quaternion(), FB_XAX = new T.Vector3(1, 0, 0);
   function fbDraw(dt) {
+    fbSmokeLive = 0;
     if (fbLive <= 0) return;
     let any = false;
     for (let i = 0; i < FB_N; i++) {
@@ -22159,6 +22167,7 @@
       fbL[i] = l;
       if (l <= 0) continue;
       any = true;
+      if (fbK[i] === VFB.smoke) fbSmokeLive++;
       const j = i * 3, f = 1 - l / fbM[i];
       fbV[j + 1] += fbU[i] * dt;
       fbP[j] += fbV[j] * dt; fbP[j + 1] += fbV[j + 1] * dt; fbP[j + 2] += fbV[j + 2] * dt;
@@ -24732,7 +24741,7 @@
     v.spin += dt * v.w * (1 + 0.9 * v.tg);
     // vf-vfx：脚下卷起的尘土（序列帧烟团，暗紫灰，贴地往外甩、往上卷），低画质间隔加倍
     v.dAcc = (v.dAcc || 0) + dt;
-    if (v.dAcc > (lo ? 0.14 : 0.07) && v.ground > 0.01) {
+    if (!lo && v.dAcc > 0.07 && v.ground > 0.01) { // 低画质不放
       v.dAcc = 0;
       const a = vr(0, TAU), d = v.rT * 0.5 + 0.2, sp = vr(1.2, 2.2);
       W.fxFlip(VFB.smoke, x + Math.sin(a) * d, 0.25, z + Math.cos(a) * d, vr(0.45, 0.7) * (0.6 + v.rT * 0.6), vr(0.45, 0.65), 0x7a6880, { vx: Math.cos(a) * sp * v.dir, vz: -Math.sin(a) * sp * v.dir, vy: vr(0.6, 1.2), grow: 2, a: 0.5 });
