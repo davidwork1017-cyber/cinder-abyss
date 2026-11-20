@@ -11520,7 +11520,7 @@ async function main() {
     assert(r.press, '按护涡的键不该施放、扣魔力或换一组：' + JSON.stringify(r));
     return '绕身半径 ' + r.rmin + '–' + r.rmax + '，吞弹 ' + r.eaten + '，绞中 ' + r.hits;
   });
-  await step('刻式 v2·黑旋风「护涡」（光环）：保留魔力 30%、20 秒一直在跳；拿下技能栏 / 换回原式 / 宝石没了当场消散并还回保留', async () => {
+  await step('刻式 v2·黑旋风「护涡」（光环）：保留魔力 20%、20 秒一直在跳；拿下技能栏 / 换回原式 / 宝石没了当场消散并还回保留', async () => {
     await ev(TVDEF);
     const r = await ev(() => {
       const P = G.player, s = G.save, out = {};
@@ -11529,16 +11529,16 @@ async function main() {
       T.fix(0.5);
       G.computeStats();
       out.off = { pct: P.reservePct, res: P.reserved, max: P.maxMana === P.maxManaRaw };
-      // 放上技能栏 = 开：保留 30%，当前魔力压到新的上限以内（保留不够时照常扣，现有光环规则：总保留封顶 90%，不会拒绝）
+      // 放上技能栏 = 开：保留 20%，当前魔力压到新的上限以内（保留不够时照常扣，现有光环规则：总保留封顶 90%，不会拒绝）
       P.mana = P.maxManaRaw;
       G.bindSkill(2, 'vortex');
-      out.on = { pct: P.reservePct, one: G.auraReserve('vortex'), res: P.reserved, want: Math.round(P.maxManaRaw * 0.3), max: P.maxMana === P.maxManaRaw - P.reserved, clamp: P.mana <= P.maxMana };
-      // 辅助照样乘在保留上：扩域 ×1.2 → 36%；和霜环一起放是 36 + 25
+      out.on = { pct: P.reservePct, one: G.auraReserve('vortex'), res: P.reserved, want: Math.round(P.maxManaRaw * 0.2), max: P.maxMana === P.maxManaRaw - P.reserved, clamp: P.mana <= P.maxMana };
+      // 辅助照样乘在保留上：扩域 ×1.2 → 24%；和霜环一起放是两者相加
       s.supports = Array.from(new Set((s.supports || []).concat(['expanse'])));
       G.socketSupport('vortex', 0, 'expanse');
       s.bar[3] = 'nova';
       G.computeStats();
-      out.sup = { one: G.auraReserve('vortex'), pct: P.reservePct };
+      out.sup = { one: G.auraReserve('vortex'), nova: G.auraReserve('nova'), pct: P.reservePct };
       G.socketSupport('vortex', 0, null);
       s.bar[3] = null;
       G.computeStats();
@@ -11579,8 +11579,8 @@ async function main() {
       return out;
     });
     assert(r.off.pct === 0 && r.off.res === 0 && r.off.max, '不在技能栏上不该保留：' + JSON.stringify(r));
-    assert(r.on.pct === 30 && r.on.one === 30 && r.on.res === r.on.want && r.on.max && r.on.clamp, '放上技能栏应保留 30% 最大魔力：' + JSON.stringify(r));
-    assert(r.sup.one === 36 && r.sup.pct === 61 && r.back === 30, '辅助应乘在保留上、和别的光环相加：' + JSON.stringify(r));
+    assert(r.on.pct === 20 && r.on.one === 20 && r.on.res === r.on.want && r.on.max && r.on.clamp, '放上技能栏应保留 20% 最大魔力：' + JSON.stringify(r));
+    assert(r.sup.one === 24 && r.sup.nova > 0 && r.sup.pct === r.sup.one + r.sup.nova && r.back === 20, '辅助应乘在保留上、和别的光环相加：' + JSON.stringify(r));
     assert(r.keep.n === 3 && r.keep.spawn === 1 && r.keep.hits >= 60 && r.keep.last5 >= 15, '护涡应 20 秒一直在、一直跳：' + JSON.stringify(r));
     assert(r.unbind.n === 0 && r.unbind.pct === 0 && r.unbind.max && r.unbind.after === 0, '拿下技能栏应当场消散、还回保留：' + JSON.stringify(r));
     assert(r.rebind === 3 && r.swap && r.swapBack === 3 && r.gem, '放回 / 换刻式 / 宝石没了应跟着开关：' + JSON.stringify(r));
@@ -11618,7 +11618,7 @@ async function main() {
       return out;
     }, varKeep);
     assert(r.flying >= 3, '原式应先放出去一组：' + JSON.stringify(r));
-    assert(r.on.v === 'a' && r.on.name === '护涡' && r.on.aura && r.on.pct === 30 && r.on.n === 3 && r.on.left === 0, '读档后护涡应接着转、半空的原式旋风照常散掉：' + JSON.stringify(r));
+    assert(r.on.v === 'a' && r.on.name === '护涡' && r.on.aura && r.on.pct === 20 && r.on.n === 3 && r.on.left === 0, '读档后护涡应接着转、半空的原式旋风照常散掉：' + JSON.stringify(r));
     assert(r.off.v === 'a' && !r.off.aura && r.off.pct === 0 && r.off.n === 0, '不在技能栏上读档不该保留、不该有旋风：' + JSON.stringify(r));
     return '读档：在栏上保留 ' + r.on.pct + '%、' + r.on.n + ' 团；不在栏上 0%';
   });
