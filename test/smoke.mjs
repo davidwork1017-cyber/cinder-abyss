@@ -14874,7 +14874,7 @@ async function main() {
       RQT.begin(null);
       const it = G.rollRelic('shuangsheng', 62, 0.5);
       delete it.rqv;
-      // 旧版的两行：伤害提高 k 1.0–1.4（物品等级 62 → 52–127）取 25%，速度 k 1.0–1.3（19–41）取 75%
+      // 旧版的两行：伤害提高 k 1.0–1.4（物品等级 62 → 52–127）、速度 k 1.0–1.3（19–40）
       it.affixes = [{ id: 'incAll', tier: 9, v: 71 }, { id: 'speed', tier: 9, v: 36 }];
       it.uid = 'tw-mig-1';
       G.save.bag.length = 0;
@@ -14902,8 +14902,8 @@ async function main() {
       RQT.end();
       return out;
     }, SAVE_KEY);
-    // 25% → 78 + 0.25 × 95 = 101.75 → 102；75%（36 在 19–41 里是 0.773）→ 25 + 0.773 × 25 = 44.3 → 44
-    assert(/^incAll=102 speed=44 critMulti=\d+ uAllMore=1[0-4]$/.test(r.v) && r.rqv === '2 shuangsheng tw-mig-1', '升级后的词缀不对：' + JSON.stringify(r));
+    // 伤害提高 71 在 52–127 里是 0.253 → 78 + 0.253 × 95 = 102.1 → 102；速度 36 在 19–40 里是 0.810 → 25 + 0.810 × 25 = 45.2 → 45
+    assert(/^incAll=102 speed=45 critMulti=\d+ uAllMore=1[0-4]$/.test(r.v) && r.rqv === '2 shuangsheng tw-mig-1', '升级后的词缀不对：' + JSON.stringify(r));
     assert(r.note.indexOf('1 true ') === 0 && !/ -1$/.test(r.note) && r.same && r.again === '0 false true', '提示 / 确定性 / 不再迁移不对：' + JSON.stringify(r));
     return r.v;
   });
@@ -14961,6 +14961,8 @@ async function main() {
     G.respawn();
     const keepEq = Object.assign({}, G.save.equip), keepBar = G.save.bar.slice(), keepV = Object.assign({}, G.save.variants), keepVP = G.save.variantPrev ? Object.assign({}, G.save.variantPrev) : null;
     const keepLvl = G.save.skills[id], keepSock = G.save.sockets[id];
+    S.stats.twinBy = {}; // 前面的步骤留下的余响记账不带进来
+    S.stats.twinDmg = 0;
     for (const sl of G.SLOTS) if (sl !== 'weapon') G.save.equip[sl] = null;
     const twin = G.rollRelic('shuangsheng', 62, 0.5);
     G.save.equip.amulet = twin;
