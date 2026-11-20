@@ -1642,6 +1642,21 @@
     m_speed: (p) => p.M(-9, 5.4).Q(-6.4, -3.4, -1.6, -9.4).M(-4, 9.4).Q(-1, -0.4, 4.4, -7.4).M(1.8, 9.8).Q(5, 2.4, 9.6, -3.6),
     // 混沌注入：一个小圆加三道向心的弧（乱流石是一笔连续的螺旋，这里分成三段）
     chaos: (p) => { p.E(0, 0, 2.6); for (let k = 0; k < 3; k++) { const a0 = (k / 3) * TAU; for (let i = 0; i <= 6; i++) { const t = i / 6, a = a0 + t * 1.5, r = 9.4 - t * 4.6; p[i ? 'L' : 'M'](Math.cos(a) * r, Math.sin(a) * r); } } return p; },
+    // ---------- 取舍型 / 改玩法的辅助（support-expand） ----------
+    // 收束：四个往里收的尖角夹住中间一个小点（扩域是往外的弧）
+    narrow: (p) => { p.E(0, 0, 2.2); for (let i = 0; i < 4; i++) { const a = (i / 4) * TAU + Math.PI / 4, c = Math.cos(a), s = Math.sin(a); p.M(c * 9.4 - s * 3.4, s * 9.4 + c * 3.4).L(c * 5, s * 5).L(c * 9.4 + s * 3.4, s * 9.4 - c * 3.4); } return p; },
+    // 远劲：一支细长的箭，尾后两道速度线
+    farshot: (p) => p.M(-5, 0).L(9, 0).M(5.4, -3).L(9.4, 0).L(5.4, 3).M(-9.6, -4.4).L(-3.4, -4.4).M(-9.6, 4.4).L(-3.4, 4.4).M(-8, 0).L(-6.6, 0),
+    // 盛环：内外两道圆环，外环上四个小点
+    swell: (p) => p.E(0, 0, 3.6).E(0, 0, 7.8).E(0, -7.8, 1.3).E(7.8, 0, 1.3).E(0, 7.8, 1.3).E(-7.8, 0, 1.3),
+    // 储能：一节电池，里面分成三格
+    charge: (p) => p.R(-9, -5, 16, 10, 1.6).M(9.2, -2.4).L(9.2, 2.4).M(-3.6, -5).L(-3.6, 5).M(1.8, -5).L(1.8, 5),
+    // 烈爆：中间一团，八道长短交替的爆芒
+    blaze: (p) => { p.E(0, 0, 3.2); for (let i = 0; i < 8; i++) { const a = (i / 8) * TAU, r0 = 5.2, r1 = i % 2 ? 7.6 : 9.8; p.M(Math.cos(a) * r0, Math.sin(a) * r0).L(Math.cos(a) * r1, Math.sin(a) * r1); } return p; },
+    // 深寒：一道横梁下挂三根冰锥
+    deepfreeze: (p) => p.M(-9.4, -7).L(9.4, -7).M(-8, -7).L(-5.6, 5).L(-3.2, -7).M(-2.4, -7).L(0, 9.4).L(2.4, -7).M(3.2, -7).L(5.6, 3).L(8, -7),
+    // 雷涌：一道闪电在中段分出两股
+    surge: (p) => p.M(-1, -9.4).L(2.4, -2.6).L(-2.6, -0.6).L(1, 9.4).M(-2.6, -0.6).L(-8.6, 5.4).M(2.4, -2.6).L(8.6, 3.2),
     // 渊缚：一个空心圆，四道从外往里的短箭头
     bind: (p) => { p.E(0, 0, 3.4); for (let i = 0; i < 4; i++) { const a = (i / 4) * TAU + Math.PI / 4, c = Math.cos(a), s = Math.sin(a); p.M(c * 9.6, s * 9.6).L(c * 5.6, s * 5.6).M(c * 5.6 - s * 1.8 + c * 1.8, s * 5.6 + c * 1.8 + s * 1.8).L(c * 5.6, s * 5.6).L(c * 5.6 + s * 1.8 + c * 1.8, s * 5.6 - c * 1.8 + s * 1.8); } return p; },
   };
@@ -1650,6 +1665,7 @@
     multi: '#ffb066', pierce: '#b9c6dc', chain: '#ffe45e', expanse: '#7fe0c0', haste: '#7ed67a', fire: '#ff7a2c', cold: '#86d8ff', light: '#ffe45e',
     brutal: '#e2705a', precise: '#ffd75e', leech: '#ff6a8a', echo: '#c7a6ff', stagger: '#f2e6b0', ailment: '#b6e05c', frugal: '#6fb2ff',
     m_dmg: '#3fe0c8', m_life: '#d2b47a', m_horde: '#e28ad6', m_speed: '#ff5a46', chaos: '#f03cb4',
+    narrow: '#d9a441', farshot: '#9fc3ff', swell: '#b48cff', charge: '#5fe0e8', blaze: '#ff5a3c', deepfreeze: '#bfe8ff', surge: '#fff38a',
   };
   // 仆从辅助宝石的 id 由数据那边定；按 id 认不出时按名字认，两边怎么起名都对得上
   const SUP_BY_NAME = { 驭灵: 'm_dmg', 坚骨: 'm_life', 群聚: 'm_horde', 狂怒: 'm_speed' };
