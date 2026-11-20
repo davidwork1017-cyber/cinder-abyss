@@ -2158,6 +2158,23 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
   box-shadow: 0 0 6px color-mix(in srgb, var(--ally) 45%, transparent);
   pointer-events: none;
 }
+/* 光环保留放不下（超过 90%）：格子变暗、不呼吸，角标借用 s-auto 写「保留不足」 */
+.slot.aoff .s-icon { animation: none; filter: grayscale(0.85) brightness(0.55); }
+.slot.aoff .s-auto {
+  display: block;
+  position: absolute;
+  right: -5px;
+  top: 45px;
+  padding: 0 3px;
+  font-size: 10px;
+  line-height: 13px;
+  white-space: nowrap;
+  color: #ffd6c8;
+  background: #2a1210;
+  border: 1px solid #c8553e;
+  border-radius: 2px;
+  pointer-events: none;
+}
 @keyframes slot-ready {
   0% { box-shadow: 0 0 0 2px #fff4dc, 0 0 22px 6px var(--c); filter: brightness(2.1); }
   100% { box-shadow: 0 0 0 0 transparent; filter: none; }
