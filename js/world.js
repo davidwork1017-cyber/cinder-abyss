@@ -19922,7 +19922,7 @@
       fragmentShader:
         G.vfx.GLSL + '\nvarying vec4 vC;\n' +
         'void main(){ vec2 q = gl_PointCoord - 0.5; float d = length(q);\n' +
-        ' float n = vfxNA(q * 0.55 + vec2(vC.a * 1.3, -vC.a * 0.7)).r;\n' +
+        ' float n = uLo > 0.5 ? 0.5 + 0.25 * sin(q.x * 23.0 + vC.a * 40.0) * sin(q.y * 19.0 - vC.a * 30.0) : vfxNA(q * 0.55 + vec2(vC.a * 1.3, -vC.a * 0.7)).r;\n' +
         ' float a = smoothstep(0.5, 0.34, d + (0.5 - n) * 0.34) * vC.a;\n' +
         ' if (a < 0.01) discard; gl_FragColor = vec4(vC.rgb * (0.88 + 0.24 * n + 0.2 * smoothstep(0.15, -0.3, q.y)), a); }',
       transparent: true, depthWrite: false,
@@ -22137,6 +22137,7 @@
       if (fbSmokeLive >= (FB_SMOKE_CAP[qualId] || 18)) return;
       fbSmokeLive++;
     }
+    if (qualId === 'low' && k === VFB.ring) return; // 低画质不放贴地的序列帧冲击环（原来的冲击环照旧有）
     o = o || {};
     const i = fbNext, j = i * 3;
     fbNext = (fbNext + 1) % FB_N;
@@ -22236,6 +22237,7 @@
   W.vDecal = function (kind, x, z, r, dur, hex, o) {
     const k = typeof kind === 'string' ? VVD[kind] : kind;
     if (k === undefined || !vdMesh) return;
+    if (qualId === 'low' && k !== VVD.scorch) return; // 低画质只留焦痕（闪光 / 霜痕 / 渊痕这些大方片叠起来，软件渲染下最费填充率）
     o = o || {};
     const i = vdNext;
     vdNext = (vdNext + 1) % VD_N;
@@ -24492,7 +24494,7 @@
   }
   function holeMotes(h) {
     if (h.open < 0.34) return;
-    const lo = qualId === 'low', n = (lo ? 10 : 24) >> (h.mouth ? 1 : 0); // vf-vfx：往里卷的光点加密（原来 6 / 14）
+    const lo = qualId === 'low', n = (lo ? 6 : 24) >> (h.mouth ? 1 : 0); // vf-vfx：高画质往里卷的光点加密（原来 6 / 14）
     for (let i = 0; i < n; i++) {
       const u = (((wtime - h.t0) * 0.55 + i / n + ((i * 0.618) % 1) * 0.13) % 1 + 1) % 1;
       const a0 = h.ph + i * 2.39996;

@@ -382,16 +382,18 @@
     '  vec3 col = vCol;',
     // 火舌啃边：竖向条纹噪声沿形状往上滚（v 方向），形状外沿被啃出一道道缺口，越靠尾巴啃得越深
     '#ifdef VFX_LICK',
-    '  vec3 nb = vfxNB(vec2(uv.x * 0.7 + seed * 3.1, uv.y * 0.55 + uTime * 1.6 + seed));',
-    '  float lick = nb.r * 0.7 + vfxNA(vec2(uv.x * 0.9 + seed, uv.y * 0.8 + uTime * 2.3)).r * 0.3;',
-    '  a = s * smoothstep(0.0, 0.1, s - lick * uLickK * (1.15 - uv.y));',
+    '  if (uLo < 0.5) {', // 低画质不啃边（少两次取样）
+    '    vec3 nb = vfxNB(vec2(uv.x * 0.7 + seed * 3.1, uv.y * 0.55 + uTime * 1.6 + seed));',
+    '    float lick = nb.r * 0.7 + vfxNA(vec2(uv.x * 0.9 + seed, uv.y * 0.8 + uTime * 2.3)).r * 0.3;',
+    '    a = s * smoothstep(0.0, 0.1, s - lick * uLickK * (1.15 - uv.y));',
+    '  }',
     '#endif',
     '#ifdef VFX_FLOW',
     '  a *= 0.55 + 0.9 * vfxNB(vec2(uv.x * 0.4 + seed, uv.y * 0.25 - uTime * 3.0)).r;',
     '#endif',
     // 噪声消融：进度 vFx.x 是门限，门限上方一道亮边
     '#ifdef VFX_ERODE',
-    '  float n = vfxNA(uv * 0.85 + seed * 7.31).r * 0.75 + vfxNB(uv * 1.7 + seed * 3.7).g * 0.25;',
+    '  float n = uLo > 0.5 ? 0.5 + 0.35 * sin(uv.x * 9.0 + seed * 20.0) * sin(uv.y * 7.0 - seed * 13.0) : vfxNA(uv * 0.85 + seed * 7.31).r * 0.75 + vfxNB(uv * 1.7 + seed * 3.7).g * 0.25;',
     '#ifdef VFX_RADIAL',
     '  n = mix(n, 1.0 - length(uv - 0.5) * 2.0, 0.55);',
     '#endif',
@@ -401,7 +403,7 @@
     '#endif',
     // 卡通的三档色带：亮度低的外沿压暗、中间主色、最里面一档往白混（都从实例色推出来，注入元素色的投射物照样跟着变色）
     '#ifdef VFX_TONE',
-    '  float t = clamp((lum - uLumLo) / (1.0 - uLumLo), 0.0, 1.0) * (0.75 + 0.5 * vfxNA(uv * vec2(0.6, 0.3) + vec2(seed, uTime * 0.9)).r);',
+    '  float t = clamp((lum - uLumLo) / (1.0 - uLumLo), 0.0, 1.0) * (uLo > 0.5 ? 1.0 : 0.75 + 0.5 * vfxNA(uv * vec2(0.6, 0.3) + vec2(seed, uTime * 0.9)).r);',
     '  col = t < 0.3 ? col * 0.5 : (t < 0.78 ? col * 0.92 : col * 0.5 + vec3(0.5) * max(col.r, max(col.g, col.b)));',
     '#endif',
     '#ifdef VFX_GROUND',
