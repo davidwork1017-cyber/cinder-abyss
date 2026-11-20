@@ -22,6 +22,20 @@ cc-slot run <名字> test -- npm run test:func     # 独占（A/B 验证通过�
 只跑 test:func，或在池里跑（`cc-slot pool` 会设 `CC_SLOT_HELD=pool:…`，手动跑可以设 `CC_POOL=1`）时，每行 ok 后面会挂上 `[pool, not comparable]`：这时的步骤耗时和步骤里打印的 ms 数字不能和独占跑的比。
 每份开头打一行 `== test:<份> · HEAD <提交> · <时间> · 槽位 …`，贴结果时连同最后的「通过 N 项」一起贴。
 
+## 省渲染（test:func）
+
+test:func 默认让游戏看到的 `window.devicePixelRatio` 是 0.5：3D 画面和叠加层（血条、名牌、小地图）按一半分辨率渲染，像素只剩四分之一；CSS 布局、鼠标坐标、视口（1440×900）都不变，画质档还是软件渲染下默认的「低」。SwiftShader 的开销主要在像素上，这样几个 Chrome 一起跑时每帧快得多。
+做法在 `test/harness.mjs` 的 `dpr` 选项（导航前装一段页面脚本）和 `test/smoke.mjs` 顶上的 `FULL_RES`：下面这些步骤要看像素、画面数值或指定尺寸下的布局，进步骤前临时改回 1，出来再改回 0.5。
+
+| 按 devicePixelRatio 1 跑的步骤（名字开头） | 为什么 |
+| --- | --- |
+| 首屏、怪物：远处沉睡、区域 N、首领「…」、存档：刷新页面后 | `T.frame()` 统计画面亮度和颜色数，首屏还取小地图的像素 |
+| 画面： | 三档画质切换、`gfxInfo()` |
+| 异兆小地图、宝箱、小地图 | 取小地图上的像素颜色 |
+| 技能卡版式、标题画面与暂停菜单在小窗口 | 指定窗口尺寸下的布局 |
+
+`CINDER_FULL=1 npm run test:func` 全程按 1 跑（和拆分前一样）。test:timed 一直按 1。新步骤要看像素或画面数值时，把步骤名开头加进 `FULL_RES`，并在上表记一行。
+
 ## 计时步骤
 
 test:timed 里的每一步都从 test:func 的某一步拆出来：计时断言原样搬过去（条件和上限不改），前面补上它要的最少准备；原来那一步留在 test:func 里，只做功能检查。
