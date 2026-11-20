@@ -5,6 +5,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pipeline } from 'node:stream';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TYPES = {
@@ -23,6 +24,11 @@ export function serve({ port = 0, host = '127.0.0.1', stats = null, root = ROOT 
     try {
       rel = decodeURIComponent(new URL(req.url, 'http://x').pathname);
     } catch (e) {
+      res.writeHead(400).end();
+      return;
+    }
+    // 路径里带 NUL（%00）时 fs.stat 会同步抛错，整个进程（连同跑着的测试）直接崩掉，先挡掉
+    if (rel.includes('\0')) {
       res.writeHead(400).end();
       return;
     }
@@ -45,7 +51,8 @@ export function serve({ port = 0, host = '127.0.0.1', stats = null, root = ROOT 
         (stats.files || (stats.files = [])).push(rel);
       }
       if (req.method === 'HEAD') res.end();
-      else fs.createReadStream(file).pipe(res);
+      // pipeline：读文件出错时不抛未处理的 error 事件，页面中途断开时也会关掉文件句柄（pipe 两样都不管）
+      else pipeline(fs.createReadStream(file), res, () => {});
     });
   });
   return new Promise((ok, fail) => {
