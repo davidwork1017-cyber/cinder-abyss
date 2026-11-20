@@ -112,6 +112,14 @@ async function install() {
         T.d = e;
         return true;
       },
+      // 召唤物只在它的技能放在技能栏上时存在：直接调 G.summonMinion 的步骤先把用到的召唤技能放上栏（先占空格，没有空格再顶掉 Q / E / 左键上别的技能）。
+      // 返回原来的技能栏，步骤结束时 G.save.bar = 返回值 还原（召唤步骤由 summonStep 还原）
+      slotSummon(...ids) {
+        const bar = G.save.bar, old = bar.slice(), K = [2, 3, 0];
+        const free = K.filter((k) => !bar[k]).concat(K.filter((k) => bar[k] && !ids.includes(bar[k])));
+        for (const id of ids) if (bar.indexOf(id) < 0) bar[free.shift()] = id;
+        return old;
+      },
       scr(x, z) {
         const p = W.project(x, 0, z);
         return { x: p.x, y: p.y, ok: p.ok };
@@ -1719,6 +1727,7 @@ async function main() {
 
   await step('魂潮：4 只魂火扑向准星附近的敌人、碰到即炸开，伤害按召唤物算（吃召唤物伤害，不吃你自己的伤害加成）；没有召唤物也能用；有召唤物时令其狂热（攻击 / 移动更快）', async () => {
     const r = await ev(() => {
+      const bar0 = T.slotSummon('thrall'); // 召唤物只在技能放在技能栏上时存在
       const P = G.player, S = G.state, save = G.save, out = {};
       const keepW = save.equip.weapon;
       const sk0 = Object.assign({}, save.skills);
@@ -1824,6 +1833,7 @@ async function main() {
         G.computeStats();
         T.arena();
       }
+      G.save.bar = bar0;
       return out;
     });
     assert(r.ws === 'soultide' && /召唤物伤害提高 \d+%，召唤物最大生命提高 \d+%/.test(r.imp) && r.impStats, '魂幡的武器技 / 隐含属性不对：' + JSON.stringify(r));
@@ -2550,6 +2560,7 @@ async function main() {
 
   await step('魂幡的普攻「魂引」：没有召唤物也能打；伤害按召唤物算（吃召唤物伤害提高，不吃你的物理伤害提高）；每只召唤物 +8%（最多 5 只）；打中的目标成为召唤物的集火目标；召唤物辅助（驭灵）对它生效', async () => {
     const r = await ev((code) => {
+      const bar0 = T.slotSummon('thrall'); // 召唤物只在技能放在技能栏上时存在
       eval(code);
       const save = G.save, P = G.player, S = G.state, out = {};
       const snap = T.buildSnap();
@@ -2598,6 +2609,7 @@ async function main() {
         G.clearMinions();
         T.arena();
       }
+      G.save.bar = bar0;
       return out;
     }, rangedSetup);
     assert(Math.abs(r.phys / r.base - 1) < 1e-9 && r.minionDmg / r.base > 1.45, '魂引应吃召唤物伤害、不吃你的物理伤害提高：' + JSON.stringify(r));
@@ -4355,6 +4367,137 @@ async function main() {
     return '仆从消耗 ' + r.cost + '，远处落点 ' + r.farD.toFixed(1);
   });
 
+  await summonStep('召唤物只在来源还在时存在：技能从技能栏拿下 → 它的召唤物马上原地消散（不掉落、不给经验、不炸魂火、不触发同殇 / 骸爆）；上限降了多出来的也一样；换下万魂旗 → 英灵马上消散；读档 / 换区域不带回没放在栏上的；放回去照常召唤', async () => {
+    const r = await ev(() => {
+      T.arena();
+      G.debug.god(true);
+      const P = G.player, S = G.state, save = G.save, out = {};
+      const n = (k) => S.minions.filter((m) => !m.dead && (!k || m.kind === k)).length;
+      const tick = (s) => { for (let i = 0; i < Math.round(s * 60); i++) G.tick(1 / 60); };
+      for (const id of Object.keys(save.sockets)) save.sockets[id] = [null, null, null];
+      for (const id of ['thrall', 'colossus']) if (!save.skills[id]) { save.skills[id] = 10; save.sockets[id] = [null, null, null]; }
+      // 倒下才有的效果全部记下来：解散时一次都不该调用
+      const calls = { soul: 0, down: 0 }, soul0 = G.soulFire, down0 = G.relicMinionDown;
+      G.soulFire = (m) => { calls.soul++; return soul0(m); };
+      G.relicMinionDown = (m) => { calls.down++; return down0(m); };
+      const bag0 = save.bag.splice(0); // 背包腾空：换下的万魂旗要放得进去
+      try {
+        save.equip.weapon = G.rollUnique('wanhun', 40, 0.5); // 拿着万魂旗：倒下的召唤物会炸魂火，解散的不会
+        G.computeStats();
+        out.soulMech = P.uMech;
+        G.bindSkill(2, 'thrall');
+        G.bindSkill(3, 'colossus');
+        for (let i = 0; i < 3; i++) G.summonMinion('thrall', P.x + 2, P.z - 1 + i);
+        G.summonMinion('colossus', P.x - 3, P.z);
+        tick(1.2);
+        out.src = { on: S.minions.every((m) => G.minionSourceOn(m)), th: n('thrall'), col: n('colossus') };
+        // 1. 拿下仆从：3 具当场消散，守像不受影响
+        const th = S.minions.filter((m) => m.kind === 'thrall');
+        const xp0 = save.xp, lv0 = save.level, loot0 = S.loot.length, sb0 = S.stats.soulBursts || 0, d0 = S.stats.minionsDismissed || 0;
+        G.bindSkill(2, null);
+        out.unslot = {
+          th: n('thrall'), col: n('colossus'), dying: th.every((m) => m.dead && m.ent.dying && !m.ent.removed), dismissed: (S.stats.minionsDismissed || 0) - d0,
+          xp: save.xp - xp0 + (save.level - lv0) * 1e6, loot: S.loot.length - loot0, soul: (S.stats.soulBursts || 0) - sb0,
+        };
+        tick(0.8);
+        out.unslot.gone = th.every((m) => m.ent.removed);
+        out.unslot.th2 = n('thrall');
+        // 2. 放回去：照常召唤；镶群聚（上限 4）召满，再取下群聚 → 多出来的 1 具当场解散
+        G.bindSkill(2, 'thrall');
+        out.cap0 = G.skillCtx('thrall').minion.cap; // 上限受天赋 / 装备影响，按当时的算
+        save.supports.indexOf('horde') < 0 && save.supports.push('horde');
+        G.socketSupport('thrall', 0, 'horde');
+        out.capHorde = G.skillCtx('thrall').minion.cap;
+        for (let i = 0; i < out.capHorde; i++) G.summonMinion('thrall', P.x + 2, P.z - 1.5 + i * 0.8);
+        tick(1.2);
+        out.reslot = n('thrall');
+        const sb1 = S.stats.soulBursts || 0, d1 = S.stats.minionsDismissed || 0;
+        G.socketSupport('thrall', 0, null);
+        out.trim = { th: n('thrall'), cap: G.skillCtx('thrall').minion.cap, dismissed: (S.stats.minionsDismissed || 0) - d1, soul: (S.stats.soulBursts || 0) - sb1 };
+        // 3. 万魂降临的英灵：换下万魂旗 → 当场消散（不等 8 秒到点、不炸魂火）
+        const ctx = G.skillCtx('soulhost');
+        for (let i = 0; i < 3; i++) G.summonChampion('soulhost', P.x + 1.5 * i, P.z + 3, ctx, 8);
+        tick(0.6);
+        out.wr = { n: n('wraith'), basic: G.weaponBasic() };
+        const sb2 = S.stats.soulBursts || 0;
+        out.wr.unequip = G.unequip('weapon');
+        out.wr.after = n('wraith');
+        out.wr.thrall = n('thrall');
+        out.wr.soul = (S.stats.soulBursts || 0) - sb2;
+        out.wr.basic2 = G.weaponBasic();
+        out.wr.banner = S.minions.filter((m) => m.skill === 'basic_banner').length; // 魂引只是一缕魂灵，不留召唤物
+        out.calls = { soul: calls.soul, down: calls.down }; // 下面骸爆那一具是真倒下，不算
+        // 4. 骸爆（刻式）：倒下等着拼回来时把技能拿下 → 不再拼回来
+        save.equip.weapon = T.std;
+        G.computeStats();
+        G.clearMinions();
+        const v0 = save.variants.thrall, gl0 = save.skills.thrall;
+        save.skills.thrall = Math.max(gl0, G.VARIANT_LVL); // 刻式要宝石 10 级
+        save.variants.thrall = 'b';
+        G.applyVariants();
+        const b = G.summonMinion('thrall', P.x + 2, P.z);
+        tick(1);
+        G.hurtMinion(b, 1e7, 'phys', { x: P.x, z: P.z });
+        out.bone = { q: G.minionBones() };
+        G.bindSkill(2, null);
+        out.bone.q2 = G.minionBones();
+        tick(4);
+        out.bone.th = n('thrall');
+        if (v0) save.variants.thrall = v0;
+        else delete save.variants.thrall;
+        save.skills.thrall = gl0;
+        G.applyVariants();
+        // 5. 换区域：栏上直接被改掉（不经过 bindSkill）的召唤物不跟进新区域；栏上的照常跟着
+        G.clearMinions();
+        save.bar[2] = 'thrall';
+        G.computeStats();
+        for (let i = 0; i < 2; i++) G.summonMinion('thrall', P.x + 2, P.z + i);
+        G.summonMinion('colossus', P.x - 3, P.z);
+        tick(1.2);
+        save.bar[2] = null;
+        G.enterZone(S.zoneIdx, S.tier);
+        out.zone = { th: n('thrall'), col: n('colossus') };
+        // 6. 读档：开着自动召唤但技能不在栏上 → 一直是 0；放回栏上 → 自动补满
+        G.clearMinions();
+        save.bar[3] = null;
+        save.autoSummon.thrall = true;
+        // 读档会让新手提示把当前（高等级）角色当成老角色：读完把存档世代还原（同「自动召唤」那一步）
+        const epoch = G.saveEpoch;
+        G.persist();
+        G.loadSave();
+        G.saveEpoch = epoch;
+        G.computeStats();
+        P.cds = {};
+        P.mana = P.maxMana;
+        tick(2.5);
+        out.load = { n: n(), bar: G.save.bar.indexOf('thrall') };
+        G.bindSkill(2, 'thrall');
+        for (let i = 0; i < 8; i++) {
+          P.mana = P.maxMana; // 只看会不会补，不看魔力够不够
+          tick(0.5);
+        }
+        out.load.refill = n('thrall');
+        out.load.cap = G.skillCtx('thrall').minion.cap; // 这时手里是标准刃：没有万魂旗的 +1，上限可能比 cap0 少 1
+      } finally {
+        G.save.bag = bag0;
+        G.soulFire = soul0;
+        G.relicMinionDown = down0;
+        if (G.save.autoSummon) G.save.autoSummon.thrall = false;
+      }
+      return out;
+    });
+    assert(r.soulMech === 'soul' && r.src.on && r.src.th === 3 && r.src.col === 1, '起始：3 具仆从 + 1 尊守像、来源都在：' + JSON.stringify(r));
+    assert(r.unslot.th === 0 && r.unslot.col === 1 && r.unslot.dying && r.unslot.dismissed === 3 && r.unslot.gone && r.unslot.th2 === 0, '拿下仆从：3 具当场消散，守像不受影响：' + JSON.stringify(r.unslot));
+    assert(r.unslot.xp === 0 && r.unslot.loot === 0 && r.unslot.soul === 0, '解散不掉落、不给经验、不炸魂火：' + JSON.stringify(r.unslot));
+    assert(r.capHorde === r.cap0 + 1 && r.reslot === r.capHorde && r.trim.th === r.cap0 && r.trim.cap === r.cap0 && r.trim.dismissed === 1 && r.trim.soul === 0, '放回去照常召唤；上限降了多出来的当场解散、不炸魂火：' + JSON.stringify(r));
+    assert(r.wr.n === 3 && r.wr.basic === 'basic_banner' && r.wr.unequip && r.wr.after === 0 && r.wr.thrall === 3 && r.wr.soul === 0 && r.wr.basic2 === 'basic_fists' && r.wr.banner === 0, '换下万魂旗：英灵当场消散，魂引跟着换掉：' + JSON.stringify(r.wr));
+    assert(r.bone.q === 1 && r.bone.q2 === 0 && r.bone.th === 0, '骸爆：技能拿下后不再拼回来：' + JSON.stringify(r.bone));
+    assert(r.zone.th === 0 && r.zone.col === 1, '换区域：不在栏上的仆从不跟进来，栏上的守像照常跟着：' + JSON.stringify(r.zone));
+    assert(r.load.n === 0 && r.load.bar < 0 && r.load.refill === r.load.cap && r.load.cap >= 3, '读档：不在栏上就没有召唤物；放回去自动补满：' + JSON.stringify(r.load));
+    assert(r.calls.soul === 0 && r.calls.down === 0, '解散不应调用魂火 / 同殇：' + JSON.stringify(r.calls));
+    return '解散 ' + r.unslot.dismissed + ' + 裁上限 ' + r.trim.dismissed + '；英灵 ' + r.wr.n + ' → ' + r.wr.after;
+  });
+
   await summonStep('自动召唤：按召唤键切换开关（按技能存档，默认关）；开着时在身边补到上限、间隔 0.5 秒，倒下自动补，魔力不足暂停、回蓝继续，守像受冷却限制；不打断施法与翻滚、不吃输入缓冲；Shift + 按键在准星处手动召唤；技能卡和技能栏能看到并切换', async () => {
     const face0 = await ev(() => G.player.face);
     try {
@@ -4655,6 +4798,7 @@ async function main() {
       const P = G.player, S = G.state, out = {};
       P.life = P.maxLife = 1e6;
       const dummy = T.mob('brute', 6, 0);
+      T.slotSummon('thrall', 'colossus'); // 召唤物只在技能放在技能栏上时存在
       for (let i = 0; i < 3; i++) G.summonMinion('thrall', P.x + 2, P.z + i - 1);
       G.summonMinion('colossus', P.x - 2, P.z + 2);
       const st0 = Object.assign({}, S.stats);
@@ -4701,6 +4845,7 @@ async function main() {
       try {
         const near = T.mob('husk', 2.5, 0);
         const far = T.mob('husk', -5, 2);
+        T.slotSummon('thrall'); // 召唤物只在技能放在技能栏上时存在
         for (let i = 0; i < 3; i++) G.summonMinion('thrall', P.x + 2, P.z + i - 1);
         G.debug.step(1.5);
         out.before = S.minions.filter((m) => m.target === near).length;
@@ -4729,6 +4874,7 @@ async function main() {
       T.arena();
       const P = G.player, S = G.state, out = {};
       P.life = P.maxLife = 1e6;
+      T.slotSummon('colossus'); // 召唤物只在技能放在技能栏上时存在
       const col = G.summonMinion('colossus', P.x + 4, P.z);
       col.hp = col.maxHp = 1e6;
       G.debug.step(1.1);
@@ -4772,6 +4918,7 @@ async function main() {
       T.arena();
       const P = G.player, S = G.state, out = {};
       P.life = P.maxLife = 1e6;
+      T.slotSummon('thrall'); // 召唤物只在技能放在技能栏上时存在
       const t = G.summonMinion('thrall', P.x + 5, P.z);
       G.debug.step(0.8);
       // 记下实际结算到这只仆从身上的伤害（生命上限每 0.5 秒按属性刷新，直接改 hp 再相减不可靠）
@@ -4786,8 +4933,16 @@ async function main() {
       G.telegraph({ shape: 'circle', x: t.x, z: t.z, r: 1.5, dur: 0.1, dmg: 40, dtype: 'fire' });
       G.debug.step(0.2);
       out.tele = took();
-      G.spawnProjectile({ owner: 'e', x: t.x, z: t.z - 3, dx: 0, dz: 1, speed: 12, dmg: 25, dtype: 'phys' });
-      G.debug.step(0.5);
+      // 仆从定在原地（同「召唤物挡弹」）：不然它跟着玩家走开，弹丸打不打得到取决于区域的地形
+      const tx = t.x, tz = t.z;
+      G.spawnProjectile({ owner: 'e', x: tx, z: tz - 3, dx: 0, dz: 1, speed: 12, dmg: 25, dtype: 'phys' });
+      for (let i = 0; i < 30; i++) {
+        t.x = tx;
+        t.z = tz;
+        t.target = null;
+        t.seekT = 1;
+        G.tick(1 / 60);
+      }
       out.proj = took();
       const l0 = P.life;
       G.spawnProjectile({ owner: 'e', x: P.x, z: P.z - 3, dx: 0, dz: 1, speed: 12, dmg: 25, dtype: 'phys' });
@@ -4820,6 +4975,7 @@ async function main() {
       const d = T.openDir(10); // 一路可走、没有墙的方向（敌弹从那边射过来）
       out.len = d.len;
       const at = (k) => ({ x: P.x + d.x * k, z: P.z + d.z * k });
+      T.slotSummon('thrall'); // 召唤物只在技能放在技能栏上时存在
       const t = G.summonMinion('thrall', at(3).x, at(3).z);
       G.debug.step(0.8);
       t.hp = t.maxHp = 1e6;
@@ -4890,6 +5046,7 @@ async function main() {
       const summon = () => {
         G.clearMinions();
         const b = at(-2.5);
+        T.slotSummon('thrall'); // 召唤物只在技能放在技能栏上时存在
         for (let i = 0; i < 2; i++) G.summonMinion('thrall', b.x, b.z);
         G.debug.step(1.0);
       };
@@ -5063,6 +5220,7 @@ async function main() {
       for (const id of Object.keys(G.save.sockets)) G.save.sockets[id] = [null, null, null];
       G.computeStats();
       G.bindSkill(3, 'pyre');
+      T.slotSummon('pyre'); // 召唤物只在技能放在技能栏上时存在
       const ps = [G.summonMinion('pyre', P.x - 1.5, P.z - 1), G.summonMinion('pyre', P.x + 1.5, P.z - 1)];
       G.debug.step(1.0);
       // 一个冻住的首领：火弹只打得到它一个，焰蓄攒满后放灼链
@@ -5172,6 +5330,7 @@ async function main() {
       T.arena();
       G.save.sockets.pyre = ['multi', null, null];
       G.computeStats();
+      T.slotSummon('pyre'); // 召唤物只在技能放在技能栏上时存在
       const m = G.summonMinion('pyre', P.x, P.z - 1);
       G.debug.step(1.0);
       const es = [];
@@ -5244,6 +5403,7 @@ async function main() {
       T.arena();
       G.debug.god(true);
       const P = G.player, S = G.state, out = {};
+      T.slotSummon('thrall', 'colossus'); // 召唤物只在技能放在技能栏上时存在
       for (let i = 0; i < 3; i++) G.summonMinion('thrall', P.x + 3, P.z + i - 1);
       G.summonMinion('colossus', P.x - 3, P.z);
       G.debug.step(1.2);
@@ -5326,6 +5486,7 @@ async function main() {
       out.crit = ctx.crit;
       const P = G.player;
       const e = T.mob('husk', 2.5, 0);
+      T.slotSummon('thrall'); // 召唤物只在技能放在技能栏上时存在
       G.summonMinion('thrall', P.x + 1.2, P.z);
       G.debug.step(0.75);
       T.fix(0);
@@ -5360,6 +5521,7 @@ async function main() {
       G.computeStats();
       T.fix(0.5);
       // 横斩：目标 + 身旁扇面里的一只被带到，身后的那只不受伤；命中帧落在攻击动作的 contact 上
+      T.slotSummon('thrall'); // 召唤物只在技能放在技能栏上时存在
       const th = G.summonMinion('thrall', P.x + 3, P.z);
       G.debug.step(0.8);
       th.hp = th.maxHp = 1e6;
@@ -5476,6 +5638,7 @@ async function main() {
       out.life = info1.life / info0.life;
       out.lifeWant = (1 + P.S.minionLife / 100) / (1 + ml0 / 100);
       // 仆从的真实一击不受「自身伤害少 30%」影响
+      T.slotSummon('thrall'); // 召唤物只在技能放在技能栏上时存在
       G.summonMinion('thrall', P.x + 1, P.z);
       G.debug.step(0.75);
       T.fix(0.5);
@@ -8713,6 +8876,9 @@ async function main() {
         // 只扣根节点真的挂在场景上的敌人：正在演死亡的敌人被 W.removeEnt 挪进 corpseRoot（不再是场景的直接子节点）却还在 S.enemies 里，
         // 原来按 S.enemies.length 扣会偶尔少算出 −1（不是泄漏）。场景里多出来的对象照样一个不漏地数出来
         const count = () => W.scene.children.length - S.enemies.filter((e) => e.ent && e.ent.group && e.ent.group.parent === W.scene).length;
+        // 先把来源已经不在的召唤物解散掉（前面的步骤可能改过技能栏却没推进模拟，还没来得及刷新）：
+        // 否则换区域时它们才被清走，场景对象数会少一个，和泄漏无关
+        G.checkMinionSources(true);
         const n1 = count();
         const clutter = () => {
           for (let i = 0; i < 6; i++) G.spawnLoot('item', G.rollItem(5, i % 3), 1, 1);
@@ -9030,6 +9196,79 @@ async function main() {
     assert(r.n === 0, '场景对象数变化 ' + r.n);
     assert(r.geo <= 3 && r.tex <= 1, '切换 10 次区域后几何体 +' + r.geo + '，贴图 +' + r.tex);
     return '几何体 ' + r.g + '（+' + r.geo + '），贴图 ' + r.t + '（+' + r.tex + '）';
+  });
+
+  await step('特效贴图库（vf-vfx）：贴图包载入、五张贴图解码完成；每个区域在高 / 低画质下施放六个旗舰技能（掷焰、陨火、链雷、霜环、黑洞、黑旋风）并渲染，特效着色器编译无报错，画出序列帧和地面瞬时痕迹', async () => {
+    const r = await ev(async () => {
+      const W = G.world, V = G.vfx, S = G.state, P = G.player, save = G.save;
+      const out = { ok: !!(V && V.ok), bytes: V ? V.bytes() : 0, rows: [], faceMin: 9, flatMin: 9 };
+      if (!V) return out;
+      out.ready = await V.whenReady;
+      out.mats = V.materials().length;
+      const keep = { zi: S.zoneIdx, tier: S.tier, q: W.quality(), bar: save.bar.slice(), skills: Object.assign({}, save.skills), sockets: JSON.parse(JSON.stringify(save.sockets)), level: save.level };
+      const IDS = ['ember', 'meteor', 'arc', 'blackhole', 'vortex'];
+      try {
+        for (let z = 0; z < G.ZONES.length; z++) {
+          G.enterZone(z, 0);
+          for (const q of ['high', 'low']) {
+            W.setQuality(q);
+            G.clearEnemies();
+            for (const k of IDS.concat('nova')) { save.skills[k] = 10; save.sockets[k] = [null, null, null]; }
+            save.level = Math.max(save.level, 20);
+            save.bar = ['nova', null, null, null];
+            G.computeStats();
+            const row = { z: S.zone.def.id, q, fb: 0, dec: 0, aura: false };
+            // 方片朝向（防 6347625 那种错）：合用网格里立着的序列帧要正对镜头，冲击环（种类 4）和地面痕迹（种类 ≥ 10）要平躺
+            const quadCheck = () => {
+              let mesh = null;
+              W.scene.traverse((o) => { if (o.isInstancedMesh && o.material && o.material.userData && o.material.userData.vfx && o.material.polygonOffset) mesh = o; });
+              if (!mesh || !mesh.count) return;
+              const fx = mesh.geometry.getAttribute('aFx'), m4 = new THREE.Matrix4(), n = new THREE.Vector3(), back = new THREE.Vector3(0, 0, 1).applyQuaternion(W.camera.quaternion);
+              for (let i = 0; i < mesh.count; i++) {
+                mesh.getMatrixAt(i, m4);
+                n.set(0, 1, 0).transformDirection(m4);
+                const kind = Math.round(fx.getW(i));
+                if (kind === 4 || kind >= 10) out.flatMin = Math.min(out.flatMin, n.y);
+                else if (kind >= 1) out.faceMin = Math.min(out.faceMin, n.dot(back));
+              }
+            };
+            for (const id of IDS) {
+              const e = G.spawnMob('husk', P.x + 5, P.z - 1, 5, { awake: true });
+              e.hp = e.maxHp = 1e6;
+              e.atkCd = 1e9;
+              e.speed = 0;
+              G.input.mouse.wx = e.x;
+              G.input.mouse.wz = e.z;
+              P.mana = P.maxMana;
+              P.cast = null;
+              G.execSkill(G.skillCtx(id));
+              for (let i = 0; i < 4; i++) { G.debug.step(0.12); W.render(); if (i === 0) quadCheck(); }
+              row.fb = Math.max(row.fb, W.fxFlipLive());
+              row.dec = Math.max(row.dec, W.vDecalLive());
+            }
+            row.aura = W.auraInfo().visible;
+            out.rows.push(row);
+            W.clearFx();
+          }
+        }
+      } finally {
+        G.clearEnemies();
+        save.bar = keep.bar;
+        save.skills = keep.skills;
+        save.sockets = keep.sockets;
+        save.level = keep.level;
+        G.computeStats();
+        W.setQuality(keep.q);
+        G.enterZone(keep.zi, keep.tier);
+        G.debug.god(true);
+      }
+      return out;
+    });
+    assert(r.ok && r.ready && r.bytes > 50000 && r.bytes < 400000, '特效贴图包应载入、贴图全部解码（base64 50–400 KB）：' + JSON.stringify({ ok: r.ok, ready: r.ready, bytes: r.bytes }));
+    assert(r.mats >= 2, '投射物的火舌应换成特效贴图库的共用材质：' + r.mats);
+    assert(r.rows.length === 10 && r.rows.every((x) => x.fb > 0 && x.dec > 0 && x.aura), '每个区域、高 / 低画质下都应画出序列帧特效、地面瞬时痕迹和霜环：' + JSON.stringify(r.rows));
+    assert(r.faceMin > 0.95 && r.faceMin <= 1.0001 && r.flatMin > 0.95 && r.flatMin <= 1.0001, '立着的序列帧应正对镜头、冲击环和地面痕迹应平躺（方片法线）：' + JSON.stringify({ faceMin: r.faceMin, flatMin: r.flatMin }));
+    return '贴图包 ' + Math.round(r.bytes / 1024) + ' KB，' + r.rows.length + ' 轮施放，方片朝向 ' + r.faceMin.toFixed(3) + ' / ' + r.flatMin.toFixed(3);
   });
 
   await step('画面：CC0 素材按区域加载后换成 PBR 地面与布景；画质高 / 中 / 低即时切换、存档，三档都能渲染', async () => {
@@ -9658,6 +9897,7 @@ async function main() {
 
   await step('召唤物继承装备：武器伤害 / 护甲 / 抗性 / 装备生命按天赋比例继承（魂幡按倍数计、物品等级 12–46 之间折算），受击时护甲与抗性生效，技能卡写出明细', async () => {
     const r = await ev(() => {
+      const bar0 = T.slotSummon('thrall'); // 召唤物只在技能放在技能栏上时存在
       T.arena();
       const save = G.save, P = G.player;
       G.debug.setLevel(55);
@@ -9735,6 +9975,7 @@ async function main() {
       G.clearMinions();
       for (const sl in ilvl0) save.equip[sl].ilvl = ilvl0[sl];
       G.computeStats();
+      G.save.bar = bar0;
       return out;
     });
     const near = (a, b) => Math.abs(a - b) < 0.02;
@@ -10378,6 +10619,7 @@ async function main() {
       G.save.equip.weapon = G.rollUnique('wanhun', 40, 0.5);
       G.save.skills.thrall = 30; G.save.sockets.thrall = [null, null, null];
       G.computeStats();
+      const bar0 = T.slotSummon('thrall'); // 召唤物只在技能放在技能栏上时存在
       const th = [G.summonMinion('thrall', P.x - 1.5, P.z + 1.5), G.summonMinion('thrall', P.x + 1.5, P.z + 1.5)];
       for (let i = 0; i < 60; i++) G.tick(1 / 60);
       for (const m of th) m.hp = m.maxHp * 0.3;
@@ -10399,6 +10641,7 @@ async function main() {
       Object.assign(G.save.skills, keep.skills); for (const k in G.save.skills) if (!(k in keep.skills)) delete G.save.skills[k];
       Object.assign(G.save.sockets, keep.sockets);
       T.arena();
+      G.save.bar = bar0;
       return out;
     });
     // +100% 召唤物伤害：倍率 = (200 + 原有加成) / (100 + 原有加成)（原有加成随前面步骤的装备而变）
@@ -10980,6 +11223,7 @@ async function main() {
       };
       const e = T.mob('husk', 2.2, 0);
       e.buTh = 1e9;
+      T.slotSummon('thrall'); // 召唤物只在技能放在技能栏上时存在
       G.summonMinion('thrall', P.x + 1, P.z, G.skillCtx('thrall'));
       for (let i = 0; i < 240 && !minion; i++) G.tick(1 / 60);
       // 爆燃（触发出来的伤害）：不带黑焰
@@ -12680,6 +12924,7 @@ async function main() {
 
   await step('独骸（骸王冠）：烬骸仆从上限固定 1，伤害 ×2.9（单体秒伤 = 3 具的 0.967）、生命 ×3、横斩带 6 个 / 220°、牵制 5 只、减伤 +15；群聚多给的上限折成 +35% 伤害 / +40% 生命；骸王体型 ×1.5；魂火按普通仆从算', async () => {
     const r = await ev(() => {
+      const bar0 = T.slotSummon('thrall'); // 召唤物只在技能放在技能栏上时存在
       RQT.begin(null);
       RQT.learn('thrall', 0);
       const H = G.RELIC_MECH.haiwang;
@@ -12719,6 +12964,7 @@ async function main() {
       out.count = ms.length;
       out.big = ms[0] ? [!!ms[0].king, +(ms[0].r / ms[0].r0).toFixed(2), +ms[0].ent.body.scale.x.toFixed(2)] : null;
       RQT.end();
+      G.save.bar = bar0;
       return out;
     });
     assert(r.cap[1] === 1 && r.king && Math.abs(r.more - r.wantMore) < 1e-3 && Math.abs(r.life - r.wantLife) < 0.02, '骸王的上限 / 伤害 / 生命不对：' + JSON.stringify(r));
@@ -12731,6 +12977,7 @@ async function main() {
 
   await step('同殇（同殇甲）：你受到的伤害 30% 转给 10 米内最近的召唤物（按它的减伤结算）、10 米外不转；召唤物最大生命 +25%；召唤物倒下时你回复它最大生命的 8%', async () => {
     const r = await ev(() => {
+      const bar0 = T.slotSummon('thrall'); // 召唤物只在技能放在技能栏上时存在
       RQT.begin(null);
       RQT.learn('thrall', 0);
       const P = G.player, T0 = G.RELIC_MECH.tongshang;
@@ -12770,6 +13017,7 @@ async function main() {
       out.heal = [+(P.life - before).toFixed(2), +Math.min(heal, P.maxLife - before).toFixed(2)];
       P.god = true;
       RQT.end();
+      G.save.bar = bar0;
       return out;
     });
     assert(Math.abs(r.life - 1.25) < 0.02, '召唤物生命应 +25%：' + r.life);
@@ -12781,6 +13029,7 @@ async function main() {
 
   await step('随影（招魂带）：翻滚 0.15 秒后召唤物闪到落点周围，各砸一下（各自一击 ×1.5，守像 ×1.0）；翻滚冷却 +15%', async () => {
     const r = await ev(() => {
+      const bar0 = T.slotSummon('thrall'); // 召唤物只在技能放在技能栏上时存在
       RQT.begin('zhaohun');
       RQT.learn('thrall', 0);
       const P = G.player, Z = G.RELIC_MECH.zhaohun;
@@ -12803,6 +13052,7 @@ async function main() {
       out.dmg = [Math.round(h0 - tgt.hp), Math.round(one * 2)];
       G.debug.step(0.4);
       RQT.end();
+      G.save.bar = bar0;
       return out;
     });
     assert(Math.abs(r.cd[0] - r.cd[1]) < 1e-3, '翻滚冷却应 +15%：' + r.cd);
@@ -13395,6 +13645,51 @@ async function main() {
     assert(r.fb === 'shrine' && r.none === 0, '找不到点位时应换下一种 / 一个都不放：' + JSON.stringify(r));
     assert(r.msMax < 5, '选址耗时太长（设计 < 1 ms）：' + r.msMax);
     return '放上 ' + r.placed + ' 个，各种 ' + JSON.stringify(r.n) + '，选址最慢 ' + r.msMax + ' ms';
+  });
+
+  await step('区域存档：站在雷枢峡谷 / 霜骨沼泽里存的档（布局生成器改过之后布局会不一样）读回来，从区域入口重新进区——玩家站在可走的地上、区域和层级 / 渊印接着用；存档里不记位置（塞进去的坐标被丢掉）', async () => {
+    const r = await ev(() => {
+      const keep = localStorage.getItem('cinder-abyss-save-v1'), out = {};
+      const P = G.player, W = G.world, mt0 = G.save.maxTier;
+      try {
+        G.save.maxTier = Math.max(1, G.save.maxTier || 0); // 层级 1 要先解锁（读档时 tier 截到 maxTier）
+        for (const id of ['storm', 'frost']) {
+          const zi = G.ZONES.findIndex((z) => z.id === id);
+          G.enterZone(zi, 1);
+          const d = T.openDir(10);
+          T.tp(P.x + d.x * 8, P.z + d.z * 8); // 走进区里再存
+          G.persist();
+          const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+          raw.player = { x: 9999, z: -9999 }; // 塞一个不认识的坐标：读档应丢掉
+          raw.pos = [9999, -9999];
+          localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+          const run0 = JSON.stringify(raw.run);
+          G.loadSave();
+          // 读档后进区和 main.js 的读档一样：接着存档里的那一次
+          G.enterZone(G.save.lastZone, G.save.tier, 'resume');
+          G.computeStats();
+          const Z = G.state.zone;
+          out[id] = {
+            zone: Z.def.id, tier: G.state.tier, run: JSON.stringify(G.save.run) === run0,
+            walk: W.walkable(P.x, P.z, 0.4), atStart: Math.hypot(P.x - Z.start.x, P.z - Z.start.z) < 2,
+            junk: 'player' in G.save || 'pos' in G.save, boss: !!G.state.boss, enemies: G.state.enemies.length,
+          };
+        }
+      } finally {
+        if (keep) localStorage.setItem('cinder-abyss-save-v1', keep);
+        G.loadSave();
+        G.save.maxTier = mt0;
+        G.computeStats();
+        G.enterZone(0, 0);
+      }
+      return out;
+    });
+    for (const id of ['storm', 'frost']) {
+      const o = r[id];
+      assert(o && o.zone === id && o.tier === 1 && o.run, id + '：读档后区域 / 层级 / 渊印应接着用：' + JSON.stringify(o));
+      assert(o.walk && o.atStart && !o.junk && o.boss && o.enemies > 20, id + '：读档后应从入口进区、站在可走的地上，存档里不该有坐标：' + JSON.stringify(o));
+    }
+    return '雷枢 / 霜骨：读档从入口进区、站在可走的地上';
   });
 
   await step('异兆懒生成：同一种子进区，开 / 关异兆时 state.enemies 的数量、类型、位置完全一样（进区时不刷异兆的怪，保护「经验」那一步）', async () => {
@@ -15210,7 +15505,7 @@ async function main() {
       let tg = null, i = 0;
       for (; i < 60 * 7 && !tg; i++) {
         G.tick(1 / 60);
-        tg = S.telegraphs.find((t) => t.storm) || null;
+        tg = S.telegraphs.find((t) => t.storm && Math.hypot(t.x - mx, t.z - mz) < 0.01) || null; // 认准这一对柱子的预警（布局里别的雷枢也可能在附近起手）
         P.x = mx; P.z = mz; husk.x = mx + (f.bx - f.ax) * 0.2; husk.z = mz + (f.bz - f.az) * 0.2;
       }
       out.node = { warnAt: +(i / 60).toFixed(2), shape: tg && tg.shape, w: tg && tg.w, dur: tg && tg.dur };
