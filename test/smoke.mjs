@@ -8467,6 +8467,9 @@ async function main() {
         // 只扣根节点真的挂在场景上的敌人：正在演死亡的敌人被 W.removeEnt 挪进 corpseRoot（不再是场景的直接子节点）却还在 S.enemies 里，
         // 原来按 S.enemies.length 扣会偶尔少算出 −1（不是泄漏）。场景里多出来的对象照样一个不漏地数出来
         const count = () => W.scene.children.length - S.enemies.filter((e) => e.ent && e.ent.group && e.ent.group.parent === W.scene).length;
+        // 先把来源已经不在的召唤物解散掉（前面的步骤可能改过技能栏却没推进模拟，还没来得及刷新）：
+        // 否则换区域时它们才被清走，场景对象数会少一个，和泄漏无关
+        G.checkMinionSources(true);
         const n1 = count();
         const clutter = () => {
           for (let i = 0; i < 6; i++) G.spawnLoot('item', G.rollItem(5, i % 3), 1, 1);
