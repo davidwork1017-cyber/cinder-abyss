@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>烬渊</title>
 <link rel="stylesheet" href="css/style.css">
+<!-- 没有站点图标：给一个空的，免得浏览器去请求 /favicon.ico（HTTP 下 404 会在控制台报错） -->
+<link rel="icon" href="data:,">
 <script>
   // 标题画面：地址带 ?play、window.__skipTitle 为真（测试脚本默认这样，见 test/harness.mjs）、或「新游戏」重载后留下的一次性标记时跳过。
   // 在这里先定下来（main.js 读 html 上的 title-on），标题画面不用等后面的脚本加载完就能画出来
