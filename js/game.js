@@ -2100,7 +2100,7 @@
     if (W.kv) {
       // 平铺在脚下：两片半月的内缘落在身形外 0.15 米，身子挡住后半圈（深度测试），不画在怪身上（灰度检查要求怪的亮面不被抬高）
       const s = Math.min(4, (e.r + 0.15) * 3.05);
-      RQ.twinFx.push({ t: 0, s, h: W.kv('twin', { x: e.x, y: 0.08, z: e.z, s, hex: 0xffc070, a: 1, k: ang + Math.PI / 2 }) });
+      RQ.twinFx.push({ t: 0, s, h: W.kv('twin', { x: e.x, y: 0.08, z: e.z, s, hex: twinHex(), a: 1, k: ang + Math.PI / 2 }) });
     }
     const jx = ((st.twinHits % 3) - 1) * 0.3; // 数字左右错开一点（不用随机数：不扰动暴击、伤害的随机序列）
     W.text(e.x + jx, e.z, Math.max(1, Math.round(dmg)), '#cfe8ff', 13, { kind: 'faint', y: Math.min(2.8, h * 0.62) });
@@ -2112,6 +2112,11 @@
       procDepth--;
       flushProcs();
     }
+  }
+  // 双月的颜色：暖金 #ffc070 × fx（另一片取它的 bgr，冷蓝）。fx 压着怪群脚边的亮度（灰度检查：不抬高旁边怪的亮面）
+  function twinHex() {
+    const f = G.clamp(TW.fx, 0, 1), r = Math.round(0xff * f), g = Math.round(0xc0 * f), b = Math.round(0x70 * f);
+    return (r << 16) | (g << 8) | b;
   }
   function twinClear() {
     for (const e of RQ.twinQ) if (e.twin) e.twin.v = 0;
