@@ -1509,7 +1509,7 @@
       h += '<div class="ic-uq"><b>' + esc(U.mechName) + '</b><span>' + esc(U.mechDesc) + '</span>' + altBox(U.mechAlt ? esc(U.mechAlt) : '') + '</div>';
       // 背包详情栏（o.compact）里省掉来历和「无法改造」（下面的通货栏已经写了），免得把按钮挤出窗口
       if (!o.compact) {
-        h += '<div class="ic-lore">' + esc(U.lore) + '</div>';
+        if (U.lore) h += '<div class="ic-lore">' + esc(U.lore) + '</div>'; // 有几件没有来历，整行不出
         h += '<div class="ic-lock">' + lockText(item) + '</div>';
       }
     } else if (L.affixes.length) {
@@ -2049,7 +2049,7 @@
       // 元素：施法武器的普攻取你加成最高的元素
       const el = ctx && !ctx.attack && !sk.asMinion ? Object.keys(ctx.base)[0] : null;
       body =
-        '<div class="sk-desc">' + sk.desc + altBox(sk.alt) + '</div>' +
+        '<div class="sk-desc"><span class="sk-dt">' + sk.desc + '</span>' + altBox(sk.alt) + '</div>' +
         (sk.combo ? '<div class="sk-combo">' + sk.combo.map((c, i) => '<span' + (c.w >= 2 ? ' class="fin"' : '') + '>' + (c.w >= 2 ? '终结 ' : '第 ' + (i + 1) + ' 段 ') + '×' + c.mult + '</span>').join('<i></i>') + '</div>' : '') +
         (comboSteps(sk) && !sk.combo ? '<div class="sk-combo">' + sk.cyc.map((c, i) => '<span' + (c.heavy ? ' class="fin">重弹 ' : '>第 ' + (i + 1) + ' 发 ') + '×' + c.mult + '</span>').join('<i></i>') + '</div>' : '') + // 灵弹：三下一轮
         (nums ? '<div class="sk-nums">' + nums + '</div>' : '') +
@@ -2314,7 +2314,7 @@
       '<div class="sk-title"><div class="sk-name">' + sk.name + (sk.vname ? '<i class="sk-vn">' + sk.vname + '</i>' : '') + '<em>Lv ' + S.skills[id] + '</em>' + blankUp + '</div>' +
       '<div class="sk-tags">' + cardTags(sk).map((t) => '<span>' + G.TAG_NAME[t] + '</span>').join('') + '</div></div>' +
       '<div class="sk-binds">' + binds + '</div></div>' +
-      '<div class="sk-desc">' + sk.desc + altBox(sk.alt) + '</div>' + variantRow(id) +
+      '<div class="sk-desc"><span class="sk-dt">' + sk.desc + '</span>' + altBox(sk.alt) + '</div>' + variantRow(id) +
       (sk.combo ? '<div class="sk-combo">' + sk.combo.map((c, i) => '<span' + (c.w >= 2 ? ' class="fin"' : '') + '>' + (c.w >= 2 ? '终结 ' : '第 ' + (i + 1) + ' 段 ') + '×' + c.mult + '</span>').join('<i></i>') + '</div>' : '') +
       '<div class="sk-nums' + (mi ? ' ally' : '') + '">' + nums + '</div>' + note +
       '<div class="sk-socks"><span class="sk-socks-label">辅助</span>' + sockets + '</div>' +
@@ -4741,6 +4741,8 @@
     document.body.classList.add('dragging');
     markTargets();
     dragTrack(x, y);
+    edge.t = edge.acc = edge.inAt = 0;
+    if (!edge.raf) edge.raf = requestAnimationFrame(edgeScroll);
     G.sfx('click');
   }
 
@@ -4948,7 +4950,43 @@
     el.ghost.classList.toggle('bad', !info.ok && !!info.label);
   }
 
+  // 技能页拖宝石 / 技能时，指针贴近技能列表的上下边（EDGE_SCROLL 像素内）就自动滚动，越贴边越快，
+  // 远处的孔不用松手再滚。滚轮照常能滚（拖拽不拦 wheel）；列表一滚，scroll 监听会按指针位置重算落点。
+  // 进了边带先停 EDGE_DELAY 再滚：从贴边的孔拖起、或松手落在贴边的孔上时，列表不会被顺手带走
+  const EDGE_SCROLL = 40, EDGE_SPEED = 900, EDGE_DELAY = 250; // 边带宽度；贴到边上时每秒滚多少像素；进边带后等多少毫秒
+  const edge = { raf: 0, t: 0, acc: 0, inAt: 0 };
+  function edgeScroll(now) {
+    edge.raf = 0;
+    if (!drag.on || (drag.kind !== 'sup' && drag.kind !== 'skill') || ui.tab !== 'skills') return;
+    edge.raf = requestAnimationFrame(edgeScroll);
+    const dt = edge.t ? Math.min(0.05, (now - edge.t) / 1000) : 0; // 掉帧时一帧最多按 50 毫秒算，不会一下跳很远
+    edge.t = now;
+    const list = el.body.querySelector('.skill-list');
+    if (!list || !dt) return;
+    const r = list.getBoundingClientRect();
+    const x = drag.x, y = drag.y;
+    let k = 0;
+    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+      if (y < r.top + EDGE_SCROLL) k = -(1 - (y - r.top) / EDGE_SCROLL);
+      else if (y > r.bottom - EDGE_SCROLL) k = 1 - (r.bottom - y) / EDGE_SCROLL;
+    }
+    if (!k) {
+      edge.acc = edge.inAt = 0;
+      return;
+    }
+    if (!edge.inAt) edge.inAt = now;
+    if (now - edge.inAt < EDGE_DELAY) return;
+    // 慢的时候一帧不到 1 像素：攒够整像素再滚
+    edge.acc += k * EDGE_SPEED * dt;
+    const step = edge.acc < 0 ? Math.ceil(edge.acc) : Math.floor(edge.acc);
+    if (!step) return;
+    edge.acc -= step;
+    list.scrollTop += step;
+  }
+
   function endDrag() {
+    if (edge.raf) cancelAnimationFrame(edge.raf);
+    edge.raf = 0;
     drag.on = false;
     drag.hover = null;
     drag.info = null;
@@ -6179,6 +6217,7 @@
         }
         closePicker();
         hideTip();
+        if (drag.on) dragTrack(drag.x, drag.y); // 拖拽中滚动（滚轮 / 贴边自动滚）：指针没动，底下的东西换了
       },
       true
     );

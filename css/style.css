@@ -1294,6 +1294,33 @@ body.alt-on .sk-desc .alt-h { display: block; visibility: hidden; }
 .sock.full i:not(.ico) { border-color: #fff; background: radial-gradient(circle at 35% 30%, #fff, #b9c0d6 60%, #6a7088); box-shadow: 0 0 6px rgba(255, 255, 255, 0.7); }
 .sock.full:hover { border-color: #ff8a7a; color: #ffd9d0; }
 
+/* ---------- 技能卡版式（card-layout）----------
+   两列等宽（原来 1fr 被宽卡的最小宽度撑开，右列被挤到 300px 还溢出列表）；一张卡不到 360px 时整列改成一列。
+   卡片窄（内容宽 ≤ 440px）时：图标占两行，名字 + 标签一行，按键标签挪到下一行；数值 ≤ 480px 时排成 3 × 2。
+   滚动条的位置一直留着（scrollbar-gutter），卡片多到出滚动条时列宽不变。
+   按住 Alt 的详情就地盖住说明文字（和说明同一格，格高取两者较高的），不再浮到刻式按钮、数值上，按下 / 松开卡片不跳 */
+.skill-list { grid-template-columns: repeat(auto-fill, minmax(max(360px, calc((100% - 12px) / 2)), 1fr)); scrollbar-gutter: stable; }
+.skill-list > .skill-card { container: skcard / inline-size; }
+.skill-list .sk-name { word-break: keep-all; overflow-wrap: anywhere; }
+.skill-list .basic-card .wsk-row { flex-wrap: wrap; row-gap: 2px; }
+@container skcard (max-width: 440px) {
+  .skill-card:not(.basic-card) > .sk-top { display: grid; grid-template-columns: 52px minmax(0, 1fr); column-gap: 12px; row-gap: 7px; align-items: center; }
+  .skill-card:not(.basic-card) > .sk-top > .sk-icon { grid-row: 1 / span 2; align-self: start; }
+  .skill-card:not(.basic-card) > .sk-top > .sk-binds { grid-column: 2; }
+}
+@container skcard (max-width: 480px) {
+  .sk-nums { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .sk-nums .sk-num:nth-child(3n + 1) { border-left: none; }
+  .sk-nums .sk-num:nth-child(n + 4) { border-top: 1px solid #201710; }
+  .sk-nums.ally .sk-num:nth-child(n + 4) { border-top-color: #12302b; }
+}
+.skill-list .sk-desc:has(> .alt-box) { display: grid; grid-template-columns: minmax(0, 1fr); }
+.skill-list .sk-desc > .alt-box { display: contents; }
+.skill-list .sk-desc > .sk-dt { grid-area: 1 / 1; }
+.skill-list .sk-desc .alt-h { grid-area: 2 / 1; margin-top: 5px; }
+.skill-list .sk-desc .alt-d { grid-area: 1 / 1 / 3 / 2; position: static; display: block; visibility: hidden; margin: -3px -6px 2px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5); }
+body.alt-on .skill-list .sk-desc .alt-d { visibility: visible; }
+
 .skill-more {
   grid-column: 1 / -1;
   padding: 12px 14px;
