@@ -8910,12 +8910,13 @@ async function main() {
         const n1 = count();
         // 诊断：泄漏数不为 0 时列出前后差了哪些场景对象（类型 | 名字 | 召唤物 / 敌人 | 子节点数 | 前两个网格）
         const desc = (o) => {
-          const m = [];
-          if (o.traverse) o.traverse((c) => { if (c.isMesh && m.length < 2) m.push((c.geometry && c.geometry.type) + '/' + (c.material && c.material.type)); });
-          const tag = (S.minions || []).some((x) => x.ent && x.ent.group === o) ? 'minion' : S.enemies.some((e) => e.ent && e.ent.group === o) ? 'enemy' : '';
-          return [o.type, o.name, tag, o.children.length, m.join('+')].join('|');
+          const tag = o === P.ent.group ? 'player' : (S.minions || []).some((x) => x.ent && x.ent.group === o) ? 'minion' : S.enemies.some((e) => e.ent && e.ent.group === o) ? 'enemy' : '';
+          if (tag === 'enemy') return 'enemy';
+          const kids = o.children.map((c) => c.type + (c.name ? ':' + c.name : '') + (c.isMesh && c.geometry ? '/' + c.geometry.type + '/' + c.material.type : '')).slice(0, 4).join(',');
+          return [o.type, o.name, tag, o.visible ? 'vis' : 'hid', o.children.length, kids, [o.position.x, o.position.z].map((v) => v.toFixed(1)).join(',')].join('|');
         };
         const snap1 = W.scene.children.map(desc);
+        const en1 = snap1.filter((d) => d === 'enemy').length;
         const clutter = () => {
           for (let i = 0; i < 6; i++) G.spawnLoot('item', G.rollItem(5, i % 3), 1, 1);
           G.spawnLoot('skill', { id: 'nova', lvl: 3 }, 2, 0);
@@ -8934,7 +8935,7 @@ async function main() {
         out.leak = count() - n1;
         if (out.leak) {
           const snap2 = W.scene.children.map(desc), left = snap2.slice();
-          out.leakDiff = { gone: snap1.filter((d) => { const i = left.indexOf(d); if (i < 0) return true; left.splice(i, 1); return false; }), added: left };
+          out.leakDiff = { kids: [snap1.length, snap2.length], enemiesInScene: [en1, snap2.filter((d) => d === 'enemy').length], gone: snap1.filter((d) => { const i = left.indexOf(d); if (i < 0) return true; left.splice(i, 1); return false; }).filter((d) => d !== 'enemy'), added: left.filter((d) => d !== 'enemy') };
         }
         G.debug.step(1.5);
         out.loose2 = S.loot.length + S.projectiles.length + S.telegraphs.length + S.timers.length + (S.portal ? 1 : 0);
@@ -8951,7 +8952,7 @@ async function main() {
       assert(r.loose === 0 && !r.portal, '新区域里残留了上一个区域的东西');
       assert(r.fr.mean > 5 && r.fr.colors > 40, '画面像是黑屏：' + JSON.stringify(r.fr));
       assert(r.cluttered === 13, '杂物应往场景里加 13 个对象，实际 ' + r.cluttered);
-      if (r.leakDiff) console.log('     泄漏诊断：' + JSON.stringify(r.leakDiff).slice(0, 1500));
+      if (r.leakDiff) console.log('     泄漏诊断：' + JSON.stringify(r.leakDiff).slice(0, 4000));
       assert(r.leak === 0, '重新进入后场景里多了 ' + r.leak + ' 个对象');
       assert(r.loose2 === 0, '换区后仍有残留的运行时对象');
       return '怪物 ' + r.n + '，精英 ' + r.elites + '，亮度 ' + r.fr.mean.toFixed(1);
