@@ -1297,8 +1297,9 @@ body.alt-on .sk-desc .alt-h { display: block; visibility: hidden; }
 /* ---------- 技能卡版式（card-layout）----------
    两列等宽（原来 1fr 被宽卡的最小宽度撑开，右列被挤到 300px 还溢出列表）；一张卡不到 360px 时整列改成一列。
    卡片窄（内容宽 ≤ 440px）时：图标占两行，名字 + 标签一行，按键标签挪到下一行；数值 ≤ 480px 时排成 3 × 2。
+   滚动条的位置一直留着（scrollbar-gutter），卡片多到出滚动条时列宽不变。
    按住 Alt 的详情就地盖住说明文字（和说明同一格，格高取两者较高的），不再浮到刻式按钮、数值上，按下 / 松开卡片不跳 */
-.skill-list { grid-template-columns: repeat(auto-fill, minmax(max(360px, calc((100% - 12px) / 2)), 1fr)); }
+.skill-list { grid-template-columns: repeat(auto-fill, minmax(max(360px, calc((100% - 12px) / 2)), 1fr)); scrollbar-gutter: stable; }
 .skill-list > .skill-card { container: skcard / inline-size; }
 .skill-list .sk-name { word-break: keep-all; overflow-wrap: anywhere; }
 .skill-list .basic-card .wsk-row { flex-wrap: wrap; row-gap: 2px; }
