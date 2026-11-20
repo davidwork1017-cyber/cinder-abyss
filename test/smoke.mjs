@@ -1,6 +1,9 @@
 // 端到端冒烟测试：无头 Chrome 里把整个游戏流程走一遍。
 // 每一步打印一行 ok / FAIL；任何一步失败或页面出现报错，进程以非 0 退出。
+// 分两份（见 test/README.md）：main() 是 test:func（不看墙钟，可以和别的 Chrome 一起跑），timedMain() 是 test:timed（要独占机器）。
+// node test/smoke.mjs = 两份都跑（先 func 后 timed）；--func / --timed 只跑一份。
 import { launch } from './harness.mjs';
+import { execSync } from 'node:child_process';
 
 const SAVE_KEY = 'cinder-abyss-save-v1';
 let G_CUR_N = 8, G_UQ_COLOR = '#ff9b3d', G_SOUL_INH = 1.5, G_SOUL_K = 0.2;
@@ -8,6 +11,7 @@ const G_USK = { jinduan: 'ashcuts', sanxiang: 'tristorm', wanhun: 'soulhost', ro
 let browser, page, errors;
 let failed = 0;
 let passed = 0;
+let NC_TAG = ''; // 本次的耗时 / ms 数字不可比时（只跑 test:func，或在池里跑）挂在每行 ok 后面，见文件末尾
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
@@ -34,7 +38,7 @@ async function step(name, fn) {
     await sleep(30); // 给异步报错一点冒出来的时间
     if (errors && errors.length) throw new Error('页面报错：' + errors.splice(0).join(' | '));
     passed++;
-    console.log('ok   ' + name + (info ? ' — ' + info : '') + '  (' + (Date.now() - t0) + 'ms)');
+    console.log('ok   ' + name + (info ? ' — ' + info : '') + '  (' + (Date.now() - t0) + 'ms)' + NC_TAG);
   } catch (e) {
     failed++;
     const extra = errors && errors.length ? ' ｜页面报错：' + errors.splice(0).join(' | ').slice(0, 600) : '';
@@ -287,11 +291,58 @@ async function uiStep(name, fn) {
   });
 }
 
+// 拖之前把两端一起带进可视区（上一步可能把列表滚到了别处）。两端在同一个滚动容器里：都露着就不动，否则把两者的中点滚到容器中间；
+// 不在同一个容器里：各自就近滚进来。技能列表上下各 40 像素是贴边自动滚动带（ui.js 的 EDGE_SCROLL），摆位置时尽量避开；
+// 避不开也行（进带后要停 EDGE_DELAY 才滚，这里拖起、松手都在那之前）。然后核对每一端的中心：在视口里、在每一层裁剪它的容器里，
+// elementFromPoint 打到的是它自己或它里面的节点。不满足就报错，不去拖
+async function dragView(from, to) {
+  const bad = await ev(([sels, edge]) => {
+    const els = sels.map((s) => (s ? document.querySelector(s) : null));
+    const lost = sels.filter((s, i) => s && !els[i]);
+    if (lost.length) return '找不到 ' + lost.join('、');
+    const clips = (n) => { const out = []; for (let p = n.parentElement; p && p !== document.body; p = p.parentElement) { const cs = getComputedStyle(p); if (cs.overflowY !== 'visible' || cs.overflowX !== 'visible') out.push(p); } return out; };
+    const scroller = (n) => clips(n).find((p) => /auto|scroll/.test(getComputedStyle(p).overflowY) && p.scrollHeight > p.clientHeight + 1) || null;
+    // 技能列表的自动滚动带：已经滚到顶 / 底的那一边不会再滚，不用避
+    const inset = (p, end) => (p.classList.contains('skill-list') && (end ? p.scrollTop < p.scrollHeight - p.clientHeight - 1 : p.scrollTop > 0) ? edge : 0);
+    // 中心是否落在容器 p 的内容区里（不含滚动条）；band：再避开技能列表的自动滚动带
+    const inside = (n, p, band) => { const b = n.getBoundingClientRect(), r = p.getBoundingClientRect(), y = b.top + b.height / 2, x = b.left + b.width / 2, top = r.top + p.clientTop, k0 = band ? inset(p, 0) : 0, k1 = band ? inset(p, 1) : 0; return x >= r.left + p.clientLeft && x <= r.left + p.clientLeft + p.clientWidth && y >= top + k0 && y <= top + p.clientHeight - k1; };
+    const sc = els.map((n) => (n ? scroller(n) : null));
+    if (els[0] && els[1] && sc[0] && sc[0] === sc[1]) {
+      const p = sc[0];
+      if (!els.every((n) => inside(n, p, true))) {
+        const box = p.getBoundingClientRect();
+        const ys = els.map((n) => { const b = n.getBoundingClientRect(); return b.top + b.height / 2; });
+        p.scrollTop += (ys[0] + ys[1]) / 2 - (box.top + p.clientTop + p.clientHeight / 2);
+      }
+    } else {
+      els.forEach((n, i) => {
+        if (!n) return;
+        n.scrollIntoView({ block: 'nearest' });
+        if (sc[i] && !inside(n, sc[i], true)) n.scrollIntoView({ block: 'center' });
+      });
+    }
+    const errs = [];
+    els.forEach((n, i) => {
+      if (!n) return;
+      const b = n.getBoundingClientRect(), x = b.left + b.width / 2, y = b.top + b.height / 2;
+      const where = (i ? '终点 ' : '起点 ') + sels[i] + ' 的中心 (' + Math.round(x) + ',' + Math.round(y) + ')';
+      if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) errs.push(where + ' 在视口外（' + innerWidth + '×' + innerHeight + '）');
+      for (const p of clips(n)) {
+        if (inside(n, p)) continue;
+        const r = p.getBoundingClientRect();
+        errs.push(where + ' 不在容器 .' + String(p.className).trim().split(/\s+/).join('.') + ' 的可见区里（' + [r.left, r.top, r.right, r.bottom].map(Math.round).join(',') + '，scrollTop ' + Math.round(p.scrollTop) + '）');
+      }
+      const hit = document.elementFromPoint(x, y);
+      if (!hit || !(hit === n || n.contains(hit))) errs.push(where + ' 被挡住：elementFromPoint 打到 ' + (hit ? hit.tagName.toLowerCase() + (hit.id ? '#' + hit.id : '') + '.' + String(hit.className).trim().split(/\s+/).join('.') : 'null'));
+    });
+    return errs.join('；');
+  }, [[from, to].map((s) => (typeof s === 'string' ? s : null)), 40]);
+  assert(!bad, '拖拽两端没法同时露在视野里：' + bad);
+}
+
 // 用真鼠标把 from 拖到 to（选择器或坐标）；mid 在松手前执行
 async function dragTo(from, to, mid) {
-  // 目标和起点都先滚进可视区（上一步可能把列表滚到了别处）
-  if (typeof to === 'string') await page.locator(to).scrollIntoViewIfNeeded();
-  if (typeof from === 'string') await page.locator(from).scrollIntoViewIfNeeded();
+  if (typeof from === 'string' || typeof to === 'string') await dragView(from, to);
   const a = typeof from === 'string' ? await ev((s) => T.rect(s), from) : from;
   await page.mouse.move(a.x, a.y);
   await page.mouse.down();
@@ -310,6 +361,22 @@ async function closePanel() {
   assert(!(await ev(() => G.ui.isOpen())), 'Esc 没有关掉面板');
 }
 
+// 面板打开时有 0.16 秒的入场动画（缩放 0.99 → 1），getBoundingClientRect 量到的宽高跟着变；机器忙时这段动画会拖到一两秒。
+// 量技能卡尺寸之前：等面板上没有在播的动画，再连续两帧量所有技能卡的位置和大小，一样才算排好
+async function panelSettled() {
+  for (let i = 0; i < 300; i++) {
+    const ok = await ev(() => new Promise((res) => {
+      const win = document.getElementById('panel-win');
+      if (!win || win.getAnimations().some((a) => a.playState === 'running' || a.playState === 'pending')) return requestAnimationFrame(() => res(false));
+      const m = () => Array.from(document.querySelectorAll('#panel .skill-card')).map((c) => { const r = c.getBoundingClientRect(); return [r.left, r.top, r.width, r.height].join(','); }).join('|');
+      const a = m();
+      requestAnimationFrame(() => requestAnimationFrame(() => res(a === m())));
+    }));
+    if (ok) return;
+  }
+  throw new Error('技能页一直没排好（入场动画没播完或卡片尺寸一直在变）');
+}
+
 // 确认面板里的文字没有漏出 undefined / NaN
 function cleanText(txt, where) {
   assert(txt.length > 40, where + ' 内容太少：' + JSON.stringify(txt.slice(0, 60)));
@@ -324,6 +391,210 @@ async function holdInput(slot, down) {
   if (slot === 0) await page.mouse[down ? 'down' : 'up']({ button: 'left' });
   else if (slot === 1) await page.mouse[down ? 'down' : 'up']({ button: 'right' });
   else await page.keyboard[down ? 'down' : 'up'](slot === 2 ? 'KeyQ' : 'KeyE');
+}
+
+// ------------------------------------------------------------------ test:timed（计时步骤）
+// 这些断言看的是墙钟时间：空闲回调里的图标预热、按 performance.now 计时的 R 格气泡 / 新手提示 / 大字提示、单次耗时上限。
+// 机器一忙就会误报，所以单独成一份：npm run test:timed，要独占机器（cc-slot run <名字> test -- npm run test:timed）。
+// main()（test:func）里对应的步骤只留功能部分。每条计时断言从原步骤原样搬来（条件和上限一个字不改），前面补上它要的最少准备。
+// 新加的计时断言写进这里、不写进 main()：步骤名用「计时｜」开头，并在 test/README.md 的表里记一行。
+async function timedMain() {
+  // 准备：和 main() 开头「启动」「首屏」两步同样的操作（不含断言），图标预热的起点和原来一样
+  ({ browser, page, errors } = await launch({ width: 1440, height: 900 }));
+  await install();
+  await ev(() => G.debug.hold(false));
+  await frames(3);
+  await ev(() => G.state.time);
+  await frames(2);
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('KeyH');
+  await ev(() => T.bodyText());
+  await closePanel();
+  await sleep(30);
+  await frames(2);
+  await ev(() => T.frame());
+  await sleep(30);
+
+  // 原步骤：main() 里的「图标预热」（那边只等它画完，不计时）
+  await step('计时｜图标预热：启动后趁空闲分批画好全部图标（120 秒内），第一次打开背包不用现画', async () => {
+    const t0 = Date.now();
+    // 只是功能检查的超时：SwiftShader 在单核较慢的机器上安静时也要 60 秒上下才画完，留出一倍余量
+    await until(() => G.icons.ready(), null, 120000).catch(() => {
+      throw new Error('启动后图标没有在空闲时预先画好');
+    });
+    const n = await ev(() => G.icons.keys().length);
+    assert(n >= 60, '图标数量不对：' + n);
+    return n + ' 个图标，启动后 ' + ((Date.now() - t0) / 1000).toFixed(1) + ' 秒内就绪';
+  });
+
+  // 原步骤：main() 里的「武器界面：HUD 的 R 格……」。气泡的 deny 样式按 performance.now 留 620 ms，等两三帧后还得在：帧一慢就没了
+  await uiStep('计时｜武器界面：空手按 R 时 R 格抖一下、冒出「没有武器」（气泡留 620 ms，两三帧后还在）', async () => {
+    const r = await ev(async () => {
+      const wait = (n) => new Promise((res) => { let i = 0; const f = () => (++i > n ? res() : requestAnimationFrame(f)); requestAnimationFrame(f); });
+      const keep = G.save.equip.weapon;
+      const ws = () => document.getElementById('wslot');
+      const out = {};
+      try {
+        G.player.cds = {};
+        // 空手：格子空着、写「无武器」，按 R 时冒出说明
+        delete G.save.equip.weapon;
+        G.computeStats();
+        await wait(2);
+        out.none = { empty: ws().classList.contains('empty') && ws().classList.contains('nowpn'), txt: ws().querySelector('.s-none').offsetParent ? ws().querySelector('.s-none').textContent : '' };
+        G.input.keys.KeyR = true;
+        await wait(2);
+        out.none.deny = ws().classList.contains('deny') && ws().querySelector('.s-bubble').textContent;
+        G.input.keys.KeyR = false;
+      } finally {
+        G.save.equip.weapon = keep;
+        G.input.keys.KeyR = false;
+        G.player.cds = {};
+        G.computeStats();
+      }
+      return out;
+    });
+    assert(r.none.empty && r.none.txt === '无武器' && r.none.deny === '没有武器', '空手时 R 格应写「无武器」，按 R 时说明：' + JSON.stringify(r.none));
+    return '气泡：' + r.none.deny;
+  });
+
+  // 原步骤：main() 里的「新手提示：……」。提示按真实时间走（coach 用 performance.now）
+  const hint = () => ev(() => Object.assign(G.ui.hints(), { cls: document.getElementById('coach').className, txt: document.getElementById('coach').innerText, tut: Object.keys(G.save.tut).join() }));
+  const shown = (id) => until((id) => G.ui.hints().current === id && G.ui.hints().state === 'show' && document.getElementById('coach').classList.contains('on'), id).catch(() => {
+    throw new Error('提示「' + id + '」没有出现');
+  });
+  const seen = (id) => until((id) => !!G.save.tut[id], id).catch(() => {
+    throw new Error('提示「' + id + '」没有在做到之后标记为看过');
+  });
+  const hintsEnd = () =>
+    ev(() => {
+      G.debug.hold(true);
+      G.clearEnemies();
+      G.player.roll.cd = 0;
+      T.hintsSeen();
+      G.save.level = 1;
+      G.computeStats();
+      G.player.life = G.player.maxLife;
+      G.player.mana = G.player.maxMana;
+      G.persist();
+    });
+  await uiStep('计时｜新手提示：做到之后「做到了」不会一闪而过（按下翻滚 1.9 秒后才换掉）', async () => {
+    // 和原步骤走到这里时一样：本次从 1 级玩上来的角色升到 3 级，基础提示只差翻滚，身边一只不动的敌人
+    await ev(() => {
+      T.arena();
+      G.save.bag.length = 0;
+      G.save.blankGems = [];
+      G.save.tut = { move: 1, attack: 1, bag: 1, craft: 1, support: 1, passive: 1, combo: 1, poise: 1, wskill: 1 };
+      G.save.level = 3;
+      G.computeStats();
+      G.ui.refresh();
+      G.debug.hold(false);
+      T.mob('husk', 9, 0, { speed: 0, atkCd: 1e9 });
+    });
+    await page.mouse.move(900, 450);
+    await shown('dodge');
+    const t0 = Date.now();
+    await page.keyboard.press('Space');
+    await seen('dodge');
+    await hint(); // 原步骤在这里读一次提示状态（「做到了」的断言在 test:func 里），往返照样做一次
+    await until(() => G.ui.hints().current !== 'dodge');
+    assert(Date.now() - t0 >= 1900, '提示在做到之后消失得太快：' + (Date.now() - t0) + ' ms');
+    const ms = Date.now() - t0;
+    await hintsEnd();
+    return ms + ' ms 后换掉';
+  });
+  await uiStep('计时｜新手提示：濒死时喝药的提示 5 秒内顶掉正在显示的面板提示（天赋）', async () => {
+    // 和原步骤走到这里时一样：5 级、有天赋点，天赋提示正亮着
+    await ev(() => {
+      T.arena();
+      G.save.bag.length = 0;
+      G.save.blankGems = [];
+      G.save.level = 5;
+      G.computeStats();
+      G.save.tut = { move: 1, attack: 1, dodge: 1, combo: 1, poise: 1, loot: 1, bag: 1, craft: 1, support: 1, execute: 1, boss: 1, portal: 1, wskill: 1 };
+      G.resetPassives();
+      G.player.flask.life = 3;
+      G.ui.refresh();
+      G.debug.hold(false);
+    });
+    await page.mouse.move(900, 450);
+    await shown('passive');
+    await ev(() => { G.player.life = G.player.maxLife * 0.2; });
+    const tf = Date.now();
+    await shown('flask');
+    const r = await hint();
+    assert(Date.now() - tf < 5000 && !r.tut.includes('passive') && r.txt.includes('生命药剂'), '濒死时喝药的提示应立刻顶掉正在显示的面板提示：' + JSON.stringify(r));
+    const ms = Date.now() - tf;
+    await hintsEnd();
+    return ms + ' ms 顶上来';
+  });
+
+  // 原步骤：main() 里的「大字提示不互相顶掉……」。大字按 performance.now 放 4.3 秒，3 秒时还得在、5.2 秒时得没了
+  await step('计时｜大字提示：排在下面的放满自己的时间（3 秒时还在），放完之后全部消失', async () => {
+    const vis = () =>
+      ev(() => {
+        const bt = document.getElementById('big-toast'), st = document.getElementById('big-toast-stack');
+        const seen = (el) => !!el && getComputedStyle(el).visibility === 'visible' && el.getBoundingClientRect().height > 0;
+        return { main: bt ? bt.innerText.replace(/\s+/g, ' ') : '', mainOn: !!bt && bt.classList.contains('on') && seen(bt), stack: st ? st.innerText.replace(/\s+/g, ' ') : '', stackOn: seen(st), rows: st ? st.querySelectorAll('.bts-row').length : 0 };
+      });
+    await ev(() => {
+      G.ui.bigToastReset();
+      G.ui.bigToast(G.RELIC_NAME, '甲之渊契', G.RELIC_COLOR, '机制甲');
+      G.ui.bigToast('烬铸武器', '乙之烬铸', G.RARITY_COLOR[3], '机制乙');
+    });
+    await vis(); // 原步骤在这两处各读一次（「两条」「5 条」的断言在 test:func 里），往返照样做
+    await ev(() => {
+      for (let i = 1; i <= 3; i++) G.ui.bigToast('烬铸武器', '丙之' + i, G.RARITY_COLOR[3], '');
+    });
+    await vis();
+    await sleep(3000);
+    const later = await vis();
+    await sleep(2200);
+    const gone = await vis();
+    assert(later.stackOn && later.rows >= 1, '排在下面的应放满自己的时间（3 秒时还在）：' + JSON.stringify(later));
+    assert(!gone.stackOn && !gone.mainOn, '放完之后应全部消失：' + JSON.stringify(gone));
+    return '3 秒时下面还有 ' + later.rows + ' 行';
+  });
+
+  // 原步骤：main() 里的「渊印·生成……」。下面这段循环和那一步的逐字相同（计的就是这段活的单次耗时，少做一点都等于放宽）；改那一步的循环时这里跟着改
+  await step('计时｜渊印·生成：掷一次三枚印（连同校验）平均不到 2 ms', async () => {
+    const r = await ev(() => {
+      const out = { bad: [], W: {}, n: {}, maxDz: {} };
+      const bars = [['cleave', 'ember', null, null], ['vortex', 'nova', 'blackhole', 'thrall']];
+      const t0 = performance.now();
+      let rolls = 0;
+      for (const tier of [1, 2, 3]) {
+        const T = G.sealTierDef(tier);
+        out.maxDz[tier] = 0;
+        for (let seq = 0; seq < 1000; seq++) {
+          const zi = seq % 5, bar = bars[seq % 2];
+          const seals = G.rollSeals(zi, tier, seq, bar);
+          rolls++;
+          if (seals.length !== 3 || seals.some((s, g) => s.g !== g)) out.bad.push('三枚印不全 ' + tier + '/' + seq);
+          if (JSON.stringify(G.rollSeals(zi, tier, seq, bar)) !== JSON.stringify(seals)) out.bad.push('同种子结果不同 ' + seq);
+          for (const s of seals) {
+            const ids = s.mods.map((m) => m.id), n = ids.length;
+            const nMin = Math.max(T.n[0], s.g === 2 ? T.minN3 : 0), nMax = T.n[1] + (s.g === 2 ? 1 : 0);
+            const W = G.sealW(s, bar), dz = G.sealDanger(s), rage = ids.filter((id) => G.SEAL_MODS[id].rage).length;
+            const dead = s.mods.filter((m) => G.sealModW(m, bar) === 0).length;
+            const tint = s.mods.filter((m) => m.id === 'tint');
+            out.maxDz[tier] = Math.max(out.maxDz[tier], dz);
+            const key = tier + ':' + s.g;
+            out.W[key] = out.W[key] || {};
+            out.W[key][W] = (out.W[key][W] || 0) + 1;
+            if (n < nMin || n > nMax) out.bad.push('条数 ' + key + ' ' + n);
+            if (W !== s.W || W < T.W[s.g][0] || W > T.W[s.g][1]) out.bad.push('W ' + key + ' ' + W);
+            if (dz > T.budget + 1e-9) out.bad.push('预算 ' + key + ' ' + dz);
+            if (rage > 2 || dead > 1 || new Set(ids).size !== n || tint.length > 1) out.bad.push('互斥 ' + ids.join());
+            if (tint.length && (tint[0].el === G.ZONES[zi].elem || !G.SEAL_TINT[tint[0].el])) out.bad.push('焚染元素 ' + tint[0].el);
+          }
+        }
+      }
+      out.ms = +((performance.now() - t0) / rolls).toFixed(3);
+      return out;
+    });
+    assert(r.ms < 2, '掷一次三枚印太慢：' + r.ms + ' ms');
+    return '每次 ' + r.ms + ' ms';
+  });
 }
 
 async function main() {
@@ -407,8 +678,8 @@ async function main() {
 
   await step('图标预热：启动后趁空闲分批画好全部图标，第一次打开背包不用现画', async () => {
     const t0 = Date.now();
-    // 只是功能检查的超时：SwiftShader 在单核较慢的机器上安静时也要 60 秒上下才画完，留出一倍余量
-    await until(() => G.icons.ready(), null, 120000).catch(() => {
+    // test:func 里只等它画完（安全超时 5 分钟，机器忙时也不误报）；「120 秒内画完」的计时断言在 test:timed 里（计时｜图标预热）
+    await until(() => G.icons.ready(), null, 300000).catch(() => {
       throw new Error('启动后图标没有在空闲时预先画好');
     });
     const n = await ev(() => G.icons.keys().length);
@@ -5983,7 +6254,7 @@ async function main() {
         out.none = { empty: ws().classList.contains('empty') && ws().classList.contains('nowpn'), txt: ws().querySelector('.s-none').offsetParent ? ws().querySelector('.s-none').textContent : '' };
         G.input.keys.KeyR = true;
         await wait(2);
-        out.none.deny = ws().classList.contains('deny') && ws().querySelector('.s-bubble').textContent;
+        out.none.deny = ws().querySelector('.s-bubble').textContent; // 气泡文字；deny 样式还在不在看墙钟，在 test:timed 里测（计时｜武器界面）
         G.input.keys.KeyR = false;
         // 布局：五格都在技能栏里，不压生命 / 魔力球
         const bar = T.rect('#bar'), w = T.rect('#wslot'), life = T.rect('.orb.life'), mana = T.rect('.orb.mana');
@@ -6198,6 +6469,72 @@ async function main() {
     await until((want) => T.barHud() === want, bar0.map((x) => x || '').join()).catch(() => {
       throw new Error('HUD 技能栏没有同步');
     });
+  });
+
+  await uiStep('技能页拖拽贴边自动滚动：拖着宝石时滚轮照常能滚；指针离列表下边 40 像素以外不滚，贴到下边就往下滚；滚到开拖时看不见的远处孔上松手能镶上', async () => {
+    await ev(() => {
+      for (const id of Object.keys(G.save.sockets)) G.save.sockets[id] = [null, null, null];
+      G.socketSupport('ember', 0, 'multi');
+      G.computeStats();
+    });
+    await page.keyboard.press('KeyG');
+    await panelSettled();
+    const src = '.skill-list .sock[data-skill="ember"][data-idx="0"]';
+    // 把起点的孔滚到列表顶下 80 像素（单列时掷焰卡排在武器普攻卡下面，滚到顶它不在视野里）；
+    // 远处的孔 = 列表里能镶多重投射、离顶最远的那个孔（武器普攻卡除外）
+    const g = await ev((src) => {
+      const L = document.querySelector('.skill-list');
+      L.scrollTop += T.rect(src).y - (L.getBoundingClientRect().top + L.clientTop + 80);
+      const lr = L.getBoundingClientRect();
+      const far = Array.from(L.querySelectorAll('.sock')).filter((n) => n.dataset.skill !== G.BASIC_CARD && n.dataset.skill !== 'ember' && G.supportFits(n.dataset.skill, 'multi')).sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top)[0];
+      return { far: far ? '.skill-list .sock[data-skill="' + far.dataset.skill + '"][data-idx="' + far.dataset.idx + '"]' : null, skill: far && far.dataset.skill, idx: far && +far.dataset.idx, farY: far && T.rect(far).y, a: T.rect(src), top: lr.top, bottom: lr.top + L.clientHeight, x: lr.left + L.clientWidth / 2, s0: L.scrollTop, max: L.scrollHeight - L.clientHeight };
+    }, src);
+    assert(g.far && g.farY > g.bottom && g.s0 < g.max, '远处的孔开拖时应在列表可见区下面：' + JSON.stringify(g));
+    assert(g.a.y > g.top + 40 && g.a.y < g.bottom - 40, '起点的孔应在列表上部、贴边带以外：' + JSON.stringify(g));
+    const top = () => ev(() => document.querySelector('.skill-list').scrollTop);
+    await page.mouse.move(g.a.x, g.a.y);
+    await page.mouse.down();
+    await page.mouse.move(g.a.x + 9, g.a.y + 6, { steps: 2 });
+    assert(await ev(() => document.getElementById('drag-ghost').classList.contains('on')), '没有拖起来');
+    // 拖着的时候滚轮照常能滚
+    await page.mouse.wheel(0, 120);
+    await until((s0) => document.querySelector('.skill-list').scrollTop > s0, g.s0).catch(() => {
+      throw new Error('拖拽中滚轮滚不动技能列表');
+    });
+    // 离下边 60 像素（贴边带外）：等滚轮的平滑滚动停下，再停 10 帧，不滚
+    await page.mouse.move(g.x, g.bottom - 60, { steps: 3 });
+    let s1 = await top();
+    for (let i = 0; i < 60; i++) {
+      await frames(3);
+      const s = await top();
+      if (s === s1) break;
+      s1 = s;
+    }
+    await frames(10);
+    const s2 = await top();
+    assert(s2 === s1, '指针在贴边带以外时列表不应自己滚：' + s1 + ' → ' + s2);
+    // 贴到下边：往下滚，直到远处的孔进了可见区、离开贴边带（或者滚到了底）
+    await page.mouse.move(g.x, g.bottom - 6, { steps: 2 });
+    await until((s2) => document.querySelector('.skill-list').scrollTop > s2 + 40, s2).catch(async () => {
+      throw new Error('指针贴到列表下边没有自动往下滚：scrollTop ' + s2 + ' → ' + (await top()));
+    });
+    await until(([far, edge]) => {
+      const L = document.querySelector('.skill-list'), r = L.getBoundingClientRect(), y = T.rect(far).y;
+      return L.scrollTop >= L.scrollHeight - L.clientHeight - 1 || (y > r.top + edge && y < r.top + L.clientHeight - edge - 60);
+    }, [g.far, 40]).catch(async () => {
+      throw new Error('贴边自动滚动没有把远处的孔带进视野：scrollTop ' + (await top()));
+    });
+    // 先挪进来（离开贴边带就不再滚），再对准孔的中心
+    let b = await ev((s) => T.rect(s), g.far);
+    await page.mouse.move(b.x, b.y, { steps: 4 });
+    b = await ev((s) => T.rect(s), g.far);
+    await page.mouse.move(b.x, b.y);
+    await frames(2);
+    const mid = await ev((far) => ({ cap: document.querySelector('#drag-ghost em').textContent, hover: document.querySelector(far).classList.contains('drop-hover'), top: document.querySelector('.skill-list').scrollTop }), g.far);
+    await page.mouse.up();
+    const r = await ev((g) => ({ e: G.save.sockets.ember.slice(), t: G.save.sockets[g.skill].slice() }), g);
+    assert(mid.hover && mid.cap.startsWith('镶进 ') && r.e[0] === null && r.t[g.idx] === 'multi', '自动滚到远处的孔上松手应把宝石挪过去：' + JSON.stringify({ g, mid, r }));
+    await closePanel();
   });
 
   // ------------------------------------------------------------------ v2 界面：地面掉落 / 战斗信息 / 新手提示
@@ -6713,14 +7050,12 @@ async function main() {
     await shown('dodge');
     r = await hint();
     assert(!r.veteran && r.txt.includes('翻滚') && !r.tut.includes('dodge'), '升到 3 级的新角色应照常看到翻滚提示：' + JSON.stringify(r));
-    // 做到了：立刻记为看过，但卡片要留到读得完为止（至少 4 秒），不会一闪而过
-    const t0 = Date.now();
+    // 做到了：立刻记为看过，但卡片要留到读得完为止（至少 4 秒），不会一闪而过（「1.9 秒后才换掉」看墙钟，在 test:timed 里）
     await page.keyboard.press('Space');
     await seen('dodge');
     r = await hint();
     assert(r.state === 'done' && r.cls.includes('done') && r.minShow >= 4, '做到之后应显示「做到了」：' + JSON.stringify(r));
     await until(() => G.ui.hints().current !== 'dodge');
-    assert(Date.now() - t0 >= 1900, '提示在做到之后消失得太快：' + (Date.now() - t0) + ' ms');
     await ev(() => { G.clearEnemies(); G.player.roll.cd = 0; });
     // 读档时已经 3 级以上的老角色：基础操作的提示直接跳过（只在读档那一刻判定）
     await ev(() => {
@@ -6743,10 +7078,9 @@ async function main() {
     });
     await shown('passive');
     await ev(() => { G.player.life = G.player.maxLife * 0.2; });
-    const tf = Date.now();
     await shown('flask');
     r = await hint();
-    assert(Date.now() - tf < 5000 && !r.tut.includes('passive') && r.txt.includes('生命药剂'), '濒死时喝药的提示应立刻顶掉正在显示的面板提示：' + JSON.stringify(r));
+    assert(!r.tut.includes('passive') && r.txt.includes('生命药剂'), '濒死时喝药的提示应立刻顶掉正在显示的面板提示：' + JSON.stringify(r)); // 「5 秒内」看墙钟，在 test:timed 里
     await ev(() => { G.player.life = G.player.maxLife; });
     await seen('flask');
     await shown('passive');
@@ -6820,28 +7154,103 @@ async function main() {
       assert(pre.shade && pre.blade && pre.relic && pre.vb && pre.va, '数据里的详情字段不对：' + JSON.stringify(pre));
       await page.keyboard.press('KeyG');
       await until(() => G.ui.isOpen() && document.querySelectorAll('.skill-card').length > 0);
+      await panelSettled();
       const look = () => ev(() => {
         const card = (id) => Array.from(document.querySelectorAll('.skill-card')).find((n) => n.querySelector('.sk-name') && n.querySelector('.sk-name').textContent.includes(G.SKILLS[id].name));
         const sh = card('shadestep'), bl = card('blade');
         const d = sh && sh.querySelector('.alt-d'), h = sh && sh.querySelector('.alt-h');
-        return { sh: !!sh, bl: !!bl, blBox: bl ? bl.querySelectorAll('.alt-box').length : -1, d: d ? getComputedStyle(d).display : '', h: h ? getComputedStyle(h).visibility : '', hgt: sh ? Math.round(sh.getBoundingClientRect().height) : 0, ht: h ? h.textContent : '', dt: d ? d.textContent : '', alt: G.SKILLS.shadestep.alt, on: document.body.classList.contains('alt-on') };
+        return { sh: !!sh, bl: !!bl, blBox: bl ? bl.querySelectorAll('.alt-box').length : -1, d: d ? (getComputedStyle(d).display !== 'none' && getComputedStyle(d).visibility === 'visible' ? 'shown' : 'hidden') : '', h: h ? getComputedStyle(h).visibility : '', hgt: sh ? Math.round(sh.getBoundingClientRect().height) : 0, ht: h ? h.textContent : '', dt: d ? d.textContent : '', alt: G.SKILLS.shadestep.alt, on: document.body.classList.contains('alt-on') };
       });
       let r = await look();
-      assert(r.sh && r.bl && r.blBox === 0 && !r.on && r.d === 'none' && r.h === 'visible' && r.ht === '按住 Alt 查看详情' && r.dt === r.alt, '平时只显示提示行、没有详情的卡不出提示：' + JSON.stringify(r));
+      assert(r.sh && r.bl && r.blBox === 0 && !r.on && r.d === 'hidden' && r.h === 'visible' && r.ht === '按住 Alt 查看详情' && r.dt === r.alt, '平时只显示提示行、没有详情的卡不出提示：' + JSON.stringify(r));
       const h0 = r.hgt;
       await page.keyboard.down('Alt');
       try {
         await until(() => document.body.classList.contains('alt-on'));
         r = await look();
-        assert(r.d === 'block' && r.h === 'hidden' && r.hgt === h0, '按住 Alt 应展开详情（浮在卡上，卡片高度不变）、藏起提示行：' + JSON.stringify(r) + ' 原高 ' + h0);
+        assert(r.d === 'shown' && r.h === 'hidden' && r.hgt === h0, '按住 Alt 应展开详情（盖在说明上，卡片高度不变）、藏起提示行：' + JSON.stringify(r) + ' 原高 ' + h0);
       } finally {
         await page.keyboard.up('Alt');
       }
       await until(() => !document.body.classList.contains('alt-on'));
       r = await look();
-      assert(r.d === 'none' && r.h === 'visible', '松开 Alt 应收起详情：' + JSON.stringify(r));
+      assert(r.d === 'hidden' && r.h === 'visible', '松开 Alt 应收起详情：' + JSON.stringify(r));
       await closePanel();
     } finally {
+      await ev((k) => {
+        for (const id in k) {
+          if (k[id] === undefined) delete G.save.skills[id];
+          else G.save.skills[id] = k[id];
+        }
+      }, keep);
+    }
+  });
+
+  await step('技能卡版式：1280×720 下两列等宽、不溢出列表；卡名一行、标签横排成小块；按住 Alt 时详情不盖刻式按钮，悬停的刻式浮窗不丢', async () => {
+    const keep = await ev(() => {
+      const S = G.save, k = { shadestep: S.skills.shadestep, blade: S.skills.blade };
+      S.skills.shadestep = Math.max(S.skills.shadestep || 0, G.VARIANT_LVL);
+      S.skills.blade = Math.max(S.skills.blade || 0, 1);
+      return k;
+    });
+    await page.setViewportSize({ width: 1280, height: 720 });
+    try {
+      await page.keyboard.press('KeyG');
+      await until(() => G.ui.isOpen() && document.querySelectorAll('.skill-list > .skill-card').length > 2);
+      await panelSettled();
+      const lay = await ev(() => {
+        const list = document.querySelector('.skill-list'), lr = list.getBoundingClientRect();
+        return Array.from(list.querySelectorAll(':scope > .skill-card')).map((c) => {
+          const nm = c.querySelector('.sk-name'), cr = c.getBoundingClientRect();
+          // 单行高度：同样式的一个字
+          const one = nm.cloneNode(false);
+          one.textContent = '影';
+          one.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap';
+          nm.parentNode.appendChild(one);
+          const lh = one.getBoundingClientRect().height;
+          one.remove();
+          const tags = c.querySelector('.sk-tags'), chips = tags ? Array.from(tags.children) : [];
+          const tops = new Set(chips.map((t) => Math.round(t.getBoundingClientRect().top)));
+          return { n: nm.firstChild.textContent, w: Math.round(cr.width), out: cr.right > lr.right - 6 + 1 || cr.left < lr.left - 1, ox: c.scrollWidth > c.clientWidth + 1, nameH: Math.round(nm.getBoundingClientRect().height), lh: Math.round(lh), chips: chips.length, rows: tops.size, dir: tags ? getComputedStyle(tags).flexDirection : '' };
+        });
+      });
+      const ws = lay.map((c) => c.w).filter((w) => w < 500);
+      assert(lay.length > 2 && lay.every((c) => !c.out && !c.ox), '技能卡不应溢出列表、卡内也不应横向溢出：' + JSON.stringify(lay));
+      assert(ws.length > 1 && Math.max(...ws) - Math.min(...ws) <= 1, '1280×720 下两列应等宽：' + JSON.stringify(lay));
+      assert(lay.every((c) => c.nameH <= 1.5 * c.lh), '卡名应只占一行：' + JSON.stringify(lay));
+      assert(lay.every((c) => c.chips < 2 || (c.dir === 'row' && c.rows <= 2 && c.rows < c.chips)), '标签应横排（最多两行）：' + JSON.stringify(lay));
+      // 悬停影步连斩的刻式 B，再按住 Alt
+      const card = '.skill-list > .skill-card:has([data-act="variant"][data-skill="shadestep"])';
+      await page.locator(card).scrollIntoViewIfNeeded();
+      await page.locator(card + ' .sv-btn[data-v="b"]').hover();
+      await until(() => document.getElementById('tip').classList.contains('on'), null, 5000);
+      const h0 = await ev((sel) => Math.round(document.querySelector(sel).getBoundingClientRect().height), card);
+      await page.keyboard.down('Alt');
+      let r;
+      try {
+        await until(() => document.body.classList.contains('alt-on'));
+        await frames(3);
+        r = await ev((sel) => {
+          const c = document.querySelector(sel), d = c.querySelector('.sk-desc .alt-d'), dr = d.getBoundingClientRect();
+          const btns = Array.from(c.querySelectorAll('.sv-btn')).map((b) => {
+            const br = b.getBoundingClientRect(), hit = document.elementFromPoint(br.left + br.width / 2, br.top + br.height / 2);
+            return { hit: !!hit && (hit === b || b.contains(hit)), over: dr.right > br.left && dr.left < br.right && dr.bottom > br.top && dr.top < br.bottom };
+          });
+          return { shown: getComputedStyle(d).visibility === 'visible' && dr.height > 0, btns, tip: document.getElementById('tip').classList.contains('on'), h: Math.round(c.getBoundingClientRect().height) };
+        }, card);
+      } finally {
+        await page.keyboard.up('Alt');
+      }
+      assert(r.shown && r.btns.length === 3, '按住 Alt 应显示详情、卡上有 3 个刻式按钮：' + JSON.stringify(r));
+      assert(r.btns.every((b) => b.hit && !b.over), '按住 Alt 时刻式按钮不应被详情盖住：' + JSON.stringify(r));
+      assert(r.tip, '按住 Alt 时悬停的刻式浮窗不应消失：' + JSON.stringify(r));
+      assert(r.h === h0, '按下 Alt 卡片高度不应变：' + h0 + ' → ' + r.h);
+      await until(() => !document.body.classList.contains('alt-on'));
+      await page.mouse.move(5, 5);
+      await closePanel();
+      return lay.length + ' 张卡，宽 ' + [...new Set(lay.map((c) => c.w))].join(' / ');
+    } finally {
+      await page.setViewportSize({ width: 1440, height: 900 });
       await ev((k) => {
         for (const id in k) {
           if (k[id] === undefined) delete G.save.skills[id];
@@ -10070,15 +10479,10 @@ async function main() {
       for (let i = 1; i <= 3; i++) G.ui.bigToast('烬铸武器', '丙之' + i, G.RARITY_COLOR[3], '');
     });
     const five = await vis();
-    await sleep(3000);
-    const later = await vis();
-    await sleep(2200);
-    const gone = await vis();
+    // 「3 秒时还在、放完就消失」看墙钟，在 test:timed 里（计时｜大字提示）
     assert(two.mainOn && /乙之烬铸/.test(two.main) && !/甲之渊契/.test(two.main), '后到的应占正中的大字：' + JSON.stringify(two));
     assert(two.stackOn && /甲之渊契/.test(two.stack) && two.rows === 1, '先到的应缩成一行留在下面：' + JSON.stringify(two));
     assert(/丙之3/.test(five.main) && five.rows === 3 && /丙之2/.test(five.stack) && /丙之1/.test(five.stack) && /另有 2 件珍品/.test(five.stack), '5 条时下面应只留 2 条、其余并成一行：' + JSON.stringify(five));
-    assert(later.stackOn && later.rows >= 1, '排在下面的应放满自己的时间（3 秒时还在）：' + JSON.stringify(later));
-    assert(!gone.stackOn && !gone.mainOn, '放完之后应全部消失：' + JSON.stringify(gone));
     return '两条：' + two.main + ' ｜ ' + two.stack;
   });
 
@@ -12686,7 +13090,7 @@ async function main() {
     for (const [k, lo, hi] of [['1:0', 2, 3], ['1:1', 4, 5], ['1:2', 6, 7], ['2:0', 2, 3], ['2:1', 4, 6], ['2:2', 7, 9], ['3:0', 3, 4], ['3:1', 5, 7], ['3:2', 8, 10]]) {
       for (let w = lo; w <= hi; w++) assert(r.W[k] && r.W[k][w] > 0, '档 ' + k + ' 掷不到 W ' + w + '：' + JSON.stringify(r.W[k]));
     }
-    assert(r.ms < 2, '掷一次三枚印太慢：' + r.ms + ' ms');
+    // 「单次不到 2 ms」的耗时断言在 test:timed 里（计时｜渊印·生成）
     return 'W 分布 ' + JSON.stringify(r.W['2:2']) + '（层级 2 烬印），最高危险度 ' + [1, 2, 3].map((t) => r.maxDz[t].toFixed(3)).join(' / ') + '，每次 ' + r.ms + ' ms';
   });
 
@@ -13007,6 +13411,23 @@ async function main() {
         },
         kill(list) {
           for (const e of list) if (!e.dead) G.killEnemy(e);
+        },
+        // 收起玩家这边会自己出手的伤害来源：召唤物（换区会跟过来）、自动召唤、技能栏上的光环（每隔一阵打身边所有怪）、
+        // 前面步骤留下的按住的键鼠（右键按着就一直挥武器）。要量「只有异兆在打怪」的步骤用；返回还原函数
+        quiet() {
+          const auto = Object.assign({}, G.save.autoSummon || {}), bar = G.save.bar.slice();
+          for (const k in G.save.autoSummon || {}) G.save.autoSummon[k] = false;
+          G.clearMinions();
+          G.save.bar = bar.map((id) => (id && G.SKILLS[id] && G.SKILLS[id].kind === 'aura' ? null : id));
+          G.computeStats();
+          for (const k in G.input.keys) G.input.keys[k] = false;
+          G.input.mouse.b[0] = G.input.mouse.b[1] = G.input.mouse.b[2] = false;
+          P.cast = null;
+          return () => {
+            Object.assign(G.save.autoSummon || {}, auto);
+            G.save.bar = bar;
+            G.computeStats();
+          };
         },
         items: () => S.loot.filter((l) => l.kind === 'item').length,
         done() {
@@ -13655,6 +14076,7 @@ async function main() {
     const r = await ev(() => {
       const S = G.state, P = G.player, out = {};
       let enc = EK.put('ember', 3, 1);
+      const unquiet = EK.quiet(); // 整步只有余烬在打怪：不然召唤物 / 光环 / 按住的右键会在量伤害的窗口里补刀，烬晶也可能被它们打碎
       const s = enc.site;
       T.tp(s.x + 3, s.z);
       EK.step(0.2);
@@ -13672,19 +14094,32 @@ async function main() {
         maxT = Math.max(maxT, S.telegraphs.filter((t) => enc.tele.indexOf(t) >= 0).length);
       }
       out.maxTele = maxT;
-      // 余烬打怪：靶子站在玩家脚下，下一团瞄着玩家落（随机数临时压低），挨的是整数倍的 3 × 小怪一击
+      // 余烬打怪：靶子站在玩家脚下，下一团瞄着玩家落（随机数临时压低），挨的是整数倍的 3 × 小怪一击。
+      // 窗口里只许余烬扣血：附近别的怪先清掉（掉落一起清，不混进后面的件数），靶子不攒异常、不吃架势
+      for (const e of S.enemies) if (!e.dead && !e.fixed && !e.isBoss && Math.hypot(e.x - P.x, e.z - P.z) < 16) G.killEnemy(e);
+      T.clearLoot();
       const dummy = G.spawnMob('husk', P.x, P.z, enc.level, { awake: false });
       dummy.hp = dummy.maxHp = 1e7;
       dummy.atkCd = 1e9;
       dummy.speed = 0;
+      dummy.buTh = 1e15;
+      dummy.poiseMax = 0;
       const hit = G.ENCOUNTERS.ember.p.hitK * G.MOBS.husk.dmg * G.dmgScale(enc.level) * G.ENCOUNTERS.ember.p.mobK;
       enc.tele.length = 0;
       enc.fallT = 0;
+      // 逐帧记靶子掉的血：每一下都得正好是整数团余烬（同一帧落两团就是 2 倍），别的来源哪怕一点点也算错
+      let hp0 = dummy.hp;
+      const drops = [];
+      const watch = () => {
+        if (dummy.hp !== hp0) drops.push(+((hp0 - dummy.hp) / hit).toFixed(6));
+        hp0 = dummy.hp;
+      };
       const rnd = Math.random;
       Math.random = () => 0.1;
-      EK.step(1 / 60);
+      EK.step(1 / 60, watch);
       Math.random = rnd;
-      EK.step(1.2);
+      EK.step(1.2, watch);
+      out.drops = drops;
       out.mobHit = +((1e7 - dummy.hp) / hit).toFixed(2);
       G.killEnemy(dummy);
       EK.kill(enc.shards);
@@ -13699,11 +14134,12 @@ async function main() {
       out.late = enc.st;
       out.gone = enc.shards.every((e) => e.dead);
       EK.done();
+      unquiet();
       return out;
     });
     assert(r.sleep === 'sleep' && r.open === 'open' && r.run === 'run' && r.shards === 4, '落烬应清空房间后摸烬核开始、立 4 块烬晶：' + JSON.stringify(r));
     assert(r.maxTele >= 1 && r.maxTele <= 3, '余烬预警同时应 ≤ 3：' + JSON.stringify(r));
-    assert(r.mobHit >= 1 && Math.abs(r.mobHit - Math.round(r.mobHit)) < 0.05, '余烬打怪应是 3 倍小怪一击（整数次）：' + JSON.stringify(r));
+    assert(r.drops.length >= 1 && r.drops.every((d) => d >= 1 && Math.abs(d - Math.round(d)) < 1e-6), '余烬打怪应是 3 倍小怪一击，每一下都是整数团、没有别的伤害：' + JSON.stringify(r));
     assert(r.st === 'done' && r.items >= 4 && r.late === 'fail' && r.gone, '落烬的成功 / 超时不对：' + JSON.stringify(r));
     return '预警最多 ' + r.maxTele + ' 个，打怪 ' + r.mobHit + ' 倍一击';
   });
@@ -15307,13 +15743,32 @@ async function titleSteps() {
   });
 }
 
-main()
-  .catch((e) => {
-    failed++;
-    console.log('FAIL 测试脚本自身出错 — ' + (e && e.stack ? e.stack : e));
-  })
-  .finally(async () => {
+// 跑哪几份：默认两份都跑（先 func 后 timed，各用一个新浏览器）；--func / --timed 只跑一份。
+// 只跑 func，或在 cc-slot 的池里跑（CC_SLOT_HELD=pool:…，或手动设 CC_POOL=1）时，每行的耗时和 ms 数字标成不可比
+const PARTS = process.argv.includes('--func') ? ['func'] : process.argv.includes('--timed') ? ['timed'] : ['func', 'timed'];
+const POOL = !!process.env.CC_POOL || /^pool:/.test(process.env.CC_SLOT_HELD || '');
+const sum = (p, f) => (f ? '失败 ' + f + ' 项，' : '') + '通过 ' + p + ' 项';
+(async () => {
+  let head = '?';
+  try {
+    head = execSync('git rev-parse --short HEAD', { cwd: new URL('..', import.meta.url).pathname, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+  } catch (e) {}
+  const per = [];
+  for (const part of PARTS) {
+    NC_TAG = POOL || (part === 'func' && PARTS.length === 1) ? ' [pool, not comparable]' : '';
+    console.log('== test:' + part + ' · HEAD ' + head + ' · ' + new Date().toISOString() + ' · 槽位 ' + (process.env.CC_SLOT_HELD || '无') + (NC_TAG ? ' · 耗时数字不可比' + NC_TAG : '') + (part === 'timed' && POOL ? ' · 警告：计时步骤在池里跑，结果不作数' : ''));
+    const p0 = passed, f0 = failed;
+    try {
+      await (part === 'func' ? main() : timedMain());
+    } catch (e) {
+      failed++;
+      console.log('FAIL 测试脚本自身出错 — ' + (e && e.stack ? e.stack : e));
+    }
     if (browser) await browser.close().catch(() => {});
-    console.log('\n' + (failed ? '失败 ' + failed + ' 项，' : '') + '通过 ' + passed + ' 项');
-    process.exit(failed ? 1 : 0);
-  });
+    browser = page = errors = null;
+    per.push('test:' + part + ' ' + sum(passed - p0, failed - f0));
+  }
+  console.log('\n' + per.join(' · '));
+  console.log(sum(passed, failed));
+  process.exit(failed ? 1 : 0);
+})();
