@@ -1199,7 +1199,7 @@ async function main() {
     return '首杀掉 Lv ' + r.first[0].lvl + '，几率 ' + JSON.stringify(r.rates);
   });
 
-  await step('掉落：升华石 / 乱流石 / 重铸石权重提高，琢刻石介于其间；首领首杀保底升华石和乱流石各一颗；分解稀有物品有几率给其一；辅助宝石掉率提高、首领掉两颗；重复的辅助宝石照旧化为增幅尘', async () => {
+  await step('掉落：升华石 / 乱流石 / 重铸石权重提高，琢刻石介于其间；首领首杀保底升华石和乱流石各一颗；分解稀有物品有几率给其一；辅助宝石掉率提高、首领掉三颗；重复的辅助宝石照旧化为增幅尘', async () => {
     const r = await ev(() => {
       const S = G.state, save = G.save, P = G.player;
       T.arena();
@@ -1284,7 +1284,7 @@ async function main() {
     assert(w.exalt >= 12 && w.chaos >= 12 && w.chisel > w.divine && w.chisel < w.exalt && w.chisel < w.chaos && w.divine >= 5, '通货权重不对：' + JSON.stringify(w));
     assert(w.pExalt > 0.1 && w.pDivine > 0.04, '升华石 / 重铸石的实际几率应比原来（9% / 4%）高：' + JSON.stringify(w));
     assert(Math.abs(r.roll.exalt - w.pExalt) < 0.015 && Math.abs(r.roll.chisel - w.chisel / w.tot) < 0.012, 'rollCurrency 的分布和权重对不上：' + JSON.stringify(r.roll));
-    assert(r.first.sup === 2 && r.again.sup === 2, '首领应固定掉 2 颗辅助宝石：' + JSON.stringify(r));
+    assert(r.first.sup === 3 && r.again.sup === 3, '首领应固定掉 3 颗辅助宝石：' + JSON.stringify(r));
     const firstCur = r.first.cur.split(','), againCur = r.again.cur.split(',');
     const n = (a, id) => a.filter((x) => x === id).length;
     assert(firstCur.length === 6 && n(firstCur, 'exalt') === 1 && n(firstCur, 'chaos') === 1, '首领首杀应在 4 颗随机通货之外保底升华石、乱流石各一颗：' + r.first.cur);
@@ -1293,7 +1293,7 @@ async function main() {
     assert(r.salvLucky.augment === 1 && (r.salvLucky.exalt === 1) !== (r.salvLucky.chaos === 1), '分解稀有物品几率中了应给升华石或乱流石之一：' + JSON.stringify(r.salvLucky));
     assert(!r.salvUnlucky.exalt && !r.salvUnlucky.chaos && !r.salvMagic.exalt && !r.salvMagic.chaos, '没中几率 / 魔法物品不应给：' + JSON.stringify(r));
     assert(r.salvRate > 0.12 && r.salvRate < 0.3, '分解稀有物品给升华石 / 乱流石的比例不对：' + r.salvRate);
-    assert(r.supRate.mob > 0.018 && r.supRate.mob < 0.035 && r.supRate.elite > 0.22 && r.supRate.elite < 0.4, '辅助宝石掉率应比原来（普通 1%、精英 7.5%）高：' + JSON.stringify(r.supRate));
+    assert(r.supRate.mob > 0.027 && r.supRate.mob < 0.0525 && r.supRate.elite > 0.33 && r.supRate.elite < 0.6, '辅助宝石掉率应是普通 3.75%、精英 45%（辅助加到 32 种后 ×1.5，区间按原来的相对宽度）：' + JSON.stringify(r.supRate));
     assert(r.dup.picked && r.dup.aug === 1 && r.dup.n === 1 && r.dup.toast.includes('增幅尘'), '重复的辅助宝石应化为 1 增幅尘：' + JSON.stringify(r.dup));
     return '升华石 ' + (w.pExalt * 100).toFixed(1) + '%，琢刻石 ' + ((w.chisel / w.tot) * 100).toFixed(1) + '%，辅助宝石 普通 ' + (r.supRate.mob * 100).toFixed(1) + '% / 精英 ' + (r.supRate.elite * 100).toFixed(0) + '%';
   });
@@ -1322,12 +1322,12 @@ async function main() {
   });
 
   // ------------------------------------------------------------------ 技能
-  await step('learnAll：14 个技能（裂石击已删除）与 20 个辅助宝石全部到手（混沌流加了黑洞 / 黑旋风 / 黑焰与混沌注入）；右键格不放技能', async () => {
+  await step('learnAll：14 个技能（裂石击已删除）与 27 个辅助宝石全部到手（混沌流加了黑洞 / 黑旋风 / 黑焰与混沌注入）；右键格不放技能', async () => {
     const r = await ev(() => {
       G.debug.learnAll();
       return { skills: Object.keys(G.save.skills).length, sups: G.save.supports.length, bar: G.save.bar.slice(), cleave: !!G.SKILLS.cleave || G.GEM_SKILLS.indexOf('cleave') >= 0 };
     });
-    assert(r.skills === 14 && r.sups === 20 && [0, 2, 3].every((i) => r.bar[i]) && r.bar[1] === null && !r.cleave, JSON.stringify(r));
+    assert(r.skills === 14 && r.sups === 27 && [0, 2, 3].every((i) => r.bar[i]) && r.bar[1] === null && !r.cleave, JSON.stringify(r));
   });
 
   for (let i = 0; i < SKILL_IDS.length; i++) {
@@ -11282,8 +11282,9 @@ async function main() {
       const snap = T.buildSnap(), save = G.save;
       for (const id of ['charge', 'swell']) if (save.supports.indexOf(id) < 0) save.supports.push(id);
       save.skills.ember = save.skills.ember || 1;
+      save.sockets.ember = [null, null, null]; // 空槽：点满的槽是取下宝石
       G.ui.open('skills');
-      const btn = document.querySelector('[data-act="socket"][data-skill="ember"]');
+      const btn = document.querySelector('[data-act="socket"][data-skill="ember"][data-idx="0"]');
       if (btn) btn.click();
       const txt = document.getElementById('picker').innerText;
       G.ui.close();
@@ -11593,7 +11594,8 @@ async function main() {
       out.drops = G.state.loot.filter((l) => l.kind === 'support').map((l) => l.data);
       T.clearLoot();
       save.supports = sup0;
-      // 存档：新辅助和它的镶嵌照常读回
+      // 存档：新辅助和它的镶嵌照常读回（先存一次，读完换回此刻的存档，后面的步骤接着用内存里的状态）
+      G.persist();
       const bak = localStorage.getItem(KEY);
       const raw = JSON.parse(JSON.stringify(save));
       raw.supports = raw.supports.concat(NEW.filter((id) => raw.supports.indexOf(id) < 0));
