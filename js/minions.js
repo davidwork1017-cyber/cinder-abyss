@@ -832,7 +832,7 @@
     if (dist(b.x, b.z, P.x, P.z) < 16) G.sfx('impact', { type: 'fire', w: 0, crit: false });
     // 刻式「焰田」：落地留一片火地（祭司的火地都记着 pyre，燎原时一齐引爆）
     const F = b.ctx.minion.mech === 'field' ? b.ctx.minion.vx : null;
-    if (F && G.vField) G.vField({ kind: 'burn', x: b.x, z: b.z, r: F.r * Math.sqrt(b.ctx.area), dur: F.dur, tick: F.tick, mult: F.mult, ctx: b.ctx, key: 'vPyreT', hex: 0xff9a4a, pyre: true, minion: m && !m.dead ? m : null, noDecal: true });
+    if (F && G.vField) G.vField({ kind: 'burn', x: b.x, z: b.z, r: F.r * Math.sqrt(b.ctx.area), dur: F.dur * (b.ctx.durK || 1), tick: F.tick, mult: F.mult, ctx: b.ctx, key: 'vPyreT', hex: 0xff9a4a, pyre: true, minion: m && !m.dead ? m : null, noDecal: true });
     // 焰蓄：每炸到一个敌人 +1（一弹最多 per 点）；祭司已经倒下就不算了
     if (n && m && !m.dead && m.ctx.minion.charge) {
       m.charge = Math.min(m.ctx.minion.charge.max, m.charge + Math.min(b.per, n) * (m.ctx.minion.chargeK || 1));
