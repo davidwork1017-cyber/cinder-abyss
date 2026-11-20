@@ -145,6 +145,7 @@
       // 技能页上标着「收起」，绑到任意一格就取出来（见 sanitize、syncRanged）。镶着的辅助跟着技能走（save.sockets 按技能 id 记），不会丢
       rmbKeep: null,
       bowMig: false, // 读档时把旧长弓改成了鹰眼长弓、「远程改版」提示还没看过（见 sanitize）
+      xzMig: false, // 读档时把旧熄烛冠原地升级了、提示还没看过（见 migrateXizhu）
       passives: ['start'], cleared: {}, bossKills: {},
       tier: 0, maxTier: 0, lastZone: 0,
       // 选项：自动拾取普通物品 / 折叠普通物品的名牌 / 拾取时自动分解普通物品 / 一键分解是否包含魔法物品
@@ -234,6 +235,7 @@
   // 把 wbase 按「现在这个物品等级的成长 ÷ 27 级的成长」放大一次（成色不变），老角色手里的高等级武器不吃亏
   function fixItem(it, charLvl, oldGrowth) {
     if (it.rarity === 3) fixUnique(it);
+    if (it.rarity === 4 && it.rq === 'xizhu') migrateXizhu(it);
     if (it.rarity === 4) fixRelic(it);
     const bases = G.BASES[it.slot];
     if (!(it.baseIdx >= 0 && it.baseIdx < bases.length) || it.baseIdx !== Math.floor(it.baseIdx)) it.baseIdx = 0;
@@ -313,6 +315,41 @@
     return it;
   }
 
+  // 熄烛冠巅峰改版（rqv 2）之前的旧物品：在 fixRelic 之前原地升级。旧的第 i 行按它在旧区间里的分位，换算到新的第 i 行区间的同一位置
+  // （冰霜抗性 → 生命回复）；新加的行（暗域增伤）按物品 uid 推出一个固定的分位（同一件物品每次读档结果一样）。
+  // 旧的词缀行和区间按改版前的定义（只在这里记一份）
+  const XIZHU_OLD = [{ id: 'life', k: [1.2, 1.6] }, { id: 'crit', k: [1.2, 1.6] }, { id: 'resCold', k: [1.0, 1.3] }];
+  function uidQ(uid, salt) {
+    let h = 2166136261 ^ salt;
+    for (let i = 0; i < uid.length; i++) h = Math.imul(h ^ uid.charCodeAt(i), 16777619);
+    h = Math.imul(h ^ (h >>> 15), 2246822507);
+    return ((h ^ (h >>> 13)) >>> 0) / 4294967296;
+  }
+  G.uidQ = uidQ;
+  function migrateXizhu(it) {
+    if (it.rqv >= 2) return false;
+    const R = G.RELICS.xizhu;
+    const ilvl = G.clamp(Math.round(it.ilvl), 1, 999);
+    const tier = G.clamp(G.TIER_ILVL.filter((l) => l <= ilvl).length - 1, 0, G.TIER_ILVL.length - 1);
+    const out = R.lines.map((ln, i) => {
+      const r = G.relicLineRange('xizhu', ilvl, i);
+      const o = XIZHU_OLD[i];
+      const old = o && it.affixes.find((a) => a.id === o.id);
+      let q;
+      if (old) {
+        const t = G.affixRange(G.AFFIX_BY_ID[o.id], tier);
+        const lo = Math.max(1, Math.round(t[0] * o.k[0])), hi = Math.max(lo, Math.round(t[1] * o.k[1]));
+        q = hi > lo ? G.clamp((old.v - lo) / (hi - lo), 0, 1) : 1;
+      } else q = uidQ(it.uid, i + 1);
+      return { id: ln.id, tier, v: Math.round(r[0] + (r[1] - r[0]) * q) };
+    });
+    it.affixes = out;
+    it.rqv = 2;
+    G.xizhuMigrated = (G.xizhuMigrated || 0) + 1; // 界面层据此提示一次「熄烛冠升级了」
+    return true;
+  }
+  G.migrateXizhu = migrateXizhu; // 测试用
+
   // 从 start 出发，在给定节点集合内能走到的节点
   function reachable(ids) {
     const set = new Set(ids);
@@ -335,6 +372,7 @@
     G.weaponMigrated = false;
     G.growthMigrated = null;
     G.bowMigrated = 0;
+    G.xizhuMigrated = 0; // 熄烛冠巅峰改版：读档时原地升级了几件（见 migrateXizhu）
     G.variantRedone = 0; // 刻式第二版：读档时把旧刻式的免费那一次还了回去，界面层提示一次（见下面「刻式」）
     G.rmbMigrated = null; // 武器普攻改版：右键上的技能挪去了哪（见下面「右键固定是武器普攻」）
     G.cleaveRefund = null; // 裂石击退成的无铭宝石
@@ -480,6 +518,9 @@
     // 不让第一次会话在提示弹出前就结束的玩家永远看不到它
     s.bowMig = G.bowMigrated > 0 || (raw.bowMig === true && !s.tut.bowmig);
     if (s.bowMig) G.bowMigrated = Math.max(1, G.bowMigrated);
+    // 熄烛冠巅峰改版：同上，记一笔 xzMig，直到提示看过（tut.xzmig）
+    s.xzMig = G.xizhuMigrated > 0 || (raw.xzMig === true && !s.tut.xzmig);
+    if (s.xzMig) G.xizhuMigrated = Math.max(1, G.xizhuMigrated);
     s.blankGems = Array.isArray(raw.blankGems)
       ? raw.blankGems.filter(isNum).slice(0, BLANK_MAX).map((v) => G.clamp(Math.floor(v), 1, MAX_GEM_LEVEL)).sort((a, b) => b - a)
       : [];
@@ -1884,9 +1925,10 @@
       RQ.twinAlt.clear();
       if (G.applyVariants) G.applyVariants();
     }
-    // 无光：暖光半径缩小（和幽晦叠加时雾近端有下限）
+    // 暗域（熄烛冠）：暖光半径缩小（和幽晦叠加时雾近端有下限）；脚下 / 召唤物脚下的暗域圈
     const XZ = RM.xizhu;
     if (G.world && G.world.lampScale) G.world.lampScale(r.xizhu ? 1 - XZ.lamp : 1, r.xizhu ? XZ.fogMin : 0);
+    if (G.world && G.world.setDark) G.world.setDark(r.xizhu ? XZ.r : 0, XZ.mr);
     return r;
   };
 
@@ -2024,18 +2066,27 @@
     RQ.twin[id] = twinOther(cur);
   };
 
-  // ---------- 无光（熄烛冠，巅峰）：hitEnemy 里的一行钩子 ----------
-  // 你对 far 米外的敌人伤害 × (1 + dmg)；还没发现你（没醒）的敌人，第一击必定暴击
-  G.relicFarHit = function (e, ctx, m) {
-    const X = RM.xizhu, far = dist(P.x, P.z, e.x, e.z) > X.far, sneak = !e.awake;
-    if (!far && !sneak) return G.calcHit(ctx, m);
+  // ---------- 暗域（熄烛冠，巅峰）：hitEnemy / hurtPlayer / hurtMinion 里各一行钩子 ----------
+  // 暗域增伤（专属词缀 darkDmg）：你的伤害对所有敌人 × (1 + darkDmg%)，召唤物的伤害只对暗域内的敌人（e.dark，enemies.js 每帧算）；
+  // 还没发现你（没醒）的敌人，你的第一击必定暴击
+  G.relicDarkHit = function (e, ctx, m, minion) {
+    const k = 1 + Math.max(0, (P.S && P.S.darkDmg) || 0) / 100;
+    if (minion) return G.calcHit(ctx, e.dark ? m * k : m);
+    if (e.awake) return G.calcHit(ctx, m * k);
     const c0 = ctx.crit;
-    if (sneak) ctx.crit = 100;
+    ctx.crit = 100;
     try {
-      return G.calcHit(ctx, far ? m * (1 + X.dmg) : m);
+      return G.calcHit(ctx, m * k);
     } finally {
       ctx.crit = c0;
     }
+  };
+  // 暗域内的敌人造成的伤害倍率：src 是敌人本身，或带 owner 的预警圈 / 弹丸。首领 1 − weakBoss，熄烛者（pin）不吃
+  G.darkWeakK = function (src) {
+    const e = src && src.owner && typeof src.owner === 'object' ? src.owner : src;
+    if (!e || !e.dark || e.dead) return 1;
+    const X = RM.xizhu;
+    return e.pin ? 1 : e.isBoss ? 1 - X.weakBoss : 1 - X.weak;
   };
 
   // ---------- 踏震（磐踵）/ 随影（招魂带）：翻滚 ----------
@@ -2658,7 +2709,7 @@
     // rqBrk：渊契「崩势」扩散出来的破绽；渊印「领群」：领群者附近同群的怪受到的伤害 −15%；encDR：异兆的减伤（灰誓者有图腾立着时）
     const m = (mult === undefined ? 1 : mult) * (broken || e.rqBrk > 0 ? PO.taken : 1) * (e.auraBuff ? 1 - G.runMods.aura.dr : 1) * (e.encDR > 0 ? 1 - e.encDR : 1);
     e.hurtAt = state.time; // 渊印「回生」：几秒没挨打才回血
-    const hit = P.relic.xizhu && !inf.minion && !ctx.minion && !ctx.asMinion ? G.relicFarHit(e, ctx, m) : G.calcHit(ctx, m); // 渊契「无光」：远处增伤、没发现你时必暴
+    const hit = P.relic.xizhu ? G.relicDarkHit(e, ctx, m, !!(inf.minion || ctx.minion || ctx.asMinion)) : G.calcHit(ctx, m); // 渊契「暗域」：增伤、没发现你时必暴
     const hp0 = e.hp;
     e.hp -= hit.total;
 
@@ -2919,6 +2970,7 @@
   G.hurtPlayer = function (amount, dtype, src) {
     if (P.dead || P.iframe > 0 || P.god) return false;
     if (!(amount > 0)) return false;
+    if (P.relic.xizhu) amount *= G.darkWeakK(src); // 渊契「暗域」：域内的敌人伤害降低
     if (P.relic.tongshang) amount = G.relicShareHurt(amount, dtype, src); // 渊契「同殇」
     const W = G.world;
     let dmg = amount;
@@ -3193,7 +3245,7 @@
       const v = p.volley;
       if (v === undefined || v === null || m.volley !== v) {
         if (v !== undefined && v !== null) m.volley = v;
-        G.hurtMinion(m, p.dmg, p.dtype, { x: p.x - p.dx, z: p.z - p.dz });
+        G.hurtMinion(m, p.dmg, p.dtype, { x: p.x - p.dx, z: p.z - p.dz, owner: p.shooter || null });
       }
       if (!projFx(p, 'hit')) G.world.burst(p.x, 1.1, p.z, p.color, 6, 3, 0.25);
       if (p.pierce > 0) {
@@ -3384,7 +3436,7 @@
           if (P.dead || dist(P.x, P.z, p.x, p.z) > p.r + 0.5) continue;
           // 同一轮齐射（volley 相同）只结算一次伤害：贴脸吃满一圈弹幕不该被瞬间打空
           const v = p.volley;
-          const from = { x: p.x - p.dx, z: p.z - p.dz };
+          const from = { x: p.x - p.dx, z: p.z - p.dz, owner: p.shooter || null };
           if (v === undefined || v === null) G.hurtPlayer(p.dmg, p.dtype, from);
           else if (recentVolleys.indexOf(v) < 0 && G.hurtPlayer(p.dmg, p.dtype, from)) {
             recentVolleys.push(v);
