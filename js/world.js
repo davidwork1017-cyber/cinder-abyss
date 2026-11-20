@@ -19559,7 +19559,7 @@
       if (!minor) {
         // vf-vfx：每个落点一记星芒火花 + 一小团电弧（序列帧，画进光晕零件）
         W.fxFlip(VFB.spark, x, 1.25, z, 1.7, 0.2, hex, { a: 0.9 });
-        W.fxFlip(VFB.arc, x, 1.2, z, 1.5, 0.22, hex, { a: 0.8 });
+        if (qualId !== 'low') W.fxFlip(VFB.arc, x, 1.2, z, 1.5, 0.22, hex, { a: 0.8 });
         W.vDecal(VVD.flash, x, z, 1.6, 0.22, hex);
         W.vDecal(VVD.scorch, x, z, 0.65, 2, hex, { a: 0.8 });
         flare(x, 1.25, z, hex, 1.9, 0.14);
@@ -19793,7 +19793,7 @@
   };
   // 光环打中的敌人身上飘几粒霜屑（不闪白，免得一圈敌人每半秒集体发亮）
   W.frostSparkle = function (x, y, z, r) {
-    W.fxFlip(VFB.spark, x, y, z, 0.9 + r, 0.22, 0xd6f3ff, { a: 0.8 }); // vf-vfx：被刺到的一下，身上一记冰晶星芒
+    if (qualId !== 'low') W.fxFlip(VFB.spark, x, y, z, 0.9 + r, 0.22, 0xd6f3ff, { a: 0.8 }); // vf-vfx：被刺到的一下，身上一记冰晶星芒（低画质不放：每次脉冲一圈怪各一记）
     _c.set(0xcfeeff);
     for (let i = 0; i < 3; i++) {
       const a = rand(0, TAU), d = rand(0, r);
@@ -20703,8 +20703,8 @@
       aura.sweep = (aura.sweep || 0) + 1;
       // 霜痕铺满光环那么大：低画质不铺（软件渲染下整片重叠太贵），高画质每次 1.2 秒（同时最多两三片）
       if (qualId !== 'low' && hit) W.vDecal(VVD.frost, P.x, P.z, aura.r * 0.62, 1.2, 0x86d8ff, { r1: aura.r * 0.98, grow: 0.35, a: 0.7 }); // 只在打中时铺
-      if (hit) {
-        const n = qualId === 'low' ? 5 : 9, a0 = vr(0, TAU);
+      if (hit && qualId !== 'low') {
+        const n = 9, a0 = vr(0, TAU);
         for (let i = 0; i < n; i++) {
           const a = a0 + (i / n) * TAU, d = aura.r * 0.93;
           W.fxFlip(VFB.spark, P.x + Math.sin(a) * d, 0.35, P.z + Math.cos(a) * d, vr(0.8, 1.1), 0.24, 0xe6f8ff, { a: 0.85 });
@@ -21536,7 +21536,7 @@
         W.vDecal(VVD.flash, x, z, 1.5, 0.22, 0xff8a3c, { a: 0.75 });
       }
       u.acc4 = (u.acc4 || 0) + dt;
-      if (u.acc4 > (qualId === 'low' ? 0.1 : 0.035)) {
+      if (qualId !== 'low' && u.acc4 > 0.035) {
         u.acc4 = 0;
         W.fxFlip(VFB.fire, x - u.dx * r * 0.9 + vr(-0.08, 0.08), y + vr(0, 0.1), z - u.dz * r * 0.9 + vr(-0.08, 0.08), r * 2.4, vr(0.22, 0.3), fp, { vx: -u.dx * 4 + vr(-0.8, 0.8), vy: vr(0.5, 1.4), vz: -u.dz * 4 + vr(-0.8, 0.8), grow: 0.5 });
       }
