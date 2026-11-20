@@ -1259,7 +1259,8 @@
     'float gc = vC;',
     'vec3 gw = vec3(vW.x, max(0.0, 1.0 - vW.x - vW.y), vW.y) * (1.0 - gc);',
     // vf-ground：低档只取权重最大的那一套（每个像素只采一套贴图，交界是硬边），软件 GL 下地面不比 main 贵
-    'if (uLowQ > 0.5) { float gmx = max(max(gw.x, gw.y), max(gw.z, gc)); gw = step(vec3(gmx), gw); gc = step(gmx, gc); }',
+    // 比较前按值噪声（纯计算、不采贴图）推一推各套的权重，交界是不规则的硬边，不顺着网格的三角形走
+    'if (uLowQ > 0.5) { float gn = gNoise(gp * 1.6) - 0.5; vec4 gq = vec4(gw, gc) + vec4(0.3, -0.15, 0.0, -0.3) * gn; float gmx = max(max(gq.x, gq.y), max(gq.z, gq.w)); gw = step(vec3(gmx), gq.xyz); gc = step(gmx, gq.w); }',
     'vec3 a0 = vec3(0.5), n0 = vec3(0.5, 0.5, 1.0), r0 = vec3(1.0, 0.8, 0.0);',
     'vec3 a1 = a0, n1 = n0, r1 = r0, a2 = a0, n2 = n0, r2 = r0;',
     'if (gw.x > 0.003) gSample2(tA0, tN0, tR0, gp * uS.x, gk, a0, n0, r0);',
