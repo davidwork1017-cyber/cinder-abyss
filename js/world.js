@@ -9873,7 +9873,7 @@
     // 路面上粗糙斑块的强度（zones-polish：ZONE_GFX.<id>.patch，缺省 0.55 和原来一样）：frost / rift 的粗糙地面贴图在路面上是一块块像泥、像脏印子的软边斑，压下去
     const patchK = gx && gx.patch !== undefined ? gx.patch : 0.55;
     // 一个地面顶点（hd）的颜色 / 权重：o = [r, g, b, 路面权重, 岩壁权重, 覆盖层权重]；L = LY 时带上 vf-ground 的各层，L = null 时和 main 逐位相同
-    const hv = new Float32Array(6), vfV = [];
+    const hv = new Float32Array(6), hv0 = new Float32Array(6);
     const hdV = (x, z, d, tk, pn, lit, kk, L, o) => {
       let v = GROUND_VK + (lit - GROUND_VK) * kk;
       let tv = ash ? (vnoise(x * 0.07 - 4.1, z * 0.07 + 8.3) - 0.5) * 0.14 : 0; // 第 0 区：大片的冷暖起伏（画出来的感觉）
@@ -9918,7 +9918,6 @@
         col.push(hv[0], hv[1], hv[2]);
         aw.push(hv[3], hv[4]);
         ac.push(0);
-        if (LY) vfV.push(pos.length / 3 - 1, x, z, d, tk, pn, lit, kk, hv[0], hv[1], hv[2], hv[3], hv[4]);
       } else col.push(vm[0] + (lit - vm[0]) * kk, vm[1] + (lit - vm[1]) * kk, vm[2] + (lit - vm[2]) * kk);
       return (vid[k] = pos.length / 3 - 1);
     };
@@ -10247,16 +10246,25 @@
     // vf-ground：暖色光池（火盆 + 余烬裂缝 + 熔岩），烘进地面顶点色。和贴花一起放到进区之后的空档里做（不算进建区耗时）
     const vfJobs = [];
     // ① 地面顶点按 vf-ground 的各层重算（颜色按比例乘，各区布景改过的权重不动）
-    if (LY && vfV.length) vfJobs.push(() => {
+    // 顶点按网格下标（vid）逐个重算：先按 main 的算法再算一遍（hdV null），和 LY 的结果比，颜色按比例乘，权重没被布景改过才换
+    if (LY && hd) vfJobs.push(() => {
       const tv0 = performance.now(), g = ground.geometry, P = g.attributes.position.array, Cc = g.attributes.color, Aw = g.attributes.aW, Ac = g.attributes.aC;
       if (!Cc || !Aw || !Ac) return;
       const C = Cc.array, W2 = Aw.array, A1 = Ac.array;
-      for (let q = 0; q < vfV.length; q += 13) {
-        const vi = vfV[q];
-        if (Math.abs(P[vi * 3] - vfV[q + 1]) > 1e-4 || Math.abs(P[vi * 3 + 2] - vfV[q + 2]) > 1e-4) continue; // 被布景挪过的顶点（深渊崖边）不动
-        hdV(vfV[q + 1], vfV[q + 2], vfV[q + 3], vfV[q + 4], vfV[q + 5], vfV[q + 6], vfV[q + 7], LY, hv);
-        for (let c = 0; c < 3; c++) C[vi * 3 + c] *= hv[c] / Math.max(1e-5, vfV[q + 8 + c]);
-        if (Math.abs(W2[vi * 2] - vfV[q + 11]) < 1e-5 && Math.abs(W2[vi * 2 + 1] - vfV[q + 12]) < 1e-5) {
+      for (let k = 0; k < vid.length; k++) {
+        const vi = vid[k];
+        if (vi < 0) continue;
+        const x = x0 + (k % sx) * CS, z = z0 + Math.floor(k / sx) * CS, d = sdv[k];
+        if (Math.abs(P[vi * 3] - x) > 1e-3 || Math.abs(P[vi * 3 + 2] - z) > 1e-3) continue; // 被布景挪过的顶点（深渊崖边）不动
+        const n = 0.84 + 0.3 * vnoise(x * 0.09 + 7.3, z * 0.09 - 2.1);
+        const ao = ash ? 0.42 + 0.58 * smooth01((d + 0.3) / 3.6) : 0.5 + 0.5 * smooth01(d / 2.6);
+        let kk = d >= 0 ? 1 : smooth01(1 + d / SKIRT);
+        kk *= kk;
+        const tk = trailK(x, z, d), lit = n * ao * (1 + 0.2 * tk), pn = vnoise(x * 0.17 + 11.3, z * 0.17 - 5.1);
+        hdV(x, z, d, tk, pn, lit, kk, null, hv0);
+        hdV(x, z, d, tk, pn, lit, kk, LY, hv);
+        for (let c = 0; c < 3; c++) C[vi * 3 + c] *= hv[c] / Math.max(1e-5, hv0[c]);
+        if (Math.abs(W2[vi * 2] - hv0[3]) < 1e-5 && Math.abs(W2[vi * 2 + 1] - hv0[4]) < 1e-5) {
           W2[vi * 2] = hv[3];
           W2[vi * 2 + 1] = hv[4];
         }
