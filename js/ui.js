@@ -3276,7 +3276,7 @@
     return (
       '<div class="sk-var sk-rq"><span class="sv-label">渊式</span>' +
       '<button type="button" tabindex="-1" class="sv-btn sv-rq' + (worn && sel ? ' on' : '') + (worn ? '' : ' lock') + '" data-act="variant" data-skill="' + id + '" data-v="c" data-tip="var:' + id + '.c"' + (worn ? '' : ' aria-disabled="true"') + '>' +
-      '<em>' + G.VARIANT_NAME.c + '</em>' + V.name + '</button><span class="sv-cost' + (worn ? ' free' : ' rqlock') + '">' + note + '</span></div>'
+      V.name + '</button><span class="sv-cost' + (worn ? ' free' : ' rqlock') + '">' + note + '</span></div>'
     );
   }
   // 刻式改动的字段怎么写（悬停里逐条列「原式 → 刻式」）
