@@ -1318,7 +1318,7 @@
     yinli: { dur: 0.8, radius: 0.85, pull: 0.75, dmg: 1.2 },
     yuanfu: { max: 6, share: 0.2 },
     xizhu: { lamp: 0.4, far: 9, lose: 3, dmg: 0.3, fogMin: 14 },
-    shuangsheng: { k: 0.6, delay: 0.2, fx: 0.6 }, // fx：脚下双月的亮度（1 = 暖金原色）
+    shuangsheng: { k: 0.6, delay: 0.2, fx: 0.32 }, // fx：脚下双月的亮度（1 = 暖金原色）；0.32 时压在怪群脚边、怪的亮面只高 1–2 个点（灰度同帧对照）
   };
   // 机制说明（物品提示、图鉴用），按上面的数值拼
   G.relicDescs = function () {
