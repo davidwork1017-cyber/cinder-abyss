@@ -21796,6 +21796,10 @@
       // 看图后：中间的星和团块压小、团块不往白里混，免得一团亮光盖住被炸的怪（灰度检查）
       const h = u.hex, Rr = R || 2, lo = qualId === 'low';
       W.ring(x, z, Rr, h, 0.32);
+      // vf-vfx：贴地扩开的序列帧冲击环 + 地面闪光（都在地上，不糊住被炸的怪）+ 一记小的星芒
+      W.fxFlip(VFB.ring, x, 0.12, z, Rr * 2.1, 0.4, mixHex(h, 0xffffff, 0.25), { flat: true, a: 0.85 });
+      W.vDecal(VVD.flash, x, z, Rr * 1.3, 0.28, h);
+      W.fxFlip(VFB.spark, x, y, z, 1.1, 0.2, mixHex(h, 0xffffff, 0.4), { a: 0.75 });
       flare(x, y, z, h, 1.3, 0.1);
       flashLight(x, 2, z, h, 1.0);
       for (let i = 0, n = lo ? 4 : 6; i < n; i++) {
@@ -21879,7 +21883,10 @@
   //   冰：地上一块霜痕 + 往外迸的冰碴和一团白雾（冰棱本身是投射物）；雷：往外乱迸的电火花（电弧本身是 W.bolt）
   W.cbBurst = function (x, z, R, el, hex) {
     const lo = qualId === 'low', y = 0.4;
+    // vf-vfx：三种元素各加序列帧 + 地面瞬时痕迹（火：两团火 + 焦痕；冰：霜痕从对象池贴花换到痕迹池；雷：一团电弧 + 地面闪光）
     if (el === 'fire') {
+      W.vDecal(VVD.scorch, x, z, R * 0.6, 2.2, 0xff7a2c, { a: 0.85 });
+      for (let i = 0; i < 2; i++) W.fxFlip(VFB.fire, x + vr(-0.4, 0.4) * R, 0.5, z + vr(-0.4, 0.4) * R, 0.9 + R * 0.35, vr(0.3, 0.4), 0xff8424, { grow: 1.3, vy: 1 });
       for (let i = 0, n = lo ? 6 : 10; i < n; i++) {
         const a = (i / n) * TAU + rand(-0.2, 0.2), r = R * rand(0.35, 0.7);
         tChunk(2, x + Math.sin(a) * r, y, z + Math.cos(a) * r, Math.sin(a) * 0.6, rand(2.4, 3.6), Math.cos(a) * 0.6, rand(0.3, 0.42), rand(0.22, 0.32), i % 3 ? 0xff8a3c : 0xffd060, 0x8a1a10, -2);
@@ -21890,12 +21897,14 @@
       }
     } else if (el === 'cold') {
       // 不放白雾：雾团正好糊在被炸的怪身上
-      W.decal(2, x, z, R * 0.8, rand(0, TAU), 0x9fdcff, 1.1);
+      W.vDecal(VVD.frost, x, z, R * 0.45, 1.6, 0x9fdcff, { r1: R * 0.85, grow: 0.2 });
       for (let i = 0; i < (lo ? 6 : 10); i++) {
         const a = rand(0, TAU), v = rand(3, 6);
         spawnP(x, y + 0.2, z, Math.sin(a) * v, rand(1, 3.5), Math.cos(a) * v, rand(0.3, 0.5), rand(0.11, 0.2), 0.7, 0.88, 1, 16, 1.4);
       }
     } else if (el === 'light') {
+      W.fxFlip(VFB.arc, x, y + 0.6, z, 1.2 + R * 0.4, 0.22, 0xffe45e, { a: 0.8 });
+      W.vDecal(VVD.flash, x, z, R * 1.2, 0.24, 0xffe45e);
       for (let i = 0; i < (lo ? 10 : 16); i++) {
         const a = rand(0, TAU), v = rand(6, 12);
         spawnP(x, y + 0.6, z, Math.sin(a) * v, rand(-1, 3), Math.cos(a) * v, rand(0.1, 0.2), rand(0.06, 0.1), 1, 0.96, rand(0.55, 0.85), 4, 5);
@@ -21907,6 +21916,7 @@
     const lo = qualId === 'low';
     W.vShock(x, z, r + 1.0, hex, 0.24, 0); // 不要那一闪的实心核：看图时它和感电的光一起把怪糊成一团
     flare(x, h * 0.6, z, hex, 0.6, 0.06);
+    W.vDecal(VVD.flash, x, z, r + 1.2, 0.25, hex); // vf-vfx：脚下一记地面闪光（在地上，不糊住怪）
     _c.set(hex);
     for (let i = 0; i < (lo ? 8 : 12); i++) {
       const a = (i / (lo ? 8 : 12)) * TAU, v = rand(2, 3.5), wh = i % 3 ? 0.15 : 0.4;
