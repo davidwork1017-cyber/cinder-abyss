@@ -21,7 +21,7 @@ CATALOG = [
     dict(id='ca/ash_marker', gen='marker', seed=13, cat='scatter', zone='ash', ship=True, replaces='kh/gravemarker_A',
          args=dict(h=1.2), bake=dict(ao=0.3, grad=0.5)),
     dict(id='ca/ash_firepit', gen='firepit', seed=17, cat='prop', zone='ash', ship=True, replaces='kn/campfire_stones',
-         args=dict(r=0.29), bake=dict(ao=0.05, grad=0.06, gtint=0.6)),
+         args=dict(r=0.29), bake=dict(ao=0.03, grad=0.03, gtint=0.3, grime=0.12, wear=0.4)),
     dict(id='ca/ash_pillar', gen='pillar', seed=19, cat='kit', zone='ash', ship=True, replaces='kh/pillar',
          args=dict(h=4.4, r=0.42, broken=0.18)),
     dict(id='ca/ash_rubble', gen='rubble', seed=29, cat='kit', zone='ash', ship=True, replaces='kd/rubble_large',

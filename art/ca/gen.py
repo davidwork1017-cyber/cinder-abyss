@@ -221,7 +221,7 @@ def _coals(k, cx, cy, z0, r, n=8, size=0.11):
     比一整块发光的八边形自然：俯视时是一簇亮点，中间夹着暗的炭和灰。"""
     m = 11
     bed = [k.bm.verts.new((cx + math.cos(TAU * i / m) * r * k.r(0.7, 1.05), cy + math.sin(TAU * i / m) * r * k.r(0.7, 1.05), z0)) for i in range(m)]
-    k.tag([k.bm.faces.new(bed)], 'dust', 0.5, 0.05, dust=0)  # 灰白的炉灰，衬出暗的炭块
+    k.tag([k.bm.faces.new(bed)], 'dust', 0.75, 0.05, dust=0)  # 灰白的炉灰，衬出暗的炭块
     for i in range(n):
         a = TAU * (i + k.r(0, 0.7)) / n
         d = r * (0.25 + 0.55 * k.r()) if i else r * 0.1
@@ -246,10 +246,10 @@ def firepit(k, r=0.29, stones=9, h=0.075):
         cx, cy = math.cos(a) * r * 0.82, math.sin(a) * r * 0.82
         s = r * k.r(0.17, 0.24)
         pts = [(cx + p[0], cy + p[1], max(-0.01, p[2] + h * 0.35)) for p in _blob(k, s * 1.2, s, h * 0.65, 8)]
-        vs = k.hull(pts, row='pale', tone=0.94, jitter=0.06)
+        vs = k.hull(pts, row='pale', tone=0.97, jitter=0.03)
         # 朝火的一侧熏黑：内侧的面换成焦黑
         for f in _sorted_faces_of(vs):
-            if f.normal.x * cx + f.normal.y * cy < -0.5 * math.hypot(cx, cy) and k.r() < 0.4:
+            if f.normal.x * cx + f.normal.y * cy < -0.5 * math.hypot(cx, cy) and k.r() < 0.2:
                 k.tag([f], 'char', 0.35, 0.1)
     for i in range(3):
         a = k.r(0, TAU)
