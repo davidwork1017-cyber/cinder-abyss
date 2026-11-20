@@ -8640,6 +8640,13 @@ async function main() {
         zones.push(G.ZONES[i].id + ':' + (g.hd ? 'hd' : 'proc') + (g.fires ? '+' + g.fires + '火' : ''));
         layers.push(G.ZONES[i].id + ':' + (g.layer ? 'layer' : '-') + (g.decals ? '+decals' : ''));
       }
+      // vf-ground：进区后马上换区（第 0 区空档里的顶点重算 / 岩石簇 / 光池 / 贴花还没跑）：旧区的空档任务放弃，新区照常填好，场景里只有一张贴花网格
+      G.enterZone(0, 0);
+      G.enterZone(1, 0);
+      await new Promise((res) => setTimeout(res, 150));
+      const dm = [];
+      W.scene.traverse((o) => { if (o.name === 'groundDecals') dm.push(o.geometry.index ? o.geometry.index.count : 0); });
+      const bail = { n: dm.length, idx: dm[0] || 0, zone: G.state.zone.def.id };
       G.enterZone(0, 0);
       const qs = [], aa = [];
       for (const q of ['high', 'mid', 'low']) {
@@ -8651,7 +8658,7 @@ async function main() {
         aa.push(q + ':' + (g.smaa ? 'smaa' : g.fxaa ? 'fxaa' : 'none') + (g.decals ? '+decals' : ''));
       }
       W.setQuality(q0);
-      return { zones, layers, aa, qs, q0, eff: W.quality(), valid: q0 === 'auto' || G.QUALITY_IDS.indexOf(q0) >= 0 };
+      return { zones, layers, aa, bail, qs, q0, eff: W.quality(), valid: q0 === 'auto' || G.QUALITY_IDS.indexOf(q0) >= 0 };
     });
     assert(r.valid, '存档里的画质无效：' + r.q0);
     assert(r.zones.every((z) => z.includes(':hd')), '有区域没换上 PBR 外观（素材没加载到？）：' + r.zones.join(' '));
@@ -8659,6 +8666,7 @@ async function main() {
     // vf-ground：五个区都有地面覆盖层和贴花层；三档都画得出贴花层，抗锯齿按 QUALITY 的开关（SMAA / FXAA 默认关时都是 none）
     assert(r.layers.every((z) => z.endsWith(':layer+decals')), '有区域没有地面覆盖层或贴花层：' + r.layers.join(' '));
     assert(r.aa.every((z) => z.endsWith('+decals')), '有画质档位没有贴花层：' + r.aa.join(' '));
+    assert(r.bail.n === 1 && r.bail.idx > 6 && r.bail.zone === 'frost', '进区后马上换区：贴花层没有按新区填好（或旧区的留下来了）：' + JSON.stringify(r.bail));
     // 地图页的画质按钮：点了立即生效并写进存档
     await page.keyboard.press('KeyM');
     await page.click('[data-act="quality"][data-q="mid"]');
