@@ -23453,19 +23453,24 @@
     const p = pts[pts.length > 1 ? 1 : 0];
     tChunk(1, p.x, 1.2, p.z, 0, 0, 0, 0.05, 0.35, 0xfffbe0, hex, 0);
   };
-  // 流血的一跳：往下掉的暗红棱角碎屑（不往上飘，和火星分开；暗、不发光，不会读成预警），低画质只给层数多的、每跳最多 8 只
+  // 流血的一跳：从身上往下掉的暗红棱角碎屑（往下掉，和往上飘的火星分开；暗、不发光，亮度远低于预警圈，不会读成预警）。
+  // 看图后（编排者）：原来每跳 1 块、很小，打起来分不出谁在流血 → 每跳 1 + 层数 / 3 块（最多 3 块），大一些，从胸口到腰的高度散落；
+  // 低画质块数减半（1–2 块）。每帧总数封顶（高 30 / 低 12），怪堆里全在流血也不刷屏
   let bdFrame = -1, bdN = 0;
   W.bleedDrip = function (x, z, h, r, n) {
     const lo = qualId === 'low';
-    if (lo && n < 3) return;
     if (bdFrame !== vsFrame) {
       bdFrame = vsFrame;
       bdN = 0;
     }
-    if (++bdN > (lo ? 8 : 24)) return;
-    vsBrush(VSH.chip, 3, 0, 0x7a2420, 0x4a1612, 0, 0.6);
-    const a = vr(0, TAU);
-    vsEmit(x + Math.sin(a) * r * 0.5, h * 0.55, z + Math.cos(a) * r * 0.5, Math.sin(a) * 0.4, -0.5, Math.cos(a) * 0.4, vr(0.5, 0.7), vr(0.05, 0.07), undefined, vr(0, TAU), vr(4, 8), 14);
+    let m = Math.min(3, 1 + Math.floor(n / 3));
+    if (lo) m = Math.max(1, Math.ceil(m / 2));
+    vsBrush(VSH.chip, 3, 0, 0x8a2a24, 0x5a1a16, 0, 0.6);
+    for (let i = 0; i < m; i++) {
+      if (++bdN > (lo ? 12 : 30)) return;
+      const a = vr(0, TAU), d = r * vr(0.25, 0.6);
+      vsEmit(x + Math.sin(a) * d, h * vr(0.45, 0.8), z + Math.cos(a) * d, Math.sin(a) * 0.5, vr(-0.2, 0.6), Math.cos(a) * 0.5, vr(0.55, 0.8), vr(0.08, 0.12), undefined, vr(0, TAU), vr(4, 8), 14);
+    }
   };
   function spinBladesDraw(dt) {
     if (sbT <= 0 || !sbEnt || sbEnt.removed || !PF.vShape) return;
