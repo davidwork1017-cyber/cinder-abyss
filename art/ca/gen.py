@@ -469,35 +469,48 @@ def bone(k, L=0.72, r=0.06):
             k.hull([(cx + p[0], cy + p[1], max(0.0, rk * 0.9 + p[2])) for p in _blob(k, rk, rk * 0.9, rk * 0.85, 10)], row='bone', tone=0.92, jitter=0.05)
 
 
-def shield_sword(k, R=0.45, h=1.1):
-    """断剑插盾：一面圆盾斜躺在地上（木面 + 铁箍 + 铁盾心），一把剑竖直穿过盾心插进地里，剑柄、护手朝上。
-    俯视是一个圆盘上压着一个十字，比单根细剑好认得多。"""
-    t = 0.06
-    ring_w = [(math.cos(TAU * i / 12) * R, math.sin(TAU * i / 12) * R) for i in range(12)]
-    ring_i = [(math.cos(TAU * i / 12 + 0.13) * (R + 0.05), math.sin(TAU * i / 12 + 0.13) * (R + 0.05)) for i in range(12)]
+def shield_sword(k, R=0.52, h=1.1):
+    """断剑插盾（第二版）：大圆盾（浅木板三条 + 亮铁箍 + 盾心）斜靠在一块石头上，盾面朝上翘起来；
+    一把剑斜着（约 30°）插在盾的一侧、偏离盾心，剑身断了一截，剑尖躺在盾边的地上。俯视不再是「圆盘上一个十字」。"""
+    t = 0.07
+    ring_w = [(math.cos(TAU * i / 14) * R, math.sin(TAU * i / 14) * R) for i in range(14)]
+    ring_i = [(math.cos(TAU * i / 14 + 0.11) * (R + 0.06), math.sin(TAU * i / 14 + 0.11) * (R + 0.06)) for i in range(14)]
     sh = []
-    sh += k.hull([(x, y, z) for x, y in ring_i for z in (-t * 0.4, t * 0.35)], row='iron', tone=0.85)  # 铁箍（比木面大一圈、薄一点）
-    sh += k.hull([(x, y, z) for x, y in ring_w for z in (-t * 0.5, t * 0.55)], row='wood', tone=0.96)  # 木面
-    # 木板缝：木面朝上的面按 x 分成三条，深浅交错
+    sh += k.hull([(x, y, z) for x, y in ring_i for z in (-t * 0.4, t * 0.35)], row='iron', tone=0.9, dust=0)  # 铁箍
+    wv = k.hull([(x, y, z) for x, y in ring_w for z in (-t * 0.5, t * 0.55)], row='plank', tone=0.85, dust=0)  # 木面
+    sh += wv
     k.bm.normal_update()
-    for f in _sorted_faces_of(sh[-24:]):
+    for f in _sorted_faces_of(wv):
         if f.normal.z > 0.7:
             c = f.calc_center_median()
-            k.tag([f], 'wood', 0.78 + 0.2 * (int((c.x + R) / (2 * R / 3)) % 2), 0.03)
-    sh += k.hull([(p[0], p[1], t * 0.55 + abs(p[2])) for p in _blob(k, 0.12, 0.12, 0.07, 9)], row='iron', tone=0.78)  # 盾心
-    tilt = k.r(0.22, 0.32)
+            band = int((c.x + R) / (2 * R / 3))
+            k.tag([f], 'plank', (0.7, 0.95, 0.78)[min(2, max(0, band))], 0.03, dust=0)
+    sh += k.hull([(p[0], p[1], t * 0.55 + abs(p[2])) for p in _blob(k, 0.14, 0.14, 0.08, 9)], row='iron', tone=0.95, dust=0)  # 盾心
+    # 不加横铁带：铁带和盾心、剑的护手会又拼成一个十字
+    tilt = k.r(0.5, 0.6)
     az = k.r(0, TAU)
-    k.xform(sh, k.place((0, 0, R * math.sin(tilt) * 0.55 + 0.02), (tilt, 0, az)))
-    for v in sh:
-        v.co.z = max(-0.03, v.co.z)
-    # 剑：剑身（菱形截面）、护手、握把、剑首；竖直、略斜
-    bw, bl = 0.16, h * 0.7
-    blade = k.hull([(sx * bw / 2, 0, z) for sx in (-1, 1) for z in (-0.12, bl)] + [(0, sy * 0.025, z) for sy in (-1, 1) for z in (-0.12, bl)] + [(0, 0, -0.22)], row='iron', tone=0.92, jitter=0.03)
-    guard = k.box((0.56, 0.1, 0.09), k.place((0, 0, bl + 0.035)), row='iron', tone=0.62, bevel=0.015)
-    grip, _ = k.tube([(0, 0, bl + 0.07), (0, 0, bl + 0.3)], [0.045, 0.042], sides=6, row='wood', tone=0.4, tip=False)
-    pom = k.hull([(p[0], p[1], bl + 0.34 + p[2]) for p in _blob(k, 0.055, 0.055, 0.05, 8)], row='iron', tone=0.7)
+    lift = R * math.sin(tilt) + 0.02
+    k.xform(sh, k.place((0, 0, lift * 0.55), (tilt, 0, 0)))
+    # 垫在盾下翘起那一侧的石头
+    k.hull([(p[0], -R * 0.75 + p[1], max(-0.02, p[2] + 0.1)) for p in _blob(k, 0.16, 0.13, 0.12, 8)], row='stone', tone=0.6)
+    # 剑：从盾的一侧斜插下去（约 30°），偏离盾心；剑身在中段断开
+    bw, bl = 0.15, h * 0.55
+    blade = k.hull([(sx * bw / 2, 0, z) for sx in (-1, 1) for z in (-0.12, bl)] + [(0, sy * 0.025, z) for sy in (-1, 1) for z in (-0.12, bl)], row='iron', tone=0.95, jitter=0.03, dust=0)
+    guard = k.box((0.54, 0.1, 0.09), k.place((0, 0, bl + 0.04)), row='iron', tone=0.75, bevel=0.015, dust=0)
+    grip, _ = k.tube([(0, 0, bl + 0.08), (0, 0, bl + 0.32)], [0.045, 0.042], sides=6, row='plank', tone=0.35, tip=False)
+    pom = k.hull([(p[0], p[1], bl + 0.36 + p[2]) for p in _blob(k, 0.06, 0.06, 0.055, 8)], row='iron', tone=0.85, dust=0)
     sw = blade + guard + grip + pom
-    k.xform(sw, k.place((k.r(-0.05, 0.05), k.r(-0.05, 0.05), 0), (k.r(0.08, 0.16), k.r(-0.08, 0.08), az + 0.7)))
+    lean = k.r(0.45, 0.6)  # 25–35° 偏离竖直
+    k.xform(sw, k.place((R * 0.45, R * 0.1, 0.0), (0, lean, 0.35)))
+    for v in sw:
+        v.co.z = max(-0.12, v.co.z)
+    # 断掉的剑尖：躺在盾边的地上
+    tip = k.hull([(sx * bw / 2, 0, 0.0) for sx in (-1, 1)] + [(0, sy * 0.022, 0.0) for sy in (-1, 1)] + [(sx * bw * 0.45, 0, 0.05) for sx in (-1, 1)] + [(0, 0, 0.36)], row='iron', tone=0.95, dust=0)
+    k.xform(tip, k.place((-R * 0.95, R * 0.55, 0.035), (math.pi / 2, 0, 1.1)))
+    allv = list(k.bm.verts)
+    k.xform(allv, k.place((0, 0, 0), (0, 0, az)))
+    for v in allv:
+        v.co.z = max(-0.12, v.co.z)
 
 
 def grave_cross(k, h=1.2, w=0.72, th=0.14, chip=True):

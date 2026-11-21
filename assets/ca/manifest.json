@@ -43,7 +43,7 @@
      "grad": 1
     }
    },
-   "sha256": "42e4da8c7d0b6acf5cff9c0d21275125800132b34de496c00666d51baca5a2cd"
+   "sha256": "b1b899aee092596b77d426df28d6bb4abacec9632a066ea6fe3453b89973f42a"
   },
   {
    "id": "ca/ash_blade",
@@ -52,40 +52,40 @@
    "file": "assets/ca/ash/ash_blade.glb",
    "ship": true,
    "replaces": "kd/sword_shield_broken",
-   "tris": 192,
-   "verts": 546,
+   "tris": 228,
+   "verts": 649,
    "materials": 1,
    "textures": 1,
    "bounds": {
     "min": [
-     -0.447,
-     -0.217,
-     -0.449
+     -0.514,
+     -0.12,
+     -0.776
     ],
     "max": [
-     0.446,
-     1.178,
-     0.449
+     0.512,
+     0.869,
+     0.57
     ]
    },
-   "h": 1.395,
-   "r": 0.449,
-   "y0": -0.217,
+   "h": 0.989,
+   "r": 0.776,
+   "y0": -0.12,
    "source": {
     "script": "art/ca/gen.py",
     "gen": "shield_sword",
     "catalog": "art/catalog.py",
     "seed": 7,
     "args": {
-     "R": 0.4,
-     "h": 1.15
+     "R": 0.52,
+     "h": 1.1
     },
     "bake": {
      "ao": 0.3,
      "grad": 0.4
     }
    },
-   "sha256": "89f649882cd7f7b831608583bf12b810621f6cb07605842043e24fc69983a304"
+   "sha256": "0f1ab128fcffd37e4539ff472ab63858ddcd42512eda710ca31f465ee199f2e4"
   },
   {
    "id": "ca/ash_bones",
@@ -128,7 +128,7 @@
      "gtint": 0.5
     }
    },
-   "sha256": "6ab0a0f8589014ba0289ee801d93d70fbf65eb5eeb653ee806e2b2ea1e5141c8"
+   "sha256": "635f7dc224715c737c4c47d89ccd20707c18ad452e8187c3fbed91c7cb4d5690"
   },
   {
    "id": "ca/ash_brazier_a",
@@ -169,7 +169,7 @@
      "grad": 0.4
     }
    },
-   "sha256": "77e8ccac412ca98a1b354849d79d04a0a9e829b91d4698e597ef74e8d524722b"
+   "sha256": "7d1a09752cb0d3b44b10fbf11a0c63e5c75fe646cd73218de18944af0d952c99"
   },
   {
    "id": "ca/ash_cliff_a",
@@ -212,7 +212,7 @@
      "grad": 1.2
     }
    },
-   "sha256": "81407db73daf749428148178b9b4cbfa16af1f6980331c5240f437af7c4dbccf"
+   "sha256": "7bff5fb196a09d7995775ad07e088dc59ca6716ae9487217608bd4e057654cee"
   },
   {
    "id": "ca/ash_firepit",
@@ -256,7 +256,7 @@
      "wear": 0.4
     }
    },
-   "sha256": "6effd8e3aae6ddb1bac5b79a592bf33d481bc03f2bad1e694059a7e18eccb851"
+   "sha256": "e3e5fb6c58c909c14c0cfd88f6d3447daa4906a847567dcffc2a5575856bc891"
   },
   {
    "id": "ca/ash_marker",
@@ -298,7 +298,7 @@
      "grad": 0.4
     }
    },
-   "sha256": "47b9dc32e7d3520dce6d67a2a9a7772836abc94868d9796c68bd850bfdebab61"
+   "sha256": "d9700af535c32ce8d32c628a28ef16e778615b6a06f928e2a023864046241c2e"
   },
   {
    "id": "ca/ash_pillar",
@@ -338,7 +338,7 @@
     },
     "bake": {}
    },
-   "sha256": "69e7e90c6a550286fb45e698e83c2ad537e61c1a00c7aecaeaf8ed63252d70c5"
+   "sha256": "9c94216d126348e259fd33c04aed2f2b0d9375c02b44ee83bf9c938af1a32598"
   },
   {
    "id": "ca/ash_rock_a",
@@ -378,7 +378,7 @@
     },
     "bake": {}
    },
-   "sha256": "3a2c0803a985d31b5d8ac95b8dcc284310ed5dbe53f8436f97a319f20bfd891d"
+   "sha256": "f8530e00a25a83865e569e3996b2aa3266f21aeb0b4dff4b82b08aa6f67d03aa"
   },
   {
    "id": "ca/ash_rock_b",
@@ -421,7 +421,7 @@
     },
     "bake": {}
    },
-   "sha256": "e159b26e203d97d8a0a49f881715835a150ce9719bda3221b92f9a2e1de5d22b"
+   "sha256": "67e7d54f309580b66b419e97b9e50acf4b47b0b34408b68725c3a54bc952da91"
   },
   {
    "id": "ca/ash_rock_c",
@@ -462,7 +462,7 @@
     },
     "bake": {}
    },
-   "sha256": "b41021b23f021fee289845bd752fa44240d9b91435e42ca009b05a5781ff1429"
+   "sha256": "e920b163e0c278a6b06281e572ffe2381d6a0789a3551359a0fca2315fcbd800"
   },
   {
    "id": "ca/ash_rubble",
@@ -504,7 +504,7 @@
      "grad": 1.2
     }
    },
-   "sha256": "86b9c717e27c26e2c3da9211feb7c159fefda90c980acd2f85d0f22f7446cc8c"
+   "sha256": "8495943dbb78923da831795968bf4bd99ad074ad523a27448b2ce45e1fc9f403"
   },
   {
    "id": "ca/ash_skull",
@@ -519,18 +519,18 @@
    "textures": 1,
    "bounds": {
     "min": [
-     -0.477,
+     -0.546,
      -0.03,
-     -0.518
+     -0.593
     ],
     "max": [
-     0.477,
-     0.9,
-     0.518
+     0.546,
+     1.035,
+     0.593
     ]
    },
-   "h": 0.93,
-   "r": 0.518,
+   "h": 1.065,
+   "r": 0.593,
    "y0": -0.03,
    "source": {
     "script": "art/ca/gen.py",
@@ -538,17 +538,17 @@
     "catalog": "art/catalog.py",
     "seed": 5,
     "args": {
-     "R": 0.55
+     "R": 0.63
     },
     "bake": {
-     "ao": 0.35,
-     "grad": 0.45,
+     "ao": 0.4,
+     "grad": 0.5,
      "grime": 0.25,
      "gtint": 0.6,
      "wear": 0.4
     }
    },
-   "sha256": "6f5dd2733b3159ff3a2865d6d64ec64b8a352eee151939cc2731c23a57895e58"
+   "sha256": "9af43ad6c69253e45bd0589616b81f135d4d77413c69046af4ae2d337bce63e4"
   },
   {
    "id": "ca/ash_tree_dead_a",
@@ -590,7 +590,7 @@
     },
     "bake": {}
    },
-   "sha256": "eb8b5f6ca8711ff9643d3c2bcd478a17509bbbf2b20cc8e15798cddd9f339889"
+   "sha256": "11bd708dd6562a16eeb67a143f108e1f1607062fcf83f371e3302a738862415e"
   },
   {
    "id": "ca/ash_tree_dead_b",
@@ -633,7 +633,7 @@
     },
     "bake": {}
    },
-   "sha256": "e759f9f48d7e40c24d7ea97cb9d0d6b1c5708c61c2abf66d8a8a902d59df94ea"
+   "sha256": "8a414cbbf99667ea64007dc6a2280b0d27dac042fbdd66686cde5552e1f9087e"
   },
   {
    "id": "ca/ash_tree_dead_c",
@@ -676,7 +676,7 @@
     },
     "bake": {}
    },
-   "sha256": "d4c371861d404a4466e10c284e0e833467e27ae3fcfb2d97b96fca4e00179947"
+   "sha256": "913936d25ee38c044a7652b69a5662b6f507520b742cd65e167c078ef923e396"
   },
   {
    "id": "ca/ash_wall_a",
@@ -720,7 +720,7 @@
      "grad": 0.9
     }
    },
-   "sha256": "a34df077c4f99c68f63cbd199d6e948ab4b311d49e9e8d7ddf0d2fed8d408fda"
+   "sha256": "fd74dc45a41a755de21f03d73109a6c1c9fa3a1b928f1e33c01424a70494369e"
   }
  ]
 }
