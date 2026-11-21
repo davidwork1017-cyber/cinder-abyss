@@ -4511,6 +4511,43 @@
     open('help');
   }
 
+  // 开场故事（js/story.js）：用到时才插进页面，平常进游戏不加载它和它的图。
+  // done(reason)：放完 'end' / 跳过 'skip' / 加载失败 'fail' 都会调；放着的时候游戏暂停（isOpen() 算打开）
+  const story = { on: false, loading: null };
+  function loadStory() {
+    if (G.story) return Promise.resolve(true);
+    if (!story.loading) {
+      story.loading = new Promise((res) => {
+        const s = document.createElement('script');
+        s.src = 'js/story.js';
+        s.onload = () => res(!!G.story);
+        s.onerror = () => {
+          story.loading = null; // 没加载上（断网）：下次再试，这次直接跳过
+          res(false);
+        };
+        document.head.appendChild(s);
+      });
+    }
+    return story.loading;
+  }
+  function playStory(done, opts) {
+    if (story.on) return false;
+    story.on = true;
+    hideTip();
+    const root = document.getElementById('story');
+    if (root) root.classList.add('on'); // 先盖一层黑，脚本和第一格的图到了再开始
+    const end = (r) => {
+      story.on = false;
+      if (root) root.classList.remove('on');
+      if (done) done(r);
+    };
+    loadStory().then((ok) => {
+      if (!ok) return end('fail');
+      G.story.play(opts).then(end);
+    });
+    return true;
+  }
+
   // 开场卡片：只讲三件事，其余交给之后的情境提示。开着的时候游戏暂停
   function showIntro() {
     G.save.seenHelp = true;
@@ -4758,6 +4795,11 @@
       hideTitle();
     },
     new: newGame,
+    // 标题画面的「开场故事」：重看一遍，放完回到标题画面（存档不动）
+    story() {
+      G.sfx('click');
+      playStory(null, {});
+    },
     'new-confirm'() {
       G.resetSave();
       try {
@@ -4800,6 +4842,7 @@
   }
   // 标题画面 / 暂停菜单的按键（抢在 main.js 之前）：子页里 Esc 返回上一层；标题画面上回车 = 第一个按钮，其余按键都不进游戏
   function onMenuKey(e) {
+    if (story.on) return; // 开场故事放着：按键归它
     if (!menu.title && !menu.pause) return;
     if (e.code === 'Escape' && menu.view) {
       MENU_ACT.back();
@@ -6478,7 +6521,9 @@
     open,
     close,
     toggle,
-    isOpen: () => ui.isOpen || ui.intro || menu.pause || menu.title, // 面板、开场卡片、暂停菜单或标题画面开着：游戏暂停
+    isOpen: () => ui.isOpen || ui.intro || menu.pause || menu.title || story.on, // 面板、开场卡片、暂停菜单、标题画面或开场故事开着：游戏暂停
+    playStory,
+    storyOn: () => story.on,
     refresh,
     toast,
     hurt,

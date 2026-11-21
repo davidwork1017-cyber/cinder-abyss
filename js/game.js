@@ -164,6 +164,7 @@
       // hitFlash / hitStop / shake：打击手感的三个开关（受击闪光、顿帧、镜头震动），默认都开（vf-vfx2）
       opts: { autoWhite: false, hideNormal: false, autoSalvage: false, salvageMagic: false, quality: 'auto', hitFlash: true, hitStop: true, shake: true },
       seenHelp: false,
+      seenStory: false, // 开场故事放过（或跳过）了；只有新角色（seenHelp 为假）才会放，老存档没有这一项也不会看到
       tut: {}, // 已经看过的新手提示：{ 提示 id: 1 }（界面层维护）
       blankGems: [], // 手里的无铭技能宝石：每颗的等级，从高到低排
       autoSummon: autoSummonDefaults(), // 召唤技能的「自动召唤」开关：{ 技能 id: true / false }，默认关
@@ -558,6 +559,7 @@
       hitFlash: ro.hitFlash !== false, hitStop: ro.hitStop !== false, shake: ro.shake !== false, // 老存档没有这三项：按默认开
     };
     s.seenHelp = !!raw.seenHelp;
+    s.seenStory = !!raw.seenStory;
     s.tut = {};
     if (isObj(raw.tut)) {
       for (const k of Object.keys(raw.tut).slice(0, 64)) {

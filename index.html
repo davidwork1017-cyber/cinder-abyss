@@ -219,6 +219,7 @@
     <div class="m-menu" id="t-menu">
       <button type="button" class="m-btn primary" tabindex="-1" id="t-continue" data-tact="continue"><b>继续游戏</b><span id="t-save"></span></button>
       <button type="button" class="m-btn" tabindex="-1" id="t-new" data-tact="new"><b>新游戏</b></button>
+      <button type="button" class="m-btn" tabindex="-1" id="t-story" data-tact="story"><b>开场故事</b></button>
       <button type="button" class="m-btn" tabindex="-1" data-tact="settings"><b>设置</b></button>
       <button type="button" class="m-btn" tabindex="-1" data-tact="help"><b>操作说明</b></button>
       <div class="t-wait">余烬正在点燃……</div>
@@ -229,6 +230,9 @@
 </div>
 
 <div id="drag-ghost"></div>
+
+<!-- 开场故事：新角色第一次进游戏时放的动态漫画（js/story.js 用到时才加载，内容由它填） -->
+<div id="story"></div>
 
 <div id="toasts"></div>
 <div id="tip"></div>

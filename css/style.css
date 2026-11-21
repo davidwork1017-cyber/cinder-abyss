@@ -3610,3 +3610,126 @@ html.title-on #reticle, html.title-on #vignette, html.title-on #lowlife, html.ti
 #pause .m-menu { width: 100%; margin-top: 0; }
 #pause .m-view { margin-top: 0; box-shadow: none; border: none; background: none; animation: none; }
 body.paused #reticle, body.paused #coach { display: none; }
+
+/* ============================================================
+   开场故事（js/story.js，用到时才加载）：动态漫画。画格是烘好的分层图，字幕是旁白框
+   ============================================================ */
+#story {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: none;
+  overflow: hidden;
+  background: #070504;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  --st-ink: #120b08;
+  --st-paper: #e9dfca;
+  --st-g: clamp(5px, calc(var(--st-w, 1280px) * 0.008), 12px);
+}
+#story.on { display: block; }
+#story.ending { pointer-events: none; }
+.st-stage {
+  position: absolute;
+  background: var(--st-paper);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  box-shadow: 0 0 0 1px #000, 0 10px 40px rgba(0, 0, 0, 0.6);
+}
+#story.ready .st-stage { opacity: 1; }
+.st-panel { position: absolute; inset: 0; visibility: hidden; background: var(--st-paper); }
+.st-frame { position: absolute; transform-origin: 50% 50%; }
+.st-inner {
+  position: absolute;
+  inset: var(--st-g);
+  overflow: hidden;
+  background: #0b0807;
+  border: 3px solid var(--st-ink);
+}
+.st-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform-origin: 50% 50%;
+  will-change: transform;
+  pointer-events: none;
+}
+.st-fx { position: absolute; left: var(--st-g); top: var(--st-g); width: calc(100% - 2 * var(--st-g)); height: calc(100% - 2 * var(--st-g)); z-index: 5; pointer-events: none; }
+/* 旁白框：米色底、墨色粗边、硬投影 */
+.st-cap {
+  position: absolute;
+  z-index: 6;
+  max-width: 50%;
+  padding: 0.5em 0.85em 0.55em;
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: clamp(14px, calc(var(--st-w, 1280px) * 0.0175), 27px);
+  line-height: 1.55;
+  letter-spacing: 0.04em;
+  color: #1d130d;
+  background: #f2e8d2;
+  border: 2.5px solid var(--st-ink);
+  box-shadow: 4px 4px 0 rgba(10, 6, 4, 0.9);
+  pointer-events: none;
+}
+.st-cap p { margin: 0; white-space: nowrap; }
+.st-cap.at-tl { left: 4%; top: 5.5%; }
+.st-cap.at-tr { right: 4%; top: 5.5%; }
+.st-cap.at-bl { left: 4%; bottom: 6.5%; }
+.st-cap.at-br { right: 4%; bottom: 6.5%; }
+/* 竖屏：字幕放到画面下面，不压在画上 */
+#story.tall .st-cap { left: 16px; right: 16px; top: var(--st-top, auto); bottom: auto; max-width: none; text-align: center; }
+#story.tall .st-cap p { white-space: normal; }
+.st-skip {
+  position: absolute;
+  right: 16px;
+  bottom: 14px;
+  z-index: 9;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 6px 14px;
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--text);
+  background: rgba(12, 8, 6, 0.72);
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.st-skip:hover { color: #fff1d2; border-color: var(--bronze); }
+.st-hint {
+  position: absolute;
+  left: 18px;
+  bottom: 18px;
+  z-index: 9;
+  font-family: var(--sans);
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: rgba(216, 205, 187, 0.6);
+  pointer-events: none;
+  animation: st-hint 5s ease forwards;
+}
+@keyframes st-hint { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+.st-holdring {
+  position: fixed;
+  z-index: 10;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  opacity: 0;
+  transition: opacity 0.12s;
+  pointer-events: none;
+  --k: 0;
+}
+.st-holdring.on { opacity: 1; }
+.st-holdring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.st-holdring circle { fill: none; stroke: rgba(12, 8, 6, 0.6); stroke-width: 4; }
+.st-holdring .st-hr { stroke: var(--ember-2); stroke-width: 3; stroke-dasharray: 100.53; stroke-dashoffset: calc((1 - var(--k)) * 100.53); stroke-linecap: round; }
+@media (prefers-reduced-motion: reduce) {
+  .st-stage { transition: none; }
+  .st-hint { animation: none; }
+}
