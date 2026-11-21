@@ -1857,10 +1857,13 @@
   const ruled = {}; // key → 已写进样式表
   let sheet = null;
 
+  // 两张画布都用 CPU 画布（willReadFrequently）：toDataURL 不用等 GPU 把排着的 3D 帧画完再回读，
+  // 软件渲染（SwiftShader）下一张图标从约半秒的等待降到十几毫秒；画法和结果不变（同 assets.js）
+  const CTX = { willReadFrequently: true };
   function render(draw, shadow) {
     const a = document.createElement('canvas');
     a.width = a.height = PX;
-    const g = a.getContext('2d');
+    const g = a.getContext('2d', CTX);
     g.setTransform(U, 0, 0, U, PX / 2, PX / 2);
     g.lineJoin = 'round';
     g.lineCap = 'round';
@@ -1869,7 +1872,7 @@
     // 整体压一层投影，在花哨的底色上也立得住
     const b = document.createElement('canvas');
     b.width = b.height = PX;
-    const h = b.getContext('2d');
+    const h = b.getContext('2d', CTX);
     h.shadowColor = 'rgba(0,0,0,0.8)';
     h.shadowBlur = 3 * U;
     h.shadowOffsetY = 1.2 * U;
