@@ -11346,7 +11346,6 @@
     if (cs.stride) rig.stride = cs.stride;
     if (cs.gait) rig.gait = cs.gait;
     if (cs.emis) rig.emis = cs.emis; // [颜色, 强度]：躯体一层很淡的自发光（焦骨里透出的余烬）
-    if (cs.rimK) rig.rimK = cs.rimK; // 这种怪的轮廓光加强几倍（makeMob 里乘到按区域选的轮廓光上，精英的金边不受影响）
     for (const k in cs.sock || {}) {
       const q = cs.sock[k];
       sock(rig, k, q[0], q[1], q[2], q[3]);
@@ -16469,7 +16468,6 @@
     const ent = newEnt(type, MOB_RIG[type](), warmGround ? 0xe2e6f4 : 0xece6e0, eh, 1.1);
     if (warmGround) ent.uRim.value.setRGB(0.1, 0.13, 0.2);
     else ent.uRim.value.setRGB(0.2, 0.15, 0.1);
-    if (ent.rig.rimK) ent.uRim.value.multiplyScalar(ent.rig.rimK);
     // （旧：暗色的 C 模型轮廓光 ×1.5。卡通配色下角色不再是暗色，靠 TOON 的轮廓光分开，不再加强）
     if (elite) {
       // 精英：更大、发光更强，轮廓上镀一圈金
