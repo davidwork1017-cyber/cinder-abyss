@@ -4508,7 +4508,14 @@
         '<div class="seg">' + SET_N.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (normMode() === o[0] ? ' on' : '') + '" data-tact="normmode" data-mode="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') +
       row('折叠普通物品的名牌', '地上只留一个小点，悬停或按住 Alt 展开',
         '<button type="button" tabindex="-1" class="switch' + (S.opts.hideNormal ? ' on' : '') + '" data-tact="opt" data-opt="hideNormal"><i></i></button>') +
-      '<p class="m-note">游戏没有音量设置；设置会存进存档，在游戏里的地图页也能改。</p>'
+      // 打击手感（vf-vfx2）：三个开关，默认都开
+      row('受击闪光', '敌人挨打时闪一下亮光',
+        '<button type="button" tabindex="-1" class="switch' + (S.opts.hitFlash !== false ? ' on' : '') + '" data-tact="opt" data-opt="hitFlash"><i></i></button>') +
+      row('顿帧', '重击、暴击时画面停顿一瞬',
+        '<button type="button" tabindex="-1" class="switch' + (S.opts.hitStop !== false ? ' on' : '') + '" data-tact="opt" data-opt="hitStop"><i></i></button>') +
+      row('镜头震动', '大招落地、挨重击时镜头晃一下',
+        '<button type="button" tabindex="-1" class="switch' + (S.opts.shake !== false ? ' on' : '') + '" data-tact="opt" data-opt="shake"><i></i></button>') +
+      '<p class="m-note">游戏没有音量设置；设置会存进存档，前三项在游戏里的地图页也能改。</p>'
     );
   }
   function menuHelp() {
