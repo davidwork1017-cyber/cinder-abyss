@@ -26434,8 +26434,9 @@
         // vf-vfx2：双月（余响）改画进形状批：两片背靠背的细弯月（一暖一冷），不透明，亮度就是 game.js 压过的颜色本身，
         // 不再是加色叠在地上（加色在怪群脚下会把旁边怪的亮面抬高）；a 的三档变成越来越细
         for (let i = 0; i < L.length; i++) {
-          const h = L[i], rr = h.s * 0.36, th = h.a > 0.66 ? 0.8 : h.a > 0.33 ? 0.88 : 0.94;
-          _kvc.setHex(h.hex).convertSRGBToLinear();
+          // 看图后：不透明以后原来的暗色几乎看不见 → 画粗一点（进度 0.62 起）、颜色提亮 1.7 倍（仍远低于原来加色叠出来的亮度）
+          const h = L[i], rr = h.s * 0.36, th = h.a > 0.66 ? 0.62 : h.a > 0.33 ? 0.78 : 0.9;
+          _kvc.setHex(h.hex).convertSRGBToLinear().multiplyScalar(1.7);
           mFlat(h.x, h.y, h.z, -h.k + Math.PI / 2, rr, rr);
           vsNow(VSH.crescent, _kvc.r, _kvc.g, _kvc.b, 0, 0.3, th);
           mFlat(h.x, h.y, h.z, -h.k - Math.PI / 2, rr, rr);
