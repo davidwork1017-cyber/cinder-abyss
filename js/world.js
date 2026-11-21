@@ -802,7 +802,7 @@
         mid: [],
         midK: 0,
         // 路边小物件：肋骨架（一个 1240 个三角形）去掉，给起点的植被和碎石腾出三角形预算
-        edge: [['kh/skull', 2, 0.5, 0.7, ''], ['kh/bone_A', 3, 0.8, 1.1, 'l'], ['kd/sword_shield_broken', 1, 0.7, 0.9, ''], ['kh/gravemarker_A', 1, 0.8, 1, '']], // asset-lib：路边小物的自产件（ca/ash_skull 等）还在改，先用原来的 KayKit
+        edge: [['ca/ash_skull', 2, 0.5, 0.7, ''], ['ca/ash_bones', 3, 0.8, 1.1, 'l'], ['ca/ash_blade', 1, 0.7, 0.9, ''], ['ca/ash_marker', 1, 0.8, 1, '']], // asset-lib-props2：路边小物第二版
         fire: { m: 'ca/ash_firepit', s: 3.2, h: 0.12, color: 0xff7a2a, size: 1.5 },
         boss: [['ca/ash_pillar', 2, 0.75, 0.95, 't'], ['ca/ash_rubble', 1, 0.45, 0.6, '']],
       },

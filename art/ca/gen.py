@@ -396,3 +396,122 @@ def marker(k, h=1.2, w=0.62, d=0.2, ember=1):
         a = k.r(0, TAU)
         pts = [(math.cos(a) * w * 0.55 + p[0], math.sin(a) * w * 0.55 + p[1], max(-0.02, p[2])) for p in _blob(k, 0.12, 0.1, 0.08, 7)]
         k.hull(pts, row='stone', tone=0.42)
+
+
+# ---------------------------------------------------------------- 路边小物第二版（asset-lib-props2）：先保证游戏缩放下读得出来
+def skull2(k, R=0.42, tilt=1.3):
+    """骷髅（第二版）：大而圆的颅顶、平的脸面、两个又大又深的黑眼窝、倒三角鼻孔、一排浅色的牙、分开的下颌。
+    整个往后仰着躺（脸几乎朝天，tilt ≈ 75°），所以不管游戏里转到哪个朝向，从 50° 的俯视镜头都看得到眼窝。"""
+    import bmesh
+    sq = k.r(0.95, 1.05)
+    res = bmesh.ops.create_icosphere(k.bm, subdivisions=2, radius=R)
+    vs = list(res['verts'])
+    for v in vs:
+        x, y, z = v.co
+        x *= 0.9 * sq
+        y *= 1.02
+        z *= 0.95
+        if y > 0.45 * R and z < 0.5 * R:  # 脸面压平
+            y = 0.45 * R + (y - 0.45 * R) * 0.25
+        if y > 0.3 * R and 0.12 * R < z < 0.42 * R:  # 眉骨略往前顶
+            y += 0.06 * R
+        v.co = Vector((x, y, z))
+    k.bm.normal_update()
+    faces = _sorted_faces_of(vs)
+    k.tag(faces, 'bone', 0.86, 0.06)
+    # 眼窝 / 鼻孔：直接在压平的脸面上嵌几个黑色的扁椭圆块（比在粗的二十面体上挖面好控制：位置、大小、形状都是定的）
+    fy = 0.45 * R + (1.02 * R - 0.45 * R) * 0.25  # 脸面大致的 y
+    for sx in (-1, 1):
+        cx, cz = sx * 0.37 * R, 0.17 * R
+        pts = []
+        for j in range(10):
+            a = TAU * j / 10
+            pts.append((cx + math.cos(a) * 0.2 * R, fy - 0.08 * R, cz + math.sin(a) * 0.18 * R))
+            pts.append((cx + math.cos(a) * 0.19 * R, fy + 0.035 * R, cz + math.sin(a) * 0.17 * R))
+        k.hull(pts, row='slag', tone=0.0, jitter=0.0, dust=0)  # 熔渣行最暗的一档：调色板里最黑的颜色
+    nose = [(sx * 0.08 * R, y, 0.0) for sx in (-1, 1) for y in (fy - 0.06 * R, fy + 0.03 * R)] + [(0, y, -0.15 * R) for y in (fy - 0.06 * R, fy + 0.03 * R)]
+    k.hull(nose, row='slag', tone=0.0, jitter=0.0, dust=0)
+    # 上颌 + 一排牙
+    k.hull([(sx * 0.3 * R, y, z) for sx in (-1, 1) for y in (0.15 * R, 0.5 * R) for z in (-0.5 * R, -0.3 * R)], row='bone', tone=0.8)
+    for i in range(6):
+        tx = (-0.25 + 0.1 * i) * R
+        k.box((0.08 * R, 0.07 * R, 0.13 * R), k.place((tx, 0.5 * R, -0.56 * R)), row='bone', tone=0.96, jitter=0.02, dust=0)
+    # 颧骨
+    for sx in (-1, 1):
+        k.hull([(sx * 0.48 * R + p[0], 0.28 * R + p[1], -0.18 * R + p[2]) for p in _blob(k, 0.1 * R, 0.12 * R, 0.08 * R, 7)], row='bone', tone=0.84)
+    # 下颌：U 形，略微张开（往下转一点）
+    jaw = []
+    for sx in (-1, 1):
+        jaw += k.hull([(sx * 0.36 * R, -0.05 * R, -0.62 * R), (sx * 0.36 * R, -0.05 * R, -0.46 * R), (sx * 0.3 * R, 0.5 * R, -0.75 * R), (sx * 0.3 * R, 0.5 * R, -0.66 * R),
+                       (sx * 0.4 * R, -0.02 * R, -0.62 * R)], row='bone', tone=0.78)
+    jaw += k.hull([(sx * 0.3 * R, 0.42 * R, z) for sx in (-1, 1) for z in (-0.78 * R, -0.66 * R)] + [(0, 0.6 * R, -0.8 * R), (0, 0.6 * R, -0.68 * R)], row='bone', tone=0.8)
+    k.xform(jaw, k.place((0, 0, 0), (-0.12, 0, 0)))
+    # 往后仰着躺：脸朝上；再挪到地面上、水平居中
+    allv = list(k.bm.verts)
+    k.xform(allv, k.place((0, 0, 0), (tilt, 0, 0)))
+    zs = [v.co.z for v in allv]
+    xs = [v.co.x for v in allv]
+    ys = [v.co.y for v in allv]
+    k.xform(allv, k.place((-(min(xs) + max(xs)) / 2, -(min(ys) + max(ys)) / 2, -min(zs) - 0.03)))
+    for v in allv:
+        v.co.z = max(-0.03, v.co.z)
+
+
+def bone(k, L=0.72, r=0.06):
+    """一根长骨（平放）：略弯的六棱骨干，两头各两个圆鼓鼓的骨节，俯视是一眼认得出的骨头轮廓"""
+    bend = k.r(-0.04, 0.04)
+    pts = [(-L / 2 + 0.06, 0, r), (0, bend, r * 1.05), (L / 2 - 0.06, 0, r)]
+    k.tube(pts, [r, r * 0.85, r], sides=6, row='bone', tone=0.88, tip=False, cap0=True)
+    rk = r * 1.55
+    for e in (-1, 1):
+        for sy in (-1, 1):
+            cx, cy = e * (L / 2 - 0.02), sy * r * 1.05
+            k.hull([(cx + p[0], cy + p[1], max(0.0, rk * 0.9 + p[2])) for p in _blob(k, rk, rk * 0.9, rk * 0.85, 10)], row='bone', tone=0.92, jitter=0.05)
+
+
+def shield_sword(k, R=0.45, h=1.1):
+    """断剑插盾：一面圆盾斜躺在地上（木面 + 铁箍 + 铁盾心），一把剑竖直穿过盾心插进地里，剑柄、护手朝上。
+    俯视是一个圆盘上压着一个十字，比单根细剑好认得多。"""
+    t = 0.06
+    ring_w = [(math.cos(TAU * i / 12) * R, math.sin(TAU * i / 12) * R) for i in range(12)]
+    ring_i = [(math.cos(TAU * i / 12 + 0.13) * (R + 0.05), math.sin(TAU * i / 12 + 0.13) * (R + 0.05)) for i in range(12)]
+    sh = []
+    sh += k.hull([(x, y, z) for x, y in ring_i for z in (-t * 0.4, t * 0.35)], row='iron', tone=0.85)  # 铁箍（比木面大一圈、薄一点）
+    sh += k.hull([(x, y, z) for x, y in ring_w for z in (-t * 0.5, t * 0.55)], row='wood', tone=0.96)  # 木面
+    # 木板缝：木面朝上的面按 x 分成三条，深浅交错
+    k.bm.normal_update()
+    for f in _sorted_faces_of(sh[-24:]):
+        if f.normal.z > 0.7:
+            c = f.calc_center_median()
+            k.tag([f], 'wood', 0.78 + 0.2 * (int((c.x + R) / (2 * R / 3)) % 2), 0.03)
+    sh += k.hull([(p[0], p[1], t * 0.55 + abs(p[2])) for p in _blob(k, 0.12, 0.12, 0.07, 9)], row='iron', tone=0.78)  # 盾心
+    tilt = k.r(0.22, 0.32)
+    az = k.r(0, TAU)
+    k.xform(sh, k.place((0, 0, R * math.sin(tilt) * 0.55 + 0.02), (tilt, 0, az)))
+    for v in sh:
+        v.co.z = max(-0.03, v.co.z)
+    # 剑：剑身（菱形截面）、护手、握把、剑首；竖直、略斜
+    bw, bl = 0.16, h * 0.7
+    blade = k.hull([(sx * bw / 2, 0, z) for sx in (-1, 1) for z in (-0.12, bl)] + [(0, sy * 0.025, z) for sy in (-1, 1) for z in (-0.12, bl)] + [(0, 0, -0.22)], row='iron', tone=0.92, jitter=0.03)
+    guard = k.box((0.56, 0.1, 0.09), k.place((0, 0, bl + 0.035)), row='iron', tone=0.62, bevel=0.015)
+    grip, _ = k.tube([(0, 0, bl + 0.07), (0, 0, bl + 0.3)], [0.045, 0.042], sides=6, row='wood', tone=0.4, tip=False)
+    pom = k.hull([(p[0], p[1], bl + 0.34 + p[2]) for p in _blob(k, 0.055, 0.055, 0.05, 8)], row='iron', tone=0.7)
+    sw = blade + guard + grip + pom
+    k.xform(sw, k.place((k.r(-0.05, 0.05), k.r(-0.05, 0.05), 0), (k.r(0.08, 0.16), k.r(-0.08, 0.08), az + 0.7)))
+
+
+def grave_cross(k, h=1.2, w=0.72, th=0.14, chip=True):
+    """石十字墓碑：粗壮的十字（倒角的方石），略斜，一侧横臂崩掉一截，脚下一个低矮的土石堆"""
+    mound = [(p[0], p[1], max(-0.03, p[2] * 0.5)) for p in _blob(k, 0.42, 0.34, 0.16, 12)]
+    k.hull(mound, row='dust', tone=0.45, jitter=0.1)
+    sw = th * 1.05
+    parts = []
+    parts += k.box((sw, th, h), k.place((0, 0, h / 2 - 0.04)), row='stone', tone=0.6, jitter=0.06, bevel=0.025)
+    yb = h * 0.72
+    la = w / 2 - sw / 2
+    ra = la * (k.r(0.72, 0.85) if chip else 1.0)  # 一侧横臂崩掉一小截（崩多了像仙人掌）
+    parts += k.box((la, th, th * 1.05), k.place((-(sw / 2 + la / 2), 0, yb)), row='stone', tone=0.6, jitter=0.06, bevel=0.022)
+    parts += k.box((ra, th, th * 1.05), k.place(((sw / 2 + ra / 2), 0, yb)), row='stone', tone=0.6, jitter=0.06, bevel=0.022)
+    k.xform(parts, k.place((0, 0, 0), (k.r(-0.07, 0.07), k.r(0.04, 0.1) * (1 if k.r() < 0.5 else -1), k.r(-0.2, 0.2))))
+    for v in parts:
+        v.co.z = max(-0.04, v.co.z)

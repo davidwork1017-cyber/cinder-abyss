@@ -50,86 +50,85 @@
    "category": "scatter",
    "zone": "ash",
    "file": "assets/ca/ash/ash_blade.glb",
-   "ship": false,
+   "ship": true,
    "replaces": "kd/sword_shield_broken",
-   "tris": 116,
-   "verts": 334,
+   "tris": 192,
+   "verts": 546,
    "materials": 1,
    "textures": 1,
    "bounds": {
     "min": [
-     -0.435,
-     -0.02,
-     -0.568
+     -0.447,
+     -0.217,
+     -0.449
     ],
     "max": [
-     0.347,
-     1.367,
-     0.302
+     0.446,
+     1.178,
+     0.449
     ]
    },
-   "h": 1.387,
-   "r": 0.568,
-   "y0": -0.02,
+   "h": 1.395,
+   "r": 0.449,
+   "y0": -0.217,
    "source": {
     "script": "art/ca/gen.py",
-    "gen": "blade",
+    "gen": "shield_sword",
     "catalog": "art/catalog.py",
     "seed": 7,
     "args": {
-     "h": 1.3,
-     "w": 0.24
+     "R": 0.4,
+     "h": 1.15
     },
     "bake": {
      "ao": 0.3,
-     "grad": 0.5
+     "grad": 0.4
     }
    },
-   "sha256": "f5ae40dddafbe6e9b9f6cac16d4a8b4a7ea4d3b13dcfcaaeaa1448bc1d1ec39c"
+   "sha256": "89f649882cd7f7b831608583bf12b810621f6cb07605842043e24fc69983a304"
   },
   {
    "id": "ca/ash_bones",
    "category": "scatter",
    "zone": "ash",
    "file": "assets/ca/ash/ash_bones.glb",
-   "ship": false,
+   "ship": true,
    "replaces": "kh/bone_A",
-   "tris": 150,
-   "verts": 434,
+   "tris": 96,
+   "verts": 278,
    "materials": 1,
    "textures": 1,
    "bounds": {
     "min": [
-     -0.336,
-     0.02,
-     -0.309
+     -0.467,
+     0.011,
+     -0.199
     ],
     "max": [
-     0.403,
-     0.257,
-     0.484
+     0.476,
+     0.22,
+     0.201
     ]
    },
-   "h": 0.237,
-   "r": 0.484,
-   "y0": 0.02,
+   "h": 0.209,
+   "r": 0.476,
+   "y0": 0.011,
    "source": {
     "script": "art/ca/gen.py",
-    "gen": "bones",
+    "gen": "bone",
     "catalog": "art/catalog.py",
     "seed": 3,
     "args": {
-     "n": 3,
-     "L": 0.72,
-     "thick": 1.7
+     "L": 0.74,
+     "r": 0.085
     },
     "bake": {
-     "ao": 0.08,
+     "ao": 0.1,
      "grad": 0.1,
      "gtint": 0.5
     }
    },
-   "sha256": "d8d331c9b33cb68885367d0839cc7c9ef93ceff67f26f0cafabfd68dbd24d159"
+   "sha256": "6ab0a0f8589014ba0289ee801d93d70fbf65eb5eeb653ee806e2b2ea1e5141c8"
   },
   {
    "id": "ca/ash_brazier_a",
@@ -264,41 +263,42 @@
    "category": "scatter",
    "zone": "ash",
    "file": "assets/ca/ash/ash_marker.glb",
-   "ship": false,
+   "ship": true,
    "replaces": "kh/gravemarker_A",
-   "tris": 44,
-   "verts": 132,
+   "tris": 152,
+   "verts": 448,
    "materials": 1,
    "textures": 1,
    "bounds": {
     "min": [
-     -0.304,
-     -0.05,
-     -0.165
+     -0.432,
+     -0.04,
+     -0.325
     ],
     "max": [
-     0.32,
-     1.243,
-     0.425
+     0.413,
+     1.161,
+     0.311
     ]
    },
-   "h": 1.293,
-   "r": 0.425,
-   "y0": -0.05,
+   "h": 1.201,
+   "r": 0.432,
+   "y0": -0.04,
    "source": {
     "script": "art/ca/gen.py",
-    "gen": "marker",
+    "gen": "grave_cross",
     "catalog": "art/catalog.py",
     "seed": 13,
     "args": {
-     "h": 1.2
+     "h": 1.2,
+     "w": 0.72
     },
     "bake": {
      "ao": 0.3,
-     "grad": 0.5
+     "grad": 0.4
     }
    },
-   "sha256": "7f2a958704703aba23a7f930da0e9fce76441f08b1287a3e80c4d2c41b4a40c6"
+   "sha256": "47b9dc32e7d3520dce6d67a2a9a7772836abc94868d9796c68bd850bfdebab61"
   },
   {
    "id": "ca/ash_pillar",
@@ -511,44 +511,44 @@
    "category": "scatter",
    "zone": "ash",
    "file": "assets/ca/ash/ash_skull.glb",
-   "ship": false,
+   "ship": true,
    "replaces": "kh/skull",
-   "tris": 144,
-   "verts": 429,
+   "tris": 284,
+   "verts": 712,
    "materials": 1,
    "textures": 1,
    "bounds": {
     "min": [
-     -0.591,
-     -0.007,
-     -0.978
+     -0.477,
+     -0.03,
+     -0.518
     ],
     "max": [
-     0.591,
-     0.847,
-     0.814
+     0.477,
+     0.9,
+     0.518
     ]
    },
-   "h": 0.855,
-   "r": 0.978,
-   "y0": -0.007,
+   "h": 0.93,
+   "r": 0.518,
+   "y0": -0.03,
    "source": {
     "script": "art/ca/gen.py",
-    "gen": "skull",
+    "gen": "skull2",
     "catalog": "art/catalog.py",
     "seed": 5,
     "args": {
-     "s": 0.74
+     "R": 0.55
     },
     "bake": {
-     "ao": 0.3,
-     "grad": 0.5,
-     "grime": 0.4,
-     "gtint": 1.15,
-     "wear": 0.45
+     "ao": 0.35,
+     "grad": 0.45,
+     "grime": 0.25,
+     "gtint": 0.6,
+     "wear": 0.4
     }
    },
-   "sha256": "a5eeb906e9b48b8cecacbd227f560b18ce2ea430cab5d3a155204b0cfd87cfb1"
+   "sha256": "6f5dd2733b3159ff3a2865d6d64ec64b8a352eee151939cc2731c23a57895e58"
   },
   {
    "id": "ca/ash_tree_dead_a",
