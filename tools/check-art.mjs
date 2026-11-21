@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { readGlb, stats, isIdentity, bakedMean } from './glb.mjs';
+import { readGlb, stats, isIdentity, bakedMean, bakeGeo } from './glb.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const rd = (p) => JSON.parse(fs.readFileSync(path.join(root, p), 'utf8'));
@@ -28,7 +28,7 @@ export function checkArt() {
     const f = path.join(root, 'js/assets/kit-' + zone + '.js');
     if (!fs.existsSync(f)) return (packed[zone] = null);
     const src = fs.readFileSync(f, 'utf8');
-    return (packed[zone] = JSON.parse(src.slice(src.indexOf('= {') + 2, src.lastIndexOf(';'))).models);
+    return (packed[zone] = JSON.parse(src.slice(src.indexOf('= {') + 2, src.lastIndexOf(';'))).geo || {}); // 打包时预烘焙的几何体（tools/pack-assets.mjs）
   };
   for (const a of man.assets) {
     const id = a.id || '(无 id)';
@@ -113,7 +113,12 @@ export function checkArt() {
     if (a.ship) {
       const pk = packOf(a.zone);
       if (!pk || !pk[id]) bad(id, 'ship 的件不在 js/assets/kit-' + a.zone + '.js 里（重新跑 node tools/pack-assets.mjs）');
-      else if (Buffer.from(pk[id], 'base64').compare(buf) !== 0) bad(id, 'js/assets/kit-' + a.zone + '.js 里的这件和 GLB 不一致（重新打包）');
+      else {
+        // 包里是从这份 GLB 预烘焙的几何体：sha 和清单一致，重新烘焙一遍逐字节相同
+        const e = pk[id], b = bakeGeo(g), b64 = (f) => (f ? Buffer.from(f.buffer, f.byteOffset, f.byteLength).toString('base64') : undefined);
+        if (e.sha !== a.sha256) bad(id, 'js/assets/kit-' + a.zone + '.js 里的这件不是从当前 GLB 烘焙的（重新打包）');
+        else if (e.n !== b.count || e.p !== b64(b.pos) || e.nn !== b64(b.nor) || e.c !== b64(b.col) || e.g !== b64(b.glow)) bad(id, 'js/assets/kit-' + a.zone + '.js 里的几何体和重新烘焙的不一致（重新打包）');
+      }
     }
   }
   return { fails, rows, count: man.assets.length };
