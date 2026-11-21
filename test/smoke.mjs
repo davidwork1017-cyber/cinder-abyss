@@ -6549,8 +6549,30 @@ async function main() {
     assert(r.cellIcons === 8 && r.cellOk && r.distinct === 8, '背包格图标不对：' + JSON.stringify(r));
     assert(r.minSize >= 44 && r.maxSize <= 64, '背包格图标应在 44–64 像素之间：' + r.minSize + '–' + r.maxSize);
     assert(r.eq === 8 && r.cur === 8 && r.craft === 8 && r.head && r.glyphLeft === 0, '装备栏 / 通货 / 改造按钮 / 详情没有全部换成图标：' + JSON.stringify(r));
+    // icon-prewarm（图标改用 CPU 画布）：每张图标解码出来都真有内容——128×128 里不透明（α > 8）的像素至少 2000（现在最少的约 3800）
+    const px = await ev(async () => {
+      const keys = G.icons.keys(), c = document.createElement('canvas');
+      c.width = c.height = 128;
+      const g = c.getContext('2d', { willReadFrequently: true });
+      const out = { n: 0, min: 1e9, thin: [] };
+      for (const k of keys) {
+        const img = new Image();
+        img.src = G.icons.url(k);
+        await img.decode();
+        g.clearRect(0, 0, 128, 128);
+        g.drawImage(img, 0, 0);
+        const d = g.getImageData(0, 0, 128, 128).data;
+        let op = 0;
+        for (let i = 3; i < d.length; i += 4) if (d[i] > 8) op++;
+        out.n++;
+        out.min = Math.min(out.min, op);
+        if (op < 2000) out.thin.push(k + ':' + op);
+      }
+      return out;
+    });
+    assert(px.n === r.n && px.thin.length === 0, '有图标解码后几乎是空的：' + JSON.stringify(px));
     await closePanel();
-    return r.n + ' 个图标';
+    return r.n + ' 个图标（每张不透明像素 ≥ ' + px.min + '）';
   });
 
   await uiStep('拖拽：背包 → 装备栏（高亮可放的格子）/ 互换 / 放错格子 / 装备栏 → 背包 / 背包内换位并存档 / Esc 取消', async () => {
