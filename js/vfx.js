@@ -211,7 +211,8 @@
     '  if (kind > 0.5 && kind < 1.5 && l < 0.6) discard;',
     '  vec2 q = vUv * 0.8 + seed * 7.31;',
     '  float n = vfxNA(q).r;',
-    '  float ce = uLo > 0.5 ? n : vfxNA(q * 1.5 + 0.37).b;', // 低画质少取一次贴图
+    // 低画质少取一次贴图；vf-vfx2：低画质的「裂缝」取噪声的等高线（细线），原来取 n 本身，step 之后是一大块一块填满的余烬亮斑
+    '  float ce = uLo > 0.5 ? 1.0 - abs(n - 0.5) * 20.0 : vfxNA(q * 1.5 + 0.37).b;',
     '  float er = k < 0.45 ? 0.0 : (k - 0.45) / 0.55;', // 消融进度
     '  float edge = 1.0 - l + (n - 0.5) * 0.5;', // 不规则的外沿
     '  float m = smoothstep(0.0, 0.05, edge - er * (1.1 - n * 0.4));',
@@ -415,4 +416,146 @@
     '  gl_FragColor = linearToOutputTexel(vec4(col, a));',
     '}',
   ].join('\n');
+  // ---------- 形状批（vf-vfx2）：各元素自己的「形状语言」，实心卡通件，一个实例化网格画完 ----------
+  // 所有形状合在一个几何体里，每个顶点带 aSh = (形状号, 色阶, 收细目标半径)；每个实例的 aFx = (进度 0..1, 亮芯往白混的量, 暗边压暗的量, 形状号)。
+  // 顶点着色器把「形状号不是这个实例的」顶点全扔到裁剪空间外（三角形整个被裁掉），所以一个实例只画出它自己的形状：
+  // 不同形状、不同颜色的碎件都在同一次 draw 里，不透明、不叠加变亮（亮度只留给亮芯那一小块）。
+  //   tongue 火舌：圆底、尖顶、侧面一个小舔尖（立着，往上窜）；crescent 弯月：斩痕 / 风刃（外沿一道亮边）；
+  //   bar 折线段：闪电、电灼纹、熔岩裂纹都用它一段段拼（两头尖，接起来不露缝）；chip 碎石：有棱角的立体小块（翻滚、落地弹）；
+  //   ring 冲击环：外沿亮带 + 环身，内沿随进度往外收细（越扩越细，最后只剩一道亮线；弯月的内沿也这样收）；
+  //   blade 风刃：前粗后细的细弯月；crystal 冰晶：六棱尖冰柱（立体，冷的形状：硬棱、尖朝上 / 朝外）
+  // 色阶：0 暗描边（实例色 × (1 − 暗边量)）/ 0.5 主色 / 1 亮芯（往暖白混）。平面形状是三层扇形叠起来的：描边垫底、主色、亮芯在最前
+  V.SH = { tongue: 0, crescent: 1, bar: 2, chip: 3, ring: 4, blade: 5, crystal: 6 };
+  let shGeo = null, shMat = null;
+  V.shapeGeo = function () {
+    if (shGeo) return shGeo;
+    const P = [], A = [];
+    const tri = (id, a, b, c, t, ra, rb, rc) => {
+      P.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
+      A.push(id, t, ra || 0, id, t, rb || 0, id, t, rc || 0);
+    };
+    // 扇形：轮廓 pts 绕中心 (cx, cy) 缩放 k，放在 z 层
+    const fan = (id, pts, cx, cy, k, z, t) => {
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i], b = pts[(i + 1) % pts.length];
+        tri(id, [cx, cy, z], [cx + (a[0] - cx) * k, cy + (a[1] - cy) * k, z], [cx + (b[0] - cx) * k, cy + (b[1] - cy) * k, z], t);
+      }
+    };
+    // 两条等长折线之间铺一条带
+    const strip = (id, o, n, z, t, ro, rn) => {
+      for (let i = 0; i + 1 < o.length; i++) {
+        tri(id, [o[i][0], o[i][1], z], [n[i][0], n[i][1], z], [o[i + 1][0], o[i + 1][1], z], t, ro, rn, ro);
+        tri(id, [o[i + 1][0], o[i + 1][1], z], [n[i][0], n[i][1], z], [n[i + 1][0], n[i + 1][1], z], t, ro, rn, rn);
+      }
+    };
+    // 0 火舌（底在 y≈0，尖在 y = 1）
+    const TG = [[0.02, 1], [-0.08, 0.8], [-0.16, 0.7], [-0.33, 0.8], [-0.26, 0.58], [-0.38, 0.38], [-0.36, 0.16], [-0.24, 0], [-0.06, -0.06], [0.1, -0.05], [0.26, 0.02], [0.38, 0.18], [0.4, 0.36], [0.3, 0.56], [0.16, 0.72]];
+    fan(0, TG, 0, 0.32, 1.16, -0.02, 0);
+    fan(0, TG, 0, 0.32, 1, 0, 0.5);
+    fan(0, TG, 0, 0.22, 0.5, 0.02, 1);
+    // 1 弯月（圆心在原点，弧在 +y 方向半径 1 处，张角 ±66°）
+    const CA = 1.15, CN = 14, arc = (rf) => {
+      const o = [];
+      for (let i = 0; i <= CN; i++) {
+        const a = -CA + (2 * CA * i) / CN, th = 0.28 * Math.pow(Math.max(0, 1 - (a / CA) * (a / CA)), 0.7);
+        const r = rf(th);
+        o.push([Math.sin(a) * r, Math.cos(a) * r]);
+      }
+      return o;
+    };
+    // 内沿也随进度往外收细（斩痕越淡越细；风刃按固定进度画成半粗）
+    strip(1, arc(() => 1.05), arc((th) => 0.95 - th), -0.02, 0, 0, 0.955);
+    strip(1, arc(() => 1), arc((th) => 1 - th), 0, 0.5, 0, 0.97);
+    strip(1, arc(() => 0.995), arc((th) => 1 - th * 0.42), 0.02, 1, 0, 0.985);
+    // 2 折线段（从 y = 0 到 y = 1，宽 1 = 描边外沿）
+    const hex6 = (w, e) => [[0, -e], [w, 0.12], [w, 0.88], [0, 1 + e], [-w, 0.88], [-w, 0.12]];
+    fan(2, hex6(0.5, 0.06), 0, 0.5, 1, -0.02, 0);
+    fan(2, hex6(0.32, 0), 0, 0.5, 1, 0, 0.5);
+    fan(2, hex6(0.13, -0.04), 0, 0.5, 1, 0.02, 1);
+    // 3 碎石：歪的八面体（半径约 1），朝上的面亮、朝下的面一半主色一半暗
+    const top = [0.1, 1, 0.05], bot = [-0.05, -0.8, 0], ring = [[1, 0.1, 0.2], [-0.15, -0.1, 0.9], [-0.95, 0.2, -0.1], [0.2, 0, -1]];
+    for (let i = 0; i < 4; i++) {
+      const a = ring[i], b = ring[(i + 1) % 4];
+      tri(3, top, a, b, 1);
+      tri(3, bot, b, a, i % 2 ? 0.5 : 0);
+    }
+    // 4 冲击环（平面，半径 1）：外沿亮带 1 → 0.94，环身 0.94 → 0.74～0.8（参差）；第三个分量是收细时要去的半径
+    const RN = 36, ringPts = (r, jit) => {
+      const o = [];
+      for (let i = 0; i <= RN; i++) {
+        const a = (i / RN) * Math.PI * 2, rr = r + (jit ? jit * (((i * 7919) % 13) / 12 - 0.5) : 0);
+        o.push([Math.cos(a) * rr, Math.sin(a) * rr]);
+      }
+      return o;
+    };
+    strip(4, ringPts(1), ringPts(0.94), 0.01, 1, 0, 0.985);
+    strip(4, ringPts(0.94), ringPts(0.77, 0.06), 0, 0.5, 0.985, 0.975);
+    // 5 风刃：不对称的细弯月，前端（本地 +x 一侧，a = +CA）最厚、收成圆头，往后拖成一条长长的细尾巴；最厚处只有弯月的一半
+    const bladeArc = (rf) => {
+      const o = [];
+      for (let i = 0; i <= CN; i++) {
+        const a = -CA + (2 * CA * i) / CN, u = i / CN;
+        const th = 0.14 * Math.pow(u, 1.3) * Math.sqrt(Math.max(0, 1 - Math.pow(u, 8)));
+        const r = rf(th);
+        o.push([Math.sin(a) * r, Math.cos(a) * r]);
+      }
+      return o;
+    };
+    strip(5, bladeArc((th) => 1 + Math.min(0.035, th * 0.5)), bladeArc((th) => 1 - th - Math.min(0.035, th * 0.5)), -0.02, 0);
+    strip(5, bladeArc(() => 1), bladeArc((th) => 1 - th), 0, 0.5);
+    strip(5, bladeArc(() => 0.997), bladeArc((th) => 1 - th * 0.35), 0.02, 1);
+    // 6 冰晶：六棱、上头收尖的冰柱（底在 y = 0，尖在 y = 1，底半径约 0.35），朝 +x 的面亮、背面暗，硬棱
+    const cr = (k, rr, y) => [Math.cos((k / 6) * Math.PI * 2 + 0.3) * rr, y, Math.sin((k / 6) * Math.PI * 2 + 0.3) * rr];
+    for (let k = 0; k < 6; k++) {
+      const b0 = cr(k, 0.35, 0), b1 = cr(k + 1, 0.35, 0), m0 = cr(k, 0.3, 0.68), m1 = cr(k + 1, 0.3, 0.68), tip = [0, 1, 0];
+      const lit = Math.cos(((k + 0.5) / 6) * Math.PI * 2 + 0.3), t = lit > 0.3 ? 1 : lit > -0.4 ? 0.5 : 0;
+      tri(6, b0, m0, b1, t);
+      tri(6, b1, m0, m1, t);
+      tri(6, m0, tip, m1, lit > -0.2 ? 1 : 0.5);
+    }
+    const g = new T.BufferGeometry();
+    g.setAttribute('position', new T.Float32BufferAttribute(P, 3));
+    g.setAttribute('aSh', new T.Float32BufferAttribute(A, 3));
+    g.computeBoundingSphere();
+    return (shGeo = g);
+  };
+  V.shapeMat = function () {
+    if (shMat) return shMat;
+    shMat = new T.ShaderMaterial({
+      uniforms: {},
+      vertexShader: [
+        'attribute vec3 aSh; attribute vec4 aFx;',
+        'varying vec3 vCol; varying float vTone; varying vec2 vHD;',
+        'void main(){',
+        '  vHD = aFx.yz; vTone = aSh.y;',
+        '  vCol = vec3(1.0);',
+        '#ifdef USE_INSTANCING_COLOR',
+        '  vCol = instanceColor;',
+        '#endif',
+        '  if (abs(aSh.x - aFx.w) > 0.5) { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); return; }', // 不是这个实例的形状：扔到裁剪空间外
+        '  vec3 p = position;',
+        '  if (aSh.z > 0.0) { float r = max(length(p.xy), 1e-4); p.xy *= mix(r, aSh.z, pow(clamp(aFx.x * 1.1, 0.0, 1.0), 0.8)) / r; }', // 冲击环往外收细
+        '  vec4 wp = vec4(p, 1.0);',
+        '#ifdef USE_INSTANCING',
+        '  wp = instanceMatrix * wp;',
+        '#endif',
+        '  gl_Position = projectionMatrix * viewMatrix * modelMatrix * wp;',
+        '}',
+      ].join('\n'),
+      fragmentShader: [
+        'varying vec3 vCol; varying float vTone; varying vec2 vHD;',
+        'void main(){',
+        '  vec3 c = vCol;',
+        '  if (vTone > 0.75) c = mix(c, vec3(1.0, 0.96, 0.86), vHD.x);',
+        '  else if (vTone < 0.25) c *= 1.0 - vHD.y;',
+        '  gl_FragColor = linearToOutputTexel(vec4(c, 1.0));',
+        '}',
+      ].join('\n'),
+      side: T.DoubleSide,
+      fog: false,
+    });
+    shMat.toneMapped = false;
+    shMat.userData.vfx = true;
+    return shMat;
+  };
 })();
