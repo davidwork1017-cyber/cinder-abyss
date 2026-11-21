@@ -9690,6 +9690,69 @@ async function main() {
     return '贴图包 ' + Math.round(r.bytes / 1024) + ' KB，' + r.rows.length + ' 轮施放，方片朝向 ' + r.faceMin.toFixed(3) + ' / ' + r.flatMin.toFixed(3);
   });
 
+  await step('特效二期（vf-vfx2）：形状批画出陨火 / 链雷 / 旋风斩的件；敌方预警圈填充不变、友方减半；受击闪光 / 顿帧 / 镜头震动三个开关默认开、关掉生效、老存档按开；法术顿帧每 0.3 秒最多一次', async () => {
+    const r = await ev((KEY) => {
+      const W = G.world, P = G.player, save = G.save, out = {};
+      // 预警圈：敌方的填充不透明度系数保持 1（不动），玩家自己放的减半
+      const te = G.telegraph({ shape: 'circle', x: P.x + 4, z: P.z, r: 2, dur: 0.2, dmg: 0 });
+      const tf = G.telegraph({ shape: 'circle', x: P.x - 4, z: P.z, r: 2, dur: 0.2, dmg: 0, friendly: true });
+      out.fillE = te.handle.mat.uniforms.uFill.value;
+      out.fillF = tf.handle.mat.uniforms.uFill.value;
+      G.debug.step(0.4);
+      // 开关：新存档默认开；老存档没有这三项 → 按开；关掉顿帧后 G.hitStop 不生效
+      out.fresh = ['hitFlash', 'hitStop', 'shake'].map((k) => G.newSave().opts[k]);
+      G.persist();
+      const keep = localStorage.getItem(KEY), raw = JSON.parse(keep);
+      delete raw.opts.hitFlash; delete raw.opts.hitStop; delete raw.opts.shake;
+      localStorage.setItem(KEY, JSON.stringify(raw));
+      G.loadSave();
+      out.old = ['hitFlash', 'hitStop', 'shake'].map((k) => G.save.opts[k]);
+      localStorage.setItem(KEY, keep);
+      G.loadSave();
+      G.computeStats();
+      G.flow.stop = 0;
+      G.save.opts.hitStop = false;
+      G.hitStop(80);
+      out.stopOff = G.flow.stop;
+      G.save.opts.hitStop = true;
+      G.hitStop(30);
+      out.stopOn = G.flow.stop;
+      G.flow.stop = 0;
+      out.spell = [G.spellStop(40), G.spellStop(40)];
+      G.debug.step(0.35);
+      out.spell.push(G.spellStop(40));
+      G.flow.stop = 0;
+      // 形状批：陨火 / 链雷 / 旋风斩出手后有形状件在画
+      const bar0 = save.bar.slice();
+      for (const k of ['meteor', 'arc', 'whirl']) { save.skills[k] = Math.max(save.skills[k] || 0, 10); save.sockets[k] = [null, null, null]; }
+      G.computeStats();
+      out.live = {};
+      for (const id of ['meteor', 'arc', 'whirl']) {
+        G.clearEnemies();
+        W.clearFx();
+        const e = G.spawnMob('husk', P.x + (id === 'whirl' ? 1.8 : 5), P.z, 5, { awake: true });
+        e.hp = e.maxHp = 1e6; e.atkCd = 1e9; e.speed = 0;
+        G.input.mouse.wx = e.x; G.input.mouse.wz = e.z;
+        P.mana = P.maxMana; P.cast = null;
+        G.execSkill(G.skillCtx(id));
+        let n = 0;
+        for (let i = 0; i < 8; i++) { G.debug.step(0.12); W.render(); n = Math.max(n, W.vShapeLive()); }
+        out.live[id] = n;
+      }
+      G.clearEnemies();
+      W.clearFx();
+      save.bar = bar0;
+      G.computeStats();
+      return out;
+    }, SAVE_KEY);
+    assert(r.fillE === 1 && r.fillF === 0.5, '敌方预警圈的填充应不变（系数 1）、友方减半（0.5）：' + JSON.stringify(r));
+    assert(r.fresh.every((v) => v === true) && r.old.every((v) => v === true), '三个打击手感开关新存档和老存档都应默认开：' + JSON.stringify(r));
+    assert(r.stopOff === 0 && Math.abs(r.stopOn - 0.03) < 1e-9, '关掉顿帧后 G.hitStop 不应生效、打开时照常：' + JSON.stringify(r));
+    assert(r.spell[0] === true && r.spell[1] === false && r.spell[2] === true, '法术顿帧 0.3 秒内只应触发一次：' + JSON.stringify(r));
+    assert(r.live.meteor > 0 && r.live.arc > 0 && r.live.whirl > 0, '陨火 / 链雷 / 旋风斩应画出形状批的件：' + JSON.stringify(r.live));
+    return '形状件 陨火 ' + r.live.meteor + ' / 链雷 ' + r.live.arc + ' / 旋风斩 ' + r.live.whirl + '，预警圈填充 敌 ' + r.fillE + ' / 友 ' + r.fillF;
+  });
+
   await step('画面：CC0 素材按区域加载后换成 PBR 地面与布景；画质高 / 中 / 低即时切换、存档，三档都能渲染', async () => {
     const r = await ev(async () => {
       const W = G.world;
