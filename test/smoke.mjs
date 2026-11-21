@@ -490,9 +490,30 @@ async function timedMain() {
         G.computeStats();
         await wait(2);
         out.none = { empty: ws().classList.contains('empty') && ws().classList.contains('nowpn'), txt: ws().querySelector('.s-none').offsetParent ? ws().querySelector('.s-none').textContent : '' };
+        // deny 样式由 HUD 在按下那一帧挂上，按 performance.now 过了 620 ms 的那一帧才摘（ui.js slotFx / now − fxT > 620）。
+        // 原来是两三帧之后再看一眼：两帧加起来超过 620 ms 时它已按规矩摘掉，测的成了帧时间。改用 MutationObserver 记下挂上 / 摘下的时刻和挂上时的气泡文字：
+        // 挂上了、文字对，而且到读的时候还在、或者留够了才摘（观察到的时刻比游戏自己取 now 晚几毫秒，所以按 600 判「提前摘」，同一帧 / 下一帧就摘的都抓得住），就算对
+        const seen = { on: null, off: null, text: '' };
+        const look = () => {
+          const on = ws().classList.contains('deny'), t = performance.now();
+          if (on && seen.on === null) {
+            seen.on = t;
+            seen.text = ws().querySelector('.s-bubble').textContent;
+          } else if (!on && seen.on !== null && seen.off === null) seen.off = t;
+        };
+        const mo = new MutationObserver(look);
+        mo.observe(ws(), { attributes: true, attributeFilter: ['class'] });
+        const ft = []; // 按下之后几帧的时间戳：顺手记下这个场景的帧间隔
+        const mark = (t) => { ft.push(t); if (ft.length < 4) requestAnimationFrame(mark); };
+        requestAnimationFrame(mark);
         G.input.keys.KeyR = true;
         await wait(2);
-        out.none.deny = ws().classList.contains('deny') && ws().querySelector('.s-bubble').textContent;
+        if (mo.takeRecords().length) look();
+        mo.disconnect();
+        const still = ws().classList.contains('deny');
+        out.none.deny = seen.on !== null && (still || seen.off - seen.on > 600) && seen.text;
+        out.none.ms = seen.on === null ? null : Math.round((seen.off === null ? performance.now() : seen.off) - seen.on);
+        out.none.frames = ft.slice(1).map((t, k) => Math.round(t - ft[k]));
         G.input.keys.KeyR = false;
       } finally {
         G.save.equip.weapon = keep;
@@ -503,7 +524,7 @@ async function timedMain() {
       return out;
     });
     assert(r.none.empty && r.none.txt === '无武器' && r.none.deny === '没有武器', '空手时 R 格应写「无武器」，按 R 时说明：' + JSON.stringify(r.none));
-    return '气泡：' + r.none.deny;
+    return '气泡：' + r.none.deny + '，挂了 ' + r.none.ms + ' ms，按下后的帧间隔 ' + r.none.frames.join(' / ') + ' ms';
   });
 
   // 原步骤：main() 里的「新手提示：……」。提示按真实时间走（coach 用 performance.now）
@@ -1524,7 +1545,7 @@ async function main() {
     assert(r.salvLucky.augment === 1 && (r.salvLucky.exalt === 1) !== (r.salvLucky.chaos === 1), '分解稀有物品几率中了应给升华石或乱流石之一：' + JSON.stringify(r.salvLucky));
     assert(!r.salvUnlucky.exalt && !r.salvUnlucky.chaos && !r.salvMagic.exalt && !r.salvMagic.chaos, '没中几率 / 魔法物品不应给：' + JSON.stringify(r));
     assert(r.salvRate > 0.12 && r.salvRate < 0.3, '分解稀有物品给升华石 / 乱流石的比例不对：' + r.salvRate);
-    assert(r.supRate.mob > 0.027 && r.supRate.mob < 0.0525 && r.supRate.elite > 0.33 && r.supRate.elite < 0.6, '辅助宝石掉率应是普通 3.75%、精英 45%（辅助加到 32 种后 ×1.5，区间按原来的相对宽度）：' + JSON.stringify(r.supRate));
+    assert(r.supRate.mob > 0.027 && r.supRate.mob < 0.0525 && r.supRate.elite > 0.33 && r.supRate.elite < 0.6, '辅助宝石掉率应是普通 3.75%、精英 45%（辅助加到 33 种后 ×1.5，区间按原来的相对宽度）：' + JSON.stringify(r.supRate));
     assert(r.dup.picked && r.dup.aug === 1 && r.dup.n === 1 && r.dup.toast.includes('增幅尘'), '重复的辅助宝石应化为 1 增幅尘：' + JSON.stringify(r.dup));
     return '升华石 ' + (w.pExalt * 100).toFixed(1) + '%，琢刻石 ' + ((w.chisel / w.tot) * 100).toFixed(1) + '%，辅助宝石 普通 ' + (r.supRate.mob * 100).toFixed(1) + '% / 精英 ' + (r.supRate.elite * 100).toFixed(0) + '%';
   });
@@ -1553,12 +1574,12 @@ async function main() {
   });
 
   // ------------------------------------------------------------------ 技能
-  await step('learnAll：14 个技能（裂石击已删除）与 29 个辅助宝石全部到手（混沌流加了黑洞 / 黑旋风 / 黑焰与混沌注入，support-expand 7 颗，持续辅助绵延，敌人抗性加了破障）；右键格不放技能', async () => {
+  await step('learnAll：14 个技能（裂石击已删除）与 33 个辅助宝石全部到手（混沌流加了黑洞 / 黑旋风 / 黑焰与混沌注入，support-expand 7 颗，持续辅助绵延，敌人抗性加了破障，第二批分岔 / 溅击 / 断命 / 化元）；右键格不放技能', async () => {
     const r = await ev(() => {
       G.debug.learnAll();
       return { skills: Object.keys(G.save.skills).length, sups: G.save.supports.length, bar: G.save.bar.slice(), cleave: !!G.SKILLS.cleave || G.GEM_SKILLS.indexOf('cleave') >= 0 };
     });
-    assert(r.skills === 14 && r.sups === 29 && [0, 2, 3].every((i) => r.bar[i]) && r.bar[1] === null && !r.cleave, JSON.stringify(r));
+    assert(r.skills === 14 && r.sups === 33 && [0, 2, 3].every((i) => r.bar[i]) && r.bar[1] === null && !r.cleave, JSON.stringify(r));
   });
 
   for (let i = 0; i < SKILL_IDS.length; i++) {
@@ -11735,6 +11756,15 @@ async function main() {
       save.sockets.blackflame = ['swell', null, null];
       G.computeStats();
       out.bf = { k: G.flamePct() / f0, r0: q0, r1: P.reservePct, ctx: G.skillCtx('ember').flame / f0 };
+      // 盛环镶在霜环上：地上的霜环多一道淡环（同一个面片的 uBoost），取下就褪掉
+      save.bar = ['ember', null, 'nova', null];
+      save.sockets.blackflame = [null, null, null];
+      const ring = () => { for (let i = 0; i < 40; i++) { G.updateAuras(1 / 60); G.world.update(1 / 60); } return +G.world.auraInfo().boost.toFixed(3); };
+      G.computeStats();
+      out.ring = [ring()];
+      save.sockets.nova = [null, null, null];
+      G.computeStats();
+      out.ring.push(ring());
       T.unfix();
       T.buildRestore(snap);
       return out;
@@ -11745,6 +11775,7 @@ async function main() {
     assert(near(r.proj.speed, 1.5) && near(r.proj.range, 1.5), '远劲的投射物应快 50%、射程跟着放大：' + JSON.stringify(r.proj));
     assert(near(r.nova.dmg, 1.3) && r.nova.r0 === 18 && r.nova.r1 === 27, '盛环 · 霜环不对：' + JSON.stringify(r.nova));
     assert(near(r.bf.k, 1.3) && near(r.bf.ctx, 1.3) && r.bf.r0 === 25 && r.bf.r1 === 37.5, '盛环 · 黑焰不对：' + JSON.stringify(r.bf));
+    assert(r.ring[0] > 0.9 && r.ring[1] < 0.1, '盛环镶在霜环上时地上的霜环应多一道淡环、取下褪掉：' + JSON.stringify(r.ring));
     return '收束 ×' + r.narrow.avg.toFixed(2) + ' · 远劲射程 ×' + r.proj.range.toFixed(2) + ' · 盛环霜环 ×' + r.nova.dmg.toFixed(2) + ' 保留 ' + r.nova.r1 + '%';
   });
 
@@ -11789,7 +11820,7 @@ async function main() {
       for (let i = 0; i < 6; i++) G.tick(1 / 60);
       const slot = document.querySelectorAll('#slots .slot')[0];
       out.pips = slot ? Array.from(slot.querySelectorAll('.s-combo > i')).filter((i) => !i.classList.contains('x')).length : -1;
-      out.hasPips = slot ? slot.classList.contains('has-combo') : false;
+      out.hasPips = slot ? slot.classList.contains('has-combo') && slot.classList.contains('chg') : false; // chg：储能的存货格样式
       // 补满：每 6.5 秒补 1 次
       for (let i = 0; i < 60 * 7; i++) G.tick(1 / 60);
       out.n7 = n();
@@ -12007,6 +12038,126 @@ async function main() {
     assert(r.drops.length === 1 && ['narrow', 'farshot', 'swell', 'charge', 'blaze', 'deepfreeze', 'surge'].indexOf(r.drops[0]) >= 0, '老辅助都有了时应掉新辅助：' + JSON.stringify(r.drops));
     assert(r.loaded.sups && r.loaded.socks === 'charge,narrow,', '带新辅助的存档应照常读回：' + JSON.stringify(r.loaded));
     return '掉率 ' + r.drop + ' · 掉了「' + r.drops[0] + '」';
+  });
+
+  await step('新辅助第二批（分岔 / 溅击 / 断命 / 化元）：镶嵌规则（投射物 / 近战 / 任意 / 物理；召唤物、黑旋风、光环的例外）', async () => {
+    const r = await ev(() => {
+      const f = (sk, sup) => (G.supportFits(sk, sup) ? 1 : 0);
+      const row = (sup, list) => list.map((sk) => f(sk, sup)).join('');
+      const B = G.BASIC_CARD;
+      return {
+        fork: row('fork', ['ember', 'blade', B, 'vortex', 'pyre', 'arc', 'whirl']),
+        splash: row('splash', ['whirl', 'blink', 'shadestep', B, 'ember', 'thrall', 'colossus']),
+        cull: row('cull', ['ember', 'whirl', 'thrall', 'colossus', 'nova', B, 'blackflame']),
+        convert: row('convert', ['blade', 'whirl', 'thrall', 'colossus', B, 'ember', 'nova', 'arc']),
+        n: Object.keys(G.SUPPORTS).length,
+        names: ['fork', 'splash', 'cull', 'convert'].map((id) => G.SUPPORTS[id].name).join(''),
+      };
+    });
+    assert(r.fork === '1110000', '分岔的镶嵌规则不对（黑旋风 / 召唤物镶不上）：' + r.fork);
+    assert(r.splash === '1111000', '溅击只能镶在近战技能上（召唤物除外）：' + r.splash);
+    assert(r.cull === '1111110', '断命任何技能都能镶（黑焰除外）：' + r.cull);
+    assert(r.convert === '11111000', '化元只能镶在带物理的技能上：' + r.convert);
+    assert(r.names === '分岔溅击断命化元', '名字不对：' + r.names);
+    return r.n + ' 种辅助';
+  });
+
+  await step('分岔 / 溅击 / 断命 / 化元的效果：首次命中分出 2 枚（不扣伤害）；溅射 40%、2.5 米、同一下直接打中的不吃溅射；断命 20%（精英 10%、首领无）；化元 60% 转为加成最高的元素、蛮力只加剩下的物理', async () => {
+    const r = await ev(() => {
+      T.arena();
+      T.fix(0.5);
+      const P = G.player, save = G.save, snap = T.buildSnap(), S = G.state;
+      for (const id of Object.keys(G.SUPPORTS)) if (save.supports.indexOf(id) < 0) save.supports.push(id);
+      for (const id of ['ember', 'whirl', 'arc', 'blade']) save.skills[id] = save.skills[id] || 1;
+      for (const k of Object.keys(save.sockets)) save.sockets[k] = [null, null, null];
+      G.computeStats();
+      const d = T.openDir(12), px = -d.z, pz = d.x;
+      const at = (k, s) => [d.x * k + px * s, d.z * k + pz * s];
+      const out = {};
+      // 分岔：正前方一只，它身后左右各一只
+      const forkRun = (socks) => {
+        G.clearEnemies();
+        const a = T.mob('husk', ...at(4, 0)), l = T.mob('husk', ...at(7, -2.1)), rr = T.mob('husk', ...at(7, 2.1)); // 身后 3 米、左右各 35°
+        for (const e of [a, l, rr]) { G.initBuildUp(e); e.buTh = 1e9; }
+        save.sockets.blade = socks;
+        T.aim(a.x, a.z);
+        const f0 = S.stats.forks || 0, hp = [l.hp, rr.hp];
+        G.execSkill(G.skillCtx('blade'));
+        for (let i = 0; i < 60; i++) G.tick(1 / 60);
+        return { forks: (S.stats.forks || 0) - f0, side: (hp[0] - l.hp > 0 ? 1 : 0) + (hp[1] - rr.hp > 0 ? 1 : 0), left: S.projectiles.length };
+      };
+      out.fork0 = forkRun([null, null, null]);
+      out.fork1 = forkRun(['fork', null, null]);
+      save.sockets.blade = [null, null, null];
+      const m0 = G.skillCtx('blade').more;
+      save.sockets.blade = ['fork', null, null];
+      out.forkMore = G.skillCtx('blade').more / m0;
+      // 溅击：旋风斩打中一只，身边 2 米那只吃 40%；两只同一帧都被直接打中时都不吃溅射
+      G.clearEnemies();
+      save.sockets.whirl = ['splash', null, null];
+      const t1 = T.mob('husk', ...at(4, 0)), n1 = T.mob('husk', ...at(4, 2)), far = T.mob('husk', ...at(4, 3.4));
+      for (const e of [t1, n1, far]) { G.initBuildUp(e); e.buTh = 1e9; }
+      const ctxW = G.skillCtx('whirl');
+      const hpN = n1.hp, hpF = far.hp;
+      const dealt = G.hitEnemy(t1, ctxW, 1, {});
+      G.updateProjectiles(0);
+      out.splash = { k: (hpN - n1.hp) / dealt, far: hpF - far.hp };
+      S.time += 0.1; // 下一帧
+      const hp2 = [t1.hp, n1.hp];
+      const d1 = G.hitEnemy(t1, ctxW, 1, {}), d2 = G.hitEnemy(n1, ctxW, 1, {});
+      G.updateProjectiles(0);
+      out.both = [hp2[0] - t1.hp - d1, hp2[1] - n1.hp - d2];
+      save.sockets.whirl = [null, null, null];
+      S.time += 0.1;
+      const hp3 = n1.hp;
+      G.hitEnemy(t1, G.skillCtx('whirl'), 1, {});
+      G.updateProjectiles(0);
+      out.noSup = hp3 - n1.hp;
+      // 断命
+      const cull = (pct, kind) => {
+        G.clearEnemies();
+        const e = T.mob(kind === 'boss' ? 'brute' : 'husk', ...at(4, 0), { elite: kind === 'elite' });
+        if (kind === 'boss') e.isBoss = true;
+        e.maxHp = 1e6;
+        G.initBuildUp(e);
+        e.buTh = 1e12;
+        save.sockets.arc = ['cull', null, null];
+        const ctx = G.skillCtx('arc');
+        const h = G.calcHit(ctx).total;
+        e.hp = h + e.maxHp * pct;
+        G.hitEnemy(e, ctx, 1, {});
+        return e.dead ? 'dead' : +(e.hp / e.maxHp).toFixed(3);
+      };
+      out.cull = { n19: cull(0.19), n21: cull(0.21), e9: cull(0.09, 'elite'), e11: cull(0.11, 'elite'), b5: cull(0.05, 'boss') };
+      save.sockets.arc = [null, null, null];
+      // 化元：冰霜伤害提高最高 → 转成冰霜
+      save.sockets.whirl = [null, null, null];
+      G.computeStats();
+      const S0 = P.S;
+      S0.incCold = (S0.incCold || 0) + 50;
+      const w0 = G.skillCtx('whirl');
+      save.sockets.whirl = ['convert', null, null];
+      const w1 = G.skillCtx('whirl');
+      save.sockets.whirl = ['convert', 'brutal', null];
+      const w2 = G.skillCtx('whirl');
+      const h1 = G.calcHit(w1), h2 = G.calcHit(w2), h0 = G.calcHit(w0);
+      out.conv = {
+        el: G.convertEl(), phys: w1.base.phys[0] / w0.base.phys[0], cold: w1.base.cold[0] / w0.base.phys[0],
+        coldDmg: h1.parts.cold / h0.parts.phys, brutalPhys: h2.parts.phys / h1.parts.phys, brutalCold: h2.parts.cold / h1.parts.cold,
+      };
+      S0.incCold -= 50;
+      save.sockets.whirl = [null, null, null];
+      T.unfix();
+      G.clearEnemies();
+      T.buildRestore(snap);
+      return out;
+    });
+    const near = (a, b, e) => Math.abs(a - b) < (e || 1e-6);
+    assert(r.fork0.forks === 0 && r.fork0.side === 0 && r.fork1.forks === 2 && r.fork1.side >= 1 && near(r.forkMore, 1), '分岔不对：' + JSON.stringify(r));
+    assert(near(r.splash.k, 0.4, 1e-6) && r.splash.far === 0 && r.both[0] === 0 && r.both[1] === 0 && r.noSup === 0, '溅击不对：' + JSON.stringify(r));
+    assert(r.cull.n19 === 'dead' && r.cull.n21 !== 'dead' && r.cull.e9 === 'dead' && r.cull.e11 !== 'dead' && r.cull.b5 !== 'dead', '断命不对：' + JSON.stringify(r.cull));
+    assert(r.conv.el === 'cold' && near(r.conv.phys, 0.4) && near(r.conv.cold, 0.6) && near(r.conv.brutalPhys, 1.35) && near(r.conv.brutalCold, 1), '化元不对：' + JSON.stringify(r.conv));
+    return '分岔 ' + r.fork1.forks + ' 枚 · 溅射 ' + (r.splash.k * 100).toFixed(0) + '% · 断命 20% / 10% · 化元 → ' + r.conv.el;
   });
 
   await step('渊缚：混沌异常值满了定身并拽向怪群中心（附近有黑洞时拽向黑洞），期间不再累积；精英时间短；冻结中不拽；首领不定不拽、只减速且和冰缓取较大的', async () => {
@@ -12560,6 +12711,9 @@ async function main() {
     const r = await ev(() => {
       TV.setup('meteor', 'b');
       const a = TV.mob(9, 0.4), b = TV.mob(12, -0.4), far = TV.mob(16.5, 0);
+      // 靶子不吃异常、伤害取中值：火沟会把它们点着，爆燃的击退（kb 1.2）偶尔把掀到一边的怪又推回原处（侧移 ≈ 0，偶发失败）
+      for (const e of [a, b, far]) e.buTh = 1e15;
+      T.fix(0.5);
       const a0 = { x: a.x, z: a.z };
       TV.cast('meteor', TV.at(6), 2.0);
       const d = TV.d, side = (a.x - a0.x) * d.z - (a.z - a0.z) * d.x;
@@ -12770,6 +12924,10 @@ async function main() {
       const P = G.player;
       G.summonMinion('pyre', P.x - 1, P.z, G.skillCtx('pyre'));
       const b = TV.big(8), side = TV.mob(8, 2.6);
+      // 两只靶子都不吃异常、伤害取中值：灼链的火焰会把它们点着，爆燃那一下带击退（kb 1.2），把旁边那只推开；
+      // 推出细链的 5 米就断了，细链跳数取决于伤害随机数和什么时候点着（实测 4–21 跳，偶尔低于 5）
+      b.buTh = side.buTh = 1e15;
+      T.fix(0.5);
       TV.run(5.0);
       const L = G.SKILLS.pyre.link;
       const out = { ticks: TV.st('vLinkTicks'), side: TV.st('vLinkSide'), k: +(G.state.stats.vLinkK || 0).toFixed(3), k1: L.k1, bolts: G.minionBolts(), hits: TV.st('pyreHits'), sideHit: TV.n(side) };
@@ -16227,7 +16385,7 @@ async function main() {
     return '暖光 ' + r.lamp;
   });
 
-  await step('渊契「暗域」（熄烛冠）：身周 8 m / 召唤物身周 2.5 m 内的敌人在域内；暗域增伤（词缀，中值 24%）对你的伤害近处远处都 ×1.24、召唤物只对域内 ×1.24；没发现你时第一击必暴；域内的怪打你 / 打召唤物 ×0.8（首领 ×0.9、熄烛者 ×1）；熄烛者单次仍封顶 85%；暗域圈 1 次 draw（玩家 + 召唤物）；摘下当场复原', async () => {
+  await step('渊契「暗域」（熄烛冠）：身周 8 m / 召唤物身周 2.5 m 内的敌人在域内；暗域增伤（词缀，中值 24%）对你的伤害近处远处都 ×1.24、召唤物只对域内、按 1.25 倍算 ×1.3；没发现你时第一击必暴；域内的怪打你 / 打召唤物 ×0.8（首领 ×0.9、熄烛者 ×1）；熄烛者单次仍封顶 85%；暗域圈 1 次 draw（玩家 + 召唤物）；摘下当场复原', async () => {
     const r = await ev(() => {
       const S = G.state, P = G.player, W = G.world, out = {};
       RQT.begin('xizhu');
@@ -16286,6 +16444,10 @@ async function main() {
       P.S.darkDmg = 0;
       out.dps = +(dps1 / G.skillDps(cB)).toFixed(2);
       P.S.darkDmg = v0;
+      const cT = G.skillCtx('thrall'), dT = G.skillDps(cT);
+      P.S.darkDmg = 0;
+      out.dps += ' ' + +(dT / G.skillDps(cT)).toFixed(2); // 召唤技能的面板秒伤按 1 + 24% × 1.25
+      P.S.darkDmg = v0;
       G.save.equip.helm = null;
       G.computeStats();
       G.debug.step(0.02);
@@ -16301,9 +16463,9 @@ async function main() {
     assert(r.v === 24, '暗域增伤词缀（中值）不对：' + JSON.stringify(r));
     assert(r.flags1 === 'true,false,false' && r.flags2 === 'true,false,true', '域内判定不对：' + JSON.stringify(r));
     assert(r.ring.visible && r.ring.r === 8 && r.ring.mr === 2.5 && r.ring.n === 2, '暗域圈不对：' + JSON.stringify(r));
-    assert(r.you === '1.24,1.24' && r.mine === '1.24,1' && r.hitFar === 1.24 && r.sneak === 'true false', '增伤 / 必暴不对：' + JSON.stringify(r));
+    assert(r.you === '1.24,1.24' && r.mine === '1.3,1' && r.hitFar === 1.24 && r.sneak === 'true false', '增伤 / 必暴不对：' + JSON.stringify(r));
     assert(r.weak === '0.8,0.8' && r.weakBoss === 'true,0.9,1' && r.minionWeak === 0.8 && r.cap === 0.85, '削弱 / 85% 上限不对：' + JSON.stringify(r));
-    assert(r.off === 'false,false,true,0' && r.offHit === '1 1' && r.offRing === false && r.dps === 1.24, '摘下没复原 / 面板秒伤没算暗域增伤：' + JSON.stringify(r));
+    assert(r.off === 'false,false,true,0' && r.offHit === '1 1' && r.offRing === false && r.dps === '1.24 1.3', '摘下没复原 / 面板秒伤没算暗域增伤：' + JSON.stringify(r));
     return '增伤 ×' + r.you.split(',')[0] + ' · 域内伤害 ×' + r.weak.split(',')[0] + ' · 首领 ×0.9 · 上限 ' + r.cap;
   });
 
