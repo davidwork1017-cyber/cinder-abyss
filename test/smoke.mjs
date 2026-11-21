@@ -1068,11 +1068,16 @@ async function main() {
           hitLow: Math.abs(oc(D, 'thL', 0) - oc(E, 'thL', 0)) + Math.abs(oc(D, 'shR', 0) - oc(E, 'shR', 0)) + Math.abs(oc(D, 'ftL', 0) - oc(E, 'ftL', 0)),
         };
       }
-      const low = rig.clips.attack.cLow, lowJ = new Set(), ci = rig.clips.attack.ci;
-      for (let i = 0; i < ci.length; i++) if (low[i]) lowJ.add(rig.joints[Math.floor(ci[i] / CH)].name);
+      // 扑击里每个通道：腿（rig.mask.lower）上的要让给步态（cLow），其余的不让
+      const low = rig.clips.attack.cLow, lowJ = new Set(), legJ = new Set(), ci = rig.clips.attack.ci;
+      for (let i = 0; i < ci.length; i++) {
+        const jn = rig.joints[Math.floor(ci[i] / CH)].name;
+        if (low[i]) lowJ.add(jn);
+        if (rig.mask.lower.includes(jn)) legJ.add(jn);
+      }
       W.die(E, {});
       const out = {
-        f1, std: rig.std, mask: rig.mask, lowJ: [...lowJ].sort().join(','), hit: rig.hitTrack ? rig.hitTrack.ci.map((i) => rig.joints[Math.floor(i / CH)].name) : [],
+        f1, std: rig.std, mask: rig.mask, lowJ: [...lowJ].sort().join(','), legJ: [...legJ].sort().join(','), hit: rig.hitTrack ? rig.hitTrack.ci.map((i) => rig.joints[Math.floor(i / CH)].name) : [],
         death: rig.clips.death.dur, dieClip: E.dying && E.dying.clipDur, deathKeys: Object.keys(rig.clips.death.spec.keys),
         stride: rig.stride,
       };
@@ -1083,7 +1088,7 @@ async function main() {
       return out;
     });
     assert(r.std && r.std.loco && r.std.loco[1] === 'Zombie_Walk' && r.std.hit === 'Hit_Chest' && r.std.death[0] === 'Death01', '游魂没有装上动作包的动作：' + JSON.stringify(r.std));
-    assert(r.lowJ === 'ftL,ftR,shL,shR,thL,thR', '扑击的腿没有让给步态（遮罩）：' + r.lowJ);
+    assert(r.legJ.length > 0 && r.lowJ === r.legJ, '扑击的腿没有让给步态（遮罩）：让出的 ' + r.lowJ + '，扑击里的腿 ' + r.legJ);
     assert(r.mask.lower.sort().join(',') === 'ftL,ftR,shL,shR,thL,thR' && !r.mask.upper.includes('thL') && r.mask.upper.includes('uaL') && r.mask.upper.includes('head'), '分区不对：' + JSON.stringify(r.mask));
     // 边走边扑：腿和只走的一样（步态），手臂和站着扑的一样（程序化出手）
     assert(r.f1.legAB < 0.01, '边走边扑时腿没有跟着走路：' + r.f1.legAB.toFixed(4));
