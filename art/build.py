@@ -1,6 +1,6 @@
 # 无头 Blender 入口：按 art/catalog.py 逐件生成 → 烘焙顶点色 → 导出 GLB。平时由 npm run build:art（tools/build-art.mjs）调用。
 # 直接跑：blender -b --factory-startup --python-exit-code 1 --python art/build.py -- --out assets/ca [--only id,id] [--stats 文件]
-#        看板：... --python art/build.py -- --lineup 输出.png [--res 1800x900] [--samples 24]
+#        看板：... --python art/build.py -- --lineup 输出.png [--res 1800x900] [--samples 24] [--zone abyss] [--gens a,b]
 import json
 import math
 import os
@@ -26,7 +26,7 @@ def argv():
 def make(item, seed=None, name=None):
     seed = item['seed'] if seed is None else seed
     name = name or item['id'].replace('/', '_')
-    k = core.Kit(seed, name)
+    k = core.Kit(seed, name, remap=item.get('remap'))  # remap：调色板行换名（同一个生成器给别的区换材质）
     getattr(gen, item['gen'])(k, **item.get('args', {}))
     if item.get('fit'):
         k.fit(**item['fit'])  # 清单里的 fit：包围盒对齐被顶替的旧件（r / top / bottom）
@@ -70,6 +70,8 @@ def lineup(o):
     sc = bpy.context.scene
     gens = []
     for item in CATALOG:
+        if o.get('zone') and item['zone'] != o['zone']:
+            continue  # --zone：只看这一区的件（复用的生成器按这一区的参数 / remap）
         if item['gen'] not in [g['gen'] for g in gens]:
             gens.append(item)
     if o.get('gens'):
