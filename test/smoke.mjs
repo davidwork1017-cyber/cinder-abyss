@@ -11093,7 +11093,9 @@ async function main() {
     return r.pairs.map((p) => p.normal + ' → ' + p.ws).join(' · ');
   });
 
-  await step('千刃归烬：附近没有敌人不施放；在敌人之间连闪至多 6 次（闪现途中无敌、落点可走），收刀时斩痕一齐炸开（同一敌人合成一击），带残刃的每层多一截伤害并吃掉残刃；冷却 10 秒；只剩一个目标时来回穿它', async () => {
+  // 齐爆对的是不扣抗性的期望值：前面步骤随机换上的装备可能带元素伤害，当前区域的敌人会抗本区元素，随机数序列一变就可能差到 2% 以上（props2-merge 合并后第 0 区摆放多用了几个随机数，就差了 2.4%），
+  // 所以和别的「数字对实打」的步骤一样包在 noRes 里
+  await step('千刃归烬：附近没有敌人不施放；在敌人之间连闪至多 6 次（闪现途中无敌、落点可走），收刀时斩痕一齐炸开（同一敌人合成一击），带残刃的每层多一截伤害并吃掉残刃；冷却 10 秒；只剩一个目标时来回穿它', noRes(async () => {
     const r = await ev(() => {
       T.arena();
       const P = G.player, S = G.state, sk = G.SKILLS.ashcuts, out = {};
@@ -11162,8 +11164,8 @@ async function main() {
     assert(Math.abs(r.pack.cd - 10) < 1e-6 && r.pack.left > 7 && !r.pack.cast, '冷却应为 10 秒、打完收刀：' + JSON.stringify(r.pack));
     assert(r.single.hops === 6 && r.single.cuts === 6 && r.single.marks === 2 && r.single.marksLeft === 0, '单体应来回穿 6 次：' + JSON.stringify(r.single));
     assert(Math.abs(r.single.burst - r.single.expect) <= Math.max(3, r.single.expect * 0.02), '齐爆伤害应为 6 × 斩痕 + 2 × 残刃倍率的武器伤害：' + JSON.stringify(r.single));
-    return '怪群 ' + r.pack.hops + ' 闪 / ' + r.pack.cuts + ' 道斩痕 · 单体齐爆 ' + r.single.burst + '（' + r.single.total + ' 合计）';
-  });
+    return '怪群 ' + r.pack.hops + ' 闪 / ' + r.pack.cuts + ' 道斩痕 · 单体齐爆 ' + r.single.burst + ' / 应为 ' + r.single.expect + '（' + r.single.total + ' 合计）';
+  }));
 
   await step('三相天灾：准星处 4 秒的风暴，火 / 冰 / 雷轮流落下（每种按自己的元素伤害加成），在怪群里接连触发冻结 / 爆燃 / 感电；首领的阈值照常变高（拿着三相之心也一样），首领不被冻结；冷却 12 秒', async () => {
     const r = await ev(() => {
