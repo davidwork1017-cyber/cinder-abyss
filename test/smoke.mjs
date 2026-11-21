@@ -1102,6 +1102,9 @@ async function main() {
         death: rig.clips.death.dur, dieClip: E.dying && E.dying.clipDur, deathKeys: Object.keys(rig.clips.death.spec.keys),
         stride: rig.stride,
       };
+      // 步幅的期望值：动作包里记的一个周期的距离 × 动作包到游魂的缩放（按骨盆高度）
+      const pk = W.std.pack(), pb = new THREE.Vector3().setFromMatrixPosition(pk.B[pk.bi.pelvis]);
+      out.cycle = pk.clips.Zombie_Walk.ex.cycle * (rig.joints[rig.JI.root].py / pb.y);
       const th = W.makeMinion('thrall');
       out.thHit = th.rig.hitTrack ? 1 : 0;
       W.removeEnt(th);
@@ -1122,7 +1125,7 @@ async function main() {
     // 死亡：时长和程序化死亡一样（0.6 秒，死亡 / 掉落的时机不变），带骨盆下落；下颌、破布这些没有骨骼的关节保留原来的关键帧
     assert(r.death === 0.6 && r.dieClip === 0.6, '死亡时长变了：' + r.death + ' / ' + r.dieClip);
     assert(r.deathKeys.includes('root.oy') && r.deathKeys.includes('jaw.rx') && r.deathKeys.includes('rag1.rx'), '死亡关键帧不对：' + r.deathKeys.join(' '));
-    assert(r.stride > 3.5 && r.stride < 5.5, '走路的步幅换算不对：' + r.stride);
+    assert(Math.abs(r.stride - (2 * Math.PI) / r.cycle) < 1e-6 && r.cycle > 1.2 && r.cycle < 2.4, '走路的步幅换算不对：stride ' + r.stride + '，一个周期 ' + r.cycle + ' 米');
     return '腿差 ' + r.f1.legAB.toFixed(4) + '，受击上身 ' + r.f1.hitUp.toFixed(3) + '，一个周期 ' + (2 * Math.PI / r.stride).toFixed(2) + ' 米';
   });
 
