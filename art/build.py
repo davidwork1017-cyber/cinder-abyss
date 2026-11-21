@@ -28,7 +28,9 @@ def make(item, seed=None, name=None):
     name = name or item['id'].replace('/', '_')
     k = core.Kit(seed, name)
     getattr(gen, item['gen'])(k, **item.get('args', {}))
-    k.finish(cue_args=item.get('cues'))  # 清单里的 cues：材质线索的参数（val / second / lichen），缺省按 docs/art-style.md
+    if item.get('fit'):
+        k.fit(**item['fit'])  # 清单里的 fit：包围盒对齐被顶替的旧件（r / top / bottom）
+    k.finish(cue_args=item.get('cues'), **item.get('finish', {}))  # cues：材质线索参数（val / second / lichen，缺省见 docs/art-style.md）；finish：收尾参数（dust / dust_row）
     tris = sum(len(f.verts) - 2 for f in k.bm.faces)
     ob = core.to_object(k, name)
     k.bm.free()

@@ -32,7 +32,7 @@ mv ~/opt/blender-5.2.4-linux-x64 ~/opt/blender-5.2.4
 | 路径 | 内容 |
 | --- | --- |
 | `art/catalog.py` | 件清单：每件 = 生成器 + 参数 + 种子，以及类别、区域、是否打进游戏（ship）、顶替哪个旧模型 |
-| `art/ca/gen.py` | 生成器（枯树、岩石 / 崖块、墙段 / 碎墙堆、断柱 / 拱、火坑 / 火盆、兽骨 / 骨头 / 断剑、墓碑） |
+| `art/ca/gen.py` | 生成器：灰烬地带（枯树、岩石 / 崖块、墙段 / 碎墙堆、断柱 / 拱、火坑 / 火盆、兽骨 / 骨头 / 断剑、墓碑）；坠星裂谷（裂谷石碑、板岩晶簇、星骸碑、裂开的巨石、板岩块、塌落的板岩堆、碎地砖） |
 | `art/ca/core.py` | 公共部分：搭形工具（盒子、凸包、管子）、收尾（UV、烘焙顶点色）、导出 GLB |
 | `art/ca/palette.py` | 共享调色板图集（8 行色带，64×16 PNG，自己编码，字节固定） |
 | `art/build.py` | Blender 入口：生成全部件 / 渲染看板 |
@@ -100,3 +100,7 @@ npm run build:art && git status --short assets/ca js/assets   # 没有输出 = �
 2. `npm run build:art`，看构建输出的三角形数和 `npm run check:art`；
 3. 渲染看板看一眼；
 4. 要进游戏：`ship=True`，在 `tools/asset-sources.json` 加 `kit-<区>` 包、并在 `zone-<区>` 包上写 `"with": ["kit-<区>"]`；摆放表（`js/world.js` 的 `ZONE_GFX.<区>.props`）里换成新 id。
+
+顶替旧模型时，清单里写 `fit=dict(r=…, top=…, bottom=…)`：生成完先把包围盒拉到旧件 scale 1 时的尺寸（游戏端 `G.assets.geoInfo(旧 key)` 的 r、y0 + h、y0），数值照抄浮点原值，不要四舍五入。摆放代码用 r 判断能不能放、用 y0 把标记 l 的件抬到贴地，差一点浮点也会让个别实例的高度差在第四位小数，摆放哈希就对不上（坠星裂谷的碎地砖踩过一次）。收尾参数写在 `finish=dict(…)` 里，比如别的区不盖积灰、改盖本区的覆盖色：`finish=dict(dust=0.2, dust_row='lichen')`。
+
+一个区的布景全部换成自产件以后，可以把 `models` 从它的 `packs` 里去掉（坠星裂谷就是这样），`propsReady()` 对没有 `models` 的区只看自产件包是否已经解析出几何体。

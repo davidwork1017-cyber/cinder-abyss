@@ -142,7 +142,7 @@ class Kit:
         vs = [v for r in rings for v in r]
         return vs, segs
 
-    def slit(self, face, width=0.3, depth=0.03, row='ember'):
+    def slit(self, face, width=0.3, depth=0.03, row='ember', glow=1):
         """余烬裂缝：把一个面向内收一圈、再沿短边压扁成一道窄缝，缝底标成余烬（发亮），缝壁是焦黑。
         比整面标成余烬小得多，俯视时是一道亮线而不是一块橙色的板。"""
         f = face
@@ -158,7 +158,7 @@ class Kit:
         for v in f.verts:
             d = v.co - c
             v.co = c + axis * d.dot(axis) * 0.85 + perp * d.dot(perp) * width + n * d.dot(n)
-        self.tag([f], row, 0.75, 0.12, glow=1, dust=0)
+        self.tag([f], row, 0.75, 0.12, glow=glow, dust=0)
         self.tag(side, prow if prow >= 0 else 'char', ptone * 0.55, 0.04, dust=0)  # 缝边沿用原来的面，只压暗一点
         return f
 
@@ -208,7 +208,23 @@ class Kit:
                     f[self.L_tone] = min(0.9, max(0.2, f[self.L_tone]))
 
     # ---------- 收尾 ----------
-    def finish(self, dust=0.35, dust_dot=0.78, cues=True, cue_args=None):
+    def fit(self, r=None, top=None, bottom=None):
+        """把包围盒拉到给定尺寸（顶替旧模型时 scale 1 的 r / 顶 / 底和旧件一致，摆放表的判断就和原来一样）：
+        r = 水平方向离原点最远的轴向距离（游戏端 geoInfo 的 r：max(|x|, |z|)），按比例缩放水平两轴；top / bottom = 最高 / 最低点的 z，线性拉伸竖直方向"""
+        vs = list(self.bm.verts)
+        if r is not None:
+            rc = max(max(abs(v.co.x), abs(v.co.y)) for v in vs)
+            for v in vs:
+                v.co.x *= r / rc
+                v.co.y *= r / rc
+        if top is not None or bottom is not None:
+            z0, z1 = min(v.co.z for v in vs), max(v.co.z for v in vs)
+            b = z0 if bottom is None else bottom
+            t = z1 if top is None else top
+            for v in vs:
+                v.co.z = b + (v.co.z - z0) * (t - b) / (z1 - z0)
+
+    def finish(self, dust=0.35, dust_dot=0.78, cues=True, cue_args=None, dust_row='dust'):
         bm = self.bm
         bm.faces.ensure_lookup_table()
         # 没标签的面（倒角 / 凸包新生成的）继承相邻面的标签
@@ -233,17 +249,17 @@ class Kit:
         bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
         if cues:
             self.material_cues(**(cue_args or {}))
-        # 积灰：朝上的面按概率换成积灰色（灰烬地带的辨识度），余烬面不盖
+        # 积灰：朝上的面按概率换成积灰色（灰烬地带的辨识度；别的区用 dust_row 换成本区的覆盖色，比如裂谷的苔尘），余烬面不盖
         if dust > 0:
             for f in bm.faces:
                 if f[self.L_dust] and f[self.L_glow] <= 0 and f.normal.z > dust_dot and self.rng.random() < dust:
-                    f[self.L_pal] = ROW['dust'] + 1
+                    f[self.L_pal] = ROW[dust_row] + 1
                     f[self.L_tone] = min(0.95, 0.45 + 0.4 * self.rng.random())
 
 
 # 每种材质的第二色调（低频斑块里换成它）和出现的阈值：阈值越高斑块越少
-SECOND = {'stone': ('pale', 0.68), 'char': ('wood', 0.7), 'iron': ('rust', 0.56), 'bone': ('grime', 0.6), 'slag': ('stone', 0.72)}
-LICHEN_ON = ('stone', 'pale', 'slag')
+SECOND = {'stone': ('pale', 0.68), 'char': ('wood', 0.7), 'iron': ('rust', 0.56), 'bone': ('grime', 0.6), 'slag': ('stone', 0.72), 'slate': ('pale', 0.82)}
+LICHEN_ON = ('stone', 'pale', 'slag', 'slate')
 
 
 def vnoise(x, y, z, seed):
