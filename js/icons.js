@@ -1629,6 +1629,8 @@
     echo: (p) => { for (let i = 0; i < 3; i++) { const r = 3.4 + i * 3.4, x = -6.4; p.M(x + Math.cos(-0.95) * r, Math.sin(-0.95) * r); for (let j = 1; j <= 8; j++) { const a = -0.95 + (j / 8) * 1.9; p.L(x + Math.cos(a) * r, Math.sin(a) * r); } } return p; },
     stagger: (p) => { for (let i = 0; i < 10; i++) { const a = (i / 10) * TAU - Math.PI / 2, r = i % 2 ? 4 : 9.6; p[i ? 'L' : 'M'](Math.cos(a) * r, Math.sin(a) * r); } return p.Z(); },
     ailment: (p) => { for (const d of [[-5, -3, 1], [4.6, -5.6, 0.85], [1, 4.4, 1.1]]) { const x = d[0], y = d[1], k = d[2]; p.M(x, y - 4.4 * k).C(x + 3 * k, y - 0.6 * k, x + 3.4 * k, y + 1.4 * k, x + 2.4 * k, y + 2.8 * k).C(x + 1.2 * k, y + 4.4 * k, x - 1.2 * k, y + 4.4 * k, x - 2.4 * k, y + 2.8 * k).C(x - 3.4 * k, y + 1.4 * k, x - 3 * k, y - 0.6 * k, x, y - 4.4 * k).Z(); } return p; },
+    // 绵延：一圈没合上的表盘（顺时针多绕出去一截、末端带箭头）加两根指针
+    lasting: (p) => { const a0 = -Math.PI / 2 + 0.5, a1 = a0 + TAU * 0.86, r = 8.4; for (let i = 0; i <= 24; i++) { const a = a0 + (i / 24) * (a1 - a0); p[i ? 'L' : 'M'](Math.cos(a) * r, Math.sin(a) * r); } const ex = Math.cos(a1) * r, ey = Math.sin(a1) * r, tx = -Math.sin(a1), ty = Math.cos(a1); p.M(ex - tx * 3.2 + ex / r * 2.4, ey - ty * 3.2 + ey / r * 2.4).L(ex, ey).L(ex - tx * 3.2 - ex / r * 2.4, ey - ty * 3.2 - ey / r * 2.4); return p.M(0, 0).L(0, -5).M(0, 0).L(3.8, 2.2); },
     frugal: (p) => p.M(-6, -8.6).L(6, -8.6).L(0.8, 0).L(6, 8.6).L(-6, 8.6).L(-0.8, 0).Z().M(-7.4, -8.6).L(7.4, -8.6).M(-7.4, 8.6).L(7.4, 8.6),
     freeze: (p) => p.P([0, -9.4, 6.6, -4, 6.6, 4, 0, 9.4, -6.6, 4, -6.6, -4]).M(0, -9.4).L(0, 9.4).M(-6.6, -4).L(6.6, 4).M(6.6, -4).L(-6.6, 4),
     // 仆从辅助：驭灵（骷髅）、坚骨（盾里一根骨）、群聚（三个人头）、狂怒（三道爪痕）
@@ -1664,7 +1666,7 @@
   const SUP_TINT = {
     multi: '#ffb066', pierce: '#b9c6dc', chain: '#ffe45e', expanse: '#7fe0c0', haste: '#7ed67a', fire: '#ff7a2c', cold: '#86d8ff', light: '#ffe45e',
     brutal: '#e2705a', precise: '#ffd75e', leech: '#ff6a8a', echo: '#c7a6ff', stagger: '#f2e6b0', ailment: '#b6e05c', frugal: '#6fb2ff',
-    m_dmg: '#3fe0c8', m_life: '#d2b47a', m_horde: '#e28ad6', m_speed: '#ff5a46', chaos: '#f03cb4',
+    m_dmg: '#3fe0c8', m_life: '#d2b47a', m_horde: '#e28ad6', m_speed: '#ff5a46', chaos: '#f03cb4', lasting: '#9be0e6',
     narrow: '#d9a441', farshot: '#9fc3ff', swell: '#b48cff', charge: '#5fe0e8', blaze: '#ff5a3c', deepfreeze: '#bfe8ff', surge: '#fff38a',
   };
   // 仆从辅助宝石的 id 由数据那边定；按 id 认不出时按名字认，两边怎么起名都对得上

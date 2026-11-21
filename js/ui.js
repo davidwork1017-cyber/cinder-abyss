@@ -1906,7 +1906,21 @@
     if (bad.length) return '不能用于' + bad.map((t) => G.TAG_NAME[t] || t).join(' / ') + '技能';
     if (sup.needCd && sk && !(sk.cd > 0)) return '只能用于有冷却的技能'; // 储能
     if (sup.noId && sup.noId.indexOf(skillId) >= 0) return sk.name + '用不上';
+    const vs = fitVariants(skillId, sup);
+    if (vs.length) return '选' + vs.join(' / ') + '刻式时才能镶';
     return '需要标签：' + reqText(sup);
+  }
+  // 这个技能的哪几种刻式用得上这颗辅助（标签随刻式变的时候，例如绵延只认雷桩）：刻式名的数组
+  function fitVariants(skillId, sup) {
+    const supId = Object.keys(G.SUPPORTS).find((k) => G.SUPPORTS[k] === sup);
+    if (!supId || !G.VARIANTS[skillId] || !G.SKILL_V || !G.SKILL_V[skillId]) return [];
+    const keep = G.SKILLS[skillId], out = [];
+    for (const v of ['o'].concat(Object.keys(G.VARIANTS[skillId]))) {
+      G.SKILLS[skillId] = G.skillVariant(skillId, v);
+      if (G.supportFits(skillId, supId)) out.push(v === 'o' ? G.VARIANT_NAME.o : G.VARIANTS[skillId][v].name);
+    }
+    G.SKILLS[skillId] = keep;
+    return out;
   }
   // 适用范围的一句话：「任意技能」/ 「物理」/ 「任意技能（召唤物除外）」
   function scopeText(sup) {
@@ -2248,9 +2262,10 @@
       const sup = socks[i];
       const picking = ui.picker && ui.picker.skill === id && ui.picker.idx === i;
       if (sup) {
+        const idle = !G.supportFits(id, sup); // 镶着，但对这一刻的刻式不生效（换回用得上的刻式就生效）
         sockets +=
-          '<button type="button" tabindex="-1" class="sock full" data-act="socket" data-skill="' + id + '" data-idx="' + i + '" data-tip="sock:' + sup + '" data-drag="sup:' + sup + '">' +
-          IC.sup(sup) + G.SUPPORTS[sup].name + '</button>';
+          '<button type="button" tabindex="-1" class="sock full' + (idle ? ' idle' : '') + '" data-act="socket" data-skill="' + id + '" data-idx="' + i + '" data-tip="sock:' + sup + '" data-drag="sup:' + sup + '">' +
+          IC.sup(sup) + G.SUPPORTS[sup].name + (idle ? '<em>不生效</em>' : '') + '</button>';
       } else {
         sockets +=
           '<button type="button" tabindex="-1" class="sock' + (picking ? ' picking' : '') + '" data-act="socket" data-skill="' + id + '" data-idx="' + i + '"><i></i>空槽</button>';
@@ -2310,7 +2325,7 @@
       nums =
         num(ctx.cd > 0 ? '每次伤害' : '平均击中', fmtInt(avg), 'hl') +
         num(sk.kind === 'spin' || sk.kind === 'flicker' ? '每秒斩击' : '每秒施放', rate.toFixed(2)) +
-        num('估算秒伤', fmtInt(avg * rate)) +
+        num('估算秒伤', fmtInt(avg * rate * G.durDpsK(ctx))) + // 绵延：黑洞 / 黑旋风多跳几下、雷桩 / 环刃多一个
         num((blood ? '生命消耗' : '魔力消耗') + (sk.kind === 'spin' || sk.kind === 'flicker' ? ' / 每下' : ''), ctx.cost > 0 ? fmt1(ctx.cost) : '无') +
         num('冷却', ctx.cd > 0 ? fmt1(ctx.cd) + ' 秒' : '无') +
         num('暴击率', fmt1(ctx.crit) + '%');
@@ -5733,6 +5748,16 @@
           '比怪物高 3 级以上时经验迅速减少，经验条已折算';
       },
       when: () => !!G.growthMigrated,
+      done: () => false,
+    },
+    {
+      // 读档时有辅助对技能的哪种刻式都用不上了（标签改过）：已经取下放回宝石栏，说一声去了哪
+      id: 'sockdrop', calm: true, max: 20,
+      get html() {
+        const L = (G.sockDropped || []).filter((d) => G.SUPPORTS[d.sup] && G.SKILLS[d.id]);
+        return '<b>辅助宝石</b>：' + L.map((d) => '「' + G.SUPPORTS[d.sup].name + '」').join('、') + '对所镶的技能不再适用，已取下放回宝石栏（<kbd>G</kbd>）';
+      },
+      when: () => !!(G.sockDropped && G.sockDropped.length),
       done: () => false,
     },
     {

@@ -176,7 +176,7 @@
     //   pullR × radius 以内的敌人被往中心拽：速度 pull × (0.6 + 0.4 × 越靠近中心越快) / √体重，首领固定 bossPull，离中心 core 以内不再拽。
     //   同一个敌人同一时刻只吃一个黑洞的跳（渊口的小黑洞也算）。持续类法术：回响镶不上
     blackhole: {
-      name: '黑洞', icon: '洞', color: '#ff6ad2', tags: ['spell', 'area', 'chaos', 'duration'], kind: 'hole',
+      name: '黑洞', icon: '洞', color: '#ff6ad2', tags: ['spell', 'area', 'chaos', 'duration'], kind: 'hole', noSup: ['echo'],
       dmg: { chaos: [3.9, 5.8] }, chaosEarly: true, time: 0.5, mana: 20, cd: 6, range: 14,
       radius: 3.2, pullR: 1.35, dur: 3, tick: 0.25, pull: 4.5, bossPull: 0.5, core: 0.7,
       w: 0, kb: 0, poise: 2, useMult: 12,
@@ -188,7 +188,7 @@
     //   上限：同一次施放对同一个敌人每 tick 秒最多一跳；被这次施放吸附过的敌人一共最多 cap 跳，只是被拽过来、卷到的最多 splashCap 跳，首领 bossCap 跳；每团最多吸附 latch.max 次，同一个敌人 latch.again 秒内不再吸。
     //   贯穿：前 N 个敌人不吸附，直接穿过（照样挨跳）；连锁：每次松开后拐向 hop.r 米内这一团还没吸过的最近敌人（每拐一次消耗 1 次）
     vortex: {
-      name: '黑旋风', icon: '涡', color: '#ff6ad2', tags: ['spell', 'projectile', 'area', 'chaos'], kind: 'vortex',
+      name: '黑旋风', icon: '涡', color: '#ff6ad2', tags: ['spell', 'projectile', 'area', 'chaos', 'duration'], kind: 'vortex',
       // cd 1 秒（用户定：没有冷却太强）：一秒最多放一次，伤害不补，空出来的时间穿插别的技能
       dmg: { chaos: [3.1, 4.85] }, chaosEarly: true, time: 0.55, mana: 9, cd: 1,
       count: 3, speed: 14, life: 2.2, radius: 0.9, spread: 13, wander: 1.6,
@@ -644,7 +644,7 @@
       b: {
         name: '环刃', pack: '要贴身；满 3 把后偶尔补一把',
         desc: '利刃绕着你转 4 秒，割伤碰到的敌人；再放多一把，最多 3 把。', alt: '满 3 把时替换最旧的那把。',
-        set: { mech: 'orbit', wm: 0.75, useMult: 5.18, cycle: 1.333, orbit: { r: 2.0, w: 7, dur: 4, max: 3, gap: 0.4, hr: 0.55 } },
+        set: { mech: 'orbit', tags: ['attack', 'projectile', 'phys', 'duration'], wm: 0.75, useMult: 5.18, cycle: 1.333, orbit: { r: 2.0, w: 7, dur: 4, max: 3, gap: 0.4, hr: 0.55 } },
       },
     },
     nova: {
@@ -663,7 +663,7 @@
       a: {
         name: '雷桩', pack: '定点输出；约两秒补一根',
         desc: '在准星插下导雷桩（6 秒，最多 3 根），每 0.5 秒电击 6 米内最近的敌人；10 米内的桩连起电弧。', alt: '多了替换最旧的。穿过电弧的敌人也会挨电。',
-        set: { mech: 'pylon', useMult: 3.84, cycle: 2, pylon: { dur: 6, max: 3, r: 6, tick: 0.5, mult: 0.32, link: 10, lw: 0.9, lmult: 0.15 } },
+        set: { mech: 'pylon', tags: ['spell', 'chaining', 'light', 'duration'], useMult: 3.84, cycle: 2, pylon: { dur: 6, max: 3, r: 6, tick: 0.5, mult: 0.32, link: 10, lw: 0.9, lmult: 0.15 } },
       },
       b: {
         name: '过载', pack: '连锁少，一跳比一跳痛',
@@ -747,7 +747,7 @@
       a: {
         name: '焰田', pack: '怪站在火地上最痛',
         desc: '火弹较轻，落地留下 3 秒火地。焰蓄满时改放「燎原」：场上所有火地同时爆燃。上限 2 位。',
-        set: { mech: 'field', dmg: { fire: [9, 13.5] }, field: { r: 1.6, dur: 3, tick: 0.5, mult: 0.15, burst: 1.8, br: 2.0 } },
+        set: { mech: 'field', tags: ['spell', 'minion', 'summon', 'fire', 'projectile', 'area', 'duration'], dmg: { fire: [9, 13.5] }, field: { r: 1.6, dur: 3, tick: 0.5, mult: 0.15, burst: 1.8, br: 2.0 } },
       },
       b: {
         name: '魂链', pack: '首领战强；清群弱',
@@ -776,7 +776,7 @@
       b: {
         name: '汇涡', pack: '同一处连放越滚越大',
         desc: '三团较慢的黑旋风相互靠拢，撞到一起合成更大的一团：范围更大、更持久，最多 5 层。每跳较轻。', alt: '附近没有别的旋风时拐向最近的敌人，压在它身上就放慢。合成后的跳数是合进来的几团相加；没散的旋风会和下一次施放的合到一起。',
-        set: { mech: 'merge', speed: 7, life: 3, spread: 28, dmg: { chaos: [1.86, 2.91] }, useMult: 4.9, latch: { t: 0, max: 0 }, merge: { seek: 8, turn: 3, cap: 3, max: 5, life: 1.2, after: 0.35 } },
+        set: { mech: 'merge', tags: ['spell', 'projectile', 'area', 'chaos'], speed: 7, life: 3, spread: 28, dmg: { chaos: [1.86, 2.91] }, useMult: 4.9, latch: { t: 0, max: 0 }, merge: { seek: 8, turn: 3, cap: 3, max: 5, life: 1.2, after: 0.35 } },
       },
     },
     blackflame: {
@@ -868,10 +868,15 @@
     brutal: { name: '蛮力', req: ['phys'], cost: 1.2, eff: { moreType: { phys: 35 } }, desc: '物理伤害额外提高 35%' },
     precise: { name: '致命', req: null, cost: 1.15, eff: { critFlat: 8, critMulti: 40 }, desc: '暴击率 +8%，暴击伤害 +40%' },
     leech: { name: '汲生', req: null, no: ['minion'], cost: 1.1, eff: { leech: 3 }, desc: '伤害的 3% 转为生命' },
-    echo: { name: '回响', req: ['spell'], no: ['summon', 'aura', 'duration'], cost: 1.4, eff: { echo: 1, more: -30 }, desc: '法术自动重复施放一次，伤害减少 30%' },
+    // 持续类法术原来一律镶不上回响；绵延上线后持续标签多了好几个技能，改成只有黑洞自己排除（noSup：两个黑洞对同一个敌人不叠跳）
+    echo: { name: '回响', req: ['spell'], no: ['summon', 'aura'], cost: 1.4, eff: { echo: 1, more: -30 }, desc: '法术自动重复施放一次，伤害减少 30%' },
     stagger: { name: '震慑', req: ['attack', 'minion'], cost: 1.15, eff: { stun: 0.7 }, desc: '击中使非首领敌人眩晕 0.7 秒' },
     ailment: { name: '蚀染', req: null, cost: 1.1, eff: { ailment: 35 }, desc: '异常值累积速度加快 35%' },
     frugal: { name: '节流', req: null, cost: 0.6, eff: { cdr: 25 }, desc: '魔力消耗与光环保留减少 40%，冷却缩短 25%' },
+    // 绵延：持续类效果（黑洞、黑旋风、雷桩、环刃、焰田……带「持续」标签的技能或刻式）存在的时间 × (1 + dur%)。
+    //   有同时存在数量上限的（雷桩、环刃）上限再 +cap；黑旋风原式吸附得更久，每次施放对吸附的敌人 / 首领的跳数上限跟着时间放大。
+    //   汇涡不带持续：它对一个敌人的伤害卡在每 tick 一跳上，活得久不多打（实测单体 +0%、怪群 +14%）
+    lasting: { name: '绵延', req: ['duration'], cost: 1.15, eff: { dur: 30, cap: 1 } }, // 说明按数值拼（见下面）
     // 召唤物专用
     dominion: { name: '驭灵', req: ['minion'], cost: 1.25, eff: { minionMore: 30 }, desc: '召唤物伤害额外提高 30%' },
     ossify: { name: '坚骨', req: ['minion'], cost: 1.15, eff: { minionLife: 40, minionDR: 15 }, desc: '召唤物最大生命 +40%，受到的伤害 −15%' },
@@ -899,6 +904,14 @@
     surge: { name: '雷涌', req: null, cost: 1.1, eff: { shockN: 1, shockT: 25 }, desc: '感电多放 1 道电弧，时间 +25%',
       alt: '只对这个技能打满的感电生效：每次挨打射出 3 道电弧（原来 2 道），感电 5 秒（原来 4 秒）。' },
   };
+
+  {
+    // 绵延的说明：按 eff 和雷桩 / 环刃的上限拼，改数值时跟着变
+    const L = G.SUPPORTS.lasting, e = L.eff, VA = G.VARIANTS;
+    L.desc = '持续时间 +' + e.dur + '%；有数量上限的效果上限 +' + e.cap;
+    L.alt = '黑洞、黑旋风、雷桩、环刃、焰田的火地存在得更久，伤害跳数随之增加；黑旋风吸附得更久，每次施放对吸附住的敌人的跳数上限也按比例提高。雷桩最多 ' +
+      (VA.arc.a.set.pylon.max + e.cap) + ' 根、环刃最多 ' + (VA.blade.b.set.orbit.max + e.cap) + ' 把。冷却、增益、控制和异常的时间不变。';
+  }
 
   // ---------- 属性显示 ----------
   G.STAT_FMT = {
