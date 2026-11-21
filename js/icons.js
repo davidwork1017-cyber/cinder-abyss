@@ -1662,6 +1662,14 @@
     deepfreeze: (p) => p.M(-9.4, -7).L(9.4, -7).M(-8, -7).L(-5.6, 5).L(-3.2, -7).M(-2.4, -7).L(0, 9.4).L(2.4, -7).M(3.2, -7).L(5.6, 3).L(8, -7),
     // 雷涌：一道闪电在中段分出两股
     surge: (p) => p.M(-1, -9.4).L(2.4, -2.6).L(-2.6, -0.6).L(1, 9.4).M(-2.6, -0.6).L(-8.6, 5.4).M(2.4, -2.6).L(8.6, 3.2),
+    // 分岔：一道从左来的弹道在中间分成两股，各带一个箭头
+    fork: (p) => p.M(-9.4, 0).L(-1, 0).M(-1, 0).L(6.6, -6.4).M(-1, 0).L(6.6, 6.4).M(3, -7).L(7.4, -6.8).L(6.4, -2.6).M(3, 7).L(7.4, 6.8).L(6.4, 2.6),
+    // 溅击：中间一个打击点，外面三道溅开的弧
+    splash: (p) => { p.E(0, 0, 2.6); for (let i = 0; i < 3; i++) { const a0 = (i / 3) * TAU - Math.PI / 2 - 0.42; for (let j = 0; j <= 4; j++) { const a = a0 + (j / 4) * 0.84; p[j ? 'L' : 'M'](Math.cos(a) * 8.2, Math.sin(a) * 8.2); } } return p; },
+    // 断命：一截见底的生命条，被一刀斜着斩断
+    cull: (p) => p.R(-9.4, -3, 18.8, 6, 1.2).M(-9.4, 0).L(-5.4, 0).M(-3, -9).L(3, 9),
+    // 化元：两道首尾相接的弧形箭头（一圈循环）
+    convert: (p) => { for (let k = 0; k < 2; k++) { const a0 = k * Math.PI + 0.35; for (let j = 0; j <= 6; j++) { const a = a0 + (j / 6) * 2.3; p[j ? 'L' : 'M'](Math.cos(a) * 7.6, Math.sin(a) * 7.6); } const a = a0 + 2.3, c = Math.cos(a), s = Math.sin(a), x = c * 7.6, y = s * 7.6; p.M(x - s * 3 + c * 2.2, y + c * 3 + s * 2.2).L(x, y).L(x - s * 3 - c * 2.2, y + c * 3 - s * 2.2); } return p; },
     // 渊缚：一个空心圆，四道从外往里的短箭头
     bind: (p) => { p.E(0, 0, 3.4); for (let i = 0; i < 4; i++) { const a = (i / 4) * TAU + Math.PI / 4, c = Math.cos(a), s = Math.sin(a); p.M(c * 9.6, s * 9.6).L(c * 5.6, s * 5.6).M(c * 5.6 - s * 1.8 + c * 1.8, s * 5.6 + c * 1.8 + s * 1.8).L(c * 5.6, s * 5.6).L(c * 5.6 + s * 1.8 + c * 1.8, s * 5.6 - c * 1.8 + s * 1.8); } return p; },
   };
@@ -1672,6 +1680,7 @@
     brutal: '#e2705a', precise: '#ffd75e', leech: '#ff6a8a', echo: '#c7a6ff', stagger: '#f2e6b0', ailment: '#b6e05c', frugal: '#6fb2ff',
     m_dmg: '#3fe0c8', m_life: '#d2b47a', m_horde: '#e28ad6', m_speed: '#ff5a46', chaos: '#f03cb4', lasting: '#9be0e6',
     narrow: '#d9a441', farshot: '#9fc3ff', swell: '#b48cff', charge: '#5fe0e8', blaze: '#ff5a3c', deepfreeze: '#bfe8ff', surge: '#fff38a',
+    fork: '#ffa0d0', splash: '#e08a5a', cull: '#e05a7a', convert: '#8ee0a0',
   };
   // 仆从辅助宝石的 id 由数据那边定；按 id 认不出时按名字认，两边怎么起名都对得上
   const SUP_BY_NAME = { 驭灵: 'm_dmg', 坚骨: 'm_life', 群聚: 'm_horde', 狂怒: 'm_speed' };
