@@ -11108,6 +11108,7 @@ async function main() {
       T.aim(es[0].x, es[0].z);
       for (const k of ['ashHops', 'ashBursts', 'ashCuts', 'ashMarks']) S.stats[k] = 0;
       const hp0 = es.map((e) => e.hp);
+      T.fix(0.5); // 不暴击、取中值（同下面单体那半）：随机暴击会在连闪的刀里给 es[2] 再叠两层残刃、叠满提前引爆，偶发 marks = 0
       G.input.tap[4] = 0.3;
       let iframeHop = false, walk = true, burstAt = -1, hopsAtBurst = 0;
       const dmgBefore = [];
@@ -11118,6 +11119,7 @@ async function main() {
         if ((S.stats.ashBursts || 0) > 0 && burstAt < 0) { burstAt = i; hopsAtBurst = S.stats.ashHops; }
         if (burstAt < 0) dmgBefore[i] = es.map((e) => e.hp);
       }
+      T.unfix();
       out.pack = { hops: S.stats.ashHops, bursts: S.stats.ashBursts, cuts: S.stats.ashCuts, marks: S.stats.ashMarks, iframeHop, walk, hopsAtBurst, cd: +(P.cdMax.ashcuts || 0).toFixed(2), left: P.cds.ashcuts || 0, mk2: es[2].marks || 0, dmg: es.map((e, i) => Math.round(hp0[i] - e.hp)), cast: !!P.cast };
       // 单体：6 闪都穿过它；炸开那一下 = 6 × cut 倍（合成一击）+ 残刃
       T.arena();
