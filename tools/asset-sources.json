@@ -1,5 +1,5 @@
 {
-  "_comment": "烬渊的外部素材清单（全部 CC0；src 为 generated 的是 tools/gen-ground-textures.mjs 程序化生成的原创贴图，prep-textures.mjs 跳过）。prep-textures.mjs 按 textures 下载 1k 原图并压成 assets/ 下的三张贴图；pack-assets.mjs 按 packs 把 assets/ 打成 js/assets/*.js；chars 包是角色模型（convert-chars.mjs 从 Quaternius 源文件转出的 GLB），index.html 直接同步引入；vfx 包是特效贴图（gen-vfx-textures.mjs 程序化生成，不是外部素材），index.html 同样同步引入。",
+  "_comment": "烬渊的外部素材清单（全部 CC0；src 为 generated 的是 tools/gen-ground-textures.mjs 程序化生成的原创贴图，prep-textures.mjs 跳过）。prep-textures.mjs 按 textures 下载 1k 原图并压成 assets/ 下的三张贴图；pack-assets.mjs 按 packs 把 assets/ 打成 js/assets/*.js；chars 包是角色模型（convert-chars.mjs 从 Quaternius 源文件转出的 GLB），index.html 直接同步引入；vfx 包是特效贴图（gen-vfx-textures.mjs 程序化生成，不是外部素材），index.html 同样同步引入；kit-<区> 包是自产布景件（art/ 下的生成脚本经 npm run build:art 生成的原创模型，不是外部素材，assets/ca/manifest.json 里 ship 的件），with 标的依赖包跟着主包一起加载。",
   "textures": {
     "mud_cracked_dry_03": { "src": "polyhaven", "page": "https://polyhaven.com/a/mud_cracked_dry_03" },
     "burned_ground_01": { "src": "polyhaven", "page": "https://polyhaven.com/a/burned_ground_01" },
@@ -35,7 +35,8 @@
     "rock-dark": { "textures": ["dark_rock"] },
     "rock-grey": { "textures": ["Rock035"] },
     "ground": { "textures": ["g_decals"] },
-    "zone-ash": { "textures": ["mud_cracked_dry_03", "burned_ground_01", "g_cover_ash"] },
+    "kit-ash": { "kit": "ash" },
+    "zone-ash": { "textures": ["mud_cracked_dry_03", "burned_ground_01", "g_cover_ash"], "with": ["kit-ash"] },
     "zone-frost": { "textures": ["Ice002", "Snow013", "g_cover_frost"] },
     "zone-storm": { "textures": ["monastery_stone_floor", "rocky_trail", "g_cover_storm"] },
     "zone-abyss": { "textures": ["dark_rock_02", "Lava001", "g_cover_abyss"] },
