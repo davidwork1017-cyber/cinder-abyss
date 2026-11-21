@@ -11786,7 +11786,7 @@ async function main() {
     return r.n + ' 种辅助';
   });
 
-  await step('分岔 / 溅击 / 断命 / 化元的效果：首次命中分出 2 枚（不扣伤害）；溅射 40%、2.5 米、同一下直接打中的不吃溅射；断命 15%（精英 8%、首领无）；化元 60% 转为加成最高的元素、蛮力只加剩下的物理', async () => {
+  await step('分岔 / 溅击 / 断命 / 化元的效果：首次命中分出 2 枚（不扣伤害）；溅射 40%、2.5 米、同一下直接打中的不吃溅射；断命 20%（精英 10%、首领无）；化元 60% 转为加成最高的元素、蛮力只加剩下的物理', async () => {
     const r = await ev(() => {
       T.arena();
       T.fix(0.5);
@@ -11852,7 +11852,7 @@ async function main() {
         G.hitEnemy(e, ctx, 1, {});
         return e.dead ? 'dead' : +(e.hp / e.maxHp).toFixed(3);
       };
-      out.cull = { n14: cull(0.14), n16: cull(0.16), e7: cull(0.07, 'elite'), e9: cull(0.09, 'elite'), b5: cull(0.05, 'boss') };
+      out.cull = { n19: cull(0.19), n21: cull(0.21), e9: cull(0.09, 'elite'), e11: cull(0.11, 'elite'), b5: cull(0.05, 'boss') };
       save.sockets.arc = [null, null, null];
       // 化元：冰霜伤害提高最高 → 转成冰霜
       save.sockets.whirl = [null, null, null];
@@ -11879,9 +11879,9 @@ async function main() {
     const near = (a, b, e) => Math.abs(a - b) < (e || 1e-6);
     assert(r.fork0.forks === 0 && r.fork0.side === 0 && r.fork1.forks === 2 && r.fork1.side >= 1 && near(r.forkMore, 1), '分岔不对：' + JSON.stringify(r));
     assert(near(r.splash.k, 0.4, 1e-6) && r.splash.far === 0 && r.both[0] === 0 && r.both[1] === 0 && r.noSup === 0, '溅击不对：' + JSON.stringify(r));
-    assert(r.cull.n14 === 'dead' && r.cull.n16 !== 'dead' && r.cull.e7 === 'dead' && r.cull.e9 !== 'dead' && r.cull.b5 !== 'dead', '断命不对：' + JSON.stringify(r.cull));
+    assert(r.cull.n19 === 'dead' && r.cull.n21 !== 'dead' && r.cull.e9 === 'dead' && r.cull.e11 !== 'dead' && r.cull.b5 !== 'dead', '断命不对：' + JSON.stringify(r.cull));
     assert(r.conv.el === 'cold' && near(r.conv.phys, 0.4) && near(r.conv.cold, 0.6) && near(r.conv.brutalPhys, 1.35) && near(r.conv.brutalCold, 1), '化元不对：' + JSON.stringify(r.conv));
-    return '分岔 ' + r.fork1.forks + ' 枚 · 溅射 ' + (r.splash.k * 100).toFixed(0) + '% · 断命 15% / 8% · 化元 → ' + r.conv.el;
+    return '分岔 ' + r.fork1.forks + ' 枚 · 溅射 ' + (r.splash.k * 100).toFixed(0) + '% · 断命 20% / 10% · 化元 → ' + r.conv.el;
   });
 
   await step('渊缚：混沌异常值满了定身并拽向怪群中心（附近有黑洞时拽向黑洞），期间不再累积；精英时间短；冻结中不拽；首领不定不拽、只减速且和冰缓取较大的', async () => {
