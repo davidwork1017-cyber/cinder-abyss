@@ -65,7 +65,7 @@ async function step(name, fn) {
   if (full) await setDpr(1);
   try {
     const info = await fn();
-    await sleep(30); // 给异步报错一点冒出来的时间
+    if (page) await sleep(30); // 给异步报错一点冒出来的时间（第一步 check-art 只用 Node，那时还没开浏览器）
     if (errors && errors.length) throw new Error('页面报错：' + errors.splice(0).join(' | '));
     passed++;
     console.log('ok   ' + name + (info ? ' — ' + info : '') + '  (' + (Date.now() - t0) + 'ms)' + NC_TAG);
