@@ -1353,7 +1353,7 @@
   // 随核 yinli：黑洞以你为中心跟着你走；持续 × dur、半径 × radius、牵引 × pull（首领不变）、每跳伤害 × dmg
   // 锁链 yuanfu：同一时刻处于渊缚的敌人连成一串（最多 max 个），其中一个受到你的伤害，其余每个分到 share
   // 暗域 xizhu（巅峰，熄烛冠）：你身周 r 米、每个召唤物身周 mr 米是暗域。域内的敌人造成的伤害 × (1 − weak)（首领 weakBoss，熄烛者不吃）；
-  //   暗域增伤（专属词缀 darkDmg）：你的伤害对所有敌人、召唤物的伤害对域内的敌人 × (1 + darkDmg%)；
+  //   暗域增伤（专属词缀 darkDmg）：你的伤害对所有敌人 × (1 + darkDmg%)；召唤物的伤害对域内的敌人 × (1 + darkDmg% × mk)（召唤流吃不到暴击行，按 mk 倍补上）；
   //   far 米外的怪不会因为距离醒来；已醒的怪在 far 米外 lose 秒看不到你就失去目标、回原地（首领不吃）；还没被发现（没醒）时你的第一击必定暴击；
   //   暖光半径 × (1 − lamp)，和幽晦叠加时雾近端不低于 fogMin
   // 双生 shuangsheng（巅峰）：刻式技能（宝石 ≥ 解锁等级或选着渊式）的每次命中，delay 秒后在同一目标上落一记这一下伤害 × k 的双生一击
@@ -1373,7 +1373,7 @@
     zhaohun: { delay: 0.15, r: 1.6, mult: 1.5, multBig: 1.0, rollCd: 0.15 },
     yinli: { dur: 0.8, radius: 0.85, pull: 0.75, dmg: 1.2 },
     yuanfu: { max: 6, share: 0.2 },
-    xizhu: { r: 8, mr: 2.5, weak: 0.2, weakBoss: 0.1, far: 9, lose: 3, lamp: 0.4, fogMin: 14 },
+    xizhu: { r: 8, mr: 2.5, weak: 0.2, weakBoss: 0.1, mk: 1.25, far: 9, lose: 3, lamp: 0.4, fogMin: 14 },
     shuangsheng: { k: 0.6, delay: 0.2, fx: 0.32 }, // fx：脚下双月的亮度（1 = 暖金原色）；0.32 时压在怪群脚边、怪的亮面只高 1–2 个点（灰度同帧对照）
   };
   // 机制说明（物品提示、图鉴用），按上面的数值拼
@@ -1407,7 +1407,7 @@
     R.yuanfu.mechAlt = '分到的伤害不暴击、不触发命中效果、不累积异常值、不带黑焰。渊缚结束即断开。首领不会被渊缚。';
     for (const id of ['nuchao', 'zhuixing', 'dianqiao', 'haiwang', 'yinli']) R[id].mechAlt = (R[id].mechAlt || '') + '只改原式，刻式 A / B 下不生效。';
     const x = M.xizhu, s2 = M.shuangsheng;
-    R.xizhu.mechDesc = '身周 ' + x.r + ' 米是暗域：域内敌人伤害降低 ' + pc(x.weak) + '。暗域增伤：你的伤害对所有敌人生效，召唤物只对域内敌人生效。';
+    R.xizhu.mechDesc = '身周 ' + x.r + ' 米是暗域：域内敌人伤害降低 ' + pc(x.weak) + '。暗域增伤：你的伤害对所有敌人生效；召唤物打域内敌人时，这份增伤按 ' + pc(x.mk) + ' 算。';
     R.xizhu.mechAlt = '召唤物身周 ' + x.mr + ' 米也算暗域。首领在域内只降低 ' + pc(x.weakBoss) + '，熄烛者不受影响。' + x.far + ' 米外的怪不会因距离醒来；已醒的怪在 ' + x.far +
       ' 米外连续 ' + x.lose + ' 秒看不到你就失去目标（首领不会）。对没发现你的敌人第一击必定暴击。暖光半径缩小 ' + pc(x.lamp) + '。';
     R.shuangsheng.mechDesc = '刻式技能每次命中，' + s2.delay + ' 秒后余响一次，造成该次伤害的 ' + pc(s2.k) + '。';
