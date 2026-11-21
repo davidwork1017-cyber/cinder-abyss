@@ -2948,7 +2948,7 @@
       const d = dist(e.x, e.z, h.x, h.z);
       if (d > core + e.r) G.pullEnemy(e, h.x, h.z, Math.min(Wv.step, d - core - e.r));
     }
-    if (G.world.vSuck) G.world.vSuck(h.x, h.z, R, 0xe8c8ff, 8);
+    if (G.world.vSuck) G.world.vSuck(h.x, h.z, R, 0x6a4a80, 4); // 暗紫、稀一点（灰度里不抬亮你周围的地面和怪）
   };
 
   // ---------- 锁链（渊缚链）：hitEnemy 里的一行钩子 ----------

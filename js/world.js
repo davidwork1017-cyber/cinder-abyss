@@ -26238,7 +26238,7 @@
   };
   // 落地只画边：一道往外推的空心细环（很快淡出）+ 几点星屑，不铺满落点（灰度检查：落点里的怪要看得清）
   W.rvStarHit = function (x, z, R) {
-    if (W.vShock) W.vShock(x, z, R, 0x7fcfb0, 0.22, 0);
+    W.burst(x, 0.4, z, 0x4a7a6a, qualId === 'low' ? 3 : 5, 3, 0.25); // 落地只扬起几点暗色的尘，不再画环（落点在落下前由符环标出）
   };
   // 独骸：骸王头顶一圈慢慢转的冠环（on = false 时收起；骸王倒下、散掉也收起）
   W.rvCrown = function (ent, on) {
