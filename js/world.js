@@ -15553,8 +15553,8 @@
         },
       });
       // 人形标准骨架的模型动作：UAL 的 Zombie_Idle / Zombie_Walk（佝偻、前倾的走路）、Hit_Chest 叠在上身、
-      // Death01 截掉开头的 0.1 s 和躺平之后的部分（0.1–1.3 s），压进上面程序化死亡的 0.6 s
-      if (cs) stdAnim(rig, cs, { loco: ['Zombie_Idle', 'Zombie_Walk'], hit: 'Hit_Chest', death: ['Death01', 0.1, 1.3] });
+      // Death01 取 0.3–1.6 s（跳过开头慢慢跪下的一段，到倒地后两腿落下为止；1.3 s 时腿还弹在半空），压进上面程序化死亡的 0.6 s
+      if (cs) stdAnim(rig, cs, { loco: ['Zombie_Idle', 'Zombie_Walk'], hit: 'Hit_Chest', death: ['Death01', 0.3, 1.6] });
       return rig;
     }));
   }
