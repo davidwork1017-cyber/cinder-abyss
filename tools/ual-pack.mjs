@@ -22,14 +22,18 @@ const UAL1_TO_STD = {
 };
 // 留下的骨骼（标准骨架去掉手指 / 末端）
 const KEEP = new Set(Object.values(UAL1_TO_STD));
-// 要的动作：[来源 1|2, 源动作名, 包里的名字, 截取 [起, 止]（秒，缺省整段）]
+// 要的动作：[来源 1|2, 源动作名, 包里的名字, 截取 [起, 止]（秒，缺省整段）, 走路（记一个周期多远）, 选项]
+// 选项 legs：只留骨盆和两条腿的通道（跑步只换腿，上身仍用 Zombie_Walk 的佝偻、前伸）；
+//      align：循环动作的起点挪到左脚最靠前的那一帧（和 Zombie_Walk 的起点同相，按速度混合时两段的脚步对得上）
 // Death01 原长 2.4 s：0–0.6 s 慢慢跪下去，0.7–1.0 s 往后倒地，1.0–1.5 s 腿弹起来再落下，1.5 s 以后躺着不动：截到 1.6 s，游戏里再压进程序化死亡的时长（0.6 s）
 const CLIPS = [
   [2, 'Zombie_Idle_Loop', 'Zombie_Idle'],
   [2, 'Zombie_Walk_Fwd_Loop', 'Zombie_Walk', null, true],
   [1, 'Hit_Chest', 'Hit_Chest'],
   [1, 'Death01', 'Death01', [0, 1.6]],
+  [1, 'Sprint_Loop', 'Sprint', null, true, { legs: true, align: true }],
 ];
+const LEGS = new Set(['pelvis', 'thigh_l', 'calf_l', 'foot_l', 'ball_l', 'thigh_r', 'calf_r', 'foot_r', 'ball_r']);
 const FPS = 30;
 
 function readGLB(f) {
@@ -159,7 +163,7 @@ const addAcc = (arr, type, extra) => {
 const ibmAcc = addAcc(ibm, 'MAT4');
 const animations = [];
 const report = [];
-for (const [src, cn, name, cut, gait] of CLIPS) {
+for (const [src, cn, name, cut, gait, opt = {}] of CLIPS) {
   const G = src === 1 ? G1 : G2, S = src === 1 ? S1 : S2;
   const a = G.J.animations.find((x) => x.name === cn);
   if (!a) throw new Error('UAL' + src + ' 里没有动作 ' + cn);
@@ -167,12 +171,22 @@ for (const [src, cn, name, cut, gait] of CLIPS) {
   const nF = Math.max(2, Math.round((t1 - t0) * FPS) + 1);
   const times = new Float32Array(nF);
   for (let f = 0; f < nF; f++) times[f] = ((t1 - t0) * f) / (nF - 1);
+  // align：起点挪到左脚（相对骨盆）最靠前的那一帧（按输出帧取整；整段循环，首尾帧相同）
+  let shift = 0;
+  if (opt.align) {
+    let best = -1e9;
+    for (let f = 0; f < nF - 1; f++) {
+      const W = world(S, sample(G, S, a, t0 + times[f])), z = W[S.names.indexOf('foot_l')].t[2] - W[S.names.indexOf('pelvis')].t[2];
+      if (z > best) { best = z; shift = f; }
+    }
+  }
+  const at = (f) => t0 + times[(f + shift) % (nF - 1)];
   // 按输出骨骼收集每帧的局部旋转 / 位移
   const R = keep.map(() => []), P = keep.map(() => []);
   // 走路（gait）：两只脚相对骨盆前后扫过的范围（取平均）×2 ≈ 一个周期走多远（原地循环的动作，游戏按走过的距离推进相位）
   const sweep = { foot_l: [1e9, -1e9], foot_r: [1e9, -1e9] };
   for (let f = 0; f < nF; f++) {
-    const L = sample(G, S, a, t0 + times[f]);
+    const L = sample(G, S, a, shift ? at(f) : t0 + times[f]);
     if (gait) {
       const W = world(S, L), pz = W[S.names.indexOf('pelvis')].t[2];
       for (const fn in sweep) {
@@ -197,6 +211,7 @@ for (const [src, cn, name, cut, gait] of CLIPS) {
     const rotVar = R[k].some((q) => 1 - Math.abs(q[0] * r0.q[0] + q[1] * r0.q[1] + q[2] * r0.q[2] + q[3] * r0.q[3]) > 1e-7);
     // 位移：只有骨盆（其余骨骼的位移是骨长，不动）
     const posVar = S2.names[i2] === 'pelvis' && P[k].some((t) => Math.hypot(t[0] - r0.t[0], t[1] - r0.t[1], t[2] - r0.t[2]) > 1e-5);
+    if (opt.legs && !LEGS.has(S2.names[i2])) return;
     if (rotVar) {
       samplers.push({ input: tAcc, output: addAcc(new Float32Array(R[k].flat()), 'VEC4'), interpolation: 'LINEAR' });
       channels.push({ sampler: samplers.length - 1, target: { node: k, path: 'rotation' } });
@@ -214,7 +229,7 @@ for (const [src, cn, name, cut, gait] of CLIPS) {
     extra = '，一个周期 ' + anim.extras.cycle + ' m（动作包单位）';
   }
   animations.push(anim);
-  report.push(name + '（UAL' + src + ' ' + cn + (cut ? ' ' + t0 + '–' + t1 + ' s' : '') + '）' + nF + ' 帧，' + channels.length + ' 个通道' + extra);
+  report.push(name + '（UAL' + src + ' ' + cn + (cut ? ' ' + t0 + '–' + t1 + ' s' : '') + '）' + nF + ' 帧，' + channels.length + ' 个通道' + extra + (shift ? '，起点挪后 ' + shift + ' 帧' : '') + (opt.legs ? '，只有骨盆和腿' : ''));
 }
 
 const bin = Buffer.concat(chunks);
