@@ -9905,7 +9905,7 @@ async function main() {
     return r.zones.join(' ') + ' ｜ ' + r.qs.join(' ') + ' ｜ 默认 ' + r.q0 + '（' + r.eff + '）';
   });
 
-  await step('画面：第 0 区的布景（除路边小物）来自自产件包 kit-ash（ca/ 开头），确实摆出来了；别的区照旧用 CC0 模型包（第 1–4 区里摆出布景的第一个区）', async () => {
+  await step('画面：第 0 区的布景全部来自自产件包 kit-ash（ca/ 开头，含路边小物），确实摆出来了；别的区照旧用 CC0 模型包（第 1–4 区里摆出布景的第一个区）', async () => {
     const r = await ev(async () => {
       const W = G.world;
       const wait = async (f, ms) => {
@@ -9931,9 +9931,10 @@ async function main() {
     const { ash, others } = r;
     const fmt = (z) => z.src.map((s) => s.key + '@' + s.pack + '×' + s.placed).join(' ');
     assert(ash.id === 'ash' && ash.hd, '第 0 区不是 ash 或没换上 PBR 外观：' + JSON.stringify(ash).slice(0, 300));
-    // 路边小物（骷髅 / 骨头 / 断剑 / 墓碑）的自产件还在改，暂用 KayKit：ca/ 开头的必须来自 kit-ash，其余来自 CC0 模型包
-    assert(ash.src.filter((s) => s.key.startsWith('ca/')).length >= 6 && ash.src.every((s) => (s.key.startsWith('ca/') ? s.pack === 'kit-ash' : s.pack === 'models')), '第 0 区布景的来源不对：' + fmt(ash));
+    // 路边小物（骷髅 / 骨头 / 断剑 / 墓碑）也换成了自产件：第 0 区的布景全部是 ca/ 开头、来自 kit-ash，不再用 CC0 模型包
+    assert(ash.src.filter((s) => s.key.startsWith('ca/')).length >= 10 && ash.src.every((s) => s.key.startsWith('ca/') && s.pack === 'kit-ash'), '第 0 区布景的来源不对：' + fmt(ash));
     const placed = (z, re) => z.src.filter((s) => re.test(s.key)).reduce((a, s) => a + s.placed, 0);
+    assert(placed(ash, /ash_(skull|bones|blade|marker)$/) >= 3, '第 0 区路边小物摆得太少：' + fmt(ash));
     assert(placed(ash, /tree_dead/) >= 3, '第 0 区枯树摆得太少：' + fmt(ash));
     assert(placed(ash, /firepit/) === ash.fires && ash.fires > 0, '第 0 区火坑的实例数和火焰数对不上：' + fmt(ash) + ' 火 ' + ash.fires);
     assert(ash.src.reduce((a, s) => a + s.placed, 0) >= 20, '第 0 区布景总数太少：' + fmt(ash));
