@@ -50,6 +50,7 @@
   function bindInput() {
     window.addEventListener('keydown', (e) => {
       if (e.ctrlKey || e.metaKey) return; // 浏览器快捷键照常工作
+      if (G.ui.storyOn()) return; // 开场故事放着：按键归它（js/story.js 自己接）
       if (e.code === 'AltLeft' || e.code === 'AltRight') {
         e.preventDefault(); // 不让 Alt 把焦点交给浏览器菜单
         input.alt = true; // 面板开着也记下：浮窗详情要用；名牌只在面板关着时展开（ui.js 的 syncLabels 自己判断）
@@ -187,7 +188,8 @@
       refreshMouseWorld();
       if (!held) sim(dt);
     }
-    W.render();
+    // 开场故事盖满屏幕的时候不画 3D（软件渲染的机器上省下整帧的开销；故事收尾淡出时照常画）
+    if (!(G.story && G.story.opaque())) W.render();
     if (!G.ui.titleOn()) G.ui.update(); // 标题画面盖着 HUD，不用每帧刷新
   }
 
@@ -237,8 +239,18 @@
           G.persist();
           G.ui.showIntro();
         };
-        if (G.ui.titleOn()) G.ui.afterTitle(intro); // 开场卡片等离开标题画面再弹
-        else intro();
+        // 开场故事：新角色第一次进游戏先放一遍，放完 / 跳过再弹开场卡片。老存档早就看过开场卡片（seenHelp），不会放；
+        // 测试的 window.__skipTitle、地址带 ?play 也不放（测试要看故事时另设 window.__story）
+        const story = !save.seenStory && (!window.__skipTitle || window.__story) && !/[?&]play\b/.test(location.search);
+        const first = () => {
+          if (!story) return intro();
+          G.ui.playStory(() => {
+            G.save.seenStory = true;
+            intro();
+          });
+        };
+        if (G.ui.titleOn()) G.ui.afterTitle(first); // 开场卡片等离开标题画面再弹
+        else first();
       }
       if (G.ui.titleOn()) G.ui.titleReady(); // 区域建好了：「继续游戏」「新游戏」可以点了
       last = performance.now();

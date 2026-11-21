@@ -2,7 +2,7 @@
 // 每一步打印一行 ok / FAIL；任何一步失败或页面出现报错，进程以非 0 退出。
 // 分两份（见 test/README.md）：main() 是 test:func（不看墙钟，可以和别的 Chrome 一起跑），timedMain() 是 test:timed（要独占机器）。
 // node test/smoke.mjs = 两份都跑（先 func 后 timed）；--func / --timed 只跑一份。
-import { launch as launchFull } from './harness.mjs';
+import { launch as launchFull, GAME_URL } from './harness.mjs';
 import { execSync } from 'node:child_process';
 import { checkArt } from '../tools/check-art.mjs';
 
@@ -19032,6 +19032,112 @@ async function main() {
   });
 
   await titleSteps();
+  await storySteps();
+}
+
+// ------------------------------------------------------------------ 开场故事（intro-story）
+// 新角色第一次进游戏放的动态漫画（js/story.js，用到时才加载）。新游戏的两条路（没有存档 / 确认覆盖）在 titleSteps 里；这里测：
+// 跳过标题画面的进法不加载它；标题画面重看：每一格的图都能载入、字幕对、点一下进下一格、Esc / 按住 / 触屏长按跳过、存档不变；减少动态效果；老存档不放
+async function storySteps() {
+  const storyRes = () => ev(() => performance.getEntriesByType('resource').filter((e) => /story/.test(e.name)).map((e) => e.name.replace(/^.*\/(js|assets)\//, '$1/')));
+  await step('开场故事：跳过标题画面（测试的 __skipTitle、地址带 ?play）的新角色不放故事，也不加载它的脚本和图', async () => {
+    const out = [];
+    for (const o of [{}, { url: GAME_URL + '?play', title: true }]) {
+      if (browser) await browser.close().catch(() => {});
+      ({ browser, page, errors } = await launch(Object.assign({ width: 1280, height: 720 }, o)));
+      await install();
+      await frames(10);
+      const r = await ev(() => ({ on: G.ui.storyOn(), loaded: !!G.story, intro: T.introOpen(), seenHelp: G.save.seenHelp, seen: G.save.seenStory, shown: getComputedStyle(document.getElementById('story')).display }));
+      const res = await storyRes();
+      assert(!r.on && !r.loaded && r.shown === 'none' && !res.length, (o.url ? '?play' : '__skipTitle') + ' 不该放 / 加载开场故事：' + JSON.stringify({ r, res }));
+      assert(r.intro && !r.seen, (o.url ? '?play' : '__skipTitle') + ' 的新角色应照旧直接看到开场卡片：' + JSON.stringify(r));
+      out.push((o.url ? '?play' : '__skipTitle') + ' 0 个请求');
+    }
+    return out.join('，');
+  });
+
+  await step('开场故事：标题画面「开场故事」重看——每一格的图都载入、字幕对，点一下进下一格，Esc / 按住 / 触屏长按都能跳过，存档不变', async () => {
+    if (browser) await browser.close().catch(() => {});
+    ({ browser, page, errors } = await launch({ width: 1280, height: 800, title: true }));
+    const bad = [];
+    page.on('response', (r) => { if (r.status() >= 400) bad.push(r.status() + ' ' + r.url()); });
+    // 先有一个存档（老角色）：载入后不放故事；重看前后存档一字不差
+    await install();
+    await until(() => G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, 90000);
+    await ev(() => { G.holdSave(false); G.save.seenHelp = true; G.persist(); });
+    await page.reload({ timeout: 90000 });
+    await install();
+    await until(() => G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, 90000);
+    assert(!(await ev(() => G.ui.storyOn() || !!G.story)), '老存档载入时不该放开场故事');
+    const canon0 = await ev(() => T.canon(G.save)), stored0 = await ev(() => localStorage.getItem('cinder-abyss-save-v1'));
+    const open = async () => {
+      await page.click('#t-story');
+      await until(() => G.ui.storyOn() && document.querySelector('#story.ready'), null, 30000);
+    };
+    const ended = () => until(() => !G.ui.storyOn() && G.ui.titleOn(), null, 10000);
+    await open();
+    await ev(() => G.story.pause(true));
+    const info = await ev(() => G.story.info());
+    assert(info.panels.length === 8 && info.total > 55 && info.total < 95, '开场故事应是 8 格、约 60–90 秒：' + JSON.stringify({ n: info.panels.length, total: info.total }));
+    // 每一格：跳到这一格，等它的图都解码好；字幕和数据里的一样
+    const per = [];
+    for (let i = 0; i < info.panels.length; i++) {
+      const P = info.panels[i];
+      await ev((t) => G.story.seek(t), P.t0 + P.dur * 0.6);
+      await until((i) => G.story.urls()[i].every((u) => G.story.loaded().includes(u) || G.story.failed().includes(u)), i, 20000);
+      const r = await ev(() => ({ idx: G.story.info().idx, cap: [...document.querySelectorAll('#story .st-cap p')].map((p) => p.textContent), capA: +getComputedStyle(document.querySelector('#story .st-cap')).opacity, failed: G.story.failed() }));
+      assert(r.idx === i && !r.failed.length, '第 ' + (i + 1) + ' 格的图没载入：' + JSON.stringify(r));
+      assert(JSON.stringify(r.cap) === JSON.stringify(P.cap) && r.capA > 0.9, '第 ' + (i + 1) + ' 格的字幕不对：' + JSON.stringify(r));
+      per.push(P.dur.toFixed(1));
+    }
+    cleanText(info.panels.map((P) => P.cap.join('')).join(''), '开场故事的字幕');
+    // 点一下：字幕出全以后进下一格
+    await ev((t) => { G.story.seek(t); G.story.pause(false); }, info.panels[2].t0 + info.panels[2].dur * 0.6);
+    const box = await ev(() => { const r = document.querySelector('#story .st-stage').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+    await page.mouse.click(box.x, box.y);
+    await frames(2);
+    const adv = await ev(() => G.story.info().t);
+    assert(adv >= info.panels[3].t0 - 0.75 && adv < info.panels[3].t0 + 1, '点一下应进下一格：' + adv.toFixed(2) + ' / 第 4 格从 ' + info.panels[3].t0.toFixed(2));
+    // 按住 0.6 秒跳过
+    await page.mouse.move(box.x, box.y);
+    await page.mouse.down();
+    await sleep(900);
+    await page.mouse.up();
+    await ended();
+    // 触屏长按跳过（pointerType touch）
+    await open();
+    await ev(({ x, y }) => document.querySelector('#story').dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', pointerId: 7, clientX: x, clientY: y, bubbles: true, isPrimary: true })), box);
+    await sleep(900);
+    await ended();
+    // Esc 跳过；「跳过」按钮
+    await open();
+    await page.keyboard.press('Escape');
+    await ended();
+    await open();
+    await page.click('#story .st-skip');
+    await ended();
+    const canon1 = await ev(() => T.canon(G.save)), stored1 = await ev(() => localStorage.getItem('cinder-abyss-save-v1'));
+    assert(canon1 === canon0 && stored1 === stored0, '重看开场故事不该改存档');
+    assert(!bad.length, '开场故事有请求失败：' + bad.slice(0, 4).join(' | '));
+    return '8 格：' + per.join(' / ') + ' 秒，共 ' + info.total.toFixed(1) + ' 秒';
+  });
+
+  await step('开场故事：系统设了「减少动态效果」时不推镜头、不做视差、不飘粒子，只淡入淡出', async () => {
+    if (await ev(() => G.ui.storyOn())) {
+      await page.keyboard.press('Escape'); // 上一步失败时留着的
+      await until(() => !G.ui.storyOn(), null, 10000);
+    }
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.click('#t-story');
+    await until(() => G.ui.storyOn() && document.querySelector('#story.ready'), null, 30000);
+    await ev(() => { G.story.pause(true); G.story.seek(G.story.info().panels[0].dur * 0.7); G.story.stepFx(30); });
+    const r = await ev(() => ({ reduce: G.story.info().reduce, tf: [...document.querySelectorAll('#story .st-panel')][0].querySelector('.st-layer').style.transform }));
+    await page.keyboard.press('Escape');
+    await until(() => !G.ui.storyOn(), null, 10000);
+    await page.emulateMedia({ reducedMotion: null });
+    assert(r.reduce && /translate\(0(\.0+)?%, ?0(\.0+)?%\)/.test(r.tf), '减少动态效果时各层不该位移：' + JSON.stringify(r));
+    return r.tf;
+  });
 }
 
 // ------------------------------------------------------------------ 标题画面与暂停菜单（title-menu）
@@ -19071,7 +19177,10 @@ async function titleSteps() {
     await frames(5);
     assert((await ev(() => G.state.time)) === s.time, '标题画面开着时模拟应暂停');
     const lay = await ev(() => ({ name: document.querySelector('.t-name').innerText, foot: document.querySelector('.t-foot').innerText, b: [...document.querySelectorAll('#t-menu .m-btn')].filter((n) => n.getClientRects().length).map((n) => T.rect(n)), w: innerWidth, h: innerHeight }));
-    assert(lay.name === '烬渊' && lay.foot.includes('致谢') && lay.b.length === 3, '标题、致谢或按钮不对：' + JSON.stringify(lay));
+    // intro-story：没有存档时可见的按钮是 新游戏 / 开场故事 / 设置 / 操作说明（原来 3 个，加了「开场故事」）
+    assert(lay.name === '烬渊' && lay.foot.includes('致谢') && lay.b.length === 4, '标题、致谢或按钮不对：' + JSON.stringify(lay));
+    const st0 = await ev(() => ({ loaded: !!G.story, res: performance.getEntriesByType('resource').filter((e) => /story/.test(e.name)).map((e) => e.name) }));
+    assert(!st0.loaded && !st0.res.length, '标题画面上还没放开场故事，不该加载它的脚本和图：' + JSON.stringify(st0));
     assert(lay.b.every((r) => r.l >= 0 && r.t >= 0 && r.r <= lay.w && r.b <= lay.h), '标题画面的按钮跑出了窗口：' + JSON.stringify(lay.b));
     // 子页：设置、操作说明、致谢；Esc 返回
     const sub = {};
@@ -19090,8 +19199,17 @@ async function titleSteps() {
     return '子页字数 ' + JSON.stringify(sub);
   });
 
-  await step('标题画面：新游戏（没有存档）直接开始、开场卡片随后弹出；没有面板时 Esc 打开暂停菜单，时间、冷却、无敌时间都停住，再按 Esc 继续', async () => {
+  await step('标题画面：新游戏（没有存档）先放开场故事，Esc 跳过后开场卡片弹出；没有面板时 Esc 打开暂停菜单，时间、冷却、无敌时间都停住，再按 Esc 继续', async () => {
+    const tBefore = await ev(() => G.state.time);
     await page.click('#t-new');
+    // intro-story：新角色先放开场故事（游戏停着），Esc 跳过后才弹开场卡片
+    await until(() => G.ui.storyOn() && document.querySelector('#story.ready'), null, 30000);
+    const sv = await ev(() => ({ on: G.ui.storyOn(), open: G.ui.isOpen(), intro: T.introOpen(), t: G.state.time, idx: G.story.info().idx, seen: G.save.seenStory }));
+    assert(sv.on && sv.open && !sv.intro && sv.idx === 0 && !sv.seen && sv.t === tBefore, '新游戏后应先放开场故事（游戏暂停、开场卡片还没弹）：' + JSON.stringify(sv));
+    await page.keyboard.press('Escape');
+    await until(() => !G.ui.storyOn() && document.getElementById('intro').classList.contains('on'), null, 10000);
+    const sk = await ev(() => ({ seen: G.save.seenStory, stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).seenStory, t: G.state.time, lvl: G.save.level, zone: G.state.zone.def.id, d: Math.hypot(G.player.x - G.state.zone.start.x, G.player.z - G.state.zone.start.z) }));
+    assert(sk.seen && sk.stored && sk.t === tBefore && sk.lvl === 1 && sk.zone === 'ash' && sk.d < 0.01, '跳过开场故事后应记下 seenStory，其余和直接开始一样（时间没走、新角色站在起点）：' + JSON.stringify(sk));
     let s = await titleState();
     assert(!s.title && !s.shown && s.intro && s.hud && s.has, '新游戏后应进区并弹出开场卡片、写入存档：' + JSON.stringify(s));
     await page.keyboard.press('Enter');
@@ -19189,6 +19307,7 @@ async function titleSteps() {
     await page.click('#t-continue');
     const r = await ev(() => ({ idx: G.state.zoneIdx, tier: G.state.tier, lvl: G.state.zone.level, canon: T.canon(G.save), title: G.ui.titleOn(), intro: T.introOpen(), lvlSave: G.save.level }));
     assert(!r.title && !r.intro && r.idx === 1 && r.tier === 1 && r.lvl === prep.lvl && r.lvlSave === 12, '继续应进入存档所在的区域（不再弹开场卡片）：' + JSON.stringify(r));
+    assert(!(await ev(() => G.ui.storyOn() || !!G.story)), '有存档（看过开场卡片）的继续游戏不该放开场故事');
     assert(r.canon === prep.canon, '载入 → 标题画面 → 继续之后存档变了');
     return s.save.replace(/\s+/g, ' ');
   });
@@ -19206,6 +19325,11 @@ async function titleSteps() {
     await page.click('#t-new');
     await Promise.all([page.waitForEvent('load', { timeout: 90000 }), page.click('#title [data-tact="new-confirm"]')]);
     await install();
+    // intro-story：确认新游戏重载后（跳过标题画面）先放开场故事，Esc 跳过再看开场卡片
+    await until(() => G.ui.storyOn() && document.querySelector('#story.ready'), null, 30000);
+    assert(!(await ev(() => T.introOpen())), '开场故事放着的时候开场卡片不该弹出');
+    await page.keyboard.press('Escape');
+    await until(() => !G.ui.storyOn() && document.getElementById('intro').classList.contains('on'), null, 10000);
     await frames(2);
     const r = await ev(() => ({ title: G.ui.titleOn(), intro: T.introOpen(), lvl: G.save.level, zone: G.state.zone.def.id, tier: G.state.tier, maxTier: G.save.maxTier, once: sessionStorage.getItem('cinder-abyss-play-once'), stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).level }));
     assert(!r.title && r.intro && r.lvl === 1 && r.zone === 'ash' && r.tier === 0 && r.maxTier === 0 && r.stored === 1, '确认后应是新角色、直接进区并弹开场卡片：' + JSON.stringify(r));
