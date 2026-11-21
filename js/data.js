@@ -259,7 +259,7 @@
     //   hitCap：同一次施放对同一个敌人最多中几枚（贴脸的霰弹；中满的敌人后面的钉子直接穿过去，打后面的）；每枚都击退、削架势。连锁镶不上。useMult：技能卡 / 秒伤按贴近时中 3 枚算
     nails: {
       name: '散钉', icon: '钉', color: '#b9c0cc', tags: ['attack', 'projectile', 'phys'], kind: 'proj', noSup: ['chain'],
-      wm: 0.42, time: 0.5, mana: 5, cd: 0, count: 5, spread: 9, speed: 30, life: 0.27, projR: 0.22, pierce: 0, hitCap: 3, useMult: 3, w: 0, kb: 0.6, poise: 6, vk: 'blade', // vk：外形先借飞刃的（形状批上线后换成钉子）
+      wm: 0.42, time: 0.5, mana: 5, cd: 0, count: 5, spread: 9, speed: 30, life: 0.27, projR: 0.22, pierce: 0, hitCap: 3, useMult: 3, w: 0, kb: 0.6, poise: 6, vk: 'nail', // vk：细长的钢钉（world.js PF_DRAW.nail）
       desc: '扇形掷出 5 枚铁钉，射程 8 米，贴近时最多 3 枚打中同一个敌人。', alt: '每枚都会击退、削架势。多重投射加钉子、扇面变宽，单体上限不变。',
     },
     // 放血：身前 arc° 的交叉两刀（一次结算），bleed：让敌人流血，4 秒内再受到这一击物理伤害的 bleed%（规则见 G.BLEED）
