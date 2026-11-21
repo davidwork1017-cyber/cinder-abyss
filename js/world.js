@@ -20556,10 +20556,10 @@
   W.frostSparkle = function (x, y, z, r) {
     if (qualId !== 'low') W.fxFlip(VFB.spark, x, y, z, 0.5 + r * 0.5, 0.18, 0xd6f3ff, { a: 0.7 }); // vf-vfx：被刺到的一下，身上一记冰晶星芒（低画质不放：每次脉冲一圈怪各一记）；vf-vfx2 收小
     // vf-vfx2：脚边结出两三根矮冰晶（不到 0.6 米，往外斜），0.6 秒后缩没，同时几片冰碴落下；低画质一根
-    vsBrush(VSH.crystal, 6, 0, 0xd8f2ff, 0x9fd8f4, 0.25, 0.5, 0.6);
+    vsBrush(VSH.crystal, 6, 0, 0x8ccbea, 0x5aa6d2, 0.35, 0.55, 0.6);
     for (let i = 0, n = qualId === 'low' ? 1 : 3; i < n; i++) {
       const a = vr(0, TAU), d = r * vr(0.7, 1.05);
-      vsEmit(x + Math.sin(a) * d, 0, z + Math.cos(a) * d, Math.sin(a) * 1e-3, 0, Math.cos(a) * 1e-3, vr(0.5, 0.65), vr(0.28, 0.36), vr(0.38, 0.55), vr(0.2, 0.55));
+      vsEmit(x + Math.sin(a) * d, 0, z + Math.cos(a) * d, Math.sin(a) * 1e-3, 0, Math.cos(a) * 1e-3, vr(0.5, 0.65), vr(0.42, 0.52), vr(0.5, 0.68), vr(0.15, 0.4));
     }
     if (qualId !== 'low') {
       vsBrush(VSH.chip, 3, 0, 0xcfeeff, 0xcfeeff, 0.3, 0.45);
@@ -21479,11 +21479,12 @@
       if (qualId !== 'low' && hit) W.vDecal(VVD.frost, P.x, P.z, aura.r * 0.62, 1.2, 0x86d8ff, { r1: aura.r * 0.98, grow: 0.35, a: 0.7 }); // 只在打中时铺
       // vf-vfx2：打中时一圈冰晶贴着地面往外推（尖朝外上方斜着，0.28 秒推到环边就碎没），冷的形状语言：硬棱、尖；不是刻式 B 那种从地里炸出来的大冰刺
       if (hit) {
-        const n = qualId === 'low' ? 7 : 14, a0 = vr(0, TAU), v = (aura.r * 0.62) / 0.28;
-        vsBrush(VSH.crystal, 6, 0, 0xe6f8ff, 0x86d8ff, 0.3, 0.5, 0.5);
+        // 看图后：冰晶大一些、立得更直（尖看得出来）、改成冰蓝主色 + 亮面一点高光（原来近白，在灰度里是一粒粒最亮的白点）
+        const n = qualId === 'low' ? 6 : 10, a0 = vr(0, TAU), v = (aura.r * 0.62) / 0.28;
+        vsBrush(VSH.crystal, 6, 0, 0x8ccbea, 0x5aa6d2, 0.35, 0.55, 0.5);
         for (let i = 0; i < n; i++) {
           const a = a0 + (i / n) * TAU + vr(-0.1, 0.1), d = aura.r * 0.36;
-          vsEmit(P.x + Math.sin(a) * d, 0.02, P.z + Math.cos(a) * d, Math.sin(a) * v, 0, Math.cos(a) * v, vr(0.26, 0.3), vr(0.3, 0.4), vr(0.5, 0.7), vr(0.85, 1.05));
+          vsEmit(P.x + Math.sin(a) * d, 0.02, P.z + Math.cos(a) * d, Math.sin(a) * v, 0, Math.cos(a) * v, vr(0.26, 0.3), vr(0.5, 0.62), vr(0.65, 0.85), vr(0.5, 0.7));
         }
       }
     }
@@ -25572,8 +25573,9 @@
     h.on = false;
     h.mesh.visible = false;
     // vf-vfx2：合上（最后 12% 已经塌缩）→ 弹出一道细细的品红环 + 几片弯月碎片甩出去（原来是一道往里收的亮环）
-    vsBrush(VSH.ring, 2, 1, CH_HI, CH_RIM, 0.3, 0, 0.35);
-    vsEmit(h.x, 0.1, h.z, 0, 0, 0, 0.3, h.R * 0.9);
+    // 看图后：环用饱和的品红（原来浅粉近白，刚弹出时是一圈粗的亮环压在怪身上）
+    vsBrush(VSH.ring, 2, 1, CH_RIM, CH_DARK, 0.2, 0, 0.5);
+    vsEmit(h.x, 0.1, h.z, 0, 0, 0, 0.3, h.R * 1.05);
     vsBrush(VSH.blade, 2, 0, CH_RIM, CH_DARK, 0.3, 0.7, 0.5);
     for (let i = 0, n = qualId === 'low' ? 3 : 6; i < n; i++) {
       const a = (i / n) * TAU + vr(-0.3, 0.3), v = h.R * vr(2.2, 3.2);
