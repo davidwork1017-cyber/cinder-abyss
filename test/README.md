@@ -60,5 +60,6 @@ test:timed 里的步骤从 test:func 拆出来：计时断言原样搬过去（�
 
 ## 其它
 
+- test:func 的第一步是 `tools/check-art.mjs`（只用 Node，不起浏览器）：核对 `assets/ca/` 的自产布景件和打进包的是同一份、符合预算和规矩。单独跑：`npm run check:art`。
 - `CINDER_FILE=1 npm test`：用 file:// 打开（经典脚本 + base64 素材包也能跑），但上线用的是 HTTP。
 - `node test/serve.mjs [端口]`（默认 8080）：自己在浏览器里看。
