@@ -422,9 +422,10 @@
   // 不同形状、不同颜色的碎件都在同一次 draw 里，不透明、不叠加变亮（亮度只留给亮芯那一小块）。
   //   tongue 火舌：圆底、尖顶、侧面一个小舔尖（立着，往上窜）；crescent 弯月：斩痕 / 风刃（外沿一道亮边）；
   //   bar 折线段：闪电、电灼纹、熔岩裂纹都用它一段段拼（两头尖，接起来不露缝）；chip 碎石：有棱角的立体小块（翻滚、落地弹）；
-  //   ring 冲击环：外沿亮带 + 环身，内沿随进度往外收细（越扩越细，最后只剩一道亮线；弯月的内沿也这样收）
+  //   ring 冲击环：外沿亮带 + 环身，内沿随进度往外收细（越扩越细，最后只剩一道亮线；弯月的内沿也这样收）；
+  //   blade 风刃：前粗后细的细弯月；crystal 冰晶：六棱尖冰柱（立体，冷的形状：硬棱、尖朝上 / 朝外）
   // 色阶：0 暗描边（实例色 × (1 − 暗边量)）/ 0.5 主色 / 1 亮芯（往暖白混）。平面形状是三层扇形叠起来的：描边垫底、主色、亮芯在最前
-  V.SH = { tongue: 0, crescent: 1, bar: 2, chip: 3, ring: 4, blade: 5 };
+  V.SH = { tongue: 0, crescent: 1, bar: 2, chip: 3, ring: 4, blade: 5, crystal: 6 };
   let shGeo = null, shMat = null;
   V.shapeGeo = function () {
     if (shGeo) return shGeo;
@@ -503,6 +504,15 @@
     strip(5, bladeArc((th) => 1 + Math.min(0.035, th * 0.5)), bladeArc((th) => 1 - th - Math.min(0.035, th * 0.5)), -0.02, 0);
     strip(5, bladeArc(() => 1), bladeArc((th) => 1 - th), 0, 0.5);
     strip(5, bladeArc(() => 0.997), bladeArc((th) => 1 - th * 0.35), 0.02, 1);
+    // 6 冰晶：六棱、上头收尖的冰柱（底在 y = 0，尖在 y = 1，底半径约 0.35），朝 +x 的面亮、背面暗，硬棱
+    const cr = (k, rr, y) => [Math.cos((k / 6) * Math.PI * 2 + 0.3) * rr, y, Math.sin((k / 6) * Math.PI * 2 + 0.3) * rr];
+    for (let k = 0; k < 6; k++) {
+      const b0 = cr(k, 0.35, 0), b1 = cr(k + 1, 0.35, 0), m0 = cr(k, 0.3, 0.68), m1 = cr(k + 1, 0.3, 0.68), tip = [0, 1, 0];
+      const lit = Math.cos(((k + 0.5) / 6) * Math.PI * 2 + 0.3), t = lit > 0.3 ? 1 : lit > -0.4 ? 0.5 : 0;
+      tri(6, b0, m0, b1, t);
+      tri(6, b1, m0, m1, t);
+      tri(6, m0, tip, m1, lit > -0.2 ? 1 : 0.5);
+    }
     const g = new T.BufferGeometry();
     g.setAttribute('position', new T.Float32BufferAttribute(P, 3));
     g.setAttribute('aSh', new T.Float32BufferAttribute(A, 3));

@@ -20544,7 +20544,20 @@
   };
   // 光环打中的敌人身上飘几粒霜屑（不闪白，免得一圈敌人每半秒集体发亮）
   W.frostSparkle = function (x, y, z, r) {
-    if (qualId !== 'low') W.fxFlip(VFB.spark, x, y, z, 0.9 + r, 0.22, 0xd6f3ff, { a: 0.8 }); // vf-vfx：被刺到的一下，身上一记冰晶星芒（低画质不放：每次脉冲一圈怪各一记）
+    if (qualId !== 'low') W.fxFlip(VFB.spark, x, y, z, 0.5 + r * 0.5, 0.18, 0xd6f3ff, { a: 0.7 }); // vf-vfx：被刺到的一下，身上一记冰晶星芒（低画质不放：每次脉冲一圈怪各一记）；vf-vfx2 收小
+    // vf-vfx2：脚边结出两三根矮冰晶（不到 0.6 米，往外斜），0.6 秒后缩没，同时几片冰碴落下；低画质一根
+    vsBrush(VSH.crystal, 6, 0, 0xd8f2ff, 0x9fd8f4, 0.25, 0.5, 0.6);
+    for (let i = 0, n = qualId === 'low' ? 1 : 3; i < n; i++) {
+      const a = vr(0, TAU), d = r * vr(0.7, 1.05);
+      vsEmit(x + Math.sin(a) * d, 0, z + Math.cos(a) * d, Math.sin(a) * 1e-3, 0, Math.cos(a) * 1e-3, vr(0.5, 0.65), vr(0.28, 0.36), vr(0.38, 0.55), vr(0.2, 0.55));
+    }
+    if (qualId !== 'low') {
+      vsBrush(VSH.chip, 3, 0, 0xcfeeff, 0xcfeeff, 0.3, 0.45);
+      for (let i = 0; i < 2; i++) {
+        const a = vr(0, TAU), v = vr(0.8, 1.8);
+        vsEmit(x + Math.sin(a) * r * 0.6, 0.35, z + Math.cos(a) * r * 0.6, Math.sin(a) * v, vr(1, 2.2), Math.cos(a) * v, vr(0.5, 0.7), vr(0.05, 0.08), undefined, vr(0, TAU), vr(6, 10), 16);
+      }
+    }
     _c.set(0xcfeeff);
     for (let i = 0; i < 3; i++) {
       const a = rand(0, TAU), d = rand(0, r);
@@ -21454,11 +21467,13 @@
       aura.sweep = (aura.sweep || 0) + 1;
       // 霜痕铺满光环那么大：低画质不铺（软件渲染下整片重叠太贵），高画质每次 1.2 秒（同时最多两三片）
       if (qualId !== 'low' && hit) W.vDecal(VVD.frost, P.x, P.z, aura.r * 0.62, 1.2, 0x86d8ff, { r1: aura.r * 0.98, grow: 0.35, a: 0.7 }); // 只在打中时铺
-      if (hit && qualId !== 'low') {
-        const n = 9, a0 = vr(0, TAU);
+      // vf-vfx2：打中时一圈冰晶贴着地面往外推（尖朝外上方斜着，0.28 秒推到环边就碎没），冷的形状语言：硬棱、尖；不是刻式 B 那种从地里炸出来的大冰刺
+      if (hit) {
+        const n = qualId === 'low' ? 7 : 14, a0 = vr(0, TAU), v = (aura.r * 0.62) / 0.28;
+        vsBrush(VSH.crystal, 6, 0, 0xe6f8ff, 0x86d8ff, 0.3, 0.5, 0.5);
         for (let i = 0; i < n; i++) {
-          const a = a0 + (i / n) * TAU, d = aura.r * 0.93;
-          W.fxFlip(VFB.spark, P.x + Math.sin(a) * d, 0.35, P.z + Math.cos(a) * d, vr(0.8, 1.1), 0.24, 0xe6f8ff, { a: 0.85 });
+          const a = a0 + (i / n) * TAU + vr(-0.1, 0.1), d = aura.r * 0.36;
+          vsEmit(P.x + Math.sin(a) * d, 0.02, P.z + Math.cos(a) * d, Math.sin(a) * v, 0, Math.cos(a) * v, vr(0.26, 0.3), vr(0.3, 0.4), vr(0.5, 0.7), vr(0.85, 1.05));
         }
       }
     }
@@ -22574,7 +22589,22 @@
   }
   function pfDraw(m, u, p, dt) {
     if (p.y < -10) return; // 还没摆到位置上
+    // vf-vfx2：出手那一下（第一次画到这颗投射物时）：掷焰手上窜起几片小火舌，飞刃出手一记小反光
+    if (!(u.age > 0) && !u.hostile && PF.vShape) {
+      if (u.vfx === 'ember') {
+        vsBrush(VSH.tongue, 1, 0, 0xffc24a, 0xd2401c, 0.3, 0.6, 0.5);
+        for (let i = 0; i < 3; i++) vsEmit(p.x + vr(-0.2, 0.2), p.y - 0.35, p.z + vr(-0.2, 0.2), vr(-0.6, 0.6), vr(0.8, 1.6), vr(-0.6, 0.6), vr(0.12, 0.16), vr(0.22, 0.3), vr(0.45, 0.6), vr(-0.4, 0.4), 0, 0, 4);
+      } else if (u.vfx === 'blade') tChunk(1, p.x, p.y, p.z, 0, 0, 0, 0.07, 0.3, 0xffffff, 0xcfd6e6, 0);
+    }
     u.age += dt;
+    // vf-vfx2：飞刃飞行时刃身一闪一闪的反光（每 0.13 秒一颗很小的星）
+    if (u.vfx === 'blade' && !u.hostile) {
+      u.gl = (u.gl || 0) + dt;
+      if (u.gl > 0.13) {
+        u.gl = 0;
+        tChunk(1, p.x, p.y + 0.05, p.z, 0, 0, 0, 0.06, 0.26, 0xffffff, 0xcfd6e6, 0);
+      }
+    }
     if (u.lx === u.lx) {
       const mx = p.x - u.lx, mz = p.z - u.lz, l2 = mx * mx + mz * mz;
       if (l2 > 1e-8) {
@@ -22602,6 +22632,11 @@
       return true;
     }
     if (vk === 'blade') {
+      // vf-vfx2：打中的一下顺着飞行方向一道很小的钢色弯月缺口
+      if (how !== 'wall') {
+        vsBrush(VSH.crescent, 0, 0, 0xf2f6ff, 0x9aa6bc, 0.6, 0.5, 0.5);
+        vsEmit(x - u.dx * 0.35, y, z - u.dz * 0.35, u.dx * 1.5, 0, u.dz * 1.5, 0.08, 0.45);
+      }
       metalSparks(x, y, z, u.dx, u.dz, how === 'wall' ? 1.5 : 1, u);
       if (how === 'wall') W.decal(0, x - u.dx * 0.3, z - u.dz * 0.3, 0.6, Math.atan2(u.dx, u.dz), 0xfff0d0, 0.3, 0.14);
       return true;
@@ -22761,15 +22796,17 @@
     const h = tint ? mixHex(0xff7a2c, tint, 0.45) : 0xff7a2c;
     // 卡通版：硬边的色环 + 一颗大星 + 一圈往外翻的实心火团（亮黄压橙、橙压深红）+ 几片焦黑的碎块 + 少量火星，地上一块硬边焦斑
     const lo = qualId === 'low', P = HIT_PAL.fire;
-    W.ring(x, z, R, h, 0.3); // 只留一道环：两道同心环压在焦斑上像个靶子
-    // vf-vfx：中心的大星换成序列帧的火团（噪声啃边、三档色带）+ 一闪的星芒火花
-    W.fxFlip(VFB.fire, x, y + 0.1, z, 1.2 + R * 0.8, 0.4, tint ? h : P[1], { grow: 1.35, vy: 0.8 });
-    W.fxFlip(VFB.spark, x, y + 0.2, z, 1.1 + R * 0.8, 0.22, P[0], { a: 0.9 });
-    flashLight(x, 2, z, 0xff8a3c, 1.6);
-    for (let i = 0, n = lo ? 5 : 9; i < n; i++) {
-      // 火团：大、往外翻、往上飘；三团里一团是亮黄的
-      const a = (i / n) * TAU + rand(-0.3, 0.3), v = rand(1.6, 3) * R;
-      tChunk(2, x + Math.sin(a) * 0.2, y - 0.2, z + Math.cos(a) * 0.2, Math.sin(a) * v, rand(1, 2.6), Math.cos(a) * v, rand(0.32, 0.46), rand(0.32, 0.46) * Math.sqrt(R), i % 3 ? h : 0xffd060, i % 3 ? P[2] : h, -1.5);
+    // vf-vfx2：不再是一整团实心的橙火（原来 9 团大火团 + 1.2 + 0.8R 的序列帧火团 + 地面闪光，把被炸的怪罩成一片橙）。
+    // 现在：中间一小团暖黄的火芯（不混白、≤ 1 米）→ 6～8 片火舌顺着往外上方甩出去、0.4 秒内收掉 → 外沿只留一道越扩越细的环
+    vsBrush(VSH.ring, 2, 1, tint ? mixHex(h, 0xffd27a, 0.5) : 0xffc060, h, 0.35, 0, 0.45);
+    vsEmit(x, 0.09, z, 0, 0, 0, 0.32, R * 1.02);
+    W.fxFlip(VFB.fire, x, y + 0.1, z, 0.9 + R * 0.2, 0.32, tint ? h : P[1], { grow: 1.2, vy: 0.8 });
+    tChunk(1, x, y + 0.15, z, 0, 0, 0, 0.1, 0.45, 0xffe2a0, h, 0);
+    flashLight(x, 2, z, 0xff8a3c, 1.0);
+    vsBrush(VSH.tongue, 0, 0, tint ? mixHex(h, 0xffd060, 0.4) : 0xffc24a, tint ? h : 0xd2401c, 0.35, 0.6, 0.4);
+    for (let i = 0, n = lo ? 4 : 7; i < n; i++) {
+      const a = (i / n) * TAU + vr(-0.3, 0.3), v = vr(2.2, 3.4) * Math.sqrt(R);
+      vsEmit(x + Math.sin(a) * 0.2, y - 0.1, z + Math.cos(a) * 0.2, Math.sin(a) * v, vr(1.6, 3), Math.cos(a) * v, vr(0.32, 0.42), vr(0.32, 0.44), vr(0.6, 0.85), 0, 0, 3, 3.5);
     }
     for (let i = 0, n = lo ? 3 : 5; i < n; i++) {
       const a = rand(0, TAU), v = rand(4, 7) * Math.sqrt(R);
@@ -22783,8 +22820,7 @@
     // vf-vfx：黑烟换成序列帧的烟团（往上飘、慢慢胀开、边缘被噪声蚀空，比火团活得久：散的那一段看得见），
     // 地上一块裂缝里透着余烬的焦痕（2.8 秒内被噪声蚀掉）+ 一记地面闪光，再飘几粒慢慢升起的余烬
     for (let i = 0, n = lo ? 1 : 3; i < n; i++) W.fxFlip(VFB.smoke, x + vr(-0.4, 0.4), y + 0.3, z + vr(-0.4, 0.4), 0.8 + R * 0.5, vr(1.0, 1.35), 0x54443e, { vy: 0.5, up: 0.35, grow: 1.7, a: 0.85 });
-    W.vDecal(VVD.scorch, x, z, R * 0.78, 2.8, h);
-    W.vDecal(VVD.flash, x, z, R * 1.5, 0.3, 0xff9a40);
+    W.vDecal(VVD.scorch, x, z, R * 0.78, 2.8, h); // vf-vfx2：不再铺地面闪光
     for (let i = 0, n = lo ? 3 : 6; i < n; i++) spawnP(x + vr(-R, R) * 0.5, 0.3, z + vr(-R, R) * 0.5, vr(-0.4, 0.4), vr(0.8, 1.8), vr(-0.4, 0.4), vr(0.9, 1.5), vr(0.08, 0.13), 1, vr(0.45, 0.7), 0.12, -0.8, 0.8);
   }
   // 金属火花：顺着飞行方向喷出去的一把亮白火花
@@ -22953,7 +22989,8 @@
   // 不透明的实心件：亮度只给亮芯那一小块，不靠加色叠亮（怪堆里不会糊成一片白）；消失靠缩没，不靠渐隐。
   // 先 vsBrush 定下这一批的形状 / 摆法 / 大小曲线 / 两档颜色 / 亮芯 / 暗边，再 vsEmit 一个个放：
   //   摆法 md：0 公告板、+y 顺着出生时的速度；1 竖直公告板（只绕 y 轴转向镜头，rot = 侧倾）；2 平躺在地上（rot = 朝向，同 atan2(dx, dz)）；
-  //            3 立体翻滚、落地弹（碎石）；4 固定线段（速度当成起点 → 终点的向量，绕线段转向镜头，不移动）；5 贴地的固定线段
+  //            3 立体翻滚、落地弹（碎石）；4 固定线段（速度当成起点 → 终点的向量，绕线段转向镜头，不移动）；5 贴地的固定线段；
+  //            6 立着、朝出生速度的水平方向斜倾 rot 弧度（冰晶：尖朝外上方），跟着速度走
   //   曲线 cv：0 弹出（12% 内长满、后 40% 缩没）；1 扩开（从 0.25 长到 1，同时往外收细）；2 闪（满大小，后 55% 隔帧闪灭）；3 收窄（长度不变，宽度后 60% 收没）
   //   颜色：寿命的前 sw 是 A，之后硬切到 B；亮芯 hot 换色后降到三成；dk 暗描边压暗的量
   const VS_N = 384, VSH = G.vfx.SH;
@@ -23014,7 +23051,7 @@
       if (l <= 0) continue;
       any = true;
       const j = i * 3, md = vsMd[i], cv = vsCv[i], f = 1 - l / vsM[i];
-      if (md < 4) {
+      if (md < 4 || md === 6) {
         vsV[j + 1] -= vsG[i] * dt;
         const dr = vsDr[i] > 0 ? Math.max(0, 1 - vsDr[i] * dt) : 1;
         vsV[j] *= dr; vsV[j + 2] *= dr;
@@ -23055,6 +23092,14 @@
         _pe.set(vsR[i], vsR[i] * 0.7, vsR[i] * 0.3);
         _pq.setFromEuler(_pe);
         mPose(x, y, z, _pq, sx, sx, sx);
+      } else if (md === 6) {
+        let hx = vsD[j], hz = vsD[j + 2];
+        const hl = Math.hypot(hx, hz);
+        if (hl < 1e-5) { hx = 0; hz = 1; } else { hx /= hl; hz /= hl; }
+        const sn = Math.sin(vsR[i]), cs = Math.cos(vsR[i]);
+        const yx = hx * sn, yy = cs, yz = hz * sn, xx = hz, xz = -hx; // 本地 y 斜向外上，本地 x 水平垂直于倾向
+        const zx = -xz * yy, zy = xz * yx - xx * yz, zz = xx * yy; // 本地 z = x × y
+        _pm.set(xx * sx, yx * sy, zx * sx, x, 0, yy * sy, zy * sx, y, xz * sx, yz * sy, zz * sx, z, 0, 0, 0, 1);
       } else if (md === 4) {
         const dx = vsD[j], dy = vsD[j + 1], dz = vsD[j + 2], dd = dx * camB.x + dy * camB.y + dz * camB.z;
         mStretch(x, y, z, dx, dy, dz, sx, Math.sqrt(Math.max(1e-6, dx * dx + dy * dy + dz * dz - dd * dd)));
@@ -25466,7 +25511,12 @@
     h.mesh.position.set(x, 0.07, z);
     h.mesh.scale.set(0.01, 1, 0.01);
     h.mesh.visible = true;
-    W.ring(x, z, R, CH_RIM, 0.3);
+    // vf-vfx2：开洞前一圈品红的弯月片从牵引圈外缘往洞心收（边转边收，0.22 秒），混沌的形状语言：往里卷；不再放一道亮环
+    vsBrush(VSH.blade, 2, 0, CH_RIM, CH_DARK, 0.3, 0.7, 0.6);
+    for (let i = 0, n = qualId === 'low' ? 5 : 10; i < n; i++) {
+      const a = (i / n) * TAU + vr(-0.2, 0.2), d = h.P * vr(0.85, 1.05), v = d / 0.24;
+      vsEmit(x + Math.sin(a) * d, 0.3, z + Math.cos(a) * d, -Math.sin(a) * v, 0, -Math.cos(a) * v, 0.22, h.P * 0.22, h.P * 0.22, a + Math.PI / 2, -7);
+    }
     W.vDecal(VVD.void, x, z, R * 0.95, mouth ? 2.4 : 3.6, CH_RIM, { a: 0.85 }); // vf-vfx：洞底下的地面被染成一片暗紫的渊痕（品红细纹），洞合上后慢慢蚀掉
     return h;
   };
@@ -25490,7 +25540,14 @@
     if (!h || !h.on) return;
     h.on = false;
     h.mesh.visible = false;
-    W.ring(h.x, h.z, h.R * 0.55, CH_RIM, 0.3); // 合上时往里一收
+    // vf-vfx2：合上（最后 12% 已经塌缩）→ 弹出一道细细的品红环 + 几片弯月碎片甩出去（原来是一道往里收的亮环）
+    vsBrush(VSH.ring, 2, 1, CH_HI, CH_RIM, 0.3, 0, 0.35);
+    vsEmit(h.x, 0.1, h.z, 0, 0, 0, 0.3, h.R * 0.9);
+    vsBrush(VSH.blade, 2, 0, CH_RIM, CH_DARK, 0.3, 0.7, 0.5);
+    for (let i = 0, n = qualId === 'low' ? 3 : 6; i < n; i++) {
+      const a = (i / n) * TAU + vr(-0.3, 0.3), v = h.R * vr(2.2, 3.2);
+      vsEmit(h.x, 0.35, h.z, Math.sin(a) * v, 0, Math.cos(a) * v, vr(0.25, 0.34), 0.7, 0.7, a - Math.PI / 2, 9, 0, 3);
+    }
   };
   // 往里卷的光点（每帧算位置，画进 chShard 实例缓冲，不占粒子池）：从牵引圈外缘出生，沿对数螺旋转着往核里落，
   // 中途升起一点再被吸下去；外半程品红、内半程亮芯（三档阶梯：出生 / 落进核时只有半个大小）。高画质每个洞 14 粒、低画质 6 粒，渊口减半
@@ -25518,6 +25575,15 @@
       mStretch(x, y, z, _ms.x - x, _ms.y - y, _ms.z - z, s * 0.55, s * 2.4);
       const c = u < 0.55 ? chLin.rim : chLin.hi;
       pfPut('chShard', c[0], c[1], c[2]);
+    }
+    // vf-vfx2：另有几片平躺的弯月片顺着螺旋卷进洞里（混沌：往里卷、暗芯亮边），越近洞心越小
+    if (!PF.vShape) return;
+    for (let i = 0, m = (lo ? 2 : 5) >> (h.mouth ? 1 : 0); i < m; i++) {
+      const u = (((wtime - h.t0) * 0.42 + i / m) % 1 + 1) % 1, a0 = h.ph + i * 1.7 + 0.5;
+      holeMote(h, u, a0, _ms);
+      const dx = _ms.x - h.x, dz = _ms.z - h.z, rr = Math.hypot(dx, dz), sc = h.P * 0.26 * (1 - 0.6 * u) * (u < 0.08 ? u / 0.08 : 1);
+      mFlat(_ms.x, 0.12 + _ms.y * 0.3, _ms.z, Math.atan2(dx, dz) + Math.PI * 0.62, sc, sc);
+      vsNow(VSH.blade, chLin.rim[0], chLin.rim[1], chLin.rim[2], 0.25, 0.7, 0);
     }
   }
   W.holeCount = () => chHoles.filter((h) => h.on).length;
