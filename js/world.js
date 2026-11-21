@@ -23430,10 +23430,11 @@
   };
   // ===================================================================== 第一批新技能（skill-expand）的特效：全部画进形状批 vShape，地面痕迹走 vDecal，不建新网格
   // 冰脊的一段：3 根硬冰晶斜着朝外刺出（尖朝外上方，亮芯只在冰晶本身、很小），0.5 秒后缩没、掉几片冰碴；地上冻青灰痕（比地面暗，低画质不铺）
-  W.frostLineSeg = function (sx, sz, ang, segL, half, i, n) {
+  // sc：冰晶的大小倍率（刻式「岔脊」的岔脊 0.7、「冰枪」0.6）
+  W.frostLineSeg = function (sx, sz, ang, segL, half, i, n, hex, sc) {
     const lo = qualId === 'low', sn = Math.sin(ang), cs = Math.cos(ang);
     const cx = sx + sn * segL * 0.5, cz = sz + cs * segL * 0.5;
-    const k = 0.75 + 0.35 * (i / Math.max(1, n - 1)); // 由近到远越来越高
+    const k = (0.75 + 0.35 * (i / Math.max(1, n - 1))) * (sc || 1); // 由近到远越来越高
     vsBrush(VSH.crystal, 6, 0, 0x9fd8f2, 0x5aa6d2, 0.3, 0.55, 0.55);
     const m = lo ? 2 : 3;
     for (let j = 0; j < m; j++) {
@@ -23521,6 +23522,7 @@
     const lo = qualId === 'low';
     tetherLine(pts, 0.08, mixHex(hex, 0xffffff, 0.45), lo ? 3 : 5, 0.35);
     if (k >= 1.79 && !lo) tetherLine(pts, 0.05, mixHex(hex, 0x806010, 0.35), 5, 0.5);
+    if (k >= 2.4 && !lo) tetherLine(pts, 0.04, mixHex(hex, 0x604010, 0.5), 4, 0.65); // 刻式「锁雷」叠到 +140% 以上：第三股，更细更暗
     const p = pts[pts.length > 1 ? 1 : 0];
     tChunk(1, p.x, 1.2, p.z, 0, 0, 0, 0.05, 0.35, 0xfffbe0, hex, 0);
   };
@@ -23541,6 +23543,85 @@
       if (++bdN > (lo ? 16 : 40)) return;
       const a = vr(0, TAU), d = r * vr(0.25, 0.6);
       vsEmit(x + Math.sin(a) * d, h * vr(0.45, 0.8), z + Math.cos(a) * d, Math.sin(a) * 0.5, vr(-0.2, 0.6), Math.cos(a) * 0.5, vr(0.55, 0.8), vr(0.14, 0.18), undefined, vr(0, TAU), vr(4, 8), 14);
+    }
+  };
+  // ===================================================================== 第一批新技能的刻式（skill-batch2）：同样全画进形状批，不建新网格；低画质件数减半
+  // 冰枪扎中：一颗很小的亮芯（≤ 0.45 米、40 毫秒）+ 两块冰碴（低画质 1 块）
+  W.lanceTip = function (x, z, hex) {
+    tChunk(1, x, 0.7, z, 0, 0, 0, 0.04, 0.45, 0xe8f8ff, 0xb8e4f8, 0);
+    vsBrush(VSH.chip, 3, 0, 0xcfeeff, 0x7fb4cc, 0.2, 0.45);
+    for (let i = 0, n = qualId === 'low' ? 1 : 2; i < n; i++) {
+      const a = vr(0, TAU), v = vr(1.2, 2.2);
+      vsEmit(x, 0.6, z, Math.sin(a) * v, vr(1.5, 2.6), Math.cos(a) * v, vr(0.45, 0.6), vr(0.05, 0.08), undefined, vr(0, TAU), vr(6, 12), 18);
+    }
+  };
+  // 重凌：一根大冰凌从 7 米高斜着落下（细长冰晶顺着速度拉长，比普通冰凌粗一倍多）
+  W.icicleSlamFall = function (x, z, R, fall) {
+    const H = 7, dx = 1.2;
+    vsBrush(VSH.crystal, 0, 2, 0xb8e4f8, 0x86c4e2, 0.25, 0.55, 0.7);
+    vsEmit(x + dx, H, z, -dx / fall, -H / fall, 0, fall, 0.55, 2.4);
+  };
+  // 重凌落地：中间一颗小亮芯（≤ 0.6 米、50 毫秒）；冰晶只沿外沿一圈朝外斜立（只画边，低画质 6 根），冰碴往外弹；
+  // 地上一块比地面暗的冻痕（低画质不铺）
+  W.icicleSlam = function (x, z, R, hex) {
+    const lo = qualId === 'low';
+    tChunk(1, x, 0.5, z, 0, 0, 0, 0.05, 0.6, 0xe8f8ff, 0xb8e4f8, 0);
+    vsBrush(VSH.crystal, 6, 0, 0x8ccbea, 0x4f8fb8, 0.15, 0.6, 0.5);
+    const n = lo ? 6 : 12, a0 = vr(0, TAU);
+    for (let i = 0; i < n; i++) {
+      const a = a0 + (i / n) * TAU, sa = Math.sin(a), ca = Math.cos(a), r = R * vr(0.75, 0.92);
+      vsEmit(x + sa * r, 0, z + ca * r, sa * 1e-3, 0, ca * 1e-3, vr(0.6, 0.8), vr(0.3, 0.4), vr(0.7, 0.95), vr(0.35, 0.6));
+    }
+    vsBrush(VSH.chip, 3, 0, 0xcfeeff, 0x7fb4cc, 0.2, 0.45);
+    for (let i = 0, m = lo ? 4 : 8; i < m; i++) {
+      const a = vr(0, TAU), v = vr(2, 4);
+      vsEmit(x, 0.4, z, Math.sin(a) * v, vr(2, 3.5), Math.cos(a) * v, vr(0.5, 0.7), vr(0.06, 0.1), undefined, vr(0, TAU), vr(6, 12), 18);
+    }
+    if (!lo) W.vDecal(VVD.frost, x, z, R * 0.85, 2, 0x5f8ea4, { a: 0.6 });
+  };
+  // 随凌：每落一根冰凌，在你此刻的位置外沿冒几根短命的冰牙（只画边，跟着你走；低画质 3 根）
+  W.iceRainFollow = function (x, z, R, life) {
+    const n = qualId === 'low' ? 3 : 6, a0 = vr(0, TAU);
+    vsBrush(VSH.crystal, 6, 3, 0x86c4e2, 0x4f8fb8, 0.12, 0.6, 0.85);
+    for (let i = 0; i < n; i++) {
+      const a = a0 + (i / n) * TAU + vr(-0.3, 0.3), sa = Math.sin(a), ca = Math.cos(a);
+      vsEmit(x + sa * R, 0, z + ca * R, sa * 1e-3, 0, ca * 1e-3, life, vr(0.2, 0.28), vr(0.4, 0.55), vr(0.35, 0.6));
+    }
+  };
+  // 闪迸：冲刺的路上一道细折线（两头尖的线段，隔帧闪灭；低画质 2 段），落地那一圈照常由 dischargeFx 画
+  W.dischargeDash = function (x0, z0, x1, z1, hex) {
+    tetherLine([{ x: x0, z: z0 }, { x: x1, z: z1 }], 0.07, mixHex(hex, 0xffffff, 0.35), qualId === 'low' ? 2 : 4, 0.3);
+  };
+  // 聚雷：手到目标一道细折线；过载时多一股、目标身上一颗小星和三根往外的短折线（低画质 2 根）
+  W.focusZap = function (pts, hex, over) {
+    const lo = qualId === 'low';
+    tetherLine(pts, over ? 0.09 : 0.07, mixHex(hex, 0xffffff, over ? 0.5 : 0.35), lo ? 3 : 4, 0.3);
+    const p = pts[pts.length - 1];
+    if (!over) return;
+    if (!lo) tetherLine(pts, 0.05, mixHex(hex, 0x806010, 0.35), 4, 0.45);
+    tChunk(1, p.x, 1.2, p.z, 0, 0, 0, 0.05, 0.5, 0xfffbe0, hex, 0);
+    vsBrush(VSH.bar, 4, 2, 0xfff3a8, hex, 0.5, 0.35, 0.4);
+    for (let i = 0, n = lo ? 2 : 3; i < n; i++) zig(p.x, 1.2, p.z, vr(0, TAU), -0.3, 2, 0.35, 0.07);
+  };
+  // 钩钉：钉子到你手上一道暗钢色的细线，0.12 秒（不亮，看得出在往回拽）
+  W.hookLine = function (x0, z0, x1, z1) {
+    vsBrush(VSH.bar, 4, 3, 0x6a707c, 0x4a505a, 0, 0.4, 1);
+    vsEmit(x0, 1.0, z0, x1 - x0, 0.15, z1 - z0, 0.12, 0.035);
+  };
+  // 血镰：一道平躺的暗红弯月贴着刀的高度往前飞到 len（0.22 秒），只有前缘一点亮；后面跟一道更小更暗的；尽头掉几块暗红碎屑（低画质减半、不画残影）
+  W.rendWave = function (x, z, ang, len, hex) {
+    const lo = qualId === 'low', sn = Math.sin(ang), cs = Math.cos(ang), t = 0.22, v = (len - 0.6) / t;
+    vsBrush(VSH.crescent, 2, 3, mixHex(hex, 0xffffff, 0.15), mixHex(hex, 0x301010, 0.4), 0.25, 0.45, 0.6);
+    vsEmit(x + sn * 0.6, 1.0, z + cs * 0.6, sn * v, 0, cs * v, t, 0.9, 0.9, ang);
+    if (!lo) {
+      vsBrush(VSH.crescent, 2, 3, mixHex(hex, 0x301010, 0.35), mixHex(hex, 0x200808, 0.5), 0, 0.4, 1);
+      vsEmit(x + sn * 0.3, 0.85, z + cs * 0.3, sn * v * 0.9, 0, cs * v * 0.9, t, 0.7, 0.7, ang);
+    }
+    const ex = x + sn * len, ez = z + cs * len;
+    vsBrush(VSH.chip, 3, 0, 0xb8332a, 0x8a2420, 0, 0.5);
+    for (let i = 0, n = lo ? 1 : 3; i < n; i++) {
+      const a = ang + vr(-0.8, 0.8), sp = vr(1, 2.2);
+      vsEmit(ex - sn * 0.4, 0.9, ez - cs * 0.4, Math.sin(a) * sp, vr(0.5, 1.5), Math.cos(a) * sp, vr(0.4, 0.55), vr(0.08, 0.12), undefined, vr(0, TAU), vr(6, 10), 14);
     }
   };
   function spinBladesDraw(dt) {
@@ -27565,7 +27646,7 @@
       // 元素异常值：火 / 冰 / 雷三小段并排，各占三分之一宽，按累积量从左往右涨（有任何一段不为空时才画）
       ay = drawBuildUp(g, e, x, ay, w);
       if (e.stunT > 0) { g.fillStyle = '#ffffff'; g.fillRect(x, ay, 5, 3); }
-      // 流血（skill-expand）：右端一排暗红小格，一格一层（最多 6 格）
+      // 流血（skill-expand）：右端一排暗红小格，一格一层（最多 6 格；刻式「剜创」刺中的最多 8 格）
       const bn = G.bleedStacks ? G.bleedStacks(e) : 0;
       if (bn > 0) {
         g.fillStyle = 'rgba(0,0,0,0.72)';

@@ -435,9 +435,8 @@ function cleanText(txt, where) {
 
 // 裂石击已删除（近战的连招在右键的武器普攻上，见「武器普攻」那几步）
 const SKILL_IDS = ['ember', 'blade', 'nova', 'arc', 'meteor', 'blink', 'whirl', 'shadestep', 'thrall', 'colossus'];
-// 第一批新技能（skill-expand）。刻式留到第二批：「刻式：每个宝石技能都有 A / B」那一步只对这张表里的 id 例外（表本身也断言：恰好这 6 个、都是技能宝石、都还没有刻式）
+// 第一批新技能（skill-expand）。它们的刻式在第二批（skill-batch2）补齐：「刻式：每个宝石技能都有 A / B」那一步不再有例外表（原来的 VARIANT_PENDING 已删）
 const NEW_SKILLS = ['frostline', 'icefall', 'discharge', 'tether', 'nails', 'rend'];
-const VARIANT_PENDING = NEW_SKILLS;
 const BAR_SLOTS = [0, 2, 3]; // 能绑技能的三格（右键固定是武器普攻）
 const INPUT_NAME = ['左键', '右键', 'Q', 'E'];
 async function holdInput(slot, down) {
@@ -12951,16 +12950,16 @@ async function main() {
   // ------------------------------------------------------------------ D1 刻式（设计稿 §10）
   // 五步共用：进来时把存档存一份，最后一步结束时原样放回（刻式、宝石等级、通货都不带进后面的步骤）
   let varKeep = null;
-  await step('刻式：裂石击和第一批新技能（例外表 VARIANT_PENDING，刻式留到第二批）以外的 14 个宝石技能都有 A / B；宝石 9 级不能选、10 级能选；第一次免费，第二次扣 1 乱流石、不够时拒绝；战斗中拒绝；技能页 10 级才有三个按钮', async () => {
+  await step('刻式：裂石击以外的 20 个宝石技能都有 A / B（含第一批新技能，没有例外表）；宝石 9 级不能选、10 级能选；第一次免费，第二次扣 1 乱流石、不够时拒绝；战斗中拒绝；技能页 10 级才有三个按钮', async () => {
     varKeep = await ev(() => { G.persist(); return localStorage.getItem('cinder-abyss-save-v1'); });
-    const r = await ev((PEND) => {
+    const r = await ev((NEW) => {
       T.arena();
       const s = G.save, P = G.player, out = {};
       // 裂石击不做刻式（要从可学技能里拿掉，见设计稿实现记录）：其余宝石技能都要有，表里也不能有别的
       out.n = Object.keys(G.VARIANTS).length;
-      out.missing = G.GEM_SKILLS.filter((id) => id !== 'cleave' && PEND.indexOf(id) < 0).filter((id) => !(G.VARIANTS[id] && G.VARIANTS[id].a && G.VARIANTS[id].b && G.VARIANTS[id].a.name && G.VARIANTS[id].b.name && G.VARIANTS[id].a.desc && G.VARIANTS[id].b.desc));
-      // 例外表只能是这 6 个新技能：都是技能宝石、都还没有刻式（第二批补上刻式时把它们从表里拿掉，这里会提醒）
-      out.pend = PEND.length === 6 && PEND.every((id) => G.GEM_SKILLS.indexOf(id) >= 0 && !G.VARIANTS[id]) && G.GEM_SKILLS.length === 14 + PEND.length;
+      out.missing = G.GEM_SKILLS.filter((id) => id !== 'cleave').filter((id) => !(G.VARIANTS[id] && G.VARIANTS[id].a && G.VARIANTS[id].b && G.VARIANTS[id].a.name && G.VARIANTS[id].b.name && G.VARIANTS[id].a.desc && G.VARIANTS[id].b.desc));
+      // 第一批的 6 个新技能都在表里（第二批 skill-batch2 补齐），宝石技能一共 20 个
+      out.pend = NEW.every((id) => G.GEM_SKILLS.indexOf(id) >= 0 && !!G.VARIANTS[id]) && G.GEM_SKILLS.length === 20;
       out.extra = Object.keys(G.VARIANTS).filter((id) => G.GEM_SKILLS.indexOf(id) < 0 || id === 'cleave');
       out.price = G.VARIANT_LVL === 10 && G.VARIANT_COST.cur === 'chaos' && G.VARIANT_COST.n === 1 && G.CURRENCY.chaos.name === '乱流石';
       s.variants = {};
@@ -12997,16 +12996,16 @@ async function main() {
       out.clicked = s.cur.chaos === 0 && !s.variants.ember && G.SKILLS.ember === G.SKILL_V.ember.o && /换成了「原式」/.test(T.bodyText());
       G.ui.close();
       return out;
-    }, VARIANT_PENDING);
-    assert(r.n === 14 && !r.missing.length && !r.extra.length && r.price && r.pend, '刻式表不全：' + JSON.stringify(r));
+    }, NEW_SKILLS);
+    assert(r.n === 20 && !r.missing.length && !r.extra.length && r.price && r.pend, '刻式表不全：' + JSON.stringify(r));
     assert(!r.lv9 && r.btn9 === 0 && r.lock9, '宝石 9 级不该能选刻式：' + JSON.stringify(r));
     assert(r.free && r.refuse && r.paid, '价格不对（第一次免费、之后 1 乱流石、不够拒绝）：' + JSON.stringify(r));
     assert(r.combat && r.asleep, '战斗中应拒绝换刻式：' + JSON.stringify(r));
     assert(r.btn10 === 3 && r.on === 'b' && r.clicked, '技能页的刻式按钮不对：' + JSON.stringify(r));
-    return '14 个技能 × A / B；免费 → 拒绝 → 扣 1 → 战斗中拒绝 → 按钮换回原式';
+    return '20 个技能 × A / B；免费 → 拒绝 → 扣 1 → 战斗中拒绝 → 按钮换回原式';
   });
 
-  await step('刻式：没选时 G.SKILLS 和 G.SKILL_BASE 深比较完全相同（28 个刻式各选一遍再改回原式也相同，对象就是原来那个）', async () => {
+  await step('刻式：没选时 G.SKILLS 和 G.SKILL_BASE 深比较完全相同（40 个刻式各选一遍再改回原式也相同，对象就是原来那个）', async () => {
     const r = await ev(() => {
       T.arena();
       const s = G.save, eq = () => T.canon(G.SKILLS) === T.canon(G.SKILL_BASE);
@@ -13031,10 +13030,10 @@ async function main() {
     });
     assert(r.start && r.back && r.same && r.base, '原式和 G.SKILL_BASE 不一致：' + JSON.stringify(r));
     assert(!r.diff.length, '这些刻式没生效或和原式一样：' + r.diff.join(', '));
-    return '28 个刻式选一遍再改回，G.SKILLS 深比较不变';
+    return '40 个刻式选一遍再改回，G.SKILLS 深比较不变';
   });
 
-  await step('刻式：单体对等——游戏内 avgHit / useMult / time 算出 28 个比值都在 [0.9, 1.1]（霜环、黑焰按总秒伤 [0.95, 1.05]）', async () => {
+  await step('刻式：单体对等——游戏内 avgHit / useMult / time 算出 40 个比值都在 [0.9, 1.1]（霜环、黑焰按总秒伤 [0.95, 1.05]）', async () => {
     const r = await ev(() => {
       T.arena();
       const s = G.save;
@@ -13055,7 +13054,7 @@ async function main() {
       return rows;
     });
     const bad = r.filter((x) => (x.total ? x.r < 0.95 || x.r > 1.05 : x.r < 0.9 || x.r > 1.1));
-    assert(r.length === 28 && !bad.length, '比值超出范围：' + JSON.stringify(bad));
+    assert(r.length === 40 && !bad.length, '比值超出范围：' + JSON.stringify(bad));
     return r.map((x) => x.name + ' ' + x.r).join(' / ');
   });
 
@@ -14093,6 +14092,392 @@ async function main() {
     assert(r.pool > 0 && r.chaosInHit === 0, '传焰应点在身上、不加进这一击：' + JSON.stringify(r));
     assert(r.jumps === 1 && r.depth === 1 && r.bPool > 0 && r.burned >= 4, '宿主死时黑焰应跳到下一个并接着烧：' + JSON.stringify(r));
     return '点燃 ' + r.pool + '，跳过去 ' + r.bPool + '（深 ' + r.depth + '），烧了 ' + r.burned + ' 跳';
+  });
+
+  // ---- 第一批新技能的刻式（skill-batch2）：每个刻式一步，验它那条新规则；比伤害的地方 T.fix(0.5)（不暴击、取中值），期望值用同一个 ctx 算 ----
+  await step('刻式 b2·冰脊「岔脊」：主脊打中的敌人脚下横刺岔脊，打到主脊外侧 2 米的怪（伤害四成）；主脊打过的不再挨岔脊；5 米外的打不到', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('frostline', 'a');
+      T.fix(0.5);
+      const m = TV.mob(4, 0), side = TV.mob(4, 2.2), off = TV.mob(4, 5);
+      for (const e of [m, side, off]) TV.pin(e);
+      const ctx = G.skillCtx('frostline');
+      const exp = G.avgHit(ctx);
+      TV.cast('frostline', TV.at(8), 0.6);
+      const out = { m: TV.n(m), side: TV.n(side), off: TV.n(off), forks: TV.st('forks'), km: TV.dmg(m) / exp, ks: TV.dmg(side) / exp };
+      TV.done();
+      return out;
+    });
+    assert(r.m === 1 && r.side === 1 && r.off === 0 && r.forks === 1, '岔脊的命中不对：' + JSON.stringify(r));
+    assert(Math.abs(r.km - 1) < 0.1 && Math.abs(r.ks - 0.4) < 0.05, '主脊 / 岔脊的伤害不对（应为 1 / 0.4 倍）：' + JSON.stringify(r));
+    return '主脊 ' + r.km.toFixed(2) + '，岔脊 ' + r.ks.toFixed(2) + ' 倍';
+  });
+  await step('刻式 b2·冰脊「冰枪」：扎中第一个就停（身后的不挨），11 米处的单个敌人也够得到；冰霜异常值比原式多', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      const out = {};
+      TV.setup('frostline', 'b');
+      T.fix(0.5);
+      const near = TV.mob(5, 0), back = TV.mob(7.5, 0);
+      TV.cast('frostline', TV.at(11), 0.6);
+      out.near = TV.n(near);
+      out.back = TV.n(back);
+      out.ail = G.skillCtx('frostline').ailment; // 靶子的异常阈值是无穷大（T.mob），比的是 ctx 里的异常累积速度
+      TV.done();
+      TV.setup('frostline', 'b');
+      const far = TV.mob(11, 0);
+      TV.cast('frostline', TV.at(11), 0.6);
+      out.far = TV.n(far);
+      TV.done();
+      TV.setup('frostline', 'o');
+      T.fix(0.5);
+      const n0 = TV.mob(5, 0), b0 = TV.mob(7.5, 0);
+      TV.cast('frostline', TV.at(11), 0.6);
+      out.o = [TV.n(n0), TV.n(b0)];
+      out.ail0 = G.skillCtx('frostline').ailment;
+      TV.done();
+      return out;
+    });
+    assert(r.near === 1 && r.back === 0 && r.far === 1, '冰枪应扎中第一个就停、够到 11 米：' + JSON.stringify(r));
+    assert(r.o[0] === 1 && r.o[1] === 1 && r.ail - r.ail0 === 60, '原式应刺穿两只；冰枪的异常累积速度应 +60%：' + JSON.stringify(r));
+    return '异常累积 +' + r.ail0 + '% → +' + r.ail + '%';
+  });
+  await step('刻式 b2·坠凌「重凌」：1 秒内不伤害，之后 2.4 米内每只都吃整根（同一次施放 = avgHit），圈外的不挨；不再是持续技能', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('icefall', 'a');
+      T.fix(0.5);
+      const ms = [];
+      for (let i = 0; i < 6; i++) {
+        const e = TV.mob(7 + (i % 3) * 0.8, i < 3 ? -0.8 : 0.8);
+        TV.pin(e);
+        ms.push(e);
+      }
+      const out2 = TV.mob(7.8, 4);
+      TV.pin(out2);
+      const ctx = G.skillCtx('icefall'), exp = G.avgHit(ctx);
+      TV.cast('icefall', TV.at(7.8), 0.9);
+      const early = ms.reduce((a, e) => a + TV.n(e), 0);
+      TV.run(0.6);
+      const out = { early, n: ms.map(TV.n), out: TV.n(out2), slams: TV.st('slams'), k: ms.map((e) => +(TV.dmg(e) / exp).toFixed(3)), lasting: G.supportFits('icefall', 'lasting') };
+      TV.done();
+      return out;
+    });
+    assert(r.early === 0 && r.n.every((x) => x === 1) && r.out === 0 && r.slams === 1, '重凌的落地时机 / 范围不对：' + JSON.stringify(r));
+    assert(r.k.every((x) => Math.abs(x - 1) < 0.1) && !r.lasting, '重凌每只应吃整根、绵延不再适用：' + JSON.stringify(r));
+    return '6 只各 ' + r.k[0] + ' 倍';
+  });
+  await step('刻式 b2·坠凌「随凌」：冰凌雨跟着你走——放完走到 8 米外的怪身边，它照样挨砸；原式落在原地，走过去的不挨', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      const out = {};
+      for (const v of ['b', 'o']) {
+        TV.setup('icefall', v);
+        const P = G.player, far = TV.mob(8, 0), here = TV.mob(1.6, 0);
+        for (const e of [far, here]) TV.pin(e);
+        TV.cast('icefall', TV.at(1.6), 0.1);
+        P.x = far.x - TV.d.x * 1.3;
+        P.z = far.z - TV.d.z * 1.3;
+        TV.run(3.4);
+        out[v] = { far: TV.n(far), rains: TV.st('rains') };
+        TV.done();
+      }
+      return out;
+    });
+    assert(r.b.far >= 4 && r.o.far === 0, '随凌应跟着你、原式应留在原地：' + JSON.stringify(r));
+    return '走过去的怪挨 ' + r.b.far + ' 根（原式 0）';
+  });
+  await step('刻式 b2·迸电「闪迸」：朝 6 米外的怪冲过去（停在它身前、不贴进去）再电；冲刺不给无敌；准星在墙后时停在墙前、站在能走的地方', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      const P = G.player, W = G.world, out = {};
+      TV.setup('discharge', 'a');
+      const x0 = P.x, z0 = P.z, m = TV.mob(6, 0);
+      TV.pin(m);
+      P.iframe = 0;
+      TV.cast('discharge', TV.at(6), 0);
+      out.iframe = P.iframe;
+      TV.run(0.3);
+      out.moved = +Math.hypot(P.x - x0, P.z - z0).toFixed(2);
+      out.gap = +(Math.hypot(P.x - m.x, P.z - m.z) - m.r).toFixed(2);
+      out.hit = TV.n(m);
+      TV.done();
+      // 找一个 1.5–4.5 米外就有墙的方向，把准星放到墙后 8 米
+      TV.setup('discharge', 'a');
+      let wall = null;
+      for (let k = 0; k < 48 && !wall; k++) {
+        const a = (k / 48) * Math.PI * 2, sx = Math.sin(a), sz = Math.cos(a);
+        let d = 0.25;
+        while (d < 6 && W.walkable(P.x + sx * d, P.z + sz * d, 0)) d += 0.25;
+        if (d >= 1.5 && d <= 4.5) wall = { a, d, sx, sz };
+      }
+      if (!wall) {
+        // 竞技场里四面都开阔：退到一面墙前
+        const d = T.openDir(40);
+        let L = 0.5;
+        while (W.walkable(P.x + d.x * (L + 0.25), P.z + d.z * (L + 0.25), 0)) L += 0.25;
+        P.x += d.x * (L - 3);
+        P.z += d.z * (L - 3);
+        wall = { a: Math.atan2(d.x, d.z), d: 3, sx: d.x, sz: d.z };
+      }
+      const wx = P.x, wz = P.z;
+      T.aim(P.x + wall.sx * 8, P.z + wall.sz * 8);
+      G.execSkill(G.skillCtx('discharge'));
+      TV.run(0.2);
+      out.wallD = wall.d;
+      out.wmoved = +Math.hypot(P.x - wx, P.z - wz).toFixed(2);
+      out.walk = W.walkable(P.x, P.z, 0.4);
+      out.dash = TV.st('dashes');
+      TV.done();
+      return out;
+    });
+    assert(r.moved > 3.5 && r.gap >= 0.6 && r.gap <= 1.6 && r.hit === 1, '闪迸应冲到怪身前约 1 米再电：' + JSON.stringify(r));
+    assert(!(r.iframe > 0), '闪迸的冲刺不该给无敌：' + JSON.stringify(r));
+    assert(r.wmoved < r.wallD && r.walk && r.dash === 1, '闪迸应停在墙前、站在能走的地方：' + JSON.stringify(r));
+    return '冲出 ' + r.moved + ' 米、离怪 ' + r.gap + ' 米；墙在 ' + r.wallD + ' 米，冲了 ' + r.wmoved + ' 米';
+  });
+  await step('刻式 b2·迸电「聚雷」：只打最近的一只；连着第 3 下过载（2 倍伤害、普通怪眩晕，2 秒内不再眩晕）；精英改为削架势、不眩晕', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      const out = {};
+      TV.setup('discharge', 'b');
+      T.fix(0.5);
+      const m = TV.mob(1.5, 0), m2 = TV.mob(2.5, 1);
+      for (const e of [m, m2]) {
+        TV.pin(e);
+        e.hp = e.maxHp = 1e9;
+      }
+      const ctx = G.skillCtx('discharge'), per = G.avgHit(ctx) / ctx.sk.useMult; // 每一下（avgHit 按 3 下里一次过载折算）
+      const d = [];
+      let prev = 0, stun3 = 0;
+      for (let i = 0; i < 6; i++) {
+        G.execSkill(G.skillCtx('discharge'));
+        if (i === 2) stun3 = m.stunT;
+        TV.run(0.5);
+        d.push(+((TV.dmg(m) - prev) / per).toFixed(2));
+        prev = TV.dmg(m);
+      }
+      out.d = d;
+      out.m2 = TV.n(m2);
+      out.stun3 = stun3;
+      out.stuns = TV.st('focusStuns');
+      out.over = TV.st('overloads');
+      TV.done();
+      TV.setup('discharge', 'b');
+      const el = TV.big(1.5, 0);
+      TV.pin(el);
+      el.poiseMax = 1e6;
+      el.poise = 1e6;
+      const p0 = el.poise;
+      for (let i = 0; i < 3; i++) {
+        G.execSkill(G.skillCtx('discharge'));
+        TV.run(0.5);
+      }
+      out.elStun = el.stunT || 0;
+      out.elPoise = +(p0 - el.poise).toFixed(1);
+      TV.done();
+      return out;
+    });
+    const ok = (x, k) => Math.abs(x - k) < 0.1;
+    assert(ok(r.d[0], 1) && ok(r.d[1], 1) && ok(r.d[2], 2) && ok(r.d[5], 2) && r.m2 === 0 && r.over === 2, '聚雷每下的倍率不对（应为 1, 1, 2 循环、只打最近的）：' + JSON.stringify(r));
+    assert(r.stun3 > 0 && r.stuns === 1, '过载应眩晕普通怪、2 秒内不再眩晕同一只：' + JSON.stringify(r));
+    assert(!(r.elStun > 0) && r.elPoise > 0, '精英不该被眩晕、应削架势：' + JSON.stringify(r));
+    return '倍率 ' + r.d.join(' / ') + '；精英削架势 ' + r.elPoise;
+  });
+  await step('刻式 b2·引雷「游雷」：不叠加成（每跳倍率恒为 1），连锁 3 次（每跳最远 9 米）；牵引时走得比原式快', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      const out = {};
+      TV.setup('tether', 'a');
+      const ms = [TV.mob(6, 0), TV.mob(8.5, 3), TV.mob(11, 7), TV.mob(13, 13), TV.mob(16, 0)];
+      for (const e of ms) {
+        TV.pin(e);
+        e.hp = e.maxHp = 1e9;
+      }
+      TV.hold(0, TV.at(6), 3);
+      out.n = ms.map(TV.n);
+      out.last = G.state.stats.tetherLast;
+      out.k = G.player.cast ? G.player.cast.rampK : null;
+      const c = G.player.cast;
+      TV.done();
+      out.move = G.skillVariant('tether', 'a').move;
+      out.move0 = G.skillVariant('tether', 'o').move;
+      return out;
+    });
+    assert(r.last === 4 && r.n.filter((x) => x > 0).length === 4, '游雷应连到 3 个（主目标 + 3）：' + JSON.stringify(r));
+    assert(r.move > r.move0 * 2, '游雷牵引时应走得更快：' + JSON.stringify(r));
+    return '打到 ' + r.n.join('/') + '，移动 ' + r.move0 + ' → ' + r.move;
+  });
+  await step('刻式 b2·引雷「锁雷」：不连锁；站定 4 秒叠到 +150%（2 秒时约 +70%）；目标倒下，加成转到它身边的敌人', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      const out = {};
+      TV.setup('tether', 'b');
+      const P = G.player;
+      const a = TV.mob(6, 0), b = TV.mob(7.5, 1.5);
+      for (const e of [a, b]) {
+        TV.pin(e);
+        e.hp = e.maxHp = 1e9;
+      }
+      const inp = G.input;
+      const tick = (sec) => {
+        for (let i = 0; i < Math.round(sec * 60); i++) {
+          T.aim(a.x, a.z);
+          inp.mouse.b[0] = true;
+          G.tick(1 / 60);
+          P.mana = P.maxMana;
+        }
+      };
+      tick(2.05);
+      out.k2 = +P.cast.rampK.toFixed(2);
+      tick(2.2);
+      out.k4 = +P.cast.rampK.toFixed(2);
+      out.b = TV.n(b);
+      // 主目标倒下：下一跳接到 1.5 米外的 b，加成保留
+      a.hp = 1;
+      a.maxHp = 1;
+      tick(0.5);
+      out.carry = TV.st('lockCarry');
+      out.kAfter = +P.cast.rampK.toFixed(2);
+      out.b2 = TV.n(b);
+      inp.mouse.b[0] = false;
+      out.chainFit = G.supportFits('tether', 'chain');
+      TV.done();
+      return out;
+    });
+    // 加成按两跳之间的模拟时间累计（第一跳在 0.08 秒、之后每 0.2 秒一跳），按住 2.05 秒时约 1.8 秒 × 37.5% ≈ +67%
+    assert(r.b === 0 && Math.abs(r.k2 - 1.7) < 0.08 && Math.abs(r.k4 - 2.5) < 0.01, '锁雷应不连锁、4 秒叠到 2.5 倍：' + JSON.stringify(r));
+    assert(r.carry >= 1 && r.b2 > 0 && r.kAfter >= 2.4 && !r.chainFit, '目标倒下后加成应转到身边的敌人；连锁镶不上：' + JSON.stringify(r));
+    return '2 秒 ×' + r.k2 + '，4 秒 ×' + r.k4 + '，转移后 ×' + r.kAfter;
+  });
+  await step('刻式 b2·散钉「环钉」：一圈 12 枚朝四周飞，身边一圈 8 只都挨到，同一只最多中 2 枚', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('nails', 'a');
+      const ms = [];
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        ms.push(TV.mob(Math.cos(a) * 2.5, Math.sin(a) * 2.5));
+      }
+      for (const e of ms) TV.pin(e);
+      const p0 = G.state.projectiles.length;
+      G.execSkill(G.skillCtx('nails'));
+      out0 = G.state.projectiles.length - p0;
+      TV.run(0.5);
+      const out = { n: ms.map(TV.n), proj: out0, rings: TV.st('nailRings') };
+      TV.done();
+      return out;
+    });
+    assert(r.proj === 12 && r.n.every((x) => x >= 1 && x <= 2) && r.rings === 1, '环钉应 12 枚四散、每只 1–2 枚：' + JSON.stringify(r));
+    return '8 只各中 ' + r.n.join('/');
+  });
+  await step('刻式 b2·散钉「钩钉」：每中一枚把敌人往你身边拽（不击退），首领拽不动；原式把它往外推', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      const out = {};
+      for (const v of ['b', 'o']) {
+        TV.setup('nails', v);
+        const P = G.player, m = TV.mob(5, 0);
+        m.hp = m.maxHp = 1e9;
+        const d0 = Math.hypot(m.x - P.x, m.z - P.z);
+        TV.cast('nails', TV.at(5), 0.4);
+        out[v] = { dd: +(Math.hypot(m.x - P.x, m.z - P.z) - d0).toFixed(2), n: TV.n(m) };
+        TV.done();
+      }
+      TV.setup('nails', 'b');
+      const P = G.player, bs = TV.boss(5);
+      const d0 = Math.hypot(bs.x - P.x, bs.z - P.z);
+      TV.cast('nails', TV.at(5), 0.4);
+      out.boss = +(Math.hypot(bs.x - P.x, bs.z - P.z) - d0).toFixed(2);
+      out.bn = TV.n(bs);
+      TV.done();
+      return out;
+    });
+    assert(r.b.n >= 1 && r.b.dd < -0.4 && r.o.dd > 0, '钩钉应往回拽、原式往外推：' + JSON.stringify(r));
+    assert(r.bn >= 1 && Math.abs(r.boss) < 0.05, '首领不该被拽：' + JSON.stringify(r));
+    return '钩钉 ' + r.b.dd + ' 米（中 ' + r.b.n + ' 枚），原式 +' + r.o.dd + ' 米';
+  });
+  await step('刻式 b2·放血「血镰」：一条 6.5 米的直线，5.5 米处的怪也砍到、侧面的不中；流血按 60% 叠', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('rend', 'a');
+      T.fix(0.5);
+      const near = TV.mob(2, 0), side = TV.mob(1.6, 1.8), far = TV.mob(5.5, 0);
+      for (const e of [near, side, far]) {
+        TV.pin(e);
+        e.hp = e.maxHp = 1e9;
+      }
+      TV.cast('rend', TV.at(3), 0.05);
+      const ctx = G.skillCtx('rend');
+      const out = { near: TV.n(near), side: TV.n(side), far: TV.n(far), st: G.bleedStacks(far), bleed: ctx.bleed };
+      const e = far;
+      out.k = e.blR ? +((e.blR[0] * G.BLEED.dur) / TV.dmg(far)).toFixed(3) : 0;
+      TV.done();
+      return out;
+    });
+    assert(r.near === 1 && r.far === 1 && r.side === 0 && r.st === 1, '血镰的直线范围不对：' + JSON.stringify(r));
+    assert(r.bleed === 60 && Math.abs(r.k - 0.6) < 0.02, '血镰的流血应为这一击的 60%：' + JSON.stringify(r));
+    return '流血 ' + r.k + ' 倍';
+  });
+  await step('刻式 b2·放血「剜创」：身前 50° 的窄刺（侧面的不中、3.2 米处的中），刺中的敌人能叠到 8 层；别的物理技能照旧最多 6 层', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      const out = {};
+      TV.setup('rend', 'b');
+      const near = TV.mob(3.2, 0), side = TV.mob(1.4, 1.4);
+      for (const e of [near, side]) {
+        TV.pin(e);
+        e.hp = e.maxHp = 1e9;
+      }
+      for (let i = 0; i < 10; i++) {
+        G.player.cast = null;
+        TV.cast('rend', TV.at(3), 0.05);
+      }
+      out.near = TV.n(near);
+      out.side = TV.n(side);
+      out.st = G.bleedStacks(near);
+      TV.done();
+      TV.setup('rend', 'o');
+      const m = TV.mob(2, 0);
+      TV.pin(m);
+      m.hp = m.maxHp = 1e9;
+      for (let i = 0; i < 10; i++) {
+        G.player.cast = null;
+        TV.cast('rend', TV.at(2), 0.05);
+      }
+      out.st0 = G.bleedStacks(m);
+      TV.done();
+      return out;
+    });
+    assert(r.near === 10 && r.side === 0, '剜创的窄刺范围不对：' + JSON.stringify(r));
+    assert(r.st === 8 && r.st0 === 6, '剜创最多 8 层、原式 6 层：' + JSON.stringify(r));
+    return '剜创 ' + r.st + ' 层，原式 ' + r.st0 + ' 层';
+  });
+  await step('刻式 b2·存档：选着第一批新技能的 A / B 存读一遍不变；只选过原式的旧存档照常读（新技能没有刻式记录）', async () => {
+    const r = await ev((keep) => {
+      T.arena();
+      const s = G.save, out = {};
+      for (const id of ['frostline', 'icefall', 'discharge', 'tether', 'nails', 'rend']) s.skills[id] = 12;
+      s.variants = { frostline: 'a', icefall: 'b', discharge: 'a', tether: 'b', nails: 'a', rend: 'b' };
+      G.applyVariants();
+      G.persist();
+      G.loadSave();
+      out.round = JSON.stringify(G.save.variants);
+      out.names = ['frostline', 'icefall', 'discharge', 'tether', 'nails', 'rend'].map((id) => G.SKILLS[id].vname).join(',');
+      const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+      raw.variants = { ember: 'a' };
+      localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+      G.loadSave();
+      out.old = JSON.stringify(G.save.variants);
+      out.plain = ['frostline', 'icefall', 'discharge', 'tether', 'nails', 'rend'].every((id) => G.SKILLS[id] === G.SKILL_V[id].o);
+      localStorage.setItem('cinder-abyss-save-v1', keep);
+      G.loadSave();
+      return out;
+    }, varKeep);
+    assert(r.round === JSON.stringify({ frostline: 'a', icefall: 'b', discharge: 'a', tether: 'b', nails: 'a', rend: 'b' }) && r.names === '岔脊,随凌,闪迸,锁雷,环钉,剜创', '新刻式存读后不一样：' + JSON.stringify(r));
+    assert(r.old === JSON.stringify({ ember: 'a' }) && r.plain, '只有老刻式的存档读档后新技能应是原式：' + JSON.stringify(r));
+    return '存读 6 个新刻式；旧存档照常';
   });
   await step('刻式 v2·旧存档：第二版之前的刻式按位置留着（a → a、b → b），免费重选一次还回来，并提示一次「刻式重做」', async () => {
     const r = await ev((keep) => {
