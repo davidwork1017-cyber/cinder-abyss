@@ -23074,9 +23074,10 @@
     sbEnt = ent;
     sbR = R;
     sbT = sbD = Math.max(0.12, ttl);
-    _c.set(mixHex(hex, 0xffffff, 0.45)).convertSRGBToLinear();
+    // 看图后第二轮：主色压到中间调（往暖灰混，不往白混），只有前端一道细亮边；残影更暗
+    _c.set(mixHex(hex, 0x7a6a5a, 0.55)).convertSRGBToLinear();
     sbC[0] = _c.r; sbC[1] = _c.g; sbC[2] = _c.b;
-    _c.set(mixHex(hex, 0x3a3028, 0.35)).convertSRGBToLinear();
+    _c.set(mixHex(hex, 0x3a3028, 0.6)).convertSRGBToLinear();
     sbC2[0] = _c.r; sbC2[1] = _c.g; sbC2[2] = _c.b;
   };
   // 旋风斩的一跳（vf-vfx2）：续上风刃；脚下一道贴地的风纹（暗的尘土色弯月，扩开后收细）；first：起手那一下脚下卷起一圈尘环 + 几团尘
@@ -23100,13 +23101,13 @@
     const p = sbEnt.group.position, fade = Math.min(1, sbT / 0.1), r = sbR * 0.8 * fade, lo = qualId === 'low';
     for (let b = 0; b < 2; b++) {
       const a = sbA + b * Math.PI;
-      // 看图后：风刃画细（进度 0.85 → 只剩外沿一道），转过怪身前时不挡住怪
+      // 看图后：风刃换成前粗后细的细刃（形状 blade，前端顺着转向），转过怪身前时只是一道细线，不挡住怪
       if (!lo) {
-        mFlat(p.x, 0.8, p.z, a + 0.45, r * 0.9, r * 0.9);
-        vsNow(VSH.crescent, sbC2[0], sbC2[1], sbC2[2], 0, 0.3, 0.92);
+        mFlat(p.x, 0.8, p.z, a + 0.5, r * 0.92, r * 0.92);
+        vsNow(VSH.blade, sbC2[0], sbC2[1], sbC2[2], 0, 0.35, 0);
       }
       mFlat(p.x, 0.9, p.z, a, r, r);
-      vsNow(VSH.crescent, sbC[0], sbC[1], sbC[2], 0.35, 0.4, 0.85);
+      vsNow(VSH.blade, sbC[0], sbC[1], sbC[2], 0.25, 0.45, 0);
     }
   }
   W.vShapeLive = () => {

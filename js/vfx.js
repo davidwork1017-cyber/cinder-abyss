@@ -212,7 +212,7 @@
     '  vec2 q = vUv * 0.8 + seed * 7.31;',
     '  float n = vfxNA(q).r;',
     // 低画质少取一次贴图；vf-vfx2：低画质的「裂缝」取噪声的等高线（细线），原来取 n 本身，step 之后是一大块一块填满的余烬亮斑
-    '  float ce = uLo > 0.5 ? 1.0 - abs(n - 0.5) * 9.0 : vfxNA(q * 1.5 + 0.37).b;',
+    '  float ce = uLo > 0.5 ? 1.0 - abs(n - 0.5) * 20.0 : vfxNA(q * 1.5 + 0.37).b;',
     '  float er = k < 0.45 ? 0.0 : (k - 0.45) / 0.55;', // 消融进度
     '  float edge = 1.0 - l + (n - 0.5) * 0.5;', // 不规则的外沿
     '  float m = smoothstep(0.0, 0.05, edge - er * (1.1 - n * 0.4));',
@@ -424,7 +424,7 @@
   //   bar 折线段：闪电、电灼纹、熔岩裂纹都用它一段段拼（两头尖，接起来不露缝）；chip 碎石：有棱角的立体小块（翻滚、落地弹）；
   //   ring 冲击环：外沿亮带 + 环身，内沿随进度往外收细（越扩越细，最后只剩一道亮线；弯月的内沿也这样收）
   // 色阶：0 暗描边（实例色 × (1 − 暗边量)）/ 0.5 主色 / 1 亮芯（往暖白混）。平面形状是三层扇形叠起来的：描边垫底、主色、亮芯在最前
-  V.SH = { tongue: 0, crescent: 1, bar: 2, chip: 3, ring: 4 };
+  V.SH = { tongue: 0, crescent: 1, bar: 2, chip: 3, ring: 4, blade: 5 };
   let shGeo = null, shMat = null;
   V.shapeGeo = function () {
     if (shGeo) return shGeo;
@@ -489,6 +489,20 @@
     };
     strip(4, ringPts(1), ringPts(0.94), 0.01, 1, 0, 0.985);
     strip(4, ringPts(0.94), ringPts(0.77, 0.06), 0, 0.5, 0.985, 0.975);
+    // 5 风刃：不对称的细弯月，前端（本地 +x 一侧，a = +CA）最厚、收成圆头，往后拖成一条长长的细尾巴；最厚处只有弯月的一半
+    const bladeArc = (rf) => {
+      const o = [];
+      for (let i = 0; i <= CN; i++) {
+        const a = -CA + (2 * CA * i) / CN, u = i / CN;
+        const th = 0.14 * Math.pow(u, 1.3) * Math.sqrt(Math.max(0, 1 - Math.pow(u, 8)));
+        const r = rf(th);
+        o.push([Math.sin(a) * r, Math.cos(a) * r]);
+      }
+      return o;
+    };
+    strip(5, bladeArc((th) => 1 + Math.min(0.035, th * 0.5)), bladeArc((th) => 1 - th - Math.min(0.035, th * 0.5)), -0.02, 0);
+    strip(5, bladeArc(() => 1), bladeArc((th) => 1 - th), 0, 0.5);
+    strip(5, bladeArc(() => 0.997), bladeArc((th) => 1 - th * 0.35), 0.02, 1);
     const g = new T.BufferGeometry();
     g.setAttribute('position', new T.Float32BufferAttribute(P, 3));
     g.setAttribute('aSh', new T.Float32BufferAttribute(A, 3));
