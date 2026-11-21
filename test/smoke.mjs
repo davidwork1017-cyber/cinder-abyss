@@ -9926,7 +9926,7 @@ async function main() {
     return r.zones.join(' ') + ' ｜ ' + r.qs.join(' ') + ' ｜ 默认 ' + r.q0 + '（' + r.eff + '）';
   });
 
-  await step('画面：第 0 区的布景（除路边小物）来自自产件包 kit-ash（ca/ 开头），确实摆出来了；别的区照旧用 CC0 模型包（第 1–4 区里摆出布景的第一个区）', async () => {
+  await step('画面：第 0 区的布景全部来自自产件包 kit-ash（ca/ 开头，含路边小物），确实摆出来了；别的区照旧用 CC0 模型包（第 1–4 区里摆出布景的第一个区）', async () => {
     const r = await ev(async () => {
       const W = G.world;
       const wait = async (f, ms) => {
@@ -9952,9 +9952,10 @@ async function main() {
     const { ash, others } = r;
     const fmt = (z) => z.src.map((s) => s.key + '@' + s.pack + '×' + s.placed).join(' ');
     assert(ash.id === 'ash' && ash.hd, '第 0 区不是 ash 或没换上 PBR 外观：' + JSON.stringify(ash).slice(0, 300));
-    // 路边小物（骷髅 / 骨头 / 断剑 / 墓碑）的自产件还在改，暂用 KayKit：ca/ 开头的必须来自 kit-ash，其余来自 CC0 模型包
-    assert(ash.src.filter((s) => s.key.startsWith('ca/')).length >= 6 && ash.src.every((s) => (s.key.startsWith('ca/') ? s.pack === 'kit-ash' : s.pack === 'models')), '第 0 区布景的来源不对：' + fmt(ash));
+    // 路边小物（骷髅 / 骨头 / 断剑 / 墓碑）也换成了自产件：第 0 区的布景全部是 ca/ 开头、来自 kit-ash，不再用 CC0 模型包
+    assert(ash.src.filter((s) => s.key.startsWith('ca/')).length >= 10 && ash.src.every((s) => s.key.startsWith('ca/') && s.pack === 'kit-ash'), '第 0 区布景的来源不对：' + fmt(ash));
     const placed = (z, re) => z.src.filter((s) => re.test(s.key)).reduce((a, s) => a + s.placed, 0);
+    assert(placed(ash, /ash_(skull|bones|blade|marker)$/) >= 3, '第 0 区路边小物摆得太少：' + fmt(ash));
     assert(placed(ash, /tree_dead/) >= 3, '第 0 区枯树摆得太少：' + fmt(ash));
     assert(placed(ash, /firepit/) === ash.fires && ash.fires > 0, '第 0 区火坑的实例数和火焰数对不上：' + fmt(ash) + ' 火 ' + ash.fires);
     assert(ash.src.reduce((a, s) => a + s.placed, 0) >= 20, '第 0 区布景总数太少：' + fmt(ash));
@@ -11113,7 +11114,9 @@ async function main() {
     return r.pairs.map((p) => p.normal + ' → ' + p.ws).join(' · ');
   });
 
-  await step('千刃归烬：附近没有敌人不施放；在敌人之间连闪至多 6 次（闪现途中无敌、落点可走），收刀时斩痕一齐炸开（同一敌人合成一击），带残刃的每层多一截伤害并吃掉残刃；冷却 10 秒；只剩一个目标时来回穿它', async () => {
+  // 齐爆对的是不扣抗性的期望值。敌人抗当前区域的元素 15%（spawnMob：elem = 区域元素），而手上的其他装备是前面背包步骤用没钉种子的随机数换上的、每次不同，
+  // 带的附加元素伤害正好是本区元素时齐爆会少一截（占比约 16% 就超出 2% 的容差）。所以和别的「数字对实打」的步骤一样包在 noRes 里
+  await step('千刃归烬：附近没有敌人不施放；在敌人之间连闪至多 6 次（闪现途中无敌、落点可走），收刀时斩痕一齐炸开（同一敌人合成一击），带残刃的每层多一截伤害并吃掉残刃；冷却 10 秒；只剩一个目标时来回穿它', noRes(async () => {
     const r = await ev(() => {
       T.arena();
       const P = G.player, S = G.state, sk = G.SKILLS.ashcuts, out = {};
@@ -11182,8 +11185,8 @@ async function main() {
     assert(Math.abs(r.pack.cd - 10) < 1e-6 && r.pack.left > 7 && !r.pack.cast, '冷却应为 10 秒、打完收刀：' + JSON.stringify(r.pack));
     assert(r.single.hops === 6 && r.single.cuts === 6 && r.single.marks === 2 && r.single.marksLeft === 0, '单体应来回穿 6 次：' + JSON.stringify(r.single));
     assert(Math.abs(r.single.burst - r.single.expect) <= Math.max(3, r.single.expect * 0.02), '齐爆伤害应为 6 × 斩痕 + 2 × 残刃倍率的武器伤害：' + JSON.stringify(r.single));
-    return '怪群 ' + r.pack.hops + ' 闪 / ' + r.pack.cuts + ' 道斩痕 · 单体齐爆 ' + r.single.burst + '（' + r.single.total + ' 合计）';
-  });
+    return '怪群 ' + r.pack.hops + ' 闪 / ' + r.pack.cuts + ' 道斩痕 · 单体齐爆 ' + r.single.burst + ' / 应为 ' + r.single.expect + '（' + r.single.total + ' 合计）';
+  }));
 
   await step('三相天灾：准星处 4 秒的风暴，火 / 冰 / 雷轮流落下（每种按自己的元素伤害加成），在怪群里接连触发冻结 / 爆燃 / 感电；首领的阈值照常变高（拿着三相之心也一样），首领不被冻结；冷却 12 秒', async () => {
     const r = await ev(() => {
