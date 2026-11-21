@@ -12581,6 +12581,9 @@ async function main() {
     const r = await ev(() => {
       TV.setup('meteor', 'b');
       const a = TV.mob(9, 0.4), b = TV.mob(12, -0.4), far = TV.mob(16.5, 0);
+      // 靶子不吃异常、伤害取中值：火沟会把它们点着，爆燃的击退（kb 1.2）偶尔把掀到一边的怪又推回原处（侧移 ≈ 0，偶发失败）
+      for (const e of [a, b, far]) e.buTh = 1e15;
+      T.fix(0.5);
       const a0 = { x: a.x, z: a.z };
       TV.cast('meteor', TV.at(6), 2.0);
       const d = TV.d, side = (a.x - a0.x) * d.z - (a.z - a0.z) * d.x;
@@ -12791,6 +12794,10 @@ async function main() {
       const P = G.player;
       G.summonMinion('pyre', P.x - 1, P.z, G.skillCtx('pyre'));
       const b = TV.big(8), side = TV.mob(8, 2.6);
+      // 两只靶子都不吃异常、伤害取中值：灼链的火焰会把它们点着，爆燃那一下带击退（kb 1.2），把旁边那只推开；
+      // 推出细链的 5 米就断了，细链跳数取决于伤害随机数和什么时候点着（实测 4–21 跳，偶尔低于 5）
+      b.buTh = side.buTh = 1e15;
+      T.fix(0.5);
       TV.run(5.0);
       const L = G.SKILLS.pyre.link;
       const out = { ticks: TV.st('vLinkTicks'), side: TV.st('vLinkSide'), k: +(G.state.stats.vLinkK || 0).toFixed(3), k1: L.k1, bolts: G.minionBolts(), hits: TV.st('pyreHits'), sideHit: TV.n(side) };
