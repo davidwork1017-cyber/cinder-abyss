@@ -914,7 +914,7 @@
       },
     },
     rift: {
-      packs: ['zone-rift', 'rock-grey', 'models', 'ground'],
+      packs: ['zone-rift', 'rock-grey', 'ground'], // asset-zones：布景全是自产件（kit-rift 跟着 zone-rift 加载），不再要 1.4 MB 的 models 包
       // 卡通（zones-rift）：路面是偏冷的青灰板岩（不再是满地的饱和绿），贴图起伏压低；路外是更暗的月岩，岩壁外近黑的青
       mats: [
         { tex: 'slate_floor', tile: 5.5, con: 0.55, nrm: 0.8, rough: 0.7, k: 0.58, sat: 0.85, col: 0x3f5856 },
@@ -926,7 +926,7 @@
       grade: { sat: 1.04, con: 1.1, lift: 0x020a10, gain: 0xf4fbff, vig: 0.24, sh: 0x4a80b0, hi: 0xfff2dc, tk: 0.1, shS: 0.85 },
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x16303a, a: 0.3 },
-      prop: { tint: 0x3e5250, sat: 0.12 },
+      prop: { tint: 0x6aa89c, sat: 0.12 }, // asset-zones：布景全是自产件以后（板岩，烘焙了明暗）按游戏里旧件的样子校准：原来带 r 标记的 Kenney 石头画成卡通岩石的青灰（0x4e7a72 档），0x3e5250 下自产件几乎是黑的
       patch: 0.2, // zones-polish：板岩路面上的暗色软斑 0.55 → 0.2
       // vf-ground：板岩上一片片苔尘（青灰的地衣），岩脚厚；路外是苔点、晶尘和碎石
       layer: { tex: 'g_cover_rift', tile: 5, con: 0.55, rough: 1, k: 0.46, sat: 0.6, col: 0x47584f, path: 0.6, pT: 0.58, edge: 0.9, jag: 1.0, blend: 0.08, edgeW: 1.0, mv: 0.1, mh: 0.1, scorch: 0.45, sT: 0.64, ao2: 0.22 }, // scorch：成片的月岩地（mv 小一点：这一区 main 的地面已经在 33% 上下）
@@ -939,13 +939,15 @@
       crystal: { col: 0x7aeeff, glow: 0x5ad8e8 },
       rockStyle: { thin: true, toon: { top: 0x4e7a72, bot: 0x2a2c4a, k: 0.88, kLow: 0.7 } },
       props: {
-        outer: [['kn/stone_tallA', 3, 2.8, 3.8, 'tr'], ['kn/statue_obelisk', 2, 4, 5.2, 't'], ['kd/rubble_large', 1, 0.4, 0.55, '']],
+        // asset-zones：全部换成自产件（art/catalog.py 的 ca/rift_*，包 kit-rift）：scale 1 时包围盒（r / 顶 / 底）和原来的 Kenney / KayKit 件一致，
+        // 数字不动；原来的 r 标记（岩石材质）去掉，改用布景材质，板岩的明暗和星辉断面烘在顶点色里
+        outer: [['ca/rift_monolith', 3, 2.8, 3.8, 't'], ['ca/rift_stele', 2, 4, 5.2, 't'], ['ca/rift_rubble', 1, 0.4, 0.55, '']],
         keep: 0.35,
-        mid: [['kn/rock_largeD', 1, 1.6, 2.4, 'r'], ['kn/stone_tallC', 1, 2.2, 3, 'r']],
+        mid: [['ca/rift_boulder', 1, 1.6, 2.4, ''], ['ca/rift_shards', 1, 2.2, 3, '']],
         midK: 0.3,
-        edge: [['kd/floor_tile_small_broken_A', 2, 0.5, 0.7, 'l'], ['kn/rock_largeB', 1, 0.6, 0.8, 'r']],
+        edge: [['ca/rift_slabs', 2, 0.5, 0.7, 'l'], ['ca/rift_rock', 1, 0.6, 0.8, '']],
         fire: null,
-        boss: [['kn/statue_obelisk', 1, 5, 6, 't'], ['kn/stone_tallA', 2, 3.4, 4.2, 'tr']],
+        boss: [['ca/rift_stele', 1, 5, 6, 't'], ['ca/rift_monolith', 2, 3.4, 4.2, 't']],
       },
     },
   };
@@ -1239,8 +1241,9 @@
   const gfxBroken = Object.create(null); // 建 PBR 外观时出过错的区域：之后一直用程序化外观
   // 贴图包（除布景模型包以外）都到了就能换 PBR 地面 / 岩壁；模型包单独判断，没有它就只是不摆 CC0 布景
   const texPacks = (gx) => gx.packs.filter((p) => p !== 'models');
-  // 模型包到了且真的解析出了模型（GLTFLoader 缺失时包本身「成功」但一个模型都没有）
-  const propsReady = (gx) => !!(G.assets && G.assets.ready(['models']) && gx.props.outer.some((e) => G.assets.geo(e[0])));
+  // 模型包到了且真的解析出了模型（GLTFLoader 缺失时包本身「成功」但一个模型都没有）。
+  // asset-zones：布景全是自产件的区域（packs 里没有 models，比如第 4 区）只看自产件包（zone 包带的 kit-<区>）解析出了几何体
+  const propsReady = (gx) => !!(G.assets && (gx.packs.indexOf('models') < 0 || G.assets.ready(['models'])) && gx.props.outer.some((e) => G.assets.geo(e[0])));
   function gfxReady(gx) {
     if (!gx || gfxBroken[gx.packs[0]] || !G.assets || !G.assets.ready(texPacks(gx))) return false;
     for (const m of gx.mats) if (!G.assets.tex(m.tex)) return false;

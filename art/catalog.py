@@ -2,7 +2,7 @@
 # id 规则见 docs/art-style.md：ca/<区>_<物件>[_变体]；文件名 = id 去掉 ca/ 前缀。
 # ship = True：打进游戏的素材包（js/assets/kit-<区>.js）；False：只生成 GLB（备选件，摆放那边要用时改成 True）。
 # replaces：在本区摆放表里顶替的旧模型（scale 1 时的尺寸、原点和它一致，摆放表的缩放不用改）。
-# bake：烘焙参数（ao = AO 采样距离，米；grad = 底部压暗渐变的高度，米；wear / grime = 边缘提亮 / 缝里压暗的强度；gtint = 污垢色偏的浓淡），按件的真实尺寸给。
+# bake：烘焙参数（ao = AO 采样距离，米；grad = 底部压暗渐变的高度，米；wear / grime = 边缘提亮 / 缝里压暗的强度；gtint = 污垢色偏的浓淡；gain = 整件明暗的倍数，按游戏里的灰度校准，缺省 1），按件的真实尺寸给。
 # cues：材质线索参数（val = 明暗斑块幅度，second = 要不要第二色调，lichen = 灰苔比例），缺省值见 art/ca/core.py 的 material_cues。
 CATALOG = [
     # ---- 灰烬地带：顶替现有 KayKit / Kenney 布景（路边小物 skull / bones / blade / marker 是第二版，asset-lib-props2） ----
@@ -34,6 +34,22 @@ CATALOG = [
     dict(id='ca/ash_wall_a', gen='wall', seed=59, cat='kit', zone='ash', ship=False, args=dict(L=4.0, H=2.4, broken=0.45, bevel=0.025), bake=dict(ao=0.5, grad=0.9)),
     dict(id='ca/ash_arch_a', gen='arch', seed=61, cat='kit', zone='ash', ship=False, args=dict(span=3.2, h=4.0), bake=dict(ao=0.8, grad=1.0)),
     dict(id='ca/ash_brazier_a', gen='brazier', seed=67, cat='prop', zone='ash', ship=False, args=dict(h=1.1), bake=dict(ao=0.25, grad=0.4)),
+    # ---- 坠星裂谷（第 4 区）：顶替 Kenney / KayKit 布景（fit = scale 1 时的包围盒对齐被顶替件：r / 顶 / 底，浮点照抄 geoInfo；摆放表只换 id、去掉 r 标记）。
+    # 碎地砖例外：KayKit 地砖的底在 y = -0.1（摆放时按标记 l 抬回地面），自产件按规矩原点在底面（底 0、顶 = 原来的厚度 0.15），标记 l 抬 0，落地后的位置和原来一样 ----
+    dict(id='ca/rift_monolith', gen='monolith', seed=71, cat='prop', zone='rift', ship=True, replaces='kn/stone_tallA',
+         fit=dict(r=0.49153444170951843, top=0.9459258913993835, bottom=-0.05000000074505806), bake=dict(ao=0.12, grad=0.25), finish=dict(dust=0.2, dust_row='lichen')),
+    dict(id='ca/rift_shards', gen='shards', seed=73, cat='prop', zone='rift', ship=True, replaces='kn/stone_tallC',
+         fit=dict(r=0.22809721529483795, top=0.7329360246658325, bottom=-0.05000000074505806), bake=dict(ao=0.08, grad=0.2, gain=0.68), finish=dict(dust=0.2, dust_row='lichen')),
+    dict(id='ca/rift_stele', gen='stele', seed=79, cat='prop', zone='rift', ship=True, replaces='kn/statue_obelisk',
+         fit=dict(r=0.15350933372974396, top=0.8253971338272095, bottom=-0.05000000074505806), bake=dict(ao=0.06, grad=0.15, gain=0.52), finish=dict(dust=0.15, dust_row='lichen')),
+    dict(id='ca/rift_boulder', gen='boulder', seed=83, cat='prop', zone='rift', ship=True, replaces='kn/rock_largeD',
+         fit=dict(r=0.5343884229660034, top=0.5182599425315857, bottom=-0.05000000074505806), bake=dict(ao=0.12, grad=0.2, gain=0.74), finish=dict(dust=0.25, dust_row='lichen')),
+    dict(id='ca/rift_rock', gen='rift_rock', seed=89, cat='scatter', zone='rift', ship=True, replaces='kn/rock_largeB',
+         fit=dict(r=0.5077307224273682, top=0.38025400042533875, bottom=-0.05000000074505806), bake=dict(ao=0.1, grad=0.18, gain=0.3), finish=dict(dust=0.25, dust_row='lichen')),
+    dict(id='ca/rift_rubble', gen='rift_rubble', seed=97, cat='kit', zone='rift', ship=True, replaces='kd/rubble_large',
+         fit=dict(r=4.068856716156006, top=3.4960880279541016, bottom=0), bake=dict(ao=0.9, grad=1.0, gain=0.6), finish=dict(dust=0.2, dust_row='lichen')),
+    dict(id='ca/rift_slabs', gen='slabs', seed=101, cat='scatter', zone='rift', ship=True, replaces='kd/floor_tile_small_broken_A',
+         fit=dict(r=1, top=0.15000001341104507, bottom=0), bake=dict(ao=0.12, grad=0.05, gain=0.3), finish=dict(dust=0.15, dust_row='lichen')),
 ]
 
 # 看板（lineup）：每个生成器 × 几个种子，参数沿用清单里第一个用到它的件
