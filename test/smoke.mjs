@@ -12420,13 +12420,15 @@ async function main() {
       // 扇面：5 只
       G.clearEnemies();
       const fan = [-16, -8, 0, 8, 16].map((deg) => T.mob('brute', Math.cos((deg * Math.PI) / 180) * 5, Math.sin((deg * Math.PI) / 180) * 5));
+      for (const m of fan) m.mass = 1e6; // 不被击退：先中的那只别被推到旁边那枚钉子的路上
       G.execSkill(G.skillCtx('nails'));
       for (let i = 0; i < 40; i++) G.tick(1 / 60);
       out.fan = fan.map((m) => Math.round((m.maxHp - m.hp) / per));
       return out;
     });
     assert(r.shot === 5 && r.shot2 === 7, '枚数不对：' + JSON.stringify(r));
-    assert(Math.abs(r.k - 3) < 0.05 && Math.abs(r.k2 - 3) < 0.05, '贴脸单体应正好中 3 枚：' + JSON.stringify(r));
+    // avgHit 含暴击的期望（5% × 1.5 倍 → ×1.025），钉死随机数时不暴击：3 枚 = 3 / 1.025 ≈ 2.93
+    assert(Math.abs(r.k - 3 / 1.025) < 0.04 && Math.abs(r.k2 - 3 / 1.025) < 0.04, '贴脸单体应正好中 3 枚：' + JSON.stringify(r));
     assert(r.fan.every((n) => n >= 1), '扇面里每只至少中 1 枚：' + JSON.stringify(r));
     return '贴脸 ' + r.k + ' 枚，扇面 ' + r.fan.join('/');
   })));
@@ -12476,14 +12478,15 @@ async function main() {
       G.execSkill(G.skillCtx('rend'));
       out.replace = G.bleedStacks(e) === 6 && rem() > remA;
       G.save.sockets.rend = [null, null, null];
-      // 被流血打死：照常结算（击杀数 +1、得到经验）
-      const k0 = s.kills, xp0 = G.save.xp + G.save.level * 1e6;
+      // 被流血打死：照常结算（死掉、击杀数 +1；经验按等级差给，1 级的靶子可能不给，不看）
+      const k0 = s.kills;
       const v = T.mob('brute', -1.8, 0, { hp: 5000 });
       T.aim(v.x, v.z);
       G.execSkill(G.skillCtx('rend'));
+      out.vStacks = G.bleedStacks(v);
       v.hp = 1;
       for (let i = 0; i < 40; i++) G.tick(1 / 60);
-      out.killed = v.dead && s.kills === k0 + 1 && G.save.xp + G.save.level * 1e6 > xp0;
+      out.killed = v.dead && s.kills === k0 + 1;
       // 换区 / 重生：清空
       G.resetRanged();
       out.reset = G.bleedStacks(e) === 0;
