@@ -766,8 +766,8 @@
       },
       b: {
         name: '旋涡斩', pack: '吸怪聚拢；每下变轻',
-        desc: '按住旋转，每下把 5 米内的敌人吸向你；松手或转满 6 下时砸地收尾，转得越久越重。', alt: '翻滚或施放别的技能会停下，不砸地。',
-        set: { mech: 'pull', wm: 0.65, useMult: 1.36, cycleK: 1.194, pull: { r: 5, v: 5, max: 6, slam: 0.36, sr: 3.5 } },
+        desc: '按住旋转，每下把 5 米内的敌人吸向你；松手或转满 6 下时砸地收尾，转得越久越重。每下最多绞到离你最近的 9 个敌人。', alt: '翻滚或施放别的技能会停下，不砸地。砸地也最多砸到最近的 9 个。',
+        set: { mech: 'pull', wm: 0.65, useMult: 1.36, cycleK: 1.194, pull: { r: 5, v: 5, max: 6, slam: 0.36, sr: 3.5, cap: 9 } }, // cap：每下 / 砸地最多绞到最近的 9 个（聚成一团时原来是同装备别的技能的 1.87 倍，用户定压到 1.2 倍以内；散开、单体不变）
       },
     },
     shadestep: {
@@ -947,6 +947,58 @@
       },
     },
   };
+  // ---------- 渊式（第三种刻式，只在戴着对应的渊契时能选）----------
+  // 原来「渊契改某一个技能的打法」和这个技能自己的刻式 A / B 打架（用户：「改成技能变体，但有些变体只有装备了对应渊契才能开启」，
+  // 且「渊契带来的技能变体一定要比其他技能变体强」）。这六件渊契的机制搬成技能的第三种刻式 c：名字就是渊契的机制名，
+  // relic 是解锁它的渊契；渊契提示卡上「解锁 技能·渊式名：」后面那一句按参数拼（G.relicDescs 写进 c.line）。参数照刻式第二版的做法放在和 mech 同名的对象里。
+  // 规则：戴着渊契才生效（摘下退回 save.variantPrev 记着的 A / B 或原式，再戴上恢复）；不看宝石等级；选进 / 退回替下的那种不花乱流石；
+  // 双生坠不交替渊式。强度：单体 / 精英 / 静止怪群 / 散开怪群四种场面都不低于 A / B 里最好的那个，本来的主场高两到三成
+  // （实测表见 endgame-notes/relic-variants.md）
+  G.VARIANT_NAME.c = '渊式';
+  Object.assign(G.VARIANTS.blade, {
+    c: {
+      name: '回旋', relic: 'huixuan', pack: '一条线来回两遍',
+      desc: '更宽的利刃穿透所有敌人，飞到尽头或撞墙后折返，回程再伤一遍路上的敌人。', alt: '回程朝你飞，飞到你身边为止。同一个敌人去程、回程各挨一下。',
+      set: { mech: 'boom', wm: 0.85, pierce: 99, projR: 0.7, useMult: 1.7, boom: { back: 0.7, range: 1.0 } },
+    },
+  });
+  Object.assign(G.VARIANTS.whirl, {
+    c: {
+      name: '蓄潮', relic: 'nuchao', pack: '每 10 下卷一次潮',
+      desc: '按住旋转，每下较轻并攒一层潮势；满 10 层时卷起潮涌：把身边的敌人拽到脚下，再按层数重重拍下。', alt: '松手、翻滚或被打断时攒着的潮势也会拍下。首领拽不动。每下和潮涌都最多打到离你最近的 9 个敌人。',
+      set: { mech: 'tide', useMult: 1.35, tide: { pulse: 0.6, max: 10, burst: 0.7, r: 1.7, pull: 1.5, cap: 9 } },
+    },
+  });
+  Object.assign(G.VARIANTS.meteor, {
+    c: {
+      name: '星雨', relic: 'zhuixing', pack: '自动砸怪最密处',
+      desc: '不用按：每隔片刻自动落下一颗星，砸向附近敌人最密的地方。不耗魔力，改为保留最大魔力。', alt: '间隔受出手速度和迅捷影响，节流缩短间隔。不能手动施放；自动落下的不算施放，回响不生效。',
+      set: { mech: 'star', kb: 0.8, useMult: 1.24, star: { iv: 1.8, r: 12, mult: 0.4, area: 0.85, reserve: 20 } },
+    },
+  });
+  Object.assign(G.VARIANTS.arc, {
+    c: {
+      name: '电桥', relic: 'dianqiao', pack: '电弧走过的地方都通电',
+      desc: '电弧照常连锁，经过的每一段（从你到第一个目标、目标之间）都留下电桥，持续电击碰到的敌人。', alt: '同一个敌人同一时刻只吃一道电桥。电桥累积闪电异常值，但不引发感电电弧。最多 9 道，多了顶掉最老的。',
+      set: { mech: 'bridge', tags: ['spell', 'chaining', 'light', 'duration'], useMult: 1.36, bridge: { t: 1.5, w: 0.9, tick: 0.25, mult: 0.18, max: 9 } },
+    },
+  });
+  Object.assign(G.VARIANTS.thrall, {
+    c: {
+      name: '独骸', relic: 'haiwang', pack: '只有一具，更大更硬',
+      desc: '仆从上限固定为 1：召唤一具骸王，体型更大、更耐打，横斩 270° 扫一大片。', alt: '够得更远；受到的伤害 −15%，同时牵制 5 只小怪。多出的仆从上限（群聚、天赋、护符、万魂旗）每个折成 +35% 伤害、+40% 生命。',
+      set: { mech: 'king', king: { perDmg: 0.35, perLife: 0.4, scale: 1.5, life: 3, dmg: 3.45, cleave: 12, arc: 270, reach: 3.5, hold: 5, dr: 15 } },
+    },
+  });
+  Object.assign(G.VARIANTS.blackhole, {
+    c: {
+      name: '随核', relic: 'yinli', pack: '跟着你走；贴身打',
+      desc: '黑洞开在你身上并跟着你移动 3 秒，每隔片刻把周围的敌人往你脚下拽一把。', alt: '首领的牵引不变，也不被拽。冷却不变。星蚀的渊口照常在敌人脚下张开。',
+      set: { mech: 'follow', useMult: 19.56, follow: { dur: 1, radius: 1.1, pull: 1.2, dmg: 1.63, wave: { iv: 0.75, k: 2.6, step: 2.5 } } },
+    },
+  });
+  G.VARIANT_RELIC = {}; // 渊契 id → 它解锁渊式的技能 id
+  for (const id of Object.keys(G.VARIANTS)) if (G.VARIANTS[id].c) G.VARIANT_RELIC[G.VARIANTS[id].c.relic] = id;
 
   // ---------- 架势与处决 ----------
   // 精英和首领有架势条：命中削减，几秒不挨打后回复；打空即「破绽」——停手、易伤，可被处决。
@@ -1516,17 +1568,13 @@
   G.relicChance = (tier) => (tier >= 2 ? G.RELIC_DROP.boss.chance[2] : tier >= 1 ? G.RELIC_DROP.boss.chance[1] : 0);
   // 机制数值（game.js 的「渊契」一节读这里；改数值时说明跟着变）：
   // 踏震 panzhong：翻滚落地震地，半径 r（吃范围）、mult 倍武器伤害（物理攻击，吃你的加成、不吃辅助）、削架势 poise、击退 kb；两次至少隔 gap 秒；翻滚冷却 × (1 + rollCd)
-  // 蓄潮 nuchao：旋风斩每跳只打 pulse 倍、攒 1 层（上限 max）；松手 / 翻滚 / 被打断时以你为中心炸开，半径 = 旋风半径 × r，每层 burst 倍满额一跳
   // 崩势 duanyue：精英 / 首领被打出破绽时，r 米内的普通怪同时破绽 t 秒（停手、受伤 × 破绽倍率）；处决时目标 sweepR 米内处于破绽的敌人各吃处决伤害的 sweep
   // 必然 qianmu：命中把暴击率加进计数器，满 100 必暴并扣 100；暴击伤害 critMulti（点）
-  // 回旋 huixuan：投射物到射程尽头或第一次撞墙时折返，回程 back 倍、可再中；射程 × range
-  // 星雨 zhuixing：陨火每 iv 秒（吃出手速度和迅捷，节流缩短间隔）自动落在 r 米内敌人最密处，伤害 × mult、半径 × area，保留 reserve% 最大魔力、不耗魔力
-  // 电桥 dianqiao：链雷每跳在前后两个目标之间留一道 t 秒、宽 w 米的电桥，每 tick 秒对碰到的敌人造成一跳的 mult 倍闪电伤害；同时最多 max 道
+  // 回旋 huixuan：飞刃改成渊式「回旋」（G.VARIANTS.blade.c）；这里只剩弓 / 左轮的普攻：到射程尽头或第一次撞墙时折返，回程 back 倍、可再中；射程 × range
   // 混相 yibian：火 / 冰 / 雷灌进同一条异常值，累积速度 rate，满了三种效果各 × k
-  // 独骸 haiwang：仆从上限固定 1，多出来的上限每 1 个 +perDmg 伤害、+perLife 生命；骸王体型 × scale、生命 × life、伤害 × dmg，横斩带 cleave 个、arc 度，牵制 hold 只，受伤 −dr%
   // 同殇 tongshang：你受到的伤害 share 转给 r 米内最近的召唤物；召唤物最大生命 +life%；召唤物倒下时你回复它最大生命的 heal
   // 随影 zhaohun：翻滚 delay 秒后召唤物闪到你落点周围、各砸一下（半径 r，各自一击 × mult，守像 × multBig）；翻滚冷却 × (1 + rollCd)
-  // 随核 yinli：黑洞以你为中心跟着你走；持续 × dur、半径 × radius、牵引 × pull（首领不变）、每跳伤害 × dmg
+  // 蓄潮 nuchao / 星雨 zhuixing / 电桥 dianqiao / 独骸 haiwang / 随核 yinli：改成了技能的渊式（数值在 G.VARIANTS 各技能的 c 里）
   // 锁链 yuanfu：同一时刻处于渊缚的敌人连成一串（最多 max 个），其中一个受到你的伤害，其余每个分到 share
   // 暗域 xizhu（巅峰，熄烛冠）：你身周 r 米、每个召唤物身周 mr 米是暗域。域内的敌人造成的伤害 × (1 − weak)（首领 weakBoss，熄烛者不吃）；
   //   暗域增伤（专属词缀 darkDmg）：你的伤害对所有敌人 × (1 + darkDmg%)；召唤物的伤害对域内的敌人 × (1 + darkDmg% × mk)（召唤流吃不到暴击行，按 mk 倍补上）；
@@ -1537,17 +1585,12 @@
   G.RELIC_MECH = {
     // r 4.5（设计稿 3.0）：从近战距离朝目标翻滚，落地离目标约 4 米，3 米够不着翻过去的那个目标
     panzhong: { r: 4.5, mult: 1.1, poise: 28, kb: 1.2, gap: 0.8, rollCd: 0.3 },
-    nuchao: { pulse: 0.55, max: 12, burst: 0.5, r: 1.4 },
     duanyue: { r: 8, t: 2.5, sweepR: 3, sweep: 0.35 },
     qianmu: { critMulti: -15 },
     huixuan: { back: 0.6, range: 0.8 },
-    zhuixing: { iv: 1.8, r: 12, mult: 0.4, area: 0.85, reserve: 20 },
-    dianqiao: { t: 1.5, w: 0.9, tick: 0.25, mult: 0.18, max: 8 },
     yibian: { rate: 1.27, k: 0.6 },
-    haiwang: { perDmg: 0.35, perLife: 0.4, scale: 1.5, life: 3, dmg: 2.9, cleave: 6, arc: 220, hold: 5, dr: 15 },
     tongshang: { share: 0.3, r: 10, life: 25, heal: 0.08 },
     zhaohun: { delay: 0.15, r: 1.6, mult: 1.5, multBig: 1.0, rollCd: 0.15 },
-    yinli: { dur: 0.8, radius: 0.85, pull: 0.75, dmg: 1.2 },
     yuanfu: { max: 6, share: 0.2 },
     xizhu: { r: 8, mr: 2.5, weak: 0.2, weakBoss: 0.1, mk: 1.25, far: 9, lose: 3, lamp: 0.4, fogMin: 14 },
     shuangsheng: { k: 0.6, delay: 0.2, fx: 0.32 }, // fx：脚下双月的亮度（1 = 暖金原色）；0.32 时压在怪群脚边、怪的亮面只高 1–2 个点（灰度同帧对照）
@@ -1555,33 +1598,35 @@
   // 机制说明（物品提示、图鉴用），按上面的数值拼
   G.relicDescs = function () {
     const M = G.RELIC_MECH, R = G.RELICS;
-    const a = M.panzhong, b = M.nuchao, c = M.duanyue, d = M.huixuan, f = M.zhuixing, g = M.dianqiao, h = M.yibian, k = M.haiwang, t = M.tongshang, z = M.zhaohun, y = M.yinli, u = M.yuanfu;
+    const a = M.panzhong, c = M.duanyue, d = M.huixuan, h = M.yibian, t = M.tongshang, z = M.zhaohun, u = M.yuanfu;
     R.panzhong.mechDesc = '翻滚落地时震地：对 ' + a.r + ' 米内的敌人造成 ' + pc(a.mult) + ' 武器伤害的物理攻击伤害，削架势并击退。翻滚冷却延长 ' + pc(a.rollCd) + '。';
     R.panzhong.mechAlt = '半径吃范围加成；伤害吃你的伤害加成，不吃辅助宝石。两次至少间隔 ' + a.gap + ' 秒。';
-    R.nuchao.mechDesc = '旋风斩改为蓄力：按住时每跳只有 ' + pc(b.pulse) + ' 伤害并攒 1 层潮势（最多 ' + b.max + ' 层）；松手时炸开，每层造成一跳满额的 ' + pc(b.burst) + '。';
-    R.nuchao.mechAlt = '翻滚或被打断时同样炸开。爆炸以你为中心，半径为旋风斩的 ' + pc(b.r) + '。';
     R.duanyue.mechDesc = '精英或首领破绽时，' + c.r + ' 米内的普通怪一起破绽 ' + c.t + ' 秒。处决时，目标 ' + c.sweepR + ' 米内破绽中的敌人各受处决伤害的 ' + pc(c.sweep) + '。';
     R.qianmu.mechDesc = '暴击不再随机：命中时累积暴击率，满 100% 必定暴击。暴击伤害 ' + M.qianmu.critMulti + '%。';
     R.qianmu.mechAlt = '暴击后扣掉 100%，多出的留着。必定暴击的招式照旧必暴，不动计数。召唤物不受影响。';
-    R.huixuan.mechDesc = '飞刃、弓箭和左轮子弹到射程尽头或第一次撞墙时折返，回程伤害 ' + pc(d.back) + '，可再次命中。射程缩短 ' + pc(1 - d.range) + '。';
-    R.huixuan.mechAlt = '弓箭含普攻。机炮、会爆炸的投射物和万矢分出的箭不会折返。';
-    R.zhuixing.mechDesc = '陨火改为自动：放在技能栏上时每 ' + f.iv + ' 秒落在 ' + f.r + ' 米内敌人最密处，伤害 ' + pc(f.mult) + '、半径 ' + pc(f.area) + '。不耗魔力，改为保留 ' + f.reserve + '% 最大魔力。';
-    R.zhuixing.mechAlt = '不能手动施放。间隔受出手速度和迅捷影响，节流缩短间隔。自动落下的不算施放，回响不生效。';
-    R.dianqiao.mechDesc = '链雷每跳在前后两个目标间留下电桥 ' + g.t + ' 秒，每 ' + g.tick + ' 秒对碰到的敌人造成一跳 ' + pc(g.mult) + ' 的闪电伤害。最多 ' + g.max + ' 道。';
-    R.dianqiao.mechAlt = '电桥累积闪电异常值，但不引发感电电弧。超过上限时顶掉最老的。';
     R.yibian.mechDesc = '火焰、冰霜、闪电灌进同一条「混相」异常值；满时同时触发爆燃、冻结和感电，效果各 ' + pc(h.k) + '。';
     R.yibian.mechAlt = '首领改为重度冰缓，阈值每次只提高一次。佩戴时三相之心的共鸣不生效。';
-    R.haiwang.mechDesc = '烬骸仆从上限固定为 1：骸王生命 ×' + k.life + '、伤害 ×' + k.dmg + '，横斩 ' + k.arc + '° 带到 ' + k.cleave + ' 个敌人，受到的伤害减少 ' + k.dr + '%。多出的仆从上限每个折成 +' + pc(k.perDmg) + ' 伤害、+' + pc(k.perLife) + ' 生命。';
-    R.haiwang.mechAlt = '骸王体型更大，同时牵制 ' + k.hold + ' 只小怪。多出的上限来自群聚、天赋、护符、万魂旗。';
     R.tongshang.mechDesc = '你受到伤害的 ' + pc(t.share) + ' 转给 ' + t.r + ' 米内最近的召唤物。召唤物最大生命提高 ' + t.life + '%；召唤物倒下时，你回复它最大生命的 ' + pc(t.heal) + '。';
     R.tongshang.mechAlt = '转过去的伤害按召唤物的减伤结算。';
     R.zhaohun.mechDesc = '翻滚时召唤物闪到你落点周围，各砸一下（半径 ' + z.r + ' 米，一击的 ' + pc(z.mult) + '，守像 ' + pc(z.multBig) + '），削减架势。翻滚冷却延长 ' + pc(z.rollCd) + '。';
     R.zhaohun.mechAlt = '召唤物在翻滚 ' + z.delay + ' 秒后到达。';
-    R.yinli.mechDesc = '黑洞以你为中心跟着你移动：持续 ' + pc(y.dur) + '、半径 ' + pc(y.radius) + '、牵引 ' + pc(y.pull) + '，每跳伤害 ' + pc(y.dmg) + '。';
-    R.yinli.mechAlt = '首领的牵引不变。冷却不变。星蚀的渊口照常在敌人脚下张开。';
+    // 渊式：机制说明是「解锁 技能·渊式名：一句话」，那一句按 G.VARIANTS 的参数拼（技能页、图鉴、提示卡都用它）
+    const VC = (id) => G.VARIANTS[id].c, SK = G.SKILLS;
+    const bo = VC('blade').set.boom, ti = VC('whirl').set.tide, st = VC('meteor').set.star, br = VC('arc').set.bridge, kg = VC('thrall').set.king, fo = VC('blackhole').set.follow;
+    VC('blade').line = '利刃穿透所有敌人，到尽头或撞墙后飞回你身边，回程伤害 ' + pc(bo.back) + '。';
+    VC('whirl').line = '每下 ' + pc(ti.pulse) + ' 并攒一层潮势；满 ' + ti.max + ' 层卷起潮涌，拽来 ' + SK.whirl.radius * ti.r + ' 米内的敌人，每层 ' + pc(ti.burst) + ' 一下。';
+    VC('meteor').line = '放在技能栏上就自动落星，每 ' + st.iv + ' 秒砸向 ' + st.r + ' 米内敌人最密处，伤害 ' + pc(st.mult) + '；不耗魔力，保留 ' + st.reserve + '% 最大魔力。';
+    VC('arc').line = '电弧经过的每一段都留下 ' + br.t + ' 秒电桥，每 ' + br.tick + ' 秒电一下碰到的敌人（' + pc(br.mult) + '）。';
+    VC('thrall').line = '只召唤一具骸王：生命 ×' + kg.life + '、伤害 ×' + kg.dmg + '，横斩 ' + kg.arc + '° 带到 ' + kg.cleave + ' 个敌人。';
+    VC('blackhole').line = '黑洞开在你身上、跟着你走，每跳伤害 ' + pc(fo.dmg) + '；每 ' + fo.wave.iv + ' 秒把 ' + Math.round(SK.blackhole.radius * fo.radius * fo.wave.k) + ' 米内的敌人往你身边拽。';
+    for (const rq of Object.keys(G.VARIANT_RELIC)) {
+      const sid = G.VARIANT_RELIC[rq], V = G.VARIANTS[sid].c;
+      R[rq].mechDesc = '解锁 ' + SK[sid].name + '·' + V.name + '：' + V.line;
+      R[rq].mechAlt = '在技能页（G）选用，切换免费；摘下后退回原来的刻式。';
+    }
+    R.huixuan.mechAlt = '弓和左轮的普攻也会折返，回程伤害 ' + pc(d.back) + '、射程缩短 ' + pc(1 - d.range) + '（机炮、会爆炸的箭、万矢分出的箭除外）。' + R.huixuan.mechAlt;
     R.yuanfu.mechDesc = '渊缚中的敌人连成一串（最多 ' + u.max + ' 个）：其中一个受你伤害时，其余各分到 ' + pc(u.share) + '。';
     R.yuanfu.mechAlt = '分到的伤害不暴击、不触发命中效果、不累积异常值、不带黑焰。渊缚结束即断开。首领不会被渊缚。';
-    for (const id of ['nuchao', 'zhuixing', 'dianqiao', 'haiwang', 'yinli']) R[id].mechAlt = (R[id].mechAlt || '') + '只改原式，刻式 A / B 下不生效。';
     const x = M.xizhu, s2 = M.shuangsheng;
     R.xizhu.mechDesc = '身周 ' + x.r + ' 米是暗域：域内敌人伤害降低 ' + pc(x.weak) + '。暗域增伤：你的伤害对所有敌人生效；召唤物打域内敌人时，这份增伤按 ' + pc(x.mk) + ' 算。';
     R.xizhu.mechAlt = '召唤物身周 ' + x.mr + ' 米也算暗域。首领在域内只降低 ' + pc(x.weakBoss) + '，熄烛者不受影响。' + x.far + ' 米外的怪不会因距离醒来；已醒的怪在 ' + x.far +

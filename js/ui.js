@@ -3403,13 +3403,16 @@
   }
 
   // ---------- 刻式 ----------
-  // 技能卡上的刻式一行：宝石 ≥ 解锁等级时「原式 / A 名 / B 名」三个按钮 + 价格；没到时一行灰字
+  // 技能卡上的刻式一行：宝石 ≥ 解锁等级时「原式 / A 名 / B 名」三个按钮 + 价格；没到时一行灰字。
+  // 有渊式的技能下面再一行「渊式」按钮（不看宝石等级）：没戴渊契时灰着、写「装备某某解锁」；选着渊式时亮的是渊式，渊契没戴时亮替下的那种
   function variantRow(id) {
     const V = G.VARIANTS[id];
     if (!V) return '';
     const S = G.save;
-    if (!(S.skills[id] >= G.VARIANT_LVL)) return '<div class="sk-var lock"><span class="sv-label">刻式</span><span class="sv-lock">宝石 Lv ' + G.VARIANT_LVL + ' 解锁 A / B 两种刻式</span></div>';
-    const cur = S.variants[id] || 'o', VC = G.VARIANT_COST, cost = G.variantCost(id), have = S.cur[VC.cur] || 0;
+    const m0 = ui.varMsg && ui.varMsg.id === id ? '<div class="sv-msg' + (ui.varMsg.bad ? ' bad' : '') + '">' + ui.varMsg.text + '</div>' : '';
+    if (!(S.skills[id] >= G.VARIANT_LVL)) return '<div class="sk-var lock"><span class="sv-label">刻式</span><span class="sv-lock">宝石 Lv ' + G.VARIANT_LVL + ' 解锁 A / B 两种刻式</span></div>' + (V.c ? rqRow(id) + m0 : '');
+    const sel = S.variants[id] || 'o', cur = sel === 'c' ? (G.variantRelicOn(id) ? 'c' : S.variantPrev[id] || 'o') : sel;
+    const VC = G.VARIANT_COST, cost = G.variantCost(id), have = S.cur[VC.cur] || 0;
     let btns = '';
     for (const v of ['o', 'a', 'b']) {
       btns +=
@@ -3419,8 +3422,17 @@
     const price = cost
       ? '<span class="sv-cost' + (have < cost ? ' bad' : '') + '">换一次 ' + cost + ' ' + G.CURRENCY[VC.cur].name + '（持有 ' + have + '）</span>'
       : '<span class="sv-cost free">第一次选免费</span>';
-    const m = ui.varMsg && ui.varMsg.id === id ? '<div class="sv-msg' + (ui.varMsg.bad ? ' bad' : '') + '">' + ui.varMsg.text + '</div>' : '';
-    return '<div class="sk-var"><span class="sv-label">刻式</span>' + btns + price + '</div>' + m;
+    return '<div class="sk-var"><span class="sv-label">刻式</span>' + btns + price + '</div>' + (V.c ? rqRow(id) : '') + m0;
+  }
+  // 渊式那一行：按钮（渊式名）+ 右边一句状态（使用中 / 免费切换 / 装备某某解锁）
+  function rqRow(id) {
+    const V = G.VARIANTS[id].c, S = G.save, worn = G.variantRelicOn(id), sel = S.variants[id] === 'c', R = G.RELICS[V.relic];
+    const note = !worn ? '装备' + R.name + '解锁' + (sel ? '（已选，戴上恢复）' : '') : sel ? '使用中' : '免费切换';
+    return (
+      '<div class="sk-var sk-rq"><span class="sv-label">渊式</span>' +
+      '<button type="button" tabindex="-1" class="sv-btn sv-rq' + (worn && sel ? ' on' : '') + (worn ? '' : ' lock') + '" data-act="variant" data-skill="' + id + '" data-v="c" data-tip="var:' + id + '.c"' + (worn ? '' : ' aria-disabled="true"') + '>' +
+      V.name + '</button><span class="sv-cost' + (worn ? ' free' : ' rqlock') + '">' + note + '</span></div>'
+    );
   }
   // 刻式改动的字段怎么写（悬停里逐条列「原式 → 刻式」）
   const VAR_FIELD = {
@@ -3432,7 +3444,7 @@
     const cut = key.lastIndexOf('.');
     const id = key.slice(0, cut), v = key.slice(cut + 1);
     const V = G.VARIANTS[id];
-    if (!V || !(v === 'o' || v === 'a' || v === 'b')) return '';
+    if (!V || !(v === 'o' || v === 'a' || v === 'b' || (v === 'c' && V.c))) return '';
     const S = G.save, base = G.SKILL_BASE[id];
     // 数值按这一刻式临时拼好的定义算（宝石、辅助、装备都是现在的）
     const keep = G.useVariant(id, v);
@@ -3470,15 +3482,19 @@
     }
     const r = v === 'o' ? 1 : G.variantRatio(id, v);
     const total = sk.kind === 'aura' && !toAura;
-    const cur = (S.variants[id] || 'o') === v;
-    const cost = G.variantCost(id), VC = G.VARIANT_COST, have = S.cur[VC.cur] || 0;
-    const state = cur
+    // 渊式：选进去、退回替下的那种都不花钱；渊契没戴时渊式按钮灰着
+    const sel = S.variants[id] || 'o', worn = !V.c || G.variantRelicOn(id);
+    const cur = (sel === 'c' && !worn ? S.variantPrev[id] || 'o' : sel) === v;
+    const cost = v === 'c' || (sel === 'c' && v === (S.variantPrev[id] || 'o')) ? 0 : G.variantCost(id), VC = G.VARIANT_COST, have = S.cur[VC.cur] || 0;
+    const state = v === 'c' && !worn
+      ? '<div class="tc-state dup">装备' + G.RELICS[V.c.relic].name + '解锁' + (sel === 'c' ? '（已选，戴上恢复）' : '') + '</div>'
+      : cur
       ? '<div class="tc-state dup">当前刻式</div>'
       : G.variantBusy()
         ? '<div class="tc-state dup">战斗中不能换（' + G.VARIANT_SAFE_R + ' 米内还有醒着的敌人）</div>'
-        : '<div class="tc-state new">点击换成它：' + (cost ? cost + ' ' + G.CURRENCY[VC.cur].name + '（持有 ' + have + '）' : '免费（这个技能第一次选）') + '</div>';
+        : '<div class="tc-state new">点击换成它：' + (cost ? cost + ' ' + G.CURRENCY[VC.cur].name + '（持有 ' + have + '）' : v === 'c' || sel === 'c' ? '免费（渊式切换不花钱）' : '免费（这个技能第一次选）') + '</div>';
     return (
-      '<div class="tcard" style="--c:' + base.color + '">' + tcHead('<div class="tc-skico">' + IC.skill(id) + '</div>', v === 'o' ? '原式' : V[v].name, base.name + ' · ' + (v === 'o' ? '不选刻式' : '刻式 ' + G.VARIANT_NAME[v])) +
+      '<div class="tcard" style="--c:' + base.color + '">' + tcHead('<div class="tc-skico">' + IC.skill(id) + '</div>', v === 'o' ? '原式' : V[v].name, base.name + ' · ' + (v === 'o' ? '不选刻式' : v === 'c' ? '渊式（' + G.RELICS[V.c.relic].name + '解锁）' : '刻式 ' + G.VARIANT_NAME[v])) +
       '<div class="tc-desc">' + (v === 'o' ? base.desc : V[v].desc) + '</div>' + altBox(v === 'o' ? base.alt : V[v].alt) +
       (rows.length ? '<div class="tc-foot">' + rows.join(' · ') + '</div>' : '') +
       '<div class="tc-stat">' + nums + '</div>' +
@@ -3938,8 +3954,9 @@
       if (!G.VARIANTS[id]) return;
       const r = G.setVariant(id, d.v);
       const nm = d.v === 'o' ? '原式' : G.VARIANTS[id][d.v].name;
+      const kept = r.ok && d.v !== 'c' && G.save.variants[id] === 'c'; // 渊式选着、渊契没戴：改的是替下的那种
       ui.varMsg = r.ok
-        ? { id, text: r.same ? '已经是「' + nm + '」' : '「' + G.SKILLS[id].name + '」换成了「' + nm + '」' + (r.cost ? '，用掉 ' + r.cost + ' ' + G.CURRENCY[G.VARIANT_COST.cur].name : '（免费）') }
+        ? { id, text: r.same ? '已经是「' + nm + '」' : kept ? '渊契没戴时用「' + nm + '」，戴上恢复渊式' + (r.cost ? '（用掉 ' + r.cost + ' ' + G.CURRENCY[G.VARIANT_COST.cur].name + '）' : '') : '「' + G.SKILLS[id].name + '」换成了「' + nm + '」' + (r.cost ? '，用掉 ' + r.cost + ' ' + G.CURRENCY[G.VARIANT_COST.cur].name : '（免费）') }
         : { id, text: r.msg, bad: true };
       G.sfx(r.ok && !r.same ? 'gem' : r.ok ? 'click' : 'deny');
       render();
@@ -6012,6 +6029,20 @@
       done: () => false,
     },
     {
+      // 渊式之前的存档：身上戴着的渊契原来直接改技能打法，读档时换成了这个技能的渊式（G.rqMigrated，见 game.js 的 sanitize）
+      id: 'rqvar', calm: true, max: 16,
+      html: '<b>渊式</b>：改技能打法的渊契换成了技能的第三种刻式，已替你选上；摘下渊契退回原来的刻式（<kbd>G</kbd>）',
+      when: () => G.rqMigrated > 0,
+      done: () => false,
+    },
+    {
+      // 旋涡斩加了「每下最多 9 个」之前、选着旋涡斩的老存档：提示一次（见 game.js 的 wsNote）
+      id: 'wsnerf', calm: true, max: 14,
+      html: '<b>旋涡斩</b>：每下最多绞到离你最近的 9 个敌人，怪聚成一团时伤害约 −40%；分散的怪和单体不变',
+      when: () => G.whirlNerfed > 0,
+      done: () => false,
+    },
+    {
       // 旧版双生坠：读档时升成四行（见 game.js 的 migrateTwin）
       id: 'sxmig', calm: true, max: 16,
       html: '<b>双生坠升级</b>：多了暴击伤害和总伤害两行，原有两行按原来的成色换算到新数值；效果改为「余响」',
@@ -6159,6 +6190,14 @@
     if (id === 'variant2') {
       G.save.varNote = false;
       G.variantRedone = 0;
+    }
+    if (id === 'rqvar') {
+      G.save.rqNote = false;
+      G.rqMigrated = 0;
+    }
+    if (id === 'wsnerf') {
+      G.save.wsNote = false;
+      G.whirlNerfed = 0;
     }
     G.persist();
   }
