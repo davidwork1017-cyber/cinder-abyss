@@ -12174,6 +12174,8 @@ async function main() {
   // 都按模拟时间推进（G.tick），随机数钉死（T.fix），敌人抗性清零（noRes）；结束时把技能构筑还原
   const seKeep = async (fn) => {
     const keep = await ev(() => T.buildSnap());
+    // 前面「存档迁移」那几步读的是旧存档，没有新技能：先全学会（绑技能栏要已学），结束时连同构筑一起还原
+    await ev(() => G.debug.learnAll());
     try {
       return await fn();
     } finally {
