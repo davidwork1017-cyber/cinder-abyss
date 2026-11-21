@@ -18,9 +18,10 @@ ROW = palette.ROW
 
 
 class Kit:
-    def __init__(self, seed, name):
+    def __init__(self, seed, name, remap=None):
         self.seed = seed
         self.name = name
+        self.remap = dict(remap or {})  # 调色板行换名（清单里的 remap）：同一个生成器换一套材质行，比如烬渊把石 / 板岩换成熔渣、星辉换成余烬
         self.rng = random.Random(seed)
         self.bm = bmesh.new()
         self.L_pal = self.bm.faces.layers.int.new('pal')  # 调色板行 + 1（0 = 还没标，收尾时从相邻面继承）
@@ -37,7 +38,7 @@ class Kit:
 
     # ---------- 标签 ----------
     def tag(self, faces, row, tone=0.5, jitter=0.1, glow=0, dust=1):
-        rid = ROW[row] if isinstance(row, str) else row
+        rid = ROW[self.remap.get(row, row)] if isinstance(row, str) else row
         for f in faces:
             f[self.L_pal] = rid + 1
             f[self.L_tone] = min(0.98, max(0.02, tone + (self.rng.random() * 2 - 1) * jitter))
@@ -198,13 +199,14 @@ class Kit:
             if second and row in SECOND:
                 n2 = vnoise(c.x * fq * 1.7 + 17.3, c.y * fq * 1.7 - 4.1, c.z * fq * 1.7 + 9.7, sd + 1)
                 to, th = SECOND[row]
+                to = self.remap.get(to, to)
                 if n2 > th:
                     f[self.L_pal] = ROW[to] + 1
                     row = to
             if lichen > 0 and row in LICHEN_ON and 0.2 < f.normal.z < 0.8:
                 n3 = vnoise(c.x * fq * 2.3 + 41.0, c.y * fq * 2.3 + 3.0, c.z * fq * 2.3 - 11.0, sd + 2)
                 if n3 > 1 - lichen * 0.5:
-                    f[self.L_pal] = ROW['lichen'] + 1
+                    f[self.L_pal] = ROW[self.remap.get('lichen', 'lichen')] + 1
                     f[self.L_tone] = min(0.9, max(0.2, f[self.L_tone]))
 
     # ---------- 收尾 ----------
@@ -242,7 +244,7 @@ class Kit:
                         break
         for f in bm.faces:
             if f[self.L_pal] == 0:
-                f[self.L_pal] = ROW['stone'] + 1
+                f[self.L_pal] = ROW[self.remap.get('stone', 'stone')] + 1
                 f[self.L_tone] = 0.5
         # 自己三角化（固定方法，单线程）：交给导出器时 Blender 对多边形的三角化顺序偶尔会变，同一份几何导出的索引就不逐字节一致
         bmesh.ops.triangulate(bm, faces=list(bm.faces), quad_method='FIXED', ngon_method='EAR_CLIP')

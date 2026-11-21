@@ -878,7 +878,7 @@
       },
     },
     abyss: {
-      packs: ['zone-abyss', 'rock-dark', 'models', 'ground'],
+      packs: ['zone-abyss', 'rock-dark', 'ground'], // asset-zones：布景全是自产件（kit-abyss 跟着 zone-abyss 加载），不再要 models 包；余烛殿沿用这一行
       // zones-abyss（owner 11-18：太红太饱和）：路面是低饱和的炭灰紫褐，路外是更暗的玄武岩壳，熔岩流贴图不再整片发光；
       // 红橙只留给路面上零星几片发光的裂缝（lava.patch）、余烬口、深渊底的熔岩缝和火星
       mats: [
@@ -891,7 +891,7 @@
       grade: { sat: 1.0, con: 1.08, lift: 0x0a0612, gain: 0xf8f4f8, vig: 0.26, sh: 0x5a5a98, hi: 0xffc89a, tk: 0.12, shS: 0.8 },
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x1c1622, a: 0.3 },
-      prop: { tint: 0x4a4450, sat: 0.15 },
+      prop: { tint: 0x9a90b0, sat: 0.15 }, // asset-zones：布景全是自产件以后按游戏里的灰度校准（原来 0x4a4450 下 KayKit 的拱 / 墓 / 柱几乎是黑的，2–9%；带 r 的 Kenney 石头画成岩石材质 20–26%）
       // vf-ground：石板上一片片发黑的腐壳，崖边和墙脚厚；路外是腐根脉络、水渍、碎石，熔岩边有焦痕
       layer: { tex: 'g_cover_abyss', tile: 4.5, con: 0.8, rough: 0.9, k: 0.55, sat: 0.4, col: 0x4a4450, path: 0.6, pT: 0.55, edge: 0.95, jag: 1.4, blend: 0.08, edgeW: 0.55, mv: 0.15, mh: 0.1, scorch: 0.5, sT: 0.63, ao2: 0.24 },
       deco: { cover: 0x4e4656, floor: 0.8, wild: 1, ao: 0.85, aoR: 0.9, scorch: 0.6, clusters: 0.6, kinds: [15, 12, 7, 11, 13], tint: 0x3e3844 },
@@ -904,13 +904,15 @@
       amb: 0xff7a2a,
       rockStyle: { thin: true },
       props: {
-        outer: [['kh/arch', 1, 0.8, 1, 't'], ['kh/grave_A_destroyed', 3, 1, 1.3, ''], ['kh/pillar', 2, 0.7, 0.9, 't'], ['kn/rock_tallA', 2, 2.4, 3.4, 'tr'], ['kh/tree_dead_medium', 2, 0.9, 1.2, 't']],
+        // asset-zones：全部换成自产件（art/catalog.py 的 ca/abyss_*，包 kit-abyss）：scale 1 时包围盒（r / 顶 / 底）和原来的 KayKit / Kenney 件一致，数字不动；
+        // 原来的 r 标记（岩石材质）去掉，改用布景材质，玄武岩的明暗和余烬缝烘在顶点色里
+        outer: [['ca/abyss_arch', 1, 0.8, 1, 't'], ['ca/abyss_tomb', 3, 1, 1.3, ''], ['ca/abyss_pillar', 2, 0.7, 0.9, 't'], ['ca/abyss_monolith', 2, 2.4, 3.4, 't'], ['ca/abyss_tree', 2, 0.9, 1.2, 't']],
         keep: 0.3,
-        mid: [['kn/rock_tallG', 1, 2.2, 3, 'r'], ['kn/rock_largeF', 1, 1.8, 2.4, 'r']],
+        mid: [['ca/abyss_shards', 1, 2.2, 3, ''], ['ca/abyss_boulder', 1, 1.8, 2.4, '']],
         midK: 0.3,
-        edge: [['kh/skull_candle', 1, 0.6, 0.8, ''], ['kh/skull', 2, 0.5, 0.7, ''], ['kh/ribcage', 1, 0.9, 1.2, 'l'], ['kh/gravemarker_A', 2, 0.8, 1, '']],
-        fire: { m: 'kn/campfire_stones', s: 3.2, h: 0.12, color: 0xff6a2a, size: 1.6 },
-        boss: [['kh/crypt', 1, 0.62, 0.7, 't1'], ['kh/arch', 1, 0.9, 1, 't'], ['kh/pillar', 2, 0.8, 1, 't']],
+        edge: [['ca/abyss_skull_candle', 1, 0.6, 0.8, ''], ['ca/abyss_skull', 2, 0.5, 0.7, ''], ['ca/abyss_ribs', 1, 0.9, 1.2, 'l'], ['ca/abyss_marker', 2, 0.8, 1, '']],
+        fire: { m: 'ca/abyss_firepit', s: 3.2, h: 0.12, color: 0xff6a2a, size: 1.6 },
+        boss: [['ca/abyss_crypt', 1, 0.62, 0.7, 't1'], ['ca/abyss_arch', 1, 0.9, 1, 't'], ['ca/abyss_pillar', 2, 0.8, 1, 't']],
       },
     },
     rift: {
@@ -9304,7 +9306,7 @@
   ZONE_GFX.crown = Object.assign({}, ZONE_GFX.abyss, {
     sigil: { r: 0.6, col: 0xffb24a, k: 0.36, start: false },
     amb: 0xffb24a,
-    props: { outer: [], keep: 0, mid: [], midK: 0, edge: [['kh/skull_candle', 1, 0.6, 0.8, '']], fire: null, boss: [] },
+    props: { outer: [], keep: 0, mid: [], midK: 0, edge: [['ca/abyss_skull_candle', 1, 0.6, 0.8, '']], fire: null, boss: [] }, // asset-zones：骷髅蜡烛换成烬渊的自产件（kit-abyss）
   });
   ZONE_LIGHT.crown = Object.assign({}, ZONE_LIGHT.abyss, { key: 0xffd2a0, bounce: 0x5a3a2a });
   GROUND_STYLE.crown = GROUND_STYLE.abyss;

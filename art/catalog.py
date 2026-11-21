@@ -4,6 +4,9 @@
 # replaces：在本区摆放表里顶替的旧模型（scale 1 时的尺寸、原点和它一致，摆放表的缩放不用改）。
 # bake：烘焙参数（ao = AO 采样距离，米；grad = 底部压暗渐变的高度，米；wear / grime = 边缘提亮 / 缝里压暗的强度；gtint = 污垢色偏的浓淡；gain = 整件明暗的倍数，按游戏里的灰度校准，缺省 1），按件的真实尺寸给。
 # cues：材质线索参数（val = 明暗斑块幅度，second = 要不要第二色调，lichen = 灰苔比例），缺省值见 art/ca/core.py 的 material_cues。
+# 烬渊深处：板岩换成灰烬岩、星辉换成余烬（暗芯亮边靠余烬缝），灰苔和土堆的积灰色换成污垢；明暗交给区域配色 prop.tint 和每件的 gain
+ABYSS = {'slate': 'stone', 'starglass': 'ember', 'lichen': 'grime', 'dust': 'grime'}
+
 CATALOG = [
     # ---- 灰烬地带：顶替现有 KayKit / Kenney 布景（路边小物 skull / bones / blade / marker 是第二版，asset-lib-props2） ----
     dict(id='ca/ash_tree_dead_a', gen='tree', seed=11, cat='prop', zone='ash', ship=True, replaces='kh/tree_dead_large',
@@ -50,6 +53,35 @@ CATALOG = [
          fit=dict(r=4.068856716156006, top=3.4960880279541016, bottom=0), bake=dict(ao=0.9, grad=1.0, gain=0.6), finish=dict(dust=0.2, dust_row='lichen')),
     dict(id='ca/rift_slabs', gen='slabs', seed=101, cat='scatter', zone='rift', ship=True, replaces='kd/floor_tile_small_broken_A',
          fit=dict(r=1, top=0.15000001341104507, bottom=0), bake=dict(ao=0.12, grad=0.05, gain=0.3), finish=dict(dust=0.15, dust_row='lichen')),
+    # ---- 烬渊深处（第 3 区）：顶替 KayKit / Kenney 布景。石碑 / 晶簇 / 巨石 / 拱 / 柱 / 枯树 / 火坑 / 骷髅 / 石十字复用已有生成器（remap 换成熔渣 + 余烬），
+    # 碎墓 / 兽骨架 / 骷髅蜡烛 / 墓室是新生成器。fit 照抄被顶替件 geoInfo 的浮点值；底下悬空（骷髅类）或埋得深（兽骨架，标记 l）的旧件按规矩改成原点在底面，
+    # 这几个摆放时不用 y0（兽骨架的 l 抬高变成 0，落地位置一样）。不复用灰烬件的 GLB：它们没按旧件对齐包围盒，直接用会挪动摆放 ----
+    dict(id='ca/abyss_arch', gen='arch', seed=61, cat='kit', zone='abyss', ship=True, replaces='kh/arch', args=dict(span=3.2, h=4.0), remap=ABYSS,
+         fit=dict(r=2.1092209815979004, top=4.413949012756348, bottom=0), bake=dict(ao=0.8, grad=1.0), finish=dict(dust=0.15)),
+    dict(id='ca/abyss_tomb', gen='tomb', seed=103, cat='prop', zone='abyss', ship=True, replaces='kh/grave_A_destroyed', remap=ABYSS,
+         fit=dict(r=1.0774000883102417, top=2.1061151027679443, bottom=0), bake=dict(ao=0.4, grad=0.6), finish=dict(dust=0.15)),
+    dict(id='ca/abyss_pillar', gen='pillar', seed=19, cat='kit', zone='abyss', ship=True, replaces='kh/pillar', args=dict(h=4.4, r=0.42, broken=0.18, chunks=0), remap=ABYSS,
+         fit=dict(r=0.5, top=4.399999618530273, bottom=0), bake=dict(ao=0.6, grad=1.0, gain=0.63), finish=dict(dust=0.15)),
+    dict(id='ca/abyss_monolith', gen='monolith', seed=71, cat='prop', zone='abyss', ship=True, replaces='kn/rock_tallA', remap=ABYSS,
+         fit=dict(r=0.49153444170951843, top=0.9459258913993835, bottom=-0.05000000074505806), bake=dict(ao=0.12, grad=0.25), finish=dict(dust=0.15)),
+    dict(id='ca/abyss_tree', gen='tree', seed=23, cat='prop', zone='abyss', ship=True, replaces='kh/tree_dead_medium', args=dict(h=4.2, r0=0.31, lean=0.2, branches=4, ember=2, spread=1.2), remap=ABYSS,
+         fit=dict(r=1.3231620788574219, top=3.888742208480835, bottom=-0.3002431392669678), bake=dict(ao=0.6, grad=0.8), finish=dict(dust=0.15)),
+    dict(id='ca/abyss_shards', gen='shards', seed=73, cat='prop', zone='abyss', ship=True, replaces='kn/rock_tallG', remap=ABYSS,
+         fit=dict(r=0.24534401297569275, top=0.7329360246658325, bottom=-0.05000000074505806), bake=dict(ao=0.08, grad=0.2), finish=dict(dust=0.15)),
+    dict(id='ca/abyss_boulder', gen='boulder', seed=83, cat='prop', zone='abyss', ship=True, replaces='kn/rock_largeF', remap=ABYSS,
+         fit=dict(r=0.5477293729782104, top=0.42896199226379395, bottom=-0.05000000074505806), bake=dict(ao=0.12, grad=0.2), finish=dict(dust=0.15)),
+    dict(id='ca/abyss_skull_candle', gen='skull_candle', seed=107, cat='prop', zone='abyss', ship=True, replaces='kh/skull_candle', remap=ABYSS,
+         fit=dict(r=0.5188949704170227, top=1.2447770833969116, bottom=0), bake=dict(ao=0.25, grad=0.4, grime=0.4, gtint=1.15, wear=0.45), finish=dict(dust=0.15)),
+    dict(id='ca/abyss_skull', gen='skull2', seed=5, cat='scatter', zone='abyss', ship=True, replaces='kh/skull', args=dict(R=0.42, tilt=1.3), remap=ABYSS,
+         fit=dict(r=0.4587917625904083, top=0.9157134890556335, bottom=0), bake=dict(ao=0.3, grad=0.5, grime=0.4, gtint=1.15, wear=0.45, gain=0.46), finish=dict(dust=0.15)),
+    dict(id='ca/abyss_ribs', gen='ribs', seed=109, cat='scatter', zone='abyss', ship=True, replaces='kh/ribcage', remap=ABYSS,
+         fit=dict(r=0.42282453179359436, top=0.8582255244255066, bottom=0), bake=dict(ao=0.15, grad=0.2, gtint=0.6, gain=0.63), finish=dict(dust=0.15)),
+    dict(id='ca/abyss_marker', gen='grave_cross', seed=13, cat='scatter', zone='abyss', ship=True, replaces='kh/gravemarker_A', remap=ABYSS,
+         fit=dict(r=0.43381795287132263, top=1.196102499961853, bottom=0), bake=dict(ao=0.3, grad=0.5), finish=dict(dust=0.15)),
+    dict(id='ca/abyss_firepit', gen='firepit', seed=17, cat='prop', zone='abyss', ship=True, replaces='kn/campfire_stones', args=dict(r=0.29), remap=ABYSS,
+         fit=dict(r=0.2908634841442108, top=0.027751002460718155, bottom=-0.05000000074505806), bake=dict(ao=0.03, grad=0.03, gtint=0.3, grime=0.12, wear=0.4, gain=0.72), finish=dict(dust=0.15)),
+    dict(id='ca/abyss_crypt', gen='crypt', seed=113, cat='kit', zone='abyss', ship=True, replaces='kh/crypt', remap=ABYSS,
+         fit=dict(r=4, top=8, bottom=0), bake=dict(ao=1.2, grad=1.5), finish=dict(dust=0.15)),
 ]
 
 # 看板（lineup）：每个生成器 × 几个种子，参数沿用清单里第一个用到它的件

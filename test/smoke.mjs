@@ -9926,7 +9926,7 @@ async function main() {
     return r.zones.join(' ') + ' ｜ ' + r.qs.join(' ') + ' ｜ 默认 ' + r.q0 + '（' + r.eff + '）';
   });
 
-  await step('画面：第 0 区的布景全部来自自产件包 kit-ash（ca/ 开头，含路边小物）、第 4 区（坠星裂谷）的布景全部来自 kit-rift，确实摆出来了；别的区照旧用 CC0 模型包（第 1–3 区里摆出布景的第一个区）', async () => {
+  await step('画面：第 0 区的布景全部来自自产件包 kit-ash（ca/ 开头，含路边小物）、第 3 区（烬渊深处）的布景全部来自 kit-abyss、第 4 区（坠星裂谷）的布景全部来自 kit-rift，确实摆出来了；别的区照旧用 CC0 模型包（第 1–2 区里摆出布景的第一个区）', async () => {
     const r = await ev(async () => {
       const W = G.world;
       const wait = async (f, ms) => {
@@ -9941,16 +9941,17 @@ async function main() {
       };
       // 别的区：照旧用 CC0 模型包。第 1 区四周是水，布景基本摆不上（不立在深水上），所以依次看第 1–4 区，以摆出布景的第一个区为准
       const ash = await look(0), others = [];
-      for (let i = 1; i < Math.min(4, G.ZONES.length); i++) {
+      for (let i = 1; i < Math.min(3, G.ZONES.length); i++) {
         const z = await look(i);
         others.push(z);
         if (z.src.reduce((a, s) => a + s.placed, 0) > 0) break;
       }
+      const abyss = await look(3); // asset-zones：第 3 区的布景全部换成自产件（kit-abyss）
       const rift = await look(4); // asset-zones：第 4 区的布景全部换成自产件（kit-rift）
       G.enterZone(0, 1);
-      return { ash, others, rift };
+      return { ash, others, abyss, rift };
     });
-    const { ash, others, rift } = r;
+    const { ash, others, abyss, rift } = r;
     const fmt = (z) => z.src.map((s) => s.key + '@' + s.pack + '×' + s.placed).join(' ');
     assert(ash.id === 'ash' && ash.hd, '第 0 区不是 ash 或没换上 PBR 外观：' + JSON.stringify(ash).slice(0, 300));
     // 路边小物（骷髅 / 骨头 / 断剑 / 墓碑）也换成了自产件：第 0 区的布景全部是 ca/ 开头、来自 kit-ash，不再用 CC0 模型包
@@ -9961,13 +9962,18 @@ async function main() {
     assert(placed(ash, /firepit/) === ash.fires && ash.fires > 0, '第 0 区火坑的实例数和火焰数对不上：' + fmt(ash) + ' 火 ' + ash.fires);
     assert(ash.src.reduce((a, s) => a + s.placed, 0) >= 20, '第 0 区布景总数太少：' + fmt(ash));
     assert(others.every((z) => z.hd && z.src.length && z.src.every((s) => s.pack === 'models')), '别的区的布景不是 CC0 模型包：' + others.map((z) => z.id + ' ' + fmt(z)).join(' ｜ '));
-    assert(others[others.length - 1].src.reduce((a, s) => a + s.placed, 0) > 0, '第 1–3 区都没摆出 CC0 布景：' + others.map((z) => z.id + ' ' + fmt(z)).join(' ｜ '));
+    assert(others[others.length - 1].src.reduce((a, s) => a + s.placed, 0) > 0, '第 1–2 区都没摆出 CC0 布景：' + others.map((z) => z.id + ' ' + fmt(z)).join(' ｜ '));
+    // 第 3 区：13 种布景（含火坑）全部是 ca/abyss_* 且来自 kit-abyss；碎墓摆出来了，火坑实例数 = 火焰数，总数不少（固定种子约 120，布局随机，留足余量）
+    assert(abyss.id === 'abyss' && abyss.hd, '第 3 区不是 abyss 或没换上 PBR 外观：' + JSON.stringify(abyss).slice(0, 300));
+    assert(abyss.src.length === 13 && abyss.src.every((s) => s.key.startsWith('ca/abyss_') && s.pack === 'kit-abyss'), '第 3 区布景的来源不对：' + fmt(abyss));
+    assert(placed(abyss, /tomb/) >= 3 && placed(abyss, /firepit/) === abyss.fires && abyss.fires > 0, '第 3 区碎墓摆得太少或火坑和火焰数对不上：' + fmt(abyss) + ' 火 ' + abyss.fires);
+    assert(abyss.src.reduce((a, s) => a + s.placed, 0) >= 30, '第 3 区布景总数太少：' + fmt(abyss));
     // 第 4 区：7 种布景全部是 ca/rift_* 且来自 kit-rift；外圈的石碑、路边的碎地砖都摆出来了，总数不少（固定种子约 213，布局随机，留足余量）
     assert(rift.id === 'rift' && rift.hd, '第 4 区不是 rift 或没换上 PBR 外观：' + JSON.stringify(rift).slice(0, 300));
     assert(rift.src.length === 7 && rift.src.every((s) => s.key.startsWith('ca/rift_') && s.pack === 'kit-rift'), '第 4 区布景的来源不对：' + fmt(rift));
     assert(placed(rift, /monolith/) >= 3 && placed(rift, /slabs/) >= 3, '第 4 区石碑 / 碎地砖摆得太少：' + fmt(rift));
     assert(rift.src.reduce((a, s) => a + s.placed, 0) >= 40, '第 4 区布景总数太少：' + fmt(rift));
-    return fmt(ash) + ' ｜ ' + fmt(rift);
+    return fmt(ash) + ' ｜ ' + fmt(abyss) + ' ｜ ' + fmt(rift);
   });
 
   // ------------------------------------------------------------------ 存档

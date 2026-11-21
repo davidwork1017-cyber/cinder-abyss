@@ -809,3 +809,130 @@ def Matrix_about(px, py, pz, rx, ry):
     from mathutils import Euler, Matrix
     T = Matrix.Translation(Vector((px, py, pz)))
     return T @ Euler((rx, ry, 0), 'XYZ').to_matrix().to_4x4() @ T.inverted()
+
+
+# ================================================================ 烬渊深处（第 3 区）
+# 形状语言：暗的玄武岩芯、亮的余烬边（自发光的细缝和螺旋刻纹），墓地和祭坛的残迹。
+# 已有的石碑 / 晶簇 / 巨石 / 拱 / 柱 / 枯树 / 火坑 / 骷髅 / 石十字直接复用（清单里 remap 换成熔渣 + 余烬），这里只写新件。
+def _spiral(k, c, u, v, n, r0, r1, turns=1.6, steps=14, rad=0.025, glow=0.5, lift=0.012):
+    """刻在面上的螺旋：面中心 c、面内两个方向 u / v、面外法线 n；从 r0 绕到 r1，用一根细管子贴在面外 lift 处，标成余烬（弱自发光）"""
+    pts = []
+    for i in range(steps + 1):
+        t = i / steps
+        a = turns * TAU * t
+        r = r0 + (r1 - r0) * t
+        pts.append(c + u * (math.cos(a) * r) + v * (math.sin(a) * r) + n * lift)
+    vs, segs = k.tube(pts, [rad] * len(pts), sides=4, row='ember', tone=0.6, jitter=0.05, tip=False, cap0=True)
+    k.tag([f for sg in segs for f in sg], 'ember', 0.6, 0.06, glow=glow, dust=0)
+    return vs
+
+
+def tomb(k, L=1.9, W=1.0, H=2.0, glow=0.5):
+    """碎墓：一块低矮的石棺盖裂成两半、错开（裂缝透余烬），一头立着断了上角的高墓碑，碑面一道余烬螺旋。（替换 kh/grave_A_destroyed：约 2.1 × 1.1、高 2.1）"""
+    from mathutils import Vector
+    # 石棺座 + 裂成两半的盖
+    k.box((L * 0.86, W * 0.78, 0.26), k.place((0.08, 0, 0.1)), row='stone', tone=0.4, jitter=0.08, bevel=0.03)
+    cut = k.r(-0.12, 0.12) * L
+    for side in (-1, 1):
+        ln = L * 0.43 + side * cut * 0.5
+        cx = 0.08 + side * (L * 0.215 + 0.03) + cut * 0.25
+        m = k.place((cx, side * k.r(0.0, 0.05), 0.33), (k.r(-0.04, 0.04), side * k.r(0.02, 0.06), side * k.r(0.02, 0.08)))
+        vs = k.box((ln, W * 0.86, 0.16), m, row='stone', tone=0.5, jitter=0.1, bevel=0.025)
+    # 裂缝底：一条余烬
+    k.box((0.07, W * 0.7, 0.04), k.place((0.08 + cut * 0.25, 0, 0.25)), row='ember', tone=0.7, jitter=0.05, glow=glow, dust=0)
+    # 墓碑：立在一头，断了上角，略斜
+    hx = -L * 0.5
+    pts = []
+    chip = k.r(0.18, 0.3)
+    for sy in (-1, 1):
+        for sz in (-1, 1):
+            pts.append((hx + sz * 0.13, sy * W * 0.42, 0.0))
+            top = H * (1 - (chip if sy > 0 else 0))
+            pts.append((hx + sz * 0.11, sy * W * 0.36, top))
+    pts.append((hx, 0, H * 1.03))
+    hv = k.hull(pts, row='stone', tone=0.46, jitter=0.08)
+    # 碑面（朝 +x 的那一面）的螺旋
+    _spiral(k, Vector((hx + 0.12, 0, H * 0.55)), Vector((0, 1, 0)), Vector((0, 0, 1)), Vector((1, 0, 0)), 0.04, W * 0.26, turns=1.75, steps=16, rad=0.022, glow=glow)
+    k.xform(hv, k.place((0, 0, 0), (k.r(-0.04, 0.04), k.r(-0.06, 0.0), 0)))
+    # 脚边两块碎石
+    for i in range(2):
+        a = k.r(0, TAU)
+        k.hull([(math.cos(a) * L * 0.5 + p[0], math.sin(a) * W * 0.5 + p[1], max(-0.02, p[2])) for p in _blob(k, 0.14, 0.12, 0.1, 7)], row='stone', tone=0.38)
+
+
+def ribs(k, L=0.84, R=0.36, n=5, rad=0.035):
+    """仰躺的兽骨架：一根略弯的脊椎（几节椎骨），两侧几对往上弯拱的肋骨，末端收细。平放在地上（摆放标记 l）。（替换 kh/ribcage：±0.42、高约 0.86）"""
+    # 脊椎：沿 x 的弯管 + 几节椎骨
+    sp = []
+    for i in range(6):
+        t = i / 5
+        sp.append(((t - 0.5) * L, 0.03 * math.sin(t * 3 + k.r(0, 1)), rad * 1.4))
+    k.tube(sp, [rad * 1.25] * len(sp), sides=5, row='bone', tone=0.82, tip=False, cap0=True)
+    for i in range(5):
+        t = (i + 0.5) / 5
+        x = (t - 0.5) * L
+        k.hull([(x + p[0], p[1], rad * 1.4 + abs(p[2])) for p in _blob(k, rad * 1.4, rad * 1.8, rad * 1.3, 7)], row='bone', tone=0.88, jitter=0.05)
+    # 肋骨：每对从脊椎两侧往外、往上弯，再往里收（像倒扣的篮子）
+    for i in range(n):
+        t = (i + 0.7) / (n + 0.6)
+        x = (t - 0.5) * L * 0.9
+        h = R * (1.05 - 0.55 * abs(t - 0.45)) * k.r(0.9, 1.05)
+        w = R * (0.95 - 0.35 * abs(t - 0.4)) * k.r(0.92, 1.05)
+        for side in (-1, 1):
+            # 一对肋骨在脊椎上方合拢成拱（俯视是一圈圈的肋，侧看是倒扣的笼子）
+            pts = [(x, side * rad * 1.5, rad * 1.4), (x + 0.01, side * w, h * 0.42), (x + 0.03, side * w * 0.78, h * 0.86), (x + 0.04, side * w * 0.14, h)]
+            if k.r() < 0.18:
+                pts = pts[:3]  # 断了一根
+            k.tube(pts, [rad, rad * 0.9, rad * 0.75, rad * 0.4][:len(pts)], sides=4, row='bone', tone=0.84, tip=len(pts) == 3, cap0=True)
+
+
+def skull_candle(k, R=0.3, candles=3, glow=1.0):
+    """骷髅蜡烛：仰躺的骷髅（同 skull2），头顶和身边插着几根高矮不一的蜡烛，烛身有流下的蜡，顶上一小撮火苗（自发光）。（替换 kh/skull_candle：±0.46 × ±0.52、高约 1.19）"""
+    skull2(k, R=R, tilt=1.25)
+    spots = [(0.0, 0.05, R * 1.55, 0.62), (R * 1.25, -R * 0.6, 0.0, 0.42), (-R * 1.2, -R * 0.4, 0.0, 0.32), (R * 0.7, R * 1.0, 0.0, 0.26)]
+    for i in range(candles):
+        cx, cy, z0, hh = spots[i]
+        hh *= k.r(0.9, 1.1)
+        r = 0.05 + 0.012 * (i == 0)
+        k.tube([(cx, cy, z0 - 0.02), (cx, cy, z0 + hh)], [r, r * 0.92], sides=6, row='bone', tone=0.9, tip=False, cap0=True)
+        # 流蜡：烛身侧面两三道往下的细条 + 脚下一小摊
+        for j in range(2):
+            a = k.r(0, TAU)
+            L = hh * k.r(0.25, 0.5)
+            k.box((0.022, 0.022, L), k.place((cx + math.cos(a) * r, cy + math.sin(a) * r, z0 + hh - L / 2 - 0.01)), row='bone', tone=0.98, jitter=0.02, dust=0)
+        k.hull([(cx + math.cos(TAU * j / 7) * r * k.r(1.4, 1.9), cy + math.sin(TAU * j / 7) * r * k.r(1.4, 1.9), z0 + k.r(0.0, 0.012)) for j in range(7)] + [(cx, cy, z0 + 0.03)], row='bone', tone=0.95, jitter=0.03, dust=0)
+        # 烛芯 + 火苗（小尖锥，自发光）
+        top = z0 + hh
+        k.hull([(cx + math.cos(TAU * j / 5) * 0.028, cy + math.sin(TAU * j / 5) * 0.028, top + 0.02) for j in range(5)] + [(cx, cy, top + 0.13)], row='ember', tone=0.95, jitter=0.03, glow=glow, dust=0)
+
+
+def crypt(k, W=6.0, D=8.0, H=8.0, glow=0.55):
+    """玄武岩墓室：两级倒角的台基，墙体正面开一道暗的门洞（门框内沿透余烬），阶梯状的顶收成一个尖，正面门楣上一道余烬螺旋。（替换 kh/crypt：±3 × ±4、高 8）"""
+    from mathutils import Vector
+    k.box((W, D, 0.5), k.place((0, 0, 0.2)), row='stone', tone=0.36, jitter=0.06, bevel=0.06)
+    k.box((W * 0.9, D * 0.9, 0.4), k.place((0, 0, 0.62)), row='stone', tone=0.42, jitter=0.06, bevel=0.05)
+    wh = H * 0.48
+    k.box((W * 0.78, D * 0.78, wh), k.place((0, 0, 0.8 + wh / 2)), row='stone', tone=0.4, jitter=0.08, bevel=0.06)
+    # 正面（-y）的门洞：暗的凹板 + 两侧和上沿的余烬窄条
+    fy = -D * 0.39
+    dw, dh = W * 0.3, wh * 0.68
+    k.box((dw, 0.14, dh), k.place((0, fy - 0.03, 0.8 + dh / 2)), row='slag', tone=0.0, jitter=0.0, dust=0)
+    for sx in (-1, 1):
+        k.box((0.09, 0.12, dh), k.place((sx * (dw / 2 + 0.05), fy - 0.07, 0.8 + dh / 2)), row='ember', tone=0.7, jitter=0.04, glow=glow, dust=0)
+    k.box((dw + 0.2, 0.12, 0.09), k.place((0, fy - 0.07, 0.8 + dh + 0.05)), row='ember', tone=0.7, jitter=0.04, glow=glow, dust=0)
+    # 门两边的方柱
+    for sx in (-1, 1):
+        k.box((0.6, 0.6, wh + 0.3), k.place((sx * W * 0.39, fy - 0.1, 0.8 + (wh + 0.3) / 2)), row='stone', tone=0.5, jitter=0.06, bevel=0.04)
+    # 阶梯顶 + 尖
+    z = 0.8 + wh
+    for i, f in enumerate((0.84, 0.66, 0.48)):
+        th = H * 0.08
+        k.box((W * f, D * f, th), k.place((0, 0, z + th / 2)), row='stone', tone=0.46 + 0.04 * i, jitter=0.08, bevel=0.04)
+        z += th
+    k.hull([(sx * W * 0.2, sy * D * 0.2, z) for sx in (-1, 1) for sy in (-1, 1)] + [(0, 0, H)], row='stone', tone=0.55, jitter=0.08)
+    # 门楣上的螺旋
+    _spiral(k, Vector((0, fy - 0.02, 0.8 + dh + 0.75)), Vector((1, 0, 0)), Vector((0, 0, 1)), Vector((0, -1, 0)), 0.06, 0.52, turns=1.75, steps=16, rad=0.05, glow=glow)
+    # 台基边几块碎石
+    for i in range(4):
+        a = TAU * (i + k.r(0, 0.6)) / 4
+        k.hull([(math.cos(a) * W * 0.52 + p[0], math.sin(a) * D * 0.52 + p[1], max(-0.05, p[2])) for p in _blob(k, 0.35, 0.3, 0.25, 7)], row='stone', tone=0.34)
