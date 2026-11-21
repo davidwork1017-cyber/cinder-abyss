@@ -645,45 +645,32 @@ async function timedMain() {
     return '每次 ' + r.ms + ' ms';
   });
 
-  // 原步骤：main() 里的「异兆选址」。S.zone.ms.enc 是 enterZone 里按 performance.now 量 G.rollEncounters 那一段（选址）的耗时；下面照原步骤的种子把 100 个布局各进一次。
-  // 一次选址只有 1–2 ms，100 次里取最大值时，偶尔一次垃圾回收 / 编译停顿落进这段就会冒到 5 ms 以上（选址本身没变慢）。
-  // 所以每个布局进区之后，再用同一组随机数（按布局定种子）直接计时 G.rollEncounters 三次（它先清掉上一次的异兆、只选址不建东西，可以重复调），
-  // 三次结果必须一样，取最快的一次；再看最慢的那个布局。一次性的停顿被滤掉，选址本身变慢（三次都慢）照样超线。上限仍是 5 ms
-  await step('计时｜异兆选址：100 个布局正常进区后，选址最慢的布局（同一组随机数计 3 次取最快）不到 5 ms', async () => {
+  // 原步骤：main() 里的「异兆选址」。S.zone.ms.enc 是 enterZone 里按 performance.now 量 G.rollEncounters 那一段（选址，含第一次算候选点位）的耗时；下面照原步骤的种子进区。
+  // 一次选址只有 0.1–0.2 ms，100 次里取最大值时，偶尔一次停顿（第一次调用的编译、垃圾回收）落进这段就会冒到 5 ms 以上，同一个布局再进一次就没有了。
+  // 所以每个布局进 2 次、取快的那次，再看最慢的那个布局：一次性的停顿被滤掉，选址本身变慢（两次都慢）照样超线。上限仍是 5 ms。
+  // （不能进一次区后直接重复调 G.rollEncounters：候选点位第一次算完就缓存在 zone.encCand 上，makeEnc 还会改点位上的字段，重复调测的不是同一份活）
+  await step('计时｜异兆选址：100 个布局正常进区时，选址最慢的布局（每个进 2 次取快的）不到 5 ms', async () => {
     const r = await ev(() => {
-      const S = G.state, rnd0 = Math.random;
-      const prng = (a) => () => { a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-      let msMax = 0, rawMax = 0, diff = 0;
-      try {
-        for (let z = 0; z < 5; z++) {
-          for (let s = 1; s <= 20; s++) {
+      const S = G.state;
+      let msMax = 0, rawMax = 0;
+      for (let z = 0; z < 5; z++) {
+        for (let s = 1; s <= 20; s++) {
+          let best = Infinity;
+          for (let k = 0; k < 2; k++) {
             G.debug.zoneSeed(3000 + z * 101 + s * 7);
             G.enterZone(z, 1);
-            rawMax = Math.max(rawMax, S.zone.ms.enc); // 正常进区（掷 1–2 个）的选址耗时，原来就看这个的最大值
-            let best = Infinity, ref = null;
-            for (let k = 0; k < 3; k++) {
-              Math.random = prng(9000 + z * 101 + s * 7);
-              const t0 = performance.now();
-              G.rollEncounters(S.zone, 1);
-              best = Math.min(best, performance.now() - t0);
-              const sig = JSON.stringify(S.enc.map((e) => [e.kind, e.site.x, e.site.z]));
-              if (ref === null) ref = sig;
-              else if (sig !== ref) diff++;
-            }
-            Math.random = rnd0;
-            msMax = Math.max(msMax, best);
+            best = Math.min(best, S.zone.ms.enc); // 正常进区（掷 1–2 个）的选址耗时
+            rawMax = Math.max(rawMax, S.zone.ms.enc);
           }
+          msMax = Math.max(msMax, best);
         }
-      } finally {
-        Math.random = rnd0;
       }
       G.debug.zoneSeed(null);
       G.enterZone(0, 0);
-      return { msMax: +msMax.toFixed(2), rawMax: +rawMax.toFixed(2), diff };
+      return { msMax: +msMax.toFixed(2), rawMax: +rawMax.toFixed(2) };
     });
-    assert(r.diff === 0, '同一组随机数下三次选址的结果应完全一样：' + r.diff + ' 个布局不一样');
     assert(r.msMax < 5, '选址耗时太长（设计 < 1 ms）：' + r.msMax);
-    return '选址最慢 ' + r.msMax + ' ms（进区时单次最慢 ' + r.rawMax + ' ms）';
+    return '选址最慢 ' + r.msMax + ' ms（单次最慢 ' + r.rawMax + ' ms）';
   });
 
   // 原步骤：整步从 main() 搬来（ui-batch 的「技能页拖拽贴边自动滚动」，断言一字不改）。贴边自动滚动按 performance.now 走：进边带停 250 ms 才滚、
