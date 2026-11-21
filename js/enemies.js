@@ -612,7 +612,7 @@
     const y0 = e.height < 1.5 && e.ent && G.world.entSocket ? Math.max(0.2, G.world.entSocket(e.ent, 'weapon').y) : undefined;
     G.spawnProjectile({
       owner: 'e', x: e.x + dx * off, z: e.z + dz * off, y0, dx, dz, speed, r, life,
-      color: hexOf(e), dmg, dtype: e.elem, volley,
+      color: hexOf(e), dmg, dtype: e.elem, volley, shooter: e, // shooter：渊契「暗域」按开枪的怪在不在域内削弱
       vk: e.isBoss ? BOSS_SHOT[e.bossKind] : MOB_SHOT[e.type] || 'glob',
     });
   }
@@ -1978,6 +1978,19 @@
     return c > 0 ? (c < 0.34 ? 1 : c < 0.67 ? 2 : 3) : 0;
   }
 
+  // 渊契「暗域」：e 离哪个召唤物 mr 米以内（按两边的半径算贴身）
+  function inMinionDark(e, mr) {
+    const ms = G.state.minions;
+    if (!ms || !ms.length) return false;
+    for (let i = 0; i < ms.length; i++) {
+      const m = ms[i];
+      if (m.dead || m.decoy) continue;
+      const dx = m.x - e.x, dz = m.z - e.z, R = mr + e.r;
+      if (dx * dx + dz * dz <= R * R) return true;
+    }
+    return false;
+  }
+
   G.updateEnemies = function (dt) {
     const S = G.state, P = G.player, W = G.world, list = S.enemies, zone = S.zone;
     near.length = 0;
@@ -2012,6 +2025,9 @@
         continue;
       }
       const dist = Math.hypot(P.x - e.x, P.z - e.z);
+      // 渊契「暗域」（熄烛冠）：你身周 r 米、召唤物身周 mr 米内的敌人在域内（伤害降低、召唤物增伤，见 game.js 的 G.darkWeakK / G.relicDarkHit）
+      if (XZ) e.dark = dist - e.r <= XZ.r || inMinionDark(e, XZ.mr);
+      else if (e.dark) e.dark = false;
       if (dist > SKIP_DIST) continue;
 
       if (!e.awake && !P.dead) {
