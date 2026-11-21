@@ -6412,7 +6412,7 @@ async function main() {
         kinds: ['it-', 'cur-', 'sk-', 'sup-', 'ail-', 'blank'].map((p) => keys.filter((k) => k.startsWith(p)).length).join(),
         // 应有的数量：每个装备基底的每一档名字、每个技能（含武器技、烬铸技、远程普攻与量表技）
         // 混沌流：异常图标多了渊缚（6 个），星蚀有自己的物品图标（it-uq-xingshi，算在装备那一类里）
-        want: [G.SLOTS.reduce((n, sl) => n + G.BASES[sl].reduce((m, b) => m + b.names.length, 0), 0) + (G.icons.uqIcons ? G.icons.uqIcons().length : 0), G.CUR_IDS.length, Object.keys(G.SKILLS).length, Object.keys(G.SUPPORTS).length, 6, 1].join(),
+        want: [G.SLOTS.reduce((n, sl) => n + G.BASES[sl].reduce((m, b) => m + b.names.length, 0), 0) + (G.icons.uqIcons ? G.icons.uqIcons().length : 0), G.CUR_IDS.length, Object.keys(G.SKILLS).length, Object.keys(G.SUPPORTS).length, 7, 1].join(), // 异常小签 6 → 7：skill-expand 加了流血
         cellIcons: cells.length, cellOk: cells.every((n) => bg(n).startsWith('url("data:image/png')), minSize: Math.min.apply(null, sizes), maxSize: Math.max.apply(null, sizes),
         distinct: new Set(cells.map(bg)).size,
         eq: Array.from(document.querySelectorAll('.eq > .ico')).filter((n) => bg(n).startsWith('url("data:image/png')).length,
@@ -6969,7 +6969,8 @@ async function main() {
       // 武器普攻卡的 3 个孔（data-skill = G.BASIC_CARD）不算在内：它能镶投射物类的辅助，亮不亮看界面
       mid = await ev(() => { const own = (sel) => Array.from(document.querySelectorAll(sel)).filter((n) => n.dataset.skill !== G.BASIC_CARD).length; return { lit: own('.sock.drop-ok'), dim: own('.sock.drop-no'), cap: document.querySelector('#drag-ghost em').textContent }; });
     });
-    assert(mid.lit === 12 && mid.dim === 30 && mid.cap === '镶进 掷焰', '拖辅助宝石时只有带「投射物」标签的技能的槽应亮起（掷焰、飞刃、焚骨祭司、黑旋风）：' + JSON.stringify(mid));
+    // skill-expand：20 个技能 60 个孔；散钉也是投射物（12 / 30 → 15 / 45）
+    assert(mid.lit === 15 && mid.dim === 45 && mid.cap === '镶进 掷焰', '拖辅助宝石时只有带「投射物」标签的技能的槽应亮起（掷焰、飞刃、焚骨祭司、黑旋风、散钉）：' + JSON.stringify(mid));
     let r = await ev(() => ({ e: G.save.sockets.ember.slice(), proj: G.skillCtx('ember').proj }));
     assert(r.e[0] === 'multi' && r.proj === 3, '宝石没有镶上：' + JSON.stringify(r));
     await dragTo(sup('brutal'), sock('ember', 1), async () => {
@@ -12331,8 +12332,17 @@ async function main() {
       T.fix();
       const P = G.player, s = G.state.stats;
       const a = T.mob('brute', 6, 0), b = T.mob('brute', 7.6, 1.6), c = T.mob('brute', 8.2, -1.6), d4 = T.mob('brute', 9.6, 0);
+      // 前面的步骤可能留下按着的键 / 鼠标 / 缓冲（R、左键优先于 Q）：全部松开
+      const I = G.input;
+      for (const k in I.keys) I.keys[k] = false;
+      for (let i = 0; i < I.mouse.b.length; i++) I.mouse.b[i] = false;
+      for (let i = 0; i < I.tap.length; i++) I.tap[i] = 0;
+      P.cast = null;
+      P.cds = {};
       G.bindSkill(2, 'tether');
       P.mana = P.maxMana;
+      const rk = () => (P.cast && P.cast.tether ? rk() : -1); // -1：没在引（诊断写在 why 里）
+      const why = () => JSON.stringify({ cast: P.cast && P.cast.id, mana: Math.round(P.mana), max: P.maxMana, bar: G.save.bar, dead: P.dead, roll: P.roll.t > 0, exec: !!P.exec, ui: G.ui.isOpen() });
       let refill = false; // 第一段量扣蓝，之后每帧补满（不然魔力见底会断，加成从零起）
       const hold = (sec) => {
         for (let i = 0; i < Math.round(sec * 60); i++) {
@@ -12344,22 +12354,23 @@ async function main() {
       };
       const z0 = s.tetherZaps || 0, m0 = P.mana;
       hold(1);
-      const out = { zaps1: (s.tetherZaps || 0) - z0, mana: m0 - P.mana, regen: P.manaRegen, cost: G.skillCtx('tether').cost, k1: +P.cast.rampK.toFixed(2) };
+      const out = { zaps1: (s.tetherZaps || 0) - z0, mana: m0 - P.mana, regen: P.manaRegen, cost: G.skillCtx('tether').cost, k1: rk() };
       refill = true;
       hold(1.5);
-      out.k25 = +P.cast.rampK.toFixed(2);
+      out.k25 = rk();
       out.chained = s.tetherLast; // 最近一跳打到几个（感电电弧也会打到别的怪，所以不按掉血算）
       // 走动：清零
       P.x += 0.5;
       hold(0.25);
-      out.moved = +P.cast.rampK.toFixed(2);
+      out.moved = rk();
       // 松手：停下
       G.input.keys.KeyQ = false;
       for (let i = 0; i < 20; i++) G.tick(1 / 60);
       out.stopped = !P.cast;
+      out.why = why();
       // 换技能（放一下别的再回来）：从零开始
       hold(1.8);
-      out.kBefore = +P.cast.rampK.toFixed(2);
+      out.kBefore = rk();
       G.input.keys.KeyQ = false;
       G.bindSkill(3, 'ember');
       G.input.keys.KeyE = true;
@@ -12367,7 +12378,7 @@ async function main() {
       G.input.keys.KeyE = false;
       for (let i = 0; i < 30; i++) G.tick(1 / 60);
       hold(0.3);
-      out.kSwap = +P.cast.rampK.toFixed(2);
+      out.kSwap = rk();
       G.input.keys.KeyQ = false;
       for (let i = 0; i < 20; i++) G.tick(1 / 60);
       // 迅捷：跳得更快，加成按时间涨（1 秒时一样）
@@ -12376,7 +12387,7 @@ async function main() {
       const z1 = s.tetherZaps || 0;
       hold(1);
       out.zapsHaste = (s.tetherZaps || 0) - z1;
-      out.kHaste = +P.cast.rampK.toFixed(2);
+      out.kHaste = rk();
       out.chained2 = s.tetherLast;
       G.input.keys.KeyQ = false;
       for (let i = 0; i < 20; i++) G.tick(1 / 60);
@@ -12390,7 +12401,7 @@ async function main() {
     return '1 秒 ' + r.zaps1 + ' 跳，加成 ' + r.k1 + ' → ' + r.k25;
   })));
 
-  await step('散钉：扇形 5 枚（多重投射 7 枚），贴脸单体最多中 3 枚；扇面里的 5 只各至少中 1 枚', noRes(() => seKeep(async () => {
+  await step('散钉：扇形 5 枚（多重投射 7 枚），贴脸单体最多中 3 枚；扇面里的 5 只至少 4 只中、5 枚全中', noRes(() => seKeep(async () => {
     const r = await ev(() => {
       T.lane();
       G.save.bar = [null, null, null, null];
@@ -12419,17 +12430,19 @@ async function main() {
       G.save.sockets.nails = [null, null, null];
       // 扇面：5 只
       G.clearEnemies();
-      const fan = [-16, -8, 0, 8, 16].map((deg) => T.mob('brute', Math.cos((deg * Math.PI) / 180) * 5, Math.sin((deg * Math.PI) / 180) * 5));
+      const fan = [-18, -9, 0, 9, 18].map((deg) => T.mob('husk', Math.cos((deg * Math.PI) / 180) * 6.5, Math.sin((deg * Math.PI) / 180) * 6.5));
       for (const m of fan) m.mass = 1e6; // 不被击退：先中的那只别被推到旁边那枚钉子的路上
       G.execSkill(G.skillCtx('nails'));
       for (let i = 0; i < 40; i++) G.tick(1 / 60);
       out.fan = fan.map((m) => Math.round((m.maxHp - m.hp) / per));
+      out.fanHit = fan.filter((m) => m.hp < m.maxHp).length;
       return out;
     });
     assert(r.shot === 5 && r.shot2 === 7, '枚数不对：' + JSON.stringify(r));
     // avgHit 含暴击的期望（5% × 1.5 倍 → ×1.025），钉死随机数时不暴击：3 枚 = 3 / 1.025 ≈ 2.93
     assert(Math.abs(r.k - 3 / 1.025) < 0.04 && Math.abs(r.k2 - 3 / 1.025) < 0.04, '贴脸单体应正好中 3 枚：' + JSON.stringify(r));
-    assert(r.fan.every((n) => n >= 1), '扇面里每只至少中 1 枚：' + JSON.stringify(r));
+    // 靶子有体型：相邻两只可能被同一枚钉子先碰到，按「5 只里至少 4 只中」算扇面覆盖
+    assert(r.fanHit >= 4 && r.fan.reduce((a, b) => a + b, 0) === 5, '扇面应覆盖 5 个方向（至少 4 只中、5 枚全中）：' + JSON.stringify(r));
     return '贴脸 ' + r.k + ' 枚，扇面 ' + r.fan.join('/');
   })));
 
@@ -12539,7 +12552,7 @@ async function main() {
       const keep = localStorage.getItem('cinder-abyss-save-v1');
       G.debug.learnAll();
       for (const id of Object.keys(G.save.sockets)) G.save.sockets[id] = [null, null, null];
-      G.save.skills.tether = 13;
+      G.save.skills.tether = Math.max(13, G.gemFloor ? G.gemFloor() : 1); // 读档时宝石等级不低于成长下限
       G.save.sockets.rend = ['serrate', null, null];
       G.save.bar = ['frostline', null, 'tether', 'rend'];
       G.persist();
@@ -12555,13 +12568,14 @@ async function main() {
       localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
       G.loadSave();
       G.computeStats();
-      out.unknown = !G.save.skills.zzfuture && G.save.supports.indexOf('zzsup') < 0 && G.save.bar[0] !== 'zzfuture' && G.save.skills.tether === 13;
+      out.unknown = !G.save.skills.zzfuture && G.save.supports.indexOf('zzsup') < 0 && G.save.bar[0] !== 'zzfuture' && G.save.skills.tether === out.tether;
+      out.want = Math.max(13, G.gemFloor ? G.gemFloor() : 1);
       if (keep) localStorage.setItem('cinder-abyss-save-v1', keep);
       G.loadSave();
       G.computeStats();
       return out;
     });
-    assert(r.tether === 13 && r.rend === 'serrate,,' && r.bar === 'frostline,,tether,rend' && r.all, '往返丢了东西：' + JSON.stringify(r));
+    assert(r.tether === r.want && r.rend === 'serrate,,' && r.bar === 'frostline,,tether,rend' && r.all, '往返丢了东西：' + JSON.stringify(r));
     assert(r.unknown, '不认识的 id 应在读档时丢掉：' + JSON.stringify(r));
   });
 
@@ -13343,7 +13357,7 @@ async function main() {
       const keep = {};
       for (const id of G.GEM_SKILLS) keep[id] = G.SKILLS[id];
       // 渊式（c）：电桥带持续；随核跟着黑洞带持续；其余渊式不带
-      const want = { blackhole: 'oabc', vortex: 'o', arc: 'ac', blade: 'b', pyre: 'a' };
+      const want = { blackhole: 'oabc', vortex: 'o', arc: 'ac', blade: 'b', pyre: 'a', icefall: 'o' }; // skill-expand：坠凌带「持续」
       const huwoAura = G.skillVariant('vortex', 'a').kind === 'aura'; // 护涡改成光环之后不吃绵延、也镶不上回响
       if (!huwoAura) want.vortex += 'a';
       const bad = [], echoBad = [];
@@ -14440,7 +14454,7 @@ async function main() {
       const urls = ids.map((id) => G.icons.url('it-rq-' + id));
       const keys = G.icons.keys();
       const warm = G.icons.rqWarm();
-      const base = G.SLOTS.reduce((n, sl) => n + G.BASES[sl].reduce((m, b) => m + b.names.length, 0), 0) + G.icons.uqIcons().length + G.CUR_IDS.length + Object.keys(G.SKILLS).length + Object.keys(G.SUPPORTS).length + 6 + 1;
+      const base = G.SLOTS.reduce((n, sl) => n + G.BASES[sl].reduce((m, b) => m + b.names.length, 0), 0) + G.icons.uqIcons().length + G.CUR_IDS.length + Object.keys(G.SKILLS).length + Object.keys(G.SUPPORTS).length + 7 + 1; // 异常小签 6 → 7（skill-expand 加了流血）
       // D5：13 件 + 巅峰 2 件（G.RELIC_CODEX）
       return {
         n: ids.length, same: ids.slice().sort().join() === G.RELIC_CODEX.slice().sort().join(), bad: ids.filter((id, i) => !/^data:image\/png;base64,/.test(urls[i]) || urls[i].length < 1500), uniq: new Set(urls).size,
