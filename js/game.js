@@ -832,7 +832,8 @@
       return G.variantDps(id);
     };
     let ref = 0;
-    if (G.SKILLS[id].kind === 'aura' && !G.SKILLS[id].buff) {
+    const o0 = G.SKILL_V[id].o; // 按原式判断要不要加主力技能（选着护涡光环时，汇涡的比值仍按单体）
+    if (o0.kind === 'aura' && !o0.buff) {
       for (const b of G.save.bar) if (b && b !== id && G.SKILLS[b] && G.SKILLS[b].kind !== 'aura' && !G.SKILLS[b].weaponOnly && G.save.skills[b]) ref = Math.max(ref, G.variantDps(b));
       if (!ref) ref = G.variantDps('ember');
     }
@@ -952,6 +953,7 @@
     P.reserved = Math.round(((P.reserveLife ? P.maxLifeRaw : P.maxManaRaw) * P.reservePct) / 100);
     P.maxLife = P.reserveLife ? Math.max(1, P.maxLifeRaw - P.reserved) : P.maxLifeRaw;
     P.maxMana = P.reserveLife ? P.maxManaRaw : Math.max(0, P.maxManaRaw - P.reserved);
+    if (G.guardSync) G.guardSync(); // 刻式「护涡」光环：不在技能栏上了就当场收起
     P.armour = Math.max(0, Math.round(S.armour * (1 + S.incArmour / 100)));
     // resLoss（基石「元素过载」）在 75% 上限之后才扣，溢出的抗性抵消不了
     const resLoss = Math.max(0, S.resLoss || 0);
@@ -6775,6 +6777,44 @@
   function clearGuard() {
     for (let i = vortices.length - 1; i >= 0; i--) if (vortices[i].guard) removeVortex(i);
   }
+  // 护涡（光环）：放在技能栏上就一直有 n 团绕着你转（基础三团，多重投射再加），寿命无限；少了（死亡、换区域、被顶掉）就整组补上，
+  //   团数变了就整组重排（转的相位接着原来的）。每 ctx.time 秒按此刻的属性换一次三团共用的 ctx（升级、换辅助、换装备马上生效），
+  //   顺手把已死敌人的跳数记录清掉。伤害、拽怪、吞弹都在 guardStep 里，和原来按一次放出的那组一样
+  function guardAura(ctx, dt) {
+    const sk = ctx.sk, n = sk.count + Math.max(0, ctx.proj - 1), R = sk.radius * Math.sqrt(ctx.area);
+    const mine = vortices.filter((v) => v.guard && v.guard.aura);
+    const t0 = mine.length ? mine[0].t : 0;
+    P.auraT.vortex = (P.auraT.vortex === undefined ? 0 : P.auraT.vortex) - dt;
+    if (mine.length && mine.length !== n) {
+      clearGuard();
+      mine.length = 0;
+    }
+    if (!mine.length) {
+      clearGuard();
+      P.auraT.vortex = ctx.time;
+      const cast = new Map();
+      for (let i = 0; i < n; i++) {
+        const a = t0 * sk.guard.w + (i / n) * TAU, r = sk.guard.r * Math.sqrt(ctx.area);
+        const v = { x: P.x + Math.sin(a) * r, z: P.z + Math.cos(a) * r, a: a + Math.PI / 2, speed: 0, life: Infinity, t: t0, R, R0: R, ctx, cast, seen: new Map(), lat: null, latT: 0, latN: 0, bounce: 0, skip: 0, chain: 0, wf: [0, 0, 0, 0], guard: { i, n, aura: true }, lvl: 0 };
+        while (vortices.length >= VORTEX_MAX) removeVortex(0);
+        v.fx = G.world.makeVortex ? G.world.makeVortex(v.x, v.z, R, i, vortexLook(v)) : null;
+        vortices.push(v);
+      }
+      state.stats.vGuardSpawn = (state.stats.vGuardSpawn || 0) + 1;
+      return;
+    }
+    if (P.auraT.vortex > 0) return;
+    P.auraT.vortex = ctx.time;
+    for (const v of mine) {
+      v.ctx = ctx;
+      v.R = v.R0 = R;
+    }
+    for (const e of mine[0].cast.keys()) if (e.dead) mine[0].cast.delete(e);
+  }
+  // 护涡光环不生效了（拿下技能栏、换了刻式）：当场收起。computeStats 里调用（绑技能 / 镶辅助 / 穿脱装备 / 换刻式都会走到）
+  G.guardSync = function () {
+    if (!G.auraOn('vortex') && vortices.some((v) => v.guard && v.guard.aura)) clearGuard();
+  };
   // 护涡：绕着你转（guard.r，吃范围加成），把 guard.pull 以内的小怪往旋风拽，吞掉碰到的敌方弹丸；半径内的敌人每 tick 一跳（不受跳数上限）
   function guardStep(v, dt) {
     const sk = v.ctx.sk, Gd = sk.guard, ak = Math.sqrt(v.ctx.area), r = Gd.r * ak;
@@ -7065,6 +7105,10 @@
       if (!shown && !ctx.sk.mech) shown = G.auraRadius(ctx); // 冰棱 / 冰爆：地上没有那圈霜环
       if (id === 'nova') novaCrystals(ctx.sk.mech === 'shard');
       if (P.dead) continue;
+      if (ctx.sk.mech === 'guard') {
+        guardAura(ctx, dt); // 刻式「护涡」：三团旋风常驻绕身，伤害由旋风自己按 tick 跳
+        continue;
+      }
       if (P.auraT[id] === undefined) P.auraT[id] = Math.min(0.2, ctx.time); // 刚放上技能栏：很快来第一下
       P.auraT[id] -= dt;
       if (P.auraT[id] <= 0) {
