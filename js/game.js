@@ -1277,6 +1277,7 @@
     let leech = 0, stun = 0, ailment = (mScale ? 0 : S.ailment || 0) + (sk.ailment || 0), echo = 0, cdr = 0, costMult = 1;
     let mLife = 0, mDR = 0, mCap = 0, mSpeed = 0, durPct = 0, durCap = 0;
     let pen = 0; // 辅助「破障」的元素穿透（装备上的「元素穿透」在 G.hitEnemy 里按你亲手的命中另加）
+    let bleed = sk.bleed || 0; // 流血：放血自带 + 开刃（见 data.js 的 G.BLEED）
 
     // 远程普攻：辅助镶在武器普攻卡上（只取对这个普攻生效的）；别的武器技不吃辅助。
     // 刻式换了标签（例如只有雷桩带「持续」）：对这一刻的刻式不适用的辅助照样镶着，但不生效、不算消耗
@@ -1308,6 +1309,7 @@
       if (e.dur) durPct += e.dur;
       if (e.cap) durCap += e.cap;
       if (e.pen) pen += e.pen;
+      if (e.bleed) bleed += e.bleed;
       costMult *= sup.cost;
     }
     if (S.encCdr) cdr += S.encCdr; // 异兆：祈坛「渊涌」的冷却缩短
@@ -1350,6 +1352,7 @@
       // 绵延：持续效果存在的时间倍率；有同时存在数量上限的效果，上限再加 durCap
       durK: Math.max(0.1, 1 + durPct / 100), durCap,
       pen,
+      bleed,
       // 混沌异常值（渊缚）另外再加的累积速度（异常累积速度 ailment 对它同样生效）
       bindAil: mScale ? 0 : S.bindAil || 0,
       // 黑焰：每一击额外的混沌伤害（%）。光环自己的脉冲（霜环）不带
@@ -1504,8 +1507,26 @@
       const cyc = mi.charge.max * mi.interval + mi.beam.dur;
       return (G.avgHit(ctx) * mi.cap * (mi.charge.max + ticks * mi.beam.mult)) / cyc;
     }
-    if (mi) return ((G.avgHit(ctx) * mi.cap) / Math.max(0.05, mi.interval)) * twinDpsK(ctx);
-    return G.avgHit(ctx) * G.skillRate(ctx) * twinDpsK(ctx) * G.durDpsK(ctx);
+    if (mi) return ((G.avgHit(ctx) * mi.cap) / Math.max(0.05, mi.interval) + G.bleedDps(ctx, mi.cap / Math.max(0.05, mi.interval))) * twinDpsK(ctx);
+    const rate = G.skillRate(ctx);
+    return (G.avgHit(ctx) * rate * G.durDpsK(ctx) + G.bleedDps(ctx, G.bleedHps(ctx, rate))) * twinDpsK(ctx);
+  };
+  // 流血的秒伤估算（打单体、层数叠稳之后）：每层 = 每击的物理部分 × bleed%，摊在 dur 秒里；稳定层数 = min(上限, 每秒命中 hps × dur)。
+  // 散钉（hitCap）一次施放中 useMult 枚、每枚各叠一层，所以 hps = 每秒施放 × useMult（G.bleedHps）
+  // 出手快的被层数上限卡住，慢而重的吃满
+  G.bleedInfo = function (ctx, hps) {
+    if (!(ctx.bleed > 0) || !ctx.base.phys) return null;
+    const b = ctx.base.phys, sk = ctx.sk;
+    const critK = 1 + (ctx.crit / 100) * (ctx.critMulti / 100 - 1);
+    const phys = ((b[0] + b[1]) / 2) * typeMult(ctx, 'phys') * ctx.more * critK * (sk.comboAvg || 1); // 每一击（散钉是每一枚）
+    const per = (phys * ctx.bleed) / 100;
+    const n = Math.min(G.BLEED.cap, hps * G.BLEED.dur);
+    return { per, n, dps: (n * per) / G.BLEED.dur, ramp: n / Math.max(0.01, hps) };
+  };
+  G.bleedHps = (ctx, rate) => rate * (ctx.sk.hitCap ? ctx.sk.useMult || 1 : 1);
+  G.bleedDps = (ctx, hps) => {
+    const b = G.bleedInfo(ctx, hps);
+    return b ? b.dps : 0;
   };
   // 绵延对秒伤估算的折算：黑洞、黑旋风原式的跳数随持续时间变多；雷桩、环刃满编时多一个（补的节奏按 寿命 ÷ 上限，几乎不变）
   G.durDpsK = function (ctx) {
@@ -1513,7 +1534,7 @@
     if (!ctx.durCap && ctx.durK === 1) return 1;
     if (sk.mech === 'pylon') return (sk.pylon.max + ctx.durCap) / sk.pylon.max;
     if (sk.mech === 'orbit') return (sk.orbit.max + ctx.durCap) / sk.orbit.max;
-    if (sk.kind === 'hole' || (sk.kind === 'vortex' && !sk.mech)) return ctx.durK;
+    if (sk.kind === 'hole' || (sk.kind === 'vortex' && !sk.mech) || sk.kind === 'rain') return ctx.durK; // 坠凌：多落几根
     return 1;
   };
   // 双生坠「余响」：刻式技能的秒伤多算一份 k（技能页、换装对比都读 skillDps；单次伤害 avgHit 不变，处决的基数不受影响）
@@ -1767,6 +1788,98 @@
     const base = {};
     base[type] = [v, v];
     return { sk: PROC_SK, base, inc: {}, moreType: {}, more: 1, extra: {}, crit: 0, critMulti: 100, ailment: 0, stun: 0, leech: 0, echo: 0, area: 1, proc: true };
+  }
+
+  // ---------- 流血（数值见 data.js 的 G.BLEED）----------
+  // 每个敌人两条定长数组：e.blR[k] 这一层每秒的伤害、e.blT[k] 剩余秒数（前 e.blN 格有效），e.blTT 距下一跳的秒数。
+  // 正在流血的敌人记在 bleeders 里；每跳把所有层合成一次结算（一个淡的小数字），过期的层从末尾挪过来补位——热路径上不分配对象
+  const BL = G.BLEED;
+  const bleeders = [];
+  const BLEED_BASE = [0, 0];
+  const BLEED_CTX = Object.assign(procCtx('phys', 0), { base: { phys: BLEED_BASE }, bleedTick: true });
+  const BLEED_INFO = { proc: true, quiet: true, faint: true, dot: true, bolt: true, noBuild: true, kb: 0, poise: 0, w: 0, ang: 0 };
+  function addBleed(e, total) {
+    if (!(total > 0) || e.dead) return;
+    if (!e.blR) {
+      e.blR = new Float32Array(BL.cap);
+      e.blT = new Float32Array(BL.cap);
+      e.blN = 0;
+    }
+    let i = e.blN;
+    if (i >= BL.cap) {
+      // 满了：顶掉剩余伤害最少的那层（新的这层比它们都弱时，它自己就是最弱的那层，不加）
+      let wv = Infinity;
+      for (let k = 0; k < e.blN; k++) {
+        const v = e.blR[k] * e.blT[k];
+        if (v < wv) {
+          wv = v;
+          i = k;
+        }
+      }
+      if (wv >= total) return;
+    } else e.blN++;
+    e.blR[i] = total / BL.dur;
+    e.blT[i] = BL.dur;
+    if (!e.blOn) {
+      e.blOn = true;
+      e.blTT = BL.tick;
+      bleeders.push(e);
+    }
+    const st = state.stats;
+    st.bleedStacks = (st.bleedStacks || 0) + 1;
+  }
+  G.bleedStacks = (e) => (e && e.blOn && !e.dead ? e.blN : 0);
+  function tickBleed(dt) {
+    let j = 0;
+    const st = state.stats;
+    for (let i = 0; i < bleeders.length; i++) {
+      const e = bleeders[i];
+      if (e.dead || !e.blN) {
+        e.blOn = false;
+        e.blN = 0;
+        continue;
+      }
+      e.blTT -= dt;
+      if (e.blTT <= 0) {
+        e.blTT += BL.tick;
+        let v = 0;
+        for (let k = 0; k < e.blN; k++) {
+          v += e.blR[k] * Math.min(BL.tick, e.blT[k]);
+          e.blT[k] -= BL.tick;
+        }
+        for (let k = 0; k < e.blN; ) {
+          if (e.blT[k] <= 1e-4) {
+            e.blN--;
+            e.blR[k] = e.blR[e.blN];
+            e.blT[k] = e.blT[e.blN];
+          } else k++;
+        }
+        if (v > 0) {
+          const n = e.blN;
+          BLEED_BASE[0] = BLEED_BASE[1] = v;
+          BLEED_INFO.ang = Math.atan2(e.x - P.x, e.z - P.z);
+          const dealt = G.hitEnemy(e, BLEED_CTX, 1, BLEED_INFO) || 0;
+          st.bleedTicks = (st.bleedTicks || 0) + 1;
+          st.bleedDmg = (st.bleedDmg || 0) + dealt;
+          if (!e.dead) fxOpt('bleedDrip', e.x, e.z, e.height || 2, e.r, n);
+        }
+        if (e.dead || !e.blN) {
+          e.blOn = false;
+          e.blN = 0;
+          continue;
+        }
+      }
+      bleeders[j++] = e;
+    }
+    bleeders.length = j;
+  }
+  // 换区域 / 重生：流血全部清掉（不结算）
+  function resetBleed() {
+    for (const e of bleeders) {
+      e.blOn = false;
+      e.blN = 0;
+    }
+    bleeders.length = 0;
   }
   // 敌人某个元素当前的阈值（首领随触发次数成长）
   G.buThreshold = function (e, t) {
@@ -3024,6 +3137,7 @@
     // 异常触发的伤害（ctx.proc：爆燃 / 电弧 / 尸爆 / 放电 / 锁链等）本来就是按扣过抗性的伤害算的，不再扣一次
     if (!ctx.proc) G.applyResist(e, hit, (ctx.pen || 0) + (inf.minion || ctx.minion || ctx.asMinion ? 0 : P.S.elemPen || 0));
     e.hp -= hit.total;
+    if (ctx.bleed > 0 && !ctx.proc && hit.parts.phys > 0 && e.hp > 0) addBleed(e, (hit.parts.phys * ctx.bleed) / 100); // 流血：这一击的物理部分
 
     // 数字颜色 / 特效花样取占比最大的伤害类型
     let top = 'phys';
@@ -3060,6 +3174,8 @@
     if (inf.aura) {
       // 光环：只在身上闪一点霜屑，不闪白、不后仰
       W.frostSparkle(e.x, h * 0.55, e.z, e.r);
+    } else if (inf.dot) {
+      // 流血的跳：不闪白、不后仰、不甩命中火花（掉落的暗红碎屑在 tickBleed 里另放）
     } else {
       W.flash(e.ent, 1 + feel * 0.7);
       W.hitReact(e.ent, ang, 0.9 + feel * 0.4); // 顺着这一击的方向一仰
@@ -3574,6 +3690,14 @@
     return false;
   }
 
+  // 散钉：同一次施放对这个敌人还能不能再中一枚（能就记上一枚）
+  function capTake(p, e) {
+    const n = p.capMap.get(e) || 0;
+    if (n >= p.hitCap) return false;
+    p.capMap.set(e, n + 1);
+    return true;
+  }
+
   // 投射物的命中 / 撞墙 / 爆炸特效：world 认得这种外形就由它画（返回 true），否则调用方用通用火花
   function projFx(p, how, R) {
     const W = G.world;
@@ -3727,7 +3851,7 @@
             }
             // 同一次施放的多枚投射物不叠加命中同一个敌人（多重投射打单体不会变成数倍伤害）；
             // 后到的那枚照常消耗穿透 / 连锁 / 引爆，只是不再对它结算直击
-            if (!p.cast || !p.cast.has(e)) {
+            if (p.capMap ? capTake(p, e) : !p.cast || !p.cast.has(e)) {
               if (p.cast) p.cast.add(e);
               // 远程武器的箭 / 子弹：multFn 算这一下的倍率（鹰眼的远距离加成），after 接着结算余烬 / 元素爆炸 / 熔芯弹；src 让专注按箭计数
               const m = (p.multFn ? p.multFn(p, e) : p.mult || 1) * (p.boomK || 1); // boomK：回旋的回程
@@ -4044,6 +4168,18 @@
         P.face = ang;
         return true;
       }
+      if (sk.kind === 'tether') {
+        // 引雷：持续施放，按住就一直引。第一跳很快出手，之后每 time 秒一跳；加成状态记在这次施放上（停手 / 换技能就从零开始）
+        comboReset();
+        P.cast = {
+          slot, id, t: 0, fired: false, aim: ang, step: -1, st: null, channel: true, tether: true,
+          fireT: Math.min(0.08, ctx.time * 0.4), nextT: Math.min(0.08, ctx.time * 0.4), cancelT: Infinity, dur: Infinity, pulses: 0, move: sk.move || 0.4,
+          rampT: 0, rampK: 1, lastZap: -1, lastHit: -1, tgt: null, tgtOn: false, lx: P.x, lz: P.z,
+        };
+        G.world.play(P.ent, 'cast', { loop: true, dur: 0.5 });
+        P.face = ang;
+        return true;
+      }
       // 连击技能：出当前这一段；其他技能：连段从头再来
       let st = null;
       let step = -1;
@@ -4112,9 +4248,10 @@
   // 停下持续施放（松手、魔力不够、键位被换掉）：动作淡回站立 / 移动
   function endChannel() {
     if (P.cast && P.cast.flicker && VS.marks.size) shadeMarkBurst(); // 刻式「影印」：连斩停下时所有影印一齐引爆
+    const tc = P.cast && P.cast.tether;
     P.cast = null;
     P.spinning = false;
-    if (G.world.clipOf(P.ent) === 'spin') G.world.stop(P.ent, 0.16);
+    if (G.world.clipOf(P.ent) === 'spin' || (tc && G.world.clipOf(P.ent) === 'cast')) G.world.stop(P.ent, 0.16);
   }
 
   function updateChannel(c, dt) {
@@ -5363,6 +5500,7 @@
     resetWandMarks(); // 疾咒的咒痕
     resetChaos(); // 黑洞、黑旋风一起收起
     resetVariants(); // 刻式第二版留在场上的东西
+    resetBleed(); // 流血
     G.relicReset(); // 渊契的电桥、蓄潮
   }
   G.resetRanged = resetRanged;
@@ -5373,7 +5511,7 @@
     melee(ctx, a, st) {
       const W = G.world;
       const sk = ctx.sk;
-      if (!st) st = sk.combo ? sk.combo[0] : { shape: 'arc', range: sk.range, arc: sk.arc, mult: 1, dir: 1, w: 0, stop: 35, kb: sk.kb, poise: sk.poise };
+      if (!st) st = sk.combo ? sk.combo[0] : sk.st || { shape: 'arc', range: sk.range, arc: sk.arc, mult: 1, dir: 1, w: 0, stop: 35, kb: sk.kb, poise: sk.poise }; // st：放血这类单段近战自带的一刀
       const k = Math.sqrt(ctx.area);
       const hex = hexOf(sk.color);
       const R = (st.range || 0) * k;
@@ -5477,11 +5615,13 @@
       const sk = ctx.sk;
       if (sk.mech === 'orbit') return bladeOrbit(ctx); // 刻式「环刃」：不飞出去，绕着你转
       if (sk.cyc) return staffBolt(ctx, a, cs || sk.cyc[0]);
-      const n = Math.max(1, ctx.proj);
+      const n = Math.max(1, ctx.proj + (sk.count || 1) - 1); // count：散钉一次几枚（多重投射再加）
       const spread = Math.min(60, (sk.spread || 12) * (n - 1)) * DEG;
       const stepA = n > 1 ? spread / (n - 1) : 0;
       const hex = sk.elemHex ? G.TYPE_HEX[mainType(ctx)] : hexOf(sk.color); // elemHex：武器普攻按这一下的元素取色
-      const cast = new Set(); // 这一次施放里已经受过伤（直击或爆炸）的敌人，所有投射物共用
+      // hitCap（散钉）：同一次施放对同一个敌人最多中几枚，用计数代替「只中一次」
+      const cast = sk.hitCap ? null : new Set(); // 这一次施放里已经受过伤（直击或爆炸）的敌人，所有投射物共用
+      const capMap = sk.hitCap ? new Map() : null;
       const tint = infuseHex(ctx);
       // 刻式「跳焰」：第一跳落在准星处（min..max 米），之后每 hop 米一跳
       const sp = sk.mech === 'skip' ? sk.skip : null;
@@ -5492,8 +5632,8 @@
         const dz = Math.cos(ang);
         G.spawnProjectile({
           owner: 'p', x: P.x + dx * 0.7, z: P.z + dz * 0.7, dx, dz,
-          speed: sk.speed, r: sk.projR || 0.3, life: sp ? (d0 + sp.hop * (sp.n - 1)) / sk.speed + 1 : 30 / sk.speed, color: hex,
-          ctx, pierce: sk.mech === 'pin' ? 0 : ctx.pierce, chain: sk.mech ? 0 : ctx.chain, explode: sk.explode || 0, hit: new Set(), cast,
+          speed: sk.speed, r: sk.projR || 0.3, life: sp ? (d0 + sp.hop * (sp.n - 1)) / sk.speed + 1 : sk.life || 30 / sk.speed, color: hex,
+          ctx, pierce: sk.mech === 'pin' ? 0 : ctx.pierce, chain: sk.mech ? 0 : ctx.chain, explode: sk.explode || 0, hit: new Set(), cast, capMap, hitCap: sk.hitCap || 0,
           vk: sk.vk || ctx.id, tint,
           skip: sp ? { d: 0, seg: Math.max(0.5, d0 - 0.7), left: sp.n, walls: 3 } : null, stick: sk.mech === 'stick', pin: sk.mech === 'pin',
         });
@@ -6932,6 +7072,204 @@
   G.variantState = () => VS; // 测试用
 
   // 光环的一次脉冲：身边 radius（吃范围加成）以内的所有敌人各挨一小下（光环不经过施放，这里只在被直接调用时生效）
+  // =====================================================================
+  // 第一批新技能（skill-expand）：冰脊 / 坠凌 / 迸电 / 引雷。散钉走 proj（count / hitCap），放血走 melee（sk.st + 流血）。
+  // 特效先走 fxOpt 的可选接口（world 有就画形状批的版本），没有时只用现成的池化零件（frostSparkle / bolt / vDecal / 预警圈），不建新网格
+  // =====================================================================
+  // 冰脊：从脚下朝准星逐段刺出冰棱，撞墙截断；同一次施放每个敌人只吃一下（回响重放是新的一次）
+  SKILL_FX.line = function (ctx, a) {
+    const sk = ctx.sk;
+    const k = Math.sqrt(ctx.area);
+    const half = (sk.width / 2) * k;
+    const x0 = P.x, z0 = P.z, ang = a.ang;
+    const sn = Math.sin(ang), cs = Math.cos(ang);
+    const len = Math.max(1, rayLen(x0, z0, ang, sk.len * k, -0.2) + 0.3);
+    const n = sk.seg, segL = len / n;
+    const hex = hexOf(sk.color);
+    const hit = new Set();
+    state.stats.lineCasts = (state.stats.lineCasts || 0) + 1;
+    G.sfx('impact', { type: 'cold', w: 0, crit: false });
+    for (let i = 0; i < n; i++) {
+      const seg = () => {
+        if (P.dead) return;
+        const sx = x0 + sn * segL * i, sz = z0 + cs * segL * i;
+        if (!fxOpt('frostLineSeg', sx, sz, ang, segL, half, i, n, hex)) {
+          G.world.frostSparkle(sx + sn * segL * 0.5, 0.35, sz + cs * segL * 0.5, half);
+          G.world.vDecal('frost', sx + sn * segL * 0.5, sz + cs * segL * 0.5, Math.max(half, segL * 0.5), 1.5, 0x9fdcff, { a: 0.6 });
+        }
+        for (const e of enemiesInLine(sx, sz, ang, segL, half)) {
+          if (hit.has(e) || !losClear(x0, z0, e.x, e.z)) continue;
+          hit.add(e);
+          G.hitEnemy(e, ctx, 1, { ang, quiet: true });
+        }
+      };
+      if (i === 0) seg();
+      else G.after(i * sk.segT, seg);
+    }
+  };
+  // 坠凌：准星处 dur × 绵延 秒里每 tick 秒落一根冰凌（落下要 fall 秒）。每 5 根里 scatter 那几根随便落在圈里，
+  // 其余优先砸向这一场里被砸得少的敌人（看得见圈心的）；砸中落点 hitR 内的敌人
+  SKILL_FX.rain = function (ctx, a) {
+    const sk = ctx.sk;
+    const ak = Math.sqrt(ctx.area);
+    const d = rayLen(P.x, P.z, a.ang, Math.min(sk.range, a.dist), 0);
+    const x = P.x + Math.sin(a.ang) * d, z = P.z + Math.cos(a.ang) * d;
+    const R = sk.radius * ak, hr = sk.hitR * ak;
+    const n = Math.max(1, Math.round((sk.dur * (ctx.durK || 1)) / sk.tick));
+    const total = sk.delay + (n - 1) * sk.tick + sk.fall;
+    const struck = new Map();
+    const hex = hexOf(sk.color);
+    const rain = { x, z, R, n, hits: 0 };
+    state.stats.rains = (state.stats.rains || 0) + 1;
+    if (!fxOpt('iceRain', x, z, R, total, hex)) G.telegraph({ shape: 'circle', x, z, r: R, dur: total, dmg: 0, friendly: true });
+    G.sfx('cast');
+    const icicle = (i) => {
+      if (P.dead) return;
+      let px, pz;
+      const pool = sk.scatter && sk.scatter.indexOf(i % 5) >= 0 ? null : enemiesIn(x, z, R).filter((e) => losClear(x, z, e.x, e.z));
+      if (pool && pool.length) {
+        let best = pool[0], bv = Infinity;
+        for (const e of pool) {
+          const v = (struck.get(e) || 0) + Math.random() * 0.6;
+          if (v < bv) {
+            bv = v;
+            best = e;
+          }
+        }
+        struck.set(best, (struck.get(best) || 0) + 1);
+        px = best.x + G.rand(-0.3, 0.3);
+        pz = best.z + G.rand(-0.3, 0.3);
+      } else {
+        const rr = R * 0.9 * Math.sqrt(Math.random()), aa = Math.random() * TAU;
+        px = x + Math.sin(aa) * rr;
+        pz = z + Math.cos(aa) * rr;
+      }
+      fxOpt('icicleFall', px, pz, hr, sk.fall, hex);
+      G.after(sk.fall, () => {
+        if (P.dead) return;
+        if (!fxOpt('icicleLand', px, pz, hr, hex)) {
+          G.world.frostSparkle(px, 0.4, pz, hr * 0.7);
+          G.world.vDecal('frost', px, pz, hr, 1.6, 0x9fdcff, { a: 0.55 });
+        }
+        if (i % 2 === 0) G.sfx('impact', { type: 'cold', w: 0, crit: false });
+        for (const e of enemiesIn(px, pz, hr)) {
+          if (!losClear(px, pz, e.x, e.z)) continue;
+          G.hitEnemy(e, ctx, 1, { ang: Math.atan2(e.x - px, e.z - pz), w: sk.w, kb: sk.kb, poise: sk.poise, quiet: true });
+          rain.hits++;
+          state.stats.rainHits = (state.stats.rainHits || 0) + 1;
+        }
+      });
+    };
+    for (let i = 0; i < n; i++) G.after(sk.delay + i * sk.tick, () => icicle(i));
+    return rain;
+  };
+  // 迸电：以自身为圆心的一圈电击（不穿墙）
+  SKILL_FX.burst = function (ctx) {
+    const W = G.world;
+    const sk = ctx.sk;
+    const R = sk.radius * Math.sqrt(ctx.area);
+    const hex = hexOf(sk.color);
+    if (!fxOpt('dischargeFx', P.x, P.z, R, hex)) {
+      // 没有形状批时：6 道细电弧从身上放射出去（池化的电弧，minor 不带闪光和贴花）
+      const a0 = Math.random() * TAU;
+      for (let i = 0; i < 6; i++) {
+        const aa = a0 + (i / 6) * TAU, am = aa + G.rand(-0.35, 0.35);
+        W.bolt([{ x: P.x, z: P.z }, { x: P.x + Math.sin(am) * R * 0.5, z: P.z + Math.cos(am) * R * 0.5 }, { x: P.x + Math.sin(aa) * R, z: P.z + Math.cos(aa) * R }], hex, true);
+      }
+    }
+    state.stats.bursts = (state.stats.bursts || 0) + 1;
+    let any = false;
+    for (const e of enemiesIn(P.x, P.z, R)) {
+      if (!losClear(P.x, P.z, e.x, e.z)) continue;
+      G.hitEnemy(e, ctx, 1, { ang: Math.atan2(e.x - P.x, e.z - P.z), quiet: true });
+      any = true;
+    }
+    G.sfx('impact', { type: 'light', w: 0, crit: any && lastHit.crit });
+  };
+  // 引雷的一跳（持续施放 updateChannel 每 time 秒调一次）：接在准星附近的敌人身上，再连锁。
+  // 加成（c.rampT 秒，按模拟时间累计）：一直引着就涨；走动、断开目标超过 keep 秒清零；停手 / 换技能时 P.cast 换掉，从零开始
+  SKILL_FX.tether = function (ctx, a) {
+    const W = G.world;
+    const sk = ctx.sk;
+    const RP = sk.ramp;
+    const c = P.cast && P.cast.tether && P.cast.id === ctx.id ? P.cast : null;
+    const hex = hexOf(sk.color);
+    const now = state.time;
+    // 主目标：还在射程里、离准星不远的上一个目标优先（加成不因为准星晃一下就断）；否则准星 5 米内最近的；再否则瞄准方向上最近的
+    let first = null;
+    const ok = (e) => e && !e.dead && dist(e.x, e.z, P.x, P.z) - e.r <= sk.range && losClear(P.x, P.z, e.x, e.z);
+    if (c && ok(c.tgt) && dist(c.tgt.x, c.tgt.z, a.tx, a.tz) - c.tgt.r <= 5) first = c.tgt;
+    if (!first) {
+      let bd = Infinity;
+      for (const e of state.enemies) {
+        if (e.dead) continue;
+        const dc = dist(e.x, e.z, a.tx, a.tz);
+        if (dc - e.r <= 5 && dc < bd && ok(e)) {
+          bd = dc;
+          first = e;
+        }
+      }
+    }
+    if (!first) {
+      let bd = Infinity;
+      for (const e of state.enemies) {
+        if (e.dead) continue;
+        const dp = dist(e.x, e.z, P.x, P.z);
+        if (dp - e.r > sk.range || dp >= bd) continue;
+        const diff = Math.abs(angDiff(Math.atan2(e.x - P.x, e.z - P.z), a.ang));
+        if (dp > e.r + 0.6 && diff > 0.6 + Math.asin(Math.min(1, e.r / dp))) continue;
+        if (!losClear(P.x, P.z, e.x, e.z)) continue;
+        bd = dp;
+        first = e;
+      }
+    }
+    let mult = 1;
+    if (c) {
+      const moved = c.lastZap >= 0 && dist(P.x, P.z, c.lx, c.lz) > RP.moveTol;
+      if (moved || (c.lastHit >= 0 && now - c.lastHit > RP.keep)) c.rampT = 0;
+      else if (first && c.lastZap >= 0 && c.tgtOn) c.rampT += now - c.lastZap;
+      c.lx = P.x;
+      c.lz = P.z;
+      c.lastZap = now;
+      c.tgtOn = !!first;
+      if (first) {
+        c.lastHit = now;
+        c.tgt = first;
+      }
+      mult = 1 + Math.min(RP.max, RP.perSec * c.rampT) / 100;
+      c.rampK = mult;
+    }
+    const pts = [{ x: P.x, z: P.z }];
+    if (!first) {
+      pts.push({ x: P.x + a.dx * 5, z: P.z + a.dz * 5 });
+      if (!fxOpt('tetherFx', pts, hex, 1)) W.bolt(pts, hex, true);
+      return;
+    }
+    const hit = new Set();
+    let cur = first, jumps = ctx.chain, px = P.x, pz = P.z;
+    while (cur) {
+      hit.add(cur);
+      pts.push({ x: cur.x, z: cur.z });
+      const cx = cur.x, cz = cur.z;
+      G.hitEnemy(cur, ctx, mult, { ang: Math.atan2(cx - px, cz - pz), quiet: true, faint: cur !== first });
+      px = cx;
+      pz = cz;
+      cur = null;
+      if (jumps-- <= 0) break;
+      let nd = 7;
+      for (const e of state.enemies) {
+        if (e.dead || hit.has(e)) continue;
+        const dd = dist(e.x, e.z, cx, cz);
+        if (dd <= nd) {
+          nd = dd;
+          cur = e;
+        }
+      }
+    }
+    state.stats.tetherZaps = (state.stats.tetherZaps || 0) + 1;
+    if (!fxOpt('tetherFx', pts, hex, mult)) W.bolt(pts, hex, true);
+  };
+
   SKILL_FX.aura = function (ctx) {
     if (ctx.sk.mech === 'shard') return novaShards(ctx); // 刻式「冰棱」：不脉冲，朝最近的敌人射冰棱
     const R = G.auraRadius(ctx);
@@ -8490,6 +8828,7 @@
     tickRanged(dt);
     updateChaos(dt);
     if (VS.n) updateVariants(dt); // 刻式第二版：留在场上的东西
+    if (bleeders.length) tickBleed(dt); // 流血
     if (P.relic.any || G.relicState.bridges.length || G.relicState.spin) G.relicTick(dt); // 渊契：蓄潮、星雨、电桥……
     updateAuras(dt);
     updateAutoSummon(dt);
@@ -8602,6 +8941,8 @@
   // 辅助宝石的掉落：首领固定掉 boss 颗（第一颗必是还没有的），精英 elite、普通怪 mob 的几率各掉一颗。
   // 辅助从 21 种（含绵延）加到 32 种（support-expand）：几率 ×1.5（原来 2 / 0.3 / 0.025），每一种辅助的掉率和原来差不多（约 −2%），老宝石不会变稀
   const SUPPORT_DROP = (G.SUPPORT_DROP = { boss: 3, elite: 0.45, mob: 0.0375 });
+  // 随机技能宝石（首领另有一颗必掉）：技能宝石从 14 种加到 20 种（skill-expand），精英 / 普通怪的几率 × 20/14（原来 0.075 / 0.012），每一种老宝石的掉率不变
+  const SKILL_DROP = (G.SKILL_DROP = { elite: (0.075 * 20) / 14, mob: (0.012 * 20) / 14 });
   // preferNew：挑玩家还没有的宝石的概率
   function pickSkillGem(preferNew) {
     const all = G.GEM_SKILLS; // 武器技不掉落
@@ -8647,7 +8988,7 @@
       // 还没有任何辅助宝石时，第一只精英必掉一颗
       const needFirst = save.supports.length === 0 && !state.loot.some((l) => l.kind === 'support');
       if (needFirst || Math.random() < SUPPORT_DROP.elite) G.spawnLoot('support', pickSupportGem(needFirst ? 1 : 0.7), x, z);
-      if (Math.random() < 0.075) G.spawnLoot('skill', pickSkillGem(0.7), x, z);
+      if (Math.random() < SKILL_DROP.elite) G.spawnLoot('skill', pickSkillGem(0.7), x, z);
       if (Math.random() < BLANK_DROP.elite) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
       return;
     }
@@ -8656,7 +8997,7 @@
     const zk = L ? e.hordeK || 1 : 1, kItem = L ? L.item * zk : 1, kCur = L ? L.cur * zk : 1, kGem = L ? L.gem * zk : 1;
     if (Math.random() < 0.14 * kItem * qk) G.spawnLoot('item', G.rollItem(ilvl, G.rollRarity(rm)), x, z);
     if (Math.random() < 0.09 * kCur * qk) G.spawnLoot('cur', G.rollCurrency(), x, z);
-    if (Math.random() < 0.012 * kGem) G.spawnLoot('skill', pickSkillGem(0.7), x, z);
+    if (Math.random() < SKILL_DROP.mob * kGem) G.spawnLoot('skill', pickSkillGem(0.7), x, z);
     if (Math.random() < SUPPORT_DROP.mob * kGem) G.spawnLoot('support', pickSupportGem(0.7), x, z);
     if (Math.random() < BLANK_DROP.mob * kGem) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
   };

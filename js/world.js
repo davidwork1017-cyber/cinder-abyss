@@ -26767,6 +26767,14 @@
       // 元素异常值：火 / 冰 / 雷三小段并排，各占三分之一宽，按累积量从左往右涨（有任何一段不为空时才画）
       ay = drawBuildUp(g, e, x, ay, w);
       if (e.stunT > 0) { g.fillStyle = '#ffffff'; g.fillRect(x, ay, 5, 3); }
+      // 流血（skill-expand）：右端一排暗红小格，一格一层（最多 6 格）
+      const bn = G.bleedStacks ? G.bleedStacks(e) : 0;
+      if (bn > 0) {
+        g.fillStyle = 'rgba(0,0,0,0.72)';
+        g.fillRect(x + w - bn * 4 - 1, ay - 1, bn * 4 + 1, 5);
+        g.fillStyle = '#b8352c';
+        for (let k = 0; k < bn; k++) g.fillRect(x + w - (k + 1) * 4, ay, 3, 3);
+      }
       if (e.elite && e !== st.hover) {
         // 准星指着它时名字由界面层的名牌显示，这里不重复画
         g.font = '600 12px ' + FONT;
