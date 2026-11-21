@@ -1564,7 +1564,7 @@
         if (o.splT === t && o.splId === q.ctx.id) continue; // 这一帧已经吃过同一个技能的溅射
         o.splT = t;
         o.splId = q.ctx.id;
-        G.hitEnemy(o, sc, 1, { ang: Math.atan2(o.x - q.x, o.z - q.z), w: 0, kb: 0, poise: 0, quiet: true, proc: true, faint: true }); // 不击退：推开会把怪群推出技能的范围
+        G.hitEnemy(o, sc, 1, { ang: Math.atan2(o.x - q.x, o.z - q.z), w: 0, kb: 0, poise: 0, quiet: true, proc: true, faint: true, splash: n < 3 ? 1 : 2 }); // 不击退：推开会把怪群推出技能的范围
         n++;
       }
       if (n) {
@@ -3020,11 +3020,11 @@
       // 光环：只在身上闪一点霜屑，不闪白、不后仰
       W.frostSparkle(e.x, h * 0.55, e.z, e.r);
     } else {
-      W.flash(e.ent, 1 + feel * 0.7);
+      if (!inf.splash) W.flash(e.ent, 1 + feel * 0.7); // 溅击的溅射不闪白（一下溅到一群时整群闪白会糊成一片，闪白有下限、调不淡）
       W.hitReact(e.ent, ang, 0.9 + feel * 0.4); // 顺着这一击的方向一仰
       // 持续伤害的跳（黑洞 / 黑旋风，inf.tick）：只甩几片实例化的尖片，不留地面贴花、不打闪光（怪堆里每秒几十跳，贴花每片一次 draw call）
       if (inf.tick && W.chaosTick) W.chaosTick(e.x - sn * e.r * 0.7, h * 0.5, e.z - cs * e.r * 0.7, ang, hit.crit);
-      else W.impact(e.x - sn * e.r * 0.7, h * 0.5, e.z - cs * e.r * 0.7, ang, top, feel, hit.crit);
+      else if (inf.splash !== 2) W.impact(e.x - sn * e.r * 0.7, h * 0.5, e.z - cs * e.r * 0.7, ang, top, feel, hit.crit); // 溅击：一次溅射只给前 3 个敌人冒火花
       if (ctx.flame > 0 && W.flameHit) W.flameHit(e.x, h * 0.55, e.z, e.r, ang); // 黑焰：命中点甩出几片品红的小火舌
     }
     if (!inf.quiet) {
