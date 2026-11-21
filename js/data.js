@@ -879,7 +879,7 @@
     c: {
       name: '蓄潮', relic: 'nuchao', pack: '每 10 下卷一次潮',
       desc: '按住旋转，每下较轻并攒一层潮势；满 10 层时卷起潮涌：把身边的敌人拽到脚下，再按层数重重拍下。', alt: '松手、翻滚或被打断时攒着的潮势也会拍下。首领拽不动。每下和潮涌都最多打到离你最近的 9 个敌人。',
-      set: { mech: 'tide', useMult: 1.35, tide: { pulse: 0.6, max: 10, burst: 0.75, r: 2, pull: 1.5, cap: 9 } },
+      set: { mech: 'tide', useMult: 1.35, tide: { pulse: 0.6, max: 10, burst: 0.7, r: 1.7, pull: 1.5, cap: 9 } },
     },
   });
   Object.assign(G.VARIANTS.meteor, {
