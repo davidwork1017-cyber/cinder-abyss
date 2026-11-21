@@ -14253,13 +14253,16 @@ async function main() {
         if (d >= 1.5 && d <= 4.5) wall = { a, d, sx, sz };
       }
       if (!wall) {
-        // 竞技场里四面都开阔：退到一面墙前
+        // 竞技场里四面都开阔：退到一面墙前。站点要在 0.4 米余量下也能走（离墙 3 米处旁边可能贴着别的障碍，
+        // 冲刺起点不能走就不冲，布局随机时偶尔撞上）：从 3 米起往后退到能走为止，墙的距离按实际退的算
         const d = T.openDir(40);
         let L = 0.5;
         while (W.walkable(P.x + d.x * (L + 0.25), P.z + d.z * (L + 0.25), 0)) L += 0.25;
-        P.x += d.x * (L - 3);
-        P.z += d.z * (L - 3);
-        wall = { a: Math.atan2(d.x, d.z), d: 3, sx: d.x, sz: d.z };
+        let back = 3;
+        while (back < L - 0.5 && !W.walkable(P.x + d.x * (L - back), P.z + d.z * (L - back), 0.4)) back += 0.25;
+        P.x += d.x * (L - back);
+        P.z += d.z * (L - back);
+        wall = { a: Math.atan2(d.x, d.z), d: back, sx: d.x, sz: d.z };
       }
       const wx = P.x, wz = P.z;
       T.aim(P.x + wall.sx * 8, P.z + wall.sz * 8);
