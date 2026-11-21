@@ -12215,7 +12215,7 @@ async function main() {
     return '6 + 1 颗';
   });
 
-  await step('冰脊：朝准星逐段刺出 9 米的冰棱，沿线的敌人各中一下（同一次施放不重复），线外 2 米的不中，被墙截住', noRes(() => seKeep(async () => {
+  await step('冰脊：朝准星逐段刺出 8 米的冰棱，沿线的敌人各中一下（同一次施放不重复），线外 2 米的不中，被墙截住', noRes(() => seKeep(async () => {
     const r = await ev(() => {
       T.lane(); // 朝 +x 有 12 米直线
       G.save.bar = [null, null, null, null]; // 技能栏上别留光环（霜环的脉冲会打到靶子）
@@ -12232,7 +12232,7 @@ async function main() {
       return out;
     });
     assert(r.hits.every((v) => Math.abs(v - r.avg) <= r.avg * 0.02), '沿线的敌人应各中一下（平均击中 ' + r.avg + '）：' + JSON.stringify(r));
-    assert(r.off === 0 && r.far === 0, '线外 / 9 米以外的不该中：' + JSON.stringify(r));
+    assert(r.off === 0 && r.far === 0, '线外 / 8 米以外的不该中：' + JSON.stringify(r));
     return '沿线 ' + r.hits.join(' / ');
   })));
 
