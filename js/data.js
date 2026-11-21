@@ -4,6 +4,15 @@
   const G = (window.G = {});
 
   G.rand = (a, b) => a + Math.random() * (b - a);
+  // 原地洗牌（Fisher–Yates，返回同一个数组）。不要用 arr.sort(() => Math.random() - 0.5)：比较函数前后矛盾时，排出来的结果取决于引擎的排序怎么走
+  G.shuffle = (arr) => {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1)), t = arr[i];
+      arr[i] = arr[j];
+      arr[j] = t;
+    }
+    return arr;
+  };
   G.randInt = (a, b) => Math.floor(a + Math.random() * (b - a + 1));
   G.pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
   G.clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -90,7 +99,7 @@
     // 伤害本身很低，主要价值是不断累积冰霜异常值
     nova: {
       name: '霜环', icon: '霜', color: '#86d8ff', tags: ['spell', 'area', 'cold', 'aura'], kind: 'aura',
-      dmg: { cold: [3.2, 4.8] }, time: 0.5, mana: 0, reserve: 25, cd: 0, radius: 4.5, w: 0, kb: 0, poise: 0,
+      dmg: { cold: [3.2, 4.8] }, time: 0.5, mana: 0, reserve: 18, cd: 0, radius: 4.5, w: 0, kb: 0, poise: 0, // 保留 25 → 18（用户定：三个光环一起约 63%，见 G.auraFits）
       desc: '光环：身边一圈寒气定时刺痛所有敌人，伤害低，但持续累积冰霜异常值，冰缓乃至冻结。',
     },
     arc: {
@@ -176,7 +185,7 @@
     //   pullR × radius 以内的敌人被往中心拽：速度 pull × (0.6 + 0.4 × 越靠近中心越快) / √体重，首领固定 bossPull，离中心 core 以内不再拽。
     //   同一个敌人同一时刻只吃一个黑洞的跳（渊口的小黑洞也算）。持续类法术：回响镶不上
     blackhole: {
-      name: '黑洞', icon: '洞', color: '#ff6ad2', tags: ['spell', 'area', 'chaos', 'duration'], kind: 'hole',
+      name: '黑洞', icon: '洞', color: '#ff6ad2', tags: ['spell', 'area', 'chaos', 'duration'], kind: 'hole', noSup: ['echo'],
       dmg: { chaos: [3.9, 5.8] }, chaosEarly: true, time: 0.5, mana: 20, cd: 6, range: 14,
       radius: 3.2, pullR: 1.35, dur: 3, tick: 0.25, pull: 4.5, bossPull: 0.5, core: 0.7,
       w: 0, kb: 0, poise: 2, useMult: 12,
@@ -188,7 +197,7 @@
     //   上限：同一次施放对同一个敌人每 tick 秒最多一跳；被这次施放吸附过的敌人一共最多 cap 跳，只是被拽过来、卷到的最多 splashCap 跳，首领 bossCap 跳；每团最多吸附 latch.max 次，同一个敌人 latch.again 秒内不再吸。
     //   贯穿：前 N 个敌人不吸附，直接穿过（照样挨跳）；连锁：每次松开后拐向 hop.r 米内这一团还没吸过的最近敌人（每拐一次消耗 1 次）
     vortex: {
-      name: '黑旋风', icon: '涡', color: '#ff6ad2', tags: ['spell', 'projectile', 'area', 'chaos'], kind: 'vortex',
+      name: '黑旋风', icon: '涡', color: '#ff6ad2', tags: ['spell', 'projectile', 'area', 'chaos', 'duration'], kind: 'vortex',
       // cd 1 秒（用户定：没有冷却太强）：一秒最多放一次，伤害不补，空出来的时间穿插别的技能
       dmg: { chaos: [3.1, 4.85] }, chaosEarly: true, time: 0.55, mana: 9, cd: 1,
       count: 3, speed: 14, life: 2.2, radius: 0.9, spread: 13, wander: 1.6,
@@ -203,7 +212,7 @@
     //   爆燃 / 电弧这类触发伤害与霜环的脉冲不带黑焰。只能镶节流
     blackflame: {
       name: '黑焰', icon: '冥', color: '#e04cc0', tags: ['spell', 'aura', 'chaos'], kind: 'aura', buff: true,
-      mana: 0, reserve: 35, cd: 0, time: 1, w: 0, kb: 0, poise: 0,
+      mana: 0, reserve: 25, cd: 0, time: 1, w: 0, kb: 0, poise: 0, // 保留 35 → 25（同上）
       flame: { k0: 6, k1: 0.25, cap: 15 },
       desc: '光环：你和召唤物的每一击附带一缕黑焰，造成该击一定比例的额外混沌伤害。只能镶节流。',
     },
@@ -644,7 +653,7 @@
       b: {
         name: '环刃', pack: '要贴身；满 3 把后偶尔补一把',
         desc: '利刃绕着你转 4 秒，割伤碰到的敌人；再放多一把，最多 3 把。', alt: '满 3 把时替换最旧的那把。',
-        set: { mech: 'orbit', wm: 0.75, useMult: 5.18, cycle: 1.333, orbit: { r: 2.0, w: 7, dur: 4, max: 3, gap: 0.4, hr: 0.55 } },
+        set: { mech: 'orbit', tags: ['attack', 'projectile', 'phys', 'duration'], wm: 0.75, useMult: 5.18, cycle: 1.333, orbit: { r: 2.0, w: 7, dur: 4, max: 3, gap: 0.4, hr: 0.55 } },
       },
     },
     nova: {
@@ -663,7 +672,7 @@
       a: {
         name: '雷桩', pack: '定点输出；约两秒补一根',
         desc: '在准星插下导雷桩（6 秒，最多 3 根），每 0.5 秒电击 6 米内最近的敌人；10 米内的桩连起电弧。', alt: '多了替换最旧的。穿过电弧的敌人也会挨电。',
-        set: { mech: 'pylon', useMult: 3.84, cycle: 2, pylon: { dur: 6, max: 3, r: 6, tick: 0.5, mult: 0.32, link: 10, lw: 0.9, lmult: 0.15 } },
+        set: { mech: 'pylon', tags: ['spell', 'chaining', 'light', 'duration'], useMult: 3.84, cycle: 2, pylon: { dur: 6, max: 3, r: 6, tick: 0.5, mult: 0.32, link: 10, lw: 0.9, lmult: 0.15 } },
       },
       b: {
         name: '过载', pack: '连锁少，一跳比一跳痛',
@@ -747,7 +756,7 @@
       a: {
         name: '焰田', pack: '怪站在火地上最痛',
         desc: '火弹较轻，落地留下 3 秒火地。焰蓄满时改放「燎原」：场上所有火地同时爆燃。上限 2 位。',
-        set: { mech: 'field', dmg: { fire: [9, 13.5] }, field: { r: 1.6, dur: 3, tick: 0.5, mult: 0.15, burst: 1.8, br: 2.0 } },
+        set: { mech: 'field', tags: ['spell', 'minion', 'summon', 'fire', 'projectile', 'area', 'duration'], dmg: { fire: [9, 13.5] }, field: { r: 1.6, dur: 3, tick: 0.5, mult: 0.15, burst: 1.8, br: 2.0 } },
       },
       b: {
         name: '魂链', pack: '首领战强；清群弱',
@@ -776,7 +785,7 @@
       b: {
         name: '汇涡', pack: '同一处连放越滚越大',
         desc: '三团较慢的黑旋风相互靠拢，撞到一起合成更大的一团：范围更大、更持久，最多 5 层。每跳较轻。', alt: '附近没有别的旋风时拐向最近的敌人，压在它身上就放慢。合成后的跳数是合进来的几团相加；没散的旋风会和下一次施放的合到一起。',
-        set: { mech: 'merge', speed: 7, life: 3, spread: 28, dmg: { chaos: [1.86, 2.91] }, useMult: 4.9, latch: { t: 0, max: 0 }, merge: { seek: 8, turn: 3, cap: 3, max: 5, life: 1.2, after: 0.35 } },
+        set: { mech: 'merge', tags: ['spell', 'projectile', 'area', 'chaos'], speed: 7, life: 3, spread: 28, dmg: { chaos: [1.86, 2.91] }, useMult: 4.9, latch: { t: 0, max: 0 }, merge: { seek: 8, turn: 3, cap: 3, max: 5, life: 1.2, after: 0.35 } },
       },
     },
     blackflame: {
@@ -850,6 +859,15 @@
   // 有异常值的伤害类型：三种元素 + 混沌（混沌另有自己的触发「渊缚」）
   G.BUILD_TYPES = ['fire', 'cold', 'light', 'chaos'];
 
+  // ---------- 敌人的元素抗性 ----------
+  // 一条规则：每个敌人抗自己的元素（e.elem，就是它身上发光的颜色 = 所在区域的元素：灰烬 / 烬渊 / 余烛殿火焰，霜骨冰霜，雷鸣 / 裂谷闪电）。
+  // mob 普通怪（含异兆里的怪、首领召唤的小怪）、elite 精英、boss 首领（含熄烛者）的抗性（%），不随层级变。物理、混沌没有抗性。
+  // zone：按区域 id 覆盖，{ 区域 id: { fire: 0, … } }（缺省为空：全按上面那条规则）。
+  // 生效的抗性 = max(floor, min(cap, 抗性) − 感电 − 穿透)：感电（shock）把三种元素抗性各降 shock 点，但单靠感电不会降到 0 以下；
+  // 只有穿透（辅助「破障」、词缀「元素穿透」）能压到负数，最低 floor。伤害 × (1 − 生效的抗性 / 100)，在 game.js 的 G.hitEnemy 里一处结算
+  // 首领原定 20%：木桩实测熄烛者（纯火）用时 ×1.25、层级 0 的区域首领到 ×1.28（异常值也累积得慢一点），超过「首领用时 ≤ +25%」，按约定降到和小怪一样的 15%
+  G.ENEMY_RES = { mob: 15, elite: 15, boss: 15, cap: 75, floor: -30, shock: 15, zone: {} };
+
   // ---------- 辅助宝石 ----------
   // req：技能需带有其中任一标签；no：带有其中任一标签的技能不能镶（可缺省）；eff：效果；cost：魔力消耗倍率。
   // 镶在召唤技能上时，通用辅助作用在召唤物身上：迅捷也加快召唤物出手，注入 / 蛮力 / 致命 / 震慑 / 蚀染作用于召唤物的每一击，
@@ -868,17 +886,65 @@
     brutal: { name: '蛮力', req: ['phys'], cost: 1.2, eff: { moreType: { phys: 35 } }, desc: '物理伤害额外提高 35%' },
     precise: { name: '致命', req: null, cost: 1.15, eff: { critFlat: 8, critMulti: 40 }, desc: '暴击率 +8%，暴击伤害 +40%' },
     leech: { name: '汲生', req: null, no: ['minion'], cost: 1.1, eff: { leech: 3 }, desc: '伤害的 3% 转为生命' },
-    echo: { name: '回响', req: ['spell'], no: ['summon', 'aura', 'duration'], cost: 1.4, eff: { echo: 1, more: -30 }, desc: '法术自动重复施放一次，伤害减少 30%' },
+    // 持续类法术原来一律镶不上回响；绵延上线后持续标签多了好几个技能，改成只有黑洞自己排除（noSup：两个黑洞对同一个敌人不叠跳）
+    echo: { name: '回响', req: ['spell'], no: ['summon', 'aura'], cost: 1.4, eff: { echo: 1, more: -30 }, desc: '法术自动重复施放一次，伤害减少 30%' },
     stagger: { name: '震慑', req: ['attack', 'minion'], cost: 1.15, eff: { stun: 0.7 }, desc: '击中使非首领敌人眩晕 0.7 秒' },
     ailment: { name: '蚀染', req: null, cost: 1.1, eff: { ailment: 35 }, desc: '异常值累积速度加快 35%' },
     frugal: { name: '节流', req: null, cost: 0.6, eff: { cdr: 25 }, desc: '魔力消耗与光环保留减少 40%，冷却缩短 25%' },
+    // 绵延：持续类效果（黑洞、黑旋风、雷桩、环刃、焰田……带「持续」标签的技能或刻式）存在的时间 × (1 + dur%)。
+    //   有同时存在数量上限的（雷桩、环刃）上限再 +cap；黑旋风原式吸附得更久，每次施放对吸附的敌人 / 首领的跳数上限跟着时间放大。
+    //   汇涡不带持续：它对一个敌人的伤害卡在每 tick 一跳上，活得久不多打（实测单体 +0%、怪群 +14%）
+    lasting: { name: '绵延', req: ['duration'], cost: 1.15, eff: { dur: 30, cap: 1 } }, // 说明按数值拼（见下面）
     // 召唤物专用
     dominion: { name: '驭灵', req: ['minion'], cost: 1.25, eff: { minionMore: 30 }, desc: '召唤物伤害额外提高 30%' },
     ossify: { name: '坚骨', req: ['minion'], cost: 1.15, eff: { minionLife: 40, minionDR: 15 }, desc: '召唤物最大生命 +40%，受到的伤害 −15%' },
     // noKind：这些召唤物镶不上（守像只能有 1 尊）。镶在焚骨祭司上时是祭司 +1
     horde: { name: '群聚', req: ['minion'], noKind: ['colossus'], cost: 1.3, eff: { minionCap: 1, minionMore: -15 }, desc: '召唤数量上限 +1（仆从或祭司，守像镶不上），召唤物伤害额外降低 15%' },
     frenzy: { name: '狂怒', req: ['minion'], cost: 1.2, eff: { minionSpeed: 20 }, desc: '召唤物攻击与移动速度 +20%' },
+
+    // ---------- 取舍型 / 改玩法的辅助（support-expand） ----------
+    // eff 里的新字段由 game.js 的 G.supXCtx 汇总进 ctx.x（more / area 这类老字段照常在 skillCtx 的循环里算）。
+    // 额外的适用条件：needCd 技能要有冷却；noId 这些技能镶不上（标签对得上、机制用不上）；auraUp 能镶在黑焰这类增益光环上。
+    // 镶在召唤技能上时：收束缩小守像的砸地、祭司的火弹爆炸并提高召唤物伤害；断命、化元作用于召唤物的每一击；
+    // 烈爆 / 深寒 / 雷涌作用于召唤物打出来的爆燃 / 冻结 / 感电；远劲、储能、分岔、溅击镶不上
+    narrow: { name: '收束', req: ['area'], cost: 1.2, eff: { area: -35, more: 25 }, desc: '范围缩小 35%，伤害 +25%',
+      alt: '伤害是总额外加成。半径约为原来的八成。' },
+    farshot: { name: '远劲', req: ['projectile'], no: ['minion'], cost: 1.15, eff: { projSpd: 50, more: 20, noPass: 1 }, desc: '弹速与射程 +50%，伤害 +20%，不穿透',
+      alt: '也不再连锁：装备、贯穿、连锁给的穿透和连锁都失效；弓的「一矢穿心」照样贯穿。黑旋风只是飞得更快更远。' },
+    swell: { name: '盛环', req: ['aura'], auraUp: true, cost: 1.5, eff: { auraEff: 30 }, desc: '光环效果 +30%，保留 ×1.5',
+      alt: '霜环、护涡的伤害 +30%；黑焰附带的混沌伤害比例 +30%。光环一共最多保留 90%。' },
+    charge: { name: '储能', req: null, needCd: true, no: ['minion'], cost: 1.1, eff: { charges: 1, cdMore: 30 }, desc: '多存 1 次施放，冷却延长 30%',
+      alt: '存满 2 次后可以连放两下；每次冷却结束补 1 次。只能镶在有冷却的技能上。' },
+    blaze: { name: '烈爆', req: null, cost: 1.1, eff: { blastK: 60, blastR: 30, blastCap: 60 }, desc: '爆燃伤害 +60%，范围 +30%',
+      alt: '只对这个技能打满的爆燃生效，爆燃的伤害上限同样提高 60%。不加快火焰异常值的累积。' },
+    deepfreeze: { name: '深寒', req: null, cost: 1.1, eff: { freezeK: 50, chillK: 25 }, desc: '冻结时间 +50%，冰缓减速 +25%',
+      alt: '只对这个技能打满的冻结、首领的重度冰缓生效；冰缓按最近一次灌冰霜的技能算。不加快冰霜异常值的累积。' },
+    surge: { name: '雷涌', req: null, cost: 1.1, eff: { shockN: 1, shockT: 25 }, desc: '感电多放 1 道电弧，时间 +25%',
+      alt: '只对这个技能打满的感电生效：每次挨打射出 3 道电弧（原来 2 道），感电 5 秒（原来 4 秒）。' },
+    // 破障（enemy-resist；这一组的第 5 颗，跟着敌人抗性一起上线）：元素伤害穿透敌人的元素抗性（见 G.ENEMY_RES），
+    // 可以压到负数。镶在召唤技能上作用于召唤物的每一击
+    breach: { name: '破障', req: null, cost: 1.15, eff: { pen: 25 }, desc: '元素伤害穿透 25% 抗性',
+      alt: '每个区的敌人抗本区的元素 ' + G.ENEMY_RES.mob + '%（首领也是）。穿透能把抗性压到负数（最低 −' + Math.abs(G.ENEMY_RES.floor) + '%），对不抗的敌人也是 +25%。物理、混沌不受影响。' },
+    // 第二批：改玩法（分岔 / 溅击 / 断命 / 化元）。分岔的分支、溅击的溅射都不会再分岔 / 溅射（不会连锁放大）
+    // 分岔不扣伤害（实测扣 10% 时打不过连锁：会爆炸的投射物在密集的怪群里分出来的多半撞上已经被炸过的敌人）；代价是魔力 ×1.25 和占一个孔
+    fork: { name: '分岔', req: ['projectile'], no: ['minion'], noId: ['vortex'], cost: 1.25, eff: { fork: 2, forkAng: 35 }, desc: '投射物首次命中后分出 2 枚',
+      alt: '分出的两枚向左右斜飞（±35°），不再分岔、穿透或连锁；这次施放已经打中过的敌人不会再被打中。钉刃、环刃、跳焰、黏焰不分岔，黑旋风镶不上。' },
+    splash: { name: '溅击', req: ['melee'], no: ['minion'], cost: 1.15, eff: { splash: 40, splashR: 2.5 }, desc: '近战命中时溅到身边 2.5 米，伤害 40%',
+      alt: '溅到被打中的敌人身边的其他敌人；同一下已经直接打中的不再吃溅射。按原伤害的类型分配，会累积异常值，不暴击、不吸血。' },
+    // 断命 15% 时实测清一群只快约 12%，抬到 20%（精英 10%）
+    cull: { name: '断命', req: null, cost: 1.1, eff: { cull: 20, cullElite: 10 }, desc: '命中后生命低于 20% 的敌人直接倒下',
+      alt: '精英为 10%，首领不受影响。召唤物的命中同样生效；爆燃、电弧、溅射这类触发出来的伤害不算。' },
+    convert: { name: '化元', req: ['phys'], cost: 1.1, eff: { convert: 60 }, desc: '60% 物理伤害转为加成最高的元素',
+      alt: '取火焰 / 冰霜 / 闪电伤害提高里最高的那种（并列取火焰）。转过去的部分吃元素加成、累积异常值；蛮力只加剩下的物理部分；注入照旧按总伤害附加。' },
   };
+
+  {
+    // 绵延的说明：按 eff 和雷桩 / 环刃的上限拼，改数值时跟着变
+    const L = G.SUPPORTS.lasting, e = L.eff, VA = G.VARIANTS;
+    L.desc = '持续时间 +' + e.dur + '%；有数量上限的效果上限 +' + e.cap;
+    L.alt = '黑洞、黑旋风、雷桩、环刃、焰田的火地存在得更久，伤害跳数随之增加；黑旋风吸附得更久，每次施放对吸附住的敌人的跳数上限也按比例提高。雷桩最多 ' +
+      (VA.arc.a.set.pylon.max + e.cap) + ' 根、环刃最多 ' + (VA.blade.b.set.orbit.max + e.cap) + ' 把。冷却、增益、控制和异常的时间不变。';
+  }
 
   // ---------- 属性显示 ----------
   G.STAT_FMT = {
@@ -889,14 +955,14 @@
     addPhys: '附加 {a}–{b} 物理伤害', addFire: '附加 {a}–{b} 火焰伤害',
     addCold: '附加 {a}–{b} 冰霜伤害', addLight: '附加 {a}–{b} 闪电伤害',
     incChaos: '混沌伤害提高 {v}%', addChaos: '附加 {a}–{b} 混沌伤害', moreChaos: '混沌伤害总额外 {s}{v}%',
-    bindAil: '渊缚累积速度加快 {v}%', flameEff: '黑焰的额外混沌伤害提高 {v}%', holeDur: '黑洞持续时间延长 {v}%', pullK: '黑洞与渊缚的牵引力提高 {v}%',
+    elemPen: '元素伤害穿透 {v}% 抗性', bindAil: '渊缚累积速度加快 {v}%', flameEff: '黑焰的额外混沌伤害提高 {v}%', holeDur: '黑洞持续时间延长 {v}%', pullK: '黑洞与渊缚的牵引力提高 {v}%',
     resFire: '+{v}% 火焰抗性', resCold: '+{v}% 冰霜抗性', resLight: '+{v}% 闪电抗性',
     speed: '攻击与施法速度提高 {v}%', crit: '暴击率提高 {v}%', critMulti: '+{v}% 暴击伤害',
     lifeRegen: '每秒回复 {v} 生命', manaRegen: '魔力回复速度提高 {v}%', lifeOnKill: '击杀回复 {v} 生命',
     moveSpeed: '移动速度提高 {v}%', rarity: '掉落物品稀有度提高 {v}%',
     area: '技能范围扩大 {v}%', ailment: '异常值累积速度加快 {v}%（含渊缚）', costReduce: '技能消耗降低 {v}%',
     dodgeCd: '翻滚冷却缩短 {v}%', moreDmg: '总伤害额外 {s}{v}%', lessTaken: '受到的伤害减少 {v}%',
-    moreLife: '最大生命额外 {s}{v}%', bloodMagic: '技能消耗生命而非魔力，光环改为保留生命',
+    moreLife: '最大生命额外 {s}{v}%', allMore: '你和召唤物的总伤害额外 {s}{v}%', bloodMagic: '技能消耗生命而非魔力，光环改为保留生命',
     minionDmg: '召唤物伤害提高 {v}%', minionLife: '召唤物最大生命提高 {v}%',
     minionSpeed: '召唤物攻击与移动速度提高 {v}%', minionCap: '烬骸仆从数量上限 +{v}',
     minionMore: '召唤物总伤害额外 {s}{v}%', ownLess: '你自身（非召唤物）的总伤害额外 -{v}%',
@@ -912,6 +978,8 @@
     wInc: '武器物理伤害提高 {v}%', wAdd: '附加 {a}–{b} 物理伤害',
     // 远程武器（见 G.RANGED）：枪械的热度、弓的专注
     heatGain: '热度积攒速度加快 {v}%', heatDmg: '热度满时枪械普攻伤害提高 {v}%（随热度线性）', rDmg: '枪械热度技（R）伤害提高 {v}%',
+    // 熄烛冠专属：你对所有敌人、召唤物对暗域内的敌人（见 G.RELIC_MECH.xizhu）
+    darkDmg: '暗域增伤 {v}%',
     focusGain: '专注积攒速度加快 {v}%', buffDur: '弓的专注技（R）增益持续时间延长 {v}%', rangeDmg: '远距离命中时弓的伤害提高 {v}%',
   };
   G.LOCAL_STATS = { wInc: 1, wAdd: 1 };
@@ -1037,6 +1105,8 @@
     A('incChaos', 'prefix', '渊蚀', 'incChaos', 6, 10, 1.35, ['weapon'].concat(JEW), 4),
     A('addChaos', 'prefix', '蚀刻', 'addChaos', 1, 3, 1.5, ['weapon', 'gloves'].concat(JEW), 3),
     A('bindAil', 'suffix', '缚渊', 'bindAil', 8, 13, 1.3, ['weapon', 'gloves', 'amulet'], 4),
+    // 元素穿透（enemy-resist）：你亲手的元素伤害穿透敌人的元素抗性（召唤物不吃），和辅助「破障」相加，压到负数时最低 G.ENEMY_RES.floor
+    A('elemPen', 'suffix', '透元', 'elemPen', 3, 4, 1.07, ['weapon', 'amulet'], 3),
     // 召唤物词缀。baseW：按基底（BASES 里的下标）调整出现权重——杖类武器（木杖 / 骨杖）更容易出召唤物伤害；
     // minIlvl / rareOnly：只在物品等级够高的稀有物品上出现
     Object.assign(A('minionDmg', 'prefix', '统御', 'minionDmg', 6, 10, 1.35, ['weapon'].concat(JEW), 5), { baseW: { weapon: [0.4, 1.8, 1.8, 0.4, 0.4, 0.4, 0.4, 2.6, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2] } }),
@@ -1054,10 +1124,14 @@
     // 只出现在烬铸武器上的词缀行（slots 为空、权重 0：随机掉落和打造都不会出）
     A('uIncElem', 'prefix', '三相', 'incElem', 8, 13, 1.35, [], 0),
     A('uAilment', 'suffix', '蚀相', 'ailment', 8, 13, 1.3, [], 0),
+    // 只出现在熄烛冠上（巅峰渊契的专属行）：不随物品等级变（g 1），区间就是 [lo, hi]
+    A('darkDmg', 'suffix', '暗域', 'darkDmg', 20, 28, 1, [], 0),
+    // 只出现在双生坠上：你和召唤物的总伤害额外（g 1：不分阶，区间就是 lo–hi）
+    A('uAllMore', 'prefix', '双生', 'allMore', 10, 14, 1, [], 0),
   ];
   G.AFFIX_BY_ID = {};
   for (const a of G.AFFIXES) G.AFFIX_BY_ID[a.id] = a;
-  for (const id of ['moveSpeed', 'resFire', 'resCold', 'resLight', 'speed', 'crit', 'critMulti', 'manaRegen', 'rarity', 'uAilment', 'heatGain', 'focusGain', 'bindAil']) G.AFFIX_BY_ID[id].soft = true;
+  for (const id of ['moveSpeed', 'resFire', 'resCold', 'resLight', 'speed', 'crit', 'critMulti', 'manaRegen', 'rarity', 'uAilment', 'heatGain', 'focusGain', 'bindAil', 'elemPen']) G.AFFIX_BY_ID[id].soft = true;
 
   // ---------- 烬铸武器（稀有度 3）----------
   // 名字、武器类型和词缀行都是固定的，只有数值在区间里掷。区间跟着物品等级走：每一行取这条词缀在该物品等级最高阶的区间，
@@ -1069,23 +1143,23 @@
     jinduan: {
       name: '烬断', base: 6, boss: 'warden', mech: 'blade', mechName: '残刃', uskill: 'ashcuts',
       lines: [{ id: 'wInc', k: [1.7, 2.3] }, { id: 'crit', k: [1.6, 2.2] }, { id: 'critMulti', k: [1.1, 1.5] }, { id: 'speed', k: [0.9, 1.3] }],
-      lore: '监察者的刑刀，断口至今发烫。',
+      lore: '监察者的断刀，还烫手。',
     },
     sanxiang: {
       name: '三相之心', base: 1, boss: 'weaver', mech: 'tri', mechName: '三相共鸣', uskill: 'tristorm',
       lines: [{ id: 'uIncElem', k: [1.15, 1.65] }, { id: 'uAilment', k: [1.0, 1.5] }, { id: 'speed', k: [1.0, 1.4] }, { id: 'addLight', k: [0.95, 1.35] }],
-      lore: '三种元素织进一颗心，仍在互相拉扯。',
+      lore: '三种元素，谁也不服谁。',
     },
     wanhun: {
       name: '万魂旗', base: 7, boss: 'lord', mech: 'soul', mechName: '魂火轮回', uskill: 'soulhost',
       lines: [{ id: 'minionDmg', k: [0.1, 0.2] }, { id: 'minionLife', k: [0.3, 0.6] }, { id: 'minionCap', fixed: 1 }, { id: 'wInc', k: [2.0, 2.8] }],
-      lore: '亡魂系在旗上，倒下一个，烧起一团。',
+      lore: '旗上拴着亡魂。',
     },
     // 熔芯（左轮）：熔渣巨像掉。R 是它专属的「乱射」；机制「熔芯弹」——每一轮的最后一发必定暴击，并在命中处炸开
     rongxin: {
       name: '熔芯', base: 12, boss: 'golem', mech: 'core', mechName: '熔芯弹', uskill: 'wildfire',
       lines: [{ id: 'wInc', k: [1.7, 2.3] }, { id: 'critMulti', k: [1.1, 1.5] }, { id: 'heatGain', k: [1.2, 1.7] }, { id: 'speed', k: [0.9, 1.3] }],
-      lore: '巨像胸中烧不化的芯，车成了枪膛。',
+      lore: '巨像的芯做的枪。',
     },
     // 凛羽（弓，内部 id 仍是 jinyu）：第五个区域（坠星裂谷）的首领衔星巨兽掉（bossZone 兜底：首领 id 对不上时取这个区域的首领，见 G.syncUniqueBosses）。
     // R 是专属的「凛冬」；机制「碎晶连跳」写在它的普攻里（basic_emberbow 的 spark），这里加强：冰晶给目标灌冰霜异常值
@@ -1093,14 +1167,14 @@
     jinyu: {
       name: '凛羽', base: 13, boss: 'behemoth', bossZone: 'rift', mech: 'ember', mechName: '碎晶连跳', uskill: 'emberstorm',
       lines: [{ id: 'wInc', k: [1.6, 2.2] }, { id: 'incCold', k: [1.2, 1.7] }, { id: 'focusGain', k: [1.2, 1.7] }, { id: 'crit', k: [1.2, 1.7] }],
-      lore: '星辰冻成的冰，削成了羽箭。',
+      lore: '用坠星的冰削的弓。',
     },
     // 星蚀（短杖）：衔星巨兽掉，和凛羽共用一次掉落判定与保底（G.UNIQUE_ALT）。没有专属烬铸技：拿着它时武器技秘弹连射的属性固定为混沌。
     // 机制「渊口」见 G.VOID_MOUTH
     xingshi: {
       name: '星蚀', base: 2, boss: 'behemoth', bossZone: 'rift', mech: 'void', mechName: '渊口',
       lines: [{ id: 'incChaos', k: [1.6, 2.2] }, { id: 'addChaos', k: [1.2, 1.6] }, { id: 'bindAil', k: [1.3, 1.8] }, { id: 'speed', k: [1.0, 1.4] }],
-      lore: '烧空的坠星，握着能听见它在往里塌。',
+      lore: '一颗烧空的坠星。',
     },
   };
   G.UNIQUE_IDS = Object.keys(G.UNIQUES);
@@ -1181,78 +1255,76 @@
     panzhong: {
       name: '磐踵', slot: 'boots', base: 0, src: 'boss', boss: 'golem', mechName: '踏震',
       lines: [{ id: 'moveSpeed', k: [0.9, 1.2] }, { id: 'life', k: [1.0, 1.4] }, { id: 'armour', k: [1.0, 1.3] }],
-      lore: '巨像脚下的铁皮，记得那份分量。',
+      lore: '从巨像脚上扒下来的。',
     },
     nuchao: {
       name: '怒潮', slot: 'gloves', base: 0, src: 'boss', boss: 'warden', mechName: '蓄潮',
       lines: [{ id: 'incPhys', k: [1.0, 1.4] }, { id: 'speed', k: [0.9, 1.2] }, { id: 'life', k: [0.9, 1.2] }],
-      lore: '护手里锁着一场没下完的暴雨。',
     },
     duanyue: {
       name: '断岳', slot: 'belt', base: 0, src: 'enc', enc: 'trial', mechName: '崩势',
       lines: [{ id: 'life', k: [1.1, 1.5] }, { id: 'armour', k: [1.0, 1.3] }, { id: 'resCold', k: [1.0, 1.3] }],
-      lore: '带扣是一座山的残片。',
+      lore: '带扣是块山石。',
     },
     qianmu: {
       name: '千目', slot: 'helm', base: 0, src: 'enc', enc: 'wanderer', mechName: '必然',
       lines: [{ id: 'crit', k: [1.3, 1.8] }, { id: 'life', k: [0.9, 1.2] }, { id: 'resLight', k: [1.0, 1.3] }],
-      lore: '七只眼轮流守夜，从不同时睁开。',
+      lore: '七只眼，轮流睁着。',
     },
     huixuan: {
       name: '回旋', slot: 'amulet', base: 0, src: 'boss', boss: 'weaver', mechName: '回旋',
       lines: [{ id: 'critMulti', k: [1.0, 1.4] }, { id: 'incPhys', k: [1.0, 1.3] }],
-      lore: '抛出去的，总会顺着丝线回来。',
+      lore: '扔出去的总会回来。',
     },
     zhuixing: {
       name: '陨织袍', slot: 'body', base: 0, src: 'seal', mechName: '星雨',
       lines: [{ id: 'life', k: [1.0, 1.4] }, { id: 'resFire', k: [1.2, 1.6] }, { id: 'lifeRegen', k: [1.0, 1.3] }],
-      lore: '下摆缀着一颗颗还没落地的星。',
+      lore: '下摆缀满了星星。',
     },
     dianqiao: {
       name: '电桥', slot: 'ring', base: 2, src: 'enc', enc: 'guard', mechName: '电桥',
       lines: [{ id: 'incLight', k: [1.2, 1.6] }, { id: 'addLight', k: [1.0, 1.3] }, { id: 'mana', k: [1.0, 1.3] }],
-      lore: '两颗电珠够不着彼此，雷替它们搭桥。',
     },
     yibian: {
       name: '异变', slot: 'amulet', base: 2, src: 'enc', enc: 'ember', mechName: '混相',
       lines: [{ id: 'incFire', k: [0.7, 1.0] }, { id: 'incCold', k: [0.7, 1.0] }, { id: 'incLight', k: [0.7, 1.0] }],
-      lore: '三种元素压进一颗珠子，只好一起炸。',
     },
     haiwang: {
       name: '骸王冠', slot: 'helm', base: 0, src: 'boss', boss: 'lord', mechName: '独骸',
       lines: [{ id: 'minionLife', k: [1.2, 1.6] }, { id: 'life', k: [1.0, 1.3] }, { id: 'resFire', k: [1.0, 1.3] }],
-      lore: '你的仆从里只能站着一位王。',
+      lore: '王只能有一个。',
     },
     tongshang: {
       name: '同殇甲', slot: 'body', base: 0, src: 'enc', enc: 'box', mechName: '同殇',
       lines: [{ id: 'minionLife', k: [1.2, 1.6] }, { id: 'life', k: [1.0, 1.4] }, { id: 'armour', k: [1.0, 1.3] }],
-      lore: '你挨的每一下，都有一份落到别处。',
     },
     zhaohun: {
       name: '招魂带', slot: 'belt', base: 0, src: 'enc', enc: 'echo', mechName: '随影',
       lines: [{ id: 'life', k: [1.0, 1.3] }, { id: 'minionLife', k: [1.0, 1.4] }, { id: 'mana', k: [1.0, 1.3] }],
-      lore: '骨铃一响，跟着你的都会赶到。',
+      lore: '铃一响，都会赶来。',
     },
     yinli: {
       name: '引力核', slot: 'ring', base: 3, src: 'boss', boss: 'behemoth', mechName: '随核',
       lines: [{ id: 'incChaos', k: [1.2, 1.6] }, { id: 'addChaos', k: [1.0, 1.3] }, { id: 'mana', k: [1.0, 1.3] }],
-      lore: '小得能镶进戒面，重得能拽弯戒圈。',
+      lore: '个头小，分量重。',
     },
     yuanfu: {
       name: '渊缚链', slot: 'gloves', base: 0, src: 'seal', mechName: '锁链',
       lines: [{ id: 'addChaos', k: [1.2, 1.6] }, { id: 'bindAil', k: [1.2, 1.6] }, { id: 'life', k: [1.0, 1.3] }],
-      lore: '另一头缠着谁，要问下一个被缚的敌人。',
     },
     // 巅峰专属（只有熄烛者掉，D5）：不进 G.RELIC_IDS（随机掉落、拾烬客都不出），图鉴另列在普通渊契后面（G.RELIC_CODEX）
     xizhu: {
-      name: '熄烛冠', slot: 'helm', base: 0, src: 'pinnacle', pinnacle: true, mechName: '无光',
-      lines: [{ id: 'life', k: [1.2, 1.6] }, { id: 'crit', k: [1.2, 1.6] }, { id: 'resCold', k: [1.0, 1.3] }],
-      lore: '冠上烛芯都熄了，只剩一根冒烟。',
+      // rqv 2：巅峰改版（机制「暗域」、四行词缀，冰霜抗性换成生命回复、新增专属的暗域增伤）。
+      // 旧存档里的熄烛冠读档时按原来的分位原地升级，见 game.js 的 migrateXizhu
+      name: '熄烛冠', slot: 'helm', base: 0, src: 'pinnacle', pinnacle: true, mechName: '暗域', rqv: 2,
+      lines: [{ id: 'life', k: [1.6, 2.0] }, { id: 'crit', k: [1.8, 2.3] }, { id: 'lifeRegen', k: [1.4, 1.8] }, { id: 'darkDmg', k: [1, 1] }],
+      lore: '只剩一根烛芯在冒烟。',
     },
     shuangsheng: {
-      name: '双生坠', slot: 'amulet', base: 0, src: 'pinnacle', pinnacle: true, mechName: '双生',
-      lines: [{ id: 'incAll', k: [1.0, 1.4] }, { id: 'speed', k: [1.0, 1.3] }],
-      lore: '两片半月背靠背，一暖一冷。',
+      name: '双生坠', slot: 'amulet', base: 0, src: 'pinnacle', pinnacle: true, mechName: '余响', rqv: 2,
+      // 巅峰护符：四行都比普通渊契（k 1.0–1.4）高一截；最后一行只有它有（旧存档的升级见 game.js 的 migrateTwin）
+      lines: [{ id: 'incAll', k: [1.5, 1.9] }, { id: 'speed', k: [1.3, 1.6] }, { id: 'critMulti', k: [1.3, 1.6] }, { id: 'uAllMore', k: [1, 1] }],
+      lore: '一半暖，一半冷。',
     },
   };
   // 普通渊契（随机掉落、图鉴、图标都按这个列表）；巅峰专属另列
@@ -1300,9 +1372,12 @@
   // 随影 zhaohun：翻滚 delay 秒后召唤物闪到你落点周围、各砸一下（半径 r，各自一击 × mult，守像 × multBig）；翻滚冷却 × (1 + rollCd)
   // 随核 yinli：黑洞以你为中心跟着你走；持续 × dur、半径 × radius、牵引 × pull（首领不变）、每跳伤害 × dmg
   // 锁链 yuanfu：同一时刻处于渊缚的敌人连成一串（最多 max 个），其中一个受到你的伤害，其余每个分到 share
-  // 无光 xizhu（巅峰）：暖光半径 × (1 − lamp)；far 米外的怪不会因为距离醒来；已醒的怪在 far 米外 lose 秒看不到你就失去目标、回原地（首领不吃）；
-  //   你对 far 米外的敌人伤害 × (1 + dmg)，还没被发现（没醒）时的第一击必定暴击；和幽晦叠加时雾近端不低于 fogMin
-  // 双生 shuangsheng（巅峰）：选了刻式的技能每次施放在 A / B 之间交替（光环、召唤除外），交替出来的那一下（不是你选的那一种）伤害 × (1 + dmg)
+  // 暗域 xizhu（巅峰，熄烛冠）：你身周 r 米、每个召唤物身周 mr 米是暗域。域内的敌人造成的伤害 × (1 − weak)（首领 weakBoss，熄烛者不吃）；
+  //   暗域增伤（专属词缀 darkDmg）：你的伤害对所有敌人 × (1 + darkDmg%)；召唤物的伤害对域内的敌人 × (1 + darkDmg% × mk)（召唤流吃不到暴击行，按 mk 倍补上）；
+  //   far 米外的怪不会因为距离醒来；已醒的怪在 far 米外 lose 秒看不到你就失去目标、回原地（首领不吃）；还没被发现（没醒）时你的第一击必定暴击；
+  //   暖光半径 × (1 − lamp)，和幽晦叠加时雾近端不低于 fogMin
+  // 双生 shuangsheng（巅峰）：刻式技能（宝石 ≥ 解锁等级或选着渊式）的每次命中，delay 秒后在同一目标上落一记这一下伤害 × k 的双生一击
+  //   （召唤物、光环的命中和黑焰那一份都算；同一目标累加成一记；不暴击、不累积异常、不触发命中效果、不攒层数）
   G.RELIC_MECH = {
     // r 4.5（设计稿 3.0）：从近战距离朝目标翻滚，落地离目标约 4 米，3 米够不着翻过去的那个目标
     panzhong: { r: 4.5, mult: 1.1, poise: 28, kb: 1.2, gap: 0.8, rollCd: 0.3 },
@@ -1318,8 +1393,8 @@
     zhaohun: { delay: 0.15, r: 1.6, mult: 1.5, multBig: 1.0, rollCd: 0.15 },
     yinli: { dur: 0.8, radius: 0.85, pull: 0.75, dmg: 1.2 },
     yuanfu: { max: 6, share: 0.2 },
-    xizhu: { lamp: 0.4, far: 9, lose: 3, dmg: 0.3, fogMin: 14 },
-    shuangsheng: { dmg: 0.1 },
+    xizhu: { r: 8, mr: 2.5, weak: 0.2, weakBoss: 0.1, mk: 1.25, far: 9, lose: 3, lamp: 0.4, fogMin: 14 },
+    shuangsheng: { k: 0.6, delay: 0.2, fx: 0.32 }, // fx：脚下双月的亮度（1 = 暖金原色）；0.32 时压在怪群脚边、怪的亮面只高 1–2 个点（灰度同帧对照）
   };
   // 机制说明（物品提示、图鉴用），按上面的数值拼
   G.relicDescs = function () {
@@ -1350,11 +1425,13 @@
     R.yinli.mechAlt = '首领的牵引不变。冷却不变。星蚀的渊口照常在敌人脚下张开。';
     R.yuanfu.mechDesc = '渊缚中的敌人连成一串（最多 ' + u.max + ' 个）：其中一个受你伤害时，其余各分到 ' + pc(u.share) + '。';
     R.yuanfu.mechAlt = '分到的伤害不暴击、不触发命中效果、不累积异常值、不带黑焰。渊缚结束即断开。首领不会被渊缚。';
+    for (const id of ['nuchao', 'zhuixing', 'dianqiao', 'haiwang', 'yinli']) R[id].mechAlt = (R[id].mechAlt || '') + '只改原式，刻式 A / B 下不生效。';
     const x = M.xizhu, s2 = M.shuangsheng;
-    R.xizhu.mechDesc = '暖光半径缩小 ' + pc(x.lamp) + '。' + x.far + ' 米外的怪不会因距离醒来；你对 ' + x.far + ' 米外的敌人伤害提高 ' + pc(x.dmg) + '，对没发现你的敌人第一击必定暴击。';
-    R.xizhu.mechAlt = '被打中或同群被叫醒照旧。已醒的怪在 ' + x.far + ' 米外连续 ' + x.lose + ' 秒看不到你，就失去目标、回到原地（首领不会）。';
-    R.shuangsheng.mechDesc = '有刻式的技能每次施放在 A、B 间交替，不是你选的那一下伤害提高 ' + pc(s2.dmg) + '。';
-    R.shuangsheng.mechAlt = '光环和召唤技能不交替，始终是你选的那种。宝石 ' + G.VARIANT_LVL + ' 级并选过刻式才生效；已放出的黑洞、旋风等按施放时的刻式走完。';
+    R.xizhu.mechDesc = '身周 ' + x.r + ' 米是暗域：域内敌人伤害降低 ' + pc(x.weak) + '。暗域增伤：你的伤害对所有敌人生效；召唤物打域内敌人时，这份增伤按 ' + pc(x.mk) + ' 算。';
+    R.xizhu.mechAlt = '召唤物身周 ' + x.mr + ' 米也算暗域。首领在域内只降低 ' + pc(x.weakBoss) + '，熄烛者不受影响。' + x.far + ' 米外的怪不会因距离醒来；已醒的怪在 ' + x.far +
+      ' 米外连续 ' + x.lose + ' 秒看不到你就失去目标（首领不会）。对没发现你的敌人第一击必定暴击。暖光半径缩小 ' + pc(x.lamp) + '。';
+    R.shuangsheng.mechDesc = '刻式技能每次命中，' + s2.delay + ' 秒后余响一次，造成该次伤害的 ' + pc(s2.k) + '。';
+    R.shuangsheng.mechAlt = '宝石 ' + G.VARIANT_LVL + ' 级起算刻式技能（原式也算）。召唤物、光环的命中和黑焰都算，和辅助宝石「回响」叠加。余响不暴击、不累积异常值、不触发命中效果、不攒层数；同一目标同时只挂一次，期间的命中累加进去。';
   };
   G.relicDescs();
   // 分解渊契固定得到的通货（同烬铸）
@@ -1592,29 +1669,29 @@
     {
       id: 'ash', name: '灰烬荒原', level: 1, elem: 'fire', boss: 'golem',
       fog: 0x1c130f, voidc: 0x130d0b, path: 0x7a6252, rock: 0x4b3a33, accent: 0xff6a2a, sky: 0xffc9a0,
-      mobs: ['husk', 'husk', 'spitter', 'brute'], desc: '大火烧尽之后的荒地，余烬里有东西在动。',
+      mobs: ['husk', 'husk', 'spitter', 'brute'], desc: '烧光了的荒地。',
     },
     {
       id: 'frost', name: '霜骨沼泽', level: 5, elem: 'cold', boss: 'weaver',
       fog: 0x0e161c, voidc: 0x0a1014, path: 0x56707a, rock: 0x33454f, accent: 0x7fd4ff, sky: 0xbfe6ff,
-      mobs: ['husk', 'spitter', 'bomber', 'brute'], desc: '冻住的沼地，冰层下埋着旧时代的骨头。',
+      mobs: ['husk', 'spitter', 'bomber', 'brute'], desc: '冰下全是骨头。',
     },
     {
       id: 'storm', name: '雷鸣遗迹', level: 9, elem: 'light', boss: 'warden',
       fog: 0x14131f, voidc: 0x0c0b14, path: 0x6a6480, rock: 0x3d3a52, accent: 0xffe45e, sky: 0xe0d8ff,
-      mobs: ['husk', 'spitter', 'bomber', 'brute', 'spitter'], desc: '仍在运转的古代机关，雷声从不停歇。',
+      mobs: ['husk', 'spitter', 'bomber', 'brute', 'spitter'], desc: '老机关还在转，雷没停过。',
     },
     {
       // zones-integrate：配色改成 zones-abyss 定的炭灰紫底子（原 fog 0x1a0c10、voidc 0x0f0709、path 0x6e4a4a、rock 0x3f2a2c、accent 0xff3a4a，太红太饱和），红橙只做点缀
       id: 'abyss', name: '烬渊深处', level: 13, elem: 'fire', boss: 'lord',
       fog: 0x18121e, voidc: 0x0c0810, path: 0x57525c, rock: 0x48424f, accent: 0xff6a2a, sky: 0xffb0a0,
-      mobs: ['husk', 'bomber', 'spitter', 'brute', 'brute'], desc: '一切灰烬的源头。',
+      mobs: ['husk', 'bomber', 'spitter', 'brute', 'brute'], desc: '灰烬从这里来。',
     },
     {
       // 第五区：烬渊之下，天穹裂开、星骸坠落的谷地。地面是墨绿的熔融琉璃，裂纹里流着星辉
       id: 'rift', name: '坠星裂谷', level: 17, elem: 'light', boss: 'behemoth',
       fog: 0x0a1613, voidc: 0x050c0a, path: 0x44685a, rock: 0x263a35, accent: 0x6effc8, sky: 0xc4ffe6,
-      mobs: ['husk', 'phaser', 'charger', 'spitter', 'brute', 'phaser', 'charger'], desc: '天穹裂开的口子下，星骸还在放电。',
+      mobs: ['husk', 'phaser', 'charger', 'spitter', 'brute', 'phaser', 'charger'], desc: '天裂了，星星往下掉。',
     },
   ];
   // 第五区上线之前就打通过烬渊深处的老存档：读档时提示一次「烬渊深处之后多了一个区域」。
@@ -1640,7 +1717,7 @@
   G.PINNACLE = {
     id: 'crown', name: '余烛殿', level: 17, elem: 'fire', boss: 'snuffer', pin: true,
     fog: 0x18121e, voidc: 0x0c0810, path: 0x57525c, rock: 0x48424f, accent: 0xffb24a, sky: 0xffd8a0,
-    mobs: ['husk'], desc: '烬渊尽头悬空的殿，四只火盆还亮着。',
+    mobs: ['husk'], desc: '殿里四只火盆还亮着。',
   };
   // 两个待拍板的默认值（设计稿 §13 第 2 条）：魂灯 3 盏，失败退还 2 个烛芯。改这两行即可
   G.PIN_LIVES = 3;

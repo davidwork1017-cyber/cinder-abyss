@@ -780,7 +780,18 @@
         else if (P.combo.t > 0) lit = P.combo.step;
       }
       // 连段格按这一招的段数显示：武器普攻的连招大多 3 段（多的藏起来），双匕 4 段（不够就补一格）
-      const nc = id && comboSteps(G.SKILLS[id]) ? comboSteps(G.SKILLS[id]).length : 3;
+      let nc = id && comboSteps(G.SKILLS[id]) ? comboSteps(G.SKILLS[id]).length : 3;
+      // 储能：格子上方的小格改成显示存着几次（亮着的是存货）
+      const chg = id && !P.dead ? G.chargeInfo(id) : null;
+      if (chg) {
+        nc = chg.max;
+        lit = chg.n;
+      }
+      if (!!chg !== !!s.chg) {
+        s.chg = !!chg;
+        s.el.classList.toggle('has-combo', !!chg || !!(id && comboSteps(G.SKILLS[id])));
+        s.el.classList.toggle('chg', !!chg); // 储能的小格：更大、亮着的是青色
+      }
       while (nc > s.pips.length) s.pips.push(s.pips[0].parentNode.appendChild(document.createElement('i')));
       if (lit !== s.lit || nc !== s.nc) {
         s.lit = lit;
@@ -807,7 +818,7 @@
         if (held && !s.held) {
           const sk = G.SKILLS[id];
           const shift = !!(G.input.keys.ShiftLeft || G.input.keys.ShiftRight);
-          if (sk.kind === 'aura') slotFx(s, 'ready', '', now); // 光环：按了也只是亮一下，提示它一直生效
+          if (sk.kind === 'aura') slotFx(s, s.aoff ? 'deny' : 'ready', s.aoff ? '保留不足' : '', now); // 光环：按了也只是亮一下，提示它一直生效（保留放不下时说明为什么没生效）
           else if (sk.kind === 'summon' && !shift) slotFx(s, 'ready', '', now); // 召唤：按键是自动召唤的开关，不是施放
           else if (i === W_SLOT && rw && !rw.gauge.full) slotFx(s, 'deny', rw.gauge.name + '未满', now); // 远程武器的 R 要量表灌满
           else if (left > 0.15) slotFx(s, 'deny', '冷却中', now);
@@ -818,6 +829,14 @@
       }
       s.left = left;
       s.held = held;
+      // 光环保留放不下（超过 90%，见 G.auraFits）：格子变暗、角标「保留不足」
+      const aoff = !!(id && G.SKILLS[id] && G.SKILLS[id].kind === 'aura' && !G.auraOn(id));
+      if (aoff !== !!s.aoff) {
+        s.aoff = aoff;
+        s.el.classList.toggle('aoff', aoff);
+        const tag = s.el.querySelector('.s-auto');
+        if (tag) tag.textContent = aoff ? '保留不足' : '自动';
+      }
       if (s.fx && now - s.fxT > 620) {
         s.el.classList.remove(s.fx);
         s.fx = '';
@@ -916,6 +935,17 @@
       if (asig !== hb.ailSig) {
         hb.ailSig = asig;
         hb.ail.innerHTML = ailHtml(b, false);
+      }
+      // 元素抗性小签（血条左上，和右上的异常状态对称）
+      const rsig = resSig(b);
+      if (rsig !== hb.resSig) {
+        hb.resSig = rsig;
+        if (!hb.res) {
+          hb.res = document.createElement('div');
+          hb.res.id = 'boss-res';
+          hb.box.appendChild(hb.res);
+        }
+        hb.res.innerHTML = resChips(b, false);
       }
       // 元素异常值：平时按累积量涨，触发中（重度冰缓 / 感电 / 刚爆燃）整段亮着闪动
       if (b.bu) {
@@ -1206,6 +1236,30 @@
   const ailSig = (e) => ailList(e).join(',');
   function ailHtml(e, named) {
     return ailList(e).map((a) => '<span class="ail ' + a + '">' + IC.ail(a) + (named ? AIL_NAME[a] : '') + '</span>').join('');
+  }
+  // 敌人的元素抗性小签（名牌、首领血条）：「抗火 15%」，前面一面元素色的小盾（纯 CSS，不画图标画布）；感电压低时变暗、写压低后的数。
+  // 没有抗性的敌人不出。alt：名牌上带「按住 Alt 查看详情」
+  const RES_CH = { fire: '火', cold: '冰', light: '雷' };
+  function resSig(e) {
+    let s = '';
+    for (const t of G.ELEMS) {
+      const r = G.enemyResNow(e, t);
+      if (r) s += t + r;
+    }
+    return s + (e.shockT > 0 ? 's' : '');
+  }
+  function resChips(e, alt) {
+    let h = '', d = '';
+    for (const t of G.ELEMS) {
+      const r0 = G.enemyRes(e, t);
+      if (!r0) continue;
+      const r = G.enemyResNow(e, t);
+      h += '<span class="res-chip' + (r < r0 ? ' low' : '') + '" style="--ac:' + G.TYPE_COLOR[t] + '"><i></i>抗' + RES_CH[t] + ' ' + r + '%</span>';
+      const rs = Math.max(0, r0 - G.ENEMY_RES.shock);
+      d += G.TYPE_NAME[t] + '伤害 −' + r0 + '%；感电时' + (rs > 0 ? '抗性降到 ' + rs + '%' : '抗性归零') + '。';
+    }
+    if (!h) return '';
+    return h + (alt ? altBox(d + '破障、元素穿透能把抗性压到负数（最低 −' + Math.abs(G.ENEMY_RES.floor) + '%）。') : '');
   }
 
   // ============================================================
@@ -1509,7 +1563,7 @@
       h += '<div class="ic-uq"><b>' + esc(U.mechName) + '</b><span>' + esc(U.mechDesc) + '</span>' + altBox(U.mechAlt ? esc(U.mechAlt) : '') + '</div>';
       // 背包详情栏（o.compact）里省掉来历和「无法改造」（下面的通货栏已经写了），免得把按钮挤出窗口
       if (!o.compact) {
-        h += '<div class="ic-lore">' + esc(U.lore) + '</div>';
+        if (U.lore) h += '<div class="ic-lore">' + esc(U.lore) + '</div>'; // 有几件没有来历，整行不出
         h += '<div class="ic-lock">' + lockText(item) + '</div>';
       }
     } else if (L.affixes.length) {
@@ -1629,6 +1683,7 @@
       if (s('moreChaos')) h += row('混沌总额外', pct(s('moreChaos')), G.TYPE_COLOR.chaos);
     }
     if (G.flamePct && G.flamePct() > 0) h += row('黑焰额外混沌', fmt1(G.flamePct()) + '%', G.TYPE_COLOR.chaos);
+    if (s('elemPen')) h += row('元素穿透', fmt1(s('elemPen')) + '%'); // 装备上的「元素穿透」（辅助「破障」另算在技能上）
     for (const t of G.TYPES) {
       const v = s('add' + G.CAP[t]);
       if (v) h += row('附加' + G.TYPE_NAME[t], Math.max(1, Math.round(v * 0.7)) + '–' + Math.max(2, Math.round(v * 1.3)), G.TYPE_COLOR[t]);
@@ -1664,6 +1719,7 @@
     if (s('moreTaken')) h += row('承受伤害', '+' + fmt1(s('moreTaken')) + '%', '#ff7a6a');
     if (s('resLoss')) h += row('元素抗性（上限后）', '-' + fmt1(s('resLoss')) + '%', '#ff7a6a');
     if (s('moreDmg')) h += row('总伤害', pct(s('moreDmg')), s('moreDmg') > 0 ? '#ffb066' : '#ff7a6a');
+    if (s('allMore')) h += row('你和召唤物总伤害', pct(s('allMore')), '#ffb066');
     if (s('lessTaken')) h += row('承受伤害', '-' + fmt1(s('lessTaken')) + '%', '#9fdc8a');
     if (s('moreLife')) h += row('生命总量', pct(s('moreLife')), s('moreLife') > 0 ? '#9fdc8a' : '#ff7a6a');
     if (s('bloodMagic')) h += row('技能消耗', '生命', '#ff7a6a');
@@ -1885,12 +1941,28 @@
     const sk = G.SKILLS[skillId];
     const bad = sup.no && sk ? sup.no.filter((t) => sk.tags.indexOf(t) >= 0) : [];
     if (bad.length) return '不能用于' + bad.map((t) => G.TAG_NAME[t] || t).join(' / ') + '技能';
+    if (sup.needCd && sk && !(sk.cd > 0)) return '只能用于有冷却的技能'; // 储能
+    if (sup.noId && sup.noId.indexOf(skillId) >= 0) return sk.name + '用不上';
+    const vs = fitVariants(skillId, sup);
+    if (vs.length) return '选' + vs.join(' / ') + '刻式时才能镶';
     return '需要标签：' + reqText(sup);
+  }
+  // 这个技能的哪几种刻式用得上这颗辅助（标签随刻式变的时候，例如绵延只认雷桩）：刻式名的数组
+  function fitVariants(skillId, sup) {
+    const supId = Object.keys(G.SUPPORTS).find((k) => G.SUPPORTS[k] === sup);
+    if (!supId || !G.VARIANTS[skillId] || !G.SKILL_V || !G.SKILL_V[skillId]) return [];
+    const keep = G.SKILLS[skillId], out = [];
+    for (const v of ['o'].concat(Object.keys(G.VARIANTS[skillId]))) {
+      G.SKILLS[skillId] = G.skillVariant(skillId, v);
+      if (G.supportFits(skillId, supId)) out.push(v === 'o' ? G.VARIANT_NAME.o : G.VARIANTS[skillId][v].name);
+    }
+    G.SKILLS[skillId] = keep;
+    return out;
   }
   // 适用范围的一句话：「任意技能」/ 「物理」/ 「任意技能（召唤物除外）」
   function scopeText(sup) {
     const no = sup.no && sup.no.length ? '（' + sup.no.map((t) => G.TAG_NAME[t] || t).join(' / ') + '除外）' : '';
-    return (sup.req ? reqText(sup) : '任意技能') + no;
+    return (sup.req ? reqText(sup) : sup.needCd ? '有冷却的技能' : '任意技能') + no;
   }
 
   // 召唤技能的召唤物数值：优先用 G.minionInfo（minions.js），缺的字段按 ctx.minion 自己算，都没有就给个不出错的空值
@@ -2049,7 +2121,7 @@
       // 元素：施法武器的普攻取你加成最高的元素
       const el = ctx && !ctx.attack && !sk.asMinion ? Object.keys(ctx.base)[0] : null;
       body =
-        '<div class="sk-desc">' + sk.desc + altBox(sk.alt) + '</div>' +
+        '<div class="sk-desc"><span class="sk-dt">' + sk.desc + '</span>' + altBox(sk.alt) + '</div>' +
         (sk.combo ? '<div class="sk-combo">' + sk.combo.map((c, i) => '<span' + (c.w >= 2 ? ' class="fin"' : '') + '>' + (c.w >= 2 ? '终结 ' : '第 ' + (i + 1) + ' 段 ') + '×' + c.mult + '</span>').join('<i></i>') + '</div>' : '') +
         (comboSteps(sk) && !sk.combo ? '<div class="sk-combo">' + sk.cyc.map((c, i) => '<span' + (c.heavy ? ' class="fin">重弹 ' : '>第 ' + (i + 1) + ' 发 ') + '×' + c.mult + '</span>').join('<i></i>') + '</div>' : '') + // 灵弹：三下一轮
         (nums ? '<div class="sk-nums">' + nums + '</div>' : '') +
@@ -2227,9 +2299,10 @@
       const sup = socks[i];
       const picking = ui.picker && ui.picker.skill === id && ui.picker.idx === i;
       if (sup) {
+        const idle = !G.supportFits(id, sup); // 镶着，但对这一刻的刻式不生效（换回用得上的刻式就生效）
         sockets +=
-          '<button type="button" tabindex="-1" class="sock full" data-act="socket" data-skill="' + id + '" data-idx="' + i + '" data-tip="sock:' + sup + '" data-drag="sup:' + sup + '">' +
-          IC.sup(sup) + G.SUPPORTS[sup].name + '</button>';
+          '<button type="button" tabindex="-1" class="sock full' + (idle ? ' idle' : '') + '" data-act="socket" data-skill="' + id + '" data-idx="' + i + '" data-tip="sock:' + sup + '" data-drag="sup:' + sup + '">' +
+          IC.sup(sup) + G.SUPPORTS[sup].name + (idle ? '<em>不生效</em>' : '') + '</button>';
       } else {
         sockets +=
           '<button type="button" tabindex="-1" class="sock' + (picking ? ' picking' : '') + '" data-act="socket" data-skill="' + id + '" data-idx="' + i + '"><i></i>空槽</button>';
@@ -2274,7 +2347,7 @@
         num('额外混沌', fmt1(F) + '%', 'hl') +
         num(blood ? '生命保留' : '魔力保留', fmt1(ctx.reserve) + '%') +
         num('封顶', fmt1(sk.flame.cap) + '%');
-      note = '<div class="sk-anote"><i></i>' + (G.auraOn(id) ? '生效中' : '放进技能栏即生效') + ' · 不用按键</div>';
+      note = '<div class="sk-anote"><i></i>' + (G.auraOn(id) ? '生效中' : G.auraSlotted(id) ? '保留不足，未生效' : '放进技能栏即生效') + ' · 不用按键</div>';
     } else if (sk.kind === 'aura') {
       // 光环：没有施放，只有保留；卡片上是每一跳的伤害、每秒几跳和半径
       nums =
@@ -2284,12 +2357,12 @@
         num(blood ? '生命保留' : '魔力保留', fmt1(ctx.reserve) + '%') +
         num('半径', fmt1(G.auraRadius(ctx))) +
         num('暴击率', fmt1(ctx.crit) + '%');
-      note = '<div class="sk-anote"><i></i>' + (G.auraOn(id) ? '生效中' : '放进技能栏即生效') + ' · 不用按键</div>';
+      note = '<div class="sk-anote"><i></i>' + (G.auraOn(id) ? '生效中' : G.auraSlotted(id) ? '保留不足，未生效' : '放进技能栏即生效') + ' · 不用按键</div>';
     } else {
       nums =
         num(ctx.cd > 0 ? '每次伤害' : '平均击中', fmtInt(avg), 'hl') +
         num(sk.kind === 'spin' || sk.kind === 'flicker' ? '每秒斩击' : '每秒施放', rate.toFixed(2)) +
-        num('估算秒伤', fmtInt(avg * rate)) +
+        num('估算秒伤', fmtInt(avg * rate * G.durDpsK(ctx))) + // 绵延：黑洞 / 黑旋风多跳几下、雷桩 / 环刃多一个
         num((blood ? '生命消耗' : '魔力消耗') + (sk.kind === 'spin' || sk.kind === 'flicker' ? ' / 每下' : ''), ctx.cost > 0 ? fmt1(ctx.cost) : '无') +
         num('冷却', ctx.cd > 0 ? fmt1(ctx.cd) + ' 秒' : '无') +
         num('暴击率', fmt1(ctx.crit) + '%');
@@ -2314,7 +2387,7 @@
       '<div class="sk-title"><div class="sk-name">' + sk.name + (sk.vname ? '<i class="sk-vn">' + sk.vname + '</i>' : '') + '<em>Lv ' + S.skills[id] + '</em>' + blankUp + '</div>' +
       '<div class="sk-tags">' + cardTags(sk).map((t) => '<span>' + G.TAG_NAME[t] + '</span>').join('') + '</div></div>' +
       '<div class="sk-binds">' + binds + '</div></div>' +
-      '<div class="sk-desc">' + sk.desc + altBox(sk.alt) + '</div>' + variantRow(id) +
+      '<div class="sk-desc"><span class="sk-dt">' + sk.desc + '</span>' + altBox(sk.alt) + '</div>' + variantRow(id) +
       (sk.combo ? '<div class="sk-combo">' + sk.combo.map((c, i) => '<span' + (c.w >= 2 ? ' class="fin"' : '') + '>' + (c.w >= 2 ? '终结 ' : '第 ' + (i + 1) + ' 段 ') + '×' + c.mult + '</span>').join('<i></i>') + '</div>' : '') +
       '<div class="sk-nums' + (mi ? ' ally' : '') + '">' + nums + '</div>' + note +
       '<div class="sk-socks"><span class="sk-socks-label">辅助</span>' + sockets + '</div>' +
@@ -2371,7 +2444,7 @@
         const bk = G.SKILLS[bidB];
         bar +=
           '<div class="barslot basic" data-tip="txt:右键固定是武器普攻' + (S.rmbKeep && G.SKILLS[S.rmbKeep] ? '；收起的「' + G.SKILLS[S.rmbKeep].name + '」在下面列表里，点按键标签绑上' : '') + '" style="--c:' + bk.color + '">' +
-          '<div class="bs-icon">' + IC.skill(bidB) + '</div><div class="bs-txt"><span>右键 · 武器普攻</span><b>' + bk.name + '</b></div></div>';
+          '<div class="bs-icon">' + IC.skill(bidB) + '</div><div class="bs-txt"><span>右键 · <i class="bs-long">武器</i>普攻</span><b>' + bk.name + '</b></div></div>';
         continue;
       }
       const id = S.bar[i];
@@ -2393,7 +2466,7 @@
       sups +=
         '<div class="sup' + (loc ? ' used' : '') + '" data-drag="sup:' + id + '" style="--c:' + IC.supColor(id) + '"><div class="sup-top">' + IC.sup(id) + '<b>' + sp.name + '</b>' +
         '<span class="sup-req">' + scopeText(sp) + '</span></div>' +
-        '<div class="sup-desc">' + sp.desc + '</div>' +
+        '<div class="sup-desc">' + sp.desc + altBox(sp.alt) + '</div>' +
         '<div class="sup-foot"><span>消耗 ×' + sp.cost + '</span>' +
         (loc ? '<span class="sup-loc">镶于 ' + skName(loc.skill) + '</span>' : '<span class="sup-free">未使用</span>') +
         '</div></div>';
@@ -3139,6 +3212,9 @@
       '<div class="sec-title">战斗须知</div>' +
       '<p>地上的<b class="c-red">红色区域</b>是即将落下的攻击，填满前走出去或翻滚穿过。</p>' +
       '<p>护甲减少物理伤害，抗性减少对应元素伤害（上限 75%）。</p>' +
+      // 敌人的元素抗性（数值读 G.ENEMY_RES）
+      '<p><b>敌人的抗性</b>：每个区的敌人抗本区的元素' + (G.ENEMY_RES.boss === G.ENEMY_RES.mob ? ' ' + G.ENEMY_RES.mob + '%（首领也是）' : '，小怪和精英 ' + G.ENEMY_RES.mob + '%，首领 ' + G.ENEMY_RES.boss + '%') + '，名牌和首领血条上写着「抗火」这类小签。物理、混沌不受抗性影响。' +
+      '感电让三种元素抗性各降 ' + G.ENEMY_RES.shock + '%（不会降到 0 以下）；辅助<b>破障</b>和装备上的<b>元素穿透</b>能把抗性压到负数，最低 −' + Math.abs(G.ENEMY_RES.floor) + '%。</p>' +
       helpBuildUp() +
       '<div class="sec-title">连击、架势与处决</div>' +
       '<p><b>连击</b>：近战普攻按住逐段打出（双匕四段，其余三段），末段<b>终结技</b>伤害最高、打飞敌人。停手、翻滚或换技能会从头开始。</p>' +
@@ -3165,7 +3241,7 @@
       '<p><b>渊印</b>：轮回 1 起进区前选印。印纹越多越凶（<b class="c-red">橙红</b>签强化怪物，<b style="color:#c49cff">紫色</b>签削弱你），物品数量、稀有度和经验加得越多。总权重 ' + G.SEAL.lieW + ' 以上为<b>烈印</b>，首领可掉两件渊契。轮回 ' + G.FRAG_DROP.minTier + ' 起，印还决定<b>烛芯</b>几率：' + fragRates() + '。</p>' +
       '<p>游戏会自动存档。</p>' +
       '<div class="sec-title">素材来源</div>' +
-      '<p class="credits">地面与岩壁贴图来自 <b>Poly Haven</b>、<b>ambientCG</b>，布景模型来自 <b>KayKit</b>（Kay Lousberg）与 <b>Kenney</b>，主角、游魂、烬骸仆从与喷吐者的模型来自 <b>Quaternius</b>，均以 CC0 授权公开，在此致谢。</p>' +
+      '<p class="credits">地面与岩壁贴图来自 <b>Poly Haven</b>、<b>ambientCG</b>，布景模型来自 <b>KayKit</b>（Kay Lousberg）与 <b>Kenney</b>，主角、游魂、烬骸仆从与喷吐者的模型和人形角色的部分动作来自 <b>Quaternius</b>，均以 CC0 授权公开，在此致谢。</p>' +
       '<div class="help-foot"><button type="button" tabindex="-1" class="btn sm" data-act="tut-reset">重新显示新手提示</button>' +
       '<span>' + (ui.tutMsg || '已看过 ' + Object.keys(G.save.tut).length + ' / ' + HINTS.length + ' 条') + '</span></div>' +
       '</div>' +
@@ -3434,7 +3510,7 @@
     if (kind === 'sock') {
       const sp = G.SUPPORTS[id];
       return (
-        '<div class="tcard" style="--c:' + IC.supColor(id) + '">' + tcHead(ibox(IC.sup(id), 'gemb'), sp.name, '辅助宝石') + '<div class="tc-desc">' + sp.desc + '</div>' +
+        '<div class="tcard" style="--c:' + IC.supColor(id) + '">' + tcHead(ibox(IC.sup(id), 'gemb'), sp.name, '辅助宝石') + '<div class="tc-desc">' + sp.desc + '</div>' + altBox(sp.alt) +
         '<div class="tc-foot">魔力消耗 ×' + sp.cost + (sp.req || sp.no ? ' · 适用：' + scopeText(sp) : '') + '</div>' +
         '<div class="tc-hint">点击取下 · 拖到别的辅助槽移动</div></div>'
       );
@@ -4433,6 +4509,7 @@
     ['Kenney Nature Kit', '布景模型'],
     ['Quaternius Ultimate Modular Men', '主角模型'],
     ['Quaternius Animated Zombie、Animated Monster、Easy Enemy', '游魂、烬骸仆从、喷吐者等角色模型'],
+    ['Quaternius Universal Animation Library 1 / 2', '人形角色的走路、受击、倒地动作'],
   ];
   function menuCredits() {
     return (
@@ -4741,6 +4818,8 @@
     document.body.classList.add('dragging');
     markTargets();
     dragTrack(x, y);
+    edge.t = edge.acc = edge.inAt = 0;
+    if (!edge.raf) edge.raf = requestAnimationFrame(edgeScroll);
     G.sfx('click');
   }
 
@@ -4948,7 +5027,43 @@
     el.ghost.classList.toggle('bad', !info.ok && !!info.label);
   }
 
+  // 技能页拖宝石 / 技能时，指针贴近技能列表的上下边（EDGE_SCROLL 像素内）就自动滚动，越贴边越快，
+  // 远处的孔不用松手再滚。滚轮照常能滚（拖拽不拦 wheel）；列表一滚，scroll 监听会按指针位置重算落点。
+  // 进了边带先停 EDGE_DELAY 再滚：从贴边的孔拖起、或松手落在贴边的孔上时，列表不会被顺手带走
+  const EDGE_SCROLL = 40, EDGE_SPEED = 900, EDGE_DELAY = 250; // 边带宽度；贴到边上时每秒滚多少像素；进边带后等多少毫秒
+  const edge = { raf: 0, t: 0, acc: 0, inAt: 0 };
+  function edgeScroll(now) {
+    edge.raf = 0;
+    if (!drag.on || (drag.kind !== 'sup' && drag.kind !== 'skill') || ui.tab !== 'skills') return;
+    edge.raf = requestAnimationFrame(edgeScroll);
+    const dt = edge.t ? Math.min(0.25, (now - edge.t) / 1000) : 0; // 按真实时间滚，帧率低时速度不变；一帧最多按 250 毫秒算，卡顿后不会一下跳很远
+    edge.t = now;
+    const list = el.body.querySelector('.skill-list');
+    if (!list || !dt) return;
+    const r = list.getBoundingClientRect();
+    const x = drag.x, y = drag.y;
+    let k = 0;
+    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+      if (y < r.top + EDGE_SCROLL) k = -(1 - (y - r.top) / EDGE_SCROLL);
+      else if (y > r.bottom - EDGE_SCROLL) k = 1 - (r.bottom - y) / EDGE_SCROLL;
+    }
+    if (!k) {
+      edge.acc = edge.inAt = 0;
+      return;
+    }
+    if (!edge.inAt) edge.inAt = now;
+    if (now - edge.inAt < EDGE_DELAY) return;
+    // 慢的时候一帧不到 1 像素：攒够整像素再滚
+    edge.acc += k * EDGE_SPEED * dt;
+    const step = edge.acc < 0 ? Math.ceil(edge.acc) : Math.floor(edge.acc);
+    if (!step) return;
+    edge.acc -= step;
+    list.scrollTop += step;
+  }
+
   function endDrag() {
+    if (edge.raf) cancelAnimationFrame(edge.raf);
+    edge.raf = 0;
     drag.on = false;
     drag.hover = null;
     drag.info = null;
@@ -5259,7 +5374,7 @@
     const fits = Object.keys(save.skills).filter((id) => G.supportFits(id, l.data)).map((id) => G.SKILLS[id].name);
     return (
       '<div class="tcard" style="--c:' + IC.supColor(l.data) + '">' + tcHead(ibox(IC.sup(l.data), 'gemb'), sp.name, '辅助宝石') +
-      '<div class="tc-desc">' + sp.desc + '</div>' +
+      '<div class="tc-desc">' + sp.desc + '</div>' + altBox(sp.alt) +
       '<div class="tc-foot">魔力消耗 ×' + sp.cost + ' · 适用：' + scopeText(sp) +
       '<br>你的技能里可镶嵌：' + (fits.length ? fits.join('、') : '暂无') + '</div>' +
       (have
@@ -5310,7 +5425,7 @@
       }
       return false;
     }
-    const sig = (mini ? 'm|' : 'f|') + e.name + '|' + e.level + '|' + (mini ? '' : Math.ceil(e.hp)) + '|' + ailSig(e) + '|' + (e.awake ? 1 : 0);
+    const sig = (mini ? 'm|' : 'f|') + e.name + '|' + e.level + '|' + (mini ? '' : Math.ceil(e.hp) + '|' + resSig(e)) + '|' + ailSig(e) + '|' + (e.awake ? 1 : 0);
     if (sig !== wui.plateSig) {
       wui.plateSig = sig;
       p.className = 'on' + (e.elite ? ' elite' : '') + (mini ? ' mini' : '');
@@ -5319,6 +5434,7 @@
         ? '<div class="np-top">' + top + ailHtml(e, false) + '</div>'
         : '<div class="np-top">' + top + '</div>' +
           '<div class="np-hp"><i style="width:' + Math.round(G.clamp(e.hp / e.maxHp, 0, 1) * 100) + '%"></i><span>' + fmtInt(Math.max(0, Math.ceil(e.hp))) + ' / ' + fmtInt(e.maxHp) + '</span></div>' +
+          (resSig(e) ? '<div class="np-res">' + resChips(e, true) + '</div>' : '') + // 元素抗性：只在停手细看的完整名牌上
           (ailSig(e) ? '<div class="np-ail">' + ailHtml(e, true) + '</div>' : e.awake ? '' : '<div class="np-note">尚未察觉你</div>');
       // 尺寸只在内容变了的时候量一次（下面用它把名牌夹在屏幕里）
       wui.plateW = p.offsetWidth;
@@ -5677,6 +5793,16 @@
       done: () => false,
     },
     {
+      // 读档时有辅助对技能的哪种刻式都用不上了（标签改过）：已经取下放回宝石栏，说一声去了哪
+      id: 'sockdrop', calm: true, max: 20,
+      get html() {
+        const L = (G.sockDropped || []).filter((d) => G.SUPPORTS[d.sup] && G.SKILLS[d.id]);
+        return '<b>辅助宝石</b>：' + L.map((d) => '「' + G.SUPPORTS[d.sup].name + '」').join('、') + '对所镶的技能不再适用，已取下放回宝石栏（<kbd>G</kbd>）';
+      },
+      when: () => !!(G.sockDropped && G.sockDropped.length),
+      done: () => false,
+    },
+    {
       // 武器普攻改版（右键固定是武器普攻、裂石击删除）之前的存档第一次读进来：说清右键变了什么、原来的东西去了哪
       id: 'basicmig', calm: true, max: 20,
       get html() {
@@ -5795,6 +5921,13 @@
       done: () => false,
     },
     {
+      // 旧版双生坠：读档时升成四行（见 game.js 的 migrateTwin）
+      id: 'sxmig', calm: true, max: 16,
+      html: '<b>双生坠升级</b>：多了暴击伤害和总伤害两行，原有两行按原来的成色换算到新数值；效果改为「余响」',
+      when: () => G.twinMigrated > 0,
+      done: () => false,
+    },
+    {
       // 第五区上线前就打通过烬渊深处的老存档：提示一次多了一个区域（文字在数据里；读档时 sanitize 按 G.zoneNoticeFor 把 G.newZoneNotice 置上）
       get id() {
         return (G.NEW_ZONE_NOTICE && G.NEW_ZONE_NOTICE.id) || 'zone5';
@@ -5804,6 +5937,13 @@
         return (G.NEW_ZONE_NOTICE && G.NEW_ZONE_NOTICE.html) || '<b>新区域</b>：烬渊深处之后新增一个区域。<kbd>M</kbd> 打开地图';
       },
       when: () => !!G.newZoneNotice,
+      done: () => false,
+    },
+    {
+      // 熄烛冠巅峰改版之前的存档里有熄烛冠：读档时原地升级（见 game.js 的 migrateXizhu），提示一次
+      id: 'xzmig', calm: true, max: 14,
+      html: '<b>熄烛冠已升级</b>：原有词缀按原品质提到新数值（冰霜抗性改为生命回复），新增一条「暗域增伤」，机制换成「暗域」',
+      when: () => G.xizhuMigrated > 0,
       done: () => false,
     },
     {
@@ -5919,7 +6059,12 @@
   }
   function coachSeen(id) {
     G.save.tut[id] = 1;
+    if (id === 'sxmig') {
+      G.save.twinMig = false;
+      G.twinMigrated = 0;
+    }
     if (id === 'bowmig') G.save.bowMig = false;
+    if (id === 'xzmig') G.save.xzMig = false;
     if (id === 'variant2') {
       G.save.varNote = false;
       G.variantRedone = 0;
@@ -6171,6 +6316,7 @@
         }
         closePicker();
         hideTip();
+        if (drag.on) dragTrack(drag.x, drag.y); // 拖拽中滚动（滚轮 / 贴边自动滚）：指针没动，底下的东西换了
       },
       true
     );

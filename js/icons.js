@@ -1629,8 +1629,13 @@
     echo: (p) => { for (let i = 0; i < 3; i++) { const r = 3.4 + i * 3.4, x = -6.4; p.M(x + Math.cos(-0.95) * r, Math.sin(-0.95) * r); for (let j = 1; j <= 8; j++) { const a = -0.95 + (j / 8) * 1.9; p.L(x + Math.cos(a) * r, Math.sin(a) * r); } } return p; },
     stagger: (p) => { for (let i = 0; i < 10; i++) { const a = (i / 10) * TAU - Math.PI / 2, r = i % 2 ? 4 : 9.6; p[i ? 'L' : 'M'](Math.cos(a) * r, Math.sin(a) * r); } return p.Z(); },
     ailment: (p) => { for (const d of [[-5, -3, 1], [4.6, -5.6, 0.85], [1, 4.4, 1.1]]) { const x = d[0], y = d[1], k = d[2]; p.M(x, y - 4.4 * k).C(x + 3 * k, y - 0.6 * k, x + 3.4 * k, y + 1.4 * k, x + 2.4 * k, y + 2.8 * k).C(x + 1.2 * k, y + 4.4 * k, x - 1.2 * k, y + 4.4 * k, x - 2.4 * k, y + 2.8 * k).C(x - 3.4 * k, y + 1.4 * k, x - 3 * k, y - 0.6 * k, x, y - 4.4 * k).Z(); } return p; },
+    // 绵延：一圈没合上的表盘（顺时针多绕出去一截、末端带箭头）加两根指针
+    lasting: (p) => { const a0 = -Math.PI / 2 + 0.5, a1 = a0 + TAU * 0.86, r = 8.4; for (let i = 0; i <= 24; i++) { const a = a0 + (i / 24) * (a1 - a0); p[i ? 'L' : 'M'](Math.cos(a) * r, Math.sin(a) * r); } const ex = Math.cos(a1) * r, ey = Math.sin(a1) * r, tx = -Math.sin(a1), ty = Math.cos(a1); p.M(ex - tx * 3.2 + ex / r * 2.4, ey - ty * 3.2 + ey / r * 2.4).L(ex, ey).L(ex - tx * 3.2 - ex / r * 2.4, ey - ty * 3.2 - ey / r * 2.4); return p.M(0, 0).L(0, -5).M(0, 0).L(3.8, 2.2); },
     frugal: (p) => p.M(-6, -8.6).L(6, -8.6).L(0.8, 0).L(6, 8.6).L(-6, 8.6).L(-0.8, 0).Z().M(-7.4, -8.6).L(7.4, -8.6).M(-7.4, 8.6).L(7.4, 8.6),
     freeze: (p) => p.P([0, -9.4, 6.6, -4, 6.6, 4, 0, 9.4, -6.6, 4, -6.6, -4]).M(0, -9.4).L(0, 9.4).M(-6.6, -4).L(6.6, 4).M(6.6, -4).L(-6.6, 4),
+    // 破障（enemy-resist）：一面从中间裂成两半、错开一点的盾（坚骨是整面盾里一根骨；贯穿是箭穿过一道线）
+    breach: (p) => p.M(-1.4, -9.6).L(-8.4, -6.6).C(-8.4, 1.6, -5.2, 6.6, -1.4, 9.6).L(0.2, 4.2).L(-2.6, 0.8).L(-0.2, -3.6).Z()
+      .M(1.4, -9.6).L(8.4, -6.6).C(8.4, 1.6, 5.2, 6.6, 1.4, 9.6).L(3, 4.2).L(0.2, 0.8).L(2.6, -3.6).Z(),
     // 仆从辅助：驭灵（骷髅）、坚骨（盾里一根骨）、群聚（三个人头）、狂怒（三道爪痕）
     m_dmg: (p) => p.M(-6.8, 3).C(-10.4, -1.6, -8.8, -9.6, 0, -9.6).C(8.8, -9.6, 10.4, -1.6, 6.8, 3).L(4.6, 4.6).L(4.6, 8.6).L(-4.6, 8.6).L(-4.6, 4.6).Z()
       .E(-3.4, -1.8, 2.1).E(3.4, -1.8, 2.1).M(-1.6, 5.4).L(-1.6, 8.4).M(1.6, 5.4).L(1.6, 8.4),
@@ -1642,14 +1647,40 @@
     m_speed: (p) => p.M(-9, 5.4).Q(-6.4, -3.4, -1.6, -9.4).M(-4, 9.4).Q(-1, -0.4, 4.4, -7.4).M(1.8, 9.8).Q(5, 2.4, 9.6, -3.6),
     // 混沌注入：一个小圆加三道向心的弧（乱流石是一笔连续的螺旋，这里分成三段）
     chaos: (p) => { p.E(0, 0, 2.6); for (let k = 0; k < 3; k++) { const a0 = (k / 3) * TAU; for (let i = 0; i <= 6; i++) { const t = i / 6, a = a0 + t * 1.5, r = 9.4 - t * 4.6; p[i ? 'L' : 'M'](Math.cos(a) * r, Math.sin(a) * r); } } return p; },
+    // ---------- 取舍型 / 改玩法的辅助（support-expand） ----------
+    // 收束：四个往里收的尖角夹住中间一个小点（扩域是往外的弧）
+    narrow: (p) => { p.E(0, 0, 2.2); for (let i = 0; i < 4; i++) { const a = (i / 4) * TAU + Math.PI / 4, c = Math.cos(a), s = Math.sin(a); p.M(c * 9.4 - s * 3.4, s * 9.4 + c * 3.4).L(c * 5, s * 5).L(c * 9.4 + s * 3.4, s * 9.4 - c * 3.4); } return p; },
+    // 远劲：一支细长的箭，尾后两道速度线
+    farshot: (p) => p.M(-5, 0).L(9, 0).M(5.4, -3).L(9.4, 0).L(5.4, 3).M(-9.6, -4.4).L(-3.4, -4.4).M(-9.6, 4.4).L(-3.4, 4.4).M(-8, 0).L(-6.6, 0),
+    // 盛环：内外两道圆环，外环上四个小点
+    swell: (p) => p.E(0, 0, 3.6).E(0, 0, 7.8).E(0, -7.8, 1.3).E(7.8, 0, 1.3).E(0, 7.8, 1.3).E(-7.8, 0, 1.3),
+    // 储能：一节电池，里面分成三格
+    charge: (p) => p.R(-9, -5, 16, 10, 1.6).M(9.2, -2.4).L(9.2, 2.4).M(-3.6, -5).L(-3.6, 5).M(1.8, -5).L(1.8, 5),
+    // 烈爆：中间一团，八道长短交替的爆芒
+    blaze: (p) => { p.E(0, 0, 3.2); for (let i = 0; i < 8; i++) { const a = (i / 8) * TAU, r0 = 5.2, r1 = i % 2 ? 7.6 : 9.8; p.M(Math.cos(a) * r0, Math.sin(a) * r0).L(Math.cos(a) * r1, Math.sin(a) * r1); } return p; },
+    // 深寒：一道横梁下挂三根冰锥
+    deepfreeze: (p) => p.M(-9.4, -7).L(9.4, -7).M(-8, -7).L(-5.6, 5).L(-3.2, -7).M(-2.4, -7).L(0, 9.4).L(2.4, -7).M(3.2, -7).L(5.6, 3).L(8, -7),
+    // 雷涌：一道闪电在中段分出两股
+    surge: (p) => p.M(-1, -9.4).L(2.4, -2.6).L(-2.6, -0.6).L(1, 9.4).M(-2.6, -0.6).L(-8.6, 5.4).M(2.4, -2.6).L(8.6, 3.2),
+    // 分岔：一道从左来的弹道在中间分成两股，各带一个箭头
+    fork: (p) => p.M(-9.4, 0).L(-1, 0).M(-1, 0).L(6.6, -6.4).M(-1, 0).L(6.6, 6.4).M(3, -7).L(7.4, -6.8).L(6.4, -2.6).M(3, 7).L(7.4, 6.8).L(6.4, 2.6),
+    // 溅击：中间一个打击点，外面三道溅开的弧
+    splash: (p) => { p.E(0, 0, 2.6); for (let i = 0; i < 3; i++) { const a0 = (i / 3) * TAU - Math.PI / 2 - 0.42; for (let j = 0; j <= 4; j++) { const a = a0 + (j / 4) * 0.84; p[j ? 'L' : 'M'](Math.cos(a) * 8.2, Math.sin(a) * 8.2); } } return p; },
+    // 断命：一截见底的生命条，被一刀斜着斩断
+    cull: (p) => p.R(-9.4, -3, 18.8, 6, 1.2).M(-9.4, 0).L(-5.4, 0).M(-3, -9).L(3, 9),
+    // 化元：两道首尾相接的弧形箭头（一圈循环）
+    convert: (p) => { for (let k = 0; k < 2; k++) { const a0 = k * Math.PI + 0.35; for (let j = 0; j <= 6; j++) { const a = a0 + (j / 6) * 2.3; p[j ? 'L' : 'M'](Math.cos(a) * 7.6, Math.sin(a) * 7.6); } const a = a0 + 2.3, c = Math.cos(a), s = Math.sin(a), x = c * 7.6, y = s * 7.6; p.M(x - s * 3 + c * 2.2, y + c * 3 + s * 2.2).L(x, y).L(x - s * 3 - c * 2.2, y + c * 3 - s * 2.2); } return p; },
     // 渊缚：一个空心圆，四道从外往里的短箭头
     bind: (p) => { p.E(0, 0, 3.4); for (let i = 0; i < 4; i++) { const a = (i / 4) * TAU + Math.PI / 4, c = Math.cos(a), s = Math.sin(a); p.M(c * 9.6, s * 9.6).L(c * 5.6, s * 5.6).M(c * 5.6 - s * 1.8 + c * 1.8, s * 5.6 + c * 1.8 + s * 1.8).L(c * 5.6, s * 5.6).L(c * 5.6 + s * 1.8 + c * 1.8, s * 5.6 - c * 1.8 + s * 1.8); } return p; },
   };
   const GLYPH_FILL = { fire: 1, light: 1, stagger: 1, ailment: 1, frugal: 1, brutal: 1 }; // 这些符号画成实心
   const SUP_TINT = {
     multi: '#ffb066', pierce: '#b9c6dc', chain: '#ffe45e', expanse: '#7fe0c0', haste: '#7ed67a', fire: '#ff7a2c', cold: '#86d8ff', light: '#ffe45e',
+    breach: '#5b7bff', // 破障（enemy-resist）
     brutal: '#e2705a', precise: '#ffd75e', leech: '#ff6a8a', echo: '#c7a6ff', stagger: '#f2e6b0', ailment: '#b6e05c', frugal: '#6fb2ff',
-    m_dmg: '#3fe0c8', m_life: '#d2b47a', m_horde: '#e28ad6', m_speed: '#ff5a46', chaos: '#f03cb4',
+    m_dmg: '#3fe0c8', m_life: '#d2b47a', m_horde: '#e28ad6', m_speed: '#ff5a46', chaos: '#f03cb4', lasting: '#9be0e6',
+    narrow: '#d9a441', farshot: '#9fc3ff', swell: '#b48cff', charge: '#5fe0e8', blaze: '#ff5a3c', deepfreeze: '#bfe8ff', surge: '#fff38a',
+    fork: '#ffa0d0', splash: '#e08a5a', cull: '#e05a7a', convert: '#8ee0a0',
   };
   // 仆从辅助宝石的 id 由数据那边定；按 id 认不出时按名字认，两边怎么起名都对得上
   const SUP_BY_NAME = { 驭灵: 'm_dmg', 坚骨: 'm_life', 群聚: 'm_horde', 狂怒: 'm_speed' };

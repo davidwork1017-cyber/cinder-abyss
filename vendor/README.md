@@ -12,3 +12,6 @@
 | `CopyShader.js` | https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js |
 | `LuminosityHighPassShader.js` | https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js |
 | `GLTFLoader.js` | https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js |
+| `SMAAPass.js` | https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/SMAAPass.js |
+| `SMAAShader.js` | https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/SMAAShader.js |
+| `FXAAShader.js` | https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/FXAAShader.js |

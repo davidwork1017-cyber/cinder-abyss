@@ -199,6 +199,26 @@
       );
     }
     for (const key in data.models || {}) jobs.push(parseModel(key, data.models[key]).then((g) => g && (geoPack[key] = name)));
+    // 自产布景件（kit-<区> 包）：打包时已经烘焙好（tools/pack-assets.mjs，和上面的 bakeGltf 逐位一致），这里只把数组拷进几何体，不解析、不烘焙
+    for (const key in data.geo || {}) {
+      try {
+        const e = data.geo[key], f32 = (b) => new Float32Array(b64ToBuf(b));
+        const g = new T.BufferGeometry();
+        g.setAttribute('position', new T.BufferAttribute(f32(e.p), 3));
+        g.setAttribute('normal', new T.BufferAttribute(f32(e.nn), 3));
+        g.setAttribute('color', new T.BufferAttribute(f32(e.c), 3));
+        if (e.g) g.setAttribute('aGlow', new T.BufferAttribute(f32(e.g), 1)); // 余烬（布景材质里当自发光，见 world.js 的 triMaterial）
+        g.computeBoundingBox();
+        g.computeBoundingSphere();
+        const bb = g.boundingBox;
+        geos[key] = g;
+        geoInfo[key] = { h: bb.max.y - bb.min.y, r: Math.max(-bb.min.x, bb.max.x, -bb.min.z, bb.max.z), y0: bb.min.y };
+        geoPack[key] = name;
+      } catch (err) {
+        /* 这一件坏了就不摆（摆放时 G.assets.geo 为空会跳过） */
+      }
+    }
+    data.geo = null;
     await Promise.all(jobs);
     // 解码完就丢掉 base64 原文（图像和几何体已经各自留了一份），省几 MB 内存
     data.tex = null;

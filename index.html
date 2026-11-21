@@ -151,7 +151,7 @@
 <div id="intro">
   <div class="intro-card">
     <div class="intro-title">烬渊</div>
-    <div class="intro-sub">大火烧尽之后，余烬里有东西在动。</div>
+    <div class="intro-sub">余烬未冷</div>
     <div class="intro-keys">
       <div><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span>移动</div>
       <div><span><kbd>右键</kbd></span>武器普攻（近战是连招）</div>
@@ -214,7 +214,7 @@
         <circle class="t-spark c" cx="84" cy="52" r="1" fill="#ff8a3c"/>
       </svg>
       <div class="t-name">烬渊</div>
-      <div class="t-sub">大火烧尽之后，余烬里有东西在动。</div>
+      <div class="t-sub">余烬未冷</div>
     </div>
     <div class="m-menu" id="t-menu">
       <button type="button" class="m-btn primary" tabindex="-1" id="t-continue" data-tact="continue"><b>继续游戏</b><span id="t-save"></span></button>
@@ -241,13 +241,19 @@
 <script src="vendor/RenderPass.js"></script>
 <script src="vendor/ShaderPass.js"></script>
 <script src="vendor/UnrealBloomPass.js"></script>
+<script src="vendor/SMAAShader.js"></script>
+<script src="vendor/SMAAPass.js"></script>
+<script src="vendor/FXAAShader.js"></script>
 <script src="vendor/GLTFLoader.js"></script>
 <script src="js/data.js"></script>
 <!-- CC0 素材包清单；各区域的贴图 / 模型包在进入区域时才加载（见 js/assets.js） -->
 <script src="js/assets/index.js"></script>
 <!-- 角色模型（Quaternius CC0，GLB 打成 base64）：开场就要用，同步引入；缺了就用程序化角色 -->
 <script src="js/assets/chars.js"></script>
+<!-- 特效贴图库（tools/gen-vfx-textures.mjs 程序化生成，打成 base64）：同步引入，js/vfx.js 解码成纹理、提供共用的特效着色器 -->
+<script src="js/assets/vfx.js"></script>
 <script src="js/assets.js"></script>
+<script src="js/vfx.js"></script>
 <script src="js/items.js"></script>
 <script src="js/world.js"></script>
 <script src="js/game.js"></script>

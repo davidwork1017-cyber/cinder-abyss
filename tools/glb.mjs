@@ -155,3 +155,77 @@ export function bakedMean(g) {
   const m = acc.map((x) => x / (A || 1));
   return { rgb: m, lum: 0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2] };
 }
+
+// ---------- 打包时预烘焙（tools/pack-assets.mjs 用）：和游戏 js/assets.js 的 bakeGltf 逐位一致的几何体 ----------
+// 游戏里原来要「解析 GLB → 解码调色板 PNG → 逐顶点烘焙」，进第 0 区前在主线程上做；改成打包时在这里做好，游戏端只把数组拷进 BufferGeometry。
+// 算法照搬 bakeGltf：展开索引；位置 / 法线乘节点的世界矩阵（自产件的变换都已应用，check-art 保证是单位矩阵，这里只接受单位矩阵）；
+// 法线归一化；颜色 = baseColorFactor × 贴图按 UV 取色（sRGB → 线性）× COLOR_0（归一化整数原值 × 1 / 最大值，和 r128 的 getX 不反归一化一致）；
+// aGlow = 1 - COLOR_0 的 α。每一步的运算顺序和 three r128 的 Vector3 / Matrix3 / Matrix4 一样（JS 双精度算、存成 Float32），所以结果逐位相同。
+function rawAccessor(g, i) {
+  const a = g.json.accessors[i], bv = g.json.bufferViews[a.bufferView];
+  const [Arr, size] = COMP[a.componentType], n = NCOMP[a.type];
+  const stride = bv.byteStride || size * n, base = g.bin.byteOffset + (bv.byteOffset || 0) + (a.byteOffset || 0);
+  const out = new Arr(a.count * n), dv = new DataView(g.bin.buffer);
+  const get = { 5120: 'getInt8', 5121: 'getUint8', 5122: 'getInt16', 5123: 'getUint16', 5125: 'getUint32', 5126: 'getFloat32' }[a.componentType];
+  for (let k = 0; k < a.count; k++) for (let c = 0; c < n; c++) out[k * n + c] = dv[get](base + k * stride + c * size, true);
+  return { arr: out, n, normalized: !!a.normalized, type: a.componentType };
+}
+export function bakeGeo(g) {
+  const j = g.json, P = [], N = [], C = [], GL = [];
+  const sc = j.scenes[j.scene || 0];
+  const walk = (ni) => {
+    const nd = j.nodes[ni];
+    if (!isIdentity(nodeMatrix(nd)) || nodeMatrix(nd).some((v, i) => v !== I4[i])) throw new Error('预烘焙只接受单位变换的节点：' + (nd.name || ni));
+    if (nd.mesh !== undefined)
+      for (const p of j.meshes[nd.mesh].primitives) {
+        const mat = (j.materials || [])[p.material] || {}, pbr = mat.pbrMetallicRoughness || {}, bf = pbr.baseColorFactor || [1, 1, 1, 1];
+        let px = null;
+        if (pbr.baseColorTexture) {
+          const bv = j.bufferViews[j.images[j.textures[pbr.baseColorTexture.index].source].bufferView];
+          const im = decodePng(g.bin.subarray(bv.byteOffset || 0, (bv.byteOffset || 0) + bv.byteLength));
+          if (im.bpp < 3) throw new Error('预烘焙只支持 RGB / RGBA 贴图');
+          px = im;
+        }
+        const pos = rawAccessor(g, p.attributes.POSITION), nor = p.attributes.NORMAL !== undefined ? rawAccessor(g, p.attributes.NORMAL) : null;
+        const uv = p.attributes.TEXCOORD_0 !== undefined ? rawAccessor(g, p.attributes.TEXCOORD_0) : null, vc = p.attributes.COLOR_0 !== undefined ? rawAccessor(g, p.attributes.COLOR_0) : null;
+        const idx = p.indices !== undefined ? rawAccessor(g, p.indices).arr : null, cnt = idx ? idx.length : pos.arr.length / 3;
+        const vcK = vc && vc.normalized ? 1 / (vc.type === 5121 ? 255 : 65535) : 1;
+        if (vc && vc.normalized && vc.type !== 5121 && vc.type !== 5123) throw new Error('COLOR_0 只支持 8 / 16 位无符号归一化');
+        for (let k = 0; k < cnt; k++) {
+          const i = idx ? idx[k] : k;
+          // Vector3.applyMatrix4（单位矩阵）：w = 1 / (0x + 0y + 0z + 1)，x' = (1x + 0y + 0z + 0) * w
+          const x = pos.arr[i * 3], y = pos.arr[i * 3 + 1], z = pos.arr[i * 3 + 2];
+          const w = 1 / (0 * x + 0 * y + 0 * z + 1);
+          P.push((1 * x + 0 * y + 0 * z + 0) * w, (0 * x + 1 * y + 0 * z + 0) * w, (0 * x + 0 * y + 1 * z + 0) * w);
+          if (nor) {
+            // Vector3.applyMatrix3（单位法线矩阵）+ normalize（divideScalar(length() || 1) = multiplyScalar(1 / l)）
+            const a = nor.arr[i * 3], b = nor.arr[i * 3 + 1], c = nor.arr[i * 3 + 2];
+            let nx = 1 * a + 0 * b + 0 * c, ny = 0 * a + 1 * b + 0 * c, nz = 0 * a + 0 * b + 1 * c;
+            const s = 1 / (Math.sqrt(nx * nx + ny * ny + nz * nz) || 1);
+            nx *= s; ny *= s; nz *= s;
+            N.push(nx, ny, nz);
+          } else N.push(0, 1, 0);
+          let r = bf[0], gg = bf[1], bb = bf[2];
+          if (px && uv) {
+            let u = uv.arr[i * 2], v = uv.arr[i * 2 + 1];
+            u -= Math.floor(u);
+            v -= Math.floor(v);
+            const X = Math.min(px.w - 1, Math.floor(u * px.w)), Y = Math.min(px.h - 1, Math.floor(v * px.h)), q = (Y * px.w + X) * px.bpp;
+            r *= s2l(px.d[q] / 255);
+            gg *= s2l(px.d[q + 1] / 255);
+            bb *= s2l(px.d[q + 2] / 255);
+          }
+          if (vc) {
+            r *= vc.arr[i * vc.n] * vcK;
+            gg *= vc.arr[i * vc.n + 1] * vcK;
+            bb *= vc.arr[i * vc.n + 2] * vcK;
+          }
+          C.push(r, gg, bb);
+          GL.push(vc && vc.n === 4 ? Math.max(0, 1 - vc.arr[i * 4 + 3] * vcK) : 0);
+        }
+      }
+    for (const c of nd.children || []) walk(c);
+  };
+  for (const ni of sc.nodes) walk(ni);
+  return { count: P.length / 3, pos: Float32Array.from(P), nor: Float32Array.from(N), col: Float32Array.from(C), glow: GL.some((k) => k > 0.01) ? Float32Array.from(GL) : null };
+}

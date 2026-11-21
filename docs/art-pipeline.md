@@ -41,7 +41,7 @@ mv ~/opt/blender-5.2.4-linux-x64 ~/opt/blender-5.2.4
 | `assets/ca/<区>/*.glb` | 生成物，每件一个 GLB |
 | `assets/ca/manifest.json` | 清单：id、类别、区域、三角形数、包围盒、来源脚本 + 种子、sha256 |
 | `assets/ca/palette.png` | 调色板图集（和 GLB 里内嵌的同一份字节） |
-| `js/assets/kit-<区>.js` | 打进游戏的件（`ship: True`），base64，`zone-<区>` 包加载时连带加载 |
+| `js/assets/kit-<区>.js` | 打进游戏的件（`ship: True`），打包时已经烘焙成几何体数组（小端 Float32 的 base64，带烘焙所用 GLB 的 sha256），`zone-<区>` 包加载时连带加载 |
 | `tools/build-art.mjs` | `npm run build:art` |
 | `tools/check-art.mjs` | `npm run check:art`，也是 `npm test` 的第一步 |
 | `tools/glb.mjs` | Node 里读 GLB 的小工具 |
@@ -77,7 +77,7 @@ npm run check:art                       # 检查（不需要 Blender）
    烘焙耗时每件几毫秒到几十毫秒（构建时逐件打印，清单之外的数字见构建输出）。
 4. **导出**：GLB，Y 朝上，应用全部变换，一个网格、一个材质 `ca_palette`（底色贴图 = 调色板图集，最近邻采样），属性 POSITION / NORMAL / TEXCOORD_0 / COLOR_0。
 
-游戏端（`js/assets.js` 的 `bakeGltf`）和 KayKit 件走同一条路：按 UV 从图集取色，再乘上 `COLOR_0`，合成一个只带顶点色的几何体，所有布景共用一个按区域着色的材质、实例化绘制。
+烘焙算法和 KayKit 件在游戏端走的 `js/assets.js` 的 `bakeGltf` 一样：按 UV 从图集取色，再乘上 `COLOR_0`，合成一个只带顶点色的几何体，所有布景共用一个按区域着色的材质、实例化绘制。区别是自产件在打包时就烘焙好（`tools/glb.mjs` 的 `bakeGeo`，结果和 `bakeGltf` 逐位相同，`npm run check:art` 会重新烘焙核对），游戏端只把数组拷进几何体，进区前不用再解析 GLB、解码图集。
 
 ## 可复现
 
