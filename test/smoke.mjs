@@ -14262,7 +14262,7 @@ async function main() {
     return '离落点 ' + r.near.join(' / ') + ' 米 · 砸 ' + r.dmg[0];
   });
 
-  await step('渊式·随核（引力核解锁）：黑洞开在你身上并跟着你走（碎石绕着转）；持续 ×1、半径 ×1.1、牵引 ×1.2（首领不变）、每跳 ×1.63；每 0.75 秒把半径 2.2 倍内的敌人往你身边拽（最多 2.5 米，首领不动）；摘下退回原式（开在准星处）', async () => {
+  await step('渊式·随核（引力核解锁）：黑洞开在你身上并跟着你走（碎石绕着转）；持续 ×1、半径 ×1.1、牵引 ×1.2（首领不变）、每跳 ×1.63；每 0.75 秒把半径 2.6 倍内的敌人往你身边拽（最多 2.5 米，首领不动）；摘下退回原式（开在准星处）', async () => {
     const r = await ev(() => {
       RQT.begin('yinli');
       RQT.learn('blackhole', 0);
@@ -14276,7 +14276,7 @@ async function main() {
       const out = h ? { at: +Math.hypot(h.x - P.x, h.z - P.z).toFixed(2), R: [+h.R.toFixed(3), +(R * Y.radius).toFixed(3)], dur: [+h.dur.toFixed(3), +(dur * Y.dur).toFixed(3)], mult: h.mult, pull: h.pullMul } : { none: true };
       const d = T.openDir(4);
       T.tp(P.x + d.x * 2, P.z + d.z * 2);
-      // 拽一把：半径 × 2.2 以内、牵引圈外的小怪往你身边挪（每次最多 2.5 米），首领不动
+      // 拽一把：半径 × 2.6 以内、牵引圈外的小怪往你身边挪（每次最多 2.5 米），首领不动
       const Wv = Y.wave, far = h ? h.R * (Wv.k - 0.3) : 6;
       const m = T.mob('husk', d.z * far, -d.x * far), bo = T.mob('brute', -d.z * far, d.x * far);
       bo.isBoss = true;

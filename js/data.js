@@ -848,7 +848,7 @@
     c: {
       name: '随核', relic: 'yinli', pack: '跟着你走；贴身打',
       desc: '黑洞开在你身上并跟着你移动 3 秒，每隔片刻把周围的敌人往你脚下拽一把。', alt: '首领的牵引不变，也不被拽。冷却不变。星蚀的渊口照常在敌人脚下张开。',
-      set: { mech: 'follow', useMult: 19.56, follow: { dur: 1, radius: 1.1, pull: 1.2, dmg: 1.63, wave: { iv: 0.75, k: 2.2, step: 2.5 } } },
+      set: { mech: 'follow', useMult: 19.56, follow: { dur: 1, radius: 1.1, pull: 1.2, dmg: 1.63, wave: { iv: 0.75, k: 2.6, step: 2.5 } } },
     },
   });
   G.VARIANT_RELIC = {}; // 渊契 id → 它解锁渊式的技能 id
