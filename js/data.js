@@ -223,8 +223,8 @@
     //   绵延按 durK 多落几根；回响镶不上（两场冰凌雨叠在一起不好调）。ailment：额外的异常累积速度（%），冻小怪靠它
     icefall: {
       name: '坠凌', icon: '凌', color: '#bfe6ff', tags: ['spell', 'area', 'cold', 'duration'], kind: 'rain', noSup: ['echo'],
-      dmg: { cold: [6, 9] }, time: 0.55, mana: 18, cd: 4, range: 14, radius: 3.4, dur: 2.5, tick: 0.25, hitR: 1.2, fall: 0.24, delay: 0.2,
-      scatter: [1, 3], ailment: 40, w: 0, kb: 0.15, poise: 4, useMult: 7,
+      dmg: { cold: [5.6, 8.4] }, time: 0.55, mana: 18, cd: 4, range: 14, radius: 3.4, dur: 2.5, tick: 0.25, hitR: 1.2, fall: 0.24, delay: 0.2,
+      scatter: [1, 3], ailment: 40, w: 0, kb: 0.15, poise: 4, useMult: 7.5, // useMult：秒伤实验（固定种子、宝石 20 级）单体平均 7.5–7.8 根
       desc: '在准星处落下 2.5 秒冰凌，共 10 根，优先砸向敌人，大幅累积冰霜异常值。', alt: '每根打中落点 1.2 米内的敌人。绵延延长时间，多落几根。回响镶不上。首领不会被冻结。',
     },
     // 迸电：以自身为中心的一圈电击（半径 radius，吃范围加成），不穿墙。贴身才打得到，每秒伤害比远程主力法术高约 7%
@@ -244,7 +244,7 @@
       alt: '电流接在准星附近的敌人身上，换目标不丢加成。走动、停手或 0.5 秒没接上敌人都会清空加成。引的时候走得慢，每跳消耗少量魔力。松手、翻滚或施放别的技能即停。',
     },
     // 散钉：扇形甩出 count 枚铁钉（多重投射再加；每枚隔 spread°），飞 life 秒（约 8 米）。
-    //   hitCap：同一次施放对同一个敌人最多中几枚（贴脸的霰弹）；每枚都击退、削架势。连锁镶不上。useMult：技能卡 / 秒伤按贴近时中 3 枚算
+    //   hitCap：同一次施放对同一个敌人最多中几枚（贴脸的霰弹；中满的敌人后面的钉子直接穿过去，打后面的）；每枚都击退、削架势。连锁镶不上。useMult：技能卡 / 秒伤按贴近时中 3 枚算
     nails: {
       name: '散钉', icon: '钉', color: '#b9c0cc', tags: ['attack', 'projectile', 'phys'], kind: 'proj', noSup: ['chain'],
       wm: 0.42, time: 0.5, mana: 5, cd: 0, count: 5, spread: 9, speed: 30, life: 0.27, projR: 0.22, pierce: 0, hitCap: 3, useMult: 3, w: 0, kb: 0.6, poise: 6, vk: 'blade', // vk：外形先借飞刃的（形状批上线后换成钉子）
@@ -666,7 +666,7 @@
   //   数值只用来补偿机制：单体按 useMult（一次施放对单体的倍率总和，含持续 / 触发的那部分）折算，
   //   cycle：持续存在的东西（环刃、雷桩、护涡）要隔多久补一次才能一直满编，秒伤按它算、不吃出手速度；cycleK：一下的平均间隔是 time 的几倍（收尾 / 起手摊进来）。
   // name 刻式名，desc 换掉技能说明，pack 怪群 / 首领上的取舍（技能页悬停显示）。对等表见 endgame-notes/variants-v2.md（单体 ±10%，光环按总秒伤 ±5%）。
-  // 裂石击不做刻式（用户定：它要从可学技能里拿掉，近战的右键连段接替），所以是 14 个技能；G.VARIANTS 里没有的技能照常是原式
+  // 裂石击不做刻式（用户定：它要从可学技能里拿掉，近战的右键连段接替），所以是 14 个技能；G.VARIANTS 里没有的技能照常是原式（第一批新技能 skill-expand 的 6 个刻式留到第二批，见 smoke 的 VARIANT_PENDING）
   G.SKILL_BASE = JSON.parse(JSON.stringify(G.SKILLS));
   G.VARIANT_LVL = 10; // 宝石等级到这一级才能选
   G.VARIANT_COST = { cur: 'chaos', n: 1 }; // 每个技能第一次选免费，之后每换一次（含改回原式）付 1 颗乱流石

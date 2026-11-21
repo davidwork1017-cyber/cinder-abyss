@@ -12118,6 +12118,8 @@ async function main() {
   await step('冰脊：朝准星逐段刺出 9 米的冰棱，沿线的敌人各中一下（同一次施放不重复），线外 2 米的不中，被墙截住', noRes(() => seKeep(async () => {
     const r = await ev(() => {
       T.lane(); // 朝 +x 有 12 米直线
+      G.save.bar = [null, null, null, null]; // 技能栏上别留光环（霜环的脉冲会打到靶子）
+      G.computeStats();
       T.fix();
       const P = G.player, ms = [3, 5.5, 8].map((d) => T.mob('brute', d, 0)), off = T.mob('brute', 5, 2.4), far = T.mob('brute', 11.5, 0);
       T.aim(P.x + 10, P.z);
@@ -12137,6 +12139,8 @@ async function main() {
   await step('坠凌：准星处落 10 根冰凌（绵延 13 根），优先砸向敌人；冷却 4 秒；小怪群几秒内冻住；单体一次约 useMult 根', noRes(() => seKeep(async () => {
     const r = await ev(() => {
       T.lane();
+      G.save.bar = [null, null, null, null];
+      G.computeStats();
       T.fix(0.5);
       const P = G.player, s = G.state.stats;
       G.save.skills.icefall = 10;
@@ -12197,6 +12201,8 @@ async function main() {
   await step('迸电：以自身为中心半径 3.2 米全中，外面的不中；正在感电的敌人挨这一下照常放出电弧（打到圈外的敌人）', noRes(() => seKeep(async () => {
     const r = await ev(() => {
       T.arena();
+      G.save.bar = [null, null, null, null];
+      G.computeStats();
       T.fix();
       const P = G.player;
       const inR = [[2, 0], [-1.5, 1.5], [0, -2.6]].map(([x, z]) => T.mob('brute', x, z));
@@ -12223,26 +12229,29 @@ async function main() {
   await step('引雷：按住每 0.2 秒一跳、每跳扣蓝、连到另外 2 个（连锁辅助 +2）；站定引 2 秒加成到 +80%（迅捷不让它叠得更快）；走动清零；松手停下；换技能后从零开始', noRes(() => seKeep(async () => {
     const r = await ev(() => {
       T.arena();
+      G.save.bar = [null, null, null, null];
+      G.computeStats();
       T.fix();
       const P = G.player, s = G.state.stats;
       const a = T.mob('brute', 6, 0), b = T.mob('brute', 7.6, 1.6), c = T.mob('brute', 8.2, -1.6), d4 = T.mob('brute', 9.6, 0);
       G.bindSkill(2, 'tether');
       P.mana = P.maxMana;
-      const hold = (sec, fn) => {
+      let refill = false; // 第一段量扣蓝，之后每帧补满（不然魔力见底会断，加成从零起）
+      const hold = (sec) => {
         for (let i = 0; i < Math.round(sec * 60); i++) {
           T.aim(a.x, a.z);
           G.input.keys.KeyQ = true;
+          if (refill) P.mana = P.maxMana;
           G.tick(1 / 60);
-          if (fn) fn();
         }
       };
       const z0 = s.tetherZaps || 0, m0 = P.mana;
       hold(1);
       const out = { zaps1: (s.tetherZaps || 0) - z0, mana: m0 - P.mana, regen: P.manaRegen, cost: G.skillCtx('tether').cost, k1: +P.cast.rampK.toFixed(2) };
+      refill = true;
       hold(1.5);
       out.k25 = +P.cast.rampK.toFixed(2);
-      const hit = (e) => e.maxHp - e.hp;
-      out.chained = [b, c, d4].filter((e) => hit(e) > 0).length;
+      out.chained = s.tetherLast; // 最近一跳打到几个（感电电弧也会打到别的怪，所以不按掉血算）
       // 走动：清零
       P.x += 0.5;
       hold(0.25);
@@ -12268,17 +12277,16 @@ async function main() {
       G.save.sockets.tether = ['haste', 'chain', null];
       G.computeStats();
       const z1 = s.tetherZaps || 0;
-      for (const e of [b, c, d4]) e.hp = e.maxHp;
       hold(1);
       out.zapsHaste = (s.tetherZaps || 0) - z1;
       out.kHaste = +P.cast.rampK.toFixed(2);
-      out.chained2 = [b, c, d4].filter((e) => hit(e) > 0).length;
+      out.chained2 = s.tetherLast;
       G.input.keys.KeyQ = false;
       for (let i = 0; i < 20; i++) G.tick(1 / 60);
       return out;
     });
     assert(r.zaps1 >= 4 && r.zaps1 <= 6 && r.cost > 0 && r.mana + r.regen + 0.01 >= r.cost * r.zaps1, '每秒约 5 跳、每跳扣蓝：' + JSON.stringify(r));
-    assert(r.chained === 2 && r.chained2 === 3, '连到另外 2 个（连锁 +2 后 3 个都中）：' + JSON.stringify(r));
+    assert(r.chained === 3 && r.chained2 === 4, '一跳打到主目标 + 2 个（连锁 +2 后 4 个都中）：' + JSON.stringify(r));
     assert(r.k1 >= 1.3 && r.k1 <= 1.45 && r.k25 === 1.8, '加成按时间涨，2 秒到 +80%：' + JSON.stringify(r));
     assert(r.moved <= 1.11 && r.stopped && r.kBefore > 1.5 && r.kSwap <= 1.13, '走动 / 换技能应清零、松手停下：' + JSON.stringify(r));
     assert(r.zapsHaste > r.zaps1 && Math.abs(r.kHaste - r.k1) <= 0.09, '迅捷：跳得更快，但加成按时间涨：' + JSON.stringify(r));
@@ -12288,6 +12296,8 @@ async function main() {
   await step('散钉：扇形 5 枚（多重投射 7 枚），贴脸单体最多中 3 枚；扇面里的 5 只各至少中 1 枚', noRes(() => seKeep(async () => {
     const r = await ev(() => {
       T.lane();
+      G.save.bar = [null, null, null, null];
+      G.computeStats();
       T.fix();
       const P = G.player, s = G.state.stats;
       const e = T.mob('brute', 1.6, 0);
@@ -12327,6 +12337,8 @@ async function main() {
   await step('流血（放血 / 开刃）：每击叠一层、4 秒内再造成该击物理的 80%；上限 6 层，满了顶掉最弱的；跳伤合成一跳、不闪白、不放电弧、不汲生、不削架势、每跳最多一个小数字；被流血打死照常结算；换区清空；开刃作用于召唤物', noRes(() => seKeep(async () => {
     const r = await ev(() => {
       T.arena();
+      G.save.bar = [null, null, null, null];
+      G.computeStats();
       T.fix();
       const P = G.player, W = G.world, s = G.state.stats, BL = G.BLEED;
       const e = T.mob('brute', 1.8, 0, { elite: true });

@@ -1123,27 +1123,28 @@
     // ---------- 第一批新技能（skill-expand） ----------
     // 冰脊：一排从地面斜着刺出来的冰棱，由近到远越来越高
     frostline(g, col) {
-      line(g, (p) => p.M(-26, 22).L(26, 10), rgba(dark(col, 0.35), 0.9), 2.2);
+      line(g, (p) => p.M(-27, 24).L(27, 12), rgba(dark(col, 0.35), 0.9), 2.4);
       for (let i = 0; i < 4; i++) {
-        const x = -18 + i * 13, y = 20 - i * 3, h = 12 + i * 4.5, w = 3.6 + i * 0.6;
-        const spike = (p) => p.P([x - w, y, x + 1.4, y - h, x + w, y - 1, x + 1, y + 1]);
-        if (i === 3) glow(g, spike, col, { blur: 7, core: col });
-        solid(g, spike, lite(col, 0.2 + i * 0.12), { hi: 0.7, lo: 0.3, lw: 1.8, bevel: 1 });
-        line(g, (p) => p.M(x + 1.4, y - h).L(x + 0.6, y - 1), rgba('#ffffff', 0.55), 1);
+        const x = -19 + i * 13, y = 23 - i * 3, h = 15 + i * 6, w = 4.6 + i * 0.8;
+        const spike = (p) => p.P([x - w, y, x + 1.6, y - h, x + w, y - 1.2, x + 1, y + 1.2]);
+        if (i >= 2) glow(g, spike, col, { blur: 7, core: col });
+        solid(g, spike, lite(col, 0.25 + i * 0.12), { hi: 0.7, lo: 0.3, lw: 1.9, bevel: 1.1 });
+        line(g, (p) => p.M(x + 1.6, y - h).L(x + 0.6, y - 1), rgba('#ffffff', 0.6), 1.1);
       }
-      spark(g, 21, -12, 4.6, '#ffffff');
+      spark(g, 21, -15, 5, '#ffffff');
     },
     // 坠凌：三根斜着落下的冰凌，带下坠的细线，地上溅起两片冰碴
     icefall(g, col) {
-      const m = rot(28, 1, 0, 0);
-      const cone = (x, y, h) => (p) => p.P([x - 3.4, y - h, x + 3.4, y - h, x, y]);
-      for (const [x, y, h, k] of [[-11, 4, 15, 0.25], [3, 14, 18, 0.5], [14, -4, 13, 0.3]]) {
-        line(g, (p) => p.M(x, y - h - 4).L(x, y - h - 12), rgba(lite(col, 0.4), 0.7), 1.4, m);
-        if (k > 0.4) glow(g, cone(x, y, h), col, { m, blur: 7, core: col });
-        solid(g, cone(x, y, h), lite(col, k), { m, hi: 0.7, lo: 0.3, lw: 1.8, bevel: 1 });
+      const m = rot(24, 1, 0, 0);
+      const cone = (x, y, h, w) => (p) => p.P([x - w, y - h, x + w, y - h, x, y]);
+      for (const [x, y, h, w, k] of [[-13, 6, 20, 5, 0.35], [3, 16, 24, 5.8, 0.6], [15, -2, 17, 4.6, 0.4]]) {
+        line(g, (p) => p.M(x, y - h - 3).L(x, y - h - 11), rgba(lite(col, 0.4), 0.75), 1.6, m);
+        if (k > 0.5) glow(g, cone(x, y, h, w), col, { m, blur: 7, core: col });
+        solid(g, cone(x, y, h, w), lite(col, k), { m, hi: 0.7, lo: 0.3, lw: 1.9, bevel: 1 });
+        line(g, (p) => p.M(x - w * 0.4, y - h + 1).L(x, y - 2), rgba('#ffffff', 0.55), 1, m);
       }
-      solid(g, (p) => p.P([-6, 25, -2, 20, 1, 25]).P([10, 25, 14, 21, 16, 26]), lite(col, 0.4), { hi: 0.6, lw: 1.3, bevel: 0.7 });
-      line(g, (p) => p.M(-20, 27).L(22, 27), rgba(dark(col, 0.3), 0.8), 1.6);
+      solid(g, (p) => p.P([-8, 26, -3, 20, 1, 26]).P([11, 26, 15, 21, 18, 27]), lite(col, 0.4), { hi: 0.6, lw: 1.3, bevel: 0.7 });
+      line(g, (p) => p.M(-22, 28).L(24, 28), rgba(dark(col, 0.3), 0.8), 1.8);
     },
     // 迸电：中间一点小亮芯，六道折线电弧往外放射，没有圆盘
     discharge(g, col) {
@@ -1164,26 +1165,29 @@
       solid(g, (p) => p.E(-20, 20, 4.6), lite(col, 0.45), { hi: 0.7, lw: 1.8, bevel: 1 });
       spark(g, 15, -19, 4.4, '#ffffff');
     },
-    // 散钉：五枚铁钉从左下扇形飞出去，尾后各一道短速度线
+    // 散钉：五枚铁钉从左下扇形飞向右上，尾后各一道短速度线
     nails(g, col) {
       for (let i = 0; i < 5; i++) {
-        const m = rot(-62 + i * 15, 1, -16, 16);
-        line(g, (p) => p.M(0, 2).L(0, -6), rgba(lite(col, 0.3), 0.55), 1.2, m);
-        solid(g, (p) => p.P([-1.7, -10, 1.7, -10, 1.1, -26, 0, -32, -1.1, -26]), i === 2 ? lite(col, 0.4) : col, { m, hi: 0.6, lo: 0.35, lw: 1.6, bevel: 0.8 });
-        solid(g, (p) => p.R(-3.2, -12, 6.4, 2.6, 0.6), dark(col, 0.25), { m, hi: 0.4, lw: 1.3, bevel: 0.6 });
+        const m = rot(18 + i * 13.5, 1.08, -17, 19);
+        line(g, (p) => p.M(0, -2).L(0, -9), rgba(lite(col, 0.3), 0.6), 1.4, m);
+        if (i === 2) glow(g, (p) => p.P([-2, -14, 2, -14, 1.3, -32, 0, -39, -1.3, -32]), col, { m, blur: 6, core: lite(col, 0.4) });
+        solid(g, (p) => p.P([-2, -14, 2, -14, 1.3, -32, 0, -39, -1.3, -32]), i === 2 ? lite(col, 0.45) : lite(col, 0.15), { m, hi: 0.65, lo: 0.35, lw: 1.7, bevel: 0.9 });
+        solid(g, (p) => p.R(-3.8, -15.6, 7.6, 3, 0.7), dark(col, 0.2), { m, hi: 0.45, lw: 1.4, bevel: 0.7 });
       }
-      spark(g, 6, -15, 4.2, '#ffffff');
+      spark(g, 18, -20, 4.6, '#ffffff');
     },
-    // 放血：交叉的两道细刃痕，下面挂两滴暗红
+    // 放血：交叉的两道刃痕（钢色，边上带一点血色），下面挂两滴暗红
     rend(g, col) {
-      const cut = (p) => p.M(-22, -18).Q(-2, -4, 21, 16).Q(-1, -1, -22, -18).Z();
-      glow(g, cut, col, { blur: 6, core: lite(col, 0.3) });
-      solid(g, cut, lite(col, 0.35), { hi: 0.6, lo: 0.2, lw: 1.8, bevel: 0.8 });
-      const cut2 = (p) => p.M(20, -20).Q(1, -5, -21, 15).Q(0, -2, 20, -20).Z();
-      solid(g, cut2, lite(col, 0.5), { hi: 0.7, lo: 0.2, lw: 1.8, bevel: 0.8 });
+      const steel = mix(C.steel, col, 0.25);
+      const cut = (p) => p.M(-23, -19).Q(-7, 3, 22, 17).Q(1, -8, -23, -19).Z();
+      const cut2 = (p) => p.M(21, -21).Q(-1, -9, -22, 16).Q(6, 2, 21, -21).Z();
+      glow(g, cut, col, { blur: 7, core: lite(col, 0.3) });
+      solid(g, cut, lite(steel, 0.35), { hi: 0.7, lo: 0.25, lw: 1.9, bevel: 0.9 });
+      glow(g, cut2, col, { blur: 7, core: lite(col, 0.3) });
+      solid(g, cut2, lite(steel, 0.5), { hi: 0.75, lo: 0.25, lw: 1.9, bevel: 0.9 });
       const drop = (x, y, k) => (p) => p.M(x, y - 5 * k).C(x + 3.2 * k, y - 0.6 * k, x + 3.4 * k, y + 1.8 * k, x + 2.2 * k, y + 3.2 * k).C(x + 1 * k, y + 4.4 * k, x - 1 * k, y + 4.4 * k, x - 2.2 * k, y + 3.2 * k).C(x - 3.4 * k, y + 1.8 * k, x - 3.2 * k, y - 0.6 * k, x, y - 5 * k).Z();
-      solid(g, drop(-6, 20, 1.1), dark(col, 0.35), { hi: 0.5, lo: 0.3, lw: 1.6, bevel: 0.7 });
-      solid(g, drop(5, 24, 0.8), dark(col, 0.45), { hi: 0.5, lo: 0.3, lw: 1.4, bevel: 0.6 });
+      solid(g, drop(-6, 21, 1.3), col, { hi: 0.5, lo: 0.3, lw: 1.7, bevel: 0.8 });
+      solid(g, drop(6, 25, 0.95), dark(col, 0.2), { hi: 0.5, lo: 0.3, lw: 1.5, bevel: 0.7 });
     },
   };
 

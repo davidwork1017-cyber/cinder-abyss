@@ -3843,6 +3843,7 @@
             if (e.dead || p.hit.has(e)) continue;
             if (dist(e.x, e.z, p.x, p.z) > p.r + e.r) continue;
             p.hit.add(e);
+            if (p.capMap && (p.capMap.get(e) || 0) >= p.hitCap) continue; // 散钉：这个敌人这一把已经中满，钉子穿过去
             if (p.stick) {
               // 刻式「黏焰」：粘上去，不当场伤害
               emberStick(p.ctx, e, 0, 1);
@@ -7267,6 +7268,7 @@
       }
     }
     state.stats.tetherZaps = (state.stats.tetherZaps || 0) + 1;
+    state.stats.tetherLast = hit.size; // 这一跳打到几个（主目标 + 连锁）
     if (!fxOpt('tetherFx', pts, hex, mult)) W.bolt(pts, hex, true);
   };
 
