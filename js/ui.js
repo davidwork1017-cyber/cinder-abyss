@@ -2349,6 +2349,17 @@
         num(blood ? '生命保留' : '魔力保留', fmt1(ctx.reserve) + '%') +
         num('封顶', fmt1(sk.flame.cap) + '%');
       note = '<div class="sk-anote"><i></i>' + (G.auraOn(id) ? '生效中' : G.auraSlotted(id) ? '保留不足，未生效' : '放进技能栏即生效') + ' · 不用按键</div>';
+    } else if (sk.kind === 'aura' && sk.mech === 'guard') {
+      // 刻式「护涡」光环：常驻绕身的旋风。avg 是贴身单体每秒挨的总量（useMult 跳），每跳 = avg ÷ useMult
+      const tick = avg / sk.useMult, dps = avg * rate;
+      nums =
+        num('每跳伤害', tick < 10 ? fmt1(tick) : fmtInt(tick), 'hl') +
+        num('估算秒伤', dps < 10 ? fmt1(dps) : fmtInt(dps)) +
+        num('旋风', sk.count + Math.max(0, ctx.proj - 1) + ' 团') +
+        num(blood ? '生命保留' : '魔力保留', fmt1(ctx.reserve) + '%') +
+        num('绕身半径', fmt1(sk.guard.r * Math.sqrt(ctx.area))) +
+        num('暴击率', fmt1(ctx.crit) + '%');
+      note = '<div class="sk-anote"><i></i>' + (G.auraOn(id) ? '生效中' : G.auraSlotted(id) ? '保留不足，未生效' : '放进技能栏即生效') + ' · 不用按键</div>';
     } else if (sk.kind === 'aura') {
       // 光环：没有施放，只有保留；卡片上是每一跳的伤害、每秒几跳和半径
       nums =
@@ -3406,6 +3417,8 @@
     if (sk.buff) {
       const F = Math.min(sk.flame.cap, sk.flame.k0 + sk.flame.k1 * ((S.skills[id] || 1) - 1)) * (1 + Math.max(0, G.player.S.flameEff || 0) / 100);
       nums = (sk.flameDot ? '黑焰灼烧 ' : '额外混沌 ') + fmt1(F) + '%' + (sk.brand ? ' + 蚀印 ' + fmt1(F) + '%' : '') + ' · 保留 ' + fmt1(ctx.reserve) + '%';
+    } else if (sk.kind === 'aura' && sk.mech === 'guard') {
+      nums = '每跳 ' + fmt1(G.avgHit(ctx) / sk.useMult) + ' · 贴身秒伤约 ' + fmtInt(G.skillDps(ctx)) + ' · 保留 ' + fmt1(ctx.reserve) + '%'; // 刻式「护涡」光环
     } else if (sk.kind === 'aura') {
       nums = '每跳 ' + fmt1(G.avgHit(ctx)) + ' · 半径 ' + fmt1(G.auraRadius(ctx)) + ' · 保留 ' + fmt1(ctx.reserve) + '%';
     } else if (ctx.minion) {
@@ -3416,9 +3429,12 @@
     }
     G.SKILLS[id] = keep;
     const rows = [];
+    const toAura = sk.kind === 'aura' && base.kind !== 'aura'; // 刻式「护涡」：按键技能改成光环，出手 / 冷却 / 魔力 / 飞行这些行不再有意义
+    if (toAura) rows.push('改为光环：保留魔力 ' + fmt1(ctx.reserve) + '%，不用按键');
     if (v !== 'o') {
       const set = V[v].set;
       for (const k of Object.keys(set)) {
+        if (toAura && k !== 'dmg') continue;
         const f = VAR_FIELD[k];
         if (k === 'dmg' || k === 'wm') {
           const avg = (s) => (k === 'wm' ? s.wm : Object.keys(s.dmg).reduce((a, t) => a + s.dmg[t][0] + s.dmg[t][1], 0));
@@ -3429,7 +3445,7 @@
       }
     }
     const r = v === 'o' ? 1 : G.variantRatio(id, v);
-    const total = sk.kind === 'aura';
+    const total = sk.kind === 'aura' && !toAura;
     const cur = (S.variants[id] || 'o') === v;
     const cost = G.variantCost(id), VC = G.VARIANT_COST, have = S.cur[VC.cur] || 0;
     const state = cur
@@ -3442,7 +3458,7 @@
       '<div class="tc-desc">' + (v === 'o' ? base.desc : V[v].desc) + '</div>' + altBox(v === 'o' ? base.alt : V[v].alt) +
       (rows.length ? '<div class="tc-foot">' + rows.join(' · ') + '</div>' : '') +
       '<div class="tc-stat">' + nums + '</div>' +
-      (v === 'o' ? '' : '<div class="tc-foot">' + (total ? '总秒伤' : '单体秒伤') + ' <b>×' + r.toFixed(2) + '</b>（相对原式）' + (total ? ' · ' + (sk.buff ? '按你自己每一击的黑焰比例' : '按主力技能 + 霜环') : '') + '</div>' +
+      (v === 'o' ? '' : '<div class="tc-foot">' + (total ? '总秒伤' : '单体秒伤') + ' <b>×' + r.toFixed(2) + '</b>（相对原式）' + (total ? ' · ' + (sk.buff ? '按你自己每一击的黑焰比例' : '按主力技能 + 霜环') : toAura ? ' · 光环常驻，不占出手' : '') + '</div>' +
         '<div class="tc-foot">怪群：' + V[v].pack + '</div>') +
       state + '</div>'
     );
@@ -5406,7 +5422,7 @@
         (sk.buff
           ? '魔力保留 ' + sk.reserve + '%'
           : sk.kind === 'aura'
-          ? '魔力保留 ' + sk.reserve + '% · 每 ' + sk.time + ' 秒一跳 · 半径 ' + sk.radius
+          ? '魔力保留 ' + sk.reserve + '% · ' + (sk.mech === 'guard' ? '旋风绕身 · 每 ' + sk.tick + ' 秒一跳' : '每 ' + sk.time + ' 秒一跳 · 半径 ' + sk.radius)
           : '魔力 ' + (sk.mana ? Math.round(sk.mana * (1 + 0.05 * (l.data.lvl - 1))) : '无') + ' · 施放 ' + sk.time + ' 秒' + (sk.cd ? ' · 冷却 ' + sk.cd + ' 秒' : '')) +
         '</div>' +
         state + foot + '</div>'

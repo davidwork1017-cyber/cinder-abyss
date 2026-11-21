@@ -11371,8 +11371,9 @@
 
   // 模型自带的动作 → 程序化关节通道的关键帧（defClip 的 keys）。drive：程序化关节 → 带动它的模型骨骼（默认用 cs.pivot 里的骨骼名）
   // opts：{ from, to（截取的秒数）, fps（采样率，默认 20）, joints（只采这些关节）, trans（这些关节也采位移，默认只有 root）,
-  //   src（{ md, cp }：从另一副骨架的动作采样，例如人形标准骨架的动作包，见 stdSrc；这时只用 opts.drive）}
-  const _cA = [], _cl = new T.Matrix4(), _cpos = new T.Vector3(), _csc = new T.Vector3(1, 1, 1);
+  //   src（{ md, cp }：从另一副骨架的动作采样，例如人形标准骨架的动作包，见 stdSrc；这时只用 opts.drive）,
+  //   chord（{ 关节: [骨骼 a, 骨骼 b] }：这个关节的指向再按 a→b 的连线校正，见 stdChord）}
+  const _cA = [], _cl = new T.Matrix4(), _cpos = new T.Vector3(), _csc = new T.Vector3(1, 1, 1), _cc0 = new T.Vector3(), _cc1 = new T.Vector3(), _cc2 = new T.Vector3();
   function cClipKeys(rig, cs, name, opts) {
     const o = opts || {};
     const md = o.src ? o.src.md : cs.md, clip = md.clips[name], cp = o.src ? o.src.cp : rig.cPose;
@@ -11388,6 +11389,13 @@
     const use = Jn.map((j) => drive[j.name] !== undefined && md.bi[drive[j.name]] !== undefined && (!o.joints || o.joints.indexOf(j.name) >= 0));
     const trans = o.trans || ['root'];
     const Pinv = cp.P.F.map((m) => m.clone().invert());
+    // chord：关节 → [a, b, 静止姿态里 a→b 的连线（摆好的骨架、程序化骨架的空间）]
+    const chord = [];
+    for (const jn in o.chord || {}) {
+      const c = o.chord[jn], ia = md.bi[c[0]], ib = md.bi[c[1]], ji = rig.JI[jn];
+      if (ia === undefined || ib === undefined || ji === undefined || !use[ji]) continue;
+      chord[ji] = [ia, ib, new T.Vector3().setFromMatrixPosition(cp.P.F[ib]).sub(new T.Vector3().setFromMatrixPosition(cp.P.F[ia]))];
+    }
     const keys = Object.create(null);
     const M = Jn.map(() => new T.Matrix4());
     const loc = new Array(md.nb), W = new Array(md.nb);
@@ -11418,6 +11426,17 @@
         if (use[i]) {
           const b = md.bi[drive[j.name]];
           M[i].copy(cp.G).multiply(W[b]).multiply(cp.Gi).multiply(Pinv[b]).multiply(_cl.makeTranslation(j.px, j.py, j.pz));
+          const cd = chord[i];
+          if (cd) {
+            // 带动骨骼 b 是这一段最末的那根，中间的弯曲（spine_01→02→03）不在它的转动里：静止时的连线跟着 b 转过去以后，
+            // 再补一个摆动，让它对准动作里 a→b 的连线（程序化骨架的空间），绕关节的枢轴转
+            _cc0.copy(cd[2]).transformDirection(_cm.copy(M[i]));
+            _cc1.setFromMatrixPosition(_cm.copy(cp.G).multiply(W[cd[1]]));
+            _cc1.sub(_cc2.setFromMatrixPosition(_cm.copy(cp.G).multiply(W[cd[0]]))).normalize();
+            _cq.setFromUnitVectors(_cc0, _cc1);
+            _cc2.setFromMatrixPosition(M[i]);
+            M[i].premultiply(_cm.makeTranslation(-_cc2.x, -_cc2.y, -_cc2.z)).premultiply(_cm2.makeRotationFromQuaternion(_cq)).premultiply(_cm.makeTranslation(_cc2.x, _cc2.y, _cc2.z));
+          }
         } else if (j.parent >= 0) M[i].copy(M[j.parent]).multiply(_cl.makeTranslation(j.lx, j.ly, j.lz));
         else M[i].makeTranslation(j.px, j.py, j.pz);
         if (!use[i]) continue;
@@ -12687,6 +12706,22 @@
     if (d.head) d.head = 'Head';
     return d;
   }
+  // 连线校正（静止姿态的修正，写在对照表里，不按动作）：关节的枢轴骨骼 a 和带动骨骼不是同一根时（游魂的 spine：枢轴 spine_01、
+  // 带动 spine_03），这一段里的弯曲不在带动骨骼的转动里，脊柱→头的连线会偏 12–30°，头和肩跟着挪位。
+  // 采样时让这个关节再补一个摆动，对准动作里 a → 下一个关节的枢轴骨骼 的连线（拧转仍取带动骨骼）。
+  // 只在模型真有骨骼 a（枢轴就在 a 上）时才校正：仆从的 spine 枢轴是程序化的、chest 由 spine_03 自己带，不受影响
+  const STD_CHILD = { spine: ['chest', 'head'], chest: ['head'] };
+  function stdChord(rig, drive) {
+    const c = {}, md = rig.cPose && rig.cPose.md;
+    if (!md) return c;
+    for (const jn in drive) {
+      const a = STD_PIVOT[jn];
+      if (!STD_CHILD[jn] || a === drive[jn] || md.bi[a] === undefined) continue;
+      const ch = STD_CHILD[jn].find((k) => rig.JI[k] !== undefined && md.bi[STD_PIVOT[k]] !== undefined);
+      if (ch) c[jn] = [a, STD_PIVOT[ch]];
+    }
+    return c;
+  }
   const STD_MASK = { thigh_l: 'lower', calf_l: 'lower', foot_l: 'lower', ball_l: 'lower', thigh_r: 'lower', calf_r: 'lower', foot_r: 'lower', ball_r: 'lower' };
   function stdMask(rig) {
     const lower = [], upper = [];
@@ -12753,35 +12788,70 @@
   // 把动作包里的动作装到骨架上。use：{ loco: [站立, 走], hit: 受击, death: [死亡, 起, 止（秒）] }
   //   站立 / 走：盖在程序化的移动姿态上（没有骨骼带动的关节——下颌、破布——仍是程序化的）；走路的相位来自走过的距离
   //     （rig.stride = 2π / 一个周期走多远，按动作包里记的周期距离 × 缩放），减速、冰缓时脚步跟着地面走，不打滑；
+  //   跑：use.run = [跑步动作, 起, 满（米 / 秒）]。动作包里只有骨盆和腿，速度从「起」到「满」由走路渐变成跑（上身仍是走路的佝偻、前伸）；
+  //     两段的起点都在左脚最靠前的一帧（ual-pack 的 align），共用一个相位，一个周期走多远按混合比例在两段之间插值，脚步不打滑；
   //   受击：只采上身（rig.mask.upper），相对第一帧的变化量叠在程序化受击上（见 finishPose）；
-  //   死亡：换掉程序化死亡的关键帧，时长等其余参数照旧（死亡、掉落的时机不变）；没有骨骼带动的关节保留原来的关键帧
+  //   死亡：换掉程序化死亡的关键帧，时长等其余参数照旧（死亡、掉落的时机不变）；没有骨骼带动的关节保留原来的关键帧。
+  //     骨盆的水平位移钉在倒下那一刻的位置（Death01 往后倒时骨盆后移约 0.5 米，尸体会落在死的地方后面）；高度和转动照旧
   function stdAnim(rig, cs, use) {
     const src = stdSrc(rig, cs);
     if (!src) return false;
-    const drive = stdDrive(rig);
-    const keys = (name, o) => cClipKeys(rig, cs, name, Object.assign({ src, drive }, o));
+    const drive = stdDrive(rig), chord = stdChord(rig, drive);
+    const keys = (name, o) => cClipKeys(rig, cs, name, Object.assign({ src, drive, chord }, o));
     if (use.loco) {
       const idle = keys(use.loco[0], { fps: 20 }), walk = keys(use.loco[1], { fps: 30 });
       const idleT = cTrack(rig, idle.keys), walkT = cTrack(rig, walk.keys), proc = rig.loco;
       const ex = src.md.clips[use.loco[1]].ex;
       if (ex && ex.cycle) rig.stride = TAU / (ex.cycle * src.s);
+      const g = { walk: use.loco[1], cycW: TAU / rig.stride, durW: src.md.clips[use.loco[1]].dur, run: null };
+      let runT = null;
+      if (use.run && src.md.clips[use.run[0]]) {
+        // 只采骨盆和腿（包里这段只有这些通道；不限定的话没有通道的上身会被采成动作包的绑定姿态）
+        const rc = src.md.clips[use.run[0]], run = keys(use.run[0], { fps: 30, joints: ['root'].concat(rig.mask.lower) });
+        runT = cTrack(rig, run.keys);
+        Object.assign(g, { run: use.run[0], cycR: rc.ex.cycle * src.s, durR: rc.dur, lo: use.run[1], hi: use.run[2], runJ: [...new Set(runT.ci.map((i) => rig.joints[Math.floor(i / CH)].name))] });
+      }
+      // 跑步的混合比例（按平滑后的速度）、一个周期走多远（米）
+      g.w = (spd) => (runT ? smooth01((spd - g.lo) / (g.hi - g.lo)) : 0);
+      g.cyc = (spd) => g.cycW + ((g.cycR || g.cycW) - g.cycW) * g.w(spd);
+      rig.gaitStd = g;
       rig.loco = function (ent, p, t, sdt) {
         proc(ent, p, t, sdt);
         cTrackEval(idleT, p, (((t + ent.phase * 3) / idle.dur) % 1 + 1) % 1, 1);
-        if (ent.mv > 0.01) cTrackEval(walkT, p, (((ent.walk / TAU) % 1) + 1) % 1, Math.min(1, ent.mv * 1.2));
+        // 步态相位：ent.walk 按 rig.stride（走路的周期）累计走过的距离；这里换算成按当前混合周期推进的相位（倒退时反着走）
+        const dw = ent.walk - ent.gWalk;
+        ent.gWalk = ent.walk;
+        if (dw === dw && Math.abs(dw) < TAU) ent.gPh += dw / rig.stride / g.cyc(ent.spd);
+        else ent.gPh = ent.walk / TAU; // 第一帧、或者相位被直接改过
+        if (ent.mv > 0.01) {
+          const k = ((ent.gPh % 1) + 1) % 1, wm = Math.min(1, ent.mv * 1.2), wr = g.w(ent.spd);
+          cTrackEval(walkT, p, k, wm);
+          if (wr > 0) cTrackEval(runT, p, k, wm * wr);
+        }
       };
     }
     if (use.hit) rig.hitTrack = cTrack(rig, keys(use.hit, { fps: 30, joints: rig.mask.upper }).keys);
     if (use.death) {
       const d = keys(use.death[0], { fps: 30, from: use.death[1], to: use.death[2] }), old = rig.clips.death, k = {};
+      delete d.keys['root.ox'];
+      delete d.keys['root.oz'];
       if (old) for (const key in old.spec.keys) if (drive[key.slice(0, key.indexOf('.'))] === undefined) k[key] = old.spec.keys[key];
-      defClip(rig, 'death', Object.assign({}, old ? old.spec : { dur: 0.6, base: 'rest', hold: true, air: true, fade: 0.05 }, { keys: Object.assign(k, d.keys) }));
+      // 骨盆水平位移：留在倒下那一刻的位置（ent.from 是切进死亡时的姿态），过渡里也不动
+      const sp = Object.assign({}, old ? old.spec : { dur: 0.6, base: 'rest', hold: true, air: true, fade: 0.05 }, { keys: Object.assign(k, d.keys) }), fn0 = sp.fn, r0 = rig.J.root;
+      delete sp.keys['root.ox'];
+      delete sp.keys['root.oz'];
+      sp.fn = function (ent, p, kk, t) {
+        if (fn0) fn0(ent, p, kk, t);
+        p[r0 + 3] = ent.from[r0 + 3];
+        p[r0 + 5] = ent.from[r0 + 5];
+      };
+      defClip(rig, 'death', sp);
     }
     rig.std = use;
     return true;
   }
   // 调试 / 冒烟测试用：标准骨架的对照表和动作包
-  W.std = { JOINT: STD_JOINT, PIVOT: STD_PIVOT, MASK: STD_MASK, joint: stdJoint, mask: stdMask, drive: stdDrive, pack: () => cModel('ual') };
+  W.std = { JOINT: STD_JOINT, PIVOT: STD_PIVOT, MASK: STD_MASK, joint: stdJoint, mask: stdMask, drive: stdDrive, chord: (rig) => stdChord(rig, stdDrive(rig)), pack: () => cModel('ual') };
 
   const CSPEC = {
     player: {
@@ -15571,7 +15641,8 @@
       });
       // 人形标准骨架的模型动作：UAL 的 Zombie_Idle / Zombie_Walk（佝偻、前倾的走路）、Hit_Chest 叠在上身、
       // Death01 取 0.3–1.6 s（跳过开头慢慢跪下的一段，到倒地后两腿落下为止；1.3 s 时腿还弹在半空），压进上面程序化死亡的 0.6 s
-      if (cs) stdAnim(rig, cs, { loco: ['Zombie_Idle', 'Zombie_Walk'], hit: 'Hit_Chest', death: ['Death01', 0.3, 1.6] });
+      // 跑：Zombie_Walk 是拖着腿的慢走（原速约 1.4 米 / 秒），追人的 5 米 / 秒要放快 3.5 倍；2–3 米 / 秒之间腿渐变成 Sprint（前倾和佝偻的走路接近，5 米 / 秒约原速 1.1 倍）
+      if (cs) stdAnim(rig, cs, { loco: ['Zombie_Idle', 'Zombie_Walk'], run: ['Sprint', 2, 3], hit: 'Hit_Chest', death: ['Death01', 0.3, 1.6] });
       return rig;
     }));
   }

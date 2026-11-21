@@ -670,24 +670,32 @@ async function timedMain() {
     return '每次 ' + r.ms + ' ms';
   });
 
-  // 原步骤：main() 里的「异兆选址」。S.zone.ms.enc 是 enterZone 里按 performance.now 量的选址耗时；下面照原步骤的种子把 100 个布局各进一次
-  await step('计时｜异兆选址：100 个布局正常进区时，选址最慢一次不到 5 ms', async () => {
+  // 原步骤：main() 里的「异兆选址」。S.zone.ms.enc 是 enterZone 里按 performance.now 量 G.rollEncounters 那一段（选址，含第一次算候选点位）的耗时；下面照原步骤的种子进区。
+  // 一次选址只有 0.1–0.2 ms，100 次里取最大值时，偶尔一次停顿（第一次调用的编译、垃圾回收）落进这段就会冒到 5 ms 以上，同一个布局再进一次就没有了。
+  // 所以每个布局进 2 次、取快的那次，再看最慢的那个布局：一次性的停顿被滤掉，选址本身变慢（两次都慢）照样超线。上限仍是 5 ms。
+  // （不能进一次区后直接重复调 G.rollEncounters：候选点位第一次算完就缓存在 zone.encCand 上，makeEnc 还会改点位上的字段，重复调测的不是同一份活）
+  await step('计时｜异兆选址：100 个布局正常进区时，选址最慢的布局（每个进 2 次取快的）不到 5 ms', async () => {
     const r = await ev(() => {
       const S = G.state;
-      let msMax = 0;
+      let msMax = 0, rawMax = 0;
       for (let z = 0; z < 5; z++) {
         for (let s = 1; s <= 20; s++) {
-          G.debug.zoneSeed(3000 + z * 101 + s * 7);
-          G.enterZone(z, 1);
-          msMax = Math.max(msMax, S.zone.ms.enc); // 正常进区（掷 1–2 个）的选址耗时
+          let best = Infinity;
+          for (let k = 0; k < 2; k++) {
+            G.debug.zoneSeed(3000 + z * 101 + s * 7);
+            G.enterZone(z, 1);
+            best = Math.min(best, S.zone.ms.enc); // 正常进区（掷 1–2 个）的选址耗时
+            rawMax = Math.max(rawMax, S.zone.ms.enc);
+          }
+          msMax = Math.max(msMax, best);
         }
       }
       G.debug.zoneSeed(null);
       G.enterZone(0, 0);
-      return { msMax: +msMax.toFixed(2) };
+      return { msMax: +msMax.toFixed(2), rawMax: +rawMax.toFixed(2) };
     });
     assert(r.msMax < 5, '选址耗时太长（设计 < 1 ms）：' + r.msMax);
-    return '选址最慢 ' + r.msMax + ' ms';
+    return '选址最慢 ' + r.msMax + ' ms（单次最慢 ' + r.rawMax + ' ms）';
   });
 
   // 原步骤：整步从 main() 搬来（ui-batch 的「技能页拖拽贴边自动滚动」，断言一字不改）。贴边自动滚动按 performance.now 走：进边带停 250 ms 才滚、
@@ -1065,7 +1073,7 @@ async function main() {
     });
   }
 
-  await step('人形标准骨架：游魂 / 烬骸仆从的骨骼换成标准名并按一张对照表接到关节上，手指并到手；动作包只有 23 根骨骼、4 段动作', async () => {
+  await step('人形标准骨架：游魂 / 烬骸仆从的骨骼换成标准名并按一张对照表接到关节上，手指并到手；动作包只有 23 根骨骼、5 段动作', async () => {
     const r = await ev(() => {
       const W = G.world, S = W.std;
       const hk = W.makeMob('husk', 0xff8844, false), th = W.makeMinion('thrall');
@@ -1089,7 +1097,7 @@ async function main() {
     for (const n of ['pelvis', 'spine_03', 'neck_01', 'Head', 'upperarm_l', 'lowerarm_l', 'upperarm_r', 'lowerarm_r', 'thigh_l', 'calf_l', 'thigh_r', 'calf_r']) assert(r.thNames.includes(n), '仆从缺标准骨骼 ' + n);
     assert(r.pack && r.pack.names.length === 23 && r.pack.prims === 0, '动作包应是 23 根骨骼、没有网格：' + JSON.stringify(r.pack && [r.pack.names.length, r.pack.prims]));
     assert(!r.pack.names.some((n) => /^(index|middle|ring|pinky|thumb)_|_leaf/.test(n)), '动作包里还有手指 / 末端骨骼');
-    assert(['Zombie_Idle', 'Zombie_Walk', 'Hit_Chest', 'Death01'].every((c) => r.pack.clips.includes(c)) && r.pack.clips.length === 4, '动作包的动作不对：' + r.pack.clips);
+    assert(['Zombie_Idle', 'Zombie_Walk', 'Hit_Chest', 'Death01', 'Sprint'].every((c) => r.pack.clips.includes(c)) && r.pack.clips.length === 5, '动作包的动作不对：' + r.pack.clips);
     assert(r.fingerHk === 'faL' && r.fingerTh === 'hR', '手指没有并到手 / 小臂：' + r.fingerHk + ' / ' + r.fingerTh);
     assert(r.clavHk === 'spine' && r.clavTh === 'chest', '锁骨的关节不对：' + r.clavHk + ' / ' + r.clavTh);
     assert(r.driveHk.spine === 'spine_03' && r.driveHk.head === 'Head' && r.driveHk.thL === 'thigh_l', '游魂的带动骨骼不对：' + JSON.stringify(r.driveHk));
@@ -1160,6 +1168,90 @@ async function main() {
     assert(r.deathKeys.includes('root.oy') && r.deathKeys.includes('jaw.rx') && r.deathKeys.includes('rag1.rx'), '死亡关键帧不对：' + r.deathKeys.join(' '));
     assert(Math.abs(r.stride - (2 * Math.PI) / r.cycle) < 1e-6 && r.cycle > 1.2 && r.cycle < 2.4, '走路的步幅换算不对：stride ' + r.stride + '，一个周期 ' + r.cycle + ' 米');
     return '腿差 ' + r.f1.legAB.toFixed(4) + '，受击上身 ' + r.f1.hitUp.toFixed(3) + '，一个周期 ' + (2 * Math.PI / r.stride).toFixed(2) + ' 米';
+  });
+
+  await step('人形标准骨架·打磨：游魂追人（5 米 / 秒）时腿换成跑步、播放倍率 0.8–1.7；倒地时骨盆水平不挪（< 0.1 米）；脊柱→头的连线和动作包差 < 5°', async () => {
+    const r = await ev(() => {
+      const W = G.world, V3 = THREE.Vector3, Q = THREE.Quaternion, pk = W.std.pack(), TAU = 2 * Math.PI;
+      const mk = () => { const e = W.makeMob('husk', 0xff8844, false); W.setEnt(e, 0, 0, 0); e.phase = e.clock = e.walk = 0; return e; };
+      const jp = (e, j) => { const M = e.mdl, m = e.rig.JI[j] * 12; return new V3(M[m + 3], M[m + 7], M[m + 11]); };
+      const out = { gait: [], death: [], seg: [] };
+      // 1. 步态：按速度走 4 秒，量相位推进得多快 × 腿上那段动作的原长 = 播放倍率（相位：ent.gPh；没有时按 ent.walk / 2π）
+      const ph = (e) => (e.gPh !== undefined ? e.gPh : e.walk / TAU);
+      for (const spd of [1.4, 5]) {
+        const e = mk(), g = e.rig.gaitStd;
+        let z = 0, p0 = 0;
+        for (let i = 0; i < 300; i++) {
+          z += spd / 60; W.setEnt(e, 0, z, 0); W.animEnt(e, 1 / 60, true);
+          if (i === 59) p0 = ph(e);
+        }
+        const leg = g && g.w(e.spd) >= 0.5 ? g.run : 'Zombie_Walk';
+        out.runJ = g && g.runJ;
+        out.lower = e.rig.mask.lower;
+        out.gait.push({ spd, leg, w: g ? g.w(e.spd) : 0, rate: ((ph(e) - p0) / 4) * pk.clips[leg].dur, perM: (ph(e) - p0) / (spd * 4), cyc: g ? g.cyc(e.spd) : TAU / e.rig.stride });
+        W.removeEnt(e);
+      }
+      // 2. 倒地：站着 / 跑着死，骨盆（root 关节）从死前一帧到倒地结束的水平位移；骨盆落到地上、头摔出去（倒地还看得出来）
+      for (const spd of [0, 5]) {
+        const e = mk();
+        let z = 0;
+        for (let i = 0; i < 90; i++) { if (spd) { z += spd / 60; W.setEnt(e, 0, z, 0); } W.animEnt(e, 1 / 60, !!spd); }
+        const p0 = jp(e, 'root'), h0 = jp(e, 'head');
+        W.play(e, 'death', { hold: true });
+        for (let i = 0; i < 60; i++) W.animEnt(e, 1 / 60, false);
+        const p1 = jp(e, 'root'), h1 = jp(e, 'head');
+        out.death.push({ spd, disp: Math.hypot(p1.x - p0.x, p1.z - p0.z), y: p1.y, head: h1.distanceTo(h0) });
+        W.removeEnt(e);
+      }
+      // 3. 重定向：同一动作时刻，游魂 spine→head 两个枢轴的连线 vs 动作包 spine_01→neck_01 的连线（站立 4 个时刻、慢走 4 个相位）
+      const packAt = (cn, t) => {
+        const c = pk.clips[cn], L = pk.loc.map((l) => ({ t: l.t.slice(), q: l.q.slice() }));
+        const u = Math.min(c.n - 1.0001, Math.max(0, (t / c.dur) * (c.n - 1))), i0 = Math.floor(u), fr = u - i0;
+        for (const h of c.ch) {
+          if (h.path === 'rotation') { const qa = new Q().fromArray(h.v, i0 * 4), qb = new Q().fromArray(h.v, i0 * 4 + 4); qa.slerp(qb, fr); L[h.b].q = [qa.x, qa.y, qa.z, qa.w]; }
+          else if (h.path === 'translation') { const k = i0 * 3; L[h.b].t = [0, 1, 2].map((j) => h.v[k + j] + (h.v[k + 3 + j] - h.v[k + j]) * fr); }
+        }
+        const M = [];
+        for (const b of pk.order) { const m = new THREE.Matrix4().compose(new V3().fromArray(L[b].t), new Q().fromArray(L[b].q), new V3(1, 1, 1)); M[b] = pk.parent[b] < 0 ? m : M[pk.parent[b]].clone().multiply(m); }
+        return (n) => new V3().setFromMatrixPosition(M[pk.bi[n]]);
+      };
+      const deg = (e, pw) => {
+        const a = jp(e, 'head').sub(jp(e, 'spine')).normalize(), b = pw('neck_01').sub(pw('spine_01')).normalize();
+        return (Math.acos(Math.max(-1, Math.min(1, a.dot(b)))) * 180) / Math.PI;
+      };
+      const e = mk();
+      for (const t of [0.2, 0.55, 0.9, 1.25]) {
+        e.clock = t - 1e-6; e.mv = 0; e.clip = null; e.fadeT = e.fadeDur = 1;
+        W.animEnt(e, 1e-6, false);
+        out.seg.push(['站立 ' + t, deg(e, packAt('Zombie_Idle', t % pk.clips.Zombie_Idle.dur))]);
+      }
+      for (const k of [0, 0.25, 0.5, 0.75]) {
+        e.mv = 1; e.spd = 0; e.walk = k * TAU; e.gWalk = undefined; e.clip = null; e.fadeT = e.fadeDur = 1;
+        W.animEnt(e, 1e-6, false);
+        out.seg.push(['慢走 ' + k, deg(e, packAt('Zombie_Walk', k * pk.clips.Zombie_Walk.dur))]);
+      }
+      out.chord = W.std.chord ? W.std.chord(e.rig) : null;
+      W.removeEnt(e);
+      const th = W.makeMinion('thrall');
+      out.thChord = W.std.chord ? W.std.chord(th.rig) : null;
+      W.removeEnt(th);
+      return out;
+    });
+    const [slow, fast] = r.gait;
+    // 慢走仍是 Zombie_Walk 按原速左右（1.4 米 / 秒 ≈ 原速）；追人时腿是跑步，倍率不再是 3.5 倍
+    assert(slow.leg === 'Zombie_Walk' && slow.w === 0 && slow.rate > 0.8 && slow.rate < 1.25, '慢走的步态不对：' + JSON.stringify(slow));
+    assert(fast.leg !== 'Zombie_Walk' && fast.w === 1 && fast.rate >= 0.8 && fast.rate <= 1.7, '5 米 / 秒时腿上动作的播放倍率应在 0.8–1.7：' + JSON.stringify(fast));
+    // 跑步只换骨盆和腿，上身仍是 Zombie_Walk 的佝偻、前伸（不能混进动作包的绑定姿态）
+    assert(r.runJ && r.runJ.length > 1 && r.runJ.every((j) => j === 'root' || r.lower.includes(j)), '跑步动作带了上身的关节：' + JSON.stringify(r.runJ));
+    // 相位跟着走过的距离：每米推进 1 / 一个周期的距离（脚不打滑）
+    for (const g of r.gait) assert(Math.abs(g.perM * g.cyc - 1) < 0.02, '步态相位没有按走过的距离推进：' + JSON.stringify(g));
+    for (const d of r.death) {
+      assert(d.disp < 0.1, (d.spd ? '跑着' : '站着') + '死时骨盆水平挪了 ' + d.disp.toFixed(3) + ' 米（应 < 0.1）');
+      assert(d.y < 0.45 && d.head > 0.6, '倒地不明显：骨盆高 ' + d.y.toFixed(2) + '，头移动 ' + d.head.toFixed(2));
+    }
+    for (const [k, v] of r.seg) assert(v < 5, k + '：脊柱→头的连线和动作包差 ' + v.toFixed(1) + '°（应 < 5°）');
+    assert(r.chord && r.chord.spine && r.chord.spine.join() === 'spine_01,neck_01' && Object.keys(r.thChord).length === 0, '连线校正的对照不对：' + JSON.stringify([r.chord, r.thChord]));
+    return '5 米 / 秒倍率 ' + fast.rate.toFixed(2) + '（' + fast.leg + '），倒地位移 ' + r.death.map((d) => d.disp.toFixed(3)).join(' / ') + ' 米，连线最大差 ' + Math.max(...r.seg.map((x) => x[1])).toFixed(1) + '°';
   });
 
   await step('镜头与远程怪：脚下能看到 7.5 以上、头顶 9.5 以上（卡通风格的近镜头）；屏幕下方画面外的喷吐者先走进画面再开火', async () => {
@@ -11020,6 +11112,7 @@ async function main() {
       T.aim(es[0].x, es[0].z);
       for (const k of ['ashHops', 'ashBursts', 'ashCuts', 'ashMarks']) S.stats[k] = 0;
       const hp0 = es.map((e) => e.hp);
+      T.fix(0.5); // 不暴击、取中值（同下面单体那半）：随机暴击会在连闪的刀里给 es[2] 再叠两层残刃、叠满提前引爆，偶发 marks = 0
       G.input.tap[4] = 0.3;
       let iframeHop = false, walk = true, burstAt = -1, hopsAtBurst = 0;
       const dmgBefore = [];
@@ -11030,6 +11123,7 @@ async function main() {
         if ((S.stats.ashBursts || 0) > 0 && burstAt < 0) { burstAt = i; hopsAtBurst = S.stats.ashHops; }
         if (burstAt < 0) dmgBefore[i] = es.map((e) => e.hp);
       }
+      T.unfix();
       out.pack = { hops: S.stats.ashHops, bursts: S.stats.ashBursts, cuts: S.stats.ashCuts, marks: S.stats.ashMarks, iframeHop, walk, hopsAtBurst, cd: +(P.cdMax.ashcuts || 0).toFixed(2), left: P.cds.ashcuts || 0, mk2: es[2].marks || 0, dmg: es.map((e, i) => Math.round(hp0[i] - e.hp)), cast: !!P.cast };
       // 单体：6 闪都穿过它；炸开那一下 = 6 × cut 倍（合成一击）+ 残刃
       T.arena();
@@ -13595,12 +13689,13 @@ async function main() {
     assert(r.tide === 0 && r.bridge.join() === '0,0' && r.king.join() === '3,false' && r.star.join() === '0,false', '其余渊契不该改刻式 A / B：' + JSON.stringify(r));
     return '双极 ' + r.twin[0] + ' 洞 · 坍缩引爆 ' + r.collapse[1] + ' · 原式随核 ' + r.plain;
   });
-  await step('刻式 v2·黑旋风「护涡」：三团旋风绕着你转，绞贴身的怪、吞掉敌方弹丸', async () => {
+  await step('刻式 v2·黑旋风「护涡」（光环）：放上技能栏就有三团旋风绕着你转，绞贴身的怪、吞掉敌方弹丸；按键不施放', async () => {
     await ev(TVDEF);
     const r = await ev(() => {
       TV.setup('vortex', 'a');
       const P = G.player, m = TV.mob(2.4, 0);
-      TV.cast('vortex', TV.at(6), 0.6);
+      TV.pin(m);
+      TV.run(0.6);
       const vs = G.chaosVortices().filter((v) => v.guard);
       const rr = vs.map((v) => Math.hypot(v.x - P.x, v.z - P.z));
       // 一发朝你飞来的敌方弹丸，穿过旋风那一圈
@@ -13608,13 +13703,121 @@ async function main() {
       const v0 = vs[0], sx = v0.x + (v0.x - P.x) * 0.1, sz = v0.z + (v0.z - P.z) * 0.1;
       G.spawnProjectile({ owner: 'e', x: sx, z: sz, dx: P.x - sx, dz: P.z - sz, speed: 2, r: 0.3, life: 5, dmg: 1, dtype: 'phys' });
       TV.run(1.2);
-      const out = { n: vs.length, rmin: +Math.min.apply(null, rr).toFixed(2), rmax: +Math.max.apply(null, rr).toFixed(2), eaten: TV.st('vEaten') - e0, hits: TV.n(m) };
+      // 轻点技能键：光环不施放、不扣魔力、不进冷却，旋风还是原来那一组
+      const mana0 = P.mana;
+      G.input.tap[0] = 0.2;
+      TV.run(0.3);
+      const out = { n: vs.length, aura: G.SKILLS.vortex.kind === 'aura' && G.auraOn('vortex'), rmin: +Math.min.apply(null, rr).toFixed(2), rmax: +Math.max.apply(null, rr).toFixed(2), eaten: TV.st('vEaten') - e0, hits: TV.n(m) };
+      out.press = !P.cast && !(P.cds.vortex > 0) && P.mana === mana0 && TV.st('vGuardSpawn') === 1 && G.chaosVortices().filter((v) => v.guard).every((v) => vs.indexOf(v) >= 0);
       TV.done();
       return out;
     });
-    assert(r.n === 3 && r.rmin > 1.8 && r.rmax < 3.0, '护涡应三团绕着你转：' + JSON.stringify(r));
+    assert(r.aura && r.n === 3 && r.rmin > 1.8 && r.rmax < 3.0, '护涡应是光环、三团绕着你转：' + JSON.stringify(r));
     assert(r.eaten >= 1 && r.hits >= 3, '护涡应吞掉弹丸、绞贴身的怪：' + JSON.stringify(r));
+    assert(r.press, '按护涡的键不该施放、扣魔力或换一组：' + JSON.stringify(r));
     return '绕身半径 ' + r.rmin + '–' + r.rmax + '，吞弹 ' + r.eaten + '，绞中 ' + r.hits;
+  });
+  await step('刻式 v2·黑旋风「护涡」（光环）：保留魔力 20%、20 秒一直在跳；拿下技能栏 / 换回原式 / 宝石没了当场消散并还回保留', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      const P = G.player, s = G.save, out = {};
+      const guards = () => G.chaosVortices().filter((v) => v.guard).length;
+      TV.setup('vortex', 'a', [null, null, null, null]);
+      T.fix(0.5);
+      G.computeStats();
+      out.off = { pct: P.reservePct, res: P.reserved, max: P.maxMana === P.maxManaRaw };
+      // 放上技能栏 = 开：保留 20%，当前魔力压到新的上限以内（总保留超过 90% 时最右边放不下的光环不生效，见 G.auraFits；护涡那时也不绕身）
+      P.mana = P.maxManaRaw;
+      G.bindSkill(2, 'vortex');
+      out.on = { pct: P.reservePct, one: G.auraReserve('vortex'), res: P.reserved, want: Math.round(P.maxManaRaw * 0.2), max: P.maxMana === P.maxManaRaw - P.reserved, clamp: P.mana <= P.maxMana };
+      // 辅助照样乘在保留上：扩域 ×1.2 → 24%；和霜环一起放是两者相加
+      s.supports = Array.from(new Set((s.supports || []).concat(['expanse'])));
+      G.socketSupport('vortex', 0, 'expanse');
+      s.bar[3] = 'nova';
+      G.computeStats();
+      out.sup = { one: G.auraReserve('vortex'), nova: G.auraReserve('nova'), pct: P.reservePct };
+      G.socketSupport('vortex', 0, null);
+      s.bar[3] = null;
+      G.computeStats();
+      out.back = P.reservePct;
+      // 20 秒：一只钉在贴身处的靶子一直挨跳，旋风从头到尾是同一组（没重放过）
+      const e = TV.big(2.4, 0);
+      e.buTh = 1e15;
+      e.poiseMax = 0;
+      TV.pin(e);
+      TV.run(15);
+      const n15 = TV.n(e);
+      TV.run(5);
+      out.keep = { hits: TV.n(e), last5: TV.n(e) - n15, n: guards(), spawn: TV.st('vGuardSpawn') };
+      // 拿下技能栏：不用等下一帧，旋风和保留当场没了
+      G.bindSkill(2, null);
+      out.unbind = { n: guards(), pct: P.reservePct, max: P.maxMana === P.maxManaRaw };
+      const h0 = TV.n(e);
+      TV.run(1);
+      out.unbind.after = TV.n(e) - h0;
+      // 放回去接着转；换回原式（技能页换刻式）也当场收起
+      G.bindSkill(2, 'vortex');
+      TV.run(0.3);
+      out.rebind = guards();
+      G.clearEnemies();
+      s.variantFree.vortex = false;
+      out.swap = G.setVariant('vortex', 'o').ok && guards() === 0 && P.reservePct === 0 && G.SKILLS.vortex.kind === 'vortex';
+      s.variantFree.vortex = false;
+      G.setVariant('vortex', 'a');
+      TV.run(0.3);
+      out.swapBack = guards();
+      // 宝石没了（存档里不再有这个技能）：同样当场收起
+      const lvl = s.skills.vortex;
+      delete s.skills.vortex;
+      G.computeStats();
+      out.gem = guards() === 0 && P.reservePct === 0;
+      s.skills.vortex = lvl;
+      TV.done();
+      return out;
+    });
+    assert(r.off.pct === 0 && r.off.res === 0 && r.off.max, '不在技能栏上不该保留：' + JSON.stringify(r));
+    assert(r.on.pct === 20 && r.on.one === 20 && r.on.res === r.on.want && r.on.max && r.on.clamp, '放上技能栏应保留 20% 最大魔力：' + JSON.stringify(r));
+    assert(r.sup.one === 24 && r.sup.nova > 0 && r.sup.pct === r.sup.one + r.sup.nova && r.back === 20, '辅助应乘在保留上、和别的光环相加：' + JSON.stringify(r));
+    assert(r.keep.n === 3 && r.keep.spawn === 1 && r.keep.hits >= 60 && r.keep.last5 >= 15, '护涡应 20 秒一直在、一直跳：' + JSON.stringify(r));
+    assert(r.unbind.n === 0 && r.unbind.pct === 0 && r.unbind.max && r.unbind.after === 0, '拿下技能栏应当场消散、还回保留：' + JSON.stringify(r));
+    assert(r.rebind === 3 && r.swap && r.swapBack === 3 && r.gem, '放回 / 换刻式 / 宝石没了应跟着开关：' + JSON.stringify(r));
+    return '保留 ' + r.on.pct + '%（' + r.on.res + ' 点），20 秒绞中 ' + r.keep.hits + ' 跳（最后 5 秒 ' + r.keep.last5 + '），拿下即散';
+  });
+  await step('刻式 v2·黑旋风「护涡」（光环）：存档——选着护涡读档还是护涡；在技能栏上读档后接着转、不在就不保留；原式旋风飞在半空时换成护涡读档不出错', async () => {
+    await ev(TVDEF);
+    const r = await ev((keep) => {
+      const P = G.player, s = G.save, out = {};
+      const guards = () => G.chaosVortices().filter((v) => v.guard).length;
+      TV.setup('vortex', 'o');
+      // 原式放出去一组（旋风在飞、冷却在走），存档里改成护涡、在技能栏上，再读档
+      TV.cast('vortex', TV.at(6), 0.2);
+      out.flying = G.chaosVortices().filter((v) => !v.guard).length;
+      s.variants = { vortex: 'a' };
+      s.variantFree = { vortex: true };
+      G.persist();
+      G.loadSave();
+      G.computeStats();
+      TV.run(2.5);
+      out.on = { v: G.save.variants.vortex, name: G.SKILLS.vortex.vname, aura: G.auraOn('vortex'), pct: P.reservePct, n: guards(), left: G.chaosVortices().filter((v) => !v.guard).length };
+      // 不在技能栏上存档、读档：不保留、没有旋风；刻式还是护涡
+      s.bar = [null, null, null, null];
+      G.computeStats();
+      G.persist();
+      G.loadSave();
+      G.computeStats();
+      TV.run(0.5);
+      out.off = { v: G.save.variants.vortex, aura: G.auraOn('vortex'), pct: P.reservePct, n: guards() };
+      if (keep) localStorage.setItem('cinder-abyss-save-v1', keep);
+      else localStorage.removeItem('cinder-abyss-save-v1');
+      G.loadSave();
+      G.computeStats();
+      TV.done();
+      return out;
+    }, varKeep);
+    assert(r.flying >= 3, '原式应先放出去一组：' + JSON.stringify(r));
+    assert(r.on.v === 'a' && r.on.name === '护涡' && r.on.aura && r.on.pct === 20 && r.on.n === 3 && r.on.left === 0, '读档后护涡应接着转、半空的原式旋风照常散掉：' + JSON.stringify(r));
+    assert(r.off.v === 'a' && !r.off.aura && r.off.pct === 0 && r.off.n === 0, '不在技能栏上读档不该保留、不该有旋风：' + JSON.stringify(r));
+    return '读档：在栏上保留 ' + r.on.pct + '%、' + r.on.n + ' 团；不在栏上 0%';
   });
   await step('刻式 v2·黑旋风「汇涡」：旋风互相靠拢，撞到一起合成层数更高的一团', async () => {
     await ev(TVDEF);
