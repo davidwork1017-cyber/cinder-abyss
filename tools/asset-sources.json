@@ -20,9 +20,18 @@
     "g_cover_abyss": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）" },
     "g_cover_rift": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）" }
   },
+  "sources": {
+    "ual": {
+      "_comment": "人形标准骨架的动作包 assets/ual/ual-clips.glb：node tools/ual-pack.mjs <UAL1 的 Godot/AnimationLibrary_Godot_Standard.glb> <UAL2 的 Unreal-Godot/UAL2_Standard.glb>，只取 Zombie_Idle_Loop / Zombie_Walk_Fwd_Loop（UAL2）、Hit_Chest / Death01（UAL1），去掉手指",
+      "packs": [
+        { "name": "Universal Animation Library [Standard]", "author": "Quaternius", "url": "https://opengameart.org/content/universal-animation-library", "file": "universal_animation_librarystandard.zip", "sha256": "18ff1a7215f4852b320203e8aaf02a1578b5c8eef9027fbaedfcedc7b85a3ac2", "license": "CC0 1.0", "evidence": "assets/ual/License_UAL1.txt（包里的 Animation Library[Standard]/License.txt）" },
+        { "name": "Universal Animation Library 2 [Standard]", "author": "Quaternius", "url": "https://opengameart.org/content/universal-animation-library-2", "file": "universal_animation_library_2standard.zip", "sha256": "ec0e40d6d78fe9aaad59e322f40865a8675c22f0745e291622e54520391a9217", "license": "CC0 1.0", "evidence": "assets/ual/License_UAL2.txt（包里的 Universal Animation Library 2 [Standard]/License.txt）" }
+      ]
+    }
+  },
   "packs": {
     "models": { "models": "*" },
-    "chars": { "chars": { "adventurer": "quaternius-modular-men/Adventurer.glb", "zombie": "quaternius-animated-zombie/Zombie.glb", "skeleton": "quaternius-animated-monster/Skeleton.glb", "spider": "quaternius-easy-enemy/Spider.glb" } },
+    "chars": { "chars": { "adventurer": "quaternius-modular-men/Adventurer.glb", "zombie": "quaternius-animated-zombie/Zombie.glb", "skeleton": "quaternius-animated-monster/Skeleton.glb", "spider": "quaternius-easy-enemy/Spider.glb", "ual": "ual/ual-clips.glb" } },
     "rock-dark": { "textures": ["dark_rock"] },
     "rock-grey": { "textures": ["Rock035"] },
     "ground": { "textures": ["g_decals"] },
