@@ -825,7 +825,7 @@
     c: {
       name: '电桥', relic: 'dianqiao', pack: '电弧走过的地方都通电',
       desc: '电弧照常连锁，经过的每一段（从你到第一个目标、目标之间）都留下电桥，持续电击碰到的敌人。', alt: '同一个敌人同一时刻只吃一道电桥。电桥累积闪电异常值，但不引发感电电弧。最多 9 道，多了顶掉最老的。',
-      set: { mech: 'bridge', useMult: 1.36, bridge: { t: 1.5, w: 0.9, tick: 0.25, mult: 0.18, max: 9 } },
+      set: { mech: 'bridge', tags: ['spell', 'chaining', 'light', 'duration'], useMult: 1.36, bridge: { t: 1.5, w: 0.9, tick: 0.25, mult: 0.18, max: 9 } },
     },
   });
   Object.assign(G.VARIANTS.thrall, {

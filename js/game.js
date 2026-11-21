@@ -2841,8 +2841,9 @@
     const D = ctx.sk.bridge;
     for (let i = 0; i + 1 < pts.length; i++) {
       while (RQ.bridges.length >= D.max) relicBridgeOff(0);
-      const b = { x0: pts[i].x, z0: pts[i].z, x1: pts[i + 1].x, z1: pts[i + 1].z, t: D.t, tt: D.tick, ctx, D };
-      b.fx = G.world.relicBridgeOn ? G.world.relicBridgeOn(b.x0, b.z0, b.x1, b.z1, D.t, D.w) : -1;
+      const t = D.t * (ctx.durK || 1); // 绵延：电桥留得更久
+      const b = { x0: pts[i].x, z0: pts[i].z, x1: pts[i + 1].x, z1: pts[i + 1].z, t, tt: D.tick, ctx, D };
+      b.fx = G.world.relicBridgeOn ? G.world.relicBridgeOn(b.x0, b.z0, b.x1, b.z1, t, D.w) : -1;
       RQ.bridges.push(b);
     }
   };
