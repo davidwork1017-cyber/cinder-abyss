@@ -57,6 +57,7 @@ const page = await browser.newPage();
 let total = 0;
 for (const [id, t] of Object.entries(manifest.textures)) {
   if (only.length && !only.includes(id)) continue;
+  if (t.src === 'generated') continue; // 程序化贴图由 tools/gen-ground-textures.mjs 生成，不下载
   const s = await fetchSet(id, t);
   const out = await page.evaluate(
     async ([s, Q]) => {

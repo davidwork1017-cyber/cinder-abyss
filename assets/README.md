@@ -4,6 +4,7 @@
 | --- | --- | --- |
 | `polyhaven/` | Poly Haven 贴图，https://polyhaven.com | CC0（`polyhaven/LICENSE.txt`） |
 | `ambientcg/` | ambientCG 贴图，https://ambientcg.com | CC0（`ambientcg/LICENSE.txt`） |
+| `generated/` | `tools/gen-ground-textures.mjs` 按固定种子程序化生成的地面覆盖层（`g_cover_*`）和贴花图集（`g_decals`） | 原创（我们自己画的，不是第三方素材） |
 | `kaykit-dungeon-remastered/` | KayKit Dungeon Remastered 1.0，Kay Lousberg，https://kaylousberg.itch.io/kaykit-dungeon-remastered | CC0（`LICENSE.txt`） |
 | `kaykit-halloween-bits/` | KayKit Halloween Bits 1.0，Kay Lousberg，https://kaylousberg.itch.io/halloween-bits | CC0（`LICENSE.txt`） |
 | `kenney-nature-kit/` | Kenney Nature Kit 2.1，https://kenney.nl/assets/nature-kit | CC0（`License.txt`） |
@@ -14,6 +15,7 @@
 | `ual/` | Quaternius Universal Animation Library [Standard]（https://opengameart.org/content/universal-animation-library ，`universal_animation_librarystandard.zip`）和 Universal Animation Library 2 [Standard]（https://opengameart.org/content/universal-animation-library-2 ，`universal_animation_library_2standard.zip`），作者本人在 OpenGameArt 的上传；sha256 记在 `tools/asset-sources.json` 的 `sources.ual` | CC0（下载包里的许可证文件原样复制：`License_UAL1.txt`、`License_UAL2.txt`） |
 
 - 贴图：`node tools/prep-textures.mjs` 下载 1k 原图（缓存在 `.asset-cache/`，不进仓库），压成每套三张 JPEG：`albedo.jpg`、`normal.jpg`（OpenGL 法线）、`arh.jpg`（R 遮蔽 / G 粗糙度 / B 高度；Lava001 的 R 放自发光）。清单在 `tools/asset-sources.json`。
+- 程序化贴图：`node tools/gen-ground-textures.mjs` 重新生成 `generated/` 下的贴图（同样的代码出同样的像素，JPEG 编码借 playwright-core 的 Chrome），格式同上；贴花图集的 `arh.jpg` 的 G 通道是不透明度。
 - 模型：原样从各素材包复制（KayKit 的 `.gltf.glb` 改名为 `.glb`）。
 - 人形标准骨架的动作（`ual/ual-clips.glb`）：`node tools/ual-pack.mjs <UAL1 的 AnimationLibrary_Godot_Standard.glb> <UAL2 的 UAL2_Standard.glb>` 从两个下载包里只挑用到的动作
   （Zombie_Idle_Loop / Zombie_Walk_Fwd_Loop / Hit_Chest / Death01 的前 1.3 秒），骨架是 UAL2 的 65 骨骼去掉手指和末端骨骼（23 根），没有网格；
