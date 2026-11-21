@@ -19695,13 +19695,16 @@
   }
   // 命中点的一记四芒星闪光
   function flare(x, y, z, hex, size, dur) {
+    // vf-vfx2：命中闪光（加色、不做深度测试，会盖在怪身上）封顶：最大 1.2 米、0.1 秒，往白里只混三成（亮度只给小而短的东西）
+    size = Math.min(size, 1.2);
+    dur = Math.min(dur, 0.1);
     const f = flares[flareNext];
     flareNext = (flareNext + 1) % flares.length;
     f.on = true;
     f.t = 0;
     f.dur = dur;
     f.size = size;
-    f.mat.color.set(hex).lerp(_c2.set(0xffffff), 0.45);
+    f.mat.color.set(hex).lerp(_c2.set(0xffffff), 0.3);
     f.mat.opacity = 1;
     f.mat.rotation = Math.random() * TAU;
     f.sp.position.set(x, y, z);
@@ -19990,6 +19993,13 @@
   const slashPool = makePool(SLASH_FRAG, ['uArc', 'uDir', 'uIn', 'uC0', 'uC2', 'uSeed'], 12, T.NormalBlending);
 
   W.ring = function (x, z, r, hex, dur) {
+    // vf-vfx2：冲击环改画进形状批（实心的环，外沿亮带 + 环身，越扩越细；原来每道环各占一次 draw call）。始终是连着的一整圈：怪的起手提示也用它
+    if (PF.vShape) {
+      const pal = fxPal(hexOf(hex));
+      vsBrush(VSH.ring, 2, 1, pal[1], pal[1], 0.3, 0, 1);
+      vsEmit(x, 0.1, z, 0, 0, 0, dur || 0.4, r);
+      return;
+    }
     const it = poolGet(ringPool);
     it.on = true;
     it.t = 0;
@@ -21526,10 +21536,14 @@
     '  float d = (1.0 - l) * vR;', // 离圈边的米数
     '  float an = atan(vP.x, vP.y);',
     '  float sm = 0.55 + 0.45 * sin(an * floor(vR * 2.0) + uTime * 0.7) * sin(an * 3.0 - uTime * 0.45);', // 边上的烟缕慢慢流动
-    '  float line = 1.0 - smoothstep(0.03, 0.09, abs(d - 0.07));',
+    // vf-vfx2：外缘的线加粗加实（原来 0.62 的细线在亮地面上几乎看不见），沿圈每隔约 1 米一道往里卷的短钩（混沌：往里卷），圈里仍然全透明
+    '  float line = 1.0 - smoothstep(0.05, 0.11, abs(d - 0.09));',
+    '  float seg = fract(an / 6.2831853 * floor(vR * 5.0) + uTime * 0.04);',
+    '  float hook = step(seg, 0.07 + 0.05 * (1.0 - clamp(d / 0.45, 0.0, 1.0))) * (1.0 - smoothstep(0.32, 0.45, d)) * step(0.06, d);',
+    '  line = max(line, hook);',
     '  float band = (1.0 - smoothstep(0.0, 0.9, d)) * (0.55 + 0.45 * sm);',
-    '  float aD = band * 0.34 * uA;',
-    '  float aL = line * 0.62 * uA;',
+    '  float aD = band * 0.42 * uA;',
+    '  float aL = line * 0.9 * uA;',
     '  float a = clamp(aD + aL, 0.0, 1.0);',
     '  if (a < 0.004) discard;',
     '  gl_FragColor = vec4((vec3(0.04, 0.02, 0.07) * aD + vec3(0.72, 0.66, 0.86) * aL) / max(a, 0.001), a);',
@@ -23114,10 +23128,11 @@
   }
   // 旋风斩的风刃（vf-vfx2）：两道平躺的弯月绕着人转（刀的高度），后面各拖一道小一点、暗一点的残影；每一跳续一下寿命，松手后很快缩没。
   // 低画质不画残影。转向和刀光一致（俯视逆时针）
-  let sbEnt = null, sbT = 0, sbR = 3, sbA = 0, sbD = 0.4;
+  let sbEnt = null, sbT = 0, sbR = 3, sbA = 0, sbD = 0.4, sbDir = 1;
   const sbC = [1, 1, 1], sbC2 = [1, 1, 1];
-  W.spinBlades = function (ent, R, hex, ttl) {
+  W.spinBlades = function (ent, R, hex, ttl, dir) {
     if (!ent) return;
+    sbDir = dir === -1 ? -1 : 1;
     if (sbT <= 0) sbA = vr(0, TAU);
     sbEnt = ent;
     sbR = R;
@@ -23129,9 +23144,19 @@
     sbC2[0] = _c.r; sbC2[1] = _c.g; sbC2[2] = _c.b;
   };
   // 旋风斩的一跳（vf-vfx2）：续上风刃；脚下一道贴地的风纹（暗的尘土色弯月，扩开后收细）；first：起手那一下脚下卷起一圈尘环 + 几团尘
-  W.spinPulse = function (ent, R, hex, ttl, first) {
+  // 破绽（vf-vfx2）：身上往外崩的几块碎片（像架势碎了）+ 一颗小星
+  W.breakFx = function (x, y, z, r) {
+    vsBrush(VSH.chip, 3, 0, 0xfff0c0, 0xfff0c0, 0.4, 0.5);
+    for (let i = 0, n = qualId === 'low' ? 4 : 7; i < n; i++) {
+      const a = (i / n) * TAU + vr(-0.3, 0.3), v = vr(3, 5.5);
+      vsEmit(x + Math.sin(a) * r * 0.6, y, z + Math.cos(a) * r * 0.6, Math.sin(a) * v, vr(2, 4.5), Math.cos(a) * v, vr(0.5, 0.75), vr(0.08, 0.13), undefined, vr(0, TAU), vr(8, 14), 20);
+    }
+    tChunk(1, x, y + 0.2, z, 0, 0, 0, 0.12, 0.6, 0xffffff, 0xfff0c0, 0);
+  };
+  // dir = -1：刻式「旋涡斩」——风刃反着转、半径收进来（往里吸的意思）
+  W.spinPulse = function (ent, R, hex, ttl, first, dir) {
     if (!ent) return;
-    W.spinBlades(ent, R, hex, ttl);
+    W.spinBlades(ent, R, hex, ttl, dir);
     const p = ent.group.position;
     vsBrush(VSH.crescent, 2, 1, 0xa8957a, 0x7a6a58, 0, 0.35, 0.5);
     vsEmit(p.x, 0.07, p.z, 0, 0, 0, 0.32, R * 0.95, R * 0.95, sbA + vr(-0.4, 0.4));
@@ -23145,10 +23170,16 @@
     if (sbT <= 0 || !sbEnt || sbEnt.removed || !PF.vShape) return;
     sbT -= dt;
     if (sbT <= 0) return;
-    sbA -= dt * 17;
-    const p = sbEnt.group.position, fade = Math.min(1, sbT / 0.1), r = sbR * 0.8 * fade, lo = qualId === 'low';
+    sbA -= dt * 17 * sbDir;
+    const p = sbEnt.group.position, fade = Math.min(1, sbT / 0.1), r = sbR * (sbDir < 0 ? 0.62 : 0.8) * fade, lo = qualId === 'low';
     for (let b = 0; b < 2; b++) {
       const a = sbA + b * Math.PI;
+      if (sbDir < 0) {
+        // 反转的风刃：镜像（本地 x 取反）让前端仍然顺着转向
+        mFlat(p.x, 0.9, p.z, a, -r, r);
+        vsNow(VSH.blade, sbC[0], sbC[1], sbC[2], 0.25, 0.45, 0);
+        continue;
+      }
       // 看图后：风刃换成前粗后细的细刃（形状 blade，前端顺着转向），转过怪身前时只是一道细线，不挡住怪
       if (!lo) {
         mFlat(p.x, 0.8, p.z, a + 0.5, r * 0.92, r * 0.92);
@@ -26397,6 +26428,21 @@
     for (const kind in kvKinds) {
       const K = kvKinds[kind], L = K.list;
       if (!L.length && !K.mesh.visible) continue;
+      if (kind === 'twin' && PF.vShape) {
+        // vf-vfx2：双月（余响）改画进形状批：两片背靠背的细弯月（一暖一冷），不透明，亮度就是 game.js 压过的颜色本身，
+        // 不再是加色叠在地上（加色在怪群脚下会把旁边怪的亮面抬高）；a 的三档变成越来越细
+        for (let i = 0; i < L.length; i++) {
+          const h = L[i], rr = h.s * 0.36, th = h.a > 0.66 ? 0.8 : h.a > 0.33 ? 0.88 : 0.94;
+          _kvc.setHex(h.hex).convertSRGBToLinear();
+          mFlat(h.x, h.y, h.z, -h.k + Math.PI / 2, rr, rr);
+          vsNow(VSH.crescent, _kvc.r, _kvc.g, _kvc.b, 0, 0.3, th);
+          mFlat(h.x, h.y, h.z, -h.k - Math.PI / 2, rr, rr);
+          vsNow(VSH.crescent, _kvc.b, _kvc.g, _kvc.r, 0, 0.3, th);
+        }
+        K.mesh.count = 0;
+        K.mesh.visible = false;
+        continue;
+      }
       let n = 0;
       for (let i = 0; i < L.length; i++) {
         const h = L[i];

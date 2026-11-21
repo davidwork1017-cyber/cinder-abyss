@@ -5544,7 +5544,7 @@
         }
       }
       const pts = [{ x: P.x, z: P.z }];
-      const bo = sk.mech ? null : { v2: true }; // vf-vfx2：链雷的折线语言（刻式件照旧）
+      const bo = { v2: true }; // vf-vfx2：链雷的折线语言（刻式「过载」也用；「雷桩」走自己的 arcPylon）
       if (!first) {
         pts.push({ x: P.x + a.dx * 6, z: P.z + a.dz * 6 });
         W.bolt(pts, hex, false, bo);
@@ -5623,7 +5623,7 @@
       // 刻式：熔核 / 犁焰落地那一下打折（k0），之后留下熔核 / 顺着瞄准方向犁出去
       const vm = sk.mech ? sk[sk.mech] : null, R0 = sk.mech === 'plough' ? vm.r * Math.sqrt(ctx.area) : R;
       const tok = W.meteorFall(x, z, sk.delay, hex);
-      if (!sk.mech && W.meteorMark) W.meteorMark(tok, R); // vf-vfx2：落影 + 新的落地特效（刻式件照旧）
+      if (W.meteorMark) W.meteorMark(tok, R0); // vf-vfx2：落影 + 新的落地特效（刻式的熔核 / 犁焰也用，落地之后各自的件照旧）
       G.telegraph({
         shape: 'circle', x, z, r: R0, dur: sk.delay, dmg: 0, friendly: true,
         onFire() {
@@ -5633,9 +5633,9 @@
           if (sk.mech === 'core') meteorCore(ctx, x, z);
           else if (sk.mech === 'plough') meteorPlough(ctx, x, z, a.dx, a.dz);
           if (vm) {
-            W.ring(x, z, R0, hex, 0.4);
-            W.burst(x, 0.8, z, hex, 26, 7, 0.6);
-            W.shake(0.35);
+            // vf-vfx2：落地的样子交给 meteorLand2（外沿细环、火舌、岩块）；震动和原式一样打中才震 0.2（原来每次 0.35）
+            W.burst(x, 0.8, z, hex, 10, 7, 0.6);
+            if (hs.length) W.shake(0.2);
             G.sfx('hit');
             return;
           }
@@ -5660,7 +5660,7 @@
       const rk = P.relic.nuchao && !sk.mech ? G.relicSpinPulse(ctx) : 1; // 渊契「蓄潮」：每跳打得轻、攒层（只改原式）
       if (sk.mech === 'pull') whirlPull(ctx); // 刻式「旋涡斩」：先把一圈敌人往身边吸
       W.slash(P.x, P.z, Math.random() * TAU, R, 360, hex, sk.mech === 'pull' ? { dur: 0.2, inner: 0.35, y: 0.6, dir: -1 } : { dur: 0.2, inner: 0.6, y: 0.9 });
-      if (!sk.mech && W.spinPulse) W.spinPulse(P.ent, R, hex, ctx.time * 1.6, n === 1); // vf-vfx2：绕身的风刃、脚下的风纹、起手的尘环（刻式件照旧）
+      if (W.spinPulse) W.spinPulse(P.ent, R, hex, ctx.time * 1.6, n === 1, sk.mech === 'pull' ? -1 : 1); // vf-vfx2：绕身的风刃、脚下的风纹、起手的尘环；刻式「旋涡斩」风刃反着转、往里收
       if (n % 2 === 1) W.burst(P.x, 0.25, P.z, 0xbfb3a0, 4, R * 0.9, 0.3); // 脚下扬起的尘
       G.sfx('swing', { step: n % 2 });
       const hits = enemiesIn(P.x, P.z, R);
