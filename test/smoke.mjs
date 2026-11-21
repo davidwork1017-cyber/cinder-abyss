@@ -11463,7 +11463,8 @@ async function main() {
     await page.click('[data-act="del-cancel"]');
     assert(await ev(() => !document.querySelector('[data-act="del-confirm"]')), '取消无效');
     await page.click('[data-act="del-save"]');
-    await Promise.all([page.waitForNavigation({ timeout: 15000 }), page.click('[data-act="del-confirm"]')]);
+    // 防卡死的超时，按 README 的「页面重载 90 秒」（原来 15 秒：池里四个 Chrome 一起跑时重载就要 15 秒上下，skill-expand 的两次都是 15.0 秒左右擦线）
+    await Promise.all([page.waitForNavigation({ timeout: 90000 }), page.click('[data-act="del-confirm"]')]);
     await install();
     await frames(2);
     const r = await ev(() => ({ sum: G.debug.summary(), open: T.introOpen(), equip: Object.keys(G.save.equip).join(), maxTier: G.save.maxTier }));
@@ -13841,7 +13842,7 @@ async function main() {
       const keep = {};
       for (const id of G.GEM_SKILLS) keep[id] = G.SKILLS[id];
       // 渊式（c）：电桥带持续；随核跟着黑洞带持续；其余渊式不带
-      const want = { blackhole: 'oabc', vortex: 'o', arc: 'ac', blade: 'b', pyre: 'a', icefall: 'o' }; // skill-expand：坠凌带「持续」
+      const want = { blackhole: 'oabc', vortex: 'o', arc: 'ac', blade: 'b', pyre: 'a', icefall: 'ob' }; // skill-expand：坠凌带「持续」；skill-batch2：随凌（坠凌 B）也带，重凌（A）一根冰凌不带
       const huwoAura = G.skillVariant('vortex', 'a').kind === 'aura'; // 护涡改成光环之后不吃绵延、也镶不上回响
       if (!huwoAura) want.vortex += 'a';
       const bad = [], echoBad = [];
@@ -14095,7 +14096,7 @@ async function main() {
   });
 
   // ---- 第一批新技能的刻式（skill-batch2）：每个刻式一步，验它那条新规则；比伤害的地方 T.fix(0.5)（不暴击、取中值），期望值用同一个 ctx 算 ----
-  await step('刻式 b2·冰脊「岔脊」：主脊打中的敌人脚下横刺岔脊，打到主脊外侧 2 米的怪（伤害四成）；主脊打过的不再挨岔脊；5 米外的打不到', async () => {
+  await step('刻式 b2·冰脊「岔脊」：主脊打中的敌人脚下横刺岔脊，打到主脊外侧 2 米的怪（伤害四成）；主脊打过的不再挨岔脊；5 米外的打不到', noRes(async () => {
     await ev(TVDEF);
     const r = await ev(() => {
       TV.setup('frostline', 'a');
@@ -14112,7 +14113,7 @@ async function main() {
     assert(r.m === 1 && r.side === 1 && r.off === 0 && r.forks === 1, '岔脊的命中不对：' + JSON.stringify(r));
     assert(Math.abs(r.km - 1) < 0.1 && Math.abs(r.ks - 0.4) < 0.05, '主脊 / 岔脊的伤害不对（应为 1 / 0.4 倍）：' + JSON.stringify(r));
     return '主脊 ' + r.km.toFixed(2) + '，岔脊 ' + r.ks.toFixed(2) + ' 倍';
-  });
+  }));
   await step('刻式 b2·冰脊「冰枪」：扎中第一个就停（身后的不挨），11 米处的单个敌人也够得到；冰霜异常值比原式多', async () => {
     await ev(TVDEF);
     const r = await ev(() => {
@@ -14143,7 +14144,7 @@ async function main() {
     assert(r.o[0] === 1 && r.o[1] === 1 && r.ail - r.ail0 === 60, '原式应刺穿两只；冰枪的异常累积速度应 +60%：' + JSON.stringify(r));
     return '异常累积 +' + r.ail0 + '% → +' + r.ail + '%';
   });
-  await step('刻式 b2·坠凌「重凌」：1 秒内不伤害，之后 2.4 米内每只都吃整根（同一次施放 = avgHit），圈外的不挨；不再是持续技能', async () => {
+  await step('刻式 b2·坠凌「重凌」：1 秒内不伤害，之后 2.4 米内每只都吃整根（同一次施放 = avgHit），圈外的不挨；不再是持续技能', noRes(async () => {
     await ev(TVDEF);
     const r = await ev(() => {
       TV.setup('icefall', 'a');
@@ -14167,7 +14168,7 @@ async function main() {
     assert(r.early === 0 && r.n.every((x) => x === 1) && r.out === 0 && r.slams === 1, '重凌的落地时机 / 范围不对：' + JSON.stringify(r));
     assert(r.k.every((x) => Math.abs(x - 1) < 0.1) && !r.lasting, '重凌每只应吃整根、绵延不再适用：' + JSON.stringify(r));
     return '6 只各 ' + r.k[0] + ' 倍';
-  });
+  }));
   await step('刻式 b2·坠凌「随凌」：冰凌雨跟着你走——放完走到 8 米外的怪身边，它照样挨砸；原式落在原地，走过去的不挨', async () => {
     await ev(TVDEF);
     const r = await ev(() => {
@@ -14237,7 +14238,7 @@ async function main() {
     assert(r.wmoved < r.wallD && r.walk && r.dash === 1, '闪迸应停在墙前、站在能走的地方：' + JSON.stringify(r));
     return '冲出 ' + r.moved + ' 米、离怪 ' + r.gap + ' 米；墙在 ' + r.wallD + ' 米，冲了 ' + r.wmoved + ' 米';
   });
-  await step('刻式 b2·迸电「聚雷」：只打最近的一只；连着第 3 下过载（2 倍伤害、普通怪眩晕，2 秒内不再眩晕）；精英改为削架势、不眩晕', async () => {
+  await step('刻式 b2·迸电「聚雷」：只打最近的一只；连着第 3 下过载（2 倍伤害、普通怪眩晕，2 秒内不再眩晕）；精英改为削架势、不眩晕', noRes(async () => {
     await ev(TVDEF);
     const r = await ev(() => {
       const out = {};
@@ -14284,7 +14285,7 @@ async function main() {
     assert(r.stun3 > 0 && r.stuns === 1, '过载应眩晕普通怪、2 秒内不再眩晕同一只：' + JSON.stringify(r));
     assert(!(r.elStun > 0) && r.elPoise > 0, '精英不该被眩晕、应削架势：' + JSON.stringify(r));
     return '倍率 ' + r.d.join(' / ') + '；精英削架势 ' + r.elPoise;
-  });
+  }));
   await step('刻式 b2·引雷「游雷」：不叠加成（每跳倍率恒为 1），连锁 3 次（每跳最远 9 米）；牵引时走得比原式快', async () => {
     await ev(TVDEF);
     const r = await ev(() => {
@@ -14398,7 +14399,7 @@ async function main() {
     assert(r.bn >= 1 && Math.abs(r.boss) < 0.05, '首领不该被拽：' + JSON.stringify(r));
     return '钩钉 ' + r.b.dd + ' 米（中 ' + r.b.n + ' 枚），原式 +' + r.o.dd + ' 米';
   });
-  await step('刻式 b2·放血「血镰」：一条 6.5 米的直线，5.5 米处的怪也砍到、侧面的不中；流血按 60% 叠', async () => {
+  await step('刻式 b2·放血「血镰」：一条 6.5 米的直线，5.5 米处的怪也砍到、侧面的不中；流血按 60% 叠', noRes(async () => {
     await ev(TVDEF);
     const r = await ev(() => {
       TV.setup('rend', 'a');
@@ -14419,7 +14420,7 @@ async function main() {
     assert(r.near === 1 && r.far === 1 && r.side === 0 && r.st === 1, '血镰的直线范围不对：' + JSON.stringify(r));
     assert(r.bleed === 60 && Math.abs(r.k - 0.6) < 0.02, '血镰的流血应为这一击的 60%：' + JSON.stringify(r));
     return '流血 ' + r.k + ' 倍';
-  });
+  }));
   await step('刻式 b2·放血「剜创」：身前 50° 的窄刺（侧面的不中、3.2 米处的中），刺中的敌人能叠到 8 层；别的物理技能照旧最多 6 层', async () => {
     await ev(TVDEF);
     const r = await ev(() => {
