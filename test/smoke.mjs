@@ -1480,7 +1480,6 @@ async function main() {
         G.player.mana = G.player.maxMana;
         T.dummy(dist, 0);
         T.settle();
-        G.debug.hold(false);
         return { ok, bar: G.save.bar.slice(), pt: T.scr(T.d.x, T.d.z), cost: G.skillCtx(id).cost, cd: G.skillCtx(id).cd, mana: G.player.mana };
       }, [id, slot, dist]);
       assert(s.ok && s.bar[slot] === id && s.bar.filter((b) => b === id).length === 1, '绑定失败：' + s.bar);
@@ -1488,7 +1487,25 @@ async function main() {
       await holdInput(slot, true);
       let r;
       try {
-        await until(() => T.d.hp < T.d.maxHp);
+        // 按模拟时间推进（G.tick = 实时循环里的同一步，内含 W.update，命中帧、动作都照走；判定只看模拟状态，不需要渲染），不等真实时间的帧：
+        // 召唤物要走过去再打（巨像的模拟时间要好几秒），机器一忙按帧等会超时。每次 evaluate 推进 1 秒（60 步），中间让页面喘口气，最多 45 秒模拟时间。
+        // 鼠标 / 按键照样是真的；先让渲染循环跑两帧，把准星的世界坐标更新到靶子上
+        await frames(2);
+        let hit = false;
+        for (let c = 0; c < 45 && !hit; c++) {
+          hit = await ev(() => {
+            const M = G.input.mouse;
+            for (let i = 0; i < 60; i++) {
+              if (T.d.hp < T.d.maxHp) return true;
+              const g = G.world.screenToGround(M.x, M.y); // 和实时循环的每一帧一样：先按当前镜头重算准星落点，再推进一步
+              M.wx = g.x;
+              M.wz = g.z;
+              G.tick(1 / 60);
+            }
+            return T.d.hp < T.d.maxHp;
+          });
+        }
+        if (!hit) throw new Error('按住 45 秒（模拟时间）也没有打到靶子');
         r = await ev((id) => ({
           dmg: T.d.maxHp - T.d.hp, mana: G.player.mana, max: G.player.maxMana, cdMax: G.player.cdMax[id] || 0,
           px: G.player.x, awake: T.d.awake, aura: G.auraOn(id), res: G.player.reserved,
@@ -14551,6 +14568,7 @@ async function main() {
     await encKit();
     const r = await ev(() => {
       const S = G.state, out = {};
+      const unquiet = EK.quiet(); // 整步只让测试自己杀匣卫：技能栏上的光环（霜环）在 25 秒里会把匣卫磨死，「超时」那一半就测不到了
       let enc = EK.put('box', 1, 0);
       const s = enc.site;
       T.tp(s.x + 3, s.z);
@@ -14581,6 +14599,7 @@ async function main() {
       out.late = enc.how;
       out.lateItems = EK.items();
       EK.done();
+      unquiet();
       return out;
     });
     assert(r.idle === 'idle' && r.run === 'run' && r.n === 3, '缚匣应走到跟前才崩开、刷 3 只匣卫：' + JSON.stringify(r));
@@ -15238,6 +15257,35 @@ async function main() {
     assert(!r.lie && r.boss === 1 && r.boss1 === 0, '非烈印的区域首领应掉印烛芯、层级 1 不掉：' + JSON.stringify(r));
     assert(!r.fresh && r.load === '{"seal":2,"rift":99,"vow":0,"box":1}false' && !r.resaved && r.old === '{"seal":0,"rift":0,"vow":0,"box":0}false', '烛芯的存档不对（fragPity 应丢掉）：' + JSON.stringify(r));
     return '层级 0 出现 ' + r.p0 + '，层级 1 两个 ' + r.p2 + '，烛芯 ' + r.chance;
+  });
+
+  // 「区域 N」的泄漏检查数基线前会先把醒来的异兆收掉（不然懒生成会让基线时有时无），所以「醒来的异兆换区时收干净」单独在这里测
+  await step('异兆换区清理：醒来的缚匣（道具组）和拾烬客（道具组 + 实体）在换区时都从场景里收掉', async () => {
+    await encKit();
+    const r = await ev(() => {
+      const W = G.world, S = G.state, out = {};
+      const enemyGroup = (o) => S.enemies.some((e) => e.ent && e.ent.group === o);
+      for (const kind of ['box', 'trader']) {
+        const enc = EK.put(kind, 1, 0, kind === 'box' ? 4100 : 4150);
+        if (!enc) {
+          out[kind] = { none: true };
+          continue;
+        }
+        // 走到点位上推进一步：懒生成在这一步醒来，记下它往场景里加了哪些对象（匣卫这类敌人不算）
+        const before = new Set(W.scene.children);
+        T.tp(enc.site.x, enc.site.z);
+        G.tick(1 / 60);
+        const added = W.scene.children.filter((o) => !before.has(o) && !enemyGroup(o));
+        const live = enc.live;
+        G.enterZone(S.zoneIdx, S.tier); // 换区（重进同一区，模拟停着，新掷的异兆不会醒）
+        out[kind] = { live, added: added.length, left: added.filter((o) => o.parent).length };
+      }
+      G.enterZone(0, 0);
+      return out;
+    });
+    assert(r.box.live && r.box.added >= 1 && r.trader.live && r.trader.added >= 2, '异兆没有醒来，或者醒来时没有建出道具 / 拾烬客：' + JSON.stringify(r));
+    assert(r.box.left === 0 && r.trader.left === 0, '换区后醒来的异兆道具 / 拾烬客还留在场景里：' + JSON.stringify(r));
+    return '缚匣醒来加了 ' + r.box.added + ' 个、拾烬客 ' + r.trader.added + ' 个，换区后都收掉';
   });
 
   // ================================================================== 熄烛者（D5：巅峰首领，余烛殿）
