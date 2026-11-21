@@ -23558,8 +23558,9 @@
   // 重凌：一根大冰凌从 7 米高斜着落下（细长冰晶顺着速度拉长，比普通冰凌粗一倍多）
   W.icicleSlamFall = function (x, z, R, fall) {
     const H = 7, dx = 1.2;
-    vsBrush(VSH.crystal, 0, 2, 0xb8e4f8, 0x86c4e2, 0.25, 0.55, 0.7);
-    vsEmit(x + dx, H, z, -dx / fall, -H / fall, 0, fall, 0.55, 2.4);
+    // 看图后：整根浅色冰晶压在怪身上太亮 → 中间调的冰蓝、亮芯比例压低（落下只有 0.3 秒）
+    vsBrush(VSH.crystal, 0, 2, 0x8cc4e0, 0x6aa2c4, 0.12, 0.6, 0.7);
+    vsEmit(x + dx, H, z, -dx / fall, -H / fall, 0, fall, 0.5, 2.3);
   };
   // 重凌落地：中间一颗小亮芯（≤ 0.6 米、50 毫秒）；冰晶只沿外沿一圈朝外斜立（只画边，低画质 6 根），冰碴往外弹；
   // 地上一块比地面暗的冻痕（低画质不铺）
