@@ -5938,6 +5938,13 @@
       done: () => false,
     },
     {
+      // 熄烛冠巅峰改版之前的存档里有熄烛冠：读档时原地升级（见 game.js 的 migrateXizhu），提示一次
+      id: 'xzmig', calm: true, max: 14,
+      html: '<b>熄烛冠已升级</b>：原有词缀按原品质提到新数值（冰霜抗性改为生命回复），新增一条「暗域增伤」，机制换成「暗域」',
+      when: () => G.xizhuMigrated > 0,
+      done: () => false,
+    },
+    {
       id: 'poise', max: 30,
       html: '精英和首领血条下的<b>白条是架势</b>，打空后敌人露出<b class="c-gold">破绽</b>。近战和终结技削得最多',
       when: () => enemyNear(12, (e) => e.awake && e.poiseMax > 0 && !(e.brokenT > 0)),
@@ -6055,6 +6062,7 @@
       G.twinMigrated = 0;
     }
     if (id === 'bowmig') G.save.bowMig = false;
+    if (id === 'xzmig') G.save.xzMig = false;
     if (id === 'variant2') {
       G.save.varNote = false;
       G.variantRedone = 0;

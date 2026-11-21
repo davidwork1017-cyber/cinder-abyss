@@ -331,6 +331,7 @@
   G.hurtMinion = function (m, amount, dtype, src) {
     if (!m || m.dead || !(amount > 0)) return false;
     if (m.decoy) return true; // 刻式「残像」：诱饵挨打不掉血，时间到了自己炸开
+    if (P.relic && P.relic.xizhu) amount *= G.darkWeakK(src); // 渊契「暗域」：域内的敌人伤害降低
     const W = G.world;
     // 继承来的护甲 / 抗性和玩家受击同一套结算：护甲减物理（封顶 80%），抗性减对应元素；再乘自带的减伤
     let k = 1 - (m.dr || 0) / 100;
