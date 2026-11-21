@@ -2449,11 +2449,11 @@
   G.twinClear = twinClear;
 
   // ---------- 暗域（熄烛冠，巅峰）：hitEnemy / hurtPlayer / hurtMinion 里各一行钩子 ----------
-  // 暗域增伤（专属词缀 darkDmg）：你的伤害对所有敌人 × (1 + darkDmg%)，召唤物的伤害只对暗域内的敌人（e.dark，enemies.js 每帧算）；
+  // 暗域增伤（专属词缀 darkDmg）：你的伤害对所有敌人 × (1 + darkDmg%)，召唤物的伤害只对暗域内的敌人（e.dark，enemies.js 每帧算）且按 mk 倍 × (1 + darkDmg% × mk)；
   // 还没发现你（没醒）的敌人，你的第一击必定暴击
   G.relicDarkHit = function (e, ctx, m, minion) {
-    const k = 1 + Math.max(0, (P.S && P.S.darkDmg) || 0) / 100;
-    if (minion) return G.calcHit(ctx, e.dark ? m * k : m);
+    const v = Math.max(0, (P.S && P.S.darkDmg) || 0) / 100, k = 1 + v;
+    if (minion) return G.calcHit(ctx, e.dark ? m * (1 + v * RM.xizhu.mk) : m);
     if (e.awake) return G.calcHit(ctx, m * k);
     const c0 = ctx.crit;
     ctx.crit = 100;
@@ -2463,9 +2463,13 @@
       ctx.crit = c0;
     }
   };
-  // 面板秒伤（技能卡、物品对比、技能页）把暗域增伤算进去：你的技能对所有敌人都吃；召唤物按目标在暗域里算（它们身边 mr 米就是暗域）
+  // 面板秒伤（技能卡、物品对比、技能页）把暗域增伤算进去：你的技能对所有敌人都吃；召唤物按目标在暗域里算（它们身边 mr 米就是暗域），按 mk 倍
   const skillDps0 = G.skillDps;
-  G.skillDps = (ctx) => skillDps0(ctx) * (P.relic.xizhu ? 1 + Math.max(0, (P.S && P.S.darkDmg) || 0) / 100 : 1);
+  G.skillDps = (ctx) => {
+    if (!P.relic.xizhu) return skillDps0(ctx);
+    const v = Math.max(0, (P.S && P.S.darkDmg) || 0) / 100;
+    return skillDps0(ctx) * (1 + v * (ctx.minion || ctx.asMinion ? RM.xizhu.mk : 1));
+  };
   // 暗域内的敌人造成的伤害倍率：src 是敌人本身，或带 owner 的预警圈 / 弹丸。首领 1 − weakBoss，熄烛者（pin）不吃
   G.darkWeakK = function (src) {
     const e = src && src.owner && typeof src.owner === 'object' ? src.owner : src;

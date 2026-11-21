@@ -16276,7 +16276,7 @@ async function main() {
     return '暖光 ' + r.lamp;
   });
 
-  await step('渊契「暗域」（熄烛冠）：身周 8 m / 召唤物身周 2.5 m 内的敌人在域内；暗域增伤（词缀，中值 24%）对你的伤害近处远处都 ×1.24、召唤物只对域内 ×1.24；没发现你时第一击必暴；域内的怪打你 / 打召唤物 ×0.8（首领 ×0.9、熄烛者 ×1）；熄烛者单次仍封顶 85%；暗域圈 1 次 draw（玩家 + 召唤物）；摘下当场复原', async () => {
+  await step('渊契「暗域」（熄烛冠）：身周 8 m / 召唤物身周 2.5 m 内的敌人在域内；暗域增伤（词缀，中值 24%）对你的伤害近处远处都 ×1.24、召唤物只对域内、按 1.25 倍算 ×1.3；没发现你时第一击必暴；域内的怪打你 / 打召唤物 ×0.8（首领 ×0.9、熄烛者 ×1）；熄烛者单次仍封顶 85%；暗域圈 1 次 draw（玩家 + 召唤物）；摘下当场复原', async () => {
     const r = await ev(() => {
       const S = G.state, P = G.player, W = G.world, out = {};
       RQT.begin('xizhu');
@@ -16335,6 +16335,10 @@ async function main() {
       P.S.darkDmg = 0;
       out.dps = +(dps1 / G.skillDps(cB)).toFixed(2);
       P.S.darkDmg = v0;
+      const cT = G.skillCtx('thrall'), dT = G.skillDps(cT);
+      P.S.darkDmg = 0;
+      out.dps += ' ' + +(dT / G.skillDps(cT)).toFixed(2); // 召唤技能的面板秒伤按 1 + 24% × 1.25
+      P.S.darkDmg = v0;
       G.save.equip.helm = null;
       G.computeStats();
       G.debug.step(0.02);
@@ -16350,9 +16354,9 @@ async function main() {
     assert(r.v === 24, '暗域增伤词缀（中值）不对：' + JSON.stringify(r));
     assert(r.flags1 === 'true,false,false' && r.flags2 === 'true,false,true', '域内判定不对：' + JSON.stringify(r));
     assert(r.ring.visible && r.ring.r === 8 && r.ring.mr === 2.5 && r.ring.n === 2, '暗域圈不对：' + JSON.stringify(r));
-    assert(r.you === '1.24,1.24' && r.mine === '1.24,1' && r.hitFar === 1.24 && r.sneak === 'true false', '增伤 / 必暴不对：' + JSON.stringify(r));
+    assert(r.you === '1.24,1.24' && r.mine === '1.3,1' && r.hitFar === 1.24 && r.sneak === 'true false', '增伤 / 必暴不对：' + JSON.stringify(r));
     assert(r.weak === '0.8,0.8' && r.weakBoss === 'true,0.9,1' && r.minionWeak === 0.8 && r.cap === 0.85, '削弱 / 85% 上限不对：' + JSON.stringify(r));
-    assert(r.off === 'false,false,true,0' && r.offHit === '1 1' && r.offRing === false && r.dps === 1.24, '摘下没复原 / 面板秒伤没算暗域增伤：' + JSON.stringify(r));
+    assert(r.off === 'false,false,true,0' && r.offHit === '1 1' && r.offRing === false && r.dps === '1.24 1.3', '摘下没复原 / 面板秒伤没算暗域增伤：' + JSON.stringify(r));
     return '增伤 ×' + r.you.split(',')[0] + ' · 域内伤害 ×' + r.weak.split(',')[0] + ' · 首领 ×0.9 · 上限 ' + r.cap;
   });
 
