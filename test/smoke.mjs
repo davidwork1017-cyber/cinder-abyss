@@ -11485,8 +11485,9 @@ async function main() {
     await page.click('[data-act="del-cancel"]');
     assert(await ev(() => !document.querySelector('[data-act="del-confirm"]')), '取消无效');
     await page.click('[data-act="del-save"]');
-    // 防卡死的超时，按 README 的「页面重载 90 秒」（原来 15 秒：池里四个 Chrome 一起跑时重载就要 15 秒上下，skill-expand 的两次都是 15.0 秒左右擦线）
-    await Promise.all([page.waitForNavigation({ timeout: 90000 }), page.click('[data-act="del-confirm"]')]);
+    // 防卡死的超时（不是行为断言）：15 → 30 秒。实测（188deef 之后，池里）这次重载 8.4–12.2 秒（10 次），四个 Chrome 一起跑的 test:func 里整步 13.9–15.0 秒、
+    // 一次超过 15 秒失败；按最慢的约 2 倍定
+    await Promise.all([page.waitForNavigation({ timeout: 30000 }), page.click('[data-act="del-confirm"]')]);
     await install();
     await frames(2);
     const r = await ev(() => ({ sum: G.debug.summary(), open: T.introOpen(), equip: Object.keys(G.save.equip).join(), maxTier: G.save.maxTier }));
