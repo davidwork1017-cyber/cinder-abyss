@@ -18,7 +18,7 @@
 - 程序化贴图：`node tools/gen-ground-textures.mjs` 重新生成 `generated/` 下的贴图（同样的代码出同样的像素，JPEG 编码借 playwright-core 的 Chrome），格式同上；贴花图集的 `arh.jpg` 的 G 通道是不透明度。
 - 模型：原样从各素材包复制（KayKit 的 `.gltf.glb` 改名为 `.glb`）。
 - 人形标准骨架的动作（`ual/ual-clips.glb`）：`node tools/ual-pack.mjs <UAL1 的 AnimationLibrary_Godot_Standard.glb> <UAL2 的 UAL2_Standard.glb>` 从两个下载包里只挑用到的动作
-  （Zombie_Idle_Loop / Zombie_Walk_Fwd_Loop / Hit_Chest / Death01 的前 1.3 秒），骨架是 UAL2 的 65 骨骼去掉手指和末端骨骼（23 根），没有网格；
+  （Zombie_Idle_Loop / Zombie_Walk_Fwd_Loop / Hit_Chest / Death01 的前 1.6 秒），骨架是 UAL2 的 65 骨骼去掉手指和末端骨骼（23 根），没有网格；
   游戏端按 `js/world.js` 里「人形标准骨架」一节的对照表把它重定向到游魂、烬骸仆从的骨架上。下载包本身不进仓库。
 - 打包：`node tools/pack-assets.mjs` 把这里的文件转成 `js/assets/*.js`（base64），游戏从 `file://` 打开也能用。改了这里的文件要重新打包，生成的 JS 一起提交。
 - 角色模型（Quaternius 2018–2020 的免费包，CC0；2025 年以后的 Quaternius 包是 QAL 许可，不用）：源文件原样放在 `quaternius-*/`（`.gltf` / `.fbx`），

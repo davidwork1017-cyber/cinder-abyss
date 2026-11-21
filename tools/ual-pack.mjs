@@ -23,12 +23,12 @@ const UAL1_TO_STD = {
 // 留下的骨骼（标准骨架去掉手指 / 末端）
 const KEEP = new Set(Object.values(UAL1_TO_STD));
 // 要的动作：[来源 1|2, 源动作名, 包里的名字, 截取 [起, 止]（秒，缺省整段）]
-// Death01 原长 2.4 s，倒地在 ~1.3 s 以内，后面是躺着不动：截到 1.3 s，游戏里再压进程序化死亡的时长（0.6 s）
+// Death01 原长 2.4 s：0–0.6 s 慢慢跪下去，0.7–1.0 s 往后倒地，1.0–1.5 s 腿弹起来再落下，1.5 s 以后躺着不动：截到 1.6 s，游戏里再压进程序化死亡的时长（0.6 s）
 const CLIPS = [
   [2, 'Zombie_Idle_Loop', 'Zombie_Idle'],
   [2, 'Zombie_Walk_Fwd_Loop', 'Zombie_Walk', null, true],
   [1, 'Hit_Chest', 'Hit_Chest'],
-  [1, 'Death01', 'Death01', [0, 1.3]],
+  [1, 'Death01', 'Death01', [0, 1.6]],
 ];
 const FPS = 30;
 
@@ -106,7 +106,7 @@ if (process.argv[2] === '--probe') {
   const d = clipDur(G, a), pi = S.names.indexOf('pelvis'), hi = S.names.indexOf('Head');
   for (let t = 0; t <= d + 1e-6; t += 0.1) {
     const W = world(S, sample(G, S, a, t));
-    console.log(t.toFixed(1), '骨盆 y', W[pi].t[1].toFixed(3), 'z', W[pi].t[2].toFixed(3), '头 y', W[hi].t[1].toFixed(3));
+    console.log(t.toFixed(1), '骨盆 y', W[pi].t[1].toFixed(3), 'z', W[pi].t[2].toFixed(3), '头 y', W[hi].t[1].toFixed(3), '脚 y', W[S.names.indexOf('foot_l')].t[1].toFixed(3), W[S.names.indexOf('foot_r')].t[1].toFixed(3));
   }
   process.exit(0);
 }
