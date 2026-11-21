@@ -1633,6 +1633,9 @@
     lasting: (p) => { const a0 = -Math.PI / 2 + 0.5, a1 = a0 + TAU * 0.86, r = 8.4; for (let i = 0; i <= 24; i++) { const a = a0 + (i / 24) * (a1 - a0); p[i ? 'L' : 'M'](Math.cos(a) * r, Math.sin(a) * r); } const ex = Math.cos(a1) * r, ey = Math.sin(a1) * r, tx = -Math.sin(a1), ty = Math.cos(a1); p.M(ex - tx * 3.2 + ex / r * 2.4, ey - ty * 3.2 + ey / r * 2.4).L(ex, ey).L(ex - tx * 3.2 - ex / r * 2.4, ey - ty * 3.2 - ey / r * 2.4); return p.M(0, 0).L(0, -5).M(0, 0).L(3.8, 2.2); },
     frugal: (p) => p.M(-6, -8.6).L(6, -8.6).L(0.8, 0).L(6, 8.6).L(-6, 8.6).L(-0.8, 0).Z().M(-7.4, -8.6).L(7.4, -8.6).M(-7.4, 8.6).L(7.4, 8.6),
     freeze: (p) => p.P([0, -9.4, 6.6, -4, 6.6, 4, 0, 9.4, -6.6, 4, -6.6, -4]).M(0, -9.4).L(0, 9.4).M(-6.6, -4).L(6.6, 4).M(6.6, -4).L(-6.6, 4),
+    // 破障（enemy-resist）：一面从中间裂成两半、错开一点的盾（坚骨是整面盾里一根骨；贯穿是箭穿过一道线）
+    breach: (p) => p.M(-1.4, -9.6).L(-8.4, -6.6).C(-8.4, 1.6, -5.2, 6.6, -1.4, 9.6).L(0.2, 4.2).L(-2.6, 0.8).L(-0.2, -3.6).Z()
+      .M(1.4, -9.6).L(8.4, -6.6).C(8.4, 1.6, 5.2, 6.6, 1.4, 9.6).L(3, 4.2).L(0.2, 0.8).L(2.6, -3.6).Z(),
     // 仆从辅助：驭灵（骷髅）、坚骨（盾里一根骨）、群聚（三个人头）、狂怒（三道爪痕）
     m_dmg: (p) => p.M(-6.8, 3).C(-10.4, -1.6, -8.8, -9.6, 0, -9.6).C(8.8, -9.6, 10.4, -1.6, 6.8, 3).L(4.6, 4.6).L(4.6, 8.6).L(-4.6, 8.6).L(-4.6, 4.6).Z()
       .E(-3.4, -1.8, 2.1).E(3.4, -1.8, 2.1).M(-1.6, 5.4).L(-1.6, 8.4).M(1.6, 5.4).L(1.6, 8.4),
@@ -1665,6 +1668,7 @@
   const GLYPH_FILL = { fire: 1, light: 1, stagger: 1, ailment: 1, frugal: 1, brutal: 1 }; // 这些符号画成实心
   const SUP_TINT = {
     multi: '#ffb066', pierce: '#b9c6dc', chain: '#ffe45e', expanse: '#7fe0c0', haste: '#7ed67a', fire: '#ff7a2c', cold: '#86d8ff', light: '#ffe45e',
+    breach: '#5b7bff', // 破障（enemy-resist）
     brutal: '#e2705a', precise: '#ffd75e', leech: '#ff6a8a', echo: '#c7a6ff', stagger: '#f2e6b0', ailment: '#b6e05c', frugal: '#6fb2ff',
     m_dmg: '#3fe0c8', m_life: '#d2b47a', m_horde: '#e28ad6', m_speed: '#ff5a46', chaos: '#f03cb4', lasting: '#9be0e6',
     narrow: '#d9a441', farshot: '#9fc3ff', swell: '#b48cff', charge: '#5fe0e8', blaze: '#ff5a3c', deepfreeze: '#bfe8ff', surge: '#fff38a',
