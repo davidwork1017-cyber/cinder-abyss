@@ -4,6 +4,547 @@
  "palette": "assets/ca/palette.png",
  "assets": [
   {
+   "id": "ca/abyss_arch",
+   "category": "kit",
+   "zone": "abyss",
+   "file": "assets/ca/abyss/abyss_arch.glb",
+   "ship": true,
+   "replaces": "kh/arch",
+   "tris": 528,
+   "verts": 1566,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -2.109,
+     0,
+     -0.434
+    ],
+    "max": [
+     2.109,
+     4.414,
+     0.434
+    ]
+   },
+   "h": 4.414,
+   "r": 2.109,
+   "y0": 0,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "arch",
+    "catalog": "art/catalog.py",
+    "seed": 61,
+    "args": {
+     "span": 3.2,
+     "h": 4
+    },
+    "bake": {
+     "ao": 0.8,
+     "grad": 1
+    }
+   },
+   "sha256": "8178bb9067d89bc1b32905a5318a855cd1147a2ee2209190cf126e0be9ff752d"
+  },
+  {
+   "id": "ca/abyss_boulder",
+   "category": "prop",
+   "zone": "abyss",
+   "file": "assets/ca/abyss/abyss_boulder.glb",
+   "ship": true,
+   "replaces": "kn/rock_largeF",
+   "tris": 98,
+   "verts": 294,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.548,
+     -0.05,
+     -0.534
+    ],
+    "max": [
+     0.526,
+     0.429,
+     0.477
+    ]
+   },
+   "h": 0.479,
+   "r": 0.548,
+   "y0": -0.05,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "boulder",
+    "catalog": "art/catalog.py",
+    "seed": 83,
+    "args": {},
+    "bake": {
+     "ao": 0.12,
+     "grad": 0.2
+    }
+   },
+   "sha256": "3c642c45a5b83240aef0d23d46c256fa6843f5fe6ea0d862cae8614f2b626f61"
+  },
+  {
+   "id": "ca/abyss_crypt",
+   "category": "kit",
+   "zone": "abyss",
+   "file": "assets/ca/abyss/abyss_crypt.glb",
+   "ship": true,
+   "replaces": "kh/crypt",
+   "tris": 578,
+   "verts": 1678,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -2.944,
+     0,
+     -4
+    ],
+    "max": [
+     2.944,
+     8,
+     4
+    ]
+   },
+   "h": 8,
+   "r": 4,
+   "y0": 0,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "crypt",
+    "catalog": "art/catalog.py",
+    "seed": 113,
+    "args": {},
+    "bake": {
+     "ao": 1.2,
+     "grad": 1.5
+    }
+   },
+   "sha256": "0845ec3d03b934069bf9de946bdc0566bde8c67bb9c329f20ed7ecb40b28f3ae"
+  },
+  {
+   "id": "ca/abyss_firepit",
+   "category": "prop",
+   "zone": "abyss",
+   "file": "assets/ca/abyss/abyss_firepit.glb",
+   "ship": true,
+   "replaces": "kn/campfire_stones",
+   "tris": 245,
+   "verts": 705,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.269,
+     -0.05,
+     -0.251
+    ],
+    "max": [
+     0.291,
+     0.028,
+     0.231
+    ]
+   },
+   "h": 0.078,
+   "r": 0.291,
+   "y0": -0.05,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "firepit",
+    "catalog": "art/catalog.py",
+    "seed": 17,
+    "args": {
+     "r": 0.29
+    },
+    "bake": {
+     "ao": 0.03,
+     "grad": 0.03,
+     "gtint": 0.3,
+     "grime": 0.12,
+     "wear": 0.4,
+     "gain": 0.72
+    }
+   },
+   "sha256": "de15c20d0d5cefadb9aa170b1388fb0a8c9a15378533d0c74e2727d73fd233cb"
+  },
+  {
+   "id": "ca/abyss_marker",
+   "category": "scatter",
+   "zone": "abyss",
+   "file": "assets/ca/abyss/abyss_marker.glb",
+   "ship": true,
+   "replaces": "kh/gravemarker_A",
+   "tris": 152,
+   "verts": 448,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.434,
+     0,
+     -0.327
+    ],
+    "max": [
+     0.414,
+     1.196,
+     0.312
+    ]
+   },
+   "h": 1.196,
+   "r": 0.434,
+   "y0": 0,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "grave_cross",
+    "catalog": "art/catalog.py",
+    "seed": 13,
+    "args": {},
+    "bake": {
+     "ao": 0.3,
+     "grad": 0.5
+    }
+   },
+   "sha256": "f90d13630feb4650c2046476188f36d3cc751d108656d3d3911f98fee527694d"
+  },
+  {
+   "id": "ca/abyss_monolith",
+   "category": "prop",
+   "zone": "abyss",
+   "file": "assets/ca/abyss/abyss_monolith.glb",
+   "ship": true,
+   "replaces": "kn/rock_tallA",
+   "tris": 76,
+   "verts": 227,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.376,
+     -0.05,
+     -0.156
+    ],
+    "max": [
+     0.492,
+     0.946,
+     0.397
+    ]
+   },
+   "h": 0.996,
+   "r": 0.492,
+   "y0": -0.05,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "monolith",
+    "catalog": "art/catalog.py",
+    "seed": 71,
+    "args": {},
+    "bake": {
+     "ao": 0.12,
+     "grad": 0.25
+    }
+   },
+   "sha256": "0d53d97351018d6b154db79dec16b7af22e0af6519f06d633d39074ba6b666d2"
+  },
+  {
+   "id": "ca/abyss_pillar",
+   "category": "kit",
+   "zone": "abyss",
+   "file": "assets/ca/abyss/abyss_pillar.glb",
+   "ship": true,
+   "replaces": "kh/pillar",
+   "tris": 142,
+   "verts": 422,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.5,
+     0,
+     -0.5
+    ],
+    "max": [
+     0.5,
+     4.4,
+     0.5
+    ]
+   },
+   "h": 4.4,
+   "r": 0.5,
+   "y0": 0,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "pillar",
+    "catalog": "art/catalog.py",
+    "seed": 19,
+    "args": {
+     "h": 4.4,
+     "r": 0.42,
+     "broken": 0.18,
+     "chunks": 0
+    },
+    "bake": {
+     "ao": 0.6,
+     "grad": 1,
+     "gain": 0.63
+    }
+   },
+   "sha256": "7156ca2592d46dacffa5a85c46a8a278ffbaa33e1f33ae225f6e7d63442d0036"
+  },
+  {
+   "id": "ca/abyss_ribs",
+   "category": "scatter",
+   "zone": "abyss",
+   "file": "assets/ca/abyss/abyss_ribs.glb",
+   "ship": true,
+   "replaces": "kh/ribcage",
+   "tris": 344,
+   "verts": 1015,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.421,
+     0,
+     -0.367
+    ],
+    "max": [
+     0.423,
+     0.858,
+     0.367
+    ]
+   },
+   "h": 0.858,
+   "r": 0.423,
+   "y0": 0,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "ribs",
+    "catalog": "art/catalog.py",
+    "seed": 109,
+    "args": {},
+    "bake": {
+     "ao": 0.15,
+     "grad": 0.2,
+     "gtint": 0.6,
+     "gain": 0.63
+    }
+   },
+   "sha256": "4d35d6db02bd034a079e3223eaa70f57ad0098388790a201e294237e887f46ec"
+  },
+  {
+   "id": "ca/abyss_shards",
+   "category": "prop",
+   "zone": "abyss",
+   "file": "assets/ca/abyss/abyss_shards.glb",
+   "ship": true,
+   "replaces": "kn/rock_tallG",
+   "tris": 66,
+   "verts": 197,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.245,
+     -0.05,
+     -0.122
+    ],
+    "max": [
+     0.089,
+     0.733,
+     0.169
+    ]
+   },
+   "h": 0.783,
+   "r": 0.245,
+   "y0": -0.05,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "shards",
+    "catalog": "art/catalog.py",
+    "seed": 73,
+    "args": {},
+    "bake": {
+     "ao": 0.08,
+     "grad": 0.2
+    }
+   },
+   "sha256": "57feb01cbad09533c59d0aa0f8f41a19a1dc24a181d909b5876e21b628993685"
+  },
+  {
+   "id": "ca/abyss_skull",
+   "category": "scatter",
+   "zone": "abyss",
+   "file": "assets/ca/abyss/abyss_skull.glb",
+   "ship": true,
+   "replaces": "kh/skull",
+   "tris": 284,
+   "verts": 722,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.422,
+     0,
+     -0.459
+    ],
+    "max": [
+     0.422,
+     0.916,
+     0.459
+    ]
+   },
+   "h": 0.916,
+   "r": 0.459,
+   "y0": 0,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "skull2",
+    "catalog": "art/catalog.py",
+    "seed": 5,
+    "args": {
+     "R": 0.42,
+     "tilt": 1.3
+    },
+    "bake": {
+     "ao": 0.3,
+     "grad": 0.5,
+     "grime": 0.4,
+     "gtint": 1.15,
+     "wear": 0.45,
+     "gain": 0.46
+    }
+   },
+   "sha256": "44ac0d650debf7a6aa61de6ddaae4d24eff3a6262d1f582645cc744185a146af"
+  },
+  {
+   "id": "ca/abyss_skull_candle",
+   "category": "prop",
+   "zone": "abyss",
+   "file": "assets/ca/abyss/abyss_skull_candle.glb",
+   "ship": true,
+   "replaces": "kh/skull_candle",
+   "tris": 476,
+   "verts": 1230,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.512,
+     0,
+     -0.331
+    ],
+    "max": [
+     0.519,
+     1.245,
+     0.331
+    ]
+   },
+   "h": 1.245,
+   "r": 0.519,
+   "y0": 0,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "skull_candle",
+    "catalog": "art/catalog.py",
+    "seed": 107,
+    "args": {},
+    "bake": {
+     "ao": 0.25,
+     "grad": 0.4,
+     "grime": 0.4,
+     "gtint": 1.15,
+     "wear": 0.45
+    }
+   },
+   "sha256": "00306497e31f53c4ac7f6537fce038459920b0c3b6c91bf10068d3b756fb647d"
+  },
+  {
+   "id": "ca/abyss_tomb",
+   "category": "prop",
+   "zone": "abyss",
+   "file": "assets/ca/abyss/abyss_tomb.glb",
+   "ship": true,
+   "replaces": "kh/grave_A_destroyed",
+   "tris": 310,
+   "verts": 896,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -1.077,
+     0,
+     -0.484
+    ],
+    "max": [
+     0.826,
+     2.106,
+     0.444
+    ]
+   },
+   "h": 2.106,
+   "r": 1.077,
+   "y0": 0,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "tomb",
+    "catalog": "art/catalog.py",
+    "seed": 103,
+    "args": {},
+    "bake": {
+     "ao": 0.4,
+     "grad": 0.6
+    }
+   },
+   "sha256": "88b657970253c941747ee986ab3e8ca60b5a93b287bed59a5bd227ce96518c56"
+  },
+  {
+   "id": "ca/abyss_tree",
+   "category": "prop",
+   "zone": "abyss",
+   "file": "assets/ca/abyss/abyss_tree.glb",
+   "ship": true,
+   "replaces": "kh/tree_dead_medium",
+   "tris": 172,
+   "verts": 512,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.403,
+     -0.3,
+     -0.639
+    ],
+    "max": [
+     1.323,
+     3.889,
+     1.032
+    ]
+   },
+   "h": 4.189,
+   "r": 1.323,
+   "y0": -0.3,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "tree",
+    "catalog": "art/catalog.py",
+    "seed": 23,
+    "args": {
+     "h": 4.2,
+     "r0": 0.31,
+     "lean": 0.2,
+     "branches": 4,
+     "ember": 2,
+     "spread": 1.2
+    },
+    "bake": {
+     "ao": 0.6,
+     "grad": 0.8
+    }
+   },
+   "sha256": "d73b7f51f73a81b692b8cdc2e221b924b3701607fa3ff1f2b0bd21a5e5d0e6a8"
+  },
+  {
    "id": "ca/ash_arch_a",
    "category": "kit",
    "zone": "ash",
