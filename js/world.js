@@ -19828,7 +19828,7 @@
 
   // vf-vfx：前面拼上特效贴图库的 GLSL 工具（G.vfx.GLSL，里面声明了 uTime 和噪声贴图）
   const TELE_FRAG = G.vfx.GLSL + '\n' + [
-    'uniform vec3 uColor; uniform vec3 uEdge; uniform vec2 uHalf; uniform float uK; uniform float uShape; uniform float uArc; uniform float uIn;',
+    'uniform vec3 uColor; uniform vec3 uEdge; uniform vec2 uHalf; uniform float uK; uniform float uShape; uniform float uArc; uniform float uIn; uniform float uFill;',
     'varying vec2 vP;',
     'void main(){',
     '  vec2 p = vP * uHalf;',
@@ -19859,6 +19859,7 @@
     '    col = mix(col, uEdge, ce * inner * 0.14 * (1.0 - edge));',
     '  }',
     '  col += hot * pulse * 0.18;',
+    '  a *= uFill;', // vf-vfx2：玩家自己放的（友方）预警圈填充减半，外轮廓和前沿亮线不变；敌方的 uFill = 1
     '  a = max(a, max(edge * 0.96, lead * 0.7));',
     '  a *= smoothstep(0.0, 0.035, d);',
     '  gl_FragColor = vec4(col, a);',
@@ -19878,6 +19879,7 @@
         uShape: { value: rect ? 1 : arc ? 2 : ringS ? 3 : 0 },
         uArc: { value: arc ? spec.arc : 0 },
         uIn: { value: ringS ? spec.rin : 0 },
+        uFill: { value: friendly ? 0.5 : 1 }, // 友方填充减半（vf-vfx2：陨火落下的 0.75 秒里不把落点的怪罩成一片橙）
         uTime,
       }),
       vertexShader: FX_VERT, fragmentShader: TELE_FRAG,
@@ -20445,10 +20447,11 @@
     tChunk(1, x, 0.9, z, 0, 0, 0, 0.12, 0.8, 0xffe2a0, h, 0);
     vsBrush(VSH.ring, 2, 1, 0xffd27a, h, 0.45, 0, 0.45);
     vsEmit(x, 0.09, z, 0, 0, 0, 0.38, R * 1.05);
+    // 看图后（需求方）：环上的火舌少一些、小一些（原来高画质 11 片，显得碎）
     vsBrush(VSH.tongue, 1, 0, 0xffc24a, 0xd2401c, 0.35, 0.6, 0.4);
-    for (let i = 0, n = lo ? 6 : 11; i < n; i++) {
+    for (let i = 0, n = lo ? 6 : 7; i < n; i++) {
       const a = (i / n) * TAU + vr(-0.25, 0.25), d = R * vr(0.45, 0.7), v = R * vr(1, 1.5);
-      vsEmit(x + Math.sin(a) * d, 0.05, z + Math.cos(a) * d, Math.sin(a) * v, vr(0.5, 1.5), Math.cos(a) * v, vr(0.42, 0.6), vr(0.55, 0.8), vr(0.9, 1.4), vr(-0.25, 0.25), 0, 0, 3);
+      vsEmit(x + Math.sin(a) * d, 0.05, z + Math.cos(a) * d, Math.sin(a) * v, vr(0.5, 1.5), Math.cos(a) * v, vr(0.42, 0.6), vr(0.45, 0.62), vr(0.7, 1.05), vr(-0.25, 0.25), 0, 0, 3);
     }
     vsBrush(VSH.chip, 3, 0, 0x5c4c44, 0x5c4c44, 0.2, 0.55);
     for (let i = 0, n = lo ? 5 : 9; i < n; i++) {
