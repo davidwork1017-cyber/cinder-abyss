@@ -21497,7 +21497,7 @@
 
   // ---------- 光环：玩家脚下常驻的一圈淡淡的霜环 + 绕身飘的霜粒；每次脉冲有一道向外扩的细环 ----------
   const AURA_FRAG = G.vfx.GLSL + '\n' + [
-    'uniform vec3 uColor; uniform float uA; uniform float uPulse; varying vec2 vP;',
+    'uniform vec3 uColor; uniform float uA; uniform float uPulse; uniform float uBoost; varying vec2 vP;',
     'void main(){',
     '  float l = length(vP);',
     '  if (l > 1.0) discard;',
@@ -21528,7 +21528,9 @@
     '  float rimS = gap * (1.0 - shard) * step(inner - 0.02, l) * step(l, base + 0.01) * step(dx, sw + 0.09);',
     '  float cr = uLo > 0.5 ? 0.5 : vfxNA(vec2(uA0 * 0.25, l * 2.0)).b;',
     '  float frost = shard * (0.42 + 0.25 * cr + wave * 2.5);',
-    '  float aB = (edge * 0.7 + ticks * 0.3 + fill * 1.5 + wave * 1.6 + frost) * uA;',
+    // 盛环镶在霜环上（uBoost）：外圈的亮线加粗一点，里面再多一道很淡的细环（同一个面片，不加 draw call）
+    '  float boost = uBoost * ((1.0 - smoothstep(0.0, 0.03, abs(l - 0.955))) * 0.35 + (1.0 - smoothstep(0.0, 0.012, abs(l - 0.885))) * 0.45);',
+    '  float aB = (edge * 0.7 + ticks * 0.3 + fill * 1.5 + wave * 1.6 + frost + boost) * uA;',
     '  float aD = max(halo * 0.42, rimS * 0.5) * uA;',
     '  float a = clamp(aB + aD, 0.0, 1.0);',
     '  if (a < 0.002) discard;',
@@ -21540,7 +21542,7 @@
   W.setAura = function (r) {
     aura.r = r > 0 ? r : 0;
     if (aura.r > 0 && !aura.mesh && scene) {
-      aura.u = G.vfx.uni({ uColor: { value: new T.Color(0x86d8ff) }, uA: { value: 0 }, uPulse: { value: 0 }, uTime });
+      aura.u = G.vfx.uni({ uColor: { value: new T.Color(0x86d8ff) }, uA: { value: 0 }, uPulse: { value: 0 }, uBoost: { value: 0 }, uTime });
       const mat = new T.ShaderMaterial({ uniforms: aura.u, vertexShader: FX_VERT, fragmentShader: AURA_FRAG, transparent: true, depthWrite: false, side: T.DoubleSide });
       aura.mesh = new T.Mesh(gQuad(), mat);
       aura.mesh.renderOrder = 3;
@@ -21566,7 +21568,11 @@
       }
     }
   };
-  W.auraInfo = () => ({ r: aura.r, a: aura.a, visible: !!(aura.mesh && aura.mesh.visible) });
+  // 盛环（support-expand）：光环效果加强时地上的霜环多一道淡环、外线略粗（game.js 的 updateAuras 每帧告诉这里要不要）
+  W.setAuraBoost = function (on) {
+    aura.boostWant = on ? 1 : 0;
+  };
+  W.auraInfo = () => ({ r: aura.r, a: aura.a, visible: !!(aura.mesh && aura.mesh.visible), boost: aura.boost || 0 });
   function updateAura(dt) {
     const P = G.player;
     const want = aura.r > 0 ? 1 : 0;
@@ -21580,6 +21586,8 @@
     aura.pulse = Math.max(0, aura.pulse - dt * 2.6);
     aura.u.uA.value = aura.a;
     aura.u.uPulse.value = aura.pulse;
+    aura.boost = (aura.boost || 0) + ((aura.boostWant || 0) - (aura.boost || 0)) * Math.min(1, dt * 4);
+    aura.u.uBoost.value = aura.boost;
     // vf-vfx：沿圈飘出去的冷雾（序列帧烟团，浅冰色）
     if (want && qualId !== 'low' && P.ent && P.ent.group.visible) { // 低画质不放
       aura.mist = (aura.mist || 0) + dt * 6;
