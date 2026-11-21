@@ -211,7 +211,8 @@
     '  if (kind > 0.5 && kind < 1.5 && l < 0.6) discard;',
     '  vec2 q = vUv * 0.8 + seed * 7.31;',
     '  float n = vfxNA(q).r;',
-    '  float ce = uLo > 0.5 ? n : vfxNA(q * 1.5 + 0.37).b;', // 低画质少取一次贴图
+    // 低画质少取一次贴图；vf-vfx2：低画质的「裂缝」取噪声的等高线（细线），原来取 n 本身，step 之后是一大块一块填满的余烬亮斑
+    '  float ce = uLo > 0.5 ? 1.0 - abs(n - 0.5) * 9.0 : vfxNA(q * 1.5 + 0.37).b;',
     '  float er = k < 0.45 ? 0.0 : (k - 0.45) / 0.55;', // 消融进度
     '  float edge = 1.0 - l + (n - 0.5) * 0.5;', // 不规则的外沿
     '  float m = smoothstep(0.0, 0.05, edge - er * (1.1 - n * 0.4));',

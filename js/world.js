@@ -19737,7 +19737,8 @@
       const a = ang + rand(-0.75, 0.75) * (i % 3 === 0 ? 1.8 : 1), v = (7 + w * 2.5) * rand(0.45, 1);
       tChunk(0, x, y + rand(-0.15, 0.2), z, Math.sin(a) * v, rand(1.5, 5) + w, Math.cos(a) * v, rand(0.2, 0.34) + w * 0.03, rand(0.13, 0.2) + w * 0.03, pal[0], i % 2 ? pal[1] : pal[2], 16);
     }
-    tPuffs(x + sn * 0.2, 0.3, z + cs * 0.2, (lo ? 1 : 2) + w, 1.6 + w * 0.6, 0.9, 0.36 + w * 0.06, 0.24 + w * 0.05, mixHex(pal[3], 0xf4e2d4, 0.7), pal[3]);
+    // vf-vfx2：雷击不放烟团（浅色的圆团在怪脚下像一块白斑；雷的形状语言里只有折线）
+    if (type !== 'light') tPuffs(x + sn * 0.2, 0.3, z + cs * 0.2, (lo ? 1 : 2) + w, 1.6 + w * 0.6, 0.9, 0.36 + w * 0.06, 0.24 + w * 0.05, mixHex(pal[3], 0xf4e2d4, 0.7), pal[3]);
     const n = 3 + w * 2 + (crit ? 3 : 0), sp = 9 + w * 3.5;
     for (let i = 0; i < n; i++) {
       const a = ang + rand(-0.7, 0.7) * (i % 4 === 0 ? 2.2 : 1), v = sp * rand(0.35, 1);
@@ -20102,7 +20103,7 @@
   // 把输入折线细分成锯齿路径，再挤出成贴地朝上的带子；主干上再随机岔出几根渐细的分叉。
   // 各段之间用零宽的顶点对隔开（连接处的四边形面积为零），主干和分叉共用一条带子、一次 draw call
   function boltBuild(b) {
-    const path = b.path, wid = b.wid, HW = 0.36;
+    const path = b.path, wid = b.wid, HW = b.hw || 0.36; // 链雷（vf-vfx2）的主干细一些：横过被打的怪时少盖住一点
     let np = 0;
     for (let i = 0; i < b.n - 1; i++) {
       const ax = b.inX[i], az = b.inZ[i], bx = b.inX[i + 1], bz = b.inZ[i + 1];
@@ -20186,6 +20187,7 @@
     b.u.uColor.value.set(hex).lerp(_c2.set(0xffffff), 0.35).convertSRGBToLinear();
     b.u.uOpacity.value = 1;
     b.u.uSeed.value = vr(0, 1);
+    b.hw = o && o.v2 && !minor ? 0.25 : 0.36;
     boltBuild(b);
     b.mesh.visible = true;
     if (o && o.v2 && !minor) return boltV2(b, hex);
@@ -23085,7 +23087,7 @@
     vsBrush(VSH.crescent, 2, 1, 0xa8957a, 0x7a6a58, 0, 0.35, 0.5);
     vsEmit(p.x, 0.07, p.z, 0, 0, 0, 0.32, R * 0.95, R * 0.95, sbA + vr(-0.4, 0.4));
     if (first) {
-      vsBrush(VSH.ring, 2, 1, 0xe2d2b4, 0xb8a588, 0.15, 0, 0.5);
+      vsBrush(VSH.ring, 2, 1, 0xb09c80, 0x8a7862, 0, 0, 0.4); // 看图后：尘环压暗（原来浅奶油色，扩大后在地上是一圈亮线）
       vsEmit(p.x, 0.08, p.z, 0, 0, 0, 0.36, R * 1.05);
       tPuffs(p.x, 0.25, p.z, qualId === 'low' ? 2 : 4, R * 1.6, 0.5, 0.42, 0.42, 0xd8c8aa, 0x8a7a64);
     }
@@ -23098,12 +23100,13 @@
     const p = sbEnt.group.position, fade = Math.min(1, sbT / 0.1), r = sbR * 0.8 * fade, lo = qualId === 'low';
     for (let b = 0; b < 2; b++) {
       const a = sbA + b * Math.PI;
+      // 看图后：风刃画细（进度 0.85 → 只剩外沿一道），转过怪身前时不挡住怪
       if (!lo) {
-        mFlat(p.x, 0.86, p.z, a + 0.5, r * 0.86, r * 0.86);
-        vsNow(VSH.crescent, sbC2[0], sbC2[1], sbC2[2], 0, 0.3, 0.75);
+        mFlat(p.x, 0.8, p.z, a + 0.45, r * 0.9, r * 0.9);
+        vsNow(VSH.crescent, sbC2[0], sbC2[1], sbC2[2], 0, 0.3, 0.92);
       }
-      mFlat(p.x, 0.95, p.z, a, r, r);
-      vsNow(VSH.crescent, sbC[0], sbC[1], sbC[2], 0.35, 0.4, 0.55);
+      mFlat(p.x, 0.9, p.z, a, r, r);
+      vsNow(VSH.crescent, sbC[0], sbC[1], sbC[2], 0.35, 0.4, 0.85);
     }
   }
   W.vShapeLive = () => {
