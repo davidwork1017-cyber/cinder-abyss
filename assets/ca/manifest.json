@@ -1,0 +1,726 @@
+{
+ "_comment": "自动生成（npm run build:art），不要手改。布景件清单：来源脚本 + 种子、尺寸（米，Y 朝上，原点在底面中心）、三角形数；tools/check-art.mjs 按它检查。",
+ "blender": "5.2.4",
+ "palette": "assets/ca/palette.png",
+ "assets": [
+  {
+   "id": "ca/ash_arch_a",
+   "category": "kit",
+   "zone": "ash",
+   "file": "assets/ca/ash/ash_arch_a.glb",
+   "ship": false,
+   "replaces": null,
+   "tris": 528,
+   "verts": 1554,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -2.014,
+     -0.05,
+     -0.414
+    ],
+    "max": [
+     2.014,
+     5.694,
+     0.414
+    ]
+   },
+   "h": 5.744,
+   "r": 2.014,
+   "y0": -0.05,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "arch",
+    "catalog": "art/catalog.py",
+    "seed": 61,
+    "args": {
+     "span": 3.2,
+     "h": 4
+    },
+    "bake": {
+     "ao": 0.8,
+     "grad": 1
+    }
+   },
+   "sha256": "42e4da8c7d0b6acf5cff9c0d21275125800132b34de496c00666d51baca5a2cd"
+  },
+  {
+   "id": "ca/ash_blade",
+   "category": "scatter",
+   "zone": "ash",
+   "file": "assets/ca/ash/ash_blade.glb",
+   "ship": false,
+   "replaces": "kd/sword_shield_broken",
+   "tris": 116,
+   "verts": 334,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.435,
+     -0.02,
+     -0.568
+    ],
+    "max": [
+     0.347,
+     1.367,
+     0.302
+    ]
+   },
+   "h": 1.387,
+   "r": 0.568,
+   "y0": -0.02,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "blade",
+    "catalog": "art/catalog.py",
+    "seed": 7,
+    "args": {
+     "h": 1.3,
+     "w": 0.24
+    },
+    "bake": {
+     "ao": 0.3,
+     "grad": 0.5
+    }
+   },
+   "sha256": "f5ae40dddafbe6e9b9f6cac16d4a8b4a7ea4d3b13dcfcaaeaa1448bc1d1ec39c"
+  },
+  {
+   "id": "ca/ash_bones",
+   "category": "scatter",
+   "zone": "ash",
+   "file": "assets/ca/ash/ash_bones.glb",
+   "ship": false,
+   "replaces": "kh/bone_A",
+   "tris": 150,
+   "verts": 434,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.336,
+     0.02,
+     -0.309
+    ],
+    "max": [
+     0.403,
+     0.257,
+     0.484
+    ]
+   },
+   "h": 0.237,
+   "r": 0.484,
+   "y0": 0.02,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "bones",
+    "catalog": "art/catalog.py",
+    "seed": 3,
+    "args": {
+     "n": 3,
+     "L": 0.72,
+     "thick": 1.7
+    },
+    "bake": {
+     "ao": 0.08,
+     "grad": 0.1,
+     "gtint": 0.5
+    }
+   },
+   "sha256": "d8d331c9b33cb68885367d0839cc7c9ef93ceff67f26f0cafabfd68dbd24d159"
+  },
+  {
+   "id": "ca/ash_brazier_a",
+   "category": "prop",
+   "zone": "ash",
+   "file": "assets/ca/ash/ash_brazier_a.glb",
+   "ship": false,
+   "replaces": null,
+   "tris": 159,
+   "verts": 451,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.38,
+     -0.009,
+     -0.38
+    ],
+    "max": [
+     0.38,
+     1.1,
+     0.386
+    ]
+   },
+   "h": 1.109,
+   "r": 0.386,
+   "y0": -0.009,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "brazier",
+    "catalog": "art/catalog.py",
+    "seed": 67,
+    "args": {
+     "h": 1.1
+    },
+    "bake": {
+     "ao": 0.25,
+     "grad": 0.4
+    }
+   },
+   "sha256": "77e8ccac412ca98a1b354849d79d04a0a9e829b91d4698e597ef74e8d524722b"
+  },
+  {
+   "id": "ca/ash_cliff_a",
+   "category": "kit",
+   "zone": "ash",
+   "file": "assets/ca/ash/ash_cliff_a.glb",
+   "ship": false,
+   "replaces": null,
+   "tris": 118,
+   "verts": 354,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -1.428,
+     -0.063,
+     -0.634
+    ],
+    "max": [
+     1.349,
+     2.947,
+     0.68
+    ]
+   },
+   "h": 3.009,
+   "r": 1.428,
+   "y0": -0.063,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "cliff",
+    "catalog": "art/catalog.py",
+    "seed": 53,
+    "args": {
+     "w": 3,
+     "d": 1.6,
+     "h": 3.2
+    },
+    "bake": {
+     "ao": 0.9,
+     "grad": 1.2
+    }
+   },
+   "sha256": "81407db73daf749428148178b9b4cbfa16af1f6980331c5240f437af7c4dbccf"
+  },
+  {
+   "id": "ca/ash_firepit",
+   "category": "prop",
+   "zone": "ash",
+   "file": "assets/ca/ash/ash_firepit.glb",
+   "ship": true,
+   "replaces": "kn/campfire_stones",
+   "tris": 245,
+   "verts": 719,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.292,
+     -0.003,
+     -0.272
+    ],
+    "max": [
+     0.315,
+     0.075,
+     0.251
+    ]
+   },
+   "h": 0.078,
+   "r": 0.315,
+   "y0": -0.003,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "firepit",
+    "catalog": "art/catalog.py",
+    "seed": 17,
+    "args": {
+     "r": 0.29
+    },
+    "bake": {
+     "ao": 0.03,
+     "grad": 0.03,
+     "gtint": 0.3,
+     "grime": 0.12,
+     "wear": 0.4
+    }
+   },
+   "sha256": "6effd8e3aae6ddb1bac5b79a592bf33d481bc03f2bad1e694059a7e18eccb851"
+  },
+  {
+   "id": "ca/ash_marker",
+   "category": "scatter",
+   "zone": "ash",
+   "file": "assets/ca/ash/ash_marker.glb",
+   "ship": false,
+   "replaces": "kh/gravemarker_A",
+   "tris": 44,
+   "verts": 132,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.304,
+     -0.05,
+     -0.165
+    ],
+    "max": [
+     0.32,
+     1.243,
+     0.425
+    ]
+   },
+   "h": 1.293,
+   "r": 0.425,
+   "y0": -0.05,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "marker",
+    "catalog": "art/catalog.py",
+    "seed": 13,
+    "args": {
+     "h": 1.2
+    },
+    "bake": {
+     "ao": 0.3,
+     "grad": 0.5
+    }
+   },
+   "sha256": "7f2a958704703aba23a7f930da0e9fce76441f08b1287a3e80c4d2c41b4a40c6"
+  },
+  {
+   "id": "ca/ash_pillar",
+   "category": "kit",
+   "zone": "ash",
+   "file": "assets/ca/ash/ash_pillar.glb",
+   "ship": true,
+   "replaces": "kh/pillar",
+   "tris": 170,
+   "verts": 498,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -1.24,
+     -0.05,
+     -0.525
+    ],
+    "max": [
+     0.525,
+     3.837,
+     0.525
+    ]
+   },
+   "h": 3.887,
+   "r": 1.24,
+   "y0": -0.05,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "pillar",
+    "catalog": "art/catalog.py",
+    "seed": 19,
+    "args": {
+     "h": 4.4,
+     "r": 0.42,
+     "broken": 0.18
+    },
+    "bake": {}
+   },
+   "sha256": "69e7e90c6a550286fb45e698e83c2ad537e61c1a00c7aecaeaf8ed63252d70c5"
+  },
+  {
+   "id": "ca/ash_rock_a",
+   "category": "prop",
+   "zone": "ash",
+   "file": "assets/ca/ash/ash_rock_a.glb",
+   "ship": false,
+   "replaces": null,
+   "tris": 44,
+   "verts": 132,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.957,
+     -0.06,
+     -0.651
+    ],
+    "max": [
+     0.823,
+     0.663,
+     0.717
+    ]
+   },
+   "h": 0.723,
+   "r": 0.957,
+   "y0": -0.06,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "rock",
+    "catalog": "art/catalog.py",
+    "seed": 41,
+    "args": {
+     "sx": 1,
+     "sy": 0.8,
+     "sz": 0.7
+    },
+    "bake": {}
+   },
+   "sha256": "3a2c0803a985d31b5d8ac95b8dcc284310ed5dbe53f8436f97a319f20bfd891d"
+  },
+  {
+   "id": "ca/ash_rock_b",
+   "category": "prop",
+   "zone": "ash",
+   "file": "assets/ca/ash/ash_rock_b.glb",
+   "ship": false,
+   "replaces": null,
+   "tris": 46,
+   "verts": 138,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.515,
+     -0.06,
+     -0.458
+    ],
+    "max": [
+     0.511,
+     1.319,
+     0.436
+    ]
+   },
+   "h": 1.379,
+   "r": 0.515,
+   "y0": -0.06,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "rock",
+    "catalog": "art/catalog.py",
+    "seed": 43,
+    "args": {
+     "sx": 0.55,
+     "sy": 0.5,
+     "sz": 1.5,
+     "n": 14,
+     "row": "slag",
+     "ember": 2
+    },
+    "bake": {}
+   },
+   "sha256": "e159b26e203d97d8a0a49f881715835a150ce9719bda3221b92f9a2e1de5d22b"
+  },
+  {
+   "id": "ca/ash_rock_c",
+   "category": "prop",
+   "zone": "ash",
+   "file": "assets/ca/ash/ash_rock_c.glb",
+   "ship": false,
+   "replaces": null,
+   "tris": 44,
+   "verts": 132,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -1.347,
+     -0.06,
+     -0.901
+    ],
+    "max": [
+     1.076,
+     0.37,
+     0.908
+    ]
+   },
+   "h": 0.43,
+   "r": 1.347,
+   "y0": -0.06,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "rock",
+    "catalog": "art/catalog.py",
+    "seed": 47,
+    "args": {
+     "sx": 1.3,
+     "sy": 1,
+     "sz": 0.55,
+     "flat": 0.35
+    },
+    "bake": {}
+   },
+   "sha256": "b41021b23f021fee289845bd752fa44240d9b91435e42ca009b05a5781ff1429"
+  },
+  {
+   "id": "ca/ash_rubble",
+   "category": "kit",
+   "zone": "ash",
+   "file": "assets/ca/ash/ash_rubble.glb",
+   "ship": true,
+   "replaces": "kd/rubble_large",
+   "tris": 344,
+   "verts": 962,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -3.434,
+     -0.12,
+     -2.831
+    ],
+    "max": [
+     2.856,
+     2.415,
+     0.616
+    ]
+   },
+   "h": 2.535,
+   "r": 3.434,
+   "y0": -0.12,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "rubble",
+    "catalog": "art/catalog.py",
+    "seed": 29,
+    "args": {
+     "L": 8,
+     "H": 3.5
+    },
+    "bake": {
+     "ao": 1,
+     "grad": 1.2
+    }
+   },
+   "sha256": "86b9c717e27c26e2c3da9211feb7c159fefda90c980acd2f85d0f22f7446cc8c"
+  },
+  {
+   "id": "ca/ash_skull",
+   "category": "scatter",
+   "zone": "ash",
+   "file": "assets/ca/ash/ash_skull.glb",
+   "ship": false,
+   "replaces": "kh/skull",
+   "tris": 144,
+   "verts": 429,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.591,
+     -0.007,
+     -0.978
+    ],
+    "max": [
+     0.591,
+     0.847,
+     0.814
+    ]
+   },
+   "h": 0.855,
+   "r": 0.978,
+   "y0": -0.007,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "skull",
+    "catalog": "art/catalog.py",
+    "seed": 5,
+    "args": {
+     "s": 0.74
+    },
+    "bake": {
+     "ao": 0.3,
+     "grad": 0.5,
+     "grime": 0.4,
+     "gtint": 1.15,
+     "wear": 0.45
+    }
+   },
+   "sha256": "a5eeb906e9b48b8cecacbd227f560b18ce2ea430cab5d3a155204b0cfd87cfb1"
+  },
+  {
+   "id": "ca/ash_tree_dead_a",
+   "category": "prop",
+   "zone": "ash",
+   "file": "assets/ca/ash/ash_tree_dead_a.glb",
+   "ship": true,
+   "replaces": "kh/tree_dead_large",
+   "tris": 210,
+   "verts": 624,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -1.189,
+     -0.234,
+     -1.133
+    ],
+    "max": [
+     0.771,
+     5,
+     0.826
+    ]
+   },
+   "h": 5.234,
+   "r": 1.189,
+   "y0": -0.234,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "tree",
+    "catalog": "art/catalog.py",
+    "seed": 11,
+    "args": {
+     "h": 5,
+     "r0": 0.36,
+     "lean": 0.1,
+     "branches": 6,
+     "ember": 2
+    },
+    "bake": {}
+   },
+   "sha256": "eb8b5f6ca8711ff9643d3c2bcd478a17509bbbf2b20cc8e15798cddd9f339889"
+  },
+  {
+   "id": "ca/ash_tree_dead_b",
+   "category": "prop",
+   "zone": "ash",
+   "file": "assets/ca/ash/ash_tree_dead_b.glb",
+   "ship": true,
+   "replaces": "kh/tree_dead_medium",
+   "tris": 172,
+   "verts": 514,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.523,
+     -0.255,
+     -0.827
+    ],
+    "max": [
+     1.714,
+     4.2,
+     1.337
+    ]
+   },
+   "h": 4.455,
+   "r": 1.714,
+   "y0": -0.255,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "tree",
+    "catalog": "art/catalog.py",
+    "seed": 23,
+    "args": {
+     "h": 4.2,
+     "r0": 0.31,
+     "lean": 0.2,
+     "branches": 4,
+     "ember": 2,
+     "spread": 1.2
+    },
+    "bake": {}
+   },
+   "sha256": "e759f9f48d7e40c24d7ea97cb9d0d6b1c5708c61c2abf66d8a8a902d59df94ea"
+  },
+  {
+   "id": "ca/ash_tree_dead_c",
+   "category": "prop",
+   "zone": "ash",
+   "file": "assets/ca/ash/ash_tree_dead_c.glb",
+   "ship": true,
+   "replaces": "kh/tree_dead_small",
+   "tris": 173,
+   "verts": 513,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.966,
+     -0.272,
+     -0.804
+    ],
+    "max": [
+     0.758,
+     2.925,
+     1.317
+    ]
+   },
+   "h": 3.197,
+   "r": 1.317,
+   "y0": -0.272,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "tree",
+    "catalog": "art/catalog.py",
+    "seed": 37,
+    "args": {
+     "h": 4.6,
+     "r0": 0.34,
+     "lean": 0.16,
+     "branches": 3,
+     "snag": true,
+     "ember": 1
+    },
+    "bake": {}
+   },
+   "sha256": "d4c371861d404a4466e10c284e0e833467e27ae3fcfb2d97b96fca4e00179947"
+  },
+  {
+   "id": "ca/ash_wall_a",
+   "category": "kit",
+   "zone": "ash",
+   "file": "assets/ca/ash/ash_wall_a.glb",
+   "ship": false,
+   "replaces": null,
+   "tris": 748,
+   "verts": 2196,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -2.007,
+     -0.035,
+     -0.337
+    ],
+    "max": [
+     2.002,
+     2.035,
+     0.322
+    ]
+   },
+   "h": 2.07,
+   "r": 2.007,
+   "y0": -0.035,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "wall",
+    "catalog": "art/catalog.py",
+    "seed": 59,
+    "args": {
+     "L": 4,
+     "H": 2.4,
+     "broken": 0.45,
+     "bevel": 0.025
+    },
+    "bake": {
+     "ao": 0.5,
+     "grad": 0.9
+    }
+   },
+   "sha256": "a34df077c4f99c68f63cbd199d6e948ab4b311d49e9e8d7ddf0d2fed8d408fda"
+  }
+ ]
+}
