@@ -2392,7 +2392,18 @@
       }
       // 第一批新技能（skill-expand）：换一组更能说明它的数字
       const blood2 = blood ? '生命消耗' : '魔力消耗';
-      if (sk.kind === 'tether') {
+      if (sk.kind === 'tether' && !(sk.ramp.max > 0)) {
+        // 刻式「游雷」：没有加成
+        const per0 = avg / (sk.useMult || 1);
+        nums =
+          num('每跳伤害', fmtInt(per0), 'hl') +
+          num('每秒跳数', rate.toFixed(2)) +
+          num('估算秒伤', fmtInt(per0 * rate)) +
+          num(blood2 + ' / 每跳', ctx.cost > 0 ? fmt1(ctx.cost) : '无') +
+          num('冷却', '无') +
+          num('暴击率', fmt1(ctx.crit) + '%');
+        note = '<div class="sk-anote"><i></i>不叠加成，牵引时照常走动 · 连锁 ' + ctx.chain + ' 次（每跳最远 ' + (sk.jump || 7) + ' 米）· 射程 ' + sk.range + ' 米</div>';
+      } else if (sk.kind === 'tether') {
         const per0 = avg / (sk.useMult || 1), kMax = 1 + sk.ramp.max / 100;
         nums =
           num('每跳伤害', fmtInt(per0) + ' → ' + fmtInt(per0 * kMax), 'hl') +
@@ -2402,6 +2413,16 @@
           num('冷却', '无') +
           num('暴击率', fmt1(ctx.crit) + '%');
         note = '<div class="sk-anote"><i></i>站定引满 ' + fmt1(sk.ramp.max / sk.ramp.perSec) + ' 秒伤害 +' + sk.ramp.max + '% · 连锁 ' + ctx.chain + ' 次 · 射程 ' + sk.range + ' 米</div>';
+      } else if (sk.kind === 'rain' && sk.slam) {
+        // 刻式「重凌」：一根大冰凌
+        nums =
+          num('整根伤害', fmtInt(avg), 'hl') +
+          num('落地', fmt1(sk.slam.delay + sk.slam.fall) + ' 秒后') +
+          num('半径', fmt1(sk.radius * Math.sqrt(ctx.area)) + ' 米') +
+          num('异常累积', '+' + Math.round(ctx.ailment) + '%') +
+          num('冷却', fmt1(ctx.cd) + ' 秒') +
+          num(blood2, ctx.cost > 0 ? fmt1(ctx.cost) : '无');
+        note = '<div class="sk-anote cd"><i></i>冷却技能：秒伤按冷却折算 · 范围里的每个敌人都吃整根</div>';
       } else if (sk.kind === 'rain') {
         const n = Math.max(1, Math.round((sk.dur * ctx.durK) / sk.tick));
         nums =
@@ -2411,7 +2432,7 @@
           num('异常累积', '+' + Math.round(ctx.ailment) + '%') +
           num('冷却', fmt1(ctx.cd) + ' 秒') +
           num(blood2, ctx.cost > 0 ? fmt1(ctx.cost) : '无');
-        note = '<div class="sk-anote cd"><i></i>冷却技能：秒伤按冷却折算 · 半径 ' + fmt1(sk.radius * Math.sqrt(ctx.area)) + ' 米 · 单体按 ' + sk.useMult + ' 根计</div>';
+        note = '<div class="sk-anote cd"><i></i>冷却技能：秒伤按冷却折算 · 半径 ' + fmt1(sk.radius * Math.sqrt(ctx.area)) + ' 米' + (sk.mech === 'follow' ? '（圈心跟着你）' : '') + ' · 单体按 ' + sk.useMult + ' 根计</div>';
       } else if (sk.hitCap) {
         const per = avg / (sk.useMult || 1), nn = sk.count + Math.max(0, ctx.proj - 1);
         nums =
@@ -2424,13 +2445,16 @@
         note = '<div class="sk-anote"><i></i>每次 ' + nn + ' 枚 · 同一个敌人最多中 ' + sk.hitCap + ' 枚 · 射程约 ' + fmt1(sk.speed * sk.life * G.projSpdK(ctx)) + ' 米（贴近的估算按中 ' + sk.useMult + ' 枚算）</div>';
       } else if (sk.kind === 'line') {
         const k = Math.sqrt(ctx.area);
-        note += '<div class="sk-anote"><i></i>长 ' + fmt1(sk.len * k) + ' 米 · 宽 ' + fmt1(sk.width * k) + ' 米 · 同一次施放每个敌人只中一下</div>';
+        note += '<div class="sk-anote"><i></i>长 ' + fmt1(sk.len * k) + ' 米 · 宽 ' + fmt1(sk.width * k) + ' 米 · ' +
+          (sk.mech === 'lance' ? '扎中第一个敌人就停' : sk.mech === 'fork' ? '前 ' + sk.fork.max + ' 个敌人脚下各刺出两道 ' + fmt1(sk.fork.len * k) + ' 米的岔脊（伤害 ' + Math.round(sk.fork.k * 100) + '%）' : '同一次施放每个敌人只中一下') + '</div>';
+      } else if (sk.kind === 'burst' && sk.focus) {
+        note += '<div class="sk-anote"><i></i>只打身边 ' + fmt1(sk.radius * Math.sqrt(ctx.area)) + ' 米内最近的 1 个 · 连着第 ' + sk.focus.n + ' 下过载 ×' + sk.focus.k + '（平均击中已按这个折算）</div>';
       } else if (sk.kind === 'burst') {
-        note += '<div class="sk-anote"><i></i>以自身为中心，半径 ' + fmt1(sk.radius * Math.sqrt(ctx.area)) + ' 米，最多打最近的 ' + sk.maxHit + ' 个，不穿墙</div>';
+        note += '<div class="sk-anote"><i></i>' + (sk.dash ? '先朝准星冲出至多 ' + sk.dash.max + ' 米 · ' : '') + '以自身为中心，半径 ' + fmt1(sk.radius * Math.sqrt(ctx.area)) + ' 米，最多打最近的 ' + sk.maxHit + ' 个，不穿墙</div>';
       }
       // 流血（放血自带 / 开刃）：每层多少、叠稳几层、流血那一份秒伤
       const bl = G.bleedInfo(ctx, G.bleedHps(ctx, rate));
-      if (bl) note += '<div class="sk-anote"><i></i>流血：每层 ' + fmtInt(bl.per) + '（' + G.BLEED.dur + ' 秒）· 打单体叠到 ' + fmt1(bl.n) + ' 层（上限 ' + G.BLEED.cap + '）· 流血秒伤约 ' + fmtInt(bl.dps) + '</div>';
+      if (bl) note += '<div class="sk-anote"><i></i>流血：每层 ' + fmtInt(bl.per) + '（' + G.BLEED.dur + ' 秒）· 打单体叠到 ' + fmt1(bl.n) + ' 层（上限 ' + Math.max(G.BLEED.cap, sk.bleedCap || 0) + '）· 流血秒伤约 ' + fmtInt(bl.dps) + '</div>';
       // 攻击技能：伤害取自手里的武器
       if (ctx.attack) note = attackNote(ctx) + note;
     }

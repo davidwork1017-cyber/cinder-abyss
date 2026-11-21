@@ -889,7 +889,8 @@
   G.variantDps = function (id) {
     const ctx = G.skillCtx(id);
     if (ctx.minion) return G.skillDps(ctx);
-    return (G.avgHit(ctx) * G.durDpsK(ctx)) / (Math.max((ctx.cycle || ctx.time) + ctx.stopAvg, 0.01) + (ctx.cd > 0 ? ctx.cd : 0));
+    const T = Math.max((ctx.cycle || ctx.time) + ctx.stopAvg, 0.01) + (ctx.cd > 0 ? ctx.cd : 0);
+    return (G.avgHit(ctx) * G.durDpsK(ctx)) / T + G.bleedDps(ctx, G.bleedHps(ctx, 1 / T)); // 流血（放血和它的刻式）也算进去
   };
   // 刻式 v 和原式的比值。霜环按「主力技能 + 霜环」的总秒伤（主力取技能栏上秒伤最高的非光环技能，没有就按掷焰）；
   // 黑焰按每一击的 (1 + 黑焰%)（蚀印把攒进去的那一份也算上，传焰点在身上的和附带的一样多）
@@ -1605,7 +1606,7 @@
     const critK = 1 + (ctx.crit / 100) * (ctx.critMulti / 100 - 1);
     const phys = ((b[0] + b[1]) / 2) * typeMult(ctx, 'phys') * ctx.more * critK * (sk.comboAvg || 1); // 每一击（散钉是每一枚）
     const per = (phys * ctx.bleed) / 100;
-    const n = Math.min(G.BLEED.cap, hps * G.BLEED.dur);
+    const n = Math.min(Math.max(G.BLEED.cap, sk.bleedCap || 0), hps * G.BLEED.dur);
     return { per, n, dps: (n * per) / G.BLEED.dur, ramp: n / Math.max(0.01, hps) };
   };
   G.bleedHps = (ctx, rate) => rate * (ctx.sk.hitCap ? ctx.sk.useMult || 1 : 1);
@@ -1962,15 +1963,17 @@
   const BLEED_BASE = [0, 0];
   const BLEED_CTX = Object.assign(procCtx('phys', 0), { base: { phys: BLEED_BASE }, bleedTick: true });
   const BLEED_INFO = { proc: true, quiet: true, faint: true, dot: true, bolt: true, noBuild: true, kb: 0, poise: 0, w: 0, ang: 0 };
-  function addBleed(e, total) {
+  // cap：这一击允许叠到几层（缺省 BL.cap；刻式「剜创」更多，最多 BL.capMax）。层数已经超过 cap 时（剜创叠上去的）照样顶掉最弱的
+  function addBleed(e, total, cap) {
     if (!(total > 0) || e.dead) return;
+    cap = Math.min(BL.capMax, Math.max(BL.cap, cap || 0));
     if (!e.blR) {
-      e.blR = new Float32Array(BL.cap);
-      e.blT = new Float32Array(BL.cap);
+      e.blR = new Float32Array(BL.capMax);
+      e.blT = new Float32Array(BL.capMax);
       e.blN = 0;
     }
     let i = e.blN;
-    if (i >= BL.cap) {
+    if (i >= cap) {
       // 满了：顶掉剩余伤害最少的那层（新的这层比它们都弱时，它自己就是最弱的那层，不加）
       let wv = Infinity;
       for (let k = 0; k < e.blN; k++) {
@@ -3375,7 +3378,7 @@
     // 异常触发的伤害（ctx.proc：爆燃 / 电弧 / 尸爆 / 放电 / 锁链等）本来就是按扣过抗性的伤害算的，不再扣一次
     if (!ctx.proc) G.applyResist(e, hit, (ctx.pen || 0) + (inf.minion || ctx.minion || ctx.asMinion ? 0 : P.S.elemPen || 0));
     e.hp -= hit.total;
-    if (ctx.bleed > 0 && !ctx.proc && hit.parts.phys > 0 && e.hp > 0) addBleed(e, (hit.parts.phys * ctx.bleed) / 100); // 流血：这一击的物理部分
+    if (ctx.bleed > 0 && !ctx.proc && hit.parts.phys > 0 && e.hp > 0) addBleed(e, (hit.parts.phys * ctx.bleed) / 100, ctx.sk.bleedCap); // 流血：这一击的物理部分（剜创：它打中的最多叠 bleedCap 层）
     if (ctx.x && ctx.x !== NO_X) {
       if (ctx.x.cull) cullCheck(e, ctx); // 断命
       if (ctx.x.splash) splashQueue(e, ctx, hit, inf); // 溅击
@@ -4105,6 +4108,7 @@
               const m = (p.multFn ? p.multFn(p, e) : p.mult || 1) * (p.boomK || 1); // boomK：回旋的回程
               G.hitEnemy(e, p.ctx, m, { ang: Math.atan2(p.dx, p.dz), src: p, aura: p.aura, minion: p.minion, kb: p.kb, poise: p.poise }); // 顺着弹道推；aura：霜环「冰棱」的冰棱和光环脉冲一样不算连击；minion：骸弓的骨箭算召唤物的；kb / poise：灵弹的重弹（缺省按技能）
               if (p.after) p.after(p, e, lastHit.killed, lastHit.crit);
+              if (p.ctx.sk.mech === 'hook' && !e.dead) nailHook(p, e); // 刻式「钩钉」：往你身边拽
             }
             if (!p.explode) projFx(p, 'hit'); // 飞刃擦过敌人的金属火花（爆炸弹的特效在爆炸那一下）
             if (p.pin) {
@@ -5801,7 +5805,8 @@
         for (const e of enemiesInLine(x0, z0, a.ang, len, half)) if (losClear(x0, z0, e.x, e.z)) hits.push(e);
         // 锋芒：一道细长的直线刀光（world.thrustFx，没有时用窄扇形顶上）
         const reach = st.dash ? len - dist(x0, z0, P.x, P.z) : len;
-        if (!fxOpt('thrustFx', P.x, P.z, a.ang, reach, hex)) W.slash(P.x, P.z, a.ang, reach, 24, hex, { dur: 0.14, inner: 0.15, y: 1.1 });
+        // st.fx：换一种画法（刻式「血镰」：往前飞的血镰，画在形状批里）
+        if (!(st.fx && fxOpt(st.fx, P.x, P.z, a.ang, reach, hex)) && !fxOpt('thrustFx', P.x, P.z, a.ang, reach, hex)) W.slash(P.x, P.z, a.ang, reach, 24, hex, { dur: 0.14, inner: 0.15, y: 1.1 });
       } else {
         const half = (st.arc / 2) * DEG;
         for (const e of enemiesIn(P.x, P.z, R)) {
@@ -5864,7 +5869,8 @@
       if (sk.mech === 'orbit') return bladeOrbit(ctx); // 刻式「环刃」：不飞出去，绕着你转
       if (sk.cyc) return staffBolt(ctx, a, cs || sk.cyc[0]);
       const n = Math.max(1, ctx.proj + (sk.count || 1) - 1); // count：散钉一次几枚（多重投射再加）
-      const spread = Math.min(60, (sk.spread || 12) * (n - 1)) * DEG;
+      const ring = sk.mech === 'ring'; // 刻式「环钉」：朝四周均匀散开，正对准星的那枚在中间
+      const spread = ring ? TAU * (1 - 1 / n) : Math.min(60, (sk.spread || 12) * (n - 1)) * DEG;
       const stepA = n > 1 ? spread / (n - 1) : 0;
       const hex = sk.elemHex ? G.TYPE_HEX[mainType(ctx)] : hexOf(sk.color); // elemHex：武器普攻按这一下的元素取色
       // hitCap（散钉）：同一次施放对同一个敌人最多中几枚，用计数代替「只中一次」
@@ -5874,8 +5880,9 @@
       // 刻式「跳焰」：第一跳落在准星处（min..max 米），之后每 hop 米一跳
       const sp = sk.mech === 'skip' ? sk.skip : null;
       const d0 = sp ? G.clamp(a.dist, sp.min, sp.max) : 0;
+      if (ring) state.stats.nailRings = (state.stats.nailRings || 0) + 1;
       for (let i = 0; i < n; i++) {
-        const ang = a.ang - spread / 2 + stepA * i;
+        const ang = ring ? a.ang + stepA * i : a.ang - spread / 2 + stepA * i;
         const dx = Math.sin(ang);
         const dz = Math.cos(ang);
         G.spawnProjectile({
@@ -6120,6 +6127,7 @@
     ploughs: [], // 犁焰：{ x, z, dx, dz, d, len, sp, ctx, hit, fx, fd }
     decoys: [], // 残像：{ decoy, x, z, r, height, dead, rising, hp, t, ctx, ring }
     clones: 0, // 影分：排在计时器里、还没补出去的刀
+    focus: { e: null, n: 0 }, // 聚雷：连着打中的那个敌人和数到第几下
     marks: new Set(), // 影印：身上有影印的敌人（层数在 e.vMark，过期时刻 e.vMarkT，句柄 e.vMarkFx）
     disc: null, // 掷旋：{ x, z, tx, tz, ph 'out' / 'hover' / 'back', t, hover, ctx, hits: Map, fx }
     brands: new Set(), // 蚀印：身上有蚀印的敌人（层数 e.vBrand、攒下的伤害 e.vBrandV、句柄 e.vBrandFx）
@@ -7372,6 +7380,8 @@
     for (const e of VS.dots) e.vDot = null;
     VS.dots.clear();
     VS.disc = null;
+    VS.focus.e = null;
+    VS.focus.n = 0;
     VS.crystals.length = 0;
     VS.shell = null;
     P.vShield = null;
@@ -7398,18 +7408,70 @@
     const hit = new Set();
     state.stats.lineCasts = (state.stats.lineCasts || 0) + 1;
     G.sfx('impact', { type: 'cold', w: 0, crit: false });
+    const FK = sk.mech === 'fork' ? sk.fork : null; // 刻式「岔脊」
+    const lance = sk.mech === 'lance'; // 刻式「冰枪」：扎中第一个就停
+    let forks = 0, stop = false;
+    // 岔脊：在 (ex, ez) 脚下向两侧各横刺一道 len 米（撞墙截断），这一次施放已经打中的不再打
+    const inMain = (e) => {
+      const dx = e.x - x0, dz = e.z - z0, along = dx * sn + dz * cs;
+      return along >= -e.r && along <= len + e.r && Math.abs(dx * cs - dz * sn) <= half + e.r;
+    };
+    const fork = (ex, ez) => {
+      const fh = (FK.width / 2) * k;
+      for (const sd of [1, -1]) {
+        const fa = ang + (sd * Math.PI) / 2;
+        const fl = Math.max(0.5, rayLen(ex, ez, fa, FK.len * k, -0.2) + 0.3);
+        const fn = 2, fsl = fl / fn;
+        for (let j = 0; j < fn; j++) {
+          G.after(0.05 + j * sk.segT, () => {
+            if (P.dead) return;
+            const fx = ex + Math.sin(fa) * fsl * j, fz = ez + Math.cos(fa) * fsl * j;
+            fxOpt('frostLineSeg', fx, fz, fa, fsl, fh, j, 4, hex, 0.7);
+            for (const e of enemiesInLine(fx, fz, fa, fsl, fh)) {
+              if (hit.has(e) || inMain(e) || !losClear(ex, ez, e.x, e.z)) continue; // 主脊会刺到的留给主脊
+              hit.add(e);
+              state.stats.forkHits = (state.stats.forkHits || 0) + 1;
+              G.hitEnemy(e, ctx, FK.k, { ang: fa, quiet: true });
+            }
+          });
+        }
+      }
+    };
     for (let i = 0; i < n; i++) {
       const seg = () => {
-        if (P.dead) return;
+        if (P.dead || stop) return;
         const sx = x0 + sn * segL * i, sz = z0 + cs * segL * i;
-        if (!fxOpt('frostLineSeg', sx, sz, ang, segL, half, i, n, hex)) {
-          G.world.frostSparkle(sx + sn * segL * 0.5, 0.35, sz + cs * segL * 0.5, half);
-          G.world.vDecal('frost', sx + sn * segL * 0.5, sz + cs * segL * 0.5, Math.max(half, segL * 0.5), 1.5, 0x9fdcff, { a: 0.6 });
+        let segHit = null;
+        if (lance) {
+          // 冰枪：这一段里离你最近的那个就是扎中的，冰枪停在它身上
+          for (const e of enemiesInLine(sx, sz, ang, segL, half)) {
+            if (hit.has(e) || !losClear(x0, z0, e.x, e.z)) continue;
+            if (!segHit || dist(e.x, e.z, x0, z0) < dist(segHit.x, segHit.z, x0, z0)) segHit = e;
+          }
         }
+        const drawL = segHit ? Math.max(0.3, (segHit.x - sx) * sn + (segHit.z - sz) * cs) : segL;
+        if (!fxOpt('frostLineSeg', sx, sz, ang, drawL, half, i, n, hex, lance ? 0.6 : 1)) {
+          G.world.frostSparkle(sx + sn * drawL * 0.5, 0.35, sz + cs * drawL * 0.5, half);
+          G.world.vDecal('frost', sx + sn * drawL * 0.5, sz + cs * drawL * 0.5, Math.max(half, drawL * 0.5), 1.5, 0x9fdcff, { a: 0.6 });
+        }
+        if (segHit) {
+          stop = true;
+          hit.add(segHit);
+          state.stats.lanceHits = (state.stats.lanceHits || 0) + 1;
+          fxOpt('lanceTip', segHit.x, segHit.z, hex);
+          G.hitEnemy(segHit, ctx, 1, { ang, quiet: true });
+          return;
+        }
+        if (lance) return;
         for (const e of enemiesInLine(sx, sz, ang, segL, half)) {
           if (hit.has(e) || !losClear(x0, z0, e.x, e.z)) continue;
           hit.add(e);
           G.hitEnemy(e, ctx, 1, { ang, quiet: true });
+          if (FK && forks < FK.max) {
+            forks++;
+            state.stats.forks = (state.stats.forks || 0) + 1;
+            fork(e.x, e.z);
+          }
         }
       };
       if (i === 0) seg();
@@ -7422,7 +7484,11 @@
     const sk = ctx.sk;
     const ak = Math.sqrt(ctx.area);
     const d = rayLen(P.x, P.z, a.ang, Math.min(sk.range, a.dist), 0);
-    const x = P.x + Math.sin(a.ang) * d, z = P.z + Math.cos(a.ang) * d;
+    let x = P.x + Math.sin(a.ang) * d, z = P.z + Math.cos(a.ang) * d;
+    if (sk.mech === 'follow') {
+      x = P.x;
+      z = P.z;
+    }
     const R = sk.radius * ak, hr = sk.hitR * ak;
     const n = Math.max(1, Math.round((sk.dur * (ctx.durK || 1)) / sk.tick));
     const total = sk.delay + (n - 1) * sk.tick + sk.fall;
@@ -7430,16 +7496,26 @@
     const hex = hexOf(sk.color);
     const rain = { x, z, R, n, hits: 0 };
     state.stats.rains = (state.stats.rains || 0) + 1;
-    if (!fxOpt('iceRain', x, z, R, total, hex)) G.telegraph({ shape: 'circle', x, z, r: R, dur: total, dmg: 0, friendly: true });
+    if (sk.mech === 'slam') return icicleSlam(ctx, x, z, R, hex, rain);
+    const follow = sk.mech === 'follow'; // 刻式「随凌」：圈心每一根都按你此刻的位置
+    if (follow) fxOpt('iceRainFollow', P.x, P.z, R, sk.tick * 1.3);
+    else if (!fxOpt('iceRain', x, z, R, total, hex)) G.telegraph({ shape: 'circle', x, z, r: R, dur: total, dmg: 0, friendly: true });
     G.sfx('cast');
     const icicle = (i) => {
       if (P.dead) return;
       let px, pz;
+      if (follow) {
+        x = P.x;
+        z = P.z;
+        rain.x = x;
+        rain.z = z;
+        if (i > 0) fxOpt('iceRainFollow', x, z, R, sk.tick * 1.3);
+      }
       const pool = sk.scatter && sk.scatter.indexOf(i % 5) >= 0 ? null : enemiesIn(x, z, R).filter((e) => losClear(x, z, e.x, e.z));
       if (pool && pool.length) {
         let best = pool[0], bv = Infinity;
         for (const e of pool) {
-          const v = (struck.get(e) || 0) + Math.random() * 0.6;
+          const v = (struck.get(e) || 0) + Math.random() * 0.6 + (follow ? dist(e.x, e.z, x, z) * 0.15 : 0); // 随凌：近的先砸
           if (v < bv) {
             bv = v;
             best = e;
@@ -7472,12 +7548,106 @@
     for (let i = 0; i < n; i++) G.after(sk.delay + i * sk.tick, () => icicle(i));
     return rain;
   };
+  // 刻式「重凌」：先画出落点范围，delay 秒后一根大冰凌落下（fall 秒），砸中 R 以内看得见落点的所有敌人（每个吃整根）
+  function icicleSlam(ctx, x, z, R, hex, rain) {
+    const SL = ctx.sk.slam;
+    fxOpt('iceRain', x, z, R, SL.delay + SL.fall, hex);
+    G.sfx('cast');
+    G.after(SL.delay, () => {
+      if (P.dead) return;
+      fxOpt('icicleSlamFall', x, z, R, SL.fall, hex);
+      G.after(SL.fall, () => {
+        if (P.dead) return;
+        if (!fxOpt('icicleSlam', x, z, R, hex)) G.world.frostSparkle(x, 0.4, z, R * 0.6);
+        G.sfx('impact', { type: 'cold', w: 1, crit: false });
+        G.world.shake(0.12);
+        state.stats.slams = (state.stats.slams || 0) + 1;
+        for (const e of enemiesIn(x, z, R)) {
+          if (!losClear(x, z, e.x, e.z)) continue;
+          G.hitEnemy(e, ctx, 1, { ang: Math.atan2(e.x - x, e.z - z), w: 1, kb: 0.6, poise: ctx.sk.poise * 6, quiet: true });
+          rain.hits++;
+          state.stats.rainHits = (state.stats.rainHits || 0) + 1;
+        }
+      });
+    });
+    return rain;
+  }
+  // 刻式「钩钉」：每中一枚把敌人往你身边拽 d 米（精英 × elite，首领拽不动；墙挡着就拽到墙前，G.pullEnemy 处理），不拽到贴脸 1 米以内
+  function nailHook(p, e) {
+    const H = p.ctx.sk.hook;
+    if (e.isBoss) return;
+    const d = dist(e.x, e.z, P.x, P.z);
+    const step = Math.min(H.d * (e.elite ? H.elite : 1), d - 1 - e.r);
+    if (step <= 0.02) return;
+    if (G.pullEnemy) G.pullEnemy(e, P.x, P.z, step);
+    state.stats.hooks = (state.stats.hooks || 0) + 1;
+    fxOpt('hookLine', e.x, e.z, P.x, P.z);
+  }
+  // 刻式「闪迸」：朝准星冲出至多 max 米（墙 / 关着的门 / 不能走的地方截断：rayLen 用 W.walkable 带玩家的半径），
+  // 停在路上第一个敌人前 stop 米、也不越过准星；冲刺不给无敌（翻滚的无敌照旧只来自翻滚）
+  function dischargeDash(ctx, a, hex) {
+    const D = ctx.sk.dash;
+    let want = Math.min(D.max, Math.max(0, a.dist - D.stop));
+    for (const e of enemiesInLine(P.x, P.z, a.ang, want + D.stop, 0.5)) {
+      const along = (e.x - P.x) * a.dx + (e.z - P.z) * a.dz - e.r - D.stop;
+      if (along < want) want = Math.max(0, along);
+    }
+    const d = rayLen(P.x, P.z, a.ang, want, PLAYER_PAD);
+    const x0 = P.x, z0 = P.z;
+    if (d > 0.05) {
+      P.x += a.dx * d;
+      P.z += a.dz * d;
+      fxOpt('dischargeDash', x0, z0, P.x, P.z, hex);
+    }
+    state.stats.dashes = (state.stats.dashes || 0) + 1;
+    state.stats.dashLast = d;
+  }
+  // 刻式「聚雷」：只打 R 以内看得见的最近一个；连着打中同一个敌人到第 n 下时过载（k 倍）：
+  // 普通敌人眩晕 stun 秒（同一个敌人 scd 秒最多一次），精英和首领不眩晕，改为 poise 倍削架势
+  function dischargeFocus(ctx, R, hex) {
+    const F = ctx.sk.focus;
+    let best = null, bd = Infinity;
+    for (const e of enemiesIn(P.x, P.z, R)) {
+      const d = dist(e.x, e.z, P.x, P.z) - e.r;
+      if (d < bd && losClear(P.x, P.z, e.x, e.z)) {
+        bd = d;
+        best = e;
+      }
+    }
+    state.stats.bursts = (state.stats.bursts || 0) + 1;
+    if (!best) {
+      fxOpt('focusZap', [{ x: P.x, z: P.z }, { x: P.x + Math.sin(P.face) * R * 0.6, z: P.z + Math.cos(P.face) * R * 0.6 }], hex, false);
+      return;
+    }
+    const fc = VS.focus;
+    if (fc.e !== best || best.dead) {
+      fc.e = best;
+      fc.n = 0;
+    }
+    fc.n++;
+    const over = fc.n >= F.n;
+    if (over) fc.n = 0;
+    const tough = best.isBoss || best.elite;
+    G.hitEnemy(best, ctx, over ? F.k : 1, { ang: Math.atan2(best.x - P.x, best.z - P.z), quiet: true, poise: (ctx.sk.poise || 0) * (over && tough ? F.poise : 1) });
+    if (over) {
+      state.stats.overloads = (state.stats.overloads || 0) + 1;
+      if (!tough && !best.dead && !(best.vFocusCd > state.time)) {
+        best.stunT = Math.max(best.stunT || 0, F.stun);
+        best.vFocusCd = state.time + F.scd;
+        state.stats.focusStuns = (state.stats.focusStuns || 0) + 1;
+      }
+    }
+    fxOpt('focusZap', [{ x: P.x, z: P.z }, { x: best.x, z: best.z }], hex, over);
+    G.sfx('impact', { type: 'light', w: over ? 1 : 0, crit: lastHit.crit });
+  }
   // 迸电：以自身为圆心的一圈电击（不穿墙）
-  SKILL_FX.burst = function (ctx) {
+  SKILL_FX.burst = function (ctx, a) {
     const W = G.world;
     const sk = ctx.sk;
     const R = sk.radius * Math.sqrt(ctx.area);
     const hex = hexOf(sk.color);
+    if (sk.mech === 'dash' && a) dischargeDash(ctx, a, hex); // 刻式「闪迸」：先冲出去
+    if (sk.mech === 'focus') return dischargeFocus(ctx, R, hex); // 刻式「聚雷」：只打最近的一个
     if (!fxOpt('dischargeFx', P.x, P.z, R, hex)) {
       // 没有形状批时：6 道细电弧从身上放射出去（池化的电弧，minor 不带闪光和贴花）
       const a0 = Math.random() * TAU;
@@ -7513,6 +7683,19 @@
     let first = null;
     const ok = (e) => e && !e.dead && dist(e.x, e.z, P.x, P.z) - e.r <= sk.range && losClear(P.x, P.z, e.x, e.z);
     if (c && ok(c.tgt) && dist(c.tgt.x, c.tgt.z, a.tx, a.tz) - c.tgt.r <= 5) first = c.tgt;
+    // 刻式「锁雷」：目标倒下时，加成转到它身边 carry 米内最近的敌人
+    if (!first && c && sk.lock && c.tgt && c.tgt.dead) {
+      let bd = Infinity;
+      for (const e of state.enemies) {
+        if (e.dead) continue;
+        const dc = dist(e.x, e.z, c.tgt.x, c.tgt.z);
+        if (dc - e.r <= sk.lock.carry && dc < bd && ok(e)) {
+          bd = dc;
+          first = e;
+        }
+      }
+      if (first) state.stats.lockCarry = (state.stats.lockCarry || 0) + 1;
+    }
     if (!first) {
       let bd = Infinity;
       for (const e of state.enemies) {
@@ -7571,7 +7754,7 @@
       pz = cz;
       cur = null;
       if (jumps-- <= 0) break;
-      let nd = 7;
+      let nd = sk.jump || 7; // 游雷：每跳最远 9 米
       for (const e of state.enemies) {
         if (e.dead || hit.has(e)) continue;
         const dd = dist(e.x, e.z, cx, cz);
