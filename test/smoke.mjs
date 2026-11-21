@@ -1035,6 +1035,103 @@ async function main() {
     });
   }
 
+  await step('人形标准骨架：游魂 / 烬骸仆从的骨骼换成标准名并按一张对照表接到关节上，手指并到手；动作包只有 23 根骨骼、4 段动作', async () => {
+    const r = await ev(() => {
+      const W = G.world, S = W.std;
+      const hk = W.makeMob('husk', 0xff8844, false), th = W.makeMinion('thrall');
+      const md = (e) => e.rig.cPose && e.rig.cPose.md, pk = S.pack();
+      const out = {
+        hkModel: hk.rig.cModel, thModel: th.rig.cModel, hkStd: md(hk) && md(hk).std, thStd: md(th) && md(th).std,
+        hkNames: md(hk) ? md(hk).names : [], thNames: md(th) ? md(th).names : [],
+        pack: pk ? { names: pk.names, clips: Object.keys(pk.clips), prims: pk.prims.length } : null,
+        // 手指并到手；骨架没有手关节（游魂）就再并到小臂；没有胸口关节就并到 spine
+        fingerHk: S.joint('index_02_l', hk.rig.JI), fingerTh: S.joint('thumb_01_r', th.rig.JI), clavHk: S.joint('clavicle_l', hk.rig.JI), clavTh: S.joint('clavicle_l', th.rig.JI),
+        driveHk: S.drive(hk.rig), tris: [hk.rig.tris, th.rig.tris],
+      };
+      W.removeEnt(hk);
+      W.removeEnt(th);
+      return out;
+    });
+    assert(r.hkModel === 'zombie' && r.thModel === 'skeleton', '游魂 / 仆从没有用模型：' + r.hkModel + ' / ' + r.thModel);
+    assert(r.hkStd === 'mixamo' && r.thStd === 'monster', '骨骼名没有换成标准名：' + r.hkStd + ' / ' + r.thStd);
+    for (const n of ['pelvis', 'spine_01', 'spine_03', 'neck_01', 'Head', 'clavicle_l', 'upperarm_l', 'lowerarm_r', 'hand_l', 'thigh_l', 'calf_r', 'foot_l', 'ball_r', 'index_01_l']) assert(r.hkNames.includes(n), '游魂缺标准骨骼 ' + n);
+    assert(!r.hkNames.some((n) => /^(Hips|Spine\d?|Neck|Left|Right)/.test(n)), '游魂还留着 Mixamo 骨骼名：' + r.hkNames.filter((n) => /^(Hips|Spine|Left|Right)/.test(n)).join(' '));
+    for (const n of ['pelvis', 'spine_03', 'neck_01', 'Head', 'upperarm_l', 'lowerarm_l', 'upperarm_r', 'lowerarm_r', 'thigh_l', 'calf_l', 'thigh_r', 'calf_r']) assert(r.thNames.includes(n), '仆从缺标准骨骼 ' + n);
+    assert(r.pack && r.pack.names.length === 23 && r.pack.prims === 0, '动作包应是 23 根骨骼、没有网格：' + JSON.stringify(r.pack && [r.pack.names.length, r.pack.prims]));
+    assert(!r.pack.names.some((n) => /^(index|middle|ring|pinky|thumb)_|_leaf/.test(n)), '动作包里还有手指 / 末端骨骼');
+    assert(['Zombie_Idle', 'Zombie_Walk', 'Hit_Chest', 'Death01'].every((c) => r.pack.clips.includes(c)) && r.pack.clips.length === 4, '动作包的动作不对：' + r.pack.clips);
+    assert(r.fingerHk === 'faL' && r.fingerTh === 'hR', '手指没有并到手 / 小臂：' + r.fingerHk + ' / ' + r.fingerTh);
+    assert(r.clavHk === 'spine' && r.clavTh === 'chest', '锁骨的关节不对：' + r.clavHk + ' / ' + r.clavTh);
+    assert(r.driveHk.spine === 'spine_03' && r.driveHk.head === 'Head' && r.driveHk.thL === 'thigh_l', '游魂的带动骨骼不对：' + JSON.stringify(r.driveHk));
+    // 面数预算（模型没换，两档同一份网格）：游魂是成群的杂兵（低画质 ≤ 2500），仆从按精英一档（≤ 4000，带剑和盾）
+    assert(r.tris[0] <= 2500 && r.tris[1] <= 4000, '面数超预算：' + r.tris);
+    return '游魂 ' + r.hkNames.length + ' 根、仆从 ' + r.thNames.length + ' 根骨骼；三角形 ' + r.tris.join(' / ');
+  });
+
+  await step('人形标准骨架·动作：游魂走路用 UAL 的 Zombie_Walk、出手叠在走路上只管上身；受击 Hit_Chest 只动上身；死亡 Death01 截短后仍是 0.6 秒', async () => {
+    const r = await ev(() => {
+      const W = G.world;
+      // A：边走边扑，B：只走，C：站着扑，D：站着受击，E：站着不动
+      // 每只实体的步态相位 / 时钟 / 待机相位本来是随机的（成群时不同步），这里统一成 0，几只之间才能逐通道比较
+      const mk = () => { const e = W.makeMob('husk', 0xff8844, false); W.setEnt(e, 0, 0, 0); e.phase = e.clock = e.walk = 0; return e; };
+      const A = mk(), B = mk(), C = mk(), D = mk(), E = mk(), all = [A, B, C, D, E];
+      const rig = A.rig, JI = rig.JI, CH = 9; // world.js 的 CH：每个关节 9 个姿态通道（rx ry rz ox oy oz sx sy sz）
+      const ch = (e, j, c) => e.pose[JI[j] * CH + c], oc = (e, j, c) => e.out[JI[j] * CH + c];
+      let z = 0, f1 = null;
+      for (let f = 0; f < 70; f++) {
+        z += 3 / 60;
+        for (const e of [A, B]) { W.setEnt(e, 0, z, 0); W.animEnt(e, 1 / 60, true); }
+        for (const e of [C, D, E]) W.animEnt(e, 1 / 60, false);
+        if (f === 60) { W.play(A, 'attack'); W.play(C, 'attack'); W.hitReact(D, Math.PI, 1); }
+        if (f === 66) f1 = {
+          legAB: Math.abs(ch(A, 'thL', 0) - ch(B, 'thL', 0)) + Math.abs(ch(A, 'shR', 0) - ch(B, 'shR', 0)),
+          legAC: Math.abs(ch(A, 'thL', 0) - ch(C, 'thL', 0)) + Math.abs(ch(A, 'shR', 0) - ch(C, 'shR', 0)),
+          armAC: Math.abs(ch(A, 'uaL', 0) - ch(C, 'uaL', 0)) + Math.abs(ch(A, 'faR', 0) - ch(C, 'faR', 0)),
+          armAB: Math.abs(ch(A, 'uaL', 0) - ch(B, 'uaL', 0)) + Math.abs(ch(A, 'faR', 0) - ch(B, 'faR', 0)),
+          hitUp: Math.abs(oc(D, 'uaL', 0) - oc(E, 'uaL', 0)) + Math.abs(oc(D, 'uaR', 2) - oc(E, 'uaR', 2)),
+          hitLow: Math.abs(oc(D, 'thL', 0) - oc(E, 'thL', 0)) + Math.abs(oc(D, 'shR', 0) - oc(E, 'shR', 0)) + Math.abs(oc(D, 'ftL', 0) - oc(E, 'ftL', 0)),
+        };
+      }
+      // 扑击里每个通道：腿（rig.mask.lower）上的要让给步态（cLow），其余的不让
+      const low = rig.clips.attack.cLow, lowJ = new Set(), legJ = new Set(), ci = rig.clips.attack.ci;
+      for (let i = 0; i < ci.length; i++) {
+        const jn = rig.joints[Math.floor(ci[i] / CH)].name;
+        if (low[i]) lowJ.add(jn);
+        if (rig.mask.lower.includes(jn)) legJ.add(jn);
+      }
+      W.die(E, {});
+      const out = {
+        f1, std: rig.std, mask: rig.mask, lowJ: [...lowJ].sort().join(','), legJ: [...legJ].sort().join(','), hit: rig.hitTrack ? rig.hitTrack.ci.map((i) => rig.joints[Math.floor(i / CH)].name) : [],
+        death: rig.clips.death.dur, dieClip: E.dying && E.dying.clipDur, deathKeys: Object.keys(rig.clips.death.spec.keys),
+        stride: rig.stride,
+      };
+      // 步幅的期望值：动作包里记的一个周期的距离 × 动作包到游魂的缩放（按骨盆高度）
+      const pk = W.std.pack(), pb = new THREE.Vector3().setFromMatrixPosition(pk.B[pk.bi.pelvis]);
+      out.cycle = pk.clips.Zombie_Walk.ex.cycle * (rig.joints[rig.JI.root].py / pb.y);
+      const th = W.makeMinion('thrall');
+      out.thHit = th.rig.hitTrack ? 1 : 0;
+      W.removeEnt(th);
+      for (const e of all) W.removeEnt(e);
+      return out;
+    });
+    assert(r.std && r.std.loco && r.std.loco[1] === 'Zombie_Walk' && r.std.hit === 'Hit_Chest' && r.std.death[0] === 'Death01', '游魂没有装上动作包的动作：' + JSON.stringify(r.std));
+    assert(r.legJ.length > 0 && r.lowJ === r.legJ, '扑击的腿没有让给步态（遮罩）：让出的 ' + r.lowJ + '，扑击里的腿 ' + r.legJ);
+    assert(r.mask.lower.sort().join(',') === 'ftL,ftR,shL,shR,thL,thR' && !r.mask.upper.includes('thL') && r.mask.upper.includes('uaL') && r.mask.upper.includes('head'), '分区不对：' + JSON.stringify(r.mask));
+    // 边走边扑：腿和只走的一样（步态），手臂和站着扑的一样（程序化出手）
+    assert(r.f1.legAB < 0.01, '边走边扑时腿没有跟着走路：' + r.f1.legAB.toFixed(4));
+    assert(r.f1.legAC > 0.05, '边走边扑时腿和站着扑一样，遮罩没起作用：' + r.f1.legAC.toFixed(4));
+    assert(r.f1.armAC < 1e-6 && r.f1.armAB > 0.05, '边走边扑时手臂不是扑击的动作：' + r.f1.armAC.toFixed(4) + ' / ' + r.f1.armAB.toFixed(4));
+    // 受击：上身有 Hit_Chest 的变化，腿不动（不打滑）
+    assert(r.hit.length > 0 && !r.hit.some((j) => /^(th|sh|ft)|^root$/.test(j)), '受击动作应只有上身：' + r.hit);
+    assert(r.f1.hitUp > 0.02 && r.f1.hitLow < 1e-6, '受击：上身变化 ' + r.f1.hitUp.toFixed(4) + '，腿变化 ' + r.f1.hitLow.toFixed(4));
+    assert(r.thHit === 1, '烬骸仆从没有装上受击动作');
+    // 死亡：时长和程序化死亡一样（0.6 秒，死亡 / 掉落的时机不变），带骨盆下落；下颌、破布这些没有骨骼的关节保留原来的关键帧
+    assert(r.death === 0.6 && r.dieClip === 0.6, '死亡时长变了：' + r.death + ' / ' + r.dieClip);
+    assert(r.deathKeys.includes('root.oy') && r.deathKeys.includes('jaw.rx') && r.deathKeys.includes('rag1.rx'), '死亡关键帧不对：' + r.deathKeys.join(' '));
+    assert(Math.abs(r.stride - (2 * Math.PI) / r.cycle) < 1e-6 && r.cycle > 1.2 && r.cycle < 2.4, '走路的步幅换算不对：stride ' + r.stride + '，一个周期 ' + r.cycle + ' 米');
+    return '腿差 ' + r.f1.legAB.toFixed(4) + '，受击上身 ' + r.f1.hitUp.toFixed(3) + '，一个周期 ' + (2 * Math.PI / r.stride).toFixed(2) + ' 米';
+  });
+
   await step('镜头与远程怪：脚下能看到 7.5 以上、头顶 9.5 以上（卡通风格的近镜头）；屏幕下方画面外的喷吐者先走进画面再开火', async () => {
     const r = await ev(() => {
       T.arena();
