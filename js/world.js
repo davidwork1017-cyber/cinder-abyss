@@ -23814,6 +23814,7 @@
     W.vTick(dt); // 刻式件
     toonChunks(dt);
     vsDraw(dt); // vf-vfx2：形状批
+    rqbDraw(); // 渊式「电桥」的折线（同一个形状批）
     spinBladesDraw(dt);
     pfEnd();
     updateRibbons(dt);
@@ -26497,74 +26498,36 @@
   // 最多 8 道，画进同一个实例网格（aK 剩余比例、aSeed 锯齿相位、aLen 长度）。第一次用到时才建
   const RQB_MAX = 9; // 渊式「电桥」最多 9 道（你 → 第一个目标那一段也留）
   let rqb = null;
+  // vf-vfx2 之后：电桥画进形状批（折线段，一次 draw 里和别的碎件一起），不再单独建实例网格
   function rqbInit() {
     if (rqb) return rqb;
-    const g = new T.PlaneGeometry(1, 1);
-    g.rotateX(-Math.PI / 2);
-    const ig = new T.InstancedBufferGeometry();
-    ig.index = g.index;
-    ig.setAttribute('position', g.getAttribute('position'));
-    ig.setAttribute('uv', g.getAttribute('uv'));
-    const aK = new T.InstancedBufferAttribute(new Float32Array(RQB_MAX), 1), aSeed = new T.InstancedBufferAttribute(new Float32Array(RQB_MAX), 1), aLen = new T.InstancedBufferAttribute(new Float32Array(RQB_MAX), 1);
-    ig.setAttribute('aK', aK);
-    ig.setAttribute('aSeed', aSeed);
-    ig.setAttribute('aLen', aLen);
-    const mat = new T.ShaderMaterial({
-      uniforms: { uTime, uCore: { value: new T.Color(0xfffbe6) }, uEdge: { value: new T.Color(0xffe45e) } },
-      vertexShader: [
-        'attribute float aK; attribute float aSeed; attribute float aLen; varying vec2 vUv; varying float vK; varying float vS; varying float vL;',
-        'void main(){ vUv = uv; vK = aK; vS = aSeed; vL = aLen; gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0); }',
-      ].join('\n'),
-      fragmentShader: [
-        'uniform float uTime; uniform vec3 uCore; uniform vec3 uEdge; varying vec2 vUv; varying float vK; varying float vS; varying float vL;',
-        'float tri(float x){ return abs(fract(x) - 0.5) * 2.0; }',
-        'void main(){',
-        '  float st = floor(uTime * 14.0 + vS * 7.0);',
-        '  float ph = fract(sin(st * 12.9898 + vS * 78.233) * 43758.5453);',
-        '  float c = 0.5 + (tri(vUv.y * vL * 0.85 + ph) - 0.5) * 0.6;', // 锯齿亮芯的中线
-        '  float d = abs(vUv.x - c), e = abs(vUv.x - 0.5);',
-        '  vec3 col; float a;',
-        '  if (d < 0.06) { col = uCore; a = 1.0; }',
-        '  else if (d < 0.15) { col = uEdge; a = 0.85; }',
-        '  else if (e > 0.4 && e < 0.45) { col = uEdge; a = 0.3; }', // 两侧的平行细光
-        '  else discard;',
-        '  float k = vK > 0.66 ? 1.0 : (vK > 0.33 ? 0.62 : 0.3);',
-        '  gl_FragColor = vec4(col, a * k);',
-        '}',
-      ].join('\n'),
-      transparent: true, depthWrite: false, toneMapped: false, fog: false, side: T.DoubleSide,
-    });
-    const mesh = new T.InstancedMesh(ig, mat, RQB_MAX);
-    mesh.count = 0;
-    mesh.visible = false;
-    mesh.frustumCulled = false;
-    mesh.renderOrder = 4;
-    scene.add(mesh);
-    rqb = { mesh, aK, aSeed, aLen, slots: [] };
+    rqb = { slots: [] };
     for (let i = 0; i < RQB_MAX; i++) rqb.slots.push({ on: false, x0: 0, z0: 0, x1: 0, z1: 0, t: 0, dur: 1, seed: 0 });
     return rqb;
   }
-  const _rqm = new T.Matrix4(), _rqq = new T.Quaternion(), _rqp = new T.Vector3(), _rqs = new T.Vector3(), _rqUp = new T.Vector3(0, 1, 0);
-  function rqbFlush() {
-    const B = rqb;
-    let n = 0;
-    for (const s of B.slots) {
-      if (!s.on) continue;
-      const dx = s.x1 - s.x0, dz = s.z1 - s.z0, L = Math.max(0.3, Math.hypot(dx, dz));
-      _rqp.set((s.x0 + s.x1) / 2, 1.05, (s.z0 + s.z1) / 2);
-      _rqq.setFromAxisAngle(_rqUp, Math.atan2(dx, dz));
-      _rqs.set(s.w || 0.9, 1, L);
-      _rqm.compose(_rqp, _rqq, _rqs);
-      B.mesh.setMatrixAt(n, _rqm);
-      B.aK.array[n] = G.clamp(s.t / s.dur, 0, 1);
-      B.aSeed.array[n] = s.seed;
-      B.aLen.array[n] = L;
-      n++;
+  function rqbFlush() {}
+  const _rqA = new T.Color(0xffe45e).convertSRGBToLinear();
+  // 在 updateProjFx 的形状批里调：每道桥 = 一条贴着胸口高度的锯齿折线（每秒换 14 次形状），黄色主色、亮芯往白混；剩下的时间三档：粗 → 中 → 细
+  function rqbDraw() {
+    if (!rqb || !PF.vShape) return;
+    const t = G.state ? G.state.time : 0;
+    for (const s2 of rqb.slots) {
+      if (!s2.on) continue;
+      const dx = s2.x1 - s2.x0, dz = s2.z1 - s2.z0, L = Math.max(0.3, Math.hypot(dx, dz));
+      const k = G.clamp(s2.t / s2.dur, 0, 1), wk = k > 0.66 ? 1 : k > 0.33 ? 0.62 : 0.35;
+      const nx = -dz / L, nz = dx / L, n = Math.max(3, Math.min(10, Math.round(L / 0.9)));
+      const st = Math.floor(t * 14 + s2.seed * 7);
+      let px = s2.x0, pz = s2.z0;
+      for (let i = 1; i <= n; i++) {
+        const f = i / n, j = i === n ? 0 : (Math.sin((st + i) * 12.9898 + s2.seed * 78.233) * 43758.5453 % 1) * 0.35 * (s2.w || 0.9);
+        const qx = s2.x0 + dx * f + nx * j, qz = s2.z0 + dz * f + nz * j;
+        const sx = qx - px, sz = qz - pz;
+        mFlat(px, 1.05, pz, Math.atan2(sx, sz), 0.16 * wk, Math.hypot(sx, sz) + 0.04);
+        vsNow(VSH.bar, _rqA.r, _rqA.g, _rqA.b, 0.85, 0.25, 0);
+        px = qx;
+        pz = qz;
+      }
     }
-    B.mesh.count = n;
-    B.mesh.visible = n > 0;
-    B.mesh.instanceMatrix.needsUpdate = true;
-    B.aK.needsUpdate = B.aSeed.needsUpdate = B.aLen.needsUpdate = true;
   }
   // 新开一道电桥，返回槽位（满了顶掉剩余时间最短的那道；game.js 那边同样最多 8 道，一般不会撞上）
   W.relicBridgeOn = function (x0, z0, x1, z1, dur0, w) {
@@ -26590,7 +26553,7 @@
     for (const s of rqb.slots) if (s.on) s.t -= dt;
     rqbFlush();
   };
-  W.relicBridgeCount = () => (rqb ? rqb.mesh.count : 0); // 测试用
+  W.relicBridgeCount = () => (rqb ? rqb.slots.filter((s2) => s2.on).length : 0); // 测试用
   // 踏震：落点一圈硬边地裂 + 三道往外的冲击弧 + 一点尘
   W.relicStomp = function (x, z, R, ang) {
     W.ring(x, z, R, 0xffc070, 0.35);
@@ -26830,6 +26793,10 @@
       let n = 0;
       for (let i = 0; i < L.length; i++) {
         const h = L[i];
+        if (h.rv && PF.vShape) {
+          rvShape(kind, h); // 渊式件：画进形状批，不占这一种刻式件的 draw
+          continue;
+        }
         if (kind === 'band') {
           const dx = h.x1 - h.x0, dz = h.z1 - h.z0, len = Math.max(0.2, Math.hypot(dx, dz));
           _kvp.set((h.x0 + h.x1) / 2, h.y || 1.0, (h.z0 + h.z1) / 2);
@@ -26944,6 +26911,36 @@
   // =====================================================================
   const RV_HEX = 0xc8ffe8, RV_HI = 0xffffff, RV_DEEP = 0x6fe0b0;
   const rvList = [];
+  // 形状批里的画法（kvFlush 里调，在 pfBegin / pfEnd 之间）：glyph → 一道细环 + 一圈短刻线（亮着的刻线数 = k）；band → 一根细折线段；
+  // rock → 立体碎石。颜色按 a 压暗（不透明，不靠半透明淡出）
+  const _rvc = new T.Color(), RV_TICKS = 8;
+  function rvShape(kind, h) {
+    _rvc.setHex(h.hex).convertSRGBToLinear().multiplyScalar(h.a);
+    if (kind === 'glyph') {
+      const r = h.s * 0.5, t = G.state ? G.state.time : 0;
+      mFlat(h.x, h.y, h.z, 0, r, r);
+      vsNow(VSH.ring, _rvc.r, _rvc.g, _rvc.b, 0, 0.35, 0.86); // 进度 0.86：只剩外沿一道细线
+      if (h.ticks === 0) return;
+      const n = h.ticks || RV_TICKS, lit = Math.round(G.clamp(h.k, 0, 1) * n), a0 = t * (h.spin || 0.6);
+      for (let i = 0; i < lit; i++) {
+        const a = a0 + (i / n) * TAU, rr = r * 0.9;
+        mFlat(h.x + Math.sin(a) * rr, h.y + 0.01, h.z + Math.cos(a) * rr, a + Math.PI / 2, Math.max(0.06, r * 0.05), Math.max(0.2, r * 0.22));
+        vsNow(VSH.bar, _rvc.r, _rvc.g, _rvc.b, 0.3, 0.35, 0);
+      }
+    } else if (kind === 'band') {
+      const dx = h.x1 - h.x0, dz = h.z1 - h.z0, len = Math.max(0.2, Math.hypot(dx, dz));
+      mFlat(h.x0, h.y || 1, h.z0, Math.atan2(dx, dz), h.w, len);
+      vsNow(VSH.bar, _rvc.r, _rvc.g, _rvc.b, 0.3, 0.3, 0);
+    } else {
+      _kvp.set(h.x, h.y, h.z);
+      _kve.set(h.rx, h.ry, h.rz, 'YXZ');
+      _kvq.setFromEuler(_kve);
+      const sc = h.s * 0.6;
+      _kvs.set(sc, sc, sc);
+      _pm.compose(_kvp, _kvq, _kvs);
+      vsNow(VSH.chip, _rvc.r, _rvc.g, _rvc.b, 0, 0.3, 0);
+    }
+  }
   function rvAdd(o) {
     rvList.push(o);
     return o;
@@ -26975,7 +26972,7 @@
     mesh.userData.rvTok = tok;
     mesh.userData.boom2 = false;
     return rvAdd({
-      kind: 'thread', t: 0, hs: [W.kv('band', { hex: RV_HEX, w: 0.16, y: 0.95 })],
+      kind: 'thread', t: 0, hs: [W.kv('band', { hex: RV_HEX, w: 0.16, y: 0.95, rv: 1 })],
       tick(o, dt, P) {
         if (!mesh.parent || mesh.userData.rvTok !== tok || !P) return false;
         const h = o.hs[0];
@@ -27002,7 +26999,7 @@
     }
     if (!rvTideRing || rvTideRing.dead) {
       rvTideRing = rvAdd({
-        kind: 'tide', t: 0, k: 0, hs: [W.kv('glyph', { hex: 0x9fe0ff, y: 0.09, s: 4.2 })],
+        kind: 'tide', t: 0, k: 0, hs: [W.kv('glyph', { hex: 0x9fe0ff, y: 0.09, s: 4.2, rv: 1, ticks: 10, spin: 0.9 })],
         tick(o, dt, P) {
           if (!P) return false;
           const h = o.hs[0];
@@ -27025,7 +27022,7 @@
   // 星雨：落点一圈慢慢转的符环（落下前 delay 秒），落地时一道空心冲击 + 白色星屑
   W.rvStar = function (x, z, R, delay) {
     return rvAdd({
-      kind: 'star', t: 0, hs: [W.kv('glyph', { x, z, y: 0.1, hex: RV_HEX, s: R * 1.6, a: 0.62 })],
+      kind: 'star', t: 0, hs: [W.kv('glyph', { x, z, y: 0.1, hex: RV_HEX, s: R * 1.6, a: 0.62, rv: 1, ticks: 6, spin: 0.7 })],
       tick(o) {
         const u = Math.min(1, o.t / Math.max(0.05, delay));
         o.hs[0].k = u;
@@ -27046,7 +27043,7 @@
     }
     if (!on || !ent) return null;
     return rvAdd({
-      kind: 'crown', ent, t: 0, hs: [W.kv('glyph', { hex: RV_HEX, s: 0.9, a: 1 })],
+      kind: 'crown', ent, t: 0, hs: [W.kv('glyph', { hex: RV_HEX, s: 0.9, a: 1, rv: 1, ticks: 0 })],
       tick(o) {
         const g = ent.group;
         if (!g || !g.parent || ent.dying) return false;
@@ -27066,7 +27063,7 @@
   W.rvOrbit = function (hole, R) {
     if (!hole) return null;
     const n = qualId === 'low' ? 3 : 5, hs = [];
-    for (let i = 0; i < n; i++) hs.push(W.kv('rock', { hex: 0x2a2030, s: 0.28 + (i % 2) * 0.1, k: 0 }));
+    for (let i = 0; i < n; i++) hs.push(W.kv('rock', { hex: 0x2a2030, s: 0.28 + (i % 2) * 0.1, k: 0, rv: 1 }));
     const t0 = hole.t0; // 黑洞的网格是对象池里的：换了一个洞（t0 变了）也算收起
     return rvAdd({
       kind: 'orbit', t: 0, hs,
