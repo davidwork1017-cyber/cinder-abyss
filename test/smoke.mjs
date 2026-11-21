@@ -16686,7 +16686,7 @@ async function main() {
         for (let k = 0; k < 24; k++) {
           const a = (k / 24) * Math.PI * 2, dx = Math.sin(a), dz = Math.cos(a);
           let ok = true;
-          for (let d = 1; d <= len && ok; d += 0.5) if (!(W.sdAt(e.x + dx * d, e.z + dz * d) >= 1)) ok = false;
+          for (let d = 1; d <= len && ok; d += 0.5) if (!(W.sdAt(e.x + dx * d, e.z + dz * d) >= 1) || !W.walkable(e.x + dx * d, e.z + dz * d, 0.5)) ok = false; // walkable：和钩链拽人时查的一样（布景件的碰撞也挡）
           if (ok) return { x: dx, z: dz };
         }
         return { x: 1, z: 0 };
@@ -16726,9 +16726,14 @@ async function main() {
       let tele = null;
       EK.step(0.05, () => (tele = S.telegraphs.find((t) => t.owner === e && t.shape === 'rect')));
       out.tele = tele ? tele.len + '×' + tele.w + '@' + tele.dur : null;
-      const dA = Math.hypot(P.x - e.x, P.z - e.z);
-      EK.step(0.9);
-      out.pulled = +(dA - Math.hypot(P.x - e.x, P.z - e.z)).toFixed(2);
+      // 量玩家自己被拽了多远（原来量「离它近了多少」：它醒着会在甩钩的 0.85 秒里走过来或走回房间，拽的距离被它的走动吃掉或补上——
+      // 单独跑时它走近 2.4 米、玩家只被拽 2 米也算过；整套跑到这里状态不同时出过 2.4 米的失败）。甩钩期间把它钉在原地，拽满 4 米
+      const ex0 = e.x, ez0 = e.z, px0 = P.x, pz0 = P.z;
+      EK.step(0.9, () => {
+        e.x = ex0;
+        e.z = ez0;
+      });
+      out.pulled = +Math.hypot(P.x - px0, P.z - pz0).toFixed(2);
       // 灰誓者：75% 立两根图腾，立着时减伤 40%、回血；打碎后恢复
       enc = make('oath');
       e = enc.mob;
