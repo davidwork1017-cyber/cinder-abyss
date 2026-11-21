@@ -896,9 +896,9 @@ async function main() {
   }
 
   // ash-models-drop：第 0 区的布景全是自产件（kit-ash），冷启动不该再下载 CC0 模型包 models.js（1.4 MB，只有第 1、2 区用）。
-  // 进区 1.5 秒后安静下来会预取下一区（第 1 区）的包，其中有 models.js：那一批和 zone-frost.js 同时发出，而且在第 0 区的包都到了以后；
-  // 启动时那一批（和 zone-ash.js 同时发出）里不能有它
-  await step('素材：冷启动进第 0 区不请求 CC0 模型包 models.js（只在预取第 1 区时和 zone-frost.js 一起要），第 0 区布景全部来自 kit-ash、都摆出来了', async () => {
+  // 进区后安静下来、图标预热也画完了，会预取下一区（第 1 区）的包，其中有 models.js。只按先后判断，不卡毫秒窗口（池里跑会抖）：
+  // models.js 若被请求，必须在第 0 区的每个包都下载完之后才开始，并且不早于 zone-frost.js（同一次 need() 先插 zone-frost 的脚本，再插 models）
+  await step('素材：冷启动进第 0 区不请求 CC0 模型包 models.js（只在预取第 1 区时跟着 zone-frost.js 要），第 0 区布景全部来自 kit-ash、都摆出来了', async () => {
     const r = await ev(async () => {
       const W = G.world, t = performance.now();
       while (W.assetsPending() && performance.now() - t < 40000) await new Promise((res) => setTimeout(res, 50));
@@ -906,21 +906,19 @@ async function main() {
       return { pending: W.assetsPending(), hd: W.gfxInfo().hd, fires: W.gfxInfo().fires, src: W.propSources(), res };
     });
     const at = (f) => r.res.filter((x) => x.f === f);
-    const ash0 = at('zone-ash.js')[0];
-    assert(ash0, '冷启动没有请求 zone-ash.js：' + JSON.stringify(r.res.map((x) => x.f)));
-    const boot = r.res.filter((x) => Math.abs(x.s - ash0.s) < 300).map((x) => x.f);
-    const ashEnd = Math.max(...r.res.filter((x) => /^(zone-ash|kit-ash|rock-dark|ground)\.js$/.test(x.f)).map((x) => x.e));
-    assert(boot.indexOf('models.js') < 0, '冷启动和第 0 区的包一起请求了 models.js：' + boot.join(' '));
+    const ashPk = r.res.filter((x) => /^(zone-ash|kit-ash|rock-dark|ground)\.js$/.test(x.f));
+    assert(['zone-ash.js', 'kit-ash.js', 'rock-dark.js', 'ground.js'].every((f) => at(f).length), '冷启动缺第 0 区的包：' + r.res.map((x) => x.f).join(' '));
+    const ashEnd = Math.max(...ashPk.map((x) => x.e));
     for (const m of at('models.js')) {
-      const fr = at('zone-frost.js').find((x) => Math.abs(x.s - m.s) < 100);
-      assert(fr && m.s >= ashEnd, 'models.js 只该在预取第 1 区时、第 0 区的包都到了以后请求：' + JSON.stringify({ m, fr, ashEnd, res: r.res }));
+      const fr = at('zone-frost.js').filter((x) => x.s <= m.s);
+      assert(m.s >= ashEnd && fr.length, 'models.js 只该在第 0 区的包都到了以后、随第 1 区的预取（zone-frost.js 之后）请求：' + JSON.stringify({ m, ashEnd, res: r.res }));
     }
     const fmt = r.src.map((s) => s.key + '@' + s.pack + '×' + s.placed).join(' ');
     assert(!r.pending && r.hd, '第 0 区没换上 PBR 外观：' + JSON.stringify({ pending: r.pending, hd: r.hd }));
     assert(r.src.length >= 10 && r.src.every((s) => s.key.startsWith('ca/') && s.pack === 'kit-ash'), '第 0 区布景的来源不对：' + fmt);
     const placed = (re) => r.src.filter((s) => re.test(s.key)).reduce((a, s) => a + s.placed, 0);
     assert(placed(/ash_tree_dead_/) >= 3 && placed(/ash_(skull|bones|blade|marker)$/) >= 3 && placed(/firepit/) === r.fires && r.fires > 0 && placed(/./) >= 20, '第 0 区布景没摆全（枯树 ≥ 3、路边小物 ≥ 3、火坑数 = 火焰数、总数 ≥ 20）：' + fmt + ' 火 ' + r.fires);
-    return '启动批 ' + boot.join(' ') + (at('models.js').length ? ' ｜ models.js 随第 1 区预取' : ' ｜ 没请求 models.js') + ' ｜ 布景 ' + r.src.reduce((a, s) => a + s.placed, 0) + ' 个';
+    return '请求顺序 ' + r.res.map((x) => x.f.replace(/\.js$/, '')).join(' → ') + (at('models.js').length ? '（models 随第 1 区预取）' : '（没请求 models）') + ' ｜ 布景 ' + placed(/./) + ' 个';
   });
 
   await step('首屏：场景、玩家、HUD、小地图都画出来了', async () => {

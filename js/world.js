@@ -2302,7 +2302,10 @@
       const P = G.player, S = G.state;
       const busy = (P && P.cast) || (S && S.enemies.some((e) => !e.dead && e.awake && Math.hypot(e.x - P.x, e.z - P.z) < 25));
       calmFor = busy ? 0 : calmFor + 1;
-      if (calmFor >= 3 || ++waited >= 60) G.assets.need(nx.packs);
+      // ash-models-drop：也等启动时的图标预热画完（G.icons.ready()）。第 0 区不再带 models 包以后，预取第 1 区要下载、解析它（1.4 MB、40 个模型），
+      // 赶在预热中间会把图标就绪推迟约 0.7 秒；预热一般在进区后几秒内画完，60 秒的上限不变
+      const iconsBusy = !!(G.icons && G.icons.ready && !G.icons.ready());
+      if ((calmFor >= 3 && !iconsBusy) || ++waited >= 60) G.assets.need(nx.packs);
       else setTimeout(tick, 1000);
     };
     setTimeout(tick, 1500);
