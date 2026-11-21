@@ -1564,7 +1564,7 @@
         if (o.splT === t && o.splId === q.ctx.id) continue; // 这一帧已经吃过同一个技能的溅射
         o.splT = t;
         o.splId = q.ctx.id;
-        G.hitEnemy(o, sc, 1, { ang: Math.atan2(o.x - q.x, o.z - q.z), w: 0, kb: 0.3, poise: 0, quiet: true, proc: true, faint: true });
+        G.hitEnemy(o, sc, 1, { ang: Math.atan2(o.x - q.x, o.z - q.z), w: 0, kb: 0, poise: 0, quiet: true, proc: true, faint: true }); // 不击退：推开会把怪群推出技能的范围
         n++;
       }
       if (n) {
@@ -1580,7 +1580,7 @@
     const x = p.ctx.x, n = x.fork || 0;
     if (!n || p.forked || p.pin || p.stick || p.skip || p.minion || p.aura) return;
     p.forked = true;
-    const a0 = Math.atan2(p.dx, p.dz), da = ((x.forkAng || 30) * Math.PI) / 180;
+    const a0 = Math.atan2(p.dx, p.dz), da = ((x.forkAng || 35) * Math.PI) / 180;
     for (let i = 0; i < n; i++) {
       const a = a0 + (i % 2 ? 1 : -1) * da * (1 + Math.floor(i / 2));
       const dx = Math.sin(a), dz = Math.cos(a);

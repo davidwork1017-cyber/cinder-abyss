@@ -11773,7 +11773,7 @@ async function main() {
     return r.n + ' 种辅助';
   });
 
-  await step('分岔 / 溅击 / 断命 / 化元的效果：首次命中分出 2 枚（伤害 ×0.9）；溅射 40%、2.5 米、同一下直接打中的不吃溅射；断命 15%（精英 8%、首领无）；化元 60% 转为加成最高的元素、蛮力只加剩下的物理', async () => {
+  await step('分岔 / 溅击 / 断命 / 化元的效果：首次命中分出 2 枚（不扣伤害）；溅射 40%、2.5 米、同一下直接打中的不吃溅射；断命 15%（精英 8%、首领无）；化元 60% 转为加成最高的元素、蛮力只加剩下的物理', async () => {
     const r = await ev(() => {
       T.arena();
       T.fix(0.5);
@@ -11788,7 +11788,7 @@ async function main() {
       // 分岔：正前方一只，它身后左右各一只
       const forkRun = (socks) => {
         G.clearEnemies();
-        const a = T.mob('husk', ...at(4, 0)), l = T.mob('husk', ...at(7, -1.7)), rr = T.mob('husk', ...at(7, 1.7));
+        const a = T.mob('husk', ...at(4, 0)), l = T.mob('husk', ...at(7, -2.1)), rr = T.mob('husk', ...at(7, 2.1)); // 身后 3 米、左右各 35°
         for (const e of [a, l, rr]) { G.initBuildUp(e); e.buTh = 1e9; }
         save.sockets.blade = socks;
         T.aim(a.x, a.z);
@@ -11864,7 +11864,7 @@ async function main() {
       return out;
     });
     const near = (a, b, e) => Math.abs(a - b) < (e || 1e-6);
-    assert(r.fork0.forks === 0 && r.fork0.side === 0 && r.fork1.forks === 2 && r.fork1.side >= 1 && near(r.forkMore, 0.9), '分岔不对：' + JSON.stringify(r));
+    assert(r.fork0.forks === 0 && r.fork0.side === 0 && r.fork1.forks === 2 && r.fork1.side >= 1 && near(r.forkMore, 1), '分岔不对：' + JSON.stringify(r));
     assert(near(r.splash.k, 0.4, 1e-6) && r.splash.far === 0 && r.both[0] === 0 && r.both[1] === 0 && r.noSup === 0, '溅击不对：' + JSON.stringify(r));
     assert(r.cull.n14 === 'dead' && r.cull.n16 !== 'dead' && r.cull.e7 === 'dead' && r.cull.e9 !== 'dead' && r.cull.b5 !== 'dead', '断命不对：' + JSON.stringify(r.cull));
     assert(r.conv.el === 'cold' && near(r.conv.phys, 0.4) && near(r.conv.cold, 0.6) && near(r.conv.brutalPhys, 1.35) && near(r.conv.brutalCold, 1), '化元不对：' + JSON.stringify(r.conv));
