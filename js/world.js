@@ -1560,7 +1560,9 @@
     // ① 接触阴影：本区每个投影的实例化网格（岩石、尖岩、布景模型、各区布景里的实例），按实例的包围盒在脚下贴一块软暗斑
     const bb = new T.Box3();
     for (const im of zoneGroup.children) {
-      if (!im.isInstancedMesh || !im.castShadow || im.material.transparent) continue;
+      // 投不投影按建区时的设定（cs0）：低画质会把布景的 castShadow 关掉（zoneShadowPolicy），贴花不能跟着建区时的画质档变
+      const cs = im.userData.cs0 !== undefined ? im.userData.cs0 : im.castShadow;
+      if (!im.isInstancedMesh || !cs || im.material.transparent) continue;
       const g = im.geometry;
       if (!g.boundingBox) g.computeBoundingBox();
       bb.copy(g.boundingBox);
@@ -3629,7 +3631,8 @@
     if (T_ && T_.tick) T_.tick(dt, z);
   };
   // 建外观时把 Math.random 换成按布局取种子的伪随机：外观不再消耗游戏的随机序列，
-  // 改外观不会挪动刷怪 / 掉落；素材到了原地重建外观也不会在游戏中途插进随机数
+  // 改外观不会挪动刷怪 / 掉落；素材到了原地重建外观也不会在游戏中途插进随机数。
+  // three 的 uuid 不取 Math.random（vendor/three.min.js 的本地改动，见 vendor/README.md）：几何体 / 材质缓存命中与否不再挪动这个序列，第一次建和原地重建摆得一样
   function withVisualRandom(zone, fn) {
     const orig = Math.random;
     Math.random = mulberry32(zone.vseed >>> 0);
@@ -10364,7 +10367,16 @@
       const zg = zoneGroup;
       setTimeout(() => {
         if (zoneGroup !== zg || W.zone !== zone) return; // 已经换区 / 重建了
+        // 远处实例的剔除（icull）可能已经在这之前的某一帧里按镜头挤掉了实例：先全部复原，接触阴影贴花按完整的实例摆；
+        // 跑完再让 icull 重新登记（成簇岩石换上的新网格也要剔除）。不然结果取决于这个 setTimeout 和第一帧谁先到
+        if (icull && icull.group === zg) for (const e of icull.list) if (!e.off) icullRestore(e);
+        icull = null;
         for (const f of vfJobs) f();
+        icull = null;
+        // 马上按镜头焦点重新登记、剔除（模拟暂停时 W.update 不跑，不能等下一帧）；镜头还没跟过来（换区后还没 update 过）就按它马上要到的位置
+        const P = G.player;
+        if (camSnap) icullUpdate(P.x, P.z + CAM_LEAD);
+        else icullUpdate(camT.x, camT.z + CAM_LEAD);
       }, 0);
     }
 
