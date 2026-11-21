@@ -667,24 +667,32 @@ async function timedMain() {
     return '每次 ' + r.ms + ' ms';
   });
 
-  // 原步骤：main() 里的「异兆选址」。S.zone.ms.enc 是 enterZone 里按 performance.now 量的选址耗时；下面照原步骤的种子把 100 个布局各进一次
-  await step('计时｜异兆选址：100 个布局正常进区时，选址最慢一次不到 5 ms', async () => {
+  // 原步骤：main() 里的「异兆选址」。S.zone.ms.enc 是 enterZone 里按 performance.now 量 G.rollEncounters 那一段（选址，含第一次算候选点位）的耗时；下面照原步骤的种子进区。
+  // 一次选址只有 0.1–0.2 ms，100 次里取最大值时，偶尔一次停顿（第一次调用的编译、垃圾回收）落进这段就会冒到 5 ms 以上，同一个布局再进一次就没有了。
+  // 所以每个布局进 2 次、取快的那次，再看最慢的那个布局：一次性的停顿被滤掉，选址本身变慢（两次都慢）照样超线。上限仍是 5 ms。
+  // （不能进一次区后直接重复调 G.rollEncounters：候选点位第一次算完就缓存在 zone.encCand 上，makeEnc 还会改点位上的字段，重复调测的不是同一份活）
+  await step('计时｜异兆选址：100 个布局正常进区时，选址最慢的布局（每个进 2 次取快的）不到 5 ms', async () => {
     const r = await ev(() => {
       const S = G.state;
-      let msMax = 0;
+      let msMax = 0, rawMax = 0;
       for (let z = 0; z < 5; z++) {
         for (let s = 1; s <= 20; s++) {
-          G.debug.zoneSeed(3000 + z * 101 + s * 7);
-          G.enterZone(z, 1);
-          msMax = Math.max(msMax, S.zone.ms.enc); // 正常进区（掷 1–2 个）的选址耗时
+          let best = Infinity;
+          for (let k = 0; k < 2; k++) {
+            G.debug.zoneSeed(3000 + z * 101 + s * 7);
+            G.enterZone(z, 1);
+            best = Math.min(best, S.zone.ms.enc); // 正常进区（掷 1–2 个）的选址耗时
+            rawMax = Math.max(rawMax, S.zone.ms.enc);
+          }
+          msMax = Math.max(msMax, best);
         }
       }
       G.debug.zoneSeed(null);
       G.enterZone(0, 0);
-      return { msMax: +msMax.toFixed(2) };
+      return { msMax: +msMax.toFixed(2), rawMax: +rawMax.toFixed(2) };
     });
     assert(r.msMax < 5, '选址耗时太长（设计 < 1 ms）：' + r.msMax);
-    return '选址最慢 ' + r.msMax + ' ms';
+    return '选址最慢 ' + r.msMax + ' ms（单次最慢 ' + r.rawMax + ' ms）';
   });
 
   // 原步骤：整步从 main() 搬来（ui-batch 的「技能页拖拽贴边自动滚动」，断言一字不改）。贴边自动滚动按 performance.now 走：进边带停 250 ms 才滚、
