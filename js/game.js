@@ -3276,7 +3276,7 @@
     } else if (inf.dot) {
       // 流血的跳：不闪白、不后仰、不甩命中火花（掉落的暗红碎屑在 tickBleed 里另放）
     } else {
-      if (!inf.splash) W.flash(e.ent, 1 + feel * 0.7 + (hit.crit ? 0.5 : 0)); // 溅击的溅射不闪白（一下溅到一群时整群闪白会糊成一片，闪白有下限、调不淡）；vf-vfx2：暴击再亮一点
+      if (!inf.splash && !inf.noFlash) W.flash(e.ent, 1 + feel * 0.7 + (hit.crit ? 0.5 : 0)); // 溅击的溅射不闪白（一下溅到一群时整群闪白会糊成一片，闪白有下限、调不淡）；vf-vfx2：暴击再亮一点
       W.hitReact(e.ent, ang, 0.9 + feel * 0.4); // 顺着这一击的方向一仰
       // 持续伤害的跳（黑洞 / 黑旋风，inf.tick）：只甩几片实例化的尖片，不留地面贴花、不打闪光（怪堆里每秒几十跳，贴花每片一次 draw call）
       if (inf.tick && W.chaosTick) W.chaosTick(e.x - sn * e.r * 0.7, h * 0.5, e.z - cs * e.r * 0.7, ang, hit.crit);
@@ -7364,7 +7364,8 @@
       hit.add(cur);
       pts.push({ x: cur.x, z: cur.z });
       const cx = cur.x, cz = cur.z;
-      G.hitEnemy(cur, ctx, mult, { ang: Math.atan2(cx - px, cz - pz), quiet: true, faint: cur !== first });
+      // 一秒 5 跳：每一跳都闪白的话，被引着的怪一直是白的（灰度里怪的亮面到 p85 80）。每 3 跳才闪一次
+      G.hitEnemy(cur, ctx, mult, { ang: Math.atan2(cx - px, cz - pz), quiet: true, faint: cur !== first, noFlash: !!c && c.pulses % 3 !== 1 });
       px = cx;
       pz = cz;
       cur = null;

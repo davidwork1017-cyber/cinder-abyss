@@ -23384,19 +23384,27 @@
   };
   // 坠凌：落点外沿一圈短冰牙（只画边，冰晶朝外斜立，活到这场冰凌雨结束），圈里不铺亮面
   W.iceRain = function (x, z, R, dur) {
-    const n = qualId === 'low' ? 8 : 12;
+    // 看图后：只有一圈零散的冰牙读不出范围；整道环形件又是一条很粗的实心色带 → 贴地一圈细虚线（贴地固定线段，暗冰色，只画边）+ 更密的冰牙
+    const nd = qualId === 'low' ? 16 : 28, d0 = vr(0, TAU);
+    vsBrush(VSH.bar, 5, 0, 0x3e6a82, 0x2e5266, 0, 0.3, 0.9);
+    for (let i = 0; i < nd; i++) {
+      const a1 = d0 + (i / nd) * TAU, a2 = a1 + (TAU / nd) * 0.55;
+      const x1 = x + Math.sin(a1) * R, z1 = z + Math.cos(a1) * R, x2 = x + Math.sin(a2) * R, z2 = z + Math.cos(a2) * R;
+      vsEmit(x1, 0.05, z1, x2 - x1, 0, z2 - z1, dur, 0.07);
+    }
+    const n = qualId === 'low' ? 10 : 16;
     vsBrush(VSH.crystal, 6, 3, 0x86c4e2, 0x4f8fb8, 0.15, 0.6, 0.85);
     const a0 = vr(0, TAU);
     for (let i = 0; i < n; i++) {
       const a = a0 + (i / n) * TAU, sa = Math.sin(a), ca = Math.cos(a);
-      vsEmit(x + sa * R, 0, z + ca * R, sa * 1e-3, 0, ca * 1e-3, dur, vr(0.22, 0.3), vr(0.42, 0.6), vr(0.35, 0.6));
+      vsEmit(x + sa * R, 0, z + ca * R, sa * 1e-3, 0, ca * 1e-3, dur, vr(0.26, 0.34), vr(0.5, 0.7), vr(0.35, 0.6));
     }
   };
   // 一根冰凌从 6 米高斜着落下（细长的冰晶顺着速度拉长），fall 秒到地
   W.icicleFall = function (px, pz, hr, fall) {
     const H = 6, dx = 0.9, vx = -dx / fall, vy = -H / fall;
     vsBrush(VSH.crystal, 0, 2, 0xb8e4f8, 0x86c4e2, 0.25, 0.5, 0.7);
-    vsEmit(px + dx, H, pz, vx, vy, 0, fall, 0.16, 0.7);
+    vsEmit(px + dx, H, pz, vx, vy, 0, fall, 0.24, 1.05); // 看图后加粗加长：原来在游戏镜头里几乎看不见
   };
   // 冰凌落地：一颗很小的亮芯（≤ 0.6 米、40 毫秒）+ 4 块冰碴弹开（低画质 2 块）+ 脚边一根矮冰晶；地上冻痕（低画质不铺）
   W.icicleLand = function (px, pz, hr) {
@@ -23423,11 +23431,27 @@
     if (!lo) for (let i = 0; i < 3; i++) W.vDecal(VVD.scorch, x + Math.sin(a0 + i * 2.1) * R * 0.5, z + Math.cos(a0 + i * 2.1) * R * 0.5, 0.6, 1.2, hex, { a: 0.6 });
   };
   // 引雷的一跳：沿着电流的点画折线（每跳重新随机折点，2 帧闪），只有接触点亮；叠满时主线变两股（不加亮面）
+  // 看图后：池化电弧（W.bolt）是一条宽的发光带，一秒 5 跳叠在一起像一道白光柱 → 改成形状批里的细折线段（固定线段摆法，隔帧闪灭），
+  // 每段两头之间横向抖开；引满时多一股更暗的。接触点一颗很小的星
+  function tetherLine(pts, w, hex, segs, jit) {
+    vsBrush(VSH.bar, 4, 2, hex, hex, w > 0.06 ? 0.5 : 0.2, 0.35, 0.5);
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const ax = pts[i].x, az = pts[i].z, bx = pts[i + 1].x, bz = pts[i + 1].z, L = Math.hypot(bx - ax, bz - az) || 1;
+      const nx = -(bz - az) / L, nz = (bx - ax) / L;
+      let px = ax, pz = az, py = 1.25;
+      for (let k = 1; k <= segs; k++) {
+        const f = k / segs, o = k === segs ? 0 : vr(-jit, jit), qx = ax + (bx - ax) * f + nx * o, qz = az + (bz - az) * f + nz * o, qy = 1.15 + vr(-0.12, 0.12);
+        vsEmit(px, py, pz, qx - px, qy - py, qz - pz, vr(0.1, 0.14), w);
+        px = qx; py = qy; pz = qz;
+      }
+    }
+  }
   W.tetherFx = function (pts, hex, k) {
-    W.bolt(pts, hex, true);
-    if (k >= 1.79 && qualId !== 'low') W.bolt(pts, hex, true);
+    const lo = qualId === 'low';
+    tetherLine(pts, 0.08, mixHex(hex, 0xffffff, 0.45), lo ? 3 : 5, 0.35);
+    if (k >= 1.79 && !lo) tetherLine(pts, 0.05, mixHex(hex, 0x806010, 0.35), 5, 0.5);
     const p = pts[pts.length > 1 ? 1 : 0];
-    tChunk(1, p.x, 1.2, p.z, 0, 0, 0, 0.05, 0.4, 0xfffbe0, hex, 0);
+    tChunk(1, p.x, 1.2, p.z, 0, 0, 0, 0.05, 0.35, 0xfffbe0, hex, 0);
   };
   // 流血的一跳：往下掉的暗红棱角碎屑（不往上飘，和火星分开；暗、不发光，不会读成预警），低画质只给层数多的、每跳最多 8 只
   let bdFrame = -1, bdN = 0;
