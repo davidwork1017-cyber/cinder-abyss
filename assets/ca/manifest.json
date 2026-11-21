@@ -43,93 +43,93 @@
      "grad": 1
     }
    },
-   "sha256": "42e4da8c7d0b6acf5cff9c0d21275125800132b34de496c00666d51baca5a2cd"
+   "sha256": "b1b899aee092596b77d426df28d6bb4abacec9632a066ea6fe3453b89973f42a"
   },
   {
    "id": "ca/ash_blade",
    "category": "scatter",
    "zone": "ash",
    "file": "assets/ca/ash/ash_blade.glb",
-   "ship": false,
+   "ship": true,
    "replaces": "kd/sword_shield_broken",
-   "tris": 116,
-   "verts": 334,
+   "tris": 228,
+   "verts": 635,
    "materials": 1,
    "textures": 1,
    "bounds": {
     "min": [
-     -0.435,
-     -0.02,
-     -0.568
+     -0.569,
+     -0.12,
+     -0.776
     ],
     "max": [
-     0.347,
-     1.367,
-     0.302
+     0.568,
+     0.869,
+     0.569
     ]
    },
-   "h": 1.387,
-   "r": 0.568,
-   "y0": -0.02,
+   "h": 0.989,
+   "r": 0.776,
+   "y0": -0.12,
    "source": {
     "script": "art/ca/gen.py",
-    "gen": "blade",
+    "gen": "shield_sword",
     "catalog": "art/catalog.py",
     "seed": 7,
     "args": {
-     "h": 1.3,
-     "w": 0.24
+     "R": 0.52,
+     "h": 1.1
     },
     "bake": {
-     "ao": 0.3,
-     "grad": 0.5
+     "ao": 0.2,
+     "grad": 0.25,
+     "gtint": 0.6
     }
    },
-   "sha256": "f5ae40dddafbe6e9b9f6cac16d4a8b4a7ea4d3b13dcfcaaeaa1448bc1d1ec39c"
+   "sha256": "fc058e7c0dea7270752e7d343056afc3929a7f1c80e47e4f0e3f3504cae5058e"
   },
   {
    "id": "ca/ash_bones",
    "category": "scatter",
    "zone": "ash",
    "file": "assets/ca/ash/ash_bones.glb",
-   "ship": false,
+   "ship": true,
    "replaces": "kh/bone_A",
-   "tris": 150,
-   "verts": 434,
+   "tris": 96,
+   "verts": 278,
    "materials": 1,
    "textures": 1,
    "bounds": {
     "min": [
-     -0.336,
-     0.02,
-     -0.309
+     -0.467,
+     0.011,
+     -0.199
     ],
     "max": [
-     0.403,
-     0.257,
-     0.484
+     0.476,
+     0.22,
+     0.201
     ]
    },
-   "h": 0.237,
-   "r": 0.484,
-   "y0": 0.02,
+   "h": 0.209,
+   "r": 0.476,
+   "y0": 0.011,
    "source": {
     "script": "art/ca/gen.py",
-    "gen": "bones",
+    "gen": "bone",
     "catalog": "art/catalog.py",
     "seed": 3,
     "args": {
-     "n": 3,
-     "L": 0.72,
-     "thick": 1.7
+     "L": 0.74,
+     "r": 0.085
     },
     "bake": {
-     "ao": 0.08,
+     "ao": 0.1,
      "grad": 0.1,
      "gtint": 0.5
     }
    },
-   "sha256": "d8d331c9b33cb68885367d0839cc7c9ef93ceff67f26f0cafabfd68dbd24d159"
+   "sha256": "635f7dc224715c737c4c47d89ccd20707c18ad452e8187c3fbed91c7cb4d5690"
   },
   {
    "id": "ca/ash_brazier_a",
@@ -170,7 +170,7 @@
      "grad": 0.4
     }
    },
-   "sha256": "77e8ccac412ca98a1b354849d79d04a0a9e829b91d4698e597ef74e8d524722b"
+   "sha256": "7d1a09752cb0d3b44b10fbf11a0c63e5c75fe646cd73218de18944af0d952c99"
   },
   {
    "id": "ca/ash_cliff_a",
@@ -213,7 +213,7 @@
      "grad": 1.2
     }
    },
-   "sha256": "81407db73daf749428148178b9b4cbfa16af1f6980331c5240f437af7c4dbccf"
+   "sha256": "7bff5fb196a09d7995775ad07e088dc59ca6716ae9487217608bd4e057654cee"
   },
   {
    "id": "ca/ash_firepit",
@@ -257,48 +257,49 @@
      "wear": 0.4
     }
    },
-   "sha256": "6effd8e3aae6ddb1bac5b79a592bf33d481bc03f2bad1e694059a7e18eccb851"
+   "sha256": "e3e5fb6c58c909c14c0cfd88f6d3447daa4906a847567dcffc2a5575856bc891"
   },
   {
    "id": "ca/ash_marker",
    "category": "scatter",
    "zone": "ash",
    "file": "assets/ca/ash/ash_marker.glb",
-   "ship": false,
+   "ship": true,
    "replaces": "kh/gravemarker_A",
-   "tris": 44,
-   "verts": 132,
+   "tris": 152,
+   "verts": 448,
    "materials": 1,
    "textures": 1,
    "bounds": {
     "min": [
-     -0.304,
-     -0.05,
-     -0.165
+     -0.432,
+     -0.04,
+     -0.325
     ],
     "max": [
-     0.32,
-     1.243,
-     0.425
+     0.413,
+     1.161,
+     0.311
     ]
    },
-   "h": 1.293,
-   "r": 0.425,
-   "y0": -0.05,
+   "h": 1.201,
+   "r": 0.432,
+   "y0": -0.04,
    "source": {
     "script": "art/ca/gen.py",
-    "gen": "marker",
+    "gen": "grave_cross",
     "catalog": "art/catalog.py",
     "seed": 13,
     "args": {
-     "h": 1.2
+     "h": 1.2,
+     "w": 0.72
     },
     "bake": {
      "ao": 0.3,
-     "grad": 0.5
+     "grad": 0.4
     }
    },
-   "sha256": "7f2a958704703aba23a7f930da0e9fce76441f08b1287a3e80c4d2c41b4a40c6"
+   "sha256": "d9700af535c32ce8d32c628a28ef16e778615b6a06f928e2a023864046241c2e"
   },
   {
    "id": "ca/ash_pillar",
@@ -338,7 +339,7 @@
     },
     "bake": {}
    },
-   "sha256": "69e7e90c6a550286fb45e698e83c2ad537e61c1a00c7aecaeaf8ed63252d70c5"
+   "sha256": "9c94216d126348e259fd33c04aed2f2b0d9375c02b44ee83bf9c938af1a32598"
   },
   {
    "id": "ca/ash_rock_a",
@@ -378,7 +379,7 @@
     },
     "bake": {}
    },
-   "sha256": "3a2c0803a985d31b5d8ac95b8dcc284310ed5dbe53f8436f97a319f20bfd891d"
+   "sha256": "f8530e00a25a83865e569e3996b2aa3266f21aeb0b4dff4b82b08aa6f67d03aa"
   },
   {
    "id": "ca/ash_rock_b",
@@ -421,7 +422,7 @@
     },
     "bake": {}
    },
-   "sha256": "e159b26e203d97d8a0a49f881715835a150ce9719bda3221b92f9a2e1de5d22b"
+   "sha256": "67e7d54f309580b66b419e97b9e50acf4b47b0b34408b68725c3a54bc952da91"
   },
   {
    "id": "ca/ash_rock_c",
@@ -462,7 +463,7 @@
     },
     "bake": {}
    },
-   "sha256": "b41021b23f021fee289845bd752fa44240d9b91435e42ca009b05a5781ff1429"
+   "sha256": "e920b163e0c278a6b06281e572ffe2381d6a0789a3551359a0fca2315fcbd800"
   },
   {
    "id": "ca/ash_rubble",
@@ -504,51 +505,51 @@
      "grad": 1.2
     }
    },
-   "sha256": "86b9c717e27c26e2c3da9211feb7c159fefda90c980acd2f85d0f22f7446cc8c"
+   "sha256": "8495943dbb78923da831795968bf4bd99ad074ad523a27448b2ce45e1fc9f403"
   },
   {
    "id": "ca/ash_skull",
    "category": "scatter",
    "zone": "ash",
    "file": "assets/ca/ash/ash_skull.glb",
-   "ship": false,
+   "ship": true,
    "replaces": "kh/skull",
-   "tris": 144,
-   "verts": 429,
+   "tris": 284,
+   "verts": 712,
    "materials": 1,
    "textures": 1,
    "bounds": {
     "min": [
-     -0.591,
-     -0.007,
-     -0.978
+     -0.546,
+     -0.03,
+     -0.593
     ],
     "max": [
-     0.591,
-     0.847,
-     0.814
+     0.546,
+     1.035,
+     0.593
     ]
    },
-   "h": 0.855,
-   "r": 0.978,
-   "y0": -0.007,
+   "h": 1.065,
+   "r": 0.593,
+   "y0": -0.03,
    "source": {
     "script": "art/ca/gen.py",
-    "gen": "skull",
+    "gen": "skull2",
     "catalog": "art/catalog.py",
     "seed": 5,
     "args": {
-     "s": 0.74
+     "R": 0.63
     },
     "bake": {
-     "ao": 0.3,
+     "ao": 0.4,
      "grad": 0.5,
-     "grime": 0.4,
-     "gtint": 1.15,
-     "wear": 0.45
+     "grime": 0.25,
+     "gtint": 0.6,
+     "wear": 0.4
     }
    },
-   "sha256": "a5eeb906e9b48b8cecacbd227f560b18ce2ea430cab5d3a155204b0cfd87cfb1"
+   "sha256": "9af43ad6c69253e45bd0589616b81f135d4d77413c69046af4ae2d337bce63e4"
   },
   {
    "id": "ca/ash_tree_dead_a",
@@ -590,7 +591,7 @@
     },
     "bake": {}
    },
-   "sha256": "eb8b5f6ca8711ff9643d3c2bcd478a17509bbbf2b20cc8e15798cddd9f339889"
+   "sha256": "11bd708dd6562a16eeb67a143f108e1f1607062fcf83f371e3302a738862415e"
   },
   {
    "id": "ca/ash_tree_dead_b",
@@ -633,7 +634,7 @@
     },
     "bake": {}
    },
-   "sha256": "e759f9f48d7e40c24d7ea97cb9d0d6b1c5708c61c2abf66d8a8a902d59df94ea"
+   "sha256": "8a414cbbf99667ea64007dc6a2280b0d27dac042fbdd66686cde5552e1f9087e"
   },
   {
    "id": "ca/ash_tree_dead_c",
@@ -676,7 +677,7 @@
     },
     "bake": {}
    },
-   "sha256": "d4c371861d404a4466e10c284e0e833467e27ae3fcfb2d97b96fca4e00179947"
+   "sha256": "913936d25ee38c044a7652b69a5662b6f507520b742cd65e167c078ef923e396"
   },
   {
    "id": "ca/ash_wall_a",
@@ -720,7 +721,7 @@
      "grad": 0.9
     }
    },
-   "sha256": "a34df077c4f99c68f63cbd199d6e948ab4b311d49e9e8d7ddf0d2fed8d408fda"
+   "sha256": "fd74dc45a41a755de21f03d73109a6c1c9fa3a1b928f1e33c01424a70494369e"
   }
  ]
 }
