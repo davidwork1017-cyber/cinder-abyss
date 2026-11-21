@@ -757,10 +757,11 @@
     "args": {},
     "bake": {
      "ao": 0.12,
-     "grad": 0.2
+     "grad": 0.2,
+     "gain": 0.74
     }
    },
-   "sha256": "8e1ff2a659aac4fb2416214e28a2fdfe538a6e5f9d29936140270c7a3a5f3284"
+   "sha256": "649bae4d403abd8fbe657b9b5983e7010cfe3903305cd96f05c23dd7b2e0e52d"
   },
   {
    "id": "ca/rift_monolith",
@@ -835,10 +836,11 @@
     "args": {},
     "bake": {
      "ao": 0.1,
-     "grad": 0.18
+     "grad": 0.18,
+     "gain": 0.3
     }
    },
-   "sha256": "b8c9c843a7db7bdde3106018d179c0bbcfcb128e5307c69eeccddaacab82552c"
+   "sha256": "7aa2c297d5cdf929699d2bd9dddcc5c2bfe0c4b54b97b44f28ad29e86fea47d9"
   },
   {
    "id": "ca/rift_rubble",
@@ -874,10 +876,11 @@
     "args": {},
     "bake": {
      "ao": 0.9,
-     "grad": 1
+     "grad": 1,
+     "gain": 0.6
     }
    },
-   "sha256": "f8204b79e0f8de2c3f06025238c574fba8b5ac1cad5512a50097efabef19d5bb"
+   "sha256": "e5637d38a094047f24b2385ef4fb646632edf1e029dcb363bc9b51440493863c"
   },
   {
    "id": "ca/rift_shards",
@@ -913,10 +916,11 @@
     "args": {},
     "bake": {
      "ao": 0.08,
-     "grad": 0.2
+     "grad": 0.2,
+     "gain": 0.68
     }
    },
-   "sha256": "9d410a53fa21341304c9fe725f0e628b4e81742745fd59f3a66d25c7f49d7680"
+   "sha256": "284b3a2512b2ed1d3f88d988678df985a532bb949ae7c3114a178838408e5652"
   },
   {
    "id": "ca/rift_slabs",
@@ -952,10 +956,11 @@
     "args": {},
     "bake": {
      "ao": 0.12,
-     "grad": 0.05
+     "grad": 0.05,
+     "gain": 0.3
     }
    },
-   "sha256": "f82d3f608b64dcbae6944a50f166363d75e9535b4af8673921baceec1c10a7c6"
+   "sha256": "4d2394d31e5ee3af95e5f69c71433eddd7604cc6690a817d2ccbba6ddebef15e"
   },
   {
    "id": "ca/rift_stele",
@@ -991,10 +996,11 @@
     "args": {},
     "bake": {
      "ao": 0.06,
-     "grad": 0.15
+     "grad": 0.15,
+     "gain": 0.52
     }
    },
-   "sha256": "c623f4f490e846f6bfccb1fd49b3c266dec39474dc575e0f5fd4225ff46ef42b"
+   "sha256": "34dba024d980213f17aa553da9dba9303f74fe097466d49aa14a38d79033fd36"
   }
  ]
 }

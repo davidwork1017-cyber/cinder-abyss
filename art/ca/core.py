@@ -370,9 +370,9 @@ def to_object(kit, name):
     return ob
 
 
-def bake_colors(ob, ao_dist=0.6, grad_h=0.8, grad_lo=0.72, wear=0.34, grime=0.3, gtint=1.0):
+def bake_colors(ob, ao_dist=0.6, grad_h=0.8, grad_lo=0.72, wear=0.34, grime=0.3, gtint=1.0, gain=1.0):
     """顶点色（COLOR_0，线性）= AO（Cycles CPU 烘焙，带一块地面，底部有接触阴影）× 底部压暗、偏暖的烟熏渐变 × 边缘磨损（凸边提亮）
-    × 缝里的污垢（凹处、AO 暗处压暗并偏暖褐，gtint 调污垢色的浓淡）。余烬面按 glow 往 1 拉（不压暗），α = 1 - glow（游戏里当自发光）。
+    × 缝里的污垢（凹处、AO 暗处压暗并偏暖褐，gtint 调污垢色的浓淡）× gain（整件的明暗，按游戏里的灰度校准用，缺省 1）。余烬面按 glow 往 1 拉（不压暗），α = 1 - glow（游戏里当自发光）。
     返回烘焙秒数。"""
     sc = bpy.context.scene
     me = ob.data
@@ -431,7 +431,7 @@ def bake_colors(ob, ao_dist=0.6, grad_h=0.8, grad_lo=0.72, wear=0.34, grime=0.3,
             gm = cl((cl(-cv / 0.9) * 0.7 + cl((0.62 - a) / 0.62) * 0.6) * gtint)
             rgb = []
             for ch in range(3):
-                v = k * (1 + (GRIME[ch] - 1) * gm) * (1 + (SOOT[ch] - 1) * (1 - t))
+                v = k * (1 + (GRIME[ch] - 1) * gm) * (1 + (SOOT[ch] - 1) * (1 - t)) * gain
                 rgb.append(q(v + (1 - v) * gl))
             col.data[li].color = (rgb[0], rgb[1], rgb[2], q(1 - gl))
     me.color_attributes.active_color = col

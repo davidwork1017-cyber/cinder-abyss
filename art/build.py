@@ -37,7 +37,7 @@ def make(item, seed=None, name=None):
     if DRY:
         return ob, tris, 0.0
     b = item.get('bake', {})
-    dt = core.bake_colors(ob, ao_dist=b.get('ao', 0.6), grad_h=b.get('grad', 0.8), wear=b.get('wear', 0.34), grime=b.get('grime', 0.3), gtint=b.get('gtint', 1.0))
+    dt = core.bake_colors(ob, ao_dist=b.get('ao', 0.6), grad_h=b.get('grad', 0.8), wear=b.get('wear', 0.34), grime=b.get('grime', 0.3), gtint=b.get('gtint', 1.0), gain=b.get('gain', 1.0))
     return ob, tris, dt
 
 
