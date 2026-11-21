@@ -5615,7 +5615,7 @@
       // 刻式：熔核 / 犁焰落地那一下打折（k0），之后留下熔核 / 顺着瞄准方向犁出去
       const vm = sk.mech === 'core' || sk.mech === 'plough' ? sk[sk.mech] : null, R0 = sk.mech === 'plough' ? vm.r * Math.sqrt(ctx.area) : R;
       const star = sk.mech === 'star'; // 渊式「星雨」：自动落下的星（淡翠白的星、落点符环）
-      W.meteorFall(x, z, sk.delay, star ? 0xd8fff0 : hex);
+      W.meteorFall(x, z, sk.delay, star ? 0x9fe8cc : hex, false, star); // 星雨：中等亮度的淡翠星，落地不放大火团 / 闪光
       if (star && W.rvStar) W.rvStar(x, z, R, sk.delay);
       G.telegraph({
         shape: 'circle', x, z, r: R0, dur: sk.delay, dmg: 0, friendly: true,

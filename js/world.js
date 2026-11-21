@@ -20259,7 +20259,7 @@
   }
   const meteors = [];
   // hostile（可选）：首领召来的落石
-  W.meteorFall = function (x, z, delay, hex, hostile) {
+  W.meteorFall = function (x, z, delay, hex, hostile, quiet) { // quiet：落地不放大火团 / 闪光 / 焦痕（渊式「星雨」的落点特效自己画）
     let m = null;
     for (let i = 0; i < meteors.length; i++) if (!meteors[i].on) { m = meteors[i]; break; }
     if (!m && meteors.length >= 12) {
@@ -20290,6 +20290,7 @@
     m.dur = Math.max(0.05, delay);
     m.on = true;
     m.hostile = !!hostile;
+    m.quiet = !!quiet;
     m.sm = 0;
     ribRelease(m.rib);
     m.rib = ribGet(0.6, 0.14, m.r + (1 - m.r) * 0.55, m.g + (1 - m.g) * 0.55, m.b + (1 - m.b) * 0.55, m.r * 0.55, m.g * 0.4, m.b * 0.35);
@@ -20334,6 +20335,7 @@
   }
   function meteorLand(m) {
     const x = m.x, z = m.z;
+    if (m.quiet) return; // 渊式「星雨」：只留调用方画的细环和几点星屑，不盖住落点里的怪
     flashLight(x, 2.5, z, m.hex, 3);
     flare(x, 0.8, z, mixHex(m.hex, 0xffffff, 0.4), 2.6, 0.14);
     W.ring(x, z, 2.6, mixHex(m.hex, 0xffffff, 0.65), 0.2); // 冲击环
@@ -26156,10 +26158,10 @@
       },
     });
   };
+  // 落地只画边：一道往外推的空心细环（很快淡出）+ 几点星屑，不铺满落点（灰度检查：落点里的怪要看得清）
   W.rvStarHit = function (x, z, R) {
-    if (W.vShock) W.vShock(x, z, R, RV_HEX, 0.3, 0);
-    W.burst(x, 1.0, z, RV_HI, qualId === 'low' ? 8 : 16, 6, 0.45);
-    W.burst(x, 0.5, z, 0xffe0a0, qualId === 'low' ? 4 : 8, 4, 0.4);
+    if (W.vShock) W.vShock(x, z, R, 0x9fe8cc, 0.22, 0);
+    W.burst(x, 0.9, z, 0xc8ffe8, qualId === 'low' ? 4 : 7, 5, 0.3);
   };
   // 独骸：骸王头顶一圈慢慢转的冠环（on = false 时收起；骸王倒下、散掉也收起）
   W.rvCrown = function (ent, on) {
@@ -26190,7 +26192,7 @@
     if (!hole) return null;
     const n = qualId === 'low' ? 3 : 5, hs = [];
     for (let i = 0; i < n; i++) hs.push(W.kv('rock', { hex: 0x3a2a40, s: 0.28 + (i % 2) * 0.1, k: 0.15 }));
-    hs.push(W.kv('glyph', { hex: RV_DEEP, y: 0.11, s: R * 2, k: 1, a: 0.62 }));
+    hs.push(W.kv('glyph', { hex: RV_DEEP, y: 0.11, s: R * 2, k: 2, a: 0.3 })); // 只一道淡的细环（不铺地面，灰度里地面不被抬亮）
     const t0 = hole.t0; // 黑洞的网格是对象池里的：换了一个洞（t0 变了）也算收起
     return rvAdd({
       kind: 'orbit', t: 0, hs,
