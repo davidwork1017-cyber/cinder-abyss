@@ -783,7 +783,7 @@
   //   ao 岩石 / 布景脚下接触阴影的强度、scorch 焦痕的比例（0 = 不要）、kinds 路外碎斑用哪几格（见 DECAL_CELL）、tint 碎石 / 裂纹的颜色
   const ZONE_GFX = {
     ash: {
-      packs: ['zone-ash', 'rock-dark', 'models', 'ground'],
+      packs: ['zone-ash', 'rock-dark', 'ground'], // ash-models-drop：布景全是自产件（kit-ash 跟着 zone-ash 加载），不再要 models 包：冷启动 / 存档停在第 0 区时少下载、少解析 1.4 MB
       mats: [
         // 卡通：路面是暗一档的灰褐焦土（不再是粉褐色），贴图的明暗起伏压低，地面不抢角色；路外是更暗、偏灰紫的灰土
         { tex: 'mud_cracked_dry_03', tile: 4.2, con: 0.45, nrm: 0.5, rough: 1, k: 0.53, sat: 0.8, col: 0x5a5753 }, // 中性灰（zones-ash：0x575358 → 0x5a5753，去掉偏紫的那一点，主光一照是暖灰烬色，不是粉紫褐）
@@ -1244,7 +1244,7 @@
   // 贴图包（除布景模型包以外）都到了就能换 PBR 地面 / 岩壁；模型包单独判断，没有它就只是不摆 CC0 布景
   const texPacks = (gx) => gx.packs.filter((p) => p !== 'models');
   // 模型包到了且真的解析出了模型（GLTFLoader 缺失时包本身「成功」但一个模型都没有）。
-  // asset-zones：布景全是自产件的区域（packs 里没有 models，比如第 4 区）只看自产件包（zone 包带的 kit-<区>）解析出了几何体
+  // asset-zones：布景全是自产件的区域（packs 里没有 models，第 0 / 3 / 4 区和余烛殿）只看自产件包（zone 包带的 kit-<区>）解析出了几何体
   const propsReady = (gx) => !!(G.assets && (gx.packs.indexOf('models') < 0 || G.assets.ready(['models'])) && gx.props.outer.some((e) => G.assets.geo(e[0])));
   function gfxReady(gx) {
     if (!gx || gfxBroken[gx.packs[0]] || !G.assets || !G.assets.ready(texPacks(gx))) return false;
