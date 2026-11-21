@@ -608,7 +608,11 @@
           if (d > Math.PI) d -= TAU;
           else if (d < -Math.PI) d += TAU;
           if (Math.abs(d) > half) continue;
-          G.hitEnemy(o, ctx, 1, hitInfo(m, a0 + d));
+          const inf = hitInfo(m, a0 + d);
+          // 渊式「独骸」一刀带到 12 个：和溅击一样，只给前 3 个敌人闪白、冒火花（其余照常吃伤害；命中火花的地面擦痕每片一次 draw call）
+          if (m.king && ctx.minion.cleave - extra >= 2) inf.splash = 2;
+          G.hitEnemy(o, ctx, 1, inf);
+          inf.splash = 0;
           extra--;
         }
       }
