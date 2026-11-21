@@ -331,6 +331,7 @@
   G.hurtMinion = function (m, amount, dtype, src) {
     if (!m || m.dead || !(amount > 0)) return false;
     if (m.decoy) return true; // 刻式「残像」：诱饵挨打不掉血，时间到了自己炸开
+    if (P.relic && P.relic.xizhu) amount *= G.darkWeakK(src); // 渊契「暗域」：域内的敌人伤害降低
     const W = G.world;
     // 继承来的护甲 / 抗性和玩家受击同一套结算：护甲减物理（封顶 80%），抗性减对应元素；再乘自带的减伤
     let k = 1 - (m.dr || 0) / 100;
@@ -863,7 +864,7 @@
     if (dist(b.x, b.z, P.x, P.z) < 16) G.sfx('impact', { type: 'fire', w: 0, crit: false });
     // 刻式「焰田」：落地留一片火地（祭司的火地都记着 pyre，燎原时一齐引爆）
     const F = b.ctx.minion.mech === 'field' ? b.ctx.minion.vx : null;
-    if (F && G.vField) G.vField({ kind: 'burn', x: b.x, z: b.z, r: F.r * Math.sqrt(b.ctx.area), dur: F.dur, tick: F.tick, mult: F.mult, ctx: b.ctx, key: 'vPyreT', hex: 0xff9a4a, pyre: true, minion: m && !m.dead ? m : null, noDecal: true });
+    if (F && G.vField) G.vField({ kind: 'burn', x: b.x, z: b.z, r: F.r * Math.sqrt(b.ctx.area), dur: F.dur * (b.ctx.durK || 1), tick: F.tick, mult: F.mult, ctx: b.ctx, key: 'vPyreT', hex: 0xff9a4a, pyre: true, minion: m && !m.dead ? m : null, noDecal: true });
     // 焰蓄：每炸到一个敌人 +1（一弹最多 per 点）；祭司已经倒下就不算了
     if (n && m && !m.dead && m.ctx.minion.charge) {
       m.charge = Math.min(m.ctx.minion.charge.max, m.charge + Math.min(b.per, n) * (m.ctx.minion.chargeK || 1));

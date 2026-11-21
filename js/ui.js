@@ -935,6 +935,17 @@
         hb.ailSig = asig;
         hb.ail.innerHTML = ailHtml(b, false);
       }
+      // 元素抗性小签（血条左上，和右上的异常状态对称）
+      const rsig = resSig(b);
+      if (rsig !== hb.resSig) {
+        hb.resSig = rsig;
+        if (!hb.res) {
+          hb.res = document.createElement('div');
+          hb.res.id = 'boss-res';
+          hb.box.appendChild(hb.res);
+        }
+        hb.res.innerHTML = resChips(b, false);
+      }
       // 元素异常值：平时按累积量涨，触发中（重度冰缓 / 感电 / 刚爆燃）整段亮着闪动
       if (b.bu) {
         const on = { fire: b.blastT > 0, cold: b.bossChill > 0, light: b.shockT > 0 };
@@ -1224,6 +1235,30 @@
   const ailSig = (e) => ailList(e).join(',');
   function ailHtml(e, named) {
     return ailList(e).map((a) => '<span class="ail ' + a + '">' + IC.ail(a) + (named ? AIL_NAME[a] : '') + '</span>').join('');
+  }
+  // 敌人的元素抗性小签（名牌、首领血条）：「抗火 15%」，前面一面元素色的小盾（纯 CSS，不画图标画布）；感电压低时变暗、写压低后的数。
+  // 没有抗性的敌人不出。alt：名牌上带「按住 Alt 查看详情」
+  const RES_CH = { fire: '火', cold: '冰', light: '雷' };
+  function resSig(e) {
+    let s = '';
+    for (const t of G.ELEMS) {
+      const r = G.enemyResNow(e, t);
+      if (r) s += t + r;
+    }
+    return s + (e.shockT > 0 ? 's' : '');
+  }
+  function resChips(e, alt) {
+    let h = '', d = '';
+    for (const t of G.ELEMS) {
+      const r0 = G.enemyRes(e, t);
+      if (!r0) continue;
+      const r = G.enemyResNow(e, t);
+      h += '<span class="res-chip' + (r < r0 ? ' low' : '') + '" style="--ac:' + G.TYPE_COLOR[t] + '"><i></i>抗' + RES_CH[t] + ' ' + r + '%</span>';
+      const rs = Math.max(0, r0 - G.ENEMY_RES.shock);
+      d += G.TYPE_NAME[t] + '伤害 −' + r0 + '%；感电时' + (rs > 0 ? '抗性降到 ' + rs + '%' : '抗性归零') + '。';
+    }
+    if (!h) return '';
+    return h + (alt ? altBox(d + '破障、元素穿透能把抗性压到负数（最低 −' + Math.abs(G.ENEMY_RES.floor) + '%）。') : '');
   }
 
   // ============================================================
@@ -1647,6 +1682,7 @@
       if (s('moreChaos')) h += row('混沌总额外', pct(s('moreChaos')), G.TYPE_COLOR.chaos);
     }
     if (G.flamePct && G.flamePct() > 0) h += row('黑焰额外混沌', fmt1(G.flamePct()) + '%', G.TYPE_COLOR.chaos);
+    if (s('elemPen')) h += row('元素穿透', fmt1(s('elemPen')) + '%'); // 装备上的「元素穿透」（辅助「破障」另算在技能上）
     for (const t of G.TYPES) {
       const v = s('add' + G.CAP[t]);
       if (v) h += row('附加' + G.TYPE_NAME[t], Math.max(1, Math.round(v * 0.7)) + '–' + Math.max(2, Math.round(v * 1.3)), G.TYPE_COLOR[t]);
@@ -1906,7 +1942,21 @@
     if (bad.length) return '不能用于' + bad.map((t) => G.TAG_NAME[t] || t).join(' / ') + '技能';
     if (sup.needCd && sk && !(sk.cd > 0)) return '只能用于有冷却的技能'; // 储能
     if (sup.noId && sup.noId.indexOf(skillId) >= 0) return sk.name + '用不上';
+    const vs = fitVariants(skillId, sup);
+    if (vs.length) return '选' + vs.join(' / ') + '刻式时才能镶';
     return '需要标签：' + reqText(sup);
+  }
+  // 这个技能的哪几种刻式用得上这颗辅助（标签随刻式变的时候，例如绵延只认雷桩）：刻式名的数组
+  function fitVariants(skillId, sup) {
+    const supId = Object.keys(G.SUPPORTS).find((k) => G.SUPPORTS[k] === sup);
+    if (!supId || !G.VARIANTS[skillId] || !G.SKILL_V || !G.SKILL_V[skillId]) return [];
+    const keep = G.SKILLS[skillId], out = [];
+    for (const v of ['o'].concat(Object.keys(G.VARIANTS[skillId]))) {
+      G.SKILLS[skillId] = G.skillVariant(skillId, v);
+      if (G.supportFits(skillId, supId)) out.push(v === 'o' ? G.VARIANT_NAME.o : G.VARIANTS[skillId][v].name);
+    }
+    G.SKILLS[skillId] = keep;
+    return out;
   }
   // 适用范围的一句话：「任意技能」/ 「物理」/ 「任意技能（召唤物除外）」
   function scopeText(sup) {
@@ -2248,9 +2298,10 @@
       const sup = socks[i];
       const picking = ui.picker && ui.picker.skill === id && ui.picker.idx === i;
       if (sup) {
+        const idle = !G.supportFits(id, sup); // 镶着，但对这一刻的刻式不生效（换回用得上的刻式就生效）
         sockets +=
-          '<button type="button" tabindex="-1" class="sock full" data-act="socket" data-skill="' + id + '" data-idx="' + i + '" data-tip="sock:' + sup + '" data-drag="sup:' + sup + '">' +
-          IC.sup(sup) + G.SUPPORTS[sup].name + '</button>';
+          '<button type="button" tabindex="-1" class="sock full' + (idle ? ' idle' : '') + '" data-act="socket" data-skill="' + id + '" data-idx="' + i + '" data-tip="sock:' + sup + '" data-drag="sup:' + sup + '">' +
+          IC.sup(sup) + G.SUPPORTS[sup].name + (idle ? '<em>不生效</em>' : '') + '</button>';
       } else {
         sockets +=
           '<button type="button" tabindex="-1" class="sock' + (picking ? ' picking' : '') + '" data-act="socket" data-skill="' + id + '" data-idx="' + i + '"><i></i>空槽</button>';
@@ -2310,7 +2361,7 @@
       nums =
         num(ctx.cd > 0 ? '每次伤害' : '平均击中', fmtInt(avg), 'hl') +
         num(sk.kind === 'spin' || sk.kind === 'flicker' ? '每秒斩击' : '每秒施放', rate.toFixed(2)) +
-        num('估算秒伤', fmtInt(avg * rate)) +
+        num('估算秒伤', fmtInt(avg * rate * G.durDpsK(ctx))) + // 绵延：黑洞 / 黑旋风多跳几下、雷桩 / 环刃多一个
         num((blood ? '生命消耗' : '魔力消耗') + (sk.kind === 'spin' || sk.kind === 'flicker' ? ' / 每下' : ''), ctx.cost > 0 ? fmt1(ctx.cost) : '无') +
         num('冷却', ctx.cd > 0 ? fmt1(ctx.cd) + ' 秒' : '无') +
         num('暴击率', fmt1(ctx.crit) + '%');
@@ -3160,6 +3211,9 @@
       '<div class="sec-title">战斗须知</div>' +
       '<p>地上的<b class="c-red">红色区域</b>是即将落下的攻击，填满前走出去或翻滚穿过。</p>' +
       '<p>护甲减少物理伤害，抗性减少对应元素伤害（上限 75%）。</p>' +
+      // 敌人的元素抗性（数值读 G.ENEMY_RES）
+      '<p><b>敌人的抗性</b>：每个区的敌人抗本区的元素' + (G.ENEMY_RES.boss === G.ENEMY_RES.mob ? ' ' + G.ENEMY_RES.mob + '%（首领也是）' : '，小怪和精英 ' + G.ENEMY_RES.mob + '%，首领 ' + G.ENEMY_RES.boss + '%') + '，名牌和首领血条上写着「抗火」这类小签。物理、混沌不受抗性影响。' +
+      '感电让三种元素抗性各降 ' + G.ENEMY_RES.shock + '%（不会降到 0 以下）；辅助<b>破障</b>和装备上的<b>元素穿透</b>能把抗性压到负数，最低 −' + Math.abs(G.ENEMY_RES.floor) + '%。</p>' +
       helpBuildUp() +
       '<div class="sec-title">连击、架势与处决</div>' +
       '<p><b>连击</b>：近战普攻按住逐段打出（双匕四段，其余三段），末段<b>终结技</b>伤害最高、打飞敌人。停手、翻滚或换技能会从头开始。</p>' +
@@ -5376,7 +5430,7 @@
       }
       return false;
     }
-    const sig = (mini ? 'm|' : 'f|') + e.name + '|' + e.level + '|' + (mini ? '' : Math.ceil(e.hp)) + '|' + ailSig(e) + '|' + (e.awake ? 1 : 0);
+    const sig = (mini ? 'm|' : 'f|') + e.name + '|' + e.level + '|' + (mini ? '' : Math.ceil(e.hp) + '|' + resSig(e)) + '|' + ailSig(e) + '|' + (e.awake ? 1 : 0);
     if (sig !== wui.plateSig) {
       wui.plateSig = sig;
       p.className = 'on' + (e.elite ? ' elite' : '') + (mini ? ' mini' : '');
@@ -5385,6 +5439,7 @@
         ? '<div class="np-top">' + top + ailHtml(e, false) + '</div>'
         : '<div class="np-top">' + top + '</div>' +
           '<div class="np-hp"><i style="width:' + Math.round(G.clamp(e.hp / e.maxHp, 0, 1) * 100) + '%"></i><span>' + fmtInt(Math.max(0, Math.ceil(e.hp))) + ' / ' + fmtInt(e.maxHp) + '</span></div>' +
+          (resSig(e) ? '<div class="np-res">' + resChips(e, true) + '</div>' : '') + // 元素抗性：只在停手细看的完整名牌上
           (ailSig(e) ? '<div class="np-ail">' + ailHtml(e, true) + '</div>' : e.awake ? '' : '<div class="np-note">尚未察觉你</div>');
       // 尺寸只在内容变了的时候量一次（下面用它把名牌夹在屏幕里）
       wui.plateW = p.offsetWidth;
@@ -5743,6 +5798,16 @@
       done: () => false,
     },
     {
+      // 读档时有辅助对技能的哪种刻式都用不上了（标签改过）：已经取下放回宝石栏，说一声去了哪
+      id: 'sockdrop', calm: true, max: 20,
+      get html() {
+        const L = (G.sockDropped || []).filter((d) => G.SUPPORTS[d.sup] && G.SKILLS[d.id]);
+        return '<b>辅助宝石</b>：' + L.map((d) => '「' + G.SUPPORTS[d.sup].name + '」').join('、') + '对所镶的技能不再适用，已取下放回宝石栏（<kbd>G</kbd>）';
+      },
+      when: () => !!(G.sockDropped && G.sockDropped.length),
+      done: () => false,
+    },
+    {
       // 武器普攻改版（右键固定是武器普攻、裂石击删除）之前的存档第一次读进来：说清右键变了什么、原来的东西去了哪
       id: 'basicmig', calm: true, max: 20,
       get html() {
@@ -5880,6 +5945,13 @@
       done: () => false,
     },
     {
+      // 熄烛冠巅峰改版之前的存档里有熄烛冠：读档时原地升级（见 game.js 的 migrateXizhu），提示一次
+      id: 'xzmig', calm: true, max: 14,
+      html: '<b>熄烛冠已升级</b>：原有词缀按原品质提到新数值（冰霜抗性改为生命回复），新增一条「暗域增伤」，机制换成「暗域」',
+      when: () => G.xizhuMigrated > 0,
+      done: () => false,
+    },
+    {
       id: 'poise', max: 30,
       html: '精英和首领血条下的<b>白条是架势</b>，打空后敌人露出<b class="c-gold">破绽</b>。近战和终结技削得最多',
       when: () => enemyNear(12, (e) => e.awake && e.poiseMax > 0 && !(e.brokenT > 0)),
@@ -5997,6 +6069,7 @@
       G.twinMigrated = 0;
     }
     if (id === 'bowmig') G.save.bowMig = false;
+    if (id === 'xzmig') G.save.xzMig = false;
     if (id === 'variant2') {
       G.save.varNote = false;
       G.variantRedone = 0;
