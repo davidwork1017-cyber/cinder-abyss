@@ -17,7 +17,7 @@ CATALOG = [
     dict(id='ca/ash_bones', gen='bone', seed=3, cat='scatter', zone='ash', ship=True, replaces='kh/bone_A',
          args=dict(L=0.74, r=0.085), bake=dict(ao=0.1, grad=0.1, gtint=0.5), cues=dict(second=False, val=0.2)),
     dict(id='ca/ash_blade', gen='shield_sword', seed=7, cat='scatter', zone='ash', ship=True, replaces='kd/sword_shield_broken',
-         args=dict(R=0.52, h=1.1), bake=dict(ao=0.3, grad=0.4)),
+         args=dict(R=0.52, h=1.1), bake=dict(ao=0.2, grad=0.25, gtint=0.6)),
     dict(id='ca/ash_marker', gen='grave_cross', seed=13, cat='scatter', zone='ash', ship=True, replaces='kh/gravemarker_A',
          args=dict(h=1.2, w=0.72), bake=dict(ao=0.3, grad=0.4)),
     dict(id='ca/ash_firepit', gen='firepit', seed=17, cat='prop', zone='ash', ship=True, replaces='kn/campfire_stones',

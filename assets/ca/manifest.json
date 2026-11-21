@@ -53,19 +53,19 @@
    "ship": true,
    "replaces": "kd/sword_shield_broken",
    "tris": 228,
-   "verts": 649,
+   "verts": 635,
    "materials": 1,
    "textures": 1,
    "bounds": {
     "min": [
-     -0.514,
+     -0.569,
      -0.12,
      -0.776
     ],
     "max": [
-     0.512,
+     0.568,
      0.869,
-     0.57
+     0.569
     ]
    },
    "h": 0.989,
@@ -81,11 +81,12 @@
      "h": 1.1
     },
     "bake": {
-     "ao": 0.3,
-     "grad": 0.4
+     "ao": 0.2,
+     "grad": 0.25,
+     "gtint": 0.6
     }
    },
-   "sha256": "0f1ab128fcffd37e4539ff472ab63858ddcd42512eda710ca31f465ee199f2e4"
+   "sha256": "fc058e7c0dea7270752e7d343056afc3929a7f1c80e47e4f0e3f3504cae5058e"
   },
   {
    "id": "ca/ash_bones",

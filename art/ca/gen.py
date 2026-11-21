@@ -470,24 +470,24 @@ def bone(k, L=0.72, r=0.06):
 
 
 def shield_sword(k, R=0.52, h=1.1):
-    """断剑插盾（第二版）：大圆盾（浅木板三条 + 亮铁箍 + 盾心）斜靠在一块石头上，盾面朝上翘起来；
+    """断剑插盾（第二版）：大圆盾（浅木板三条 + 亮铁箍 + 盾心）一边垫在一块小石头上、微微翘起（约 15°）；
     一把剑斜着（约 30°）插在盾的一侧、偏离盾心，剑身断了一截，剑尖躺在盾边的地上。俯视不再是「圆盘上一个十字」。"""
     t = 0.07
     ring_w = [(math.cos(TAU * i / 14) * R, math.sin(TAU * i / 14) * R) for i in range(14)]
     ring_i = [(math.cos(TAU * i / 14 + 0.11) * (R + 0.06), math.sin(TAU * i / 14 + 0.11) * (R + 0.06)) for i in range(14)]
     sh = []
-    sh += k.hull([(x, y, z) for x, y in ring_i for z in (-t * 0.4, t * 0.35)], row='iron', tone=0.9, dust=0)  # 铁箍
-    wv = k.hull([(x, y, z) for x, y in ring_w for z in (-t * 0.5, t * 0.55)], row='plank', tone=0.85, dust=0)  # 木面
+    sh += k.hull([(x, y, z) for x, y in ring_i for z in (-t * 0.4, t * 0.35)], row='iron', tone=0.97, dust=0)  # 铁箍
+    wv = k.hull([(x, y, z) for x, y in ring_w for z in (-t * 0.5, t * 0.55)], row='plank', tone=0.96, dust=0)  # 木面
     sh += wv
     k.bm.normal_update()
     for f in _sorted_faces_of(wv):
         if f.normal.z > 0.7:
             c = f.calc_center_median()
             band = int((c.x + R) / (2 * R / 3))
-            k.tag([f], 'plank', (0.7, 0.95, 0.78)[min(2, max(0, band))], 0.03, dust=0)
+            k.tag([f], 'plank', (0.84, 0.99, 0.9)[min(2, max(0, band))], 0.02, dust=0)
     sh += k.hull([(p[0], p[1], t * 0.55 + abs(p[2])) for p in _blob(k, 0.14, 0.14, 0.08, 9)], row='iron', tone=0.95, dust=0)  # 盾心
     # 不加横铁带：铁带和盾心、剑的护手会又拼成一个十字
-    tilt = k.r(0.5, 0.6)
+    tilt = k.r(0.22, 0.3)  # 游戏里每个实例随机转向：翘得太高时一半的朝向是侧对镜头（只剩一条边），平一点任何朝向都看得到盾面
     az = k.r(0, TAU)
     lift = R * math.sin(tilt) + 0.02
     k.xform(sh, k.place((0, 0, lift * 0.55), (tilt, 0, 0)))
