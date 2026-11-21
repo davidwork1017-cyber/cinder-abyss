@@ -13255,6 +13255,7 @@ async function main() {
       const gx = (c1.x + c2.x + c3.x) / 3, gz = (c1.z + c2.z + c3.z) / 3;
       out.at = tg ? +Math.hypot(tg.x - gx, tg.z - gz).toFixed(2) : -1;
       out.r = tg ? [+tg.r.toFixed(2), +(ctx.sk.radius * Math.sqrt(ctx.area) * F.area).toFixed(2)] : null;
+      out.starTele = tg ? tg.handle.mesh.visible : null; // 星雨的预警圈只结算、不画（落点看符环）
       out.mana = P.mana >= mana0 - 1e-6;
       out.rune = G.world.rvCount('star');
       G.debug.step(0.9);
@@ -13270,7 +13271,12 @@ async function main() {
       P.cds = {};
       P.mana = P.maxMana;
       G.input.tap[0] = 0.3;
-      G.debug.step(1);
+      G.debug.step(0.65);
+      const tp = G.state.telegraphs.filter((t) => t.friendly).pop(); // 原式陨火：预警圈照常画
+      out.plainTele = tp ? tp.handle.mesh.visible : null;
+      const et = G.telegraph({ shape: 'circle', x: P.x + 3, z: P.z, r: 2, dur: 0.5, dmg: 0 }); // 敌方预警圈：照常画
+      out.enemyTele = et.handle.mesh.visible;
+      G.debug.step(0.35);
       out.plain = [P.reservePct, !!(P.cds.meteor > 0), G.SKILLS.meteor.variant || 'o'];
       RQT.end();
       return out;
@@ -13280,6 +13286,7 @@ async function main() {
     assert(r.at >= 0 && r.at < 1 && r.r && Math.abs(r.r[0] - r.r[1]) < 0.02 && r.mana, '自动陨火应落在最密处、半径 ×0.85、不耗魔力：' + JSON.stringify(r));
     assert(Math.abs(r.dmg[0] - r.dmg[1]) <= Math.max(2, r.dmg[1] * 0.02) && r.lone === 0, '自动陨火的伤害应 ×0.4：' + JSON.stringify(r));
     assert(r.rune === 1 && r.plain.join() === '0,true,o', '落点符环 / 摘下后的退回不对：' + JSON.stringify(r));
+    assert(r.starTele === false && r.plainTele === true && r.enemyTele === true, '星雨的预警圈应只结算不画，原式陨火和敌方的预警圈照常画：' + JSON.stringify([r.starTele, r.plainTele, r.enemyTele]));
     assert(r.n === 3, (r.iv * 2 + 0.1).toFixed(2) + ' 秒内应落 3 次（间隔 ' + r.iv + ' 秒）：' + r.n);
     return '间隔 ' + r.iv + ' 秒 · 每发 ' + r.dmg[0];
   });
