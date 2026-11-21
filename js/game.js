@@ -1614,7 +1614,7 @@
   // 各处只留一行钩子：投射物速度（G.spawnProjectile / 黑旋风）、储能（施放处 + 每帧计时）、异常触发（hitEnemy → supXAil → triggerAilment）
   // =====================================================================
   const NO_X = Object.freeze({});
-  const X_SUM = ['projSpd', 'auraEff', 'charges', 'cdMore', 'blastK', 'blastR', 'blastCap', 'freezeK', 'chillK', 'shockN', 'shockT'];
+  const X_SUM = ['projSpd', 'auraEff', 'charges', 'cdMore', 'blastK', 'blastR', 'blastCap', 'freezeK', 'chillK', 'shockN', 'shockT', 'fork', 'forkAng', 'splash', 'splashR', 'cull', 'cullElite', 'convert'];
   G.supXCtx = function (ctx, sups, isAura) {
     let x = null;
     for (const supId of sups) {
@@ -1636,7 +1636,86 @@
     }
     // 盛环：霜环 / 护涡的光环伤害（黑焰这类增益光环在 G.flamePct 里按 G.auraEffK 算）
     if (x.auraEff && isAura && !ctx.sk.buff) ctx.more *= 1 + x.auraEff / 100;
+    // 化元：基础物理伤害的 convert% 在吃任何加成之前挪进一种元素（G.convertEl 选），之后照常按类型吃提高 / 总额外
+    if (x.convert && ctx.base.phys) {
+      const k = Math.min(1, x.convert / 100), el = G.convertEl(ctx), p = ctx.base.phys;
+      const b = ctx.base[el] || [0, 0];
+      ctx.base[el] = [b[0] + p[0] * k, b[1] + p[1] * k];
+      if (k >= 1) delete ctx.base.phys;
+      else ctx.base.phys = [p[0] * (1 - k), p[1] * (1 - k)];
+    }
   };
+  // 化元转成哪种元素：此刻你火焰 / 冰霜 / 闪电伤害提高里最高的那种（并列取火焰，同施法武器的普攻，见 G.topElem）。
+  // 以后要按目标挑（例如敌人抗性）只改这一处
+  G.convertEl = () => G.topElem('fire');
+
+  // 断命：这一击之后生命低于门槛的非首领敌人直接倒下（hitEnemy 里一行钩子；触发伤害的 ctx 没有 x，不算）
+  function cullCheck(e, ctx) {
+    const x = ctx.x;
+    if (!x || !x.cull || e.isBoss || !(e.hp > 0)) return;
+    if (e.hp > e.maxHp * ((e.elite ? x.cullElite || x.cull : x.cull) / 100)) return;
+    e.hp = 0;
+    state.stats.culls = (state.stats.culls || 0) + 1;
+    G.world.text(e.x, e.z, '断命', '#ff8aa0', e.elite ? 22 : 18, { kind: 'tag', y: Math.min(3.4, (e.height || 2) * (e.elite ? 1.3 : 1)) + 0.3 });
+  }
+
+  // 溅击：近战的直接命中排进 splashQ，每帧在投射物更新开头统一结算（这时这一帧所有挥砍都打完了，
+  // 同一下已经直接打中的敌人不再吃溅射，免得一刀扫到的一圈怪各吃两遍）。溅射 = 这一击各类型伤害 × splash%，
+  // 打到目标身边 splashR 米内的其他敌人，用固定数值的触发伤害结算（不暴击、不吸血、不再溅射），照常累积异常值
+  const splashQ = [];
+  function splashQueue(e, ctx, hit, inf) {
+    e.splDirT = state.time;
+    e.splDirId = ctx.id;
+    if (inf.proc || inf.aura || inf.minion || ctx.minion || ctx.sk.tags.indexOf('melee') < 0) return;
+    splashQ.push({ e, ctx, parts: hit.parts, x: e.x, z: e.z });
+  }
+  function flushSplash() {
+    if (!splashQ.length) return;
+    const W = G.world, t = state.time;
+    for (const q of splashQ.splice(0)) {
+      const x = q.ctx.x, R = x.splashR || 2.5, k = (x.splash || 0) / 100;
+      const base = {};
+      for (const ty in q.parts) if (q.parts[ty] > 0) base[ty] = [q.parts[ty] * k, q.parts[ty] * k];
+      const sc = { sk: PROC_SK, base, inc: {}, moreType: {}, more: 1, extra: {}, crit: 0, critMulti: 100, ailment: q.ctx.ailment, bindAil: q.ctx.bindAil, stun: 0, leech: 0, echo: 0, area: 1, proc: true, x: NO_X };
+      let n = 0;
+      for (const o of state.enemies) {
+        if (o === q.e || o.dead || dist(o.x, o.z, q.x, q.z) - o.r > R) continue;
+        if (o.splDirT === t && o.splDirId === q.ctx.id) continue; // 这一帧已经被同一个技能直接打中
+        if (o.splT === t && o.splId === q.ctx.id) continue; // 这一帧已经吃过同一个技能的溅射
+        o.splT = t;
+        o.splId = q.ctx.id;
+        G.hitEnemy(o, sc, 1, { ang: Math.atan2(o.x - q.x, o.z - q.z), w: 0, kb: 0, poise: 0, quiet: true, proc: true, faint: true, splash: n < 3 ? 1 : 2 }); // 不击退：推开会把怪群推出技能的范围
+        n++;
+      }
+      if (n) {
+        state.stats.splashes = (state.stats.splashes || 0) + n;
+        W.burst(q.x, 0.9, q.z, 0xffc89a, 4 + Math.min(4, n), 3.5, 0.25);
+      }
+    }
+  }
+
+  // 分岔：玩家投射物第一次命中时左右各分出一枚（afterPlayerHit 里一行钩子）。分出来的不再分岔、不穿透、不连锁，
+  // 和母弹共用这次施放的已命中集合（不会重复打同一个敌人）；飞行时间取母弹剩下的和 8 米里较长的
+  function forkProj(p, e) {
+    const x = p.ctx.x, n = x.fork || 0;
+    if (!n || p.forked || p.pin || p.stick || p.skip || p.minion || p.aura) return;
+    p.forked = true;
+    const a0 = Math.atan2(p.dx, p.dz), da = ((x.forkAng || 35) * Math.PI) / 180;
+    for (let i = 0; i < n; i++) {
+      const a = a0 + (i % 2 ? 1 : -1) * da * (1 + Math.floor(i / 2));
+      const dx = Math.sin(a), dz = Math.cos(a);
+      G.spawnProjectile({
+        owner: 'p', x: e.x + dx * (e.r + 0.15), z: e.z + dz * (e.r + 0.15), dx, dz,
+        speed: p.speed, r: p.r, life: Math.max(p.life, 8 / p.speed), color: p.color,
+        ctx: p.ctx, pierce: 0, chain: 0, explode: p.explode, hit: new Set(p.hit), cast: p.cast,
+        vk: p.vk, tint: p.tint, rtype: p.rtype, mult: p.mult || 1, multFn: p.multFn || null, after: p.after || null, ranged: p.ranged,
+        kb: p.kb, poise: p.poise, blastMult: p.blastMult, forked: true,
+      });
+    }
+    state.stats.forks = (state.stats.forks || 0) + n;
+  }
+
+
   // 光环效果倍率（盛环）：镶在这个光环上、对它生效的辅助的 auraEff 之和
   G.auraEffK = function (id) {
     let k = 0;
@@ -2382,11 +2461,11 @@
   G.twinClear = twinClear;
 
   // ---------- 暗域（熄烛冠，巅峰）：hitEnemy / hurtPlayer / hurtMinion 里各一行钩子 ----------
-  // 暗域增伤（专属词缀 darkDmg）：你的伤害对所有敌人 × (1 + darkDmg%)，召唤物的伤害只对暗域内的敌人（e.dark，enemies.js 每帧算）；
+  // 暗域增伤（专属词缀 darkDmg）：你的伤害对所有敌人 × (1 + darkDmg%)，召唤物的伤害只对暗域内的敌人（e.dark，enemies.js 每帧算）且按 mk 倍 × (1 + darkDmg% × mk)；
   // 还没发现你（没醒）的敌人，你的第一击必定暴击
   G.relicDarkHit = function (e, ctx, m, minion) {
-    const k = 1 + Math.max(0, (P.S && P.S.darkDmg) || 0) / 100;
-    if (minion) return G.calcHit(ctx, e.dark ? m * k : m);
+    const v = Math.max(0, (P.S && P.S.darkDmg) || 0) / 100, k = 1 + v;
+    if (minion) return G.calcHit(ctx, e.dark ? m * (1 + v * RM.xizhu.mk) : m);
     if (e.awake) return G.calcHit(ctx, m * k);
     const c0 = ctx.crit;
     ctx.crit = 100;
@@ -2396,9 +2475,13 @@
       ctx.crit = c0;
     }
   };
-  // 面板秒伤（技能卡、物品对比、技能页）把暗域增伤算进去：你的技能对所有敌人都吃；召唤物按目标在暗域里算（它们身边 mr 米就是暗域）
+  // 面板秒伤（技能卡、物品对比、技能页）把暗域增伤算进去：你的技能对所有敌人都吃；召唤物按目标在暗域里算（它们身边 mr 米就是暗域），按 mk 倍
   const skillDps0 = G.skillDps;
-  G.skillDps = (ctx) => skillDps0(ctx) * (P.relic.xizhu ? 1 + Math.max(0, (P.S && P.S.darkDmg) || 0) / 100 : 1);
+  G.skillDps = (ctx) => {
+    if (!P.relic.xizhu) return skillDps0(ctx);
+    const v = Math.max(0, (P.S && P.S.darkDmg) || 0) / 100;
+    return skillDps0(ctx) * (1 + v * (ctx.minion || ctx.asMinion ? RM.xizhu.mk : 1));
+  };
   // 暗域内的敌人造成的伤害倍率：src 是敌人本身，或带 owner 的预警圈 / 弹丸。首领 1 − weakBoss，熄烛者（pin）不吃
   G.darkWeakK = function (src) {
     const e = src && src.owner && typeof src.owner === 'object' ? src.owner : src;
@@ -3036,6 +3119,10 @@
     // 异常触发的伤害（ctx.proc：爆燃 / 电弧 / 尸爆 / 放电 / 锁链等）本来就是按扣过抗性的伤害算的，不再扣一次
     if (!ctx.proc) G.applyResist(e, hit, (ctx.pen || 0) + (inf.minion || ctx.minion || ctx.asMinion ? 0 : P.S.elemPen || 0));
     e.hp -= hit.total;
+    if (ctx.x && ctx.x !== NO_X) {
+      if (ctx.x.cull) cullCheck(e, ctx); // 断命
+      if (ctx.x.splash) splashQueue(e, ctx, hit, inf); // 溅击
+    }
 
     // 数字颜色 / 特效花样取占比最大的伤害类型
     let top = 'phys';
@@ -3073,15 +3160,15 @@
       // 光环：只在身上闪一点霜屑，不闪白、不后仰
       W.frostSparkle(e.x, h * 0.55, e.z, e.r);
     } else {
-      W.flash(e.ent, 1 + feel * 0.7 + (hit.crit ? 0.5 : 0)); // vf-vfx2：暴击再亮一点
+      if (!inf.splash) W.flash(e.ent, 1 + feel * 0.7 + (hit.crit ? 0.5 : 0)); // 溅击的溅射不闪白（一下溅到一群时整群闪白会糊成一片，闪白有下限、调不淡）；vf-vfx2：暴击再亮一点
       W.hitReact(e.ent, ang, 0.9 + feel * 0.4); // 顺着这一击的方向一仰
       // 持续伤害的跳（黑洞 / 黑旋风，inf.tick）：只甩几片实例化的尖片，不留地面贴花、不打闪光（怪堆里每秒几十跳，贴花每片一次 draw call）
       if (inf.tick && W.chaosTick) W.chaosTick(e.x - sn * e.r * 0.7, h * 0.5, e.z - cs * e.r * 0.7, ang, hit.crit);
-      else W.impact(e.x - sn * e.r * 0.7, h * 0.5, e.z - cs * e.r * 0.7, ang, top, feel, hit.crit);
+      else if (inf.splash !== 2) W.impact(e.x - sn * e.r * 0.7, h * 0.5, e.z - cs * e.r * 0.7, ang, top, feel, hit.crit); // 溅击：一次溅射只给前 3 个敌人冒火花
       if (ctx.flame > 0 && W.flameHit) W.flameHit(e.x, h * 0.55, e.z, e.r, ang); // 黑焰：命中点甩出几片品红的小火舌
     }
     // vf-vfx2：重击档的法术暴击顿一下、镜头轻震（法术来源每 0.3 秒最多一次；持续伤害 / 光环 / 召唤物 / 异常触发的不算）
-    if (hit.crit && w >= 2 && !inf.tick && !inf.aura && !inf.proc && !inf.minion && !ctx.minion && !ctx.asMinion && sk.tags && sk.tags.indexOf('spell') >= 0 && G.spellStop(40)) W.shake(0.1);
+    if (hit.crit && w >= 2 && !inf.tick && !inf.aura && !inf.proc && !inf.splash && !inf.minion && !ctx.minion && !ctx.asMinion && sk.tags && sk.tags.indexOf('spell') >= 0 && G.spellStop(40)) W.shake(0.1);
     if (!inf.quiet) {
       // 投射物 / 法术逐个出声；暴击时镜头也轻轻一顶（近战由技能统一处理）
       G.sfx('impact', { type: top, w, crit: hit.crit });
@@ -3521,7 +3608,7 @@
     if (p.r === undefined) p.r = 0.3;
     if (p.life === undefined) p.life = 2.5;
     if (p.owner === 'p') {
-      if (p.ctx && p.ctx.x && p.ctx.x.projSpd) p.speed *= G.projSpdK(p.ctx); // 远劲：飞得更快，飞行时间不变 → 射程一起放大
+      if (p.ctx && p.ctx.x && p.ctx.x.projSpd && !p.forked) p.speed *= G.projSpdK(p.ctx); // 远劲：飞得更快，飞行时间不变 → 射程一起放大（分岔分出来的已经带着母弹的速度）
       if (!p.hit) p.hit = new Set();
       p.pierce = p.pierce || 0;
       p.chain = p.chain || 0;
@@ -3624,6 +3711,7 @@
 
   // 玩家投射物命中一个敌人后的去留；返回 false 表示投射物消失
   function afterPlayerHit(p, e) {
+    if (p.ctx.x && p.ctx.x.fork) forkProj(p, e); // 分岔
     if (p.explode > 0) explodeAt(p, e);
     if (p.chain > 0) {
       let best = null;
@@ -3659,6 +3747,7 @@
   }
 
   G.updateProjectiles = function (dt) {
+    flushSplash(); // 溅击：这一帧的近战挥砍都打完了，统一结算溅射
     const W = G.world;
     const list = state.projectiles;
     for (let i = list.length - 1; i >= 0; i--) {
@@ -6986,6 +7075,7 @@
     }
     if (!G.auraOn('nova') || P.dead) novaCrystals(false);
     W.setAura(P.dead ? 0 : shown);
+    if (W.setAuraBoost) W.setAuraBoost(!P.dead && shown > 0 && G.auraEffK('nova') > 1); // 盛环：地上的霜环多一道淡环
     if (W.setFlame) W.setFlame(!P.dead && G.auraOn('blackflame'));
   }
   G.updateAuras = updateAuras;
@@ -7808,7 +7898,7 @@
       const pool = enemiesIn(x, z, R).filter((e) => losClear(x, z, e.x, e.z));
       let px, pz;
       if (pool.length) {
-        pool.sort((p, q) => (storm.struck.get(p) || 0) - (storm.struck.get(q) || 0) + (Math.random() - 0.5) * 1.2);
+        G.shuffle(pool).sort((p, q) => (storm.struck.get(p) || 0) - (storm.struck.get(q) || 0)); // 先洗牌再稳定排序：砸得一样少的随机挑
         const e = pool[0];
         storm.struck.set(e, (storm.struck.get(e) || 0) + 1);
         px = e.x + G.rand(-0.4, 0.4);
@@ -8618,7 +8708,7 @@
   // 无铭技能宝石的掉落几率（首领首杀另外必掉）：普通怪比随机技能宝石的 1.2% 略低
   const BLANK_DROP = (G.BLANK_DROP = { boss: 0.2, elite: 0.04, mob: 0.008 });
   // 辅助宝石的掉落：首领固定掉 boss 颗（第一颗必是还没有的），精英 elite、普通怪 mob 的几率各掉一颗。
-  // 辅助从 21 种（含绵延）加到 32 种（support-expand）：几率 ×1.5（原来 2 / 0.3 / 0.025），每一种辅助的掉率和原来差不多（约 −2%），老宝石不会变稀
+  // 辅助从 22 种（含绵延、破障）加到 33 种（support-expand 两批）：几率 ×1.5（原来 2 / 0.3 / 0.025），每一种辅助的掉率和原来差不多，老宝石不会变稀
   const SUPPORT_DROP = (G.SUPPORT_DROP = { boss: 3, elite: 0.45, mob: 0.0375 });
   // preferNew：挑玩家还没有的宝石的概率
   function pickSkillGem(preferNew) {
@@ -10209,9 +10299,9 @@
   };
   function rollStock(enc) {
     const T = G.TRADER, save = G.save, lvl = enc.level;
-    const want = G.SLOTS.slice().sort((a, b) => {
+    const want = G.shuffle(G.SLOTS.slice()).sort((a, b) => { // 先洗牌再稳定排序：物品等级一样的部位随机先后
       const ia = save.equip[a] ? save.equip[a].ilvl || 0 : -1, ib = save.equip[b] ? save.equip[b].ilvl || 0 : -1;
-      return ia - ib || Math.random() - 0.5;
+      return ia - ib;
     });
     const out = [];
     for (let i = 0; i < T.items; i++) {
