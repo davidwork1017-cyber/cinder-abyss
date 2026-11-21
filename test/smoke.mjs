@@ -443,15 +443,29 @@ async function dragView(from, to) {
 }
 
 // 用真鼠标把 from 拖到 to（选择器或坐标）；mid 在松手前执行
-async function dragTo(from, to, mid) {
+// land：终点应能接住（技能页的孔、宝石列表）。松手前先等终点真的被悬停成落点（drop-hover / drop-bad），
+// 没等到就说清是拖拽根本没开始、还是悬停在别处（原来这类失败只看得到松手后什么都没变）
+async function dragTo(from, to, mid, land) {
   if (typeof from === 'string' || typeof to === 'string') await dragView(from, to);
   const a = typeof from === 'string' ? await ev((s) => T.rect(s), from) : from;
+  // 从旁边移进起点：上一次拖拽正好在这里松手时，指针原地不动就按下，页面收不到一次移动
+  await page.mouse.move(a.x - 7, a.y - 5);
   await page.mouse.move(a.x, a.y);
   await page.mouse.down();
   await page.mouse.move(a.x + 9, a.y + 6, { steps: 2 });
   const b = typeof to === 'string' ? await ev((s) => T.rect(s), to) : to;
   await page.mouse.move(b.x, b.y, { steps: 5 });
   try {
+    if (land && typeof to === 'string') {
+      const hovered = (sel) => {
+        const n = document.querySelector(sel);
+        return !!n && document.body.classList.contains('dragging') && (n.matches('.drop-hover, .drop-bad') || !!n.closest('.drop-hover, .drop-bad'));
+      };
+      await until(hovered, to, 10000).catch(async () => {
+        const st = await ev(() => ({ dragging: document.body.classList.contains('dragging'), hover: Array.from(document.querySelectorAll('.drop-hover, .drop-bad')).map((n) => n.className + ' ' + JSON.stringify(n.dataset)) }));
+        throw new Error('拖到 ' + to + ' 松手前终点没有成为落点：' + JSON.stringify(st));
+      });
+    }
     if (mid) await mid();
   } finally {
     await page.mouse.up();
@@ -7180,14 +7194,14 @@ async function main() {
       mid = await ev(() => document.querySelector('#drag-ghost em').textContent);
     });
     assert(mid.includes('需要标签') && (await ev(() => G.save.sockets.ember[1])) === null, '不适配的宝石不应镶上：' + mid);
-    await dragTo(sock('ember', 0), sock('blade', 2));
+    await dragTo(sock('ember', 0), sock('blade', 2), null, true);
     r = await ev(() => ({ e: G.save.sockets.ember.slice(), b: G.save.sockets.blade.slice() }));
     assert(r.e[0] === null && r.b[2] === 'multi', '孔间拖动应移动宝石：' + JSON.stringify(r));
     await ev(() => { G.socketSupport('ember', 0, 'haste'); G.ui.refresh(); });
-    await dragTo(sock('blade', 2), sock('ember', 0));
+    await dragTo(sock('blade', 2), sock('ember', 0), null, true);
     r = await ev(() => ({ e: G.save.sockets.ember.slice(), b: G.save.sockets.blade.slice() }));
     assert(r.e[0] === 'multi' && r.b[2] === 'haste', '拖到有宝石的孔应对调：' + JSON.stringify(r));
-    await dragTo(sock('ember', 0), '.sup-list');
+    await dragTo(sock('ember', 0), '.sup-list', null, true);
     assert((await ev(() => G.save.sockets.ember[0])) === null, '拖回宝石列表应取下');
     await page.click(sock('blade', 2));
     assert((await ev(() => G.save.sockets.blade[2])) === null, '点击已镶嵌的孔仍应取下');
