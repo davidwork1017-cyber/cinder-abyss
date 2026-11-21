@@ -12854,6 +12854,8 @@ async function main() {
           G.clearMinions();
           G.relicReset();
           if (RQT.keep) {
+            // 非武器部位逐个还原（Object.assign 不会清掉开始时空着、步骤里戴上的那件）
+            for (const sl of G.SLOTS) if (sl !== 'weapon') G.save.equip[sl] = RQT.keep.equip[sl] || null;
             Object.assign(G.save.equip, RQT.keep.equip);
             G.save.supports = RQT.keep.sup;
             T.buildRestore(RQT.keep.build);
@@ -13954,6 +13956,7 @@ async function main() {
       const s = G.save, out = {};
       s.skills.arc = 20;
       s.skills.blade = 20;
+      for (const sl of G.SLOTS) if (sl !== 'weapon') s.equip[sl] = null; // 只戴电桥戒（别的步骤留下的渊契不掺进迁移）
       s.equip.ring = G.rollRelic('dianqiao', 50, 0.5);
       s.bag.length = 0;
       s.bag.push(G.rollRelic('huixuan', 50, 0.5));
