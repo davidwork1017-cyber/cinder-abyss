@@ -104,7 +104,17 @@
   };
   // 顿帧：整个世界定格 ms 毫秒（多次触发取最长的，不叠加）
   G.hitStop = function (ms) {
+    if (G.save && G.save.opts && G.save.opts.hitStop === false) return; // 设置里关了顿帧（测伤害的用例也用它关）
     flow.stop = Math.min(0.16, Math.max(flow.stop, ms / 1000));
+  };
+  // 法术的顿帧（vf-vfx2）：只给重的法术命中（陨火落地、重击档的法术暴击），法术来源每 0.3 秒最多一次；顿了返回 true
+  let spellStopAt = -9;
+  G.spellStop = function (ms) {
+    const t = G.state ? G.state.time : 0;
+    if (Math.abs(t - spellStopAt) < 0.3) return false;
+    spellStopAt = t;
+    G.hitStop(ms);
+    return true;
   };
   // 慢动作：接下来 sec 秒（真实时间）里游戏时间按 k 倍流逝
   G.slowMo = function (k, sec) {
@@ -151,7 +161,8 @@
       tier: 0, maxTier: 0, lastZone: 0,
       // 选项：自动拾取普通物品 / 折叠普通物品的名牌 / 拾取时自动分解普通物品 / 一键分解是否包含魔法物品
       // quality：画质档位 high / mid / low（世界层读取，见 G.world.setQuality）；auto = 玩家还没选过，每次启动按设备推断，掉帧时自动降档
-      opts: { autoWhite: false, hideNormal: false, autoSalvage: false, salvageMagic: false, quality: 'auto' },
+      // hitFlash / hitStop / shake：打击手感的三个开关（受击闪光、顿帧、镜头震动），默认都开（vf-vfx2）
+      opts: { autoWhite: false, hideNormal: false, autoSalvage: false, salvageMagic: false, quality: 'auto', hitFlash: true, hitStop: true, shake: true },
       seenHelp: false,
       tut: {}, // 已经看过的新手提示：{ 提示 id: 1 }（界面层维护）
       blankGems: [], // 手里的无铭技能宝石：每颗的等级，从高到低排
@@ -540,6 +551,7 @@
     s.opts = {
       autoWhite: !!ro.autoWhite, hideNormal: !!ro.hideNormal, autoSalvage: !!ro.autoSalvage, salvageMagic: !!ro.salvageMagic,
       quality: G.QUALITY_IDS.indexOf(ro.quality) >= 0 ? ro.quality : 'auto',
+      hitFlash: ro.hitFlash !== false, hitStop: ro.hitStop !== false, shake: ro.shake !== false, // 老存档没有这三项：按默认开
     };
     s.seenHelp = !!raw.seenHelp;
     s.tut = {};
@@ -3264,13 +3276,15 @@
     } else if (inf.dot) {
       // 流血的跳：不闪白、不后仰、不甩命中火花（掉落的暗红碎屑在 tickBleed 里另放）
     } else {
-      if (!inf.splash) W.flash(e.ent, 1 + feel * 0.7); // 溅击的溅射不闪白（一下溅到一群时整群闪白会糊成一片，闪白有下限、调不淡）
+      if (!inf.splash) W.flash(e.ent, 1 + feel * 0.7 + (hit.crit ? 0.5 : 0)); // 溅击的溅射不闪白（一下溅到一群时整群闪白会糊成一片，闪白有下限、调不淡）；vf-vfx2：暴击再亮一点
       W.hitReact(e.ent, ang, 0.9 + feel * 0.4); // 顺着这一击的方向一仰
       // 持续伤害的跳（黑洞 / 黑旋风，inf.tick）：只甩几片实例化的尖片，不留地面贴花、不打闪光（怪堆里每秒几十跳，贴花每片一次 draw call）
       if (inf.tick && W.chaosTick) W.chaosTick(e.x - sn * e.r * 0.7, h * 0.5, e.z - cs * e.r * 0.7, ang, hit.crit);
       else if (inf.splash !== 2) W.impact(e.x - sn * e.r * 0.7, h * 0.5, e.z - cs * e.r * 0.7, ang, top, feel, hit.crit); // 溅击：一次溅射只给前 3 个敌人冒火花
       if (ctx.flame > 0 && W.flameHit) W.flameHit(e.x, h * 0.55, e.z, e.r, ang); // 黑焰：命中点甩出几片品红的小火舌
     }
+    // vf-vfx2：重击档的法术暴击顿一下、镜头轻震（法术来源每 0.3 秒最多一次；持续伤害 / 光环 / 召唤物 / 异常触发的不算）
+    if (hit.crit && w >= 2 && !inf.tick && !inf.aura && !inf.proc && !inf.splash && !inf.minion && !ctx.minion && !ctx.asMinion && sk.tags && sk.tags.indexOf('spell') >= 0 && G.spellStop(40)) W.shake(0.1);
     if (!inf.quiet) {
       // 投射物 / 法术逐个出声；暴击时镜头也轻轻一顶（近战由技能统一处理）
       G.sfx('impact', { type: top, w, crit: hit.crit });
@@ -5760,9 +5774,10 @@
         }
       }
       const pts = [{ x: P.x, z: P.z }];
+      const bo = { v2: true }; // vf-vfx2：链雷的折线语言（刻式「过载」也用；「雷桩」走自己的 arcPylon）
       if (!first) {
         pts.push({ x: P.x + a.dx * 6, z: P.z + a.dz * 6 });
-        W.bolt(pts, hex);
+        W.bolt(pts, hex, false, bo);
         return;
       }
       const hit = new Set();
@@ -5793,7 +5808,7 @@
           }
         }
       }
-      W.bolt(pts, hex);
+      W.bolt(pts, hex, false, bo);
       if (P.relic.dianqiao && !sk.mech) G.relicBridges(pts, ctx); // 渊契「电桥」（只改原式）
       if (ov) arcOverload(ctx, pts, hit.size, hex);
     },
@@ -5837,25 +5852,27 @@
       const hex = hexOf(sk.color);
       // 刻式：熔核 / 犁焰落地那一下打折（k0），之后留下熔核 / 顺着瞄准方向犁出去
       const vm = sk.mech ? sk[sk.mech] : null, R0 = sk.mech === 'plough' ? vm.r * Math.sqrt(ctx.area) : R;
-      W.meteorFall(x, z, sk.delay, hex);
+      const tok = W.meteorFall(x, z, sk.delay, hex);
+      if (W.meteorMark) W.meteorMark(tok, R0); // vf-vfx2：落影 + 新的落地特效（刻式的熔核 / 犁焰也用，落地之后各自的件照旧）
       G.telegraph({
         shape: 'circle', x, z, r: R0, dur: sk.delay, dmg: 0, friendly: true,
         onFire() {
-          for (const e of enemiesIn(x, z, R0)) G.hitEnemy(e, ctx, vm ? vm.k0 : 1, { ang: Math.atan2(e.x - x, e.z - z), core: true, kb: sk.mech === 'plough' ? 0.2 : undefined }); // 从落点往外炸开；core：不点燃自己留下的熔核；犁焰落地不推人（留给犁）
+          const hs = enemiesIn(x, z, R0);
+          if (hs.length) G.spellStop(45); // vf-vfx2：重的法术命中顿一下（法术来源每 0.3 秒最多一次）
+          for (const e of hs) G.hitEnemy(e, ctx, vm ? vm.k0 : 1, { ang: Math.atan2(e.x - x, e.z - z), core: true, kb: sk.mech === 'plough' ? 0.2 : undefined }); // 从落点往外炸开；core：不点燃自己留下的熔核；犁焰落地不推人（留给犁）
           if (sk.mech === 'core') meteorCore(ctx, x, z);
           else if (sk.mech === 'plough') meteorPlough(ctx, x, z, a.dx, a.dz);
           if (vm) {
-            W.ring(x, z, R0, hex, 0.4);
-            W.burst(x, 0.8, z, hex, 26, 7, 0.6);
-            W.shake(0.35);
+            // vf-vfx2：落地的样子交给 meteorLand2（外沿细环、火舌、岩块）；震动和原式一样打中才震 0.2（原来每次 0.35）
+            W.burst(x, 0.8, z, hex, 10, 7, 0.6);
+            if (hs.length) W.shake(0.2);
             G.sfx('hit');
             return;
           }
-          W.decal(1, x, z, R * 0.95, Math.random() * TAU, hex, 5);
-          W.ring(x, z, R, hex, 0.45);
-          W.burst(x, 0.8, z, hex, 46, 9, 0.7);
-          W.burst(x, 0.5, z, 0xffe0a0, 16, 5, 0.5);
-          W.shake(0.5);
+          // vf-vfx2：落地的样子在世界层（meteorLand2：外沿冲击环、环上的火舌、暗色岩块、熔岩裂纹）；这里不再叠第二块焦斑、
+          // 一道亮环和 62 粒亮点（它们和大火团一起把落点里的怪糊成一片白），只留一小把火星
+          W.burst(x, 0.8, z, hex, 12, 8, 0.6);
+          if (hs.length) W.shake(0.2); // vf-vfx2（需求方定）：打中才震、轻一点（原来每次落地都震 0.5）
           G.sfx('hit');
         },
       });
@@ -5873,6 +5890,7 @@
       const rk = P.relic.nuchao && !sk.mech ? G.relicSpinPulse(ctx) : 1; // 渊契「蓄潮」：每跳打得轻、攒层（只改原式）
       if (sk.mech === 'pull') whirlPull(ctx); // 刻式「旋涡斩」：先把一圈敌人往身边吸
       W.slash(P.x, P.z, Math.random() * TAU, R, 360, hex, sk.mech === 'pull' ? { dur: 0.2, inner: 0.35, y: 0.6, dir: -1 } : { dur: 0.2, inner: 0.6, y: 0.9 });
+      if (W.spinPulse) W.spinPulse(P.ent, R, hex, ctx.time * 1.6, n === 1, sk.mech === 'pull' ? -1 : 1); // vf-vfx2：绕身的风刃、脚下的风纹、起手的尘环；刻式「旋涡斩」风刃反着转、往里收
       if (n % 2 === 1) W.burst(P.x, 0.25, P.z, 0xbfb3a0, 4, R * 0.9, 0.3); // 脚下扬起的尘
       G.sfx('swing', { step: n % 2 });
       const hits = enemiesIn(P.x, P.z, R);

@@ -1890,9 +1890,11 @@
     W.flash(e.ent, 3);
     // 「破绽」二字弹在处决提示（头顶那块 F 牌）的上方，两者不互相遮挡
     W.text(e.x, e.z, '破绽', '#fff0c0', e.isBoss ? 32 : 26, { kind: 'tag', y: Math.min(3.6, h * (e.elite ? 1.3 : 1)) + 0.5, py: e.isBoss ? -52 : -78 });
+    // vf-vfx2：一道细环往外推（原来两道环——起头是两块实心的白圆盘——加 28 粒亮点，把破绽的怪和旁边的怪罩成一片白），
+    // 加几块往外崩的碎片和少量亮点；震动、顿帧、闪光照旧
     W.ring(e.x, e.z, e.r + 2.8, 0xfff0c0, 0.45);
-    W.ring(e.x, e.z, e.r + 1.4, 0xffffff, 0.25);
-    W.burst(e.x, h * 0.6, e.z, 0xfff0c0, 28, 7, 0.55);
+    if (W.breakFx) W.breakFx(e.x, h * 0.6, e.z, e.r);
+    W.burst(e.x, h * 0.6, e.z, 0xfff0c0, 10, 7, 0.55);
     W.shake(e.isBoss ? 0.55 : 0.4);
     W.fovKick(1.6);
     G.hitStop(90);
