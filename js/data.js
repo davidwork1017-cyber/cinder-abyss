@@ -820,7 +820,7 @@
     c: {
       name: '蓄潮', relic: 'nuchao', pack: '每 10 下卷一次潮',
       desc: '按住旋转，每下较轻并攒一层潮势；满 10 层时卷起潮涌：把身边的敌人拽到脚下，再按层数重重拍下。', alt: '松手、翻滚或被打断时攒着的潮势也会拍下。首领拽不动。',
-      set: { mech: 'tide', useMult: 1.4, tide: { pulse: 0.6, max: 10, burst: 0.8, r: 2, pull: 1.5 } },
+      set: { mech: 'tide', useMult: 1.35, tide: { pulse: 0.6, max: 10, burst: 0.75, r: 2, pull: 1.5 } },
     },
   });
   Object.assign(G.VARIANTS.meteor, {
@@ -841,14 +841,14 @@
     c: {
       name: '独骸', relic: 'haiwang', pack: '只有一具，更大更硬',
       desc: '仆从上限固定为 1：召唤一具骸王，体型更大、更耐打，横斩 270° 扫一大片。', alt: '够得更远；受到的伤害 −15%，同时牵制 5 只小怪。多出的仆从上限（群聚、天赋、护符、万魂旗）每个折成 +35% 伤害、+40% 生命。',
-      set: { mech: 'king', king: { perDmg: 0.35, perLife: 0.4, scale: 1.5, life: 3, dmg: 3.9, cleave: 12, arc: 270, reach: 2.8, hold: 5, dr: 15 } },
+      set: { mech: 'king', king: { perDmg: 0.35, perLife: 0.4, scale: 1.5, life: 3, dmg: 3.45, cleave: 12, arc: 270, reach: 2.8, hold: 5, dr: 15 } },
     },
   });
   Object.assign(G.VARIANTS.blackhole, {
     c: {
       name: '随核', relic: 'yinli', pack: '跟着你走；贴身打',
       desc: '黑洞开在你身上并跟着你移动 3 秒，每隔片刻把周围的敌人往你脚下拽一把。', alt: '首领的牵引不变，也不被拽。冷却不变。星蚀的渊口照常在敌人脚下张开。',
-      set: { mech: 'follow', useMult: 21.6, follow: { dur: 1, radius: 1.1, pull: 1.2, dmg: 1.8, wave: { iv: 0.75, k: 2.2, step: 2.5 } } },
+      set: { mech: 'follow', useMult: 19.8, follow: { dur: 1, radius: 1.1, pull: 1.2, dmg: 1.65, wave: { iv: 0.75, k: 2.2, step: 2.5 } } },
     },
   });
   G.VARIANT_RELIC = {}; // 渊契 id → 它解锁渊式的技能 id

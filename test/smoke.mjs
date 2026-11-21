@@ -13685,7 +13685,7 @@ async function main() {
     return '踏震 ' + r.near[0] + ' · 冷却 ' + r.cd[0].toFixed(2) + ' 秒';
   });
 
-  await step('渊式·蓄潮（怒潮解锁）：旋风斩每跳 60%、攒 1 层；第 10 下打完自动卷起潮涌——把 6 米内的敌人拽到脚下、每层 0.8 倍满额一下，层数清零；松手时攒着的也拍下；摘下手套退回原式，每跳照常满额', async () => {
+  await step('渊式·蓄潮（怒潮解锁）：旋风斩每跳 60%、攒 1 层；第 10 下打完自动卷起潮涌——把 6 米内的敌人拽到脚下、每层 0.75 倍满额一下，层数清零；松手时攒着的也拍下；摘下手套退回原式，每跳照常满额', async () => {
     const r = await ev(() => {
       RQT.begin('nuchao');
       RQT.learn('whirl', 0);
@@ -14005,7 +14005,7 @@ async function main() {
     return '混相 ' + r.one[3] + ' / 击';
   }));
 
-  await step('渊式·独骸（骸王冠解锁）：烬骸仆从上限固定 1，伤害 ×3.9（单体秒伤 = 3 具的 1.3）、生命 ×3、横斩带 12 个 / 270°、够得 ×2.8 远、牵制 5 只、减伤 +15；群聚多给的上限折成 +35% 伤害 / +40% 生命；骸王体型 ×1.5、头顶冠环；魂火按普通仆从算；摘下退回原式（上限 3）', async () => {
+  await step('渊式·独骸（骸王冠解锁）：烬骸仆从上限固定 1，伤害 ×3.45（单体秒伤 = 3 具的 1.15）、生命 ×3、横斩带 12 个 / 270°、够得 ×2.8 远、牵制 5 只、减伤 +15；群聚多给的上限折成 +35% 伤害 / +40% 生命；骸王体型 ×1.5、头顶冠环；魂火按普通仆从算；摘下退回原式（上限 3）', async () => {
     const r = await ev(() => {
       const bar0 = T.slotSummon('thrall'); // 召唤物只在技能放在技能栏上时存在
       RQT.begin(null);
@@ -14153,7 +14153,7 @@ async function main() {
     return '离落点 ' + r.near.join(' / ') + ' 米 · 砸 ' + r.dmg[0];
   });
 
-  await step('渊式·随核（引力核解锁）：黑洞开在你身上并跟着你走（碎石绕着转）；持续 ×1、半径 ×1.1、牵引 ×1.2（首领不变）、每跳 ×1.8；每 0.75 秒把半径 2.2 倍内的敌人往你身边拽（最多 2.5 米，首领不动）；摘下退回原式（开在准星处）', async () => {
+  await step('渊式·随核（引力核解锁）：黑洞开在你身上并跟着你走（碎石绕着转）；持续 ×1、半径 ×1.1、牵引 ×1.2（首领不变）、每跳 ×1.65；每 0.75 秒把半径 2.2 倍内的敌人往你身边拽（最多 2.5 米，首领不动）；摘下退回原式（开在准星处）', async () => {
     const r = await ev(() => {
       RQT.begin('yinli');
       RQT.learn('blackhole', 0);
@@ -14195,7 +14195,7 @@ async function main() {
       return out;
     });
     assert(!r.none && r.at === 0 && r.follow === 0, '黑洞应开在你身上并跟着你：' + JSON.stringify(r));
-    assert(Math.abs(r.R[0] - r.R[1]) < 1e-3 && Math.abs(r.dur[0] - r.dur[1]) < 1e-3 && r.mult === 1.8 && r.pull === 1.2 && r.gone === 0 && r.orbit === 1 && r.orbitGone === 0, '随核的数值 / 碎石不对：' + JSON.stringify(r));
+    assert(Math.abs(r.R[0] - r.R[1]) < 1e-3 && Math.abs(r.dur[0] - r.dur[1]) < 1e-3 && r.mult === 1.65 && r.pull === 1.2 && r.gone === 0 && r.orbit === 1 && r.orbitGone === 0, '随核的数值 / 碎石不对：' + JSON.stringify(r));
     assert(r.wave[0] >= 1.5 && Math.abs(r.wave[1]) < 0.3, '随核应把周围小怪拽过来、首领不动：' + JSON.stringify(r.wave));
     assert(r.plain.join() === '0,1,o', '摘下后应退回原式：' + JSON.stringify(r.plain));
     return '半径 ' + r.R[0] + ' · 持续 ' + r.dur[0];
