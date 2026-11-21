@@ -12292,6 +12292,9 @@ async function main() {
     const r = await ev(() => {
       TV.setup('meteor', 'b');
       const a = TV.mob(9, 0.4), b = TV.mob(12, -0.4), far = TV.mob(16.5, 0);
+      // 靶子不吃异常、伤害取中值：火沟会把它们点着，爆燃的击退（kb 1.2）偶尔把掀到一边的怪又推回原处（侧移 ≈ 0，偶发失败）
+      for (const e of [a, b, far]) e.buTh = 1e15;
+      T.fix(0.5);
       const a0 = { x: a.x, z: a.z };
       TV.cast('meteor', TV.at(6), 2.0);
       const d = TV.d, side = (a.x - a0.x) * d.z - (a.z - a0.z) * d.x;
