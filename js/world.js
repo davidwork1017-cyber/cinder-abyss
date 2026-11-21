@@ -21477,16 +21477,7 @@
       aura.sweep = (aura.sweep || 0) + 1;
       // 霜痕铺满光环那么大：低画质不铺（软件渲染下整片重叠太贵），高画质每次 1.2 秒（同时最多两三片）
       if (qualId !== 'low' && hit) W.vDecal(VVD.frost, P.x, P.z, aura.r * 0.62, 1.2, 0x86d8ff, { r1: aura.r * 0.98, grow: 0.35, a: 0.7 }); // 只在打中时铺
-      // vf-vfx2：打中时一圈冰晶贴着地面往外推（尖朝外上方斜着，0.28 秒推到环边就碎没），冷的形状语言：硬棱、尖；不是刻式 B 那种从地里炸出来的大冰刺
-      if (hit) {
-        // 看图后：冰晶大一些、立得更直（尖看得出来）、改成冰蓝主色 + 亮面一点高光（原来近白，在灰度里是一粒粒最亮的白点）
-        const n = qualId === 'low' ? 6 : 10, a0 = vr(0, TAU), v = (aura.r * 0.62) / 0.28;
-        vsBrush(VSH.crystal, 6, 0, 0x8ccbea, 0x5aa6d2, 0.35, 0.55, 0.5);
-        for (let i = 0; i < n; i++) {
-          const a = a0 + (i / n) * TAU + vr(-0.1, 0.1), d = aura.r * 0.36;
-          vsEmit(P.x + Math.sin(a) * d, 0.02, P.z + Math.cos(a) * d, Math.sin(a) * v, 0, Math.cos(a) * v, vr(0.26, 0.3), vr(0.5, 0.62), vr(0.65, 0.85), vr(0.5, 0.7));
-        }
-      }
+      // vf-vfx2：脉冲本身只有光环的外沿（原来的环），不再撒一圈贴地外推的冰晶（看图后：满圈空地上的冰块显得乱）；冰晶只结在被打中的怪脚边（见 frostSparkle）
     }
   };
   W.auraInfo = () => ({ r: aura.r, a: aura.a, visible: !!(aura.mesh && aura.mesh.visible) });
