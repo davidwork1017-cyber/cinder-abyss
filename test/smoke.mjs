@@ -12341,7 +12341,7 @@ async function main() {
       P.cds = {};
       G.bindSkill(2, 'tether');
       P.mana = P.maxMana;
-      const rk = () => (P.cast && P.cast.tether ? rk() : -1); // -1：没在引（诊断写在 why 里）
+      const rk = () => (P.cast && P.cast.tether ? +P.cast.rampK.toFixed(2) : -1); // -1：没在引（诊断写在 why 里）
       const why = () => JSON.stringify({ cast: P.cast && P.cast.id, mana: Math.round(P.mana), max: P.maxMana, bar: G.save.bar, dead: P.dead, roll: P.roll.t > 0, exec: !!P.exec, ui: G.ui.isOpen() });
       let refill = false; // 第一段量扣蓝，之后每帧补满（不然魔力见底会断，加成从零起）
       const hold = (sec) => {
@@ -12497,7 +12497,7 @@ async function main() {
       T.aim(v.x, v.z);
       G.execSkill(G.skillCtx('rend'));
       out.vStacks = G.bleedStacks(v);
-      v.hp = 1;
+      v.hp = 0.05; // 一跳只有零点几：留一口气，下一跳必死
       for (let i = 0; i < 40; i++) G.tick(1 / 60);
       out.killed = v.dead && s.kills === k0 + 1;
       // 换区 / 重生：清空
@@ -12549,6 +12549,7 @@ async function main() {
 
   await step('存档（skill-expand）：学了新技能、镶着开刃的存档存读往返不丢；旧版本不认识的技能 / 辅助 id 读档时直接丢掉、不报错（新存档在老版本里同样如此）', async () => {
     const r = await ev(() => {
+      G.persist(); // 先把内存里的存档写下去：结束时按它原样放回（不然会退回上一次自动存档时的样子，后面的步骤吃到旧等级 / 旧装备）
       const keep = localStorage.getItem('cinder-abyss-save-v1');
       G.debug.learnAll();
       for (const id of Object.keys(G.save.sockets)) G.save.sockets[id] = [null, null, null];
