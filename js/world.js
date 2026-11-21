@@ -11371,8 +11371,9 @@
 
   // 模型自带的动作 → 程序化关节通道的关键帧（defClip 的 keys）。drive：程序化关节 → 带动它的模型骨骼（默认用 cs.pivot 里的骨骼名）
   // opts：{ from, to（截取的秒数）, fps（采样率，默认 20）, joints（只采这些关节）, trans（这些关节也采位移，默认只有 root）,
-  //   src（{ md, cp }：从另一副骨架的动作采样，例如人形标准骨架的动作包，见 stdSrc；这时只用 opts.drive）}
-  const _cA = [], _cl = new T.Matrix4(), _cpos = new T.Vector3(), _csc = new T.Vector3(1, 1, 1);
+  //   src（{ md, cp }：从另一副骨架的动作采样，例如人形标准骨架的动作包，见 stdSrc；这时只用 opts.drive）,
+  //   chord（{ 关节: [骨骼 a, 骨骼 b] }：这个关节的指向再按 a→b 的连线校正，见 stdChord）}
+  const _cA = [], _cl = new T.Matrix4(), _cpos = new T.Vector3(), _csc = new T.Vector3(1, 1, 1), _cc0 = new T.Vector3(), _cc1 = new T.Vector3(), _cc2 = new T.Vector3();
   function cClipKeys(rig, cs, name, opts) {
     const o = opts || {};
     const md = o.src ? o.src.md : cs.md, clip = md.clips[name], cp = o.src ? o.src.cp : rig.cPose;
@@ -11388,6 +11389,13 @@
     const use = Jn.map((j) => drive[j.name] !== undefined && md.bi[drive[j.name]] !== undefined && (!o.joints || o.joints.indexOf(j.name) >= 0));
     const trans = o.trans || ['root'];
     const Pinv = cp.P.F.map((m) => m.clone().invert());
+    // chord：关节 → [a, b, 静止姿态里 a→b 的连线（摆好的骨架、程序化骨架的空间）]
+    const chord = [];
+    for (const jn in o.chord || {}) {
+      const c = o.chord[jn], ia = md.bi[c[0]], ib = md.bi[c[1]], ji = rig.JI[jn];
+      if (ia === undefined || ib === undefined || ji === undefined || !use[ji]) continue;
+      chord[ji] = [ia, ib, new T.Vector3().setFromMatrixPosition(cp.P.F[ib]).sub(new T.Vector3().setFromMatrixPosition(cp.P.F[ia]))];
+    }
     const keys = Object.create(null);
     const M = Jn.map(() => new T.Matrix4());
     const loc = new Array(md.nb), W = new Array(md.nb);
@@ -11418,6 +11426,17 @@
         if (use[i]) {
           const b = md.bi[drive[j.name]];
           M[i].copy(cp.G).multiply(W[b]).multiply(cp.Gi).multiply(Pinv[b]).multiply(_cl.makeTranslation(j.px, j.py, j.pz));
+          const cd = chord[i];
+          if (cd) {
+            // 带动骨骼 b 是这一段最末的那根，中间的弯曲（spine_01→02→03）不在它的转动里：静止时的连线跟着 b 转过去以后，
+            // 再补一个摆动，让它对准动作里 a→b 的连线（程序化骨架的空间），绕关节的枢轴转
+            _cc0.copy(cd[2]).transformDirection(_cm.copy(M[i]));
+            _cc1.setFromMatrixPosition(_cm.copy(cp.G).multiply(W[cd[1]]));
+            _cc1.sub(_cc2.setFromMatrixPosition(_cm.copy(cp.G).multiply(W[cd[0]]))).normalize();
+            _cq.setFromUnitVectors(_cc0, _cc1);
+            _cc2.setFromMatrixPosition(M[i]);
+            M[i].premultiply(_cm.makeTranslation(-_cc2.x, -_cc2.y, -_cc2.z)).premultiply(_cm2.makeRotationFromQuaternion(_cq)).premultiply(_cm.makeTranslation(_cc2.x, _cc2.y, _cc2.z));
+          }
         } else if (j.parent >= 0) M[i].copy(M[j.parent]).multiply(_cl.makeTranslation(j.lx, j.ly, j.lz));
         else M[i].makeTranslation(j.px, j.py, j.pz);
         if (!use[i]) continue;
@@ -12687,6 +12706,22 @@
     if (d.head) d.head = 'Head';
     return d;
   }
+  // 连线校正（静止姿态的修正，写在对照表里，不按动作）：关节的枢轴骨骼 a 和带动骨骼不是同一根时（游魂的 spine：枢轴 spine_01、
+  // 带动 spine_03），这一段里的弯曲不在带动骨骼的转动里，脊柱→头的连线会偏 12–30°，头和肩跟着挪位。
+  // 采样时让这个关节再补一个摆动，对准动作里 a → 下一个关节的枢轴骨骼 的连线（拧转仍取带动骨骼）。
+  // 只在模型真有骨骼 a（枢轴就在 a 上）时才校正：仆从的 spine 枢轴是程序化的、chest 由 spine_03 自己带，不受影响
+  const STD_CHILD = { spine: ['chest', 'head'], chest: ['head'] };
+  function stdChord(rig, drive) {
+    const c = {}, md = rig.cPose && rig.cPose.md;
+    if (!md) return c;
+    for (const jn in drive) {
+      const a = STD_PIVOT[jn];
+      if (!STD_CHILD[jn] || a === drive[jn] || md.bi[a] === undefined) continue;
+      const ch = STD_CHILD[jn].find((k) => rig.JI[k] !== undefined && md.bi[STD_PIVOT[k]] !== undefined);
+      if (ch) c[jn] = [a, STD_PIVOT[ch]];
+    }
+    return c;
+  }
   const STD_MASK = { thigh_l: 'lower', calf_l: 'lower', foot_l: 'lower', ball_l: 'lower', thigh_r: 'lower', calf_r: 'lower', foot_r: 'lower', ball_r: 'lower' };
   function stdMask(rig) {
     const lower = [], upper = [];
@@ -12753,35 +12788,70 @@
   // 把动作包里的动作装到骨架上。use：{ loco: [站立, 走], hit: 受击, death: [死亡, 起, 止（秒）] }
   //   站立 / 走：盖在程序化的移动姿态上（没有骨骼带动的关节——下颌、破布——仍是程序化的）；走路的相位来自走过的距离
   //     （rig.stride = 2π / 一个周期走多远，按动作包里记的周期距离 × 缩放），减速、冰缓时脚步跟着地面走，不打滑；
+  //   跑：use.run = [跑步动作, 起, 满（米 / 秒）]。动作包里只有骨盆和腿，速度从「起」到「满」由走路渐变成跑（上身仍是走路的佝偻、前伸）；
+  //     两段的起点都在左脚最靠前的一帧（ual-pack 的 align），共用一个相位，一个周期走多远按混合比例在两段之间插值，脚步不打滑；
   //   受击：只采上身（rig.mask.upper），相对第一帧的变化量叠在程序化受击上（见 finishPose）；
-  //   死亡：换掉程序化死亡的关键帧，时长等其余参数照旧（死亡、掉落的时机不变）；没有骨骼带动的关节保留原来的关键帧
+  //   死亡：换掉程序化死亡的关键帧，时长等其余参数照旧（死亡、掉落的时机不变）；没有骨骼带动的关节保留原来的关键帧。
+  //     骨盆的水平位移钉在倒下那一刻的位置（Death01 往后倒时骨盆后移约 0.5 米，尸体会落在死的地方后面）；高度和转动照旧
   function stdAnim(rig, cs, use) {
     const src = stdSrc(rig, cs);
     if (!src) return false;
-    const drive = stdDrive(rig);
-    const keys = (name, o) => cClipKeys(rig, cs, name, Object.assign({ src, drive }, o));
+    const drive = stdDrive(rig), chord = stdChord(rig, drive);
+    const keys = (name, o) => cClipKeys(rig, cs, name, Object.assign({ src, drive, chord }, o));
     if (use.loco) {
       const idle = keys(use.loco[0], { fps: 20 }), walk = keys(use.loco[1], { fps: 30 });
       const idleT = cTrack(rig, idle.keys), walkT = cTrack(rig, walk.keys), proc = rig.loco;
       const ex = src.md.clips[use.loco[1]].ex;
       if (ex && ex.cycle) rig.stride = TAU / (ex.cycle * src.s);
+      const g = { walk: use.loco[1], cycW: TAU / rig.stride, durW: src.md.clips[use.loco[1]].dur, run: null };
+      let runT = null;
+      if (use.run && src.md.clips[use.run[0]]) {
+        // 只采骨盆和腿（包里这段只有这些通道；不限定的话没有通道的上身会被采成动作包的绑定姿态）
+        const rc = src.md.clips[use.run[0]], run = keys(use.run[0], { fps: 30, joints: ['root'].concat(rig.mask.lower) });
+        runT = cTrack(rig, run.keys);
+        Object.assign(g, { run: use.run[0], cycR: rc.ex.cycle * src.s, durR: rc.dur, lo: use.run[1], hi: use.run[2], runJ: [...new Set(runT.ci.map((i) => rig.joints[Math.floor(i / CH)].name))] });
+      }
+      // 跑步的混合比例（按平滑后的速度）、一个周期走多远（米）
+      g.w = (spd) => (runT ? smooth01((spd - g.lo) / (g.hi - g.lo)) : 0);
+      g.cyc = (spd) => g.cycW + ((g.cycR || g.cycW) - g.cycW) * g.w(spd);
+      rig.gaitStd = g;
       rig.loco = function (ent, p, t, sdt) {
         proc(ent, p, t, sdt);
         cTrackEval(idleT, p, (((t + ent.phase * 3) / idle.dur) % 1 + 1) % 1, 1);
-        if (ent.mv > 0.01) cTrackEval(walkT, p, (((ent.walk / TAU) % 1) + 1) % 1, Math.min(1, ent.mv * 1.2));
+        // 步态相位：ent.walk 按 rig.stride（走路的周期）累计走过的距离；这里换算成按当前混合周期推进的相位（倒退时反着走）
+        const dw = ent.walk - ent.gWalk;
+        ent.gWalk = ent.walk;
+        if (dw === dw && Math.abs(dw) < TAU) ent.gPh += dw / rig.stride / g.cyc(ent.spd);
+        else ent.gPh = ent.walk / TAU; // 第一帧、或者相位被直接改过
+        if (ent.mv > 0.01) {
+          const k = ((ent.gPh % 1) + 1) % 1, wm = Math.min(1, ent.mv * 1.2), wr = g.w(ent.spd);
+          cTrackEval(walkT, p, k, wm);
+          if (wr > 0) cTrackEval(runT, p, k, wm * wr);
+        }
       };
     }
     if (use.hit) rig.hitTrack = cTrack(rig, keys(use.hit, { fps: 30, joints: rig.mask.upper }).keys);
     if (use.death) {
       const d = keys(use.death[0], { fps: 30, from: use.death[1], to: use.death[2] }), old = rig.clips.death, k = {};
+      delete d.keys['root.ox'];
+      delete d.keys['root.oz'];
       if (old) for (const key in old.spec.keys) if (drive[key.slice(0, key.indexOf('.'))] === undefined) k[key] = old.spec.keys[key];
-      defClip(rig, 'death', Object.assign({}, old ? old.spec : { dur: 0.6, base: 'rest', hold: true, air: true, fade: 0.05 }, { keys: Object.assign(k, d.keys) }));
+      // 骨盆水平位移：留在倒下那一刻的位置（ent.from 是切进死亡时的姿态），过渡里也不动
+      const sp = Object.assign({}, old ? old.spec : { dur: 0.6, base: 'rest', hold: true, air: true, fade: 0.05 }, { keys: Object.assign(k, d.keys) }), fn0 = sp.fn, r0 = rig.J.root;
+      delete sp.keys['root.ox'];
+      delete sp.keys['root.oz'];
+      sp.fn = function (ent, p, kk, t) {
+        if (fn0) fn0(ent, p, kk, t);
+        p[r0 + 3] = ent.from[r0 + 3];
+        p[r0 + 5] = ent.from[r0 + 5];
+      };
+      defClip(rig, 'death', sp);
     }
     rig.std = use;
     return true;
   }
   // 调试 / 冒烟测试用：标准骨架的对照表和动作包
-  W.std = { JOINT: STD_JOINT, PIVOT: STD_PIVOT, MASK: STD_MASK, joint: stdJoint, mask: stdMask, drive: stdDrive, pack: () => cModel('ual') };
+  W.std = { JOINT: STD_JOINT, PIVOT: STD_PIVOT, MASK: STD_MASK, joint: stdJoint, mask: stdMask, drive: stdDrive, chord: (rig) => stdChord(rig, stdDrive(rig)), pack: () => cModel('ual') };
 
   const CSPEC = {
     player: {
@@ -15571,7 +15641,8 @@
       });
       // 人形标准骨架的模型动作：UAL 的 Zombie_Idle / Zombie_Walk（佝偻、前倾的走路）、Hit_Chest 叠在上身、
       // Death01 取 0.3–1.6 s（跳过开头慢慢跪下的一段，到倒地后两腿落下为止；1.3 s 时腿还弹在半空），压进上面程序化死亡的 0.6 s
-      if (cs) stdAnim(rig, cs, { loco: ['Zombie_Idle', 'Zombie_Walk'], hit: 'Hit_Chest', death: ['Death01', 0.3, 1.6] });
+      // 跑：Zombie_Walk 是拖着腿的慢走（原速约 1.4 米 / 秒），追人的 5 米 / 秒要放快 3.5 倍；2–3 米 / 秒之间腿渐变成 Sprint（前倾和佝偻的走路接近，5 米 / 秒约原速 1.1 倍）
+      if (cs) stdAnim(rig, cs, { loco: ['Zombie_Idle', 'Zombie_Walk'], run: ['Sprint', 2, 3], hit: 'Hit_Chest', death: ['Death01', 0.3, 1.6] });
       return rig;
     }));
   }
@@ -22406,7 +22477,7 @@
   const HOSTILE_RED = 0xff2a22;
   // 每种外形的拖尾：[半宽, 寿命, 头色混白比例, 尾色亮度]（颜色从投射物的颜色算）
   const RIB_DEF = {
-    ember: [0.24, 0.2], blade: [0.09, 0.1], dart: [0.12, 0.22], orb: [0.18, 0.15], lbolt: [0.17, 0.2], lbolt3: [0.28, 0.26], ishard: [0.08, 0.12],
+    ember: [0.24, 0.2], blade: [0.09, 0.1], nail: [0.03, 0.07], dart: [0.12, 0.22], orb: [0.18, 0.15], lbolt: [0.17, 0.2], lbolt3: [0.28, 0.26], ishard: [0.08, 0.12],
     glob: [0.17, 0.15], shard: [0.15, 0.2], spark: [0.13, 0.12], firebolt: [0.28, 0.22], horb: [0.15, 0.12],
     // 远程武器：子弹 / 左轮的重弹 / 箭 / 冰弓的寒冰箭 / 喷枪的火团
     bullet: [0.045, 0.07], slug: [0.07, 0.1], arrow: [0.04, 0.16], emberarrow: [0.11, 0.24], flamelet: [0.2, 0.12],
@@ -22464,6 +22535,7 @@
     const tk = u.tinted ? 0.55 : 0;
     if (kind === 'ember') { r0 = 0.95; g0 = 0.55; b0 = 0.2; r1 = 0.7; g1 = 0.1; b1 = 0.02; }
     else if (kind === 'blade') { r0 = 0.62; g0 = 0.68; b0 = 0.8; r1 = 0.22; g1 = 0.25; b1 = 0.32; }
+    else if (kind === 'nail') { r0 = 0.42; g0 = 0.45; b0 = 0.5; r1 = 0.12; g1 = 0.13; b1 = 0.15; } // 散钉：很细、很短、偏暗的尾迹
     else if (kind === 'shard') { r0 = 0.72; g0 = 0.92; b0 = 1; r1 = 0.15; g1 = 0.35; b1 = 0.6; }
     else if (kind === 'spark') { r0 = 1; g0 = 0.95; b0 = 0.6; r1 = 0.55; g1 = 0.45; b1 = 0.1; }
     else if (kind === 'firebolt') { r0 = 1; g0 = 0.45; b0 = 0.12; r1 = 0.55; g1 = 0.05; b1 = 0.02; }
@@ -22591,6 +22663,13 @@
         pfPut('blur', 0.3 + _c.r * 0.35, 0.33 + _c.g * 0.35, 0.4 + _c.b * 0.35);
       } else pfPut('blur', 0.42, 0.48, 0.6);
       glowPut(u, x, y, z, r * 4.2, 0.3);
+    },
+    // 散钉（skill-expand）：一根细长的深色钢钉（借秘弹的晶尖件，拉得更细），偶尔闪一帧反光；不发光、不拖尾
+    nail(u, x, y, z, dt) {
+      yawQ(u);
+      const g = Math.sin(u.age * 41 + u.ph) > 0.93 ? 0.62 : 0.2;
+      mPose(x, y, z, _pq, 0.045, 0.045, 0.26);
+      pfPut('dart', g, g * 1.04, g * 1.12);
     },
     // 秘弹：拉长的晶尖 + 两粒绕着它转的光点，拖一条元素色的细带
     dart(u, x, y, z, dt) {
@@ -22829,6 +22908,16 @@
       }
       metalSparks(x, y, z, u.dx, u.dz, how === 'wall' ? 1.5 : 1, u);
       if (how === 'wall') W.decal(0, x - u.dx * 0.3, z - u.dz * 0.3, 0.6, Math.atan2(u.dx, u.dz), 0xfff0d0, 0.3, 0.14);
+      return true;
+    }
+    if (vk === 'nail') {
+      // 散钉（skill-expand）：一颗很小的金属星 + 2 块棱角碎屑（低画质 1 块），撞墙同样
+      tChunk(1, x, y, z, 0, 0, 0, 0.04, 0.3, 0xf2f6ff, 0x9aa6bc, 0);
+      vsBrush(VSH.chip, 3, 0, 0x8a919c, 0x5a606a, 0.15, 0.5);
+      for (let i = 0, n = qualId === 'low' ? 1 : 2; i < n; i++) {
+        const a = Math.atan2(-u.dx, -u.dz) + vr(-1, 1), v = vr(1.5, 3);
+        vsEmit(x, y, z, Math.sin(a) * v, vr(1, 2.5), Math.cos(a) * v, vr(0.4, 0.6), vr(0.05, 0.08), undefined, vr(0, TAU), vr(8, 14), 18);
+      }
       return true;
     }
     if (vk === 'dart' || vk === 'lbolt') { // 灵弹炸开和秘弹同一套（颜色跟着元素）
@@ -23340,6 +23429,121 @@
       vsBrush(VSH.ring, 2, 1, 0xb09c80, 0x8a7862, 0, 0, 0.4); // 看图后：尘环压暗（原来浅奶油色，扩大后在地上是一圈亮线）
       vsEmit(p.x, 0.08, p.z, 0, 0, 0, 0.36, R * 1.05);
       tPuffs(p.x, 0.25, p.z, qualId === 'low' ? 2 : 4, R * 1.6, 0.5, 0.42, 0.42, 0xd8c8aa, 0x8a7a64);
+    }
+  };
+  // ===================================================================== 第一批新技能（skill-expand）的特效：全部画进形状批 vShape，地面痕迹走 vDecal，不建新网格
+  // 冰脊的一段：3 根硬冰晶斜着朝外刺出（尖朝外上方，亮芯只在冰晶本身、很小），0.5 秒后缩没、掉几片冰碴；地上冻青灰痕（比地面暗，低画质不铺）
+  W.frostLineSeg = function (sx, sz, ang, segL, half, i, n) {
+    const lo = qualId === 'low', sn = Math.sin(ang), cs = Math.cos(ang);
+    const cx = sx + sn * segL * 0.5, cz = sz + cs * segL * 0.5;
+    const k = 0.75 + 0.35 * (i / Math.max(1, n - 1)); // 由近到远越来越高
+    vsBrush(VSH.crystal, 6, 0, 0x9fd8f2, 0x5aa6d2, 0.3, 0.55, 0.55);
+    const m = lo ? 2 : 3;
+    for (let j = 0; j < m; j++) {
+      const side = m === 1 ? 0 : (j / (m - 1)) * 2 - 1; // -1..1：横跨这一段的宽度
+      const off = side * half * 0.8, along = vr(-0.35, 0.35) * segL;
+      const px = cx + cs * off + sn * along, pz = cz - sn * off + cs * along;
+      // 斜向：朝外（离中线的那一侧），中间那根顺着刺出的方向
+      const ox = side === 0 ? sn : cs * side, oz = side === 0 ? cs : -sn * side;
+      vsEmit(px, 0, pz, ox * 1e-3, 0, oz * 1e-3, vr(0.5, 0.62), vr(0.34, 0.44) * k, vr(0.8, 1.05) * k, vr(0.25, 0.55));
+    }
+    if (!lo) {
+      vsBrush(VSH.chip, 3, 0, 0xcfeeff, 0x8cc4e0, 0.2, 0.45);
+      for (let j = 0; j < 2; j++) {
+        const a = vr(0, TAU), v = vr(0.8, 1.6);
+        vsEmit(cx + Math.sin(a) * half * 0.5, 0.5, cz + Math.cos(a) * half * 0.5, Math.sin(a) * v, vr(1.2, 2.2), Math.cos(a) * v, vr(0.55, 0.75), vr(0.05, 0.08), undefined, vr(0, TAU), vr(6, 10), 16);
+      }
+      W.vDecal(VVD.frost, cx, cz, Math.max(half, segL * 0.55), 1.5, 0x7fb4cc, { a: 0.55 });
+    }
+  };
+  // 坠凌：落点外沿一圈短冰牙（只画边，冰晶朝外斜立，活到这场冰凌雨结束），圈里不铺亮面
+  W.iceRain = function (x, z, R, dur) {
+    // 看图后：只有一圈零散的冰牙读不出范围；整道环形件又是一条很粗的实心色带 → 贴地一圈细虚线（贴地固定线段，暗冰色，只画边）+ 更密的冰牙
+    const nd = qualId === 'low' ? 16 : 28, d0 = vr(0, TAU);
+    vsBrush(VSH.bar, 5, 0, 0x3e6a82, 0x2e5266, 0, 0.3, 0.9);
+    for (let i = 0; i < nd; i++) {
+      const a1 = d0 + (i / nd) * TAU, a2 = a1 + (TAU / nd) * 0.55;
+      const x1 = x + Math.sin(a1) * R, z1 = z + Math.cos(a1) * R, x2 = x + Math.sin(a2) * R, z2 = z + Math.cos(a2) * R;
+      vsEmit(x1, 0.05, z1, x2 - x1, 0, z2 - z1, dur, 0.07);
+    }
+    const n = qualId === 'low' ? 10 : 16;
+    vsBrush(VSH.crystal, 6, 3, 0x86c4e2, 0x4f8fb8, 0.15, 0.6, 0.85);
+    const a0 = vr(0, TAU);
+    for (let i = 0; i < n; i++) {
+      const a = a0 + (i / n) * TAU, sa = Math.sin(a), ca = Math.cos(a);
+      vsEmit(x + sa * R, 0, z + ca * R, sa * 1e-3, 0, ca * 1e-3, dur, vr(0.26, 0.34), vr(0.5, 0.7), vr(0.35, 0.6));
+    }
+  };
+  // 一根冰凌从 6 米高斜着落下（细长的冰晶顺着速度拉长），fall 秒到地
+  W.icicleFall = function (px, pz, hr, fall) {
+    const H = 6, dx = 0.9, vx = -dx / fall, vy = -H / fall;
+    vsBrush(VSH.crystal, 0, 2, 0xb8e4f8, 0x86c4e2, 0.25, 0.5, 0.7);
+    vsEmit(px + dx, H, pz, vx, vy, 0, fall, 0.24, 1.05); // 看图后加粗加长：原来在游戏镜头里几乎看不见
+  };
+  // 冰凌落地：一颗很小的亮芯（≤ 0.6 米、40 毫秒）+ 4 块冰碴弹开（低画质 2 块）+ 脚边一根矮冰晶；地上冻痕（低画质不铺）
+  W.icicleLand = function (px, pz, hr) {
+    const lo = qualId === 'low';
+    tChunk(1, px, 0.35, pz, 0, 0, 0, 0.04, 0.5, 0xe8f8ff, 0xb8e4f8, 0);
+    vsBrush(VSH.chip, 3, 0, 0xcfeeff, 0x7fb4cc, 0.25, 0.45);
+    for (let i = 0, n = lo ? 2 : 4; i < n; i++) {
+      const a = vr(0, TAU), v = vr(1.4, 2.8);
+      vsEmit(px, 0.3, pz, Math.sin(a) * v, vr(1.5, 3), Math.cos(a) * v, vr(0.45, 0.65), vr(0.05, 0.09), undefined, vr(0, TAU), vr(6, 12), 18);
+    }
+    vsBrush(VSH.crystal, 6, 0, 0x8ccbea, 0x5aa6d2, 0.2, 0.55, 0.6);
+    const a = vr(0, TAU);
+    vsEmit(px, 0, pz, Math.sin(a) * 1e-3, 0, Math.cos(a) * 1e-3, vr(0.45, 0.6), 0.3, vr(0.45, 0.6), vr(0.2, 0.45));
+    if (!lo) W.vDecal(VVD.frost, px, pz, hr * 0.8, 1.6, 0x7fb4cc, { a: 0.5 });
+  };
+  // 迸电：胸口一颗很小的亮芯（≤ 1 米、50 毫秒）；8 根折线从身上往外放射到 R（低画质 5 根），隔帧闪灭；外沿只是折线的尽头，没有圆盘；
+  // 地上几道细分叉的电灼纹（低画质不留）
+  W.dischargeFx = function (x, z, R, hex) {
+    const lo = qualId === 'low';
+    tChunk(1, x, 1.2, z, 0, 0, 0, 0.05, 0.8, 0xfffbe0, hex, 0);
+    vsBrush(VSH.bar, 4, 2, 0xfff3a8, hex, 0.6, 0.35, 0.4);
+    const n = lo ? 5 : 8, a0 = vr(0, TAU);
+    for (let i = 0; i < n; i++) zig(x, 1.1, z, a0 + (i / n) * TAU, -0.18, 4, R / 4, 0.09);
+    if (!lo) for (let i = 0; i < 3; i++) W.vDecal(VVD.scorch, x + Math.sin(a0 + i * 2.1) * R * 0.5, z + Math.cos(a0 + i * 2.1) * R * 0.5, 0.6, 1.2, hex, { a: 0.6 });
+  };
+  // 引雷的一跳：沿着电流的点画折线（每跳重新随机折点，2 帧闪），只有接触点亮；叠满时主线变两股（不加亮面）
+  // 看图后：池化电弧（W.bolt）是一条宽的发光带，一秒 5 跳叠在一起像一道白光柱 → 改成形状批里的细折线段（固定线段摆法，隔帧闪灭），
+  // 每段两头之间横向抖开；引满时多一股更暗的。接触点一颗很小的星
+  function tetherLine(pts, w, hex, segs, jit) {
+    vsBrush(VSH.bar, 4, 2, hex, hex, w > 0.06 ? 0.5 : 0.2, 0.35, 0.5);
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const ax = pts[i].x, az = pts[i].z, bx = pts[i + 1].x, bz = pts[i + 1].z, L = Math.hypot(bx - ax, bz - az) || 1;
+      const nx = -(bz - az) / L, nz = (bx - ax) / L;
+      let px = ax, pz = az, py = 1.25;
+      for (let k = 1; k <= segs; k++) {
+        const f = k / segs, o = k === segs ? 0 : vr(-jit, jit), qx = ax + (bx - ax) * f + nx * o, qz = az + (bz - az) * f + nz * o, qy = 1.15 + vr(-0.12, 0.12);
+        vsEmit(px, py, pz, qx - px, qy - py, qz - pz, vr(0.1, 0.14), w);
+        px = qx; py = qy; pz = qz;
+      }
+    }
+  }
+  W.tetherFx = function (pts, hex, k) {
+    const lo = qualId === 'low';
+    tetherLine(pts, 0.08, mixHex(hex, 0xffffff, 0.45), lo ? 3 : 5, 0.35);
+    if (k >= 1.79 && !lo) tetherLine(pts, 0.05, mixHex(hex, 0x806010, 0.35), 5, 0.5);
+    const p = pts[pts.length > 1 ? 1 : 0];
+    tChunk(1, p.x, 1.2, p.z, 0, 0, 0, 0.05, 0.35, 0xfffbe0, hex, 0);
+  };
+  // 流血的一跳：从身上往下掉的暗红棱角碎屑（往下掉，和往上飘的火星分开；暗、不发光，亮度远低于预警圈，不会读成预警）。
+  // 看图后（编排者，两轮）：原来每跳 1 块、很小，打起来分不出谁在流血 → 每跳 2 + 层数 / 3 块（最多 4 块），0.14–0.18 米，
+  // 颜色提到饱和的中红（亮度约 31%，仍不发光），从胸口到腰的高度散落；低画质块数减半（至少 1 块）。每帧总数封顶（高 40 / 低 16）
+  let bdFrame = -1, bdN = 0;
+  W.bleedDrip = function (x, z, h, r, n) {
+    const lo = qualId === 'low';
+    if (bdFrame !== vsFrame) {
+      bdFrame = vsFrame;
+      bdN = 0;
+    }
+    let m = Math.min(4, 2 + Math.floor(n / 3));
+    if (lo) m = Math.max(1, Math.ceil(m / 2));
+    vsBrush(VSH.chip, 3, 0, 0xb8332a, 0x8a2420, 0, 0.5);
+    for (let i = 0; i < m; i++) {
+      if (++bdN > (lo ? 16 : 40)) return;
+      const a = vr(0, TAU), d = r * vr(0.25, 0.6);
+      vsEmit(x + Math.sin(a) * d, h * vr(0.45, 0.8), z + Math.cos(a) * d, Math.sin(a) * 0.5, vr(-0.2, 0.6), Math.cos(a) * 0.5, vr(0.55, 0.8), vr(0.14, 0.18), undefined, vr(0, TAU), vr(4, 8), 14);
     }
   };
   function spinBladesDraw(dt) {
@@ -27516,6 +27720,14 @@
       // 元素异常值：火 / 冰 / 雷三小段并排，各占三分之一宽，按累积量从左往右涨（有任何一段不为空时才画）
       ay = drawBuildUp(g, e, x, ay, w);
       if (e.stunT > 0) { g.fillStyle = '#ffffff'; g.fillRect(x, ay, 5, 3); }
+      // 流血（skill-expand）：右端一排暗红小格，一格一层（最多 6 格）
+      const bn = G.bleedStacks ? G.bleedStacks(e) : 0;
+      if (bn > 0) {
+        g.fillStyle = 'rgba(0,0,0,0.72)';
+        g.fillRect(x + w - bn * 4 - 1, ay - 1, bn * 4 + 1, 5);
+        g.fillStyle = '#b8352c';
+        for (let k = 0; k < bn; k++) g.fillRect(x + w - (k + 1) * 4, ay, 3, 3);
+      }
       if (e.elite && e !== st.hover) {
         // 准星指着它时名字由界面层的名牌显示，这里不重复画
         g.font = '600 12px ' + FONT;
