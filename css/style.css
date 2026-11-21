@@ -2646,6 +2646,13 @@ body.panel-open #coach { display: none; }
 .sk-var.lock .sv-lock { color: var(--faint); }
 .sv-msg { margin: -4px 0 8px; font-size: 12px; color: #9fdc8a; }
 .sv-msg.bad { color: #ff8a7a; }
+/* 渊式（第三种刻式）：刻式下面单独一行，翠色描边；没戴渊契时灰着 */
+.sk-var.sk-rq { margin-top: -4px; }
+.sv-btn.sv-rq { --c: var(--relic, #6fe0b0); border-color: color-mix(in srgb, var(--relic, #6fe0b0) 45%, #000); }
+.sv-btn.sv-rq em { color: color-mix(in srgb, var(--relic, #6fe0b0) 70%, #000); }
+.sv-btn.sv-rq.lock { color: var(--faint); border-color: #2a2420; background: #120e0b; cursor: not-allowed; }
+.sv-btn.sv-rq.lock em { color: var(--faint); }
+.sv-cost.rqlock { color: var(--faint); }
 
 /* ============================================================
    召唤物：HUD 上的召唤物条、悬停名牌、技能卡上的召唤物数值
