@@ -22,6 +22,10 @@ cc-slot run <名字> test -- npm run test:func     # 独占（A/B 验证通过�
 只跑 test:func，或在池里跑（`cc-slot pool` 会设 `CC_SLOT_HELD=pool:…`，手动跑可以设 `CC_POOL=1`）时，每行 ok 后面会挂上 `[pool, not comparable]`：这时的步骤耗时和步骤里打印的 ms 数字不能和独占跑的比。
 每份开头打一行 `== test:<份> · HEAD <提交> · <时间> · 槽位 …`，贴结果时连同最后的「通过 N 项」一起贴。
 
+## 实时循环和按模拟时间推进
+
+「技能：X 绑定到…」那十步按住键以后用 `G.tick(1/60)` 在页面里推进模拟（每次 evaluate 一秒），不等真实时间的帧，机器忙时也不会超时。实时循环（requestAnimationFrame 驱动、`G.debug.hold(false)`）本身仍由别的步骤覆盖，比如「键盘移动」和「武器技：拿着 X 按 R…」；改这些步骤时别把它们也全换成按模拟时间推进。
+
 ## 省渲染（test:func）
 
 test:func 默认让游戏看到的 `window.devicePixelRatio` 是 0.5：3D 画面和叠加层（血条、名牌、小地图）按一半分辨率渲染，像素只剩四分之一；CSS 布局、鼠标坐标、视口（1440×900）都不变，画质档还是软件渲染下默认的「低」。SwiftShader 的开销主要在像素上，这样几个 Chrome 一起跑时每帧快得多。
