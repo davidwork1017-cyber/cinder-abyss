@@ -215,7 +215,8 @@
     //   不算投射物：多重 / 贯穿 / 连锁 / 远劲都镶不上（标签上没有 projectile）
     frostline: {
       name: '冰脊', icon: '脊', color: '#9fdcff', tags: ['spell', 'area', 'cold'], kind: 'line',
-      dmg: { cold: [13, 19] }, time: 0.6, mana: 8, cd: 0, len: 9, width: 1.4, seg: 6, segT: 0.04, w: 0, kb: 0.3, poise: 8,
+      // width 1.4 → 1.2（编排者定：密集怪群里原来是链雷的 1.24 倍，收到 1.2 倍以内；单体不变）
+      dmg: { cold: [13, 19] }, time: 0.6, mana: 8, cd: 0, len: 9, width: 1.2, seg: 6, segT: 0.04, w: 0, kb: 0.3, poise: 8,
       desc: '从地面朝准星刺出一排冰棱，长 9 米，打中沿线所有敌人。', alt: '冰棱由近到远依次刺出，被墙挡住就停。不算投射物，多重投射、贯穿镶不上。',
     },
     // 坠凌：准星处（最远 range，墙前截住）dur 秒里每 tick 秒落一根冰凌（落下要 fall 秒），砸中落点 hitR 内的敌人。
