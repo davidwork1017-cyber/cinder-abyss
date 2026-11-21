@@ -1223,7 +1223,7 @@
 
   // 敌人身上的异常状态
   // 元素异常值触发后的状态：爆燃（刚炸过，亮 1 秒）、冻结、冰缓（首领的重度冰缓，或冰霜异常值带来的轻度冰缓）、感电
-  const AIL_NAME = { burn: '爆燃', chill: '冰缓', freeze: '冻结', shock: '感电', stun: '眩晕' };
+  const AIL_NAME = { burn: '爆燃', chill: '冰缓', freeze: '冻结', shock: '感电', stun: '眩晕', bleed: '流血' };
   function ailList(e) {
     const out = [];
     if (e.blastT > 0) out.push('burn');
@@ -1231,6 +1231,7 @@
     else if (e.bossChill > 0 || (e.bu && e.bu.cold > 0)) out.push('chill'); // 轻度冰缓有保底：异常值不为空就在减速
     if (e.shockT > 0) out.push('shock');
     if (e.stunT > 0) out.push('stun');
+    if (G.bleedStacks(e) > 0) out.push('bleed'); // 流血（skill-expand）
     return out;
   }
   const ailSig = (e) => ailList(e).join(',');
@@ -2373,7 +2374,7 @@
       nums =
         num(ctx.cd > 0 ? '每次伤害' : '平均击中', fmtInt(avg), 'hl') +
         num(sk.kind === 'spin' || sk.kind === 'flicker' ? '每秒斩击' : '每秒施放', rate.toFixed(2)) +
-        num('估算秒伤', fmtInt(avg * rate * G.durDpsK(ctx))) + // 绵延：黑洞 / 黑旋风多跳几下、雷桩 / 环刃多一个
+        num('估算秒伤', fmtInt(avg * rate * G.durDpsK(ctx) + G.bleedDps(ctx, G.bleedHps(ctx, rate)))) + // 绵延：黑洞 / 黑旋风多跳几下、雷桩 / 环刃多一个；流血叠稳之后的那一份
         num((blood ? '生命消耗' : '魔力消耗') + (sk.kind === 'spin' || sk.kind === 'flicker' ? ' / 每下' : ''), ctx.cost > 0 ? fmt1(ctx.cost) : '无') +
         num('冷却', ctx.cd > 0 ? fmt1(ctx.cd) + ' 秒' : '无') +
         num('暴击率', fmt1(ctx.crit) + '%');
@@ -2389,6 +2390,47 @@
           '<div class="sk-anote"><i></i>每次 ' + nv + ' 团 · 吸附 ' + L.t + ' 秒，拽近 ' + fmt1(L.r) + ' 米内的小怪 · 每团最多吸 ' + L.max + ' 次、撞墙弹 ' + sk.bounce + ' 次、飞 ' + sk.life + ' 秒</div>' +
           '<div class="sk-anote"><i></i>同一次施放对同一个敌人每 ' + sk.tick + ' 秒最多一跳；被吸附的一共最多 ' + sk.cap + ' 跳、卷到的 ' + sk.splashCap + ' 跳、首领 ' + sk.bossCap + ' 跳（单体平均每次约 ' + sk.useMult + ' 跳）· 贯穿：前几个敌人不吸附、直接穿过 · 连锁：松开后拐向附近下一个敌人</div>';
       }
+      // 第一批新技能（skill-expand）：换一组更能说明它的数字
+      const blood2 = blood ? '生命消耗' : '魔力消耗';
+      if (sk.kind === 'tether') {
+        const per0 = avg / (sk.useMult || 1), kMax = 1 + sk.ramp.max / 100;
+        nums =
+          num('每跳伤害', fmtInt(per0) + ' → ' + fmtInt(per0 * kMax), 'hl') +
+          num('每秒跳数', rate.toFixed(2)) +
+          num('估算秒伤', fmtInt(per0 * rate) + ' → ' + fmtInt(per0 * kMax * rate)) +
+          num(blood2 + ' / 每跳', ctx.cost > 0 ? fmt1(ctx.cost) : '无') +
+          num('冷却', '无') +
+          num('暴击率', fmt1(ctx.crit) + '%');
+        note = '<div class="sk-anote"><i></i>站定引满 ' + fmt1(sk.ramp.max / sk.ramp.perSec) + ' 秒伤害 +' + sk.ramp.max + '% · 连锁 ' + ctx.chain + ' 次 · 射程 ' + sk.range + ' 米</div>';
+      } else if (sk.kind === 'rain') {
+        const n = Math.max(1, Math.round((sk.dur * ctx.durK) / sk.tick));
+        nums =
+          num('每根伤害', fmtInt(avg / (sk.useMult || 1)), 'hl') +
+          num('根数 · 持续', n + ' 根 · ' + fmt1(sk.dur * ctx.durK) + ' 秒') +
+          num('单体每次约', fmtInt(avg * ctx.durK)) +
+          num('异常累积', '+' + Math.round(ctx.ailment) + '%') +
+          num('冷却', fmt1(ctx.cd) + ' 秒') +
+          num(blood2, ctx.cost > 0 ? fmt1(ctx.cost) : '无');
+        note = '<div class="sk-anote cd"><i></i>冷却技能：秒伤按冷却折算 · 半径 ' + fmt1(sk.radius * Math.sqrt(ctx.area)) + ' 米 · 单体按 ' + sk.useMult + ' 根计</div>';
+      } else if (sk.hitCap) {
+        const per = avg / (sk.useMult || 1), nn = sk.count + Math.max(0, ctx.proj - 1);
+        nums =
+          num('每枚伤害', fmtInt(per), 'hl') +
+          num('贴近每次', fmtInt(avg)) +
+          num('每秒施放', rate.toFixed(2)) +
+          num('估算秒伤', fmtInt(G.skillDps(ctx))) +
+          num(blood2, ctx.cost > 0 ? fmt1(ctx.cost) : '无') +
+          num('暴击率', fmt1(ctx.crit) + '%');
+        note = '<div class="sk-anote"><i></i>每次 ' + nn + ' 枚 · 同一个敌人最多中 ' + sk.hitCap + ' 枚 · 射程约 ' + fmt1(sk.speed * sk.life * G.projSpdK(ctx)) + ' 米（贴近的估算按中 ' + sk.useMult + ' 枚算）</div>';
+      } else if (sk.kind === 'line') {
+        const k = Math.sqrt(ctx.area);
+        note += '<div class="sk-anote"><i></i>长 ' + fmt1(sk.len * k) + ' 米 · 宽 ' + fmt1(sk.width * k) + ' 米 · 同一次施放每个敌人只中一下</div>';
+      } else if (sk.kind === 'burst') {
+        note += '<div class="sk-anote"><i></i>以自身为中心，半径 ' + fmt1(sk.radius * Math.sqrt(ctx.area)) + ' 米，最多打最近的 ' + sk.maxHit + ' 个，不穿墙</div>';
+      }
+      // 流血（放血自带 / 开刃）：每层多少、叠稳几层、流血那一份秒伤
+      const bl = G.bleedInfo(ctx, G.bleedHps(ctx, rate));
+      if (bl) note += '<div class="sk-anote"><i></i>流血：每层 ' + fmtInt(bl.per) + '（' + G.BLEED.dur + ' 秒）· 打单体叠到 ' + fmt1(bl.n) + ' 层（上限 ' + G.BLEED.cap + '）· 流血秒伤约 ' + fmtInt(bl.dps) + '</div>';
       // 攻击技能：伤害取自手里的武器
       if (ctx.attack) note = attackNote(ctx) + note;
     }
@@ -3105,6 +3147,8 @@
       c('fire', '尸爆') + '（同爆燃）、' + c('light', '放电') + '（向最近 ' + B.deathBoltN + ' 个敌人各射一道电弧，每道为平均一击闪电伤害的 ' + pc(B.deathBolt) + '）、' +
       c('cold', '碎冰') + '（给 ' + B.shatterR + ' 米内的敌人灌一截冰霜异常值）。一串最多连 ' + B.deathGen + ' 层。</p>' +
       '<p><b>异常累积速度</b>（蚀染、侵蚀、元素使）让异常值涨得更快。物理伤害不累积异常值，它削架势。</p>' +
+      '<p><b>流血</b>（放血、开刃）：带流血的物理命中给敌人叠一层，' + G.BLEED.dur + ' 秒内再造成这一击物理伤害的一部分（放血 ' + G.SKILLS.rend.bleed + '%，开刃 ' + G.SUPPORTS.serrate.eff.bleed + '%）。' +
+      '每个敌人最多 ' + G.BLEED.cap + ' 层（血条右下的暗红小格），满了顶掉最弱的一层。流血不算命中，不引发电弧、不汲生。</p>' +
       '<p>' + c('chaos', '混沌') + '伤害有自己的一条（第四段），满了就' + c('chaos', '渊缚') + '：小怪定住 ' + B.bind + ' 秒（精英 ' + B.bindElite + ' 秒），并被拽向 ' + B.bindR +
       ' 米内最近的黑洞，没有就拽向怪群中心；首领改为 ' + B.bossBind + ' 秒减速 ' + Math.round(B.bossBindSlow * 100) + '%。正被渊缚或混沌过半的敌人死时' +
       c('chaos', '渊陷') + '：把身边的小怪往里拽（无伤害）。混沌伤害吃火焰、冰霜、闪电伤害提高的总和，不吃「元素过载」。</p>'

@@ -2205,6 +2205,7 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .ail.freeze { --ac: #d6f3ff; }
 .ail.shock { --ac: #ffe45e; }
 .ail.stun { --ac: #f4f4f4; }
+.ail.bleed { --ac: #d0645a; }
 #boss-ail .ail { justify-content: center; width: 24px; height: 24px; padding: 0; border-radius: 50%; }
 #boss-ail .ail .ico { width: 18px; height: 18px; }
 

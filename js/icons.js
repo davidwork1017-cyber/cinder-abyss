@@ -1120,6 +1120,75 @@
       glow(g, (p) => flame(p, 0.5, 0.6, 7), CH.rim, { stroke: 1.6, blur: 3, core: CH.rim });
       spark(g, 0, -22, 4.4, CH.hi);
     },
+    // ---------- 第一批新技能（skill-expand） ----------
+    // 冰脊：一排从地面斜着刺出来的冰棱，由近到远越来越高
+    frostline(g, col) {
+      line(g, (p) => p.M(-27, 24).L(27, 12), rgba(dark(col, 0.35), 0.9), 2.4);
+      for (let i = 0; i < 4; i++) {
+        const x = -19 + i * 13, y = 23 - i * 3, h = 15 + i * 6, w = 4.6 + i * 0.8;
+        const spike = (p) => p.P([x - w, y, x + 1.6, y - h, x + w, y - 1.2, x + 1, y + 1.2]);
+        if (i >= 2) glow(g, spike, col, { blur: 7, core: col });
+        solid(g, spike, lite(col, 0.25 + i * 0.12), { hi: 0.7, lo: 0.3, lw: 1.9, bevel: 1.1 });
+        line(g, (p) => p.M(x + 1.6, y - h).L(x + 0.6, y - 1), rgba('#ffffff', 0.6), 1.1);
+      }
+      spark(g, 21, -15, 5, '#ffffff');
+    },
+    // 坠凌：三根斜着落下的冰凌，带下坠的细线，地上溅起两片冰碴
+    icefall(g, col) {
+      const m = rot(24, 1, 0, 0);
+      const cone = (x, y, h, w) => (p) => p.P([x - w, y - h, x + w, y - h, x, y]);
+      for (const [x, y, h, w, k] of [[-13, 6, 20, 5, 0.35], [3, 16, 24, 5.8, 0.6], [15, -2, 17, 4.6, 0.4]]) {
+        line(g, (p) => p.M(x, y - h - 3).L(x, y - h - 11), rgba(lite(col, 0.4), 0.75), 1.6, m);
+        if (k > 0.5) glow(g, cone(x, y, h, w), col, { m, blur: 7, core: col });
+        solid(g, cone(x, y, h, w), lite(col, k), { m, hi: 0.7, lo: 0.3, lw: 1.9, bevel: 1 });
+        line(g, (p) => p.M(x - w * 0.4, y - h + 1).L(x, y - 2), rgba('#ffffff', 0.55), 1, m);
+      }
+      solid(g, (p) => p.P([-8, 26, -3, 20, 1, 26]).P([11, 26, 15, 21, 18, 27]), lite(col, 0.4), { hi: 0.6, lw: 1.3, bevel: 0.7 });
+      line(g, (p) => p.M(-22, 28).L(24, 28), rgba(dark(col, 0.3), 0.8), 1.8);
+    },
+    // 迸电：中间一点小亮芯，六道折线电弧往外放射，没有圆盘
+    discharge(g, col) {
+      for (let i = 0; i < 6; i++) {
+        const m = rot(i * 60 + 10, 1, 0, 0);
+        const zz = (p) => p.M(0, -5).L(3, -11).L(-2, -15).L(2.6, -21).L(-1, -26);
+        glow(g, zz, col, { m, stroke: i % 2 ? 1.6 : 2.2, blur: 5, core: '#fffbe0' });
+      }
+      solid(g, (p) => p.E(0, 0, 5), lite(col, 0.5), { hi: 0.7, lo: 0.2, lw: 1.8, bevel: 1 });
+      spark(g, 0, 0, 6.4, '#ffffff');
+    },
+    // 引雷：左下的手心一点，一道双股折线牵到右上被缠住的目标
+    tether(g, col) {
+      const zz = (p) => p.M(-18, 18).L(-9, 9).L(-12, 3).L(-2, -2).L(-4, -8).L(7, -12).L(5, -17).L(14, -19);
+      glow(g, zz, col, { stroke: 2.6, blur: 7, core: '#fffbe0' });
+      line(g, (p) => p.M(-17, 15).L(-7, 6).L(-9, 1).L(1, -5).L(-1, -10).L(10, -15), rgba(lite(col, 0.5), 0.8), 1.2);
+      solid(g, (p) => p.E(18, -21, 6.4).E(18, -21, 3.2), dark(col, 0.25), { rule: 'evenodd', hi: 0.5, lw: 1.8, bevel: 1 });
+      solid(g, (p) => p.E(-20, 20, 4.6), lite(col, 0.45), { hi: 0.7, lw: 1.8, bevel: 1 });
+      spark(g, 15, -19, 4.4, '#ffffff');
+    },
+    // 散钉：五枚铁钉从左下扇形飞向右上，尾后各一道短速度线
+    nails(g, col) {
+      for (let i = 0; i < 5; i++) {
+        const m = rot(18 + i * 13.5, 1.08, -17, 19);
+        line(g, (p) => p.M(0, -2).L(0, -9), rgba(lite(col, 0.3), 0.6), 1.4, m);
+        if (i === 2) glow(g, (p) => p.P([-2, -14, 2, -14, 1.3, -32, 0, -39, -1.3, -32]), col, { m, blur: 6, core: lite(col, 0.4) });
+        solid(g, (p) => p.P([-2, -14, 2, -14, 1.3, -32, 0, -39, -1.3, -32]), i === 2 ? lite(col, 0.45) : lite(col, 0.15), { m, hi: 0.65, lo: 0.35, lw: 1.7, bevel: 0.9 });
+        solid(g, (p) => p.R(-3.8, -15.6, 7.6, 3, 0.7), dark(col, 0.2), { m, hi: 0.45, lw: 1.4, bevel: 0.7 });
+      }
+      spark(g, 18, -20, 4.6, '#ffffff');
+    },
+    // 放血：交叉的两道刃痕（钢色，边上带一点血色），下面挂两滴暗红
+    rend(g, col) {
+      const steel = mix(C.steel, col, 0.25);
+      const cut = (p) => p.M(-23, -19).Q(-7, 3, 22, 17).Q(1, -8, -23, -19).Z();
+      const cut2 = (p) => p.M(21, -21).Q(-1, -9, -22, 16).Q(6, 2, 21, -21).Z();
+      glow(g, cut, col, { blur: 7, core: lite(col, 0.3) });
+      solid(g, cut, lite(steel, 0.35), { hi: 0.7, lo: 0.25, lw: 1.9, bevel: 0.9 });
+      glow(g, cut2, col, { blur: 7, core: lite(col, 0.3) });
+      solid(g, cut2, lite(steel, 0.5), { hi: 0.75, lo: 0.25, lw: 1.9, bevel: 0.9 });
+      const drop = (x, y, k) => (p) => p.M(x, y - 5 * k).C(x + 3.2 * k, y - 0.6 * k, x + 3.4 * k, y + 1.8 * k, x + 2.2 * k, y + 3.2 * k).C(x + 1 * k, y + 4.4 * k, x - 1 * k, y + 4.4 * k, x - 2.2 * k, y + 3.2 * k).C(x - 3.4 * k, y + 1.8 * k, x - 3.2 * k, y - 0.6 * k, x, y - 5 * k).Z();
+      solid(g, drop(-6, 21, 1.3), col, { hi: 0.5, lo: 0.3, lw: 1.7, bevel: 0.8 });
+      solid(g, drop(6, 25, 0.95), dark(col, 0.2), { hi: 0.5, lo: 0.3, lw: 1.5, bevel: 0.7 });
+    },
   };
 
   // =====================================================================
@@ -1662,6 +1731,11 @@
     deepfreeze: (p) => p.M(-9.4, -7).L(9.4, -7).M(-8, -7).L(-5.6, 5).L(-3.2, -7).M(-2.4, -7).L(0, 9.4).L(2.4, -7).M(3.2, -7).L(5.6, 3).L(8, -7),
     // 雷涌：一道闪电在中段分出两股
     surge: (p) => p.M(-1, -9.4).L(2.4, -2.6).L(-2.6, -0.6).L(1, 9.4).M(-2.6, -0.6).L(-8.6, 5.4).M(2.4, -2.6).L(8.6, 3.2),
+    // 流血（异常小签，skill-expand）：一滴
+    bleed: (p) => p.M(0, -9.4).C(5.6, -2, 7.4, 1.4, 5.6, 5.4).C(3, 9.4, -3, 9.4, -5.6, 5.4).C(-7.4, 1.4, -5.6, -2, 0, -9.4).Z(),
+    // 开刃（skill-expand）：一道带锯齿的刃口，下面一滴
+    serrate: (p) => p.M(-9.4, -2).L(-6.8, -6).L(-4.6, -2.6).L(-2.2, -6.6).L(0, -3).L(2.4, -7).L(4.6, -3.4).L(7, -7.4).L(9.4, -3.6).L(9.4, -0.6).L(-9.4, 1.4).Z()
+      .M(0, 3.4).C(2.2, 6, 2.4, 7.2, 1.6, 8.4).C(0.8, 9.4, -0.8, 9.4, -1.6, 8.4).C(-2.4, 7.2, -2.2, 6, 0, 3.4).Z(),
     // 分岔：一道从左来的弹道在中间分成两股，各带一个箭头
     fork: (p) => p.M(-9.4, 0).L(-1, 0).M(-1, 0).L(6.6, -6.4).M(-1, 0).L(6.6, 6.4).M(3, -7).L(7.4, -6.8).L(6.4, -2.6).M(3, 7).L(7.4, 6.8).L(6.4, 2.6),
     // 溅击：中间一个打击点，外面三道溅开的弧
@@ -1673,13 +1747,14 @@
     // 渊缚：一个空心圆，四道从外往里的短箭头
     bind: (p) => { p.E(0, 0, 3.4); for (let i = 0; i < 4; i++) { const a = (i / 4) * TAU + Math.PI / 4, c = Math.cos(a), s = Math.sin(a); p.M(c * 9.6, s * 9.6).L(c * 5.6, s * 5.6).M(c * 5.6 - s * 1.8 + c * 1.8, s * 5.6 + c * 1.8 + s * 1.8).L(c * 5.6, s * 5.6).L(c * 5.6 + s * 1.8 + c * 1.8, s * 5.6 - c * 1.8 + s * 1.8); } return p; },
   };
-  const GLYPH_FILL = { fire: 1, light: 1, stagger: 1, ailment: 1, frugal: 1, brutal: 1 }; // 这些符号画成实心
+  const GLYPH_FILL = { fire: 1, light: 1, stagger: 1, ailment: 1, frugal: 1, brutal: 1, serrate: 1, bleed: 1 }; // 这些符号画成实心
   const SUP_TINT = {
     multi: '#ffb066', pierce: '#b9c6dc', chain: '#ffe45e', expanse: '#7fe0c0', haste: '#7ed67a', fire: '#ff7a2c', cold: '#86d8ff', light: '#ffe45e',
     breach: '#5b7bff', // 破障（enemy-resist）
     brutal: '#e2705a', precise: '#ffd75e', leech: '#ff6a8a', echo: '#c7a6ff', stagger: '#f2e6b0', ailment: '#b6e05c', frugal: '#6fb2ff',
     m_dmg: '#3fe0c8', m_life: '#d2b47a', m_horde: '#e28ad6', m_speed: '#ff5a46', chaos: '#f03cb4', lasting: '#9be0e6',
     narrow: '#d9a441', farshot: '#9fc3ff', swell: '#b48cff', charge: '#5fe0e8', blaze: '#ff5a3c', deepfreeze: '#bfe8ff', surge: '#fff38a',
+    serrate: '#d0645a', // 开刃（skill-expand）
     fork: '#ffa0d0', splash: '#e08a5a', cull: '#e05a7a', convert: '#8ee0a0',
   };
   // 仆从辅助宝石的 id 由数据那边定；按 id 认不出时按名字认，两边怎么起名都对得上
@@ -1689,7 +1764,7 @@
     const sp = G.SUPPORTS && G.SUPPORTS[id];
     return (sp && SUP_BY_NAME[sp.name]) || id;
   }
-  const AIL = { burn: ['fire', '#ff8a3c'], chill: ['cold', '#86d8ff'], freeze: ['freeze', '#d6f3ff'], shock: ['light', '#ffe45e'], stun: ['stagger', '#ffffff'], bind: ['bind', '#ff6ad2'] };
+  const AIL = { burn: ['fire', '#ff8a3c'], chill: ['cold', '#86d8ff'], freeze: ['freeze', '#d6f3ff'], shock: ['light', '#ffe45e'], stun: ['stagger', '#ffffff'], bind: ['bind', '#ff6ad2'], bleed: ['bleed', '#d0645a'] };
 
   function drawGlyph(g, name, col, m, w) {
     const tr = GLYPH[name];

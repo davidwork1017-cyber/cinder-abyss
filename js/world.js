@@ -22474,7 +22474,7 @@
   const HOSTILE_RED = 0xff2a22;
   // 每种外形的拖尾：[半宽, 寿命, 头色混白比例, 尾色亮度]（颜色从投射物的颜色算）
   const RIB_DEF = {
-    ember: [0.24, 0.2], blade: [0.09, 0.1], dart: [0.12, 0.22], orb: [0.18, 0.15], lbolt: [0.17, 0.2], lbolt3: [0.28, 0.26], ishard: [0.08, 0.12],
+    ember: [0.24, 0.2], blade: [0.09, 0.1], nail: [0.03, 0.07], dart: [0.12, 0.22], orb: [0.18, 0.15], lbolt: [0.17, 0.2], lbolt3: [0.28, 0.26], ishard: [0.08, 0.12],
     glob: [0.17, 0.15], shard: [0.15, 0.2], spark: [0.13, 0.12], firebolt: [0.28, 0.22], horb: [0.15, 0.12],
     // 远程武器：子弹 / 左轮的重弹 / 箭 / 冰弓的寒冰箭 / 喷枪的火团
     bullet: [0.045, 0.07], slug: [0.07, 0.1], arrow: [0.04, 0.16], emberarrow: [0.11, 0.24], flamelet: [0.2, 0.12],
@@ -22532,6 +22532,7 @@
     const tk = u.tinted ? 0.55 : 0;
     if (kind === 'ember') { r0 = 0.95; g0 = 0.55; b0 = 0.2; r1 = 0.7; g1 = 0.1; b1 = 0.02; }
     else if (kind === 'blade') { r0 = 0.62; g0 = 0.68; b0 = 0.8; r1 = 0.22; g1 = 0.25; b1 = 0.32; }
+    else if (kind === 'nail') { r0 = 0.42; g0 = 0.45; b0 = 0.5; r1 = 0.12; g1 = 0.13; b1 = 0.15; } // 散钉：很细、很短、偏暗的尾迹
     else if (kind === 'shard') { r0 = 0.72; g0 = 0.92; b0 = 1; r1 = 0.15; g1 = 0.35; b1 = 0.6; }
     else if (kind === 'spark') { r0 = 1; g0 = 0.95; b0 = 0.6; r1 = 0.55; g1 = 0.45; b1 = 0.1; }
     else if (kind === 'firebolt') { r0 = 1; g0 = 0.45; b0 = 0.12; r1 = 0.55; g1 = 0.05; b1 = 0.02; }
@@ -22659,6 +22660,13 @@
         pfPut('blur', 0.3 + _c.r * 0.35, 0.33 + _c.g * 0.35, 0.4 + _c.b * 0.35);
       } else pfPut('blur', 0.42, 0.48, 0.6);
       glowPut(u, x, y, z, r * 4.2, 0.3);
+    },
+    // 散钉（skill-expand）：一根细长的深色钢钉（借秘弹的晶尖件，拉得更细），偶尔闪一帧反光；不发光、不拖尾
+    nail(u, x, y, z, dt) {
+      yawQ(u);
+      const g = Math.sin(u.age * 41 + u.ph) > 0.93 ? 0.62 : 0.2;
+      mPose(x, y, z, _pq, 0.045, 0.045, 0.26);
+      pfPut('dart', g, g * 1.04, g * 1.12);
     },
     // 秘弹：拉长的晶尖 + 两粒绕着它转的光点，拖一条元素色的细带
     dart(u, x, y, z, dt) {
@@ -22897,6 +22905,16 @@
       }
       metalSparks(x, y, z, u.dx, u.dz, how === 'wall' ? 1.5 : 1, u);
       if (how === 'wall') W.decal(0, x - u.dx * 0.3, z - u.dz * 0.3, 0.6, Math.atan2(u.dx, u.dz), 0xfff0d0, 0.3, 0.14);
+      return true;
+    }
+    if (vk === 'nail') {
+      // 散钉（skill-expand）：一颗很小的金属星 + 2 块棱角碎屑（低画质 1 块），撞墙同样
+      tChunk(1, x, y, z, 0, 0, 0, 0.04, 0.3, 0xf2f6ff, 0x9aa6bc, 0);
+      vsBrush(VSH.chip, 3, 0, 0x8a919c, 0x5a606a, 0.15, 0.5);
+      for (let i = 0, n = qualId === 'low' ? 1 : 2; i < n; i++) {
+        const a = Math.atan2(-u.dx, -u.dz) + vr(-1, 1), v = vr(1.5, 3);
+        vsEmit(x, y, z, Math.sin(a) * v, vr(1, 2.5), Math.cos(a) * v, vr(0.4, 0.6), vr(0.05, 0.08), undefined, vr(0, TAU), vr(8, 14), 18);
+      }
       return true;
     }
     if (vk === 'dart' || vk === 'lbolt') { // 灵弹炸开和秘弹同一套（颜色跟着元素）
@@ -23408,6 +23426,121 @@
       vsBrush(VSH.ring, 2, 1, 0xb09c80, 0x8a7862, 0, 0, 0.4); // 看图后：尘环压暗（原来浅奶油色，扩大后在地上是一圈亮线）
       vsEmit(p.x, 0.08, p.z, 0, 0, 0, 0.36, R * 1.05);
       tPuffs(p.x, 0.25, p.z, qualId === 'low' ? 2 : 4, R * 1.6, 0.5, 0.42, 0.42, 0xd8c8aa, 0x8a7a64);
+    }
+  };
+  // ===================================================================== 第一批新技能（skill-expand）的特效：全部画进形状批 vShape，地面痕迹走 vDecal，不建新网格
+  // 冰脊的一段：3 根硬冰晶斜着朝外刺出（尖朝外上方，亮芯只在冰晶本身、很小），0.5 秒后缩没、掉几片冰碴；地上冻青灰痕（比地面暗，低画质不铺）
+  W.frostLineSeg = function (sx, sz, ang, segL, half, i, n) {
+    const lo = qualId === 'low', sn = Math.sin(ang), cs = Math.cos(ang);
+    const cx = sx + sn * segL * 0.5, cz = sz + cs * segL * 0.5;
+    const k = 0.75 + 0.35 * (i / Math.max(1, n - 1)); // 由近到远越来越高
+    vsBrush(VSH.crystal, 6, 0, 0x9fd8f2, 0x5aa6d2, 0.3, 0.55, 0.55);
+    const m = lo ? 2 : 3;
+    for (let j = 0; j < m; j++) {
+      const side = m === 1 ? 0 : (j / (m - 1)) * 2 - 1; // -1..1：横跨这一段的宽度
+      const off = side * half * 0.8, along = vr(-0.35, 0.35) * segL;
+      const px = cx + cs * off + sn * along, pz = cz - sn * off + cs * along;
+      // 斜向：朝外（离中线的那一侧），中间那根顺着刺出的方向
+      const ox = side === 0 ? sn : cs * side, oz = side === 0 ? cs : -sn * side;
+      vsEmit(px, 0, pz, ox * 1e-3, 0, oz * 1e-3, vr(0.5, 0.62), vr(0.34, 0.44) * k, vr(0.8, 1.05) * k, vr(0.25, 0.55));
+    }
+    if (!lo) {
+      vsBrush(VSH.chip, 3, 0, 0xcfeeff, 0x8cc4e0, 0.2, 0.45);
+      for (let j = 0; j < 2; j++) {
+        const a = vr(0, TAU), v = vr(0.8, 1.6);
+        vsEmit(cx + Math.sin(a) * half * 0.5, 0.5, cz + Math.cos(a) * half * 0.5, Math.sin(a) * v, vr(1.2, 2.2), Math.cos(a) * v, vr(0.55, 0.75), vr(0.05, 0.08), undefined, vr(0, TAU), vr(6, 10), 16);
+      }
+      W.vDecal(VVD.frost, cx, cz, Math.max(half, segL * 0.55), 1.5, 0x7fb4cc, { a: 0.55 });
+    }
+  };
+  // 坠凌：落点外沿一圈短冰牙（只画边，冰晶朝外斜立，活到这场冰凌雨结束），圈里不铺亮面
+  W.iceRain = function (x, z, R, dur) {
+    // 看图后：只有一圈零散的冰牙读不出范围；整道环形件又是一条很粗的实心色带 → 贴地一圈细虚线（贴地固定线段，暗冰色，只画边）+ 更密的冰牙
+    const nd = qualId === 'low' ? 16 : 28, d0 = vr(0, TAU);
+    vsBrush(VSH.bar, 5, 0, 0x3e6a82, 0x2e5266, 0, 0.3, 0.9);
+    for (let i = 0; i < nd; i++) {
+      const a1 = d0 + (i / nd) * TAU, a2 = a1 + (TAU / nd) * 0.55;
+      const x1 = x + Math.sin(a1) * R, z1 = z + Math.cos(a1) * R, x2 = x + Math.sin(a2) * R, z2 = z + Math.cos(a2) * R;
+      vsEmit(x1, 0.05, z1, x2 - x1, 0, z2 - z1, dur, 0.07);
+    }
+    const n = qualId === 'low' ? 10 : 16;
+    vsBrush(VSH.crystal, 6, 3, 0x86c4e2, 0x4f8fb8, 0.15, 0.6, 0.85);
+    const a0 = vr(0, TAU);
+    for (let i = 0; i < n; i++) {
+      const a = a0 + (i / n) * TAU, sa = Math.sin(a), ca = Math.cos(a);
+      vsEmit(x + sa * R, 0, z + ca * R, sa * 1e-3, 0, ca * 1e-3, dur, vr(0.26, 0.34), vr(0.5, 0.7), vr(0.35, 0.6));
+    }
+  };
+  // 一根冰凌从 6 米高斜着落下（细长的冰晶顺着速度拉长），fall 秒到地
+  W.icicleFall = function (px, pz, hr, fall) {
+    const H = 6, dx = 0.9, vx = -dx / fall, vy = -H / fall;
+    vsBrush(VSH.crystal, 0, 2, 0xb8e4f8, 0x86c4e2, 0.25, 0.5, 0.7);
+    vsEmit(px + dx, H, pz, vx, vy, 0, fall, 0.24, 1.05); // 看图后加粗加长：原来在游戏镜头里几乎看不见
+  };
+  // 冰凌落地：一颗很小的亮芯（≤ 0.6 米、40 毫秒）+ 4 块冰碴弹开（低画质 2 块）+ 脚边一根矮冰晶；地上冻痕（低画质不铺）
+  W.icicleLand = function (px, pz, hr) {
+    const lo = qualId === 'low';
+    tChunk(1, px, 0.35, pz, 0, 0, 0, 0.04, 0.5, 0xe8f8ff, 0xb8e4f8, 0);
+    vsBrush(VSH.chip, 3, 0, 0xcfeeff, 0x7fb4cc, 0.25, 0.45);
+    for (let i = 0, n = lo ? 2 : 4; i < n; i++) {
+      const a = vr(0, TAU), v = vr(1.4, 2.8);
+      vsEmit(px, 0.3, pz, Math.sin(a) * v, vr(1.5, 3), Math.cos(a) * v, vr(0.45, 0.65), vr(0.05, 0.09), undefined, vr(0, TAU), vr(6, 12), 18);
+    }
+    vsBrush(VSH.crystal, 6, 0, 0x8ccbea, 0x5aa6d2, 0.2, 0.55, 0.6);
+    const a = vr(0, TAU);
+    vsEmit(px, 0, pz, Math.sin(a) * 1e-3, 0, Math.cos(a) * 1e-3, vr(0.45, 0.6), 0.3, vr(0.45, 0.6), vr(0.2, 0.45));
+    if (!lo) W.vDecal(VVD.frost, px, pz, hr * 0.8, 1.6, 0x7fb4cc, { a: 0.5 });
+  };
+  // 迸电：胸口一颗很小的亮芯（≤ 1 米、50 毫秒）；8 根折线从身上往外放射到 R（低画质 5 根），隔帧闪灭；外沿只是折线的尽头，没有圆盘；
+  // 地上几道细分叉的电灼纹（低画质不留）
+  W.dischargeFx = function (x, z, R, hex) {
+    const lo = qualId === 'low';
+    tChunk(1, x, 1.2, z, 0, 0, 0, 0.05, 0.8, 0xfffbe0, hex, 0);
+    vsBrush(VSH.bar, 4, 2, 0xfff3a8, hex, 0.6, 0.35, 0.4);
+    const n = lo ? 5 : 8, a0 = vr(0, TAU);
+    for (let i = 0; i < n; i++) zig(x, 1.1, z, a0 + (i / n) * TAU, -0.18, 4, R / 4, 0.09);
+    if (!lo) for (let i = 0; i < 3; i++) W.vDecal(VVD.scorch, x + Math.sin(a0 + i * 2.1) * R * 0.5, z + Math.cos(a0 + i * 2.1) * R * 0.5, 0.6, 1.2, hex, { a: 0.6 });
+  };
+  // 引雷的一跳：沿着电流的点画折线（每跳重新随机折点，2 帧闪），只有接触点亮；叠满时主线变两股（不加亮面）
+  // 看图后：池化电弧（W.bolt）是一条宽的发光带，一秒 5 跳叠在一起像一道白光柱 → 改成形状批里的细折线段（固定线段摆法，隔帧闪灭），
+  // 每段两头之间横向抖开；引满时多一股更暗的。接触点一颗很小的星
+  function tetherLine(pts, w, hex, segs, jit) {
+    vsBrush(VSH.bar, 4, 2, hex, hex, w > 0.06 ? 0.5 : 0.2, 0.35, 0.5);
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const ax = pts[i].x, az = pts[i].z, bx = pts[i + 1].x, bz = pts[i + 1].z, L = Math.hypot(bx - ax, bz - az) || 1;
+      const nx = -(bz - az) / L, nz = (bx - ax) / L;
+      let px = ax, pz = az, py = 1.25;
+      for (let k = 1; k <= segs; k++) {
+        const f = k / segs, o = k === segs ? 0 : vr(-jit, jit), qx = ax + (bx - ax) * f + nx * o, qz = az + (bz - az) * f + nz * o, qy = 1.15 + vr(-0.12, 0.12);
+        vsEmit(px, py, pz, qx - px, qy - py, qz - pz, vr(0.1, 0.14), w);
+        px = qx; py = qy; pz = qz;
+      }
+    }
+  }
+  W.tetherFx = function (pts, hex, k) {
+    const lo = qualId === 'low';
+    tetherLine(pts, 0.08, mixHex(hex, 0xffffff, 0.45), lo ? 3 : 5, 0.35);
+    if (k >= 1.79 && !lo) tetherLine(pts, 0.05, mixHex(hex, 0x806010, 0.35), 5, 0.5);
+    const p = pts[pts.length > 1 ? 1 : 0];
+    tChunk(1, p.x, 1.2, p.z, 0, 0, 0, 0.05, 0.35, 0xfffbe0, hex, 0);
+  };
+  // 流血的一跳：从身上往下掉的暗红棱角碎屑（往下掉，和往上飘的火星分开；暗、不发光，亮度远低于预警圈，不会读成预警）。
+  // 看图后（编排者，两轮）：原来每跳 1 块、很小，打起来分不出谁在流血 → 每跳 2 + 层数 / 3 块（最多 4 块），0.14–0.18 米，
+  // 颜色提到饱和的中红（亮度约 31%，仍不发光），从胸口到腰的高度散落；低画质块数减半（至少 1 块）。每帧总数封顶（高 40 / 低 16）
+  let bdFrame = -1, bdN = 0;
+  W.bleedDrip = function (x, z, h, r, n) {
+    const lo = qualId === 'low';
+    if (bdFrame !== vsFrame) {
+      bdFrame = vsFrame;
+      bdN = 0;
+    }
+    let m = Math.min(4, 2 + Math.floor(n / 3));
+    if (lo) m = Math.max(1, Math.ceil(m / 2));
+    vsBrush(VSH.chip, 3, 0, 0xb8332a, 0x8a2420, 0, 0.5);
+    for (let i = 0; i < m; i++) {
+      if (++bdN > (lo ? 16 : 40)) return;
+      const a = vr(0, TAU), d = r * vr(0.25, 0.6);
+      vsEmit(x + Math.sin(a) * d, h * vr(0.45, 0.8), z + Math.cos(a) * d, Math.sin(a) * 0.5, vr(-0.2, 0.6), Math.cos(a) * 0.5, vr(0.55, 0.8), vr(0.14, 0.18), undefined, vr(0, TAU), vr(4, 8), 14);
     }
   };
   function spinBladesDraw(dt) {
@@ -27432,6 +27565,14 @@
       // 元素异常值：火 / 冰 / 雷三小段并排，各占三分之一宽，按累积量从左往右涨（有任何一段不为空时才画）
       ay = drawBuildUp(g, e, x, ay, w);
       if (e.stunT > 0) { g.fillStyle = '#ffffff'; g.fillRect(x, ay, 5, 3); }
+      // 流血（skill-expand）：右端一排暗红小格，一格一层（最多 6 格）
+      const bn = G.bleedStacks ? G.bleedStacks(e) : 0;
+      if (bn > 0) {
+        g.fillStyle = 'rgba(0,0,0,0.72)';
+        g.fillRect(x + w - bn * 4 - 1, ay - 1, bn * 4 + 1, 5);
+        g.fillStyle = '#b8352c';
+        for (let k = 0; k < bn; k++) g.fillRect(x + w - (k + 1) * 4, ay, 3, 3);
+      }
       if (e.elite && e !== st.hover) {
         // 准星指着它时名字由界面层的名牌显示，这里不重复画
         g.font = '600 12px ' + FONT;
