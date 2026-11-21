@@ -4,6 +4,7 @@
 // node test/smoke.mjs = 两份都跑（先 func 后 timed）；--func / --timed 只跑一份。
 import { launch as launchFull } from './harness.mjs';
 import { execSync } from 'node:child_process';
+import { checkArt } from '../tools/check-art.mjs';
 
 const SAVE_KEY = 'cinder-abyss-save-v1';
 let G_CUR_N = 8, G_UQ_COLOR = '#ff9b3d', G_SOUL_INH = 1.5, G_SOUL_K = 0.2;
@@ -64,7 +65,7 @@ async function step(name, fn) {
   if (full) await setDpr(1);
   try {
     const info = await fn();
-    await sleep(30); // 给异步报错一点冒出来的时间
+    if (page) await sleep(30); // 给异步报错一点冒出来的时间（第一步 check-art 只用 Node，那时还没开浏览器）
     if (errors && errors.length) throw new Error('页面报错：' + errors.splice(0).join(' | '));
     passed++;
     console.log('ok   ' + name + (info ? ' — ' + info : '') + '  (' + (Date.now() - t0) + 'ms)' + NC_TAG);
@@ -761,6 +762,14 @@ async function timedMain() {
 }
 
 async function main() {
+  // ------------------------------------------------------------------ 自产素材（只用 Node，不起浏览器）
+  await step('素材：自产布景件（assets/ca/manifest.json 里的每个 GLB）符合预算、命名、原点 / 单位规矩，打进包的就是这一份（tools/check-art.mjs）', async () => {
+    const { fails, count } = checkArt();
+    assert(count > 0, '清单里一件都没有');
+    assert(!fails.length, fails.length + ' 条问题：' + fails.slice(0, 8).join(' ｜ '));
+    return count + ' 件';
+  });
+
   // ------------------------------------------------------------------ 启动
   await step('启动：页面无报错，首次运行弹出开场卡片（游戏暂停），回车关闭', async () => {
     ({ browser, page, errors } = await launch({ width: 1440, height: 900 }));
@@ -9819,6 +9828,43 @@ async function main() {
       G.debug.god(true);
     });
     return r.zones.join(' ') + ' ｜ ' + r.qs.join(' ') + ' ｜ 默认 ' + r.q0 + '（' + r.eff + '）';
+  });
+
+  await step('画面：第 0 区的布景（除路边小物）来自自产件包 kit-ash（ca/ 开头），确实摆出来了；别的区照旧用 CC0 模型包（第 1–4 区里摆出布景的第一个区）', async () => {
+    const r = await ev(async () => {
+      const W = G.world;
+      const wait = async (f, ms) => {
+        const t = performance.now();
+        while (!f() && performance.now() - t < ms) await new Promise((res) => setTimeout(res, 50));
+        return f();
+      };
+      const look = async (i) => {
+        G.enterZone(i, 0);
+        await wait(() => !W.assetsPending(), 40000);
+        return { id: G.ZONES[i].id, hd: W.gfxInfo().hd, fires: W.gfxInfo().fires, src: W.propSources() };
+      };
+      // 别的区：照旧用 CC0 模型包。第 1 区四周是水，布景基本摆不上（不立在深水上），所以依次看第 1–4 区，以摆出布景的第一个区为准
+      const ash = await look(0), others = [];
+      for (let i = 1; i < Math.min(5, G.ZONES.length); i++) {
+        const z = await look(i);
+        others.push(z);
+        if (z.src.reduce((a, s) => a + s.placed, 0) > 0) break;
+      }
+      G.enterZone(0, 1);
+      return { ash, others };
+    });
+    const { ash, others } = r;
+    const fmt = (z) => z.src.map((s) => s.key + '@' + s.pack + '×' + s.placed).join(' ');
+    assert(ash.id === 'ash' && ash.hd, '第 0 区不是 ash 或没换上 PBR 外观：' + JSON.stringify(ash).slice(0, 300));
+    // 路边小物（骷髅 / 骨头 / 断剑 / 墓碑）的自产件还在改，暂用 KayKit：ca/ 开头的必须来自 kit-ash，其余来自 CC0 模型包
+    assert(ash.src.filter((s) => s.key.startsWith('ca/')).length >= 6 && ash.src.every((s) => (s.key.startsWith('ca/') ? s.pack === 'kit-ash' : s.pack === 'models')), '第 0 区布景的来源不对：' + fmt(ash));
+    const placed = (z, re) => z.src.filter((s) => re.test(s.key)).reduce((a, s) => a + s.placed, 0);
+    assert(placed(ash, /tree_dead/) >= 3, '第 0 区枯树摆得太少：' + fmt(ash));
+    assert(placed(ash, /firepit/) === ash.fires && ash.fires > 0, '第 0 区火坑的实例数和火焰数对不上：' + fmt(ash) + ' 火 ' + ash.fires);
+    assert(ash.src.reduce((a, s) => a + s.placed, 0) >= 20, '第 0 区布景总数太少：' + fmt(ash));
+    assert(others.every((z) => z.hd && z.src.length && z.src.every((s) => s.pack === 'models')), '别的区的布景不是 CC0 模型包：' + others.map((z) => z.id + ' ' + fmt(z)).join(' ｜ '));
+    assert(others[others.length - 1].src.reduce((a, s) => a + s.placed, 0) > 0, '第 1–4 区都没摆出 CC0 布景：' + others.map((z) => z.id + ' ' + fmt(z)).join(' ｜ '));
+    return fmt(ash);
   });
 
   // ------------------------------------------------------------------ 存档

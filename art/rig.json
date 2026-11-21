@@ -1,0 +1,4 @@
+{
+  "_comment": "角色骨架的骨骼名（占位）：标准人形骨架定下来以后（vf-chars 的评估，可能是 CC0 的 UAL/UBC 65 骨骼）把名字填进 standard.bones。check-art 对带蒙皮的件检查骨骼名都在表里；表为空时带蒙皮的件一律报错。",
+  "standard": { "name": null, "bones": [] }
+}
