@@ -19868,6 +19868,7 @@
     mesh.scale.set(hx, 1, hz);
     if (rect || arc) mesh.rotation.y = spec.ang; // 长轴 = 局部 +z = (sin ang, cos ang)
     mesh.renderOrder = 3;
+    if (spec.hidden) mesh.visible = false; // 不画（渊式「星雨」自动落下：落点用自己的符环，不铺实心预警圈）
     scene.add(mesh);
     const uK = mat.uniforms.uK;
     return {

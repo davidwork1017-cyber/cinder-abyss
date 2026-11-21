@@ -5618,7 +5618,7 @@
       W.meteorFall(x, z, sk.delay, star ? 0x9fe8cc : hex, false, star); // 星雨：中等亮度的淡翠星，落地不放大火团 / 闪光
       if (star && W.rvStar) W.rvStar(x, z, R, sk.delay);
       G.telegraph({
-        shape: 'circle', x, z, r: R0, dur: sk.delay, dmg: 0, friendly: true,
+        shape: 'circle', x, z, r: R0, dur: sk.delay, dmg: 0, friendly: true, hidden: star, // 星雨：落点只画淡翠符环，不铺实心预警圈
         onFire() {
           for (const e of enemiesIn(x, z, R0)) G.hitEnemy(e, ctx, vm ? vm.k0 : 1, { ang: Math.atan2(e.x - x, e.z - z), core: true, kb: sk.mech === 'plough' ? 0.2 : undefined }); // 从落点往外炸开；core：不点燃自己留下的熔核；犁焰落地不推人（留给犁）
           if (sk.mech === 'core') meteorCore(ctx, x, z);
