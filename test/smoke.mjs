@@ -490,9 +490,30 @@ async function timedMain() {
         G.computeStats();
         await wait(2);
         out.none = { empty: ws().classList.contains('empty') && ws().classList.contains('nowpn'), txt: ws().querySelector('.s-none').offsetParent ? ws().querySelector('.s-none').textContent : '' };
+        // deny 样式由 HUD 在按下那一帧挂上，按 performance.now 过了 620 ms 的那一帧才摘（ui.js slotFx / now − fxT > 620）。
+        // 原来是两三帧之后再看一眼：两帧加起来超过 620 ms 时它已按规矩摘掉，测的成了帧时间。改用 MutationObserver 记下挂上 / 摘下的时刻和挂上时的气泡文字：
+        // 挂上了、文字对，而且到读的时候还在、或者留够了才摘（观察到的时刻比游戏自己取 now 晚几毫秒，所以按 600 判「提前摘」，同一帧 / 下一帧就摘的都抓得住），就算对
+        const seen = { on: null, off: null, text: '' };
+        const look = () => {
+          const on = ws().classList.contains('deny'), t = performance.now();
+          if (on && seen.on === null) {
+            seen.on = t;
+            seen.text = ws().querySelector('.s-bubble').textContent;
+          } else if (!on && seen.on !== null && seen.off === null) seen.off = t;
+        };
+        const mo = new MutationObserver(look);
+        mo.observe(ws(), { attributes: true, attributeFilter: ['class'] });
+        const ft = []; // 按下之后几帧的时间戳：顺手记下这个场景的帧间隔
+        const mark = (t) => { ft.push(t); if (ft.length < 4) requestAnimationFrame(mark); };
+        requestAnimationFrame(mark);
         G.input.keys.KeyR = true;
         await wait(2);
-        out.none.deny = ws().classList.contains('deny') && ws().querySelector('.s-bubble').textContent;
+        if (mo.takeRecords().length) look();
+        mo.disconnect();
+        const still = ws().classList.contains('deny');
+        out.none.deny = seen.on !== null && (still || seen.off - seen.on > 600) && seen.text;
+        out.none.ms = seen.on === null ? null : Math.round((seen.off === null ? performance.now() : seen.off) - seen.on);
+        out.none.frames = ft.slice(1).map((t, k) => Math.round(t - ft[k]));
         G.input.keys.KeyR = false;
       } finally {
         G.save.equip.weapon = keep;
@@ -503,7 +524,7 @@ async function timedMain() {
       return out;
     });
     assert(r.none.empty && r.none.txt === '无武器' && r.none.deny === '没有武器', '空手时 R 格应写「无武器」，按 R 时说明：' + JSON.stringify(r.none));
-    return '气泡：' + r.none.deny;
+    return '气泡：' + r.none.deny + '，挂了 ' + r.none.ms + ' ms，按下后的帧间隔 ' + r.none.frames.join(' / ') + ' ms';
   });
 
   // 原步骤：main() 里的「新手提示：……」。提示按真实时间走（coach 用 performance.now）
