@@ -40,7 +40,8 @@
     "zone-frost": { "textures": ["Ice002", "Snow013", "g_cover_frost"] },
     "zone-storm": { "textures": ["monastery_stone_floor", "rocky_trail", "g_cover_storm"] },
     "zone-abyss": { "textures": ["dark_rock_02", "Lava001", "g_cover_abyss"] },
-    "zone-rift": { "textures": ["slate_floor", "moon_01", "g_cover_rift"] },
+    "kit-rift": { "kit": "rift" },
+    "zone-rift": { "textures": ["slate_floor", "moon_01", "g_cover_rift"], "with": ["kit-rift"] },
     "vfx": { "images": { "noiseA": "vfx/noise-a.png", "noiseB": "vfx/noise-b.png", "ramps": "vfx/ramps.png", "flipA": "vfx/flip-a.png", "flipB": "vfx/flip-b.png" } }
   }
 }

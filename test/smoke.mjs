@@ -9926,7 +9926,7 @@ async function main() {
     return r.zones.join(' ') + ' ｜ ' + r.qs.join(' ') + ' ｜ 默认 ' + r.q0 + '（' + r.eff + '）';
   });
 
-  await step('画面：第 0 区的布景全部来自自产件包 kit-ash（ca/ 开头，含路边小物），确实摆出来了；别的区照旧用 CC0 模型包（第 1–4 区里摆出布景的第一个区）', async () => {
+  await step('画面：第 0 区的布景全部来自自产件包 kit-ash（ca/ 开头，含路边小物）、第 4 区（坠星裂谷）的布景全部来自 kit-rift，确实摆出来了；别的区照旧用 CC0 模型包（第 1–3 区里摆出布景的第一个区）', async () => {
     const r = await ev(async () => {
       const W = G.world;
       const wait = async (f, ms) => {
@@ -9941,15 +9941,16 @@ async function main() {
       };
       // 别的区：照旧用 CC0 模型包。第 1 区四周是水，布景基本摆不上（不立在深水上），所以依次看第 1–4 区，以摆出布景的第一个区为准
       const ash = await look(0), others = [];
-      for (let i = 1; i < Math.min(5, G.ZONES.length); i++) {
+      for (let i = 1; i < Math.min(4, G.ZONES.length); i++) {
         const z = await look(i);
         others.push(z);
         if (z.src.reduce((a, s) => a + s.placed, 0) > 0) break;
       }
+      const rift = await look(4); // asset-zones：第 4 区的布景全部换成自产件（kit-rift）
       G.enterZone(0, 1);
-      return { ash, others };
+      return { ash, others, rift };
     });
-    const { ash, others } = r;
+    const { ash, others, rift } = r;
     const fmt = (z) => z.src.map((s) => s.key + '@' + s.pack + '×' + s.placed).join(' ');
     assert(ash.id === 'ash' && ash.hd, '第 0 区不是 ash 或没换上 PBR 外观：' + JSON.stringify(ash).slice(0, 300));
     // 路边小物（骷髅 / 骨头 / 断剑 / 墓碑）也换成了自产件：第 0 区的布景全部是 ca/ 开头、来自 kit-ash，不再用 CC0 模型包
@@ -9960,8 +9961,13 @@ async function main() {
     assert(placed(ash, /firepit/) === ash.fires && ash.fires > 0, '第 0 区火坑的实例数和火焰数对不上：' + fmt(ash) + ' 火 ' + ash.fires);
     assert(ash.src.reduce((a, s) => a + s.placed, 0) >= 20, '第 0 区布景总数太少：' + fmt(ash));
     assert(others.every((z) => z.hd && z.src.length && z.src.every((s) => s.pack === 'models')), '别的区的布景不是 CC0 模型包：' + others.map((z) => z.id + ' ' + fmt(z)).join(' ｜ '));
-    assert(others[others.length - 1].src.reduce((a, s) => a + s.placed, 0) > 0, '第 1–4 区都没摆出 CC0 布景：' + others.map((z) => z.id + ' ' + fmt(z)).join(' ｜ '));
-    return fmt(ash);
+    assert(others[others.length - 1].src.reduce((a, s) => a + s.placed, 0) > 0, '第 1–3 区都没摆出 CC0 布景：' + others.map((z) => z.id + ' ' + fmt(z)).join(' ｜ '));
+    // 第 4 区：7 种布景全部是 ca/rift_* 且来自 kit-rift；外圈的石碑、路边的碎地砖都摆出来了，总数不少（固定种子约 213，布局随机，留足余量）
+    assert(rift.id === 'rift' && rift.hd, '第 4 区不是 rift 或没换上 PBR 外观：' + JSON.stringify(rift).slice(0, 300));
+    assert(rift.src.length === 7 && rift.src.every((s) => s.key.startsWith('ca/rift_') && s.pack === 'kit-rift'), '第 4 区布景的来源不对：' + fmt(rift));
+    assert(placed(rift, /monolith/) >= 3 && placed(rift, /slabs/) >= 3, '第 4 区石碑 / 碎地砖摆得太少：' + fmt(rift));
+    assert(rift.src.reduce((a, s) => a + s.placed, 0) >= 40, '第 4 区布景总数太少：' + fmt(rift));
+    return fmt(ash) + ' ｜ ' + fmt(rift);
   });
 
   // ------------------------------------------------------------------ 存档
@@ -14247,13 +14253,16 @@ async function main() {
         if (d >= 1.5 && d <= 4.5) wall = { a, d, sx, sz };
       }
       if (!wall) {
-        // 竞技场里四面都开阔：退到一面墙前
+        // 竞技场里四面都开阔：退到一面墙前。站点要在 0.4 米余量下也能走（离墙 3 米处旁边可能贴着别的障碍，
+        // 冲刺起点不能走就不冲，布局随机时偶尔撞上）：从 3 米起往后退到能走为止，墙的距离按实际退的算
         const d = T.openDir(40);
         let L = 0.5;
         while (W.walkable(P.x + d.x * (L + 0.25), P.z + d.z * (L + 0.25), 0)) L += 0.25;
-        P.x += d.x * (L - 3);
-        P.z += d.z * (L - 3);
-        wall = { a: Math.atan2(d.x, d.z), d: 3, sx: d.x, sz: d.z };
+        let back = 3;
+        while (back < L - 0.5 && !W.walkable(P.x + d.x * (L - back), P.z + d.z * (L - back), 0.4)) back += 0.25;
+        P.x += d.x * (L - back);
+        P.z += d.z * (L - back);
+        wall = { a: Math.atan2(d.x, d.z), d: back, sx: d.x, sz: d.z };
       }
       const wx = P.x, wz = P.z;
       T.aim(P.x + wall.sx * 8, P.z + wall.sz * 8);

@@ -528,3 +528,284 @@ def grave_cross(k, h=1.2, w=0.72, th=0.14, chip=True):
     k.xform(parts, k.place((0, 0, 0), (k.r(-0.07, 0.07), k.r(0.04, 0.1) * (1 if k.r() < 0.5 else -1), k.r(-0.2, 0.2))))
     for v in parts:
         v.co.z = max(-0.04, v.co.z)
+# ================================================================ 坠星裂谷（第 4 区）
+# 形状语言：硬朗的板岩碎片、断开后悬在半空的断块、断面上透出一点星辉（冷青的晶光，顶点自发光，不加 draw）。
+# 颜色只管相对明暗：游戏里布景材质乘区域配色（rift prop.tint 0x3e5250）、只留 12% 饱和度，青色的晶光走自发光、保留色相。
+def _shard_pts(k, n, rx, ry, z0, z1, taper=0.7, tilt=(0.0, 0.0), tilt0=(0.0, 0.0), jit=0.12, phase=None, tip=0.0, mid=0.0):
+    """多棱板岩块的点：底圈（按 tilt0 斜切）+ 顶圈（按 taper 收小，按 tilt 斜切）；mid > 0 时中间加一圈往外鼓 mid 的点（略带腰身）；
+    tip > 0 时顶上再加一个尖。返回 (点, 顶面平面, 底面平面)：平面 = (z 截距, x 斜率, y 斜率)，用来认出断面"""
+    ph = k.r(0, TAU) if phase is None else phase
+    pts = []
+    for i in range(n):
+        a = ph + TAU * i / n + k.r(-jit, jit) * 0.6
+        c, s = math.cos(a), math.sin(a)
+        rr = 1 + k.r(-jit, jit)
+        x0, y0 = c * rx * rr, s * ry * rr
+        pts.append((x0, y0, z0 + tilt0[0] * x0 + tilt0[1] * y0))
+        x1, y1 = x0 * taper, y0 * taper
+        pts.append((x1, y1, z1 + tilt[0] * x1 + tilt[1] * y1))
+        if mid > 0:
+            t = k.r(0.35, 0.6)
+            sc = (1 - t) + taper * t + mid
+            pts.append((x0 * sc, y0 * sc, z0 + (z1 - z0) * t))
+    if tip > 0:
+        pts.append((k.r(-0.2, 0.2) * rx * taper, k.r(-0.2, 0.2) * ry * taper, z1 + tip))
+    return pts, (z1, tilt[0], tilt[1]), (z0, tilt0[0], tilt0[1])
+
+
+def _on_plane(f, pl, eps=1e-4):
+    return all(abs(v.co.z - (pl[0] + pl[1] * v.co.x + pl[2] * v.co.y)) < eps for v in f.verts)
+
+
+def _glow_faces(k, vs, pl, glow=0.4, tone=0.62):
+    """断面（落在平面 pl 上的面）标成星辉：发一点冷青的光，不盖积灰"""
+    fs = [f for f in _sorted_faces_of(vs) if _on_plane(f, pl)]
+    k.tag(fs, 'starglass', tone, 0.08, glow=glow, dust=0)
+    return fs
+
+
+def _slate_block(k, n, rx, ry, z0, z1, m, taper=0.8, tilt=(0, 0), tilt0=(0, 0), tip=0.0, mid=0.0, tone=0.5, glow_top=0.0, glow_bot=0.0, row='slate', jit=0.12):
+    pts, top, bot = _shard_pts(k, n, rx, ry, z0, z1, taper=taper, tilt=tilt, tilt0=tilt0, tip=tip, mid=mid, jit=jit)
+    vs = k.hull(pts, row=row, tone=tone, jitter=0.12)
+    if glow_top and tip <= 0:
+        _glow_faces(k, vs, top, glow_top)
+    if glow_bot:
+        _glow_faces(k, vs, bot, glow_bot)
+    k.xform(vs, m)
+    return vs
+
+
+def _crystal(k, L, r, m, glow=0.35, sides=5):
+    """一根小晶刺：五棱柱 + 尖，整根是星辉色（弱自发光）"""
+    pts = []
+    for i in range(sides):
+        a = TAU * i / sides + k.r(-0.15, 0.15)
+        pts.append((math.cos(a) * r, math.sin(a) * r, 0))
+        pts.append((math.cos(a) * r * 0.85, math.sin(a) * r * 0.85, L * 0.72))
+    pts.append((0, 0, L))
+    vs = k.hull(pts, row='starglass', tone=0.55, jitter=0.1, glow=glow, dust=0)
+    k.xform(vs, m)
+    return vs
+
+
+def _ground_clamp(vs, z=-0.05):
+    for v in vs:
+        v.co.z = max(z, v.co.z)
+
+
+def monolith(k, h=0.95, w=0.86, d=0.5, gap=0.06, glow=0.4):
+    """裂谷石碑：一块高而薄的板岩，上端沿一道陡的斜线断开，断下来的一截悬在断口上方一点、略转；旁边并着一块矮一些的板岩往外斜，
+    脚边一块崩落的石片。（替换 kn/stone_tallA 的尺度：scale 1 时宽 ±0.49、厚 ±0.34、高约 1）"""
+    sgn = 1 if k.r() < 0.5 else -1
+    sl = sgn * k.r(0.75, 1.0)
+    z1 = h * 0.6
+    lean = k.r(-0.04, 0.04)
+    m = k.place((-sgn * w * 0.1, 0, 0), (lean, k.r(-0.03, 0.03), k.r(-0.1, 0.1)))
+    vs = _slate_block(k, 5, w * 0.27, d * 0.24, -0.05, z1, m, taper=0.86, tilt=(sl, 0), mid=0.03, tone=0.5, glow_top=glow, jit=0.08)
+    _ground_clamp(vs)
+    # 悬着的断块：底面和断口平行（同一个斜率），往上抬 gap，略转一点；顶上收一个歪的尖
+    zb = z1 + gap
+    m2 = k.place((-sgn * w * 0.1 + k.r(-0.015, 0.015), 0, 0), (lean + k.r(-0.04, 0.04), k.r(-0.05, 0.05), k.r(-0.12, 0.12)))
+    _slate_block(k, 5, w * 0.27 * 0.86, d * 0.24 * 0.86, zb, zb + h * 0.16, m2, taper=0.75, tilt=(sl * 0.4, k.r(-0.2, 0.2)), tilt0=(sl, 0), tip=h * 0.12, tone=0.58, glow_bot=glow, jit=0.08)
+    # 并排的矮板岩：往外斜，平的断顶（不发光）
+    m3 = k.place((sgn * w * 0.24, k.r(-0.04, 0.04), 0), (k.r(-0.05, 0.05), sgn * 0.16, k.r(-0.25, 0.25)))
+    vs3 = _slate_block(k, 5, w * 0.17, d * 0.2, -0.05, h * 0.5, m3, taper=0.8, tilt=(-sgn * 0.5, k.r(-0.2, 0.2)), tone=0.44, jit=0.08)
+    _ground_clamp(vs3)
+    # 崩落的石片：平躺在前面的地上
+    a = k.r(0, TAU)
+    m4 = k.place((math.cos(a) * w * 0.3, math.sin(a) * d * 0.5, 0), (k.r(-0.2, 0.2), k.r(-0.2, 0.2), k.r(0, TAU)))
+    vs4 = _slate_block(k, 5, w * 0.12, d * 0.1, -0.04, 0.05, m4, taper=0.8, tone=0.46)
+    _ground_clamp(vs4)
+
+
+def shards(k, h=0.75, r=0.22, gap=0.04, glow=0.4):
+    """板岩晶簇：中间一根高的六棱碎片（上端断开，断尖悬在上方），旁边两根矮的往外斜。（替换 kn/stone_tallC：±0.23、高约 0.78）"""
+    z1 = h * 0.74
+    sl = k.r(0.25, 0.45)
+    vs = _slate_block(k, 6, r * 0.42, r * 0.36, -0.05, z1, k.place((0, 0, 0), (k.r(-0.05, 0.05), k.r(-0.05, 0.05), 0)), taper=0.72, tilt=(sl, 0), tone=0.52, glow_top=glow)
+    _ground_clamp(vs)
+    zb = z1 + gap
+    _slate_block(k, 5, r * 0.3, r * 0.26, zb, zb + h * 0.06, k.place((0, 0, 0), (0, k.r(-0.08, 0.08), k.r(-0.3, 0.3))), taper=0.6, tilt0=(sl, 0), tip=h * 0.12, tone=0.6, glow_bot=glow)
+    a0 = k.r(0, TAU)
+    for i, (hh, rr) in enumerate(((0.55, 0.32), (0.4, 0.28))):
+        a = a0 + math.pi * (0.75 + 0.5 * i) + k.r(-0.2, 0.2)
+        cx, cy = math.cos(a) * r * 0.42, math.sin(a) * r * 0.42
+        m = k.place((cx, cy, 0), (-math.sin(a) * 0.3, math.cos(a) * 0.3, k.r(0, TAU)))
+        v2 = _slate_block(k, 5, r * rr, r * rr * 0.85, -0.05, h * hh, m, taper=0.55, tip=h * 0.1, tone=0.46 + 0.05 * i)
+        _ground_clamp(v2)
+
+
+def stele(k, h=0.82, w=0.2, gap=0.022, glow=0.45):
+    """星骸碑：倒角方座上三节方锥形的碑身，节与节之间空开一道缝（悬着）、各自转一点；中节碑面一道星辉刻线，顶上收尖。
+    （替换 kn/statue_obelisk：±0.15、高约 0.88）"""
+    k.box((w * 1.5, w * 1.5, 0.11), k.place((0, 0, 0.005)), row='slate', tone=0.4, jitter=0.06, bevel=0.018)
+    z = 0.06
+    segs = [0.26, 0.22, 0.17]
+    wid = w
+    tot = h - 0.06 - gap * 2 - h * 0.08
+    s = tot / sum(segs)
+    mid_vs = None
+    for i, sh in enumerate(segs):
+        hh = sh * s
+        tw = wid * 0.9
+        m = k.place((k.r(-0.008, 0.008), k.r(-0.008, 0.008), 0), (0, 0, k.r(-0.09, 0.09)))
+        last = i == len(segs) - 1
+        vs = _slate_block(k, 4, wid * 0.7, wid * 0.7, z, z + hh, m, taper=tw / wid, tip=h * 0.08 if last else 0, tone=0.5 + 0.04 * i, glow_top=0 if last else glow * 0.7, glow_bot=glow * 0.7 if i else 0, jit=0.03)
+        if i == 1:
+            mid_vs = vs
+        z += hh + gap
+        wid = tw
+    # 中节最大的一面刻一道竖的星辉线
+    fs = sorted([f for f in _sorted_faces_of(mid_vs) if abs(f.normal.z) < 0.3], key=lambda f: (round(f.calc_area(), 5), round(f.calc_center_median().x, 4)))
+    if fs:
+        k.slit(fs[-1], width=0.12, depth=0.006, row='starglass', glow=glow)
+
+
+def boulder(k, sx=0.5, sy=0.48, sz=0.52, gap=0.035, glow=0.3, n=26):
+    """裂开的巨石：一块凸包岩石从中间劈成两半、往两边略微张开，劈面透出一点星辉。（替换 kn/rock_largeD：±0.53、高约 0.57）"""
+    a = k.r(0, math.pi)
+    nx, ny = math.cos(a), math.sin(a)
+    pts = []
+    for i in range(n):
+        u = k.r(-0.2, 1.0)
+        b = k.r(0, TAU)
+        rr = math.sqrt(max(0.0, 1 - min(1.0, abs(u)) ** 2)) * k.r(0.82, 1.04)
+        pts.append((math.cos(b) * rr * sx, math.sin(b) * rr * sy, max(-0.05, u * sz * k.r(0.85, 1.02))))
+    pts += _ring_pts(k, 7, sx * 0.9, sy * 0.9, -0.05, 0.1)
+    for side in (1, -1):
+        half = [p for p in pts if (p[0] * nx + p[1] * ny) * side > gap / 2]
+        # 劈面：在两半之间的平面上取几点（和外形同一个轮廓，收进一点）
+        cut = []
+        for i in range(8):
+            t = (i + 0.5) / 8
+            zc = -0.05 + (sz * 0.92) * math.sin(math.pi * t) * k.r(0.85, 1.0) if i % 2 else -0.05 + sz * 0.9 * t
+            w0 = math.sqrt(max(0.0, 1 - ((zc + 0.05) / (sz * 1.02)) ** 2)) * k.r(0.75, 0.95)
+            ex = (-ny * sx, nx * sy)
+            sgn = 1 if i % 2 else -1
+            cut.append((nx * side * gap / 2 + ex[0] * w0 * sgn, ny * side * gap / 2 + ex[1] * w0 * sgn, zc))
+        vs = k.hull(half + cut, row='slate', tone=0.48 + 0.04 * side, jitter=0.14)
+        cf = []
+        for f in _sorted_faces_of(vs):
+            if all(abs(v.co.x * nx + v.co.y * ny - side * gap / 2) < 1e-4 for v in f.verts):
+                cf.append(f)
+        k.tag(cf, 'starglass', 0.5, 0.08, glow=glow, dust=0)
+        # 两半各往外倾一点（绕底边转）
+        k.xform(vs, k.place((nx * side * gap * 0.6, ny * side * gap * 0.6, 0), (-ny * side * 0.05, nx * side * 0.05, 0)))
+        _ground_clamp(vs)
+    for i in range(2):
+        b = a + math.pi / 2 + math.pi * i + k.r(-0.4, 0.4)
+        pts2 = [(math.cos(b) * sx * 0.95 + p[0], math.sin(b) * sy * 0.95 + p[1], max(-0.04, p[2])) for p in _blob(k, 0.08, 0.07, 0.06, 7)]
+        k.hull(pts2, row='slate', tone=0.42)
+
+
+def rift_rock(k, sx=0.36, sy=0.48, sz=0.42):
+    """路边的板岩块：两三层压扁的凸包叠起来、层与层错开一点（板岩的层理），顶层削平。（替换 kn/rock_largeB：±0.38 × ±0.51、高约 0.43）"""
+    z = -0.05
+    layers = 3
+    for i in range(layers):
+        th = sz * (0.42 if i == 0 else 0.3) * k.r(0.9, 1.1)
+        f = 1.0 - 0.2 * i
+        ox, oy = k.r(-0.08, 0.08) * sx, k.r(-0.08, 0.08) * sy
+        rot = k.r(-0.25, 0.25)
+        pts = []
+        for j in range(9):
+            a = TAU * j / 9 + k.r(-0.2, 0.2)
+            c, s_ = math.cos(a + rot), math.sin(a + rot)
+            rr = f * k.r(0.78, 1.0)
+            pts.append((ox + c * sx * rr, oy + s_ * sy * rr, z + k.r(0, 0.04) * sz))
+            pts.append((ox + c * sx * rr * 0.86, oy + s_ * sy * rr * 0.86, z + th * k.r(0.85, 1.0)))
+        k.hull(pts, row='slate', tone=0.46 + 0.05 * i, jitter=0.12)
+        z += th * 0.88
+
+
+def rift_rubble(k, L=8.0, D=3.0, H=3.4, glow=0.35):
+    """塌落的板岩堆：一块立着的断碑（断口斜、透星辉，断尖悬在上方），一块大板岩斜靠在它身上，脚下几块倒下的厚板和碎块。
+    （替换 kd/rubble_large：宽 ±4.07、深 ±1.6、高约 3.5）"""
+    side = 1 if k.r() < 0.5 else -1
+    sl = side * k.r(0.5, 0.7)
+    x0 = -side * L * 0.16
+    z1 = H * 0.72
+    vs = _slate_block(k, 4, L * 0.12, D * 0.22, -0.05, z1, k.place((x0, 0, 0), (k.r(-0.04, 0.04), k.r(-0.05, 0.05), k.r(-0.2, 0.2))), taper=0.85, tilt=(sl, 0), tone=0.52, glow_top=glow, jit=0.05)
+    _ground_clamp(vs)
+    zb = z1 + 0.22
+    _slate_block(k, 4, L * 0.1, D * 0.19, zb, zb + 0.5, k.place((x0, 0, 0), (k.r(-0.05, 0.05), k.r(-0.05, 0.05), k.r(-0.15, 0.15))), taper=0.6, tilt0=(sl, 0), tip=0.35, tone=0.58, glow_bot=glow, jit=0.05)
+    # 斜靠的大板：底脚在外侧地上，顶端搭在断碑上
+    k.box((L * 0.38, D * 0.55, 0.4), k.place((side * L * 0.06, k.r(-0.2, 0.2), H * 0.3), (0, -side * 0.72, k.r(-0.15, 0.15))), row='slate', tone=0.46, jitter=0.1, bevel=0.06)
+    # 倒下的厚板
+    for i in range(3):
+        t = side * k.r(0.2, 0.45) if i else -side * k.r(0.3, 0.45)
+        k.box((k.r(1.6, 2.4), k.r(1.1, 1.6), k.r(0.55, 0.85)), k.place((t * L, k.r(-0.6, 0.6) * D * 0.4, 0.25), (k.r(-0.15, 0.15), k.r(-0.25, 0.25), k.r(0, TAU))), row='slate', tone=0.42 + 0.04 * i, jitter=0.12, bevel=0.06)
+    # 碎块
+    for i in range(6):
+        t = k.r(-0.46, 0.46)
+        rk = k.r(0.3, 0.6)
+        cy = k.r(-0.8, 0.8) * D * 0.4
+        pts = [(t * L + p[0], cy + p[1], max(-0.05, p[2] + 0.08)) for p in _blob(k, 0.6 * rk, 0.5 * rk, 0.45 * rk, 8)]
+        k.hull(pts, row='slate', tone=0.4, jitter=0.15)
+
+
+def slabs(k, r=1.0, th=0.15, n=4, glow=0.3):
+    """碎裂的地砖：一块方形板岩砖裂成三四块、稍微错开翘起，缝里一点晶尘。平放在地上（摆放标记 l），哪个朝向看都是几块板。
+    （替换 kd/floor_tile_small_broken_A：±1 × ±1、厚 0.15；原点在底面，旧件的底在 y = -0.1）"""
+    z0, z1 = -0.1, th - 0.1
+    cx, cy = k.r(-0.25, 0.25) * r, k.r(-0.25, 0.25) * r
+    a0 = k.r(0, TAU)
+    cuts = sorted([a0 + TAU * (i + k.r(-0.2, 0.2)) / n for i in range(n)])
+    corners = [(-r, -r), (r, -r), (r, r), (-r, r)]
+    miss = int(k.r(0, n)) if k.r() < 0.6 else -1
+    for i in range(n):
+        a1, a2 = cuts[i], cuts[(i + 1) % n] + (TAU if i == n - 1 else 0)
+        poly = [(cx, cy)]
+        # 沿两条裂缝射线到方砖边界，中间带上落在这块里的角
+        def edge_hit(a):
+            dx, dy = math.cos(a), math.sin(a)
+            ts = []
+            for (px, py, ex, ey) in ((-r, None, 1, 0), (r, None, 1, 0), (None, -r, 0, 1), (None, r, 0, 1)):
+                if px is not None and abs(dx) > 1e-6:
+                    t = (px - cx) / dx
+                    if t > 0 and abs(cy + dy * t) <= r + 1e-6:
+                        ts.append(t)
+                if py is not None and abs(dy) > 1e-6:
+                    t = (py - cy) / dy
+                    if t > 0 and abs(cx + dx * t) <= r + 1e-6:
+                        ts.append(t)
+            t = min(ts)
+            return (cx + dx * t, cy + dy * t)
+        poly.append(edge_hit(a1))
+        for (qx, qy) in corners:
+            aq = math.atan2(qy - cy, qx - cx)
+            while aq < a1:
+                aq += TAU
+            if aq < a2:
+                poly.append((qx, qy, aq))
+        poly = poly[:2] + [p[:2] for p in sorted(poly[2:], key=lambda p: p[2])]
+        poly.append(edge_hit(a2))
+        if i == miss:
+            continue  # 这一块碎掉了（缺一角），露出地面
+        # 每块往外错开一点（裂缝）、缩进一点（边缘崩口），整体略翘
+        mx = sum(p[0] for p in poly) / len(poly)
+        my = sum(p[1] for p in poly) / len(poly)
+        sh = 0.035 * r
+        dl = math.hypot(mx - cx, my - cy) or 1
+        ox, oy = (mx - cx) / dl * sh, (my - cy) / dl * sh
+        pts = []
+        for (px, py) in poly:
+            qx, qy = mx + (px - mx) * k.r(0.9, 0.97) + ox, my + (py - my) * k.r(0.9, 0.97) + oy
+            pts.append((qx, qy, z0))
+            pts.append((qx, qy, z1 - k.r(0, 0.03)))
+        vs = k.hull(pts, row='slate', tone=k.r(0.12, 0.26), jitter=0.08)
+        tx, ty = k.r(-0.03, 0.03), k.r(-0.03, 0.03)
+        k.xform(vs, Matrix_about(mx, my, z0, tx, ty))  # 包围盒最后由清单里的 fit 拉回 ±r、y 0–0.15
+    # 缝里的晶尘：两三粒很小的星辉碎晶
+    for i in range(3):
+        b = cuts[i % n] + 0.02
+        d = k.r(0.2, 0.6) * r
+        pts = [(cx + math.cos(b) * d + p[0], cy + math.sin(b) * d + p[1], z0 + 0.02 + abs(p[2])) for p in _blob(k, 0.035 * r, 0.03 * r, 0.035, 6)]
+        k.hull(pts, row='starglass', tone=0.5, jitter=0.08, glow=glow, dust=0)
+
+
+def Matrix_about(px, py, pz, rx, ry):
+    """绕点 (px, py, pz) 的小角度倾斜（rx / ry 弧度）"""
+    from mathutils import Euler, Matrix
+    T = Matrix.Translation(Vector((px, py, pz)))
+    return T @ Euler((rx, ry, 0), 'XYZ').to_matrix().to_4x4() @ T.inverted()
