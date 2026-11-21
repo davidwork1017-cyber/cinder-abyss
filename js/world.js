@@ -19780,7 +19780,8 @@
       }
     }
     // （物理的尘土由上面的实心烟团代替）
-    W.decal(6, x + sn * 0.35, z + cs * 0.35, 0.5 + w * 0.22 + (crit ? 0.1 : 0), ang, pal[1], 0.55 + w * 0.2);
+    // vf-vfx2：雷击不留圆的擦痕（浅黄的圆斑会在怪脚下铺一块亮面；雷的形状语言里没有圆团）
+    if (type !== 'light') W.decal(6, x + sn * 0.35, z + cs * 0.35, 0.5 + w * 0.22 + (crit ? 0.1 : 0), ang, pal[1], 0.55 + w * 0.2);
     if (w >= 1 || crit) flashLight(x, y + 1, z, hex, 0.5 + w * 0.3);
   };
   // 终结技砸地：落点一颗大星，一圈往外推的实心尘团，几片朝前甩的碎石尖片（ang 是劈下去的方向）
@@ -20457,13 +20458,18 @@
       W.fxFlip(VFB.smoke, x + Math.sin(a) * 0.4, 0.8, z + Math.cos(a) * 0.4, vr(1.2, 1.6), vr(1.3, 1.7), 0x3a302a, { vx: Math.sin(a) * 0.4, vz: Math.cos(a) * 0.4, vy: 0.9, up: 0.4, grow: 1.8 });
     }
     W.vDecal(VVD.scorch, x, z, R * 0.7, 3.5, h);
+    // 熔岩裂纹：从焦痕中间往外的几道折线（每道 4 折、拐得狠，第二折岔出一根短枝），越往外越细、越早冷掉
     vsBrush(VSH.bar, 5, 3, 0xff9a3a, 0x40201a, 0.35, 0.55, 0.45);
-    for (let i = 0, n = lo ? 5 : 8; i < n; i++) {
-      const a = (i / n) * TAU + vr(-0.3, 0.3);
-      let px = x + Math.sin(a) * R * 0.22, pz = z + Math.cos(a) * R * 0.22;
-      for (let s2 = 0; s2 < 3; s2++) {
-        const b = a + vr(-0.55, 0.55), L = R * vr(0.18, 0.26), dx = Math.sin(b) * L, dz = Math.cos(b) * L;
-        vsEmit(px, 0.075 + i * 0.001, pz, dx, 0, dz, vr(2.2, 2.8) - s2 * 0.3, 0.17 - s2 * 0.035);
+    for (let i = 0, n = lo ? 4 : 7; i < n; i++) {
+      let a = (i / n) * TAU + vr(-0.35, 0.35), px = x + Math.sin(a) * R * vr(0.12, 0.25), pz = z + Math.cos(a) * R * vr(0.12, 0.25);
+      for (let s2 = 0; s2 < 4; s2++) {
+        a += vr(-0.85, 0.85) * (s2 ? 1 : 0.4);
+        const L = R * vr(0.1, 0.15), dx = Math.sin(a) * L, dz = Math.cos(a) * L, w = 0.16 - s2 * 0.028, life = vr(2.2, 2.8) - s2 * 0.3;
+        vsEmit(px, 0.075 + i * 0.001, pz, dx, 0, dz, life, w);
+        if (s2 === 1 && !lo) {
+          const b = a + (vr(0, 1) < 0.5 ? -1 : 1) * vr(0.7, 1.2), L2 = L * 0.8;
+          vsEmit(px + dx, 0.076 + i * 0.001, pz + dz, Math.sin(b) * L2, 0, Math.cos(b) * L2, life * 0.8, w * 0.65);
+        }
         px += dx;
         pz += dz;
       }
@@ -23200,7 +23206,7 @@
         // vf-vfx2：陨火的落影：落点上一道暗环，随下落从 1.05 R 收到 0.35 R（越落越快，收到最小就落地）
         const k = Math.min(1, m.t / m.dur), rr = m.fxR * (1.05 - 0.7 * k * k);
         mFlat(m.x, 0.07, m.z, 0, rr, rr);
-        vsNow(VSH.ring, 0.05, 0.03, 0.02, 0, 0, 0.35);
+        vsNow(VSH.ring, 0.05, 0.03, 0.02, 0, 0, 0.05);
       }
       mStretch(p.x + dx * 0.3, p.y + dy * 0.3, p.z + dz * 0.3, dx, dy, dz, 1.3, 2.6 * (1 + 0.15 * Math.sin(t * 30)));
       pfPut('flame', m.lr * 0.5 + 0.5, m.lg * 0.5 + 0.4, m.lb * 0.5 + 0.15);
