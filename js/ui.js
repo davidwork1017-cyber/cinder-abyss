@@ -2414,7 +2414,7 @@
         const k = Math.sqrt(ctx.area);
         note += '<div class="sk-anote"><i></i>长 ' + fmt1(sk.len * k) + ' 米 · 宽 ' + fmt1(sk.width * k) + ' 米 · 同一次施放每个敌人只中一下</div>';
       } else if (sk.kind === 'burst') {
-        note += '<div class="sk-anote"><i></i>以自身为中心，半径 ' + fmt1(sk.radius * Math.sqrt(ctx.area)) + ' 米，不穿墙</div>';
+        note += '<div class="sk-anote"><i></i>以自身为中心，半径 ' + fmt1(sk.radius * Math.sqrt(ctx.area)) + ' 米，最多打最近的 ' + sk.maxHit + ' 个，不穿墙</div>';
       }
       // 流血（放血自带 / 开刃）：每层多少、叠稳几层、流血那一份秒伤
       const bl = G.bleedInfo(ctx, G.bleedHps(ctx, rate));

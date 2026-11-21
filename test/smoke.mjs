@@ -12298,7 +12298,7 @@ async function main() {
     return '单体 ' + r.single + ' 根，冻住 ' + r.frozen + '/6';
   })));
 
-  await step('迸电：以自身为中心半径 3.2 米全中，外面的不中；正在感电的敌人挨这一下照常放出电弧（打到圈外的敌人）', noRes(() => seKeep(async () => {
+  await step('迸电：以自身为中心半径 3.2 米内的都中、外面的不中，最多打最近的 4 个；正在感电的敌人挨这一下照常放出电弧（打到圈外的敌人）', noRes(() => seKeep(async () => {
     const r = await ev(() => {
       T.arena();
       G.save.bar = [null, null, null, null];
@@ -12319,10 +12319,17 @@ async function main() {
       G.execSkill(ctx);
       G.tick(1 / 60);
       out.arc = Math.round(out1.maxHp - out1.hp - o0);
+      // 个数上限：圈里 6 只，只打最近的 4 只
+      G.clearEnemies();
+      const six = [1.2, 1.6, 2.0, 2.3, 2.7, 3.0].map((d, i) => T.mob('brute', Math.cos(i * 1.05) * d, Math.sin(i * 1.05) * d));
+      G.execSkill(ctx);
+      G.tick(1 / 60);
+      out.six = six.map((e) => (e.hp < e.maxHp ? 1 : 0)).join('');
       return out;
     });
     assert(r.hits.every((v) => Math.abs(v - r.avg) <= r.avg * 0.02) && r.out === 0, '半径内全中、外面不中：' + JSON.stringify(r));
     assert(r.arc > 0, '感电的敌人挨打应放出电弧：' + JSON.stringify(r));
+    assert(r.six === '111100', '圈里 6 只应只打最近的 4 只：' + JSON.stringify(r));
     return '圈内 ' + r.hits.join(' / ') + '，电弧 ' + r.arc;
   })));
 

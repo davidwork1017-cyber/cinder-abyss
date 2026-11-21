@@ -7180,8 +7180,13 @@
     }
     state.stats.bursts = (state.stats.bursts || 0) + 1;
     let any = false;
-    for (const e of enemiesIn(P.x, P.z, R)) {
-      if (!losClear(P.x, P.z, e.x, e.z)) continue;
+    // 最多打最近的 maxHit 个（看得见的）
+    const list = enemiesIn(P.x, P.z, R).filter((e) => losClear(P.x, P.z, e.x, e.z));
+    if (sk.maxHit && list.length > sk.maxHit) {
+      list.sort((p, q) => dist(p.x, p.z, P.x, P.z) - p.r - (dist(q.x, q.z, P.x, P.z) - q.r));
+      list.length = sk.maxHit;
+    }
+    for (const e of list) {
       G.hitEnemy(e, ctx, 1, { ang: Math.atan2(e.x - P.x, e.z - P.z), quiet: true });
       any = true;
     }
