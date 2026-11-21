@@ -4,6 +4,15 @@
   const G = (window.G = {});
 
   G.rand = (a, b) => a + Math.random() * (b - a);
+  // 原地洗牌（Fisher–Yates，返回同一个数组）。不要用 arr.sort(() => Math.random() - 0.5)：比较函数前后矛盾时，排出来的结果取决于引擎的排序怎么走
+  G.shuffle = (arr) => {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1)), t = arr[i];
+      arr[i] = arr[j];
+      arr[j] = t;
+    }
+    return arr;
+  };
   G.randInt = (a, b) => Math.floor(a + Math.random() * (b - a + 1));
   G.pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
   G.clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -980,6 +989,17 @@
     // 开刃（skill-expand）：物理技能 / 物理召唤物的每一击附带一层流血（该击物理伤害的 bleed%，规则见 G.BLEED）。光环镶不上
     serrate: { name: '开刃', req: ['phys'], no: ['aura'], cost: 1.15, eff: { bleed: 30 }, desc: '物理命中附带流血：4 秒内再造成该击物理伤害的 30%',
       alt: '和放血共用每个敌人 6 层的上限，满了顶掉最弱的一层。出手慢、单下重的技能收益最大。' },
+    // 第二批：改玩法（分岔 / 溅击 / 断命 / 化元）。分岔的分支、溅击的溅射都不会再分岔 / 溅射（不会连锁放大）
+    // 分岔不扣伤害（实测扣 10% 时打不过连锁：会爆炸的投射物在密集的怪群里分出来的多半撞上已经被炸过的敌人）；代价是魔力 ×1.25 和占一个孔
+    fork: { name: '分岔', req: ['projectile'], no: ['minion'], noId: ['vortex'], cost: 1.25, eff: { fork: 2, forkAng: 35 }, desc: '投射物首次命中后分出 2 枚',
+      alt: '分出的两枚向左右斜飞（±35°），不再分岔、穿透或连锁；这次施放已经打中过的敌人不会再被打中。钉刃、环刃、跳焰、黏焰不分岔，黑旋风镶不上。' },
+    splash: { name: '溅击', req: ['melee'], no: ['minion'], cost: 1.15, eff: { splash: 40, splashR: 2.5 }, desc: '近战命中时溅到身边 2.5 米，伤害 40%',
+      alt: '溅到被打中的敌人身边的其他敌人；同一下已经直接打中的不再吃溅射。按原伤害的类型分配，会累积异常值，不暴击、不吸血。' },
+    // 断命 15% 时实测清一群只快约 12%，抬到 20%（精英 10%）
+    cull: { name: '断命', req: null, cost: 1.1, eff: { cull: 20, cullElite: 10 }, desc: '命中后生命低于 20% 的敌人直接倒下',
+      alt: '精英为 10%，首领不受影响。召唤物的命中同样生效；爆燃、电弧、溅射这类触发出来的伤害不算。' },
+    convert: { name: '化元', req: ['phys'], cost: 1.1, eff: { convert: 60 }, desc: '60% 物理伤害转为加成最高的元素',
+      alt: '取火焰 / 冰霜 / 闪电伤害提高里最高的那种（并列取火焰）。转过去的部分吃元素加成、累积异常值；蛮力只加剩下的物理部分；注入照旧按总伤害附加。' },
   };
 
   {
@@ -1417,7 +1437,7 @@
   // 随核 yinli：黑洞以你为中心跟着你走；持续 × dur、半径 × radius、牵引 × pull（首领不变）、每跳伤害 × dmg
   // 锁链 yuanfu：同一时刻处于渊缚的敌人连成一串（最多 max 个），其中一个受到你的伤害，其余每个分到 share
   // 暗域 xizhu（巅峰，熄烛冠）：你身周 r 米、每个召唤物身周 mr 米是暗域。域内的敌人造成的伤害 × (1 − weak)（首领 weakBoss，熄烛者不吃）；
-  //   暗域增伤（专属词缀 darkDmg）：你的伤害对所有敌人、召唤物的伤害对域内的敌人 × (1 + darkDmg%)；
+  //   暗域增伤（专属词缀 darkDmg）：你的伤害对所有敌人 × (1 + darkDmg%)；召唤物的伤害对域内的敌人 × (1 + darkDmg% × mk)（召唤流吃不到暴击行，按 mk 倍补上）；
   //   far 米外的怪不会因为距离醒来；已醒的怪在 far 米外 lose 秒看不到你就失去目标、回原地（首领不吃）；还没被发现（没醒）时你的第一击必定暴击；
   //   暖光半径 × (1 − lamp)，和幽晦叠加时雾近端不低于 fogMin
   // 双生 shuangsheng（巅峰）：刻式技能（宝石 ≥ 解锁等级或选着渊式）的每次命中，delay 秒后在同一目标上落一记这一下伤害 × k 的双生一击
@@ -1437,7 +1457,7 @@
     zhaohun: { delay: 0.15, r: 1.6, mult: 1.5, multBig: 1.0, rollCd: 0.15 },
     yinli: { dur: 0.8, radius: 0.85, pull: 0.75, dmg: 1.2 },
     yuanfu: { max: 6, share: 0.2 },
-    xizhu: { r: 8, mr: 2.5, weak: 0.2, weakBoss: 0.1, far: 9, lose: 3, lamp: 0.4, fogMin: 14 },
+    xizhu: { r: 8, mr: 2.5, weak: 0.2, weakBoss: 0.1, mk: 1.25, far: 9, lose: 3, lamp: 0.4, fogMin: 14 },
     shuangsheng: { k: 0.6, delay: 0.2, fx: 0.32 }, // fx：脚下双月的亮度（1 = 暖金原色）；0.32 时压在怪群脚边、怪的亮面只高 1–2 个点（灰度同帧对照）
   };
   // 机制说明（物品提示、图鉴用），按上面的数值拼
@@ -1471,7 +1491,7 @@
     R.yuanfu.mechAlt = '分到的伤害不暴击、不触发命中效果、不累积异常值、不带黑焰。渊缚结束即断开。首领不会被渊缚。';
     for (const id of ['nuchao', 'zhuixing', 'dianqiao', 'haiwang', 'yinli']) R[id].mechAlt = (R[id].mechAlt || '') + '只改原式，刻式 A / B 下不生效。';
     const x = M.xizhu, s2 = M.shuangsheng;
-    R.xizhu.mechDesc = '身周 ' + x.r + ' 米是暗域：域内敌人伤害降低 ' + pc(x.weak) + '。暗域增伤：你的伤害对所有敌人生效，召唤物只对域内敌人生效。';
+    R.xizhu.mechDesc = '身周 ' + x.r + ' 米是暗域：域内敌人伤害降低 ' + pc(x.weak) + '。暗域增伤：你的伤害对所有敌人生效；召唤物打域内敌人时，这份增伤按 ' + pc(x.mk) + ' 算。';
     R.xizhu.mechAlt = '召唤物身周 ' + x.mr + ' 米也算暗域。首领在域内只降低 ' + pc(x.weakBoss) + '，熄烛者不受影响。' + x.far + ' 米外的怪不会因距离醒来；已醒的怪在 ' + x.far +
       ' 米外连续 ' + x.lose + ' 秒看不到你就失去目标（首领不会）。对没发现你的敌人第一击必定暴击。暖光半径缩小 ' + pc(x.lamp) + '。';
     R.shuangsheng.mechDesc = '刻式技能每次命中，' + s2.delay + ' 秒后余响一次，造成该次伤害的 ' + pc(s2.k) + '。';
