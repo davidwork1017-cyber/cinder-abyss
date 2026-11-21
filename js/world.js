@@ -20324,8 +20324,8 @@
       m.mesh.position.set(px, py, pz);
       m.mesh.rotation.x += dt * 5;
       m.mesh.rotation.z += dt * 3;
-      for (let j = 0; j < 3; j++) {
-        const w = Math.random() * 0.4;
+      for (let j = 0, n = m.quiet ? 1 : 3; j < n; j++) {
+        const w = m.quiet ? -0.35 : Math.random() * 0.4; // quiet（星雨）：尾迹稀一些、压暗，落地时不留一团发白的烟
         spawnP(px + rand(-0.3, 0.3), py + rand(-0.3, 0.3), pz + rand(-0.3, 0.3), rand(-1, 1), rand(0, 2), rand(-1, 1), rand(0.25, 0.55), rand(0.3, 0.6), m.r + (1 - m.r) * w, m.g + (1 - m.g) * w, m.b + (1 - m.b) * w, -1, 1);
       }
       if (k >= 1) {
@@ -26161,8 +26161,7 @@
   };
   // 落地只画边：一道往外推的空心细环（很快淡出）+ 几点星屑，不铺满落点（灰度检查：落点里的怪要看得清）
   W.rvStarHit = function (x, z, R) {
-    if (W.vShock) W.vShock(x, z, R, 0x9fe8cc, 0.22, 0);
-    W.burst(x, 0.9, z, 0xc8ffe8, qualId === 'low' ? 4 : 7, 5, 0.3);
+    if (W.vShock) W.vShock(x, z, R, 0x7fcfb0, 0.22, 0);
   };
   // 独骸：骸王头顶一圈慢慢转的冠环（on = false 时收起；骸王倒下、散掉也收起）
   W.rvCrown = function (ent, on) {
@@ -26192,8 +26191,7 @@
   W.rvOrbit = function (hole, R) {
     if (!hole) return null;
     const n = qualId === 'low' ? 3 : 5, hs = [];
-    for (let i = 0; i < n; i++) hs.push(W.kv('rock', { hex: 0x3a2a40, s: 0.28 + (i % 2) * 0.1, k: 0.15 }));
-    hs.push(W.kv('glyph', { hex: RV_DEEP, y: 0.11, s: R * 2, k: 2, a: 0.3 })); // 只一道淡的细环（不铺地面，灰度里地面不被抬亮）
+    for (let i = 0; i < n; i++) hs.push(W.kv('rock', { hex: 0x2a2030, s: 0.28 + (i % 2) * 0.1, k: 0 }));
     const t0 = hole.t0; // 黑洞的网格是对象池里的：换了一个洞（t0 变了）也算收起
     return rvAdd({
       kind: 'orbit', t: 0, hs,
@@ -26208,9 +26206,6 @@
           h.ry = a;
           h.rx = o.t * 3 + i;
         }
-        const g = hs[n];
-        g.x = hole.x;
-        g.z = hole.z;
       },
     });
   };
