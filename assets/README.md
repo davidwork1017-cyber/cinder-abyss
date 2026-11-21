@@ -4,6 +4,7 @@
 | --- | --- | --- |
 | `polyhaven/` | Poly Haven 贴图，https://polyhaven.com | CC0（`polyhaven/LICENSE.txt`） |
 | `ambientcg/` | ambientCG 贴图，https://ambientcg.com | CC0（`ambientcg/LICENSE.txt`） |
+| `generated/` | `tools/gen-ground-textures.mjs` 按固定种子程序化生成的地面覆盖层（`g_cover_*`）和贴花图集（`g_decals`） | 原创（我们自己画的，不是第三方素材） |
 | `kaykit-dungeon-remastered/` | KayKit Dungeon Remastered 1.0，Kay Lousberg，https://kaylousberg.itch.io/kaykit-dungeon-remastered | CC0（`LICENSE.txt`） |
 | `kaykit-halloween-bits/` | KayKit Halloween Bits 1.0，Kay Lousberg，https://kaylousberg.itch.io/halloween-bits | CC0（`LICENSE.txt`） |
 | `kenney-nature-kit/` | Kenney Nature Kit 2.1，https://kenney.nl/assets/nature-kit | CC0（`License.txt`） |
@@ -13,6 +14,7 @@
 | `quaternius-easy-enemy/` | Quaternius Easy Enemy（Spider），https://quaternius.com/packs/easyenemy.html | CC0（`License_EasyEnemy.txt`） |
 
 - 贴图：`node tools/prep-textures.mjs` 下载 1k 原图（缓存在 `.asset-cache/`，不进仓库），压成每套三张 JPEG：`albedo.jpg`、`normal.jpg`（OpenGL 法线）、`arh.jpg`（R 遮蔽 / G 粗糙度 / B 高度；Lava001 的 R 放自发光）。清单在 `tools/asset-sources.json`。
+- 程序化贴图：`node tools/gen-ground-textures.mjs` 重新生成 `generated/` 下的贴图（同样的代码出同样的像素，JPEG 编码借 playwright-core 的 Chrome），格式同上；贴花图集的 `arh.jpg` 的 G 通道是不透明度。
 - 模型：原样从各素材包复制（KayKit 的 `.gltf.glb` 改名为 `.glb`）。
 - 打包：`node tools/pack-assets.mjs` 把这里的文件转成 `js/assets/*.js`（base64），游戏从 `file://` 打开也能用。改了这里的文件要重新打包，生成的 JS 一起提交。
 - 角色模型（Quaternius 2018–2020 的免费包，CC0；2025 年以后的 Quaternius 包是 QAL 许可，不用）：源文件原样放在 `quaternius-*/`（`.gltf` / `.fbx`），
