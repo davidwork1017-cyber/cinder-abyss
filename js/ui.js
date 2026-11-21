@@ -6012,6 +6012,13 @@
       done: () => false,
     },
     {
+      // 旋涡斩加了「每下最多 9 个」之前、选着旋涡斩的老存档：提示一次（见 game.js 的 wsNote）
+      id: 'wsnerf', calm: true, max: 14,
+      html: '<b>旋涡斩</b>：每下最多绞到离你最近的 9 个敌人，怪聚成一团时伤害约 −40%；分散的怪和单体不变',
+      when: () => G.whirlNerfed > 0,
+      done: () => false,
+    },
+    {
       // 旧版双生坠：读档时升成四行（见 game.js 的 migrateTwin）
       id: 'sxmig', calm: true, max: 16,
       html: '<b>双生坠升级</b>：多了暴击伤害和总伤害两行，原有两行按原来的成色换算到新数值；效果改为「余响」',
@@ -6163,6 +6170,10 @@
     if (id === 'rqvar') {
       G.save.rqNote = false;
       G.rqMigrated = 0;
+    }
+    if (id === 'wsnerf') {
+      G.save.wsNote = false;
+      G.whirlNerfed = 0;
     }
     G.persist();
   }

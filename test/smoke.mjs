@@ -15392,6 +15392,92 @@ async function main() {
     return '链雷 B → 渊式「电桥」（替下 B），提示一次';
   });
 
+  await step('旋涡斩 / 蓄潮每下最多打到离你最近的 9 个：贴身 14 只时每下 9 只挨打，蓄潮的潮涌也是 9 只；只有 5 只时每下、潮涌都 5 只全挨', async () => {
+    const r = await ev(() => {
+      const P = G.player, out = {};
+      const ring = (n) => {
+        const ms = [];
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * Math.PI * 2, rr = 1.0 + (i % 7) * 0.12;
+          const m = T.mob('husk', Math.sin(a) * rr, Math.cos(a) * rr);
+          G.initBuildUp(m);
+          m.buTh = 1e15;
+          m.poiseMax = 0;
+          m.hp = m.maxHp = 1e9;
+          ms.push(m);
+        }
+        return ms;
+      };
+      for (const [rq, v] of [[null, 'b'], ['nuchao', 'c']]) {
+        RQT.begin(rq);
+        RQT.learn('whirl', 0);
+        G.save.variants.whirl = v;
+        G.computeStats();
+        G.applyVariants();
+        T.fix(0.999);
+        const res = { mech: G.SKILLS.whirl.mech, cap: v === 'b' ? G.SKILLS.whirl.pull.cap : G.SKILLS.whirl.tide.cap };
+        for (const n of [14, 5]) {
+          G.clearEnemies();
+          G.relicReset();
+          const ms = ring(n), h0 = ms.map((m) => m.hp);
+          P.cast = { slot: 0, id: 'whirl', channel: true, pulses: 1, t: 0, nextT: 1e9, cancelT: 0, dur: Infinity, move: 0.6, fired: true };
+          G.execSkill(G.skillCtx('whirl'));
+          res['p' + n] = ms.filter((m, i) => m.hp < h0[i]).length;
+          if (v === 'c') res['b' + n] = G.relicTideBurst(); // 攒了 1 层就拍下：返回打到几只
+          P.cast = null;
+        }
+        out[v] = res;
+        RQT.end();
+      }
+      G.clearEnemies();
+      return out;
+    });
+    assert(r.b.mech === 'pull' && r.b.cap === 9 && r.b.p14 === 9 && r.b.p5 === 5, '旋涡斩每下应最多打到 9 个：' + JSON.stringify(r.b));
+    assert(r.c.mech === 'tide' && r.c.cap === 9 && r.c.p14 === 9 && r.c.p5 === 5 && r.c.b14 === 9 && r.c.b5 === 5, '蓄潮每下和潮涌应最多打到 9 个：' + JSON.stringify(r.c));
+    return '14 只：每下 9 只、潮涌 9 只；5 只：全挨';
+  });
+
+  await step('旋涡斩改版的提示：选着旋涡斩的老存档（没有 wsCap）读档后提示一次「每下最多 9 个、聚怪约 −40%」，存档往返仍提示，看过不再提示；没选旋涡斩的老存档、新存档都不提示', async () => {
+    const r = await ev((keep) => {
+      const out = {};
+      const load = (mut) => {
+        G.persist();
+        const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+        mut(raw);
+        localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+        G.loadSave();
+        return [G.whirlNerfed || 0, G.save.wsNote, G.save.wsCap].join();
+      };
+      const old = (v) => (raw) => {
+        delete raw.wsCap;
+        delete raw.wsNote;
+        raw.variants = { whirl: v };
+        if (raw.tut) delete raw.tut.wsnerf;
+      };
+      out.oldB = load(old('b'));
+      out.round = load(() => {});
+      out.oldA = load(old('a'));
+      out.fresh = load((raw) => {
+        raw.wsCap = 1;
+        raw.wsNote = false;
+        raw.variants = { whirl: 'b' };
+      });
+      G.save.tut.wsnerf = 1;
+      G.save.wsNote = false;
+      out.seen = load((raw) => {
+        delete raw.wsCap;
+        raw.variants = { whirl: 'b' };
+      });
+      if (keep) localStorage.setItem('cinder-abyss-save-v1', keep);
+      G.loadSave();
+      G.computeStats();
+      return out;
+    }, varKeep);
+    assert(r.oldB === '1,true,1' && r.round === '1,true,1', '选着旋涡斩的老存档应提示一次：' + JSON.stringify(r));
+    assert(r.oldA === '0,false,1' && r.fresh === '0,false,1' && r.seen === '0,false,1', '没选旋涡斩 / 新存档 / 看过的不该提示：' + JSON.stringify(r));
+    return '老存档（旋涡斩）提示一次，看过不再提示';
+  });
+
   await step('渊式·说明：六件渊契的机制说明都是「解锁 技能·渊式名：」+ 一句按参数拼的话（数值跟着 G.VARIANTS 变）、详情里写着在技能页选；提示卡和图鉴都显示这一句；没有渊式的渊契说明照旧；刻式悬停公式的渊式比值都高过 A / B', async () => {
     const r = await ev(() => {
       const out = { bad: [], rows: 0 };

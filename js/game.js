@@ -178,6 +178,7 @@
       // 渊式（第三种刻式 'c'，戴着对应的渊契才生效）：variantPrev 选渊式时替下的那种 { 技能 id: 'a' | 'b' }（没有 = 原式），摘下渊契就退回它；
       // rqAuto 已经自动选过一次渊式的技能（第一次戴上渊契时替你选上，之后不再自动改）；rqVar 读档迁移过的标记；rqNote「渊式」提示还没看过
       variantPrev: {}, rqAuto: {}, rqVar: 1, rqNote: false,
+      wsCap: 1, wsNote: false, // 旋涡斩加「每下最多 9 个」之后的存档；wsNote：选着旋涡斩的老存档，提示还没看过
       // 渊印：sealSeq 真正进区的次数（择印面板的随机种子，关掉地图再打开还是同样三枚）；
       // run 这一次进区 { zone, tier, seq, seal }（seal 为 null 是素印），读档时区域 / 层级对得上就接着用，倒下重生不动，换区 / 重进清掉
       sealSeq: 0, run: null,
@@ -634,6 +635,10 @@
     s.rqVar = 1;
     s.rqNote = !s.tut.rqvar && (rqMoved || raw.rqNote === true);
     G.rqMigrated = s.rqNote ? 1 : 0;
+    // 旋涡斩加「每下最多绞到最近的 9 个」之前的存档（没有 wsCap）：选着旋涡斩的提示一次（tut.wsnerf 看过就不再提示）
+    s.wsNote = !s.tut.wsnerf && ((raw.wsCap === undefined && s.variants.whirl === 'b') || raw.wsNote === true);
+    s.wsCap = 1;
+    G.whirlNerfed = s.wsNote ? 1 : 0;
     s.variantGen = G.VARIANT_GEN;
     const hadVar = Object.keys(s.variants).length > 0 || Object.keys(G.VARIANTS).some((id) => s.skills[id] >= G.VARIANT_LVL);
     s.varNote = !s.tut.variant2 && ((oldGen && hadVar) || raw.varNote === true);
@@ -2828,7 +2833,7 @@
       if (d > B.pull + e.r) G.pullEnemy(e, P.x, P.z, d - B.pull - e.r);
     }
     let hits = 0, crit = false;
-    for (const e of enemiesIn(P.x, P.z, R)) {
+    for (const e of whirlCap(enemiesIn(P.x, P.z, R), ctx.sk)) {
       G.hitEnemy(e, ctx, n * B.burst, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: n >= B.max / 2 ? 2 : 1, kb: 0.2, poise: (ctx.sk.poise || 0) * n * B.burst, quiet: true });
       crit = crit || lastHit.crit;
       hits++;
@@ -6038,7 +6043,7 @@
       if (W.spinPulse) W.spinPulse(P.ent, R, hex, ctx.time * 1.6, n === 1, sk.mech === 'pull' ? -1 : 1); // vf-vfx2：绕身的风刃、脚下的风纹、起手的尘环；刻式「旋涡斩」风刃反着转、往里收
       if (n % 2 === 1) W.burst(P.x, 0.25, P.z, 0xbfb3a0, 4, R * 0.9, 0.3); // 脚下扬起的尘
       G.sfx('swing', { step: n % 2 });
-      const hits = enemiesIn(P.x, P.z, R);
+      const hits = whirlCap(enemiesIn(P.x, P.z, R), sk);
       const full = sk.mech === 'tide' && G.relicState.spin >= sk.tide.max; // 渊式「蓄潮」：满层这一下打完就卷起潮涌
       if (!hits.length) {
         if (full) G.relicTideBurst();
@@ -6828,6 +6833,12 @@
     }
   }
   // 旋涡斩：每一下把 pull.r 以内的敌人往身边吸（首领不动；被吸到离你 1.2 米就停）
+  // 旋涡斩 / 蓄潮：每下最多绞到离你最近的 cap 个（聚成一团时不再每只都吃满；散开、单体照旧）
+  function whirlCap(list, sk) {
+    const cap = sk.mech === 'pull' ? sk.pull.cap : sk.mech === 'tide' ? sk.tide.cap : 0;
+    if (!cap || list.length <= cap) return list;
+    return list.sort((a, b) => dist(a.x, a.z, P.x, P.z) - dist(b.x, b.z, P.x, P.z)).slice(0, cap);
+  }
   function whirlPull(ctx) {
     const S = ctx.sk.pull, R = S.r * Math.sqrt(ctx.area), stepD = S.v * ctx.time;
     for (const e of state.enemies) {
@@ -6845,7 +6856,7 @@
     endChannel();
     const ang = P.face;
     let k = 0;
-    for (const e of enemiesIn(P.x, P.z, R)) {
+    for (const e of whirlCap(enemiesIn(P.x, P.z, R), sk)) {
       G.hitEnemy(e, ctx, S.slam * n, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 2, kb: 1.4, poise: 6 * n, quiet: true });
       k++;
     }
