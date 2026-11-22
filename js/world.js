@@ -12324,8 +12324,14 @@
       vsEmit(g.x + Math.sin(a) * r, g.y + h * vr(0.3, 0.7), g.z + Math.cos(a) * r, Math.sin(a) * v, vr(2, 5), Math.cos(a) * v, vr(0.8, 1.1), vr(0.16, 0.26), 0, vr(0, TAU), vr(-7, 7), 18);
     }
     if (B.n === BOSS_BREAK.length - 1) {
-      vsBrush(VSH.ring, 2, 1, c[0], c[1], 0.2, 0, 0.4);
-      vsEmit(g.x, 0.1, g.z, 0, 0, 0, 0.6, r * 4.2);
+      // 冲击环只画一道细边（看图后：原来是一整圈实心的环件，放大到 5 米就成了一条粗的橙带）：一圈贴地的细线段一起往外推，
+      // 长度和宽度随曲线 1 长到 4 倍，正好跟上半径，0.35 秒收完
+      const R = r * 4.2, R0 = R / 4, life = 0.35, v0 = (R - R0) / 0.217, n = lo ? 14 : 28, seg = ((TAU * R) / n) * 1.05;
+      vsBrush(VSH.bar, 2, 1, c[0], c[1], 0.15, 0, 0.5);
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * TAU;
+        vsEmit(g.x + Math.sin(a) * R0, 0.09, g.z + Math.cos(a) * R0, Math.sin(a) * v0, 0, Math.cos(a) * v0, life, 0.07, seg, a + Math.PI / 2, 0, 0, 3);
+      }
       W.fxFlip(VFB.ring, g.x, 0.12, g.z, r * 6, 0.5, 0x8a7a6a, { flat: true, a: 0.7 });
       W.shake(0.25);
     }
@@ -22075,6 +22081,9 @@
     o.oy = o.kind === 'tag' ? 0 : rand(-8, 8);
     o.vx = arc ? (Math.random() < 0.5 ? -1 : 1) * rand(24, 52) : 0; // 暴击数字往一侧抛出去
   };
+
+  // 测试用：此刻还在飘的字（vf-vfx3）
+  W.textInfo = () => texts.filter((q) => q.t < q.dur).map((q) => ({ str: q.str, kind: q.kind, size: q.size, keyed: !!q.key }));
 
   W.shake = function (amount) {
     if (G.save && G.save.opts && G.save.opts.shake === false) return; // 设置里关了镜头震动（vf-vfx2）

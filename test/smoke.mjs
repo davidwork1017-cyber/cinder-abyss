@@ -9988,6 +9988,81 @@ async function main() {
     return '形状件 陨火 ' + r.live.meteor + ' / 链雷 ' + r.live.arc + ' / 旋风斩 ' + r.live.whirl + '，预警圈填充 敌 ' + r.fillE + ' / 友 ' + r.fillF;
   });
 
+  await step('特效三期第 1 部分（vf-vfx3）：同一只怪 0.25 秒内的普通数字并成一个、普通数字同屏不超过 40 条、同一只怪的状态词不摞；掉落的地面环 / 光柱 / 柱顶菱形画进实例零件；拾取 / 升级 / 死亡放形状件、死亡自下而上地烧', async () => {
+    const r = await ev(() => {
+      const W = G.world, P = G.player, S = G.state, save = G.save, out = {};
+      G.clearEnemies();
+      T.clearLoot();
+      W.clearFx();
+      // 1. 合并：同一只怪同一帧挨 4 下（随机数钉在 0.5：不暴击、每下一样大）→ 只有一条普通数字，值是 4 下之和；过了 0.3 秒再挨一下 → 新开一条
+      const e = G.spawnMob('husk', P.x + 3, P.z, 5, { awake: true });
+      e.hp = e.maxHp = 1e6; e.atkCd = 1e9; e.speed = 0; e.buTh = 1e15; e.poiseMax = 0;
+      T.fix(0.5);
+      const ctx = G.skillCtx('ember');
+      const hp0 = e.hp;
+      for (let i = 0; i < 4; i++) G.hitEnemy(e, ctx, 1, { quiet: true, noBuild: true });
+      const each = Math.max(1, Math.round((hp0 - e.hp) / 4));
+      const nums = () => W.textInfo().filter((q) => q.kind === '' && q.keyed);
+      out.merged = nums().map((q) => q.str);
+      out.want = String(each * 4);
+      G.debug.step(0.3);
+      G.hitEnemy(e, ctx, 1, { quiet: true, noBuild: true });
+      out.after = nums().length;
+      T.unfix();
+      // 2. 普通数字上限：一口气 60 条不同位置的普通字 → 还在飘的普通字不超过 40 条
+      W.clearFx();
+      for (let i = 0; i < 60; i++) W.text(P.x + (i % 10), P.z + Math.floor(i / 10), i + 1, '#c6bcaa', 16);
+      out.normal = W.textInfo().filter((q) => q.kind === '').length;
+      // 3. 状态词：同一个位置连着 3 次「爆燃」→ 只有一条；别处的照常
+      W.clearFx();
+      for (let i = 0; i < 3; i++) W.text(P.x, P.z, '爆燃', '#ffb070', 22, { kind: 'tag', y: 2 });
+      W.text(P.x + 4, P.z, '爆燃', '#ffb070', 22, { kind: 'tag', y: 2 });
+      out.tags = W.textInfo().filter((q) => q.kind === 'tag').length;
+      // 4. 掉落：一件稀有（4.5 米柱）+ 一件烬铸（7 米柱 + 菱形）+ 一颗通货（只有地面环）；掉落物自己只剩本体一个子节点
+      G.clearEnemies();
+      W.clearFx();
+      const rare = G.spawnLoot('item', G.rollItem(10, 2, 'ring'), P.x + 2, P.z);
+      const uq = G.spawnLoot('item', G.rollUnique(Object.keys(G.UNIQUES)[0], 10), P.x - 2, P.z);
+      const cur = G.spawnLoot('cur', Object.keys(G.CURRENCY)[0], P.x, P.z + 2);
+      G.debug.step(0.5);
+      W.render();
+      const parts = W.projFxInfo().parts;
+      out.loot = { ring: parts.lootRing, beam: parts.lootBeam, gem: parts.lootGem, bt: [rare.mesh.userData.bt, uq.mesh.userData.bt, cur.mesh.userData.bt], kids: [rare, uq, cur].map((l) => l.mesh.children.length) };
+      // 5. 拾取放形状件（碎晶 + 环）；升级的环 / 光痕
+      const bag0 = save.bag.length;
+      W.clearFx();
+      P.x = rare.x + 0.5; P.z = rare.z;
+      out.pickOk = G.pickup(rare);
+      out.pick = W.vShapeLive();
+      if (save.bag.length > bag0) save.bag.pop();
+      W.clearFx();
+      W.levelUpFx(P.x, P.z);
+      out.level = W.vShapeLive();
+      T.clearLoot();
+      // 6. 死亡：冻死的怪开始消散时放冰碴形状件，消散按身高自下而上（uDisH > 0）
+      W.clearFx();
+      const d = G.spawnMob('husk', P.x + 3, P.z, 5, { awake: true });
+      d.atkCd = 1e9; d.speed = 0;
+      const ent = d.ent;
+      G.killEnemy(d, { type: 'phys' });
+      out.disH = ent.uDisH.value;
+      let n = 0;
+      for (let i = 0; i < 30; i++) { G.debug.step(0.05); n = Math.max(n, W.vShapeLive()); }
+      out.death = n;
+      T.clearLoot();
+      G.clearEnemies();
+      W.clearFx();
+      return out;
+    });
+    assert(r.merged.length === 1 && r.merged[0] === r.want && r.after === 2, '同一只怪 0.25 秒内的普通数字应并成一条、值是几下之和，过了窗口另开一条：' + JSON.stringify(r));
+    assert(r.normal === 40, '普通数字同屏应最多 40 条：' + r.normal);
+    assert(r.tags === 2, '同一只怪头上的同一个状态词不应摞起来（别处的照常）：' + r.tags);
+    assert(r.loot.ring === 6 && r.loot.beam === 2 && r.loot.gem === 1 && r.loot.bt.join() === '1,2,0' && r.loot.kids.every((k) => k === 1), '掉落的地面环 / 光柱 / 菱形应画进实例零件（3 件掉落：3 圈地面环 + 3 道刻纹、2 道光柱、1 颗菱形）：' + JSON.stringify(r.loot));
+    assert(r.pickOk && r.pick >= 3 && r.level >= 5, '拾取 / 升级应放形状件：' + JSON.stringify(r));
+    assert(r.disH > 0 && r.death >= 2, '死亡应自下而上地烧、开始消散时放形状件：' + JSON.stringify(r));
+    return '合并 ' + r.merged[0] + '，普通字 ' + r.normal + '，地面环 ' + r.loot.ring + ' / 光柱 ' + r.loot.beam + ' / 菱形 ' + r.loot.gem + '，形状件 拾取 ' + r.pick + ' / 升级 ' + r.level + ' / 死亡 ' + r.death;
+  });
+
   await step('画面：CC0 素材按区域加载后换成 PBR 地面与布景；画质高 / 中 / 低即时切换、存档，三档都能渲染', async () => {
     const r = await ev(async () => {
       const W = G.world;
