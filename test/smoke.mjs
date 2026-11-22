@@ -17178,11 +17178,16 @@ async function main() {
       for (let i = 0; i < 120; i++) G.pullEnemy(m, ox, oz, 0.5);
       out.leash = G.leashRoomOk(m, m.x, m.z) && (W.roomAt(m.x, m.z) === s.room || Math.hypot(m.x - s.door.x, m.z - s.door.z) <= 3.01);
       const waves = [enc.mobs.length];
+      // 奖励本身掉了几件物品（G.encReward 那一下）：总数里还混着怪随机掉的，要不要多掉一件取决于随机序列走到哪
+      const oRew = G.encReward;
+      out.rewItems = 0;
+      G.encReward = function () { const n0 = EK.items(); const v = oRew.apply(this, arguments); out.rewItems += EK.items() - n0; return v; };
       for (let w = 0; w < 3; w++) {
         EK.kill(enc.mobs);
         EK.step(1.0);
         waves.push(enc.mobs.length);
       }
+      G.encReward = oRew;
       out.waves = waves;
       out.elites = enc.mobs.filter((e) => e.elite).length;
       out.st = enc.st;
@@ -17203,7 +17208,8 @@ async function main() {
     });
     assert(r.outside && r.idle === 'idle' && r.doorway === 'idle' && r.run === 'run' && r.w1 === 5, '试锋应跨过门口的符文才开始（门洞里不算）、第一波 5 只：' + JSON.stringify(r));
     assert(r.leash, '试锋的怪应拴在小室里：' + JSON.stringify(r));
-    assert(r.waves.join(',') === '5,11,17,17' && r.elites === 2 && r.st === 'done' && r.how === 'top' && r.items >= 3, '试锋的波次 / 评级不对：' + JSON.stringify(r));
+    // 「上」档奖励 rew.rare = 2：奖励那一下至少掉 2 件稀有（中档只有 1 件）；原来的 items >= 3 要靠 17 只怪 / 渊契再随机多掉一件，随机序列一变就不成立
+    assert(r.waves.join(',') === '5,11,17,17' && r.elites === 2 && r.st === 'done' && r.how === 'top' && r.rewItems >= 2 && r.items >= r.rewItems, '试锋的波次 / 评级不对：' + JSON.stringify(r));
     assert(r.quit0 === 'run' && r.quit === 'quit' && r.gone, '离开小室超过 4 秒应弃权、怪散掉：' + JSON.stringify(r));
     return '波次 ' + r.waves.join(' → ') + '，评级 ' + r.how;
   });
