@@ -20737,7 +20737,7 @@
     b.u.uWhite.value = foe ? 0.12 : 0.7;
     b.u.uOpacity.value = 1;
     b.u.uSeed.value = vr(0, 1);
-    b.hw = foe ? 0.22 : o && o.v2 && !minor ? 0.25 : 0.36;
+    b.hw = foe ? 0.28 : o && o.v2 && !minor ? 0.25 : 0.36; // 敌方：半宽 0.28（看图后：0.22 在游戏镜头下撑不起这一击；加宽不加白）
     boltBuild(b);
     b.mesh.visible = true;
     if (o && o.v2 && !minor) return boltV2(b, hex);
