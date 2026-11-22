@@ -177,13 +177,17 @@ async function install() {
         T.settle();
       },
       // 一只打不死、不会动的靶子
-      // 离 (x, z) r 米、0.4 米余量下能走的一点：先试 a0 方向（弧度，sin / cos 对应 x / z），再往两边每 15° 找；都不行返回 a0 方向那一点。
-      // 传送到算出来的位置时用它：布局随机，算出来的点可能正好在墙里 / 布景件里
-      spotNear(x, z, r, a0) {
-        for (let k = 0; k < 24; k++) {
-          const a = a0 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (Math.PI / 12), px = x + Math.sin(a) * r, pz = z + Math.cos(a) * r;
-          if (W.walkable(px, pz, 0.4)) return { x: px, z: pz };
-        }
+      // 离 (x, z) r 米、0.4 米余量下能走的一点：先试 a0 方向（弧度，sin / cos 对应 x / z），再往两边每 15° 找；
+      // 给了 band（[近, 远]）时这一圈都不行就按离 r 由近到远换半径（每 1.5 米）再找；都不行返回 a0 方向 r 米那一点。
+      // 传送到算出来的位置时用它：布局随机，算出来的点可能正好在墙里 / 布景件里（窄走廊里一整圈都可能落在墙外）
+      spotNear(x, z, r, a0, band) {
+        const rs = [r];
+        if (band) for (let k = 1; k < 40; k++) for (const d of [-k * 1.5, k * 1.5]) if (r + d >= band[0] && r + d <= band[1]) rs.push(r + d);
+        for (const rr of rs)
+          for (let k = 0; k < 24; k++) {
+            const a = a0 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (Math.PI / 12), px = x + Math.sin(a) * rr, pz = z + Math.cos(a) * rr;
+            if (W.walkable(px, pz, 0.4)) return { x: px, z: pz };
+          }
         return { x: x + Math.sin(a0) * r, z: z + Math.cos(a0) * r };
       },
       // 从玩家出发、一路可走（两侧各留 1 米）最远的那个方向：{ x, z } 单位向量，len 是能走多远（最多 max 米）
@@ -16813,7 +16817,7 @@ async function main() {
       const make = (title) => {
         const enc = EK.put('wanderer', 3, 1);
         enc.title = title;
-        T.tp(enc.site.a.x + 1, enc.site.a.z);
+        { const q = T.spotNear(enc.site.a.x, enc.site.a.z, 1, Math.PI / 2, [0.5, 4]); T.tp(q.x, q.z); }
         EK.step(0.1);
         return enc;
       };
@@ -16829,7 +16833,7 @@ async function main() {
         return { x: 1, z: 0 };
       };
       let enc = make('chain'), e = enc.mob;
-      { const q = T.spotNear(e.x, e.z, 25.5, Math.PI / 4); T.tp(q.x, q.z); } // 50 m 外的怪整帧跳过：离远一点但别太远，也别叫醒它（站在能走的地方）
+      { const q = T.spotNear(e.x, e.z, 25.5, Math.PI / 4, [18, 33]); T.tp(q.x, q.z); } // 50 m 外的怪整帧跳过：离远一点但别太远（18–33 m），也别叫醒它（站在能走的地方）
       const x0 = e.x, z0 = e.z;
       EK.step(3);
       out.patrol = +Math.hypot(e.x - x0, e.z - z0).toFixed(2);
