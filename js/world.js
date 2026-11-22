@@ -18140,8 +18140,9 @@
     const g = riftBeamObj, u = g.userData, y0 = 3.1, y1 = 0.35;
     if (u.hex !== hex) {
       u.hex = hex;
-      for (const q of u.parts) q.m.material.uniforms.uColor.value.copy(lin(q.white ? mixHex(hex, 0xffffff, 0.75) : hex));
-      u.s0.material = u.s1.material = spriteMat(mixHex(hex, 0xffffff, 0.4));
+      // vf-vfx3：射线的里层芯少混白（0.75 → 0.3），两头的光晕用元素色（原来混四成白、2.6 / 3.4 米）——整条射线不再是一根近白的长条
+      for (const q of u.parts) q.m.material.uniforms.uColor.value.copy(lin(q.white ? mixHex(hex, 0xffffff, 0.3) : hex));
+      u.s0.material = u.s1.material = spriteMat(hex);
     }
     const len = Math.hypot(x1 - x0, y1 - y0, z1 - z0);
     g.visible = true;
@@ -18150,18 +18151,18 @@
     const fl = 0.85 + Math.random() * 0.3;
     for (const q of u.parts) {
       q.m.scale.z = len / 2;
-      q.m.scale.x = (q.white ? 0.42 : 1.35) * fl;
+      q.m.scale.x = (q.white ? 0.3 : 1.2) * fl;
     }
     u.s0.position.set(0, 0, -len / 2);
-    u.s0.scale.setScalar(2.6 * fl);
+    u.s0.scale.setScalar(1.6 * fl);
     u.s1.visible = true;
     u.s1.position.set(x1, 0.5, z1);
-    u.s1.scale.setScalar(3.4 * fl);
+    u.s1.scale.setScalar(2.0 * fl);
     // 沿射线溅火星，落点扬一把碎光
     _c.set(hex);
     for (let i = 0; i < 3; i++) {
       const t = Math.random(), px = x0 + (x1 - x0) * t, pz = z0 + (z1 - z0) * t, py = y0 + (y1 - y0) * t;
-      spawnP(px, py, pz, rand(-1.5, 1.5), rand(0, 2.5), rand(-1.5, 1.5), rand(0.2, 0.45), rand(0.1, 0.2), _c.r + (1 - _c.r) * 0.5, _c.g + (1 - _c.g) * 0.5, _c.b + (1 - _c.b) * 0.5, 3, 1.5);
+      spawnP(px, py, pz, rand(-1.5, 1.5), rand(0, 2.5), rand(-1.5, 1.5), rand(0.2, 0.45), rand(0.1, 0.2), _c.r * 0.85, _c.g * 0.85, _c.b * 0.85, 3, 1.5); // vf-vfx3：不往白混
     }
     spawnP(x1, 0.3, z1, rand(-3, 3), rand(2, 5), rand(-3, 3), rand(0.3, 0.6), rand(0.15, 0.3), _c.r, _c.g, _c.b, 9, 1);
     flashLight(x1, 1.2, z1, hex, 1.2);
@@ -18197,7 +18198,7 @@
         // vf-vfx3：内爆按「坍缩」画：往里卷的弯月 + 暗芯 + 细边环往外推（原来 36 粒混四成白的光点 + 6 米星芒 + 4 米粗环）；落雷少混白
         W.foeHit(x, z, core, 'chaos', { hex, big: true });
         W.foeRing(x, z, core + 1.4, hex, 0.35);
-        skyBolt(x, z, mixHex(hex, 0xffffff, 0.15), 9, 4, 0.4);
+        skyBolt(x, z, mixHex(hex, 0x000000, 0.1), 9, 4, 0.26, true); // vf-vfx3：元素色、细一圈，只有头上一小段亮
       }
       return;
     }
@@ -18219,9 +18220,10 @@
   };
   // 流星犁地的一处落点：一道星光从天而降，地上炸开一圈碎光（每道线的第一处多一道竖直落雷）
   W.riftStrike = function (x, z, r, hex, big) {
-    const hw = mixHex(hex, 0xffffff, 0.45);
-    vstreak(x + rand(-0.8, 0.8), 8, z - 1.2, x, 0.1, z, big ? 0.5 : 0.32, hw, 0.2);
-    if (big) skyBolt(x, z, hw, 7, 3, 0.35);
+    // vf-vfx3：天上劈下来的光带改元素色（原来往白混 45 %）、细一圈，只有往下冲的头上一小段亮（时序 / 判定不变）
+    const hw = mixHex(hex, 0x000000, 0.1);
+    vstreak(x + rand(-0.8, 0.8), 8, z - 1.2, x, 0.1, z, big ? 0.3 : 0.2, hw, 0.2, true);
+    if (big) skyBolt(x, z, hw, 7, 3, 0.22, true);
     flare(x, 0.6, z, hex, r * 2.2, 0.18);
     W.foeHit(x, z, r, 'light', { k: 0.5, hex }); // vf-vfx3：落点放射的折线 + 外沿环 + 电灼纹（原来 9 粒偏白的光点 + 环）
   };
@@ -20579,7 +20581,7 @@
   // vf-vfx：横截面还是原来闪电贴图的「亮芯 + 柔边」，亮芯的宽窄沿着电弧跳动（噪声），柔边里有顺着电弧往前窜的细电丝（条纹噪声），亮芯往白混；加色
   const BOLT_VERT = 'varying vec2 vUv;\nvoid main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
   const BOLT_FRAG = G.vfx.GLSL + '\n' + [
-    'uniform vec3 uColor; uniform float uOpacity; uniform float uSeed; varying vec2 vUv;',
+    'uniform vec3 uColor; uniform float uOpacity; uniform float uSeed; uniform float uWhite; varying vec2 vUv;',
     'void main(){',
     '  float x = abs(vUv.x - 0.5) * 2.0;', // 0 中线 → 1 边
     '  float prof = x < 0.12 ? 1.0 : (x < 0.4 ? mix(1.0, 0.22, (x - 0.12) / 0.28) : mix(0.22, 0.0, (x - 0.4) / 0.6));',
@@ -20587,7 +20589,7 @@
     '  float core = 1.0 - smoothstep(w, w + 0.05, x);',
     '  float fil = smoothstep(0.6, 0.82, vfxNB(vec2(vUv.x * 0.5 + uSeed * 2.0, vUv.y * 0.18 - uTime * 4.0)).r) * (1.0 - smoothstep(0.3, 0.85, x));',
     '  float a = max(max(prof * 0.85, fil * 0.9), core);',
-    '  vec3 col = mix(uColor, vec3(1.0), core * 0.7);',
+    '  vec3 col = mix(uColor, vec3(1.0), core * uWhite);', // 芯往白混多少（玩家 0.7；vf-vfx3：敌方 0.12）
     '  gl_FragColor = linearToOutputTexel(vec4(col, a * uOpacity));',
     '}',
   ].join('\n');
@@ -20630,7 +20632,7 @@
     // vf-vfx：闪电带换成特效着色器（BOLT_FRAG），所有电弧同一个着色器程序；颜色 / 不透明度走 uniform。
     // 旧的闪电贴图照旧建一次（建贴图会消耗随机数：先后不变，全局随机序列和原来一致）
     boltTex();
-    const u = G.vfx.uni({ uColor: { value: new T.Color() }, uOpacity: { value: 1 }, uSeed: { value: 0 } });
+    const u = G.vfx.uni({ uColor: { value: new T.Color() }, uOpacity: { value: 1 }, uSeed: { value: 0 }, uWhite: { value: 0.7 } });
     const mat = new T.ShaderMaterial({ uniforms: u, vertexShader: BOLT_VERT, fragmentShader: BOLT_FRAG, transparent: true, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide });
     mat.toneMapped = false;
     const mesh = new T.Mesh(g, mat);
@@ -20726,13 +20728,19 @@
     b.t = 0;
     b.jit = 0;
     b.hex = hex;
-    b.u.uColor.value.set(hex).lerp(_c2.set(0xffffff), 0.35).convertSRGBToLinear();
+    const foe = !!(o && o.foe);
+    // vf-vfx3：敌方的电弧（o.foe）：元素色、不往白混、细一些，芯只混一成白；落点不再一个个放星芒 / 闪光 / 近白火花，
+    // 换成小号的雷系命中（折线放射），起点（首领身上）一记 ≤ 1.2 米、60 毫秒的亮芯
+    if (foe) b.u.uColor.value.set(hex).multiplyScalar(0.9).convertSRGBToLinear();
+    else b.u.uColor.value.set(hex).lerp(_c2.set(0xffffff), 0.35).convertSRGBToLinear();
+    b.u.uWhite.value = foe ? 0.12 : 0.7;
     b.u.uOpacity.value = 1;
     b.u.uSeed.value = vr(0, 1);
-    b.hw = o && o.v2 && !minor ? 0.25 : 0.36;
+    b.hw = foe ? 0.22 : o && o.v2 && !minor ? 0.25 : 0.36;
     boltBuild(b);
     b.mesh.visible = true;
     if (o && o.v2 && !minor) return boltV2(b, hex);
+    if (foe) return boltFoe(b, hex, o.head);
     // 每个落点：一记亮闪 + 一小撮火花 + 一团慢慢熄掉的余辉
     _c.set(hex);
     for (let i = 1; i < b.n; i++) {
@@ -20757,6 +20765,19 @@
     if (!minor) flare(b.inX[0], 1.25, b.inZ[0], hex, 1.1, 0.1);
     flashLight(b.inX[b.n - 1], 2.5, b.inZ[b.n - 1], hex, 1.4);
   };
+  // vf-vfx3：敌方电弧的落点。隔一个点放一个小号雷系命中（不留环、不留痕）；head（可选 {x, z}）处一记小亮芯
+  function boltFoe(b, hex, head) {
+    for (let i = 0; i < b.n; i += 2) W.foeHit(b.inX[i], b.inZ[i], 1.0, 'light', { noRing: true, k: 0.35, hex });
+    if (head && PF.vShape) {
+      vsFoe = 1;
+      vsBrush(VSH.bar, 4, 2, 0xfff6d8, mixHex(hexOf(hex), 0x000000, 0.3), 0.6, 0, 0.6);
+      for (let k = 0; k < 2; k++) {
+        const a = vr(0, TAU);
+        vsEmit(head.x - Math.sin(a) * 0.5, 1.2, head.z - Math.cos(a) * 0.5, Math.sin(a) * 1.0, vr(-0.2, 0.2), Math.cos(a) * 1.0, 0.06, 0.09);
+      }
+      vsFoe = 0;
+    }
+  }
   // 链雷的折线语言（vf-vfx2）：全是两头尖的折线段（形状批），瞬亮、隔帧闪灭，没有圆团、没有地面闪光：
   //   起手：手上迸出几根很短的电火花；飞行：主干上往地面劈下去的几根竖向小叉（电弧有了上下的立体感）；
   //   落点：4～6 根短折线往外下方放射，0.15 秒内闪灭 + 一颗很小的星；余波：地上几道细分叉的电灼纹，先亮一下再暗成焦痕，1.5 秒收没
@@ -21124,7 +21145,7 @@
   // 方片沿 ang 摆放：局部 x 横跨、z 顺着方向；mode 0 = 从尾到头射出再从尾部收掉，1 = 先是一道细暗线、到时刻 uD 骤亮再收细消失
   // vf-vfx：拼上特效贴图库的 GLSL 工具；光带里顺着长度方向往前窜的能量丝（条纹噪声），不再是一条均匀的光
   const STREAK_FRAG = G.vfx.GLSL + '\n' + [
-    'uniform vec3 uColor; uniform float uK; uniform float uMode; uniform float uD; varying vec2 vP;',
+    'uniform vec3 uColor; uniform float uK; uniform float uMode; uniform float uD; uniform float uFoe; varying vec2 vP;',
     'void main(){',
     '  float a = abs(vP.x); float s = vP.y * 0.5 + 0.5;',
     '  float core = exp(-a * a * 9.0); float hot = exp(-a * a * 60.0);',
@@ -21134,6 +21155,9 @@
     '    float m = (1.0 - smoothstep(head - 0.04, head, s)) * smoothstep(tail - 0.02, tail + 0.18, s);',
     '    float tip = 0.55 + 0.45 * s;',
     '    al = m * (core * 0.8 + hot * 1.2) * tip * (1.0 - uK * 0.5); wh = hot;',
+    // vf-vfx3：敌方的落雷 / 天降光带（uFoe）：身子是元素色、不往白混；只有往下冲的头上一小段（光带长的 14 %，8 米的光带约 1.1 米）是亮芯，
+    // 而且只在头还在往下冲的那 30 % 寿命里（0.2 秒的光带 = 60 毫秒）。近白只给小而短的东西
+    '    if (uFoe > 0.5) { float hd = (1.0 - smoothstep(0.0, 0.14, head - s)) * step(s, head) * (1.0 - smoothstep(0.24, 0.3, uK)); wh = hot * hd; al *= 0.8; }',
     '  } else {',
     '    float ends = smoothstep(0.0, 0.2, s) * (1.0 - smoothstep(0.8, 1.0, s));',
     '    if (uK < uD) { float f = uK / max(uD, 0.001); al = exp(-a * a * 200.0) * ends * (0.35 + 0.45 * f) * (0.75 + 0.25 * sin(uK * 90.0)); wh = 0.3 * f; }',
@@ -21142,7 +21166,7 @@
     '  }',
     '  float fl = vfxNB(vec2(vP.x * 0.22 + uMode * 0.37, s * 0.45 - uK * 1.4)).r;',
     '  al *= 0.65 + 0.7 * fl;',
-    '  gl_FragColor = vec4(mix(uColor, vec3(1.0), wh * 0.75 + step(0.82, fl) * 0.25), al);',
+    '  gl_FragColor = vec4(mix(uColor, vec3(1.0), wh * 0.75 + step(0.82, fl) * 0.25 * (1.0 - uFoe)), al);',
     '}',
   ].join('\n');
   const streaks = [];
@@ -21154,7 +21178,7 @@
       for (let i = 1; i < streaks.length; i++) if (streaks[i].t / streaks[i].dur > it.t / it.dur) it = streaks[i];
     }
     if (!it) {
-      const u = G.vfx.uni({ uColor: { value: new T.Color() }, uK: { value: 0 }, uMode: { value: 0 }, uD: { value: 0 } });
+      const u = G.vfx.uni({ uColor: { value: new T.Color() }, uK: { value: 0 }, uMode: { value: 0 }, uD: { value: 0 }, uFoe: { value: 0 } });
       const mat = new T.ShaderMaterial({ uniforms: u, vertexShader: FX_VERT, fragmentShader: STREAK_FRAG, transparent: true, depthWrite: false, blending: T.AdditiveBlending, side: T.DoubleSide });
       const mesh = new T.Mesh(gQuad(), mat);
       mesh.visible = false;
@@ -21174,6 +21198,7 @@
     it.u.uColor.value.set(hex);
     it.u.uK.value = 0;
     it.u.uMode.value = mode;
+    it.u.uFoe.value = 0;
     it.u.uD.value = mode ? Math.min(0.9, delay / dur) : 0;
     it.fired = !mode;
     it.x = x0 + sn * len * 0.5;
@@ -21934,7 +21959,7 @@
         const mm = vfxMolten(new T.MeshStandardMaterial({ color: 0x5a524c, map: basaltTex(), emissiveMap: G.vfx.tex.noiseA, emissive: 0xff5a2c, roughness: 0.9, metalness: 0.05, flatShading: true }));
         const met = new T.Mesh(rockGeo(1), mm);
         met.position.set(0, 1, 2);
-        const bm = new T.ShaderMaterial({ uniforms: G.vfx.uni({ uColor: { value: new T.Color(1, 1, 1) }, uOpacity: { value: 0 }, uSeed: { value: 0 } }), vertexShader: BOLT_VERT, fragmentShader: BOLT_FRAG, transparent: true, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide });
+        const bm = new T.ShaderMaterial({ uniforms: G.vfx.uni({ uColor: { value: new T.Color(1, 1, 1) }, uOpacity: { value: 0 }, uSeed: { value: 0 }, uWhite: { value: 0.7 } }), vertexShader: BOLT_VERT, fragmentShader: BOLT_FRAG, transparent: true, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide });
         const bolt = new T.Mesh(gQuad(), bm);
         bolt.position.set(0, 1, 2);
         warmVfx.push(met, bolt);
@@ -25925,8 +25950,10 @@
   // ---------- 烬铸技的特效 ----------
   const EMBER = 0xff9b3d, EMBER_HI = 0xffe2b8;
   // 立着的光带：从 (x0,y0,z0) 到 (x1,y1,z1)（同一个 z 附近的竖直 / 斜向光带，落雷、天降光柱用），hw 半宽
-  function vstreak(x0, y0, z0, x1, y1, z1, hw, hex, dur) {
+  // foe（vf-vfx3）：敌方的，只有往下冲的头上一小段是亮芯（见 STREAK_FRAG 的 uFoe）
+  function vstreak(x0, y0, z0, x1, y1, z1, hw, hex, dur, foe) {
     const it = streakGet();
+    it.u.uFoe.value = foe ? 1 : 0;
     const dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy) || 0.01;
     it.on = true;
     it.t = 0;
@@ -25949,13 +25976,13 @@
     return it;
   }
   // 一道从天而降的锯齿落雷：分 n 段，每段横向抖开一点，底下再向两侧岔出两道贴地的小电弧
-  function skyBolt(x, z, hex, top, n, hw) {
+  function skyBolt(x, z, hex, top, n, hw, foe) {
     let px = x + rand(-0.6, 0.6), py = top, pz = z;
     for (let i = 1; i <= n; i++) {
       const k = i / n;
       const nx = i === n ? x : x + rand(-0.9, 0.9) * (1 - k * 0.6);
       const ny = top * (1 - k);
-      vstreak(px, py, pz, nx, ny, z, hw * (1 - k * 0.35), hex, 0.22);
+      vstreak(px, py, pz, nx, ny, z, hw * (1 - k * 0.35), hex, 0.22, foe);
       px = nx;
       py = ny;
     }

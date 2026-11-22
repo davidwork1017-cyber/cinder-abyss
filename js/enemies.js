@@ -1274,7 +1274,7 @@
               if (!live(e, seq)) return;
               const pts = [];
               for (let i = -3; i <= 3; i++) pts.push({ x: x + sx * i * 5, z: z + cz * i * 5 });
-              W.bolt(pts, hex);
+              W.bolt(pts, hex, false, { foe: true, head: { x, z } }); // vf-vfx3：元素色的电弧 + 首领身上一记小亮芯（时序 / 判定不变）
               if (k === 0) {
                 W.shake(0.3);
                 G.sfx('hit');
