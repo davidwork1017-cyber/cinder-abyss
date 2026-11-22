@@ -1,6 +1,6 @@
 // three 升级后的静态检查（纯 Node，一两秒）：npm test / npm run test:func 先跑它。
 //  1. 游戏脚本里用到的每个 THREE.X / T.X 在 vendor/three.bundle.js 里都有（新示例模块忘了打包、three 删掉的类都会在这里报出来）
-//  2. 打包文件里的本地设置还在：颜色管理关、透明双面单遍、generateUUID 不取 Math.random（docs/vendor-patches.md）
+//  2. 打包文件里的本地设置还在：颜色管理关、透明双面单遍、实例矩阵初始为 0、generateUUID 不取 Math.random（docs/vendor-patches.md）
 //  3. r128 时代的写法（r152 起的颜色空间、r155 起的灯光、vColor 变成 vec4 等）在 js/ 里不再出现
 // 用法：node tools/check-three.mjs（有问题时列出 文件:行 和原因，退出码 1）
 import fs from 'node:fs';
@@ -30,6 +30,7 @@ export function checkThree() {
   if (!THREE) problems.push('vendor/three.bundle.js 没有设置 window.THREE');
   else if (THREE.ColorManagement.enabled !== false) problems.push('vendor/three.bundle.js：ColorManagement 应该是关的（见 tools/three-entry.mjs）');
   else if (new THREE.MeshBasicMaterial({ transparent: true, side: THREE.DoubleSide }).forceSinglePass !== true) problems.push('vendor/three.bundle.js：透明双面材质应该单遍画（见 tools/three-entry.mjs）');
+  else if (new THREE.InstancedMesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial(), 2).instanceMatrix.array.some((v) => v !== 0)) problems.push('vendor/three.bundle.js：新建的实例化网格实例矩阵应该全是 0（r128 的行为，见 tools/three-entry.mjs）');
   // 本地改动（docs/vendor-patches.md）：建对象、取 uuid 都不调 Math.random
   if (THREE) {
     vm.runInContext('globalThis.__rc = 0; globalThis.__rnd = Math.random; Math.random = () => (globalThis.__rc++, 0.5);', sandbox);

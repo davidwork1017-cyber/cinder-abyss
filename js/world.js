@@ -175,6 +175,33 @@
     rep('lights_physical_pars_fragment', 'vec3 EnvironmentBRDF(', DFG_APPROX + 'vec3 EnvironmentBRDF(');
     rep('lights_physical_pars_fragment', 'vec2 fab = texture2D( dfgLUT, vec2( roughness, dotNV ) ).rg;', 'vec2 fab = toonDFG( roughness, dotNV );');
     rep('lights_fragment_begin', 'material.dfg = texture2D( dfgLUT, vec2( material.roughness, dotNVms ) ).rg;', 'material.dfg = toonDFG( material.roughness, dotNVms );');
+    // 阴影：r128 用的是 PCF 的「软」档（3×3 格、逐格双线性混合，9 项 / 17 次比较），r186 删了这一档，PCF 换成 5 次带抖动的圆盘取样：
+    // 半影窄一截、边上有噪点（高画质 ΔE 0.6，岩石 / 植被的投影边上最明显）。这里把 PCF 的取样按 r128 PCFSoft 的原文换回去
+    // （深度比较改用 sampler2DShadow：取样点都落在阴影图的像素中心，硬件比较的结果和 r128 的逐点比较一样）
+    {
+      const C = (o) => 'texture( shadowMap, vec3( uv' + (o ? ' + ' + o : '') + ', shadowCoord.z ) )';
+      rep(
+        'shadowmap_pars_fragment',
+        '\t\t\t\tfloat radius = shadowRadius * texelSize.x;\n\t\t\t\tfloat phi = interleavedGradientNoise( gl_FragCoord.xy ) * PI2;\n\t\t\t\tshadow = (\n' +
+          [0, 1, 2, 3, 4].map((k) => '\t\t\t\t\ttexture( shadowMap, vec3( shadowCoord.xy + vogelDiskSample( ' + k + ', 5, phi ) * radius, shadowCoord.z ) )').join(' +\n') +
+          '\n\t\t\t\t) * 0.2;',
+        [
+          'float dx = texelSize.x;',
+          'float dy = texelSize.y;',
+          'vec2 uv = shadowCoord.xy;',
+          'vec2 f = fract( uv * shadowMapSize + 0.5 );',
+          'uv -= f * texelSize;',
+          'shadow = (',
+          '\t' + C('') + ' + ' + C('vec2( dx, 0.0 )') + ' + ' + C('vec2( 0.0, dy )') + ' + ' + C('texelSize') + ' +',
+          '\tmix( ' + C('vec2( -dx, 0.0 )') + ', ' + C('vec2( 2.0 * dx, 0.0 )') + ', f.x ) +',
+          '\tmix( ' + C('vec2( -dx, dy )') + ', ' + C('vec2( 2.0 * dx, dy )') + ', f.x ) +',
+          '\tmix( ' + C('vec2( 0.0, -dy )') + ', ' + C('vec2( 0.0, 2.0 * dy )') + ', f.y ) +',
+          '\tmix( ' + C('vec2( dx, -dy )') + ', ' + C('vec2( dx, 2.0 * dy )') + ', f.y ) +',
+          '\tmix( mix( ' + C('vec2( -dx, -dy )') + ', ' + C('vec2( 2.0 * dx, -dy )') + ', f.x ), mix( ' + C('vec2( -dx, 2.0 * dy )') + ', ' + C('vec2( 2.0 * dx, 2.0 * dy )') + ', f.x ), f.y )',
+          ') * ( 1.0 / 9.0 );',
+        ].map((l) => '\t\t\t\t' + l).join('\n')
+      );
+    }
     rep('lights_physical_fragment', 'material.diffuseContribution = diffuseColor.rgb * ( 1.0 - metalnessFactor );', 'material.diffuseContribution = diffuseColor.rgb * ( 1.0 - metalnessFactor * ' + fNum(TOON.metal) + ' );');
     rep(
       'tonemapping_pars_fragment',
@@ -1112,6 +1139,7 @@
     if (rt.texture.type === T.UnsignedByteType) rt.texture.internalFormat = 'RGBA8'; // 没有半浮点时：着色器已经编码过，不能再用 SRGB8_ALPHA8 硬件编码一次
     return rt;
   }
+
   // 后期处理链：场景（显示空间、HDR 半浮点）→ 泛光 → 调色与暗角 → 屏幕。材质在渲染到目标时同样做色调映射，
   // 编码跟随目标（sRGB，见 displayRT），所以画面和直接渲染到屏幕一致；toneMapped:false 的特效能超过 1，泛光只挑这些
   function initPost() {
@@ -1134,6 +1162,36 @@
       // 阈值按 r128 的亮度权重（0.299 / 0.587 / 0.114）判断：r186 换成了 Rec.709，偏红 / 偏蓝的特效核心进泛光的多少会变
       hpRep('float v = luminance( texel.xyz );', 'float v = dot( texel.xyz, vec3( 0.299, 0.587, 0.114 ) );');
       hp.needsUpdate = true;
+      // 模糊核用回 r128 的（5 级 KERNEL_RADIUS = SIGMA = 3 / 5 / 7 / 9 / 11，逐像素取样）：r186 换成了 sigma = 核宽 / 3、核宽 6–22 的线性取样（PR #31528），
+      // 光晕更宽一点，熔岩裂缝 / 火苗边上和 r128 差 ΔE 5 以上。着色器照抄 r128 的 UnrealBloomPass（MIT），uniform 名字按 r186 的（invSize / direction / colorTexture）
+      post.bloom.separableBlurMaterials.forEach((m, i) => {
+        const K = [3, 5, 7, 9, 11][i];
+        m.dispose();
+        post.bloom.separableBlurMaterials[i] = new T.ShaderMaterial({
+          defines: { KERNEL_RADIUS: K, SIGMA: K },
+          uniforms: { colorTexture: { value: null }, invSize: { value: new T.Vector2(0.5, 0.5) }, direction: { value: new T.Vector2(0.5, 0.5) } },
+          vertexShader: 'varying vec2 vUv;\nvoid main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 ); }',
+          fragmentShader: [
+            '#include <common>',
+            'varying vec2 vUv; uniform sampler2D colorTexture; uniform vec2 invSize; uniform vec2 direction;',
+            'float gaussianPdf( in float x, in float sigma ) { return 0.39894 * exp( -0.5 * x * x / ( sigma * sigma ) ) / sigma; }',
+            'void main() {',
+            '  float fSigma = float( SIGMA ); float weightSum = gaussianPdf( 0.0, fSigma );',
+            '  vec3 diffuseSum = texture2D( colorTexture, vUv ).rgb * weightSum;',
+            '  for ( int i = 1; i < KERNEL_RADIUS; i ++ ) {',
+            '    float x = float( i ); float w = gaussianPdf( x, fSigma ); vec2 uvOffset = direction * invSize * x;',
+            '    diffuseSum += ( texture2D( colorTexture, vUv + uvOffset ).rgb + texture2D( colorTexture, vUv - uvOffset ).rgb ) * w;',
+            '    weightSum += 2.0 * w;',
+            '  }',
+            '  gl_FragColor = vec4( diffuseSum / weightSum, 1.0 );',
+            '}',
+          ].join('\n'),
+        });
+      });
+      if (post.bloom.separableBlurMaterials.length !== 5) throw new Error('UnrealBloomPass 的模糊级数不是 5：three 升级后要按新原文改这里');
+      // 泛光链的中间目标用回 8 位（r128 是 RGBA8，r186 改成半浮点）：8 位时模糊后很淡的光晕尾巴被截成 0、芯被截在 1，
+      // 半浮点会留下一大圈很淡的暖色晕（熔岩裂缝、余烬花周围整片发粉），和 r128 的画面差 ΔE 5 以上。这些目标还没用过（GL 纹理没建），直接改类型
+      for (const rt of [post.bloom.renderTargetBright, ...post.bloom.renderTargetsHorizontal, ...post.bloom.renderTargetsVertical]) rt.texture.type = T.UnsignedByteType;
       // 中档：泛光链按一半分辨率算（UnrealBloomPass 自己再逐级减半），省掉大半泛光开销
       const bSet = post.bloom.setSize.bind(post.bloom);
       post.bloom.setSize = (bw, bh) => bSet(Math.max(2, Math.round(bw * qual.bloomRes)), Math.max(2, Math.round(bh * qual.bloomRes)));
@@ -1511,11 +1569,13 @@
   function decalMeshOf(g, nLo) {
     const im = G.assets.tex('g_decals');
     const map = own(new T.Texture(im.albedo));
-    map.colorSpace = T.SRGBColorSpace;
+    // 反照率是 sRGB，但不标 SRGBColorSpace：标了 r186 会用硬件 sRGB 格式，在线性空间里生成 mipmap、过滤，细碎的深色碎石 / 污渍会整片变浅（和 r128 比 ΔE 5 以上）。
+    // 和 r128 一样按原始数据过滤，采样后在着色器里解码（材质设 DECODE_VIDEO_TEXTURE，见下面的 patch）
     map.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
     map.needsUpdate = true;
     const opt = { map, alphaMap: zoneTexture('g_decals', 'arh'), vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 };
     const patch = (m) => {
+      m.defines = { DECODE_VIDEO_TEXTURE: '' }; // map_fragment 里采样后的 sRGB 解码（内置材质的构造参数不收 defines，建好以后设）
       m.onBeforeCompile = (sh) => {
         sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float aOp;\nvarying float vOp;').replace('#include <begin_vertex>', '#include <begin_vertex>\n\tvOp = aOp;');
         sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vOp;').replace('#include <alphamap_fragment>', '#include <alphamap_fragment>\n\tdiffuseColor.a *= vOp;');
@@ -2599,6 +2659,31 @@
     renderer.toneMappingExposure = TOON.exposure;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = T.PCFShadowMap; // r186 删了 PCF 的「软」档（r128 用的是它，会自动退回 PCF 并警告）
+    // 透明物体的前后顺序按 r128 的算法排：同一 renderOrder 里按物体原点的深度。r186 改成按包围球中心排，
+    // 整区一张的地面贴花（原点在 (0, 0, 0)、包围球中心在区域中间）就和同一档的积灰斑块 / 火盆地面光晕换了先后，
+    // 碎石脚下的接触阴影被盖淡（高画质 ΔE 5 以上）。每次 renderer.render 记下相机，深度按帧缓存（WeakMap，不留旧对象）
+    {
+      const r0 = renderer.render.bind(renderer), psm = new T.Matrix4(), zv = new T.Vector3(), zc = new WeakMap();
+      let sf = 0, sCam = null, psmF = -1;
+      renderer.render = (sc, cam) => {
+        sf++;
+        sCam = cam;
+        return r0(sc, cam);
+      };
+      const zOf = (o) => {
+        const e = zc.get(o);
+        if (e && e.f === sf) return e.z;
+        if (psmF !== sf) {
+          psm.multiplyMatrices(sCam.projectionMatrix, sCam.matrixWorldInverse);
+          psmF = sf;
+        }
+        const z = zv.setFromMatrixPosition(o.matrixWorld).applyMatrix4(psm).z;
+        if (e) (e.f = sf), (e.z = z);
+        else zc.set(o, { f: sf, z });
+        return z;
+      };
+      renderer.setTransparentSort((a, b) => a.groupOrder - b.groupOrder || a.renderOrder - b.renderOrder || zOf(b.object) - zOf(a.object) || a.id - b.id);
+    }
     // 画质档位：存档里的「画质」选项（高 / 中 / 低）；'auto'（玩家没选过）按设备推断（见 G.defaultQuality）
     let qs = G.save && G.save.opts && G.save.opts.quality;
     if (!QUALITY[qs] && G.defaultQuality) qs = G.defaultQuality();
@@ -8499,8 +8584,14 @@
     g.globalAlpha = 1;
     const t = own(new T.CanvasTexture(c));
     t.flipY = false;
-    t.colorSpace = T.SRGBColorSpace;
+    // 画布按 sRGB 写，但贴图不标 SRGBColorSpace：标了的话 r186 用硬件 sRGB 格式，先解码再过滤，2 m 一个像素的火星放大后光晕更软更大（和 r128 比 ΔE 1.4）。
+    // 改成和 r128 一样先过滤、再在着色器里解码：材质用 deepMat()（map_fragment 里 DECODE_VIDEO_TEXTURE 那一段就是采样后的 sRGB 解码）
     return t;
+  }
+  function deepMat(zone) {
+    const m = own(new T.MeshBasicMaterial({ map: abyssDeepTex(zone) }));
+    m.defines = { DECODE_VIDEO_TEXTURE: '' }; // 内置材质的构造参数里不收 defines（setValues 会跳过），建好以后再设
+    return m;
   }
   // 平台外的「岩顶」（区域外面的虚空底板）在虚空处挖洞：1 m 的格子，虚空格的顶点沉到深渊底，岩顶边缘自然成了往下的斜崖；
   // 整块是平的格子按行合并，只有边上的格子单独出三角形（约 2–3 千个三角形）。返回新的几何体，替换 buildVisuals 的虚空底板
@@ -8671,7 +8762,7 @@
       const uv = pg.attributes.uv;
       for (let i = 0; i < uv.count; i++) uv.setY(i, 1 - uv.getY(i));
       pg.translate(m.x0 + w / 2, -ABYSS_DEEP, m.z0 + h / 2);
-      const dm = own(new T.MeshBasicMaterial({ map: abyssDeepTex(zone) }));
+      const dm = deepMat(zone);
       const deep = new T.Mesh(pg, dm);
       deep.frustumCulled = false;
       ctx.group.add(deep);
@@ -9526,7 +9617,7 @@
       const uv = pg.attributes.uv;
       for (let i = 0; i < uv.count; i++) uv.setY(i, 1 - uv.getY(i));
       pg.translate(m.x0 + w / 2, -ABYSS_DEEP, m.z0 + h / 2);
-      const deep = new T.Mesh(pg, own(new T.MeshBasicMaterial({ map: abyssDeepTex(zone) })));
+      const deep = new T.Mesh(pg, deepMat(zone));
       deep.frustumCulled = false;
       ctx.group.add(deep);
     }
