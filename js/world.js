@@ -1559,10 +1559,14 @@
       return false;
     };
     const big = (k) => k === C.cover || k === C.cover2 || k === C.clump || k === C.rime || k === C.stain;
-    // ① 接触阴影：本区每个投影的实例化网格（岩石、尖岩、布景模型、各区布景里的实例），按实例的包围盒在脚下贴一块软暗斑
+    // ① 接触阴影：本区每个投影的实例化网格（岩石、尖岩、布景模型、各区布景里的实例），按实例的包围盒在脚下贴一块软暗斑。
+    // 随机数单独一路（ra）：墙段 / 摆件换成自产件时接触阴影跟着变是应该的，但不能把后面的覆盖斑、裂纹、碎石贴花也挪走
+    const aoRng = ashRng(zone, 13), ra = (a, b) => a + (b - a) * aoRng();
     const bb = new T.Box3();
     for (const im of zoneGroup.children) {
-      if (!im.isInstancedMesh || !im.castShadow || im.material.transparent) continue;
+      // 投不投影按建区时的设定（cs0）：低画质会把布景的 castShadow 关掉（zoneShadowPolicy），贴花不能跟着建区时的画质档变
+      const cs = im.userData.cs0 !== undefined ? im.userData.cs0 : im.castShadow;
+      if (!im.isInstancedMesh || !cs || im.material.transparent) continue;
       const g = im.geometry;
       if (!g.boundingBox) g.computeBoundingBox();
       bb.copy(g.boundingBox);
@@ -1575,7 +1579,7 @@
         if (rb < 0.16 || rb > 7 || y0 > 0.35 || y1 < 0.08 || y1 - y0 < rb * 0.5 || sd(_v.x, _v.z) < -6 || soft(_v.x, _v.z)) continue;
         // 脚下往外 aoR 米的软边（缺省 0.6 倍半径）；只在高 / 中档（低档的接触阴影靠地面顶点色，见 layer.ao2）
         const ar = D.aoR !== undefined ? rb + D.aoR : rb * 1.3;
-        decalPush(_v.x, _v.z, ar, ar * r(0.85, 1.1), r(0, TAU), rb < 0.9 ? C.ao : C.ao2, black, D.ao * Math.min(1, 0.55 + rb * 0.22), false);
+        decalPush(_v.x, _v.z, ar, ar * ra(0.85, 1.1), ra(0, TAU), rb < 0.9 ? C.ao : C.ao2, black, D.ao * Math.min(1, 0.55 + rb * 0.22), false);
       }
     }
     // ② 成簇岩石的脚下：碎石 + 覆盖斑（簇在 ashRocks / 通用岩石里定）
@@ -3631,13 +3635,22 @@
     if (T_ && T_.tick) T_.tick(dt, z);
   };
   // 建外观时把 Math.random 换成按布局取种子的伪随机：外观不再消耗游戏的随机序列，
-  // 改外观不会挪动刷怪 / 掉落；素材到了原地重建外观也不会在游戏中途插进随机数
+  // 改外观不会挪动刷怪 / 掉落；素材到了原地重建外观也不会在游戏中途插进随机数。
+  // three 的 uuid 不取 Math.random（vendor/three.min.js 的本地改动，见 vendor/README.md）：几何体 / 材质缓存命中与否不再挪动这个序列，第一次建和原地重建摆得一样
+  // 外观随机序列按段分开：建外观的每一段（地面、岩石、主题摆件、水晶、暗斑、法阵、布景模型 / 火盆、各区自己的布景……）开头调 vrSection(段号)，
+  // 从 vseed 和段号重新起一路。某一段多取 / 少取几个随机数（自产件到了、主题摆件换成模型、低画质用程序化墙）只影响它自己，后面各段的摆放不挪
+  let vrZone = null;
+  function vrSection(k) {
+    if (vrZone) Math.random = mulberry32(((vrZone.vseed >>> 0) ^ Math.imul(k + 1, 0x9e3779b1)) >>> 0);
+  }
   function withVisualRandom(zone, fn) {
     const orig = Math.random;
     Math.random = mulberry32(zone.vseed >>> 0);
+    vrZone = zone;
     try {
       return fn();
     } finally {
+      vrZone = null;
       Math.random = orig;
     }
   }
@@ -9581,6 +9594,38 @@
     }
     return { on: ICULL.on, n: icull ? icull.list.length : 0 };
   };
+  // 测试用：本区布景的指纹（区域组里每个网格的名字、位置、几何体顶点 / 实例矩阵 / 实例色），远处实例剔除先复原、按完整的实例算。
+  // 同一个区原地重建（不管高 / 低档、缓存命中多少、素材先到后到）前后应逐位相同（test/smoke.mjs「确定性」）。
+  // 火焰的方片每帧按时间抖动（updateFires），模拟暂停时重建后还没动过；要比的话两次之间别推进模拟
+  W.dressHash = function () {
+    if (!zoneGroup) return null;
+    if (icull && icull.group === zoneGroup) for (const e of icull.list) if (!e.off) icullRestore(e);
+    icull = null;
+    let h = 2166136261, n = 0;
+    const mix = (v) => {
+      h = Math.imul(h ^ (Math.round(v * 1000) | 0), 16777619) >>> 0;
+    };
+    const arr = (a, k) => {
+      for (let i = 0; i < k; i++) mix(a[i]);
+    };
+    for (const o of zoneGroup.children) {
+      const nm = String(o.name || o.type);
+      for (let i = 0; i < nm.length; i++) mix(nm.charCodeAt(i));
+      mix(o.position.x);
+      mix(o.position.z);
+      if (o.isInstancedMesh) {
+        mix(o.count);
+        arr(o.instanceMatrix.array, o.count * 16);
+        if (o.instanceColor) arr(o.instanceColor.array, o.count * 3);
+      } else if (o.geometry && o.geometry.attributes && o.geometry.attributes.position) {
+        const pa = o.geometry.attributes.position;
+        mix(pa.count);
+        arr(pa.array, pa.array.length);
+      }
+      n++;
+    }
+    return { hash: h.toString(16), n };
+  };
   function disposeZone() {
     icull = null;
     if (!zoneGroup) return;
@@ -9853,6 +9898,7 @@
     };
     const b = zone.bounds;
 
+    vrSection(1); // 外观随机序列按段重新起头（见 withVisualRandom）
     // --- 地面：只在可行走区域及其外缘铺一张规则网格，用顶点色做边缘压暗和向虚空的渐隐 ---
     const pathL = lin(def.path), voidL = lin(def.voidc), VOID_K = 2.0;
     // 虚空的顶点色倍率：贴图本身带着路面颜色，乘上这个倍率后接近 voidc
@@ -10010,6 +10056,7 @@
     ground.receiveShadow = true;
     zoneGroup.add(ground);
 
+    vrSection(2); // 外观随机序列按段重新起头（见 withVisualRandom）
     // --- 虚空底板：同一张贴图、同一倍率，和地面外缘无缝衔接 ---
     const VM = 220;
     const vx0 = b.minX - VM, vx1 = b.maxX + VM, vz0 = b.minZ - VM, vz1 = b.maxZ + VM;
@@ -10032,6 +10079,7 @@
     voidMesh.receiveShadow = true;
     zoneGroup.add(voidMesh);
 
+    vrSection(3); // 外观随机序列按段重新起头（见 withVisualRandom）
     // --- 沿不可行走的边采样 ---
     // 沿 sd = 0 的边（W.edgeSamples）按弧长每 spacing 取一个点、往外偏 off；只取外侧是岩壁的边（水、虚空、墙边由各区的 dress 自己布置）
     const ringSamples = (spacing, off, cb) => W.edgeSamples(spacing, off, cb, { kinds: [MAT.ROCK], jitter: 0.3 });
@@ -10052,6 +10100,7 @@
       return hash2(Math.round(x * 7), Math.round(z * 7)) < keep;
     };
 
+    vrSection(4); // 外观随机序列按段重新起头（见 withVisualRandom）
     // --- 岩石：内圈小、外圈大，再加一圈稀疏的尖岩 ---
     // 相机从 +z 方向俯视：可行走区域南缘（靠近镜头一侧）的高物会挡住战场，所以压矮
     const lowK = (x, z) => (sd(x, z - 4.5) > sd(x, z) + 2 ? 0.5 : 1);
@@ -10151,6 +10200,7 @@
     }
 
     vfMs.rocks = +(performance.now() - vfMs.t0).toFixed(2); // 建外观开始到岩石摆完（调试）
+    vrSection(5); // 外观随机序列按段重新起头（见 withVisualRandom）
     // --- 主题摆件（有 CC0 布景模型时只保留 keep 比例的程序化摆件，其余换成模型，见 buildProps） ---
     const props = [];
     const withProps = hd && propsReady(gx);
@@ -10172,6 +10222,7 @@
     );
     instanced(propGeo(def.id), propMat, props, true, null);
 
+    vrSection(6); // 外观随机序列按段重新起头（见 withVisualRandom）
     // --- 发光水晶簇 + 地面光晕 ---
     const crystals = [], glows = [];
     ringSamples(8.5, 1.6, (x, z) => {
@@ -10209,6 +10260,7 @@
     const glowIM = instanced(gQuad(), glowMat, glows, false, null);
     if (glowIM) glowIM.renderOrder = 1;
 
+    vrSection(7); // 外观随机序列按段重新起头（见 withVisualRandom）
     // --- 地面暗斑 ---
     // 每区可以在 ZONE_GFX.<id>.blots = { k: 块数倍率（默认 1）, r: 大小倍率（默认 1）, op: 不透明度（默认 0.2）, tex: 'crack' } 调污斑（zones-ash 加的旋钮）。
     // zones-polish：tex: 'crack' 把软边的暗块换成细裂纹（groundCrackTex），读起来是地面的纹路而不是脏印子
@@ -10250,6 +10302,7 @@
       if (blotIM) blotIM.renderOrder = 1;
     }
 
+    vrSection(8); // 外观随机序列按段重新起头（见 withVisualRandom）
     // --- 法阵：首领竞技场（主题色）和起点（淡色） ---
     const sigil = (x, z, r, hex, op) => {
       const m = own(
@@ -10278,6 +10331,7 @@
     const dress = ash ? buildAshDress(zone, sd) : null;
     const ashGlow = ashFisPending ? ashFisPending.glow.slice() : []; // vf-ground：起点余烬裂缝的位置（光池用；之后会被区域布景拼进熔岩网格）
     const rp = rift ? riftPieces(zone, sd, ringSamples, lowK, accentL, crystalMat) : null;
+    vrSection(9); // 外观随机序列按段重新起头（见 withVisualRandom）
     // --- CC0 布景模型、火盆、贴地薄雾 ---
     let fires = null, mist = null;
     if (hd) {
@@ -10290,6 +10344,7 @@
     }
     if (gx && !withProps) requestZoneAssets(zone, gx);
 
+    vrSection(10); // 外观随机序列按段重新起头（见 withVisualRandom）
     // 各区自己的布景（B 阶段在 ZONE_TERRAIN[id].dress 里写）
     const TZ = terrainOf(def);
     const tctx = terrainCtx(zone, { sd, lowK, hd, gx, rock: rockMat, rockTint, prop: propMat, crystal: crystalMat, glow: glowMat, blot: blotMat, ground, voidMesh, bossSigil, startSigil });
@@ -10377,7 +10432,16 @@
       const zg = zoneGroup;
       setTimeout(() => {
         if (zoneGroup !== zg || W.zone !== zone) return; // 已经换区 / 重建了
+        // 远处实例的剔除（icull）可能已经在这之前的某一帧里按镜头挤掉了实例：先全部复原，接触阴影贴花按完整的实例摆；
+        // 跑完再让 icull 重新登记（成簇岩石换上的新网格也要剔除）。不然结果取决于这个 setTimeout 和第一帧谁先到
+        if (icull && icull.group === zg) for (const e of icull.list) if (!e.off) icullRestore(e);
+        icull = null;
         for (const f of vfJobs) f();
+        icull = null;
+        // 马上按镜头焦点重新登记、剔除（模拟暂停时 W.update 不跑，不能等下一帧）；镜头还没跟过来（换区后还没 update 过）就按它马上要到的位置
+        const P = G.player;
+        if (camSnap) icullUpdate(P.x, P.z + CAM_LEAD);
+        else icullUpdate(camT.x, camT.z + CAM_LEAD);
       }, 0);
     }
 
