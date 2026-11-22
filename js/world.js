@@ -20766,6 +20766,9 @@
     if (!minor) flare(b.inX[0], 1.25, b.inZ[0], hex, 1.1, 0.1);
     flashLight(b.inX[b.n - 1], 2.5, b.inZ[b.n - 1], hex, 1.4);
   };
+  // 测试用（vf-vfx3）：还亮着的电弧的芯混白量 / 还在播的光带里敌方模式的条数
+  W.boltWhites = () => bolts.filter((b) => b.on).map((b) => b.u.uWhite.value);
+  W.streakFoe = () => { let n = 0, all = 0; for (const it of streaks) if (it.on) { all++; if (it.u.uFoe.value > 0.5) n++; } return { foe: n, all }; };
   // vf-vfx3：敌方电弧的落点。隔一个点放一个小号雷系命中（不留环、不留痕）；head（可选 {x, z}）处一记小亮芯
   function boltFoe(b, hex, head) {
     for (let i = 0; i < b.n; i += 2) W.foeHit(b.inX[i], b.inZ[i], 1.0, 'light', { noRing: true, k: 0.35, hex });

@@ -10181,6 +10181,31 @@ async function main() {
     return Object.entries(r.zones).map(([k, v]) => k + ' ' + v).join(' / ');
   });
 
+  await step('特效三期第 4 部分（vf-vfx3）：敌方的电弧 / 天降光带芯不往白混（只有头上一小段亮）、玩家的电弧照旧；电弧落点放雷系形状件、首领身上一记小亮芯', async () => {
+    const r = await ev(() => {
+      const W = G.world, P = G.player, out = {};
+      G.clearEnemies();
+      W.clearFx();
+      const pts = [];
+      for (let i = -3; i <= 3; i++) pts.push({ x: P.x + i * 3, z: P.z - 4 });
+      W.bolt(pts, G.TYPE_HEX.light, false, { foe: true, head: { x: P.x, z: P.z - 4 } });
+      out.foeWhite = W.boltWhites();
+      out.foeShapes = W.vShapeLive();
+      W.clearFx();
+      W.bolt([{ x: P.x, z: P.z }, { x: P.x + 4, z: P.z }], G.TYPE_HEX.light, false, { v2: true });
+      out.playerWhite = W.boltWhites();
+      W.clearFx();
+      W.riftStrike(P.x + 3, P.z, 1.35, G.TYPE_HEX.light, true);
+      out.streak = W.streakFoe();
+      W.clearFx();
+      return out;
+    });
+    assert(r.foeWhite.length >= 1 && r.foeWhite.every((v) => Math.abs(v - 0.12) < 1e-6) && r.foeShapes >= 4, '敌方电弧的芯应只混一成白、落点放形状件：' + JSON.stringify(r));
+    assert(r.playerWhite.length >= 1 && r.playerWhite.every((v) => Math.abs(v - 0.7) < 1e-6), '玩家的电弧应照旧（芯混七成白）：' + JSON.stringify(r));
+    assert(r.streak.all >= 2 && r.streak.foe === r.streak.all, '流星犁地的天降光带应全是敌方模式（只有头上一小段亮）：' + JSON.stringify(r));
+    return '敌方电弧芯 ' + r.foeWhite[0] + ' / 玩家 ' + r.playerWhite[0] + '，形状件 ' + r.foeShapes + '，光带 ' + r.streak.foe + ' / ' + r.streak.all;
+  });
+
   await step('画面：CC0 素材按区域加载后换成 PBR 地面与布景；画质高 / 中 / 低即时切换、存档，三档都能渲染', async () => {
     const r = await ev(async () => {
       const W = G.world;
