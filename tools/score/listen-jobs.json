@@ -1,0 +1,1324 @@
+[
+{
+"id": "A_ash_mix",
+"label": "灰烬荒原·环境+音乐（32 秒进入战斗）",
+"zone": "ash",
+"kind": "mix",
+"cat": "A",
+"fn": "renderA",
+"spec": {
+"zone": "ash",
+"seed": 1,
+"kind": "both",
+"seconds": 60,
+"timeline": [
+[
+0,
+0
+],
+[
+32,
+1
+]
+]
+}
+},
+{
+"id": "A_ash_explore",
+"label": "灰烬荒原·探索音乐",
+"zone": "ash",
+"kind": "music",
+"cat": "A",
+"fn": "renderA",
+"spec": {
+"zone": "ash",
+"seed": 1,
+"kind": "music",
+"seconds": 90
+}
+},
+{
+"id": "A_ash_fight",
+"label": "灰烬荒原·音乐：探索 → 20 秒进战斗 → 62 秒脱战",
+"zone": "ash",
+"kind": "music-switch",
+"cat": "A",
+"fn": "renderA",
+"spec": {
+"zone": "ash",
+"seed": 1,
+"kind": "music",
+"seconds": 90,
+"timeline": [
+[
+0,
+0
+],
+[
+20,
+1
+],
+[
+62,
+0
+]
+]
+}
+},
+{
+"id": "A_ash_amb",
+"label": "灰烬荒原·环境音",
+"zone": "ash",
+"kind": "amb",
+"cat": "A",
+"fn": "renderA",
+"spec": {
+"zone": "ash",
+"seed": 1,
+"kind": "amb",
+"seconds": 60
+}
+},
+{
+"id": "A_frost_mix",
+"label": "霜骨沼泽·环境+音乐（30 秒进入战斗）",
+"zone": "frost",
+"kind": "mix",
+"cat": "A",
+"fn": "renderA",
+"spec": {
+"zone": "frost",
+"seed": 1,
+"kind": "both",
+"seconds": 50,
+"timeline": [
+[
+0,
+0
+],
+[
+30,
+1
+]
+]
+}
+},
+{
+"id": "A_frost_music",
+"label": "霜骨沼泽·只有音乐（30 秒进入战斗）",
+"zone": "frost",
+"kind": "music-switch",
+"cat": "A",
+"fn": "renderA",
+"spec": {
+"zone": "frost",
+"seed": 1,
+"kind": "music",
+"seconds": 50,
+"timeline": [
+[
+0,
+0
+],
+[
+30,
+1
+]
+]
+}
+},
+{
+"id": "A_frost_amb",
+"label": "霜骨沼泽·只有环境音",
+"zone": "frost",
+"kind": "amb",
+"cat": "A",
+"fn": "renderA",
+"spec": {
+"zone": "frost",
+"seed": 1,
+"kind": "amb",
+"seconds": 50
+}
+},
+{
+"id": "A_storm_mix",
+"label": "雷鸣遗迹·环境+音乐（30 秒进入战斗）",
+"zone": "storm",
+"kind": "mix",
+"cat": "A",
+"fn": "renderA",
+"spec": {
+"zone": "storm",
+"seed": 1,
+"kind": "both",
+"seconds": 50,
+"timeline": [
+[
+0,
+0
+],
+[
+30,
+1
+]
+]
+}
+},
+{
+"id": "A_storm_music",
+"label": "雷鸣遗迹·只有音乐（30 秒进入战斗）",
+"zone": "storm",
+"kind": "music-switch",
+"cat": "A",
+"fn": "renderA",
+"spec": {
+"zone": "storm",
+"seed": 1,
+"kind": "music",
+"seconds": 50,
+"timeline": [
+[
+0,
+0
+],
+[
+30,
+1
+]
+]
+}
+},
+{
+"id": "A_storm_amb",
+"label": "雷鸣遗迹·只有环境音",
+"zone": "storm",
+"kind": "amb",
+"cat": "A",
+"fn": "renderA",
+"spec": {
+"zone": "storm",
+"seed": 1,
+"kind": "amb",
+"seconds": 50
+}
+},
+{
+"id": "A_abyss_mix",
+"label": "烬渊深处·环境+音乐（30 秒进入战斗）",
+"zone": "abyss",
+"kind": "mix",
+"cat": "A",
+"fn": "renderA",
+"spec": {
+"zone": "abyss",
+"seed": 1,
+"kind": "both",
+"seconds": 50,
+"timeline": [
+[
+0,
+0
+],
+[
+30,
+1
+]
+]
+}
+},
+{
+"id": "A_abyss_music",
+"label": "烬渊深处·只有音乐（30 秒进入战斗）",
+"zone": "abyss",
+"kind": "music-switch",
+"cat": "A",
+"fn": "renderA",
+"spec": {
+"zone": "abyss",
+"seed": 1,
+"kind": "music",
+"seconds": 50,
+"timeline": [
+[
+0,
+0
+],
+[
+30,
+1
+]
+]
+}
+},
+{
+"id": "A_abyss_amb",
+"label": "烬渊深处·只有环境音",
+"zone": "abyss",
+"kind": "amb",
+"cat": "A",
+"fn": "renderA",
+"spec": {
+"zone": "abyss",
+"seed": 1,
+"kind": "amb",
+"seconds": 50
+}
+},
+{
+"id": "A_rift_mix",
+"label": "坠星裂谷·环境+音乐（30 秒进入战斗）",
+"zone": "rift",
+"kind": "mix",
+"cat": "A",
+"fn": "renderA",
+"spec": {
+"zone": "rift",
+"seed": 1,
+"kind": "both",
+"seconds": 50,
+"timeline": [
+[
+0,
+0
+],
+[
+30,
+1
+]
+]
+}
+},
+{
+"id": "A_rift_music",
+"label": "坠星裂谷·只有音乐（30 秒进入战斗）",
+"zone": "rift",
+"kind": "music-switch",
+"cat": "A",
+"fn": "renderA",
+"spec": {
+"zone": "rift",
+"seed": 1,
+"kind": "music",
+"seconds": 50,
+"timeline": [
+[
+0,
+0
+],
+[
+30,
+1
+]
+]
+}
+},
+{
+"id": "A_rift_amb",
+"label": "坠星裂谷·只有环境音",
+"zone": "rift",
+"kind": "amb",
+"cat": "A",
+"fn": "renderA",
+"spec": {
+"zone": "rift",
+"seed": 1,
+"kind": "amb",
+"seconds": 50
+}
+},
+{
+"id": "A_crown_mix",
+"label": "余烛殿·环境+音乐（30 秒进入战斗）",
+"zone": "crown",
+"kind": "mix",
+"cat": "A",
+"fn": "renderA",
+"spec": {
+"zone": "crown",
+"seed": 1,
+"kind": "both",
+"seconds": 50,
+"timeline": [
+[
+0,
+0
+],
+[
+30,
+1
+]
+]
+}
+},
+{
+"id": "A_crown_music",
+"label": "余烛殿·只有音乐（30 秒进入战斗）",
+"zone": "crown",
+"kind": "music-switch",
+"cat": "A",
+"fn": "renderA",
+"spec": {
+"zone": "crown",
+"seed": 1,
+"kind": "music",
+"seconds": 50,
+"timeline": [
+[
+0,
+0
+],
+[
+30,
+1
+]
+]
+}
+},
+{
+"id": "A_crown_amb",
+"label": "余烛殿·只有环境音",
+"zone": "crown",
+"kind": "amb",
+"cat": "A",
+"fn": "renderA",
+"spec": {
+"zone": "crown",
+"seed": 1,
+"kind": "amb",
+"seconds": 50
+}
+},
+{
+"id": "A_crown_boss",
+"label": "余烛殿·首领战（环境+音乐）",
+"zone": "crown",
+"kind": "boss-mix",
+"cat": "A",
+"fn": "renderA",
+"spec": {
+"zone": "crown",
+"seed": 1,
+"kind": "both",
+"seconds": 40,
+"timeline": [
+[
+0,
+2
+]
+]
+}
+},
+{
+"id": "A_crown_boss_music",
+"label": "余烛殿·首领战·只有音乐",
+"zone": "crown",
+"kind": "boss",
+"cat": "A",
+"fn": "renderA",
+"spec": {
+"zone": "crown",
+"seed": 1,
+"kind": "music",
+"seconds": 40,
+"timeline": [
+[
+0,
+2
+]
+]
+}
+},
+{
+"id": "A_ash_mix_lite",
+"label": "灰烬荒原·环境+音乐·低画质档（lite）",
+"zone": "ash",
+"kind": "mix",
+"cat": "A-lite",
+"fn": "renderA",
+"spec": {
+"zone": "ash",
+"seed": 1,
+"kind": "both",
+"seconds": 50,
+"lite": true,
+"timeline": [
+[
+0,
+0
+],
+[
+30,
+1
+]
+]
+}
+},
+{
+"id": "A_frost_mix_lite",
+"label": "霜骨沼泽·环境+音乐·低画质档（lite）",
+"zone": "frost",
+"kind": "mix",
+"cat": "A-lite",
+"fn": "renderA",
+"spec": {
+"zone": "frost",
+"seed": 1,
+"kind": "both",
+"seconds": 50,
+"lite": true,
+"timeline": [
+[
+0,
+0
+],
+[
+30,
+1
+]
+]
+}
+},
+{
+"id": "A_rift_mix_lite",
+"label": "坠星裂谷·环境+音乐·低画质档（lite）",
+"zone": "rift",
+"kind": "mix",
+"cat": "A-lite",
+"fn": "renderA",
+"spec": {
+"zone": "rift",
+"seed": 1,
+"kind": "both",
+"seconds": 50,
+"lite": true,
+"timeline": [
+[
+0,
+0
+],
+[
+30,
+1
+]
+]
+}
+},
+{
+"id": "A_crown_boss_lite",
+"label": "余烛殿·首领战·低画质档（lite）",
+"zone": "crown",
+"kind": "boss-mix",
+"cat": "A-lite",
+"fn": "renderA",
+"spec": {
+"zone": "crown",
+"seed": 1,
+"kind": "both",
+"seconds": 40,
+"lite": true,
+"timeline": [
+[
+0,
+2
+]
+]
+}
+},
+{
+"id": "G_sfx",
+"label": "参考：真实群战的音效（10 秒时间线，游戏内音量）",
+"zone": null,
+"kind": "sfx",
+"cat": "game",
+"fn": "renderGame",
+"spec": {
+"zone": "ash",
+"seed": 1,
+"seconds": 11,
+"parts": [
+"sfx"
+],
+"sfx": "montage"
+}
+},
+{
+"id": "G_ash_explore",
+"label": "灰烬荒原·探索音乐（游戏内电平）",
+"zone": "ash",
+"kind": "music",
+"cat": "game",
+"fn": "renderGame",
+"spec": {
+"zone": "ash",
+"seed": 1,
+"seconds": 40,
+"parts": [
+"music"
+],
+"fadeIn": 0.01
+}
+},
+{
+"id": "G_ash_fight",
+"label": "灰烬荒原·战斗音乐（游戏内电平）",
+"zone": "ash",
+"kind": "music",
+"cat": "game",
+"fn": "renderGame",
+"spec": {
+"zone": "ash",
+"seed": 1,
+"seconds": 30,
+"parts": [
+"music"
+],
+"fadeIn": 0.01,
+"timeline": [
+[
+0,
+1
+]
+]
+}
+},
+{
+"id": "G_ash_amb",
+"label": "灰烬荒原·环境音（游戏内电平）",
+"zone": "ash",
+"kind": "amb",
+"cat": "game",
+"fn": "renderGame",
+"spec": {
+"zone": "ash",
+"seed": 1,
+"seconds": 30,
+"parts": [
+"amb"
+],
+"fadeIn": 0.01
+}
+},
+{
+"id": "G_frost_explore",
+"label": "霜骨沼泽·探索音乐（游戏内电平）",
+"zone": "frost",
+"kind": "music",
+"cat": "game",
+"fn": "renderGame",
+"spec": {
+"zone": "frost",
+"seed": 1,
+"seconds": 40,
+"parts": [
+"music"
+],
+"fadeIn": 0.01
+}
+},
+{
+"id": "G_frost_fight",
+"label": "霜骨沼泽·战斗音乐（游戏内电平）",
+"zone": "frost",
+"kind": "music",
+"cat": "game",
+"fn": "renderGame",
+"spec": {
+"zone": "frost",
+"seed": 1,
+"seconds": 30,
+"parts": [
+"music"
+],
+"fadeIn": 0.01,
+"timeline": [
+[
+0,
+1
+]
+]
+}
+},
+{
+"id": "G_frost_amb",
+"label": "霜骨沼泽·环境音（游戏内电平）",
+"zone": "frost",
+"kind": "amb",
+"cat": "game",
+"fn": "renderGame",
+"spec": {
+"zone": "frost",
+"seed": 1,
+"seconds": 30,
+"parts": [
+"amb"
+],
+"fadeIn": 0.01
+}
+},
+{
+"id": "G_storm_explore",
+"label": "雷鸣遗迹·探索音乐（游戏内电平）",
+"zone": "storm",
+"kind": "music",
+"cat": "game",
+"fn": "renderGame",
+"spec": {
+"zone": "storm",
+"seed": 1,
+"seconds": 40,
+"parts": [
+"music"
+],
+"fadeIn": 0.01
+}
+},
+{
+"id": "G_storm_fight",
+"label": "雷鸣遗迹·战斗音乐（游戏内电平）",
+"zone": "storm",
+"kind": "music",
+"cat": "game",
+"fn": "renderGame",
+"spec": {
+"zone": "storm",
+"seed": 1,
+"seconds": 30,
+"parts": [
+"music"
+],
+"fadeIn": 0.01,
+"timeline": [
+[
+0,
+1
+]
+]
+}
+},
+{
+"id": "G_storm_amb",
+"label": "雷鸣遗迹·环境音（游戏内电平）",
+"zone": "storm",
+"kind": "amb",
+"cat": "game",
+"fn": "renderGame",
+"spec": {
+"zone": "storm",
+"seed": 1,
+"seconds": 30,
+"parts": [
+"amb"
+],
+"fadeIn": 0.01
+}
+},
+{
+"id": "G_abyss_explore",
+"label": "烬渊深处·探索音乐（游戏内电平）",
+"zone": "abyss",
+"kind": "music",
+"cat": "game",
+"fn": "renderGame",
+"spec": {
+"zone": "abyss",
+"seed": 1,
+"seconds": 40,
+"parts": [
+"music"
+],
+"fadeIn": 0.01
+}
+},
+{
+"id": "G_abyss_fight",
+"label": "烬渊深处·战斗音乐（游戏内电平）",
+"zone": "abyss",
+"kind": "music",
+"cat": "game",
+"fn": "renderGame",
+"spec": {
+"zone": "abyss",
+"seed": 1,
+"seconds": 30,
+"parts": [
+"music"
+],
+"fadeIn": 0.01,
+"timeline": [
+[
+0,
+1
+]
+]
+}
+},
+{
+"id": "G_abyss_amb",
+"label": "烬渊深处·环境音（游戏内电平）",
+"zone": "abyss",
+"kind": "amb",
+"cat": "game",
+"fn": "renderGame",
+"spec": {
+"zone": "abyss",
+"seed": 1,
+"seconds": 30,
+"parts": [
+"amb"
+],
+"fadeIn": 0.01
+}
+},
+{
+"id": "G_rift_explore",
+"label": "坠星裂谷·探索音乐（游戏内电平）",
+"zone": "rift",
+"kind": "music",
+"cat": "game",
+"fn": "renderGame",
+"spec": {
+"zone": "rift",
+"seed": 1,
+"seconds": 40,
+"parts": [
+"music"
+],
+"fadeIn": 0.01
+}
+},
+{
+"id": "G_rift_fight",
+"label": "坠星裂谷·战斗音乐（游戏内电平）",
+"zone": "rift",
+"kind": "music",
+"cat": "game",
+"fn": "renderGame",
+"spec": {
+"zone": "rift",
+"seed": 1,
+"seconds": 30,
+"parts": [
+"music"
+],
+"fadeIn": 0.01,
+"timeline": [
+[
+0,
+1
+]
+]
+}
+},
+{
+"id": "G_rift_amb",
+"label": "坠星裂谷·环境音（游戏内电平）",
+"zone": "rift",
+"kind": "amb",
+"cat": "game",
+"fn": "renderGame",
+"spec": {
+"zone": "rift",
+"seed": 1,
+"seconds": 30,
+"parts": [
+"amb"
+],
+"fadeIn": 0.01
+}
+},
+{
+"id": "G_crown_explore",
+"label": "余烛殿·探索音乐（游戏内电平）",
+"zone": "crown",
+"kind": "music",
+"cat": "game",
+"fn": "renderGame",
+"spec": {
+"zone": "crown",
+"seed": 1,
+"seconds": 40,
+"parts": [
+"music"
+],
+"fadeIn": 0.01
+}
+},
+{
+"id": "G_crown_fight",
+"label": "余烛殿·战斗音乐（游戏内电平）",
+"zone": "crown",
+"kind": "music",
+"cat": "game",
+"fn": "renderGame",
+"spec": {
+"zone": "crown",
+"seed": 1,
+"seconds": 30,
+"parts": [
+"music"
+],
+"fadeIn": 0.01,
+"timeline": [
+[
+0,
+1
+]
+]
+}
+},
+{
+"id": "G_crown_amb",
+"label": "余烛殿·环境音（游戏内电平）",
+"zone": "crown",
+"kind": "amb",
+"cat": "game",
+"fn": "renderGame",
+"spec": {
+"zone": "crown",
+"seed": 1,
+"seconds": 30,
+"parts": [
+"amb"
+],
+"fadeIn": 0.01
+}
+},
+{
+"id": "G_crown_boss",
+"label": "余烛殿·首领战音乐（游戏内电平）",
+"zone": "crown",
+"kind": "boss",
+"cat": "game",
+"fn": "renderGame",
+"spec": {
+"zone": "crown",
+"seed": 1,
+"seconds": 30,
+"parts": [
+"music"
+],
+"fadeIn": 0.01,
+"timeline": [
+[
+0,
+2
+]
+]
+}
+},
+{
+"id": "D_ash_all",
+"label": "",
+"zone": "ash",
+"kind": "demo",
+"cat": "demo",
+"fn": "renderGame",
+"spec": {
+"zone": "ash",
+"seed": 1,
+"seconds": 22,
+"parts": [
+"sfx",
+"music",
+"amb"
+],
+"sfx": "montage",
+"sfxAt": 1,
+"fadeIn": 0.01,
+"timeline": [
+[
+0,
+1
+]
+]
+}
+},
+{
+"id": "D_ash_bed",
+"label": "",
+"zone": "ash",
+"kind": "demo",
+"cat": "demo",
+"fn": "renderGame",
+"spec": {
+"zone": "ash",
+"seed": 1,
+"seconds": 22,
+"parts": [
+"music",
+"amb"
+],
+"fadeIn": 0.01,
+"timeline": [
+[
+0,
+1
+]
+]
+}
+},
+{
+"id": "D_crown_all",
+"label": "",
+"zone": "crown",
+"kind": "demo",
+"cat": "demo",
+"fn": "renderGame",
+"spec": {
+"zone": "crown",
+"seed": 1,
+"seconds": 22,
+"parts": [
+"sfx",
+"music",
+"amb"
+],
+"sfx": "montage",
+"sfxAt": 1,
+"fadeIn": 0.01,
+"timeline": [
+[
+0,
+2
+]
+]
+}
+},
+{
+"id": "D_crown_bed",
+"label": "",
+"zone": "crown",
+"kind": "demo",
+"cat": "demo",
+"fn": "renderGame",
+"spec": {
+"zone": "crown",
+"seed": 1,
+"seconds": 22,
+"parts": [
+"music",
+"amb"
+],
+"fadeIn": 0.01,
+"timeline": [
+[
+0,
+2
+]
+]
+}
+},
+{
+"id": "D_sfx",
+"label": "",
+"zone": "ash",
+"kind": "demo",
+"cat": "demo",
+"fn": "renderGame",
+"spec": {
+"zone": "ash",
+"seed": 1,
+"seconds": 22,
+"parts": [
+"sfx"
+],
+"sfx": "montage",
+"sfxAt": 1
+}
+},
+{
+"id": "L_ash_full",
+"label": "",
+"zone": "ash",
+"kind": "mix",
+"cat": "litecmp",
+"fn": "renderA",
+"spec": {
+"zone": "ash",
+"seed": 1,
+"kind": "both",
+"seconds": 40,
+"timeline": [
+[
+0,
+0
+],
+[
+24,
+1
+]
+]
+}
+},
+{
+"id": "L_ash_lite",
+"label": "",
+"zone": "ash",
+"kind": "mix",
+"cat": "litecmp",
+"fn": "renderA",
+"spec": {
+"zone": "ash",
+"seed": 1,
+"kind": "both",
+"seconds": 40,
+"lite": true,
+"timeline": [
+[
+0,
+0
+],
+[
+24,
+1
+]
+]
+}
+},
+{
+"id": "L_frost_full",
+"label": "",
+"zone": "frost",
+"kind": "mix",
+"cat": "litecmp",
+"fn": "renderA",
+"spec": {
+"zone": "frost",
+"seed": 1,
+"kind": "both",
+"seconds": 40,
+"timeline": [
+[
+0,
+0
+],
+[
+24,
+1
+]
+]
+}
+},
+{
+"id": "L_frost_lite",
+"label": "",
+"zone": "frost",
+"kind": "mix",
+"cat": "litecmp",
+"fn": "renderA",
+"spec": {
+"zone": "frost",
+"seed": 1,
+"kind": "both",
+"seconds": 40,
+"lite": true,
+"timeline": [
+[
+0,
+0
+],
+[
+24,
+1
+]
+]
+}
+},
+{
+"id": "L_storm_full",
+"label": "",
+"zone": "storm",
+"kind": "mix",
+"cat": "litecmp",
+"fn": "renderA",
+"spec": {
+"zone": "storm",
+"seed": 1,
+"kind": "both",
+"seconds": 40,
+"timeline": [
+[
+0,
+0
+],
+[
+24,
+1
+]
+]
+}
+},
+{
+"id": "L_storm_lite",
+"label": "",
+"zone": "storm",
+"kind": "mix",
+"cat": "litecmp",
+"fn": "renderA",
+"spec": {
+"zone": "storm",
+"seed": 1,
+"kind": "both",
+"seconds": 40,
+"lite": true,
+"timeline": [
+[
+0,
+0
+],
+[
+24,
+1
+]
+]
+}
+},
+{
+"id": "L_abyss_full",
+"label": "",
+"zone": "abyss",
+"kind": "mix",
+"cat": "litecmp",
+"fn": "renderA",
+"spec": {
+"zone": "abyss",
+"seed": 1,
+"kind": "both",
+"seconds": 40,
+"timeline": [
+[
+0,
+0
+],
+[
+24,
+1
+]
+]
+}
+},
+{
+"id": "L_abyss_lite",
+"label": "",
+"zone": "abyss",
+"kind": "mix",
+"cat": "litecmp",
+"fn": "renderA",
+"spec": {
+"zone": "abyss",
+"seed": 1,
+"kind": "both",
+"seconds": 40,
+"lite": true,
+"timeline": [
+[
+0,
+0
+],
+[
+24,
+1
+]
+]
+}
+},
+{
+"id": "L_rift_full",
+"label": "",
+"zone": "rift",
+"kind": "mix",
+"cat": "litecmp",
+"fn": "renderA",
+"spec": {
+"zone": "rift",
+"seed": 1,
+"kind": "both",
+"seconds": 40,
+"timeline": [
+[
+0,
+0
+],
+[
+24,
+1
+]
+]
+}
+},
+{
+"id": "L_rift_lite",
+"label": "",
+"zone": "rift",
+"kind": "mix",
+"cat": "litecmp",
+"fn": "renderA",
+"spec": {
+"zone": "rift",
+"seed": 1,
+"kind": "both",
+"seconds": 40,
+"lite": true,
+"timeline": [
+[
+0,
+0
+],
+[
+24,
+1
+]
+]
+}
+},
+{
+"id": "L_crown_full",
+"label": "",
+"zone": "crown",
+"kind": "mix",
+"cat": "litecmp",
+"fn": "renderA",
+"spec": {
+"zone": "crown",
+"seed": 1,
+"kind": "both",
+"seconds": 40,
+"timeline": [
+[
+0,
+0
+],
+[
+24,
+1
+]
+]
+}
+},
+{
+"id": "L_crown_lite",
+"label": "",
+"zone": "crown",
+"kind": "mix",
+"cat": "litecmp",
+"fn": "renderA",
+"spec": {
+"zone": "crown",
+"seed": 1,
+"kind": "both",
+"seconds": 40,
+"lite": true,
+"timeline": [
+[
+0,
+0
+],
+[
+24,
+1
+]
+]
+}
+}
+]

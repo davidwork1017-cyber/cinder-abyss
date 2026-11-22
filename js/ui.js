@@ -4283,8 +4283,8 @@
   const SET_VOL = [
     ['volMaster', '总音量', '所有声音一起调'],
     ['volSfx', '音效', '打击、技能、拾取和界面'],
-    ['volAmb', '环境音', '各区的背景声（后续加入）'],
-    ['volMusic', '音乐', '背景音乐（后续加入）'],
+    ['volAmb', '环境音', '各区的风声、水声、火声'],
+    ['volMusic', '音乐', '各区的背景音乐，交战时换成战斗段'],
   ];
   function volSlider(k) {
     const v = G.save.opts[k] | 0;
