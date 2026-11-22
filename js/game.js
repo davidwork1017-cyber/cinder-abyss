@@ -27,7 +27,8 @@
   const hexOf = (css) => parseInt(css.slice(1), 16);
   const dist = (ax, az, bx, bz) => Math.hypot(ax - bx, az - bz);
 
-  // 带节流的提示，避免同一条消息刷屏
+  // 带节流的提示，避免同一条消息刷屏。只动界面（G.ui.toast 不取随机数、不改游戏状态），所以按真实时间节流：
+  // 面板开着（游戏时间不走）时点「分解」「拾取」之类的提示照样能再出来
   const toastAt = {};
   function toast(msg, color, key, gapMs) {
     if (key) {
@@ -36,6 +37,15 @@
       toastAt[key] = now;
     }
     G.ui.toast(msg, color);
+  }
+  // 场景里的飘字提示（没有目标、魔力不足……）按游戏时间节流：飘字要取随机数，节流若看真实时间，
+  // 帧快帧慢会让同一个种子打出不同的随机序列。暂停 / 面板开着时游戏时间不走，节流也跟着停
+  const hintAt = {};
+  function hintDue(key, gap) {
+    const t = state.time;
+    if (key in hintAt && t - hintAt[key] < gap && t >= hintAt[key]) return false;
+    hintAt[key] = t;
+    return true;
   }
 
   // ---------- 运行时状态（对象本身永不替换，其他模块可以安全持有引用） ----------
@@ -3014,8 +3024,7 @@
     if (id !== 'meteor' || !starOn()) return false;
     if (G.input.tap[slot] > 0) {
       G.input.tap[slot] = 0;
-      if (Date.now() - (toastAt.relic || 0) > 1500) {
-        toastAt.relic = Date.now();
+      if (hintDue('relic', 1.5)) {
         G.world.text(P.x, P.z, '星雨：陨火自动落下', G.RELIC_COLOR, 15);
       }
     }
@@ -4323,9 +4332,7 @@
         // 空手按 R：提示一句
         if (G.input.tap[slot] > 0) {
           G.input.tap[slot] = 0;
-          const now = Date.now();
-          if (now - (toastAt.noWeapon || 0) > 1500) {
-            toastAt.noWeapon = now;
+          if (hintDue('noWeapon', 1.5)) {
             G.world.text(P.x, P.z, '没有武器，没有武器技', '#c9c2b4', 14);
           }
         }
@@ -4344,8 +4351,7 @@
         if (G.input.tap[slot] > 0) {
           G.input.tap[slot] = 0;
           const rw = G.rangedWeapon();
-          if (rw && Date.now() - (toastAt.gauge || 0) > 1200) {
-            toastAt.gauge = Date.now();
+          if (rw && hintDue('gauge', 1.2)) {
             G.world.text(P.x, P.z, rw.gauge.name + '未满（' + Math.floor(rw.gauge.v) + '/' + rw.gauge.max + '）', '#c9c2b4', 14);
           }
         }
@@ -4356,9 +4362,7 @@
         // 光环不用按：轻点它的键只提示一句
         if (G.input.tap[slot] > 0) {
           G.input.tap[slot] = 0;
-          const now = Date.now();
-          if (now - (toastAt.aura || 0) > 1500) {
-            toastAt.aura = now;
+          if (hintDue('aura', 1.5)) {
             G.world.text(P.x, P.z, '光环常驻生效', G.SKILLS[id].color, 15);
           }
         }
@@ -4369,9 +4373,7 @@
       if (G.SKILLS[id].kind === 'summon' && !(G.input.tap[slot] > 0)) continue;
       const ctx = G.skillCtx(id);
       if (!G.canAfford(ctx.cost)) {
-        const now = Date.now();
-        if (now - (toastAt.noCost || 0) > 1200) {
-          toastAt.noCost = now;
+        if (hintDue('noCost', 1.2)) {
           G.world.text(P.x, P.z, P.S.bloodMagic ? '生命不足' : '魔力不足', P.S.bloodMagic ? '#ff7a6a' : '#7fa8ff', 14);
         }
         continue;
@@ -4528,9 +4530,7 @@
     if (c.t < c.nextT) return;
     const ctx = G.skillCtx(c.id);
     if (!G.canAfford(ctx.cost)) {
-      const now = Date.now();
-      if (now - (toastAt.noCost || 0) > 1200) {
-        toastAt.noCost = now;
+      if (hintDue('noCost', 1.2)) {
         G.world.text(P.x, P.z, P.S.bloodMagic ? '生命不足' : '魔力不足', P.S.bloodMagic ? '#ff7a6a' : '#7fa8ff', 14);
       }
       endChannel();
@@ -4552,9 +4552,7 @@
   const FLICK_TURN = 2.4; // 反复砍同一个目标时，每次落点绕着它转过的角度（约 137°，几刀下来落点散在四周）
 
   function flickerNoTarget() {
-    const now = Date.now();
-    if (now - (toastAt.noTarget || 0) > 1200) {
-      toastAt.noTarget = now;
+    if (hintDue('noTarget', 1.2)) {
       G.world.text(P.x, P.z, '没有目标', '#c9c2b4', 14);
     }
   }
@@ -4654,9 +4652,7 @@
     const ctx = G.skillCtx(c.id);
     const sk = ctx.sk;
     if (!G.canAfford(ctx.cost)) {
-      const now = Date.now();
-      if (now - (toastAt.noCost || 0) > 1200) {
-        toastAt.noCost = now;
+      if (hintDue('noCost', 1.2)) {
         G.world.text(P.x, P.z, P.S.bloodMagic ? '生命不足' : '魔力不足', P.S.bloodMagic ? '#ff7a6a' : '#7fa8ff', 14);
       }
       endChannel();
