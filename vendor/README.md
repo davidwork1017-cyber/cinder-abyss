@@ -1,22 +1,34 @@
 # 第三方库
 
-全部是 three.js **r128**（npm `three@0.128.0`），MIT 许可证。示例模块取自非 module 版的 `examples/js/`，与 `three.min.js` 同一版本，原样未改（`three.min.js` 有一处本地改动，见表下）：
+`three.bundle.js`：three.js **r186**（npm `three@0.186.1`）加上同一版本 `examples/jsm/` 里的示例模块，MIT 许可证（全文 `LICENSE-three.txt`），由 `tools/build-three.mjs` 用 esbuild 打成一个经典脚本（IIFE），加载后挂在 `window.THREE` 上。不要手改，改了就重新打包。
 
-| 文件 | 来源 |
+| 打进去的模块 | 来源（npm `three@0.186.1`） |
 | --- | --- |
-| `three.min.js` | https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js |
-| `EffectComposer.js` | https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js |
-| `RenderPass.js` | https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js |
-| `ShaderPass.js` | https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js |
-| `UnrealBloomPass.js` | https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js |
-| `CopyShader.js` | https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js |
-| `LuminosityHighPassShader.js` | https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js |
-| `GLTFLoader.js` | https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js |
-| `SMAAPass.js` | https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/SMAAPass.js |
-| `SMAAShader.js` | https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/SMAAShader.js |
-| `FXAAShader.js` | https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/FXAAShader.js |
+| three 本体（全部导出） | `build/three.module.js` + `build/three.core.js` |
+| `EffectComposer` | `examples/jsm/postprocessing/EffectComposer.js` |
+| `RenderPass` | `examples/jsm/postprocessing/RenderPass.js` |
+| `ShaderPass` | `examples/jsm/postprocessing/ShaderPass.js` |
+| `UnrealBloomPass` | `examples/jsm/postprocessing/UnrealBloomPass.js` |
+| `SMAAPass` | `examples/jsm/postprocessing/SMAAPass.js` |
+| `CopyShader` | `examples/jsm/shaders/CopyShader.js` |
+| `LuminosityHighPassShader` | `examples/jsm/shaders/LuminosityHighPassShader.js` |
+| `SMAAEdgesShader` / `SMAAWeightsShader` / `SMAABlendShader` | `examples/jsm/shaders/SMAAShader.js` |
+| `FXAAShader` | `examples/jsm/shaders/FXAAShader.js` |
+| `GLTFLoader` | `examples/jsm/loaders/GLTFLoader.js` |
 
-**`three.min.js` 的本地改动（只有一处）：** uuid 生成函数（压缩后叫 `ct`，即 `THREE.MathUtils.generateUUID`）原来每个 uuid 取 4 次 `Math.random()`，改成用它自己的 xorshift128（固定种子，`ctR`）。
-原因：建区外观时 `Math.random` 是按布局取种子的外观随机序列（`world.js` 的 `withVisualRandom`），新建一个贴图 / 材质 / 几何体 / 网格就会取掉 4 个数；几何体和材质有缓存，同一个区第一次建和素材后到时原地重建取掉的个数不一样，后面所有布景（岩石、熔岩裂缝、炉址石板圈、贴花）就挪了位置，同一棵树每次打开都可能不一样。uuid 只是标识，不参与渲染顺序，换来源不影响画面。
-升级 three（vf-three 分支）时要把这一处照样改上：`generateUUID` 不能再碰 `Math.random`。
+本地改动只有一处（打包时改，不手改产物）：`generateUUID` 不取 `Math.random`。为什么、怎么查，见 `docs/vendor-patches.md`。打包入口 `tools/three-entry.mjs` 还设了两个默认值：`ColorManagement.enabled = false`、透明双面材质单遍画（同见 `docs/vendor-patches.md`）。
 
+## 什么时候要重新打包
+
+只有升级 three、或者要用一个新的示例模块时：
+
+```
+npm install                 # three / esbuild 的版本钉在 package.json（精确版本）
+# 升级：npm install --save-dev --save-exact three@<新版本>；新示例模块：在 tools/three-entry.mjs 里 import 并挂到 THREE 上
+npm run build:three         # 重新生成 vendor/three.bundle.js（和 LICENSE-three.txt），一起提交
+npm run check:three         # 游戏用到的 THREE.X 都在包里、本地改动还在、没有 r128 写法
+```
+
+改游戏代码（`js/*.js`）不用重新打包，游戏本身也不需要 node_modules。
+
+转换工具 `tools/convert-chars.mjs` 仍用 r128 的原版文件，在 `tools/vendor/r128/`，游戏不加载它们。

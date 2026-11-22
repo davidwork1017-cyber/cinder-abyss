@@ -5,6 +5,7 @@
 import { launch as launchFull, GAME_URL } from './harness.mjs';
 import { execSync } from 'node:child_process';
 import { checkArt } from '../tools/check-art.mjs';
+import { checkThree } from '../tools/check-three.mjs';
 
 const SAVE_KEY = 'cinder-abyss-save-v1';
 let G_CUR_N = 8, G_UQ_COLOR = '#ff9b3d', G_SOUL_INH = 1.5, G_SOUL_K = 0.2;
@@ -859,6 +860,11 @@ async function main() {
     assert(count > 0, '清单里一件都没有');
     assert(!fails.length, fails.length + ' 条问题：' + fails.slice(0, 8).join(' ｜ '));
     return count + ' 件';
+  });
+  await step('three：vendor/three.bundle.js 里有游戏用到的每个 THREE 名字、本地设置和 uuid 改动都在、js/ 里没有 r128 写法（tools/check-three.mjs）', async () => {
+    const { problems, rev, used } = checkThree();
+    assert(!problems.length, problems.length + ' 处问题：' + problems.slice(0, 6).join(' ｜ '));
+    return 'r' + rev + '，' + used + ' 个名字';
   });
 
   // ------------------------------------------------------------------ 启动
@@ -9832,6 +9838,7 @@ async function main() {
     return '几何体 ' + r.g + '（+' + r.geo + '），贴图 ' + r.t + '（+' + r.tex + '）';
   });
 
+    // 步骤名里的 vendor/three.min.js 是 r128 时的文件名，保留原名：步骤名是这一步随机数的种子（test/README.md「随机数」）；现在补丁在 vendor/three.bundle.js 里（tools/build-three.mjs）
   await step('确定性：three 的 uuid 不取 Math.random（vendor/three.min.js 的本地改动还在）；同一个区原地重建三次（高 → 低 → 高）布景逐位相同', async () => {
     const r = await ev(() => {
       // ① uuid：换上一个数调用次数的 Math.random，建几个 three 对象、直接取几个 uuid，一次都不应调到它
@@ -9848,7 +9855,7 @@ async function main() {
       }
       return { calls, zone: G.state.zone.def.id, q: G.world.quality() };
     });
-    assert(r.calls === 0, 'three 建对象 / 取 uuid 调到了 Math.random（' + r.calls + ' 次）：vendor/three.min.js 的 uuid 改动丢了？见 docs/vendor-patches.md');
+    assert(r.calls === 0, 'three 建对象 / 取 uuid 调到了 Math.random（' + r.calls + ' 次）：vendor/three.bundle.js 的 uuid 改动丢了（tools/build-three.mjs 的 patchThree）？见 docs/vendor-patches.md');
     // ② 原地重建：模拟暂停（火焰方片不抖），每次重建后等进区空档里的任务（setTimeout 0）跑完再取指纹
     const hashes = [];
     await ev(() => G.debug.hold(true));
@@ -10206,6 +10213,51 @@ async function main() {
     return '敌方电弧芯 ' + r.foeWhite[0] + ' / 玩家 ' + r.playerWhite[0] + '，形状件 ' + r.foeShapes + '，光带 ' + r.streak.foe + ' / ' + r.streak.all;
   });
 
+  await step('画面：three r186（vendor/three.bundle.js）经 HTTP 打开；颜色管理关、卡通光照片段全部注入、透明双面单遍；后期目标照屏幕做色调映射和 sRGB（高 / 低同一帧中心亮度相近）；SMAA / FXAA（同版本 jsm）打开也能画', async () => {
+    const r = await ev(() => {
+      const W = G.world, R = W.renderer, gl = R.getContext(), q0 = W.quality();
+      const luma = (q, aa) => {
+        W.setQuality(q);
+        if (aa) W.vfAA(aa);
+        G.debug.step(0.1);
+        W.render();
+        const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(64 * 64 * 4);
+        gl.readPixels((w >> 1) - 32, (h >> 1) - 32, 64, 64, gl.RGBA, gl.UNSIGNED_BYTE, px); // 渲染完同一个任务里读，不用 preserveDrawingBuffer
+        let s = 0;
+        for (let i = 0; i < px.length; i += 4) s += 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2];
+        return s / (64 * 64) / 2.55;
+      };
+      let hi, gHi, lo, smaa, gS, fxaa, gF;
+      try {
+        hi = luma('high');
+        gHi = W.gfxInfo();
+        lo = luma('low');
+        smaa = luma('high', { smaa: true });
+        gS = W.gfxInfo();
+        W.vfAA({ smaa: false });
+        fxaa = luma('low', { fxaa: true });
+        gF = W.gfxInfo();
+      } finally {
+        W.vfAA({ smaa: false, fxaa: false });
+        W.setQuality(q0);
+      }
+      const m = new THREE.MeshBasicMaterial({ transparent: true, side: THREE.DoubleSide });
+      return {
+        rev: THREE.REVISION, cm: THREE.ColorManagement.enabled, miss: W.toonChunkMiss(), single: m.forceSinglePass, postRT: gHi.postRT, post: gHi.post, proto: location.protocol,
+        hi: +hi.toFixed(1), lo: +lo.toFixed(1), smaa: +smaa.toFixed(1), fxaa: +fxaa.toFixed(1), smaaOn: gS.smaa, fxaaOn: gF.fxaa,
+      };
+    });
+    assert(r.rev === '186' && r.cm === false && r.single === true, 'three 打包不对（见 tools/three-entry.mjs）：' + JSON.stringify(r));
+    assert(r.miss.length === 0, '卡通光照片段有没注入上的（world.js patchToonChunks）：' + r.miss.join(' | '));
+    assert(r.proto === 'http:' || process.env.CINDER_FILE, '测试应该经 HTTP 打开：' + r.proto);
+    assert(r.post && r.postRT === true, '高画质的后期目标不是 displayRT：' + JSON.stringify(r));
+    // 后期目标里不做色调映射 / sRGB 编码的话，高画质整片会暗到低画质的一半以下
+    assert(r.lo > 5 && r.hi / r.lo > 0.75 && r.hi / r.lo < 1.33, '高 / 低画质同一帧中心亮度差太多：' + r.hi + ' / ' + r.lo);
+    // SMAA 只描边、FXAA 只抗锯齿：打开后中心亮度和关着时差不到 10%（链接错了会黑屏或整片变暗 / 变亮）
+    assert(r.smaaOn && Math.abs(r.smaa / r.hi - 1) < 0.1, 'SMAA 打开后画面不对：' + JSON.stringify(r));
+    assert(r.fxaaOn && Math.abs(r.fxaa / r.lo - 1) < 0.1, '低档 FXAA 打开后画面不对：' + JSON.stringify(r));
+    return 'r' + r.rev + '，中心亮度 高 ' + r.hi + ' / 低 ' + r.lo + ' · SMAA ' + r.smaa + ' · FXAA ' + r.fxaa;
+  });
   await step('画面：CC0 素材按区域加载后换成 PBR 地面与布景；画质高 / 中 / 低即时切换、存档，三档都能渲染', async () => {
     const r = await ev(async () => {
       const W = G.world;

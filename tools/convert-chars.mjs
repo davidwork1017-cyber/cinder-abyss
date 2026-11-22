@@ -273,7 +273,7 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true });
 const page = await browser.newPage();
 page.on('pageerror', (e) => console.log('pageerror', e.message));
 await page.setContent('<!doctype html><meta charset="utf-8"><body></body>');
-for (const f of ['vendor/three.min.js', 'tools/vendor/fflate.min.js', 'tools/vendor/NURBSUtils.js', 'tools/vendor/NURBSCurve.js', 'tools/vendor/FBXLoader.js', 'vendor/GLTFLoader.js']) {
+for (const f of ['tools/vendor/r128/three.min.js', 'tools/vendor/fflate.min.js', 'tools/vendor/NURBSUtils.js', 'tools/vendor/NURBSCurve.js', 'tools/vendor/FBXLoader.js', 'tools/vendor/r128/GLTFLoader.js']) {
   await page.addScriptTag({ content: fs.readFileSync(path.join(root, f), 'utf8') });
 }
 for (const s of SPECS) {
