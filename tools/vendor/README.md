@@ -9,4 +9,4 @@ three.js **r128**（npm `three@0.128.0`），MIT 许可证，原样未改：
 | `NURBSUtils.js` | https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/curves/NURBSUtils.js |
 | `NURBSCurve.js` | https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/curves/NURBSCurve.js |
 
-GLTFLoader 用的是游戏自己的 `vendor/GLTFLoader.js`（同一版本）。
+`r128/three.min.js`、`r128/GLTFLoader.js`：游戏升级到 r186 之前用的 three r128 和它的 GLTFLoader（`three.min.js` 带 uuid 的本地改动，见 docs/vendor-patches.md 最后一节），转换工具要和 FBXLoader 同一版本，留在这里。
