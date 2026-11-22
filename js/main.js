@@ -174,7 +174,9 @@
   G.tick = sim;
 
   let last = 0;
-  let held = false; // 调试：暂停实时模拟（仍然渲染），让测试脚本用 step 精确推进
+  // 调试：暂停实时模拟（仍然渲染），让测试脚本用 step 精确推进。window.__simHold（只有测试会设，见 test/harness.mjs）：页面一打开就暂停，
+  // 实时循环一帧模拟都不跑，同一个种子重载几次起点都一样
+  let held = !!window.__simHold;
   function frame(now) {
     requestAnimationFrame(frame); // 先排下一帧：某一帧抛错时错误照常上报，循环不会悄悄停掉
     const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));

@@ -1359,74 +1359,6 @@ async function main() {
     return '5 米 / 秒倍率 ' + fast.rate.toFixed(2) + '（' + fast.leg + '），倒地位移 ' + r.death.map((d) => d.disp.toFixed(3)).join(' / ') + ' 米，连线最大差 ' + Math.max(...r.seg.map((x) => x[1])).toFixed(1) + '°';
   });
 
-  // 节流提示（没有目标、魔力不足……）、飘字抖动、音效限流都不能看真实时间：同一个种子、同一串输入，帧快帧慢打出来要一模一样。
-  // 同一场战斗跑两遍：一遍照常一口气推进，一遍每推进一帧空转 12 毫秒（真实时间多出 2 秒多，跨过 1.2 秒的节流好几次）。
-  // 先空跑一遍不算：玩家模型上的动作残留（掷焰蓄力的火星累积、上一个动作的进度）不随重生清掉，
-  // 两遍都接在同一场仗后面，起点才一样
-  await step('确定性：同一个种子帧快帧慢打同一场仗，结果（位置 / 生命 / 取随机数次数）一模一样；「魔力不足」按游戏时间每 1.2 秒最多一次', async () => {
-    const run = (busyMs) =>
-      ev((busyMs) => {
-        const P = G.player, S = G.state, W = G.world;
-        G.debug.hold(true);
-        window.__testRand.seed('确定性·帧快帧慢');
-        const build = T.buildSnap();
-        T.arena();
-        P.god = true;
-        P.face = P.drawFace = Math.PI;
-        P.combo = { step: 0, t: 0, id: null };
-        P.chain = { n: 0, t: 0, best: 0 };
-        G.save.bar[0] = 'ember'; // 左键：掷焰（每发耗魔力）
-        G.save.skills.ember = Math.max(1, G.save.skills.ember || 0);
-        G.input.mouse.b[0] = false;
-        G.input.tap.fill(0);
-        G.debug.step(2); // 上一遍留下的提示节流全过期
-        const base = Math.random, textW = W.text;
-        let calls = 0, hint = 0;
-        Math.random = function () { calls++; return base.call(this); };
-        W.text = function (x, z, str) { if (str === '魔力不足') hint++; return textW.apply(this, arguments); };
-        const es = [[-1.6, -2.4], [0.4, -2.9], [2.0, -1.8], [-2.6, -0.4], [2.4, 0.6]].map(([dx, dz]) => {
-          const e = G.spawnMob('husk', P.x + dx, P.z + dz, 1, { awake: true });
-          e.wasAwake = true;
-          e.hp = e.maxHp = 1e6;
-          return e;
-        });
-        const t0 = performance.now();
-        try {
-          // 3 秒：按住左键一直丢掷焰；每秒的前一半魔力清零（每帧都想出手、都提示不够），后一半补满
-          for (let i = 0; i < 180; i++) {
-            const e = es[Math.floor(i / 36) % es.length];
-            T.aim(e.x, e.z);
-            G.input.mouse.b[0] = true;
-            if (i % 60 < 30) P.mana = 0;
-            else if (i % 60 === 30) P.mana = P.maxMana;
-            G.tick(1 / 60);
-            if (busyMs) for (const t = performance.now(); performance.now() - t < busyMs; );
-          }
-        } finally {
-          G.input.mouse.b[0] = false;
-          Math.random = base;
-          W.text = textW;
-        }
-        const wall = performance.now() - t0;
-        const st = JSON.stringify({ p: [P.x, P.z, P.life, P.mana], e: S.enemies.map((o) => [o.x, o.z, o.hp, o.dead]), proj: S.projectiles.length, calls });
-        let h = 2166136261;
-        for (let i = 0; i < st.length; i++) h = Math.imul(h ^ st.charCodeAt(i), 16777619);
-        const dmg = es.reduce((a, e) => a + (e.maxHp - e.hp), 0);
-        P.god = false;
-        T.buildRestore(build);
-        T.arena();
-        return { hash: (h >>> 0).toString(16), calls, hint, dmg: Math.round(dmg), wall: Math.round(wall) };
-      }, busyMs);
-    await run(0);
-    const fast = await run(0), slow = await run(12);
-    assert(fast.hash === slow.hash && fast.calls === slow.calls && fast.hint === slow.hint, '帧快帧慢打出来不一样：' + JSON.stringify({ fast, slow }));
-    assert(slow.wall - fast.wall > 1500, '慢的那一遍没有真的慢下来：' + JSON.stringify({ fast, slow }));
-    // 3 秒里清零了 3 次、每次半秒：按游戏时间每 1.2 秒最多一次，应提示 3 次（看真实时间节流时，一口气推进的那遍只提示 1 次）
-    assert(fast.hint === 3, '「魔力不足」提示了 ' + fast.hint + ' 次（应 3 次，按游戏时间 1.2 秒节流）');
-    assert(fast.dmg > 0, '掷焰没打中：' + JSON.stringify(fast));
-    return '哈希 ' + fast.hash + '，取随机数 ' + fast.calls + ' 次，提示 ' + fast.hint + ' 次，伤害 ' + fast.dmg + '；真实时间 ' + fast.wall + ' / ' + slow.wall + ' ms';
-  });
-
   await step('镜头与远程怪：脚下能看到 7.5 以上、头顶 9.5 以上（卡通风格的近镜头）；屏幕下方画面外的喷吐者先走进画面再开火', async () => {
     const r = await ev(() => {
       T.arena();
@@ -10564,6 +10496,89 @@ async function main() {
     });
     assert(auto === 4321, '10 秒自动存档没有生效');
     return '背包 + 装备 ' + (r.n - 5) + ' 件，层级 ' + r.zone.tier;
+  });
+
+  // 节流提示（没有目标、魔力不足……）、飘字抖动、音效限流都不能看真实时间：同一个种子、同一串输入，帧快帧慢打出来要一模一样。
+  // 同一场仗打两遍，每遍都从重载页面开始（同一份存档、同一个种子，页面一打开就暂停实时模拟：起点逐位相同；
+  // 在同一页里接着打不行，怪物寻路、氛围粒子、玩家动作的各种累积量都带着上一遍的余数）。
+  // 一遍照常一口气推进，一遍每推进一帧空转 12 毫秒（真实时间多出 2 秒多，跨过 1.2 秒的节流好几次）
+  await step('确定性：同一个种子帧快帧慢打同一场仗，结果（位置 / 生命 / 取随机数次数）一模一样；「魔力不足」按游戏时间每 1.2 秒最多一次', async () => {
+    const KEY = 'cinder-abyss-save-v1';
+    const save0 = await ev((KEY) => localStorage.getItem(KEY), KEY);
+    const fresh = async (hold) => {
+      await ev(
+        ([KEY, s, hold]) => {
+          G.holdSave(true); // 关页面时不写存档：重载后读到的就是 save0
+          localStorage.setItem(KEY, s);
+          if (hold) sessionStorage.setItem('cinder-test-hold', '1');
+          else sessionStorage.removeItem('cinder-test-hold');
+        },
+        [KEY, save0, hold]
+      );
+      await page.reload({ timeout: 90000 }); // 机器负载高时软件渲染加载很慢
+      await install();
+    };
+    const run = (busyMs) =>
+      ev((busyMs) => {
+        const P = G.player, S = G.state, W = G.world;
+        window.__testRand.seed('确定性·帧快帧慢');
+        T.arena();
+        P.god = true;
+        G.save.bar[0] = 'ember'; // 左键：掷焰（每发耗魔力）
+        G.save.skills.ember = Math.max(1, G.save.skills.ember || 0);
+        const base = Math.random, textW = W.text;
+        let calls = 0, hint = 0;
+        Math.random = function () { calls++; return base.call(this); };
+        W.text = function (x, z, str) { if (str === '魔力不足') hint++; return textW.apply(this, arguments); };
+        const es = [[-1.6, -2.4], [0.4, -2.9], [2.0, -1.8], [-2.6, -0.4], [2.4, 0.6]].map(([dx, dz]) => {
+          const e = G.spawnMob('husk', P.x + dx, P.z + dz, 1, { awake: true });
+          e.wasAwake = true;
+          e.hp = e.maxHp = 1e6;
+          return e;
+        });
+        const t0 = performance.now();
+        try {
+          // 3 秒：按住左键一直丢掷焰；每秒的前一半魔力清零（每帧都想出手、都提示不够），后一半补满
+          for (let i = 0; i < 180; i++) {
+            const e = es[Math.floor(i / 36) % es.length];
+            T.aim(e.x, e.z);
+            G.input.mouse.b[0] = true;
+            if (i % 60 < 30) P.mana = 0;
+            else if (i % 60 === 30) P.mana = P.maxMana;
+            G.tick(1 / 60);
+            if (busyMs) for (const t = performance.now(); performance.now() - t < busyMs; );
+          }
+        } finally {
+          G.input.mouse.b[0] = false;
+          Math.random = base;
+          W.text = textW;
+        }
+        const wall = performance.now() - t0;
+        const st = JSON.stringify({ p: [P.x, P.z, P.life, P.mana], e: S.enemies.map((o) => [o.x, o.z, o.hp, o.dead]), proj: S.projectiles.length, calls });
+        let h = 2166136261;
+        for (let i = 0; i < st.length; i++) h = Math.imul(h ^ st.charCodeAt(i), 16777619);
+        const dmg = es.reduce((a, e) => a + (e.maxHp - e.hp), 0);
+        return { hash: (h >>> 0).toString(16), calls, hint, dmg: Math.round(dmg), wall: Math.round(wall) };
+      }, busyMs);
+    let fast, slow;
+    try {
+      await fresh(true);
+      fast = await run(0);
+      await fresh(true);
+      slow = await run(12);
+    } finally {
+      await fresh(false); // 回到正常的页面：存档还是这一步开始时的那份，和上一步结束时一样暂停着、开着无敌
+      await ev(() => {
+        G.debug.hold(true);
+        G.debug.god(true);
+      });
+    }
+    assert(fast.hash === slow.hash && fast.calls === slow.calls && fast.hint === slow.hint, '帧快帧慢打出来不一样：' + JSON.stringify({ fast, slow }));
+    assert(slow.wall - fast.wall > 1500, '慢的那一遍没有真的慢下来：' + JSON.stringify({ fast, slow }));
+    // 3 秒里清零了 3 次、每次半秒：按游戏时间每 1.2 秒最多一次，应提示 3 次（看真实时间节流时，一口气推进的那遍只提示 1 次）
+    assert(fast.hint === 3, '「魔力不足」提示了 ' + fast.hint + ' 次（应 3 次，按游戏时间 1.2 秒节流）');
+    assert(fast.dmg > 0, '掷焰没打中：' + JSON.stringify(fast));
+    return '哈希 ' + fast.hash + '，取随机数 ' + fast.calls + ' 次，提示 ' + fast.hint + ' 次，伤害 ' + fast.dmg + '；真实时间 ' + fast.wall + ' / ' + slow.wall + ' ms';
   });
 
   await step('刷新后仍可正常游玩：移动、施法、面板', async () => {
