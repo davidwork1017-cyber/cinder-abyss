@@ -20076,9 +20076,8 @@ async function titleSteps() {
       return a;
     }, SAVE_KEY);
     assert(r.opt === 40 && r.out === '40' && r.stored === 80 && Math.abs(r.lv - 0.16) < 1e-9 && r.stored2 === 40, '音效滑条：拖动应立即生效（0.4² = 0.16）、松手才存档：' + JSON.stringify(r));
-    // 真的用鼠标点在总音量滑条正中：50
-    const box = await ev(() => T.rect(document.querySelector('#title input[data-k="volMaster"]')));
-    await page.mouse.click((box.l + box.r) / 2, (box.t + box.b) / 2);
+    // 真的用鼠标点在总音量滑条正中：50（设置页的列表比窗口长，page.click 会先把它滚进来）
+    await page.click('#title input[data-k="volMaster"]');
     r = await ev((KEY) => ({ opt: G.save.opts.volMaster, stored: JSON.parse(localStorage.getItem(KEY)).opts.volMaster, out: document.querySelector('#title input[data-k="volMaster"]').parentNode.querySelector('output').textContent }), SAVE_KEY);
     assert(Math.abs(r.opt - 50) <= 5 && r.stored === r.opt && r.out === String(r.opt), '鼠标点总音量滑条正中应约为 50 并存档：' + JSON.stringify(r));
     // 静音开关
