@@ -3936,8 +3936,9 @@
     const g = G.assets && G.assets.geo(id);
     return g ? geo(key, () => toonGradient(g.clone().translate(0, -0.5, 0), grad)) : null;
   };
+  // 墙段只在高 / 中画质用自产件：一个区几百段，低画质（性能档）照旧用 36 个三角形的程序化墙（自产件 120 个，低档群战三角形 +13%、渲染 +13%，砌石纹理在低档几乎看不出来）
   const gfxWallGeo = () =>
-    kitUnit('ca/storm_wall', 'gfx/wall:ca', { bottom: 0x6a5c94, top: 0xffffff, y0: -0.5, y1: 0.35 }) ||
+    (qualId !== 'low' && kitUnit('ca/storm_wall', 'gfx/wall:ca', { bottom: 0x6a5c94, top: 0xffffff, y0: -0.5, y1: 0.35 })) ||
     geo('gfx/wall', () => toonGradient(bake('gfx/wall0', [
       [gBox(1, 1, 1), 0xb4b4b8, 0, -0.03, 0, 0, 0, 0, 1, 0.82, 1], // 墙身
       [gBox(1, 1, 1), 0x8c8c90, 0, -0.45, 0, 0, 0, 0, 1.03, 0.1, 1.08], // 勒脚
