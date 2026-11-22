@@ -23512,6 +23512,29 @@
     phys: [0xb8a68c, 0x5a4a3c, 0x3a3028], fire: [0xff7a2c, 0x8a2410, 0x2a1810], cold: [0x7fc4ec, 0x2a5a8a, 0x1a2a3a],
     light: [0xf0d050, 0x8a6a18, 0x2a2410], chaos: [0xd03ca0, 0x3a0c30, 0x14060f],
   };
+  // 一道往外推的细边环：半径小（≤ 1.6 米）时就是形状批的环件；大了改成一圈贴地的细线段一起往外推（长度、宽度随曲线 1 长到 4 倍，正好跟上半径），
+  // 环件按半径等比放大到 4–5 米会变成一条粗带（「大范围只画边」）
+  W.thinRing = function (x, z, R, cA, cB, life) {
+    if (!PF.vShape) return;
+    if (R <= 1.6) {
+      vsBrush(VSH.ring, 2, 1, cA, cB, 0.1, 0.4, 0.35);
+      vsEmit(x, 0.09, z, 0, 0, 0, life, R);
+      return;
+    }
+    const R0 = R / 4, v0 = ((R - R0) * 3) / (1 - Math.exp(-3 * life)), n = Math.max(12, Math.min(40, Math.round(R * 6))) >> (qualId === 'low' ? 1 : 0), seg = ((TAU * R) / n) * 1.05;
+    vsBrush(VSH.bar, 2, 1, cA, cB, 0.1, 0, 0.35);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU;
+      vsEmit(x + Math.sin(a) * R0, 0.09, z + Math.cos(a) * R0, Math.sin(a) * v0, 0, Math.cos(a) * v0, life, 0.08, seg, a + Math.PI / 2, 0, 0, 3);
+    }
+  };
+  // 敌方用的环（起手提示、狂暴）：按颜色取亮 / 暗两档，走细边环
+  W.foeRing = function (x, z, R, hex, dur) {
+    const h = hexOf(hex);
+    vsFoe = 1;
+    W.thinRing(x, z, R, h, mixHex(h, 0x000000, 0.55), dur || 0.4);
+    vsFoe = 0;
+  };
   W.foeHit = function (x, z, r, elem, o) {
     if (!PF.vShape) return;
     o = o || {};
@@ -23520,23 +23543,21 @@
     const R = Math.max(0.6, r), half = lo ? 0.5 : 1;
     const cnt = (n) => Math.max(1, Math.round(n * half * (big ? 1.4 : 1) * (o.k || 1)));
     vsFoe = 1;
-    if (!o.noRing) {
-      vsBrush(VSH.ring, 2, 1, cA, cB, 0.1, 0.4, 0.35);
-      vsEmit(x, 0.09, z, 0, 0, 0, 0.32, R * 1.02);
-    }
+    if (!o.noRing) W.thinRing(x, z, R * 1.02, cA, cB, 0.32);
     if (el === 'phys') {
       // 物理：地上几道往外裂的弯月裂口（平躺、收窄消失）+ 有棱角的碎石（落地弹）+ 贴地尘环
+      const cs = Math.min(0.75, R * 0.17); // 裂口最大 0.75 米（看图后：按半径放大的弯月在首领砸地时成了 2 米的暗色大块）
       vsBrush(VSH.crescent, 2, 3, c[1], c[2], 0, 0.5, 0.5);
       for (let i = 0, n = cnt(4); i < n; i++) {
-        const a = vr(0, TAU), d = R * vr(0.45, 0.85);
-        vsEmit(x + Math.sin(a) * d, 0.07, z + Math.cos(a) * d, 0, 0, 0, 0.55, R * 0.42, R * 0.42, a);
+        const a = vr(0, TAU), d = R * vr(0.3, 0.7);
+        vsEmit(x + Math.sin(a) * d, 0.07, z + Math.cos(a) * d, 0, 0, 0, 0.55, cs, cs, a);
       }
       vsBrush(VSH.chip, 3, 0, cA, c[1], 0, 0.4, 0.5);
       for (let i = 0, n = cnt(7); i < n; i++) {
         const a = vr(0, TAU), v = vr(2.5, 5.5) * Math.min(1.6, 0.6 + R * 0.2);
         vsEmit(x + Math.sin(a) * R * 0.3, 0.3, z + Math.cos(a) * R * 0.3, Math.sin(a) * v, vr(2.5, 5), Math.cos(a) * v, vr(0.7, 1), vr(0.13, 0.24) * (big ? 1.3 : 1), 0, vr(0, TAU), vr(-9, 9), 18);
       }
-      tPuffs(x, 0.25, z, lo ? 2 : 4, R * 1.4, 0.4, 0.5, 0.35 + R * 0.06, 0x8a7a68, 0x4a3e34);
+      tPuffs(x, 0.25, z, cnt(lo ? 2 : 3), R * 1.4, 0.4, 0.5, 0.35 + Math.min(1.5, R) * 0.06, 0x8a7a68, 0x4a3e34);
       W.decal(5, x, z, R * 0.8, vr(0, TAU), 0x2a2420, big ? 4 : 2.5);
     } else if (el === 'fire') {
       // 火：火舌长在外沿上往上舔（不在中心堆火团），几粒余烬，一缕由橙转黑的烟，地上焦痕
@@ -23550,7 +23571,7 @@
         const a = vr(0, TAU), d = R * vr(0.2, 0.9);
         vsEmit(x + Math.sin(a) * d, 0.3, z + Math.cos(a) * d, vr(-0.4, 0.4), vr(1.5, 3), vr(-0.4, 0.4), vr(0.5, 0.9), 0.06, 0.06, 0, 0, -1, 0.6);
       }
-      tPuffs(x, 0.4, z, lo ? 2 : 3, R * 0.5, 1.2, 0.8, 0.45 + R * 0.05, 0x5a3e34, 0x221a18);
+      tPuffs(x, 0.4, z, Math.max(1, Math.round((lo ? 1 : 2) * (o.k || 1))), R * 0.5, 1.2, 0.8, 0.4 + Math.min(2, R) * 0.05, 0x5a3e34, 0x221a18);
       W.decal(1, x, z, R * 0.85, vr(0, TAU), 0x1a1210, big ? 4 : 2.5);
     } else if (el === 'cold') {
       // 冰：外沿冒一圈尖朝外上方的硬棱冰晶（缩没），往下掉的冰碴，地上霜痕（冷灰，比地面暗）
@@ -23578,9 +23599,10 @@
     } else {
       // 混沌：往里卷的弯月片（平躺、绕中心转着收），一小团暗芯（不亮），外沿环
       vsBrush(VSH.crescent, 2, 3, cA, cB, 0.1, 0.5, 0.5);
+      const cs = Math.min(0.9, R * 0.3);
       for (let i = 0, n = cnt(6); i < n; i++) {
         const a = (i / n) * TAU, d = R * 0.8;
-        vsEmit(x + Math.sin(a) * d, 0.08, z + Math.cos(a) * d, -Math.sin(a) * R * 1.4, 0, -Math.cos(a) * R * 1.4, 0.45, R * 0.4, R * 0.4, a + 1.2, 3, 0, 2.5);
+        vsEmit(x + Math.sin(a) * d, 0.08, z + Math.cos(a) * d, -Math.sin(a) * R * 1.4, 0, -Math.cos(a) * R * 1.4, 0.45, cs, cs, a + 1.2, 3, 0, 2.5);
       }
       tPuffs(x, 0.4, z, lo ? 1 : 2, 0.3, 0.5, 0.5, 0.4, 0x2a0c24, 0x12060f);
       W.decal(1, x, z, R * 0.7, vr(0, TAU), 0x14060f, big ? 3.5 : 2.2);

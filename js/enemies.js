@@ -1093,7 +1093,9 @@
   // 弹幕类招式出手前的蓄力提示
   function cue(e, dur) {
     const W = G.world, hex = hexOf(e);
-    W.ring(e.x, e.z, e.r + 1.4, hex, dur);
+    // vf-vfx3：起手提示的环改成细边（首领脚下 3 米多的环件是一条粗带），身上聚能的光点照旧
+    if (W.foeRing) W.foeRing(e.x, e.z, e.r + 1.4, hex, dur);
+    else W.ring(e.x, e.z, e.r + 1.4, hex, dur);
     W.burst(e.x, e.height * 0.6, e.z, hex, 10, 3, dur);
   }
   // 只数已经醒着、在首领附近的小怪：隔壁空地里还在沉睡的怪群不该挡住召唤
@@ -1618,7 +1620,7 @@
     e.phase = ph;
     e.lastPattern = null;
     W.text(e.x, e.z, ph === 1 ? '熄灯' : '冠焰', '#ffd27a', 28);
-    W.ring(e.x, e.z, e.r + 4, 0xffb24a, 0.6);
+    (W.foeRing || W.ring)(e.x, e.z, e.r + 4, 0xffb24a, 0.6); // vf-vfx3：细边
     W.shake(0.4);
     G.sfx('boss');
     if (S) S.thrallAt = S.thrallAt || 0;
@@ -1782,7 +1784,7 @@
     const W = G.world;
     if (!e.enraged && !e.noRage && e.hp < e.maxHp * 0.4) {
       e.enraged = true;
-      W.ring(e.x, e.z, e.r + 4, 0xff3a2a, 0.6);
+      (W.foeRing || W.ring)(e.x, e.z, e.r + 4, 0xff3a2a, 0.6); // vf-vfx3：狂暴的环改细边
       W.text(e.x, e.z, '狂暴', '#ff5040', 26);
       W.shake(0.4);
       G.sfx('boss');
