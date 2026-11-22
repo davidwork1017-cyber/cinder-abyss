@@ -40,6 +40,21 @@ test:func 默认让游戏看到的 `window.devicePixelRatio` 是 0.5：3D 画面
 
 `CINDER_FULL=1 npm run test:func` 全程按 1 跑（和拆分前一样）。test:timed 一直按 1。新步骤要看像素或画面数值时，把步骤名开头加进 `FULL_RES`，并在上表记一行。
 
+## 随机数
+
+测试里的 `Math.random` 是确定的（`test/harness.mjs` 的 `seed` 选项 + `installTestRandom`，在游戏脚本之前装上）：
+
+- **每一步开始时按步骤名重新播种**（`step()` 里调 `window.__testRand.seed(步骤名)`）。一步拿到的随机序列和前面跑过哪些步骤、那些步骤用掉多少随机数无关：前面的背包步骤换了什么装备、掷到什么布局，都不会让后面某一步的数字一次一个样。这一步里重载页面、新开浏览器也从同一个种子开始（种子记在 sessionStorage）。
+- 播种时也把 `Math.random` 装回来：上一步 `T.fix()` 之后失败、没来得及 `T.unfix()`，不会把钉死的随机数带进下一步。
+- **两路序列**：测试脚本直接驱动的代码（`page.evaluate` 里的调用、`G.tick` / `G.debug.step`、键盘鼠标事件）用前台一路；`requestAnimationFrame` / `setTimeout` / `setInterval` / `requestIdleCallback` 的回调（实时循环、空闲预热、定时器）用后台一路。后台回调跑几次取决于机器快慢，分开以后它们不会挪动前台那一路。
+- 游戏自己带种子的系统照旧：布局（`genLayout`、区域种子）、外观随机序列（`withVisualRandom`）、各处 `ashRng` 都按自己的种子走。正式游戏里不装这一层，随机数和以前一样。
+- `CINDER_SEED=<任意字符串>`：换一套种子（每步的种子 = 它 + 步骤名），查某一步是不是只在这一套随机数下碰巧能过。`CINDER_RANDOM=1`：不播种，照旧用浏览器自己的随机数。
+- 步骤名改了，这一步的随机序列就换了：改名后整套跑一遍再提交。
+
+## 体检（CINDER_AUDIT=1）
+
+不改结果，每一步结束时多打几行 `audit`：`T.tp` 传送到 0.4 米余量下不能走的地方；`until` / 页面加载 / 导航 / `install` 的等待用掉了防卡死超时的一半以上。最后列出全程最接近超时的 12 次等待。加新步骤、或者池里跑得特别慢时用它看有没有离超时太近的等待。
+
 ## 计时步骤
 
 test:timed 里的步骤从 test:func 拆出来：计时断言原样搬过去（条件和上限不改），前面补上它要的最少准备；原来那一步留在 test:func 里，只做功能检查。整步都看墙钟的（拖拽贴边自动滚动）整步搬走。
