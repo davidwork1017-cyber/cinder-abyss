@@ -16898,7 +16898,7 @@ async function main() {
       enc = make('oath');
       e = enc.mob;
       e.awake = true;
-      { const q = T.spotNear(e.x, e.z, 3, Math.PI / 2); T.tp(q.x, q.z); }
+      { const q = T.spotNear(e.x, e.z, 3, Math.PI / 2, [1.5, 6]); T.tp(q.x, q.z); }
       e.hp = e.maxHp * 0.7;
       EK.step(0.1);
       out.totems = (e.encTotems || []).filter((t) => !t.dead).length;
@@ -16913,7 +16913,7 @@ async function main() {
       enc = make('mirror');
       e = enc.mob;
       e.awake = true;
-      { const q = T.spotNear(e.x, e.z, 3, Math.PI / 2); T.tp(q.x, q.z); }
+      { const q = T.spotNear(e.x, e.z, 3, Math.PI / 2, [1.5, 6]); T.tp(q.x, q.z); }
       e.hp = e.maxHp * 0.55;
       EK.step(0.1);
       const cl = e.encClones || [];
@@ -16930,7 +16930,7 @@ async function main() {
       e = enc.mob;
       e.awake = true;
       e.atkCd = 99;
-      T.tp(e.x + 18, e.z + 18);
+      { const q = T.spotNear(e.x, e.z, 25.5, Math.PI / 4, [18, 33]); T.tp(q.x, q.z); } // 离远一点、站在能走的地方（原来直接 +18 / +18，abyss 里落进过墙）
       // 走动时每 0.5 秒一块、4 秒消失（常态最多 8 块）；把间隔临时缩到 0.1 秒验上限 10
       const CT = G.WANDERER.titles.cinder, ev0 = CT.every;
       EK.step(3, () => {
