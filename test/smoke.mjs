@@ -10517,6 +10517,9 @@ async function main() {
       );
       await page.reload({ timeout: 90000 }); // 机器负载高时软件渲染加载很慢
       await install();
+      // 第 0 区的素材包没在 2.5 秒内到齐时先用程序化外观开局，包到了再原地重建一次；这一遍要是在重建之前打，结果就和另一遍不一样
+      // （机器忙时偶发：取随机数次数差一千多次）。两遍都等素材到齐、外观重建完再打
+      await until(() => !G.world.assetsPending(), null, 60000);
     };
     const run = (busyMs) =>
       ev((busyMs) => {
