@@ -12,16 +12,32 @@
   - `test/smoke.mjs` 里「确定性」那一步：页面里同样查一遍 0 次调用；再把同一个区按高、低、高原地重建三次，用 `G.world.dressHash()` 比较三次的布景指纹，必须逐位相同。（步骤名里还写着 r128 时的文件名 `vendor/three.min.js`：步骤名是这一步随机数的种子，没改。）
 - **升级 three 时**：`npm install --save-dev --save-exact three@<新版本>`，`npm run build:three`。原文变了打包会失败，按新原文改 `patchThree`，保留这一节。
 
-## three.js r186：打包入口里的两处设置（`tools/three-entry.mjs`）
+## three.js r186：打包入口里的设置（`tools/three-entry.mjs`）
 
-不是改 three 的源码，是加载后、游戏脚本之前改的默认值，`check-three` 会查：
+three 加载后、游戏脚本之前，入口里改了几处默认行为（源码不动），都是为了和 r128 的画面、行为一致，`check-three` 会查：
 
 - `ColorManagement.enabled = false`：游戏沿用 r128 的颜色写法（十六进制色按原值存、需要线性时自己 `convertSRGBToLinear()`）。
 - `Material.prototype.forceSinglePass` 恒为 true：r150 起透明的双面材质要画两遍（先背面再正面），游戏里这类材质都是平面特效 / 贴花，两遍只多 draw。
+- `Color.getHex / getHexString / getStyle` 按 r128 截断小数（r186 四舍五入并截到 0–255）：`mixHex`、`hexOf` 和画布贴图的颜色都经过它们，四舍五入会让很多颜色亮 1 级。
+- `THREE.InstancedMesh` 换成一个子类，新建时实例矩阵全是 0（r128 的行为；r150 起是单位矩阵）：建好后到下一次 `W.update` 才写矩阵的网格（火盆火苗），中间那一帧不会在原点画出一排方片；摆放探针也能和 r128 逐位对上。
 
 ## three.js r186：后期目标标成 `isXRRenderTarget`（`js/world.js` 的 `displayRT`）
 
-也不是改源码，但用到了 three 的内部约定，记在这里：r153 起渲染到目标一律线性、不做色调映射；后期链（泛光、调色、暗角、SMAA / FXAA）要的是 r128 那种「目标里已经是显示空间」的画面，所以后期目标、预热目标都标成 `isXRRenderTarget`，three 对这种目标照屏幕处理（色调映射 + sRGB 编码）。three 源码注释说这个标记以后可能去掉（#23278）。去掉的话：给 `toneMapped: false` 的材质加一个 define，在 `tonemapping_fragment` / `colorspace_fragment` 里按 define 自己做（机械改）。`test/smoke.mjs`「画面：three r186」一步会查后期目标是不是 displayRT、高 / 低画质亮度是否相近。
+源码同样没动，但这里用到了 three 的内部约定，所以记下来：r153 起渲染到目标一律线性、不做色调映射；后期链（泛光、调色、暗角、SMAA / FXAA）要的是 r128 那种「目标里已经是显示空间」的画面，所以后期目标、预热目标都标成 `isXRRenderTarget`，three 对这种目标照屏幕处理（色调映射 + sRGB 编码）。three 源码注释说这个标记以后可能去掉（#23278）。去掉的话：给 `toneMapped: false` 的材质加一个 define，在 `tonemapping_fragment` / `colorspace_fragment` 里按 define 自己做（机械改）。`test/smoke.mjs`「画面：three r186」一步会查后期目标是不是 displayRT、高 / 低画质亮度是否相近。
+
+## three.js r186：`js/world.js` 里按 r128 补回的渲染行为
+
+升级时逐张截图对比（每个区高 / 低、HUD、特写、混战）找出来的差异，都在游戏代码里补回，three 的源码不动。three 再升级时要逐条核对：
+
+| 差异（r186 的做法） | 补回 | 位置 |
+| --- | --- | --- |
+| 灯光按物理单位，直射 / 半球光少乘 π，点光源平方反比衰减；漫反射乘 (1 - F) | 卡通光照片段里乘回 π、换回旧的衰减公式、去掉 (1 - F)；环境 BRDF 用解析近似 | `patchToonChunks`（每处替换要求原文恰好出现一次，否则 `console.error`） |
+| 渲染到目标不做色调映射和 sRGB 编码 | 后期 / 预热 / FXAA 目标标成 `isXRRenderTarget`（见下一节） | `displayRT` |
+| 删了 PCF 的「软」档，PCF 是 5 次抖动的圆盘取样 | 把 PCF 的取样换回 r128 PCFSoft 的 3×3 双线性 | `patchToonChunks`（`shadowmap_pars_fragment`） |
+| 透明物体同一 renderOrder 里按包围球中心的深度排序 | `renderer.setTransparentSort` 按物体原点的深度排（地面贴花和积灰斑块 / 地面光晕的先后） | `W.init` |
+| sRGB 贴图用硬件格式，先解码再过滤、在线性空间生成 mipmap | 深渊底、地面贴花的反照率不标 `SRGBColorSpace`，材质设 `DECODE_VIDEO_TEXTURE`，采样后再解码 | `deepMat`、`decalMeshOf` |
+| UnrealBloomPass 的合成多乘了 alpha、亮度权重换成 Rec.709、模糊核换了、中间目标是半浮点 | 强度传 k²、高通用回 0.299 / 0.587 / 0.114、模糊核用回 r128 的、中间目标用回 8 位 | `initPost`、`applyZonePost` |
+| 内置材质的 `vUv` 改名（`vMapUv` 等） | 注入代码里用新名字 | `vfxMolten` |
 
 ## 历史：three.js r128 的 `vendor/three.min.js`
 

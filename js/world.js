@@ -10733,6 +10733,10 @@
     scene.add(ew);
     try {
       renderer.compile(scene, camera);
+      // r128 链接完着色器就当场等它编好（WebGLProgram 构造时查日志）；r186 改成第一次用到才等（onFirstUse）。
+      // 不在这里等的话，进区预热编出来的程序要到第一帧才逐个等编译，进区就绪（goto → 区域和主角就位）晚 0.5 秒左右（低画质 bench，A/B 每轮都慢）。
+      // getUniforms() 会触发 onFirstUse：和 r128 一样在预热里把编译等完
+      for (const p of renderer.info.programs) if (p.getUniforms) p.getUniforms();
       const seen = new Set();
       const up = (t) => {
         if (t && t.isTexture && t.image && !seen.has(t)) {
