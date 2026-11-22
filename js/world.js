@@ -2078,6 +2078,69 @@
     '}',
   ].join('\n');
 
+  // ----- vf-vfx3：区域氛围（高 / 中画质）：每区一个顶点着色器驱动的 Points（种子 + 时间算位置，CPU 每帧只挪盒子中心，1 次 draw）。
+  // 两群粒子：A 是主体（雪 / 灰 / 星尘 / 烛烟），B 是少数点缀（余烬 / 静电 / 浮烛），各有自己的漂移方向。
+  // 不和战斗抢：灰度都压在 60 % 以下、离玩家 4 米以内再淡一半、粒子小（4–9 厘米）、整屏 ≤ 120 粒。低画质不画这个（不加 draw），
+  // 改走原来的全局粒子（spawnAmbient，数量减半、颜色压暗）。设置里「环境特效」关掉 = 两样都不放（雷鸣遗迹的天光闪照旧）
+  const AMB_VERT = [
+    'attribute vec4 aSeed; uniform float uT, uScale, uSplit, uFlick; uniform vec3 uC, uP, uBox, uDA, uDB; uniform vec2 uSz; varying float vA; varying float vE;',
+    'void main(){',
+    '  vE = step(1.0 - uSplit, aSeed.w);',
+    '  float sp = 0.6 + 0.8 * fract(aSeed.w * 7.31);',
+    '  vec3 dr = mix(uDA, uDB, vE) * sp;',
+    '  vec3 o = uC - uBox * 0.5;',
+    '  vec3 w = mod(aSeed.xyz * uBox + dr * uT - o, uBox) + o;',
+    '  w.x += sin(uT * 0.7 + aSeed.w * 40.0) * 0.3; w.z += cos(uT * 0.5 + aSeed.w * 23.0) * 0.22;',
+    '  vec3 q = abs(w - uC) / (uBox * 0.5);',
+    '  vA = smoothstep(1.0, 0.75, max(q.x, q.z)) * smoothstep(0.0, 0.6, w.y - o.y) * smoothstep(uBox.y, uBox.y - 1.0, w.y - o.y);',
+    '  vA *= 0.5 + 0.5 * smoothstep(2.5, 4.5, length(w.xz - uP.xz));', // 离玩家近的淡一半
+    '  vA *= mix(1.0, 0.35 + 0.65 * step(0.5, fract(uT * (1.5 + aSeed.y * 2.0) + aSeed.x * 9.0)), uFlick * vE);', // 点缀一闪一闪（静电）
+    '  vec4 mv = viewMatrix * vec4(w, 1.0);',
+    '  gl_PointSize = mix(uSz.x, uSz.y, fract(aSeed.w * 3.7)) * (1.0 + vE * 0.25) * uScale / max(0.1, -mv.z);',
+    '  gl_Position = projectionMatrix * mv;',
+    '}',
+  ].join('\n');
+  const AMB_FRAG = [
+    'uniform vec3 uA, uB; uniform vec2 uAl; varying float vA; varying float vE;',
+    'void main(){',
+    '  float d = length(gl_PointCoord - 0.5); float a = smoothstep(0.5, 0.2, d) * vA;',
+    '  if (a < 0.01) discard;',
+    '  gl_FragColor = vec4(mix(uA, uB, vE), a * mix(uAl.x, uAl.y, vE));',
+    '}',
+  ].join('\n');
+  // 每区的配置：n 粒数，box 跟着镜头焦点的盒子（米），dA / dB 两群的漂移（米 / 秒），split B 群占比，sz 粒径（米），cA / cB 颜色，al 两群的不透明度，flick B 群闪
+  const AMB = {
+    frost: { n: 110, box: [32, 8, 28], dA: [0.22, -0.8, 0.08], dB: [0.1, -0.35, 0.05], split: 0.12, sz: [0.05, 0.08], cA: 0x7f8ea2, cB: 0x9fb2c6, al: [0.55, 0.45] },
+    storm: { n: 70, box: [32, 3.5, 28], dA: [0.15, 0.05, 0.1], dB: [0, 0.35, 0], split: 0.3, sz: [0.04, 0.07], cA: 0x5e5a66, cB: 0xb8a24a, al: [0.5, 0.7], flick: 1 },
+    abyss: { n: 110, box: [32, 7, 28], dA: [0.12, -0.3, 0.06], dB: [0.05, 0.9, 0.04], split: 0.16, sz: [0.05, 0.09], cA: 0x2e2628, cB: 0xc8602a, al: [0.6, 0.7] },
+    rift: { n: 80, box: [32, 6, 28], dA: [0.05, 0.25, 0.04], dB: [0.04, 0.45, 0], split: 0.2, sz: [0.04, 0.07], cA: 0x5a5a86, cB: 0x8a7cc0, al: [0.5, 0.55] },
+    crown: { n: 70, box: [30, 6, 26], dA: [0.04, 0.35, 0.03], dB: [0.03, 0.18, 0.02], split: 0.08, sz: [0.06, 0.1], cA: 0x5a4c4a, cB: 0xc88a3c, al: [0.45, 0.6] },
+  };
+  function buildAmbience(id, rnd) {
+    const A = AMB[id];
+    if (!A) return null;
+    const seed = new Float32Array(A.n * 4);
+    for (let i = 0; i < A.n * 4; i++) seed[i] = rnd();
+    const g = new T.BufferGeometry();
+    g.setAttribute('position', new T.BufferAttribute(new Float32Array(A.n * 3), 3));
+    g.setAttribute('aSeed', new T.BufferAttribute(seed, 4));
+    const u = {
+      uT: uTime, uScale: pMat.uniforms.uScale, uC: { value: new T.Vector3() }, uP: { value: new T.Vector3() },
+      uBox: { value: new T.Vector3(A.box[0], A.box[1], A.box[2]) }, uDA: { value: new T.Vector3(A.dA[0], A.dA[1], A.dA[2]) }, uDB: { value: new T.Vector3(A.dB[0], A.dB[1], A.dB[2]) },
+      uSplit: { value: A.split }, uFlick: { value: A.flick || 0 }, uSz: { value: new T.Vector2(A.sz[0], A.sz[1]) },
+      uA: { value: lin(A.cA) }, uB: { value: lin(A.cB) }, uAl: { value: new T.Vector2(A.al[0], A.al[1]) },
+    };
+    const mat = new T.ShaderMaterial({ uniforms: u, vertexShader: AMB_VERT, fragmentShader: AMB_FRAG, transparent: true, depthWrite: false });
+    const pts = new T.Points(g, mat);
+    pts.frustumCulled = false;
+    pts.renderOrder = 6;
+    pts.name = 'ambience';
+    return { pts, u, g, mat, box: A.box };
+  }
+  // 设置「环境特效」（opts.ambience，老存档没有这一项 = 开）
+  const ambOn = () => !(G.save && G.save.opts && G.save.opts.ambience === false);
+  W.ambienceInfo = () => ({ on: ambOn(), pts: !!(zoneFx && zoneFx.amb), visible: !!(zoneFx && zoneFx.amb && zoneFx.amb.pts.visible), n: zoneFx && zoneFx.amb ? zoneFx.amb.g.attributes.aSeed.count : 0 });
+
   let ashFisPending = null; // 起点的熔岩裂缝，等区域布景（ashDress）拼进熔岩网格
   function buildAshDress(zone, sd) {
     const rnd = ashRng(zone), st = zone.start, R0 = ASH_DRESS.r0, R1 = ASH_DRESS.r1;
@@ -2227,7 +2290,7 @@
     mg.setAttribute('position', new T.BufferAttribute(new Float32Array(NM * 3), 3));
     mg.setAttribute('aSeed', new T.BufferAttribute(seed, 4));
     const mm = own(new T.ShaderMaterial({
-      uniforms: { uT: uTime, uScale: pMat.uniforms.uScale, uC: { value: new T.Vector3(st.x, 0, st.z) }, uAsh: { value: lin(0xb8a8b8) }, uEmb: { value: lin(0xff9a4a) } },
+      uniforms: { uT: uTime, uScale: pMat.uniforms.uScale, uC: { value: new T.Vector3(st.x, 0, st.z) }, uAsh: { value: lin(0x8e8288) }, uEmb: { value: lin(0xe8843a) } },
       vertexShader: ASH_MOTE_VERT, fragmentShader: ASH_MOTE_FRAG, transparent: true, depthWrite: false,
     }));
     const motes = new T.Points(mg, mm);
@@ -2240,7 +2303,7 @@
   }
   // 每帧（W.update 的区域氛围段里一行调用）：灰烬的盒子跟着镜头焦点，熔岩裂缝和余烬花慢慢呼吸
   function updateAshDress(D) {
-    D.motes.visible = qualId !== 'low';
+    D.motes.visible = qualId !== 'low' && ambOn(); // vf-vfx3：设置「环境特效」关掉就不飘
     for (let i = 0; i < D.lowHide.length; i++) D.lowHide[i].visible = qualId !== 'low';
     D.mm.uniforms.uC.value.set(camT.x, 0, camT.z + CAM_LEAD);
     const k = 0.5 + 0.5 * Math.sin(wtime * 1.3);
@@ -10447,7 +10510,22 @@
 
     _c.set(gx && gx.amb !== undefined ? gx.amb : def.accent); // 环境火星的颜色：ZONE_GFX.<id>.amb（缺省区域强调色，zones-integrate）
     const chests = buildChests(zone);
+    // vf-vfx3：区域氛围的 Points（种子用自己的序列，不动全局随机数）
+    let amb = null;
+    {
+      let h = 2166136261;
+      for (const ch of def.id) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+      let a = h >>> 0 || 1;
+      amb = buildAmbience(def.id, () => ((a = (a * 16807) % 2147483647) / 2147483647));
+      if (amb) {
+        own(amb.g);
+        own(amb.mat);
+        amb.pts.visible = qualId !== 'low' && ambOn();
+        zoneGroup.add(amb.pts);
+      }
+    }
     zoneFx = {
+      amb,
       terrain: tstate, tctx, tz: TZ, chests,
       st, crystalMat, glowMat, bossSigil,
       ar: _c.r, ag: _c.g, ab: _c.b,
@@ -27418,9 +27496,9 @@
     const x = camT.x + rand(-26, 26), z = camT.z + CAM_LEAD + rand(-22, 13);
     const mode = fx.st.amb;
     if (mode === 'snow') {
-      spawnP(x, rand(5, 9), z, rand(0.4, 1.2), rand(-2.6, -1.5), rand(-0.2, 0.5), rand(2.6, 4), rand(0.09, 0.17), 0.62, 0.74, 0.85, 0, 0);
+      spawnP(x, rand(5, 9), z, rand(0.4, 1.2), rand(-2.6, -1.5), rand(-0.2, 0.5), rand(2.6, 4), rand(0.07, 0.13), 0.34, 0.4, 0.48, 0, 0); // vf-vfx3：雪压暗、小一点（加色的近白雪片在冰面上一片亮）
     } else if (mode === 'spark') {
-      spawnP(x, rand(0.2, 3.5), z, rand(-2, 2), rand(-1, 2), rand(-2, 2), rand(0.3, 0.8), rand(0.08, 0.16), fx.ar, fx.ag, fx.ab, 0, 0.5);
+      spawnP(x, rand(0.2, 3.5), z, rand(-2, 2), rand(-1, 2), rand(-2, 2), rand(0.3, 0.8), rand(0.06, 0.12), fx.ar * 0.6, fx.ag * 0.6, fx.ab * 0.6, 0, 0.5);
     } else if (mode === 'mote') {
       // 星尘：从琉璃地面的裂缝里缓缓升起，偶尔一粒偏白
       const w = Math.random() < 0.3 ? 0.6 : 0;
@@ -27490,10 +27568,21 @@
     // 区域氛围
     const fx = zoneFx;
     if (fx) {
-      fx.ambAcc += dt * fx.st.ambRate;
-      while (fx.ambAcc > 1) {
-        fx.ambAcc -= 1;
-        spawnAmbient(fx);
+      // vf-vfx3：高 / 中画质有氛围 Points 的区域不再撒全局粒子；低画质照旧撒（数量减半、颜色压暗，见 spawnAmbient）；设置关掉就都不放
+      const aOn = ambOn();
+      if (fx.amb) {
+        fx.amb.pts.visible = aOn && qualId !== 'low';
+        if (fx.amb.pts.visible) {
+          fx.amb.u.uC.value.set(camT.x, camT.y + fx.amb.box[1] * 0.5 - 0.3, camT.z + CAM_LEAD);
+          fx.amb.u.uP.value.set(P.x, 0, P.z);
+        }
+      }
+      if (aOn && !(fx.amb && fx.amb.pts.visible)) {
+        fx.ambAcc += dt * fx.st.ambRate * (qualId === 'low' ? 0.5 : 1);
+        while (fx.ambAcc > 1) {
+          fx.ambAcc -= 1;
+          spawnAmbient(fx);
+        }
       }
       fx.crystalMat.emissiveIntensity = 0.95 + Math.sin(wtime * 1.7) * 0.2;
       if (fx.fires) updateFires(fx.fires, dt);
@@ -27515,6 +27604,8 @@
         if (fx.boltIn <= 0) {
           fx.boltIn = rand(4, 11);
           fx.boltT = 0.3;
+          // vf-vfx3：天光闪的同时，画面上沿以外的远处劈下一道暗紫的折线（只在高 / 中画质、环境特效开着时；离玩家 16 米以上，压在 55 % 灰度）
+          if (aOn && qualId !== 'low') skyBolt(camT.x + vr(-12, 12), camT.z + CAM_LEAD - vr(16, 19), 0x7a6aa8, 9, 5, 0.14);
         }
         if (fx.boltT > 0) {
           fx.boltT -= dt;

@@ -4637,6 +4637,9 @@
         '<button type="button" tabindex="-1" class="switch' + (S.opts.hitStop !== false ? ' on' : '') + '" data-tact="opt" data-opt="hitStop"><i></i></button>') +
       row('镜头震动', '大招落地、挨重击时镜头晃一下',
         '<button type="button" tabindex="-1" class="switch' + (S.opts.shake !== false ? ' on' : '') + '" data-tact="opt" data-opt="shake"><i></i></button>') +
+      // vf-vfx3：区域氛围（飘雪、余烬、远处的雷……），默认开
+      row('环境特效', '各区飘雪、余烬、远雷这类背景效果',
+        '<button type="button" tabindex="-1" class="switch' + (S.opts.ambience !== false ? ' on' : '') + '" data-tact="opt" data-opt="ambience"><i></i></button>') +
       '<p class="m-note">游戏没有音量设置；设置会存进存档，前三项在游戏里的地图页也能改。</p>'
     );
   }
