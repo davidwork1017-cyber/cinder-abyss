@@ -10136,6 +10136,51 @@ async function main() {
     return '件数 ' + Object.entries(r.el).map(([k, v]) => k + ' ' + v).join(' / ') + '，细边环 ' + r.thin + '，砸地 r ' + r.slam.r + ' / ' + r.slam.dur + ' 秒';
   });
 
+  await step('特效三期第 3 部分（vf-vfx3）：区域氛围——霜骨沼泽 / 雷鸣遗迹 / 烬渊深处 / 坠星裂谷 / 余烛殿各有一个氛围 Points（高画质画、低画质不画）；设置「环境特效」新存档和老存档都默认开，关掉后不画、也不撒全局粒子', async () => {
+    const r = await ev((KEY) => {
+      const W = G.world, S = G.state, save = G.save, out = {};
+      out.fresh = G.newSave().opts.ambience;
+      G.persist();
+      const keep = localStorage.getItem(KEY), raw = JSON.parse(keep);
+      delete raw.opts.ambience;
+      localStorage.setItem(KEY, JSON.stringify(raw));
+      G.loadSave();
+      out.old = G.save.opts.ambience;
+      localStorage.setItem(KEY, keep);
+      G.loadSave();
+      G.computeStats();
+      const zk = { zi: S.zoneIdx, tier: S.tier }, q0 = W.quality();
+      W.setQuality('high');
+      out.zones = {};
+      for (let z = 0; z < Math.min(5, G.ZONES.length); z++) {
+        G.enterZone(z, 0);
+        G.debug.step(0.1);
+        const i = W.ambienceInfo();
+        out.zones[S.zone.def.id] = i.pts ? i.n : 0;
+      }
+      G.enterZone(1, 0); // 霜骨沼泽
+      G.debug.step(0.1);
+      out.high = W.ambienceInfo().visible;
+      W.setQuality('low');
+      G.debug.step(0.1);
+      out.low = W.ambienceInfo().visible;
+      W.setQuality('high');
+      G.save.opts.ambience = false;
+      G.debug.step(0.1);
+      out.off = W.ambienceInfo().visible;
+      G.save.opts.ambience = true;
+      G.debug.step(0.1);
+      out.on = W.ambienceInfo().visible;
+      W.setQuality(q0);
+      G.enterZone(zk.zi, zk.tier);
+      return out;
+    }, SAVE_KEY);
+    assert(r.fresh === true && r.old === true, '「环境特效」新存档和老存档都应默认开：' + JSON.stringify(r));
+    assert(r.zones.frost > 0 && r.zones.storm > 0 && r.zones.abyss > 0 && r.zones.rift > 0 && r.zones.ash === 0, '霜骨 / 雷鸣 / 烬渊 / 裂谷应各有氛围 Points（灰烬荒原用原来的灰烬）：' + JSON.stringify(r.zones));
+    assert(r.high && !r.low && !r.off && r.on, '氛围 Points 应高画质画、低画质不画、关掉不画：' + JSON.stringify(r));
+    return Object.entries(r.zones).map(([k, v]) => k + ' ' + v).join(' / ');
+  });
+
   await step('画面：CC0 素材按区域加载后换成 PBR 地面与布景；画质高 / 中 / 低即时切换、存档，三档都能渲染', async () => {
     const r = await ev(async () => {
       const W = G.world;

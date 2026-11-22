@@ -162,7 +162,7 @@
       // 选项：自动拾取普通物品 / 折叠普通物品的名牌 / 拾取时自动分解普通物品 / 一键分解是否包含魔法物品
       // quality：画质档位 high / mid / low（世界层读取，见 G.world.setQuality）；auto = 玩家还没选过，每次启动按设备推断，掉帧时自动降档
       // hitFlash / hitStop / shake：打击手感的三个开关（受击闪光、顿帧、镜头震动），默认都开（vf-vfx2）
-      opts: { autoWhite: false, hideNormal: false, autoSalvage: false, salvageMagic: false, quality: 'auto', hitFlash: true, hitStop: true, shake: true },
+      opts: { autoWhite: false, hideNormal: false, autoSalvage: false, salvageMagic: false, quality: 'auto', hitFlash: true, hitStop: true, shake: true, ambience: true },
       seenHelp: false,
       seenStory: false, // 开场故事放过（或跳过）了；只有新角色（seenHelp 为假）才会放，老存档没有这一项也不会看到
       tut: {}, // 已经看过的新手提示：{ 提示 id: 1 }（界面层维护）
@@ -557,6 +557,7 @@
       autoWhite: !!ro.autoWhite, hideNormal: !!ro.hideNormal, autoSalvage: !!ro.autoSalvage, salvageMagic: !!ro.salvageMagic,
       quality: G.QUALITY_IDS.indexOf(ro.quality) >= 0 ? ro.quality : 'auto',
       hitFlash: ro.hitFlash !== false, hitStop: ro.hitStop !== false, shake: ro.shake !== false, // 老存档没有这三项：按默认开
+      ambience: ro.ambience !== false, // vf-vfx3：环境特效（区域氛围），老存档没有 = 开
     };
     s.seenHelp = !!raw.seenHelp;
     s.seenStory = !!raw.seenStory;
