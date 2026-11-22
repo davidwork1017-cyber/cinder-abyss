@@ -23725,8 +23725,8 @@
         const a = vr(0, TAU), v = vr(2.5, 5.5) * Math.min(1.6, 0.6 + R * 0.2);
         vsEmit(x + Math.sin(a) * R * 0.3, 0.3, z + Math.cos(a) * R * 0.3, Math.sin(a) * v, vr(2.5, 5), Math.cos(a) * v, vr(0.7, 1), vr(0.13, 0.24) * (big ? 1.3 : 1), 0, vr(0, TAU), vr(-9, 9), 18);
       }
-      tPuffs(x, 0.25, z, cnt(lo ? 2 : 3), R * 1.4, 0.4, 0.5, 0.35 + Math.min(1.5, R) * 0.06, 0x8a7a68, 0x4a3e34);
-      if (k1) W.decal(5, x, z, Math.min(2.2, R * 0.45), vr(0, TAU), 0x4a3e34, big ? 4 : 2.5); // 地裂：封顶 2.2 米、深褐不是近黑（看图后：5 米的近黑裂纹像几条黑虫）
+      if (!lo) tPuffs(x, 0.25, z, cnt(3), R * 1.4, 0.4, 0.5, 0.35 + Math.min(1.5, R) * 0.06, 0x8a7a68, 0x4a3e34); // 尘：低画质不放（烟团零件是另一次 draw）
+      if (k1) W.vDecal(VVD.scorch, x, z, Math.min(2.2, R * 0.45), big ? 4 : 2.5, 0x4a3e34); // 贴地痕迹走合用的地面痕迹实例网格（W.decal 每块是一个网格 = 一次 draw）
     } else if (el === 'fire') {
       // 火：火舌长在外沿上往上舔（不在中心堆火团），几粒余烬，一缕由橙转黑的烟，地上焦痕
       vsBrush(VSH.tongue, 1, 0, cA, cB, 0.2, 0.4, 0.4);
@@ -23739,8 +23739,8 @@
         const a = vr(0, TAU), d = R * vr(0.2, 0.9);
         vsEmit(x + Math.sin(a) * d, 0.3, z + Math.cos(a) * d, vr(-0.4, 0.4), vr(1.5, 3), vr(-0.4, 0.4), vr(0.5, 0.9), 0.06, 0.06, 0, 0, -1, 0.6);
       }
-      if ((o.k || 1) >= 0.5) tPuffs(x, 0.4, z, lo ? 1 : 2, R * 0.5, 1.2, 0.7, 0.32 + Math.min(2, R) * 0.04, 0x7a5a4c, 0x4a3a34); // 烟：暖灰转深灰（不是黑团），一招落好几处时不放
-      if (k1) W.decal(1, x, z, R * 0.6, vr(0, TAU), 0x2e2420, big ? 3.5 : 2.2);
+      if (!lo && (o.k || 1) >= 0.5) tPuffs(x, 0.4, z, 2, R * 0.5, 1.2, 0.7, 0.32 + Math.min(2, R) * 0.04, 0x7a5a4c, 0x4a3a34); // 烟：暖灰转深灰（不是黑团），一招落好几处时不放、低画质不放
+      if (k1) W.vDecal(VVD.scorch, x, z, R * 0.6, big ? 3.5 : 2.2, 0xff6a2a);
     } else if (el === 'cold') {
       // 冰：外沿冒一圈尖朝外上方的硬棱冰晶（缩没），往下掉的冰碴，地上霜痕（冷灰，比地面暗）
       vsBrush(VSH.crystal, 6, 0, cA, cB, 0.15, 0.45, 0.5);
@@ -23753,7 +23753,7 @@
         const a = vr(0, TAU), v = vr(1, 3);
         vsEmit(x + Math.sin(a) * R * 0.6, vr(1, 2), z + Math.cos(a) * R * 0.6, Math.sin(a) * v, vr(0, 1.5), Math.cos(a) * v, vr(0.6, 0.85), vr(0.09, 0.15), 0, vr(0, TAU), vr(-8, 8), 14);
       }
-      if (k1) W.decal(2, x, z, R * 0.7, vr(0, TAU), 0x3a4a5a, big ? 4 : 2.5);
+      if (k1) W.vDecal(VVD.frost, x, z, R * 0.5, big ? 4 : 2.5, 0x7fb0d0, { r1: R * 0.75, grow: 0.25 }); // 霜痕（低画质不画，W.vDecal 自己判）
     } else if (el === 'light') {
       // 雷：从中心往外放射的折线（每根两段、错开角度），两帧闪灭，不画圆团；地上电灼纹
       vsBrush(VSH.bar, 4, 2, cA, cB, 0.25, 0.3, 1);
@@ -23763,7 +23763,7 @@
         vsEmit(x, 0.15, z, x1 - x, 0, z1 - z, 0.16, 0.07);
         vsEmit(x1, 0.15, z1, Math.sin(a2) * d2, 0, Math.cos(a2) * d2, 0.16, 0.05);
       }
-      if (k1) W.decal(3, x, z, R * 0.7, vr(0, TAU), 0x2a2410, big ? 3 : 2);
+      if (k1) W.vDecal(VVD.scorch, x, z, R * 0.55, big ? 3 : 2, 0x8a6a18);
     } else {
       // 混沌：往里卷的弯月片（平躺、绕中心转着收），一小团暗芯（不亮），外沿环
       vsBrush(VSH.crescent, 2, 3, cA, cB, 0.1, 0.5, 0.5);
@@ -23772,8 +23772,8 @@
         const a = (i / n) * TAU, d = R * 0.8;
         vsEmit(x + Math.sin(a) * d, 0.08, z + Math.cos(a) * d, -Math.sin(a) * R * 1.4, 0, -Math.cos(a) * R * 1.4, 0.45, cs, cs, a + 1.2, 3, 0, 2.5);
       }
-      tPuffs(x, 0.4, z, lo ? 1 : 2, 0.3, 0.5, 0.5, 0.4, 0x2a0c24, 0x12060f);
-      if (k1) W.decal(1, x, z, R * 0.55, vr(0, TAU), 0x24121c, big ? 3.5 : 2.2);
+      if (!lo) tPuffs(x, 0.4, z, 2, 0.3, 0.5, 0.5, 0.4, 0x2a0c24, 0x12060f);
+      if (k1) W.vDecal(VVD.void, x, z, R * 0.55, big ? 3.5 : 2.2, 0x3a0c30);
     }
     vsFoe = 0;
   };
