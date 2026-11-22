@@ -56,7 +56,7 @@ CATALOG = [
     # ---- 烬渊深处（第 3 区）：顶替 KayKit / Kenney 布景。石碑 / 晶簇 / 巨石 / 拱 / 柱 / 枯树 / 火坑 / 骷髅 / 石十字复用已有生成器（remap 换成熔渣 + 余烬），
     # 碎墓 / 兽骨架 / 骷髅蜡烛 / 墓室是新生成器。fit 照抄被顶替件 geoInfo 的浮点值；底下悬空（骷髅类）或埋得深（兽骨架，标记 l）的旧件按规矩改成原点在底面，
     # 这几个摆放时不用 y0（兽骨架的 l 抬高变成 0，落地位置一样）。不复用灰烬件的 GLB：它们没按旧件对齐包围盒，直接用会挪动摆放 ----
-    dict(id='ca/abyss_arch', gen='arch', seed=61, cat='kit', zone='abyss', ship=True, replaces='kh/arch', args=dict(span=3.2, h=4.0), remap=ABYSS,
+    dict(id='ca/abyss_arch', gen='arch', seed=61, cat='kit', zone='abyss', ship=True, replaces='kh/arch', args=dict(span=3.0, h=2.8, r=0.5, n=11, whole=True, kw=0.44, kd=1.8, kh=0.8, key_glow=0.6), remap=ABYSS,
          fit=dict(r=2.1092209815979004, top=4.413949012756348, bottom=0), bake=dict(ao=0.8, grad=1.0), finish=dict(dust=0.15)),
     dict(id='ca/abyss_tomb', gen='tomb', seed=103, cat='prop', zone='abyss', ship=True, replaces='kh/grave_A_destroyed', remap=ABYSS,
          fit=dict(r=1.0774000883102417, top=2.1061151027679443, bottom=0), bake=dict(ao=0.4, grad=0.6), finish=dict(dust=0.15)),
