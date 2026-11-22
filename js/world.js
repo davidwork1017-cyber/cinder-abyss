@@ -2080,7 +2080,7 @@
 
   // ----- vf-vfx3：区域氛围（高 / 中画质）：每区一个顶点着色器驱动的 Points（种子 + 时间算位置，CPU 每帧只挪盒子中心，1 次 draw）。
   // 两群粒子：A 是主体（雪 / 灰 / 星尘 / 烛烟），B 是少数点缀（余烬 / 静电 / 浮烛），各有自己的漂移方向。
-  // 不和战斗抢：灰度都压在 65 % 以下（只比地面亮 15–20 个点，看得出、不刺眼）、离玩家 4 米以内再淡一半、粒子小（粒径和原来的全局粒子同一档：0.1–0.2）、整屏 ≤ 120 粒。低画质不画这个（不加 draw），
+  // 不和战斗抢：灰度都压在 72 % 以下（比地面亮 15–25 个点，看得出、不刺眼；远不到近白）、离玩家 4 米以内再淡一半、粒子小（粒径和原来的全局粒子同一档：0.1–0.2）、每区 ≤ 150 粒。低画质不画这个（不加 draw），
   // 改走原来的全局粒子（spawnAmbient，数量减半、颜色压暗）。设置里「环境特效」关掉 = 两样都不放（雷鸣遗迹的天光闪照旧）
   const AMB_VERT = [
     'attribute vec4 aSeed; uniform float uT, uScale, uSplit, uFlick; uniform vec3 uC, uP, uBox, uDA, uDB; uniform vec2 uSz; varying float vA; varying float vE;',
@@ -2103,18 +2103,18 @@
   const AMB_FRAG = [
     'uniform vec3 uA, uB; uniform vec2 uAl; varying float vA; varying float vE;',
     'void main(){',
-    '  float d = length(gl_PointCoord - 0.5); float a = smoothstep(0.5, 0.2, d) * vA;',
+    '  float d = length(gl_PointCoord - 0.5); float a = (1.0 - smoothstep(0.38, 0.5, d)) * vA;', // 卡通：硬边的小圆点
     '  if (a < 0.01) discard;',
     '  gl_FragColor = vec4(mix(uA, uB, vE), a * mix(uAl.x, uAl.y, vE));',
     '}',
   ].join('\n');
   // 每区的配置：n 粒数，box 跟着镜头焦点的盒子（米），dA / dB 两群的漂移（米 / 秒），split B 群占比，sz 粒径（米），cA / cB 颜色，al 两群的不透明度，flick B 群闪
   const AMB = {
-    frost: { n: 110, box: [32, 8, 28], dA: [0.22, -0.8, 0.08], dB: [0.1, -0.35, 0.05], split: 0.12, sz: [0.12, 0.18], cA: 0x95a3b5, cB: 0x8a98aa, al: [0.6, 0.5] },
-    storm: { n: 70, box: [32, 3.5, 28], dA: [0.15, 0.05, 0.1], dB: [0, 0.35, 0], split: 0.3, sz: [0.1, 0.15], cA: 0x8a8296, cB: 0xc8b050, al: [0.45, 0.75], flick: 1 },
-    abyss: { n: 110, box: [32, 7, 28], dA: [0.12, -0.3, 0.06], dB: [0.05, 0.9, 0.04], split: 0.16, sz: [0.13, 0.2], cA: 0x2e2628, cB: 0xc8602a, al: [0.6, 0.7] },
-    rift: { n: 80, box: [32, 6, 28], dA: [0.05, 0.25, 0.04], dB: [0.04, 0.45, 0], split: 0.2, sz: [0.1, 0.16], cA: 0x8a8ac8, cB: 0xa898e0, al: [0.5, 0.55] },
-    crown: { n: 70, box: [30, 6, 26], dA: [0.04, 0.35, 0.03], dB: [0.03, 0.18, 0.02], split: 0.08, sz: [0.14, 0.22], cA: 0x8a7c78, cB: 0xd89040, al: [0.42, 0.65] },
+    frost: { n: 150, box: [32, 8, 28], dA: [0.22, -0.8, 0.08], dB: [0.1, -0.35, 0.05], split: 0.12, sz: [0.14, 0.21], cA: 0xaab8c8, cB: 0x92a0b2, al: [0.75, 0.6] },
+    storm: { n: 90, box: [32, 3.5, 28], dA: [0.15, 0.05, 0.1], dB: [0, 0.35, 0], split: 0.3, sz: [0.12, 0.18], cA: 0x948ca0, cB: 0xc8b050, al: [0.6, 0.8], flick: 1 },
+    abyss: { n: 140, box: [32, 7, 28], dA: [0.12, -0.3, 0.06], dB: [0.05, 0.9, 0.04], split: 0.16, sz: [0.15, 0.23], cA: 0x2e2628, cB: 0xc8602a, al: [0.6, 0.7] },
+    rift: { n: 110, box: [32, 6, 28], dA: [0.05, 0.25, 0.04], dB: [0.04, 0.45, 0], split: 0.2, sz: [0.12, 0.19], cA: 0x9494d0, cB: 0xa898e0, al: [0.65, 0.7] },
+    crown: { n: 90, box: [30, 6, 26], dA: [0.04, 0.35, 0.03], dB: [0.03, 0.18, 0.02], split: 0.08, sz: [0.16, 0.25], cA: 0x948682, cB: 0xd89040, al: [0.55, 0.7] },
   };
   function buildAmbience(id, rnd) {
     const A = AMB[id];
