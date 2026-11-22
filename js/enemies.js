@@ -508,7 +508,7 @@
         const m = G.spawnMob(G.pick(mobs.length ? mobs : ['husk']), s.x, s.z, e.zone.level, { elite: true, pack: null, awake: true });
         m.summoned = true; // 玩家重生时直接移除（首领再醒时重新召来）
         m.atkCd = 0.9;
-        W.burst(s.x, 1, s.z, hex, 14, 4, 0.4);
+        W.foeHit(s.x, s.z, 1.2, e.elem, { noRing: true, k: 0.5 }); // vf-vfx3：侍从现身
       }
       G.sfx('boss');
     });
@@ -719,7 +719,7 @@
         onFire() {
           if (!live(e, seq)) return;
           if (W.clipOf(e.ent) !== 'attack') W.play(e.ent, 'attack');
-          W.burst(x, 0.3, z, 0xcbbba6, 12, 5, 0.4);
+          W.foeHit(x, z, 2.6, 'phys'); // vf-vfx3：碎石 + 裂口 + 尘（原来 12 粒浅色光点）
           W.shake(0.2);
           G.sfx('hit');
           e.state = 'recover';
@@ -823,8 +823,7 @@
           e.hp = 0;
           e.dead = true;
           e.deathT = DEATH_T;
-          W.burst(x, 0.8, z, hex, 26, 8, 0.5);
-          W.ring(x, z, 3.0, hex, 0.3);
+          W.foeHit(x, z, 3.0, e.elem || 'fire'); // vf-vfx3：按元素的形状（原来 26 粒光点 + 环）
           W.shake(0.3);
           G.sfx('hit');
         },
@@ -913,8 +912,7 @@
       e.kvx = e.kvz = 0;
       W.setEnt(e.ent, e.x, e.z, e.ang);
       W.play(e.ent, 'appear');
-      W.burst(e.x, 1.3, e.z, hex, 16, 4.5, 0.4);
-      W.ring(e.x, e.z, 1.6, hex, 0.3);
+      W.foeHit(e.x, e.z, 1.6, 'light', { k: 0.6 }); // vf-vfx3：现身的折线（原来 16 粒光点 + 环）
       e.state = 'windup';
       e.stateT = BLINK_AIM;
       e.fan = true;
@@ -1044,7 +1042,7 @@
           // 一头撞上岩壁：晕一下，正是还手的时候
           e.stateT = 0.15;
           e.stagT = Math.max(e.stagT, 1.2);
-          W.burst(e.x + e.laneDx * e.r, 1, e.z + e.laneDz * e.r, 0xd8c8b0, 14, 5, 0.4);
+          W.foeHit(e.x + e.laneDx * e.r, e.z + e.laneDz * e.r, 1.4, 'phys', { noRing: true }); // vf-vfx3：撞墙的碎石
           W.shake(0.18);
           G.sfx('hit');
         } else e.stateT = 0.6;
@@ -1149,8 +1147,7 @@
         owner: e, cancelIfOwnerDead: true, friendly: false,
         onFire() {
           if (!live(e, seq)) return;
-          W.burst(x, 0.4, z, 0xd8c8b0, 24, 7, 0.5);
-          W.ring(x, z, 4.6, hex, 0.35);
+          W.foeHit(x, z, 4.6, 'phys', { big: true }); // vf-vfx3：裂口 + 碎石 + 尘环 + 地裂（原来 24 粒光点 + 环）
           W.shake(0.5);
           G.sfx('hit');
         },
@@ -1218,7 +1215,7 @@
           owner: e, cancelIfOwnerDead: true, friendly: false, meteor, // 预警被取消时落石一起消失
           onFire() {
             if (G.state.zone !== e.zone) return;
-            W.burst(x, 0.3, z, hex, 12, 5, 0.4);
+            W.foeHit(x, z, 2.7, e.elem, { k: 0.6 }); // vf-vfx3：每颗落石按本区元素
           },
         });
       };
@@ -1238,7 +1235,7 @@
           const m = G.spawnMob(G.pick(e.zone.def.mobs), s.x, s.z, e.zone.level, { elite: false, pack: null, awake: true });
           m.summoned = true; // 玩家重生时直接移除
           m.atkCd = 0.9; // 落地后不会立刻出手
-          W.burst(s.x, 1, s.z, hex, 12, 4, 0.4);
+          W.foeHit(s.x, s.z, 1.2, e.elem, { noRing: true, k: 0.5 });
         }
         G.sfx('boss');
       });
@@ -1467,9 +1464,10 @@
       owner: e, cancelIfOwnerDead: true, friendly: false,
       onFire() {
         if (!live(e, seq)) return;
+        // vf-vfx3：拂过的半圆上一排火舌（每处只放三成的件），外沿不另画环（预警圈就是边）
         for (let k = -2; k <= 2; k++) {
           const a = ang + k * 0.36;
-          W.burst(e.x + Math.sin(a) * B.r * 0.6, 0.5, e.z + Math.cos(a) * B.r * 0.6, hex, 6, 5, 0.35);
+          W.foeHit(e.x + Math.sin(a) * B.r * 0.6, e.z + Math.cos(a) * B.r * 0.6, 1.4, 'fire', { noRing: true, k: 0.35 });
         }
         W.shake(0.3);
         G.sfx('hit');
@@ -1511,7 +1509,7 @@
           G.telegraph({
             shape: 'circle', x, z, r: T.r, dur: T.warn, dmg: e.dmg * T.k, dtype: e.elem, owner: e, cancelIfOwnerDead: true, friendly: false, meteor,
             onFire() {
-              if (G.state.zone === e.zone) W.burst(x, 0.3, z, hex, 10, 4, 0.35);
+              if (G.state.zone === e.zone) W.foeHit(x, z, T.r, 'fire', { k: 0.5 }); // vf-vfx3
             },
           });
         });
@@ -1546,8 +1544,7 @@
             shape: 'circle', x: b.x, z: b.z, r: K.burstR, dur: K.burstWarn, dmg: e.dmg * K.burstK, dtype: e.elem, owner: e, cancelIfOwnerDead: true, friendly: false,
             onFire() {
               if (!live(e, seq)) return;
-              W.burst(b.x, 1.6, b.z, 0xffb24a, 22, 6, 0.5);
-              W.ring(b.x, b.z, K.burstR, hex, 0.35);
+              W.foeHit(b.x, b.z, K.burstR, 'fire'); // vf-vfx3：火盆炸开（原来 22 粒光点 + 环）
             },
           });
           if (o && o.snuff) G.after(K.dash + 0.05, () => live(e, seq) && G.pinSnuff && G.pinSnuff(bi));
@@ -1579,8 +1576,7 @@
         shape: 'circle', x, z, r: C.r, dur: C.warn, dmg: e.dmg * C.k, dtype: 'phys', owner: e, cancelIfOwnerDead: true, friendly: false, meteor,
         onFire() {
           if (!live(e, seq)) return;
-          W.burst(x, 0.5, z, 0xffd27a, 34, 8, 0.55);
-          W.ring(x, z, C.r, hex, 0.45);
+          W.foeHit(x, z, C.r, 'phys', { big: true, hex: 0xd8a860 }); // vf-vfx3：坠冕砸地（原来 34 粒亮金光点 + 环）
           W.shake(0.55);
           G.sfx('hit');
         },
@@ -1646,7 +1642,7 @@
       G.telegraph({
         shape: 'circle', x: b.x, z: b.z, r: P0.r, dur: P0.warn, dmg: e.dmg * P0.k, dtype: e.elem, owner: e, cancelIfOwnerDead: true, friendly: false,
         onFire() {
-          if (live(e, seq)) W.burst(b.x, 1.6, b.z, 0xffc060, 26, 7, 0.55);
+          if (live(e, seq)) W.foeHit(b.x, b.z, P0.r, 'fire'); // vf-vfx3
         },
       });
     }
@@ -1722,7 +1718,7 @@
         m.name = '烛奴';
         m.atkCd = 0.9;
         if (W.waxTint) W.waxTint(m.ent);
-        W.burst(s.x, 1, s.z, 0xffb24a, 12, 4, 0.4);
+        W.foeHit(s.x, s.z, 1.2, 'fire', { noRing: true, k: 0.5 }); // vf-vfx3：烛奴现身
       }
       G.sfx('boss');
     });
@@ -1808,7 +1804,7 @@
       }
       if (d.t <= 0) {
         e.dash = null;
-        W.burst(e.x, 0.4, e.z, 0xd8c8b0, 16, 6, 0.4);
+        W.foeHit(e.x, e.z, e.r + 0.6, 'phys', { noRing: true, k: 0.6 }); // vf-vfx3：冲锋收脚的碎石
       }
     }
     // 冰缓（重度冰缓 50%）：招式之间的停顿和收招一起拉长
@@ -2213,7 +2209,7 @@
     if (cinders.length >= T.max) cinders.shift();
     cinders.push({ x: e.x, z: e.z, t: T.t, r: T.r, owner: e });
     W.decal(1, e.x, e.z, T.r * 1.15, Math.random() * TAU, 0xff6a2a, T.t);
-    W.burst(e.x, 0.3, e.z, 0xff8a3c, 5, 2.2, 0.5);
+    W.foeHit(e.x, e.z, T.r, 'fire', { noRing: true, k: 0.4 }); // vf-vfx3：余烬地落下的火舌
   }
   // 玩家被钩链拽向 (x, z)：一步 0.25 m，前面那一步 sdAt < stop（快到墙、熔岩、虚空边）就停，最多拽 dist 米
   function hookPlayer(x, z, dist, stop) {
@@ -2300,8 +2296,7 @@
             shape: 'circle', x, z, r: T.rr, dur: T.warn, dmg: e.dmg * T.burst, dtype: 'fire', owner: e, cancelIfOwnerDead: true, friendly: false,
             onFire() {
               if (!live(e, seq)) return;
-              W.burst(x, 0.4, z, 0xff7a30, 12, 4, 0.45);
-              W.decal(1, x, z, T.rr, Math.random() * TAU, 0xff6a2a, 2);
+              W.foeHit(x, z, T.rr, 'fire', { k: 0.6 }); // vf-vfx3（焦痕由 foeHit 留下）
             },
           });
         }

@@ -10209,8 +10209,8 @@
           shape: 'circle', x, z, r, dur: e.elite ? B.eDelay : B.delay, dmg: 0, dtype: 'phys',
           friendly: false, sealBurst: true, sealFx: true, burstDmg: dmg,
           onFire() {
-            W.burst(x, 0.5, z, hex, e.elite ? 22 : 14, r * 2.6, 0.45);
-            W.ring(x, z, r, hex, 0.3);
+            if (W.foeHit) W.foeHit(x, z, r, e.elem, { k: e.elite ? 1 : 0.7 }); // vf-vfx3：按元素的形状（原来 14–22 粒光点 + 环）
+            else W.burst(x, 0.5, z, hex, e.elite ? 22 : 14, r * 2.6, 0.45);
             G.sfx('hit');
             if (!P.dead && insideTelegraph(tele, P.x, P.z) && !(state.time - burstHitAt < B.gap)) {
               burstHitAt = state.time;
