@@ -120,6 +120,10 @@
   // 音效：WebAudio 小合成器（首次用户操作时才创建；任何失败都静默）
   // ============================================================
   const NO_P = {};
+  // 音效自己的随机序列（噪声缓冲、音高浮动、噪声起点）：音效按真实时间限流、而且要等第一次按键 / 点击才建，
+  // 用 Math.random 的话放没放出声会挪动游戏的随机序列（同一个种子帧快帧慢打出来不一样）
+  let sfxRs = 0x5f3759df;
+  const sfxRand = () => (sfxRs = (Math.imul(sfxRs, 1664525) + 1013904223) >>> 0) / 4294967296;
   let actx = null;
   let master = null;
   let noiseBuf = null;
@@ -142,7 +146,7 @@
       comp.connect(actx.destination);
       noiseBuf = actx.createBuffer(1, actx.sampleRate, actx.sampleRate);
       const ch = noiseBuf.getChannelData(0);
-      for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
+      for (let i = 0; i < ch.length; i++) ch[i] = sfxRand() * 2 - 1;
     } catch (e) {
       actx = null;
     }
@@ -183,7 +187,7 @@
     s.connect(f);
     f.connect(g);
     g.connect(master);
-    s.start(t0, Math.random() * 0.6);
+    s.start(t0, sfxRand() * 0.6);
     s.stop(t0 + dur + 0.03);
   }
 
@@ -336,7 +340,7 @@
     // 挥砍的破空声：三段一段比一段沉，终结技拖得更长
     swing(t, p) {
       const s = p.step || 0;
-      const v = 0.92 + Math.random() * 0.16;
+      const v = 0.92 + sfxRand() * 0.16;
       if (s >= 2) {
         noise('bandpass', 380 * v, 2400 * v, t, 0.27, 0.42, 1.1, 0.13);
         tone('sine', 150, 70, t + 0.12, 0.16, 0.2);
@@ -347,7 +351,7 @@
     // 命中：一层闷响打底，再叠一层随伤害类型变化的音色；分量越重越低沉、越长，每次音高略有浮动
     impact(t, p) {
       const w = p.w || 0;
-      const v = 0.9 + Math.random() * 0.2;
+      const v = 0.9 + sfxRand() * 0.2;
       const ty = p.type || 'phys';
       noise('lowpass', 1900 * v, 280, t, 0.07 + w * 0.03, 0.55 + w * 0.08);
       tone('square', (175 - w * 20) * v, 78 - w * 8, t, 0.07 + w * 0.03, 0.17);
@@ -411,7 +415,7 @@
     },
     // 敌人倒下：一声闷破；按致命伤害的类型收尾，精英 / 首领更沉
     kill(t, p) {
-      const v = (p.big ? 0.7 : 1) * (0.92 + Math.random() * 0.16);
+      const v = (p.big ? 0.7 : 1) * (0.92 + sfxRand() * 0.16);
       const ty = p.type || 'phys';
       tone('square', 250 * v, 58 * v, t, p.big ? 0.26 : 0.15, 0.2, 0.003);
       noise('lowpass', 1500 * v, 200, t, p.big ? 0.3 : 0.16, 0.4, 0.8, 0.004);

@@ -40,6 +40,13 @@ export async function launch({ width = 1440, height = 900, url = GAME_URL, title
       Object.defineProperty(window, 'devicePixelRatio', { get: () => window.__testDpr, configurable: true });
     }, dpr);
   if (seed !== null && seed !== undefined) await page.addInitScript(installTestRandom, String(seed));
+  // sessionStorage 里有 cinder-test-hold 时，这一页一加载就暂停实时模拟（main.js 读 window.__simHold）：实时循环一帧模拟都不跑，
+  // 同一个种子重载几次起点都一样（「确定性：帧快帧慢」那一步用；用完删掉这个键）
+  await page.addInitScript(() => {
+    try {
+      if (sessionStorage.getItem('cinder-test-hold')) window.__simHold = true;
+    } catch (e) {}
+  });
   const errors = [];
   page.on('pageerror', (e) => errors.push('pageerror: ' + (e.stack || e.message)));
   page.on('console', (m) => {

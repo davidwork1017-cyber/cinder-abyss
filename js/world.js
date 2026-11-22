@@ -22420,6 +22420,11 @@
   // 带 key 的普通数字（game.js：key = 挨打的怪）在 MERGE_T 秒内再来一个同色的，就加到原来那条上、再弹一下，不新开一条
   const TEXT_MAX = 90, FAINT_MAX = 24, NORMAL_MAX = 40, MERGE_T = 0.25;
   const textRank = (k) => (k === 'faint' ? 0 : k ? 2 : 1);
+  // 飘字的抖动、暴击数字往哪边抛，用飘字自己的随机序列，不取 Math.random：
+  // 一条字出不出来（池满、同怪合并、状态词再弹一下）牵扯到字的寿命，不该挪动游戏的随机序列（掉落、暴击、刷怪）。换区时从头开始
+  const TEXT_SEED = 0x7e57f00d;
+  let textRs = TEXT_SEED;
+  const textRand = (a, b) => a + ((textRs = (Math.imul(textRs, 1664525) + 1013904223) >>> 0) / 4294967296) * (b - a);
   W.text = function (x, z, str, cssColor, sizePx, style) {
     const kind = (style && style.kind) || '';
     const rank = textRank(kind);
@@ -22485,9 +22490,9 @@
     o.py = (style && style.py) || 0; // 额外的屏幕像素偏移（「破绽」要让开头顶的处决提示）
     const arc = o.kind === 'crit' || o.kind === 'big';
     o.dur = o.kind === 'big' ? 1.25 : o.kind === 'crit' ? 1.0 : o.kind === 'tag' ? 1.15 : o.kind === 'faint' ? 0.55 : TEXT_DUR;
-    o.ox = o.kind === 'tag' ? 0 : rand(-18, 18);
-    o.oy = o.kind === 'tag' ? 0 : rand(-8, 8);
-    o.vx = arc ? (Math.random() < 0.5 ? -1 : 1) * rand(24, 52) : 0; // 暴击数字往一侧抛出去
+    o.ox = o.kind === 'tag' ? 0 : textRand(-18, 18);
+    o.oy = o.kind === 'tag' ? 0 : textRand(-8, 8);
+    o.vx = arc ? (textRand(0, 1) < 0.5 ? -1 : 1) * textRand(24, 52) : 0; // 暴击数字往一侧抛出去
   };
 
   // 测试用：此刻还在飘的字（vf-vfx3）
@@ -22506,6 +22511,7 @@
     for (const m of meteors) meteorOff(m);
     clearProjFx();
     for (const t of texts) t.t = t.dur;
+    textRs = TEXT_SEED;
     clearDying();
     for (const d of decals) { d.on = false; d.mesh.visible = false; }
     for (const f of flares) { f.on = false; f.sp.visible = false; }
