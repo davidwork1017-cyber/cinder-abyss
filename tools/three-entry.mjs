@@ -7,6 +7,8 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
+import { Pass } from 'three/addons/postprocessing/Pass.js';
+import { N8AOPostPass } from 'n8ao';
 import { CopyShader } from 'three/addons/shaders/CopyShader.js';
 import { LuminosityHighPassShader } from 'three/addons/shaders/LuminosityHighPassShader.js';
 import { SMAAEdgesShader, SMAAWeightsShader, SMAABlendShader } from 'three/addons/shaders/SMAAShader.js';
@@ -47,7 +49,7 @@ class InstancedMesh extends THREE_NS.InstancedMesh {
 // 命名空间对象是只读的，拷成普通对象，游戏 / 测试才能往上挂东西（和 r128 的 three.min.js 一样）
 const THREE = Object.assign({}, THREE_NS, {
   InstancedMesh,
-  EffectComposer, RenderPass, ShaderPass, UnrealBloomPass, SMAAPass,
+  EffectComposer, RenderPass, ShaderPass, UnrealBloomPass, SMAAPass, Pass, N8AOPostPass,
   CopyShader, LuminosityHighPassShader, SMAAEdgesShader, SMAAWeightsShader, SMAABlendShader, FXAAShader, GLTFLoader,
 });
 window.THREE = THREE;

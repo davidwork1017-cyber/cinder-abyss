@@ -1,6 +1,6 @@
 // three 升级后的静态检查（纯 Node，一两秒）：npm test / npm run test:func 先跑它。
 //  1. 游戏脚本里用到的每个 THREE.X / T.X 在 vendor/three.bundle.js 里都有（新示例模块忘了打包、three 删掉的类都会在这里报出来）
-//  2. 打包文件里的本地设置还在：颜色管理关、透明双面单遍、实例矩阵初始为 0、generateUUID 不取 Math.random（docs/vendor-patches.md）
+//  2. 打包文件里的本地设置还在：颜色管理关、透明双面单遍、实例矩阵初始为 0、generateUUID 和 N8AOPostPass 不取 Math.random（docs/vendor-patches.md）
 //  3. r128 时代的写法（r152 起的颜色空间、r155 起的灯光、vColor 变成 vec4 等）在 js/ 里不再出现
 // 用法：node tools/check-three.mjs（有问题时列出 文件:行 和原因，退出码 1）
 import fs from 'node:fs';
@@ -21,7 +21,7 @@ export function checkThree() {
   })(path.join(root, 'js'));
 
   // 在一个假的 window 里执行打包文件，拿到导出的名字
-  const sandbox = { window: {}, console, self: {}, navigator: { userAgent: 'node' }, document: undefined };
+  const sandbox = { window: {}, console, self: {}, navigator: { userAgent: 'node' }, document: undefined, atob }; // atob：n8ao 加载时解码自带的蓝噪声
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(path.join(root, 'vendor/three.bundle.js'), 'utf8'), sandbox);
@@ -37,8 +37,12 @@ export function checkThree() {
     try {
       for (let i = 0; i < 4; i++) THREE.MathUtils.generateUUID();
       new THREE.Texture(); new THREE.BufferGeometry(); new THREE.MeshStandardMaterial(); new THREE.Mesh(); new THREE.InstancedMesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial(), 2);
+    // n8ao：建 N8AOPostPass、改配置重建着色器都不取 Math.random（蓝噪声是自带的贴图）
+    const n8 = new THREE.N8AOPostPass(new THREE.Scene(), new THREE.PerspectiveCamera(), 64, 64);
+    Object.assign(n8.configuration, { halfRes: true, aoSamples: 8, denoiseSamples: 4 });
+    n8.setSize(80, 60);
     } finally { vm.runInContext('Math.random = globalThis.__rnd;', sandbox); }
-    if (sandbox.__rc) problems.push('vendor/three.bundle.js：建 three 对象 / 取 uuid 调到了 Math.random（' + sandbox.__rc + ' 次）：generateUUID 的本地改动丢了，见 tools/build-three.mjs 的 patchThree 和 docs/vendor-patches.md');
+    if (sandbox.__rc) problems.push('vendor/three.bundle.js：建 three 对象 / 取 uuid / 建 N8AOPostPass 调到了 Math.random（' + sandbox.__rc + ' 次）：generateUUID 的本地改动丢了（tools/build-three.mjs 的 patchThree），或者 n8ao 升级后开始取随机数，见 docs/vendor-patches.md');
   }
 
   // r128 → r186 的写法检查：[正则, 说明]

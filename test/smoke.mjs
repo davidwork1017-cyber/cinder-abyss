@@ -10258,6 +10258,59 @@ async function main() {
     assert(r.fxaaOn && Math.abs(r.fxaa / r.lo - 1) < 0.1, '低档 FXAA 打开后画面不对：' + JSON.stringify(r));
     return 'r' + r.rev + '，中心亮度 高 ' + r.hi + ' / 低 ' + r.lo + ' · SMAA ' + r.smaa + ' · FXAA ' + r.fxaa;
   });
+  await step('画面：环境光遮蔽（n8ao）高 / 中开、低不开；只读深度，AO 由调色 pass 乘上（画面暗一点点）；角色不吃 AO 的替换在；画 AO 不取 Math.random', async () => {
+    const r = await ev(() => {
+      const W = G.world, R = W.renderer, gl = R.getContext(), q0 = W.quality(), out = {};
+      const luma = () => {
+        W.render();
+        const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
+        gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px); // 渲染完同一个任务里读
+        let s = 0, n = 0;
+        for (let i = 0; i < px.length; i += 16) (s += 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2]), n++;
+        return s / n / 2.55;
+      };
+      const rnd = Math.random;
+      let calls = 0;
+      const countRenders = () => {
+        calls = 0;
+        Math.random = () => (calls++, rnd());
+        try {
+          for (let i = 0; i < 3; i++) W.render();
+        } finally {
+          Math.random = rnd;
+        }
+        return calls;
+      };
+      G.debug.hold(true);
+      try {
+        for (const q of ['high', 'mid', 'low']) {
+          W.setQuality(q);
+          out[q] = W.aoInfo();
+        }
+        W.setQuality('high');
+        out.rndOn = countRenders();
+        out.lumaOn = luma();
+        window.CA_AO_OFF = 1;
+        W.aoTune();
+        out.offInfo = W.aoInfo();
+        out.rndOff = countRenders();
+        out.lumaOff = luma();
+      } finally {
+        delete window.CA_AO_OFF;
+        W.setQuality(q0);
+        G.debug.hold(false);
+      }
+      return out;
+    });
+    assert(r.high.on && r.high.k > 0 && r.high.depth && r.mid.on && r.mid.k > 0, '高 / 中画质应开环境光遮蔽：' + JSON.stringify({ high: r.high, mid: r.mid }));
+    assert(!r.low.on && r.low.k === 0, '低画质不应开环境光遮蔽：' + JSON.stringify(r.low));
+    assert(r.high.charPatch, '角色不吃 AO 的着色器替换没生效（n8ao 升级后原文变了？见 world.js makeAOPass）');
+    assert(!r.offInfo.on && r.offInfo.k === 0, 'CA_AO_OFF 应关掉 AO：' + JSON.stringify(r.offInfo));
+    assert(r.rndOn === r.rndOff, '开着 AO 渲染多取了 Math.random（' + r.rndOn + ' / 关着 ' + r.rndOff + '）：n8ao 或适配层取了随机数');
+    const k = r.lumaOn / r.lumaOff;
+    assert(r.lumaOff > 5 && k > 0.9 && k < 0.998, '开 AO 后整帧亮度应只暗一点点（0.9–0.998）：' + r.lumaOn.toFixed(2) + ' / ' + r.lumaOff.toFixed(2));
+    return '高 ' + JSON.stringify(r.high.cfg) + ' · 整帧亮度 ' + r.lumaOff.toFixed(1) + ' → ' + r.lumaOn.toFixed(1) + ' · 渲染取随机数 ' + r.rndOn + ' / ' + r.rndOff;
+  });
   await step('画面：CC0 素材按区域加载后换成 PBR 地面与布景；画质高 / 中 / 低即时切换、存档，三档都能渲染', async () => {
     const r = await ev(async () => {
       const W = G.world;
