@@ -895,6 +895,25 @@ async function main() {
     process.exit(1);
   }
 
+  // ash-models-drop / models-drop：第 0 区的布景全是自产件（kit-ash）；所有区都不再用 CC0 模型包，models.js 不再打包，冷启动（含之后预取第 1 区）一次都不该请求它
+  await step('素材：冷启动进第 0 区要齐第 0 区的包、不请求 CC0 模型包 models.js，第 0 区布景全部来自 kit-ash、都摆出来了', async () => {
+    const r = await ev(async () => {
+      const W = G.world, t = performance.now();
+      while (W.assetsPending() && performance.now() - t < 40000) await new Promise((res) => setTimeout(res, 50));
+      const res = performance.getEntriesByType('resource').filter((e) => /\/js\/assets\/[^/]+\.js(\?|$)/.test(e.name)).map((e) => ({ f: e.name.replace(/^.*\/js\/assets\//, '').replace(/\?.*$/, ''), s: e.startTime, e: e.responseEnd }));
+      return { pending: W.assetsPending(), hd: W.gfxInfo().hd, fires: W.gfxInfo().fires, src: W.propSources(), res };
+    });
+    const at = (f) => r.res.filter((x) => x.f === f);
+    assert(['zone-ash.js', 'kit-ash.js', 'rock-dark.js', 'ground.js'].every((f) => at(f).length), '冷启动缺第 0 区的包：' + r.res.map((x) => x.f).join(' '));
+    assert(!at('models.js').length, '冷启动请求了 CC0 模型包 models.js：' + r.res.map((x) => x.f).join(' '));
+    const fmt = r.src.map((s) => s.key + '@' + s.pack + '×' + s.placed).join(' ');
+    assert(!r.pending && r.hd, '第 0 区没换上 PBR 外观：' + JSON.stringify({ pending: r.pending, hd: r.hd }));
+    assert(r.src.length >= 10 && r.src.every((s) => s.key.startsWith('ca/') && s.pack === 'kit-ash'), '第 0 区布景的来源不对：' + fmt);
+    const placed = (re) => r.src.filter((s) => re.test(s.key)).reduce((a, s) => a + s.placed, 0);
+    assert(placed(/ash_tree_dead_/) >= 3 && placed(/ash_(skull|bones|blade|marker)$/) >= 3 && placed(/firepit/) === r.fires && r.fires > 0 && placed(/./) >= 20, '第 0 区布景没摆全（枯树 ≥ 3、路边小物 ≥ 3、火坑数 = 火焰数、总数 ≥ 20）：' + fmt + ' 火 ' + r.fires);
+    return '请求顺序 ' + r.res.map((x) => x.f.replace(/\.js$/, '')).join(' → ') + ' ｜ 布景 ' + placed(/./) + ' 个';
+  });
+
   await step('首屏：场景、玩家、HUD、小地图都画出来了', async () => {
     await frames(2);
     const r = await ev(() => {
@@ -10181,7 +10200,7 @@ async function main() {
     return r.zones.join(' ') + ' ｜ ' + r.qs.join(' ') + ' ｜ 默认 ' + r.q0 + '（' + r.eff + '）';
   });
 
-  await step('画面：第 0 区的布景全部来自自产件包 kit-ash（ca/ 开头，含路边小物）、第 3 区（烬渊深处）的布景全部来自 kit-abyss、第 4 区（坠星裂谷）的布景全部来自 kit-rift，确实摆出来了；别的区照旧用 CC0 模型包（第 1–2 区里摆出布景的第一个区；第 2 区的立灯是自产件）', async () => {
+  await step('画面：第 0 区的布景全部来自自产件包 kit-ash（ca/ 开头，含路边小物）、第 3 区（烬渊深处）的布景全部来自 kit-abyss、第 4 区（坠星裂谷）的布景全部来自 kit-rift，确实摆出来了；第 1 区（霜骨沼泽）的摆放表为空，第 2 区（雷鸣遗迹）只摆自产立灯（kit-storm）；整个过程没有请求 CC0 模型包 models.js（models-drop 起不再打包）', async () => {
     const r = await ev(async () => {
       const W = G.world;
       const wait = async (f, ms) => {
@@ -10194,19 +10213,15 @@ async function main() {
         await wait(() => !W.assetsPending(), 40000);
         return { id: G.ZONES[i].id, hd: W.gfxInfo().hd, fires: W.gfxInfo().fires, src: W.propSources() };
       };
-      // 别的区：照旧用 CC0 模型包。第 1 区四周是水，布景基本摆不上（不立在深水上），所以依次看第 1–4 区，以摆出布景的第一个区为准
-      const ash = await look(0), others = [];
-      for (let i = 1; i < Math.min(3, G.ZONES.length); i++) {
-        const z = await look(i);
-        others.push(z);
-        if (z.src.reduce((a, s) => a + s.placed, 0) > 0) break;
-      }
+      // models-drop：第 1、2 区原来摆放表里的 CC0 模型一个都摆不出来，已清空；第 1 区没有摆放表，第 2 区只剩自产立灯
+      const ash = await look(0), frost = await look(1), storm = await look(2);
       const abyss = await look(3); // asset-zones：第 3 区的布景全部换成自产件（kit-abyss）
       const rift = await look(4); // asset-zones：第 4 区的布景全部换成自产件（kit-rift）
       G.enterZone(0, 1);
-      return { ash, others, abyss, rift };
+      const models = performance.getEntriesByType('resource').filter((e) => /\/js\/assets\/models\.js(\?|$)/.test(e.name)).length;
+      return { ash, frost, storm, abyss, rift, models, indexed: !!(window.CA_ASSET_INDEX && CA_ASSET_INDEX.packs.models) };
     });
-    const { ash, others, abyss, rift } = r;
+    const { ash, frost, storm, abyss, rift } = r;
     const fmt = (z) => z.src.map((s) => s.key + '@' + s.pack + '×' + s.placed).join(' ');
     assert(ash.id === 'ash' && ash.hd, '第 0 区不是 ash 或没换上 PBR 外观：' + JSON.stringify(ash).slice(0, 300));
     // 路边小物（骷髅 / 骨头 / 断剑 / 墓碑）也换成了自产件：第 0 区的布景全部是 ca/ 开头、来自 kit-ash，不再用 CC0 模型包
@@ -10216,9 +10231,12 @@ async function main() {
     assert(placed(ash, /tree_dead/) >= 3, '第 0 区枯树摆得太少：' + fmt(ash));
     assert(placed(ash, /firepit/) === ash.fires && ash.fires > 0, '第 0 区火坑的实例数和火焰数对不上：' + fmt(ash) + ' 火 ' + ash.fires);
     assert(ash.src.reduce((a, s) => a + s.placed, 0) >= 20, '第 0 区布景总数太少：' + fmt(ash));
-    // 第 2 区（雷鸣遗迹）的路边立灯换成了自产件（kit-storm），其余摆放表照旧是 CC0 模型包
-    assert(others.every((z) => z.hd && z.src.length && z.src.every((s) => (s.key.startsWith('ca/') ? s.pack === 'kit-' + z.id : s.pack === 'models'))), '别的区的布景来源不对（ca/ 开头的应来自本区自产件包，其余来自 CC0 模型包）：' + others.map((z) => z.id + ' ' + fmt(z)).join(' ｜ '));
-    assert(others[others.length - 1].src.reduce((a, s) => a + s.placed, 0) > 0, '第 1–2 区都没摆出 CC0 布景：' + others.map((z) => z.id + ' ' + fmt(z)).join(' ｜ '));
+    // models-drop：第 1 区没有摆放表（四周是水，原来的 CC0 模型摆不出来），第 2 区只有路边立灯，来自 kit-storm，立灯实例数 = 火焰数
+    assert(frost.id === 'frost' && frost.hd && frost.src.length === 0, '第 1 区不是 frost、没换上 PBR 外观或摆放表不为空：' + frost.id + ' ' + frost.hd + ' ' + fmt(frost));
+    assert(storm.id === 'storm' && storm.hd && storm.src.length === 1 && storm.src[0].key === 'ca/storm_lantern' && storm.src[0].pack === 'kit-storm', '第 2 区布景的来源不对（应只有 ca/storm_lantern@kit-storm）：' + fmt(storm));
+    assert(placed(storm, /lantern/) === storm.fires && storm.fires > 0, '第 2 区立灯没摆出来或和火焰数对不上：' + fmt(storm) + ' 火 ' + storm.fires);
+    // 所有区的布景都是自产件：素材清单里没有 models 包，走完第 0–4 区也没请求过 models.js
+    assert(!r.indexed && r.models === 0, '还在打包或请求 CC0 模型包 models.js：' + JSON.stringify({ indexed: r.indexed, requests: r.models }));
     // 第 3 区：13 种布景（含火坑）全部是 ca/abyss_* 且来自 kit-abyss；碎墓摆出来了，火坑实例数 = 火焰数，总数不少（固定种子约 120，布局随机，留足余量）
     assert(abyss.id === 'abyss' && abyss.hd, '第 3 区不是 abyss 或没换上 PBR 外观：' + JSON.stringify(abyss).slice(0, 300));
     assert(abyss.src.length === 13 && abyss.src.every((s) => s.key.startsWith('ca/abyss_') && s.pack === 'kit-abyss'), '第 3 区布景的来源不对：' + fmt(abyss));
@@ -10229,7 +10247,7 @@ async function main() {
     assert(rift.src.length === 7 && rift.src.every((s) => s.key.startsWith('ca/rift_') && s.pack === 'kit-rift'), '第 4 区布景的来源不对：' + fmt(rift));
     assert(placed(rift, /monolith/) >= 3 && placed(rift, /slabs/) >= 3, '第 4 区石碑 / 碎地砖摆得太少：' + fmt(rift));
     assert(rift.src.reduce((a, s) => a + s.placed, 0) >= 40, '第 4 区布景总数太少：' + fmt(rift));
-    return fmt(ash) + ' ｜ ' + fmt(abyss) + ' ｜ ' + fmt(rift);
+    return fmt(ash) + ' ｜ ' + fmt(storm) + ' ｜ ' + fmt(abyss) + ' ｜ ' + fmt(rift) + ' ｜ models.js 请求 ' + r.models;
   });
 
   // ------------------------------------------------------------------ 存档
