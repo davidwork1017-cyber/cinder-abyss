@@ -27841,7 +27841,11 @@
   W.gloomInfo = () => ({ near: scene.fog.near, far: scene.fog.far, lamp: lamp.distance, tag: gloomP ? gloomP.tag : 0 });
 
   // ---------- 每帧更新 ----------
-  function spawnAmbient(fx) {
+  // ghost（vf-vfx3）：随机数照取、粒子不放。氛围不论开关 / 画质都按原来的节奏调这个函数，全局随机序列和改版前一样
+  // （高画质有 Points、低画质减半、设置关掉时就是 ghost），否则后面的暴击、怪的行动、掉落都会跟着换一套
+  const noP = () => {}, spawnP0 = spawnP;
+  function spawnAmbient(fx, ghost) {
+    const spawnP = ghost ? noP : spawnP0;
     const x = camT.x + rand(-26, 26), z = camT.z + CAM_LEAD + rand(-22, 13);
     const mode = fx.st.amb;
     if (mode === 'snow') {
@@ -27926,11 +27930,13 @@
           fx.amb.u.uP.value.set(P.x, 0, P.z);
         }
       }
-      if (aOn && !(fx.amb && fx.amb.pts.visible)) {
-        fx.ambAcc += dt * fx.st.ambRate * (qualId === 'low' ? 0.5 : 1);
+      {
+        const real = aOn && !(fx.amb && fx.amb.pts.visible);
+        fx.ambAcc += dt * fx.st.ambRate;
         while (fx.ambAcc > 1) {
           fx.ambAcc -= 1;
-          spawnAmbient(fx);
+          fx.ambOdd = !fx.ambOdd;
+          spawnAmbient(fx, !real || (qualId === 'low' && fx.ambOdd)); // 低画质每两粒只放一粒
         }
       }
       fx.crystalMat.emissiveIntensity = 0.95 + Math.sin(wtime * 1.7) * 0.2;
