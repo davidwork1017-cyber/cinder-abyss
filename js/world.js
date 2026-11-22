@@ -6646,12 +6646,12 @@
     const pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
     let o = 0;
     parts.forEach((p, i) => {
-      _c.set(p[1]).convertSRGBToLinear();
-      const a = srcs[i].attributes.position;
+      if (p[1] !== null) _c.set(p[1]).convertSRGBToLinear();
+      const a = srcs[i].attributes.position, ca = p[1] === null ? srcs[i].attributes.color : null; // asset-zones：颜色给 null = 用几何体自己烘好的顶点色（自产件）
       for (let k = 0; k < a.count; k++) {
         _v2.fromBufferAttribute(a, k).applyMatrix4(p[2]);
         pos[o] = _v2.x; pos[o + 1] = _v2.y; pos[o + 2] = _v2.z;
-        col[o] = _c.r; col[o + 1] = _c.g; col[o + 2] = _c.b;
+        if (ca) { col[o] = ca.getX(k); col[o + 1] = ca.getY(k); col[o + 2] = ca.getZ(k); } else { col[o] = _c.r; col[o + 1] = _c.g; col[o + 2] = _c.b; }
         o += 3;
       }
       if (srcs[i] !== p[0]) srcs[i].dispose();
@@ -6747,8 +6747,11 @@
         box(f.x, 1.72, f.z, ry, 0.5, 0.08, 0.1, FROST_PAL.post);
       }
     }
-    const mat = ctx.own(ctx.makeToonMat({ vertexColors: false, brush: 0.1, brushScale: 0.7 }));
-    const im = ctx.instanced(gBox(1, 1, 1), mat, L, true, new T.Color(1, 1, 1));
+    // asset-zones：高 / 中画质用自产的单位块（ca/frost_plank：倒角、烘了一点明暗，颜色仍是实例色）；低画质（性能档）照旧用程序化方块
+    const kitPlank = qualId !== 'low' && G.assets && G.assets.geo('ca/frost_plank');
+    const deckGeo = kitPlank ? geo('frost/plank:ca', () => kitPlank.clone().translate(0, -0.5, 0)) : gBox(1, 1, 1);
+    const mat = ctx.own(ctx.makeToonMat({ vertexColors: !!kitPlank, brush: 0.1, brushScale: 0.7 }));
+    const im = ctx.instanced(deckGeo, mat, L, true, new T.Color(1, 1, 1));
     if (im) {
       for (let i = 0; i < C.length; i++) im.setColorAt(i, _c.set(C[i]).convertSRGBToLinear());
       im.instanceColor.needsUpdate = true;
@@ -6847,8 +6850,11 @@
         // 头骨：局部 +z 朝 ang（岛心）
         const S = 1.05, base = frostM4(f.x, -0.25, f.z, 0, f.ang, 0, S);
         const pc = (g, col, x, y, z, rx, ry, rz, sx, sy, sz) => add(g, col, base.clone().multiply(frostM4(x, y, z, rx, ry, rz, sx, sy, sz)));
-        pc(frostSkullGeo(), B, 0, 1.0, 0, 0, 0, 0, 1, 1, 1);
-        for (const sg of [-1, 1]) {
+        // asset-zones：自产件包（kit-frost）到了就整组换成自产的巨兽头骨（同一个局部坐标、同样的大小；颜色用它自己烘好的顶点色）
+        const kitSkull = G.assets && G.assets.geo('ca/frost_skull');
+        if (kitSkull) add(kitSkull, null, base.clone());
+        else pc(frostSkullGeo(), B, 0, 1.0, 0, 0, 0, 0, 1, 1, 1);
+        if (!kitSkull) for (const sg of [-1, 1]) {
           pc(gIco(0.4, 0), FROST_PAL.socket, sg * 0.6, 1.6, 0.68, 0, 0, 0, 1, 0.8, 0.62); // 眼窝（眉骨下面的暗窝，zones-polish 加大、往下挪到眉脊底下）
           pc(gIco(0.13, 0), FROST_PAL.socket, sg * 0.2, 1.08, 2.22, 0, 0, 0, 1, 0.8, 0.6); // 鼻孔
           pc(gCone(0.16, 1.1, 5), B, sg * 0.62, 0.55, 2.0, 1.35, 0, sg * -0.2, 1); // 獠牙（从吻侧往前下方伸出；缩放要给，原来漏了，frostM4 拿到 undefined 整个看不见）
@@ -6976,7 +6982,7 @@
         }
       }
     }, { kinds: [MAT.VOID, MAT.WATER], jitter: 0.3 });
-    const reedGeo = bake('frost/reeds', [
+    const reedGeo = (G.assets && G.assets.geo('ca/frost_reeds')) || bake('frost/reeds', [ // asset-zones：自产的冰芦苇（kit-frost）
       [gCone(0.05, 1.1, 3), FROST_PAL.reed, 0, 0.55, 0, 0.1, 0, 0.08],
       [gCone(0.045, 0.9, 3), FROST_PAL.reed, 0.16, 0.45, 0.05, 0, 0, -0.22],
       [gCone(0.045, 1.0, 3), FROST_PAL.reed, -0.14, 0.5, -0.06, -0.05, 0, 0.24],
@@ -9335,7 +9341,9 @@
   ZONE_LIGHT.crown = Object.assign({}, ZONE_LIGHT.abyss, { key: 0xffd2a0, bounce: 0x5a3a2a });
   GROUND_STYLE.crown = GROUND_STYLE.abyss;
   // 火盆台：三级石座 + 石柱 + 铁盆 + 铜箍（顶点色烘进一个几何体，按 y 压暗根部），四个实例一次 draw
+  // asset-zones：自产的火盆台（ca/crown_brazier，kit-crown 跟着 zone-abyss 加载）：尺寸逐项照下面的程序化版本，加一圈流蜡的蜡烛、柱上一道铜环、盆里一床炭
   const crownBrazierGeo = () =>
+    (G.assets && G.assets.geo('ca/crown_brazier') && geo('crown/brazier:ca', () => toonGradient(G.assets.geo('ca/crown_brazier').clone(), { bottom: 0x3a2c4a, top: 0xffffff, y0: 0, y1: 1.7 }))) ||
     geo('crown/brazier', () => toonGradient(bake('crown/brazier0', [
       [gCyl(1.0, 1.08, 0.22, 8), CROWN_PAL.stoneLo, 0, 0.11, 0],
       [gCyl(0.86, 0.92, 0.2, 8), CROWN_PAL.stone, 0, 0.32, 0],
@@ -9681,6 +9689,7 @@
 
   // 各主题的远景摆件（焦树 / 冰棱 / 断柱 / 棘刺）
   function propGeo(id) {
+    if (id === 'frost' && G.assets && G.assets.geo('ca/frost_spire')) return G.assets.geo('ca/frost_spire'); // asset-zones：自产的冰棱簇（kit-frost）
     if (id === 'frost') {
       const C = 0x9fd2e6, D = 0x6fa6c4;
       return bake('prop/frost', [
