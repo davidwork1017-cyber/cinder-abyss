@@ -14,6 +14,7 @@ const outDir = path.join(root, 'js/assets');
 fs.mkdirSync(outDir, { recursive: true });
 
 // 模型目录 → 前缀
+// 写 "models": "*" 的包会把这几个目录里的 CC0 模型全部打进去。models-drop（2026-11-22）起 asset-sources.json 里没有这样的包了，源文件留着，要用时加回一行即可
 const MODEL_DIRS = { 'kaykit-dungeon-remastered': 'kd', 'kaykit-halloween-bits': 'kh', 'kenney-nature-kit': 'kn' };
 
 const pad4 = (n) => (n + 3) & ~3;

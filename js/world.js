@@ -818,7 +818,7 @@
       },
     },
     frost: {
-      packs: ['zone-frost', 'rock-grey', 'models', 'ground'],
+      packs: ['zone-frost', 'rock-grey', 'ground'], // models-drop：摆放表里的 CC0 模型在这一区一个都摆不出来（多种子实测 0 个），不再加载 models 包
       mats: [
         // zones-frost：冻土岛，冷青灰（不按 def.path 推），贴图起伏压低；粗糙地面是带雪的冻泥，略亮略暖一点，把大片的冰面打散
         { tex: 'Ice002', tile: 7.5, con: 0.34, nrm: 0.5, rough: 0.7, k: 0.36, sat: 0.7, col: 0x55707c },
@@ -838,17 +838,18 @@
       mist: null, // zones-frost：路外整片是水（dress 画），贴地薄雾在水面上是一块块的亮斑，去掉（高 / 低画质也就一致了）
       prop: { tint: 0x8aa0b0, sat: 0.2 },
       props: {
-        outer: [['kn/stone_tallA', 3, 2.6, 3.6, 'tr'], ['kn/rock_tallB', 2, 2.4, 3.2, 'tr'], ['kh/tree_dead_large', 2, 0.8, 1.05, 't'], ['kh/tree_dead_small', 2, 1, 1.3, '']],
+        // models-drop：四周是水，原来这几行 CC0 模型（kn/ kh/）一个都摆不出来（12 个种子实测 0 个），清空；keep 照旧 0.45（程序化的远处冰棱保留的比例）
+        outer: [],
         keep: 0.45,
-        mid: [['kn/rock_largeB', 1, 1.6, 2.4, 'r'], ['kn/stone_tallC', 1, 2.2, 3, 'r']],
+        mid: [],
         midK: 0.3,
-        edge: [['kh/ribcage', 1, 0.9, 1.2, 'l'], ['kh/bone_A', 3, 0.8, 1.1, 'l'], ['kh/skull', 1, 0.5, 0.7, '']],
+        edge: [],
         fire: null, // zones-frost：岛边的立灯会落进水里，改成 dress 里栈道两头的灯
-        boss: [['kn/statue_ring', 1, 3, 3.6, 't'], ['kn/stone_tallA', 2, 3.2, 4, 'tr']],
+        boss: [],
       },
     },
     storm: {
-      packs: ['zone-storm', 'rock-grey', 'models', 'ground'],
+      packs: ['zone-storm', 'rock-grey', 'ground'], // models-drop：摆放表里的 CC0 模型在这一区一个都摆不出来（多种子实测 0 个），不再加载 models 包
       mats: [
         // zones-storm：石板紫的地砖（压掉贴图里偏粉的石块），路外的碎石地更暗；墙外整片是暗的「墙体」地面
         { tex: 'monastery_stone_floor', tile: 4.6, con: 0.6, nrm: 1.0, rough: 1, k: 0.48, sat: 0.45, col: 0x5c5a70 },
@@ -868,13 +869,14 @@
       mist: { color: 0x2c2744, a: 0.32 },
       prop: { tint: 0x5f5b74, sat: 0.2 },
       props: {
-        outer: [['kd/pillar', 3, 0.7, 0.95, 't'], ['kd/pillar_decorated', 1, 0.7, 0.9, 't'], ['kn/statue_column', 2, 3.4, 4.2, 't'], ['kn/statue_columnDamaged', 3, 3.4, 4.4, ''], ['kd/wall_broken', 2, 0.7, 0.9, 't'], ['kn/statue_obelisk', 1, 4, 5, 't']],
+        // models-drop：墙围起来的布局里，原来这几行 CC0 模型（kd/ kn/）一个都摆不出来（12 个种子实测 0 个），清空；路边立灯是自产件（kit-storm），照旧
+        outer: [],
         keep: 0,
-        mid: [['kd/rubble_half', 1, 0.45, 0.6, ''], ['kd/column', 1, 0.9, 1.2, '']],
+        mid: [],
         midK: 0.35,
-        edge: [['kd/floor_tile_small_broken_A', 2, 0.5, 0.7, 'l'], ['kd/sword_shield_broken', 1, 0.7, 0.9, ''], ['kn/statue_columnDamaged', 1, 1.6, 2, '']],
+        edge: [],
         fire: { m: 'ca/storm_lantern', s: 1.4, h: 0.62, color: 0xffe45e, size: 0.6 }, // asset-zones：自产立灯（kit-storm，fit 照抄 kh/lantern_standing；id 里要有 lantern，火焰按 h × s 的高度放）
-        boss: [['kd/pillar_decorated', 2, 0.8, 1, 't'], ['kd/barrier_column', 1, 0.7, 0.9, '']],
+        boss: [],
       },
     },
     abyss: {
@@ -1243,9 +1245,16 @@
   const gfxBroken = Object.create(null); // 建 PBR 外观时出过错的区域：之后一直用程序化外观
   // 贴图包（除布景模型包以外）都到了就能换 PBR 地面 / 岩壁；模型包单独判断，没有它就只是不摆 CC0 布景
   const texPacks = (gx) => gx.packs.filter((p) => p !== 'models');
-  // 模型包到了且真的解析出了模型（GLTFLoader 缺失时包本身「成功」但一个模型都没有）。
-  // asset-zones：布景全是自产件的区域（packs 里没有 models，第 0 / 3 / 4 区和余烛殿）只看自产件包（zone 包带的 kit-<区>）解析出了几何体
-  const propsReady = (gx) => !!(G.assets && (gx.packs.indexOf('models') < 0 || G.assets.ready(['models'])) && gx.props.outer.some((e) => G.assets.geo(e[0])));
+  // 布景就绪：摆放表（外圈 / 中圈 / 路边 / 首领 / 火盆）里每个 key 都解析出了几何体（自产件包 kit-<区> 跟着 zone 包加载）；摆放表为空也算就绪。
+  // models-drop：所有区域的布景都是自产件，不再有 models 包；原来按「外圈有一个解析出来」判断，外圈为空的区域（霜骨沼泽清空以后）会一直不建布景，
+  // 那样 keep（程序化摆件保留的比例）就不生效了
+  const propsKeys = (gx) => {
+    const P = gx.props, out = [];
+    for (const l of [P.outer, P.mid, P.edge, P.boss]) for (const e of l || []) out.push(e[0]);
+    if (P.fire) out.push(P.fire.m);
+    return out;
+  };
+  const propsReady = (gx) => !!(G.assets && (gx.packs.indexOf('models') < 0 || G.assets.ready(['models'])) && propsKeys(gx).every((k) => G.assets.geo(k)));
   function gfxReady(gx) {
     if (!gx || gfxBroken[gx.packs[0]] || !G.assets || !G.assets.ready(texPacks(gx))) return false;
     for (const m of gx.mats) if (!G.assets.tex(m.tex)) return false;
@@ -2302,8 +2311,8 @@
       const P = G.player, S = G.state;
       const busy = (P && P.cast) || (S && S.enemies.some((e) => !e.dead && e.awake && Math.hypot(e.x - P.x, e.z - P.z) < 25));
       calmFor = busy ? 0 : calmFor + 1;
-      // ash-models-drop：也等启动时的图标预热画完（G.icons.ready()）。第 0 区不再带 models 包以后，预取第 1 区要下载、解析它（1.4 MB、40 个模型），
-      // 赶在预热中间会把图标就绪推迟约 0.7 秒；预热一般在进区后几秒内画完，60 秒的上限不变
+      // ash-models-drop：也等启动时的图标预热画完（G.icons.ready()），预取下一区的贴图 / 自产件解析不和预热抢主线程（当时预取第 1 区要解析 models 包，
+      // 赶在预热中间把图标就绪推迟了约 0.7 秒；models-drop 起不再有这个包，等一下也不亏）；预热一般在进区后几秒内画完，60 秒的上限不变
       const iconsBusy = !!(G.icons && G.icons.ready && !G.icons.ready());
       if ((calmFor >= 3 && !iconsBusy) || ++waited >= 60) G.assets.need(nx.packs);
       else setTimeout(tick, 1000);
@@ -9339,7 +9348,7 @@
   ZONE_GFX.crown = Object.assign({}, ZONE_GFX.abyss, {
     sigil: { r: 0.6, col: 0xffb24a, k: 0.36, start: false },
     amb: 0xffb24a,
-    props: { outer: [], keep: 0, mid: [], midK: 0, edge: [['ca/abyss_skull_candle', 1, 0.6, 0.8, '']], fire: null, boss: [] }, // asset-zones：骷髅蜡烛换成烬渊的自产件（kit-abyss）
+    props: { outer: [], keep: 0, mid: [], midK: 0, edge: [], fire: null, boss: [] }, // models-drop：原来 edge 一行骷髅蜡烛从没摆出来过（外圈为空时布景从不建），清空；摆放表为空也算「布景就绪」，结果和原来一样（场地外全是虚空，什么都不摆）
   });
   ZONE_LIGHT.crown = Object.assign({}, ZONE_LIGHT.abyss, { key: 0xffd2a0, bounce: 0x5a3a2a });
   GROUND_STYLE.crown = GROUND_STYLE.abyss;

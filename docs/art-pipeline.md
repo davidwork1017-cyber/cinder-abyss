@@ -103,4 +103,4 @@ npm run build:art && git status --short assets/ca js/assets   # 没有输出 = �
 
 顶替旧模型时，清单里写 `fit=dict(r=…, top=…, bottom=…)`：生成完先把包围盒拉到旧件 scale 1 时的尺寸（游戏端 `G.assets.geoInfo(旧 key)` 的 r、y0 + h、y0），数值照抄浮点原值，不要四舍五入。摆放代码用 r 判断能不能放、用 y0 把标记 l 的件抬到贴地，差一点浮点也会让个别实例的高度差在第四位小数，摆放哈希就对不上（坠星裂谷的碎地砖踩过一次）。收尾参数写在 `finish=dict(…)` 里，比如别的区不盖积灰、改盖本区的覆盖色：`finish=dict(dust=0.2, dust_row='lichen')`。
 
-一个区的布景全部换成自产件以后，可以把 `models` 从它的 `packs` 里去掉（坠星裂谷就是这样），`propsReady()` 对没有 `models` 的区只看自产件包是否已经解析出几何体。
+现在所有区的布景都是自产件，游戏从 2026-11-22（models-drop）起不再打包、也不再加载 CC0 模型包 `models.js`。`propsReady()` 看摆放表里的每个 key（外圈、中圈、路边、首领、火盆）是否都解析出了几何体，摆放表为空也算就绪。KayKit / Kenney 的源文件和许可证还留在 `assets/` 下；要量旧件的 `geoInfo` 或重新打包，在 `tools/asset-sources.json` 的 `packs` 里加回 `"models": { "models": "*" }`，再跑 `node tools/pack-assets.mjs`。
