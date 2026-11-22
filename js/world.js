@@ -9573,6 +9573,38 @@
     }
     return { on: ICULL.on, n: icull ? icull.list.length : 0 };
   };
+  // 测试用：本区布景的指纹（区域组里每个网格的名字、位置、几何体顶点 / 实例矩阵 / 实例色），远处实例剔除先复原、按完整的实例算。
+  // 同一个区原地重建（不管高 / 低档、缓存命中多少、素材先到后到）前后应逐位相同（test/smoke.mjs「确定性」）。
+  // 火焰的方片每帧按时间抖动（updateFires），模拟暂停时重建后还没动过；要比的话两次之间别推进模拟
+  W.dressHash = function () {
+    if (!zoneGroup) return null;
+    if (icull && icull.group === zoneGroup) for (const e of icull.list) if (!e.off) icullRestore(e);
+    icull = null;
+    let h = 2166136261, n = 0;
+    const mix = (v) => {
+      h = Math.imul(h ^ (Math.round(v * 1000) | 0), 16777619) >>> 0;
+    };
+    const arr = (a, k) => {
+      for (let i = 0; i < k; i++) mix(a[i]);
+    };
+    for (const o of zoneGroup.children) {
+      const nm = String(o.name || o.type);
+      for (let i = 0; i < nm.length; i++) mix(nm.charCodeAt(i));
+      mix(o.position.x);
+      mix(o.position.z);
+      if (o.isInstancedMesh) {
+        mix(o.count);
+        arr(o.instanceMatrix.array, o.count * 16);
+        if (o.instanceColor) arr(o.instanceColor.array, o.count * 3);
+      } else if (o.geometry && o.geometry.attributes && o.geometry.attributes.position) {
+        const pa = o.geometry.attributes.position;
+        mix(pa.count);
+        arr(pa.array, pa.array.length);
+      }
+      n++;
+    }
+    return { hash: h.toString(16), n };
+  };
   function disposeZone() {
     icull = null;
     if (!zoneGroup) return;

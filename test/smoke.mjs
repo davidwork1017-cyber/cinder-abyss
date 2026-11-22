@@ -9809,6 +9809,45 @@ async function main() {
     return '几何体 ' + r.g + '（+' + r.geo + '），贴图 ' + r.t + '（+' + r.tex + '）';
   });
 
+  await step('确定性：three 的 uuid 不取 Math.random（vendor/three.min.js 的本地改动还在）；同一个区原地重建三次（高 → 低 → 高）布景逐位相同', async () => {
+    const r = await ev(() => {
+      // ① uuid：换上一个数调用次数的 Math.random，建几个 three 对象、直接取几个 uuid，一次都不应调到它
+      const rnd = Math.random;
+      let calls = 0;
+      Math.random = () => (calls++, 0.5);
+      try {
+        for (let i = 0; i < 4; i++) THREE.MathUtils.generateUUID();
+        new THREE.BufferGeometry().dispose();
+        new THREE.MeshBasicMaterial().dispose();
+        new THREE.Object3D();
+      } finally {
+        Math.random = rnd;
+      }
+      return { calls, zone: G.state.zone.def.id, q: G.world.quality() };
+    });
+    assert(r.calls === 0, 'three 建对象 / 取 uuid 调到了 Math.random（' + r.calls + ' 次）：vendor/three.min.js 的 uuid 改动丢了？见 docs/vendor-patches.md');
+    // ② 原地重建：模拟暂停（火焰方片不抖），每次重建后等进区空档里的任务（setTimeout 0）跑完再取指纹
+    const hashes = [];
+    await ev(() => G.debug.hold(true));
+    try {
+      for (const q of ['high', 'low', 'high']) {
+        await ev((q) => {
+          G.world.setQuality(q);
+          G.world.vfTune({});
+        }, q);
+        await ev(() => new Promise((res) => setTimeout(res, 50)));
+        hashes.push(await ev(() => G.world.dressHash()));
+      }
+    } finally {
+      await ev((q) => {
+        G.world.setQuality(q);
+        G.debug.hold(false);
+      }, r.q);
+    }
+    assert(hashes.every((h) => h && h.n > 5 && h.hash === hashes[0].hash), '同一个区原地重建后布景不一样（高 / 低 / 高）：' + JSON.stringify(hashes));
+    return '区 ' + r.zone + ' · ' + hashes[0].n + ' 个网格 · 指纹 ' + hashes[0].hash;
+  });
+
   await step('特效贴图库（vf-vfx）：贴图包载入、五张贴图解码完成；每个区域在高 / 低画质下施放六个旗舰技能（掷焰、陨火、链雷、霜环、黑洞、黑旋风）并渲染，特效着色器编译无报错，画出序列帧和地面瞬时痕迹', async () => {
     const r = await ev(async () => {
       const W = G.world, V = G.vfx, S = G.state, P = G.player, save = G.save;
