@@ -177,6 +177,15 @@ async function install() {
         T.settle();
       },
       // 一只打不死、不会动的靶子
+      // 离 (x, z) r 米、0.4 米余量下能走的一点：先试 a0 方向（弧度，sin / cos 对应 x / z），再往两边每 15° 找；都不行返回 a0 方向那一点。
+      // 传送到算出来的位置时用它：布局随机，算出来的点可能正好在墙里 / 布景件里
+      spotNear(x, z, r, a0) {
+        for (let k = 0; k < 24; k++) {
+          const a = a0 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (Math.PI / 12), px = x + Math.sin(a) * r, pz = z + Math.cos(a) * r;
+          if (W.walkable(px, pz, 0.4)) return { x: px, z: pz };
+        }
+        return { x: x + Math.sin(a0) * r, z: z + Math.cos(a0) * r };
+      },
       // 从玩家出发、一路可走（两侧各留 1 米）最远的那个方向：{ x, z } 单位向量，len 是能走多远（最多 max 米）
       openDir(max) {
         let best = { x: 0, z: 1, len: 0 };
@@ -16781,7 +16790,7 @@ async function main() {
         return { x: 1, z: 0 };
       };
       let enc = make('chain'), e = enc.mob;
-      T.tp(e.x + 18, e.z + 18); // 50 m 外的怪整帧跳过：离远一点但别太远，也别叫醒它
+      { const q = T.spotNear(e.x, e.z, 25.5, Math.PI / 4); T.tp(q.x, q.z); } // 50 m 外的怪整帧跳过：离远一点但别太远，也别叫醒它（站在能走的地方）
       const x0 = e.x, z0 = e.z;
       EK.step(3);
       out.patrol = +Math.hypot(e.x - x0, e.z - z0).toFixed(2);
@@ -16827,7 +16836,7 @@ async function main() {
       enc = make('oath');
       e = enc.mob;
       e.awake = true;
-      T.tp(e.x + 3, e.z);
+      { const q = T.spotNear(e.x, e.z, 3, Math.PI / 2); T.tp(q.x, q.z); }
       e.hp = e.maxHp * 0.7;
       EK.step(0.1);
       out.totems = (e.encTotems || []).filter((t) => !t.dead).length;
@@ -16842,7 +16851,7 @@ async function main() {
       enc = make('mirror');
       e = enc.mob;
       e.awake = true;
-      T.tp(e.x + 3, e.z);
+      { const q = T.spotNear(e.x, e.z, 3, Math.PI / 2); T.tp(q.x, q.z); }
       e.hp = e.maxHp * 0.55;
       EK.step(0.1);
       const cl = e.encClones || [];
