@@ -10016,6 +10016,67 @@ async function main() {
     assert(r.live.meteor > 0 && r.live.arc > 0 && r.live.whirl > 0, '陨火 / 链雷 / 旋风斩应画出形状批的件：' + JSON.stringify(r.live));
     return '形状件 陨火 ' + r.live.meteor + ' / 链雷 ' + r.live.arc + ' / 旋风斩 ' + r.live.whirl + '，预警圈填充 敌 ' + r.fillE + ' / 友 ' + r.fillF;
   });
+  await step('形状批收尾（vshape-fade）：实心件最后一段不再缩没，大小留住、改成挖洞渐隐；顿帧时形状件不走寿命、不动、闪烁也停，关掉顿帧时闪烁帧号照常每帧走', async () => {
+    const r = await ev(() => {
+      const W = G.world, P = G.player, out = {};
+      // 曲线：前段和旧的一样、不渐隐；最后一段大小留住（弹出 ≥ 0.75、收窄宽度 ≥ 0.4）、渐隐量一路涨到接近 1；跳过最后一丁点的判断仍按旧曲线（实例数不变）
+      const old = (cv, f) => (cv === 0 ? (f < 0.12 ? 0.55 + (0.45 * f) / 0.12 : f < 0.6 ? 1 : 1 - Math.pow((f - 0.6) / 0.4, 1.5)) : cv === 1 ? 0.25 + 0.75 * (1 - (1 - f) * (1 - f) * (1 - f)) : cv === 3 ? (f < 0.4 ? 1 : 1 - (f - 0.4) / 0.6) : 1);
+      const fs = [0, 0.05, 0.12, 0.3, 0.45, 0.55, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99];
+      out.curve = { early: true, skip: true, size: 1, w3: 1, fadeEnd: {}, mono: true };
+      for (const cv of [0, 1, 2, 3]) {
+        let prev = -1;
+        for (const f of fs) {
+          const c = W.vsCurve(cv, f), start = cv === 0 ? 0.6 : cv === 1 ? 0.7 : cv === 3 ? 0.55 : 2;
+          if (f <= start && c.fd !== 0) out.curve.early = false;
+          if (f < 0.6 && cv === 0 && c.k !== old(0, f)) out.curve.early = false;
+          if (cv === 1 && c.k !== old(1, f)) out.curve.early = false;
+          if (c.skip !== old(cv, f)) out.curve.skip = false;
+          if (c.fd < prev) out.curve.mono = false;
+          prev = c.fd;
+          if (cv === 0 && f >= 0.6) out.curve.size = Math.min(out.curve.size, c.k);
+          if (cv === 3) out.curve.w3 = Math.min(out.curve.w3, c.kw);
+        }
+        out.curve.fadeEnd[cv] = +W.vsCurve(cv, 0.99).fd.toFixed(3);
+      }
+      // 顿帧：放一批碎石 / 斩痕后走几帧，顿住后再走 4 帧 → 剩余寿命、位置、闪烁帧号都不变；顿帧过了照常往下走
+      W.clearFx();
+      G.flow.stop = 0;
+      const snap = () => {
+        const v = W.vsInfo();
+        return { frame: v.frame, n: v.live.length, l: +v.live.reduce((a, p) => a + p.l, 0).toFixed(6), pos: +v.live.reduce((a, p) => a + p.x + p.y + p.z, 0).toFixed(6) };
+      };
+      W.impact(P.x + 1.5, 1, P.z, Math.PI / 2, 'phys', 2, true);
+      W.foeHit(P.x - 2, P.z + 1, 1.3, 'light');
+      G.debug.step(4 / 60);
+      G.hitStop(120);
+      G.debug.step(1 / 60);
+      out.a = snap();
+      G.debug.step(4 / 60);
+      out.b = snap();
+      G.debug.step(0.2);
+      out.c = snap();
+      // 关掉顿帧：G.hitStop 不生效，闪烁帧号每帧 +1（和以前一样）
+      W.clearFx();
+      W.foeHit(P.x - 2, P.z + 1, 1.3, 'light');
+      G.save.opts.hitStop = false;
+      const f0 = W.vsInfo().frame;
+      for (let i = 0; i < 5; i++) { G.hitStop(120); G.debug.step(1 / 60); }
+      out.offFrames = W.vsInfo().frame - f0;
+      out.offStop = G.flow.stop;
+      G.save.opts.hitStop = true;
+      G.flow.stop = 0;
+      W.clearFx();
+      return out;
+    });
+    const c = r.curve;
+    assert(c.early && c.skip && c.mono, '形状件的大小曲线前段应和以前一样、不渐隐，跳过判断仍按旧曲线，渐隐量只增不减：' + JSON.stringify(c));
+    assert(c.size >= 0.75 - 1e-9 && c.w3 >= 0.4 - 1e-9, '实心件到寿命末尾大小应留住（弹出 ≥ 0.75、收窄宽度 ≥ 0.4），不再缩没：' + JSON.stringify(c));
+    assert([0, 1, 3].every((k) => c.fadeEnd[k] >= 0.95) && c.fadeEnd[2] === 0, '弹出 / 扩开 / 收窄到寿命末尾应几乎全隐（闪的曲线不渐隐）：' + JSON.stringify(c.fadeEnd));
+    assert(r.a.n > 0 && r.a.frame === r.b.frame && r.a.l === r.b.l && r.a.pos === r.b.pos && r.a.n === r.b.n, '顿帧时形状件不应走寿命、不动、闪烁不走：' + JSON.stringify([r.a, r.b]));
+    assert(r.c.l < r.b.l && r.c.frame > r.b.frame, '顿帧过了形状件应照常往下走：' + JSON.stringify([r.b, r.c]));
+    assert(r.offFrames === 5 && r.offStop === 0, '关掉顿帧时闪烁帧号应每帧 +1（和以前一样）：' + JSON.stringify(r));
+    return '尾段大小 ≥ ' + c.size.toFixed(2) + '、收窄宽度 ≥ ' + c.w3.toFixed(2) + '，末尾渐隐 ' + JSON.stringify(c.fadeEnd) + '；顿帧 4 帧 寿命和 ' + r.a.l + ' → ' + r.b.l + '、帧号 ' + r.a.frame + ' → ' + r.b.frame + '；关顿帧 5 步帧号 +' + r.offFrames;
+  });
 
   await step('特效三期第 1 部分（vf-vfx3）：同一只怪 0.25 秒内的普通数字并成一个、普通数字同屏不超过 40 条、同一只怪的状态词不摞；掉落的地面环 / 光柱 / 柱顶菱形画进实例零件；拾取 / 升级 / 死亡放形状件、死亡自下而上地烧', async () => {
     const r = await ev(() => {
