@@ -3416,10 +3416,10 @@
       }
     } else if (w >= 2) W.text(tx, tz, shown + (hit.crit ? '!' : ''), G.TYPE_COLOR[top], hit.crit ? 30 : 23, { kind: 'big', y: ty });
     else {
-      // vf-vfx3：字号随这一下占怪最大生命的比例 ±20 %（小怪身上打出的大数更大，首领身上的零碎更小）；普通数字用同一亮度带的数字色（NUM_COLOR），
+      // vf-vfx3：普通数字的字号随这一下占怪最大生命的比例 −15 % … +20 %（小怪身上打出的大数更大，首领身上的零碎更小），暴击只放大；普通数字用同一亮度带的数字色（NUM_COLOR），
       // 同一只怪 0.25 秒内的普通数字并成一个往上跳的数（W.text 的 key / val）
       const nk = 0.85 + 0.35 * Math.min(1, Math.sqrt(Math.max(0, hit.total / Math.max(1, e.maxHp)) * 2));
-      if (hit.crit) W.text(tx, tz, shown + '!', G.TYPE_COLOR[top], Math.round(24 * nk), { kind: 'crit', y: ty });
+      if (hit.crit) W.text(tx, tz, shown + '!', G.TYPE_COLOR[top], Math.round(24 * Math.max(1, nk)), { kind: 'crit', y: ty }); // 暴击只放大不缩小：始终比普通数字（最大 19）大一号
       else W.text(tx, tz, shown, NUM_COLOR[top] || G.TYPE_COLOR[top], Math.round(16 * nk), { y: ty, key: e, val: shown });
     }
 
