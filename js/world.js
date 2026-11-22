@@ -1079,31 +1079,39 @@
   // ----- 画质档位：dpr 像素比上限（高档封顶 1.5：2 倍屏按原生像素渲染再叠多重采样太贵），post 走后期处理（泛光 / 调色 / 暗角），
   //   bloomRes 泛光链的分辨率比例，msaa 后期渲染目标的多重采样，shadow 阴影贴图边长，mist 贴地薄雾 -----
   const QUALITY = {
-    // vf-ground：smaa 后期链最后加一道 SMAA（r128 示例原版，vendor/SMAAPass.js）；fxaa 低档（没有后期链）单独走一条「场景 → FXAA」的短链
-    high: { dpr: 1.5, post: true, bloom: true, bloomRes: 1, msaa: 4, shadow: 2048, mist: true, smaa: false },
-    mid: { dpr: 1.25, post: true, bloom: true, bloomRes: 0.5, msaa: 2, shadow: 1024, mist: false },
+    // vf-ground：smaa 后期链最后加一道 SMAA（three 同版本的 SMAAPass，打在 vendor/three.bundle.js 里）；fxaa 低档（没有后期链）单独走一条「场景 → FXAA」的短链
+    // ao：环境光遮蔽（n8ao，见 makeAOPass）。halfRes 半分辨率算、samples 采样数、radius 遮蔽半径（米）、k 强度（AO 的幂次）
+    high: { dpr: 1.5, post: true, bloom: true, bloomRes: 1, msaa: 4, shadow: 2048, mist: true, smaa: false, ao: { halfRes: true, samples: 8, radius: 0.7, k: 1.6 } },
+    mid: { dpr: 1.25, post: true, bloom: true, bloomRes: 0.5, msaa: 2, shadow: 1024, mist: false, ao: { halfRes: true, samples: 8, radius: 0.7, k: 1.6 } },
     // 低档的 scale：3D 画面按 0.85 倍分辨率渲染（HUD / 血条叠加层仍是原生分辨率）。卡通风格的近镜头让角色、岩壁、粒子在画面里占的像素多了，
     // 第 0 区起点又多了植被；软件 GL 下 3D 画面和 HUD 图标的画布共用同一个 GPU 进程，画面一重，启动时空闲预热图标就慢（实测每个图标 538 → 601 毫秒）。
     // 0.85 倍分辨率 + 低档不画起点的草 / 蕨 / 苔（buildAshDress）之后：图标 508～522 毫秒，混战一帧 226～235 毫秒（改前 main 244），1440×900 / 1280×800 SwiftShader
     low: { dpr: 1, post: false, bloom: false, bloomRes: 1, msaa: 0, shadow: 1024, mist: false, scale: 0.85, fxaa: false },
   };
   if (window.CA_FXAA_LOW) QUALITY.low.fxaa = true; // 测性能用（A/B）：页面加载前设 window.CA_FXAA_LOW = 1
+  const aoOff = () => !!window.CA_AO_OFF; // 测性能 / 对比用（A/B）：页面加载前设 window.CA_AO_OFF = 1，高 / 中也不开 AO
   let qual = QUALITY.high, qualId = 'high';
   const BLOOM_CAP = 1.1; // 进泛光的单个像素最亮多少（最大分量）
   const post = { composer: null, rt: null, bloom: null, grade: null, ok: false, smaa: null, fx: null, fxPass: null };
 
+  // AO 不压亮的像素：加色特效、熔岩 / 余烬的芯、预警圈的亮边。画面已经是显示空间（sRGB），按最大分量从 AO_LO 到 AO_HI 渐渐不乘 AO
+  const AO_LO = 0.62, AO_HI = 0.92;
   // 最终调色：对比度 / 饱和度 / 暗部偏色 / 亮部增益 / 暗角。画面在渲染目标里已经是显示空间（sRGB）
   const GradeShader = {
     uniforms: {
       tDiffuse: { value: null }, uSat: { value: 1 }, uCon: { value: 1 }, uVig: { value: 0.4 }, uAspect: { value: 1.6 },
       uLift: { value: new T.Vector3(0, 0, 0) }, uGain: { value: new T.Vector3(1, 1, 1) },
-      uSh: { value: new T.Vector3(1, 1, 1) }, uHi: { value: new T.Vector3(1, 1, 1) }, uShS: { value: 1 }, // vf-ground：分区的暗部 / 亮部偏色（亮度归一，只改色相不改明暗）、暗部的饱和度
+      uSh: { value: new T.Vector3(1, 1, 1) }, uHi: { value: new T.Vector3(1, 1, 1) }, uShS: { value: 1 },
+      tAO: { value: null }, uAOk: { value: 0 }, // three-ao：AO 贴图（n8ao 算好的，r = 遮蔽）和强度（0 = 不乘 AO） // vf-ground：分区的暗部 / 亮部偏色（亮度归一，只改色相不改明暗）、暗部的饱和度
     },
     vertexShader: 'varying vec2 vUv;\nvoid main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
     fragmentShader: [
       'uniform sampler2D tDiffuse; uniform float uSat, uCon, uVig, uAspect, uShS; uniform vec3 uLift, uGain, uSh, uHi; varying vec2 vUv;',
+      'uniform sampler2D tAO; uniform float uAOk;',
       'void main(){',
       '  vec3 c = max(texture2D(tDiffuse, vUv).rgb, 0.0);',
+      // three-ao：AO 乘在调色之前（显示空间），亮的像素（特效、熔岩芯）按最大分量渐渐不乘
+      '  if (uAOk > 0.0) { float ao = pow(clamp(texture2D(tAO, vUv).r, 0.0, 1.0), uAOk); c *= mix(ao, 1.0, smoothstep(' + AO_LO.toFixed(2) + ', ' + AO_HI.toFixed(2) + ', max(c.r, max(c.g, c.b)))); }',
       // 高光肩部：超过 0.8 的部分按指数压向 1（色调映射过的材质很少到这里，主要压的是不做色调映射的加色特效 + 泛光），
       // 叠在一起的技能不会糊成一整片死白，颜色也保得住
       '  c = mix(c, 0.8 + 0.2 * (1.0 - exp(-(c - 0.8) * 5.0)), step(0.8, c));',
@@ -1127,7 +1135,9 @@
     const { w, h } = postSize();
     const half = renderer.extensions.has('EXT_color_buffer_float'); // r163 起只有 WebGL2
     const opt = { minFilter: T.LinearFilter, magFilter: T.LinearFilter, format: T.RGBAFormat, type: half ? T.HalfFloatType : T.UnsignedByteType, samples: qual.msaa || 0 };
-    return displayRT(new T.WebGLRenderTarget(w, h, opt));
+    const rt = displayRT(new T.WebGLRenderTarget(w, h, opt));
+    rt.depthTexture = new T.DepthTexture(w, h); // 环境光遮蔽读这张深度（多重采样目标照样解析；中画质实测不加开销）
+    return rt;
   }
   // r128 渲染到目标时材质照样做色调映射、按目标的编码（sRGB）输出；r153 起渲染到目标一律是线性、不做色调映射（留给最后的 OutputPass）。
   // 后期链要的是 r128 那种：目标里已经是显示空间、toneMapped:false 的加色特效能超过 1、泛光只挑这些。
@@ -1150,6 +1160,15 @@
       displayRT(c.renderTarget2); // EffectComposer 每帧交换两个目标，场景轮流画进这两个
       c.addPass(new T.RenderPass(scene, camera));
       const { w, h } = postSize();
+      if (!c.renderTarget2.depthTexture) c.renderTarget2.depthTexture = new T.DepthTexture(w, h);
+      // 环境光遮蔽：只读深度，不重画场景；算好的 AO 贴图由调色 pass 乘到画面上（AO 失败不影响别的后期）
+      try {
+        post.ao = makeAOPass(w, h);
+        c.addPass(post.ao);
+      } catch (e) {
+        post.ao = null;
+        if (window.console) console.error('[画面] 环境光遮蔽初始化失败，不开 AO', e);
+      }
       post.bloom = new T.UnrealBloomPass(new T.Vector2(w, h), 0.42, 0.5, 0.93);
       post.bloom.highPassUniforms.smoothWidth.value = 0.12;
       // 泛光的输入封顶（保持色相）：叠在一起的加色特效在半浮点目标里能到 3~5，不封顶的话一团技能会把周围整片晕成白色
@@ -1211,6 +1230,76 @@
       if (window.console) console.warn('[画面] 后期处理初始化失败，改为直接渲染', e);
     }
   }
+  // ----- 环境光遮蔽（高 / 中）：npm n8ao 的 N8AOPostPass（CC0，见 docs/vendor-patches.md），在后期链里 RenderPass 之后 -----
+  // · 只读后期目标的深度贴图（displayRT 上挂的 DepthTexture），不重画场景：不加 draw，低画质完全不走这里。
+  // · N8AOPostPass 是给 pmndrs postprocessing 写的（继承它的 Pass），这里包一层 three 的 Pass 来调（打包时 'postprocessing' 指向
+  //   tools/postprocessing-shim.mjs，只是几个字段的替身）。
+  // · 只用它算 AO 贴图：它自己的合成和最后一道拷贝（两道全分辨率 pass，软件渲染下占了 AO 开销的大头）不跑，
+  //   AO 贴图（r = 未遮蔽的比例）交给调色 pass（GradeShader 的 tAO / uAOk）乘到画面上，亮的像素（特效、熔岩芯）不乘。
+  // · 角色不吃 AO：角色材质在后期目标的 alpha 里写 0（injectLit），AO 着色器读到就当没有遮蔽，脚边地面的接触暗部照样有。
+  // · 两处改 n8ao 着色器的替换（AO 着色器、合成着色器重建时补上）都要求原文恰好出现一次，不然 console.error（测试会失败）。
+  // · n8ao 不取 Math.random（蓝噪声是自带的贴图），不开 accumulate 时每帧的噪声相位固定（frame = 0），画面可复现。
+  function makeAOPass(w, h) {
+    const n8 = new T.N8AOPostPass(scene, camera, w, h);
+    W._aoPatch = { char: false };
+    const ao0 = n8.configureAOPass.bind(n8);
+    n8.configureAOPass = function () {
+      const r = ao0.apply(null, arguments);
+      const m = n8.effectShaderQuad.material, a = 'float occ = clamp(1.0 - occluded / (totalWeight == 0.0 ? 1.0 : totalWeight), 0.0, 1.0);';
+      if (m.fragmentShader.indexOf('AO_CHAR') >= 0) return r;
+      if (m.fragmentShader.split(a).length !== 2) {
+        W._aoPatch.char = false;
+        if (window.console) console.error('[画面] n8ao 的 AO 着色器里要替换的原文不是恰好一次（n8ao 升级后按新原文改 makeAOPass）：' + a);
+      } else {
+        m.fragmentShader = m.fragmentShader.replace(a, a + ' /* AO_CHAR：角色像素（场景 alpha = 0）不算遮蔽 */ if (diffuse.a < 0.5) occ = 1.0;');
+        m.needsUpdate = true;
+        W._aoPatch.char = true;
+      }
+      return r;
+    };
+    Object.assign(n8.configuration, { gammaCorrection: false, transparencyAware: false, accumulate: false, distanceFalloff: 1.0, denoiseIterations: 1, denoiseRadius: 12 });
+    n8.configureAOPass(n8.configuration.depthBufferType, camera.isOrthographicCamera);
+    const p = new T.Pass();
+    p.needsSwap = false; // 不往后期目标里写：只出 AO 贴图
+    p.n8 = n8;
+    p.setSize = (sw, sh) => n8.setSize(sw, sh);
+    const noop = () => {};
+    p.render = (r, wb, rb) => {
+      n8.setDepthTexture(rb.depthTexture);
+      n8.renderToScreen = false;
+      const cq = n8.effectCompositerQuad, kq = n8.copyQuad, c1 = cq.render, k1 = kq.render;
+      cq.render = kq.render = noop;
+      try {
+        n8.render(r, rb, wb);
+      } finally {
+        cq.render = c1;
+        kq.render = k1;
+      }
+      post.grade.uniforms.tAO.value = n8.writeTargetInternal.texture;
+    };
+    return p;
+  }
+  // 按当前画质开关 AO、套参数（换画质 / aoTune 时调）
+  function applyAO() {
+    if (!post.ao) return;
+    const cfg = qual.ao && !aoOff() ? qual.ao : null;
+    post.ao.enabled = !!cfg;
+    post.grade.uniforms.uAOk.value = cfg ? cfg.k : 0;
+    if (!cfg) return;
+    const c = post.ao.n8.configuration, want = { halfRes: !!cfg.halfRes, aoSamples: cfg.samples, denoiseSamples: Math.max(2, cfg.samples >> 1), aoRadius: cfg.radius, intensity: cfg.k };
+    for (const k in want) if (c[k] !== want[k]) c[k] = want[k];
+  }
+  // 调参用：G.world.aoTune({ radius: 0.8, k: 2 })，改的是当前画质的表（本次会话），返回生效的值
+  W.aoTune = function (o) {
+    if (qual.ao && o) Object.assign(qual.ao, o);
+    applyAO();
+    return qual.ao || null;
+  };
+  W.aoInfo = () => ({
+    on: !!(post.ao && post.ao.enabled), k: post.ok ? post.grade.uniforms.uAOk.value : 0, charPatch: !!(W._aoPatch && W._aoPatch.char),
+    cfg: post.ao && post.ao.enabled ? (({ halfRes, aoSamples, aoRadius, intensity }) => ({ halfRes, aoSamples, aoRadius, intensity }))(post.ao.n8.configuration) : null,
+    depth: !!(post.rt && post.rt.depthTexture),
+  });
   // vf-ground：低档的 FXAA 短链（QUALITY.low.fxaa）：场景渲染到一张不带多重采样的 8 位目标，再一道 FXAA 出屏；用到时才建
   function initFxaa() {
     if (post.fx || !T.EffectComposer || !T.RenderPass || !T.ShaderPass || !T.FXAAShader) return;
@@ -1286,6 +1375,7 @@
       displayRT(post.composer.renderTarget2);
     }
     if (post.ok) post.bloom.enabled = qual.bloom;
+    applyAO();
     if (post.smaa) post.smaa.enabled = !!qual.smaa;
     if (qual.fxaa) initFxaa();
     if (zoneFx && zoneFx.mist) zoneFx.mist.visible = qual.mist;
@@ -2744,6 +2834,7 @@
     W.scene = scene;
     W.camera = camera;
     initPost();
+    applyAO();
     W.resize();
     window.addEventListener('resize', W.resize);
 
@@ -11832,7 +11923,10 @@
       .replace('#include <begin_vertex>', 'vec3 transformed = ( boneM * vec4( position, 1.0 ) ).xyz;\nvSurf = aSurf;\nvBP = position;');
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', '#include <common>\n' + RIG_FRAG_PARS)
-      .replace('#include <emissivemap_fragment>', RIG_FRAG);
+      .replace('#include <emissivemap_fragment>', RIG_FRAG)
+      // three-ao：不透明的角色像素在后期目标的 alpha 里记成 0，AO（n8ao）读到就不压在角色身上（脚边地面的接触暗部照样有）。
+      // 画面输出不用 alpha（调色 pass 输出 1，画布没有 alpha），低画质看不出任何区别；半透明的残影等材质不改
+      .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n#ifdef OPAQUE\n\tgl_FragColor.a = 0.0;\n#endif');
   }
   function injectDepth(sh, ent) {
     sh.uniforms.uBones = ent.uBones;

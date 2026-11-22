@@ -70,11 +70,13 @@ await build({
   minify: true,
   target: ['es2020'],
   legalComments: 'none',
-  banner: { js: '/* three.js r' + pkg.version.split('.')[1] + ' (npm three@' + pkg.version + ') + examples/jsm 后期处理 / GLTFLoader，MIT 许可证，Copyright 2010-2026 three.js authors（全文见 vendor/LICENSE-three.txt）。由 tools/build-three.mjs 打包（generateUUID 有一处本地改动，见 docs/vendor-patches.md），不要手改 */' },
+  banner: { js: '/* three.js r' + pkg.version.split('.')[1] + ' (npm three@' + pkg.version + ') + examples/jsm 后期处理 / GLTFLoader，MIT 许可证，Copyright 2010-2026 three.js authors（全文见 vendor/LICENSE-three.txt）；n8ao@' + JSON.parse(fs.readFileSync(path.join(root, 'node_modules/n8ao/package.json'), 'utf8')).version + '（N8AOPostPass，CC0 1.0，见 vendor/LICENSE-n8ao.txt）。由 tools/build-three.mjs 打包（generateUUID 有一处本地改动，见 docs/vendor-patches.md），不要手改 */' },
   logLevel: 'warning',
   plugins: [patchThree],
+  alias: { postprocessing: path.join(root, 'tools/postprocessing-shim.mjs') }, // n8ao 的 N8AOPostPass 继承 pmndrs postprocessing 的 Pass，换成替身（见那个文件）
 });
 // 许可证全文放在打包文件旁边（压缩时去掉了源码里的注释）
 fs.copyFileSync(path.join(root, 'node_modules/three/LICENSE'), path.join(root, 'vendor/LICENSE-three.txt'));
+fs.copyFileSync(path.join(root, 'node_modules/n8ao/LICENSE'), path.join(root, 'vendor/LICENSE-n8ao.txt')); // n8ao 包里的许可证文件（CC0 1.0；package.json 写的是 ISC），见 docs/vendor-patches.md
 const n = fs.statSync(out).size;
 console.log('vendor/three.bundle.js', (n / 1024).toFixed(0) + ' KiB', 'three@' + pkg.version);
