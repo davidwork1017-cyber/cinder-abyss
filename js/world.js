@@ -12332,7 +12332,6 @@
         const a = (i / n) * TAU;
         vsEmit(g.x + Math.sin(a) * R0, 0.09, g.z + Math.cos(a) * R0, Math.sin(a) * v0, 0, Math.cos(a) * v0, life, 0.07, seg, a + Math.PI / 2, 0, 0, 3);
       }
-      W.fxFlip(VFB.ring, g.x, 0.12, g.z, r * 6, 0.5, 0x8a7a6a, { flat: true, a: 0.7 });
       W.shake(0.25);
     }
     B.n++;
