@@ -2,6 +2,8 @@
 // 敌人：生成、区域布怪、每帧 AI（6 种小怪 + 首领 11 种招式）、状态效果、重置与清空
 (function () {
   const G = window.G;
+  // 敌人施法的音效参数（js/audio.js）：普通的暗一点、让着自己的声音；精英 / 首领带预警的施法是躲闪提示，单独一种警示音色、不压低
+  const FOE_CAST = { foe: 1 }, ELITE_CAST = { foe: 2 }, BOSS_CAST = { foe: 3 };
   const TAU = Math.PI * 2;
 
   // 玩家进入该距离时小怪苏醒。镜头朝屏幕下方只看得到 12 左右，
@@ -759,7 +761,7 @@
         const v = volleySeq++, h = (VO.spread * Math.PI) / 360;
         for (let i = -1; i <= 1; i += 2) shoot(e, a + i * h, 11 * (1 + VO.speed), e.dmg, 0.35, 2.5, e.r + 0.25, v);
       } else shoot(e, a, 11, e.dmg, 0.35, 2.5, e.r + 0.25);
-      G.sfx('cast');
+      G.sfx('cast', e.elite ? ELITE_CAST : FOE_CAST);
       e.atkCd = def.cd * G.rand(0.9, 1.25);
       return;
     }
@@ -935,7 +937,7 @@
       e.ang = a;
       if (W.clipOf(e.ent) !== 'attack') W.play(e.ent, 'attack');
       for (let i = -1; i <= 1; i++) shoot(e, a + i * 0.24, 12, e.dmg * 0.85, 0.32, 2.3, e.r + 0.3, volley);
-      G.sfx('cast');
+      G.sfx('cast', e.elite ? ELITE_CAST : FOE_CAST);
       e.atkCd = def.cd * G.rand(0.9, 1.2);
       return;
     }
@@ -1182,7 +1184,7 @@
         const off = Math.random() * TAU, volley = volleySeq++;
         for (let i = 0; i < n; i++) shoot(e, off + (i * TAU) / n, 8.5, e.dmg * 0.8, 0.4, 3.2, e.r * 0.6, volley);
         G.world.ring(e.x, e.z, e.r + 1.6, hexOf(e), 0.3);
-        G.sfx('cast');
+        G.sfx('cast', BOSS_CAST);
       });
     },
     // 三连扇形弹幕，每轮重新瞄准
@@ -1197,7 +1199,7 @@
           const a = angTo(e, G.player.x, G.player.z), volley = volleySeq++;
           e.aim = a;
           for (let i = -2; i <= 2; i++) shoot(e, a + i * 0.2, 12, e.dmg * 0.8, 0.38, 2.6, e.r * 0.6, volley);
-          G.sfx('cast');
+          G.sfx('cast', BOSS_CAST);
         });
       }
     },
@@ -1564,7 +1566,7 @@
           if (!live(e, seq)) return;
           const volley = volleySeq++;
           for (let k = 0; k < SP.arms; k++) shoot(e, base + dir * w * SP.turn + (k * TAU) / SP.arms, SP.speed, e.dmg * SP.k, 0.4, 3.2, e.r * 0.6, volley);
-          G.sfx('cast');
+          G.sfx('cast', BOSS_CAST);
         });
       }
     },

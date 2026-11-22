@@ -116,332 +116,7 @@
   const ZONE_GLYPH = { ash: '烬', frost: '霜', storm: '雷', abyss: '渊', rift: '星' };
   const ZONE_ORD = ['第一境', '第二境', '第三境', '第四境', '第五境', '第六境'];
 
-  // ============================================================
-  // 音效：WebAudio 小合成器（首次用户操作时才创建；任何失败都静默）
-  // ============================================================
-  const NO_P = {};
-  // 音效自己的随机序列（噪声缓冲、音高浮动、噪声起点）：音效按真实时间限流、而且要等第一次按键 / 点击才建，
-  // 用 Math.random 的话放没放出声会挪动游戏的随机序列（同一个种子帧快帧慢打出来不一样）
-  let sfxRs = 0x5f3759df;
-  const sfxRand = () => (sfxRs = (Math.imul(sfxRs, 1664525) + 1013904223) >>> 0) / 4294967296;
-  let actx = null;
-  let master = null;
-  let noiseBuf = null;
-  const lastPlay = {};
-  const MIN_GAP = { shot: 40, hit: 55, crit: 70, cast: 60, hurt: 120, pickup: 60, click: 30, roll: 100, heart: 300, deny: 160, ready: 120, drop: 80, impact: 40, swing: 70, finisher: 150, ashcuts: 300, tristorm: 300, soulhost: 300, break: 200, execute: 200, execstart: 200, kill: 70 };
-
-  function audioInit() {
-    try {
-      if (actx) {
-        if (actx.state === 'suspended') actx.resume();
-        return;
-      }
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) return;
-      actx = new AC();
-      master = actx.createGain();
-      master.gain.value = 0.2;
-      const comp = actx.createDynamicsCompressor();
-      master.connect(comp);
-      comp.connect(actx.destination);
-      noiseBuf = actx.createBuffer(1, actx.sampleRate, actx.sampleRate);
-      const ch = noiseBuf.getChannelData(0);
-      for (let i = 0; i < ch.length; i++) ch[i] = sfxRand() * 2 - 1;
-    } catch (e) {
-      actx = null;
-    }
-  }
-  window.addEventListener('pointerdown', audioInit, true);
-  window.addEventListener('keydown', audioInit, true);
-
-  function env(g, t0, dur, vol, attack) {
-    g.gain.setValueAtTime(0.0001, t0);
-    g.gain.exponentialRampToValueAtTime(vol, t0 + (attack || 0.005));
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-  }
-  // 单个振荡器音：频率 f0 → f1 滑动
-  function tone(type, f0, f1, t0, dur, vol, attack) {
-    const o = actx.createOscillator();
-    const g = actx.createGain();
-    o.type = type;
-    o.frequency.setValueAtTime(f0, t0);
-    if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t0 + dur);
-    env(g, t0, dur, vol, attack);
-    o.connect(g);
-    g.connect(master);
-    o.start(t0);
-    o.stop(t0 + dur + 0.03);
-  }
-  // 滤波噪声：滤波频率 f0 → f1 扫动
-  function noise(ftype, f0, f1, t0, dur, vol, q, attack) {
-    const s = actx.createBufferSource();
-    const f = actx.createBiquadFilter();
-    const g = actx.createGain();
-    s.buffer = noiseBuf;
-    s.loop = true;
-    f.type = ftype;
-    f.Q.value = q || 0.8;
-    f.frequency.setValueAtTime(f0, t0);
-    if (f1 !== f0) f.frequency.exponentialRampToValueAtTime(f1, t0 + dur);
-    env(g, t0, dur, vol, attack);
-    s.connect(f);
-    f.connect(g);
-    g.connect(master);
-    s.start(t0, sfxRand() * 0.6);
-    s.stop(t0 + dur + 0.03);
-  }
-
-  const SFX = {
-    // 远程普攻：机炮短促的「哒」、左轮沉的一声「砰」带一点金属尾音、弓弦的「嘣」
-    shot(t, p) {
-      if (p.type === 'gatling') {
-        noise('bandpass', 2400, 700, t, 0.05, 0.32, 1.2, 0.002);
-        tone('square', 140, 70, t, 0.04, 0.1);
-      } else if (p.type === 'revolver') {
-        noise('lowpass', 4200, 300, t, 0.16, 0.6, 0.8, 0.002);
-        tone('sawtooth', 120, 46, t, 0.14, 0.25);
-        tone('triangle', 2200, 1800, t + 0.02, 0.12, 0.05);
-      } else {
-        tone('triangle', 260, 170, t, 0.13, 0.22);
-        noise('highpass', 1800, 4200, t, 0.09, 0.16, 0.9, 0.003);
-      }
-    },
-    cast(t) {
-      noise('bandpass', 500, 2600, t, 0.14, 0.35, 1.4, 0.02);
-      tone('sine', 300, 620, t, 0.12, 0.18);
-    },
-    hit(t) {
-      noise('lowpass', 1800, 300, t, 0.07, 0.55);
-      tone('square', 170, 80, t, 0.07, 0.16);
-    },
-    crit(t) {
-      noise('lowpass', 3200, 400, t, 0.1, 0.6);
-      tone('square', 220, 70, t, 0.11, 0.2);
-      tone('triangle', 1320, 660, t + 0.01, 0.2, 0.3);
-    },
-    hurt(t) {
-      tone('sawtooth', 170, 62, t, 0.24, 0.42);
-      noise('lowpass', 900, 180, t, 0.18, 0.45);
-    },
-    pickup(t) {
-      tone('sine', 700, 700, t, 0.07, 0.3);
-      tone('sine', 1050, 1050, t + 0.06, 0.1, 0.3);
-    },
-    gem(t) {
-      tone('triangle', 784, 784, t, 0.14, 0.3);
-      tone('triangle', 1047, 1047, t + 0.08, 0.14, 0.3);
-      tone('triangle', 1568, 1568, t + 0.16, 0.3, 0.3);
-      tone('sine', 3136, 3136, t + 0.16, 0.35, 0.08);
-    },
-    level(t) {
-      const notes = [523, 659, 784, 1047];
-      notes.forEach((f, i) => {
-        tone('triangle', f, f, t + i * 0.09, 0.3, 0.3);
-        tone('sine', f * 2, f * 2, t + i * 0.09, 0.3, 0.1);
-      });
-      tone('triangle', 1319, 1319, t + 0.4, 0.7, 0.28, 0.02);
-      noise('highpass', 5000, 9000, t + 0.36, 0.5, 0.08, 0.7, 0.05);
-    },
-    death(t) {
-      tone('sawtooth', 220, 48, t, 1.1, 0.4, 0.02);
-      tone('sine', 110, 36, t, 1.3, 0.5, 0.02);
-      noise('lowpass', 1200, 90, t, 1.0, 0.35, 0.8, 0.03);
-    },
-    boss(t) {
-      tone('sawtooth', 55, 52, t, 1.5, 0.4, 0.2);
-      tone('sawtooth', 58.3, 55, t, 1.5, 0.4, 0.2);
-      tone('sine', 110, 82, t + 0.1, 1.3, 0.3, 0.3);
-      noise('lowpass', 200, 900, t, 1.2, 0.25, 0.8, 0.5);
-    },
-    click(t) {
-      tone('square', 1500, 900, t, 0.03, 0.09, 0.002);
-    },
-    // 烬铸掉落：低沉的一声轰鸣托起一串上行的钟音，尾巴是余烬的嘶嘶声
-    unique(t) {
-      tone('sine', 65, 49, t, 1.6, 0.6, 0.02);
-      tone('sawtooth', 98, 92, t, 1.2, 0.12, 0.05);
-      [392, 494, 587, 784, 988].forEach((f, i) => {
-        tone('triangle', f, f, t + 0.12 + i * 0.11, 1.1, 0.22, 0.01);
-        tone('sine', f * 1.5, f * 1.5, t + 0.12 + i * 0.11, 0.9, 0.07, 0.01);
-      });
-      tone('triangle', 1568, 1560, t + 0.75, 1.4, 0.16, 0.02);
-      noise('bandpass', 2600, 5200, t + 0.2, 1.4, 0.12, 0.6, 0.4);
-    },
-    // 残刃引爆：几道刀刃同时出鞘的金属声
-    markburst(t) {
-      for (let i = 0; i < 4; i++) tone('triangle', 2400 - i * 260, 900, t + i * 0.012, 0.18, 0.12, 0.002);
-      noise('highpass', 5200, 2600, t, 0.2, 0.25, 1, 0.003);
-    },
-    // ---- 烬铸技 ----
-    // 千刃归烬：「咔」的一声入鞘，紧跟着千刃齐鸣的金属嗡响和一记沉闷的爆裂
-    ashcuts(t) {
-      tone('square', 2600, 1800, t, 0.03, 0.18, 0.001);
-      noise('highpass', 6000, 3000, t, 0.05, 0.3, 1, 0.001);
-      for (let i = 0; i < 6; i++) tone('triangle', 3100 - i * 310, 1300 - i * 90, t + 0.02 + i * 0.014, 0.42, 0.09, 0.002);
-      tone('sine', 70, 30, t + 0.02, 0.7, 0.85, 0.004);
-      noise('lowpass', 3000, 140, t + 0.02, 0.55, 0.7, 0.8, 0.004);
-      tone('triangle', 1760, 1755, t + 0.1, 0.9, 0.08, 0.02);
-    },
-    // 三相天灾：低沉的雷云翻滚，三声上行的元素音
-    tristorm(t) {
-      noise('lowpass', 160, 700, t, 1.2, 0.45, 0.8, 0.25);
-      tone('sawtooth', 55, 50, t, 1.1, 0.18, 0.2);
-      tone('triangle', 330, 330, t + 0.05, 0.4, 0.14, 0.01);
-      tone('triangle', 440, 440, t + 0.16, 0.4, 0.14, 0.01);
-      tone('triangle', 587, 587, t + 0.27, 0.6, 0.14, 0.01);
-      noise('highpass', 3200, 6000, t + 0.3, 0.5, 0.1, 0.7, 0.1);
-    },
-    // 万魂降临：幡杆杵地的一声闷响，随后一片空灵的魂鸣
-    soulhost(t) {
-      tone('sine', 85, 34, t, 0.5, 0.9, 0.004);
-      noise('lowpass', 1800, 150, t, 0.35, 0.55, 0.8, 0.004);
-      [294, 370, 440, 587].forEach((f, i) => {
-        tone('sine', f, f * 1.01, t + 0.08 + i * 0.07, 1.1, 0.12, 0.08);
-        tone('triangle', f * 2, f * 2, t + 0.08 + i * 0.07, 0.8, 0.04, 0.08);
-      });
-      noise('bandpass', 600, 2400, t + 0.1, 1.0, 0.18, 0.6, 0.3);
-    },
-    // 魂火：呼的一声燃起
-    soulfire(t) {
-      noise('bandpass', 500, 1800, t, 0.4, 0.4, 0.8, 0.03);
-      tone('sine', 180, 320, t, 0.3, 0.18, 0.02);
-    },
-    craft(t) {
-      tone('triangle', 1320, 1320, t, 0.3, 0.3);
-      tone('triangle', 1980, 1980, t + 0.03, 0.34, 0.2);
-      tone('sine', 2640, 2640, t + 0.06, 0.4, 0.1);
-      noise('highpass', 6000, 6000, t, 0.04, 0.2);
-    },
-    roll(t) {
-      noise('bandpass', 1400, 320, t, 0.22, 0.4, 1.0, 0.03);
-    },
-    // 濒死心跳：咚-咚
-    heart(t) {
-      tone('sine', 82, 44, t, 0.16, 0.9, 0.008);
-      tone('sine', 70, 40, t + 0.21, 0.2, 0.7, 0.008);
-      noise('lowpass', 160, 60, t, 0.1, 0.3, 0.7, 0.005);
-    },
-    // 技能放不出来：闷闷的一声
-    deny(t) {
-      tone('square', 150, 96, t, 0.09, 0.16, 0.004);
-      tone('square', 118, 80, t + 0.07, 0.11, 0.13, 0.004);
-    },
-    // 冷却结束
-    ready(t) {
-      tone('triangle', 1180, 1180, t, 0.09, 0.12, 0.004);
-      tone('sine', 1770, 1770, t + 0.04, 0.16, 0.1, 0.004);
-    },
-    // 放下 / 丢下物品
-    drop(t) {
-      noise('lowpass', 900, 220, t, 0.09, 0.4, 0.8, 0.004);
-      tone('sine', 190, 110, t, 0.1, 0.22, 0.004);
-    },
-    // ---- 打击感 ----
-    // 挥砍的破空声：三段一段比一段沉，终结技拖得更长
-    swing(t, p) {
-      const s = p.step || 0;
-      const v = 0.92 + sfxRand() * 0.16;
-      if (s >= 2) {
-        noise('bandpass', 380 * v, 2400 * v, t, 0.27, 0.42, 1.1, 0.13);
-        tone('sine', 150, 70, t + 0.12, 0.16, 0.2);
-      } else {
-        noise('bandpass', (900 - s * 200) * v, (2600 - s * 500) * v, t, 0.13, 0.3, 1.3, 0.03);
-      }
-    },
-    // 命中：一层闷响打底，再叠一层随伤害类型变化的音色；分量越重越低沉、越长，每次音高略有浮动
-    impact(t, p) {
-      const w = p.w || 0;
-      const v = 0.9 + sfxRand() * 0.2;
-      const ty = p.type || 'phys';
-      noise('lowpass', 1900 * v, 280, t, 0.07 + w * 0.03, 0.55 + w * 0.08);
-      tone('square', (175 - w * 20) * v, 78 - w * 8, t, 0.07 + w * 0.03, 0.17);
-      if (w >= 1) tone('sine', 120 * v, 44, t, 0.17 + w * 0.05, 0.55);
-      if (ty === 'fire') {
-        // 火：一声闷燃
-        noise('bandpass', 950 * v, 260, t, 0.17, 0.34, 0.9, 0.012);
-        tone('sawtooth', 140 * v, 62, t, 0.13, 0.12);
-      } else if (ty === 'cold') {
-        // 冰：清脆的碎裂
-        tone('triangle', 2500 * v, 1750, t, 0.09, 0.2, 0.002);
-        tone('sine', 3700 * v, 3000, t + 0.015, 0.07, 0.1, 0.002);
-        noise('highpass', 5200, 7000, t, 0.05, 0.16);
-      } else if (ty === 'light') {
-        // 电：短促的噼啪
-        tone('square', 1900 * v, 260, t, 0.07, 0.13, 0.002);
-        noise('highpass', 4200, 2400, t, 0.06, 0.2);
-      } else if (ty === 'chaos') {
-        // 混沌：往下一沉的低鸣，尾巴一点倒吸的嘶声
-        tone('sine', 220 * v, 70, t, 0.16, 0.26);
-        tone('triangle', 660 * v, 180, t + 0.01, 0.1, 0.1, 0.002);
-        noise('bandpass', 1400 * v, 600, t + 0.03, 0.12, 0.18, 1.2);
-      } else {
-        // 物理：金属磕碰
-        tone('triangle', 920 * v, 480, t, 0.05, 0.14, 0.002);
-        noise('bandpass', 3200 * v, 2200, t, 0.04, 0.16, 2);
-      }
-      if (p.crit) {
-        tone('triangle', 1320 * v, 660, t + 0.01, 0.2, 0.3);
-        tone('sine', 2640 * v, 1980, t + 0.02, 0.12, 0.1);
-      }
-    },
-    // 终结技砸中：低频轰一下，碎石落地
-    finisher(t) {
-      tone('sine', 92, 36, t, 0.34, 0.95, 0.004);
-      tone('square', 150, 48, t, 0.2, 0.2, 0.003);
-      noise('lowpass', 2600, 180, t, 0.27, 0.7, 0.8, 0.004);
-      noise('highpass', 2800, 5200, t + 0.1, 0.22, 0.12, 0.7, 0.03);
-    },
-    // 架势被打空：一声碎裂 + 钟鸣
-    break(t) {
-      tone('triangle', 1560, 310, t, 0.26, 0.34, 0.003);
-      noise('highpass', 7000, 2000, t, 0.3, 0.3, 0.8, 0.003);
-      tone('sine', 74, 40, t, 0.5, 0.75, 0.006);
-      tone('triangle', 660, 655, t + 0.03, 0.7, 0.2, 0.01);
-      tone('sine', 990, 985, t + 0.03, 0.5, 0.09, 0.01);
-    },
-    // 处决起手：空气被吸进去
-    execstart(t) {
-      noise('bandpass', 300, 3200, t, 0.3, 0.36, 1.2, 0.24);
-      tone('sine', 220, 520, t, 0.28, 0.12, 0.2);
-    },
-    // 处决命中：利刃 + 重击 + 余音
-    execute(t) {
-      noise('bandpass', 4200, 600, t, 0.13, 0.5, 1.4, 0.003);
-      tone('sine', 104, 30, t + 0.015, 0.55, 1.0, 0.004);
-      tone('sawtooth', 220, 52, t + 0.015, 0.34, 0.3, 0.004);
-      noise('lowpass', 2400, 120, t + 0.015, 0.4, 0.6, 0.8, 0.004);
-      tone('triangle', 880, 880, t + 0.16, 0.6, 0.16, 0.01);
-      tone('triangle', 1320, 1320, t + 0.22, 0.7, 0.13, 0.01);
-    },
-    // 敌人倒下：一声闷破；按致命伤害的类型收尾，精英 / 首领更沉
-    kill(t, p) {
-      const v = (p.big ? 0.7 : 1) * (0.92 + sfxRand() * 0.16);
-      const ty = p.type || 'phys';
-      tone('square', 250 * v, 58 * v, t, p.big ? 0.26 : 0.15, 0.2, 0.003);
-      noise('lowpass', 1500 * v, 200, t, p.big ? 0.3 : 0.16, 0.4, 0.8, 0.004);
-      if (ty === 'fire') noise('bandpass', 700, 2200, t + 0.03, 0.26, 0.2, 0.9, 0.06);
-      else if (ty === 'cold') {
-        tone('triangle', 3100 * v, 1500, t + 0.02, 0.16, 0.16, 0.002);
-        noise('highpass', 6000, 3000, t + 0.02, 0.2, 0.2);
-      } else if (ty === 'light') tone('square', 2400 * v, 180, t + 0.01, 0.12, 0.1, 0.002);
-      else noise('bandpass', 420, 180, t + 0.04, 0.2, 0.3, 0.9, 0.02);
-    },
-  };
-
-  // p（可选）：给音效的参数（命中的伤害类型 / 分量 / 是否暴击，挥砍的段数……）
-  G.sfx = function (name, p) {
-    if (!actx || actx.state !== 'running') return;
-    const fn = SFX[name];
-    if (!fn) return;
-    const now = performance.now();
-    if (now - (lastPlay[name] || 0) < (MIN_GAP[name] || 45)) return; // 同名音效限流，避免同帧叠成一声巨响
-    lastPlay[name] = now;
-    try {
-      fn(actx.currentTime + 0.004, p || NO_P);
-    } catch (e) {
-      /* 静默 */
-    }
-  };
+  // 音效（G.sfx）和混音总线在 js/audio.js（G.audio）
 
   // ============================================================
   // 界面状态
@@ -3825,6 +3500,7 @@
       if (!(d.opt in o)) return;
       o[d.opt] = !o[d.opt];
       G.persist();
+      if (d.opt === 'mute' && G.audio) G.audio.apply();
       G.sfx('click');
       render();
     },
@@ -4603,6 +4279,17 @@
 
   const SET_Q = [['high', '高'], ['mid', '中'], ['low', '低']];
   const SET_N = [['manual', '手动拾取'], ['auto', '自动拾取'], ['scrap', '自动丢弃']];
+  // 音量滑条：[存档里的键, 名字, 说明]
+  const SET_VOL = [
+    ['volMaster', '总音量', '所有声音一起调'],
+    ['volSfx', '音效', '打击、技能、拾取和界面'],
+    ['volAmb', '环境音', '各区的背景声（后续加入）'],
+    ['volMusic', '音乐', '背景音乐（后续加入）'],
+  ];
+  function volSlider(k) {
+    const v = G.save.opts[k] | 0;
+    return '<div class="vol"><input type="range" tabindex="-1" min="0" max="100" step="5" value="' + v + '" data-tact="vol" data-k="' + k + '"><output>' + v + '</output></div>';
+  }
   function menuSettings() {
     const S = G.save;
     const q = G.world.quality ? G.world.quality() : S.opts.quality;
@@ -4624,7 +4311,11 @@
       // vf-vfx3：区域氛围（飘雪、余烬、远处的雷……），默认开
       row('环境特效', '各区飘雪、余烬、远雷这类背景效果',
         '<button type="button" tabindex="-1" class="switch' + (S.opts.ambience !== false ? ' on' : '') + '" data-tact="opt" data-opt="ambience"><i></i></button>') +
-      '<p class="m-note">游戏没有音量设置；设置会存进存档，前三项在游戏里的地图页也能改。</p>'
+      // sfx-synth：声音。滑条拖动时立即生效（onMenuInput），松手才存档
+      row('静音', '关掉所有声音',
+        '<button type="button" tabindex="-1" class="switch' + (S.opts.mute ? ' on' : '') + '" data-tact="opt" data-opt="mute"><i></i></button>') +
+      SET_VOL.map((o) => row(o[1], o[2], volSlider(o[0]))).join('') +
+      '<p class="m-note">设置会存进存档，前三项在游戏里的地图页也能改。</p>'
     );
   }
   function menuHelp() {
@@ -4850,6 +4541,22 @@
       ACT[k](d); // 和地图页的选项走同一套：立即生效并存档
       renderMenu();
     } else if (MENU_ACT[k]) MENU_ACT[k](d);
+  }
+  // 音量滑条：拖动时立即生效，松手（change）时存档并放一声试听
+  function onMenuInput(e) {
+    const a = e.target;
+    if (!a || a.dataset.tact !== 'vol') return;
+    const k = a.dataset.k;
+    if (!SET_VOL.some((o) => o[0] === k)) return;
+    const v = Math.max(0, Math.min(100, Math.round(+a.value) || 0));
+    G.save.opts[k] = v;
+    const out = a.parentNode.querySelector('output');
+    if (out) out.textContent = String(v);
+    if (G.audio) G.audio.apply();
+    if (e.type === 'change') {
+      G.persist();
+      if (k === 'volMaster' || k === 'volSfx') G.sfx('impact', { type: 'phys', w: 1, crit: false });
+    }
   }
   // 标题画面 / 暂停菜单的按键（抢在 main.js 之前）：子页里 Esc 返回上一层；标题画面上回车 = 第一个按钮，其余按键都不进游戏
   function onMenuKey(e) {
@@ -6458,6 +6165,8 @@
         if (e.target.closest('button')) e.preventDefault();
       });
       m.addEventListener('click', onMenuClick);
+      m.addEventListener('input', onMenuInput);
+      m.addEventListener('change', onMenuInput);
     }
     el.intro.addEventListener('click', (e) => {
       if (e.target === el.intro || e.target.closest('#intro-go')) closeIntro();
