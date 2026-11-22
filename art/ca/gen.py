@@ -936,3 +936,129 @@ def crypt(k, W=6.0, D=8.0, H=8.0, glow=0.55):
     for i in range(4):
         a = TAU * (i + k.r(0, 0.6)) / 4
         k.hull([(math.cos(a) * W * 0.52 + p[0], math.sin(a) * D * 0.52 + p[1], max(-0.05, p[2])) for p in _blob(k, 0.35, 0.3, 0.25, 7)], row='stone', tone=0.34)
+
+
+# ================================================================ 雷鸣遗迹（第 2 区）
+# 形状语言：风蚀的砌石、参差的断口、叉状的雷纹（黄铜）。墙段和柱子是「单位尺寸」的件（游戏里按每段的长 / 高 / 厚非等比缩放，
+# 和原来程序化的 gfx/wall、gfx/pillar 同样的用法）；雷枢照原来的尺寸逐项对齐（玩法件，轮廓不能变）。
+def storm_wall(k, courses=3, per=2, gap=0.012):
+    """墙段（单位尺寸：长 x ±0.5、厚 y ±0.5、高 z 0–1；导出后游戏里是 x 长、z 厚、y 高）：勒脚 + 三层错缝的方石（石缝露出里面暗的墙芯）+ 风蚀参差的压檐。
+    游戏里按 (段长 ≈ 2.2 m, 段高 ≈ 2.2 m, 墙厚 0.8 m) 缩放，所以石块在单位空间里是扁的。（替换程序化的 gfx/wall：勒脚 1.03×0.1×1.08、压檐 1.04×0.12×1.14）"""
+    # 墙芯（暗，只在石缝里看得见）
+    k.box((0.98, 0.9, 0.76), k.place((0, 0, 0.48)), row='slag', tone=0.15, jitter=0.02, dust=0)
+    # 勒脚
+    k.box((1.03, 1.08, 0.1), k.place((0, 0, 0.05)), row='pale', tone=0.32, jitter=0.06)
+    # 方石：每层 per 块，错缝；块与块之间留 gap 的缝
+    z0, ch = 0.1, 0.78 / courses
+    for r in range(courses):
+        off = (0.5 / per) if r % 2 else 0.0
+        xs = [-0.5 + off + i / per for i in range(per + 1)]
+        edges = sorted(set([max(-0.5, min(0.5, x)) for x in xs] + [-0.5, 0.5]))
+        for i in range(len(edges) - 1):
+            a, b = edges[i], edges[i + 1]
+            if b - a < 0.08:
+                continue
+            w = b - a - gap
+            depth = 1.0 - k.r(0.0, 0.04)
+            m = k.place(((a + b) / 2, k.r(-0.01, 0.01), z0 + ch / 2), (0, k.r(-0.01, 0.01), 0))
+            vs = k.box((w, depth, ch - gap * 2.2), m, row='pale', tone=0.5 + k.r(-0.1, 0.1), jitter=0.08)
+            k.jitter(vs, 0.006)
+        z0 += ch
+    # 压檐：顶面风蚀参差（顶上的四个角往下压一点，不倒角：一段墙一个区要摆几百段，三角形省着用）
+    cv = k.box((1.04, 1.14, 0.12), k.place((0, 0, 0.94)), row='pale', tone=0.7, jitter=0.06)
+    for v in cv:
+        if v.co.z > 0.95:
+            v.co.z -= k.r(0.0, 0.05)
+
+
+def storm_column(k, flutes=12):
+    """柱子（单位尺寸：半径方向 r = 1、高 y 0–1）：两级的八边形柱础 + 带凹槽的柱身（微收分）+ 柱头，柱身中段崩掉一块。
+    游戏里按 (r, h, r) 缩放。（替换程序化的 gfx/pillar：柱础 r 1.22–1.3、柱身 r 0.92–1.0、柱头 r 1.18–1.0）"""
+    k.tube([(0, 0, 0.0), (0, 0, 0.045)], [1.3, 1.28], sides=8, row='pale', tone=0.34, tip=False, cap0=True)
+    k.tube([(0, 0, 0.045), (0, 0, 0.075)], [1.18, 1.12], sides=8, row='pale', tone=0.4, tip=False, cap0=False)
+    # 柱身：凹槽 = 顶点半径一大一小交替
+    n = flutes * 2
+    rings = []
+    bm = k.bm
+    from mathutils import Vector
+    for zi, (z, rr) in enumerate(((0.075, 1.0), (0.5, 0.97), (0.92, 0.93))):
+        ring = []
+        for i in range(n):
+            a = TAU * i / n
+            r = rr * (1.0 if i % 2 == 0 else 0.9)
+            ring.append(bm.verts.new(Vector((math.cos(a) * r, math.sin(a) * r, z))))
+        rings.append(ring)
+    fs = []
+    for zi in range(2):
+        A, B = rings[zi], rings[zi + 1]
+        for i in range(n):
+            fs.append(bm.faces.new((A[i], A[(i + 1) % n], B[(i + 1) % n], B[i])))
+    k.tag(fs, 'pale', 0.55, 0.08)
+    # 崩口：柱身中段一块凹进去的暗面（往里推几个顶点）
+    a0 = k.r(0, TAU)
+    for v in rings[1]:
+        a = math.atan2(v.co.y, v.co.x)
+        d = abs(((a - a0 + math.pi) % TAU) - math.pi)
+        if d < 0.5:
+            v.co.x *= 0.82
+            v.co.y *= 0.82
+    # 柱头
+    k.tube([(0, 0, 0.92), (0, 0, 1.0)], [1.0, 1.18], sides=8, row='pale', tone=0.72, tip=False, cap0=True)
+
+
+def _ring(k, R, r, z, n=10, s=4, row='brass', tone=0.6, glow=0):
+    """水平的圆环（线圈）：沿半径 R 的圆走一圈的管子，截面 s 边、半径 r"""
+    pts = [(math.cos(TAU * i / n) * R, math.sin(TAU * i / n) * R, z) for i in range(n + 1)]
+    vs, segs = k.tube(pts, [r] * len(pts), sides=s, row=row, tone=tone, jitter=0.04, tip=False, cap0=False, cap1=False)
+    if glow:
+        k.tag([f for sg in segs for f in sg], row, tone, 0.04, glow=glow, dust=0)
+    return vs
+
+
+def pylon(k, glow=0.0):
+    """雷枢：倒角石座 + 微收分的八棱立柱 + 三道黄铜线圈 + 黄铜尖帽，柱身上一道往下分叉的黄铜雷纹。
+    尺寸逐项照原来程序化的 storm/pylon（玩法件，轮廓不能变）：座 1.15 × 0.5 × 1.15，柱 0.4–2.8 m、半径 0.44 → 0.36，
+    线圈在 1.25 / 1.75 / 2.25 m、半径 0.46 / 0.42 / 0.38、粗 0.07，帽 2.8–3.3 m、底半径 0.42。顶上的发光晶体仍是游戏里另一个网格"""
+    k.box((1.15, 1.15, 0.5), k.place((0, 0, 0.25)), row='stone', tone=0.3, jitter=0.06, bevel=0.05)
+    k.box((0.98, 0.98, 0.06), k.place((0, 0, 0.53)), row='stone', tone=0.45, jitter=0.04)
+    k.tube([(0, 0, 0.4), (0, 0, 1.6), (0, 0, 2.8)], [0.44, 0.40, 0.36], sides=8, row='iron', tone=0.42, tip=False, cap0=False, cap1=True)
+    for z, R in ((1.25, 0.46), (1.75, 0.42), (2.25, 0.38)):
+        _ring(k, R, 0.07, z, n=10, s=4, row='brass', tone=0.66)
+    k.tube([(0, 0, 2.8), (0, 0, 3.3)], [0.42, 0.0], sides=8, row='brass', tone=0.52, tip=True, cap0=True)
+    # 雷纹：柱身朝外一侧一道折线（贴在柱面外 0.01），在中段分一个叉
+    a = k.r(0, TAU)
+    def on(z, da, rr):
+        rad = (0.44 - 0.08 * (z - 0.4) / 2.4) + 0.012
+        return (math.cos(a + da) * rad, math.sin(a + da) * rad, z)
+    main = [on(2.62, 0.0, 1), on(2.38, 0.18, 1), on(2.06, -0.08, 1), on(1.92, 0.16, 1), on(1.5, -0.1, 1), on(1.0, 0.12, 1), on(0.6, 0.0, 1)]
+    k.tube(main, [0.028] * len(main), sides=3, row='brass', tone=0.92, tip=False, cap0=True)
+    fork = [on(2.06, -0.08, 1), on(1.8, -0.34, 1), on(1.55, -0.3, 1)]
+    k.tube(fork, [0.022, 0.02, 0.0], sides=3, row='brass', tone=0.92, tip=True, cap0=True)
+
+
+def storm_lantern(k, h=0.925, r=0.32, glow=0.9):
+    """路边立灯：十字底脚上一根细铁杆，顶上方灯笼（四根角柱 + 叉状的铁条格栅），中间一颗发光的灯芯，四坡小顶。
+    灯芯在 0.62 的高度（游戏的火焰精灵按摆放表 h = 0.62 放在那里）。（替换 kh/lantern_standing：±0.32、高约 0.93）"""
+    for i in range(2):
+        a = i * math.pi / 2 + k.r(-0.05, 0.05)
+        k.box((r * 1.9, 0.07, 0.05), k.place((0, 0, 0.025), (0, 0, a)), row='iron', tone=0.4, jitter=0.05)
+    k.box((0.11, 0.11, 0.06), k.place((0, 0, 0.06)), row='iron', tone=0.45, jitter=0.04, bevel=0.012)
+    k.tube([(0, 0, 0.06), (0, 0, 0.5)], [0.035, 0.03], sides=6, row='iron', tone=0.5, tip=False, cap0=False)
+    # 灯笼：底板、四根角柱、顶板
+    w, zb, zt = 0.15, 0.5, 0.76
+    k.box((w * 2.3, w * 2.3, 0.035), k.place((0, 0, zb)), row='iron', tone=0.45, jitter=0.04)
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            k.box((0.03, 0.03, zt - zb), k.place((sx * w, sy * w, (zb + zt) / 2)), row='iron', tone=0.52, jitter=0.04)
+    # 叉状格栅：每面一道竖条，中间分叉（雷纹）
+    for f in range(4):
+        a = f * math.pi / 2
+        cx, cy = math.cos(a) * w, math.sin(a) * w
+        tx, ty = -math.sin(a), math.cos(a)
+        pts = [(cx, cy, zt - 0.02), (cx + tx * 0.03, cy + ty * 0.03, 0.66), (cx - tx * 0.02, cy - ty * 0.02, 0.6), (cx, cy, zb + 0.02)]
+        k.tube(pts, [0.009] * 4, sides=3, row='brass', tone=0.75, tip=False, cap0=True)
+    # 灯芯（发光）
+    k.hull([(p[0], p[1], 0.62 + p[2]) for p in _blob(k, 0.06, 0.06, 0.07, 8)], row='brass', tone=0.97, jitter=0.03, glow=glow, dust=0)
+    # 四坡顶 + 顶上的小环
+    k.hull([(sx * w * 1.25, sy * w * 1.25, zt) for sx in (-1, 1) for sy in (-1, 1)] + [(0, 0, h - 0.05)], row='iron', tone=0.38, jitter=0.05)
+    _ring(k, 0.03, 0.01, h - 0.03, n=6, s=3, row='iron', tone=0.5)
