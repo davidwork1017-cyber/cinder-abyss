@@ -1062,3 +1062,33 @@ def storm_lantern(k, h=0.925, r=0.32, glow=0.9):
     # 四坡顶 + 顶上的小环
     k.hull([(sx * w * 1.25, sy * w * 1.25, zt) for sx in (-1, 1) for sy in (-1, 1)] + [(0, 0, h - 0.05)], row='iron', tone=0.38, jitter=0.05)
     _ring(k, 0.03, 0.01, h - 0.03, n=6, s=3, row='iron', tone=0.5)
+
+
+# ================================================================ 余烛殿（顶层的熄烛者场地）
+# 形状语言：烛、蜡、仪式。场地里只有 4 个火盆台（玩法件：亮 / 灭决定安全圈），轮廓、尺寸照原来的程序化 crown/brazier，火苗仍是游戏里另一个网格。
+def crown_brazier(k, candles=5):
+    """火盆台：三级八边形石座（底 r 1.0–1.08、高 0.22；中 r 0.86–0.92、高 0.2）、带一道刻环的石柱（r 0.66 → 0.56，0.42–1.32 m）、
+    外撇的铁盆（1.30–1.66 m，口 r 0.82）口沿一圈铜箍、盆里一床炭；石座的两级台面上立着一圈高矮不一的蜡烛，烛身流蜡、台面上积着蜡。
+    火苗放在 1.62 m（游戏里的火焰网格），尺寸逐项照原来的 crown/brazier，碰撞（WALL r 0.9）不变"""
+    k.tube([(0, 0, 0.0), (0, 0, 0.22)], [1.08, 1.0], sides=8, row='slag', tone=0.3, tip=False, cap0=True)
+    k.tube([(0, 0, 0.22), (0, 0, 0.42)], [0.92, 0.86], sides=8, row='stone', tone=0.42, tip=False, cap0=False)
+    k.tube([(0, 0, 0.42), (0, 0, 0.86), (0, 0, 1.32)], [0.66, 0.61, 0.56], sides=8, row='stone', tone=0.5, tip=False, cap0=False)
+    k.tube([(0, 0, 0.84), (0, 0, 0.9)], [0.66, 0.66], sides=8, row='brass', tone=0.55, tip=False, cap0=False, cap1=False)  # 柱身的刻环（铜）
+    # 铁盆：外壁（外撇）+ 内壁，盆底封口
+    k.tube([(0, 0, 1.3), (0, 0, 1.66)], [0.5, 0.82], sides=10, row='iron', tone=0.35, tip=False, cap0=True, cap1=False)
+    k.tube([(0, 0, 1.655), (0, 0, 1.5)], [0.76, 0.48], sides=10, row='iron', tone=0.22, tip=False, cap0=False, cap1=True)
+    _ring(k, 0.8, 0.06, 1.66, n=12, s=4, row='brass', tone=0.7)  # 铜箍
+    _coals(k, 0, 0, 1.52, 0.6, n=7, size=0.15)  # 盆里的炭（朝上的面发光；火盆灭的时候也只是暗红的余烬）
+    # 蜡烛：两级台面上一圈，高矮不一，烛身流蜡，脚下一小摊蜡
+    for i in range(candles):
+        a = TAU * (i + k.r(-0.2, 0.2)) / candles
+        on_top = i % 2 == 0
+        rr = (0.75 if on_top else 0.97) + k.r(-0.04, 0.04)
+        z0 = 0.42 if on_top else 0.22
+        h = k.r(0.3, 0.5) if on_top else k.r(0.2, 0.32)
+        x, y = math.cos(a) * rr, math.sin(a) * rr
+        r = k.r(0.06, 0.08)
+        k.tube([(x, y, z0 - 0.01), (x, y, z0 + h)], [r, r * 0.92], sides=6, row='bone', tone=0.9, tip=False, cap0=False)
+        k.box((0.025, 0.025, h * 0.5), k.place((x + math.cos(a + 1.2) * r, y + math.sin(a + 1.2) * r, z0 + h * 0.55)), row='bone', tone=0.98, jitter=0.02, dust=0)
+        k.hull([(x + math.cos(TAU * j / 6) * r * 1.8, y + math.sin(TAU * j / 6) * r * 1.8, z0 + 0.004) for j in range(6)] + [(x, y, z0 + 0.02)], row='bone', tone=0.95, jitter=0.03, dust=0)
+        k.hull([(x + math.cos(TAU * j / 4) * 0.022, y + math.sin(TAU * j / 4) * 0.022, z0 + h) for j in range(4)] + [(x, y, z0 + h + 0.09)], row='ember', tone=0.95, jitter=0.02, glow=1.0, dust=0)  # 烛火（小尖，发光）
