@@ -18141,8 +18141,8 @@
     if (u.hex !== hex) {
       u.hex = hex;
       // vf-vfx3：射线的里层芯少混白（0.75 → 0.3），两头的光晕用元素色（原来混四成白、2.6 / 3.4 米）——整条射线不再是一根近白的长条
-      for (const q of u.parts) q.m.material.uniforms.uColor.value.copy(lin(q.white ? mixHex(hex, 0x000000, 0.2) : mixHex(hex, 0x000000, 0.5)));
-      u.s0.material = u.s1.material = spriteMat(mixHex(hex, 0x000000, 0.4)); // 加色的四层叠在一起：外层压暗一半、芯压两成，射线是亮黄色而不是一根白条
+      for (const q of u.parts) q.m.material.uniforms.uColor.value.copy(lin(q.white ? mixHex(hex, 0x000000, 0.5) : mixHex(hex, 0x000000, 0.62)));
+      u.s0.material = u.s1.material = spriteMat(mixHex(hex, 0x000000, 0.4)); // 加色的四层叠在一起：外层压暗六成、芯压一半（四层加色叠在一起，再亮就成一根白条），射线读作亮黄色
     }
     const len = Math.hypot(x1 - x0, y1 - y0, z1 - z0);
     g.visible = true;
