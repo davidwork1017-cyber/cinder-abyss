@@ -9341,7 +9341,9 @@
   ZONE_LIGHT.crown = Object.assign({}, ZONE_LIGHT.abyss, { key: 0xffd2a0, bounce: 0x5a3a2a });
   GROUND_STYLE.crown = GROUND_STYLE.abyss;
   // 火盆台：三级石座 + 石柱 + 铁盆 + 铜箍（顶点色烘进一个几何体，按 y 压暗根部），四个实例一次 draw
+  // asset-zones：自产的火盆台（ca/crown_brazier，kit-crown 跟着 zone-abyss 加载）：尺寸逐项照下面的程序化版本，加一圈流蜡的蜡烛、柱上一道铜环、盆里一床炭
   const crownBrazierGeo = () =>
+    (G.assets && G.assets.geo('ca/crown_brazier') && geo('crown/brazier:ca', () => toonGradient(G.assets.geo('ca/crown_brazier').clone(), { bottom: 0x3a2c4a, top: 0xffffff, y0: 0, y1: 1.7 }))) ||
     geo('crown/brazier', () => toonGradient(bake('crown/brazier0', [
       [gCyl(1.0, 1.08, 0.22, 8), CROWN_PAL.stoneLo, 0, 0.11, 0],
       [gCyl(0.86, 0.92, 0.2, 8), CROWN_PAL.stone, 0, 0.32, 0],
