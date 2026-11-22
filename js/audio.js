@@ -588,7 +588,7 @@
     click: ['ui', 0, 0, 1.23], deny: ['ui', 1, 0], ready: ['ui', 1, 0.05], craft: ['ui', 2, 0.15, 1.41], gem: ['ui', 2, 0.18, 0.86],
     pickup: ['ui', 2, 0.08], drop: ['ui', 1, 0], level: ['ui', 4, 0.3, 1.41], unique: ['ui', 4, 0.3, 1.41],
     hit: ['sfx', 1, 0], hurt: ['sfx', 4, 0.06, 1.6], swing: ['sfx', 2, 0], shot: ['sfx', 2, 0.04], impact: ['sfx', 2, 0],
-    kill: ['sfx', 3, 0.1, 2.2], cast: ['sfx', 3, 0.08], crit: ['sfx', 3, 0.05], roll: ['sfx', 2, 0], heart: ['sfx', 4, 0],
+    kill: ['sfx', 3, 0.1, 2.5], cast: ['sfx', 3, 0.08], crit: ['sfx', 3, 0.05], roll: ['sfx', 2, 0], heart: ['sfx', 4, 0],
     death: ['sfx', 4, 0.35], boss: ['sfx', 4, 0.3, 1.41], finisher: ['sfx', 4, 0.2, 1.58], break: ['sfx', 4, 0.25, 1.58],
     execstart: ['sfx', 4, 0.1], execute: ['sfx', 4, 0.3, 1.58], markburst: ['sfx', 3, 0.15], ashcuts: ['sfx', 4, 0.3, 1.41],
     tristorm: ['sfx', 4, 0.3, 1.41], soulhost: ['sfx', 4, 0.35, 1.41], soulfire: ['sfx', 3, 0.15],
