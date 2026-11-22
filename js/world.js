@@ -16751,7 +16751,7 @@
       // C 模型的面大而平，同样强度的金边会把整个身子染成土黄：收一点
       const rk = ent.rig.skin4 ? 0.42 : 1;
       ent.uRim.value.setRGB(0.5 * rk, 0.36 * rk, 0.12 * rk);
-      ent.ring = groundDisc(ent, dashRingTex(), mixHex(eh, 0xffe9b0, 0.45), G.MOBS[type].r * 1.35 + 0.75, 0.85);
+      ent.ring = groundDisc(ent, dashRingTex(), mixHex(eh, 0xffe9b0, 0.3), G.MOBS[type].r * 1.35 + 0.75, 0.6); // vf-vfx3：精英常见，脚下的虚线环收淡（0.85 → 0.6、少混一点白），只留边
     }
     return ent;
   };
@@ -18092,7 +18092,20 @@
   let riftWellObj = null;
   W.riftWell = function (x, z, R, core, hex, k, dt) {
     if (!riftWellObj) {
-      const m = new T.Mesh(gQuad(), new T.MeshBasicMaterial({ map: dashRingTex(), color: 0xffffff, transparent: true, opacity: 0.8, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false }));
+      // vf-vfx3：拽人的范围环用细线的虚线环（原来那张虚线环贴图放大到 7 米，线宽近 0.8 米，是一条粗亮带）
+      const thin = tex('dashThin', () => {
+        const S = 256, c = makeCanvas(S, S), g = c.getContext('2d');
+        g.translate(S / 2, S / 2);
+        g.strokeStyle = '#fff';
+        g.lineWidth = 4;
+        for (let i = 0; i < 12; i++) {
+          g.beginPath();
+          g.arc(0, 0, 122, (i / 12) * TAU, (i / 12) * TAU + 0.36);
+          g.stroke();
+        }
+        return new T.CanvasTexture(c);
+      });
+      const m = new T.Mesh(gQuad(), new T.MeshBasicMaterial({ map: thin, color: 0xffffff, transparent: true, opacity: 0.8, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false }));
       m.renderOrder = 2;
       m.visible = false;
       scene.add(m);
@@ -18103,22 +18116,17 @@
       m.visible = false;
       if (k === -1) {
         // 内爆：先往里一缩，再炸开一圈
-        _c.set(hex);
-        for (let i = 0; i < 36; i++) {
-          const a = rand(0, TAU), v = rand(4, 11);
-          spawnP(x, rand(0.3, 1.6), z, Math.sin(a) * v, rand(1, 5), Math.cos(a) * v, rand(0.35, 0.7), rand(0.15, 0.32), _c.r + (1 - _c.r) * 0.4, _c.g + (1 - _c.g) * 0.4, _c.b + (1 - _c.b) * 0.4, 6, 1.6);
-        }
-        flare(x, 1.2, z, hex, 6, 0.3);
-        flashLight(x, 2, z, hex, 2.2);
-        W.ring(x, z, core + 1.4, hex, 0.35);
-        skyBolt(x, z, mixHex(hex, 0xffffff, 0.4), 9, 4, 0.5);
+        // vf-vfx3：内爆按「坍缩」画：往里卷的弯月 + 暗芯 + 细边环往外推（原来 36 粒混四成白的光点 + 6 米星芒 + 4 米粗环）；落雷少混白
+        W.foeHit(x, z, core, 'chaos', { hex, big: true });
+        W.foeRing(x, z, core + 1.4, hex, 0.35);
+        skyBolt(x, z, mixHex(hex, 0xffffff, 0.15), 9, 4, 0.4);
       }
       return;
     }
     const r = R - (R - core) * 0.35 * k;
     m.visible = true;
     m.material.color.copy(lin(hex));
-    m.material.opacity = 0.45 + 0.4 * k;
+    m.material.opacity = 0.35 + 0.35 * k;
     m.position.set(x, 0.06, z);
     m.scale.set(r, 1, r);
     m.rotation.y -= dt * (1.5 + 5 * k);
@@ -18128,7 +18136,7 @@
       if (n < 1 && Math.random() > n) break;
       n -= 1;
       const a = rand(0, TAU), d = R * rand(0.75, 1.0), px = x + Math.sin(a) * d, pz = z + Math.cos(a) * d, v = rand(4, 7);
-      spawnP(px, rand(0.1, 0.9), pz, -Math.sin(a) * v + Math.cos(a) * 1.5, rand(0, 0.6), -Math.cos(a) * v - Math.sin(a) * 1.5, (d / v) * 0.9, rand(0.08, 0.16), _c.r + (1 - _c.r) * 0.3, _c.g + (1 - _c.g) * 0.3, _c.b + (1 - _c.b) * 0.3, 0, 0);
+      spawnP(px, rand(0.1, 0.9), pz, -Math.sin(a) * v + Math.cos(a) * 1.5, rand(0, 0.6), -Math.cos(a) * v - Math.sin(a) * 1.5, (d / v) * 0.9, rand(0.08, 0.14), _c.r * 0.8, _c.g * 0.8, _c.b * 0.8, 0, 0); // vf-vfx3：不往白混
     }
   };
   // 流星犁地的一处落点：一道星光从天而降，地上炸开一圈碎光（每道线的第一处多一道竖直落雷）
@@ -18137,12 +18145,7 @@
     vstreak(x + rand(-0.8, 0.8), 8, z - 1.2, x, 0.1, z, big ? 0.5 : 0.32, hw, 0.2);
     if (big) skyBolt(x, z, hw, 7, 3, 0.35);
     flare(x, 0.6, z, hex, r * 2.2, 0.18);
-    W.ring(x, z, r, hex, 0.25);
-    _c.set(hex);
-    for (let i = 0; i < 9; i++) {
-      const a = rand(0, TAU), v = rand(2, 5);
-      spawnP(x, 0.25, z, Math.sin(a) * v, rand(2, 5), Math.cos(a) * v, rand(0.25, 0.5), rand(0.1, 0.22), _c.r + (1 - _c.r) * 0.3, _c.g + (1 - _c.g) * 0.3, _c.b + (1 - _c.b) * 0.3, 9, 1);
-    }
+    W.foeHit(x, z, r, 'light', { k: 0.5, hex }); // vf-vfx3：落点放射的折线 + 外沿环 + 电灼纹（原来 9 粒偏白的光点 + 环）
   };
   function hideRiftFx() {
     if (riftBeamObj) {
@@ -20279,11 +20282,36 @@
     '  col += hot * pulse * 0.18;',
     '  a *= uFill;', // vf-vfx2：玩家自己放的（友方）预警圈填充减半，外轮廓和前沿亮线不变；敌方的 uFill = 1
     '  a = max(a, max(edge * 0.96, lead * 0.7));',
+    // vf-vfx3：敌方的预警圈在亮边里面再压一道深色线（双层边）：亮边在暗地上显眼、深线在亮特效上显眼，玩家的特效叠上来时轮廓仍是连着的
+    '  float dl = step(0.99, uFill) * smoothstep(0.17, 0.21, d) * (1.0 - smoothstep(0.3, 0.34, d));',
+    '  col = mix(col, uColor * 0.22, dl);',
+    '  a = max(a, dl * 0.92);',
     '  a *= smoothstep(0.0, 0.035, d);',
     '  gl_FragColor = vec4(col, a);',
     '}',
   ].join('\n');
 
+  const foeTeles = [];
+  // 点 (x, z) 是否落在某个敌方预警圈里（形状同 game.js 的 insideTelegraph）
+  function vsInFoeTele(x, z) {
+    for (let i = 0; i < foeTeles.length; i++) {
+      const t = foeTeles[i], dx = x - t.x, dz = z - t.z;
+      if (t.s === 1) {
+        if (Math.abs(dx * t.sn + dz * t.cs) <= t.hz && Math.abs(dx * t.cs - dz * t.sn) <= t.hx) return true;
+        continue;
+      }
+      const l = Math.hypot(dx, dz);
+      if (l > t.hx) continue;
+      if (t.s === 0) return true;
+      if (t.s === 3) { if (l >= t.rin) return true; continue; }
+      let da = Math.atan2(dx, dz) - Math.atan2(t.sn, t.cs);
+      da = Math.abs(((da + Math.PI) % TAU + TAU) % TAU - Math.PI);
+      if (l < 1e-6 || da <= t.arc) return true;
+    }
+    return false;
+  }
+  W.foeTeleInfo = () => ({ n: foeTeles.length }); // 测试用（vf-vfx3）
+  W.inFoeTele = (x, z) => vsInFoeTele(x, z); // 测试用（vf-vfx3）
   // shape：'circle'（r）/ 'rect'（w、len、ang）/ 'arc' 扇形（r、arc 半张角、ang 朝向）/ 'ring' 圆环（r 外半径、rin 内半径）
   W.makeTelegraph = function (spec, friendly) {
     const rect = spec.shape === 'rect', arc = spec.shape === 'arc', ringS = spec.shape === 'ring';
@@ -20311,14 +20339,22 @@
     if (spec.hidden) mesh.visible = false; // 不画（渊式「星雨」自动落下：落点用自己的符环，不铺实心预警圈）
     scene.add(mesh);
     const uK = mat.uniforms.uK;
+    // vf-vfx3：登记敌方的预警圈（形状批画玩家的件时，落在里面的压暗，见 vsInFoeTele）
+    const reg = friendly || spec.hidden ? null : { s: rect ? 1 : arc ? 2 : ringS ? 3 : 0, x: spec.x, z: spec.z, hx, hz, sn: Math.sin(spec.ang || 0), cs: Math.cos(spec.ang || 0), arc: arc ? spec.arc : 0, rin: ringS ? spec.rin : 0 };
+    if (reg) foeTeles.push(reg);
     return {
-      mesh, mat,
+      mesh, mat, reg,
       setProgress(k) {
         uK.value = k < 0 ? 0 : k > 1 ? 1 : k;
       },
     };
   };
   W.removeTelegraph = function (handle) {
+    if (handle.reg) {
+      const i = foeTeles.indexOf(handle.reg);
+      if (i >= 0) foeTeles.splice(i, 1);
+      handle.reg = null;
+    }
     scene.remove(handle.mesh);
     handle.mat.dispose();
   };
@@ -20785,9 +20821,11 @@
     m.on = true;
     m.hostile = !!hostile;
     m.quiet = !!quiet;
+    m.glow.scale.setScalar(m.hostile ? 2 : 5); // vf-vfx3：敌方落石的光晕小一圈（加色的 5 米光晕在落点上空是一团白）
     m.sm = 0;
     ribRelease(m.rib);
-    m.rib = ribGet(0.6, 0.14, m.r + (1 - m.r) * 0.55, m.g + (1 - m.g) * 0.55, m.b + (1 - m.b) * 0.55, m.r * 0.55, m.g * 0.4, m.b * 0.35);
+    const rw = m.hostile ? 0 : 0.55; // vf-vfx3：敌方落石的拖尾不往白混（一道道浅色的竖线）
+    m.rib = ribGet(0.6, m.hostile ? 0.1 : 0.14, m.r * (1 - rw) + rw, m.g * (1 - rw) + rw, m.b * (1 - rw) + rw, m.r * 0.55, m.g * 0.4, m.b * 0.35);
     m.mesh.visible = true;
     m.mesh.position.set(x - 6, 26, z - 9);
     m.mesh.rotation.set(rand(0, TAU), rand(0, TAU), 0);
@@ -20822,9 +20860,10 @@
       m.mesh.position.set(px, py, pz);
       m.mesh.rotation.x += dt * 5;
       m.mesh.rotation.z += dt * 3;
-      for (let j = 0, n = m.quiet ? 1 : 3; j < n; j++) {
-        const w = m.quiet ? -0.35 : Math.random() * 0.4; // quiet（星雨）：尾迹稀一些、压暗，落地时不留一团发白的烟
-        spawnP(px + rand(-0.3, 0.3), py + rand(-0.3, 0.3), pz + rand(-0.3, 0.3), rand(-1, 1), rand(0, 2), rand(-1, 1), rand(0.25, 0.55), rand(0.3, 0.6), m.r + (1 - m.r) * w, m.g + (1 - m.g) * w, m.b + (1 - m.b) * w, -1, 1);
+      // vf-vfx3：敌方的落石（首领的落点轰炸、烛泪、坠冕）尾迹压暗、变小、两粒（原来每帧 3 粒、最多混四成白的大光点，七颗一起落就是一列列白球）
+      for (let j = 0, n = m.quiet ? 1 : m.hostile ? 2 : 3; j < n; j++) {
+        const w = m.quiet ? -0.35 : m.hostile ? -0.3 : Math.random() * 0.4; // quiet（星雨）：尾迹稀一些、压暗，落地时不留一团发白的烟
+        spawnP(px + rand(-0.3, 0.3), py + rand(-0.3, 0.3), pz + rand(-0.3, 0.3), rand(-1, 1), rand(0, 2), rand(-1, 1), rand(0.25, 0.55), m.hostile ? rand(0.16, 0.28) : rand(0.3, 0.6), m.r + (1 - m.r) * w, m.g + (1 - m.g) * w, m.b + (1 - m.b) * w, -1, 1);
       }
       if (k >= 1) {
         const R = m.fxR || 0;
@@ -20837,6 +20876,13 @@
   function meteorLand(m) {
     const x = m.x, z = m.z;
     if (m.quiet) return; // 渊式「星雨」：只留调用方画的细环和几点星屑，不盖住落点里的怪
+    if (m.hostile) {
+      // vf-vfx3：敌方的落石落地只留几块暗色碎岩 + 一缕暗烟；命中的形状由预警圈的 onFire（W.foeHit）按元素画。
+      // 不再有点光、近白星芒、2.6 米的浅色冲击环、比地面亮的地面闪光、加色的火团
+      debrisBurst(x, z, qualId === 'low' ? 3 : 5, mixHex(m.hex, 0x2a2420, 0.65), 0.7);
+      if (qualId !== 'low') W.fxFlip(VFB.smoke, x, 0.6, z, 1.4, 1.1, 0x3e342e, { vy: 0.5, up: 0.3, grow: 1.5, a: 0.8 });
+      return;
+    }
     flashLight(x, 2.5, z, m.hex, 3);
     flare(x, 0.8, z, mixHex(m.hex, 0xffffff, 0.4), 2.6, 0.14);
     W.ring(x, z, 2.6, mixHex(m.hex, 0xffffff, 0.65), 0.2); // 冲击环
@@ -22124,6 +22170,7 @@
     for (const s of summons) { s.on = false; s.grp.visible = false; }
     clearWeaponFx();
     W.kvClear(); // 刻式件
+    foeTeles.length = 0; // vf-vfx3：敌方预警圈的登记（只用来压暗玩家的件；漏清最多是少压暗一次）
     W.focusMark(null);
     trail.n = 0;
     trail.live = 0;
@@ -23522,6 +23569,8 @@
   const vsP = new Float32Array(VS_N * 3), vsV = new Float32Array(VS_N * 3), vsD = new Float32Array(VS_N * 3), vsCA = new Float32Array(VS_N * 3), vsCB = new Float32Array(VS_N * 3);
   const vsL = new Float32Array(VS_N), vsM = new Float32Array(VS_N), vsSx = new Float32Array(VS_N), vsSy = new Float32Array(VS_N), vsR = new Float32Array(VS_N), vsW = new Float32Array(VS_N);
   const vsG = new Float32Array(VS_N), vsDr = new Float32Array(VS_N), vsSw = new Float32Array(VS_N), vsHot = new Float32Array(VS_N), vsDk = new Float32Array(VS_N);
+  const vsF = new Uint8Array(VS_N); // vf-vfx3：1 = 敌方招式的件（不随敌方预警圈压暗）
+  let vsFoe = 0;
   let vsNext = 0, vsLive = 0, vsFrame = 0;
   const vb = { sh: 0, md: 0, cv: 0, a: [1, 1, 1], b: [1, 1, 1], hot: 0, dk: 0, sw: 1 };
   function vsBrush(sh, md, cv, hexA, hexB, hot, dk, sw) {
@@ -23542,6 +23591,7 @@
     vsSx[i] = sx; vsSy[i] = sy === undefined ? sx : sy;
     vsR[i] = rot || 0; vsW[i] = spin || 0; vsG[i] = grav || 0; vsDr[i] = drag || 0;
     vsSw[i] = vb.sw; vsHot[i] = vb.hot; vsDk[i] = vb.dk;
+    vsF[i] = vsFoe;
     for (let k = 0; k < 3; k++) {
       vsCA[j + k] = vb.a[k];
       vsCB[j + k] = vb.b[k];
@@ -23632,10 +23682,113 @@
         _pm.set((-dz / L) * sx, dx, 0, x, 0, 0, 1, y, (dx / L) * sx, dz, 0, z, 0, 0, 0, 1);
       }
       const c = f < vsSw[i] ? vsCA : vsCB;
-      vsNow(vsSh[i], c[j], c[j + 1], c[j + 2], vsHot[i] * (f < vsSw[i] ? 1 : 0.3), vsDk[i], f);
+      // vf-vfx3：玩家这边的件落在敌方预警圈里时压暗（×0.75、亮芯 ×0.4），预警圈的边和填充在交叠处仍然读得出来
+      const dim = foeTeles.length && !vsF[i] && vsInFoeTele(x, z) ? 0.75 : 1;
+      vsNow(vsSh[i], c[j] * dim, c[j + 1] * dim, c[j + 2] * dim, vsHot[i] * (f < vsSw[i] ? 1 : 0.3) * (dim < 1 ? 0.4 : 1), vsDk[i], f);
     }
     if (!any) vsLive--;
   }
+  // ----- vf-vfx3：敌方招式的命中（首领 / 精英 / 小怪的预警圈落下、砸地、落石……），按元素的形状语言画进形状批（不新增 draw）。
+  // 时序 / 判定不归这里管：调用点照旧在 onFire 里。r 是这一下的半径（预警圈的大小），o（可选）：{ big 首领的重招（件多一档、留痕更大），
+  // noRing 不画外沿环（预警圈本身已经是一圈），hex 换颜色（默认按元素），k 件数倍率（一招连着落好几处时用） }。
+  // 共同规则：大范围只画外沿（细环 + 长在环上的件），中心不放亮面；近白只给 ≤ 1.2 米的小芯；余波一律比地面暗；低画质件数减半。
+  // 和玩家的特效分开：敌方的件颜色更沉、暗描边更重（dk），而且不受「敌方预警圈里玩家特效压暗」的影响（vsFoe）
+  const FOE_PAL = {
+    phys: [0xb8a68c, 0x5a4a3c, 0x3a3028], fire: [0xff7a2c, 0x8a2410, 0x2a1810], cold: [0x7fc4ec, 0x2a5a8a, 0x1a2a3a],
+    light: [0xf0d050, 0x8a6a18, 0x2a2410], chaos: [0xd03ca0, 0x3a0c30, 0x14060f],
+  };
+  // 一道往外推的细边环：半径小（≤ 1.6 米）时就是形状批的环件；大了改成一圈贴地的细线段一起往外推（长度、宽度随曲线 1 长到 4 倍，正好跟上半径），
+  // 环件按半径等比放大到 4–5 米会变成一条粗带（「大范围只画边」）
+  W.thinRing = function (x, z, R, cA, cB, life) {
+    if (!PF.vShape) return;
+    if (R <= 1.6) {
+      vsBrush(VSH.ring, 2, 1, cA, cB, 0.1, 0.4, 0.35);
+      vsEmit(x, 0.09, z, 0, 0, 0, life, R);
+      return;
+    }
+    const R0 = R / 4, v0 = ((R - R0) * 3) / (1 - Math.exp(-3 * life)), n = Math.max(12, Math.min(40, Math.round(R * 6))) >> (qualId === 'low' ? 1 : 0), seg = ((TAU * R) / n) * 1.05;
+    vsBrush(VSH.bar, 2, 1, cA, cB, 0.1, 0, 0.35);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU;
+      vsEmit(x + Math.sin(a) * R0, 0.09, z + Math.cos(a) * R0, Math.sin(a) * v0, 0, Math.cos(a) * v0, life, 0.08, seg, a + Math.PI / 2, 0, 0, 3);
+    }
+  };
+  // 敌方用的环（起手提示、狂暴）：按颜色取亮 / 暗两档，走细边环
+  W.foeRing = function (x, z, R, hex, dur) {
+    const h = hexOf(hex);
+    vsFoe = 1;
+    W.thinRing(x, z, R, h, mixHex(h, 0x000000, 0.55), dur || 0.4);
+    vsFoe = 0;
+  };
+  W.foeHit = function (x, z, r, elem, o) {
+    if (!PF.vShape) return;
+    o = o || {};
+    const lo = qualId === 'low', big = !!o.big, el = FOE_PAL[elem] ? elem : 'phys', c = FOE_PAL[el];
+    const cA = o.hex !== undefined ? mixHex(hexOf(o.hex), 0x000000, 0.25) : c[0], cB = o.hex !== undefined ? mixHex(hexOf(o.hex), 0x000000, 0.6) : c[1]; // 换色时亮档也压一成半（亮黄 / 亮金的件不到近白）
+    const R = Math.max(0.6, r), half = lo ? 0.5 : 1;
+    const cnt = (n) => Math.max(1, Math.round(n * half * (big ? 1.4 : 1) * (o.k || 1)));
+    const k1 = (o.k || 1) >= 0.5 && !lo; // 一招连着落好几处（k < 0.5）时不留贴地痕迹：几块焦痕叠在一起成了一条黑带；低画质不留（地面痕迹网格在只有敌方命中的那几帧会多一次 draw）
+    vsFoe = 1;
+    if (!o.noRing) W.thinRing(x, z, R * 1.02, cA, cB, 0.32);
+    if (el === 'phys') {
+      // 物理：有棱角的碎石（落地弹）+ 贴地尘环 + 地裂贴花（看图后：平躺的弯月裂口在地上像几条黑色的虫，去掉）
+      vsBrush(VSH.chip, 3, 0, cA, c[1], 0, 0.4, 0.5);
+      for (let i = 0, n = cnt(7); i < n; i++) {
+        const a = vr(0, TAU), v = vr(2.5, 5.5) * Math.min(1.6, 0.6 + R * 0.2);
+        vsEmit(x + Math.sin(a) * R * 0.3, 0.3, z + Math.cos(a) * R * 0.3, Math.sin(a) * v, vr(2.5, 5), Math.cos(a) * v, vr(0.7, 1), vr(0.13, 0.24) * (big ? 1.3 : 1), 0, vr(0, TAU), vr(-9, 9), 18);
+      }
+      if (!lo) tPuffs(x, 0.25, z, cnt(3), R * 1.4, 0.4, 0.5, 0.35 + Math.min(1.5, R) * 0.06, 0x8a7a68, 0x4a3e34); // 尘：低画质不放（烟团零件是另一次 draw）
+      if (k1) W.vDecal(VVD.scorch, x, z, Math.min(2.2, R * 0.45), big ? 4 : 2.5, 0x4a3e34); // 贴地痕迹走合用的地面痕迹实例网格（W.decal 每块是一个网格 = 一次 draw）
+    } else if (el === 'fire') {
+      // 火：火舌长在外沿上往上舔（不在中心堆火团），几粒余烬，一缕由橙转黑的烟，地上焦痕
+      vsBrush(VSH.tongue, 1, 0, cA, cB, 0.2, 0.4, 0.4);
+      for (let i = 0, n = cnt(8); i < n; i++) {
+        const a = (i / n) * TAU + vr(-0.2, 0.2);
+        vsEmit(x + Math.sin(a) * R * 0.92, 0.1, z + Math.cos(a) * R * 0.92, 0, vr(0.6, 1.2), 0, vr(0.4, 0.55), 0.3 + R * 0.05, 0.75 + R * 0.12, vr(-0.25, 0.25));
+      }
+      vsBrush(VSH.chip, 0, 0, 0xff9a4a, 0x5a1e10, 0.3, 0.2, 0.4);
+      for (let i = 0, n = cnt(6); i < n; i++) {
+        const a = vr(0, TAU), d = R * vr(0.2, 0.9);
+        vsEmit(x + Math.sin(a) * d, 0.3, z + Math.cos(a) * d, vr(-0.4, 0.4), vr(1.5, 3), vr(-0.4, 0.4), vr(0.5, 0.9), 0.06, 0.06, 0, 0, -1, 0.6);
+      }
+      if (!lo && (o.k || 1) >= 0.5) tPuffs(x, 0.4, z, 2, R * 0.5, 1.2, 0.7, 0.32 + Math.min(2, R) * 0.04, 0x7a5a4c, 0x4a3a34); // 烟：暖灰转深灰（不是黑团），一招落好几处时不放、低画质不放
+      if (k1) W.vDecal(VVD.scorch, x, z, R * 0.6, big ? 3.5 : 2.2, 0xff6a2a);
+    } else if (el === 'cold') {
+      // 冰：外沿冒一圈尖朝外上方的硬棱冰晶（缩没），往下掉的冰碴，地上霜痕（冷灰，比地面暗）
+      vsBrush(VSH.crystal, 6, 0, cA, cB, 0.15, 0.45, 0.5);
+      for (let i = 0, n = cnt(7); i < n; i++) {
+        const a = (i / n) * TAU + vr(-0.2, 0.2);
+        vsEmit(x + Math.sin(a) * R * 0.85, 0, z + Math.cos(a) * R * 0.85, Math.sin(a) * 0.01, 0, Math.cos(a) * 0.01, vr(0.5, 0.7), 0.22 + R * 0.04, 0.6 + R * 0.12, vr(0.35, 0.6));
+      }
+      vsBrush(VSH.chip, 3, 0, cA, cB, 0, 0.35, 0.6);
+      for (let i = 0, n = cnt(6); i < n; i++) {
+        const a = vr(0, TAU), v = vr(1, 3);
+        vsEmit(x + Math.sin(a) * R * 0.6, vr(1, 2), z + Math.cos(a) * R * 0.6, Math.sin(a) * v, vr(0, 1.5), Math.cos(a) * v, vr(0.6, 0.85), vr(0.09, 0.15), 0, vr(0, TAU), vr(-8, 8), 14);
+      }
+      if (k1) W.vDecal(VVD.frost, x, z, R * 0.5, big ? 4 : 2.5, 0x7fb0d0, { r1: R * 0.75, grow: 0.25 }); // 霜痕（低画质不画，W.vDecal 自己判）
+    } else if (el === 'light') {
+      // 雷：从中心往外放射的折线（每根两段、错开角度），两帧闪灭，不画圆团；地上电灼纹
+      vsBrush(VSH.bar, 4, 2, cA, cB, 0.25, 0.3, 1);
+      for (let i = 0, n = cnt(6); i < n; i++) {
+        const a = (i / n) * TAU + vr(-0.25, 0.25), d1 = R * vr(0.35, 0.5), a2 = a + vr(-0.5, 0.5), d2 = R * vr(0.35, 0.5);
+        const x1 = x + Math.sin(a) * d1, z1 = z + Math.cos(a) * d1;
+        vsEmit(x, 0.15, z, x1 - x, 0, z1 - z, 0.16, 0.07);
+        vsEmit(x1, 0.15, z1, Math.sin(a2) * d2, 0, Math.cos(a2) * d2, 0.16, 0.05);
+      }
+      if (k1) W.vDecal(VVD.scorch, x, z, R * 0.55, big ? 3 : 2, 0x8a6a18);
+    } else {
+      // 混沌：往里卷的弯月片（平躺、绕中心转着收），一小团暗芯（不亮），外沿环
+      vsBrush(VSH.crescent, 2, 3, cA, cB, 0.1, 0.5, 0.5);
+      const cs = Math.min(0.9, R * 0.3);
+      for (let i = 0, n = cnt(6); i < n; i++) {
+        const a = (i / n) * TAU, d = R * 0.8;
+        vsEmit(x + Math.sin(a) * d, 0.08, z + Math.cos(a) * d, -Math.sin(a) * R * 1.4, 0, -Math.cos(a) * R * 1.4, 0.45, cs, cs, a + 1.2, 3, 0, 2.5);
+      }
+      if (!lo) tPuffs(x, 0.4, z, 2, 0.3, 0.5, 0.5, 0.4, 0x2a0c24, 0x12060f);
+      if (k1) W.vDecal(VVD.void, x, z, R * 0.55, big ? 3.5 : 2.2, 0x3a0c30);
+    }
+    vsFoe = 0;
+  };
   // vf-vfx3：拾取。掉落点一圈收拢的细环（稀有度色），2–4 块碎晶飞向玩家脚下，玩家脚下一圈小环。低画质碎晶减半
   W.lootPick = function (x, z, hex, big) {
     if (!PF.vShape) return;
@@ -24102,8 +24255,11 @@
         mFlat(m.x, 0.07, m.z, 0, rr, rr);
         vsNow(VSH.ring, 0.05, 0.03, 0.02, 0, 0, 0.05);
       }
+      // vf-vfx3：敌方的落石——冰（偏蓝）不拖火舌，只有冰色的石块和暗尾迹；其余的火舌芯不往白混
+      if (m.hostile && m.lb > m.lr) continue;
       mStretch(p.x + dx * 0.3, p.y + dy * 0.3, p.z + dz * 0.3, dx, dy, dz, 1.3, 2.6 * (1 + 0.15 * Math.sin(t * 30)));
-      pfPut('flame', m.lr * 0.5 + 0.5, m.lg * 0.5 + 0.4, m.lb * 0.5 + 0.15);
+      if (m.hostile) pfPut('flame', m.lr * 0.85, m.lg * 0.7, m.lb * 0.55);
+      else pfPut('flame', m.lr * 0.5 + 0.5, m.lg * 0.5 + 0.4, m.lb * 0.5 + 0.15);
       for (let k = 0; k < 3; k++) {
         const o = (k - 1) * 0.28;
         mStretch(p.x + o, p.y + 0.1, p.z - o * 0.3, dx, dy, dz, 1.1, (3.6 + 1.2 * Math.sin(t * 23 + k * 2)) * (k === 1 ? 1.2 : 0.9));

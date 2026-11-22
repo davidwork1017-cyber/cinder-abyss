@@ -10082,6 +10082,60 @@ async function main() {
     return '合并 ' + r.merged[0] + '，普通字 ' + r.normal + '，地面环 ' + r.loot.ring + ' / 光柱 ' + r.loot.beam + ' / 菱形 ' + r.loot.gem + '，形状件 拾取 ' + r.pick + ' / 升级 ' + r.level + ' / 死亡 ' + r.death;
   });
 
+  await step('特效三期第 2 部分（vf-vfx3）：敌方招式的命中按元素画进形状批（物理 / 火 / 冰 / 雷 / 混沌都有件）、大半径的环是细边；敌方预警圈登记（友方的不登记），玩家的件落在里面时压暗；首领砸地的预警 / 判定不变、落下时放 W.foeHit', async () => {
+    const r = await ev(() => {
+      const W = G.world, P = G.player, S = G.state, out = {};
+      G.clearEnemies();
+      W.clearFx();
+      // 1. 各元素都有形状件；件数倍率 k 小的件更少；大半径的环走细边（一圈线段，件数 > 1）
+      out.el = {};
+      for (const el of ['phys', 'fire', 'cold', 'light', 'chaos']) {
+        W.clearFx();
+        W.foeHit(P.x + 3, P.z, 2.5, el);
+        out.el[el] = W.vShapeLive();
+      }
+      W.clearFx();
+      W.foeHit(P.x + 3, P.z, 2.5, 'fire', { k: 0.35, noRing: true });
+      out.fewer = W.vShapeLive();
+      W.clearFx();
+      W.thinRing(P.x, P.z, 4.6, 0xb8a68c, 0x5a4a3c, 0.32);
+      out.thin = W.vShapeLive();
+      W.clearFx();
+      // 2. 预警圈登记：敌方的登记、友方的不登记；圈里的点算在里面，圈外的不算；预警圈结算后登记撤掉
+      const te = G.telegraph({ shape: 'circle', x: P.x + 4, z: P.z, r: 2, dur: 0.2, dmg: 0 });
+      const tr = G.telegraph({ shape: 'rect', x: P.x - 4, z: P.z, w: 2, len: 6, ang: 0, dur: 0.2, dmg: 0 });
+      const tf = G.telegraph({ shape: 'circle', x: P.x, z: P.z + 6, r: 2, dur: 0.2, dmg: 0, friendly: true });
+      out.reg = W.foeTeleInfo().n;
+      out.inside = [W.inFoeTele(P.x + 4.5, P.z), W.inFoeTele(P.x - 4, P.z + 2.5), W.inFoeTele(P.x, P.z + 6), W.inFoeTele(P.x + 7, P.z)];
+      G.debug.step(0.4);
+      out.after = W.foeTeleInfo().n;
+      // 3. 熔渣巨像砸地：预警圈 r 4.6、0.95 秒（不变），落下时调 W.foeHit
+      const e = G.spawnBoss('golem', P.x, P.z - 5, 5, {});
+      e.speed = 0; e.hp = e.maxHp = 1e7; e.awake = e.wasAwake = true;
+      let calls = 0;
+      const of = W.foeHit;
+      W.foeHit = function () { calls++; return of.apply(W, arguments); };
+      const god0 = !!P.god;
+      G.debug.god(true);
+      G.debug.step(0.05);
+      e.busy = 0;
+      G.snufferPattern(e, 'slam');
+      const t = S.telegraphs.find((q) => q.owner === e);
+      out.slam = t ? { r: t.r, dur: t.dur, shape: t.shape } : null;
+      for (let i = 0; i < 24; i++) { e.busy = Math.max(e.busy, 0.5); G.debug.step(0.05); }
+      W.foeHit = of;
+      G.debug.god(god0);
+      out.calls = calls;
+      G.clearEnemies();
+      W.clearFx();
+      return out;
+    });
+    assert(Object.values(r.el).every((n) => n >= 4) && r.fewer >= 1 && r.fewer < r.el.fire && r.thin >= 12, '敌方命中的形状件不对：' + JSON.stringify(r));
+    assert(r.reg === 2 && r.inside.join() === 'true,true,false,false' && r.after === 0, '敌方预警圈的登记 / 范围不对：' + JSON.stringify(r));
+    assert(r.slam && r.slam.r === 4.6 && r.slam.dur === 0.95 && r.slam.shape === 'circle' && r.calls >= 1, '首领砸地的预警应不变、落下时放 W.foeHit：' + JSON.stringify(r));
+    return '件数 ' + Object.entries(r.el).map(([k, v]) => k + ' ' + v).join(' / ') + '，细边环 ' + r.thin + '，砸地 r ' + r.slam.r + ' / ' + r.slam.dur + ' 秒';
+  });
+
   await step('画面：CC0 素材按区域加载后换成 PBR 地面与布景；画质高 / 中 / 低即时切换、存档，三档都能渲染', async () => {
     const r = await ev(async () => {
       const W = G.world;
@@ -17142,11 +17196,16 @@ async function main() {
       for (let i = 0; i < 120; i++) G.pullEnemy(m, ox, oz, 0.5);
       out.leash = G.leashRoomOk(m, m.x, m.z) && (W.roomAt(m.x, m.z) === s.room || Math.hypot(m.x - s.door.x, m.z - s.door.z) <= 3.01);
       const waves = [enc.mobs.length];
+      // 奖励本身掉了几件物品（G.encReward 那一下）：总数里还混着怪随机掉的，要不要多掉一件取决于随机序列走到哪
+      const oRew = G.encReward;
+      out.rewItems = 0;
+      G.encReward = function () { const n0 = EK.items(); const v = oRew.apply(this, arguments); out.rewItems += EK.items() - n0; return v; };
       for (let w = 0; w < 3; w++) {
         EK.kill(enc.mobs);
         EK.step(1.0);
         waves.push(enc.mobs.length);
       }
+      G.encReward = oRew;
       out.waves = waves;
       out.elites = enc.mobs.filter((e) => e.elite).length;
       out.st = enc.st;
@@ -17167,7 +17226,8 @@ async function main() {
     });
     assert(r.outside && r.idle === 'idle' && r.doorway === 'idle' && r.run === 'run' && r.w1 === 5, '试锋应跨过门口的符文才开始（门洞里不算）、第一波 5 只：' + JSON.stringify(r));
     assert(r.leash, '试锋的怪应拴在小室里：' + JSON.stringify(r));
-    assert(r.waves.join(',') === '5,11,17,17' && r.elites === 2 && r.st === 'done' && r.how === 'top' && r.items >= 3, '试锋的波次 / 评级不对：' + JSON.stringify(r));
+    // 「上」档奖励 rew.rare = 2：奖励那一下至少掉 2 件稀有（中档只有 1 件）；原来的 items >= 3 要靠 17 只怪 / 渊契再随机多掉一件，随机序列一变就不成立
+    assert(r.waves.join(',') === '5,11,17,17' && r.elites === 2 && r.st === 'done' && r.how === 'top' && r.rewItems >= 2 && r.items >= r.rewItems, '试锋的波次 / 评级不对：' + JSON.stringify(r));
     assert(r.quit0 === 'run' && r.quit === 'quit' && r.gone, '离开小室超过 4 秒应弃权、怪散掉：' + JSON.stringify(r));
     return '波次 ' + r.waves.join(' → ') + '，评级 ' + r.how;
   });
