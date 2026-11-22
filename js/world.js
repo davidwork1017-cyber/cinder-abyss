@@ -23854,12 +23854,14 @@
     }
   }
   // ----- 形状批（vf-vfx2）：火舌 / 弯月 / 折线段 / 碎石 / 冲击环（js/vfx.js 的 G.vfx.SH），全画进一个零件 vShape（一次 draw call），环形缓冲、运行时不分配。
-  // 不透明的实心件：亮度只给亮芯那一小块，不靠加色叠亮（怪堆里不会糊成一片白）；消失靠缩没，不靠渐隐。
+  // 不透明的实心件：亮度只给亮芯那一小块，不靠加色叠亮（怪堆里不会糊成一片白）。
+  // 收尾（vshape-fade）：不再缩没，改成按形状本地坐标的噪声挖洞渐隐（着色器里 discard，仍是不透明的同一次 draw）；大小只收一点。
   // 先 vsBrush 定下这一批的形状 / 摆法 / 大小曲线 / 两档颜色 / 亮芯 / 暗边，再 vsEmit 一个个放：
   //   摆法 md：0 公告板、+y 顺着出生时的速度；1 竖直公告板（只绕 y 轴转向镜头，rot = 侧倾）；2 平躺在地上（rot = 朝向，同 atan2(dx, dz)）；
   //            3 立体翻滚、落地弹（碎石）；4 固定线段（速度当成起点 → 终点的向量，绕线段转向镜头，不移动）；5 贴地的固定线段；
   //            6 立着、朝出生速度的水平方向斜倾 rot 弧度（冰晶：尖朝外上方），跟着速度走
-  //   曲线 cv：0 弹出（12% 内长满、后 40% 缩没）；1 扩开（从 0.25 长到 1，同时往外收细）；2 闪（满大小，后 55% 隔帧闪灭）；3 收窄（长度不变，宽度后 60% 收没）
+  //   曲线 cv：0 弹出（12% 内长满、后 40% 缩到 0.75 同时渐隐）；1 扩开（从 0.25 长到 1，同时往外收细；后 30% 渐隐）；2 闪（满大小，后 55% 隔帧闪灭）；
+  //            3 收窄（长度不变，宽度后 60% 收到 0.4，后 45% 渐隐）
   //   颜色：寿命的前 sw 是 A，之后硬切到 B；亮芯 hot 换色后降到三成；dk 暗描边压暗的量
   const VS_N = 384, VSH = G.vfx.SH;
   const vsSh = new Uint8Array(VS_N), vsMd = new Uint8Array(VS_N), vsCv = new Uint8Array(VS_N);
@@ -23901,14 +23903,46 @@
     _pm.set(-c * sx, s * sy, 0, x, 0, 0, 1, y, s * sx, c * sy, 0, z, 0, 0, 0, 1);
   }
   // 直接往形状批里写一个（用 _pm 作矩阵；只能在 updateProjFx 的 pfBegin / pfEnd 之间调）：每帧跟着人走的件（旋风斩的风刃、陨火的落影）
-  function vsNow(sh, r, g, b, hot, dk, prog) {
-    pfFx(prog || 0, hot || 0, dk || 0, sh);
+  // fade（可选，0..1）：挖洞渐隐的量，编码进形状号的小数部分（着色器里 floor 取形状号，小数 × 2.5 还原；封顶 0.99，不会把形状号进位）
+  function vsNow(sh, r, g, b, hot, dk, prog, fade) {
+    pfFx(prog || 0, hot || 0, dk || 0, fade > 0 ? sh + Math.min(0.99, fade) * 0.4 : sh);
     pfPut('vShape', r, g, b);
   }
+  // 大小曲线（cv 见上）在寿命进度 f 处：k 整体大小、kw 只管宽度、fd 挖洞渐隐量；
+  // skip 是旧的「缩没」曲线算出来的大小倍数，仍按它跳过最后那一丁点，每帧画出的实例数（三角面数）和以前完全一样
+  const vc = { k: 1, kw: 1, fd: 0, skip: 1 };
+  function vsCurve(cv, f) {
+    let k = 1, kw = 1, fd = 0, skip = 1;
+    if (cv === 0) {
+      if (f < 0.12) k = skip = 0.55 + (0.45 * f) / 0.12;
+      else if (f >= 0.6) {
+        const t = (f - 0.6) / 0.4;
+        k = 1 - 0.25 * t * t;
+        fd = t;
+        skip = 1 - Math.pow(t, 1.5);
+      }
+    } else if (cv === 1) {
+      k = skip = 0.25 + 0.75 * (1 - (1 - f) * (1 - f) * (1 - f));
+      if (f > 0.7) fd = (f - 0.7) / 0.3;
+    } else if (cv === 3 && f >= 0.4) {
+      kw = 1 - (0.6 * (f - 0.4)) / 0.6;
+      skip = 1 - (f - 0.4) / 0.6;
+      if (f > 0.55) fd = (f - 0.55) / 0.45;
+    }
+    vc.k = k; vc.kw = kw; vc.fd = fd; vc.skip = skip;
+    return vc;
+  }
+  // 调试 / 测试：形状批此刻的状态（闪烁帧号、活着的件：曲线、寿命进度、剩余寿命、位置）和曲线本身
+  W.vsInfo = function () {
+    const live = [];
+    for (let i = 0; i < VS_N; i++) if (vsL[i] > 0) live.push({ i, cv: vsCv[i], f: 1 - vsL[i] / vsM[i], l: vsL[i], x: vsP[i * 3], y: vsP[i * 3 + 1], z: vsP[i * 3 + 2] });
+    return { frame: vsFrame, live };
+  };
+  W.vsCurve = (cv, f) => Object.assign({}, vsCurve(cv, f));
   const _vsR = new T.Vector3(), _vsH = new T.Vector3();
   function vsDraw(dt) {
     if (vsLive <= 0 || !PF.vShape) return;
-    vsFrame++;
+    if (!(G.flow && G.flow.act === 0)) vsFrame++; // 顿帧定格时闪烁也停住（和寿命、位移一样按游戏时间走）；关了顿帧 act 恒为 1，和以前一样每帧走
     _vsR.set(1, 0, 0).applyQuaternion(camQ);
     _vsH.set(_vsR.x, 0, _vsR.z);
     if (_vsH.lengthSq() < 1e-6) _vsH.set(1, 0, 0);
@@ -23944,14 +23978,10 @@
         vsP[j + 2] += vsV[j + 2] * dt;
       }
       vsR[i] += vsW[i] * dt;
-      let k = 1, kw = 1;
-      if (cv === 0) k = f < 0.12 ? 0.55 + (0.45 * f) / 0.12 : f < 0.6 ? 1 : 1 - Math.pow((f - 0.6) / 0.4, 1.5);
-      else if (cv === 1) k = 0.25 + 0.75 * (1 - (1 - f) * (1 - f) * (1 - f));
-      else if (cv === 2) {
-        if (f > 0.45 && (i + vsFrame) % 3 === 0) continue;
-      } else kw = f < 0.4 ? 1 : 1 - (f - 0.4) / 0.6;
-      const x = vsP[j], y = vsP[j + 1], z = vsP[j + 2], sx = vsSx[i] * k * kw, sy = vsSy[i] * k;
-      if (sx < 1e-3) continue;
+      if (cv === 2 && f > 0.45 && (i + vsFrame) % 3 === 0) continue;
+      vsCurve(cv, f);
+      if (vsSx[i] * vc.skip < 1e-3) continue;
+      const x = vsP[j], y = vsP[j + 1], z = vsP[j + 2], sx = vsSx[i] * vc.k * vc.kw, sy = vsSy[i] * vc.k, fd = vc.fd;
       if (md === 0) mStretch(x, y, z, vsD[j], vsD[j + 1], vsD[j + 2], sx, sy);
       else if (md === 1) {
         const c = Math.cos(vsR[i]), s = Math.sin(vsR[i]);
@@ -23981,7 +24011,7 @@
       const c = f < vsSw[i] ? vsCA : vsCB;
       // vf-vfx3：玩家这边的件落在敌方预警圈里时压暗（×0.75、亮芯 ×0.4），预警圈的边和填充在交叠处仍然读得出来
       const dim = foeTeles.length && !vsF[i] && vsInFoeTele(x, z) ? 0.75 : 1;
-      vsNow(vsSh[i], c[j] * dim, c[j + 1] * dim, c[j + 2] * dim, vsHot[i] * (f < vsSw[i] ? 1 : 0.3) * (dim < 1 ? 0.4 : 1), vsDk[i], f);
+      vsNow(vsSh[i], c[j] * dim, c[j + 1] * dim, c[j + 2] * dim, vsHot[i] * (f < vsSw[i] ? 1 : 0.3) * (dim < 1 ? 0.4 : 1), vsDk[i], f, fd);
     }
     if (!any) vsLive--;
   }

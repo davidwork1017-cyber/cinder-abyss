@@ -487,7 +487,7 @@
     '}',
   ].join('\n');
   // ---------- 形状批（vf-vfx2）：各元素自己的「形状语言」，实心卡通件，一个实例化网格画完 ----------
-  // 所有形状合在一个几何体里，每个顶点带 aSh = (形状号, 色阶, 收细目标半径)；每个实例的 aFx = (进度 0..1, 亮芯往白混的量, 暗边压暗的量, 形状号)。
+  // 所有形状合在一个几何体里，每个顶点带 aSh = (形状号, 色阶, 收细目标半径)；每个实例的 aFx = (进度 0..1, 亮芯往白混的量, 暗边压暗的量, 形状号 + 渐隐量 × 0.4)。
   // 顶点着色器把「形状号不是这个实例的」顶点全扔到裁剪空间外（三角形整个被裁掉），所以一个实例只画出它自己的形状：
   // 不同形状、不同颜色的碎件都在同一次 draw 里，不透明、不叠加变亮（亮度只留给亮芯那一小块）。
   //   tongue 火舌：圆底、尖顶、侧面一个小舔尖（立着，往上窜）；crescent 弯月：斩痕 / 风刃（外沿一道亮边）；
@@ -595,16 +595,18 @@
       uniforms: {},
       vertexShader: [
         'attribute vec3 aSh; attribute vec4 aFx;',
-        'varying vec3 vCol; varying float vTone; varying vec2 vHD;',
+        'varying vec3 vCol; varying float vTone; varying vec2 vHD; varying float vFade; varying vec3 vLp;',
         'void main(){',
         '  vHD = aFx.yz; vTone = aSh.y;',
+        '  float sid = floor(aFx.w + 0.001); vFade = (aFx.w - sid) * 2.5;', // 形状号的小数部分 × 2.5 = 渐隐量（0 不隐，1 全隐）
         '  vCol = vec3(1.0);',
         '#ifdef USE_INSTANCING_COLOR',
         '  vCol = instanceColor;',
         '#endif',
-        '  if (abs(aSh.x - aFx.w) > 0.5) { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); return; }', // 不是这个实例的形状：扔到裁剪空间外
+        '  if (abs(aSh.x - sid) > 0.5) { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); return; }', // 不是这个实例的形状：扔到裁剪空间外
         '  vec3 p = position;',
         '  if (aSh.z > 0.0) { float r = max(length(p.xy), 1e-4); p.xy *= mix(r, aSh.z, pow(clamp(aFx.x * 1.1, 0.0, 1.0), 0.8)) / r; }', // 冲击环往外收细
+        '  vLp = p;',
         '  vec4 wp = vec4(p, 1.0);',
         '#ifdef USE_INSTANCING',
         '  wp = instanceMatrix * wp;',
@@ -613,8 +615,14 @@
         '}',
       ].join('\n'),
       fragmentShader: [
-        'varying vec3 vCol; varying float vTone; varying vec2 vHD;',
+        'varying vec3 vCol; varying float vTone; varying vec2 vHD; varying float vFade; varying vec3 vLp;',
+        'float vsH(vec3 p){ return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }',
+        'float vsN(vec3 p){ vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);',
+        '  return mix(mix(mix(vsH(i), vsH(i + vec3(1.0, 0.0, 0.0)), f.x), mix(vsH(i + vec3(0.0, 1.0, 0.0)), vsH(i + vec3(1.0, 1.0, 0.0)), f.x), f.y),',
+        '             mix(mix(vsH(i + vec3(0.0, 0.0, 1.0)), vsH(i + vec3(1.0, 0.0, 1.0)), f.x), mix(vsH(i + vec3(0.0, 1.0, 1.0)), vsH(i + 1.0), f.x), f.y), f.z); }',
         'void main(){',
+        // 渐隐：按形状本地坐标的噪声挖洞（洞跟着件走、越挖越大，像烧没 / 碎掉），仍是不透明、同一次 draw，不用排序
+        '  if (vFade > 0.0 && vsN(vLp * 3.2) * 0.75 + vsN(vLp * 8.0) * 0.25 < vFade * 1.1 - 0.05) discard;',
         '  vec3 c = vCol;',
         '  if (vTone > 0.75) c = mix(c, vec3(1.0, 0.96, 0.86), vHD.x);',
         '  else if (vTone < 0.25) c *= 1.0 - vHD.y;',
