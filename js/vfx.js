@@ -197,6 +197,74 @@
   // 7 = 循环的火团（帧号跟着时间转、不淡出，投射物的火头用）
   V.FB = { glow: 0, fire: 1, smoke: 2, spark: 3, ring: 4, slash: 5, arc: 6, fireLoop: 7 };
   V.VD = { scorch: 0, frost: 1, void: 2, flash: 3 }; // 地面痕迹的种类（着色器里是 10 + 种类）
+  // 打击痕迹（W.decal 的 0..6：擦痕 / 焦痕 / 霜痕 / 电痕 / 灰迹 / 地裂 / 命中印记，着色器里是 20 + 种类）：原来每块一个网格、一次 draw，
+  // decal-batch 起画进一个实例网格。每块的随机种子不走逐实例属性（顶点间插值会带一点舍入误差，哈希噪声把它放大成噪点），
+  // 而是放在这个 uniform 数组里按槽位号取（aFx.y 存槽位号），和原来的 uSeed 逐位相同
+  V.SCAR_N = 40;
+  V.scarSd = new Float32Array(V.SCAR_N);
+  const SCAR_FN = [
+    'uniform float uScarSd[' + V.SCAR_N + '];',
+    'float vfxScH(vec2 p, float sd){ return fract(sin(dot(p, vec2(127.1, 311.7)) + sd * 17.3) * 43758.5453); }',
+    'float vfxScN(vec2 p, float sd){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);',
+    '  return mix(mix(vfxScH(i, sd), vfxScH(i + vec2(1.0, 0.0), sd), f.x), mix(vfxScH(i + vec2(0.0, 1.0), sd), vfxScH(i + vec2(1.0, 1.0), sd), f.x), f.y); }',
+    // 和原来 world.js 的 DECAL_FRAG（decal-batch 之前每块痕迹一个材质）同一套公式；vP 是方片的局部 xz（-1..1），从 uv 换算（gQuad：x = 2u - 1，z = 1 - 2v）。
+    // 输出预乘：擦痕 / 霜痕原来是加色（SrcAlpha, One），这里 alpha 输出 0；其余是普通混合，alpha 输出 a
+    'void vfxScar(float kind, float uK, float slot){',
+    '  float uSeed = uScarSd[int(floor(slot + 0.5))];',
+    '  vec2 vP = vec2(vUv.x * 2.0 - 1.0, 1.0 - vUv.y * 2.0);',
+    '  float l = length(vP);',
+    '  float fade = 1.0 - smoothstep(0.55, 1.0, uK);',
+    '  float sfade = uK < 0.45 ? 1.0 : (uK < 0.75 ? 0.62 : 0.3);',
+    '  float n = vfxScN(vP * 3.0 + 5.0, uSeed) * 0.6 + vfxScN(vP * 7.0, uSeed) * 0.4;',
+    '  float an = atan(vP.x, vP.y);',
+    '  vec3 uColor = vCol; vec3 col = uColor; float a = 0.0;',
+    '  if (kind < 0.5) {',
+    '    float wv = 1.0 - abs(vP.x);',
+    '    float along = smoothstep(-1.0, -0.2, vP.y) * (1.0 - smoothstep(0.35, 1.0, vP.y));',
+    '    a = pow(wv, 4.0) * along * (1.0 - uK) * (1.0 - uK) * 0.6;',
+    '    col = mix(uColor, vec3(1.0), pow(wv, 9.0) * 0.6);',
+    '  } else if (kind < 1.5) {',
+    '    float blot = 1.0 - smoothstep(0.5 + n * 0.3, 0.54 + n * 0.3, l);',
+    '    float rim = step(0.36 + n * 0.22, l) * blot * step(uK, 0.3);',
+    '    col = mix(vec3(0.07, 0.035, 0.05), uColor, rim);',
+    '    a = blot * 0.82 * sfade;',
+    '  } else if (kind < 2.5) {',
+    '    float sp = pow(abs(cos(an * 4.0 + n * 1.6)), 7.0);',
+    '    float body = 1.0 - smoothstep(0.15, 0.95, l);',
+    '    a = (body * 0.2 + sp * (1.0 - smoothstep(0.3 + n * 0.5, 1.0, l)) * 0.42) * fade;',
+    '    col = mix(uColor, vec3(1.0), sp * 0.5);',
+    '  } else if (kind < 3.5) {',
+    '    float br = 1.0 - smoothstep(0.0, 0.1, abs(sin(an * 3.5 + vfxScN(vP * 5.0, uSeed) * 5.0)));',
+    '    float reach = 1.0 - smoothstep(0.35 + n * 0.5, 1.0, l);',
+    '    float core = 1.0 - smoothstep(0.0, 0.3, l);',
+    '    a = max(br * reach * 0.85 * (1.0 - smoothstep(0.2, 0.9, uK)), core * 0.6 * fade);',
+    '    col = mix(vec3(0.03, 0.03, 0.02), uColor, br * reach);',
+    '  } else if (kind < 4.5) {',
+    '    float blot = 1.0 - smoothstep(0.25 + n * 0.3, 0.8 + n * 0.2, l);',
+    '    col = mix(vec3(0.07, 0.06, 0.05), uColor * 0.25, n * 0.5);',
+    '    a = blot * 0.55 * fade;',
+    '  } else if (kind < 5.5) {',
+    '    float cr = step(abs(sin(an * 4.5 + n * 4.0)), 0.06 + 0.12 * l);',
+    '    float reach = step(l, 0.6 + n * 0.4);',
+    '    float core = step(l, 0.3 + n * 0.08);',
+    '    float hot = step(uK, 0.3);',
+    '    a = max(cr * reach, core * 0.75) * sfade * 0.92;',
+    '    col = mix(vec3(0.07, 0.035, 0.05), uColor, hot * max(cr * reach, core * 0.6));',
+    '  } else {',
+    '    vec2 q = vec2(vP.x, vP.y * 0.78 + 0.12);',
+    '    float lq = length(q), aq = atan(q.x, q.y);',
+    '    float rr = 0.5 + 0.32 * pow(abs(cos(aq * 2.5 + uSeed * 6.0)), 4.0) + 0.16 * cos(aq) + n * 0.12;',
+    '    float body = step(lq, rr * 0.92);',
+    '    float hot = step(lq, rr * 0.5) * step(uK, 0.35);',
+    '    col = mix(uColor * 0.28 + vec3(0.03, 0.015, 0.04), uColor, hot);',
+    '    a = body * 0.8 * sfade;',
+    '  }',
+    '  if (l > 1.0 && kind > 0.5) a = 0.0;',
+    '  a *= vFx.z;',
+    '  if (a <= 0.0) discard;',
+    '  gl_FragColor = vec4(col * a, (kind < 0.5 || (kind > 1.5 && kind < 2.5)) ? 0.0 : a);',
+    '}',
+  ].join('\n');
   const DECAL_FN = [
     // 地面痕迹（种类 10..13 → 0..3）：前 45% 完整，之后被噪声从外圈往里蚀掉；焦痕刚落下时裂缝里透着余烬（实例色），霜痕只有外沿一圈冰带
     'void vfxDecal(float kind, float k, float seed){',
@@ -257,7 +325,7 @@
     const key = ground ? 'g' : 'p';
     if (multiMats[key]) return multiMats[key];
     const multiMat = (multiMats[key] = new T.ShaderMaterial({
-      uniforms: V.uni({ uColor: { value: new T.Color(1, 1, 1) }, uFx: { value: new T.Vector4(0, 0, 1, 0) } }),
+      uniforms: V.uni({ uColor: { value: new T.Color(1, 1, 1) }, uFx: { value: new T.Vector4(0, 0, 1, 0) }, uScarSd: { value: V.scarSd } }),
       defines: { VFX_AFX: 1 },
       vertexShader: SPRITE_VERT,
       fragmentShader: V.GLSL + '\n' + MULTI_FRAG,
@@ -279,8 +347,10 @@
   const MULTI_FRAG = [
     'varying vec2 vUv; varying vec3 vCol; varying vec4 vFx; varying float vWy;',
     'void vfxDecal(float kind, float k, float seed);',
+    'void vfxScar(float kind, float uK, float slot);',
     'void main(){',
     '  float kind = floor(vFx.w + 0.5), k = vFx.x, seed = vFx.y;',
+    '  if (kind > 19.5) { vfxScar(kind - 20.0, k, seed); return; }',
     '  if (kind > 9.5) { vfxDecal(kind - 10.0, k, seed); return; }',
     '  float loop = step(6.5, kind);',
     '  if (loop > 0.5) { kind = 1.0; k = fract(uTime * 1.6 + seed); }',
@@ -331,7 +401,7 @@
     '  vec3 o = linearToOutputTexel(vec4(col, 1.0)).rgb;',
     '  gl_FragColor = vec4(o * a * (1.0 + boost), (1.0 - add) * a);',
     '}',
-  ].join('\n') + '\n' + DECAL_FN;
+  ].join('\n') + '\n' + DECAL_FN + '\n' + SCAR_FN;
 
   const SPRITE_VERT = [
     'uniform vec3 uColor; uniform vec4 uFx;',
