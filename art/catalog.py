@@ -102,6 +102,9 @@ CATALOG = [
          bake=dict(ao=0.3, grad=0.6, gain=0.7), finish=dict(dust=0.0), cues=dict(second=False, val=0.2)),
     dict(id='ca/frost_plank', gen='frost_plank', seed=167, cat='kit', zone='frost', ship=True, replaces=None,
          bake=dict(ao=0.08, grad=0.01, wear=0.25, grime=0.1), finish=dict(dust=0.0), cues=dict(second=False, val=0.08, lichen=0)),
+    # ---- 余烛殿：4 个火盆台（玩法件），尺寸逐项照原来的程序化 crown/brazier，火苗另一个网格、碰撞不变 ----
+    dict(id='ca/crown_brazier', gen='crown_brazier', seed=173, cat='prop', zone='crown', ship=True, replaces=None,
+         bake=dict(ao=0.25, grad=0.4, wear=0.4), finish=dict(dust=0.0), cues=dict(second=False, val=0.2, lichen=0)),
 ]
 
 # 看板（lineup）：每个生成器 × 几个种子，参数沿用清单里第一个用到它的件
