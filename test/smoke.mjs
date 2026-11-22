@@ -10825,7 +10825,7 @@ async function main() {
       G.dropLoot({ isBoss: true, bossKind: 'warden', level: 28, x: P.x, z: P.z - 3 });
       if (G.RELIC_DROP) G.RELIC_DROP.src.boss = rqBoss;
       const l = S.loot.find((x) => x.kind === 'item' && x.data.rarity === 3);
-      out.full = l ? { uq: l.data.uq, ilvl: l.data.ilvl, color: l.color, label: l.label, beam: l.mesh.children.length } : null;
+      out.full = l ? { uq: l.data.uq, ilvl: l.data.ilvl, color: l.color, label: l.label, beam: l.mesh.userData.bt } : null; // vf-vfx3：光柱进了实例零件，掉落物上记的是柱子的档位（2 = 烬铸 / 渊契的高柱）
       out.pityReset = U.pity.warden || 0;
       const bt = document.getElementById('big-toast');
       out.toast = bt ? { on: bt.classList.contains('on'), text: bt.innerText } : null;
@@ -10839,7 +10839,7 @@ async function main() {
     assert(r.c1a && !r.c1b && r.c2b0 && r.c2a && !r.c2b && r.c5, '掉率不对：' + JSON.stringify(r));
     assert(r.chance.join() === '0,0.15,0.25,0.25', '掉率表不对：' + r.chance);
     assert(r.seq === '001001' && r.pityAfter === 0 && r.weaverUntouched === 0 && r.weaver1 === 1, '保底不对：' + JSON.stringify(r));
-    assert(r.full && r.full.uq === 'jinduan' && r.full.ilvl === 28 && r.full.color === G_UQ_COLOR && r.full.beam >= 5 && r.pityReset === 0, '首领完整掉落里的烬铸不对：' + JSON.stringify(r.full));
+    assert(r.full && r.full.uq === 'jinduan' && r.full.ilvl === 28 && r.full.color === G_UQ_COLOR && r.full.beam === 2 && r.pityReset === 0, '首领完整掉落里的烬铸不对：' + JSON.stringify(r.full));
     assert(r.toast && r.toast.on && /烬断/.test(r.toast.text), '应弹出屏幕中央的大字提示：' + JSON.stringify(r.toast));
     return '保底序列 ' + r.seq + ' · 名牌 ' + r.full.label;
   });

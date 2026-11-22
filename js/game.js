@@ -3362,6 +3362,8 @@
   const procQ = [];
   const PROC_MAX = 200;
   const FAINT_GAP = 0.3;
+  // vf-vfx3：飘字用的伤害类型色，压在同一亮度带（灰度 65–75 %）：黑描边上一眼分得出类型，又不和暴击的金白字心、终结技的纯白抢
+  const NUM_COLOR = { phys: '#c6bcaa', fire: '#ff9a50', cold: '#78c6f2', light: '#e2be40', chaos: '#ff86dc' };
   G.hitEnemy = function (e, ctx, mult, info) {
     if (!e || e.dead) return 0;
     const W = G.world;
@@ -3410,11 +3412,16 @@
       // 光环脉冲 / 电弧：小而淡的数字，一圈敌人同时挨打时不刷屏；同一个敌人每 FAINT_GAP 秒最多冒一个
       if (!(e.faintT > 0)) {
         e.faintT = FAINT_GAP;
-        W.text(tx, tz, shown, G.TYPE_COLOR[top], 11, { kind: 'faint', y: ty });
+        W.text(tx, tz, shown, NUM_COLOR[top] || G.TYPE_COLOR[top], 11, { kind: 'faint', y: ty });
       }
     } else if (w >= 2) W.text(tx, tz, shown + (hit.crit ? '!' : ''), G.TYPE_COLOR[top], hit.crit ? 30 : 23, { kind: 'big', y: ty });
-    else if (hit.crit) W.text(tx, tz, shown + '!', G.TYPE_COLOR[top], 24, { kind: 'crit', y: ty });
-    else W.text(tx, tz, shown, G.TYPE_COLOR[top], 16, { y: ty });
+    else {
+      // vf-vfx3：字号随这一下占怪最大生命的比例 ±20 %（小怪身上打出的大数更大，首领身上的零碎更小）；普通数字用同一亮度带的数字色（NUM_COLOR），
+      // 同一只怪 0.25 秒内的普通数字并成一个往上跳的数（W.text 的 key / val）
+      const nk = 0.85 + 0.35 * Math.min(1, Math.sqrt(Math.max(0, hit.total / Math.max(1, e.maxHp)) * 2));
+      if (hit.crit) W.text(tx, tz, shown + '!', G.TYPE_COLOR[top], Math.round(24 * nk), { kind: 'crit', y: ty });
+      else W.text(tx, tz, shown, NUM_COLOR[top] || G.TYPE_COLOR[top], Math.round(16 * nk), { y: ty, key: e, val: shown });
+    }
 
     if (inf.aura) {
       // 光环：只在身上闪一点霜屑，不闪白、不后仰
@@ -9718,6 +9725,7 @@
     }
 
     state.loot.splice(idx, 1);
+    if (W.lootPick) W.lootPick(loot.x, loot.z, hexOf(loot.color), !!(loot.mesh.userData && loot.mesh.userData.bt)); // vf-vfx3：拾取的环 + 飞向脚下的碎晶
     W.removeMesh(loot.mesh);
     G.ui.onPickup(loot, scrapped); // 拾取记录（带图标）、背包里的「新」标记
     return true;
@@ -9792,8 +9800,8 @@
     }
     toast('等级提升：Lv ' + save.level + '（获得 ' + gained + ' 点天赋点）', '#ffd75e');
     if (gemsUp.length) toast('技能宝石随之成长到 Lv ' + G.gemFloor() + '：' + gemsUp.map((id) => G.SKILLS[id].name).join('、'), GEM_COLOR);
-    G.world.ring(P.x, P.z, 4.5, 0xffd75e, 0.6);
-    G.world.burst(P.x, 1.2, P.z, 0xffd75e, 30, 5, 0.8);
+    if (G.world.levelUpFx) G.world.levelUpFx(P.x, P.z); // vf-vfx3：金色的环往外画开 + 竖直的细光痕（原来 4.5 米环 + 30 粒金光点）
+    else G.world.ring(P.x, P.z, 4.5, 0xffd75e, 0.6);
     G.sfx('level');
     G.persist();
   };
