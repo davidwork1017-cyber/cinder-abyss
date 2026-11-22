@@ -1096,6 +1096,7 @@
 
   // AO 不压亮的像素：加色特效、熔岩 / 余烬的芯、预警圈的亮边。画面已经是显示空间（sRGB），按最大分量从 AO_LO 到 AO_HI 渐渐不乘 AO
   const AO_LO = 0.62, AO_HI = 0.92;
+  const AO_MARK = { value: 0 }; // 角色材质共用：1 = 在 alpha 里标出角色像素（见 injectLit），只在开着 AO 时
   // 最终调色：对比度 / 饱和度 / 暗部偏色 / 亮部增益 / 暗角。画面在渲染目标里已经是显示空间（sRGB）
   const GradeShader = {
     uniforms: {
@@ -1285,6 +1286,7 @@
     const cfg = qual.ao && !aoOff() ? qual.ao : null;
     post.ao.enabled = !!cfg;
     post.grade.uniforms.uAOk.value = cfg ? cfg.k : 0;
+    AO_MARK.value = cfg ? 1 : 0;
     if (!cfg) return;
     const c = post.ao.n8.configuration, want = { halfRes: !!cfg.halfRes, aoSamples: cfg.samples, denoiseSamples: Math.max(2, cfg.samples >> 1), aoRadius: cfg.radius, intensity: cfg.k };
     for (const k in want) if (c[k] !== want[k]) c[k] = want[k];
@@ -11924,9 +11926,12 @@
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', '#include <common>\n' + RIG_FRAG_PARS)
       .replace('#include <emissivemap_fragment>', RIG_FRAG)
-      // three-ao：不透明的角色像素在后期目标的 alpha 里记成 0，AO（n8ao）读到就不压在角色身上（脚边地面的接触暗部照样有）。
-      // 画面输出不用 alpha（调色 pass 输出 1，画布没有 alpha），低画质看不出任何区别；半透明的残影等材质不改
-      .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n#ifdef OPAQUE\n\tgl_FragColor.a = 0.0;\n#endif');
+      // three-ao：开着 AO 时（uAOMark = 1，只在高 / 中画质画进后期目标时），不透明的角色像素在 alpha 里记成 0，AO（n8ao）读到就不压在角色身上
+      // （脚边地面的接触暗部照样有）。后期链最后调色 pass 输出 alpha 1；低画质直接画到画布，uAOMark = 0，alpha 不动
+      // （画布虽然是 alpha:false，SwiftShader 下写进去的 alpha 照样会影响合成，角色会发白）。半透明的残影等材质不改
+      .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n#ifdef OPAQUE\n\tgl_FragColor.a *= 1.0 - uAOMark;\n#endif');
+    sh.uniforms.uAOMark = AO_MARK;
+    sh.fragmentShader = 'uniform float uAOMark;\n' + sh.fragmentShader;
   }
   function injectDepth(sh, ent) {
     sh.uniforms.uBones = ent.uBones;
