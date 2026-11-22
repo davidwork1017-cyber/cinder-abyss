@@ -1378,7 +1378,6 @@
   // ============================================================
   // 换装评估：把物品临时换上身算一遍，再原样换回来
   // ============================================================
-  const NOOP = function () {};
   const VD_TTL = 700; // 毫秒；地面名牌每帧都会问，面板重渲染时整体清空
   const vdCache = new Map(); // uid → { t, v }
 
@@ -1414,10 +1413,9 @@
   }
 
   // 返回 { badge: 'up' | 'down' | 'eq', score, empty, lines: [{ label, text, pct, good }] }；
-  // 物品正穿在身上时返回 null。不改存档，也不改当前生命 / 魔力。
+  // 物品正穿在身上时返回 null。不改存档，不改当前生命 / 魔力，也不碰战斗中的状态（千目计数、双生待发、持续施放……，见 G.statTrial）。
   function verdict(item) {
     const save = G.save;
-    const P = G.player;
     const slot = item.slot;
     const cur = save.equip[slot];
     if (cur === item || (cur && cur.uid === item.uid)) return null;
@@ -1425,27 +1423,9 @@
     const hit = vdCache.get(item.uid);
     if (hit && now - hit.t < VD_TTL) return hit.v;
 
-    const life = P.life;
-    const mana = P.mana;
-    const had = Object.prototype.hasOwnProperty.call(save.equip, slot);
     const a = statSnap();
-    let b;
-    // computeStats 会顺手让角色手里的武器模型跟着装备换；试算期间不该动模型，先把那个调用架空
-    const W = G.world;
-    const gear = W.setPlayerGear;
-    W.setPlayerGear = NOOP;
-    try {
-      save.equip[slot] = item;
-      G.computeStats();
-      b = statSnap();
-    } finally {
-      if (had) save.equip[slot] = cur;
-      else delete save.equip[slot];
-      G.computeStats();
-      P.life = life;
-      P.mana = mana;
-      W.setPlayerGear = gear;
-    }
+    // 换上之后的数值：G.statTrial 按 dry 模式试算（不碰正在打的仗、不写存档、不动武器模型），算完原样还回去
+    const b = G.statTrial(slot, item, statSnap);
 
     const lines = [];
     let off = 0;

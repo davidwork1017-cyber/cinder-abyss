@@ -806,7 +806,10 @@
   }
   // 这一刻生效的刻式：'o' / 'a' / 'b' / 'c'（存档里记着、但宝石还没到解锁等级的 A / B 不生效）。
   // 渊式 'c'：戴着解锁它的渊契才生效（不看宝石等级），没戴就是替下的那种（variantPrev，没有就是原式）
+  // 换装试算（G.statTrial）期间「假如换上那件装备」时生效的刻式（id → 'o' / 'a' / 'b' / 'c'，由 dry 模式的 relicSync 填）；平时 null
+  let trialVar = null;
   G.variantOf = function (id) {
+    if (trialVar && trialVar[id] !== undefined) return trialVar[id];
     const s = G.save;
     if (s && s.variants && s.variants[id] === 'c' && G.variantRelicOn(id)) return 'c';
     return G.variantFallback(id);
@@ -1007,9 +1010,13 @@
   // =====================================================================
   // 属性
   // =====================================================================
-  G.computeStats = function () {
+  // opt.dry：只算属性（换装试算 G.statTrial 用）。照样把结果写进 P 的属性字段（P.S、上限、抗性、P.relic……，见 TRIAL_KEYS），
+  // 但不碰任何战斗中的状态、不写存档：不对技能栏、渊契机制只汇总不生效（千目计数、双生待发、换刻式时的持续施放 / 光环计时 / 召唤物、
+  // 雾和暗域都不动，刻式只在 trialVar 里换）、不收护涡、不压当前生命 / 魔力、不换武器模型
+  G.computeStats = function (opt) {
     const save = G.save;
-    syncRanged(); // 光环保留看技能栏：先把右键接管对好
+    const dry = !!(opt && opt.dry);
+    if (!dry) syncRanged(); // 光环保留看技能栏：先把右键接管对好
     const S = {};
     for (const k of Object.keys(G.STAT_FMT)) S[k] = 0;
     const add = (stats) => {
@@ -1023,7 +1030,7 @@
     for (const id of save.passives) add(G.TREE[id].stats);
     if (P.encBuff && G.SHRINE_BUFFS[P.encBuff.id] && G.SHRINE_BUFFS[P.encBuff.id].stats) add(G.SHRINE_BUFFS[P.encBuff.id].stats); // 异兆：祈坛的增益
     P.S = S;
-    G.relicSync(); // 身上渊契的机制（P.relic）：光环保留（星雨）在下面就要用
+    G.relicSync(dry); // 身上渊契的机制（P.relic）：光环保留（星雨）在下面就要用
 
     P.gearLife = gearLife; // 装备给的「+最大生命」（召唤物继承生命用）
     P.maxLifeRaw = Math.max(1, Math.round((G.baseLife(save.level) + S.life) * (1 + S.incLife / 100) * (1 + S.moreLife / 100)));
@@ -1036,7 +1043,7 @@
     P.reserved = Math.round(((P.reserveLife ? P.maxLifeRaw : P.maxManaRaw) * P.reservePct) / 100);
     P.maxLife = P.reserveLife ? Math.max(1, P.maxLifeRaw - P.reserved) : P.maxLifeRaw;
     P.maxMana = P.reserveLife ? P.maxManaRaw : Math.max(0, P.maxManaRaw - P.reserved);
-    if (G.guardSync) G.guardSync(); // 刻式「护涡」光环：不在技能栏上了就当场收起
+    if (G.guardSync && !dry) G.guardSync(); // 刻式「护涡」光环：不在技能栏上了就当场收起
     P.armour = Math.max(0, Math.round(S.armour * (1 + S.incArmour / 100)));
     // resLoss（基石「元素过载」）在 75% 上限之后才扣，溢出的抗性抵消不了
     const resLoss = Math.max(0, S.resLoss || 0);
@@ -1054,13 +1061,49 @@
       P.lifeRegen *= 1 - RM.drain.regen;
       P.manaRegen *= 1 - RM.drain.regen;
     }
-    P.life = Math.min(P.life, P.maxLife);
-    P.mana = Math.min(P.mana, P.maxMana);
+    if (!dry) {
+      P.life = Math.min(P.life, P.maxLife);
+      P.mana = Math.min(P.mana, P.maxMana);
+    }
     // 手里烬铸武器的机制（blade 残刃 / tri 三相共鸣 / soul 魂火轮回），没有时 null
     const w = save.equip.weapon;
     P.uMech = w && w.rarity === 3 && G.UNIQUES[w.uq] ? G.UNIQUES[w.uq].mech : null;
-    if (P.ent) G.world.setPlayerGear(save.equip); // 手里的武器模型跟着装备走
+    if (P.ent && !dry) G.world.setPlayerGear(save.equip); // 手里的武器模型跟着装备走
     return P;
+  };
+
+  // 换装试算：把 item 临时放进 slot，按 dry 模式算一遍属性，交给 fn 读（P 的属性、G.skillCtx / G.skillDps……），返回 fn 的结果；
+  // 之后装备、P 的属性字段、P.relic、刻式定义原样还回去。全程不碰战斗中的状态、不写存档（见 computeStats 的 dry），
+  // 所以地面名牌每帧问、背包重渲染时问都不会改变正在打的仗。fn 只能读，不能推进模拟
+  const TRIAL_KEYS = ['S', 'gearLife', 'maxLifeRaw', 'maxManaRaw', 'reservePct', 'reserveLife', 'reserved', 'maxLife', 'maxMana', 'armour', 'speedMult', 'moveSpeed', 'lifeRegen', 'manaRegen', 'uMech'];
+  G.statTrial = function (slot, item, fn) {
+    const eq = G.save.equip;
+    const had = Object.prototype.hasOwnProperty.call(eq, slot);
+    const cur = eq[slot];
+    const keep = {};
+    for (const k of TRIAL_KEYS) if (Object.prototype.hasOwnProperty.call(P, k)) keep[k] = P[k];
+    const res = Object.assign({}, P.res);
+    const relic = Object.assign({}, P.relic);
+    const defs = {};
+    for (const id of Object.keys(G.SKILL_V || {})) defs[id] = G.SKILLS[id];
+    trialVar = {};
+    try {
+      eq[slot] = item;
+      G.computeStats({ dry: true });
+      return fn();
+    } finally {
+      trialVar = null;
+      if (had) eq[slot] = cur;
+      else delete eq[slot];
+      for (const k of TRIAL_KEYS) {
+        if (Object.prototype.hasOwnProperty.call(keep, k)) P[k] = keep[k];
+        else delete P[k];
+      }
+      Object.assign(P.res, res);
+      for (const k in P.relic) delete P.relic[k];
+      Object.assign(P.relic, relic);
+      for (const id in defs) G.SKILLS[id] = defs[id];
+    }
   };
 
   // ---------- 光环 ----------
@@ -2435,7 +2478,8 @@
   G.relicState = RQ; // 测试 / 调试用
 
   // computeStats 里调用：按身上的装备汇总 P.relic（同一种机制穿两件也只算一次）
-  G.relicSync = function () {
+  // dry（换装试算）：只汇总 P.relic、把试算时生效的刻式记进 trialVar，机制的运行时状态一概不动（见 G.statTrial）
+  G.relicSync = function (dry) {
     const r = P.relic;
     for (const k in r) delete r[k];
     const eq = G.save && G.save.equip;
@@ -2447,6 +2491,10 @@
         r[it.rq] = true;
         r.any = true;
       }
+    }
+    if (dry) {
+      relicVariantTrial();
+      return r;
     }
     if (!r.qianmu) RQ.crit = 0;
     relicVariantSync();
@@ -2489,6 +2537,21 @@
       if (G.SKILLS[id].kind === 'summon') RQ.varMin = true; // 召唤物的上限 / 数值 / 体型：下一帧在 relicTick 里刷新（这里还在 computeStats 当中）
       if (P.cast && P.cast.id === id) endChannel();
       if (P.auraT) delete P.auraT[id];
+    }
+  }
+
+  // 试算版的 relicVariantSync：同样的规则算出「换上之后」生效的刻式（第一次戴上这件渊契会自动选上渊式——试算也按选上算），
+  // 只记进 trialVar、换 G.SKILLS 里的定义（G.statTrial 结束时换回）；不写存档、不弹提示、不停持续施放、不动光环计时和召唤物
+  function relicVariantTrial() {
+    const save = G.save;
+    if (!save || !save.variants || !G.SKILL_V || !trialVar) return;
+    for (const rq of Object.keys(G.VARIANT_RELIC)) {
+      const id = G.VARIANT_RELIC[rq];
+      if (!G.SKILL_V[id]) continue;
+      const auto = !(save.rqAuto && save.rqAuto[id]) && G.variantRelicOn(id);
+      const eff = auto || (save.variants[id] === 'c' && G.variantRelicOn(id)) ? 'c' : G.variantFallback(id);
+      trialVar[id] = eff;
+      if ((G.SKILLS[id].variant || 'o') !== eff) G.SKILLS[id] = G.skillVariant(id, eff);
     }
   }
 
