@@ -18141,8 +18141,8 @@
     if (u.hex !== hex) {
       u.hex = hex;
       // vf-vfx3：射线的里层芯少混白（0.75 → 0.3），两头的光晕用元素色（原来混四成白、2.6 / 3.4 米）——整条射线不再是一根近白的长条
-      for (const q of u.parts) q.m.material.uniforms.uColor.value.copy(lin(q.white ? mixHex(hex, 0xffffff, 0.3) : hex));
-      u.s0.material = u.s1.material = spriteMat(hex);
+      for (const q of u.parts) q.m.material.uniforms.uColor.value.copy(lin(q.white ? mixHex(hex, 0x000000, 0.2) : mixHex(hex, 0x000000, 0.5)));
+      u.s0.material = u.s1.material = spriteMat(mixHex(hex, 0x000000, 0.4)); // 加色的四层叠在一起：外层压暗一半、芯压两成，射线是亮黄色而不是一根白条
     }
     const len = Math.hypot(x1 - x0, y1 - y0, z1 - z0);
     g.visible = true;
@@ -18151,7 +18151,7 @@
     const fl = 0.85 + Math.random() * 0.3;
     for (const q of u.parts) {
       q.m.scale.z = len / 2;
-      q.m.scale.x = (q.white ? 0.3 : 1.2) * fl;
+      q.m.scale.x = (q.white ? 0.3 : 1.0) * fl;
     }
     u.s0.position.set(0, 0, -len / 2);
     u.s0.scale.setScalar(1.6 * fl);
@@ -18198,7 +18198,7 @@
         // vf-vfx3：内爆按「坍缩」画：往里卷的弯月 + 暗芯 + 细边环往外推（原来 36 粒混四成白的光点 + 6 米星芒 + 4 米粗环）；落雷少混白
         W.foeHit(x, z, core, 'chaos', { hex, big: true });
         W.foeRing(x, z, core + 1.4, hex, 0.35);
-        skyBolt(x, z, mixHex(hex, 0x000000, 0.1), 9, 4, 0.26, true); // vf-vfx3：元素色、细一圈，只有头上一小段亮
+        skyBolt(x, z, mixHex(hex, 0x000000, 0.4), 9, 4, 0.26, true); // vf-vfx3：元素色（压暗四成）、细一圈，只有头上一小段亮
       }
       return;
     }
@@ -18221,10 +18221,10 @@
   // 流星犁地的一处落点：一道星光从天而降，地上炸开一圈碎光（每道线的第一处多一道竖直落雷）
   W.riftStrike = function (x, z, r, hex, big) {
     // vf-vfx3：天上劈下来的光带改元素色（原来往白混 45 %）、细一圈，只有往下冲的头上一小段亮（时序 / 判定不变）
-    const hw = mixHex(hex, 0x000000, 0.1);
+    const hw = mixHex(hex, 0x000000, 0.4); // 加色：压暗四成，叠在亮地面上不成白线
     vstreak(x + rand(-0.8, 0.8), 8, z - 1.2, x, 0.1, z, big ? 0.3 : 0.2, hw, 0.2, true);
     if (big) skyBolt(x, z, hw, 7, 3, 0.22, true);
-    flare(x, 0.6, z, hex, r * 2.2, 0.18);
+    // vf-vfx3：落点那一记 3 米的星芒（flare）去掉：落点的形状由 W.foeHit 画
     W.foeHit(x, z, r, 'light', { k: 0.5, hex }); // vf-vfx3：落点放射的折线 + 外沿环 + 电灼纹（原来 9 粒偏白的光点 + 环）
   };
   function hideRiftFx() {
@@ -20731,7 +20731,7 @@
     const foe = !!(o && o.foe);
     // vf-vfx3：敌方的电弧（o.foe）：元素色、不往白混、细一些，芯只混一成白；落点不再一个个放星芒 / 闪光 / 近白火花，
     // 换成小号的雷系命中（折线放射），起点（首领身上）一记 ≤ 1.2 米、60 毫秒的亮芯
-    if (foe) b.u.uColor.value.set(hex).multiplyScalar(0.9).convertSRGBToLinear();
+    if (foe) b.u.uColor.value.set(mixHex(hexOf(hex), 0x000000, 0.4)).convertSRGBToLinear(); // 加色混合：雷的亮黄本身灰度 ~88 %，叠在亮地面上就成白线，压暗四成
     else b.u.uColor.value.set(hex).lerp(_c2.set(0xffffff), 0.35).convertSRGBToLinear();
     b.u.uWhite.value = foe ? 0.12 : 0.7;
     b.u.uOpacity.value = 1;
@@ -21157,7 +21157,7 @@
     '    al = m * (core * 0.8 + hot * 1.2) * tip * (1.0 - uK * 0.5); wh = hot;',
     // vf-vfx3：敌方的落雷 / 天降光带（uFoe）：身子是元素色、不往白混；只有往下冲的头上一小段（光带长的 14 %，8 米的光带约 1.1 米）是亮芯，
     // 而且只在头还在往下冲的那 30 % 寿命里（0.2 秒的光带 = 60 毫秒）。近白只给小而短的东西
-    '    if (uFoe > 0.5) { float hd = (1.0 - smoothstep(0.0, 0.14, head - s)) * step(s, head) * (1.0 - smoothstep(0.24, 0.3, uK)); wh = hot * hd; al *= 0.8; }',
+    '    if (uFoe > 0.5) { float hd = (1.0 - smoothstep(0.0, 0.14, head - s)) * step(s, head) * (1.0 - smoothstep(0.24, 0.3, uK)); wh = hot * hd; al *= 0.45 + 0.55 * hd; }',
     '  } else {',
     '    float ends = smoothstep(0.0, 0.2, s) * (1.0 - smoothstep(0.8, 1.0, s));',
     '    if (uK < uD) { float f = uK / max(uD, 0.001); al = exp(-a * a * 200.0) * ends * (0.35 + 0.45 * f) * (0.75 + 0.25 * sin(uK * 90.0)); wh = 0.3 * f; }',
