@@ -198,21 +198,25 @@ def pillar(k, h=4.4, r=0.42, sides=8, broken=0.35, plinth=True, chunks=1):
             v.co.z = max(-0.04, v.co.z)
 
 
-def arch(k, span=3.2, h=4.0, r=0.36):
-    """拱门：两根方柱 + 半圆拱的楔石（一块楔石缺失、一侧拱脚开裂）"""
+def arch(k, span=3.2, h=4.0, r=0.36, n=9, whole=False, kw=0.34, kd=1.6, kh=0.62, key_glow=0.0):
+    """拱门：两根方柱 + 半圆拱的楔石（缺省一块楔石缺失）。whole = 楔石一块不缺；kw / kd / kh = 楔石沿拱的宽、厚（× r）、径向高；
+    key_glow > 0：拱顶那块楔石正面一道余烬缝（暗芯亮边，俯视时拱顶读得出来）。缺省参数和最早的灰烬拱逐字节相同"""
     for sx in (-1, 1):
         k.box((r * 2.3, r * 2.3, 0.4), k.place((sx * span / 2, 0, 0.15)), row='stone', tone=0.4, bevel=0.04)
         k.box((r * 1.7, r * 1.7, h - 0.35), k.place((sx * span / 2, 0, 0.35 + (h - 0.35) / 2 - 0.02)), row='stone', tone=0.52, bevel=0.03)
-    n = 9
     rad = span / 2
-    miss = int(k.r(2, n - 2))
+    miss = -1 if whole else int(k.r(2, n - 2))
     for i in range(n):
         if i == miss:
             continue
         a = math.pi * (i + 0.5) / n
         cx, cz = math.cos(a) * rad, h + math.sin(a) * rad * 0.9
         m = k.place((cx, 0, cz), (0, -(math.pi / 2 - a), 0))
-        k.box((0.34, r * 1.6, 0.62), m, row='stone', tone=0.55, jitter=0.12, bevel=0.025)
+        vs = k.box((kw, r * kd, kh), m, row='stone', tone=0.55, jitter=0.12, bevel=0.025)
+        if key_glow > 0 and i == n // 2:
+            fs = sorted([f for f in _sorted_faces_of(vs) if abs(f.normal.y) > 0.8], key=lambda f: (round(f.calc_center_median().y, 4), round(f.calc_area(), 5)))
+            for f in (fs[0], fs[-1]) if len(fs) > 1 else fs:  # 前后两面都开一道缝（摆放时随机转向）
+                k.slit(f, width=0.2, depth=0.02, glow=key_glow)
 
 
 # ---------------------------------------------------------------- 火：火坑 / 火盆
@@ -827,37 +831,46 @@ def _spiral(k, c, u, v, n, r0, r1, turns=1.6, steps=14, rad=0.025, glow=0.5, lif
     return vs
 
 
-def tomb(k, L=1.9, W=1.0, H=2.0, glow=0.5):
-    """碎墓：一块低矮的石棺盖裂成两半、错开（裂缝透余烬），一头立着断了上角的高墓碑，碑面一道余烬螺旋。（替换 kh/grave_A_destroyed：约 2.1 × 1.1、高 2.1）"""
+def tomb(k, L=1.7, W=1.0, H=2.0, glow=0.5):
+    """碎墓：一头立着高大的圆顶墓碑（两级碑座、圆弧碑顶，一侧肩上崩掉一角，碑面一道余烬螺旋），碑前一块矮的石棺盖裂成两半、错开（裂缝透余烬）。
+    墓碑是主体：俯视和侧看都先读出「一块圆顶的碑」。（替换 kh/grave_A_destroyed：约 2.1 × 1.1、高 2.1）"""
     from mathutils import Vector
-    # 石棺座 + 裂成两半的盖
-    k.box((L * 0.86, W * 0.78, 0.26), k.place((0.08, 0, 0.1)), row='stone', tone=0.4, jitter=0.08, bevel=0.03)
-    cut = k.r(-0.12, 0.12) * L
-    for side in (-1, 1):
-        ln = L * 0.43 + side * cut * 0.5
-        cx = 0.08 + side * (L * 0.215 + 0.03) + cut * 0.25
-        m = k.place((cx, side * k.r(0.0, 0.05), 0.33), (k.r(-0.04, 0.04), side * k.r(0.02, 0.06), side * k.r(0.02, 0.08)))
-        vs = k.box((ln, W * 0.86, 0.16), m, row='stone', tone=0.5, jitter=0.1, bevel=0.025)
-    # 裂缝底：一条余烬
-    k.box((0.07, W * 0.7, 0.04), k.place((0.08 + cut * 0.25, 0, 0.25)), row='ember', tone=0.7, jitter=0.05, glow=glow, dust=0)
-    # 墓碑：立在一头，断了上角，略斜
-    hx = -L * 0.5
+    hx = -L * 0.42
+    # 碑座（两级）
+    k.box((0.5, W * 1.08, 0.18), k.place((hx, 0, 0.09)), row='stone', tone=0.36, jitter=0.06, bevel=0.03)
+    k.box((0.4, W * 0.98, 0.14), k.place((hx, 0, 0.25)), row='stone', tone=0.42, jitter=0.06, bevel=0.025)
+    # 碑身：矩形下半 + 半圆碑顶（凸包），厚 0.28；一侧肩上崩角
+    th, w2 = 0.14, W * 0.44
     pts = []
-    chip = k.r(0.18, 0.3)
-    for sy in (-1, 1):
-        for sz in (-1, 1):
-            pts.append((hx + sz * 0.13, sy * W * 0.42, 0.0))
-            top = H * (1 - (chip if sy > 0 else 0))
-            pts.append((hx + sz * 0.11, sy * W * 0.36, top))
-    pts.append((hx, 0, H * 1.03))
-    hv = k.hull(pts, row='stone', tone=0.46, jitter=0.08)
-    # 碑面（朝 +x 的那一面）的螺旋
-    _spiral(k, Vector((hx + 0.12, 0, H * 0.55)), Vector((0, 1, 0)), Vector((0, 0, 1)), Vector((1, 0, 0)), 0.04, W * 0.26, turns=1.75, steps=16, rad=0.022, glow=glow)
-    k.xform(hv, k.place((0, 0, 0), (k.r(-0.04, 0.04), k.r(-0.06, 0.0), 0)))
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            pts.append((hx + sx * th, sy * w2, 0.3))
+        rr = w2
+        for j in range(9):
+            a = math.pi * j / 8
+            y, z = math.cos(a) * rr, H - rr + math.sin(a) * rr
+            if j <= 1 and k.r() < 2:  # 一侧肩上崩掉一角
+                y *= 0.82
+                z -= 0.12
+            pts.append((hx + sx * th, y, z))
+    hv = k.hull(pts, row='stone', tone=0.48, jitter=0.06)
+    # 碑面（朝 +x）的螺旋
+    _spiral(k, Vector((hx + th, 0, H * 0.6)), Vector((0, 1, 0)), Vector((0, 0, 1)), Vector((1, 0, 0)), 0.04, w2 * 0.58, turns=1.75, steps=16, rad=0.024, glow=glow)
+    k.xform(hv, k.place((0, 0, 0), (0, k.r(-0.05, -0.01), 0)))
+    # 石棺盖：矮、短，裂成两半错开
+    x0, x1 = hx + 0.22, L * 0.5
+    ln = (x1 - x0)
+    k.box((ln, W * 0.72, 0.18), k.place(((x0 + x1) / 2, 0, 0.07)), row='stone', tone=0.38, jitter=0.08, bevel=0.025)
+    cut = k.r(-0.08, 0.08) * ln
+    for side in (-1, 1):
+        l2 = ln * 0.5 - 0.02 + side * cut * 0.5
+        cx = (x0 + x1) / 2 + side * (ln * 0.25 + 0.01) + cut * 0.25
+        k.box((l2, W * 0.78, 0.12), k.place((cx, side * k.r(0.0, 0.04), 0.22), (k.r(-0.03, 0.03), side * k.r(0.02, 0.05), side * k.r(0.02, 0.07))), row='stone', tone=0.5, jitter=0.1, bevel=0.02)
+    k.box((0.06, W * 0.62, 0.03), k.place(((x0 + x1) / 2 + cut * 0.25, 0, 0.16)), row='ember', tone=0.7, jitter=0.05, glow=glow, dust=0)
     # 脚边两块碎石
     for i in range(2):
         a = k.r(0, TAU)
-        k.hull([(math.cos(a) * L * 0.5 + p[0], math.sin(a) * W * 0.5 + p[1], max(-0.02, p[2])) for p in _blob(k, 0.14, 0.12, 0.1, 7)], row='stone', tone=0.38)
+        k.hull([(math.cos(a) * L * 0.45 + p[0], math.sin(a) * W * 0.5 + p[1], max(-0.02, p[2])) for p in _blob(k, 0.12, 0.1, 0.09, 7)], row='stone', tone=0.38)
 
 
 def ribs(k, L=0.84, R=0.36, n=5, rad=0.035):

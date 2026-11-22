@@ -10,20 +10,20 @@
    "file": "assets/ca/abyss/abyss_arch.glb",
    "ship": true,
    "replaces": "kh/arch",
-   "tris": 528,
-   "verts": 1566,
+   "tris": 672,
+   "verts": 1988,
    "materials": 1,
    "textures": 1,
    "bounds": {
     "min": [
      -2.109,
      0,
-     -0.434
+     -0.584
     ],
     "max": [
      2.109,
      4.414,
-     0.434
+     0.584
     ]
    },
    "h": 4.414,
@@ -35,15 +35,22 @@
     "catalog": "art/catalog.py",
     "seed": 61,
     "args": {
-     "span": 3.2,
-     "h": 4
+     "span": 3,
+     "h": 2.8,
+     "r": 0.5,
+     "n": 11,
+     "whole": true,
+     "kw": 0.44,
+     "kd": 1.8,
+     "kh": 0.8,
+     "key_glow": 0.6
     },
     "bake": {
      "ao": 0.8,
      "grad": 1
     }
    },
-   "sha256": "c30d27386f7d15c828a73cf4f960018262c7578bc80c18a240f90b6b6406f89e"
+   "sha256": "d56547ff9f8baeed3a9de28c70cb8a0d562c7d4e3ae5b3cc0f751cda3932a025"
   },
   {
    "id": "ca/abyss_boulder",
@@ -466,20 +473,20 @@
    "file": "assets/ca/abyss/abyss_tomb.glb",
    "ship": true,
    "replaces": "kh/grave_A_destroyed",
-   "tris": 310,
-   "verts": 896,
+   "tris": 420,
+   "verts": 1218,
    "materials": 1,
    "textures": 1,
    "bounds": {
     "min": [
      -1.077,
      0,
-     -0.484
+     -0.604
     ],
     "max": [
-     0.826,
+     1.009,
      2.106,
-     0.444
+     0.604
     ]
    },
    "h": 2.106,
@@ -496,7 +503,7 @@
      "grad": 0.6
     }
    },
-   "sha256": "715ca790dbdab3b5b967b38b400b2a640c29f337fd37a434c5b49fc535db7571"
+   "sha256": "fc5adc1945a1d191f97bb4b0ef24503a63581c6be438007e2ab3cfda26729752"
   },
   {
    "id": "ca/abyss_tree",
