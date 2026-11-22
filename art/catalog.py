@@ -92,6 +92,16 @@ CATALOG = [
          bake=dict(ao=0.4, grad=0.8, wear=0.45), finish=dict(dust=0.1), cues=dict(second=False, val=0.2)),
     dict(id='ca/storm_lantern', gen='storm_lantern', seed=149, cat='prop', zone='storm', ship=True, replaces='kh/lantern_standing',
          fit=dict(r=0.32001006603240967, top=0.9251917004585266, bottom=-2.9802322387695312e-08), bake=dict(ao=0.1, grad=0.2), finish=dict(dust=0.05), cues=dict(second=False, val=0.2)),
+    # ---- 霜骨沼泽（第 1 区）：这一区摆放表里的 CC0 件都摆不上（四周是水），换的是程序化拼的几何体：巨兽头骨（合并进骨架网格，整组替换，碰撞不变）、
+    # 冰芦苇、远处的冰棱簇（布景材质，原 prop/frost）、栈道单位块（高 / 中画质；低画质照旧用程序化方块） ----
+    dict(id='ca/frost_skull', gen='frost_skull', seed=151, cat='kit', zone='frost', ship=True, replaces=None, remap={'bone': 'pale', 'grime': 'stone'},  # 骨换成偏冷的灰白（顶点色直接进骨架网格、不再压饱和度）
+         bake=dict(ao=0.6, grad=0.8, grime=0.35, gtint=0.9), finish=dict(dust=0.0), cues=dict(second=False, val=0.24, lichen=0)),
+    dict(id='ca/frost_reeds', gen='frost_reeds', seed=157, cat='scatter', zone='frost', ship=True, replaces=None,
+         bake=dict(ao=0.12, grad=0.5), finish=dict(dust=0.0), cues=dict(second=False, val=0.2)),
+    dict(id='ca/frost_spire', gen='frost_spire', seed=163, cat='prop', zone='frost', ship=True, replaces=None,
+         bake=dict(ao=0.3, grad=0.6, gain=0.7), finish=dict(dust=0.0), cues=dict(second=False, val=0.2)),
+    dict(id='ca/frost_plank', gen='frost_plank', seed=167, cat='kit', zone='frost', ship=True, replaces=None,
+         bake=dict(ao=0.08, grad=0.01, wear=0.25, grime=0.1), finish=dict(dust=0.0), cues=dict(second=False, val=0.08, lichen=0)),
 ]
 
 # 看板（lineup）：每个生成器 × 几个种子，参数沿用清单里第一个用到它的件
