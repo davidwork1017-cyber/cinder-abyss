@@ -172,7 +172,8 @@
       // 选项：自动拾取普通物品 / 折叠普通物品的名牌 / 拾取时自动分解普通物品 / 一键分解是否包含魔法物品
       // quality：画质档位 high / mid / low（世界层读取，见 G.world.setQuality）；auto = 玩家还没选过，每次启动按设备推断，掉帧时自动降档
       // hitFlash / hitStop / shake：打击手感的三个开关（受击闪光、顿帧、镜头震动），默认都开（vf-vfx2）
-      opts: { autoWhite: false, hideNormal: false, autoSalvage: false, salvageMagic: false, quality: 'auto', hitFlash: true, hitStop: true, shake: true, ambience: true },
+      opts: { autoWhite: false, hideNormal: false, autoSalvage: false, salvageMagic: false, quality: 'auto', hitFlash: true, hitStop: true, shake: true, ambience: true,
+        volMaster: 80, volSfx: 80, volAmb: 60, volMusic: 50, mute: false }, // 音量（0–100，见 js/audio.js 的 G.audio.DEFAULTS）和静音
       seenHelp: false,
       seenStory: false, // 开场故事放过（或跳过）了；只有新角色（seenHelp 为假）才会放，老存档没有这一项也不会看到
       tut: {}, // 已经看过的新手提示：{ 提示 id: 1 }（界面层维护）
@@ -217,6 +218,7 @@
     }
     G.syncGemLevels();
     G.applyVariants(); // 刻式：按这份存档重新拼 G.SKILLS
+    if (G.audio) G.audio.apply(); // 音量设置跟着存档走（audio.js 在 game.js 之后才载入，启动时由它自己读）
     return G.save;
   }
 
@@ -568,6 +570,9 @@
       quality: G.QUALITY_IDS.indexOf(ro.quality) >= 0 ? ro.quality : 'auto',
       hitFlash: ro.hitFlash !== false, hitStop: ro.hitStop !== false, shake: ro.shake !== false, // 老存档没有这三项：按默认开
       ambience: ro.ambience !== false, // vf-vfx3：环境特效（区域氛围），老存档没有 = 开
+      // sfx-synth：音量 0–100 和静音。老存档没有：音效按改版前的响度（总音量 / 音效 80），环境音 60、音乐 50
+      volMaster: toInt(ro.volMaster, 0, 100, 80), volSfx: toInt(ro.volSfx, 0, 100, 80),
+      volAmb: toInt(ro.volAmb, 0, 100, 60), volMusic: toInt(ro.volMusic, 0, 100, 50), mute: !!ro.mute,
     };
     s.seenHelp = !!raw.seenHelp;
     s.seenStory = !!raw.seenStory;
@@ -3222,7 +3227,7 @@
   G.relicHole = function (ctx, R, dur) {
     const sk = ctx.sk, Y = sk.follow;
     const r = R * Y.radius;
-    G.sfx('cast');
+    G.sfx('cast', { id: ctx.id });
     const h = addHole({ x: P.x, z: P.z, R: r, pullR: r * sk.pullR, t: 0, dur: dur * Y.dur, tick: sk.tick, tt: sk.tick, ctx, mult: Y.dmg, pullMul: Y.pull, mouth: false, follow: true });
     if (h.fx && G.world.rvOrbit) G.world.rvOrbit(h.fx, r);
     return h;
@@ -4843,7 +4848,7 @@
             P.combo.step = (c.step + 1) % ctx.sk.cyc.length;
             P.combo.t = c.cancelT - c.fireT + COMBO_WINDOW;
           }
-          G.sfx('cast');
+          G.sfx('cast', { id: c.id, type: mainType(ctx) });
         }
         G.execSkill(ctx, c.st || c.cs || undefined);
         for (let i = 1; i <= ctx.echo; i++) {
@@ -7567,7 +7572,7 @@
     const follow = sk.mech === 'follow'; // 刻式「随凌」：圈心每一根都按你此刻的位置
     if (follow) fxOpt('iceRainFollow', P.x, P.z, R, sk.tick * 1.3);
     else if (!fxOpt('iceRain', x, z, R, total, hex)) G.telegraph({ shape: 'circle', x, z, r: R, dur: total, dmg: 0, friendly: true });
-    G.sfx('cast');
+    G.sfx('cast', { id: ctx.id });
     const icicle = (i) => {
       if (P.dead) return;
       let px, pz;
@@ -7619,7 +7624,7 @@
   function icicleSlam(ctx, x, z, R, hex, rain) {
     const SL = ctx.sk.slam;
     fxOpt('iceRain', x, z, R, SL.delay + SL.fall, hex);
-    G.sfx('cast');
+    G.sfx('cast', { id: ctx.id });
     G.after(SL.delay, () => {
       if (P.dead) return;
       fxOpt('icicleSlamFall', x, z, R, SL.fall, hex);
@@ -7893,7 +7898,7 @@
     const R = sk.radius * Math.sqrt(ctx.area);
     const dur = sk.dur * (1 + Math.max(0, P.S.holeDur || 0) / 100) * ctx.durK; // 绵延另外再乘
     if (sk.mech === 'follow') return holeMark(G.relicHole(ctx, R, dur), sk); // 渊式「随核」：黑洞开在你身上、跟着你走
-    G.sfx('cast');
+    G.sfx('cast', { id: ctx.id });
     if (sk.mech === 'twin') return holeTwin(ctx, P.x + a.dx * d, P.z + a.dz * d, a, R, dur); // 刻式「双极」
     return holeMark(addHole({ x: P.x + a.dx * d, z: P.z + a.dz * d, R, pullR: R * sk.pullR, t: 0, dur, tick: sk.tick, tt: sk.tick, ctx, mult: 1, pullMul: 1, mouth: false }), sk);
   };
@@ -7925,7 +7930,7 @@
       v.fx = G.world.makeVortex ? G.world.makeVortex(v.x, v.z, R, i, vortexLook(v)) : null;
       vortices.push(v);
     }
-    G.sfx('cast');
+    G.sfx('cast', { id: ctx.id });
   };
 
   // ---------- 自动召唤 ----------
@@ -8260,7 +8265,7 @@
         W.decal(t === 'fire' ? 1 : t === 'cold' ? 2 : 3, P.x, P.z, R * 0.85, Math.random() * TAU, hex, 3);
         W.burst(P.x, 0.4, P.z, hex, 40, R * 1.6, 0.6);
       }
-      G.sfx('cast');
+      G.sfx('cast', { id: ctx.id, type: t });
       wsStrike(ctx, hits, 1, { ang: (e) => Math.atan2(e.x - P.x, e.z - P.z), w: sk.w, kb: sk.kb, poise: sk.poise, stop: 60 });
     },
 
@@ -8287,7 +8292,7 @@
           ctx, pierce: 0, chain: 0, explode: sk.explode || 0, hit: new Set(), home: e, turn: sk.turn, seeker: true, vk: 'dart',
         });
         fxOpt('seekerFx', P.x + dx * 0.6, 1.1, P.z + dz * 0.6, G.TYPE_HEX[t]);
-        G.sfx('cast');
+        G.sfx('cast', { id: ctx.id, type: t });
       };
       fire(0);
       for (let i = 1; i < sk.n; i++) G.after(sk.gap * i, () => fire(i));
@@ -8481,7 +8486,7 @@
     const fz = sk.frenzy;
     const n = G.minionFrenzy ? G.minionFrenzy(fz.dur, fz.k) : 0;
     if (n) G.world.text(P.x, P.z, '狂热', '#4fe3c8', 16);
-    G.sfx('cast');
+    G.sfx('cast', { id: ctx.id });
   };
 
   // =====================================================================
@@ -8687,7 +8692,7 @@
     c.data.storm = storm;
     if (!fxOpt('triStorm', x, z, R, sk.delay + sk.dur + 0.3)) G.telegraph({ shape: 'circle', x, z, r: R, dur: sk.delay + sk.dur, dmg: 0, friendly: true });
     W.shake(0.25);
-    G.sfx('cast');
+    G.sfx('cast', { id: ctx.id });
     G.sfx('tristorm');
     state.stats.storms = (state.stats.storms || 0) + 1;
     const FALL = 0.24; // 从天上落到地面的时间（陨火 / 冰棱 / 落雷的特效在这之前出手）
@@ -8786,7 +8791,7 @@
     c.dur = c.t + sk.charge + sk.hold + 0.2;
     c.cancelT = c.dur;
     c.data = { ang: c.aim, ch: 0, shot: false, beamT: 0, len: sk.len };
-    G.sfx('cast');
+    G.sfx('cast', { id: ctx.id });
     c.tick = (cc, dt) => {
       const d = cc.data;
       if (!d.shot) {
@@ -8858,7 +8863,7 @@
     P.rstate = { id: ctx.id, t: sk.dur, dur: sk.dur, nextT: 0, i: 0, ctx };
     if (P.cast && P.cast.ranged) endRanged();
     G.world.text(P.x, P.z, sk.name, sk.color, 18);
-    G.sfx('cast');
+    G.sfx('cast', { id: ctx.id });
   };
   function updateWildfire(dt) {
     const rs = P.rstate;
@@ -8916,7 +8921,7 @@
       W.burst(P.x, 1.2, P.z, hex, 24, 4, 0.6);
     }
     W.text(P.x, P.z, sk.name, sk.color, 18);
-    G.sfx('cast');
+    G.sfx('cast', { id: ctx.id });
   };
 
   // 以当前鼠标落点为目标执行一次技能效果（不扣消耗、不进冷却）
@@ -9711,7 +9716,7 @@
     if (scrapped) {
       const res = G.salvageResult(loot.data);
       for (const id in res) grantCurrency(id, res[id]);
-      G.sfx('pickup');
+      G.sfx('pickup', { r: 0 });
     } else if (loot.kind === 'item') {
       if (save.bag.length >= BAG_SIZE) {
         toast('背包已满', '#ff8a6a', 'bagfull', 2500);
@@ -9728,11 +9733,11 @@
         if (G.icons && G.icons.warmRelic) G.icons.warmRelic(loot.data.rq);
         G.persist();
       }
-      G.sfx('pickup');
+      G.sfx('pickup', { r: loot.data.rarity });
     } else if (loot.kind === 'cur') {
       grantCurrency(loot.data, 1);
       W.text(P.x, P.z, '+1 ' + G.CURRENCY[loot.data].name, loot.color, 13);
-      G.sfx('pickup');
+      G.sfx('pickup', { cur: 1 });
     } else if (loot.kind === 'skill') {
       const id = loot.data.id;
       const lvl = loot.data.lvl;
