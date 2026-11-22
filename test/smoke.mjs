@@ -17,7 +17,46 @@ let passed = 0;
 const CHEAP_DPR = 0.5;
 let cheap = false;
 const FULL_RES = ['首屏：', '怪物：远处沉睡', '区域 ', '首领「', '画面：', '存档：刷新页面后', '技能卡版式：', '标题画面与暂停菜单在小窗口', '异兆小地图：', '宝箱：', '小地图：', '特效贴图库'];
-const launch = (o) => launchFull(Object.assign({ dpr: cheap ? CHEAP_DPR : null }, o));
+// 随机数（test/README.md「随机数」）：每一步开始时按步骤名重新播种（step() 里），这一步里新开的浏览器也用这一步的名字当种子。
+// 这样每一步拿到的随机序列和前面跑过什么无关；CINDER_RANDOM=1 关掉（照旧用浏览器自己的随机数，找只在某些随机情况下才出的问题时用）
+// CINDER_SEED=<任意字符串>：换一套种子（每步的种子 = 它 + 步骤名），查某一步是不是只在这一套随机数下碰巧能过
+const SEEDED = !process.env.CINDER_RANDOM;
+const SEED_SALT = process.env.CINDER_SEED || '';
+const seedKey = (name) => (SEED_SALT ? SEED_SALT + '|' : '') + name;
+let curStep = '准备';
+// CINDER_AUDIT=1：体检（不改结果）。每一步结束时打印 audit 行：传送到 0.4 米余量下不能走的地方（T.tp）、
+// 等待（until / 页面加载 / 导航）用掉了防卡死超时的一半以上；最后打印全程最接近超时的几次等待
+const AUDIT = !!process.env.CINDER_AUDIT;
+const auditStep = [], auditWaits = [];
+function auditWait(kind, ms, guard) {
+  if (!AUDIT) return;
+  auditWaits.push({ step: curStep, kind, ms, guard });
+  if (ms > guard / 2) auditStep.push(kind + ' ' + ms + 'ms / 超时 ' + guard + 'ms');
+}
+const timed = async (kind, guard, p) => {
+  const t0 = Date.now();
+  const r = await p;
+  auditWait(kind, Date.now() - t0, guard);
+  return r;
+};
+const launch = async (o) => {
+  const r = await launchFull(Object.assign({ dpr: cheap ? CHEAP_DPR : null, seed: SEEDED ? seedKey(curStep) : null }, o));
+  if (AUDIT) {
+    const pg = r.page, reload = pg.reload.bind(pg), nav = pg.waitForNavigation.bind(pg);
+    pg.reload = (opt) => timed('reload', (opt && opt.timeout) || 30000, reload(opt));
+    pg.waitForNavigation = (opt) => timed('navigation', (opt && opt.timeout) || 30000, nav(opt));
+  }
+  return r;
+};
+const reseed = (key) =>
+  SEEDED && page
+    ? page
+        .evaluate((k) => {
+          if (window.T) T._rand = null; // 上一步没还原的 T.fix
+          return window.__testRand ? window.__testRand.seed(k) : null;
+        }, seedKey(key))
+        .catch(() => {})
+    : null;
 const setDpr = (d) =>
   page &&
   page
@@ -57,19 +96,23 @@ const frames = (n) =>
       }),
     n
   );
-const until = (fn, arg, timeout) => page.waitForFunction(fn, arg, { timeout: timeout || 45000 });
+const until = (fn, arg, timeout) => timed('until', timeout || 45000, page.waitForFunction(fn, arg, { timeout: timeout || 45000 }));
 
 async function step(name, fn) {
-  const t0 = Date.now();
   const full = cheap && FULL_RES.some((p) => name.startsWith(p));
   if (full) await setDpr(1);
+  curStep = name;
+  await reseed(name);
+  const t0 = Date.now();
   try {
     const info = await fn();
     if (page) await sleep(30); // 给异步报错一点冒出来的时间（第一步 check-art 只用 Node，那时还没开浏览器）
     if (errors && errors.length) throw new Error('页面报错：' + errors.splice(0).join(' | '));
+    await auditFlush(name);
     passed++;
     console.log('ok   ' + name + (info ? ' — ' + info : '') + '  (' + (Date.now() - t0) + 'ms)' + NC_TAG);
   } catch (e) {
+    await auditFlush(name);
     failed++;
     const extra = errors && errors.length ? ' ｜页面报错：' + errors.splice(0).join(' | ').slice(0, 600) : '';
     console.log('FAIL ' + name + ' — ' + String(e && e.message ? e.message : e).split('\n').slice(0, 6).join(' / ') + extra);
@@ -77,9 +120,17 @@ async function step(name, fn) {
   if (full) await setDpr(CHEAP_DPR);
 }
 
+async function auditFlush(name) {
+  if (!AUDIT) return;
+  const tp = page ? await page.evaluate(() => (window.__auditTp || []).splice(0)).catch(() => []) : [];
+  for (const t of tp) auditStep.push('传送到 0.4 米余量下不能走的地方 ' + t);
+  for (const a of auditStep.splice(0)) console.log('audit ' + name.slice(0, 40) + ' — ' + a);
+}
+
 // 页面内的测试小工具（每次加载页面后重新装一遍）
 async function install() {
-  await page.waitForFunction(() => window.G && G.debug && G.state && G.state.zone && G.player && G.player.ent, null, { timeout: 30000 });
+  await timed('install', 30000, page.waitForFunction(() => window.G && G.debug && G.state && G.state.zone && G.player && G.player.ent, null, { timeout: 30000 }));
+  if (AUDIT) await ev(() => { window.__audit = true; });
   await ev(() => {
     const G = window.G, W = G.world, P = G.player, S = G.state;
     const T = (window.T = {
@@ -90,6 +141,7 @@ async function install() {
         return JSON.stringify(f(o));
       },
       tp(x, z) {
+        if (window.__audit && !W.walkable(x, z, 0.4)) (window.__auditTp = window.__auditTp || []).push('(' + x.toFixed(2) + ', ' + z.toFixed(2) + ') 区 ' + G.state.zone.def.id + (W.walkable(x, z, 0) ? '（0 米余量能走）' : '（0 米余量也不能走）'));
         P.x = x;
         P.z = z;
         P.cast = null;
@@ -125,6 +177,19 @@ async function install() {
         T.settle();
       },
       // 一只打不死、不会动的靶子
+      // 离 (x, z) r 米、0.4 米余量下能走的一点：先试 a0 方向（弧度，sin / cos 对应 x / z），再往两边每 15° 找；
+      // 给了 band（[近, 远]）时这一圈都不行就按离 r 由近到远换半径（每 1.5 米）再找；都不行返回 a0 方向 r 米那一点。
+      // 传送到算出来的位置时用它：布局随机，算出来的点可能正好在墙里 / 布景件里（窄走廊里一整圈都可能落在墙外）
+      spotNear(x, z, r, a0, band) {
+        const rs = [r];
+        if (band) for (let k = 1; k < 40; k++) for (const d of [-k * 1.5, k * 1.5]) if (r + d >= band[0] && r + d <= band[1]) rs.push(r + d);
+        for (const rr of rs)
+          for (let k = 0; k < 24; k++) {
+            const a = a0 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (Math.PI / 12), px = x + Math.sin(a) * rr, pz = z + Math.cos(a) * rr;
+            if (W.walkable(px, pz, 0.4)) return { x: px, z: pz };
+          }
+        return { x: x + Math.sin(a0) * r, z: z + Math.cos(a0) * r };
+      },
       // 从玩家出发、一路可走（两侧各留 1 米）最远的那个方向：{ x, z } 单位向量，len 是能走多远（最多 max 米）
       openDir(max) {
         let best = { x: 0, z: 1, len: 0 };
@@ -391,15 +456,29 @@ async function dragView(from, to) {
 }
 
 // 用真鼠标把 from 拖到 to（选择器或坐标）；mid 在松手前执行
-async function dragTo(from, to, mid) {
+// land：终点应能接住（技能页的孔、宝石列表）。松手前先等终点真的被悬停成落点（drop-hover / drop-bad），
+// 没等到就说清是拖拽根本没开始、还是悬停在别处（原来这类失败只看得到松手后什么都没变）
+async function dragTo(from, to, mid, land) {
   if (typeof from === 'string' || typeof to === 'string') await dragView(from, to);
   const a = typeof from === 'string' ? await ev((s) => T.rect(s), from) : from;
+  // 从旁边移进起点：上一次拖拽正好在这里松手时，指针原地不动就按下，页面收不到一次移动
+  await page.mouse.move(a.x - 7, a.y - 5);
   await page.mouse.move(a.x, a.y);
   await page.mouse.down();
   await page.mouse.move(a.x + 9, a.y + 6, { steps: 2 });
   const b = typeof to === 'string' ? await ev((s) => T.rect(s), to) : to;
   await page.mouse.move(b.x, b.y, { steps: 5 });
   try {
+    if (land && typeof to === 'string') {
+      const hovered = (sel) => {
+        const n = document.querySelector(sel);
+        return !!n && document.body.classList.contains('dragging') && (n.matches('.drop-hover, .drop-bad') || !!n.closest('.drop-hover, .drop-bad'));
+      };
+      await until(hovered, to, 10000).catch(async () => {
+        const st = await ev(() => ({ dragging: document.body.classList.contains('dragging'), hover: Array.from(document.querySelectorAll('.drop-hover, .drop-bad')).map((n) => n.className + ' ' + JSON.stringify(n.dataset)) }));
+        throw new Error('拖到 ' + to + ' 松手前终点没有成为落点：' + JSON.stringify(st));
+      });
+    }
     if (mid) await mid();
   } finally {
     await page.mouse.up();
@@ -452,6 +531,7 @@ async function holdInput(slot, down) {
 // 新加的计时断言写进这里、不写进 main()：步骤名用「计时｜」开头，并在 test/README.md 的表里记一行。
 async function timedMain() {
   // 准备：和 main() 开头「启动」「首屏」两步同样的操作（不含断言），图标预热的起点和原来一样
+  curStep = 'timed:准备'; // 种子（见 launch）：npm test 先跑 func 再跑 timed 时也和单独跑 test:timed 一样
   ({ browser, page, errors } = await launch({ width: 1440, height: 900 }));
   await install();
   await ev(() => G.debug.hold(false));
@@ -772,6 +852,7 @@ async function timedMain() {
 }
 
 async function main() {
+  curStep = 'func:准备';
   // ------------------------------------------------------------------ 自产素材（只用 Node，不起浏览器）
   await step('素材：自产布景件（assets/ca/manifest.json 里的每个 GLB）符合预算、命名、原点 / 单位规矩，打进包的就是这一份（tools/check-art.mjs）', async () => {
     const { fails, count } = checkArt();
@@ -5735,12 +5816,18 @@ async function main() {
       out.ticks = (S.stats.pyreBeamTicks || 0) - beamTicks0;
       out.noMeteor = (S.stats.pyreMeteors || 0) === w.met;
       out.bossHurt = boss.maxHp - boss.hp > 0;
-      // 集火：玩家打中的敌人成了目标，祭司转而打它
+      // 集火：玩家打中的敌人成了目标，祭司转而打它。
+      // 出手动作（掷火弹 0.62 秒、大招 0.9 秒）做到一半不换目标，挑目标每 0.25 秒一次：先等手上的动作做完，再把挑目标的间隔对齐到集火这一刻，
+      // 0.4 秒的检查才不取决于集火正好落在哪个动作的哪一段（原来有时一位祭司刚对首领起手火弹，0.4 秒时目标还是首领）
+      for (let i = 0; i < 120 && ps.some((m) => !m.dead && (m.state === 'attack' || m.state === 'meteor')); i++) G.tick(1 / 60);
+      out.busy = ps.filter((m) => !m.dead && (m.state === 'attack' || m.state === 'meteor')).length;
       const far = G.spawnMob('brute', P.x + dir.x * (bd - 3) - dir.z * 2, P.z + dir.z * (bd - 3) + dir.x * 2, 1, { awake: true });
       far.hp = far.maxHp = 1e7;
       far.freeze = 1e9;
       G.hitEnemy(far, G.skillCtx('basic_blade'), 0.01, {});
+      for (const m of ps) m.seekT = 0;
       G.debug.step(0.4);
+      out.st = ps.map((m) => m.state + ':' + (m.target === far ? 'far' : m.target === boss ? 'boss' : m.target ? 'other' : '-')).join(',');
       out.focus = G.focusTarget() === far && ps.every((m) => m.dead || m.target === far || m.state === 'beam');
       G.clearEnemies();
       // 贴身：一只醒着的游魂站到祭司身边，祭司应退开（往玩家那边）
@@ -5768,7 +5855,7 @@ async function main() {
       return out;
     });
     assert(r.alive === 2 && r.beam && r.ticks >= 8 && r.noMeteor && r.bossHurt, '只有一个首领时焰蓄满了应引导灼链（不放坠焰）：' + JSON.stringify(r));
-    assert(r.focus, '祭司应转去打集火目标：' + JSON.stringify(r));
+    assert(r.busy === 0 && r.focus, '祭司应转去打集火目标：' + JSON.stringify(r));
     assert(r.flee > 0.8, '敌人贴身时祭司应先退开：' + JSON.stringify(r));
     assert(r.dead && r.refill === 2, '祭司倒下应演倒地并由自动召唤补回：' + JSON.stringify(r));
     // 技能卡：火弹半径、焰蓄与两种大招
@@ -5790,7 +5877,7 @@ async function main() {
       return { n: chips.length, bar: chips.every((c) => getComputedStyle(c.querySelector('.mn-tc')).display !== 'none'), ready: chips.filter((c) => c.classList.contains('ready')).length };
     });
     assert(hud.n === 2 && hud.bar && hud.ready === 2, '召唤物条上应有两位祭司和焰蓄条：' + JSON.stringify(hud));
-    return '灼链 ' + r.ticks + ' 跳，贴身退开 ' + r.flee + ' 米';
+    return '灼链 ' + r.ticks + ' 跳，集火后 ' + r.st + '，贴身退开 ' + r.flee + ' 米';
   });
 
   await summonStep('焚骨祭司：继承武器伤害时施法武器（杖 / 短杖 / 魂幡）按 2.2 倍计；多重投射一次掷 3 枚分头砸、扩域放大爆炸与坠焰；穿透 / 连锁镶不上；天赋「焚骨圣咏」扩大召唤物范围、加快焰蓄', async () => {
@@ -7120,14 +7207,14 @@ async function main() {
       mid = await ev(() => document.querySelector('#drag-ghost em').textContent);
     });
     assert(mid.includes('需要标签') && (await ev(() => G.save.sockets.ember[1])) === null, '不适配的宝石不应镶上：' + mid);
-    await dragTo(sock('ember', 0), sock('blade', 2));
+    await dragTo(sock('ember', 0), sock('blade', 2), null, true);
     r = await ev(() => ({ e: G.save.sockets.ember.slice(), b: G.save.sockets.blade.slice() }));
     assert(r.e[0] === null && r.b[2] === 'multi', '孔间拖动应移动宝石：' + JSON.stringify(r));
     await ev(() => { G.socketSupport('ember', 0, 'haste'); G.ui.refresh(); });
-    await dragTo(sock('blade', 2), sock('ember', 0));
+    await dragTo(sock('blade', 2), sock('ember', 0), null, true);
     r = await ev(() => ({ e: G.save.sockets.ember.slice(), b: G.save.sockets.blade.slice() }));
     assert(r.e[0] === 'multi' && r.b[2] === 'haste', '拖到有宝石的孔应对调：' + JSON.stringify(r));
-    await dragTo(sock('ember', 0), '.sup-list');
+    await dragTo(sock('ember', 0), '.sup-list', null, true);
     assert((await ev(() => G.save.sockets.ember[0])) === null, '拖回宝石列表应取下');
     await page.click(sock('blade', 2));
     assert((await ev(() => G.save.sockets.blade[2])) === null, '点击已镶嵌的孔仍应取下');
@@ -9724,6 +9811,45 @@ async function main() {
     assert(r.n === 0, '场景对象数变化 ' + r.n);
     assert(r.geo <= 3 && r.tex <= 1, '切换 10 次区域后几何体 +' + r.geo + '，贴图 +' + r.tex);
     return '几何体 ' + r.g + '（+' + r.geo + '），贴图 ' + r.t + '（+' + r.tex + '）';
+  });
+
+  await step('确定性：three 的 uuid 不取 Math.random（vendor/three.min.js 的本地改动还在）；同一个区原地重建三次（高 → 低 → 高）布景逐位相同', async () => {
+    const r = await ev(() => {
+      // ① uuid：换上一个数调用次数的 Math.random，建几个 three 对象、直接取几个 uuid，一次都不应调到它
+      const rnd = Math.random;
+      let calls = 0;
+      Math.random = () => (calls++, 0.5);
+      try {
+        for (let i = 0; i < 4; i++) THREE.MathUtils.generateUUID();
+        new THREE.BufferGeometry().dispose();
+        new THREE.MeshBasicMaterial().dispose();
+        new THREE.Object3D();
+      } finally {
+        Math.random = rnd;
+      }
+      return { calls, zone: G.state.zone.def.id, q: G.world.quality() };
+    });
+    assert(r.calls === 0, 'three 建对象 / 取 uuid 调到了 Math.random（' + r.calls + ' 次）：vendor/three.min.js 的 uuid 改动丢了？见 docs/vendor-patches.md');
+    // ② 原地重建：模拟暂停（火焰方片不抖），每次重建后等进区空档里的任务（setTimeout 0）跑完再取指纹
+    const hashes = [];
+    await ev(() => G.debug.hold(true));
+    try {
+      for (const q of ['high', 'low', 'high']) {
+        await ev((q) => {
+          G.world.setQuality(q);
+          G.world.vfTune({});
+        }, q);
+        await ev(() => new Promise((res) => setTimeout(res, 50)));
+        hashes.push(await ev(() => G.world.dressHash()));
+      }
+    } finally {
+      await ev((q) => {
+        G.world.setQuality(q);
+        G.debug.hold(false);
+      }, r.q);
+    }
+    assert(hashes.every((h) => h && h.n > 5 && h.hash === hashes[0].hash), '同一个区原地重建后布景不一样（高 / 低 / 高）：' + JSON.stringify(hashes));
+    return '区 ' + r.zone + ' · ' + hashes[0].n + ' 个网格 · 指纹 ' + hashes[0].hash;
   });
 
   await step('特效贴图库（vf-vfx）：贴图包载入、五张贴图解码完成；每个区域在高 / 低画质下施放六个旗舰技能（掷焰、陨火、链雷、霜环、黑洞、黑旋风）并渲染，特效着色器编译无报错，画出序列帧和地面瞬时痕迹', async () => {
@@ -16692,7 +16818,7 @@ async function main() {
       const make = (title) => {
         const enc = EK.put('wanderer', 3, 1);
         enc.title = title;
-        T.tp(enc.site.a.x + 1, enc.site.a.z);
+        { const q = T.spotNear(enc.site.a.x, enc.site.a.z, 1, Math.PI / 2, [0.5, 4]); T.tp(q.x, q.z); }
         EK.step(0.1);
         return enc;
       };
@@ -16708,7 +16834,7 @@ async function main() {
         return { x: 1, z: 0 };
       };
       let enc = make('chain'), e = enc.mob;
-      T.tp(e.x + 18, e.z + 18); // 50 m 外的怪整帧跳过：离远一点但别太远，也别叫醒它
+      { const q = T.spotNear(e.x, e.z, 25.5, Math.PI / 4, [18, 33]); T.tp(q.x, q.z); } // 50 m 外的怪整帧跳过：离远一点但别太远（18–33 m），也别叫醒它（站在能走的地方）
       const x0 = e.x, z0 = e.z;
       EK.step(3);
       out.patrol = +Math.hypot(e.x - x0, e.z - z0).toFixed(2);
@@ -16754,7 +16880,7 @@ async function main() {
       enc = make('oath');
       e = enc.mob;
       e.awake = true;
-      T.tp(e.x + 3, e.z);
+      { const q = T.spotNear(e.x, e.z, 3, Math.PI / 2); T.tp(q.x, q.z); }
       e.hp = e.maxHp * 0.7;
       EK.step(0.1);
       out.totems = (e.encTotems || []).filter((t) => !t.dead).length;
@@ -16769,7 +16895,7 @@ async function main() {
       enc = make('mirror');
       e = enc.mob;
       e.awake = true;
-      T.tp(e.x + 3, e.z);
+      { const q = T.spotNear(e.x, e.z, 3, Math.PI / 2); T.tp(q.x, q.z); }
       e.hp = e.maxHp * 0.55;
       EK.step(0.1);
       const cl = e.encClones || [];
@@ -19415,6 +19541,11 @@ const sum = (p, f) => (f ? '失败 ' + f + ' 项，' : '') + '通过 ' + p + ' �
     if (browser) await browser.close().catch(() => {});
     browser = page = errors = null;
     per.push('test:' + part + ' ' + sum(passed - p0, failed - f0));
+  }
+  if (AUDIT) {
+    const top = auditWaits.slice().sort((a, b) => b.ms / b.guard - a.ms / a.guard).slice(0, 12);
+    console.log('\naudit 最接近超时的等待：');
+    for (const w of top) console.log('audit   ' + Math.round((100 * w.ms) / w.guard) + '%  ' + w.kind + ' ' + w.ms + 'ms / ' + w.guard + 'ms  ' + w.step.slice(0, 60));
   }
   console.log('\n' + per.join(' · '));
   console.log(sum(passed, failed));
