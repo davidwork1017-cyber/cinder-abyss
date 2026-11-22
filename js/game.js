@@ -3518,7 +3518,7 @@
     if (hit.crit && w >= 2 && !inf.tick && !inf.aura && !inf.proc && !inf.splash && !inf.minion && !ctx.minion && !ctx.asMinion && sk.tags && sk.tags.indexOf('spell') >= 0 && G.spellStop(40)) W.shake(0.1);
     if (!inf.quiet) {
       // 投射物 / 法术逐个出声；暴击时镜头也轻轻一顶（近战由技能统一处理）
-      G.sfx('impact', { type: top, w, crit: hit.crit });
+      G.sfx('impact', { type: top, w, crit: hit.crit, id: ctx.id });
       if (hit.crit) W.punch(ang, 0.12);
     }
     wake(e);

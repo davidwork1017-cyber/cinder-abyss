@@ -4,6 +4,7 @@
 // node test/smoke.mjs = 两份都跑（先 func 后 timed）；--func / --timed 只跑一份。
 import { launch as launchFull, GAME_URL } from './harness.mjs';
 import { execSync } from 'node:child_process';
+import { readFileSync, readdirSync } from 'node:fs';
 import { checkArt } from '../tools/check-art.mjs';
 import { checkThree } from '../tools/check-three.mjs';
 
@@ -20024,6 +20025,139 @@ async function titleSteps() {
     r = await ev(() => ({ live: G.world.quality(), opt: G.save.opts.quality, hide: G.save.opts.hideNormal }));
     assert(r.live === q && r.opt === q && r.hide === !h0, '重新载入后画质 / 开关应保持：' + JSON.stringify(r));
     return q0 + ' → ' + q;
+  });
+
+  await step('音效（sfx-synth）：音量设置——新存档 / 老存档的默认值、越界值读档夹回 0–100；标题画面设置页的滑条拖动立即生效、松手才存档，静音开关', async () => {
+    const d = await ev((KEY) => {
+      const out = {};
+      const pick = (o) => [o.volMaster, o.volSfx, o.volAmb, o.volMusic, o.mute];
+      out.fresh = pick(G.newSave().opts);
+      G.persist();
+      const keep = localStorage.getItem(KEY), raw = JSON.parse(keep);
+      for (const k of ['volMaster', 'volSfx', 'volAmb', 'volMusic', 'mute']) delete raw.opts[k];
+      localStorage.setItem(KEY, JSON.stringify(raw));
+      G.loadSave();
+      out.old = pick(G.save.opts);
+      out.lvOld = G.audio.levels();
+      Object.assign(raw.opts, { volMaster: 150, volSfx: -3, volAmb: 'x', volMusic: 33.7, mute: 1 });
+      localStorage.setItem(KEY, JSON.stringify(raw));
+      G.loadSave();
+      out.bad = pick(G.save.opts);
+      out.lvBad = G.audio.levels();
+      localStorage.setItem(KEY, keep);
+      G.loadSave();
+      G.computeStats();
+      out.base = G.audio.levels().master / G.audio.vol(G.save.opts.volMaster);
+      return out;
+    }, SAVE_KEY);
+    assert(d.fresh.join() === '80,80,60,50,false', '新存档的音量默认应是 总 80 / 音效 80 / 环境音 60 / 音乐 50、不静音：' + JSON.stringify(d.fresh));
+    assert(d.old.join() === '80,80,60,50,false', '老存档（没有音量设置）应按同样的默认值读：' + JSON.stringify(d.old));
+    assert(d.bad.join() === '100,0,60,33,true', '越界 / 不是数的音量应夹回 0–100 或用默认值：' + JSON.stringify(d.bad));
+    assert(d.lvBad.master === 0 && d.lvBad.silent === true && d.lvOld.silent === false && d.lvOld.master > 0, '静音 / 音效 0 时总线应为 0、不排声音：' + JSON.stringify([d.lvOld, d.lvBad]));
+    if (!(await ev(() => G.ui.titleOn()))) await toTitle(); // 上一步重新载入后停在标题画面
+    await page.click('#title [data-tact="settings"]');
+    const v0 = await ev(() => Object.assign({}, G.save.opts));
+    let r = await ev(() => ({
+      rows: [...document.querySelectorAll('#title .m-row b')].map((n) => n.textContent),
+      sl: [...document.querySelectorAll('#title input[data-tact="vol"]')].map((n) => n.dataset.k + ':' + n.value + ':' + n.parentNode.querySelector('output').textContent),
+      note: document.querySelector('#title .m-note').textContent,
+    }));
+    assert(['静音', '总音量', '音效', '环境音', '音乐'].every((k) => r.rows.includes(k)), '设置页应有静音和四个音量滑条：' + JSON.stringify(r.rows));
+    assert(r.sl.join() === 'volMaster:80:80,volSfx:80:80,volAmb:60:60,volMusic:50:50', '滑条的位置 / 数字应和存档一致：' + JSON.stringify(r.sl));
+    assert(!/没有音量/.test(r.note), '「游戏没有音量设置」的说明应去掉：' + r.note);
+    // 拖动（input）：立即生效、数字跟着变，但还不存档；松手（change）才存档
+    r = await ev((KEY) => {
+      const n = document.querySelector('#title input[data-k="volSfx"]');
+      n.value = '40';
+      n.dispatchEvent(new Event('input', { bubbles: true }));
+      const a = { opt: G.save.opts.volSfx, out: n.parentNode.querySelector('output').textContent, stored: JSON.parse(localStorage.getItem(KEY)).opts.volSfx, lv: G.audio.levels().sfx };
+      n.dispatchEvent(new Event('change', { bubbles: true }));
+      a.stored2 = JSON.parse(localStorage.getItem(KEY)).opts.volSfx;
+      return a;
+    }, SAVE_KEY);
+    assert(r.opt === 40 && r.out === '40' && r.stored === 80 && Math.abs(r.lv - 0.16) < 1e-9 && r.stored2 === 40, '音效滑条：拖动应立即生效（0.4² = 0.16）、松手才存档：' + JSON.stringify(r));
+    // 真的用鼠标点在总音量滑条正中：50
+    const box = await ev(() => T.rect(document.querySelector('#title input[data-k="volMaster"]')));
+    await page.mouse.click((box.l + box.r) / 2, (box.t + box.b) / 2);
+    r = await ev((KEY) => ({ opt: G.save.opts.volMaster, stored: JSON.parse(localStorage.getItem(KEY)).opts.volMaster, out: document.querySelector('#title input[data-k="volMaster"]').parentNode.querySelector('output').textContent }), SAVE_KEY);
+    assert(Math.abs(r.opt - 50) <= 5 && r.stored === r.opt && r.out === String(r.opt), '鼠标点总音量滑条正中应约为 50 并存档：' + JSON.stringify(r));
+    // 静音开关
+    await page.click('#title [data-tact="opt"][data-opt="mute"]');
+    r = await ev((KEY) => ({ m: G.save.opts.mute, stored: JSON.parse(localStorage.getItem(KEY)).opts.mute, lv: G.audio.levels(), on: document.querySelector('#title [data-opt="mute"]').classList.contains('on') }), SAVE_KEY);
+    assert(r.m === true && r.stored === true && r.on && r.lv.master === 0 && r.lv.silent, '静音开关应立即生效并存档：' + JSON.stringify(r));
+    await page.click('#title [data-tact="opt"][data-opt="mute"]');
+    r = await ev(() => ({ m: G.save.opts.mute, lv: G.audio.levels() }));
+    assert(r.m === false && r.lv.master > 0, '再点一下应取消静音：' + JSON.stringify(r));
+    // 还原
+    await ev((o) => { Object.assign(G.save.opts, { volMaster: o.volMaster, volSfx: o.volSfx, volAmb: o.volAmb, volMusic: o.volMusic, mute: o.mute }); G.persist(); if (G.audio) G.audio.apply(); }, v0);
+    await page.keyboard.press('Escape'); // 退出设置子页，停在标题画面（下一步从标题画面开始）
+    r = await ev(() => ({ title: G.ui.titleOn(), view: (document.querySelector('#title .m-view') || { dataset: {} }).dataset.view || null }));
+    assert(r.title && !r.view, '收尾：应回到标题画面的主菜单：' + JSON.stringify(r));
+    return '默认 80 / 80 / 60 / 50，增益曲线平方，总线 ×' + d.base.toFixed(2);
+  });
+
+  await step('音效（sfx-synth）：每个调用点的音效名都有配方；G.sfx 不取 Math.random、不改存档；离线渲染 50 下命中峰值 ≤ −1 dBFS；声部满了先让敌人的声音', async () => {
+    // 调用点里写死的音效名（G.sfx('x' 和 G.sfx(a ? 'x' : 'y')）以及开场故事里每一格的 sfx
+    const dir = new URL('../js/', import.meta.url);
+    const used = new Set();
+    for (const f of readdirSync(dir).filter((f) => f.endsWith('.js'))) {
+      const src = readFileSync(new URL(f, dir), 'utf8');
+      for (const m of src.matchAll(/G\.sfx\(\s*([^;]*?)\)\s*;/g)) {
+        const head = m[1].split(/,\s*[{A-Z]/)[0];
+        for (const q of head.matchAll(/(?<![=!]==\s*)'([a-z]+)'/g)) used.add(q[1]); // 比较里的字面量（kind === 'small'）不算
+      }
+      if (f === 'story.js') for (const q of src.matchAll(/\bsfx:\s*'([a-z]+)'/g)) used.add(q[1]);
+    }
+    const r = await ev(async (used) => {
+      const out = { names: G.audio.names(), running: G.audio.running() };
+      out.missing = used.filter((n) => out.names.indexOf(n) < 0);
+      const rnd = Math.random;
+      let calls = 0;
+      Math.random = function () { calls++; return rnd(); };
+      const P = [];
+      for (const ty of ['phys', 'fire', 'cold', 'light', 'chaos']) for (let w = 0; w < 3; w++) P.push(['impact', { type: ty, w, crit: w === 1 }], ['kill', { type: ty, big: w === 2 }]);
+      for (const id of Object.keys(G.SKILLS)) P.push(['cast', { id }]);
+      P.push(['cast', { foe: 1 }], ['cast', { foe: 2 }], ['cast', { foe: 3 }], ['cast'], ['shot', { type: 'gatling' }], ['shot', { type: 'revolver' }], ['shot', { type: 'bow' }]);
+      for (let k = 0; k <= 4; k++) P.push(['pickup', { r: k }]);
+      P.push(['pickup', { cur: 1 }], ['swing', { step: 0 }], ['swing', { step: 2 }]);
+      for (const n of out.names) P.push([n]);
+      const save0 = T.canon(G.save), hp0 = G.player.hp, en0 = G.state.enemies.length;
+      try {
+        // 实时：AudioContext 在跑时每一种都真的排一遍（不在跑也照样调，应直接返回）
+        for (const [n, p] of P) G.sfx(n, p);
+        out.liveRandom = calls;
+        // 离线渲染：排声音那一段是同步的，返回 Promise 之前数（之后的 await 期间实时循环会取随机数）
+        calls = 0;
+        const evs = P.map(([name, p], i) => ({ t: 0.01 + i * 0.002, name, p }));
+        const pr = G.audio.render(evs, 1.5, { noThrottle: true });
+        out.renderRandom = calls;
+        Math.random = rnd;
+        await pr;
+      } finally {
+        Math.random = rnd;
+      }
+      out.sameSave = T.canon(G.save) === save0 && G.player.hp === hp0 && G.state.enemies.length === en0;
+      out.calls = P.length;
+      // 50 下命中挤在 0.1 秒里（不限流）：限幅 + 软削波之后峰值 ≤ −1 dBFS
+      const TY = ['phys', 'fire', 'cold', 'light', 'chaos'];
+      const burst = [];
+      for (let i = 0; i < 50; i++) burst.push({ t: 0.02 + (i % 10) * 0.01, name: i % 7 === 0 ? 'kill' : 'impact', p: { type: TY[i % 5], w: i % 3, crit: i % 4 === 0, big: i % 14 === 0 } });
+      const b = await G.audio.render(burst, 1.2, { noThrottle: true });
+      out.burstPeak = b.peak;
+      // 声部上限：16 个敌人的声音先占满，再来 8 下自己的命中——自己的全放出来，被抢的全是敌人的
+      const crowd = [];
+      for (let i = 0; i < 16; i++) crowd.push({ t: 0.02 + i * 0.001, name: i % 2 ? 'hit' : 'cast', p: i % 2 ? undefined : { foe: 1 } });
+      for (let i = 0; i < 8; i++) crowd.push({ t: 0.05 + i * 0.005, name: 'impact', p: { type: 'phys', w: 0 } });
+      const c = await G.audio.render(crowd, 0.8, { noThrottle: true });
+      out.cap = { peakVoices: c.stats.peakVoices, ownPlayed: c.stats.timeline.slice(16).filter((x) => x[2]).length, victims: c.stats.victims, stolen: c.stats.stolen };
+      return out;
+    }, [...used]);
+    assert(used.size >= 25 && r.missing.length === 0, '这些音效名在调用点里用了、却没有配方：' + JSON.stringify(r.missing));
+    assert(r.liveRandom === 0 && r.renderRandom === 0, 'G.sfx / G.audio.render 取了 Math.random（实时 ' + r.liveRandom + ' 次，离线 ' + r.renderRandom + ' 次）：音效的随机一律走 sfxRand');
+    assert(r.sameSave, '放音效改了存档 / 玩家 / 敌人');
+    assert(r.burstPeak <= 0.8913 && r.burstPeak > 0.05, '50 下命中叠在一起的峰值应在 −1 dBFS 以下（也不能是静音）：' + r.burstPeak);
+    assert(r.cap.peakVoices === 16 && r.cap.ownPlayed === 8 && r.cap.stolen === 8 && Object.keys(r.cap.victims).every((k) => /\/1$/.test(k)), '声部满了应先抢敌人的声音、自己的命中全放出来：' + JSON.stringify(r.cap));
+    return '调用点音效名 ' + used.size + ' 个，' + r.calls + ' 种参数，AudioContext ' + (r.running ? '在跑' : '没跑') + '；50 下峰值 ' + (20 * Math.log10(r.burstPeak)).toFixed(1) + ' dBFS';
   });
 
   await step('标题画面与暂停菜单在小窗口（1024×640）里放得下', async () => {

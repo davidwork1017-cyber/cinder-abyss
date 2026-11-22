@@ -15,6 +15,7 @@
 //   G.audio.rng(seed)       私有随机序列工厂：返回 () => [0, 1)。声音里一律用它，不碰 Math.random（G.sfx 在模拟里调用，见 fc94b21）
 //   G.audio.apply()         重新读 G.save.opts 的音量 / 静音并应用（设置页改了就调）
 //   G.audio.vol(v)          滑条 0–100 → 增益的曲线（平方，听感上比较均匀）
+//   G.audio.levels()        按 G.save.opts 算出的各级目标增益 { master, sfx, ui, amb, music, silent }（没有 AudioContext 也能用）
 //   G.audio.render(events, dur, o)  离线渲染（OfflineAudioContext，同一套链路和配方）：events = [{ t, name, p }]，
 //                           o = { seed, noThrottle, opts, sr }；返回 Promise<{ buf, peak, stats }>。测试和试听用
 //   G.audio.stats(reset)    { calls, played, ms, maxMs, voices, peakVoices, stolen, dropped, throttled }：G.sfx 的主线程耗时和声部数
@@ -144,21 +145,29 @@
     return g;
   }
 
-  function applyTo(g, o, now) {
+  // 存档里的设置 → 各级的目标增益（没有 AudioContext 也能算，测试和设置页用）
+  function levelsOf(o) {
     o = o || DEFAULTS;
     const num = (k) => (typeof o[k] === 'number' ? o[k] : DEFAULTS[k]);
     const m = o.mute ? 0 : vol(num('volMaster'));
     const sfx = vol(num('volSfx'));
+    return {
+      master: m * BASE, sfx: sfx * BUS_TRIM.sfx, ui: sfx * BUS_TRIM.ui,
+      amb: vol(num('volAmb')) * BUS_TRIM.amb, music: vol(num('volMusic')) * BUS_TRIM.music, silent: m === 0 || sfx === 0,
+    };
+  }
+  function applyTo(g, o, now) {
+    const L = levelsOf(o);
     const set = (p, v) => {
       if (now === null) p.value = v;
       else p.setTargetAtTime(v, now, 0.03);
     };
-    set(g.master.gain, m * BASE);
-    set(g.bus.sfx.gain, sfx * BUS_TRIM.sfx);
-    set(g.bus.ui.gain, sfx * BUS_TRIM.ui);
-    set(g.bus.amb.gain, vol(num('volAmb')) * BUS_TRIM.amb);
-    set(g.bus.music.gain, vol(num('volMusic')) * BUS_TRIM.music);
-    g.silent = m === 0 || sfx === 0; // 音效听不见就干脆不排（省主线程）
+    set(g.master.gain, L.master);
+    set(g.bus.sfx.gain, L.sfx);
+    set(g.bus.ui.gain, L.ui);
+    set(g.bus.amb.gain, L.amb);
+    set(g.bus.music.gain, L.music);
+    g.silent = L.silent; // 音效听不见就干脆不排（省主线程）
   }
 
   let live = null; // 实时那一套
@@ -340,12 +349,33 @@
   function tick(t0, f, vol, dur) {
     noise('highpass', f, f * 0.7, t0, dur || 0.012, vol, 0.7, 0.0008);
   }
-  // 一串随机的小爆裂（火的噼啪、冰碴、电火花）
+  // 一串随机的小爆裂（火的噼啪、冰碴、电火花）：一个噪声源 + 一个带通，颗粒全排在同一个增益上（每颗一个短脉冲），
+  // 比每颗各建一套节点省得多
   function crackle(t0, span, n, f, vol) {
-    for (let i = 0; i < n; i++) {
-      const tt = t0 + rand() * span;
-      noise('bandpass', f * (0.8 + rand() * 0.5), f * 0.6, tt, 0.008 + rand() * 0.01, vol * (0.6 + rand() * 0.4), 1.6, 0.0006);
+    const s = ac.createBufferSource();
+    const fl = ac.createBiquadFilter();
+    const g = ac.createGain();
+    s.buffer = gr.noise;
+    s.loop = true;
+    fl.type = 'bandpass';
+    fl.Q.value = 1.6;
+    fl.frequency.value = f * (0.9 + rand() * 0.3);
+    const ts = [];
+    for (let i = 0; i < n; i++) ts.push([t0 + rand() * span, 0.008 + rand() * 0.01, vol * (0.6 + rand() * 0.4)]);
+    ts.sort((a, b) => a[0] - b[0]);
+    g.gain.value = 0;
+    g.gain.setValueAtTime(0, t0);
+    for (const [tt, d, v] of ts) {
+      g.gain.setValueAtTime(v, tt);
+      g.gain.setTargetAtTime(0, tt + 0.0006, d / 4);
     }
+    s.connect(fl);
+    fl.connect(g);
+    g.connect(V.g);
+    const end = ts[ts.length - 1][0] + 0.04;
+    s.start(t0, rand() * 0.6);
+    s.stop(end);
+    addSrc(s, end);
   }
   const jit = (a) => 1 + (rand() * 2 - 1) * a; // 1 ± a
   const dt = () => rand() * 0.004; // 层与层之间几毫秒的错位
@@ -387,6 +417,34 @@
       noise('bandpass', 650 * v, 300, t + 0.02, 0.15 + w * 0.04, 0.12, 1.5, 0.03);
     },
   };
+
+  // 主要技能命中时多一层自己的点缀（叠在伤害类型的音色上，很短，不改响度的大局）
+  const IMPACT_ID = {
+    // 掷焰：火团炸开的「噗」
+    ember(t, v) {
+      tone('sine', 230 * v, 85, t, 0.07, 0.22, 0.002);
+      noise('bandpass', 900 * v, 320, t, 0.09, 0.14, 1.1, 0.004);
+    },
+    // 飞刃：刃口划过的「嚓」
+    blade(t, v) {
+      fm(2300 * v, 1.41, 1.2, t + 0.004, 0.06, 0.06, 0.001, 2000 * v);
+      noise('bandpass', 2600 * v, 3400 * v, t, 0.05, 0.1, 2.5, 0.002);
+    },
+    // 链雷：电弧跳走的尾巴
+    arc(t, v) {
+      crackle(t + 0.02, 0.07, 3, 2600, 0.1);
+    },
+    // 陨火：落地的爆炸，带碎石
+    meteor(t, v) {
+      noise('lowpass', 900 * v, 90, t, 0.3, 0.3, 0.8, 0.003);
+      crackle(t + 0.05, 0.2, 4, 1300, 0.1);
+    },
+    // 冰系：碎冰的余韵
+    frost(t, v) {
+      fm(3000 * v, 2.76, 0.8, t + 0.01, 0.12, 0.05, 0.001, 2800 * v);
+    },
+  };
+  const IMPACT_MAP = { ember: 'ember', blade: 'blade', arc: 'arc', arcvolley: 'arc', meteor: 'meteor', firestorm: 'meteor', frostline: 'frost', icefall: 'frost' };
 
   // 施法的音色（按技能挑，没有专门的就按元素）
   const CAST_TYPE = {
@@ -541,9 +599,10 @@
     shot(t, p) {
       const v = jit(0.05);
       if (p.type === 'gatling') {
-        trim(1.2);
-        tick(t, 1800, 0.14, 0.008);
-        noise('bandpass', 2000 * v, 600, t, 0.05, 0.3, 1.2, 0.002);
+        trim(1.9);
+        // 连发很快，起音不用高通（高频听久了累）：带通的短「哒」
+        noise('bandpass', 1500 * v, 1100, t, 0.008, 0.22, 1.4, 0.0006);
+        noise('bandpass', 1800 * v, 600, t, 0.05, 0.3, 1.2, 0.002);
         tone('square', 140 * v, 70, t, 0.045, 0.1, 0.002, 1200);
       } else if (p.type === 'revolver') {
         tick(t, 3500, 0.35, 0.01);
@@ -562,6 +621,15 @@
     // 施法：p.id 技能（自己放的），p.type 主伤害类型；p.foe 敌人放的（压低、换成暗一点的音色）；什么都不给 = 召唤物 / 其它
     cast(t, p) {
       const v = jit(0.05);
+      if (p.foe >= 2) {
+        // 精英 / 首领带预警的施法：躲闪提示。两个不谐和的音一起往上抬（FM 1.41），底下一层气声；首领再加一声低的
+        trim(p.foe >= 3 ? 1.1 : 1.25);
+        fm(330 * v, 1.41, 1.6, t, 0.26, 0.16, 0.02, 470 * v);
+        fm(349 * v, 1.41, 1.2, t + 0.02, 0.24, 0.1, 0.02, 494 * v);
+        noise('bandpass', 600 * v, 1900 * v, t, 0.22, 0.2, 1.4, 0.05);
+        if (p.foe >= 3) tone('sine', 110, 82, t, 0.3, 0.16, 0.01);
+        return;
+      }
       if (p.foe) {
         trim(2.2);
         noise('bandpass', 380 * v, 1500 * v, t, 0.16, 0.2, 1.3, 0.03);
@@ -787,6 +855,8 @@
       // 重：中低频的一记闷响（K 计权听得见的频段），而不是拖长的超低频
       if (w >= 1) noise('lowpass', 650 * v, 180, t + 0.004, 0.09 + w * 0.03, 0.62 + w * 0.12, 1.0, 0.002);
       TYPE_LAYER[ty](t, v, w);
+      const ik = p.id && IMPACT_MAP[p.id];
+      if (ik) IMPACT_ID[ik](t, v);
       if (w >= 2) {
         tone('sine', 92 * v, 38, t, 0.22, 0.4, 0.003);
         noise('lowpass', 520, 120, t + 0.01, 0.14, 0.28, 0.8, 0.004);
@@ -875,7 +945,7 @@
     p = p || NO_P;
     if (!noThrottle) {
       // 敌人施法单独限流：一群敌人连着施法时不能把自己的施法声挡掉
-      const key = p.foe ? name + ':foe' : name;
+      const key = p.foe ? name + (p.foe >= 2 ? ':cue' : ':foe') : name; // 首领 / 精英的预警施法也不被小怪的挡掉
       if (nowMs - (gr.lastPlay[key] === undefined ? -1e9 : gr.lastPlay[key]) < (MIN_GAP[name] || 45)) {
         gr.throttled++;
         return false;
@@ -884,7 +954,7 @@
     }
     const m = META[name] || ['sfx', 2, 0];
     let prio = m[1];
-    if (name === 'cast' && p.foe) prio = 1;
+    if (name === 'cast' && p.foe) prio = p.foe >= 2 ? 2 : 1; // 精英 / 首领的施法是躲闪提示：和自己的命中同级
     else if (name === 'impact' && (p.crit || p.w >= 2)) prio = 3;
     else if (name === 'kill' && p.big) prio = 4;
     const pan = m[0] === 'sfx' ? (rand() - 0.5) * 0.24 : 0;
@@ -943,6 +1013,7 @@
       if (live) applyTo(live, G.save && G.save.opts, live.ac.currentTime);
     },
     voices: liveVoices,
+    levels: () => levelsOf(G.save && G.save.opts),
     stats(reset) {
       const r = {
         calls: stats.calls, played: stats.played, ms: +stats.ms.toFixed(3), maxMs: +stats.maxMs.toFixed(3),
