@@ -23555,7 +23555,7 @@
         vsEmit(x + Math.sin(a) * R * 0.3, 0.3, z + Math.cos(a) * R * 0.3, Math.sin(a) * v, vr(2.5, 5), Math.cos(a) * v, vr(0.7, 1), vr(0.13, 0.24) * (big ? 1.3 : 1), 0, vr(0, TAU), vr(-9, 9), 18);
       }
       tPuffs(x, 0.25, z, cnt(lo ? 2 : 3), R * 1.4, 0.4, 0.5, 0.35 + Math.min(1.5, R) * 0.06, 0x8a7a68, 0x4a3e34);
-      if (k1) W.decal(5, x, z, R * 0.7, vr(0, TAU), 0x2a2420, big ? 4 : 2.5);
+      if (k1) W.decal(5, x, z, Math.min(2.2, R * 0.45), vr(0, TAU), 0x4a3e34, big ? 4 : 2.5); // 地裂：封顶 2.2 米、深褐不是近黑（看图后：5 米的近黑裂纹像几条黑虫）
     } else if (el === 'fire') {
       // 火：火舌长在外沿上往上舔（不在中心堆火团），几粒余烬，一缕由橙转黑的烟，地上焦痕
       vsBrush(VSH.tongue, 1, 0, cA, cB, 0.2, 0.4, 0.4);
