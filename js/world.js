@@ -20109,64 +20109,7 @@
   };
 
   // ---------- 打击感：贴地痕迹 / 命中闪光 / 命中火花 / 刀光（全部预先建好，运行时不再分配） ----------
-  const DECAL_FRAG = [
-    'uniform vec3 uColor; uniform float uK; uniform float uKind; uniform float uSeed; varying vec2 vP;',
-    'float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7)) + uSeed * 17.3) * 43758.5453); }',
-    'float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);',
-    '  return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y); }',
-    'void main(){',
-    '  float l = length(vP);',
-    '  float fade = 1.0 - smoothstep(0.55, 1.0, uK);', // 后半段淡出
-    '  float sfade = uK < 0.45 ? 1.0 : (uK < 0.75 ? 0.62 : 0.3);', // 卡通的几种痕迹：阶梯式淡出
-    '  float n = vn(vP * 3.0 + 5.0) * 0.6 + vn(vP * 7.0) * 0.4;',
-    '  float an = atan(vP.x, vP.y);',
-    '  vec3 col = uColor; float a = 0.0;',
-    '  if (uKind < 0.5) {', // 0 擦痕：沿局部 z 的一道亮线，头亮尾细
-    '    float wv = 1.0 - abs(vP.x);',
-    '    float along = smoothstep(-1.0, -0.2, vP.y) * (1.0 - smoothstep(0.35, 1.0, vP.y));',
-    '    a = pow(wv, 4.0) * along * (1.0 - uK) * (1.0 - uK) * 0.6;',
-    '    col = mix(uColor, vec3(1.0), pow(wv, 9.0) * 0.6);',
-    '  } else if (uKind < 1.5) {', // 1 焦痕：不规则的焦斑（卡通版：硬边、深紫褐不是死黑），起初边缘一圈余烬色，淡出分三档
-    '    float blot = 1.0 - smoothstep(0.5 + n * 0.3, 0.54 + n * 0.3, l);',
-    '    float rim = step(0.36 + n * 0.22, l) * blot * step(uK, 0.3);',
-    '    col = mix(vec3(0.07, 0.035, 0.05), uColor, rim);',
-    '    a = blot * 0.82 * sfade;',
-    '  } else if (uKind < 2.5) {', // 2 霜痕：放射状的冰晶
-    '    float sp = pow(abs(cos(an * 4.0 + n * 1.6)), 7.0);',
-    '    float body = 1.0 - smoothstep(0.15, 0.95, l);',
-    '    a = (body * 0.2 + sp * (1.0 - smoothstep(0.3 + n * 0.5, 1.0, l)) * 0.42) * fade;',
-    '    col = mix(uColor, vec3(1.0), sp * 0.5);',
-    '  } else if (uKind < 3.5) {', // 3 电痕：枝状的细亮线 + 中心一点焦黑
-    '    float br = 1.0 - smoothstep(0.0, 0.1, abs(sin(an * 3.5 + vn(vP * 5.0) * 5.0)));',
-    '    float reach = 1.0 - smoothstep(0.35 + n * 0.5, 1.0, l);',
-    '    float core = 1.0 - smoothstep(0.0, 0.3, l);',
-    '    a = max(br * reach * 0.85 * (1.0 - smoothstep(0.2, 0.9, uK)), core * 0.6 * fade);',
-    '    col = mix(vec3(0.03, 0.03, 0.02), uColor, br * reach);',
-    '  } else if (uKind < 4.5) {', // 4 灰迹：一摊尘土
-    '    float blot = 1.0 - smoothstep(0.25 + n * 0.3, 0.8 + n * 0.2, l);',
-    '    col = mix(vec3(0.07, 0.06, 0.05), uColor * 0.25, n * 0.5);',
-    '    a = blot * 0.55 * fade;',
-    '  } else if (uKind < 5.5) {', // 5 地裂：终结技砸出的放射状裂纹（卡通版：硬边），起初缝里透着光，淡出分三档
-    '    float cr = step(abs(sin(an * 4.5 + n * 4.0)), 0.06 + 0.12 * l);',
-    '    float reach = step(l, 0.6 + n * 0.4);',
-    '    float core = step(l, 0.3 + n * 0.08);',
-    '    float hot = step(uK, 0.3);',
-    '    a = max(cr * reach, core * 0.75) * sfade * 0.92;',
-    '    col = mix(vec3(0.07, 0.035, 0.05), uColor, hot * max(cr * reach, core * 0.6));',
-    '  } else {', // 6 卡通命中印记：顺着打击方向（局部 +z）甩开的一摊星形印子，起初内圈是主色，之后压暗；淡出分三档
-    '    vec2 q = vec2(vP.x, vP.y * 0.78 + 0.12);',
-    '    float lq = length(q), aq = atan(q.x, q.y);',
-    '    float rr = 0.5 + 0.32 * pow(abs(cos(aq * 2.5 + uSeed * 6.0)), 4.0) + 0.16 * cos(aq) + n * 0.12;',
-    '    float body = step(lq, rr * 0.92);',
-    '    float hot = step(lq, rr * 0.5) * step(uK, 0.35);',
-    '    col = mix(uColor * 0.28 + vec3(0.03, 0.015, 0.04), uColor, hot);',
-    '    a = body * 0.8 * sfade;',
-    '  }',
-    '  if (l > 1.0 && uKind > 0.5) a = 0.0;',
-    '  gl_FragColor = vec4(col, a);',
-    '}',
-  ].join('\n');
-  const decals = [], flares = [];
+  const flares = [];
   let decalNext = 0, flareNext = 0;
   const flareTex = () =>
     tex('flare', () => {
@@ -20245,17 +20188,6 @@
     pos: new Float32Array(TRAIL_MAX * 6), al: new Float32Array(TRAIL_MAX * 2),
   };
   function initHitFx() {
-    for (let i = 0; i < 40; i++) {
-      const mat = new T.ShaderMaterial({
-        uniforms: { uColor: { value: new T.Color() }, uK: { value: 0 }, uKind: { value: 0 }, uSeed: { value: 0 } },
-        vertexShader: FX_VERT, fragmentShader: DECAL_FRAG, transparent: true, depthWrite: false, side: T.DoubleSide,
-      });
-      const mesh = new T.Mesh(gQuad(), mat);
-      mesh.visible = false;
-      mesh.renderOrder = 2;
-      scene.add(mesh);
-      decals.push({ mesh, u: mat.uniforms, mat, on: false, t: 0, dur: 1 });
-    }
     for (let i = 0; i < 14; i++) {
       const mat = new T.SpriteMaterial({ map: flareTex(), color: 0xffffff, transparent: true, blending: T.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false });
       const sp = new T.Sprite(mat);
@@ -20388,43 +20320,58 @@
     trail.c2.value.set(p[2]);
   };
 
-  // 贴地痕迹。kind：0 擦痕（短促，加色）1 焦痕 2 霜痕 3 电痕 4 灰迹 5 地裂；r 半径（擦痕为长度的一半），
-  // wide 只对擦痕有意义（半宽）
+  // 贴地痕迹。kind：0 擦痕（短促，加色）1 焦痕 2 霜痕 3 电痕 4 灰迹 5 地裂 6 命中印记；r 半径（擦痕为长度的一半），
+  // wide 只对擦痕有意义（半宽）。
+  // decal-batch：原来是 40 个网格的池子（每块一个材质、一次 draw），现在 40 个槽位画进一个实例网格（ldMesh，见 ldFill），
+  // 着色器是 js/vfx.js 的 vfxScar（和原来的 DECAL_FRAG 同一套公式）。槽位的分配 / 顶替规则、Math.random 的取法（每块一次，作种子）都照旧
+  const LD_N = G.vfx.SCAR_N, LD_SD = G.vfx.scarSd;
+  const ldOn = new Uint8Array(LD_N), ldKind = new Uint8Array(LD_N), ldOrd = new Uint8Array(LD_N);
+  const ldT = new Float64Array(LD_N), ldDur = new Float64Array(LD_N).fill(1), ldZd = new Float64Array(LD_N);
+  const ldX = new Float64Array(LD_N), ldY = new Float64Array(LD_N), ldZ = new Float64Array(LD_N), ldAng = new Float64Array(LD_N), ldSx = new Float64Array(LD_N), ldSz = new Float64Array(LD_N);
+  const ldC = new Float32Array(LD_N * 3), _ldc = new T.Color();
+  let ldMesh = null, ldFx = null, ldLive = 0;
   W.decal = function (kind, x, z, r, ang, hex, dur, wide) {
-    let it = null;
-    for (let i = 0; i < decals.length; i++) {
-      const d = decals[(decalNext + i) % decals.length];
-      if (!d.on) { it = d; break; }
+    let it = -1;
+    for (let i = 0; i < LD_N; i++) {
+      const d = (decalNext + i) % LD_N;
+      if (!ldOn[d]) { it = d; break; }
     }
-    if (!it) {
+    if (it < 0) {
       // 都在用：顶掉最接近结束的那个
-      it = decals[0];
-      for (let i = 1; i < decals.length; i++) if (decals[i].t / decals[i].dur > it.t / it.dur) it = decals[i];
+      it = 0;
+      for (let i = 1; i < LD_N; i++) if (ldT[i] / ldDur[i] > ldT[it] / ldDur[it]) it = i;
     }
-    decalNext = (decalNext + 1) % decals.length;
-    it.on = true;
-    it.t = 0;
-    it.dur = dur || 3;
-    it.u.uColor.value.set(hex);
-    it.u.uK.value = 0;
-    it.u.uKind.value = kind;
-    it.u.uSeed.value = Math.random();
-    it.mat.blending = kind === 0 || kind === 2 ? T.AdditiveBlending : T.NormalBlending;
-    it.mesh.position.set(x, kind === 0 ? 0.09 : 0.055, z);
-    it.mesh.rotation.y = ang || 0;
-    it.mesh.scale.set(kind === 0 ? wide || 0.25 : r, 1, r);
-    it.mesh.visible = true;
+    decalNext = (decalNext + 1) % LD_N;
+    ldOn[it] = 1;
+    ldT[it] = 0;
+    ldDur[it] = dur || 3;
+    _ldc.set(hex);
+    ldC[it * 3] = _ldc.r; ldC[it * 3 + 1] = _ldc.g; ldC[it * 3 + 2] = _ldc.b;
+    ldKind[it] = kind;
+    LD_SD[it] = Math.random();
+    ldX[it] = x;
+    ldY[it] = kind === 0 ? 0.09 : 0.055;
+    ldZ[it] = z;
+    ldAng[it] = ang || 0;
+    ldSx[it] = kind === 0 ? wide || 0.25 : r;
+    ldSz[it] = r;
+    ldLive = 1;
   };
+  W.decalLive = () => {
+    let n = 0;
+    for (let i = 0; i < LD_N; i++) n += ldOn[i];
+    return n;
+  }; // 测试用
   function updateDecals(dt) {
-    for (let i = 0; i < decals.length; i++) {
-      const it = decals[i];
-      if (!it.on) continue;
-      it.t += dt;
-      if (it.t >= it.dur) {
-        it.on = false;
-        it.mesh.visible = false;
-      } else it.u.uK.value = it.t / it.dur;
+    if (!ldLive) return;
+    let n = 0;
+    for (let i = 0; i < LD_N; i++) {
+      if (!ldOn[i]) continue;
+      ldT[i] += dt;
+      if (ldT[i] >= ldDur[i]) ldOn[i] = 0;
+      else n++;
     }
+    if (!n) ldLive = 0;
   }
   // 命中点的一记四芒星闪光
   function flare(x, y, z, hex, size, dur) {
@@ -22513,7 +22460,9 @@
     for (const t of texts) t.t = t.dur;
     textRs = TEXT_SEED;
     clearDying();
-    for (const d of decals) { d.on = false; d.mesh.visible = false; }
+    ldOn.fill(0);
+    ldLive = 0;
+    if (ldMesh) { ldMesh.count = 0; ldMesh.visible = false; }
     for (const f of flares) { f.on = false; f.sp.visible = false; }
     for (const s of summons) { s.on = false; s.grp.visible = false; }
     clearWeaponFx();
@@ -24544,6 +24493,18 @@
       vdMesh.visible = false;
       vdMesh.renderOrder = 2;
       scene.add(vdMesh);
+      // 打击痕迹（W.decal）的实例网格：同一个着色器程序（V.multi() 不带多边形偏移，和原来的贴花网格一样），见 ldFill
+      const g2 = gQuad().clone();
+      ldFx = G.vfx.addFx(g2, LD_N);
+      ldMesh = new T.InstancedMesh(g2, G.vfx.multi(), LD_N);
+      ldMesh.instanceMatrix.setUsage(T.DynamicDrawUsage);
+      ldMesh.setColorAt(0, _pc.setRGB(1, 1, 1));
+      ldMesh.instanceColor.setUsage(T.DynamicDrawUsage);
+      ldMesh.frustumCulled = false;
+      ldMesh.count = 0;
+      ldMesh.visible = false;
+      ldMesh.renderOrder = 1.5; // 原来每块按自己的深度插在 renderOrder 2 的物体之间（谁压谁看镜头位置）；现在固定在它们下面、renderOrder 1 的地面光斑上面
+      scene.add(ldMesh);
     });
   }
   W.vDecal = function (kind, x, z, r, dur, hex, o) {
@@ -24582,6 +24543,57 @@
       n++;
     }
     if (!n) vdLive--;
+  }
+  // 打击痕迹写进实例网格（每次渲染前，和原来一样：这一帧里刚放下的痕迹这一帧就画出来）。
+  // 原来每块是一个网格，透明物体按原点深度从远到近排序（同深度按建网格的先后 = 槽位号）：这里按同样的深度、同样的规则排实例的先后，
+  // 重叠的痕迹谁压谁和原来一样。和别的特效之间：整个网格是 renderOrder 1.5，总在 renderOrder 2 的特效（脚下的圈、危险区、
+  // W.vDecal 的痕迹和序列帧烟火）下面；原来要看痕迹和那个物体谁离镜头近，痕迹有时会盖住脚下的圈、立着的烟团的下半截。
+  // 网格的原点放在这些痕迹的中心（实例矩阵存相对坐标，精度好一些）
+  const _ldm = new T.Matrix4(), _ldv = new T.Vector3();
+  function ldFill() {
+    if (!ldMesh) return;
+    let n = 0;
+    if (ldLive) for (let i = 0; i < LD_N; i++) if (ldOn[i]) ldOrd[n++] = i;
+    if (!n) {
+      if (ldMesh.visible) {
+        ldMesh.count = 0;
+        ldMesh.visible = false;
+      }
+      return;
+    }
+    camera.updateMatrixWorld();
+    _ldm.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    let cx = 0, cz = 0;
+    for (let j = 0; j < n; j++) {
+      const i = ldOrd[j];
+      ldZd[i] = _ldv.set(ldX[i], ldY[i], ldZ[i]).applyMatrix4(_ldm).z;
+      cx += ldX[i];
+      cz += ldZ[i];
+      // 插入排序：远的（z 大）在前，同深度槽位号小的在前
+      let k = j;
+      while (k > 0 && ldZd[ldOrd[k - 1]] < ldZd[i]) {
+        ldOrd[k] = ldOrd[k - 1];
+        k--;
+      }
+      ldOrd[k] = i;
+    }
+    cx /= n;
+    cz /= n;
+    ldMesh.position.set(cx, 0, cz);
+    const f = ldFx.array;
+    for (let j = 0; j < n; j++) {
+      const i = ldOrd[j], o = j * 4;
+      _pq.setFromAxisAngle(UP, ldAng[i]);
+      _pm.compose(_pv.set(ldX[i] - cx, ldY[i], ldZ[i] - cz), _pq, _ps.set(ldSx[i], 1, ldSz[i]));
+      ldMesh.setMatrixAt(j, _pm);
+      ldMesh.setColorAt(j, _pc.setRGB(ldC[i * 3], ldC[i * 3 + 1], ldC[i * 3 + 2]));
+      f[o] = ldT[i] / ldDur[i]; f[o + 1] = i; f[o + 2] = 1; f[o + 3] = 20 + ldKind[i];
+    }
+    ldMesh.count = n;
+    ldMesh.visible = true;
+    ldMesh.instanceMatrix.needsUpdate = true;
+    ldMesh.instanceColor.needsUpdate = true;
+    ldFx.needsUpdate = true;
   }
   W.vDecalLive = () => {
     let n = 0;
@@ -28939,6 +28951,7 @@
   }
   W.render = function () {
     autoQualityWatch();
+    ldFill();
     if (post.ok && qual.post) post.composer.render();
     else if (post.fx && qual.fxaa) post.fx.render();
     else renderer.render(scene, camera);
