@@ -19629,8 +19629,8 @@
     grp.add(gem);
     // vf-vfx3：地面光盘 / 光柱 / 亮芯 / 光点精灵不再是每件掉落自己的网格（原来每件 3–4 个加色的 draw），
     // 改成三个实例零件（lootRing 地面细环与柱身刻纹 / lootBeam 光柱 / lootGem 柱顶菱形），全场的掉落合起来各一次 draw，见 lootPfDraw。
-    // 稀有度靠「高度 + 形状」分：没有柱子 = 只有地面细环；稀有 / 宝石 = 3.5 米细柱；烬铸 / 渊契 = 6 米柱 + 顶上一颗小菱形 + 往上走的三道刻纹。
-    // 柱子是不透明的实色（不加色），柱宽 0.12 米，从屋子另一头看得见，不会洗白一片
+    // 稀有度靠「高度 + 形状」分：没有柱子 = 只有地面细环；稀有 / 宝石 = 4.5 米细柱；烬铸 / 渊契 = 7 米柱 + 顶上一颗小菱形 + 往上走的三道刻纹。
+    // 柱子是不透明的实色（不加色），柱宽 0.14 米，从屋子另一头看得见，不会洗白一片
     const u = grp.userData;
     u.bt = beam ? (big ? 2 : 1) : 0;
     u.ds = big ? 0.95 : beam ? 0.7 : 0.42;
@@ -22477,7 +22477,7 @@
     return g;
   }
   // 掉落物：每件一圈地面细环；有柱子的再画光柱，烬铸 / 渊契加柱顶菱形 + 沿柱子往上走的三道刻纹（细环）。跟着掉落物落地弹出的缩放一起长出来
-  const LOOT_BEAM_H = [0, 3.5, 6];
+  const LOOT_BEAM_H = [0, 4.5, 7];
   function lootPfDraw() {
     if (!PF.lootRing) return;
     for (let i = 0; i < lootObjs.length; i++) {
@@ -22489,7 +22489,7 @@
       _pm.setPosition(x, 0.05, z);
       pfPut('lootRing', u.lr, u.lg, u.lb);
       if (!u.bt) continue;
-      const H = LOOT_BEAM_H[u.bt] * k * k, w = 0.06;
+      const H = LOOT_BEAM_H[u.bt] * k * k, w = 0.07;
       _pm.makeScale(w, H, w);
       _pm.setPosition(x, 0, z);
       pfPut('lootBeam', u.lr * 1.1, u.lg * 1.1, u.lb * 1.1);
