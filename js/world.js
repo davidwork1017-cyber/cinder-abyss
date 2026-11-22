@@ -18118,7 +18118,8 @@
       const g = new T.Group(), parts = [];
       const add = (w, white, vert) => {
         // vf-vfx：光束换成特效着色器（形状还是闪电贴图的亮芯 + 柔边，里面顺着射线往前流的亮纹），四段各自一个材质（颜色不同），着色器程序共用
-        const m = new T.Mesh(gQuad(), G.vfx.sprite({ shape: 'map', map: boltTex(), flow: true, blend: 'add', side: 'double' }, true));
+        // vf-vfx3：普通混合（原来加色：四层亮黄叠在红色预警条上 R、G 都顶满，灰度 ~93 %，不管往不往白混都是一根白条）
+        const m = new T.Mesh(gQuad(), G.vfx.sprite({ shape: 'map', map: boltTex(), flow: true, blend: 'normal', side: 'double' }, true));
         m.scale.set(w, 1, 1);
         if (vert) m.rotation.z = HALF_PI;
         m.renderOrder = 5;
@@ -18141,8 +18142,8 @@
     if (u.hex !== hex) {
       u.hex = hex;
       // vf-vfx3：射线的里层芯少混白（0.75 → 0.3），两头的光晕用元素色（原来混四成白、2.6 / 3.4 米）——整条射线不再是一根近白的长条
-      for (const q of u.parts) q.m.material.uniforms.uColor.value.copy(lin(q.white ? mixHex(hex, 0x000000, 0.5) : mixHex(hex, 0x000000, 0.62)));
-      u.s0.material = u.s1.material = spriteMat(mixHex(hex, 0x000000, 0.4)); // 加色的四层叠在一起：外层压暗六成、芯压一半（四层加色叠在一起，再亮就成一根白条），射线读作亮黄色
+      for (const q of u.parts) q.m.material.uniforms.uColor.value.copy(lin(q.white ? mixHex(hex, 0xffffff, 0.15) : mixHex(hex, 0x000000, 0.35)));
+      u.s0.material = u.s1.material = spriteMat(mixHex(hex, 0x000000, 0.4)); // 加色的四层叠在一起：普通混合：外层元素色压暗三成半、芯是元素色只混一成半白（最亮就是芯的颜色）
     }
     const len = Math.hypot(x1 - x0, y1 - y0, z1 - z0);
     g.visible = true;
