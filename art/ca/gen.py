@@ -1077,6 +1077,101 @@ def storm_lantern(k, h=0.925, r=0.32, glow=0.9):
     _ring(k, 0.03, 0.01, h - 0.03, n=6, s=3, row='iron', tone=0.5)
 
 
+# ================================================================ 霜骨沼泽（第 1 区）
+# 形状语言：硬朗的冰晶切面、冷的蓝灰；巨兽的骨头半埋在冰里。游戏里这一区的布景多半是程序化拼的（栈道、骨架、岸边），
+# 这里的件换掉其中的几何体：巨兽头骨（合并进骨架网格）、冰芦苇、远处的冰棱簇（布景材质）、栈道木板（单位尺寸）。
+def _ell_pts(k, cx, cy, cz, sx, sy, sz, n=36, taper=0.0, jit=0.04):
+    """椭球面上的点（Blender 坐标，z 朝上）；taper > 0 时越往 -y（朝前）越窄、越往下压（做吻部）"""
+    pts = []
+    for i in range(n):
+        u = (i + 0.5) / n
+        z = 1 - 2 * u
+        r = math.sqrt(max(0.0, 1 - z * z))
+        a = math.pi * (3 - math.sqrt(5)) * i
+        x, y = math.cos(a) * r, math.sin(a) * r
+        f = max(0.0, -y) * taper
+        x *= 1 - 0.45 * f
+        z = z * (1 - 0.35 * f) - 0.25 * f * f
+        pts.append((cx + x * sx * (1 + k.r(-jit, jit)), cy + y * sy, cz + z * sz * (1 + k.r(-jit, jit))))
+    return pts
+
+
+def frost_skull(k, ice=6):
+    """巨兽头骨（半埋在冰湖里的地标）：圆的颅顶、往前收窄下压的长吻、额前一道眉骨、两侧颧骨、暗的眼窝和鼻孔、微张的下颌和一排朝下的尖牙、
+    吻侧两根往前下方伸的獠牙、颅顶两侧往后上方的角，颅顶和角根结着几簇硬朗的冰晶。
+    局部坐标照原来程序化的头骨组（游戏里 +z 朝前 = 这里的 -y；长约 4.7 m、宽约 3 m、高约 3.5 m，含角），整组替换，碰撞（WALL 圆）不变"""
+    Y = lambda gz: -gz  # 游戏的 +z（朝前）= Blender 的 -y
+    k.hull(_ell_pts(k, 0, Y(-0.7), 1.55, 1.45, 1.4, 1.2, n=40), row='bone', tone=0.72, jitter=0.06)  # 颅顶
+    k.hull(_ell_pts(k, 0, Y(0.75), 1.05, 1.05, 1.55, 0.72, n=36, taper=1.0), row='bone', tone=0.66, jitter=0.06)  # 长吻
+    k.hull(_ell_pts(k, 0, Y(0.34), 1.86, 1.22, 0.42, 0.2, n=20), row='bone', tone=0.8, jitter=0.05)  # 眉骨
+    for sg in (-1, 1):
+        k.hull(_ell_pts(k, sg * 1.02, Y(0.05), 1.12, 0.42, 0.75, 0.34, n=16), row='bone', tone=0.7, jitter=0.05)  # 颧骨
+    k.hull(_ell_pts(k, 0, Y(0.55), 0.38, 0.88, 1.35, 0.26, n=24, taper=0.8), row='bone', tone=0.6, jitter=0.05)  # 下颌（微张）
+    for i in range(8):
+        t = (i / 7) * 2 - 1
+        x, gz = t * 0.6 * (1 - 0.2 * t * t), 1.4 + 0.55 * (1 - t * t)
+        k.hull([(x + 0.07 * math.cos(TAU * j / 4), Y(gz) + 0.07 * math.sin(TAU * j / 4), 0.72) for j in range(4)] + [(x, Y(gz), 0.32)], row='bone', tone=0.9, jitter=0.03, dust=0)  # 尖牙
+    for sg in (-1, 1):
+        k.hull(_ell_pts(k, sg * 0.6, Y(0.72), 1.6, 0.34, 0.22, 0.28, n=10), row='slag', tone=0.0, jitter=0.0, dust=0)  # 眼窝（暗）
+        k.hull(_ell_pts(k, sg * 0.2, Y(2.22), 1.08, 0.11, 0.08, 0.1, n=8), row='slag', tone=0.0, jitter=0.0, dust=0)  # 鼻孔
+        k.tube([(sg * 0.62, Y(1.75), 0.75), (sg * 0.7, Y(2.25), 0.38), (sg * 0.66, Y(2.55), -0.02)], [0.16, 0.12, 0.0], sides=5, row='bone', tone=0.86, tip=True, cap0=True)  # 獠牙
+        k.tube([(sg * 1.1, Y(-1.0), 2.1), (sg * 1.55, Y(-1.5), 2.75), (sg * 1.75, Y(-2.1), 3.45)], [0.3, 0.2, 0.0], sides=6, row='bone', tone=0.62, tip=True, cap0=True)  # 角
+    # 冰晶簇：颅顶和角根上几根硬朗的冰棱（不发光）
+    for i in range(ice):
+        a = k.r(0, TAU)
+        cx, cy = math.cos(a) * k.r(0.3, 1.0), Y(-0.7) + math.sin(a) * k.r(0.3, 1.0)
+        L, r = k.r(0.35, 0.7), k.r(0.07, 0.12)
+        pts = []
+        for j in range(5):
+            b = TAU * j / 5 + k.r(-0.2, 0.2)
+            pts += [(math.cos(b) * r, math.sin(b) * r, 0), (math.cos(b) * r * 0.8, math.sin(b) * r * 0.8, L * 0.75)]
+        pts.append((0, 0, L))
+        vs = k.hull(pts, row='starglass', tone=k.r(0.12, 0.28), jitter=0.06, dust=0)  # 暗一点的冷青（不抢眼）
+        k.xform(vs, k.place((cx, cy, 2.45 + k.r(-0.1, 0.1)), (k.r(-0.5, 0.5), k.r(-0.5, 0.5), k.r(0, TAU))))
+
+
+def frost_reeds(k, blades=7):
+    """冰芦苇：一丛往外散的细叶（三棱、渐细、略弯），两根穗头，叶尖结一层霜（灰白）。（替换程序化的 frost/reeds：高约 1.3 m）"""
+    for i in range(blades):
+        a = TAU * i / blades + k.r(-0.3, 0.3)
+        h = k.r(0.75, 1.25)
+        lean = k.r(0.12, 0.3)
+        p0 = (math.cos(a) * 0.04, math.sin(a) * 0.04, -0.02)
+        p1 = (math.cos(a) * lean * 0.4, math.sin(a) * lean * 0.4, h * 0.55)
+        p2 = (math.cos(a) * lean, math.sin(a) * lean, h)
+        vs, segs = k.tube([p0, p1, p2], [0.035, 0.024, 0.0], sides=3, row='lichen', tone=0.35, tip=True, cap0=False)
+        k.tag(segs[-1], 'pale', 0.75, 0.08)  # 叶尖的霜
+    for i in range(2):
+        a = k.r(0, TAU)
+        h = k.r(1.05, 1.3)
+        x, y = math.cos(a) * 0.08, math.sin(a) * 0.08
+        k.tube([(x * 0.3, y * 0.3, 0), (x, y, h)], [0.016, 0.014], sides=3, row='lichen', tone=0.3, tip=False, cap0=False)
+        hv, hs = k.tube([(x, y, h), (x * 1.05, y * 1.05, h + 0.24)], [0.05, 0.04], sides=5, row='wood', tone=0.55, tip=False, cap0=True)
+        k.tag(hs[-1][-1:], 'pale', 0.8, 0.05)  # 穗头顶上的霜
+
+
+def frost_spire(k):
+    """远处的冰棱簇：四五根硬朗切面的冰晶柱（五棱、尖顶，往外斜），脚下几块压着的碎石。（替换程序化的 prop/frost：高约 3.2 m）"""
+    spec = [(0.5, 3.2, 0.0, 0.0, 0.0), (0.34, 2.1, 0.55, 0.2, -0.38), (0.3, 1.7, -0.5, -0.1, 0.42), (0.22, 1.2, 0.1, 0.55, 0.5), (0.18, 0.9, -0.25, -0.5, -0.35)]
+    for i, (r, h, x, y, tilt) in enumerate(spec):
+        pts = []
+        for j in range(5):
+            b = TAU * j / 5 + k.r(-0.15, 0.15)
+            rr = r * k.r(0.85, 1.05)
+            pts += [(math.cos(b) * rr, math.sin(b) * rr, -0.1), (math.cos(b) * rr * 0.86, math.sin(b) * rr * 0.86, h * 0.78)]
+        pts.append((k.r(-0.05, 0.05) * r, k.r(-0.05, 0.05) * r, h))
+        # 大的两根是霜白的冰（灰白石色带上端），小的是暗一点的冷青：整簇偏冷的灰白，不是一片饱和的青
+        vs = k.hull(pts, row='pale' if i < 2 else 'starglass', tone=(0.5 + 0.08 * i) if i < 2 else 0.16 + 0.05 * (i % 2), jitter=0.06, dust=0)
+        k.xform(vs, k.place((x, y, 0), (k.r(-0.1, 0.1), tilt * 0.6, k.r(0, TAU))))
+    for i in range(3):
+        a = k.r(0, TAU)
+        k.hull([(math.cos(a) * 0.55 + p[0], math.sin(a) * 0.55 + p[1], max(-0.05, p[2])) for p in _blob(k, 0.22, 0.18, 0.14, 7)], row='stone', tone=0.35)
+
+
+def frost_plank(k, bevel=0.06):
+    """栈道的板 / 桩 / 绳 / 冰板共用的单位块（x ±0.5、y ±0.5、z 0–1）：倒一刀的方块，两端磨圆一点。游戏里按每块非等比缩放，颜色是实例色（顶点色接近白，只带一点烘焙的明暗）"""
+    vs = k.box((1.0, 1.0, 1.0), k.place((0, 0, 0.5)), row='pale', tone=0.95, jitter=0.02, bevel=bevel, dust=0)
+    k.jitter(vs, 0.008)
 # ================================================================ 余烛殿（顶层的熄烛者场地）
 # 形状语言：烛、蜡、仪式。场地里只有 4 个火盆台（玩法件：亮 / 灭决定安全圈），轮廓、尺寸照原来的程序化 crown/brazier，火苗仍是游戏里另一个网格。
 def crown_brazier(k, candles=5):

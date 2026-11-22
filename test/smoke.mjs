@@ -16823,15 +16823,31 @@ async function main() {
         return enc;
       };
       // 巡逻 + 拴绳
-      // 从 e 出发、一路 sd ≥ 1 的方向（钩链测试要一条直的空路）
-      const clear = (e, len) => {
+      // 从 (x, z) 出发、一路 sd ≥ 1 的方向（钩链测试要一条直的空路）；没有返回 null
+      const clearAt = (x, z, len) => {
         for (let k = 0; k < 24; k++) {
           const a = (k / 24) * Math.PI * 2, dx = Math.sin(a), dz = Math.cos(a);
           let ok = true;
-          for (let d = 1; d <= len && ok; d += 0.5) if (!(W.sdAt(e.x + dx * d, e.z + dz * d) >= 1) || !W.walkable(e.x + dx * d, e.z + dz * d, 0.5)) ok = false; // walkable：和钩链拽人时查的一样（布景件的碰撞也挡）
+          for (let d = 1; d <= len && ok; d += 0.5) if (!(W.sdAt(x + dx * d, z + dz * d) >= 1) || !W.walkable(x + dx * d, z + dz * d, 0.5)) ok = false; // walkable：和钩链拽人时查的一样（布景件的碰撞也挡）
           if (ok) return { x: dx, z: dz };
         }
-        return { x: 1, z: 0 };
+        return null;
+      };
+      // 钩链要从游荡者身上拉出一条 len 米的直路。拴绳那段把它拽来拽去之后，它脚下不一定有（原来找不到就按 +x，
+      // 在 abyss 的窄走廊里把玩家传进了墙里）：从它脚下起一圈圈往外找（拴绳房间以内、0.5 米余量能走），找到就把它挪过去
+      const clear = (e, len) => {
+        for (const r of [0, 1.5, 3, 4.5, 6])
+          for (let k = 0; k < (r ? 12 : 1); k++) {
+            const a = (k / 12) * Math.PI * 2, x = e.x + Math.sin(a) * r, z = e.z + Math.cos(a) * r;
+            if (r && (!W.walkable(x, z, 0.5) || !G.leashRoomOk(e, x, z))) continue;
+            const u = clearAt(x, z, len);
+            if (!u) continue;
+            e.x = x;
+            e.z = z;
+            W.setEnt(e.ent, x, z, e.ang);
+            return u;
+          }
+        return null;
       };
       let enc = make('chain'), e = enc.mob;
       { const q = T.spotNear(e.x, e.z, 25.5, Math.PI / 4, [18, 33]); T.tp(q.x, q.z); } // 50 m 外的怪整帧跳过：离远一点但别太远（18–33 m），也别叫醒它（站在能走的地方）
@@ -16851,6 +16867,8 @@ async function main() {
       out.leash = leash;
       // 钩链：直接拽 4 m；前面插一道假墙时停在墙前
       const u = clear(e, 9);
+      out.lane = !!u;
+      if (!u) return out; // 下面断言「找得到直路」
       T.tp(e.x + u.x * 8, e.z + u.z * 8);
       const m1 = G.encHookPlayer(e.x, e.z, 4, 0.6);
       out.hook = +m1.toFixed(2);
@@ -16880,7 +16898,7 @@ async function main() {
       enc = make('oath');
       e = enc.mob;
       e.awake = true;
-      { const q = T.spotNear(e.x, e.z, 3, Math.PI / 2); T.tp(q.x, q.z); }
+      { const q = T.spotNear(e.x, e.z, 3, Math.PI / 2, [1.5, 6]); T.tp(q.x, q.z); }
       e.hp = e.maxHp * 0.7;
       EK.step(0.1);
       out.totems = (e.encTotems || []).filter((t) => !t.dead).length;
@@ -16895,7 +16913,7 @@ async function main() {
       enc = make('mirror');
       e = enc.mob;
       e.awake = true;
-      { const q = T.spotNear(e.x, e.z, 3, Math.PI / 2); T.tp(q.x, q.z); }
+      { const q = T.spotNear(e.x, e.z, 3, Math.PI / 2, [1.5, 6]); T.tp(q.x, q.z); }
       e.hp = e.maxHp * 0.55;
       EK.step(0.1);
       const cl = e.encClones || [];
@@ -16912,7 +16930,7 @@ async function main() {
       e = enc.mob;
       e.awake = true;
       e.atkCd = 99;
-      T.tp(e.x + 18, e.z + 18);
+      { const q = T.spotNear(e.x, e.z, 25.5, Math.PI / 4, [18, 33]); T.tp(q.x, q.z); } // 离远一点、站在能走的地方（原来直接 +18 / +18，abyss 里落进过墙）
       // 走动时每 0.5 秒一块、4 秒消失（常态最多 8 块）；把间隔临时缩到 0.1 秒验上限 10
       const CT = G.WANDERER.titles.cinder, ev0 = CT.every;
       EK.step(3, () => {
@@ -16937,6 +16955,7 @@ async function main() {
     });
     assert(r.patrol > 1.5 && r.leash, '游荡者应在巡逻段里走动、拽不出拴绳：' + JSON.stringify(r));
     assert(/^拖链者·../.test(r.name), '游荡者的名字应是「称号·名」：' + r.name);
+    assert(r.lane, '游荡者身边 6 m 内（拴绳房间以内）找不到一条 9 m 的直路，钩链没法测：' + JSON.stringify(r));
     assert(Math.abs(r.hook - 4) < 0.01 && r.wallHook < 1.0, '钩链应拽 4 m、遇墙停：' + JSON.stringify(r));
     assert(r.tele === '11×1.4@0.85' && r.pulled > 3, '钩链的预警 / 打中拽人不对：' + JSON.stringify(r));
     assert(r.totems === 2 && r.dr === 0.4 && Math.abs(r.regen - 0.01) < 0.002 && r.dr2 === 0, '灰誓者的图腾 / 减伤 / 回血不对：' + JSON.stringify(r));
