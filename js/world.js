@@ -20733,7 +20733,8 @@
     m.glow.scale.setScalar(m.hostile ? 2 : 5); // vf-vfx3：敌方落石的光晕小一圈（加色的 5 米光晕在落点上空是一团白）
     m.sm = 0;
     ribRelease(m.rib);
-    m.rib = ribGet(0.6, 0.14, m.r + (1 - m.r) * 0.55, m.g + (1 - m.g) * 0.55, m.b + (1 - m.b) * 0.55, m.r * 0.55, m.g * 0.4, m.b * 0.35);
+    const rw = m.hostile ? 0 : 0.55; // vf-vfx3：敌方落石的拖尾不往白混（一道道浅色的竖线）
+    m.rib = ribGet(0.6, m.hostile ? 0.1 : 0.14, m.r * (1 - rw) + rw, m.g * (1 - rw) + rw, m.b * (1 - rw) + rw, m.r * 0.55, m.g * 0.4, m.b * 0.35);
     m.mesh.visible = true;
     m.mesh.position.set(x - 6, 26, z - 9);
     m.mesh.rotation.set(rand(0, TAU), rand(0, TAU), 0);
@@ -23558,7 +23559,7 @@
     if (!PF.vShape) return;
     o = o || {};
     const lo = qualId === 'low', big = !!o.big, el = FOE_PAL[elem] ? elem : 'phys', c = FOE_PAL[el];
-    const cA = o.hex !== undefined ? hexOf(o.hex) : c[0], cB = o.hex !== undefined ? mixHex(hexOf(o.hex), 0x000000, 0.6) : c[1];
+    const cA = o.hex !== undefined ? mixHex(hexOf(o.hex), 0x000000, 0.25) : c[0], cB = o.hex !== undefined ? mixHex(hexOf(o.hex), 0x000000, 0.6) : c[1]; // 换色时亮档也压一成半（亮黄 / 亮金的件不到近白）
     const R = Math.max(0.6, r), half = lo ? 0.5 : 1;
     const cnt = (n) => Math.max(1, Math.round(n * half * (big ? 1.4 : 1) * (o.k || 1)));
     const k1 = (o.k || 1) >= 0.5; // 一招连着落好几处（k < 0.5）时不留贴地痕迹：几块焦痕叠在一起成了一条黑带
