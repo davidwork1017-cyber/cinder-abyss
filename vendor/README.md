@@ -1,6 +1,6 @@
 # 第三方库
 
-`three.bundle.js`：three.js **r186**（npm `three@0.186.1`）加上同一版本 `examples/jsm/` 里的示例模块，MIT 许可证（全文 `LICENSE-three.txt`），由 `tools/build-three.mjs` 用 esbuild 打成一个经典脚本（IIFE），加载后挂在 `window.THREE` 上。不要手改，改了就重新打包。
+`three.bundle.js`：three.js **r186**（npm `three@0.186.1`）加上同一版本 `examples/jsm/` 里的示例模块，MIT 许可证（全文 `LICENSE-three.txt`），以及 npm `n8ao@2.1.0` 的 `N8AOPostPass`（环境光遮蔽，CC0 1.0，全文 `LICENSE-n8ao.txt`），由 `tools/build-three.mjs` 用 esbuild 打成一个经典脚本（IIFE），加载后挂在 `window.THREE` 上。不要手改，改了就重新打包。
 
 | 打进去的模块 | 来源（npm `three@0.186.1`） |
 | --- | --- |
@@ -15,8 +15,10 @@
 | `SMAAEdgesShader` / `SMAAWeightsShader` / `SMAABlendShader` | `examples/jsm/shaders/SMAAShader.js` |
 | `FXAAShader` | `examples/jsm/shaders/FXAAShader.js` |
 | `GLTFLoader` | `examples/jsm/loaders/GLTFLoader.js` |
+| `Pass` | `examples/jsm/postprocessing/Pass.js` |
+| `N8AOPostPass` | npm `n8ao@2.1.0`（`dist/N8AO.js`）。它继承的 pmndrs `postprocessing` 的 `Pass` 换成我们自己写的替身 `tools/postprocessing-shim.mjs`，那个库不打包、不安装 |
 
-本地改动只有一处（打包时改，不手改产物）：`generateUUID` 不取 `Math.random`。为什么、怎么查，见 `docs/vendor-patches.md`。打包入口 `tools/three-entry.mjs` 还设了两个默认值：`ColorManagement.enabled = false`、透明双面材质单遍画（同见 `docs/vendor-patches.md`）。
+本地改动只有一处（打包时改，不手改产物）：`generateUUID` 不取 `Math.random`。n8ao 的来源、许可证和游戏里怎么接，见 `docs/vendor-patches.md`。为什么、怎么查，见 `docs/vendor-patches.md`。打包入口 `tools/three-entry.mjs` 还设了两个默认值：`ColorManagement.enabled = false`、透明双面材质单遍画（同见 `docs/vendor-patches.md`）。
 
 ## 什么时候要重新打包
 

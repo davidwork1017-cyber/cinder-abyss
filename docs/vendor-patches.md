@@ -39,6 +39,19 @@ three 加载后、游戏脚本之前，入口里改了几处默认行为（源�
 | UnrealBloomPass 的合成多乘了 alpha、亮度权重换成 Rec.709、模糊核换了、中间目标是半浮点 | 强度传 k²、高通用回 0.299 / 0.587 / 0.114、模糊核用回 r128 的、中间目标用回 8 位 | `initPost`、`applyZonePost` |
 | 内置材质的 `vUv` 改名（`vMapUv` 等） | 注入代码里用新名字 | `vfxMolten` |
 
+## n8ao 2.1.0（环境光遮蔽，打在 `vendor/three.bundle.js` 里）
+
+- **来源和许可证**：npm `n8ao@2.1.0`（作者 N8python，https://github.com/N8python/n8ao），tarball 的 integrity 是 `sha512-b/L5N7QiwNqI4nE3larcZ5PVkUiy5zHjYC5u7nMC9z3w3t2eGkiSDAUcQlcDar2ZQ9W4ZiiHpcZ3QX1tf1Vsbw==`。包里的 `LICENSE` 文件是 **CC0 1.0 Universal**，`package.json` 的 license 字段写的是 ISC，两个都允许商用和改动；按我们的规矩以下载包里的许可证文件为准，记作 CC0 1.0。原文随打包复制到 `vendor/LICENSE-n8ao.txt`（`tools/build-three.mjs` 每次打包都拷一遍）。版本钉在 `package.json`（精确版本）。
+- **只用 `N8AOPostPass`**：它只读深度，不重画场景。同一个包里的 `N8AOPass` 会自己把整个场景再画一遍，画进它自己的线性目标，色调映射就丢了，不用。three 自带的 `GTAOPass` 也比较过（同一帧、同样只读深度），开销多 25% 左右、效果更弱，没用，也没打进包。
+- **`postprocessing` 替身**：`N8AOPostPass` 继承的是 pmndrs `postprocessing` 库的 `Pass`。我们用 three 自己的 EffectComposer，不装那个库：打包时 esbuild 把 `postprocessing` 指到 `tools/postprocessing-shim.mjs`，是我们自己写的、二十来行的 `Pass` 替身，只有 `N8AOPostPass` 用到的几个字段，不含那个库的任何代码。`.npmrc` 里 `legacy-peer-deps=true`，npm 也不会把它当 peer 依赖装进来。
+- **游戏里怎么接**（`js/world.js` 的 `makeAOPass`、`applyAO`）：
+  - 后期链的 RenderPass 后面插一道适配 three `Pass` 的小壳，调 `N8AOPostPass` 的 `setDepthTexture` / `render`；深度来自两张后期目标上挂的 `DepthTexture`。
+  - 只用它算 AO 贴图，它自己的合成和最后一道拷贝不跑（两道全分辨率的 pass，软件渲染下是开销的大头）；AO 贴图交给调色 pass（`GradeShader` 的 `tAO` / `uAOk`）乘到画面上，亮的像素（特效、熔岩芯，最大分量 0.62–0.92 之间渐变）不乘。
+  - 角色不吃 AO：开着 AO 时角色材质在后期目标的 alpha 里写 0（`injectLit`，`uAOMark`），n8ao 的 AO 着色器读到就当没有遮蔽。
+  - 改 n8ao 着色器只有一处（AO 着色器里算出遮蔽之后加一句判断角色像素），在 `configureAOPass` 之后补上，要求原文恰好出现一次，不然 `console.error`（测试会失败）。n8ao 升级时按新原文改这里。
+  - 参数在画质表 `QUALITY.high.ao` / `QUALITY.mid.ao`（半分辨率、8 次采样、半径 0.7 米、强度 1.6）；低画质不走 AO，逐像素和没有 AO 时一样。`window.CA_AO_OFF = 1`（页面加载前设）关掉 AO，做 A/B 用。
+- **确定性**：n8ao 不取 `Math.random`（蓝噪声是包里自带的贴图）；不开 `accumulate` 时每帧噪声的相位固定（`frame` 恒为 0），着色器里的 `time` 没有用到。`check-three` 在 Node 里建一个 `N8AOPostPass`、改配置，查 0 次 `Math.random`；smoke「画面：环境光遮蔽」一步比较开 / 关 AO 时渲染三帧取随机数的次数，必须一样。
+
 ## 历史：three.js r128 的 `vendor/three.min.js`
 
 r128 的 `three.min.js` 有同样的 uuid 改动（压缩代码里的 `ct` / `ctR`）。升级到 r186 后它挪到了 `tools/vendor/r128/`，只给离线工具 `tools/convert-chars.mjs` 用（FBXLoader 还是 r128 版），游戏不加载。
