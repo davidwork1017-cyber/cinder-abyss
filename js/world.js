@@ -20211,6 +20211,8 @@
     }
     return false;
   }
+  W.foeTeleInfo = () => ({ n: foeTeles.length }); // 测试用（vf-vfx3）
+  W.inFoeTele = (x, z) => vsInFoeTele(x, z); // 测试用（vf-vfx3）
   // shape：'circle'（r）/ 'rect'（w、len、ang）/ 'arc' 扇形（r、arc 半张角、ang 朝向）/ 'ring' 圆环（r 外半径、rin 内半径）
   W.makeTelegraph = function (spec, friendly) {
     const rect = spec.shape === 'rect', arc = spec.shape === 'arc', ringS = spec.shape === 'ring';

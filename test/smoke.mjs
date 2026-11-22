@@ -9988,6 +9988,60 @@ async function main() {
     return '形状件 陨火 ' + r.live.meteor + ' / 链雷 ' + r.live.arc + ' / 旋风斩 ' + r.live.whirl + '，预警圈填充 敌 ' + r.fillE + ' / 友 ' + r.fillF;
   });
 
+  await step('特效三期第 2 部分（vf-vfx3）：敌方招式的命中按元素画进形状批（物理 / 火 / 冰 / 雷 / 混沌都有件）、大半径的环是细边；敌方预警圈登记（友方的不登记），玩家的件落在里面时压暗；首领砸地的预警 / 判定不变、落下时放 W.foeHit', async () => {
+    const r = await ev(() => {
+      const W = G.world, P = G.player, S = G.state, out = {};
+      G.clearEnemies();
+      W.clearFx();
+      // 1. 各元素都有形状件；件数倍率 k 小的件更少；大半径的环走细边（一圈线段，件数 > 1）
+      out.el = {};
+      for (const el of ['phys', 'fire', 'cold', 'light', 'chaos']) {
+        W.clearFx();
+        W.foeHit(P.x + 3, P.z, 2.5, el);
+        out.el[el] = W.vShapeLive();
+      }
+      W.clearFx();
+      W.foeHit(P.x + 3, P.z, 2.5, 'fire', { k: 0.35, noRing: true });
+      out.fewer = W.vShapeLive();
+      W.clearFx();
+      W.thinRing(P.x, P.z, 4.6, 0xb8a68c, 0x5a4a3c, 0.32);
+      out.thin = W.vShapeLive();
+      W.clearFx();
+      // 2. 预警圈登记：敌方的登记、友方的不登记；圈里的点算在里面，圈外的不算；预警圈结算后登记撤掉
+      const te = G.telegraph({ shape: 'circle', x: P.x + 4, z: P.z, r: 2, dur: 0.2, dmg: 0 });
+      const tr = G.telegraph({ shape: 'rect', x: P.x - 4, z: P.z, w: 2, len: 6, ang: 0, dur: 0.2, dmg: 0 });
+      const tf = G.telegraph({ shape: 'circle', x: P.x, z: P.z + 6, r: 2, dur: 0.2, dmg: 0, friendly: true });
+      out.reg = W.foeTeleInfo().n;
+      out.inside = [W.inFoeTele(P.x + 4.5, P.z), W.inFoeTele(P.x - 4, P.z + 2.5), W.inFoeTele(P.x, P.z + 6), W.inFoeTele(P.x + 7, P.z)];
+      G.debug.step(0.4);
+      out.after = W.foeTeleInfo().n;
+      // 3. 熔渣巨像砸地：预警圈 r 4.6、0.95 秒（不变），落下时调 W.foeHit
+      const e = G.spawnBoss('golem', P.x, P.z - 5, 5, {});
+      e.speed = 0; e.hp = e.maxHp = 1e7; e.awake = e.wasAwake = true;
+      let calls = 0;
+      const of = W.foeHit;
+      W.foeHit = function () { calls++; return of.apply(W, arguments); };
+      const god0 = !!P.god;
+      G.debug.god(true);
+      G.debug.step(0.05);
+      e.busy = 0;
+      G.snufferPattern(e, 'slam');
+      const t = S.telegraphs.find((q) => q.owner === e);
+      out.slam = t ? { r: t.r, dur: t.dur, shape: t.shape } : null;
+      for (let i = 0; i < 24; i++) { e.busy = Math.max(e.busy, 0.5); G.debug.step(0.05); }
+      W.foeHit = of;
+      G.debug.god(god0);
+      out.calls = calls;
+      G.clearEnemies();
+      W.clearFx();
+      return out;
+    });
+    assert(Object.values(r.el).every((n) => n >= 4) && r.fewer >= 1 && r.fewer < r.el.fire && r.thin >= 12, '敌方命中的形状件不对：' + JSON.stringify(r));
+    assert(r.reg === 2 && r.inside.join() === 'true,true,false,false' && r.after === 0, '敌方预警圈的登记 / 范围不对：' + JSON.stringify(r));
+    assert(r.slam && r.slam.r === 4.6 && r.slam.dur === 0.95 && r.slam.shape === 'circle' && r.calls >= 1, '首领砸地的预警应不变、落下时放 W.foeHit：' + JSON.stringify(r));
+    return '件数 ' + Object.entries(r.el).map(([k, v]) => k + ' ' + v).join(' / ') + '，细边环 ' + r.thin + '，砸地 r ' + r.slam.r + ' / ' + r.slam.dur + ' 秒';
+  });
+
   await step('画面：CC0 素材按区域加载后换成 PBR 地面与布景；画质高 / 中 / 低即时切换、存档，三档都能渲染', async () => {
     const r = await ev(async () => {
       const W = G.world;
