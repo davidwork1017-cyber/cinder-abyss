@@ -23715,7 +23715,7 @@
     const cA = o.hex !== undefined ? mixHex(hexOf(o.hex), 0x000000, 0.25) : c[0], cB = o.hex !== undefined ? mixHex(hexOf(o.hex), 0x000000, 0.6) : c[1]; // 换色时亮档也压一成半（亮黄 / 亮金的件不到近白）
     const R = Math.max(0.6, r), half = lo ? 0.5 : 1;
     const cnt = (n) => Math.max(1, Math.round(n * half * (big ? 1.4 : 1) * (o.k || 1)));
-    const k1 = (o.k || 1) >= 0.5; // 一招连着落好几处（k < 0.5）时不留贴地痕迹：几块焦痕叠在一起成了一条黑带
+    const k1 = (o.k || 1) >= 0.5 && !lo; // 一招连着落好几处（k < 0.5）时不留贴地痕迹：几块焦痕叠在一起成了一条黑带；低画质不留（地面痕迹网格在只有敌方命中的那几帧会多一次 draw）
     vsFoe = 1;
     if (!o.noRing) W.thinRing(x, z, R * 1.02, cA, cB, 0.32);
     if (el === 'phys') {
