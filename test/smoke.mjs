@@ -895,6 +895,25 @@ async function main() {
     process.exit(1);
   }
 
+  // ash-models-drop / models-drop：第 0 区的布景全是自产件（kit-ash）；所有区都不再用 CC0 模型包，models.js 不再打包，冷启动（含之后预取第 1 区）一次都不该请求它
+  await step('素材：冷启动进第 0 区要齐第 0 区的包、不请求 CC0 模型包 models.js，第 0 区布景全部来自 kit-ash、都摆出来了', async () => {
+    const r = await ev(async () => {
+      const W = G.world, t = performance.now();
+      while (W.assetsPending() && performance.now() - t < 40000) await new Promise((res) => setTimeout(res, 50));
+      const res = performance.getEntriesByType('resource').filter((e) => /\/js\/assets\/[^/]+\.js(\?|$)/.test(e.name)).map((e) => ({ f: e.name.replace(/^.*\/js\/assets\//, '').replace(/\?.*$/, ''), s: e.startTime, e: e.responseEnd }));
+      return { pending: W.assetsPending(), hd: W.gfxInfo().hd, fires: W.gfxInfo().fires, src: W.propSources(), res };
+    });
+    const at = (f) => r.res.filter((x) => x.f === f);
+    assert(['zone-ash.js', 'kit-ash.js', 'rock-dark.js', 'ground.js'].every((f) => at(f).length), '冷启动缺第 0 区的包：' + r.res.map((x) => x.f).join(' '));
+    assert(!at('models.js').length, '冷启动请求了 CC0 模型包 models.js：' + r.res.map((x) => x.f).join(' '));
+    const fmt = r.src.map((s) => s.key + '@' + s.pack + '×' + s.placed).join(' ');
+    assert(!r.pending && r.hd, '第 0 区没换上 PBR 外观：' + JSON.stringify({ pending: r.pending, hd: r.hd }));
+    assert(r.src.length >= 10 && r.src.every((s) => s.key.startsWith('ca/') && s.pack === 'kit-ash'), '第 0 区布景的来源不对：' + fmt);
+    const placed = (re) => r.src.filter((s) => re.test(s.key)).reduce((a, s) => a + s.placed, 0);
+    assert(placed(/ash_tree_dead_/) >= 3 && placed(/ash_(skull|bones|blade|marker)$/) >= 3 && placed(/firepit/) === r.fires && r.fires > 0 && placed(/./) >= 20, '第 0 区布景没摆全（枯树 ≥ 3、路边小物 ≥ 3、火坑数 = 火焰数、总数 ≥ 20）：' + fmt + ' 火 ' + r.fires);
+    return '请求顺序 ' + r.res.map((x) => x.f.replace(/\.js$/, '')).join(' → ') + ' ｜ 布景 ' + placed(/./) + ' 个';
+  });
+
   await step('首屏：场景、玩家、HUD、小地图都画出来了', async () => {
     await frames(2);
     const r = await ev(() => {
@@ -9988,6 +10007,135 @@ async function main() {
     return '形状件 陨火 ' + r.live.meteor + ' / 链雷 ' + r.live.arc + ' / 旋风斩 ' + r.live.whirl + '，预警圈填充 敌 ' + r.fillE + ' / 友 ' + r.fillF;
   });
 
+  await step('特效三期第 1 部分（vf-vfx3）：同一只怪 0.25 秒内的普通数字并成一个、普通数字同屏不超过 40 条、同一只怪的状态词不摞；掉落的地面环 / 光柱 / 柱顶菱形画进实例零件；拾取 / 升级 / 死亡放形状件、死亡自下而上地烧', async () => {
+    const r = await ev(() => {
+      const W = G.world, P = G.player, S = G.state, save = G.save, out = {};
+      G.clearEnemies();
+      T.clearLoot();
+      W.clearFx();
+      // 1. 合并：同一只怪同一帧挨 4 下（随机数钉在 0.5：不暴击、每下一样大）→ 只有一条普通数字，值是 4 下之和；过了 0.3 秒再挨一下 → 新开一条
+      const e = G.spawnMob('husk', P.x + 3, P.z, 5, { awake: true });
+      e.hp = e.maxHp = 1e6; e.atkCd = 1e9; e.speed = 0; e.buTh = 1e15; e.poiseMax = 0;
+      T.fix(0.5);
+      const ctx = G.skillCtx('ember');
+      const hp0 = e.hp;
+      for (let i = 0; i < 4; i++) G.hitEnemy(e, ctx, 1, { quiet: true, noBuild: true });
+      const each = Math.max(1, Math.round((hp0 - e.hp) / 4));
+      const nums = () => W.textInfo().filter((q) => q.kind === '' && q.keyed);
+      out.merged = nums().map((q) => q.str);
+      out.want = String(each * 4);
+      G.debug.step(0.3);
+      G.hitEnemy(e, ctx, 1, { quiet: true, noBuild: true });
+      out.after = nums().length;
+      T.unfix();
+      // 2. 普通数字上限：一口气 60 条不同位置的普通字 → 还在飘的普通字不超过 40 条
+      W.clearFx();
+      for (let i = 0; i < 60; i++) W.text(P.x + (i % 10), P.z + Math.floor(i / 10), i + 1, '#c6bcaa', 16);
+      out.normal = W.textInfo().filter((q) => q.kind === '').length;
+      // 3. 状态词：同一个位置连着 3 次「爆燃」→ 只有一条；别处的照常
+      W.clearFx();
+      for (let i = 0; i < 3; i++) W.text(P.x, P.z, '爆燃', '#ffb070', 22, { kind: 'tag', y: 2 });
+      W.text(P.x + 4, P.z, '爆燃', '#ffb070', 22, { kind: 'tag', y: 2 });
+      out.tags = W.textInfo().filter((q) => q.kind === 'tag').length;
+      // 4. 掉落：一件稀有（4.5 米柱）+ 一件烬铸（7 米柱 + 菱形）+ 一颗通货（只有地面环）；掉落物自己只剩本体一个子节点
+      G.clearEnemies();
+      W.clearFx();
+      const rare = G.spawnLoot('item', G.rollItem(10, 2, 'ring'), P.x + 2, P.z);
+      const uq = G.spawnLoot('item', G.rollUnique(Object.keys(G.UNIQUES)[0], 10), P.x - 2, P.z);
+      const cur = G.spawnLoot('cur', Object.keys(G.CURRENCY)[0], P.x, P.z + 2);
+      G.debug.step(0.5);
+      W.render();
+      const parts = W.projFxInfo().parts;
+      out.loot = { ring: parts.lootRing, beam: parts.lootBeam, gem: parts.lootGem, bt: [rare.mesh.userData.bt, uq.mesh.userData.bt, cur.mesh.userData.bt], kids: [rare, uq, cur].map((l) => l.mesh.children.length) };
+      // 5. 拾取放形状件（碎晶 + 环）；升级的环 / 光痕
+      const bag0 = save.bag.length;
+      W.clearFx();
+      P.x = rare.x + 0.5; P.z = rare.z;
+      out.pickOk = G.pickup(rare);
+      out.pick = W.vShapeLive();
+      if (save.bag.length > bag0) save.bag.pop();
+      W.clearFx();
+      W.levelUpFx(P.x, P.z);
+      out.level = W.vShapeLive();
+      T.clearLoot();
+      // 6. 死亡：冻死的怪开始消散时放冰碴形状件，消散按身高自下而上（uDisH > 0）
+      W.clearFx();
+      const d = G.spawnMob('husk', P.x + 3, P.z, 5, { awake: true });
+      d.atkCd = 1e9; d.speed = 0;
+      const ent = d.ent;
+      G.killEnemy(d, { type: 'phys' });
+      out.disH = ent.uDisH.value;
+      let n = 0;
+      for (let i = 0; i < 30; i++) { G.debug.step(0.05); n = Math.max(n, W.vShapeLive()); }
+      out.death = n;
+      T.clearLoot();
+      G.clearEnemies();
+      W.clearFx();
+      return out;
+    });
+    assert(r.merged.length === 1 && r.merged[0] === r.want && r.after === 2, '同一只怪 0.25 秒内的普通数字应并成一条、值是几下之和，过了窗口另开一条：' + JSON.stringify(r));
+    assert(r.normal === 40, '普通数字同屏应最多 40 条：' + r.normal);
+    assert(r.tags === 2, '同一只怪头上的同一个状态词不应摞起来（别处的照常）：' + r.tags);
+    assert(r.loot.ring === 6 && r.loot.beam === 2 && r.loot.gem === 1 && r.loot.bt.join() === '1,2,0' && r.loot.kids.every((k) => k === 1), '掉落的地面环 / 光柱 / 菱形应画进实例零件（3 件掉落：3 圈地面环 + 3 道刻纹、2 道光柱、1 颗菱形）：' + JSON.stringify(r.loot));
+    assert(r.pickOk && r.pick >= 3 && r.level >= 5, '拾取 / 升级应放形状件：' + JSON.stringify(r));
+    assert(r.disH > 0 && r.death >= 2, '死亡应自下而上地烧、开始消散时放形状件：' + JSON.stringify(r));
+    return '合并 ' + r.merged[0] + '，普通字 ' + r.normal + '，地面环 ' + r.loot.ring + ' / 光柱 ' + r.loot.beam + ' / 菱形 ' + r.loot.gem + '，形状件 拾取 ' + r.pick + ' / 升级 ' + r.level + ' / 死亡 ' + r.death;
+  });
+
+  await step('特效三期第 2 部分（vf-vfx3）：敌方招式的命中按元素画进形状批（物理 / 火 / 冰 / 雷 / 混沌都有件）、大半径的环是细边；敌方预警圈登记（友方的不登记），玩家的件落在里面时压暗；首领砸地的预警 / 判定不变、落下时放 W.foeHit', async () => {
+    const r = await ev(() => {
+      const W = G.world, P = G.player, S = G.state, out = {};
+      G.clearEnemies();
+      W.clearFx();
+      // 1. 各元素都有形状件；件数倍率 k 小的件更少；大半径的环走细边（一圈线段，件数 > 1）
+      out.el = {};
+      for (const el of ['phys', 'fire', 'cold', 'light', 'chaos']) {
+        W.clearFx();
+        W.foeHit(P.x + 3, P.z, 2.5, el);
+        out.el[el] = W.vShapeLive();
+      }
+      W.clearFx();
+      W.foeHit(P.x + 3, P.z, 2.5, 'fire', { k: 0.35, noRing: true });
+      out.fewer = W.vShapeLive();
+      W.clearFx();
+      W.thinRing(P.x, P.z, 4.6, 0xb8a68c, 0x5a4a3c, 0.32);
+      out.thin = W.vShapeLive();
+      W.clearFx();
+      // 2. 预警圈登记：敌方的登记、友方的不登记；圈里的点算在里面，圈外的不算；预警圈结算后登记撤掉
+      const te = G.telegraph({ shape: 'circle', x: P.x + 4, z: P.z, r: 2, dur: 0.2, dmg: 0 });
+      const tr = G.telegraph({ shape: 'rect', x: P.x - 4, z: P.z, w: 2, len: 6, ang: 0, dur: 0.2, dmg: 0 });
+      const tf = G.telegraph({ shape: 'circle', x: P.x, z: P.z + 6, r: 2, dur: 0.2, dmg: 0, friendly: true });
+      out.reg = W.foeTeleInfo().n;
+      out.inside = [W.inFoeTele(P.x + 4.5, P.z), W.inFoeTele(P.x - 4, P.z + 2.5), W.inFoeTele(P.x, P.z + 6), W.inFoeTele(P.x + 7, P.z)];
+      G.debug.step(0.4);
+      out.after = W.foeTeleInfo().n;
+      // 3. 熔渣巨像砸地：预警圈 r 4.6、0.95 秒（不变），落下时调 W.foeHit
+      const e = G.spawnBoss('golem', P.x, P.z - 5, 5, {});
+      e.speed = 0; e.hp = e.maxHp = 1e7; e.awake = e.wasAwake = true;
+      let calls = 0;
+      const of = W.foeHit;
+      W.foeHit = function () { calls++; return of.apply(W, arguments); };
+      const god0 = !!P.god;
+      G.debug.god(true);
+      G.debug.step(0.05);
+      e.busy = 0;
+      G.snufferPattern(e, 'slam');
+      const t = S.telegraphs.find((q) => q.owner === e);
+      out.slam = t ? { r: t.r, dur: t.dur, shape: t.shape } : null;
+      for (let i = 0; i < 24; i++) { e.busy = Math.max(e.busy, 0.5); G.debug.step(0.05); }
+      W.foeHit = of;
+      G.debug.god(god0);
+      out.calls = calls;
+      G.clearEnemies();
+      W.clearFx();
+      return out;
+    });
+    assert(Object.values(r.el).every((n) => n >= 4) && r.fewer >= 1 && r.fewer < r.el.fire && r.thin >= 12, '敌方命中的形状件不对：' + JSON.stringify(r));
+    assert(r.reg === 2 && r.inside.join() === 'true,true,false,false' && r.after === 0, '敌方预警圈的登记 / 范围不对：' + JSON.stringify(r));
+    assert(r.slam && r.slam.r === 4.6 && r.slam.dur === 0.95 && r.slam.shape === 'circle' && r.calls >= 1, '首领砸地的预警应不变、落下时放 W.foeHit：' + JSON.stringify(r));
+    return '件数 ' + Object.entries(r.el).map(([k, v]) => k + ' ' + v).join(' / ') + '，细边环 ' + r.thin + '，砸地 r ' + r.slam.r + ' / ' + r.slam.dur + ' 秒';
+  });
+
   await step('特效三期第 3 部分（vf-vfx3）：区域氛围——霜骨沼泽 / 雷鸣遗迹 / 烬渊深处 / 坠星裂谷 / 余烛殿各有一个氛围 Points（高画质画、低画质不画）；设置「环境特效」新存档和老存档都默认开，关掉后不画、也不撒全局粒子', async () => {
     const r = await ev((KEY) => {
       const W = G.world, S = G.state, save = G.save, out = {};
@@ -10097,7 +10245,7 @@ async function main() {
     return r.zones.join(' ') + ' ｜ ' + r.qs.join(' ') + ' ｜ 默认 ' + r.q0 + '（' + r.eff + '）';
   });
 
-  await step('画面：第 0 区的布景全部来自自产件包 kit-ash（ca/ 开头，含路边小物）、第 3 区（烬渊深处）的布景全部来自 kit-abyss、第 4 区（坠星裂谷）的布景全部来自 kit-rift，确实摆出来了；别的区照旧用 CC0 模型包（第 1–2 区里摆出布景的第一个区；第 2 区的立灯是自产件）', async () => {
+  await step('画面：第 0 区的布景全部来自自产件包 kit-ash（ca/ 开头，含路边小物）、第 3 区（烬渊深处）的布景全部来自 kit-abyss、第 4 区（坠星裂谷）的布景全部来自 kit-rift，确实摆出来了；第 1 区（霜骨沼泽）的摆放表为空，第 2 区（雷鸣遗迹）只摆自产立灯（kit-storm）；整个过程没有请求 CC0 模型包 models.js（models-drop 起不再打包）', async () => {
     const r = await ev(async () => {
       const W = G.world;
       const wait = async (f, ms) => {
@@ -10110,19 +10258,15 @@ async function main() {
         await wait(() => !W.assetsPending(), 40000);
         return { id: G.ZONES[i].id, hd: W.gfxInfo().hd, fires: W.gfxInfo().fires, src: W.propSources() };
       };
-      // 别的区：照旧用 CC0 模型包。第 1 区四周是水，布景基本摆不上（不立在深水上），所以依次看第 1–4 区，以摆出布景的第一个区为准
-      const ash = await look(0), others = [];
-      for (let i = 1; i < Math.min(3, G.ZONES.length); i++) {
-        const z = await look(i);
-        others.push(z);
-        if (z.src.reduce((a, s) => a + s.placed, 0) > 0) break;
-      }
+      // models-drop：第 1、2 区原来摆放表里的 CC0 模型一个都摆不出来，已清空；第 1 区没有摆放表，第 2 区只剩自产立灯
+      const ash = await look(0), frost = await look(1), storm = await look(2);
       const abyss = await look(3); // asset-zones：第 3 区的布景全部换成自产件（kit-abyss）
       const rift = await look(4); // asset-zones：第 4 区的布景全部换成自产件（kit-rift）
       G.enterZone(0, 1);
-      return { ash, others, abyss, rift };
+      const models = performance.getEntriesByType('resource').filter((e) => /\/js\/assets\/models\.js(\?|$)/.test(e.name)).length;
+      return { ash, frost, storm, abyss, rift, models, indexed: !!(window.CA_ASSET_INDEX && CA_ASSET_INDEX.packs.models) };
     });
-    const { ash, others, abyss, rift } = r;
+    const { ash, frost, storm, abyss, rift } = r;
     const fmt = (z) => z.src.map((s) => s.key + '@' + s.pack + '×' + s.placed).join(' ');
     assert(ash.id === 'ash' && ash.hd, '第 0 区不是 ash 或没换上 PBR 外观：' + JSON.stringify(ash).slice(0, 300));
     // 路边小物（骷髅 / 骨头 / 断剑 / 墓碑）也换成了自产件：第 0 区的布景全部是 ca/ 开头、来自 kit-ash，不再用 CC0 模型包
@@ -10132,9 +10276,12 @@ async function main() {
     assert(placed(ash, /tree_dead/) >= 3, '第 0 区枯树摆得太少：' + fmt(ash));
     assert(placed(ash, /firepit/) === ash.fires && ash.fires > 0, '第 0 区火坑的实例数和火焰数对不上：' + fmt(ash) + ' 火 ' + ash.fires);
     assert(ash.src.reduce((a, s) => a + s.placed, 0) >= 20, '第 0 区布景总数太少：' + fmt(ash));
-    // 第 2 区（雷鸣遗迹）的路边立灯换成了自产件（kit-storm），其余摆放表照旧是 CC0 模型包
-    assert(others.every((z) => z.hd && z.src.length && z.src.every((s) => (s.key.startsWith('ca/') ? s.pack === 'kit-' + z.id : s.pack === 'models'))), '别的区的布景来源不对（ca/ 开头的应来自本区自产件包，其余来自 CC0 模型包）：' + others.map((z) => z.id + ' ' + fmt(z)).join(' ｜ '));
-    assert(others[others.length - 1].src.reduce((a, s) => a + s.placed, 0) > 0, '第 1–2 区都没摆出 CC0 布景：' + others.map((z) => z.id + ' ' + fmt(z)).join(' ｜ '));
+    // models-drop：第 1 区没有摆放表（四周是水，原来的 CC0 模型摆不出来），第 2 区只有路边立灯，来自 kit-storm，立灯实例数 = 火焰数
+    assert(frost.id === 'frost' && frost.hd && frost.src.length === 0, '第 1 区不是 frost、没换上 PBR 外观或摆放表不为空：' + frost.id + ' ' + frost.hd + ' ' + fmt(frost));
+    assert(storm.id === 'storm' && storm.hd && storm.src.length === 1 && storm.src[0].key === 'ca/storm_lantern' && storm.src[0].pack === 'kit-storm', '第 2 区布景的来源不对（应只有 ca/storm_lantern@kit-storm）：' + fmt(storm));
+    assert(placed(storm, /lantern/) === storm.fires && storm.fires > 0, '第 2 区立灯没摆出来或和火焰数对不上：' + fmt(storm) + ' 火 ' + storm.fires);
+    // 所有区的布景都是自产件：素材清单里没有 models 包，走完第 0–4 区也没请求过 models.js
+    assert(!r.indexed && r.models === 0, '还在打包或请求 CC0 模型包 models.js：' + JSON.stringify({ indexed: r.indexed, requests: r.models }));
     // 第 3 区：13 种布景（含火坑）全部是 ca/abyss_* 且来自 kit-abyss；碎墓摆出来了，火坑实例数 = 火焰数，总数不少（固定种子约 120，布局随机，留足余量）
     assert(abyss.id === 'abyss' && abyss.hd, '第 3 区不是 abyss 或没换上 PBR 外观：' + JSON.stringify(abyss).slice(0, 300));
     assert(abyss.src.length === 13 && abyss.src.every((s) => s.key.startsWith('ca/abyss_') && s.pack === 'kit-abyss'), '第 3 区布景的来源不对：' + fmt(abyss));
@@ -10145,7 +10292,7 @@ async function main() {
     assert(rift.src.length === 7 && rift.src.every((s) => s.key.startsWith('ca/rift_') && s.pack === 'kit-rift'), '第 4 区布景的来源不对：' + fmt(rift));
     assert(placed(rift, /monolith/) >= 3 && placed(rift, /slabs/) >= 3, '第 4 区石碑 / 碎地砖摆得太少：' + fmt(rift));
     assert(rift.src.reduce((a, s) => a + s.placed, 0) >= 40, '第 4 区布景总数太少：' + fmt(rift));
-    return fmt(ash) + ' ｜ ' + fmt(abyss) + ' ｜ ' + fmt(rift);
+    return fmt(ash) + ' ｜ ' + fmt(storm) + ' ｜ ' + fmt(abyss) + ' ｜ ' + fmt(rift) + ' ｜ models.js 请求 ' + r.models;
   });
 
   // ------------------------------------------------------------------ 存档
@@ -10996,7 +11143,7 @@ async function main() {
       G.dropLoot({ isBoss: true, bossKind: 'warden', level: 28, x: P.x, z: P.z - 3 });
       if (G.RELIC_DROP) G.RELIC_DROP.src.boss = rqBoss;
       const l = S.loot.find((x) => x.kind === 'item' && x.data.rarity === 3);
-      out.full = l ? { uq: l.data.uq, ilvl: l.data.ilvl, color: l.color, label: l.label, beam: l.mesh.children.length } : null;
+      out.full = l ? { uq: l.data.uq, ilvl: l.data.ilvl, color: l.color, label: l.label, beam: l.mesh.userData.bt } : null; // vf-vfx3：光柱进了实例零件，掉落物上记的是柱子的档位（2 = 烬铸 / 渊契的高柱）
       out.pityReset = U.pity.warden || 0;
       const bt = document.getElementById('big-toast');
       out.toast = bt ? { on: bt.classList.contains('on'), text: bt.innerText } : null;
@@ -11010,7 +11157,7 @@ async function main() {
     assert(r.c1a && !r.c1b && r.c2b0 && r.c2a && !r.c2b && r.c5, '掉率不对：' + JSON.stringify(r));
     assert(r.chance.join() === '0,0.15,0.25,0.25', '掉率表不对：' + r.chance);
     assert(r.seq === '001001' && r.pityAfter === 0 && r.weaverUntouched === 0 && r.weaver1 === 1, '保底不对：' + JSON.stringify(r));
-    assert(r.full && r.full.uq === 'jinduan' && r.full.ilvl === 28 && r.full.color === G_UQ_COLOR && r.full.beam >= 5 && r.pityReset === 0, '首领完整掉落里的烬铸不对：' + JSON.stringify(r.full));
+    assert(r.full && r.full.uq === 'jinduan' && r.full.ilvl === 28 && r.full.color === G_UQ_COLOR && r.full.beam === 2 && r.pityReset === 0, '首领完整掉落里的烬铸不对：' + JSON.stringify(r.full));
     assert(r.toast && r.toast.on && /烬断/.test(r.toast.text), '应弹出屏幕中央的大字提示：' + JSON.stringify(r.toast));
     return '保底序列 ' + r.seq + ' · 名牌 ' + r.full.label;
   });
@@ -16868,15 +17015,31 @@ async function main() {
         return enc;
       };
       // 巡逻 + 拴绳
-      // 从 e 出发、一路 sd ≥ 1 的方向（钩链测试要一条直的空路）
-      const clear = (e, len) => {
+      // 从 (x, z) 出发、一路 sd ≥ 1 的方向（钩链测试要一条直的空路）；没有返回 null
+      const clearAt = (x, z, len) => {
         for (let k = 0; k < 24; k++) {
           const a = (k / 24) * Math.PI * 2, dx = Math.sin(a), dz = Math.cos(a);
           let ok = true;
-          for (let d = 1; d <= len && ok; d += 0.5) if (!(W.sdAt(e.x + dx * d, e.z + dz * d) >= 1) || !W.walkable(e.x + dx * d, e.z + dz * d, 0.5)) ok = false; // walkable：和钩链拽人时查的一样（布景件的碰撞也挡）
+          for (let d = 1; d <= len && ok; d += 0.5) if (!(W.sdAt(x + dx * d, z + dz * d) >= 1) || !W.walkable(x + dx * d, z + dz * d, 0.5)) ok = false; // walkable：和钩链拽人时查的一样（布景件的碰撞也挡）
           if (ok) return { x: dx, z: dz };
         }
-        return { x: 1, z: 0 };
+        return null;
+      };
+      // 钩链要从游荡者身上拉出一条 len 米的直路。拴绳那段把它拽来拽去之后，它脚下不一定有（原来找不到就按 +x，
+      // 在 abyss 的窄走廊里把玩家传进了墙里）：从它脚下起一圈圈往外找（拴绳房间以内、0.5 米余量能走），找到就把它挪过去
+      const clear = (e, len) => {
+        for (const r of [0, 1.5, 3, 4.5, 6])
+          for (let k = 0; k < (r ? 12 : 1); k++) {
+            const a = (k / 12) * Math.PI * 2, x = e.x + Math.sin(a) * r, z = e.z + Math.cos(a) * r;
+            if (r && (!W.walkable(x, z, 0.5) || !G.leashRoomOk(e, x, z))) continue;
+            const u = clearAt(x, z, len);
+            if (!u) continue;
+            e.x = x;
+            e.z = z;
+            W.setEnt(e.ent, x, z, e.ang);
+            return u;
+          }
+        return null;
       };
       let enc = make('chain'), e = enc.mob;
       { const q = T.spotNear(e.x, e.z, 25.5, Math.PI / 4, [18, 33]); T.tp(q.x, q.z); } // 50 m 外的怪整帧跳过：离远一点但别太远（18–33 m），也别叫醒它（站在能走的地方）
@@ -16896,6 +17059,8 @@ async function main() {
       out.leash = leash;
       // 钩链：直接拽 4 m；前面插一道假墙时停在墙前
       const u = clear(e, 9);
+      out.lane = !!u;
+      if (!u) return out; // 下面断言「找得到直路」
       T.tp(e.x + u.x * 8, e.z + u.z * 8);
       const m1 = G.encHookPlayer(e.x, e.z, 4, 0.6);
       out.hook = +m1.toFixed(2);
@@ -16925,7 +17090,7 @@ async function main() {
       enc = make('oath');
       e = enc.mob;
       e.awake = true;
-      { const q = T.spotNear(e.x, e.z, 3, Math.PI / 2); T.tp(q.x, q.z); }
+      { const q = T.spotNear(e.x, e.z, 3, Math.PI / 2, [1.5, 6]); T.tp(q.x, q.z); }
       e.hp = e.maxHp * 0.7;
       EK.step(0.1);
       out.totems = (e.encTotems || []).filter((t) => !t.dead).length;
@@ -16940,7 +17105,7 @@ async function main() {
       enc = make('mirror');
       e = enc.mob;
       e.awake = true;
-      { const q = T.spotNear(e.x, e.z, 3, Math.PI / 2); T.tp(q.x, q.z); }
+      { const q = T.spotNear(e.x, e.z, 3, Math.PI / 2, [1.5, 6]); T.tp(q.x, q.z); }
       e.hp = e.maxHp * 0.55;
       EK.step(0.1);
       const cl = e.encClones || [];
@@ -16957,7 +17122,7 @@ async function main() {
       e = enc.mob;
       e.awake = true;
       e.atkCd = 99;
-      T.tp(e.x + 18, e.z + 18);
+      { const q = T.spotNear(e.x, e.z, 25.5, Math.PI / 4, [18, 33]); T.tp(q.x, q.z); } // 离远一点、站在能走的地方（原来直接 +18 / +18，abyss 里落进过墙）
       // 走动时每 0.5 秒一块、4 秒消失（常态最多 8 块）；把间隔临时缩到 0.1 秒验上限 10
       const CT = G.WANDERER.titles.cinder, ev0 = CT.every;
       EK.step(3, () => {
@@ -16982,6 +17147,7 @@ async function main() {
     });
     assert(r.patrol > 1.5 && r.leash, '游荡者应在巡逻段里走动、拽不出拴绳：' + JSON.stringify(r));
     assert(/^拖链者·../.test(r.name), '游荡者的名字应是「称号·名」：' + r.name);
+    assert(r.lane, '游荡者身边 6 m 内（拴绳房间以内）找不到一条 9 m 的直路，钩链没法测：' + JSON.stringify(r));
     assert(Math.abs(r.hook - 4) < 0.01 && r.wallHook < 1.0, '钩链应拽 4 m、遇墙停：' + JSON.stringify(r));
     assert(r.tele === '11×1.4@0.85' && r.pulled > 3, '钩链的预警 / 打中拽人不对：' + JSON.stringify(r));
     assert(r.totems === 2 && r.dr === 0.4 && Math.abs(r.regen - 0.01) < 0.002 && r.dr2 === 0, '灰誓者的图腾 / 减伤 / 回血不对：' + JSON.stringify(r));
@@ -17075,11 +17241,16 @@ async function main() {
       for (let i = 0; i < 120; i++) G.pullEnemy(m, ox, oz, 0.5);
       out.leash = G.leashRoomOk(m, m.x, m.z) && (W.roomAt(m.x, m.z) === s.room || Math.hypot(m.x - s.door.x, m.z - s.door.z) <= 3.01);
       const waves = [enc.mobs.length];
+      // 奖励本身掉了几件物品（G.encReward 那一下）：总数里还混着怪随机掉的，要不要多掉一件取决于随机序列走到哪
+      const oRew = G.encReward;
+      out.rewItems = 0;
+      G.encReward = function () { const n0 = EK.items(); const v = oRew.apply(this, arguments); out.rewItems += EK.items() - n0; return v; };
       for (let w = 0; w < 3; w++) {
         EK.kill(enc.mobs);
         EK.step(1.0);
         waves.push(enc.mobs.length);
       }
+      G.encReward = oRew;
       out.waves = waves;
       out.elites = enc.mobs.filter((e) => e.elite).length;
       out.st = enc.st;
@@ -17100,7 +17271,8 @@ async function main() {
     });
     assert(r.outside && r.idle === 'idle' && r.doorway === 'idle' && r.run === 'run' && r.w1 === 5, '试锋应跨过门口的符文才开始（门洞里不算）、第一波 5 只：' + JSON.stringify(r));
     assert(r.leash, '试锋的怪应拴在小室里：' + JSON.stringify(r));
-    assert(r.waves.join(',') === '5,11,17,17' && r.elites === 2 && r.st === 'done' && r.how === 'top' && r.items >= 3, '试锋的波次 / 评级不对：' + JSON.stringify(r));
+    // 「上」档奖励 rew.rare = 2：奖励那一下至少掉 2 件稀有（中档只有 1 件）；原来的 items >= 3 要靠 17 只怪 / 渊契再随机多掉一件，随机序列一变就不成立
+    assert(r.waves.join(',') === '5,11,17,17' && r.elites === 2 && r.st === 'done' && r.how === 'top' && r.rewItems >= 2 && r.items >= r.rewItems, '试锋的波次 / 评级不对：' + JSON.stringify(r));
     assert(r.quit0 === 'run' && r.quit === 'quit' && r.gone, '离开小室超过 4 秒应弃权、怪散掉：' + JSON.stringify(r));
     return '波次 ' + r.waves.join(' → ') + '，评级 ' + r.how;
   });

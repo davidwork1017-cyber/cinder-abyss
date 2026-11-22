@@ -783,7 +783,7 @@
   //   ao 岩石 / 布景脚下接触阴影的强度、scorch 焦痕的比例（0 = 不要）、kinds 路外碎斑用哪几格（见 DECAL_CELL）、tint 碎石 / 裂纹的颜色
   const ZONE_GFX = {
     ash: {
-      packs: ['zone-ash', 'rock-dark', 'models', 'ground'],
+      packs: ['zone-ash', 'rock-dark', 'ground'], // ash-models-drop：布景全是自产件（kit-ash 跟着 zone-ash 加载），不再要 models 包：冷启动 / 存档停在第 0 区时少下载、少解析 1.4 MB
       mats: [
         // 卡通：路面是暗一档的灰褐焦土（不再是粉褐色），贴图的明暗起伏压低，地面不抢角色；路外是更暗、偏灰紫的灰土
         { tex: 'mud_cracked_dry_03', tile: 4.2, con: 0.45, nrm: 0.5, rough: 1, k: 0.53, sat: 0.8, col: 0x5a5753 }, // 中性灰（zones-ash：0x575358 → 0x5a5753，去掉偏紫的那一点，主光一照是暖灰烬色，不是粉紫褐）
@@ -818,7 +818,7 @@
       },
     },
     frost: {
-      packs: ['zone-frost', 'rock-grey', 'models', 'ground'],
+      packs: ['zone-frost', 'rock-grey', 'ground'], // models-drop：摆放表里的 CC0 模型在这一区一个都摆不出来（多种子实测 0 个），不再加载 models 包
       mats: [
         // zones-frost：冻土岛，冷青灰（不按 def.path 推），贴图起伏压低；粗糙地面是带雪的冻泥，略亮略暖一点，把大片的冰面打散
         { tex: 'Ice002', tile: 7.5, con: 0.34, nrm: 0.5, rough: 0.7, k: 0.36, sat: 0.7, col: 0x55707c },
@@ -838,17 +838,18 @@
       mist: null, // zones-frost：路外整片是水（dress 画），贴地薄雾在水面上是一块块的亮斑，去掉（高 / 低画质也就一致了）
       prop: { tint: 0x8aa0b0, sat: 0.2 },
       props: {
-        outer: [['kn/stone_tallA', 3, 2.6, 3.6, 'tr'], ['kn/rock_tallB', 2, 2.4, 3.2, 'tr'], ['kh/tree_dead_large', 2, 0.8, 1.05, 't'], ['kh/tree_dead_small', 2, 1, 1.3, '']],
+        // models-drop：四周是水，原来这几行 CC0 模型（kn/ kh/）一个都摆不出来（12 个种子实测 0 个），清空；keep 照旧 0.45（程序化的远处冰棱保留的比例）
+        outer: [],
         keep: 0.45,
-        mid: [['kn/rock_largeB', 1, 1.6, 2.4, 'r'], ['kn/stone_tallC', 1, 2.2, 3, 'r']],
+        mid: [],
         midK: 0.3,
-        edge: [['kh/ribcage', 1, 0.9, 1.2, 'l'], ['kh/bone_A', 3, 0.8, 1.1, 'l'], ['kh/skull', 1, 0.5, 0.7, '']],
+        edge: [],
         fire: null, // zones-frost：岛边的立灯会落进水里，改成 dress 里栈道两头的灯
-        boss: [['kn/statue_ring', 1, 3, 3.6, 't'], ['kn/stone_tallA', 2, 3.2, 4, 'tr']],
+        boss: [],
       },
     },
     storm: {
-      packs: ['zone-storm', 'rock-grey', 'models', 'ground'],
+      packs: ['zone-storm', 'rock-grey', 'ground'], // models-drop：摆放表里的 CC0 模型在这一区一个都摆不出来（多种子实测 0 个），不再加载 models 包
       mats: [
         // zones-storm：石板紫的地砖（压掉贴图里偏粉的石块），路外的碎石地更暗；墙外整片是暗的「墙体」地面
         { tex: 'monastery_stone_floor', tile: 4.6, con: 0.6, nrm: 1.0, rough: 1, k: 0.48, sat: 0.45, col: 0x5c5a70 },
@@ -868,13 +869,14 @@
       mist: { color: 0x2c2744, a: 0.32 },
       prop: { tint: 0x5f5b74, sat: 0.2 },
       props: {
-        outer: [['kd/pillar', 3, 0.7, 0.95, 't'], ['kd/pillar_decorated', 1, 0.7, 0.9, 't'], ['kn/statue_column', 2, 3.4, 4.2, 't'], ['kn/statue_columnDamaged', 3, 3.4, 4.4, ''], ['kd/wall_broken', 2, 0.7, 0.9, 't'], ['kn/statue_obelisk', 1, 4, 5, 't']],
+        // models-drop：墙围起来的布局里，原来这几行 CC0 模型（kd/ kn/）一个都摆不出来（12 个种子实测 0 个），清空；路边立灯是自产件（kit-storm），照旧
+        outer: [],
         keep: 0,
-        mid: [['kd/rubble_half', 1, 0.45, 0.6, ''], ['kd/column', 1, 0.9, 1.2, '']],
+        mid: [],
         midK: 0.35,
-        edge: [['kd/floor_tile_small_broken_A', 2, 0.5, 0.7, 'l'], ['kd/sword_shield_broken', 1, 0.7, 0.9, ''], ['kn/statue_columnDamaged', 1, 1.6, 2, '']],
+        edge: [],
         fire: { m: 'ca/storm_lantern', s: 1.4, h: 0.62, color: 0xffe45e, size: 0.6 }, // asset-zones：自产立灯（kit-storm，fit 照抄 kh/lantern_standing；id 里要有 lantern，火焰按 h × s 的高度放）
-        boss: [['kd/pillar_decorated', 2, 0.8, 1, 't'], ['kd/barrier_column', 1, 0.7, 0.9, '']],
+        boss: [],
       },
     },
     abyss: {
@@ -1243,9 +1245,16 @@
   const gfxBroken = Object.create(null); // 建 PBR 外观时出过错的区域：之后一直用程序化外观
   // 贴图包（除布景模型包以外）都到了就能换 PBR 地面 / 岩壁；模型包单独判断，没有它就只是不摆 CC0 布景
   const texPacks = (gx) => gx.packs.filter((p) => p !== 'models');
-  // 模型包到了且真的解析出了模型（GLTFLoader 缺失时包本身「成功」但一个模型都没有）。
-  // asset-zones：布景全是自产件的区域（packs 里没有 models，比如第 4 区）只看自产件包（zone 包带的 kit-<区>）解析出了几何体
-  const propsReady = (gx) => !!(G.assets && (gx.packs.indexOf('models') < 0 || G.assets.ready(['models'])) && gx.props.outer.some((e) => G.assets.geo(e[0])));
+  // 布景就绪：摆放表（外圈 / 中圈 / 路边 / 首领 / 火盆）里每个 key 都解析出了几何体（自产件包 kit-<区> 跟着 zone 包加载）；摆放表为空也算就绪。
+  // models-drop：所有区域的布景都是自产件，不再有 models 包；原来按「外圈有一个解析出来」判断，外圈为空的区域（霜骨沼泽清空以后）会一直不建布景，
+  // 那样 keep（程序化摆件保留的比例）就不生效了
+  const propsKeys = (gx) => {
+    const P = gx.props, out = [];
+    for (const l of [P.outer, P.mid, P.edge, P.boss]) for (const e of l || []) out.push(e[0]);
+    if (P.fire) out.push(P.fire.m);
+    return out;
+  };
+  const propsReady = (gx) => !!(G.assets && (gx.packs.indexOf('models') < 0 || G.assets.ready(['models'])) && propsKeys(gx).every((k) => G.assets.geo(k)));
   function gfxReady(gx) {
     if (!gx || gfxBroken[gx.packs[0]] || !G.assets || !G.assets.ready(texPacks(gx))) return false;
     for (const m of gx.mats) if (!G.assets.tex(m.tex)) return false;
@@ -2365,7 +2374,10 @@
       const P = G.player, S = G.state;
       const busy = (P && P.cast) || (S && S.enemies.some((e) => !e.dead && e.awake && Math.hypot(e.x - P.x, e.z - P.z) < 25));
       calmFor = busy ? 0 : calmFor + 1;
-      if (calmFor >= 3 || ++waited >= 60) G.assets.need(nx.packs);
+      // ash-models-drop：也等启动时的图标预热画完（G.icons.ready()），预取下一区的贴图 / 自产件解析不和预热抢主线程（当时预取第 1 区要解析 models 包，
+      // 赶在预热中间把图标就绪推迟了约 0.7 秒；models-drop 起不再有这个包，等一下也不亏）；预热一般在进区后几秒内画完，60 秒的上限不变
+      const iconsBusy = !!(G.icons && G.icons.ready && !G.icons.ready());
+      if ((calmFor >= 3 && !iconsBusy) || ++waited >= 60) G.assets.need(nx.packs);
       else setTimeout(tick, 1000);
     };
     setTimeout(tick, 1500);
@@ -6709,12 +6721,12 @@
     const pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
     let o = 0;
     parts.forEach((p, i) => {
-      _c.set(p[1]).convertSRGBToLinear();
-      const a = srcs[i].attributes.position;
+      if (p[1] !== null) _c.set(p[1]).convertSRGBToLinear();
+      const a = srcs[i].attributes.position, ca = p[1] === null ? srcs[i].attributes.color : null; // asset-zones：颜色给 null = 用几何体自己烘好的顶点色（自产件）
       for (let k = 0; k < a.count; k++) {
         _v2.fromBufferAttribute(a, k).applyMatrix4(p[2]);
         pos[o] = _v2.x; pos[o + 1] = _v2.y; pos[o + 2] = _v2.z;
-        col[o] = _c.r; col[o + 1] = _c.g; col[o + 2] = _c.b;
+        if (ca) { col[o] = ca.getX(k); col[o + 1] = ca.getY(k); col[o + 2] = ca.getZ(k); } else { col[o] = _c.r; col[o + 1] = _c.g; col[o + 2] = _c.b; }
         o += 3;
       }
       if (srcs[i] !== p[0]) srcs[i].dispose();
@@ -6810,8 +6822,11 @@
         box(f.x, 1.72, f.z, ry, 0.5, 0.08, 0.1, FROST_PAL.post);
       }
     }
-    const mat = ctx.own(ctx.makeToonMat({ vertexColors: false, brush: 0.1, brushScale: 0.7 }));
-    const im = ctx.instanced(gBox(1, 1, 1), mat, L, true, new T.Color(1, 1, 1));
+    // asset-zones：高 / 中画质用自产的单位块（ca/frost_plank：倒角、烘了一点明暗，颜色仍是实例色）；低画质（性能档）照旧用程序化方块
+    const kitPlank = qualId !== 'low' && G.assets && G.assets.geo('ca/frost_plank');
+    const deckGeo = kitPlank ? geo('frost/plank:ca', () => kitPlank.clone().translate(0, -0.5, 0)) : gBox(1, 1, 1);
+    const mat = ctx.own(ctx.makeToonMat({ vertexColors: !!kitPlank, brush: 0.1, brushScale: 0.7 }));
+    const im = ctx.instanced(deckGeo, mat, L, true, new T.Color(1, 1, 1));
     if (im) {
       for (let i = 0; i < C.length; i++) im.setColorAt(i, _c.set(C[i]).convertSRGBToLinear());
       im.instanceColor.needsUpdate = true;
@@ -6910,8 +6925,11 @@
         // 头骨：局部 +z 朝 ang（岛心）
         const S = 1.05, base = frostM4(f.x, -0.25, f.z, 0, f.ang, 0, S);
         const pc = (g, col, x, y, z, rx, ry, rz, sx, sy, sz) => add(g, col, base.clone().multiply(frostM4(x, y, z, rx, ry, rz, sx, sy, sz)));
-        pc(frostSkullGeo(), B, 0, 1.0, 0, 0, 0, 0, 1, 1, 1);
-        for (const sg of [-1, 1]) {
+        // asset-zones：自产件包（kit-frost）到了就整组换成自产的巨兽头骨（同一个局部坐标、同样的大小；颜色用它自己烘好的顶点色）
+        const kitSkull = G.assets && G.assets.geo('ca/frost_skull');
+        if (kitSkull) add(kitSkull, null, base.clone());
+        else pc(frostSkullGeo(), B, 0, 1.0, 0, 0, 0, 0, 1, 1, 1);
+        if (!kitSkull) for (const sg of [-1, 1]) {
           pc(gIco(0.4, 0), FROST_PAL.socket, sg * 0.6, 1.6, 0.68, 0, 0, 0, 1, 0.8, 0.62); // 眼窝（眉骨下面的暗窝，zones-polish 加大、往下挪到眉脊底下）
           pc(gIco(0.13, 0), FROST_PAL.socket, sg * 0.2, 1.08, 2.22, 0, 0, 0, 1, 0.8, 0.6); // 鼻孔
           pc(gCone(0.16, 1.1, 5), B, sg * 0.62, 0.55, 2.0, 1.35, 0, sg * -0.2, 1); // 獠牙（从吻侧往前下方伸出；缩放要给，原来漏了，frostM4 拿到 undefined 整个看不见）
@@ -7039,7 +7057,7 @@
         }
       }
     }, { kinds: [MAT.VOID, MAT.WATER], jitter: 0.3 });
-    const reedGeo = bake('frost/reeds', [
+    const reedGeo = (G.assets && G.assets.geo('ca/frost_reeds')) || bake('frost/reeds', [ // asset-zones：自产的冰芦苇（kit-frost）
       [gCone(0.05, 1.1, 3), FROST_PAL.reed, 0, 0.55, 0, 0.1, 0, 0.08],
       [gCone(0.045, 0.9, 3), FROST_PAL.reed, 0.16, 0.45, 0.05, 0, 0, -0.22],
       [gCone(0.045, 1.0, 3), FROST_PAL.reed, -0.14, 0.5, -0.06, -0.05, 0, 0.24],
@@ -9393,12 +9411,14 @@
   ZONE_GFX.crown = Object.assign({}, ZONE_GFX.abyss, {
     sigil: { r: 0.6, col: 0xffb24a, k: 0.36, start: false },
     amb: 0xffb24a,
-    props: { outer: [], keep: 0, mid: [], midK: 0, edge: [['ca/abyss_skull_candle', 1, 0.6, 0.8, '']], fire: null, boss: [] }, // asset-zones：骷髅蜡烛换成烬渊的自产件（kit-abyss）
+    props: { outer: [], keep: 0, mid: [], midK: 0, edge: [], fire: null, boss: [] }, // models-drop：原来 edge 一行骷髅蜡烛从没摆出来过（外圈为空时布景从不建），清空；摆放表为空也算「布景就绪」，结果和原来一样（场地外全是虚空，什么都不摆）
   });
   ZONE_LIGHT.crown = Object.assign({}, ZONE_LIGHT.abyss, { key: 0xffd2a0, bounce: 0x5a3a2a });
   GROUND_STYLE.crown = GROUND_STYLE.abyss;
   // 火盆台：三级石座 + 石柱 + 铁盆 + 铜箍（顶点色烘进一个几何体，按 y 压暗根部），四个实例一次 draw
+  // asset-zones：自产的火盆台（ca/crown_brazier，kit-crown 跟着 zone-abyss 加载）：尺寸逐项照下面的程序化版本，加一圈流蜡的蜡烛、柱上一道铜环、盆里一床炭
   const crownBrazierGeo = () =>
+    (G.assets && G.assets.geo('ca/crown_brazier') && geo('crown/brazier:ca', () => toonGradient(G.assets.geo('ca/crown_brazier').clone(), { bottom: 0x3a2c4a, top: 0xffffff, y0: 0, y1: 1.7 }))) ||
     geo('crown/brazier', () => toonGradient(bake('crown/brazier0', [
       [gCyl(1.0, 1.08, 0.22, 8), CROWN_PAL.stoneLo, 0, 0.11, 0],
       [gCyl(0.86, 0.92, 0.2, 8), CROWN_PAL.stone, 0, 0.32, 0],
@@ -9744,6 +9764,7 @@
 
   // 各主题的远景摆件（焦树 / 冰棱 / 断柱 / 棘刺）
   function propGeo(id) {
+    if (id === 'frost' && G.assets && G.assets.geo('ca/frost_spire')) return G.assets.geo('ca/frost_spire'); // asset-zones：自产的冰棱簇（kit-frost）
     if (id === 'frost') {
       const C = 0x9fd2e6, D = 0x6fa6c4;
       return bake('prop/frost', [
@@ -11624,7 +11645,7 @@
   const RIG_SKIN_PARS = '#ifdef SKIN4\nattribute vec4 aSkin;\nattribute vec4 aSkinW;\n#else\nattribute float aBone;\n#endif\nuniform mat4 uBones[ NB ];\n';
   const RIG_BONE = '#ifdef SKIN4\nmat4 boneM = uBones[ int( aSkin.x + 0.5 ) ] * aSkinW.x + uBones[ int( aSkin.y + 0.5 ) ] * aSkinW.y + uBones[ int( aSkin.z + 0.5 ) ] * aSkinW.z + uBones[ int( aSkin.w + 0.5 ) ] * aSkinW.w;\n#else\nmat4 boneM = uBones[ int( aBone + 0.5 ) ];\n#endif\n';
   const RIG_VERT_PARS = RIG_SKIN_PARS + 'attribute vec2 aSurf;\nvarying vec2 vSurf;\nvarying vec3 vBP;\n';
-  const RIG_FRAG_PARS = 'varying vec2 vSurf;\nvarying vec3 vBP;\nuniform vec3 uRim;\nuniform vec4 uDis;\nuniform float uChill;\n';
+  const RIG_FRAG_PARS = 'varying vec2 vSurf;\nvarying vec3 vBP;\nuniform vec3 uRim;\nuniform vec4 uDis;\nuniform float uDisH;\nuniform float uChill;\n';
   const RIG_FRAG = [
     '#include <emissivemap_fragment>',
     'roughnessFactor = vSurf.x;',
@@ -11652,14 +11673,23 @@
     'if ( uDis.a > 0.0 ) {',
     '  vec3 dq = floor( vBP * 9.0 );',
     '  float dn = fract( sin( dot( dq, vec3( 12.9898, 78.233, 37.719 ) ) ) * 43758.5453 );',
+    // vf-vfx3：死亡（uDisH = 身高 > 0）时自下而上地烧：方格噪声和高度各占一半；烧到的地方先焦黑一圈，最外只留一道细亮边（原来是 0.25 宽、×2.5 的整片亮边，冰死时一身近白）。
+    // 友方遮挡的半透（W.allyOcclude，uDisH = 0）照旧
+    '  if ( uDisH > 0.0 ) dn = dn * 0.5 + clamp( vBP.y / uDisH, 0.0, 1.0 ) * 0.5;',
     '  if ( dn < uDis.a ) discard;',
-    '  totalEmissiveRadiance += uDis.rgb * ( 1.0 - smoothstep( uDis.a, uDis.a + 0.25, dn ) ) * 2.5;',
+    '  if ( uDisH > 0.0 ) {',
+    '    float de = dn - uDis.a;',
+    '    diffuseColor.rgb *= mix( 0.12, 1.0, smoothstep( 0.03, 0.15, de ) );',
+    '    totalEmissiveRadiance = mix( totalEmissiveRadiance, vec3( 0.0 ), 1.0 - smoothstep( 0.03, 0.15, de ) );',
+    '    totalEmissiveRadiance += uDis.rgb * ( 1.0 - smoothstep( 0.012, 0.04, de ) );',
+    '  } else totalEmissiveRadiance += uDis.rgb * ( 1.0 - smoothstep( uDis.a, uDis.a + 0.25, dn ) ) * 2.5;',
     '}',
   ].join('\n');
   function injectLit(sh, ent) {
     sh.uniforms.uBones = ent.uBones;
     sh.uniforms.uRim = ent.uRim;
     sh.uniforms.uDis = ent.uDis;
+    sh.uniforms.uDisH = ent.uDisH;
     sh.uniforms.uChill = ent.uChill;
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\n' + RIG_VERT_PARS)
@@ -11735,7 +11765,7 @@
       timeScale: 1, dying: null, orphan: false, emb: 0, sock: null,
       cK: 0, flashD: 0.09, flashK: 1, shT: 0, shDur: 0, shAmp: 0,
       elemC: new T.Color(elemHex), glowBase: glowI, glowK: 1, bodyMat: null, glowMat: null, depthMat: null,
-      uBones: null, uRim: { value: new T.Color(0) }, uDis: { value: new T.Vector4(1, 1, 1, 0) },
+      uBones: null, uRim: { value: new T.Color(0) }, uDis: { value: new T.Vector4(1, 1, 1, 0) }, uDisH: { value: 0 },
       uChill: { value: 0 }, chillB: 0, chillAcc: 0, // 冰缓的档位与霜屑的发射累积（见 W.chill）
     };
     ent.uBones = { value: ent.bones };
@@ -12251,10 +12281,10 @@
   // 各伤害类型的死法：消散边缘色 / 倒地后多久开始消散 / 消散时长 / 地上留下的痕迹（贴花种类）/ 飘屑的上升速度
   const DEATH_PUFF = { phys: 0x9a8a7c, fire: 0x4a3a34, cold: 0xcfeeff, light: 0x8a8270, chaos: 0x3a1440 }; // vf-vfx：消散时那团烟的颜色
   const DEATH_STYLE = {
-    phys: { edge: 0xe8dcc8, linger: 0.22, fade: 0.5, decal: 4, up: 0.7 },
+    phys: { edge: 0xd2b48a, linger: 0.22, fade: 0.5, decal: 4, up: 0.7 },
     fire: { edge: 0xff7a2c, linger: 0.05, fade: 0.6, decal: 1, up: 2.4 },
-    cold: { edge: 0xc8eeff, linger: 0.4, fade: 0.2, decal: 2, up: -1.5 },
-    light: { edge: 0xfff2a0, linger: 0, fade: 0.3, decal: 3, up: 1.4 },
+    cold: { edge: 0x6fb6e6, linger: 0.4, fade: 0.2, decal: 2, up: -1.5 },
+    light: { edge: 0xf0d050, linger: 0, fade: 0.3, decal: 3, up: 1.4 },
     chaos: { edge: 0xf03cb4, linger: 0.1, fade: 0.35, decal: 1, up: -0.6 }, // 混沌：往里塌，压暗，品红的消散边
   };
   // opts：{ ang 击杀这一下行进的方向, force 飞出的初速度（默认 0）, color 消散边缘的颜色（默认元素色）,
@@ -12296,6 +12326,7 @@
     else if (st) _c.set(st.edge);
     else _c.copy(ent.elemC);
     ent.uDis.value.set(_c.r, _c.g, _c.b, 0);
+    ent.uDisH.value = Math.max(0.5, ent.rig.height); // vf-vfx3：自下而上地烧
     ent.uChill.value = ent.chillB = 0; // 冰缓的偏色不带进死法
     ent.timeScale = 1;
     ent.hitT = 0;
@@ -12303,6 +12334,10 @@
     if (ent.ring) ent.ring.visible = false;
     if (ent.ringShade) ent.ringShade.visible = false;
     if (!o.stand) W.play(ent, 'death', { hold: true });
+    // vf-vfx3：首领分三段崩开（身上裂出弯月裂口 + 碎块，最后一段地上一道冲击环），约 1.5 秒；消散照常
+    if (ent.kind !== 'player' && G.BOSSES && G.BOSSES[ent.kind] && !o.stand) {
+      d0Boss(ent);
+    }
     dyingEnts.push(ent);
     if (st) {
       const g = ent.group.position, h = ent.rig.height * ent.k, m = ent.bodyMat.userData;
@@ -12334,6 +12369,72 @@
       }
     }
   };
+  // vf-vfx3：开始消散的那一下，按死法放几片形状批件（低画质减半）：火 = 两片往上舔的小火舌；冰 = 冰碴往下掉；
+  // 雷 = 一根两帧闪灭的短折线；混沌 = 一片往里卷的弯月；物理 = 几块落地弹的碎石。颜色都压在中档，不放近白
+  const DEATH_SH = {
+    fire: [0xff8a3c, 0x7a2a10], cold: [0x8fcbea, 0x4a7898], light: [0xf0d050, 0x8a7a30], chaos: [0xc04aa0, 0x3a1440], phys: [0xa8957a, 0x5a4a3c],
+  };
+  function deathShapes(ent, d, g, h) {
+    if (!PF.vShape) return;
+    const big = ent.rig.NB === NB_BIG, lo = qualId === 'low', s = big ? 1.8 : 1, t = d.type || 'phys', c = DEATH_SH[t] || DEATH_SH.phys;
+    if (t === 'fire') {
+      vsBrush(VSH.tongue, 1, 0, c[0], c[1], 0.15, 0.3, 0.45);
+      for (let i = 0, n = lo ? 1 : 2; i < n; i++) vsEmit(g.x + vr(-0.25, 0.25) * s, g.y + h * vr(0.2, 0.45), g.z + vr(-0.25, 0.25) * s, 0, vr(0.8, 1.4), 0, vr(0.45, 0.6), 0.32 * s, 0.7 * s, vr(-0.3, 0.3));
+    } else if (t === 'cold') {
+      vsBrush(VSH.chip, 3, 0, c[0], c[1], 0, 0.25, 0.6);
+      for (let i = 0, n = lo ? 2 : 4; i < n; i++) {
+        const a = vr(0, TAU), v = vr(0.8, 2);
+        vsEmit(g.x + Math.sin(a) * 0.2, g.y + h * vr(0.3, 0.7), g.z + Math.cos(a) * 0.2, Math.sin(a) * v, vr(0, 1.2), Math.cos(a) * v, vr(0.6, 0.85), vr(0.09, 0.14) * s, 0, vr(0, TAU), vr(-8, 8), 14);
+      }
+    } else if (t === 'light') {
+      vsBrush(VSH.bar, 4, 2, c[0], c[1], 0.2, 0, 1);
+      for (let i = 0, n = lo ? 1 : 2; i < n; i++) {
+        const a = vr(0, TAU);
+        vsEmit(g.x, g.y + h * vr(0.3, 0.6), g.z, Math.sin(a) * 0.6 * s, vr(0.2, 0.6) * s, Math.cos(a) * 0.6 * s, 0.14, 0.05 * s);
+      }
+    } else if (t === 'chaos') {
+      vsBrush(VSH.crescent, 1, 3, c[0], c[1], 0.1, 0.35, 0.5);
+      vsEmit(g.x, g.y + h * 0.45, g.z, 0, 0, 0, 0.45, 0.6 * s, 0.6 * s, vr(0, TAU), 7);
+    } else {
+      vsBrush(VSH.chip, 3, 0, c[0], c[1], 0, 0.3, 0.5);
+      for (let i = 0, n = lo ? 2 : 3; i < n; i++) {
+        const a = vr(0, TAU), v = vr(1, 2.4);
+        vsEmit(g.x + Math.sin(a) * 0.2, g.y + h * vr(0.2, 0.5), g.z + Math.cos(a) * 0.2, Math.sin(a) * v, vr(1.5, 3), Math.cos(a) * v, vr(0.7, 0.95), vr(0.08, 0.13) * s, 0, vr(0, TAU), vr(-9, 9), 16);
+      }
+    }
+  }
+  function d0Boss(ent) {
+    ent.dying.boss = { n: 0, hex: DEATH_SH[ent.dying.type] || DEATH_SH.phys };
+  }
+  // 首领崩开的三段：0 / 0.45 / 0.9 秒。每段身上 2–3 道弯月裂口（竖直公告板，收窄消失）+ 一把碎块；第三段落地一道冲击环 + 尘环
+  const BOSS_BREAK = [0, 0.45, 0.9];
+  function bossBreak(ent, d, g, h) {
+    const B = d.boss;
+    if (B.n >= BOSS_BREAK.length || d.t < BOSS_BREAK[B.n] || !PF.vShape) return;
+    const lo = qualId === 'low', c = B.hex, r = (G.BOSSES[ent.kind].r || 1.6) * 0.6;
+    vsBrush(VSH.crescent, 1, 3, c[0], c[1], 0.25, 0.35, 0.35);
+    for (let i = 0, n = lo ? 1 : 2 + (B.n > 0 ? 1 : 0); i < n; i++) {
+      const a = vr(0, TAU);
+      vsEmit(g.x + Math.sin(a) * r, g.y + h * vr(0.3, 0.75), g.z + Math.cos(a) * r, 0, 0, 0, 0.32, vr(0.7, 1.1), vr(0.7, 1.1), vr(0, TAU));
+    }
+    vsBrush(VSH.chip, 3, 0, c[0], c[1], 0, 0.3, 0.5);
+    for (let i = 0, n = lo ? 3 : 6; i < n; i++) {
+      const a = vr(0, TAU), v = vr(2, 4.5);
+      vsEmit(g.x + Math.sin(a) * r, g.y + h * vr(0.3, 0.7), g.z + Math.cos(a) * r, Math.sin(a) * v, vr(2, 5), Math.cos(a) * v, vr(0.8, 1.1), vr(0.16, 0.26), 0, vr(0, TAU), vr(-7, 7), 18);
+    }
+    if (B.n === BOSS_BREAK.length - 1) {
+      // 冲击环只画一道细边（看图后：原来是一整圈实心的环件，放大到 5 米就成了一条粗的橙带）：一圈贴地的细线段一起往外推，
+      // 长度和宽度随曲线 1 长到 4 倍，正好跟上半径，0.35 秒收完
+      const R = r * 4.2, R0 = R / 4, life = 0.35, v0 = (R - R0) / 0.217, n = lo ? 14 : 28, seg = ((TAU * R) / n) * 1.05;
+      vsBrush(VSH.bar, 2, 1, c[0], c[1], 0.15, 0, 0.5);
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * TAU;
+        vsEmit(g.x + Math.sin(a) * R0, 0.09, g.z + Math.cos(a) * R0, Math.sin(a) * v0, 0, Math.cos(a) * v0, life, 0.07, seg, a + Math.PI / 2, 0, 0, 3);
+      }
+      W.shake(0.25);
+    }
+    B.n++;
+  }
   function updateDying(dt) {
     for (let i = dyingEnts.length - 1; i >= 0; i--) {
       const ent = dyingEnts[i], d = ent.dying;
@@ -12381,6 +12482,7 @@
         ent.bodyMat.color.lerp(_c.setRGB(0.05, 0.035, 0.03), Math.min(1, dt * 3.5));
         if (Math.random() < dt * 22) spawnP(g.x + rand(-0.4, 0.4) * h * 0.4, g.y + rand(0.2, 0.8) * h, g.z + rand(-0.4, 0.4) * h * 0.4, rand(-0.6, 0.6), rand(1, 3), rand(-0.6, 0.6), rand(0.3, 0.7), rand(0.1, 0.2), 1, 0.5, 0.12, -1.5, 0.8);
       }
+      if (d.boss) bossBreak(ent, d, g, h);
       advanceEnt(ent, dt * rate, false, 0, 0, 0);
       const k = (d.t - d.clipDur - d.linger) / d.fade;
       if (k > 0) {
@@ -12391,22 +12493,24 @@
           const bigE = ent.rig.NB === NB_BIG, sz = (bigE ? 3 : 1.45) * Math.max(1, ent.k);
           if (qualId !== 'low') W.fxFlip(VFB.smoke, g.x, g.y + h * 0.42, g.z, sz, bigE ? 1.1 : 0.8, DEATH_PUFF[d.type] || DEATH_PUFF.phys, { vy: 0.45, up: 0.3, grow: 1.4, a: 0.85 });
           if (d.type === 'light' && qualId !== 'low') W.fxFlip(VFB.spark, g.x, g.y + h * 0.5, g.z, sz * 0.9, 0.22, 0xfff2a0, { a: 0.9 });
+          deathShapes(ent, d, g, h);
           if (st) {
             const big = ent.rig.NB === NB_BIG;
             W.decal(st.decal, g.x, g.z, (big ? 2.6 : 0.95 + d.over * 0.35) * Math.max(1, ent.k), rand(0, TAU), st.edge, big ? 7 : 4.5);
             if (d.type === 'cold') {
               // 冻脆了：整个碎成冰碴
-              for (let j = 0; j < 22; j++) {
+              // vf-vfx3：冰碴压成冰蓝、少一半、小一圈（原来 22 粒近白的大光点，近镜头下一团白），另由 deathShapes 甩出几块实心冰碴；环换成冰蓝
+              for (let j = 0; j < 11; j++) {
                 const b = rand(0, TAU), sp = rand(2, 8);
-                spawnP(g.x + Math.sin(b) * 0.3, g.y + rand(0.2, 0.9) * h, g.z + Math.cos(b) * 0.3, Math.sin(b) * sp, rand(1, 6), Math.cos(b) * sp, rand(0.4, 0.85), rand(0.2, 0.36), 0.78, 0.92, 1, 20, 1);
+                spawnP(g.x + Math.sin(b) * 0.3, g.y + rand(0.2, 0.9) * h, g.z + Math.cos(b) * 0.3, Math.sin(b) * sp, rand(1, 6), Math.cos(b) * sp, rand(0.4, 0.85), rand(0.12, 0.2), 0.34, 0.56, 0.74, 20, 1);
               }
-              W.ring(g.x, g.z, 1.6 * Math.max(1, ent.k), 0xbfeaff, 0.28);
+              W.ring(g.x, g.z, 1.6 * Math.max(1, ent.k), 0x6fb6e6, 0.28);
             }
           }
         }
         ent.uDis.value.w = Math.min(1, k);
         // 消散时飘出的碎屑（火往上、冰往下掉、其余缓缓上浮）
-        d.acc += dt * (ent.rig.NB === NB_BIG ? 60 : 24) * (d.type === 'cold' ? 2 : 1);
+        d.acc += dt * (ent.rig.NB === NB_BIG ? 36 : 14) * (d.type === 'cold' ? 2 : 1); // vf-vfx3：一部分碎屑换成了形状件（deathShapes），光点少四成
         const up = st ? st.up : 1.6;
         while (d.acc > 1) {
           d.acc -= 1;
@@ -16725,7 +16829,7 @@
       // C 模型的面大而平，同样强度的金边会把整个身子染成土黄：收一点
       const rk = ent.rig.skin4 ? 0.42 : 1;
       ent.uRim.value.setRGB(0.5 * rk, 0.36 * rk, 0.12 * rk);
-      ent.ring = groundDisc(ent, dashRingTex(), mixHex(eh, 0xffe9b0, 0.45), G.MOBS[type].r * 1.35 + 0.75, 0.85);
+      ent.ring = groundDisc(ent, dashRingTex(), mixHex(eh, 0xffe9b0, 0.3), G.MOBS[type].r * 1.35 + 0.75, 0.6); // vf-vfx3：精英常见，脚下的虚线环收淡（0.85 → 0.6、少混一点白），只留边
     }
     return ent;
   };
@@ -18066,7 +18170,20 @@
   let riftWellObj = null;
   W.riftWell = function (x, z, R, core, hex, k, dt) {
     if (!riftWellObj) {
-      const m = new T.Mesh(gQuad(), new T.MeshBasicMaterial({ map: dashRingTex(), color: 0xffffff, transparent: true, opacity: 0.8, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false }));
+      // vf-vfx3：拽人的范围环用细线的虚线环（原来那张虚线环贴图放大到 7 米，线宽近 0.8 米，是一条粗亮带）
+      const thin = tex('dashThin', () => {
+        const S = 256, c = makeCanvas(S, S), g = c.getContext('2d');
+        g.translate(S / 2, S / 2);
+        g.strokeStyle = '#fff';
+        g.lineWidth = 4;
+        for (let i = 0; i < 12; i++) {
+          g.beginPath();
+          g.arc(0, 0, 122, (i / 12) * TAU, (i / 12) * TAU + 0.36);
+          g.stroke();
+        }
+        return new T.CanvasTexture(c);
+      });
+      const m = new T.Mesh(gQuad(), new T.MeshBasicMaterial({ map: thin, color: 0xffffff, transparent: true, opacity: 0.8, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false }));
       m.renderOrder = 2;
       m.visible = false;
       scene.add(m);
@@ -18077,22 +18194,17 @@
       m.visible = false;
       if (k === -1) {
         // 内爆：先往里一缩，再炸开一圈
-        _c.set(hex);
-        for (let i = 0; i < 36; i++) {
-          const a = rand(0, TAU), v = rand(4, 11);
-          spawnP(x, rand(0.3, 1.6), z, Math.sin(a) * v, rand(1, 5), Math.cos(a) * v, rand(0.35, 0.7), rand(0.15, 0.32), _c.r + (1 - _c.r) * 0.4, _c.g + (1 - _c.g) * 0.4, _c.b + (1 - _c.b) * 0.4, 6, 1.6);
-        }
-        flare(x, 1.2, z, hex, 6, 0.3);
-        flashLight(x, 2, z, hex, 2.2);
-        W.ring(x, z, core + 1.4, hex, 0.35);
-        skyBolt(x, z, mixHex(hex, 0xffffff, 0.4), 9, 4, 0.5);
+        // vf-vfx3：内爆按「坍缩」画：往里卷的弯月 + 暗芯 + 细边环往外推（原来 36 粒混四成白的光点 + 6 米星芒 + 4 米粗环）；落雷少混白
+        W.foeHit(x, z, core, 'chaos', { hex, big: true });
+        W.foeRing(x, z, core + 1.4, hex, 0.35);
+        skyBolt(x, z, mixHex(hex, 0xffffff, 0.15), 9, 4, 0.4);
       }
       return;
     }
     const r = R - (R - core) * 0.35 * k;
     m.visible = true;
     m.material.color.copy(lin(hex));
-    m.material.opacity = 0.45 + 0.4 * k;
+    m.material.opacity = 0.35 + 0.35 * k;
     m.position.set(x, 0.06, z);
     m.scale.set(r, 1, r);
     m.rotation.y -= dt * (1.5 + 5 * k);
@@ -18102,7 +18214,7 @@
       if (n < 1 && Math.random() > n) break;
       n -= 1;
       const a = rand(0, TAU), d = R * rand(0.75, 1.0), px = x + Math.sin(a) * d, pz = z + Math.cos(a) * d, v = rand(4, 7);
-      spawnP(px, rand(0.1, 0.9), pz, -Math.sin(a) * v + Math.cos(a) * 1.5, rand(0, 0.6), -Math.cos(a) * v - Math.sin(a) * 1.5, (d / v) * 0.9, rand(0.08, 0.16), _c.r + (1 - _c.r) * 0.3, _c.g + (1 - _c.g) * 0.3, _c.b + (1 - _c.b) * 0.3, 0, 0);
+      spawnP(px, rand(0.1, 0.9), pz, -Math.sin(a) * v + Math.cos(a) * 1.5, rand(0, 0.6), -Math.cos(a) * v - Math.sin(a) * 1.5, (d / v) * 0.9, rand(0.08, 0.14), _c.r * 0.8, _c.g * 0.8, _c.b * 0.8, 0, 0); // vf-vfx3：不往白混
     }
   };
   // 流星犁地的一处落点：一道星光从天而降，地上炸开一圈碎光（每道线的第一处多一道竖直落雷）
@@ -18111,12 +18223,7 @@
     vstreak(x + rand(-0.8, 0.8), 8, z - 1.2, x, 0.1, z, big ? 0.5 : 0.32, hw, 0.2);
     if (big) skyBolt(x, z, hw, 7, 3, 0.35);
     flare(x, 0.6, z, hex, r * 2.2, 0.18);
-    W.ring(x, z, r, hex, 0.25);
-    _c.set(hex);
-    for (let i = 0; i < 9; i++) {
-      const a = rand(0, TAU), v = rand(2, 5);
-      spawnP(x, 0.25, z, Math.sin(a) * v, rand(2, 5), Math.cos(a) * v, rand(0.25, 0.5), rand(0.1, 0.22), _c.r + (1 - _c.r) * 0.3, _c.g + (1 - _c.g) * 0.3, _c.b + (1 - _c.b) * 0.3, 9, 1);
-    }
+    W.foeHit(x, z, r, 'light', { k: 0.5, hex }); // vf-vfx3：落点放射的折线 + 外沿环 + 电灼纹（原来 9 粒偏白的光点 + 环）
   };
   function hideRiftFx() {
     if (riftBeamObj) {
@@ -19627,31 +19734,18 @@
     g2.castShadow = !mdl[0];
     gem.add(g2);
     grp.add(gem);
-    const disc = new T.Mesh(gQuad(), discMat(h));
-    disc.position.y = 0.05;
-    const ds = big ? 2.3 : beam ? 1.5 : 0.85;
-    disc.scale.set(ds, 1, ds);
-    disc.renderOrder = 2;
-    grp.add(disc);
-    if (beam) {
-      const bm = big
-        ? new T.Mesh(geo('beamCylU', () => new T.CylinderGeometry(0.13, 0.15, 11, 10, 1, true).translate(0, 5.5, 0)), beamMat(h, 0.34))
-        : new T.Mesh(geo('beamCyl', () => new T.CylinderGeometry(0.05, 0.13, 6.5, 8, 1, true).translate(0, 3.25, 0)), beamMat(h));
-      bm.renderOrder = 5;
-      grp.add(bm);
-      if (big) {
-        // 里层一道更细、更亮的芯
-        const core = new T.Mesh(geo('beamCylUc', () => new T.CylinderGeometry(0.03, 0.05, 9, 8, 1, true).translate(0, 4.5 + 1.0, 0)), beamMat(mixHex(h, 0xffffff, 0.5), 0.5));
-        core.renderOrder = 5;
-        grp.add(core);
-      }
-      const sp = new T.Sprite(spriteMat(h));
-      sp.position.y = 0.6;
-      sp.scale.setScalar(big ? 1.2 : 1.4);
-      grp.add(sp);
-      if (uq) grp.userData.glow = sp;
-    }
+    // vf-vfx3：地面光盘 / 光柱 / 亮芯 / 光点精灵不再是每件掉落自己的网格（原来每件 3–4 个加色的 draw），
+    // 改成三个实例零件（lootRing 地面细环与柱身刻纹 / lootBeam 光柱 / lootGem 柱顶菱形），全场的掉落合起来各一次 draw，见 lootPfDraw。
+    // 稀有度靠「高度 + 形状」分：没有柱子 = 只有地面细环；稀有 / 宝石 = 4.5 米细柱；烬铸 / 渊契 = 7 米柱 + 顶上一颗小菱形 + 往上走的三道刻纹。
+    // 柱子是不透明的实色（不加色），柱宽 0.14 米，从屋子另一头看得见，不会洗白一片
     const u = grp.userData;
+    u.bt = beam ? (big ? 2 : 1) : 0;
+    u.ds = big ? 0.95 : beam ? 0.7 : 0.42;
+    _c.set(h).convertSRGBToLinear();
+    const lk = beam ? 0.82 : 0.6; // 地面环比柱子暗一档；没有柱子的（普通 / 魔法 / 通货）再暗一些
+    u.lr = _c.r * lk;
+    u.lg = _c.g * lk;
+    u.lb = _c.b * lk;
     u.kind = 'loot';
     u.gem = gem;
     u.t = 0;
@@ -20266,11 +20360,36 @@
     '  col += hot * pulse * 0.18;',
     '  a *= uFill;', // vf-vfx2：玩家自己放的（友方）预警圈填充减半，外轮廓和前沿亮线不变；敌方的 uFill = 1
     '  a = max(a, max(edge * 0.96, lead * 0.7));',
+    // vf-vfx3：敌方的预警圈在亮边里面再压一道深色线（双层边）：亮边在暗地上显眼、深线在亮特效上显眼，玩家的特效叠上来时轮廓仍是连着的
+    '  float dl = step(0.99, uFill) * smoothstep(0.17, 0.21, d) * (1.0 - smoothstep(0.3, 0.34, d));',
+    '  col = mix(col, uColor * 0.22, dl);',
+    '  a = max(a, dl * 0.92);',
     '  a *= smoothstep(0.0, 0.035, d);',
     '  gl_FragColor = vec4(col, a);',
     '}',
   ].join('\n');
 
+  const foeTeles = [];
+  // 点 (x, z) 是否落在某个敌方预警圈里（形状同 game.js 的 insideTelegraph）
+  function vsInFoeTele(x, z) {
+    for (let i = 0; i < foeTeles.length; i++) {
+      const t = foeTeles[i], dx = x - t.x, dz = z - t.z;
+      if (t.s === 1) {
+        if (Math.abs(dx * t.sn + dz * t.cs) <= t.hz && Math.abs(dx * t.cs - dz * t.sn) <= t.hx) return true;
+        continue;
+      }
+      const l = Math.hypot(dx, dz);
+      if (l > t.hx) continue;
+      if (t.s === 0) return true;
+      if (t.s === 3) { if (l >= t.rin) return true; continue; }
+      let da = Math.atan2(dx, dz) - Math.atan2(t.sn, t.cs);
+      da = Math.abs(((da + Math.PI) % TAU + TAU) % TAU - Math.PI);
+      if (l < 1e-6 || da <= t.arc) return true;
+    }
+    return false;
+  }
+  W.foeTeleInfo = () => ({ n: foeTeles.length }); // 测试用（vf-vfx3）
+  W.inFoeTele = (x, z) => vsInFoeTele(x, z); // 测试用（vf-vfx3）
   // shape：'circle'（r）/ 'rect'（w、len、ang）/ 'arc' 扇形（r、arc 半张角、ang 朝向）/ 'ring' 圆环（r 外半径、rin 内半径）
   W.makeTelegraph = function (spec, friendly) {
     const rect = spec.shape === 'rect', arc = spec.shape === 'arc', ringS = spec.shape === 'ring';
@@ -20298,14 +20417,22 @@
     if (spec.hidden) mesh.visible = false; // 不画（渊式「星雨」自动落下：落点用自己的符环，不铺实心预警圈）
     scene.add(mesh);
     const uK = mat.uniforms.uK;
+    // vf-vfx3：登记敌方的预警圈（形状批画玩家的件时，落在里面的压暗，见 vsInFoeTele）
+    const reg = friendly || spec.hidden ? null : { s: rect ? 1 : arc ? 2 : ringS ? 3 : 0, x: spec.x, z: spec.z, hx, hz, sn: Math.sin(spec.ang || 0), cs: Math.cos(spec.ang || 0), arc: arc ? spec.arc : 0, rin: ringS ? spec.rin : 0 };
+    if (reg) foeTeles.push(reg);
     return {
-      mesh, mat,
+      mesh, mat, reg,
       setProgress(k) {
         uK.value = k < 0 ? 0 : k > 1 ? 1 : k;
       },
     };
   };
   W.removeTelegraph = function (handle) {
+    if (handle.reg) {
+      const i = foeTeles.indexOf(handle.reg);
+      if (i >= 0) foeTeles.splice(i, 1);
+      handle.reg = null;
+    }
     scene.remove(handle.mesh);
     handle.mat.dispose();
   };
@@ -20772,9 +20899,11 @@
     m.on = true;
     m.hostile = !!hostile;
     m.quiet = !!quiet;
+    m.glow.scale.setScalar(m.hostile ? 2 : 5); // vf-vfx3：敌方落石的光晕小一圈（加色的 5 米光晕在落点上空是一团白）
     m.sm = 0;
     ribRelease(m.rib);
-    m.rib = ribGet(0.6, 0.14, m.r + (1 - m.r) * 0.55, m.g + (1 - m.g) * 0.55, m.b + (1 - m.b) * 0.55, m.r * 0.55, m.g * 0.4, m.b * 0.35);
+    const rw = m.hostile ? 0 : 0.55; // vf-vfx3：敌方落石的拖尾不往白混（一道道浅色的竖线）
+    m.rib = ribGet(0.6, m.hostile ? 0.1 : 0.14, m.r * (1 - rw) + rw, m.g * (1 - rw) + rw, m.b * (1 - rw) + rw, m.r * 0.55, m.g * 0.4, m.b * 0.35);
     m.mesh.visible = true;
     m.mesh.position.set(x - 6, 26, z - 9);
     m.mesh.rotation.set(rand(0, TAU), rand(0, TAU), 0);
@@ -20809,9 +20938,10 @@
       m.mesh.position.set(px, py, pz);
       m.mesh.rotation.x += dt * 5;
       m.mesh.rotation.z += dt * 3;
-      for (let j = 0, n = m.quiet ? 1 : 3; j < n; j++) {
-        const w = m.quiet ? -0.35 : Math.random() * 0.4; // quiet（星雨）：尾迹稀一些、压暗，落地时不留一团发白的烟
-        spawnP(px + rand(-0.3, 0.3), py + rand(-0.3, 0.3), pz + rand(-0.3, 0.3), rand(-1, 1), rand(0, 2), rand(-1, 1), rand(0.25, 0.55), rand(0.3, 0.6), m.r + (1 - m.r) * w, m.g + (1 - m.g) * w, m.b + (1 - m.b) * w, -1, 1);
+      // vf-vfx3：敌方的落石（首领的落点轰炸、烛泪、坠冕）尾迹压暗、变小、两粒（原来每帧 3 粒、最多混四成白的大光点，七颗一起落就是一列列白球）
+      for (let j = 0, n = m.quiet ? 1 : m.hostile ? 2 : 3; j < n; j++) {
+        const w = m.quiet ? -0.35 : m.hostile ? -0.3 : Math.random() * 0.4; // quiet（星雨）：尾迹稀一些、压暗，落地时不留一团发白的烟
+        spawnP(px + rand(-0.3, 0.3), py + rand(-0.3, 0.3), pz + rand(-0.3, 0.3), rand(-1, 1), rand(0, 2), rand(-1, 1), rand(0.25, 0.55), m.hostile ? rand(0.16, 0.28) : rand(0.3, 0.6), m.r + (1 - m.r) * w, m.g + (1 - m.g) * w, m.b + (1 - m.b) * w, -1, 1);
       }
       if (k >= 1) {
         const R = m.fxR || 0;
@@ -20824,6 +20954,13 @@
   function meteorLand(m) {
     const x = m.x, z = m.z;
     if (m.quiet) return; // 渊式「星雨」：只留调用方画的细环和几点星屑，不盖住落点里的怪
+    if (m.hostile) {
+      // vf-vfx3：敌方的落石落地只留几块暗色碎岩 + 一缕暗烟；命中的形状由预警圈的 onFire（W.foeHit）按元素画。
+      // 不再有点光、近白星芒、2.6 米的浅色冲击环、比地面亮的地面闪光、加色的火团
+      debrisBurst(x, z, qualId === 'low' ? 3 : 5, mixHex(m.hex, 0x2a2420, 0.65), 0.7);
+      if (qualId !== 'low') W.fxFlip(VFB.smoke, x, 0.6, z, 1.4, 1.1, 0x3e342e, { vy: 0.5, up: 0.3, grow: 1.5, a: 0.8 });
+      return;
+    }
     flashLight(x, 2.5, z, m.hex, 3);
     flare(x, 0.8, z, mixHex(m.hex, 0xffffff, 0.4), 2.6, 0.14);
     W.ring(x, z, 2.6, mixHex(m.hex, 0xffffff, 0.65), 0.2); // 冲击环
@@ -22015,13 +22152,16 @@
   // style（可选）：{ kind: 'crit' 暴击 | 'big' 终结 / 处决的大数字 | 'tag' 状态词（破绽、处决……）, y 起始高度（默认 2.1）, py 额外的屏幕像素偏移 }
   // 池满时先顶掉谁：光环 / 电弧的淡数字最先，普通数字其次，暴击 / 终结 / 状态词（冻结、爆燃……）最后；
   // 淡数字自己另有上限，而且永远顶不掉比它重要的字
-  const TEXT_MAX = 90, FAINT_MAX = 24;
+  // vf-vfx3：普通数字同屏最多 NORMAL_MAX 条（满了顶掉最老的普通数字，暴击 / 终结 / 状态词不受这个限制）；
+  // 带 key 的普通数字（game.js：key = 挨打的怪）在 MERGE_T 秒内再来一个同色的，就加到原来那条上、再弹一下，不新开一条
+  const TEXT_MAX = 90, FAINT_MAX = 24, NORMAL_MAX = 40, MERGE_T = 0.25;
   const textRank = (k) => (k === 'faint' ? 0 : k ? 2 : 1);
   W.text = function (x, z, str, cssColor, sizePx, style) {
     const kind = (style && style.kind) || '';
     const rank = textRank(kind);
+    const key = (style && style.key) || null;
     let o = null;
-    let oldFaint = null, faintN = 0;
+    let oldFaint = null, faintN = 0, oldN = null, normN = 0;
     for (let i = 0; i < texts.length; i++) {
       const q = texts[i];
       if (q.t >= q.dur) {
@@ -22029,12 +22169,33 @@
       } else if (q.kind === 'faint') {
         faintN++;
         if (!oldFaint || q.t > oldFaint.t) oldFaint = q;
+      } else if (q.kind === '') {
+        if (key && q.key === key && q.t < MERGE_T && q.color === (cssColor || '#ffffff')) {
+          q.val += style.val;
+          q.str = String(q.val);
+          q.size = Math.max(q.size, sizePx || 16);
+          q.bump = 0.1;
+          return;
+        }
+        normN++;
+        if (!oldN || q.t > oldN.t) oldN = q;
+      }
+    }
+    if (kind === 'tag') {
+      // vf-vfx3：同一个状态词（爆燃、冻结……）在同一只怪头上还没飘完，就让原来那条再弹一下，不再一条条摞起来
+      for (let i = 0; i < texts.length; i++) {
+        const q = texts[i];
+        if (q.kind === 'tag' && q.t < q.dur * 0.7 && q.str === String(str) && Math.abs(q.x - x) + Math.abs(q.z - z) < 0.9) {
+          q.bump = 0.1;
+          return;
+        }
       }
     }
     if (rank === 0 && faintN >= FAINT_MAX) o = oldFaint;
+    if (rank === 1 && normN >= NORMAL_MAX) o = oldN;
     if (!o) {
       if (texts.length < TEXT_MAX) {
-        o = { x: 0, z: 0, y: 2.1, str: '', color: '', size: 16, t: 0, dur: TEXT_DUR, ox: 0, oy: 0, vx: 0, kind: '', py: 0 };
+        o = { x: 0, z: 0, y: 2.1, str: '', color: '', size: 16, t: 0, dur: TEXT_DUR, ox: 0, oy: 0, vx: 0, kind: '', py: 0, key: null, val: 0, bump: 0 };
         texts.push(o);
       } else {
         // 顶掉级别最低（同级里最老）的一条；没有不比自己重要的就不显示
@@ -22053,6 +22214,9 @@
     o.size = sizePx || 16;
     o.t = 0;
     o.kind = kind;
+    o.key = rank === 1 ? key : null;
+    o.val = key ? +style.val || 0 : 0;
+    o.bump = 0;
     o.y = style && style.y !== undefined ? style.y : 2.1;
     o.py = (style && style.py) || 0; // 额外的屏幕像素偏移（「破绽」要让开头顶的处决提示）
     const arc = o.kind === 'crit' || o.kind === 'big';
@@ -22061,6 +22225,9 @@
     o.oy = o.kind === 'tag' ? 0 : rand(-8, 8);
     o.vx = arc ? (Math.random() < 0.5 ? -1 : 1) * rand(24, 52) : 0; // 暴击数字往一侧抛出去
   };
+
+  // 测试用：此刻还在飘的字（vf-vfx3）
+  W.textInfo = () => texts.filter((q) => q.t < q.dur).map((q) => ({ str: q.str, kind: q.kind, size: q.size, keyed: !!q.key }));
 
   W.shake = function (amount) {
     if (G.save && G.save.opts && G.save.opts.shake === false) return; // 设置里关了镜头震动（vf-vfx2）
@@ -22081,6 +22248,7 @@
     for (const s of summons) { s.on = false; s.grp.visible = false; }
     clearWeaponFx();
     W.kvClear(); // 刻式件
+    foeTeles.length = 0; // vf-vfx3：敌方预警圈的登记（只用来压暗玩家的件；漏清最多是少压暗一次）
     W.focusMark(null);
     trail.n = 0;
     trail.live = 0;
@@ -22446,6 +22614,50 @@
     vdInit();
     // vf-vfx2：形状批（新加的对象在 quiet 里建，不消耗全局随机数）
     G.vfx.quiet(() => pfPart('vShape', G.vfx.shapeGeo(), G.vfx.shapeMat(), 400, 0, true));
+
+    // vf-vfx3：掉落物的地面细环 / 光柱 / 柱顶菱形（见 W.makeLoot、lootPfDraw）。实色、不受光、不进雾；光柱的明暗用顶点色画死（下暗、中段最亮、尖上收暗）
+    G.vfx.quiet(() => {
+      const lm = new T.MeshBasicMaterial({ vertexColors: true, toneMapped: false, fog: false });
+      pfPart('lootRing', geo('lootRing', () => shadeY(new T.RingGeometry(0.87, 1, 24, 1).rotateX(-Math.PI / 2), () => 1)), lm, 192, 2);
+      pfPart('lootBeam', geo('lootBeam', () => shadeY(new T.CylinderGeometry(0.12, 1, 1, 6, 6, true).translate(0, 0.5, 0), (y) => (y < 0.12 ? 0.45 + (y / 0.12) * 0.45 : y < 0.6 ? 0.9 : 0.9 - ((y - 0.6) / 0.4) * 0.3))), lm, 64, 2);
+      pfPart('lootGem', geo('lootGem', () => shadeY(new T.OctahedronGeometry(1, 0), (y) => 0.7 + 0.3 * (y * 0.5 + 0.5))), lm, 32, 2);
+    });
+  }
+  // 按本地 y 写顶点色（灰度 f(y)），实例色乘上去就是光柱 / 菱形的明暗
+  function shadeY(g, f) {
+    const P = g.attributes.position, c = new Float32Array(P.count * 3);
+    for (let i = 0; i < P.count; i++) c[i * 3] = c[i * 3 + 1] = c[i * 3 + 2] = f(P.getY(i));
+    g.setAttribute('color', new T.BufferAttribute(c, 3));
+    return g;
+  }
+  // 掉落物：每件一圈地面细环；有柱子的再画光柱，烬铸 / 渊契加柱顶菱形 + 沿柱子往上走的三道刻纹（细环）。跟着掉落物落地弹出的缩放一起长出来
+  const LOOT_BEAM_H = [0, 4.5, 7];
+  function lootPfDraw() {
+    if (!PF.lootRing) return;
+    for (let i = 0; i < lootObjs.length; i++) {
+      const g = lootObjs[i], u = g.userData;
+      if (u.bt === undefined || !g.parent) continue;
+      const k = Math.min(1, u.t / 0.32), x = g.position.x, z = g.position.z;
+      const ds = u.ds * (0.4 + 0.6 * k);
+      _pm.makeScale(ds, 1, ds);
+      _pm.setPosition(x, 0.05, z);
+      pfPut('lootRing', u.lr, u.lg, u.lb);
+      if (!u.bt) continue;
+      const H = LOOT_BEAM_H[u.bt] * k * k, w = 0.07;
+      _pm.makeScale(w, H, w);
+      _pm.setPosition(x, 0, z);
+      pfPut('lootBeam', u.lr * 1.1, u.lg * 1.1, u.lb * 1.1);
+      if (u.bt < 2) continue;
+      _pq.setFromAxisAngle(_by.set(0, 1, 0), u.t * 1.3);
+      mPose(x, H + 0.32, z, _pq, 0.16, 0.28, 0.16);
+      pfPut('lootGem', u.lr * 1.1, u.lg * 1.1, u.lb * 1.1);
+      for (let j = 0; j < 3; j++) {
+        const f = (u.t * 0.35 + j / 3) % 1, rs = 0.2 * (1 - f * 0.55);
+        _pm.makeScale(rs, 1, rs);
+        _pm.setPosition(x, 0.4 + f * (H - 0.6), z);
+        pfPut('lootRing', u.lr * 0.85, u.lg * 0.85, u.lb * 0.85);
+      }
+    }
   }
   // 调试 / 测试：各零件此刻的实例数、拖尾条数、池里闲置的投射物数
   W.projFxInfo = function () {
@@ -23435,6 +23647,8 @@
   const vsP = new Float32Array(VS_N * 3), vsV = new Float32Array(VS_N * 3), vsD = new Float32Array(VS_N * 3), vsCA = new Float32Array(VS_N * 3), vsCB = new Float32Array(VS_N * 3);
   const vsL = new Float32Array(VS_N), vsM = new Float32Array(VS_N), vsSx = new Float32Array(VS_N), vsSy = new Float32Array(VS_N), vsR = new Float32Array(VS_N), vsW = new Float32Array(VS_N);
   const vsG = new Float32Array(VS_N), vsDr = new Float32Array(VS_N), vsSw = new Float32Array(VS_N), vsHot = new Float32Array(VS_N), vsDk = new Float32Array(VS_N);
+  const vsF = new Uint8Array(VS_N); // vf-vfx3：1 = 敌方招式的件（不随敌方预警圈压暗）
+  let vsFoe = 0;
   let vsNext = 0, vsLive = 0, vsFrame = 0;
   const vb = { sh: 0, md: 0, cv: 0, a: [1, 1, 1], b: [1, 1, 1], hot: 0, dk: 0, sw: 1 };
   function vsBrush(sh, md, cv, hexA, hexB, hot, dk, sw) {
@@ -23455,6 +23669,7 @@
     vsSx[i] = sx; vsSy[i] = sy === undefined ? sx : sy;
     vsR[i] = rot || 0; vsW[i] = spin || 0; vsG[i] = grav || 0; vsDr[i] = drag || 0;
     vsSw[i] = vb.sw; vsHot[i] = vb.hot; vsDk[i] = vb.dk;
+    vsF[i] = vsFoe;
     for (let k = 0; k < 3; k++) {
       vsCA[j + k] = vb.a[k];
       vsCB[j + k] = vb.b[k];
@@ -23545,10 +23760,140 @@
         _pm.set((-dz / L) * sx, dx, 0, x, 0, 0, 1, y, (dx / L) * sx, dz, 0, z, 0, 0, 0, 1);
       }
       const c = f < vsSw[i] ? vsCA : vsCB;
-      vsNow(vsSh[i], c[j], c[j + 1], c[j + 2], vsHot[i] * (f < vsSw[i] ? 1 : 0.3), vsDk[i], f);
+      // vf-vfx3：玩家这边的件落在敌方预警圈里时压暗（×0.75、亮芯 ×0.4），预警圈的边和填充在交叠处仍然读得出来
+      const dim = foeTeles.length && !vsF[i] && vsInFoeTele(x, z) ? 0.75 : 1;
+      vsNow(vsSh[i], c[j] * dim, c[j + 1] * dim, c[j + 2] * dim, vsHot[i] * (f < vsSw[i] ? 1 : 0.3) * (dim < 1 ? 0.4 : 1), vsDk[i], f);
     }
     if (!any) vsLive--;
   }
+  // ----- vf-vfx3：敌方招式的命中（首领 / 精英 / 小怪的预警圈落下、砸地、落石……），按元素的形状语言画进形状批（不新增 draw）。
+  // 时序 / 判定不归这里管：调用点照旧在 onFire 里。r 是这一下的半径（预警圈的大小），o（可选）：{ big 首领的重招（件多一档、留痕更大），
+  // noRing 不画外沿环（预警圈本身已经是一圈），hex 换颜色（默认按元素），k 件数倍率（一招连着落好几处时用） }。
+  // 共同规则：大范围只画外沿（细环 + 长在环上的件），中心不放亮面；近白只给 ≤ 1.2 米的小芯；余波一律比地面暗；低画质件数减半。
+  // 和玩家的特效分开：敌方的件颜色更沉、暗描边更重（dk），而且不受「敌方预警圈里玩家特效压暗」的影响（vsFoe）
+  const FOE_PAL = {
+    phys: [0xb8a68c, 0x5a4a3c, 0x3a3028], fire: [0xff7a2c, 0x8a2410, 0x2a1810], cold: [0x7fc4ec, 0x2a5a8a, 0x1a2a3a],
+    light: [0xf0d050, 0x8a6a18, 0x2a2410], chaos: [0xd03ca0, 0x3a0c30, 0x14060f],
+  };
+  // 一道往外推的细边环：半径小（≤ 1.6 米）时就是形状批的环件；大了改成一圈贴地的细线段一起往外推（长度、宽度随曲线 1 长到 4 倍，正好跟上半径），
+  // 环件按半径等比放大到 4–5 米会变成一条粗带（「大范围只画边」）
+  W.thinRing = function (x, z, R, cA, cB, life) {
+    if (!PF.vShape) return;
+    if (R <= 1.6) {
+      vsBrush(VSH.ring, 2, 1, cA, cB, 0.1, 0.4, 0.35);
+      vsEmit(x, 0.09, z, 0, 0, 0, life, R);
+      return;
+    }
+    const R0 = R / 4, v0 = ((R - R0) * 3) / (1 - Math.exp(-3 * life)), n = Math.max(12, Math.min(40, Math.round(R * 6))) >> (qualId === 'low' ? 1 : 0), seg = ((TAU * R) / n) * 1.05;
+    vsBrush(VSH.bar, 2, 1, cA, cB, 0.1, 0, 0.35);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU;
+      vsEmit(x + Math.sin(a) * R0, 0.09, z + Math.cos(a) * R0, Math.sin(a) * v0, 0, Math.cos(a) * v0, life, 0.08, seg, a + Math.PI / 2, 0, 0, 3);
+    }
+  };
+  // 敌方用的环（起手提示、狂暴）：按颜色取亮 / 暗两档，走细边环
+  W.foeRing = function (x, z, R, hex, dur) {
+    const h = hexOf(hex);
+    vsFoe = 1;
+    W.thinRing(x, z, R, h, mixHex(h, 0x000000, 0.55), dur || 0.4);
+    vsFoe = 0;
+  };
+  W.foeHit = function (x, z, r, elem, o) {
+    if (!PF.vShape) return;
+    o = o || {};
+    const lo = qualId === 'low', big = !!o.big, el = FOE_PAL[elem] ? elem : 'phys', c = FOE_PAL[el];
+    const cA = o.hex !== undefined ? mixHex(hexOf(o.hex), 0x000000, 0.25) : c[0], cB = o.hex !== undefined ? mixHex(hexOf(o.hex), 0x000000, 0.6) : c[1]; // 换色时亮档也压一成半（亮黄 / 亮金的件不到近白）
+    const R = Math.max(0.6, r), half = lo ? 0.5 : 1;
+    const cnt = (n) => Math.max(1, Math.round(n * half * (big ? 1.4 : 1) * (o.k || 1)));
+    const k1 = (o.k || 1) >= 0.5 && !lo; // 一招连着落好几处（k < 0.5）时不留贴地痕迹：几块焦痕叠在一起成了一条黑带；低画质不留（地面痕迹网格在只有敌方命中的那几帧会多一次 draw）
+    vsFoe = 1;
+    if (!o.noRing) W.thinRing(x, z, R * 1.02, cA, cB, 0.32);
+    if (el === 'phys') {
+      // 物理：有棱角的碎石（落地弹）+ 贴地尘环 + 地裂贴花（看图后：平躺的弯月裂口在地上像几条黑色的虫，去掉）
+      vsBrush(VSH.chip, 3, 0, cA, c[1], 0, 0.4, 0.5);
+      for (let i = 0, n = cnt(7); i < n; i++) {
+        const a = vr(0, TAU), v = vr(2.5, 5.5) * Math.min(1.6, 0.6 + R * 0.2);
+        vsEmit(x + Math.sin(a) * R * 0.3, 0.3, z + Math.cos(a) * R * 0.3, Math.sin(a) * v, vr(2.5, 5), Math.cos(a) * v, vr(0.7, 1), vr(0.13, 0.24) * (big ? 1.3 : 1), 0, vr(0, TAU), vr(-9, 9), 18);
+      }
+      if (!lo) tPuffs(x, 0.25, z, cnt(3), R * 1.4, 0.4, 0.5, 0.35 + Math.min(1.5, R) * 0.06, 0x8a7a68, 0x4a3e34); // 尘：低画质不放（烟团零件是另一次 draw）
+      if (k1) W.vDecal(VVD.scorch, x, z, Math.min(2.2, R * 0.45), big ? 4 : 2.5, 0x4a3e34); // 贴地痕迹走合用的地面痕迹实例网格（W.decal 每块是一个网格 = 一次 draw）
+    } else if (el === 'fire') {
+      // 火：火舌长在外沿上往上舔（不在中心堆火团），几粒余烬，一缕由橙转黑的烟，地上焦痕
+      vsBrush(VSH.tongue, 1, 0, cA, cB, 0.2, 0.4, 0.4);
+      for (let i = 0, n = cnt(8); i < n; i++) {
+        const a = (i / n) * TAU + vr(-0.2, 0.2);
+        vsEmit(x + Math.sin(a) * R * 0.92, 0.1, z + Math.cos(a) * R * 0.92, 0, vr(0.6, 1.2), 0, vr(0.4, 0.55), 0.3 + R * 0.05, 0.75 + R * 0.12, vr(-0.25, 0.25));
+      }
+      vsBrush(VSH.chip, 0, 0, 0xff9a4a, 0x5a1e10, 0.3, 0.2, 0.4);
+      for (let i = 0, n = cnt(6); i < n; i++) {
+        const a = vr(0, TAU), d = R * vr(0.2, 0.9);
+        vsEmit(x + Math.sin(a) * d, 0.3, z + Math.cos(a) * d, vr(-0.4, 0.4), vr(1.5, 3), vr(-0.4, 0.4), vr(0.5, 0.9), 0.06, 0.06, 0, 0, -1, 0.6);
+      }
+      if (!lo && (o.k || 1) >= 0.5) tPuffs(x, 0.4, z, 2, R * 0.5, 1.2, 0.7, 0.32 + Math.min(2, R) * 0.04, 0x7a5a4c, 0x4a3a34); // 烟：暖灰转深灰（不是黑团），一招落好几处时不放、低画质不放
+      if (k1) W.vDecal(VVD.scorch, x, z, R * 0.6, big ? 3.5 : 2.2, 0xff6a2a);
+    } else if (el === 'cold') {
+      // 冰：外沿冒一圈尖朝外上方的硬棱冰晶（缩没），往下掉的冰碴，地上霜痕（冷灰，比地面暗）
+      vsBrush(VSH.crystal, 6, 0, cA, cB, 0.15, 0.45, 0.5);
+      for (let i = 0, n = cnt(7); i < n; i++) {
+        const a = (i / n) * TAU + vr(-0.2, 0.2);
+        vsEmit(x + Math.sin(a) * R * 0.85, 0, z + Math.cos(a) * R * 0.85, Math.sin(a) * 0.01, 0, Math.cos(a) * 0.01, vr(0.5, 0.7), 0.22 + R * 0.04, 0.6 + R * 0.12, vr(0.35, 0.6));
+      }
+      vsBrush(VSH.chip, 3, 0, cA, cB, 0, 0.35, 0.6);
+      for (let i = 0, n = cnt(6); i < n; i++) {
+        const a = vr(0, TAU), v = vr(1, 3);
+        vsEmit(x + Math.sin(a) * R * 0.6, vr(1, 2), z + Math.cos(a) * R * 0.6, Math.sin(a) * v, vr(0, 1.5), Math.cos(a) * v, vr(0.6, 0.85), vr(0.09, 0.15), 0, vr(0, TAU), vr(-8, 8), 14);
+      }
+      if (k1) W.vDecal(VVD.frost, x, z, R * 0.5, big ? 4 : 2.5, 0x7fb0d0, { r1: R * 0.75, grow: 0.25 }); // 霜痕（低画质不画，W.vDecal 自己判）
+    } else if (el === 'light') {
+      // 雷：从中心往外放射的折线（每根两段、错开角度），两帧闪灭，不画圆团；地上电灼纹
+      vsBrush(VSH.bar, 4, 2, cA, cB, 0.25, 0.3, 1);
+      for (let i = 0, n = cnt(6); i < n; i++) {
+        const a = (i / n) * TAU + vr(-0.25, 0.25), d1 = R * vr(0.35, 0.5), a2 = a + vr(-0.5, 0.5), d2 = R * vr(0.35, 0.5);
+        const x1 = x + Math.sin(a) * d1, z1 = z + Math.cos(a) * d1;
+        vsEmit(x, 0.15, z, x1 - x, 0, z1 - z, 0.16, 0.07);
+        vsEmit(x1, 0.15, z1, Math.sin(a2) * d2, 0, Math.cos(a2) * d2, 0.16, 0.05);
+      }
+      if (k1) W.vDecal(VVD.scorch, x, z, R * 0.55, big ? 3 : 2, 0x8a6a18);
+    } else {
+      // 混沌：往里卷的弯月片（平躺、绕中心转着收），一小团暗芯（不亮），外沿环
+      vsBrush(VSH.crescent, 2, 3, cA, cB, 0.1, 0.5, 0.5);
+      const cs = Math.min(0.9, R * 0.3);
+      for (let i = 0, n = cnt(6); i < n; i++) {
+        const a = (i / n) * TAU, d = R * 0.8;
+        vsEmit(x + Math.sin(a) * d, 0.08, z + Math.cos(a) * d, -Math.sin(a) * R * 1.4, 0, -Math.cos(a) * R * 1.4, 0.45, cs, cs, a + 1.2, 3, 0, 2.5);
+      }
+      if (!lo) tPuffs(x, 0.4, z, 2, 0.3, 0.5, 0.5, 0.4, 0x2a0c24, 0x12060f);
+      if (k1) W.vDecal(VVD.void, x, z, R * 0.55, big ? 3.5 : 2.2, 0x3a0c30);
+    }
+    vsFoe = 0;
+  };
+  // vf-vfx3：拾取。掉落点一圈收拢的细环（稀有度色），2–4 块碎晶飞向玩家脚下，玩家脚下一圈小环。低画质碎晶减半
+  W.lootPick = function (x, z, hex, big) {
+    if (!PF.vShape) return;
+    const P = G.player, lo = qualId === 'low', c = hexOf(hex), dk = mixHex(c, 0x000000, 0.45);
+    vsBrush(VSH.ring, 2, 0, c, dk, 0.1, 0, 0.5);
+    vsEmit(x, 0.1, z, 0, 0, 0, 0.22, big ? 0.9 : 0.6);
+    vsBrush(VSH.crystal, 0, 0, c, dk, 0.15, 0.3, 0.6);
+    const dx = P.x - x, dz = P.z - z;
+    for (let i = 0, n = (big ? 4 : 2) >> (lo ? 1 : 0); i < n; i++) {
+      vsEmit(x + vr(-0.2, 0.2), 0.5, z + vr(-0.2, 0.2), dx * 4 + vr(-1, 1), vr(1.5, 2.5), dz * 4 + vr(-1, 1), 0.22, 0.07, 0.16, 0, 0, 6, 1);
+    }
+    vsBrush(VSH.ring, 2, 1, c, dk, 0.1, 0, 0.5);
+    vsEmit(P.x, 0.1, P.z, 0, 0, 0, 0.3, 0.75);
+  };
+  // vf-vfx3：升级。脚下一道金色的环由里往外画开（两道，一快一慢），六道竖直的细光痕往上收；不加点光、不闪屏
+  W.levelUpFx = function (x, z) {
+    if (!PF.vShape) return;
+    const lo = qualId === 'low';
+    vsBrush(VSH.ring, 2, 1, 0xffd75e, 0xb08030, 0.25, 0, 0.45);
+    vsEmit(x, 0.1, z, 0, 0, 0, 0.8, 3.2);
+    vsEmit(x, 0.1, z, 0, 0, 0, 0.5, 1.6);
+    vsBrush(VSH.bar, 0, 3, 0xffd75e, 0xb08030, 0.2, 0, 0.5);
+    for (let i = 0, n = lo ? 3 : 6; i < n; i++) {
+      const a = (i / n) * TAU + 0.3;
+      vsEmit(x + Math.sin(a) * 0.95, 0.2, z + Math.cos(a) * 0.95, 0, 3.2, 0, 0.75, 0.06, 0.9, 0, 0, 0, 2.2);
+    }
+  };
   // 旋风斩的风刃（vf-vfx2）：两道平躺的弯月绕着人转（刀的高度），后面各拖一道小一点、暗一点的残影；每一跳续一下寿命，松手后很快缩没。
   // 低画质不画残影。转向和刀光一致（俯视逆时针）
   let sbEnt = null, sbT = 0, sbR = 3, sbA = 0, sbD = 0.4, sbDir = 1;
@@ -23988,8 +24333,11 @@
         mFlat(m.x, 0.07, m.z, 0, rr, rr);
         vsNow(VSH.ring, 0.05, 0.03, 0.02, 0, 0, 0.05);
       }
+      // vf-vfx3：敌方的落石——冰（偏蓝）不拖火舌，只有冰色的石块和暗尾迹；其余的火舌芯不往白混
+      if (m.hostile && m.lb > m.lr) continue;
       mStretch(p.x + dx * 0.3, p.y + dy * 0.3, p.z + dz * 0.3, dx, dy, dz, 1.3, 2.6 * (1 + 0.15 * Math.sin(t * 30)));
-      pfPut('flame', m.lr * 0.5 + 0.5, m.lg * 0.5 + 0.4, m.lb * 0.5 + 0.15);
+      if (m.hostile) pfPut('flame', m.lr * 0.85, m.lg * 0.7, m.lb * 0.55);
+      else pfPut('flame', m.lr * 0.5 + 0.5, m.lg * 0.5 + 0.4, m.lb * 0.5 + 0.15);
       for (let k = 0; k < 3; k++) {
         const o = (k - 1) * 0.28;
         mStretch(p.x + o, p.y + 0.1, p.z - o * 0.3, dx, dy, dz, 1.1, (3.6 + 1.2 * Math.sin(t * 23 + k * 2)) * (k === 1 ? 1.2 : 0.9));
@@ -24056,6 +24404,7 @@
     vsDraw(dt); // vf-vfx2：形状批
     rqbDraw(); // 渊式「电桥」的折线（同一个形状批）
     spinBladesDraw(dt);
+    lootPfDraw(); // vf-vfx3：掉落物的地面环 / 光柱
     pfEnd();
     updateRibbons(dt);
   }
@@ -27651,7 +28000,11 @@
     updateMarks(raw);
     updateWeaponFx(dt);
     updateChaosFx(dt);
-    for (let i = 0; i < texts.length; i++) if (texts[i].t < texts[i].dur) texts[i].t += raw; // 数字按真实时间走：顿帧时照样弹出来
+    for (let i = 0; i < texts.length; i++) {
+      const q = texts[i];
+      if (q.t < q.dur) q.t += raw; // 数字按真实时间走：顿帧时照样弹出来
+      if (q.bump > 0) q.bump -= raw;
+    }
 
     // 受击闪白到时复原
     for (let i = flashing.length - 1; i >= 0; i--) {
@@ -28146,6 +28499,7 @@
         x = p.x + o.ox;
         y = p.y + o.oy - (1 - (1 - k) * (1 - k)) * 46;
       }
+      if (o.bump > 0) pop *= 1 + o.bump * 2.2; // vf-vfx3：并进来一个数时再弹一下
       g.globalAlpha = (k > 0.7 ? 1 - (k - 0.7) / 0.3 : 1) * (o.kind === 'faint' ? 0.6 : 1); // 光环 / 电弧的小数字淡一些
       g.font = (o.kind && o.kind !== 'faint' ? '800 ' : '700 ') + Math.round(o.size * pop) + 'px "Trebuchet MS",' + FONT;
       if (o.kind === 'faint') {
