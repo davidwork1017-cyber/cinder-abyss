@@ -341,6 +341,7 @@
     const dmg = Math.max(1, amount * k);
     m.hp -= dmg;
     m.hurtT = 0.35;
+    if (G.combat) G.combat.taken = S.time; // 召唤物挨打也算在打（音乐的战斗强度）
     const ang = src && dist(src.x, src.z, m.x, m.z) > 0.05 ? Math.atan2(m.x - src.x, m.z - src.z) : m.ang + Math.PI;
     W.flash(m.ent, 0.8);
     W.hitReact(m.ent, ang, m.kind === 'colossus' ? 0.5 : 0.9);

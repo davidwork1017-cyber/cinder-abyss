@@ -1984,6 +1984,8 @@
   const NO_INFO = {};
   // 最近一次 G.hitEnemy 的结果（一次挥砍打到好几个敌人时，技能逻辑逐个读它来汇总）
   const lastHit = (G.lastHit = { crit: false, type: 'phys', killed: false, total: 0 });
+  // 最近一次造成 / 受到伤害的模拟时间（音乐的战斗强度只读它，见 js/score.js 的 G.music）。纯赋值：不分配、不取随机数，开不开音乐都一样
+  const combat = (G.combat = { dealt: -1e9, taken: -1e9 });
   const KB_DECAY = (G.KB_DECAY = 7); // 击退速度每秒的衰减率：初速度 = 距离 × 衰减率（enemies.js 按同一个数衰减）
   const CHAIN_KEEP = 2.5; // 连击计数：多久没有命中就清零
   const FOCUS_KEEP = (G.FOCUS_KEEP = 4); // 集火目标保留的秒数
@@ -2726,6 +2728,7 @@
     const hp0 = e.hp;
     e.hp -= dmg;
     e.hurtAt = state.time;
+    combat.dealt = state.time;
     const st = state.stats;
     st.twinHits = (st.twinHits || 0) + 1;
     st.twinDmg = (st.twinDmg || 0) + dmg;
@@ -3452,6 +3455,7 @@
     // rqBrk：渊契「崩势」扩散出来的破绽；渊印「领群」：领群者附近同群的怪受到的伤害 −15%；encDR：异兆的减伤（灰誓者有图腾立着时）
     const m = (mult === undefined ? 1 : mult) * (broken || e.rqBrk > 0 ? PO.taken : 1) * (e.auraBuff ? 1 - G.runMods.aura.dr : 1) * (e.encDR > 0 ? 1 - e.encDR : 1);
     e.hurtAt = state.time; // 渊印「回生」：几秒没挨打才回血
+    combat.dealt = state.time; // 含流血等持续伤害、召唤物的命中（都走这里）
     const hit = P.relic.xizhu ? G.relicDarkHit(e, ctx, m, !!(inf.minion || ctx.minion || ctx.asMinion)) : G.calcHit(ctx, m); // 渊契「暗域」：增伤、没发现你时必暴
     const hp0 = e.hp;
     // 敌人的元素抗性：穿透 = 技能的（破障）+ 你亲手的命中再加装备上的「元素穿透」（召唤物不吃）。
@@ -3733,6 +3737,7 @@
   G.hurtPlayer = function (amount, dtype, src) {
     if (P.dead || P.iframe > 0 || P.god) return false;
     if (!(amount > 0)) return false;
+    combat.taken = state.time;
     if (P.relic.xizhu) amount *= G.darkWeakK(src); // 渊契「暗域」：域内的敌人伤害降低
     if (P.relic.tongshang) amount = G.relicShareHurt(amount, dtype, src); // 渊契「同殇」
     const W = G.world;
@@ -9133,6 +9138,7 @@
     }
     const hp0 = e.hp;
     e.hp -= dmg;
+    combat.dealt = state.time;
     e.awake = true;
     e.execLock = false;
     e.executed = true; // 一次破绽只能处决一次

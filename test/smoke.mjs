@@ -853,6 +853,7 @@ async function timedMain() {
   });
 }
 
+let MUSIC_PRE = null; // 启动那一步记下的「第一次按键之前」的音频状态
 async function main() {
   curStep = 'func:准备';
   // ------------------------------------------------------------------ 自产素材（只用 Node，不起浏览器）
@@ -887,6 +888,7 @@ async function main() {
     const t0 = await ev(() => G.state.time);
     await frames(2);
     assert((await ev(() => G.state.time)) === t0, '开场卡片开着时模拟应暂停');
+    MUSIC_PRE = await ev(() => ({ ctx: !!(G.audio && G.audio.ctx()), music: G.music ? G.music.state() : null })); // 第一次按键之前（音乐那一步检查；中间有步骤会重新载入页面，所以记在这边）
     await page.keyboard.press('Enter');
     const c = await ev(() => ({ open: G.ui.isOpen(), intro: T.introOpen(), rolling: G.player.roll.t > 0 }));
     assert(!c.open && !c.intro && !c.rolling, '回车应关闭开场卡片：' + JSON.stringify(c));
@@ -20157,6 +20159,186 @@ async function titleSteps() {
     assert(r.burstPeak <= 0.8913 && r.burstPeak > 0.05, '50 下命中叠在一起的峰值应在 −1 dBFS 以下（也不能是静音）：' + r.burstPeak);
     assert(r.cap.peakVoices === 16 && r.cap.ownPlayed === 8 && r.cap.stolen === 8 && Object.keys(r.cap.victims).every((k) => /\/1$/.test(k)), '声部满了应先抢敌人的声音、自己的命中全放出来：' + JSON.stringify(r.cap));
     return '调用点音效名 ' + used.size + ' 个，' + r.calls + ' 种参数，AudioContext ' + (r.running ? '在跑' : '没跑') + '；50 下峰值 ' + (20 * Math.log10(r.burstPeak)).toFixed(1) + ' dBFS';
+  });
+
+  await step('音乐与环境音（audio-int）：第一次按键后才起；标题画面只放环境音；区域换主题、战斗强度 0 → 1 → 0、首领 2；静音 / 音量 0 / 标签页在后台时完全停（没有定时器、没有在响的声部），恢复后接着放；不取 Math.random、不改存档；老存档默认值；音效 + 首领战音乐峰值 ≤ −1 dBFS', async () => {
+    // js/score.js 里没有 Math.random 的调用（注释里提到不算）
+    const src = readFileSync(new URL('../js/score.js', import.meta.url), 'utf8');
+    assert(!/Math\.random\(/.test(src), 'js/score.js 里调用了 Math.random');
+    const pre = MUSIC_PRE;
+    assert(pre && pre.ctx === false && pre.music && !pre.music.started && !pre.music.active && !pre.music.timer, '第一次按键之前不应有 AudioContext / 音乐：' + JSON.stringify(pre));
+    if (!(await ev(() => G.ui.titleOn()))) await toTitle();
+    // 标题画面：只有环境音
+    let r = await ev(() => (G.music.step(), G.music.state()));
+    assert(r.started && r.active && r.timer && !r.engineTimer && r.parts.join() === 'false,true' && r.zone, '标题画面应只放环境音（音乐关、环境音开）：' + JSON.stringify(r));
+    await page.click('#title [data-tact="continue"]');
+    await until(() => !G.ui.titleOn());
+    const out = await ev(async () => {
+      const o = {};
+      const M = G.music, St = G.state, P = G.player;
+      const zid = () => (St.pin ? 'crown' : G.ZONES[St.zoneIdx].id);
+      G.debug.hold(true);
+      const god0 = P.god;
+      G.debug.god(true);
+      // Math.random 只在 G.music 走的时候数（清场、推进模拟本来就要取随机数）
+      const rnd = Math.random;
+      let calls = 0;
+      const cnt = function () { calls++; return rnd(); };
+      const step = () => {
+        Math.random = cnt;
+        try {
+          M.step();
+        } finally {
+          Math.random = rnd;
+        }
+      };
+      {
+        step();
+        o.play = M.state();
+        o.zone0 = zid();
+        // 强度：先清场、等 8 秒（之前的交手不算）→ 0；受一下伤 → 1；3 秒后还是 1；再 3.5 秒（共 6.5 秒）→ 0
+        G.debug.killAll();
+        G.debug.step(8);
+        step();
+        o.i0 = M.state().intensity;
+        P.god = false;
+        P.iframe = 0;
+        G.hurtPlayer(1, 'phys', null);
+        P.god = true;
+        step();
+        o.i1 = M.state().intensity;
+        G.debug.step(3);
+        step();
+        o.i3s = M.state().intensity;
+        G.debug.step(3.5);
+        step();
+        o.i65 = M.state().intensity;
+        // 造成伤害（打首领）也算；首领醒着、在旁边 → 2，之后它睡回去 → 1
+        const b = St.boss;
+        if (b) {
+          const keep = { x: P.x, z: P.z, awake: b.awake, hp: b.hp, iframe: P.iframe };
+          P.x = b.x + 3;
+          P.z = b.z;
+          b.awake = true;
+          G.combat.dealt = St.time; // 和 G.hitEnemy 里写的一样（这里不真打，免得改首领的血量）
+          step();
+          o.iBoss = M.state().intensity;
+          b.awake = keep.awake;
+          step();
+          o.iBossAsleep = M.state().intensity;
+          P.x = keep.x;
+          P.z = keep.z;
+        }
+        G.debug.step(7);
+        step();
+        // 换区：第 1 区 → 霜骨沼泽，余烛殿 → crown，再换回来（只改区域编号，不真的建区）
+        const zi = St.zoneIdx, pin = St.pin;
+        St.zoneIdx = (zi + 1) % G.ZONES.length;
+        step();
+        o.zoneB = [M.state().zone, G.ZONES[St.zoneIdx].id];
+        St.pin = { fake: 1 };
+        step();
+        o.zoneC = M.state().zone;
+        St.pin = pin;
+        St.zoneIdx = zi;
+        step();
+        o.zoneBack = M.state().zone;
+        for (let i = 0; i < 20; i++) step();
+      }
+      o.random = calls;
+      P.god = god0;
+      // 静音 → 完全停；取消静音 → 接着放（从这里起不改存档：前面清场拿到的经验 / 掉落不算）
+      const save0 = T.canon(G.save);
+      const opts0 = Object.assign({}, G.save.opts);
+      const set = (k) => (Object.assign(G.save.opts, k), G.audio.apply());
+      const wait = (ms) => new Promise((res) => setTimeout(res, ms));
+      set({ mute: true });
+      await wait(450);
+      o.muted = M.state();
+      set({ mute: false });
+      await wait(450);
+      o.unmuted = M.state();
+      set({ volMusic: 0, volAmb: 0 });
+      await wait(450);
+      o.vol0 = M.state();
+      set({ volAmb: 60 });
+      await wait(300);
+      M.step();
+      o.ambOnly = M.state();
+      set({ volMusic: opts0.volMusic, volAmb: opts0.volAmb });
+      // 标签页切到后台
+      const desc = Object.getOwnPropertyDescriptor(Document.prototype, 'hidden');
+      Object.defineProperty(document, 'hidden', { get: () => true, configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+      await wait(450);
+      o.hidden = M.state();
+      delete document.hidden;
+      document.dispatchEvent(new Event('visibilitychange'));
+      await wait(450);
+      o.visible = M.state();
+      o.hiddenRestored = document.hidden === desc.get.call(document);
+      // 老存档（没有音量设置）：环境音 60、音乐 50，音乐照常在放
+      const KEY = 'cinder-abyss-save-v1';
+      G.persist();
+      const keep = localStorage.getItem(KEY), raw = JSON.parse(keep);
+      delete raw.opts.volAmb;
+      delete raw.opts.volMusic;
+      localStorage.setItem(KEY, JSON.stringify(raw));
+      G.loadSave();
+      G.audio.apply();
+      o.old = { amb: G.save.opts.volAmb, music: G.save.opts.volMusic, lv: G.audio.levels(), st: M.state() };
+      localStorage.setItem(KEY, keep);
+      G.loadSave();
+      G.computeStats();
+      G.audio.apply();
+      o.sameSave = T.canon(G.save) === save0;
+      // 离线：50 下命中挤在 0.1 秒里 + 余烛殿首领战的音乐和环境音（游戏内电平），峰值仍在 −1 dBFS 以下；排程时不取 Math.random
+      const TY = ['phys', 'fire', 'cold', 'light', 'chaos'];
+      const burst = [];
+      for (let i = 0; i < 50; i++) burst.push({ t: 1.02 + (i % 10) * 0.01, name: i % 7 === 0 ? 'kill' : 'impact', p: { type: TY[i % 5], w: i % 3, crit: i % 4 === 0, big: i % 14 === 0 } });
+      let rc = 0;
+      Math.random = function () { rc++; return rnd(); };
+      let pr;
+      try {
+        pr = G.audio.render(burst, 2.2, {
+          noThrottle: true,
+          attach(oc, g) {
+            const mo = oc.createGain(), ao = oc.createGain();
+            mo.gain.value = M.OUT.music;
+            ao.gain.value = M.OUT.amb;
+            mo.connect(g.bus.music);
+            ao.connect(g.bus.amb);
+            const S = CinderScore.create(oc, { seed: 7, music: mo, ambience: ao, reverb: g.reverb, intensity: 2, fadeIn: 0.01 });
+            S.setZone('crown', 0).prepare();
+            S.start(0);
+            for (let t = 0; t < 2.2; t += 0.2) S.tick(t); // 一次排到 2.2 + 前瞻 1.2 秒，够这一段用
+          },
+        });
+      } finally {
+        Math.random = rnd;
+      }
+      o.renderRandom = rc;
+      o.peak = (await pr).peak;
+      return o;
+    });
+    const s = (x) => JSON.stringify(x);
+    assert(out.play.active && out.play.parts.join() === 'true,true' && out.play.zone === out.zone0, '进游戏后应放这一区的音乐和环境音：' + s([out.play, out.zone0]));
+    assert(out.i0 === 0 && out.i1 === 1 && out.i3s === 1 && out.i65 === 0, '战斗强度：受伤后应为 1、3 秒后还是 1、6.5 秒没交手回到 0：' + s(out));
+    if (out.iBoss !== undefined) assert(out.iBoss === 2 && out.iBossAsleep === 1, '首领醒着、在旁边、刚交过手应为 2，睡回去后为 1：' + s([out.iBoss, out.iBossAsleep]));
+    assert(out.zoneB[0] === out.zoneB[1] && out.zoneC === 'crown' && out.zoneBack === out.zone0, '换区应换主题（余烛殿 = crown）：' + s([out.zoneB, out.zoneC, out.zoneBack]));
+    assert(out.random === 0 && out.renderRandom === 0, '音乐取了 Math.random：实时 ' + out.random + ' 次，离线 ' + out.renderRandom + ' 次');
+    const off = (st) => !st.active && !st.timer && !st.engineTimer && st.paused === true && st.live === 0;
+    assert(off(out.muted), '静音后应完全停（没有定时器、没有在响的声部）：' + s(out.muted));
+    assert(out.unmuted.active && out.unmuted.timer && !out.unmuted.paused && out.unmuted.live > 0, '取消静音后应接着放：' + s(out.unmuted));
+    assert(off(out.vol0), '环境音和音乐都调到 0 时应完全停：' + s(out.vol0));
+    assert(out.ambOnly.active && out.ambOnly.parts.join() === 'false,true', '只开环境音时音乐那一路不排：' + s(out.ambOnly));
+    assert(off(out.hidden) && out.visible.active && out.visible.live > 0 && out.hiddenRestored, '标签页在后台时应完全停、切回来接着放：' + s([out.hidden, out.visible]));
+    assert(out.old.amb === 60 && out.old.music === 50 && out.old.lv.amb > 0 && out.old.lv.music > 0 && out.old.st.active, '老存档应按环境音 60 / 音乐 50 读、音乐照常放：' + s(out.old));
+    assert(out.sameSave, '音乐改了存档');
+    assert(out.peak <= 0.8913 && out.peak > 0.05, '50 下命中 + 首领战音乐的峰值应在 −1 dBFS 以下：' + out.peak);
+    await ev(() => G.debug.hold(false));
+    await toTitle();
+    return '区域 ' + out.zone0 + '，强度 0→1→0' + (out.iBoss !== undefined ? '、首领 2' : '') + '；峰值 ' + (20 * Math.log10(out.peak)).toFixed(1) + ' dBFS；lite ' + out.play.lite;
   });
 
   await step('标题画面与暂停菜单在小窗口（1024×640）里放得下', async () => {

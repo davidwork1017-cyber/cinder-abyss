@@ -17,7 +17,8 @@
 //   G.audio.vol(v)          滑条 0–100 → 增益的曲线（平方，听感上比较均匀）
 //   G.audio.levels()        按 G.save.opts 算出的各级目标增益 { master, sfx, ui, amb, music, silent }（没有 AudioContext 也能用）
 //   G.audio.render(events, dur, o)  离线渲染（OfflineAudioContext，同一套链路和配方）：events = [{ t, name, p }]，
-//                           o = { seed, noThrottle, opts, sr }；返回 Promise<{ buf, peak, stats }>。测试和试听用
+//                           o = { seed, noThrottle, opts, sr, attach(oc, { bus, reverb }) }；返回 Promise<{ buf, peak, stats }>。测试和试听用
+//   音乐和环境音（js/score.js 的 G.music）接在 amb / music 两条总线上；静音或音量为 0 时整个停掉
 //   G.audio.stats(reset)    { calls, played, ms, maxMs, voices, peakVoices, stolen, dropped, throttled }：G.sfx 的主线程耗时和声部数
 // 存档里的设置（save.opts）：volMaster / volSfx / volAmb / volMusic（0–100）、mute（布尔）；默认见 G.audio.DEFAULTS
 (function () {
@@ -1011,6 +1012,7 @@
     },
     apply() {
       if (live) applyTo(live, G.save && G.save.opts, live.ac.currentTime);
+      if (G.music) G.music.refresh(); // 音乐 / 环境音：静音或音量为 0 时整个停掉（js/score.js）
     },
     voices: liveVoices,
     levels: () => levelsOf(G.save && G.save.opts),
@@ -1057,6 +1059,8 @@
         rand = keep.rand;
         V = keep.V;
       }
+      // o.attach(oc, { bus, reverb })：渲染前把别的声源接到同一套总线上（音乐 / 环境音按游戏内电平一起渲染，见 tools/score）
+      if (o.attach) o.attach(oc, { bus: g.bus, reverb: g.rvIn });
       return oc.startRendering().then((buf) => {
         let peak = 0;
         for (let c = 0; c < buf.numberOfChannels; c++) {

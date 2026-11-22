@@ -1,0 +1,145 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>score lab</title>
+<!-- 音乐 / 环境音的离线渲染台（tools/score/render.mjs 用 headless Chrome 打开它）。载入的是游戏里的同一份 js/audio.js 和 js/score.js -->
+<script>
+  window.G = { save: { opts: { volMaster: 80, volSfx: 80, volAmb: 60, volMusic: 50, mute: false } } };
+</script>
+<script src="../../js/audio.js"></script>
+<script src="../../js/score.js"></script>
+<script>
+  'use strict';
+  const SR = 48000;
+  window.__out = null;
+
+  function keep(chs, extra) {
+    window.__out = { chs, extra };
+    return { len: chs[0].length, nch: chs.length, extra };
+  }
+  function pctl(a, p) {
+    if (!a.length) return 0;
+    const s = a.slice().sort((x, y) => x - y);
+    return s[Math.min(s.length - 1, Math.floor(p * s.length))];
+  }
+  function tickSummary(st) {
+    return { ticks: st.ticks, tickMed: pctl(st.tickMs, 0.5), tickP95: pctl(st.tickMs, 0.95), tickMax: Math.max(0, ...st.tickMs), createMs: st.createMs, pumpN: st.pumpMs.length, pumpMax: Math.max(0, ...st.pumpMs), nodes: st.nodes, voices: st.voices, maxVoices: st.maxVoices, initMs: st.initMs };
+  }
+  // drive the live engine inside an OfflineAudioContext: suspend every tickS = the game's 200 ms timer
+  function drive(ctx, S, spec) {
+    S.setZone(spec.zone, 0).prepare();
+    S.start(0);
+    const tickS = spec.tickS || 0.2;
+    const tl = (spec.timeline || []).slice();
+    let next = 0;
+    const step = () => {
+      const now = ctx.currentTime;
+      while (tl.length && tl[0][0] <= now + 1e-6) S.setIntensity(tl.shift()[1]);
+      S.tick(now);
+      next += tickS;
+      if (next < spec.seconds - 0.01) ctx.suspend(next).then(() => { step(); ctx.resume(); });
+    };
+    step();
+  }
+  function engOpts(spec, extra) {
+    return Object.assign({
+      seed: spec.seed || 1, mode: 'live', lite: !!spec.lite, log: true,  ambMask: spec.ambMask, trim: spec.trim, fadeIn: spec.fadeIn, mVerb: spec.mVerb, aVerb: spec.aVerb,
+      intensity: spec.timeline && spec.timeline.length && spec.timeline[0][0] === 0 ? spec.timeline[0][1] : 0,
+    }, extra);
+  }
+
+  // A: engine output only (no game chain), music and / or ambience at unity — calibration and the raw listening clips.
+  // spec: { zone, kind: 'music'|'amb'|'both', seconds, seed, timeline: [[t, intensity]...], lite, mVerb, aVerb }
+  window.renderA = async function (spec) {
+    const ctx = new OfflineAudioContext(2, Math.round(spec.seconds * SR), SR);
+    const mute = ctx.createGain(); // unconnected sink: that half isn't rendered
+    const S = CinderScore.create(ctx, engOpts(spec, { parts: spec.kind, music: spec.kind === 'amb' ? mute : ctx.destination, ambience: spec.kind === 'music' ? mute : ctx.destination }));
+    drive(ctx, S, spec);
+    const w0 = performance.now();
+    const buf = await ctx.startRendering();
+    const wall = performance.now() - w0;
+    return keep([buf.getChannelData(0), buf.getChannelData(1)], { wallMs: wall, rtFactor: (spec.seconds * 1000) / wall, ...tickSummary(S.stats), log: S.log });
+  };
+
+  // In-game: the real mix chain (G.audio.render: buses → master → compressor → limiter → soft clip) at the save's sliders.
+  // spec: { zone, seconds, timeline, lite, parts: ['sfx', 'music', 'amb'], events (sfx timeline, from render.mjs), sfxAt, opts, out: { music, amb } }
+  window.renderGame = async function (spec) {
+    const parts = spec.parts || ['sfx', 'music', 'amb'];
+    const evs = [];
+    if (parts.includes('sfx') && spec.events) {
+      const span = spec.events.reduce((m, e) => Math.max(m, e.t), 0) + 0.4;
+      for (let off = spec.sfxAt || 0; off < spec.seconds - 0.5; off += span) for (const e of spec.events) if (off + e.t + 0.05 < spec.seconds - 0.3) evs.push({ t: off + e.t + 0.05, name: e.name, p: e.p });
+    }
+    let S = null;
+    const out = Object.assign({}, G.music.OUT, spec.out || {});
+    const res = await G.audio.render(evs, spec.seconds, {
+      seed: 12345, opts: spec.opts, sr: SR,
+      attach: (oc, g) => {
+        if (!parts.includes('music') && !parts.includes('amb')) return;
+        const mo = oc.createGain(), ao = oc.createGain();
+        mo.gain.value = out.music;
+        ao.gain.value = out.amb;
+        mo.connect(g.bus.music);
+        ao.connect(g.bus.amb);
+        S = CinderScore.create(oc, engOpts(spec, { music: mo, ambience: ao, reverb: g.reverb, parts: parts.includes('music') && parts.includes('amb') ? undefined : parts.includes('music') ? 'music' : 'amb' }));
+        if (!parts.includes('music')) mo.disconnect();
+        if (!parts.includes('amb')) ao.disconnect();
+        drive(oc, S, spec);
+      },
+    });
+    return keep([res.buf.getChannelData(0), res.buf.getChannelData(1)], { sfxEvents: evs.length, sfxStats: { played: res.stats.played, stolen: res.stats.stolen, peakVoices: res.stats.peakVoices }, peak: res.peak, out, ...(S ? { ...tickSummary(S.stats), log: S.log } : {}) });
+  };
+
+  // event log only (no audio): schedule `seconds` of the live engine on a tiny context — variation studies
+  window.planA = function (spec) {
+    const ctx = new OfflineAudioContext(2, 128, SR);
+    const S = CinderScore.create(ctx, { seed: spec.seed, mode: 'live', log: true, intensity: spec.intensity || 0 });
+    S.setZone(spec.zone, 0).prepare();
+    S.start(0);
+    for (let t = 0; t < spec.seconds; t += 0.2) S.tick(t);
+    return { log: S.log.filter((e) => e.t < spec.seconds) };
+  };
+
+  window.chunk = function (c, start, len) {
+    const d = window.__out.chs[c].subarray(start, start + len);
+    const u8 = new Uint8Array(d.buffer, d.byteOffset, d.byteLength);
+    let s = '';
+    for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+    return btoa(s);
+  };
+
+  // live AudioContext: the real timer path (main-thread tick cost, long tasks). spec: { zone, seconds, lite, mVerb, aVerb, intensity, timeline, idle }
+  window.liveTest = async function (spec) {
+    const ctx = new AudioContext({ sampleRate: SR });
+    await ctx.resume();
+    const longs = [];
+    try {
+      new PerformanceObserver((l) => l.getEntries().forEach((e) => longs.push(e.duration))).observe({ entryTypes: ['longtask'] });
+    } catch (e) {}
+    if (spec.idle) {
+      await new Promise((res) => setTimeout(res, spec.seconds * 1000));
+      const o = { state: ctx.state, idle: true };
+      await ctx.close();
+      return o;
+    }
+    const rv = ctx.createConvolver(); // stand-in for G.audio.reverb() when mVerb / aVerb = 'shared'
+    const S = CinderScore.create(ctx, { seed: spec.seed || 1, mode: 'live', lite: !!spec.lite, mVerb: spec.mVerb, aVerb: spec.aVerb, reverb: rv });
+    S.setZone(spec.zone);
+    S.start();
+    S.setIntensity(spec.intensity || 0);
+    const ct0 = ctx.currentTime, w0 = performance.now();
+    S.run(200);
+    const tl = (spec.timeline || []).slice();
+    await new Promise((res) => {
+      const iv = setInterval(() => {
+        const el = (performance.now() - w0) / 1000;
+        while (tl.length && tl[0][0] <= el) S.setIntensity(tl.shift()[1]);
+        if (el >= spec.seconds) clearInterval(iv), res();
+      }, 100);
+    });
+    const out = { state: ctx.state, audioAdvance: ctx.currentTime - ct0, wall: (performance.now() - w0) / 1000, longTasks: longs, live: S.live(), ...tickSummary(S.stats) };
+    S.pause();
+    out.liveAfterPause = S.live();
+    await ctx.close();
+    return out;
+  };
+</script>
