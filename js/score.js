@@ -1563,7 +1563,7 @@
 //     首领死了、玩家倒下、换区 → 0
 //   停：静音、总音量 0、环境音和音乐都是 0、标签页在后台、AudioContext 没在跑 → 引擎 pause()：没有定时器、没有在响的声部、
 //     区域的图从总线上断开。设置改了（G.audio.apply）、切回前台、AudioContext 状态变了时重新判断，恢复时从新的一小节接上
-//   画质：低 → lite（每个和弦一层振荡器、音乐混响 0.45 倍、不加环境音混响、环境颗粒少 40%）；中 / 高 → 完整版
+//   画质：中 / 低 → lite（见下面的 LITE）；高 → 完整版（各区自己的长混响）
 (function () {
   const G = typeof window !== 'undefined' ? window.G : null;
   if (!G || !window.CinderScore) return;
@@ -1572,7 +1572,10 @@
   // （规则是至少 11 / 17 LU；tools/score/README.md 里有量法）
   // 实测（默认滑条，同一条链路）：音效 −33.3 LUFS；探索音乐 −46.2…−46.7、战斗 −45.9…−48.3、首领 −44.7；环境音 −51.3 左右
   const OUT = { music: 0.767, amb: 0.569 }; // −2.3 dB / −4.9 dB
-  const LITE = { low: true, mid: false, high: false };
+  // 中 / 低 = lite：每个和弦一层振荡器、环境颗粒少 40%，混响改送共用的那台（G.audio.reverb()，音效本来就开着），环境音不加混响。
+  // 实测（整个 Chrome 进程树，一个服务器核的百分比，空闲 AudioContext ≈ 1.2%）：完整版 11.6–17.3%，lite 4.8–6.6%；
+  // 响度差 ≤ 0.7 LU、频谱重心差 ≤ 15 Hz、音符密度相同（tools/score/README.md）
+  const LITE = { low: true, mid: true, high: false };
   const TICK = 200; // ms：调度 + 状态判断的周期
   const BOSS_R = 30, BOSS_HOLD = 12, FIGHT_IN = 4, FIGHT_HOLD = 6;
   const NOC = { dealt: -1e9, taken: -1e9 };
@@ -1595,7 +1598,7 @@
   function make() {
     const lite = !!LITE[quality()];
     M.lite = lite;
-    M.eng = CS.create(M.ctx, { seed: M.seed, music: M.mOut, ambience: M.aOut, lite, reverb: G.audio.reverb() });
+    M.eng = CS.create(M.ctx, { seed: M.seed, music: M.mOut, ambience: M.aOut, lite, mVerb: lite ? 'shared' : 'own', reverb: G.audio.reverb() });
     M.zone = null;
     M.parts = [true, true];
   }
