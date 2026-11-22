@@ -873,7 +873,7 @@
         mid: [['kd/rubble_half', 1, 0.45, 0.6, ''], ['kd/column', 1, 0.9, 1.2, '']],
         midK: 0.35,
         edge: [['kd/floor_tile_small_broken_A', 2, 0.5, 0.7, 'l'], ['kd/sword_shield_broken', 1, 0.7, 0.9, ''], ['kn/statue_columnDamaged', 1, 1.6, 2, '']],
-        fire: { m: 'kh/lantern_standing', s: 1.4, h: 0.62, color: 0xffe45e, size: 0.6 },
+        fire: { m: 'ca/storm_lantern', s: 1.4, h: 0.62, color: 0xffe45e, size: 0.6 }, // asset-zones：自产立灯（kit-storm，fit 照抄 kh/lantern_standing；id 里要有 lantern，火焰按 h × s 的高度放）
         boss: [['kd/pillar_decorated', 2, 0.8, 1, 't'], ['kd/barrier_column', 1, 0.7, 0.9, '']],
       },
     },
@@ -3930,13 +3930,22 @@
   }
   // 墙段 / 柱子 / 台阶的卡通几何体（zones-storm）：单位尺寸、中心在原点，实例按 (长, 高, 厚) / (r, h, r) 缩放；
   // 顶点色是乘在实例色上的明暗（压檐 / 柱头最亮），再用 toonGradient 把根部压成冷紫
+  // asset-zones：雷鸣遗迹的自产件包（kit-storm，跟着 zone-storm 加载）到了就用自产的砌石墙段 / 带凹槽的柱子（单位尺寸、原点在底面，
+  // 往下挪半格就和下面的程序化几何体同样用法：实例按 (长, 高, 厚) / (r, h, r) 缩放）；没到（程序化外观）照旧用程序化的。缓存键分开，素材到了原地重建时换得上
+  const kitUnit = (id, key, grad) => {
+    const g = G.assets && G.assets.geo(id);
+    return g ? geo(key, () => toonGradient(g.clone().translate(0, -0.5, 0), grad)) : null;
+  };
+  // 墙段只在高 / 中画质用自产件：一个区几百段，低画质（性能档）照旧用 36 个三角形的程序化墙（自产件 120 个，低档群战三角形 +13%、渲染 +13%，砌石纹理在低档几乎看不出来）
   const gfxWallGeo = () =>
+    (qualId !== 'low' && kitUnit('ca/storm_wall', 'gfx/wall:ca', { bottom: 0x6a5c94, top: 0xffffff, y0: -0.5, y1: 0.35 })) ||
     geo('gfx/wall', () => toonGradient(bake('gfx/wall0', [
       [gBox(1, 1, 1), 0xb4b4b8, 0, -0.03, 0, 0, 0, 0, 1, 0.82, 1], // 墙身
       [gBox(1, 1, 1), 0x8c8c90, 0, -0.45, 0, 0, 0, 0, 1.03, 0.1, 1.08], // 勒脚
       [gBox(1, 1, 1), 0xc8c8cc, 0, 0.44, 0, 0, 0, 0, 1.04, 0.12, 1.14], // 压檐（受光的顶面）
     ]).clone(), { bottom: 0x6a5c94, top: 0xffffff, y0: -0.5, y1: 0.35 }));
   const gfxPillarGeo = () =>
+    kitUnit('ca/storm_column', 'gfx/pillar:ca', { bottom: 0x6a5c94, top: 0xffffff, y0: -0.5, y1: 0.3 }) ||
     geo('gfx/pillar', () => toonGradient(bake('gfx/pillar0', [
       [gCyl(0.92, 1.0, 0.86, 8), 0xb8b8bc, 0, -0.01, 0], // 柱身（微收分）
       [gCyl(1.22, 1.3, 0.07, 8), 0x8c8c90, 0, -0.465, 0], // 柱础
@@ -7537,7 +7546,9 @@
     stoneLift: 0x423e52, // 石头的自发光（抬背光面；色调曲线的 toe 会把小的自发光压没，所以给得比看起来大）
   };
   // 雷枢的柱子：石座 + 立柱 + 三道铜线圈 + 铜帽（顶上的发光晶体另一个实例化网格）
+  // asset-zones：自产件包到了就用自产的雷枢（ca/storm_pylon：尺寸逐项照下面的程序化版本，原点在底面，轮廓和碰撞不变）
   const stormPylonGeo = () =>
+    (G.assets && G.assets.geo('ca/storm_pylon') && geo('storm/pylon:ca', () => toonGradient(G.assets.geo('ca/storm_pylon').clone(), { bottom: 0x3a3456, top: 0xffffff, y0: 0, y1: 2.4 }))) ||
     geo('storm/pylon', () => toonGradient(bake('storm/pylon0', [
       [gBox(1, 1, 1), 0x4a465e, 0, 0.25, 0, 0, 0, 0, 1.15, 0.5, 1.15],
       [gCyl(0.36, 0.44, 2.4, 8), 0x625e7a, 0, 1.6, 0],

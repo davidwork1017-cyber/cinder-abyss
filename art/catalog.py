@@ -82,6 +82,16 @@ CATALOG = [
          fit=dict(r=0.2908634841442108, top=0.027751002460718155, bottom=-0.05000000074505806), bake=dict(ao=0.03, grad=0.03, gtint=0.3, grime=0.12, wear=0.4, gain=0.72), finish=dict(dust=0.15)),
     dict(id='ca/abyss_crypt', gen='crypt', seed=113, cat='kit', zone='abyss', ship=True, replaces='kh/crypt', remap=ABYSS,
          fit=dict(r=4, top=8, bottom=0), bake=dict(ao=1.2, grad=1.5), finish=dict(dust=0.15)),
+    # ---- 雷鸣遗迹（第 2 区）：墙段 / 柱子是单位尺寸的件，顶替程序化的 gfx/wall、gfx/pillar（游戏里按每段非等比缩放，摆放不变）；
+    # 雷枢顶替程序化的 storm/pylon（玩法件，尺寸逐项照原来的，轮廓和碰撞都不变）；立灯顶替 kh/lantern_standing（fit 照抄 geoInfo） ----
+    dict(id='ca/storm_wall', gen='storm_wall', seed=131, cat='kit', zone='storm', ship=True, replaces=None,
+         bake=dict(ao=0.12, grad=0.3, wear=0.4), finish=dict(dust=0.12)),
+    dict(id='ca/storm_column', gen='storm_column', seed=137, cat='kit', zone='storm', ship=True, replaces=None,
+         bake=dict(ao=0.15, grad=0.25), finish=dict(dust=0.12)),
+    dict(id='ca/storm_pylon', gen='pylon', seed=139, cat='kit', zone='storm', ship=True, replaces=None,
+         bake=dict(ao=0.4, grad=0.8, wear=0.45), finish=dict(dust=0.1), cues=dict(second=False, val=0.2)),
+    dict(id='ca/storm_lantern', gen='storm_lantern', seed=149, cat='prop', zone='storm', ship=True, replaces='kh/lantern_standing',
+         fit=dict(r=0.32001006603240967, top=0.9251917004585266, bottom=-2.9802322387695312e-08), bake=dict(ao=0.1, grad=0.2), finish=dict(dust=0.05), cues=dict(second=False, val=0.2)),
 ]
 
 # 看板（lineup）：每个生成器 × 几个种子，参数沿用清单里第一个用到它的件
