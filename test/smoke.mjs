@@ -10517,6 +10517,9 @@ async function main() {
       );
       await page.reload({ timeout: 90000 }); // 机器负载高时软件渲染加载很慢
       await install();
+      // 第 0 区的素材包没在 2.5 秒内到齐时先用程序化外观开局，包到了再原地重建一次；这一遍要是在重建之前打，结果就和另一遍不一样
+      // （机器忙时偶发：取随机数次数差一千多次）。两遍都等素材到齐、外观重建完再打
+      await until(() => !G.world.assetsPending(), null, 60000);
     };
     const run = (busyMs) =>
       ev((busyMs) => {
@@ -18308,6 +18311,104 @@ async function main() {
     assert(r.qOn === 1 && r.qOff === 0 && r.off, '摘下后应当场作废：' + JSON.stringify(r));
     assert(r.dps === '1.6 1', '秒伤估算应 ×1.6、单次伤害不变：' + JSON.stringify(r));
     return '0.2 秒后 ×' + r.ratio;
+  });
+
+  await step('换装评估不碰正在打的仗：按住旋风斩（蓄潮）打着、千目攒着暴击、双生一击待发时，名牌 / 背包对同部位的渊契和普通装备评估 50 次——计数、待发的余响、持续施放、刻式定义、生命魔力都不变，余响照常落下；不写存档、不弹提示；试算出的数值和真换上去一样', async () => {
+    const r = await ev(() => {
+      const P = G.player, s = G.save, S = G.state, RQ = G.relicState, out = {};
+      RQT.begin('nuchao');
+      s.equip.helm = G.rollRelic('qianmu', 50, 0.5);
+      s.equip.amulet = G.rollRelic('shuangsheng', 50, 0.5);
+      RQT.learn('whirl', 0);
+      RQT.learn('ember', 2);
+      s.variants.ember = 'a';
+      G.applyVariants();
+      G.computeStats();
+      const a = T.mob('husk', 0, -1.2);
+      a.buTh = 1e15;
+      a.poiseMax = 0;
+      T.aim(P.x, P.z - 3);
+      G.input.mouse.b[0] = true;
+      G.debug.step(1.2); // 转起来了、攒着潮势
+      // 千目的计数停在 37 + 掷焰的暴击率；掷焰这一下在靶子身上挂一记待发的余响（记在掷焰名下）
+      S.stats.twinBy = {};
+      RQ.crit = 37;
+      G.hitEnemy(a, G.skillCtx('ember'), 1, {});
+      P.life = Math.round(P.maxLife * 0.7);
+      P.mana = Math.round(P.maxMana * 0.4);
+      const cast0 = P.cast;
+      const snap = () => ({
+        crit: RQ.crit, q: RQ.twinQ.size, tv: a.twin ? a.twin.v : 0, cast: P.cast === cast0 && !!cast0 && cast0.id === 'whirl', spin: RQ.spin,
+        whirl: G.SKILLS.whirl.variant || 'o', defs: ['whirl', 'blade', 'thrall', 'ember'].map((id) => G.SKILLS[id].vname || G.SKILLS[id].variant || 'o').join(),
+        life: P.life, mana: P.mana, max: [P.maxLife, P.maxMana, P.armour, P.res.fire, P.moveSpeed].join(), relic: JSON.stringify(P.relic), S: P.S,
+        save: T.canon({ v: s.variants, p: s.variantPrev || {}, a: s.rqAuto || {}, bar: s.bar, eq: G.SLOTS.map((k) => (s.equip[k] ? s.equip[k].uid : '-')) }), toasts: T.toasts(),
+      });
+      const s0 = snap();
+      // 同部位的渊契（骸王冠顶掉千目、第一次评估还会自动选渊式；回旋顶掉双生坠）、同部位的普通装备（手套顶掉怒潮：旋风斩退回原式）
+      const cands = [G.rollRelic('haiwang', 50, 0.5), G.rollRelic('huixuan', 50, 0.5), G.rollItem(50, 2, 'helm'), G.rollItem(50, 2, 'gloves'), G.rollItem(50, 2, 'amulet')];
+      const uids = cands.map((c) => c.uid);
+      let n = 0;
+      for (let k = 0; k < 10; k++)
+        for (let i = 0; i < cands.length; i++) {
+          cands[i].uid = uids[i] + '~' + k; // 地面名牌每半秒问一次（缓存按 uid 记 0.7 秒）：换个 uid 当作缓存过期
+          if (G.ui.verdict(cands[i])) n++;
+        }
+      cands.forEach((c, i) => (c.uid = uids[i]));
+      // 背包：打开时每一格都评估一遍
+      const bag0 = s.bag.slice();
+      s.bag.push(...cands);
+      G.ui.open('inv');
+      out.cells = uids.filter((u) => document.querySelector('.cell[data-item="' + u + '"] .c-vd')).length;
+      G.ui.close();
+      s.bag.length = 0;
+      s.bag.push(...bag0);
+      const s1 = snap();
+      out.n = n;
+      out.changed = Object.keys(s0).filter((k) => s0[k] !== s1[k]).map((k) => k + ': ' + String(s0[k]).slice(0, 80) + ' → ' + String(s1[k]).slice(0, 80));
+      out.s0 = [s0.crit, s0.q, s0.tv > 0, s0.cast, s0.spin, s0.whirl].join();
+      // 余响照常落下（还记在掷焰名下）、蓄潮还在转
+      G.debug.step(0.25);
+      out.landed = (S.stats.twinBy.ember || 0) > 0;
+      out.still = !!(P.cast && P.cast.id === 'whirl') && G.SKILLS.whirl.mech === 'tide';
+      G.input.mouse.b[0] = false;
+      G.debug.step(0.3);
+      G.clearEnemies();
+      // 试算（G.statTrial）出来的和真换上去 computeStats 算出来的一样：上限、抗性、渊契机制、刻式、各技能秒伤
+      const keepVar = JSON.stringify({ v: s.variants, p: s.variantPrev || {}, a: s.rqAuto || {} });
+      const look = () => JSON.stringify({ m: [P.maxLife, P.maxMana, P.armour, P.res.fire, P.res.cold, P.res.light, P.moveSpeed, P.lifeRegen, P.reserved], r: P.relic, v: ['whirl', 'blade', 'thrall'].map((id) => G.SKILLS[id].variant || 'o'), d: ['whirl', 'ember', 'blade', 'thrall'].map((id) => +G.skillDps(G.skillCtx(id)).toFixed(6)) });
+      s.skills.blade = 10;
+      s.skills.thrall = 10;
+      out.trialBad = typeof G.statTrial === 'function' ? [] : ['没有 G.statTrial'];
+      for (const c of typeof G.statTrial === 'function' ? cands : []) {
+        const kv = JSON.parse(keepVar);
+        s.variants = kv.v;
+        s.variantPrev = kv.p;
+        s.rqAuto = kv.a;
+        G.applyVariants();
+        G.computeStats();
+        const tr = G.statTrial(c.slot, c, look);
+        const keep = s.equip[c.slot];
+        s.equip[c.slot] = c;
+        G.computeStats();
+        const real = look();
+        s.equip[c.slot] = keep;
+        if (tr !== real) out.trialBad.push(c.name + ' 试算 ' + tr + ' / 真换 ' + real);
+      }
+      const kv = JSON.parse(keepVar);
+      s.variants = kv.v;
+      s.variantPrev = kv.p;
+      s.rqAuto = kv.a;
+      delete s.variants.ember;
+      G.applyVariants();
+      RQT.end();
+      return out;
+    });
+    assert(/^\d+(\.\d+)?,1,true,true,[1-9]\d*,c$/.test(r.s0), '起点不对（应在转蓄潮、千目有计数、余响待发）：' + r.s0);
+    assert(r.n === 50 && r.cells === 5, '评估次数 / 背包角标不对：' + JSON.stringify({ n: r.n, cells: r.cells }));
+    assert(!r.changed.length, '换装评估改了正在打的仗 / 存档：' + r.changed.join(' ｜ '));
+    assert(r.landed && r.still, '评估之后余响应照常落下、旋风斩（蓄潮）应还在转：' + JSON.stringify({ landed: r.landed, still: r.still }));
+    assert(!r.trialBad.length, '试算和真换上去算出来的不一样：' + r.trialBad.join(' ｜ ').slice(0, 900));
+    return '评估 ' + r.n + ' 次 + 背包 ' + r.cells + ' 格，起点 ' + r.s0;
   });
 
   await step('双生坠的词缀：伤害提高 / 攻击与施法速度 / +暴击伤害 / 「你和召唤物的总伤害额外」四行都在区间里，比普通渊契高一截；最后一行按掷出的百分比同时提高你和召唤物的伤害（不戴时复原）', async () => {
