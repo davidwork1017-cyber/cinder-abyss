@@ -12395,11 +12395,12 @@
             W.decal(st.decal, g.x, g.z, (big ? 2.6 : 0.95 + d.over * 0.35) * Math.max(1, ent.k), rand(0, TAU), st.edge, big ? 7 : 4.5);
             if (d.type === 'cold') {
               // 冻脆了：整个碎成冰碴
-              for (let j = 0; j < 22; j++) {
+              // vf-vfx3：冰碴压成冰蓝、少一半、小一圈（原来 22 粒近白的大光点，近镜头下一团白），另由 deathShapes 甩出几块实心冰碴；环换成冰蓝
+              for (let j = 0; j < 11; j++) {
                 const b = rand(0, TAU), sp = rand(2, 8);
-                spawnP(g.x + Math.sin(b) * 0.3, g.y + rand(0.2, 0.9) * h, g.z + Math.cos(b) * 0.3, Math.sin(b) * sp, rand(1, 6), Math.cos(b) * sp, rand(0.4, 0.85), rand(0.2, 0.36), 0.78, 0.92, 1, 20, 1);
+                spawnP(g.x + Math.sin(b) * 0.3, g.y + rand(0.2, 0.9) * h, g.z + Math.cos(b) * 0.3, Math.sin(b) * sp, rand(1, 6), Math.cos(b) * sp, rand(0.4, 0.85), rand(0.12, 0.2), 0.34, 0.56, 0.74, 20, 1);
               }
-              W.ring(g.x, g.z, 1.6 * Math.max(1, ent.k), 0xbfeaff, 0.28);
+              W.ring(g.x, g.z, 1.6 * Math.max(1, ent.k), 0x6fb6e6, 0.28);
             }
           }
         }
@@ -19634,7 +19635,7 @@
     u.bt = beam ? (big ? 2 : 1) : 0;
     u.ds = big ? 0.95 : beam ? 0.7 : 0.42;
     _c.set(h).convertSRGBToLinear();
-    const lk = beam ? 1 : 0.62; // 没有柱子的（普通 / 魔法 / 通货）地面环压暗一些
+    const lk = beam ? 0.82 : 0.6; // 地面环比柱子暗一档；没有柱子的（普通 / 魔法 / 通货）再暗一些
     u.lr = _c.r * lk;
     u.lg = _c.g * lk;
     u.lb = _c.b * lk;
@@ -22030,6 +22031,16 @@
         if (!oldN || q.t > oldN.t) oldN = q;
       }
     }
+    if (kind === 'tag') {
+      // vf-vfx3：同一个状态词（爆燃、冻结……）在同一只怪头上还没飘完，就让原来那条再弹一下，不再一条条摞起来
+      for (let i = 0; i < texts.length; i++) {
+        const q = texts[i];
+        if (q.kind === 'tag' && q.t < q.dur * 0.7 && q.str === String(str) && Math.abs(q.x - x) + Math.abs(q.z - z) < 0.9) {
+          q.bump = 0.1;
+          return;
+        }
+      }
+    }
     if (rank === 0 && faintN >= FAINT_MAX) o = oldFaint;
     if (rank === 1 && normN >= NORMAL_MAX) o = oldN;
     if (!o) {
@@ -22453,7 +22464,7 @@
     // vf-vfx3：掉落物的地面细环 / 光柱 / 柱顶菱形（见 W.makeLoot、lootPfDraw）。实色、不受光、不进雾；光柱的明暗用顶点色画死（下暗、中段最亮、尖上收暗）
     G.vfx.quiet(() => {
       const lm = new T.MeshBasicMaterial({ vertexColors: true, toneMapped: false, fog: false });
-      pfPart('lootRing', geo('lootRing', () => shadeY(new T.RingGeometry(0.8, 1, 24, 1).rotateX(-Math.PI / 2), () => 1)), lm, 192, 2);
+      pfPart('lootRing', geo('lootRing', () => shadeY(new T.RingGeometry(0.87, 1, 24, 1).rotateX(-Math.PI / 2), () => 1)), lm, 192, 2);
       pfPart('lootBeam', geo('lootBeam', () => shadeY(new T.CylinderGeometry(0.12, 1, 1, 6, 6, true).translate(0, 0.5, 0), (y) => (y < 0.12 ? 0.45 + (y / 0.12) * 0.45 : y < 0.6 ? 0.9 : 0.9 - ((y - 0.6) / 0.4) * 0.3))), lm, 64, 2);
       pfPart('lootGem', geo('lootGem', () => shadeY(new T.OctahedronGeometry(1, 0), (y) => 0.7 + 0.3 * (y * 0.5 + 0.5))), lm, 32, 2);
     });
@@ -22481,11 +22492,11 @@
       const H = LOOT_BEAM_H[u.bt] * k * k, w = 0.06;
       _pm.makeScale(w, H, w);
       _pm.setPosition(x, 0, z);
-      pfPut('lootBeam', u.lr, u.lg, u.lb);
+      pfPut('lootBeam', u.lr * 1.1, u.lg * 1.1, u.lb * 1.1);
       if (u.bt < 2) continue;
       _pq.setFromAxisAngle(_by.set(0, 1, 0), u.t * 1.3);
       mPose(x, H + 0.32, z, _pq, 0.16, 0.28, 0.16);
-      pfPut('lootGem', u.lr, u.lg, u.lb);
+      pfPut('lootGem', u.lr * 1.1, u.lg * 1.1, u.lb * 1.1);
       for (let j = 0; j < 3; j++) {
         const f = (u.t * 0.35 + j / 3) % 1, rs = 0.2 * (1 - f * 0.55);
         _pm.makeScale(rs, 1, rs);
