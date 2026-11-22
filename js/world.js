@@ -17988,7 +17988,20 @@
   let riftWellObj = null;
   W.riftWell = function (x, z, R, core, hex, k, dt) {
     if (!riftWellObj) {
-      const m = new T.Mesh(gQuad(), new T.MeshBasicMaterial({ map: dashRingTex(), color: 0xffffff, transparent: true, opacity: 0.8, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false }));
+      // vf-vfx3：拽人的范围环用细线的虚线环（原来那张虚线环贴图放大到 7 米，线宽近 0.8 米，是一条粗亮带）
+      const thin = tex('dashThin', () => {
+        const S = 256, c = makeCanvas(S, S), g = c.getContext('2d');
+        g.translate(S / 2, S / 2);
+        g.strokeStyle = '#fff';
+        g.lineWidth = 4;
+        for (let i = 0; i < 12; i++) {
+          g.beginPath();
+          g.arc(0, 0, 122, (i / 12) * TAU, (i / 12) * TAU + 0.36);
+          g.stroke();
+        }
+        return new T.CanvasTexture(c);
+      });
+      const m = new T.Mesh(gQuad(), new T.MeshBasicMaterial({ map: thin, color: 0xffffff, transparent: true, opacity: 0.8, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false }));
       m.renderOrder = 2;
       m.visible = false;
       scene.add(m);
@@ -17999,22 +18012,17 @@
       m.visible = false;
       if (k === -1) {
         // 内爆：先往里一缩，再炸开一圈
-        _c.set(hex);
-        for (let i = 0; i < 36; i++) {
-          const a = rand(0, TAU), v = rand(4, 11);
-          spawnP(x, rand(0.3, 1.6), z, Math.sin(a) * v, rand(1, 5), Math.cos(a) * v, rand(0.35, 0.7), rand(0.15, 0.32), _c.r + (1 - _c.r) * 0.4, _c.g + (1 - _c.g) * 0.4, _c.b + (1 - _c.b) * 0.4, 6, 1.6);
-        }
-        flare(x, 1.2, z, hex, 6, 0.3);
-        flashLight(x, 2, z, hex, 2.2);
-        W.ring(x, z, core + 1.4, hex, 0.35);
-        skyBolt(x, z, mixHex(hex, 0xffffff, 0.4), 9, 4, 0.5);
+        // vf-vfx3：内爆按「坍缩」画：往里卷的弯月 + 暗芯 + 细边环往外推（原来 36 粒混四成白的光点 + 6 米星芒 + 4 米粗环）；落雷少混白
+        W.foeHit(x, z, core, 'chaos', { hex, big: true });
+        W.foeRing(x, z, core + 1.4, hex, 0.35);
+        skyBolt(x, z, mixHex(hex, 0xffffff, 0.15), 9, 4, 0.4);
       }
       return;
     }
     const r = R - (R - core) * 0.35 * k;
     m.visible = true;
     m.material.color.copy(lin(hex));
-    m.material.opacity = 0.45 + 0.4 * k;
+    m.material.opacity = 0.35 + 0.35 * k;
     m.position.set(x, 0.06, z);
     m.scale.set(r, 1, r);
     m.rotation.y -= dt * (1.5 + 5 * k);
@@ -18024,7 +18032,7 @@
       if (n < 1 && Math.random() > n) break;
       n -= 1;
       const a = rand(0, TAU), d = R * rand(0.75, 1.0), px = x + Math.sin(a) * d, pz = z + Math.cos(a) * d, v = rand(4, 7);
-      spawnP(px, rand(0.1, 0.9), pz, -Math.sin(a) * v + Math.cos(a) * 1.5, rand(0, 0.6), -Math.cos(a) * v - Math.sin(a) * 1.5, (d / v) * 0.9, rand(0.08, 0.16), _c.r + (1 - _c.r) * 0.3, _c.g + (1 - _c.g) * 0.3, _c.b + (1 - _c.b) * 0.3, 0, 0);
+      spawnP(px, rand(0.1, 0.9), pz, -Math.sin(a) * v + Math.cos(a) * 1.5, rand(0, 0.6), -Math.cos(a) * v - Math.sin(a) * 1.5, (d / v) * 0.9, rand(0.08, 0.14), _c.r * 0.8, _c.g * 0.8, _c.b * 0.8, 0, 0); // vf-vfx3：不往白混
     }
   };
   // 流星犁地的一处落点：一道星光从天而降，地上炸开一圈碎光（每道线的第一处多一道竖直落雷）
@@ -20722,6 +20730,7 @@
     m.on = true;
     m.hostile = !!hostile;
     m.quiet = !!quiet;
+    m.glow.scale.setScalar(m.hostile ? 2 : 5); // vf-vfx3：敌方落石的光晕小一圈（加色的 5 米光晕在落点上空是一团白）
     m.sm = 0;
     ribRelease(m.rib);
     m.rib = ribGet(0.6, 0.14, m.r + (1 - m.r) * 0.55, m.g + (1 - m.g) * 0.55, m.b + (1 - m.b) * 0.55, m.r * 0.55, m.g * 0.4, m.b * 0.35);
@@ -20759,9 +20768,10 @@
       m.mesh.position.set(px, py, pz);
       m.mesh.rotation.x += dt * 5;
       m.mesh.rotation.z += dt * 3;
-      for (let j = 0, n = m.quiet ? 1 : 3; j < n; j++) {
-        const w = m.quiet ? -0.35 : Math.random() * 0.4; // quiet（星雨）：尾迹稀一些、压暗，落地时不留一团发白的烟
-        spawnP(px + rand(-0.3, 0.3), py + rand(-0.3, 0.3), pz + rand(-0.3, 0.3), rand(-1, 1), rand(0, 2), rand(-1, 1), rand(0.25, 0.55), rand(0.3, 0.6), m.r + (1 - m.r) * w, m.g + (1 - m.g) * w, m.b + (1 - m.b) * w, -1, 1);
+      // vf-vfx3：敌方的落石（首领的落点轰炸、烛泪、坠冕）尾迹压暗、变小、两粒（原来每帧 3 粒、最多混四成白的大光点，七颗一起落就是一列列白球）
+      for (let j = 0, n = m.quiet ? 1 : m.hostile ? 2 : 3; j < n; j++) {
+        const w = m.quiet ? -0.35 : m.hostile ? -0.3 : Math.random() * 0.4; // quiet（星雨）：尾迹稀一些、压暗，落地时不留一团发白的烟
+        spawnP(px + rand(-0.3, 0.3), py + rand(-0.3, 0.3), pz + rand(-0.3, 0.3), rand(-1, 1), rand(0, 2), rand(-1, 1), rand(0.25, 0.55), m.hostile ? rand(0.16, 0.28) : rand(0.3, 0.6), m.r + (1 - m.r) * w, m.g + (1 - m.g) * w, m.b + (1 - m.b) * w, -1, 1);
       }
       if (k >= 1) {
         const R = m.fxR || 0;
@@ -20774,6 +20784,13 @@
   function meteorLand(m) {
     const x = m.x, z = m.z;
     if (m.quiet) return; // 渊式「星雨」：只留调用方画的细环和几点星屑，不盖住落点里的怪
+    if (m.hostile) {
+      // vf-vfx3：敌方的落石落地只留几块暗色碎岩 + 一缕暗烟；命中的形状由预警圈的 onFire（W.foeHit）按元素画。
+      // 不再有点光、近白星芒、2.6 米的浅色冲击环、比地面亮的地面闪光、加色的火团
+      debrisBurst(x, z, qualId === 'low' ? 3 : 5, mixHex(m.hex, 0x2a2420, 0.65), 0.7);
+      if (qualId !== 'low') W.fxFlip(VFB.smoke, x, 0.6, z, 1.4, 1.1, 0x3e342e, { vy: 0.5, up: 0.3, grow: 1.5, a: 0.8 });
+      return;
+    }
     flashLight(x, 2.5, z, m.hex, 3);
     flare(x, 0.8, z, mixHex(m.hex, 0xffffff, 0.4), 2.6, 0.14);
     W.ring(x, z, 2.6, mixHex(m.hex, 0xffffff, 0.65), 0.2); // 冲击环
@@ -24045,8 +24062,11 @@
         mFlat(m.x, 0.07, m.z, 0, rr, rr);
         vsNow(VSH.ring, 0.05, 0.03, 0.02, 0, 0, 0.05);
       }
+      // vf-vfx3：敌方的落石——冰（偏蓝）不拖火舌，只有冰色的石块和暗尾迹；其余的火舌芯不往白混
+      if (m.hostile && m.lb > m.lr) continue;
       mStretch(p.x + dx * 0.3, p.y + dy * 0.3, p.z + dz * 0.3, dx, dy, dz, 1.3, 2.6 * (1 + 0.15 * Math.sin(t * 30)));
-      pfPut('flame', m.lr * 0.5 + 0.5, m.lg * 0.5 + 0.4, m.lb * 0.5 + 0.15);
+      if (m.hostile) pfPut('flame', m.lr * 0.85, m.lg * 0.7, m.lb * 0.55);
+      else pfPut('flame', m.lr * 0.5 + 0.5, m.lg * 0.5 + 0.4, m.lb * 0.5 + 0.15);
       for (let k = 0; k < 3; k++) {
         const o = (k - 1) * 0.28;
         mStretch(p.x + o, p.y + 0.1, p.z - o * 0.3, dx, dy, dz, 1.1, (3.6 + 1.2 * Math.sin(t * 23 + k * 2)) * (k === 1 ? 1.2 : 0.9));
