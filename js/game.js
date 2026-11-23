@@ -3727,8 +3727,6 @@
     if (sk.mech === 'boom') {
       p.boom = 1;
       p.boomBack = sk.boom.back;
-      p.boomCap = sk.boom.cap || 0; // 每程（去程、回程各算）最多伤到几个敌人
-      p.boomN = 0;
       p.boomCap = sk.boom.cap || 0; // 每程（去程、回程各算）最多伤到几个敌人，多出的照样穿过去、不伤
       p.boomN = 0;
       p.life *= sk.boom.range;
@@ -3761,7 +3759,6 @@
     p.home = null;
     p.reseek = 0;
     p.boomK = p.boomBack || RM.huixuan.back;
-    p.boomN = 0; // 回程重新数
     p.boomN = 0; // 回程重新数
     if (G.world.relicProjTurn) G.world.relicProjTurn(p.mesh, p.dx, p.dz);
     if (p.ctx.sk.mech === 'boom') {
