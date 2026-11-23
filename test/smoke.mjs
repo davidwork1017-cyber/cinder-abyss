@@ -20311,6 +20311,446 @@ async function main() {
   await titleSteps();
   await storySteps();
   await slotSteps();
+  await classSteps();
+}
+
+// ------------------------------------------------------------------ 职业（class-d2）
+// 五个职业 + 宝石 / 武器绑定。没有 save.cls 的存档（测试 harness、bench、旧代码写回的）照职业之前的规则跑：
+// 掉落序列、Math.random 的调用次数都和职业之前的 main（CLASS_BASE_BUILD）一样，用 /__old/ 同源跑一遍旧代码比对。
+const CLASS_BASE_BUILD = 'ea00b5b';
+let MS_SAMPLES = null; // 多存档那几步拼的老存档样本（slotSteps 里赋值），职业迁移再用一遍
+async function classSteps() {
+  const fresh = async (o) => {
+    if (browser) await browser.close().catch(() => {});
+    ({ browser, page, errors } = await launch(Object.assign({ width: 1280, height: 800 }, o || {})));
+  };
+  // 没有职业的存档：一串物品、怪物掉落（精英 / 普通 / 区域刷的怪）、拾烬客的货架，去掉 uid（带时间戳）后的 JSON 和随机数调用次数
+  const dropSeq = () => {
+    window.__testRand.seed('class-nocls-drops');
+    const S = G.save;
+    S.skills = { ember: 1 };
+    S.supports = [];
+    S.level = 20;
+    const strip = (it) => {
+      const o = JSON.parse(JSON.stringify(it));
+      delete o.uid;
+      return o;
+    };
+    let n = 0;
+    const R = Math.random;
+    Math.random = function () {
+      n++;
+      return R();
+    };
+    const items = [];
+    const loot = [];
+    const L = G.state.loot, l0 = L.length;
+    try {
+      for (let i = 0; i < 400; i++) items.push(strip(G.rollItem(5 + (i % 40), i % 3)));
+      for (let i = 0; i < 400; i++) G.dropLoot({ x: G.player.x, z: G.player.z, level: 8 + (i % 30), elite: i % 6 === 0, horde: i % 3 === 1, hordeK: 1 });
+      for (const l of L.slice(l0)) loot.push({ k: l.kind, d: l.kind === 'item' ? strip(l.data) : l.data });
+      const stock = [];
+      for (let i = 0; i < 30; i++) stock.push(G.traderOpen({ level: 10 + i }).map((o) => ({ k: o.kind, d: o.item ? strip(o.item) : o.data })));
+      if (G.ui && G.ui.close) G.ui.close();
+      items.push({ stock });
+    } finally {
+      Math.random = R;
+    }
+    for (const l of L.splice(l0)) G.world.removeMesh(l.mesh);
+    return { json: JSON.stringify({ items, loot }), n, nLoot: loot.length };
+  };
+
+  await step('职业·没有职业的存档：物品 / 怪物掉落 / 拾烬客货架的序列和职业之前的 main（' + CLASS_BASE_BUILD + '）一字不差，Math.random 调用次数一样', async () => {
+    if (process.env.CINDER_FILE) return 'file:// 下没有同源的旧版本，这一步要 HTTP（默认就是）';
+    await fresh({ url: GAME_URL.replace(/index\.html$/, '__old/' + CLASS_BASE_BUILD + '/index.html') });
+    await until(() => window.G && G.state && G.state.zone && G.player && G.player.ent && G.debug, null, 90000);
+    await ev(() => G.debug.hold(true));
+    const a = await ev(dropSeq);
+    await page.goto(GAME_URL);
+    await install();
+    const b = await ev(dropSeq);
+    const cls = await ev(() => G.save.cls === undefined && !('clsLock' in G.save));
+    assert(cls, '测试 harness 的存档不该有职业字段');
+    assert(a.n === b.n && a.n > 1000, 'Math.random 调用次数变了：main ' + a.n + ' / 现在 ' + b.n);
+    assert(a.json === b.json, '没有职业时掉落序列变了（长度 ' + a.json.length + ' / ' + b.json.length + '）');
+    return '物品 400 + 掉落 ' + b.nLoot + ' 件 + 货架 30 次，随机数 ' + b.n + ' 次';
+  });
+
+  await step('职业·新建：每个职业起手对（起手武器 1 级普通、只学起手技能、放在左键、白送的起步天赋点好且不花点），读档再存一字不差；各职业能用的宝石数', async () => {
+    const r = await ev(() => {
+      const out = {};
+      for (const c of G.CLASS_IDS) {
+        const C = G.CLASSES[c];
+        localStorage.clear();
+        localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(G.newClassSave(c)));
+        G.loadSave();
+        const S = G.save, w = S.equip.weapon;
+        const j1 = JSON.stringify(S);
+        G.loadSave();
+        out[c] = {
+          cls: S.cls, re: 'clsRe' in S, w: w && G.BASES.weapon[w.baseIdx].type, rar: w && w.rarity, ilvl: w && w.ilvl, wb: w && JSON.stringify(w.wbase) === JSON.stringify(G.weaponBaseDmg(w.baseIdx, 1)),
+          sk: Object.keys(S.skills).join(), bar: S.bar.join(), node: S.passives.indexOf(C.node.id) >= 0, free: JSON.stringify(G.passivePoints()), lock: Object.keys(S.clsLock).length,
+          stable: JSON.stringify(G.save) === j1, gems: G.classGems(c).length, cast: G.canCast(C.start.skill),
+          want: { w: C.start.type, sk: C.start.skill },
+        };
+      }
+      localStorage.clear();
+      G.holdSave(true);
+      return out;
+    });
+    const gems = {};
+    for (const c of Object.keys(r)) {
+      const o = r[c];
+      assert(o.cls === c && !o.re && o.w === o.want.w && o.rar === 0 && o.ilvl === 1 && o.wb, c + '：起手武器不对：' + JSON.stringify(o));
+      assert(o.sk === o.want.sk && o.bar === o.want.sk + ',,,' && o.cast && o.lock === 0, c + '：起手技能不对：' + JSON.stringify(o));
+      assert(o.node && o.free === JSON.stringify({ total: 0, used: 0, free: 0 }), c + '：起步天赋应点好、不花点：' + JSON.stringify(o));
+      assert(o.stable, c + '：读档再读一遍存档变了');
+      gems[c] = o.gems;
+    }
+    assert(JSON.stringify(gems) === JSON.stringify({ guard: 11, hunt: 12, star: 15, lamp: 14, forge: 8 }), '各职业能用的宝石数不对（散钉不给引星人）：' + JSON.stringify(gems));
+    return JSON.stringify(gems);
+  });
+
+  await step('职业·限制：别的职业的武器装不上（还在背包）、本职业的能装；变灰的宝石按住也放不出来（不耗魔力），武器对了 / 职业能用就能放', async () => {
+    const r = await ev(() => {
+      localStorage.clear();
+      localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(G.newClassSave('guard')));
+      G.loadSave();
+      G.holdSave(true);
+      G.debug.god(true);
+      G.computeStats();
+      const bi = (t) => G.BASES.weapon.findIndex((b) => b.type === t);
+      const S = G.save, P = G.player;
+      const staff = G.rollItem(10, 1, 'weapon', bi('staff')), kat = G.rollItem(10, 1, 'weapon', bi('katana'));
+      S.bag.push(staff, kat);
+      const o = { staff: G.equip(staff), staffBag: S.bag.indexOf(staff) >= 0, kat: G.equip(kat), katOn: S.equip.weapon === kat };
+      // 链雷：烬卫用不了
+      for (const id of ['arc', 'whirl']) {
+        S.skills[id] = 10;
+        S.sockets[id] = [null, null, null];
+      }
+      const tryCast = (id) => {
+        S.bar[0] = id;
+        G.computeStats();
+        P.mana = P.maxMana;
+        P.cast = null;
+        let cast = 0;
+        const m0 = P.mana;
+        for (let i = 0; i < 30; i++) {
+          T.aim(P.x + 3, P.z);
+          G.input.mouse.b[0] = true;
+          G.tick(1 / 60);
+          if (P.cast && P.cast.id === id) cast++;
+        }
+        G.input.mouse.b[0] = false;
+        for (let i = 0; i < 60; i++) G.tick(1 / 60);
+        return { cast, spent: m0 - P.mana > 0.5, why: (G.castBlock(id) || {}).text || null };
+      };
+      o.arc = tryCast('arc');
+      o.whirl = tryCast('whirl');
+      // 夜猎拿追猎弓：旋风斩（近战）变灰；换上双匕就能放
+      S.cls = 'hunt';
+      const bow = G.rollItem(10, 1, 'weapon', bi('huntbow')), dag = G.rollItem(10, 1, 'weapon', bi('daggers'));
+      S.equip.weapon = bow;
+      o.huntBow = tryCast('whirl');
+      S.equip.weapon = dag;
+      o.huntDag = tryCast('whirl');
+      localStorage.clear();
+      return o;
+    });
+    assert(!r.staff && r.staffBag, '烬卫不该装得上长杖（应留在背包）：' + JSON.stringify(r));
+    assert(r.kat && r.katOn, '烬卫应能装太刀：' + JSON.stringify(r));
+    assert(r.arc.cast === 0 && !r.arc.spent && /烬卫用不了/.test(r.arc.why || ''), '烬卫的链雷应放不出来、不耗魔力：' + JSON.stringify(r.arc));
+    assert(r.whirl.cast > 0 && !r.whirl.why, '烬卫拿太刀应能放旋风斩：' + JSON.stringify(r.whirl));
+    assert(r.huntBow.cast === 0 && /需要近战武器/.test(r.huntBow.why || '') && r.huntDag.cast > 0, '夜猎：拿弓时旋风斩变灰、换双匕能放：' + JSON.stringify({ bow: r.huntBow, dag: r.huntDag }));
+    return '链雷：' + r.arc.why + '；追猎弓的旋风斩：' + r.huntBow.why;
+  });
+
+  await step('职业·老存档选职业（多存档的老存档样本）：选推荐的职业后物品 uid 集合、已学技能（连等级）一样，只多出职业字段和锁定标记；背包满时别的职业的武器进共享仓库；改选一次恢复锁定的技能、之后不能再改', async () => {
+    if (!MS_SAMPLES) return '没有多存档样本（file:// 下那一步跳过了），这一步也跳过';
+    const r = await ev(({ S }) => {
+      const KEY = 'cinder-abyss-save-v1', out = {};
+      const uids = () => G.save.bag.concat(Object.values(G.save.equip)).concat(G.stash.list()).map((i) => i.uid).sort().join();
+      for (const n of Object.keys(S)) {
+        localStorage.clear();
+        localStorage.setItem(KEY, S[n]);
+        G.loadSave();
+        G.holdSave(false);
+        const b = JSON.parse(JSON.stringify(G.save)), u0 = uids();
+        const rec = G.classRecommend();
+        const res = G.applyClass(rec.cls, 'pick');
+        const a = JSON.parse(JSON.stringify(G.save));
+        const added = Object.keys(a).filter((k) => !(k in b)).sort().join();
+        const changed = Object.keys(b).filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k])).sort();
+        const expLock = Object.keys(a.skills).filter((id) => !G.classCanUse(rec.cls, id)).sort().join();
+        const o = {
+          rec: rec.cls, why: rec.why, ok: res.ok, uid: uids() === u0, skills: JSON.stringify(a.skills) === JSON.stringify(b.skills), added, changed: changed.join(),
+          lock: Object.keys(a.clsLock).sort().join() === expLock, nLock: Object.keys(a.clsLock).length,
+          pas: a.passives.filter((p) => b.passives.indexOf(p) < 0).join(), re: a.clsRe === true,
+          weaponOk: !a.equip.weapon || !G.offClassItem(a.equip.weapon, rec.cls), stored: JSON.parse(localStorage.getItem(KEY)).cls === rec.cls,
+        };
+        // 背包满：换一个和手里武器不同职业的职业，武器进仓库
+        localStorage.clear();
+        localStorage.setItem(KEY, S[n]);
+        G.loadSave();
+        G.holdSave(false);
+        while (G.save.bag.length < G.BAG_SIZE) G.save.bag.push(G.rollItem(10, 0, 'ring'));
+        const w = G.save.equip.weapon;
+        const other = G.CLASS_IDS.find((c) => w && G.offClassItem(w, c));
+        const u1 = uids(), sk1 = JSON.stringify(G.save.skills);
+        const r2 = G.applyClass(other, 'pick');
+        o.full = { cls: other, moved: JSON.stringify(r2.moved), inStash: !!w && G.stash.list().some((x) => x.uid === w.uid), uid: uids() === u1, skills: JSON.stringify(G.save.skills) === sk1, bag: G.save.bag.length };
+        // 改选：锁定的技能里新职业能用的解开，学过的一个不少；再改一次不行
+        const lock1 = Object.keys(G.save.clsLock);
+        const to = G.CLASS_IDS.find((c) => c !== other && lock1.some((id) => G.classCanUse(c, id))) || G.CLASS_IDS.find((c) => c !== other);
+        const r3 = G.applyClass(to, 'repick');
+        o.re2 = {
+          to, ok: r3.ok, back: lock1.filter((id) => G.classCanUse(to, id) && !G.save.clsLock[id]).length, want: lock1.filter((id) => G.classCanUse(to, id)).length,
+          skills: JSON.stringify(G.save.skills) === sk1, uid: uids() === u1, re: 'clsRe' in G.save && G.save.clsRe === false, again: G.applyClass(other, 'repick').ok,
+          free: G.passivePoints().free >= 0,
+        };
+        out[n] = o;
+      }
+      localStorage.clear();
+      G.holdSave(true);
+      return out;
+    }, { S: MS_SAMPLES.S });
+    const recs = [];
+    for (const n of Object.keys(r)) {
+      const o = r[n];
+      assert(o.ok && o.uid && o.skills, n + '：选职业后物品 uid 或已学技能变了：' + JSON.stringify(o));
+      assert(o.added === 'clsFree,clsLock,clsRe,cls'.split(',').sort().join(), n + '：应只多出职业字段：' + o.added);
+      assert(o.changed.split(',').every((k) => k === '' || k === 'passives' || k === 'bag' || k === 'equip'), n + '：除了起步天赋、卸下的武器，别的不该变：' + o.changed);
+      assert(o.lock && o.re && o.weaponOk && o.stored, n + '：锁定标记 / 改选次数 / 手里的武器 / 存档不对：' + JSON.stringify(o));
+      assert(o.full.inStash && o.full.uid && o.full.skills && o.full.bag === 40, n + '：背包满时别的职业的武器应进共享仓库：' + JSON.stringify(o.full));
+      assert(o.re2.ok && o.re2.back === o.re2.want && o.re2.skills && o.re2.uid && o.re2.re && !o.re2.again && o.re2.free, n + '：改选应恢复锁定的技能、只能改一次：' + JSON.stringify(o.re2));
+      recs.push(n + '→' + o.rec + '（锁 ' + o.nLock + '）');
+    }
+    return recs.join('，');
+  });
+
+  await step('职业·推荐：手里武器所属的职业 +3、技能栏上要武器的宝石各 +1；没武器 / 只有通用宝石也有合理的默认和理由', async () => {
+    const r = await ev(() => {
+      const bi = (t) => G.BASES.weapon.findIndex((b) => b.type === t);
+      const mk = (wt, bar) => {
+        const s = G.newSave();
+        s.equip = wt ? { weapon: G.rollItem(10, 0, 'weapon', bi(wt)) } : {};
+        s.skills = {};
+        for (const id of bar) if (id) s.skills[id] = 5;
+        s.bar = bar;
+        return G.classRecommend(s);
+      };
+      return {
+        kat: mk('katana', ['whirl', null, 'ember', null]),
+        staffWhirl: mk('staff', ['whirl', null, 'rend', 'blink']),
+        none: mk(null, ['ember', null, null, null]),
+        summon: mk(null, ['thrall', null, 'colossus', null]),
+        bare: mk(null, [null, null, null, null]),
+        gun: mk('gatling', ['nails', null, null, null]),
+      };
+    });
+    assert(r.kat.cls === 'guard' && /太刀/.test(r.kat.why) && /旋风斩/.test(r.kat.why), '太刀 + 旋风斩应推荐烬卫：' + JSON.stringify(r.kat));
+    assert(r.staffWhirl.cls === 'guard' || r.staffWhirl.cls === 'hunt', '长杖 + 三个近战宝石应推荐近战职业：' + JSON.stringify(r.staffWhirl));
+    assert(r.none.cls === 'star' && r.summon.cls === 'lamp' && r.bare.cls === 'guard' && r.gun.cls === 'forge', '没武器时按宝石给默认：' + JSON.stringify(r));
+    for (const k of Object.keys(r)) assert(r[k].why && r[k].why.length > 4, k + '：推荐理由为空');
+    return Object.keys(r).map((k) => k + '→' + r[k].cls + '「' + r[k].why + '」').join('；');
+  });
+
+  await step('职业·掉落加权：抽 1 万次，本职业武器占武器掉落 65% ± 2%、本职业能用的技能宝石占 75% ± 2%；炉匠的货架宝石格总挑得出能用的', async () => {
+    const r = await ev(() => {
+      const S = G.save, out = {};
+      localStorage.clear();
+      G.loadSave();
+      G.holdSave(true);
+      for (const c of G.CLASS_IDS) {
+        S.cls = c;
+        let w = 0, g = 0;
+        for (let i = 0; i < 10000; i++) if (G.WTYPE_CLS[G.BASES.weapon[G.rollItem(20, 0, 'weapon').baseIdx].type] === c) w++;
+        for (let i = 0; i < 10000; i++) if (G.classCanUse(c, G.pickSkillGem(0).id)) g++;
+        out[c] = { w: w / 100, g: g / 100, M: +G.CLASS_WM[c].toFixed(3) };
+      }
+      S.cls = 'forge';
+      S.skills = {};
+      for (const id of G.classGems('forge')) S.skills[id] = 5; // 能用的全学会了：货架照样只摆能用的
+      let bad = 0;
+      for (let i = 0; i < 300; i++) if (!G.classCanUse('forge', G.pickSkillGem(0.7, true).id)) bad++;
+      out.trader = bad;
+      delete S.cls;
+      return out;
+    });
+    for (const c of ['guard', 'hunt', 'star', 'lamp', 'forge']) {
+      assert(Math.abs(r[c].w - 65) <= 2 && Math.abs(r[c].g - 75) <= 2, c + '：加权不对：' + JSON.stringify(r[c]));
+    }
+    assert(r.trader === 0, '炉匠的货架宝石格挑出了用不了的：' + r.trader);
+    return ['guard', 'hunt', 'star', 'lamp', 'forge'].map((c) => c + ' 武器 ' + r[c].w + '% 宝石 ' + r[c].g + '% M ' + r[c].M).join('；');
+  });
+
+  await step('职业·无铭：有职业时用不上的技能宝石掉下来是同等级的无铭宝石，能用的照旧；无铭宝石学不了别的职业的技能；没有职业时照旧掉技能宝石', async () => {
+    const r = await ev(() => {
+      localStorage.clear();
+      localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(G.newClassSave('guard')));
+      G.loadSave();
+      G.holdSave(true);
+      const L = G.state.loot, P = G.player, l0 = L.length;
+      const a = G.spawnLoot('skill', { id: 'arc', lvl: 7 }, P.x, P.z);
+      const b = G.spawnLoot('skill', { id: 'whirl', lvl: 7 }, P.x, P.z);
+      G.save.blankGems = [9];
+      const learnArc = G.useBlankGem('arc'), learnWhirl = !!G.useBlankGem('whirl');
+      delete G.save.cls;
+      const c = G.spawnLoot('skill', { id: 'arc', lvl: 7 }, P.x, P.z);
+      for (const l of L.splice(l0)) G.world.removeMesh(l.mesh);
+      localStorage.clear();
+      return { a: a.kind + ':' + a.data.lvl, b: b.kind + ':' + b.data.id, learnArc, learnWhirl, c: c.kind + ':' + c.data.id };
+    });
+    assert(r.a === 'blank:7' && r.b === 'skill:whirl', '烬卫：链雷应掉成 7 级无铭宝石、旋风斩照旧：' + JSON.stringify(r));
+    assert(r.learnArc === null && r.learnWhirl, '无铭宝石不该学得了别的职业的技能：' + JSON.stringify(r));
+    assert(r.c === 'skill:arc', '没有职业时应照旧掉技能宝石：' + JSON.stringify(r));
+    return JSON.stringify(r);
+  });
+
+  await step('共享仓库：一个角色放进去、另一个角色取出来（uid 不变，两边存档各自对）；同一个 uid 既在仓库又在角色身上时读档只留仓库那份；另一个标签页让这边停写后仓库也不写', async () => {
+    const r = await ev(() => {
+      localStorage.clear();
+      localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(G.newClassSave('guard')));
+      G.loadSave();
+      G.holdSave(false);
+      const it = G.rollItem(12, 2, 'weapon', G.BASES.weapon.findIndex((b) => b.type === 'staff'));
+      G.save.bag.push(it);
+      G.persist();
+      const o = { put: G.stash.put(it), inBag: G.save.bag.some((x) => x.uid === it.uid), s1: localStorage.getItem('cinder-abyss-save-v1').includes(it.uid) };
+      o.mk = G.slots.create(1, 'star');
+      G.slots.select(1);
+      G.loadSave();
+      o.cur = G.slots.cur();
+      o.cls2 = G.save.cls;
+      o.take = G.stash.take(it.uid);
+      o.got = G.save.bag.find((x) => x.uid === it.uid);
+      o.same = !!o.got && JSON.stringify(Object.assign({}, o.got, { dmg: 0 })) === JSON.stringify(Object.assign(JSON.parse(JSON.stringify(it)), { dmg: 0 }));
+      o.got = !!o.got;
+      o.s2 = localStorage.getItem('cinder-abyss-save-v1-s2').includes(it.uid);
+      o.stash = G.stash.list().length;
+      // 去重：同一件同时在仓库和背包里（模拟存放中途崩了）
+      const it2 = G.rollItem(12, 1, 'ring');
+      G.save.bag.push(it2);
+      G.persist();
+      localStorage.setItem('cinder-abyss-stash', JSON.stringify({ v: 1, items: [JSON.parse(JSON.stringify(it2))] }));
+      G.loadSave();
+      o.dedupe = G.stashDeduped;
+      o.dupBag = G.save.bag.some((x) => x.uid === it2.uid);
+      o.dupStash = G.stash.list().some((x) => x.uid === it2.uid);
+      // 另一个标签页写了这一栏：停写，仓库也不动
+      const st0 = localStorage.getItem('cinder-abyss-stash');
+      const it3 = G.rollItem(12, 1, 'ring');
+      G.save.bag.push(it3);
+      window.dispatchEvent(new StorageEvent('storage', { key: G.slotKey(1), oldValue: 'a', newValue: 'b', storageArea: localStorage }));
+      o.stale = G.slots.stale();
+      o.putStale = G.stash.put(it3);
+      o.takeStale = G.stash.take(it2.uid);
+      o.stashSame = localStorage.getItem('cinder-abyss-stash') === st0;
+      return o;
+    });
+    await page.reload({ timeout: 90000 }); // 停写状态只在这一页里：重载清掉
+    await install();
+    await ev(() => { localStorage.clear(); G.holdSave(true); });
+    assert(r.put && !r.inBag && !r.s1, '放进仓库后第 1 栏的存档里不该还有它：' + JSON.stringify(r));
+    assert(r.mk && r.cur === 1 && r.cls2 === 'star' && r.take === true && r.got && r.same && r.s2 && r.stash === 0, '第 2 栏的角色应能取出来（同一件）：' + JSON.stringify(r));
+    assert(r.dedupe === 1 && !r.dupBag && r.dupStash, '同一个 uid 两边都有时应只留仓库那份：' + JSON.stringify(r));
+    assert(r.stale && !r.putStale && !r.takeStale && r.stashSame, '停写的标签页不该写仓库：' + JSON.stringify(r));
+    return 'put / take / 去重 1 件 / 停写时不写';
+  });
+
+  // 界面：标题画面「新游戏」先选职业；老角色（没有职业）进游戏前选一次（带推荐）；角色页卡片显示职业、重看开场、改选一次；载入角色的遮罩；起步天赋的名字；变灰宝石的提示
+  await step('职业·界面：新游戏先选职业（5 张卡：一句话、武器、起手；主角换上起手武器；Alt 列出能用的宝石）→ 开场故事 → 引星人起手', async () => {
+    await fresh({ title: true });
+    await install();
+    await until(() => G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, 90000);
+    await page.click('#t-new');
+    let v = await ev(() => ({ view: G.ui.classView(), n: document.querySelectorAll('.cl-card').length, txt: document.querySelector('#title .m-view').innerText, head: document.querySelector('#title .m-head b').innerText }));
+    assert(v.view && v.view.mode === 'new' && v.n === 5 && v.head === '选择职业', '「新游戏」应先打开职业选择：' + JSON.stringify(v).slice(0, 300));
+    assert(['烬卫', '夜猎', '引星人', '掌灯人', '炉匠', '起手', '武器'].every((w) => v.txt.includes(w)), '职业卡缺内容：' + v.txt.slice(0, 300));
+    cleanText(v.txt, '职业选择');
+    await page.click('.cl-card[data-cls="star"]');
+    v = await ev(() => ({ sel: G.ui.classView().sel, gear: G.player.ent.gearType, alt: document.querySelector('#title [data-view="cls"] .alt-d').innerText, stored: localStorage.getItem('cinder-abyss-save-v1') }));
+    assert(v.sel === 'star' && v.alt.includes('能用的技能宝石（15）') && v.alt.includes('引星人 · 望天'), '选中引星人后 Alt 详情不对：' + JSON.stringify(v));
+    assert(v.stored === null, '选职业时还不该写存档');
+    const gStaff = await ev(() => { const g = G.player.ent.gearType; G.world.setPlayerGear({ weapon: { slot: 'weapon', baseIdx: 1, rarity: 0 } }); return g === G.player.ent.gearType; });
+    assert(gStaff, '选中引星人时主角手里应换成长杖');
+    await page.click('[data-tact="cl-ok"]');
+    await until(() => G.ui.storyOn() && document.querySelector('#story.ready'), null, 30000);
+    await page.keyboard.press('Escape');
+    await until(() => !G.ui.storyOn(), null, 10000);
+    const s = await ev(() => ({ cls: G.save.cls, w: G.BASES.weapon[G.save.equip.weapon.baseIdx].type, sk: Object.keys(G.save.skills).join(), title: G.ui.titleOn(), stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).cls, node: G.save.passives.indexOf('im0') >= 0 }));
+    assert(s.cls === 'star' && s.w === 'staff' && s.sk === 'ember' && !s.title && s.stored === 'star' && s.node, '新角色应是引星人起手：' + JSON.stringify(s));
+    return v.alt.slice(0, 60);
+  });
+
+  await step('职业·界面：角色页卡片显示职业 · 等级 / 区域 / 轮回；「重看开场」放开场故事；老角色（没有职业）换进去时先盖「正在载入角色…」，再停在选职业（推荐 + 理由、默认选中推荐的）', async () => {
+    // 第 2 栏：一个没有职业的老角色（太刀 + 旋风斩，学了链雷）
+    await ev(() => {
+      const s = G.newSave();
+      s.level = 14;
+      s.seenHelp = true;
+      s.seenStory = true;
+      s.lastZone = 1;
+      s.cleared = { ash: 0 };
+      s.equip = { weapon: G.rollItem(12, 1, 'weapon', G.BASES.weapon.findIndex((b) => b.type === 'katana')) };
+      s.skills = { ember: 10, whirl: 10, arc: 9 };
+      s.sockets = { ember: [null, null, null], whirl: [null, null, null], arc: [null, null, null], [G.BASIC_CARD]: [null, null, null] };
+      s.bar = ['whirl', null, 'arc', 'ember'];
+      localStorage.setItem('cinder-abyss-save-v1-s2', JSON.stringify(s));
+      G.persist();
+      G.ui.showTitle(true);
+    });
+    await page.click('#t-chars');
+    let txt = await ev(() => document.querySelector('#title .m-view').innerText);
+    assert(txt.includes('引星人 · 1 级') && txt.includes('未定 · 14 级') && txt.includes('重看开场'), '角色页卡片应显示职业和「重看开场」：' + txt);
+    await page.click('#title [data-view="chars"] [data-tact="story"]');
+    await until(() => G.ui.storyOn() && document.querySelector('#story.ready'), null, 30000);
+    await page.keyboard.press('Escape');
+    await until(() => !G.ui.storyOn(), null, 10000);
+    await page.addInitScript(() => document.addEventListener('DOMContentLoaded', () => { window.__lc = document.documentElement.classList.contains('char-loading'); }));
+    const lc0 = await (async () => {
+      const p = page.waitForEvent('load', { timeout: 90000 });
+      await page.click('[data-tact="ch-play"][data-slot="1"]');
+      const on = await ev(() => document.documentElement.classList.contains('char-loading')).catch(() => 'nav');
+      await p;
+      return on;
+    })();
+    await install();
+    await until(() => G.ui.classView && G.ui.classView(), null, 90000);
+    const v = await ev(() => ({ view: G.ui.classView(), lc: window.__lc, lcNow: document.documentElement.classList.contains('char-loading'), txt: document.querySelector('#title .m-view').innerText, cls: G.save.cls }));
+    assert(lc0 === true || lc0 === 'nav', '点「进入」后应先盖上「正在载入角色…」：' + lc0);
+    assert(v.lc && !v.lcNow, '重载后的页面一开始应盖着遮罩、区域建好后揭开：' + JSON.stringify({ lc: v.lc, now: v.lcNow }));
+    assert(v.view.mode === 'pick' && v.view.sel === 'guard' && v.view.rec.cls === 'guard' && /太刀/.test(v.view.rec.why) && /旋风斩/.test(v.view.rec.why) && v.cls === undefined, '老角色应停在选职业、推荐烬卫：' + JSON.stringify(v.view));
+    assert(v.txt.includes('推荐') && v.txt.includes('变灰：链雷'), '选职业页应写推荐理由和会变灰的技能：' + v.txt.slice(0, 300));
+    cleanText(v.txt, '老角色选职业');
+    await page.click('[data-tact="cl-ok"]');
+    const a = await ev(() => ({ title: G.ui.titleOn(), cls: G.save.cls, re: G.save.clsRe, lock: Object.keys(G.save.clsLock).join(), skills: Object.keys(G.save.skills).sort().join(), stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1-s2')).cls }));
+    assert(!a.title && a.cls === 'guard' && a.re && a.lock === 'arc' && a.skills === 'arc,ember,whirl' && a.stored === 'guard', '选定后应进游戏、链雷锁定但还学着：' + JSON.stringify(a));
+    return v.view.rec.why;
+  });
+
+  await step('职业·界面：技能页「其他职业」一组变灰、悬停写明原因；天赋页的起步天赋按职业起名、白送摘不掉；角色页改选一次（变灰的恢复），用掉后按钮消失', async () => {
+    await ev(() => G.debug.hold(true));
+    await ev(() => G.ui.open('skills'));
+    const sk = await ev(() => ({ grp: !!document.querySelector('.sm-title.cls-group'), off: [...document.querySelectorAll('.skill-card.cls-off .sk-name')].map((n) => n.innerText), lock: (document.querySelector('.skill-card.cls-off .sk-lock') || {}).innerText }));
+    assert(sk.grp && sk.off.length === 1 && /链雷/.test(sk.off[0]) && /烬卫用不了/.test(sk.lock || ''), '技能页应把链雷收进「其他职业」并写原因：' + JSON.stringify(sk));
+    await page.hover('.skill-card.cls-off .sk-icon');
+    await until(() => document.getElementById('tip').innerText.includes('用不了'), null, 5000);
+    const tip = await ev(() => document.getElementById('tip').innerText);
+    await ev(() => G.ui.open('tree'));
+    const tr = await ev(() => ({ label: [...document.querySelectorAll('.tl.cls')].map((n) => n.textContent).join(), refund: G.refundPassive('sm0'), pts: G.passivePoints() }));
+    assert(tr.label === '烬卫 · 不熄' && !tr.refund, '天赋盘上起步天赋应叫「烬卫 · 不熄」、摘不掉：' + JSON.stringify(tr));
+    await ev(() => G.ui.close());
+    await ev(() => G.ui.showTitle(true));
+    await page.click('#t-chars');
+    await page.click('[data-tact="cl-re"]');
+    await page.click('.cl-card[data-cls="star"]');
+    await page.click('[data-tact="cl-ok"]');
+    const re = await ev(() => ({ cls: G.save.cls, re: G.save.clsRe, lock: Object.keys(G.save.clsLock).join(), btn: !!document.querySelector('[data-tact="cl-re"]'), view: (document.querySelector('#title .m-view') || { dataset: {} }).dataset.view, skills: Object.keys(G.save.skills).sort().join() }));
+    assert(re.cls === 'star' && re.re === false && re.lock === 'whirl' && re.skills === 'arc,ember,whirl' && !re.btn && re.view === 'chars', '改选成引星人后链雷应恢复、旋风斩变灰，按钮消失：' + JSON.stringify(re));
+    return tip.replace(/\s+/g, ' ').slice(0, 80);
+  });
 }
 
 // ------------------------------------------------------------------ 多存档（multisave-d1）
@@ -20434,6 +20874,7 @@ async function slotSteps() {
     await fresh({ url: OLD_URL });
     await oldReady();
     SAMPLES = await ev(buildSamples);
+    MS_SAMPLES = SAMPLES; // 职业（class-d2）的迁移步骤再用一遍
     await page.goto(GAME_URL);
     await install();
     const r = await ev(({ S, O, K }) => {

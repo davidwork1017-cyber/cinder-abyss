@@ -720,7 +720,28 @@
     const rq = isObj(raw.quest) ? raw.quest : {};
     s.quest = { n: Math.max(toInt(rq.n, 0, G.QUEST_N, 0), questDerive(s)), off: rq.off === true, told: {} };
     if (isObj(rq.told)) for (const q of G.QUEST) if (rq.told[q.id] === true) s.quest.told[q.id] = true;
+    // 职业（class-d2）：只有认识的职业才读，没有职业的存档一个新键都不加（JSON 和职业之前一字不差）
+    if (typeof raw.cls === 'string' && G.CLASSES[raw.cls]) sanitizeClass(s, raw);
     return s;
+  }
+  function sanitizeClass(s, raw) {
+    const cls = raw.cls, C = G.CLASSES[cls];
+    s.cls = cls;
+    if (raw.clsRe === true) s.clsRe = true;
+    // 锁定：按职业重算（已学、用不了的）。学会的技能不会因此消失，改选到能用它的职业就解开
+    s.clsLock = {};
+    for (const id of Object.keys(s.skills)) if (!G.classCanUse(cls, id)) s.clsLock[id] = 1;
+    // 起步天赋：本职业那个一定在（和起点相邻，总连得上）；改选时留下的旧的那个只认还点着的
+    const rf = Array.isArray(raw.clsFree) ? raw.clsFree : [];
+    s.clsFree = [C.node.id];
+    for (const id of rf) if (G.TREE[id] && id !== C.node.id && s.passives.indexOf(id) >= 0 && s.clsFree.length < 2) s.clsFree.push(id);
+    if (s.passives.indexOf(C.node.id) < 0) s.passives.push(C.node.id);
+    // 手改过的存档身上挂着别的职业的武器：背包有空就卸进去（不删）
+    const w = s.equip.weapon;
+    if (w && G.WTYPE_CLS[(G.BASES.weapon[w.baseIdx | 0] || {}).type] !== cls && s.bag.length < BAG_SIZE) {
+      delete s.equip.weapon;
+      s.bag.push(w);
+    }
   }
   // 主线：存档能证明完成到第几步（设计稿 §5）。后面任何一步能证明完成，前面的都算完成。
   // 走到门口（gate）本身不留痕迹，只有荒原首领倒下才证明它；进区步看 cleared 或 lastZone（只能一区一区往下开）；
@@ -1002,7 +1023,10 @@
       if (!glob) glob = { v: 1, opts: null, tut: {}, helpSeen: false, codex: { uniq: cxOf(null), relic: cxOf(null) } };
       if (isObj(raw) && raw.seenHelp === true) glob.helpSeen = true;
     }
-    return setSave(sanitize(raw));
+    setSave(sanitize(raw));
+    // 共享仓库：同一个 uid 既在仓库又在这个角色身上（存放 / 取出中途崩了）时留仓库那份。没有仓库（测试、bench）时什么也不做
+    G.stashDeduped = !slot.legacy ? G.stash.dedupe() : 0;
+    return G.save;
   };
 
   // 当前栏位有没有存档（标题画面据此决定显示「继续游戏」）。main.js 在 loadSave 之前就会问，所以自己按索引找栏位
@@ -1083,9 +1107,9 @@
       return -1;
     },
     // 在空栏 k 建一个新角色（现在的随机起手），设成 active。返回 true 后由界面重载页面进去
-    create(k) {
+    create(k, cls) {
       if (slot.legacy || slot.stale || !(k >= 0 && k < SLOT_N) || lsGet(slotKey(k)) !== null) return false;
-      const txt = JSON.stringify(G.newSave());
+      const txt = JSON.stringify(G.newClassSave(cls)); // cls：选好的职业（class-d2）；不给就是职业之前的随机起手
       if (!lsSet(slotKey(k), txt)) return saveFailed('fail');
       const idx = syncIndex(readIndex());
       idx.slots[k] = Object.assign(summaryOfText(txt), { t: Date.now(), h: hashStr(txt) });
@@ -1162,6 +1186,263 @@
     slot.stale = true;
     if (G.ui && G.ui.saveBar) G.ui.saveBar('stale');
   });
+
+  // =====================================================================
+  // 职业（class-d2）
+  // =====================================================================
+  // 存档字段（全部只加不改；只有 save.cls 是认识的职业时才写进存档，没有职业的存档一个新键都不多）：
+  //   cls      职业 id（G.CLASS_IDS）
+  //   clsRe    老角色还有一次免费改选（新角色选定后不能改，没有这一项）
+  //   clsLock  { 技能 id: 1 }：已学、但这个职业用不了的技能（还在已学列表和技能栏上，变灰，改选时按新职业重算）
+  //   clsFree  [天赋 id]：白送的起步天赋（不花天赋点）。改选时旧的那个能摘就摘，摘不了又没有空余点数时两个都算白送
+  // 没有职业（或不认识）时：G.clsDef() 为 null，下面每个钩子都原样放行，掉落权重、Math.random 的调用次数都和职业之前一样
+  G.clsDef = () => (G.save && typeof G.save.cls === 'string' && G.CLASSES[G.save.cls]) || null;
+  const wTypeOfItem = (w) => (w && w.slot === 'weapon' && G.BASES.weapon[w.baseIdx | 0] ? G.BASES.weapon[w.baseIdx | 0].type : null);
+  G.wTypeOfItem = wTypeOfItem;
+  // 这件物品是不是别的职业的武器（没有职业时永远不是）
+  G.offClassItem = function (it, cls) {
+    const c = cls === undefined ? G.save && G.save.cls : cls;
+    if (!G.CLASSES[c] || !it || it.slot !== 'weapon') return false;
+    return G.WTYPE_CLS[wTypeOfItem(it)] !== c;
+  };
+  // 技能为什么不能放：null = 能放。只在有职业时才检查
+  G.castBlock = function (id) {
+    const C = G.clsDef();
+    if (!C || !G.SKILLS[id] || G.SKILLS[id].weaponOnly || G.SKILLS[id].basic) return null;
+    const need = G.GEM_NEED[id] || null;
+    if (!G.classCanUse(G.save.cls, id)) return { why: 'cls', text: C.name + '用不了：需要' + G.NEED_NAME[need] };
+    if (!G.typeFitsNeed(wTypeOfItem(G.save.equip && G.save.equip.weapon), need)) return { why: 'weapon', text: '需要' + G.NEED_NAME[need] };
+    return null;
+  };
+  G.canCast = (id) => !G.castBlock(id);
+  // 能不能装上这件物品（只限制武器：别的职业的武器装不上）
+  G.canEquip = (it) => !G.offClassItem(it);
+
+  // 起步天赋：本职业白送的那个节点（名字按职业起）
+  G.clsNodeOf = (id) => {
+    const C = G.clsDef();
+    return C && C.node.id === id && G.save.clsFree && G.save.clsFree.indexOf(id) >= 0 ? C.node : null;
+  };
+  G.clsFreeCount = function () {
+    const S = G.save;
+    if (!G.clsDef() || !Array.isArray(S.clsFree)) return 0;
+    let n = 0;
+    for (const id of S.clsFree) if (S.passives.indexOf(id) >= 0) n++;
+    return n;
+  };
+
+  // 选职业时的推荐：装备着的武器所属职业 +3；技能栏上每个要武器的宝石，能用它的职业各 +1；同分按武器。
+  // 手里没武器、技能栏上只有通用宝石时：召唤宝石偏掌灯人、掷焰 / 光环偏引星人（各 +0.5 / +0.25，只用来分先后），都没有就烬卫。
+  // 返回 { cls, why（卡片上的推荐理由）, score }
+  G.classRecommend = function (s) {
+    const S = s || G.save;
+    const score = {};
+    for (const c of G.CLASS_IDS) score[c] = 0;
+    const wt = wTypeOfItem(S.equip && S.equip.weapon);
+    const wc = wt ? G.WTYPE_CLS[wt] : null;
+    if (wc) score[wc] += 3;
+    const bar = (S.bar || []).concat(S.rmbKeep ? [S.rmbKeep] : []).filter((id) => id && G.SKILLS[id] && S.skills && S.skills[id]);
+    const bound = [];
+    for (const id of bar) {
+      if (G.GEM_NEED[id]) {
+        bound.push(id);
+        for (const c of G.CLASS_IDS) if (G.classCanUse(c, id)) score[c] += 1;
+      } else if (G.SKILLS[id].kind === 'summon') score.lamp += 0.5;
+      else score.star += 0.25;
+    }
+    let best = G.CLASS_IDS[0], bs = -1;
+    for (const c of G.CLASS_IDS) {
+      const v = score[c] + (c === wc ? 0.01 : 0); // 同分按武器
+      if (v > bs) {
+        bs = v;
+        best = c;
+      }
+    }
+    const wName = wt ? G.wTypeLabel(wt) : null;
+    const gems = bar.filter((id) => G.classCanUse(best, id) && (G.GEM_NEED[id] || (best === 'lamp' && G.SKILLS[id].kind === 'summon') || best === 'star')).map((id) => G.SKILLS[id].name);
+    let why;
+    if (bs <= 0) why = '手里没有武器，技能栏上也没有要武器的技能：先从烬卫开始，刃最好上手';
+    else if (wc === best && gems.length) why = '你现在用的是' + wName + '和' + gems.slice(0, 2).join('、');
+    else if (wc === best) why = '你现在用的是' + wName;
+    else if (gems.length) why = '你技能栏上的' + gems.slice(0, 3).join('、') + (wName ? '（手里的' + wName + '归' + G.CLASSES[wc].name + '）' : '') + '都归这个职业';
+    else why = '最贴近你现在的打法';
+    return { cls: best, why, score };
+  };
+
+  // 新角色的起手（存档对象 S 上原地改）：该类型 1 级普通、平均成色的武器（不像职业之前那样折成 1 级刃的秒伤，D3 的开局 bench 再定），
+  // 只学起手技能、放在左键
+  function classKit(S, cls) {
+    const C = G.CLASSES[cls];
+    const bi = G.BASES.weapon.findIndex((b) => b.type === C.start.type);
+    const w = G.rollItem(1, 0, 'weapon', bi);
+    w.wbase = G.weaponBaseDmg(bi, 1);
+    G.refreshWeapon(w);
+    S.equip = { weapon: w };
+    const sk = C.start.skill;
+    S.skills = { [sk]: 1 };
+    S.sockets = { [sk]: [null, null, null], [G.BASIC_CARD]: [null, null, null] };
+    S.bar = [sk, null, null, null];
+    S.rmbKeep = null;
+    S.cls = cls;
+    S.clsLock = {};
+    S.clsFree = [C.node.id];
+    if (S.passives.indexOf(C.node.id) < 0) S.passives.push(C.node.id);
+    return S;
+  }
+  G.newClassSave = (cls) => (G.CLASSES[cls] ? classKit(G.newSave(), cls) : G.newSave());
+  // 选职业 / 改选。mode：'new' 新角色（换上起手武器和起手技能）/ 'pick' 老角色第一次选 / 'repick' 老角色用掉那一次免费改选。
+  // 老角色：已学的技能一个不删，用不了的记进 clsLock；装备着的别的职业的武器卸进背包，背包满了进共享仓库（都满了就留在身上，不删）；
+  // 手里空了就从背包里挑一把本职业的（物品等级最高的）换上。返回 { ok, moved: [{ name, to: 'bag' | 'stash' | 'kept' }], equipped }
+  G.applyClass = function (cls, mode) {
+    const S = G.save;
+    const C = G.CLASSES[cls];
+    if (!C) return { ok: false };
+    if (mode === 'repick' && !(S.cls && S.clsRe)) return { ok: false };
+    if (mode === 'pick' && S.cls) return { ok: false };
+    const out = { ok: true, moved: [], equipped: null };
+    const prevNode = mode === 'repick' && G.clsDef() ? G.clsDef().node.id : null;
+    const prevFree = Array.isArray(S.clsFree) ? S.clsFree.slice() : [];
+    if (mode === 'new') classKit(S, cls);
+    S.cls = cls;
+    if (mode === 'pick') S.clsRe = true;
+    else if (mode === 'repick') S.clsRe = false;
+    else delete S.clsRe;
+    // 锁定：已学、但这个职业用不了的技能
+    S.clsLock = {};
+    for (const id of Object.keys(S.skills)) if (!G.classCanUse(cls, id)) S.clsLock[id] = 1;
+    // 起步天赋
+    const node = C.node.id;
+    if (S.passives.indexOf(node) < 0) S.passives.push(node);
+    let free = [node];
+    if (prevNode && prevNode !== node && S.passives.indexOf(prevNode) >= 0 && prevFree.indexOf(prevNode) >= 0) {
+      const rest = S.passives.filter((p) => p !== prevNode);
+      if (reachable(rest).size === rest.length) S.passives = rest; // 旧的起步天赋摘得掉：摘掉（它本来就是白送的）
+      else {
+        S.clsFree = free;
+        if (G.passivePoints().free < 0) free = [node, prevNode]; // 摘不掉又没有空余点数：两个都算白送，点数不变负
+      }
+    }
+    S.clsFree = free;
+    // 别的职业的武器：卸下
+    const w = S.equip && S.equip.weapon;
+    if (w && G.offClassItem(w, cls)) {
+      if (S.bag.length < BAG_SIZE) {
+        delete S.equip.weapon;
+        S.bag.push(w);
+        out.moved.push({ name: w.name, to: 'bag' });
+      } else if (G.stash.put(w, true)) {
+        delete S.equip.weapon;
+        out.moved.push({ name: w.name, to: 'stash' });
+      } else out.moved.push({ name: w.name, to: 'kept' });
+    }
+    if (!S.equip.weapon) {
+      let best = -1;
+      S.bag.forEach((it, i) => {
+        if (it.slot !== 'weapon' || G.offClassItem(it, cls)) return;
+        const b = best >= 0 ? S.bag[best] : null;
+        if (!b || it.ilvl > b.ilvl || (it.ilvl === b.ilvl && it.rarity > b.rarity)) best = i;
+      });
+      if (best >= 0) {
+        const it = S.bag.splice(best, 1)[0];
+        S.equip.weapon = it;
+        out.equipped = it.name;
+      }
+    }
+    G.computeStats();
+    if (G.refreshMinions) G.refreshMinions();
+    G.persist();
+    return out;
+  };
+  // 老角色要不要先选职业：有存档（不是刚建、还没存过的新角色）、没有职业，而且不是测试环境（__skipTitle / ?play）
+  G.needClassPick = function () {
+    if (G.clsDef() || !G.save) return false;
+    if (window.__skipTitle || /[?&]play\b/.test(location.search)) return false;
+    return slot.hash !== null;
+  };
+
+  // ---------- 共享仓库（cinder-abyss-stash，所有角色共用）----------
+  // { v: 1, items: [物品 × 最多 160] }，4 页 × 40 格。只放物品（通货、宝石不进）。
+  // 存放和取出都先写「收的那一边」再写「给的那一边」：中途崩了最坏是两边各一份，不会丢；读档时同一个 uid 既在仓库又在角色身上的，
+  // 只留仓库那份（G.stash.dedupe），崩溃不会变成复制的手段。另一个标签页让这边停写（stale）、角色刚删掉（dead）、存档层没迁移成（legacy）时一律不写
+  const STASH_KEY = (G.SAVE_KEYS.stash = 'cinder-abyss-stash');
+  const STASH_PAGE = 40, STASH_PAGES = 4, STASH_MAX = STASH_PAGE * STASH_PAGES;
+  function stashRead() {
+    const r = readJson(STASH_KEY);
+    const items = [];
+    if (isObj(r) && r.v === 1 && Array.isArray(r.items)) {
+      const seen = new Set();
+      for (const it of r.items) {
+        if (items.length >= STASH_MAX) break;
+        if (!isItem(it) || seen.has(it.uid)) continue;
+        seen.add(it.uid);
+        items.push(fixItem(it, Math.max(1, it.ilvl | 0), false));
+      }
+    }
+    return items;
+  }
+  const stashWrite = (items) => lsSet(STASH_KEY, JSON.stringify({ v: 1, items }));
+  const stashOk = () => !slot.stale && !slot.dead && !slot.legacy;
+  G.stash = {
+    PAGE: STASH_PAGE,
+    PAGES: STASH_PAGES,
+    MAX: STASH_MAX,
+    ok: stashOk,
+    list: () => stashRead(),
+    // 背包里的一件放进仓库（raw：调用方自己处理角色那一边，比如选职业时卸下来的武器）
+    put(item, raw) {
+      if (!stashOk() || !item) return false;
+      const items = stashRead();
+      if (items.length >= STASH_MAX) return false;
+      if (items.some((x) => x.uid === item.uid)) return false;
+      const i = raw ? -1 : bagIndex(item);
+      if (!raw && i < 0) return false;
+      const it = raw ? item : G.save.bag[i];
+      items.push(JSON.parse(JSON.stringify(it)));
+      if (!stashWrite(items)) return saveFailed('fail');
+      if (!raw) {
+        G.save.bag.splice(i, 1);
+        G.persist();
+      }
+      return true;
+    },
+    // 仓库里的一件（按 uid）取进背包
+    take(uid) {
+      if (!stashOk()) return false;
+      const S = G.save;
+      if (S.bag.length >= BAG_SIZE) return 'bag';
+      const items = stashRead();
+      const i = items.findIndex((x) => x.uid === uid);
+      if (i < 0) return false;
+      const it = items[i];
+      if (it.rarity === 3) noteUnique(it);
+      if (it.rarity === 4) noteRelic(it);
+      S.bag.push(it);
+      if (!G.persist()) {
+        S.bag.pop();
+        return false;
+      }
+      items.splice(i, 1);
+      if (!stashWrite(items)) saveFailed('fail'); // 写不回仓库：两边各一份，下次读档按 uid 去重（留仓库那份）
+      return true;
+    },
+    // 读档时：同一个 uid 既在仓库又在这个角色的背包 / 身上时，留仓库那份。返回去掉的件数
+    dedupe() {
+      const r = readJson(STASH_KEY);
+      if (!isObj(r) || !Array.isArray(r.items) || !r.items.length) return 0;
+      const ids = new Set(r.items.filter(isItem).map((it) => it.uid));
+      const S = G.save;
+      const n0 = S.bag.length;
+      S.bag = S.bag.filter((it) => !ids.has(it.uid));
+      let n = n0 - S.bag.length;
+      for (const k of G.SLOTS) {
+        if (S.equip[k] && ids.has(S.equip[k].uid)) {
+          delete S.equip[k];
+          n++;
+        }
+      }
+      return n;
+    },
+  };
 
   // ---------- 刻式 ----------
   // G.SKILL_V[id] = { o, a, b }：o 就是 data.js 里原来那个对象（原式一字不差），a / b 第一次用到时按 G.SKILL_BASE + set 拼一份、之后复用。
@@ -1319,7 +1600,7 @@
   G.passivePoints = function () {
     const save = G.save;
     const total = save.level - 1 + 2 * Object.keys(save.bossKills).length;
-    const used = save.passives.length - 1;
+    const used = save.passives.length - 1 - (save.cls ? G.clsFreeCount() : 0); // 职业白送的起步天赋不花点
     return { total, used, free: total - used };
   };
 
@@ -3470,7 +3751,7 @@
   // ---------- 星雨（陨织袍） ----------
   // 渊式「星雨」（陨织袍解锁）：陨火选着星雨、学了、放在技能栏上
   const starOn = () => G.SKILLS.meteor.mech === 'star';
-  const meteorOn = () => !!(starOn() && G.save.skills.meteor && G.save.bar.indexOf('meteor') >= 0);
+  const meteorOn = () => !!(starOn() && G.save.skills.meteor && G.save.bar.indexOf('meteor') >= 0 && (!G.save.cls || G.canCast('meteor')));
   // 光环保留里多算的那一份（reservePct 里的一行钩子）
   G.relicReserve = () => (meteorOn() ? G.SKILLS.meteor.star.reserve : 0);
   // 陨火不能手动施放（tryStartCast 里的一行钩子）：轻点只提示一句。返回 true 表示这个键跳过
@@ -4777,6 +5058,16 @@
     return top;
   }
 
+  // 职业（class-d2）：变灰的宝石（别的职业的 / 手里武器不对）按下去不放，轻点时头上提示一句原因
+  function classNoCast(slot, id) {
+    const b = G.castBlock(id);
+    if (!b) return false;
+    if (G.input.tap[slot] > 0) {
+      G.input.tap[slot] = 0;
+      if (hintDue('clsCast', 1.5)) G.world.text(P.x, P.z, b.text, '#c9c2b4', 14);
+    }
+    return true;
+  }
   // 开始一次施放。只在「能出手」的时刻被调用：手上没有动作，或者上一个动作已经过了可取消的时刻
   function tryStartCast() {
     const save = G.save;
@@ -4797,6 +5088,7 @@
       }
       if (!id || !G.SKILLS[id] || (!isWs && !G.SKILLS[id].basic && !save.skills[id])) continue;
       if (id === 'meteor' && G.relicNoCast(slot, id)) continue; // 渊式「星雨」：陨火只能自动落下
+      if (!isWs && !G.SKILLS[id].basic && save.cls && classNoCast(slot, id)) continue; // 职业（class-d2）：变灰的宝石放不出来
       if (chan && chan.slot === slot) continue; // 还按着正在转的那个键：接着转，不从头起
       // 刻式：坍缩的黑洞还在时再按引爆、掷旋飞出去时再按召回（不看冷却、不扣消耗）；掷旋飞着时按住不放也不再掷
       const rc = vRecast(slot, id);
@@ -9955,12 +10247,26 @@
   // 随机技能宝石（首领另有一颗必掉）：技能宝石从 14 种加到 20 种（skill-expand），精英 / 普通怪的几率 × 20/14（原来 0.075 / 0.012），每一种老宝石的掉率不变
   const SKILL_DROP = (G.SKILL_DROP = { elite: (0.075 * 20) / 14, mob: (0.012 * 20) / 14 });
   // preferNew：挑玩家还没有的宝石的概率
-  function pickSkillGem(preferNew) {
-    const all = G.GEM_SKILLS; // 武器技不掉落
+  // 有职业时（class-d2）：最后那一下 G.pick 换成一次 G.weighted，本职业能用的宝石合起来占 G.CLASS_LOOT.gem（75%），
+  // 随机数次数和没有职业时一样；用不上的那 25% 由 G.spawnLoot 变成同等级的无铭宝石。usable：只挑能用的（拾烬客的货架）
+  function pickSkillGem(preferNew, usable) {
+    const C = G.clsDef();
+    const all = C && usable ? G.classGems(G.save.cls) : G.GEM_SKILLS; // 武器技不掉落
     const fresh = all.filter((id) => !G.save.skills[id]);
-    const id = fresh.length && Math.random() < preferNew ? G.pick(fresh) : G.pick(all);
+    const pool = fresh.length && Math.random() < preferNew ? fresh : all;
+    const id = C ? classGemPick(pool) : G.pick(pool);
     return { id, lvl: gemLevel() };
   }
+  function classGemPick(pool) {
+    const cls = G.save.cls;
+    let own = 0;
+    for (const id of pool) if (G.classCanUse(cls, id)) own++;
+    const other = pool.length - own;
+    if (!own || !other) return G.weighted(pool, () => 1);
+    const k = G.CLASS_LOOT.gem;
+    return G.weighted(pool, (id) => (G.classCanUse(cls, id) ? k / own : (1 - k) / other));
+  }
+  G.pickSkillGem = pickSkillGem; // 测试用：加权抽样
   function pickSupportGem(preferNew) {
     const all = Object.keys(G.SUPPORTS);
     const fresh = all.filter((id) => G.save.supports.indexOf(id) < 0);
@@ -10039,6 +10345,11 @@
 
   G.spawnLoot = function (kind, data, x, z) {
     const W = G.world;
+    // 有职业时（class-d2）：这个职业用不上的技能宝石掉下来就是同等级的无铭技能宝石（不浪费）。没有职业时不动
+    if (kind === 'skill' && G.clsDef() && !G.classCanUse(G.save.cls, data.id)) {
+      kind = 'blank';
+      data = { lvl: data.lvl, from: data.id };
+    }
     // 在落点周围找一个可走、且尽量不与其他掉落重叠的位置
     let bx = x;
     let bz = z;
@@ -10107,8 +10418,10 @@
   // 某个等级的无铭宝石还有没有用处：有没学会的技能，或有低于这个等级的已学技能
   G.blankUseful = function (lvl) {
     const sk = G.save.skills;
-    return G.GEM_SKILLS.some((id) => !sk[id] || sk[id] < lvl);
+    return G.blankTargets().some((id) => !sk[id] || sk[id] < lvl);
   };
+  // 无铭宝石能学 / 能升的技能：有职业时只限这个职业能用的
+  G.blankTargets = () => (G.clsDef() ? G.classGems(G.save.cls) : G.GEM_SKILLS);
   // 对某个技能用一颗无铭宝石：没学会就学会，学会了就升到宝石的等级。总是用手里等级最高的那颗；
   // 已学技能的等级不低于它时不能用。成功返回 { id, lvl, from（原等级，新学为 0）, slot（新学时放进的技能栏格子，-1 为没有空格） }
   G.useBlankGem = function (id) {
@@ -10117,6 +10430,7 @@
     const lvl = G.blankBest();
     const have = save.skills[id] || 0;
     if (!sk || sk.weaponOnly || !lvl || lvl <= have) return null;
+    if (G.clsDef() && !G.classCanUse(save.cls, id)) return null; // 别的职业的技能：学不了
     save.blankGems.shift();
     const B = G.BLANK_GEM;
     let slot = -1;
@@ -10329,6 +10643,7 @@
     const i = bagIndex(item);
     if (i < 0) return false;
     const it = save.bag[i];
+    if (!G.canEquip(it)) return false; // 别的职业的武器（class-d2）：提示由背包页自己显示
     const old = save.equip[it.slot];
     save.equip[it.slot] = it;
     // 换下来的装备放回原格子，背包不会因此溢出
@@ -10545,6 +10860,7 @@
   G.refundPassive = function (id) {
     const save = G.save;
     if (id === 'start' || save.passives.indexOf(id) < 0) return false;
+    if (G.clsNodeOf(id)) return false; // 职业白送的起步天赋摘不掉（提示由天赋页自己显示）
     const rest = save.passives.filter((p) => p !== id);
     if (reachable(rest).size !== rest.length) return false; // 提示由天赋页自己显示
     save.passives = rest;
@@ -10553,6 +10869,7 @@
 
   G.resetPassives = function () {
     G.save.passives = ['start'];
+    if (G.clsDef() && Array.isArray(G.save.clsFree)) for (const id of G.save.clsFree) if (G.TREE[id]) G.save.passives.push(id); // 白送的起步天赋留着
     return commit();
   };
 
@@ -11574,7 +11891,7 @@
       const item = G.rollItem(lvl, rar, want[i % want.length]);
       out.push({ kind: 'item', item, price: item.rarity >= 2 ? T.price.rare : T.price.magic });
     }
-    out.push(Math.random() < 0.5 ? { kind: 'skill', data: pickSkillGem(0.7), price: T.price.gem } : { kind: 'support', data: pickSupportGem(0.7), price: T.price.gem });
+    out.push(Math.random() < 0.5 ? { kind: 'skill', data: pickSkillGem(0.7, true), price: T.price.gem } : { kind: 'support', data: pickSupportGem(0.7), price: T.price.gem }); // 有职业时只摆能用的宝石
     // 另外固定一格辅助宝石（辅助种类多了，support-expand）：和上一格不重样
     let sid = pickSupportGem(0.7);
     for (let k = 0; k < 6 && out[out.length - 1].data === sid; k++) sid = pickSupportGem(0.7);
