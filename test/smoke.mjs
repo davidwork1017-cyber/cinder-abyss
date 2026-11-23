@@ -20457,8 +20457,7 @@ async function titleSteps() {
 
   // ------------------------------------------------------------------ 主线（quest D1，设计稿 game-workspace/notes/quest-design §6 D1 的测试一栏）
   // 只读现有进度推进；奖励直接加进 save.cur，不取随机数。这一组放在最后：会换存档、换区域，放前面会让后面步骤继承的布局和主分支不同
-  const QKEY = 'cinder-abyss-save-v1';
-  let qKeep = null; // 这一组开始前的存档：最后一步还原
+  let qKeep = null; // 这一组新开的浏览器里最初的那份存档：最后一步还原
   const qCur = () => ev(() => Object.assign({}, G.save.cur));
   const qDiff = (a, b) => {
     const d = {};
@@ -20466,9 +20465,13 @@ async function titleSteps() {
     return JSON.stringify(d);
   };
   await step('主线：新存档显示第 1 步「沿路走到荒原尽头」，在小地图正下方；开场卡片 / 面板 / 暂停菜单时收起；走到首领场地门口 → 第 2 步，通货正好 微光尘 +2、增幅尘 +1', async () => {
-    await page.setViewportSize({ width: 1440, height: 900 });
+    // 新开一个浏览器：前面标题画面那几步是带标题画面开的（title: true），这一组里刷新页面会停在标题画面上
+    if (browser) await browser.close().catch(() => {});
+    ({ browser, page, errors } = await launch({ width: 1440, height: 900 }));
+    await install();
     const r = await ev(() => {
       window.__qKeep = localStorage.getItem('cinder-abyss-save-v1');
+      G.ui.close(); // 新存档的开场卡片
       G.holdSave(false);
       G.debug.hold(true);
       G.resetSave();
