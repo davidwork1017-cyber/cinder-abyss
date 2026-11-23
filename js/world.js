@@ -22188,10 +22188,13 @@
       }
       // 轮廓光：先亮一下，之后随心跳般的脉动，最后半秒淡回去
       const fade = Math.min(1, (it.dur - it.t) / 0.5), pulse = 0.55 + 0.45 * Math.sin(it.t * 9) * Math.sin(it.t * 9);
-      const k = Math.min(1, it.t / 0.15) * fade * (0.6 + 0.9 * pulse);
+      // 长狂热（魂潮 dur-tune 后 12 秒，一直挂着）：头一秒照原样亮一下，之后 0.6 秒里压成一层淡的脉动（× 0.45）、魂火屑从每 0.07 秒稀到每 0.2 秒，
+      // 平均冒出的魂火屑不比原来 4 秒那版多；万魂降临的 4 秒狂热不变
+      const calm = it.dur > 6 ? 1 - 0.55 * Math.min(1, Math.max(0, (it.t - 1) / 0.6)) : 1;
+      const k = Math.min(1, it.t / 0.15) * fade * (0.6 + 0.9 * pulse) * calm;
       e.uRim.value.copy(it.rim).lerp(it.col, Math.min(1, k * 0.8)).multiplyScalar(1 + k * 1.6);
       it.acc += dt;
-      if (it.acc > 0.07 && e.group.visible) {
+      if (it.acc > (calm < 0.99 ? 0.2 : 0.07) && e.group.visible) {
         it.acc = 0;
         W.entSocket(e, 'chest', _sk);
         spawnP(_sk.x + rand(-0.35, 0.35), _sk.y + rand(-0.6, 0.3), _sk.z + rand(-0.35, 0.35), rand(-0.3, 0.3), rand(1.2, 2.6), rand(-0.3, 0.3), rand(0.35, 0.6), rand(0.12, 0.2), it.col.r * 1.4, it.col.g * 1.4, it.col.b * 1.4, -0.6, 1.2);
