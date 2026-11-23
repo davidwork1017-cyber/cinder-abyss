@@ -916,7 +916,7 @@
       // vf-ground：地砖缝和墙脚积着风吹进来的砂砾；路外是碎砂带、碎石块和水渍
       layer: { tex: 'g_cover_storm', tile: 3.5, con: 0.6, rough: 1, k: 0.52, sat: 0.4, col: 0x4e4c5e, path: 0.6, pT: 0.56, edge: 1, jag: 1.2, blend: 0.08, edgeW: 0.6, mv: 0.14, mh: 0.08, scorch: 0.45, sT: 0.64, ao2: 0.12 }, // ao2 0.24 → 0.12、k 0.46 → 0.52：新布局下墙边地面掉到 23%、低档砂砾斑太暗 // scorch：成片的碎石地（粗糙地面那一套）
       deco: { cover: 0x5e5c6e, floor: 0.8, wild: 1, ao: 0.85, aoR: 0.9, scorch: 0, clusters: 0.6, kinds: [6, 7, 8, 11, 12, 13], tint: 0x4a4858 },
-      pool: { col: 0xffd27a, k: 1.0, r: 3, gain: 1.4 }, // 路边立灯脚下映暖
+      pool: { col: 0xffd27a, k: 0.8, r: 3, gain: 1.4 }, // 路边立灯脚下映暖（storm-lamps：灯从两三盏变成十几盏，k 1.0 → 0.8，北墙边的地面别亮出 35%）
       sigil: { r: 0.55, op: 0.12 }, // zones-storm：监察大厅的法阵原来又大又满，收小、压淡
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x2c2744, a: 0.32 },
@@ -928,7 +928,9 @@
         mid: [],
         midK: 0.35,
         edge: [],
-        fire: { m: 'ca/storm_lantern', s: 1.4, h: 0.62, color: 0xffe45e, size: 0.6 }, // asset-zones：自产立灯（kit-storm，fit 照抄 kh/lantern_standing；id 里要有 lantern，火焰按 h × s 的高度放）
+        // asset-zones：自产立灯（kit-storm，fit 照抄 kh/lantern_standing；id 里要有 lantern，火焰按 h × s 的高度放）
+        // storm-lamps：灯位由生成器给（stormLamps）；keep 见 buildProps；top = 立灯脚下那段压矮的北墙的墙顶高（m，stormDress 按它压墙）
+        fire: { m: 'ca/storm_lantern', s: 1.4, h: 0.62, color: 0xffe45e, size: 0.6, keep: 1, top: 1.03 },
         boss: [],
       },
     },
@@ -2672,6 +2674,7 @@
     }
     // 火盆 / 灯：每块空地北侧两个（矮火堆南侧再加一个），紧贴路边
     const fires = [];
+    let keep = 0;
     if (P.fire && G.assets.geo(P.fire.m)) {
       const F = P.fire;
       const shortFire = F.m.indexOf('lantern') < 0; // 矮的火堆在南侧（靠镜头）也放一个，不会挡住战场；立灯只放北侧
@@ -2681,16 +2684,35 @@
         fires.push({ x, y: F.h * (F.m.indexOf('lantern') >= 0 ? F.s : 1), z, ph: rand(0, TAU), acc: 0 });
       };
       const lamps = (zone.feats || []).filter((f) => f.kind === 'lamp');
+      // 内切圆摆法（没有灯位时用）。dry：只走一遍、取同样多的随机数，不摆（见下面的 F.keep），返回本来会摆几盏
+      const circ = (dry) => {
+        let n0 = 0;
+        zone.circles.forEach((c, ci) => {
+          const n = ci === zone.circles.length - 1 ? 4 : 2;
+          const ns = shortFire && ci > 0 && ci < zone.circles.length - 1 ? 1 : 0;
+          for (let k = 0; k < n + ns; k++) {
+            const a = k >= n ? rand(-0.6, 0.6) : Math.PI + (n === 2 ? (k ? 0.75 : -0.75) : (k - 1.5) * 0.62) + rand(-0.15, 0.15), rr = c.r + 1.25;
+            const x = c.x + Math.sin(a) * rr, z = c.z + Math.cos(a) * rr;
+            if (!dry) put(x, z);
+            else if (!(sd(x, z) > -0.9 || !edgeOk(x, z))) (rand(0, TAU), rand(0, TAU), n0++);
+          }
+        });
+        return n0;
+      };
       // 生成器给了灯位（feats 里的 lamp，房间北边缘外）就用灯位（zones-integrate）；没有的照旧按关键路径房间的内切圆摆
-      if (lamps.length) for (const f of lamps) put(f.x, f.z);
-      else zone.circles.forEach((c, ci) => {
-        const n = ci === zone.circles.length - 1 ? 4 : 2;
-        const ns = shortFire && ci > 0 && ci < zone.circles.length - 1 ? 1 : 0;
-        for (let k = 0; k < n + ns; k++) {
-          const a = k >= n ? rand(-0.6, 0.6) : Math.PI + (n === 2 ? (k ? 0.75 : -0.75) : (k - 1.5) * 0.62) + rand(-0.15, 0.15), rr = c.r + 1.25;
-          put(c.x + Math.sin(a) * rr, c.z + Math.cos(a) * rr);
+      if (lamps.length && F.keep) {
+        // storm-lamps：灯位是后来才给的（雷鸣遗迹）。外观随机序列照旧按内切圆摆法取数（同一段里后面的薄雾不挪）；
+        // 火焰每帧冒火星要取游戏的随机数，按原来会摆的盏数「空取」（keep），真摆的灯用自己的随机序列，进区后的游戏随机序列和改之前一样
+        keep = circ(true);
+        // 灯位在墙身中线上（边外 0.5 m），立在压矮的那段墙顶上（F.top，stormDress 按同一个高度压墙）
+        const y0 = F.top || 0;
+        for (const f of lamps) {
+          if (sd(f.x, f.z) > -0.35 || !edgeOk(f.x, f.z)) continue;
+          (by[F.m] || (by[F.m] = { e: [F.m, 1, F.s, F.s, ''], list: [] })).list.push(f.x, y0, f.z, 0, f.ang, 0, F.s, F.s, F.s, 1);
+          fires.push({ x: f.x, y: y0 + F.h * F.s, z: f.z, ph: f.k * TAU, acc: 0 });
         }
-      });
+      } else if (lamps.length) for (const f of lamps) put(f.x, f.z);
+      else circ(false);
     }
     // 路边小物件不投影（又小又多，投影只是白白多画一遍）
     for (const k in by) {
@@ -2707,6 +2729,9 @@
     const fm = own(new T.MeshBasicMaterial({ map: brazierFlameTex(), color: new T.Color(_c.r * 2.4, _c.g * 2.4, _c.b * 2.4), transparent: true, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false, side: T.DoubleSide }));
     const im = new T.InstancedMesh(gVQuad(), fm, fires.length * 2);
     im.frustumCulled = false;
+    // storm-lamps：火焰的矩阵每帧才写（updateFires），建好时还是空的；实例多到远处剔除（icull，≥ 12）会管它时，剔除按空矩阵算、整排火焰不见，
+    // 要等镜头走出 4 m 才复原。灯位换过的区（keep）有十几盏灯，火焰不让剔除管（别的区照旧，不动）
+    if (F.keep) im.userData.noCull = true;
     im.renderOrder = 5;
     zoneGroup.add(im);
     own(im);
@@ -2715,7 +2740,9 @@
     for (const f of fires) gl.push(f.x, 0.06, f.z, 0, 0, 0, 2.6 * F.size, 1, 2.6 * F.size, 1);
     const gIM = instanced(gQuad(), gm, gl, false, null);
     if (gIM) gIM.renderOrder = 1;
-    return { im, list: fires, size: F.size, ar: _c.r, ag: _c.g, ab: _c.b };
+    const out = { im, list: fires, size: F.size, ar: _c.r, ag: _c.g, ab: _c.b };
+    if (F.keep) Object.assign(out, { keep, kAcc: 0, rr: mulberry32((zone.vseed ^ 0x5f3759df) >>> 0) });
+    return out;
   }
   const _fq = new T.Quaternion(), _fe = new T.Euler();
   function updateFires(F, dt) {
@@ -2733,7 +2760,16 @@
       f.acc += dt * 6 * s;
       while (f.acc > 1) {
         f.acc -= 1;
-        spawnP(f.x + rand(-0.2, 0.2) * s, f.y + 0.4 * s, f.z + rand(-0.2, 0.2) * s, rand(-0.3, 0.3), rand(1.2, 2.4), rand(-0.3, 0.3), rand(0.5, 1.1), rand(0.06, 0.12), F.ar, F.ag * 0.8, F.ab * 0.6, -0.6, 0.4);
+        if (F.rr) { const R = F.rr; spawnP(f.x + (R() * 0.4 - 0.2) * s, f.y + 0.4 * s, f.z + (R() * 0.4 - 0.2) * s, R() * 0.6 - 0.3, 1.2 + R() * 1.2, R() * 0.6 - 0.3, 0.5 + R() * 0.6, 0.06 + R() * 0.06, F.ar, F.ag * 0.8, F.ab * 0.6, -0.6, 0.4); }
+        else spawnP(f.x + rand(-0.2, 0.2) * s, f.y + 0.4 * s, f.z + rand(-0.2, 0.2) * s, rand(-0.3, 0.3), rand(1.2, 2.4), rand(-0.3, 0.3), rand(0.5, 1.1), rand(0.06, 0.12), F.ar, F.ag * 0.8, F.ab * 0.6, -0.6, 0.4);
+      }
+    }
+    // storm-lamps：灯位换过的区（F.rr）按原来会摆的 keep 盏「空取」游戏随机数：每盏每次冒火星取 7 个（和上面 rand 的个数一样），相位起点一样，节奏一样
+    if (F.rr) {
+      F.kAcc += dt * 6 * s;
+      while (F.kAcc > 1) {
+        F.kAcc -= 1;
+        for (let k = 0; k < F.keep * 7; k++) Math.random();
       }
     }
     F.im.instanceMatrix.needsUpdate = true;
@@ -4190,7 +4226,7 @@
     };
   };
   // 测试 / 调试用的内部函数
-  W.terrain = { zoneSd, primSd, primBox, exactSd, validateSpec, specHash, mulberry32, blob, specBounds, GEN, ZONE_TERRAIN, lvFor };
+  W.terrain = { zoneSd, primSd, primBox, exactSd, terrPrep, validateSpec, specHash, mulberry32, blob, specBounds, GEN, ZONE_TERRAIN, lvFor };
 
   // ---------- 地形外观的共用工具（B 阶段各区的 dress 只调用、不修改）----------
   // 全部挂在当前的 zoneGroup 上、随换区一起释放；每个工具一次 draw（实例化或合并成一个网格），低画质也能用
@@ -4696,6 +4732,7 @@
   function terrainCtx(zone, o) {
     return {
       zone, def: zone.def, group: zoneGroup, own, sd: o.sd, lowK: o.lowK, hd: o.hd, gx: o.gx, low: qualId === 'low', quality: qualId,
+      fires: o.fires || [], // buildProps 实际摆出来的火盆 / 立灯（{ x, y, z }，storm-lamps：雷鸣遗迹按它把灯前的墙压矮）
       mats: { rock: o.rock, rockTint: o.rockTint, prop: o.prop, crystal: o.crystal, glow: o.glow, blot: o.blot },
       // 通用外观的几个网格（zones-integrate 加；原来各区按 y = -0.04、顶点数、贴图去找）：地面、虚空底板、首领法阵、起点法阵（可能为 null）
       ground: o.ground, voidMesh: o.voidMesh, sigil: o.bossSigil, startSigil: o.startSigil,
@@ -7415,6 +7452,64 @@
   // 放宽的校验阈值：区域外面整片是墙，不相邻的大厅之间隔着实心墙、视线本来就不通，所以「边到边 ≥ 14 m」放宽到 3 m
   stormGen.check = { box: 175, areaMin: 4600, areaMax: 6200, gap: 3 }; // size-storm：box 150 → 175、面积 2850–3700 → 4600–6200
 
+  // 灯位（storm-lamps）：起点圆厅、关键路径大厅和场地的北墙上各摆立灯，圆厅和大厅 2 盏、场地 4 盏，给 buildProps 的立灯用（圆厅：北边圆弧上偏 ±0.75 rad，和原来的内切圆摆法一样）。
+  // 北墙 = 四面墙里外法线最朝 -z（离镜头最远）的那面：灯在墙上（边外 0.5 m，墙身的中线）、站在战场后面，不会挡住怪和预警；北墙上摆不开的那一盏，
+  // 第二面墙也明显朝北（法线 z ≤ -0.25，整区转了 30° 以上）时挪到那面墙上，不然就少一盏。stormDress 把灯脚下那一小段墙压成矮墙，灯立在矮墙顶上。
+  // 只读已经摆好的布局（大厅、门、雷枢、局部 sd），不取 R：加上灯位前后的房间、连接、怪群、宝箱、挖空一点都不变。
+  // 抖动取房间几何的哈希（同一布局同一个值）。避让：离门洞（含门框柱）、雷枢的柱子和雷线、墙角都留出距离，摆不开就沿墙挪
+  const LAMP = { out: 0.5, frac: [-0.45, 0.45], fracA: [-0.62, -0.22, 0.22, 0.62], corner: 1.8, gap: 4.5, pylon: 3.5, line: 3, door: 1.8, nz2: -0.25 };
+  function stormLamps(list, halls, nodes, dirW, sdL, segDist) {
+    const lat = (d) => [-d[1], d[0]];
+    const hash = (a, b, c) => {
+      let h = Math.imul(a | 0, 0x9e3779b1) ^ Math.imul(b | 0, 0x85ebca77) ^ Math.imul(c | 0, 0xc2b2ae3d);
+      h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
+      h = Math.imul(h ^ (h >>> 12), 0x297a2d39);
+      return ((h ^ (h >>> 15)) >>> 0) / 4294967296;
+    };
+    const doors = [];
+    for (const H of halls) for (const D of H.doors) doors.push({ p: D.p, r: D.w + LAMP.door + (D.frame ? D.frame * 2 + 0.6 : 0) });
+    const out = [], zx = dirW([1, 0])[1], zv = dirW([0, 1])[1]; // 局部 (u, v) → 世界 z 的系数
+    // 墙 q 上横向 y0 附近找一个能放的点（先往墙中间挪：墙角那边多半有拐过来的走廊、旁支的门）
+    const tryWall = (H, q, y0, sgn, j, i) => {
+      const l = lat(q), half = q[0] ? H.hv : H.hu, s = H.u * q[0] + H.v * q[1] + (q[0] ? H.hu : H.hv) + LAMP.out, c0 = H.u * l[0] + H.v * l[1], lim = half - LAMP.corner;
+      for (const off of [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6]) {
+        const y = c0 + Math.max(-lim, Math.min(lim, y0 * half)) + off * -sgn;
+        if (Math.abs(y - c0) > lim) continue;
+        const u = q[0] * s + l[0] * y, v = q[1] * s + l[1] * y;
+        if ((u - H.u) * zx + (v - H.v) * zv > -1) continue; // 只摆在房间中心以北（不靠镜头那一半）
+        if (sdL(u, v) > -(LAMP.out - 0.1)) continue; // 挨着别的走廊 / 大厅
+        if (doors.some((D) => Math.hypot(D.p[0] - u, D.p[1] - v) < D.r)) continue;
+        if (nodes.some((N) => Math.hypot(N.a[0] - u, N.a[1] - v) < LAMP.pylon || Math.hypot(N.b[0] - u, N.b[1] - v) < LAMP.pylon || segDist(u, v, N.a, N.b) < LAMP.line)) continue;
+        if (out.some((L) => Math.hypot(L.u - u, L.v - v) < LAMP.gap)) continue;
+        out.push({ u, v, room: H.id, ang: Math.atan2(-q[0], -q[1]) + (j - 0.5) * 0.5, k: +hash(Math.round(u * 8), Math.round(v * 8), H.id + i).toFixed(4) });
+        return true;
+      }
+      return false;
+    };
+    for (const H of list) {
+      if (H.disk) {
+        // 起点圆厅（r = 8）：局部坐标里朝世界正北的方向是 (−zx, −zv)，左右各转 0.75 rad，摆不开就再往外转（每次 0.12 rad，最多 5 次）
+        [-1, 1].forEach((sg, i) => {
+          for (let t = 0; t < 6; t++) {
+            const a = sg * (0.75 + t * 0.12 + (hash(i, Math.round(zx * 1e4), Math.round(zv * 1e4)) - 0.5) * 0.1), c = Math.cos(a), sn = Math.sin(a), r = 8 + LAMP.out;
+            const nu = -zx * c - -zv * sn, nv = -zx * sn + -zv * c, u = H.u + nu * r, v = H.v + nv * r;
+            if (sdL(u, v) > -(LAMP.out - 0.1) || doors.some((D) => Math.hypot(D.p[0] - u, D.p[1] - v) < D.r) || out.some((L) => Math.hypot(L.u - u, L.v - v) < LAMP.gap)) continue;
+            out.push({ u, v, room: H.id, ang: Math.atan2(-nu, -nv), k: +hash(Math.round(u * 8), Math.round(v * 8), H.id + i).toFixed(4) });
+            break;
+          }
+        });
+        continue;
+      }
+      // 四面墙按世界里外法线的 z 排（并列按 SDIRS 的顺序）：第一面是北墙
+      const ws = SDIRS.slice().sort((a, b) => dirW(a)[1] - dirW(b)[1] || SDIRS.indexOf(a) - SDIRS.indexOf(b));
+      const gu = Math.round(H.u * 8), gv = Math.round(H.v * 8);
+      (H.kind === 'arena' ? LAMP.fracA : LAMP.frac).forEach((f, i) => {
+        const j = hash(gu + i * 131, gv, H.id), y0 = f + (j - 0.5) * 0.1;
+        if (!tryWall(H, ws[0], y0, Math.sign(f), j, i) && dirW(ws[1])[1] <= LAMP.nz2) tryWall(H, ws[1], y0, Math.sign(f), j, i);
+      });
+    }
+    return out;
+  }
   function stormTry(R) {
     const rnd = (a, b) => a + R() * (b - a);
     const th = R() * TAU, cs = Math.cos(th), sn = Math.sin(th);
@@ -7822,6 +7917,10 @@
       const a = W2(N.a), b = W2(N.b);
       feats.push({ kind: 'node', ax: a[0], az: a[1], bx: b[0], bz: b[1], room: N.room.id, ph: i * 1.7 });
     });
+    for (const L of stormLamps([st].concat(pathHalls, [arena]), halls, nodes, dirW, sdL, segDist)) {
+      const p = W2([L.u, L.v]);
+      feats.push({ kind: 'lamp', x: p[0], z: p[1], room: L.room, ang: L.ang + th, k: L.k });
+    }
     for (const p of packsL) {
       const c = toW(p.u, p.v);
       const o = { room: p.H.id, x: c[0], z: c[1], n: p.n, r: p.r, elite: !!p.elite };
@@ -7926,10 +8025,18 @@
       const h = a.big ? 4.2 : 3.2, w = Math.hypot(a.x - b.x, a.z - b.z) + a.r * 2;
       extra.push((a.x + b.x) / 2, h + 0.18, (a.z + b.z) / 2, 0, Math.atan2(b.x - a.x, b.z - a.z) + Math.PI / 2, 0, w, 0.5, 0.8, 1.0);
     }
+    // storm-lamps：立灯在北墙的中线上（灯位见 stormLamps），灯脚下那一两段墙压成矮墙（墙顶高 = 立灯的 top，和南边的矮墙差不多），灯立在矮墙顶上露出来。
+    // 落在矮墙上的避雷针、转轮往后挪（见下）。(x, z) 是墙段 / 墙上取点的位置（墙身中线），n 是外法线，w 是沿墙方向的半宽
+    const lamps = ctx.fires, lampK = ((ctx.gx && ctx.gx.props.fire && ctx.gx.props.fire.top) || 1.03) / 2.7;
+    const byLamp = (x, z, nx, nz, w) => lamps.some((L) => {
+      const dx = L.x - x, dz = L.z - z, a = dx * nx + dz * nz;
+      return Math.abs(a) < 0.6 && Math.abs(dz * nx - dx * nz) < w;
+    });
     const walls = ctx.gfx.wallRun({
       mat: stoneMat(STORM_PAL.wall), h: 2.7, t: 1.0, step: 2, overlap: 1.2, minLoop: 10, extra,
       hFn: (x, z, nx, nz) => {
         const ruin = vnoise(x * 0.11 + 3.7, z * 0.11 - 1.3), k = 0.58 + 0.5 * smooth01((ruin - 0.28) / 0.4);
+        if (lamps.length && byLamp(x, z, nx, nz, 1.6)) return lampK;
         return k * (1 - 0.62 * camSide(nz));
       },
     });
@@ -7962,22 +8069,43 @@
     }
     // 北墙（朝镜头的那面）上隔一段立一根小避雷针：同一套柱子模型缩小，顶上也是发光晶体；转轮最多 9 个（size-storm：区域加长，6 → 9，仍是一次 draw）
     const rods = [], wheels = [];
-    let lastRod = null, lastWheel = null;
+    let lastRod = null, lastWheel = null, nW = 0; // nW：按原来的位置数的转轮个数（上限 9 照它判断）
+    // storm-lamps：落在灯脚下矮墙上的避雷针 / 转轮（避雷针沿墙 3 m、转轮 4 m 以内：压矮的墙段 + 它自己的半径）挪到往后第一个不挨灯的北墙取点
+    // （12 m 以内、离上一个真立下的同类 ≥ 9 m，不然就不立）；随机数照原样取、间距的判断照原来的位置算，这一段后面的摆放不挪
+    let penRod = null, penWheel = null, putRod = null, putWheel = null;
+    const near = (P, x, z, last) => Math.hypot(P.x0 - x, P.z0 - z) < 12 && (!last || Math.hypot(last[0] - x, last[1] - z) >= 9);
     stormEdges(3.2, 0.5, (x, z, nx, nz) => {
       if (nz > -0.7) return;
       const ruin = vnoise(x * 0.11 + 3.7, z * 0.11 - 1.3);
       if (ruin < 0.5) return; // 只立在没塌的墙段上
+      const hk = 0.58 + 0.5 * smooth01((ruin - 0.28) / 0.4), top = 2.7 * hk;
+      const litR = lamps.length && byLamp(x, z, nx, nz, 3), litW = lamps.length && byLamp(x, z, nx, nz, 4);
+      if (penRod && !litR) {
+        if (near(penRod, x, z, putRod)) rods.push(x, top, z, 0, penRod.r0, 0, 0.36, 0.42, 0.36, 0.95), tips.push(x, top + 1.32, z, 0, penRod.r1, 0, 0.12, 0.22, 0.12, 1), (putRod = [x, z]);
+        penRod = null;
+      }
+      if (penWheel && !litW) {
+        if (near(penWheel, x, z, putWheel)) wheels.push(Object.assign(penWheel.w, { x: x - nx * 0.42, z: z - nz * 0.42, ang: Math.atan2(nx, nz) })), (putWheel = [x, z]);
+        penWheel = null;
+      }
       if (!lastRod || Math.hypot(lastRod[0] - x, lastRod[1] - z) > 11) {
         if (Math.random() < 0.6) {
           lastRod = [x, z];
-          const hk = 0.58 + 0.5 * smooth01((ruin - 0.28) / 0.4), top = 2.7 * hk;
-          rods.push(x, top, z, 0, rand(0, TAU), 0, 0.36, 0.42, 0.36, 0.95);
-          tips.push(x, top + 1.32, z, 0, rand(0, TAU), 0, 0.12, 0.22, 0.12, 1);
+          const r0 = rand(0, TAU);
+          if (litR) penRod = { x0: x, z0: z, r0, r1: rand(0, TAU) };
+          else {
+            putRod = [x, z];
+            rods.push(x, top, z, 0, r0, 0, 0.36, 0.42, 0.36, 0.95);
+            tips.push(x, top + 1.32, z, 0, rand(0, TAU), 0, 0.12, 0.22, 0.12, 1);
+          }
         }
       }
-      if (wheels.length < 9 && (!lastWheel || Math.hypot(lastWheel[0] - x, lastWheel[1] - z) > 16) && Math.random() < 0.35) {
+      if (nW < 9 && (!lastWheel || Math.hypot(lastWheel[0] - x, lastWheel[1] - z) > 16) && Math.random() < 0.35) {
         lastWheel = [x, z];
-        wheels.push({ x: x - nx * 0.42, y: 1.35, z: z - nz * 0.42, ang: Math.atan2(nx, nz), s: rand(0.85, 1.15), ph: rand(0, TAU), sp: rand(0.25, 0.5) * (Math.random() < 0.5 ? -1 : 1) });
+        nW++;
+        const w = { x: x - nx * 0.42, y: 1.35, z: z - nz * 0.42, ang: Math.atan2(nx, nz), s: rand(0.85, 1.15), ph: rand(0, TAU), sp: rand(0.25, 0.5) * (Math.random() < 0.5 ? -1 : 1) };
+        if (litW) penWheel = { x0: x, z0: z, w };
+        else wheels.push(w), (putWheel = [x, z]);
       }
     });
     const bodyMat = own(makeToonMat({ brush: 0.12, brushScale: 0.5 }));
@@ -10655,7 +10783,7 @@
     vrSection(10); // 外观随机序列按段重新起头（见 withVisualRandom）
     // 各区自己的布景（B 阶段在 ZONE_TERRAIN[id].dress 里写）
     const TZ = terrainOf(def);
-    const tctx = terrainCtx(zone, { sd, lowK, hd, gx, rock: rockMat, rockTint, prop: propMat, crystal: crystalMat, glow: glowMat, blot: blotMat, ground, voidMesh, bossSigil, startSigil });
+    const tctx = terrainCtx(zone, { sd, lowK, hd, gx, fires: fires ? fires.list : null, rock: rockMat, rockTint, prop: propMat, crystal: crystalMat, glow: glowMat, blot: blotMat, ground, voidMesh, bossSigil, startSigil });
     const tstate = TZ.dress ? TZ.dress(zone, tctx) : null;
     // vf-ground：暖色光池（火盆 + 余烬裂缝 + 熔岩），烘进地面顶点色。和贴花一起放到进区之后的空档里做（不算进建区耗时）
     const vfJobs = [];
