@@ -9452,7 +9452,8 @@
       for (let j = i + 1; j < netWedges.length; j++) {
         const a = netWedges[i], b = netWedges[j];
         const N = (b.born > a.born ? b : a).ctx.sk.net;
-        if (!N || dist(a.x, a.z, b.x, b.z) > N.link * Math.sqrt(b.ctx.area) || !losClear(a.x, a.z, b.x, b.z)) continue;
+        const d = dist(a.x, a.z, b.x, b.z);
+        if (!N || d < 1 || d > N.link * Math.sqrt(b.ctx.area) || !losClear(a.x, a.z, b.x, b.z)) continue; // 不到 1 米的两枚不拉线（掉在同一个敌人脚下的不算一根线）
         pairs.push({ a, b, age: Math.min(a.born, b.born), newest: Math.max(a.born, b.born) });
       }
     // 新的顶掉旧的：按两端里较新的那一枚排，再按较旧的那一枚
