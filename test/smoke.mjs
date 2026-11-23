@@ -369,6 +369,44 @@ async function install() {
         return out;
       },
       // 清场，并把玩家挪到起点空地的左侧：朝 +x 方向有一条 12 长的直线可用
+      // 首领指纹（见「首领指纹」一步）：在 T.lane() 的空地上放一只醒着的首领，无敌的玩家按住右键普攻 15 秒（每帧对准首领），
+      // 返回局面 + 取随机数次数的 FNV 哈希（每秒一段 + 最终）。只读模拟状态，不碰外观
+      fingerprint(kind, secs) {
+        const n = secs || 15;
+        window.__testRand.seed('首领指纹·' + kind);
+        T.lane();
+        P.god = true;
+        const b = G.spawnBoss(kind, P.x + 6, P.z, 1);
+        b.awake = true;
+        const base = Math.random;
+        let calls = 0, pats = 0;
+        Math.random = function () { calls++; return base.call(this); };
+        const f = (v) => (typeof v === 'number' ? (Number.isFinite(v) ? v.toFixed(4) : String(v)) : v === undefined || v === null ? '-' : String(v));
+        const fnv = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return (h >>> 0).toString(16).padStart(8, '0'); };
+        const state = () => {
+          const parts = ['P:' + [P.x, P.z, P.face, P.life, P.mana].map(f).join(',')];
+          for (const e of S.enemies) parts.push('E:' + e.type + ':' + [e.x, e.z, e.ang, e.hp, e.dead ? 1 : 0, e.state, e.stateT, e.busy, e.cd, e.lastPattern, e.enraged ? 1 : 0, e.poise, e.brokenT].map(f).join(','));
+          for (const p of S.projectiles || []) parts.push('J:' + [p.x, p.z, p.vx, p.vz, p.life].map(f).join(','));
+          for (const t of S.telegraphs || []) parts.push('T:' + [t.shape, t.x, t.z, t.r, t.w, t.len, t.ang, t.t, t.dur, t.dmg].map(f).join(','));
+          return parts.join('|') + '|R:' + calls;
+        };
+        const out = [];
+        let last = null;
+        const hp0 = b.hp;
+        try {
+          for (let i = 0; i < n * 60; i++) {
+            T.aim(b.x, b.z);
+            G.input.mouse.b[2] = true;
+            G.tick(1 / 60);
+            if (b.lastPattern !== last) { pats++; last = b.lastPattern; }
+            if (i % 60 === 59) out.push(fnv(state()));
+          }
+        } finally {
+          G.input.mouse.b[2] = false;
+          Math.random = base;
+        }
+        return { hash: fnv(out.join(',') + '|' + state()), calls, secs: out, pats, dmg: Math.round(hp0 - b.hp) };
+      },
       lane() {
         T.arena();
         const c = S.zone.circles[0];
@@ -10650,6 +10688,56 @@ async function main() {
     assert(fast.hint === 3, '「魔力不足」提示了 ' + fast.hint + ' 次（应 3 次，按游戏时间 1.2 秒节流）');
     assert(fast.dmg > 0, '掷焰没打中：' + JSON.stringify(fast));
     return '哈希 ' + fast.hash + '，取随机数 ' + fast.calls + ' 次，提示 ' + fast.hint + ' 次，伤害 ' + fast.dmg + '；真实时间 ' + fast.wall + ' / ' + slow.wall + ' ms';
+  });
+
+  // 首领指纹（boss-golem）：固定种子打一场 15 秒的首领战（无敌的玩家按住右键普攻），把局面（玩家、敌人的位置 / 生命 / 状态 / 出招计时、
+  // 弹幕、预警圈）和取随机数的次数哈希成一个指纹。期望值在换模型之前的 main 上量好写死：换外观（模型、动作、发光）不许动到模拟的一个比特。
+  // 每秒一个分段哈希，对不上时报出从第几秒开始分叉
+  const BOSS_FP = {
+    golem: { hash: '2ee1c90d', calls: 19095, secs: 'f855b4f1,1699937e,93f33218,698e2c67,654860dc,5cb70381,4e07e0da,2fb6be49,d8b082f4,189c3c0b,7ce04581,35a187fb,c3141bfe,4733f6b5,72054ab5'.split(',') }, // main 2b89168 上量的
+  };
+  await step('首领指纹：熔渣巨像固定种子打 15 秒，局面和取随机数次数和换模型之前逐位相同', async () => {
+    const KEY = 'cinder-abyss-save-v1';
+    const save0 = await ev((KEY) => localStorage.getItem(KEY), KEY);
+    // 和前面的步骤留下的存档无关：用一份固定种子的新角色存档（开场卡片 / 新手提示都标成看过）打，指纹只取决于游戏本身
+    const canon = await ev(() => {
+      window.__testRand.seed('首领指纹·存档');
+      const s = G.newSave();
+      s.seenHelp = s.seenStory = true;
+      for (const id of G.ui.hints().all) s.tut[id] = 1;
+      return JSON.stringify(s);
+    });
+    const fresh = async (hold, save) => {
+      await ev(
+        ([KEY, s, hold]) => {
+          G.holdSave(true);
+          localStorage.setItem(KEY, s);
+          if (hold) sessionStorage.setItem('cinder-test-hold', '1');
+          else sessionStorage.removeItem('cinder-test-hold');
+        },
+        [KEY, save, hold]
+      );
+      await page.reload({ timeout: 90000 });
+      await install();
+      await until(() => !G.world.assetsPending(), null, 60000);
+    };
+    let r;
+    try {
+      await fresh(true, canon);
+      r = await ev(() => T.fingerprint('golem'));
+    } finally {
+      await fresh(false, save0);
+      await ev(() => {
+        G.debug.hold(true);
+        G.debug.god(true);
+      });
+    }
+    const want = BOSS_FP.golem;
+    if (r.hash !== want.hash || r.calls !== want.calls) {
+      const k = r.secs.findIndex((h, i) => h !== want.secs[i]);
+      throw new Error('熔渣巨像的指纹变了：' + JSON.stringify({ hash: r.hash, calls: r.calls, want: [want.hash, want.calls], firstDiffSec: k, secs: r.secs.join(',') }));
+    }
+    return '指纹 ' + r.hash + '，取随机数 ' + r.calls + ' 次，出招 ' + r.pats + ' 次，玩家打掉 ' + r.dmg + ' 点生命';
   });
 
   await step('刷新后仍可正常游玩：移动、施法、面板', async () => {
