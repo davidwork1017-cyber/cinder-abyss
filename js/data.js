@@ -327,11 +327,11 @@
     //   机炮 / 喷枪的单发伤害低、攻速高，按 wm 算只有弓的三分之一）
     snare: {
       name: '绊雷', icon: '绊', color: '#d8a070', tags: ['attack', 'area', 'phys', 'duration'], kind: 'snare', clsOnly: true, bclip: 'throw',
-      wm: 2.6, gunSec: 1, time: 0.45, mana: 8, cd: 1, speed: 24, projR: 0.2, range: 14, radius: 2.4, w: 1, kb: 0.5, poise: 18, stop: 30,
+      wm: 2.6, gunSec: 0.8, time: 0.45, mana: 8, cd: 1, speed: 24, projR: 0.2, range: 14, radius: 2.4, w: 1, kb: 0.5, poise: 18, stop: 30,
       mine: { arm: 0.35, trig: 1.6, dur: 7, max: 3 },
       useMult: 1,
       desc: '朝准星射一枚绊雷钉在地上，敌人走进 1.6 米就炸开（半径 2.4 米）。最多 3 枚，每枚存在 7 秒。',
-      alt: '射出 0.35 秒后才会触发。多出来的绊雷顶掉最早那枚。飞行途中不打怪。冷却 1 秒。拿枪时一枚的伤害按这把枪右键连射 1 秒算。',
+      alt: '射出 0.35 秒后才会触发。多出来的绊雷顶掉最早那枚。飞行途中不打怪。冷却 1 秒。拿枪时一枚的伤害按这把枪右键连射 0.8 秒算。',
     },
     // 硬接：按住格挡（block.max 秒封顶）：正面（±block.arc°）受到的伤害 −block.dr%，走得很慢（block.move）。
     //   松手（至少挡过 block.min 秒）朝身前反砍一刀（st 的扇形）：倍率 = counter.base + 挡下的伤害 ÷ 最大生命 × counter.per，额外部分最多 +counter.cap。
@@ -456,11 +456,11 @@
     lendfire: {
       name: '借火', icon: '借', color: '#ffb347', tags: ['weapon', 'spell', 'fire', 'minion', 'area', 'duration'], kind: 'wlantern', weaponOnly: true, wtype: 'lantern', fixElem: true,
       edmg: [24, 36], elem: 'fire', time: 0.5, mana: 14, cd: 12, move: 0.4, w: 1, kb: 0.8, poise: 14,
-      buff: { dur: 12, lampR: 3, burn: 1.6, minionFire: 15 },
+      buff: { dur: 12, lampR: 3, burn: 1.6, minionFire: 25 }, // class-d2b2 调整：15 → 25（提灯比魂幡 / 短杖弱太多，见下）
       boom: { r: 2.5, mult: 1 },
       wt: { phases: [0.3], cancel: 0.5, dur: 0.65 },
       useMult: 1,
-      desc: '借出灯里的火 12 秒：小灯半径 2 → 3 米、灼烧 ×1.6，召唤物每一击附带 15% 火焰伤害；结束时每盏小灯炸开。',
+      desc: '借出灯里的火 12 秒：小灯半径 2 → 3 米、灼烧 ×1.6，召唤物每一击附带 25% 火焰伤害；结束时每盏小灯炸开。',
       alt: '没有召唤物也有用。小灯炸开的半径 2.5 米。再按一次从头计时。',
     },
 
@@ -641,8 +641,8 @@
     basic_lantern: {
       name: '点灯', icon: '灯', color: '#ffc35a', tags: ['spell', 'projectile', 'area', 'fire', 'duration'], kind: 'blamp', btype: 'lantern', weaponOnly: true, basic: true, bclip: 'b_point', fixElem: true,
       edmg: [5.8, 9.6], elem: 'fire', time: 0.45, mana: 0, cd: 0, speed: 18, projR: 0.3, range: 12, explode: 1.4, w: 0, kb: 0.3, poise: 6,
-      lamp: { dur: 7, r: 2, tick: 0.5, mult: 0.2, max: 3, haste: 0.15 },
-      desc: '右键甩出灯火，落地小炸，原地留一盏小灯 7 秒：2 米内的敌人持续灼烧，召唤物在灯光里攻速 +15%。最多 3 盏。',
+      lamp: { dur: 7, r: 2, tick: 0.5, mult: 0.2, max: 3, haste: 0.25 }, // class-d2b2 调整：灯光里的攻速 +15% → +25%
+      desc: '右键甩出灯火，落地小炸，原地留一盏小灯 7 秒：2 米内的敌人持续灼烧，召唤物在灯光里攻速 +25%。最多 3 盏。',
       alt: '纯火焰伤害。灼烧每 0.5 秒一下，几盏灯叠在一起只按一盏算；多出来的灯顶掉最早那盏。',
     },
 
@@ -1180,7 +1180,7 @@
       b: {
         name: '钉索', pack: '控住最近的 3 个；怪多时打得少',
         desc: '绊雷不炸，弹出 3 道铁索，把 3 米内最近的 3 个敌人钉住 1.5 秒（精英减半，首领只减速），伤害 ×0.9。', alt: '首领减速 40%，持续 1.5 秒。',
-        set: { mech: 'tether', root: { r: 3, n: 3, t: 1.5, elite: 0.5, bossSlow: 0.4 }, wm: 2.35 },
+        set: { mech: 'tether', root: { r: 3, n: 3, t: 1.5, elite: 0.5, bossSlow: 0.4 }, wm: 2.35, gunSec: 0.72 },
       },
     },
     // 硬接 A 反震：每挡下一击，朝身边震出一圈冲击（半径 r、倍率 base + 这一击挡下的伤害 ÷ 最大生命 × per，额外最多 +cap；两次至少隔 gap 秒），松手不再反砍
@@ -1189,8 +1189,8 @@
     brace: {
       a: {
         name: '反震', pack: '被围着打最好用；松手不反砍',
-        desc: '每挡下一击，自动朝身边震出一圈冲击（半径 2.5 米）。松手时不再反砍。', alt: '冲击基础 ×1.6，挡下相当于最大生命 10% 的伤害多 +0.7，最多 +3。两次冲击至少隔 0.65 秒。',
-        set: { mech: 'jolt', jolt: { r: 2.5, base: 1.6, per: 7, cap: 3, gap: 0.65 }, useMult: 2.3 },
+        desc: '每挡下一击，自动朝身边震出一圈冲击（半径 2.5 米）。松手时不再反砍。', alt: '冲击基础 ×1.5，挡下相当于最大生命 10% 的伤害多 +0.6，最多 +3。两次冲击至少隔 0.65 秒。',
+        set: { mech: 'jolt', jolt: { r: 2.5, base: 1.5, per: 6, cap: 3, gap: 0.65 }, useMult: 2.1 },
       },
       b: {
         name: '拆招', pack: '看准了按；按早按晚都挨打',
@@ -1553,9 +1553,11 @@
       // 下面两种只有烬铸武器用（drop 0：随机掉落不出）；烬铸武器的物品等级在 21 以上，实际只会用到第三阶的名字
       { names: ['黄铜左轮', '铁芯左轮', '烬铸左轮'], type: 'revolver', ranged: 'gun', wskill: 'wildfire', dmg: [8, 12], aps: 1.0, hands: 1, drop: 0, imp: { stat: 'crit', lo: 10, hi: 16 } },
       { names: ['霜木长弓', '寒羽长弓', '凛晶长弓'], type: 'emberbow', ranged: 'bow', wskill: 'emberstorm', dmg: [8, 14], aps: 1.05, hands: 2, drop: 0, imp: { stat: 'incCold', lo: 8, hi: 14 } },
-      // 下标 14：提灯（掌灯人的第三种武器，class-d2b1）。单手法器，隐含火焰伤害 + 一半数值的召唤物伤害（also 同魂幡的写法），不给 soul 继承倍率。
+      // 下标 14：提灯（掌灯人的第三种武器，class-d2b1）。单手法器，隐含火焰伤害 + 同等数值的召唤物伤害（also 同魂幡的写法），不给 soul 继承倍率。
+      // class-d2b2 调整（提灯只有魂幡 / 短杖的 0.57–0.92，明显弱的新武器没人用）：召唤物伤害一半 → 同等、小灯里召唤物攻速 +15% → +25%、借火附带火焰 15% → 25%；
+      // 「仆从 + 普攻 + R」打单体从 0.74–0.82 到 0.85–0.97（÷ 好的那把），怪堆 0.91–1.01 → 1.03–1.15
       // drop 0：没有职业的存档随机掉落不出（测试 harness、bench 的掉落序列和以前一样）；dropCls：有职业时的掉落权重（G.baseDropW）
-      { names: ['铜皮提灯', '琉璃提灯', '渊火提灯'], type: 'lantern', wskill: 'lendfire', dmg: [4, 7], aps: 1.0, hands: 1, caster: true, drop: 0, dropCls: 0.9, imp: { stat: 'incFire', lo: 8, hi: 14, also: { stat: 'minionDmg', k: 0.5 } } },
+      { names: ['铜皮提灯', '琉璃提灯', '渊火提灯'], type: 'lantern', wskill: 'lendfire', dmg: [4, 7], aps: 1.0, hands: 1, caster: true, drop: 0, dropCls: 0.9, imp: { stat: 'incFire', lo: 8, hi: 14, also: { stat: 'minionDmg', k: 1 } } }, // class-d2b2 调整：召唤物伤害从一半数值改成同等数值
     ],
     helm: [{ names: ['皮盔', '铁盔', '烬钢盔'], armour: [10, 4] }],
     body: [{ names: ['皮甲', '锁甲', '烬钢甲'], armour: [20, 8] }],

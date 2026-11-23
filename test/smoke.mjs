@@ -21329,7 +21329,7 @@ async function d2bSteps() {
     return '空地 ' + r.open + ' 米；' + r.rooms.join(' ');
   });
 
-  await step('D2b-1·点灯 / 借火 / 灯海：小灯 7 秒、灯光里召唤物攻速 +15%；借火 12 秒（小灯半径 2 → 3、召唤物每击附带火焰），结束时小灯炸开；灯海 8 盏 6 秒、死在阵里的必定续火', async () => {
+  await step('D2b-1·点灯 / 借火 / 灯海：小灯 7 秒、灯光里召唤物攻速 +25%；借火 12 秒（小灯半径 2 → 3、召唤物每击附带火焰），结束时小灯炸开；灯海 8 盏 6 秒、死在阵里的必定续火', async () => {
     const r = await withCls('lamp', () =>
       ev(() => {
         T.arena();
@@ -21381,8 +21381,8 @@ async function d2bSteps() {
         return out;
       })
     );
-    assert(r.r0 === 2 && r.burn && r.haste === 1.15 && r.haste0 === 1, '小灯：半径 2、灼烧、灯光里召唤物攻速 +15%：' + JSON.stringify(r));
-    assert(r.lend === 15 && r.r1 === 3 && r.lendT >= 11, '借火：12 秒，半径 3，召唤物附带 15% 火焰：' + JSON.stringify(r));
+    assert(r.r0 === 2 && r.burn && r.haste === 1.25 && r.haste0 === 1, '小灯：半径 2、灼烧、灯光里召唤物攻速 +25%（class-d2b2 调整，原来 +15%）：' + JSON.stringify(r));
+    assert(r.lend === 25 && r.r1 === 3 && r.lendT >= 11, '借火：12 秒，半径 3，召唤物附带 25% 火焰（class-d2b2 调整，原来 15%）：' + JSON.stringify(r));
     assert(r.lamp7 === 0 && r.after.lend === 0 && r.after.lamps === 0, '小灯 7 秒灭；借火结束时剩下的小灯炸掉：' + JSON.stringify(r));
     assert(r.ws === 'lampsea' && r.sea && r.sea.n === 8 && r.sea.dur === 6 && r.seaHaste === 1.3, '灯海：8 盏、6 秒、阵里攻速 +30%：' + JSON.stringify(r));
     assert(r.relit === 3 && r.seaGone, '死在灯海里的必定续火、6 秒后灯海收起：' + JSON.stringify(r));
