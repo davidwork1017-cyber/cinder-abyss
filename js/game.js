@@ -192,6 +192,7 @@
       // rqAuto 已经自动选过一次渊式的技能（第一次戴上渊契时替你选上，之后不再自动改）；rqVar 读档迁移过的标记；rqNote「渊式」提示还没看过
       variantPrev: {}, rqAuto: {}, rqVar: 1, rqNote: false,
       wsCap: 1, wsNote: false, // 旋涡斩加「每下最多 9 个」之后的存档；wsNote：选着旋涡斩的老存档，提示还没看过
+      bhCap: 1, bhNote: false, // 黑洞加「每跳最多伤到最近的 N 个」之后的存档；bhNote：学了黑洞的老存档，提示还没看过
       // 渊印：sealSeq 真正进区的次数（择印面板的随机种子，关掉地图再打开还是同样三枚）；
       // run 这一次进区 { zone, tier, seq, seal }（seal 为 null 是素印），读档时区域 / 层级对得上就接着用，倒下重生不动，换区 / 重进清掉
       sealSeq: 0, run: null,
@@ -665,6 +666,10 @@
     s.wsNote = !s.tut.wsnerf && ((raw.wsCap === undefined && s.variants.whirl === 'b') || raw.wsNote === true);
     s.wsCap = 1;
     G.whirlNerfed = s.wsNote ? 1 : 0;
+    // 黑洞加「每跳最多伤到最近的 N 个」之前的存档（没有 bhCap）：学了黑洞的（哪种刻式都算）提示一次（tut.bhnerf 看过就不再提示）
+    s.bhNote = !s.tut.bhnerf && ((raw.bhCap === undefined && s.skills.blackhole > 0) || raw.bhNote === true);
+    s.bhCap = 1;
+    G.holeNerfed = s.bhNote ? 1 : 0;
     s.variantGen = G.VARIANT_GEN;
     const hadVar = Object.keys(s.variants).length > 0 || Object.keys(G.VARIANTS).some((id) => s.skills[id] >= G.VARIANT_LVL);
     s.varNote = !s.tut.variant2 && ((oldGen && hadVar) || raw.varNote === true);
@@ -5346,7 +5351,8 @@
   //   seen 这一团吸过的「敌人 → 时刻」, lat 正吸着的敌人, latT 吸附剩下的秒数, latN 吸过几次, bounce 剩几次反弹, skip 贯穿剩几个, chain, wf 摆动参数, fx }
   const holes = [];
   const vortices = [];
-  const HOLE_MAX = 4; // 场上玩家的黑洞（含渊口）最多几个，多了顶掉最老的（刻式「双极」一次开两个）
+  const HOLE_MAX = 6; // 场上玩家的黑洞（含渊口）最多几个，多了顶掉最老的（刻式「双极」一次开两个：2 次施放 × 2 + 渊口 2）
+  const HOLE_CAST = 2; // 你施放的黑洞最多同时几个（双极的一对算一个；渊口另算），第三个顶掉最老的
   const VORTEX_MAX = 20; // 场上的黑旋风最多几团（多重投射每次 5 团、寿命 2.2 秒，正常出手节奏下大约 20 团），多了顶掉最老的
   let mouthCd = 0; // 渊口：距离下次能新开还有几秒
   // 和击退一样的豁免：砸地蓄力、引信、陨角兽冲锋中的怪钉在原地（预警圈的位置才对得上）
@@ -5385,6 +5391,24 @@
       }
     }
   }
+  // 这一跳挨打的：渊口不叠在黑洞上（刚吃过任何黑洞 / 渊口跳的敌人，渊口跳过它）；你施放的黑洞（最多 HOLE_CAST 个）重叠时各跳各的。
+  //   每跳最多伤到离洞（双极：离引力索）最近的 sk.cap 个，聚成一团时不再每只都吃满，散开的怪和单体照旧。渊口不封顶
+  function holeCap(h, tw, list) {
+    let k = list.length;
+    if (h.mouth) {
+      k = 0;
+      for (const e of list) if (!(state.time - (e.holeT || -99) < h.tick * 0.95)) list[k++] = e;
+      list.length = k;
+    }
+    const cap = h.mouth ? 0 : h.ctx.sk.cap;
+    if (!cap || k <= cap) return list;
+    const d = (e) => {
+      if (!tw) return dist(e.x, e.z, h.x, h.z);
+      const sx = tw.x - h.x, sz = tw.z - h.z, u = G.clamp(((e.x - h.x) * sx + (e.z - h.z) * sz) / (sx * sx + sz * sz || 1), 0, 1);
+      return dist(e.x, e.z, h.x + sx * u, h.z + sz * u);
+    };
+    return list.map((e) => [d(e), e]).sort((a, b) => a[0] - b[0]).slice(0, cap).map((p) => p[1]);
+  }
   function removeVortex(i) {
     const v = vortices[i];
     vortices.splice(i, 1);
@@ -5403,7 +5427,7 @@
     if (!G.save.skills.blackhole) ctx.base = G.skillBase('blackhole', G.gemFloor());
     const sk = ctx.sk, R = VM.radius * Math.sqrt(ctx.area);
     state.stats.mouths = (state.stats.mouths || 0) + 1;
-    return addHole({ x, z, R, pullR: R * sk.pullR, t: 0, dur: VM.dur, tick: sk.tick, tt: sk.tick, ctx, mult: VM.dmg, pullMul: VM.pull, mouth: true });
+    return addHole({ x, z, R, pullR: R * sk.pullR, t: 0, dur: VM.dur, tick: VM.tick, tt: VM.tick, ctx, mult: VM.dmg, pullMul: VM.pull, mouth: true });
   }
   G.voidMouth = voidMouth;
 
@@ -5449,13 +5473,14 @@
       h.tt -= dt;
       if (h.tt <= 0) {
         h.tt += h.tick;
-        for (const e of tw ? twinTargets(h, tw) : enemiesIn(h.x, h.z, h.R)) {
-          // 同一个敌人同一时刻只吃一个黑洞的跳（两个重叠的黑洞、渊口都不叠加）
-          if (state.time - (e.holeT || -99) < h.tick * 0.95) continue;
+        let n = 0;
+        for (const e of holeCap(h, tw, tw ? twinTargets(h, tw) : enemiesIn(h.x, h.z, h.R))) {
           e.holeT = state.time;
+          n++;
           G.hitEnemy(e, h.ctx, h.mult, { ang: Math.atan2(e.x - h.x, e.z - h.z), w: 0, kb: 0, poise: sk.poise, quiet: true, faint: true, tick: true });
           if (h.collapse) holeGrow(h); // 坍缩：每伤到一个敌人长一点质量
         }
+        if (!h.mouth) state.stats.vHoleTick = n; // 测试用：这一跳伤到几个
       }
       if (h.fx && W.updateHole) W.updateHole(h.fx, h.t / h.dur, dt);
       if (h.tether) {
@@ -7158,7 +7183,10 @@
   }
   function holeCollapse(h, k) {
     const W = G.world, C = h.ctx.sk.collapse, R = h.R * C.r, mult = (C.k0 + C.k1 * h.mass) * k;
-    for (const e of enemiesIn(h.x, h.z, R)) G.hitEnemy(e, h.ctx, mult, { ang: Math.atan2(e.x - h.x, e.z - h.z), w: 2, kb: 1.0, poise: 10 + h.mass, quiet: true });
+    let list = enemiesIn(h.x, h.z, R);
+    const cap = C.hit || 0; // 坍缩也最多砸到离洞最近的 collapse.hit 个
+    if (cap && list.length > cap) list = list.sort((a, b) => dist(a.x, a.z, h.x, h.z) - dist(b.x, b.z, h.x, h.z)).slice(0, cap);
+    for (const e of list) G.hitEnemy(e, h.ctx, mult, { ang: Math.atan2(e.x - h.x, e.z - h.z), w: 2, kb: 1.0, poise: 10 + h.mass, quiet: true });
     // 空心的冲击环 + 近黑的核一闪（不画实心圆盘：圈里的怪要看得清）
     if (W.vShock) W.vShock(h.x, h.z, R, 0xff6ad2, 0.38, 1.2);
     else W.ring(h.x, h.z, R, 0xff6ad2, 0.4);
@@ -7167,6 +7195,7 @@
     G.sfx('hit');
     state.stats.vCollapses = (state.stats.vCollapses || 0) + 1;
     state.stats.vCollapseMass = h.mass;
+    state.stats.vCollapseN = list.length; // 测试用：这次坍缩砸到几个
     h.collapse = false; // 只塌一次
   }
   // 再按一次：坍缩的黑洞还在就当场引爆；掷旋飞出去时召回。返回 1 这一下用掉了，2 这个键这一帧跳过，0 照常施放
@@ -7938,7 +7967,16 @@
   };
 
   // 混沌流的两招（逻辑在上面「混沌流」一节：黑洞 / 黑旋风的每帧更新）
+  // 新开一个施放的黑洞前：已经有 HOLE_CAST 个就收掉最老的（双极连同另一个洞一起收；不触发坍缩）
+  function holeRoom() {
+    for (;;) {
+      const own = holes.filter((h) => !h.mouth && !h.twinB);
+      if (own.length < HOLE_CAST) return;
+      removeHole(holes.indexOf(own[0]));
+    }
+  }
   SKILL_FX.hole = function (ctx, a) {
+    holeRoom();
     const sk = ctx.sk;
     const d = rayLen(P.x, P.z, a.ang, Math.min(sk.range, a.dist), 0.3); // 撞墙截在墙前
     const R = sk.radius * Math.sqrt(ctx.area);
