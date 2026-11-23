@@ -1206,7 +1206,7 @@
         desc: '不冲，原地横扫，身前 120° 扇面烧成一片，烧 6 秒。', alt: '扇面 4 米。火地最多同时 2 片，和火痕叠着只烧一份。',
         set: {
           mech: 'sweep', dash: null, trail: null, fan: { arc: 120, len: 4, dur: 6, tick: 0.5, mult: 0.1, max: 2 }, wm: 2.1,
-          st: { shape: 'arc', range: 4, arc: 120, mult: 1, dir: 1, w: 2, stop: 70, kb: 0.5, poise: 30 }, useMult: 1.7, // 击退轻：横扫完怪还站在火里 // 单体：横扫 1 + 站在火地里每秒 0.2、摊到每次（约 3.5 秒）0.7
+          st: { shape: 'arc', range: 4, arc: 120, mult: 1, dir: 1, w: 1, stop: 60, kb: 0.5, poise: 30 }, useMult: 1.7, // 击退轻：横扫完怪还站在火里；按重击（不按终结技）：命中的星和斩痕小一号 // 单体：横扫 1 + 站在火地里每秒 0.2、摊到每次（约 3.5 秒）0.7
           tags: ['attack', 'melee', 'area', 'phys', 'fire', 'duration'],
         },
       },

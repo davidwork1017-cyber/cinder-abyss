@@ -21216,6 +21216,7 @@
     '    float bw = min(0.2, min(uHalf.x, uHalf.y) * 0.16);',
     '    float bBand = smoothstep(0.32, 0.36, d) * (1.0 - smoothstep(0.32 + bw, 0.38 + bw, d));', // 亮边、深线里面再一道实色红带
     '    a = 0.04 + inner * (0.18 + 0.1 * uK) + hot * (0.02 + 0.03 * pulse);',
+    '    if (uShape > 0.5 && uShape < 1.5) a *= 0.75;', // class-d2b2：直线 / 十字道又长又常常叠在一起，填充再压一档（推满约 21%）
     '    col = mix(mix(uColor, uEdge, max(edge, lead * 0.75)), uColor, bBand);',
     '    edge = max(edge, bBand * 0.92);',
     '  }',
@@ -30844,7 +30845,7 @@
     const lo = qualId === 'low';
     vsBrush(VSH.ring, 0, 0, 0xffd090, 0xff7a30, 1, 0, 0.3);
     vsEmit(x, 0.7, z, 0, 0, 0, 0.06, 0.35);
-    W.thinRing(x, z, R, 0xff8a3c, 0x5a1a08, 0.3, 12);
+    W.thinRing(x, z, Math.min(1.6, R), 0xc86a2c, 0x4a1608, 0.3); // 一道细的单环（半径大了会变成一圈往外甩的长线段）
     vsBrush(VSH.chip, 3, 0, 0xb8481a, 0x3a1206, 0.15, 0.5, 0.4);
     for (let i = 0, n = lo ? 2 : 5; i < n; i++) {
       const a = vr(0, TAU), v = vr(0.8, 2);
