@@ -78,7 +78,7 @@
   const SLOT_CODE = [null, null, 'KeyQ', 'KeyE', 'KeyR'];
   const DRAG_PX = 20; // 从技能键拖出这么远才算手动瞄准
   const DRAG_FULL = 130; // 拖到这么远 = 技能射程
-  const HOLD_MS = 450; // Q / E / R 按住不拖超过这么久：当成按住连放（之后再拖就是边放边改方向）
+  // Q / E / R 不做按住连放：一律松手才放（按住停一会儿再拖也还是拖动瞄准，不会先放出去）
   const AIM_MAX = 14; // 自动瞄准最远（米）
   const RETARGET = 0.25; // 按住时每隔这么久重新选一次目标（秒）
 
@@ -784,13 +784,6 @@
     } else {
       // 按住主攻 / 普攻（没拖动）：每 0.25 秒重新选一次目标，目标死了立刻换
       for (const b of btns.values()) {
-        // Q / E / R 按住不拖：当成按住键连放（同键盘按住）
-        if (!b.held && !b.drag && b.slot >= 2 && now - b.t0 >= HOLD_MS) {
-          b.held = true;
-          autoAim(b);
-          SLOT_HOLD[b.slot](true);
-          G.press(SLOT_CODE[b.slot]);
-        }
         if (!b.held || b.drag) continue;
         b.retT -= dt;
         if (b.retT <= 0 || (b.target && b.target.dead)) {
