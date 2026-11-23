@@ -1056,8 +1056,8 @@
       },
       b: {
         name: '熔穿', pack: '排成一条线最痛；不炸不留铁水',
-        desc: '铁水弹贯穿敌人（每枚最多打中 6 个），每穿过一个，后面的伤害 +10%（最多 +40%）。', alt: '不炸开，也不留铁水。',
-        set: { mech: 'bore', explode: 0, pool: null, basicSec: 0.42, bore: { step: 0.1, max: 0.4, cap: 6 }, wm: 1.167, useMult: 1.28, tags: ['attack', 'projectile', 'fire'] },
+        desc: '铁水弹贯穿敌人（每枚最多打中 4 个），每穿过一个，后面的伤害 +10%（最多 +40%）。', alt: '不炸开，也不留铁水。',
+        set: { mech: 'bore', explode: 0, pool: null, basicSec: 0.42, bore: { step: 0.1, max: 0.4, cap: 4 }, wm: 1.167, useMult: 1.28, tags: ['attack', 'projectile', 'fire'] },
       },
     },
     // 雷楔 A 雷网：打空的楔子钉在准星的地上（存在 dur 秒），link 米内的楔子两两拉出电线（最多 lines 根，新的顶掉旧的），线上的敌人每 tick 秒挨 k 份；
