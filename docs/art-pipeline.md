@@ -34,7 +34,7 @@ mv ~/opt/blender-5.2.4-linux-x64 ~/opt/blender-5.2.4
 | `art/catalog.py` | 件清单：每件 = 生成器 + 参数 + 种子，以及类别、区域、是否打进游戏（ship）、顶替哪个旧模型 |
 | `art/ca/gen.py` | 生成器：灰烬地带（枯树、岩石 / 崖块、墙段 / 碎墙堆、断柱 / 拱、火坑 / 火盆、兽骨 / 骨头 / 断剑、墓碑）；坠星裂谷（裂谷石碑、板岩晶簇、星骸碑、裂开的巨石、板岩块、塌落的板岩堆、碎地砖） |
 | `art/ca/core.py` | 公共部分：搭形工具（盒子、凸包、管子）、收尾（UV、烘焙顶点色）、导出 GLB |
-| `art/ca/palette.py` | 共享调色板图集（8 行色带，64×16 PNG，自己编码，字节固定） |
+| `art/ca/palette.py` | 共享调色板图集（64×64 PNG，最多 32 行色带，自己编码，字节固定） |
 | `art/build.py` | Blender 入口：生成全部件 / 渲染看板 |
 | `art/budgets.json` | 各类别的三角形 / 材质 / 贴图预算和高度范围（check-art 用） |
 | `art/rig.json` | 角色标准骨架的骨骼名表（占位，角色那一步再填） |
@@ -104,3 +104,32 @@ npm run build:art && git status --short assets/ca js/assets   # 没有输出 = �
 顶替旧模型时，清单里写 `fit=dict(r=…, top=…, bottom=…)`：生成完先把包围盒拉到旧件 scale 1 时的尺寸（游戏端 `G.assets.geoInfo(旧 key)` 的 r、y0 + h、y0），数值照抄浮点原值，不要四舍五入。摆放代码用 r 判断能不能放、用 y0 把标记 l 的件抬到贴地，差一点浮点也会让个别实例的高度差在第四位小数，摆放哈希就对不上（坠星裂谷的碎地砖踩过一次）。收尾参数写在 `finish=dict(…)` 里，比如别的区不盖积灰、改盖本区的覆盖色：`finish=dict(dust=0.2, dust_row='lichen')`。
 
 现在所有区的布景都是自产件，游戏从 2026-11-22（models-drop）起不再打包、也不再加载 CC0 模型包 `models.js`。`propsReady()` 看摆放表里的每个 key（外圈、中圈、路边、首领、火盆）是否都解析出了几何体，摆放表为空也算就绪。KayKit / Kenney 的源文件和许可证还留在 `assets/` 下；要量旧件的 `geoInfo` 或重新打包，在 `tools/asset-sources.json` 的 `packs` 里加回 `"models": { "models": "*" }`，再跑 `node tools/pack-assets.mjs`。
+
+## 首领（boss-golem 起）
+
+首领也是脚本生成的件，多了骨架、蒙皮和动作。第一只是熔渣巨像（`ca/boss_golem`），其余五只按 `notes` 里的设计稿逐个换。
+
+| 路径 | 内容 |
+| --- | --- |
+| `art/ca/boss/<kind>.py` | 造型（游戏坐标写，进 Kit 前经 `rig.g2b` 换成 Blender 坐标）、骨架 `BONES`（名字 / 父骨骼 / 枢轴）、软接缝 |
+| `art/ca/boss/<kind>_clips.py` | 动作表：写法和游戏 `defClip` 的 keys 一样（`'骨骼.通道': [k, v, ...]`，负的 k = 加速冲到这一帧） |
+| `art/ca/rig.py` | 共用：建骨架（骨骼一律竖直朝上、滚转 0，骨骼自己的坐标轴 = 游戏的模型空间）、蒙皮、逐帧写动作、带蒙皮导出、往动画的 extras 里写参数 |
+| `art/rig.json` 的 `boss` | 命名规则（人形部位用标准骨架名，其余 `x_<部位>[_l\|_r][_NN]`，根骨骼一律 `pelvis`）和每只首领的骨骼表 |
+| `assets/ca/boss/<kind>.glb` | 生成物：一个蒙皮网格（调色板图集 + 烘焙的 COLOR_0）、骨架、每段动作一个 glTF 动画 |
+| `js/assets/boss-<kind>.js` | 打包时换成游戏直接用的数组（`tools/glb.mjs` 的 `packBoss`）：颜色烘焙好、焊接后的顶点 + 每个三角形角上的颜色、动作换成游戏的关节通道（Int16）。游戏端不解析 GLB、不解码调色板 |
+
+几条规矩：
+
+- **蒙皮权重在 Python 里算**：零件用 `k.bind(顶点, 骨骼, soft)` 标到骨骼上；没标 soft 的零件刚性跟一根骨骼，标了的在相邻关节附近按距离渐变（`rig.skin` 的 soft 表：子骨骼、父骨骼、枢轴、轴、带宽）。量化到 1/255、每个顶点最多 4 根。不用 Blender 的自动权重。
+- **动作**：每段动作在 30 帧 / 秒上逐帧采样，导出器开 `export_force_sampling`；转角写成游戏的 XYZ 欧拉（R = Rx · Ry · Rz），|ry| < π/2、rx / rz 在 ±π 里（游戏端从矩阵换回欧拉角时拿到同一组值，`keys_check` 检查）。动作参数（`dur / k0 / loop / hold / loopFrom / steady / fade / out / base / air` 和别的元数据，比如死亡的 `impact`、走路的 `cycle`）写进动画的 extras。
+- **时序**：动作名就是 AI 播的名字（`<招式>_w` 蓄力、`<招式>` 出手、`broken`、`death`），蓄力按实际播放的长度（招式蓄力 − 出手提前量）做，出手动作的 `k0` 是接触帧。另外 `idle` / `walk`（移动姿态）、`hit`（叠在受击上）、`mood`（狂暴时叠的姿态偏移）。
+- **发光**：COLOR_0 的 α 照旧是 1 − 发光；游戏端三个角都发光的三角形进发光网格，亮度和「近白的芯」（发光 ≥ 0.9 的面）编码在 aSurf 里，其余在火色范围里。
+- **交付**：首领包不进启动和进区的关键路径。进了有这只首领的区、图标预热画完以后再加载（`world.js` 的 `bossPackLater`），包到之前首领用原来的程序化外观，包到了在它闲着的时候原地换（不调 `newEnt`、不取随机数）。
+- check-art 对首领多查：骨骼和 `art/rig.json` 的表一致、不超过 40 根、权重和为 1、每段动作有参数、`js/assets/boss-<kind>.js` 是从当前 GLB 打出来的（重新打包逐字节相同）。
+
+转台图（Cycles CPU，每张一个 PNG）：
+
+```bash
+~/opt/blender-5.2.4/blender -b --factory-startup --python-exit-code 1 --python art/build.py -- \
+  --turn ca/boss_golem --out /tmp/turn --res 480 --samples 16 --poses rest:0,slam_w:1,slam:0.25 --views front34,front,side,back,top
+```

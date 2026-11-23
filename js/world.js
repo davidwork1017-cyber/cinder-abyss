@@ -11413,6 +11413,15 @@
     }
     return K[n - 1];
   }
+  // 逐帧采样的动作（首领的 GLB 动作，30 帧 / 秒）：相邻两帧之间线性插值。用 kf 的话每两帧之间都缓入缓出一次，60 帧 / 秒下一顿一顿的
+  function kfL(K, k) {
+    const n = K.length;
+    if (k <= K[0]) return K[1];
+    for (let i = 2; i < n; i += 2) {
+      if (k <= K[i]) return K[i - 1] + ((K[i + 1] - K[i - 1]) * (k - K[i - 2])) / (K[i] - K[i - 2]);
+    }
+    return K[n - 1];
+  }
   // a..b 之间从 0 平滑升到 1
   const ramp = (k, a, b) => smooth01((k - a) / (b - a));
   // a→b 升起，c→d 落下
@@ -11457,6 +11466,9 @@
       hand: spec.hand ? handTrack(spec.hand) : null,
       handL: spec.handL ? handTrack(spec.handL) : null,
       draw: spec.draw || null, arrow: !!spec.arrow, ikL: spec.ikL,
+      // boss-golem：lin = 关键帧是逐帧采样的（线性插值）；steady = 蓄力 / 出手这类要读招的动作，受击只在 hitJ 上小幅一抖（见 finishPose）；
+      // loopFrom = 循环从这个归一化时刻开始（破防：垮下去那一段只播一次，之后在跪稳的姿势里循环）
+      lin: !!spec.lin, steady: !!spec.steady, loopFrom: spec.loopFrom > 0 && spec.loopFrom < 1 ? spec.loopFrom : 0,
       spec, // 原始描述：镜像 / 双手版本从它派生
     };
   }
@@ -12015,6 +12027,15 @@
     '#include <emissivemap_fragment>',
     'roughnessFactor = vSurf.x;',
     'metalnessFactor = vSurf.y;',
+    // boss-golem：首领的发光面把「亮度 + 近白芯」编码在 aSurf 里（y < -0.5：x = 发光亮度倍数，−y − 1 = 芯的权重），别的顶点 y ≥ 0 不受影响。
+    // 芯往同样峰值的暖白收（vfx2 / vfx3：近白的小芯在火色的光里）；不加定义、不多编一份着色器
+    'if ( vSurf.y < -0.5 ) {',
+    '  float bCore = clamp( -vSurf.y - 1.0, 0.0, 1.0 );',
+    '  roughnessFactor = 0.4; metalnessFactor = 0.0;',
+    '  totalEmissiveRadiance *= vSurf.x;',
+    '  float bPk = max( totalEmissiveRadiance.r, max( totalEmissiveRadiance.g, totalEmissiveRadiance.b ) );',
+    '  totalEmissiveRadiance = mix( totalEmissiveRadiance, vec3( 1.0, 0.95, 0.84 ) * bPk, bCore );',
+    '}',
     // 冰缓（uChill：0 / 三档，见 W.chill）：固有色按档位往冷青偏、亮度不变，明暗阶梯照常——受光面泛青、背光面发蓝；
     // 冻结是整身罩一层冰色的自发光（applyIce），这里只动固有色和下面那道边缘光，两者一眼分得开
     'if ( uChill > 0.0 ) {',
@@ -12351,7 +12372,11 @@
       ent.cT += sdt;
       let k = ent.cT / ent.cDur, ended = false;
       if (k >= 1) {
-        if (ent.cLoop) {
+        if (ent.cLoop && c.loopFrom) {
+          const l0 = c.loopFrom * ent.cDur;
+          ent.cT = l0 + ((ent.cT - l0) % (ent.cDur - l0));
+          k = ent.cT / ent.cDur;
+        } else if (ent.cLoop) {
           ent.cT -= ent.cDur * Math.floor(k);
           k = ent.cT / ent.cDur;
         } else {
@@ -12365,9 +12390,9 @@
         k = ent.cT < tc ? (ent.cT / tc) * c.k0 : c.k0 + (Math.min(ent.cT, ent.cDur) - tc) / (ent.cDur - tc) * (1 - c.k0);
       }
       ent.cK = k;
-      const ci = c.ci, cK = c.cK, cLow = c.cLow, lw = 1 - ent.mv;
+      const ci = c.ci, cK = c.cK, cLow = c.cLow, lw = 1 - ent.mv, kfc = c.lin ? kfL : kf;
       for (let i = 0; i < ci.length; i++) {
-        const v = kf(cK[i], k), ix = ci[i];
+        const v = kfc(cK[i], k), ix = ci[i];
         p[ix] = cLow[i] ? p[ix] + (v - p[ix]) * lw : v;
       }
       if (c.fn) c.fn(ent, p, k, t);
@@ -12394,7 +12419,16 @@
     const rig = ent.rig, o = ent.out;
     if (rig.post) rig.post(ent, o, t, sdt);
     // 受击：朝攻击行进的方向一仰，同时先压扁再回弹
-    if (ent.hitT > 0) {
+    if (ent.hitT > 0 && ent.clip && ent.clip.steady) {
+      // boss-golem：蓄力 / 出手（steady）期间不仰、不压扁、不叠受击动作，只在 hitJ 上朝攻击方向抖一下（最多 0.12 弧度），读招的姿势不晃
+      ent.hitT -= sdt;
+      const u = 1 - Math.max(0, ent.hitT) / ent.hitDur, hj = rig.hitJ;
+      const env = (u < 0.15 ? u / 0.15 : 1 - (u - 0.15) / 0.85) * Math.min(1, ent.hitS) * 0.12;
+      if (hj) {
+        o[hj[0]] += ent.hitZ * env;
+        o[hj[0] + 2] -= ent.hitX * env;
+      }
+    } else if (ent.hitT > 0) {
       ent.hitT -= sdt;
       const u = 1 - Math.max(0, ent.hitT) / ent.hitDur, s = ent.hitS;
       // 卡通版：一仰更快到位（10% 的时间）、幅度大一点，压扁 / 回弹更明显
@@ -12472,6 +12506,7 @@
   // 顿帧时传 0（或把 ent.timeScale 设成 0）即可单独冻结它。time 参数保留只为兼容旧签名。
   W.animEnt = function (ent, dt, moving, time, scale) {
     if (ent.removed || ent.dying) return;
+    if (ent.swapTo && bossSwapReady(ent)) bossSwap(ent); // boss-golem：首领包到了，闲着的时候原地换成新模型
     const g = ent.group.position;
     let dx = g.x - ent.lx, dz = g.z - ent.lz;
     ent.lx = g.x;
@@ -18886,12 +18921,279 @@
   }
   const BOSS_RIG = { golem: golemRig, weaver: weaverRig, warden: wardenRig, lord: lordRig, behemoth: behemothRig, snuffer: snufferRig };
 
+  // ---------------------------------------------------------------------
+  // boss-golem：脚本生成的首领模型（art/ca/boss/<kind>.py → assets/ca/boss/<kind>.glb → js/assets/boss-<kind>.js）
+  // ---------------------------------------------------------------------
+  // 首领包在打包时就换成了游戏直接用的数组（tools/glb.mjs 的 packBoss）：骨骼（名字 / 父骨骼 / 枢轴）、焊接后的顶点（位置、4 根骨骼的权重）、
+  // 每个三角形角上烘焙好的颜色（α = 1 − 发光）、三角形的调色板行、按游戏关节通道算好的动作。这里：
+  //   rigFromGlb：骨骼 = 关节（名字一样，枢轴就是骨骼位置，静止朝向都是单位阵）；按三角形展开成 SKIN4 的躯体 / 发光两个几何体，
+  //     发光面的亮度和近白芯编码在 aSurf 里（见 RIG_FRAG）；动作逐帧（线性）注册成 defClip；idle / walk 循环做移动姿态（glbLoco），
+  //     hit 叠在受击上，mood 是狂暴时叠上去的姿态偏移（ent.mood，W.bossMood 设）；
+  //   交付：包不在启动和进区的关键路径上。有首领的区进来以后、图标预热画完再加载（bossPackLater）；包到之前首领用原来的程序化外观，
+  //     包到了在它闲着的时候原地换（bossSwap：不调 newEnt、不放取随机数的特效，ent 的相位 / 时钟 / 步态照旧，材质（残影的染色）不动）。
+  //     包已经在的时候（同一次会话里再进这个区、残影首领）直接按新模型建。
+  // 招式、时序、碰撞、AI 一点不动：动作名就是 AI 播的名字（p_w / p / broken / death），W.clipLead 照常按出手动作的 k0 算。
+  const BOSS_SPEC = {
+    golem: {
+      pack: 'boss-golem',
+      alias: { slam: 'slam', charge: 'charge', ring: 'ring', spiral: 'ring', fan: 'ring', barrage: 'slam', summon: 'slam', cross: 'slam' },
+      reach: 3.2, emb: [3.2, 0.9, 7],
+      sock: { weapon: ['x_hammer', 0, -0.62, 0], hand: ['x_finger_l_02', 0, -0.6, 0.12], head: ['head', 0, 0.4, 0], chest: ['x_core', 0, 0, 0.2] },
+      hitJ: ['spine_03', 'head'], feet: ['foot_l', 'foot_r'], core: 'x_core',
+    },
+  };
+  // 调色板行 → 表面（粗糙度 / 金属度），行号见 art/ca/palette.py
+  const BOSS_ROW_SURF = ['stone', 'stone', 'bone', 'metal', 'glow', 'stone', 'stone', 'leather', 'metal', 'stone', 'stone', 'stone', 'leather', 'stone', 'ice', 'gold', 'stone'];
+  const bossS2L = (() => {
+    const t = new Float32Array(256);
+    for (let i = 0; i < 256; i++) { const c = i / 255; t[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+    return t;
+  })();
+  const bossData = (kind) => {
+    const sp = BOSS_SPEC[kind], st = sp && window.CA_ASSETS && window.CA_ASSETS[sp.pack];
+    return (st && st.boss && st.boss[kind]) || null;
+  };
+  let bossPackOff = false; // 测试用（W.debugBossPack）：当作包还没到
+  const b64u8 = (s) => {
+    const bin = atob(s), u = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+    return u;
+  };
+  function rigFromGlb(kind) {
+    const d = bossData(kind), sp = BOSS_SPEC[kind];
+    if (!d) return null;
+    const b = rigBuilder(kind, NB_BIG);
+    for (const bn of d.bones) b.j(bn[0], bn[1] < 0 ? null : d.bones[bn[1]][0], bn[2], bn[3], bn[4]);
+    const P = new Float32Array(b64u8(d.p).buffer), J8 = b64u8(d.j), W8 = b64u8(d.w), CI = new Uint16Array(b64u8(d.ci).buffer), C8 = b64u8(d.c), R8 = b64u8(d.r);
+    let ymax = 0;
+    for (let i = 1; i < P.length; i += 3) if (P[i] > ymax) ymax = P[i];
+    const rig = b.build({ height: Math.round(ymax * 100) / 100, reach: sp.reach || 3, stride: 2, shade: 0 });
+    // 骨骼序号 → 关节序号（rigBuilder 按加入的顺序编号，和包里的骨骼顺序一样）
+    const jOf = d.bones.map((bn) => rig.JI[bn[0]]);
+    const body = cBuf(), glow = cBuf(), n = new T.Vector3(), e1 = new T.Vector3(), e2 = new T.Vector3();
+    for (let t = 0; t < d.nc; t += 3) {
+      const a = CI[t], bb = CI[t + 1], c = CI[t + 2];
+      e1.set(P[bb * 3] - P[a * 3], P[bb * 3 + 1] - P[a * 3 + 1], P[bb * 3 + 2] - P[a * 3 + 2]);
+      e2.set(P[c * 3] - P[a * 3], P[c * 3 + 1] - P[a * 3 + 1], P[c * 3 + 2] - P[a * 3 + 2]);
+      n.crossVectors(e1, e2).normalize();
+      // 三个角都发光的三角形进发光网格（和 C 模型的 cs.vglow 一样）
+      const g0 = 1 - C8[t * 4 + 3] / 255, g1 = 1 - C8[t * 4 + 7] / 255, g2 = 1 - C8[t * 4 + 11] / 255;
+      const isG = g0 > 0.01 && g1 > 0.01 && g2 > 0.01, o = isG ? glow : body;
+      const sf = SURF[BOSS_ROW_SURF[R8[t / 3]] || 'stone'] || SURF.stone;
+      for (let q = 0; q < 3; q++) {
+        const v = CI[t + q], k = (t + q) * 4;
+        o.P.push(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]);
+        o.N.push(n.x, n.y, n.z);
+        if (isG) {
+          // 发光亮度：余烬缝 / 炉壁 / 烟囱口（0.4–0.8）在火色范围里，炉芯（1.0）是唯一的近白芯
+          const g = 1 - C8[k + 3] / 255;
+          o.C.push(g, g, g);
+          o.S.push(0.3 + 0.75 * g + (g > 0.95 ? 0.6 : 0), -1 - smooth01((g - 0.9) / 0.1));
+        } else {
+          o.C.push(bossS2L[C8[k]], bossS2L[C8[k + 1]], bossS2L[C8[k + 2]]);
+          o.S.push(sf[0], sf[1]);
+        }
+        for (let w = 0; w < 4; w++) {
+          o.J.push(W8[v * 4 + w] ? jOf[J8[v * 4 + w]] : 0);
+          o.W.push(W8[v * 4 + w] / 255);
+        }
+      }
+    }
+    rig.geoBody = cGeo(body, rig);
+    rig.geoGlow = cGeo(glow, rig);
+    rig.geoAux = null;
+    rig.tris = (body.P.length + glow.P.length) / 9;
+    rig.skin4 = true;
+    rig.bossModel = kind;
+    rig.hitJ = sp.hitJ.map((nm) => rig.J[nm]);
+    rig.feet = sp.feet.map((nm) => rig.JI[nm]);
+    rig.ankle = rig.joints[rig.feet[0]].py;
+    for (const k in sp.sock) sock(rig, k, sp.sock[k][0], sp.sock[k][1], sp.sock[k][2], sp.sock[k][3]);
+    // 动作：每个通道 n 帧，k = f / (n − 1)，Int16 / q
+    const keysOf = (c) => {
+      const keys = {};
+      for (const ch in c.ch) {
+        const q = new Int16Array(b64u8(c.ch[ch]).buffer), K = [];
+        if (q.length === 1) K.push(0, q[0] / d.q, 1, q[0] / d.q);
+        else for (let f = 0; f < q.length; f++) K.push(f / (q.length - 1), q[f] / d.q);
+        keys[ch] = K;
+      }
+      return keys;
+    };
+    const tracks = {};
+    for (const name in d.clips) {
+      const c = d.clips[name], ex = c.ex || {};
+      if (name === 'idle' || name === 'walk' || name === 'hit' || name === 'mood') {
+        tracks[name] = { tr: cTrack(rig, keysOf(c)), ex };
+        continue;
+      }
+      defClip(rig, name, { dur: ex.dur, k0: ex.k0, loop: ex.loop, hold: ex.hold, fade: ex.fade, out: ex.out, base: ex.base, air: ex.air, lower: ex.lower, steady: ex.steady, loopFrom: ex.loopFrom, lin: true, keys: keysOf(c) });
+      if (ex.impact !== undefined) rig.clips[name].impact = ex.impact;
+    }
+    bossAliases(rig, sp.alias);
+    // 受击：hit 动作相对第一帧的变化量叠在程序化受击上（finishPose 的 hitTrack）
+    if (tracks.hit) rig.hitTrack = tracks.hit.tr;
+    // 移动姿态：idle 按时钟循环，walk 按走过的距离（一个周期走 cycle 米），按 ent.mv 混合
+    const idle = tracks.idle, walk = tracks.walk;
+    rig.stride = walk && walk.ex.cycle ? TAU / walk.ex.cycle : 2;
+    rig.loco = function (ent, p, t) {
+      if (idle) {
+        const k = (((t + ent.phase) / idle.ex.dur) % 1 + 1) % 1, tr = idle.tr;
+        for (let i = 0; i < tr.ci.length; i++) p[tr.ci[i]] = kfL(tr.cK[i], k);
+      }
+      if (walk && ent.mv > 0.01) {
+        const k = (((ent.walk / TAU) % 1) + 1) % 1, tr = walk.tr, w = Math.min(1, ent.mv * 1.15);
+        for (let i = 0; i < tr.ci.length; i++) {
+          const ix = tr.ci[i];
+          p[ix] += (kfL(tr.cK[i], k) - p[ix]) * w;
+        }
+      }
+    };
+    rig.moodTrack = tracks.mood ? tracks.mood.tr : null;
+    const coreJ = sp.core ? rig.J[sp.core] : -1, emb = sp.emb;
+    rig.post = function (ent, o, t, dt) {
+      // 炉芯：随呼吸一明一暗；弹幕蓄力时蓄热、出手那一下最亮；破防时明灭；死亡先暴涨再熄掉。全是确定性的（不取随机数）
+      const c = ent.clip, n = c ? c.name : '', k = ent.cK;
+      let heat = 1;
+      if (n === 'ring_w') heat = 1 + 0.7 * k;
+      else if (n === 'ring') heat = 1 + 0.9 * hump(k, 0, c.k0, c.k0 + 0.05, 0.6);
+      else if (n === 'broken') heat = 0.7 + 0.25 * Math.max(0, Math.sin(k * TAU * 5));
+      else if (n === 'death') heat = k < 0.5 ? 1 + k * 2 : Math.max(0.15, 2 - (k - 0.5) * 4);
+      ent.moodK = (ent.moodK || 0) + ((ent.mood ? 1 : 0) - (ent.moodK || 0)) * Math.min(1, dt * 3);
+      if (rig.moodTrack && ent.moodK > 0.001) {
+        const tr = rig.moodTrack;
+        for (let i = 0; i < tr.ci.length; i++) o[tr.ci[i]] += kfL(tr.cK[i], 0) * ent.moodK;
+      }
+      if (coreJ >= 0) {
+        const sc = (1 + Math.sin(t * 3) * 0.06) * (0.85 + 0.15 * heat);
+        o[coreJ + 6] = o[coreJ + 7] = o[coreJ + 8] = sc;
+      }
+      setGlow(ent, (0.85 + 0.15 * Math.sin(t * 3) + (heat - 1) * 0.9) * (1 + 0.25 * ent.moodK));
+      if (!ent.dying) bossEmbers(ent, dt, emb[0], emb[1], emb[2]); // 和程序化外观同样的位置和频率：取随机数的次数不变
+    };
+    return rig;
+  }
+  // 首领的新模型骨架（同一种首领共用；包不在 / 解析失败时返回 null，用程序化外观）
+  const bossRigs = Object.create(null);
+  function bossGlbRig(kind) {
+    if (bossPackOff || window.CA_PROCEDURAL_CHARS || !BOSS_SPEC[kind]) return null;
+    if (kind in bossRigs) return bossRigs[kind];
+    if (!bossData(kind)) return null;
+    let r = null;
+    const t0 = performance.now();
+    try {
+      r = rigFromGlb(kind);
+    } catch (e) {
+      if (window.console) console.warn('[首领] ' + kind + ' 的模型套用失败，改用程序化外观', e);
+      r = null;
+    }
+    if (r) r.buildMs = performance.now() - t0;
+    return (bossRigs[kind] = r);
+  }
+  // 还在用程序化外观、等着换新模型的首领
+  const bossEnts = [];
+  const bossWait = Object.create(null);
+  // 有首领的区进来以后：等图标预热画完（和预取下一区一样，不和预热抢主线程），再加载首领包；到了以后挂上换模型
+  function bossPackLater(kind) {
+    const sp = BOSS_SPEC[kind];
+    if (!sp || !G.assets || !G.assets.known(sp.pack) || bossWait[kind]) return;
+    bossWait[kind] = true;
+    let waited = 0;
+    const tick = () => {
+      const iconsBusy = !!(G.icons && G.icons.ready && !G.icons.ready());
+      if (iconsBusy && ++waited < 120) return void setTimeout(tick, 500);
+      G.assets.need([sp.pack]).then((ok) => {
+        bossWait[kind] = false;
+        // 建骨架（约 20 ms）单独放一个任务，不和包的解码、空闲切片挤在同一帧里
+        if (ok) setTimeout(() => bossQueueSwap(kind), 0);
+      });
+    };
+    tick();
+  }
+  function bossQueueSwap(kind) {
+    const r = bossGlbRig(kind);
+    if (!r) return;
+    for (let i = bossEnts.length - 1; i >= 0; i--) {
+      const e = bossEnts[i];
+      if (e.removed || e.rig.bossModel) bossEnts.splice(i, 1);
+      else if (e.kind === kind) e.swapTo = r;
+    }
+  }
+  // 原地换模型：只在首领闲着的时候（没在播动作；醒着的要在招式之间的空当：不在出招、冲刺、破防里），不调 newEnt、不取随机数
+  function bossSwapReady(ent) {
+    if (ent.clip || ent.dying || ent.removed) return false;
+    const S = G.state, list = S && S.enemies;
+    if (list) for (let i = 0; i < list.length; i++) {
+      const e = list[i];
+      if (e.ent === ent) return !e.awake || (!(e.busy > 0) && !e.dash && !(e.brokenT > 0) && !e.dead);
+    }
+    return true;
+  }
+  // 新模型的染色：颜色已经在调色板和烘焙里定好，躯体不再整体偏冷（暖色地面上原来按 0xe6e9f6 染、再加一道冷色轮廓光，
+  // 新模型的岩石在区域的冷色补光下会发蓝、像塑料）：染色换成中性、轮廓光换成很淡的中性色。只动材质的颜色，不动别的
+  // 区域的冷色补光照在背光面上会把中性的岩石打成蓝灰：躯体加一层很淡的暖色自发光（和游魂「焦骨里透出的余烬」同一个办法，rig.emis），
+  // 背光面压回中性偏暖；亮度只抬一点点（灰度检查照样量）
+  const BOSS_EMIS = [0x6e4c38, 0.18];
+  function bossLook(ent) {
+    const m = ent.bodyMat;
+    m.color.copy(lin(0xf4ece4));
+    m.userData.e0 = lin(BOSS_EMIS[0]);
+    m.userData.ei0 = BOSS_EMIS[1];
+    m.emissive.copy(m.userData.e0);
+    m.emissiveIntensity = m.userData.ei0;
+    ent.uRim.value.setRGB(0.07, 0.065, 0.06);
+  }
+  function bossSwap(ent) {
+    const r = ent.swapTo;
+    ent.swapTo = null;
+    const n = r.rest.length;
+    ent.rig = r;
+    ent.pose = new Float32Array(n);
+    ent.from = new Float32Array(n);
+    ent.out = new Float32Array(n);
+    ent.pose.set(r.rest);
+    ent.from.set(r.rest);
+    ent.out.set(r.rest);
+    ent.mdl = new Float32Array(r.nJ * 12);
+    ent.fadeT = ent.fadeDur = 0;
+    ent.coreK = 1;
+    ent.meshBody.geometry = r.geoBody;
+    if (ent.meshGlow) ent.meshGlow.geometry = r.geoGlow;
+    for (const m of [ent.bodyMat, ent.glowMat, ent.depthMat]) {
+      m.defines.SKIN4 = 1;
+      m.needsUpdate = true;
+    }
+    solveRig(ent);
+    if (!ent.echo) bossLook(ent);
+    if (W.onBossSwap) W.onBossSwap(ent);
+  }
+  W.debugBossPack = function (on) {
+    bossPackOff = !on;
+    if (on) for (const k in BOSS_SPEC) if (bossData(k)) bossQueueSwap(k);
+  };
+  W.bossRig = (kind) => bossGlbRig(kind);
+  W.bossOldRig = (kind) => (BOSS_RIG[kind] ? BOSS_RIG[kind]() : null); // 测试用：原来的程序化骨架（对比尺寸）
+  // 狂暴 / 阶段（enemies.js 在原有的狂暴提示和熄烛者换阶段那里调一次）：只记在外观实体上，不读模拟、不取随机数
+  W.bossMood = function (ent, n) {
+    if (ent && !ent.removed) ent.mood = n || 0;
+  };
+
   W.makeBoss = function (kind, elemHex) {
     const eh = hexOf(elemHex);
     _c.set(eh); // 和小怪一样：暖色地面上的首领偏冷，冷色地面上的偏暖
     const warmGround = _c.r > 0.8 && _c.g < 0.6;
-    const ent = newEnt(kind, BOSS_RIG[kind](), warmGround ? 0xe6e9f6 : 0xf2ece6, eh, 1.15); // 卡通：染色收轻，同小怪
-    if (warmGround) ent.uRim.value.setRGB(0.12, 0.15, 0.24);
+    // boss-golem：首领包已经在就直接用脚本生成的新模型，否则先用程序化外观、等包到了在闲着的时候原地换（newEnt 取随机数的次数两边一样）
+    const glb = bossGlbRig(kind);
+    const ent = newEnt(kind, glb || BOSS_RIG[kind](), warmGround ? 0xe6e9f6 : 0xf2ece6, eh, 1.15); // 卡通：染色收轻，同小怪
+    ent.bossWarm = warmGround;
+    if (glb) bossLook(ent);
+    if (!glb && BOSS_SPEC[kind] && !bossPackOff && !window.CA_PROCEDURAL_CHARS) {
+      bossEnts.push(ent);
+      if (bossData(kind)) bossQueueSwap(kind);
+      else bossPackLater(kind);
+    } else if (!glb && BOSS_SPEC[kind] && bossPackOff) bossEnts.push(ent);
+    if (glb) bossLook(ent);
+    else if (warmGround) ent.uRim.value.setRGB(0.12, 0.15, 0.24);
     else ent.uRim.value.setRGB(0.24, 0.18, 0.12);
     groundDisc(ent, glowTex(), eh, G.BOSSES[kind].r * 2.4, 0.4);
     return ent;
@@ -20717,7 +21019,7 @@
 
   // vf-vfx：前面拼上特效贴图库的 GLSL 工具（G.vfx.GLSL，里面声明了 uTime 和噪声贴图）
   const TELE_FRAG = G.vfx.GLSL + '\n' + [
-    'uniform vec3 uColor; uniform vec3 uEdge; uniform vec2 uHalf; uniform float uK; uniform float uShape; uniform float uArc; uniform float uIn; uniform float uFill;',
+    'uniform vec3 uColor; uniform vec3 uEdge; uniform vec2 uHalf; uniform float uK; uniform float uShape; uniform float uArc; uniform float uIn; uniform float uFill; uniform float uBoss;',
     'varying vec2 vP;',
     'void main(){',
     '  vec2 p = vP * uHalf;',
@@ -20748,6 +21050,14 @@
     '    col = mix(col, uEdge, ce * inner * 0.14 * (1.0 - edge));',
     '  }',
     '  col += hot * pulse * 0.18;',
+    // boss-golem：首领的预警圈（uBoss = 1）：填充压到 25–35%（还没推到的部分 4%，推满的部分随时间 18% → 28%，最后一小段轻微闪），
+    // 外沿的亮边和深线里面再加一道实色红带（离边 0.34–0.55 米），推进的前沿亮线照旧；形状、半径、时序不变
+    '  if (uBoss > 0.5) {',
+    '    float bBand = smoothstep(0.32, 0.36, d) * (1.0 - smoothstep(0.52, 0.58, d));', // 亮边、深线里面再一道实色红带
+    '    a = 0.04 + inner * (0.18 + 0.1 * uK) + hot * (0.02 + 0.03 * pulse);',
+    '    col = mix(mix(uColor, uEdge, max(edge, lead * 0.75)), uColor, bBand);',
+    '    edge = max(edge, bBand * 0.92);',
+    '  }',
     '  a *= uFill;', // vf-vfx2：玩家自己放的（友方）预警圈填充减半，外轮廓和前沿亮线不变；敌方的 uFill = 1
     '  a = max(a, max(edge * 0.96, lead * 0.7));',
     // vf-vfx3：敌方的预警圈在亮边里面再压一道深色线（双层边）：亮边在暗地上显眼、深线在亮特效上显眼，玩家的特效叠上来时轮廓仍是连着的
@@ -20794,6 +21104,8 @@
         uArc: { value: arc ? spec.arc : 0 },
         uIn: { value: ringS ? spec.rin : 0 },
         uFill: { value: friendly ? 0.5 : 1 }, // 友方填充减半（vf-vfx2：陨火落下的 0.75 秒里不把落点的怪罩成一片橙）
+        // boss-golem：首领的预警圈换成「醒目的红边 + 25–35% 的淡填充，按结算的时间从里往外推满」，地面和玩家的脚看得见；小怪的不变
+        uBoss: { value: !friendly && spec.owner && spec.owner.isBoss ? 1 : 0 },
         uTime,
       }),
       vertexShader: FX_VERT, fragmentShader: TELE_FRAG,
