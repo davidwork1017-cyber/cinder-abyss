@@ -36,8 +36,9 @@
     const m = lsGet(MODE_KEY);
     return m === 'on' || m === 'off' ? m : 'auto';
   };
-  // 自动：主指针是 coarse 而且有触点。带触屏的笔记本主指针是 fine，照旧桌面模式；iPadOS 的 UA 写 Macintosh，靠 coarse 也认得出
-  const autoOn = () => !!(mq && mq.matches && navigator.maxTouchPoints > 0);
+  // 自动：主指针是 coarse 而且有触点（maxTouchPoints，读不到时看有没有触摸事件）。带触屏的笔记本主指针是 fine，照旧桌面模式；
+  // iPadOS 的 UA 写 Macintosh，靠 coarse 也认得出
+  const autoOn = () => !!(mq && mq.matches && (navigator.maxTouchPoints > 0 || 'ontouchstart' in window));
 
   const T = (G.touch = {
     on: false,

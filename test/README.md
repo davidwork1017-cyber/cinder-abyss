@@ -81,6 +81,14 @@ test:func 最后一组「触屏：」步骤用手机模拟开新浏览器（`lau
 - touchmove 按帧合并（一帧里发几次只送到最后一次）：测试里每次移动后等一帧（`touch.move` / `touch.drag` 已经这样做）。
 - 触屏步骤按模拟时间推进（`G.debug.hold(true)` + `G.debug.step`），触摸只改输入字段，结果和机器快慢无关。
 
+## WebKit 冒烟（test:webkit）
+
+`npm run test:webkit`（`test/webkit-smoke.mjs`）：Playwright 的 WebKit 按 iPhone 横屏模拟（iPhone 上的 Chrome 底下也是 WebKit）走一遍：载入、WebGL2、标题画面、新游戏选职业、进区、开场卡片 / 首次提示卡、摇杆移动、第一次松手解锁声音、按住主攻出手、翻滚，最后报画质和纹理内存。0 页面报错、0 个 HTTP ≥ 400。
+
+- 要先装 WebKit 浏览器和它的系统库，所以不在 `npm test` 里。开发机上已经装好（见 game-workspace/notes/mobile-design.md「已安装」），在池里跑：`cc-slot pool <名字> smoke -- npm run test:webkit`。
+- 这个 WebKit 构建里 `new Touch()` 不能用、`navigator.maxTouchPoints` 是 0：脚本发合成触摸事件，触屏判定靠 `ontouchstart` 兜底。
+- 能查出 JS / CSS / WebGL2 的兼容问题；iOS 特有的 GPU、音频策略、工具栏伸缩查不出来，要在真机上看。
+
 ## 其它
 
 - test:func 的第一步是 `tools/check-art.mjs`（只用 Node，不起浏览器）：核对 `assets/ca/` 的自产布景件和打进包的是同一份、符合预算和规矩。单独跑：`npm run check:art`。

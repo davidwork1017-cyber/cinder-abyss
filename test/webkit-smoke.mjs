@@ -49,10 +49,32 @@ const touch = (type, s, dx, dy) =>
     const n = document.querySelector(s);
     const b = n.getBoundingClientRect();
     const x = b.left + b.width / 2 + (dx || 0), y = b.top + b.height / 2 + (dy || 0);
-    const t = new Touch({ identifier: 7, target: n, clientX: x, clientY: y, pageX: x, pageY: y });
-    const list = type === 'touchend' ? [] : [t];
-    n.dispatchEvent(new TouchEvent(type, { touches: list, targetTouches: list, changedTouches: [t], bubbles: true, cancelable: true }));
-    return true;
+    // 这个 WebKit 构建里 new Touch() 是非法构造：有 document.createTouch 就用它，否则发一个带 changedTouches 的普通事件（游戏只读这些字段）
+    let t = null;
+    try {
+      t = new Touch({ identifier: 7, target: n, clientX: x, clientY: y, pageX: x, pageY: y });
+    } catch (e) {
+      try {
+        if (document.createTouch) t = document.createTouch(window, n, 7, x, y, x, y);
+      } catch (e2) {
+        t = null;
+      }
+    }
+    if (t && typeof TouchEvent === 'function') {
+      try {
+        const list = type === 'touchend' ? [] : [t];
+        n.dispatchEvent(new TouchEvent(type, { touches: list, targetTouches: list, changedTouches: [t], bubbles: true, cancelable: true }));
+        return 'TouchEvent';
+      } catch (e) {
+        /* 退回普通事件 */
+      }
+    }
+    const pt = { identifier: 7, target: n, clientX: x, clientY: y, pageX: x, pageY: y };
+    const evn = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(evn, 'changedTouches', { value: [pt] });
+    Object.defineProperty(evn, 'touches', { value: type === 'touchend' ? [] : [pt] });
+    n.dispatchEvent(evn);
+    return 'Event';
   }, [type, s, dx, dy]);
 
 async function step(name, fn) {
@@ -133,27 +155,59 @@ await step('触屏：摇杆往右拖就往右走、松手停；第一次松手�
   return '走了 ' + (k.x - x0).toFixed(2) + ' m，声音 ' + a.state;
 });
 
-await step('触屏：按住主攻放技能（法力减少），点翻滚就滚', async () => {
-  const m0 = await ev(() => G.player.mana);
+await step('触屏：按住主攻放出左键技能（每帧记下出手），点翻滚就滚', async () => {
+  // 每帧看 P.cast：换了一个、而且是左键格的技能就算一次出手
+  await ev(() => {
+    window.__casts = 0;
+    let last = G.player.cast;
+    const f = () => {
+      const c = G.player.cast;
+      if (c && c !== last && c.id === G.save.bar[0]) window.__casts++;
+      last = c;
+      if (window.__casts >= 0) requestAnimationFrame(f);
+    };
+    requestAnimationFrame(f);
+  });
   await touch('touchstart', '[data-tb="s0"]');
-  await page.waitForTimeout(1500);
-  const m1 = await ev(() => ({ mana: G.player.mana, b: G.input.mouse.b[0], aim: !!G.input.aim }));
+  await page.waitForTimeout(2000);
+  const m1 = await ev(() => ({ casts: window.__casts, id: G.save.bar[0], b: G.input.mouse.b[0], aim: !!G.input.aim }));
   await touch('touchend', '[data-tb="s0"]');
-  assert(m1.b && m1.aim && m1.mana < m0, '按住主攻应施法：' + JSON.stringify({ m0, m1 }));
+  await ev(() => (window.__casts = -1));
+  assert(m1.b && m1.aim && m1.casts >= 1, '按住主攻应施法：' + JSON.stringify(m1));
   await ev(() => (G.player.roll.cd = 0));
   await touch('touchstart', '[data-tb="roll"]');
   const r = await ev(() => G.player.roll.t);
   await touch('touchend', '[data-tb="roll"]');
   assert(r > 0, '点翻滚应翻滚');
-  return '法力 ' + Math.round(m0) + ' → ' + Math.round(m1.mana);
+  return m1.id + ' 出手 ' + m1.casts + ' 次';
 });
 
-await step('画面：渲染在跑（画了几帧、没有丢失上下文），内存数字', async () => {
+await step('画面：渲染在跑（时间在走、没有丢失上下文），纹理内存', async () => {
   const t0 = await ev(() => G.state.time);
   await page.waitForTimeout(1500);
-  const g = await ev(() => ({ t: G.state.time, info: G.world.gfxInfo ? G.world.gfxInfo() : null, lost: !!(G.ctxLost && G.ctxLost()) }));
+  const g = await ev(() => {
+    // 场景材质上的纹理总量（粗估：宽 × 高 × 4 字节，带 mipmap 再 × 4/3；压缩纹理按数据大小）
+    const R = G.world.renderer, seen = new Set();
+    let bytes = 0;
+    const add = (t) => {
+      if (!t || !t.isTexture || seen.has(t)) return;
+      seen.add(t);
+      if (t.isCompressedTexture && t.mipmaps && t.mipmaps.length) {
+        for (const m of t.mipmaps) bytes += (m.data && m.data.byteLength) || 0;
+        return;
+      }
+      const im = t.image || {};
+      bytes += (im.width || 0) * (im.height || 0) * (im.depth || 1) * 4 * (t.generateMipmaps !== false ? 4 / 3 : 1);
+    };
+    G.world.scene.traverse((o) => {
+      for (const mt of Array.isArray(o.material) ? o.material : o.material ? [o.material] : []) for (const k in mt) if (mt[k] && mt[k].isTexture) add(mt[k]);
+    });
+    const info = G.world.gfxInfo ? G.world.gfxInfo() : {};
+    return { t: G.state.time, lost: !!(G.ctxLost && G.ctxLost()), quality: info.quality, post: info.post, dpr: info.dpr, scale: info.scale, tex: R.info.memory.textures, texMB: +(bytes / 1048576).toFixed(1), draws: R.info.render.calls };
+  });
   assert(g.t > t0 && !g.lost, '游戏没在跑：' + JSON.stringify({ t0, g }));
-  return JSON.stringify(g.info || {}).slice(0, 200);
+  if (process.env.WEBKIT_SHOT) await page.screenshot({ path: process.env.WEBKIT_SHOT });
+  return '画质 ' + g.quality + '（后期 ' + g.post + '，DPR ' + g.dpr + ' × ' + g.scale + '），GPU 纹理 ' + g.tex + ' 张、场景材质约 ' + g.texMB + ' MB，draws ' + g.draws;
 });
 
 await browser.close();

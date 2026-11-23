@@ -4138,7 +4138,10 @@ html.touch-ui #quest .q-k { font-size: 11px; line-height: 15px; letter-spacing: 
 html.touch-ui #quest .q-goal { font-size: 13px; line-height: 18px; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 html.touch-ui #quest .q-how, html.touch-ui #quest .q-h, html.touch-ui #quest .q-alt { display: none; }
 html.touch-ui #zone-loading { right: calc(var(--sa-r) + 8px); top: calc(var(--sa-t) + 122px); width: 110px; padding: 4px 6px; font-size: 11px; }
-html.touch-ui body.quest-on #combo, html.touch-ui #combo { top: calc(var(--sa-t) + 172px); right: calc(var(--sa-r) + 230px); }
+html.touch-ui body.quest-on #combo, html.touch-ui #combo { top: calc(var(--sa-t) + 118px); right: calc(var(--sa-r) + 176px); }
+html.touch-ui #combo-n { font-size: 38px; line-height: 38px; }
+html.touch-ui .cb-label { font-size: 11px; letter-spacing: 4px; text-indent: 4px; }
+html.touch-ui .cb-bar { width: 64px; margin-top: 4px; }
 html.touch-ui #coach { left: calc(var(--sa-l) + 8px); top: calc(var(--sa-t) + 100px); width: min(300px, 40vw); padding: 6px 10px 8px; }
 html.touch-ui .co-body { font-size: 12.5px; line-height: 19px; }
 html.touch-ui #feed { left: calc(var(--sa-l) + 8px); bottom: auto; top: calc(var(--sa-t) + 100px); }
@@ -4240,3 +4243,4 @@ html.touch-ui body, html.touch-ui #panel, html.touch-ui #hud, html.touch-ui #tit
 html.touch-ui .st-skip kbd { display: none; }
 /* 职业选择在矮屏上要滚动：「以 X 开始」钉在列表底部，不用滚到底才找得到 */
 html.touch-ui #title .m-body .m-acts { position: sticky; bottom: 0; z-index: 2; margin-top: 8px; padding: 10px 0 2px; background: linear-gradient(180deg, rgba(13, 9, 7, 0), rgba(13, 9, 7, 0.97) 35%); }
+html.touch-ui .slot.empty[data-tb] { opacity: 0.5; }

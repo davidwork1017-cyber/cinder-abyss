@@ -800,7 +800,7 @@
   // 其余照旧：UA 像手机 / 平板但主指针不是 coarse 的默认中，桌面默认高
   function coarseTouch() {
     try {
-      return !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches && navigator.maxTouchPoints > 0);
+      return !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches && (navigator.maxTouchPoints > 0 || 'ontouchstart' in window));
     } catch (e) {
       return false;
     }
