@@ -295,10 +295,10 @@
       name: '雷楔', icon: '楔', color: '#9fc8ff', tags: ['attack', 'projectile', 'chaining', 'light'], kind: 'round', round: 'wedge', elem: 'light', clsOnly: true,
       wm: 1.0, basicSec: 0.36, time: 0.6, mana: 7, cd: 0, speed: 32, projR: 0.24, range: 16, ailment: 20, w: 0, kb: 0.2, poise: 6,
       // 命中先打 hit 份，楔子钉在敌人身上，delay 秒后放电：目标挨 zap 份（它身上每多一枚楔子 +stack，最多算 maxStack 枚），再连到 r 米内最多 n 个别的敌人（各 chainK 份）
-      wedge: { hit: 0.35, zap: 0.65, delay: 1, stack: 0.15, maxStack: 4, r: 4, n: 2, chainK: 0.3 },
+      wedge: { hit: 0.35, zap: 0.65, delay: 1, stack: 0.15, maxStack: 4, r: 4, n: 2, chainK: 0.2 },
       useMult: 1.07, // 单体：0.35 + 0.65 ×（平均身上约 1.7 枚 → +10%）
       desc: '雷楔钉进敌人，1 秒后放电，再连到 4 米内最多 2 个敌人。同一个敌人身上楔子越多，放电越痛。',
-      alt: '伤害按手里枪的右键开火折算，全部转成闪电。每多一枚楔子放电 +15%（最多算 4 枚）。连锁的每个敌人受到 30% 伤害。',
+      alt: '伤害按手里枪的右键开火折算，全部转成闪电。每多一枚楔子放电 +15%（最多算 4 枚）。连锁的每个敌人受到 20% 伤害。',
     },
     rime: {
       name: '霜霰弹', icon: '霰', color: '#a8e4ff', tags: ['attack', 'projectile', 'area', 'cold'], kind: 'round', round: 'rime', elem: 'cold', clsOnly: true,
@@ -1046,7 +1046,7 @@
     },
     // ---------- 特殊弹的刻式（class-d2b1）----------
     // 铁水弹 A 溅铁：不炸、不留铁水，命中后朝前方溅出 n 道铁水（len 米、arc° 扇面），每道打中一条线上的敌人（每个敌人一次施放只挨一道），各 k 份
-    //        （A / B 都没有铁水：溅铁的弹头和原式一样（单体 0.93），熔穿一份按 basicSec 0.35 / wm 0.97 算（单体 0.9，机炮三枚都穿同一条线，再高打怪堆就超标））
+    //        （A / B 都没有铁水：溅铁的弹头和原式一样（单体 0.93），熔穿一份按 basicSec 0.355 / wm 0.98 算（单体 0.91，机炮三枚都穿同一条线，再高打怪堆就超标））
     //        B 熔穿：不炸，贯穿敌人（每枚最多打中 cap 个：机炮三枚都穿同一条线，不封顶时打怪堆超标），每穿过一个，后面的伤害 +step（最多 +max）
     molten: {
       a: {
@@ -1056,8 +1056,8 @@
       },
       b: {
         name: '熔穿', pack: '排成一条线最痛；不炸不留铁水',
-        desc: '铁水弹贯穿敌人（每枚最多打中 4 个），每穿过一个，后面的伤害 +10%（最多 +35%）。', alt: '不炸开，也不留铁水。',
-        set: { mech: 'bore', explode: 0, pool: null, basicSec: 0.35, bore: { step: 0.1, max: 0.35, cap: 4 }, wm: 0.97, useMult: 1, tags: ['attack', 'projectile', 'fire'] },
+        desc: '铁水弹贯穿敌人（每枚最多打中 4 个），每穿过一个，后面的伤害 +5%（最多 +15%）。', alt: '不炸开，也不留铁水。',
+        set: { mech: 'bore', explode: 0, pool: null, basicSec: 0.355, bore: { step: 0.05, max: 0.15, cap: 4 }, wm: 0.98, useMult: 1, tags: ['attack', 'projectile', 'fire'] },
       },
     },
     // 雷楔 A 雷网：打空的楔子钉在准星的地上（存在 dur 秒），link 米内的楔子两两拉出电线（最多 lines 根，新的顶掉旧的），线上的敌人每 tick 秒挨 k 份；
@@ -1067,7 +1067,7 @@
       a: {
         name: '雷网', pack: '朝地上打布网；单体照原式',
         desc: '打空的楔子钉在准星处的地上；4 米内的楔子两两拉出电线，线上的敌人持续挨电。', alt: '地上的楔子存在 7 秒，电线最多 3 根，每 0.25 秒电一下。打中敌人的楔子照原式放电。',
-        set: { mech: 'net', net: { dur: 7, link: 4, lines: 3, tick: 0.25, k: 0.15, w: 0.6 }, useMult: 1.07, tags: ['attack', 'projectile', 'chaining', 'light', 'duration'] },
+        set: { mech: 'net', net: { dur: 7, link: 4, lines: 3, tick: 0.25, k: 0.25, w: 0.6 }, useMult: 1.07, tags: ['attack', 'projectile', 'chaining', 'light', 'duration'] },
       },
       b: {
         name: '闷雷', pack: '单体更痛；不连锁',
