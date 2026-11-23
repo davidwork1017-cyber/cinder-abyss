@@ -19063,8 +19063,16 @@
   }
   // 新模型的染色：颜色已经在调色板和烘焙里定好，躯体不再整体偏冷（暖色地面上原来按 0xe6e9f6 染、再加一道冷色轮廓光，
   // 新模型的岩石在区域的冷色补光下会发蓝、像塑料）：染色换成中性、轮廓光换成很淡的中性色。只动材质的颜色，不动别的
+  // 区域的冷色补光照在背光面上会把中性的岩石打成蓝灰：躯体加一层很淡的暖色自发光（和游魂「焦骨里透出的余烬」同一个办法，rig.emis），
+  // 背光面压回中性偏暖；亮度只抬一点点（灰度检查照样量）
+  const BOSS_EMIS = [0x6e4c38, 0.18];
   function bossLook(ent) {
-    ent.bodyMat.color.copy(lin(0xf0ece8));
+    const m = ent.bodyMat;
+    m.color.copy(lin(0xf4ece4));
+    m.userData.e0 = lin(BOSS_EMIS[0]);
+    m.userData.ei0 = BOSS_EMIS[1];
+    m.emissive.copy(m.userData.e0);
+    m.emissiveIntensity = m.userData.ei0;
     ent.uRim.value.setRGB(0.07, 0.065, 0.06);
   }
   function bossSwap(ent) {
