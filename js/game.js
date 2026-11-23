@@ -11575,6 +11575,7 @@
         any = true;
       }
     }
+    G.persist(); // 马上存：走到门口这一步没有别的存档痕迹，不等 10 秒自动存档，关页面后不会再给一次
     if (G.ui && G.ui.questDone) G.ui.questDone(n, any ? got : null);
     for (let k = from; k < n; k++) {
       const q = G.QUEST[k];

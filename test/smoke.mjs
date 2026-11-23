@@ -20469,6 +20469,7 @@ async function titleSteps() {
     await page.setViewportSize({ width: 1440, height: 900 });
     const r = await ev(() => {
       window.__qKeep = localStorage.getItem('cinder-abyss-save-v1');
+      G.holdSave(false);
       G.debug.hold(true);
       G.resetSave();
       G.save.seenHelp = G.save.seenStory = true;
@@ -20516,10 +20517,11 @@ async function titleSteps() {
       G.debug.tpBoss();
       const near = G.world.nearArena(G.player.x, G.player.z);
       G.debug.step(0.55);
-      return { before, near, after: G.questStep() };
+      return { before, near, after: G.questStep(), stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).quest.n };
     });
     const cur1 = await qCur();
     assert(g.before === 0 && g.near && g.after === 1, '走到门口前应还在第 1 步、走到后 0.5 秒内完成：' + JSON.stringify(g));
+    assert(g.stored === 1, '完成一步应马上存档（门口这一步没有别的痕迹，关页面后不能再给一次）：' + JSON.stringify(g));
     assert(qDiff(cur0, cur1) === '{"dust":2,"augment":1}', '第 1 步奖励应正好 微光尘 +2、增幅尘 +1：' + qDiff(cur0, cur1));
     await until(() => window.__qToasts.some((t) => t.includes('主线 1/11 完成')), null, 20000);
     await frames(2);
