@@ -500,6 +500,21 @@
     return out;
   };
 
+  // 分解的期望收获（和 G.salvageResult 同一套几率，但不掷骰子、不调 Math.random）：{ 通货 id: 期望数量 }。一键分解确认时预览用
+  G.salvageExpect = function (item) {
+    const out = {};
+    if (item.rarity === 3) Object.assign(out, G.UNIQUE_SALVAGE);
+    else if (item.rarity === 4) Object.assign(out, G.RELIC_SALVAGE);
+    else if (item.rarity === 1) out.dust = 0.5;
+    else if (item.rarity === 2) {
+      out.augment = 1;
+      out.regal = 0.3;
+      out.exalt = G.SALVAGE_RARE_HI * 0.5;
+      out.chaos = G.SALVAGE_RARE_HI * 0.5;
+    }
+    return out;
+  };
+
   G.rollRarity = function (mult) {
     const r = Math.random() / (mult > 0 ? mult : 1);
     return r < 0.08 ? 2 : r < 0.4 ? 1 : 0;

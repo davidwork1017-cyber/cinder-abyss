@@ -151,6 +151,7 @@
     bagMsg: '', // 背包页底部的一行结果（一键分解的收获等）
     confirm: null, // { uid, x, y } 正在确认丢弃的稀有物品
     salvArm: { uid: null, t: 0 }, // Shift+点击分解稀有物品：第一次点击只是上膛
+    bulkArm: null, // 一键分解含稀有：第一次点击只是上膛 { key: 要分解的物品 uid 串, t }，BULK_ARM_MS 内再点一次才分解
     noClick: false, // 拖拽松手时浏览器紧跟着派发的那一次 click 不算数
     groundLoot: null, // 鼠标正指着的地面掉落
     groundSig: '',
@@ -379,6 +380,7 @@
     }
     updateEncHud();
     updatePinHud();
+    updateQuestHud(now);
 
     setOrb(hud.life, P.life, P.maxLife, P.maxLifeRaw || P.maxLife);
     setOrb(hud.mana, P.mana, P.maxMana, P.maxManaRaw || P.maxMana);
@@ -1010,6 +1012,34 @@
   }
 
   // ============================================================
+  // 存档提示条：没写进去（满了 / 隐私模式）、迁移没做成、另一个标签页改了存档。一直挂着，不会自己淡掉
+  // fail：下一次写成功就收起（也能点 × 关掉）；stale：只能刷新，关不掉
+  // ============================================================
+  const SAVE_BAR = {
+    fail: '存档没写进去：浏览器存储满了或不能用。进度先留在内存里，关掉页面就没了。',
+    legacy: '存档备份没写进去（存储满了或不能用），这次先只用一个存档，下次打开再试。',
+    stale: '这个存档在另一个标签页里改过了。这里不再存档，免得互相覆盖，刷新后接着玩。',
+  };
+  let saveBarKind = null;
+  function saveBar(kind, force) {
+    const bar = el.saveBar || (el.saveBar = $('save-bar'));
+    if (!bar) return saveBarKind;
+    if (saveBarKind === 'stale' && !force) return saveBarKind; // 刷新提示一旦出来就一直在
+    if (!kind) {
+      if (saveBarKind === 'legacy' && !force) return saveBarKind; // 写成功不收迁移的提示，要点 ×
+      saveBarKind = null;
+      bar.className = '';
+      bar.innerHTML = '';
+      return null;
+    }
+    saveBarKind = kind;
+    bar.className = 'on ' + kind;
+    bar.innerHTML = '<span>' + SAVE_BAR[kind] + '</span>' +
+      (kind === 'stale' ? '<button type="button" tabindex="-1" class="btn sm primary" data-sb="reload">刷新</button>' : '<button type="button" tabindex="-1" class="btn sm" data-sb="close">×</button>');
+    return kind;
+  }
+
+  // ============================================================
   // 飘字提示（toast）
   // ============================================================
   let lastToast = { msg: '', t: 0 };
@@ -1240,6 +1270,7 @@
       h += '<div class="ic-sep"></div><div class="ic-line none">没有词缀</div>';
     }
     if (o.vd) h += verdictBlock(o.vd);
+    if (item.lk) h += '<div class="ic-lk"><i class="lk-ico"></i>已锁定 · Ctrl+点击解锁</div>';
     if (o.hint) h += '<div class="ic-hint">' + o.hint + '</div>';
     h += '</div>';
     return h;
@@ -1302,8 +1333,56 @@
       (v ? '<span class="c-vd vd-' + v.badge + '">' + VD_GLYPH[v.badge] + '</span>' : '') +
       (item.affixes.length ? '<span class="c-aff">' + '<i></i>'.repeat(item.affixes.length) + '</span>' : '') +
       (ui.fresh.has(item.uid) ? '<span class="c-new"></span>' : '') +
+      (item.lk ? '<span class="c-lk"><i class="lk-ico"></i></span>' : '') +
       '</div>'
     );
+  }
+
+  // ---------- 一键分解 ----------
+  const BULK_ARM_MS = 4000;
+  // 一键分解的范围：0 普通，1 含魔法，2 含稀有（含稀有时魔法也算上）
+  const bulkCap = () => (G.save.opts.salvageRare ? 2 : G.save.opts.salvageMagic ? 1 : 0);
+  // 换装评估为 ▲（装备后更强）的稀有物品留下，不一键分解（评估只读，和浮窗里的是同一个）
+  const bulkKeep = (it) => {
+    if (it.rarity !== 2) return false;
+    const v = verdict(it);
+    return !!v && v.badge === 'up';
+  };
+  const bulkPlan = () => G.salvagePlan(bulkCap(), bulkKeep);
+  // 期望收获（不掷骰子）：整数写「×n」，带小数的写「约 x」
+  function bulkExpectHtml(plan) {
+    const sum = {};
+    const sure = {}; // 每一件都是必出的整数：写「×n」；有一件靠几率就写「约 x」
+    for (const it of plan) {
+      const e = G.salvageExpect(it);
+      for (const id in e) {
+        sum[id] = (sum[id] || 0) + e[id];
+        sure[id] = sure[id] !== false && e[id] === Math.floor(e[id]);
+      }
+    }
+    return G.CUR_IDS.filter((id) => sum[id] > 0.05).map((id) => {
+      const v = sum[id];
+      const n = sure[id] ? '×' + Math.round(v) : '约' + fmt1(v);
+      // 一行放不下名字：只放图标和数量，悬停图标看是哪种通货
+      return '<span class="res-cur bulk-c" style="--c:' + G.CURRENCY[id].color + '" data-tip="cur:' + id + '" aria-label="' + G.CURRENCY[id].name + ' ' + n + '">' + IC.cur(id) + n + '</span>';
+    }).join('');
+  }
+  // 上膛时按钮的浮窗：这一批会留下什么
+  function bulkKeepText() {
+    const bag = G.save.bag;
+    const lk = bag.filter((it) => it.lk && it.rarity <= 2).length;
+    const up = bag.filter((it) => it.rarity === 2 && !it.lk && bulkKeep(it)).length;
+    const top = bag.filter((it) => it.rarity >= 3).length;
+    const parts = [];
+    if (up) parts.push('更强（▲）的稀有 ' + up + ' 件');
+    if (lk) parts.push('锁定的 ' + lk + ' 件');
+    if (top) parts.push('烬铸 / 渊契 ' + top + ' 件');
+    return BULK_ARM_MS / 1000 + ' 秒内再点一次确认。' + (parts.length ? '会留下：' + parts.join('、') : '');
+  }
+  function bulkDisarm() {
+    clearTimeout(ui.bulkTimer);
+    if (ui.bulkArm && ui.bagMsg && ui.bagMsg.indexOf('bulk-arm') >= 0) ui.bagMsg = '';
+    ui.bulkArm = null;
   }
 
   // 角色属性表
@@ -1396,7 +1475,8 @@
     return id === first ? alt[0] : first;
   }
   function codexHtml() {
-    const U = G.save.uniq || { found: {}, best: {}, pity: {} };
+    const U0 = G.save.uniq || { found: {}, best: {}, pity: {} };
+    const U = Object.assign({}, G.codexView ? G.codexView().uniq : U0, { pity: U0.pity || {} }); // 拾到过 / 最高完美度：所有角色合起来；保底按当前角色
     const pity = G.UNIQUE_DROP.pity;
     const nFound = G.UNIQUE_IDS.filter((id) => U.found[id]).length;
     let rows = '';
@@ -1424,7 +1504,8 @@
   // 渊契图鉴（排在烬铸后面）：13 件普通渊契 + 2 件巅峰专属（G.RELIC_CODEX，巅峰的排在最后），拾到过的显示名字、图标和最高完美度；没拾到的是基底的暗剪影。
   // 每件写来源（首领 / 异兆 / 烈印 / 熄烛者；来源还没开放时写「尚未开放」）和保底进度（烈印两件共用一份，巅峰两件共用 save.pinnacle.pity）
   function relicCodexHtml() {
-    const U = G.save.relic || { found: {}, best: {}, pity: {} };
+    const U0 = G.save.relic || { found: {}, best: {}, pity: {} };
+    const U = Object.assign({}, G.codexView ? G.codexView().relic : U0, { pity: U0.pity || {} });
     const D = G.RELIC_DROP;
     const list = G.RELIC_CODEX || G.RELIC_IDS;
     const nFound = list.filter((id) => U.found[id]).length;
@@ -1470,6 +1551,7 @@
         eq +=
           '<div class="eq r' + it.rarity + (ui.sel === it.uid ? ' sel' : '') + '" data-slot="' + slot + '" data-act="sel" data-item="' + it.uid + '" data-tip="item:' + it.uid + '" data-drag="item:' + it.uid + '">' +
           IC.item(it) + '<span class="c-ilvl">' + it.ilvl + '</span>' +
+          (it.lk ? '<span class="c-lk"><i class="lk-ico"></i></span>' : '') +
           '<span class="eq-name">' + G.SLOT_NAME[slot] + '</span></div>';
       } else {
         eq += '<div class="eq empty" data-slot="' + slot + '">' + IC.slot(slot) + '<span class="eq-name">' + G.SLOT_NAME[slot] + '</span></div>';
@@ -1478,20 +1560,22 @@
 
     // 背包格
     let bag = '';
-    let normals = 0;
-    let magics = 0;
     for (let i = 0; i < G.BAG_SIZE; i++) {
       const it = S.bag[i];
       if (it) {
-        if (it.rarity === 0) normals++;
-        else if (it.rarity === 1) magics++;
         bag += bagCell(it, ui.sel === it.uid, i);
       } else {
         bag += '<div class="cell empty" data-idx="' + i + '"></div>';
       }
     }
-    const withMagic = !!S.opts.salvageMagic;
-    const bulkN = normals + (withMagic ? magics : 0);
+    const withRare = !!S.opts.salvageRare;
+    const withMagic = withRare || !!S.opts.salvageMagic; // 含稀有时魔法也一起分解
+    const plan = bulkPlan();
+    const bulkN = plan.length;
+    const bulkR = plan.filter((it) => it.rarity === 2).length;
+    // 上膛之后要分解的东西变了（捡到 / 锁上 / 换装）：不算数，回到没上膛
+    const armed = !!(ui.bulkArm && ui.bulkArm.key === plan.map((it) => it.uid).join() && performance.now() - ui.bulkArm.t < BULK_ARM_MS);
+    if (ui.bulkArm && !armed) bulkDisarm();
 
     // 通货
     let cur = '';
@@ -1530,6 +1614,8 @@
           : '<button type="button" tabindex="-1" class="btn primary" data-act="equip">装备</button>' +
             '<button type="button" tabindex="-1" class="btn" data-act="salvage">分解</button>' +
             '<button type="button" tabindex="-1" class="btn" data-act="drop">丢弃</button>') +
+        '<button type="button" tabindex="-1" class="btn lk-btn' + (it.lk ? ' on' : '') + '" data-act="lock" aria-pressed="' + !!it.lk + '" data-tip="txt:' +
+        (it.lk ? '已锁定：不会被分解或卖掉。点击或 Ctrl+点击物品解锁' : '锁定后不会被一键分解、自动分解或卖掉。也可以 Ctrl+点击物品') + '"><i class="lk-ico"></i>' + (it.lk ? '已锁' : '锁定') + '</button>' +
         '</div>' +
         (ui.invMsg ? '<div class="inv-msg">' + esc(ui.invMsg) + '</div>' : ui.invOk ? '<div class="inv-msg ok">' + esc(ui.invOk) + '</div>' : '');
       // 烬铸武器 / 渊契的卡片很长（区间、完美度、机制说明）：按钮放到卡片上面，小窗口里也不用往下滚就能点到
@@ -1559,7 +1645,7 @@
 
     const coach = coachBanner('inv');
     const foot = ui.bagMsg
-      ? '<div class="inv-tips res">' + ui.bagMsg + '</div>'
+      ? '<div class="inv-tips res' + (armed ? ' bulk-on' : '') + '">' + ui.bagMsg + '</div>'
       : coach
         ? '<div class="inv-tips coach">' + coach + '</div>'
         : '<div class="inv-tips"><span>右键 装备 / 卸下</span><i></i><span>拖动 整理 · 换装 · 丢弃</span><i></i><span>Shift+点击 分解</span><i></i><span>通货拖到物品上 改造</span></div>';
@@ -1571,8 +1657,11 @@
       '<div class="col col-m"><div class="sec-title">背包<span class="sec-note">' + S.bag.length + ' / ' + G.BAG_SIZE + '</span>' +
       '<button type="button" tabindex="-1" class="btn sm uqb' + (sel ? '' : ' on') + '" data-act="codex" data-tip="txt:烬铸与渊契的收集和保底进度">图鉴</button>' +
       '<button type="button" tabindex="-1" class="btn sm" data-act="sort"' + (S.bag.length > 1 ? '' : ' disabled') + '>整理</button>' +
-      '<button type="button" tabindex="-1" class="chk' + (withMagic ? ' on' : '') + '" data-act="opt" data-opt="salvageMagic"><i></i>含魔法</button>' +
-      '<button type="button" tabindex="-1" class="btn sm" data-act="salvage-all"' + (bulkN ? '' : ' disabled') + '>一键分解' + (bulkN ? '（' + bulkN + '）' : '') + '</button></div>' +
+      '<button type="button" tabindex="-1" class="chk' + (withMagic ? ' on' : '') + '" data-act="opt" data-opt="salvageMagic"' + (withRare ? ' disabled' : '') + '><i></i>含魔法</button>' +
+      '<button type="button" tabindex="-1" class="chk' + (withRare ? ' on' : '') + '" data-act="opt" data-opt="salvageRare" data-tip="txt:稀有物品也一起分解（魔法也算上）。会留下：已锁定的、装备后更强（▲）的、烬铸和渊契"><i></i>含稀有</button>' +
+      '<button type="button" tabindex="-1" class="btn sm' + (armed ? ' armed' : '') + '" data-act="salvage-all"' + (bulkN ? '' : ' disabled') +
+      (armed ? ' data-tip="txt:' + bulkKeepText() + '"' : '') + '>' +
+      (armed ? '确认分解' : '一键分解') + (bulkN ? '（' + bulkN + '）' : '') + '</button></div>' +
       '<div class="bag">' + bag + '</div>' +
       '<div class="sec-title">通货<span class="sec-note">拖到物品上使用</span></div><div class="cur-row">' + cur + '</div>' +
       fragRow() +
@@ -2775,11 +2864,16 @@
         .join('') +
       '</div>' +
       '<div class="opt-gap"></div>' +
-      (ui.delArmed
-        ? '<span class="del-warn">存档删除后无法恢复，确定吗？</span>' +
+      // 删除这个角色：确认两次（角色页同一套话）。删掉的进回收位，换成一个新角色
+      (ui.delArmed === 2
+        ? '<span class="del-warn">' + delFinalText() + '</span>' +
+          '<button type="button" tabindex="-1" class="btn danger" data-act="del-final">真的删除</button>' +
+          '<button type="button" tabindex="-1" class="btn" data-act="del-cancel">取消</button>'
+        : ui.delArmed
+        ? '<span class="del-warn">删除 ' + esc(charLabel(curSummary())) + '？</span>' +
           '<button type="button" tabindex="-1" class="btn danger" data-act="del-confirm">确认删除</button>' +
           '<button type="button" tabindex="-1" class="btn" data-act="del-cancel">取消</button>'
-        : '<button type="button" tabindex="-1" class="btn ghost" data-act="del-save">删除存档</button>') +
+        : '<button type="button" tabindex="-1" class="btn ghost" data-act="del-save">删除这个角色</button>') +
       '</div></div>';
   }
 
@@ -3174,7 +3268,7 @@
     if (kind === 'item') {
       const f = findItem(id);
       if (!f) return '';
-      return itemTip(f.item, f.equipped, f.equipped ? '右键 卸下 · 拖到背包 卸下' : '右键 装备 · 拖动 整理 / 换装 · Shift+点击 分解');
+      return itemTip(f.item, f.equipped, f.equipped ? '右键 卸下 · 拖到背包 卸下' : '右键 装备 · 拖动 整理 / 换装 · ' + (f.item.lk ? '已锁定，不能分解' : 'Shift+点击 分解 · Ctrl+点击 锁定'));
     }
     if (kind === 'cur') {
       const c = G.CURRENCY[id];
@@ -3369,6 +3463,10 @@
     'trd-sell'(d) {
       const f = findItem(d.item);
       if (!f || f.equipped) return;
+      if (f.item.lk) {
+        ui.trdMsg = '「' + f.item.name + '」已锁定，先解锁';
+        return render();
+      }
       const now = performance.now();
       // 稀有以上要再点一次确认（同 Shift+点击分解）
       if (f.item.rarity >= 2 && !(ui.trdArm && ui.trdArm.uid === d.item && now - ui.trdArm.t < 3000)) {
@@ -3402,10 +3500,20 @@
       const f = findItem(d.item);
       if (!f) return;
       const now = performance.now();
+      if (e && (e.ctrlKey || e.metaKey)) {
+        // Ctrl+点击：锁定 / 解锁（Mac 上 Ctrl+点击走右键菜单，见 onPanelContext）
+        toggleLock(f.item);
+        ui.lastSel = { uid: null, t: 0 };
+        return;
+      }
       if (e && e.shiftKey) {
         // Shift+点击：分解背包物品；稀有物品要再点一次确认
         if (f.equipped) {
           ui.invMsg = '穿在身上的装备要先卸下才能分解';
+        } else if (f.item.lk) {
+          ui.salvArm = { uid: null, t: 0 };
+          ui.sel = d.item;
+          ui.invMsg = '已锁定，先解锁（Ctrl+点击）';
         } else if (f.item.rarity >= 2 && !(ui.salvArm.uid === d.item && now - ui.salvArm.t < 3000)) {
           ui.salvArm = { uid: d.item, t: now };
           ui.sel = d.item;
@@ -3453,6 +3561,12 @@
     salvage() {
       const f = selItem();
       if (!f) return;
+      if (f.item.lk) {
+        ui.salvArm = { uid: null, t: 0 };
+        ui.invMsg = '已锁定，先解锁';
+        render();
+        return;
+      }
       const now = performance.now();
       if (f.item.rarity >= 3 && !(ui.salvArm.uid === f.item.uid && now - ui.salvArm.t < 4000)) {
         // 烬铸武器 / 渊契：第一次点只是上膛，4 秒内再点一次「分解」才真的分解
@@ -3475,12 +3589,32 @@
       render();
     },
     'salvage-all'() {
-      const r = G.salvageBulk(G.save.opts.salvageMagic ? 1 : 0);
+      const plan = bulkPlan();
+      if (!plan.length) return render();
+      const key = plan.map((it) => it.uid).join();
+      const rares = plan.filter((it) => it.rarity === 2).length;
+      const now = performance.now();
+      // 含稀有、这一批里真有稀有：第一下只上膛，显示件数和预计收获，BULK_ARM_MS 内再点一次才分解
+      if (rares && !(ui.bulkArm && ui.bulkArm.key === key && now - ui.bulkArm.t < BULK_ARM_MS)) {
+        clearTimeout(ui.bulkTimer);
+        ui.bulkArm = { key, t: now };
+        ui.bagMsg = '<b class="bulk-arm">再点一次确认</b><span>分解 ' + plan.length + ' 件（稀有 ' + rares + '）</span><i></i><span>预计</span>' + bulkExpectHtml(plan);
+        ui.bulkTimer = setTimeout(() => {
+          if (!ui.bulkArm || ui.bulkArm.t !== now) return;
+          bulkDisarm();
+          if (ui.isOpen && ui.tab === 'inv') render();
+        }, BULK_ARM_MS);
+        G.sfx('click');
+        return render();
+      }
+      bulkDisarm();
+      const r = G.salvageBulk(bulkCap(), bulkKeep);
       if (r) {
         // 一行小结：分解了几件、换回了什么
         const parts = [];
         if (r.byRarity[0]) parts.push('普通 ' + r.byRarity[0]);
         if (r.byRarity[1]) parts.push('魔法 ' + r.byRarity[1]);
+        if (r.byRarity[2]) parts.push('稀有 ' + r.byRarity[2]);
         const got = Object.keys(r.gained).map((id) => '<span class="res-cur" style="--c:' + G.CURRENCY[id].color + '">' + IC.cur(id) + G.CURRENCY[id].name + ' ×' + r.gained[id] + '</span>').join('');
         ui.bagMsg = '<b>分解了 ' + r.n + ' 件</b><span>' + parts.join(' · ') + '</span><i></i>' + (got ? '<span>获得</span>' + got : '<span>没有分解出通货（普通物品不含通货）</span>');
         for (const uid of Array.from(ui.fresh)) if (!findItem(uid)) ui.fresh.delete(uid);
@@ -3488,6 +3622,10 @@
         G.sfx('craft');
       }
       render();
+    },
+    lock() {
+      const f = selItem();
+      if (f) toggleLock(f.item);
     },
     sort() {
       G.sortBag();
@@ -3761,8 +3899,14 @@
       render();
     },
     'del-confirm'() {
-      G.resetSave();
-      location.reload();
+      ui.delArmed = 2;
+      G.sfx('click');
+      render();
+    },
+    'del-final'() {
+      ui.delArmed = false;
+      if (G.resetSave()) location.reload(); // 回收位写不进去时什么都不删（提示条已经亮了）
+      else render();
     },
   };
 
@@ -3784,7 +3928,10 @@
       renderConfirm();
     }
     if (!a || a.disabled) return;
-    if (a.dataset.act !== 'salvage-all') ui.bagMsg = '';
+    if (a.dataset.act !== 'salvage-all') {
+      ui.bagMsg = '';
+      if (ui.bulkArm) bulkDisarm();
+    }
     if (a.dataset.act !== 'chisel-pick') ui.invOk = ''; // 琢刻石换了哪一条：留到下一次操作
     if (a.dataset.act !== 'tut-reset') ui.tutMsg = '';
     ACT[a.dataset.act](a.dataset, a, e);
@@ -3798,6 +3945,7 @@
     if (!c || !c.dataset.act) return;
     const f = findItem(c.dataset.item);
     if (!f) return;
+    if (e.ctrlKey && e.button === 0) return toggleLock(f.item); // Mac：Ctrl+左键会变成右键菜单，这里当锁定 / 解锁
     ui.bagMsg = '';
     ui.sel = f.item.uid;
     if (f.equipped) {
@@ -3808,6 +3956,20 @@
       ui.fresh.delete(f.item.uid);
       equipSel(f.item);
     }
+  }
+
+  // ---------- 锁定 ----------
+  function toggleLock(item) {
+    const on = G.toggleLock(item);
+    if (on === null) return;
+    ui.sel = item.uid;
+    ui.salvArm = { uid: null, t: 0 };
+    ui.bagMsg = '';
+    if (ui.bulkArm) bulkDisarm();
+    ui.invMsg = '';
+    ui.invOk = (on ? '已锁定「' : '已解锁「') + item.name + '」';
+    G.sfx('click');
+    render();
   }
 
   // ---------- 丢到地上 ----------
@@ -3909,6 +4071,91 @@
   // ============================================================
   const pinHud = { box: null, key: '', bkey: '' };
   const PIN_PHASE = ['残焰', '熄灯', '冠焰'];
+  // ============================================================
+  // 主线追踪条（quest D1）：右上小地图正下方，三行字（主线 k/11 · 做什么 · 怎么做），按住 Alt 多出等级、奖励和一句背景。
+  // 只有 DOM（WebGL draw 0 增加）。每帧只比几个整数 / 布尔（步数、存档代数、要不要显示），内容最多每秒重算两次
+  // ============================================================
+  const qh = { root: null, k: null, goal: null, how: null, alt: null, n: -1, epoch: -1, vis: null, key: '', at: 0, pulse: false, toastQ: [], toastAt: 0 };
+  function initQuestHud() {
+    const r = (qh.root = document.createElement('div'));
+    r.id = 'quest';
+    r.innerHTML = '<div class="q-k"></div><div class="q-goal"></div><div class="q-how"></div><div class="q-alt"></div><div class="q-h">按住 <kbd>Alt</kbd> 查看详情</div>';
+    qh.k = r.children[0];
+    qh.goal = r.children[1];
+    qh.how = r.children[2];
+    qh.alt = r.children[3];
+    $('hud').appendChild(r);
+  }
+  const curList = (o) => Object.keys(o).map((id) => G.CURRENCY[id].name + ' ×' + o[id]).join('、');
+  // 第 n 步（0 起）现在该显示的三行和 Alt 详情。首领等级、区域等级按 G.ZONES 现算
+  function questView(n) {
+    const q = G.QUEST[n], st = G.state, S = G.save;
+    const Z = q.zone ? G.ZONES.find((z) => z.id === q.zone) : null;
+    let goal = q.l1 || '', how = q.l2 || '';
+    if (q.kind === 'boss') {
+      goal = '击败' + G.BOSSES[Z.boss].name;
+      how = q.l2 || '首领 ' + (Z.level + G.QUEST_BOSS_LV) + ' 级';
+    } else if (q.kind === 'in') {
+      goal = '去' + Z.name;
+      // 本区首领倒下、传送门还在：指传送门；传送门没了（重进过区域）：按 M 开地图
+      how = st.portal && !st.pin ? '走进传送门，在地图上选它' : q.l2 || '按 M 打开地图选它';
+    }
+    const det = [];
+    if (Z) det.push('怪物 ' + Z.level + ' 级 · 首领 ' + (Z.level + G.QUEST_BOSS_LV) + ' 级（你 ' + S.level + ' 级）');
+    else det.push('层级 1 怪物等级 +' + G.TIER_LEVELS + '（你 ' + S.level + ' 级）');
+    det.push(q.rw ? '奖励 ' + curList(q.rw) : '首次击败另得 2 点天赋');
+    return { k: '主线 ' + (n + 1) + '/' + G.QUEST_N, goal, how, det, lore: q.lore };
+  }
+  function updateQuestHud(now) {
+    const Q = G.save.quest, st = G.state;
+    const n = Q ? Q.n : G.QUEST_N;
+    const vis = !!(Q && n < G.QUEST_N && !Q.off && !ui.intro && !story.on && !menu.title && !menu.pause);
+    if (vis !== qh.vis) {
+      qh.vis = vis;
+      qh.root.classList.toggle('on', vis);
+      document.body.classList.toggle('quest-on', vis);
+    }
+    // 完成提示：排在同一时刻的其它飘字（首领倒下、层级解锁、区域名）后面，前一条出来 0.45 秒后再出（最多等 2.5 秒）
+    if (qh.toastQ.length && (now - lastToast.t > 450 || now - qh.toastAt > 2500)) {
+      toast(qh.toastQ.shift(), '#ffd98a');
+      qh.toastAt = now;
+    }
+    if (G.saveEpoch !== qh.epoch) {
+      // 换了存档（读档 / 新游戏）：不亮
+      qh.epoch = G.saveEpoch;
+      qh.n = n;
+      qh.pulse = false;
+      qh.key = '';
+    } else if (n !== qh.n) {
+      if (n > qh.n) qh.pulse = true;
+      qh.n = n;
+      qh.key = '';
+    }
+    if (!vis) return;
+    if (qh.key && now - qh.at < 500 && !qh.pulse) return;
+    qh.at = now;
+    const key = n + '|' + (st.portal && !st.pin ? 1 : 0) + '|' + G.save.level;
+    if (key !== qh.key) {
+      qh.key = key;
+      const v = questView(n);
+      qh.k.textContent = v.k;
+      qh.goal.textContent = v.goal;
+      qh.how.textContent = v.how;
+      qh.alt.innerHTML = v.det.map((t) => '<div>' + esc(t) + '</div>').join('') + '<div class="q-lore">' + (v.lore.match(/[^，。]+[，。]?/g) || []).map((c) => '<span>' + esc(c) + '</span>').join('') + '</div>';
+    }
+    // 换步骤时亮一下（1.2 秒）；首领醒着时不亮，打完再亮
+    if (qh.pulse && !(st.boss && st.boss.awake && !st.boss.dead)) {
+      qh.pulse = false;
+      qh.root.classList.remove('pulse');
+      void qh.root.offsetWidth; // 重新开始动画
+      qh.root.classList.add('pulse');
+    }
+  }
+  // game.js 推进主线时调：n 完成到第几步，got 这次加进背包的通货（首领步为 null）
+  function questDone(n, got) {
+    qh.toastQ.push('主线 ' + n + '/' + G.QUEST_N + ' 完成' + (got ? ' · ' + curList(got) : ''));
+  }
+
   function initPinHud() {
     const d = document.createElement('div');
     d.id = 'pin-lamps';
@@ -4104,7 +4351,7 @@
       const got = Object.keys(res).map((id) => '<span class="tp" style="--c:' + G.CURRENCY[id].color + '">' + IC.cur(id) + '<b>' + res[id] + '</b></span>').join('') || '<span class="tp dim">—</span>';
       sell +=
         '<div class="trd-row" data-tip="item:' + it.uid + '">' + ibox(IC.item(it)) + '<span class="trd-name" style="color:' + G.RARITY_COLOR[it.rarity] + '">' + esc(it.name) + '</span>' +
-        '<span class="trd-price">' + got + '</span><button type="button" tabindex="-1" class="btn sm" data-act="trd-sell" data-item="' + it.uid + '">卖</button></div>';
+        '<span class="trd-price">' + got + '</span><button type="button" tabindex="-1" class="btn sm" data-act="trd-sell" data-item="' + it.uid + '"' + (it.lk ? ' disabled>已锁' : '>卖') + '</button></div>';
     }
     const F = S.frags || {}, swapOn = (G.state.tier || 0) >= G.TRADER.fragTier;
     let frags = '';
@@ -4254,7 +4501,8 @@
     title: false,
     pause: false,
     ready: false, // 区域建好了（main.js 调 titleReady）：继续 / 新游戏才能点
-    view: null, // 菜单里打开的子页：settings / help / credits / confirm
+    view: null, // 菜单里打开的子页：settings / help / credits / chars
+    del: null, // 角色页里正在删的栏位 { k, step: 1 | 2 }（确认两次）
     hidden: [], // 标题画面期间藏起来的敌人 / 召唤物模型
     after: null, // 离开标题画面后要做的事（首次运行的开场卡片）
     t: 0, // 标题画面开了多久（秒，镜头漂移的相位）
@@ -4263,6 +4511,85 @@
     off: null,
   };
   const hasSave = () => (G.hasSave ? G.hasSave() : true);
+
+  // ---------- 角色栏位（多存档） ----------
+  // 角色名：「职业 · 等级」。D1 还没有职业，一律「未定」
+  const clsName = (cls) => (cls && G.CLASSES && G.CLASSES[cls] ? G.CLASSES[cls].name : '未定');
+  const charLabel = (sum) => clsName(sum && sum.cls) + ' · ' + ((sum && sum.level) || 1) + ' 级';
+  const curSummary = () => ({ cls: typeof G.save.cls === 'string' ? G.save.cls : null, level: G.save.level || 1 });
+  const zoneName = (sum) => (sum.pin ? G.PINNACLE.name : (G.ZONES[sum.zone | 0] || G.ZONES[0]).name);
+  function agoText(t) {
+    if (!(t > 0)) return '更早以前';
+    const s = (Date.now() - t) / 1000;
+    if (s < 90) return '刚刚';
+    if (s < 3600) return Math.round(s / 60) + ' 分钟前';
+    if (s < 86400) return Math.round(s / 3600) + ' 小时前';
+    if (s < 86400 * 30) return Math.round(s / 86400) + ' 天前';
+    const d = new Date(t);
+    return d.getFullYear() + ' 年 ' + (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日';
+  }
+  // 第二次确认的话：回收位里已经有一个角色时，写明它会被彻底删掉
+  function delFinalText() {
+    const tr = G.slots ? G.slots.trash() : null;
+    return '删了就找不回来了。真的删除？' + (tr ? '回收位里的 ' + esc(charLabel(tr.sum)) + ' 会被彻底删除。' : '');
+  }
+  const DEL_ALT = '删掉的角色先放进回收位，在角色页可以恢复。回收位只放最近删掉的一个，再删一个，原来那个就彻底没了。';
+  const slotList = () => (G.slots ? G.slots.list() : { active: 0, slots: [] });
+  const slotsFull = () => !!G.slots && hasSave() && G.slots.firstEmpty() < 0;
+  function charCard(sum, k, active) {
+    if (!sum)
+      return (
+        '<button type="button" tabindex="-1" class="ch-card empty" data-tact="ch-new" data-slot="' + k + '">' +
+        '<b>新建角色</b><span>第 ' + (k + 1) + ' 栏 · 空</span></button>'
+      );
+    return (
+      '<div class="ch-card' + (active ? ' ch-on' : '') + '" data-slot="' + k + '">' +
+      '<div class="ch-top"><b>' + esc(charLabel(sum)) + '</b>' + (active ? '<em>上次玩的</em>' : '') + '</div>' +
+      '<div class="ch-sub">' + esc(zoneName(sum)) + ' · ' + (sum.tier > 0 ? '轮回 ' + sum.tier : '初入') + '</div>' +
+      '<div class="ch-t">' + agoText(sum.t) + '</div>' +
+      '<div class="ch-acts"><button type="button" tabindex="-1" class="btn sm primary" data-tact="ch-play" data-slot="' + k + '">进入</button>' +
+      '<button type="button" tabindex="-1" class="btn sm ghost" data-tact="ch-del" data-slot="' + k + '">删除</button></div></div>'
+    );
+  }
+  function menuChars() {
+    const L = slotList();
+    const del = menu.del;
+    if (del && L.slots[del.k]) {
+      const sum = L.slots[del.k];
+      const card = '<div class="m-save"><i>' + esc(charLabel(sum)) + '</i><i>' + esc(zoneName(sum)) + '</i><i>' + (sum.tier > 0 ? '轮回 ' + sum.tier : '初入') + '</i><i>' + agoText(sum.t) + '</i></div>';
+      if (del.step === 1)
+        return (
+          '<div class="ch-del" data-step="1"><p class="m-warn">删除 ' + esc(charLabel(sum)) + '？</p>' + card +
+          '<div class="m-acts"><button type="button" tabindex="-1" class="btn danger" data-tact="ch-del2">确认删除</button>' +
+          '<button type="button" tabindex="-1" class="btn" data-tact="ch-cancel">取消</button></div></div>'
+        );
+      return (
+        '<div class="ch-del" data-step="2"><p class="m-warn">' + delFinalText() + '</p>' + card + altBox(DEL_ALT) +
+        '<div class="m-acts"><button type="button" tabindex="-1" class="btn danger" data-tact="ch-del3">真的删除</button>' +
+        '<button type="button" tabindex="-1" class="btn" data-tact="ch-cancel">取消</button></div></div>'
+      );
+    }
+    menu.del = null;
+    const tr = G.slots ? G.slots.trash() : null;
+    const room = L.slots.some((s) => !s);
+    return (
+      '<div class="ch-grid">' + L.slots.map((s, k) => charCard(s, k, !!s && k === L.active)).join('') + '</div>' +
+      (tr
+        ? '<div class="ch-trash"><span>回收位：<b>' + esc(charLabel(tr.sum)) + '</b> · ' + agoText(tr.t) + '删除' + '</span>' +
+          (room ? '<button type="button" tabindex="-1" class="btn sm" data-tact="ch-restore">恢复</button>' : '<em>栏位满了，先腾出一栏</em>') + '</div>'
+        : '') +
+      '<p class="m-note">最多 6 个角色。设置、图鉴和新手提示所有角色共用。</p>'
+    );
+  }
+  // 换角色 / 新建后重载页面进去：重载后跳过标题画面（和原来新游戏确认后一样），上一个角色的召唤物、区域、计时器一点不留
+  function enterReload() {
+    try {
+      window.sessionStorage.setItem(G.PLAY_ONCE_KEY, '1');
+    } catch (err) {
+      /* 存储不可用：重载后先到标题画面，「继续游戏」就是这个角色 */
+    }
+    location.reload();
+  }
 
   // 存档概要：等级 / 手里的武器 / 轮回层级 / 所在区域（游戏没有职业，起手武器类型就是这个角色的路子）
   function saveLine() {
@@ -4340,19 +4667,11 @@
       '<p class="m-note">以上素材均以 CC0 授权公开，在此致谢。渲染用 three.js r128（MIT 许可）。其余美术、音效与玩法均为原创。</p>'
     );
   }
-  function menuConfirm() {
-    return (
-      '<p class="m-warn">开始新游戏会覆盖现有的存档，无法恢复：</p>' +
-      '<div class="m-save">' + saveLine() + '</div>' +
-      '<div class="m-acts"><button type="button" tabindex="-1" class="btn danger" data-tact="new-confirm">覆盖存档，开始新游戏</button>' +
-      '<button type="button" tabindex="-1" class="btn" data-tact="back">取消</button></div>'
-    );
-  }
   const MENU_VIEW = {
     settings: ['设置', menuSettings],
     help: ['操作说明', menuHelp],
     credits: ['致谢', menuCredits],
-    confirm: ['新游戏', menuConfirm],
+    chars: ['角色', menuChars],
   };
 
   function renderMenu() {
@@ -4360,6 +4679,14 @@
       const has = hasSave();
       el.tContinue.classList.toggle('has', has); // 没有存档时不显示「继续游戏」
       el.tSave.innerHTML = has ? saveLine() : '';
+      // 角色：有存档才显示；6 栏都满时「新游戏」变灰，提示先删一个
+      const n = has ? slotList().slots.filter(Boolean).length : 0;
+      el.tCharsN.textContent = has ? n + ' / ' + (G.SLOT_N || 6) : '';
+      const full = slotsFull();
+      const lock = has && !!G.slots && G.slots.legacy();
+      el.tChars.classList.toggle('has', has && !lock);
+      el.tNew.classList.toggle('off', full || lock);
+      el.tNewHint.textContent = lock ? '存档写不进去，暂时不能新建' : full ? '6 栏都满了，先删一个' : '';
       el.title.classList.toggle('ready', menu.ready);
     }
     const host = menu.title ? el.tView : el.pView;
@@ -4372,6 +4699,7 @@
         '<div class="m-body">' + v[1]() + '</div></div>'
       : '';
     (menu.title ? el.title : el.pause).classList.toggle('sub', !!v);
+    if (menu.title) el.title.classList.toggle('chars', menu.view === 'chars');
   }
 
   // 标题画面期间敌人 / 召唤物先藏起来（模拟不推进，它们会定在原地）
@@ -4420,7 +4748,7 @@
     menu.title = false;
     menu.view = null;
     document.documentElement.classList.remove('title-on');
-    el.title.classList.remove('on', 'sub');
+    el.title.classList.remove('on', 'sub', 'chars');
     showActors();
     const cam = G.world.camera;
     if (cam && menu.q0) {
@@ -4478,14 +4806,24 @@
     hideTip();
   }
 
-  // 新游戏：没有存档时直接开始（区域已经在背后建好）；有存档时先确认，确认后走原来的删档流程（重置存档后重载页面，重载后跳过标题画面）
+  // 新游戏：没有存档时直接开始（区域已经在背后建好）；有存档时在第一个空栏建一个新角色、重载进去（原来的角色都留着）。6 栏都满时不动
   function newGame() {
     if (hasSave()) {
-      menu.view = 'confirm';
+      const k = G.slots && !G.slots.legacy() ? G.slots.firstEmpty() : -1;
       G.sfx('click');
-      renderMenu();
+      if (k < 0) {
+        renderMenu();
+        return;
+      }
+      if (G.slots.create(k)) enterReload();
+      else renderMenu();
       return;
     }
+    startHere(-1);
+  }
+  // 还没有存档的新角色就地开始（不重载）：k = 落在哪一栏（-1 = 当前栏）
+  function startHere(k) {
+    if (k >= 0 && G.slots) G.slots.claim(k);
     if (G.holdSave) G.holdSave(false);
     G.persist();
     G.sfx('click');
@@ -4502,14 +4840,50 @@
       G.sfx('click');
       playStory(null, {});
     },
-    'new-confirm'() {
-      G.resetSave();
-      try {
-        window.sessionStorage.setItem(G.PLAY_ONCE_KEY, '1');
-      } catch (err) {
-        /* 存储不可用：重载后还是先到标题画面，「继续游戏」就是新角色 */
-      }
-      location.reload();
+    // 角色页：进入（当前加载的就是它就直接继续，否则设成 active 后重载）/ 新建 / 删除（确认两次）/ 恢复
+    'ch-play'(d) {
+      const k = +d.slot;
+      if (G.slots.loaded(k)) return MENU_ACT.continue();
+      G.sfx('click');
+      if (G.slots.select(k)) enterReload();
+    },
+    'ch-new'(d) {
+      const k = +d.slot;
+      if (!hasSave()) return startHere(k);
+      G.sfx('click');
+      if (G.slots.create(k)) enterReload();
+      else renderMenu();
+    },
+    'ch-del'(d) {
+      menu.del = { k: +d.slot, step: 1 };
+      G.sfx('click');
+      renderMenu();
+    },
+    'ch-del2'() {
+      if (menu.del) menu.del.step = 2;
+      G.sfx('click');
+      renderMenu();
+    },
+    'ch-del3'() {
+      const del = menu.del;
+      menu.del = null;
+      if (!del) return;
+      G.sfx('click');
+      const was = G.slots.cur() === del.k;
+      if (G.slots.remove(del.k) && was) location.reload(); // 删的是当前加载的角色：重载回标题画面（不再写回它）
+      else renderMenu();
+    },
+    'ch-cancel'() {
+      menu.del = null;
+      G.sfx('click');
+      renderMenu();
+    },
+    'ch-restore'() {
+      G.sfx('click');
+      const k = G.slots.restore();
+      // 现在载入的是还没存过的新角色（标题画面上什么都没有时）：重载，让「继续游戏」指向恢复回来的角色
+      if (k >= 0 && !G.slots.loaded(G.slots.cur())) location.reload();
+      else renderMenu();
     },
     resume() {
       G.sfx('click');
@@ -4522,7 +4896,8 @@
       showTitle(true);
     },
     back() {
-      menu.view = null;
+      if (menu.del) menu.del = null;
+      else menu.view = null;
       G.sfx('click');
       renderMenu();
     },
@@ -4532,9 +4907,11 @@
     if (!a) return;
     const d = a.dataset;
     const k = d.tact;
-    if ((k === 'continue' || k === 'new') && !menu.ready) return;
-    if (MENU_VIEW[k] && k !== 'confirm') {
+    if ((k === 'continue' || k === 'new' || k === 'chars' || k.startsWith('ch-')) && !menu.ready) return;
+    if (k === 'new' && el.tNew.classList.contains('off')) return G.sfx('click');
+    if (MENU_VIEW[k]) {
       menu.view = k;
+      menu.del = null;
       G.sfx('click');
       renderMenu();
     } else if (k === 'quality' || k === 'opt' || k === 'normmode') {
@@ -4562,6 +4939,12 @@
   function onMenuKey(e) {
     if (story.on) return; // 开场故事放着：按键归它
     if (!menu.title && !menu.pause) return;
+    // 标题画面上按键不进游戏，按住 Alt 的详情（删除确认里的回收位说明）在这里切
+    if (menu.title && (e.key === 'Alt' || e.code === 'AltLeft' || e.code === 'AltRight')) {
+      document.body.classList.add('alt-on');
+      e.preventDefault();
+      return;
+    }
     if (e.code === 'Escape' && menu.view) {
       MENU_ACT.back();
     } else if (menu.title) {
@@ -5780,6 +6163,22 @@
       done: () => false,
     },
     {
+      // 黑洞加了「每跳最多伤到最近的 N 个」之前、学了黑洞的老存档：提示一次（见 game.js 的 bhNote）；按这一刻生效的刻式说
+      id: 'bhnerf', calm: true, max: 14,
+      get html() {
+        return G.holeNerfNote(G.variantOf('blackhole'));
+      },
+      when: () => G.holeNerfed > 0,
+      done: () => false,
+    },
+    {
+      // 魂潮狂热改成 12 秒 +15% 之前、拿着魂幡的老存档：提示一次（见 game.js 的 stNote）
+      id: 'stfz', calm: true, max: 14,
+      html: '<b>魂潮</b>：狂热改为 12 秒、攻击与移动速度 +15%，按冷却放时一直都在，平均和原来一样',
+      when: () => G.frenzyNerfed > 0,
+      done: () => false,
+    },
+    {
       // 旧版双生坠：读档时升成四行（见 game.js 的 migrateTwin）
       id: 'sxmig', calm: true, max: 16,
       html: '<b>双生坠升级</b>：多了暴击伤害和总伤害两行，原有两行按原来的成色换算到新数值；效果改为「余响」',
@@ -5936,8 +6335,24 @@
       G.save.wsNote = false;
       G.whirlNerfed = 0;
     }
+    if (id === 'bhnerf') {
+      G.save.bhNote = false;
+      G.holeNerfed = 0;
+    }
+    if (id === 'stfz') {
+      G.save.stNote = false;
+      G.frenzyNerfed = 0;
+    }
     G.persist();
   }
+  // 黑洞改版提示的那一句（v = 'o' / 'a' / 'b' / 'c'）。百分比是同装备实测（16 只挤成一团 / 10 只散开），上限读数据
+  G.holeNerfNote = function (v) {
+    const sk = G.skillVariant('blackhole', v), N = sk.cap;
+    const name = '<b>黑洞' + (v === 'o' ? '' : '·' + sk.vname) + '</b>：';
+    if (v === 'b') return name + '每跳最多伤到最近的 ' + N + ' 个敌人，坍缩最多砸 ' + sk.collapse.hit + ' 个；怪聚成一团时伤害约 −52%，分散的怪约 −23%，单体不变';
+    if (v === 'c') return name + '每跳最多伤到离你最近的 ' + N + ' 个敌人，怪聚成一团时伤害约 −44%，分散的怪约 −10%；单体不变';
+    return name + '每跳最多伤到最近的 ' + N + ' 个敌人，怪聚成一团时伤害约 −19%（团越大减得越多）；分散的怪和单体不变';
+  };
   // 面板里接着提示的那一句（当前提示与这个页签有关时）
   function coachBanner(tab) {
     const h = coach.cur;
@@ -6088,6 +6503,19 @@
     el.tView = $('t-view');
     el.tContinue = $('t-continue');
     el.tSave = $('t-save');
+    el.tNew = $('t-new');
+    el.tNewHint = $('t-new-hint');
+    el.tChars = $('t-chars');
+    el.tCharsN = $('t-chars-n');
+    el.saveBar = $('save-bar');
+    el.saveBar.addEventListener('click', (e) => {
+      const a = e.target.closest('[data-sb]');
+      if (!a) return;
+      if (a.dataset.sb === 'reload') location.reload();
+      else if (saveBarKind !== 'stale') saveBar(null, true);
+    });
+    el.saveBar.addEventListener('mousedown', (e) => e.stopPropagation());
+    if (G.slots && G.slots.legacy()) saveBar('legacy');
     el.pause = $('pause');
     el.pMenu = $('p-menu');
     el.pView = $('p-view');
@@ -6101,6 +6529,7 @@
     initHud();
     initEncHud();
     initPinHud();
+    initQuestHud();
     initWorldUi();
     IC.warm(); // 图标趁空闲分批画好，第一次打开背包不再卡顿
     document.documentElement.style.setProperty('--relic', G.RELIC_COLOR); // 渊契的颜色只在 data.js 写一次，样式表里读 --relic
@@ -6159,6 +6588,13 @@
     });
     // 标题画面 / 暂停菜单：点击不是游戏输入，按钮不拿焦点
     window.addEventListener('keydown', onMenuKey, true);
+    window.addEventListener(
+      'keyup',
+      (e) => {
+        if (menu.title && (e.key === 'Alt' || e.code === 'AltLeft' || e.code === 'AltRight')) document.body.classList.remove('alt-on');
+      },
+      true
+    );
     for (const m of [el.title, el.pause]) {
       m.addEventListener('mousedown', (e) => {
         e.stopPropagation();
@@ -6246,6 +6682,8 @@
     storyOn: () => story.on,
     refresh,
     toast,
+    saveBar: (kind) => saveBar(kind),
+    saveBarKind: () => saveBarKind,
     hurt,
     showHelp,
     showIntro,
@@ -6262,6 +6700,9 @@
     bigToast,
     bigToastReset,
     verdict, // 换装评估（只读）：{ badge, score, empty, lines } | null
+    questDone,
+    // 测试读：追踪条现在显示的字、显不显示、排队中的完成提示
+    quest: () => ({ on: !!qh.vis, k: qh.k.textContent, goal: qh.goal.textContent, how: qh.how.textContent, alt: qh.alt.textContent, queued: qh.toastQ.slice() }),
     hints: () => ({ current: coach.cur ? coach.cur.id : null, state: coach.state, all: HINTS.map((h) => h.id), veteran: coach.vet, minShow: coach.minT, shownFor: coach.t }),
   };
 })();
