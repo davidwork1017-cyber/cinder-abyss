@@ -19807,8 +19807,21 @@ async function main() {
 
 // ------------------------------------------------------------------ 多存档（multisave-d1）
 // 6 个角色栏位：第 1 栏就是原来的 cinder-abyss-save-v1（key 不变），迁移只加备份和索引、不改它；退回旧代码时旧代码读的就是第 1 栏。
-// 「旧代码」= 多存档之前最后一版（单存档），test/serve.mjs 的 /__old/<提交>/ 从 git 里按需取它的文件，和当前代码同源、共用 localStorage
-const OLD_SAVE_BUILD = '2b89168';
+// 「旧代码」= 多存档之前最后一版（单存档，main 47064bc），test/serve.mjs 的 /__old/<提交>/ 从 git 里按需取它的文件，和当前代码同源、共用 localStorage。
+// 比的是旧版本存档里有的每个字段（逐个字段 JSON 相同）；新代码没有多出字段时整份 JSON 也必须一字不差（多存档 D1 就是这样）。
+// 以后的版本给存档加了字段（比如职业 cls），旧版本读档时会丢掉它们，这是退回旧代码时预期的，多出的字段在步骤结果里列出来
+const OLD_SAVE_BUILD = '47064bc';
+// 新代码的存档 a 和旧版本的存档 b（都是 JSON 文本）：{ ok：b 里每个字段在 a 里 JSON 相同，exact：整份一字不差，extra：a 多出的字段，bad：不同的字段 }
+function saveVsOld(a, b) {
+  const A = JSON.parse(a), B = JSON.parse(b);
+  const bad = Object.keys(B).filter((k) => JSON.stringify(A[k]) !== JSON.stringify(B[k]));
+  const extra = Object.keys(A).filter((k) => !(k in B));
+  return { ok: !bad.length, exact: a === b, extra, bad };
+}
+const sameAsOld = (a, b) => {
+  const r = saveVsOld(a, b);
+  return r.ok && (r.extra.length > 0 || r.exact);
+};
 const SK = { s1: SAVE_KEY, bak: SAVE_KEY + '-bak', chars: 'cinder-abyss-chars', glob: 'cinder-abyss-global', trash: 'cinder-abyss-trash' };
 const slotKeyOf = (k) => (k === 0 ? SAVE_KEY : SAVE_KEY + '-s' + (k + 1));
 async function slotSteps() {
@@ -19898,7 +19911,7 @@ async function slotSteps() {
   };
 
   let SAMPLES = null;
-  await step('多存档·迁移：老存档样本（新号 / 中期 / 毕业带烬铸·渊契·刻式·渊式 / gv < 2 / 旧长弓 / 旧冰弓名）进第 1 栏——原文一个字节不动，-bak 等于原文、再读档 / 索引丢了重建都不覆盖，sanitize 结果和旧版本（' + OLD_SAVE_BUILD + '）JSON 完全一致', async () => {
+  await step('多存档·迁移：老存档样本（新号 / 中期 / 毕业带烬铸·渊契·刻式·渊式 / gv < 2 / 旧长弓 / 旧冰弓名）进第 1 栏——原文一个字节不动，-bak 等于原文、再读档 / 索引丢了重建都不覆盖，sanitize 结果和旧版本（' + OLD_SAVE_BUILD + '）JSON 一致（旧版本有的字段逐个相同，没多出字段时整份一字不差）', async () => {
     if (process.env.CINDER_FILE) return 'file:// 下没有同源的旧版本，这一步要 HTTP（默认就是）';
     await fresh({ url: OLD_URL });
     await oldReady();
@@ -19915,15 +19928,15 @@ async function slotSteps() {
         G.loadSave();
         const idx = JSON.parse(get(K.chars) || 'null');
         const o = {
-          same: JSON.stringify(G.save) === O[n], slot1: get(K.s1) === S[n], bak: get(K.bak) === S[n], mig: G.slotMigrated,
+          json: JSON.stringify(G.save), slot1: get(K.s1) === S[n], bak: get(K.bak) === S[n], mig: G.slotMigrated,
           idx: !!idx && idx.active === 0 && !!idx.slots[0] && idx.slots.slice(1).every((x) => x === null), keys: Object.keys(localStorage).sort().join(),
         };
         window.__testRand.seed('multisave-load-' + n);
         G.loadSave();
         o.mig2 = G.slotMigrated;
-        o.same2 = JSON.stringify(G.save) === O[n];
+        o.json2 = JSON.stringify(G.save);
         G.persist();
-        o.persisted = get(K.s1) === O[n];
+        o.persisted = get(K.s1) === o.json2;
         o.bak2 = get(K.bak) === S[n];
         // 索引丢了、第 1 栏换了别的：照样重建索引，备份还是第一次迁移时的原文
         localStorage.removeItem(K.chars);
@@ -19938,15 +19951,20 @@ async function slotSteps() {
       G.holdSave(true);
       return out;
     }, { S: SAMPLES.S, O: SAMPLES.O, K: SK });
+    const extra = new Set();
     for (const n of Object.keys(r)) {
       const o = r[n];
-      assert(o.same && o.same2, n + '：新代码读出的存档和旧版本 sanitize 的 JSON 不一致：' + JSON.stringify(o));
+      const v = saveVsOld(o.json, SAMPLES.O[n]);
+      v.extra.forEach((k) => extra.add(k));
+      assert(sameAsOld(o.json, SAMPLES.O[n]) && o.json2 === o.json, n + '：新代码读出的存档和旧版本 sanitize 的 JSON 不一致：' + JSON.stringify({ bad: v.bad, extra: v.extra, exact: v.exact, again: o.json2 === o.json }));
+      delete o.json;
+      delete o.json2;
       assert(o.slot1 && o.mig && o.idx && o.keys === [SK.s1, SK.bak, SK.chars].sort().join(), n + '：迁移应只加备份和索引、第 1 栏原文不动：' + JSON.stringify(o));
       assert(o.bak && o.bak2 && o.bak3 && !o.mig2 && o.rebuilt, n + '：-bak 应等于原文，第二次读档不再迁移、之后永远不覆盖：' + JSON.stringify(o));
-      assert(o.persisted, n + '：新代码存回第 1 栏的应和旧版本存的一字不差：' + JSON.stringify(o));
+      assert(o.persisted, n + '：新代码存回第 1 栏的应就是读出来的存档：' + JSON.stringify(o));
     }
     const lens = Object.keys(SAMPLES.S).map((n) => n + ' ' + (SAMPLES.S[n].length / 1024).toFixed(1) + 'KB');
-    return Object.keys(r).length + ' 个样本 JSON 一致（' + lens.join('，') + '）；长弓 → ' + SAMPLES.meta.bow + '，冰弓 → ' + SAMPLES.meta.ice;
+    return Object.keys(r).length + ' 个样本 ' + (extra.size ? '旧版本有的字段一致，新代码多出 ' + [...extra].join(' / ') : '整份 JSON 一字不差') + '（' + lens.join('，') + '）；长弓 → ' + SAMPLES.meta.bow + '，冰弓 → ' + SAMPLES.meta.ice;
   });
 
   await step('多存档·退回旧代码：新代码迁移、存档、建第 2 栏 → 旧版本（' + OLD_SAVE_BUILD + '）读第 1 栏一致、接着玩并存档 → 新代码再读：和旧版本的结果一样，不再迁移，备份和第 2 栏原样', async () => {
@@ -19993,7 +20011,7 @@ async function slotSteps() {
       G.holdSave(true);
       return o;
     }, { K: SK });
-    assert(b.save === a.save, '旧版本读第 1 栏的结果应和新代码存的一致：' + JSON.stringify({ old: b.save.length, neu: a.save.length, level: b.level, dust: b.dust }));
+    assert(sameAsOld(a.save, b.save), '旧版本读第 1 栏的结果应和新代码存的一致：' + JSON.stringify(saveVsOld(a.save, b.save)));
     assert(b.s1 === b.after, '旧版本应能照常存回第 1 栏');
     // 新代码再读
     await page.goto(GAME_URL);
@@ -20007,12 +20025,12 @@ async function slotSteps() {
       return o;
     }, { K: SK });
     assert(c.cur === 0 && !c.mig, '新代码再读应在第 1 栏、不再迁移：' + JSON.stringify({ cur: c.cur, mig: c.mig }));
-    assert(c.save === b.after && c.again === b.after && c.dust === a.dust + 5, '新代码再读应和旧版本存的结果一样：' + JSON.stringify({ same: c.save === b.after, again: c.again === b.after, dust: c.dust, want: a.dust + 5 }));
+    assert(sameAsOld(c.save, b.after) && c.again === c.save && c.dust === a.dust + 5, '新代码再读应和旧版本存的结果一样：' + JSON.stringify({ vs: saveVsOld(c.save, b.after), again: c.again === c.save, dust: c.dust, want: a.dust + 5 }));
     assert(c.bak === S.end && c.s2 === a.s2 && c.idx.slots[1], '备份和第 2 栏应原样：' + JSON.stringify({ bak: c.bak === S.end, s2: c.s2 === a.s2 }));
     return '旧版本读到 ' + b.level + ' 级、通货 ' + b.dust + '，存回后新代码读到 ' + c.dust + '；旧版本看到的键 ' + b.keys.split(',').length + ' 个';
   });
 
-  await step('多存档·全局和每个角色：设置 / 新手提示 / 图鉴（拾到过、最高完美度）/ 开场卡片所有角色共用；等级、层级、通货、保底、拾到过（巅峰掉落用）按角色；切换角色两边都不串', async () => {
+  await step('多存档·全局和每个角色：设置 / 新手提示 / 图鉴（拾到过、最高完美度）/ 开场卡片所有角色共用；等级、层级、通货、主线、保底、拾到过（巅峰掉落用）按角色；切换角色两边都不串', async () => {
     await fresh();
     await install();
     const a = await ev(() => {
@@ -20024,6 +20042,7 @@ async function slotSteps() {
       s.cur.dust = 99;
       s.tier = 1;
       s.maxTier = 2;
+      s.quest.n = 3; // 主线（T32）按角色
       G.debug.setLevel(9);
       const u = G.rollUnique('jinyu', 40, 0.7);
       G.noteUnique(u);
@@ -20039,7 +20058,7 @@ async function slotSteps() {
     const b = await ev(() => {
       const s = G.save, cx = G.codexView();
       const o = {
-        cur: G.slots.cur(), level: s.level, dust: s.cur.dust, tier: s.tier, maxTier: s.maxTier, vol: s.opts.volMusic, hide: s.opts.hideNormal, tut: !!s.tut.ms_probe,
+        cur: G.slots.cur(), level: s.level, dust: s.cur.dust, tier: s.tier, maxTier: s.maxTier, quest: s.quest.n, vol: s.opts.volMusic, hide: s.opts.hideNormal, tut: !!s.tut.ms_probe,
         cxFound: !!cx.uniq.found.jinyu, cxBest: cx.uniq.best.jinyu, ownFound: !!s.uniq.found.jinyu, pity: s.uniq.pity.behemoth || 0, intro: T.introOpen(), seenHelp: s.seenHelp,
       };
       s.opts.volMusic = 44;
@@ -20048,7 +20067,7 @@ async function slotSteps() {
       o.glob = JSON.parse(localStorage.getItem('cinder-abyss-global'));
       return o;
     });
-    assert(b.cur === 1 && b.level === 1 && b.dust === 2 && b.tier === 0 && b.maxTier === 0, '新角色的等级 / 通货 / 层级应是新的：' + JSON.stringify(b));
+    assert(b.cur === 1 && b.level === 1 && b.dust === 2 && b.tier === 0 && b.maxTier === 0 && b.quest <= 1, '新角色的等级 / 通货 / 层级 / 主线应是新的：' + JSON.stringify(b));
     assert(b.vol === 33 && b.hide === true && b.tut, '设置和新手提示应所有角色共用：' + JSON.stringify(b));
     assert(b.cxFound && b.cxBest === a.best && !b.ownFound && b.pity === 0, '图鉴显示应合并，拾到过（巅峰掉落用）和保底按角色：' + JSON.stringify(b));
     assert(!b.intro && b.seenHelp, '开场卡片别的角色看过了，新角色不该再弹：' + JSON.stringify(b));
@@ -20056,8 +20075,8 @@ async function slotSteps() {
     // 切回第 1 个角色：设置是刚改的，自己的东西都在
     await Promise.all([page.waitForEvent('load', { timeout: 90000 }), ev(() => { G.slots.select(0); sessionStorage.setItem(G.PLAY_ONCE_KEY, '1'); location.reload(); })]);
     await install();
-    const c = await ev(() => ({ cur: G.slots.cur(), level: G.save.level, dust: G.save.cur.dust, tier: G.save.tier, vol: G.save.opts.volMusic, own: !!G.save.uniq.found.jinyu, pity: G.save.uniq.pity.behemoth }));
-    assert(c.cur === 0 && c.level === 9 && c.dust === 99 && c.tier === 1 && c.own && c.pity === 2 && c.vol === 44, '切回第 1 个角色应是它自己的进度、全局的设置：' + JSON.stringify(c));
+    const c = await ev(() => ({ cur: G.slots.cur(), level: G.save.level, dust: G.save.cur.dust, tier: G.save.tier, quest: G.save.quest.n, vol: G.save.opts.volMusic, own: !!G.save.uniq.found.jinyu, pity: G.save.uniq.pity.behemoth }));
+    assert(c.cur === 0 && c.level === 9 && c.dust >= 99 && c.tier === 1 && c.quest >= 3 && c.own && c.pity === 2 && c.vol === 44, '切回第 1 个角色应是它自己的进度、全局的设置：' + JSON.stringify(c));
     return '第 2 个角色：音乐 ' + b.vol + '、通货 ' + b.dust + '；切回：等级 ' + c.level + '、音乐 ' + c.vol;
   });
 
@@ -20221,7 +20240,7 @@ async function slotSteps() {
   });
 
   // 标题画面上走一遍：建满 6 栏、删除（确认两次）、恢复、再删一个后回收位只有最近那个；删当前角色回到标题画面
-  await step('多存档·角色页：建满 6 栏（第 2 栏从界面建，先放开场故事）、「新游戏」变灰；删除要确认两次，回收位有人时写明会被顶掉；恢复原文一字不差（不认识的 cls / quest 原样）；再删一个后回收位只有最近那个；删当前角色回标题画面', async () => {
+  await step('多存档·角色页：建满 6 栏（第 2 栏从界面建，先放开场故事）、「新游戏」变灰；删除要确认两次，回收位有人时写明会被顶掉；恢复原文一字不差（连以后版本才有的 cls 字段一起）；再删一个后回收位只有最近那个；删当前角色回标题画面', async () => {
     await fresh({ title: true });
     const ready = () => until(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, 90000);
     await install();
