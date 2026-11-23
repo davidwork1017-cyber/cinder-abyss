@@ -10450,7 +10450,11 @@ async function main() {
       const look = async (i) => {
         G.enterZone(i, 0);
         await wait(() => !W.assetsPending(), 40000);
-        return { id: G.ZONES[i].id, hd: W.gfxInfo().hd, fires: W.gfxInfo().fires, src: W.propSources() };
+        // storm-lamps：远处实例剔除（≥ 12 个实例的网格）先复原，按完整的实例数比（雷鸣遗迹的立灯多了，也会被剔）
+        W.icull(false);
+        const o = { id: G.ZONES[i].id, hd: W.gfxInfo().hd, fires: W.gfxInfo().fires, src: W.propSources() };
+        W.icull(true);
+        return o;
       };
       // models-drop：第 1、2 区原来摆放表里的 CC0 模型一个都摆不出来，已清空；第 1 区没有摆放表，第 2 区只剩自产立灯
       const ash = await look(0), frost = await look(1), storm = await look(2);
@@ -19514,10 +19518,36 @@ async function main() {
       // 20 个种子：校验通过、是本区自己的生成器（有 storm 字段），关键路径大厅 6–7 个、旁支 3–5 个，怪 72–104 只（size-storm：区域加长 ×1.6），
       // 精英 1–6（关键路径 ≤ 5，旁支保底 1）、宝箱 3、至多一个关键路径大厅没有伏击群；每个房间的怪物等级偏移 lv = lvFor(order, 大厅数)，旁支取父大厅
       const lvFor = W.terrain.lvFor;
+      // storm-lamps：灯位（feats 里的 lamp）。只在起点圆厅、关键路径大厅（≤ 2 盏）和场地（≤ 4 盏）的北边、房间中心以北 ≥ 1 m；在墙身中线上（可走区域外 0.4–0.6 m）、
+      // 离门洞边 ≥ 1.5 m、离雷枢的柱子 / 雷线 ≥ 3 m、灯与灯 ≥ 4.5 m；整区摆出目标（2 × (大厅 + 1) + 4）的七成以上（200 个种子最少 78%）。
+      // 布局本身不动：去掉灯位以后的 spec 和加灯位之前（main 6104301）逐字相同，前 3 个种子按固定的指纹比
+      out.lamps = { n: 0, want: 0, bad: [], hash: [] };
+      const lampHash = ['674a4f70', '9291857e', 'aa902df2']; // main 6104301 在页面里 W.genLayout 的指纹（node 的 Math.atan2 末位会差，指纹不一样，别拿 node 算的填）
       for (let s = 1; s <= 20; s++) {
         const g = W.genLayout('storm', s * 7919 + 3), sp = g.spec;
         out.seeds++;
         if (!g.ok || !sp.storm) { out.bad.push(s + '：' + g.why.join('；')); continue; }
+        {
+          const lamps = sp.feats.filter((f) => f.kind === 'lamp'), pr = W.terrain.terrPrep(sp), Lm = out.lamps;
+          const hs = W.specHash(Object.assign({}, sp, { feats: sp.feats.filter((f) => f.kind !== 'lamp') }));
+          if (s <= 3) Lm.hash.push(hs);
+          if (s <= 3 && hs !== lampHash[s - 1]) Lm.bad.push(s + '：布局指纹 ' + hs + ' ≠ ' + lampHash[s - 1]);
+          const nH = sp.rooms.filter((rm) => rm.kind === 'room' && rm.path).length, doors = sp.feats.filter((f) => f.kind === 'door'), nodes = sp.feats.filter((f) => f.kind === 'node');
+          Lm.n += lamps.length;
+          Lm.want += 2 * nH + 6;
+          if (lamps.length < 0.7 * (2 * nH + 6)) Lm.bad.push(s + '：灯 ' + lamps.length + ' / ' + (2 * nH + 6));
+          const segD = (x, z, ax, az, bx, bz) => { const ex = bx - ax, ez = bz - az, t = Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / (ex * ex + ez * ez))); return Math.hypot(x - ax - ex * t, z - az - ez * t); };
+          for (const rm of sp.rooms) {
+            const k = lamps.filter((f) => f.room === rm.id).length;
+            if (k > (rm.kind === 'arena' ? 4 : (rm.kind === 'room' && rm.path) || rm.kind === 'start' ? 2 : 0)) Lm.bad.push(s + '：房间 ' + rm.id + '（' + rm.kind + '）' + k + ' 盏');
+          }
+          for (const f of lamps) {
+            const rm = sp.rooms[f.room], sd = W.terrain.exactSd(pr, f.x, f.z, false);
+            const why = f.z > rm.core.z - 1 ? '不在北边' : sd > -0.4 || sd < -0.6 ? '不在墙身中线上 ' + sd.toFixed(2) : doors.some((d) => Math.hypot(d.x - f.x, d.z - f.z) - d.w / 2 < 1.5) ? '挨着门' :
+              nodes.some((n) => Math.hypot(n.ax - f.x, n.az - f.z) < 3 || Math.hypot(n.bx - f.x, n.bz - f.z) < 3 || segD(f.x, f.z, n.ax, n.az, n.bx, n.bz) < 3) ? '挨着雷枢' : lamps.some((o) => o !== f && Math.hypot(o.x - f.x, o.z - f.z) < 4.5) ? '和别的灯挤在一起' : '';
+            if (why) Lm.bad.push(s + '：灯 (' + f.x.toFixed(1) + ', ' + f.z.toFixed(1) + ') ' + why);
+          }
+        }
         const mobs = sp.packs.reduce((a, p) => a + (Array.isArray(p.n) ? (p.n[0] + p.n[1]) / 2 : p.n), 0);
         const el = sp.packs.filter((p) => p.elite).length, halls = sp.rooms.filter((rm) => rm.kind === 'room'), sides = sp.rooms.filter((rm) => rm.kind === 'side');
         const pel = sp.packs.filter((p) => p.elite && sp.rooms[p.room].kind !== 'side').length, sel = sp.packs.some((p) => p.elite && sp.rooms[p.room].kind === 'side');
@@ -19537,6 +19567,7 @@ async function main() {
         bad: S.enemies.filter((e) => !W.walkable(e.x, e.z, 0) || Math.hypot(e.x - z.start.x, e.z - z.start.z) < 12).length,
         elites: S.enemies.filter((e) => e.elite).length, doorGap: Math.hypot(z.bossDoor.x - z.bossPos.x, z.bossDoor.z - z.bossPos.z) - z.bossR,
         doorWalk: W.walkable(z.bossDoor.x, z.bossDoor.z, 0.5), wallMat: W.matAt(z.bossPos.x + 40, z.bossPos.z + 40) === W.MAT.WALL,
+        lamps: z.feats.filter((f) => f.kind === 'lamp').length, lampWalk: z.feats.filter((f) => f.kind === 'lamp' && W.walkable(f.x, f.z, -0.35)).length,
       };
       // 雷枢：机关厅那一对。玩家站在雷线上、一只游魂也站在上面
       const f = z.feats.find((q) => q.kind === 'node');
@@ -19585,13 +19616,15 @@ async function main() {
       return out;
     });
     assert(r.seeds === 20 && !r.bad.length, 'storm 有种子不合格：' + r.bad.slice(0, 4).join(' | '));
+    assert(!r.lamps.bad.length && r.lamps.hash.length === 3, 'storm 的灯位不对：' + r.lamps.bad.slice(0, 4).join(' | ') + ' ' + JSON.stringify(r.lamps.hash));
     const z = r.zone;
+    assert(z.lamps >= 12 && z.lampWalk === 0, '进区后的灯位不对（应在可走区域外）：' + JSON.stringify(z));
     assert(z.gen === 'custom' && z.n >= 80 && z.boss && z.bad === 0 && z.elites <= 6 && z.chests === 3, '进区刷怪不对：' + JSON.stringify(z));
     assert(Math.abs(z.doorGap - 2) < 0.01 && z.doorWalk && z.wallMat, '场地门 / 区域外的墙不对：' + JSON.stringify(z));
     assert(r.node.shape === 'rect' && r.node.w === 2 && Math.abs(r.node.dur - 0.9) < 1e-6 && r.node.warnAt <= 6.5, '雷枢应在 5 秒一轮里先放 2 m 宽、0.9 秒的长条预警：' + JSON.stringify(r.node));
     assert(r.node.playerHit > 0 && r.node.huskHit > 0, '雷枢落雷应同时打到玩家和小怪：' + JSON.stringify(r.node));
     assert(r.awake && !r.respawn.dead && Math.abs(r.respawn.door - 2) < 0.01 && r.respawn.walk, '倒在首领战里应重生在门外 2 m：' + JSON.stringify(r));
-    return '怪 ' + z.n + ' 只，雷枢 ' + r.node.warnAt + ' 秒起手，玩家 -' + r.node.playerHit + ' / 游魂 -' + r.node.huskHit;
+    return '怪 ' + z.n + ' 只，雷枢 ' + r.node.warnAt + ' 秒起手，玩家 -' + r.node.playerHit + ' / 游魂 -' + r.node.huskHit + '；灯 ' + r.lamps.n + ' / ' + r.lamps.want;
   });
 
   await step('区域 abyss 布局：20 个种子都通过校验 + 进区刷怪正常 + 首领门外重生；L 形深渊 7 个平台、4 座桥、3 个洞，怪物等级按路径比例；虚空不挡子弹；余烬口先预警再喷发，伤玩家也伤怪', async () => {
