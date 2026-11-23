@@ -24348,6 +24348,16 @@
     }
     W.vDecal(VVD.scorch, x, z, rr + 0.9, 1.6, 0x3a1a10);
   }
+  function b2AshMarks(x, y, z, a0, rr, m) {
+    if (!PF.vShape) return;
+    const lo = qualId === 'low', cs = 1.5 + rr;
+    vsBrush(VSH.crescent, 2, 3, 0xffb060, 0x6a3010, 0.2, 0.45, 0.4);
+    for (let i = 0; i < m; i++) {
+      if (lo && i % 2) continue;
+      const a = a0 + (i / 5) * TAU;
+      vsEmit(x + Math.sin(a) * cs * 0.3, Math.max(0.1, y * (0.3 + 0.05 * i)), z + Math.cos(a) * cs * 0.3, Math.sin(a) * 0.8, 0, Math.cos(a) * 0.8, 0.24, cs * 0.5, cs * 0.5, a, i % 2 ? -4 : 4, 0, 2);
+    }
+  }
   // 过载：一跳的电弧改成形状批里的折线（链雷 v2 的语言）：k 越大（越往后的段）叠的折线越多、越粗；ret = 折回你身上的那道（细、一根）
   W.b2Strand = function (p0, p1, hex, k, ret) {
     if (!PF.vShape) return;
@@ -26183,9 +26193,9 @@
     const pulse = (1 + 0.12 * Math.sin(wtime * 47) + 0.06 * Math.sin(wtime * 83)) * (L.ext >= wtime && L.w > 0 ? L.w : 1);
     // 外焰（火）→ 内焰 → 白热的芯
     mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.75 * pulse, len);
-    pfPut('beam', 0.95, 0.26, 0.05);
+    pfPut('beam', 0.75, 0.2, 0.04); // skill-b2：外焰压一点（原来 0.95 / 0.26 / 0.05）
     mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.34 * pulse, len);
-    pfPut('beam', 0.9, 0.38, 0.08); // skill-b2：内焰压一档（原来 1.4 / 0.75 / 0.22，叠在外焰上整条成了近白）
+    pfPut('beam', 0.6, 0.24, 0.05); // skill-b2：内焰压两档（原来 1.4 / 0.75 / 0.22，叠在外焰上整条成了近白）
     // skill-b2：白热的芯只留枪口那一段（≤ 1.2 米）、只在放出后的 60 毫秒里（原来是整条 12 米、0.4 秒的近白粗芯）
     if (wtime - (L.rel || -9) < 0.06) {
       const cl = Math.min(1.2, len), cf = cl / len;
@@ -27170,7 +27180,12 @@
       W.burst(x, y, z, 0xfff0d0, 12 + Math.min(6, n) * 2, 9, 0.4);
     }
     W.burst(x, y, z, EMBER, 22 + Math.min(6, n) * 3, 7, 0.6);
-    if (mk > 0) {
+    if (mk > 0 && b2) {
+      // skill-b2：吃掉残刃的那圈金色刃光（W.slash 近白的金色月牙 + 粗环）→ 形状批里琥珀色的细弯月 + 细环；W.slash 的碎片每块 7 次照取
+      rBurn(Math.min(5, mk) * (qualId === 'low' ? 2 : 4) * 7);
+      b2AshMarks(x, y, z, a0, rr, Math.min(5, mk));
+      b2Ring(x, z, rr + 3, 0xffb060, 0x6a3010, 0.42);
+    } else if (mk > 0) {
       for (let i = 0; i < Math.min(5, mk); i++) W.slash(x, z, a0 + (i / 5) * TAU, 1.5 + rr, 80, i % 2 ? 0xffe2b8 : 0xffc27a, { y: y * (0.8 + 0.1 * i), dur: 0.24, inner: 0.5, dir: i % 2 ? -1 : 1 });
       W.ring(x, z, rr + 3, 0xffc27a, 0.42);
     }
