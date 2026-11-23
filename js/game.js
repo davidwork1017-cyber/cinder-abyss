@@ -2006,14 +2006,14 @@
   // 技能在某个等级下的基础伤害（还没算你的伤害属性）：{ 类型: [最小, 最大] }。攻击技能按当前武器算。
   // 技能卡 / 宝石提示用；lvl 缺省取已学等级
   // 攻速折进伤害的攻击技能：有冷却、不是武器技（武器技各自按自己的武器定好了数值）
-  G.cdAps = (sk) => !!(sk && sk.wm && sk.cd > 0 && !sk.weaponOnly && sk.kind !== 'summon' && !sk.round); // 特殊弹按普攻折算，攻速已经算在发数里
+  G.cdAps = (sk) => !!(sk && sk.wm && sk.cd > 0 && !sk.weaponOnly && sk.kind !== 'summon' && !sk.round && !(sk.gunSec && G.roundGun && G.roundGun())); // 特殊弹 / 拿枪的绊雷按普攻折算，攻速已经算在发数里
   // 按普攻折算的量表技（熔光射线：basicOf / basicSec）：一发 = 普攻转满之后扫射 basicSec 秒的发数。
   // 每秒发数 = 武器攻速 × 攻击速度 ÷ 普攻的 time（不算辅助宝石：武器技镶不了辅助）；没拿着对应的武器时按 1.0 攻速算
   G.basicShots = function (sk) {
     const b = G.SKILLS[sk.basicOf || G.roundBasicId(sk)]; // 特殊弹（class-d2b1）按手里那把枪的右键折算
     if (!b) return 1;
     const wp = G.weaponStats(G.save.equip.weapon);
-    return (sk.basicSec * (P.speedMult || 1) * (wp.aps > 0 ? wp.aps : 1)) / b.time;
+    return ((sk.basicSec || sk.gunSec) * (P.speedMult || 1) * (wp.aps > 0 ? wp.aps : 1)) / b.time;
   };
   // 攻击技能实际的武器倍率：按普攻折算的 = 普攻的 wm × 折算的发数，其余就是 wm
   G.skillWm = (sk) => {
@@ -9331,8 +9331,9 @@
   }
   G.roundGun = roundGun;
   // 特殊弹按哪一招普攻折算伤害（同熔光射线的 basicOf）：手里那把枪的右键；不是枪时 null（按 wm 乘手里武器的伤害）
+  // 绊雷（class-d2b2，gunSec）拿枪时也这样折算：一枚 = 这把枪右键连射 gunSec 秒；拿弓照常按 wm
   G.roundBasicId = function (sk) {
-    if (!sk || !sk.round) return null;
+    if (!sk || !(sk.round || sk.gunSec)) return null;
     const t = roundGun();
     return t ? 'basic_' + t : null;
   };

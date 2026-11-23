@@ -2256,7 +2256,7 @@
       } else if (sk.kind === 'snare') {
         // class-d2b2：绊雷
         const M = sk.mine;
-        note += '<div class="sk-anote"><i></i>最多 ' + (M.max + (ctx.durCap || 0)) + ' 枚 · 每枚 ' + fmt1(M.dur * ctx.durK) + ' 秒 · 敌人走进 ' + M.trig + ' 米触发' + (sk.mech === 'tether' ? ' · 钉住 ' + sk.root.t + ' 秒' : ' · 炸开半径 ' + fmt1(sk.radius * Math.sqrt(ctx.area)) + ' 米') + '</div>';
+        note += '<div class="sk-anote"><i></i>最多 ' + (M.max + (ctx.durCap || 0)) + ' 枚 · 每枚 ' + fmt1(M.dur * ctx.durK) + ' 秒 · 敌人走进 ' + M.trig + ' 米触发' + (sk.mech === 'tether' ? ' · 钉住 ' + sk.root.t + ' 秒' : ' · 炸开半径 ' + fmt1(sk.radius * Math.sqrt(ctx.area)) + ' 米') + (G.roundGun() ? ' · 拿枪：一枚按右键连射 ' + sk.gunSec + ' 秒算' : '') + '</div>';
       } else if (sk.kind === 'brace') {
         note += '<div class="sk-anote"><i></i>' + (sk.mech === 'parry' ? '招架 ' + sk.parry.win + ' 秒 · 反刺 ×' + sk.parry.k + '（必定暴击）· 没招架到 ' + sk.parry.cd + ' 秒内不能再招架'
           : '正面减伤 ' + sk.block.dr + '% · 最多挡 ' + sk.block.max + ' 秒' + (sk.mech === 'jolt' ? ' · 每挡一下震一圈（半径 ' + sk.jolt.r + ' 米）' : ' · 反砍 ×' + sk.counter.base + ' ~ ×' + fmt1(sk.counter.base + sk.counter.cap))) + '</div>';

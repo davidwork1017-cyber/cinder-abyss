@@ -323,14 +323,15 @@
     // 都是职业专属（clsOnly）：没有职业的存档不掉，掉落池和随机数次数照旧。武器分组见 G.GEM_NEED（heavy 重兵 = 刃 / 战锤 / 太刀）。
     // 绊雷：朝准星射一枚绊雷钉在地上（最远 range 米，撞墙停；飞行途中不打怪），arm 秒后上膛；敌人走进 trig 米就炸开（radius 半径）。
     //   同时最多 mine.max 枚（多了顶掉最早那枚），每枚存在 mine.dur 秒（原稿 12 秒，按用户的持续时间要求（摆在地上的东西 6–8 秒）改成 7 秒）。
-    //   拿弓、拿枪都按 wm 乘手里武器的伤害（同散钉）。有冷却，攻速折进伤害（G.cdAps）
+    //   拿弓按 wm 乘手里武器的伤害，有冷却，攻速折进伤害（G.cdAps）；拿枪时一枚 = 这把枪右键连射 gunSec 秒（同特殊弹的 basicOf 折算，
+    //   机炮 / 喷枪的单发伤害低、攻速高，按 wm 算只有弓的三分之一）
     snare: {
       name: '绊雷', icon: '绊', color: '#d8a070', tags: ['attack', 'area', 'phys', 'duration'], kind: 'snare', clsOnly: true, bclip: 'throw',
-      wm: 2.6, time: 0.45, mana: 8, cd: 1, speed: 24, projR: 0.2, range: 14, radius: 2.4, w: 1, kb: 0.5, poise: 18, stop: 30,
+      wm: 2.6, gunSec: 1, time: 0.45, mana: 8, cd: 1, speed: 24, projR: 0.2, range: 14, radius: 2.4, w: 1, kb: 0.5, poise: 18, stop: 30,
       mine: { arm: 0.35, trig: 1.6, dur: 7, max: 3 },
       useMult: 1,
       desc: '朝准星射一枚绊雷钉在地上，敌人走进 1.6 米就炸开（半径 2.4 米）。最多 3 枚，每枚存在 7 秒。',
-      alt: '射出 0.35 秒后才会触发。多出来的绊雷顶掉最早那枚。飞行途中不打怪。冷却 1 秒。',
+      alt: '射出 0.35 秒后才会触发。多出来的绊雷顶掉最早那枚。飞行途中不打怪。冷却 1 秒。拿枪时一枚的伤害按这把枪右键连射 1 秒算。',
     },
     // 硬接：按住格挡（block.max 秒封顶）：正面（±block.arc°）受到的伤害 −block.dr%，走得很慢（block.move）。
     //   松手（至少挡过 block.min 秒）朝身前反砍一刀（st 的扇形）：倍率 = counter.base + 挡下的伤害 ÷ 最大生命 × counter.per，额外部分最多 +counter.cap。
@@ -1188,13 +1189,13 @@
     brace: {
       a: {
         name: '反震', pack: '被围着打最好用；松手不反砍',
-        desc: '每挡下一击，自动朝身边震出一圈冲击（半径 2.5 米）。松手时不再反砍。', alt: '冲击基础 ×1.5，挡下相当于最大生命 10% 的伤害多 +0.6，最多 +3。两次冲击至少隔 0.3 秒。',
-        set: { mech: 'jolt', jolt: { r: 2.5, base: 1.5, per: 6, cap: 3, gap: 0.3 }, useMult: 2.1 },
+        desc: '每挡下一击，自动朝身边震出一圈冲击（半径 2.5 米）。松手时不再反砍。', alt: '冲击基础 ×1.6，挡下相当于最大生命 10% 的伤害多 +0.7，最多 +3。两次冲击至少隔 0.65 秒。',
+        set: { mech: 'jolt', jolt: { r: 2.5, base: 1.6, per: 7, cap: 3, gap: 0.65 }, useMult: 2.3 },
       },
       b: {
         name: '拆招', pack: '看准了按；按早按晚都挨打',
-        desc: '只招架一瞬间：0.3 秒内挨打就完全免伤，闪到对方身后反刺（必定暴击）；没挨打就补一刀轻的。', alt: '反刺 ×1.55（必定暴击）；轻刀 ×0.7。没招架到时 1.2 秒内不能再招架。对方身后站不住时原地反刺。',
-        set: { mech: 'parry', block: null, parry: { win: 0.3, rec: 0.28, cd: 1.2, k: 1.55, whiff: 0.7, iframe: 0.35 }, sureCrit: true, useMult: 1.55 },
+        desc: '只招架一瞬间：0.3 秒内挨打就完全免伤，闪到对方身后反刺（必定暴击）；没挨打就补一刀轻的。', alt: '反刺 ×1.7（必定暴击）；轻刀 ×0.7。没招架到时 1.2 秒内不能再招架。对方身后站不住时原地反刺。',
+        set: { mech: 'parry', block: null, parry: { win: 0.3, rec: 0.28, cd: 1.2, k: 1.7, whiff: 0.7, iframe: 0.35 }, sureCrit: true, useMult: 1.7 },
       },
     },
     // 燎地 A 燎原：不冲，原地横扫身前 fan.arc° × fan.len 米的扇面（st），扇面烧成一片（存在 dur 秒、每 tick 秒 mult 份，同时最多 max 片）
@@ -1205,14 +1206,14 @@
         desc: '不冲，原地横扫，身前 120° 扇面烧成一片，烧 6 秒。', alt: '扇面 4 米。火地最多同时 2 片，和火痕叠着只烧一份。',
         set: {
           mech: 'sweep', dash: null, trail: null, fan: { arc: 120, len: 4, dur: 6, tick: 0.5, mult: 0.1, max: 2 }, wm: 2.1,
-          st: { shape: 'arc', range: 4, arc: 120, mult: 1, dir: 1, w: 2, stop: 70, kb: 1.4, poise: 30 }, useMult: 1.7, // 单体：横扫 1 + 站在火地里每秒 0.2、摊到每次（约 3.5 秒）0.7
+          st: { shape: 'arc', range: 4, arc: 120, mult: 1, dir: 1, w: 2, stop: 70, kb: 0.5, poise: 30 }, useMult: 1.7, // 击退轻：横扫完怪还站在火里 // 单体：横扫 1 + 站在火地里每秒 0.2、摊到每次（约 3.5 秒）0.7
           tags: ['attack', 'melee', 'area', 'phys', 'fire', 'duration'],
         },
       },
       b: {
         name: '爆痕', pack: '火痕短；上挑时整条炸开',
-        desc: '冲 3.5 米（穿过敌人），火痕变短，上挑时整条火痕一起炸开。', alt: '火痕宽 2.2 米，炸开每个敌人 ×0.6。不留火痕。',
-        set: { mech: 'boom', dash: { d: 3.5, dmin: 2, dur: 0.16, through: true }, trail: null, boom: { w: 2.2, k: 0.6 }, useMult: 1 },
+        desc: '冲 3.5 米（穿过敌人），火痕变短，上挑时整条火痕一起炸开。', alt: '火痕宽 2.2 米，炸开每个敌人 ×1.2（按这一下的伤害）。不留火痕。',
+        set: { mech: 'boom', dash: { d: 3.5, dmin: 2, dur: 0.16, through: true }, trail: null, boom: { w: 2.2, k: 1.2 }, wm: 1.65, useMult: 2.2 }, // 单体：冲到它身前，火痕和上挑都打得到（1.2 + 1）
       },
     },
     // 心火 A 护火：不转火、不炸，每次近战命中叠一层护火（每层受到的伤害 −dr%，最多 max 层，keep 秒没打中就全掉），

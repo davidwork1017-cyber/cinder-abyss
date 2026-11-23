@@ -21055,7 +21055,7 @@ async function d2bSteps() {
     }
   };
 
-  await step('D2b-1·数据：提灯是第 15 种武器（下标 14，单手法器，没有职业时随机掉落权重 0）、词缀 baseW 补到 15 位；特殊弹只在有职业时掉（宝石池 20 / 24、掉率 ×24/20）；各职业能用的宝石数', async () => {
+  await step('D2b-1·数据：提灯是第 15 种武器（下标 14，单手法器，没有职业时随机掉落权重 0）、词缀 baseW 补到 15 位；特殊弹只在有职业时掉（宝石池 20 / 24、掉率 ×24/20；D2b-2 起 20 / 29、×29/20）；各职业能用的宝石数', async () => {
     const r = await ev((RD) => {
       const B = G.BASES.weapon, L = B[14];
       const bw = G.AFFIXES.filter((a) => a.baseW && a.baseW.weapon).map((a) => a.id + ':' + a.baseW.weapon.length);
