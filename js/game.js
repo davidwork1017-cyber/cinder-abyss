@@ -10297,7 +10297,7 @@
     ctx.heartGen = gen;
     const R = B.r * Math.sqrt(ctx.area), list = [];
     for (const e of enemiesIn(x, z, R)) if (losClear(x, z, e.x, e.z)) list.push(e);
-    groupHit(list, ctx, B.k, (o) => ({ ang: Math.atan2(o.x - x, o.z - z), w: 0, kb: 0.6, poise: 6, quiet: true }), true);
+    groupHit(list, ctx, B.k, (o) => ({ ang: Math.atan2(o.x - x, o.z - z), w: 0, kb: 0, poise: 6, quiet: true }), true); // 不推人：怪群不被炸散
     fxOpt('heartBurst', x, z, R, gen);
     G.sfx('cls2', { type: 'burst' });
     state.stats.heartBursts = (state.stats.heartBursts || 0) + 1;
