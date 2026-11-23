@@ -932,6 +932,8 @@ kbd {
   pointer-events: none;
 }
 #tip.on { display: block; }
+#tip { transform-origin: 0 0; }
+#tip.one .tip-pair > :not(:first-child) { display: none; }
 .tip-pair { display: flex; align-items: flex-start; gap: 8px; }
 .tcard {
   --c: #e6c58a;
@@ -972,8 +974,14 @@ body.alt-on .sk-desc .alt-h { display: block; visibility: hidden; }
   height: 100%;
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr) 320px;
+  grid-template-rows: minmax(0, 1fr);
   gap: 20px;
 }
+/* DOM 里背包列在前（见 ui.js renderInv），宽屏按列号摆回 装备 | 背包 | 详情 */
+.inv-side { display: contents; }
+.inv > .col-m { grid-column: 2; grid-row: 1; }
+.inv-side > .col-l { grid-column: 1; grid-row: 1; }
+.inv-side > .col-r { grid-column: 3; grid-row: 1; }
 
 .eq-grid { flex: none; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
 .cell, .eq {
@@ -1916,6 +1924,9 @@ button.pk-row:hover { background: #2a1b10; border-color: var(--ember-2); }
 .chk:hover { color: #e6d7bd; border-color: var(--ember-2); }
 .chk.on { color: #b9c8ff; border-color: #4760c4; }
 .chk.on i { background: #8ba6ff; border-color: #c7d0ff; box-shadow: 0 0 6px rgba(127, 157, 255, 0.8); }
+/* 勾：开着的框里画一个对勾 */
+.chk i { position: relative; flex: none; }
+.chk.on i::after { content: ''; position: absolute; left: 2.5px; top: 0; width: 3px; height: 6px; border: solid #10183a; border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); }
 .sec-title .btn + .chk, .sec-title .btn + .btn, .sec-title .chk + .btn { margin-left: -4px; }
 .inv-tips.res { gap: 8px; font-size: 12.5px; color: #c9b48e; border-top-color: #5e4329; }
 .inv-tips.res b { color: #f2dfb8; font-weight: 600; }
@@ -1927,6 +1938,10 @@ button.pk-row:hover { background: #2a1b10; border-color: var(--ember-2); }
 .res-cur { white-space: nowrap; }
 .chk:disabled { cursor: default; opacity: 0.55; }
 .chk:disabled:hover { color: #b9c8ff; border-color: #4760c4; }
+/* 含稀有开着时的含魔法：算在内、但锁着不能点 → 暗一点的勾，框不发光 */
+.chk.on:disabled, .chk.on:disabled:hover { opacity: 1; color: #8692bd; border-color: #303b6c; }
+.chk.on:disabled i { background: rgba(139, 166, 255, 0.22); border-color: #6476b8; box-shadow: none; }
+.chk.on:disabled i::after { border-color: #b9c8ff; }
 /* 锁：纯 CSS 画的小锁（锁梁 + 锁身），颜色跟着 currentColor */
 .lk-ico { position: relative; display: inline-block; flex: none; width: 9px; height: 11px; vertical-align: -1px; }
 .lk-ico::before { content: ''; position: absolute; left: 1.5px; top: 0; width: 6px; height: 7px; box-sizing: border-box; border: 1.5px solid currentColor; border-bottom: none; border-radius: 3px 3px 0 0; }
@@ -3714,6 +3729,65 @@ html.title-on #reticle, html.title-on #vignette, html.title-on #lowlife, html.ti
 .ch-trash em { font-style: normal; font-size: 11.5px; color: var(--faint); }
 .ch-del .m-save i + i::before { content: '·'; margin: 0 6px; color: var(--faint); }
 .ch-del .alt-box { margin-top: 10px; }
+/* 职业（class-d2）：选择页的 5 张卡、老角色的推荐、选完之后会怎样 */
+.ch-card[data-cls] { border-left-color: var(--cc); }
+.ch-card[data-cls] .ch-top b { color: var(--cc); }
+.ch-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+.ch-foot .m-note { margin: 0; }
+.ch-foot .btn { flex: none; }
+.cl-intro { margin: 4px 0 6px; font-size: 12.5px; color: var(--dim); }
+.cl-rec { margin: 0 0 8px; padding: 6px 10px; font-size: 12.5px; line-height: 1.55; color: #e6d7bd; background: rgba(255, 140, 60, 0.08); border-left: 2px solid var(--ember); }
+.cl-rec b { color: var(--ember-2); }
+.cl-list { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+#title.clsv .t-logo { display: none; }
+#title.clsv .m-host, #title.clsv .m-view, #title.clsv .m-body { min-width: 0; }
+.ch-acts { flex-wrap: wrap; }
+@media (max-width: 560px) {
+  #title.clsv .t-main { left: 12px; right: 12px; width: auto; top: auto; bottom: 34px; max-height: 62vh; justify-content: flex-end; }
+  #title.clsv .m-view { padding: 10px 12px 12px; }
+  #title.clsv .t-shade { background: linear-gradient(180deg, transparent 0%, transparent 30%, rgba(6, 4, 3, 0.85) 48%); }
+  .cl-line { font-size: 12px; }
+}
+.cl-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 11px 8px;
+  text-align: left;
+  color: #e6d7bd;
+  background: linear-gradient(90deg, rgba(36, 26, 19, 0.94), rgba(18, 12, 9, 0.86));
+  border: 1px solid var(--line-2);
+  border-left: 3px solid #5e4329;
+  border-radius: 2px;
+  cursor: pointer;
+  width: 100%;
+  min-width: 0;
+}
+.cl-card:hover { border-color: var(--ember-2); border-left-color: var(--c); }
+.cl-card.on { border-color: var(--c); border-left-color: var(--c); background: linear-gradient(90deg, rgba(60, 38, 22, 0.96), rgba(24, 16, 11, 0.9)); box-shadow: 0 0 14px rgba(255, 130, 50, 0.18); }
+.cl-top { display: flex; align-items: center; gap: 6px; }
+.cl-top b { font-family: var(--serif); font-size: 16px; letter-spacing: 2px; color: var(--c); margin-right: 4px; }
+.cl-top i { font-style: normal; font-size: 11px; padding: 0 5px; line-height: 17px; color: var(--dim); border: 1px solid var(--line); border-radius: 2px; }
+.cl-top em { margin-left: auto; font-style: normal; font-size: 11.5px; color: #1a0f08; background: var(--ember-2); padding: 0 6px; line-height: 18px; border-radius: 2px; }
+.cl-top em.dim { color: var(--dim); background: none; border: 1px solid var(--line); }
+.cl-line { font-size: 12.5px; line-height: 1.5; color: #d9c7a8; }
+.cl-row { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--dim); min-height: 22px; }
+.cl-k { flex: none; width: 30px; color: var(--faint); }
+.cl-v { min-width: 0; }
+.cl-wi { flex: none; display: inline-flex; width: 22px; height: 22px; }
+.cl-wi > *, .cl-row .tc-skico > * { width: 100%; height: 100%; }
+.cl-row .tc-skico.sm { flex: none; width: 22px; height: 22px; }
+.cl-card:not(.on) .cl-row { display: none; }
+.cl-card:not(.on) .cl-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cl-fx { margin-top: 8px; padding: 7px 10px; font-size: 12.5px; line-height: 1.6; color: #e6d7bd; background: #110c09; border: 1px solid var(--line); }
+[data-view="cls"] .alt-box { margin-top: 8px; }
+[data-view="cls"] .m-acts { margin-top: 10px; }
+.btn.off { opacity: 0.5; cursor: default; }
+/* 换角色 / 新建角色重载时的遮罩 */
+#load-char { position: fixed; inset: 0; z-index: 60; display: none; align-items: center; justify-content: center; background: rgba(8, 5, 4, 0.82); }
+html.char-loading #load-char { display: flex; }
+.lc-box { display: flex; align-items: center; gap: 12px; padding: 14px 22px; font-family: var(--serif); font-size: 16px; letter-spacing: 3px; color: #e6d7bd; background: linear-gradient(180deg, #1a120d, #0d0907); border: 1px solid var(--line-2); }
+.lc-box i { width: 14px; height: 14px; border-radius: 50%; background: radial-gradient(circle, #ffd28a 0%, #ff7a2c 55%, transparent 70%); animation: t-flick 1.4s ease-in-out infinite; }
 /* 存档提示条：盖在标题画面和 HUD 之上，一直挂着 */
 #save-bar { position: fixed; left: 50%; top: 10px; z-index: 40; display: none; transform: translateX(-50%); max-width: calc(100vw - 24px); align-items: center; gap: 12px; padding: 8px 10px 8px 14px; font-size: 13px; line-height: 1.5; color: #f3e3c6; background: rgba(48, 18, 10, 0.96); border: 1px solid #9a4a2a; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.7); }
 #save-bar.on { display: flex; }
@@ -3880,3 +3954,98 @@ body.paused #reticle, body.paused #coach { display: none; }
   .st-stage { transition: none; }
   .st-hint { animation: none; }
 }
+
+/* 中等宽度（如 1024×640）：两侧收窄，中间背包每格不小于 44 px；背包标题行和底部提示放不下就换行 */
+@media (max-width: 1180px) {
+  .inv { grid-template-columns: 250px minmax(0, 1fr) 262px; gap: 14px; }
+  .st-grid { column-gap: 10px; }
+  .st-row { font-size: 12px; }
+  .col-m > .sec-title:first-child { flex-wrap: wrap; height: auto; min-height: 26px; row-gap: 6px; }
+  .col-m > .sec-title:first-child::after { flex: 1 0 24px; }
+  .inv-tips { flex-wrap: wrap; row-gap: 4px; white-space: normal; }
+  .detail-empty { padding: 0 16px 40px; }
+}
+
+/* ============================================================
+   手机（窄屏 ≤ 900 宽，或矮屏 ≤ 500 高）：面板铺满屏幕，页头收紧。
+   背包页：横屏两列（左背包；右边 装备 → 物品详情 → 属性），两边各自滚动；竖屏一列整页滚动。
+   1024×640 这类宽屏不进这里（只用上面的中等宽度规则）。
+   ============================================================ */
+@media (max-width: 900px), (max-height: 500px) {
+  #panel-win { width: 100vw; height: 100vh; height: 100dvh; }
+  #panel-win::before, #panel-win::after { display: none; }
+  #panel-head { height: 40px; padding: 0 4px 0 12px; }
+  .brand { width: auto; font-size: 17px; letter-spacing: 3px; gap: 7px; }
+  .tab { padding: 0 10px; font-size: 15px; letter-spacing: 2px; white-space: nowrap; }
+  .tab kbd { display: none; }
+  .tab::after { left: 6px; right: 6px; }
+  #panel-close { width: auto; padding: 0 8px; }
+  #panel-close kbd { display: none; }
+  #panel-body { padding: 8px 10px 10px; }
+
+  .inv { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+  .inv > .col-m { grid-column: 1; padding-right: 4px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #5e4329 transparent; }
+  .inv-side { display: flex; flex-direction: column; grid-column: 2; grid-row: 1; min-width: 0; min-height: 0; padding-right: 4px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #5e4329 transparent; }
+  /* 装备列拆开：选中物品后详情紧跟在装备栏下面，属性放最后 */
+  .inv-side > .col-l { display: contents; }
+  .col-l > .sec-title:first-child, .col-l > .eq-grid { order: 1; }
+  .inv-side > .col-r { order: 2; flex: none; margin-top: 12px; overflow: visible; }
+  .col-l > .sec-title:nth-child(3), .col-l > .stats { order: 3; }
+  .col-l > .sec-title:nth-child(3) { margin-top: 12px; }
+  .inv .stats { flex: none; overflow: visible; }
+  .inv .detail-empty { flex: none; padding: 14px 16px; }
+  .eq-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+  .eq-name { bottom: 2px; font-size: 10.5px; }
+  .bag, .cur-row { gap: 4px; }
+  .frag-row { grid-template-columns: repeat(4, 1fr); }
+  /* 背包标题行的按钮：放不下就换行，按钮加高一点好点 */
+  .col-m > .sec-title:first-child { flex-wrap: wrap; height: auto; min-height: 26px; row-gap: 6px; }
+  .col-m > .sec-title:first-child::after { flex: 1 0 24px; }
+  .col-m > .sec-title .btn.sm, .col-m > .sec-title .chk { height: 30px; }
+  .inv-tips { flex-wrap: wrap; row-gap: 4px; white-space: normal; text-align: center; }
+  .tcard { max-width: calc(100vw - 16px); }
+}
+@media (max-width: 600px) {
+  .brand { display: none; }
+  #tabs { justify-content: flex-start; gap: 0; }
+  .tab { padding: 0 9px; letter-spacing: 1px; }
+  #panel-body { padding: 8px 8px 10px; }
+
+  /* 竖屏：一列，整页滚动。顺序：装备 → 背包 → 物品详情 → 属性 */
+  .inv { display: flex; flex-direction: column; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #5e4329 transparent; }
+  .inv-side { display: contents; }
+  .inv > .col-m { order: 2; flex: none; margin-top: 14px; padding-right: 0; overflow: visible; }
+  .inv-side > .col-r { order: 3; margin-top: 14px; }
+  .col-l > .sec-title:nth-child(3), .col-l > .stats { order: 4; }
+  .col-l > .sec-title:nth-child(3) { margin-top: 14px; }
+  .eq-grid { grid-template-columns: repeat(4, minmax(0, 76px)); gap: 6px; }
+  .bag { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .cur-row { grid-template-columns: repeat(4, 1fr); }
+  .inv-tips { margin-top: 10px; }
+  .tip-pair { flex-direction: column; }
+}
+
+/* ---------- 职业（class-d2）：变灰的技能、物品的职业行、职业起步天赋、共享仓库 ---------- */
+.skill-card.cls-off { filter: grayscale(0.85); opacity: 0.72; }
+.skill-card.cls-off:hover { opacity: 0.9; }
+.sk-lock { display: flex; align-items: center; gap: 6px; margin: -2px 0 6px; font-size: 12px; color: #ffb08a; }
+.sk-lock i { width: 9px; height: 9px; border: 1.5px solid currentColor; border-radius: 2px; flex: none; }
+.sm-title.cls-group { margin-top: 12px; }
+.barslot.cls-off { filter: grayscale(0.9); opacity: 0.6; }
+.tcard.cls-off .tc-name { color: var(--dim); }
+.tc-lock { margin-top: 3px; font-size: 12.5px; color: #ffb08a; }
+.ic-cls { padding: 0 12px 4px; font-size: 12px; line-height: 18px; color: #d9b98a; }
+.ic-cls.off { color: #ff9a86; }
+.tn.clsn .shape { stroke: #fff1d2; stroke-width: 3; }
+.tl.cls { font-size: 20px; font-weight: 700; fill: var(--c); paint-order: stroke; stroke: #0b0806; stroke-width: 4px; }
+.cell.cls-off { filter: grayscale(0.6); }
+.sh-tabs { display: flex; gap: 6px; margin: 2px 0 8px; }
+.sh-tab { min-width: 40px; height: 26px; padding: 0 8px; font-size: 12.5px; color: var(--dim); background: #110c09; border: 1px solid var(--line); border-radius: 2px; cursor: pointer; }
+.sh-tab em { margin-left: 4px; font-style: normal; font-size: 11px; color: var(--faint); }
+.sh-tab.on { color: #fff1d2; border-color: var(--ember-2); }
+.sh-grid { grid-template-columns: repeat(8, 1fr); }
+.sh-note { margin: 8px 0 0; font-size: 12px; line-height: 1.6; color: var(--faint); }
+.slot.cls-off .s-icon { filter: grayscale(1) brightness(0.45); }
+.btn.sm.stb { margin-left: auto; color: #ffd28a; border-color: #6b4a28; }
+.btn.sm.stb.on { background: rgba(120, 80, 30, 0.35); }
+.m-view.still { animation: none; }
