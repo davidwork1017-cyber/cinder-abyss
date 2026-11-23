@@ -16604,7 +16604,12 @@ async function main() {
       // 背包页：13 + 巅峰 2 = 15 行（D5 把熄烛冠 / 双生坠接进图鉴）、拾到 0
       G.ui.open('inv');
       out.rows = document.querySelectorAll('.cx-row.rq').length;
-      out.title = /渊契图鉴/.test(T.bodyText()) && /已拾到 0 \/ 15/.test(T.bodyText());
+      // multisave-d1：图鉴显示所有角色合起来的（全局那份 + 当前角色），这个旧角色自己的图鉴是空的（上面 out.old），
+      // 显示的数按存储里的全局图鉴另算（原来断言「已拾到 0 / 15」：那时图鉴只看当前角色）
+      const gl = JSON.parse(localStorage.getItem('cinder-abyss-global') || '{}');
+      const gFound = (G.RELIC_CODEX || G.RELIC_IDS).filter((id) => gl.codex && gl.codex.relic.found[id] === true).length;
+      out.gFound = gFound;
+      out.title = /渊契图鉴/.test(T.bodyText()) && new RegExp('已拾到 ' + gFound + ' / 15').test(T.bodyText());
       G.ui.close();
       if (keep) localStorage.setItem(KEY, keep);
       else localStorage.removeItem(KEY);
