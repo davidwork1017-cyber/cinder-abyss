@@ -9487,6 +9487,7 @@
     }
   }
   G.netState = () => ({ wedges: netWedges, lines: netLines });
+  G.roundPools = () => roundPools;
   // 霜霰弹：冰屑（原式：敌人背后的扇面；散霜：四周一圈）。不打被命中的那个
   function rimeShards(p, e) {
     const S0 = p.ctx.sk.shard;

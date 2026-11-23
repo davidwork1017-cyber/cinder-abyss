@@ -25222,6 +25222,7 @@
     toonChunks(dt);
     vsDraw(dt); // vf-vfx2：形状批
     rqbDraw(); // 渊式「电桥」的折线（同一个形状批）
+    if (W.d2bDraw) W.d2bDraw(dt); // class-d2b1：小灯 / 灯海 / 铁水 / 雷网（同一个形状批）
     spinBladesDraw(dt);
     lootPfDraw(); // vf-vfx3：掉落物的地面环 / 光柱
     pfEnd();
@@ -29688,5 +29689,333 @@
     else if (post.fx && qual.fxaa) post.fx.render();
     else renderer.render(scene, camera);
     drawOverlay();
+  };
+
+  // =====================================================================
+  // class-d2b1：提灯（点灯 / 借火 / 灯海 / 续火）和特殊弹（铁水弹 / 雷楔 / 霜霰弹 / 反冲弹）的特效。
+  // vfx2：亮芯小（灯火 ≤ 0.4 米），大范围只画贴地的断续边线，不铺亮面；余波比地面暗；全部画进共用的形状批（vShape，一次 draw），
+  // 随机只用特效自己的 vr；低画质件数减半、灯光边线只留几个暗点。常驻的东西（小灯、灯海、铁水、雷网）每帧按 game.js 的状态用 vsNow 画（W.d2bDraw），
+  // 不占形状批的环形缓冲，地上东西多的时候也不会被别的特效挤掉。灯光边线全场合计有上限（LAMP_EDGE_CAP）
+  // =====================================================================
+  const LAMP_EDGE_CAP = { high: 44, mid: 36, low: 14 };
+  const DEG = Math.PI / 180;
+  const _dc = new T.Color(), _dc2 = new T.Color();
+  const d2bLin = (hex, k) => _dc.setHex(hex).convertSRGBToLinear().multiplyScalar(k === undefined ? 1 : k);
+  // 竖着的火舌（只绕 y 轴转向镜头）：本地 +y 朝上
+  function mFlame(x, y, z, w, h) {
+    mStretch(x, y, z, 0, 1, 0, w, h);
+  }
+  // 一盏小灯：暗铜的灯身（碎石件）+ 竖着的小火舌（亮芯），k = 亮度（0..1），big = 借火期间大一点
+  function lampDraw(x, z, k, big, t, ph) {
+    _kvp.set(x, 0.2, z);
+    _kve.set(0, ph, 0, 'YXZ');
+    _kvq.setFromEuler(_kve);
+    _kvs.set(0.13, 0.26, 0.13);
+    _pm.compose(_kvp, _kvq, _kvs);
+    vsNow(VSH.chip, 0.16 * k + 0.04, 0.1 * k + 0.03, 0.04, 0, 0.45, 0);
+    const f = 1 + 0.16 * Math.sin(t * 13 + ph * 5) + 0.08 * Math.sin(t * 29 + ph);
+    const w = (big ? 0.2 : 0.16) * f, h = (big ? 0.4 : 0.32) * f;
+    mFlame(x, 0.42 + h * 0.3, z, w, h);
+    d2bLin(0xffb347, k);
+    vsNow(VSH.tongue, _dc.r, _dc.g, _dc.b, 0.85 * k, 0.15, 0.3);
+  }
+  // 灯光范围：贴地的断续边线（高 / 中画质）或几个暗点（低画质）。n 段，亮度 k
+  function lampEdge(x, z, R, n, k, hex) {
+    if (n <= 0) return;
+    const lo = qualId === 'low', seg = ((TAU * R) / n) * 0.45;
+    d2bLin(hex || 0xc8782a, k * (lo ? 0.45 : 0.6));
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU + R * 0.7;
+      if (lo) {
+        _kvp.set(x + Math.sin(a) * R, 0.05, z + Math.cos(a) * R);
+        _kvq.identity();
+        _kvs.set(0.07, 0.03, 0.07);
+        _pm.compose(_kvp, _kvq, _kvs);
+        vsNow(VSH.chip, _dc.r, _dc.g, _dc.b, 0, 0.3, 0);
+      } else {
+        mFlat(x + Math.sin(a) * R, 0.07, z + Math.cos(a) * R, a + Math.PI / 2, 0.05, seg);
+        vsNow(VSH.bar, _dc.r, _dc.g, _dc.b, 0.05, 0.25, 0);
+      }
+    }
+  }
+  W.d2bDraw = function (dt) {
+    if (!PF.vShape || !G.lampState) return;
+    const t = G.state ? G.state.time : 0, lo = qualId === 'low';
+    const L = G.lampState(), lamps = L.lamps, sea = L.sea, lend = !!L.lend;
+    if (lamps.length || sea) {
+      // 边线的总段数有上限：先给灯海，剩下的分给小灯
+      let budget = LAMP_EDGE_CAP[qualId] || LAMP_EDGE_CAP.high;
+      if (sea) {
+        const fade = Math.min(1, sea.t / 0.5, (sea.dur - sea.t) / 0.25 + 0.2);
+        const nE = Math.min(budget, lo ? 10 : 24);
+        budget -= nE;
+        lampEdge(sea.x, sea.z, sea.r, nE, fade * 0.9, 0xd08030);
+        for (let i = 0; i < sea.n; i++) {
+          if (lo && i & 1) continue;
+          const a = (i / sea.n) * TAU;
+          lampDraw(sea.x + Math.sin(a) * sea.r, sea.z + Math.cos(a) * sea.r, fade, false, t, i * 1.7);
+        }
+      }
+      const per = lamps.length ? Math.max(0, Math.min(lo ? 4 : 12, Math.floor(budget / lamps.length))) : 0;
+      for (let i = 0; i < lamps.length; i++) {
+        const l = lamps[i], fade = Math.min(1, l.t / 0.5, (l.dur - l.t) / 0.15 + 0.3);
+        lampDraw(l.x, l.z, fade, lend, t, l.born * 3.1);
+        lampEdge(l.x, l.z, G.lampR(l), per, fade * (lend ? 1.25 : 1));
+      }
+    }
+    // 铁水：一圈暗红的边线 + 几块暗红的碎块（不铺亮面）
+    const pools = G.roundPools ? G.roundPools() : null;
+    if (pools && pools.length) {
+      for (let i = 0; i < pools.length; i++) {
+        const f = pools[i], fade = Math.min(1, f.t / 0.8), hotK = 0.5 + 0.5 * Math.min(1, (f.dur - f.t) < 0.6 ? 1 : f.t / f.dur);
+        const n = lo ? 6 : 12, seg = ((TAU * f.r) / n) * 0.7;
+        d2bLin(0x8a2a10, fade * hotK);
+        for (let k = 0; k < n; k++) {
+          const a = (k / n) * TAU + i;
+          mFlat(f.x + Math.sin(a) * f.r, 0.06, f.z + Math.cos(a) * f.r, a + Math.PI / 2, 0.07, seg);
+          vsNow(VSH.bar, _dc.r, _dc.g, _dc.b, 0.12 * fade, 0.35, 0);
+        }
+        const m = lo ? 2 : 4;
+        d2bLin(0x5a1a0a, fade);
+        for (let k = 0; k < m; k++) {
+          const a = k * 2.4 + i * 1.3, d = f.r * (0.25 + 0.15 * k);
+          _kvp.set(f.x + Math.sin(a) * d, 0.04, f.z + Math.cos(a) * d);
+          _kve.set(0, a, 0, 'YXZ');
+          _kvq.setFromEuler(_kve);
+          _kvs.set(0.22, 0.05, 0.16);
+          _pm.compose(_kvp, _kvq, _kvs);
+          vsNow(VSH.chip, _dc.r, _dc.g, _dc.b, 0.15 * fade * (0.6 + 0.4 * Math.sin(t * 6 + k)), 0.4, 0);
+        }
+      }
+    }
+    // 雷网：地上的楔子（暗色小件）+ 楔子之间一闪一闪的细折线
+    const N = G.netState ? G.netState() : null;
+    if (N && N.wedges.length) {
+      for (let i = 0; i < N.wedges.length; i++) {
+        const w = N.wedges[i];
+        _kvp.set(w.x, 0.22, w.z);
+        _kve.set(0.25, i * 1.3, 0, 'YXZ');
+        _kvq.setFromEuler(_kve);
+        _kvs.set(0.06, 0.3, 0.06);
+        _pm.compose(_kvp, _kvq, _kvs);
+        vsNow(VSH.crystal, 0.14, 0.15, 0.18, 0.2 * (Math.sin(t * 17 + i) > 0.6 ? 1 : 0), 0.4, 0);
+      }
+      const flick = Math.sin(t * 31) > -0.3;
+      if (flick)
+        for (const ln of N.lines) {
+          const dx = ln.b.x - ln.a.x, dz = ln.b.z - ln.a.z, len = Math.hypot(dx, dz) || 1, n = Math.max(2, Math.round(len / (lo ? 1.4 : 0.7)));
+          const sx = -dz / len, sz = dx / len;
+          let px = ln.a.x, pz = ln.a.z;
+          d2bLin(0x9fc8ff, 0.85);
+          for (let k = 1; k <= n; k++) {
+            const off = k === n ? 0 : Math.sin(t * 40 + k * 2.7 + len) * 0.18;
+            const qx = ln.a.x + (dx * k) / n + sx * off, qz = ln.a.z + (dz * k) / n + sz * off;
+            mFlat(px, 0.45, pz, Math.atan2(qx - px, qz - pz), 0.035, Math.hypot(qx - px, qz - pz));
+            vsNow(VSH.bar, _dc.r, _dc.g, _dc.b, 0.5, 0.2, 0);
+            px = qx;
+            pz = qz;
+          }
+        }
+    }
+  };
+  // ---------- 一次性的件（vsEmit，走环形缓冲） ----------
+  W.lampPlace = function (l, on, boom) {
+    if (!PF.vShape || !on) return;
+    const lo = qualId === 'low';
+    b1Tongues(l.x, l.z, 0.35, lo ? 2 : 4, 0.3, 0.35, 0.6, 0xffc24a, 0xb8401a);
+    W.vDecal('scorch', l.x, l.z, 0.5, 1.5, 0x2a1a10, { a: 0.6 });
+  };
+  W.lampBoom = function (x, z, R) {
+    if (!PF.vShape) return;
+    const lo = qualId === 'low';
+    W.thinRing(x, z, R, 0xffb347, 0x7a2a10, 0.35, 14);
+    b1Tongues(x, z, R * 0.8, lo ? 3 : 6, 0.55, 0.45, 1.2);
+    vsBrush(VSH.ring, 2, 0, 0xfff0c0, 0xffa040, 1, 0, 0.3);
+    vsEmit(x, 0.5, z, 0, 0, 0, 0.06, 0.6); // 亮芯 ≤ 1.2 米、≤ 60 毫秒
+    W.vDecal('scorch', x, z, R * 0.6, 3, 0x241610);
+  };
+  W.lendFx = function (on) {
+    const ent = G.player && G.player.ent;
+    if (!on || !PF.vShape || !ent) return;
+    const x = G.player.x, z = G.player.z, lo = qualId === 'low';
+    b1Tongues(x, z, 0.9, lo ? 3 : 6, 0.45, 0.5, 0.4, 0xffc860, 0xc04a18);
+    W.thinRing(x, z, 1.4, 0xffb347, 0x6a2a10, 0.4);
+  };
+  W.lampSea = function (sea, on) {
+    if (!on || !PF.vShape) return;
+    const lo = qualId === 'low';
+    for (let i = 0; i < sea.n; i++) {
+      if (lo && i & 1) continue;
+      const a = (i / sea.n) * TAU;
+      b1Tongues(sea.x + Math.sin(a) * sea.r, sea.z + Math.cos(a) * sea.r, 0.25, 2, 0.35, 0.4, 0.5);
+    }
+    W.thinRing(sea.x, sea.z, sea.r, 0xffb347, 0x6a2a10, 0.5, 24);
+  };
+  W.lampTick = function () {}; // 每帧的画法在 W.d2bDraw 里（形状批的 pfBegin / pfEnd 之间）
+  W.moltenTick = function () {};
+  W.netTick = function () {};
+  W.moltenPool = function (f, on) {
+    if (!on || !PF.vShape) return;
+    const lo = qualId === 'low';
+    b1Chips(f.x, 0.3, f.z, lo ? 3 : 5, 0.2, 1, 2.6, 0xd2501a, 0x4a1608, 0.06, 0.12);
+    W.vDecal('scorch', f.x, f.z, f.r * 0.85, f.dur, 0x2a120a, { a: 0.85 });
+  };
+  W.moltenSplash = function (x, z, ang, arc, len, n) {
+    if (!PF.vShape) return;
+    const lo = qualId === 'low';
+    vsBrush(VSH.chip, 3, 0, 0xe8601c, 0x3a1206, 0.4, 0.45, 0.35);
+    for (let i = 0; i < n; i++) {
+      const a = ang + (n > 1 ? (-arc / 2 + (arc * i) / (n - 1)) * DEG : 0);
+      for (let k = 0, m = lo ? 1 : 3; k < m; k++) {
+        const v = (len / 0.5) * vr(0.55, 1);
+        vsEmit(x, 0.8, z, Math.sin(a) * v, vr(1.5, 3), Math.cos(a) * v, vr(0.45, 0.6), vr(0.06, 0.1), undefined, vr(0, TAU), vr(-8, 8), 16, 2.2);
+      }
+    }
+  };
+  W.wedgeStick = function (e, delay) {
+    if (!PF.vShape || !e) return;
+    vsBrush(VSH.bar, 4, 2, 0xe8f4ff, 0x6a9ad0, 0.6, 0.3);
+    for (let k = 0, m = qualId === 'low' ? 1 : 2; k < m; k++) zig(e.x, 1.1, e.z, vr(0, TAU), vr(-0.3, 0.3), 1, vr(0.2, 0.35), 0.05);
+  };
+  W.wedgeZap = function (e, tg, st) {
+    if (!PF.vShape || !e) return;
+    const lo = qualId === 'low';
+    vsBrush(VSH.bar, 4, 2, 0xf4faff, 0x8ab8ff, 0.7, 0.35);
+    for (let k = 0, m = (lo ? 2 : 4) + Math.min(3, st - 1); k < m; k++) zig(e.x, 1.2, e.z, vr(0, TAU), vr(-0.5, 0.2), 1, vr(0.3, 0.55), 0.07);
+    for (const o of tg) {
+      const dx = o.x - e.x, dz = o.z - e.z, d = Math.hypot(dx, dz) || 1, n = Math.max(2, Math.round(d / (lo ? 1.6 : 0.8)));
+      let px = e.x, py = 1.2, pz = e.z;
+      for (let k = 1; k <= n; k++) {
+        const qx = e.x + (dx * k) / n + (k < n ? vr(-0.25, 0.25) : 0), qz = e.z + (dz * k) / n + (k < n ? vr(-0.25, 0.25) : 0), qy = k < n ? 1.2 + vr(-0.2, 0.2) : 1.1;
+        vsEmit(px, py, pz, qx - px, qy - py, qz - pz, 0.07, 0.06); // 闪 2 帧左右就灭
+        px = qx; py = qy; pz = qz;
+      }
+    }
+  };
+  W.netWedge = function (w, on) {
+    if (!on || !PF.vShape) return;
+    vsBrush(VSH.chip, 3, 0, 0x8a919c, 0x3a3e46, 0.1, 0.5);
+    for (let i = 0, n = qualId === 'low' ? 1 : 3; i < n; i++) vsEmit(w.x, 0.2, w.z, vr(-1, 1), vr(1, 2), vr(-1, 1), 0.4, 0.05, undefined, vr(0, TAU), 6, 16);
+  };
+  W.rimeFan = function (x, z, dir, arc, L) {
+    if (!PF.vShape) return;
+    const lo = qualId === 'low', half = (arc / 2) * DEG;
+    vsBrush(VSH.crystal, 6, 0, 0xe0f4ff, 0x6aa8d8, 0.3, 0.4, 0.4);
+    for (let i = 0, n = lo ? 3 : 6; i < n; i++) {
+      const a = dir + vr(-half, half), v = (L / 0.45) * vr(0.5, 1);
+      vsEmit(x, 0.7, z, Math.sin(a) * v, vr(0.5, 1.5), Math.cos(a) * v, vr(0.35, 0.45), vr(0.06, 0.09), vr(0.22, 0.3), vr(0.3, 0.6), 0, 6, 2.5);
+    }
+    // 扇面只画两道边沿的细线
+    vsBrush(VSH.bar, 5, 3, 0xbfe8ff, 0x4a7aa0, 0.1, 0.2, 0.4);
+    for (const s of [-1, 1]) {
+      const a = dir + s * half;
+      vsEmit(x, 0.08, z, Math.sin(a) * L, 0, Math.cos(a) * L, 0.3, 0.05);
+    }
+  };
+  W.rimeBurst = function (x, z, R, deep) {
+    if (!PF.vShape) return;
+    b1Crystals(x, z, R * 0.8, qualId === 'low' ? 4 : 8, deep ? 0.4 : 0.3, 0.45);
+    W.thinRing(x, z, R, 0xcfefff, 0x3a6a90, 0.3, 14);
+  };
+  W.recoilSlide = function (x, z, aim, dur) {
+    if (!PF.vShape) return;
+    const bx = -Math.sin(aim) * 3.4, bz = -Math.cos(aim) * 3.4, sx = Math.cos(aim) * 0.16, sz = -Math.sin(aim) * 0.16;
+    vsBrush(VSH.bar, 5, 3, 0x2a241e, 0x1a1612, 0, 0.3, 1);
+    for (const s of [-1, 1]) vsEmit(x + sx * s, 0.05, z + sz * s, bx, 0, bz, 1.4, 0.07);
+    vsBrush(VSH.ring, 0, 0, 0xfff2d0, 0xffb060, 1, 0, 0.3);
+    vsEmit(x + Math.sin(aim) * 0.9, 1.1, z + Math.cos(aim) * 0.9, 0, 0, 0, 0.06, 0.35); // 枪口一下亮芯
+    b1Chips(x, 0.1, z, qualId === 'low' ? 2 : 4, 0.2, 1, 2.2, 0x6a5a48, 0x2a241e, 0.05, 0.09);
+  };
+  W.recoilShock = function (x, z, R) {
+    if (!PF.vShape) return;
+    W.thinRing(x, z, R, 0xd8c8a8, 0x4a3e30, 0.3, 16);
+    b1Chips(x, 0.15, z, qualId === 'low' ? 4 : 8, R * 0.4, 2, 4, 0x8a7a64, 0x3a3028, 0.06, 0.12);
+    W.vDecal('scorch', x, z, R * 0.6, 2.5, 0x2a241e, { a: 0.7 });
+  };
+  // 续火的骸骨：骨缝里映着灯火的橙（自发光件换成灯火色），身上一直有一点小火苗（W.d2bDraw 不画它们：火苗跟着骨架走，在 relitTick 里）
+  W.relitLook = function (ent) {
+    if (!ent) return;
+    W.minionElem(ent, '#ffa040');
+    if (ent.bodyMat && ent.bodyMat.color) ent.bodyMat.color.multiplyScalar(0.82).lerp(d2bLin(0xffb070), 0.14);
+  };
+  // ---------- 投射物的外形（PF_DRAW）和落点（projImpact） ----------
+  PF_DRAW.lampglob = function (u, x, y, z, dt) {
+    const r = 0.22;
+    mPose(x, y, z, _pqI, r * 0.55, r * 0.55, r * 0.55);
+    pfPut('core', 1, 0.82, 0.5);
+    mStretch(x - u.dx * 0.08, y, z - u.dz * 0.08, -u.dx, 0.3, -u.dz, r * 1.5, r * 2.6);
+    pfPut('flame', 0.62, 0.26, 0.06);
+  };
+  PF_DRAW.rd_molten = function (u, x, y, z, dt) {
+    yawQ(u);
+    mPose(x, y, z, _pq, 0.075, 0.075, 0.2);
+    pfPut('dart', 0.95, 0.36, 0.1);
+    mPose(x + u.dx * 0.05, y, z + u.dz * 0.05, _pqI, 0.05, 0.05, 0.05);
+    pfPut('core', 1, 0.75, 0.4);
+  };
+  PF_DRAW.rd_wedge = function (u, x, y, z, dt) {
+    yawQ(u);
+    mPose(x, y, z, _pq, 0.05, 0.05, 0.22);
+    pfPut('dart', 0.42, 0.46, 0.55);
+    if (Math.sin(u.age * 47 + u.ph) > 0.4) {
+      mPose(x, y, z, _pqI, 0.04, 0.04, 0.04);
+      pfPut('core', 0.7, 0.85, 1);
+    }
+  };
+  PF_DRAW.rd_rime = function (u, x, y, z, dt) {
+    yawQ(u);
+    mPose(x, y, z, _pq, 0.06, 0.06, 0.18);
+    pfPut('dart', 0.7, 0.86, 1);
+  };
+  PF_DRAW.rd_recoil = function (u, x, y, z, dt) {
+    yawQ(u);
+    mPose(x, y, z, _pq, 0.095, 0.095, 0.24);
+    pfPut('dart', 0.62, 0.56, 0.48);
+  };
+  RIB_DEF.rd_molten = [0.05, 0.1];
+  RIB_DEF.rd_wedge = [0.03, 0.06];
+  RIB_DEF.rd_rime = [0.035, 0.07];
+  RIB_DEF.rd_recoil = [0.06, 0.08];
+  RIB_DEF.lampglob = [0.06, 0.12];
+  const impactD2b = W.projImpact;
+  W.projImpact = function (mesh, x, z, how, R) {
+    const u = mesh && mesh.userData, vk = u && u.vfx;
+    if (!vk || (vk.slice(0, 3) !== 'rd_' && vk !== 'lampglob')) return impactD2b(mesh, x, z, how, R);
+    if (!PF.vShape) return true;
+    const lo = qualId === 'low', y = 1.1;
+    if (vk === 'lampglob') {
+      if (how === 'blast') {
+        b1Tongues(x, z, R * 0.7, lo ? 2 : 4, 0.4, 0.35, 0.8);
+        W.thinRing(x, z, R, 0xffb347, 0x6a2a10, 0.25, 12);
+      }
+      return true;
+    }
+    if (vk === 'rd_molten') {
+      if (how === 'blast') {
+        W.thinRing(x, z, R, 0xff8a3c, 0x5a1a08, 0.3, 14);
+        b1Tongues(x, z, R * 0.75, lo ? 3 : 6, 0.5, 0.4, 1);
+        b1Chips(x, 0.6, z, lo ? 2 : 4, 0.2, 1.5, 3.5, 0xd2501a, 0x3a1206, 0.05, 0.1);
+      } else if (how !== 'hit') b1Chips(x, y, z, lo ? 2 : 3, 0.1, 1, 2.5, 0xd2501a, 0x3a1206, 0.05, 0.09);
+      else {
+        vsBrush(VSH.chip, 3, 0, 0xe8601c, 0x3a1206, 0.3, 0.45);
+        for (let i = 0, n = lo ? 1 : 2; i < n; i++) vsEmit(x, y, z, vr(-2, 2), vr(1, 3), vr(-2, 2), 0.45, 0.06, undefined, vr(0, TAU), 8, 16);
+      }
+      return true;
+    }
+    if (vk === 'rd_wedge') {
+      vsBrush(VSH.bar, 4, 2, 0xf0f8ff, 0x7aa8e0, 0.5, 0.3);
+      zig(x, y, z, Math.atan2(-u.dx, -u.dz), 0.1, 1, 0.3, 0.05);
+      return true;
+    }
+    if (vk === 'rd_rime') {
+      vsBrush(VSH.crystal, 6, 0, 0xe0f4ff, 0x6aa8d8, 0.25, 0.4, 0.4);
+      for (let i = 0, n = lo ? 1 : 3; i < n; i++) vsEmit(x, y - 0.3, z, vr(-1.5, 1.5), vr(0.5, 1.5), vr(-1.5, 1.5), 0.3, 0.05, 0.16, vr(0.3, 0.6), 0, 6, 2);
+      return true;
+    }
+    // 反冲弹：重的一下，碎屑和一道往前的弯月
+    vsBrush(VSH.crescent, 0, 0, 0xf2e8d0, 0x8a7a64, 0.5, 0.5, 0.5);
+    vsEmit(x - u.dx * 0.3, y, z - u.dz * 0.3, u.dx * 2, 0, u.dz * 2, 0.08, 0.6);
+    b1Chips(x, y, z, lo ? 2 : 4, 0.1, 1.5, 3.5, 0x8a7a64, 0x3a3028, 0.05, 0.1);
+    return true;
   };
 })();

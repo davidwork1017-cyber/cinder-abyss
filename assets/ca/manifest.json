@@ -1473,6 +1473,92 @@
    "sha256": "f6af449483c16d2cce9a8eda68053259b54c0d93b305d6fe185f410f0691cad4"
   },
   {
+   "id": "ca/gear_lantern",
+   "category": "weapon",
+   "zone": "gear",
+   "file": "assets/ca/gear/gear_lantern.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 429,
+   "verts": 1010,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.057,
+     0,
+     -0.032
+    ],
+    "max": [
+     0.057,
+     0.611,
+     0.33
+    ]
+   },
+   "h": 0.611,
+   "r": 0.33,
+   "y0": 0,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "hand_lantern",
+    "catalog": "art/catalog.py",
+    "seed": 211,
+    "args": {
+     "tier": 0
+    },
+    "bake": {
+     "ao": 0.04,
+     "grad": 0.01,
+     "wear": 0.4,
+     "grime": 0.2
+    }
+   },
+   "sha256": "8efe052eb1795372da5ae972b9d0e32d04b36bef9c6400d4a12c3513d933e5c0"
+  },
+  {
+   "id": "ca/gear_lantern_t3",
+   "category": "weapon",
+   "zone": "gear",
+   "file": "assets/ca/gear/gear_lantern_t3.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 477,
+   "verts": 1173,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.072,
+     0,
+     -0.032
+    ],
+    "max": [
+     0.065,
+     0.612,
+     0.33
+    ]
+   },
+   "h": 0.612,
+   "r": 0.33,
+   "y0": 0,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "hand_lantern",
+    "catalog": "art/catalog.py",
+    "seed": 223,
+    "args": {
+     "tier": 2
+    },
+    "bake": {
+     "ao": 0.04,
+     "grad": 0.01,
+     "wear": 0.4,
+     "grime": 0.25
+    }
+   },
+   "sha256": "2546b906f17d96df910086eded9c1d212e3669b4c4f5367370e689cc325806e2"
+  },
+  {
    "id": "ca/rift_boulder",
    "category": "prop",
    "zone": "rift",
