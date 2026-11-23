@@ -21304,9 +21304,10 @@
         meteorOff(m);
         if (R > 0) meteorLand2(m, R, old);
         else meteorLand(m);
-        // skill-b1（三相天灾的火）：旧画法 meteorLand 落地时取 173 次（其中碎岩 debrisBurst 66 次，碎岩落地前每帧还要取），
-        // meteorLand2 取 25 次；old 时 meteorLand2 换用同样 11 块的 debrisBurst（每帧的取数一样），其余按次数空取
-        if (R > 0 && old) rBurn(173 - 25 - 66);
+        // skill-b1（三相天灾的火）：旧画法 meteorLand 落地时取 173 次：flare 1 + 14 粒火花 70 → 碎岩 debrisBurst 66 → 6 团尘 36。
+        // 碎岩每帧还要取（看寿命 / 位置），所以 old 时 meteorLand2 一开头先空取 71 次、再放同样 11 块碎岩（拿到的随机数和以前完全一样），
+        // 它自己取 25 次，最后补 11 次
+        if (R > 0 && old) rBurn(173 - 71 - 66 - 25);
       }
     }
   }
@@ -21353,6 +21354,10 @@
   // 暗色岩块四溅、落地弹；余波是焦痕里一道道慢慢冷下去的熔岩裂纹 + 一柱烟。不再铺 4.4 米的地面闪光、不再放近白的大星芒
   function meteorLand2(m, R, old) {
     const x = m.x, z = m.z, h = m.hex, lo = qualId === 'low';
+    if (old) {
+      rBurn(71);
+      debrisBurst(x, z, 11, mixHex(h, 0x2a2420, 0.7), 1); // skill-b1：三相天灾的火——碎岩照旧（随机数一样，见 updateMeteors），颜色压成暗岩色
+    }
     flashLight(x, 2.2, z, h, 1.5);
     W.fxFlip(VFB.fire, x, 0.8, z, Math.min(2, R * 0.55), 0.38, h, { grow: 1.25, vy: 0.9 });
     tChunk(1, x, 0.9, z, 0, 0, 0, 0.12, 0.8, 0xffe2a0, h, 0);
@@ -21364,8 +21369,7 @@
       const a = (i / n) * TAU + vr(-0.25, 0.25), d = R * vr(0.45, 0.7), v = R * vr(1, 1.5);
       vsEmit(x + Math.sin(a) * d, 0.05, z + Math.cos(a) * d, Math.sin(a) * v, vr(0.5, 1.5), Math.cos(a) * v, vr(0.42, 0.6), vr(0.45, 0.62), vr(0.7, 1.05), vr(-0.25, 0.25), 0, 0, 3);
     }
-    if (old) debrisBurst(x, z, 11, mixHex(h, 0x2a2420, 0.7), 1); // skill-b1：三相天灾的火——碎岩照旧用 debrisBurst（随机数一样，见 updateMeteors），颜色压成暗岩色
-    else {
+    if (!old) {
       vsBrush(VSH.chip, 3, 0, 0x5c4c44, 0x5c4c44, 0.2, 0.55);
       for (let i = 0, n = lo ? 5 : 9; i < n; i++) {
         const a = vr(0, TAU), v = vr(3.5, 7.5);
