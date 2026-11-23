@@ -21862,7 +21862,7 @@ async function d2b2Steps() {
     return '空地 ' + r.openLeap + ' / ' + r.openDash + ' 米；' + r.rooms.join(' ') + '；裂谷 ' + r.rift + '；拆招 闪 ' + r.blinkN + ' / 原地 ' + r.stayN;
   });
 
-  await step('D2b-2·心火：持续 16 秒（再按从头计时），40% 物理转火（化元之后按剩下的算）；打死的敌人炸成余烬（每秒最多 6 次）；护火每次近战命中叠一层减伤（最多 8 层）；连烬接着炸；换下重兵就灭', async () => {
+  await step('D2b-2·心火：持续 16 秒（再按从头计时），40% 物理转火（化元之后按剩下的算）；打死的敌人炸成余烬（每秒最多 6 次）；护火每次近战命中叠一层减伤（最多 8 层）；连烬接着炸一代；换下重兵就灭', async () => {
     const r = await withCls('guard', () =>
       ev(() => {
         T.lane();
@@ -21929,7 +21929,7 @@ async function d2b2Steps() {
     assert(Math.abs(r.fire - 0.4) < 0.01, '心火期间应有 40% 物理转成火：' + JSON.stringify(r));
     assert(r.bursts >= 6, '打死的敌人应炸成余烬：' + JSON.stringify(r));
     assert(r.convA && r.ward === 8 && Math.abs(r.taken - 0.76) < 1e-6, '护火：不转火、叠满 8 层、受到的伤害 −24%：' + JSON.stringify(r));
-    assert(r.chain >= 3 && r.chainDead === 4, '连烬：余烬炸死的应接着炸：' + JSON.stringify(r));
+    assert(r.chain === 2 && r.chainDead === 3, '连烬：余烬炸死的应接着炸一代（第 4 只炸不到）：' + JSON.stringify(r));
     assert(!r.bow, '换下重兵心火应灭：' + JSON.stringify(r));
     return '16 秒、转火 ' + r.fire + '、余烬 ' + r.bursts + ' 次、护火 ' + r.ward + ' 层（受伤 ×' + r.taken + '）、连烬 ' + r.chain + ' 次';
   });
