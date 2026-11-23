@@ -1479,8 +1479,8 @@
    "file": "assets/ca/gear/gear_lantern.glb",
    "ship": true,
    "replaces": null,
-   "tris": 429,
-   "verts": 1010,
+   "tris": 409,
+   "verts": 976,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -1491,12 +1491,12 @@
     ],
     "max": [
      0.057,
-     0.611,
-     0.33
+     0.646,
+     0.176
     ]
    },
-   "h": 0.611,
-   "r": 0.33,
+   "h": 0.646,
+   "r": 0.176,
    "y0": 0,
    "source": {
     "script": "art/ca/gen.py",
@@ -1513,7 +1513,7 @@
      "grime": 0.2
     }
    },
-   "sha256": "8efe052eb1795372da5ae972b9d0e32d04b36bef9c6400d4a12c3513d933e5c0"
+   "sha256": "2f96d7653f9abcf16353675e47ae1ab12fa3890ba03aebd0eb1ae1a73dba8909"
   },
   {
    "id": "ca/gear_lantern_t3",
@@ -1522,8 +1522,8 @@
    "file": "assets/ca/gear/gear_lantern_t3.glb",
    "ship": true,
    "replaces": null,
-   "tris": 477,
-   "verts": 1173,
+   "tris": 457,
+   "verts": 1138,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -1533,13 +1533,13 @@
      -0.032
     ],
     "max": [
-     0.065,
-     0.612,
-     0.33
+     0.063,
+     0.646,
+     0.184
     ]
    },
-   "h": 0.612,
-   "r": 0.33,
+   "h": 0.646,
+   "r": 0.184,
    "y0": 0,
    "source": {
     "script": "art/ca/gen.py",
@@ -1556,7 +1556,7 @@
      "grime": 0.25
     }
    },
-   "sha256": "2546b906f17d96df910086eded9c1d212e3669b4c4f5367370e689cc325806e2"
+   "sha256": "90b816c571c8eb9b48b8ce434982557d3aa8095713a9431d91d547c770481c06"
   },
   {
    "id": "ca/rift_boulder",

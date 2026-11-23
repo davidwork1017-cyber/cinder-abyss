@@ -12934,11 +12934,11 @@
   // 武器种类：底材的 type → 模型序号（也是 ent.gearType）。前三种的序号与旧存档的 baseIdx 一致
   // 远程武器（8 转膛机炮 / 9 焚炉喷枪 / 10 烬铸左轮）挂在同一个关节 wF 上，各自一组变体零件；四种弓共用长弓的序号 5（同一套握法与动作），
   // 弓身也是变体零件（弓弦仍挂在 bsU / bsL 上，四张弓的弓梢位置相同）
-  // 11 提灯（class-d2b1）：挂右手的 wL；模型是变体零件——程序化的简化提灯 lanternP 先顶着，kit-gear 包里的自产件到了以后换成 lantern / lanternT3（见 lanternVar）
+  // 11 提灯（class-d2b1）：挂右手的 wF（和三把枪共用这个关节，各是一组变体零件）；模型是变体零件——程序化的简化提灯 lanternP 先顶着，kit-gear 包里的自产件到了以后换成 lantern / lanternT3（见 lanternVar）
   const GEAR_KEYS = ['blade', 'staff', 'wand', 'daggers', 'hammer', 'bow', 'katana', 'banner', 'gatling', 'flamer', 'revolver', 'lantern'];
   const G_DAG = 3, G_HAM = 4, G_BOW = 5, G_KAT = 6, G_BAN = 7, G_GAT = 8, G_FLM = 9, G_REV = 10, G_LAN = 11;
   const TWO_HAND = [false, false, false, false, true, false, true, false, true, true, false, false];
-  const GEAR_JOINT = ['wB', 'wS', 'wW', 'wD', 'wH', 'wBo', 'wK', 'wBn', 'wF', 'wF', 'wF', 'wL'];
+  const GEAR_JOINT = ['wB', 'wS', 'wW', 'wD', 'wH', 'wBo', 'wK', 'wBn', 'wF', 'wF', 'wF', 'wF']; // 提灯也挂 wF（骨架的关节数已经用满；wF 上只有变体零件）
   // 卡通：手持武器整体缩小一点（近镜头下原尺寸的武器比人还抢眼）。按握点缩放武器关节（playerPost），
   // 挂点（刀光、光晕、枪口）都经关节矩阵换算，跟着一起缩；双手武器的左手握点、弓弦在 playerIK 里按这个比例换算
   const GEAR_K = 0.88;
@@ -12948,8 +12948,9 @@
   const TYPE_GEAR = { huntbow: G_BOW, eagle: G_BOW, runebow: G_BOW, emberbow: G_BOW, bow: G_BOW };
   // 序号之外还要区分的具体型号（变体零件的名字）：弓 → 四种弓之一，枪 → 自己的 type
   const gearVariant = (type) => (type === 'bow' ? 'eagle' : BOW_TYPES.indexOf(type) >= 0 || GUN_TYPES.indexOf(type) >= 0 ? type : null);
-  // 提灯（class-d2b1）：灯框顶相对握杆的下移（dy，负 = 往下）、握把底端相对武器关节的前后（dz）。自产件（art/ca/gen.py 的 hand_lantern）按同一个约定换算
-  const LANTERN_FIT = { dy: -0.125, dz: -0.05 };
+  // 提灯（class-d2b1）：握把底端相对武器关节沿杆的位置（dz）、钩伸出去的方向（ys：+1 = 武器关节的 +y，主角竖着提杆时朝前）。
+  // 自产件（art/ca/gen.py 的 hand_lantern：+z 沿杆、-y 是钩的方向）按同一个约定换算；灯挂在杆头前面 0.11、沿杆 0.37–0.55
+  const LANTERN_FIT = { dz: -0.06, ys: 1, hy: 0.11 };
   // 魂幡：挑杆的高度（握点往上，沿杆）、幡布挂点离杆的横向距离、两段幡布的长度
   const BAN_Z = 1.6, BAN_X = 0.25, BAN_L1 = 0.46, BAN_L2 = 0.44, BAN_CL = 0.26;
   const baseType = (baseIdx) => {
@@ -13685,7 +13686,7 @@
       b.j('root', null, 0, 1.0, 0).j('spine', 'root', 0, 1.1, 0).j('chest', 'spine', 0, 1.32, 0).j('head', 'chest', 0, 1.62, 0.01);
       b.j('uaL', 'chest', 0.33, 1.5, 0).j('faL', 'uaL', 0.38, 1.19, -0.01).j('hL', 'faL', 0.39, 0.9, 0.02);
       b.j('uaR', 'chest', -0.33, 1.5, 0).j('faR', 'uaR', -0.38, 1.19, -0.01).j('hR', 'faR', -0.39, 0.9, 0.02);
-      b.j('wB', 'hR', -0.39, 0.84, 0.05).j('wS', 'hR', -0.39, 0.84, 0.05).j('wW', 'hR', -0.39, 0.84, 0.05).j('wL', 'hR', -0.39, 0.84, 0.05);
+      b.j('wB', 'hR', -0.39, 0.84, 0.05).j('wS', 'hR', -0.39, 0.84, 0.05).j('wW', 'hR', -0.39, 0.84, 0.05);
       // 后加的四种武器：双匕（两手各一把）、战锤、太刀挂右手；长弓挂左手，弓弦两段各挂在弓梢上（拉弓时转向右手、拉长）；
       // wA 是拉弓时右手捏着的那支箭
       b.j('wD', 'hR', -0.39, 0.84, 0.05).j('wH', 'hR', -0.39, 0.84, 0.05).j('wK', 'hR', -0.39, 0.84, 0.05).j('wA', 'hR', -0.39, 0.84, 0.03);
@@ -13919,15 +13920,14 @@
       // 提灯（class-d2b1）：程序化的简化版（变体 lanternP），kit-gear 包里的自产件到了以后换掉（lanternVar）。
       // 握杆沿 +z，杆头一个往下的钩，钩下挂六角灯（灯的轴线朝 -y），罩里一团火苗（自发光，VAR_GLOW.lanternP）
       {
-        const LAN = LANTERN_FIT, LY = WY + LAN.dy, LZ = LAN.dz;
-        b.variant('lanternP').at('wL').surf(SURF.leather).p(gCyl(0.023, 0.024, 0.16, 6), 0x3a2a20, WX, WY, LZ + 0.08, HALF_PI);
-        b.surf(SURF.metal).p(gCyl(0.015, 0.016, 0.36, 6), STEEL_D, WX, WY, LZ + 0.33, HALF_PI);
-        b.surf(SURF.gold).p(gCyl(0.02, 0.02, 0.035, 6), GOLD, WX, WY, LZ + 0.52, HALF_PI);
-        b.surf(SURF.metal).p(gTorus(0.04, 0.01, 4, 8, Math.PI), STEEL_D, WX, WY - 0.045, LZ + 0.55, 0, HALF_PI, 0);
-        b.surf(SURF.gold).p(gCone(0.068, 0.05, 6), GOLD, WX, LY + 0.03, LZ + 0.545);
-        b.p(gCyl(0.064, 0.064, 0.018, 6), GOLD, WX, LY - 0.0, LZ + 0.545).p(gCyl(0.064, 0.064, 0.018, 6), GOLD, WX, LY - 0.17, LZ + 0.545);
-        b.p(gCyl(0.052, 0.052, 0.16, 6), [0xd08a3a, 0xf0b060], WX, LY - 0.085, LZ + 0.545);
-        b.x(gOct(0.026), 1, WX, LY - 0.09, LZ + 0.545, 0, 0, 0, 0.8, 1.3, 0.8);
+        const LAN = LANTERN_FIT, LY = WY + LAN.ys * LAN.hy, LZ = LAN.dz;
+        b.variant('lanternP').at('wF').surf(SURF.leather).p(gCyl(0.023, 0.024, 0.16, 6), 0x3a2a20, WX, WY, LZ + 0.08, HALF_PI);
+        b.surf(SURF.metal).p(gCyl(0.015, 0.016, 0.42, 6), STEEL_D, WX, WY, LZ + 0.36, HALF_PI);
+        b.p(gTorus(0.05, 0.011, 4, 8, Math.PI), STEEL_D, WX, WY + LAN.ys * 0.055, LZ + 0.585, 0, HALF_PI, 0);
+        b.surf(SURF.gold).p(gCone(0.068, 0.04, 6), GOLD, WX, LY, LZ + 0.565, HALF_PI);
+        b.p(gCyl(0.064, 0.064, 0.018, 6), GOLD, WX, LY, LZ + 0.545, HALF_PI).p(gCyl(0.064, 0.064, 0.018, 6), GOLD, WX, LY, LZ + 0.37, HALF_PI);
+        b.p(gCyl(0.052, 0.052, 0.17, 6), [0xd08a3a, 0xf0b060], WX, LY, LZ + 0.457, HALF_PI);
+        b.x(gOct(0.026), 1, WX, LY, LZ + 0.45, 0, 0, 0, 0.8, 0.8, 1.3);
         b.variant(null);
       }
       b.variant(null);
@@ -14045,10 +14045,10 @@
       p[J.faR] = -1.0 * run - 0.95 * id;
       p[J.hR] = -0.2;
     } else if (gear === G_LAN) {
-      // 提灯（class-d2b1）：小臂往前平端，杆朝前，灯挂在杆头下面、在腰侧
-      p[J.uaR] = (-0.3 * s - 0.05) * run - 0.08 * id;
-      p[J.faR] = -1.05 * run - 1.15 * id;
-      p[J.hR] = 0.35;
+      // 提灯（class-d2b1）：手在身前偏低处竖着提杆，灯从杆头的钩上垂下来
+      p[J.uaR] = (-0.3 * s - 0.05) * run - 0.1 * id;
+      p[J.faR] = -1.05 * run - 0.8 * id;
+      p[J.hR] = -0.7 + 0.35 * run;
     } else if (gear === G_DAG) {
       // 双匕：两手各握一把，小臂抬起护在身前，刃尖朝前；跑起来两臂交替前后摆
       p[J.uaR] = (-0.5 * s - 0.15) * run - 0.22 * id;
@@ -16002,7 +16002,7 @@
   // 武器的握法 / 挂点长度 / 稀有度的发光
   // 挂点 weapon（武器尖端 / 长弓的上弓梢 / 魂幡杆头的魂火）相对武器关节的 [x, y, z]
   const GEAR_TIP = [[0, 0, 1.17], [0, 0, 1.54], [0, 0, 0.68], [0, 0, 0.5], [0, 0, 1.0], [BOW_TIP[0] - 0.39, BOW_TIP[1] - 0.84, BOW_TIP[2] - 0.05], [0, 0.04, 1.12], [0, 0, 1.84],
-    [0, GUN_AX, GUN_MUZ.gatling - 0.05], [0, GUN_AX, GUN_MUZ.flamer - 0.05], [0, GUN_AX, GUN_MUZ.revolver - 0.05], [0, LANTERN_FIT.dy - 0.09, LANTERN_FIT.dz + 0.545 - 0.05]];
+    [0, GUN_AX, GUN_MUZ.gatling - 0.05], [0, GUN_AX, GUN_MUZ.flamer - 0.05], [0, GUN_AX, GUN_MUZ.revolver - 0.05], [0, LANTERN_FIT.ys * LANTERN_FIT.hy, LANTERN_FIT.dz + 0.45 - 0.05]];
   // 第 4 档是烬铸：余烬橙的自发光比稀有更亮，光晕更大（见 applyGear），武器上不停往上飘火星（见下面的 gear 更新）
   const GEAR_GLOW = [[0xcfd6e2, 0.3], [0x7f9dff, 1.15], [0xffd75e, 1.5], [0xff7424, 2.4]];
   // 个别武器的烬铸档换一种光色（只换这一把，不动其他烬铸武器）：冰弓凛羽是冰蓝，光晕和飘落的东西也跟着换（见 applyGear 与下面的 gear 更新）
@@ -16105,14 +16105,14 @@
       if (G.save) W.setPlayerGear(G.save.equip);
     });
   };
-  // 包里的件（Blender：+z 沿握杆、-y 往下；导出后 glTF 是 (x, z, -y)）→ 骨架绑定空间里挂在 wL 上的刚性零件：
-  // x = WX + gx，y = 0.84 − gz（往下），z = dz + gy。余烬面（aGlow）进自发光那一份，其余进本体
+  // 包里的件（Blender：+z 沿握杆、-y 是钩的方向；导出后 glTF 是 (x, z, -y)）→ 骨架绑定空间里挂在 wF 上的刚性零件：
+  // x = WX − ys·gx，y = 0.84 + ys·gz，z = dz + gy。余烬面（aGlow）进自发光那一份，其余进本体
   function lanternGeo(rig, key) {
     const src = G.assets.geo(key);
     if (!src) return null;
     const Pa = src.attributes.position.array, Na = src.attributes.normal.array, Ca = src.attributes.color.array;
     const Ga = src.attributes.aGlow ? src.attributes.aGlow.array : null;
-    const j = rig.JI.wL, dl = rig.cDl, WX = -0.39, WY = 0.84, F = LANTERN_FIT;
+    const j = rig.JI.wF, dl = rig.cDl, WX = -0.39, WY = 0.84, F = LANTERN_FIT;
     const ox = dl ? dl[j * 3] : 0, oy = dl ? dl[j * 3 + 1] : 0, oz = dl ? dl[j * 3 + 2] : 0;
     const body = cBuf(), glow = cBuf(), sb = SURF.metal, sg = SURF.glow;
     for (let v0 = 0; v0 + 2 < Pa.length / 3; v0 += 3) {
@@ -16120,8 +16120,10 @@
       const out = isG ? glow : body;
       for (let v = v0; v < v0 + 3; v++) {
         const gx = Pa[v * 3], gy = Pa[v * 3 + 1], gz = Pa[v * 3 + 2];
-        out.P.push(WX + gx + ox, WY - gz + oy, F.dz + 0.05 + gy - 0.05 + oz);
-        out.N.push(Na[v * 3], -Na[v * 3 + 2], Na[v * 3 + 1]);
+        // Blender 的 -y（钩的方向）= glTF 的 +gz → 武器关节的 ys·y
+        // (gx, gz, gy) 换了 y / z 是一次镜像：ys = +1 时 x 也取反，三角形的绕向不变（提灯左右对称）
+        out.P.push(WX - F.ys * gx + ox, WY + F.ys * gz + oy, F.dz + gy + oz);
+        out.N.push(-F.ys * Na[v * 3], F.ys * Na[v * 3 + 2], Na[v * 3 + 1]);
         if (isG) out.C.push(Ga[v], Ga[v], Ga[v]);
         else out.C.push(Ca[v * 3], Ca[v * 3 + 1], Ca[v * 3 + 2]);
         out.J.push(j, 0, 0, 0);
@@ -26287,7 +26289,7 @@
       m.emissiveIntensity = RF.gaugeFull ? base * (1.25 + 0.55 * Math.abs(Math.sin(wtime * 5))) : base;
     }
     // 热度高：枪口冒一缕青烟；满了还噼啪掉火星
-    if (dt > 0 && ent.gearType >= G_GAT && RF.gaugeK > 0.7 && Math.random() < dt * (RF.gaugeFull ? 9 : 4)) {
+    if (dt > 0 && ent.gearType >= G_GAT && ent.gearType <= G_REV && RF.gaugeK > 0.7 && Math.random() < dt * (RF.gaugeFull ? 9 : 4)) {
       W.entSocket(ent, 'weapon', _rs);
       spawnS(_rs.x, _rs.y + 0.05, _rs.z, rand(-0.1, 0.1), rand(0.4, 0.8), rand(-0.1, 0.1), rand(0.5, 0.9), rand(0.18, 0.28), 0.16, 0.15, 0.15, 0.3);
       smokeLive = 1.2;
