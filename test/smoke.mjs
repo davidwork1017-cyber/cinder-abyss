@@ -2260,7 +2260,7 @@ async function main() {
         G.input.tap[4] = 0.3;
         for (let i = 0; i < 150; i++) G.tick(1 / 60);
         out.fizzle = S.projectiles.length;
-        // 有召唤物：狂热期间出手间隔与移动都快 30%
+        // 有召唤物：狂热 12 秒，期间出手间隔与移动都快 15%（dur-tune：原来 4 秒 +30%）
         T.arena();
         save.equip.weapon = ban;
         save.skills.thrall = G.skillCtx('soultide').lvl; // 仆从宝石和魂潮同级：穿插收益的估算才是同一档次比
@@ -2273,7 +2273,7 @@ async function main() {
         for (let i = 0; i < 30; i++) G.tick(1 / 60);
         const fz = G.minionFrenzyState();
         out.frenzy = { t: +fz.t.toFixed(2), mult: fz.mult, n: S.minions.length };
-        for (let i = 0; i < 300; i++) G.tick(1 / 60);
+        for (let i = 0; i < 720; i++) G.tick(1 / 60);
         out.after = G.minionFrenzyState().mult;
         // 狂热的实际出手频率：同样 8 秒，仆从砍木桩的次数约多 30%（不是 1.3 × 1.3）
         const W = G.world;
@@ -2321,7 +2321,7 @@ async function main() {
     assert(r.scale.own === 1 && r.scale.minion > 1.5 && Math.abs(r.scale.minion - r.scale.wantM) < 0.002 && r.scale.lvl === r.scale.want, '魂潮的伤害应只吃召唤物伤害、等级 = 物品等级 × 0.75：' + JSON.stringify(r.scale));
     assert(r.solo.dmg > 0 && r.solo.splash > 0 && r.solo.maxP === 4 && r.solo.cd > 0, '没有召唤物时魂潮也应放出 4 只魂火、命中并炸开：' + JSON.stringify(r.solo));
     assert(r.fizzle === 0, '打空的魂火应散掉：' + r.fizzle);
-    assert(r.frenzy.n === 2 && r.frenzy.mult === 1.3 && r.frenzy.t > 3 && r.after === 1, '召唤物应狂热约 4 秒（×1.3）：' + JSON.stringify(r));
+    assert(r.frenzy.n === 2 && r.frenzy.mult === 1.15 && r.frenzy.t > 11 && r.after === 1, '召唤物应狂热约 12 秒（×1.15）：' + JSON.stringify(r));
     assert(r.weave >= 0.18 && r.weave <= 0.4 && r.alone < 1, '魂潮的强度不对：' + JSON.stringify(r));
     assert(r.swing.n0 >= 12 && r.swing.k >= 1.12 && r.swing.k <= 1.48, '狂热期间仆从的出手次数应多约 30%：' + JSON.stringify(r.swing));
     return '单发 ' + r.solo.dmg + '（溅射 ' + r.solo.splash + '），穿插 +' + Math.round(r.weave * 100) + '%（不算狂热），狂热 ×' + r.frenzy.mult + '（8 秒出手 ' + r.swing.n0 + ' → ' + r.swing.n1 + ' 次）';
@@ -3633,7 +3633,7 @@ async function main() {
     return r.map((o) => '物品等级 ' + o.il + '：普攻 ' + o.basic + '/s · 射线 ' + o.avg + '（折合 ' + o.secs + ' 秒）').join(' · ');
   }));
 
-  await step('焚天炎爆按喷枪普攻折算：火浪加 5 秒火场打在木桩上 ≥ 4.5 秒喷枪普攻（不镶辅助、含余烬的秒伤），物品等级 10 和 40（带上附加伤害与攻速）都成立；技能卡上的整招伤害对得上', noRes(async () => {
+  await step('焚天炎爆按喷枪普攻折算：火浪加 8 秒火场打在木桩上 ≥ 4.5 秒喷枪普攻（不镶辅助、含余烬的秒伤），物品等级 10 和 40（带上附加伤害与攻速）都成立；技能卡上的整招伤害对得上', noRes(async () => {
     const r = await ev((code) => {
       eval(code);
       const save = G.save, P = G.player, out = [];
@@ -3678,12 +3678,12 @@ async function main() {
           }
           G.input.mouse.b[2] = false;
           const basic = (hp1 - d.hp) / 3;
-          // 焚天炎爆：贴身的木桩吃火浪，再站在火场里烧满 5 秒
+          // 焚天炎爆：贴身的木桩吃火浪，再站在火场里烧满 8 秒（dur-tune：原来 5 秒，跳数同样是 10 跳）
           arm();
           const e = stake(2);
           G.debug.gauge();
           G.input.tap[4] = 0.3;
-          RW.run(60 * 5.6);
+          RW.run(60 * 8.6);
           const dmg = 1e9 - e.hp;
           const ctx = G.skillCtx('firestorm');
           out.push({ il, add: P.S.addFire, basic: Math.round(basic), dmg: Math.round(dmg), secs: +(dmg / basic).toFixed(2), card: Math.round(G.avgHit(ctx)), fields: G.rangedFields().length });
@@ -11803,7 +11803,7 @@ async function main() {
     return '怪群 ' + r.pack.hops + ' 闪 / ' + r.pack.cuts + ' 道斩痕 · 单体齐爆 ' + r.single.burst + ' / 应为 ' + r.single.expect + '（' + r.single.total + ' 合计）';
   }));
 
-  await step('三相天灾：准星处 4 秒的风暴，火 / 冰 / 雷轮流落下（每种按自己的元素伤害加成），在怪群里接连触发冻结 / 爆燃 / 感电；首领的阈值照常变高（拿着三相之心也一样），首领不被冻结；冷却 12 秒', async () => {
+  await step('三相天灾：准星处 6 秒的风暴，火 / 冰 / 雷轮流落下（每种按自己的元素伤害加成），在怪群里接连触发冻结 / 爆燃 / 感电；首领的阈值照常变高（拿着三相之心也一样），首领不被冻结；冷却 12 秒', async () => {
     const r = await ev(() => {
       T.arena();
       const P = G.player, S = G.state, sk = G.SKILLS.tristorm, out = {};
@@ -11835,7 +11835,8 @@ async function main() {
       };
       G.input.tap[4] = 0.3;
       let t = 0;
-      try { while (t < 5.5) { frame++; G.tick(1 / 60); t += 1 / 60; } } finally { G.hitEnemy = oh; G.world.triStrike = ots; }
+      // dur-tune：风暴 4 → 6 秒（还是 20 击），窗口 5.5 → 7.5 秒，照样看完整场
+      try { while (t < 7.5) { frame++; G.tick(1 / 60); t += 1 / 60; } } finally { G.hitEnemy = oh; G.world.triStrike = ots; }
       const seen = {};
       for (const [c, frames] of byCtx) {
         const el = Object.keys(c.base)[0];
@@ -11856,7 +11857,7 @@ async function main() {
       t = 0;
       const ue = G.updateEnemies;
       G.updateEnemies = () => {}; // 冒充首领的大块头没有首领的招式表：这段只看异常，不跑怪物 AI
-      try { while (t < 5.5) { G.tick(1 / 60); t += 1 / 60; if (b.freeze > 0) frozen = true; } } finally { G.updateEnemies = ue; }
+      try { while (t < 7.5) { G.tick(1 / 60); t += 1 / 60; if (b.freeze > 0) frozen = true; } } finally { G.updateEnemies = ue; }
       out.boss = { grow: [b.buGrow.fire, b.buGrow.cold, b.buGrow.light].map((v) => +v.toFixed(2)), trig: [b.buTrig.fire, b.buTrig.cold, b.buTrig.light], frozen, grow0: G.TRI.grow };
       b.isBoss = false;
       T.arena();
@@ -13234,7 +13235,7 @@ async function main() {
     return '沿线 ' + r.hits.join(' / ');
   })));
 
-  await step('坠凌：准星处落 10 根冰凌（绵延 13 根），优先砸向敌人；冷却 4 秒；小怪群几秒内冻住；单体一次约 useMult 根', noRes(() => seKeep(async () => {
+  await step('坠凌：准星处 6 秒落 15 根冰凌（绵延 20 根），优先砸向敌人；冷却 6 秒；小怪群几秒内冻住；单体一次约 useMult 根', noRes(() => seKeep(async () => {
     const r = await ev(() => {
       T.lane();
       G.save.bar = [null, null, null, null];
@@ -13249,9 +13250,9 @@ async function main() {
       T.unfix();
       const r0 = s.rainHits || 0;
       G.execSkill(ctx);
-      for (let i = 0; i < 240; i++) G.tick(1 / 60);
+      for (let i = 0; i < 420; i++) G.tick(1 / 60); // dur-tune：一场 6 秒（原来 2.5 秒、240 帧），看完整场
       const out = { single: (s.rainHits || 0) - r0, dmgK: (one.maxHp - one.hp) / per, cd: ctx.cd, n: Math.round(G.SKILLS.icefall.dur / G.SKILLS.icefall.tick) };
-      // 绵延：多落 3 根
+      // 绵延：多落 5 根（15 → 20）
       G.save.sockets.icefall = ['lasting', null, null];
       ctx = G.skillCtx('icefall');
       out.nLast = Math.max(1, Math.round((G.SKILLS.icefall.dur * ctx.durK) / G.SKILLS.icefall.tick));
@@ -13259,7 +13260,7 @@ async function main() {
       const W = G.world, f0 = W.icicleFall;
       W.icicleFall = function () { fell++; if (f0) return f0.apply(this, arguments); };
       G.execSkill(ctx);
-      for (let i = 0; i < 300; i++) G.tick(1 / 60);
+      for (let i = 0; i < 540; i++) G.tick(1 / 60); // 绵延 7.8 秒（原来 300 帧对 3.25 秒）
       if (f0) W.icicleFall = f0; else delete W.icicleFall;
       out.fell = fell;
       G.save.sockets.icefall = [null, null, null];
@@ -13273,7 +13274,7 @@ async function main() {
       T.aim(P.x + 7, P.z);
       G.execSkill(G.skillCtx('icefall'));
       let frozen = 0;
-      for (let i = 0; i < 200; i++) {
+      for (let i = 0; i < 420; i++) { // 整场冰凌雨（原来 2.5 秒 / 200 帧，现在 6 秒 / 420 帧，根数 10 → 15）
         G.tick(1 / 60);
         frozen = Math.max(frozen, pack.filter((e) => e.freeze > 0).length);
       }
@@ -13289,10 +13290,10 @@ async function main() {
       out.cdMax = P.cdMax.icefall || 0;
       return out;
     });
-    assert(r.n === 10 && r.nLast === 13 && r.fell === 13, '根数不对（10 根，绵延 13 根）：' + JSON.stringify(r));
-    assert(r.single >= 5 && r.single <= 9, '单体一次应中 5–9 根（useMult 7）：' + JSON.stringify(r));
+    assert(r.n === 15 && r.nLast === 20 && r.fell === 20, '根数不对（15 根，绵延 20 根）：' + JSON.stringify(r));
+    assert(r.single >= 7.5 && r.single <= 13.5, '单体一次应中 7.5–13.5 根（原来 10 根时 5–9 根，按根数 ×1.5）：' + JSON.stringify(r));
     assert(r.frozen >= 3, '小怪群应有一半以上被冻住：' + JSON.stringify(r));
-    assert(Math.abs(r.cdMax - 4) < 0.01, '冷却应为 4 秒：' + JSON.stringify(r));
+    assert(Math.abs(r.cdMax - 6) < 0.01, '冷却应为 6 秒：' + JSON.stringify(r));
     return '单体 ' + r.single + ' 根，冻住 ' + r.frozen + '/6';
   })));
 
@@ -13543,7 +13544,7 @@ async function main() {
       const out = {};
       const tc = G.skillCtx('tether'), per0 = G.avgHit(tc) / G.SKILLS.tether.useMult;
       out.tether = txt('tether').includes(Math.round(per0) + ' → ' + Math.round(per0 * 1.8));
-      out.rain = /每根伤害/.test(txt('icefall')) && /10 根/.test(txt('icefall'));
+      out.rain = /每根伤害/.test(txt('icefall')) && /15 根/.test(txt('icefall'));
       const nc = G.skillCtx('nails');
       out.nails = /每枚伤害/.test(txt('nails')) && txt('nails').includes(String(Math.round(G.avgHit(nc)))) && /最多中 3 枚/.test(txt('nails'));
       out.rend = /流血：每层/.test(txt('rend')) && txt('rend').includes(String(Math.round(G.skillDps(G.skillCtx('rend')))));
@@ -13887,13 +13888,13 @@ async function main() {
       TV.run(2.0);
       out.near = TV.n(near);
       out.far = TV.n(far);
-      TV.run(2.5);
+      TV.run(10.5); // dur-tune：每把 4 → 12 秒
       out.left = G.variantState().orbits.length;
       TV.done();
       return out;
     });
     assert(r.orbits === 3 && r.proj === 0, '环刃应绕身 3 把、不射出投射物：' + JSON.stringify(r));
-    assert(r.near >= 4 && r.far === 0 && r.left === 0, '环刃应割贴身的怪、4 秒后收起：' + JSON.stringify(r));
+    assert(r.near >= 4 && r.far === 0 && r.left === 0, '环刃应割贴身的怪、12 秒后收起：' + JSON.stringify(r));
     return '2 秒内贴身的怪挨 ' + r.near + ' 下';
   });
   await step('刻式 v2·霜环「冰棱」：不再脉冲，朝光环外 9 米内最近的两只射追踪冰棱；身边有三枚冰晶、地上没有霜环', async () => {
@@ -14545,10 +14546,10 @@ async function main() {
         G.computeStats();
         return G.skillCtx(id);
       };
-      // 一直推进到 alive() 变 0，返回秒数（最多 12 秒）
+      // 一直推进到 alive() 变 0，返回秒数（最多 20 秒；dur-tune 之后雷桩、环刃 12 秒，镶绵延 15.6 秒）
       const lifeOf = (alive) => {
         let t = 0;
-        while (alive() > 0 && t < 12) {
+        while (alive() > 0 && t < 20) {
           TV.run(1 / 60);
           t += 1 / 60;
         }
@@ -14836,6 +14837,39 @@ async function main() {
     });
     assert(r.b.far >= 4 && r.o.far === 0, '随凌应跟着你、原式应留在原地：' + JSON.stringify(r));
     return '走过去的怪挨 ' + r.b.far + ' 根（原式 0）';
+  });
+  await step('坠凌：同时最多 2 场冰凌雨（dur-tune）——连放两场都照常落完，第三场停掉最老那场还没落的冰凌；随凌同样最多 2 场', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      const out = {};
+      for (const v of ['o', 'b']) {
+        TV.setup('icefall', v);
+        TV.mob(7, 0);
+        const W = G.world, f0 = W.icicleFall;
+        let fell = 0;
+        W.icicleFall = function () { fell++; if (f0) return f0.apply(this, arguments); };
+        try {
+          const sk = G.SKILLS.icefall, n = Math.round(sk.dur / sk.tick), cut = () => TV.st('rainCut');
+          TV.cast('icefall', TV.at(7), 0.5);
+          TV.cast('icefall', TV.at(7), 0.5);
+          const two = { live: G.rainsLive().length, cut: cut() };
+          TV.cast('icefall', TV.at(7), 0);
+          const three = { live: G.rainsLive().length, cut: cut() };
+          TV.run(sk.dur + 1.5);
+          out[v] = { n, max: sk.max, two, three, fell, end: G.rainsLive().length };
+        } finally {
+          if (f0) W.icicleFall = f0; else delete W.icicleFall;
+        }
+        TV.done();
+      }
+      return out;
+    });
+    for (const v of ['o', 'b']) {
+      const o = r[v];
+      assert(o.max === 2 && o.two.live === 2 && o.two.cut === 0 && o.three.live === 2 && o.three.cut === 1 && o.end === 0, '同时最多 2 场，第三场顶掉最老的（' + v + '）：' + JSON.stringify(o));
+      assert(o.fell >= 2 * o.n + 1 && o.fell <= 2 * o.n + 5, '后两场落满、最老那场只落了开头 1 秒（' + v + '）：' + JSON.stringify(o));
+    }
+    return '原式 ' + r.o.n + ' 根 / 场，三场共落 ' + r.o.fell + ' 根；随凌 ' + r.b.n + ' 根 / 场，共落 ' + r.b.fell + ' 根';
   });
   await step('刻式 b2·迸电「闪迸」：朝 6 米外的怪冲过去（停在它身前、不贴进去）再电；冲刺不给无敌；准星在墙后时停在墙前、站在能走的地方', async () => {
     await ev(TVDEF);
@@ -16506,6 +16540,54 @@ async function main() {
     assert(r.oldB === '1,true,1' && r.round === '1,true,1', '选着旋涡斩的老存档应提示一次：' + JSON.stringify(r));
     assert(r.oldA === '0,false,1' && r.fresh === '0,false,1' && r.seen === '0,false,1', '没选旋涡斩 / 新存档 / 看过的不该提示：' + JSON.stringify(r));
     return '老存档（旋涡斩）提示一次，看过不再提示';
+  });
+
+  await step('魂潮改版的提示（dur-tune）：拿着魂幡（R 是魂潮）的老存档（没有 stFz）读档后提示一次「狂热 12 秒 +15%」，存档往返仍提示，看过不再提示；拿着别的武器 / 万魂旗的老存档、新存档都不提示', async () => {
+    const r = await ev((keep) => {
+      const out = {};
+      const ban = JSON.parse(JSON.stringify(G.rollItem(9, 0, 'weapon', 7)));
+      const blade = JSON.parse(JSON.stringify(G.rollItem(9, 0, 'weapon', 0)));
+      const flag = JSON.parse(JSON.stringify(G.rollUnique('wanhun', 30, 0.5)));
+      out.ws = [ban, blade, flag].map((w) => G.weaponSkillOf(w)).join();
+      const load = (mut) => {
+        G.persist();
+        const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+        mut(raw);
+        localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+        G.loadSave();
+        return [G.frenzyNerfed || 0, G.save.stNote, G.save.stFz].join();
+      };
+      const old = (w) => (raw) => {
+        delete raw.stFz;
+        delete raw.stNote;
+        raw.equip = raw.equip || {};
+        raw.equip.weapon = w;
+        if (raw.tut) delete raw.tut.stfz;
+      };
+      out.oldBan = load(old(ban));
+      out.round = load(() => {});
+      out.oldBlade = load(old(blade));
+      out.oldFlag = load(old(flag));
+      out.fresh = load((raw) => {
+        raw.stFz = 1;
+        raw.stNote = false;
+        raw.equip.weapon = ban;
+      });
+      G.save.tut.stfz = 1;
+      G.save.stNote = false;
+      out.seen = load((raw) => {
+        delete raw.stFz;
+        raw.equip.weapon = ban;
+      });
+      if (keep) localStorage.setItem('cinder-abyss-save-v1', keep);
+      G.loadSave();
+      G.computeStats();
+      return out;
+    }, varKeep);
+    assert(r.ws === 'soultide,riposte,soulhost', '测试用的三把武器不对：' + JSON.stringify(r));
+    assert(r.oldBan === '1,true,1' && r.round === '1,true,1', '拿着魂幡的老存档应提示一次：' + JSON.stringify(r));
+    assert(r.oldBlade === '0,false,1' && r.oldFlag === '0,false,1' && r.fresh === '0,false,1' && r.seen === '0,false,1', '别的武器 / 万魂旗 / 新存档 / 看过的不该提示：' + JSON.stringify(r));
+    return '老存档（魂幡）提示一次，看过不再提示';
   });
 
   await step('渊式·说明：六件渊契的机制说明都是「解锁 技能·渊式名：」+ 一句按参数拼的话（数值跟着 G.VARIANTS 变）、详情里写着在技能页选；提示卡和图鉴都显示这一句；没有渊式的渊契说明照旧；刻式悬停公式的渊式比值都高过 A / B', async () => {
