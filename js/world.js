@@ -12575,7 +12575,7 @@
   };
   // 这一帧打出去的弹丸画面上从哪儿出来：投掷动作（掷焰 / 飞刃 / 散钉……）从投掷的那只手；
   // 远程武器 / 施法武器、或者正在播武器自己的出手动作（fire_ / r_ / w_ / b_）时从武器的出手点；其余（近战武器施法）从左手
-  const EMIT_GEAR = { 1: 1, 2: 1, 5: 1, 7: 1, 8: 1, 9: 1, 10: 1 }; // 长杖 短杖 长弓 魂幡 机炮 喷枪 左轮
+  const EMIT_GEAR = { 1: 1, 2: 1, 5: 1, 7: 1, 8: 1, 9: 1, 10: 1, 11: 1 }; // 长杖 短杖 长弓 魂幡 机炮 喷枪 左轮 提灯（法器：法术从灯里出来）
   const EMIT_CLIP = /^(fire|r|w|b)_/;
   function emitWorld(ent, out) {
     const c = ent.clip, n = c ? c.name : '';
@@ -30122,8 +30122,9 @@
     const bx = -Math.sin(aim) * 3.4, bz = -Math.cos(aim) * 3.4, sx = Math.cos(aim) * 0.16, sz = -Math.sin(aim) * 0.16;
     vsBrush(VSH.bar, 5, 3, 0x2a241e, 0x1a1612, 0, 0.3, 1);
     for (const s of [-1, 1]) vsEmit(x + sx * s, 0.05, z + sz * s, bx, 0, bz, 1.4, 0.07);
+    const ent = G.player && G.player.ent, mz = ent ? W.muzzleWorld(ent, _rs) : { x: x + Math.sin(aim) * 0.9, y: 1.1, z: z + Math.cos(aim) * 0.9 };
     vsBrush(VSH.ring, 0, 0, 0xfff2d0, 0xffb060, 1, 0, 0.3);
-    vsEmit(x + Math.sin(aim) * 0.9, 1.1, z + Math.cos(aim) * 0.9, 0, 0, 0, 0.06, 0.35); // 枪口一下亮芯
+    vsEmit(mz.x, mz.y, mz.z, 0, 0, 0, 0.06, 0.35); // 枪口一下亮芯（出手点）
     b1Chips(x, 0.1, z, qualId === 'low' ? 2 : 4, 0.2, 1, 2.2, 0x6a5a48, 0x2a241e, 0.05, 0.09);
   };
   W.recoilShock = function (x, z, R) {

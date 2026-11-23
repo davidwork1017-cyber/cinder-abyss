@@ -9354,6 +9354,7 @@
       }
     }
     roundHeat(sk, gun, sh.k);
+    if (gun) fxOpt('muzzle', P.ent, sh.k / 1.1 + 0.3, sk.color); // 枪口焰（出手点，W.muzzleWorld）
   }
   // 弹打中一个敌人之后（直击已经结算过）
   function roundAfter(p, e) {
