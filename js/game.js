@@ -9338,7 +9338,7 @@
       } else if (line) p.pierce = 999;
       else if (sk.round === 'wedge' && sk.mech === 'net') {
         const ai = aimInfo();
-        p.life = Math.max(0.05, (G.clamp(ai.dist, 2, range) - 0.8) / p.speed); // 打空的楔子钉在准星处
+        p.life = Math.max(0.05, (G.clamp(ai.dist + 1.5, 2, range) - 0.8) / p.speed); // 打空的楔子钉在准星稍过去一点（准星上站着的敌人照样打得到）
         p.onEnd = netEnd;
       } else if (sk.round === 'rime' && sk.mech === 'deep') {
         const D = sk.deep;
