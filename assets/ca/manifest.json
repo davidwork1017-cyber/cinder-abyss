@@ -1331,6 +1331,71 @@
    "sha256": "317d71795a75957cec5ae79d3e018763f41626404dacd5fd7dd6b6b9489e44b3"
   },
   {
+   "id": "ca/boss_lord",
+   "category": "boss",
+   "zone": "boss",
+   "file": "assets/ca/boss/lord.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 4026,
+   "verts": 11075,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -3.04,
+     0,
+     -2.686
+    ],
+    "max": [
+     3.124,
+     5.32,
+     2.012
+    ]
+   },
+   "h": 5.32,
+   "r": 3.124,
+   "y0": 0,
+   "source": {
+    "script": "art/ca/boss/lord.py",
+    "clips": "art/ca/boss/lord_clips.py",
+    "gen": "lord",
+    "catalog": "art/catalog.py",
+    "seed": 191,
+    "args": {},
+    "bake": {
+     "ao": 0.6,
+     "grad": 0.7,
+     "wear": 0.5,
+     "grime": 0.2,
+     "gain": 1.1
+    }
+   },
+   "bones": 31,
+   "clips": [
+    "barrage",
+    "barrage_w",
+    "broken",
+    "cross",
+    "cross_w",
+    "death",
+    "fan",
+    "fan_w",
+    "hit",
+    "idle",
+    "mood",
+    "slam",
+    "slam_w",
+    "spiral",
+    "spiral_w",
+    "summon",
+    "summon_w",
+    "walk"
+   ],
+   "home": "abyss",
+   "sha256": "959be97262671aaa28c377ecc6a737e4967339a181f49d55dd280dc33c716edc"
+  },
+  {
    "id": "ca/crown_brazier",
    "category": "prop",
    "zone": "crown",
