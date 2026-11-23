@@ -1278,24 +1278,24 @@
    "file": "assets/ca/boss/golem.glb",
    "ship": true,
    "replaces": null,
-   "tris": 4030,
-   "verts": 11660,
+   "tris": 4096,
+   "verts": 11821,
    "materials": 1,
    "textures": 1,
    "bounds": {
     "min": [
-     -3.004,
+     -3.008,
      -0.02,
-     -1.208
+     -1.191
     ],
     "max": [
      2.577,
      4.875,
-     1.1
+     1.088
     ]
    },
    "h": 4.895,
-   "r": 3.004,
+   "r": 3.008,
    "y0": -0.02,
    "source": {
     "script": "art/ca/boss/golem.py",
@@ -1328,7 +1328,7 @@
     "walk"
    ],
    "home": "ash",
-   "sha256": "fd24ba463efdf29a3d7ef20b4bad59a0e9ced55a4ef0ca6ea689536d4bb066d8"
+   "sha256": "2c0358faebd7049f07dc746eacf932b2d7016fc3e458f3c73e784eadbdb478fb"
   },
   {
    "id": "ca/crown_brazier",

@@ -49,7 +49,7 @@ B = SKEL.index
 
 # ---------------------------------------------------------------- 搭形工具（游戏坐标）
 # 玄武岩的色带位置整体往亮的一头挪（灰度检查：受光面 p85 要到 55–75%、比地面亮 15 点以上；顶点色最多到 1，亮度只能靠色带位置给）
-BASALT_LIFT = 0.26
+BASALT_LIFT = 0.18
 
 
 def _tone(row, tone):
@@ -204,7 +204,9 @@ def build(k):
     for s in (1, -1):
         for (x, z, y0, h, r, bn) in cols:
             bone = bn if bn == 'spine_03' else 'clavicle_' + ('l' if s > 0 else 'r')
-            hexcol(k, bone, (s * x, y0, z), h, r, rot=(k.r(-0.05, 0.05), 0, -s * 0.05), row='basalt', tone=0.3 + k.r(0, 0.1), top_row='pale', top_tone=0.18 + k.r(0, 0.1), chamfer=0.08)
+            cv = hexcol(k, bone, (s * x, y0, z), h, r, rot=(k.r(-0.05, 0.05), 0, -s * 0.05), row='basalt', tone=0.3 + k.r(0, 0.1), top_row='basalt', top_tone=_tone('basalt', 0.4 + k.r(0, 0.1)), chamfer=0.08)
+            if bone != 'spine_03':
+                seam(k, cv, (0, 1, 0), n=1, width=0.3, depth=0.04, glow=0.58)  # 柱顶一道余烬裂缝（俯视镜头看得见）
         # 柱簇底下垫一整块，把柱子连成一副肩轭（俯视是一整条，不散成一堆）
         hbox(k, 'spine_03', (s * 0.9, 3.42, -0.1), (1.0, 0.36, 1.4), rot=(0, 0, -s * 0.06), row='basalt', tone=0.22, bevel=0.08, jit=0.03)
         hbox(k, 'clavicle_' + ('l' if s > 0 else 'r'), (s * 1.66, 3.5, -0.05), (0.9, 0.4, 1.3), rot=(0, 0, -s * 0.14), row='basalt', tone=0.22, bevel=0.08, jit=0.03)
@@ -247,21 +249,23 @@ def build(k):
     for sx in (-1, 1):
         blob(k, 'x_hammer', (-2.18 + sx * 0.6, 0.98, 0.32 + sx * 0.12), (0.16, 0.42, 0.42), n=10, row='basalt', tone=0.42)
     seam(k, hm, (0, -1, 0), n=2, width=0.22, glow=0.62)
+    seam(k, hm, (0, 0, 1), n=1, width=0.28, depth=0.04, glow=0.58)  # 锤石正面、侧面也各一道（俯视镜头看得见）
+    seam(k, hm, (-1, 0, 0), n=1, width=0.28, depth=0.04, glow=0.58)
     blob(k, 'x_hammer', (-2.16, 1.6, 0.32), (0.36, 0.18, 0.34), n=12, row='stone', tone=0.28, flat=0.2)
 
     # ---- 熔渣的余烬：大柱之间的窄缝、锤臂上一路往下的裂缝、关节处一圈很淡的光（细、暗、火色，不到近白；近白的只有炉芯） ----
     for s in (1, -1):
         cl = 'clavicle_' + ('l' if s > 0 else 'r')
         for (x, z, rz, ln) in ((1.0, -0.22, 0.5, 0.62), (1.56, 0.0, -0.2, 0.7), (1.6, -0.6, 1.0, 0.5)):
-            hbox(k, cl if x > 0.95 else 'spine_03', (s * x, 3.8, z), (0.07, 0.62, ln), rot=(0, s * rz, 0), row='ember', tone=0.55, bevel=0.0, glow=0.45, dust=0)
-        hbox(k, 'spine_03', (s * 0.42, 3.72, -0.1), (0.07, 0.5, 0.6), row='ember', tone=0.5, bevel=0.0, glow=0.4, dust=0)
+            hbox(k, cl if x > 0.95 else 'spine_03', (s * x, 3.86, z), (0.11, 0.66, ln), rot=(0, s * rz, 0), row='ember', tone=0.6, bevel=0.0, glow=0.55, dust=0)
+        hbox(k, 'spine_03', (s * 0.42, 3.76, -0.1), (0.1, 0.52, 0.6), row='ember', tone=0.55, bevel=0.0, glow=0.5, dust=0)
         sd = 'l' if s > 0 else 'r'
         for (bn, y, rr) in (('lowerarm_' + sd, 2.44, 0.4), ('calf_' + sd, 0.98, 0.42), ('upperarm_' + sd, 3.42, 0.44)):
             bx, bz = BONES[B[bn]][2][0], BONES[B[bn]][2][2]
             loft(k, bn, [(bx, y - 0.025, bz), (bx, y + 0.025, bz)], [rr, rr], sides=7, row='ember', tone=0.45, jitter=0.02, glow=0.35)
     # 锤臂：上臂和前臂朝前的面上各一道窄裂缝，一路接到锤石的余烬缝
     for bn, c in (('upperarm_r', (-1.98, 3.0, 0.43)), ('lowerarm_r', (-2.1, 1.92, 0.68))):
-        hbox(k, bn, c, (0.06, 0.62, 0.05), rot=(-0.1, 0, -0.15), row='ember', tone=0.55, bevel=0.0, glow=0.5, dust=0)
+        hbox(k, bn, c, (0.09, 0.62, 0.06), rot=(-0.1, 0, -0.15), row='ember', tone=0.6, bevel=0.0, glow=0.55, dust=0)
     # ---- 细节：腰带石、胸板上的小石板、背脊、四肢上崩出来的小块（大面不平、俯视有转折） ----
     for i in range(7):
         a = -1.2 + i * 0.4
