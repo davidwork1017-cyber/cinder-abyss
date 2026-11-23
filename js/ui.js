@@ -1248,7 +1248,7 @@
     if (isW && G.clsDef && G.clsDef()) {
       const wc = G.CLASSES[G.WTYPE_CLS[G.wTypeOfItem(item)]];
       const off = G.offClassItem(item);
-      if (wc) h += '<div class="ic-cls' + (off ? ' off' : '') + '">职业：' + wc.name + (off ? ' · ' + G.clsDef().name + '装不上，可以放进共享仓库' : '') + '</div>';
+      if (wc) h += '<div class="ic-cls' + (off ? ' off' : '') + '">职业：' + wc.name + (off ? ' · ' + G.clsDef().name + '装不上' : '') + '</div>';
     }
     if (isW) h += weaponBlock(item, o.cmp);
     if (L.armour) h += '<div class="ic-line arm">护甲 <b>' + L.armour + '</b></div>';
@@ -1698,11 +1698,13 @@
 
     el.body.innerHTML =
       '<div class="inv">' +
-      '<div class="col col-l"><div class="sec-title">装备</div><div class="eq-grid">' + eq + '</div>' +
+      '<div class="col col-l"><div class="sec-title">装备' +
+      '<button type="button" tabindex="-1" class="btn sm stb' + (!sel && ui.stashOn ? ' on' : '') + '" data-act="stash" data-tip="txt:所有角色共用的仓库：别的职业的武器、用不上的装备可以留给别的角色">共享仓库</button></div>' +
+      '<div class="eq-grid">' + eq + '</div>' +
       '<div class="sec-title">属性<span class="sec-note">等级 ' + S.level + '</span></div><div class="stats scroll" data-scroll="stats">' + statSheet() + '</div></div>' +
       '<div class="col col-m"><div class="sec-title">背包<span class="sec-note">' + S.bag.length + ' / ' + G.BAG_SIZE + '</span>' +
       '<button type="button" tabindex="-1" class="btn sm uqb' + (sel || ui.stashOn ? '' : ' on') + '" data-act="codex" data-tip="txt:烬铸与渊契的收集和保底进度">图鉴</button>' +
-      '<button type="button" tabindex="-1" class="btn sm stb' + (!sel && ui.stashOn ? ' on' : '') + '" data-act="stash" data-tip="txt:所有角色共用的仓库：别的职业的武器、用不上的装备可以留给别的角色">仓库</button>' +
+
       '<button type="button" tabindex="-1" class="btn sm" data-act="sort"' + (S.bag.length > 1 ? '' : ' disabled') + '>整理</button>' +
       '<button type="button" tabindex="-1" class="chk' + (withMagic ? ' on' : '') + '" data-act="opt" data-opt="salvageMagic"' + (withRare ? ' disabled' : '') + '><i></i>含魔法</button>' +
       '<button type="button" tabindex="-1" class="chk' + (withRare ? ' on' : '') + '" data-act="opt" data-opt="salvageRare" data-tip="txt:稀有物品也一起分解（魔法也算上）。会留下：已锁定的、装备后更强（▲）的、烬铸和渊契"><i></i>含稀有</button>' +
@@ -4732,7 +4734,7 @@
     G.world.setPlayerGear({ weapon: w || { slot: 'weapon', baseIdx: startBase(c), rarity: 0 } });
   }
   function openClass(mode, k) {
-    const rec = mode === 'new' ? null : G.classRecommend();
+    const rec = mode === 'pick' ? G.classRecommend() : null; // 推荐只给第一次选（改选时标「现在」）
     let sel = rec ? rec.cls : G.CLASS_IDS[0];
     if (mode === 'repick') sel = G.CLASS_IDS.find((c) => c !== G.save.cls) || sel;
     menu.cls = { mode, k: k === undefined ? -1 : k, sel, rec };
@@ -4750,7 +4752,7 @@
     const C = G.CLASSES[c], sk = G.SKILLS[C.start.skill];
     const cur = menu.cls.mode === 'repick' && c === G.save.cls;
     return (
-      '<button type="button" tabindex="-1" class="cl-card' + (sel ? ' on' : '') + (cur ? ' cur' : '') + '" data-tact="cl-sel" data-cls="' + c + '" style="--c:' + C.color + '">' +
+      '<button type="button" tabindex="-1" class="cl-card' + (sel ? ' on' : '') + (cur ? ' cl-now' : '') + '" data-tact="cl-sel" data-cls="' + c + '" style="--c:' + C.color + '">' +
       '<div class="cl-top"><b>' + C.name + '</b>' + C.tags.map((t) => '<i>' + t + '</i>').join('') + (rec ? '<em>推荐</em>' : cur ? '<em class="dim">现在</em>' : '') + '</div>' +
       '<div class="cl-line">' + C.line + '</div>' +
       '<div class="cl-row"><span class="cl-k">武器</span>' + C.weapons.map(clsWIcon).join('') + '<span class="cl-v">' + C.weapons.map(G.wTypeLabel).join(' · ') + '</span></div>' +
@@ -4943,13 +4945,18 @@
     const list = menu.title ? el.tMenu : el.pMenu;
     const v = MENU_VIEW[menu.view];
     list.style.display = v ? 'none' : '';
+    // 同一个子页里重画（点职业卡、删除确认的下一步）：不再播一遍弹出动画，免得每点一下闪一次
+    const still = !!v && host.firstElementChild && host.firstElementChild.dataset && host.firstElementChild.dataset.view === menu.view;
     host.innerHTML = v
-      ? '<div class="m-view" data-view="' + menu.view + '"><div class="m-head"><b>' + (typeof v[0] === 'function' ? v[0]() : v[0]) + '</b>' +
+      ? '<div class="m-view' + (still ? ' still' : '') + '" data-view="' + menu.view + '"><div class="m-head"><b>' + (typeof v[0] === 'function' ? v[0]() : v[0]) + '</b>' +
         '<button type="button" tabindex="-1" class="btn sm" data-tact="back">返回<kbd>Esc</kbd></button></div>' +
         '<div class="m-body">' + v[1]() + '</div></div>'
       : '';
     (menu.title ? el.title : el.pause).classList.toggle('sub', !!v);
-    if (menu.title) el.title.classList.toggle('chars', menu.view === 'chars' || menu.view === 'cls');
+    if (menu.title) {
+      el.title.classList.toggle('chars', menu.view === 'chars' || menu.view === 'cls');
+      el.title.classList.toggle('clsv', menu.view === 'cls'); // 职业选择：藏起标志，手机上改成底部一栏、上面露出主角
+    }
   }
 
   // 标题画面期间敌人 / 召唤物先藏起来（模拟不推进，它们会定在原地）
@@ -5000,7 +5007,7 @@
     menu.title = false;
     menu.view = null;
     document.documentElement.classList.remove('title-on');
-    el.title.classList.remove('on', 'sub', 'chars');
+    el.title.classList.remove('on', 'sub', 'chars', 'clsv');
     showActors();
     const cam = G.world.camera;
     if (cam && menu.q0) {
@@ -5028,10 +5035,20 @@
     }
     const t = menu.t;
     const yaw = Math.sin(t * 0.06) * 0.26; // 左右各转约 15 度，一个来回约 100 秒
-    const c = Math.cos(yaw), s = Math.sin(yaw), o = menu.off;
+    const c = Math.cos(yaw), s = Math.sin(yaw);
+    // 职业选择（class-d2）：镜头推近到主角身上（距离 × 0.42），看得清他手里换上的起手武器；离开子页再慢慢拉回去。
+    // 漂移和往左让的距离一起缩，主角还在画面右侧的同一处，只是更大
+    const zk = menu.view === 'cls' ? 0.42 : 1;
+    menu.zoom = menu.zoom === undefined ? zk : menu.zoom + (zk - menu.zoom) * Math.min(1, dt * 3);
+    const z = menu.zoom, o = menu.off, k = (1 - z) / 0.58; // k：推近的程度 0..1
+    // 窄屏（手机）：主角居中、往画面上方挪（职业选择那一栏在下面）；宽屏：往下挪一点，别顶到画面上沿
+    const narrow = innerWidth < 560;
+    const side = narrow ? 3.5 * (1 - k) : 3.5;
+    const ox = o.x * c + o.z * s, oz = -o.x * s + o.z * c, ol = Math.hypot(ox, oz) || 1;
+    const fwd = (narrow ? -2.6 : 0.9) * k; // 沿镜头朝向（水平）挪：正 = 远离镜头，主角在画面里往下
     // 焦点往镜头左边让 3.5 米：角色站在画面右侧，左边一栏留给标志和按钮
-    const fx = menu.focus.x + Math.sin(t * 0.045) * 1.6 - 3.5 * c, fz = menu.focus.z + Math.cos(t * 0.07) * 1.0 + 3.5 * s;
-    cam.position.set(fx + o.x * c + o.z * s, menu.focus.y + o.y, fz - o.x * s + o.z * c);
+    const fx = menu.focus.x + (Math.sin(t * 0.045) * 1.6 - side * c) * z - (ox / ol) * fwd, fz = menu.focus.z + (Math.cos(t * 0.07) * 1.0 + side * s) * z - (oz / ol) * fwd;
+    cam.position.set(fx + ox * z, menu.focus.y + o.y * z, fz + oz * z);
     cam.lookAt(fx, menu.focus.y, fz);
     cam.updateMatrixWorld();
   }

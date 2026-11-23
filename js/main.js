@@ -222,7 +222,8 @@
     W.init();
     G.ui.init();
     // 老角色还没有职业（class-d2）：换角色重载后跳过了标题画面，也要先盖上标题画面选职业（测试的 __skipTitle、?play 不选）
-    const needPick = !!(G.needClassPick && G.needClassPick());
+    // 标题画面本来就开着时不自动弹：点「继续游戏」时再选（见 ui.js 的 continue）
+    const needPick = !title && !!(G.needClassPick && G.needClassPick());
     if (title || needPick) G.ui.showTitle(false);
     G.player.ent = W.makePlayer();
     G.computeStats();

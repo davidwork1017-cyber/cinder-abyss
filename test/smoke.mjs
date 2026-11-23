@@ -20499,7 +20499,7 @@ async function classSteps() {
         const other = G.CLASS_IDS.find((c) => w && G.offClassItem(w, c));
         const u1 = uids(), sk1 = JSON.stringify(G.save.skills);
         const r2 = G.applyClass(other, 'pick');
-        o.full = { cls: other, moved: JSON.stringify(r2.moved), inStash: !!w && G.stash.list().some((x) => x.uid === w.uid), uid: uids() === u1, skills: JSON.stringify(G.save.skills) === sk1, bag: G.save.bag.length };
+        o.full = { cls: other, moved: JSON.stringify(r2.moved), inStash: !!w && G.stash.list().some((x) => x.uid === w.uid), uid: uids() === u1, skills: JSON.stringify(G.save.skills) === sk1, bag: G.save.bag.length, eq: r2.equipped };
         // 改选：锁定的技能里新职业能用的解开，学过的一个不少；再改一次不行
         const lock1 = Object.keys(G.save.clsLock);
         const to = G.CLASS_IDS.find((c) => c !== other && lock1.some((id) => G.classCanUse(c, id))) || G.CLASS_IDS.find((c) => c !== other);
@@ -20522,14 +20522,14 @@ async function classSteps() {
       assert(o.added === 'clsFree,clsLock,clsRe,cls'.split(',').sort().join(), n + '：应只多出职业字段：' + o.added);
       assert(o.changed.split(',').every((k) => k === '' || k === 'passives' || k === 'bag' || k === 'equip'), n + '：除了起步天赋、卸下的武器，别的不该变：' + o.changed);
       assert(o.lock && o.re && o.weaponOk && o.stored, n + '：锁定标记 / 改选次数 / 手里的武器 / 存档不对：' + JSON.stringify(o));
-      assert(o.full.inStash && o.full.uid && o.full.skills && o.full.bag === 40, n + '：背包满时别的职业的武器应进共享仓库：' + JSON.stringify(o.full));
+      assert(o.full.inStash && o.full.uid && o.full.skills && o.full.bag === 40 - (o.full.eq ? 1 : 0), n + '：背包满时别的职业的武器应进共享仓库（背包里有本职业的武器就换上）：' + JSON.stringify(o.full));
       assert(o.re2.ok && o.re2.back === o.re2.want && o.re2.skills && o.re2.uid && o.re2.re && !o.re2.again && o.re2.free, n + '：改选应恢复锁定的技能、只能改一次：' + JSON.stringify(o.re2));
       recs.push(n + '→' + o.rec + '（锁 ' + o.nLock + '）');
     }
     return recs.join('，');
   });
 
-  await step('职业·推荐：手里武器所属的职业 +3、技能栏上要武器的宝石各 +1；没武器 / 只有通用宝石也有合理的默认和理由', async () => {
+  await step('职业·推荐：手里武器所属的职业 +3、技能栏上要武器的宝石各 +1、同分按武器；没武器 / 只有通用宝石也有合理的默认和理由', async () => {
     const r = await ev(() => {
       const bi = (t) => G.BASES.weapon.findIndex((b) => b.type === t);
       const mk = (wt, bar) => {
@@ -20550,7 +20550,7 @@ async function classSteps() {
       };
     });
     assert(r.kat.cls === 'guard' && /太刀/.test(r.kat.why) && /旋风斩/.test(r.kat.why), '太刀 + 旋风斩应推荐烬卫：' + JSON.stringify(r.kat));
-    assert(r.staffWhirl.cls === 'guard' || r.staffWhirl.cls === 'hunt', '长杖 + 三个近战宝石应推荐近战职业：' + JSON.stringify(r.staffWhirl));
+    assert(r.staffWhirl.cls === 'star' && /长杖/.test(r.staffWhirl.why), '长杖（+3）和三个近战宝石（烬卫 / 夜猎各 +3）同分时按武器（设计稿）：' + JSON.stringify(r.staffWhirl));
     assert(r.none.cls === 'star' && r.summon.cls === 'lamp' && r.bare.cls === 'guard' && r.gun.cls === 'forge', '没武器时按宝石给默认：' + JSON.stringify(r));
     for (const k of Object.keys(r)) assert(r[k].why && r[k].why.length > 4, k + '：推荐理由为空');
     return Object.keys(r).map((k) => k + '→' + r[k].cls + '「' + r[k].why + '」').join('；');
@@ -21212,8 +21212,10 @@ async function slotSteps() {
     await page.click('#t-chars');
     let t = await view();
     assert(t.includes('未定 · 23 级') && (t.match(/新建角色/g) || []).length === 5 && t.includes('上次玩的'), '角色页应有 1 张卡（未定 · 23 级）和 5 个空栏：' + t);
-    // 第 2 栏从界面建：重载进去，先放开场故事（每个角色一次），开场卡片全局看过了不再弹
-    await Promise.all([page.waitForEvent('load', { timeout: 90000 }), page.click('[data-tact="ch-new"][data-slot="1"]')]);
+    // 第 2 栏从界面建：先选职业（class-d2），重载进去，先放开场故事（每个角色一次），开场卡片全局看过了不再弹
+    await page.click('[data-tact="ch-new"][data-slot="1"]');
+    assert((await ev(() => (G.ui.classView() || {}).mode)) === 'new', '「新建角色」应先打开职业选择');
+    await Promise.all([page.waitForEvent('load', { timeout: 90000 }), page.click('[data-tact="cl-ok"]')]);
     await install();
     await until(() => G.ui.storyOn() && document.querySelector('#story.ready'), null, 30000);
     await page.keyboard.press('Escape');
@@ -21243,7 +21245,7 @@ async function slotSteps() {
     assert((await ev(() => localStorage.length)) === keys0 && (await ev(() => G.ui.titleOn())), '6 栏都满时点「新游戏」什么都不该发生');
     await page.click('#t-chars');
     t = await view();
-    assert((t.match(/未定 ·/g) || []).length === 6 && !t.includes('新建角色'), '6 栏都满时应有 6 张卡：' + t);
+    assert((t.match(/未定 ·/g) || []).length === 5 && t.includes('烬卫 · 1 级') && !t.includes('新建角色'), '6 栏都满时应有 6 张卡（第 2 栏是界面上建的烬卫）：' + t); // class-d2：未定 ×6 → 未定 ×5 + 烬卫
     cleanText(t, '角色页');
     // 删第 4 栏：确认两次（回收位还空着，第二次不提顶掉）
     const k4 = await ev(() => localStorage.getItem('cinder-abyss-save-v1-s4'));
@@ -21468,9 +21470,13 @@ async function titleSteps() {
     return '子页字数 ' + JSON.stringify(sub);
   });
 
-  await step('标题画面：新游戏（没有存档）先放开场故事，Esc 跳过后开场卡片弹出；没有面板时 Esc 打开暂停菜单，时间、冷却、无敌时间都停住，再按 Esc 继续', async () => {
+  // class-d2：「新游戏」先选职业（默认选中第一个：烬卫），选定后才放开场故事（原来点「新游戏」直接放故事）
+  await step('标题画面：新游戏（没有存档）先选职业（选定烬卫）再放开场故事，Esc 跳过后开场卡片弹出；没有面板时 Esc 打开暂停菜单，时间、冷却、无敌时间都停住，再按 Esc 继续', async () => {
     const tBefore = await ev(() => G.state.time);
     await page.click('#t-new');
+    const cv = await ev(() => ({ view: G.ui.classView(), story: G.ui.storyOn(), stored: localStorage.getItem('cinder-abyss-save-v1') }));
+    assert(cv.view && cv.view.mode === 'new' && cv.view.sel === 'guard' && !cv.story && cv.stored === null, '「新游戏」应先打开职业选择（默认烬卫、还没放故事、没写存档）：' + JSON.stringify(cv));
+    await page.click('[data-tact="cl-ok"]');
     // intro-story：新角色先放开场故事（游戏停着），Esc 跳过后才弹开场卡片
     await until(() => G.ui.storyOn() && document.querySelector('#story.ready'), null, 30000);
     const sv = await ev(() => ({ on: G.ui.storyOn(), open: G.ui.isOpen(), intro: T.introOpen(), t: G.state.time, idx: G.story.info().idx, seen: G.save.seenStory }));
@@ -21479,6 +21485,7 @@ async function titleSteps() {
     await until(() => !G.ui.storyOn() && document.getElementById('intro').classList.contains('on'), null, 10000);
     const sk = await ev(() => ({ seen: G.save.seenStory, stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).seenStory, t: G.state.time, lvl: G.save.level, zone: G.state.zone.def.id, d: Math.hypot(G.player.x - G.state.zone.start.x, G.player.z - G.state.zone.start.z) }));
     assert(sk.seen && sk.stored && sk.t === tBefore && sk.lvl === 1 && sk.zone === 'ash' && sk.d < 0.01, '跳过开场故事后应记下 seenStory，其余和直接开始一样（时间没走、新角色站在起点）：' + JSON.stringify(sk));
+    assert((await ev(() => G.save.cls)) === 'guard', '新角色应是选定的烬卫');
     let s = await titleState();
     assert(!s.title && !s.shown && s.intro && s.hud && s.has, '新游戏后应进区并弹出开场卡片、写入存档：' + JSON.stringify(s));
     await page.keyboard.press('Enter');
@@ -21583,12 +21590,14 @@ async function titleSteps() {
 
   // multisave-d1：有存档时「新游戏」不再覆盖（原来先确认「覆盖存档」、确认后删掉原角色），改成在第一个空栏建新角色，原来的角色留着；
   // 开场卡片所有角色共用一份「看过」，新角色只放开场故事（原来断言「确认后应…弹开场卡片」）。最后从角色页切回原来的角色，后面的步骤接着用第 1 栏
-  await step('新游戏（有存档）：在空栏建新角色，原来的角色一字不动（重载后跳过标题画面、先放开场故事，开场卡片看过了不再弹）；角色页切回原来的角色', async () => {
+  await step('新游戏（有存档）：先选职业，在空栏建新角色，原来的角色一字不动（重载后跳过标题画面、先放开场故事，开场卡片看过了不再弹）；角色页切回原来的角色', async () => {
     await toTitle();
     const keep = await ev(() => localStorage.getItem('cinder-abyss-save-v1'));
     let s = await titleState();
     assert(s.title && !s.view && s.cont && !(await ev(() => document.getElementById('t-new').classList.contains('off'))), '有存档时「新游戏」应可点：' + JSON.stringify({ view: s.view }));
-    await Promise.all([page.waitForEvent('load', { timeout: 90000 }), page.click('#t-new')]);
+    await page.click('#t-new'); // class-d2：先选职业，选定后才建角色、重载
+    assert((await ev(() => (G.ui.classView() || {}).mode)) === 'new', '「新游戏」应先打开职业选择');
+    await Promise.all([page.waitForEvent('load', { timeout: 90000 }), page.click('[data-tact="cl-ok"]')]);
     await install();
     await until(() => G.ui.storyOn() && document.querySelector('#story.ready'), null, 30000);
     assert(!(await ev(() => T.introOpen())), '开场故事放着的时候开场卡片不该弹出');
@@ -21603,7 +21612,7 @@ async function titleSteps() {
     await toTitle();
     await page.click('#t-chars');
     const txt = await ev(() => document.querySelector('#title .m-view').innerText);
-    assert(txt.includes('未定 · 12 级') && txt.includes('未定 · 1 级') && (txt.match(/新建角色/g) || []).length === 4, '角色页应列出两个角色、4 个空栏：' + txt);
+    assert(txt.includes('烬卫 · 12 级') && txt.includes('烬卫 · 1 级') && (txt.match(/新建角色/g) || []).length === 4, '角色页应列出两个角色（职业 · 等级）、4 个空栏：' + txt); // class-d2：未定 → 烬卫
     await Promise.all([page.waitForEvent('load', { timeout: 90000 }), page.click('[data-tact="ch-play"][data-slot="0"]')]);
     await install();
     await frames(2);
