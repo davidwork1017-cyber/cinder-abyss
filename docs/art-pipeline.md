@@ -42,6 +42,7 @@ mv ~/opt/blender-5.2.4-linux-x64 ~/opt/blender-5.2.4
 | `assets/ca/manifest.json` | 清单：id、类别、区域、三角形数、包围盒、来源脚本 + 种子、sha256 |
 | `assets/ca/palette.png` | 调色板图集（和 GLB 里内嵌的同一份字节） |
 | `js/assets/kit-<区>.js` | 打进游戏的件（`ship: True`），打包时已经烘焙成几何体数组（小端 Float32 的 base64，带烘焙所用 GLB 的 sha256），`zone-<区>` 包加载时连带加载 |
+| `js/assets/kit-gear.js` | 手持武器件（`zone='gear'`，类别 weapon，现在只有提灯两件）：不跟任何区域加载，第一次装备 / 掉落提灯时才要（`world.js` 的 `W.lanternNeed`），到之前手里是程序化的简化提灯 |
 | `tools/build-art.mjs` | `npm run build:art` |
 | `tools/check-art.mjs` | `npm run check:art`，也是 `npm test` 的第一步 |
 | `tools/glb.mjs` | Node 里读 GLB 的小工具 |
