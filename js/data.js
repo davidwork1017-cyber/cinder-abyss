@@ -1056,8 +1056,8 @@
       },
       b: {
         name: '熔穿', pack: '排成一条线最痛；不炸不留铁水',
-        desc: '铁水弹贯穿所有敌人，每穿过一个，后面的伤害 +15%（最多 +60%）。', alt: '不炸开，也不留铁水。',
-        set: { mech: 'bore', explode: 0, pool: null, basicSec: 0.42, bore: { step: 0.15, max: 0.6 }, wm: 1.167, useMult: 1.28, tags: ['attack', 'projectile', 'fire'] },
+        desc: '铁水弹贯穿所有敌人，每穿过一个，后面的伤害 +10%（最多 +40%）。', alt: '不炸开，也不留铁水。',
+        set: { mech: 'bore', explode: 0, pool: null, basicSec: 0.42, bore: { step: 0.1, max: 0.4 }, wm: 1.167, useMult: 1.28, tags: ['attack', 'projectile', 'fire'] },
       },
     },
     // 雷楔 A 雷网：打空的楔子钉在准星的地上（存在 dur 秒），link 米内的楔子两两拉出电线（最多 lines 根，新的顶掉旧的），线上的敌人每 tick 秒挨 k 份；
@@ -1072,7 +1072,7 @@
       b: {
         name: '闷雷', pack: '单体略痛；不连锁',
         desc: '楔子 3 秒后才放电，不再连锁；身上能叠满 4 枚，放电 +45%，大量累积感电。', alt: '每多一枚楔子放电 +15%（最多算 4 枚）。连锁镶不上。',
-        set: { mech: 'dull', noSup: ['chain'], ailment: 200, wedge: { hit: 0.2, zap: 0.62, delay: 3, stack: 0.15, maxStack: 4, r: 0, n: 0, chainK: 0 }, useMult: 1.1, tags: ['attack', 'projectile', 'light'] },
+        set: { mech: 'dull', noSup: ['chain'], ailment: 200, wedge: { hit: 0.2, zap: 0.67, delay: 3, stack: 0.15, maxStack: 4, r: 0, n: 0, chainK: 0 }, useMult: 1.17, tags: ['attack', 'projectile', 'light'] },
       },
     },
     // 霜霰弹 A 散霜：冰屑改成朝四周炸开一圈（半径 r）
