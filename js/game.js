@@ -193,6 +193,7 @@
       variantPrev: {}, rqAuto: {}, rqVar: 1, rqNote: false,
       wsCap: 1, wsNote: false, // 旋涡斩加「每下最多 9 个」之后的存档；wsNote：选着旋涡斩的老存档，提示还没看过
       bhCap: 1, bhNote: false, // 黑洞加「每跳最多伤到最近的 N 个」之后的存档；bhNote：学了黑洞的老存档，提示还没看过
+      stFz: 1, stNote: false, // 魂潮狂热改成 12 秒 +15%（dur-tune）之后的存档；stNote：拿着魂幡（R 是魂潮）的老存档，提示还没看过
       // 渊印：sealSeq 真正进区的次数（择印面板的随机种子，关掉地图再打开还是同样三枚）；
       // run 这一次进区 { zone, tier, seq, seal }（seal 为 null 是素印），读档时区域 / 层级对得上就接着用，倒下重生不动，换区 / 重进清掉
       sealSeq: 0, run: null,
@@ -670,6 +671,10 @@
     s.bhNote = !s.tut.bhnerf && ((raw.bhCap === undefined && s.skills.blackhole > 0) || raw.bhNote === true);
     s.bhCap = 1;
     G.holeNerfed = s.bhNote ? 1 : 0;
+    // 魂潮狂热 4 秒 +30% → 12 秒 +15%（dur-tune）之前的存档（没有 stFz）：手里的武器技是魂潮的提示一次（tut.stfz 看过就不再提示）
+    s.stNote = !s.tut.stfz && ((raw.stFz === undefined && G.weaponSkillOf(s.equip && s.equip.weapon) === 'soultide') || raw.stNote === true);
+    s.stFz = 1;
+    G.frenzyNerfed = s.stNote ? 1 : 0;
     s.variantGen = G.VARIANT_GEN;
     const hadVar = Object.keys(s.variants).length > 0 || Object.keys(G.VARIANTS).some((id) => s.skills[id] >= G.VARIANT_LVL);
     s.varNote = !s.tut.variant2 && ((oldGen && hadVar) || raw.varNote === true);
@@ -4913,6 +4918,7 @@
   // 地上的火（world.emberGround）、焚天炎爆（fireNova）、熔光射线（laser，每帧）、弓的增益光环（rangedBuff）是可选接口，没有时用通用特效顶上
   const RANGED_HOLD = { gatling: true, flamer: true }; // 这两种松手就停（不会因为轻点的缓冲多打一发）
   const MAX_FIELDS = 40;
+  const rainsLive = []; // 坠凌：还在下的冰凌雨（只记有 sk.max 上限的那几种），换区时清掉
   const fields = []; // 地上的火：喷枪的余烬、焚天炎爆的火场 { kind, x, z, r, t, tick, tt, mult, ctx, key, hex }
   const VK = { gatling: 'bullet', revolver: 'slug', flamer: 'flamelet', huntbow: 'arrow', eagle: 'arrow', runebow: 'arrow', emberbow: 'emberarrow' };
 
@@ -5880,6 +5886,7 @@
     endBuff();
     P.rstate = null;
     fields.length = 0;
+    rainsLive.length = 0; // 冰凌雨的同场计数
     resetWandMarks(); // 疾咒的咒痕
     resetChaos(); // 黑洞、黑旋风一起收起
     resetVariants(); // 刻式第二版留在场上的东西
@@ -7615,6 +7622,7 @@
   };
   // 坠凌：准星处 dur × 绵延 秒里每 tick 秒落一根冰凌（落下要 fall 秒）。每 5 根里 scatter 那几根随便落在圈里，
   // 其余优先砸向这一场里被砸得少的敌人（看得见圈心的）；砸中落点 hitR 内的敌人
+  G.rainsLive = () => rainsLive.filter((r) => !r.dead && r.end > state.time);
   SKILL_FX.rain = function (ctx, a) {
     const sk = ctx.sk;
     const ak = Math.sqrt(ctx.area);
@@ -7629,15 +7637,24 @@
     const total = sk.delay + (n - 1) * sk.tick + sk.fall;
     const struck = new Map();
     const hex = hexOf(sk.color);
-    const rain = { x, z, R, n, hits: 0 };
+    const rain = { x, z, R, n, hits: 0, end: state.time + total, dead: false };
     state.stats.rains = (state.stats.rains || 0) + 1;
     if (sk.mech === 'slam') return icicleSlam(ctx, x, z, R, hex, rain);
+    // 同时最多 sk.max 场（dur-tune：冷却 = 持续之后，绵延 / 储能 / 节流叠在一起时才会两场重叠）：再多一场就停掉最老那场还没落的冰凌
+    if (sk.max) {
+      for (let k = rainsLive.length - 1; k >= 0; k--) if (rainsLive[k].dead || rainsLive[k].end <= state.time) rainsLive.splice(k, 1);
+      while (rainsLive.length >= sk.max) {
+        rainsLive.shift().dead = true;
+        state.stats.rainCut = (state.stats.rainCut || 0) + 1;
+      }
+      rainsLive.push(rain);
+    }
     const follow = sk.mech === 'follow'; // 刻式「随凌」：圈心每一根都按你此刻的位置
     if (follow) fxOpt('iceRainFollow', P.x, P.z, R, sk.tick * 1.3);
     else if (!fxOpt('iceRain', x, z, R, total, hex)) G.telegraph({ shape: 'circle', x, z, r: R, dur: total, dmg: 0, friendly: true });
     G.sfx('cast', { id: ctx.id });
     const icicle = (i) => {
-      if (P.dead) return;
+      if (P.dead || rain.dead) return;
       let px, pz;
       if (follow) {
         x = P.x;
