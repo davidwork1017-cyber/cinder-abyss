@@ -10356,11 +10356,20 @@
     const n = Math.max(1, A.n > 1 && A.fan ? A.n + ctx.proj - 1 : ctx.proj);
     const fan = A.fan ? Math.min(90, A.fan + 6 * (ctx.proj - 1)) * DEG : n > 1 ? Math.min(30, 8 * (n - 1)) * DEG : 0;
     const P0 = sk.pin;
-    for (let j = 0; j < n; j++) {
-      const ang = ang0 + (n > 1 ? -fan / 2 + (fan * j) / (n - 1) : 0);
-      const p = shootProj(ctx, ang, { cast: new Set(), vk: VK[wt] || 'arrow', after: P0 ? leapPin : null });
-      p.ranged = false; // 不当普攻的箭算（专注照普攻的规矩另算）
-    }
+    // 散羽：从中间往两边一支接一支撒出去（隔 DT 秒），几支箭的箭头光不叠在出手点上
+    const DT = 0.016, order = [];
+    for (let j = 0; j < n; j++) order.push(j);
+    order.sort((a, b) => Math.abs(a - (n - 1) / 2) - Math.abs(b - (n - 1) / 2));
+    order.forEach((j, k) => {
+      const shoot = () => {
+        if (P.dead) return;
+        const ang = ang0 + (n > 1 ? -fan / 2 + (fan * j) / (n - 1) : 0);
+        const p = shootProj(ctx, ang, { cast: new Set(), vk: VK[wt] || 'arrow', after: P0 ? leapPin : null });
+        p.ranged = false; // 不当普攻的箭算（专注照普攻的规矩另算）
+      };
+      if (A.fan && k > 0) G.after(k * DT, shoot);
+      else shoot();
+    });
     fxOpt('leapLoose', P.ent, ang0);
     G.sfx('cls2', { type: 'bow' });
   }

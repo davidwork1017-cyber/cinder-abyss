@@ -30585,23 +30585,24 @@
     _kvp.set(m.x, 0.09, m.z);
     _kve.set(0, m.id * 1.3, 0, 'YXZ');
     _kvq.setFromEuler(_kve);
-    _kvs.set(0.2, 0.09, 0.2);
+    _kvs.set(0.3, 0.13, 0.3);
     _pm.compose(_kvp, _kvq, _kvs);
-    vsNow(VSH.chip, 0.07 * fade, 0.065 * fade, 0.06 * fade, 0, 0.5, 0);
+    d2bLin(0x6a625a, fade);
+    vsNow(VSH.chip, _dc.r, _dc.g, _dc.b, 0, 0.55, 0); // 暗铁灰，比地面亮一档才看得出来
     if (m.arm <= 0) {
       const rate = m.t < 1.5 ? 14 : 5, on = Math.sin(t * rate + m.id) > -0.2;
       if (on) {
-        mPose(m.x, 0.2, m.z, _pqI, 0.05, 0.05, 0.05);
-        d2bLin(0xff3a20, 0.9 * fade);
-        vsNow(VSH.chip, _dc.r, _dc.g, _dc.b, 0.7, 0, 0);
+        mPose(m.x, 0.26, m.z, _pqI, 0.075, 0.075, 0.075);
+        d2bLin(0xff3a20, 0.95 * fade);
+        vsNow(VSH.chip, _dc.r, _dc.g, _dc.b, 0.8, 0, 0);
       }
       const n = lo ? 3 : 6, R = (m.ctx && m.ctx.sk.mine ? m.ctx.sk.mine.trig : 1.6) + 0.3;
-      d2bLin(0x7a2418, 0.55 * fade);
+      d2bLin(0xa03420, 0.7 * fade);
       for (let i = 0; i < n; i++) {
         const a = (i / n) * TAU + m.id;
         _kvp.set(m.x + Math.sin(a) * R, 0.04, m.z + Math.cos(a) * R);
         _kvq.identity();
-        _kvs.set(0.05, 0.02, 0.05);
+        _kvs.set(0.07, 0.025, 0.07);
         _pm.compose(_kvp, _kvq, _kvs);
         vsNow(VSH.chip, _dc.r, _dc.g, _dc.b, 0.15, 0.3, 0);
       }
@@ -30612,14 +30613,14 @@
     _kvp.set(x, 0.03, z);
     _kve.set(0, ph, 0, 'YXZ');
     _kvq.setFromEuler(_kve);
-    _kvs.set(0.18, 0.04, 0.13);
+    _kvs.set(0.22, 0.05, 0.16);
     _pm.compose(_kvp, _kvq, _kvs);
-    d2bLin(0x4a160a, k);
-    vsNow(VSH.chip, _dc.r, _dc.g, _dc.b, 0.25 * k * (0.6 + 0.4 * Math.sin(t * 7 + ph)), 0.45, 0);
+    d2bLin(0x6a2010, k);
+    vsNow(VSH.chip, _dc.r, _dc.g, _dc.b, 0.35 * k * (0.6 + 0.4 * Math.sin(t * 7 + ph)), 0.45, 0);
     const f = 0.5 + 0.5 * Math.sin(t * 9 + ph * 3);
-    if (f < 0.25) return; // 火苗一跳一跳的
-    const h = (big ? 0.34 : 0.24) * f * k;
-    mFlame(x, 0.05 + h * 0.4, z, 0.12 * k, h);
+    if (f < 0.2) return; // 火苗一跳一跳的
+    const h = (big ? 0.42 : 0.32) * (0.4 + 0.6 * f) * k;
+    mFlame(x, 0.05 + h * 0.4, z, 0.14 * k, h);
     d2bLin(0xff8a30, k);
     vsNow(VSH.tongue, _dc.r, _dc.g, _dc.b, 0.6 * k, 0.4, 0.3);
   }
