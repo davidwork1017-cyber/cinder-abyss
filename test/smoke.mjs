@@ -10207,6 +10207,49 @@ async function main() {
     return '件数 ' + Object.entries(r.el).map(([k, v]) => k + ' ' + v).join(' / ') + '，细边环 ' + r.thin + '，砸地 r ' + r.slam.r + ' / ' + r.slam.dur + ' 秒';
   });
 
+  await step('技能打磨第 1 批（skill-b1）：爆燃 / 冻结 / 冰爆画进形状批——高 / 低画质都不多一次 draw；Math.random 取数和换之前一样（爆燃 高 138 / 低 81，冻结 156、首领 216，低画质各多 2，冰爆 133）；一帧里连炸 20 个爆燃，只有前几个画全套', async () => {
+    const r = await ev(() => {
+      const W = G.world, P = G.player, R = W.renderer, out = {}, q0 = W.quality();
+      G.clearEnemies();
+      const draws = () => { R.info.autoReset = false; R.info.reset(); W.render(); const c = R.info.render.calls; R.info.autoReset = true; return c; };
+      const cnt = (f) => { const r0 = Math.random; let n = 0; Math.random = function () { n++; return r0.apply(this, arguments); }; try { f(); } finally { Math.random = r0; } return n; };
+      for (const q of ['high', 'low']) {
+        W.setQuality(q);
+        W.clearFx();
+        const x = P.x + 3, z = P.z;
+        // 基线：形状批、碎块、地面痕迹各已经有一件在画
+        W.breakFx(P.x - 3, 1, P.z, 0.4);
+        W.vDecal('scorch', P.x - 3, P.z, 0.6, 2, 0x4a3e34);
+        G.debug.step(0.02);
+        const o = { d0: draws() };
+        o.blast = cnt(() => W.blastFx(x, z, 3.25));
+        o.freeze = cnt(() => W.freezeFx(x + 2, z, 0.5, 2, false));
+        o.boss = cnt(() => W.freezeFx(x - 2, z + 2, 0.9, 3, true));
+        o.frost = cnt(() => W.frostBlast(x, z + 3, 3));
+        G.debug.step(0.02);
+        o.d1 = draws();
+        W.clearFx();
+        G.debug.step(0.02);
+        const n0 = W.vShapeLive();
+        W.b1Reset();
+        for (let i = 0; i < 20; i++) W.blastFx(x + (i % 5), z + ((i / 5) | 0), 3.25);
+        o.flood = W.vShapeLive() - n0;
+        o.peak = W.b1Info().peak;
+        o.cap = W.b1Info().cap;
+        G.debug.step(0.02);
+        out[q] = o;
+      }
+      W.setQuality(q0);
+      W.clearFx();
+      return out;
+    });
+    const H = r.high, L = r.low;
+    assert(H.d1 <= H.d0 && L.d1 <= L.d0, '爆燃 / 冻结 / 冰爆不该多出 draw：' + JSON.stringify(r));
+    assert(H.blast === 138 && L.blast === 81 && H.freeze === 156 && L.freeze === 158 && H.boss === 216 && L.boss === 218 && H.frost === 133 && L.frost === 133, '爆燃 / 冻结 / 冰爆的 Math.random 取数应和换之前一样：' + JSON.stringify(r));
+    assert(H.peak === 20 && H.flood > 20 && H.flood <= H.cap * 16 + (20 - H.cap) && L.flood <= L.cap * 9 + (20 - L.cap) && L.flood < H.flood, '一帧连炸 20 个爆燃时形状批的件数应有上限：' + JSON.stringify(r));
+    return 'draw 高 ' + H.d0 + '→' + H.d1 + ' / 低 ' + L.d0 + '→' + L.d1 + '，取数 ' + [H.blast, L.blast, H.freeze, H.frost].join(' / ') + '，连炸 20 个：件数 高 ' + H.flood + ' / 低 ' + L.flood;
+  });
+
   await step('特效三期第 3 部分（vf-vfx3）：区域氛围——霜骨沼泽 / 雷鸣遗迹 / 烬渊深处 / 坠星裂谷 / 余烛殿各有一个氛围 Points（高画质画、低画质不画）；设置「环境特效」新存档和老存档都默认开，关掉后不画、也不撒全局粒子', async () => {
     const r = await ev((KEY) => {
       const W = G.world, S = G.state, save = G.save, out = {};
@@ -14150,7 +14193,7 @@ async function main() {
       const c0 = { x: c.x, z: c.z };
       TV.run(2.0);
       const inside = T.mob('husk', c.x - P.x + 2, c.z - P.z);
-      const out = { still: Math.hypot(c.x - c0.x, c.z - c0.z) < 0.05, k: +G.bastionK(c.x + 1, c.z).toFixed(3), kOut: G.bastionK(c.x + 9, c.z), slow: G.bastionSlow(inside), slowOut: G.bastionSlow(m), fx: G.world.kvCount('dome') };
+      const out = { still: Math.hypot(c.x - c0.x, c.z - c0.z) < 0.05, k: +G.bastionK(c.x + 1, c.z).toFixed(3), kOut: G.bastionK(c.x + 9, c.z), slow: G.bastionSlow(inside), slowOut: G.bastionSlow(m), fx: G.world.kvCount('glyph') }; // skill-b1：护域只画边（符环的 edge 画法），不再有罩子
       TV.done();
       return out;
     });
