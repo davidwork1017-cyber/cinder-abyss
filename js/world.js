@@ -25381,7 +25381,7 @@
   //   尾巴：碎成往上舔的火舌，熄成暗烟；火身最低的地方贴地舔几条小火舌，扇面里的敌人身上偶尔舔一下；喷到墙就顺着墙面摊开。
   // 形状全由片号的哈希来，不碰 Math.random。旧火团照旧按原来的节奏、次数取随机数（ghost：只走模拟、不画），全局随机序列和以前一模一样。
   // 都画在原来就有的 glow / flame / flameN 三个零件里，不多 draw call；低画质每秒片数减半。
-  const JN = 128, JK = 2.4, JG = 5; // 片数上限 / 水平阻尼（每秒）/ 往上浮的加速度
+  const JN = 128, JK = 1.3, JG = 3.5; // 片数上限 / 水平阻尼（每秒）/ 往上浮的加速度
   const jP = new Float32Array(JN * 3), jV = new Float32Array(JN * 3), jO = new Float32Array(JN * 4); // 位置 / 速度 / 出生点 xz + 喷射方向 xz
   const jA = new Float32Array(JN), jL = new Float32Array(JN), jH = new Float32Array(JN), jWl = new Float32Array(JN);
   const jS = new Uint8Array(JN); // 0 空、1 火、2 碰了墙的火、3 烟
@@ -25392,12 +25392,12 @@
     o[0] = a[0] + (b[0] - a[0]) * k; o[1] = a[1] + (b[1] - a[1]) * k; o[2] = a[2] + (b[2] - a[2]) * k;
     return o;
   };
-  const JC0 = [1.0, 0.56, 0.15], JC1 = [0.95, 0.36, 0.06], JC2 = [0.74, 0.16, 0.03], JC3 = [0.3, 0.06, 0.02];
+  const JC0 = [1.0, 0.5, 0.12], JC1 = [0.92, 0.32, 0.05], JC2 = [0.62, 0.12, 0.025], JC3 = [0.16, 0.035, 0.015];
   // 火身的颜色（线性）：寿命进度 f 处
   function jetCol(f) {
-    if (f < 0.2) return jmix(JC0, JC1, f / 0.2, _jc);
-    if (f < 0.55) return jmix(JC1, JC2, (f - 0.2) / 0.35, _jc);
-    return jmix(JC2, JC3, Math.min(1, (f - 0.55) / 0.45), _jc);
+    if (f < 0.25) return jmix(JC0, JC1, f / 0.25, _jc);
+    if (f < 0.6) return jmix(JC1, JC2, (f - 0.25) / 0.35, _jc);
+    return jmix(JC2, JC3, Math.min(1, (f - 0.6) / 0.4), _jc);
   }
   // 这一帧该出生的片：(nx, ny, nz) 喷嘴，(dx, dz) 喷射方向（单位、水平），rng 射程
   function jetEmit(nx, ny, nz, dx, dz, rng, dt) {
@@ -25416,7 +25416,7 @@
       const n = JET.n++, i = n % JN, j = i * 3, h = hash2(n, 17), h2 = hash2(n, 29), h3 = hash2(n, 43);
       if (!jS[i]) JET.live++;
       const sa = (h - 0.5) * 0.28, c = Math.cos(sa), s = Math.sin(sa), ex = dx * c + dz * s, ez = -dx * s + dz * c;
-      const life = 0.52 + 0.14 * h2, v0 = ((rng * JK) / (1 - Math.exp(-JK * life))) * (0.9 + 0.15 * h3), vy = -2.2 * (0.75 + 0.5 * h2);
+      const life = 0.52 + 0.14 * h2, v0 = ((rng * JK) / (1 - Math.exp(-JK * life))) * (0.9 + 0.15 * h3), vy = -1.6 * (0.75 + 0.5 * h2);
       const dk = Math.exp(-JK * tau), dd = (v0 * (1 - dk)) / JK;
       jS[i] = 1; jA[i] = tau; jL[i] = life; jH[i] = h; jWl[i] = wl;
       jO[i * 4] = nx; jO[i * 4 + 1] = nz; jO[i * 4 + 2] = dx; jO[i * 4 + 3] = dz;
@@ -25426,7 +25426,7 @@
   }
   function jetStep(dt) {
     if (!JET.live || !(dt > 0)) return;
-    const dk = Math.exp(-JK * dt), sk = Math.exp(-2 * dt), smokeP = 0.55;
+    const dk = Math.exp(-JK * dt), sk = Math.exp(-2 * dt), smokeP = 0.45;
     for (let i = 0; i < JN; i++) {
       const st = jS[i];
       if (!st) continue;
@@ -25500,30 +25500,36 @@
       const lat = amp * (Math.sin(t * fq + h * 40) + 0.5 * Math.sin(t * (19 + 7 * jfr(h * 6.1)) + h * 90));
       const x = jP[j] + px * lat, y = jP[j + 1] + 0.3 * Math.pow(f, 1.5) * Math.sin(t * (11 + 5 * jfr(h * 8.3)) + h * 70), z = jP[j + 2] + pz * lat;
       const vx = jV[j], vy = jV[j + 1], vz = jV[j + 2], sp = Math.hypot(vx, vy, vz) || 1;
-      const w = (0.16 + 1.15 * Math.pow(f, 0.85)) * (0.85 + 0.3 * jfr(h * 3.3));
+      const w = (0.28 + 0.85 * Math.pow(f, 0.6)) * (0.85 + 0.3 * jfr(h * 3.3));
       // 根部：细长的加色火线，拖尾连回喷嘴；刚出来的 60 毫秒偏白
-      if (f < 0.32) {
-        const k = 1 - f / 0.32, ws = 0.1 + 0.55 * f;
-        mStretch(x, y, z, vx, vy, vz, ws, ws * (1 + sp * 0.09));
-        if (t < 0.06) pfPut('flame', 1.15 * k, 0.95 * k, 0.65 * k);
-        else pfPut('flame', 1.0 * k, 0.52 * k, 0.14 * k);
+      if (f < 0.2) {
+        const k = 1 - f / 0.2, ws = 0.12 + 0.6 * f;
+        mStretch(x, y, z, vx, vy, vz, ws, ws * (1 + sp * 0.1));
+        if (t < 0.06) pfPut('flame', 1.1 * k, 0.85 * k, 0.5 * k);
+        else pfPut('flame', 1.0 * k, 0.5 * k, 0.1 * k);
+      }
+      // 火芯：实色的橙色火舌顺着速度拉长、尾巴拖回喷嘴方向，一片接一片连成一股
+      if (f > 0.04 && f < 0.55) {
+        const k = f < 0.1 ? (f - 0.04) / 0.06 : f > 0.4 ? (0.55 - f) / 0.15 : 1, c = jetCol(f * 0.8);
+        mStretch(x, y, z, vx, vy, vz, w * 0.5 * k, w * (1.1 + sp * 0.05));
+        pfPut('flameN', c[0] * 1.05, c[1] * 1.1, c[2]);
       }
       // 火身：卡通火团序列帧（普通混合、三档色带），各自翻滚
-      if (f > 0.06) {
-        const c = jetCol(f), a = Math.min(1, (f - 0.06) / 0.08);
+      if (f > 0.03) {
+        const c = jetCol(f), a = Math.min(1, (f - 0.03) / 0.07);
         _pq.copy(camQ).multiply(_pq2.setFromAxisAngle(Z_AXIS, h * TAU + t * (jfr(h * 5.7) - 0.5) * 5));
         mPose(x, y, z, _pq, w, w, w);
-        pfFx(0.12 + 0.78 * f, h, a, 1);
+        pfFx(0.22 + 0.7 * f, h, a * (f > 0.85 ? 1 - (f - 0.85) / 0.2 : 1), 1); // 序列帧最后一段自己会淡掉（进度 > 0.75），尾巴碎开、熄成烟
         pfPut('glow', c[0], c[1], c[2]);
       }
       // 边上舔出的亮火舌：中段顺着喷射方向，越往尾巴越朝上
-      if (f > 0.22 && f < 0.88 && jfr(h * 11.3) < 0.5) {
+      if (f > 0.3 && f < 0.8 && jfr(h * 11.3) < 0.35) {
         const u = Math.min(1, Math.max(0, (f - 0.35) / 0.5)), sd = jfr(h * 13.7) < 0.5 ? -1 : 1, fl = 0.85 + 0.25 * Math.sin(wtime * 23 + h * 50);
         let tx = (vx / sp) * (1 - u), ty = (vy / sp) * (1 - u) + u, tz = (vz / sp) * (1 - u);
         const tl = Math.hypot(tx, ty, tz) || 1;
         tx /= tl; ty /= tl; tz /= tl;
-        const k = f < 0.3 ? (f - 0.22) / 0.08 : f > 0.78 ? (0.88 - f) / 0.1 : 1;
-        mStretch(x + px * sd * w * 0.35, y + w * 0.12, z + pz * sd * w * 0.35, -tx, -ty, -tz, w * 0.42 * k, w * 0.95 * fl * k);
+        const k = f < 0.38 ? (f - 0.3) / 0.08 : f > 0.7 ? (0.8 - f) / 0.1 : 1;
+        mStretch(x + px * sd * w * 0.35, y + w * 0.12, z + pz * sd * w * 0.35, -tx, -ty, -tz, w * 0.3 * k, w * 0.6 * fl * k);
         pfPut('flameN', 1.0 - 0.15 * u, 0.45 - 0.2 * u, 0.08 - 0.03 * u);
       }
       // 火身最低的地方贴地舔几条小火舌
