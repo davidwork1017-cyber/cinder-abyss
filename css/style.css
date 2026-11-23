@@ -4252,3 +4252,6 @@ html.touch-ui .slot.empty[data-tb] { opacity: 0.5; }
 html.touch-ui kbd.t-kh { display: none; }
 /* 触屏：轻点不出悬停浮窗（详情栏里已经有了，浮窗只会挡住格子），长按时才出 */
 html.touch-ui:not(.t-lp) #tip { display: none !important; }
+/* 触屏的按键表：标签都很短，左列按内容收窄，说明占满剩下的宽度 */
+html.touch-ui .hk-keys { width: auto; min-width: 52px; }
+html.touch-ui .hk > span:last-child { flex: 1; min-width: 0; }
