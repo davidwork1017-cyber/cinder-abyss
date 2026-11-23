@@ -1700,6 +1700,13 @@ button.pk-row:hover { background: #2a1b10; border-color: var(--ember-2); }
 }
 .switch.on { background: #6f2c0b; border-color: #ffb066; }
 .switch.on i { transform: translateX(20px); background: #ffe2b0; }
+/* 地图页选项行里上下叠成一列的两个开关（折叠普通物品的名牌 / 显示主线，quest D2）：开关小一号，字不换行 */
+.opt-stack { flex: none; display: flex; flex-direction: column; gap: 6px; }
+.opt-line { display: flex; align-items: center; gap: 8px; }
+.opt-line .opt-text b { white-space: nowrap; font-size: 12.5px; }
+.opt-stack .switch { width: 34px; height: 18px; border-radius: 9px; }
+.opt-stack .switch i { width: 12px; height: 12px; }
+.opt-stack .switch.on i { transform: translateX(16px); }
 /* 音量滑条（设置页，sfx-synth） */
 .vol { flex: none; display: flex; align-items: center; gap: 8px; }
 .vol input[type='range'] {
@@ -2571,13 +2578,13 @@ body.panel-open #coach { display: none; }
   right: -10px;
   width: calc(100% + 30px);
   border-radius: 8px;
-  background: radial-gradient(ellipse 100% 100% at 100% 50%, rgba(8, 6, 4, 0.58) 0%, rgba(8, 6, 4, 0.42) 50%, rgba(8, 6, 4, 0) 100%);
+  background: radial-gradient(ellipse 100% 100% at 100% 50%, rgba(8, 6, 4, 0.66) 0%, rgba(8, 6, 4, 0.5) 50%, rgba(8, 6, 4, 0) 100%);
 }
 #quest.on { opacity: 1; }
 /* 追踪条显示时连击计数往下让：矮屏幕上 34% 正好落在追踪条里（设计稿 §7）；按住 Alt 展开的详情也让开 */
 body.quest-on #combo { top: max(34%, 352px); }
 body.panel-open #quest { display: none; }
-.q-k { font-size: 12px; line-height: 17px; letter-spacing: 2px; color: #e0ad6e; }
+.q-k { font-size: 12px; line-height: 17px; letter-spacing: 2px; font-weight: 600; color: #f0c27f; }
 .q-goal { font-size: 15.5px; line-height: 23px; font-weight: 600; letter-spacing: 1px; color: #fbebc8; }
 .q-how { font-size: 13.5px; line-height: 19px; color: #cfc1a5; }
 .q-alt { display: none; margin-top: 5px; font-size: 12px; line-height: 18px; color: #e2d4b8; text-wrap: balance; }

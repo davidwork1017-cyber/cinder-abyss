@@ -2769,15 +2769,19 @@
         .join('') +
       '</div>' +
       '<div class="opt-sep"></div>' +
+      // 两个开关上下叠成一列（quest D2 加了「显示主线」，并排时 1024 宽的窗口放不下）；「折叠」的说明挪进悬停提示
+      '<div class="opt-stack">' +
+      '<div class="opt-line" data-tip="txt:地上只留一个小点，悬停或按住 Alt 展开">' +
       '<button type="button" tabindex="-1" class="switch' + (S.opts.hideNormal ? ' on' : '') + '" data-act="opt" data-opt="hideNormal"><i></i></button>' +
-      '<div class="opt-text"><b>折叠普通物品的名牌</b><span>地上只留一个小点，悬停或按住 Alt 展开</span></div>' +
-      '<div class="opt-sep"></div>' +
+      '<div class="opt-text"><b>折叠普通物品的名牌</b></div></div>' +
       // 主线（quest D2）：关了只藏追踪条、小地图上的金色记号和地图上的角标，进度和奖励照常记。主线走完以后不再显示这个开关
       (Q && Q.n < G.QUEST_N
-        ? '<button type="button" tabindex="-1" class="switch' + (Q.off ? '' : ' on') + '" data-act="quest"><i></i></button>' +
-          '<div class="opt-text"><b>显示主线</b><span>右上的提示和小地图上的箭头</span></div>' +
-          '<div class="opt-sep"></div>'
+        ? '<div class="opt-line" data-tip="txt:右上的主线提示、小地图上的金色箭头和区域卡片上的「主线」角标。关了进度照常记">' +
+          '<button type="button" tabindex="-1" class="switch' + (Q.off ? '' : ' on') + '" data-act="quest"><i></i></button>' +
+          '<div class="opt-text"><b>显示主线</b></div></div>'
         : '') +
+      '</div>' +
+      '<div class="opt-sep"></div>' +
       '<div class="opt-text"><b>画质</b><span>' + (S.opts.quality === 'auto' ? '自动选择，明显掉帧时会自动调低' : '电脑吃力时调低') + '</span></div>' +
       '<div class="seg">' +
       [['high', '高', '泛光、调色与暗角，4 倍多重采样抗锯齿，高分屏最高按 1.5 倍像素渲染'], ['mid', '中', '保留泛光与调色；泛光按一半分辨率计算，不画贴地薄雾，阴影精度减半，抗锯齿降为 2 倍，高分屏最高 1.25 倍像素'], ['low', '低', '关闭泛光、调色等后期效果和贴地薄雾，阴影精度减半，适合老旧电脑']]
