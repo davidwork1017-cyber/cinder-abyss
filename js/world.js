@@ -20385,7 +20385,14 @@
     scene.add(pts);
   }
   // grav > 0 下坠，< 0 上浮；drag 为每秒速度衰减
+  // class-d2b1：静音（W.fxMute）期间各个发射函数什么都不放，但调用处参数里的 rand() 照样取（tChunk 自己那一次也照取），
+  // Math.random 的次数和不静音时一样。只给特殊弹 / 提灯这类新技能「同一下打中一群怪时只放一处」用
+  let fxMute = 0;
+  W.fxMute = (on) => {
+    fxMute = on ? 1 : 0;
+  };
   function spawnP(x, y, z, vx, vy, vz, life, size, r, g, b, grav, drag) {
+    if (fxMute) return;
     const i = pNext, j = i * 3;
     pNext = (pNext + 1) % PN;
     pPos[j] = x; pPos[j + 1] = y; pPos[j + 2] = z;
@@ -24159,6 +24166,10 @@
   const ckA = new Float32Array(CK_N * 3), ckB = new Float32Array(CK_N * 3);
   let ckNext = 0, ckLive = 0;
   function tChunk(kind, x, y, z, vx, vy, vz, life, size, hexA, hexB, grav) {
+    if (fxMute) {
+      rand(0, TAU); // 和不静音时取的次数一样（见 W.fxMute）
+      return;
+    }
     const i = ckNext, j = i * 3;
     ckNext = (ckNext + 1) % CK_N;
     ckK[i] = kind;
@@ -24275,6 +24286,7 @@
     vb.b[0] = _c.r; vb.b[1] = _c.g; vb.b[2] = _c.b;
   }
   function vsEmit(x, y, z, vx, vy, vz, life, sx, sy, rot, spin, grav, drag) {
+    if (fxMute) return;
     const i = vsNext, j = i * 3;
     vsNext = (vsNext + 1) % VS_N;
     vsSh[i] = vb.sh; vsMd[i] = vb.md; vsCv[i] = vb.cv;
@@ -25177,6 +25189,7 @@
     });
   }
   W.vDecal = function (kind, x, z, r, dur, hex, o) {
+    if (fxMute) return; // 只取特效自己的 vr，不碰 Math.random
     const k = typeof kind === 'string' ? VVD[kind] : kind;
     if (k === undefined || !vdMesh) return;
     if (qualId === 'low' && k !== VVD.scorch) return; // 低画质只留焦痕（闪光 / 霜痕 / 渊痕这些大方片叠起来，软件渲染下最费填充率）
@@ -30051,6 +30064,19 @@
     }
     W.thinRing(sea.x, sea.z, sea.r, 0xffb347, 0x6a2a10, 0.5, 24);
   };
+  // 一群怪同时挨同一下（铁水弹炸开 / 铁水 / 小灯的灼烧）时，除了第一处，其余的怪身上只冒这么一点：两三颗暗芯的小火星（不发白、不叠亮）
+  W.emberSpark = function (x, z, h) {
+    if (!PF.vShape) return;
+    vsBrush(VSH.chip, 3, 0, 0x9a3a12, 0x3a1408, 0.12, 0.6, 0.4);
+    for (let i = 0, n = qualId === 'low' ? 1 : 2; i < n; i++) vsEmit(x + vr(-0.2, 0.2), (h || 1) * 0.6, z + vr(-0.2, 0.2), vr(-1.2, 1.2), vr(1.2, 2.4), vr(-1.2, 1.2), vr(0.3, 0.45), vr(0.04, 0.07), undefined, vr(0, TAU), vr(-8, 8), 14);
+  };
+  // 溅铁 / 熔穿第一处命中：一道小的暗红弯月 + 几块碎块，亮芯不到半米
+  W.moltenHit = function (x, z, ang) {
+    if (!PF.vShape) return;
+    vsBrush(VSH.crescent, 0, 0, 0xffc070, 0x8a2a10, 0.4, 0.5, 0.4);
+    vsEmit(x - Math.sin(ang) * 0.3, 1.0, z - Math.cos(ang) * 0.3, Math.sin(ang) * 1.5, 0, Math.cos(ang) * 1.5, 0.08, 0.45);
+    b1Chips(x, 0.8, z, qualId === 'low' ? 1 : 3, 0.15, 1.2, 3, 0xa8401a, 0x3a1206, 0.05, 0.09);
+  };
   W.lampTick = function () {}; // 每帧的画法在 W.d2bDraw 里（形状批的 pfBegin / pfEnd 之间）
   W.moltenTick = function () {};
   W.netTick = function () {};
@@ -30137,7 +30163,17 @@
   W.relitLook = function (ent) {
     if (!ent) return;
     W.minionElem(ent, '#ffa040');
-    if (ent.bodyMat && ent.bodyMat.color) ent.bodyMat.color.multiplyScalar(0.82).lerp(d2bLin(0xffb070), 0.14);
+    const m = ent.bodyMat;
+    if (m && m.color) {
+      // 灯火映着：骨头整体偏暖、压暗一点，再加一层琥珀色的自发光（同小怪 rig.emis 那一套：受击闪白之后回到这个底色）
+      m.color.multiplyScalar(0.78).lerp(d2bLin(0xffa060), 0.2);
+      m.userData.e0.set(0xc8641e).convertSRGBToLinear();
+      m.userData.ei0 = 0.55;
+      if (!(ent.flashT > 0)) {
+        m.emissive.copy(m.userData.e0);
+        m.emissiveIntensity = m.userData.ei0;
+      }
+    }
   };
   // ---------- 投射物的外形（PF_DRAW）和落点（projImpact） ----------
   PF_DRAW.lampglob = function (u, x, y, z, dt) {
@@ -30193,9 +30229,14 @@
     }
     if (vk === 'rd_molten') {
       if (how === 'blast') {
-        W.thinRing(x, z, R, 0xff8a3c, 0x5a1a08, 0.3, 14);
-        b1Tongues(x, z, R * 0.75, lo ? 3 : 6, 0.5, 0.4, 1);
-        b1Chips(x, 0.6, z, lo ? 2 : 4, 0.2, 1.5, 3.5, 0xd2501a, 0x3a1206, 0.05, 0.1);
+        // 一次施放（机炮 / 喷枪三枚）只有第一枚炸开画全套；火舌减半、长在边上不往外飞
+        if (u.d2bQuiet) {
+          b1Chips(x, 0.5, z, 1, 0.2, 1, 2.5, 0x9a3a12, 0x3a1206, 0.05, 0.08);
+          return true;
+        }
+        W.thinRing(x, z, R, 0xff8a3c, 0x5a1a08, 0.3, 12);
+        b1Tongues(x, z, R * 0.92, lo ? 2 : 3, 0.4, 0.4, 0, 0xd8702a, 0x6a1c0a);
+        b1Chips(x, 0.6, z, lo ? 2 : 3, 0.2, 1.5, 3.5, 0xa8401a, 0x3a1206, 0.05, 0.1);
       } else if (how !== 'hit') b1Chips(x, y, z, lo ? 2 : 3, 0.1, 1, 2.5, 0xd2501a, 0x3a1206, 0.05, 0.09);
       else {
         vsBrush(VSH.chip, 3, 0, 0xe8601c, 0x3a1206, 0.3, 0.45);

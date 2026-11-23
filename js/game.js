@@ -4745,7 +4745,12 @@
         if (p.cast.has(e)) continue;
         p.cast.add(e);
       }
+      if (p.vol) G.world.fxMute(true); // class-d2b1：铁水弹炸到的别的怪只冒几颗暗芯火星（随机数照取）
       G.hitEnemy(e, p.ctx, p.blastMult || 1, { ang: Math.atan2(e.x - p.x, e.z - p.z), kb: p.kb, poise: p.poise }); // 从爆心往外推；blastMult：灵弹这一段的倍率
+      if (p.vol) {
+        G.world.fxMute(false);
+        fxOpt('emberSpark', e.x, e.z, e.height);
+      }
     }
     if (p.burst) staffBurst(p, R, skip); // 灵弹的重弹：按元素追加
     // 魂火炸开有自己的特效（world.wispBurst，可选）
@@ -4881,7 +4886,19 @@
               if (p.cast) p.cast.add(e);
               // 远程武器的箭 / 子弹：multFn 算这一下的倍率（鹰眼的远距离加成），after 接着结算余烬 / 元素爆炸 / 熔芯弹；src 让专注按箭计数
               const m = (p.multFn ? p.multFn(p, e) : p.mult || 1) * (p.boomK || 1); // boomK：回旋的回程
-              G.hitEnemy(e, p.ctx, m, { ang: Math.atan2(p.dx, p.dz), src: p, aura: p.aura, minion: p.minion, kb: p.kb, poise: p.poise }); // 顺着弹道推；aura：霜环「冰棱」的冰棱和光环脉冲一样不算连击；minion：骸弓的骨箭算召唤物的；kb / poise：灵弹的重弹（缺省按技能）
+              // class-d2b1：铁水弹的命中（连带引出的爆燃、溅到的伤害）特效全部静音（随机数照取），一次施放只放一处：
+              // 有爆炸的由第一枚炸开那一下画（W.projImpact 的 rd_molten），溅铁 / 熔穿在第一处命中画一个小的；其余的怪只冒几颗暗芯火星
+              const mu = !!p.vol, first = mu && !p.vol.shown;
+              if (mu) {
+                p.vol.shown = true;
+                G.world.fxMute(true);
+              }
+              G.hitEnemy(e, p.ctx, m, { ang: Math.atan2(p.dx, p.dz), src: p, aura: p.aura, minion: p.minion, kb: p.kb, poise: p.poise });
+              if (mu) {
+                G.world.fxMute(false);
+                if (first && !(p.explode > 0)) fxOpt('moltenHit', e.x, e.z, Math.atan2(p.dx, p.dz));
+                else fxOpt('emberSpark', e.x, e.z, e.height);
+              } // 顺着弹道推；aura：霜环「冰棱」的冰棱和光环脉冲一样不算连击；minion：骸弓的骨箭算召唤物的；kb / poise：灵弹的重弹（缺省按技能）
               if (p.after) p.after(p, e, lastHit.killed, lastHit.crit);
               if (p.ctx.sk.mech === 'hook' && !e.dead) nailHook(p, e); // 刻式「钩钉」：往你身边拽
             }
@@ -9260,6 +9277,14 @@
   // class-d2b1：炉匠的特殊弹（铁水弹 / 雷楔 / 霜霰弹 / 反冲弹）和掌灯人的提灯（点灯 / 借火 / 灯海 / 续火）
   // 地上的东西都有同时存在的上限：小灯 3 盏、铁水 4 摊、雷网 3 根线（绵延各 +durCap），续火的骸骨 4 具
   // =====================================================================
+  // 持续伤害的一跳（铁水 / 小灯 / 灯海 / 雷网）：命中特效静音（随机数照取，见 world.js 的 W.fxMute），地上的东西本身就是提示；
+  // spark：顺手冒两颗暗芯小火星
+  function tickHit(e, ctx, mult, info, spark) {
+    G.world.fxMute(true);
+    G.hitEnemy(e, ctx, mult, info);
+    G.world.fxMute(false);
+    if (spark) fxOpt('emberSpark', e.x, e.z, e.height);
+  }
   // ---------- 特殊弹 ----------
   // 手里这把枪（机炮 / 喷枪 / 左轮）；不是枪返回 null
   function roundGun() {
@@ -9294,9 +9319,10 @@
     const rctx = sk.elem && sk.elem !== 'phys' ? elemCtx(ctx, sk.elem) : ctx;
     const aim = P.cast && P.cast.id === ctx.id ? P.cast.aim : aimInfo().ang;
     const x0 = P.x, z0 = P.z;
+    const vol = { shown: false, n: 0 }; // 这一次施放的几枚弹共用：只有第一处命中放全套命中特效（铁水弹，见 molten 的 vol）
     const fire = (i) => {
       if (P.dead) return;
-      roundShell(rctx, sk, gun, sh, i, aim);
+      roundShell(rctx, sk, gun, sh, i, aim, vol);
     };
     fire(0);
     for (let i = 1; i < sh.n; i++) {
@@ -9309,7 +9335,7 @@
     }
     G.sfx('round', { type: sk.round, gun: gun || 'revolver' });
   }
-  function roundShell(ctx, sk, gun, sh, i, aim) {
+  function roundShell(ctx, sk, gun, sh, i, aim, vol) {
     const n = Math.max(1, ctx.proj);
     let a0 = aim;
     if (sh.fan && sh.n > 1) a0 += (-sh.fan / 2 + (sh.fan * i) / (sh.n - 1)) * DEG;
@@ -9330,6 +9356,8 @@
       p.poise = (sk.poise || 0) * pk;
       p.ranged = false; // 不当普攻的弹算（专注、普攻的命中特效）
       if (sk.round === 'molten') {
+        p.vol = vol;
+        if (vol && vol.n++ > 0 && p.mesh && p.mesh.userData) p.mesh.userData.d2bQuiet = true; // 第二枚起炸开只放几颗碎块
         if (sk.explode > 0) {
           p.explode = sk.explode;
           p.blastMult = k;
@@ -9410,7 +9438,7 @@
       for (const o of enemiesInLine(e.x, e.z, a, L, S0.w / 2)) {
         if (done.has(o)) continue;
         done.add(o);
-        G.hitEnemy(o, p.ctx, p.rk * S0.k, { ang: a, w: 0, kb: 0.4, poise: 4, quiet: true });
+        tickHit(o, p.ctx, p.rk * S0.k, { ang: a, w: 0, kb: 0.4, poise: 4, quiet: true }, true); // 溅到的怪：命中特效静音，只冒几颗暗芯火星
       }
     }
     fxOpt('moltenSplash', e.x, e.z, ang, S0.arc, len, S0.n);
@@ -9496,7 +9524,7 @@
       for (const L of netLines) {
         if (segDist(e.x, e.z, L.a.x, L.a.z, L.b.x, L.b.z) > N.w / 2 + e.r) continue;
         e.netAt = state.time;
-        G.hitEnemy(e, ctx, N.k, { ang: 0, w: 0, kb: 0, poise: 1, quiet: true, faint: true, extra: true });
+        tickHit(e, ctx, N.k, { ang: 0, w: 0, kb: 0, poise: 1, quiet: true, faint: true, extra: true }, false);
         break;
       }
     }
@@ -9688,7 +9716,7 @@
       for (const e of enemiesIn(l.x, l.z, R)) {
         if (state.time - (e.lampAt || -99) < l.tick * 0.95) continue;
         e.lampAt = state.time;
-        G.hitEnemy(e, l.ctx, l.mult * lb, { ang: Math.atan2(e.x - l.x, e.z - l.z), w: 0, kb: 0, poise: 1, quiet: true, faint: true, extra: true });
+        tickHit(e, l.ctx, l.mult * lb, { ang: Math.atan2(e.x - l.x, e.z - l.z), w: 0, kb: 0, poise: 1, quiet: true, faint: true, extra: true }, false);
       }
     }
     if (sea) {
@@ -9703,7 +9731,7 @@
           for (const e of enemiesIn(sea.x, sea.z, sea.r)) {
             if (state.time - (e.seaAt || -99) < sea.tick * 0.95) continue;
             e.seaAt = state.time;
-            G.hitEnemy(e, sea.ctx, sea.mult, { ang: Math.atan2(e.x - sea.x, e.z - sea.z), w: 0, kb: 0, poise: 1, quiet: true, faint: true, extra: true });
+            tickHit(e, sea.ctx, sea.mult, { ang: Math.atan2(e.x - sea.x, e.z - sea.z), w: 0, kb: 0, poise: 1, quiet: true, faint: true, extra: true }, false);
           }
         }
       }
@@ -9744,7 +9772,7 @@
         for (const e of enemiesIn(f.x, f.z, f.r)) {
           if (state.time - (e.moltenAt || -99) < f.tick * 0.95) continue;
           e.moltenAt = state.time;
-          G.hitEnemy(e, f.ctx, f.mult, { ang: Math.atan2(e.x - f.x, e.z - f.z), w: 0, kb: 0, poise: 1, quiet: true, faint: true, extra: true });
+          tickHit(e, f.ctx, f.mult, { ang: Math.atan2(e.x - f.x, e.z - f.z), w: 0, kb: 0, poise: 1, quiet: true, faint: true, extra: true }, true);
         }
       }
       fxOpt('moltenTick', roundPools, dt);
