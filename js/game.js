@@ -3976,9 +3976,13 @@
     // 魂潮的魂火（p.wisp）优先用 world.makeWisp，没有时借追踪弹的样子。
     // p.vk：外形（掷焰 ember、飞刃 blade、喷吐者 glob、霜织者 shard……，world 不认得的退回通用光球），p.tint：注入的元素色
     const W0 = G.world;
-    const look = { kind: p.vk, dx: p.dx, dz: p.dz, tint: p.tint };
+    // emit：从玩家身上打出去的（起点在玩家身前、顺着自己的方向 1 米以内；分岔、召唤物的、环身冰晶的不算）——
+    // 画面上从武器的出手点（枪口 / 弓把 / 杖头 / 投掷的手）出来再并到弹道上，只影响画面
+    const ex = p.x - P.x, ez = p.z - P.z, along = ex * p.dx + ez * p.dz;
+    const emit = p.owner === 'p' && !p.forked && !p.minion && !p.aura && along >= 0 && along <= 1 && Math.abs(ex * p.dz - ez * p.dx) < 1e-6;
+    const look = { kind: p.vk, dx: p.dx, dz: p.dz, tint: p.tint, emit, src: (p.minion && p.minion.ent) || null };
     p.mesh =
-      p.wisp && W0.makeWisp ? W0.makeWisp(p.color)
+      p.wisp && W0.makeWisp ? W0.makeWisp(p.color, look)
       : (p.seeker || p.wisp) && W0.makeSeeker ? W0.makeSeeker(p.color, look)
       : W0.makeProjectile(p.color, p.r, p.owner !== 'p', look);
     // p.y0：出手高度（矮个子的嘴边），飞出去一小段后升到统一的弹道高度 1.1
@@ -4995,7 +4999,8 @@
     } else {
       fireBow(ctx, c);
       // 下一箭：拉弓的动作对到下一次放箭的时刻
-      if (held) playFire(sk.rtype, { dur: Math.max(0.2, ctx.time + 0.05), contact: ctx.time * 0.92, fade: Math.min(0.06, ctx.time * 0.92 * 0.4) });
+      // （撒放对在出手的那一刻：world 的弓弦 / 弦上的箭按真正射出的那一箭走，这里 contact 不再提前）
+      if (held) playFire(sk.rtype, { dur: Math.max(0.2, ctx.time + 0.05), contact: ctx.time, fade: Math.min(0.06, ctx.time * 0.92 * 0.4) });
     }
   }
   // 打出了一发：之后随时可以接别的动作；记进统计（新手提示读）
@@ -6002,7 +6007,7 @@
         }
       }
       const pts = [{ x: P.x, z: P.z }];
-      const bo = { v2: true }; // vf-vfx2：链雷的折线语言（刻式「过载」也用；「雷桩」走自己的 arcPylon）
+      const bo = { v2: true, emit: true }; // vf-vfx2：链雷的折线语言（刻式「过载」也用；「雷桩」走自己的 arcPylon）；emit：画面上从杖头起（pts 不动）
       if (!first) {
         pts.push({ x: P.x + a.dx * 6, z: P.z + a.dz * 6 });
         W.bolt(pts, hex, false, bo);

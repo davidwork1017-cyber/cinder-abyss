@@ -3366,6 +3366,298 @@ async function main() {
     return r.cases + ' 个场景、' + r.shots + ' 箭 · 右手最少在肩线前 ' + r.minFront.toFixed(3) + ' 米 · 离箭线最多 ' + r.maxLat.toFixed(3) + ' 米';
   });
 
+  // 出手点（muzzle-socket）：弹丸画面从武器的出手点出来、再并到模拟的弹道上；弓弦和弦上的箭跟着真正射出的那一箭撒放；只动画面
+  await step('出手点：弓 / 枪 / 长杖 / 魂幡 / 投掷 / 骸弓的弹丸，第一帧画在出手点上（W.muzzleWorld / emitWorld），0.1 秒内并到模拟的弹道上、并线时不往回走；贴脸开火打中时当帧画在弹道上', async () => {
+    const r = await ev((code) => {
+      eval(code);
+      const P = G.player, W = G.world, S = G.state, save = G.save, out = { n: 0, ends: 0, maxFirst: 0, maxEnd: 0, back: 0, bad: [], rows: {} };
+      const keepW = save.equip.weapon, keepBar = save.bar.slice(), keepVar = Object.assign({}, save.variants);
+      const v3 = new THREE.Vector3();
+      let last = null, wantMinion = false;
+      const sp0 = G.spawnProjectile;
+      G.spawnProjectile = function (p) {
+        const q = sp0.apply(this, arguments);
+        if (q && q.owner === 'p' && !!q.minion === wantMinion && !q.forked) last = q;
+        return q;
+      };
+      // 这颗弹丸这一帧画在哪：实例化的外形读 pfDraw 记下的 px / py / pz；魂引的魂灵读它身体的世界坐标（减掉上下浮动）
+      const vis = (q) => {
+        const u = q.mesh.userData;
+        if (u.wisp) {
+          q.mesh.updateMatrixWorld(true);
+          u.wisp.getWorldPosition(v3);
+          return { x: v3.x, y: v3.y - Math.sin(u.ph * 0.5) * 0.08, z: v3.z };
+        }
+        return { x: u.px, y: u.py, z: u.pz };
+      };
+      const d3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+      try {
+        const CASES = [['鹰眼长弓', 5], ['追猎弓', 10], ['符文弓', 11], ['冰弓', 13], ['转膛机炮', 8], ['烬铸左轮', 12], ['长杖', 1], ['魂幡', 7], ['飞刃', 10, 'gem'], ['骸弓', 0, 'archer']];
+        for (const [nm, b, kind] of CASES) {
+          for (const rel of [0, 45, -45]) {
+            T.lane();
+            const od = T.openDir(10), F = Math.atan2(od.x, od.z) + (rel * Math.PI) / 180;
+            RW.arm(b);
+            save.variants = Object.assign({}, keepVar);
+            let m = null;
+            wantMinion = kind === 'archer';
+            if (kind === 'gem') {
+              save.skills.blade = Math.max(1, save.skills.blade || 0);
+              save.sockets.blade = save.sockets.blade || [null, null, null];
+              save.bar = ['blade', null, null, null];
+              G.computeStats();
+            }
+            if (kind === 'archer') {
+              save.skills.thrall = Math.max(30, save.skills.thrall || 0); // 刻式要宝石等级够才生效
+              save.sockets.thrall = save.sockets.thrall || [null, null, null];
+              save.bar = ['thrall', null, null, null]; // 召唤技能不在技能栏上时，召唤物过一会儿就散了
+              save.variants.thrall = 'a';
+              G.applyVariants();
+              G.computeStats();
+              for (const k in save.autoSummon) save.autoSummon[k] = false;
+              m = G.summonMinion('thrall', P.x + Math.sin(F) * 0.5 - Math.cos(F) * 1.5, P.z + Math.cos(F) * 0.5 + Math.sin(F) * 1.5, G.skillCtx('thrall'));
+              const e = G.spawnMob('husk', m.x + Math.sin(F) * 6, m.z + Math.cos(F) * 6, 1, { awake: true });
+              e.wasAwake = true;
+              e.hp = e.maxHp = 1e7;
+              e.atkCd = 1e9;
+              e.speed = 0;
+            }
+            P.face = P.drawFace = F;
+            W.setEnt(P.ent, P.x, P.z, F);
+            RW.run(20);
+            last = null;
+            for (let i = 0; i < 360 && !last; i++) {
+              if (kind !== 'archer') T.aim(P.x + Math.sin(F) * 8, P.z + Math.cos(F) * 8);
+              if (kind === 'gem') { if (i % 20 === 0) G.input.tap[0] = 0.3; }
+              else if (kind !== 'archer') G.input.mouse.b[2] = true;
+              G.tick(1 / 60);
+            }
+            G.input.mouse.b[2] = false;
+            G.input.tap[0] = 0;
+            const tag = nm + '/' + rel + '°';
+            if (!last) { out.bad.push(tag + ' 没打出弹丸'); continue; }
+            const q = last, u = q.mesh.userData;
+            out.n++;
+            const em = kind === 'archer' ? W.muzzleWorld(m.ent) : W.emitWorld(P.ent);
+            const f0 = vis(q), e0 = d3(f0, em), eps = u.wisp ? 0.02 : 0.005;
+            out.maxFirst = Math.max(out.maxFirst, e0);
+            if (!(e0 <= eps)) out.bad.push(tag + ' 第一帧离出手点 ' + e0.toFixed(3) + ' 米');
+            // 并线：每帧沿弹道方向不往回走；结束时和模拟位置重合
+            const dx = q.dx, dz = q.dz;
+            let prev = f0, ended = false;
+            for (let i = 0; i < 40 && S.projectiles.indexOf(q) >= 0; i++) {
+              G.tick(1 / 60);
+              if (S.projectiles.indexOf(q) < 0) break;
+              const f = vis(q), adv = (f.x - prev.x) * dx + (f.z - prev.z) * dz;
+              if (adv < -1e-4 && !q.home) { out.back++; if (out.back <= 3) out.bad.push(tag + ' 并线时往回走 ' + adv.toFixed(3) + ' 米'); }
+              prev = f;
+              if (u.age > (u.wisp ? 0.3 : W.emitT) + 0.02) {
+                const p = q.mesh.position, e1 = u.wisp ? Math.hypot(u.wisp.position.x, u.wisp.position.z) : d3(f, p);
+                out.maxEnd = Math.max(out.maxEnd, e1);
+                if (!(e1 <= 1e-6)) out.bad.push(tag + ' 并线结束时离弹道 ' + e1.toFixed(4) + ' 米');
+                ended = true;
+                break;
+              }
+            }
+            if (ended) out.ends++;
+            (out.rows[nm] = out.rows[nm] || []).push(+e0.toFixed(4));
+            G.clearMinions();
+          }
+        }
+        // 贴脸开火：靶子在 1.1 米（还没画过就打中）和 3.2 米（并线途中打中）。打穿的那一发：打中的那一帧起画在弹道上
+        wantMinion = false;
+        out.snap = [];
+        for (const d of [1.1, 3.2]) {
+          T.lane();
+          RW.arm(8);
+          const od = T.openDir(10), F = Math.atan2(od.x, od.z), dx = Math.sin(F), dz = Math.cos(F);
+          P.face = P.drawFace = F;
+          W.setEnt(P.ent, P.x, P.z, F);
+          RW.run(10);
+          const e = G.spawnMob('brute', P.x + dx * d, P.z + dz * d, 1, { awake: true });
+          e.wasAwake = true; e.hp = e.maxHp = 1e7; e.atkCd = 1e9; e.speed = 0; e.buTh = 1e15; e.poiseMax = 0;
+          const q = G.spawnProjectile({ owner: 'p', x: P.x + dx * 0.8, z: P.z + dz * 0.8, dx, dz, speed: 30, r: 0.22, life: 1, ctx: G.skillCtx('basic_gatling'), pierce: 3, vk: 'bullet' });
+          const u = q.mesh.userData;
+          let hitAt = -1, err = null;
+          for (let i = 0; i < 12 && S.projectiles.indexOf(q) >= 0; i++) {
+            const hp = e.hp;
+            G.tick(1 / 60);
+            if (hitAt < 0 && e.hp < hp) {
+              hitAt = i;
+              err = d3({ x: u.px, y: u.py, z: u.pz }, q.mesh.position);
+            }
+          }
+          out.snap.push({ d, hitAt, err: err === null ? null : +err.toFixed(6) });
+          if (d > 3 && !(hitAt >= 1 && hitAt <= 5)) out.bad.push('贴脸 ' + d + ' 米：应在并线途中（第 1–5 帧）打中，实际第 ' + hitAt + ' 帧');
+          if (hitAt < 0 || !(err <= 1e-6)) out.bad.push('贴脸 ' + d + ' 米：打中那一帧离弹道 ' + err + '（第 ' + hitAt + ' 帧）');
+          G.clearEnemies();
+        }
+      } finally {
+        G.spawnProjectile = sp0;
+        G.input.mouse.b[2] = false;
+        save.equip.weapon = keepW;
+        save.bar = keepBar;
+        save.variants = keepVar;
+        G.applyVariants();
+        G.computeStats();
+        G.clearMinions();
+        T.arena();
+      }
+      return out;
+    }, rangedSetup);
+    assert(r.n >= 30 && r.ends >= 24, '出手点场景没跑起来：' + JSON.stringify(r));
+    assert(!r.bad.length, r.bad.slice(0, 8).join(' ｜ ') + ' 共 ' + r.bad.length + ' 例');
+    return r.n + ' 发：第一帧离出手点最多 ' + r.maxFirst.toFixed(4) + ' 米、并线结束离弹道最多 ' + r.maxEnd.toExponential(1) + ' 米（' + r.ends + ' 发并完）；贴脸 ' + r.snap.map((s) => s.d + ' 米第 ' + s.hitAt + ' 帧打中').join('、');
+  });
+
+  await step('出手点：普攻拉弓的撒放对在真正射出的那一箭——出手那一帧弦已回直、弦上没箭，前一帧拉满、箭搭在弦上', async () => {
+    const r = await ev((code) => {
+      eval(code);
+      const P = G.player, W = G.world, save = G.save, out = { shots: 0, bad: [] };
+      const keepW = save.equip.weapon;
+      let shot = 0;
+      const sp0 = G.spawnProjectile;
+      G.spawnProjectile = function (p) {
+        const q = sp0.apply(this, arguments);
+        if (q && q.owner === 'p' && !q.minion) shot++;
+        return q;
+      };
+      try {
+        for (const b of [5, 10, 13]) {
+          T.lane();
+          RW.arm(b);
+          const od = T.openDir(10), F = Math.atan2(od.x, od.z);
+          P.face = P.drawFace = F;
+          W.setEnt(P.ent, P.x, P.z, F);
+          RW.run(20);
+          const J = P.ent.rig.J;
+          let prev = null;
+          for (let i = 0; i < 200; i++) {
+            T.aim(P.x + Math.sin(F) * 8, P.z + Math.cos(F) * 8);
+            G.input.mouse.b[2] = true;
+            const s0 = shot;
+            G.tick(1 / 60);
+            const cur = { nock: P.ent.out[J.wA + 6], draw: P.ent.bsDk || 0 };
+            if (shot > s0) {
+              out.shots++;
+              if (cur.nock !== 0 || cur.draw !== 0) out.bad.push(b + ' 第 ' + i + ' 帧出手时弦上还有箭 / 弦没回直 ' + JSON.stringify(cur));
+              if (prev && (prev.nock < 0.99 || prev.draw < 0.9)) out.bad.push(b + ' 第 ' + i + ' 帧出手前一帧没拉满 / 弦上没箭 ' + JSON.stringify(prev));
+            }
+            prev = cur;
+          }
+          G.input.mouse.b[2] = false;
+          RW.run(20);
+        }
+      } finally {
+        G.spawnProjectile = sp0;
+        G.input.mouse.b[2] = false;
+        save.equip.weapon = keepW;
+        G.computeStats();
+        T.arena();
+      }
+      return out;
+    }, rangedSetup);
+    assert(r.shots >= 9, '拉弓没射出几箭：' + JSON.stringify(r));
+    assert(!r.bad.length, r.bad.slice(0, 6).join(' ｜ ') + ' 共 ' + r.bad.length + ' 例');
+    return r.shots + ' 箭：出手那一帧都已撒放，前一帧都拉满搭着箭';
+  });
+
+  await step('出手点：只动画面——同一个种子打同一场远程混战（弓 / 枪 / 长杖 / 魂幡 / 飞刃 / 骸弓），出手点开着和关着结果（位置 / 生命 / 弹丸 / 取随机数次数）一模一样', async () => {
+    const KEY = 'cinder-abyss-save-v1';
+    const save0 = await ev((KEY) => localStorage.getItem(KEY), KEY);
+    const fresh = async (hold) => {
+      await ev(
+        ([KEY, s, hold]) => {
+          G.holdSave(true);
+          localStorage.setItem(KEY, s);
+          if (hold) sessionStorage.setItem('cinder-test-hold', '1');
+          else sessionStorage.removeItem('cinder-test-hold');
+        },
+        [KEY, save0, hold]
+      );
+      await page.reload({ timeout: 90000 });
+      await install();
+      await until(() => !G.world.assetsPending(), null, 60000);
+      if (!hold) return;
+      // 重进一次钉死布局的第 0 区（素材已经在缓存里）：重载时素材包到得早晚会让区里的布景（火把的个数）不一样，
+      // 火把冒火星取游戏随机数，两遍的起点就不一样了
+      await ev(() => {
+        G.debug.zoneSeed(4242);
+        G.enterZone(0, 0);
+      });
+      await until(() => !G.world.assetsPending(), null, 60000);
+    };
+    const run = (off) =>
+      ev(([code, off]) => {
+        eval(code);
+        const P = G.player, S = G.state, W = G.world, save = G.save;
+        window.__testRand.seed('出手点·只动画面');
+        T.arena();
+        P.god = true;
+        W.emitOff = off;
+        const base = Math.random;
+        let calls = 0, shots = 0;
+        Math.random = function () { calls++; return base.call(this); };
+        const sp0 = G.spawnProjectile;
+        G.spawnProjectile = function () { shots++; return sp0.apply(this, arguments); };
+        const es = [[-1.6, -3.4], [0.4, -3.9], [3.0, -1.8], [-3.6, -0.4], [3.4, 0.6]].map(([dx, dz]) => {
+          const e = G.spawnMob('husk', P.x + dx, P.z + dz, 1, { awake: true });
+          e.wasAwake = true;
+          e.hp = e.maxHp = 1e6;
+          return e;
+        });
+        save.skills.thrall = Math.max(30, save.skills.thrall || 0); // 刻式要宝石等级够才生效
+        save.sockets.thrall = save.sockets.thrall || [null, null, null];
+        save.variants.thrall = 'a';
+        G.applyVariants();
+        for (const k in save.autoSummon) save.autoSummon[k] = false;
+        save.skills.blade = Math.max(1, save.skills.blade || 0);
+        save.sockets.blade = save.sockets.blade || [null, null, null];
+        save.bar = ['blade', null, 'thrall', null]; // 召唤技能不在技能栏上时，召唤物过一会儿就散了
+        G.computeStats();
+        G.summonMinion('thrall', P.x + 1.5, P.z + 1.5, G.skillCtx('thrall'));
+        try {
+          for (const [k, b] of [[0, 10], [1, 8], [2, 12], [3, 1], [4, 7], [5, 13]]) {
+            RW.arm(b);
+            for (let i = 0; i < 50; i++) {
+              const e = es[(k + Math.floor(i / 25)) % es.length];
+              T.aim(e.x, e.z);
+              G.input.mouse.b[2] = i < 40;
+              if (i === 44) G.input.tap[0] = 0.3;
+              P.mana = P.maxMana;
+              G.tick(1 / 60);
+            }
+          }
+        } finally {
+          G.input.mouse.b[2] = false;
+          Math.random = base;
+          G.spawnProjectile = sp0;
+          W.emitOff = false;
+        }
+        const st = JSON.stringify({ p: [P.x, P.z, P.life, P.mana], e: S.enemies.map((o) => [o.x, o.z, o.hp, o.dead]), m: S.minions.map((o) => [o.x, o.z, o.hp]), proj: S.projectiles.map((q) => [q.x, q.z]), calls, shots });
+        let h = 2166136261;
+        for (let i = 0; i < st.length; i++) h = Math.imul(h ^ st.charCodeAt(i), 16777619);
+        const dmg = es.reduce((a, e) => a + (e.maxHp - e.hp), 0);
+        return { hash: (h >>> 0).toString(16), calls, shots, dmg: Math.round(dmg) };
+      }, [rangedSetup, off]);
+    let on, off;
+    try {
+      await fresh(true);
+      on = await run(false);
+      await fresh(true);
+      off = await run(true);
+    } finally {
+      await fresh(false);
+      await ev(() => {
+        G.debug.hold(true);
+        G.debug.god(true);
+      });
+    }
+    assert(on.hash === off.hash && on.calls === off.calls && on.shots === off.shots, '出手点开着 / 关着打出来不一样：' + JSON.stringify({ on, off }));
+    assert(on.shots >= 10 && on.dmg > 0, '混战没打起来：' + JSON.stringify(on));
+    return '哈希 ' + on.hash + '，取随机数 ' + on.calls + ' 次，弹丸 ' + on.shots + ' 发，伤害 ' + on.dmg;
+  });
+
   await step('量表：热度开火上涨、停火回落、满了不掉；专注命中上涨（暴击 / 远距离更多），挨打掉一点；量表没满时 R 灰着按不出，满了能放、放完清零；不扣魔力、不进冷却', async () => {
     const r = await ev((code) => {
       eval(code);
