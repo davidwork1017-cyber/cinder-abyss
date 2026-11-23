@@ -932,6 +932,8 @@ kbd {
   pointer-events: none;
 }
 #tip.on { display: block; }
+#tip { transform-origin: 0 0; }
+#tip.one .tip-pair > :not(:first-child) { display: none; }
 .tip-pair { display: flex; align-items: flex-start; gap: 8px; }
 .tcard {
   --c: #e6c58a;
@@ -972,8 +974,14 @@ body.alt-on .sk-desc .alt-h { display: block; visibility: hidden; }
   height: 100%;
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr) 320px;
+  grid-template-rows: minmax(0, 1fr);
   gap: 20px;
 }
+/* DOM 里背包列在前（见 ui.js renderInv），宽屏按列号摆回 装备 | 背包 | 详情 */
+.inv-side { display: contents; }
+.inv > .col-m { grid-column: 2; grid-row: 1; }
+.inv-side > .col-l { grid-column: 1; grid-row: 1; }
+.inv-side > .col-r { grid-column: 3; grid-row: 1; }
 
 .eq-grid { flex: none; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
 .cell, .eq {
@@ -1558,6 +1566,9 @@ button.pk-row:hover { background: #2a1b10; border-color: var(--ember-2); }
 }
 .tier:hover { color: #f2dfb8; border-color: var(--ember-2); }
 .tier.on { color: #fff3dc; background: linear-gradient(180deg, #b4551c, #6f2c0b); border-color: #ffb066; box-shadow: 0 0 10px rgba(255, 130, 50, 0.4); }
+/* 主线第 11 步（进轮回层级 1）：层级「1」按钮右上角一个金点 */
+.tier.q-dot { position: relative; }
+.tier.q-dot::after { content: ''; position: absolute; right: -3px; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: #ffcc4d; box-shadow: 0 0 0 1.5px #1a100a, 0 0 8px rgba(255, 204, 77, 0.8); }
 .tier-note { font-size: 12.5px; line-height: 19px; color: var(--dim); }
 
 .zones {
@@ -1634,6 +1645,8 @@ button.pk-row:hover { background: #2a1b10; border-color: var(--ember-2); }
 }
 .z-badge.ok { color: #c9f0b8; background: rgba(30, 60, 24, 0.85); border: 1px solid #5c9a48; }
 .z-badge.lock { color: #9a8b76; background: rgba(12, 8, 6, 0.8); border: 1px solid #3d2c1e; }
+/* 主线（quest D2）：这一步要去的区域，金色角标（和小地图上的金色箭头同一种金） */
+.z-badge.quest { color: #2a1a06; font-weight: 600; background: linear-gradient(180deg, #ffd970, #e0a83a); border: 1px solid #ffe7a6; box-shadow: 0 0 10px rgba(255, 204, 77, 0.45); }
 .z-here {
   position: absolute;
   left: 0;
@@ -1695,6 +1708,13 @@ button.pk-row:hover { background: #2a1b10; border-color: var(--ember-2); }
 }
 .switch.on { background: #6f2c0b; border-color: #ffb066; }
 .switch.on i { transform: translateX(20px); background: #ffe2b0; }
+/* 地图页选项行里上下叠成一列的两个开关（折叠普通物品的名牌 / 显示主线，quest D2）：开关小一号，字不换行 */
+.opt-stack { flex: none; display: flex; flex-direction: column; gap: 6px; }
+.opt-line { display: flex; align-items: center; gap: 8px; }
+.opt-line .opt-text b { white-space: nowrap; font-size: 12.5px; }
+.opt-stack .switch { width: 34px; height: 18px; border-radius: 9px; }
+.opt-stack .switch i { width: 12px; height: 12px; }
+.opt-stack .switch.on i { transform: translateX(16px); }
 /* 音量滑条（设置页，sfx-synth） */
 .vol { flex: none; display: flex; align-items: center; gap: 8px; }
 .vol input[type='range'] {
@@ -1904,6 +1924,9 @@ button.pk-row:hover { background: #2a1b10; border-color: var(--ember-2); }
 .chk:hover { color: #e6d7bd; border-color: var(--ember-2); }
 .chk.on { color: #b9c8ff; border-color: #4760c4; }
 .chk.on i { background: #8ba6ff; border-color: #c7d0ff; box-shadow: 0 0 6px rgba(127, 157, 255, 0.8); }
+/* 勾：开着的框里画一个对勾 */
+.chk i { position: relative; flex: none; }
+.chk.on i::after { content: ''; position: absolute; left: 2.5px; top: 0; width: 3px; height: 6px; border: solid #10183a; border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); }
 .sec-title .btn + .chk, .sec-title .btn + .btn, .sec-title .chk + .btn { margin-left: -4px; }
 .inv-tips.res { gap: 8px; font-size: 12.5px; color: #c9b48e; border-top-color: #5e4329; }
 .inv-tips.res b { color: #f2dfb8; font-weight: 600; }
@@ -1915,6 +1938,10 @@ button.pk-row:hover { background: #2a1b10; border-color: var(--ember-2); }
 .res-cur { white-space: nowrap; }
 .chk:disabled { cursor: default; opacity: 0.55; }
 .chk:disabled:hover { color: #b9c8ff; border-color: #4760c4; }
+/* 含稀有开着时的含魔法：算在内、但锁着不能点 → 暗一点的勾，框不发光 */
+.chk.on:disabled, .chk.on:disabled:hover { opacity: 1; color: #8692bd; border-color: #303b6c; }
+.chk.on:disabled i { background: rgba(139, 166, 255, 0.22); border-color: #6476b8; box-shadow: none; }
+.chk.on:disabled i::after { border-color: #b9c8ff; }
 /* 锁：纯 CSS 画的小锁（锁梁 + 锁身），颜色跟着 currentColor */
 .lk-ico { position: relative; display: inline-block; flex: none; width: 9px; height: 11px; vertical-align: -1px; }
 .lk-ico::before { content: ''; position: absolute; left: 1.5px; top: 0; width: 6px; height: 7px; box-sizing: border-box; border: 1.5px solid currentColor; border-bottom: none; border-radius: 3px 3px 0 0; }
@@ -2560,7 +2587,8 @@ body.panel-open #coach { display: none; }
 #combo.t2 { --cc: #ff9a3c; }
 #combo.t3 { --cc: #ff5a44; }
 
-/* ---- 右上：主线追踪条（小地图正下方，quest D1）。没有底板，只用文字阴影，和区域名一类 ---- */
+/* ---- 右上：主线追踪条（小地图正下方，quest D1）。没有边框；D2 起身后垫一层很淡、往左渐隐的暗底（亮地面上灰字也看得清），
+   文字阴影加重。区域素材载入时（#zone-loading 在同一个位置）先不显示，就绪后 0.3 秒淡入 ---- */
 #quest {
   position: absolute;
   right: 14px;
@@ -2569,20 +2597,32 @@ body.panel-open #coach { display: none; }
   text-align: right;
   pointer-events: none;
   opacity: 0;
-  transition: opacity 0.25s;
-  text-shadow: 0 1px 3px #000, 0 0 6px #000, 0 0 2px #000;
+  transition: opacity 0.3s;
+  isolation: isolate;
+  text-shadow: 0 1px 2px #000, 0 0 5px #000, 0 0 9px rgba(0, 0, 0, 0.75);
+}
+#quest::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  top: -6px;
+  bottom: -6px;
+  right: -10px;
+  width: calc(100% + 30px);
+  border-radius: 8px;
+  background: radial-gradient(ellipse 100% 100% at 100% 50%, rgba(8, 6, 4, 0.66) 0%, rgba(8, 6, 4, 0.5) 50%, rgba(8, 6, 4, 0) 100%);
 }
 #quest.on { opacity: 1; }
-/* 追踪条显示时连击计数往下让：矮屏幕上 34% 正好落在追踪条里（设计稿 §7）；340 px 连按住 Alt 展开的详情（到约 330 px）也让开 */
-body.quest-on #combo { top: max(34%, 340px); }
+/* 追踪条显示时连击计数往下让：矮屏幕上 34% 正好落在追踪条里（设计稿 §7）；按住 Alt 展开的详情也让开 */
+body.quest-on #combo { top: max(34%, 352px); }
 body.panel-open #quest { display: none; }
-.q-k { font-size: 11.5px; line-height: 16px; letter-spacing: 2px; color: #d9a66a; }
-.q-goal { font-size: 13.5px; line-height: 21px; font-weight: 600; letter-spacing: 1px; color: #f6e6c4; }
-.q-how { font-size: 12px; line-height: 17px; color: #b6a88f; }
+.q-k { font-size: 12px; line-height: 17px; letter-spacing: 2px; font-weight: 600; color: #f0c27f; }
+.q-goal { font-size: 15.5px; line-height: 23px; font-weight: 600; letter-spacing: 1px; color: #fbebc8; }
+.q-how { font-size: 13.5px; line-height: 19px; color: #cfc1a5; }
 .q-alt { display: none; margin-top: 5px; font-size: 12px; line-height: 18px; color: #e2d4b8; text-wrap: balance; }
-.q-alt .q-lore { margin-top: 2px; color: #9d917e; }
+.q-alt .q-lore { margin-top: 2px; color: #ada08a; }
 .q-lore span { display: inline-block; } /* 背景句只在逗号处换行 */
-.q-h { margin-top: 3px; font-size: 11px; line-height: 15px; color: #857a69; }
+.q-h { margin-top: 3px; font-size: 11px; line-height: 15px; color: #988c78; }
 .q-h kbd { margin: 0 1px; font-size: 10px; line-height: 13px; }
 body.alt-on #quest .q-alt { display: block; }
 body.alt-on #quest .q-h { display: none; }
@@ -3915,6 +3955,76 @@ body.paused #reticle, body.paused #coach { display: none; }
   .st-hint { animation: none; }
 }
 
+/* 中等宽度（如 1024×640）：两侧收窄，中间背包每格不小于 44 px；背包标题行和底部提示放不下就换行 */
+@media (max-width: 1180px) {
+  .inv { grid-template-columns: 250px minmax(0, 1fr) 262px; gap: 14px; }
+  .st-grid { column-gap: 10px; }
+  .st-row { font-size: 12px; }
+  .col-m > .sec-title:first-child { flex-wrap: wrap; height: auto; min-height: 26px; row-gap: 6px; }
+  .col-m > .sec-title:first-child::after { flex: 1 0 24px; }
+  .inv-tips { flex-wrap: wrap; row-gap: 4px; white-space: normal; }
+  .detail-empty { padding: 0 16px 40px; }
+}
+
+/* ============================================================
+   手机（窄屏 ≤ 900 宽，或矮屏 ≤ 500 高）：面板铺满屏幕，页头收紧。
+   背包页：横屏两列（左背包；右边 装备 → 物品详情 → 属性），两边各自滚动；竖屏一列整页滚动。
+   1024×640 这类宽屏不进这里（只用上面的中等宽度规则）。
+   ============================================================ */
+@media (max-width: 900px), (max-height: 500px) {
+  #panel-win { width: 100vw; height: 100vh; height: 100dvh; }
+  #panel-win::before, #panel-win::after { display: none; }
+  #panel-head { height: 40px; padding: 0 4px 0 12px; }
+  .brand { width: auto; font-size: 17px; letter-spacing: 3px; gap: 7px; }
+  .tab { padding: 0 10px; font-size: 15px; letter-spacing: 2px; white-space: nowrap; }
+  .tab kbd { display: none; }
+  .tab::after { left: 6px; right: 6px; }
+  #panel-close { width: auto; padding: 0 8px; }
+  #panel-close kbd { display: none; }
+  #panel-body { padding: 8px 10px 10px; }
+
+  .inv { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+  .inv > .col-m { grid-column: 1; padding-right: 4px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #5e4329 transparent; }
+  .inv-side { display: flex; flex-direction: column; grid-column: 2; grid-row: 1; min-width: 0; min-height: 0; padding-right: 4px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #5e4329 transparent; }
+  /* 装备列拆开：选中物品后详情紧跟在装备栏下面，属性放最后 */
+  .inv-side > .col-l { display: contents; }
+  .col-l > .sec-title:first-child, .col-l > .eq-grid { order: 1; }
+  .inv-side > .col-r { order: 2; flex: none; margin-top: 12px; overflow: visible; }
+  .col-l > .sec-title:nth-child(3), .col-l > .stats { order: 3; }
+  .col-l > .sec-title:nth-child(3) { margin-top: 12px; }
+  .inv .stats { flex: none; overflow: visible; }
+  .inv .detail-empty { flex: none; padding: 14px 16px; }
+  .eq-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+  .eq-name { bottom: 2px; font-size: 10.5px; }
+  .bag, .cur-row { gap: 4px; }
+  .frag-row { grid-template-columns: repeat(4, 1fr); }
+  /* 背包标题行的按钮：放不下就换行，按钮加高一点好点 */
+  .col-m > .sec-title:first-child { flex-wrap: wrap; height: auto; min-height: 26px; row-gap: 6px; }
+  .col-m > .sec-title:first-child::after { flex: 1 0 24px; }
+  .col-m > .sec-title .btn.sm, .col-m > .sec-title .chk { height: 30px; }
+  .inv-tips { flex-wrap: wrap; row-gap: 4px; white-space: normal; text-align: center; }
+  .tcard { max-width: calc(100vw - 16px); }
+}
+@media (max-width: 600px) {
+  .brand { display: none; }
+  #tabs { justify-content: flex-start; gap: 0; }
+  .tab { padding: 0 9px; letter-spacing: 1px; }
+  #panel-body { padding: 8px 8px 10px; }
+
+  /* 竖屏：一列，整页滚动。顺序：装备 → 背包 → 物品详情 → 属性 */
+  .inv { display: flex; flex-direction: column; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #5e4329 transparent; }
+  .inv-side { display: contents; }
+  .inv > .col-m { order: 2; flex: none; margin-top: 14px; padding-right: 0; overflow: visible; }
+  .inv-side > .col-r { order: 3; margin-top: 14px; }
+  .col-l > .sec-title:nth-child(3), .col-l > .stats { order: 4; }
+  .col-l > .sec-title:nth-child(3) { margin-top: 14px; }
+  .eq-grid { grid-template-columns: repeat(4, minmax(0, 76px)); gap: 6px; }
+  .bag { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .cur-row { grid-template-columns: repeat(4, 1fr); }
+  .inv-tips { margin-top: 10px; }
+  .tip-pair { flex-direction: column; }
+}
+
 /* ---------- 职业（class-d2）：变灰的技能、物品的职业行、职业起步天赋、共享仓库 ---------- */
 .skill-card.cls-off { filter: grayscale(0.85); opacity: 0.72; }
 .skill-card.cls-off:hover { opacity: 0.9; }
@@ -3929,12 +4039,12 @@ body.paused #reticle, body.paused #coach { display: none; }
 .tn.clsn .shape { stroke: #fff1d2; stroke-width: 3; }
 .tl.cls { font-size: 20px; font-weight: 700; fill: var(--c); paint-order: stroke; stroke: #0b0806; stroke-width: 4px; }
 .cell.cls-off { filter: grayscale(0.6); }
-.st-tabs { display: flex; gap: 6px; margin: 2px 0 8px; }
-.st-tab { min-width: 40px; height: 26px; padding: 0 8px; font-size: 12.5px; color: var(--dim); background: #110c09; border: 1px solid var(--line); border-radius: 2px; cursor: pointer; }
-.st-tab em { margin-left: 4px; font-style: normal; font-size: 11px; color: var(--faint); }
-.st-tab.on { color: #fff1d2; border-color: var(--ember-2); }
-.st-grid { grid-template-columns: repeat(8, 1fr); }
-.st-note { margin: 8px 0 0; font-size: 12px; line-height: 1.6; color: var(--faint); }
+.sh-tabs { display: flex; gap: 6px; margin: 2px 0 8px; }
+.sh-tab { min-width: 40px; height: 26px; padding: 0 8px; font-size: 12.5px; color: var(--dim); background: #110c09; border: 1px solid var(--line); border-radius: 2px; cursor: pointer; }
+.sh-tab em { margin-left: 4px; font-style: normal; font-size: 11px; color: var(--faint); }
+.sh-tab.on { color: #fff1d2; border-color: var(--ember-2); }
+.sh-grid { grid-template-columns: repeat(8, 1fr); }
+.sh-note { margin: 8px 0 0; font-size: 12px; line-height: 1.6; color: var(--faint); }
 .slot.cls-off .s-icon { filter: grayscale(1) brightness(0.45); }
 .btn.sm.stb { margin-left: auto; color: #ffd28a; border-color: #6b4a28; }
 .btn.sm.stb.on { background: rgba(120, 80, 30, 0.35); }

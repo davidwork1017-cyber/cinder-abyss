@@ -1294,7 +1294,9 @@
       owner: 'p', x: m.x + dx * 0.6, z: m.z + dz * 0.6, y0: 1.3, dx, dz, speed: A.speed, r: 0.25, life: (mi.reach + 3) / A.speed, color: 0xe8e0c8,
       ctx: m.ctx, pierce: A.pierce, chain: 0, explode: 0, hit: new Set(), vk: 'arrow', tint: ALLY_HEX, minion: m,
     });
-    W.burst(m.x + dx * 0.6, 1.3, m.z + dz * 0.6, 0xe8e0c8, 3, 2, 0.15);
+    // 出手的一小撮骨屑放在射手的出手点（W.muzzleWorld，只是画面）；箭的画面也从那里出来再并到弹道上
+    const mp = W.muzzleWorld && m.ent ? W.muzzleWorld(m.ent) : { x: m.x + dx * 0.6, y: 1.3, z: m.z + dz * 0.6 };
+    W.burst(mp.x, mp.y, mp.z, 0xe8e0c8, 3, 2, 0.15);
     S.stats.vArrows = (S.stats.vArrows || 0) + 1;
   }
   // 骸弓 / 掷岩：离 keep 米以内有醒着的敌人就往后（偏向玩家）退一步。返回 true 表示这一帧在退
