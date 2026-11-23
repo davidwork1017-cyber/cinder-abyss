@@ -23272,14 +23272,37 @@ async function touchSteps() {
       G.player.cds = {};
       window.__tend = [];
       window.addEventListener('touchend', (ev) => window.__tend.push([ev.changedTouches[0].clientX, ev.changedTouches[0].clientY]), { once: true });
+      window.__tm = [];
+      window.__tmL = (ev) => window.__tm.push([ev.type[5], Math.round(ev.changedTouches[0].clientX), JSON.stringify(G.touch.state().held), Math.round(performance.now())]);
+      window.addEventListener('touchstart', window.__tmL);
+      window.addEventListener('touchmove', window.__tmL);
     });
     await touch.drag(e.x, e.y, e.x - 90, e.y, 3);
     await touch.move(e.x - 40, e.y);
     await touch.move(e.x + 2, e.y);
     await frames(1);
     await touch.up();
-    const z = await ev(() => (G.debug.step(1), { cd: G.player.cds.meteor || 0, n: window.__fall.length, end: window.__tend }));
+    const z = await ev(() => {
+      G.debug.step(1);
+      window.removeEventListener('touchstart', window.__tmL);
+      window.removeEventListener('touchmove', window.__tmL);
+      return { cd: G.player.cds.meteor || 0, n: window.__fall.length, end: window.__tend, tm: window.__tm };
+    });
     assert(!z.cd && z.n === 1, '拖回按钮上松手应取消：' + JSON.stringify(z));
+    // 拖得又远又往上：落点会跑到顶栏 / 区域名底下——沿着同一方向收回来，准星留在能看见的地方
+    await touch.drag(e.x, e.y, e.x - 160, e.y - 150, 5);
+    await frames(1);
+    const cl = await ev(() => {
+      const r = document.getElementById('reticle');
+      const m = /translate\(([-\d.]+)px,\s*([-\d.]+)px\)/.exec(r.style.transform);
+      const zb = document.getElementById('zone-box').getBoundingClientRect().bottom, tb = document.getElementById('t-top').getBoundingClientRect().bottom;
+      const P = G.player, a = G.input.aim;
+      return { y: m ? +m[2] : -1, x: m ? +m[1] : -1, top: Math.max(zb, tb), d: Math.hypot(a.x - P.x, a.z - P.z), ang: Math.atan2(a.z - P.z, a.x - P.x) };
+    });
+    await touch.move(e.x + 2, e.y);
+    await touch.up();
+    const wantAng = Math.atan2(-150, -160);
+    assert(cl.y >= cl.top && cl.x >= 0 && cl.d > 1 && cl.d < 14 && Math.abs(cl.ang - wantAng) < 0.01, '拖到顶栏方向时准星应收回到可见区域、方向不变：' + JSON.stringify(cl));
     return '误差 ' + de.toFixed(3) + ' m，落点 ' + dm.toFixed(3) + ' m';
   });
 
@@ -23409,6 +23432,92 @@ async function touchSteps() {
     return '提示卡一次，设置三档';
   });
 
+  await step('触屏：开场卡片、背包、技能、天赋、地图、帮助、浮窗、暂停菜单里没有鼠标 / 键盘说法（右键 / 左键 / 悬停 / Alt / WASD / Shift，Esc / Enter 角标）；点物品 → 详情里点「装备」穿上；长按看详情；长按不会误穿', async () => {
+    await touchPage();
+    const scan = (where) =>
+      ev((where) => {
+        const bad = [];
+        const m = document.body.innerText.match(/[^\n]{0,14}(右键|左键|悬停|Alt|WASD|Shift)[^\n]{0,14}/g);
+        if (m) for (const x of m) bad.push(where + '：' + x);
+        for (const k of document.querySelectorAll('kbd')) if (k.getClientRects().length && /^(Esc|Enter|Shift|Alt)$/.test(k.textContent.trim())) bad.push(where + '：角标 ' + k.textContent.trim());
+        return bad;
+      }, where);
+    let bad = [];
+    await ev(() => G.ui.showIntro());
+    await frames(2);
+    bad = bad.concat(await scan('开场卡片'));
+    await ev(() => {
+      G.ui.close();
+      G.debug.learnAll();
+      window.__helm = G.debug.giveItem(1, 'helm');
+      G.debug.giveItem(2, 'weapon');
+      G.ui.open('inv');
+    });
+    await frames(3);
+    bad = bad.concat(await scan('背包'));
+    // 长按另一格：按住 Alt 的效果（详情展开），松手收起；安卓长按带出来的 contextmenu 不会把它穿上
+    const cell2 = await ev(() => T.rect('.cell[data-item]:not([data-item="' + window.__helm.uid + '"])'));
+    await touch.down(cell2.x, cell2.y);
+    await sleep(700);
+    const lp = await ev(() => {
+      const n = document.elementFromPoint(innerWidth / 2, 10);
+      const c = document.querySelector('.cell[data-item]:not([data-item="' + window.__helm.uid + '"])');
+      const uid = c.dataset.item;
+      c.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 1, clientY: 1 }));
+      const tip = document.getElementById('tip');
+      return { alt: G.input.alt, worn: Object.values(G.save.equip).some((it) => it && it.uid === uid), n: !!n, tip: getComputedStyle(tip).display !== 'none' && tip.textContent.length > 0 };
+    });
+    await touch.up();
+    await frames(2);
+    const lp2 = await ev(() => G.input.alt);
+    const tip2 = await ev(() => getComputedStyle(document.getElementById('tip')).display);
+    assert(lp.alt && lp.tip && !lp2 && tip2 === 'none', '长按应出浮窗并展开详情、松手收起：' + JSON.stringify({ lp, lp2, tip2 }));
+    assert(!lp.worn, '长按（contextmenu）不应把物品穿上');
+    // 点一下物品：详情里有「装备」等按钮（浮窗也会出来）
+    const cell = await ev(() => T.rect('.cell[data-item="' + window.__helm.uid + '"]'));
+    await touch.tap(cell.x, cell.y);
+    await frames(3);
+    const acts = await ev(() => Array.from(document.querySelectorAll('#panel-body .act-row button')).filter((b) => b.getClientRects().length).map((b) => b.textContent.trim()));
+    bad = bad.concat(await scan('背包·选中'));
+    assert(acts.includes('装备') && acts.includes('分解') && acts.includes('丢弃'), '点物品后详情里应有 装备 / 分解 / 丢弃：' + acts.join(','));
+    const eq = await ev(() => {
+      const b = document.querySelector('#panel-body .act-row [data-act="equip"]');
+      const r = T.rect(b);
+      return r && r.t >= 0 && r.b <= innerHeight ? r : Object.assign({ offscreen: true }, r);
+    });
+    assert(eq && !eq.offscreen, '「装备」按钮应不用滚动就在屏幕里：' + JSON.stringify(eq));
+    assert(eq && eq.w >= 44 && eq.h >= 30, '「装备」按钮太小：' + JSON.stringify(eq));
+    await touch.tap(eq.x, eq.y);
+    await frames(2);
+    const worn = await ev(() => G.save.equip.helm && G.save.equip.helm.uid === window.__helm.uid);
+    assert(worn, '点「装备」应穿上');
+    for (const tab of ['skills', 'tree', 'map', 'help']) {
+      await ev((tab) => G.ui.open(tab), tab);
+      await frames(3);
+      bad = bad.concat(await scan(tab));
+    }
+    // 技能页：点一张技能卡（浮窗）
+    const card = await ev(() => T.rect('#panel-body [data-tip]'));
+    if (card) {
+      await touch.tap(card.x, card.y);
+      await frames(2);
+      bad = bad.concat(await scan('技能页浮窗'));
+    }
+    await ev(() => {
+      G.ui.close();
+      G.ui.pause();
+    });
+    for (const sub of ['settings', 'help']) {
+      await page.click('#p-menu [data-tact="' + sub + '"]');
+      await frames(1);
+      bad = bad.concat(await scan('暂停菜单·' + sub));
+      await ev(() => document.querySelector('#pause [data-tact="back"]') && document.querySelector('#pause [data-tact="back"]').click());
+    }
+    await ev(() => G.ui.close());
+    assert(!bad.length, '触屏下还有鼠标 / 键盘说法：' + Array.from(new Set(bad)).slice(0, 12).join(' ｜ '));
+    return '按钮 ' + acts.join(' / ');
+  });
+
   await step('触屏：切到后台 / pagehide 时存档，并遵守「另一个标签页写过就停写」；触屏模式下切回来停在暂停菜单', async () => {
     const r = await ev(() => {
       G.debug.hold(true);
@@ -23496,8 +23605,12 @@ async function touchSteps() {
         const s = document.documentElement.style;
         for (const k of ['t', 'r', 'b', 'l']) s.setProperty('--t-safe-' + k, sa && sa[k] ? sa[k] + 'px' : '0px');
         window.dispatchEvent(new Event('resize'));
-        document.getElementById('boss-box').classList.add('on'); // 首领条、F 键、追踪条都按出现时的位置量
+        document.getElementById('boss-box').classList.add('on'); // 首领条、F 键、追踪条、提示卡都按出现时的位置量
         document.getElementById('t-f').classList.add('on');
+        // 提示卡：放一条很长的提示（触屏下最多两行），首领条出来时它排在首领条下面
+        const co = document.getElementById('coach');
+        co.querySelector('.co-body').innerHTML = '按住右下的<b>大按钮</b>施放「掷焰」，旁边的是武器普攻「疾咒」。会自动瞄准，从按钮拖出去可以手动瞄，拖回按钮上取消，松手就放出';
+        co.className = 'on';
       }, sa);
       await frames(3);
       const r = await ev((sa) => {
@@ -23518,6 +23631,7 @@ async function touchSteps() {
           tracker: vis(q) && q.textContent ? box(q) : null,
           top: vis(document.getElementById('t-top')) ? box(document.getElementById('t-top')) : null,
           boss: vis(document.getElementById('boss-box')) && !G.touch.state().portrait ? box(document.getElementById('boss-box')) : null,
+          coach: vis(document.getElementById('coach')) && !G.touch.state().portrait ? box(document.getElementById('coach')) : null,
         };
         const ks = Object.keys(areas).filter((k) => areas[k]);
         const hits = [];
@@ -23535,6 +23649,9 @@ async function touchSteps() {
       // 开场卡片有入场动画：打开后等它停下来再量「开始」
       await ev(() => G.ui.showIntro());
       await sleep(700);
+      await ev(async () => {
+        for (let el = document.getElementById('intro-go'); el; el = el.parentElement) await Promise.all(el.getAnimations().map((x) => x.finished.catch(() => {})));
+      });
       Object.assign(
         r,
         await ev(() => {
@@ -23550,6 +23667,7 @@ async function touchSteps() {
     await ev(() => {
       document.getElementById('boss-box').classList.remove('on');
       document.getElementById('t-f').classList.remove('on');
+      document.getElementById('coach').className = '';
     });
     return out.map((r) => r.size + (r.sa ? '+安全区' : '') + ' ' + r.n + ' 键').join('，');
   });
@@ -23560,10 +23678,12 @@ async function touchSteps() {
     await until(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, 90000);
     const out = [];
     const inside = (sel) =>
-      ev((sel) => {
+      ev(async (sel) => {
         const bad = [];
         for (const n of document.querySelectorAll(sel)) {
           if (!n.getClientRects().length) continue;
+          // 入场动画（面板往上 8 px、0.99 倍）放完再量：机器忙时 0.8 秒不一定放得完
+          for (let el = n; el; el = el.parentElement) await Promise.all(el.getAnimations().map((x) => x.finished.catch(() => {})));
           const b = n.getBoundingClientRect();
           if (b.left < -0.5 || b.top < -0.5 || b.right > innerWidth + 0.5 || b.bottom > innerHeight + 0.5) bad.push(sel + ' ' + [b.left, b.top, b.right, b.bottom].map(Math.round).join(','));
         }

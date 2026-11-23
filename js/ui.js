@@ -19,7 +19,7 @@
   const itemIcon = (item, cls) => ibox(IC.item(item), 'r' + item.rarity + (cls ? ' ' + cls : ''));
   // 按住 Alt 才展开的详情（触发规则、边界情况）：数据里的 alt / mechAlt。没有详情就什么都不加，提示行也不出；
   // 展开与否由 body 的 alt-on 类切换（见 update），所以浮窗、技能卡都不用重渲染
-  const altBox = (d) => (d ? '<div class="alt-box"><div class="alt-d">' + d + '</div><div class="alt-h">按住 <kbd>Alt</kbd> 查看详情</div></div>' : '');
+  const altBox = (d) => (d ? '<div class="alt-box"><div class="alt-d">' + d + '</div><div class="alt-h">' + (G.touch && G.touch.on ? '长按查看详情' : '按住 <kbd>Alt</kbd> 查看详情') + '</div></div>' : '');
 
   const KEY_LABEL = ['左键', '右键', 'Q', 'E'];
   const W_SLOT = 4; // 施放系统里武器技的格子号（R 键）；技能栏存档只有前 4 格，这一格由手里的武器决定
@@ -1664,7 +1664,7 @@
         '</div>' +
         (ui.invMsg ? '<div class="inv-msg">' + esc(ui.invMsg) + '</div>' : ui.invOk ? '<div class="inv-msg ok">' + esc(ui.invOk) + '</div>' : '');
       // 烬铸武器 / 渊契的卡片很长（区间、完美度、机制说明）：按钮放到卡片上面，小窗口里也不用往下滚就能点到
-      const fixed = it.rarity >= 3;
+      const fixed = it.rarity >= 3 || touchOn(); // 触屏：按钮一律放在卡片上面（手机上详情栏很矮，不用往下滚就能点「装备」）
       detail =
         '<div class="sec-title">' + (sel.equipped ? '已装备' : '背包物品') + '</div>' +
         (fixed ? acts : '') +
@@ -2067,7 +2067,7 @@
     const k = slot >= 0 ? KEY_LABEL[slot] : '';
     const how = slot < 0
       ? '放进技能栏后生效'
-      : (on ? '数量不满时在你身边自动补上，魔力不够就暂停' : '开启后自动召唤到上限') + ' · 按 <kbd>' + k + '</kbd> 切换 · <kbd>Shift</kbd>+<kbd>' + k + '</kbd> 在准星处召唤一次';
+      : (on ? '数量不满时在你身边自动补上，魔力不够就暂停' : '开启后自动召唤到上限') + (touchOn() ? ' · 轻点技能键切换 · 从技能键拖出去松手，在准星处召唤一次' : ' · 按 <kbd>' + k + '</kbd> 切换 · <kbd>Shift</kbd>+<kbd>' + k + '</kbd> 在准星处召唤一次');
     return (
       '<div class="sk-auto' + (on ? ' on' : '') + '">' +
       '<button type="button" tabindex="-1" class="sk-auto-btn" data-act="autosum" data-skill="' + id + '" aria-pressed="' + on + '"><i></i>自动召唤<b>' + (on ? '开' : '关') + '</b></button>' +
@@ -2978,7 +2978,7 @@
     const blocked = ['echo', 'leech', 'pierce', 'chain'].filter((id) => G.SUPPORTS[id]).map((id) => G.SUPPORTS[id].name).join('、');
     return (
       '<div class="sec-title">召唤与集火</div>' +
-      '<p>召唤技能的按键开关<b class="c-ally">自动召唤</b>（技能卡上也能切换）：没到上限、魔力够时自动补，魔力不够暂停（以血为引时低于四成生命不补）。按住 <kbd>Shift</kbd> 再按键，在准星处手动召唤。</p>' +
+      '<p>召唤技能的按键开关<b class="c-ally">自动召唤</b>（技能卡上也能切换）：没到上限、魔力够时自动补，魔力不够暂停（以血为引时低于四成生命不补）。' + (touchOn() ? '从技能键拖出去松手，在准星处手动召唤。' : '按住 <kbd>Shift</kbd> 再按键，在准星处手动召唤。') + '</p>' +
       '<p><b class="c-ally">' + name('thrall', '烬骸仆从') + '</b>满了再召唤会替换伤得最重的那具；<b class="c-ally">' + name('colossus', '石誓守像') + '</b>只有一尊，会<b>嘲讽</b>周围的敌人（含首领）。</p>' +
       '<p><b class="c-ally">' + name('pyre', '焚骨祭司') + '</b>是清怪主力：在后排掷火弹、攒<b>焰蓄</b>放大招，很脆。上限 2 位，只有镶在它身上的群聚能多唤一位；多重投射让它分头掷；拿杖或魂幡时继承更多武器伤害。</p>' +
       '<p>召唤物优先<b>集火</b>你<b>亲手打中</b>的敌人。仆从最多缠住两只怪、守像四只。</p>' +
@@ -3154,7 +3154,7 @@
     el.body.innerHTML =
       '<div class="help">' +
       '<div class="col scroll" data-scroll="help1"><div class="sec-title">操作</div>' +
-      HELP_KEYS.map((k) => key(k[0], k[1])).join('') +
+      (touchOn() ? HELP_TOUCH : HELP_KEYS).map((k) => key(k[0], k[1])).join('') +
       '<div class="sec-title">战斗须知</div>' +
       '<p>地上的<b class="c-red">红色区域</b>是即将落下的攻击，填满前走出去或翻滚穿过。</p>' +
       '<p>护甲减少物理伤害，抗性减少对应元素伤害（上限 75%）。</p>' +
@@ -4882,7 +4882,8 @@
       head +
       '<div class="cl-list">' + G.CLASS_IDS.map((c) => clsCard(c, c === M.sel, !!rec && rec.cls === c)).join('') + '</div>' +
       fx + altBox(clsAlt(M.sel)) +
-      '<div class="m-acts"><button type="button" tabindex="-1" class="btn primary' + (same ? ' off' : '') + '" data-tact="cl-ok">' + ok + '</button></div>'
+      '<div class="m-acts"><button type="button" tabindex="-1" class="btn primary' + (same ? ' off' : '') + '" data-tact="cl-ok">' + ok + '</button>' +
+      (touchOn() ? '<button type="button" tabindex="-1" class="btn" data-tact="back">返回</button>' : '') + '</div>' // 触屏：底栏里也放一个返回，矮屏上不用回到顶上找
     );
   }
   // 选定之后的一条提示：职业、卸下 / 换上的武器

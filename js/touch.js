@@ -144,9 +144,44 @@
     const dx = cx - b.cx, dy = cy - b.cy;
     const L = Math.hypot(dx, dy) || 1;
     const f = Math.max(0.08, Math.min(1, (L - DRAG_PX) / (DRAG_FULL - DRAG_PX)));
-    const r = b.range * f;
+    let r = b.range * f;
     // 镜头没有偏航：屏幕右 = +x，屏幕下 = +z
-    setAim(P.x + (dx / L) * r, P.z + (dy / L) * r);
+    const ux = dx / L, uz = dy / L;
+    // 落点只能在看得见的地方：准星投到顶栏、区域名、小地图 / 追踪条底下时，沿着这个方向往回收（二分，投影沿射线单调）
+    if (!inPlay(b.play, P.x + ux * r, P.z + uz * r)) {
+      let lo = 0, hi = r;
+      for (let i = 0; i < 10; i++) {
+        const m = (lo + hi) / 2;
+        if (inPlay(b.play, P.x + ux * m, P.z + uz * m)) lo = m;
+        else hi = m;
+      }
+      r = lo;
+    }
+    setAim(P.x + ux * r, P.z + uz * r);
+  }
+  // 能放准星的区域（屏幕坐标）：顶栏和区域名下面、四边安全区以内；右上角小地图和追踪条那一块再往下让
+  function playArea() {
+    const s = safe(), W0 = window.innerWidth, H0 = window.innerHeight;
+    const bot = (sel) => {
+      const n = document.querySelector(sel);
+      if (!n || !n.getClientRects().length) return 0;
+      return n.getBoundingClientRect().bottom;
+    };
+    const q = document.getElementById('quest');
+    const qr = q && q.getClientRects().length ? q.getBoundingClientRect() : null;
+    const mm = W.mmTouch;
+    return {
+      l: s.l + 12, r: W0 - s.r - 12, b: H0 - s.b - 12,
+      t: Math.max(bot('#t-top'), bot('#zone-box'), s.t) + 10,
+      rt: Math.max(qr && q.textContent ? qr.bottom : 0, mm ? mm.y + MM_SIZE : 0) + 10, // 右上角那一块的下沿
+      rx: Math.min(qr && q.textContent ? qr.left : W0, mm ? mm.x : W0) - 10, // 它的左沿
+    };
+  }
+  function inPlay(a, x, z) {
+    if (!a) return true;
+    const q = W.project(x, 0, z);
+    if (q.x < a.l || q.x > a.r || q.y > a.b || q.y < a.t) return false;
+    return !(q.x > a.rx && q.y < a.rt);
   }
 
   function slotOf(el) {
@@ -169,6 +204,7 @@
     if (slot < 0) return;
     const r = el.getBoundingClientRect();
     const b = { el, slot, x0: t.clientX, y0: t.clientY, cx: r.left + r.width / 2, cy: r.top + r.height / 2, t0: performance.now(), drag: false, held: false, range: skillRange(slot), retT: 0 };
+    b.play = slot >= 0 ? playArea() : null;
     btns.set(t.identifier, b);
     el.classList.add('t-down');
     if (slot <= 1) {
@@ -283,12 +319,12 @@
       const tg = t.target && t.target.closest ? t.target : null;
       const b = tg && tg.closest('[data-tb]');
       if (b) {
-        e.preventDefault(); // 不出兼容鼠标事件、不出 click、不缩放
+        if (e.cancelable) e.preventDefault(); // 不出兼容鼠标事件、不出 click、不缩放
         btnDown(t, b);
         continue;
       }
       if (tg && tg.closest('#t-stick')) {
-        e.preventDefault();
+        if (e.cancelable) e.preventDefault();
         if (!stick) {
           stick = { id: t.identifier, ox: t.clientX, oy: t.clientY, x0: t.clientX, y0: t.clientY, sec: -1, t0: performance.now(), moved: false };
           dom.stickEl.classList.add('on');
@@ -298,27 +334,29 @@
       }
       if (onCanvas(t.target)) {
         // 点画面：只有名牌 / 宝箱 / 异兆互动点有反应，点空地什么都不做（不再误放技能）
-        e.preventDefault();
+        if (e.cancelable) e.preventDefault();
         taps.set(t.identifier, { x: t.clientX, y: t.clientY, t0: performance.now(), moved: false });
       }
-      // 其余（面板、菜单、顶栏的按钮）照常：滚动、点击都交给浏览器
+      // 其余（面板、菜单、顶栏的按钮）照常：滚动、点击都交给浏览器；按住不动是长按看详情
+      lpStart(t);
     }
   }
   function onMove(e) {
     if (!T.on) return;
     lastTouch = performance.now();
     for (const t of e.changedTouches) {
+      lpMove(t);
       const b = btns.get(t.identifier);
       if (b) {
-        e.preventDefault();
+        if (e.cancelable) e.preventDefault();
         btnMove(t, b);
       } else if (stick && stick.id === t.identifier) {
-        e.preventDefault();
+        if (e.cancelable) e.preventDefault();
         stickMove(t.clientX, t.clientY);
       } else {
         const tp = taps.get(t.identifier);
         if (tp) {
-          e.preventDefault();
+          if (e.cancelable) e.preventDefault();
           if (Math.hypot(t.clientX - tp.x, t.clientY - tp.y) > 10) tp.moved = true;
         }
       }
@@ -331,18 +369,19 @@
     if (G.audio && G.audio.unlock) G.audio.unlock();
     const cancel = e.type === 'touchcancel';
     for (const t of e.changedTouches) {
+      if (lp && lp.id === t.identifier) lpCancel();
       const b = btns.get(t.identifier);
       if (b) {
-        e.preventDefault();
+        if (e.cancelable) e.preventDefault();
         btnUp(t, b, cancel);
       } else if (stick && stick.id === t.identifier) {
-        e.preventDefault();
+        if (e.cancelable) e.preventDefault();
         if (cancel) stick.moved = true;
         stickEnd();
       } else {
         const tp = taps.get(t.identifier);
         if (tp) {
-          e.preventDefault();
+          if (e.cancelable) e.preventDefault();
           taps.delete(t.identifier);
           if (!cancel && !tp.moved && performance.now() - tp.t0 < 400 && live()) tapAt(tp.x, tp.y);
         }
@@ -371,6 +410,115 @@
       stickEnd();
     }
     document.documentElement.classList.remove('t-aiming');
+  }
+
+  // ============================================================
+  // 文字：面板、浮窗、菜单里写着鼠标 / 键盘操作的地方换成触屏说法（只在触屏模式下；桌面原样）。
+  // 盯着正文改动（MutationObserver），只改文字节点和按键角标，不动结构和事件
+  // ============================================================
+  const TXT_HIT = /右键|左键|悬停|Alt|Shift|Ctrl|Esc|Enter|WASD/;
+  const TXT_RULES = [
+    [/点击物品看详情，悬停与身上的对比。/g, '点一下物品看详情和与身上的比较，点两下直接穿上。'],
+    [/悬停背包格子或/g, '点背包格子或'],
+    [/悬停词缀查看阶级/g, '点词缀查看阶级'],
+    [/悬停或按住 ?Alt ?展开/g, '点顶栏的「名牌」展开'],
+    [/按住 ?Alt ?(查看|看)/g, '长按$1'],
+    [/再 ?Shift\+点击一次，确认分解/g, '再点一次「分解」确认'],
+    [/Shift\+点击 ?分解 · ?Ctrl\+点击 ?锁定/g, '详情里分解 / 锁定'],
+    [/Shift\+点击 ?/g, '详情里点'],
+    [/点击或 ?Ctrl\+点击物品解锁/g, '点「已锁」解锁'],
+    [/。也可以 ?Ctrl\+点击物品/g, '。'],
+    [/（Ctrl\+点击）/g, '（点「已锁」）'],
+    [/ · Ctrl\+点击解锁/g, ' · 点「已锁」解锁'],
+    [/数字键 1–4 选择，Esc 返回/g, '点一条选择'],
+    [/取消或 ?Esc ?不消耗/g, '取消不消耗'],
+    [/没有面板时 ?Esc ?暂停/g, '右上角 ≡ 暂停'],
+    [/悬停/g, '点'],
+    [/左键/g, '大按钮'],
+  ];
+  // 右键：说的是穿装备（右键穿上 / 装备 / 卸下）就是「点两下」，其余是右下那颗普攻键
+  const RMB_EQUIP = /右键\s*(或拖|装备|卸下|穿上)/;
+  const BADGE = /^(Esc|Enter|Shift|Alt|Ctrl)$/;
+  function blockOf(n) {
+    let e = n.parentElement;
+    while (e && /^(B|KBD|I|EM|STRONG|SMALL)$/.test(e.tagName) && e.parentElement) e = e.parentElement;
+    return e;
+  }
+  function fixText(node) {
+    const v = node.nodeValue;
+    if (!v || !TXT_HIT.test(v)) return;
+    const pe = node.parentElement;
+    if (!pe || pe.closest('script,style,textarea,input')) return;
+    if (pe.tagName === 'KBD' && BADGE.test(v.trim())) {
+      pe.classList.add('t-kh'); // 按键角标：触屏上没有这个键，藏起来
+      return;
+    }
+    let t = v;
+    for (const [re, to] of TXT_RULES) t = t.replace(re, to);
+    if (t.indexOf('右键') >= 0) {
+      const b = blockOf(node);
+      t = t.replace(/右键/g, b && RMB_EQUIP.test(b.textContent) ? '点两下' : '普攻键');
+    }
+    if (t !== v) node.nodeValue = t;
+  }
+  function fixTree(root) {
+    if (!root) return;
+    if (root.nodeType === 3) return fixText(root);
+    if (root.nodeType !== 1 || !TXT_HIT.test(root.textContent || '')) return;
+    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let n = w.nextNode(); n; n = w.nextNode()) fixText(n);
+  }
+  // data-tip 里的文字（浮窗出来时才变成正文）也一样：浮窗本身在 #tip 里，正文改动时一起改
+  let txtObs = null;
+  function watchText(on) {
+    if (on && !txtObs && window.MutationObserver) {
+      txtObs = new MutationObserver((list) => {
+        for (const m of list) {
+          if (m.type === 'characterData') fixText(m.target);
+          else for (const n of m.addedNodes) fixTree(n);
+        }
+      });
+      txtObs.observe(document.body, { childList: true, subtree: true, characterData: true });
+      fixTree(document.body);
+    } else if (!on && txtObs) {
+      txtObs.disconnect();
+      txtObs = null;
+    }
+  }
+
+  // ---------- 长按看详情（面板、菜单里）：按住 450 ms 不动 = 按住 Alt，浮窗跟着手指出来；松手收起 ----------
+  const LONG_MS = 450;
+  let lp = null;
+  function lpStart(t) {
+    lpCancel();
+    const tg = t.target && t.target.nodeType === 1 ? t.target : null;
+    if (!tg || !tg.closest('#panel, #title, #pause, #tip')) return;
+    const x = t.clientX, y = t.clientY, id = t.identifier;
+    lp = { id, x, y, on: false, timer: setTimeout(() => {
+      if (!lp || lp.id !== id) return;
+      lp.on = true;
+      input.alt = true;
+      document.documentElement.classList.add('t-lp'); // 浮窗只在长按时出现（轻点交给详情栏）
+      // 浮窗按悬停出：在手指下面补一组 mouseover / mousemove
+      const el = document.elementFromPoint(x, y);
+      if (el) for (const type of ['mouseover', 'mousemove']) el.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y }));
+    }, LONG_MS) };
+  }
+  function lpMove(t) {
+    if (lp && lp.id === t.identifier && Math.hypot(t.clientX - lp.x, t.clientY - lp.y) > 8) lpCancel(); // 移动超过 8 px：是拖拽 / 滚动，不是长按
+  }
+  function lpCancel() {
+    if (!lp) return;
+    clearTimeout(lp.timer);
+    if (lp.on && !labelsOn) input.alt = false;
+    document.documentElement.classList.remove('t-lp');
+    lp = null;
+  }
+  // 安卓长按会发 contextmenu：面板里它等于右键（穿上 / 卸下），触摸带出来的一律拦掉
+  function onCtxMenu(e) {
+    if (!T.on || performance.now() - lastTouch > 1500) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
   }
 
   // ============================================================
@@ -421,6 +569,9 @@
       labels: q('[data-tt="labels"]'),
       fOn: null,
     };
+    // 提示卡在触屏下只显示两行，点一下展开 / 收起
+    const coach = document.getElementById('coach');
+    if (coach) coach.addEventListener('click', () => T.on && coach.classList.toggle('t-open'));
     root.addEventListener('click', (e) => {
       const b = e.target.closest('[data-tt]');
       if (!b) return;
@@ -500,6 +651,8 @@
     window.addEventListener('touchend', onEnd, { passive: false });
     window.addEventListener('touchcancel', onEnd, { passive: false });
     window.addEventListener('mousedown', onCompatMouse, true);
+    window.addEventListener('contextmenu', onCtxMenu, true);
+    watchText(true);
     window.addEventListener('resize', layout);
     if (window.visualViewport) window.visualViewport.addEventListener('resize', layout);
     document.addEventListener('visibilitychange', onVis);
@@ -516,7 +669,8 @@
     if (labelsOn) input.alt = false;
     labelsOn = false;
     if (dom) dom.labels.classList.remove('on');
-    document.documentElement.classList.remove('touch-ui', 't-portrait');
+    document.documentElement.classList.remove('touch-ui', 't-portrait', 't-boss', 't-aiming');
+    if (dom) dom.bossOn = null;
     setViewportFit(false);
     tagCluster(false);
     swapIntro(false);
@@ -525,6 +679,9 @@
     window.removeEventListener('touchend', onEnd, { passive: false });
     window.removeEventListener('touchcancel', onEnd, { passive: false });
     window.removeEventListener('mousedown', onCompatMouse, true);
+    window.removeEventListener('contextmenu', onCtxMenu, true);
+    watchText(false);
+    lpCancel();
     window.removeEventListener('resize', layout);
     if (window.visualViewport) window.visualViewport.removeEventListener('resize', layout);
     document.removeEventListener('visibilitychange', onVis);
@@ -664,6 +821,13 @@
     }
     const pp = document.getElementById('pp-remind');
     dom.tree.classList.toggle('dot', !!(pp && pp.classList.contains('on')));
+    // 首领条出来时提示卡往下让（两者都在顶栏下方居中）
+    const boss = document.getElementById('boss-box');
+    const bon = !!(boss && boss.classList.contains('on'));
+    if (bon !== dom.bossOn) {
+      dom.bossOn = bon;
+      document.documentElement.classList.toggle('t-boss', bon);
+    }
   }
 
   // 调试 / 测试读

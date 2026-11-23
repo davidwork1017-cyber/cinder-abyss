@@ -4142,8 +4142,13 @@ html.touch-ui body.quest-on #combo, html.touch-ui #combo { top: calc(var(--sa-t)
 html.touch-ui #combo-n { font-size: 38px; line-height: 38px; }
 html.touch-ui .cb-label { font-size: 11px; letter-spacing: 4px; text-indent: 4px; }
 html.touch-ui .cb-bar { width: 64px; margin-top: 4px; }
-html.touch-ui #coach { left: calc(var(--sa-l) + 8px); top: calc(var(--sa-t) + 100px); width: min(300px, 40vw); padding: 6px 10px 8px; }
-html.touch-ui .co-body { font-size: 12.5px; line-height: 19px; }
+/* 提示卡：顶栏下方居中、不超过 40% 宽、最多两行（点一下展开），不压摇杆区和按钮簇；首领条出来时排到它下面 */
+html.touch-ui #coach { --cw: min(40vw, 360px, calc(100vw - 2 * max(var(--sa-l), var(--sa-r)) - 348px)); left: 50%; top: calc(var(--sa-t) + 56px); width: var(--cw); margin-left: calc(var(--cw) / -2); box-sizing: border-box; padding: 5px 10px 6px; border-left-width: 2px; }
+html.touch-ui #coach.on { pointer-events: auto; }
+html.touch-ui.t-boss #coach { top: calc(var(--sa-t) + 112px); }
+html.touch-ui #coach .co-tag, html.touch-ui #coach .co-ok { display: none; }
+html.touch-ui .co-body { margin-top: 0; font-size: 12px; line-height: 17px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+html.touch-ui #coach.t-open .co-body { display: block; -webkit-line-clamp: unset; }
 html.touch-ui #feed { left: calc(var(--sa-l) + 8px); bottom: auto; top: calc(var(--sa-t) + 100px); }
 html.touch-ui #toasts { top: calc(var(--sa-t) + 116px); }
 html.touch-ui #big-toast { top: 30%; }
@@ -4182,8 +4187,8 @@ html.touch-ui #flask-mana[data-tb] { right: calc(var(--cr) + 214px); bottom: cal
 #t-f { display: none; z-index: 6; width: 52px; height: 52px; right: calc(var(--cr) + 212px); bottom: calc(var(--cb) + 66px); box-sizing: border-box; place-items: center; font-size: 20px; font-weight: 700; color: #1a0f08; background: radial-gradient(circle at 50% 35%, #ffe2a0, #d88a2c); border: 2px solid #fff1d0; border-radius: 50%; box-shadow: 0 0 14px rgba(255, 170, 60, 0.7); }
 #t-f.on { display: grid; }
 
-/* 浮动摇杆：左下 45% 宽、下 58% 高的区域里落指生成 */
-#t-stick { position: fixed; left: 0; bottom: 0; width: 45%; height: 58%; z-index: 5; }
+/* 浮动摇杆：左下 45% 宽、下一半高的区域里落指生成 */
+#t-stick { position: fixed; left: 0; bottom: 0; width: 45%; height: 50%; z-index: 5; }
 #t-stick i { position: fixed; left: 0; top: 0; display: none; border-radius: 50%; pointer-events: none; }
 #t-stick.on i { display: block; }
 #t-stick .t-base { width: 108px; height: 108px; margin: -54px 0 0 -54px; background: rgba(20, 13, 9, 0.35); border: 2px solid rgba(242, 223, 184, 0.45); box-sizing: border-box; }
@@ -4242,5 +4247,8 @@ html.touch-ui body, html.touch-ui #panel, html.touch-ui #hud, html.touch-ui #tit
 }
 html.touch-ui .st-skip kbd { display: none; }
 /* 职业选择在矮屏上要滚动：「以 X 开始」钉在列表底部，不用滚到底才找得到 */
-html.touch-ui #title .m-body .m-acts { position: sticky; bottom: 0; z-index: 2; margin-top: 8px; padding: 10px 0 2px; background: linear-gradient(180deg, rgba(13, 9, 7, 0), rgba(13, 9, 7, 0.97) 35%); }
+html.touch-ui #title .m-body .m-acts { position: sticky; bottom: 0; z-index: 2; margin: 8px 0 0; padding: 8px 0 2px; background: #0d0907; border-top: 1px solid var(--line-2); box-shadow: 0 -8px 10px #0d0907; }
 html.touch-ui .slot.empty[data-tb] { opacity: 0.5; }
+html.touch-ui kbd.t-kh { display: none; }
+/* 触屏：轻点不出悬停浮窗（详情栏里已经有了，浮窗只会挡住格子），长按时才出 */
+html.touch-ui:not(.t-lp) #tip { display: none !important; }
