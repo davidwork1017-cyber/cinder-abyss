@@ -1,11 +1,13 @@
 {
-  "_comment": "布景件 / 角色的预算（tools/check-art.mjs 按这里检查，说明见 docs/art-style.md）。tris = 单件三角形上限；h = 高度合理范围（米，用来抓单位错，比如按厘米导出的放大 100 倍）；materials / textures = 每件上限。",
+  "_comment": "布景件 / 角色 / 首领的预算（tools/check-art.mjs 按这里检查，说明见 docs/art-style.md）。tris = 单件三角形上限；bones / weights = 带蒙皮的件骨骼数上限、每个顶点最多几根骨骼；h = 高度合理范围（米，用来抓单位错，比如按厘米导出的放大 100 倍）；materials / textures = 每件上限。",
   "categories": {
     "hero":    { "tris": 12000, "materials": 2, "textures": 1, "h": [1.2, 2.6], "rigged": true },
     "enemy":   { "tris": 5000,  "materials": 2, "textures": 1, "h": [0.3, 6.0], "rigged": true },
     "prop":    { "tris": 1500,  "materials": 1, "textures": 1, "h": [0.03, 8.0] },
     "scatter": { "tris": 400,   "materials": 1, "textures": 1, "h": [0.03, 2.5] },
-    "kit":     { "tris": 2000,  "materials": 1, "textures": 1, "h": [0.05, 12.0] }
+    "kit":     { "tris": 2000,  "materials": 1, "textures": 1, "h": [0.05, 12.0] },
+    "weapon":  { "tris": 900,   "materials": 1, "textures": 1, "h": [0.3, 1.8] },
+    "boss":    { "tris": 8000,  "materials": 2, "textures": 1, "h": [3.5, 7.0], "rigged": true, "bones": 40, "weights": 4 }
   },
   "requiredAttributes": ["POSITION", "NORMAL", "TEXCOORD_0", "COLOR_0"],
   "material": "ca_palette"

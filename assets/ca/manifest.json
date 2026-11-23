@@ -50,7 +50,7 @@
      "grad": 1
     }
    },
-   "sha256": "d56547ff9f8baeed3a9de28c70cb8a0d562c7d4e3ae5b3cc0f751cda3932a025"
+   "sha256": "c25b7c1dad8a664747e57c98247bd4ff90ae7f751375545e217e96398b31b701"
   },
   {
    "id": "ca/abyss_boulder",
@@ -89,7 +89,7 @@
      "grad": 0.2
     }
    },
-   "sha256": "9dc3ee6530fadbf01d72c41026f5afe250cba4cf89a75194b6a5fb18d66936d5"
+   "sha256": "34f3de80108fe36a7b08ef8e0ce35ba14b7230235a3631478974e4e4a06ce767"
   },
   {
    "id": "ca/abyss_crypt",
@@ -128,7 +128,7 @@
      "grad": 1.5
     }
    },
-   "sha256": "132431c905d9feb99c774d97d205697bb9b2e7c488265bce37cd6aa9fd80b04a"
+   "sha256": "4a20b28dc1a9aaf392b0b21738e3d4c7962f914100ce7d9c995f3c5f67600e92"
   },
   {
    "id": "ca/abyss_firepit",
@@ -173,7 +173,7 @@
      "gain": 0.72
     }
    },
-   "sha256": "b3d6902cfbfe14c94bdf6e66061ae45d136c33e9e78384751fee2bfa817bf127"
+   "sha256": "8a78a736f3a00a56e39f53e69367ee347a9362046d77ce7facd367a169971d9e"
   },
   {
    "id": "ca/abyss_marker",
@@ -212,7 +212,7 @@
      "grad": 0.5
     }
    },
-   "sha256": "0995f2d8744317ae66a2a007352c5014df57adbaa5b0dfd582dcf1702154446f"
+   "sha256": "8f1651d385fa6eac942053a10264b39e35bbfc13eb769bdee013173315e20497"
   },
   {
    "id": "ca/abyss_monolith",
@@ -251,7 +251,7 @@
      "grad": 0.25
     }
    },
-   "sha256": "4c7da9a523db966143f7ca6653479b1b8afc84a6ba3cde59d4716bc4ec8e80c6"
+   "sha256": "568588795a44771f5cab152b43d2e0faebc3865561e5c550c0a92bd5ef9590c6"
   },
   {
    "id": "ca/abyss_pillar",
@@ -296,7 +296,7 @@
      "gain": 0.63
     }
    },
-   "sha256": "c57c93042063011c01241f32c245541fec74c5cddb2ffff05caa64d9c0f507ed"
+   "sha256": "c5167079d471644d26375eb6a8c490482cc2246e4cd1e1a13065d320235d7f76"
   },
   {
    "id": "ca/abyss_ribs",
@@ -337,7 +337,7 @@
      "gain": 0.63
     }
    },
-   "sha256": "97310a244108c572023f824fa90ff0da170d15db326648e441772416e581dd6d"
+   "sha256": "8be95aea700f67c4d45d2cb75f67609336f0a11248c84cd431592153b7d5f848"
   },
   {
    "id": "ca/abyss_shards",
@@ -376,7 +376,7 @@
      "grad": 0.2
     }
    },
-   "sha256": "a103796dc85bfb2d5f81bda1df19bf8975b995b9d968a5a5cab5f6611b2f9b51"
+   "sha256": "7506950015b6fc2eaf947fb2dc7b006eaa65d3960a6302018692e71933b523ab"
   },
   {
    "id": "ca/abyss_skull",
@@ -422,7 +422,7 @@
      "gain": 0.46
     }
    },
-   "sha256": "37cc4ec4870de8905833f2753f7c991c7ca6dd569e8e659b8a8aac0b4d6c6047"
+   "sha256": "d936e40c91f56ac2494441e06282d5ad17a72c5c9ba328e367aad067ce754cdf"
   },
   {
    "id": "ca/abyss_skull_candle",
@@ -464,7 +464,7 @@
      "wear": 0.45
     }
    },
-   "sha256": "285fe0517bc8b10eeae4caeb987300e1f960e61ae96f4ed399080edb58d842a5"
+   "sha256": "848b351a680341ba81c52cd8a5cd9914e33fb041a0587fed8677a31ebf5ad4df"
   },
   {
    "id": "ca/abyss_tomb",
@@ -503,7 +503,7 @@
      "grad": 0.6
     }
    },
-   "sha256": "fc5adc1945a1d191f97bb4b0ef24503a63581c6be438007e2ab3cfda26729752"
+   "sha256": "314aabd2f8d517bb0ae3607cf2d07b615f61b8349d00231d8b64b73f0958e97e"
   },
   {
    "id": "ca/abyss_tree",
@@ -549,7 +549,7 @@
      "grad": 0.8
     }
    },
-   "sha256": "5754cddfb407db091ec319e32ec47cf83a23c469ef1a0e23cc7f5401bf9f19ec"
+   "sha256": "3dd0c49122f1a657f178e5a1a1b9fbe7f0cc1eb9e1ccfffd410007fcc8e7f29f"
   },
   {
    "id": "ca/ash_arch_a",
@@ -591,7 +591,7 @@
      "grad": 1
     }
    },
-   "sha256": "8c0ad6143869032055cea446b0945d60ce8457675394f4df763ce4a060fd339f"
+   "sha256": "5e36f690642c0a858ec5630c4fc4f2a76692a4288b6099f45c295c10fb407e50"
   },
   {
    "id": "ca/ash_blade",
@@ -634,7 +634,7 @@
      "gtint": 0.6
     }
    },
-   "sha256": "8dfb85ff56aa53a92c5d01b0a562e6693fa185b08a0277ccf61963a3ff09ba90"
+   "sha256": "e763f3b3f9cf31abb77875d7d42b617d83017d6a9f3065c81ec1785f5f403b06"
   },
   {
    "id": "ca/ash_bones",
@@ -677,7 +677,7 @@
      "gtint": 0.5
     }
    },
-   "sha256": "0705f8d3838a95ada917060114eeb8a306404025f3e9820dd6086bb1476ad799"
+   "sha256": "c4f83bb8e8ce127c6eddd9ed835f3b0d45213221d0026100fc3a5d51d8a37939"
   },
   {
    "id": "ca/ash_brazier_a",
@@ -718,7 +718,7 @@
      "grad": 0.4
     }
    },
-   "sha256": "3cdf32d44a382483b33e1237f955508776cb320e155c5e527ce98b3706e3cf81"
+   "sha256": "fd057a49ace17df1fa80ff705510c8d562a61e52ec84453d17ac8b9ef5f96e39"
   },
   {
    "id": "ca/ash_cliff_a",
@@ -761,7 +761,7 @@
      "grad": 1.2
     }
    },
-   "sha256": "b92619b937127fa7e357c70185fde78cdeb3eb3d310365d9103940954e6e64ea"
+   "sha256": "ce82c9711b8d166594cc764e373488c97def8e00428460475dbd0f2cf4cacde9"
   },
   {
    "id": "ca/ash_firepit",
@@ -805,7 +805,7 @@
      "wear": 0.4
     }
    },
-   "sha256": "68f7ffe360022dcfe1f8ccce20d3e7bd135d8682a526760e1d913bbeca13d275"
+   "sha256": "d9c2873a108857791d9f6c23f2d6ee6ba8a92938e8285cb40268ead4fe36d288"
   },
   {
    "id": "ca/ash_marker",
@@ -847,7 +847,7 @@
      "grad": 0.4
     }
    },
-   "sha256": "b7c1991819b036c918704278a80e503e9cff960286bb25373b65817ad8647f7c"
+   "sha256": "a89b63c1bfb0077e6fcb0e010705f0d92a944f44b67d256edfadb97168dd8172"
   },
   {
    "id": "ca/ash_pillar",
@@ -887,7 +887,7 @@
     },
     "bake": {}
    },
-   "sha256": "0cc4bedc0d0bbf2bd32fd64696346d8634b89fc2a1f89adee44a91e9482213ac"
+   "sha256": "a5f98919df8b22625dc590a155ee925196f9a47a1b0e5f1c1d543b1e5490b4f0"
   },
   {
    "id": "ca/ash_rock_a",
@@ -927,7 +927,7 @@
     },
     "bake": {}
    },
-   "sha256": "c4e65c9a269f3b2f58eb5ed9826fcd9834c505e93c056d52dff91f8b3abb39a5"
+   "sha256": "311b26ca42c9724963d7687496a136c5e2c697f37906a508b795d0fdc8025ed2"
   },
   {
    "id": "ca/ash_rock_b",
@@ -970,7 +970,7 @@
     },
     "bake": {}
    },
-   "sha256": "0f87bb4aa4c2b78d16df3f3cb9557d008bd9e05b7520aa020d5336e4900433cc"
+   "sha256": "ab61136803dff72c4cf8bedbe443af3bfa5eb628c7b49d092fcb4b486684250e"
   },
   {
    "id": "ca/ash_rock_c",
@@ -1011,7 +1011,7 @@
     },
     "bake": {}
    },
-   "sha256": "edfbf48a5e81465c7a1b5a03bc20419b3af32c778e6aa1caaec0bb0c648f2c56"
+   "sha256": "4c21b71ae3f67cb269200d50d2b1a0f26d4b4f81e7bddb32656e5f7c14d22f7a"
   },
   {
    "id": "ca/ash_rubble",
@@ -1053,7 +1053,7 @@
      "grad": 1.2
     }
    },
-   "sha256": "5e720ba53d5d4cd0550d771495a6b8332abfab7e42f3ae79934c57c7085e1adc"
+   "sha256": "050c4a1bffbb78c2102345463ed5732371162b343ab3d1522019f60b98904b64"
   },
   {
    "id": "ca/ash_skull",
@@ -1097,7 +1097,7 @@
      "wear": 0.4
     }
    },
-   "sha256": "90f58ebf7db9a3b6082b74365635439921964429bbe5a93f1be671ef9d6b7a43"
+   "sha256": "ad0aebfec856eefa6d5a44b2726441438933b3cee67ca34fe33756dd2277b0c0"
   },
   {
    "id": "ca/ash_tree_dead_a",
@@ -1139,7 +1139,7 @@
     },
     "bake": {}
    },
-   "sha256": "7c69e75dea167fc35524673df3638406f47a1b4095e560950113253fb497b3f8"
+   "sha256": "bb48474415ab6c4ca9f07bdbf84e8c9db97261fc3c78b0ee68220e3c71e0e31c"
   },
   {
    "id": "ca/ash_tree_dead_b",
@@ -1182,7 +1182,7 @@
     },
     "bake": {}
    },
-   "sha256": "24a21babadbcf5f92b719c5deb23729f9ed46e84403876d4ac2036e9b0f843e4"
+   "sha256": "abe69357c7563d44802662702423dc70a9e9a41620725e1e0f4ceef1ecb0bf00"
   },
   {
    "id": "ca/ash_tree_dead_c",
@@ -1225,7 +1225,7 @@
     },
     "bake": {}
    },
-   "sha256": "3b86db88c2583be8eb637ebeaf8314ac87d722ae937475ad11c568dbd42f5e5a"
+   "sha256": "725f398bb89876bfc5b352adf448f9a79a1dc8681966cdfb2af14006680e0672"
   },
   {
    "id": "ca/ash_wall_a",
@@ -1269,7 +1269,66 @@
      "grad": 0.9
     }
    },
-   "sha256": "307749b5a69d25dee8833741fb37f09b40f5781bbd40ca2c414e0a370a0facd6"
+   "sha256": "cea6727fb2dbd69216b1c0a722247fed41a68e9891d49024ed0ef320d6a05367"
+  },
+  {
+   "id": "ca/boss_golem",
+   "category": "boss",
+   "zone": "boss",
+   "file": "assets/ca/boss/golem.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 4096,
+   "verts": 11821,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -3.008,
+     -0.02,
+     -1.191
+    ],
+    "max": [
+     2.577,
+     4.875,
+     1.088
+    ]
+   },
+   "h": 4.895,
+   "r": 3.008,
+   "y0": -0.02,
+   "source": {
+    "script": "art/ca/boss/golem.py",
+    "clips": "art/ca/boss/golem_clips.py",
+    "gen": "golem",
+    "catalog": "art/catalog.py",
+    "seed": 181,
+    "args": {},
+    "bake": {
+     "ao": 0.7,
+     "grad": 0.9,
+     "wear": 0.4,
+     "grime": 0.3,
+     "gain": 1.15
+    }
+   },
+   "bones": 28,
+   "clips": [
+    "broken",
+    "charge",
+    "charge_w",
+    "death",
+    "hit",
+    "idle",
+    "mood",
+    "ring",
+    "ring_w",
+    "slam",
+    "slam_w",
+    "walk"
+   ],
+   "home": "ash",
+   "sha256": "2c0358faebd7049f07dc746eacf932b2d7016fc3e458f3c73e784eadbdb478fb"
   },
   {
    "id": "ca/crown_brazier",
@@ -1309,7 +1368,7 @@
      "wear": 0.4
     }
    },
-   "sha256": "46c90395e0466a0f2445f2226cf034dc08942ecaecd2fd36aa23a78bee8e2e78"
+   "sha256": "00b9ad6aa08b74ca7cd1f00708cf19ae704bc1c3c37660c9942992f7e90f0a3b"
   },
   {
    "id": "ca/frost_plank",
@@ -1350,7 +1409,7 @@
      "grime": 0.1
     }
    },
-   "sha256": "1d12f462364bef32b27ca5c2e3eb350571e0f7f7985296ba8b86698bb501bdc0"
+   "sha256": "a8dd47f05b4ab1a8d99168e6edf74625b9f664ef7bdc9938848bbb897202004d"
   },
   {
    "id": "ca/frost_reeds",
@@ -1389,7 +1448,7 @@
      "grad": 0.5
     }
    },
-   "sha256": "22a70f8fa3f44c8df3eed842e19ae9761e7ab8e015cf3f10301c6b5165d40b93"
+   "sha256": "e97a0a41615cf62a1b96aada9274444e55db8bbed7257f4cf8a607bfe170e425"
   },
   {
    "id": "ca/frost_skull",
@@ -1430,7 +1489,7 @@
      "gtint": 0.9
     }
    },
-   "sha256": "29b468f69d607d268ae5a7307360bb33976cdd1f20926dcab0981753ac67ede6"
+   "sha256": "f0556334b44c8bb705d8b966af27399b74b67eaf199295970788c2c34aa4feb6"
   },
   {
    "id": "ca/frost_spire",
@@ -1470,7 +1529,93 @@
      "gain": 0.7
     }
    },
-   "sha256": "f6af449483c16d2cce9a8eda68053259b54c0d93b305d6fe185f410f0691cad4"
+   "sha256": "f16e1f558360ebdff455cfa62e440fc0e9b24e3468f8e327b8e2a22698c1b013"
+  },
+  {
+   "id": "ca/gear_lantern",
+   "category": "weapon",
+   "zone": "gear",
+   "file": "assets/ca/gear/gear_lantern.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 409,
+   "verts": 976,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.057,
+     0,
+     -0.032
+    ],
+    "max": [
+     0.057,
+     0.646,
+     0.176
+    ]
+   },
+   "h": 0.646,
+   "r": 0.176,
+   "y0": 0,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "hand_lantern",
+    "catalog": "art/catalog.py",
+    "seed": 211,
+    "args": {
+     "tier": 0
+    },
+    "bake": {
+     "ao": 0.04,
+     "grad": 0.01,
+     "wear": 0.4,
+     "grime": 0.2
+    }
+   },
+   "sha256": "2a3064e71cd27370f32e7264ffdc747b0904fed90996a8c88e3ad79359cbf341"
+  },
+  {
+   "id": "ca/gear_lantern_t3",
+   "category": "weapon",
+   "zone": "gear",
+   "file": "assets/ca/gear/gear_lantern_t3.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 457,
+   "verts": 1138,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.072,
+     0,
+     -0.032
+    ],
+    "max": [
+     0.063,
+     0.646,
+     0.184
+    ]
+   },
+   "h": 0.646,
+   "r": 0.184,
+   "y0": 0,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "hand_lantern",
+    "catalog": "art/catalog.py",
+    "seed": 223,
+    "args": {
+     "tier": 2
+    },
+    "bake": {
+     "ao": 0.04,
+     "grad": 0.01,
+     "wear": 0.4,
+     "grime": 0.25
+    }
+   },
+   "sha256": "8b863a3f92870cbdca83de15d146eb10b36758a64c71a33d0df26975526ad63f"
   },
   {
    "id": "ca/rift_boulder",
@@ -1510,7 +1655,7 @@
      "gain": 0.74
     }
    },
-   "sha256": "1e8976db759b14b5d55dc6247a28436eefdfaa0c87d039f57dff5eeb197a2fe8"
+   "sha256": "69e82ae00b05f16da859394c0b225951f28051e732d4dc1abcf88f2f62fa2c40"
   },
   {
    "id": "ca/rift_monolith",
@@ -1549,7 +1694,7 @@
      "grad": 0.25
     }
    },
-   "sha256": "32394bfa174474ed811c98c39ccddfa56b2ae3c4a85b88509ed6ff96296886b4"
+   "sha256": "605450567130de6bac2201de041e5997c3569b81d173560d63dbdde735dc4de1"
   },
   {
    "id": "ca/rift_rock",
@@ -1589,7 +1734,7 @@
      "gain": 0.3
     }
    },
-   "sha256": "fcb6bb433213e7ce9c359cd4926c0909977a022254e4108cc341a6cfb3f1c292"
+   "sha256": "73dd9a88b3d2e8f5f30d974364224719da108579d588d72a27bfc2d3f00fdd9d"
   },
   {
    "id": "ca/rift_rubble",
@@ -1629,7 +1774,7 @@
      "gain": 0.6
     }
    },
-   "sha256": "7c42f877df1221f7629ba1fcf9e92ee66ae4a528e7b59d604f18528681437500"
+   "sha256": "10a765aaa0abafa55f638f4b9d16e51babbbe9958fe52ba3ef489fd921d78035"
   },
   {
    "id": "ca/rift_shards",
@@ -1669,7 +1814,7 @@
      "gain": 0.68
     }
    },
-   "sha256": "c5583a6b1047f19f021f2b64e774392497989f40bced6b5ed03b717f7bfab4a3"
+   "sha256": "d5d95a1304955207005b8a57f935639a446c79c1cbbf0e7d3008b902841f7996"
   },
   {
    "id": "ca/rift_slabs",
@@ -1709,7 +1854,7 @@
      "gain": 0.3
     }
    },
-   "sha256": "6608646e9b28cd33c963495f63421838c5427108f69aeaaf227bd37b6a900858"
+   "sha256": "aaf6d3d3e069c31a4933cc61d643675e6b01dd1f9679807798a3417fb0f4870a"
   },
   {
    "id": "ca/rift_stele",
@@ -1749,7 +1894,7 @@
      "gain": 0.52
     }
    },
-   "sha256": "44f363ffa30845b0801fad15d9b63d79f65421ed22a637d105ccddc8a3fa0c17"
+   "sha256": "3adfb76bd32a583756c900040ec8dbdf3cef7680ca0c70c859407cebb388f60d"
   },
   {
    "id": "ca/storm_column",
@@ -1788,7 +1933,7 @@
      "grad": 0.25
     }
    },
-   "sha256": "cbe210f2fbf2b2f91eb2541c3e6f12b1ad0605f08312e91ab2fe12766b763613"
+   "sha256": "1838718bb50ac08dd99fe7482424492b73d9903acdfebd0aa7bc46423335bc66"
   },
   {
    "id": "ca/storm_lantern",
@@ -1827,7 +1972,7 @@
      "grad": 0.2
     }
    },
-   "sha256": "610c828e204cfa44e8767eee34e2df75ddcff6910003431871c3be7cf603d75b"
+   "sha256": "9f4d30ea8de75f1c1c643f7373fe2802074e2fa5f6bc66df7bc2171e08419208"
   },
   {
    "id": "ca/storm_pylon",
@@ -1867,7 +2012,7 @@
      "wear": 0.45
     }
    },
-   "sha256": "932794eda5cb5523772408051ec4bd59e8d05816e2b31f634de07f713353ba17"
+   "sha256": "0b80c30e10c5e6a48134c86f88d478a6ef97e86931f7b20f99749f8cba259612"
   },
   {
    "id": "ca/storm_wall",
@@ -1907,7 +2052,7 @@
      "wear": 0.4
     }
    },
-   "sha256": "4397e44a919d640543f99579943454af014f10bacd5ccef8d71baa390e018183"
+   "sha256": "5dcaab54c5084a00f9d50dcc41bab6817a5ff29ef06e9aeb914db895929bf796"
   }
  ]
 }

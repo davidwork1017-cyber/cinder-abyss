@@ -221,7 +221,10 @@
     const pre = W.preloadZone(save.lastZone, 2500);
     W.init();
     G.ui.init();
-    if (title) G.ui.showTitle(false);
+    // 老角色还没有职业（class-d2）：换角色重载后跳过了标题画面，也要先盖上标题画面选职业（测试的 __skipTitle、?play 不选）
+    // 标题画面本来就开着时不自动弹：点「继续游戏」时再选（见 ui.js 的 continue）
+    const needPick = !title && !!(G.needClassPick && G.needClassPick());
+    if (title || needPick) G.ui.showTitle(false);
     G.player.ent = W.makePlayer();
     G.computeStats();
     G.player.life = G.player.maxLife;
@@ -258,6 +261,8 @@
         else first();
       }
       if (G.ui.titleOn()) G.ui.titleReady(); // 区域建好了：「继续游戏」「新游戏」可以点了
+      if (needPick && G.ui.titleOn()) G.ui.openClass('pick');
+      G.ui.loadingOff(); // 换角色 / 新建后的「正在载入角色…」到这里揭开
       last = performance.now();
       requestAnimationFrame(frame);
     };

@@ -175,7 +175,12 @@
     if (!slot) slot = G.pick(G.SLOTS);
     const bases = G.BASES[slot];
     // 随机基底按 drop 权重（缺省 1）：武器里魂幡稍少（0.8），其余一样多，起步区域也是各类武器混着出
-    if (!(baseIdx >= 0 && baseIdx < bases.length) || baseIdx !== Math.floor(baseIdx)) baseIdx = bases.indexOf(G.weighted(bases, (b) => (b.drop === undefined ? 1 : b.drop)));
+    // 有职业时（class-d2）：本职业武器的权重 × G.CLASS_WM[职业]，占武器掉落的 65%；还是一次 G.weighted，随机数次数不变
+    if (!(baseIdx >= 0 && baseIdx < bases.length) || baseIdx !== Math.floor(baseIdx)) {
+      const cls = slot === 'weapon' && G.save && typeof G.save.cls === 'string' && G.CLASS_WM[G.save.cls] ? G.save.cls : null;
+      const M = cls ? G.CLASS_WM[cls] : 1;
+      baseIdx = bases.indexOf(G.weighted(bases, (b) => G.baseDropW(b, cls) * (cls && G.WTYPE_CLS[b.type] === cls ? M : 1)));
+    }
     const base = bases[baseIdx];
     const nameIdx = Math.min(G.nameTier(ilvl), base.names.length - 1);
 
