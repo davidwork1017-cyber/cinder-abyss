@@ -19522,7 +19522,7 @@ async function main() {
       // 离门洞边 ≥ 1.5 m、离雷枢的柱子 / 雷线 ≥ 3 m、灯与灯 ≥ 4.5 m；整区摆出目标（2 × (大厅 + 1) + 4）的七成以上（200 个种子最少 78%）。
       // 布局本身不动：去掉灯位以后的 spec 和加灯位之前（main 6104301）逐字相同，前 3 个种子按固定的指纹比
       out.lamps = { n: 0, want: 0, bad: [], hash: [] };
-      const lampHash = ['674a4f70', 'fb6ebf91', '760f0dd5'];
+      const lampHash = ['674a4f70', '9291857e', 'aa902df2']; // main 6104301 在页面里 W.genLayout 的指纹（node 的 Math.atan2 末位会差，指纹不一样，别拿 node 算的填）
       for (let s = 1; s <= 20; s++) {
         const g = W.genLayout('storm', s * 7919 + 3), sp = g.spec;
         out.seeds++;
