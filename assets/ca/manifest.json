@@ -1272,6 +1272,64 @@
    "sha256": "b0d4cae36309603ade4cfe594213c4413b0efe0b765a5781fea4ccb2ae29256c"
   },
   {
+   "id": "ca/boss_golem",
+   "category": "boss",
+   "zone": "boss",
+   "file": "assets/ca/boss/golem.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 3844,
+   "verts": 11264,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -3.013,
+     -0.02,
+     -1.213
+    ],
+    "max": [
+     2.577,
+     4.875,
+     1.099
+    ]
+   },
+   "h": 4.895,
+   "r": 3.013,
+   "y0": -0.02,
+   "source": {
+    "script": "art/ca/boss/golem.py",
+    "clips": "art/ca/boss/golem_clips.py",
+    "gen": "golem",
+    "catalog": "art/catalog.py",
+    "seed": 181,
+    "args": {},
+    "bake": {
+     "ao": 0.7,
+     "grad": 0.9,
+     "wear": 0.4,
+     "grime": 0.3
+    }
+   },
+   "bones": 28,
+   "clips": [
+    "broken",
+    "charge",
+    "charge_w",
+    "death",
+    "hit",
+    "idle",
+    "mood",
+    "ring",
+    "ring_w",
+    "slam",
+    "slam_w",
+    "walk"
+   ],
+   "home": "ash",
+   "sha256": "77b57b2bbeeb82e98dd787bd4f7484c4bb8419eadb01d0b834a88ee3a029bf6a"
+  },
+  {
    "id": "ca/crown_brazier",
    "category": "prop",
    "zone": "crown",
