@@ -169,10 +169,11 @@
       xzMig: false, // 读档时把旧熄烛冠原地升级了、提示还没看过（见 migrateXizhu）
       passives: ['start'], cleared: {}, bossKills: {},
       tier: 0, maxTier: 0, lastZone: 0,
-      // 选项：自动拾取普通物品 / 折叠普通物品的名牌 / 拾取时自动分解普通物品 / 一键分解是否包含魔法物品
+      // 选项：自动拾取普通物品 / 折叠普通物品的名牌 / 拾取时自动分解普通物品 / 一键分解是否包含魔法物品 / 是否包含稀有物品
+      // salvageRare 开着时魔法物品也一起分解（界面上「含魔法」显示为勾上且不能点），salvageMagic 本身不改，关掉「含稀有」就回到原来的状态
       // quality：画质档位 high / mid / low（世界层读取，见 G.world.setQuality）；auto = 玩家还没选过，每次启动按设备推断，掉帧时自动降档
       // hitFlash / hitStop / shake：打击手感的三个开关（受击闪光、顿帧、镜头震动），默认都开（vf-vfx2）
-      opts: { autoWhite: false, hideNormal: false, autoSalvage: false, salvageMagic: false, quality: 'auto', hitFlash: true, hitStop: true, shake: true, ambience: true,
+      opts: { autoWhite: false, hideNormal: false, autoSalvage: false, salvageMagic: false, salvageRare: false, quality: 'auto', hitFlash: true, hitStop: true, shake: true, ambience: true,
         volMaster: 80, volSfx: 80, volAmb: 60, volMusic: 50, mute: false }, // 音量（0–100，见 js/audio.js 的 G.audio.DEFAULTS）和静音
       seenHelp: false,
       seenStory: false, // 开场故事放过（或跳过）了；只有新角色（seenHelp 为假）才会放，老存档没有这一项也不会看到
@@ -191,6 +192,8 @@
       // rqAuto 已经自动选过一次渊式的技能（第一次戴上渊契时替你选上，之后不再自动改）；rqVar 读档迁移过的标记；rqNote「渊式」提示还没看过
       variantPrev: {}, rqAuto: {}, rqVar: 1, rqNote: false,
       wsCap: 1, wsNote: false, // 旋涡斩加「每下最多 9 个」之后的存档；wsNote：选着旋涡斩的老存档，提示还没看过
+      bhCap: 1, bhNote: false, // 黑洞加「每跳最多伤到最近的 N 个」之后的存档；bhNote：学了黑洞的老存档，提示还没看过
+      stFz: 1, stNote: false, // 魂潮狂热改成 12 秒 +15%（dur-tune）之后的存档；stNote：拿着魂幡（R 是魂潮）的老存档，提示还没看过
       // 渊印：sealSeq 真正进区的次数（择印面板的随机种子，关掉地图再打开还是同样三枚）；
       // run 这一次进区 { zone, tier, seq, seal }（seal 为 null 是素印），读档时区域 / 层级对得上就接着用，倒下重生不动，换区 / 重进清掉
       sealSeq: 0, run: null,
@@ -198,6 +201,9 @@
       frags: { seal: 0, rift: 0, vow: 0, box: 0 },
       // 熄烛者（D5）：击杀次数、巅峰渊契的保底计数（连续几次没掉）。正在打的那一次挂在 run.pin = { tier, lives }
       pinnacle: { kills: 0, pity: 0 },
+      // 主线（quest D1）：n 已完成的步数 0–G.QUEST_N（步骤按顺序，奖励按 n 只给一次）；off 地图页关掉了「显示主线」（D2 才有开关）；
+      // told 已经放过的首领旁白 { 步骤 id: true }（D3 用，见 G.questTell）
+      quest: { n: 0, off: false, told: {} },
     };
   };
   function autoSummonDefaults() {
@@ -263,6 +269,9 @@
   // oldGrowth：存档来自成长改版之前（没有 gv 字段）。那时武器伤害到物品等级 27 就封顶，物品等级更高的武器
   // 把 wbase 按「现在这个物品等级的成长 ÷ 27 级的成长」放大一次（成色不变），老角色手里的高等级武器不吃亏
   function fixItem(it, charLvl, oldGrowth) {
+    // 锁定（lk: 1）：只认 1，别的值一律去掉（老存档没有这一项 = 没锁）
+    if (it.lk === 1 || it.lk === true) it.lk = 1;
+    else delete it.lk;
     if (it.rarity === 3) fixUnique(it);
     if (it.rarity === 4 && it.rq === 'xizhu') migrateXizhu(it);
     if (it.rarity === 4 && it.rq === 'shuangsheng') migrateTwin(it);
@@ -567,6 +576,7 @@
     const ro = isObj(raw.opts) ? raw.opts : {};
     s.opts = {
       autoWhite: !!ro.autoWhite, hideNormal: !!ro.hideNormal, autoSalvage: !!ro.autoSalvage, salvageMagic: !!ro.salvageMagic,
+      salvageRare: !!ro.salvageRare, // 一键分解含稀有：老存档没有 = 关
       quality: G.QUALITY_IDS.indexOf(ro.quality) >= 0 ? ro.quality : 'auto',
       hitFlash: ro.hitFlash !== false, hitStop: ro.hitStop !== false, shake: ro.shake !== false, // 老存档没有这三项：按默认开
       ambience: ro.ambience !== false, // vf-vfx3：环境特效（区域氛围），老存档没有 = 开
@@ -657,6 +667,14 @@
     s.wsNote = !s.tut.wsnerf && ((raw.wsCap === undefined && s.variants.whirl === 'b') || raw.wsNote === true);
     s.wsCap = 1;
     G.whirlNerfed = s.wsNote ? 1 : 0;
+    // 黑洞加「每跳最多伤到最近的 N 个」之前的存档（没有 bhCap）：学了黑洞的（哪种刻式都算）提示一次（tut.bhnerf 看过就不再提示）
+    s.bhNote = !s.tut.bhnerf && ((raw.bhCap === undefined && s.skills.blackhole > 0) || raw.bhNote === true);
+    s.bhCap = 1;
+    G.holeNerfed = s.bhNote ? 1 : 0;
+    // 魂潮狂热 4 秒 +30% → 12 秒 +15%（dur-tune）之前的存档（没有 stFz）：手里的武器技是魂潮的提示一次（tut.stfz 看过就不再提示）
+    s.stNote = !s.tut.stfz && ((raw.stFz === undefined && G.weaponSkillOf(s.equip && s.equip.weapon) === 'soultide') || raw.stNote === true);
+    s.stFz = 1;
+    G.frenzyNerfed = s.stNote ? 1 : 0;
     s.variantGen = G.VARIANT_GEN;
     const hadVar = Object.keys(s.variants).length > 0 || Object.keys(G.VARIANTS).some((id) => s.skills[id] >= G.VARIANT_LVL);
     s.varNote = !s.tut.variant2 && ((oldGen && hadVar) || raw.varNote === true);
@@ -698,8 +716,28 @@
     const rfr = isObj(raw.frags) ? raw.frags : {};
     s.frags = {};
     for (const id of G.FRAG_IDS) s.frags[id] = toInt(rfr[id], 0, G.FRAG_DROP.max, 0);
+    // 主线：老存档没有这一项（或被老代码读档再存时丢掉了）→ 从现有进度推算，取两者大的（只增不减）。推算出来的步骤不补发奖励
+    const rq = isObj(raw.quest) ? raw.quest : {};
+    s.quest = { n: Math.max(toInt(rq.n, 0, G.QUEST_N, 0), questDerive(s)), off: rq.off === true, told: {} };
+    if (isObj(rq.told)) for (const q of G.QUEST) if (rq.told[q.id] === true) s.quest.told[q.id] = true;
     return s;
   }
+  // 主线：存档能证明完成到第几步（设计稿 §5）。后面任何一步能证明完成，前面的都算完成。
+  // 走到门口（gate）本身不留痕迹，只有荒原首领倒下才证明它；进区步看 cleared 或 lastZone（只能一区一区往下开）；
+  // 进轮回层级看当前层级或任何区域在层级 ≥ 1 通关过
+  function questDerive(s) {
+    let n = 0;
+    for (let k = 0; k < G.QUEST_N; k++) {
+      const q = G.QUEST[k], c = q.zone ? s.cleared[q.zone] : undefined;
+      let ok = false;
+      if (q.kind === 'gate' || q.kind === 'boss') ok = c !== undefined;
+      else if (q.kind === 'in') ok = c !== undefined || (s.lastZone | 0) >= G.ZONES.findIndex((z) => z.id === q.zone);
+      else if (q.kind === 'tier') ok = (s.tier | 0) >= 1 || G.ZONES.some((z) => s.cleared[z.id] >= 1);
+      if (ok) n = k + 1;
+    }
+    return n;
+  }
+  G.questDerive = (s) => questDerive(s || G.save);
   // 图鉴记一笔：拾到过、最高完美度
   function noteUnique(it, save) {
     const U = (save || G.save).uniq;
@@ -739,46 +777,391 @@
   }
   G.defaultQuality = () => (isSoftGL() ? 'low' : /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') ? 'mid' : 'high');
 
+  // =====================================================================
+  // 角色栏位（多存档）
+  // =====================================================================
+  // 存储布局：
+  //   cinder-abyss-save-v1            第 1 栏（原来的单存档，key 不变：退回旧代码时，旧代码读到的就是它）
+  //   cinder-abyss-save-v1-s2 … -s6   第 2–6 栏，格式和第 1 栏完全一样（同一个 sanitize）
+  //   cinder-abyss-save-v1-bak        第一次迁移前第 1 栏的原文，原样复制；只写这一次，以后永远不覆盖
+  //   cinder-abyss-chars              索引 { v: 1, active, slots: [{ cls, level, zone, tier, pin, t, h } | null] }：只是摘要，丢了能按各栏重建。
+  //                                   h = 新代码上次写进这一栏的原文的哈希：对不上就是别的代码（旧版本）写过这一栏，读档时以这一栏为准
+  //   cinder-abyss-global             所有角色共用：设置 opts、新手提示 tut、开场卡片 helpSeen、图鉴（各角色拾到过 / 最高完美度的并集）
+  //   cinder-abyss-trash              最近删掉的一个角色 { v: 1, slot, t, played, text }（text 是那一栏的原文），恢复后清空
+  // 每一栏照旧存整份存档（opts / tut / 图鉴也在里面），所以旧代码读第 1 栏不缺东西。全局那份只是读档时盖上去（没被别的代码改过的栏位才盖），
+  // 存档时再从当前角色取回来。图鉴的保底和「拾到过」（巅峰掉落挑没拾到过的）仍然按角色算，全局图鉴只用来显示。
+  // 栏位之间搬东西（回收位、恢复、备份）一律搬原文，不经 sanitize：不认识的字段（以后的 cls、quest……）原样跟着走。
+  const SLOT_N = (G.SLOT_N = 6);
+  const CHARS_KEY = 'cinder-abyss-chars';
+  const GLOBAL_KEY = 'cinder-abyss-global';
+  const TRASH_KEY = 'cinder-abyss-trash';
+  const BAK_KEY = SAVE_KEY + '-bak';
+  const slotKey = (G.slotKey = (i) => (i === 0 ? SAVE_KEY : SAVE_KEY + '-s' + (i + 1)));
+  G.SAVE_KEYS = { save: SAVE_KEY, chars: CHARS_KEY, global: GLOBAL_KEY, trash: TRASH_KEY, bak: BAK_KEY };
+  const slot = {
+    cur: 0, // 这份存档写回哪一栏（下标 0–5）
+    hash: null, // 当前这一栏上次读到 / 写进去的原文的哈希（null = 这个角色还没存过）
+    legacy: false, // 迁移没做成（备份写不进去）：照旧只用第 1 栏，不写索引和全局，下次启动再试
+    stale: false, // 另一个标签页写了这一栏 / 换了角色：这边不再写，等刷新
+    dead: false, // 当前角色刚被删掉（或被恢复的角色顶替）：不再写回，马上重载
+    failed: false, // 上一次写存档没写进去（提示条亮着）
+  };
+  let glob = null; // 内存里的全局那份（legacy / 存储不可用时为 null）
+  let globTxt = null; // 上次写进去的全局原文：没变就不再写
+  const lsGet = (k) => {
+    try {
+      return window.localStorage.getItem(k);
+    } catch (err) {
+      return null;
+    }
+  };
+  const lsSet = (k, v) => {
+    try {
+      window.localStorage.setItem(k, v);
+      return true;
+    } catch (err) {
+      return false;
+    }
+  };
+  const lsDel = (k) => {
+    try {
+      window.localStorage.removeItem(k);
+      return true;
+    } catch (err) {
+      return false;
+    }
+  };
+  const readJson = (k) => {
+    const t = lsGet(k);
+    if (!t) return null;
+    try {
+      return JSON.parse(t);
+    } catch (err) {
+      return null;
+    }
+  };
+  // 原文的指纹：FNV-1a + 长度（只用来判断「是不是我上次写的那份」）
+  function hashStr(s) {
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+    return (h >>> 0).toString(36) + '.' + s.length;
+  }
+  const intIn = (v, lo, hi, def) => (isNum(v) ? Math.max(lo, Math.min(hi, Math.floor(v))) : def);
+  // 卡片摘要：从存档对象里取（不跑 sanitize、不取随机数）。cls 是 D2 的职业字段，D1 里一直是 null（卡片显示「未定」）
+  function summaryOf(r) {
+    if (!isObj(r) || r.v !== 1) return { cls: null, level: 1, zone: 0, tier: 0, pin: false, bad: true };
+    return {
+      cls: typeof r.cls === 'string' ? r.cls : null,
+      level: intIn(r.level, 1, MAX_LEVEL, 1),
+      zone: intIn(r.lastZone, 0, G.ZONES.length - 1, 0),
+      tier: intIn(r.tier, 0, 999, 0),
+      pin: !!(isObj(r.run) && r.run.pin),
+    };
+  }
+  function summaryOfText(txt) {
+    let r = null;
+    try {
+      r = JSON.parse(txt);
+    } catch (err) {
+      r = null;
+    }
+    return summaryOf(r);
+  }
+  function readIndex() {
+    const r = readJson(CHARS_KEY);
+    if (!isObj(r) || r.v !== 1 || !Array.isArray(r.slots)) return null;
+    const slots = [];
+    for (let i = 0; i < SLOT_N; i++) {
+      const s = r.slots[i];
+      slots.push(isObj(s) ? Object.assign(summaryOf(Object.assign({ v: 1 }, s, { lastZone: s.zone })), { t: isNum(s.t) ? s.t : 0, h: typeof s.h === 'string' ? s.h : null }) : null);
+    }
+    return { v: 1, active: intIn(r.active, 0, SLOT_N - 1, 0), slots };
+  }
+  // 按各栏实际的存档校正索引：有存档没记的补上摘要（h 记 null = 不是新代码写的），记着但存档没了的清掉；active 指着空栏时挪到第一个有存档的栏
+  function syncIndex(idx) {
+    const out = { v: 1, active: idx ? idx.active : 0, slots: [] };
+    for (let i = 0; i < SLOT_N; i++) {
+      const txt = lsGet(slotKey(i));
+      const old = idx && idx.slots[i];
+      if (!txt) out.slots.push(null);
+      else if (old && old.h && old.h === hashStr(txt)) out.slots.push(old);
+      else out.slots.push(Object.assign(summaryOfText(txt), { t: old ? old.t : 0, h: null }));
+    }
+    if (!out.slots[out.active]) {
+      const f = out.slots.findIndex(Boolean);
+      if (f >= 0) out.active = f;
+    }
+    return out;
+  }
+  const writeIndex = (idx) => lsSet(CHARS_KEY, JSON.stringify(idx));
+  // 启动时进哪一栏：索引的 active；那一栏空了就是第一个有存档的栏
+  function resolveActive(idx) {
+    if (!idx) return 0;
+    if (lsGet(slotKey(idx.active))) return idx.active;
+    for (let i = 0; i < SLOT_N; i++) if (lsGet(slotKey(i))) return i;
+    return idx.active;
+  }
+  // 图鉴：{ found: { id: true }, best: { id: 0..100 } }（不认识的 id 也留着，以后的版本认得）
+  function cxOf(c) {
+    const o = { found: {}, best: {} };
+    if (!isObj(c)) return o;
+    if (isObj(c.found)) for (const k of Object.keys(c.found)) if (c.found[k] === true) o.found[k] = true;
+    if (isObj(c.best)) for (const k of Object.keys(c.best)) if (isNum(c.best[k])) o.best[k] = G.clamp(Math.round(c.best[k]), 0, 100);
+    return o;
+  }
+  function cxMerge(...list) {
+    const o = { found: {}, best: {} };
+    for (const c of list) {
+      if (!c) continue;
+      for (const k of Object.keys(c.found || {})) if (c.found[k] === true) o.found[k] = true;
+      for (const k of Object.keys(c.best || {})) if (isNum(c.best[k]) && !(o.best[k] >= c.best[k])) o.best[k] = c.best[k];
+    }
+    return o;
+  }
+  function readGlobal() {
+    const r = readJson(GLOBAL_KEY);
+    if (!isObj(r) || r.v !== 1) return null;
+    const cx = isObj(r.codex) ? r.codex : {};
+    return { v: 1, opts: isObj(r.opts) ? r.opts : null, tut: isObj(r.tut) ? r.tut : {}, helpSeen: r.helpSeen === true, codex: { uniq: cxOf(cx.uniq), relic: cxOf(cx.relic) } };
+  }
+  function writeGlobal() {
+    const S = G.save;
+    const g0 = readGlobal(); // 别的标签页可能写过：图鉴和 helpSeen 合并，不丢
+    const cx = (k) => cxMerge(glob && glob.codex[k], g0 && g0.codex[k], S[k] && cxOf(S[k]));
+    const g = { v: 1, opts: S.opts, tut: S.tut, helpSeen: !!((glob && glob.helpSeen) || (g0 && g0.helpSeen) || S.seenHelp), codex: { uniq: cx('uniq'), relic: cx('relic') } };
+    const txt = JSON.stringify(g);
+    glob = JSON.parse(txt);
+    if (txt === globTxt) return true;
+    if (!lsSet(GLOBAL_KEY, txt)) return false;
+    globTxt = txt;
+    return true;
+  }
+  // 图鉴显示用：全局的并集 + 当前角色（保底计数另外按角色读 save.uniq.pity / save.relic.pity）
+  G.codexView = function () {
+    const S = G.save || {};
+    return { uniq: cxMerge(glob && glob.codex.uniq, S.uniq && cxOf(S.uniq)), relic: cxMerge(glob && glob.codex.relic, S.relic && cxOf(S.relic)) };
+  };
+  // 开场卡片（操作说明）在任何一个角色上看过没有：看过的话新角色只放开场故事、不再弹卡片
+  G.helpSeenGlobal = () => !!(glob && glob.helpSeen);
+
+  function saveFailed(why) {
+    slot.failed = true;
+    if (G.ui && G.ui.saveBar) G.ui.saveBar(why || 'fail');
+    return false;
+  }
+  function saveOk() {
+    if (!slot.failed) return;
+    slot.failed = false;
+    if (G.ui && G.ui.saveBar) G.ui.saveBar(null);
+  }
+
   G.loadSave = function () {
+    G.slotMigrated = false;
+    slot.legacy = false;
+    let idx = readIndex();
+    const old = lsGet(SAVE_KEY);
+    if (!idx) {
+      let any = old !== null;
+      for (let i = 1; i < SLOT_N && !any; i++) any = lsGet(slotKey(i)) !== null;
+      if (any) {
+        // 迁移（只加不改）：先把第 1 栏的原文原样写进备份（已经有备份就不动），再建索引。第 1 栏本身一个字节都不碰。
+        // 备份或索引写不进去（满了 / 隐私模式）：不迁移，照旧按单存档跑第 1 栏，下次启动再试
+        if (old !== null && lsGet(BAK_KEY) === null && !lsSet(BAK_KEY, old)) slot.legacy = true;
+        if (!slot.legacy) {
+          const built = syncIndex(null);
+          if (writeIndex(built)) {
+            idx = built;
+            G.slotMigrated = true;
+          } else slot.legacy = true;
+        }
+      }
+    }
+    const cur = slot.legacy ? 0 : resolveActive(idx);
+    const txt = slot.legacy ? old : lsGet(slotKey(cur));
+    slot.cur = cur;
+    slot.hash = txt ? hashStr(txt) : null;
+    slot.dead = false;
     let raw = null;
     try {
-      const txt = window.localStorage.getItem(SAVE_KEY);
       if (txt) raw = JSON.parse(txt);
     } catch (err) {
       raw = null;
     }
+    glob = null;
+    globTxt = null;
+    if (!slot.legacy && idx) {
+      glob = readGlobal();
+      globTxt = lsGet(GLOBAL_KEY);
+      // 这一栏是新代码上次写的（哈希对得上）：盖上全局的设置和新手提示。别的代码（旧版本、手改）写过就以这一栏为准，存档时再写回全局
+      const mine = isObj(raw) && !!idx.slots[cur] && idx.slots[cur].h === slot.hash;
+      if (glob && mine) {
+        raw = Object.assign({}, raw);
+        if (glob.opts) raw.opts = glob.opts;
+        raw.tut = Object.assign({}, isObj(raw.tut) ? raw.tut : {}, glob.tut);
+      }
+      if (!glob) glob = { v: 1, opts: null, tut: {}, helpSeen: false, codex: { uniq: cxOf(null), relic: cxOf(null) } };
+      if (isObj(raw) && raw.seenHelp === true) glob.helpSeen = true;
+    }
     return setSave(sanitize(raw));
   };
 
-  // 本地有没有存档（标题画面据此决定显示「继续游戏」、新游戏要不要先确认）
+  // 当前栏位有没有存档（标题画面据此决定显示「继续游戏」）。main.js 在 loadSave 之前就会问，所以自己按索引找栏位
   G.hasSave = function () {
     try {
-      return !!window.localStorage.getItem(SAVE_KEY);
+      if (slot.dead) return false;
+      const idx = readIndex();
+      return !!window.localStorage.getItem(slotKey(idx ? resolveActive(idx) : 0));
     } catch (err) {
       return false;
     }
   };
 
   G.persist = function () {
-    try {
-      window.localStorage.setItem(SAVE_KEY, JSON.stringify(G.save));
-      return true;
-    } catch (err) {
-      return false;
+    if (slot.stale || slot.dead || !G.save) return false;
+    const txt = JSON.stringify(G.save);
+    if (!lsSet(slotKey(slot.cur), txt)) return saveFailed('fail');
+    slot.hash = hashStr(txt);
+    if (!slot.legacy) {
+      let idx = readIndex();
+      if (!idx) {
+        idx = syncIndex(null); // 第一次存（或索引被清掉了）：按各栏重建
+        idx.active = slot.cur;
+      }
+      idx.slots[slot.cur] = Object.assign(summaryOf(G.save), { t: Date.now(), h: slot.hash });
+      if (!glob) glob = { v: 1, opts: null, tut: {}, helpSeen: false, codex: { uniq: cxOf(null), relic: cxOf(null) } };
+      if (!writeIndex(idx) || !writeGlobal()) return saveFailed('fail');
     }
+    saveOk();
+    return true;
   };
 
+  // 删除当前角色、换成一个新角色（地图页的「删除这个角色」走这里，确认两次之后）：原来那份先进回收位，回收位写不进去就什么都不删
   G.resetSave = function () {
-    try {
-      window.localStorage.removeItem(SAVE_KEY);
-    } catch (err) {
-      /* 存储不可用时也照常重置内存里的存档 */
+    const txt = slot.dead ? null : lsGet(slotKey(slot.cur));
+    if (txt && !slot.stale && !trashPut(slot.cur, txt)) {
+      saveFailed('fail');
+      return null;
     }
+    slot.hash = null;
     setSave(G.newSave()); // 召唤物在 setSave 里一并散掉
     G.computeStats();
     G.persist();
     return G.save;
   };
+
+  function readTrash() {
+    const r = readJson(TRASH_KEY);
+    if (!isObj(r) || r.v !== 1 || typeof r.text !== 'string' || !r.text) return null;
+    return { slot: intIn(r.slot, 0, SLOT_N - 1, 0), t: isNum(r.t) ? r.t : 0, played: isNum(r.played) ? r.played : 0, text: r.text, sum: summaryOfText(r.text) };
+  }
+  function trashPut(k, txt) {
+    const idx = readIndex();
+    const played = idx && idx.slots[k] ? idx.slots[k].t : 0;
+    return lsSet(TRASH_KEY, JSON.stringify({ v: 1, slot: k, t: Date.now(), played, text: txt }));
+  }
+
+  // 角色栏位的操作（标题画面的角色页用）。都直接读写存储，不经 G.persist；另一个标签页改过存档（stale）时一律不做
+  G.slots = {
+    N: SLOT_N,
+    cur: () => slot.cur,
+    legacy: () => slot.legacy,
+    stale: () => slot.stale,
+    // 当前加载的角色是不是 k 栏里存着的那个（继续玩就行，不用重载）
+    loaded: (k) => k === slot.cur && !slot.dead && slot.hash !== null && lsGet(slotKey(k)) !== null && hashStr(lsGet(slotKey(k))) === slot.hash,
+    // 卡片：[{ cls, level, zone, tier, pin, t } | null] × 6，按各栏实际的存档
+    list() {
+      const idx = syncIndex(readIndex());
+      return { active: idx.active, slots: idx.slots };
+    },
+    trash() {
+      const r = readTrash();
+      return r ? { slot: r.slot, t: r.t, played: r.played, sum: r.sum } : null;
+    },
+    firstEmpty() {
+      if (slot.legacy) return -1;
+      for (let i = 0; i < SLOT_N; i++) if (!lsGet(slotKey(i))) return i;
+      return -1;
+    },
+    // 在空栏 k 建一个新角色（现在的随机起手），设成 active。返回 true 后由界面重载页面进去
+    create(k) {
+      if (slot.legacy || slot.stale || !(k >= 0 && k < SLOT_N) || lsGet(slotKey(k)) !== null) return false;
+      const txt = JSON.stringify(G.newSave());
+      if (!lsSet(slotKey(k), txt)) return saveFailed('fail');
+      const idx = syncIndex(readIndex());
+      idx.slots[k] = Object.assign(summaryOfText(txt), { t: Date.now(), h: hashStr(txt) });
+      idx.active = k;
+      if (!writeIndex(idx)) return saveFailed('fail');
+      return true;
+    },
+    // 换到 k 栏的角色：设成 active，由界面重载页面进去（重载保证上一个角色的召唤物、区域、计时器一点不剩）
+    select(k) {
+      if (slot.legacy || slot.stale || !lsGet(slotKey(k))) return false;
+      const idx = syncIndex(readIndex());
+      idx.active = k;
+      return writeIndex(idx) || saveFailed('fail');
+    },
+    // 删除 k 栏（界面上已经确认过两次）：原文先进回收位（顶掉回收位里原来那个），再清这一栏。删的是当前角色时不再写回
+    remove(k) {
+      if (slot.legacy || slot.stale) return false;
+      const txt = lsGet(slotKey(k));
+      if (txt === null) return false;
+      if (!trashPut(k, txt)) return saveFailed('fail');
+      if (!lsDel(slotKey(k))) return false;
+      if (k === slot.cur) slot.dead = true;
+      const idx = syncIndex(readIndex());
+      writeIndex(idx);
+      return true;
+    },
+    // 恢复回收位里的角色：回原来那一栏，被占了就放第一个空栏；没有空栏返回 -1。恢复后清空回收位
+    restore() {
+      if (slot.legacy || slot.stale) return -1;
+      const tr = readTrash();
+      if (!tr) return -1;
+      let k = lsGet(slotKey(tr.slot)) === null ? tr.slot : -1;
+      if (k < 0) for (let i = 0; i < SLOT_N && k < 0; i++) if (lsGet(slotKey(i)) === null) k = i;
+      if (k < 0) return -1;
+      if (!lsSet(slotKey(k), tr.text)) {
+        saveFailed('fail');
+        return -1;
+      }
+      // 恢复进了当前（还没存过的新角色占着的）栏位：内存里那个不再写回，界面重载
+      if (k === slot.cur) slot.dead = true;
+      const idx = syncIndex(readIndex());
+      idx.slots[k] = Object.assign(tr.sum, { t: tr.played, h: hashStr(tr.text) });
+      writeIndex(idx);
+      lsDel(TRASH_KEY);
+      return k;
+    },
+    // 还没存过的新角色（标题画面上点「新游戏」/ 空栏的「新建角色」）就落在 k 栏
+    claim(k) {
+      if (slot.hash !== null || !(k >= 0 && k < SLOT_N) || lsGet(slotKey(k)) !== null) return false;
+      slot.cur = k;
+      return true;
+    },
+  };
+
+  // 多开标签页：另一个标签页写了这一栏（或清了存储）、或者换了角色，这边就不再写，提示刷新（不覆盖它的进度）
+  function activeOf(txt) {
+    try {
+      const r = JSON.parse(txt);
+      return isObj(r) && isNum(r.active) ? r.active : null;
+    } catch (err) {
+      return null;
+    }
+  }
+  window.addEventListener('storage', (e) => {
+    if (slot.stale || slot.dead) return;
+    try {
+      if (e.storageArea && e.storageArea !== window.localStorage) return;
+    } catch (err) {
+      return;
+    }
+    let hit = e.key === null || e.key === slotKey(slot.cur);
+    if (!hit && e.key === CHARS_KEY && !slot.legacy) hit = activeOf(e.oldValue) !== activeOf(e.newValue);
+    if (!hit) return;
+    slot.stale = true;
+    if (G.ui && G.ui.saveBar) G.ui.saveBar('stale');
+  });
 
   // ---------- 刻式 ----------
   // G.SKILL_V[id] = { o, a, b }：o 就是 data.js 里原来那个对象（原式一字不差），a / b 第一次用到时按 G.SKILL_BASE + set 拼一份、之后复用。
@@ -3696,6 +4079,7 @@
         save.maxTier = state.tier + 1;
         toast('轮回层级 ' + save.maxTier + ' 已解锁', '#d98cff');
       }
+      G.questSync(true); // 主线：首领步（cleared 刚写入）
       // 首领倒下后清掉敌方弹幕，再开传送门
       for (let i = state.projectiles.length - 1; i >= 0; i--) {
         if (state.projectiles[i].owner === 'e') removeProjectile(i);
@@ -4879,6 +5263,7 @@
   // 地上的火（world.emberGround）、焚天炎爆（fireNova）、熔光射线（laser，每帧）、弓的增益光环（rangedBuff）是可选接口，没有时用通用特效顶上
   const RANGED_HOLD = { gatling: true, flamer: true }; // 这两种松手就停（不会因为轻点的缓冲多打一发）
   const MAX_FIELDS = 40;
+  const rainsLive = []; // 坠凌：还在下的冰凌雨（只记有 sk.max 上限的那几种），换区时清掉
   const fields = []; // 地上的火：喷枪的余烬、焚天炎爆的火场 { kind, x, z, r, t, tick, tt, mult, ctx, key, hex }
   const VK = { gatling: 'bullet', revolver: 'slug', flamer: 'flamelet', huntbow: 'arrow', eagle: 'arrow', runebow: 'arrow', emberbow: 'emberarrow' };
 
@@ -5317,7 +5702,8 @@
   //   seen 这一团吸过的「敌人 → 时刻」, lat 正吸着的敌人, latT 吸附剩下的秒数, latN 吸过几次, bounce 剩几次反弹, skip 贯穿剩几个, chain, wf 摆动参数, fx }
   const holes = [];
   const vortices = [];
-  const HOLE_MAX = 4; // 场上玩家的黑洞（含渊口）最多几个，多了顶掉最老的（刻式「双极」一次开两个）
+  const HOLE_MAX = 6; // 场上玩家的黑洞（含渊口）最多几个，多了顶掉最老的（刻式「双极」一次开两个：2 次施放 × 2 + 渊口 2）
+  const HOLE_CAST = 2; // 你施放的黑洞最多同时几个（双极的一对算一个；渊口另算），第三个顶掉最老的
   const VORTEX_MAX = 20; // 场上的黑旋风最多几团（多重投射每次 5 团、寿命 2.2 秒，正常出手节奏下大约 20 团），多了顶掉最老的
   let mouthCd = 0; // 渊口：距离下次能新开还有几秒
   // 和击退一样的豁免：砸地蓄力、引信、陨角兽冲锋中的怪钉在原地（预警圈的位置才对得上）
@@ -5356,6 +5742,24 @@
       }
     }
   }
+  // 这一跳挨打的：渊口不叠在黑洞上（刚吃过任何黑洞 / 渊口跳的敌人，渊口跳过它）；你施放的黑洞（最多 HOLE_CAST 个）重叠时各跳各的。
+  //   每跳最多伤到离洞（双极：离引力索）最近的 sk.cap 个，聚成一团时不再每只都吃满，散开的怪和单体照旧。渊口不封顶
+  function holeCap(h, tw, list) {
+    let k = list.length;
+    if (h.mouth) {
+      k = 0;
+      for (const e of list) if (!(state.time - (e.holeT || -99) < h.tick * 0.95)) list[k++] = e;
+      list.length = k;
+    }
+    const cap = h.mouth ? 0 : h.ctx.sk.cap;
+    if (!cap || k <= cap) return list;
+    const d = (e) => {
+      if (!tw) return dist(e.x, e.z, h.x, h.z);
+      const sx = tw.x - h.x, sz = tw.z - h.z, u = G.clamp(((e.x - h.x) * sx + (e.z - h.z) * sz) / (sx * sx + sz * sz || 1), 0, 1);
+      return dist(e.x, e.z, h.x + sx * u, h.z + sz * u);
+    };
+    return list.map((e) => [d(e), e]).sort((a, b) => a[0] - b[0]).slice(0, cap).map((p) => p[1]);
+  }
   function removeVortex(i) {
     const v = vortices[i];
     vortices.splice(i, 1);
@@ -5374,7 +5778,7 @@
     if (!G.save.skills.blackhole) ctx.base = G.skillBase('blackhole', G.gemFloor());
     const sk = ctx.sk, R = VM.radius * Math.sqrt(ctx.area);
     state.stats.mouths = (state.stats.mouths || 0) + 1;
-    return addHole({ x, z, R, pullR: R * sk.pullR, t: 0, dur: VM.dur, tick: sk.tick, tt: sk.tick, ctx, mult: VM.dmg, pullMul: VM.pull, mouth: true });
+    return addHole({ x, z, R, pullR: R * sk.pullR, t: 0, dur: VM.dur, tick: VM.tick, tt: VM.tick, ctx, mult: VM.dmg, pullMul: VM.pull, mouth: true });
   }
   G.voidMouth = voidMouth;
 
@@ -5420,13 +5824,14 @@
       h.tt -= dt;
       if (h.tt <= 0) {
         h.tt += h.tick;
-        for (const e of tw ? twinTargets(h, tw) : enemiesIn(h.x, h.z, h.R)) {
-          // 同一个敌人同一时刻只吃一个黑洞的跳（两个重叠的黑洞、渊口都不叠加）
-          if (state.time - (e.holeT || -99) < h.tick * 0.95) continue;
+        let n = 0;
+        for (const e of holeCap(h, tw, tw ? twinTargets(h, tw) : enemiesIn(h.x, h.z, h.R))) {
           e.holeT = state.time;
+          n++;
           G.hitEnemy(e, h.ctx, h.mult, { ang: Math.atan2(e.x - h.x, e.z - h.z), w: 0, kb: 0, poise: sk.poise, quiet: true, faint: true, tick: true });
           if (h.collapse) holeGrow(h); // 坍缩：每伤到一个敌人长一点质量
         }
+        if (!h.mouth) state.stats.vHoleTick = n; // 测试用：这一跳伤到几个
       }
       if (h.fx && W.updateHole) W.updateHole(h.fx, h.t / h.dur, dt);
       if (h.tether) {
@@ -5826,6 +6231,7 @@
     endBuff();
     P.rstate = null;
     fields.length = 0;
+    rainsLive.length = 0; // 冰凌雨的同场计数
     resetWandMarks(); // 疾咒的咒痕
     resetChaos(); // 黑洞、黑旋风一起收起
     resetVariants(); // 刻式第二版留在场上的东西
@@ -7117,7 +7523,10 @@
   }
   function holeCollapse(h, k) {
     const W = G.world, C = h.ctx.sk.collapse, R = h.R * C.r, mult = (C.k0 + C.k1 * h.mass) * k;
-    for (const e of enemiesIn(h.x, h.z, R)) G.hitEnemy(e, h.ctx, mult, { ang: Math.atan2(e.x - h.x, e.z - h.z), w: 2, kb: 1.0, poise: 10 + h.mass, quiet: true });
+    let list = enemiesIn(h.x, h.z, R);
+    const cap = C.hit || 0; // 坍缩也最多砸到离洞最近的 collapse.hit 个
+    if (cap && list.length > cap) list = list.sort((a, b) => dist(a.x, a.z, h.x, h.z) - dist(b.x, b.z, h.x, h.z)).slice(0, cap);
+    for (const e of list) G.hitEnemy(e, h.ctx, mult, { ang: Math.atan2(e.x - h.x, e.z - h.z), w: 2, kb: 1.0, poise: 10 + h.mass, quiet: true });
     // 空心的冲击环 + 近黑的核一闪（不画实心圆盘：圈里的怪要看得清）
     if (W.vShock) W.vShock(h.x, h.z, R, 0xff6ad2, 0.38, 1.2);
     else W.ring(h.x, h.z, R, 0xff6ad2, 0.4);
@@ -7126,6 +7535,7 @@
     G.sfx('hit');
     state.stats.vCollapses = (state.stats.vCollapses || 0) + 1;
     state.stats.vCollapseMass = h.mass;
+    state.stats.vCollapseN = list.length; // 测试用：这次坍缩砸到几个
     h.collapse = false; // 只塌一次
   }
   // 再按一次：坍缩的黑洞还在就当场引爆；掷旋飞出去时召回。返回 1 这一下用掉了，2 这个键这一帧跳过，0 照常施放
@@ -7557,6 +7967,7 @@
   };
   // 坠凌：准星处 dur × 绵延 秒里每 tick 秒落一根冰凌（落下要 fall 秒）。每 5 根里 scatter 那几根随便落在圈里，
   // 其余优先砸向这一场里被砸得少的敌人（看得见圈心的）；砸中落点 hitR 内的敌人
+  G.rainsLive = () => rainsLive.filter((r) => !r.dead && r.end > state.time);
   SKILL_FX.rain = function (ctx, a) {
     const sk = ctx.sk;
     const ak = Math.sqrt(ctx.area);
@@ -7571,15 +7982,24 @@
     const total = sk.delay + (n - 1) * sk.tick + sk.fall;
     const struck = new Map();
     const hex = hexOf(sk.color);
-    const rain = { x, z, R, n, hits: 0 };
+    const rain = { x, z, R, n, hits: 0, end: state.time + total, dead: false };
     state.stats.rains = (state.stats.rains || 0) + 1;
     if (sk.mech === 'slam') return icicleSlam(ctx, x, z, R, hex, rain);
+    // 同时最多 sk.max 场（dur-tune：冷却 = 持续之后，绵延 / 储能 / 节流叠在一起时才会两场重叠）：再多一场就停掉最老那场还没落的冰凌
+    if (sk.max) {
+      for (let k = rainsLive.length - 1; k >= 0; k--) if (rainsLive[k].dead || rainsLive[k].end <= state.time) rainsLive.splice(k, 1);
+      while (rainsLive.length >= sk.max) {
+        rainsLive.shift().dead = true;
+        state.stats.rainCut = (state.stats.rainCut || 0) + 1;
+      }
+      rainsLive.push(rain);
+    }
     const follow = sk.mech === 'follow'; // 刻式「随凌」：圈心每一根都按你此刻的位置
     if (follow) fxOpt('iceRainFollow', P.x, P.z, R, sk.tick * 1.3);
     else if (!fxOpt('iceRain', x, z, R, total, hex)) G.telegraph({ shape: 'circle', x, z, r: R, dur: total, dmg: 0, friendly: true });
     G.sfx('cast', { id: ctx.id });
     const icicle = (i) => {
-      if (P.dead) return;
+      if (P.dead || rain.dead) return;
       let px, pz;
       if (follow) {
         x = P.x;
@@ -7897,7 +8317,16 @@
   };
 
   // 混沌流的两招（逻辑在上面「混沌流」一节：黑洞 / 黑旋风的每帧更新）
+  // 新开一个施放的黑洞前：已经有 HOLE_CAST 个就收掉最老的（双极连同另一个洞一起收；不触发坍缩）
+  function holeRoom() {
+    for (;;) {
+      const own = holes.filter((h) => !h.mouth && !h.twinB);
+      if (own.length < HOLE_CAST) return;
+      removeHole(holes.indexOf(own[0]));
+    }
+  }
   SKILL_FX.hole = function (ctx, a) {
+    holeRoom();
     const sk = ctx.sk;
     const d = rayLen(P.x, P.z, a.ang, Math.min(sk.range, a.dist), 0.3); // 撞墙截在墙前
     const R = sk.radius * Math.sqrt(ctx.area);
@@ -9718,7 +10147,7 @@
     }
 
     // 选项「拾取时自动分解普通物品」：不进背包，直接化成通货（普通物品通常什么也分解不出）
-    const scrapped = loot.kind === 'item' && loot.data.rarity === 0 && !!save.opts.autoSalvage;
+    const scrapped = loot.kind === 'item' && loot.data.rarity === 0 && !!save.opts.autoSalvage && !loot.data.lk; // 锁定的物品（丢出去又捡回来）照常进背包
     if (scrapped) {
       const res = G.salvageResult(loot.data);
       for (const id in res) grantCurrency(id, res[id]);
@@ -9925,11 +10354,25 @@
     return Object.keys(sum).map((id) => G.CURRENCY[id].name + ' ×' + sum[id]).join('、');
   }
 
+  // 锁定：物品上的 lk: 1。锁定的物品不会被分解（单件 / 一键 / 拾取时自动）、不能卖给拾烬客；装备、丢弃、改造照常
+  G.toggleLock = function (item) {
+    const save = G.save;
+    const i = bagIndex(item);
+    let it = i >= 0 ? save.bag[i] : null;
+    if (!it && item) for (const s of G.SLOTS) if (save.equip[s] && (save.equip[s] === item || save.equip[s].uid === item.uid)) it = save.equip[s];
+    if (!it) return null;
+    if (it.lk) delete it.lk;
+    else it.lk = 1;
+    G.persist();
+    return !!it.lk;
+  };
+
   G.salvage = function (item) {
     const save = G.save;
     const i = bagIndex(item);
     if (i < 0) return false; // 只能分解背包里的物品
     const it = save.bag[i];
+    if (it.lk) return false; // 锁定的物品：界面层提示先解锁
     save.bag.splice(i, 1);
     const res = G.salvageResult(it);
     for (const id in res) grantCurrency(id, res[id]);
@@ -9944,7 +10387,7 @@
     const sum = {};
     let n = 0;
     for (const it of save.bag) {
-      if (it.rarity === 0) {
+      if (it.rarity === 0 && !it.lk) {
         addResult(sum, G.salvageResult(it));
         n++;
       } else {
@@ -10019,24 +10462,30 @@
     return loot;
   };
 
-  // 一键分解：稀有度不高于 maxRarity（0 普通，1 魔法）的背包物品。
-  // 返回 { n, byRarity: [普通件数, 魔法件数], gained: { 通货 id: 数量 } }，没有可分解的返回 null
-  G.salvageBulk = function (maxRarity) {
+  // 一键分解会分掉哪些：稀有度不高于 maxRarity（0 普通，1 魔法，2 稀有）的背包物品，锁定的不算；
+  // keep(it) 返回真的也留下（界面层用它留住换装评估为 ▲ 的稀有物品）。烬铸 / 渊契永远不在里面，身上的装备不在背包里。不改存档
+  G.salvagePlan = function (maxRarity, keep) {
+    const cap = maxRarity >= 2 ? 2 : maxRarity >= 1 ? 1 : 0;
+    return G.save.bag.filter((it) => it.rarity <= cap && !it.lk && !(keep && keep(it)));
+  };
+  // 一键分解：分掉 G.salvagePlan 里的物品（按背包顺序逐件结算，和以前一样）。
+  // 返回 { n, byRarity: [普通件数, 魔法件数, 稀有件数], gained: { 通货 id: 数量 } }，没有可分解的返回 null
+  G.salvageBulk = function (maxRarity, keep) {
     const save = G.save;
-    const cap = maxRarity >= 1 ? 1 : 0;
-    const keep = [];
-    const out = { n: 0, byRarity: [0, 0], gained: {} };
+    const go = new Set(G.salvagePlan(maxRarity, keep));
+    const kept = [];
+    const out = { n: 0, byRarity: [0, 0, 0], gained: {} };
     for (const it of save.bag) {
-      if (it.rarity <= cap) {
+      if (go.has(it)) {
         addResult(out.gained, G.salvageResult(it));
         out.byRarity[it.rarity]++;
         out.n++;
       } else {
-        keep.push(it);
+        kept.push(it);
       }
     }
     if (!out.n) return null;
-    save.bag = keep;
+    save.bag = kept;
     for (const id in out.gained) grantCurrency(id, out.gained[id]);
     commit();
     return out;
@@ -11165,7 +11614,7 @@
   // 卖：背包里的一件，按分解的价收（魔法以上再加 1 颗微光尘）
   G.traderSell = function (item) {
     const save = G.save, i = save.bag.indexOf(item);
-    if (!state.trader || i < 0) return false;
+    if (!state.trader || i < 0 || item.lk) return false; // 锁定的不卖
     save.bag.splice(i, 1);
     const res = G.salvageResult(item);
     if (item.rarity >= 1) res.dust = (res.dust || 0) + 1;
@@ -11508,6 +11957,76 @@
   };
 
   // =====================================================================
+  // 主线（quest D1，设计稿 game-workspace/notes/quest-design）
+  // =====================================================================
+  // 只读现有进度（cleared / lastZone / tier）和「走到首领场地门口」，不加新事件。推进时不取随机数、不改任何模拟用到的状态：
+  // 奖励直接加进 save.cur，提示交给界面层排队（G.ui.questDone）。固定种子的仗打出来和没有主线时逐位相同
+  const questFns = [];
+  // D3 的挂钩：首领步在这次游戏里真正完成时（不是读档推算出来的）调 fn({ step, id, zone, live: true })。
+  // 放过旁白后调 G.questTell(id) 记进 save.quest.told，G.questTold(id) 读
+  G.onQuest = (fn) => {
+    if (typeof fn === 'function') questFns.push(fn);
+  };
+  G.questTell = (id) => {
+    const Q = G.save.quest;
+    if (Q && G.QUEST.some((q) => q.id === id)) Q.told[id] = true;
+  };
+  G.questTold = (id) => !!(G.save.quest && G.save.quest.told[id]);
+  // 下一步（0 起）；主线走完 = G.QUEST_N
+  G.questStep = () => (G.save.quest ? G.save.quest.n : G.QUEST_N);
+  // 第 1 步：在灰烬荒原走到首领场地门口（和「前方是首领竞技场」提示同一个判定）。只读，不分配
+  function questGate() {
+    return !!(state.zone && state.zoneIdx === 0 && !state.pin && !P.dead && G.world.nearArena(P.x, P.z));
+  }
+  // live：这次游戏里真的做到了（进区、首领倒下、走到门口）→ 推进并发奖励；不是 live（读档）只推进。
+  // 推算（questDerive）早在读档时并进 n 了，所以这里发的只会是读档之后新完成的步骤。返回这次推进了几步
+  G.questSync = function (live) {
+    const save = G.save, Q = save.quest;
+    if (!Q || Q.n >= G.QUEST_N) return 0;
+    let n = Math.max(Q.n, questDerive(save));
+    if (n === 0 && live && questGate()) n = 1;
+    const from = Q.n;
+    if (n <= from) return 0;
+    Q.n = n;
+    if (!live) return 0;
+    const got = {};
+    let any = false;
+    for (let k = from; k < n; k++) {
+      const rw = G.QUEST[k].rw;
+      if (!rw) continue;
+      for (const id in rw) {
+        save.cur[id] = (save.cur[id] || 0) + rw[id];
+        got[id] = (got[id] || 0) + rw[id];
+        any = true;
+      }
+    }
+    G.persist(); // 马上存：走到门口这一步没有别的存档痕迹，不等 10 秒自动存档，关页面后不会再给一次
+    if (G.ui && G.ui.questDone) G.ui.questDone(n, any ? got : null);
+    for (let k = from; k < n; k++) {
+      const q = G.QUEST[k];
+      if (q.kind !== 'boss') continue;
+      for (const fn of questFns) {
+        try {
+          fn({ step: k + 1, id: q.id, zone: q.zone, live: true });
+        } catch (err) {
+          if (window.console) console.error(err);
+        }
+      }
+    }
+    return n - from;
+  };
+  // 模拟里每 0.5 秒（游戏时间）查一次第 1 步；其余步骤都由事件推进（G.enterZone、首领倒下）
+  let questT = 0;
+  G.updateQuest = function (dt) {
+    const Q = G.save.quest;
+    if (!Q || Q.n !== 0) return;
+    questT += dt;
+    if (questT < 0.5) return;
+    questT = 0;
+    if (questGate()) G.questSync(true);
+  };
+
+  // =====================================================================
   // 区域
   // =====================================================================
   // seal（可选）：这次进区的渊印（择印面板选的那一枚，见 G.rollSeals）；'resume' = 读档时接着存档里的那一次
@@ -11576,6 +12095,7 @@
 
     save.lastZone = idx;
     save.tier = tier;
+    G.questSync(true); // 主线：进区步、进轮回层级（lastZone / tier 刚写入）
     G.persist();
     toast(def.name + (tier > 0 ? ' · 轮回 ' + tier : '') + '　怪物等级 ' + level, '#ffb46a');
     return state.zone;
