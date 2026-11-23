@@ -9857,6 +9857,7 @@
     fxOpt('braceOn', P.ent, !!on, !!parry);
   }
   const heartBursts = []; // 心火：最近 1 秒里炸过的时刻（每秒上限）
+  let heartCur = 0; // 正在炸的余烬是第几代（这期间引出的异常、尸爆打死的算同一代，不从头再传）
   // 位移（燎地往前冲、跳射往后跳）：每帧推一段，撞墙 / 出首领场地就停（起步时在场地里才限制，同反冲弹）；途中不无敌（跳射另给起跳无敌）
   function move2Start(kind, dx, dz, d, dur, ctx, onEnd) {
     const W = G.world;
@@ -10280,7 +10281,8 @@
       H.wardAt = state.time;
     }
     if (!killed || !sk.burst || !(ctx.attack || ctx.heartGen || ctx.proc)) return; // 你的攻击、它引出的异常（爆燃、尸爆）打死的都算
-    const gen = ctx.heartGen || 0;
+    // 第几代：余烬自己的上下文 > 正在炸的那一圈 > 2 秒内被余烬炸过（之后烧死 / 尸爆死的也算那一代）
+    const gen = ctx.heartGen || heartCur || (e.heartMkT > state.time - 2 ? e.heartMk : 0);
     if (gen > sk.burst.chain) return;
     const now = state.time;
     while (heartBursts.length && now - heartBursts[0] >= 1) heartBursts.shift();
@@ -10297,7 +10299,16 @@
     ctx.heartGen = gen;
     const R = B.r * Math.sqrt(ctx.area), list = [];
     for (const e of enemiesIn(x, z, R)) if (losClear(x, z, e.x, e.z)) list.push(e);
-    groupHit(list, ctx, B.k, (o) => ({ ang: Math.atan2(o.x - x, o.z - z), w: 0, kb: 0, poise: 6, quiet: true }), true); // 不推人：怪群不被炸散
+    heartCur = gen;
+    for (const o of list) {
+      o.heartMk = gen;
+      o.heartMkT = state.time;
+    }
+    try {
+      groupHit(list, ctx, B.k, (o) => ({ ang: Math.atan2(o.x - x, o.z - z), w: 0, kb: 0, poise: 6, quiet: true }), true); // 不推人：怪群不被炸散
+    } finally {
+      heartCur = 0;
+    }
     fxOpt('heartBurst', x, z, R, gen);
     G.sfx('cls2', { type: 'burst' });
     state.stats.heartBursts = (state.stats.heartBursts || 0) + 1;

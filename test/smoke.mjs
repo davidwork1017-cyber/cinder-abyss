@@ -21660,19 +21660,44 @@ async function d2b2Steps() {
         G.save.bar[0] = 'brace';
         const slam = (e, dmg, lead) => G.telegraph({ shape: 'circle', x: P.x, z: P.z, r: 2.5, dur: lead, dmg, dtype: 'phys', owner: e, cancelIfOwnerDead: true });
         // 一下重击（预警 0.6 秒）挨了多少：mode = 'none' 不挡 / 'block' 按住格挡（face 朝它 / 背对）/ 'parry' 提前 early 秒按招架
+        // 站位：对方身边 2.2 米、站得住（首领场地里还要在场地内）、离墙远一点的那一侧
+        const spotBy = (e) => {
+          const W = G.world, inA = W.zone.arena && W.inArena(e.x, e.z);
+          for (let k = 0; k < 16; k++) {
+            const a = -Math.PI / 2 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (Math.PI / 8);
+            const x = e.x + Math.sin(a) * ((e.r || 0.5) + 1.7), z = e.z + Math.cos(a) * ((e.r || 0.5) + 1.7);
+            if (W.walkable(x, z, 0.9) && (!inA || W.inArena(x, z)) && !W.hazardAt(x, z)) return { x, z };
+          }
+          return { x: e.x - 2.2, z: e.z };
+        };
         const hitTaken = (e, mode, face, early) => {
           P.cast = null;
           P.cds = {};
           P.iframe = 0;
           P.life = P.maxLife = 5000;
           P.mana = P.maxMana = 1e4;
-          T.tp(e.x - 2.2, e.z);
-          const x0 = P.x;
-          T.aim(face ? e.x : P.x - 5, e.z);
-          slam(e, 1000, 0.6);
+          const sp = spotBy(e);
+          T.tp(sp.x, sp.z);
+          T.aim(face ? e.x : 2 * P.x - e.x, face ? e.z : 2 * P.z - e.z);
+          const tele = slam(e, 1000, 0.6);
+          // 只算这一下预警重击扣的血（首领醒过来自己出手的不算）
+          let taken = 0;
+          const h0 = G.hurtPlayer;
+          G.hurtPlayer = function (amt, dt, src) {
+            const l0 = P.life, r = h0.apply(this, arguments);
+            if (src === tele) taken += l0 - P.life;
+            return r;
+          };
           let held = false;
+          const hx = e.x, hz = e.z;
           for (let i = 0; i < 60; i++) {
             const t = i / 60;
+            if (e.isBoss) {
+              // 首领钉在原地、不醒（只看这一下预警重击）
+              e.x = hx;
+              e.z = hz;
+              e.awake = false;
+            }
             if (mode === 'block' && !held) {
               G.input.tap[0] = 1;
               G.input.mouse.b[0] = true;
@@ -21685,11 +21710,13 @@ async function d2b2Steps() {
             G.tick(1 / 60);
             G.input.tap[0] = 0;
           }
-          const taken = 5000 - P.life;
+          G.hurtPlayer = h0;
           G.input.mouse.b[0] = false;
           const c = G.braceState();
           D2.run(0.8);
-          return { taken: Math.round(taken), moved: +(P.x - x0).toFixed(2), behind: P.x > e.x, k: S.stats.braceCounter, cd: +(P.cds.brace || 0).toFixed(2), wasBrace: !!c };
+          // behind：闪过去之后站在对方的另一侧（和起点隔着它）
+          const behind = (P.x - e.x) * (sp.x - e.x) + (P.z - e.z) * (sp.z - e.z) < 0;
+          return { taken: Math.round(taken), moved: +Math.hypot(P.x - sp.x, P.z - sp.z).toFixed(2), behind, k: S.stats.braceCounter, cd: +(P.cds.brace || 0).toFixed(2), wasBrace: !!c };
         };
         const e = T.mob('brute', 3, 0);
         out.none = hitTaken(e, 'none');
@@ -21910,7 +21937,8 @@ async function d2b2Steps() {
         D2.cast('heartfire', P.x + 3, P.z, 40);
         const s1 = Object.assign({}, S.stats);
         const row = [];
-        for (let i = 0; i < 4; i++) row.push(T.mob('husk', 1.4 + i * 2.5, 0, { hp: 1 }));
+        for (let i = 0; i < 4; i++) row.push(T.mob('husk', 1.4 + i * 2.9, 0, { hp: 1 })); // 隔 2.9 米：一圈余烬（半径 3）只够得着下一只
+        for (const e of row) e.buTh = 1e15; // 不累积异常（爆燃 / 尸爆打死的不算进这一条链）
         G.hitEnemy(row[0], G.skillCtx('whirl'), 1, {});
         D2.run(1);
         out.chain = (S.stats.heartBursts || 0) - (s1.heartBursts || 0);
@@ -21959,7 +21987,12 @@ async function d2b2Steps() {
           if (x === e && ctx && ctx.id === 'scorch') n++;
           return orig.apply(this, arguments);
         };
-        D2.run(2);
+        const hx = e.x, hz = e.z;
+        for (let i = 0; i < 120; i++) {
+          G.tick(1 / 60);
+          e.x = hx; // 钉在两道火痕叠着的地方
+          e.z = hz;
+        }
         G.hitEnemy = orig;
         out.ticks2s = n;
         D2.run(6);
