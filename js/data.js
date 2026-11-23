@@ -295,9 +295,9 @@
       name: '雷楔', icon: '楔', color: '#9fc8ff', tags: ['attack', 'projectile', 'chaining', 'light'], kind: 'round', round: 'wedge', elem: 'light', clsOnly: true,
       wm: 1.0, basicSec: 0.36, time: 0.6, mana: 7, cd: 0, speed: 32, projR: 0.24, range: 16, ailment: 20, w: 0, kb: 0.2, poise: 6,
       // 命中先打 hit 份，楔子钉在敌人身上，delay 秒后放电：目标挨 zap 份（它身上每多一枚楔子 +stack，最多算 maxStack 枚），再连到 r 米内最多 n 个别的敌人（各 chainK 份）
-      wedge: { hit: 0.35, zap: 0.65, delay: 1, stack: 0.15, maxStack: 4, r: 4, n: 3, chainK: 0.3 },
+      wedge: { hit: 0.35, zap: 0.65, delay: 1, stack: 0.15, maxStack: 4, r: 4, n: 2, chainK: 0.3 },
       useMult: 1.07, // 单体：0.35 + 0.65 ×（平均身上约 1.7 枚 → +10%）
-      desc: '雷楔钉进敌人，1 秒后放电，再连到 4 米内最多 3 个敌人。同一个敌人身上楔子越多，放电越痛。',
+      desc: '雷楔钉进敌人，1 秒后放电，再连到 4 米内最多 2 个敌人。同一个敌人身上楔子越多，放电越痛。',
       alt: '伤害按手里枪的右键开火折算，全部转成闪电。每多一枚楔子放电 +15%（最多算 4 枚）。连锁的每个敌人受到 30% 伤害。',
     },
     rime: {
@@ -1052,12 +1052,12 @@
       a: {
         name: '溅铁', pack: '不留铁水；专打怪堆后排',
         desc: '命中后朝前方溅出 5 道铁水（6 米扇面），打中后排的敌人。不留铁水。', alt: '每个敌人一次只挨一道。被命中的那个先挨弹头。',
-        set: { mech: 'splash', explode: 0, pool: null, splash: { n: 5, len: 6, arc: 60, w: 0.7, k: 0.8 }, useMult: 1, tags: ['attack', 'projectile', 'area', 'fire'] },
+        set: { mech: 'splash', explode: 0, pool: null, splash: { n: 5, len: 6, arc: 60, w: 0.7, k: 0.75 }, useMult: 1, tags: ['attack', 'projectile', 'area', 'fire'] },
       },
       b: {
         name: '熔穿', pack: '排成一条线最痛；不炸不留铁水',
-        desc: '铁水弹贯穿敌人（每枚最多打中 4 个），每穿过一个，后面的伤害 +10%（最多 +40%）。', alt: '不炸开，也不留铁水。',
-        set: { mech: 'bore', explode: 0, pool: null, basicSec: 0.35, bore: { step: 0.1, max: 0.4, cap: 4 }, wm: 0.97, useMult: 1, tags: ['attack', 'projectile', 'fire'] },
+        desc: '铁水弹贯穿敌人（每枚最多打中 4 个），每穿过一个，后面的伤害 +10%（最多 +35%）。', alt: '不炸开，也不留铁水。',
+        set: { mech: 'bore', explode: 0, pool: null, basicSec: 0.35, bore: { step: 0.1, max: 0.35, cap: 4 }, wm: 0.97, useMult: 1, tags: ['attack', 'projectile', 'fire'] },
       },
     },
     // 雷楔 A 雷网：打空的楔子钉在准星的地上（存在 dur 秒），link 米内的楔子两两拉出电线（最多 lines 根，新的顶掉旧的），线上的敌人每 tick 秒挨 k 份；
