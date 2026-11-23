@@ -1047,7 +1047,7 @@
     // ---------- 特殊弹的刻式（class-d2b1）----------
     // 铁水弹 A 溅铁：不炸、不留铁水，命中后朝前方溅出 n 道铁水（len 米、arc° 扇面），每道打中一条线上的敌人（每个敌人一次施放只挨一道），各 k 份
     //        （没有铁水，弹头本身重一些：一份按 basicSec 0.54 / wm 1.5 算，单体和原式的「弹头 + 铁水」持平）
-    //        B 熔穿：不炸，贯穿所有敌人，每穿过一个，后面的伤害 +step（最多 +max）
+    //        B 熔穿：不炸，贯穿敌人（每枚最多打中 cap 个：机炮三枚都穿同一条线，不封顶时打怪堆超标），每穿过一个，后面的伤害 +step（最多 +max）
     molten: {
       a: {
         name: '溅铁', pack: '不留铁水；专打怪堆后排',
@@ -1056,23 +1056,23 @@
       },
       b: {
         name: '熔穿', pack: '排成一条线最痛；不炸不留铁水',
-        desc: '铁水弹贯穿所有敌人，每穿过一个，后面的伤害 +10%（最多 +40%）。', alt: '不炸开，也不留铁水。',
-        set: { mech: 'bore', explode: 0, pool: null, basicSec: 0.42, bore: { step: 0.1, max: 0.4 }, wm: 1.167, useMult: 1.28, tags: ['attack', 'projectile', 'fire'] },
+        desc: '铁水弹贯穿敌人（每枚最多打中 6 个），每穿过一个，后面的伤害 +10%（最多 +40%）。', alt: '不炸开，也不留铁水。',
+        set: { mech: 'bore', explode: 0, pool: null, basicSec: 0.42, bore: { step: 0.1, max: 0.4, cap: 6 }, wm: 1.167, useMult: 1.28, tags: ['attack', 'projectile', 'fire'] },
       },
     },
     // 雷楔 A 雷网：打空的楔子钉在准星的地上（存在 dur 秒），link 米内的楔子两两拉出电线（最多 lines 根，新的顶掉旧的），线上的敌人每 tick 秒挨 k 份；
     //            打中敌人的照原式放电
-    //      B 闷雷：delay 秒后才放电，伤害 × mult，大量累积感电（ailment），不再连锁
+    //      B 闷雷：delay 秒后才放电（身上同时留着的楔子更多），每一下 zap 更高，大量累积感电（ailment），不再连锁。单体按 useMult 和原式对等（+8%）
     wedge: {
       a: {
         name: '雷网', pack: '朝地上打布网；单体照原式',
         desc: '打空的楔子钉在准星处的地上；4 米内的楔子两两拉出电线，线上的敌人持续挨电。', alt: '地上的楔子存在 7 秒，电线最多 3 根，每 0.25 秒电一下。打中敌人的楔子照原式放电。',
-        set: { mech: 'net', net: { dur: 7, link: 4, lines: 3, tick: 0.25, k: 0.09, w: 0.6 }, useMult: 1.07, tags: ['attack', 'projectile', 'chaining', 'light', 'duration'] },
+        set: { mech: 'net', net: { dur: 7, link: 4, lines: 3, tick: 0.25, k: 0.15, w: 0.6 }, useMult: 1.07, tags: ['attack', 'projectile', 'chaining', 'light', 'duration'] },
       },
       b: {
-        name: '闷雷', pack: '单体略痛；不连锁',
-        desc: '楔子 3 秒后才放电，不再连锁；身上能叠满 4 枚，放电 +45%，大量累积感电。', alt: '每多一枚楔子放电 +15%（最多算 4 枚）。连锁镶不上。',
-        set: { mech: 'dull', noSup: ['chain'], ailment: 200, wedge: { hit: 0.2, zap: 0.67, delay: 3, stack: 0.15, maxStack: 4, r: 0, n: 0, chainK: 0 }, useMult: 1.17, tags: ['attack', 'projectile', 'light'] },
+        name: '闷雷', pack: '单体更痛；不连锁',
+        desc: '楔子 1.5 秒后才放电，放电更痛，大量累积感电。不再连锁。', alt: '每多一枚楔子放电 +15%（最多算 4 枚）。连锁镶不上。',
+        set: { mech: 'dull', noSup: ['chain'], ailment: 200, wedge: { hit: 0.2, zap: 0.78, delay: 1.5, stack: 0.15, maxStack: 4, r: 0, n: 0, chainK: 0 }, useMult: 1.15, tags: ['attack', 'projectile', 'light'] },
       },
     },
     // 霜霰弹 A 散霜：冰屑改成朝四周炸开一圈（半径 r）

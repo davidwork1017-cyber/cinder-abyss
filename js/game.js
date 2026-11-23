@@ -9332,7 +9332,7 @@
         if (sk.pool) p.onEnd = moltenEnd;
         if (sk.mech === 'bore') {
           const B = sk.bore;
-          p.pierce = 999;
+          p.pierce = B.cap ? B.cap - 1 : 999;
           p.multFn = (q) => q.rk * (1 + Math.min(B.max, B.step * Math.max(0, q.hit.size - 1)));
         }
       } else if (line) p.pierce = 999;
