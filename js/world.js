@@ -20989,6 +20989,10 @@
   const ldC = new Float32Array(LD_N * 3), _ldc = new T.Color();
   let ldMesh = null, ldFx = null, ldLive = 0;
   W.decal = function (kind, x, z, r, ang, hex, dur, wide) {
+    if (fxMute) {
+      Math.random(); // class-d2b2：静音时不留痕迹，随机数照取（和下面 LD_SD 那一次一样）
+      return 0;
+    }
     let it = -1;
     for (let i = 0; i < LD_N; i++) {
       const d = (decalNext + i) % LD_N;
@@ -30854,6 +30858,33 @@
     }
   };
   W.leapLoose = function () {};
+  // 命中特效的「一群只放一处」（class-d2b2）：心火期间 / 燎原横扫之后，CAL_T 秒内、CAL_R 米内已经放过一处全套的，
+  // 其余命中静音（随机数照取：spawnP / tChunk / 地上的星形印子都按 fxMute 照取不画），只冒一颗暗芯火星。game.js 每帧开关
+  let impactCalm = 0;
+  const CAL_T = 0.15, CAL_R = 6, calImp = { x: 0, z: 0, t: -9 };
+  W.setImpactCalm = (on) => {
+    impactCalm = on ? 1 : 0;
+  };
+  const impactFull = W.impact;
+  W.impact = function (x, y, z, ang, type, w, crit) {
+    if (!impactCalm || fxMute) return impactFull(x, y, z, ang, type, w, crit);
+    const now = G.state ? G.state.time : 0;
+    if (!(now - calImp.t < CAL_T && Math.hypot(x - calImp.x, z - calImp.z) < CAL_R)) {
+      calImp.x = x;
+      calImp.z = z;
+      calImp.t = now;
+      return impactFull(x, y, z, ang, type, w, crit);
+    }
+    fxMute = 1;
+    try {
+      impactFull(x, y, z, ang, type, w, crit);
+    } finally {
+      fxMute = 0;
+    }
+    if (!PF.vShape) return;
+    vsBrush(VSH.chip, 3, 0, 0x9a3a12, 0x3a1408, 0.12, 0.6, 0.4);
+    vsEmit(x + vr(-0.2, 0.2), y, z + vr(-0.2, 0.2), vr(-1.2, 1.2), vr(1.2, 2.4), vr(-1.2, 1.2), vr(0.3, 0.45), vr(0.04, 0.07), undefined, vr(0, TAU), vr(-8, 8), 14);
+  };
   // 连烬的一跳：一道细的暗余烬链（贴在半身高），只有一群里的第一跳亮一下、0.2 秒灭
   W.heartLink = function (x0, z0, x1, z1, bright) {
     if (!PF.vShape) return;

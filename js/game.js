@@ -10424,6 +10424,7 @@
 
   // 每帧（tickD2b 里）和换区域时
   function tickD2b2(dt) {
+    if (G.world.setImpactCalm) G.world.setImpactCalm(heartOn() || state.time < quietUntil); // 命中特效「一群只放一处」（见 world.js）
     if (braceFx && !(P.cast && P.cast.brace && !P.cast.done)) braceFxSet(false);
     if (move2) tickMove2(dt);
     if (mines.length) tickMines(dt);
