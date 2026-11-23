@@ -12440,9 +12440,10 @@ async function main() {
     return '混沌 +' + r.chaos + '% × ' + r.more + '（火 +' + r.fire + '% × ' + r.fireMore + '）';
   });
 
-  await step('黑洞：把牵引圈里的小怪往中心拽（越重拽得越慢），首领几乎拽不动；两个重叠的黑洞不叠伤害；回响镶不上', async () => {
+  await step('黑洞：把牵引圈里的小怪往中心拽（越重拽得越慢），首领几乎拽不动；你的黑洞最多 2 个同时在场（第三个顶掉最老的），重叠时各跳各的；回响镶不上', async () => {
     const r = await ev(() => {
       T.arena();
+      G.resetRanged(); // 收掉上一段留下的黑洞（持续 6 秒，T.arena 不收）
       T.fix(0.5);
       const P = G.player, save = G.save;
       save.skills.blackhole = 1;
@@ -12467,14 +12468,23 @@ async function main() {
       const out = { at, husk: a[0] - d0(husk), brute: a[1] - d0(brute), boss: Math.hypot(boss.x - b0[0], boss.z - b0[1]), fx: G.world.holeCount() };
       // 去重：同一个靶子在一个黑洞 / 两个重叠的黑洞里各吃 1 秒
       T.arena();
+      G.resetRanged(); // 收掉上一段留下的黑洞（持续 6 秒，T.arena 不收）
       T.fix(0.5);
+      // 只记黑洞自己的伤害（技能栏上要是有光环之类，也会打到靶子）
+      const bh = new Map(), oh = G.hitEnemy;
+      G.hitEnemy = function (e, ctx) {
+        const v = oh.apply(this, arguments);
+        if (ctx && ctx.id === 'blackhole') bh.set(e, (bh.get(e) || 0) + (v || 0));
+        return v;
+      };
       const one = T.mob('husk', d.x * 5, d.z * 5);
       one.buTh = 1e9;
       T.aim(P.x + d.x * 5, P.z + d.z * 5);
       G.execSkill(G.skillCtx('blackhole'));
       for (let i = 0; i < 60; i++) G.tick(1 / 60);
-      out.dmg1 = Math.round(1e6 - one.hp);
+      out.dmg1 = Math.round(bh.get(one) || 0);
       T.arena();
+      G.resetRanged(); // 收掉上一段留下的黑洞（持续 6 秒，T.arena 不收）
       T.fix(0.5);
       const two = T.mob('husk', d.x * 5, d.z * 5);
       two.buTh = 1e9;
@@ -12483,7 +12493,10 @@ async function main() {
       G.execSkill(G.skillCtx('blackhole'));
       out.n2 = G.chaosHoles().length;
       for (let i = 0; i < 60; i++) G.tick(1 / 60);
-      out.dmg2 = Math.round(1e6 - two.hp);
+      out.dmg2 = Math.round(bh.get(two) || 0);
+      G.hitEnemy = oh;
+      G.execSkill(G.skillCtx('blackhole'));
+      out.n3 = G.chaosHoles().length; // 第三个顶掉最老的
       out.echo = G.supportFits('blackhole', 'echo');
       out.expanse = G.supportFits('blackhole', 'expanse');
       T.unfix();
@@ -12493,7 +12506,7 @@ async function main() {
     });
     assert(r.at >= 0 && r.at < 0.3 && r.fx >= 1, '黑洞应落在准星处：' + JSON.stringify(r));
     assert(r.husk >= 1.5 && r.brute > 0.4 && r.brute < r.husk && r.boss < 0.8, '牵引不对（游魂应拽得最多、巨躯次之、首领几乎不动）：' + JSON.stringify(r));
-    assert(r.n2 === 2 && r.dmg1 > 0 && r.dmg2 === r.dmg1, '两个重叠的黑洞不该叠伤害：' + JSON.stringify(r));
+    assert(r.n2 === 2 && r.n3 === 2 && r.dmg1 > 0 && Math.abs(r.dmg2 - 2 * r.dmg1) <= 1, '你的黑洞最多 2 个同时在场、重叠时各跳各的：' + JSON.stringify(r));
     assert(r.echo === false && r.expanse === true && r.cleared === 0, '辅助 / 清场不对：' + JSON.stringify(r));
     return '1 秒：游魂 ' + r.husk.toFixed(2) + ' 米 · 巨躯 ' + r.brute.toFixed(2) + ' · 首领 ' + r.boss.toFixed(2) + ' · 单体 ' + r.dmg1 + '（两个黑洞 ' + r.dmg2 + '）';
   });
@@ -14469,7 +14482,7 @@ async function main() {
       const mid = TV.mob(7.2, 0.3), pulled = TV.mob(9.8, 0.6);
       const d = TV.d, P = G.player, line = (e) => Math.abs((e.x - P.x) * d.x + (e.z - P.z) * d.z - 7);
       const l0 = line(pulled);
-      TV.cast('blackhole', TV.at(7), 1.5);
+      TV.cast('blackhole', TV.at(7), 3); // 0.5 秒一跳（黑洞改成 6 秒以后）：3 秒 ≈ 原来 1.5 秒的跳数
       const holes = G.chaosHoles();
       const out = { holes: holes.length, linked: holes.length === 2 && holes[0].twin === holes[1], tether: TV.st('vTetherHits'), mid: TV.n(mid), l0: +l0.toFixed(2), l1: +line(pulled).toFixed(2), band: G.world.kvCount('band') };
       TV.done();
@@ -14485,7 +14498,8 @@ async function main() {
       TV.setup('blackhole', 'b');
       for (let i = 0; i < 5; i++) TV.mob(7, (i - 2) * 0.7);
       const b = TV.boss(7.5);
-      TV.cast('blackhole', TV.at(7), 1.5);
+      TV.pin(b); // 2.25 秒里首领会走开，钉住
+      TV.cast('blackhole', TV.at(7), 2.25); // 坍缩 0.375 秒一跳：2.25 秒 = 原来 1.5 秒的跳数
       const h = G.chaosHoles()[0];
       const out = { mass: h ? h.mass : -1, grew: h ? +(h.R / h.R0).toFixed(2) : 0 };
       const before = TV.dmg(b);
@@ -16202,7 +16216,7 @@ async function main() {
       bo.isBoss = false;
       G.clearEnemies();
       out.orbit = G.world.rvCount('orbit');
-      G.debug.step(3.1);
+      G.debug.step(6.1); // 随核持续 6 秒（原来 3 秒时是 3.1）
       out.gone = G.relicHoleList().length;
       G.world.update(1 / 60);
       out.orbitGone = G.world.rvCount('orbit');
@@ -16213,7 +16227,7 @@ async function main() {
       const n0 = G.chaosHoles().length;
       G.execSkill(G.skillCtx('blackhole'));
       out.plain = [G.relicHoleList().length, G.chaosHoles().length - n0, G.SKILLS.blackhole.variant || 'o'];
-      G.debug.step(3.2);
+      G.debug.step(6.2);
       RQT.end();
       return out;
     });
@@ -16718,6 +16732,108 @@ async function main() {
     return '14 只：每下 9 只、潮涌 9 只；5 只：全挨';
   });
 
+  await step('黑洞每跳最多伤到最近的 N 个：挤成一团的 18 只里原式 / 双极每跳 13 只、坍缩每跳 8 只（坍缩一下砸 7 只）、随核每跳 9 只，挨打的就是离洞（双极：离引力索、随核：离你）最近的那几只；只有 5 只时全挨', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      const P = G.player, out = {};
+      const dummy = (m) => {
+        G.initBuildUp(m);
+        m.buTh = 1e15;
+        m.poiseMax = 0;
+        m.hp = m.maxHp = 1e9;
+        return m;
+      };
+      // 一团 n 只，钉在原地（离中心由近到远排，前 N 只就是最近的 N 只）：围着 (k, 0) 半径 ≤ 1.6 米；双极摆成一排压在引力索上（垂直于瞄准方向）
+      const near = (ms, N) => ms.slice(0, N).every((m) => TV.cnt.get(m) > 0) && ms.slice(N).every((m) => !TV.cnt.get(m));
+      for (const v of ['o', 'a', 'b']) {
+        const res = {};
+        for (const n of [18, 5]) {
+          TV.setup('blackhole', v);
+          T.fix(0.5);
+          const ms = [];
+          for (let i = 0; i < n; i++) {
+            // 双极：沿索排开，离索的距离一只比一只远（0、0.03、0.06 … 米，都在索宽里）
+            const m = v === 'a' ? TV.mob(7 + (i % 2 ? 1 : -1) * 0.03 * i, (i % 2 ? 1 : -1) * (0.3 + 0.15 * i)) : TV.mob(7 + Math.cos(i * 2.4) * (0.2 + 0.08 * i), Math.sin(i * 2.4) * (0.2 + 0.08 * i));
+            ms.push(dummy(m));
+            TV.pin(m);
+          }
+          G.state.stats.vHoleTick = 0;
+          T.aim(TV.at(7).x, TV.at(7).z);
+          G.execSkill(G.skillCtx('blackhole'));
+          let mx = 0;
+          for (let f = 0; f < 120; f++) {
+            TV.run(1 / 60);
+            mx = Math.max(mx, G.state.stats.vHoleTick || 0);
+          }
+          res['t' + n] = mx;
+          res['near' + n] = near(ms, Math.min(n, G.SKILLS.blackhole.cap));
+          if (v === 'b') {
+            G.input.tap[0] = 0.2; // 再按一次：当场坍缩
+            TV.run(0.1);
+            res['c' + n] = TV.st('vCollapses') > 0 ? G.state.stats.vCollapseN : -1;
+          }
+          res.cap = G.SKILLS.blackhole.cap;
+          if (v === 'b') res.hit = G.SKILLS.blackhole.collapse.hit;
+          TV.done();
+        }
+        out[v] = res;
+      }
+      // 随核：洞在你身上，围着你一团
+      RQT.begin('yinli');
+      RQT.learn('blackhole', 0);
+      T.fix(0.5);
+      const res = { cap: G.SKILLS.blackhole.cap, mech: G.SKILLS.blackhole.mech };
+      const wave = G.SKILLS.blackhole.follow.wave;
+      G.SKILLS.blackhole.follow.wave = null; // 不拽那一把（拽完都挤到你脚下一样远，分不出最近的；拽一把在随核那一步测）
+      for (const n of [18, 5]) {
+        G.clearEnemies();
+        G.resetRanged();
+        const ms = [];
+        for (let i = 0; i < n; i++) {
+          const rr = 0.9 + 0.1 * i;
+          ms.push(dummy(T.mob('husk', Math.cos(i * 2.4) * rr, Math.sin(i * 2.4) * rr)));
+        }
+        const home = ms.map((m) => [m.x, m.z]);
+        const hits = new Map(), orig = G.hitEnemy;
+        G.hitEnemy = function (e, ctx) {
+          if (ctx && ctx.id === 'blackhole') hits.set(e, (hits.get(e) || 0) + 1);
+          return orig.apply(this, arguments);
+        };
+        G.state.stats.vHoleTick = 0;
+        P.cds = {};
+        G.execSkill(G.skillCtx('blackhole'));
+        let mx = 0;
+        for (let f = 0; f < 120; f++) {
+          G.tick(1 / 60);
+          ms.forEach((m, k) => {
+            m.x = home[k][0];
+            m.z = home[k][1];
+          });
+          P.mana = P.maxMana;
+          P.life = P.maxLife;
+          mx = Math.max(mx, G.state.stats.vHoleTick || 0);
+        }
+        G.hitEnemy = orig;
+        const N = Math.min(n, res.cap);
+        res['t' + n] = mx;
+        res['near' + n] = ms.slice(0, N).every((m) => hits.get(m) > 0) && ms.slice(N).every((m) => !hits.get(m));
+      }
+      G.SKILLS.blackhole.follow.wave = wave;
+      G.clearEnemies();
+      G.resetRanged();
+      RQT.end();
+      out.c = res;
+      return out;
+    });
+    for (const [v, N] of [['o', 13], ['a', 13], ['b', 8], ['c', 9]]) {
+      const x = r[v];
+      assert(x.cap === N && x.t18 === N && x.near18 && x.t5 === 5 && x.near5, '黑洞（' + v + '）每跳应最多伤到最近的 ' + N + ' 个、5 只全挨：' + JSON.stringify(x));
+    }
+    assert(r.c.mech === 'follow', '随核没换上：' + JSON.stringify(r.c));
+    assert(r.b.hit === 7 && r.b.c18 === 7 && r.b.c5 === 5, '坍缩应最多砸到最近的 7 个、5 只全砸：' + JSON.stringify(r.b));
+    return '18 只：原式 / 双极 ' + r.o.t18 + ' / ' + r.a.t18 + '、坍缩 ' + r.b.t18 + '（坍缩砸 ' + r.b.c18 + '）、随核 ' + r.c.t18 + '；5 只全挨';
+  });
+
   await step('旋涡斩改版的提示：选着旋涡斩的老存档（没有 wsCap）读档后提示一次「每下最多 9 个、聚怪约 −40%」，存档往返仍提示，看过不再提示；没选旋涡斩的老存档、新存档都不提示', async () => {
     const r = await ev((keep) => {
       const out = {};
@@ -16757,6 +16873,60 @@ async function main() {
     assert(r.oldB === '1,true,1' && r.round === '1,true,1', '选着旋涡斩的老存档应提示一次：' + JSON.stringify(r));
     assert(r.oldA === '0,false,1' && r.fresh === '0,false,1' && r.seen === '0,false,1', '没选旋涡斩 / 新存档 / 看过的不该提示：' + JSON.stringify(r));
     return '老存档（旋涡斩）提示一次，看过不再提示';
+  });
+
+  await step('黑洞改版的提示：学了黑洞的老存档（没有 bhCap，哪种刻式都算）读档后提示一次，按生效的刻式写上限和聚怪 / 分散的降幅，存档往返仍提示，看过不再提示；没学黑洞的老存档、新存档都不提示', async () => {
+    const r = await ev((keep) => {
+      const out = {};
+      const load = (mut) => {
+        G.persist();
+        const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+        mut(raw);
+        localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+        G.loadSave();
+        return [G.holeNerfed || 0, G.save.bhNote, G.save.bhCap].join();
+      };
+      const old = (lv, v) => (raw) => {
+        delete raw.bhCap;
+        delete raw.bhNote;
+        raw.skills.blackhole = lv;
+        raw.variants = v ? { blackhole: v } : {};
+        if (raw.tut) delete raw.tut.bhnerf;
+      };
+      out.oldO = load(old(12));
+      out.txtO = G.holeNerfNote(G.variantOf('blackhole'));
+      out.round = load(() => {});
+      out.oldB = load(old(12, 'b'));
+      out.txtB = G.holeNerfNote(G.variantOf('blackhole'));
+      out.txtA = G.holeNerfNote('a');
+      out.txtC = G.holeNerfNote('c');
+      out.none = load((raw) => {
+        old(12)(raw);
+        delete raw.skills.blackhole; // 没学（等级 0 读档时会按 1 级算）
+      });
+      out.fresh = load((raw) => {
+        raw.bhCap = 1;
+        raw.bhNote = false;
+        raw.skills.blackhole = 12;
+      });
+      G.save.tut.bhnerf = 1;
+      G.save.bhNote = false;
+      out.seen = load((raw) => {
+        delete raw.bhCap;
+        raw.skills.blackhole = 12;
+      });
+      if (keep) localStorage.setItem('cinder-abyss-save-v1', keep);
+      G.loadSave();
+      G.computeStats();
+      return out;
+    }, varKeep);
+    assert(r.oldO === '1,true,1' && r.round === '1,true,1' && r.oldB === '1,true,1', '学了黑洞的老存档应提示一次：' + JSON.stringify(r));
+    assert(r.none === '0,false,1' && r.fresh === '0,false,1' && r.seen === '0,false,1', '没学黑洞 / 新存档 / 看过的不该提示：' + JSON.stringify(r));
+    assert(r.txtO === '<b>黑洞</b>：每跳最多伤到最近的 13 个敌人，怪聚成一团时伤害约 −19%（团越大减得越多）；分散的怪和单体不变', '原式的提示不对：' + r.txtO);
+    assert(r.txtA === '<b>黑洞·双极</b>：每跳最多伤到最近的 13 个敌人，怪聚成一团时伤害约 −19%（团越大减得越多）；分散的怪和单体不变', '双极的提示不对：' + r.txtA);
+    assert(r.txtB === '<b>黑洞·坍缩</b>：每跳最多伤到最近的 8 个敌人，坍缩最多砸 7 个；怪聚成一团时伤害约 −52%，分散的怪约 −23%，单体不变', '坍缩的提示不对：' + r.txtB);
+    assert(r.txtC === '<b>黑洞·随核</b>：每跳最多伤到离你最近的 9 个敌人，怪聚成一团时伤害约 −44%，分散的怪约 −10%；单体不变', '随核的提示不对：' + r.txtC);
+    return '老存档（学了黑洞）提示一次，按刻式写降幅，看过不再提示';
   });
 
   await step('渊式·说明：六件渊契的机制说明都是「解锁 技能·渊式名：」+ 一句按参数拼的话（数值跟着 G.VARIANTS 变）、详情里写着在技能页选；提示卡和图鉴都显示这一句；没有渊式的渊契说明照旧；刻式悬停公式的渊式比值都高过 A / B', async () => {

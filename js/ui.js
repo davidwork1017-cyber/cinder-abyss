@@ -6009,6 +6009,15 @@
       done: () => false,
     },
     {
+      // 黑洞加了「每跳最多伤到最近的 N 个」之前、学了黑洞的老存档：提示一次（见 game.js 的 bhNote）；按这一刻生效的刻式说
+      id: 'bhnerf', calm: true, max: 14,
+      get html() {
+        return G.holeNerfNote(G.variantOf('blackhole'));
+      },
+      when: () => G.holeNerfed > 0,
+      done: () => false,
+    },
+    {
       // 旧版双生坠：读档时升成四行（见 game.js 的 migrateTwin）
       id: 'sxmig', calm: true, max: 16,
       html: '<b>双生坠升级</b>：多了暴击伤害和总伤害两行，原有两行按原来的成色换算到新数值；效果改为「余响」',
@@ -6165,8 +6174,20 @@
       G.save.wsNote = false;
       G.whirlNerfed = 0;
     }
+    if (id === 'bhnerf') {
+      G.save.bhNote = false;
+      G.holeNerfed = 0;
+    }
     G.persist();
   }
+  // 黑洞改版提示的那一句（v = 'o' / 'a' / 'b' / 'c'）。百分比是同装备实测（16 只挤成一团 / 10 只散开），上限读数据
+  G.holeNerfNote = function (v) {
+    const sk = G.skillVariant('blackhole', v), N = sk.cap;
+    const name = '<b>黑洞' + (v === 'o' ? '' : '·' + sk.vname) + '</b>：';
+    if (v === 'b') return name + '每跳最多伤到最近的 ' + N + ' 个敌人，坍缩最多砸 ' + sk.collapse.hit + ' 个；怪聚成一团时伤害约 −52%，分散的怪约 −23%，单体不变';
+    if (v === 'c') return name + '每跳最多伤到离你最近的 ' + N + ' 个敌人，怪聚成一团时伤害约 −44%，分散的怪约 −10%；单体不变';
+    return name + '每跳最多伤到最近的 ' + N + ' 个敌人，怪聚成一团时伤害约 −19%（团越大减得越多）；分散的怪和单体不变';
+  };
   // 面板里接着提示的那一句（当前提示与这个页签有关时）
   function coachBanner(tab) {
     const h = coach.cur;
