@@ -6777,7 +6777,7 @@
   // 残像：一个不会动的诱饵（敌人把它当召唤物打，受伤直接吃掉），dur 秒后炸开
   function blinkDecoy(ctx, x, z) {
     const W = G.world, D = ctx.sk.decoy;
-    const d = { decoy: true, x, z, r: 0.5, height: 1.8, dead: false, rising: 0, hp: D.hp, maxHp: D.hp, t: D.dur, ctx, ring: W.kv('glyph', { hex: 0xc7a6ff, x, z, y: 0.06, s: D.taunt * 2, k: 1, edge: 1, dash: 28, a: 0.42, ew: 0.06 }) }; // skill-b1：嘲讽范围是一圈淡的细虚线（原来 7 米近白粗环）
+    const d = { decoy: true, x, z, r: 0.5, height: 1.8, dead: false, rising: 0, hp: D.hp, maxHp: D.hp, t: D.dur, ctx, ring: W.kv('glyph', { hex: 0xc7a6ff, x, z, y: 0.06, s: D.taunt * 2, k: 1, edge: 1, dash: 28, a: 0.62, ew: 0.08 }) }; // skill-b1：嘲讽范围是一圈淡的细虚线（原来 7 米近白粗环）
     VS.decoys.push(d);
     W.afterimage(P.ent, x, z, 0xc7a6ff, 1, D.dur + 0.15, 0, P.face);
     let n = 0;
