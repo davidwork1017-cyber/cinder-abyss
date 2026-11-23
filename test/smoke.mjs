@@ -12391,23 +12391,31 @@ async function main() {
     return fixed.uniq;
   });
 
-  await step('删除存档：两步确认后回到全新角色', async () => {
+  // multisave-d1：删除要确认两次（「删除 未定 · N 级？」→「删了就找不回来了。真的删除？」），删掉的角色先进回收位；
+  // 开场卡片改成所有角色共用一份「看过」，所以删完的新角色不再弹（原来断言「全新存档应再次弹出开场卡片」）
+  await step('删除存档：确认两次后换成全新角色，原来的进回收位', async () => {
     await page.keyboard.press('KeyM');
     await page.click('[data-act="del-save"]');
-    assert(await ev(() => !!document.querySelector('[data-act="del-confirm"]') && G.save.level > 1), '删除存档应先要求确认');
+    const ask = await ev(() => ({ confirm: !!document.querySelector('[data-act="del-confirm"]'), lvl: G.save.level, txt: (document.querySelector('.del-warn') || {}).innerText || '' }));
+    assert(ask.confirm && ask.lvl > 1 && ask.txt === '删除 未定 · ' + ask.lvl + ' 级？', '删除存档应先要求确认：' + JSON.stringify(ask));
     await page.click('[data-act="del-cancel"]');
     assert(await ev(() => !document.querySelector('[data-act="del-confirm"]')), '取消无效');
     await page.click('[data-act="del-save"]');
+    await page.click('[data-act="del-confirm"]');
+    const ask2 = await ev(() => ({ final: !!document.querySelector('[data-act="del-final"]'), txt: (document.querySelector('.del-warn') || {}).innerText || '' }));
+    assert(ask2.final && ask2.txt.startsWith('删了就找不回来了。真的删除？'), '第一次确认后应再问一次：' + JSON.stringify(ask2));
+    const keep = await ev(() => localStorage.getItem('cinder-abyss-save-v1'));
     // 防卡死的超时（不是行为断言）：15 → 30 秒。实测（188deef 之后，池里）这次重载 8.4–12.2 秒（10 次），四个 Chrome 一起跑的 test:func 里整步 13.9–15.0 秒、
     // 一次超过 15 秒失败；按最慢的约 2 倍定
-    await Promise.all([page.waitForNavigation({ timeout: 30000 }), page.click('[data-act="del-confirm"]')]);
+    await Promise.all([page.waitForNavigation({ timeout: 30000 }), page.click('[data-act="del-final"]')]);
     await install();
     await frames(2);
-    const r = await ev(() => ({ sum: G.debug.summary(), open: T.introOpen(), equip: Object.keys(G.save.equip).join(), maxTier: G.save.maxTier }));
+    const r = await ev(() => ({ sum: G.debug.summary(), open: T.introOpen(), equip: Object.keys(G.save.equip).join(), maxTier: G.save.maxTier, seenHelp: G.save.seenHelp, trash: JSON.parse(localStorage.getItem('cinder-abyss-trash') || 'null'), cur: G.slots.cur() }));
     assert(r.sum.player.level === 1 && r.sum.bag === 0 && r.equip === 'weapon' && r.maxTier === 0, '删除后不是全新存档：' + JSON.stringify(r.sum.player));
     assert(r.sum.zone.idx === 0 && r.sum.zone.tier === 0, '删除后应回到第一个区域');
     assert(Object.keys(r.sum.skills).join() === 'ember' && r.sum.supports.length === 0, '删除后技能没有重置（新角色只学掷焰）');
-    assert(r.open, '全新存档应再次弹出开场卡片');
+    assert(!r.open && r.seenHelp, '开场卡片所有角色共用一份「看过」：删完的新角色不该再弹：' + JSON.stringify({ open: r.open, seenHelp: r.seenHelp }));
+    assert(r.trash && r.trash.text === keep && r.trash.slot === r.cur, '删掉的角色应原文进回收位：' + JSON.stringify({ slot: r.trash && r.trash.slot, same: !!r.trash && r.trash.text === keep }));
     await closePanel();
   });
 
@@ -17142,7 +17150,12 @@ async function main() {
       // 背包页：13 + 巅峰 2 = 15 行（D5 把熄烛冠 / 双生坠接进图鉴）、拾到 0
       G.ui.open('inv');
       out.rows = document.querySelectorAll('.cx-row.rq').length;
-      out.title = /渊契图鉴/.test(T.bodyText()) && /已拾到 0 \/ 15/.test(T.bodyText());
+      // multisave-d1：图鉴显示所有角色合起来的（全局那份 + 当前角色），这个旧角色自己的图鉴是空的（上面 out.old），
+      // 显示的数按存储里的全局图鉴另算（原来断言「已拾到 0 / 15」：那时图鉴只看当前角色）
+      const gl = JSON.parse(localStorage.getItem('cinder-abyss-global') || '{}');
+      const gFound = (G.RELIC_CODEX || G.RELIC_IDS).filter((id) => gl.codex && gl.codex.relic.found[id] === true).length;
+      out.gFound = gFound;
+      out.title = /渊契图鉴/.test(T.bodyText()) && new RegExp('已拾到 ' + gFound + ' / 15').test(T.bodyText());
       G.ui.close();
       if (keep) localStorage.setItem(KEY, keep);
       else localStorage.removeItem(KEY);
@@ -20340,6 +20353,557 @@ async function main() {
 
   await titleSteps();
   await storySteps();
+  await slotSteps();
+}
+
+// ------------------------------------------------------------------ 多存档（multisave-d1）
+// 6 个角色栏位：第 1 栏就是原来的 cinder-abyss-save-v1（key 不变），迁移只加备份和索引、不改它；退回旧代码时旧代码读的就是第 1 栏。
+// 「旧代码」= 多存档之前最后一版（单存档，main 2c0ec73），test/serve.mjs 的 /__old/<提交>/ 从 git 里按需取它的文件，和当前代码同源、共用 localStorage。
+// 比的是旧版本存档里有的每个字段（逐个字段 JSON 相同）；新代码没有多出字段时整份 JSON 也必须一字不差（多存档 D1 就是这样）。
+// 以后的版本给存档加了字段（比如职业 cls），旧版本读档时会丢掉它们，这是退回旧代码时预期的，多出的字段在步骤结果里列出来
+const OLD_SAVE_BUILD = '2c0ec73';
+// 新代码的存档 a 和旧版本的存档 b（都是 JSON 文本）：{ ok：b 里每个字段在 a 里 JSON 相同，exact：整份一字不差，extra：a 多出的字段，bad：不同的字段 }
+function saveVsOld(a, b) {
+  const A = JSON.parse(a), B = JSON.parse(b);
+  const bad = Object.keys(B).filter((k) => JSON.stringify(A[k]) !== JSON.stringify(B[k]));
+  const extra = Object.keys(A).filter((k) => !(k in B));
+  return { ok: !bad.length, exact: a === b, extra, bad };
+}
+const sameAsOld = (a, b) => {
+  const r = saveVsOld(a, b);
+  return r.ok && (r.extra.length > 0 || r.exact);
+};
+const SK = { s1: SAVE_KEY, bak: SAVE_KEY + '-bak', chars: 'cinder-abyss-chars', glob: 'cinder-abyss-global', trash: 'cinder-abyss-trash' };
+const slotKeyOf = (k) => (k === 0 ? SAVE_KEY : SAVE_KEY + '-s' + (k + 1));
+async function slotSteps() {
+  const OLD_URL = GAME_URL.replace(/index\.html$/, '__old/' + OLD_SAVE_BUILD + '/index.html');
+  const oldReady = () => until(() => window.G && G.state && G.state.zone && G.player && G.player.ent && G.debug, null, 90000);
+  const fresh = async (o) => {
+    if (browser) await browser.close().catch(() => {});
+    ({ browser, page, errors } = await launch(Object.assign({ width: 1280, height: 800 }, o || {})));
+  };
+  // 在旧版本页面里拼老存档样本（用旧版本自己的 newSave / rollItem），再按旧版本读一遍：样本原文 + 旧版本 sanitize 之后的 JSON
+  const buildSamples = () => {
+    const KEY = 'cinder-abyss-save-v1';
+    window.__testRand.seed('multisave-samples');
+    const S = {};
+    S.fresh = JSON.stringify(G.newSave());
+    const m = JSON.parse(S.fresh);
+    Object.assign(m, { level: 18, xp: 512, lastZone: 2, cleared: { ash: 0, frost: 0 }, bossKills: { golem: true, weaver: true }, seenHelp: true, seenStory: true });
+    m.cur.dust = 37;
+    m.cur.chaos = 4;
+    m.bag = [];
+    for (let i = 0; i < 12; i++) m.bag.push(G.rollItem(16, i % 3, G.SLOTS[i % G.SLOTS.length]));
+    G.SLOTS.forEach((sl, i) => (m.equip[sl] = G.rollItem(15, 1 + (i % 2), sl, sl === 'weapon' ? 1 : undefined)));
+    m.skills = { ember: 14, arc: 12, thrall: 12 };
+    m.sockets = { ember: [null, null, null], arc: [null, null, null], thrall: [null, null, null], [G.BASIC_CARD]: [null, null, null] };
+    m.bar = ['ember', null, 'arc', 'thrall'];
+    m.supports = Object.keys(G.SUPPORTS).slice(0, 3);
+    m.passives = ['start'].concat(G.TREE.start.links.slice(0, 2));
+    m.tut = Object.assign({}, m.tut, { move: 1 });
+    S.mid = JSON.stringify(m);
+    // 毕业：烬铸 / 渊契（含巅峰的熄烛冠）/ 刻式 / 渊式（戴着电桥戒，链雷选渊式、替下 B）
+    const e = JSON.parse(S.mid);
+    Object.assign(e, { level: 58, tier: 3, maxTier: 4, lastZone: 4, blankGems: [30, 12] });
+    e.cleared = {};
+    for (const z of G.ZONES) e.cleared[z.id] = 3;
+    e.bossKills = {};
+    for (const b of Object.keys(G.BOSSES)) e.bossKills[b] = true;
+    e.equip.weapon = G.rollUnique('jinduan', 55, 0.8);
+    e.equip.ring = G.rollRelic('dianqiao', 50, 0.5);
+    e.equip.amulet = G.rollRelic('xizhu', 55, 0.6);
+    e.bag.push(G.rollUnique('wanhun', 50, 0.3), G.rollRelic('huixuan', 50, 0.4));
+    e.uniq = { found: { jinduan: true, wanhun: true }, best: { jinduan: 80, wanhun: 30 }, pity: { behemoth: 2 } };
+    e.relic = { found: { dianqiao: true, huixuan: true, xizhu: true }, best: { dianqiao: 50, huixuan: 40, xizhu: 60 }, pity: { seal: 1 } };
+    e.skills = { ember: 40, arc: 40, blade: 38, thrall: 36 };
+    e.sockets.blade = [null, null, null];
+    e.variants = { arc: 'c', blade: 'b', ember: 'a' };
+    e.variantPrev = { arc: 'b' };
+    e.rqAuto = { arc: true };
+    e.variantFree = { blade: true };
+    e.frags = { seal: 2, rift: 1, vow: 0, box: 3 };
+    e.pinnacle = { kills: 1, pity: 1 };
+    e.cur.chaos = 120;
+    S.end = JSON.stringify(e);
+    // 成长改版之前（没有 gv）：27 级以上的旧武器读档时放大一次；也是黑洞改版之前（没有 bhCap、学了黑洞：读档时提示一次）
+    const g = JSON.parse(S.mid);
+    delete g.gv;
+    delete g.bhCap;
+    delete g.bhNote;
+    g.skills.blackhole = 20;
+    g.sockets.blackhole = [null, null, null];
+    g.level = 40;
+    g.equip.weapon = G.rollItem(31, 2, 'weapon', 0);
+    g.equip.weapon.wbase = [33, 49];
+    S.gv1 = JSON.stringify(g);
+    // 旧长弓（下标 5 的旧名字）
+    const b = JSON.parse(S.mid);
+    const bow = G.rollItem(20, 1, 'weapon', 5);
+    bow.baseName = G.BOW_OLD_NAMES[1];
+    b.equip.weapon = bow;
+    const bow2 = G.rollItem(25, 0, 'weapon', 5);
+    bow2.baseName = G.BOW_OLD_NAMES[2];
+    b.bag = [bow2];
+    S.longbow = JSON.stringify(b);
+    // 旧冰弓名（凛羽的基底以前叫「烬铸长弓」）
+    const c = JSON.parse(S.mid);
+    const uq = Object.keys(G.UNIQUES).find((id) => G.BASES.weapon[G.UNIQUES[id].base].type === 'emberbow');
+    const ice = G.rollUnique(uq, 45, 0.5);
+    ice.baseName = G.EMBERBOW_OLD_NAMES[2];
+    c.equip.weapon = ice;
+    S.icebow = JSON.stringify(c);
+    // 魂潮狂热改版之前（没有 stFz）、拿着魂幡（R 是魂潮）：读档时提示一次
+    const t = JSON.parse(S.mid);
+    delete t.stFz;
+    delete t.stNote;
+    t.equip.weapon = G.rollItem(22, 1, 'weapon', G.BASES.weapon.findIndex((b) => b.type === 'banner'));
+    S.banner = JSON.stringify(t);
+    // 旧版本读一遍：每个样本前按同一个种子重播（sanitize 里 newSave 会取随机数）
+    const O = {};
+    for (const n of Object.keys(S)) {
+      localStorage.setItem(KEY, S[n]);
+      window.__testRand.seed('multisave-load-' + n);
+      G.loadSave();
+      O[n] = JSON.stringify(G.save);
+    }
+    G.holdSave(true); // 离开页面时不写回
+    localStorage.clear();
+    return { S, O, meta: { uq, bow: b.equip.weapon.baseName, ice: ice.baseName } };
+  };
+
+  let SAMPLES = null;
+  await step('多存档·迁移：老存档样本（新号 / 中期 / 毕业带烬铸·渊契·刻式·渊式 / gv < 2 / 旧长弓 / 旧冰弓名 / 魂潮改版前的魂幡）进第 1 栏——原文一个字节不动，-bak 等于原文、再读档 / 索引丢了重建都不覆盖，sanitize 结果和旧版本（' + OLD_SAVE_BUILD + '）JSON 一致（旧版本有的字段逐个相同，没多出字段时整份一字不差）', async () => {
+    if (process.env.CINDER_FILE) return 'file:// 下没有同源的旧版本，这一步要 HTTP（默认就是）';
+    await fresh({ url: OLD_URL });
+    await oldReady();
+    SAMPLES = await ev(buildSamples);
+    await page.goto(GAME_URL);
+    await install();
+    const r = await ev(({ S, O, K }) => {
+      const out = {};
+      const get = (k) => localStorage.getItem(k);
+      for (const n of Object.keys(S)) {
+        localStorage.clear();
+        localStorage.setItem(K.s1, S[n]);
+        window.__testRand.seed('multisave-load-' + n);
+        G.loadSave();
+        const idx = JSON.parse(get(K.chars) || 'null');
+        const o = {
+          json: JSON.stringify(G.save), slot1: get(K.s1) === S[n], bak: get(K.bak) === S[n], mig: G.slotMigrated,
+          idx: !!idx && idx.active === 0 && !!idx.slots[0] && idx.slots.slice(1).every((x) => x === null), keys: Object.keys(localStorage).sort().join(),
+        };
+        window.__testRand.seed('multisave-load-' + n);
+        G.loadSave();
+        o.mig2 = G.slotMigrated;
+        o.json2 = JSON.stringify(G.save);
+        G.persist();
+        o.persisted = get(K.s1) === o.json2;
+        o.bak2 = get(K.bak) === S[n];
+        // 索引丢了、第 1 栏换了别的：照样重建索引，备份还是第一次迁移时的原文
+        localStorage.removeItem(K.chars);
+        localStorage.setItem(K.s1, S.fresh);
+        G.loadSave();
+        o.bak3 = get(K.bak) === S[n];
+        o.rebuilt = !!get(K.chars);
+        if (n !== 'fresh') o.diff = O[n] !== S[n]; // 样本确实被 sanitize 改动过（迁移没有偷偷写回第 1 栏）
+        out[n] = o;
+      }
+      localStorage.clear();
+      G.holdSave(true);
+      return out;
+    }, { S: SAMPLES.S, O: SAMPLES.O, K: SK });
+    const extra = new Set();
+    for (const n of Object.keys(r)) {
+      const o = r[n];
+      const v = saveVsOld(o.json, SAMPLES.O[n]);
+      v.extra.forEach((k) => extra.add(k));
+      assert(sameAsOld(o.json, SAMPLES.O[n]) && o.json2 === o.json, n + '：新代码读出的存档和旧版本 sanitize 的 JSON 不一致：' + JSON.stringify({ bad: v.bad, extra: v.extra, exact: v.exact, again: o.json2 === o.json }));
+      delete o.json;
+      delete o.json2;
+      assert(o.slot1 && o.mig && o.idx && o.keys === [SK.s1, SK.bak, SK.chars].sort().join(), n + '：迁移应只加备份和索引、第 1 栏原文不动：' + JSON.stringify(o));
+      assert(o.bak && o.bak2 && o.bak3 && !o.mig2 && o.rebuilt, n + '：-bak 应等于原文，第二次读档不再迁移、之后永远不覆盖：' + JSON.stringify(o));
+      assert(o.persisted, n + '：新代码存回第 1 栏的应就是读出来的存档：' + JSON.stringify(o));
+    }
+    const lens = Object.keys(SAMPLES.S).map((n) => n + ' ' + (SAMPLES.S[n].length / 1024).toFixed(1) + 'KB');
+    return Object.keys(r).length + ' 个样本 ' + (extra.size ? '旧版本有的字段一致，新代码多出 ' + [...extra].join(' / ') : '整份 JSON 一字不差') + '（' + lens.join('，') + '）；长弓 → ' + SAMPLES.meta.bow + '，冰弓 → ' + SAMPLES.meta.ice;
+  });
+
+  await step('多存档·退回旧代码：新代码迁移、存档、建第 2 栏 → 旧版本（' + OLD_SAVE_BUILD + '）读第 1 栏一致、接着玩并存档 → 新代码再读：和旧版本的结果一样，不再迁移，备份和第 2 栏原样', async () => {
+    if (process.env.CINDER_FILE) return 'file:// 下没有同源的旧版本，这一步要 HTTP（默认就是）';
+    assert(SAMPLES, '上一步没拼出样本');
+    const S = SAMPLES.S;
+    await ev(({ K, txt }) => {
+      G.holdSave(true);
+      localStorage.clear();
+      localStorage.setItem(K.s1, txt);
+    }, { K: SK, txt: S.end });
+    await page.reload({ timeout: 90000 });
+    await install();
+    const a = await ev(({ K, txt }) => {
+      const get = (k) => localStorage.getItem(k);
+      // 启动进区时游戏照常存一次档（和旧版本一样：存的是 sanitize 之后的存档）；迁移本身不写第 1 栏，上一步逐个样本查过
+      const noTut = (o) => JSON.stringify(Object.assign({}, o, { tut: null })); // 新手提示开局就会在内存里记几条（没存档），不算
+      const o = { mig: G.slotMigrated, slot1: noTut(JSON.parse(get(K.s1))) === noTut(G.save), bak: get(K.bak) === txt, cur: G.slots.cur(), level: G.save.level };
+      G.debug.give('dust', 7);
+      G.persist();
+      const k = G.slots.firstEmpty();
+      o.k = k;
+      o.made = G.slots.create(k);
+      o.back = G.slots.select(0);
+      o.save = JSON.stringify(G.save);
+      o.s1 = get(K.s1);
+      o.s2 = get(K.s1 + '-s2');
+      o.dust = G.save.cur.dust;
+      o.idx = JSON.parse(get(K.chars));
+      G.holdSave(true);
+      return o;
+    }, { K: SK, txt: S.end });
+    assert(a.mig && a.slot1 && a.bak && a.cur === 0 && a.level === 58, '启动时应迁移、备份等于原文，第 1 栏只有游戏照常存的那一次：' + JSON.stringify(a).slice(0, 300));
+    assert(a.k === 1 && a.made && a.back && a.s1 === a.save && a.s2 && a.idx.active === 0, '新代码应存回第 1 栏、建出第 2 栏：' + JSON.stringify({ k: a.k, made: a.made, back: a.back, active: a.idx.active }));
+    // 旧版本
+    await page.goto(OLD_URL);
+    await oldReady();
+    const b = await ev(({ K }) => {
+      const o = { save: JSON.stringify(G.save), level: G.save.level, dust: G.save.cur.dust, keys: Object.keys(localStorage).sort().join() };
+      G.debug.give('dust', 5);
+      G.persist();
+      o.after = JSON.stringify(G.save);
+      o.s1 = localStorage.getItem(K.s1);
+      G.holdSave(true);
+      return o;
+    }, { K: SK });
+    assert(sameAsOld(a.save, b.save), '旧版本读第 1 栏的结果应和新代码存的一致：' + JSON.stringify(saveVsOld(a.save, b.save)));
+    assert(b.s1 === b.after, '旧版本应能照常存回第 1 栏');
+    // 新代码再读
+    await page.goto(GAME_URL);
+    await install();
+    const c = await ev(({ K }) => {
+      const get = (k) => localStorage.getItem(k);
+      const o = { mig: G.slotMigrated, cur: G.slots.cur(), save: JSON.stringify(G.save), bak: get(K.bak), s2: get(K.s1 + '-s2'), dust: G.save.cur.dust, idx: JSON.parse(get(K.chars)) };
+      G.persist();
+      G.loadSave(); // 存过一次（索引里的指纹对上了）：这时盖上全局的设置，结果还是一样
+      o.again = JSON.stringify(G.save);
+      return o;
+    }, { K: SK });
+    assert(c.cur === 0 && !c.mig, '新代码再读应在第 1 栏、不再迁移：' + JSON.stringify({ cur: c.cur, mig: c.mig }));
+    assert(sameAsOld(c.save, b.after) && c.again === c.save && c.dust === a.dust + 5, '新代码再读应和旧版本存的结果一样：' + JSON.stringify({ vs: saveVsOld(c.save, b.after), again: c.again === c.save, dust: c.dust, want: a.dust + 5 }));
+    assert(c.bak === S.end && c.s2 === a.s2 && c.idx.slots[1], '备份和第 2 栏应原样：' + JSON.stringify({ bak: c.bak === S.end, s2: c.s2 === a.s2 }));
+    return '旧版本读到 ' + b.level + ' 级、通货 ' + b.dust + '，存回后新代码读到 ' + c.dust + '；旧版本看到的键 ' + b.keys.split(',').length + ' 个';
+  });
+
+  await step('多存档·全局和每个角色：设置 / 新手提示 / 图鉴（拾到过、最高完美度）/ 开场卡片所有角色共用；等级、层级、通货、主线、保底、拾到过（巅峰掉落用）按角色；切换角色两边都不串', async () => {
+    await fresh();
+    await install();
+    const a = await ev(() => {
+      const s = G.save;
+      s.seenHelp = true;
+      s.opts.volMusic = 33;
+      s.opts.hideNormal = true;
+      s.tut.ms_probe = 1;
+      s.cur.dust = 99;
+      s.tier = 1;
+      s.maxTier = 2;
+      s.quest.n = 3; // 主线（T32）按角色
+      G.debug.setLevel(9);
+      const u = G.rollUnique('jinyu', 40, 0.7);
+      G.noteUnique(u);
+      s.uniq.pity.behemoth = 2;
+      G.persist();
+      const k = G.slots.firstEmpty();
+      return { k, made: G.slots.create(k), best: s.uniq.best.jinyu };
+    });
+    assert(a.k === 1 && a.made, '应能在第 2 栏建新角色：' + JSON.stringify(a));
+    await Promise.all([page.waitForEvent('load', { timeout: 90000 }), ev(() => { sessionStorage.setItem(G.PLAY_ONCE_KEY, '1'); location.reload(); })]);
+    await install();
+    await frames(2);
+    const b = await ev(() => {
+      const s = G.save, cx = G.codexView();
+      const o = {
+        cur: G.slots.cur(), level: s.level, dust: s.cur.dust, tier: s.tier, maxTier: s.maxTier, quest: s.quest.n, vol: s.opts.volMusic, hide: s.opts.hideNormal, tut: !!s.tut.ms_probe,
+        cxFound: !!cx.uniq.found.jinyu, cxBest: cx.uniq.best.jinyu, ownFound: !!s.uniq.found.jinyu, pity: s.uniq.pity.behemoth || 0, intro: T.introOpen(), seenHelp: s.seenHelp,
+      };
+      s.opts.volMusic = 44;
+      s.cur.dust = 5;
+      G.persist();
+      o.glob = JSON.parse(localStorage.getItem('cinder-abyss-global'));
+      return o;
+    });
+    assert(b.cur === 1 && b.level === 1 && b.dust === 2 && b.tier === 0 && b.maxTier === 0 && b.quest <= 1, '新角色的等级 / 通货 / 层级 / 主线应是新的：' + JSON.stringify(b));
+    assert(b.vol === 33 && b.hide === true && b.tut, '设置和新手提示应所有角色共用：' + JSON.stringify(b));
+    assert(b.cxFound && b.cxBest === a.best && !b.ownFound && b.pity === 0, '图鉴显示应合并，拾到过（巅峰掉落用）和保底按角色：' + JSON.stringify(b));
+    assert(!b.intro && b.seenHelp, '开场卡片别的角色看过了，新角色不该再弹：' + JSON.stringify(b));
+    assert(b.glob.opts.volMusic === 44 && b.glob.helpSeen && b.glob.codex.uniq.found.jinyu, '全局那份应跟着存：' + JSON.stringify(b.glob).slice(0, 300));
+    // 切回第 1 个角色：设置是刚改的，自己的东西都在
+    await Promise.all([page.waitForEvent('load', { timeout: 90000 }), ev(() => { G.slots.select(0); sessionStorage.setItem(G.PLAY_ONCE_KEY, '1'); location.reload(); })]);
+    await install();
+    const c = await ev(() => ({ cur: G.slots.cur(), level: G.save.level, dust: G.save.cur.dust, tier: G.save.tier, quest: G.save.quest.n, vol: G.save.opts.volMusic, own: !!G.save.uniq.found.jinyu, pity: G.save.uniq.pity.behemoth }));
+    assert(c.cur === 0 && c.level === 9 && c.dust >= 99 && c.tier === 1 && c.quest >= 3 && c.own && c.pity === 2 && c.vol === 44, '切回第 1 个角色应是它自己的进度、全局的设置：' + JSON.stringify(c));
+    return '第 2 个角色：音乐 ' + b.vol + '、通货 ' + b.dust + '；切回：等级 ' + c.level + '、音乐 ' + c.vol;
+  });
+
+  await step('多存档·切换角色：召唤物、本次进区（渊印 run）、区域、计时器、刻式都不带到另一个角色；切回来是自己存的那份', async () => {
+    const a = await ev(() => {
+      const s = G.save;
+      s.skills.thrall = 20;
+      s.cleared.ash = 0;
+      G.enterZone(1, 0);
+      const P = G.player;
+      for (let i = 0; i < 3; i++) G.summonMinion('thrall', P.x + 1, P.z + 1);
+      G.persist();
+      return { minions: G.state.minions.length, zone: G.state.zoneIdx, run: JSON.stringify(s.run), s1: localStorage.getItem('cinder-abyss-save-v1'), timers: G.state.timers.length };
+    });
+    assert(a.minions >= 1 && a.zone === 1, '准备：应召唤出仆从、站在第 2 区：' + JSON.stringify(a));
+    await Promise.all([page.waitForEvent('load', { timeout: 90000 }), ev(() => { G.slots.select(1); sessionStorage.setItem(G.PLAY_ONCE_KEY, '1'); location.reload(); })]);
+    await install();
+    const b = await ev(() => ({ cur: G.slots.cur(), minions: G.state.minions.length, zone: G.state.zoneIdx, run: G.save.run ? G.save.run.zone : null, timers: G.state.timers.length, thrall: !!G.save.skills.thrall }));
+    assert(b.cur === 1 && b.minions === 0 && b.zone === 0 && b.run !== 1 && !b.thrall, '换到另一个角色后不该留着上一个的召唤物 / 区域 / 进区记录：' + JSON.stringify(b));
+    await Promise.all([page.waitForEvent('load', { timeout: 90000 }), ev(() => { G.slots.select(0); sessionStorage.setItem(G.PLAY_ONCE_KEY, '1'); location.reload(); })]);
+    await install();
+    const c = await ev(() => ({ cur: G.slots.cur(), minions: G.state.minions.length, zone: G.state.zoneIdx, run: JSON.stringify(G.save.run), thrall: G.save.skills.thrall }));
+    assert(c.cur === 0 && c.minions === 0 && c.zone === 1 && c.run === a.run && c.thrall === 20, '切回来应是自己存的那份（召唤物不进存档）：' + JSON.stringify(c));
+    return '换过去：仆从 ' + b.minions + '、区域 ' + b.zone + '、计时器 ' + a.timers + ' → ' + b.timers + '；切回来：区域 ' + c.zone + '、run ' + c.run;
+  });
+
+  await step('多存档·写不进去：setItem 抛错（满了）时挂出提示条、不崩，接着在内存里玩，新建角色也不动存储；恢复后下一次存档写进去、提示条收起', async () => {
+    const r = await ev(() => {
+      const orig = Storage.prototype.setItem;
+      const before = Object.keys(localStorage).map((k) => k + '=' + localStorage.getItem(k).length).sort().join();
+      Storage.prototype.setItem = function () {
+        throw new DOMException('quota', 'QuotaExceededError');
+      };
+      const o = {};
+      try {
+        G.debug.give('dust', 3);
+        o.ok = G.persist();
+        o.kind = G.ui.saveBarKind();
+        const bar = document.getElementById('save-bar');
+        o.shown = getComputedStyle(bar).display !== 'none' && bar.innerText.includes('存档没写进去');
+        G.debug.god(true);
+        G.debug.step(12); // 自动存档（每 10 秒）也写不进去，不崩
+        o.time = G.state.time;
+        o.made = G.slots.create(G.slots.firstEmpty());
+        o.removed = G.slots.remove(1);
+        o.after = Object.keys(localStorage).map((k) => k + '=' + localStorage.getItem(k).length).sort().join();
+      } finally {
+        Storage.prototype.setItem = orig;
+      }
+      o.ok2 = G.persist();
+      o.kind2 = G.ui.saveBarKind();
+      o.dust = JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).cur.dust === G.save.cur.dust;
+      o.same = before === o.after;
+      return o;
+    });
+    assert(r.ok === false && r.kind === 'fail' && r.shown, '写不进去时应挂出提示条：' + JSON.stringify(r));
+    assert(r.time > 0 && r.made === false && r.removed === false && r.same, '写不进去时接着在内存里玩，栏位操作什么都不动：' + JSON.stringify(r));
+    assert(r.ok2 && r.kind2 === null && r.dust, '恢复后应写进去、提示条收起：' + JSON.stringify(r));
+  });
+
+  await step('多存档·迁移时备份写不进去：不迁移、不建索引，照旧按单存档跑第 1 栏（挂一次提示，不能新建别的栏），下次启动备份写得进去再迁移', async () => {
+    const S = SAMPLES ? SAMPLES.S : null;
+    await page.addInitScript(() => {
+      try {
+        if (!sessionStorage.getItem('ms-bakfail')) return;
+      } catch (e) {
+        return;
+      }
+      const orig = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (k, v) {
+        if (this === window.localStorage && k !== 'cinder-abyss-save-v1') throw new DOMException('quota', 'QuotaExceededError');
+        return orig.call(this, k, v);
+      };
+    });
+    const txt = S ? S.mid : await ev(() => { const s = JSON.parse(JSON.stringify(G.save)); s.level = 18; return JSON.stringify(s); });
+    await ev((txt) => {
+      G.holdSave(true);
+      localStorage.clear();
+      localStorage.setItem('cinder-abyss-save-v1', txt);
+      sessionStorage.setItem('ms-bakfail', '1');
+    }, txt);
+    await page.reload({ timeout: 90000 });
+    await install();
+    const a = await ev(({ K, txt }) => {
+      const get = (k) => localStorage.getItem(k);
+      const noTut = (o) => JSON.stringify(Object.assign({}, o, { tut: null }));
+      const o = { legacy: G.slots.legacy(), keys: Object.keys(localStorage).join(), slot1: noTut(JSON.parse(get(K.s1))) === noTut(G.save), level: G.save.level, bar: G.ui.saveBarKind(), first: G.slots.firstEmpty() };
+      G.debug.give('dust', 2);
+      o.ok = G.persist();
+      o.keys2 = Object.keys(localStorage).join();
+      o.dust = JSON.parse(get(K.s1)).cur.dust === G.save.cur.dust;
+      o.made = G.slots.create(1);
+      sessionStorage.removeItem('ms-bakfail');
+      G.holdSave(true);
+      o.s1 = get(K.s1);
+      return o;
+    }, { K: SK, txt });
+    assert(a.legacy && a.keys === SK.s1 && a.slot1 && a.level === 18 && a.bar === 'legacy', '备份写不进去时不该迁移、不建索引，照常读第 1 栏并提示：' + JSON.stringify(a));
+    assert(a.ok && a.keys2 === SK.s1 && a.dust && a.first === -1 && a.made === false, '单存档模式应照旧只写第 1 栏、不能建别的栏：' + JSON.stringify(a));
+    await page.reload({ timeout: 90000 });
+    await install();
+    const b = await ev(({ K }) => ({ legacy: G.slots.legacy(), mig: G.slotMigrated, bak: localStorage.getItem(K.bak), s1: localStorage.getItem(K.s1), idx: !!localStorage.getItem(K.chars), bar: G.ui.saveBarKind() }), { K: SK });
+    assert(!b.legacy && b.mig && b.idx && b.bak === a.s1 && b.s1 === a.s1 && b.bar === null, '下次启动应补上迁移（备份是那时第 1 栏的原文）：' + JSON.stringify({ legacy: b.legacy, mig: b.mig, idx: b.idx, bak: b.bak === a.s1, bar: b.bar }));
+  });
+
+  await step('多存档·多开标签页：另一个标签页写了这一栏、或者换了角色，这边挂出刷新提示（一直在，关不掉），之后 G.persist / 自动存档 / 关页面都不再写', async () => {
+    // 另一个标签页：同源的空白 iframe（自己的 Window、同一份 localStorage，它写的东西这边会收到 storage 事件）
+    const otherTab = () => ev(() => {
+      const f = document.createElement('iframe');
+      f.id = 'ms-other';
+      f.style.display = 'none';
+      document.body.appendChild(f);
+      return !!f.contentWindow.localStorage;
+    });
+    const other = { evaluate: (fn, arg) => ev(([src, a]) => (0, eval)('(' + src + ')').call(document.getElementById('ms-other').contentWindow, a, document.getElementById('ms-other').contentWindow.localStorage), [fn.toString(), arg]) };
+    {
+      const out = {};
+      for (const mode of ['slot', 'switch']) {
+        if (mode === 'switch') {
+          await page.reload({ timeout: 90000 });
+          await install();
+        }
+        assert(await otherTab(), '开不出同源的另一个窗口');
+        const t0 = await ev(() => { G.persist(); return { s1: localStorage.getItem('cinder-abyss-save-v1'), kind: G.ui.saveBarKind() }; });
+        assert(t0.kind === null, mode + '：开始时不该有提示条');
+        const foreign = await other.evaluate((mode, localStorage) => {
+          if (mode === 'slot') {
+            const s = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+            s.cur.dust = 4321;
+            localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(s));
+          } else {
+            const idx = JSON.parse(localStorage.getItem('cinder-abyss-chars'));
+            idx.active = idx.active === 0 ? 1 : 0;
+            localStorage.setItem('cinder-abyss-chars', JSON.stringify(idx));
+          }
+          return localStorage.getItem('cinder-abyss-save-v1');
+        }, mode);
+        await until(() => G.ui.saveBarKind() === 'stale', null, 10000);
+        const r = await ev(() => {
+          const bar = document.getElementById('save-bar');
+          const o = { shown: getComputedStyle(bar).display !== 'none' && bar.innerText.includes('另一个标签页') && !!bar.querySelector('[data-sb="reload"]'), close: !!bar.querySelector('[data-sb="close"]') };
+          G.debug.give('dust', 1);
+          o.ok = G.persist();
+          G.debug.god(true);
+          G.debug.step(12);
+          window.dispatchEvent(new Event('beforeunload'));
+          G.ui.saveBar(null); // 写成功的路径想收起它也不行
+          o.kind = G.ui.saveBarKind();
+          o.s1 = localStorage.getItem('cinder-abyss-save-v1');
+          return o;
+        });
+        await sleep(1500);
+        const still = await ev(() => getComputedStyle(document.getElementById('save-bar')).display !== 'none' && G.ui.saveBarKind() === 'stale');
+        assert(r.shown && !r.close && still && r.kind === 'stale', mode + '：刷新提示应一直挂着、没有关闭键：' + JSON.stringify(r));
+        assert(r.ok === false && r.s1 === foreign, mode + '：提示出来以后这边不该再写第 1 栏：' + JSON.stringify({ ok: r.ok, same: r.s1 === foreign }));
+        out[mode] = 'ok';
+        if (mode === 'switch') await other.evaluate((a, localStorage) => { const idx = JSON.parse(localStorage.getItem('cinder-abyss-chars')); idx.active = 0; localStorage.setItem('cinder-abyss-chars', JSON.stringify(idx)); });
+      }
+      return JSON.stringify(out);
+    }
+  });
+
+  // 标题画面上走一遍：建满 6 栏、删除（确认两次）、恢复、再删一个后回收位只有最近那个；删当前角色回到标题画面
+  await step('多存档·角色页：建满 6 栏（第 2 栏从界面建，先放开场故事）、「新游戏」变灰；删除要确认两次，回收位有人时写明会被顶掉；恢复原文一字不差（连以后版本才有的 cls 字段一起）；再删一个后回收位只有最近那个；删当前角色回标题画面', async () => {
+    await fresh({ title: true });
+    const ready = () => until(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, 90000);
+    await install();
+    await ready();
+    await ev(() => { G.holdSave(false); G.save.seenHelp = true; G.save.seenStory = true; G.debug.setLevel(23); G.persist(); });
+    await page.reload({ timeout: 90000 });
+    await install();
+    await ready();
+    const view = () => ev(() => { const v = document.querySelector('#title .m-view'); return v ? v.innerText : ''; });
+    await page.click('#t-chars');
+    let t = await view();
+    assert(t.includes('未定 · 23 级') && (t.match(/新建角色/g) || []).length === 5 && t.includes('上次玩的'), '角色页应有 1 张卡（未定 · 23 级）和 5 个空栏：' + t);
+    // 第 2 栏从界面建：重载进去，先放开场故事（每个角色一次），开场卡片全局看过了不再弹
+    await Promise.all([page.waitForEvent('load', { timeout: 90000 }), page.click('[data-tact="ch-new"][data-slot="1"]')]);
+    await install();
+    await until(() => G.ui.storyOn() && document.querySelector('#story.ready'), null, 30000);
+    await page.keyboard.press('Escape');
+    await until(() => !G.ui.storyOn(), null, 10000);
+    await frames(3);
+    const n2 = await ev(() => ({ cur: G.slots.cur(), lvl: G.save.level, intro: T.introOpen(), seen: G.save.seenStory, title: G.ui.titleOn() }));
+    assert(n2.cur === 1 && n2.lvl === 1 && n2.seen && !n2.intro && !n2.title, '新角色应放过开场故事、不弹开场卡片：' + JSON.stringify(n2));
+    // 第 3–6 栏：直接建（第 4 栏塞进以后版本的字段，看回收位 / 恢复是不是原样搬原文）
+    const made = await ev(() => {
+      const r = [];
+      for (let i = 0; i < 4; i++) r.push(G.slots.create(G.slots.firstEmpty()));
+      const k4 = 'cinder-abyss-save-v1-s4';
+      const s = JSON.parse(localStorage.getItem(k4));
+      s.cls = 'future';
+      s.quest = { step: 3, done: { a: 1 } };
+      s.level = 12;
+      localStorage.setItem(k4, JSON.stringify(s));
+      G.slots.select(1);
+      return r.join();
+    });
+    assert(made === 'true,true,true,true', '应能建到第 6 栏：' + made);
+    await toTitleFromGame();
+    let s = await ev(() => ({ newOff: document.getElementById('t-new').classList.contains('off'), hint: document.getElementById('t-new').innerText, n: document.getElementById('t-chars').innerText }));
+    assert(s.newOff && s.hint.includes('6 栏都满了') && s.n.includes('6 / 6'), '6 栏都满时「新游戏」应变灰并提示：' + JSON.stringify(s));
+    const keys0 = await ev(() => localStorage.length);
+    await page.click('#t-new');
+    assert((await ev(() => localStorage.length)) === keys0 && (await ev(() => G.ui.titleOn())), '6 栏都满时点「新游戏」什么都不该发生');
+    await page.click('#t-chars');
+    t = await view();
+    assert((t.match(/未定 ·/g) || []).length === 6 && !t.includes('新建角色'), '6 栏都满时应有 6 张卡：' + t);
+    cleanText(t, '角色页');
+    // 删第 4 栏：确认两次（回收位还空着，第二次不提顶掉）
+    const k4 = await ev(() => localStorage.getItem('cinder-abyss-save-v1-s4'));
+    await page.click('[data-tact="ch-del"][data-slot="3"]');
+    t = await view();
+    assert(t.includes('删除 未定 · 12 级？') && t.includes('确认删除'), '第一次确认的话不对：' + t);
+    assert((await ev(() => localStorage.getItem('cinder-abyss-save-v1-s4'))) === k4, '第一次确认前不该删');
+    await page.click('[data-tact="ch-del2"]');
+    t = await view();
+    assert(t.includes('删了就找不回来了。真的删除？') && !t.includes('会被彻底删除') && t.includes('按住 Alt'), '第二次确认的话不对：' + t);
+    await page.keyboard.down('Alt');
+    const alt = await ev(() => { const d = document.querySelector('#title .alt-d'); return d && getComputedStyle(d).display !== 'none' ? d.innerText : ''; });
+    await page.keyboard.up('Alt');
+    assert(alt.includes('回收位'), '按住 Alt 应显示回收位的说明：' + alt);
+    // 取消一次：什么都不动
+    await page.click('[data-tact="ch-cancel"]');
+    assert((await ev(() => localStorage.getItem('cinder-abyss-save-v1-s4'))) === k4 && !(await ev(() => localStorage.getItem('cinder-abyss-trash'))), '取消后不该删');
+    await page.click('[data-tact="ch-del"][data-slot="3"]');
+    await page.click('[data-tact="ch-del2"]');
+    await page.click('[data-tact="ch-del3"]');
+    let r = await ev(() => ({ s4: localStorage.getItem('cinder-abyss-save-v1-s4'), tr: JSON.parse(localStorage.getItem('cinder-abyss-trash') || 'null'), txt: document.querySelector('#title .m-view').innerText, newOff: document.getElementById('t-new').classList.contains('off') }));
+    assert(r.s4 === null && r.tr && r.tr.text === k4 && r.tr.slot === 3, '删掉的角色应原文进回收位：' + JSON.stringify({ s4: r.s4, slot: r.tr && r.tr.slot }));
+    assert(r.txt.includes('回收位：') && r.txt.includes('恢复') && (r.txt.match(/新建角色/g) || []).length === 1 && !r.newOff, '删完应空出一栏、显示回收位：' + r.txt);
+    // 恢复：回到原来那一栏，原文一字不差
+    await page.click('[data-tact="ch-restore"]');
+    r = await ev(() => ({ s4: localStorage.getItem('cinder-abyss-save-v1-s4'), tr: localStorage.getItem('cinder-abyss-trash'), txt: document.querySelector('#title .m-view').innerText }));
+    assert(r.s4 === k4 && r.tr === null && !r.txt.includes('回收位：'), '恢复后应原文回到第 4 栏、回收位清空：' + JSON.stringify({ same: r.s4 === k4, tr: r.tr }));
+    assert(JSON.parse(r.s4).quest.step === 3 && JSON.parse(r.s4).cls === 'future', '不认识的字段应原样跟着走');
+    // 删第 4 栏，再删第 5 栏：第二次确认写明回收位里的那个会被彻底删除；回收位只剩第 5 栏
+    const k5 = await ev(() => localStorage.getItem('cinder-abyss-save-v1-s5'));
+    for (const k of [3, 4]) {
+      await page.click('[data-tact="ch-del"][data-slot="' + k + '"]');
+      await page.click('[data-tact="ch-del2"]');
+      t = await view();
+      if (k === 4) assert(t.includes('回收位里的 未定 · 12 级 会被彻底删除'), '回收位有人时第二次确认应写明会被顶掉：' + t);
+      await page.click('[data-tact="ch-del3"]');
+    }
+    r = await ev(() => ({ s4: localStorage.getItem('cinder-abyss-save-v1-s4'), s5: localStorage.getItem('cinder-abyss-save-v1-s5'), tr: JSON.parse(localStorage.getItem('cinder-abyss-trash') || 'null') }));
+    assert(r.s4 === null && r.s5 === null && r.tr && r.tr.slot === 4 && r.tr.text === k5, '回收位应只有最近删的那个：' + JSON.stringify({ slot: r.tr && r.tr.slot }));
+    // 删当前角色（第 2 栏）：重载回标题画面，「继续游戏」换成剩下的角色，删掉的没被写回
+    const cur = await ev(() => G.slots.cur());
+    assert(cur === 1, '当前应是第 2 栏：' + cur);
+    await page.click('[data-tact="ch-del"][data-slot="1"]');
+    await page.click('[data-tact="ch-del2"]');
+    await Promise.all([page.waitForEvent('load', { timeout: 90000 }), page.click('[data-tact="ch-del3"]')]);
+    await install();
+    await ready();
+    r = await ev(() => ({ s2: localStorage.getItem('cinder-abyss-save-v1-s2'), cur: G.slots.cur(), cont: document.getElementById('t-continue').classList.contains('has'), tr: JSON.parse(localStorage.getItem('cinder-abyss-trash')).slot, title: G.ui.titleOn() }));
+    assert(r.s2 === null && r.cur !== 1 && r.cont && r.tr === 1 && r.title, '删当前角色后应回标题画面、没被写回：' + JSON.stringify(r));
+    return '6 栏建满；删 / 恢复 / 再删两个，回收位 = 第 5 栏；删当前角色后进第 ' + (r.cur + 1) + ' 栏';
+  });
+
+  async function toTitleFromGame() {
+    await page.keyboard.press('Escape');
+    assert(await ev(() => G.ui.paused()), 'Esc 没有打开暂停菜单');
+    await page.click('#p-menu [data-tact="menu"]');
+    assert(await ev(() => G.ui.titleOn()), '返回主菜单之后不在标题画面');
+  }
 }
 
 // ------------------------------------------------------------------ 开场故事（intro-story）
@@ -20619,29 +21183,35 @@ async function titleSteps() {
     return s.save.replace(/\s+/g, ' ');
   });
 
-  await step('新游戏（有存档）先确认：取消保留存档，确认后从新角色开始（重载后跳过标题画面、弹出开场卡片）', async () => {
+  // multisave-d1：有存档时「新游戏」不再覆盖（原来先确认「覆盖存档」、确认后删掉原角色），改成在第一个空栏建新角色，原来的角色留着；
+  // 开场卡片所有角色共用一份「看过」，新角色只放开场故事（原来断言「确认后应…弹开场卡片」）。最后从角色页切回原来的角色，后面的步骤接着用第 1 栏
+  await step('新游戏（有存档）：在空栏建新角色，原来的角色一字不动（重载后跳过标题画面、先放开场故事，开场卡片看过了不再弹）；角色页切回原来的角色', async () => {
     await toTitle();
     const keep = await ev(() => localStorage.getItem('cinder-abyss-save-v1'));
-    await page.click('#t-new');
     let s = await titleState();
-    const txt = await ev(() => document.querySelector('#title .m-view').innerText);
-    assert(s.title && s.view === 'confirm' && txt.includes('覆盖') && txt.includes('12 级'), '有存档时新游戏应先确认：' + JSON.stringify({ view: s.view, txt }));
-    await page.click('#title [data-tact="back"]');
-    s = await titleState();
-    assert(s.title && !s.view && s.stored === keep && s.cont, '取消后应保留存档、回到标题菜单：' + JSON.stringify({ view: s.view, same: s.stored === keep }));
-    await page.click('#t-new');
-    await Promise.all([page.waitForEvent('load', { timeout: 90000 }), page.click('#title [data-tact="new-confirm"]')]);
+    assert(s.title && !s.view && s.cont && !(await ev(() => document.getElementById('t-new').classList.contains('off'))), '有存档时「新游戏」应可点：' + JSON.stringify({ view: s.view }));
+    await Promise.all([page.waitForEvent('load', { timeout: 90000 }), page.click('#t-new')]);
     await install();
-    // intro-story：确认新游戏重载后（跳过标题画面）先放开场故事，Esc 跳过再看开场卡片
     await until(() => G.ui.storyOn() && document.querySelector('#story.ready'), null, 30000);
     assert(!(await ev(() => T.introOpen())), '开场故事放着的时候开场卡片不该弹出');
     await page.keyboard.press('Escape');
-    await until(() => !G.ui.storyOn() && document.getElementById('intro').classList.contains('on'), null, 10000);
+    await until(() => !G.ui.storyOn(), null, 10000);
     await frames(2);
-    const r = await ev(() => ({ title: G.ui.titleOn(), intro: T.introOpen(), lvl: G.save.level, zone: G.state.zone.def.id, tier: G.state.tier, maxTier: G.save.maxTier, once: sessionStorage.getItem('cinder-abyss-play-once'), stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).level }));
-    assert(!r.title && r.intro && r.lvl === 1 && r.zone === 'ash' && r.tier === 0 && r.maxTier === 0 && r.stored === 1, '确认后应是新角色、直接进区并弹开场卡片：' + JSON.stringify(r));
+    const r = await ev(() => ({ title: G.ui.titleOn(), intro: T.introOpen(), lvl: G.save.level, zone: G.state.zone.def.id, tier: G.state.tier, maxTier: G.save.maxTier, once: sessionStorage.getItem('cinder-abyss-play-once'), cur: G.slots.cur(), s1: localStorage.getItem('cinder-abyss-save-v1'), s2: JSON.parse(localStorage.getItem('cinder-abyss-save-v1-s2')).level }));
+    assert(!r.title && !r.intro && r.lvl === 1 && r.zone === 'ash' && r.tier === 0 && r.maxTier === 0 && r.cur === 1 && r.s2 === 1, '新游戏应在第 2 栏建新角色、直接进区（开场卡片看过了不再弹）：' + JSON.stringify(Object.assign({}, r, { s1: undefined })));
+    assert(r.s1 === keep, '原来的角色（第 1 栏）不该被动');
     assert(r.once === null, '一次性的跳过标记应已清掉');
-    await page.keyboard.press('Enter');
+    // 角色页：两张卡，进入第 1 栏（重载进去）
+    await toTitle();
+    await page.click('#t-chars');
+    const txt = await ev(() => document.querySelector('#title .m-view').innerText);
+    assert(txt.includes('未定 · 12 级') && txt.includes('未定 · 1 级') && (txt.match(/新建角色/g) || []).length === 4, '角色页应列出两个角色、4 个空栏：' + txt);
+    await Promise.all([page.waitForEvent('load', { timeout: 90000 }), page.click('[data-tact="ch-play"][data-slot="0"]')]);
+    await install();
+    await frames(2);
+    const b = await ev(() => ({ cur: G.slots.cur(), lvl: G.save.level, title: G.ui.titleOn(), intro: T.introOpen(), story: G.ui.storyOn() }));
+    assert(b.cur === 0 && b.lvl === 12 && !b.title && !b.intro && !b.story, '角色页进入第 1 栏应直接回到原来的角色：' + JSON.stringify(b));
+    return txt.replace(/\s+/g, ' ').slice(0, 120);
   });
 
   await step('标题画面的设置：改画质、开关选项立即生效并存档，继续游戏、重新载入后仍是这一档', async () => {
@@ -20986,7 +21556,7 @@ async function titleSteps() {
     await frames(2);
     const fit = (sel) => ev((sel) => [...document.querySelectorAll(sel)].filter((n) => n.getClientRects().length).map((n) => T.rect(n)).every((b) => b.l >= 0 && b.t >= 0 && b.r <= innerWidth && b.b <= innerHeight), sel);
     assert(await fit('.t-logo, #t-menu .m-btn, .t-foot'), '1024×640 下标题画面跑出了窗口');
-    for (const act of ['settings', 'help', 'credits']) {
+    for (const act of ['settings', 'help', 'credits', 'chars']) { // multisave-d1：加上角色页
       await page.click('#title [data-tact="' + act + '"]');
       assert(await fit('#title .m-view, #title .m-head'), '1024×640 下 ' + act + ' 子页跑出了窗口');
       await page.keyboard.press('Escape');
