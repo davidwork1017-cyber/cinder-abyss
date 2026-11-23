@@ -1919,6 +1919,23 @@ button.pk-row:hover { background: #2a1b10; border-color: var(--ember-2); }
 .sec-title .btn + .chk, .sec-title .btn + .btn, .sec-title .chk + .btn { margin-left: -4px; }
 .inv-tips.res { gap: 8px; font-size: 12.5px; color: #c9b48e; border-top-color: #5e4329; }
 .inv-tips.res b { color: #f2dfb8; font-weight: 600; }
+/* 一键分解含稀有：上膛时按钮变亮，底部一行写预计收获 */
+.btn.sm.armed { color: #fff3dc; border-color: #e08a45; background: linear-gradient(180deg, #8a3f14, #4a1f08); box-shadow: 0 0 0 1px #b4551c, 0 0 12px rgba(255, 130, 50, 0.4); }
+.inv-tips.res.bulk-on { gap: 5px; border-top-color: #b4551c; }
+.inv-tips.res.bulk-on .bulk-c { gap: 2px; font-variant-numeric: tabular-nums; }
+.inv-tips.res.bulk-on .bulk-arm { color: #ffb066; }
+.res-cur { white-space: nowrap; }
+.chk:disabled { cursor: default; opacity: 0.55; }
+.chk:disabled:hover { color: #b9c8ff; border-color: #4760c4; }
+/* 锁：纯 CSS 画的小锁（锁梁 + 锁身），颜色跟着 currentColor */
+.lk-ico { position: relative; display: inline-block; flex: none; width: 9px; height: 11px; vertical-align: -1px; }
+.lk-ico::before { content: ''; position: absolute; left: 1.5px; top: 0; width: 6px; height: 7px; box-sizing: border-box; border: 1.5px solid currentColor; border-bottom: none; border-radius: 3px 3px 0 0; }
+.lk-ico::after { content: ''; position: absolute; left: 0; bottom: 0; width: 9px; height: 6px; background: currentColor; border-radius: 1.5px; }
+.c-lk { position: absolute; left: 4px; bottom: 3px; line-height: 0; color: #f0c674; filter: drop-shadow(0 1px 1px #000) drop-shadow(0 0 2px #000); }
+.eq .c-lk { bottom: auto; top: 3px; left: 4px; }
+.act-row .btn.lk-btn { flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 0 10px; color: var(--dim); }
+.act-row .btn.lk-btn.on { color: #f0c674; border-color: #8a6424; }
+.ic-lk { display: flex; align-items: center; gap: 6px; margin-top: 7px; font-size: 12px; color: #f0c674; }
 .res-cur { display: inline-flex; align-items: center; gap: 3px; color: color-mix(in srgb, var(--c) 72%, #fff); }
 .res-cur .ico { width: 20px; height: 20px; }
 .inv-tips.coach { gap: 8px; font-size: 12.5px; color: #f0e2c8; border-top-color: #c58a4a; }
