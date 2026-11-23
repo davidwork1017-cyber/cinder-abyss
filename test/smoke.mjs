@@ -3371,7 +3371,7 @@ async function main() {
     const r = await ev((code) => {
       eval(code);
       const P = G.player, W = G.world, S = G.state, save = G.save, out = { n: 0, ends: 0, maxFirst: 0, maxEnd: 0, back: 0, bad: [], rows: {} };
-      const keepW = save.equip.weapon, keepBar = save.bar.slice(), keepVar = Object.assign({}, save.variants);
+      const keepW = save.equip.weapon, keepVar = Object.assign({}, save.variants), keepBuild = T.buildSnap(), keepAuto = JSON.stringify(save.autoSummon || {});
       const v3 = new THREE.Vector3();
       let last = null, wantMinion = false;
       const sp0 = G.spawnProjectile;
@@ -3416,7 +3416,8 @@ async function main() {
               G.computeStats();
               for (const k in save.autoSummon) save.autoSummon[k] = false;
               m = G.summonMinion('thrall', P.x + Math.sin(F) * 0.5 - Math.cos(F) * 1.5, P.z + Math.cos(F) * 0.5 + Math.sin(F) * 1.5, G.skillCtx('thrall'));
-              const e = G.spawnMob('husk', m.x + Math.sin(F) * 6, m.z + Math.cos(F) * 6, 1, { awake: true });
+              const sp = T.spotNear(m.x, m.z, 6, F);
+              const e = G.spawnMob('husk', sp.x, sp.z, 1, { awake: true });
               e.wasAwake = true;
               e.hp = e.maxHp = 1e7;
               e.atkCd = 1e9;
@@ -3495,11 +3496,12 @@ async function main() {
       } finally {
         G.spawnProjectile = sp0;
         G.input.mouse.b[2] = false;
+        G.input.tap[0] = 0;
         save.equip.weapon = keepW;
-        save.bar = keepBar;
         save.variants = keepVar;
+        save.autoSummon = JSON.parse(keepAuto);
         G.applyVariants();
-        G.computeStats();
+        T.buildRestore(keepBuild); // 宝石等级 / 镶嵌 / 技能栏还原（后面的自动召唤等步骤要原来的等级）
         G.clearMinions();
         T.arena();
       }
@@ -3560,102 +3562,6 @@ async function main() {
     assert(r.shots >= 9, '拉弓没射出几箭：' + JSON.stringify(r));
     assert(!r.bad.length, r.bad.slice(0, 6).join(' ｜ ') + ' 共 ' + r.bad.length + ' 例');
     return r.shots + ' 箭：出手那一帧都已撒放，前一帧都拉满搭着箭';
-  });
-
-  await step('出手点：只动画面——同一个种子打同一场远程混战（弓 / 枪 / 长杖 / 魂幡 / 飞刃 / 骸弓），出手点开着和关着结果（位置 / 生命 / 弹丸 / 取随机数次数）一模一样', async () => {
-    const KEY = 'cinder-abyss-save-v1';
-    const save0 = await ev((KEY) => localStorage.getItem(KEY), KEY);
-    const fresh = async (hold) => {
-      await ev(
-        ([KEY, s, hold]) => {
-          G.holdSave(true);
-          localStorage.setItem(KEY, s);
-          if (hold) sessionStorage.setItem('cinder-test-hold', '1');
-          else sessionStorage.removeItem('cinder-test-hold');
-        },
-        [KEY, save0, hold]
-      );
-      await page.reload({ timeout: 90000 });
-      await install();
-      await until(() => !G.world.assetsPending(), null, 60000);
-      if (!hold) return;
-      // 重进一次钉死布局的第 0 区（素材已经在缓存里）：重载时素材包到得早晚会让区里的布景（火把的个数）不一样，
-      // 火把冒火星取游戏随机数，两遍的起点就不一样了
-      await ev(() => {
-        G.debug.zoneSeed(4242);
-        G.enterZone(0, 0);
-      });
-      await until(() => !G.world.assetsPending(), null, 60000);
-    };
-    const run = (off) =>
-      ev(([code, off]) => {
-        eval(code);
-        const P = G.player, S = G.state, W = G.world, save = G.save;
-        window.__testRand.seed('出手点·只动画面');
-        T.arena();
-        P.god = true;
-        W.emitOff = off;
-        const base = Math.random;
-        let calls = 0, shots = 0;
-        Math.random = function () { calls++; return base.call(this); };
-        const sp0 = G.spawnProjectile;
-        G.spawnProjectile = function () { shots++; return sp0.apply(this, arguments); };
-        const es = [[-1.6, -3.4], [0.4, -3.9], [3.0, -1.8], [-3.6, -0.4], [3.4, 0.6]].map(([dx, dz]) => {
-          const e = G.spawnMob('husk', P.x + dx, P.z + dz, 1, { awake: true });
-          e.wasAwake = true;
-          e.hp = e.maxHp = 1e6;
-          return e;
-        });
-        save.skills.thrall = Math.max(30, save.skills.thrall || 0); // 刻式要宝石等级够才生效
-        save.sockets.thrall = save.sockets.thrall || [null, null, null];
-        save.variants.thrall = 'a';
-        G.applyVariants();
-        for (const k in save.autoSummon) save.autoSummon[k] = false;
-        save.skills.blade = Math.max(1, save.skills.blade || 0);
-        save.sockets.blade = save.sockets.blade || [null, null, null];
-        save.bar = ['blade', null, 'thrall', null]; // 召唤技能不在技能栏上时，召唤物过一会儿就散了
-        G.computeStats();
-        G.summonMinion('thrall', P.x + 1.5, P.z + 1.5, G.skillCtx('thrall'));
-        try {
-          for (const [k, b] of [[0, 10], [1, 8], [2, 12], [3, 1], [4, 7], [5, 13]]) {
-            RW.arm(b);
-            for (let i = 0; i < 50; i++) {
-              const e = es[(k + Math.floor(i / 25)) % es.length];
-              T.aim(e.x, e.z);
-              G.input.mouse.b[2] = i < 40;
-              if (i === 44) G.input.tap[0] = 0.3;
-              P.mana = P.maxMana;
-              G.tick(1 / 60);
-            }
-          }
-        } finally {
-          G.input.mouse.b[2] = false;
-          Math.random = base;
-          G.spawnProjectile = sp0;
-          W.emitOff = false;
-        }
-        const st = JSON.stringify({ p: [P.x, P.z, P.life, P.mana], e: S.enemies.map((o) => [o.x, o.z, o.hp, o.dead]), m: S.minions.map((o) => [o.x, o.z, o.hp]), proj: S.projectiles.map((q) => [q.x, q.z]), calls, shots });
-        let h = 2166136261;
-        for (let i = 0; i < st.length; i++) h = Math.imul(h ^ st.charCodeAt(i), 16777619);
-        const dmg = es.reduce((a, e) => a + (e.maxHp - e.hp), 0);
-        return { hash: (h >>> 0).toString(16), calls, shots, dmg: Math.round(dmg) };
-      }, [rangedSetup, off]);
-    let on, off;
-    try {
-      await fresh(true);
-      on = await run(false);
-      await fresh(true);
-      off = await run(true);
-    } finally {
-      await fresh(false);
-      await ev(() => {
-        G.debug.hold(true);
-        G.debug.god(true);
-      });
-    }
-    assert(on.hash === off.hash && on.calls === off.calls && on.shots === off.shots, '出手点开着 / 关着打出来不一样：' + JSON.stringify({ on, off }));
-    assert(on.shots >= 10 && on.dmg > 0, '混战没打起来：' + JSON.stringify(on));
-    return '哈希 ' + on.hash + '，取随机数 ' + on.calls + ' 次，弹丸 ' + on.shots + ' 发，伤害 ' + on.dmg;
   });
 
   await step('量表：热度开火上涨、停火回落、满了不掉；专注命中上涨（暴击 / 远距离更多），挨打掉一点；量表没满时 R 灰着按不出，满了能放、放完清零；不扣魔力、不进冷却', async () => {
@@ -11193,6 +11099,103 @@ async function main() {
     assert(fast.hint === 3, '「魔力不足」提示了 ' + fast.hint + ' 次（应 3 次，按游戏时间 1.2 秒节流）');
     assert(fast.dmg > 0, '掷焰没打中：' + JSON.stringify(fast));
     return '哈希 ' + fast.hash + '，取随机数 ' + fast.calls + ' 次，提示 ' + fast.hint + ' 次，伤害 ' + fast.dmg + '；真实时间 ' + fast.wall + ' / ' + slow.wall + ' ms';
+  });
+
+  await step('出手点：只动画面——同一个种子打同一场远程混战（弓 / 枪 / 长杖 / 魂幡 / 飞刃 / 骸弓），出手点开着和关着结果（位置 / 生命 / 弹丸 / 取随机数次数）一模一样', async () => {
+    const KEY = 'cinder-abyss-save-v1';
+    const save0 = await ev((KEY) => localStorage.getItem(KEY), KEY);
+    const god0 = await ev(() => !!G.player.god);
+    const fresh = async (hold) => {
+      await ev(
+        ([KEY, s, hold]) => {
+          G.holdSave(true);
+          localStorage.setItem(KEY, s);
+          if (hold) sessionStorage.setItem('cinder-test-hold', '1');
+          else sessionStorage.removeItem('cinder-test-hold');
+        },
+        [KEY, save0, hold]
+      );
+      await page.reload({ timeout: 90000 });
+      await install();
+      await until(() => !G.world.assetsPending(), null, 60000);
+      if (!hold) return;
+      // 重进一次钉死布局的第 0 区（素材已经在缓存里）：重载时素材包到得早晚会让区里的布景（火把的个数）不一样，
+      // 火把冒火星取游戏随机数，两遍的起点就不一样了
+      await ev(() => {
+        G.debug.zoneSeed(4242);
+        G.enterZone(0, 0);
+      });
+      await until(() => !G.world.assetsPending(), null, 60000);
+    };
+    const run = (off) =>
+      ev(([code, off]) => {
+        eval(code);
+        const P = G.player, S = G.state, W = G.world, save = G.save;
+        window.__testRand.seed('出手点·只动画面');
+        T.arena();
+        P.god = true;
+        W.emitOff = off;
+        const base = Math.random;
+        let calls = 0, shots = 0;
+        Math.random = function () { calls++; return base.call(this); };
+        const sp0 = G.spawnProjectile;
+        G.spawnProjectile = function () { shots++; return sp0.apply(this, arguments); };
+        const es = [[-1.6, -3.4], [0.4, -3.9], [3.0, -1.8], [-3.6, -0.4], [3.4, 0.6]].map(([dx, dz]) => {
+          const e = G.spawnMob('husk', P.x + dx, P.z + dz, 1, { awake: true });
+          e.wasAwake = true;
+          e.hp = e.maxHp = 1e6;
+          return e;
+        });
+        save.skills.thrall = Math.max(30, save.skills.thrall || 0); // 刻式要宝石等级够才生效
+        save.sockets.thrall = save.sockets.thrall || [null, null, null];
+        save.variants.thrall = 'a';
+        G.applyVariants();
+        for (const k in save.autoSummon) save.autoSummon[k] = false;
+        save.skills.blade = Math.max(1, save.skills.blade || 0);
+        save.sockets.blade = save.sockets.blade || [null, null, null];
+        save.bar = ['blade', null, 'thrall', null]; // 召唤技能不在技能栏上时，召唤物过一会儿就散了
+        G.computeStats();
+        G.summonMinion('thrall', P.x + 1.5, P.z + 1.5, G.skillCtx('thrall'));
+        try {
+          for (const [k, b] of [[0, 10], [1, 8], [2, 12], [3, 1], [4, 7], [5, 13]]) {
+            RW.arm(b);
+            for (let i = 0; i < 50; i++) {
+              const e = es[(k + Math.floor(i / 25)) % es.length];
+              T.aim(e.x, e.z);
+              G.input.mouse.b[2] = i < 40;
+              if (i === 44) G.input.tap[0] = 0.3;
+              P.mana = P.maxMana;
+              G.tick(1 / 60);
+            }
+          }
+        } finally {
+          G.input.mouse.b[2] = false;
+          Math.random = base;
+          G.spawnProjectile = sp0;
+          W.emitOff = false;
+        }
+        const st = JSON.stringify({ p: [P.x, P.z, P.life, P.mana], e: S.enemies.map((o) => [o.x, o.z, o.hp, o.dead]), m: S.minions.map((o) => [o.x, o.z, o.hp]), proj: S.projectiles.map((q) => [q.x, q.z]), calls, shots });
+        let h = 2166136261;
+        for (let i = 0; i < st.length; i++) h = Math.imul(h ^ st.charCodeAt(i), 16777619);
+        const dmg = es.reduce((a, e) => a + (e.maxHp - e.hp), 0);
+        return { hash: (h >>> 0).toString(16), calls, shots, dmg: Math.round(dmg) };
+      }, [rangedSetup, off]);
+    let on, off;
+    try {
+      await fresh(true);
+      on = await run(false);
+      await fresh(true);
+      off = await run(true);
+    } finally {
+      await fresh(false); // 回到这一步开始时的存档；暂停着，无敌开关照进来时的样子（后面的量表步骤要挨打）
+      await ev((god0) => {
+        G.debug.hold(true);
+        G.debug.god(god0);
+      }, god0);
+    }
+    assert(on.hash === off.hash && on.calls === off.calls && on.shots === off.shots, '出手点开着 / 关着打出来不一样：' + JSON.stringify({ on, off }));
+    assert(on.shots >= 10 && on.dmg > 0, '混战没打起来：' + JSON.stringify(on));
+    return '哈希 ' + on.hash + '，取随机数 ' + on.calls + ' 次，弹丸 ' + on.shots + ' 发，伤害 ' + on.dmg;
   });
 
   await step('刷新后仍可正常游玩：移动、施法、面板', async () => {
