@@ -4376,7 +4376,9 @@
       W.ring(e.x, e.z, 9, hex, 0.7);
       W.shake(0.7);
     } else {
+      if (quiet) W.fxMute(true); // class-d2b2：一群里静音着死的，击杀的光点也静音（随机数照取）
       W.burst(e.x, mid, e.z, hex, e.elite ? 26 : 12, e.elite ? 6 : 4.5, e.elite ? 0.6 : 0.45);
+      if (quiet) W.fxMute(false);
       if (e.elite) W.ring(e.x, e.z, 2.6, hex, 0.35);
     }
 
