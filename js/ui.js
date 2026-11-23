@@ -379,6 +379,7 @@
     }
     updateEncHud();
     updatePinHud();
+    updateQuestHud(now);
 
     setOrb(hud.life, P.life, P.maxLife, P.maxLifeRaw || P.maxLife);
     setOrb(hud.mana, P.mana, P.maxMana, P.maxManaRaw || P.maxMana);
@@ -3909,6 +3910,91 @@
   // ============================================================
   const pinHud = { box: null, key: '', bkey: '' };
   const PIN_PHASE = ['残焰', '熄灯', '冠焰'];
+  // ============================================================
+  // 主线追踪条（quest D1）：右上小地图正下方，三行字（主线 k/11 · 做什么 · 怎么做），按住 Alt 多出等级、奖励和一句背景。
+  // 只有 DOM（WebGL draw 0 增加）。每帧只比几个整数 / 布尔（步数、存档代数、要不要显示），内容最多每秒重算两次
+  // ============================================================
+  const qh = { root: null, k: null, goal: null, how: null, alt: null, n: -1, epoch: -1, vis: null, key: '', at: 0, pulse: false, toastQ: [], toastAt: 0 };
+  function initQuestHud() {
+    const r = (qh.root = document.createElement('div'));
+    r.id = 'quest';
+    r.innerHTML = '<div class="q-k"></div><div class="q-goal"></div><div class="q-how"></div><div class="q-alt"></div><div class="q-h">按住 <kbd>Alt</kbd> 查看详情</div>';
+    qh.k = r.children[0];
+    qh.goal = r.children[1];
+    qh.how = r.children[2];
+    qh.alt = r.children[3];
+    $('hud').appendChild(r);
+  }
+  const curList = (o) => Object.keys(o).map((id) => G.CURRENCY[id].name + ' ×' + o[id]).join('、');
+  // 第 n 步（0 起）现在该显示的三行和 Alt 详情。首领等级、区域等级按 G.ZONES 现算
+  function questView(n) {
+    const q = G.QUEST[n], st = G.state, S = G.save;
+    const Z = q.zone ? G.ZONES.find((z) => z.id === q.zone) : null;
+    let goal = q.l1 || '', how = q.l2 || '';
+    if (q.kind === 'boss') {
+      goal = '击败' + G.BOSSES[Z.boss].name;
+      how = q.l2 || '首领 ' + (Z.level + G.QUEST_BOSS_LV) + ' 级';
+    } else if (q.kind === 'in') {
+      goal = '去' + Z.name;
+      // 本区首领倒下、传送门还在：指传送门；传送门没了（重进过区域）：按 M 开地图
+      how = st.portal && !st.pin ? '走进传送门，在地图上选它' : q.l2 || '按 M 打开地图选它';
+    }
+    const det = [];
+    if (Z) det.push('怪物 ' + Z.level + ' 级 · 首领 ' + (Z.level + G.QUEST_BOSS_LV) + ' 级（你 ' + S.level + ' 级）');
+    else det.push('层级 1 怪物等级 +' + G.TIER_LEVELS + '（你 ' + S.level + ' 级）');
+    det.push(q.rw ? '奖励 ' + curList(q.rw) : '首次击败另得 2 点天赋');
+    return { k: '主线 ' + (n + 1) + '/' + G.QUEST_N, goal, how, det, lore: q.lore };
+  }
+  function updateQuestHud(now) {
+    const Q = G.save.quest, st = G.state;
+    const n = Q ? Q.n : G.QUEST_N;
+    const vis = !!(Q && n < G.QUEST_N && !Q.off && !ui.intro && !story.on && !menu.title && !menu.pause);
+    if (vis !== qh.vis) {
+      qh.vis = vis;
+      qh.root.classList.toggle('on', vis);
+      document.body.classList.toggle('quest-on', vis);
+    }
+    // 完成提示：排在同一时刻的其它飘字（首领倒下、层级解锁、区域名）后面，前一条出来 0.45 秒后再出（最多等 2.5 秒）
+    if (qh.toastQ.length && (now - lastToast.t > 450 || now - qh.toastAt > 2500)) {
+      toast(qh.toastQ.shift(), '#ffd98a');
+      qh.toastAt = now;
+    }
+    if (G.saveEpoch !== qh.epoch) {
+      // 换了存档（读档 / 新游戏）：不亮
+      qh.epoch = G.saveEpoch;
+      qh.n = n;
+      qh.pulse = false;
+      qh.key = '';
+    } else if (n !== qh.n) {
+      if (n > qh.n) qh.pulse = true;
+      qh.n = n;
+      qh.key = '';
+    }
+    if (!vis) return;
+    if (qh.key && now - qh.at < 500 && !qh.pulse) return;
+    qh.at = now;
+    const key = n + '|' + (st.portal && !st.pin ? 1 : 0) + '|' + G.save.level;
+    if (key !== qh.key) {
+      qh.key = key;
+      const v = questView(n);
+      qh.k.textContent = v.k;
+      qh.goal.textContent = v.goal;
+      qh.how.textContent = v.how;
+      qh.alt.innerHTML = v.det.map((t) => '<div>' + esc(t) + '</div>').join('') + '<div class="q-lore">' + (v.lore.match(/[^，。]+[，。]?/g) || []).map((c) => '<span>' + esc(c) + '</span>').join('') + '</div>';
+    }
+    // 换步骤时亮一下（1.2 秒）；首领醒着时不亮，打完再亮
+    if (qh.pulse && !(st.boss && st.boss.awake && !st.boss.dead)) {
+      qh.pulse = false;
+      qh.root.classList.remove('pulse');
+      void qh.root.offsetWidth; // 重新开始动画
+      qh.root.classList.add('pulse');
+    }
+  }
+  // game.js 推进主线时调：n 完成到第几步，got 这次加进背包的通货（首领步为 null）
+  function questDone(n, got) {
+    qh.toastQ.push('主线 ' + n + '/' + G.QUEST_N + ' 完成' + (got ? ' · ' + curList(got) : ''));
+  }
+
   function initPinHud() {
     const d = document.createElement('div');
     d.id = 'pin-lamps';
@@ -6101,6 +6187,7 @@
     initHud();
     initEncHud();
     initPinHud();
+    initQuestHud();
     initWorldUi();
     IC.warm(); // 图标趁空闲分批画好，第一次打开背包不再卡顿
     document.documentElement.style.setProperty('--relic', G.RELIC_COLOR); // 渊契的颜色只在 data.js 写一次，样式表里读 --relic
@@ -6262,6 +6349,9 @@
     bigToast,
     bigToastReset,
     verdict, // 换装评估（只读）：{ badge, score, empty, lines } | null
+    questDone,
+    // 测试读：追踪条现在显示的字、显不显示、排队中的完成提示
+    quest: () => ({ on: !!qh.vis, k: qh.k.textContent, goal: qh.goal.textContent, how: qh.how.textContent, alt: qh.alt.textContent, queued: qh.toastQ.slice() }),
     hints: () => ({ current: coach.cur ? coach.cur.id : null, state: coach.state, all: HINTS.map((h) => h.id), veteran: coach.vet, minShow: coach.minT, shownFor: coach.t }),
   };
 })();
