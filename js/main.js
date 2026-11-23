@@ -237,10 +237,12 @@
       else G.enterZone(save.lastZone, save.tier, 'resume');
       W.update(0); // 首次运行会先停在开场卡片：先把镜头和灯光摆到玩家身上
       if (!save.seenHelp) {
+        // 开场卡片讲的是操作，所有角色共用一份「看过」（G.helpSeenGlobal）：别的角色看过，新角色只放开场故事、不再弹卡片
+        const helpSeen = !!(G.helpSeenGlobal && G.helpSeenGlobal());
         const intro = () => {
           save.seenHelp = true;
           G.persist();
-          G.ui.showIntro();
+          if (!helpSeen) G.ui.showIntro();
         };
         // 开场故事：新角色第一次进游戏先放一遍，放完 / 跳过再弹开场卡片。老存档早就看过开场卡片（seenHelp），不会放；
         // 测试的 window.__skipTitle、地址带 ?play 也不放（测试要看故事时另设 window.__story）
