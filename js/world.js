@@ -24322,7 +24322,7 @@
     b1Ring(x, z, R, 0xffb050, 0x8a2a10, 0.36, 0.35);
     b1Tongues(x, z, R, lo ? 3 : 6, 0.5 + R * 0.12, 0.42, R * 0.5);
     vsBrush(VSH.chip, 0, 0, 0xff9a4a, 0x5a1e10, 0.3, 0.2, 0.4);
-    for (let i = 0, n = lo ? 3 : 6; i < n; i++) {
+    for (let i = 0, n = lo ? 0 : 6; i < n; i++) { // 余烬：低画质不放（太小看不见，形状批每件都要画整份几何）
       const a = vr(0, TAU), d = R * vr(0.2, 0.8);
       vsEmit(x + Math.sin(a) * d, 0.4, z + Math.cos(a) * d, vr(-0.4, 0.4), vr(1.5, 3), vr(-0.4, 0.4), vr(0.5, 0.85), 0.06, 0.06, 0, 0, -1, 0.6);
     }
