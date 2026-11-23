@@ -2236,6 +2236,7 @@
       }
     }
     G.supXCtx(ctx, sups, isAura); // 取舍型 / 改玩法的辅助（support-expand）：ctx.x、冷却、穿透、光环效果
+    if (P.heart) G.heartCtx(ctx); // 心火（class-d2b2）：化元之后再转一部分物理成火
     if (P.relic.any || ctx.sk.mech === 'king') G.relicCtx(ctx); // 渊契：必然、同殇等改上下文；渊式「独骸」
     G.sealCtx(ctx); // 渊印的玩家侧印纹（迟滞 / 蚀环 / 孤影）
     return ctx;
@@ -4260,10 +4261,12 @@
     lastHit.type = top;
     lastHit.total = hit.total;
     lastHit.killed = false;
+    if (P.heart && e.hp > 0) G.heartHit(e, ctx, inf, false); // 心火「护火」：叠层
     if (e.hp <= 0) {
       lastHit.killed = true;
       // over：溢出的伤害相当于几倍最大生命——越多，尸体飞得越远、碎得越快
       G.killEnemy(e, { ang, type: top, w, over: Math.min(2, (hit.total - hp0) / e.maxHp) });
+      if (P.heart) G.heartHit(e, ctx, inf, true); // 心火（class-d2b2）：打死的炸成余烬
     } else if (e.poiseMax > 0 && !broken) {
       // 削架势：打空即破绽
       // 「架势削减提高」（战锤的隐含属性）只算你亲手的命中
@@ -4418,6 +4421,14 @@
   G.hurtPlayer = function (amount, dtype, src) {
     if (P.dead || P.iframe > 0 || P.god) return false;
     if (!(amount > 0)) return false;
+    if (P.cast && P.cast.brace) {
+      // 硬接（class-d2b2）：正面格挡减伤 / 拆招招架住了就不挨这一下
+      amount = braceHurt(amount, src);
+      if (!(amount > 0)) {
+        combat.taken = state.time;
+        return false;
+      }
+    }
     combat.taken = state.time;
     if (P.relic.xizhu) amount *= G.darkWeakK(src); // 渊契「暗域」：域内的敌人伤害降低
     if (P.relic.tongshang) amount = G.relicShareHurt(amount, dtype, src); // 渊契「同殇」
@@ -4429,6 +4440,7 @@
     const TI = G.runMods.tint;
     if (TI && src && !src.sealFx) dmg += amount * TI.frac * (1 - (P.res[TI.el] || 0) / 100);
     dmg *= 1 - Math.min(90, P.S.lessTaken || 0) / 100;
+    if (P.heart) dmg *= G.heartTaken(); // 心火「护火」（class-d2b2）
     dmg *= 1 + Math.max(0, P.S.moreTaken || 0) / 100; // 基石「刃舞」的代价
     dmg *= G.bastionK(P.x, P.z); // 刻式「磐垒」：站在护域里少受伤
     if (src && (src.pin || (src.owner && src.owner.pin))) dmg = Math.min(dmg, P.maxLife * G.PIN.hitCap); // 熄烛者：单次最多扣 hitCap（不会一下打空）
@@ -5180,6 +5192,12 @@
         if (startWeaponSkill(slot, ctx, ang)) return true;
         continue;
       }
+      if (sk.kind === 'brace') {
+        // 硬接（class-d2b2）：原式 / 反震按住格挡（持续施放），拆招是一下招架
+        G.input.tap[slot] = 0;
+        braceStart(slot, id, ctx, ang);
+        return true;
+      }
       if (sk.kind === 'flicker') {
         // 影步连斩：附近没有够得着的敌人就不起手（不扣魔力、原地不动）；选中的第一个目标露出破绽则直接处决
         if (!flickerPick(sk, null, _fs)) {
@@ -5261,7 +5279,10 @@
       // 出手动作：连击三段各有各的挥法，其余按技能类型；命中帧对在生效的时刻
       const kind = sk.kind;
       const clip = st ? st.clip : cs ? cs.clip : sk.bclip || (kind === 'proj' || sk.mech === 'throw' ? 'throw' : kind === 'blink' ? 'blink' : kind === 'melee' ? 'attack1' : 'cast'); // 召唤也用施法动作；bclip：武器普攻自己的出手动作
-      if (kind === 'round' && G.roundShape().move) c.mv = G.roundShape().move; // 特殊弹 + 左轮：可以边走边打（照常经过上面的职业 / 魔力 / 冷却检查）
+      if (kind === 'round' && G.roundShape().move) c.mv = G.roundShape().move;
+      if (kind === 'scorch' || kind === 'leap') c.mv = 0; // 燎地 / 跳射（class-d2b2）：位移由技能自己推
+      if (kind === 'leap') c.dur = c.cancelT = c.fireT + sk.leap.dur; // 跳完才收招
+      else if (kind === 'scorch' && sk.dash) c.dur = c.cancelT = c.fireT + sk.dash.dur + 0.3; // 冲完上挑才收招 // 特殊弹 + 左轮：可以边走边打（照常经过上面的职业 / 魔力 / 冷却检查）
       G.world.play(P.ent, clip, { dur: st ? c.dur + 0.1 : c.dur * 1.3, contact: c.fireT });
       if (st) {
         G.world.setTrail(G.TYPE_HEX[mainType(ctx)]);
@@ -5538,6 +5559,7 @@
       updateWeaponCast(c, dt);
       return;
     }
+    if (c.brace && !c.fired) return updateBrace(c, dt); // 硬接（class-d2b2）：格挡 / 招架中；反砍之后是普通的收招
     if (c.channel) {
       if (c.ranged) updateRanged(c, dt);
       else if (c.flicker) updateFlicker(c, dt);
@@ -9782,6 +9804,7 @@
       fxOpt('netTick', netWedges, netLines, dt);
     }
     if (lamps.length || sea || P.lend) tickLamps(dt);
+    tickD2b2(dt); // class-d2b2
   }
   function resetD2b() {
     for (const f of roundPools) poolOff(f);
@@ -9796,8 +9819,550 @@
     if (sea) fxOpt('lampSea', sea, false);
     sea = null;
     if (P.lend) lendEnd(false);
+    resetD2b2(); // class-d2b2
   }
   G.d2bState = () => ({ pools: roundPools.length, wedges: netWedges.length, lines: netLines.length, lamps: lamps.length, sea: !!sea, lend: lendOn(), push: !!push });
+
+  // =====================================================================
+  // class-d2b2：绊雷 / 硬接 / 燎地 / 心火 / 跳射（职业专属宝石）
+  // 地上的东西都有同时存在的上限：绊雷 3 枚、火痕 / 燎原的火地 2 道（绵延各 +durCap）。心火每秒最多炸几次余烬。
+  // 特效的随机只用形状批自己的 vr（world.js），声音用 G.audio.rng；这里的 Math.random 只有命中结算本身要的（暴击，calcHit 里）
+  // =====================================================================
+  const mines = []; // 绊雷 { x, z, t, dur, arm, ang, ctx, id }
+  const burns = []; // 火痕 { kind 'trail', ax, az, bx, bz, w } / 燎原的火地 { kind 'fan', x, z, ang, arc, len }，共有 t, dur, tt, tick, mult, ctx
+  let move2 = null; // 燎地的冲刺 / 跳射的后跳 { kind, dx, dz, left, sp, arena, x0, z0, ctx, onEnd }
+  let mineSeq = 0;
+  let leapTok = 0;
+  let braceFx = false; // 格挡 / 招架的提示亮着（翻滚取消时由 tickD2b2 熄掉）
+  function braceFxSet(on, parry) {
+    if (!on && !braceFx) return;
+    braceFx = !!on;
+    fxOpt('braceOn', P.ent, !!on, !!parry);
+  }
+  const heartBursts = []; // 心火：最近 1 秒里炸过的时刻（每秒上限）
+  // 位移（燎地往前冲、跳射往后跳）：每帧推一段，撞墙 / 出首领场地就停（起步时在场地里才限制，同反冲弹）；途中不无敌（跳射另给起跳无敌）
+  function move2Start(kind, dx, dz, d, dur, ctx, onEnd) {
+    const W = G.world;
+    if (move2 && move2.onEnd) move2.onEnd(move2, true);
+    move2 = { kind, dx, dz, left: d, sp: d / Math.max(0.02, dur), arena: !!(W.zone && W.zone.arena && W.inArena(P.x, P.z)), x0: P.x, z0: P.z, ctx, onEnd };
+  }
+  function tickMove2(dt) {
+    const M = move2, W = G.world;
+    if (P.dead || P.roll.t > 0) {
+      move2 = null;
+      if (M.onEnd) M.onEnd(M, true);
+      return;
+    }
+    let step = Math.min(M.left, M.sp * dt);
+    M.left -= step;
+    while (step > 1e-5) {
+      const s = Math.min(0.12, step);
+      step -= s;
+      const nx = P.x + M.dx * s, nz = P.z + M.dz * s;
+      if (!W.walkable(nx, nz, PLAYER_PAD) || (M.arena && !W.inArena(nx, nz))) {
+        M.left = 0;
+        break;
+      }
+      P.x = nx;
+      P.z = nz;
+    }
+    if (M.left <= 1e-5) {
+      move2 = null;
+      state.stats.move2Dist = dist(P.x, P.z, M.x0, M.z0); // 测试用：这一次走了多远
+      if (M.onEnd) M.onEnd(M, false);
+    }
+  }
+  G.move2State = () => move2;
+  // 一群怪同时挨同一下：只有第一处放命中特效，其余的静音（随机数照取）只冒几颗暗芯火星（同 D2b-1 的 tickHit）
+  function groupHit(list, ctx, mult, infoFn, spark) {
+    let first = true;
+    for (const e of list) {
+      if (e.dead) continue;
+      if (!first) G.world.fxMute(true);
+      G.hitEnemy(e, ctx, mult, infoFn(e));
+      if (!first) {
+        G.world.fxMute(false);
+        if (spark) fxOpt('emberSpark', e.x, e.z, e.height);
+      }
+      first = false;
+    }
+  }
+
+  // ---------- 绊雷 ----------
+  SKILL_FX.snare = function (ctx, a) {
+    const sk = ctx.sk;
+    const aim = P.cast && P.cast.id === ctx.id ? P.cast.aim : a.ang;
+    const d = G.clamp(a.dist, 1.5, sk.range);
+    const L = Math.max(0.8, rayLen(P.x, P.z, aim, d, 0.25)); // 撞墙停：落在墙前
+    const x = P.x + Math.sin(aim) * L, z = P.z + Math.cos(aim) * L;
+    const fly = L / sk.speed;
+    const x0 = P.x, z0 = P.z;
+    fxOpt('snareShot', P.ent, x0, z0, x, z, fly);
+    G.after(fly, () => minePlant(ctx, x, z, aim));
+    G.sfx('cls2', { type: 'snare' });
+  };
+  function minePlant(ctx, x, z, ang) {
+    const sk = ctx.sk, M = sk.mine;
+    if (!G.world.walkable(x, z, 0.1)) return;
+    const cap = M.max + (ctx.durCap || 0);
+    while (mines.length >= cap) fxOpt('mineSet', mines.shift(), false);
+    const m = { x, z, t: M.dur * ctx.durK, dur: M.dur * ctx.durK, arm: M.arm, ang, ctx, id: ++mineSeq };
+    mines.push(m);
+    fxOpt('mineSet', m, true);
+    state.stats.minesPlaced = (state.stats.minesPlaced || 0) + 1;
+  }
+  G.minePlant = (x, z) => minePlant(G.skillCtx('snare'), x, z, 0); // 测试用
+  function mineBoom(m) {
+    const ctx = m.ctx, sk = ctx.sk, ak = Math.sqrt(ctx.area);
+    state.stats.mineBooms = (state.stats.mineBooms || 0) + 1;
+    if (sk.mech === 'tether') {
+      // 钉索：不炸，铁索钉住 r 米内的敌人
+      const R0 = sk.root, R = R0.r * ak, list = [];
+      for (const e of enemiesIn(m.x, m.z, R)) if (losClear(m.x, m.z, e.x, e.z)) list.push(e);
+      groupHit(list, ctx, 1, (e) => ({ ang: Math.atan2(e.x - m.x, e.z - m.z), w: 0, kb: 0, poise: 8, quiet: true }), false);
+      for (const e of list) {
+        if (e.dead) continue;
+        if (e.isBoss) {
+          e.snareT = R0.t;
+          e.snareK = R0.bossSlow;
+        } else e.stunT = Math.max(e.stunT || 0, R0.t * (e.elite ? R0.elite : 1));
+        state.stats.mineRoots = (state.stats.mineRoots || 0) + 1;
+      }
+      fxOpt('mineTether', m.x, m.z, R, list);
+      G.sfx('cls2', { type: 'tether' });
+      return;
+    }
+    const R = sk.radius * ak, list = [];
+    for (const e of enemiesIn(m.x, m.z, R)) if (losClear(m.x, m.z, e.x, e.z)) list.push(e);
+    groupHit(list, ctx, 1, (e) => ({ ang: Math.atan2(e.x - m.x, e.z - m.z), quiet: true }), true);
+    if (list.length) G.hitStop((sk.stop || 30) * ctx.stopK);
+    fxOpt('mineBoom', m.x, m.z, R, false);
+    G.sfx('cls2', { type: 'boom' });
+    if (sk.mech === 'cluster') {
+      const C = sk.cluster;
+      const px = Math.cos(m.ang), pz = -Math.sin(m.ang); // 垂直于射出的方向
+      for (let i = 0; i < C.n; i++) {
+        const s = i % 2 ? -1 : 1, dd = C.d * (1 + Math.floor(i / 2) * 0.6);
+        const L = rayLen(m.x, m.z, Math.atan2(px * s, pz * s), dd, 0.2);
+        const bx = m.x + px * s * L, bz = m.z + pz * s * L;
+        fxOpt('bombletFly', m.x, m.z, bx, bz, C.delay);
+        G.after(C.delay, () => {
+          const r = C.r * ak, l2 = [];
+          for (const e of enemiesIn(bx, bz, r)) if (losClear(bx, bz, e.x, e.z)) l2.push(e);
+          groupHit(l2, ctx, C.k, (e) => ({ ang: Math.atan2(e.x - bx, e.z - bz), w: 0, kb: 0.6, poise: 8, quiet: true }), true);
+          fxOpt('mineBoom', bx, bz, r, true);
+          state.stats.bomblets = (state.stats.bomblets || 0) + 1;
+        });
+      }
+    }
+  }
+  function tickMines(dt) {
+    for (let i = mines.length - 1; i >= 0; i--) {
+      const m = mines[i];
+      m.t -= dt;
+      m.arm -= dt;
+      if (m.t <= 0) {
+        mines.splice(i, 1);
+        fxOpt('mineSet', m, false);
+        continue;
+      }
+      if (m.arm > 0) continue;
+      const T = m.ctx.sk.mine.trig;
+      let hit = false;
+      for (const e of state.enemies) {
+        if (e.dead || e.friendly) continue;
+        if (Math.hypot(e.x - m.x, e.z - m.z) - (e.r || 0.5) <= T) {
+          hit = true;
+          break;
+        }
+      }
+      if (!hit) continue;
+      mines.splice(i, 1);
+      fxOpt('mineSet', m, false);
+      mineBoom(m);
+    }
+  }
+  G.mineState = () => mines;
+
+  // ---------- 硬接 ----------
+  // 打你的东西从哪个方向来：预警圈看施放者（没有就看圈心），投射物看来的方向，怪看它自己；返回 null = 说不出方向（算正面）
+  function hurtDir(src) {
+    let o = src;
+    if (src.shape && src.owner && !src.owner.dead) o = src.owner;
+    if (!(o && o.x !== undefined)) return null;
+    const d = Math.hypot(o.x - P.x, o.z - P.z);
+    return d > 0.3 ? Math.atan2(o.x - P.x, o.z - P.z) : null;
+  }
+  // 打你的敌人是谁（拆招闪到它身后）：预警圈 / 投射物的主人，或者怪本身
+  function hurtFoe(src) {
+    if (!src) return null;
+    if (src.hp !== undefined && src.r !== undefined) return src;
+    const o = src.owner;
+    return o && o.hp !== undefined && !o.dead ? o : null;
+  }
+  // G.hurtPlayer 里调：返回挡过之后的伤害（0 = 拆招招架住了）
+  function braceHurt(amount, src) {
+    const c = P.cast;
+    if (!c || !c.brace || c.done || !src) return amount; // 地形、余烬地这类没有来源的伤害不挡
+    const sk = G.SKILLS[c.id];
+    if (c.parry) {
+      c.done = true;
+      c.fired = true;
+      const PR = sk.parry;
+      P.iframe = Math.max(P.iframe, PR.iframe);
+      state.stats.parries = (state.stats.parries || 0) + 1;
+      braceFxSet(false);
+      parryCounter(c, hurtFoe(src));
+      return 0;
+    }
+    const ang = hurtDir(src);
+    const B = sk.block;
+    if (ang !== null && Math.abs(angDiff(ang, c.aim)) > B.arc * DEG) return amount; // 背后、侧面挨的不挡
+    c.blocked += amount;
+    c.nBlock++;
+    state.stats.blocked = (state.stats.blocked || 0) + amount;
+    fxOpt('braceClang', P.ent, ang === null ? c.aim : ang);
+    G.sfx('cls2', { type: 'clang' });
+    if (sk.mech === 'jolt' && state.time - c.joltAt >= sk.jolt.gap) {
+      c.joltAt = state.time;
+      const J = sk.jolt, ctx = G.skillCtx(c.id), R = J.r * Math.sqrt(ctx.area);
+      const k = J.base + Math.min(J.cap, (amount / Math.max(1, P.maxLife)) * J.per);
+      const list = enemiesIn(P.x, P.z, R);
+      groupHit(list, ctx, k, (e) => ({ ang: Math.atan2(e.x - P.x, e.z - P.z), w: 1, kb: 1.2, poise: 18, quiet: true }), false);
+      fxOpt('braceJolt', P.x, P.z, R);
+      state.stats.jolts = (state.stats.jolts || 0) + 1;
+    }
+    return amount * (1 - B.dr / 100);
+  }
+  G.braceHurt = braceHurt;
+  // 拆招：闪到对方身后（站得住、路上没有墙或虚空、同在一个场地里），不然原地；稍后反刺（必定暴击）
+  function parryCounter(c, foe) {
+    const W = G.world, sk = G.SKILLS[c.id], PR = sk.parry;
+    const x0 = P.x, z0 = P.z;
+    let moved = false;
+    if (foe && !foe.dead) {
+      const dx = foe.x - P.x, dz = foe.z - P.z, d = Math.hypot(dx, dz) || 1;
+      const gap = (foe.r || 0.5) + 0.9;
+      const x = foe.x + (dx / d) * gap, z = foe.z + (dz / d) * gap;
+      const inA = W.zone && W.zone.arena && W.inArena(P.x, P.z);
+      if (W.walkable(x, z, PLAYER_PAD) && pathClear(P.x, P.z, x, z) && (!inA || W.inArena(x, z))) {
+        P.x = x;
+        P.z = z;
+        moved = true;
+      }
+    }
+    state.stats.parryBlink = moved ? (state.stats.parryBlink || 0) + 1 : state.stats.parryBlink || 0;
+    state.stats.parryStay = moved ? state.stats.parryStay || 0 : (state.stats.parryStay || 0) + 1;
+    const aim = foe && !foe.dead ? Math.atan2(foe.x - P.x, foe.z - P.z) : c.aim;
+    c.aim = aim;
+    P.face = aim;
+    fxOpt('parryFlash', x0, z0, P.x, P.z, moved);
+    G.sfx('cls2', { type: 'parry' });
+    G.world.play(P.ent, 'b_thrust', { dur: 0.42, contact: 0.12 });
+    c.dur = c.t + 0.45;
+    G.after(0.1, () => {
+      if (P.dead) return;
+      const ctx = Object.assign({}, G.skillCtx(c.id), { crit: 100 });
+      const st = { shape: 'line', len: 2.6, width: 1.6, mult: PR.k, w: 2, stop: 90, kb: 1.4, poise: 40 };
+      SKILL_FX.melee(ctx, { ang: aim, dx: Math.sin(aim), dz: Math.cos(aim), dist: 2 }, st);
+    });
+  }
+  function braceStart(slot, id, ctx, ang) {
+    const sk = ctx.sk;
+    payCost(ctx.cost);
+    comboReset();
+    if (sk.mech === 'parry') {
+      const PR = sk.parry;
+      P.cast = { slot, id, t: 0, fired: false, aim: ang, step: -1, st: null, brace: true, parry: true, done: false, win: PR.win, dur: PR.win + PR.rec, cancelT: Infinity, fireT: Infinity, mv: 0.5 };
+      G.world.play(P.ent, 'b_thrust', { dur: 1.2, contact: 1.1 });
+      braceFxSet(true, true);
+    } else {
+      P.cast = { slot, id, t: 0, fired: false, aim: ang, step: -1, st: null, channel: true, brace: true, done: false, blocked: 0, nBlock: 0, joltAt: -9, cancelT: Infinity, dur: Infinity, pulses: 0, move: sk.block.move };
+      G.world.play(P.ent, 'b_thrust', { dur: 4, contact: 3.9 }); // 后引的架势拉长成格挡姿态
+      braceFxSet(true, false);
+    }
+    P.face = ang;
+    state.stats.braceStarts = (state.stats.braceStarts || 0) + 1;
+    G.sfx('cls2', { type: 'brace' });
+  }
+  function braceEnd(c) {
+    braceFxSet(false);
+    c.done = true;
+  }
+  function updateBrace(c, dt) {
+    c.t += dt;
+    const sk = G.SKILLS[c.id];
+    if (!sk) {
+      P.cast = null;
+      return;
+    }
+    if (!c.done) c.aim = aimInfo().ang;
+    P.face = c.aim;
+    if (c.parry) {
+      if (!c.done && c.t >= c.win) {
+        // 没招架到：补一刀轻的，之后 cd 秒不能再招架
+        braceEnd(c);
+        c.fired = true;
+        const PR = sk.parry;
+        P.cds[c.id] = PR.cd;
+        P.cdMax[c.id] = PR.cd;
+        const ctx = G.skillCtx(c.id);
+        G.world.play(P.ent, 'attack1', { dur: 0.36, contact: 0.1 });
+        SKILL_FX.melee(ctx, aimInfo(), Object.assign({}, sk.st, { mult: PR.whiff, w: 0, stop: 30 }));
+        state.stats.parryWhiff = (state.stats.parryWhiff || 0) + 1;
+      } else if (c.done && !c.fx) {
+        c.fx = true;
+        braceFxSet(false);
+      }
+      if (c.t >= c.dur) P.cast = null;
+      return;
+    }
+    const held = slotHeld(c.slot) && G.save.bar[c.slot] === c.id;
+    if ((held || c.t < sk.block.min) && c.t < sk.block.max) return;
+    // 松手（或挡满 max 秒）：原式朝身前反砍，反震不反砍
+    braceEnd(c);
+    state.stats.braceBlocked = c.blocked;
+    if (sk.mech === 'jolt') {
+      P.cast = null;
+      G.world.stop(P.ent, 0.15);
+      return;
+    }
+    const ctx = G.skillCtx(c.id), C = sk.counter;
+    const k = C.base + Math.min(C.cap, (c.blocked / Math.max(1, P.maxLife)) * C.per);
+    state.stats.braceCounter = k;
+    const aim = c.aim;
+    P.cast = { slot: c.slot, id: c.id, t: 0, fired: true, aim, step: -1, st: null, dur: ctx.time, fireT: 0, cancelT: ctx.time * 0.7, mv: 0.3 };
+    G.world.play(P.ent, 'attack2', { dur: ctx.time * 1.2, contact: 0.08 });
+    fxOpt('braceCounter', P.x, P.z, aim, k);
+    G.sfx('cls2', { type: 'counter' });
+    SKILL_FX.melee(ctx, { ang: aim, dx: Math.sin(aim), dz: Math.cos(aim), dist: 2 }, Object.assign({}, sk.st, { mult: k }));
+  }
+  G.braceState = () => (P.cast && P.cast.brace ? P.cast : null);
+
+  // ---------- 燎地 ----------
+  SKILL_FX.scorch = function (ctx, a) {
+    const sk = ctx.sk;
+    const aim = P.cast && P.cast.id === ctx.id ? P.cast.aim : a.ang;
+    const dx = Math.sin(aim), dz = Math.cos(aim);
+    if (sk.mech === 'sweep') {
+      // 燎原：原地横扫，扇面烧成一片
+      SKILL_FX.melee(ctx, { ang: aim, dx, dz, dist: a.dist }, sk.st);
+      const F = sk.fan, ak = Math.sqrt(ctx.area);
+      addBurn({ kind: 'fan', x: P.x, z: P.z, ang: aim, arc: F.arc, len: F.len * ak, t: F.dur * ctx.durK, dur: F.dur * ctx.durK, tt: 0.15, tick: F.tick, mult: F.mult, ctx }, F.max + (ctx.durCap || 0));
+      G.sfx('cls2', { type: 'ignite' });
+      return;
+    }
+    const D = sk.dash;
+    let d = G.clamp(a.dist, D.dmin, D.d);
+    // 冲到路上第一个敌人身前就停（上挑打它和它身后的）
+    for (const e of state.enemies) {
+      if (e.dead) continue;
+      const ex = e.x - P.x, ez = e.z - P.z, along = ex * dx + ez * dz;
+      if (along <= 0 || along > d + e.r + 1) continue;
+      if (Math.abs(ex * dz - ez * dx) > e.r + 0.5) continue;
+      d = Math.min(d, Math.max(0, along - (e.r + 0.95)));
+    }
+    fxOpt('scorchDrag', P.ent, true);
+    G.sfx('cls2', { type: 'drag' });
+    move2Start('scorch', dx, dz, d, D.dur * (d / D.d || 0), ctx, (M, cut) => {
+      fxOpt('scorchDrag', P.ent, false);
+      if (cut) return;
+      scorchEnd(ctx, M, aim);
+    });
+  };
+  function scorchEnd(ctx, M, aim) {
+    const sk = ctx.sk, ak = Math.sqrt(ctx.area);
+    const x0 = M.x0, z0 = M.z0, x1 = P.x, z1 = P.z, len = dist(x0, z0, x1, z1);
+    if (sk.trail && len > 0.3) {
+      const T = sk.trail;
+      addBurn({ kind: 'trail', ax: x0, az: z0, bx: x1, bz: z1, w: T.w * ak, t: T.dur * ctx.durK, dur: T.dur * ctx.durK, tt: 0.1, tick: T.tick, mult: T.mult, ctx }, T.max + (ctx.durCap || 0));
+    }
+    if (sk.boom) {
+      // 爆痕：整条火痕一起炸开（从起点到上挑的地方，再往前一点）
+      const B = sk.boom, L = len + 0.8, list = enemiesInLine(x0, z0, aim, L, (B.w * ak) / 2);
+      groupHit(list, ctx, B.k, (e) => ({ ang: Math.atan2(e.x - x0, e.z - z0) + 0.6, w: 1, kb: 0.8, poise: 14, quiet: true }), true);
+      fxOpt('scorchBoom', x0, z0, aim, L, B.w * ak);
+      state.stats.scorchBooms = (state.stats.scorchBooms || 0) + 1;
+    }
+    G.world.play(P.ent, 'attack2', { dur: 0.42, contact: 0.1 });
+    SKILL_FX.melee(ctx, { ang: aim, dx: Math.sin(aim), dz: Math.cos(aim), dist: 2 }, sk.st);
+    fxOpt('scorchLift', P.x, P.z, aim, sk.st.range * ak);
+    G.sfx('cls2', { type: 'ignite' });
+  }
+  function addBurn(b, cap) {
+    while (burns.filter((o) => o.kind === b.kind).length >= cap) {
+      const i = burns.findIndex((o) => o.kind === b.kind);
+      fxOpt('burnSet', burns[i], false);
+      burns.splice(i, 1);
+    }
+    burns.push(b);
+    fxOpt('burnSet', b, true);
+  }
+  function inBurn(b, e) {
+    if (b.kind === 'trail') return segDist(e.x, e.z, b.ax, b.az, b.bx, b.bz) <= b.w / 2 + (e.r || 0.5) * 0.6;
+    const d = dist(e.x, e.z, b.x, b.z);
+    if (d > b.len + (e.r || 0.5) * 0.6) return false;
+    return d < 0.8 || Math.abs(angDiff(Math.atan2(e.x - b.x, e.z - b.z), b.ang)) <= (b.arc / 2) * DEG;
+  }
+  function tickBurns(dt) {
+    for (let i = burns.length - 1; i >= 0; i--) {
+      const b = burns[i];
+      b.t -= dt;
+      if (b.t <= 0) {
+        burns.splice(i, 1);
+        fxOpt('burnSet', b, false);
+        continue;
+      }
+      b.tt -= dt;
+      if (b.tt > 0) continue;
+      b.tt += b.tick;
+      for (const e of state.enemies) {
+        if (e.dead || state.time - (e.scorchAt || -99) < b.tick * 0.95 || !inBurn(b, e)) continue;
+        e.scorchAt = state.time; // 几道叠着只烧一份
+        tickHit(e, b.ctx, b.mult, { ang: 0, w: 0, kb: 0, poise: 1, quiet: true, faint: true, extra: true }, true);
+      }
+    }
+  }
+  G.burnState = () => burns;
+
+  // ---------- 心火 ----------
+  SKILL_FX.heart = function (ctx) {
+    const sk = ctx.sk, B = sk.buff;
+    const dur = B.dur * ctx.durK;
+    P.heart = { t: dur, dur, conv: B.conv || 0, mech: sk.mech || null, ward: 0, wardAt: -99, tt: 0.5 };
+    fxOpt('heartOn', P.ent, true);
+    G.world.text(P.x, P.z, sk.name, sk.color, 16);
+    G.sfx('cls2', { type: 'heart' });
+    state.stats.heartCasts = (state.stats.heartCasts || 0) + 1;
+  };
+  const heartOn = () => !!(P.heart && P.heart.t > 0);
+  G.heartState = () => (heartOn() ? P.heart : null);
+  function heartOff() {
+    if (!P.heart) return;
+    P.heart = null;
+    fxOpt('heartOn', P.ent, false);
+  }
+  // skillCtx 末尾调：心火期间你的攻击 conv% 物理转成火（化元之后，按剩下的物理算）
+  G.heartCtx = function (ctx) {
+    if (!heartOn() || !(P.heart.conv > 0) || !ctx.attack || !ctx.base.phys) return;
+    const k = P.heart.conv / 100, p = ctx.base.phys, b = ctx.base.fire || [0, 0];
+    ctx.base.fire = [b[0] + p[0] * k, b[1] + p[1] * k];
+    ctx.base.phys = [p[0] * (1 - k), p[1] * (1 - k)];
+  };
+  // 受到的伤害倍率（护火）
+  G.heartTaken = () => (heartOn() && P.heart.ward > 0 ? 1 - (P.heart.ward * G.SKILLS.heartfire.ward.dr) / 100 : 1);
+  // hitEnemy 里调：你亲手的近战命中叠护火（同一帧打中几个只叠一层）；你（不是召唤物）打死的敌人炸成余烬（每秒上限 burst.cap 次）
+  G.heartHit = function (e, ctx, inf, killed) {
+    if (!heartOn() || inf.minion || ctx.minion || ctx.asMinion) return;
+    const sk = G.SKILLS.heartfire;
+    if (sk.ward && !ctx.proc && ctx.sk && ctx.sk.tags.indexOf('melee') >= 0 && !ctx.heartGen && !inf.faint) {
+      const H = P.heart;
+      if (H.wardAt !== state.time) H.ward = Math.min(sk.ward.max, H.ward + 1);
+      H.wardAt = state.time;
+    }
+    if (!killed || !sk.burst || !(ctx.attack || ctx.heartGen || ctx.proc)) return; // 你的攻击、它引出的异常（爆燃、尸爆）打死的都算
+    const gen = ctx.heartGen || 0;
+    if (gen > sk.burst.chain) return;
+    const now = state.time;
+    while (heartBursts.length && now - heartBursts[0] >= 1) heartBursts.shift();
+    if (heartBursts.length >= sk.burst.cap) return;
+    heartBursts.push(now);
+    const x = e.x, z = e.z;
+    G.after(0.06, () => heartBurst(x, z, gen + 1));
+  };
+  function heartBurst(x, z, gen) {
+    if (!heartOn()) return;
+    const sk = G.SKILLS.heartfire, B = sk.burst;
+    if (!B) return;
+    const ctx = elemCtx(G.skillCtx('heartfire'), 'fire');
+    ctx.heartGen = gen;
+    const R = B.r * Math.sqrt(ctx.area), list = [];
+    for (const e of enemiesIn(x, z, R)) if (losClear(x, z, e.x, e.z)) list.push(e);
+    groupHit(list, ctx, B.k, (o) => ({ ang: Math.atan2(o.x - x, o.z - z), w: 0, kb: 0.6, poise: 6, quiet: true }), true);
+    fxOpt('heartBurst', x, z, R, gen);
+    G.sfx('cls2', { type: 'burst' });
+    state.stats.heartBursts = (state.stats.heartBursts || 0) + 1;
+  }
+  function tickHeart(dt) {
+    const H = P.heart;
+    if (!H) return;
+    const t = wTypeOfItem(G.save.equip.weapon);
+    H.t -= dt;
+    if (H.t <= 0 || G.WGROUPS.heavy.indexOf(t) < 0) {
+      heartOff();
+      return;
+    }
+    const sk = G.SKILLS.heartfire, W0 = sk.ward;
+    if (!W0) return;
+    if (H.ward > 0 && state.time - H.wardAt > W0.keep) H.ward = 0;
+    H.tt -= dt;
+    if (H.tt > 0) return;
+    H.tt += W0.tick;
+    const ctx = elemCtx(G.skillCtx('heartfire'), 'fire');
+    ctx.heartGen = 9; // 灼烧打死的不炸
+    for (const e of enemiesIn(P.x, P.z, W0.r)) tickHit(e, ctx, W0.k, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 0, kb: 0, poise: 1, quiet: true, faint: true, extra: true }, true);
+  }
+
+  // ---------- 跳射 ----------
+  SKILL_FX.leap = function (ctx, a) {
+    const sk = ctx.sk, L = sk.leap;
+    const aim = P.cast && P.cast.id === ctx.id ? P.cast.aim : a.ang;
+    P.iframe = Math.max(P.iframe, L.iframe);
+    const tok = ++leapTok;
+    fxOpt('leapArc', P.x, P.z, aim, L.d, L.dur);
+    move2Start('leap', -Math.sin(aim), -Math.cos(aim), L.d, L.dur, ctx, null);
+    for (const t0 of sk.arrows.at) G.after(t0, () => {
+      if (P.dead || leapTok !== tok) return;
+      leapVolley(ctx);
+    });
+    G.sfx('cls2', { type: 'leap' });
+    state.stats.leaps = (state.stats.leaps || 0) + 1;
+  };
+  function leapVolley(ctx) {
+    const sk = ctx.sk, A = sk.arrows;
+    const ang0 = aimInfo().ang;
+    P.face = ang0;
+    const wt = wTypeOfItem(G.save.equip.weapon);
+    const n = Math.max(1, A.n > 1 && A.fan ? A.n + ctx.proj - 1 : ctx.proj);
+    const fan = A.fan ? Math.min(90, A.fan + 6 * (ctx.proj - 1)) * DEG : n > 1 ? Math.min(30, 8 * (n - 1)) * DEG : 0;
+    const P0 = sk.pin;
+    for (let j = 0; j < n; j++) {
+      const ang = ang0 + (n > 1 ? -fan / 2 + (fan * j) / (n - 1) : 0);
+      const p = shootProj(ctx, ang, { cast: new Set(), vk: VK[wt] || 'arrow', after: P0 ? leapPin : null });
+      p.ranged = false; // 不当普攻的箭算（专注照普攻的规矩另算）
+    }
+    fxOpt('leapLoose', P.ent, ang0);
+    G.sfx('cls2', { type: 'bow' });
+  }
+  function leapPin(p, e) {
+    const sk = p.ctx.sk, P0 = sk.pin;
+    if (sk.focus && G.rangedWeapon() && G.rangedWeapon().family === 'bow') G.addGauge('focus', sk.focus);
+    if (e.dead || e.isBoss) return;
+    e.stunT = Math.max(e.stunT || 0, P0.t * (e.elite ? P0.elite : 1));
+    G.world.text(e.x, e.z, '钉住', '#cfe6b0', 16, { kind: 'tag', y: Math.min(3, (e.height || 2) + 0.4) });
+    fxOpt('leapPinFx', e);
+    state.stats.leapPins = (state.stats.leapPins || 0) + 1;
+  }
+
+  // 每帧（tickD2b 里）和换区域时
+  function tickD2b2(dt) {
+    if (braceFx && !(P.cast && P.cast.brace && !P.cast.done)) braceFxSet(false);
+    if (move2) tickMove2(dt);
+    if (mines.length) tickMines(dt);
+    if (burns.length) tickBurns(dt);
+    if (P.heart) tickHeart(dt);
+  }
+  function resetD2b2() {
+    for (const m of mines) fxOpt('mineSet', m, false);
+    mines.length = 0;
+    for (const b of burns) fxOpt('burnSet', b, false);
+    burns.length = 0;
+    move2 = null;
+    leapTok++;
+    heartBursts.length = 0;
+    heartOff();
+  }
+  G.d2b2State = () => ({ mines: mines.length, burns: burns.length, move: !!move2, heart: heartOn() ? +P.heart.t.toFixed(2) : 0, ward: P.heart ? P.heart.ward : 0 });
 
   // =====================================================================
   // 烬铸技（拿着烬铸武器时 R 上的那一招，见 data.js 的 ashcuts / tristorm / soulhost）

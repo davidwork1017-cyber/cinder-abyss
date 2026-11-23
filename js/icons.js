@@ -1260,6 +1260,64 @@
       solid(g, drop(-6, 21, 1.3), col, { hi: 0.5, lo: 0.3, lw: 1.7, bevel: 0.8 });
       solid(g, drop(6, 25, 0.95), dark(col, 0.2), { hi: 0.5, lo: 0.3, lw: 1.5, bevel: 0.7 });
     },
+    // ---------- class-d2b2 ----------
+    // 绊雷：地上的三脚铁雷，中间一点红灯；脚下一道断续的触发圈
+    snare(g, col) {
+      line(g, (p) => p.E(0, 12, 22, 8), rgba(lite(col, 0.15), 0.8), 1.5, null, [3.2, 2.8]);
+      for (const [x1, y1] of [[-17, 19], [17, 19], [0, 23]]) tube(g, (p) => p.M(0, 6).L(x1, y1), C.ironD, 3);
+      solid(g, (p) => p.M(-13, 8).Q(-13, -9, 0, -10).Q(13, -9, 13, 8).Z(), '#5a524a', { hi: 0.45, lo: 0.5, lw: 2 });
+      solid(g, (p) => p.R(-15, 6, 30, 4.6, 1.4), C.iron, { bevel: 1, lw: 1.7 });
+      for (const x of [-7, 0, 7]) line(g, (p) => p.M(x, -6).L(x * 1.3, 6), dark('#5a524a', 0.4), 1.1);
+      glow(g, (p) => p.E(0, -9, 3.4), '#ff3a20', { blur: 8, core: '#ffd0a0' });
+      spark(g, 5, -14, 4, '#ffe0c0');
+    },
+    // 硬接：一把横着的兵器，挡住迎面三道斜线（碰上的地方迸出火星）
+    brace(g, col) {
+      const m = rot(-12, 1, 0, 6);
+      for (const [x, y] of [[-6, -8], [4, -11], [14, -14]]) glow(g, (p) => p.M(x + 12, y - 16).L(x + 1, y - 1), col, { stroke: 2.2, blur: 4, core: lite(col, 0.5) });
+      solid(g, (p) => p.M(-20, -2).L(17, -2).L(24, 0).L(17, 2).L(-20, 2).Z(), lite(C.steel, 0.15), { m, hi: 0.7, lo: 0.3, lw: 1.9, bevel: 0.9 });
+      solid(g, (p) => p.R(-23, -5, 3, 10, 1), C.gold, { m, bevel: 0.8, lw: 1.6 });
+      tube(g, (p) => p.M(-24, 0).L(-31, 0), C.leatherD, 3.2, { m });
+      line(g, (p) => p.M(-19, -1).L(17, -1), rgba('#ffffff', 0.55), 1, m);
+      for (const [x, y] of [[-5, -6], [5, -9], [15, -12]]) spark(g, x, y, 3.6, '#fff4d8');
+    },
+    // 燎地：一把往下拖的兵器（刃尖擦着地），后面拖着一串火苗
+    scorch(g, col) {
+      const m = rot(118, 1.05, 6, 2);
+      line(g, (p) => p.M(-28, 21).L(14, 21), rgba(dark(col, 0.3), 0.7), 1.6);
+      for (let i = 0; i < 4; i++) {
+        const x = -24 + i * 9, h = 7 + i * 2.2;
+        const fl = (p) => p.M(x - 3, 21).Q(x - 3.4, 21 - h * 0.6, x, 21 - h).Q(x + 3.4, 21 - h * 0.6, x + 3, 21).Z();
+        glow(g, fl, col, { blur: 6, core: lite(col, 0.45) });
+        solid(g, fl, mix(col, '#5a1a08', 0.35 - i * 0.07), { hi: 0.5, lo: 0.35, lw: 1.4, bevel: 0.6 });
+      }
+      solid(g, (p) => p.M(-2.6, -18).L(2.6, -18).L(2.2, 14).L(0, 19).L(-2.2, 14).Z(), lite(C.steel, 0.1), { m, hi: 0.7, lo: 0.3, lw: 1.9, bevel: 0.9 });
+      solid(g, (p) => p.R(-6, -20, 12, 3, 1), C.gold, { m, bevel: 0.8, lw: 1.5 });
+      tube(g, (p) => p.M(0, -21).L(0, -29), C.leatherD, 3, { m });
+      spark(g, 15, 20, 4.6, '#ffe0b0');
+    },
+    // 心火：胸口的一团火（左下），一道火线往右边一把竖着的兵器上引，刃上缠着火
+    heartfire(g, col) {
+      const fx = -12, fy = 12;
+      glow(g, (p) => p.M(fx + 4, fy - 4).C(fx + 12, fy - 12, fx + 10, fy - 22, fx + 18, fy - 26), col, { stroke: 2.4, blur: 5, core: lite(col, 0.5) });
+      solid(g, (p) => p.M(10, -26).L(14, -22).L(14, 16).L(10, 16).L(6, 16).L(6, -22).Z(), lite(C.steel, 0.1), { hi: 0.7, lo: 0.3, lw: 1.9, bevel: 0.9 });
+      solid(g, (p) => p.R(3, 15, 14, 3.2, 1), C.gold, { bevel: 0.8, lw: 1.5 });
+      tube(g, (p) => p.M(10, 19).L(10, 27), C.leatherD, 3.2);
+      glow(g, (p) => p.M(14, 10).Q(18, 2, 14, -6).Q(18, -14, 14, -22), col, { stroke: 1.8, blur: 5, core: lite(col, 0.5) });
+      const fl = (p) => p.M(fx, fy - 13).C(fx + 8, fy - 5, fx + 8, fy + 4, fx, fy + 7).C(fx - 8, fy + 4, fx - 8, fy - 5, fx, fy - 13).Z();
+      glow(g, fl, col, { blur: 9, core: lite(col, 0.4) });
+      solid(g, fl, mix(col, '#7a1e0a', 0.25), { hi: 0.55, lo: 0.35, lw: 1.8, bevel: 0.8 });
+      glow(g, (p) => p.M(fx, fy - 5).C(fx + 3.4, fy - 1, fx + 3, fy + 3, fx, fy + 4).C(fx - 3, fy + 3, fx - 3.4, fy - 1, fx, fy - 5).Z(), '#ffd27a', { blur: 4, core: '#fff1c8' });
+    },
+    // 跳射：一张弓（右上），后面一道往回跳的弧线（左下）
+    leapshot(g, col) {
+      line(g, (p) => p.M(4, 6).Q(-12, -14, -26, 14), rgba(lite(col, 0.25), 0.85), 2, null, [3.6, 2.6]);
+      solid(g, (p) => p.P([-26, 14, -21, 7, -19.5, 15.5]), lite(col, 0.2), { hi: 0.6, lw: 1.4, bevel: 0.6 });
+      const m = rot(35, 1, 9, -5);
+      tube(g, (p) => p.M(-4, -20).Q(10, 0, -4, 20), C.wood, 3.4, { m });
+      line(g, (p) => p.M(-4, -20).L(-4, 20), rgba('#e8e0cc', 0.9), 1.1, m);
+      arrowAt(g, rot(125, 0.9, 12, -6), col, {});
+    },
   };
 
   // =====================================================================
