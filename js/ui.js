@@ -5995,6 +5995,13 @@
       done: () => false,
     },
     {
+      // 魂潮狂热改成 12 秒 +15% 之前、拿着魂幡的老存档：提示一次（见 game.js 的 stNote）
+      id: 'stfz', calm: true, max: 14,
+      html: '<b>魂潮</b>：狂热改为 12 秒、攻击与移动速度 +15%，按冷却放时一直都在，平均和原来一样',
+      when: () => G.frenzyNerfed > 0,
+      done: () => false,
+    },
+    {
       // 旧版双生坠：读档时升成四行（见 game.js 的 migrateTwin）
       id: 'sxmig', calm: true, max: 16,
       html: '<b>双生坠升级</b>：多了暴击伤害和总伤害两行，原有两行按原来的成色换算到新数值；效果改为「余响」',
@@ -6154,6 +6161,10 @@
     if (id === 'bhnerf') {
       G.save.bhNote = false;
       G.holeNerfed = 0;
+    }
+    if (id === 'stfz') {
+      G.save.stNote = false;
+      G.frenzyNerfed = 0;
     }
     G.persist();
   }
