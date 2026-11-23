@@ -2229,7 +2229,7 @@
   // 要预热的渊契：存档图鉴里拾到过的，加上这次会话里拾到的（warmRelic）
   const rqSeen = {};
   function rqWarm() {
-    const f = (G.save && G.save.relic && G.save.relic.found) || {};
+    const f = G.codexView && G.save ? G.codexView().relic.found : (G.save && G.save.relic && G.save.relic.found) || {}; // 图鉴是所有角色合起来的
     return Object.keys(RQ_DRAW).filter((id) => f[id] || rqSeen[id]);
   }
   // 拾到一件渊契：它的图标从此进预热列表，并且马上画好（一张图标几毫秒）
