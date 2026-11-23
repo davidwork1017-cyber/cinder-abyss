@@ -11974,7 +11974,8 @@
   // 只读现有进度（cleared / lastZone / tier）和「走到首领场地门口」，不加新事件。推进时不取随机数、不改任何模拟用到的状态：
   // 奖励直接加进 save.cur，提示交给界面层排队（G.ui.questDone）。固定种子的仗打出来和没有主线时逐位相同
   const questFns = [];
-  // D3 的挂钩：首领步在这次游戏里真正完成时（不是读档推算出来的）调 fn({ step, id, zone, live: true })。
+  // D3 的挂钩：首领步和进轮回层级 1 那一步在这次游戏里真正完成时（不是读档推算出来的）调 fn({ step, id, zone, live: true })
+  // （层级步没有 zone）。界面层拿它排旁白卡（ui.js updateNarr）。
   // 放过旁白后调 G.questTell(id) 记进 save.quest.told，G.questTold(id) 读
   G.onQuest = (fn) => {
     if (typeof fn === 'function') questFns.push(fn);
@@ -12016,7 +12017,7 @@
     if (G.ui && G.ui.questDone) G.ui.questDone(n, any ? got : null);
     for (let k = from; k < n; k++) {
       const q = G.QUEST[k];
-      if (q.kind !== 'boss') continue;
+      if (q.kind !== 'boss' && q.kind !== 'tier') continue;
       for (const fn of questFns) {
         try {
           fn({ step: k + 1, id: q.id, zone: q.zone, live: true });

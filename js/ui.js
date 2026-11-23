@@ -381,6 +381,7 @@
     updateEncHud();
     updatePinHud();
     updateQuestHud(now);
+    updateNarr(now);
 
     setOrb(hud.life, P.life, P.maxLife, P.maxLifeRaw || P.maxLife);
     setOrb(hud.mana, P.mana, P.maxMana, P.maxManaRaw || P.maxMana);
@@ -4179,6 +4180,122 @@
     qh.toastQ.push('主线 ' + n + '/' + G.QUEST_N + ' 完成' + (got ? ' · ' + curList(got) : ''));
   }
 
+  // ============================================================
+  // 主线旁白卡（quest D3）：首领步 / 进轮回层级 1 在这次游戏里真正完成时（G.onQuest，读档推算的不算）放一张两行的旁白卡，
+  // 和开场故事的字幕框同一个样子。不在战斗里放：排着，等没有醒着的敌人、没有敌方预警圈连续 1 秒，完成提示和掉落飘字都出完了再放。
+  // 每个角色每张卡只放一次（开始放时记进 save.quest.told 并马上存档）。点卡片、回车或 Esc 跳过；不受「显示主线」开关影响。
+  // 只碰 DOM，不取随机数、不改模拟用到的状态
+  // ============================================================
+  const NARR_IN = 0.4, NARR_GAP = 0.5, NARR_OUT = 0.6, NARR_SKIP = 0.25; // 淡入、第二行晚多少、淡出、跳过时的淡出（秒）
+  const nc = { root: null, l1: null, l2: null, q: [], cur: null, last: 0, epoch: -1, gapAt: 0, held: false };
+  function initNarr() {
+    const r = (nc.root = document.createElement('div'));
+    r.id = 'narr';
+    r.setAttribute('role', 'status');
+    r.innerHTML = '<p></p><p></p>';
+    nc.l1 = r.children[0];
+    nc.l2 = r.children[1];
+    r.addEventListener('mousedown', (e) => {
+      e.stopPropagation(); // 点卡片只是跳过，不是游戏输入
+      e.preventDefault();
+      narrSkip();
+    });
+    document.body.appendChild(r);
+    G.onQuest((e) => {
+      const q = G.QUEST[e.step - 1];
+      if (window.__noNarr || !q || !q.nar || q.id !== e.id || G.questTold(e.id)) return; // __noNarr：自动测试默认关（见 test/smoke.mjs），旁白那几步再打开
+      if ((nc.cur && nc.cur.id === e.id) || nc.q.some((x) => x.id === e.id)) return;
+      nc.q.push({ id: e.id, lines: q.nar, at: performance.now(), epoch: G.saveEpoch, calm: 0 });
+    });
+  }
+  // 战斗结束了没有：玩家活着、在区域里、素材载好了，没有醒着的敌人，也没有敌方的预警圈
+  function narrCalm() {
+    const st = G.state;
+    if (G.player.dead || !st.zone || (G.world.assetsPending && G.world.assetsPending())) return false;
+    if (narrAwake()) return false;
+    for (const t of st.telegraphs) if (!t.friendly) return false;
+    return true;
+  }
+  function narrAwake() {
+    for (const e of G.state.enemies) if (e.awake && !e.dead) return true;
+    return false;
+  }
+  function narrSkip() {
+    const c = nc.cur;
+    if (!c || c.out) return false;
+    c.out = true;
+    c.end = c.t + NARR_SKIP;
+    nc.root.style.setProperty('--narr-out', NARR_SKIP + 's');
+    nc.root.classList.remove('on');
+    return true;
+  }
+  function updateNarr(now) {
+    const dt = nc.last ? Math.min(0.1, (now - nc.last) / 1000) : 0;
+    nc.last = now;
+    if (G.saveEpoch !== nc.epoch) {
+      // 换了角色 / 读档：之前那份存档排着的卡不带过去（换档之后才排上的留着，可能和换档在同一帧），正在放的收起
+      nc.epoch = G.saveEpoch;
+      for (let i = nc.q.length - 1; i >= 0; i--) if (nc.q[i].epoch !== G.saveEpoch) nc.q.splice(i, 1);
+      if (nc.cur) narrSkip();
+    }
+    // 面板、暂停菜单、开场卡片、开场故事、标题画面盖着时：先藏起来、计时停住，关掉后接着放
+    const blocked = ui.isOpen || ui.intro || story.on || menu.title || menu.pause;
+    if (blocked !== nc.held) {
+      nc.held = blocked;
+      nc.root.classList.toggle('held', blocked);
+    }
+    if (blocked) return;
+    const c = nc.cur;
+    if (c) {
+      c.t += dt;
+      if (!c.out && c.t >= NARR_GAP && !c.l2) {
+        c.l2 = true;
+        nc.root.classList.add('l2');
+      }
+      // 又打起来了（敌人醒了）或倒下了：提前收起
+      if (!c.out && (G.player.dead || narrAwake())) narrSkip();
+      if (!c.out && c.t >= c.dur - NARR_OUT) {
+        c.out = true;
+        c.end = c.dur;
+        nc.root.style.setProperty('--narr-out', NARR_OUT + 's');
+        nc.root.classList.remove('on');
+      }
+      if (c.out && c.t >= c.end) {
+        nc.cur = null;
+        nc.root.classList.remove('show', 'l2');
+        nc.gapAt = now;
+      }
+      return;
+    }
+    if (!nc.q.length) return;
+    const it = nc.q[0];
+    if (it.epoch !== G.saveEpoch || G.questTold(it.id)) {
+      nc.q.shift();
+      return;
+    }
+    // 首领倒下那一刻之后至少 1.5 秒；完成提示排完、最后一条飘字出来 1.2 秒后；两张卡之间隔 0.8 秒
+    if (now - it.at < 1500 || now - nc.gapAt < 800 || qh.toastQ.length || now - lastToast.t < 1200) return;
+    if (!narrCalm()) {
+      it.calm = 0;
+      return;
+    }
+    if (!it.calm) it.calm = now;
+    if (now - it.calm < 1000) return;
+    nc.q.shift();
+    G.questTell(it.id);
+    G.persist(); // 马上存：放过的卡关页面后不再放
+    const n = it.lines.reduce((a, l) => a + (l.match(/[㐀-鿿]/g) || []).length, 0);
+    nc.cur = { id: it.id, t: 0, dur: Math.max(5, 1.6 + 0.14 * n), out: false, end: 0, l2: false };
+    nc.l1.textContent = it.lines[0];
+    nc.l2.textContent = it.lines[1] || '';
+    nc.root.dataset.id = it.id;
+    nc.root.style.setProperty('--narr-in', NARR_IN + 's');
+    nc.root.classList.remove('l2');
+    nc.root.classList.add('show');
+    void nc.root.offsetWidth; // 从透明开始淡入
+    nc.root.classList.add('on');
+  }
+
   function initPinHud() {
     const d = document.createElement('div');
     d.id = 'pin-lamps';
@@ -6553,6 +6670,7 @@
     initEncHud();
     initPinHud();
     initQuestHud();
+    initNarr();
     initWorldUi();
     IC.warm(); // 图标趁空闲分批画好，第一次打开背包不再卡顿
     document.documentElement.style.setProperty('--relic', G.RELIC_COLOR); // 渊契的颜色只在 data.js 写一次，样式表里读 --relic
@@ -6595,6 +6713,11 @@
             ui.confirm = null;
             renderConfirm();
           }
+          e.stopPropagation();
+          e.preventDefault();
+        } else if (nc.cur && !nc.cur.out && !ui.isOpen && !ui.intro && !menu.title && !menu.pause && (e.code === 'Escape' || e.code === 'Enter' || e.code === 'NumpadEnter')) {
+          // 主线旁白卡放着：Esc / 回车只跳过它（不开暂停菜单）
+          if (!e.repeat) narrSkip();
           e.stopPropagation();
           e.preventDefault();
         } else if (ui.intro && (e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Space')) {
@@ -6725,6 +6848,8 @@
     verdict, // 换装评估（只读）：{ badge, score, empty, lines } | null
     questDone,
     // 测试读：追踪条现在显示的字、显不显示、排队中的完成提示
+    narr: () => ({ on: !!nc.cur, id: nc.cur ? nc.cur.id : '', out: !!(nc.cur && nc.cur.out), t: nc.cur ? nc.cur.t : 0, dur: nc.cur ? nc.cur.dur : 0, lines: nc.cur ? [nc.l1.textContent, nc.l2.textContent] : [], queued: nc.q.map((x) => x.id), held: nc.root.classList.contains('held') }),
+    narrSkip,
     quest: () => ({ on: !!qh.vis, k: qh.k.textContent, goal: qh.goal.textContent, how: qh.how.textContent, alt: qh.alt.textContent, queued: qh.toastQ.slice() }),
     hints: () => ({ current: coach.cur ? coach.cur.id : null, state: coach.state, all: HINTS.map((h) => h.id), veteran: coach.vet, minShow: coach.minT, shownFor: coach.t }),
   };

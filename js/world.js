@@ -29154,7 +29154,7 @@
 
   // 主线指路（quest D2）：小地图上的金色记号。只在 2D 叠加层上画（WebGL draw 0 增加），不分配、不取随机数。
   // 目标在框里（离框边至少 11 px，整圈画得下）：套一圈半径 9 px 的金色细圈（在传送门紫圈外面，首领本身的红菱形不重复画）；
-  // 出框或贴着框边：从玩家的点朝目标打一条线，在离框边 7 px 处画一个尖朝外的金色小三角。qMark 记下这一帧画在哪（测试取像素用）
+  // 出框或贴着框边：从玩家的点朝目标打一条线，在离框边 10 px 处画一个尖朝外的金色三角（叠在首领 / 传送门标记上时沿边挪开）。qMark 记下这一帧画在哪（测试取像素用）
   const Q_GOLD = '#ffcc4d';
   const qMark = { on: false, edge: false, x: 0, y: 0 };
   W.questMark = () => ({ on: qMark.on, edge: qMark.edge, x: qMark.x, y: qMark.y });
@@ -29178,29 +29178,39 @@
     const L = Math.hypot(dx, dz) || 1;
     dx /= L;
     dz /= L;
-    const x0 = mx + 7, x1 = mx + S - 7, y0 = my + 7, y1 = my + S - 7;
-    let t = 1e9;
-    if (dx > 1e-6) t = Math.min(t, (x1 - px) / dx);
-    else if (dx < -1e-6) t = Math.min(t, (x0 - px) / dx);
-    if (dz > 1e-6) t = Math.min(t, (y1 - pz) / dz);
-    else if (dz < -1e-6) t = Math.min(t, (y0 - pz) / dz);
+    const x0 = mx + 10, x1 = mx + S - 10, y0 = my + 10, y1 = my + S - 10;
+    let t = 1e9, side = 0; // side：落在哪条边上 1 左右边 / 2 上下边
+    if (dx > 1e-6) (t = (x1 - px) / dx), (side = 1);
+    else if (dx < -1e-6) (t = (x0 - px) / dx), (side = 1);
+    if (dz > 1e-6 && (y1 - pz) / dz < t) (t = (y1 - pz) / dz), (side = 2);
+    else if (dz < -1e-6 && (y0 - pz) / dz < t) (t = (y0 - pz) / dz), (side = 2);
     if (!(t > 0) || t >= 1e9) t = 0;
-    const cx = Math.max(x0, Math.min(x1, px + dx * t)), cy = Math.max(y0, Math.min(y1, pz + dz * t));
-    // 尖在外（离框边 1 px），长 10 px、底边宽 11 px（比宝箱的金色小方块大一圈，形状也分得开）；重心在 c − d 处
+    let cx = Math.max(x0, Math.min(x1, px + dx * t)), cy = Math.max(y0, Math.min(y1, pz + dz * t));
+    // 和首领红菱形 / 传送门紫圈叠在一起（常见在框角）：沿着这条边往远离那个标记的方向挪 6 px，三角照旧画在最上面
+    for (let k = 0; k < 2; k++) {
+      const o = k === 0 ? qAvoid.boss : qAvoid.portal;
+      if (!o.on || Math.abs(o.x - cx) > 13 || Math.abs(o.y - cy) > 13 || (k === 1 && Math.abs(o.x - tx) < 1 && Math.abs(o.y - tz) < 1)) continue; // 传送门本身就是目标时不躲
+      if (side === 2) cx = Math.max(x0, Math.min(x1, cx + (o.x > cx || (o.x === cx && cx > mx + S / 2) ? -6 : 6)));
+      else cy = Math.max(y0, Math.min(y1, cy + (o.y > cy || (o.y === cy && cy > my + S / 2) ? -6 : 6)));
+    }
+    // 尖在外（离框边 1 px），长 15.75 px、底边宽 16.5 px（D2 的 1.5 倍），描 1 px 的暗边；重心在 c − 1.5d 处
     qMark.edge = true;
-    qMark.x = cx - dx;
-    qMark.y = cy - dz;
+    qMark.x = cx - dx * 1.5;
+    qMark.y = cy - dz * 1.5;
     g.beginPath();
-    g.moveTo(cx + dx * 6, cy + dz * 6);
-    g.lineTo(cx - dx * 4.5 - dz * 5.5, cy - dz * 4.5 + dx * 5.5);
-    g.lineTo(cx - dx * 4.5 + dz * 5.5, cy - dz * 4.5 - dx * 5.5);
+    g.moveTo(cx + dx * 9, cy + dz * 9);
+    g.lineTo(cx - dx * 6.75 - dz * 8.25, cy - dz * 6.75 + dx * 8.25);
+    g.lineTo(cx - dx * 6.75 + dz * 8.25, cy - dz * 6.75 - dx * 8.25);
     g.closePath();
     g.fillStyle = Q_GOLD;
-    g.strokeStyle = 'rgba(0,0,0,0.85)';
-    g.lineWidth = 1.5;
+    g.strokeStyle = 'rgba(0,0,0,0.9)';
+    g.lineWidth = 2; // 先描后填：露在外面的正好 1 px
+    g.lineJoin = 'round';
     g.stroke();
     g.fill();
   }
+  // 这一帧小地图上首领红菱形、传送门紫圈画在哪（框边三角躲开它们用；每帧重写，不分配）
+  const qAvoid = { boss: { on: false, x: 0, y: 0 }, portal: { on: false, x: 0, y: 0 } };
 
   function drawOverlay() {
     const g = octx, st = G.state, P = G.player;
@@ -29513,9 +29523,13 @@
         }
       }
       const zn = W.zone;
+      qAvoid.boss.on = qAvoid.portal.on = false;
       if (st.boss && !st.boss.dead && inMM(X(st.boss.x), Z(st.boss.z))) {
         // 首领：脉动的红色菱形
         const bx = X(st.boss.x), bz = Z(st.boss.z), r = 5 + Math.sin(wtime * 4) * 0.8;
+        qAvoid.boss.on = true;
+        qAvoid.boss.x = bx;
+        qAvoid.boss.y = bz;
         g.fillStyle = '#ff4a3a';
         g.strokeStyle = 'rgba(0,0,0,0.9)';
         g.lineWidth = 1.5;
@@ -29530,6 +29544,9 @@
       }
       if (st.portal && inMM(X(st.portal.x), Z(st.portal.z))) {
         const px = X(st.portal.x), pz = Z(st.portal.z);
+        qAvoid.portal.on = true;
+        qAvoid.portal.x = px;
+        qAvoid.portal.y = pz;
         g.strokeStyle = '#b9a4ff';
         g.lineWidth = 2;
         g.beginPath();
