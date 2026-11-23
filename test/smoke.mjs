@@ -20233,10 +20233,10 @@ async function main() {
 
 // ------------------------------------------------------------------ 多存档（multisave-d1）
 // 6 个角色栏位：第 1 栏就是原来的 cinder-abyss-save-v1（key 不变），迁移只加备份和索引、不改它；退回旧代码时旧代码读的就是第 1 栏。
-// 「旧代码」= 多存档之前最后一版（单存档，main 837beba），test/serve.mjs 的 /__old/<提交>/ 从 git 里按需取它的文件，和当前代码同源、共用 localStorage。
+// 「旧代码」= 多存档之前最后一版（单存档，main d366ff2），test/serve.mjs 的 /__old/<提交>/ 从 git 里按需取它的文件，和当前代码同源、共用 localStorage。
 // 比的是旧版本存档里有的每个字段（逐个字段 JSON 相同）；新代码没有多出字段时整份 JSON 也必须一字不差（多存档 D1 就是这样）。
 // 以后的版本给存档加了字段（比如职业 cls），旧版本读档时会丢掉它们，这是退回旧代码时预期的，多出的字段在步骤结果里列出来
-const OLD_SAVE_BUILD = '837beba';
+const OLD_SAVE_BUILD = 'd366ff2';
 // 新代码的存档 a 和旧版本的存档 b（都是 JSON 文本）：{ ok：b 里每个字段在 a 里 JSON 相同，exact：整份一字不差，extra：a 多出的字段，bad：不同的字段 }
 function saveVsOld(a, b) {
   const A = JSON.parse(a), B = JSON.parse(b);
@@ -20300,9 +20300,13 @@ async function slotSteps() {
     e.pinnacle = { kills: 1, pity: 1 };
     e.cur.chaos = 120;
     S.end = JSON.stringify(e);
-    // 成长改版之前（没有 gv）：27 级以上的旧武器读档时放大一次
+    // 成长改版之前（没有 gv）：27 级以上的旧武器读档时放大一次；也是黑洞改版之前（没有 bhCap、学了黑洞：读档时提示一次）
     const g = JSON.parse(S.mid);
     delete g.gv;
+    delete g.bhCap;
+    delete g.bhNote;
+    g.skills.blackhole = 20;
+    g.sockets.blackhole = [null, null, null];
     g.level = 40;
     g.equip.weapon = G.rollItem(31, 2, 'weapon', 0);
     g.equip.weapon.wbase = [33, 49];
