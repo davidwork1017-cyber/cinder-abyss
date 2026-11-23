@@ -10830,6 +10830,76 @@ async function main() {
     return 'draw 高 ' + H.d0 + '→' + H.d1 + ' / 低 ' + L.d0 + '→' + L.d1 + '，取数 ' + [H.blast, L.blast, H.freeze, H.frost].join(' / ') + '，连炸 20 个：件数 高 ' + H.flood + ' / 低 ' + L.flood;
   });
 
+  await step('技能打磨第 2 批（skill-b2）：瞬断的斩线 / 万魂降临的法阵和光柱改成鬼影 + 形状批，连同爆燃 / 冻结高 / 低画质都不多一次 draw；拿掉的旧件按原次数取 Math.random（魂旗 403、6 位英灵 1320、千刃收刀 333、瞬断冲刺 121、换影暗影 273）；旧电弧换 v2 / 鬼影、重斩命中换细斩线，同一种子下取数不变', async () => {
+    const r = await ev(() => {
+      const W = G.world, P = G.player, R = W.renderer, out = {}, q0 = W.quality();
+      G.clearEnemies();
+      const draws = () => { R.info.autoReset = false; R.info.reset(); W.render(); const c = R.info.render.calls; R.info.autoReset = true; return c; };
+      const cnt = (f) => { const r0 = Math.random; let n = 0; Math.random = function () { n++; return r0.apply(this, arguments); }; try { f(); } finally { Math.random = r0; } return n; };
+      const sd = (k) => window.__testRand && window.__testRand.seed('skill-b2:' + k);
+      for (const q of ['high', 'low']) {
+        W.setQuality(q);
+        W.clearFx();
+        const x = P.x + 3, z = P.z;
+        // 基线：形状批、碎块、地面痕迹、粒子各已经有一件在画
+        W.breakFx(P.x - 3, 1, P.z, 0.4);
+        W.vDecal('scorch', P.x - 3, P.z, 0.6, 2, 0x4a3e34);
+        W.burst(P.x - 3, 1, P.z, 0x808080, 4, 0.5, 3);
+        G.debug.step(0.02);
+        const o = { d0: draws() };
+        o.blast = cnt(() => W.blastFx(x, z, 3.25));
+        o.freeze = cnt(() => W.freezeFx(x + 2, z, 0.5, 2, false));
+        o.cut = cnt(() => W.cutLine(x + 2, z, 1.2, 2.8, 0xe8f0ff, 0.35));
+        o.host = cnt(() => W.soulHost(x, z + 3, 6, P.x, P.z));
+        o.champ = cnt(() => { for (let i = 0; i < 6; i++) { W.champFx(x + i, z + 4); W.champLand(x + i, z + 4, 2.2); } });
+        o.ghost = W.b2Info();
+        G.debug.step(0.02);
+        o.d1 = draws();
+        G.debug.step(0.4); // 斩线落下（鬼影：网格不画）
+        o.d2 = draws();
+        W.clearFx();
+        G.debug.step(0.02);
+        o.ash = cnt(() => W.ashBurst(x + 1, z + 1, 2, 0.6, 4, 0));
+        o.dash = cnt(() => W.dashCut(P.ent, x, z, x + 5, z, 0xe8f0ff));
+        o.shadow = cnt(() => W.shadowStep(x, z, x + 4, z, 0xc7a6ff, { dim: true }));
+        const p3 = [{ x, z }, { x: x + 3, z }, { x: x + 5, z: z + 1 }], p2 = [{ x, z }, { x: x + 3, z }];
+        o.bolt = [];
+        for (let k = 0; k < 3; k++) {
+          const v = [];
+          sd('b' + k); v.push(cnt(() => W.bolt(p3, 0xc9b4ff)));
+          sd('b' + k); v.push(cnt(() => W.bolt(p3, 0xc9b4ff, false, { v2: true, rn: true })));
+          sd('b' + k); v.push(cnt(() => W.bolt(p3, 0xfffbe6, false, { ghost: true })));
+          sd('m' + k); v.push(cnt(() => W.bolt(p2, 0xfffbe6, true)));
+          sd('m' + k); v.push(cnt(() => W.bolt(p2, 0xfffbe6, true, { ghost: true })));
+          W.clearFx();
+          o.bolt.push(v);
+        }
+        o.imp = [];
+        for (const st of ['cut', 'ash', 'blink']) {
+          sd('i' + st); const a = cnt(() => W.impact(x, 1, z, 0.5, 'phys', 2, true));
+          sd('i' + st); W.impactStyle(st); const b = cnt(() => W.impact(x, 1, z, 0.5, 'phys', 2, true)); W.impactStyle(null);
+          o.imp.push([a, b]);
+        }
+        W.clearFx();
+        G.debug.step(0.02);
+        out[q] = o;
+      }
+      W.setQuality(q0);
+      W.clearFx();
+      return out;
+    });
+    const H = r.high, L = r.low;
+    assert(H.d1 <= H.d0 && L.d1 <= L.d0 && H.d2 <= H.d0 && L.d2 <= L.d0, '爆燃 / 冻结 / 瞬断斩线 / 万魂降临不该多出 draw：' + JSON.stringify(r));
+    assert(H.ghost.ghostStreaks >= 1 && H.ghost.ghostSummons === 6 && L.ghost.ghostSummons === 6, '瞬断的斩线、万魂降临的法阵（池子 6 个）应走鬼影：' + JSON.stringify(r));
+    for (const o of [H, L]) {
+      assert(o.cut === 0 && o.host === 403 && o.champ === 1320 && o.ash === 333 && o.dash === 121 && o.shadow === 273, 'Math.random 取数应和换之前一样：' + JSON.stringify(r));
+      assert(o.bolt.every((v) => v[0] === v[1] && v[1] === v[2] && v[3] === v[4]), '同一种子下旧电弧 / v2（rn）/ 鬼影电弧的取数应一样：' + JSON.stringify(o.bolt));
+      assert(o.imp.every((v) => v[0] === v[1] && v[0] > 0), '重斩命中换细斩线取数应一样：' + JSON.stringify(o.imp));
+    }
+    assert(H.blast === 138 && L.blast === 81 && H.freeze === 156 && L.freeze === 158, '爆燃 / 冻结取数应和第 1 批一样：' + JSON.stringify(r));
+    return 'draw 高 ' + H.d0 + '→' + H.d1 + '→' + H.d2 + ' / 低 ' + L.d0 + '→' + L.d1 + '→' + L.d2 + '，鬼影法阵 ' + H.ghost.ghostSummons + '，电弧取数 ' + H.bolt.map((v) => v[0] + '/' + v[3]).join(' ');
+  });
+
   await step('特效三期第 3 部分（vf-vfx3）：区域氛围——霜骨沼泽 / 雷鸣遗迹 / 烬渊深处 / 坠星裂谷 / 余烛殿各有一个氛围 Points（高画质画、低画质不画）；设置「环境特效」新存档和老存档都默认开，关掉后不画、也不撒全局粒子', async () => {
     const r = await ev((KEY) => {
       const W = G.world, S = G.state, save = G.save, out = {};
