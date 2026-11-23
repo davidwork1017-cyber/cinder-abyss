@@ -43,6 +43,15 @@ const timed = async (kind, guard, p) => {
 };
 const launch = async (o) => {
   const r = await launchFull(Object.assign({ dpr: cheap ? CHEAP_DPR : null, seed: SEEDED ? seedKey(curStep) : null }, o));
+  // 主线旁白卡（quest D3）：放的时机按真实时间（打完仗、飘字出完），会在别的步骤中途弹出来接走 Esc / 回车，所以测试默认关掉；
+  // 测旁白的那几步在 sessionStorage 里设 cinder-test-narr 再打开（install 和每次导航前都按它设 window.__noNarr）
+  await r.page.addInitScript(() => {
+    try {
+      window.__noNarr = !sessionStorage.getItem('cinder-test-narr');
+    } catch (e) {
+      window.__noNarr = true;
+    }
+  });
   if (AUDIT) {
     const pg = r.page, reload = pg.reload.bind(pg), nav = pg.waitForNavigation.bind(pg);
     pg.reload = (opt) => timed('reload', (opt && opt.timeout) || 30000, reload(opt));
@@ -133,6 +142,13 @@ async function auditFlush(name) {
 async function install() {
   await timed('install', 30000, page.waitForFunction(() => window.G && G.debug && G.state && G.state.zone && G.player && G.player.ent, null, { timeout: 30000 }));
   if (AUDIT) await ev(() => { window.__audit = true; });
+  await ev(() => {
+    try {
+      window.__noNarr = !sessionStorage.getItem('cinder-test-narr'); // 主线旁白卡默认关（见 launch）
+    } catch (e) {
+      window.__noNarr = true;
+    }
+  });
   await ev(() => {
     const G = window.G, W = G.world, P = G.player, S = G.state;
     const T = (window.T = {
@@ -23976,6 +23992,343 @@ async function titleSteps() {
     assert(A.hash === C.hash && A.calls === C.calls, '同一份存档打两遍不一样（测试本身不确定）：' + JSON.stringify({ A, C }));
     assert(A.hash === B.hash && A.calls === B.calls, '金色记号改了模拟或取了随机数：' + JSON.stringify({ A, B }));
     return '哈希 ' + A.hash + '，取随机数 ' + A.calls + ' 次（开 / 关相同），画了记号 ' + A.marks + ' 帧';
+  });
+
+  // ------------------------------------------------------------------ 主线旁白卡（quest D3）：首领步 / 进轮回层级 1 真正完成时放一张两行的旁白卡
+  // 测试默认关着（launch / install 按 sessionStorage 的 cinder-test-narr 设 window.__noNarr），这几步打开、结束时关回去
+  const narrOn = (on) =>
+    ev((on) => {
+      if (on) sessionStorage.setItem('cinder-test-narr', '1');
+      else sessionStorage.removeItem('cinder-test-narr');
+      window.__noNarr = !on;
+    }, on);
+  // 页面里每帧记下哪张卡开始放了（id、时间）
+  const narrWatch = () =>
+    ev(() => {
+      window.__nl = [];
+      if (window.__nlOn) return;
+      window.__nlOn = true;
+      let last = '';
+      const f = () => {
+        const v = G.ui.narr(), id = v.on ? v.id : '';
+        if (id !== last) {
+          if (id) window.__nl.push({ id, t: performance.now() });
+          last = id;
+        }
+        requestAnimationFrame(f);
+      };
+      requestAnimationFrame(f);
+    });
+  const NARR = {
+    ash_boss: ['巨像倒了，它攒的火落到你手里。', '灰是从底下来的，接着往下走。'],
+    rift_boss: ['巨兽嘴里那颗星，灭了。', '可天上的裂口还在，星星还会落下来。'],
+    tier_one: ['灰又冒上来了，比上回更厚。', '余烬未冷，再走一遍。'],
+  };
+  await step('主线旁白：真打死熔渣巨像 → 卡片先排着，还有醒着的敌人、敌方预警圈时不放，打完才放（两行）；开始放就记进 told 并存档；面板盖着时停住；点卡片跳过，点击不算游戏输入', async () => {
+    await narrOn(true);
+    try {
+      await qSet({ n: 1 });
+      await until(() => !G.world.assetsPending(), null, 60000);
+      await narrWatch();
+      const a = await ev(() => {
+        const S = G.state;
+        const foe = S.enemies.find((e) => !e.isBoss && !e.dead);
+        foe.awake = true; // 还有一只在打
+        window.__nFoe = foe;
+        G.killEnemy(S.boss);
+        return { n: G.questStep(), v: G.ui.narr(), told: G.questTold('ash_boss'), awake: S.enemies.filter((e) => e.awake && !e.dead).length };
+      });
+      assert(a.n === 2 && !a.v.on && JSON.stringify(a.v.queued) === '["ash_boss"]' && !a.told && a.awake === 1, '首领倒下应排上熔渣巨像的卡、先不放：' + JSON.stringify(a));
+      await page.waitForTimeout(4500);
+      const b = await ev(() => ({ v: G.ui.narr(), nl: window.__nl.length }));
+      assert(!b.v.on && b.nl === 0 && JSON.stringify(b.v.queued) === '["ash_boss"]', '还有醒着的敌人时不应放：' + JSON.stringify(b));
+      // 敌人不打了，但还有一个敌方预警圈
+      await ev(() => {
+        window.__nFoe.awake = false;
+        window.__nTel = G.telegraph({ shape: 'circle', x: G.player.x + 30, z: G.player.z, r: 2, dur: 999, dmg: 0, friendly: false });
+      });
+      await page.waitForTimeout(3000);
+      const c = await ev(() => ({ v: G.ui.narr(), nl: window.__nl.length, tel: G.state.telegraphs.length }));
+      assert(!c.v.on && c.nl === 0 && c.tel >= 1, '敌方预警圈还在时不应放：' + JSON.stringify(c));
+      const t0 = await ev(() => {
+        const S = G.state, t = window.__nTel;
+        G.world.removeTelegraph(t.handle);
+        S.telegraphs.splice(S.telegraphs.indexOf(t), 1);
+        return performance.now();
+      });
+      await until(() => G.ui.narr().on, null, 15000);
+      await until(() => getComputedStyle(document.querySelector('#narr p + p')).opacity === '1' && getComputedStyle(document.getElementById('narr')).opacity === '1', null, 5000);
+      const d = await ev(() => {
+        const r = document.getElementById('narr'), bb = r.getBoundingClientRect(), cs = getComputedStyle(r);
+        return {
+          v: G.ui.narr(), nl: window.__nl.slice(), told: G.questTold('ash_boss'), raw: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).quest.told,
+          box: [bb.left, bb.top, bb.width, bb.height], vw: innerWidth, vh: innerHeight, op: cs.opacity, bg: cs.backgroundColor, bw: parseFloat(cs.borderTopWidth), bc: cs.borderTopColor, l2: getComputedStyle(r.children[1]).opacity,
+        };
+      });
+      assert(d.v.id === 'ash_boss' && JSON.stringify(d.v.lines) === JSON.stringify(NARR.ash_boss), '应放熔渣巨像的两行：' + JSON.stringify(d.v));
+      assert(d.nl.length === 1 && d.nl[0].t - t0 >= 1000, '预警圈没了之后至少平静 1 秒才放：' + JSON.stringify({ nl: d.nl, t0 }));
+      assert(d.told && d.raw.ash_boss === true, '开始放就应记进 told 并存档：' + JSON.stringify(d));
+      assert(d.op === '1' && d.l2 === '1' && d.bg === 'rgb(242, 232, 210)' && d.bw >= 2 && d.bc === 'rgb(18, 11, 8)', '卡片应是开场字幕框的样子、两行都出来：' + JSON.stringify(d));
+      assert(Math.abs(d.box[0] + d.box[2] / 2 - d.vw / 2) < 2 && d.box[0] > 0 && d.box[0] + d.box[2] < d.vw && d.box[1] > d.vh / 2 && d.box[1] + d.box[3] < d.vh - 150, '卡片应在屏幕中下方居中：' + JSON.stringify(d.box));
+      // 面板盖着：藏起来、计时停住；关掉接着放
+      const h1 = await ev(async () => {
+        G.ui.open('map');
+        await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+        const t1 = G.ui.narr().t;
+        await new Promise((res) => setTimeout(res, 800));
+        const v = G.ui.narr(), vis = getComputedStyle(document.getElementById('narr')).visibility;
+        G.ui.close();
+        return { held: v.held, dt: v.t - t1, vis, on: v.on, t: v.t };
+      });
+      assert(h1.held && h1.vis === 'hidden' && h1.dt < 0.05 && h1.on, '面板开着时卡片应藏起来、计时停住：' + JSON.stringify(h1));
+      await until((t) => !G.ui.narr().held && G.ui.narr().t > t + 0.1, h1.t, 10000); // 关掉后接着放
+      const h2 = await ev(() => ({ v: G.ui.narr(), vis: getComputedStyle(document.getElementById('narr')).visibility }));
+      assert(h2.v.on && !h2.v.out && h2.vis === 'visible', '面板关掉后卡片应接着放：' + JSON.stringify(h2));
+      // 点卡片：跳过，不算游戏输入
+      const bb = await ev(() => {
+        const r = document.getElementById('narr').getBoundingClientRect();
+        return [r.left + r.width / 2, r.top + r.height / 2];
+      });
+      await page.mouse.move(bb[0], bb[1]);
+      await page.mouse.down();
+      const e = await ev(() => ({ v: G.ui.narr(), b0: !!G.input.mouse.b[0], cast: !!G.player.cast }));
+      await page.mouse.up();
+      assert(e.v.out && !e.b0 && !e.cast, '点卡片应跳过、不算游戏输入：' + JSON.stringify(e));
+      await until(() => !G.ui.narr().on, null, 3000);
+      const f = await ev(() => ({ show: document.getElementById('narr').classList.contains('show'), q: G.ui.narr().queued }));
+      assert(!f.show && f.q.length === 0, '跳过后卡片应收起：' + JSON.stringify(f));
+      return '等敌人 4.5 秒、等预警圈 3 秒都没放，平静 ' + Math.round(d.nl[0].t - t0) + ' ms 后放，放 ' + d.v.dur.toFixed(1) + ' 秒';
+    } finally {
+      await narrOn(false);
+    }
+  });
+
+  await step('主线旁白：每张卡每个角色只放一次（刷新页面后不再放）；读档推算出来的首领步不放', async () => {
+    await narrOn(true);
+    try {
+      await page.reload({ timeout: 90000 });
+      await install();
+      await until(() => !G.world.assetsPending(), null, 60000);
+      await narrWatch();
+      await page.waitForTimeout(4000);
+      const a = await ev(() => ({ told: G.questTold('ash_boss'), n: G.questStep(), nl: window.__nl.length, v: G.ui.narr(), noNarr: window.__noNarr }));
+      assert(!a.noNarr && a.told && a.n === 2 && a.nl === 0 && !a.v.on && a.v.queued.length === 0, '刷新后不应再放：' + JSON.stringify(a));
+      // 再真打死一次熔渣巨像（已经放过）：不排
+      const b = await ev(() => {
+        G.enterZone(0, 0);
+        G.debug.hold(true);
+        G.debug.god(true);
+        G.killEnemy(G.state.boss);
+        return G.ui.narr().queued;
+      });
+      assert(b.length === 0, '放过的卡再打死首领也不排：' + JSON.stringify(b));
+      // 老存档：荒原 / 霜骨已通关、lastZone 2 → 读档推算到第 5 步，两个首领步都是推算出来的
+      await qSet({ n: 0, cleared: { ash: 0, frost: 0 }, zone: 2 });
+      await until(() => !G.world.assetsPending(), null, 60000);
+      await narrWatch();
+      await page.waitForTimeout(4000);
+      const c = await ev(() => ({ n: G.questStep(), told: JSON.stringify(G.save.quest.told), nl: window.__nl.length, v: G.ui.narr() }));
+      assert(c.n === 5 && c.told === '{}' && c.nl === 0 && !c.v.on && c.v.queued.length === 0, '推算出来的首领步不应放卡：' + JSON.stringify(c));
+      return '刷新后 0 张，推算到第 ' + c.n + ' 步 0 张';
+    } finally {
+      await narrOn(false);
+    }
+  });
+
+  await step('主线旁白：打死衔星巨兽 → 卡片，回车跳过；第一次进轮回层级 1 → 层级卡（素材载完、飘字出完才放），Esc 只跳过卡片、不开暂停菜单，收起后 Esc 照常开', async () => {
+    await narrOn(true);
+    try {
+      await qSet({ n: 9, cleared: { ash: 0, frost: 0, storm: 0, abyss: 0 }, zone: 4 });
+      await until(() => !G.world.assetsPending(), null, 90000);
+      await narrWatch();
+      const a = await ev(() => {
+        G.killEnemy(G.state.boss);
+        return { n: G.questStep(), maxTier: G.save.maxTier, q: G.ui.narr().queued };
+      });
+      assert(a.n === 10 && a.maxTier === 1 && JSON.stringify(a.q) === '["rift_boss"]', '打死衔星巨兽应排上它的卡：' + JSON.stringify(a));
+      await until(() => G.ui.narr().on, null, 20000);
+      const b = await ev(() => G.ui.narr());
+      assert(b.id === 'rift_boss' && JSON.stringify(b.lines) === JSON.stringify(NARR.rift_boss), '应放衔星巨兽的两行：' + JSON.stringify(b));
+      await page.keyboard.press('Enter');
+      const b2 = await ev(() => ({ v: G.ui.narr(), open: G.ui.isOpen() }));
+      assert(b2.v.out && !b2.open, '回车应跳过：' + JSON.stringify(b2));
+      await until(() => !G.ui.narr().on, null, 3000);
+      // 进轮回层级 1
+      const c = await ev(() => {
+        G.enterZone(0, 1);
+        G.debug.hold(true);
+        G.debug.god(true);
+        return { n: G.questStep(), tier: G.state.tier, q: G.ui.narr().queued, told: G.questTold('tier_one') };
+      });
+      assert(c.n === 11 && c.tier === 1 && JSON.stringify(c.q) === '["tier_one"]' && !c.told, '第一次进层级 1 应排上层级卡：' + JSON.stringify(c));
+      await until(() => G.ui.narr().on, null, 60000);
+      const d = await ev(() => ({ v: G.ui.narr(), pend: G.world.assetsPending(), qq: G.ui.quest().queued.length, told: G.questTold('tier_one') }));
+      assert(d.v.id === 'tier_one' && JSON.stringify(d.v.lines) === JSON.stringify(NARR.tier_one) && !d.pend && d.qq === 0 && d.told, '应放层级卡（素材载完、完成提示排完）：' + JSON.stringify(d));
+      await page.keyboard.press('Escape');
+      const e = await ev(() => ({ v: G.ui.narr(), open: G.ui.isOpen() }));
+      assert(e.v.out && !e.open, 'Esc 应只跳过卡片、不开暂停菜单：' + JSON.stringify(e));
+      await until(() => !G.ui.narr().on, null, 3000);
+      await page.keyboard.press('Escape');
+      const f = await ev(() => G.ui.isOpen());
+      await page.keyboard.press('Escape');
+      const g = await ev(() => G.ui.isOpen());
+      assert(f && !g, '卡片收起后 Esc 应照常开 / 关暂停菜单：' + JSON.stringify({ f, g }));
+      return '衔星巨兽卡回车跳过，层级卡 Esc 跳过';
+    } finally {
+      await narrOn(false);
+    }
+  });
+
+  await step('主线旁白：按角色——新角色第一次打死熔渣巨像也放它自己的卡；切回原来的角色，它的 told 不变', async () => {
+    const snap = await ev(() => JSON.stringify(Object.assign({}, localStorage)));
+    await narrOn(true);
+    try {
+      const a = await ev(() => {
+        G.persist();
+        const k = G.slots.firstEmpty();
+        return { k, cur: G.slots.cur(), told: JSON.stringify(G.save.quest.told), made: G.slots.create(k) };
+      });
+      assert(a.k > 0 && a.made && a.told.includes('tier_one') && !a.told.includes('ash_boss'), '应能建新角色（原角色这份存档放过层级卡、没放过熔渣巨像的卡）：' + JSON.stringify(a));
+      await Promise.all([page.waitForEvent('load', { timeout: 90000 }), ev(() => { sessionStorage.setItem(G.PLAY_ONCE_KEY, '1'); location.reload(); })]);
+      await install();
+      const b = await ev(() => {
+        G.ui.close();
+        G.save.seenHelp = G.save.seenStory = true;
+        G.enterZone(0, 0);
+        G.debug.hold(true);
+        G.debug.god(true);
+        return { cur: G.slots.cur(), n: G.questStep(), told: JSON.stringify(G.save.quest.told) };
+      });
+      assert(b.cur === a.k && b.n === 0 && b.told === '{}', '新角色的主线应是新的：' + JSON.stringify(b));
+      await until(() => !G.world.assetsPending(), null, 60000);
+      await narrWatch();
+      const q = await ev(() => {
+        G.killEnemy(G.state.boss);
+        return G.ui.narr().queued;
+      });
+      assert(JSON.stringify(q) === '["ash_boss"]', '新角色打死熔渣巨像应排上卡：' + JSON.stringify(q));
+      await until(() => G.ui.narr().on && G.ui.narr().id === 'ash_boss', null, 20000);
+      const c = await ev(() => ({ told: G.questTold('ash_boss'), raw: JSON.parse(localStorage.getItem(G.slotKey(G.slots.cur()))).quest.told }));
+      assert(c.told && c.raw.ash_boss === true, '新角色放过后记在自己的存档里：' + JSON.stringify(c));
+      await ev(() => G.ui.narrSkip());
+      await Promise.all([page.waitForEvent('load', { timeout: 90000 }), ev((k) => { G.slots.select(k); sessionStorage.setItem(G.PLAY_ONCE_KEY, '1'); location.reload(); }, a.cur)]);
+      await install();
+      const d = await ev(() => ({ cur: G.slots.cur(), told: JSON.stringify(G.save.quest.told) }));
+      assert(d.cur === a.cur && d.told === a.told && !d.told.includes('ash_boss'), '切回原角色 told 应不变（新角色放的熔渣巨像卡不串过来）：' + JSON.stringify({ a, d }));
+      return '新角色在第 ' + (a.k + 1) + ' 栏放了自己的卡';
+    } finally {
+      await narrOn(false);
+      await ev((snap) => {
+        G.holdSave(true);
+        const o = JSON.parse(snap);
+        localStorage.clear();
+        for (const k of Object.keys(o)) localStorage.setItem(k, o[k]);
+      }, snap);
+      await page.reload({ timeout: 90000 });
+      await install();
+      await until(() => !G.world.assetsPending(), null, 60000);
+    }
+  });
+
+  await step('主线旁白：首领战取随机数次数和种子哈希，开着旁白卡（打完放了一张）和关着时一样', async () => {
+    const base = await ev(() => {
+      const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+      raw.cleared = {};
+      raw.maxTier = raw.tier = 0;
+      raw.lastZone = 0;
+      raw.run = null;
+      raw.quest = { n: 0, off: false, told: {} };
+      return raw;
+    });
+    const fresh = async (narr, hold) => {
+      await ev(
+        ([raw, narr, hold]) => {
+          G.holdSave(true);
+          window.__testRand.seed('主线旁白·首领战·载入');
+          localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+          if (hold) sessionStorage.setItem('cinder-test-hold', '1');
+          else sessionStorage.removeItem('cinder-test-hold');
+          if (narr) sessionStorage.setItem('cinder-test-narr', '1');
+          else sessionStorage.removeItem('cinder-test-narr');
+        },
+        [base, narr, hold]
+      );
+      await page.reload({ timeout: 90000 });
+      await install();
+      await until(() => !G.world.assetsPending(), null, 60000);
+    };
+    // 和「主线：首领战…」同一仗（门口 → 首领 → 进霜骨），进霜骨后停下等真实时间 6 秒（开着时这期间放卡），再打 4 秒
+    const fight = () =>
+      ev(() => {
+        const P = G.player, S = G.state;
+        window.__testRand.seed('主线旁白·首领战');
+        const rnd = Math.random;
+        window.__nCalls = 0;
+        window.__nRnd = rnd;
+        Math.random = function () { window.__nCalls++; return rnd.call(this); };
+        P.god = true;
+        try {
+          for (let i = 0; i < 60; i++) G.tick(1 / 60);
+          G.debug.tpBoss();
+          for (let i = 0; i < 360; i++) G.tick(1 / 60);
+          G.killEnemy(S.boss);
+          for (let i = 0; i < 60; i++) G.tick(1 / 60);
+          G.enterZone(1, 0);
+          for (let i = 0; i < 120; i++) G.tick(1 / 60);
+        } finally {
+          Math.random = rnd;
+        }
+        return { n: G.questStep(), q: G.ui.narr().queued };
+      });
+    const rest = () =>
+      ev(() => {
+        const P = G.player, S = G.state, rnd = window.__nRnd;
+        let calls = window.__nCalls;
+        Math.random = function () { calls++; return rnd.call(this); };
+        try {
+          for (let i = 0; i < 240; i++) G.tick(1 / 60);
+        } finally {
+          Math.random = rnd;
+        }
+        const st = JSON.stringify({ p: [P.x, P.z, P.life, P.mana], e: S.enemies.map((o) => [o.type, o.x, o.z, o.hp, o.dead]), loot: S.loot.length, t: S.time, xp: G.save.xp, calls });
+        let h = 2166136261;
+        for (let i = 0; i < st.length; i++) h = Math.imul(h ^ st.charCodeAt(i), 16777619);
+        return { hash: (h >>> 0).toString(16), calls, n: G.questStep(), told: JSON.stringify(G.save.quest.told) };
+      });
+    // 开着时等到卡片放出来（最多 40 秒：进霜骨的素材要载完）；关着时等 6 秒。模拟一直停着，等多久不影响这一仗
+    const run = async (narr) => {
+      await narrWatch();
+      const a = await fight();
+      const t0 = Date.now();
+      if (narr) await until(() => window.__nl.length > 0, null, 40000).catch(() => {});
+      else await page.waitForTimeout(6000);
+      const w = Date.now() - t0;
+      const nl = await ev(() => window.__nl.map((x) => x.id));
+      const why = await ev(() => ({
+        awake: G.state.enemies.filter((e) => e.awake && !e.dead).length, tel: G.state.telegraphs.filter((t) => !t.friendly).length,
+        pend: G.world.assetsPending(), dead: G.player.dead, qq: G.ui.quest().queued.length,
+      }));
+      return Object.assign(await rest(), { q: a.q, nl, w, why });
+    };
+    let A, B, C;
+    try {
+      await fresh(true, true);
+      A = await run(true);
+      await fresh(false, true);
+      B = await run(false);
+      await fresh(true, true);
+      C = await run(true);
+    } finally {
+      await fresh(false, false);
+      await ev(() => {
+        G.debug.hold(true);
+        G.debug.god(true);
+      });
+    }
+    assert(A.n === 3 && JSON.stringify(A.q) === '["ash_boss"]' && JSON.stringify(A.nl) === '["ash_boss"]' && B.q.length === 0 && B.nl.length === 0, '开着时这一仗打完应放熔渣巨像的卡，关着时不放：' + JSON.stringify({ A, B }));
+    assert(A.hash === C.hash && A.calls === C.calls, '同一份存档打两遍不一样（测试本身不确定）：' + JSON.stringify({ A, C }));
+    assert(A.hash === B.hash && A.calls === B.calls, '旁白卡改了模拟或取了随机数：' + JSON.stringify({ A, B }));
+    return '哈希 ' + A.hash + '，取随机数 ' + A.calls + ' 次（开 / 关相同）';
   });
 
   await step('主线：收尾——还原这一组之前的存档', async () => {
