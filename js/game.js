@@ -5306,6 +5306,8 @@
     }
     // 弓：切入过渡不长于拉弓起手的 0.4（攻速很快时第一箭不会还没摆好侧身、手还在半路就开始拉弦）
     else if (sk.draw) playFire(sk.rtype, { dur: Math.max(0.2, first + 0.18), contact: Math.max(0.02, first), fade: Math.min(0.06, Math.max(0.02, first) * 0.4) });
+    // 左轮：按下就开始拔枪，抬到肩高正好赶上第一发（原来第一发出手时动作才开始播，子弹从还垂着的枪口出去）。只动画面：不碰 first / cdT / 模拟
+    else if (sk.rtype === 'revolver' && !G.world.grip5Off) playFire('revolver', { dur: first + 0.28, contact: first, fade: Math.min(0.05, first), raise: true });
     return true;
   }
 

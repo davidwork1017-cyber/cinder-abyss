@@ -3564,6 +3564,188 @@ async function main() {
     return r.shots + ' 箭：出手那一帧都已撒放，前一帧都拉满搭着箭';
   });
 
+  // skill-5a：宝石技能的出手动作按握法出版本（长柄 / 双手枪拿着什么都不撒手），拖尾只给有刃的武器；只动画面
+  await step('按握法的出手动作：长柄（长杖 / 魂幡 / 战锤 / 太刀）的 throw / cast、双手枪（机炮 / 喷枪）的 throw / cast / attack1 / flicker / spin 都有自己的版本，时长和命中帧 k0 和原动作一样，命中帧照样落在 contact 上', async () => {
+    const r = await ev((code) => {
+      eval(code);
+      const P = G.player, W = G.world, save = G.save, out = { n: 0, bad: [] };
+      const keepW = save.equip.weapon;
+      const LONG = ['throw', 'cast'], GUN = ['throw', 'cast', 'attack1', 'flicker', 'flicker2', 'spin'];
+      try {
+        for (const [b, names, emit] of [[1, LONG, 'handL'], [7, LONG, 'handL'], [4, LONG, 'handL'], [6, LONG, 'handL'], [8, GUN, 'muzzle'], [9, GUN, 'muzzle']]) {
+          T.arena();
+          RW.arm(b);
+          const rig = P.ent.rig, gc = P.ent.gearClips || {};
+          for (const n of names) {
+            const c = gc[n], c0 = rig.clips[n], tag = b + '/' + n;
+            if (!c || !c.g5) { out.bad.push(tag + ' 没有按握法的版本'); continue; }
+            if (c.dur !== c0.dur || c.k0 !== c0.k0 || c.loop !== c0.loop) out.bad.push(tag + ' 时长 / k0 / 循环变了 ' + JSON.stringify([c.dur, c.k0, c.loop, c0.dur, c0.k0, c0.loop]));
+            if (n === 'throw' && c.emit !== emit) out.bad.push(tag + ' 出手点 ' + c.emit + '（应 ' + emit + '）');
+            // 实际播一遍：命中帧落在 contact（0.3 秒 = 18 帧）上，新旧两版的归一化时间一帧一帧都一样
+            const ks = [];
+            for (const off of [false, true]) {
+              W.grip5Off = off;
+              W.stop(P.ent, 0);
+              RW.run(4);
+              W.play(P.ent, n, { dur: 0.6, contact: 0.3, loop: c.loop });
+              const want = off ? c0 : c;
+              if (P.ent.clip !== want) out.bad.push(tag + (off ? ' 关掉后' : '') + ' 播的不是' + (off ? '原动作' : '按握法的版本'));
+              const k = [];
+              for (let i = 0; i < 24; i++) { G.tick(1 / 60); k.push(P.ent.cK); }
+              ks.push(k);
+            }
+            W.grip5Off = false;
+            if (JSON.stringify(ks[0]) !== JSON.stringify(ks[1])) out.bad.push(tag + ' 归一化时间和原动作不一样');
+            if (!c.loop && !(Math.abs(ks[0][17] - c.k0) < 0.02)) out.bad.push(tag + ' contact 那一帧 k = ' + ks[0][17].toFixed(3) + '（k0 ' + c.k0 + '）');
+            out.n++;
+            W.stop(P.ent, 0);
+          }
+          // 单手 / 弓不换：刃、短杖、左轮、长弓没有这些版本（弓的 throw 是原来的镜像版）
+        }
+        for (const b of [0, 2, 12]) {
+          RW.arm(b);
+          const gc = P.ent.gearClips || {};
+          for (const n of ['throw', 'cast', 'attack1', 'spin']) if (gc[n] && gc[n].g5) out.bad.push(b + '/' + n + ' 单手武器不该换');
+        }
+      } finally {
+        W.grip5Off = false;
+        save.equip.weapon = keepW;
+        G.computeStats();
+        T.arena();
+      }
+      return out;
+    }, rangedSetup);
+    assert(r.n === 20, '按握法的版本数 ' + r.n + '（应 20）：' + r.bad.slice(0, 4).join(' ｜ '));
+    assert(!r.bad.length, r.bad.slice(0, 6).join(' ｜ ') + ' 共 ' + r.bad.length + ' 例');
+    return r.n + ' 个版本：时长 / k0 / 命中帧和原动作一样';
+  });
+
+  await step('按握法的出手动作：飞刃（投掷）拿长柄从左手扔、武器扛在肩上，拿双手枪从枪口打出；弹丸第一帧画在 emitWorld 给的出手点上（出手点挂点同上）', async () => {
+    const r = await ev((code) => {
+      eval(code);
+      const P = G.player, W = G.world, save = G.save, out = { n: 0, bad: [], rows: [] };
+      const keepW = save.equip.weapon, keepBuild = T.buildSnap();
+      let last = null;
+      const sp0 = G.spawnProjectile;
+      G.spawnProjectile = function (p) {
+        const q = sp0.apply(this, arguments);
+        if (q && q.owner === 'p' && !q.minion && !q.forked) last = q;
+        return q;
+      };
+      const d3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+      try {
+        save.skills.blade = Math.max(1, save.skills.blade || 0);
+        save.sockets.blade = save.sockets.blade || [null, null, null];
+        save.bar = ['blade', null, null, null];
+        for (const [b, sock] of [[1, 'handL'], [7, 'handL'], [4, 'handL'], [6, 'handL'], [8, 'muzzle'], [9, 'muzzle']]) {
+          T.lane();
+          RW.arm(b);
+          G.computeStats();
+          const od = T.openDir(10), F = Math.atan2(od.x, od.z);
+          P.face = P.drawFace = F;
+          W.setEnt(P.ent, P.x, P.z, F);
+          RW.run(20);
+          last = null;
+          for (let i = 0; i < 120 && !last; i++) {
+            T.aim(P.x + Math.sin(F) * 8, P.z + Math.cos(F) * 8);
+            if (i % 30 === 0) G.input.tap[0] = 0.3;
+            P.mana = P.maxMana;
+            G.tick(1 / 60);
+          }
+          G.input.tap[0] = 0;
+          if (!last) { out.bad.push(b + ' 没扔出飞刃'); continue; }
+          const u = last.mesh.userData, f0 = { x: u.px, y: u.py, z: u.pz };
+          const em = W.emitWorld(P.ent), want = sock === 'muzzle' ? W.muzzleWorld(P.ent) : W.entSocket(P.ent, 'handL');
+          const e0 = d3(f0, em), e1 = d3(em, want);
+          out.rows.push(b + ':' + e0.toFixed(4) + '/' + e1.toFixed(4));
+          if (W.clipOf(P.ent) !== 'throw' || !P.ent.clip.g5) out.bad.push(b + ' 出手时播的不是按握法的投掷');
+          if (!(e0 <= 0.005)) out.bad.push(b + ' 第一帧离出手点 ' + e0.toFixed(3) + ' 米');
+          if (!(e1 <= 1e-6)) out.bad.push(b + ' 出手点不是' + sock + '（差 ' + e1.toFixed(3) + ' 米）');
+          out.n++;
+          RW.run(40);
+        }
+      } finally {
+        G.spawnProjectile = sp0;
+        G.input.tap[0] = 0;
+        T.buildRestore(keepBuild);
+        save.equip.weapon = keepW;
+        G.computeStats();
+        T.arena();
+      }
+      return out;
+    }, rangedSetup);
+    assert(r.n === 6, '只扔出 ' + r.n + ' 把：' + r.bad.join(' ｜ '));
+    assert(!r.bad.length, r.bad.slice(0, 6).join(' ｜ '));
+    return '6 种武器：第一帧离出手点 / 出手点离挂点（米）' + r.rows.join('，');
+  });
+
+  await step('拖尾只给有刃的武器：刃 / 长杖头 / 双匕 / 战锤头 / 太刀 / 魂幡头挥 attack1 拉刀光，短杖 / 四种弓 / 机炮 / 喷枪 / 左轮不拉；枪的旋风斩画尘带不画刀光；物理刀光是暖灰、没有近白的色带', async () => {
+    const r = await ev((code) => {
+      eval(code);
+      const P = G.player, W = G.world, save = G.save, out = { on: [], off: [], bad: [] };
+      const keepW = save.equip.weapon;
+      const BLADE = { 0: 1, 1: 1, 3: 1, 4: 1, 6: 1, 7: 1 };
+      try {
+        T.arena();
+        for (let b = 0; b < 14; b++) {
+          RW.arm(b);
+          W.stop(P.ent, 0);
+          RW.run(30);
+          W.setTrail(G.TYPE_HEX.phys);
+          W.play(P.ent, 'attack1', { dur: 0.45, contact: 0.22 });
+          let mx = 0;
+          for (let i = 0; i < 30; i++) {
+            G.tick(1 / 60);
+            const t = W.trailInfo();
+            if (!t.dust) mx = Math.max(mx, t.n);
+          }
+          (mx > 0 ? out.on : out.off).push(b);
+          if (!!BLADE[b] !== mx > 0) out.bad.push(b + (mx > 0 ? ' 不该拉刀光（' + mx + ' 个采样）' : ' 没拉刀光'));
+        }
+        // 枪的旋风斩：尘带
+        for (const b of [8, 9]) {
+          RW.arm(b);
+          W.stop(P.ent, 0);
+          RW.run(30);
+          W.play(P.ent, 'spin', { loop: true, dur: 0.36 });
+          let dust = 0, blade = 0;
+          for (let i = 0; i < 24; i++) {
+            G.tick(1 / 60);
+            const t = W.trailInfo();
+            if (t.dust) dust = Math.max(dust, t.n);
+            else blade = Math.max(blade, t.n);
+          }
+          W.stop(P.ent, 0);
+          if (!(dust > 4) || blade) out.bad.push(b + ' 旋风斩尘带 ' + dust + ' / 刀光 ' + blade);
+        }
+        // 物理刀光的配色：暖灰（红 ≥ 绿 ≥ 蓝，不偏青），三档都不近白（先挥一刀，从上面枪的尘带换回刀光的画法）
+        RW.arm(0);
+        RW.run(30);
+        W.setTrail(G.TYPE_HEX.phys);
+        W.play(P.ent, 'attack1', { dur: 0.45, contact: 0.22 });
+        RW.run(30);
+        if (W.trailInfo().dust) out.bad.push('挥刃之后还是尘带的画法');
+        const c = W.trailInfo().c;
+        out.c = c.map((h) => h.toString(16));
+        const ch = (h) => [(h >> 16) & 255, (h >> 8) & 255, h & 255];
+        for (const h of c) {
+          const [R, Gg, B] = ch(h);
+          if (!(R >= Gg && Gg >= B)) out.bad.push('物理刀光偏冷 ' + h.toString(16));
+          if (Math.min(R, Gg, B) >= 0xe6) out.bad.push('物理刀光近白 ' + h.toString(16));
+        }
+        W.setTrail(0xfff0c0); // 处决的奶油色也按物理画
+        if (W.trailInfo().c[1] !== c[1]) out.bad.push('处决刀光没按物理上色');
+      } finally {
+        save.equip.weapon = keepW;
+        G.computeStats();
+        T.arena();
+      }
+      return out;
+    }, rangedSetup);
+    assert(!r.bad.length, r.bad.slice(0, 8).join(' ｜ '));
+    return '拉刀光 ' + r.on.join(' ') + '；不拉 ' + r.off.join(' ') + '；物理配色 ' + r.c.join(' / ');
+  });
+
   await step('量表：热度开火上涨、停火回落、满了不掉；专注命中上涨（暴击 / 远距离更多），挨打掉一点；量表没满时 R 灰着按不出，满了能放、放完清零；不扣魔力、不进冷却', async () => {
     const r = await ev((code) => {
       eval(code);
@@ -11322,6 +11504,111 @@ async function main() {
     assert(on.hash === off.hash && on.calls === off.calls && on.shots === off.shots, '出手点开着 / 关着打出来不一样：' + JSON.stringify({ on, off }));
     assert(on.shots >= 10 && on.dmg > 0, '混战没打起来：' + JSON.stringify(on));
     return '哈希 ' + on.hash + '，取随机数 ' + on.calls + ' 次，弹丸 ' + on.shots + ' 发，伤害 ' + on.dmg;
+  });
+
+  await step('按握法的出手动作：只动画面——同一个种子拿长杖 / 魂幡 / 战锤 / 太刀 / 机炮 / 喷枪 / 左轮打同一场（飞刃 / 链雷 / 旋风斩 / 放血 / 影步连斩 / 远程普攻，边走边打），新动作 / 持枪找平 / 左轮提前抬枪开着和关着结果一模一样', async () => {
+    const KEY = 'cinder-abyss-save-v1';
+    const save0 = await ev((KEY) => localStorage.getItem(KEY), KEY);
+    const god0 = await ev(() => !!G.player.god);
+    const fresh = async (hold) => {
+      await ev(
+        ([KEY, s, hold]) => {
+          G.holdSave(true);
+          localStorage.setItem(KEY, s);
+          if (hold) sessionStorage.setItem('cinder-test-hold', '1');
+          else sessionStorage.removeItem('cinder-test-hold');
+        },
+        [KEY, save0, hold]
+      );
+      await page.reload({ timeout: 90000 });
+      await install();
+      await until(() => !G.world.assetsPending(), null, 60000);
+      if (!hold) return;
+      await ev(() => {
+        G.debug.zoneSeed(4242);
+        G.enterZone(0, 0);
+      });
+      await until(() => !G.world.assetsPending(), null, 60000);
+    };
+    const run = (off) =>
+      ev(([code, off]) => {
+        eval(code);
+        const P = G.player, S = G.state, W = G.world, save = G.save;
+        window.__testRand.seed('握法·只动画面');
+        T.arena();
+        P.god = true;
+        W.grip5Off = off;
+        const base = Math.random;
+        let calls = 0, shots = 0;
+        Math.random = function () { calls++; return base.call(this); };
+        const sp0 = G.spawnProjectile;
+        G.spawnProjectile = function () { shots++; return sp0.apply(this, arguments); };
+        const es = [[-1.6, -3.4], [0.4, -3.9], [3.0, -1.8], [-3.6, -0.4], [3.4, 0.6], [1.2, 2.2]].map(([dx, dz]) => {
+          const e = G.spawnMob('husk', P.x + dx, P.z + dz, 1, { awake: true });
+          e.wasAwake = true;
+          e.hp = e.maxHp = 1e6;
+          return e;
+        });
+        for (const id of ['blade', 'arc', 'whirl', 'rend', 'shadestep']) {
+          save.skills[id] = Math.max(1, save.skills[id] || 0);
+          save.sockets[id] = save.sockets[id] || [null, null, null];
+        }
+        const clips = {};
+        try {
+          for (const [k, b] of [[0, 1], [1, 7], [2, 4], [3, 6], [4, 8], [5, 9], [6, 12]]) {
+            RW.arm(b);
+            for (let i = 0; i < 150; i++) {
+              const e = es[(k + Math.floor(i / 30)) % es.length];
+              T.aim(e.x, e.z);
+              // 技能栏能用的是 0 / 2 / 3（1 是武器普攻）：前一半飞刃 / 链雷 / 放血，后一半旋风斩 / 影步连斩
+              save.bar = i < 78 ? ['blade', null, 'arc', 'rend'] : ['whirl', null, 'shadestep', null];
+              if (i === 2 || i === 78) G.computeStats();
+              if (i === 5) G.input.tap[0] = 0.3;
+              if (i === 30) G.input.tap[2] = 0.3;
+              if (i === 55) G.input.tap[3] = 0.3;
+              if (i === 80) G.input.tap[0] = 0.3;
+              if (i === 100) G.input.tap[2] = 0.3;
+              G.input.mouse.b[2] = i >= 125 && i < 145;
+              G.input.keys.KeyD = i >= 118 && i < 140; // 边走边打：持枪找平、减掉胯的转角
+              P.mana = P.maxMana;
+              G.tick(1 / 60);
+              const cn = W.clipOf(P.ent);
+              if (cn) clips[cn] = (clips[cn] || 0) + 1;
+            }
+            G.input.keys.KeyD = false;
+            G.input.mouse.b[2] = false;
+          }
+        } finally {
+          G.input.mouse.b[2] = false;
+          G.input.keys.KeyD = false;
+          G.input.tap.fill(0);
+          Math.random = base;
+          G.spawnProjectile = sp0;
+          W.grip5Off = false;
+        }
+        const st = JSON.stringify({ p: [P.x, P.z, P.life, P.mana], e: S.enemies.map((o) => [o.x, o.z, o.hp, o.dead]), proj: S.projectiles.map((q) => [q.x, q.z]), calls, shots });
+        let h = 2166136261;
+        for (let i = 0; i < st.length; i++) h = Math.imul(h ^ st.charCodeAt(i), 16777619);
+        const dmg = es.reduce((a, e) => a + (e.maxHp - e.hp), 0);
+        return { hash: (h >>> 0).toString(16), calls, shots, dmg: Math.round(dmg), clips: Object.keys(clips).sort().join(',') };
+      }, [rangedSetup, off]);
+    let on, off;
+    try {
+      await fresh(true);
+      on = await run(false);
+      await fresh(true);
+      off = await run(true);
+    } finally {
+      await fresh(false);
+      await ev((god0) => {
+        G.debug.hold(true);
+        G.debug.god(god0);
+      }, god0);
+    }
+    assert(on.hash === off.hash && on.calls === off.calls && on.shots === off.shots, '新动作开着 / 关着打出来不一样：' + JSON.stringify({ on, off }));
+    assert(on.dmg > 0 && on.shots >= 6, '这一场没打起来：' + JSON.stringify(on));
+    for (const n of ['throw', 'cast', 'spin', 'attack1', 'fire_revolver']) assert(on.clips.split(',').includes(n), '这一场没播到 ' + n + '：' + on.clips);
+    return '哈希 ' + on.hash + '，取随机数 ' + on.calls + ' 次，弹丸 ' + on.shots + ' 发，伤害 ' + on.dmg + '；播到 ' + on.clips;
   });
 
   await step('刷新后仍可正常游玩：移动、施法、面板', async () => {
