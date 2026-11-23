@@ -21015,6 +21015,7 @@
         np++;
       }
     }
+    if (b.ghost) return;
     const pos = b.pos;
     let seg0 = 0;
     for (let i = 0; i < np; i++) {
@@ -21035,10 +21036,13 @@
     b.mesh.geometry.setDrawRange(0, (np - 1) * 6);
   }
   // o（可选，vf-vfx2）：{ v2: true } 链雷用：落点不再是一团亮星 + 地面闪光，换成折线语言（见 boltV2）
+  // o.ghost（skill-b1）：鬼影电弧——占池子里的一条、按原样取随机数（建锯齿路径、余辉每帧的闪烁），但网格始终隐藏、不画任何落点件：
+  // 闪袭 / 三相天灾换成别的画法以后，玩法里的随机序列和以前一样（fx-random-neutral）。池子和以前完全一样（不另建网格），不多一次 draw
   W.bolt = function (points, hex, minor, o) {
     if (points.length < 2) return;
     const b = boltGet(!!minor);
     if (!b) return;
+    b.ghost = !!(o && o.ghost);
     b.minor = !!minor;
     b.n = Math.min(points.length, BOLT_MAXIN);
     for (let i = 0; i < b.n; i++) {
@@ -21049,6 +21053,12 @@
     b.t = 0;
     b.jit = 0;
     b.hex = hex;
+    if (b.ghost) {
+      boltBuild(b);
+      b.mesh.visible = false;
+      rBurn((b.n - 1) * (minor ? 20 : 37) + (minor ? 0 : 1)); // 每个落点 5 粒火花（各 4 次）；非小电弧另有 flare 1 + 4 粒白火花（各 4 次）、起点 flare 1
+      return;
+    }
     const foe = !!(o && o.foe);
     // vf-vfx3：敌方的电弧（o.foe）：元素色、不往白混、细一些，芯只混一成白；落点不再一个个放星芒 / 闪光 / 近白火花，
     // 换成小号的雷系命中（折线放射），起点（首领身上）一记 ≤ 1.2 米、60 毫秒的亮芯
@@ -21087,7 +21097,7 @@
     flashLight(b.inX[b.n - 1], 2.5, b.inZ[b.n - 1], hex, 1.4);
   };
   // 测试用（vf-vfx3）：还亮着的电弧的芯混白量 / 还在播的光带里敌方模式的条数
-  W.boltWhites = () => bolts.filter((b) => b.on).map((b) => b.u.uWhite.value);
+  W.boltWhites = () => bolts.filter((b) => b.on && !b.ghost).map((b) => b.u.uWhite.value); // skill-b1：鬼影电弧不画，不算
   W.streakFoe = () => { let n = 0, all = 0; for (const it of streaks) if (it.on) { all++; if (it.u.uFoe.value > 0.5) n++; } return { foe: n, all }; };
   // vf-vfx3：敌方电弧的落点。隔一个点放一个小号雷系命中（不留环、不留痕）；head（可选 {x, z}）处一记小亮芯
   function boltFoe(b, hex, head) {
@@ -21245,6 +21255,7 @@
     m.on = true;
     m.hostile = !!hostile;
     m.quiet = !!quiet;
+    m.oldRng = 0;
     m.glow.scale.setScalar(m.hostile ? 2 : 5); // vf-vfx3：敌方落石的光晕小一圈（加色的 5 米光晕在落点上空是一团白）
     m.sm = 0;
     ribRelease(m.rib);
@@ -21262,6 +21273,7 @@
   function meteorOff(m) {
     m.on = false;
     m.fxR = 0;
+    m.oldRng = 0;
     m.mesh.visible = false;
     ribRelease(m.rib);
     m.rib = -1;
@@ -21290,10 +21302,14 @@
         spawnP(px + rand(-0.3, 0.3), py + rand(-0.3, 0.3), pz + rand(-0.3, 0.3), rand(-1, 1), rand(0, 2), rand(-1, 1), rand(0.25, 0.55), m.hostile ? rand(0.16, 0.28) : rand(0.3, 0.6), m.r + (1 - m.r) * w, m.g + (1 - m.g) * w, m.b + (1 - m.b) * w, -1, 1);
       }
       if (k >= 1) {
-        const R = m.fxR || 0;
+        const R = m.fxR || 0, old = m.oldRng;
         meteorOff(m);
-        if (R > 0) meteorLand2(m, R);
+        if (R > 0) meteorLand2(m, R, old);
         else meteorLand(m);
+        // skill-b1（三相天灾的火）：旧画法 meteorLand 落地时取 173 次：flare 1 + 14 粒火花 70 → 碎岩 debrisBurst 66 → 6 团尘 36。
+        // 碎岩每帧还要取（看寿命 / 位置），所以 old 时 meteorLand2 一开头先空取 71 次、再放同样 11 块碎岩（拿到的随机数和以前完全一样），
+        // 它自己取 25 次，最后补 11 次
+        if (R > 0 && old) rBurn(173 - 71 - 66 - 25);
       }
     }
   }
@@ -21338,8 +21354,12 @@
 
   // 陨火落地（vf-vfx2）：亮的只有中心一小团火（不混白）和外沿一道往外推、越推越细的冲击环；火舌长在环上往外窜，中间留给被炸的怪；
   // 暗色岩块四溅、落地弹；余波是焦痕里一道道慢慢冷下去的熔岩裂纹 + 一柱烟。不再铺 4.4 米的地面闪光、不再放近白的大星芒
-  function meteorLand2(m, R) {
+  function meteorLand2(m, R, old) {
     const x = m.x, z = m.z, h = m.hex, lo = qualId === 'low';
+    if (old) {
+      rBurn(71);
+      debrisBurst(x, z, 11, mixHex(h, 0x2a2420, 0.7), 1); // skill-b1：三相天灾的火——碎岩照旧（随机数一样，见 updateMeteors），颜色压成暗岩色
+    }
     flashLight(x, 2.2, z, h, 1.5);
     W.fxFlip(VFB.fire, x, 0.8, z, Math.min(2, R * 0.55), 0.38, h, { grow: 1.25, vy: 0.9 });
     tChunk(1, x, 0.9, z, 0, 0, 0, 0.12, 0.8, 0xffe2a0, h, 0);
@@ -21351,10 +21371,12 @@
       const a = (i / n) * TAU + vr(-0.25, 0.25), d = R * vr(0.45, 0.7), v = R * vr(1, 1.5);
       vsEmit(x + Math.sin(a) * d, 0.05, z + Math.cos(a) * d, Math.sin(a) * v, vr(0.5, 1.5), Math.cos(a) * v, vr(0.42, 0.6), vr(0.45, 0.62), vr(0.7, 1.05), vr(-0.25, 0.25), 0, 0, 3);
     }
-    vsBrush(VSH.chip, 3, 0, 0x5c4c44, 0x5c4c44, 0.2, 0.55);
-    for (let i = 0, n = lo ? 5 : 9; i < n; i++) {
-      const a = vr(0, TAU), v = vr(3.5, 7.5);
-      vsEmit(x + Math.sin(a) * 0.4, 0.5, z + Math.cos(a) * 0.4, Math.sin(a) * v, vr(4, 8.5), Math.cos(a) * v, vr(0.9, 1.3), vr(0.14, 0.26), undefined, vr(0, TAU), vr(6, 12), 22);
+    if (!old) {
+      vsBrush(VSH.chip, 3, 0, 0x5c4c44, 0x5c4c44, 0.2, 0.55);
+      for (let i = 0, n = lo ? 5 : 9; i < n; i++) {
+        const a = vr(0, TAU), v = vr(3.5, 7.5);
+        vsEmit(x + Math.sin(a) * 0.4, 0.5, z + Math.cos(a) * 0.4, Math.sin(a) * v, vr(4, 8.5), Math.cos(a) * v, vr(0.9, 1.3), vr(0.14, 0.26), undefined, vr(0, TAU), vr(6, 12), 22);
+      }
     }
     for (let j = 0, n = lo ? 1 : 3; j < n; j++) {
       const a = (j / n) * TAU + vr(-0.4, 0.4);
@@ -21386,42 +21408,13 @@
   }
 
   // ---------- 元素异常的特效 ----------
-  // 冻结（首领是重度冰缓）：脚下一片霜痕、一圈冰晶碎屑
+  // 冻结（首领是重度冰缓）：skill-b1 起改画进形状批（见 b1Freeze：冰晶 + 冰碴 + 冷色细环 + 冻青灰霜痕，不再有近白的火花 / 星芒）
   W.freezeFx = function (x, z, r, h, boss) {
-    // vf-vfx：霜痕换到痕迹池（从脚下往外扩开、放射状的冰晶），身上一记冰晶星芒
-    if (qualId === 'low') W.decal(2, x, z, r + (boss ? 1.6 : 0.7), Math.random() * TAU, 0x9fdcff, boss ? 3 : 2); // 低画质照旧
-    else {
-      W.vDecal(VVD.frost, x, z, (r + (boss ? 1.6 : 0.7)) * 0.5, boss ? 3 : 2.2, 0x9fdcff, { r1: r + (boss ? 1.6 : 0.7), grow: 0.25 });
-      W.fxFlip(VFB.spark, x, h * 0.55, z, 1.2 + r, 0.24, 0xe6f8ff, { a: 0.9 });
-    }
-    W.ring(x, z, r + 1.4, 0xbfeaff, 0.35);
-    W.burst(x, h * 0.5, z, 0xd6f3ff, boss ? 26 : 16, 4, 0.5);
-    _c.set(0xd6f3ff);
-    for (let i = 0; i < 10; i++) {
-      const a = rand(0, TAU), d = rand(0.2, r + 0.4);
-      spawnP(x + Math.sin(a) * d, rand(0.2, h), z + Math.cos(a) * d, 0, rand(-0.4, 0.4), 0, rand(0.5, 0.9), rand(0.12, 0.22), _c.r, _c.g, _c.b, 1.5, 3);
-    }
+    b1Freeze(x, z, r, h, boss);
   };
-  // 爆燃：以敌人为中心的火焰爆炸
-  // 卡通版：一道硬边色环 + 一颗星 + 一圈实心火团 + 少量火星（原来是两道同心环 + 48 粒软光点）
+  // 爆燃：以敌人为中心的火焰爆炸。skill-b1 起改画进形状批（见 b1Blast：细环 + 火舌 + 小星 + 暗焦痕，不再有 R×1.4 的加色地面闪光和序列帧火团）
   W.blastFx = function (x, z, R) {
-    const lo = qualId === 'low', P = HIT_PAL.fire;
-    W.ring(x, z, R, 0xff7a2c, 0.42);
-    // vf-vfx：焦痕换到痕迹池（透着余烬、被噪声蚀掉）+ 地面闪光；中心的星换成序列帧火团 + 星芒
-    if (lo) {
-      W.decal(1, x, z, R * 0.8, Math.random() * TAU, 0xff6a2a, 3); // 低画质：爆燃在怪群里一连串地炸，照旧用原来的样子（省填充率）
-      tChunk(1, x, 1.0, z, 0, 0, 0, 0.2, 0.8 + R * 0.12, P[0], P[1], 0);
-    } else {
-      W.vDecal(VVD.scorch, x, z, R * 0.8, 3, 0xff6a2a);
-      W.vDecal(VVD.flash, x, z, R * 1.4, 0.3, 0xff9a40);
-      W.fxFlip(VFB.fire, x, 0.9, z, 1.2 + R * 0.6, 0.4, P[1], { grow: 1.35, vy: 0.8 });
-      W.fxFlip(VFB.spark, x, 1.0, z, 1.0 + R * 0.5, 0.22, P[0], { a: 0.9 });
-    }
-    for (let i = 0, n = lo ? 5 : 9; i < n; i++) {
-      const a = (i / n) * TAU + rand(-0.3, 0.3), v = rand(1.4, 2.4) * R;
-      tChunk(2, x + Math.sin(a) * 0.3, 0.8, z + Math.cos(a) * 0.3, Math.sin(a) * v, rand(1, 2.4), Math.cos(a) * v, rand(0.34, 0.5), rand(0.36, 0.5), i % 3 ? 0xff7a22 : 0xffd060, i % 3 ? P[2] : 0xff7a22, -1.5);
-    }
-    W.burst(x, 0.9, z, 0xff7a2c, lo ? 8 : 14, 8, 0.5);
+    b1Blast(x, z, R);
     W.shake(0.2);
   };
   // 感电的电弧：一道细小的闪电从 (x0,z0) 窜到 (x1,z1)，沿途带着往前飞的火花；self：没有别的目标，绕回自己身上
@@ -22026,21 +22019,7 @@
   // 长杖「地脉涌」：脚下炸开一圈，地面裂出几道发光的地脉，沿圈喷起元素色的光柱。type：phys / fire / cold / light（决定地上的痕迹）
   const BURST_DECAL = { fire: 1, cold: 2, light: 3, phys: 5 };
   W.groundBurst = function (x, z, r, hex, type) {
-    W.ring(x, z, r, hex, 0.45);
-    W.ring(x, z, r * 0.55, mixHex(hex, 0xffffff, 0.5), 0.3);
-    W.decal(BURST_DECAL[type] === undefined ? 5 : BURST_DECAL[type], x, z, r * 0.8, rand(0, TAU), hex, 3.5);
-    const a0 = rand(0, TAU);
-    for (let i = 0; i < 6; i++) streak(x, z, 0.14, a0 + (i / 6) * TAU + rand(-0.2, 0.2), r * rand(0.75, 0.95), 0.22, hex, 0.42, 0, 0);
-    _c.set(hex);
-    for (let i = 0; i < 26; i++) {
-      const a = rand(0, TAU), d = r * rand(0.3, 0.95), wh = i % 3 === 0 ? 0.6 : 0.1;
-      spawnP(x + Math.sin(a) * d, 0.2, z + Math.cos(a) * d, Math.sin(a) * rand(0.2, 1.5), rand(5, 10), Math.cos(a) * rand(0.2, 1.5), rand(0.35, 0.7), rand(0.18, 0.32), _c.r + (1 - _c.r) * wh, _c.g + (1 - _c.g) * wh, _c.b + (1 - _c.b) * wh, 9, 1.2);
-    }
-    W.burst(x, 0.6, z, hex, 22, 6, 0.5);
-    // vf-vfx：贴地扩开的序列帧冲击环（噪声打出缺口）+ 中心一记星芒
-    W.fxFlip(VFB.ring, x, 0.12, z, r * 2.15, 0.45, mixHex(hex, 0xffffff, 0.25), { flat: true });
-    W.fxFlip(VFB.spark, x, 0.9, z, 1.4 + r * 0.35, 0.22, mixHex(hex, 0xffffff, 0.4), { a: 0.85 });
-    flare(x, 0.8, z, hex, 2.2, 0.14);
+    b1GroundBurst(x, z, r, hex, type); // skill-b1：外沿细冲击环 + 火舌，焦痕 + 熔岩裂纹（原来是实心橙盘 + 近白内环 + 6 道白色光带）
     W.shake(0.3);
   };
   // 双匕「影刺」：起点和落点各一团烟，中间一串往回飘的暗影，落点一记闪光
@@ -24168,14 +24147,15 @@
   };
   // 一道往外推的细边环：半径小（≤ 1.6 米）时就是形状批的环件；大了改成一圈贴地的细线段一起往外推（长度、宽度随曲线 1 长到 4 倍，正好跟上半径），
   // 环件按半径等比放大到 4–5 米会变成一条粗带（「大范围只画边」）
-  W.thinRing = function (x, z, R, cA, cB, life) {
+  // nN（可选，skill-b1）：线段数（高画质；低画质减半），频繁触发的小环（爆燃 / 冻结）用少一些的段数
+  W.thinRing = function (x, z, R, cA, cB, life, nN) {
     if (!PF.vShape) return;
     if (R <= 1.6) {
       vsBrush(VSH.ring, 2, 1, cA, cB, 0.1, 0.4, 0.35);
       vsEmit(x, 0.09, z, 0, 0, 0, life, R);
       return;
     }
-    const R0 = R / 4, v0 = ((R - R0) * 3) / (1 - Math.exp(-3 * life)), n = Math.max(12, Math.min(40, Math.round(R * 6))) >> (qualId === 'low' ? 1 : 0), seg = ((TAU * R) / n) * 1.05;
+    const R0 = R / 4, v0 = ((R - R0) * 3) / (1 - Math.exp(-3 * life)), n = (nN || Math.max(12, Math.min(40, Math.round(R * 6)))) >> (qualId === 'low' ? 1 : 0), seg = ((TAU * R) / n) * 1.05;
     vsBrush(VSH.bar, 2, 1, cA, cB, 0.1, 0, 0.35);
     for (let i = 0; i < n; i++) {
       const a = (i / n) * TAU;
@@ -24258,6 +24238,249 @@
     }
     vsFoe = 0;
   };
+  // ===================================================================== skill-b1：大面积亮面改成只画边（技能打磨第 1 批）
+  // 共同规则：全部画进形状批 / 地面痕迹（不新增 draw）；大范围只画外沿（细环 + 长在环上的件），中心不放亮面；近白只给 ≤ 1.2 米、≤ 60 毫秒的小芯；
+  // 余波比地面暗；低画质件数减半。拿掉的旧件（W.burst 每粒 6 次、W.decal 1 次、flare 1 次……）按原来的次数空取 Math.random（rBurn），
+  // 玩法里的随机序列和以前一样（fx-random-neutral）；新件只用形状批自己的 vr
+  function rBurn(n) {
+    for (let i = 0; i < n; i++) Math.random();
+  }
+  W.rBurn = rBurn;
+  // 爆燃 / 冻结在怪群里一帧能连着炸十几个：每帧只有前几个画全套，多出来的只留地面痕迹（空取照旧，件数不会把形状批的环形缓冲冲掉）
+  // 另外形状批里活着的件超过 B1_LIVE 时也只画环（环形缓冲 384 件，留给技能本身的件）
+  const B1_CAP = { high: 3, mid: 3, low: 2 }, B1_LIVE = 240;
+  let b1N = 0, b1Peak = 0, b1Full = 0, vsFrameAll = 0;
+  W.b1Info = () => ({ n: b1N, peak: b1Peak, full: b1Full, cap: B1_CAP[qualId] || 3 });
+  W.b1Reset = () => { b1Peak = 0; b1Full = 0; };
+  function b1Take() {
+    b1N++;
+    if (b1N > b1Peak) b1Peak = b1N;
+    if (b1N > (B1_CAP[qualId] || 3)) return false;
+    let live = 0;
+    for (let i = 0; i < VS_N; i++) if (vsL[i] > 0) live++;
+    if (live > B1_LIVE) return false;
+    b1Full++;
+    return true;
+  }
+  // 一道往外推的细边环：W.thinRing（≤ 1.6 米是一件环件；更大的是一圈贴地细线段，触发特效用 12 段、低画质 6 段）
+  function b1Ring(x, z, R, cA, cB, life) {
+    W.thinRing(x, z, R, cA, cB, life, 12);
+  }
+  // 火舌：长在半径 R 的外沿上往上舔（立着的公告板），out 往外窜的速度
+  function b1Tongues(x, z, R, n, h, life, out, cA, cB) {
+    vsBrush(VSH.tongue, 1, 0, cA || 0xffc24a, cB || 0xd2401c, 0.3, 0.6, 0.4);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU + vr(-0.25, 0.25), d = R * vr(0.82, 0.96), v = out * vr(0.7, 1.2);
+      vsEmit(x + Math.sin(a) * d, 0.05, z + Math.cos(a) * d, Math.sin(a) * v, vr(0.4, 1.0), Math.cos(a) * v, life * vr(0.8, 1.15), h * vr(0.5, 0.65), h * vr(0.85, 1.15), vr(-0.25, 0.25), 0, 0, 3);
+    }
+  }
+  // 熔岩 / 地裂纹：从中间往外的几道折线（贴地，先亮后暗；和陨火落地同一种画法）
+  function b1Cracks(x, z, R, n, cA, cB, hot, life) {
+    vsBrush(VSH.bar, 5, 3, cA, cB, hot, 0.55, 0.4);
+    for (let i = 0; i < n; i++) {
+      let a = (i / n) * TAU + vr(-0.35, 0.35), px = x + Math.sin(a) * R * vr(0.12, 0.22), pz = z + Math.cos(a) * R * vr(0.12, 0.22);
+      for (let s2 = 0; s2 < 4; s2++) {
+        a += vr(-0.8, 0.8) * (s2 ? 1 : 0.4);
+        const L = R * vr(0.1, 0.15), dx = Math.sin(a) * L, dz = Math.cos(a) * L;
+        vsEmit(px, 0.075 + i * 0.001, pz, dx, 0, dz, life * vr(0.85, 1.05) - s2 * 0.25, 0.15 - s2 * 0.026);
+        px += dx;
+        pz += dz;
+      }
+    }
+  }
+  // 碎石：有棱角的小块往外崩、落地弹（物理的语言）
+  function b1Chips(x, y, z, n, r0, vMin, vMax, cA, cB, sMin, sMax) {
+    vsBrush(VSH.chip, 3, 0, cA, cB, 0, 0.45, 0.55);
+    for (let i = 0; i < n; i++) {
+      const a = vr(0, TAU), v = vr(vMin, vMax);
+      vsEmit(x + Math.sin(a) * r0, y, z + Math.cos(a) * r0, Math.sin(a) * v, vr(2.5, 5.5), Math.cos(a) * v, vr(0.7, 1.05), vr(sMin, sMax), undefined, vr(0, TAU), vr(-9, 9), 18);
+    }
+  }
+  // 冰晶：外沿冒一圈尖朝外上方的硬棱冰柱（缩没）
+  function b1Crystals(x, z, R, n, h, life) {
+    vsBrush(VSH.crystal, 6, 0, 0x9fd8f2, 0x4a8ab8, 0.2, 0.55, 0.5);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU + vr(-0.25, 0.25), d = R * vr(0.8, 1);
+      vsEmit(x + Math.sin(a) * d, 0, z + Math.cos(a) * d, Math.sin(a) * 0.01, 0, Math.cos(a) * 0.01, life * vr(0.85, 1.1), h * vr(0.32, 0.42), h * vr(0.85, 1.2), vr(0.3, 0.6));
+    }
+  }
+  // 冰碴：往外下方掉的小冰片
+  function b1Shards(x, y, z, n, r0, v) {
+    vsBrush(VSH.chip, 3, 0, 0x8cc4e0, 0x3a6a8a, 0.05, 0.4, 0.6);
+    for (let i = 0; i < n; i++) {
+      const a = vr(0, TAU), s = v * vr(0.5, 1.2);
+      vsEmit(x + Math.sin(a) * r0, y, z + Math.cos(a) * r0, Math.sin(a) * s, vr(0.5, 2.5), Math.cos(a) * s, vr(0.55, 0.85), vr(0.07, 0.13), undefined, vr(0, TAU), vr(-8, 8), 14);
+    }
+  }
+  // 爆燃：一道往外推的细环 + 环上往上舔的火舌 + 几粒余烬 + 一颗 0.8 米、60 毫秒的小星；余波是一块暗的焦痕（低画质件数减半）
+  // 空取：高 / 中 = 旧的 9 团火（每团 6 次）+ W.burst 14 粒；低 = W.decal（2 次）+ 1 颗星 + 5 团火 + W.burst 8 粒
+  function b1Blast(x, z, R) {
+    const lo = qualId === 'low';
+    if (!PF.vShape) return rBurn(lo ? 2 + 1 + 30 + 48 : 54 + 84);
+    if (!b1Take()) {
+      rBurn(lo ? 2 + 1 + 30 + 48 : 54 + 84);
+      W.vDecal(VVD.scorch, x, z, R * 0.5, 2.2, 0x8a3416); // 超出每帧上限的：只留焦痕（地面痕迹池，不占形状批）
+      return;
+    }
+    rBurn(lo ? 2 + 30 + 48 : 53 + 84); // 少的那 1 次给下面的小星（tChunk 自己取 1 次）
+    tChunk(1, x, 0.9, z, 0, 0, 0, 0.06, 0.8, 0xffe2a0, 0xff8a3a, 0);
+    b1Ring(x, z, R, 0xffb050, 0x8a2a10, 0.36, 0.35);
+    b1Tongues(x, z, R, lo ? 3 : 6, 0.5 + R * 0.12, 0.42, R * 0.5);
+    vsBrush(VSH.chip, 0, 0, 0xff9a4a, 0x5a1e10, 0.3, 0.2, 0.4);
+    for (let i = 0, n = lo ? 0 : 6; i < n; i++) { // 余烬：低画质不放（太小看不见，形状批每件都要画整份几何）
+      const a = vr(0, TAU), d = R * vr(0.2, 0.8);
+      vsEmit(x + Math.sin(a) * d, 0.4, z + Math.cos(a) * d, vr(-0.4, 0.4), vr(1.5, 3), vr(-0.4, 0.4), vr(0.5, 0.85), 0.06, 0.06, 0, 0, -1, 0.6);
+    }
+    W.vDecal(VVD.scorch, x, z, R * 0.55, 2.6, 0x8a3416);
+  }
+  // 冻结：脚边一圈尖朝外的冰晶 + 往下掉的冰碴 + 一道冷色细环；地上一片冻青灰的霜痕（比地面暗；低画质不铺）
+  // 空取：W.burst（16 / 首领 26 粒）+ 10 粒冰屑（每粒 6 次）；低画质另有 W.decal 的 2 次
+  function b1Freeze(x, z, r, h, boss) {
+    const lo = qualId === 'low', burn = (boss ? 26 : 16) * 6 + 60 + (lo ? 2 : 0);
+    rBurn(burn);
+    if (!PF.vShape) return;
+    const R = r + (boss ? 1.6 : 0.7);
+    if (!b1Take()) {
+      W.vDecal(VVD.frost, x, z, R * 0.45, 1.8, 0x2e4c58, { r1: R, grow: 0.25 }); // 超出每帧上限的：只留霜痕
+      return;
+    }
+    b1Ring(x, z, r + 1.2, 0x7fbcd8, 0x24506a, 0.36, 0.12);
+    b1Crystals(x, z, r + 0.35, (lo ? 3 : 6) + (boss ? 2 : 0), 0.9 + r * 0.6 + (boss ? 0.5 : 0), 0.6);
+    b1Shards(x, Math.min(2, h * 0.6), z, lo ? 3 : 6, r * 0.5, 1.8);
+    W.vDecal(VVD.frost, x, z, R * 0.45, boss ? 3 : 2.2, 0x2e4c58, { r1: R, grow: 0.25 });
+  }
+  // 冰爆（霜环「冰爆」/ 凛冬的碎尸）：细环 + 外沿一圈冰晶 + 冰碴 + 霜痕。空取：W.decal 2 次 + flare 1 次 + 18 粒冰碴（每粒 5 次）+ 8 团霜雾（每团 5 次）
+  function b1FrostBlast(x, z, R) {
+    rBurn(2 + 1 + 90 + 40);
+    if (!PF.vShape) return;
+    const lo = qualId === 'low';
+    if (!b1Take()) {
+      W.vDecal(VVD.frost, x, z, R * 0.35, 1.4, 0x2e4c58, { r1: R * 0.7, grow: 0.2 });
+      return;
+    }
+    b1Ring(x, z, R, 0x7fbcd8, 0x1f4a66, 0.34, 0.12);
+    b1Crystals(x, z, R * 0.92, lo ? 3 : 6, 0.8 + R * 0.12, 0.55);
+    b1Shards(x, 1.0, z, lo ? 3 : 6, 0.3, 2 + R * 0.6);
+    W.vDecal(VVD.frost, x, z, R * 0.35, 1.6, 0x2e4c58, { r1: R * 0.7, grow: 0.2 });
+  }
+  // 地脉涌：外沿一道往外推的细冲击环 + 长在环上的一圈火舌（往外窜）；中间不放亮面，余波是焦痕 + 一道道冷下去的熔岩裂纹 + 几块碎石
+  // 空取：W.decal 2 + 起始角 1 + 6 道光带 12 + 26 粒光点（每粒 7 次）+ W.burst 22 粒 + flare 1
+  const B1_GB_CRACK = { fire: [0xff9a3a, 0x40201a], cold: [0x8ccbea, 0x1e3440], light: [0xf0d050, 0x2a2410], chaos: [0xd03ca0, 0x1a0814], phys: [0xc8a878, 0x3a3028] };
+  function b1GroundBurst(x, z, r, hex, type) {
+    rBurn(2 + 1 + 12 + 182 + 132 + 1);
+    if (!PF.vShape) return;
+    const lo = qualId === 'low', h = hexOf(hex), cr = B1_GB_CRACK[type] || B1_GB_CRACK.fire;
+    const hi = mixHex(h, 0xffe0a0, 0.25), dk = mixHex(h, 0x000000, 0.6);
+    W.thinRing(x, z, r, hi, dk, 0.32);
+    if (type === 'cold') b1Crystals(x, z, r * 0.92, lo ? 6 : 12, 1.4, 0.6);
+    else b1Tongues(x, z, r, lo ? 5 : 10, 1.35, 0.5, r * 0.12, mixHex(h, 0xffd080, 0.35), mixHex(h, 0x000000, 0.25));
+    b1Cracks(x, z, r, lo ? 4 : 7, cr[0], cr[1], 0.3, 2.4);
+    b1Chips(x, 0.4, z, lo ? 3 : 6, 0.6, 3, 6.5, 0x5c4c44, 0x3e342e, 0.12, 0.22);
+    const vk = type === 'cold' ? VVD.frost : type === 'chaos' ? VVD.void : VVD.scorch;
+    W.vDecal(vk, x, z, r * 0.5, 3.5, type === 'cold' ? 0x2e4c58 : dk);
+    if (!lo) W.fxFlip(VFB.smoke, x, 0.6, z, 1.6, 1.2, 0x3a302a, { vy: 0.6, up: 0.3, grow: 1.7, a: 0.8 });
+    flashLight(x, 2.2, z, h, 1.2);
+  }
+  // 闪袭的残影带：起点到落点贴地的几道平行细带（中间一道亮、两边暗），由起点往落点先后收窄消失；起点一小撮尘
+  W.blinkBand = function (x0, z0, x1, z1, hex, o) {
+    if (!PF.vShape) return;
+    const dx = x1 - x0, dz = z1 - z0, d = Math.hypot(dx, dz);
+    if (d < 0.3) return;
+    const lo = qualId === 'low', h = hexOf(hex), ux = dx / d, uz = dz / d, nx = -uz, nz = ux, w = (o && o.w) || 1;
+    const segN = Math.max(2, Math.min(lo ? 4 : 8, Math.ceil(d / 1.4))), L = d / segN;
+    const lanes = lo ? [0] : [0, -0.32, 0.32];
+    for (let k = 0; k < lanes.length; k++) {
+      const off = lanes[k] * w, mid = k === 0;
+      vsBrush(VSH.bar, 5, 3, mid ? mixHex(h, 0x6a5a80, 0.25) : mixHex(h, 0x3a3048, 0.5), mixHex(h, 0x241c30, 0.7), mid ? 0.15 : 0, 0.3, 0.3);
+      for (let i = 0; i < segN; i++) {
+        const t = i / segN, sx = x0 + dx * t + nx * off, sz = z0 + dz * t + nz * off;
+        vsEmit(sx, 0.07 + k * 0.002, sz, ux * L * 1.02, 0, uz * L * 1.02, (mid ? 0.42 : 0.32) + t * 0.18, (mid ? 0.16 : 0.08) * w);
+      }
+    }
+    // 起点：几块往后带起的碎片（暗的残影色）
+    vsBrush(VSH.chip, 3, 0, mixHex(h, 0x5a5060, 0.5), 0x2a2430, 0, 0.4, 0.5);
+    for (let i = 0, n = lo ? 2 : 4; i < n; i++) {
+      const a = Math.atan2(-ux, -uz) + vr(-0.8, 0.8), v = vr(1.5, 3.5);
+      vsEmit(x0 + vr(-0.2, 0.2), 0.3, z0 + vr(-0.2, 0.2), Math.sin(a) * v, vr(1.5, 3), Math.cos(a) * v, vr(0.5, 0.8), vr(0.08, 0.14), undefined, vr(0, TAU), vr(-8, 8), 16);
+    }
+  };
+  // 闪袭的起点：原来的 W.burst 18 粒（空取 108 次）
+  W.blinkOrigin = function () {
+    rBurn(18 * 6);
+  };
+  // 闪袭的落点：一道细环（落点打击范围）+ 碎石四溅 + 一小记 ≤ 0.7 米、60 毫秒的芯；原来的 W.burst 24 粒（空取 144 次）+ W.ring
+  W.blinkLand = function (x, z, R, hex) {
+    rBurn(24 * 6);
+    if (!PF.vShape) return;
+    const lo = qualId === 'low', h = hexOf(hex);
+    b1Ring(x, z, R, mixHex(h, 0x6a5a80, 0.2), mixHex(h, 0x000000, 0.55), 0.3);
+    b1Chips(x, 0.35, z, lo ? 4 : 8, 0.4, 2.5, 5.5, 0x6a5c54, 0x3e342e, 0.1, 0.2);
+    vsBrush(VSH.bar, 4, 2, mixHex(h, 0xffffff, 0.5), h, 0.5, 0.3, 0.5);
+    for (let i = 0, n = lo ? 2 : 4; i < n; i++) {
+      const a = (i / n) * TAU + vr(-0.4, 0.4), l = vr(0.3, 0.5);
+      vsEmit(x, 1.0, z, Math.sin(a) * l, vr(-0.25, 0.15), Math.cos(a) * l, 0.06, 0.07);
+    }
+    if (!lo) W.fxFlip(VFB.smoke, x, 0.4, z, 1.1, 0.8, 0x4a4250, { vy: 0.3, up: 0.2, grow: 1.6, a: 0.7 });
+    W.vDecal(VVD.scorch, x, z, Math.min(1.4, R * 0.4), 1.8, 0x3a3040);
+  };
+  // 石誓守像的砸地：物理的碎石语言（往外崩的碎石、落地弹）+ 一道暗土色细环 + 一缕尘 + 暗的地裂痕。
+  // 原来：魂火青的环 + W.burst 14 粒（空取 84）+ 浅薄荷贴花（W.decal：随机角 1 次 + 自己 1 次）
+  W.colossusSlam = function (x, z, R) {
+    rBurn(84 + 2);
+    if (!PF.vShape) return;
+    const lo = qualId === 'low';
+    b1Ring(x, z, R, 0xb8a68c, 0x4a3e34, 0.32, 0.05);
+    b1Chips(x, 0.35, z, lo ? 4 : 9, R * 0.3, 2.5, 5.5, 0x8a7a68, 0x4a3e34, 0.13, 0.26);
+    b1Cracks(x, z, R, lo ? 3 : 5, 0x6a5c4c, 0x2e2620, 0, 2);
+    if (!lo) W.fxFlip(VFB.smoke, x, 0.5, z, 1.5, 1.0, 0x5a4e42, { vy: 0.4, up: 0.2, grow: 1.7, a: 0.75 });
+    W.vDecal(VVD.scorch, x, z, Math.min(2.2, R * 0.45), 2.2, 0x4a3e34);
+  };
+  // 三相天灾的落点（triStrikeLand 调）：火 → 陨火落地（meteorLand2，triStrike 里已经 meteorMark 过，这里只空取旧的 W.burst 14 粒）；
+  // 冰 → 冻结的冰语言；雷 → v2 折线：一道从云里劈到地上的折线（两帧闪灭）+ 落点往外放射的短折线 + 地上的电灼纹
+  function b1StormLand(x, z, t, r, hx) {
+    const lo = qualId === 'low';
+    if (t === 'fire') return rBurn(14 * 6);
+    if (t === 'cold') {
+      rBurn(1 + 18 * 5); // flare + 18 粒近白冰碴
+      if (!PF.vShape) return;
+      b1Ring(x, z, r, 0x7fbcd8, 0x1f4a66, 0.3, 0.12);
+      b1Crystals(x, z, r * 0.7, lo ? 3 : 6, 0.9 + r * 0.2, 0.55);
+      b1Shards(x, 0.6, z, lo ? 3 : 6, 0.3, 3);
+      W.vDecal(VVD.frost, x, z, r * 0.45, 2.4, 0x2e4c58, { r1: r * 0.9, grow: 0.2 });
+      flashLight(x, 2, z, hx, 1.2);
+      return;
+    }
+    // 雷：空取两道天雷（4 + 3）、两道小电弧（W.bolt 鬼影：同样的取数、不显示）、近白 flare 1、W.burst 16 粒
+    rBurn(4 + 3);
+    const a = rand(0, TAU);
+    W.bolt([{ x, z }, { x: x + Math.sin(a) * r * 1.3, z: z + Math.cos(a) * r * 1.3 }], hx, true, { ghost: true });
+    W.bolt([{ x, z }, { x: x - Math.sin(a + 0.6) * r * 1.2, z: z - Math.cos(a + 0.6) * r * 1.2 }], hx, true, { ghost: true });
+    rBurn(1 + 16 * 6);
+    if (!PF.vShape) return;
+    const core = mixHex(hx, 0xffffff, 0.35);
+    // 天雷：5 折，从 6.2 米劈到地面
+    vsBrush(VSH.bar, 4, 2, core, hx, 0.55, 0.4, 0.5);
+    let px = x + vr(-0.6, 0.6), py = 6.2, pz = z + vr(-0.3, 0.3);
+    for (let i = 1, n = 5; i <= n; i++) {
+      const k = i / n, nx = i === n ? x : x + vr(-0.8, 0.8) * (1 - k * 0.6), nz = i === n ? z : z + vr(-0.4, 0.4) * (1 - k), ny = 6.2 * (1 - k);
+      vsEmit(px, py, pz, nx - px, ny - py, nz - pz, 0.16, 0.13 * (1 - k * 0.3));
+      px = nx; py = ny; pz = nz;
+    }
+    vsBrush(VSH.bar, 4, 2, core, hx, 0.4, 0.45, 0.5);
+    for (let k = 0, m = lo ? 3 : 5; k < m; k++) zig(x, 0.3, z, (k / m) * TAU + vr(-0.4, 0.4), vr(-0.4, 0), 2, vr(0.4, 0.6) * Math.max(1, r * 0.6), 0.11);
+    vsBrush(VSH.bar, 5, 3, mixHex(hx, 0xffffff, 0.2), 0x24202e, 0.35, 0.4, 0.1);
+    for (let k = 0, m = lo ? 2 : 4; k < m; k++) {
+      let ga = (k / m) * TAU + vr(-0.6, 0.6), gx = x, gz = z;
+      for (let s2 = 0; s2 < 3; s2++) {
+        ga += vr(-0.6, 0.6);
+        const L = vr(0.3, 0.5) * Math.max(1, r * 0.5), dx = Math.sin(ga) * L, dz = Math.cos(ga) * L;
+        vsEmit(gx, 0.07 + k * 0.002, gz, dx, 0, dz, vr(1.2, 1.5) - s2 * 0.2, 0.1 - s2 * 0.02);
+        gx += dx; gz += dz;
+      }
+    }
+    W.vDecal(VVD.scorch, x, z, r * 0.45, 2, 0x3a3420, { a: 0.8 });
+    flashLight(x, 3, z, hx, 1.8);
+  }
   // vf-vfx3：拾取。掉落点一圈收拢的细环（稀有度色），2–4 块碎晶飞向玩家脚下，玩家脚下一圈小环。低画质碎晶减半
   W.lootPick = function (x, z, hex, big) {
     if (!PF.vShape) return;
@@ -25156,19 +25379,7 @@
   // 颜色都压在深一点的冰蓝上（加法混合 + 泛光会把浅色推成白）：外圈霜环、内圈一记冷光、地上留一片霜花，
   // 冰碴大多是冰蓝、少数亮白，贴地一层慢慢散开的淡蓝霜雾
   W.frostBlast = function (x, z, R) {
-    W.ring(x, z, R, 0x2f8ee8, 0.3);
-    W.ring(x, z, R * 0.55, 0x6cc0ff, 0.18);
-    W.decal(2, x, z, R * 0.7, rand(0, TAU), 0x2466c8, 1.2);
-    flare(x, 1.0, z, 0x2f8ee8, 1.0 + R * 0.25, 0.12);
-    flashLight(x, 2, z, 0x3a8ce8, 0.7);
-    for (let i = 0; i < 18; i++) {
-      const a = rand(0, TAU), v = rand(2, 5) * Math.max(0.6, R / 2.5), w = i % 5 === 0;
-      spawnP(x, 1.0, z, Math.sin(a) * v, rand(1, 4), Math.cos(a) * v, rand(0.35, 0.7), w ? rand(0.1, 0.14) : rand(0.06, 0.12), w ? 0.8 : 0.24, w ? 0.93 : 0.6, 1, 12, 2.5);
-    }
-    for (let i = 0; i < 8; i++) {
-      const a = rand(0, TAU), d = rand(0, R * 0.6);
-      spawnP(x + Math.sin(a) * d, 0.3, z + Math.cos(a) * d, 0, rand(0.2, 0.6), 0, rand(0.6, 1.1), rand(0.3, 0.5), 0.1, 0.26, 0.5, -0.3, 1.2);
-    }
+    b1FrostBlast(x, z, R); // skill-b1：细环 + 冰晶 + 冰碴 + 霜痕（原来是蓝色实心贴花 + 冷光 + 近白冰碴）
     return true;
   };
   W.rangedInfo = () => ({
@@ -26518,10 +26729,16 @@
   };
   // 三相共鸣：三色（火 / 冰 / 雷）的三道圈从中心推开，火星流从触发的敌人涌向每个被灌的敌人（另外两种颜色交替）
   const TRI_HEX = { fire: 0xff7a2c, cold: 0x7fd4ff, light: 0xffe45e };
+  // skill-b1：三道 5 米的圈原来是形状批的整环件（放大到 5 米是三道粗带，三相天灾里一秒共鸣好几次，叠成一片三色的漩涡）→ 细线段环；
+  // 一帧里只有前两次共鸣画这三道圈（每个被灌的敌人脚下的小圈照旧）
+  let triFxN = 0, triFxF = -1;
   W.triFx = function (x0, z0, R, t, targets) {
-    W.ring(x0, z0, R, TRI_HEX.fire, 0.7);
-    W.ring(x0, z0, R * 0.8, TRI_HEX.cold, 0.6);
-    W.ring(x0, z0, R * 0.6, TRI_HEX.light, 0.5);
+    if (triFxF !== vsFrameAll) { triFxF = vsFrameAll; triFxN = 0; }
+    if (++triFxN <= 2) {
+      W.thinRing(x0, z0, R, TRI_HEX.fire, mixHex(TRI_HEX.fire, 0x000000, 0.55), 0.7, 16);
+      W.thinRing(x0, z0, R * 0.8, TRI_HEX.cold, mixHex(TRI_HEX.cold, 0x000000, 0.55), 0.6, 16);
+      W.thinRing(x0, z0, R * 0.6, TRI_HEX.light, mixHex(TRI_HEX.light, 0x000000, 0.55), 0.5, 14);
+    }
     flashLight(x0, 2.2, z0, 0xffe8d0, 1.2);
     const others = ['fire', 'cold', 'light'].filter((x) => x !== t);
     for (const k of ['fire', 'cold', 'light']) W.burst(x0, 1.2, z0, TRI_HEX[k], 10, 5, 0.5);
@@ -26739,6 +26956,7 @@
 
   // ----- 三相天灾 -----
   // 地上的三相法阵：外圈三段（火 / 冰 / 雷）顺转，内圈反转，中间一个旋转的三角，风暴结束前淡出
+  // skill-b1：三道环、三角、刻度都收细（原来 0.025 / 0.016 / 0.014 的粗环在 6 米的范围上是三道亮带），三角不再往白混一半，底色减半
   const TRI_FRAG = [
     'uniform vec3 uC0; uniform vec3 uC1; uniform vec3 uC2; uniform float uA; uniform float uRot; varying vec2 vP;',
     'vec3 pick(float s){ return s < 1.0 ? uC0 : (s < 2.0 ? uC1 : uC2); }',
@@ -26748,20 +26966,20 @@
     '  float an = atan(vP.x, vP.y) / 6.2831853 + 0.5;',
     '  float s1 = fract(an + uRot * 0.15) * 3.0;',
     '  float g1 = smoothstep(0.0, 0.04, fract(s1)) * (1.0 - smoothstep(0.92, 1.0, fract(s1)));',
-    '  float r1 = (1.0 - smoothstep(0.0, 0.025, abs(l - 0.94))) * g1;',
-    '  float r1b = (1.0 - smoothstep(0.0, 0.01, abs(l - 0.88))) * 0.5;',
+    '  float r1 = (1.0 - smoothstep(0.0, 0.009, abs(l - 0.94))) * g1;',
+    '  float r1b = (1.0 - smoothstep(0.0, 0.005, abs(l - 0.88))) * 0.4;',
     '  float s2 = fract(an - uRot * 0.27) * 3.0;',
     '  float tick = pow(abs(sin((an - uRot * 0.27) * 3.14159 * 24.0)), 30.0) * smoothstep(0.56, 0.6, l) * (1.0 - smoothstep(0.66, 0.7, l));',
-    '  float r2 = (1.0 - smoothstep(0.0, 0.016, abs(l - 0.63))) + tick * 0.8;',
+    '  float r2 = (1.0 - smoothstep(0.0, 0.007, abs(l - 0.63))) + tick * 0.5;',
     // 旋转的等边三角：到三条边的距离
     '  float ca = cos(uRot * 0.6), sa = sin(uRot * 0.6);',
     '  vec2 q = vec2(ca * vP.x - sa * vP.y, sa * vP.x + ca * vP.y);',
     '  float d = 1e3;',
     '  for (int i = 0; i < 3; i++) { float a = float(i) * 2.0943951; vec2 n = vec2(sin(a), cos(a)); d = min(d, abs(dot(q, n) + 0.3)); }',
-    '  float tri = (1.0 - smoothstep(0.0, 0.014, d)) * (1.0 - smoothstep(0.58, 0.62, l));',
-    '  float fill = smoothstep(0.2, 1.0, l) * 0.07;',
+    '  float tri = (1.0 - smoothstep(0.0, 0.007, d)) * (1.0 - smoothstep(0.58, 0.62, l));',
+    '  float fill = smoothstep(0.2, 1.0, l) * 0.03;',
     '  vec3 c1 = pick(s1), c2 = pick(s2);',
-    '  vec3 col = c1 * (r1 * 1.2 + r1b) + c2 * r2 * 0.9 + mix(c1, vec3(1.0), 0.5) * tri * 0.8 + c1 * fill;',
+    '  vec3 col = c1 * (r1 * 1.2 + r1b) + c2 * r2 * 0.9 + mix(c1, vec3(1.0), 0.2) * tri * 0.8 + c1 * fill;',
     '  float a = clamp((r1 + r1b * 0.6 + r2 * 0.8 + tri * 0.7 + fill) * uA, 0.0, 1.0);',
     '  if (a < 0.003) discard;',
     '  gl_FragColor = vec4(col / max(0.001, r1 * 1.2 + r1b + r2 * 0.9 + tri * 0.8 + fill), a);',
@@ -26793,7 +27011,7 @@
     s.mesh.position.set(x, 0.09, z);
     s.mesh.scale.set(R, 1, R);
     s.mesh.visible = true;
-    for (let i = 0; i < 3; i++) W.ring(x, z, R * (1 - i * 0.18), STORM_HEX[i], 0.5 + i * 0.1);
+    for (let i = 0; i < 3; i++) W.thinRing(x, z, R * (1 - i * 0.18), STORM_HEX[i], mixHex(STORM_HEX[i], 0x000000, 0.55), 0.5 + i * 0.1); // skill-b1：三道细边（原来三道粗环）
     flashLight(x, 4, z, 0xffe8d0, 2);
   };
   function updateStorms(dt) {
@@ -26865,7 +27083,12 @@
   }
   // 风暴的一击开始落下：t = 'fire' 陨火 / 'cold' 冰棱 / 'light' 云里先蓄一下光（落雷是瞬间的，在落地那一刻劈下）
   W.triStrike = function (x, z, t, r, fall) {
-    if (t === 'fire') W.meteorFall(x, z, fall, STORM_HEX[0]);
+    if (t === 'fire') {
+      // skill-b1：落地走陨火的新画法（meteorLand2），空取补上旧画法（meteorLand）多取的那些次
+      const tok = W.meteorFall(x, z, fall, STORM_HEX[0]);
+      W.meteorMark(tok, r);
+      if (tok) tok.m.oldRng = 1;
+    }
     else if (t === 'cold') {
       const it = icicleGet();
       it.on = true;
@@ -26882,36 +27105,7 @@
   };
   W.triStrikeLand = function (x, z, t, r) {
     const hx = STORM_HEX[t === 'fire' ? 0 : t === 'cold' ? 1 : 2];
-    W.ring(x, z, r, hx, 0.3);
-    // vf-vfx：三种落点各换成序列帧 + 地面瞬时痕迹（火：火团 + 焦痕 + 闪光；冰：冰晶星芒 + 霜痕；雷：电弧 + 闪光 + 小焦痕），痕迹从对象池贴花换到痕迹池
-    if (t === 'fire') {
-      W.vDecal(VVD.scorch, x, z, r * 0.75, 2.4, hx);
-      W.vDecal(VVD.flash, x, z, r * 1.4, 0.28, 0xff9a40);
-      W.fxFlip(VFB.fire, x, 0.6, z, 1.2 + r * 0.7, 0.36, hx, { grow: 1.3, vy: 0.7 });
-      W.burst(x, 0.6, z, 0xffb070, 14, 6, 0.45);
-    } else if (t === 'cold') {
-      W.vDecal(VVD.frost, x, z, r * 0.5, 2.4, 0x86d8ff, { r1: r * 0.95, grow: 0.2 });
-      W.fxFlip(VFB.spark, x, 0.8, z, 1.4 + r * 0.6, 0.24, 0xe6f8ff, { a: 0.9 });
-      flare(x, 0.8, z, 0xd6f3ff, 2.4, 0.12);
-      _c.set(0xd6f3ff);
-      for (let i = 0; i < 18; i++) {
-        const a = rand(0, TAU), v = rand(3, 7);
-        spawnP(x, 0.5, z, Math.sin(a) * v, rand(2, 6), Math.cos(a) * v, rand(0.35, 0.7), rand(0.14, 0.26), _c.r, _c.g, _c.b, 12, 1.5);
-      }
-      flashLight(x, 2, z, hx, 1.6);
-    } else {
-      skyBolt(x, z, hx, 6.2, 4, 0.55);
-      skyBolt(x, z, 0xffffff, 6.2, 3, 0.18);
-      const a = rand(0, TAU);
-      W.bolt([{ x, z }, { x: x + Math.sin(a) * r * 1.3, z: z + Math.cos(a) * r * 1.3 }], hx, true);
-      W.bolt([{ x, z }, { x: x - Math.sin(a + 0.6) * r * 1.2, z: z - Math.cos(a + 0.6) * r * 1.2 }], hx, true);
-      flare(x, 1.0, z, 0xffffff, 3, 0.12);
-      W.vDecal(VVD.flash, x, z, r * 1.6, 0.25, hx);
-      W.vDecal(VVD.scorch, x, z, r * 0.5, 2, hx, { a: 0.8 });
-      W.fxFlip(VFB.arc, x, 0.9, z, 1.6 + r * 0.5, 0.24, hx, { a: 0.85 });
-      flashLight(x, 3, z, hx, 2.6);
-      W.burst(x, 0.8, z, hx, 16, 7, 0.35);
-    }
+    b1StormLand(x, z, t, r, hx); // skill-b1：火走陨火落地（meteorLand2），冰走冻结的冰语言，雷走 v2 折线；不再有地面闪光 / 近白星芒 / 白色天雷
   };
 
   // ----- 万魂降临 -----
@@ -28034,6 +28228,10 @@
           rvShape(kind, h); // 渊式件：画进形状批，不占这一种刻式件的 draw
           continue;
         }
+        if (h.edge && PF.vShape) {
+          edgeShape(h); // skill-b1：只画边的符环（细环 / 虚线 / 外沿的小石碑），画进形状批
+          continue;
+        }
         if (kind === 'band') {
           const dx = h.x1 - h.x0, dz = h.z1 - h.z0, len = Math.max(0.2, Math.hypot(dx, dz));
           _kvp.set((h.x0 + h.x1) / 2, h.y || 1.0, (h.z0 + h.z1) / 2);
@@ -28176,6 +28374,32 @@
       _kvs.set(sc, sc, sc);
       _pm.compose(_kvp, _kvq, _kvs);
       vsNow(VSH.chip, _rvc.r, _rvc.g, _rvc.b, 0, 0.3, 0);
+    }
+  }
+  // skill-b1：符环的「只画边」画法（kvFlush 里调）。h.edge：一圈贴地的细线段（宽 h.w，默认 0.07 米）；h.dash = n：断成 n 段的虚线，
+  // 亮着的段数 = k（引信），整圈随 ry 转；h.stones = n：外沿一圈立着的小石碑（暗石色，不发光）。颜色按 a 压暗（不透明），低画质段数 / 石碑减半
+  const _edc = new T.Color();
+  function edgeShape(h) {
+    const lo = qualId === 'low', r = h.s * 0.5, y = h.y || 0.06, w = h.ew || 0.07;
+    _edc.setHex(h.hex).convertSRGBToLinear().multiplyScalar(h.a);
+    const dash = h.dash ? Math.max(4, h.dash >> (lo ? 1 : 0)) : 0;
+    const n = dash || Math.max(12, Math.min(40, Math.round(r * 5))) >> (lo ? 1 : 0);
+    const lit = dash ? Math.round(G.clamp(h.k, 0, 1) * n) : n, seg = ((TAU * r) / n) * (dash ? 0.5 : 1.04);
+    for (let i = 0; i < lit; i++) {
+      const a = h.ry + (i / n) * TAU;
+      mFlat(h.x + Math.sin(a) * r, y + (i & 1) * 0.001, h.z + Math.cos(a) * r, a + Math.PI / 2, w, seg);
+      vsNow(VSH.bar, _edc.r, _edc.g, _edc.b, 0, 0.2, 0);
+    }
+    if (!h.stones) return;
+    const m = Math.max(3, h.stones >> (lo ? 1 : 0));
+    for (let i = 0; i < m; i++) {
+      const a = -h.ry * 0.5 + (i / m) * TAU + 0.2, rr = r * 0.97;
+      _kvp.set(h.x + Math.sin(a) * rr, 0.16, h.z + Math.cos(a) * rr);
+      _kve.set(0.15 * Math.sin(i * 2.3), a + i, 0.1 * Math.cos(i * 1.7), 'YXZ');
+      _kvq.setFromEuler(_kve);
+      _kvs.set(0.24, 0.42, 0.2);
+      _pm.compose(_kvp, _kvq, _kvs);
+      vsNow(VSH.chip, 0.2, 0.18, 0.15, 0, 0.45, 0);
     }
   }
   function rvAdd(o) {
@@ -28645,6 +28869,8 @@
     updateShudders(raw);
     poolUpdate(ringPool, dt);
     poolUpdate(slashPool, dt);
+    b1N = 0; // skill-b1：爆燃 / 冻结每帧画全套的计数
+    vsFrameAll++;
     updateBolts(dt);
     updateAura(dt);
     updateDark(dt);
