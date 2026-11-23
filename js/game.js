@@ -198,6 +198,9 @@
       frags: { seal: 0, rift: 0, vow: 0, box: 0 },
       // 熄烛者（D5）：击杀次数、巅峰渊契的保底计数（连续几次没掉）。正在打的那一次挂在 run.pin = { tier, lives }
       pinnacle: { kills: 0, pity: 0 },
+      // 主线（quest D1）：n 已完成的步数 0–G.QUEST_N（步骤按顺序，奖励按 n 只给一次）；off 地图页关掉了「显示主线」（D2 才有开关）；
+      // told 已经放过的首领旁白 { 步骤 id: true }（D3 用，见 G.questTell）
+      quest: { n: 0, off: false, told: {} },
     };
   };
   function autoSummonDefaults() {
@@ -698,8 +701,28 @@
     const rfr = isObj(raw.frags) ? raw.frags : {};
     s.frags = {};
     for (const id of G.FRAG_IDS) s.frags[id] = toInt(rfr[id], 0, G.FRAG_DROP.max, 0);
+    // 主线：老存档没有这一项（或被老代码读档再存时丢掉了）→ 从现有进度推算，取两者大的（只增不减）。推算出来的步骤不补发奖励
+    const rq = isObj(raw.quest) ? raw.quest : {};
+    s.quest = { n: Math.max(toInt(rq.n, 0, G.QUEST_N, 0), questDerive(s)), off: rq.off === true, told: {} };
+    if (isObj(rq.told)) for (const q of G.QUEST) if (rq.told[q.id] === true) s.quest.told[q.id] = true;
     return s;
   }
+  // 主线：存档能证明完成到第几步（设计稿 §5）。后面任何一步能证明完成，前面的都算完成。
+  // 走到门口（gate）本身不留痕迹，只有荒原首领倒下才证明它；进区步看 cleared 或 lastZone（只能一区一区往下开）；
+  // 进轮回层级看当前层级或任何区域在层级 ≥ 1 通关过
+  function questDerive(s) {
+    let n = 0;
+    for (let k = 0; k < G.QUEST_N; k++) {
+      const q = G.QUEST[k], c = q.zone ? s.cleared[q.zone] : undefined;
+      let ok = false;
+      if (q.kind === 'gate' || q.kind === 'boss') ok = c !== undefined;
+      else if (q.kind === 'in') ok = c !== undefined || (s.lastZone | 0) >= G.ZONES.findIndex((z) => z.id === q.zone);
+      else if (q.kind === 'tier') ok = (s.tier | 0) >= 1 || G.ZONES.some((z) => s.cleared[z.id] >= 1);
+      if (ok) n = k + 1;
+    }
+    return n;
+  }
+  G.questDerive = (s) => questDerive(s || G.save);
   // 图鉴记一笔：拾到过、最高完美度
   function noteUnique(it, save) {
     const U = (save || G.save).uniq;
@@ -4041,6 +4064,7 @@
         save.maxTier = state.tier + 1;
         toast('轮回层级 ' + save.maxTier + ' 已解锁', '#d98cff');
       }
+      G.questSync(true); // 主线：首领步（cleared 刚写入）
       // 首领倒下后清掉敌方弹幕，再开传送门
       for (let i = state.projectiles.length - 1; i >= 0; i--) {
         if (state.projectiles[i].owner === 'e') removeProjectile(i);
@@ -11853,6 +11877,76 @@
   };
 
   // =====================================================================
+  // 主线（quest D1，设计稿 game-workspace/notes/quest-design）
+  // =====================================================================
+  // 只读现有进度（cleared / lastZone / tier）和「走到首领场地门口」，不加新事件。推进时不取随机数、不改任何模拟用到的状态：
+  // 奖励直接加进 save.cur，提示交给界面层排队（G.ui.questDone）。固定种子的仗打出来和没有主线时逐位相同
+  const questFns = [];
+  // D3 的挂钩：首领步在这次游戏里真正完成时（不是读档推算出来的）调 fn({ step, id, zone, live: true })。
+  // 放过旁白后调 G.questTell(id) 记进 save.quest.told，G.questTold(id) 读
+  G.onQuest = (fn) => {
+    if (typeof fn === 'function') questFns.push(fn);
+  };
+  G.questTell = (id) => {
+    const Q = G.save.quest;
+    if (Q && G.QUEST.some((q) => q.id === id)) Q.told[id] = true;
+  };
+  G.questTold = (id) => !!(G.save.quest && G.save.quest.told[id]);
+  // 下一步（0 起）；主线走完 = G.QUEST_N
+  G.questStep = () => (G.save.quest ? G.save.quest.n : G.QUEST_N);
+  // 第 1 步：在灰烬荒原走到首领场地门口（和「前方是首领竞技场」提示同一个判定）。只读，不分配
+  function questGate() {
+    return !!(state.zone && state.zoneIdx === 0 && !state.pin && !P.dead && G.world.nearArena(P.x, P.z));
+  }
+  // live：这次游戏里真的做到了（进区、首领倒下、走到门口）→ 推进并发奖励；不是 live（读档）只推进。
+  // 推算（questDerive）早在读档时并进 n 了，所以这里发的只会是读档之后新完成的步骤。返回这次推进了几步
+  G.questSync = function (live) {
+    const save = G.save, Q = save.quest;
+    if (!Q || Q.n >= G.QUEST_N) return 0;
+    let n = Math.max(Q.n, questDerive(save));
+    if (n === 0 && live && questGate()) n = 1;
+    const from = Q.n;
+    if (n <= from) return 0;
+    Q.n = n;
+    if (!live) return 0;
+    const got = {};
+    let any = false;
+    for (let k = from; k < n; k++) {
+      const rw = G.QUEST[k].rw;
+      if (!rw) continue;
+      for (const id in rw) {
+        save.cur[id] = (save.cur[id] || 0) + rw[id];
+        got[id] = (got[id] || 0) + rw[id];
+        any = true;
+      }
+    }
+    G.persist(); // 马上存：走到门口这一步没有别的存档痕迹，不等 10 秒自动存档，关页面后不会再给一次
+    if (G.ui && G.ui.questDone) G.ui.questDone(n, any ? got : null);
+    for (let k = from; k < n; k++) {
+      const q = G.QUEST[k];
+      if (q.kind !== 'boss') continue;
+      for (const fn of questFns) {
+        try {
+          fn({ step: k + 1, id: q.id, zone: q.zone, live: true });
+        } catch (err) {
+          if (window.console) console.error(err);
+        }
+      }
+    }
+    return n - from;
+  };
+  // 模拟里每 0.5 秒（游戏时间）查一次第 1 步；其余步骤都由事件推进（G.enterZone、首领倒下）
+  let questT = 0;
+  G.updateQuest = function (dt) {
+    const Q = G.save.quest;
+    if (!Q || Q.n !== 0) return;
+    questT += dt;
+    if (questT < 0.5) return;
+    questT = 0;
+    if (questGate()) G.questSync(true);
+  };
+
+  // =====================================================================
   // 区域
   // =====================================================================
   // seal（可选）：这次进区的渊印（择印面板选的那一枚，见 G.rollSeals）；'resume' = 读档时接着存档里的那一次
@@ -11921,6 +12015,7 @@
 
     save.lastZone = idx;
     save.tier = tier;
+    G.questSync(true); // 主线：进区步、进轮回层级（lastZone / tier 刚写入）
     G.persist();
     toast(def.name + (tier > 0 ? ' · 轮回 ' + tier : '') + '　怪物等级 ' + level, '#ffb46a');
     return state.zone;

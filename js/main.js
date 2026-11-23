@@ -163,6 +163,7 @@
       G.updateLoot(dt);
       G.updateTimers(dt);
       G.updateEncounters(dt); // 异兆：懒生成、波次、计时
+      G.updateQuest(dt); // 主线：第 1 步「走到首领场地门口」每 0.5 秒查一次（只读）
     }
     W.update(dt, raw);
     saveT += raw;
