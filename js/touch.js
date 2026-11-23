@@ -326,6 +326,8 @@
   function onEnd(e) {
     if (!T.on) return;
     lastTouch = performance.now();
+    // iOS 只在 touchend 里放行声音：第一次松手时建 AudioContext，切后台回来被挂起的也在这里唤醒
+    if (G.audio && G.audio.unlock) G.audio.unlock();
     const cancel = e.type === 'touchcancel';
     for (const t of e.changedTouches) {
       const b = btns.get(t.identifier);
@@ -498,8 +500,11 @@
     window.addEventListener('touchcancel', onEnd, { passive: false });
     window.addEventListener('mousedown', onCompatMouse, true);
     window.addEventListener('resize', layout);
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', layout);
     document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('pageshow', resumeAudio);
     window.addEventListener('blur', releaseAll);
+    setManifest(true);
     layout();
     if (!raf) raf = requestAnimationFrame(tick);
   }
@@ -520,17 +525,44 @@
     window.removeEventListener('touchcancel', onEnd, { passive: false });
     window.removeEventListener('mousedown', onCompatMouse, true);
     window.removeEventListener('resize', layout);
+    if (window.visualViewport) window.visualViewport.removeEventListener('resize', layout);
     document.removeEventListener('visibilitychange', onVis);
+    window.removeEventListener('pageshow', resumeAudio);
     window.removeEventListener('blur', releaseAll);
+    setManifest(false);
+    document.documentElement.style.removeProperty('--app-h');
     W.mmTouch = null;
     T.blocked = T.portrait = T.hintOn = false;
   }
 
   // 切到后台：松开所有按着的键；回来时停在暂停菜单（标题画面、面板开着时不管）
   function onVis() {
-    if (!document.hidden) return;
+    if (!document.hidden) return resumeAudio();
     releaseAll();
     if (!G.ui.isOpen() && G.state.zone) G.ui.pause();
+  }
+
+  // 从后台回来：试着唤醒被系统挂起的 AudioContext（不行的话下一次松手时 G.audio.unlock 再唤醒）
+  function resumeAudio() {
+    const c = G.audio && G.audio.ctx && G.audio.ctx();
+    if (c && c.state !== 'running' && c.state !== 'closed') {
+      try {
+        const p = c.resume();
+        if (p && p.catch) p.catch(() => {});
+      } catch (e) {
+        /* 下一次松手再试 */
+      }
+    }
+  }
+  // 「添加到主屏幕」：清单只在触屏模式下挂上（桌面 Chrome 看到清单会在地址栏多一个安装图标）
+  function setManifest(on) {
+    let l = document.querySelector('link[rel="manifest"]');
+    if (on && !l) {
+      l = document.createElement('link');
+      l.rel = 'manifest';
+      l.href = 'manifest.json';
+      document.head.appendChild(l);
+    } else if (!on && l) l.remove();
   }
 
   // 安全区：真机读 env()（CSS 里），测试用 --t-safe-* 变量假装；小地图画在 2D 画布上，这里把 CSS 算出来的边距读回来
@@ -543,6 +575,9 @@
   const MM_SIZE = 110;
   function layout() {
     if (!T.on) return;
+    // 可见高度：iOS 的工具栏会占掉一截（100vh 比看得见的高），按 visualViewport 算
+    const vv = window.visualViewport;
+    document.documentElement.style.setProperty('--app-h', Math.round(vv && vv.height > 0 ? vv.height : window.innerHeight) + 'px');
     const s = safe();
     const k = MM_SIZE / ((W.minimapInfo && W.minimapInfo().size) || 172);
     W.mmTouch = { x: window.innerWidth - s.r - 8 - MM_SIZE, y: s.t + 6, k };

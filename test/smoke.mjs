@@ -23159,6 +23159,21 @@ async function touchSteps() {
     const s0 = await ev(() => ({ st: G.touch.state(), cls: document.documentElement.className, vp: document.querySelector('meta[name=viewport]').content, q: G.defaultQuality(), coarse: matchMedia('(pointer: coarse)').matches, mtp: navigator.maxTouchPoints, x: G.player.x }));
     assert(s0.st.on && s0.st.mode === 'auto' && /touch-ui/.test(s0.cls) && /viewport-fit=cover/.test(s0.vp), '手机模拟下应自动打开触屏模式：' + JSON.stringify(s0));
     assert(s0.coarse && s0.mtp > 0, '模拟环境不是 coarse 触屏：' + JSON.stringify(s0));
+    // 「添加到主屏幕」：触屏模式挂上清单，清单和图标都取得到、尺寸对得上
+    const mf = await ev(async () => {
+      const l = document.querySelector('link[rel=manifest]');
+      if (!l) return { link: false };
+      const j = await (await fetch(l.href)).json();
+      const icons = [];
+      for (const ic of j.icons.concat([{ src: document.querySelector('link[rel=apple-touch-icon]').getAttribute('href'), sizes: '180x180' }])) {
+        const im = new Image();
+        im.src = ic.src;
+        await im.decode();
+        icons.push(ic.sizes + '=' + im.naturalWidth + 'x' + im.naturalHeight);
+      }
+      return { link: true, display: j.display, orient: j.orientation, icons, apple: document.querySelector('meta[name=apple-mobile-web-app-capable]').content };
+    });
+    assert(mf.link && mf.display === 'fullscreen' && mf.orient === 'landscape' && mf.apple === 'yes' && mf.icons.every((x) => x.split('=')[0] === x.split('=')[1]), '主屏清单 / 图标不对：' + JSON.stringify(mf));
     // 摇杆盘半径 54 px（拖得更远底座会跟着走），这里都在 45 px 以内拖
     await touch.drag(150, 300, 195, 300);
     const k1 = await ev(() => Object.assign({}, G.input.keys));
@@ -23174,8 +23189,9 @@ async function touchSteps() {
     const x1 = await ev(() => (G.debug.step(0.6), G.player.x));
     assert(x1 > s0.x + 1.5, '按着摇杆推进 0.6 秒应往右走：' + s0.x + ' → ' + x1);
     await touch.up();
-    const k4 = await ev(() => ({ k: Object.keys(G.input.keys).filter((k) => G.input.keys[k]), st: G.touch.state().stick }));
+    const k4 = await ev(() => ({ k: Object.keys(G.input.keys).filter((k) => G.input.keys[k]), st: G.touch.state().stick, audio: !!G.audio.ctx() }));
     assert(!k4.k.length && k4.st === -1, '松手后键应全清：' + JSON.stringify(k4));
+    assert(k4.audio, '第一次松手后应建好 AudioContext（iOS 只认 touchend）');
     return '走了 ' + (x1 - s0.x).toFixed(2) + ' m';
   });
 
@@ -23463,6 +23479,8 @@ async function touchSteps() {
   await step('触屏：布局——844×390 / 667×375 / 932×430（含安全区）/ 390×844 / 1024×768 下摇杆区、按钮簇、小地图、追踪、顶栏、首领条互不重叠，按钮 ≥ 44 px 且在屏内，「开始」在屏内', async () => {
     await touchPage();
     const SIZES = [
+      [844, 340, null], // iOS 横屏：地址栏 / 工具栏占掉一截的可见高度
+      [667, 320, { l: 44, r: 44 }],
       [844, 390, null],
       [844, 390, { l: 44, r: 44, b: 21 }],
       [667, 375, null],
@@ -23536,6 +23554,63 @@ async function touchSteps() {
     return out.map((r) => r.size + (r.sa ? '+安全区' : '') + ' ' + r.n + ' 键').join('，');
   });
 
+  await step('触屏：iOS 工具栏占掉高度（844×340 / 667×320）时标题画面、职业选择、开场卡片、背包和暂停菜单都放得下', async () => {
+    if (browser) await browser.close().catch(() => {});
+    ({ browser, page, errors } = await launch({ width: 844, height: 340, mobile: { scale: 3 }, title: true }));
+    await until(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, 90000);
+    const out = [];
+    const inside = (sel) =>
+      ev((sel) => {
+        const bad = [];
+        for (const n of document.querySelectorAll(sel)) {
+          if (!n.getClientRects().length) continue;
+          const b = n.getBoundingClientRect();
+          if (b.left < -0.5 || b.top < -0.5 || b.right > innerWidth + 0.5 || b.bottom > innerHeight + 0.5) bad.push(sel + ' ' + [b.left, b.top, b.right, b.bottom].map(Math.round).join(','));
+        }
+        return bad;
+      }, sel);
+    for (const [w, h] of [[844, 340], [667, 320]]) {
+      await page.setViewportSize({ width: w, height: h });
+      await frames(2);
+      const appH = await ev(() => getComputedStyle(document.documentElement).getPropertyValue('--app-h').trim());
+      let bad = [].concat(await inside('.t-logo'), await inside('#t-menu .m-btn'));
+      await ev(() => document.getElementById('t-new').click());
+      await until(() => G.ui.classView && G.ui.classView());
+      await sleep(300);
+      bad = bad.concat(await inside('#title .m-view'), await inside('#title [data-tact="cl-ok"]'), await inside('#title .m-head .btn'));
+      await ev(() => document.querySelector('#title [data-tact="back"]').click());
+      await frames(1);
+      out.push({ size: w + '×' + h, appH, bad });
+    }
+    // 进游戏：开场卡片、背包、暂停菜单
+    await ev(() => document.getElementById('t-continue').click());
+    await until(() => !G.ui.titleOn());
+    for (const [w, h] of [[844, 340], [667, 320]]) {
+      await page.setViewportSize({ width: w, height: h });
+      await frames(2);
+      await ev(() => G.ui.showIntro());
+      await sleep(700);
+      let bad = await inside('#intro-go');
+      await ev(() => {
+        G.ui.close();
+        G.ui.open('inv');
+      });
+      await sleep(800); // 面板的入场动画（往上 8 px、0.99 倍）
+      bad = bad.concat(await inside('#panel-win'), await inside('#panel-close'), await inside('#tabs'));
+      await ev(() => {
+        G.ui.close();
+        G.ui.pause();
+      });
+      await sleep(300);
+      bad = bad.concat(await inside('.pause-card'), await inside('#p-menu .m-btn'));
+      await ev(() => G.ui.close());
+      out.push({ size: w + '×' + h + ' 游戏', bad });
+    }
+    const bad = out.filter((r) => r.bad.length || (r.appH !== undefined && r.appH !== r.size.split('×')[1] + 'px'));
+    assert(!bad.length, '矮屏下有东西跑出屏幕：' + JSON.stringify(bad));
+    return out.map((r) => r.size).join('，');
+  });
+
   await step('触屏：桌面窗口不开触屏模式（没有 html.touch-ui、没有触屏 DOM、G.touch.on 为假），开场卡片的「开始」在 1280×360 / 1024×360 里也在屏内', async () => {
     if (browser) await browser.close().catch(() => {});
     ({ browser, page, errors } = await launch({ width: 1280, height: 360 }));
@@ -23555,6 +23630,7 @@ async function touchSteps() {
             mode: G.touch.mode,
             cls: document.documentElement.classList.contains('touch-ui'),
             dom: !!document.getElementById('touch') || document.querySelectorAll('[data-tb]').length,
+            mf: !!document.querySelector('link[rel=manifest]'),
             vp: document.querySelector('meta[name=viewport]').content,
             aim: G.input.aim,
             go: go.top >= 0 && go.bottom <= innerHeight && go.left >= 0 && go.right <= innerWidth,
@@ -23562,7 +23638,7 @@ async function touchSteps() {
         })
       );
     }
-    const bad = out.filter((r) => r.on || r.cls || r.dom || r.aim !== null || r.vp !== 'width=device-width, initial-scale=1' || !r.go);
+    const bad = out.filter((r) => r.on || r.cls || r.dom || r.mf || r.aim !== null || r.vp !== 'width=device-width, initial-scale=1' || !r.go);
     assert(!bad.length, '桌面不应开触屏、「开始」应在屏内：' + JSON.stringify(bad));
     await ev(() => G.ui.close());
     return out.map((r) => r.size).join(' / ');

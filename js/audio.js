@@ -179,7 +179,8 @@
   function audioInit() {
     try {
       if (live) {
-        if (live.ac.state === 'suspended') live.ac.resume();
+        // iOS 切后台回来是 'interrupted'（桌面只有 suspended / running / closed 三种，和原来一样）
+        if (live.ac.state !== 'running' && live.ac.state !== 'closed') live.ac.resume();
         return;
       }
       const AC = window.AudioContext || window.webkitAudioContext;
@@ -999,6 +1000,8 @@
     CEIL,
     init: audioInit,
     ctx: () => (live ? live.ac : null),
+    // 在用户手势里建 / 唤醒 AudioContext（同首次按键、点击）。iOS 只认 touchend，触屏模式（js/touch.js）在 touchend 里调它
+    unlock: () => audioInit(),
     running: () => !!live && live.ac.state === 'running',
     bus: (name) => (live && live.bus[name]) || null,
     reverb: () => (live ? live.rvIn : null),

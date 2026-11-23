@@ -4135,7 +4135,7 @@ html.touch-ui #boss-box.on { transform: none; }
 /* 右上：小地图（2D 画布上画，110 px，见 W.mmTouch），主线追踪紧贴在下面，两行 */
 html.touch-ui #quest { right: calc(var(--sa-r) + 8px); top: calc(var(--sa-t) + 122px); width: 158px; }
 html.touch-ui #quest .q-k { font-size: 11px; line-height: 15px; letter-spacing: 1px; }
-html.touch-ui #quest .q-goal { font-size: 13px; line-height: 18px; letter-spacing: 0; }
+html.touch-ui #quest .q-goal { font-size: 13px; line-height: 18px; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 html.touch-ui #quest .q-how, html.touch-ui #quest .q-h, html.touch-ui #quest .q-alt { display: none; }
 html.touch-ui #zone-loading { right: calc(var(--sa-r) + 8px); top: calc(var(--sa-t) + 122px); width: 110px; padding: 4px 6px; font-size: 11px; }
 html.touch-ui body.quest-on #combo, html.touch-ui #combo { top: calc(var(--sa-t) + 172px); right: calc(var(--sa-r) + 230px); }
@@ -4175,8 +4175,8 @@ html.touch-ui .flask[data-tb] { width: 46px; height: 50px; margin: 0; gap: 0; ju
 html.touch-ui .flask[data-tb] kbd { display: none; }
 html.touch-ui #flask-life[data-tb] { right: calc(var(--cr) + 264px); bottom: calc(var(--cb) + 6px); }
 html.touch-ui #flask-mana[data-tb] { right: calc(var(--cr) + 214px); bottom: calc(var(--cb) + 6px); }
-/* F 情境键：附近有可处决的敌人、掉落、宝箱或异兆互动点时才出现（在武器技上方） */
-#t-f { display: none; z-index: 6; width: 52px; height: 52px; right: calc(var(--cr) + 150px); bottom: calc(var(--cb) + 130px); box-sizing: border-box; place-items: center; font-size: 20px; font-weight: 700; color: #1a0f08; background: radial-gradient(circle at 50% 35%, #ffe2a0, #d88a2c); border: 2px solid #fff1d0; border-radius: 50%; box-shadow: 0 0 14px rgba(255, 170, 60, 0.7); }
+/* F 情境键：附近有可处决的敌人、掉落、宝箱或异兆互动点时才出现（武器技左边、药瓶上方：矮屏上也不碰右上的追踪条） */
+#t-f { display: none; z-index: 6; width: 52px; height: 52px; right: calc(var(--cr) + 212px); bottom: calc(var(--cb) + 66px); box-sizing: border-box; place-items: center; font-size: 20px; font-weight: 700; color: #1a0f08; background: radial-gradient(circle at 50% 35%, #ffe2a0, #d88a2c); border: 2px solid #fff1d0; border-radius: 50%; box-shadow: 0 0 14px rgba(255, 170, 60, 0.7); }
 #t-f.on { display: grid; }
 
 /* 浮动摇杆：左下 45% 宽、下 58% 高的区域里落指生成 */
@@ -4209,3 +4209,34 @@ html.touch-ui #intro-go { height: 44px; }
 html.touch-ui #intro-go kbd { display: none; }
 /* 触屏没有键盘：菜单和面板上的按键角标（Esc、Enter）不显示 */
 html.touch-ui .m-btn kbd, html.touch-ui .m-head kbd, html.touch-ui #panel-close kbd { display: none; }
+
+/* 触屏：可见高度。iOS 上 100vh 是工具栏收起时的高度，比看得见的高；js/touch.js 按 visualViewport 写 --app-h（没有就用 dvh）。
+   全屏的层用 inset: 0（贴着可见区域），这里只把按 vh 算尺寸的几处换掉 */
+html.touch-ui { --app-h: 100dvh; }
+html.touch-ui #panel-win { height: min(736px, calc(var(--app-h) * 0.92)); }
+@media (max-width: 900px), (max-height: 500px) {
+  html.touch-ui #panel-win { height: var(--app-h); }
+}
+html.touch-ui .pause-card { max-height: calc(var(--app-h) - 16px); }
+html.touch-ui .intro-card { max-height: calc(var(--app-h) - 12px); overflow-y: auto; box-sizing: border-box; }
+html.touch-ui .th-card { max-height: calc(var(--app-h) - 24px); }
+html.touch-ui .pk-list { max-height: min(330px, calc(var(--app-h) * 0.46)); }
+html.touch-ui .t-emblem { width: clamp(56px, calc(var(--app-h) * 0.15), 120px); height: clamp(56px, calc(var(--app-h) * 0.15), 120px); }
+html.touch-ui .t-name { font-size: clamp(40px, calc(var(--app-h) * 0.11), 86px); }
+html.touch-ui .m-menu { margin-top: clamp(10px, calc(var(--app-h) * 0.045), 40px); }
+html.touch-ui body, html.touch-ui #panel, html.touch-ui #hud, html.touch-ui #title, html.touch-ui #intro, html.touch-ui #pause { height: var(--app-h); bottom: auto; }
+@media (max-width: 560px) {
+  html.touch-ui #title.clsv .t-main { max-height: calc(var(--app-h) * 0.62); }
+}
+/* 矮屏（iOS 横屏工具栏占掉一截，340 高以下）：开场卡片再收紧 */
+@media (max-height: 360px) {
+  .intro-card { padding: 10px 20px 10px; }
+  .intro-title { font-size: 24px; letter-spacing: 10px; text-indent: 10px; }
+  .intro-keys { margin: 8px 0 8px; }
+  .intro-keys div { padding: 6px 4px 5px; }
+  .intro-card p { margin-bottom: 8px; font-size: 12px; line-height: 17px; }
+  .intro-foot { margin-top: 6px; }
+}
+html.touch-ui .st-skip kbd { display: none; }
+/* 职业选择在矮屏上要滚动：「以 X 开始」钉在列表底部，不用滚到底才找得到 */
+html.touch-ui #title .m-body .m-acts { position: sticky; bottom: 0; z-index: 2; margin-top: 8px; padding: 10px 0 2px; background: linear-gradient(180deg, rgba(13, 9, 7, 0), rgba(13, 9, 7, 0.97) 35%); }

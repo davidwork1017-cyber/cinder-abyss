@@ -283,7 +283,13 @@
     const save = G.loadSave();
     // 首个区域的 CC0 素材包先开始下载（和下面的初始化同时进行），最多等 2.5 秒；等的时候盖一层「正在载入场景…」
     const pre = W.preloadZone(save.lastZone, 2500);
-    W.init();
+    try {
+      W.init();
+    } catch (err) {
+      // 建不了 WebGL2 上下文（老浏览器、显卡被禁用）：说清楚，不留一个报错的空白页
+      lostNote('画面开不了：这个浏览器不支持 WebGL2。请换用较新版本的 Chrome 或 Safari');
+      return;
+    }
     G.ui.init();
     // 老角色还没有职业（class-d2）：换角色重载后跳过了标题画面，也要先盖上标题画面选职业（测试的 __skipTitle、?play 不选）
     // 标题画面本来就开着时不自动弹：点「继续游戏」时再选（见 ui.js 的 continue）

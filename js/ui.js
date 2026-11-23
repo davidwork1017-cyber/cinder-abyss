@@ -1052,6 +1052,7 @@
   let lastToast = { msg: '', t: 0 };
   // icon：可选的图标 HTML（G.icons.* 的返回值），显示在文字前面
   function toast(msg, color, icon) {
+    msg = touchText(msg);
     const box = el.toasts || (el.toasts = $('toasts'));
     const now = performance.now();
     if (msg === lastToast.msg && now - lastToast.t < 500) return; // 同一句话短时间内不重复刷
@@ -3099,6 +3100,25 @@
 
   // 触屏模式（js/touch.js）开着：提示、操作说明换成触屏说法
   const touchOn = () => !!(G.touch && G.touch.on);
+  // 提示卡、飘出的提示、追踪条里写着键位的地方：触屏模式下换成对应的按钮（桌面原样返回）
+  const TOUCH_PANEL = { I: '点顶栏的「包」', G: '点顶栏的「技」', P: '点顶栏的「赋」', M: '点顶栏的「图」', H: '点顶栏的 ≡ 看操作说明' };
+  const TOUCH_TXT = [
+    [/按 ?<kbd>([QE]|左键)<\/kbd> 开关<b>自动召唤<\/b>（补到上限，魔力不够时暂停），<kbd>Shift<\/kbd>\+<kbd>\1<\/kbd> 在准星处召唤/g, '轻点技能键开关<b>自动召唤</b>（补到上限，魔力不够时暂停），拖出去松手在准星处召唤'],
+    [/按 ?<kbd>([IGPMH])<\/kbd>/g, (m, k) => TOUCH_PANEL[k]],
+    [/按 ([IGPMH])(?![A-Za-z])/g, (m, k) => TOUCH_PANEL[k]],
+    [/按 ?<kbd>R<\/kbd>/g, '点<b>武器技键</b>'],
+    [/按 ?<kbd>F<\/kbd>/g, '点 <kbd>F</kbd> 键'],
+    [/按 F(?![A-Za-z])/g, '点 F 键'],
+    [/按住 ?<kbd>右键<\/kbd>/g, '按住<b>普攻键</b>'],
+    [/<kbd>右键<\/kbd>/g, '<b>普攻键</b>'],
+    [/<kbd>左键<\/kbd>/g, '<b>大按钮</b>'],
+    [/<kbd>空格<\/kbd>/g, '<b>翻</b>键'],
+  ];
+  function touchText(s) {
+    if (!touchOn() || typeof s !== 'string') return s;
+    for (const [re, to] of TOUCH_TXT) s = s.replace(re, to);
+    return s;
+  }
   // 触屏的操作说明（标题画面 / 暂停菜单的「操作说明」）
   const HELP_TOUCH = [
     [['左下'], '拖动移动'],
@@ -4319,7 +4339,7 @@
       const v = questView(n);
       qh.k.textContent = v.k;
       qh.goal.textContent = v.goal;
-      qh.how.textContent = v.how;
+      qh.how.textContent = touchText(v.how);
       qh.alt.innerHTML = v.det.map((t) => '<div>' + esc(t) + '</div>').join('') + '<div class="q-lore">' + (v.lore.match(/[^，。]+[，。]?/g) || []).map((c) => '<span>' + esc(c) + '</span>').join('') + '</div>';
     }
     // 换步骤时亮一下（1.2 秒）；首领醒着时不亮，打完再亮
@@ -6706,7 +6726,7 @@
       bag: G.save.bag.length, cur: curTotal(), equip: equipSig(), passives: G.save.passives.length, flask: P.flask.life, zone: G.state.zone,
       finishers: cs.finishers, breaks: cs.breaks, execs: cs.execs, blank: G.save.blankGems.length,
     };
-    el.coachBody.innerHTML = h.html;
+    el.coachBody.innerHTML = touchText(h.html);
     el.coach.dataset.hint = h.id;
     el.coach.className = 'on';
     G.sfx('pickup');
@@ -6752,7 +6772,7 @@
   // 面板里接着提示的那一句（当前提示与这个页签有关时）
   function coachBanner(tab) {
     const h = coach.cur;
-    return h && coach.state === 'show' && h.panel && h.panel.tab === tab ? '<b class="co-mark">提示</b><span>' + h.panel.html + '</span>' : '';
+    return h && coach.state === 'show' && h.panel && h.panel.tab === tab ? '<b class="co-mark">提示</b><span>' + touchText(h.panel.html) + '</span>' : '';
   }
 
   function updateCoach(now) {
