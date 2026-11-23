@@ -6858,18 +6858,24 @@
       // 从目标点往回退，直到落在可走的地方
       let d = Math.min(sk.range, a.dist);
       while (d > 0 && !W.walkable(ox + a.dx * d, oz + a.dz * d, 0.6)) d -= 0.4;
-      W.burst(ox, 1.0, oz, hex, 18, 4, 0.4);
+      // skill-b1：起点不再放一团火花、路上不再是旧的近白闪电，换成贴地的残影带（W.bolt 走鬼影：随机数照取、不显示）
+      if (W.blinkOrigin) W.blinkOrigin();
+      else W.burst(ox, 1.0, oz, hex, 18, 4, 0.4);
       if (d > 0) {
         P.x = ox + a.dx * d;
         P.z = oz + a.dz * d;
-        W.bolt([{ x: ox, z: oz }, { x: P.x, z: P.z }], hex);
+        W.bolt([{ x: ox, z: oz }, { x: P.x, z: P.z }], hex, false, { ghost: !!W.blinkBand });
+        if (W.blinkBand) W.blinkBand(ox, oz, P.x, P.z, hex);
       }
       P.roll.t = 0;
       P.iframe = Math.max(P.iframe, 0.2);
       const dc = sk.mech === 'decoy' ? sk.decoy : null;
       const R = (dc ? dc.r0 : sk.radius) * Math.sqrt(ctx.area);
-      W.burst(P.x, 1.0, P.z, hex, 24, 6, 0.45);
-      W.ring(P.x, P.z, R, hex, 0.3);
+      if (W.blinkLand) W.blinkLand(P.x, P.z, R, hex); // skill-b1：落点一道细环 + 碎石（原来一团闪光 + 火花）
+      else {
+        W.burst(P.x, 1.0, P.z, hex, 24, 6, 0.45);
+        W.ring(P.x, P.z, R, hex, 0.3);
+      }
       let n = 0;
       let crit = false;
       for (const e of enemiesIn(P.x, P.z, R)) {
@@ -7440,7 +7446,7 @@
   // 残像：一个不会动的诱饵（敌人把它当召唤物打，受伤直接吃掉），dur 秒后炸开
   function blinkDecoy(ctx, x, z) {
     const W = G.world, D = ctx.sk.decoy;
-    const d = { decoy: true, x, z, r: 0.5, height: 1.8, dead: false, rising: 0, hp: D.hp, maxHp: D.hp, t: D.dur, ctx, ring: W.kv('glyph', { hex: 0xc7a6ff, x, z, y: 0.06, s: D.taunt * 2, k: 1 }) };
+    const d = { decoy: true, x, z, r: 0.5, height: 1.8, dead: false, rising: 0, hp: D.hp, maxHp: D.hp, t: D.dur, ctx, ring: W.kv('glyph', { hex: 0xc7a6ff, x, z, y: 0.06, s: D.taunt * 2, k: 1, edge: 1, dash: 28, a: 0.62, ew: 0.08 }) }; // skill-b1：嘲讽范围是一圈淡的细虚线（原来 7 米近白粗环）
     VS.decoys.push(d);
     W.afterimage(P.ent, x, z, 0xc7a6ff, 1, D.dur + 0.15, 0, P.face);
     let n = 0;
@@ -7524,8 +7530,14 @@
     P.roll.t = 0;
     P.iframe = Math.max(P.iframe, 0.2);
     // 两道交叉的闪光、两头各一团旋影
-    W.bolt([{ x: ox, z: oz }, { x: px, z: pz }], hex);
-    if (!e.isBoss) W.bolt([{ x: px + 0.3, z: pz }, { x: e.x + 0.3, z: e.z }], 0xffffff, true);
+    // skill-b1：两道闪电换成贴地的残影带（你过去的那道亮一些，敌人被换回来的那道窄、暗）；W.bolt 走鬼影（随机数照取、不显示）
+    const gh = !!W.blinkBand;
+    W.bolt([{ x: ox, z: oz }, { x: px, z: pz }], hex, false, { ghost: gh });
+    if (!e.isBoss) W.bolt([{ x: px + 0.3, z: pz }, { x: e.x + 0.3, z: e.z }], 0xffffff, true, { ghost: gh });
+    if (gh) {
+      W.blinkBand(ox, oz, px, pz, hex);
+      if (!e.isBoss) W.blinkBand(px, pz, e.x, e.z, 0x8a7aa0, { w: 0.6 });
+    }
     if (W.shadowStep) W.shadowStep(ox, oz, px, pz, hex);
     W.afterimage(P.ent, ox, oz, hex, 0.8, 0.35, 0, P.face);
     W.slash(px, pz, Math.random() * TAU, 1.6, 360, hex, { dur: 0.25, inner: 0.7, y: 1.0 });
