@@ -23434,6 +23434,33 @@ async function touchSteps() {
 
   await step('触屏：开场卡片、背包、技能、天赋、地图、帮助、浮窗、暂停菜单里没有鼠标 / 键盘说法（右键 / 左键 / 悬停 / Alt / WASD / Shift，Esc / Enter 角标）；点物品 → 详情里点「装备」穿上；长按看详情；长按不会误穿', async () => {
     await touchPage();
+    // 打一场（没开面板）：触屏文字处理一次都不该跑（只盯面板 / 浮窗 / 菜单，不盯 HUD）；提示卡打起来 4 秒后收成一行
+    const busy = await ev(async () => {
+      const P = G.player;
+      for (let i = 0; i < 8; i++) T.mob('husk', Math.sin(i) * 4, Math.cos(i) * 4);
+      const co = document.getElementById('coach');
+      co.querySelector('.co-body').textContent = '提示卡测试：打起来以后四秒收成一行，点一下展开';
+      co.dataset.hint = 'touchtest';
+      co.className = 'on';
+      await new Promise((r) => setTimeout(r, 0)); // 上面改提示卡文字的那一次处理先跑完（MutationObserver 是微任务）
+      const c0 = G.touch.state().txt.calls;
+      G.debug.hold(false);
+      G.input.mouse.b[0] = true;
+      const t0 = performance.now();
+      await new Promise((res) => {
+        const f = () => (co.classList.contains('t-min') || performance.now() - t0 > 30000 ? res() : requestAnimationFrame(f));
+        requestAnimationFrame(f);
+      });
+      G.input.mouse.b[0] = false;
+      G.debug.hold(true);
+      const st = G.touch.state();
+      const out = { calls: st.txt.calls - c0, ms: st.txt.ms, min: co.classList.contains('t-min'), sec: +((performance.now() - t0) / 1000).toFixed(1), lines: Math.round(co.querySelector('.co-body').getBoundingClientRect().height / 17) };
+      co.className = '';
+      for (const e of G.state.enemies) if (e.atkCd === 1e9) e.dead = true;
+      return out;
+    });
+    assert(busy.calls === 0, '没开面板时触屏文字处理不该跑：' + JSON.stringify(busy));
+    assert(busy.min && busy.lines === 1, '打起来后提示卡应收成一行：' + JSON.stringify(busy));
     const scan = (where) =>
       ev((where) => {
         const bad = [];
@@ -23515,7 +23542,7 @@ async function touchSteps() {
     }
     await ev(() => G.ui.close());
     assert(!bad.length, '触屏下还有鼠标 / 键盘说法：' + Array.from(new Set(bad)).slice(0, 12).join(' ｜ '));
-    return '按钮 ' + acts.join(' / ');
+    return '按钮 ' + acts.join(' / ') + '；打 ' + busy.sec + ' 秒文字处理 ' + busy.calls + ' 次，提示卡收成一行';
   });
 
   await step('触屏：切到后台 / pagehide 时存档，并遵守「另一个标签页写过就停写」；触屏模式下切回来停在暂停菜单', async () => {

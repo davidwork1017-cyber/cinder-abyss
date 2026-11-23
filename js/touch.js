@@ -444,7 +444,9 @@
     while (e && /^(B|KBD|I|EM|STRONG|SMALL)$/.test(e.tagName) && e.parentElement) e = e.parentElement;
     return e;
   }
+  const txtStats = { calls: 0, ms: 0 }; // 文字处理的开销（测试读）
   function fixText(node) {
+    txtStats.calls++;
     const v = node.nodeValue;
     if (!v || !TXT_HIT.test(v)) return;
     const pe = node.parentElement;
@@ -468,18 +470,25 @@
     const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     for (let n = w.nextNode(); n; n = w.nextNode()) fixText(n);
   }
-  // data-tip 里的文字（浮窗出来时才变成正文）也一样：浮窗本身在 #tip 里，正文改动时一起改
+  // 只盯面板、浮窗、菜单、提示这几块（data-tip 的文字出现在 #tip 里时一起改）；HUD 的数字、连击、飘字每帧在变，不盯
+  const TXT_ROOTS = ['panel', 'tip', 'title', 'pause', 'intro', 'toasts', 'coach', 'save-bar', 'story'];
   let txtObs = null;
   function watchText(on) {
     if (on && !txtObs && window.MutationObserver) {
       txtObs = new MutationObserver((list) => {
+        const t0 = performance.now();
         for (const m of list) {
           if (m.type === 'characterData') fixText(m.target);
           else for (const n of m.addedNodes) fixTree(n);
         }
+        txtStats.ms += performance.now() - t0;
       });
-      txtObs.observe(document.body, { childList: true, subtree: true, characterData: true });
-      fixTree(document.body);
+      for (const id of TXT_ROOTS) {
+        const r = document.getElementById(id);
+        if (!r) continue;
+        txtObs.observe(r, { childList: true, subtree: true, characterData: true });
+        fixTree(r);
+      }
     } else if (!on && txtObs) {
       txtObs.disconnect();
       txtObs = null;
@@ -753,6 +762,12 @@
     if (cs) for (const c of cs) if (!c.open && Math.hypot(c.x - P.x, c.z - P.z) <= 3.5) return true;
     return !!(G.encNearest && G.encNearest(3.5));
   }
+  function fighting() {
+    const P = G.player, st = G.state;
+    if (st.boss && st.boss.awake && !st.boss.dead) return true;
+    for (const e of st.enemies) if (e.awake && !e.dead && Math.hypot(e.x - P.x, e.z - P.z) < 8) return true;
+    return false;
+  }
   function bar(o, v, max) {
     const key = Math.round(v) + '/' + Math.round(max);
     if (key === o.k) return;
@@ -814,6 +829,19 @@
     }
     const pp = document.getElementById('pp-remind');
     dom.tree.classList.toggle('dot', !!(pp && pp.classList.contains('on')));
+    // 打起来了（首领醒着，或 8 m 内有醒着的敌人）：提示卡亮了 4 秒后收成一行、变淡，不盖着战斗；点一下照样展开
+    const co = document.getElementById('coach');
+    if (co) {
+      const shown = co.classList.contains('on');
+      if (!shown || co.dataset.hint !== dom.coHint) {
+        dom.coHint = co.dataset.hint;
+        dom.coT = 0;
+      }
+      if (shown && !co.classList.contains('t-min')) {
+        dom.coT = fighting() ? (dom.coT || 0) + dt : 0;
+        if (dom.coT >= 4) co.classList.add('t-min');
+      }
+    }
     // 首领条出来时提示卡往下让（两者都在顶栏下方居中）
     const boss = document.getElementById('boss-box');
     const bon = !!(boss && boss.classList.contains('on'));
@@ -835,6 +863,7 @@
     aim: input.aim ? { x: input.aim.x, z: input.aim.z } : null,
     f: !!(dom && dom.fOn),
     labels: labelsOn,
+    txt: { calls: txtStats.calls, ms: +txtStats.ms.toFixed(2) },
   });
   T.keys = { MODE_KEY, HINT_KEY };
 

@@ -4255,3 +4255,6 @@ html.touch-ui:not(.t-lp) #tip { display: none !important; }
 /* 触屏的按键表：标签都很短，左列按内容收窄，说明占满剩下的宽度 */
 html.touch-ui .hk-keys { width: auto; min-width: 52px; }
 html.touch-ui .hk > span:last-child { flex: 1; min-width: 0; }
+/* 打起来以后提示卡收成一行、变淡（js/touch.js 加 t-min；点一下展开） */
+html.touch-ui #coach.on.t-min:not(.t-open) { opacity: 0.55; }
+html.touch-ui #coach.t-min:not(.t-open) .co-body { -webkit-line-clamp: 1; }
