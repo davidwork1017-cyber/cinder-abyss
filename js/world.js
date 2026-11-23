@@ -19061,6 +19061,12 @@
     }
     return true;
   }
+  // 新模型的染色：颜色已经在调色板和烘焙里定好，躯体不再整体偏冷（暖色地面上原来按 0xe6e9f6 染、再加一道冷色轮廓光，
+  // 新模型的岩石在区域的冷色补光下会发蓝、像塑料）：染色换成中性、轮廓光换成很淡的中性色。只动材质的颜色，不动别的
+  function bossLook(ent) {
+    ent.bodyMat.color.copy(lin(0xf0ece8));
+    ent.uRim.value.setRGB(0.07, 0.065, 0.06);
+  }
   function bossSwap(ent) {
     const r = ent.swapTo;
     ent.swapTo = null;
@@ -19082,6 +19088,7 @@
       m.needsUpdate = true;
     }
     solveRig(ent);
+    if (!ent.echo) bossLook(ent);
     if (W.onBossSwap) W.onBossSwap(ent);
   }
   W.debugBossPack = function (on) {
@@ -19102,12 +19109,15 @@
     // boss-golem：首领包已经在就直接用脚本生成的新模型，否则先用程序化外观、等包到了在闲着的时候原地换（newEnt 取随机数的次数两边一样）
     const glb = bossGlbRig(kind);
     const ent = newEnt(kind, glb || BOSS_RIG[kind](), warmGround ? 0xe6e9f6 : 0xf2ece6, eh, 1.15); // 卡通：染色收轻，同小怪
+    ent.bossWarm = warmGround;
+    if (glb) bossLook(ent);
     if (!glb && BOSS_SPEC[kind] && !bossPackOff && !window.CA_PROCEDURAL_CHARS) {
       bossEnts.push(ent);
       if (bossData(kind)) bossQueueSwap(kind);
       else bossPackLater(kind);
     } else if (!glb && BOSS_SPEC[kind] && bossPackOff) bossEnts.push(ent);
-    if (warmGround) ent.uRim.value.setRGB(0.12, 0.15, 0.24);
+    if (glb) bossLook(ent);
+    else if (warmGround) ent.uRim.value.setRGB(0.12, 0.15, 0.24);
     else ent.uRim.value.setRGB(0.24, 0.18, 0.12);
     groundDisc(ent, glowTex(), eh, G.BOSSES[kind].r * 2.4, 0.4);
     return ent;
@@ -20932,7 +20942,7 @@
 
   // vf-vfx：前面拼上特效贴图库的 GLSL 工具（G.vfx.GLSL，里面声明了 uTime 和噪声贴图）
   const TELE_FRAG = G.vfx.GLSL + '\n' + [
-    'uniform vec3 uColor; uniform vec3 uEdge; uniform vec2 uHalf; uniform float uK; uniform float uShape; uniform float uArc; uniform float uIn; uniform float uFill;',
+    'uniform vec3 uColor; uniform vec3 uEdge; uniform vec2 uHalf; uniform float uK; uniform float uShape; uniform float uArc; uniform float uIn; uniform float uFill; uniform float uBoss;',
     'varying vec2 vP;',
     'void main(){',
     '  vec2 p = vP * uHalf;',
@@ -20963,6 +20973,14 @@
     '    col = mix(col, uEdge, ce * inner * 0.14 * (1.0 - edge));',
     '  }',
     '  col += hot * pulse * 0.18;',
+    // boss-golem：首领的预警圈（uBoss = 1）：填充压到 25–35%（还没推到的部分 4%，推满的部分随时间 18% → 28%，最后一小段轻微闪），
+    // 外沿的亮边和深线里面再加一道实色红带（离边 0.34–0.55 米），推进的前沿亮线照旧；形状、半径、时序不变
+    '  if (uBoss > 0.5) {',
+    '    float bBand = smoothstep(0.32, 0.36, d) * (1.0 - smoothstep(0.52, 0.58, d));', // 亮边、深线里面再一道实色红带
+    '    a = 0.04 + inner * (0.18 + 0.1 * uK) + hot * (0.02 + 0.03 * pulse);',
+    '    col = mix(mix(uColor, uEdge, max(edge, lead * 0.75)), uColor, bBand);',
+    '    edge = max(edge, bBand * 0.92);',
+    '  }',
     '  a *= uFill;', // vf-vfx2：玩家自己放的（友方）预警圈填充减半，外轮廓和前沿亮线不变；敌方的 uFill = 1
     '  a = max(a, max(edge * 0.96, lead * 0.7));',
     // vf-vfx3：敌方的预警圈在亮边里面再压一道深色线（双层边）：亮边在暗地上显眼、深线在亮特效上显眼，玩家的特效叠上来时轮廓仍是连着的
@@ -21009,6 +21027,8 @@
         uArc: { value: arc ? spec.arc : 0 },
         uIn: { value: ringS ? spec.rin : 0 },
         uFill: { value: friendly ? 0.5 : 1 }, // 友方填充减半（vf-vfx2：陨火落下的 0.75 秒里不把落点的怪罩成一片橙）
+        // boss-golem：首领的预警圈换成「醒目的红边 + 25–35% 的淡填充，按结算的时间从里往外推满」，地面和玩家的脚看得见；小怪的不变
+        uBoss: { value: !friendly && spec.owner && spec.owner.isBoss ? 1 : 0 },
         uTime,
       }),
       vertexShader: FX_VERT, fragmentShader: TELE_FRAG,
