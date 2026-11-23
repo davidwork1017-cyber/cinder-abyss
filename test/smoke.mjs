@@ -7322,6 +7322,7 @@ async function main() {
         });
         // 物品浮窗（带对比卡）：整块在屏幕里
         await ev((u) => document.querySelector('.cell[data-item="' + u + '"]').scrollIntoView({ block: 'center' }), tipUid);
+        await frames(2); // 滚动事件下一帧才到，到了会收起浮窗（ui.js 的 scroll 监听）：等它过去再悬停
         const c = await ev((u) => T.rect('.cell[data-item="' + u + '"]'), tipUid);
         await page.mouse.move(c.x - 6, c.y - 4);
         await page.mouse.move(c.x, c.y);
