@@ -229,3 +229,152 @@ export function bakeGeo(g) {
   for (const ni of sc.nodes) walk(ni);
   return { count: P.length / 3, pos: Float32Array.from(P), nor: Float32Array.from(N), col: Float32Array.from(C), glow: GL.some((k) => k > 0.01) ? Float32Array.from(GL) : null };
 }
+
+// ---------- 首领包（boss-golem）：带蒙皮和动作的首领 GLB → 游戏直接用的数组（和布景件的预烘焙一样，游戏端不解析 GLB、不解码调色板） ----------
+// 输出一个 JSON 对象（pack-assets 写进 js/assets/boss-<kind>.js，check-art 重新打包一遍逐字节核对）：
+//   bones：[[名字, 父骨骼序号, 枢轴 x, y, z], ...]，枢轴 = 绑定姿态里骨骼的位置（glTF 的 Y 朝上 = 游戏的模型空间），父骨骼在前；
+//   顶点（焊接后）：p 位置（Float32 × 3）、j 骨骼序号（Uint8 × 4）、w 权重（Uint8 × 4，和 255）；
+//   角（每个三角形 3 个）：ci 顶点序号（Uint16）、c 颜色（Uint8 × 4：调色板按 UV 取色（sRGB → 线性）× COLOR_0 的 rgb，再编码回 sRGB 8 位；
+//     α = COLOR_0 的 α = 1 - 自发光）、r 每个三角形的调色板行号（Uint8，游戏端按行定表面类型）；
+//   clips：{ 名字: { ex: 动作参数（GLB 的 extras）, n: 帧数, ch: { '骨骼.通道': Int16 数组（rx ry rz 弧度、ox oy oz 米，× 8192） } } }。
+//     通道值在这里按游戏的关节通道算好（和 world.js 的 cClipKeys 同一套：骨骼的形变矩阵 W · 绑定逆矩阵，乘回枢轴，换成父关节里的局部矩阵，
+//     XYZ 欧拉 + 相对静止位置的位移，逐帧去掉 2π 跳变）；恒为 0 的通道不写。
+const s2lT = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+const l2s = (c) => (c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055);
+// 调色板图集的行数（每行 2 像素高）：首领包按 UV 记行号
+export const bossRows = (g) => {
+  const im = g.json.images[0], bv = g.json.bufferViews[im.bufferView];
+  return g.bin.readUInt32BE((bv.byteOffset || 0) + 20) / 2; // PNG 的 IHDR 高度
+};
+export const BOSS_Q = 8192; // 通道值的量化：Int16 / 8192（±4 弧度 / 米，精度 0.00012）
+const m4mul = (a, b) => { const o = new Float64Array(16); for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) { let v = 0; for (let k = 0; k < 4; k++) v += a[k * 4 + r] * b[c * 4 + k]; o[c * 4 + r] = v; } return o; };
+const m4trs = (t, q) => {
+  const [x, y, z, w] = q;
+  return Float64Array.from([1 - 2 * (y * y + z * z), 2 * (x * y + z * w), 2 * (x * z - y * w), 0, 2 * (x * y - z * w), 1 - 2 * (x * x + z * z), 2 * (y * z + x * w), 0, 2 * (x * z + y * w), 2 * (y * z - x * w), 1 - 2 * (x * x + y * y), 0, t[0], t[1], t[2], 1]);
+};
+const m4inv = (m) => {
+  // 刚体矩阵（旋转 + 平移）的逆
+  const o = new Float64Array(16);
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) o[c * 4 + r] = m[r * 4 + c];
+  for (let r = 0; r < 3; r++) o[12 + r] = -(o[r] * m[12] + o[4 + r] * m[13] + o[8 + r] * m[14]);
+  o[15] = 1;
+  return o;
+};
+export function packBoss(g, rows) {
+  const j = g.json, prim = j.meshes[0].primitives[0];
+  const pbr = (j.materials[prim.material] || {}).pbrMetallicRoughness || {}, bf = pbr.baseColorFactor || [1, 1, 1, 1];
+  const ibv = j.bufferViews[j.images[j.textures[pbr.baseColorTexture.index].source].bufferView];
+  const px = decodePng(g.bin.subarray(ibv.byteOffset || 0, (ibv.byteOffset || 0) + ibv.byteLength));
+  const pos = rawAccessor(g, prim.attributes.POSITION), uv = rawAccessor(g, prim.attributes.TEXCOORD_0), vc = rawAccessor(g, prim.attributes.COLOR_0);
+  const jn = rawAccessor(g, prim.attributes.JOINTS_0), wt = rawAccessor(g, prim.attributes.WEIGHTS_0), idx = rawAccessor(g, prim.indices).arr;
+  const n = pos.arr.length / 3, vcK = vc.normalized ? 1 / (vc.type === 5121 ? 255 : 65535) : 1;
+  const skin = j.skins[0], nb = skin.joints.length, boneOf = new Map(skin.joints.map((ni, i) => [ni, i]));
+  // 骨骼：父骨骼（只认骨骼之间的父子关系）、静止 TRS、绑定逆矩阵 → 枢轴
+  const parent = new Array(nb).fill(-1);
+  skin.joints.forEach((ni, i) => (j.nodes[ni].children || []).forEach((c) => { if (boneOf.has(c)) parent[boneOf.get(c)] = i; }));
+  const ibm = rawAccessor(g, skin.inverseBindMatrices).arr, IBM = [], BW = [];
+  for (let b = 0; b < nb; b++) { IBM.push(Float64Array.from(ibm.subarray(b * 16, b * 16 + 16))); BW.push(m4inv(IBM[b])); }
+  for (let b = 0; b < nb; b++) if (parent[b] >= b) throw new Error('首领骨骼的顺序：父骨骼要在前（' + j.nodes[skin.joints[b]].name + '）');
+  const piv = BW.map((m) => [m[12], m[13], m[14]]);
+  const bones = skin.joints.map((ni, b) => [j.nodes[ni].name, parent[b], ...piv[b].map((v) => Math.fround(v))]);
+  // 顶点：权重量化回 8 位（生成时已是 1/255 的倍数），按（位置, 骨骼, 权重）焊接
+  const vkey = new Map(), P = [], J8 = [], W8 = [], remap = new Uint32Array(n);
+  for (let i = 0; i < n; i++) {
+    const w = [], jj = [];
+    let s = 0, top = 0;
+    for (let k = 0; k < 4; k++) {
+      const x = wt.normalized ? wt.arr[i * 4 + k] / (wt.type === 5121 ? 255 : 65535) : wt.arr[i * 4 + k];
+      w.push(Math.round(x * 255));
+      s += w[k];
+      if (w[k] > w[top]) top = k;
+    }
+    w[top] += 255 - s;
+    for (let k = 0; k < 4; k++) jj.push(w[k] ? jn.arr[i * 4 + k] : 0);
+    const key = pos.arr[i * 3] + ',' + pos.arr[i * 3 + 1] + ',' + pos.arr[i * 3 + 2] + '|' + jj.join(',') + '|' + w.join(',');
+    let at = vkey.get(key);
+    if (at === undefined) {
+      at = P.length / 3;
+      vkey.set(key, at);
+      P.push(pos.arr[i * 3], pos.arr[i * 3 + 1], pos.arr[i * 3 + 2]);
+      J8.push(...jj);
+      W8.push(...w);
+    }
+    remap[i] = at;
+  }
+  // 角：顶点序号 + 烘焙好的颜色（sRGB 8 位）+ 每个三角形的调色板行
+  const nc = idx.length, CI = new Uint16Array(nc), C8 = new Uint8Array(nc * 4), R8 = new Uint8Array(nc / 3);
+  if (P.length / 3 > 65535) throw new Error('首领顶点太多（焊接后 ' + P.length / 3 + '）');
+  for (let t = 0; t < nc; t++) {
+    const i = idx[t];
+    CI[t] = remap[i];
+    let u = uv.arr[i * 2], v = uv.arr[i * 2 + 1];
+    u -= Math.floor(u);
+    v -= Math.floor(v);
+    const X = Math.min(px.w - 1, Math.floor(u * px.w)), Y = Math.min(px.h - 1, Math.floor(v * px.h)), q = (Y * px.w + X) * px.bpp;
+    for (let k = 0; k < 3; k++) C8[t * 4 + k] = Math.round(Math.min(1, Math.max(0, l2s(bf[k] * s2lT(px.d[q + k] / 255) * vc.arr[i * 4 + k] * vcK))) * 255);
+    C8[t * 4 + 3] = Math.round(vc.arr[i * 4 + 3] * vcK * 255);
+    if (t % 3 === 0) R8[t / 3] = Math.min(rows - 1, Math.floor(Y / (px.h / rows)));
+  }
+  // 动作 → 游戏的关节通道
+  const restT = skin.joints.map((ni) => j.nodes[ni].translation || [0, 0, 0]), restR = skin.joints.map((ni) => j.nodes[ni].rotation || [0, 0, 0, 1]);
+  const clips = {};
+  for (const a of j.animations || []) {
+    const ins = a.channels.map((c) => rawAccessor(g, a.samplers[c.sampler].input).arr);
+    const nF = Math.max(...ins.map((x) => x.length));
+    const tr = restT.map(() => null), rot = restR.map(() => null);
+    a.channels.forEach((c, ci) => {
+      const b = boneOf.get(c.target.node);
+      if (b === undefined) return;
+      const v = rawAccessor(g, a.samplers[c.sampler].output).arr, nk = ins[ci].length, nc2 = c.target.path === 'rotation' ? 4 : 3;
+      const at = (f) => Array.from(v.subarray(Math.min(f, nk - 1) * nc2, Math.min(f, nk - 1) * nc2 + nc2));
+      if (nk !== nF && nk > 2) throw new Error('首领动作 ' + a.name + '：通道帧数不一致');
+      if (c.target.path === 'translation') tr[b] = at;
+      else if (c.target.path === 'rotation') rot[b] = at;
+      else if (c.target.path === 'scale') for (let f = 0; f < nk; f++) if (at(f).some((x) => Math.abs(x - 1) > 1e-6)) throw new Error('首领动作 ' + a.name + '：骨骼有缩放（游戏端不采缩放）');
+    });
+    const ch = {};
+    const vals = {};
+    for (let f = 0; f < nF; f++) {
+      const W = [], D = [], M = [];
+      for (let b = 0; b < nb; b++) {
+        const L = m4trs(tr[b] ? tr[b](f) : restT[b], rot[b] ? rot[b](f) : restR[b]);
+        W[b] = parent[b] < 0 ? L : m4mul(W[parent[b]], L);
+        D[b] = m4mul(W[b], IBM[b]);
+        M[b] = m4mul(D[b], m4trs(piv[b], [0, 0, 0, 1]));
+        const Lm = parent[b] < 0 ? M[b] : m4mul(m4inv(M[parent[b]]), M[b]);
+        // three 的 Euler.setFromRotationMatrix（'XYZ'）
+        const m11 = Lm[0], m12 = Lm[4], m13 = Lm[8], m22 = Lm[5], m23 = Lm[9], m32 = Lm[6], m33 = Lm[10];
+        const ey = Math.asin(Math.min(1, Math.max(-1, m13)));
+        let ex, ez;
+        if (Math.abs(m13) < 0.9999999) { ex = Math.atan2(-m23, m33); ez = Math.atan2(-m12, m11); } else { ex = Math.atan2(m32, m22); ez = 0; }
+        const lx = piv[b][0] - (parent[b] < 0 ? 0 : piv[parent[b]][0]), ly = piv[b][1] - (parent[b] < 0 ? 0 : piv[parent[b]][1]), lz = piv[b][2] - (parent[b] < 0 ? 0 : piv[parent[b]][2]);
+        const o = { rx: ex, ry: ey, rz: ez, ox: Lm[12] - lx, oy: Lm[13] - ly, oz: Lm[14] - lz };
+        for (const k in o) {
+          const key = bones[b][0] + '.' + k, arr = vals[key] || (vals[key] = []);
+          let x = o[k];
+          if (k[0] === 'r' && arr.length) x -= Math.round((x - arr[arr.length - 1]) / (2 * Math.PI)) * 2 * Math.PI;
+          arr.push(x);
+        }
+      }
+    }
+    for (const key of Object.keys(vals)) {
+      const q = Int16Array.from(vals[key].map((x) => Math.round(x * BOSS_Q)));
+      if (q.every((x) => x === 0)) continue;
+      if (q.some((x) => Math.abs(x) >= 32767)) throw new Error('首领动作 ' + a.name + '：' + key + ' 超出量化范围');
+      ch[key] = q.every((x) => x === q[0]) ? Int16Array.of(q[0]) : q;
+    }
+    clips[a.name] = { ex: a.extras || {}, n: nF, ch };
+  }
+  return { bones, nv: P.length / 3, p: Float32Array.from(P), j: Uint8Array.from(J8), w: Uint8Array.from(W8), nc, ci: CI, c: C8, r: R8, clips };
+}
+// 首领包的 JSON（数组转 base64，键的顺序固定）
+export function bossEntry(sha, b) {
+  const b64 = (f) => Buffer.from(f.buffer, f.byteOffset, f.byteLength).toString('base64');
+  const clips = {};
+  for (const name of Object.keys(b.clips).sort()) {
+    const c = b.clips[name], ch = {};
+    for (const k of Object.keys(c.ch).sort()) ch[k] = b64(c.ch[k]);
+    clips[name] = { ex: c.ex, n: c.n, ch };
+  }
+  return { sha, q: BOSS_Q, bones: b.bones, nv: b.nv, p: b64(b.p), j: b64(b.j), w: b64(b.w), nc: b.nc, ci: b64(b.ci), c: b64(b.c), r: b64(b.r), clips };
+}

@@ -26,7 +26,7 @@
 
   // ---------- 武器 ----------
   // 武器类型名：优先用数据里的写法，没有就用这张表
-  const WTYPE_NAME = { blade: '刃', staff: '长杖', wand: '短杖', daggers: '双匕', hammer: '战锤', bow: '长弓', katana: '太刀', banner: '魂幡', gatling: '机炮', flamer: '喷枪', revolver: '左轮', huntbow: '猎弓', eagle: '长弓', runebow: '符文弓', emberbow: '霜弓' };
+  const WTYPE_NAME = { blade: '刃', staff: '长杖', wand: '短杖', daggers: '双匕', hammer: '战锤', bow: '长弓', katana: '太刀', banner: '魂幡', lantern: '提灯', gatling: '机炮', flamer: '喷枪', revolver: '左轮', huntbow: '猎弓', eagle: '长弓', runebow: '符文弓', emberbow: '霜弓' };
   const WTYPE_ORDER = ['blade', 'staff', 'wand', 'daggers', 'hammer', 'bow', 'katana', 'banner'];
   const GUN_TYPES = ['gatling', 'flamer', 'revolver'];
   const wBase = (item) => (item && item.slot === 'weapon' && G.BASES.weapon ? G.BASES.weapon[item.baseIdx | 0] || null : null);
@@ -59,7 +59,7 @@
     return null;
   }
   // 武器技的成长方式：attack 随武器伤害；minion 按召唤物（魂幡）；其余是法术，随武器物品等级与元素加成
-  const wGrowKind = (sk) => (sk.tags.indexOf('attack') >= 0 ? 'attack' : sk.tags.indexOf('minion') >= 0 || sk.minion || sk.wtype === 'banner' ? 'minion' : 'spell');
+  const wGrowKind = (sk) => (sk.tags.indexOf('attack') >= 0 ? 'attack' : sk.wtype === 'lantern' ? 'spell' : sk.tags.indexOf('minion') >= 0 || sk.minion || sk.wtype === 'banner' ? 'minion' : 'spell'); // 提灯的借火 / 灯海是法术（带召唤物标签只因为管召唤物）
   const WGROW_TIP = { attack: '随武器伤害成长', minion: '按召唤物计算', spell: '随武器物品等级与元素加成成长' };
   const isWSkill = (id) => !!(id && G.SKILLS[id] && (G.SKILLS[id].weaponOnly || G.SKILLS[id].tags.indexOf('weapon') >= 0));
   // 某件武器自带的武器技 id（数据里没有时为 null）
@@ -493,6 +493,12 @@
         const cost = hud.cost[id];
         na = cost > 0 && (blood ? P.life <= cost : P.mana < cost);
       }
+      // 职业（class-d2）：放不出来的宝石格子变灰，按下时说明原因（没有职业时不查）
+      const blk = id && i !== W_SLOT && G.save.cls ? G.castBlock(id) : null;
+      if (!!blk !== !!s.blk) {
+        s.blk = !!blk;
+        s.el.classList.toggle('cls-off', !!blk);
+      }
       // 冷却自然走完：闪一下。按下却放不出来：格子抖一下并说明原因
       const held = !st.paused && slotDown(i);
       if (id && !P.dead) {
@@ -502,6 +508,7 @@
           const shift = !!(G.input.keys.ShiftLeft || G.input.keys.ShiftRight);
           if (sk.kind === 'aura') slotFx(s, s.aoff ? 'deny' : 'ready', s.aoff ? '保留不足' : '', now); // 光环：按了也只是亮一下，提示它一直生效（保留放不下时说明为什么没生效）
           else if (sk.kind === 'summon' && !shift) slotFx(s, 'ready', '', now); // 召唤：按键是自动召唤的开关，不是施放
+          else if (blk) slotFx(s, 'deny', blk.why === 'cls' ? '职业用不了' : '武器不对', now);
           else if (i === W_SLOT && rw && !rw.gauge.full) slotFx(s, 'deny', rw.gauge.name + '未满', now); // 远程武器的 R 要量表灌满
           else if (left > 0.15) slotFx(s, 'deny', '冷却中', now);
           else if (na) slotFx(s, 'deny', blood ? '生命不足' : '魔力不足', now);
@@ -1125,6 +1132,7 @@
     const slot = item.slot;
     const cur = save.equip[slot];
     if (cur === item || (cur && cur.uid === item.uid)) return null;
+    if (G.offClassItem && G.offClassItem(item)) return null; // 别的职业的武器（class-d2）：装不上，不比
     const now = performance.now();
     const hit = vdCache.get(item.uid);
     if (hit && now - hit.t < VD_TTL) return hit.v;
@@ -1237,6 +1245,12 @@
     h += '</div></div>';
     const isW = item.slot === 'weapon';
     h += '<div class="ic-meta"><span>' + G.RARITY_NAME[item.rarity] + ' · ' + (isW ? G.SLOT_NAME.weapon + ' · ' + wTypeName(item.baseIdx | 0) : G.SLOT_NAME[item.slot]) + '</span><span>物品等级 ' + item.ilvl + '</span></div>';
+    // 职业（class-d2）：有职业的角色看武器时多一行「职业：X」，别的职业的标红（装不上）
+    if (isW && G.clsDef && G.clsDef()) {
+      const wc = G.CLASSES[G.WTYPE_CLS[G.wTypeOfItem(item)]];
+      const off = G.offClassItem(item);
+      if (wc) h += '<div class="ic-cls' + (off ? ' off' : '') + '">职业：' + wc.name + (off ? ' · ' + G.clsDef().name + '装不上' : '') + '</div>';
+    }
     if (isW) h += weaponBlock(item, o.cmp);
     if (L.armour) h += '<div class="ic-line arm">护甲 <b>' + L.armour + '</b></div>';
     if (L.imp) h += '<div class="ic-line imp">' + esc(L.imp) + '</div>';
@@ -1328,7 +1342,7 @@
   function bagCell(item, sel, idx) {
     const v = verdict(item);
     return (
-      '<div class="cell r' + item.rarity + (sel ? ' sel' : '') + '" data-act="sel" data-item="' + item.uid + '" data-idx="' + idx + '" data-tip="item:' + item.uid + '" data-drag="item:' + item.uid + '">' +
+      '<div class="cell r' + item.rarity + (sel ? ' sel' : '') + (G.offClassItem && G.offClassItem(item) ? ' cls-off' : '') + '" data-act="sel" data-item="' + item.uid + '" data-idx="' + idx + '" data-tip="item:' + item.uid + '" data-drag="item:' + item.uid + '">' +
       IC.item(item) +
       '<span class="c-ilvl">' + item.ilvl + '</span>' +
       (v ? '<span class="c-vd vd-' + v.badge + '">' + VD_GLYPH[v.badge] + '</span>' : '') +
@@ -1536,6 +1550,35 @@
     );
   }
 
+  // 共享仓库（class-d2）：右栏的一页，4 页 × 40 格，所有角色共用；点仓库里的物品取进背包，背包物品详情里有「放进仓库」
+  function stashHtml() {
+    const ok = G.stash && G.stash.ok();
+    const items = ok ? G.stash.list() : [];
+    ui.stashCache = items;
+    const P = G.stash ? G.stash.PAGE : 40, N = G.stash ? G.stash.PAGES : 4;
+    const pg = G.clamp(ui.stashPage | 0, 0, N - 1);
+    let tabs = '';
+    for (let p = 0; p < N; p++) {
+      const n = items.slice(p * P, (p + 1) * P).length;
+      tabs += '<button type="button" tabindex="-1" class="sh-tab' + (p === pg ? ' on' : '') + '" data-act="stash-page" data-p="' + p + '">' + (p + 1) + (n ? '<em>' + n + '</em>' : '') + '</button>';
+    }
+    let cells = '';
+    for (let i = pg * P; i < (pg + 1) * P; i++) {
+      const it = items[i];
+      cells += it
+        ? '<div class="cell r' + it.rarity + (G.offClassItem && G.offClassItem(it) ? ' cls-off' : '') + '" data-act="stash-take" data-uid="' + it.uid + '" data-tip="stash:' + it.uid + '">' + IC.item(it) + '<span class="c-ilvl">' + it.ilvl + '</span></div>'
+        : '<div class="cell empty"></div>';
+    }
+    return (
+      '<div class="sec-title">共享仓库<span class="sec-note">' + items.length + ' / ' + (P * N) + ' · 所有角色共用</span></div>' +
+      (ok
+        ? '<div class="sh-tabs">' + tabs + '</div><div class="bag sh-grid">' + cells + '</div>' +
+          '<p class="sh-note">点仓库里的物品取进背包；背包里的物品点开后选「放进仓库」。只放物品，通货和宝石不进仓库。</p>'
+        : '<p class="sh-note">现在不能用仓库：另一个标签页在玩，或者存档写不进去。刷新后再试。</p>') +
+      (ui.stashMsg ? '<p class="inv-msg' + (ui.stashBad ? '' : ' ok') + '">' + esc(ui.stashMsg) + '</p>' : '')
+    );
+  }
+
   // ============================================================
   // 背包页
   // ============================================================
@@ -1614,7 +1657,8 @@
           ? '<button type="button" tabindex="-1" class="btn" data-act="unequip">卸下</button>'
           : '<button type="button" tabindex="-1" class="btn primary" data-act="equip">装备</button>' +
             '<button type="button" tabindex="-1" class="btn" data-act="salvage">分解</button>' +
-            '<button type="button" tabindex="-1" class="btn" data-act="drop">丢弃</button>') +
+            '<button type="button" tabindex="-1" class="btn" data-act="drop">丢弃</button>' +
+            (G.stash && G.stash.ok() ? '<button type="button" tabindex="-1" class="btn" data-act="stash-put">放进仓库</button>' : '')) +
         '<button type="button" tabindex="-1" class="btn lk-btn' + (it.lk ? ' on' : '') + '" data-act="lock" aria-pressed="' + !!it.lk + '" data-tip="txt:' +
         (it.lk ? '已锁定：不会被分解或卖掉。点击或 Ctrl+点击物品解锁' : '锁定后不会被一键分解、自动分解或卖掉。也可以 Ctrl+点击物品') + '"><i class="lk-ico"></i>' + (it.lk ? '已锁' : '锁定') + '</button>' +
         '</div>' +
@@ -1633,6 +1677,8 @@
             : '<div class="aff-count">普通物品没有词缀，可以用通货改造</div>') + acts) +
         '<div class="sec-title sm">通货改造<span class="sec-note">' + (fixed ? lockText(it) : '点击，或把通货拖到物品上') + '</span></div>' +
         '<div class="craft-grid' + (fixed ? ' locked' : '') + '">' + craft + '</div>';
+    } else if (ui.stashOn) {
+      detail = stashHtml();
     } else {
       detail =
         '<div class="sec-title">物品详情</div>' +
@@ -1652,11 +1698,11 @@
         : '<div class="inv-tips"><span>右键 装备 / 卸下</span><i></i><span>拖动 整理 · 换装 · 丢弃</span><i></i><span>Shift+点击 分解</span><i></i><span>通货拖到物品上 改造</span></div>';
 
     el.body.innerHTML =
-      '<div class="inv">' +
-      '<div class="col col-l"><div class="sec-title">装备</div><div class="eq-grid">' + eq + '</div>' +
-      '<div class="sec-title">属性<span class="sec-note">等级 ' + S.level + '</span></div><div class="stats scroll" data-scroll="stats">' + statSheet() + '</div></div>' +
-      '<div class="col col-m"><div class="sec-title">背包<span class="sec-note">' + S.bag.length + ' / ' + G.BAG_SIZE + '</span>' +
-      '<button type="button" tabindex="-1" class="btn sm uqb' + (sel ? '' : ' on') + '" data-act="codex" data-tip="txt:烬铸与渊契的收集和保底进度">图鉴</button>' +
+      // 背包列写在前面，装备 + 详情包在 inv-side 里：宽屏 inv-side 是 display: contents，三列照旧摆（CSS 指定列号）；
+      // 手机横屏右半边整列一起滚，竖屏整页一列（见 css 末尾的窄屏规则）
+      '<div class="inv" data-scroll="inv">' +
+      '<div class="col col-m" data-scroll="invbag"><div class="sec-title">背包<span class="sec-note">' + S.bag.length + ' / ' + G.BAG_SIZE + '</span>' +
+      '<button type="button" tabindex="-1" class="btn sm uqb' + (sel || ui.stashOn ? '' : ' on') + '" data-act="codex" data-tip="txt:烬铸与渊契的收集和保底进度">图鉴</button>' +
       '<button type="button" tabindex="-1" class="btn sm" data-act="sort"' + (S.bag.length > 1 ? '' : ' disabled') + '>整理</button>' +
       '<button type="button" tabindex="-1" class="chk' + (withMagic ? ' on' : '') + '" data-act="opt" data-opt="salvageMagic"' + (withRare ? ' disabled' : '') + '><i></i>含魔法</button>' +
       '<button type="button" tabindex="-1" class="chk' + (withRare ? ' on' : '') + '" data-act="opt" data-opt="salvageRare" data-tip="txt:稀有物品也一起分解（魔法也算上）。会留下：已锁定的、装备后更强（▲）的、烬铸和渊契"><i></i>含稀有</button>' +
@@ -1667,8 +1713,13 @@
       '<div class="sec-title">通货<span class="sec-note">拖到物品上使用</span></div><div class="cur-row">' + cur + '</div>' +
       fragRow() +
       foot + '</div>' +
+      '<div class="inv-side" data-scroll="invside">' +
+      '<div class="col col-l"><div class="sec-title">装备' +
+      '<button type="button" tabindex="-1" class="btn sm stb' + (!sel && ui.stashOn ? ' on' : '') + '" data-act="stash" data-tip="txt:所有角色共用的仓库：别的职业的武器、用不上的装备可以留给别的角色">共享仓库</button></div>' +
+      '<div class="eq-grid">' + eq + '</div>' +
+      '<div class="sec-title">属性<span class="sec-note">等级 ' + S.level + '</span></div><div class="stats scroll" data-scroll="stats">' + statSheet() + '</div></div>' +
       '<div class="col col-r scroll" data-scroll="detail">' + detail + '</div>' +
-      '</div>';
+      '</div></div>';
   }
 
   // ============================================================
@@ -1741,7 +1792,7 @@
     const n = (v, d) => (typeof v === 'number' && isFinite(v) ? v : d);
     const sk = G.SKILLS[id] || {};
     let count = 0;
-    for (const mm of liveMinions()) if (mm && !mm.dead && (mm.skill === id || (!mm.skill && mm.kind === sk.minion))) count++;
+    for (const mm of liveMinions()) if (mm && !mm.dead && !mm.relit && (mm.skill === id || (!mm.skill && mm.kind === sk.minion))) count++; // 续火的骸骨不算
     const rateCtx = m && m.interval > 0 ? 1 / m.interval : 0;
     return {
       count: n(info.count, count),
@@ -1802,7 +1853,7 @@
   const BASIC_KEY = () => G.BASIC_CARD || 'wbasic';
   const RANGED_ORDER = ['gatling', 'flamer', 'revolver', 'huntbow', 'eagle', 'runebow', 'emberbow'];
   // 卡片底下一排：每种武器各自的普攻（近战、施法、魂幡、空手在前，远程在后）
-  const BASIC_ORDER = ['blade', 'daggers', 'hammer', 'katana', 'staff', 'wand', 'banner', 'fists'].concat(RANGED_ORDER);
+  const BASIC_ORDER = ['blade', 'daggers', 'hammer', 'katana', 'staff', 'wand', 'banner', 'lantern', 'fists'].concat(RANGED_ORDER);
   const basicTypeName = (t) => {
     if (t === 'fists') return '空手';
     const bi = (G.BASES.weapon || []).findIndex((b) => b && b.type === t);
@@ -2198,6 +2249,11 @@
           (sk.mech === 'lance' ? '扎中第一个敌人就停' : sk.mech === 'fork' ? '前 ' + sk.fork.max + ' 个敌人脚下各刺出两道 ' + fmt1(sk.fork.len * k) + ' 米的岔脊（伤害 ' + Math.round(sk.fork.k * 100) + '%）' : '同一次施放每个敌人只中一下') + '</div>';
       } else if (sk.kind === 'burst' && sk.focus) {
         note += '<div class="sk-anote"><i></i>只打身边 ' + fmt1(sk.radius * Math.sqrt(ctx.area)) + ' 米内最近的 1 个 · 连着第 ' + sk.focus.n + ' 下过载 ×' + sk.focus.k + '（平均击中已按这个折算）</div>';
+      } else if (sk.kind === 'round') {
+        // 特殊弹（class-d2b1）：弹的形状跟手里的枪走
+        const sh = G.roundShape(), gun = G.roundGun();
+        note += '<div class="sk-anote"><i></i>' + (gun ? G.wTypeLabel(gun) : '没拿枪') + '：' + (sh.n > 1 ? sh.n + ' 枚，每枚 ' + Math.round(sh.k * 100) + '%' : '一发 ' + Math.round(sh.k * 100) + '%') +
+          (sh.move ? '，可以边走边打' : '') + (sh.rangeK ? '，射程 ×' + sh.rangeK : '') + (gun ? ' · 伤害按右键连射 ' + sk.basicSec + ' 秒算' : '') + '</div>';
       } else if (sk.kind === 'burst') {
         note += '<div class="sk-anote"><i></i>' + (sk.dash ? '先朝准星冲出至多 ' + sk.dash.max + ' 米 · ' : '') + '以自身为中心，半径 ' + fmt1(sk.radius * Math.sqrt(ctx.area)) + ' 米，最多打最近的 ' + sk.maxHit + ' 个，不穿墙</div>';
       }
@@ -2207,8 +2263,11 @@
       // 攻击技能：伤害取自手里的武器
       if (ctx.attack) note = attackNote(ctx) + note;
     }
+    // 职业（class-d2）：放不出来的宝石变灰，写明原因（别的职业的：改选到能用的职业就恢复）
+    const blk = G.castBlock ? G.castBlock(id) : null;
+    const lockLine = blk ? '<div class="sk-lock"><i></i>' + blk.text + (blk.why === 'cls' ? ' · 还学着，换到能用的职业就恢复' : ' · 换上合适的武器就能放') + '</div>' : '';
     return (
-      '<div class="skill-card" style="--c:' + sk.color + '">' +
+      '<div class="skill-card' + (blk ? ' cls-off' : '') + '" style="--c:' + sk.color + '">' + lockLine +
       '<div class="sk-top"><div class="sk-icon" data-drag="skill:' + id + '" data-tip="skdrag:' + id + '">' + IC.skill(id) + '</div>' +
       '<div class="sk-title"><div class="sk-name">' + sk.name + (sk.vname ? '<i class="sk-vn">' + sk.vname + '</i>' : '') + '<em>Lv ' + S.skills[id] + '</em>' + blankUp + '</div>' +
       '<div class="sk-tags">' + cardTags(sk).map((t) => '<span>' + G.TAG_NAME[t] + '</span>').join('') + '</div></div>' +
@@ -2224,11 +2283,16 @@
   function renderSkills() {
     const S = G.save;
     // 武器技不进技能列表：它们跟着武器走，在最上面单独一节
-    const known = Object.keys(G.SKILLS).filter((id) => S.skills[id] && !isWSkill(id));
-    const unknown = Object.keys(G.SKILLS).filter((id) => !S.skills[id] && !isWSkill(id));
+    // 职业（class-d2）：别的职业的宝石收进最后「其他职业」一组；没学会的列表只列这个职业能用的（无铭宝石也只能学这些）
+    const C = G.clsDef ? G.clsDef() : null;
+    const canUse = (id) => !C || G.classCanUse(S.cls, id);
+    const known = Object.keys(G.SKILLS).filter((id) => S.skills[id] && !isWSkill(id) && canUse(id));
+    const offCls = Object.keys(G.SKILLS).filter((id) => S.skills[id] && !isWSkill(id) && !canUse(id));
+    const unknown = Object.keys(G.SKILLS).filter((id) => !S.skills[id] && !isWSkill(id) && canUse(id));
     const B = G.BLANK_GEM;
     const best = G.blankBest();
     let cards = basicCard() + known.map(skillCard).join('');
+    if (offCls.length) cards += '<div class="sm-title cls-group">其他职业<span>' + C.name + '用不了，还学着、辅助也还镶着，改选到能用的职业就恢复</span></div>' + offCls.map(skillCard).join('');
     if (unknown.length) {
       // 有无铭宝石时，每个没学会的技能都能点：第一下只是选中，再点一次才用掉
       const item = (id) => {
@@ -2243,7 +2307,7 @@
       cards +=
         '<div class="skill-more' + (best ? ' can-learn' : '') + '"><div class="sm-title">尚未获得的技能宝石' + (best ? '<span>点一个技能，用 Lv ' + best + ' 的' + B.short + '学会它</span>' : '') + '</div>' +
         '<div class="sm-list">' + unknown.map(item).join('') + '</div>' +
-        '<div class="sm-note">怪物掉落技能宝石，首领必掉一颗。' + B.name + '可在这里换成任意技能。</div></div>';
+        '<div class="sm-note">怪物掉落技能宝石，首领必掉一颗。' + B.name + '可在这里换成任意技能' + (C ? '（' + C.name + '能用的）。掉下来用不上的技能宝石会变成' + B.name : '') + '。</div></div>';
     }
     // 顶部：手里的无铭宝石（数量、最高等级、怎么用），以及刚才用掉一颗的结果
     let blank = '';
@@ -2274,8 +2338,9 @@
         continue;
       }
       const id = S.bar[i];
+      const off = id && G.castBlock && G.castBlock(id);
       bar +=
-        '<div class="barslot' + (id ? '' : ' empty') + '" data-slot="' + i + '"' + (id ? ' data-drag="skill:' + id + '" data-tip="skdrag:' + id + '" style="--c:' + G.SKILLS[id].color + '"' : '') + '>' +
+        '<div class="barslot' + (id ? '' : ' empty') + (off ? ' cls-off' : '') + '" data-slot="' + i + '"' + (id ? ' data-drag="skill:' + id + '" data-tip="skdrag:' + id + '" style="--c:' + G.SKILLS[id].color + '"' : '') + '>' +
         '<div class="bs-icon">' + (id ? IC.skill(id) : '') + '</div><div class="bs-txt"><span>' + KEY_LABEL[i] + '</span><b>' + (id ? G.SKILLS[id].name : '空') + '</b></div></div>';
     }
     // 第五格：武器技，跟着武器走，不能拖放
@@ -2493,8 +2558,15 @@
       } else {
         shape = '<circle class="shape" r="' + r + '"/>';
       }
+      const cn = G.clsNodeOf ? G.clsNodeOf(id) : null; // 职业白送的起步天赋（class-d2）：职业色的圈 + 名字
+      if (cn) {
+        const len = Math.hypot(n.x, n.y) || 1, ux = n.x / len, uy = n.y / len;
+        const lx = ux * (r + 24), ly = uy * (r + 24) + (uy > 0.3 ? 14 : uy < -0.3 ? -4 : 5);
+        labels +=
+          '<g transform="translate(' + n1(n.x) + ' ' + n1(n.y) + ')"><text class="tl cls alloc" style="--c:' + G.clsDef().color + '" x="' + n1(lx) + '" y="' + n1(ly) + '" text-anchor="' + (ux > 0.3 ? 'start' : ux < -0.3 ? 'end' : 'middle') + '">' + cn.name + '</text></g>';
+      }
       nodes +=
-        '<g class="tn ' + n.kind + ' ' + state + '" data-act="node" data-node="' + id + '" data-tip="node:' + id + '" style="--c:' + (n.color || '#ffb066') + '" transform="translate(' + n1(n.x) + ' ' + n1(n.y) + ')">' +
+        '<g class="tn ' + n.kind + ' ' + state + (cn ? ' clsn' : '') + '" data-act="node" data-node="' + id + '" data-tip="node:' + id + '" style="--c:' + (n.color || '#ffb066') + '" transform="translate(' + n1(n.x) + ' ' + n1(n.y) + ')">' +
         '<circle class="halo" r="' + (r + (n.kind === 'small' ? 7 : 11)) + '"/>' + shape + '<circle class="hit" r="' + (r + 8) + '"/></g>';
 
       // 核心 / 基石天赋直接标出名字（摆放位置见 treeLabels）
@@ -2547,7 +2619,7 @@
       '<div class="col col-side tree-side">' +
       '<div class="sec-title">天赋点</div>' +
       '<div class="pts' + (pts.free > 0 ? ' has' : '') + '"><b>' + pts.free + '</b><div><span>可用天赋点</span><em>已用 ' + pts.used + ' · 共 ' + pts.total + '</em></div></div>' +
-      '<div class="pts-note">每级 1 点；首次击败每个首领 +2 点。</div>' +
+      '<div class="pts-note">每级 1 点；首次击败每个首领 +2 点。' + (G.clsDef && G.clsDef() ? '<br>' + G.clsDef().node.name + '是' + G.clsDef().name + '白送的，不占点数。' : '') + '</div>' +
       (coachBanner('tree') ? '<div class="side-coach">' + coachBanner('tree') + '</div>' : '') +
       '<div class="arms">' + arms + '</div>' +
       '<div class="sec-title">已获得的加成</div>' +
@@ -3279,6 +3351,10 @@
     }
     if (kind === 'var') return variantTip(id);
     if (kind === 'seal') return sealTip(id);
+    if (kind === 'stash') {
+      const it = (ui.stashCache || []).find((x) => x.uid === id);
+      return it ? itemTip(it, false, '点击 取进背包') : '';
+    }
     if (kind === 'item') {
       const f = findItem(id);
       if (!f) return '';
@@ -3372,7 +3448,10 @@
     }
     if (kind === 'skdrag') {
       const sk = G.SKILLS[id];
-      return '<div class="tcard slim" style="--c:' + sk.color + '"><div class="tc-name">' + sk.name + '</div><div class="tc-hint">拖到技能栏的格子里绑定按键</div></div>';
+      const blk = G.castBlock ? G.castBlock(id) : null; // 职业（class-d2）：变灰的写明原因
+      return '<div class="tcard slim' + (blk ? ' cls-off' : '') + '" style="--c:' + sk.color + '"><div class="tc-name">' + sk.name + '</div>' +
+        (blk ? '<div class="tc-lock">' + blk.text + '</div><div class="tc-desc">' + (blk.why === 'cls' ? '放不出来。还学着、辅助也还镶着，改选到能用的职业就恢复。' : '放不出来。换上合适的武器就能放。') + '</div>' : '') +
+        '<div class="tc-hint">拖到技能栏的格子里绑定按键</div></div>';
     }
     if (kind === 'sock') {
       const sp = G.SUPPORTS[id];
@@ -3384,6 +3463,16 @@
     }
     if (kind === 'node') {
       const n = G.TREE[id];
+      const cn = G.clsNodeOf ? G.clsNodeOf(id) : null; // 职业白送的起步天赋（class-d2）：按职业起名
+      if (cn) {
+        let ls = '';
+        for (const k in n.stats) ls += '<div class="tc-stat">' + esc(G.fmtStat(k, n.stats[k])) + '</div>';
+        return (
+          '<div class="tcard" style="--c:' + G.clsDef().color + '"><div class="tc-name">' + cn.name + '</div>' +
+          '<div class="tc-kind">职业起步天赋 · 白送</div>' + ls + '<div class="tc-desc">' + cn.note + '</div>' +
+          '<div class="tc-hint ok">不花天赋点 · 摘不掉</div></div>'
+        );
+      }
       const alloc = G.save.passives.includes(id);
       const avail = !alloc && n.links.some((l) => G.save.passives.includes(l));
       let lines = '';
@@ -3404,10 +3493,24 @@
   // 把提示框摆到矩形 r 旁边：优先右侧，放不下就左侧，再不行就贴边并躲到上 / 下方
   function placeTip(r, preferLeft) {
     const tip = el.tip;
-    const w = tip.offsetWidth;
-    const h = tip.offsetHeight;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
+    // 手机（尤其横屏）上浮窗可能比屏幕还大：先去掉右边那张「当前装备」对比卡，还放不下就整体缩小（最多缩到 0.7）
+    if (tip.classList.contains('one')) tip.classList.remove('one');
+    if (tip.style.transform) tip.style.transform = '';
+    let w = tip.offsetWidth;
+    let h = tip.offsetHeight;
+    if ((w > vw - 16 || h > vh - 16) && tip.querySelector('.tip-pair')) {
+      tip.classList.add('one');
+      w = tip.offsetWidth;
+      h = tip.offsetHeight;
+    }
+    const k = Math.max(0.7, Math.min(1, (vw - 16) / w, (vh - 16) / h));
+    if (k < 1) {
+      tip.style.transform = 'scale(' + k.toFixed(3) + ')';
+      w *= k;
+      h *= k;
+    }
     let x = r.right + 12;
     if (x + w > vw - 8 || (preferLeft && r.left - 12 - w >= 8)) x = r.left - 12 - w;
     if (x < 8) x = G.clamp(r.left, 8, Math.max(8, vw - w - 8));
@@ -3461,6 +3564,8 @@
     if (G.equip(item)) {
       ui.invMsg = '';
       G.sfx('pickup');
+    } else if (G.offClassItem && G.offClassItem(item)) {
+      ui.invMsg = '「' + item.name + '」是' + G.CLASSES[G.WTYPE_CLS[G.wTypeOfItem(item)]].name + '的武器，' + G.clsDef().name + '装不上';
     } else {
       ui.invMsg = '无法装备这件物品';
     }
@@ -3564,6 +3669,44 @@
     equip() {
       const f = selItem();
       if (f) equipSel(f.item);
+    },
+    // ---- 共享仓库（class-d2）----
+    stash() {
+      ui.sel = null;
+      ui.stashOn = true;
+      ui.stashMsg = '';
+      ui.invMsg = '';
+      G.sfx('click');
+      render();
+    },
+    'stash-page'(d) {
+      ui.stashPage = +d.p | 0;
+      G.sfx('click');
+      render();
+    },
+    'stash-take'(d) {
+      const it = (ui.stashCache || []).find((x) => x.uid === d.uid);
+      const r = G.stash.take(d.uid);
+      ui.stashBad = r !== true;
+      ui.stashMsg = r === true ? '「' + (it ? it.name : '物品') + '」取进了背包' : r === 'bag' ? '背包满了' : '没取出来';
+      if (r === true) {
+        ui.fresh.add(d.uid);
+        G.sfx('pickup', { r: it ? it.rarity : 0 });
+      }
+      render();
+    },
+    'stash-put'() {
+      const f = selItem();
+      if (!f || f.equipped) return;
+      const ok = G.stash.put(f.item);
+      ui.stashOn = true;
+      ui.stashBad = !ok;
+      ui.stashMsg = ok ? '「' + f.item.name + '」放进了仓库' : G.stash.list().length >= G.stash.MAX ? '仓库满了' : '没放进去';
+      if (ok) {
+        ui.sel = null;
+        G.sfx('click');
+      }
+      render();
     },
     unequip() {
       const f = selItem();
@@ -3726,6 +3869,7 @@
     },
     codex() {
       ui.sel = null;
+      ui.stashOn = false;
       ui.invMsg = '';
       G.sfx('click');
       render();
@@ -3818,6 +3962,9 @@
           ui.treeMsg = '已退回「' + n.name + '」';
           ui.treeMsgBad = false;
           G.sfx('click');
+        } else if (G.clsNodeOf && G.clsNodeOf(id)) {
+          ui.treeMsg = '「' + G.clsNodeOf(id).name + '」是职业白送的起步天赋，摘不掉';
+          ui.treeMsgBad = true;
         } else {
           ui.treeMsg = '无法退回「' + n.name + '」：它后面的天赋会与起点断开';
           ui.treeMsgBad = true;
@@ -4683,11 +4830,13 @@
         '<b>新建角色</b><span>第 ' + (k + 1) + ' 栏 · 空</span></button>'
       );
     return (
-      '<div class="ch-card' + (active ? ' ch-on' : '') + '" data-slot="' + k + '">' +
+      '<div class="ch-card' + (active ? ' ch-on' : '') + '" data-slot="' + k + '"' + (sum.cls && G.CLASSES[sum.cls] ? ' data-cls="' + sum.cls + '" style="--cc:' + G.CLASSES[sum.cls].color + '"' : '') + '>' +
       '<div class="ch-top"><b>' + esc(charLabel(sum)) + '</b>' + (active ? '<em>上次玩的</em>' : '') + '</div>' +
       '<div class="ch-sub">' + esc(zoneName(sum)) + ' · ' + (sum.tier > 0 ? '轮回 ' + sum.tier : '初入') + '</div>' +
       '<div class="ch-t">' + agoText(sum.t) + '</div>' +
       '<div class="ch-acts"><button type="button" tabindex="-1" class="btn sm primary" data-tact="ch-play" data-slot="' + k + '">进入</button>' +
+      // 老角色那一次免费改选（class-d2）：只在载入着的这个角色卡上
+      (G.slots && G.slots.loaded(k) && G.save.cls && G.save.clsRe ? '<button type="button" tabindex="-1" class="btn sm" data-tact="cl-re">改选职业</button>' : '') +
       '<button type="button" tabindex="-1" class="btn sm ghost" data-tact="ch-del" data-slot="' + k + '">删除</button></div></div>'
     );
   }
@@ -4718,11 +4867,144 @@
         ? '<div class="ch-trash"><span>回收位：<b>' + esc(charLabel(tr.sum)) + '</b> · ' + agoText(tr.t) + '删除' + '</span>' +
           (room ? '<button type="button" tabindex="-1" class="btn sm" data-tact="ch-restore">恢复</button>' : '<em>栏位满了，先腾出一栏</em>') + '</div>'
         : '') +
-      '<p class="m-note">最多 6 个角色。设置、图鉴和新手提示所有角色共用。</p>'
+      '<div class="ch-foot"><p class="m-note">最多 6 个角色。设置、图鉴、新手提示和共享仓库所有角色共用。</p>' +
+      '<button type="button" tabindex="-1" class="btn sm" data-tact="story">重看开场</button></div>'
     );
+  }
+  // ---------- 职业选择（class-d2）----------
+  // 一个子页三种用法：new 新角色（标题「新游戏」/ 空栏「新建角色」）、pick 老角色第一次选（离开标题画面前，默认选中推荐的）、
+  // repick 老角色用掉那一次免费改选（角色页）。标题场景里的主角跟着选中的职业换上手里的武器（就是预览，不另开渲染）
+  const startBase = (c) => G.BASES.weapon.findIndex((b) => b.type === G.CLASSES[c].start.type);
+  function clsWIcon(t) {
+    const bi = G.BASES.weapon.findIndex((b) => b.type === t);
+    return '<span class="cl-wi" title="' + G.wTypeLabel(t) + '">' + IC.item({ slot: 'weapon', baseIdx: bi, baseName: G.BASES.weapon[bi].names[0], rarity: 0 }) + '</span>';
+  }
+  // 老角色选这个职业时手里会拿什么：现在这把（是这个职业的）/ 背包里物品等级最高的一把 / 没有（空手）
+  function clsHeld(c) {
+    const S = G.save, w = S.equip && S.equip.weapon;
+    if (w && !G.offClassItem(w, c)) return w;
+    let best = null;
+    for (const it of S.bag) if (it.slot === 'weapon' && !G.offClassItem(it, c) && (!best || it.ilvl > best.ilvl || (it.ilvl === best.ilvl && it.rarity > best.rarity))) best = it;
+    return best;
+  }
+  function clsPreview(c) {
+    if (!G.world || !G.world.setPlayerGear) return;
+    if (!c) return G.world.setPlayerGear(G.save.equip);
+    const m = menu.cls && menu.cls.mode;
+    const w = m === 'new' ? null : clsHeld(c);
+    G.world.setPlayerGear({ weapon: w || { slot: 'weapon', baseIdx: startBase(c), rarity: 0 } });
+  }
+  function openClass(mode, k) {
+    const rec = mode === 'pick' ? G.classRecommend() : null; // 推荐只给第一次选（改选时标「现在」）
+    let sel = rec ? rec.cls : G.CLASS_IDS[0];
+    if (mode === 'repick') sel = G.CLASS_IDS.find((c) => c !== G.save.cls) || sel;
+    menu.cls = { mode, k: k === undefined ? -1 : k, sel, rec };
+    menu.view = 'cls';
+    menu.del = null;
+    clsPreview(sel);
+    renderMenu();
+  }
+  function closeClass() {
+    if (!menu.cls) return;
+    menu.cls = null;
+    clsPreview(null);
+  }
+  function clsCard(c, sel, rec) {
+    const C = G.CLASSES[c], sk = G.SKILLS[C.start.skill];
+    const cur = menu.cls.mode === 'repick' && c === G.save.cls;
+    return (
+      '<button type="button" tabindex="-1" class="cl-card' + (sel ? ' on' : '') + (cur ? ' cl-now' : '') + '" data-tact="cl-sel" data-cls="' + c + '" style="--c:' + C.color + '">' +
+      '<div class="cl-top"><b>' + C.name + '</b>' + C.tags.map((t) => '<i>' + t + '</i>').join('') + (rec ? '<em>推荐</em>' : cur ? '<em class="dim">现在</em>' : '') + '</div>' +
+      '<div class="cl-line">' + C.line + '</div>' +
+      '<div class="cl-row"><span class="cl-k">武器</span>' + C.weapons.map(clsWIcon).join('') + '<span class="cl-v">' + C.weapons.map(G.wTypeLabel).join(' · ') + '</span></div>' +
+      (menu.cls.mode === 'new'
+        ? '<div class="cl-row"><span class="cl-k">起手</span><span class="tc-skico sm" style="--c:' + sk.color + '">' + IC.skill(C.start.skill) + '</span><span class="cl-v">' + G.wTypeLabel(C.start.type) + ' + ' + sk.name + '：' + C.skLine + '</span></div>'
+        : '<div class="cl-row"><span class="cl-k">保留</span><span class="cl-v">' + clsKeep(c) + '</span></div>') + // 老角色：手里的东西不会被换掉，写留下的
+
+      '</button>'
+    );
+  }
+  // 老角色选这个职业时留着能用的：手里会拿的那把武器的类型 · 技能栏上这个职业能用的宝石
+  function clsKeep(c) {
+    const S = G.save, held = clsHeld(c), out = [];
+    if (held) out.push(G.wTypeLabel(G.wTypeOfItem(held)));
+    for (const id of S.bar.concat(S.rmbKeep ? [S.rmbKeep] : [])) if (id && S.skills[id] && G.SKILLS[id] && G.classCanUse(c, id) && out.indexOf(G.SKILLS[id].name) < 0) out.push(G.SKILLS[id].name);
+    return out.length ? esc(out.join(' · ')) : '学过的技能和东西都还在，只是这个职业暂时用不上';
+  }
+  // 老角色选这个职业之后会怎样（两三行，说清楚东西都还在）
+  function clsEffect(c) {
+    const S = G.save, out = [];
+    const w = S.equip && S.equip.weapon;
+    const held = clsHeld(c);
+    if (w && G.offClassItem(w, c)) out.push('卸下 ' + esc(w.name) + '，放进' + (S.bag.length < G.BAG_SIZE ? '背包' : '共享仓库'));
+    if (held && held !== w) out.push('换上背包里的 ' + esc(held.name));
+    else if (!held) out.push('还没有' + G.CLASSES[c].name + '的武器，先空手，捡到再换');
+    const lock = Object.keys(S.skills).filter((id) => G.SKILLS[id] && !G.classCanUse(c, id)).map((id) => G.SKILLS[id].name);
+    const back = menu.cls.mode === 'repick' ? Object.keys(S.clsLock || {}).filter((id) => S.skills[id] && G.classCanUse(c, id)).map((id) => G.SKILLS[id].name) : [];
+    if (back.length) out.push('恢复：' + back.join('、'));
+    out.push(lock.length ? '变灰：' + lock.join('、') + '（还学着，改选能恢复）' : '学过的技能都能用');
+    return out;
+  }
+  function clsAlt(c) {
+    const C = G.CLASSES[c], n = G.TREE[C.node.id];
+    const gems = G.classGems(c).map((id) => G.SKILLS[id].name);
+    const st = Object.keys(n.stats).map((k) => G.fmtStat(k, n.stats[k])).join('，');
+    return (
+      '能用的技能宝石：' + gems.join('、') + '。<br>' +
+      '白送的起步天赋：' + C.node.name + '（' + st + '），不花天赋点。<br>' +
+      '掉落：武器多半是' + C.name + '的，技能宝石多半是能用的；用不上的技能宝石掉下来是无铭宝石。别的职业的武器可以放进共享仓库给别的角色。' +
+      (menu.cls.mode === 'new' ? '<br>选定后不能改。' : menu.cls.mode === 'pick' ? '<br>东西一件不删。之后能在角色页免费改选一次。' : '<br>这是唯一一次免费改选，改完就不能再改。')
+    );
+  }
+  function menuClass() {
+    const M = menu.cls;
+    if (!M) return '';
+    const rec = M.rec;
+    let head = '';
+    if (M.mode === 'pick') head = '<p class="cl-intro">这个角色还没有职业。挑一个，东西一件不删，以后还能免费改一次。</p>' + (rec ? '<p class="cl-rec">推荐 <b>' + G.CLASSES[rec.cls].name + '</b>：' + esc(rec.why) + '</p>' : '');
+    else if (M.mode === 'repick') head = '<p class="cl-intro">免费改选只有这一次。变灰的技能换到能用的职业就恢复。</p>';
+    const fx = M.mode === 'new' ? '' : '<div class="cl-fx">' + clsEffect(M.sel).map((t) => '<div>' + t + '</div>').join('') + '</div>';
+    const ok = M.mode === 'new' ? '以' + G.CLASSES[M.sel].name + '开始' : M.mode === 'pick' ? '选定' + G.CLASSES[M.sel].name : '改成' + G.CLASSES[M.sel].name;
+    const same = M.mode === 'repick' && M.sel === G.save.cls;
+    return (
+      head +
+      '<div class="cl-list">' + G.CLASS_IDS.map((c) => clsCard(c, c === M.sel, !!rec && rec.cls === c)).join('') + '</div>' +
+      fx + altBox(clsAlt(M.sel)) +
+      '<div class="m-acts"><button type="button" tabindex="-1" class="btn primary' + (same ? ' off' : '') + '" data-tact="cl-ok">' + ok + '</button></div>'
+    );
+  }
+  // 选定之后的一条提示：职业、卸下 / 换上的武器
+  function clsToast(d) {
+    if (!d) return;
+    const C = G.CLASSES[d.cls];
+    const bits = [(d.mode === 'repick' ? '改成了' : '选定了') + C.name];
+    for (const m of d.moved || []) bits.push(m.name + (m.to === 'bag' ? ' 放进了背包' : m.to === 'stash' ? ' 放进了共享仓库' : ' 还在身上（背包和仓库都满了）'));
+    if (d.equipped) bits.push('换上了 ' + d.equipped);
+    toast(bits.join('，'), C.color);
+  }
+  const clsTitle = () => (menu.cls && menu.cls.mode === 'pick' ? '为这个角色选职业' : menu.cls && menu.cls.mode === 'repick' ? '改选职业' : '选择职业');
+
+  // 载入角色：换角色 / 新建后页面要重载（~6–10 秒），先盖一层「正在载入角色…」，重载后由 main.js 在区域建好时揭开
+  const LOAD_CHAR_KEY = 'cinder-abyss-load-char';
+  function loadingOn() {
+    document.documentElement.classList.add('char-loading');
+    try {
+      window.sessionStorage.setItem(LOAD_CHAR_KEY, '1');
+    } catch (err) {
+      /* 存储不可用：重载后就看不到这层，标题画面自己有「余烬正在点燃」 */
+    }
+  }
+  function loadingOff() {
+    document.documentElement.classList.remove('char-loading');
+    try {
+      window.sessionStorage.removeItem(LOAD_CHAR_KEY);
+    } catch (err) {
+      /* 同上 */
+    }
   }
   // 换角色 / 新建后重载页面进去：重载后跳过标题画面（和原来新游戏确认后一样），上一个角色的召唤物、区域、计时器一点不留
   function enterReload() {
+    loadingOn();
     try {
       window.sessionStorage.setItem(G.PLAY_ONCE_KEY, '1');
     } catch (err) {
@@ -4812,6 +5094,7 @@
     help: ['操作说明', menuHelp],
     credits: ['致谢', menuCredits],
     chars: ['角色', menuChars],
+    cls: [clsTitle, menuClass],
   };
 
   function renderMenu() {
@@ -4833,13 +5116,18 @@
     const list = menu.title ? el.tMenu : el.pMenu;
     const v = MENU_VIEW[menu.view];
     list.style.display = v ? 'none' : '';
+    // 同一个子页里重画（点职业卡、删除确认的下一步）：不再播一遍弹出动画，免得每点一下闪一次
+    const still = !!v && host.firstElementChild && host.firstElementChild.dataset && host.firstElementChild.dataset.view === menu.view;
     host.innerHTML = v
-      ? '<div class="m-view" data-view="' + menu.view + '"><div class="m-head"><b>' + v[0] + '</b>' +
+      ? '<div class="m-view' + (still ? ' still' : '') + '" data-view="' + menu.view + '"><div class="m-head"><b>' + (typeof v[0] === 'function' ? v[0]() : v[0]) + '</b>' +
         '<button type="button" tabindex="-1" class="btn sm" data-tact="back">返回<kbd>Esc</kbd></button></div>' +
         '<div class="m-body">' + v[1]() + '</div></div>'
       : '';
     (menu.title ? el.title : el.pause).classList.toggle('sub', !!v);
-    if (menu.title) el.title.classList.toggle('chars', menu.view === 'chars');
+    if (menu.title) {
+      el.title.classList.toggle('chars', menu.view === 'chars' || menu.view === 'cls');
+      el.title.classList.toggle('clsv', menu.view === 'cls'); // 职业选择：藏起标志，手机上改成底部一栏、上面露出主角
+    }
   }
 
   // 标题画面期间敌人 / 召唤物先藏起来（模拟不推进，它们会定在原地）
@@ -4866,6 +5154,7 @@
     closeIntro();
     closePause();
     menu.title = true;
+    closeClass();
     menu.view = null;
     menu.ready = !!fromGame;
     menu.t = 0;
@@ -4885,10 +5174,11 @@
   }
   function hideTitle() {
     if (!menu.title) return;
+    closeClass();
     menu.title = false;
     menu.view = null;
     document.documentElement.classList.remove('title-on');
-    el.title.classList.remove('on', 'sub', 'chars');
+    el.title.classList.remove('on', 'sub', 'chars', 'clsv');
     showActors();
     const cam = G.world.camera;
     if (cam && menu.q0) {
@@ -4916,10 +5206,20 @@
     }
     const t = menu.t;
     const yaw = Math.sin(t * 0.06) * 0.26; // 左右各转约 15 度，一个来回约 100 秒
-    const c = Math.cos(yaw), s = Math.sin(yaw), o = menu.off;
+    const c = Math.cos(yaw), s = Math.sin(yaw);
+    // 职业选择（class-d2）：镜头推近到主角身上（距离 × 0.42），看得清他手里换上的起手武器；离开子页再慢慢拉回去。
+    // 漂移和往左让的距离一起缩，主角还在画面右侧的同一处，只是更大
+    const zk = menu.view === 'cls' ? (innerWidth < 560 ? 0.6 : 0.42) : 1; // 手机竖屏上留出头顶的余量
+    menu.zoom = menu.zoom === undefined ? zk : menu.zoom + (zk - menu.zoom) * Math.min(1, dt * 3);
+    const z = menu.zoom, o = menu.off, k = (1 - z) / 0.58; // k：推近的程度 0..1
+    // 窄屏（手机）：主角居中、往画面上方挪（职业选择那一栏在下面）；宽屏：往下挪一点，别顶到画面上沿
+    const narrow = innerWidth < 560;
+    const side = narrow ? 3.5 * (1 - k) : 3.5;
+    const ox = o.x * c + o.z * s, oz = -o.x * s + o.z * c, ol = Math.hypot(ox, oz) || 1;
+    const fwd = (narrow ? -1.8 : 0.9) * k; // 沿镜头朝向（水平）挪：正 = 远离镜头，主角在画面里往下
     // 焦点往镜头左边让 3.5 米：角色站在画面右侧，左边一栏留给标志和按钮
-    const fx = menu.focus.x + Math.sin(t * 0.045) * 1.6 - 3.5 * c, fz = menu.focus.z + Math.cos(t * 0.07) * 1.0 + 3.5 * s;
-    cam.position.set(fx + o.x * c + o.z * s, menu.focus.y + o.y, fz - o.x * s + o.z * c);
+    const fx = menu.focus.x + (Math.sin(t * 0.045) * 1.6 - side * c) * z - (ox / ol) * fwd, fz = menu.focus.z + (Math.cos(t * 0.07) * 1.0 + side * s) * z - (oz / ol) * fwd;
+    cam.position.set(fx + ox * z, menu.focus.y + o.y * z, fz + oz * z);
     cam.lookAt(fx, menu.focus.y, fz);
     cam.updateMatrixWorld();
   }
@@ -4955,11 +5255,21 @@
         renderMenu();
         return;
       }
-      if (G.slots.create(k)) enterReload();
+      return openClass('new', k); // 先选职业（class-d2），选定后在这一栏建角色、重载进去
+    }
+    G.sfx('click');
+    openClass('new', -1);
+  }
+  // 职业选定（新角色）：有存档时在 k 栏建好、重载进去；没有存档时就地换上起手、开始
+  function newWithClass(cls, k) {
+    if (hasSave()) {
+      if (G.slots.create(k, cls)) enterReload();
       else renderMenu();
       return;
     }
-    startHere(-1);
+    closeClass();
+    G.applyClass(cls, 'new');
+    startHere(k);
   }
   // 还没有存档的新角色就地开始（不重载）：k = 落在哪一栏（-1 = 当前栏）
   function startHere(k) {
@@ -4972,7 +5282,37 @@
   const MENU_ACT = {
     continue() {
       G.sfx('click');
+      if (G.needClassPick && G.needClassPick()) return openClass('pick'); // 老角色先选职业（class-d2）
       hideTitle();
+    },
+    'cl-sel'(d) {
+      if (!menu.cls || !G.CLASSES[d.cls]) return;
+      menu.cls.sel = d.cls;
+      G.sfx('click');
+      clsPreview(d.cls);
+      renderMenu();
+    },
+    'cl-ok'() {
+      const M = menu.cls;
+      if (!M) return;
+      if (M.mode === 'repick' && M.sel === G.save.cls) return G.sfx('click');
+      G.sfx('click');
+      if (M.mode === 'new') return newWithClass(M.sel, M.k);
+      const r = G.applyClass(M.sel, M.mode);
+      closeClass();
+      if (r && r.ok) ui.clsDone = { cls: M.sel, mode: M.mode, moved: r.moved, equipped: r.equipped };
+      if (M.mode === 'pick') {
+        menu.view = null;
+        hideTitle();
+        if (r && r.ok) clsToast(ui.clsDone);
+      } else {
+        menu.view = 'chars';
+        renderMenu();
+      }
+    },
+    'cl-re'() {
+      G.sfx('click');
+      if (G.save.cls && G.save.clsRe) openClass('repick');
     },
     new: newGame,
     // 标题画面的「开场故事」：重看一遍，放完回到标题画面（存档不动）
@@ -4989,10 +5329,8 @@
     },
     'ch-new'(d) {
       const k = +d.slot;
-      if (!hasSave()) return startHere(k);
       G.sfx('click');
-      if (G.slots.create(k)) enterReload();
-      else renderMenu();
+      openClass('new', k); // 先选职业（class-d2）
     },
     'ch-del'(d) {
       menu.del = { k: +d.slot, step: 1 };
@@ -5037,7 +5375,11 @@
     },
     back() {
       if (menu.del) menu.del = null;
-      else menu.view = null;
+      else if (menu.view === 'cls') {
+        const re = menu.cls && menu.cls.mode === 'repick';
+        closeClass();
+        menu.view = re ? 'chars' : null;
+      } else menu.view = null;
       G.sfx('click');
       renderMenu();
     },
@@ -5047,9 +5389,10 @@
     if (!a) return;
     const d = a.dataset;
     const k = d.tact;
-    if ((k === 'continue' || k === 'new' || k === 'chars' || k.startsWith('ch-')) && !menu.ready) return;
+    if ((k === 'continue' || k === 'new' || k === 'chars' || k.startsWith('ch-') || k.startsWith('cl-')) && !menu.ready) return;
     if (k === 'new' && el.tNew.classList.contains('off')) return G.sfx('click');
-    if (MENU_VIEW[k]) {
+    if (MENU_VIEW[k] && k !== 'cls') {
+      closeClass();
       menu.view = k;
       menu.del = null;
       G.sfx('click');
@@ -6319,6 +6662,24 @@
       done: () => false,
     },
     {
+      // 渊式独骸加了「每刀最多砍到 N 个」之前、选着独骸的老存档：提示一次（见 game.js 的 dhNote）；个数读数据，百分比是同装备实测（16 只挤成一团）
+      id: 'dhnerf', calm: true, max: 14,
+      get html() {
+        return G.kingNerfNote();
+      },
+      when: () => G.kingNerfed > 0,
+      done: () => false,
+    },
+    {
+      // 渊式回旋加了「每程最多伤到 N 个」之前、选着回旋的老存档：提示一次（见 game.js 的 hxNote）；只有怪排成一线、一程穿过 N 个以上时才少
+      id: 'hxnerf', calm: true, max: 14,
+      get html() {
+        return G.boomNerfNote();
+      },
+      when: () => G.boomNerfed > 0,
+      done: () => false,
+    },
+    {
       // 旧版双生坠：读档时升成四行（见 game.js 的 migrateTwin）
       id: 'sxmig', calm: true, max: 16,
       html: '<b>双生坠升级</b>：多了暴击伤害和总伤害两行，原有两行按原来的成色换算到新数值；效果改为「余响」',
@@ -6483,8 +6844,20 @@
       G.save.stNote = false;
       G.frenzyNerfed = 0;
     }
+    if (id === 'dhnerf') {
+      G.save.dhNote = false;
+      G.kingNerfed = 0;
+    }
+    if (id === 'hxnerf') {
+      G.save.hxNote = false;
+      G.boomNerfed = 0;
+    }
     G.persist();
   }
+  // 渊式独骸 / 回旋改版提示里的百分比（同装备实测，rulea-fix：独骸 16 只挤成一团；回旋 怪沿飞行方向排得密的那张图）
+  G.NERF_PCT = { king: 35, boom: 30 }; // 独骸 1091 → 693 / 1005 → 693（−36 / −31%）；回旋只在怪沿飞行方向排得密的那张图上少：−10%（截断口径）～ −31%（稳态口径），其余不变
+  G.kingNerfNote = () => '<b>独骸</b>：骸王每刀最多砍到 ' + (G.VARIANTS.thrall.c.set.king.cleave + 1) + ' 个敌人，怪聚成一团时伤害约 −' + G.NERF_PCT.king + '%；分散的怪和单体不变';
+  G.boomNerfNote = () => '<b>回旋</b>：利刃去程、回程各最多伤到 ' + G.VARIANTS.blade.c.set.boom.cap + ' 个敌人，怪沿一条线排得很密时伤害最多约 −' + G.NERF_PCT.boom + '%；一般的怪群、分散的怪和单体不变';
   // 黑洞改版提示的那一句（v = 'o' / 'a' / 'b' / 'c'）。百分比是同装备实测（16 只挤成一团 / 10 只散开），上限读数据
   G.holeNerfNote = function (v) {
     const sk = G.skillVariant('blackhole', v), N = sk.cap;
@@ -6842,6 +7215,9 @@
     afterTitle: (f) => {
       menu.after = f;
     },
+    openClass, // 职业选择子页（class-d2）：'new' / 'pick' / 'repick'
+    classView: () => (menu.view === 'cls' && menu.cls ? { mode: menu.cls.mode, sel: menu.cls.sel, rec: menu.cls.rec } : null),
+    loadingOff, // 「正在载入角色…」：main.js 在区域建好时揭开
     onPickup,
     bigToast,
     bigToastReset,

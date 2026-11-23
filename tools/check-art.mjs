@@ -4,11 +4,13 @@
 // 查的项目：文件在、和清单的 sha256 一致（防止改了生成器忘了提交生成物 / 清单）；三角形数在类别预算内；材质 / 贴图数；
 // 只用共享调色板图集；高度在类别的合理范围（抓单位错）；原点在底面中心；没有未应用的节点变换；命名；必备的顶点属性；
 // 带蒙皮的件骨骼名都在标准骨架表里（占位：表还是空的）；清单里的尺寸和 GLB 实测一致；打包进游戏的件确实在对应的包里。
+// 首领（boss）：id = ca/boss_<kind>、文件 assets/ca/boss/<kind>.glb；骨骼和 art/rig.json 的 boss.kinds.<kind> 是同一组（导出器按层级排顺序）、不超过 40 根；
+// 每个顶点最多 4 根骨骼、权重和为 1；每段动作带参数（extras 的 dur）；js/assets/boss-<kind>.js 里的就是从这份 GLB 打出来的（重新打包逐字节相同）。
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { readGlb, stats, isIdentity, bakedMean, bakeGeo } from './glb.mjs';
+import { readGlb, stats, isIdentity, bakedMean, bakeGeo, packBoss, bossEntry, accessor, bossRows } from './glb.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const rd = (p) => JSON.parse(fs.readFileSync(path.join(root, p), 'utf8'));
@@ -23,6 +25,13 @@ export function checkArt() {
   const ids = new Set();
   // 打包进游戏的件：kit-<区> 包里的 key（直接读生成的包文件，确认上线的就是清单里这一份）
   const packed = {};
+  // 首领包：js/assets/boss-<kind>.js 里的 boss.<kind>
+  const bossPackOf = (kind) => {
+    const f = path.join(root, 'js/assets/boss-' + kind + '.js');
+    if (!fs.existsSync(f)) return null;
+    const src = fs.readFileSync(f, 'utf8');
+    return (JSON.parse(src.slice(src.indexOf('= {') + 2, src.lastIndexOf(';'))).boss || {})[kind] || null;
+  };
   const packOf = (zone) => {
     if (packed[zone] !== undefined) return packed[zone];
     const f = path.join(root, 'js/assets/kit-' + zone + '.js');
@@ -35,9 +44,11 @@ export function checkArt() {
     if (ids.has(id)) bad(id, 'id 重复');
     ids.add(id);
     // 命名：ca/<区>_<物件>[_变体]，小写字母 / 数字 / 下划线；文件 = assets/ca/<区>/<id 去掉 ca/>.glb
+    const isBoss = a.category === 'boss', kind = isBoss ? id.replace(/^ca\/boss_/, '') : null;
     if (!/^ca\/[a-z]+_[a-z0-9]+(_[a-z0-9]+)*$/.test(id)) bad(id, 'id 不合命名规则 ca/<区>_<物件>[_变体]（小写、下划线）');
     else if (id.slice(3, 3 + a.zone.length + 1) !== a.zone + '_') bad(id, 'id 的区域前缀和 zone 字段（' + a.zone + '）不一致');
-    const want = 'assets/ca/' + a.zone + '/' + id.slice(3) + '.glb';
+    if (isBoss && a.zone !== 'boss') bad(id, '首领的 zone 应为 boss');
+    const want = isBoss ? 'assets/ca/boss/' + kind + '.glb' : 'assets/ca/' + a.zone + '/' + id.slice(3) + '.glb';
     if (a.file !== want) bad(id, '文件名应为 ' + want + '，清单里是 ' + a.file);
     const cat = budgets.categories[a.category];
     if (!cat) {
@@ -98,19 +109,46 @@ export function checkArt() {
     }
     // 顶点属性
     for (const k of budgets.requiredAttributes) if (!s.attrs.includes(k) && !(cat.rigged && k === 'COLOR_0')) bad(id, '缺顶点属性 ' + k); // 角色可以不带烘焙的顶点色
-    // 骨骼（占位）：带蒙皮的件只能是角色类，骨骼名都要在标准骨架表里
-    if (s.bones.length) {
+    // 首领：骨骼表、骨骼数、权重、动作参数、首领包
+    if (isBoss) {
+      const want = ((rig.boss || {}).kinds || {})[kind];
+      if (!want) bad(id, 'art/rig.json 的 boss.kinds 里没有 ' + kind);
+      else if (s.bones.slice().sort().join() !== want.slice().sort().join() || new Set(s.bones).size !== s.bones.length) bad(id, '骨骼和 art/rig.json 的 boss.kinds.' + kind + ' 不一致：' + s.bones.join(','));
+      if (s.bones.length > (cat.bones || 40) || s.bones.length > (rig.boss.maxBones || 40)) bad(id, '骨骼 ' + s.bones.length + ' 根，上限 ' + (cat.bones || 40));
+      const pat = new RegExp(rig.boss.pattern), hum = new Set(rig.boss.humanoid);
+      for (const b of s.bones) if (!hum.has(b) && !pat.test(b)) bad(id, '骨骼名 ' + b + ' 不合首领的命名规则（' + rig.boss.grammar.slice(0, 40) + '…）');
+      if (s.bones[0] !== 'pelvis') bad(id, '根骨骼应为 pelvis');
+      const pr = g.json.meshes[0].primitives[0];
+      if (pr.attributes.WEIGHTS_0 === undefined || pr.attributes.JOINTS_1 !== undefined) bad(id, '权重：要有 WEIGHTS_0，且每个顶点最多 ' + (cat.weights || 4) + ' 根骨骼（不许有 JOINTS_1）');
+      else {
+        let worst = 0;
+        for (const w of accessor(g, pr.attributes.WEIGHTS_0)) worst = Math.max(worst, Math.abs(w[0] + w[1] + w[2] + w[3] - 1));
+        if (worst > 2 / 255) bad(id, '有顶点的权重和不是 1（最多差 ' + worst.toFixed(4) + '）');
+      }
+      const anims = g.json.animations || [];
+      for (const an of anims) if (!an.extras || !(an.extras.dur > 0)) bad(id, '动作 ' + an.name + ' 缺参数（extras.dur）');
+      for (const need of ['idle', 'walk', 'broken', 'hit', 'death', 'mood']) if (!anims.some((x) => x.name === need)) bad(id, '缺动作 ' + need);
+      a.bones = s.bones.length;
+      if (a.ship) {
+        const e = bossPackOf(kind);
+        if (!e) bad(id, '上线的首领不在 js/assets/boss-' + kind + '.js 里（重新跑 node tools/pack-assets.mjs）');
+        else if (e.sha !== a.sha256) bad(id, 'js/assets/boss-' + kind + '.js 不是从当前 GLB 打的包（重新打包）');
+        else if (JSON.stringify(e) !== JSON.stringify(bossEntry(a.sha256, packBoss(g, bossRows(g))))) bad(id, 'js/assets/boss-' + kind + '.js 里的数组和重新打包的不一致（重新打包）');
+      }
+    }
+    // 骨骼（占位）：带蒙皮的件只能是角色类，骨骼名都要在标准骨架表里（首领按上面 boss 的表查）
+    if (s.bones.length && !isBoss) {
       if (!cat.rigged) bad(id, '带蒙皮，但类别 ' + a.category + ' 不是角色类');
       const std = new Set(rig.standard.bones || []);
       if (!std.size) bad(id, '带蒙皮，但标准骨架的骨骼名表（art/rig.json）还是空的');
       else for (const b of s.bones) if (!std.has(b)) bad(id, '骨骼 ' + b + ' 不在标准骨架 ' + rig.standard.name + ' 里');
-    } else if (cat.rigged) bad(id, '角色类的件没有蒙皮');
+    } else if (cat.rigged && !s.bones.length) bad(id, '角色类的件没有蒙皮');
     // 清单和实测一致
     if (a.tris !== s.tris) bad(id, '清单 tris ' + a.tris + ' ≠ 实测 ' + s.tris);
     if (Math.abs(a.h - h) > 0.002) bad(id, '清单高度 ' + a.h + ' ≠ 实测 ' + h.toFixed(3));
     if (!a.source || !a.source.script || a.source.seed === undefined) bad(id, '清单缺来源脚本 / 种子');
-    // 上线的件确实打进了 kit-<区> 包、且就是这一份
-    if (a.ship) {
+    // 上线的件确实打进了 kit-<区> 包、且就是这一份（首领见上面的首领包）
+    if (a.ship && !isBoss) {
       const pk = packOf(a.zone);
       if (!pk || !pk[id]) bad(id, 'ship 的件不在 js/assets/kit-' + a.zone + '.js 里（重新跑 node tools/pack-assets.mjs）');
       else {
