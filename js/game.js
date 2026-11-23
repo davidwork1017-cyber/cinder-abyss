@@ -1580,12 +1580,28 @@
   };
   // 刻式 v 和原式的比值。霜环按「主力技能 + 霜环」的总秒伤（主力取技能栏上秒伤最高的非光环技能，没有就按掷焰）；
   // 黑焰按每一击的 (1 + 黑焰%)（蚀印把攒进去的那一份也算上，传焰点在身上的和附带的一样多）
+  // 心火（class-d2b2）：按「主力攻击技能 + 心火」的单体秒伤（主力取技能栏上秒伤最高的攻击技能，没有就按旋风斩）：
+  // 转火那一份按转换之后的技能上下文现算（P.heart 临时换成这个刻式的），护火另加贴身灼烧的秒伤。余烬只在打死敌人时有，单体不算
+  function heartRatioVal(sk) {
+    const keep = P.heart;
+    P.heart = { t: 1, dur: 1, conv: sk.buff.conv || 0, ward: 0, wardAt: -99, tt: 1 };
+    let best = 0;
+    for (const b of G.save.bar) if (b && b !== 'heartfire' && G.SKILLS[b] && G.SKILLS[b].wm && !G.SKILLS[b].weaponOnly && G.save.skills[b]) best = Math.max(best, G.variantDps(b));
+    if (!best) best = G.variantDps('whirl');
+    if (sk.ward) {
+      const c = elemCtx(G.skillCtx('heartfire'), 'fire');
+      best += ((G.avgHit(c) / (sk.useMult || 1)) * sk.ward.k) / sk.ward.tick;
+    }
+    P.heart = keep;
+    return best;
+  }
   G.variantRatio = function (id, v) {
     if (!G.SKILL_V[id]) return 1;
     const prev = G.SKILLS[id];
     const val = (w) => {
       G.SKILLS[id] = G.skillVariant(id, w);
       const sk = G.SKILLS[id];
+      if (sk.kind === 'heart') return heartRatioVal(sk);
       if (sk.buff) return 1 + (sk.brand ? 2 : 1) * Math.min(sk.flame.cap, sk.flame.k0 + sk.flame.k1 * ((G.save.skills[id] || 1) - 1)) * (1 + Math.max(0, P.S.flameEff || 0) / 100) / 100; // 蚀印：攒进去的那一份和附带的一样多
       return G.variantDps(id);
     };
@@ -9917,8 +9933,10 @@
     state.stats.mineBooms = (state.stats.mineBooms || 0) + 1;
     if (sk.mech === 'tether') {
       // 钉索：不炸，铁索钉住 r 米内的敌人
-      const R0 = sk.root, R = R0.r * ak, list = [];
+      const R0 = sk.root, R = R0.r * ak;
+      let list = [];
       for (const e of enemiesIn(m.x, m.z, R)) if (losClear(m.x, m.z, e.x, e.z)) list.push(e);
+      if (R0.n && list.length > R0.n) list = list.sort((a, b) => dist(a.x, a.z, m.x, m.z) - dist(b.x, b.z, m.x, m.z)).slice(0, R0.n); // 只拴最近的 n 个
       groupHit(list, ctx, 1, (e) => ({ ang: Math.atan2(e.x - m.x, e.z - m.z), w: 0, kb: 0, poise: 8, quiet: true }), false);
       for (const e of list) {
         if (e.dead) continue;
@@ -10154,8 +10172,8 @@
     }
     const D = sk.dash;
     let d = G.clamp(a.dist, D.dmin, D.d);
-    // 冲到路上第一个敌人身前就停（上挑打它和它身后的）
-    for (const e of state.enemies) {
+    // 冲到路上第一个敌人身前就停（上挑打它和它身后的）；爆痕穿过敌人（火痕铺过怪堆，上挑时一起炸）
+    if (!D.through) for (const e of state.enemies) {
       if (e.dead) continue;
       const ex = e.x - P.x, ez = e.z - P.z, along = ex * dx + ez * dz;
       if (along <= 0 || along > d + e.r + 1) continue;

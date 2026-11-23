@@ -1839,7 +1839,7 @@ async function main() {
       G.debug.learnAll();
       return { skills: Object.keys(G.save.skills).length, sups: G.save.supports.length, bar: G.save.bar.slice(), cleave: !!G.SKILLS.cleave || G.GEM_SKILLS.indexOf('cleave') >= 0 };
     });
-    assert(r.skills === 24 && r.sups === 34 && [0, 2, 3].every((i) => r.bar[i]) && r.bar[1] === null && !r.cleave, JSON.stringify(r));
+    assert(r.skills === 29 && r.sups === 34 && [0, 2, 3].every((i) => r.bar[i]) && r.bar[1] === null && !r.cleave, JSON.stringify(r));
   });
 
   for (let i = 0; i < SKILL_IDS.length; i++) {
@@ -7687,7 +7687,7 @@ async function main() {
     cleanText(await ev(() => T.bodyText()), '技能页');
     // 武器普攻卡（.basic-card，拿着远程武器时才生效）另算
     const cards = await ev(() => ({ n: document.querySelectorAll('.skill-card:not(.wsk-card):not(.basic-card)').length, ws: document.querySelectorAll('.wsk-card').length }));
-    assert(cards.n === 24 && cards.ws === 1, '技能卡数量不对（24 张技能卡（裂石击已删除，skill-expand 加了 6 张，class-d2b1 加了 4 种特殊弹）+ 1 张武器技卡）：' + JSON.stringify(cards));
+    assert(cards.n === 29 && cards.ws === 1, '技能卡数量不对（29 张技能卡（裂石击已删除，skill-expand 加了 6 张，class-d2b1 加了 4 种特殊弹，class-d2b2 加了 5 张）+ 1 张武器技卡）：' + JSON.stringify(cards));
     await page.click('[data-act="bind"][data-skill="nova"][data-slot="2"]');
     let r = await ev(() => ({ bar: G.save.bar.slice(), on: document.querySelector('[data-act="bind"][data-skill="nova"][data-slot="2"]').classList.contains('on') }));
     assert(r.bar[2] === 'nova' && r.on && r.bar.filter((b) => b === 'nova').length === 1, '界面绑定失败：' + r.bar);
@@ -14179,7 +14179,7 @@ async function main() {
         nails: !F('nails', 'chain') && F('nails', 'multi') && F('nails', 'pierce') && F('nails', 'farshot') && F('nails', 'serrate') && F('nails', 'brutal'),
         serrate: F('rend', 'serrate') && F('whirl', 'serrate') && F('blade', 'serrate') && F('thrall', 'serrate') && F('colossus', 'serrate') && F(G.BASIC_CARD, 'serrate') && !F('ember', 'serrate') && !F('nova', 'serrate') && !F('frostline', 'serrate'),
       };
-      out.drop = Math.abs(G.SKILL_DROP.elite - 0.075 * 20 / 14) < 1e-9 && Math.abs(G.SKILL_DROP.mob - 0.012 * 20 / 14) < 1e-9 && G.GEM_SKILLS.length === 24; // class-d2b1：+ 四种特殊弹（掉率常数不变，有职业时另乘 G.gemDropK）
+      out.drop = Math.abs(G.SKILL_DROP.elite - 0.075 * 20 / 14) < 1e-9 && Math.abs(G.SKILL_DROP.mob - 0.012 * 20 / 14) < 1e-9 && G.GEM_SKILLS.length === 29; // class-d2b1：+ 四种特殊弹；class-d2b2：+ 5 个（掉率常数不变，有职业时另乘 G.gemDropK）
       return out;
     }, NEW_SKILLS);
     assert(!r.bad.length && r.sup, '新技能 / 开刃的数据不全：' + JSON.stringify(r));
@@ -14579,7 +14579,7 @@ async function main() {
       out.n = Object.keys(G.VARIANTS).length;
       out.missing = G.GEM_SKILLS.filter((id) => id !== 'cleave').filter((id) => !(G.VARIANTS[id] && G.VARIANTS[id].a && G.VARIANTS[id].b && G.VARIANTS[id].a.name && G.VARIANTS[id].b.name && G.VARIANTS[id].a.desc && G.VARIANTS[id].b.desc));
       // 第一批的 6 个新技能都在表里（第二批 skill-batch2 补齐），宝石技能一共 20 个
-      out.pend = NEW.every((id) => G.GEM_SKILLS.indexOf(id) >= 0 && !!G.VARIANTS[id]) && G.GEM_SKILLS.length === 24;
+      out.pend = NEW.every((id) => G.GEM_SKILLS.indexOf(id) >= 0 && !!G.VARIANTS[id]) && G.GEM_SKILLS.length === 29;
       out.extra = Object.keys(G.VARIANTS).filter((id) => G.GEM_SKILLS.indexOf(id) < 0 || id === 'cleave');
       out.price = G.VARIANT_LVL === 10 && G.VARIANT_COST.cur === 'chaos' && G.VARIANT_COST.n === 1 && G.CURRENCY.chaos.name === '乱流石';
       s.variants = {};
@@ -14617,7 +14617,7 @@ async function main() {
       G.ui.close();
       return out;
     }, NEW_SKILLS);
-    assert(r.n === 24 && !r.missing.length && !r.extra.length && r.price && r.pend, '刻式表不全（class-d2b1 的四种特殊弹也要有 A / B）：' + JSON.stringify(r));
+    assert(r.n === 29 && !r.missing.length && !r.extra.length && r.price && r.pend, '刻式表不全（class-d2b1 的四种特殊弹、class-d2b2 的 5 个也要有 A / B）：' + JSON.stringify(r));
     assert(!r.lv9 && r.btn9 === 0 && r.lock9, '宝石 9 级不该能选刻式：' + JSON.stringify(r));
     assert(r.free && r.refuse && r.paid, '价格不对（第一次免费、之后 1 乱流石、不够拒绝）：' + JSON.stringify(r));
     assert(r.combat && r.asleep, '战斗中应拒绝换刻式：' + JSON.stringify(r));
@@ -14653,7 +14653,7 @@ async function main() {
     return '40 个刻式选一遍再改回，G.SKILLS 深比较不变';
   });
 
-  await step('刻式：单体对等——游戏内 avgHit / useMult / time 算出 48 个比值都在 [0.9, 1.1]（霜环、黑焰按总秒伤 [0.95, 1.05]）', async () => {
+  await step('刻式：单体对等——游戏内 avgHit / useMult / time 算出 58 个比值都在 [0.9, 1.1]（霜环、黑焰按总秒伤 [0.95, 1.05]）', async () => {
     const r = await ev(() => {
       T.arena();
       const s = G.save;
@@ -14674,7 +14674,7 @@ async function main() {
       return rows;
     });
     const bad = r.filter((x) => (x.total ? x.r < 0.95 || x.r > 1.05 : x.r < 0.9 || x.r > 1.1));
-    assert(r.length === 48 && !bad.length, '比值超出范围：' + JSON.stringify(bad)); // class-d2b1：+ 四种特殊弹 × A / B
+    assert(r.length === 58 && !bad.length, '比值超出范围：' + JSON.stringify(bad)); // class-d2b1：+ 四种特殊弹 × A / B；class-d2b2：+ 5 个 × A / B
     return r.map((x) => x.name + ' ' + x.r).join(' / ');
   });
 
@@ -21018,6 +21018,7 @@ async function main() {
   await slotSteps();
   await classSteps();
   await d2bSteps(); // 职业 D2b-1（class-d2b1）
+  await d2b2Steps(); // 职业 D2b-2（class-d2b2）
 }
 
 // ------------------------------------------------------------------ 职业（class-d2）
@@ -21074,10 +21075,10 @@ async function d2bSteps() {
     assert(r.w0 === 0 && r.wC > 0 && r.imp === 'incFire/minionDmg', '提灯的掉落权重 / 隐含不对：' + JSON.stringify(r));
     assert(r.bw.every((s) => s.endsWith(':15')), '词缀 baseW 应补到 15 位：' + r.bw.join(' '));
     assert(r.lamp === 'banner,wand,lantern' && r.focus, '掌灯人应有三种武器、提灯算法器：' + JSON.stringify(r));
-    assert(r.gems === 24 && r.pool0 === 20 && r.old && r.poolC === 24 && r.k0 === 1 && Math.abs(r.kC - 1.2) < 1e-9, '宝石池 / 掉率不对：' + JSON.stringify(r));
+    assert(r.gems === 29 && r.pool0 === 20 && r.old && r.poolC === 29 && r.k0 === 1 && Math.abs(r.kC - 1.45) < 1e-9, '宝石池 / 掉率不对：' + JSON.stringify(r));
     assert(r.need === 'gun,gun,gun,gun' && r.clsOnly, '特殊弹应只能装在枪上、只在有职业时掉：' + JSON.stringify(r));
-    assert(JSON.stringify(r.cnt) === JSON.stringify({ guard: 11, hunt: 12, star: 15, lamp: 14, forge: 12 }), '各职业能用的宝石数不对：' + JSON.stringify(r.cnt));
-    assert(r.per.lamp === 'banner:14,wand:14,lantern:14' && r.per.forge === 'gatling:12,flamer:12,revolver:12', '每把武器能用的宝石数不对：' + JSON.stringify(r.per));
+    assert(JSON.stringify(r.cnt) === JSON.stringify({ guard: 14, hunt: 15, star: 15, lamp: 14, forge: 13 }), '各职业能用的宝石数不对（class-d2b2 之后）：' + JSON.stringify(r.cnt));
+    assert(r.per.lamp === 'banner:14,wand:14,lantern:14' && r.per.forge === 'gatling:13,flamer:13,revolver:13', '每把武器能用的宝石数不对：' + JSON.stringify(r.per));
     return JSON.stringify(r.cnt) + ' · 掌灯人 ' + r.per.lamp;
   });
 
@@ -21414,6 +21415,597 @@ async function d2bSteps() {
   });
 }
 
+// =====================================================================
+// 职业 D2b-2（class-d2b2）：绊雷 / 硬接 / 燎地 / 心火 / 跳射（各带刻式 A / B），都是职业专属（没有职业的存档不掉）
+// 每一步都只在这一步里给存档套上职业，结束时摘掉
+// =====================================================================
+const D2B2_GEMS = ['snare', 'brace', 'scorch', 'heartfire', 'leapshot'];
+async function d2b2Steps() {
+  const clsOn = (c) => ev((c) => {
+    window.__d2b2Save = { cls: G.save.cls, lock: G.save.clsLock, variants: JSON.stringify(G.save.variants || {}) };
+    G.save.cls = c;
+    G.save.clsLock = {};
+  }, c);
+  const clsOff = () => ev(() => {
+    const o = window.__d2b2Save || {};
+    if (o.cls === undefined) delete G.save.cls;
+    else G.save.cls = o.cls;
+    if (o.lock === undefined) delete G.save.clsLock;
+    else G.save.clsLock = o.lock;
+    G.save.variants = JSON.parse(o.variants || '{}');
+    G.applyVariants();
+    G.player.god = false;
+    G.player.cast = null;
+    G.input.mouse.b[0] = false;
+    G.resetRanged();
+    G.save.equip.weapon = T.std;
+    G.computeStats();
+    G.world.setPlayerGear(G.save.equip);
+  });
+  const withCls = async (c, fn) => {
+    await clsOn(c);
+    await ev(D2DEF);
+    try {
+      return await fn();
+    } finally {
+      await clsOff();
+    }
+  };
+  // 页面里的小工具：按类型拿一把 20 级普通武器、选刻式、朝某点放一次、按住
+  const D2DEF = () => {
+    const P = G.player;
+    window.D2 = {
+      bi: (t) => G.BASES.weapon.findIndex((b) => b.type === t),
+      wield(t, ilvl) {
+        const w = G.rollItem(ilvl || 20, 0, 'weapon', D2.bi(t));
+        G.save.equip.weapon = w;
+        G.computeStats();
+        return w;
+      },
+      v(id, v) {
+        G.save.variants = G.save.variants || {};
+        if (v === 'o') delete G.save.variants[id];
+        else G.save.variants[id] = v;
+        G.applyVariants();
+      },
+      cast(id, x, z, frames) {
+        P.cds = {};
+        P.mana = P.maxMana;
+        G.save.skills[id] = Math.max(20, G.save.skills[id] || 0);
+        G.save.bar[0] = id;
+        T.aim(x, z);
+        G.input.tap[0] = 1;
+        G.tick(1 / 60);
+        G.input.tap[0] = 0;
+        for (let i = 0; i < (frames || 0); i++) G.tick(1 / 60);
+      },
+      run(sec) {
+        for (let i = 0, n = Math.round(sec * 60); i < n; i++) G.tick(1 / 60);
+      },
+    };
+  };
+
+  await step('D2b-2·数据：5 个新宝石（各带刻式 A / B）只在有职业时掉（宝石池 20 / 29、掉率 ×29/20）；能用的宝石数 烬卫 14 / 夜猎 15 / 引星人 15 / 掌灯人 14 / 炉匠 13；每把武器 双匕 12、猎弓 10、重兵 14、枪 13', async () => {
+    const r = await ev((NG) => {
+      const cnt = {};
+      for (const c of G.CLASS_IDS) cnt[c] = G.classGems(c).length;
+      const per = {};
+      for (const c of G.CLASS_IDS) per[c] = G.CLASSES[c].weapons.map((t) => t + ':' + G.GEM_SKILLS.filter((id) => G.typeFitsNeed(t, G.GEM_NEED[id] || null)).length).join(',');
+      const pool0 = G.gemDropPool(undefined);
+      return {
+        gems: G.GEM_SKILLS.length, pool0: pool0.length, old: pool0.join() === G.GEM_SKILLS.slice(0, 20).join(), poolC: G.gemDropPool('guard').length, k0: G.gemDropK(undefined), kC: G.gemDropK('hunt'),
+        cls: NG.every((id) => G.SKILL_BASE[id].clsOnly), vars: NG.every((id) => G.VARIANTS[id] && G.VARIANTS[id].a && G.VARIANTS[id].b), need: NG.map((id) => G.GEM_NEED[id]).join(),
+        heavy: G.WGROUPS.heavy.join(), cnt, per,
+        who: NG.map((id) => id + ':' + G.CLASS_IDS.filter((c) => G.classCanUse(c, id)).join('/')).join(' '),
+        dur: [G.SKILL_BASE.snare.mine.dur, G.SKILL_BASE.snare.mine.max, G.SKILL_BASE.heartfire.buff.dur].join(),
+      };
+    }, D2B2_GEMS);
+    assert(r.gems === 29 && r.pool0 === 20 && r.old && r.poolC === 29 && r.k0 === 1 && Math.abs(r.kC - 1.45) < 1e-9, '宝石池 / 掉率不对：' + JSON.stringify(r));
+    assert(r.cls && r.vars && r.need === 'huntgun,melee,heavy,heavy,hunt' && r.heavy === 'blade,hammer,katana', '新宝石应职业专属、带 A / B、按武器分组：' + JSON.stringify(r));
+    assert(JSON.stringify(r.cnt) === JSON.stringify({ guard: 14, hunt: 15, star: 15, lamp: 14, forge: 13 }), '各职业能用的宝石数不对：' + JSON.stringify(r.cnt));
+    assert(r.per.guard === 'blade:14,hammer:14,katana:14' && r.per.hunt === 'daggers:12,huntbow:10,emberbow:10' && r.per.forge === 'gatling:13,flamer:13,revolver:13', '每把武器能用的宝石数不对：' + JSON.stringify(r.per));
+    assert(r.who === 'snare:hunt/forge brace:guard/hunt scorch:guard heartfire:guard leapshot:hunt', '谁能用不对：' + r.who);
+    assert(r.dur === '7,3,16', '持续时间不对（绊雷 7 秒最多 3 枚、心火 16 秒）：' + r.dur);
+    return JSON.stringify(r.cnt) + ' · ' + r.who;
+  });
+
+  await step('D2b-2·没有职业的存档：精英掉 600 多颗技能宝石都在职业之前的 20 种里（新宝石一颗不掉）；有职业时 29 种都掉得出来', async () => {
+    const r = await ev(() => {
+      const S = G.save, L = G.state.loot, l0 = L.length;
+      const lvl0 = S.level;
+      S.level = 30;
+      const seen = (cls) => {
+        if (cls) S.cls = cls;
+        else delete S.cls;
+        const got = new Set();
+        let n = 0;
+        for (let i = 0; i < 6000; i++) {
+          G.dropLoot({ x: G.player.x, z: G.player.z, level: 20, elite: true, horde: false, hordeK: 1 });
+          for (const l of L.splice(l0)) {
+            // 有职业时本职业用不了的宝石落地就是无铭宝石（data.from 记着原来是哪颗）
+            const id = l.kind === 'skill' ? l.data.id : l.kind === 'blank' && l.data.from ? l.data.from : null;
+            if (id) {
+              got.add(id);
+              n++;
+            }
+            G.world.removeMesh(l.mesh);
+          }
+        }
+        return { n, ids: [...got].sort() };
+      };
+      const a = seen(null), b = seen('hunt'), c = seen('guard'), d = seen('forge');
+      delete S.cls;
+      S.level = lvl0;
+      const old = new Set(G.gemDropPool(undefined));
+      const NEW = ['molten', 'wedge', 'rime', 'recoil', 'snare', 'brace', 'scorch', 'heartfire', 'leapshot'];
+      const all = new Set([...b.ids, ...c.ids, ...d.ids]);
+      return { n0: a.n, ids0: a.ids.length, bad0: a.ids.filter((id) => !old.has(id) || NEW.indexOf(id) >= 0), all: all.size, miss: G.GEM_SKILLS.filter((id) => !all.has(id)) };
+    });
+    assert(r.n0 >= 600 && !r.bad0.length && r.ids0 === 20, '没有职业时掉了职业专属的宝石：' + JSON.stringify(r));
+    assert(r.all === 29 && !r.miss.length, '有职业时有的宝石掉不出来：' + JSON.stringify(r));
+    return '没有职业 ' + r.n0 + ' 颗（' + r.ids0 + ' 种）；有职业 29 种都掉过';
+  });
+
+  await step('D2b-2·绑定：烬卫拿重兵能放硬接 / 燎地 / 心火；夜猎拿双匕能放硬接，拿猎弓能放绊雷 / 跳射；炉匠拿枪能放绊雷；武器不对时放不出来', async () => {
+    const r = await withCls('guard', () =>
+      ev(() => {
+        T.arena();
+        const ok = (ids) => ids.map((id) => (G.canCast(id) ? 1 : 0)).join('');
+        const out = {};
+        G.save.cls = 'guard';
+        for (const t of ['blade', 'hammer', 'katana']) {
+          D2.wield(t);
+          out['g_' + t] = ok(['brace', 'scorch', 'heartfire', 'snare', 'leapshot']);
+        }
+        G.save.cls = 'hunt';
+        D2.wield('daggers');
+        out.h_daggers = ok(['brace', 'scorch', 'heartfire', 'snare', 'leapshot']);
+        for (const t of ['huntbow', 'emberbow']) {
+          D2.wield(t);
+          out['h_' + t] = ok(['brace', 'snare', 'leapshot']);
+        }
+        G.save.cls = 'forge';
+        for (const t of ['gatling', 'flamer', 'revolver']) {
+          D2.wield(t);
+          out['f_' + t] = ok(['snare', 'leapshot', 'brace']);
+        }
+        G.save.cls = 'star';
+        D2.wield('runebow');
+        out.s_runebow = ok(['snare', 'leapshot']);
+        return out;
+      })
+    );
+    const want = { g_blade: '11100', g_hammer: '11100', g_katana: '11100', h_daggers: '10000', h_huntbow: '011', h_emberbow: '011', f_gatling: '100', f_flamer: '100', f_revolver: '100', s_runebow: '00' };
+    assert(JSON.stringify(r) === JSON.stringify(want), '绑定不对：' + JSON.stringify(r));
+    return '重兵 3 / 双匕 1 / 猎弓 2 / 枪 1；引星人的符文弓都不行';
+  });
+
+  await step('D2b-2·绊雷：射到准星落地，0.35 秒后上膛，敌人走进 1.6 米才炸（2.4 米外不炸）；最多 3 枚（多的顶掉最早的）、每枚 7 秒；连环弹出 2 枚小雷；钉索拴最近 3 个（普通怪钉 1.5 秒、精英减半、首领只减速）', async () => {
+    const r = await withCls('hunt', () =>
+      ev(() => {
+        T.lane();
+        const P = G.player, S = G.state, out = {};
+        D2.wield('huntbow');
+        G.debug.god(true);
+        const st = () => Object.assign({}, S.stats);
+        // 上限 3：4 枚射在空地上，顶掉最早那枚
+        for (let i = 0; i < 4; i++) D2.cast('snare', P.x + 3 + i * 1.5, P.z, 60);
+        out.cap = G.mineState().length;
+        out.capX = G.mineState().map((m) => +(m.x - P.x).toFixed(1)).join();
+        D2.run(7.2);
+        out.left = G.mineState().length; // 7 秒后都没了
+        // 触发距离：2.4 米外的不炸，走到 1.4 米炸
+        const s0 = st();
+        D2.cast('snare', P.x + 4, P.z, 60);
+        const m = G.mineState()[0];
+        const e = T.mob('husk', 4, 2.4 + 0.5);
+        D2.run(0.5);
+        out.far = (S.stats.mineBooms || 0) - (s0.mineBooms || 0);
+        e.x = m.x;
+        e.z = m.z + 1.4;
+        D2.run(0.2);
+        out.near = (S.stats.mineBooms || 0) - (s0.mineBooms || 0);
+        out.hurt = e.maxHp - e.hp > 0;
+        G.clearEnemies();
+        // 连环：炸开后弹出 2 枚小雷
+        D2.v('snare', 'a');
+        const s1 = st();
+        T.mob('husk', 4, 0);
+        D2.cast('snare', P.x + 4, P.z, 110);
+        out.bomblets = (S.stats.bomblets || 0) - (s1.bomblets || 0);
+        G.clearEnemies();
+        // 钉索：拴最近的 3 个；普通怪 1.5 秒、精英 0.75 秒、首领只减速
+        D2.v('snare', 'b');
+        const ms = [T.mob('husk', 4, 0.6), T.mob('husk', 4, -0.6), T.mob('brute', 4.8, 0, { elite: true }), T.mob('husk', 6.5, 0)];
+        D2.cast('snare', P.x + 4, P.z, 0);
+        const mx = ms.map(() => 0);
+        for (let i = 0; i < 60; i++) {
+          G.tick(1 / 60);
+          ms.forEach((x, k) => (mx[k] = Math.max(mx[k], x.stunT || 0)));
+        }
+        out.stun = mx.map((v) => +v.toFixed(2));
+        out.hit = ms.map((x) => (x.maxHp - x.hp > 0 ? 1 : 0)).join('');
+        G.clearEnemies();
+        G.enterZone(0, 1);
+        D2.wield('huntbow');
+        G.debug.god(true);
+        const b = S.boss;
+        T.tp(b.x - 4, b.z);
+        D2.cast('snare', b.x - 0.5, b.z, 50);
+        out.boss = { stun: b.stunT || 0, snare: +(b.snareT || 0).toFixed(2), k: b.snareK };
+        D2.v('snare', 'o');
+        G.enterZone(0, 1);
+        G.debug.god(true);
+        return out;
+      })
+    );
+    assert(r.cap === 3 && r.capX === '4.5,6,7.5', '绊雷最多 3 枚、顶掉最早的：' + JSON.stringify(r));
+    assert(r.left === 0, '7 秒后绊雷应消失：' + JSON.stringify(r));
+    assert(r.far === 0 && r.near === 1 && r.hurt, '2.4 米外不该炸、1.4 米该炸：' + JSON.stringify(r));
+    assert(r.bomblets === 2, '连环应弹出 2 枚小雷：' + JSON.stringify(r));
+    assert(r.hit === '1110' && Math.abs(r.stun[0] - 1.5) < 0.1 && Math.abs(r.stun[1] - 1.5) < 0.1 && Math.abs(r.stun[2] - 0.75) < 0.1 && r.stun[3] === 0, '钉索应拴最近 3 个、精英减半：' + JSON.stringify(r));
+    assert(r.boss.stun === 0 && r.boss.snare > 0.5 && r.boss.k === 0.4, '首领只减速不钉住：' + JSON.stringify(r.boss));
+    return '上限 3、7 秒、触发 1.6 米；小雷 ' + r.bomblets + '；钉索 ' + r.stun.join('/') + '；首领减速 ' + r.boss.k;
+  });
+
+  await step('D2b-2·硬接：对着带预警的重击——格挡正面减伤 50%（背后不挡），松手反砍按挡下的伤害加倍；拆招在 0.3 秒窗口里挨打完全免伤、闪到对方身后反刺，按早了照常挨打、之后 1.2 秒不能再招架；首领的预警重击也一样', async () => {
+    const r = await withCls('guard', () =>
+      ev(() => {
+        T.lane();
+        const P = G.player, S = G.state, out = {};
+        D2.wield('blade');
+        G.debug.god(false);
+        P.god = false;
+        G.save.skills.brace = 20;
+        G.save.bar[0] = 'brace';
+        const slam = (e, dmg, lead) => G.telegraph({ shape: 'circle', x: P.x, z: P.z, r: 2.5, dur: lead, dmg, dtype: 'phys', owner: e, cancelIfOwnerDead: true });
+        // 一下重击（预警 0.6 秒）挨了多少：mode = 'none' 不挡 / 'block' 按住格挡（face 朝它 / 背对）/ 'parry' 提前 early 秒按招架
+        const hitTaken = (e, mode, face, early) => {
+          P.cast = null;
+          P.cds = {};
+          P.iframe = 0;
+          P.life = P.maxLife = 5000;
+          P.mana = P.maxMana = 1e4;
+          T.tp(e.x - 2.2, e.z);
+          const x0 = P.x;
+          T.aim(face ? e.x : P.x - 5, e.z);
+          slam(e, 1000, 0.6);
+          let held = false;
+          for (let i = 0; i < 60; i++) {
+            const t = i / 60;
+            if (mode === 'block' && !held) {
+              G.input.tap[0] = 1;
+              G.input.mouse.b[0] = true;
+              held = true;
+            }
+            if (mode === 'parry' && !held && t >= 0.6 - early) {
+              G.input.tap[0] = 1;
+              held = true;
+            }
+            G.tick(1 / 60);
+            G.input.tap[0] = 0;
+          }
+          const taken = 5000 - P.life;
+          G.input.mouse.b[0] = false;
+          const c = G.braceState();
+          D2.run(0.8);
+          return { taken: Math.round(taken), moved: +(P.x - x0).toFixed(2), behind: P.x > e.x, k: S.stats.braceCounter, cd: +(P.cds.brace || 0).toFixed(2), wasBrace: !!c };
+        };
+        const e = T.mob('brute', 3, 0);
+        out.none = hitTaken(e, 'none');
+        out.front = hitTaken(e, 'block', true);
+        out.back = hitTaken(e, 'block', false);
+        S.stats.braceCounter = 0;
+        const c0 = e.maxHp - e.hp;
+        out.counter = hitTaken(e, 'block', true);
+        out.cdmg = e.maxHp - e.hp - c0;
+        D2.v('brace', 'b');
+        const s0 = Object.assign({}, S.stats);
+        out.parry = hitTaken(e, 'parry', true, 0.15);
+        out.parries = (S.stats.parries || 0) - (s0.parries || 0);
+        out.blink = (S.stats.parryBlink || 0) - (s0.parryBlink || 0);
+        out.early = hitTaken(e, 'parry', true, 0.55); // 按早了：窗口已经关了才落下
+        out.whiff = (S.stats.parryWhiff || 0) - (s0.parryWhiff || 0);
+        // 招架后 1.2 秒内再按不起手
+        P.cds.brace = 0;
+        D2.cast('brace', e.x, e.z, 40);
+        const cd1 = P.cds.brace, n1 = S.stats.braceStarts;
+        G.input.tap[0] = 1;
+        G.tick(1 / 60);
+        G.input.tap[0] = 0;
+        out.lock = cd1 > 0.6 && S.stats.braceStarts === n1;
+        D2.run(1.2);
+        G.clearEnemies();
+        // 首领的预警重击：熔渣巨像当施放者
+        G.enterZone(0, 1);
+        D2.wield('blade');
+        P.god = false;
+        G.debug.god(false);
+        const b = S.boss;
+        b.awake = false; // 只挨这一下预警重击：首领自己不出手
+        b.atkCd = 1e9;
+        b.speed = 0;
+        P.graceT = 999;
+        D2.v('brace', 'o');
+        out.bossNone = hitTaken(b, 'none');
+        out.bossBlock = hitTaken(b, 'block', true);
+        D2.v('brace', 'b');
+        out.bossParry = hitTaken(b, 'parry', true, 0.15);
+        out.bossIn = G.world.inArena(P.x, P.z) && G.world.walkable(P.x, P.z, 0.4);
+        D2.v('brace', 'o');
+        G.enterZone(0, 1);
+        G.debug.god(true);
+        return out;
+      })
+    );
+    const half = (a, b) => Math.abs(a.taken / b.taken - 0.5) < 0.03;
+    assert(r.none.taken > 100 && half(r.front, r.none) && r.back.taken === r.none.taken, '格挡应只挡正面、减伤 50%：' + JSON.stringify([r.none, r.front, r.back]));
+    assert(r.counter.k > 1.7 && r.cdmg > 0, '松手应反砍、倍率按挡下的伤害加：' + JSON.stringify(r.counter) + ' ' + r.cdmg);
+    assert(r.parry.taken === 0 && r.parries === 1 && r.blink === 1 && r.parry.behind, '拆招应免伤并闪到身后：' + JSON.stringify(r.parry));
+    assert(r.early.taken === r.none.taken && r.whiff === 1 && r.lock, '按早了应照常挨打，之后 1.2 秒不能再招架：' + JSON.stringify(r.early) + ' lock ' + r.lock);
+    assert(half(r.bossBlock, r.bossNone) && r.bossParry.taken === 0 && r.bossIn, '首领的预警重击也应能挡 / 招架，闪过去不出场地：' + JSON.stringify([r.bossNone, r.bossBlock, r.bossParry, r.bossIn]));
+    return '不挡 ' + r.none.taken + ' / 正面 ' + r.front.taken + ' / 背后 ' + r.back.taken + '；反砍 ×' + r.counter.k.toFixed(2) + '；拆招 0（身后），按早 ' + r.early.taken + '；首领 ' + r.bossNone.taken + ' / ' + r.bossBlock.taken + ' / ' + r.bossParry.taken;
+  });
+
+  await step('D2b-2·位移：跳射往后跳 4 米、燎地往前冲 5 米，撞墙 / 场地边就停（五个首领场地 + 余烛殿，每个场地 8 个方向 × 贴着边 / 离边 2.2 米）；坠星裂谷的虚空边上也停；拆招闪到对方身后，站不住或出了场地就原地', async () => {
+    const r = await withCls('hunt', () =>
+      ev(() => {
+        const W = G.world, P = G.player, S = G.state, out = { rooms: [], bad: [], blinkN: 0, stayN: 0 };
+        const edgeFrom = (c, ang, back) => {
+          let d = 0;
+          const ok = (dd) => W.inArena(c.x + Math.sin(ang) * dd, c.z + Math.cos(ang) * dd) && W.walkable(c.x + Math.sin(ang) * dd, c.z + Math.cos(ang) * dd, 0.5);
+          while (d < 40 && ok(d + 0.3)) d += 0.3;
+          d = Math.max(0, d - back);
+          return { x: c.x + Math.sin(ang) * d, z: c.z + Math.cos(ang) * d };
+        };
+        const check = (tag, kind, x0, z0) => {
+          const moved = Math.hypot(P.x - x0, P.z - z0), lim = kind === 'leap' ? 4.05 : 5.05;
+          if (!W.inArena(P.x, P.z) || !W.walkable(P.x, P.z, 0.45) || moved > lim) out.bad.push(tag + ' ' + kind + '：' + JSON.stringify({ moved: +moved.toFixed(2), inA: W.inArena(P.x, P.z), walk: W.walkable(P.x, P.z, 0.45) }));
+          return moved;
+        };
+        const room = (tag) => {
+          G.clearEnemies();
+          const a = W.zone.arena, c = a.round ? { x: a.x, z: a.z } : S.zone.bossPos;
+          let n = 0, maxL = 0, maxS = 0;
+          for (let k = 0; k < 16; k++) {
+            const ang = ((k % 8) / 8) * Math.PI * 2 + 0.2, back = k < 8 ? 0.6 : 2.2;
+            const p = edgeFrom(c, ang, back);
+            if (!W.walkable(p.x, p.z, 0.5) || !W.inArena(p.x, p.z)) continue;
+            // 跳射：朝场地中心射，往外跳
+            G.save.cls = 'hunt';
+            D2.wield('huntbow');
+            T.tp(p.x, p.z);
+            D2.cast('leapshot', c.x, c.z, 40);
+            maxL = Math.max(maxL, check(tag + ' 方向 ' + k, 'leap', p.x, p.z));
+            // 燎地：朝场地外冲
+            G.save.cls = 'guard';
+            D2.wield('blade');
+            T.tp(p.x, p.z);
+            D2.cast('scorch', p.x + Math.sin(ang) * 6, p.z + Math.cos(ang) * 6, 50);
+            maxS = Math.max(maxS, check(tag + ' 方向 ' + k, 'scorch', p.x, p.z));
+            // 拆招：对方站在边上（离边 0.6 米），你在里面 2 米；闪到它身后不能出场地 / 进墙
+            if (k < 8) {
+              D2.v('brace', 'b');
+              const q = edgeFrom(c, ang, 0.6), e = T.mob('brute', 0, 0);
+              e.x = q.x;
+              e.z = q.z;
+              T.tp(q.x - Math.sin(ang) * 2, q.z - Math.cos(ang) * 2);
+              P.cds = {};
+              P.iframe = 0;
+              D2.cast('brace', e.x, e.z, 3);
+              const b0 = S.stats.parryBlink || 0, s0 = S.stats.parryStay || 0;
+              P.god = false;
+              G.hurtPlayer(10, 'phys', e);
+              P.god = true;
+              if ((S.stats.parryBlink || 0) > b0) out.blinkN++;
+              if ((S.stats.parryStay || 0) > s0) out.stayN++;
+              if (!W.inArena(P.x, P.z) || !W.walkable(P.x, P.z, 0.45)) out.bad.push(tag + ' 拆招 ' + k + '：' + JSON.stringify({ inA: W.inArena(P.x, P.z), walk: W.walkable(P.x, P.z, 0.45) }));
+              D2.run(0.6);
+              G.clearEnemies();
+              D2.v('brace', 'o');
+            }
+            n++;
+          }
+          out.rooms.push(tag + ':' + n + '/' + maxL.toFixed(2) + '/' + maxS.toFixed(2));
+        };
+        G.debug.god(true);
+        // 空地上：跳满 4 米、冲满 5 米；拆招闪到身后
+        T.lane();
+        D2.wield('huntbow');
+        let x0 = P.x;
+        D2.cast('leapshot', P.x - 6, P.z, 40); // 朝 -x 射，往 +x 跳
+        out.openLeap = +(P.x - x0).toFixed(2);
+        T.lane();
+        G.save.cls = 'guard';
+        D2.wield('blade');
+        x0 = P.x;
+        D2.cast('scorch', P.x + 8, P.z, 50);
+        out.openDash = +(P.x - x0).toFixed(2);
+        for (let i = 0; i < G.ZONES.length; i++) {
+          G.enterZone(i, 1);
+          G.debug.god(true);
+          room(G.ZONES[i].id);
+        }
+        G.enterPinnacle(2);
+        G.debug.god(true);
+        room('crown');
+        // 坠星裂谷的虚空边：从入口往 24 个方向走到站不住的地方（虚空 / 墙），贴着边朝里射，往外跳
+        G.enterZone(4, 1);
+        G.debug.god(true);
+        G.save.cls = 'hunt';
+        const st = S.zone.start, rift = { n: 0, max: 0 };
+        for (let k = 0; k < 24; k++) {
+          const ang = (k / 24) * Math.PI * 2;
+          let d = 0;
+          while (d < 60 && W.walkable(st.x + Math.sin(ang) * (d + 0.3), st.z + Math.cos(ang) * (d + 0.3), 0.5)) d += 0.3;
+          const x = st.x + Math.sin(ang) * Math.max(0, d - 0.6), z = st.z + Math.cos(ang) * Math.max(0, d - 0.6);
+          if (!W.walkable(x, z, 0.5)) continue;
+          D2.wield('huntbow');
+          T.tp(x, z);
+          D2.cast('leapshot', st.x, st.z, 40);
+          const mv = Math.hypot(P.x - x, P.z - z);
+          rift.max = Math.max(rift.max, mv);
+          rift.n++;
+          if (!W.walkable(P.x, P.z, 0.45) || mv > 4.05) out.bad.push('rift 方向 ' + k + '：' + JSON.stringify({ moved: +mv.toFixed(2) }));
+        }
+        out.rift = rift.n + '/' + rift.max.toFixed(2) + '/' + (W.zone.map.pr.outsideShot ? 'void' : 'wall');
+        G.enterZone(0, 1);
+        G.debug.god(true);
+        return out;
+      })
+    );
+    assert(Math.abs(r.openLeap - 4) < 0.12 && Math.abs(r.openDash - 5) < 0.12, '空地上应跳满 4 米、冲满 5 米：' + JSON.stringify(r));
+    assert(!r.bad.length, '跳出 / 冲出场地或进了墙：' + r.bad.slice(0, 4).join(' ｜ '));
+    assert(r.rooms.length === 6 && r.rooms.every((s) => +s.split(':')[1].split('/')[0] >= 12), '每个场地至少测到 12 次：' + r.rooms.join(' '));
+    assert(r.blinkN + r.stayN >= 40 && r.stayN > 0, '拆招在场地边上应有站不住原地反刺的情况：' + JSON.stringify({ b: r.blinkN, s: r.stayN }));
+    assert(+r.rift.split('/')[0] >= 12, '坠星裂谷的边测得太少：' + r.rift);
+    return '空地 ' + r.openLeap + ' / ' + r.openDash + ' 米；' + r.rooms.join(' ') + '；裂谷 ' + r.rift + '；拆招 闪 ' + r.blinkN + ' / 原地 ' + r.stayN;
+  });
+
+  await step('D2b-2·心火：持续 16 秒（再按从头计时），40% 物理转火（化元之后按剩下的算）；打死的敌人炸成余烬（每秒最多 6 次）；护火每次近战命中叠一层减伤（最多 8 层）；连烬接着炸；换下重兵就灭', async () => {
+    const r = await withCls('guard', () =>
+      ev(() => {
+        T.lane();
+        const P = G.player, S = G.state, out = {};
+        D2.wield('katana');
+        G.debug.god(true);
+        G.save.skills.whirl = 20;
+        D2.cast('heartfire', P.x + 3, P.z, 40);
+        const h0 = G.heartState();
+        out.dur = h0 && +h0.dur.toFixed(2);
+        const base = G.skillCtx('whirl').base;
+        out.fire = base.fire ? +(base.fire[0] / (base.fire[0] + base.phys[0])).toFixed(3) : 0;
+        D2.run(15);
+        out.at15 = !!G.heartState();
+        D2.cast('heartfire', P.x + 3, P.z, 10); // 再按从头计时
+        D2.run(8);
+        out.refresh = !!G.heartState() && G.heartState().t > 7;
+        D2.run(8.6);
+        out.after = !!G.heartState();
+        // 余烬：贴身 8 只快死的小怪，转一圈
+        D2.cast('heartfire', P.x + 3, P.z, 40);
+        const s0 = Object.assign({}, S.stats);
+        for (let i = 0; i < 8; i++) T.mob('husk', 1 + (i % 4) * 0.4, (i < 4 ? -0.8 : 0.8), { hp: 1 });
+        G.save.bar[0] = 'whirl';
+        G.input.mouse.b[0] = true;
+        D2.run(0.5);
+        G.input.mouse.b[0] = false;
+        D2.run(0.5);
+        out.bursts = (S.stats.heartBursts || 0) - (s0.heartBursts || 0);
+        G.clearEnemies();
+        // 护火：近战命中叠层（最多 8），受到的伤害按层数降低
+        D2.v('heartfire', 'a');
+        D2.cast('heartfire', P.x + 3, P.z, 40);
+        out.convA = !G.skillCtx('whirl').base.fire;
+        T.mob('husk', 1.5, 0);
+        G.save.bar[0] = 'whirl';
+        G.input.mouse.b[0] = true;
+        D2.run(4);
+        G.input.mouse.b[0] = false;
+        out.ward = G.heartState().ward;
+        out.taken = +G.heartTaken().toFixed(3);
+        G.clearEnemies();
+        // 连烬：余烬炸死的接着炸（一排间隔 2.5 米的残血小怪，只砍第一只）
+        D2.v('heartfire', 'b');
+        D2.cast('heartfire', P.x + 3, P.z, 40);
+        const s1 = Object.assign({}, S.stats);
+        const row = [];
+        for (let i = 0; i < 4; i++) row.push(T.mob('husk', 1.4 + i * 2.5, 0, { hp: 1 }));
+        G.hitEnemy(row[0], G.skillCtx('whirl'), 1, {});
+        D2.run(1);
+        out.chain = (S.stats.heartBursts || 0) - (s1.heartBursts || 0);
+        out.chainDead = row.filter((e) => e.dead).length;
+        G.clearEnemies();
+        // 换成弓：心火灭了
+        G.save.cls = 'hunt';
+        D2.wield('huntbow');
+        D2.run(0.1);
+        out.bow = !!G.heartState();
+        D2.v('heartfire', 'o');
+        return out;
+      })
+    );
+    assert(r.dur === 16 && r.at15 && r.refresh && !r.after, '心火应持续 16 秒、再按从头计时：' + JSON.stringify(r));
+    assert(Math.abs(r.fire - 0.4) < 0.01, '心火期间应有 40% 物理转成火：' + JSON.stringify(r));
+    assert(r.bursts >= 6, '打死的敌人应炸成余烬：' + JSON.stringify(r));
+    assert(r.convA && r.ward === 8 && Math.abs(r.taken - 0.76) < 1e-6, '护火：不转火、叠满 8 层、受到的伤害 −24%：' + JSON.stringify(r));
+    assert(r.chain >= 3 && r.chainDead === 4, '连烬：余烬炸死的应接着炸：' + JSON.stringify(r));
+    assert(!r.bow, '换下重兵心火应灭：' + JSON.stringify(r));
+    return '16 秒、转火 ' + r.fire + '、余烬 ' + r.bursts + ' 次、护火 ' + r.ward + ' 层（受伤 ×' + r.taken + '）、连烬 ' + r.chain + ' 次';
+  });
+
+  await step('D2b-2·燎地：冲到头上挑、身后留火痕 6 秒（最多 2 道，叠着只烧一份）；燎原原地扇面火地；爆痕上挑时整条炸开、不留火痕', async () => {
+    const r = await withCls('guard', () =>
+      ev(() => {
+        T.lane();
+        const P = G.player, S = G.state, out = {};
+        D2.wield('hammer');
+        G.debug.god(true);
+        const L0 = { x: P.x, z: P.z };
+        for (let i = 0; i < 3; i++) {
+          T.tp(L0.x, L0.z + (i - 1) * 0.8);
+          D2.cast('scorch', P.x + 8, P.z, 50);
+        }
+        out.trails = G.burnState().filter((b) => b.kind === 'trail').length;
+        out.dur = +G.burnState()[0].dur.toFixed(2);
+        // 站在两道火痕交叉处的木桩：每 0.5 秒只挨一跳
+        G.clearEnemies();
+        const b0 = G.burnState()[1], e = T.mob('husk', 0, 0);
+        e.x = (b0.ax + b0.bx) / 2;
+        e.z = (b0.az + b0.bz) / 2;
+        let n = 0;
+        const orig = G.hitEnemy;
+        G.hitEnemy = function (x, ctx) {
+          if (x === e && ctx && ctx.id === 'scorch') n++;
+          return orig.apply(this, arguments);
+        };
+        D2.run(2);
+        G.hitEnemy = orig;
+        out.ticks2s = n;
+        D2.run(6);
+        out.gone = G.burnState().length;
+        G.clearEnemies();
+        D2.v('scorch', 'a');
+        T.lane();
+        D2.wield('hammer');
+        const x0 = P.x;
+        D2.cast('scorch', P.x + 8, P.z, 50);
+        out.fan = G.burnState().filter((b) => b.kind === 'fan').length;
+        out.fanMove = +(P.x - x0).toFixed(2);
+        G.debug.step(7);
+        D2.v('scorch', 'b');
+        T.lane();
+        D2.wield('hammer');
+        const s0 = S.stats.scorchBooms || 0;
+        const row = [T.mob('husk', 1.2, 0.4), T.mob('husk', 2.2, -0.4)];
+        // 冲过去的路上有两只：冲到第一只身前就停，上挑；火痕炸开打到路上的
+        D2.cast('scorch', P.x + 8, P.z, 50);
+        out.booms = (S.stats.scorchBooms || 0) - s0;
+        out.bTrail = G.burnState().length;
+        out.bHit = row.filter((x) => x.maxHp - x.hp > 0).length;
+        D2.v('scorch', 'o');
+        return out;
+      })
+    );
+    assert(r.trails === 2 && r.dur === 6 && r.gone === 0, '火痕最多 2 道、6 秒：' + JSON.stringify(r));
+    assert(r.ticks2s >= 3 && r.ticks2s <= 5, '叠着的火痕只烧一份（2 秒约 4 跳）：' + JSON.stringify(r));
+    assert(r.fan === 1 && Math.abs(r.fanMove) < 0.3, '燎原原地扇面火地：' + JSON.stringify(r));
+    assert(r.booms === 1 && r.bTrail === 0 && r.bHit === 2, '爆痕：上挑时炸开、不留火痕：' + JSON.stringify(r));
+    return '火痕 ' + r.trails + ' 道 ' + r.dur + ' 秒（叠着 2 秒 ' + r.ticks2s + ' 跳）；燎原 1 片；爆痕炸到 ' + r.bHit;
+  });
+
+  await step('D2b-2·图标和声音：5 个新宝石都有图标（不是字）和声音配方', async () => {
+    const r = await ev((NG) => {
+      const names = G.audio.names();
+      const keys = G.icons.keys();
+      return { snd: names.indexOf('cls2') >= 0, ic: NG.map((id) => id + ':' + (keys.indexOf('sk-' + id) >= 0 && /^(data|blob):/.test(G.icons.url('sk-' + id)) ? 1 : 0)).join(' ') };
+    }, D2B2_GEMS);
+    assert(r.snd, '缺声音配方：' + JSON.stringify(r));
+    assert(!/:0/.test(r.ic), '缺图标：' + r.ic);
+    return r.ic;
+  });
+}
+
 const CLASS_BASE_BUILD = '2065634'; // 合进来的 main（职业之前）
 let MS_SAMPLES = null; // 多存档那几步拼的老存档样本（slotSteps 里赋值），职业迁移再用一遍
 async function classSteps() {
@@ -21504,7 +22096,7 @@ async function classSteps() {
       assert(o.stable, c + '：读档再读一遍存档变了');
       gems[c] = o.gems;
     }
-    assert(JSON.stringify(gems) === JSON.stringify({ guard: 11, hunt: 12, star: 15, lamp: 14, forge: 12 }), '各职业能用的宝石数不对（散钉不给引星人；class-d2b1：炉匠 + 四种特殊弹）：' + JSON.stringify(gems));
+    assert(JSON.stringify(gems) === JSON.stringify({ guard: 14, hunt: 15, star: 15, lamp: 14, forge: 13 }), '各职业能用的宝石数不对（散钉不给引星人；class-d2b1：炉匠 + 四种特殊弹；class-d2b2：烬卫 + 3、夜猎 + 3、炉匠 + 绊雷）：' + JSON.stringify(gems));
     return JSON.stringify(gems);
   });
 

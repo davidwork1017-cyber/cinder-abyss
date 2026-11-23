@@ -326,11 +326,11 @@
     //   拿弓、拿枪都按 wm 乘手里武器的伤害（同散钉）。有冷却，攻速折进伤害（G.cdAps）
     snare: {
       name: '绊雷', icon: '绊', color: '#d8a070', tags: ['attack', 'area', 'phys', 'duration'], kind: 'snare', clsOnly: true, bclip: 'throw',
-      wm: 2.1, time: 0.45, mana: 8, cd: 1.2, speed: 24, projR: 0.2, range: 14, radius: 2.4, w: 1, kb: 1.1, poise: 18, stop: 30,
+      wm: 2.6, time: 0.45, mana: 8, cd: 1, speed: 24, projR: 0.2, range: 14, radius: 2.4, w: 1, kb: 0.5, poise: 18, stop: 30,
       mine: { arm: 0.35, trig: 1.6, dur: 7, max: 3 },
       useMult: 1,
       desc: '朝准星射一枚绊雷钉在地上，敌人走进 1.6 米就炸开（半径 2.4 米）。最多 3 枚，每枚存在 7 秒。',
-      alt: '射出 0.35 秒后才会触发。多出来的绊雷顶掉最早那枚。飞行途中不打怪。',
+      alt: '射出 0.35 秒后才会触发。多出来的绊雷顶掉最早那枚。飞行途中不打怪。冷却 1 秒。',
     },
     // 硬接：按住格挡（block.max 秒封顶）：正面（±block.arc°）受到的伤害 −block.dr%，走得很慢（block.move）。
     //   松手（至少挡过 block.min 秒）朝身前反砍一刀（st 的扇形）：倍率 = counter.base + 挡下的伤害 ÷ 最大生命 × counter.per，额外部分最多 +counter.cap。
@@ -338,11 +338,11 @@
     //   离你不到 0.3 米、说不出方向的（罩在你头上的圈、落石）算正面。地形、余烬地这类没有来源的伤害不挡
     brace: {
       name: '硬接', icon: '挡', color: '#e8d2a8', tags: ['attack', 'melee', 'area', 'phys'], kind: 'brace', clsOnly: true,
-      wm: 1.0, time: 0.42, mana: 6, cd: 0, w: 1, kb: 0.9, poise: 22, stop: 60,
+      wm: 1.0, time: 0.42, mana: 6, cd: 0, w: 1, kb: 0.9, poise: 22, stop: 60, cycle: 1, // cycle：一挡一砍约 1 秒（单体对等按它）
       block: { dr: 50, arc: 80, max: 2, min: 0.25, move: 0.3 },
       counter: { base: 1.7, per: 6, cap: 4 },
       st: { shape: 'arc', range: 3.0, arc: 120, mult: 1, dir: -1, w: 1, stop: 60, kb: 0.9, poise: 22 },
-      useMult: 1.7,
+      useMult: 2.3, // 单体：反砍 1.7 + 每次挡下约 10% 最大生命的一击（+0.6）
       desc: '按住格挡：正面受到的伤害 −50%，走得很慢，最多 2 秒。松手朝身前反砍一刀，挡下的伤害越多越痛。',
       alt: '至少挡 0.25 秒才反砍。反砍基础 ×1.7，挡下相当于最大生命 10% 的伤害多 +0.6，最多 +4。说不出方向的打击（罩在头上的圈）也算正面。',
     },
@@ -351,11 +351,11 @@
     //   一半伤害是火（conv）。火痕原稿 2.5 秒，按摆在地上的东西 6–8 秒改成 6 秒，每跳的倍率按时长折
     scorch: {
       name: '燎地', icon: '燎', color: '#ff8a4a', tags: ['attack', 'melee', 'area', 'phys', 'fire', 'movement'], kind: 'scorch', clsOnly: true, conv: { fire: 0.5 },
-      wm: 2.4, time: 0.5, mana: 10, cd: 3, w: 2, kb: 1.6, poise: 30, stop: 70,
+      wm: 3.4, time: 0.5, mana: 10, cd: 3, w: 2, kb: 1.6, poise: 30, stop: 70,
       dash: { d: 5, dmin: 2, dur: 0.2 },
       trail: { w: 1.6, dur: 6, tick: 0.5, mult: 0.06, max: 2 },
       st: { shape: 'arc', range: 3.0, arc: 110, mult: 1, dir: -1, w: 2, stop: 70, kb: 1.6, poise: 30 },
-      useMult: 1.25,
+      useMult: 1.05, // 单体：上挑 1（火痕在身后，前面的敌人偶尔踩到）
       desc: '拖着兵器朝准星冲 5 米，身后留一道火痕烧 6 秒，冲到头一记上挑把前面的怪挑飞。一半伤害是火焰。',
       alt: '撞墙或到场地边就停，途中不无敌。火痕最多同时 2 道，几道叠着只烧一份。冷却 3 秒。',
     },
@@ -367,19 +367,19 @@
       wm: 0.9, time: 0.5, mana: 14, cd: 0, w: 0, kb: 0.6, poise: 8,
       buff: { dur: 16, conv: 40 },
       burst: { r: 2, k: 0.55, cap: 6, chain: 0 },
-      useMult: 0.55, // 技能卡：一圈余烬（心火本身不打人）
+      useMult: 0.55, // 技能卡：一圈余烬（心火本身不打人；单体对等按「主力攻击技能 + 心火」算，见 G.variantRatio）
       desc: '把胸口的火引到兵器上 16 秒：40% 物理伤害转成火焰，你打死的敌人炸成一小圈余烬（半径 2 米）。',
       alt: '转换在化元之后，按剩下的物理算。余烬炸死的敌人不再炸，每秒最多炸 6 次。再按一次从头计时。',
     },
     // 跳射：往后跳 leap.d 米（leap.dur 秒跳完，起跳 leap.iframe 秒无敌，撞墙 / 场地边就停），落地前朝准星连射 n 箭（各 wm 倍，at 是各箭出手的时刻）
     leapshot: {
       name: '跳射', icon: '跃', color: '#a8d890', tags: ['attack', 'projectile', 'phys', 'movement'], kind: 'leap', clsOnly: true, bclip: 'throw',
-      wm: 0.6, time: 0.45, mana: 8, cd: 2, speed: 32, projR: 0.24, range: 20, w: 0, kb: 0.4, poise: 8,
+      wm: 0.75, time: 0.45, mana: 8, cd: 1.5, speed: 32, projR: 0.24, range: 20, w: 0, kb: 0.4, poise: 8,
       leap: { d: 4, dur: 0.34, iframe: 0.2 },
       arrows: { n: 3, at: [0.08, 0.17, 0.26], fan: 0 },
       useMult: 3,
-      desc: '往后跳 4 米，落地前朝准星连射 3 箭（各 ×0.6）。起跳的 0.2 秒无敌。',
-      alt: '撞墙或到场地边就停。冷却 2 秒。',
+      desc: '往后跳 4 米，落地前朝准星连射 3 箭（各 ×0.75）。起跳的 0.2 秒无敌。',
+      alt: '撞墙或到场地边就停。冷却 1.5 秒。',
     },
 
     // ---------- 武器技（R 键）：每种武器自带一个，跟着手里的武器走 ----------
@@ -1167,18 +1167,19 @@
       },
     },
     // ---------- D2b-2 的刻式（class-d2b2）----------
-    // 绊雷 A 连环：炸开时朝两侧弹出 n 枚小雷（离雷 d 米，delay 秒后落地就炸，半径 r、各 k 份）
-    //      B 钉索：不炸，弹出铁索把 r 米内的敌人钉住 t 秒（精英 × elite，首领不钉、减速 bossSlow 持续 t 秒），伤害 × k
+    // 绊雷 A 连环：炸开时朝两侧弹出 n 枚小雷（离雷 d 米，delay 秒后落地就炸，半径 r、各 k 份）；绊雷本身半径 2.4 → 1.8
+    //      B 钉索：不炸，弹出 n 道铁索把 r 米内最近的 n 个敌人钉住 t 秒（精英 × elite，首领不钉、减速 bossSlow 持续 t 秒）。
+    //             原稿伤害 ×0.5：刻式的单体对等（±10%）要它和原式打单体一样，改成 ×0.9（wm 2.35）、只拴最近的 3 个（怪多时打得少）
     snare: {
       a: {
         name: '连环', pack: '怪多时多炸两下；单体照原式',
-        desc: '绊雷炸开时朝两侧弹出 2 枚小雷，落地就炸（各 ×0.5）。', alt: '小雷离绊雷 2 米、半径 1.6 米。',
-        set: { mech: 'cluster', cluster: { n: 2, d: 2, r: 1.6, k: 0.5, delay: 0.3 } },
+        desc: '绊雷炸开时朝两侧弹出 2 枚小雷，落地就炸（各 ×0.5）。绊雷本身炸得小一点（半径 1.8 米）。', alt: '小雷离绊雷 2.6 米、半径 1.6 米。',
+        set: { mech: 'cluster', radius: 1.8, cluster: { n: 2, d: 2.6, r: 1.6, k: 0.5, delay: 0.3 } },
       },
       b: {
-        name: '钉索', pack: '控场；伤害减半',
-        desc: '绊雷不炸，弹出铁索把 3 米内的敌人钉住 1.5 秒（精英减半，首领只减速），伤害 ×0.5。', alt: '首领减速 40%，持续 1.5 秒。',
-        set: { mech: 'tether', root: { r: 3, t: 1.5, elite: 0.5, bossSlow: 0.4 }, wm: 1.05, useMult: 1, tags: ['attack', 'area', 'phys', 'duration'] },
+        name: '钉索', pack: '控住最近的 3 个；怪多时打得少',
+        desc: '绊雷不炸，弹出 3 道铁索，把 3 米内最近的 3 个敌人钉住 1.5 秒（精英减半，首领只减速），伤害 ×0.9。', alt: '首领减速 40%，持续 1.5 秒。',
+        set: { mech: 'tether', root: { r: 3, n: 3, t: 1.5, elite: 0.5, bossSlow: 0.4 }, wm: 2.35 },
       },
     },
     // 硬接 A 反震：每挡下一击，朝身边震出一圈冲击（半径 r、倍率 base + 这一击挡下的伤害 ÷ 最大生命 × per，额外最多 +cap；两次至少隔 gap 秒），松手不再反砍
@@ -1187,31 +1188,31 @@
     brace: {
       a: {
         name: '反震', pack: '被围着打最好用；松手不反砍',
-        desc: '每挡下一击，自动朝身边震出一圈冲击（半径 2.5 米）。松手时不再反砍。', alt: '冲击基础 ×0.8，挡下相当于最大生命 10% 的伤害多 +0.4，最多 +2。两次冲击至少隔 0.3 秒。',
-        set: { mech: 'jolt', jolt: { r: 2.5, base: 0.8, per: 4, cap: 2, gap: 0.3 } },
+        desc: '每挡下一击，自动朝身边震出一圈冲击（半径 2.5 米）。松手时不再反砍。', alt: '冲击基础 ×1.5，挡下相当于最大生命 10% 的伤害多 +0.6，最多 +3。两次冲击至少隔 0.3 秒。',
+        set: { mech: 'jolt', jolt: { r: 2.5, base: 1.5, per: 6, cap: 3, gap: 0.3 }, useMult: 2.1 },
       },
       b: {
         name: '拆招', pack: '看准了按；按早按晚都挨打',
-        desc: '只招架一瞬间：0.3 秒内挨打就完全免伤，闪到对方身后反刺（必定暴击）；没挨打就补一刀轻的。', alt: '反刺 ×2.4；轻刀 ×0.7。没招架到时 1.2 秒内不能再招架。对方身后站不住时原地反刺。',
-        set: { mech: 'parry', block: null, parry: { win: 0.3, rec: 0.28, cd: 1.2, k: 2.4, whiff: 0.7, iframe: 0.35 }, useMult: 2.4 },
+        desc: '只招架一瞬间：0.3 秒内挨打就完全免伤，闪到对方身后反刺（必定暴击）；没挨打就补一刀轻的。', alt: '反刺 ×1.55（必定暴击）；轻刀 ×0.7。没招架到时 1.2 秒内不能再招架。对方身后站不住时原地反刺。',
+        set: { mech: 'parry', block: null, parry: { win: 0.3, rec: 0.28, cd: 1.2, k: 1.55, whiff: 0.7, iframe: 0.35 }, sureCrit: true, useMult: 1.55 },
       },
     },
     // 燎地 A 燎原：不冲，原地横扫身前 fan.arc° × fan.len 米的扇面（st），扇面烧成一片（存在 dur 秒、每 tick 秒 mult 份，同时最多 max 片）
-    //      B 爆痕：冲得短一些，火痕上挑时整条一起炸开（每个敌人 boom.k 份），炸完就没了
+    //      B 爆痕：冲得短一些、穿过敌人（through），火痕上挑时整条一起炸开（每个敌人 boom.k 份），炸完就没了
     scorch: {
       a: {
         name: '燎原', pack: '不位移；身前一大片火',
         desc: '不冲，原地横扫，身前 120° 扇面烧成一片，烧 6 秒。', alt: '扇面 4 米。火地最多同时 2 片，和火痕叠着只烧一份。',
         set: {
-          mech: 'sweep', dash: null, trail: null, fan: { arc: 120, len: 4, dur: 6, tick: 0.5, mult: 0.06, max: 2 }, wm: 2.2,
-          st: { shape: 'arc', range: 4, arc: 120, mult: 1, dir: 1, w: 2, stop: 70, kb: 1.4, poise: 30 }, useMult: 1.25,
+          mech: 'sweep', dash: null, trail: null, fan: { arc: 120, len: 4, dur: 6, tick: 0.5, mult: 0.1, max: 2 }, wm: 2.1,
+          st: { shape: 'arc', range: 4, arc: 120, mult: 1, dir: 1, w: 2, stop: 70, kb: 1.4, poise: 30 }, useMult: 1.7, // 单体：横扫 1 + 站在火地里每秒 0.2、摊到每次（约 3.5 秒）0.7
           tags: ['attack', 'melee', 'area', 'phys', 'fire', 'duration'],
         },
       },
       b: {
         name: '爆痕', pack: '火痕短；上挑时整条炸开',
-        desc: '冲 3.5 米，火痕变短，上挑时整条火痕一起炸开。', alt: '火痕宽 2.2 米，炸开每个敌人 ×0.8。不留火痕。',
-        set: { mech: 'boom', dash: { d: 3.5, dmin: 2, dur: 0.16 }, trail: null, boom: { w: 2.2, k: 0.8 }, wm: 2.1, useMult: 1.8 },
+        desc: '冲 3.5 米（穿过敌人），火痕变短，上挑时整条火痕一起炸开。', alt: '火痕宽 2.2 米，炸开每个敌人 ×0.6。不留火痕。',
+        set: { mech: 'boom', dash: { d: 3.5, dmin: 2, dur: 0.16, through: true }, trail: null, boom: { w: 2.2, k: 0.6 }, useMult: 1 },
       },
     },
     // 心火 A 护火：不转火、不炸，每次近战命中叠一层护火（每层受到的伤害 −dr%，最多 max 层，keep 秒没打中就全掉），
@@ -1221,7 +1222,7 @@
       a: {
         name: '护火', pack: '扛着打；不加伤',
         desc: '不加伤，每次近战命中叠一层护火（每层受到的伤害 −3%，最多 8 层），贴身的敌人每秒被灼烧。', alt: '4 秒没打中护火全掉。灼烧半径 2.2 米。',
-        set: { mech: 'ward', buff: { dur: 16, conv: 0 }, burst: null, ward: { dr: 3, max: 8, keep: 4, r: 2.2, tick: 1, k: 0.3 }, useMult: 0.3 },
+        set: { mech: 'ward', buff: { dur: 16, conv: 0 }, burst: null, ward: { dr: 3, max: 8, keep: 4, r: 2.2, tick: 1, k: 0.25 }, useMult: 0.25 },
       },
       b: {
         name: '连烬', pack: '怪越多炸得越远',
@@ -1229,18 +1230,18 @@
         set: { mech: 'chain', burst: { r: 3, k: 0.55, cap: 8, chain: 3 } },
       },
     },
-    // 跳射 A 散羽：改成朝身前 fan° 扇面撒出 n 支箭（同时出手）
-    //      B 钉影：只射一支重箭（wm 倍），把目标钉住 pin.t 秒（精英 × elite，首领不受影响），打中加 focus 点专注
+    // 跳射 A 散羽：改成朝身前 fan° 扇面撒出 n 支箭（同时出手；单体按中 2 支对等）
+    //      B 钉影：只射一支重箭（wm 倍；原稿 ×1.6，原式三箭打单体已经是 3 × 0.75，抬到 ×2.4 才赢得了它自己的单体场景），把目标钉住 pin.t 秒（精英 × elite，首领不受影响），打中加 focus 点专注
     leapshot: {
       a: {
         name: '散羽', pack: '打一群；单体只中一两支',
-        desc: '改成朝身前扇面撒出 7 支箭（各 ×0.35）。', alt: '扇面 60°。',
-        set: { mech: 'fan', wm: 0.35, arrows: { n: 7, at: [0.14], fan: 60 }, useMult: 1.4 },
+        desc: '改成朝身前扇面撒出 7 支箭（各 ×0.75）。', alt: '扇面 30°，6 米外的单个敌人大约中 3 支。',
+        set: { mech: 'fan', wm: 0.75, arrows: { n: 7, at: [0.14], fan: 30 }, useMult: 3 },
       },
       b: {
         name: '钉影', pack: '单体；控住一个',
-        desc: '只射一支重箭（×1.6），把目标钉住 1 秒（精英减半，首领不受影响），专注 +25。', alt: '钉住不算冻结，首领照常动。',
-        set: { mech: 'pin', wm: 1.6, arrows: { n: 1, at: [0.15], fan: 0 }, pin: { t: 1, elite: 0.5 }, focus: 25, useMult: 1 },
+        desc: '只射一支重箭（×2.4），把目标钉住 1 秒（精英减半，首领不受影响），专注 +25。', alt: '钉住不算冻结，首领照常动。',
+        set: { mech: 'pin', wm: 2.4, arrows: { n: 1, at: [0.15], fan: 0 }, pin: { t: 1, elite: 0.5 }, focus: 25, useMult: 1 },
       },
     },
   };
