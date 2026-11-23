@@ -7269,6 +7269,89 @@ async function main() {
     return '8 件（稀有 3）· 同种子 ' + r.map((x) => x.n).join(' / ') + ' 件一致';
   });
 
+  await uiStep('背包页小屏布局：390×844 / 360×780 / 844×390 / 1024×640 / 1280×800 下背包不横向溢出、格子不小于 40 px、标题行按钮和底部提示都在屏幕里、物品浮窗不出屏；含稀有开着时含魔法显示暗勾', async () => {
+    const tipUid = await ev(() => {
+      const save = G.save;
+      window.__buKeep = { equip: Object.assign({}, save.equip), opts: Object.assign({}, save.opts), bag: save.bag.slice() };
+      save.bag.length = 0;
+      save.equip.ring = G.rollItem(60, 2, 'ring'); // 背包里也有戒指：浮窗带「当前装备」对比卡，最宽最高的情况
+      Object.assign(save.opts, { salvageMagic: false, salvageRare: true });
+      G.computeStats();
+      const slots = ['boots', 'belt', 'gloves', 'body', 'amulet', 'helm'];
+      for (let i = 0; i < 24; i++) G.debug.giveItem(i % 3, slots[i % 6]);
+      const uid = G.debug.giveItem(2, 'ring', undefined, 3).uid;
+      G.persist();
+      return uid;
+    });
+    const bad = [];
+    const got = [];
+    try {
+      for (const [w, h] of [[390, 844], [360, 780], [844, 390], [1024, 640], [1280, 800]]) {
+        await page.setViewportSize({ width: w, height: h });
+        await ev(() => G.ui.open('inv'));
+        await until(() => G.ui.isOpen() && !!document.querySelector('.inv .bag .cell'));
+        await panelSettled();
+        const m = await ev(() => {
+          const vw = innerWidth, vh = innerHeight, why = [];
+          if (document.documentElement.scrollWidth > vw) why.push('页面横向滚动 ' + document.documentElement.scrollWidth);
+          for (const sel of ['#panel-body', '.inv', '.col-m', '.inv-side', '.col-l', '.col-r', '.eq-grid', '.bag', '.cur-row', '.col-m > .sec-title']) {
+            const n = document.querySelector(sel);
+            if (n && n.scrollWidth > n.clientWidth + 1) why.push(sel + ' 横向溢出 ' + n.scrollWidth + '>' + n.clientWidth);
+          }
+          const pw = document.getElementById('panel-win').getBoundingClientRect();
+          if (pw.left < -0.5 || pw.right > vw + 0.5) why.push('面板出了屏幕 ' + Math.round(pw.left) + '..' + Math.round(pw.right));
+          const cells = Array.from(document.querySelectorAll('.bag .cell')).map((c) => c.getBoundingClientRect());
+          const cell = Math.min(...cells.map((r) => Math.min(r.width, r.height)));
+          if (cell < 40) why.push('背包格子只有 ' + cell.toFixed(1) + ' px');
+          // 背包标题行的按钮（图鉴 / 整理 / 含魔法 / 含稀有 / 一键分解）和底部提示：滚到能看见以后整个在屏幕里、点得到
+          const reach = Array.from(document.querySelectorAll('.col-m > .sec-title button')).concat(Array.from(document.querySelectorAll('.col-m > .inv-tips')));
+          for (const b of reach) {
+            b.scrollIntoView({ block: 'nearest' });
+            const r = b.getBoundingClientRect();
+            const name = b.textContent.trim().slice(0, 8);
+            if (r.left < -0.5 || r.right > vw + 0.5 || r.top < -0.5 || r.bottom > vh + 0.5) why.push(name + ' 不在屏幕里 ' + [r.left, r.top, r.right, r.bottom].map(Math.round).join(','));
+            else if (b.tagName === 'BUTTON') {
+              const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+              if (!hit || !(hit === b || b.contains(hit))) why.push(name + ' 被挡住');
+            }
+          }
+          const mg = document.querySelector('[data-opt="salvageMagic"]');
+          const tick = mg ? getComputedStyle(mg.querySelector('i'), '::after') : null;
+          if (!mg || !mg.disabled || !mg.classList.contains('on') || !tick || tick.content === 'none' || tick.display === 'none') why.push('含稀有开着时含魔法没有显示勾');
+          return { why, cell: Math.round(cell), cols: new Set(cells.map((r) => Math.round(r.left))).size };
+        });
+        // 物品浮窗（带对比卡）：整块在屏幕里
+        await ev((u) => document.querySelector('.cell[data-item="' + u + '"]').scrollIntoView({ block: 'center' }), tipUid);
+        await frames(2); // 滚动事件下一帧才到，到了会收起浮窗（ui.js 的 scroll 监听）：等它过去再悬停
+        const c = await ev((u) => T.rect('.cell[data-item="' + u + '"]'), tipUid);
+        await page.mouse.move(c.x - 6, c.y - 4);
+        await page.mouse.move(c.x, c.y);
+        await until(() => document.getElementById('tip').classList.contains('on')).catch(() => m.why.push('悬停物品没有出浮窗'));
+        const tip = await ev(() => { const r = document.getElementById('tip').getBoundingClientRect(); return { r: [r.left, r.top, r.right, r.bottom].map(Math.round), inside: r.left >= -0.5 && r.top >= -0.5 && r.right <= innerWidth + 0.5 && r.bottom <= innerHeight + 0.5 }; });
+        if (!tip.inside) m.why.push('浮窗出了屏幕 ' + tip.r.join(','));
+        await page.mouse.move(2, 2);
+        if (m.why.length) bad.push(w + '×' + h + '：' + m.why.join('；'));
+        got.push(w + '×' + h + ' ' + m.cols + ' 列 ' + m.cell + ' px');
+        await closePanel();
+      }
+    } finally {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await ev(() => {
+        const k = window.__buKeep, save = G.save;
+        if (!k) return;
+        for (const s of G.SLOTS) delete save.equip[s];
+        Object.assign(save.equip, k.equip);
+        Object.assign(save.opts, k.opts);
+        save.bag = k.bag;
+        G.computeStats();
+        G.persist();
+        delete window.__buKeep;
+      }).catch(() => {});
+    }
+    assert(!bad.length, '背包页小屏布局有问题：' + bad.join(' ｜ '));
+    return got.join(' · ');
+  });
+
   await uiStep('武器界面：HUD 的 R 格跟着武器换、空手写「无武器」并在按 R 时说明；武器提示有伤害 / 攻速 / 秒伤与对比；技能页有武器技卡；帮助页有武器一节', async () => {
     const r = await ev(async () => {
       const wait = (n) => new Promise((res) => { let i = 0; const f = () => (++i > n ? res() : requestAnimationFrame(f)); requestAnimationFrame(f); });
