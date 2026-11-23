@@ -20579,7 +20579,7 @@ async function titleSteps() {
     });
     assert(a.goal === '击败霜织者' && a.how === '首领 8 级', '应显示第 4 步：' + JSON.stringify(a));
     assert(a.al === 'block' && a.hint === 'none' && a.al2 === 'none', '按住 Alt 才展开详情：' + JSON.stringify(a));
-    assert(a.alt === '怪物 5 级 · 首领 8 级（你 ' + a.lv + ' 级）首次击败另得 2 点天赋打倒它们，拿它们攒下的火，铸成你的兵器。', 'Alt 详情不对：' + a.alt);
+    assert(a.alt === '怪物 5 级 · 首领 8 级（你 ' + a.lv + ' 级）首次击败另得 2 点天赋打倒它们，把它们攒的火铸成你的兵器。', 'Alt 详情不对：' + a.alt);
     return '第 2 → 4 步，进区奖励 ' + qDiff(cur1, cur2);
   });
 

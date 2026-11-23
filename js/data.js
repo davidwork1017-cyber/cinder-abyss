@@ -1915,9 +1915,9 @@
   G.QUEST_BOSS_LV = 3; // 首领等级 = 区域等级 + 3（enemies.js spawnZoneMobs）
   G.QUEST = [
     { id: 'ash_gate', kind: 'gate', zone: 'ash', l1: '沿路走到荒原尽头', l2: '首领在路的尽头', lore: '烧光了的荒地。', rw: { dust: 2, augment: 1 } },
-    { id: 'ash_boss', kind: 'boss', zone: 'ash', lore: '灰里的火，都聚在最凶的东西身上。' },
+    { id: 'ash_boss', kind: 'boss', zone: 'ash', lore: '灰里的火，聚到了最凶的东西身上。' },
     { id: 'frost_in', kind: 'in', zone: 'frost', lore: '冰下全是骨头。', rw: { dust: 1, regal: 1 } },
-    { id: 'frost_boss', kind: 'boss', zone: 'frost', lore: '打倒它们，拿它们攒下的火，铸成你的兵器。' },
+    { id: 'frost_boss', kind: 'boss', zone: 'frost', lore: '打倒它们，把它们攒的火铸成你的兵器。' },
     { id: 'storm_in', kind: 'in', zone: 'storm', lore: '老机关还在转，雷没停过。', rw: { dust: 1, regal: 1 } },
     { id: 'storm_boss', kind: 'boss', zone: 'storm', lore: '熄烛者还在一盏一盏掐灭剩下的火。' },
     { id: 'abyss_in', kind: 'in', zone: 'abyss', lore: '灰烬从这里来。', rw: { dust: 1, regal: 1 } },
