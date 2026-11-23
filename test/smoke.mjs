@@ -7190,9 +7190,11 @@ async function main() {
     assert(r.sellLocked === false && r.sellKept && r.sellOpen, '锁定的物品不应能卖：' + JSON.stringify(r));
     assert(r.auto.loot === 0 && r.auto.back && r.auto.n === 5, '自动分解不应化掉锁定的物品：' + JSON.stringify(r.auto));
 
-    // 存档：锁和开关随存档往返；老存档（没有 salvageRare / lk）默认关、没锁；畸形的 lk 修掉
+    // 存档：锁和开关随存档往返；老存档（没有 salvageRare / lk）默认关、没锁；畸形的 lk 修掉。
+    // 读档会让新手提示把当前（高等级）角色当成老角色：读完把存档世代还原（同「自动召唤」那一步），后面的新手提示步骤察觉不到
     r = await ev(([KEY, ids]) => {
       const out = {};
+      const epoch = G.saveEpoch;
       G.persist();
       const keep = localStorage.getItem(KEY);
       G.loadSave();
@@ -7209,6 +7211,7 @@ async function main() {
       out.fresh = G.newSave().opts.salvageRare;
       localStorage.setItem(KEY, keep);
       G.loadSave();
+      G.saveEpoch = epoch;
       G.computeStats();
       return out;
     }, [SAVE_KEY, ids]);
