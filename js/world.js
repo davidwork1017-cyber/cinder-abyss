@@ -13033,16 +13033,18 @@
   const GUN_AX = 0.15;
   // 枪口 / 喷嘴相对握点的 z（挂点 weapon 用）
   const GUN_MUZ = { gatling: 0.98, flamer: 0.92, revolver: 0.5 };
-  // 前握把（左手）的 z：和右手同一高度、在枪身轴线下方
-  const GUN_FORE = { gatling: 0.32, flamer: 0.34 };
+  // 前握把（左手）的 z：和右手同一高度、在枪身轴线下方。握把挪到右胯后，主角的手臂短，前握把往后收到机匣 / 输焰管根部，左手才够得着
+  const GUN_FORE = { gatling: 0.27, flamer: 0.27 };
   // 站立 / 跑动时右手的位置（胸口坐标系：握点、枪口指向、枪身「下方」——握把一侧）；并进 LOCO_2H
   const GUN_LOCO = {
-    [G_GAT]: { idle: [-0.06, -0.27, 0.16, 0.55, 0.0, 0.83, 0, -1, 0], run: [-0.1, -0.22, 0.14, 0.5, 0.3, 0.81, 0, -0.94, 0.33] },
-    [G_FLM]: { idle: [-0.06, -0.27, 0.16, 0.55, 0.0, 0.83, 0, -1, 0], run: [-0.1, -0.22, 0.14, 0.5, 0.3, 0.81, 0, -0.94, 0.33] },
+    // 机炮 / 喷枪：后握把握在右胯前侧（原来塞在肚子正中、枪身斜穿过身子），枪口顺着瞄准方向（上身右拧 GUN_TWIST，胸口坐标里的指向往左偏同样的角度），
+    // 左手托前握把（走 / 跑时也不松手，见 playerIK 的左手一段）
+    [G_GAT]: { idle: [-0.093, -0.262, 0.255, 0.752, 0.006, 0.659, 0, -1, 0.009], run: [-0.138, -0.043, 0.198, 0.749, 0.294, 0.593, 0.218, -0.956, 0.199] },
+    [G_FLM]: { idle: [-0.093, -0.262, 0.255, 0.752, 0.006, 0.659, 0, -1, 0.009], run: [-0.138, -0.043, 0.198, 0.749, 0.294, 0.593, 0.218, -0.956, 0.199] },
     [G_REV]: { idle: [-0.3, -0.48, 0.1, 0.05, -0.55, 0.83, 0, -0.83, -0.55], run: [-0.3, -0.42, 0.14, 0.05, -0.25, 0.97, 0, -0.97, -0.25] },
   };
   // 拿着机炮 / 喷枪时上身往右拧的角度（脊柱 + 胸口各一半），让斜端着的枪口朝正前方、左手够得着前握把
-  const GUN_TWIST = -0.3;
+  const GUN_TWIST = -0.65;
   function rangedGuns(b, WX, WY, GOLD, STEEL, STEEL_D) {
     const AY = WY + GUN_AX, GUNM = 0x2b2d33, GUNM2 = 0x4a4d57, OIL = 0x1c1a1d, BRASS = 0xc8963c, COPPER = 0xb0643a;
     // --- 转膛机炮：后握把 + 方正的机匣（顶上一排散热槽）+ 左侧弹鼓 + 六根枪管（挂 wGb，开火时绕轴转）+ 机匣前下方的前握把 ---
@@ -13056,10 +13058,10 @@
     b.surf(SURF.metal).p(gCyl(0.085, 0.085, 0.09, 10), [STEEL_D, STEEL], WX + 0.12, AY - 0.02, 0.1, 0, 0, HALF_PI);
     b.surf(SURF.gold).p(gTorus(0.085, 0.01, 4, 12), BRASS, WX + 0.165, AY - 0.02, 0.1, 0, HALF_PI, 0);
     b.p(gSweep('pl/gatbelt', [[0.12, -0.08, 0.1], [0.07, -0.07, 0.17], [0.03, -0.02, 0.2]], [0.022, 0.02, 0.02], 4), BRASS, WX, AY, 0);
-    // 前握把：竖直的一截，左手握在 z = 0.42、和右手同一高度
+    // 前握把：竖直的一截，挂在机匣前端下面，左手握着、和右手同一高度
     const FG = GUN_FORE.gatling;
     b.surf(SURF.leather).p(gCyl(0.026, 0.03, 0.17, 6), OIL, WX, WY + 0.02, FG).p(gRBox(0.07, 0.04, 0.09, 0.012), GUNM, WX, AY - 0.06, FG);
-    b.surf(SURF.metal).p(gCyl(0.06, 0.06, 0.05, 8), GUNM2, WX, AY, FG + 0.03, HALF_PI);
+    b.surf(SURF.metal).p(gCyl(0.06, 0.06, 0.05, 8), GUNM2, WX, AY, 0.35, HALF_PI); // 枪管箍：留在原处（前握把挪走了）
     // 稀有度光：机匣顶上三道散热槽 + 弹鼓中心
     for (const zz of [0.04, 0.12, 0.2]) b.x(gBox(0.09, 0.012, 0.018), 1, WX, AY + 0.127, zz);
     b.x(gOct(0.026), 1, WX + 0.17, AY - 0.02, 0.1);
@@ -14338,7 +14340,7 @@
       solveRig(ent);
       re = true;
     } else {
-      const tw = TWO_HAND[g] ? (c ? (c.hand ? (c.ikL === undefined ? 1 : c.ikL) : 0) : 1 - ent.mv) : 0;
+      const tw = TWO_HAND[g] ? (c ? (c.hand ? (c.ikL === undefined ? 1 : c.ikL) : 0) : g === G_GAT || g === G_FLM ? 1 : 1 - ent.mv) : 0;
       ik.lw += (tw - ik.lw) * Math.min(1, sdt * 14);
       if (ik.lw > 0.002 && TWO_HAND[g]) {
         // 柄上离左肩最近、又不和右手挤在一起的那一点
@@ -24919,7 +24921,7 @@
     muz: [], puffs: [], fires: [], shells: [], tracers: [],
     laser: { ext: -1, x: 0, z: 0, dx: 0, dz: 1, len: 0, scorch: 0 },
     buff: { type: null, t: 0, dur: 0, set: -9, acc: 0 },
-    spray: 0, novaK: -1, novaSet: -9, groundAt: -9, projAt: -9, fireAt: -9, flameAcc: 0, gaugeT: 0, gaugeFull: false, gaugeK: 0, groundAuto: 0,
+    spray: 0, novaK: -1, novaSet: -9, groundAt: -9, projAt: -9, fireAt: -9, flameAcc: 0, jet: { x: 0, z: 1 }, gaugeT: 0, gaugeFull: false, gaugeK: 0, groundAuto: 0,
   };
   const _rs = { x: 0, y: 0, z: 0 }, _rs2 = { x: 0, y: 0, z: 0 }, _rf = { x: 0, y: 0, z: 0 };
   const _qFlat = new T.Quaternion().setFromAxisAngle(new T.Vector3(1, 0, 0), -Math.PI / 2);
@@ -25173,9 +25175,10 @@
     muzzle: RF.muz.length, puffs: RF.puffs.length, fires: RF.fires.length, shells: RF.shells.length, tracers: RF.tracers.length,
     laser: RF.laser.ext >= wtime || clipNm(pEnt()) === 'r_gatling', buff: RF.buff.type, spin: (pEnt() && pEnt().gunSpin) || 0,
   });
-  function puffAdd(x, y, z, vx, vy, vz, life, s, wave) {
+  // ghost：喷枪的旧火团，只走模拟（随机数、熄灭时的烟）不画，火柱另画（flame-jet）
+  function puffAdd(x, y, z, vx, vy, vz, life, s, wave, ghost) {
     if (RF.puffs.length >= 220) RF.puffs.shift();
-    RF.puffs.push({ x, y, z, vx, vy, vz, t: 0, life, s, ph: rand(0, TAU), wave: wave || 0 });
+    RF.puffs.push({ x, y, z, vx, vy, vz, t: 0, life, s, ph: rand(0, TAU), wave: wave || 0, ghost: !!ghost });
   }
   // 动作开始播放的那一刻（W.play 包了一层）：记下开火时刻，弓的 R 自动开光环、喷枪的 R 记下出手帧
   function rangedOnPlay(ent, name, opts) {
@@ -25201,6 +25204,9 @@
   }
   function rangedClear() {
     RF.muz.length = RF.puffs.length = RF.fires.length = RF.shells.length = RF.tracers.length = 0;
+    jS.fill(0);
+    JET.live = 0;
+    JET.acc = 0;
     RF.buff.type = null;
     RF.laser.ext = -1;
     RF.groundAuto = 0;
@@ -25370,22 +25376,200 @@
     const s = G.SKILLS && G.SKILLS.basic_flamer;
     return (s && (s.range || s.r || s.len)) || 4.6;
   }
+  // ----- 喷枪的火柱（flame-jet）-----
+  // 原来是每帧在喷嘴同一点撒一批火团（每秒 75 团、各 0.55–0.85 米、只张开 ±10°），读起来是一串分开的火球。现在是一根连着的火柱：
+  //   喷嘴：一小团近白的亮芯（0.4 米以内），每片刚出来的 60 毫秒也偏白；
+  //   根部：细而快的加色火线，拖尾连回喷嘴（每片按这一帧里各自的出生时刻摆开，不会一帧一团）；
+  //   火身：片片减速、变宽、先往下沉一点再卷起来，画成卡通火团序列帧（各自翻滚、各自的帧），橙 → 红，亮的火舌舔在边上；
+  //   尾巴：碎成往上舔的火舌，熄成暗烟；火身最低的地方贴地舔几条小火舌，扇面里的敌人身上偶尔舔一下；喷到墙就顺着墙面摊开。
+  // 形状全由片号的哈希来，不碰 Math.random。旧火团照旧按原来的节奏、次数取随机数（ghost：只走模拟、不画），全局随机序列和以前一模一样。
+  // 都画在原来就有的 glow / flame / flameN 三个零件里，不多 draw call；低画质每秒片数减半。
+  const JN = 128, JK = 1.3, JG = 3.5; // 片数上限 / 水平阻尼（每秒）/ 往上浮的加速度
+  const jP = new Float32Array(JN * 3), jV = new Float32Array(JN * 3), jO = new Float32Array(JN * 4); // 位置 / 速度 / 出生点 xz + 喷射方向 xz
+  const jA = new Float32Array(JN), jL = new Float32Array(JN), jH = new Float32Array(JN), jWl = new Float32Array(JN);
+  const jS = new Uint8Array(JN); // 0 空、1 火、2 碰了墙的火、3 烟
+  const JET = { acc: 0, n: 0, live: 0 };
+  const _jc = [0, 0, 0];
+  const jfr = (x) => x - Math.floor(x);
+  const jmix = (a, b, k, o) => {
+    o[0] = a[0] + (b[0] - a[0]) * k; o[1] = a[1] + (b[1] - a[1]) * k; o[2] = a[2] + (b[2] - a[2]) * k;
+    return o;
+  };
+  const JC0 = [1.0, 0.5, 0.12], JC1 = [0.92, 0.32, 0.05], JC2 = [0.62, 0.12, 0.025], JC3 = [0.16, 0.035, 0.015];
+  // 火身的颜色（线性）：寿命进度 f 处
+  function jetCol(f) {
+    if (f < 0.25) return jmix(JC0, JC1, f / 0.25, _jc);
+    if (f < 0.6) return jmix(JC1, JC2, (f - 0.25) / 0.35, _jc);
+    return jmix(JC2, JC3, Math.min(1, (f - 0.6) / 0.4), _jc);
+  }
+  // 这一帧该出生的片：(nx, ny, nz) 喷嘴，(dx, dz) 喷射方向（单位、水平），rng 射程
+  function jetEmit(nx, ny, nz, dx, dz, rng, dt) {
+    const low = qualId === 'low', rate = low ? 45 : 90;
+    // 卡顿一大帧（切回标签页等）也只补几片，不一口气喷出一大团
+    JET.acc = Math.min(JET.acc + dt * rate, low ? 3 : 6);
+    if (JET.acc < 1) return;
+    // 到墙的距离：沿喷射方向每 0.3 米查一次（子弹飞得过的地方火也过得去）
+    let wl = rng + 1;
+    for (let d = 0.3; d <= rng + 0.6; d += 0.3) {
+      if (!W.shotFree(nx + dx * d, nz + dz * d)) { wl = d; break; }
+    }
+    while (JET.acc >= 1) {
+      JET.acc -= 1;
+      const tau = JET.acc / rate; // 这一片出生到现在的时间（出生时刻均匀摊在这一帧里）
+      const n = JET.n++, i = n % JN, j = i * 3, h = hash2(n, 17), h2 = hash2(n, 29), h3 = hash2(n, 43);
+      if (!jS[i]) JET.live++;
+      const sa = (h - 0.5) * 0.28, c = Math.cos(sa), s = Math.sin(sa), ex = dx * c + dz * s, ez = -dx * s + dz * c;
+      const life = 0.52 + 0.14 * h2, v0 = ((rng * JK) / (1 - Math.exp(-JK * life))) * (0.9 + 0.15 * h3), vy = -1.6 * (0.75 + 0.5 * h2);
+      const dk = Math.exp(-JK * tau), dd = (v0 * (1 - dk)) / JK;
+      jS[i] = 1; jA[i] = tau; jL[i] = life; jH[i] = h; jWl[i] = wl;
+      jO[i * 4] = nx; jO[i * 4 + 1] = nz; jO[i * 4 + 2] = dx; jO[i * 4 + 3] = dz;
+      jP[j] = nx + ex * dd; jP[j + 1] = ny + vy * tau + 0.5 * JG * tau * tau; jP[j + 2] = nz + ez * dd;
+      jV[j] = ex * v0 * dk; jV[j + 1] = vy + JG * tau; jV[j + 2] = ez * v0 * dk;
+    }
+  }
+  function jetStep(dt) {
+    if (!JET.live || !(dt > 0)) return;
+    const dk = Math.exp(-JK * dt), sk = Math.exp(-2 * dt), smokeP = 0.45;
+    for (let i = 0; i < JN; i++) {
+      const st = jS[i];
+      if (!st) continue;
+      const j = i * 3;
+      jA[i] += dt;
+      if (jA[i] >= jL[i]) {
+        // 火熄了：一半多变成往上飘的暗烟，其余直接没了
+        if (st !== 3 && jfr(jH[i] * 5.31 + 0.17) < smokeP) {
+          jS[i] = 3; jA[i] = 0; jL[i] = 0.55 + 0.35 * jfr(jH[i] * 3.7);
+          jV[j] *= 0.3; jV[j + 2] *= 0.3; jV[j + 1] = 0.8 + 0.6 * jfr(jH[i] * 9.1);
+        } else { jS[i] = 0; JET.live--; continue; }
+      }
+      if (st === 3) {
+        jV[j] *= sk; jV[j + 2] *= sk; jV[j + 1] += 0.5 * dt;
+      } else {
+        jV[j] *= dk; jV[j + 2] *= dk; jV[j + 1] += JG * dt;
+      }
+      jP[j] += jV[j] * dt; jP[j + 1] += jV[j + 1] * dt; jP[j + 2] += jV[j + 2] * dt;
+      if (jP[j + 1] < 0.12) { jP[j + 1] = 0.12; if (jV[j + 1] < 0) jV[j + 1] = 0; }
+      if (st === 1) {
+        // 喷到墙：顺着喷射方向的那份速度没了，往两边、往上摊开
+        const o = i * 4, dx = jO[o + 2], dz = jO[o + 3], along = (jP[j] - jO[o]) * dx + (jP[j + 2] - jO[o + 1]) * dz;
+        if (along > jWl[i] - 0.2) {
+          const va = Math.max(0, jV[j] * dx + jV[j + 2] * dz), side = (jfr(jH[i] * 7.7) - 0.5) * 1.4;
+          jV[j] += -dx * va - dz * side * va; jV[j + 2] += -dz * va + dx * side * va; jV[j + 1] += va * 0.3;
+          jS[i] = 2;
+        }
+      }
+    }
+  }
+  // 扇面里的敌人身上舔几条小火舌（小、一闪就换地方，不挡受击闪光和预警）
+  function jetLicks(nx, nz, dx, dz, rng, low) {
+    const St = G.state;
+    if (!St || !St.enemies) return;
+    const slot = Math.floor(wtime * 8);
+    let cnt = 0;
+    for (let q = 0; q < St.enemies.length && cnt < (low ? 3 : 6); q++) {
+      const e = St.enemies[q];
+      if (!e || e.dead) continue;
+      const ox = e.x - nx, oz = e.z - nz, d = Math.hypot(ox, oz);
+      if (d < 0.3 || d > rng + (e.r || 0.5)) continue;
+      if ((ox * dx + oz * dz) / d < 0.85) continue;
+      cnt++;
+      const r = e.r || 0.5, hgt = (G.MOBS && G.MOBS[e.type] && G.MOBS[e.type].h) || 1.8, ux = ox / d, uz = oz / d;
+      for (let k = 0, m = low ? 1 : 2; k < m; k++) {
+        const hh = hash2(q * 7 + k * 131 + 3, slot), h2 = hash2(q * 13 + k * 71 + 5, slot);
+        if (hh < 0.3) continue;
+        const lat = (h2 - 0.5) * r * 1.4, s = 0.28 + 0.16 * hh, fl = 0.85 + 0.25 * Math.sin(wtime * 31 + q * 3.1 + k);
+        mStretch(e.x - ux * r * 0.75 - uz * lat, 0.25 + h2 * hgt * 0.5, e.z - uz * r * 0.75 + ux * lat, 0, -1, 0, s * 0.6, s * 1.35 * fl);
+        pfPut('flameN', 1.0, 0.42, 0.07);
+      }
+    }
+  }
+  function jetDraw() {
+    if (!JET.live) return;
+    for (let i = 0; i < JN; i++) {
+      const st = jS[i];
+      if (!st) continue;
+      const j = i * 3, h = jH[i], t = jA[i], f = Math.min(1, t / jL[i]), o = i * 4, px = -jO[o + 3], pz = jO[o + 2];
+      if (st === 3) {
+        // 暗烟：往上飘、慢慢胀开，比地面暗
+        const s = (0.7 + 0.9 * f) * (0.85 + 0.3 * jfr(h * 4.3));
+        _pq.copy(camQ).multiply(_pq2.setFromAxisAngle(Z_AXIS, h * TAU + t * 0.8));
+        mPose(jP[j], jP[j + 1], jP[j + 2], _pq, s, s, s);
+        pfFx(0.1 + 0.85 * f, h, 0.85, 2);
+        pfPut('glow', 0.055, 0.045, 0.04);
+        continue;
+      }
+      // 乱流：垂直于喷射方向的横摆 + 上下起伏，越往外越大（每片各自的频率和相位）
+      const amp = 0.55 * Math.pow(f, 1.5), fq = 8 + 6 * jfr(h * 2.9);
+      const lat = amp * (Math.sin(t * fq + h * 40) + 0.5 * Math.sin(t * (19 + 7 * jfr(h * 6.1)) + h * 90));
+      const x = jP[j] + px * lat, y = jP[j + 1] + 0.3 * Math.pow(f, 1.5) * Math.sin(t * (11 + 5 * jfr(h * 8.3)) + h * 70), z = jP[j + 2] + pz * lat;
+      const vx = jV[j], vy = jV[j + 1], vz = jV[j + 2], sp = Math.hypot(vx, vy, vz) || 1;
+      const w = (0.28 + 0.85 * Math.pow(f, 0.6)) * (0.85 + 0.3 * jfr(h * 3.3));
+      // 根部：细长的加色火线，拖尾连回喷嘴；刚出来的 60 毫秒偏白
+      if (f < 0.2) {
+        const k = 1 - f / 0.2, ws = 0.12 + 0.6 * f;
+        mStretch(x, y, z, vx, vy, vz, ws, ws * (1 + sp * 0.1));
+        if (t < 0.06) pfPut('flame', 1.1 * k, 0.85 * k, 0.5 * k);
+        else pfPut('flame', 1.0 * k, 0.5 * k, 0.1 * k);
+      }
+      // 火芯：实色的橙色火舌顺着速度拉长、尾巴拖回喷嘴方向，一片接一片连成一股
+      if (f > 0.04 && f < 0.55) {
+        const k = f < 0.1 ? (f - 0.04) / 0.06 : f > 0.4 ? (0.55 - f) / 0.15 : 1, c = jetCol(f * 0.8);
+        mStretch(x, y, z, vx, vy, vz, w * 0.5 * k, w * (1.1 + sp * 0.05));
+        pfPut('flameN', c[0] * 1.05, c[1] * 1.1, c[2]);
+      }
+      // 火身：卡通火团序列帧（普通混合、三档色带），各自翻滚
+      if (f > 0.03) {
+        const c = jetCol(f), a = Math.min(1, (f - 0.03) / 0.07);
+        _pq.copy(camQ).multiply(_pq2.setFromAxisAngle(Z_AXIS, h * TAU + t * (jfr(h * 5.7) - 0.5) * 5));
+        mPose(x, y, z, _pq, w, w, w);
+        pfFx(0.22 + 0.7 * f, h, a * (f > 0.85 ? 1 - (f - 0.85) / 0.2 : 1), 1); // 序列帧最后一段自己会淡掉（进度 > 0.75），尾巴碎开、熄成烟
+        pfPut('glow', c[0], c[1], c[2]);
+      }
+      // 边上舔出的亮火舌：中段顺着喷射方向，越往尾巴越朝上
+      if (f > 0.3 && f < 0.8 && jfr(h * 11.3) < 0.35) {
+        const u = Math.min(1, Math.max(0, (f - 0.35) / 0.5)), sd = jfr(h * 13.7) < 0.5 ? -1 : 1, fl = 0.85 + 0.25 * Math.sin(wtime * 23 + h * 50);
+        let tx = (vx / sp) * (1 - u), ty = (vy / sp) * (1 - u) + u, tz = (vz / sp) * (1 - u);
+        const tl = Math.hypot(tx, ty, tz) || 1;
+        tx /= tl; ty /= tl; tz /= tl;
+        const k = f < 0.38 ? (f - 0.3) / 0.08 : f > 0.7 ? (0.8 - f) / 0.1 : 1;
+        mStretch(x + px * sd * w * 0.35, y + w * 0.12, z + pz * sd * w * 0.35, -tx, -ty, -tz, w * 0.3 * k, w * 0.6 * fl * k);
+        pfPut('flameN', 1.0 - 0.15 * u, 0.45 - 0.2 * u, 0.08 - 0.03 * u);
+      }
+      // 火身最低的地方贴地舔几条小火舌
+      if (f > 0.5 && f < 0.9 && y < 0.9 && jfr(h * 17.9) < 0.3) {
+        const k = Math.sin(((f - 0.5) / 0.4) * Math.PI), s = (0.32 + 0.2 * jfr(h * 19.1)) * k, fl = 0.8 + 0.3 * Math.sin(wtime * 27 + h * 60);
+        mStretch(x + px * (jfr(h * 23.3) - 0.5) * w, 0.04, z + pz * (jfr(h * 23.3) - 0.5) * w, 0, -1, 0, s * 0.7, s * 1.4 * fl);
+        pfPut('flameN', 0.95, 0.36, 0.06);
+      }
+    }
+  }
+  W.jetInfo = () => {
+    let fire = 0, smoke = 0;
+    for (let i = 0; i < JN; i++) if (jS[i] === 3) smoke++; else if (jS[i]) fire++;
+    return { n: JET.n, fire, smoke };
+  };
   function rangedPfDraw(dt) {
     const ent = pEnt(), nm = clipNm(ent), P = G.player;
-    // --- 喷枪：喷射期间从喷嘴往前喷火团 ---
-    if (ent && ent.gearType === G_FLM && nm === 'fire_flamer' && dt > 0) {
+    // --- 喷枪：喷射期间从喷嘴往前喷一根火柱（见上面的 flame-jet） ---
+    const flaming = ent && ent.gearType === G_FLM && nm === 'fire_flamer';
+    if (flaming && dt > 0) {
       W.entSocket(ent, 'weapon', _rs);
       weaponFwd(ent, _rf);
       const rng = flameRange(), sp = 10;
+      // 旧火团照旧按原来的节奏和次数取随机数（只走模拟、不画，熄灭时的烟照旧），全局随机序列不变
       RF.flameAcc += dt * 75;
       while (RF.flameAcc >= 1) {
         RF.flameAcc -= 1;
         const spr = rand(-0.17, 0.17), c = Math.cos(spr), s = Math.sin(spr), fx = _rf.x * c + _rf.z * s, fz = -_rf.x * s + _rf.z * c, v = sp * rand(0.85, 1.1);
-        puffAdd(_rs.x + fx * 0.05, _rs.y, _rs.z + fz * 0.05, fx * v, rand(-0.3, 0.5), fz * v, (rng / sp) * rand(0.8, 1.05), rand(0.55, 0.85), 0);
+        puffAdd(_rs.x + fx * 0.05, _rs.y, _rs.z + fz * 0.05, fx * v, rand(-0.3, 0.5), fz * v, (rng / sp) * rand(0.8, 1.05), rand(0.55, 0.85), 0, true);
       }
-      // 喷嘴口一团亮火
-      mBill(_rs.x, _rs.y, _rs.z, 0.7);
-      pfPut('glow', 1.2, 0.7, 0.25);
+      // 喷射方向：枪口的朝向（喷射动作里左右轻摆）和「喷嘴 → 准星方向 4.5 米处」各占一半，火柱和实际灼烧的扇面对得上
+      const aim = P.face || 0, tx = P.x + Math.sin(aim) * 4.5 - _rs.x, tz = P.z + Math.cos(aim) * 4.5 - _rs.z, tl = Math.hypot(tx, tz) || 1;
+      let jx = _rf.x + tx / tl, jz = _rf.z + tz / tl;
+      const jl = Math.hypot(jx, jz) || 1;
+      jx /= jl; jz /= jl;
+      RF.jet.x = jx; RF.jet.z = jz;
+      jetEmit(_rs.x + jx * 0.05, _rs.y, _rs.z + jz * 0.05, jx, jz, rng, dt);
       flashLight(_rs.x + _rf.x * 1.5, 1.6, _rs.z + _rf.z * 1.5, 0xff8a3c, 1.4);
       // 地上的余烬：game.js 自己没放的话，隔一会儿在火焰尽头落一小片
       if (wtime - RF.groundAt > 1.2) {
@@ -25395,7 +25579,16 @@
           fireLite(_rs.x + _rf.x * d, _rs.z + _rf.z * d);
         }
       }
-    } else RF.flameAcc = 0;
+    } else RF.flameAcc = 0; // 和原来一样：没在喷、或这一帧 dt 为 0（顿帧）都清零
+    jetStep(dt);
+    jetDraw();
+    if (flaming) {
+      // 喷嘴口一小团近白的亮芯（0.4 米以内）+ 扇面里的敌人身上舔的小火舌
+      W.entSocket(ent, 'weapon', _rs);
+      mBill(_rs.x, _rs.y, _rs.z, 0.34 + 0.06 * Math.sin(wtime * 37));
+      pfPut('glow', 1.2, 0.9, 0.55);
+      jetLicks(P.x, P.z, RF.jet.x, RF.jet.z, flameRange(), qualId === 'low');
+    }
     // --- 焚天炎爆：出手帧放火浪（game.js 调过 W.fireNova 就不重复） ---
     if (ent && RF.novaK >= 0) {
       if (nm !== 'r_flamer' && nm !== 'w_flamer') RF.novaK = -1;
@@ -25466,6 +25659,7 @@
       const dr = Math.max(0, 1 - (f.wave ? 1.5 : 1.2) * dt);
       f.vx *= dr; f.vz *= dr; f.vy += dt * 1.6;
       f.x += f.vx * dt; f.y = Math.max(0.15, f.y + f.vy * dt); f.z += f.vz * dt;
+      if (f.ghost) continue;
       const a = f.t / f.life, s = f.s * (0.45 + a * 1.3), fl = 1 + 0.15 * Math.sin(wtime * 31 + f.ph);
       const r = 1, g = a < 0.25 ? 0.75 - a : 0.5 - a * 0.4, b = a < 0.2 ? 0.3 : 0.06, kk = a < 0.75 ? 1 : (1 - a) * 4;
       const vl = Math.hypot(f.vx, f.vz) || 1;
