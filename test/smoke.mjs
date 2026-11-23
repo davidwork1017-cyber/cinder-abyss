@@ -20317,7 +20317,7 @@ async function main() {
 // ------------------------------------------------------------------ 职业（class-d2）
 // 五个职业 + 宝石 / 武器绑定。没有 save.cls 的存档（测试 harness、bench、旧代码写回的）照职业之前的规则跑：
 // 掉落序列、Math.random 的调用次数都和职业之前的 main（CLASS_BASE_BUILD）一样，用 /__old/ 同源跑一遍旧代码比对。
-const CLASS_BASE_BUILD = 'ea00b5b';
+const CLASS_BASE_BUILD = '0ea3449'; // 合进来的 main（职业之前）
 let MS_SAMPLES = null; // 多存档那几步拼的老存档样本（slotSteps 里赋值），职业迁移再用一遍
 async function classSteps() {
   const fresh = async (o) => {
