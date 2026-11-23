@@ -11544,10 +11544,12 @@ async function main() {
         T.lane();
         const b = G.spawnBoss('golem', P.x + 4, P.z, 1), c = G.spawnBoss('golem', P.x + 4, P.z + 6, 1);
         c.ent.phase = b.ent.phase; c.ent.clock = b.ent.clock; c.ent.walk = b.ent.walk; // 移动姿态（呼吸）的相位一样，两只只差挨不挨打
-        for (const x of [b, c]) { x.cd = x.busy = 1e9; W.play(x.ent, 'slam_w', { dur: 0.8 }); }
-        for (let i = 0; i < 30; i++) G.tick(1 / 60);
+        // 只推进这两只的动画（不跑模拟：地面伤害、异常之类会让两只的状态不一样）
+        for (const x of [b, c]) { x.cd = x.busy = 1e9; x.ent.hitT = 0; W.play(x.ent, 'slam_w', { dur: 0.8 }); }
+        const step2 = () => { for (const x of [b, c]) W.animEnt(x.ent, 1 / 60, false); };
+        for (let i = 0; i < 30; i++) step2();
         W.hitReact(b.ent, 0, 2);
-        G.tick(1 / 60); G.tick(1 / 60); G.tick(1 / 60);
+        step2(); step2(); step2();
         const hj = b.ent.rig.hitJ[0];
         out.steady = { root: Math.max(...Array.from(b.ent.out.slice(0, 9)).map((v, i) => Math.abs(v - c.ent.out[i]))), hitJ: +Math.hypot(b.ent.out[hj] - c.ent.out[hj], b.ent.out[hj + 2] - c.ent.out[hj + 2]).toFixed(4) };
       } finally {
