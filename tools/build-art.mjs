@@ -79,7 +79,10 @@ export function manifestEntry(st) {
     h: r3(h),
     r: r3(Math.max(-s.min[0], s.max[0], -s.min[2], s.max[2])),
     y0: r3(s.min[1]),
-    source: { script: 'art/ca/gen.py', gen: st.gen, catalog: 'art/catalog.py', seed: st.seed, args: st.args, bake: st.bake },
+    source: st.cat === 'boss'
+      ? { script: 'art/ca/boss/' + st.gen + '.py', clips: 'art/ca/boss/' + st.gen + '_clips.py', gen: st.gen, catalog: 'art/catalog.py', seed: st.seed, args: st.args, bake: st.bake }
+      : { script: 'art/ca/gen.py', gen: st.gen, catalog: 'art/catalog.py', seed: st.seed, args: st.args, bake: st.bake },
+    ...(st.cat === 'boss' ? { bones: st.bones, clips: st.clips, home: st.home } : {}),
     sha256: crypto.createHash('sha256').update(buf).digest('hex'),
   };
 }
@@ -121,7 +124,7 @@ async function main() {
   };
   fs.writeFileSync(mfile, JSON.stringify(man, null, 1) + '\n');
   // 调色板图集也单独放一份 PNG（文档、以后引擎里直接采样用；和 GLB 里内嵌的是同一份字节）
-  const first = assets[0] && readGlb(path.join(root, assets[0].file));
+  const first = assets.find((a) => a.category !== 'boss') && readGlb(path.join(root, assets.find((a) => a.category !== 'boss').file));
   if (first && first.json.images && first.json.images[0]) {
     const bv = first.json.bufferViews[first.json.images[0].bufferView];
     fs.writeFileSync(path.join(outDir, 'palette.png'), first.bin.subarray(bv.byteOffset || 0, (bv.byteOffset || 0) + bv.byteLength));

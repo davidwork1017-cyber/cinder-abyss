@@ -1,4 +1,4 @@
-# 共享调色板图集：所有布景件共用一张 64×32 的小图（16 行 × 每行 2 像素高），每行是一条从暗到亮的色带。
+# 共享调色板图集：所有布景件和首领共用一张 64×64 的小图（32 行 × 每行 2 像素高，boss-golem 起从 64×32 长到 64×64，已有行号不变），每行是一条从暗到亮的色带。
 # 面的 UV 落在某一行的某个位置（u = 明暗），游戏端烘焙时按 UV 取色进顶点色（见 js/assets.js 的 bakeGltf），
 # 所以换色只改这里、重新 npm run build:art，所有件一起变；也方便以后在引擎里直接采样同一张图做批量绘制。
 # 颜色是 sRGB 十六进制；色带内按 u 在相邻色标之间线性插值（在 sRGB 里插，色带短，差别看不出来）。
@@ -7,8 +7,9 @@
 import struct
 import zlib
 
-W, H = 64, 32
+W, H = 64, 64
 ROW_H = 2
+SLOTS = H // ROW_H  # 图集能放的行数；还没用到的行画成黑色（不会被取到）
 
 # 行号固定（GLB 里的 UV 依赖它），新增只往后加，不要改已有行的顺序
 ROWS = [
@@ -27,9 +28,11 @@ ROWS = [
     ('plank', ['#5e4630', '#866548', '#ab8660', '#cba67e']),  # 12 浅木板（盾面这类要读得出木纹的件；比 wood 亮，不改 wood 是为了不动已经通过的枯树）
     ('slate', ['#5a6668', '#7c8a8c', '#a0acac', '#c2cccb']),  # 13 板岩（坠星裂谷：冷青灰的板岩块、石碑、碎地砖；游戏里再乘 rift 的 prop.tint）
     ('starglass', ['#1e5a66', '#3aa6b8', '#7aeeff', '#d8fcff']),  # 14 星辉（坠星裂谷：断面、小晶刺，弱自发光，保留色相）
-    ('brass', ['#4a3418', '#7a5a28', '#b8883a', '#f2d08a']),  # 15 黄铜（雷鸣遗迹：雷枢的线圈 / 尖帽 / 雷纹、立灯的格栅和灯芯）。图集 16 行到此用满，再加就长成 64×64
+    ('brass', ['#4a3418', '#7a5a28', '#b8883a', '#f2d08a']),  # 15 黄铜（雷鸣遗迹：雷枢的线圈 / 尖帽 / 雷纹、立灯的格栅和灯芯）
+    ('basalt', ['#3a3735', '#57524e', '#7a736c', '#9e958c']),  # 16 玄武岩（首领：熔渣巨像的大块，中性略暖的暗灰；在区域灯光的冷色补光下不发蓝，比熔渣亮，受光面在灰度检查的 55–75%）
 ]
 ROW = {name: i for i, (name, _) in enumerate(ROWS)}
+assert len(ROWS) <= SLOTS, '调色板行数超过图集容量'
 
 
 def _hex(h):
@@ -57,10 +60,10 @@ def atlas_png():
     """调色板图集的 PNG 字节（自己写编码器：同样的输入永远得到同样的字节）"""
     raw = bytearray()
     for y in range(H):
-        row = min(len(ROWS) - 1, y // ROW_H)
+        row = y // ROW_H
         raw.append(0)  # 每行的过滤类型：无
         for x in range(W):
-            raw.extend(ramp(row, (x + 0.5) / W))
+            raw.extend(ramp(row, (x + 0.5) / W) if row < len(ROWS) else (0, 0, 0))
 
     def chunk(t, data):
         c = struct.pack('>I', len(data)) + t + data

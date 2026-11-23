@@ -111,6 +111,10 @@ CATALOG = [
          bake=dict(ao=0.04, grad=0.01, wear=0.4, grime=0.2), finish=dict(dust=0.0), cues=dict(second=False, val=0.12, lichen=0)),
     dict(id='ca/gear_lantern_t3', gen='hand_lantern', seed=223, cat='weapon', zone='gear', ship=True, replaces=None, args=dict(tier=2),
          bake=dict(ao=0.04, grad=0.01, wear=0.4, grime=0.25), finish=dict(dust=0.0), cues=dict(second=False, val=0.12, lichen=0)),
+    # ---- 首领（boss-design）：带骨架、蒙皮和动作，assets/ca/boss/<kind>.glb；id = ca/boss_<kind>，zone 写 boss，home = 打进哪一区的首领包（js/assets/boss-<kind>.js）。
+    # 生成器在 art/ca/boss/<kind>.py（造型 + 骨架 + 软接缝），动作表在 art/ca/boss/<kind>_clips.py ----
+    dict(id='ca/boss_golem', gen='golem', seed=181, cat='boss', zone='boss', home='ash', ship=True, replaces=None,
+         bake=dict(ao=0.7, grad=0.9, wear=0.4, grime=0.3, gain=1.15), finish=dict(dust=0.12), cues=dict(second=True, val=0.3, lichen=0.1)),
 ]
 
 # 看板（lineup）：每个生成器 × 几个种子，参数沿用清单里第一个用到它的件
