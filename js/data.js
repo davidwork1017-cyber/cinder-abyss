@@ -183,13 +183,16 @@
     // 前期（宝石等级 15 以内）装备还堆不出三份元素加成：chaosEarly 的技能按 G.chaosEarlyK 再乘一点，1 级相当于 0.95 倍，到 15 级收回 0.75 倍
     // 黑洞：在准星处（最远 range，撞墙截在墙前）撕开 dur 秒的黑洞，每 tick 秒对 radius 以内的敌人造成一跳伤害；
     //   pullR × radius 以内的敌人被往中心拽：速度 pull × (0.6 + 0.4 × 越靠近中心越快) / √体重，首领固定 bossPull，离中心 core 以内不再拽。
-    //   同一个敌人同一时刻只吃一个黑洞的跳（渊口的小黑洞也算）。持续类法术：回响镶不上
+    //   持续 = 冷却（6 秒，一跳 0.5 秒）：不加冷却缩短、持续延长时场上只有一个，伤害按「每次施放 dur / tick 跳 × 每秒施放次数」算。
+    //   你自己的黑洞最多 2 个同时在场（第三个顶掉最老的），重叠时各跳各的；渊口不叠在黑洞上（刚吃过任何黑洞 / 渊口跳的敌人，渊口跳过它）。
+    //   每跳最多伤到离洞心最近的 cap 个（怪聚成一团时不再每只都吃满；渊口不封顶）。持续类法术：回响镶不上
     blackhole: {
       name: '黑洞', icon: '洞', color: '#ff6ad2', tags: ['spell', 'area', 'chaos', 'duration'], kind: 'hole', noSup: ['echo'],
       dmg: { chaos: [3.9, 5.8] }, chaosEarly: true, time: 0.5, mana: 20, cd: 6, range: 14,
-      radius: 3.2, pullR: 1.35, dur: 3, tick: 0.25, pull: 4.5, bossPull: 0.5, core: 0.7,
-      w: 0, kb: 0, poise: 2, useMult: 12,
-      desc: '在准星处撕开黑洞 3 秒，把周围敌人拽向中心并持续造成混沌伤害。越轻拽得越狠，首领几乎拽不动。',
+      radius: 3.2, pullR: 1.35, dur: 6, tick: 0.5, pull: 4.5, bossPull: 0.5, core: 0.7,
+      w: 0, kb: 0, poise: 2, useMult: 12, cap: 13,
+      desc: '在准星处撕开黑洞 6 秒，把周围敌人拽向中心并持续造成混沌伤害，每跳最多伤到最近的 13 个敌人。越轻拽得越狠，首领几乎拽不动。',
+      alt: '「最近」按离黑洞中心的距离算，散开的怪和单体不受这个上限影响。最多同时存在 2 个黑洞，多了顶掉最老的；渊口不叠在黑洞上。',
     },
     // 黑旋风（第三轮改）：每次施放放出 count 团又快又小的漩涡（多重投射再加），扇形每团隔 spread°，路线带一点随机的摆动（wander 弧度 / 秒）。
     //   碰到敌人就吸附 latch.t 秒（贴着它不走），期间把 latch.r 以内的小怪往漩涡拽（latch.pull / √体重，首领只挪 latch.bossPull），松开后接着飞。
@@ -828,13 +831,15 @@
     blackhole: {
       a: {
         name: '双极', pack: '拉成一排；覆盖面小',
-        desc: '在准星两侧各开一个小黑洞（相距 6.5 米），持续 3 秒；之间的引力索把敌人拽成一排，索上同样受伤。',
+        desc: '在准星两侧各开一个小黑洞（相距 6.5 米），持续 6 秒；之间的引力索把敌人拽成一排，索上同样受伤。每跳最多伤到最近的 13 个敌人。',
+        alt: '「最近」按离引力索的距离算。最多同时存在 2 对，多了顶掉最老的。',
         set: { mech: 'twin', radius: 2.0, twin: { gap: 6.5, w: 0.9 } },
       },
       b: {
         name: '坍缩', pack: '怪越多越重；每跳较轻',
-        desc: '黑洞持续 4 秒，伤到敌人就长大。期间再按一次当场坍缩，伤害按攒下的质量；不按则结束时坍缩，伤害减半。',
-        set: { mech: 'collapse', dur: 4, dmg: { chaos: [2.34, 3.48] }, useMult: 20, collapse: { cap: 30, k0: 0.8, k1: 0.2, end: 0.5, grow: 40, r: 1.2 } },
+        desc: '黑洞持续 6 秒，伤到敌人就长大。期间再按一次当场坍缩，伤害按攒下的质量；不按则结束时坍缩，伤害减半。每跳最多伤到最近的 8 个敌人，坍缩最多砸到 7 个。',
+        alt: '「最近」按离黑洞中心的距离算。最多同时存在 2 个，多了顶掉最老的（不坍缩）。',
+        set: { mech: 'collapse', dur: 6, tick: 0.375, dmg: { chaos: [2.34, 3.48] }, useMult: 20, cap: 8, collapse: { cap: 30, k0: 0.8, k1: 0.2, end: 0.5, grow: 40, r: 1.2, hit: 7 } },
       },
     },
     vortex: {
@@ -1002,8 +1007,8 @@
   Object.assign(G.VARIANTS.blackhole, {
     c: {
       name: '随核', relic: 'yinli', pack: '跟着你走；贴身打',
-      desc: '黑洞开在你身上并跟着你移动 3 秒，每隔片刻把周围的敌人往你脚下拽一把。', alt: '首领的牵引不变，也不被拽。冷却不变。星蚀的渊口照常在敌人脚下张开。',
-      set: { mech: 'follow', useMult: 19.56, follow: { dur: 1, radius: 1.1, pull: 1.2, dmg: 1.63, wave: { iv: 0.75, k: 2.6, step: 2.5 } } },
+      desc: '黑洞开在你身上并跟着你移动 6 秒，每隔片刻把周围的敌人往你脚下拽一把。每跳最多伤到离你最近的 9 个敌人。', alt: '首领的牵引不变，也不被拽。冷却不变。最多同时存在 2 个。星蚀的渊口照常在敌人脚下张开。',
+      set: { mech: 'follow', useMult: 19.56, cap: 9, follow: { dur: 1, radius: 1.1, pull: 1.2, dmg: 1.63, wave: { iv: 0.75, k: 2.6, step: 2.5 } } },
     },
   });
   G.VARIANT_RELIC = {}; // 渊契 id → 它解锁渊式的技能 id
@@ -1456,7 +1461,7 @@
   G.UNIQUES.jinyu.mechDesc = '普攻的冰晶每跳额外灌入 ' + pc(G.EMBER_MECH.ignite) + ' 条冰霜异常值。';
   // 渊口（星蚀）：任何敌人触发渊缚时，脚下张开一道小黑洞：半径 radius、持续 dur 秒、牵引 × pull、每跳伤害按你的黑洞宝石的 dmg 倍
   //   （没学黑洞时按同等级的基础值）；同时最多 max 道，每 gap 秒最多新开一道
-  G.VOID_MOUTH = { radius: 2.4, dur: 1.5, pull: 0.6, dmg: 0.5, max: 2, gap: 2 };
+  G.VOID_MOUTH = { radius: 2.4, dur: 1.5, pull: 0.6, dmg: 0.5, max: 2, gap: 2, tick: 0.25 }; // tick：渊口自己的跳（黑洞改成 0.5 秒一跳后渊口照旧 0.25）
   G.UNIQUES.xingshi.mechDesc = '敌人触发渊缚时，脚下张开渊口：' + G.VOID_MOUTH.dur + ' 秒的小黑洞，半径 ' + G.VOID_MOUTH.radius + ' 米，牵引为黑洞的 ' + pc(G.VOID_MOUTH.pull) +
     '，每跳伤害为你黑洞的 ' + pc(G.VOID_MOUTH.dmg) + '。秘弹连射固定为混沌。';
   G.UNIQUES.xingshi.mechAlt = '同时最多 ' + G.VOID_MOUTH.max + ' 道，每 ' + G.VOID_MOUTH.gap + ' 秒最多新开一道。';
@@ -1627,7 +1632,7 @@
     VC('meteor').line = '放在技能栏上就自动落星，每 ' + st.iv + ' 秒砸向 ' + st.r + ' 米内敌人最密处，伤害 ' + pc(st.mult) + '；不耗魔力，保留 ' + st.reserve + '% 最大魔力。';
     VC('arc').line = '电弧经过的每一段都留下 ' + br.t + ' 秒电桥，每 ' + br.tick + ' 秒电一下碰到的敌人（' + pc(br.mult) + '）。';
     VC('thrall').line = '只召唤一具骸王：生命 ×' + kg.life + '、伤害 ×' + kg.dmg + '，横斩 ' + kg.arc + '° 带到 ' + kg.cleave + ' 个敌人。';
-    VC('blackhole').line = '黑洞开在你身上、跟着你走，每跳伤害 ' + pc(fo.dmg) + '；每 ' + fo.wave.iv + ' 秒把 ' + Math.round(SK.blackhole.radius * fo.radius * fo.wave.k) + ' 米内的敌人往你身边拽。';
+    VC('blackhole').line = '黑洞开在你身上、跟着你走，每跳伤害 ' + pc(fo.dmg) + '，最多伤到离你最近的 ' + VC('blackhole').set.cap + ' 个；每 ' + fo.wave.iv + ' 秒把 ' + Math.round(SK.blackhole.radius * fo.radius * fo.wave.k) + ' 米内的敌人往你身边拽。';
     for (const rq of Object.keys(G.VARIANT_RELIC)) {
       const sid = G.VARIANT_RELIC[rq], V = G.VARIANTS[sid].c;
       R[rq].mechDesc = '解锁 ' + SK[sid].name + '·' + V.name + '：' + V.line;
