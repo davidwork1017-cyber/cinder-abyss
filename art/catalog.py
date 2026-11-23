@@ -108,4 +108,10 @@ CATALOG = [
 ]
 
 # 看板（lineup）：每个生成器 × 几个种子，参数沿用清单里第一个用到它的件
-LINEUP_SEEDS = [101, 202, 303]
+LINEUP_SEEDS = [101, 202, 303    # ---- 手持武器（class-d2b1）：掌灯人的提灯。坐标约定见 gen.py 的 hand_lantern（+z 沿握杆、-y 往下，原点在握把底端），游戏端换算到右手的武器关节。
+    # 打进 kit-gear 包：不在开机或进区时加载，第一次装备 / 掉落提灯时才要（world.js 的 lanternNeed），之前用程序化的简化提灯顶着 ----
+    dict(id='ca/gear_lantern', gen='hand_lantern', seed=211, cat='weapon', zone='gear', ship=True, replaces=None, args=dict(tier=0),
+         bake=dict(ao=0.04, grad=0.0, wear=0.4, grime=0.2), finish=dict(dust=0.0), cues=dict(second=False, val=0.12, lichen=0)),
+    dict(id='ca/gear_lantern_t3', gen='hand_lantern', seed=223, cat='weapon', zone='gear', ship=True, replaces=None, args=dict(tier=2),
+         bake=dict(ao=0.04, grad=0.0, wear=0.4, grime=0.25), finish=dict(dust=0.0), cues=dict(second=False, val=0.12, lichen=0)),
+]

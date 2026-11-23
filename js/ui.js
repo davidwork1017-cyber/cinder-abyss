@@ -26,7 +26,7 @@
 
   // ---------- 武器 ----------
   // 武器类型名：优先用数据里的写法，没有就用这张表
-  const WTYPE_NAME = { blade: '刃', staff: '长杖', wand: '短杖', daggers: '双匕', hammer: '战锤', bow: '长弓', katana: '太刀', banner: '魂幡', gatling: '机炮', flamer: '喷枪', revolver: '左轮', huntbow: '猎弓', eagle: '长弓', runebow: '符文弓', emberbow: '霜弓' };
+  const WTYPE_NAME = { blade: '刃', staff: '长杖', wand: '短杖', daggers: '双匕', hammer: '战锤', bow: '长弓', katana: '太刀', banner: '魂幡', lantern: '提灯', gatling: '机炮', flamer: '喷枪', revolver: '左轮', huntbow: '猎弓', eagle: '长弓', runebow: '符文弓', emberbow: '霜弓' };
   const WTYPE_ORDER = ['blade', 'staff', 'wand', 'daggers', 'hammer', 'bow', 'katana', 'banner'];
   const GUN_TYPES = ['gatling', 'flamer', 'revolver'];
   const wBase = (item) => (item && item.slot === 'weapon' && G.BASES.weapon ? G.BASES.weapon[item.baseIdx | 0] || null : null);
@@ -59,7 +59,7 @@
     return null;
   }
   // 武器技的成长方式：attack 随武器伤害；minion 按召唤物（魂幡）；其余是法术，随武器物品等级与元素加成
-  const wGrowKind = (sk) => (sk.tags.indexOf('attack') >= 0 ? 'attack' : sk.tags.indexOf('minion') >= 0 || sk.minion || sk.wtype === 'banner' ? 'minion' : 'spell');
+  const wGrowKind = (sk) => (sk.tags.indexOf('attack') >= 0 ? 'attack' : sk.wtype === 'lantern' ? 'spell' : sk.tags.indexOf('minion') >= 0 || sk.minion || sk.wtype === 'banner' ? 'minion' : 'spell'); // 提灯的借火 / 灯海是法术（带召唤物标签只因为管召唤物）
   const WGROW_TIP = { attack: '随武器伤害成长', minion: '按召唤物计算', spell: '随武器物品等级与元素加成成长' };
   const isWSkill = (id) => !!(id && G.SKILLS[id] && (G.SKILLS[id].weaponOnly || G.SKILLS[id].tags.indexOf('weapon') >= 0));
   // 某件武器自带的武器技 id（数据里没有时为 null）
@@ -1789,7 +1789,7 @@
     const n = (v, d) => (typeof v === 'number' && isFinite(v) ? v : d);
     const sk = G.SKILLS[id] || {};
     let count = 0;
-    for (const mm of liveMinions()) if (mm && !mm.dead && (mm.skill === id || (!mm.skill && mm.kind === sk.minion))) count++;
+    for (const mm of liveMinions()) if (mm && !mm.dead && !mm.relit && (mm.skill === id || (!mm.skill && mm.kind === sk.minion))) count++; // 续火的骸骨不算
     const rateCtx = m && m.interval > 0 ? 1 / m.interval : 0;
     return {
       count: n(info.count, count),
@@ -1850,7 +1850,7 @@
   const BASIC_KEY = () => G.BASIC_CARD || 'wbasic';
   const RANGED_ORDER = ['gatling', 'flamer', 'revolver', 'huntbow', 'eagle', 'runebow', 'emberbow'];
   // 卡片底下一排：每种武器各自的普攻（近战、施法、魂幡、空手在前，远程在后）
-  const BASIC_ORDER = ['blade', 'daggers', 'hammer', 'katana', 'staff', 'wand', 'banner', 'fists'].concat(RANGED_ORDER);
+  const BASIC_ORDER = ['blade', 'daggers', 'hammer', 'katana', 'staff', 'wand', 'banner', 'lantern', 'fists'].concat(RANGED_ORDER);
   const basicTypeName = (t) => {
     if (t === 'fists') return '空手';
     const bi = (G.BASES.weapon || []).findIndex((b) => b && b.type === t);
@@ -2246,6 +2246,11 @@
           (sk.mech === 'lance' ? '扎中第一个敌人就停' : sk.mech === 'fork' ? '前 ' + sk.fork.max + ' 个敌人脚下各刺出两道 ' + fmt1(sk.fork.len * k) + ' 米的岔脊（伤害 ' + Math.round(sk.fork.k * 100) + '%）' : '同一次施放每个敌人只中一下') + '</div>';
       } else if (sk.kind === 'burst' && sk.focus) {
         note += '<div class="sk-anote"><i></i>只打身边 ' + fmt1(sk.radius * Math.sqrt(ctx.area)) + ' 米内最近的 1 个 · 连着第 ' + sk.focus.n + ' 下过载 ×' + sk.focus.k + '（平均击中已按这个折算）</div>';
+      } else if (sk.kind === 'round') {
+        // 特殊弹（class-d2b1）：弹的形状跟手里的枪走
+        const sh = G.roundShape(), gun = G.roundGun();
+        note += '<div class="sk-anote"><i></i>' + (gun ? G.wTypeLabel(gun) : '没拿枪') + '：' + (sh.n > 1 ? sh.n + ' 枚，每枚 ' + Math.round(sh.k * 100) + '%' : '一发 ' + Math.round(sh.k * 100) + '%') +
+          (sh.move ? '，可以边走边打' : '') + (sh.rangeK ? '，射程 ×' + sh.rangeK : '') + (gun ? ' · 伤害按右键连射 ' + sk.basicSec + ' 秒算' : '') + '</div>';
       } else if (sk.kind === 'burst') {
         note += '<div class="sk-anote"><i></i>' + (sk.dash ? '先朝准星冲出至多 ' + sk.dash.max + ' 米 · ' : '') + '以自身为中心，半径 ' + fmt1(sk.radius * Math.sqrt(ctx.area)) + ' 米，最多打最近的 ' + sk.maxHit + ' 个，不穿墙</div>';
       }

@@ -1200,3 +1200,63 @@ def crown_brazier(k, candles=5):
         k.box((0.025, 0.025, h * 0.5), k.place((x + math.cos(a + 1.2) * r, y + math.sin(a + 1.2) * r, z0 + h * 0.55)), row='bone', tone=0.98, jitter=0.02, dust=0)
         k.hull([(x + math.cos(TAU * j / 6) * r * 1.8, y + math.sin(TAU * j / 6) * r * 1.8, z0 + 0.004) for j in range(6)] + [(x, y, z0 + 0.02)], row='bone', tone=0.95, jitter=0.03, dust=0)
         k.hull([(x + math.cos(TAU * j / 4) * 0.022, y + math.sin(TAU * j / 4) * 0.022, z0 + h) for j in range(4)] + [(x, y, z0 + h + 0.09)], row='ember', tone=0.95, jitter=0.02, glow=1.0, dust=0)  # 烛火（小尖，发光）
+
+
+# ================================================================ 手持武器（class-d2b1）
+# 坐标约定（和布景件不同，游戏端 world.js 的 lanternGeo 按这个换算到右手的武器关节上）：Blender 的 +z 是握杆的方向（握把在原点、杆朝 +z），
+# -y 是「往下」（主角把杆朝前平端时灯挂在杆头下面）。原点在握把底端。
+def hand_lantern(k, tier=0):
+    """提灯（掌灯人的武器）：短铁杆，握把缠皮，杆头弯成一个往下的钩；钩上挂一盏六角铜框提灯——六根黄铜角柱、上下两圈框、
+    琥珀色的琉璃灯罩（凸包），罩里一小团火苗（发光），顶上一个六棱的尖帽和提环，底下一块托板。
+    tier = 2（第三阶 / 长明）：灯框上缠几节骨饰，灯罩发暗红，帽尖多一枚骨钉。"""
+    # 握把 + 杆 + 杆头
+    k.tube([(0, 0, 0.0), (0, 0, 0.15)], [0.024, 0.022], sides=6, row='char', tone=0.32, jitter=0.04, tip=False, cap0=True)
+    for i in range(3):
+        _ring_y(k, 0.026, 0.006, 0.03 + i * 0.045, row='iron', tone=0.38)
+    k.tube([(0, 0, 0.15), (0, 0, 0.5)], [0.016, 0.014], sides=6, row='iron', tone=0.46, jitter=0.04, tip=False, cap0=False)
+    k.tube([(0, 0, 0.5), (0, 0, 0.535)], [0.022, 0.016], sides=6, row='brass', tone=0.55, jitter=0.03, tip=False, cap0=True)
+    # 钩：从杆头往前（-y）弯下去
+    hook = [(0, 0, 0.53), (0, -0.02, 0.575), (0, -0.055, 0.59), (0, -0.085, 0.575), (0, -0.095, 0.545)]
+    k.tube(hook, [0.012, 0.011, 0.01, 0.009, 0.008], sides=5, row='iron', tone=0.5, jitter=0.03, tip=False, cap0=False)
+    # 灯：轴线沿 -y，挂在钩下（中心 z = 0.545，y 从 -0.11 到 -0.33）
+    cz, R = 0.545, 0.056
+    y_top, y_bot = -0.125, -0.3
+    def hx(i, r, y):
+        a = TAU * i / 6 + math.pi / 6
+        return (math.cos(a) * r, y, cz + math.sin(a) * r)
+    # 提环 + 尖帽（六棱锥）
+    _ring_xz(k, 0.018, 0.005, -0.103, cz, row='brass', tone=0.6)
+    k.hull([hx(i, R * 1.18, y_top) for i in range(6)] + [(0, y_top + 0.04, cz)], row='brass', tone=0.5, jitter=0.03)
+    # 上下两圈框
+    for y in (y_top, y_bot):
+        k.hull([hx(i, R * 1.12, y + dy) for i in range(6) for dy in (-0.009, 0.009)], row='brass', tone=0.44 if y == y_bot else 0.6, jitter=0.03)
+    # 六根角柱
+    for i in range(6):
+        a, b = hx(i, R * 1.05, y_top), hx(i, R * 1.05, y_bot)
+        k.tube([a, b], [0.0065, 0.0065], sides=4, row='brass', tone=0.66, jitter=0.03, tip=False, cap0=False, cap1=False)
+    # 琉璃灯罩（第三阶暗红），罩里的火苗（发光）
+    gl_tone = 0.34 if tier >= 2 else 0.86
+    k.hull([hx(i, R * 0.92, y) for i in range(6) for y in (y_top - 0.006, y_bot + 0.006)], row='ember', tone=gl_tone, jitter=0.02, glow=0.35 if tier >= 2 else 0.5, dust=0)
+    fy = (y_top + y_bot) / 2 - 0.01
+    k.hull([(p[0], fy + p[2] * 1.4, cz + p[1]) for p in _blob(k, 0.018, 0.018, 0.026, 7)], row='ember', tone=0.98, jitter=0.0, glow=1.0, dust=0)
+    # 托板
+    k.hull([hx(i, R * 0.9, y_bot - 0.012) for i in range(6)] + [(0, y_bot - 0.03, cz)], row='brass', tone=0.38, jitter=0.03)
+    if tier >= 2:
+        # 骨饰：斜缠在三根角柱上的骨节，帽尖一枚骨钉
+        for i in (0, 2, 4):
+            a, b = hx(i, R * 1.2, y_top + 0.03), hx(i + 1, R * 1.2, y_bot - 0.02)
+            m = ((a[0] + b[0]) / 2 * 1.08, (a[1] + b[1]) / 2, cz + ((a[2] + b[2]) / 2 - cz) * 1.08)
+            k.tube([a, m, b], [0.007, 0.009, 0.006], sides=4, row='bone', tone=0.7, jitter=0.05, tip=True, cap0=True)
+        k.tube([(0, y_top + 0.035, cz), (0, y_top + 0.075, cz)], [0.008, 0.0], sides=4, row='bone', tone=0.78, jitter=0.03, tip=True, cap0=True)
+
+
+def _ring_y(k, R, r, z, n=8, s=3, row='iron', tone=0.5):
+    """绕 z 轴的小圆环（握把上的箍）"""
+    pts = [(math.cos(TAU * i / n) * R, math.sin(TAU * i / n) * R, z) for i in range(n + 1)]
+    k.tube(pts, [r] * len(pts), sides=s, row=row, tone=tone, jitter=0.03, tip=False, cap0=False, cap1=False)
+
+
+def _ring_xz(k, R, r, y, cz, n=8, s=3, row='brass', tone=0.6):
+    """绕 y 轴的小圆环（提灯顶上的提环）"""
+    pts = [(math.cos(TAU * i / n) * R, y, cz + math.sin(TAU * i / n) * R) for i in range(n + 1)]
+    k.tube(pts, [r] * len(pts), sides=s, row=row, tone=tone, jitter=0.03, tip=False, cap0=False, cap1=False)

@@ -277,6 +277,48 @@
       alt: '每个敌人最多 6 层流血，满了顶掉最弱的一层。流血不算命中，不触发感电电弧、汲生、震慑。物理伤害不受抗性影响。',
     },
 
+    // ---------- 特殊弹（class-d2b1，炉匠，只能装在枪上）：kind 'round'，round 是弹种 ----------
+    // 从手里的枪打出去：一份伤害 = 这把枪的右键普攻连射 basicSec 秒（同熔光射线的 basicOf 折算：普攻的 wm × 发数，装备附加伤害 × 普攻的 addEff × 发数），
+    // 全部转成弹本身的元素（elem）。弹的形状跟枪走（G.ROUND_GUN）：机炮连发 3 枚各 ×0.4、左轮一发 ×1.1（可以边走边打）、喷枪近程扇面 3 枚各 ×0.4（射程 ×0.6），
+    // 三种枪一次施放的总伤害一样。每发加的热度 = 这把枪开火 basicSec 秒的热度 × 这一枚的倍率，打中算「最近打中过」，照样喂 R。
+    // 没拿着枪时（只有没有职业的存档放得出来）按左轮的形状、用 wm 乘手里武器的伤害。useMult：一次施放对单体的倍率总和（以一份为 1）
+    molten: {
+      name: '铁水弹', icon: '铁', color: '#ff7a3a', tags: ['attack', 'projectile', 'area', 'fire', 'duration'], kind: 'round', round: 'molten', elem: 'fire', clsOnly: true,
+      wm: 1.0, basicSec: 0.36, time: 0.6, mana: 7, cd: 0, speed: 30, projR: 0.26, range: 16, explode: 1.8, ailment: 20, w: 1, kb: 0.5, poise: 10,
+      // pool：命中处留一摊铁水（r 半径、dur 秒、每 tick 秒对里面的敌人造成 mult 份伤害；同一个敌人站在几摊里也只按一摊算），同时最多 max 摊
+      pool: { r: 1.5, dur: 7, tick: 0.5, mult: 0.07, max: 4 },
+      useMult: 1.5,
+      desc: '打出铁水弹，命中炸开（半径 1.8 米），地上留一摊铁水烧 7 秒。',
+      alt: '伤害按手里枪的右键开火折算，全部转成火焰。铁水最多同时 4 摊，站在几摊里也只烧一份。',
+    },
+    wedge: {
+      name: '雷楔', icon: '楔', color: '#9fc8ff', tags: ['attack', 'projectile', 'chaining', 'light'], kind: 'round', round: 'wedge', elem: 'light', clsOnly: true,
+      wm: 1.0, basicSec: 0.36, time: 0.6, mana: 7, cd: 0, speed: 32, projR: 0.24, range: 16, ailment: 20, w: 0, kb: 0.2, poise: 6,
+      // 命中先打 hit 份，楔子钉在敌人身上，delay 秒后放电：目标挨 zap 份（它身上每多一枚楔子 +stack，最多算 maxStack 枚），再连到 r 米内最多 n 个别的敌人（各 chainK 份）
+      wedge: { hit: 0.35, zap: 0.65, delay: 1, stack: 0.15, maxStack: 4, r: 4, n: 3, chainK: 0.5 },
+      useMult: 1.12,
+      desc: '雷楔钉进敌人，1 秒后放电，再连到 4 米内最多 3 个敌人。同一个敌人身上楔子越多，放电越痛。',
+      alt: '伤害按手里枪的右键开火折算，全部转成闪电。每多一枚楔子放电 +15%（最多算 4 枚）。连锁的每个敌人受到一半伤害。',
+    },
+    rime: {
+      name: '霜霰弹', icon: '霰', color: '#a8e4ff', tags: ['attack', 'projectile', 'area', 'cold'], kind: 'round', round: 'rime', elem: 'cold', clsOnly: true,
+      wm: 1.0, basicSec: 0.36, time: 0.6, mana: 7, cd: 0, speed: 32, projR: 0.24, range: 16, ailment: 40, w: 0, kb: 0.3, poise: 8,
+      // shard：命中后从敌人背后炸出 arc° × len 米的冰屑扇面，打中的别的敌人各挨 k 份（冰缓靠冰霜异常值）
+      shard: { arc: 70, len: 5, k: 0.6 },
+      useMult: 1,
+      desc: '命中后从敌人背后炸出一片冰屑（70° 扇面，5 米），打中的敌人被冰缓。',
+      alt: '伤害按手里枪的右键开火折算，全部转成冰霜。冰屑不打被命中的那个敌人，每个敌人受到 60% 伤害。',
+    },
+    recoil: {
+      name: '反冲弹', icon: '冲', color: '#e0c8a0', tags: ['attack', 'projectile', 'phys', 'movement'], kind: 'round', round: 'recoil', elem: 'phys', clsOnly: true,
+      wm: 1.0, basicSec: 0.36, time: 0.5, mana: 8, cd: 3, speed: 40, projR: 0.3, range: 18, heavy: 1.8, w: 2, kb: 2.6, poise: 45, stop: 60,
+      // heavy：这一发的倍率（× 每份）；push：后坐力把你往后推的距离（米，dur 秒推完，撞墙即停，不出首领场地）
+      push: { d: 3.5, dur: 0.22 },
+      useMult: 1.8,
+      desc: '打出一发重弹（×1.8，强力击退、大量削架势），后坐力把你往后推 3.5 米。冷却 3 秒。',
+      alt: '伤害按手里枪的右键开火折算，保持物理。往后推遇墙就停，不会推出首领场地，途中不无敌。',
+    },
+
     // ---------- 武器技（R 键）：每种武器自带一个，跟着手里的武器走 ----------
     // weaponOnly：不掉落、不进技能页的普通列表、镶不了辅助宝石、不占技能栏的 4 格。wtype 是对应的武器类型。
     // 攻击型（带 attack）按武器伤害 × wm 成长（等级 = 宝石的成长下限，只给一点点加成），出手节奏不吃武器攻速；
@@ -342,6 +384,20 @@
       wt: { phases: [0.28], cancel: 0.5, dur: 0.62 },
       useMult: 4,
       desc: '放出 4 只魂火扑向准星附近的敌人，伤害按召唤物计算。同时令召唤物狂热 12 秒：攻击与移动速度 +15%。',
+    },
+    // 借火（提灯，class-d2b1）：把灯里的火借出去，持续 buff.dur 秒（一按管到下一群怪）：点灯的小灯半径 lampR、灼烧 × burn，
+    //   召唤物每一击附带 minionFire% 的火焰伤害；时间到了每盏小灯炸开（boom.r 半径、boom.mult 倍 edmg）。没有召唤物也有用。
+    //   原稿 6 秒 / 冷却 10 秒（灼烧 ×2、附带 25%），按用户的持续时间要求（自己 / 召唤物的增益 ≥ 12 秒）改成 12 秒 / 冷却 12 秒，
+    //   倍率按覆盖率折回去（×2 → ×1.6、25% → 15%），平均秒伤不变
+    lendfire: {
+      name: '借火', icon: '借', color: '#ffb347', tags: ['weapon', 'spell', 'fire', 'minion', 'area', 'duration'], kind: 'wlantern', weaponOnly: true, wtype: 'lantern', fixElem: true,
+      edmg: [24, 36], elem: 'fire', time: 0.5, mana: 14, cd: 12, move: 0.4, w: 1, kb: 0.8, poise: 14,
+      buff: { dur: 12, lampR: 3, burn: 1.6, minionFire: 15 },
+      boom: { r: 2.5, mult: 1 },
+      wt: { phases: [0.3], cancel: 0.5, dur: 0.65 },
+      useMult: 1,
+      desc: '借出灯里的火 12 秒：小灯半径 2 → 3 米、灼烧 ×1.6，召唤物每一击附带 15% 火焰伤害；结束时每盏小灯炸开。',
+      alt: '没有召唤物也有用。小灯炸开的半径 2.5 米。再按一次从头计时。',
     },
 
     // ---------- 远程武器（枪械 / 弓）：右键 = 武器普攻，R = 量表技 ----------
@@ -515,6 +571,16 @@
       noSup: ['ossify', 'horde', 'frenzy'], // 只作用于召唤物本身（生命、数量、速度）的辅助对这一缕魂灵没用，不让镶
       desc: '右键放出魂灵扑向准星附近的敌人，碰到即炸，召唤物集火它。每有一只召唤物伤害 +8%（最多 5 只）。', alt: '伤害按召唤物计算。',
     },
+    // 提灯的普攻「点灯」（class-d2b1）：甩出一团灯火，落在准星（最远 range 米，撞墙停）小炸（explode 半径），原地留一盏小灯 lamp.dur 秒：
+    //   lamp.r 米内的敌人每 tick 秒挨 mult 倍灼烧（几盏灯叠在一起也只按一盏算），召唤物在灯光里攻速 +haste；最多 max 盏，多了顶掉最早那盏。纯火焰（fixElem）。
+    //   原稿小灯 4 秒，按用户的持续时间要求（摆在地上的东西 6–8 秒）改成 7 秒，灼烧倍率按时长折
+    basic_lantern: {
+      name: '点灯', icon: '灯', color: '#ffc35a', tags: ['spell', 'projectile', 'area', 'fire', 'duration'], kind: 'blamp', btype: 'lantern', weaponOnly: true, basic: true, bclip: 'b_point', fixElem: true,
+      edmg: [5.8, 9.6], elem: 'fire', time: 0.45, mana: 0, cd: 0, speed: 18, projR: 0.3, range: 12, explode: 1.4, w: 0, kb: 0.3, poise: 6,
+      lamp: { dur: 7, r: 2, tick: 0.5, mult: 0.2, max: 3, haste: 0.15 },
+      desc: '右键甩出灯火，落地小炸，原地留一盏小灯 7 秒：2 米内的敌人持续灼烧，召唤物在灯光里攻速 +15%。最多 3 盏。',
+      alt: '纯火焰伤害。灼烧每 0.5 秒一下，几盏灯叠在一起只按一盏算；多出来的灯顶掉最早那盏。',
+    },
 
     // R（量表技）：rgauge 为 true——没有冷却、不扣魔力，量表满了才能放，放出去量表清零。枪械的三招按武器伤害成长（吃「热度技伤害」），
     // 弓的四招是限时增益（buff.dur 秒，吃「增益持续时间」）
@@ -643,6 +709,24 @@
       useMult: 1,
       desc: '召下 6 位英灵在准星一带厮杀 8 秒，消散时化作魂火炸开。同时治满你的召唤物，令其狂热 4 秒。', alt: '英灵落地时各砸出一圈冲击。伤害与生命按召唤物计算，吃召唤物加成与继承，不占仆从数量。',
     },
+    // 灯海（长明的烬铸技，替换借火）：在身边一圈（半径 r）点起 n 盏灯，持续 dur 秒：阵里的敌人每 tick 秒挨 mult 倍 edmg 的灼烧，
+    //   死在阵里的普通怪必定被续火点燃，召唤物在阵里攻速 +haste。冷却 cd 秒
+    lampsea: {
+      name: '灯海', icon: '海', color: '#ffd27a', tags: ['weapon', 'spell', 'fire', 'area', 'minion', 'duration'], kind: 'ulantern', weaponOnly: true, wtype: 'lantern', uskill: true, replaces: 'lendfire', fixElem: true,
+      edmg: [9, 14], elem: 'fire', time: 0.6, mana: 24, cd: 15, n: 8, r: 4.5, dur: 6, tick: 0.5, mult: 1, haste: 0.3, move: 0.3, w: 0, kb: 0, poise: 3,
+      wt: { phases: [0.35], cancel: 0.6, dur: 0.8 },
+      useMult: 12,
+      desc: '在身边点起一圈 8 盏灯，持续 6 秒：阵里的敌人持续灼烧，死在阵里的必定被续火点燃，召唤物在阵里攻速 +30%。',
+      alt: '灯阵半径 4.5 米，灼烧每 0.5 秒一下。冷却 15 秒。',
+    },
+  };
+  // 特殊弹的形状（class-d2b1）：按手里的枪。n 枚、每枚 k 份；gap 连发间隔（秒）、spread 每枚错开的角度；fan 扇面角度、rangeK 射程倍率；
+  // move：施放时的移动速度倍率（左轮可以边走边打，别的照普通施法 0.4）。none：手里不是枪（只有没有职业的存档放得出来）
+  G.ROUND_GUN = {
+    gatling: { n: 3, k: 0.4, gap: 0.07, spread: 2.5 },
+    revolver: { n: 1, k: 1.1, move: 0.8 },
+    flamer: { n: 3, k: 0.4, fan: 24, rangeK: 0.6 },
+    none: { n: 1, k: 1.1 },
   };
   // 按普攻折算的武器技（熔光射线、焚天炎爆）：描述里的「{basicSec} 秒」按数值填上——火浪 basicSec + 火场每跳 burn.sec × 跳数，
   // 改 basicSec / burn.sec 时文字跟着变（技能卡上的数字本来就是实时算的）
@@ -960,6 +1044,64 @@
         set: { mech: 'gouge', bleed: 85, bleedCap: 8, st: { shape: 'arc', range: 3.4, arc: 50, mult: 1, dir: 1, cross: false, w: 0, stop: 40, kb: 0.4, poise: 12 } },
       },
     },
+    // ---------- 特殊弹的刻式（class-d2b1）----------
+    // 铁水弹 A 溅铁：不炸、不留铁水，命中后朝前方溅出 n 道铁水（len 米、arc° 扇面），每道打中一条线上的敌人（每个敌人一次施放只挨一道），各 k 份
+    //        B 熔穿：不炸，贯穿所有敌人，每穿过一个，后面的伤害 +step（最多 +max）
+    molten: {
+      a: {
+        name: '溅铁', pack: '不留铁水；专打怪堆后排',
+        desc: '命中后朝前方溅出 5 道铁水（6 米扇面），打中后排的敌人。不留铁水。', alt: '每个敌人一次只挨一道。被命中的那个先挨弹头。',
+        set: { mech: 'splash', explode: 0, pool: null, splash: { n: 5, len: 6, arc: 60, w: 0.7, k: 0.75 }, useMult: 1, tags: ['attack', 'projectile', 'area', 'fire'] },
+      },
+      b: {
+        name: '熔穿', pack: '排成一条线最痛；不炸不留铁水',
+        desc: '铁水弹贯穿所有敌人，每穿过一个，后面的伤害 +15%（最多 +60%）。', alt: '不炸开，也不留铁水。',
+        set: { mech: 'bore', explode: 0, pool: null, bore: { step: 0.15, max: 0.6 }, wm: 1.0, useMult: 1.28, tags: ['attack', 'projectile', 'fire'] },
+      },
+    },
+    // 雷楔 A 雷网：打空的楔子钉在准星的地上（存在 dur 秒），link 米内的楔子两两拉出电线（最多 lines 根，新的顶掉旧的），线上的敌人每 tick 秒挨 k 份；
+    //            打中敌人的照原式放电
+    //      B 闷雷：delay 秒后才放电，伤害 × mult，大量累积感电（ailment），不再连锁
+    wedge: {
+      a: {
+        name: '雷网', pack: '朝地上打布网；单体照原式',
+        desc: '打空的楔子钉在准星处的地上；4 米内的楔子两两拉出电线，线上的敌人持续挨电。', alt: '地上的楔子存在 7 秒，电线最多 3 根，每 0.25 秒电一下。打中敌人的楔子照原式放电。',
+        set: { mech: 'net', net: { dur: 7, link: 4, lines: 3, tick: 0.25, k: 0.09, w: 0.6 }, useMult: 1.12, tags: ['attack', 'projectile', 'chaining', 'light', 'duration'] },
+      },
+      b: {
+        name: '闷雷', pack: '单体更痛；不连锁',
+        desc: '楔子 3 秒后才放电，伤害 ×2.2，大量累积感电。不再连锁。', alt: '同一个敌人身上楔子越多，放电越痛（每多一枚 +15%，最多算 4 枚）。连锁镶不上。',
+        set: { mech: 'dull', noSup: ['chain'], ailment: 200, wedge: { hit: 0.2, zap: 1.43, delay: 3, stack: 0.15, maxStack: 4, r: 0, n: 0, chainK: 0 }, useMult: 1.24, tags: ['attack', 'projectile', 'light'] },
+      },
+    },
+    // 霜霰弹 A 散霜：冰屑改成朝四周炸开一圈（半径 r）
+    //        B 凝霜：不出冰屑，冰霜异常值 × 3；打中冻住（首领：深寒）的敌人伤害 × frozen，并溅到它身边 r 米内（各 k 份）
+    rime: {
+      a: {
+        name: '散霜', pack: '贴脸打一圈；远处后排打不到',
+        desc: '冰屑改成朝四周炸开一圈（半径 3 米），适合贴脸打怪群。', alt: '冰屑不打被命中的那个敌人，每个敌人受到 60% 伤害。',
+        set: { mech: 'burst', shard: { r: 3, k: 0.6 } },
+      },
+      b: {
+        name: '凝霜', pack: '不打群；冻住的敌人更痛',
+        desc: '不出冰屑，冰霜异常值 ×3；打中冻住的敌人伤害 ×2，并溅到它身边。', alt: '首领进入深寒也算冻住。溅射半径 2.5 米，每个敌人受到 60% 伤害。',
+        set: { mech: 'deep', shard: null, ailment: 240, deep: { frozen: 2, r: 2.5, k: 0.6 }, useMult: 1.12 },
+      },
+    },
+    // 反冲弹 A 压膛：不后退，蓄 charge 秒后贯穿一条直线（len × width，撞墙截断）
+    //        B 震膛：照样后退，起跳的地方震出一圈冲击（半径 r、k 份，把贴身的怪推开 kb）
+    recoil: {
+      a: {
+        name: '压膛', pack: '不后退；贯穿一条线',
+        desc: '不后退，蓄 0.5 秒后打出一发贯穿弹，打穿一条直线上的所有敌人。', alt: '直线长 16 米、宽 1.4 米，撞墙截断。',
+        set: { mech: 'bore', push: null, charge: 0.5, line: { len: 16, width: 1.4 }, heavy: 1.9, tags: ['attack', 'projectile', 'phys'] },
+      },
+      b: {
+        name: '震膛', pack: '退开时把贴身的怪推开',
+        desc: '照样后退 3.5 米，起跳的地方震出一圈冲击（半径 2.5 米），把贴身的怪推开。', alt: '冲击受到 60% 伤害。遇墙就停，不会推出首领场地。',
+        set: { mech: 'shock', heavy: 1.5, shock: { r: 2.5, k: 0.6, kb: 2.2 }, useMult: 1.5, tags: ['attack', 'projectile', 'area', 'phys', 'movement'] },
+      },
+    },
   };
   // ---------- 渊式（第三种刻式，只在戴着对应的渊契时能选）----------
   // 原来「渊契改某一个技能的打法」和这个技能自己的刻式 A / B 打架（用户：「改成技能变体，但有些变体只有装备了对应渊契才能开启」，
@@ -1268,6 +1410,9 @@
       // 下面两种只有烬铸武器用（drop 0：随机掉落不出）；烬铸武器的物品等级在 21 以上，实际只会用到第三阶的名字
       { names: ['黄铜左轮', '铁芯左轮', '烬铸左轮'], type: 'revolver', ranged: 'gun', wskill: 'wildfire', dmg: [8, 12], aps: 1.0, hands: 1, drop: 0, imp: { stat: 'crit', lo: 10, hi: 16 } },
       { names: ['霜木长弓', '寒羽长弓', '凛晶长弓'], type: 'emberbow', ranged: 'bow', wskill: 'emberstorm', dmg: [8, 14], aps: 1.05, hands: 2, drop: 0, imp: { stat: 'incCold', lo: 8, hi: 14 } },
+      // 下标 14：提灯（掌灯人的第三种武器，class-d2b1）。单手法器，隐含火焰伤害 + 一半数值的召唤物伤害（also 同魂幡的写法），不给 soul 继承倍率。
+      // drop 0：没有职业的存档随机掉落不出（测试 harness、bench 的掉落序列和以前一样）；dropCls：有职业时的掉落权重（G.baseDropW）
+      { names: ['铜皮提灯', '琉璃提灯', '渊火提灯'], type: 'lantern', wskill: 'lendfire', dmg: [4, 7], aps: 1.0, hands: 1, caster: true, drop: 0, dropCls: 0.9, imp: { stat: 'incFire', lo: 8, hi: 14, also: { stat: 'minionDmg', k: 0.5 } } },
     ],
     helm: [{ names: ['皮盔', '铁盔', '烬钢盔'], armour: [10, 4] }],
     body: [{ names: ['皮甲', '锁甲', '烬钢甲'], armour: [20, 8] }],
@@ -1331,16 +1476,16 @@
     A('elemPen', 'suffix', '透元', 'elemPen', 3, 4, 1.07, ['weapon', 'amulet'], 3),
     // 召唤物词缀。baseW：按基底（BASES 里的下标）调整出现权重——杖类武器（木杖 / 骨杖）更容易出召唤物伤害；
     // minIlvl / rareOnly：只在物品等级够高的稀有物品上出现
-    Object.assign(A('minionDmg', 'prefix', '统御', 'minionDmg', 6, 10, 1.35, ['weapon'].concat(JEW), 5), { baseW: { weapon: [0.4, 1.8, 1.8, 0.4, 0.4, 0.4, 0.4, 2.6, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2] } }),
+    Object.assign(A('minionDmg', 'prefix', '统御', 'minionDmg', 6, 10, 1.35, ['weapon'].concat(JEW), 5), { baseW: { weapon: [0.4, 1.8, 1.8, 0.4, 0.4, 0.4, 0.4, 2.6, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 1.8] } }),
     // 武器本地词缀（local）：改的是这把武器自己的伤害，施法武器（杖类、魂幡）很少出
-    Object.assign(A('wInc', 'prefix', '淬锋', 'wInc', 8, 13, 1.25, ['weapon'], 7), { local: true, baseW: { weapon: [1, 0.3, 0.3, 1, 1, 1, 1, 0.2] } }),
+    Object.assign(A('wInc', 'prefix', '淬锋', 'wInc', 8, 13, 1.25, ['weapon'], 7), { local: true, baseW: { weapon: [1, 0.3, 0.3, 1, 1, 1, 1, 0.2, 1, 1, 1, 1, 1, 1, 0.3] } }),
     // 机炮 / 喷枪不出「重锻」：它们的基础伤害低、出手极快，固定的本地附加对它们是几倍的收益
-    Object.assign(A('wAdd', 'prefix', '重锻', 'wAdd', 2, 3, 1.33, ['weapon'], 6), { local: true, baseW: { weapon: [1, 0.3, 0.3, 1, 1, 1, 1, 0.2, 0, 0] } }),
+    Object.assign(A('wAdd', 'prefix', '重锻', 'wAdd', 2, 3, 1.33, ['weapon'], 6), { local: true, baseW: { weapon: [1, 0.3, 0.3, 1, 1, 1, 1, 0.2, 0, 0, 1, 1, 1, 1, 0.3] } }),
     // 远程武器专属：baseW 只给枪械（机炮 / 喷枪 / 左轮）或弓（鹰眼 / 追猎 / 符文 / 霜弓）非零权重
-    Object.assign(A('heatGain', 'suffix', '炽膛', 'heatGain', 6, 10, 1.2, ['weapon'], 6), { baseW: { weapon: [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0] } }),
-    Object.assign(A('heatDmg', 'prefix', '赤热', 'heatDmg', 10, 16, 1.3, ['weapon'], 5), { baseW: { weapon: [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0] } }),
-    Object.assign(A('focusGain', 'suffix', '凝神', 'focusGain', 6, 10, 1.2, ['weapon'], 6), { baseW: { weapon: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 1] } }),
-    Object.assign(A('rangeDmg', 'prefix', '远矢', 'rangeDmg', 10, 16, 1.3, ['weapon'], 5), { baseW: { weapon: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 1] } }),
+    Object.assign(A('heatGain', 'suffix', '炽膛', 'heatGain', 6, 10, 1.2, ['weapon'], 6), { baseW: { weapon: [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0] } }),
+    Object.assign(A('heatDmg', 'prefix', '赤热', 'heatDmg', 10, 16, 1.3, ['weapon'], 5), { baseW: { weapon: [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0] } }),
+    Object.assign(A('focusGain', 'suffix', '凝神', 'focusGain', 6, 10, 1.2, ['weapon'], 6), { baseW: { weapon: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 1, 0] } }),
+    Object.assign(A('rangeDmg', 'prefix', '远矢', 'rangeDmg', 10, 16, 1.3, ['weapon'], 5), { baseW: { weapon: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 1, 0] } }),
     A('minionLife', 'prefix', '骸固', 'minionLife', 8, 13, 1.3, ['helm', 'body', 'belt'], 5),
     Object.assign(A('minionCap', 'suffix', '万骸', 'minionCap', 1, 1, 1, ['amulet'], 2), { minIlvl: 18, rareOnly: true }),
     // 只出现在烬铸武器上的词缀行（slots 为空、权重 0：随机掉落和打造都不会出）
@@ -1398,6 +1543,13 @@
       lines: [{ id: 'incChaos', k: [1.6, 2.2] }, { id: 'addChaos', k: [1.2, 1.6] }, { id: 'bindAil', k: [1.3, 1.8] }, { id: 'speed', k: [1.0, 1.4] }],
       lore: '一颗烧空的坠星。',
     },
+    // 长明（提灯，class-d2b1）：巅峰首领熄烛者掉（pin：不进 G.UNIQUE_BY_BOSS，掉落在 game.js 的 G.pinKill 里单独掷，见 G.RELIGHT）。
+    //   R 是专属的「灯海」；机制「续火」见 G.RELIGHT
+    changming: {
+      name: '长明', base: 14, boss: 'snuffer', pin: true, mech: 'relight', mechName: '续火', uskill: 'lampsea',
+      lines: [{ id: 'incFire', k: [1.3, 1.8] }, { id: 'minionDmg', k: [1.3, 1.8] }, { id: 'speed', k: [1.0, 1.4] }, { id: 'manaRegen', k: [1.0, 1.5] }],
+      lore: '熄烛者提的灯，又亮了。',
+    },
   };
   G.UNIQUE_IDS = Object.keys(G.UNIQUES);
   G.UNIQUE_BY_BOSS = {};
@@ -1412,6 +1564,7 @@
     for (const id of G.UNIQUE_IDS) {
       const U = G.UNIQUES[id];
       if (U.boss0 === undefined) U.boss0 = U.boss;
+      if (U.pin) continue; // 巅峰首领掉的（长明）：单独掷，不登记
       let b = U.boss0;
       if (!B[b] && U.bossZone && G.ZONES) {
         const z = G.ZONES.find((zz) => zz.id === U.bossZone) || (G.ZONES.length > 4 ? G.ZONES[4] : null);
@@ -1465,6 +1618,12 @@
   G.UNIQUES.xingshi.mechDesc = '敌人触发渊缚时，脚下张开渊口：' + G.VOID_MOUTH.dur + ' 秒的小黑洞，半径 ' + G.VOID_MOUTH.radius + ' 米，牵引为黑洞的 ' + pc(G.VOID_MOUTH.pull) +
     '，每跳伤害为你黑洞的 ' + pc(G.VOID_MOUTH.dmg) + '。秘弹连射固定为混沌。';
   G.UNIQUES.xingshi.mechAlt = '同时最多 ' + G.VOID_MOUTH.max + ' 道，每 ' + G.VOID_MOUTH.gap + ' 秒最多新开一道。';
+  // 续火（长明）：死在你灯光里（小灯 lampR 米内、灯海阵里，或你身边 near 米内）的普通怪（不是精英、首领），chance 几率被重新点燃，
+  //   站起来替你打 dur 秒。算烬骸仆从（伤害 / 生命按你的烬骸仆从宝石算，没学时按 1 级），但不占仆从上限，同时最多 cap 具。死在灯海里的必定点燃。
+  // 掉落：熄烛者每次击杀 drop 几率，连续 pity 次没掉，下一次必掉（save.pinnacle.lpity，和巅峰渊契的保底分开）。没有职业的存档不掷这一下
+  G.RELIGHT = { chance: 0.3, near: 4, dur: 6, cap: 4, drop: 0.25, pity: 2 };
+  G.UNIQUES.changming.mechDesc = '死在你灯光里的普通怪有 ' + pc(G.RELIGHT.chance) + ' 几率被重新点燃，替你打 ' + G.RELIGHT.dur + ' 秒，最多同时 ' + G.RELIGHT.cap + ' 具。';
+  G.UNIQUES.changming.mechAlt = '灯光：小灯照到的地方，或你身边 ' + G.RELIGHT.near + ' 米内。点燃的骸骨算烬骸仆从，不占数量上限。死在灯海里的必定点燃。';
   // 分解烬铸武器固定得到的通货
   G.UNIQUE_SALVAGE = { exalt: 2, chaos: 2, divine: 1, chisel: 1 };
 
@@ -2256,7 +2415,7 @@
       node: { id: 'im0', name: '引星人 · 望天', note: '引星人的起步天赋：多攒一点借火用的魔力。' },
     },
     lamp: {
-      name: '掌灯人', color: '#4fe3c8', tags: ['召唤', '法术'], weapons: ['banner', 'wand'],
+      name: '掌灯人', color: '#4fe3c8', tags: ['召唤', '法术'], weapons: ['banner', 'wand', 'lantern'],
       line: '熄烛者灭火，掌灯人点火：把自己的余烬分给倒下的骸骨，让它们站起来替自己打。',
       start: { type: 'banner', skill: 'thrall' }, skLine: '召唤骸骨剑士替你打',
       node: { id: 'mm0', name: '掌灯人 · 分烬', note: '掌灯人的起步天赋：分出去的火烧得更旺，召唤物伤害更高。' },
@@ -2269,28 +2428,29 @@
     },
   };
   // 武器类型的叫法（推荐理由、选择页用）
-  G.WTYPE_LABEL = { blade: '刃', hammer: '战锤', katana: '太刀', daggers: '双匕', huntbow: '追猎弓', emberbow: '冰弓', staff: '长杖', runebow: '符文弓', eagle: '鹰眼长弓', banner: '魂幡', wand: '短杖', gatling: '机炮', flamer: '喷枪', revolver: '左轮' };
+  G.WTYPE_LABEL = { blade: '刃', hammer: '战锤', katana: '太刀', daggers: '双匕', huntbow: '追猎弓', emberbow: '冰弓', staff: '长杖', runebow: '符文弓', eagle: '鹰眼长弓', banner: '魂幡', wand: '短杖', lantern: '提灯', gatling: '机炮', flamer: '喷枪', revolver: '左轮' };
   G.wTypeLabel = (t) => G.WTYPE_LABEL[t] || '武器';
   G.WTYPE_CLS = {};
   for (const c of G.CLASS_IDS) for (const t of G.CLASSES[c].weapons) G.WTYPE_CLS[t] = c;
   // 技能宝石要什么武器（不写进 G.SKILLS：刻式会重拼那张表）。null = 通用（掷焰、光环、召唤）。
   // 武器分组：melee 近战（刃 / 战锤 / 太刀 / 双匕）；bow 弓（四种弓）；hunt 猎弓（追猎弓 / 冰弓）；gun 枪（机炮 / 喷枪 / 左轮）；
-  // focus 法器（长杖 / 短杖 / 魂幡 + 引星人的符文弓 / 鹰眼长弓）
+  // focus 法器（长杖 / 短杖 / 魂幡 / 提灯 + 引星人的符文弓 / 鹰眼长弓）
   G.WGROUPS = {
     melee: ['blade', 'hammer', 'katana', 'daggers'],
     bow: ['huntbow', 'emberbow', 'eagle', 'runebow'],
     hunt: ['huntbow', 'emberbow'],
     gun: ['gatling', 'flamer', 'revolver'],
-    focus: ['staff', 'wand', 'banner', 'runebow', 'eagle'],
+    focus: ['staff', 'wand', 'banner', 'lantern', 'runebow', 'eagle'],
   };
   // need：宝石 → 能用它的武器分组（满足其一即可）；name：悬停里「需要 X」的说法
   G.GEM_NEED = {
     whirl: 'melee', rend: 'melee', blink: 'melee', shadestep: 'melee',
     blade: 'shot', nails: 'huntgun',
+    molten: 'gun', wedge: 'gun', rime: 'gun', recoil: 'gun', // 特殊弹（class-d2b1）
     arc: 'focus', meteor: 'focus', frostline: 'focus', icefall: 'focus', discharge: 'focus', tether: 'focus', blackhole: 'focus', vortex: 'focus',
   };
-  G.NEED_GROUPS = { melee: ['melee'], shot: ['melee', 'bow', 'gun'], huntgun: ['hunt', 'gun'], focus: ['focus'] };
-  G.NEED_NAME = { melee: '近战武器', shot: '近战武器、弓或枪', huntgun: '猎弓或枪', focus: '法器（杖、魂幡、符文弓、鹰眼长弓）' };
+  G.NEED_GROUPS = { gun: ['gun'], melee: ['melee'], shot: ['melee', 'bow', 'gun'], huntgun: ['hunt', 'gun'], focus: ['focus'] };
+  G.NEED_NAME = { gun: '枪（机炮、喷枪、左轮）', melee: '近战武器', shot: '近战武器、弓或枪', huntgun: '猎弓或枪', focus: '法器（杖、魂幡、提灯、符文弓、鹰眼长弓）' };
   // 某种武器类型能不能放某个宝石
   G.typeFitsNeed = function (type, need) {
     if (!need) return true;
@@ -2307,14 +2467,21 @@
   };
   // 每个职业能用的技能宝石（武器技不算）
   G.classGems = (cls) => G.GEM_SKILLS.filter((id) => G.classCanUse(cls, id));
+  // 随机掉落的技能宝石池（class-d2b1）：clsOnly 的宝石（特殊弹）只在有职业的存档里掉；没有职业时还是职业之前的 20 个，
+  // 掉率也不变（G.gemDropK：有职业时乘 宝石总数 / 20，老宝石不变稀），测试 harness、bench 的掉落序列和以前一样
+  G.GEM_DROP_BASE = 20;
+  G.gemDropPool = (cls) => (G.CLASSES[cls] ? G.GEM_SKILLS : G.GEM_SKILLS.filter((id) => !G.SKILL_BASE[id].clsOnly));
+  G.gemDropK = (cls) => (G.CLASSES[cls] ? G.GEM_SKILLS.length / G.GEM_DROP_BASE : 1);
   // 掉落加权：本职业武器占武器掉落的 CLASS_LOOT.weapon，本职业能用的技能宝石占 CLASS_LOOT.gem。
   // 武器的倍率 M 按现在各基底的 drop 权重算准（M = w/(1−w) × 别的基底权重和 ÷ 本职业权重和），还是一次 G.weighted
   G.CLASS_LOOT = { weapon: 0.65, gem: 0.75 };
+  // 基底的随机掉落权重：有职业时有 dropCls 的按它（提灯：没有职业时 0、有职业时照常掉），其余按 drop（缺省 1）
+  G.baseDropW = (b, cls) => (cls && b.dropCls !== undefined ? b.dropCls : b.drop === undefined ? 1 : b.drop);
   G.CLASS_WM = {};
   for (const c of G.CLASS_IDS) {
     let own = 0, other = 0;
     for (const b of G.BASES.weapon) {
-      const w = b.drop === undefined ? 1 : b.drop;
+      const w = G.baseDropW(b, c);
       if (G.WTYPE_CLS[b.type] === c) own += w;
       else other += w;
     }

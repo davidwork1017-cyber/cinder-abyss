@@ -11901,6 +11901,7 @@
     const cnt = (g) => (g ? g.attributes.position.count / 3 : 0);
     rig.tris = cnt(rig.geoBody) + cnt(rig.geoGlow) + cnt(rig.geoAux);
     rig.skin4 = true;
+    rig.cDl = dl; // 各关节的位移：运行时再加的刚性零件（提灯的自产件，见 lanternGeo）照这个平移
     rig.cModel = cs.model;
     rig.cPose = { G, Gi, P, pos, md };
     if (cs.ankle !== undefined) rig.ankle = typeof cs.ankle === 'function' ? cs.ankle(rig) : cs.ankle;
@@ -12118,7 +12119,7 @@
   // tintHex：躯体整体染色；elemHex：自发光部件的元素色
   // 变体零件里的自发光件不用本体的元素色、改用自己固定颜色的那几组：变体名 → [颜色, 亮度]。
   // 冰弓的冰裂纹和冰核要一直是冰蓝（玩家本体的元素色是琥珀橙）；颜色压得偏深一点，泛光之后仍是蓝而不是白
-  const VAR_GLOW = { emberbow: [0x3fa8ff, 1.35] };
+  const VAR_GLOW = { emberbow: [0x3fa8ff, 1.35], lanternP: [0xffa040, 1.5], lantern: [0xffa040, 1.5], lanternT3: [0xff5a24, 1.45] }; // 提灯的火苗（class-d2b1）
   function newEnt(kind, rig, tintHex, elemHex, glowI) {
     const group = new T.Group();
     const body = new T.Group();
@@ -12933,10 +12934,11 @@
   // 武器种类：底材的 type → 模型序号（也是 ent.gearType）。前三种的序号与旧存档的 baseIdx 一致
   // 远程武器（8 转膛机炮 / 9 焚炉喷枪 / 10 烬铸左轮）挂在同一个关节 wF 上，各自一组变体零件；四种弓共用长弓的序号 5（同一套握法与动作），
   // 弓身也是变体零件（弓弦仍挂在 bsU / bsL 上，四张弓的弓梢位置相同）
-  const GEAR_KEYS = ['blade', 'staff', 'wand', 'daggers', 'hammer', 'bow', 'katana', 'banner', 'gatling', 'flamer', 'revolver'];
-  const G_DAG = 3, G_HAM = 4, G_BOW = 5, G_KAT = 6, G_BAN = 7, G_GAT = 8, G_FLM = 9, G_REV = 10;
-  const TWO_HAND = [false, false, false, false, true, false, true, false, true, true, false];
-  const GEAR_JOINT = ['wB', 'wS', 'wW', 'wD', 'wH', 'wBo', 'wK', 'wBn', 'wF', 'wF', 'wF'];
+  // 11 提灯（class-d2b1）：挂右手的 wL；模型是变体零件——程序化的简化提灯 lanternP 先顶着，kit-gear 包里的自产件到了以后换成 lantern / lanternT3（见 lanternVar）
+  const GEAR_KEYS = ['blade', 'staff', 'wand', 'daggers', 'hammer', 'bow', 'katana', 'banner', 'gatling', 'flamer', 'revolver', 'lantern'];
+  const G_DAG = 3, G_HAM = 4, G_BOW = 5, G_KAT = 6, G_BAN = 7, G_GAT = 8, G_FLM = 9, G_REV = 10, G_LAN = 11;
+  const TWO_HAND = [false, false, false, false, true, false, true, false, true, true, false, false];
+  const GEAR_JOINT = ['wB', 'wS', 'wW', 'wD', 'wH', 'wBo', 'wK', 'wBn', 'wF', 'wF', 'wF', 'wL'];
   // 卡通：手持武器整体缩小一点（近镜头下原尺寸的武器比人还抢眼）。按握点缩放武器关节（playerPost），
   // 挂点（刀光、光晕、枪口）都经关节矩阵换算，跟着一起缩；双手武器的左手握点、弓弦在 playerIK 里按这个比例换算
   const GEAR_K = 0.88;
@@ -12946,6 +12948,8 @@
   const TYPE_GEAR = { huntbow: G_BOW, eagle: G_BOW, runebow: G_BOW, emberbow: G_BOW, bow: G_BOW };
   // 序号之外还要区分的具体型号（变体零件的名字）：弓 → 四种弓之一，枪 → 自己的 type
   const gearVariant = (type) => (type === 'bow' ? 'eagle' : BOW_TYPES.indexOf(type) >= 0 || GUN_TYPES.indexOf(type) >= 0 ? type : null);
+  // 提灯（class-d2b1）：灯框顶相对握杆的下移（dy，负 = 往下）、握把底端相对武器关节的前后（dz）。自产件（art/ca/gen.py 的 hand_lantern）按同一个约定换算
+  const LANTERN_FIT = { dy: -0.125, dz: -0.05 };
   // 魂幡：挑杆的高度（握点往上，沿杆）、幡布挂点离杆的横向距离、两段幡布的长度
   const BAN_Z = 1.6, BAN_X = 0.25, BAN_L1 = 0.46, BAN_L2 = 0.44, BAN_CL = 0.26;
   const baseType = (baseIdx) => {
@@ -13681,7 +13685,7 @@
       b.j('root', null, 0, 1.0, 0).j('spine', 'root', 0, 1.1, 0).j('chest', 'spine', 0, 1.32, 0).j('head', 'chest', 0, 1.62, 0.01);
       b.j('uaL', 'chest', 0.33, 1.5, 0).j('faL', 'uaL', 0.38, 1.19, -0.01).j('hL', 'faL', 0.39, 0.9, 0.02);
       b.j('uaR', 'chest', -0.33, 1.5, 0).j('faR', 'uaR', -0.38, 1.19, -0.01).j('hR', 'faR', -0.39, 0.9, 0.02);
-      b.j('wB', 'hR', -0.39, 0.84, 0.05).j('wS', 'hR', -0.39, 0.84, 0.05).j('wW', 'hR', -0.39, 0.84, 0.05);
+      b.j('wB', 'hR', -0.39, 0.84, 0.05).j('wS', 'hR', -0.39, 0.84, 0.05).j('wW', 'hR', -0.39, 0.84, 0.05).j('wL', 'hR', -0.39, 0.84, 0.05);
       // 后加的四种武器：双匕（两手各一把）、战锤、太刀挂右手；长弓挂左手，弓弦两段各挂在弓梢上（拉弓时转向右手、拉长）；
       // wA 是拉弓时右手捏着的那支箭
       b.j('wD', 'hR', -0.39, 0.84, 0.05).j('wH', 'hR', -0.39, 0.84, 0.05).j('wK', 'hR', -0.39, 0.84, 0.05).j('wA', 'hR', -0.39, 0.84, 0.03);
@@ -13912,6 +13916,20 @@
       }
       // 三把火器（变体零件，挂 wF / wGb）
       rangedGuns(b, WX, WY, GOLD, STEEL, STEEL_D);
+      // 提灯（class-d2b1）：程序化的简化版（变体 lanternP），kit-gear 包里的自产件到了以后换掉（lanternVar）。
+      // 握杆沿 +z，杆头一个往下的钩，钩下挂六角灯（灯的轴线朝 -y），罩里一团火苗（自发光，VAR_GLOW.lanternP）
+      {
+        const LAN = LANTERN_FIT, LY = WY + LAN.dy, LZ = LAN.dz;
+        b.variant('lanternP').at('wL').surf(SURF.leather).p(gCyl(0.023, 0.024, 0.16, 6), 0x3a2a20, WX, WY, LZ + 0.08, HALF_PI);
+        b.surf(SURF.metal).p(gCyl(0.015, 0.016, 0.36, 6), STEEL_D, WX, WY, LZ + 0.33, HALF_PI);
+        b.surf(SURF.gold).p(gCyl(0.02, 0.02, 0.035, 6), GOLD, WX, WY, LZ + 0.52, HALF_PI);
+        b.surf(SURF.metal).p(gTorus(0.04, 0.01, 4, 8, Math.PI), STEEL_D, WX, WY - 0.045, LZ + 0.55, 0, HALF_PI, 0);
+        b.surf(SURF.gold).p(gCone(0.068, 0.05, 6), GOLD, WX, LY + 0.03, LZ + 0.545);
+        b.p(gCyl(0.064, 0.064, 0.018, 6), GOLD, WX, LY - 0.0, LZ + 0.545).p(gCyl(0.064, 0.064, 0.018, 6), GOLD, WX, LY - 0.17, LZ + 0.545);
+        b.p(gCyl(0.052, 0.052, 0.16, 6), [0xd08a3a, 0xf0b060], WX, LY - 0.085, LZ + 0.545);
+        b.x(gOct(0.026), 1, WX, LY - 0.09, LZ + 0.545, 0, 0, 0, 0.8, 1.3, 0.8);
+        b.variant(null);
+      }
       b.variant(null);
 
       const rig = b.build({ height: 1.95, reach: 2.2, stride: 2.35, shade: 0.28 });
@@ -14026,6 +14044,11 @@
       // 短杖：小臂抬起，杖尖朝前上方
       p[J.faR] = -1.0 * run - 0.95 * id;
       p[J.hR] = -0.2;
+    } else if (gear === G_LAN) {
+      // 提灯（class-d2b1）：小臂往前平端，杆朝前，灯挂在杆头下面、在腰侧
+      p[J.uaR] = (-0.3 * s - 0.05) * run - 0.08 * id;
+      p[J.faR] = -1.05 * run - 1.15 * id;
+      p[J.hR] = 0.35;
     } else if (gear === G_DAG) {
       // 双匕：两手各握一把，小臂抬起护在身前，刃尖朝前；跑起来两臂交替前后摆
       p[J.uaR] = (-0.5 * s - 0.15) * run - 0.22 * id;
@@ -15979,7 +16002,7 @@
   // 武器的握法 / 挂点长度 / 稀有度的发光
   // 挂点 weapon（武器尖端 / 长弓的上弓梢 / 魂幡杆头的魂火）相对武器关节的 [x, y, z]
   const GEAR_TIP = [[0, 0, 1.17], [0, 0, 1.54], [0, 0, 0.68], [0, 0, 0.5], [0, 0, 1.0], [BOW_TIP[0] - 0.39, BOW_TIP[1] - 0.84, BOW_TIP[2] - 0.05], [0, 0.04, 1.12], [0, 0, 1.84],
-    [0, GUN_AX, GUN_MUZ.gatling - 0.05], [0, GUN_AX, GUN_MUZ.flamer - 0.05], [0, GUN_AX, GUN_MUZ.revolver - 0.05]];
+    [0, GUN_AX, GUN_MUZ.gatling - 0.05], [0, GUN_AX, GUN_MUZ.flamer - 0.05], [0, GUN_AX, GUN_MUZ.revolver - 0.05], [0, LANTERN_FIT.dy - 0.09, LANTERN_FIT.dz + 0.545 - 0.05]];
   // 第 4 档是烬铸：余烬橙的自发光比稀有更亮，光晕更大（见 applyGear），武器上不停往上飘火星（见下面的 gear 更新）
   const GEAR_GLOW = [[0xcfd6e2, 0.3], [0x7f9dff, 1.15], [0xffd75e, 1.5], [0xff7424, 2.4]];
   // 个别武器的烬铸档换一种光色（只换这一把，不动其他烬铸武器）：冰弓凛羽是冰蓝，光晕和飘落的东西也跟着换（见 applyGear 与下面的 gear 更新）
@@ -15988,7 +16011,7 @@
   // 刃的光裹着刃身；长杖 / 短杖握在头和胸口旁边，光只罩住杖头的晶体，小而淡，不把兜帽和上身照成一片白；
   // 双匕只罩右手那把；战锤罩住锤头；长弓的光在握把上；太刀和刃一样裹着刃身；魂幡罩住杆头的魂火
   const GEAR_AURA = [[0.62, 1.0, 1.5, 1], [0.885, 0.5, 0.72, 0.5], [0.81, 0.42, 0.6, 0.5], [0.55, 0.55, 0.85, 0.8], [0.95, 0.75, 1.1, 0.75], [0, 0.75, 1.05, 0.6], [0.6, 1.0, 1.5, 1], [1, 0.55, 0.8, 0.55],
-    [0.3, 0.7, 1.0, 0.6], [0.3, 0.65, 0.95, 0.6], [0.45, 0.5, 0.75, 0.7]];
+    [0.3, 0.7, 1.0, 0.6], [0.3, 0.65, 0.95, 0.6], [0.45, 0.5, 0.75, 0.7], [1, 0.42, 0.62, 0.5]];
   const auraMats = Object.create(null);
   function auraMat(hex, alpha) {
     const key = hex + ':' + alpha;
@@ -16050,7 +16073,7 @@
   function gearFrom(ent, equip) {
     const w = equip && equip.weapon;
     const type = w ? gearIndex(w.baseIdx | 0) : -1, rar = w ? G.clamp(w.rarity | 0, 0, 3) : 0;
-    const vn = w ? gearVariant(baseType(w.baseIdx | 0)) : null;
+    const vn = w ? (type === G_LAN ? lanternVar(ent, w) : gearVariant(baseType(w.baseIdx | 0))) : null;
     if (type !== ent.gearType || rar !== ent.gearRar || (vn || null) !== (ent.gearVar || null)) applyGear(ent, type, rar, vn);
   }
   // 玩家的武器模型跟着装备走：equip 是存档里的 { slot: item }。
@@ -16060,6 +16083,114 @@
     const ent = G.player && G.player.ent;
     if (ent && !ent.removed) gearFrom(ent, equip);
   };
+
+  // ---------- 提灯的自产模型（class-d2b1）----------
+  // kit-gear 包（ca/gear_lantern、ca/gear_lantern_t3）不在开机 / 进区时加载：第一次装备提灯、或者地上掉了一盏时才要（W.lanternNeed）。
+  // 到了之前手里是程序化的简化提灯（变体 lanternP）。到了以后把两件换算成玩家骨架上的变体零件 lantern / lanternT3（第三阶的名字 / 烬铸用 T3）
+  let lanternSt = 0; // 0 还没要 / 1 加载中 / 2 好了 / 3 失败（一直用程序化的）
+  W.lanternState = () => lanternSt;
+  W.lanternNeed = function () {
+    if (lanternSt || !G.assets || !G.assets.known || !G.assets.known('kit-gear')) return;
+    lanternSt = 1;
+    G.assets.need(['kit-gear']).then((ok) => {
+      const rig = ok ? playerRig() : null;
+      const a = rig && lanternGeo(rig, 'ca/gear_lantern'), b = rig && lanternGeo(rig, 'ca/gear_lantern_t3');
+      if (!a || !b) {
+        lanternSt = 3;
+        return;
+      }
+      rig.geoVar.lantern = a;
+      rig.geoVar.lanternT3 = b;
+      lanternSt = 2;
+      if (G.save) W.setPlayerGear(G.save.equip);
+    });
+  };
+  // 包里的件（Blender：+z 沿握杆、-y 往下；导出后 glTF 是 (x, z, -y)）→ 骨架绑定空间里挂在 wL 上的刚性零件：
+  // x = WX + gx，y = 0.84 − gz（往下），z = dz + gy。余烬面（aGlow）进自发光那一份，其余进本体
+  function lanternGeo(rig, key) {
+    const src = G.assets.geo(key);
+    if (!src) return null;
+    const Pa = src.attributes.position.array, Na = src.attributes.normal.array, Ca = src.attributes.color.array;
+    const Ga = src.attributes.aGlow ? src.attributes.aGlow.array : null;
+    const j = rig.JI.wL, dl = rig.cDl, WX = -0.39, WY = 0.84, F = LANTERN_FIT;
+    const ox = dl ? dl[j * 3] : 0, oy = dl ? dl[j * 3 + 1] : 0, oz = dl ? dl[j * 3 + 2] : 0;
+    const body = cBuf(), glow = cBuf(), sb = SURF.metal, sg = SURF.glow;
+    for (let v0 = 0; v0 + 2 < Pa.length / 3; v0 += 3) {
+      const isG = !!Ga && Ga[v0] > 0.3 && Ga[v0 + 1] > 0.3 && Ga[v0 + 2] > 0.3;
+      const out = isG ? glow : body;
+      for (let v = v0; v < v0 + 3; v++) {
+        const gx = Pa[v * 3], gy = Pa[v * 3 + 1], gz = Pa[v * 3 + 2];
+        out.P.push(WX + gx + ox, WY - gz + oy, F.dz + 0.05 + gy - 0.05 + oz);
+        out.N.push(Na[v * 3], -Na[v * 3 + 2], Na[v * 3 + 1]);
+        if (isG) out.C.push(Ga[v], Ga[v], Ga[v]);
+        else out.C.push(Ca[v * 3], Ca[v * 3 + 1], Ca[v * 3 + 2]);
+        out.J.push(j, 0, 0, 0);
+        out.W.push(1, 0, 0, 0);
+        const sf = isG ? sg : sb;
+        out.S.push(sf[0], sf[1]);
+      }
+    }
+    const mk = (o) => {
+      if (!o.P.length) return null;
+      if (rig.skin4) return cGeo(o, rig);
+      const g = new T.BufferGeometry();
+      g.setAttribute('position', new T.Float32BufferAttribute(o.P, 3));
+      g.setAttribute('normal', new T.Float32BufferAttribute(o.N, 3));
+      g.setAttribute('color', new T.Float32BufferAttribute(o.C, 3));
+      g.setAttribute('aBone', new T.Float32BufferAttribute(o.J.filter((_, i) => i % 4 === 0), 1));
+      g.setAttribute('aSurf', new T.Float32BufferAttribute(o.S, 2));
+      g.boundingSphere = new T.Sphere(new T.Vector3(0, rig.height * 0.5, 0), rig.height * 0.5 + (rig.reach || 1.5));
+      return g;
+    };
+    return { body: mk(body), glow: mk(glow), aux: null };
+  }
+  // 某个实体还没有某组运行时加上的变体零件时补上（和 newEnt 里建变体零件同一套材质）
+  function addVarMeshes(ent, vn) {
+    const gv = ent.rig.geoVar && ent.rig.geoVar[vn];
+    if (!gv || (ent.vMesh && ent.vMesh[vn]) || !ent.meshBody) return false;
+    const body = ent.meshBody.parent, list = [];
+    if (gv.body) {
+      const m = new T.Mesh(gv.body, ent.bodyMat);
+      m.castShadow = true;
+      m.customDepthMaterial = ent.depthMat;
+      list.push(m);
+    }
+    if (gv.glow) {
+      let vm = ent.glowMat;
+      const vg = VAR_GLOW[vn];
+      if (vg) {
+        const vc = lin(vg[0]);
+        vm = new T.MeshStandardMaterial({ color: vc.clone().multiplyScalar(0.25), vertexColors: true, emissive: vc, emissiveIntensity: vg[1], roughness: 0.4, metalness: 0, toneMapped: false });
+        vm.defines.NB = ent.rig.NB;
+        if (ent.rig.skin4) vm.defines.SKIN4 = 1;
+        vm.flatShading = RIG_FLAT;
+        vm.onBeforeCompile = function (sh) { injectLit(sh, ent); };
+        vm.userData.e0 = vc.clone();
+        vm.userData.ei0 = vg[1];
+        vm.userData.fi = 1.25;
+        ent.mats.push(vm);
+      }
+      list.push(new T.Mesh(gv.glow, vm));
+    }
+    for (const m of list) {
+      m.visible = false;
+      body.add(m);
+    }
+    (ent.vMesh || (ent.vMesh = Object.create(null)))[vn] = list;
+    return true;
+  }
+  // 手里这盏提灯用哪组零件：自产件到了用 lantern / lanternT3，没到（或加载失败）用程序化的 lanternP
+  function lanternVar(ent, w) {
+    const t3 = (w.rarity | 0) >= 3 || (G.nameTier && G.nameTier(w.ilvl | 0 || 1) >= 2);
+    const vn = t3 ? 'lanternT3' : 'lantern';
+    if (lanternSt === 2 && ent.rig.geoVar && ent.rig.geoVar[vn]) {
+      addVarMeshes(ent, 'lantern');
+      addVarMeshes(ent, 'lanternT3');
+      return vn;
+    }
+    W.lanternNeed();
+    return 'lanternP';
+  }
 
   // =====================================================================
   // 小怪
@@ -19847,7 +19978,7 @@
     made.forEach((e, i) => e.group.position.set(((i % 3) - 1) * 5, 0, -Math.floor(i / 3) * 4));
     const loots = [];
     for (const s of G.SLOTS) loots.push(W.makeLoot('item', 0xffffff, s === 'weapon', 0, 2, s));
-    for (let i = 1; i < GEAR_KEYS.length; i++) loots.push(W.makeLoot('item', 0xffffff, false, 0, 2, { slot: 'weapon', type: GEAR_KEYS[i] }));
+    for (let i = 1; i < GEAR_KEYS.length; i++) if (GEAR_KEYS[i] !== 'lantern') loots.push(W.makeLoot('item', 0xffffff, false, 0, 2, { slot: 'weapon', type: GEAR_KEYS[i] })); // 提灯只有掌灯人掉，不预热
     for (const k of ['item', 'cur', 'skill', 'blank', 'support']) loots.push(W.makeLoot(k, 0xffffff, false, 0, 2));
     loots.push(W.makeLoot('item', 0xff9b3d, true, 0, 2, { slot: 'weapon', type: 'katana', rarity: 3 })); // 烬铸的本体材质与双层光柱
     allyFxVisible(true); // 召唤法阵 / 聚焦标记平时是隐藏的：预热这一帧让它们露个面，着色器一并编译
@@ -19945,6 +20076,16 @@
       ];
     },
     // 魂幡：乌木杆、骨爪杆头，横挑杆挑着一面撕破的暗紫幡布，外端坠一枚小骷髅；魂火和幡面符印发光
+    // 提灯（class-d2b1）：短杆竖着，杆头的钩下挂一盏六角灯；火苗发光
+    lantern: () => [
+      bake('lt/lantern', [
+        [gCyl(0.016, 0.02, 0.6, 6), LC.steelD, 0, -0.08, 0], [gCyl(0.024, 0.024, 0.16, 6), LC.leatherD, 0, -0.3, 0], [gCyl(0.02, 0.02, 0.03, 6), LC.gold, 0, 0.22, 0],
+        [gTorus(0.04, 0.01, 4, 8, Math.PI), LC.steelD, 0.04, 0.24, 0],
+        [gCone(0.075, 0.06, 6), LC.gold, 0.085, 0.16, 0], [gCyl(0.07, 0.07, 0.02, 6), LC.gold, 0.085, 0.12, 0], [gCyl(0.07, 0.07, 0.02, 6), LC.gold, 0.085, -0.06, 0],
+        [gCyl(0.058, 0.058, 0.17, 6), 0xd89040, 0.085, 0.03, 0],
+      ]),
+      bake('lt/lanternG', [[gOct(0.03), WH, 0.085, 0.03, 0, 0, 0, 0, 0.8, 1.3, 0.8]]),
+    ],
     banner: () => [
       bake('lt/banner', [
         [gCyl(0.022, 0.028, 1.12, 6), 0x2a201b, 0, -0.02, 0], [gCone(0.026, 0.12, 5), LC.steelD, 0, -0.64, 0, Math.PI],
@@ -20088,6 +20229,7 @@
       else if (sl && LOOT_MODEL[sl]) key = sl;
     }
     if (!LOOT_MODEL[key]) key = 'item';
+    if (key === 'lantern' && W.lanternNeed) W.lanternNeed(); // 地上掉了提灯：先把手持的自产模型要过来（class-d2b1）
     const mdl = lootModels[key] || (lootModels[key] = LOOT_MODEL[key]());
     if (!lootBody) lootBody = new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.45, envMap: rigEnvMap(), envMapIntensity: 0.9, flatShading: true });
     const grp = new T.Group();
