@@ -932,6 +932,8 @@ kbd {
   pointer-events: none;
 }
 #tip.on { display: block; }
+#tip { transform-origin: 0 0; }
+#tip.one .tip-pair > :not(:first-child) { display: none; }
 .tip-pair { display: flex; align-items: flex-start; gap: 8px; }
 .tcard {
   --c: #e6c58a;
@@ -972,8 +974,14 @@ body.alt-on .sk-desc .alt-h { display: block; visibility: hidden; }
   height: 100%;
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr) 320px;
+  grid-template-rows: minmax(0, 1fr);
   gap: 20px;
 }
+/* DOM 里背包列在前（见 ui.js renderInv），宽屏按列号摆回 装备 | 背包 | 详情 */
+.inv-side { display: contents; }
+.inv > .col-m { grid-column: 2; grid-row: 1; }
+.inv-side > .col-l { grid-column: 1; grid-row: 1; }
+.inv-side > .col-r { grid-column: 3; grid-row: 1; }
 
 .eq-grid { flex: none; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
 .cell, .eq {
@@ -1904,6 +1912,9 @@ button.pk-row:hover { background: #2a1b10; border-color: var(--ember-2); }
 .chk:hover { color: #e6d7bd; border-color: var(--ember-2); }
 .chk.on { color: #b9c8ff; border-color: #4760c4; }
 .chk.on i { background: #8ba6ff; border-color: #c7d0ff; box-shadow: 0 0 6px rgba(127, 157, 255, 0.8); }
+/* 勾：开着的框里画一个对勾 */
+.chk i { position: relative; flex: none; }
+.chk.on i::after { content: ''; position: absolute; left: 2.5px; top: 0; width: 3px; height: 6px; border: solid #10183a; border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); }
 .sec-title .btn + .chk, .sec-title .btn + .btn, .sec-title .chk + .btn { margin-left: -4px; }
 .inv-tips.res { gap: 8px; font-size: 12.5px; color: #c9b48e; border-top-color: #5e4329; }
 .inv-tips.res b { color: #f2dfb8; font-weight: 600; }
@@ -1915,6 +1926,10 @@ button.pk-row:hover { background: #2a1b10; border-color: var(--ember-2); }
 .res-cur { white-space: nowrap; }
 .chk:disabled { cursor: default; opacity: 0.55; }
 .chk:disabled:hover { color: #b9c8ff; border-color: #4760c4; }
+/* 含稀有开着时的含魔法：算在内、但锁着不能点 → 暗一点的勾，框不发光 */
+.chk.on:disabled, .chk.on:disabled:hover { opacity: 1; color: #8692bd; border-color: #303b6c; }
+.chk.on:disabled i { background: rgba(139, 166, 255, 0.22); border-color: #6476b8; box-shadow: none; }
+.chk.on:disabled i::after { border-color: #b9c8ff; }
 /* 锁：纯 CSS 画的小锁（锁梁 + 锁身），颜色跟着 currentColor */
 .lk-ico { position: relative; display: inline-block; flex: none; width: 9px; height: 11px; vertical-align: -1px; }
 .lk-ico::before { content: ''; position: absolute; left: 1.5px; top: 0; width: 6px; height: 7px; box-sizing: border-box; border: 1.5px solid currentColor; border-bottom: none; border-radius: 3px 3px 0 0; }
@@ -3805,4 +3820,74 @@ body.paused #reticle, body.paused #coach { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .st-stage { transition: none; }
   .st-hint { animation: none; }
+}
+
+/* 中等宽度（如 1024×640）：两侧收窄，中间背包每格不小于 44 px；背包标题行和底部提示放不下就换行 */
+@media (max-width: 1180px) {
+  .inv { grid-template-columns: 250px minmax(0, 1fr) 262px; gap: 14px; }
+  .st-grid { column-gap: 10px; }
+  .st-row { font-size: 12px; }
+  .col-m > .sec-title:first-child { flex-wrap: wrap; height: auto; min-height: 26px; row-gap: 6px; }
+  .col-m > .sec-title:first-child::after { flex: 1 0 24px; }
+  .inv-tips { flex-wrap: wrap; row-gap: 4px; white-space: normal; }
+  .detail-empty { padding: 0 16px 40px; }
+}
+
+/* ============================================================
+   手机（窄屏 ≤ 900 宽，或矮屏 ≤ 500 高）：面板铺满屏幕，页头收紧。
+   背包页：横屏两列（左背包；右边 装备 → 物品详情 → 属性），两边各自滚动；竖屏一列整页滚动。
+   1024×640 这类宽屏不进这里（只用上面的中等宽度规则）。
+   ============================================================ */
+@media (max-width: 900px), (max-height: 500px) {
+  #panel-win { width: 100vw; height: 100vh; height: 100dvh; }
+  #panel-win::before, #panel-win::after { display: none; }
+  #panel-head { height: 40px; padding: 0 4px 0 12px; }
+  .brand { width: auto; font-size: 17px; letter-spacing: 3px; gap: 7px; }
+  .tab { padding: 0 10px; font-size: 15px; letter-spacing: 2px; white-space: nowrap; }
+  .tab kbd { display: none; }
+  .tab::after { left: 6px; right: 6px; }
+  #panel-close { width: auto; padding: 0 8px; }
+  #panel-close kbd { display: none; }
+  #panel-body { padding: 8px 10px 10px; }
+
+  .inv { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+  .inv > .col-m { grid-column: 1; padding-right: 4px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #5e4329 transparent; }
+  .inv-side { display: flex; flex-direction: column; grid-column: 2; grid-row: 1; min-width: 0; min-height: 0; padding-right: 4px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #5e4329 transparent; }
+  /* 装备列拆开：选中物品后详情紧跟在装备栏下面，属性放最后 */
+  .inv-side > .col-l { display: contents; }
+  .col-l > .sec-title:first-child, .col-l > .eq-grid { order: 1; }
+  .inv-side > .col-r { order: 2; flex: none; margin-top: 12px; overflow: visible; }
+  .col-l > .sec-title:nth-child(3), .col-l > .stats { order: 3; }
+  .col-l > .sec-title:nth-child(3) { margin-top: 12px; }
+  .inv .stats { flex: none; overflow: visible; }
+  .inv .detail-empty { flex: none; padding: 14px 16px; }
+  .eq-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+  .eq-name { bottom: 2px; font-size: 10.5px; }
+  .bag, .cur-row { gap: 4px; }
+  .frag-row { grid-template-columns: repeat(4, 1fr); }
+  /* 背包标题行的按钮：放不下就换行，按钮加高一点好点 */
+  .col-m > .sec-title:first-child { flex-wrap: wrap; height: auto; min-height: 26px; row-gap: 6px; }
+  .col-m > .sec-title:first-child::after { flex: 1 0 24px; }
+  .col-m > .sec-title .btn.sm, .col-m > .sec-title .chk { height: 30px; }
+  .inv-tips { flex-wrap: wrap; row-gap: 4px; white-space: normal; text-align: center; }
+  .tcard { max-width: calc(100vw - 16px); }
+}
+@media (max-width: 600px) {
+  .brand { display: none; }
+  #tabs { justify-content: flex-start; gap: 0; }
+  .tab { padding: 0 9px; letter-spacing: 1px; }
+  #panel-body { padding: 8px 8px 10px; }
+
+  /* 竖屏：一列，整页滚动。顺序：装备 → 背包 → 物品详情 → 属性 */
+  .inv { display: flex; flex-direction: column; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #5e4329 transparent; }
+  .inv-side { display: contents; }
+  .inv > .col-m { order: 2; flex: none; margin-top: 14px; padding-right: 0; overflow: visible; }
+  .inv-side > .col-r { order: 3; margin-top: 14px; }
+  .col-l > .sec-title:nth-child(3), .col-l > .stats { order: 4; }
+  .col-l > .sec-title:nth-child(3) { margin-top: 14px; }
+  .eq-grid { grid-template-columns: repeat(4, minmax(0, 76px)); gap: 6px; }
+  .bag { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .cur-row { grid-template-columns: repeat(4, 1fr); }
+  .inv-tips { margin-top: 10px; }
+  .tip-pair { flex-direction: column; }
 }
