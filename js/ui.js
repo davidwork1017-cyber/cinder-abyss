@@ -1651,10 +1651,10 @@
         : '<div class="inv-tips"><span>右键 装备 / 卸下</span><i></i><span>拖动 整理 · 换装 · 丢弃</span><i></i><span>Shift+点击 分解</span><i></i><span>通货拖到物品上 改造</span></div>';
 
     el.body.innerHTML =
-      '<div class="inv">' +
-      '<div class="col col-l"><div class="sec-title">装备</div><div class="eq-grid">' + eq + '</div>' +
-      '<div class="sec-title">属性<span class="sec-note">等级 ' + S.level + '</span></div><div class="stats scroll" data-scroll="stats">' + statSheet() + '</div></div>' +
-      '<div class="col col-m"><div class="sec-title">背包<span class="sec-note">' + S.bag.length + ' / ' + G.BAG_SIZE + '</span>' +
+      // 背包列写在前面，装备 + 详情包在 inv-side 里：宽屏 inv-side 是 display: contents，三列照旧摆（CSS 指定列号）；
+      // 手机横屏右半边整列一起滚，竖屏整页一列（见 css 末尾的窄屏规则）
+      '<div class="inv" data-scroll="inv">' +
+      '<div class="col col-m" data-scroll="invbag"><div class="sec-title">背包<span class="sec-note">' + S.bag.length + ' / ' + G.BAG_SIZE + '</span>' +
       '<button type="button" tabindex="-1" class="btn sm uqb' + (sel ? '' : ' on') + '" data-act="codex" data-tip="txt:烬铸与渊契的收集和保底进度">图鉴</button>' +
       '<button type="button" tabindex="-1" class="btn sm" data-act="sort"' + (S.bag.length > 1 ? '' : ' disabled') + '>整理</button>' +
       '<button type="button" tabindex="-1" class="chk' + (withMagic ? ' on' : '') + '" data-act="opt" data-opt="salvageMagic"' + (withRare ? ' disabled' : '') + '><i></i>含魔法</button>' +
@@ -1666,8 +1666,11 @@
       '<div class="sec-title">通货<span class="sec-note">拖到物品上使用</span></div><div class="cur-row">' + cur + '</div>' +
       fragRow() +
       foot + '</div>' +
+      '<div class="inv-side" data-scroll="invside">' +
+      '<div class="col col-l"><div class="sec-title">装备</div><div class="eq-grid">' + eq + '</div>' +
+      '<div class="sec-title">属性<span class="sec-note">等级 ' + S.level + '</span></div><div class="stats scroll" data-scroll="stats">' + statSheet() + '</div></div>' +
       '<div class="col col-r scroll" data-scroll="detail">' + detail + '</div>' +
-      '</div>';
+      '</div></div>';
   }
 
   // ============================================================
@@ -3403,10 +3406,24 @@
   // 把提示框摆到矩形 r 旁边：优先右侧，放不下就左侧，再不行就贴边并躲到上 / 下方
   function placeTip(r, preferLeft) {
     const tip = el.tip;
-    const w = tip.offsetWidth;
-    const h = tip.offsetHeight;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
+    // 手机（尤其横屏）上浮窗可能比屏幕还大：先去掉右边那张「当前装备」对比卡，还放不下就整体缩小（最多缩到 0.7）
+    if (tip.classList.contains('one')) tip.classList.remove('one');
+    if (tip.style.transform) tip.style.transform = '';
+    let w = tip.offsetWidth;
+    let h = tip.offsetHeight;
+    if ((w > vw - 16 || h > vh - 16) && tip.querySelector('.tip-pair')) {
+      tip.classList.add('one');
+      w = tip.offsetWidth;
+      h = tip.offsetHeight;
+    }
+    const k = Math.max(0.7, Math.min(1, (vw - 16) / w, (vh - 16) / h));
+    if (k < 1) {
+      tip.style.transform = 'scale(' + k.toFixed(3) + ')';
+      w *= k;
+      h *= k;
+    }
     let x = r.right + 12;
     if (x + w > vw - 8 || (preferLeft && r.left - 12 - w >= 8)) x = r.left - 12 - w;
     if (x < 8) x = G.clamp(r.left, 8, Math.max(8, vw - w - 8));
