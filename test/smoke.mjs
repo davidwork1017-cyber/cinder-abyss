@@ -10694,6 +10694,8 @@ async function main() {
       const rare = G.spawnLoot('item', G.rollItem(10, 2, 'ring'), P.x + 2, P.z);
       const uq = G.spawnLoot('item', G.rollUnique(Object.keys(G.UNIQUES)[0], 10), P.x - 2, P.z);
       const cur = G.spawnLoot('cur', Object.keys(G.CURRENCY)[0], P.x, P.z + 2);
+      // 落点在 2.4 米内随机：通货落到离玩家 2.2 米以内会在这 0.5 秒里被自动捡走（少一圈地面环）。三件都先不自动拾取，结果不看落点
+      rare.noAuto = uq.noAuto = cur.noAuto = true;
       G.debug.step(0.5);
       W.render();
       const parts = W.projFxInfo().parts;
@@ -10787,7 +10789,7 @@ async function main() {
     return '件数 ' + Object.entries(r.el).map(([k, v]) => k + ' ' + v).join(' / ') + '，细边环 ' + r.thin + '，砸地 r ' + r.slam.r + ' / ' + r.slam.dur + ' 秒';
   });
 
-  await step('技能打磨第 1 批（skill-b1）：爆燃 / 冻结 / 冰爆画进形状批——高 / 低画质都不多一次 draw；Math.random 取数和换之前一样（爆燃 高 138 / 低 81，冻结 156、首领 216，低画质各多 2，冰爆 133）；一帧里连炸 20 个爆燃，只有前几个画全套', async () => {
+  await step('技能打磨第 1 批（skill-b1）：爆燃 / 冻结 / 冰爆画进形状批——高 / 低画质都不多一次 draw；一次 Math.random 都不取（fx-rng：只取画面随机数）；一帧里连炸 20 个爆燃，只有前几个画全套', async () => {
     const r = await ev(() => {
       const W = G.world, P = G.player, R = W.renderer, out = {}, q0 = W.quality();
       G.clearEnemies();
@@ -10825,7 +10827,7 @@ async function main() {
     });
     const H = r.high, L = r.low;
     assert(H.d1 <= H.d0 && L.d1 <= L.d0, '爆燃 / 冻结 / 冰爆不该多出 draw：' + JSON.stringify(r));
-    assert(H.blast === 138 && L.blast === 81 && H.freeze === 156 && L.freeze === 158 && H.boss === 216 && L.boss === 218 && H.frost === 133 && L.frost === 133, '爆燃 / 冻结 / 冰爆的 Math.random 取数应和换之前一样：' + JSON.stringify(r));
+    assert([H, L].every((o) => o.blast === 0 && o.freeze === 0 && o.boss === 0 && o.frost === 0), '爆燃 / 冻结 / 冰爆不该取 Math.random（画面随机数是 G.vr）：' + JSON.stringify(r));
     assert(H.peak === 20 && H.flood > 20 && H.flood <= H.cap * 24 && L.flood > 0 && L.flood <= L.cap * 12 && L.flood < H.flood, '一帧连炸 20 个爆燃时形状批的件数应有上限（只有前几个画全套）：' + JSON.stringify(r));
     return 'draw 高 ' + H.d0 + '→' + H.d1 + ' / 低 ' + L.d0 + '→' + L.d1 + '，取数 ' + [H.blast, L.blast, H.freeze, H.frost].join(' / ') + '，连炸 20 个：件数 高 ' + H.flood + ' / 低 ' + L.flood;
   });
@@ -11507,7 +11509,8 @@ async function main() {
   // 弹幕、预警圈）和取随机数的次数哈希成一个指纹。期望值在换模型之前的 main 上量好写死：换外观（模型、动作、发光）不许动到模拟的一个比特。
   // 每秒一个分段哈希，对不上时报出从第几秒开始分叉
   const BOSS_FP = {
-    golem: { hash: '12254fc1', calls: 24478, secs: '148ea293,c881c904,75185249,adcad3a0,216be412,0b454798,593b24af,98a43332,2d128b77,d329e6e7,2d4fcadf,5bae6cb2,d82314bd,b85bde0a,edc5dd33'.split(',') }, // main 691ef67（程序化外观）上量的
+    // fx-rng 重定：特效的随机数从 Math.random 分出去以后（画面随机数 G.vr），模拟这一路只剩 112 次。原来 main 691ef67（程序化外观）上量的是 12254fc1 / 24478 次
+    golem: { hash: '4fc99b3d', calls: 112, secs: '9e1090d0,a448b82d,d32dc0c0,cd636106,d1d75655,66e79a53,47bda2f4,c30ac709,617cb6b2,36a0a0ec,5a7ca4f7,f574dfb2,2095a119,b3f4a835,cdbea357'.split(',') },
   };
   await step('首领指纹：熔渣巨像固定种子打 15 秒，局面和取随机数次数和换模型之前逐位相同；首领包打到一半才到，也只在招式之间换模型、指纹不变', async () => {
     const KEY = 'cinder-abyss-save-v1';
@@ -21569,6 +21572,19 @@ async function classSteps() {
       n++;
       return R();
     };
+    // fx-rng：掉落模型（W.makeLoot）转圈的速度 / 相位是画面上的随机：旧版本取 Math.random，新版本取画面随机数（G.vr）。
+    // 两边都让它在自己的一路里取，比的只是模拟的那一路（物品、掉落、货架）
+    const Wd = G.world, mk = Wd.makeLoot;
+    let ms = 7;
+    Wd.makeLoot = function () {
+      const r0 = Math.random;
+      Math.random = () => (ms = (ms * 16807) % 2147483647) / 2147483647;
+      try {
+        return mk.apply(this, arguments);
+      } finally {
+        Math.random = r0;
+      }
+    };
     const items = [];
     const loot = [];
     const L = G.state.loot, l0 = L.length;
@@ -21582,12 +21598,13 @@ async function classSteps() {
       items.push({ stock });
     } finally {
       Math.random = R;
+      Wd.makeLoot = mk;
     }
     for (const l of L.splice(l0)) G.world.removeMesh(l.mesh);
     return { json: JSON.stringify({ items, loot }), n, nLoot: loot.length };
   };
 
-  await step('职业·没有职业的存档：物品 / 怪物掉落 / 拾烬客货架的序列和职业之前的 main（' + CLASS_BASE_BUILD + '）一字不差，Math.random 调用次数一样', async () => {
+  await step('职业·没有职业的存档：物品 / 怪物掉落 / 拾烬客货架的序列和职业之前的 main（' + CLASS_BASE_BUILD + '）一字不差，Math.random 调用次数一样（掉落模型的画面随机数两边都不算）', async () => {
     if (process.env.CINDER_FILE) return 'file:// 下没有同源的旧版本，这一步要 HTTP（默认就是）';
     await fresh({ url: GAME_URL.replace(/index\.html$/, '__old/' + CLASS_BASE_BUILD + '/index.html') });
     await until(() => window.G && G.state && G.state.zone && G.player && G.player.ent && G.debug, null, 90000);

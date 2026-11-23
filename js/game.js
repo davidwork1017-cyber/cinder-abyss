@@ -4745,7 +4745,7 @@
         if (p.cast.has(e)) continue;
         p.cast.add(e);
       }
-      if (p.vol) G.world.fxMute(true); // class-d2b1：铁水弹炸到的别的怪只冒几颗暗芯火星（随机数照取）
+      if (p.vol) G.world.fxMute(true); // class-d2b1：铁水弹炸到的别的怪只冒几颗暗芯火星
       G.hitEnemy(e, p.ctx, p.blastMult || 1, { ang: Math.atan2(e.x - p.x, e.z - p.z), kb: p.kb, poise: p.poise }); // 从爆心往外推；blastMult：灵弹这一段的倍率
       if (p.vol) {
         G.world.fxMute(false);
@@ -4886,7 +4886,7 @@
               if (p.cast) p.cast.add(e);
               // 远程武器的箭 / 子弹：multFn 算这一下的倍率（鹰眼的远距离加成），after 接着结算余烬 / 元素爆炸 / 熔芯弹；src 让专注按箭计数
               const m = (p.multFn ? p.multFn(p, e) : p.mult || 1) * (p.boomK || 1); // boomK：回旋的回程
-              // class-d2b1：铁水弹的命中（连带引出的爆燃、溅到的伤害）特效全部静音（随机数照取），一次施放只放一处：
+              // class-d2b1：铁水弹的命中（连带引出的爆燃、溅到的伤害）特效全部静音，一次施放只放一处：
               // 有爆炸的由第一枚炸开那一下画（W.projImpact 的 rd_molten），溅铁 / 熔穿在第一处命中画一个小的；其余的怪只冒几颗暗芯火星
               const mu = !!p.vol, first = mu && !p.vol.shown;
               if (mu) {
@@ -6904,14 +6904,13 @@
       // 从目标点往回退，直到落在可走的地方
       let d = Math.min(sk.range, a.dist);
       while (d > 0 && !W.walkable(ox + a.dx * d, oz + a.dz * d, 0.6)) d -= 0.4;
-      // skill-b1：起点不再放一团火花、路上不再是旧的近白闪电，换成贴地的残影带（W.bolt 走鬼影：随机数照取、不显示）
-      if (W.blinkOrigin) W.blinkOrigin();
-      else W.burst(ox, 1.0, oz, hex, 18, 4, 0.4);
+      // skill-b1：起点不再放一团火花、路上不再是旧的近白闪电，换成贴地的残影带（没有残影带时退回旧画法）
+      if (!W.blinkBand) W.burst(ox, 1.0, oz, hex, 18, 4, 0.4);
       if (d > 0) {
         P.x = ox + a.dx * d;
         P.z = oz + a.dz * d;
-        W.bolt([{ x: ox, z: oz }, { x: P.x, z: P.z }], hex, false, { ghost: !!W.blinkBand });
         if (W.blinkBand) W.blinkBand(ox, oz, P.x, P.z, hex);
+        else W.bolt([{ x: ox, z: oz }, { x: P.x, z: P.z }], hex, false);
       }
       P.roll.t = 0;
       P.iframe = Math.max(P.iframe, 0.2);
@@ -7576,10 +7575,12 @@
     P.roll.t = 0;
     P.iframe = Math.max(P.iframe, 0.2);
     // 两道交叉的闪光、两头各一团旋影
-    // skill-b1：两道闪电换成贴地的残影带（你过去的那道亮一些，敌人被换回来的那道窄、暗）；W.bolt 走鬼影（随机数照取、不显示）
+    // skill-b1：两道闪电换成贴地的残影带（你过去的那道亮一些，敌人被换回来的那道窄、暗）；没有残影带时退回旧的两道闪电
     const gh = !!W.blinkBand;
-    W.bolt([{ x: ox, z: oz }, { x: px, z: pz }], hex, false, { ghost: gh });
-    if (!e.isBoss) W.bolt([{ x: px + 0.3, z: pz }, { x: e.x + 0.3, z: e.z }], 0xffffff, true, { ghost: gh });
+    if (!gh) {
+      W.bolt([{ x: ox, z: oz }, { x: px, z: pz }], hex, false);
+      if (!e.isBoss) W.bolt([{ x: px + 0.3, z: pz }, { x: e.x + 0.3, z: e.z }], 0xffffff, true);
+    }
     if (gh) {
       W.blinkBand(ox, oz, px, pz, hex);
       if (!e.isBoss) W.blinkBand(px, pz, e.x, e.z, 0x8a7aa0, { w: 0.6 });
@@ -9277,7 +9278,7 @@
   // class-d2b1：炉匠的特殊弹（铁水弹 / 雷楔 / 霜霰弹 / 反冲弹）和掌灯人的提灯（点灯 / 借火 / 灯海 / 续火）
   // 地上的东西都有同时存在的上限：小灯 3 盏、铁水 4 摊、雷网 3 根线（绵延各 +durCap），续火的骸骨 4 具
   // =====================================================================
-  // 持续伤害的一跳（铁水 / 小灯 / 灯海 / 雷网）：命中特效静音（随机数照取，见 world.js 的 W.fxMute），地上的东西本身就是提示；
+  // 持续伤害的一跳（铁水 / 小灯 / 灯海 / 雷网）：命中特效静音（见 world.js 的 W.fxMute），地上的东西本身就是提示；
   // spark：顺手冒两颗暗芯小火星
   function tickHit(e, ctx, mult, info, spark) {
     G.world.fxMute(true);
