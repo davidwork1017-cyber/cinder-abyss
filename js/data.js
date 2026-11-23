@@ -235,11 +235,14 @@
     // 坠凌：准星处（最远 range，墙前截住）dur 秒里每 tick 秒落一根冰凌（落下要 fall 秒），砸中落点 hitR 内的敌人。
     //   每 5 根里有 2 根（scatter 里的序号）随便落在圈里，其余优先砸向被砸得少的敌人：单体平均约 useMult 根（smoke 按固定种子量过），怪堆里分摊开。
     //   绵延按 durK 多落几根；回响镶不上（两场冰凌雨叠在一起不好调）。ailment：额外的异常累积速度（%），冻小怪靠它
+    //   dur-tune（用户：持续技能太短、三秒按一次很累）：2.5 秒 / 冷却 4 / 每 0.25 秒一根（10 根）→ 6 秒 / 冷却 6 / 每 0.4 秒一根（15 根）。
+    //   冷却 = 持续，一场接一场不断档；每秒 2.5 根、每根伤害不变（秒伤不变），魔力 18 → 27（每根 1.8 不变）。useMult 7.5 → 11.25（按根数 ×1.5）。
+    //   max：同时最多几场（第 3 场顶掉最老的那场剩下的冰凌）；绵延、储能、节流叠在一起时才会有两场，绵延不加这个上限
     icefall: {
       name: '坠凌', icon: '凌', color: '#bfe6ff', tags: ['spell', 'area', 'cold', 'duration'], kind: 'rain', noSup: ['echo'],
-      dmg: { cold: [5.6, 8.4] }, time: 0.55, mana: 18, cd: 4, range: 14, radius: 3.4, dur: 2.5, tick: 0.25, hitR: 1.2, fall: 0.24, delay: 0.2,
-      scatter: [1, 3], ailment: 40, w: 0, kb: 0.15, poise: 4, useMult: 7.5, // useMult：秒伤实验（固定种子、宝石 20 级）单体平均 7.5–7.8 根
-      desc: '在准星处落下 2.5 秒冰凌，共 10 根，优先砸向敌人，大幅累积冰霜异常值。', alt: '每根打中落点 1.2 米内的敌人。绵延延长时间，多落几根。回响镶不上。首领不会被冻结。',
+      dmg: { cold: [5.6, 8.4] }, time: 0.55, mana: 27, cd: 6, range: 14, radius: 3.4, dur: 6, tick: 0.4, hitR: 1.2, fall: 0.24, delay: 0.2, max: 2,
+      scatter: [1, 3], ailment: 40, w: 0, kb: 0.15, poise: 4, useMult: 11.25, // useMult：秒伤实验（固定种子、宝石 20 级）单体平均 7.5–7.8 根（10 根时），按根数折算
+      desc: '在准星处落下 6 秒冰凌，共 15 根，优先砸向敌人，大幅累积冰霜异常值。', alt: '每根打中落点 1.2 米内的敌人。冷却 6 秒，正好接上下一场。绵延延长时间，多落几根。回响镶不上。首领不会被冻结。',
     },
     // 迸电：以自身为中心的一圈电击（半径 radius，吃范围加成），不穿墙，最多打最近的 maxHit 个（扩域不加个数）。贴身才打得到，单体每秒伤害比远程主力法术高约 7%。
     //   maxHit：8 只的怪群实测（编排者定：贴身技能怪群秒伤最多约为现有最好的清群技能的 1.25 倍，按 1.2 倍收）——不设上限时是链雷的 2.3 倍，4 个约 1.2 倍
@@ -335,10 +338,10 @@
       name: '魂潮', icon: '潮', color: '#4fe3c8', tags: ['weapon', 'spell', 'minion', 'projectile'], kind: 'wbanner', weaponOnly: true, wtype: 'banner', asMinion: true,
       dmg: { phys: [17, 24] }, time: 0.5, mana: 14, cd: 8, n: 4, gap: 0.07, speed: 17, projR: 0.3, life: 1.5, range: 16, seek: 6, turn: 11, explode: 1.6,
       w: 0, kb: 0.5, poise: 8, move: 0.4,
-      frenzy: { dur: 4, k: 0.3 },
+      frenzy: { dur: 12, k: 0.15 }, // dur-tune：4 秒 +30% → 12 秒 +15%（按冷却 8 秒放时平均都是 +15%，一按管到下一次）
       wt: { phases: [0.28], cancel: 0.5, dur: 0.62 },
       useMult: 4,
-      desc: '放出 4 只魂火扑向准星附近的敌人，伤害按召唤物计算。同时令召唤物狂热 4 秒：攻击与移动速度 +30%。',
+      desc: '放出 4 只魂火扑向准星附近的敌人，伤害按召唤物计算。同时令召唤物狂热 12 秒：攻击与移动速度 +15%。',
     },
 
     // ---------- 远程武器（枪械 / 弓）：右键 = 武器普攻，R = 量表技 ----------
@@ -536,13 +539,13 @@
       // 伤害和熔光射线一样按普攻折算（basicOf / basicSec，见 game.js 的 G.basicShots）：火浪 = 喷枪持续喷射 basicSec 秒，
       //   火场每一跳 = 喷射 burn.sec 秒（不算余烬）；整招单体 = 3.3 + 10 × 0.23 ≈ 5.6 秒。原来是火浪 wm 14、每跳 1 倍武器伤害：
       //   装备附加只算一份、攻速不算，40 级时放一发只比一直喷多赚约 1.5 秒普攻（镶了辅助只剩 0.5 秒）
-      wm: 1, basicOf: 'basic_flamer', basicSec: 3.3, time: 0.75, mana: 0, cd: 0, radius: 7.5, conv: { fire: 1 }, ailment: 100, burn: { r: 6, dur: 5, tick: 0.5, sec: 0.23 },
+      wm: 1, basicOf: 'basic_flamer', basicSec: 3.3, time: 0.75, mana: 0, cd: 0, radius: 7.5, conv: { fire: 1 }, ailment: 100, burn: { r: 6, dur: 8, tick: 0.8, sec: 0.23 }, // dur-tune：火场 5 → 8 秒、每 0.5 → 0.8 秒一跳，还是 10 跳
       w: 2, kb: 2.6, poise: 70, stop: 110, move: 0.1,
       wclip: 'r_flamer',
       wt: { phases: [0.42], cancel: 0.75, dur: 0.9 },
       // 单体整招按火浪那一击的倍数计：火浪 1 击 + 火场 10 跳 × (0.23 / 3.3) ≈ 1.7（G.SKILLS 定义完之后按 burn.sec 重算一遍）
       useMult: 1.7,
-      desc: '排空热度，以你为中心炸开巨大火浪，震退周围敌人，留下 5 秒火场。总伤害约等于喷枪持续喷射 {basicSec} 秒。', alt: '伤害随武器、附加伤害与攻击速度成长。',
+      desc: '排空热度，以你为中心炸开巨大火浪，震退周围敌人，留下 8 秒火场。总伤害约等于喷枪持续喷射 {basicSec} 秒。', alt: '伤害随武器、附加伤害与攻击速度成长。',
     },
     wildfire: {
       name: '乱射', icon: '乱', color: '#ffcf7a', tags: ['weapon', 'attack', 'projectile', 'phys'], kind: 'rrevolver', weaponOnly: true, wtype: 'revolver', rgauge: true, uskill: true,
@@ -616,12 +619,13 @@
     //   风暴打出来的异常照常让首领的阈值变高（拿着三相之心也一样），首领不会被冻结
     tristorm: {
       name: '三相天灾', icon: '灾', color: '#ffd08a', tags: ['weapon', 'spell', 'area', 'fire', 'cold', 'light'], kind: 'ustaff', weaponOnly: true, wtype: 'staff', uskill: true, replaces: 'leyburst',
-      edmg: [16, 24], elem: 'fire', time: 0.7, mana: 26, cd: 12, range: 14, radius: 4.6, dur: 4, tick: 0.2, hitR: 1.8, ailment: 120, delay: 0.35,
+      // dur-tune：4 秒 / 每 0.2 秒 → 6 秒 / 每 0.3 秒，还是 20 击（总伤害、useMult 不变）
+      edmg: [16, 24], elem: 'fire', time: 0.7, mana: 26, cd: 12, range: 14, radius: 4.6, dur: 6, tick: 0.3, hitR: 1.8, ailment: 120, delay: 0.35,
       w: 1, kb: 0.5, poise: 6, move: 0.25,
       wclip: 'u_staff',
       wt: { phases: [0.42], cancel: 0.7, dur: 0.95, clip: { dur: 1.0 } },
       useMult: 14, // 单体平均吃到的击数（20 击里大约七成落在同一个目标身上）
-      desc: '在准星一带召来 4 秒元素风暴：陨火、冰棱、落雷每秒 5 击，优先砸向敌人，大幅累积异常值。', alt: '每一击按它自己的元素伤害加成计算。首领的阈值照常变高，不会被冻结。',
+      desc: '在准星一带召来 6 秒元素风暴：陨火、冰棱、落雷轮流落下，共 20 击，优先砸向敌人，大幅累积异常值。', alt: '每一击按它自己的元素伤害加成计算。首领的阈值照常变高，不会被冻结。',
     },
     // 万魂降临（魂幡）：召来 n 位英灵（champ：伤害 / 生命按召唤物算——等级 = 武器物品等级 × 0.75，吃召唤物伤害 / 生命加成与继承），
     //   在准星一带（最远 range）落下，落地时各砸一圈（slam 倍英灵一击、半径 slamR），之后自动作战 life 秒，
@@ -708,9 +712,10 @@
         set: { mech: 'pin', wm: 0.77, pierce: 0, useMult: 1.3, pin: { dur: 3, r: 1.3, tick: 0.3, mult: 0.25, root: 1.2, max: 3 } },
       },
       b: {
+        // dur-tune：每把 4 → 12 秒（约 1.3 秒补一把 → 4 秒补一把）；满 3 把的秒伤不变；魔力 4 → 12（每把转 3 倍久，每点魔力的伤害不变）；useMult / cycle 同比 ×3
         name: '环刃', pack: '要贴身；满 3 把后偶尔补一把',
-        desc: '利刃绕着你转 4 秒，割伤碰到的敌人；再放多一把，最多 3 把。', alt: '满 3 把时替换最旧的那把。',
-        set: { mech: 'orbit', tags: ['attack', 'projectile', 'phys', 'duration'], wm: 0.75, useMult: 5.18, cycle: 1.333, orbit: { r: 2.0, w: 7, dur: 4, max: 3, gap: 0.4, hr: 0.55 } },
+        desc: '利刃绕着你转 12 秒，割伤碰到的敌人；再放多一把，最多 3 把。', alt: '满 3 把时替换最旧的那把。',
+        set: { mech: 'orbit', tags: ['attack', 'projectile', 'phys', 'duration'], wm: 0.75, mana: 12, useMult: 15.54, cycle: 4, orbit: { r: 2.0, w: 7, dur: 12, max: 3, gap: 0.4, hr: 0.55 } },
       },
     },
     nova: {
@@ -727,9 +732,10 @@
     },
     arc: {
       a: {
-        name: '雷桩', pack: '定点输出；约两秒补一根',
-        desc: '在准星插下导雷桩（6 秒，最多 3 根），每 0.5 秒电击 6 米内最近的敌人；10 米内的桩连起电弧。', alt: '多了替换最旧的。穿过电弧的敌人也会挨电。',
-        set: { mech: 'pylon', tags: ['spell', 'chaining', 'light', 'duration'], useMult: 3.84, cycle: 2, pylon: { dur: 6, max: 3, r: 6, tick: 0.5, mult: 0.32, link: 10, lw: 0.9, lmult: 0.15 } },
+        // dur-tune：每根 6 → 12 秒（约 2 秒补一根 → 4 秒补一根）；满 3 根的秒伤不变；魔力 8 → 16（每根电 24 下，每点魔力的伤害不变）；useMult / cycle 同比 ×2
+        name: '雷桩', pack: '定点输出；约四秒补一根',
+        desc: '在准星插下导雷桩（12 秒，最多 3 根），每 0.5 秒电击 6 米内最近的敌人；10 米内的桩连起电弧。', alt: '多了替换最旧的。穿过电弧的敌人也会挨电。',
+        set: { mech: 'pylon', tags: ['spell', 'chaining', 'light', 'duration'], mana: 16, useMult: 7.68, cycle: 4, pylon: { dur: 12, max: 3, r: 6, tick: 0.5, mult: 0.32, link: 10, lw: 0.9, lmult: 0.15 } },
       },
       b: {
         name: '过载', pack: '连锁少，一跳比一跳痛',
@@ -745,8 +751,9 @@
       },
       b: {
         name: '犁焰', pack: '打一条 8 米的沟',
-        desc: '陨石落在准星后顺瞄准方向犁出 8 米，把敌人掀向两侧，留下 3 秒火沟。', alt: '撞墙就停。',
-        set: { mech: 'plough', useMult: 1.0, plough: { k0: 0.55, r: 2.4, len: 8, w: 1.6, mult: 0.3, t: 0.6, field: { r: 1.3, dur: 3, tick: 0.5, mult: 0.03 } } },
+        // dur-tune：火沟 3 → 6 秒，每 0.5 → 1 秒一跳（还是 6 跳 × 0.03，总伤害不变），比冷却 5 秒留得久
+        desc: '陨石落在准星后顺瞄准方向犁出 8 米，把敌人掀向两侧，留下 6 秒火沟。', alt: '撞墙就停。',
+        set: { mech: 'plough', useMult: 1.0, plough: { k0: 0.55, r: 2.4, len: 8, w: 1.6, mult: 0.3, t: 0.6, field: { r: 1.3, dur: 6, tick: 1, mult: 0.03 } } },
       },
     },
     blink: {
@@ -887,12 +894,14 @@
       a: {
         name: '重凌', pack: '慢 1 秒落地；怪走开就落空',
         desc: '1 秒后在准星处砸下一根巨大的冰凌，半径 2.4 米内的敌人都受到整根的伤害。', alt: '落点会先画出范围。不再是持续技能，绵延不生效。首领不会被冻结。',
-        set: { mech: 'slam', tags: ['spell', 'area', 'cold'], dmg: { cold: [40, 59.8] }, useMult: 1, radius: 2.4, slam: { delay: 1.0, fall: 0.3 } },
+        // cd / mana 写死成原来的 4 秒 / 18（dur-tune 把原式改成了 6 秒 / 27；重凌是一下砸完的，不跟着变）
+        set: { mech: 'slam', tags: ['spell', 'area', 'cold'], dmg: { cold: [40, 59.8] }, useMult: 1, radius: 2.4, cd: 4, mana: 18, slam: { delay: 1.0, fall: 0.3 } },
       },
       b: {
+        // dur-tune：3 秒 / 冷却 4 / 12 根 → 8 秒 / 冷却 8 / 每 1/3 秒一根（24 根）：每秒 3 根、每根伤害不变；魔力 18 → 36（每根 1.5 不变）；useMult 8 → 16
         name: '随凌', pack: '圈小一点；边走边打',
-        desc: '冰凌雨跟着你走：3 秒内在你身边 3 米落下 12 根冰凌，优先砸向最近的敌人。', alt: '圈心跟着你移动，施放更快。回响镶不上。首领不会被冻结。',
-        set: { mech: 'follow', dmg: { cold: [5.26, 7.9] }, time: 0.4, radius: 3.0, dur: 3, useMult: 8 },
+        desc: '冰凌雨跟着你走：8 秒内在你身边 3 米落下 24 根冰凌，优先砸向最近的敌人。', alt: '圈心跟着你移动，施放更快。冷却 8 秒，正好接上下一场。回响镶不上。首领不会被冻结。',
+        set: { mech: 'follow', dmg: { cold: [5.26, 7.9] }, time: 0.4, radius: 3.0, dur: 8, tick: 1 / 3, cd: 8, mana: 36, useMult: 16 },
       },
     },
     // 迸电 A 闪迸：先朝准星冲出至多 max 米（撞墙截断，停在第一个敌人前 stop 米；冲刺本身不无敌），落地再放这一圈
