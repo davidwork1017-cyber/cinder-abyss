@@ -1913,6 +1913,26 @@
     const seen = raw && raw.tut && typeof raw.tut === 'object' && raw.tut[N.id];
     return !!(c && typeof c[N.after] === 'number' && typeof c[N.zone] !== 'number' && !seen);
   };
+  // 主线（quest D1，设计稿 notes/quest-design）：第一次打通时一步一步带路，11 步，打完进轮回层级 1 就退场。
+  // kind：gate 走到首领场地门口（只在灰烬荒原）/ boss 该区首领倒下（save.cleared）/ in 进入该区 / tier 在层级 ≥ 1 进区。
+  // l1 追踪条第 2 行（这一步做什么）；l2 第 3 行（怎么做）。boss 步的 l1、l2 按首领名、区域等级现算，进区步的 l2 看传送门在不在（见 ui.js）。
+  // lore：按住 Alt 时最后一行的灰字。rw：完成时直接加进 save.cur 的通货（不走掉落、不取随机数）；首领步不另给
+  G.QUEST_BOSS_LV = 3; // 首领等级 = 区域等级 + 3（enemies.js spawnZoneMobs）
+  G.QUEST = [
+    { id: 'ash_gate', kind: 'gate', zone: 'ash', l1: '沿路走到荒原尽头', l2: '首领在路的尽头', lore: '烧光了的荒地。', rw: { dust: 2, augment: 1 } },
+    { id: 'ash_boss', kind: 'boss', zone: 'ash', lore: '灰里的火，聚到了最凶的东西身上。' },
+    { id: 'frost_in', kind: 'in', zone: 'frost', lore: '冰下全是骨头。', rw: { dust: 1, regal: 1 } },
+    { id: 'frost_boss', kind: 'boss', zone: 'frost', lore: '打倒它们，把它们攒的火铸成你的兵器。' },
+    { id: 'storm_in', kind: 'in', zone: 'storm', lore: '老机关还在转，雷没停过。', rw: { dust: 1, regal: 1 } },
+    { id: 'storm_boss', kind: 'boss', zone: 'storm', lore: '熄烛者还在一盏一盏掐灭剩下的火。' },
+    { id: 'abyss_in', kind: 'in', zone: 'abyss', lore: '灰烬从这里来。', rw: { dust: 1, regal: 1 } },
+    { id: 'abyss_boss', kind: 'boss', zone: 'abyss', lore: '裂口底下压着一颗烧着的星星。' },
+    { id: 'rift_in', kind: 'in', zone: 'rift', l2: '烬渊深处后面还有一区', lore: '天裂了，星星往下掉。', rw: { dust: 1, regal: 1 } },
+    { id: 'rift_boss', kind: 'boss', zone: 'rift', l2: '打赢开启轮回层级 1', lore: '有东西把落下的星星往烬渊里拖。' },
+    { id: 'tier_one', kind: 'tier', l1: '进轮回层级 1', l2: '按 M，在地图上选层级 1', lore: '星星还会落下来，灰还会再冒出来。', rw: { alch: 2 } },
+  ];
+  G.QUEST_N = G.QUEST.length;
+
   // 每个轮回层级提高的怪物等级。五个区域是 1 / 5 / 9 / 13 / 17，每区 +4；
   // 取 20 让下一层从 21 接着往上走，不会比上一层的末区（17，首领 20）倒退：层级 n 覆盖 1+20n … 20+20n 级
   G.TIER_LEVELS = 20;
