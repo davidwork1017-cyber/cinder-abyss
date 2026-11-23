@@ -73,6 +73,14 @@ test:timed 里的步骤从 test:func 拆出来：计时断言原样搬过去（�
 **加新步骤时：** 断言如果取决于墙钟（`Date.now()` / `performance.now()` 的差、`sleep` 之后某样东西还在或已经没了、单次耗时上限），把这条断言连同准备写进 `timedMain()`，步骤名用「计时｜」开头，并在上表记一行；其余照常写进 `main()`。
 只是防卡死的超时（`until` 默认 45 秒、页面重载 90 秒）不算计时断言，留在 test:func。只为等够一个下限的 `sleep`（比如「准星随时找得到」里等过收拢提示的 700 ms 冷却）也留在 test:func：机器越忙等得越久，结果不会变。
 
+## 触屏（mobile M1）
+
+test:func 最后一组「触屏：」步骤用手机模拟开新浏览器（`launch({ mobile: { scale: 3 } })`：844×390、DPR 3、isMobile + hasTouch，主指针变成 coarse，触屏模式自动打开），用 CDP 的 `Input.dispatchTouchEvent` 发真实触摸事件：摇杆、按住主攻、轻点 Q、从 E 拖动瞄准、翻滚 / 药瓶 / F、点空地和点顶栏都不放技能、竖屏遮罩、首次提示卡、设置项、pagehide 存档和停写、画面丢失；再在五种尺寸下查布局（安全区用 `--t-safe-*` 变量假装），最后在桌面窗口里查「桌面不开触屏」和矮窗口里的「开始」。
+
+- 单独跑这一组：`node test/smoke.mjs --touch`（池里：`cc-slot pool <名字> smoke -- node test/smoke.mjs --touch`）。
+- touchmove 按帧合并（一帧里发几次只送到最后一次）：测试里每次移动后等一帧（`touch.move` / `touch.drag` 已经这样做）。
+- 触屏步骤按模拟时间推进（`G.debug.hold(true)` + `G.debug.step`），触摸只改输入字段，结果和机器快慢无关。
+
 ## 其它
 
 - test:func 的第一步是 `tools/check-art.mjs`（只用 Node，不起浏览器）：核对 `assets/ca/` 的自产布景件和打进包的是同一份、符合预算和规矩。单独跑：`npm run check:art`。

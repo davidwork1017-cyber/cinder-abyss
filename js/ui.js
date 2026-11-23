@@ -3097,6 +3097,20 @@
     );
   }
 
+  // 触屏模式（js/touch.js）开着：提示、操作说明换成触屏说法
+  const touchOn = () => !!(G.touch && G.touch.on);
+  // 触屏的操作说明（标题画面 / 暂停菜单的「操作说明」）
+  const HELP_TOUCH = [
+    [['左下'], '拖动移动'],
+    [['大按钮'], '左键技能，按住连放'],
+    [['技能键'], '轻点自动瞄准；拖出去手动瞄准，松手放出，拖回按钮上取消'],
+    [['翻'], '翻滚，短暂无敌，可取消挥砍'],
+    [['药瓶'], '生命 / 魔力药剂'],
+    [['F'], '附近有破绽中的敌人或掉落时出现：处决或拾取'],
+    [['点名牌'], '拾取地上的物品；点宝箱打开'],
+    [['包', '技', '赋', '图'], '背包 / 技能 / 天赋 / 地图'],
+    [['名牌'], '展开地上所有的名牌'],
+  ];
   // 按键表：帮助页和标题画面 / 暂停菜单里的「操作说明」共用
   const HELP_KEYS = [
     [['W', 'A', 'S', 'D'], '移动（方向键亦可）'],
@@ -4906,6 +4920,7 @@
 
   const SET_Q = [['high', '高'], ['mid', '中'], ['low', '低']];
   const SET_N = [['manual', '手动拾取'], ['auto', '自动拾取'], ['scrap', '自动丢弃']];
+  const SET_T = [['auto', '自动'], ['on', '开'], ['off', '关']];
   // 音量滑条：[存档里的键, 名字, 说明]
   const SET_VOL = [
     ['volMaster', '总音量', '所有声音一起调'],
@@ -4924,6 +4939,9 @@
     return (
       row('画质', S.opts.quality === 'auto' ? '自动选择，明显掉帧时会自动调低' : '电脑吃力时调低',
         '<div class="seg">' + SET_Q.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (q === o[0] ? ' on' : '') + '" data-tact="quality" data-q="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') +
+      // 触屏操作（mobile M1）：自动 = 手机、平板上打开；存在这台设备上（不进存档）
+      (G.touch ? row('触屏操作', '自动：手机、平板上打开',
+        '<div class="seg">' + SET_T.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (G.touch.mode === o[0] ? ' on' : '') + '" data-tact="touchmode" data-m="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') : '') +
       row('普通物品', '魔法、稀有物品总是自动拾取',
         '<div class="seg">' + SET_N.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (normMode() === o[0] ? ' on' : '') + '" data-tact="normmode" data-mode="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') +
       row('折叠普通物品的名牌', '地上只留一个小点，悬停或按住 Alt 展开',
@@ -4947,7 +4965,7 @@
   }
   function menuHelp() {
     return (
-      '<div class="m-keys">' + HELP_KEYS.map((k) => '<div class="hk"><span class="hk-keys">' + k[0].map((x) => '<kbd>' + x + '</kbd>').join('') + '</span><span>' + k[1] + '</span></div>').join('') + '</div>' +
+      '<div class="m-keys">' + (touchOn() ? HELP_TOUCH : HELP_KEYS).map((k) => '<div class="hk"><span class="hk-keys">' + k[0].map((x) => '<kbd>' + x + '</kbd>').join('') + '</span><span>' + k[1] + '</span></div>').join('') + '</div>' +
       '<p class="m-note">沿着路一直向前，击败尽头的首领。战斗、宝石、天赋和通货的说明在游戏里按 <kbd>H</kbd> 查看。</p>'
     );
   }
@@ -5158,6 +5176,11 @@
     hideTitle();
   }
   const MENU_ACT = {
+    touchmode(d) {
+      if (G.touch) G.touch.setMode(d.m);
+      G.sfx('click');
+      renderMenu();
+    },
     continue() {
       G.sfx('click');
       if (G.needClassPick && G.needClassPick()) return openClass('pick'); // 老角色先选职业（class-d2）
@@ -6351,13 +6374,17 @@
   const HINTS = [
     {
       id: 'execute', urgent: true, max: 10,
-      html: '敌人露出<b class="c-gold">破绽</b>：靠近按 <kbd>F</kbd> <b>处决</b>，重创并回复生命、魔力和药剂',
+      get html() {
+        return '敌人露出<b class="c-gold">破绽</b>：靠近' + (touchOn() ? '点 <kbd>F</kbd> 键' : '按 <kbd>F</kbd>') + ' <b>处决</b>，重创并回复生命、魔力和药剂';
+      },
       when: () => enemyNear(16, (e) => e.brokenT > 0.8 && !e.executed),
       done: (b) => G.state.stats.execs > b.execs,
     },
     {
       id: 'flask', urgent: true, max: 14,
-      html: '生命见底：按 <kbd>1</kbd> 喝<b>生命药剂</b>（<kbd>2</kbd> 魔力）。击杀敌人充能',
+      get html() {
+        return touchOn() ? '生命见底：点右下的<b>红药瓶</b>（蓝的是魔力）。击杀敌人充能' : '生命见底：按 <kbd>1</kbd> 喝<b>生命药剂</b>（<kbd>2</kbd> 魔力）。击杀敌人充能';
+      },
       when: () => lifeFrac() < 0.5 && G.player.flask.life >= 1,
       done: (b) => G.player.flask.life < b.flask - 0.5 || lifeFrac() > 0.9,
     },
@@ -6411,7 +6438,9 @@
     },
     {
       id: 'move', basic: true, max: 40,
-      html: '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动，沿着路一直往前走',
+      get html() {
+        return touchOn() ? '在左下拖动<b>摇杆</b>移动，沿着路一直往前走' : '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动，沿着路一直往前走';
+      },
       when: () => true,
       done: () => coach.moved > 5,
     },
@@ -6422,6 +6451,7 @@
         const bid = G.weaponBasic ? G.weaponBasic() : null;
         const bk = bid && G.SKILLS[bid];
         const l = G.save && G.save.bar[0] && G.SKILLS[G.save.bar[0]];
+        if (touchOn()) return '按住右下的<b>大按钮</b>' + (l ? '施放「' + l.name + '」' : '放技能') + '，旁边的是武器普攻' + (bk ? '「' + bk.name + '」' : '') + '。会自动瞄准，从按钮拖出去可以手动瞄';
         return '按住 <kbd>右键</kbd> 武器普攻' + (bk ? '「' + bk.name + '」' : '') + '，<kbd>左键</kbd> ' + (l ? '施放「' + l.name + '」' : '放技能') + '，都朝准星方向';
       },
       when: () => true,
@@ -6429,7 +6459,9 @@
     },
     {
       id: 'dodge', basic: true, need: 'attack', max: 40,
-      html: '<kbd>空格</kbd> 翻滚，途中无敌。滚出地上的<b class="c-red">红色区域</b>',
+      get html() {
+        return (touchOn() ? '点<b>翻</b>键' : '<kbd>空格</kbd>') + ' 翻滚，途中无敌。滚出地上的<b class="c-red">红色区域</b>';
+      },
       when: () => G.state.enemies.some((e) => e.awake && !e.dead),
       done: () => coach.rolled,
     },
@@ -6439,6 +6471,7 @@
         const bid = G.weaponBasic ? G.weaponBasic() : null;
         const sk = bid && G.SKILLS[bid];
         const n = sk && sk.combo ? sk.combo.length : 3;
+        if (touchOn()) return '按住<b>普攻键</b>连出<b>' + (['', '一', '两', '三', '四'][n] || n) + '段</b>' + (sk ? '「' + sk.name + '」' : '') + '，末段是<b>终结技</b>，伤害最高。出招中可点<b>翻</b>键取消';
         return '按住 <kbd>右键</kbd> 连出<b>' + (['', '一', '两', '三', '四'][n] || n) + '段</b>' + (sk ? '「' + sk.name + '」' : '') + '，末段是<b>终结技</b>，伤害最高。出招中可按 <kbd>空格</kbd> 翻滚取消';
       },
       when: () => comboOnBar() && enemyNear(9, (e) => e.awake),
@@ -6450,7 +6483,7 @@
       get html() {
         const id = curWSkill();
         const sk = id ? G.SKILLS[id] : null;
-        return '按 <kbd>R</kbd> 放<b>武器技</b>' + (sk ? '「' + sk.name + '」' : '') + '：每种武器自带一招，有冷却、单次伤害高';
+        return (touchOn() ? '点<b>武器技键</b>' : '按 <kbd>R</kbd>') + ' 放<b>武器技</b>' + (sk ? '「' + sk.name + '」' : '') + '：每种武器自带一招，有冷却、单次伤害高';
       },
       when: () => {
         const id = curWSkill();
@@ -6596,7 +6629,9 @@
     },
     {
       id: 'loot', calm: true, max: 22,
-      html: '有掉落：魔法、稀有物品走过去就捡，普通物品按 <kbd>F</kbd> 或点名牌。<br>准星停在名牌上看属性，按住 <kbd>Alt</kbd> 看概要',
+      get html() {
+        return touchOn() ? '有掉落：魔法、稀有物品走过去就捡，普通物品点名牌或 <kbd>F</kbd> 键。<br>顶栏的「名牌」展开全部名牌' : '有掉落：魔法、稀有物品走过去就捡，普通物品按 <kbd>F</kbd> 或点名牌。<br>准星停在名牌上看属性，按住 <kbd>Alt</kbd> 看概要';
+      },
       when: () => G.state.loot.some((l) => l.kind === 'item' && Math.hypot(l.x - G.player.x, l.z - G.player.z) < 9),
       done: (b) => coach.sawGround || G.save.bag.length > b.bag,
     },

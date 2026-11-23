@@ -22,13 +22,16 @@ export const GAME_URL = url0;
 // title：要不要显示标题画面。默认 false——测试和各种截图 / 计时脚本一进页面就和以前一样直接进区（每次导航前设 window.__skipTitle，
 // 重载页面也一样跳过）；只有测标题画面本身的步骤传 title: true
 // seed：测试用的确定性 Math.random（字符串，null = 不改，照旧是浏览器自己的随机数）。见下面的 installTestRandom 和 test/README.md「随机数」
-export async function launch({ width = 1440, height = 900, url = GAME_URL, title = false, dpr = null, seed = null } = {}) {
+// mobile：手机模拟（触屏步骤用）：{ scale: 3 } → isMobile + hasTouch + deviceScaleFactor，主指针变成 coarse、有触点，触屏模式自动打开
+export async function launch({ width = 1440, height = 900, url = GAME_URL, title = false, dpr = null, seed = null, mobile = null } = {}) {
   const browser = await chromium.launch({
     channel: 'chrome',
     headless: true,
     args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--mute-audio'],
   });
-  const page = await browser.newPage({ viewport: { width, height } });
+  const page = await browser.newPage(
+    mobile ? { viewport: { width, height }, deviceScaleFactor: mobile.scale || 3, isMobile: true, hasTouch: true } : { viewport: { width, height } }
+  );
   if (!title) await page.addInitScript(() => { window.__skipTitle = true; });
   if (dpr)
     await page.addInitScript((d) => {

@@ -11,6 +11,7 @@
   let renderer, scene, camera, hemi, sun, fill, lamp, fxLight, portalLight;
   let ocv, octx;
   let vw = 1, vh = 1, dpr = 1;
+  W.mmTouch = null; // 触屏 HUD 的小地图摆放（见下面画小地图的地方）
   let wtime = 0;
 
   // 复用的临时对象：热路径里不做任何分配
@@ -29604,7 +29605,14 @@
 
     // --- 小地图 ---
     if (MM.cv) {
-      const S = MM.size, mx = vw - S - 14, my = 14;
+      // 触屏 HUD（js/touch.js）：W.mmTouch = { x, y, k } 把小地图缩到 k 倍、摆在 (x, y)，下面照旧按 172 的框画。桌面永远是 null，走原来的坐标
+      const mt = W.mmTouch;
+      const S = MM.size, mx = mt ? 0 : vw - S - 14, my = mt ? 0 : 14;
+      if (mt) {
+        g.save();
+        g.translate(mt.x, mt.y);
+        g.scale(mt.k, mt.k);
+      }
       if (MM.win) {
         // 截取模式：以玩家为中心截一块底图。截取框动了才把那一块拷进一张固定 172 × 172 的画布（MM.view），
         // 每帧照旧整张 drawImage（和不截取时一样便宜）；标记出了框就不画，不用 clip（2D 画布的 clip / 带源矩形的 drawImage
@@ -29708,6 +29716,7 @@
       g.arc(X(P.x), Z(P.z), 3.2, 0, TAU);
       g.stroke();
       g.fill();
+      if (mt) g.restore();
     }
   }
 
