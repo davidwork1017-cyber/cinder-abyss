@@ -10870,6 +10870,7 @@ async function main() {
         // 蓄力时挨打：骨盆（根关节）和挨打的另一只一模一样，只有 hitJ 抖一点（steady）。两只同时起同一个蓄力，只打其中一只
         T.lane();
         const b = G.spawnBoss('golem', P.x + 4, P.z, 1), c = G.spawnBoss('golem', P.x + 4, P.z + 6, 1);
+        c.ent.phase = b.ent.phase; c.ent.clock = b.ent.clock; c.ent.walk = b.ent.walk; // 移动姿态（呼吸）的相位一样，两只只差挨不挨打
         for (const x of [b, c]) { x.cd = x.busy = 1e9; W.play(x.ent, 'slam_w', { dur: 0.8 }); }
         for (let i = 0; i < 30; i++) G.tick(1 / 60);
         W.hitReact(b.ent, 0, 2);
