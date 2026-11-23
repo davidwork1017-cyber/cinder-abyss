@@ -5038,7 +5038,7 @@
     const c = Math.cos(yaw), s = Math.sin(yaw);
     // 职业选择（class-d2）：镜头推近到主角身上（距离 × 0.42），看得清他手里换上的起手武器；离开子页再慢慢拉回去。
     // 漂移和往左让的距离一起缩，主角还在画面右侧的同一处，只是更大
-    const zk = menu.view === 'cls' ? 0.42 : 1;
+    const zk = menu.view === 'cls' ? (innerWidth < 560 ? 0.6 : 0.42) : 1; // 手机竖屏上留出头顶的余量
     menu.zoom = menu.zoom === undefined ? zk : menu.zoom + (zk - menu.zoom) * Math.min(1, dt * 3);
     const z = menu.zoom, o = menu.off, k = (1 - z) / 0.58; // k：推近的程度 0..1
     // 窄屏（手机）：主角居中、往画面上方挪（职业选择那一栏在下面）；宽屏：往下挪一点，别顶到画面上沿
