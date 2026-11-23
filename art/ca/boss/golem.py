@@ -48,6 +48,13 @@ B = SKEL.index
 
 
 # ---------------------------------------------------------------- 搭形工具（游戏坐标）
+# 玄武岩的色带位置整体往亮的一头挪（灰度检查：受光面 p85 要到 55–75%、比地面亮 15 点以上；顶点色最多到 1，亮度只能靠色带位置给）
+BASALT_LIFT = 0.27
+
+
+def _tone(row, tone):
+    return min(0.92, tone + BASALT_LIFT) if row == 'basalt' else tone
+
 def _rot(r):
     return Euler((r[0], r[1], r[2]), 'ZYX').to_matrix()  # 游戏的 XYZ 欧拉：R = Rx · Ry · Rz
 
@@ -73,7 +80,7 @@ def hbox(k, bone, c, s, rot=(0, 0, 0), row='basalt', tone=0.5, jitter=0.08, beve
                 cand = [(sx * a, sy * (b - d), sz * (cc - d)), (sx * (a - d), sy * b, sz * (cc - d)), (sx * (a - d), sy * (b - d), sz * cc)] if d > 0 else [(sx * a, sy * b, sz * cc)]
                 for p in cand:
                     loc.append((p[0] * tx + k.r(-jit, jit), p[1] + k.r(-jit, jit) * 0.5, p[2] * tz + k.r(-jit, jit)))
-    vs = k.hull(_pts(k, loc, c, rot), row, tone, jitter, glow, dust)
+    vs = k.hull(_pts(k, loc, c, rot), row, _tone(row, tone), jitter, glow, dust)
     return k.bind(vs, B[bone])
 
 
@@ -89,13 +96,13 @@ def blob(k, bone, c, r, n=14, rot=(0, 0, 0), row='basalt', tone=0.5, jitter=0.1,
         sc = 1 + k.r(-0.12, 0.12)
         yy = max(y, -1 + flat * 2) if flat else y
         loc.append((math.cos(a) * rr * r[0] * sc, yy * r[1] * sc, math.sin(a) * rr * r[2] * sc))
-    vs = k.hull(_pts(k, loc, c, rot), row, tone, jitter, glow, dust)
+    vs = k.hull(_pts(k, loc, c, rot), row, _tone(row, tone), jitter, glow, dust)
     return k.bind(vs, B[bone])
 
 
 def loft(k, bone, pts, radii, sides=7, squash=1.0, row='basalt', tone=0.5, jitter=0.08, cap0=True, cap1=True, twist=0.0, soft=False):
     """沿折线的渐变截面管（椭圆截面：squash < 1 压扁），pts 是游戏坐标；soft = 软接缝（和相邻骨骼按距离渐变）"""
-    vs, _ = k.tube([g2b(p) for p in pts], radii, sides=sides, row=row, tone=tone, jitter=jitter, tip=False, cap0=cap0, cap1=cap1, squash=squash, twist=twist)
+    vs, _ = k.tube([g2b(p) for p in pts], radii, sides=sides, row=row, tone=_tone(row, tone), jitter=jitter, tip=False, cap0=cap0, cap1=cap1, squash=squash, twist=twist)
     return k.bind(vs, B[bone], soft)
 
 
@@ -127,7 +134,7 @@ def hexcol(k, bone, base, h, r, rot=(0, 0, 0), sides=6, chamfer=0.07, row='basal
     cham = [(x + tx * h * 0.3, y, z + tz * h * 0.3) for x, y, z in ring(h - chamfer, taper * 1.0 + 0.0)]
     topi = [(x * (1 - chamfer / max(r, 0.05)), y, z * (1 - chamfer / max(r, 0.05))) for x, y, z in top]
     loc = ring(0, 1.0) + cham + topi
-    vs = k.hull(_pts(k, loc, base, rot), row, tone, jitter, glow, dust)
+    vs = k.hull(_pts(k, loc, base, rot), row, _tone(row, tone), jitter, glow, dust)
     if top_row:
         up = Vector(g2b(tuple(_rot(rot) @ Vector((0, 1, 0)))))
         fs = []
@@ -232,7 +239,7 @@ def build(k):
         hexcol(k, fb, (px + (i - 1) * 0.03, py - 0.66, pz + 0.16), 0.34, 0.13, rot=(0.35, 0, 0), sides=5, row='basalt', tone=0.32, top_row='stone', top_tone=0.24, chamfer=0.03)
     hbox(k, 'hand_r', (-2.12, 1.74, 0.26), (0.6, 0.22, 0.6), row='iron', tone=0.42, bevel=0.03)
     # 锤石：一整块粗凿的方石（凸包，角上崩掉一点），两道铁带横着箍住，朝下的锤面开两道余烬缝；顶上一块风化的石头接着手腕
-    hm = hbox(k, 'x_hammer', (-2.18, 0.98, 0.32), (1.36, 1.2, 1.24), rot=(0.05, 0.18, 0.04), row='basalt', tone=0.3, bevel=0.16, jit=0.07, taper=(0.86, 0.9))
+    hm = hbox(k, 'x_hammer', (-2.18, 0.98, 0.32), (1.36, 1.2, 1.24), rot=(0.05, 0.18, 0.04), row='basalt', tone=0.2, bevel=0.16, jit=0.07, taper=(0.86, 0.9))
     for y in (1.32, 0.66):
         hbox(k, 'x_hammer', (-2.18, y, 0.32), (1.44, 0.15, 1.32), rot=(0.05, 0.18, 0.04), row='iron', tone=0.4, bevel=0.03, jit=0.01)
     for sx in (-1, 1):

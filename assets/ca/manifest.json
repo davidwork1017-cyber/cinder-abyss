@@ -1279,7 +1279,7 @@
    "ship": true,
    "replaces": null,
    "tris": 3844,
-   "verts": 11264,
+   "verts": 11278,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -1308,7 +1308,8 @@
      "ao": 0.7,
      "grad": 0.9,
      "wear": 0.4,
-     "grime": 0.3
+     "grime": 0.3,
+     "gain": 1.15
     }
    },
    "bones": 28,
@@ -1327,7 +1328,7 @@
     "walk"
    ],
    "home": "ash",
-   "sha256": "0f8d561a9f46e1393edbbbcec1240c8ca35aacd10095aab53aad347c21068d99"
+   "sha256": "37589f09c5a2732ce4c2dee321a4d55c0b610bc8499bb0ca3953cdffcd08e1d6"
   },
   {
    "id": "ca/crown_brazier",
