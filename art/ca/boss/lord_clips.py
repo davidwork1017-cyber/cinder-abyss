@@ -50,8 +50,17 @@ def _from_rest(pose):
     return out
 
 
+def _hang(p):
+    """披风往下垂：上身往前俯 / 往后仰时，披风根部（x_cape_01）反着转回去大半，姿势里原来写的摆动只留一点（不然俯身砸地时披风会翻到头顶上）"""
+    q = dict(p)
+    pitch = sum(p.get(c, 0.0) for c in ('pelvis.rx', 'spine_01.rx', 'spine_02.rx', 'spine_03.rx'))
+    q['x_cape_01.rx'] = round(-0.85 * pitch + 0.3 * p.get('x_cape_01.rx', 0.0), 4)
+    return q
+
+
 def _clip(spec, poses, extra_keys=None):
-    """poses = [(k, 姿势 dict), ...]：每个通道在所有姿势里插值（姿势里没写的通道 = 0），k 写成负数 = 加速冲到这一帧"""
+    """poses = [(k, 姿势 dict), ...]：每个通道在所有姿势里插值（姿势里没写的通道 = 0），k 写成负数 = 加速冲到这一帧；披风按 _hang 往下垂"""
+    poses = [(k, _hang(p)) for k, p in poses]
     chans = set()
     for _, p in poses:
         chans |= set(p)

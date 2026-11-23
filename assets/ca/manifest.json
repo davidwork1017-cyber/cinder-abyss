@@ -1337,8 +1337,8 @@
    "file": "assets/ca/boss/lord.glb",
    "ship": true,
    "replaces": null,
-   "tris": 4026,
-   "verts": 11075,
+   "tris": 4584,
+   "verts": 12729,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -1393,7 +1393,7 @@
     "walk"
    ],
    "home": "abyss",
-   "sha256": "959be97262671aaa28c377ecc6a737e4967339a181f49d55dd280dc33c716edc"
+   "sha256": "90fd2b55f75318cee67ca3c06387dfca8d585cda2fc8eb709beaf799379adc68"
   },
   {
    "id": "ca/crown_brazier",
