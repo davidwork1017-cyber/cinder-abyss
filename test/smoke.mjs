@@ -7018,6 +7018,257 @@ async function main() {
     });
   });
 
+  await uiStep('背包一键分解含稀有 + 物品锁定：开关存档（老存档默认关）、含稀有连带魔法、跳过烬铸 / 渊契 / 装备 / 锁定 / ▲ 稀有、两次确认（超时作废）、Ctrl+点击和详情栏锁定、锁定挡住单件 / 一键 / 自动分解和出售、锁随存档、同种子收获和原来一样', async () => {
+    // 准备：头盔位空着（背包里的稀有头盔评估为 ▲），戒指位戴一枚高等级稀有戒指（背包里的低等级稀有戒指不是 ▲）
+    let r = await ev(() => {
+      const save = G.save;
+      window.__srKeep = { equip: Object.assign({}, save.equip), opts: Object.assign({}, save.opts), cur: Object.assign({}, save.cur) };
+      save.bag.length = 0;
+      delete save.equip.helm;
+      save.equip.ring = G.rollItem(80, 2, 'ring');
+      Object.assign(save.opts, { salvageMagic: false, salvageRare: false, autoSalvage: false, autoWhite: false });
+      G.computeStats();
+      const g = (rar, slot, base, ilvl) => G.debug.giveItem(rar, slot, base, ilvl);
+      const ids = {
+        n: [g(0, 'boots'), g(0, 'belt'), g(0, 'gloves')].map((i) => i.uid),
+        nLock: g(0, 'body').uid,
+        m: [g(1, 'boots'), g(1, 'belt')].map((i) => i.uid),
+        rDown: [g(2, 'ring', undefined, 1), g(2, 'ring', undefined, 1), g(2, 'ring', undefined, 1)].map((i) => i.uid),
+        rLock: g(2, 'ring', undefined, 1).uid,
+        rUp: g(2, 'helm').uid,
+        uq: g(3, 'jinduan').uid,
+        rq: g(4).uid,
+      };
+      window.__srIds = ids;
+      const byUid = (u) => save.bag.find((i) => i.uid === u);
+      G.persist();
+      return { up: G.ui.verdict(byUid(ids.rUp)).badge, down: ids.rDown.concat(ids.rLock).map((u) => G.ui.verdict(byUid(u)).badge).join(), eqUid: save.equip.ring.uid };
+    });
+    assert(r.up === 'up' && !/up/.test(r.down), '准备的物品评估不对（头盔应为 ▲，戒指不应为 ▲）：' + JSON.stringify(r));
+    const ids = await ev(() => window.__srIds);
+    const btn = () => ev(() => { const b = document.querySelector('[data-act="salvage-all"]'); return { txt: b.textContent, armed: b.classList.contains('armed'), dis: b.disabled }; });
+    const chk = () => ev(() => {
+      const m = document.querySelector('[data-act="opt"][data-opt="salvageMagic"]'), x = document.querySelector('[data-act="opt"][data-opt="salvageRare"]');
+      return { mOn: m.classList.contains('on'), mDis: m.disabled, rOn: x.classList.contains('on'), magic: G.save.opts.salvageMagic, rare: G.save.opts.salvageRare, stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).opts.salvageRare };
+    });
+    await page.keyboard.press('KeyI');
+    // 开关：含稀有默认关；打开后存档、连带「含魔法」（勾上、不能点），关掉后「含魔法」回到原来的状态
+    let c = await chk();
+    assert(!c.rOn && !c.rare && !c.mOn && !c.mDis, '含稀有默认应关、含魔法可点：' + JSON.stringify(c));
+    // 锁定：Ctrl+点击一件稀有戒指，详情栏的锁定按钮锁一件普通物品
+    await page.click('.cell[data-item="' + ids.rLock + '"]', { modifiers: ['Control'] });
+    await page.click('.cell[data-item="' + ids.nLock + '"]');
+    await page.click('[data-act="lock"]');
+    r = await ev((ids) => {
+      const it = (u) => G.save.bag.find((i) => i.uid === u);
+      const stored = JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).bag;
+      return {
+        lk: [it(ids.rLock).lk, it(ids.nLock).lk], stored: stored.filter((i) => i.lk === 1).map((i) => i.uid).sort().join() === [ids.rLock, ids.nLock].sort().join(),
+        cells: document.querySelectorAll('.cell .c-lk').length, lockCell: !!document.querySelector('.cell[data-item="' + ids.rLock + '"] .c-lk'),
+        btn: document.querySelector('[data-act="lock"]').textContent, card: document.querySelector('.detail-card').innerText,
+      };
+    }, ids);
+    assert(r.lk[0] === 1 && r.lk[1] === 1 && r.stored && r.cells === 2 && r.lockCell, 'Ctrl+点击 / 详情栏锁定没有生效或没有存档：' + JSON.stringify(r));
+    assert(r.btn.includes('已锁') && r.card.includes('已锁定 · Ctrl+点击解锁'), '锁定后详情栏应写「已锁定 · Ctrl+点击解锁」：' + JSON.stringify(r));
+    await page.hover('.cell[data-item="' + ids.rLock + '"]');
+    r = await ev(() => ({ on: document.getElementById('tip').classList.contains('on'), txt: document.getElementById('tip').innerText }));
+    assert(r.on && r.txt.includes('已锁定 · Ctrl+点击解锁'), '浮窗里应写「已锁定 · Ctrl+点击解锁」：' + JSON.stringify(r));
+    cleanText(r.txt, '锁定浮窗');
+    // 锁定的物品不能单件分解：Shift+点击两次、详情栏「分解」都只提示先解锁
+    await page.click('.cell[data-item="' + ids.rLock + '"]', { modifiers: ['Shift'] });
+    await page.click('.cell[data-item="' + ids.rLock + '"]', { modifiers: ['Shift'] });
+    await page.click('[data-act="salvage"]');
+    r = await ev((u) => ({ inBag: G.save.bag.some((i) => i.uid === u), msg: (document.querySelector('.inv-msg') || {}).textContent || '', api: G.salvage(G.save.bag.find((i) => i.uid === u)) }), ids.rLock);
+    assert(r.inBag && r.msg.includes('先解锁') && r.api === false, '锁定的物品不应能单件分解：' + JSON.stringify(r));
+    // 再 Ctrl+点击解锁、再锁上：来回切换
+    await page.click('.cell[data-item="' + ids.rLock + '"]', { modifiers: ['Control'] });
+    r = await ev((u) => G.save.bag.find((i) => i.uid === u).lk, ids.rLock);
+    assert(r === undefined, 'Ctrl+点击应能解锁：' + r);
+    await page.click('.cell[data-item="' + ids.rLock + '"]', { modifiers: ['Control'] });
+
+    let b = await btn();
+    assert(b.txt.includes('（3）'), '默认只算没锁的普通物品：' + b.txt);
+    await page.click('[data-act="opt"][data-opt="salvageRare"]');
+    c = await chk();
+    b = await btn();
+    assert(c.rOn && c.rare && c.stored === true && c.mOn && c.mDis && c.magic === false, '打开含稀有后应存档，含魔法显示为勾上且不能点（选项本身不改）：' + JSON.stringify(c));
+    // 3 普通 + 2 魔法 + 3 件不是 ▲ 的稀有（锁定的 / ▲ 的 / 烬铸 / 渊契 / 身上的不算）
+    assert(b.txt.includes('（8）'), '含稀有的件数不对：' + b.txt);
+    await page.click('[data-act="opt"][data-opt="salvageMagic"]', { force: true }).catch(() => {});
+    c = await chk();
+    assert(c.magic === false && c.mDis, '含稀有开着时含魔法不能点：' + JSON.stringify(c));
+    await page.click('[data-act="opt"][data-opt="salvageRare"]');
+    c = await chk();
+    assert(!c.rOn && !c.rare && !c.mOn && !c.mDis, '关掉含稀有后含魔法回到原来的（关）：' + JSON.stringify(c));
+    await page.click('[data-act="opt"][data-opt="salvageMagic"]');
+    await page.click('[data-act="opt"][data-opt="salvageRare"]');
+    await page.click('[data-act="opt"][data-opt="salvageRare"]');
+    c = await chk();
+    assert(c.mOn && !c.mDis && c.magic && !c.rare, '关掉含稀有后含魔法回到原来的（开）：' + JSON.stringify(c));
+    await page.click('[data-act="opt"][data-opt="salvageMagic"]');
+    await page.click('[data-act="opt"][data-opt="salvageRare"]');
+
+    // 两次确认：第一下只上膛（件数 + 预计收获），不动背包和通货，不掷骰子；超时作废
+    const snap = () => ev(() => ({ bag: G.save.bag.map((i) => i.uid).join(), cur: JSON.stringify(G.save.cur) }));
+    const s0 = await snap();
+    await ev(() => { window.__srRnd = 0; const f = Math.random; window.__srRf = f; Math.random = function () { window.__srRnd++; return f.call(this); }; });
+    await page.click('[data-act="salvage-all"]');
+    r = await ev(() => {
+      Math.random = window.__srRf;
+      const aug = document.querySelector('.inv-tips.res.bulk-on .bulk-c[data-tip="cur:augment"]');
+      return { n: window.__srRnd, foot: (document.querySelector('.inv-tips.res.bulk-on') || {}).innerText || '', aug: aug ? aug.textContent : '', tip: document.querySelector('[data-act="salvage-all"]').dataset.tip || '' };
+    });
+    b = await btn();
+    let s1 = await snap();
+    assert(b.armed && b.txt.includes('确认分解（8）') && s1.bag === s0.bag && s1.cur === s0.cur, '含稀有时第一下应只上膛：' + JSON.stringify({ b, same: s1.bag === s0.bag && s1.cur === s0.cur }));
+    assert(r.foot.includes('再点一次确认') && r.foot.includes('分解 8 件（稀有 3）') && r.foot.includes('预计') && r.aug === '×3', '上膛时应写件数和预计收获：' + JSON.stringify(r));
+    assert(r.tip.includes('更强（▲）的稀有 1 件') && r.tip.includes('锁定的 2 件') && r.tip.includes('烬铸 / 渊契 2 件'), '上膛按钮的浮窗应写会留下什么：' + r.tip);
+    assert(r.n === 0, '上膛预览不应调用 Math.random：' + r.n + ' 次');
+    assert(!/undefined|NaN|\[object/.test(r.foot), '一键分解确认那一行有未格式化的文本：' + r.foot);
+    cleanText(r.tip, '一键分解确认浮窗');
+    await until(() => { const x = document.querySelector('[data-act="salvage-all"]'); return x && !x.classList.contains('armed') && /一键分解（8）/.test(x.textContent); }, null, 20000).catch(() => {
+      throw new Error('上膛 4 秒后应自动作废，按钮回到「一键分解（8）」');
+    });
+    s1 = await snap();
+    assert(s1.bag === s0.bag && !(await ev(() => !!document.querySelector('.inv-tips.res.bulk-on'))), '超时作废后不应分解，预计那一行收起');
+    // 作废后再点：又是上膛，不会直接分解；紧接着第二下才分解
+    await page.click('[data-act="salvage-all"]');
+    b = await btn();
+    s1 = await snap();
+    assert(b.armed && s1.bag === s0.bag, '作废后再点应重新上膛：' + JSON.stringify(b));
+    await page.click('[data-act="salvage-all"]');
+    r = await ev((ids) => {
+      const has = (u) => G.save.bag.some((i) => i.uid === u);
+      return {
+        left: Object.keys(ids).filter((k) => [].concat(ids[k]).every(has)).sort().join(),
+        gone: Object.keys(ids).filter((k) => ![].concat(ids[k]).some(has)).sort().join(),
+        n: G.save.bag.length, ring: G.save.equip.ring && G.save.equip.ring.uid,
+        msg: (document.querySelector('.inv-tips.res') || {}).innerText || '', armed: document.querySelector('[data-act="salvage-all"]').classList.contains('armed'),
+        aug: G.save.cur.augment,
+      };
+    }, ids);
+    assert(r.left === 'nLock,rLock,rUp,rq,uq' && r.gone === 'm,n,rDown' && r.n === 5, '一键分解应跳过锁定 / ▲ 稀有 / 烬铸 / 渊契：' + JSON.stringify(r));
+    const eqUid = await ev(() => window.__srKeep && G.save.equip.ring.uid);
+    assert(r.ring === eqUid && !r.armed, '身上的装备不应被分解：' + JSON.stringify(r));
+    assert(r.msg.includes('分解了 8 件') && r.msg.includes('普通 3') && r.msg.includes('魔法 2') && r.msg.includes('稀有 3') && r.msg.includes('增幅尘 ×'), '分解小结不对：' + r.msg);
+    // 没有稀有时不用确认（照旧一下就分）
+    await ev(() => { G.debug.giveItem(0, 'boots'); G.ui.refresh && G.ui.refresh(); });
+    await closePanel();
+    await page.keyboard.press('KeyI');
+    await page.click('[data-act="salvage-all"]');
+    r = await ev(() => ({ n: G.save.bag.length, armed: document.querySelector('[data-act="salvage-all"]').classList.contains('armed') }));
+    assert(r.n === 5 && !r.armed, '这一批里没有稀有时应一下就分解：' + JSON.stringify(r));
+    await closePanel();
+
+    // 锁定的物品：拾取时自动分解跳过、老的「只分普通」和出售也跳过
+    r = await ev((ids) => {
+      const save = G.save, out = {};
+      const lockedN = save.bag.find((i) => i.uid === ids.nLock);
+      out.allNormal = G.salvageAllNormal();
+      out.allNormalKept = save.bag.includes(lockedN);
+      const hadTrader = G.state.trader;
+      if (!hadTrader) G.state.trader = { stock: [] };
+      out.sellLocked = G.traderSell(lockedN);
+      out.sellKept = save.bag.includes(lockedN);
+      const open = G.debug.giveItem(0, 'gloves');
+      out.sellOpen = !!G.traderSell(open);
+      if (!hadTrader) delete G.state.trader;
+      // 丢出去又捡回来：自动分解打开时，锁定的普通物品照常进背包，没锁的化掉
+      Object.assign(save.opts, { autoWhite: true, autoSalvage: true });
+      T.clearLoot();
+      T.tp(0, 0);
+      save.bag.splice(save.bag.indexOf(lockedN), 1);
+      const put = (data, x) => { const l = G.spawnLoot('item', data, 0, 0); l.x = x; l.z = 0; l.mesh.position.set(x, 0, 0); return l; };
+      put(lockedN, 0.3);
+      put(G.rollItem(1, 0, 'boots'), -0.3);
+      G.debug.step(0.6);
+      out.auto = { loot: G.state.loot.length, back: save.bag.includes(lockedN), n: save.bag.length };
+      Object.assign(save.opts, { autoWhite: false, autoSalvage: false });
+      return out;
+    }, ids);
+    assert(r.allNormal === false && r.allNormalKept, '「只分普通」不应分掉锁定的物品：' + JSON.stringify(r));
+    assert(r.sellLocked === false && r.sellKept && r.sellOpen, '锁定的物品不应能卖：' + JSON.stringify(r));
+    assert(r.auto.loot === 0 && r.auto.back && r.auto.n === 5, '自动分解不应化掉锁定的物品：' + JSON.stringify(r.auto));
+
+    // 存档：锁和开关随存档往返；老存档（没有 salvageRare / lk）默认关、没锁；畸形的 lk 修掉。
+    // 读档会让新手提示把当前（高等级）角色当成老角色：读完把存档世代还原（同「自动召唤」那一步），后面的新手提示步骤察觉不到
+    r = await ev(([KEY, ids]) => {
+      const out = {};
+      const epoch = G.saveEpoch;
+      G.persist();
+      const keep = localStorage.getItem(KEY);
+      G.loadSave();
+      const it = (u) => G.save.bag.find((i) => i.uid === u);
+      out.round = [it(ids.nLock).lk, it(ids.rLock).lk, it(ids.rUp).lk, G.save.opts.salvageRare];
+      const raw = JSON.parse(keep);
+      delete raw.opts.salvageRare;
+      for (const i of raw.bag) delete i.lk;
+      raw.bag[0].lk = 'x';
+      raw.bag[1].lk = true;
+      localStorage.setItem(KEY, JSON.stringify(raw));
+      G.loadSave();
+      out.old = { rare: G.save.opts.salvageRare, lk: G.save.bag.map((i) => i.lk === undefined ? '-' : i.lk).join() };
+      out.fresh = G.newSave().opts.salvageRare;
+      localStorage.setItem(KEY, keep);
+      G.loadSave();
+      G.saveEpoch = epoch;
+      G.computeStats();
+      return out;
+    }, [SAVE_KEY, ids]);
+    assert(r.round[0] === 1 && r.round[1] === 1 && r.round[2] === undefined && r.round[3] === true, '锁 / 开关没有随存档往返：' + JSON.stringify(r.round));
+    assert(r.old.rare === false && r.fresh === false && r.old.lk === '-,1,-,-,-', '老存档应默认关、没锁，畸形的 lk 修掉：' + JSON.stringify(r));
+
+    // 同一把种子：一键分解（含魔法 / 含稀有）的收获和原来逐件结算一样（按背包顺序，只对分掉的物品掷骰子）
+    r = await ev(() => {
+      const save = G.save;
+      const seeded = (a) => () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+      const rnd0 = Math.random;
+      const out = [];
+      save.bag.length = 0;
+      for (let i = 0; i < 18; i++) G.debug.giveItem(i % 3, G.SLOTS[(i * 5) % 8], undefined, 1);
+      G.debug.giveItem(3, 'jinduan');
+      const items = JSON.stringify(save.bag);
+      for (const cap of [0, 1, 2]) {
+        const keep = (it) => it.rarity === 2 && G.ui.verdict(it) && G.ui.verdict(it).badge === 'up';
+        save.bag = JSON.parse(items);
+        // 先把评估算好（评估本身不该掷骰子，这里也不让它混进来）
+        save.bag.forEach((it) => it.rarity === 2 && G.ui.verdict(it));
+        for (const k in save.cur) save.cur[k] = 0;
+        Math.random = seeded(4242);
+        const got = G.salvageBulk(cap, keep);
+        Math.random = rnd0;
+        const a = JSON.stringify(save.cur);
+        // 参照：原来的写法——按背包顺序，稀有度够的逐件 salvageResult
+        save.bag = JSON.parse(items);
+        const plan = new Set(save.bag.filter((it) => it.rarity <= cap && !(keep(it))).map((it) => it.uid));
+        for (const k in save.cur) save.cur[k] = 0;
+        Math.random = seeded(4242);
+        const sum = {};
+        for (const it of save.bag) if (plan.has(it.uid)) { const res = G.salvageResult(it); for (const id in res) sum[id] = (sum[id] || 0) + res[id]; }
+        Math.random = rnd0;
+        for (const id in sum) save.cur[id] += sum[id];
+        out.push({ cap, same: a === JSON.stringify(save.cur), n: got ? got.n : 0, want: plan.size, cur: a });
+      }
+      save.bag.length = 0;
+      return out;
+    });
+    assert(r.every((x) => x.same && x.n === x.want && x.n > 0), '同种子下一键分解的收获和逐件结算不一样：' + JSON.stringify(r));
+    await ev(() => {
+      const k = window.__srKeep, save = G.save;
+      for (const s of G.SLOTS) delete save.equip[s];
+      Object.assign(save.equip, k.equip);
+      Object.assign(save.opts, k.opts);
+      save.cur = Object.assign({}, k.cur);
+      save.bag.length = 0;
+      T.clearLoot();
+      G.computeStats();
+      G.persist();
+      delete window.__srKeep;
+      delete window.__srIds;
+    });
+    return '8 件（稀有 3）· 同种子 ' + r.map((x) => x.n).join(' / ') + ' 件一致';
+  });
+
   await uiStep('武器界面：HUD 的 R 格跟着武器换、空手写「无武器」并在按 R 时说明；武器提示有伤害 / 攻速 / 秒伤与对比；技能页有武器技卡；帮助页有武器一节', async () => {
     const r = await ev(async () => {
       const wait = (n) => new Promise((res) => { let i = 0; const f = () => (++i > n ? res() : requestAnimationFrame(f)); requestAnimationFrame(f); });
@@ -20496,6 +20747,386 @@ async function titleSteps() {
     await page.keyboard.press('Escape');
     await page.keyboard.press('Escape');
     assert(!(await ev(() => G.ui.isOpen())), '收尾：暂停菜单没关掉');
+  });
+
+  // ------------------------------------------------------------------ 主线（quest D1，设计稿 game-workspace/notes/quest-design §6 D1 的测试一栏）
+  // 只读现有进度推进；奖励直接加进 save.cur，不取随机数。这一组放在最后：会换存档、换区域，放前面会让后面步骤继承的布局和主分支不同
+  let qKeep = null; // 这一组新开的浏览器里最初的那份存档：最后一步还原
+  const qCur = () => ev(() => Object.assign({}, G.save.cur));
+  const qDiff = (a, b) => {
+    const d = {};
+    for (const k of Object.keys(Object.assign({}, a, b))) if ((b[k] || 0) !== (a[k] || 0)) d[k] = (b[k] || 0) - (a[k] || 0);
+    return JSON.stringify(d);
+  };
+  await step('主线：新存档显示第 1 步「沿路走到荒原尽头」，在小地图正下方；开场卡片 / 面板 / 暂停菜单时收起；走到首领场地门口 → 第 2 步，通货正好 微光尘 +2、增幅尘 +1', async () => {
+    // 新开一个浏览器：前面标题画面那几步是带标题画面开的（title: true），这一组里刷新页面会停在标题画面上
+    if (browser) await browser.close().catch(() => {});
+    ({ browser, page, errors } = await launch({ width: 1440, height: 900 }));
+    await install();
+    const r = await ev(() => {
+      window.__qKeep = localStorage.getItem('cinder-abyss-save-v1');
+      G.ui.close(); // 新存档的开场卡片
+      G.holdSave(false);
+      G.debug.hold(true);
+      G.resetSave();
+      G.save.seenHelp = G.save.seenStory = true;
+      for (const id of G.ui.hints().all) G.save.tut[id] = 1; // 提示卡不挡追踪条的位置检查
+      G.enterZone(0, 0);
+      G.debug.god(true);
+      // 完成提示：记下 #toasts 里加进来的每一条（2.9 秒后就会消失）
+      window.__qToasts = [];
+      if (!window.__qObs) {
+        window.__qObs = new MutationObserver((ms) => {
+          for (const m of ms) for (const n of m.addedNodes) window.__qToasts.push(n.textContent);
+        });
+        window.__qObs.observe(document.getElementById('toasts'), { childList: true });
+      }
+      return { keep: window.__qKeep, q: JSON.stringify(G.save.quest), n0: G.questStep() };
+    });
+    qKeep = r.keep;
+    assert(r.q === '{"n":0,"off":false,"told":{}}' && r.n0 === 0, '新存档的主线应为 n 0：' + r.q);
+    await frames(3);
+    const v = await ev(() => Object.assign(G.ui.quest(), { box: T.rect('#quest'), vw: innerWidth }));
+    assert(v.on && v.k === '主线 1/11' && v.goal === '沿路走到荒原尽头' && v.how === '首领在路的尽头', '新存档应显示第 1 步：' + JSON.stringify(v));
+    assert(v.box.t >= 186 && v.box.r <= v.vw && v.box.r >= v.vw - 20 && v.box.w <= 210, '追踪条应在右上小地图正下方（top ≥ 186、贴右边、宽 ≤ 210）：' + JSON.stringify(v.box));
+    // 收起：开场卡片、面板（body.panel-open）、暂停菜单
+    const hid = {};
+    await ev(() => G.ui.showIntro());
+    await frames(2);
+    hid.intro = await ev(() => G.ui.quest().on);
+    await ev(() => G.ui.close());
+    await ev(() => G.ui.open('inv'));
+    await frames(2);
+    hid.panel = await ev(() => getComputedStyle(document.getElementById('quest')).display);
+    await ev(() => G.ui.close());
+    await ev(() => G.ui.pause());
+    await frames(2);
+    hid.pause = await ev(() => G.ui.quest().on);
+    await ev(() => G.ui.close());
+    await frames(2);
+    hid.back = await ev(() => G.ui.quest().on);
+    assert(hid.intro === false && hid.panel === 'none' && hid.pause === false && hid.back === true, '开场卡片 / 面板 / 暂停时应收起，关掉后回来：' + JSON.stringify(hid));
+    // 在入口站着：不完成；走到首领场地门口（和「前方是首领竞技场」同一个判定）：0.5 秒内完成
+    const cur0 = await qCur();
+    const g = await ev(() => {
+      G.debug.step(1);
+      const before = G.questStep();
+      G.debug.tpBoss();
+      const near = G.world.nearArena(G.player.x, G.player.z);
+      G.debug.step(0.55);
+      return { before, near, after: G.questStep(), stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).quest.n };
+    });
+    const cur1 = await qCur();
+    assert(g.before === 0 && g.near && g.after === 1, '走到门口前应还在第 1 步、走到后 0.5 秒内完成：' + JSON.stringify(g));
+    assert(g.stored === 1, '完成一步应马上存档（门口这一步没有别的痕迹，关页面后不能再给一次）：' + JSON.stringify(g));
+    assert(qDiff(cur0, cur1) === '{"dust":2,"augment":1}', '第 1 步奖励应正好 微光尘 +2、增幅尘 +1：' + qDiff(cur0, cur1));
+    await until(() => window.__qToasts.some((t) => t.includes('主线 1/11 完成')), null, 20000);
+    await frames(2);
+    const v2 = await ev(() => Object.assign(G.ui.quest(), { toasts: window.__qToasts.slice() }));
+    assert(v2.toasts.includes('主线 1/11 完成 · 微光尘 ×2、增幅尘 ×1'), '完成提示不对：' + JSON.stringify(v2.toasts));
+    assert(v2.k === '主线 2/11' && v2.goal === '击败熔渣巨像' && v2.how === '首领 4 级', '应显示第 2 步：' + JSON.stringify(v2));
+    // 再走一遍门口不再给
+    const again = await ev(() => {
+      G.debug.step(1.2);
+      return G.questStep();
+    });
+    assert(again === 1 && qDiff(cur1, await qCur()) === '{}', '同一步不应重复给');
+    return '第 1 步 → 门口 → 第 2 步，奖励 ' + qDiff(cur0, cur1);
+  });
+
+  await step('主线：首领倒下 → 第 3 步「去霜骨沼泽」（传送门在时指传送门）、首领步不另给通货、D3 挂钩收到一次；进霜骨沼泽 → 第 4 步，微光尘 +1、冠冕石 +1；按住 Alt 显示等级 / 奖励 / 背景', async () => {
+    const cur0 = await qCur();
+    const r = await ev(() => {
+      window.__qEv = window.__qEv || [];
+      if (!window.__qHook) {
+        window.__qHook = true;
+        G.onQuest((e) => window.__qEv.push(e));
+      }
+      window.__qEv.length = 0;
+      const b = G.state.boss;
+      G.killEnemy(b);
+      return { n: G.questStep(), ev: JSON.stringify(window.__qEv), portal: !!G.state.portal, cur: Object.assign({}, G.save.cur) };
+    });
+    assert(r.n === 2 && r.ev === '[{"step":2,"id":"ash_boss","zone":"ash","live":true}]' && r.portal, '首领倒下应完成第 2 步、挂钩收到一次（live）：' + JSON.stringify(r));
+    assert(qDiff(cur0, r.cur) === '{}', '首领步不应另给通货：' + qDiff(cur0, r.cur));
+    await frames(3);
+    await until(() => G.ui.quest().k === '主线 3/11', null, 10000);
+    const v = await ev(() => G.ui.quest());
+    assert(v.goal === '去霜骨沼泽' && v.how === '走进传送门，在地图上选它', '传送门在时第 3 步应指传送门：' + JSON.stringify(v));
+    const cur1 = await qCur();
+    const r2 = await ev(() => {
+      G.enterZone(1, 0);
+      return { n: G.questStep(), ev: window.__qEv.length };
+    });
+    const cur2 = await qCur();
+    assert(r2.n === 3 && r2.ev === 1, '进霜骨沼泽应完成第 3 步（进区步不触发首领挂钩）：' + JSON.stringify(r2));
+    assert(qDiff(cur1, cur2) === '{"dust":1,"regal":1}', '第 3 步奖励应正好 微光尘 +1、冠冕石 +1：' + qDiff(cur1, cur2));
+    await until(() => G.ui.quest().k === '主线 4/11' && window.__qToasts.some((t) => t.includes('主线 3/11 完成')), null, 20000);
+    const t = await ev(() => window.__qToasts.filter((s) => s.startsWith('主线')));
+    assert(t.includes('主线 2/11 完成') && t.includes('主线 3/11 完成 · 微光尘 ×1、冠冕石 ×1'), '完成提示不对：' + JSON.stringify(t));
+    // 完成提示排在同一时刻的其它飘字后面（区域名那一条先出）
+    const order = await ev(() => window.__qToasts.slice());
+    const iz = order.findIndex((s) => s.startsWith('霜骨沼泽')), iq = order.indexOf('主线 3/11 完成 · 微光尘 ×1、冠冕石 ×1');
+    assert(iz >= 0 && iq > iz, '完成提示应排在区域名后面：' + JSON.stringify(order));
+    const a = await ev(async () => {
+      G.input.alt = true;
+      await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+      const q = G.ui.quest(), al = getComputedStyle(document.querySelector('#quest .q-alt')).display, hint = getComputedStyle(document.querySelector('#quest .q-h')).display;
+      G.input.alt = false;
+      await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+      return Object.assign(q, { al, hint, al2: getComputedStyle(document.querySelector('#quest .q-alt')).display, lv: G.save.level });
+    });
+    assert(a.goal === '击败霜织者' && a.how === '首领 8 级', '应显示第 4 步：' + JSON.stringify(a));
+    assert(a.al === 'block' && a.hint === 'none' && a.al2 === 'none', '按住 Alt 才展开详情：' + JSON.stringify(a));
+    assert(a.alt === '怪物 5 级 · 首领 8 级（你 ' + a.lv + ' 级）首次击败另得 2 点天赋打倒它们，把它们攒的火铸成你的兵器。', 'Alt 详情不对：' + a.alt);
+    return '第 2 → 4 步，进区奖励 ' + qDiff(cur1, cur2);
+  });
+
+  await step('主线：老存档推算（老手 maxTier 3 → 走完不显示；半路荒原 / 霜骨通关、lastZone 2 → 第 6 步；四区时代 maxTier 1、没打过裂谷 → 第 9 步）；推算出来的步骤不补发，读档后第一次进区也不发；存档里的 n 只增不减', async () => {
+    const r = await ev(() => {
+      const base = JSON.parse(localStorage.getItem('cinder-abyss-save-v1') || JSON.stringify(G.save));
+      const out = {};
+      const load = (name, mut, enter) => {
+        const raw = JSON.parse(JSON.stringify(base));
+        delete raw.quest;
+        raw.cleared = {};
+        raw.maxTier = 0;
+        raw.tier = 0;
+        raw.lastZone = 0;
+        raw.run = null;
+        mut(raw);
+        localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+        G.loadSave();
+        G.computeStats();
+        const c0 = JSON.stringify(G.save.cur), n0 = G.questStep();
+        if (enter) G.enterZone(G.save.lastZone, G.save.tier); // 读档后第一次进区（live）：推算过的不发
+        out[name] = { n: n0, n2: G.questStep(), cur: JSON.stringify(raw.cur) === c0 && c0 === JSON.stringify(G.save.cur) };
+      };
+      load('vet', (s) => {
+        s.maxTier = 3;
+        s.tier = 2;
+        s.lastZone = 4;
+        s.cleared = { ash: 2, frost: 2, storm: 2, abyss: 2, rift: 2 };
+      }, true);
+      load('half', (s) => {
+        s.cleared = { ash: 0, frost: 0 };
+        s.lastZone = 2;
+      }, true);
+      load('four', (s) => {
+        s.cleared = { ash: 0, frost: 0, storm: 0, abyss: 0 };
+        s.maxTier = 1;
+        s.lastZone = 3;
+      }, true);
+      load('fresh', () => {}, true);
+      // 存档里的 n 比推算大（荒原门口走过了、首领还没打）：保留；比推算小：取推算
+      load('keep', (s) => {
+        s.quest = { n: 1, off: false };
+      }, false);
+      load('low', (s) => {
+        s.quest = { n: 2, off: true };
+        s.cleared = { ash: 0, frost: 0 };
+      }, false);
+      out.lowOff = G.save.quest.off;
+      load('bad', (s) => {
+        s.quest = { n: 99, told: { abyss_boss: true, nope: true } };
+      }, false);
+      out.badTold = JSON.stringify(G.save.quest.told);
+      return out;
+    });
+    const s = (x) => JSON.stringify(x);
+    assert(r.vet.n === 11 && r.vet.n2 === 11 && r.vet.cur, '老手应 n = 11：' + s(r.vet));
+    assert(r.half.n === 5 && r.half.n2 === 5 && r.half.cur, '半路（荒原、霜骨通关，lastZone 2）应 n = 5、显示第 6 步：' + s(r.half));
+    assert(r.four.n === 8 && r.four.n2 === 8 && r.four.cur, '四区时代（maxTier 1、没打过裂谷）应 n = 8、显示第 9 步：' + s(r.four));
+    assert(r.fresh.n === 0 && r.fresh.n2 === 0 && r.fresh.cur, '什么都没打过应 n = 0：' + s(r.fresh));
+    assert(r.keep.n === 1 && r.low.n === 4 && r.lowOff === true, '存档里的 n 应只增不减、off 原样读回：' + s([r.keep, r.low, r.lowOff]));
+    assert(r.bad.n === 11 && r.badTold === '{"abyss_boss":true}', 'n 应截到 0–11、told 只认步骤 id：' + s([r.bad, r.badTold]));
+    // 显示：老手不显示，半路显示第 6 步
+    await ev(() => {
+      const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+      raw.quest = null;
+      raw.cleared = { ash: 2, frost: 2, storm: 2, abyss: 2, rift: 2 };
+      raw.maxTier = 3;
+      raw.tier = 2;
+      localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+      G.loadSave();
+      G.computeStats();
+    });
+    await frames(3);
+    const vet = await ev(() => G.ui.quest().on);
+    await ev(() => {
+      const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+      raw.quest = null;
+      raw.cleared = { ash: 0, frost: 0 };
+      raw.maxTier = raw.tier = 0;
+      raw.lastZone = 2;
+      localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+      G.loadSave();
+      G.computeStats();
+      G.enterZone(2, 0);
+    });
+    await until(() => G.ui.quest().on && G.ui.quest().k === '主线 6/11', null, 10000);
+    const half = await ev(() => G.ui.quest());
+    assert(vet === false && half.goal === '击败雷霆监察者' && half.how === '首领 12 级', '老手不显示、半路显示第 6 步：' + s([vet, half]));
+    return '老手 11 · 半路 5 · 四区时代 8 · 新 0';
+  });
+
+  await step('主线：去掉 quest 字段再刷新页面（老代码读档再存）→ 推算一致、不重复给；带着 quest 刷新也一样', async () => {
+    // 存档：荒原首领倒下、进了霜骨沼泽（n 3）
+    const s0 = await ev(() => {
+      G.debug.hold(true);
+      const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+      raw.cleared = { ash: 0 };
+      raw.maxTier = raw.tier = 0;
+      raw.lastZone = 1;
+      raw.run = null;
+      raw.quest = { n: 3, off: false, told: {} };
+      localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+      G.loadSave();
+      G.computeStats();
+      G.enterZone(1, 0);
+      return JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+    });
+    const out = [];
+    for (const strip of [true, false]) {
+      await ev(([raw, strip]) => {
+        G.holdSave(true); // 关页面时不写存档：重载后读到的就是这一份
+        if (strip) delete raw.quest;
+        localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+      }, [s0, strip]);
+      await page.reload({ timeout: 90000 });
+      await install();
+      await frames(3);
+      out.push(await ev(() => ({ n: G.questStep(), cur: JSON.stringify(G.save.cur), zone: G.state.zoneIdx, k: G.ui.quest().k, stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).quest })));
+    }
+    await ev(() => G.debug.hold(true));
+    const c0 = JSON.stringify(s0.cur);
+    assert(out[0].n === 3 && out[0].cur === c0 && out[0].zone === 1 && out[0].k === '主线 4/11', '去掉 quest 后刷新应推算回 n 3、通货不变：' + JSON.stringify(out[0]));
+    assert(out[1].n === 3 && out[1].cur === c0, '带着 quest 刷新应一样：' + JSON.stringify(out[1]));
+    assert(out[0].stored && out[0].stored.n === 3, '刷新后进区写回的存档应带上推算出来的 quest：' + JSON.stringify(out[0].stored));
+    return '去掉 / 保留 quest 都是 n 3，通货不变';
+  });
+
+  await step('主线：首领战取随机数次数和种子哈希与主线走完时一样（门口 → 首领 → 进霜骨三步都在这一仗里完成）', async () => {
+    const base = await ev(() => {
+      const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+      raw.cleared = {};
+      raw.maxTier = raw.tier = 0;
+      raw.lastZone = 0;
+      raw.run = null;
+      return raw;
+    });
+    const fresh = async (n, hold) => {
+      await ev(
+        ([raw, n, hold]) => {
+          G.holdSave(true);
+          window.__testRand.seed('主线·首领战·载入'); // 种子记在 sessionStorage：两遍都从同一个种子载入（上一遍 run 里的 seed 会留下来）
+          raw.quest = { n, off: false, told: {} };
+          localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+          if (hold) sessionStorage.setItem('cinder-test-hold', '1');
+          else sessionStorage.removeItem('cinder-test-hold');
+        },
+        [base, n, hold]
+      );
+      await page.reload({ timeout: 90000 });
+      await install();
+      await until(() => !G.world.assetsPending(), null, 60000);
+    };
+    const run = () =>
+      ev(() => {
+        const P = G.player, S = G.state;
+        window.__testRand.seed('主线·首领战');
+        const rnd = Math.random;
+        let calls = 0;
+        Math.random = function () { calls++; return rnd.call(this); };
+        const n0 = G.questStep(), cur0 = JSON.stringify(G.save.cur);
+        try {
+          P.god = true;
+          G.debug.tpBoss();
+          for (let i = 0; i < 360; i++) G.tick(1 / 60); // 6 秒：首领醒来、出招
+          G.killEnemy(S.boss);
+          for (let i = 0; i < 60; i++) G.tick(1 / 60);
+          G.enterZone(1, 0);
+          for (let i = 0; i < 120; i++) G.tick(1 / 60);
+        } finally {
+          Math.random = rnd;
+        }
+        const st = JSON.stringify({ p: [P.x, P.z, P.life, P.mana], e: S.enemies.map((o) => [o.type, o.x, o.z, o.hp, o.dead]), loot: S.loot.length, t: S.time, xp: G.save.xp, calls });
+        let h = 2166136261;
+        for (let i = 0; i < st.length; i++) h = Math.imul(h ^ st.charCodeAt(i), 16777619);
+        return { hash: (h >>> 0).toString(16), calls, n0, n: G.questStep(), dcur: cur0 !== JSON.stringify(G.save.cur) };
+      });
+    let A, B, C;
+    try {
+      await fresh(0, true);
+      A = await run();
+      await fresh(11, true);
+      B = await run();
+      await fresh(0, true);
+      C = await run(); // 再打一遍主线那一份：A / B 不同时先看这一遍和 A 一不一样（同一份存档能不能复现）
+    } finally {
+      await fresh(11, false);
+      await ev(() => {
+        G.debug.hold(true);
+        G.debug.god(true);
+      });
+    }
+    assert(A.n0 === 0 && A.n === 3 && A.dcur && B.n0 === 11 && B.n === 11 && !B.dcur, '这一仗里主线应从 0 走到 3（发了通货），走完的那遍不动：' + JSON.stringify({ A, B }));
+    assert(A.hash === C.hash && A.calls === C.calls, '同一份存档打两遍不一样（测试本身不确定）：' + JSON.stringify({ A, C }));
+    assert(A.hash === B.hash && A.calls === B.calls, '主线改了模拟或取了随机数：' + JSON.stringify({ A, B }));
+    return '哈希 ' + A.hash + '，取随机数 ' + A.calls + ' 次（两遍相同）';
+  });
+
+  await step('主线：追踪条在 1280×800 和 1024×640 下不和连击计数、小地图挤在一起', async () => {
+    const out = {};
+    await ev(() => {
+      const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+      raw.quest = { n: 2, off: false, told: {} };
+      raw.cleared = { ash: 0 };
+      raw.lastZone = 0;
+      localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+      G.loadSave();
+      G.computeStats();
+      G.enterZone(0, 0);
+      document.getElementById('combo').classList.add('on');
+      document.getElementById('combo-n').textContent = '88';
+    });
+    for (const [w, h] of [[1280, 800], [1024, 640]]) {
+      await page.setViewportSize({ width: w, height: h });
+      await frames(3);
+      out[w] = await ev(async () => {
+        const o = { q: T.rect('#quest'), c: T.rect('#combo'), on: G.ui.quest().on, k: G.ui.quest().k };
+        G.input.alt = true; // 按住 Alt 展开详情时也不挤
+        await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+        o.qa = T.rect('#quest');
+        G.input.alt = false;
+        await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+        return o;
+      });
+    }
+    await ev(() => {
+      document.getElementById('combo').classList.remove('on');
+      document.getElementById('combo-n').textContent = '';
+    });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    for (const w of [1280, 1024]) {
+      const { q, qa, c, on, k } = out[w];
+      assert(on && k === '主线 3/11', w + '：追踪条应显示第 3 步：' + JSON.stringify(out[w]));
+      assert(q.t >= 186, w + '：追踪条压到了小地图（小地图到 186 px）：' + JSON.stringify(q));
+      assert(qa.b > q.b + 30 && c.t >= qa.b + 4, w + '：连击计数和追踪条（按住 Alt 展开时）挤在一起：' + JSON.stringify(out[w]));
+    }
+    return '1280：追踪条 ' + Math.round(out[1280].q.t) + '–' + Math.round(out[1280].q.b) + '，连击 ' + Math.round(out[1280].c.t) + '；1024：' + Math.round(out[1024].q.t) + '–' + Math.round(out[1024].q.b) + '，连击 ' + Math.round(out[1024].c.t);
+  });
+
+  await step('主线：收尾——还原这一组之前的存档', async () => {
+    await ev((keep) => {
+      G.holdSave(true);
+      if (keep) localStorage.setItem('cinder-abyss-save-v1', keep);
+    }, qKeep);
+    await page.reload({ timeout: 90000 });
+    await install();
+    await ev(() => G.holdSave(false));
+    const n = await ev(() => G.questStep());
+    return '主线 n ' + n;
   });
 }
 
