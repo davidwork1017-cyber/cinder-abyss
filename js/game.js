@@ -5614,7 +5614,7 @@
         G.hitEnemy(e, ctx, B.mult, { ang: Math.atan2(e.x - ox, e.z - oz), quiet: true });
         st.cbArcHits = (st.cbArcHits || 0) + 1;
       }
-      if (pts.length > 1) W.bolt(pts, hex);
+      if (pts.length > 1) W.bolt(pts, hex, false, { v2: true, rn: true }); // skill-b2：旧电弧 → 链雷的折线语言（随机数差额照取）
       st.cbLight = (st.cbLight || 0) + 1;
     }
     fxOpt('cbBurst', ox, oz, R, el, hex); // 元素的形状（world.cbBurst：火舌 / 冰晶 / 电花），没有时只有爆炸本身
@@ -5668,7 +5668,7 @@
       G.hitEnemy(e, ctx, M.mult * k, { ang: Math.atan2(e.x - src.x, e.z - src.z), w: 0, kb: 0.5, poise: 3 * k, quiet: e !== src }); // w 0：几只一起炸时命中的亮星别连成一片
       state.stats.cbPopHits = (state.stats.cbPopHits || 0) + 1;
     }
-    if (pts.length) W.bolt(pts, hex);
+    if (pts.length) W.bolt(pts, hex, false, { v2: true, rn: true }); // skill-b2：同上
     if (!fxOpt('cbPop', src.x, src.z, src.r, hex, src.height || 2) && W.vShock) W.vShock(src.x, src.z, src.r + 1.0, hex, 0.24, 0.5);
     state.stats.cbPops = (state.stats.cbPops || 0) + 1;
     state.stats.cbJumps = (state.stats.cbJumps || 0) + n;
@@ -7008,10 +7008,16 @@
   // 过载：最后一下折回你身上，n 个敌人各给一份雷盾、回一点魔力；电弧一跳比一跳粗（后面的段多叠一道）
   function arcOverload(ctx, pts, n, hex) {
     const W = G.world, O = ctx.sk.over;
-    for (let i = 2; i < pts.length; i++) W.bolt([pts[i - 1], pts[i]], 0xfffbe6, i < 3);
+    // skill-b2：叠上去的近白电弧（0xfffbe6，第 3 段起带地面闪光 + 白火花）走鬼影（随机数照取、不画），换成形状批里的元素色折线，越往后叠得越多
+    const gz = !!W.b2Strand;
+    for (let i = 2; i < pts.length; i++) {
+      W.bolt([pts[i - 1], pts[i]], 0xfffbe6, i < 3, { ghost: gz });
+      if (gz) W.b2Strand(pts[i - 1], pts[i], hex, i - 1);
+    }
     if (!n) return;
     const last = pts[pts.length - 1];
-    W.bolt([last, { x: P.x, z: P.z }], hex, true);
+    W.bolt([last, { x: P.x, z: P.z }], hex, true, { ghost: gz });
+    if (gz) W.b2Strand(last, { x: P.x, z: P.z }, hex, 0, true);
     W.burst(P.x, 1.1, P.z, 0xffe45e, 10, 3, 0.3);
     const v = P.maxLife * O.shield * n;
     P.vShield = { v: Math.max(v, (P.vShield && P.vShield.v) || 0), t: O.dur };
@@ -7246,12 +7252,15 @@
       W.blinkBand(ox, oz, px, pz, hex);
       if (!e.isBoss) W.blinkBand(px, pz, e.x, e.z, 0x8a7aa0, { w: 0.6 });
     }
-    if (W.shadowStep) W.shadowStep(ox, oz, px, pz, hex);
-    W.afterimage(P.ent, ox, oz, hex, 0.8, 0.35, 0, P.face);
+    if (W.shadowStep) W.shadowStep(ox, oz, px, pz, hex, { dim: gh }); // skill-b2：一路的暗影粒压暗、落点不闪光
+    W.afterimage(P.ent, ox, oz, gh ? 0x5a4a78 : hex, gh ? 0.55 : 0.8, 0.35, 0, P.face); // skill-b2：残影暗紫灰（加色的浅紫 0.8 叠出来近白）
     W.slash(px, pz, Math.random() * TAU, 1.6, 360, hex, { dur: 0.25, inner: 0.7, y: 1.0 });
-    G.hitEnemy(e, ctx, 1, { ang: Math.atan2(e.x - px, e.z - pz), w: 2, poise: (sk.poise || 0) * (e.isBoss ? S.poise : 1), quiet: true });
-    const R = S.r * Math.sqrt(ctx.area);
-    for (const o of enemiesIn(px, pz, R)) if (o !== e) G.hitEnemy(o, ctx, S.side, { ang: Math.atan2(o.x - px, o.z - pz), quiet: true });
+    if (W.impactStyle) W.impactStyle('blink'); // skill-b2：命中的近白弯月换成细斩线（只换画法）
+    try {
+      G.hitEnemy(e, ctx, 1, { ang: Math.atan2(e.x - px, e.z - pz), w: 2, poise: (sk.poise || 0) * (e.isBoss ? S.poise : 1), quiet: true });
+      const R = S.r * Math.sqrt(ctx.area);
+      for (const o of enemiesIn(px, pz, R)) if (o !== e) G.hitEnemy(o, ctx, S.side, { ang: Math.atan2(o.x - px, o.z - pz), quiet: true });
+    } finally { if (W.impactStyle) W.impactStyle(null); }
     G.hitStop(((sk.stop || 70) + 10) * ctx.stopK);
     W.shake(0.3);
     G.sfx('impact', { type: 'phys', w: 2, crit: lastHit.crit });
@@ -7500,7 +7509,7 @@
     const h1 = addHole(Object.assign({ x: p1.x, z: p1.z }, base, { twinB: true }));
     h0.twin = h1;
     h1.twin = h0;
-    h0.tether = G.world.kv('band', { hex: 0xff6ad2, w: T.w * Math.sqrt(ctx.area), y: 0.35, x0: p0.x, z0: p0.z, x1: p1.x, z1: p1.z });
+    h0.tether = G.world.kv('band', { hex: 0xff6ad2, w: T.w * Math.sqrt(ctx.area), y: 0.35, x0: p0.x, z0: p0.z, x1: p1.x, z1: p1.z, ripple: 1 }); // skill-b2：两条品红波纹带（形状批）
     h1.tether = null;
     state.stats.vTwins = (state.stats.vTwins || 0) + 1;
     return h0;
@@ -8896,7 +8905,8 @@
         const alive = reached();
         if (!W.cutLine) for (const e of alive) W.slash(e.x, e.z, a + Math.PI / 2, 1.6 + e.r, 30, hex, { dur: 0.18, inner: 0.5, y: 1.1 });
         if (!alive.length) return;
-        wsStrike(ctx, alive, 1, { ang: a, w: sk.w, kb: sk.kb, poise: sk.poise, stop: sk.stop, dir: a });
+        if (W.impactStyle) W.impactStyle('cut'); // skill-b2：命中的近白弯月换成细斩线（只换画法）
+        try { wsStrike(ctx, alive, 1, { ang: a, w: sk.w, kb: sk.kb, poise: sk.poise, stop: sk.stop, dir: a }); } finally { if (W.impactStyle) W.impactStyle(null); }
         G.sfx('finisher');
       });
     },
@@ -9070,7 +9080,8 @@
         marks += mk;
       }
       fxOpt('ashBurst', e.x, e.z, e.height || 2, e.r, it.n, mk);
-      total += G.hitEnemy(e, ctx, it.n * sk.cut + mk * sk.mark, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 2, kb: sk.kb * 2, poise: sk.cutPoise, quiet: true }) || 0;
+      if (W.impactStyle) W.impactStyle('ash'); // skill-b2：同上（余烬色）
+      try { total += G.hitEnemy(e, ctx, it.n * sk.cut + mk * sk.mark, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 2, kb: sk.kb * 2, poise: sk.cutPoise, quiet: true }) || 0; } finally { if (W.impactStyle) W.impactStyle(null); }
       crit = crit || lastHit.crit;
       if (!e.dead) W.shudder(e.ent, 0.14, 0.24);
     }
