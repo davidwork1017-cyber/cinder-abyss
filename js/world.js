@@ -929,8 +929,10 @@
         midK: 0.35,
         edge: [],
         // asset-zones：自产立灯（kit-storm，fit 照抄 kh/lantern_standing；id 里要有 lantern，火焰按 h × s 的高度放）
-        // storm-lamps：灯位由生成器给（stormLamps）；keep 见 buildProps；top = 立灯脚下那段压矮的北墙的墙顶高（m，stormDress 按它压墙）
-        fire: { m: 'ca/storm_lantern', s: 1.4, h: 0.62, color: 0xffe45e, size: 0.6, keep: 1, top: 1.03 },
+        // storm-lamps：灯位由生成器给（stormLamps）；keep 见 buildProps；top = 立灯脚下那段压矮的北墙的墙顶高（m，stormDress 按它压墙）；
+        // lit：立灯的实例色（铁灯身太黑，在暗背景前只剩一个十字脚的剪影，提亮、偏暖）；halo：灯头一圈朝镜头的暖光 [直径 m, 不透明度, 颜色]，
+        // 压暗、偏橙（灰度上灯头一圈 p85 约 33% / 低 49%，比角色受光面 60% 低；高画质不冲泛光）
+        fire: { m: 'ca/storm_lantern', s: 1.4, h: 0.62, color: 0xffe45e, size: 0.6, keep: 1, top: 1.03, lit: [1.8, 1.6, 1.3], halo: [1.6, 0.35, 0xff9a3a] },
         boss: [],
       },
     },
@@ -2720,7 +2722,12 @@
       const rockish = e[4].indexOf('r') >= 0;
       // zones-polish：只有两三个、又不大的一组（顶点 < 600）不投影：影子几乎看不出来，每组却多一次阴影 draw（区域加长以后摆件的种类多了）
       const gk = G.assets.geo(k), fewSmall = list.length / 10 <= 3 && gk && gk.attributes && gk.attributes.position.count < 600;
-      instanced(gk, rockish ? mats.rock : mats.prop, list, !small && !fewSmall, rockish && def.id !== 'ash' ? lin(def.rock).multiplyScalar(1.2) : new T.Color(1, 1, 1)); // 第 0 区的岩石材质自带颜色
+      const ik = instanced(gk, rockish ? mats.rock : mats.prop, list, !small && !fewSmall, rockish && def.id !== 'ash' ? lin(def.rock).multiplyScalar(1.2) : new T.Color(1, 1, 1)); // 第 0 区的岩石材质自带颜色
+      if (ik && P.fire && P.fire.lit && k === P.fire.m) { // storm-lamps：立灯提亮（实例色）
+        _c.setRGB(P.fire.lit[0], P.fire.lit[1], P.fire.lit[2]);
+        for (let i = 0; i < ik.count; i++) ik.setColorAt(i, _c);
+        ik.instanceColor.needsUpdate = true;
+      }
     }
     if (!fires.length) return null;
     // 火焰：竖直的方片，朝镜头倾斜；每帧在 W.update 里按各自的相位抖动
@@ -2735,9 +2742,11 @@
     im.renderOrder = 5;
     zoneGroup.add(im);
     own(im);
-    const gm = own(new T.MeshBasicMaterial({ map: glowTex(), color: _c.clone().multiplyScalar(0.9), transparent: true, opacity: 0.55, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false }));
+    const gm = own(new T.MeshBasicMaterial({ map: glowTex(), color: F.halo ? lin(F.halo[2]).multiplyScalar(0.9) : _c.clone().multiplyScalar(0.9), transparent: true, opacity: F.halo ? F.halo[1] : 0.55, blending: T.AdditiveBlending, depthWrite: false, toneMapped: false }));
     const gl = [];
-    for (const f of fires) gl.push(f.x, 0.06, f.z, 0, 0, 0, 2.6 * F.size, 1, 2.6 * F.size, 1);
+    // storm-lamps：立在墙上的灯（halo），贴地的光晕会埋在墙里看不见，改成灯头一圈朝镜头倾斜的暖光（往镜头那边挪 0.35 m，别被灯身挡住）；同一个网格、同样多的实例
+    if (F.halo) for (const f of fires) gl.push(f.x, f.y, f.z + 0.35, 0.65, 0, 0, F.halo[0], 1, F.halo[0], 1);
+    else for (const f of fires) gl.push(f.x, 0.06, f.z, 0, 0, 0, 2.6 * F.size, 1, 2.6 * F.size, 1);
     const gIM = instanced(gQuad(), gm, gl, false, null);
     if (gIM) gIM.renderOrder = 1;
     const out = { im, list: fires, size: F.size, ar: _c.r, ag: _c.g, ab: _c.b };
