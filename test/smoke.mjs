@@ -20315,10 +20315,10 @@ async function main() {
 
 // ------------------------------------------------------------------ 多存档（multisave-d1）
 // 6 个角色栏位：第 1 栏就是原来的 cinder-abyss-save-v1（key 不变），迁移只加备份和索引、不改它；退回旧代码时旧代码读的就是第 1 栏。
-// 「旧代码」= 多存档之前最后一版（单存档，main d366ff2），test/serve.mjs 的 /__old/<提交>/ 从 git 里按需取它的文件，和当前代码同源、共用 localStorage。
+// 「旧代码」= 多存档之前最后一版（单存档，main 2c0ec73），test/serve.mjs 的 /__old/<提交>/ 从 git 里按需取它的文件，和当前代码同源、共用 localStorage。
 // 比的是旧版本存档里有的每个字段（逐个字段 JSON 相同）；新代码没有多出字段时整份 JSON 也必须一字不差（多存档 D1 就是这样）。
 // 以后的版本给存档加了字段（比如职业 cls），旧版本读档时会丢掉它们，这是退回旧代码时预期的，多出的字段在步骤结果里列出来
-const OLD_SAVE_BUILD = 'd366ff2';
+const OLD_SAVE_BUILD = '2c0ec73';
 // 新代码的存档 a 和旧版本的存档 b（都是 JSON 文本）：{ ok：b 里每个字段在 a 里 JSON 相同，exact：整份一字不差，extra：a 多出的字段，bad：不同的字段 }
 function saveVsOld(a, b) {
   const A = JSON.parse(a), B = JSON.parse(b);
@@ -20409,6 +20409,12 @@ async function slotSteps() {
     ice.baseName = G.EMBERBOW_OLD_NAMES[2];
     c.equip.weapon = ice;
     S.icebow = JSON.stringify(c);
+    // 魂潮狂热改版之前（没有 stFz）、拿着魂幡（R 是魂潮）：读档时提示一次
+    const t = JSON.parse(S.mid);
+    delete t.stFz;
+    delete t.stNote;
+    t.equip.weapon = G.rollItem(22, 1, 'weapon', G.BASES.weapon.findIndex((b) => b.type === 'banner'));
+    S.banner = JSON.stringify(t);
     // 旧版本读一遍：每个样本前按同一个种子重播（sanitize 里 newSave 会取随机数）
     const O = {};
     for (const n of Object.keys(S)) {
@@ -20423,7 +20429,7 @@ async function slotSteps() {
   };
 
   let SAMPLES = null;
-  await step('多存档·迁移：老存档样本（新号 / 中期 / 毕业带烬铸·渊契·刻式·渊式 / gv < 2 / 旧长弓 / 旧冰弓名）进第 1 栏——原文一个字节不动，-bak 等于原文、再读档 / 索引丢了重建都不覆盖，sanitize 结果和旧版本（' + OLD_SAVE_BUILD + '）JSON 一致（旧版本有的字段逐个相同，没多出字段时整份一字不差）', async () => {
+  await step('多存档·迁移：老存档样本（新号 / 中期 / 毕业带烬铸·渊契·刻式·渊式 / gv < 2 / 旧长弓 / 旧冰弓名 / 魂潮改版前的魂幡）进第 1 栏——原文一个字节不动，-bak 等于原文、再读档 / 索引丢了重建都不覆盖，sanitize 结果和旧版本（' + OLD_SAVE_BUILD + '）JSON 一致（旧版本有的字段逐个相同，没多出字段时整份一字不差）', async () => {
     if (process.env.CINDER_FILE) return 'file:// 下没有同源的旧版本，这一步要 HTTP（默认就是）';
     await fresh({ url: OLD_URL });
     await oldReady();
