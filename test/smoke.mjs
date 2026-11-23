@@ -16841,7 +16841,7 @@ async function main() {
         const kx = k.x, kz = k.z;
         const ms = [];
         for (let i = 0; i < n; i++) {
-          const a = (i / n) * Math.PI * 2, rr = 1.3 + (i % 3) * 0.3;
+          const a = n > 4 ? (i / n) * Math.PI * 2 : i * 0.6, rr = 1.3 + (i % 3) * 0.3; // 2 只时挨着站在同一边（270° 的扇面扫不到身后）
           ms.push(dummy(T.mob('husk', kx + Math.sin(a) * rr, kz + Math.cos(a) * rr)));
         }
         const home = ms.map((m) => [m.x, m.z]);
@@ -17167,8 +17167,8 @@ async function main() {
     assert(r.oldK === '1,true,1,0,false,1' && r.round === '1,true,1,0,false,1', '选着独骸的老存档应提示一次：' + JSON.stringify(r));
     assert(r.oldH === '0,false,1,1,true,1' && r.both === '1,true,1,1,true,1', '选着回旋的老存档应提示一次：' + JSON.stringify(r));
     assert(r.other === '0,false,1,0,false,1' && r.fresh === '0,false,1,0,false,1' && r.seen === '0,false,1,0,false,1', '没选这个渊式 / 新存档 / 看过的不该提示：' + JSON.stringify(r));
-    assert(r.txtK === '<b>独骸</b>：骸王每刀最多砍到 4 个敌人，怪聚成一团时伤害约 −KPCT%；分散的怪和单体不变', '独骸的提示不对：' + r.txtK);
-    assert(r.txtH === '<b>回旋</b>：利刃去程、回程各最多伤到 8 个敌人，怪排得很密时伤害约 −BPCT%；一般的怪群、分散的怪和单体不变', '回旋的提示不对：' + r.txtH);
+    assert(r.txtK === '<b>独骸</b>：骸王每刀最多砍到 4 个敌人，怪聚成一团时伤害约 −35%；分散的怪和单体不变', '独骸的提示不对：' + r.txtK);
+    assert(r.txtH === '<b>回旋</b>：利刃去程、回程各最多伤到 8 个敌人，怪沿一条线排得很密时伤害最多约 −30%；一般的怪群、分散的怪和单体不变', '回旋的提示不对：' + r.txtH);
     return '老存档（独骸 / 回旋）各提示一次，看过不再提示';
   });
 

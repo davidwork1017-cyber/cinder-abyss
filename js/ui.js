@@ -6372,9 +6372,9 @@
     G.persist();
   }
   // 渊式独骸 / 回旋改版提示里的百分比（同装备实测，rulea-fix：独骸 16 只挤成一团；回旋 怪沿飞行方向排得密的那张图）
-  G.NERF_PCT = { king: 0, boom: 0 };
+  G.NERF_PCT = { king: 35, boom: 30 }; // 独骸 1091 → 693 / 1005 → 693（−36 / −31%）；回旋只在怪沿飞行方向排得密的那张图上少：−10%（截断口径）～ −31%（稳态口径），其余不变
   G.kingNerfNote = () => '<b>独骸</b>：骸王每刀最多砍到 ' + (G.VARIANTS.thrall.c.set.king.cleave + 1) + ' 个敌人，怪聚成一团时伤害约 −' + G.NERF_PCT.king + '%；分散的怪和单体不变';
-  G.boomNerfNote = () => '<b>回旋</b>：利刃去程、回程各最多伤到 ' + G.VARIANTS.blade.c.set.boom.cap + ' 个敌人，怪排得很密时伤害约 −' + G.NERF_PCT.boom + '%；一般的怪群、分散的怪和单体不变';
+  G.boomNerfNote = () => '<b>回旋</b>：利刃去程、回程各最多伤到 ' + G.VARIANTS.blade.c.set.boom.cap + ' 个敌人，怪沿一条线排得很密时伤害最多约 −' + G.NERF_PCT.boom + '%；一般的怪群、分散的怪和单体不变';
   // 黑洞改版提示的那一句（v = 'o' / 'a' / 'b' / 'c'）。百分比是同装备实测（16 只挤成一团 / 10 只散开），上限读数据
   G.holeNerfNote = function (v) {
     const sk = G.skillVariant('blackhole', v), N = sk.cap;
