@@ -18875,7 +18875,7 @@
     },
   };
   // 调色板行 → 表面（粗糙度 / 金属度），行号见 art/ca/palette.py
-  const BOSS_ROW_SURF = ['stone', 'stone', 'bone', 'metal', 'glow', 'stone', 'stone', 'leather', 'metal', 'stone', 'stone', 'stone', 'leather', 'stone', 'ice', 'gold'];
+  const BOSS_ROW_SURF = ['stone', 'stone', 'bone', 'metal', 'glow', 'stone', 'stone', 'leather', 'metal', 'stone', 'stone', 'stone', 'leather', 'stone', 'ice', 'gold', 'stone'];
   const bossS2L = (() => {
     const t = new Float32Array(256);
     for (let i = 0; i < 256; i++) { const c = i / 255; t[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }

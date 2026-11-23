@@ -61,7 +61,7 @@ def _pts(k, local, c, rot=(0, 0, 0)):
     return out
 
 
-def hbox(k, bone, c, s, rot=(0, 0, 0), row='slag', tone=0.5, jitter=0.08, bevel=0.06, taper=(1.0, 1.0), glow=0, dust=1, jit=0.0):
+def hbox(k, bone, c, s, rot=(0, 0, 0), row='basalt', tone=0.5, jitter=0.08, bevel=0.06, taper=(1.0, 1.0), glow=0, dust=1, jit=0.0):
     """倒一刀的盒子（凸包），c = 中心，s = 三边长，taper = 顶面（+y）在 x / z 上的收缩比例，jit = 角点随机抖动（石头不那么方正）"""
     a, b, cc = s[0] / 2, s[1] / 2, s[2] / 2
     d = min(bevel, a * 0.45, b * 0.45, cc * 0.45)
@@ -77,7 +77,7 @@ def hbox(k, bone, c, s, rot=(0, 0, 0), row='slag', tone=0.5, jitter=0.08, bevel=
     return k.bind(vs, B[bone])
 
 
-def blob(k, bone, c, r, n=14, rot=(0, 0, 0), row='slag', tone=0.5, jitter=0.1, flat=0.0, glow=0, dust=1):
+def blob(k, bone, c, r, n=14, rot=(0, 0, 0), row='basalt', tone=0.5, jitter=0.1, flat=0.0, glow=0, dust=1):
     """不规则的石块（椭球面上的随机点取凸包），flat > 0 时底面压平"""
     loc = []
     ga = math.pi * (3 - math.sqrt(5))
@@ -93,7 +93,7 @@ def blob(k, bone, c, r, n=14, rot=(0, 0, 0), row='slag', tone=0.5, jitter=0.1, f
     return k.bind(vs, B[bone])
 
 
-def loft(k, bone, pts, radii, sides=7, squash=1.0, row='slag', tone=0.5, jitter=0.08, cap0=True, cap1=True, twist=0.0, soft=False):
+def loft(k, bone, pts, radii, sides=7, squash=1.0, row='basalt', tone=0.5, jitter=0.08, cap0=True, cap1=True, twist=0.0, soft=False):
     """沿折线的渐变截面管（椭圆截面：squash < 1 压扁），pts 是游戏坐标；soft = 软接缝（和相邻骨骼按距离渐变）"""
     vs, _ = k.tube([g2b(p) for p in pts], radii, sides=sides, row=row, tone=tone, jitter=jitter, tip=False, cap0=cap0, cap1=cap1, squash=squash, twist=twist)
     return k.bind(vs, B[bone], soft)
@@ -117,7 +117,7 @@ def seam(k, vs, axis, n=1, width=0.28, depth=0.03, glow=0.6, pick=None):
     return out
 
 
-def hexcol(k, bone, base, h, r, rot=(0, 0, 0), sides=6, chamfer=0.07, row='slag', tone=0.4, top_row=None, top_tone=0.3, jitter=0.06, tilt=0.06, phase=None, glow=0, dust=1, soft=False, taper=0.94):
+def hexcol(k, bone, base, h, r, rot=(0, 0, 0), sides=6, chamfer=0.07, row='basalt', tone=0.4, top_row=None, top_tone=0.3, jitter=0.06, tilt=0.06, phase=None, glow=0, dust=1, soft=False, taper=0.94):
     """玄武岩柱段：sides 棱柱，顶上倒一圈棱（倒角那一圈和顶面可以换成风化的灰白），底面平；base = 底面中心，柱轴沿 rot 转过的 +y"""
     ph = k.r(0, TAU) if phase is None else phase
     rr = [r * (1 + k.r(-0.06, 0.06)) for _ in range(sides)]
@@ -151,31 +151,31 @@ def build(k):
         sd = 'l' if s > 0 else 'r'
         X = lambda x: x * s
         th, ca, ft = 'thigh_' + sd, 'calf_' + sd, 'foot_' + sd
-        hexcol(k, th, (X(0.74), 0.98, 0.04), 0.78, 0.4, row='slag', tone=0.36, chamfer=0.05)
-        hexcol(k, th, (X(0.72), 1.55, 0.0), 0.3, 0.46, rot=(math.pi, 0, 0), row='slag', tone=0.3, chamfer=0.04)
-        hexcol(k, ca, (X(0.8), 0.28, 0.06), 0.7, 0.48, row='slag', tone=0.3, top_row='stone', top_tone=0.28, chamfer=0.06)
+        hexcol(k, th, (X(0.74), 0.98, 0.04), 0.78, 0.4, row='basalt', tone=0.36, chamfer=0.05)
+        hexcol(k, th, (X(0.72), 1.55, 0.0), 0.3, 0.46, rot=(math.pi, 0, 0), row='basalt', tone=0.3, chamfer=0.04)
+        hexcol(k, ca, (X(0.8), 0.28, 0.06), 0.7, 0.48, row='basalt', tone=0.3, top_row='stone', top_tone=0.28, chamfer=0.06)
         loft(k, ca, [(X(0.8), 0.62, 0.06), (X(0.8), 0.74, 0.06)], [0.55, 0.55], sides=7, row='iron', tone=0.36, jitter=0.03)
         blob(k, ca, (X(0.8), 0.98, 0.34), (0.32, 0.3, 0.24), n=12, row='stone', tone=0.32, jitter=0.06)
-        hbox(k, ft, (X(0.8), 0.13, 0.16), (1.0, 0.26, 1.3), row='slag', tone=0.26, bevel=0.06, taper=(0.88, 0.84), jit=0.04)
+        hbox(k, ft, (X(0.8), 0.13, 0.16), (1.0, 0.26, 1.3), row='basalt', tone=0.26, bevel=0.06, taper=(0.88, 0.84), jit=0.04)
         for t in (-1, 0, 1):
-            blob(k, ft, (X(0.8 + t * 0.3), 0.12, 0.84), (0.16, 0.12, 0.17), n=10, row='slag', tone=0.36, flat=0.3)
-        blob(k, ft, (X(0.8), 0.3, -0.3), (0.32, 0.16, 0.24), n=10, row='slag', tone=0.4, flat=0.3)
+            blob(k, ft, (X(0.8 + t * 0.3), 0.12, 0.84), (0.16, 0.12, 0.17), n=10, row='basalt', tone=0.36, flat=0.3)
+        blob(k, ft, (X(0.8), 0.3, -0.3), (0.32, 0.16, 0.24), n=10, row='basalt', tone=0.4, flat=0.3)
     # ---- 胯：一整块暗色基座 + 两侧的胯石，前后两片垂板，腰间一道余烬缝 ----
-    hip = hbox(k, 'pelvis', (0, 1.74, 0), (1.9, 0.7, 1.24), row='slag', tone=0.26, bevel=0.1, taper=(1.05, 1.0), jit=0.04)
+    hip = hbox(k, 'pelvis', (0, 1.74, 0), (1.9, 0.7, 1.24), row='basalt', tone=0.26, bevel=0.1, taper=(1.05, 1.0), jit=0.04)
     seam(k, hip, (0, 0, 1), n=1, width=0.18, glow=0.55)
     hbox(k, 'pelvis', (0, 1.5, 0.64), (0.8, 0.72, 0.28), rot=(-0.14, 0, 0), row='stone', tone=0.24, bevel=0.06, jit=0.03)
-    hbox(k, 'pelvis', (0, 1.52, -0.62), (0.92, 0.7, 0.28), rot=(0.12, 0, 0), row='slag', tone=0.4, bevel=0.06, jit=0.03)
+    hbox(k, 'pelvis', (0, 1.52, -0.62), (0.92, 0.7, 0.28), rot=(0.12, 0, 0), row='basalt', tone=0.4, bevel=0.06, jit=0.03)
     for s in (1, -1):
-        blob(k, 'pelvis', (s * 0.98, 1.66, 0.02), (0.3, 0.42, 0.5), n=14, row='slag', tone=0.42)
+        blob(k, 'pelvis', (s * 0.98, 1.66, 0.02), (0.3, 0.42, 0.5), n=14, row='basalt', tone=0.42)
     # 腰：暗的熔渣芯（软接缝：胯和下腹之间弯折时不开口）
     loft(k, 'spine_01', [(0, 1.95, -0.02), (0, 2.2, -0.03), (0, 2.42, -0.05)], [0.78, 0.72, 0.8], sides=8, squash=0.72, row='slag', tone=0.16, soft=True)
-    hbox(k, 'spine_01', (0, 2.18, 0.5), (1.1, 0.4, 0.32), rot=(-0.08, 0, 0), row='slag', tone=0.4, bevel=0.06, jit=0.03)
-    hbox(k, 'spine_01', (0, 2.2, -0.5), (1.2, 0.44, 0.32), rot=(0.08, 0, 0), row='slag', tone=0.34, bevel=0.06, jit=0.03)
+    hbox(k, 'spine_01', (0, 2.18, 0.5), (1.1, 0.4, 0.32), rot=(-0.08, 0, 0), row='basalt', tone=0.4, bevel=0.06, jit=0.03)
+    hbox(k, 'spine_01', (0, 2.2, -0.5), (1.2, 0.44, 0.32), rot=(0.08, 0, 0), row='basalt', tone=0.34, bevel=0.06, jit=0.03)
     # ---- 胸：左右两大块胸板夹着炉口；炉膛往里收（暗红的炉壁，火色范围的弱光），炉芯是一小团近白的光，四根铁栅挡在最外面 ----
     for s in (1, -1):
-        hbox(k, 'spine_02', (s * 0.8, 2.82, 0.06), (0.9, 1.34, 1.4), rot=(0, 0, -s * 0.08), row='slag', tone=0.36, bevel=0.1, taper=(1.08, 1.0), jit=0.05)
+        hbox(k, 'spine_02', (s * 0.8, 2.82, 0.06), (0.9, 1.34, 1.4), rot=(0, 0, -s * 0.08), row='basalt', tone=0.36, bevel=0.1, taper=(1.08, 1.0), jit=0.05)
         blob(k, 'spine_02', (s * 0.92, 3.22, 0.74), (0.3, 0.24, 0.14), n=10, row='stone', tone=0.3)
-        blob(k, 'spine_02', (s * 0.9, 2.46, 0.76), (0.26, 0.24, 0.12), n=10, row='slag', tone=0.46)
+        blob(k, 'spine_02', (s * 0.9, 2.46, 0.76), (0.26, 0.24, 0.12), n=10, row='basalt', tone=0.46)
     hbox(k, 'spine_02', (0, 2.8, -0.55), (1.5, 1.4, 0.5), row='slag', tone=0.28, bevel=0.08, jit=0.03)
     hbox(k, 'spine_02', (0, 2.78, 0.16), (0.82, 1.04, 0.24), row='ember', tone=0.25, jitter=0.05, bevel=0.0, glow=0.38, dust=0)
     for s in (1, -1):
@@ -195,67 +195,67 @@ def build(k):
     for s in (1, -1):
         for (x, z, y0, h, r, bn) in cols:
             bone = bn if bn == 'spine_03' else 'clavicle_' + ('l' if s > 0 else 'r')
-            hexcol(k, bone, (s * x, y0, z), h, r, rot=(k.r(-0.05, 0.05), 0, -s * 0.05), row='slag', tone=0.3 + k.r(0, 0.12), top_row='stone', top_tone=0.3 + k.r(0, 0.14), chamfer=0.07)
+            hexcol(k, bone, (s * x, y0, z), h, r, rot=(k.r(-0.05, 0.05), 0, -s * 0.05), row='basalt', tone=0.3 + k.r(0, 0.12), top_row='stone', top_tone=0.3 + k.r(0, 0.14), chamfer=0.07)
         # 柱簇底下垫一整块，把柱子连成一副肩轭（俯视是一整条，不散成一堆）
-        hbox(k, 'spine_03', (s * 0.9, 3.42, -0.1), (1.0, 0.36, 1.4), rot=(0, 0, -s * 0.06), row='slag', tone=0.22, bevel=0.08, jit=0.03)
-        hbox(k, 'clavicle_' + ('l' if s > 0 else 'r'), (s * 1.66, 3.5, -0.05), (0.9, 0.4, 1.3), rot=(0, 0, -s * 0.14), row='slag', tone=0.22, bevel=0.08, jit=0.03)
-    hbox(k, 'spine_03', (0, 3.5, -0.42), (1.2, 0.66, 0.66), row='slag', tone=0.3, bevel=0.08, jit=0.03)
-    hbox(k, 'spine_03', (0, 3.34, 0.48), (0.86, 0.32, 0.38), rot=(-0.2, 0, 0), row='slag', tone=0.42, bevel=0.06, jit=0.03)
+        hbox(k, 'spine_03', (s * 0.9, 3.42, -0.1), (1.0, 0.36, 1.4), rot=(0, 0, -s * 0.06), row='basalt', tone=0.22, bevel=0.08, jit=0.03)
+        hbox(k, 'clavicle_' + ('l' if s > 0 else 'r'), (s * 1.66, 3.5, -0.05), (0.9, 0.4, 1.3), rot=(0, 0, -s * 0.14), row='basalt', tone=0.22, bevel=0.08, jit=0.03)
+    hbox(k, 'spine_03', (0, 3.5, -0.42), (1.2, 0.66, 0.66), row='basalt', tone=0.3, bevel=0.08, jit=0.03)
+    hbox(k, 'spine_03', (0, 3.34, 0.48), (0.86, 0.32, 0.38), rot=(-0.2, 0, 0), row='basalt', tone=0.42, bevel=0.06, jit=0.03)
     for i, (y, w) in enumerate(((3.5, 1.15), (3.02, 1.0), (2.55, 0.85))):
-        hbox(k, 'spine_03' if i == 0 else 'spine_02', (0, y, -0.9 + i * 0.05), (w, 0.48, 0.28), rot=(0.18 - i * 0.1, 0, 0), row='slag', tone=0.4, bevel=0.06, jit=0.04)
+        hbox(k, 'spine_03' if i == 0 else 'spine_02', (0, y, -0.9 + i * 0.05), (w, 0.48, 0.28), rot=(0.18 - i * 0.1, 0, 0), row='basalt', tone=0.4, bevel=0.06, jit=0.04)
     # 烟囱：肩轭后面两截矮的空心柱（铁箍），口上一圈余烬
     for s in (1, -1):
         cb = 'x_chimney_' + ('l' if s > 0 else 'r')
-        hexcol(k, cb, (s * 0.62, 3.86, -0.64), 0.98, 0.28, row='slag', tone=0.26, chamfer=0.04, top_row='ember', top_tone=0.55, tilt=0.02, glow=0)
+        hexcol(k, cb, (s * 0.62, 3.86, -0.64), 0.98, 0.28, row='basalt', tone=0.26, chamfer=0.04, top_row='ember', top_tone=0.55, tilt=0.02, glow=0)
         loft(k, cb, [(s * 0.63, 4.36, -0.65), (s * 0.63, 4.48, -0.65)], [0.33, 0.33], sides=6, row='iron', tone=0.4, jitter=0.03)
-        hbox(k, cb, (s * 0.64, 4.85, -0.66), (0.3, 0.05, 0.3), row='ember', tone=0.62, bevel=0.0, glow=0.62, dust=0)
+        hbox(k, cb, (s * 0.64, 4.85, -0.66), (0.3, 0.05, 0.3), row='ember', tone=0.6, bevel=0.0, glow=0.55, dust=0)
     # ---- 头：一块带面甲的石板，缩在肩轭中间的凹口里；一道发光的眼缝 ----
-    hbox(k, 'head', (0, 3.98, 0.36), (0.74, 0.64, 0.7), row='slag', tone=0.42, bevel=0.07, taper=(0.9, 0.9), jit=0.03)
+    hbox(k, 'head', (0, 3.98, 0.36), (0.74, 0.64, 0.7), row='basalt', tone=0.42, bevel=0.07, taper=(0.9, 0.9), jit=0.03)
     hbox(k, 'head', (0, 4.28, 0.3), (0.86, 0.18, 0.6), rot=(-0.1, 0, 0), row='stone', tone=0.26, bevel=0.05, jit=0.03)
-    hbox(k, 'head', (0, 3.72, 0.64), (0.5, 0.26, 0.2), rot=(0.2, 0, 0), row='slag', tone=0.34, bevel=0.04)
-    hbox(k, 'head', (0, 4.02, 0.72), (0.46, 0.09, 0.06), row='ember', tone=0.8, bevel=0.0, glow=0.75, dust=0)
+    hbox(k, 'head', (0, 3.72, 0.64), (0.5, 0.26, 0.2), rot=(0.2, 0, 0), row='basalt', tone=0.34, bevel=0.04)
+    hbox(k, 'head', (0, 4.02, 0.72), (0.46, 0.09, 0.06), row='ember', tone=0.7, bevel=0.0, glow=0.6, dust=0)
     # ---- 左臂：两截柱段的上臂、圆石肘、粗的前臂（一道铁箍）、三指巨手（每根指头两截） ----
     # ---- 右臂：同样的上臂和前臂，末端是一整块箍两道铁带的八棱锤石，锤面（朝下）上两道余烬缝 ----
     for s in (1, -1):
         sd = 'l' if s > 0 else 'r'
         X = lambda x: x * s
         ua, la = 'upperarm_' + sd, 'lowerarm_' + sd
-        hexcol(k, ua, (X(1.86), 2.96, 0.06), 0.62, 0.38, rot=(0, 0, -s * 0.24), row='slag', tone=0.34, chamfer=0.05)
-        hexcol(k, ua, (X(1.78), 3.62, 0.0), 0.6, 0.42, rot=(math.pi, 0, s * 0.2), row='slag', tone=0.28, chamfer=0.05)
+        hexcol(k, ua, (X(1.86), 2.96, 0.06), 0.62, 0.38, rot=(0, 0, -s * 0.24), row='basalt', tone=0.34, chamfer=0.05)
+        hexcol(k, ua, (X(1.78), 3.62, 0.0), 0.6, 0.42, rot=(math.pi, 0, s * 0.2), row='basalt', tone=0.28, chamfer=0.05)
         blob(k, la, (X(2.02), 2.44, 0.13), (0.38, 0.34, 0.38), n=14, row='stone', tone=0.3)
-        hexcol(k, la, (X(2.08), 1.62 if s > 0 else 1.8, 0.24), 0.78 if s > 0 else 0.6, 0.46, rot=(-0.12, 0, s * 0.06), row='slag', tone=0.3, top_row='stone', top_tone=0.2, chamfer=0.05)
+        hexcol(k, la, (X(2.08), 1.62 if s > 0 else 1.8, 0.24), 0.78 if s > 0 else 0.6, 0.46, rot=(-0.12, 0, s * 0.06), row='basalt', tone=0.3, top_row='stone', top_tone=0.2, chamfer=0.05)
         loft(k, la, [(X(2.07), 2.0, 0.2), (X(2.07), 2.12, 0.19)], [0.52, 0.52], sides=7, row='iron', tone=0.38, jitter=0.03)
-    hbox(k, 'hand_l', (2.12, 1.3, 0.34), (0.74, 0.46, 0.6), rot=(0.25, 0, 0.05), row='slag', tone=0.34, bevel=0.07, jit=0.04)
+    hbox(k, 'hand_l', (2.12, 1.3, 0.34), (0.74, 0.46, 0.6), rot=(0.25, 0, 0.05), row='basalt', tone=0.34, bevel=0.07, jit=0.04)
     for i, fb in enumerate(('x_finger_l_01', 'x_finger_l_02', 'x_finger_l_03')):
         px, py, pz = BONES[B[fb]][2]
-        hexcol(k, fb, (px, py - 0.34, pz + 0.08), 0.42, 0.15, rot=(0.15, 0, 0), sides=5, row='slag', tone=0.28 + 0.05 * i, chamfer=0.03)
-        hexcol(k, fb, (px + (i - 1) * 0.03, py - 0.66, pz + 0.16), 0.34, 0.13, rot=(0.35, 0, 0), sides=5, row='slag', tone=0.32, top_row='stone', top_tone=0.24, chamfer=0.03)
+        hexcol(k, fb, (px, py - 0.34, pz + 0.08), 0.42, 0.15, rot=(0.15, 0, 0), sides=5, row='basalt', tone=0.28 + 0.05 * i, chamfer=0.03)
+        hexcol(k, fb, (px + (i - 1) * 0.03, py - 0.66, pz + 0.16), 0.34, 0.13, rot=(0.35, 0, 0), sides=5, row='basalt', tone=0.32, top_row='stone', top_tone=0.24, chamfer=0.03)
     hbox(k, 'hand_r', (-2.12, 1.74, 0.26), (0.6, 0.22, 0.6), row='iron', tone=0.42, bevel=0.03)
     # 锤石：一整块粗凿的方石（凸包，角上崩掉一点），两道铁带横着箍住，朝下的锤面开两道余烬缝；顶上一块风化的石头接着手腕
-    hm = hbox(k, 'x_hammer', (-2.18, 0.98, 0.32), (1.36, 1.2, 1.24), rot=(0.05, 0.18, 0.04), row='slag', tone=0.3, bevel=0.16, jit=0.07, taper=(0.86, 0.9))
+    hm = hbox(k, 'x_hammer', (-2.18, 0.98, 0.32), (1.36, 1.2, 1.24), rot=(0.05, 0.18, 0.04), row='basalt', tone=0.3, bevel=0.16, jit=0.07, taper=(0.86, 0.9))
     for y in (1.32, 0.66):
         hbox(k, 'x_hammer', (-2.18, y, 0.32), (1.44, 0.15, 1.32), rot=(0.05, 0.18, 0.04), row='iron', tone=0.4, bevel=0.03, jit=0.01)
     for sx in (-1, 1):
-        blob(k, 'x_hammer', (-2.18 + sx * 0.6, 0.98, 0.32 + sx * 0.12), (0.16, 0.42, 0.42), n=10, row='slag', tone=0.42)
+        blob(k, 'x_hammer', (-2.18 + sx * 0.6, 0.98, 0.32 + sx * 0.12), (0.16, 0.42, 0.42), n=10, row='basalt', tone=0.42)
     seam(k, hm, (0, -1, 0), n=2, width=0.22, glow=0.62)
     blob(k, 'x_hammer', (-2.16, 1.6, 0.32), (0.36, 0.18, 0.34), n=12, row='stone', tone=0.28, flat=0.2)
 
     # ---- 细节：腰带石、胸板上的小石板、背脊、四肢上崩出来的小块（大面不平、俯视有转折） ----
     for i in range(7):
         a = -1.2 + i * 0.4
-        blob(k, 'pelvis', (math.sin(a) * 1.0, 2.08, math.cos(a) * 0.66), (0.2, 0.12, 0.16), n=9, row='slag', tone=0.45 + k.r(0, 0.1), flat=0.3)
+        blob(k, 'pelvis', (math.sin(a) * 1.0, 2.08, math.cos(a) * 0.66), (0.2, 0.12, 0.16), n=9, row='basalt', tone=0.45 + k.r(0, 0.1), flat=0.3)
     for s in (1, -1):
         for j, (y, z) in enumerate(((3.05, 0.7), (2.7, 0.74), (2.36, 0.7))):
-            hbox(k, 'spine_02', (s * (0.66 + 0.06 * j), y, z), (0.36, 0.28, 0.14), rot=(0.08, s * 0.1, -s * 0.06), row='slag', tone=0.48 + 0.04 * j, bevel=0.03, jit=0.03)
-        hbox(k, 'spine_02', (s * 1.22, 2.84, 0.0), (0.16, 1.0, 0.9), rot=(0, 0, -s * 0.08), row='slag', tone=0.44, bevel=0.04, jit=0.04)
-        blob(k, 'thigh_' + ('l' if s > 0 else 'r'), (s * 1.06, 1.36, 0.02), (0.14, 0.34, 0.36), n=10, row='slag', tone=0.46)
-        blob(k, 'calf_' + ('l' if s > 0 else 'r'), (s * 1.12, 0.6, 0.04), (0.12, 0.26, 0.3), n=10, row='slag', tone=0.4)
-        blob(k, 'upperarm_' + ('l' if s > 0 else 'r'), (s * 2.22, 3.05, 0.06), (0.14, 0.3, 0.3), n=10, row='slag', tone=0.44)
-        blob(k, 'lowerarm_' + ('l' if s > 0 else 'r'), (s * 2.42, 2.0, 0.22), (0.12, 0.28, 0.3), n=10, row='slag', tone=0.38)
+            hbox(k, 'spine_02', (s * (0.66 + 0.06 * j), y, z), (0.36, 0.28, 0.14), rot=(0.08, s * 0.1, -s * 0.06), row='basalt', tone=0.48 + 0.04 * j, bevel=0.03, jit=0.03)
+        hbox(k, 'spine_02', (s * 1.22, 2.84, 0.0), (0.16, 1.0, 0.9), rot=(0, 0, -s * 0.08), row='basalt', tone=0.44, bevel=0.04, jit=0.04)
+        blob(k, 'thigh_' + ('l' if s > 0 else 'r'), (s * 1.06, 1.36, 0.02), (0.14, 0.34, 0.36), n=10, row='basalt', tone=0.46)
+        blob(k, 'calf_' + ('l' if s > 0 else 'r'), (s * 1.12, 0.6, 0.04), (0.12, 0.26, 0.3), n=10, row='basalt', tone=0.4)
+        blob(k, 'upperarm_' + ('l' if s > 0 else 'r'), (s * 2.22, 3.05, 0.06), (0.14, 0.3, 0.3), n=10, row='basalt', tone=0.44)
+        blob(k, 'lowerarm_' + ('l' if s > 0 else 'r'), (s * 2.42, 2.0, 0.22), (0.12, 0.28, 0.3), n=10, row='basalt', tone=0.38)
     for j in range(4):
-        hbox(k, 'spine_03' if j < 2 else 'spine_02', (0, 3.75 - j * 0.42, -1.04 + j * 0.03), (0.3, 0.3, 0.26), rot=(0.2, 0, 0), row='slag', tone=0.46, bevel=0.04, jit=0.03)
+        hbox(k, 'spine_03' if j < 2 else 'spine_02', (0, 3.75 - j * 0.42, -1.04 + j * 0.03), (0.3, 0.3, 0.26), rot=(0.2, 0, 0), row='basalt', tone=0.46, bevel=0.04, jit=0.03)
     for s in (1, -1):
-        hbox(k, 'x_chimney_' + ('l' if s > 0 else 'r'), (s * 0.62, 3.9, -0.66), (0.78, 0.22, 0.78), row='slag', tone=0.34, bevel=0.05, jit=0.03)
+        hbox(k, 'x_chimney_' + ('l' if s > 0 else 'r'), (s * 0.62, 3.9, -0.66), (0.78, 0.22, 0.78), row='basalt', tone=0.34, bevel=0.05, jit=0.03)
 
     soft = [
         # (子骨骼, 父骨骼, 枢轴, 轴（父 → 子）, 带宽)

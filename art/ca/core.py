@@ -271,7 +271,7 @@ class Kit:
 
 
 # 每种材质的第二色调（低频斑块里换成它）和出现的阈值：阈值越高斑块越少
-SECOND = {'stone': ('pale', 0.68), 'char': ('wood', 0.7), 'iron': ('rust', 0.56), 'bone': ('grime', 0.6), 'slag': ('stone', 0.72), 'slate': ('pale', 0.82)}
+SECOND = {'basalt': ('slate', 0.74), 'stone': ('pale', 0.68), 'char': ('wood', 0.7), 'iron': ('rust', 0.56), 'bone': ('grime', 0.6), 'slag': ('stone', 0.72), 'slate': ('pale', 0.82)}
 LICHEN_ON = ('stone', 'pale', 'slag', 'slate')
 
 
