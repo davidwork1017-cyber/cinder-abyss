@@ -28,6 +28,17 @@ class Kit:
         self.L_tone = self.bm.faces.layers.float.new('tone')  # 色带上的位置 0–1
         self.L_glow = self.bm.faces.layers.float.new('glow')  # 0–1 = 余烬面：自发光强度（写进 COLOR_0 的 α：α = 1 - glow），也不压 AO、不加磨损
         self.L_dust = self.bm.faces.layers.int.new('dust')  # 1 = 朝上的面可以盖积灰
+        self.L_bone = None  # 首领：顶点属于哪根骨骼（骨骼序号 + 1，0 = 没标），第一次 bind 时才建，布景件没有这一层
+
+    # ---------- 首领：零件绑到骨骼 ----------
+    def bind(self, verts, bone_index, soft=False):
+        """soft = True：这些顶点在软接缝的范围里按距离和相邻骨骼渐变（见 art/ca/rig.py 的 skin），否则刚性跟这根骨骼"""
+        if self.L_bone is None:
+            self.L_bone = self.bm.verts.layers.int.new('bone')
+        for v in verts:
+            if v.is_valid:
+                v[self.L_bone] = bone_index + 1 + (1000 if soft else 0)
+        return verts
 
     # ---------- 随机 ----------
     def r(self, a=0.0, b=1.0):
@@ -260,7 +271,7 @@ class Kit:
 
 
 # 每种材质的第二色调（低频斑块里换成它）和出现的阈值：阈值越高斑块越少
-SECOND = {'stone': ('pale', 0.68), 'char': ('wood', 0.7), 'iron': ('rust', 0.56), 'bone': ('grime', 0.6), 'slag': ('stone', 0.72), 'slate': ('pale', 0.82)}
+SECOND = {'basalt': ('stone', 0.74), 'stone': ('pale', 0.68), 'char': ('wood', 0.7), 'iron': ('rust', 0.56), 'bone': ('grime', 0.6), 'slag': ('stone', 0.72), 'slate': ('pale', 0.82)}
 LICHEN_ON = ('stone', 'pale', 'slag', 'slate')
 
 
@@ -441,7 +452,7 @@ def bake_colors(ob, ao_dist=0.6, grad_h=0.8, grad_lo=0.72, wear=0.34, grime=0.3,
     me.color_attributes.active_color = me.color_attributes['Col']
     # glTF 导出器的 'ACTIVE' 认的是「渲染用」颜色属性（render_color_index），不是编辑时的 active_color
     me.color_attributes.render_color_index = me.color_attributes.find('Col')
-    for k in ('pal', 'tone', 'glow', 'dust'):
+    for k in ('pal', 'tone', 'glow', 'dust', 'bone'):
         if k in me.attributes:
             me.attributes.remove(me.attributes[k])
     return dt
