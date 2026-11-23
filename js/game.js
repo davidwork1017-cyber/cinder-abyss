@@ -169,10 +169,11 @@
       xzMig: false, // 读档时把旧熄烛冠原地升级了、提示还没看过（见 migrateXizhu）
       passives: ['start'], cleared: {}, bossKills: {},
       tier: 0, maxTier: 0, lastZone: 0,
-      // 选项：自动拾取普通物品 / 折叠普通物品的名牌 / 拾取时自动分解普通物品 / 一键分解是否包含魔法物品
+      // 选项：自动拾取普通物品 / 折叠普通物品的名牌 / 拾取时自动分解普通物品 / 一键分解是否包含魔法物品 / 是否包含稀有物品
+      // salvageRare 开着时魔法物品也一起分解（界面上「含魔法」显示为勾上且不能点），salvageMagic 本身不改，关掉「含稀有」就回到原来的状态
       // quality：画质档位 high / mid / low（世界层读取，见 G.world.setQuality）；auto = 玩家还没选过，每次启动按设备推断，掉帧时自动降档
       // hitFlash / hitStop / shake：打击手感的三个开关（受击闪光、顿帧、镜头震动），默认都开（vf-vfx2）
-      opts: { autoWhite: false, hideNormal: false, autoSalvage: false, salvageMagic: false, quality: 'auto', hitFlash: true, hitStop: true, shake: true, ambience: true,
+      opts: { autoWhite: false, hideNormal: false, autoSalvage: false, salvageMagic: false, salvageRare: false, quality: 'auto', hitFlash: true, hitStop: true, shake: true, ambience: true,
         volMaster: 80, volSfx: 80, volAmb: 60, volMusic: 50, mute: false }, // 音量（0–100，见 js/audio.js 的 G.audio.DEFAULTS）和静音
       seenHelp: false,
       seenStory: false, // 开场故事放过（或跳过）了；只有新角色（seenHelp 为假）才会放，老存档没有这一项也不会看到
@@ -266,6 +267,9 @@
   // oldGrowth：存档来自成长改版之前（没有 gv 字段）。那时武器伤害到物品等级 27 就封顶，物品等级更高的武器
   // 把 wbase 按「现在这个物品等级的成长 ÷ 27 级的成长」放大一次（成色不变），老角色手里的高等级武器不吃亏
   function fixItem(it, charLvl, oldGrowth) {
+    // 锁定（lk: 1）：只认 1，别的值一律去掉（老存档没有这一项 = 没锁）
+    if (it.lk === 1 || it.lk === true) it.lk = 1;
+    else delete it.lk;
     if (it.rarity === 3) fixUnique(it);
     if (it.rarity === 4 && it.rq === 'xizhu') migrateXizhu(it);
     if (it.rarity === 4 && it.rq === 'shuangsheng') migrateTwin(it);
@@ -570,6 +574,7 @@
     const ro = isObj(raw.opts) ? raw.opts : {};
     s.opts = {
       autoWhite: !!ro.autoWhite, hideNormal: !!ro.hideNormal, autoSalvage: !!ro.autoSalvage, salvageMagic: !!ro.salvageMagic,
+      salvageRare: !!ro.salvageRare, // 一键分解含稀有：老存档没有 = 关
       quality: G.QUALITY_IDS.indexOf(ro.quality) >= 0 ? ro.quality : 'auto',
       hitFlash: ro.hitFlash !== false, hitStop: ro.hitStop !== false, shake: ro.shake !== false, // 老存档没有这三项：按默认开
       ambience: ro.ambience !== false, // vf-vfx3：环境特效（区域氛围），老存档没有 = 开
@@ -9742,7 +9747,7 @@
     }
 
     // 选项「拾取时自动分解普通物品」：不进背包，直接化成通货（普通物品通常什么也分解不出）
-    const scrapped = loot.kind === 'item' && loot.data.rarity === 0 && !!save.opts.autoSalvage;
+    const scrapped = loot.kind === 'item' && loot.data.rarity === 0 && !!save.opts.autoSalvage && !loot.data.lk; // 锁定的物品（丢出去又捡回来）照常进背包
     if (scrapped) {
       const res = G.salvageResult(loot.data);
       for (const id in res) grantCurrency(id, res[id]);
@@ -9949,11 +9954,25 @@
     return Object.keys(sum).map((id) => G.CURRENCY[id].name + ' ×' + sum[id]).join('、');
   }
 
+  // 锁定：物品上的 lk: 1。锁定的物品不会被分解（单件 / 一键 / 拾取时自动）、不能卖给拾烬客；装备、丢弃、改造照常
+  G.toggleLock = function (item) {
+    const save = G.save;
+    const i = bagIndex(item);
+    let it = i >= 0 ? save.bag[i] : null;
+    if (!it && item) for (const s of G.SLOTS) if (save.equip[s] && (save.equip[s] === item || save.equip[s].uid === item.uid)) it = save.equip[s];
+    if (!it) return null;
+    if (it.lk) delete it.lk;
+    else it.lk = 1;
+    G.persist();
+    return !!it.lk;
+  };
+
   G.salvage = function (item) {
     const save = G.save;
     const i = bagIndex(item);
     if (i < 0) return false; // 只能分解背包里的物品
     const it = save.bag[i];
+    if (it.lk) return false; // 锁定的物品：界面层提示先解锁
     save.bag.splice(i, 1);
     const res = G.salvageResult(it);
     for (const id in res) grantCurrency(id, res[id]);
@@ -9968,7 +9987,7 @@
     const sum = {};
     let n = 0;
     for (const it of save.bag) {
-      if (it.rarity === 0) {
+      if (it.rarity === 0 && !it.lk) {
         addResult(sum, G.salvageResult(it));
         n++;
       } else {
@@ -10043,24 +10062,30 @@
     return loot;
   };
 
-  // 一键分解：稀有度不高于 maxRarity（0 普通，1 魔法）的背包物品。
-  // 返回 { n, byRarity: [普通件数, 魔法件数], gained: { 通货 id: 数量 } }，没有可分解的返回 null
-  G.salvageBulk = function (maxRarity) {
+  // 一键分解会分掉哪些：稀有度不高于 maxRarity（0 普通，1 魔法，2 稀有）的背包物品，锁定的不算；
+  // keep(it) 返回真的也留下（界面层用它留住换装评估为 ▲ 的稀有物品）。烬铸 / 渊契永远不在里面，身上的装备不在背包里。不改存档
+  G.salvagePlan = function (maxRarity, keep) {
+    const cap = maxRarity >= 2 ? 2 : maxRarity >= 1 ? 1 : 0;
+    return G.save.bag.filter((it) => it.rarity <= cap && !it.lk && !(keep && keep(it)));
+  };
+  // 一键分解：分掉 G.salvagePlan 里的物品（按背包顺序逐件结算，和以前一样）。
+  // 返回 { n, byRarity: [普通件数, 魔法件数, 稀有件数], gained: { 通货 id: 数量 } }，没有可分解的返回 null
+  G.salvageBulk = function (maxRarity, keep) {
     const save = G.save;
-    const cap = maxRarity >= 1 ? 1 : 0;
-    const keep = [];
-    const out = { n: 0, byRarity: [0, 0], gained: {} };
+    const go = new Set(G.salvagePlan(maxRarity, keep));
+    const kept = [];
+    const out = { n: 0, byRarity: [0, 0, 0], gained: {} };
     for (const it of save.bag) {
-      if (it.rarity <= cap) {
+      if (go.has(it)) {
         addResult(out.gained, G.salvageResult(it));
         out.byRarity[it.rarity]++;
         out.n++;
       } else {
-        keep.push(it);
+        kept.push(it);
       }
     }
     if (!out.n) return null;
-    save.bag = keep;
+    save.bag = kept;
     for (const id in out.gained) grantCurrency(id, out.gained[id]);
     commit();
     return out;
@@ -11189,7 +11214,7 @@
   // 卖：背包里的一件，按分解的价收（魔法以上再加 1 颗微光尘）
   G.traderSell = function (item) {
     const save = G.save, i = save.bag.indexOf(item);
-    if (!state.trader || i < 0) return false;
+    if (!state.trader || i < 0 || item.lk) return false; // 锁定的不卖
     save.bag.splice(i, 1);
     const res = G.salvageResult(item);
     if (item.rarity >= 1) res.dust = (res.dust || 0) + 1;
