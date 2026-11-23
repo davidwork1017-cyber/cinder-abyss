@@ -3623,7 +3623,7 @@ html.title-on #reticle, html.title-on #vignette, html.title-on #lowlife, html.ti
   border-left: 3px solid #5e4329;
   border-radius: 2px;
 }
-.ch-card.cur { border-left-color: var(--ember); box-shadow: 0 0 14px rgba(255, 130, 50, 0.16); }
+.ch-card.ch-on { border-left-color: var(--ember); box-shadow: 0 0 14px rgba(255, 130, 50, 0.16); }
 .ch-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .ch-top b { font-family: var(--serif); font-size: 15px; letter-spacing: 1px; }
 .ch-top em { font-style: normal; font-size: 11px; color: var(--ember-2); white-space: nowrap; }

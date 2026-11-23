@@ -4337,7 +4337,7 @@
         '<b>新建角色</b><span>第 ' + (k + 1) + ' 栏 · 空</span></button>'
       );
     return (
-      '<div class="ch-card' + (active ? ' cur' : '') + '" data-slot="' + k + '">' +
+      '<div class="ch-card' + (active ? ' ch-on' : '') + '" data-slot="' + k + '">' +
       '<div class="ch-top"><b>' + esc(charLabel(sum)) + '</b>' + (active ? '<em>上次玩的</em>' : '') + '</div>' +
       '<div class="ch-sub">' + esc(zoneName(sum)) + ' · ' + (sum.tier > 0 ? '轮回 ' + sum.tier : '初入') + '</div>' +
       '<div class="ch-t">' + agoText(sum.t) + '</div>' +
@@ -4369,7 +4369,7 @@
     return (
       '<div class="ch-grid">' + L.slots.map((s, k) => charCard(s, k, !!s && k === L.active)).join('') + '</div>' +
       (tr
-        ? '<div class="ch-trash"><span>回收位：<b>' + esc(charLabel(tr.sum)) + '</b> · ' + agoText(tr.t).replace('前', '前删除') + '</span>' +
+        ? '<div class="ch-trash"><span>回收位：<b>' + esc(charLabel(tr.sum)) + '</b> · ' + agoText(tr.t) + '删除' + '</span>' +
           (room ? '<button type="button" tabindex="-1" class="btn sm" data-tact="ch-restore">恢复</button>' : '<em>栏位满了，先腾出一栏</em>') + '</div>'
         : '') +
       '<p class="m-note">最多 6 个角色。设置、图鉴和新手提示所有角色共用。</p>'
@@ -4675,7 +4675,8 @@
     'ch-restore'() {
       G.sfx('click');
       const k = G.slots.restore();
-      if (k >= 0 && !G.slots.loaded(G.slots.cur()) && G.slots.cur() === k) location.reload(); // 恢复进了还没存过的新角色那一栏
+      // 现在载入的是还没存过的新角色（标题画面上什么都没有时）：重载，让「继续游戏」指向恢复回来的角色
+      if (k >= 0 && !G.slots.loaded(G.slots.cur())) location.reload();
       else renderMenu();
     },
     resume() {

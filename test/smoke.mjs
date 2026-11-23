@@ -20266,6 +20266,7 @@ async function slotSteps() {
     await page.click('#t-chars');
     t = await view();
     assert((t.match(/未定 ·/g) || []).length === 6 && !t.includes('新建角色'), '6 栏都满时应有 6 张卡：' + t);
+    cleanText(t, '角色页');
     // 删第 4 栏：确认两次（回收位还空着，第二次不提顶掉）
     const k4 = await ev(() => localStorage.getItem('cinder-abyss-save-v1-s4'));
     await page.click('[data-tact="ch-del"][data-slot="3"]');
@@ -20975,7 +20976,7 @@ async function titleSteps() {
     await frames(2);
     const fit = (sel) => ev((sel) => [...document.querySelectorAll(sel)].filter((n) => n.getClientRects().length).map((n) => T.rect(n)).every((b) => b.l >= 0 && b.t >= 0 && b.r <= innerWidth && b.b <= innerHeight), sel);
     assert(await fit('.t-logo, #t-menu .m-btn, .t-foot'), '1024×640 下标题画面跑出了窗口');
-    for (const act of ['settings', 'help', 'credits']) {
+    for (const act of ['settings', 'help', 'credits', 'chars']) { // multisave-d1：加上角色页
       await page.click('#title [data-tact="' + act + '"]');
       assert(await fit('#title .m-view, #title .m-head'), '1024×640 下 ' + act + ' 子页跑出了窗口');
       await page.keyboard.press('Escape');
