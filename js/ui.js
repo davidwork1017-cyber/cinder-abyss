@@ -2263,7 +2263,7 @@
       } else if (sk.kind === 'scorch') {
         note += '<div class="sk-anote"><i></i>' + (sk.dash ? '冲 ' + sk.dash.d + ' 米' : '原地横扫') + (sk.trail ? ' · 火痕 ' + fmt1(sk.trail.dur * ctx.durK) + ' 秒' : sk.fan ? ' · 火地 ' + fmt1(sk.fan.dur * ctx.durK) + ' 秒' : sk.boom ? ' · 上挑时火痕炸开' : '') + ' · 一半伤害是火焰</div>';
       } else if (sk.kind === 'heart') {
-        note += '<div class="sk-anote"><i></i>持续 ' + fmt1(sk.buff.dur * ctx.durK) + ' 秒' + (sk.ward ? ' · 护火每层 −' + sk.ward.dr + '%（最多 ' + sk.ward.max + ' 层）' : ' · 物理转火 ' + sk.buff.conv + '% · 余烬半径 ' + sk.burst.r + ' 米') + '</div>';
+        note += '<div class="sk-anote"><i></i>持续 ' + fmt1(sk.hbuff.dur * ctx.durK) + ' 秒' + (sk.ward ? ' · 护火每层 −' + sk.ward.dr + '%（最多 ' + sk.ward.max + ' 层）' : ' · 物理转火 ' + sk.hbuff.conv + '% · 余烬半径 ' + sk.burst.r + ' 米') + '</div>';
       } else if (sk.kind === 'leap') {
         note += '<div class="sk-anote"><i></i>往后跳 ' + sk.leap.d + ' 米 · ' + (sk.arrows.n > 1 ? sk.arrows.n + ' 支箭' : '一支箭') + ' · 起跳 ' + sk.leap.iframe + ' 秒无敌</div>';
       } else if (sk.kind === 'burst') {

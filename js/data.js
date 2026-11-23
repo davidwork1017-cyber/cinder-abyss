@@ -360,13 +360,13 @@
       desc: '拖着兵器朝准星冲 5 米，身后留一道火痕烧 6 秒，冲到头一记上挑把前面的怪挑飞。一半伤害是火焰。',
       alt: '撞墙或到场地边就停，途中不无敌。火痕最多同时 2 道，几道叠着只烧一份。冷却 3 秒。',
     },
-    // 心火：把胸口的火引到兵器上，持续 buff.dur 秒（一按管一群怪；再按从头计时）：你的攻击 conv% 物理伤害转成火（在化元之后，按剩下的物理算），
+    // 心火：把胸口的火引到兵器上，持续 hbuff.dur 秒（一按管一群怪；再按从头计时）：你的攻击 conv% 物理伤害转成火（在化元之后，按剩下的物理算），
     //   你亲手打死的敌人炸成一小圈余烬（burst：半径 r、k 份心火的伤害，全火焰；余烬炸死的不再炸）。每秒最多炸 burst.cap 次。
     //   原稿 8 秒，按用户要求（自己的增益 12–20 秒）改成 16 秒
     heartfire: {
       name: '心火', icon: '心', color: '#ff6a3a', tags: ['attack', 'fire', 'area', 'duration'], kind: 'heart', clsOnly: true,
       wm: 0.9, time: 0.5, mana: 14, cd: 0, w: 0, kb: 0.6, poise: 8,
-      buff: { dur: 16, conv: 40 },
+      hbuff: { dur: 16, conv: 40 }, // 不叫 buff：buff 在别处指黑焰那种增益光环
       burst: { r: 2, k: 0.55, cap: 6, chain: 0 },
       useMult: 0.55, // 技能卡：一圈余烬（心火本身不打人；单体对等按「主力攻击技能 + 心火」算，见 G.variantRatio）
       desc: '把胸口的火引到兵器上 16 秒：40% 物理伤害转成火焰，你打死的敌人炸成一小圈余烬（半径 2 米）。',
@@ -1223,7 +1223,7 @@
       a: {
         name: '护火', pack: '扛着打；不加伤',
         desc: '不加伤，每次近战命中叠一层护火（每层受到的伤害 −3%，最多 8 层），贴身的敌人每秒被灼烧。', alt: '4 秒没打中护火全掉。灼烧半径 2.2 米。',
-        set: { mech: 'ward', buff: { dur: 16, conv: 0 }, burst: null, ward: { dr: 3, max: 8, keep: 4, r: 2.2, tick: 1, k: 0.25 }, useMult: 0.25 },
+        set: { mech: 'ward', hbuff: { dur: 16, conv: 0 }, burst: null, ward: { dr: 3, max: 8, keep: 4, r: 2.2, tick: 1, k: 0.25 }, useMult: 0.25 },
       },
       b: {
         name: '连烬', pack: '怪越多炸得越远',

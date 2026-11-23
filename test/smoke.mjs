@@ -21497,7 +21497,7 @@ async function d2b2Steps() {
         cls: NG.every((id) => G.SKILL_BASE[id].clsOnly), vars: NG.every((id) => G.VARIANTS[id] && G.VARIANTS[id].a && G.VARIANTS[id].b), need: NG.map((id) => G.GEM_NEED[id]).join(),
         heavy: G.WGROUPS.heavy.join(), cnt, per,
         who: NG.map((id) => id + ':' + G.CLASS_IDS.filter((c) => G.classCanUse(c, id)).join('/')).join(' '),
-        dur: [G.SKILL_BASE.snare.mine.dur, G.SKILL_BASE.snare.mine.max, G.SKILL_BASE.heartfire.buff.dur].join(),
+        dur: [G.SKILL_BASE.snare.mine.dur, G.SKILL_BASE.snare.mine.max, G.SKILL_BASE.heartfire.hbuff.dur].join(),
       };
     }, D2B2_GEMS);
     assert(r.gems === 29 && r.pool0 === 20 && r.old && r.poolC === 29 && r.k0 === 1 && Math.abs(r.kC - 1.45) < 1e-9, '宝石池 / 掉率不对：' + JSON.stringify(r));

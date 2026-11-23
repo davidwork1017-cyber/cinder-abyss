@@ -1584,7 +1584,7 @@
   // 转火那一份按转换之后的技能上下文现算（P.heart 临时换成这个刻式的），护火另加贴身灼烧的秒伤。余烬只在打死敌人时有，单体不算
   function heartRatioVal(sk) {
     const keep = P.heart;
-    P.heart = { t: 1, dur: 1, conv: sk.buff.conv || 0, ward: 0, wardAt: -99, tt: 1 };
+    P.heart = { t: 1, dur: 1, conv: sk.hbuff.conv || 0, ward: 0, wardAt: -99, tt: 1 };
     let best = 0;
     for (const b of G.save.bar) if (b && b !== 'heartfire' && G.SKILLS[b] && G.SKILLS[b].wm && !G.SKILLS[b].weaponOnly && G.save.skills[b]) best = Math.max(best, G.variantDps(b));
     if (!best) best = G.variantDps('whirl');
@@ -4338,10 +4338,17 @@
     const over = Math.max(0, inf.over || 0);
     // 死亡时的异常（尸爆 / 放电 / 碎冰）排进触发队列；碎冰的尸体按冰霜碎成冰碴
     const type = queueDeathProcs(e) ? 'cold' : inf.type || 'phys';
+    // class-d2b2：心火 / 燎原一下打死一群时，只有这一群的第一具放全套死法（过量击杀的碎块、碎光），其余的静音（随机数照取）只冒两颗暗芯火星
+    const quiet = killQuiet(e);
+    if (quiet) W.fxMute(true);
     W.die(e.ent, {
       ang, type, over: over + (kw >= 2 ? 0.6 : 0),
       force: e.isBoss ? 0 : (4.5 + kw * 4 + over * 3) / Math.sqrt(e.mass || 1),
     });
+    if (quiet) {
+      W.fxMute(false);
+      fxOpt('emberSpark', e.x, e.z, e.height);
+    }
     state.stats.kills++;
     G.sfx('kill', { type, big: !!(e.elite || e.isBoss) });
     if (P.uMech === 'relight') relightCheck(e); // 长明「续火」（class-d2b1）
@@ -6679,7 +6686,8 @@
         }
         // 卡通版：实色月牙只占外圈（inner 0.8），刀光本身由跟着武器的月牙带子画；
         // 月牙的终点一侧抬起来（tilt = dir × k）：横斩微微斜着，反手上挑斜得明显
-        W.slash(P.x, P.z, a.ang, R, st.arc, hex, { dir: st.dir, inner: 0.8, dur: 0.2, tilt: st.dir === -1 ? -0.3 : 0.12 }); // phase 3：inner 0.74 → 0.8，月牙带子窄约 23%
+        // st.fx（class-d2b2 燎原）：换一种画法（只画外沿的细边，不铺月牙）
+        if (!(st.fx && fxOpt(st.fx, P.x, P.z, a.ang, R, st.arc, hex, st.dir))) W.slash(P.x, P.z, a.ang, R, st.arc, hex, { dir: st.dir, inner: 0.8, dur: 0.2, tilt: st.dir === -1 ? -0.3 : 0.12 }); // phase 3：inner 0.74 → 0.8，月牙带子窄约 23%
         // 双匕的交叉斩：再反向画一道，两道月牙交成一个叉
         if (st.cross) W.slash(P.x, P.z, a.ang, R * 0.94, st.arc, hex, { dir: -st.dir, inner: 0.8, dur: 0.2, tilt: st.dir === -1 ? 0.3 : -0.3 });
       }
@@ -6697,12 +6705,20 @@
       if (!hits.length) return;
       let crit = false;
       let top = 'phys';
+      let nHit = 0;
       for (const e of hits) {
         // 击退方向：从玩家指向敌人；横斩再带一点顺着刀势的切向，两段的手感因此不同
         let ang = Math.atan2(e.x - P.x, e.z - P.z);
         if (st.shape === 'line') ang = a.ang; // 直线：顺着刺出的方向顶出去
         else if (st.shape !== 'smash') ang += (st.dir || 1) * 0.4;
+        // st.mute（class-d2b2 燎原）：第二只起命中特效静音（随机数照取，引出的爆燃也一起静音），只冒暗芯火星
+        const mu = st.mute && nHit++ > 0;
+        if (mu) W.fxMute(true);
         G.hitEnemy(e, ctx, st.mult, { ang, w: st.w, kb: st.kb, poise: st.poise, quiet: true });
+        if (mu) {
+          W.fxMute(false);
+          fxOpt('emberSpark', e.x, e.z, e.height);
+        }
         crit = crit || lastHit.crit;
         top = lastHit.type;
         if (!e.dead) W.shudder(e.ent, 0.05 + st.w * 0.03, (st.stop + 50) / 1000);
@@ -9858,6 +9874,22 @@
   }
   const heartBursts = []; // 心火：最近 1 秒里炸过的时刻（每秒上限）
   let heartCur = 0; // 正在炸的余烬是第几代（这期间引出的异常、尸爆打死的算同一代，不从头再传）
+  let heartCurAt = null; // 正在炸的那一圈在哪（连烬画一道链）
+  // 一群东西同时死 / 同时炸时只放一次全套（vfx「一群只放一处」）：CLUSTER 秒内、CLUSTER_R 米内已经放过全套的，其余的静音只冒暗芯火星
+  const CLUSTER = 0.3, CLUSTER_R = 6;
+  const fullDeath = { x: 0, z: 0, t: -9 }, fullBurst = { x: 0, z: 0, t: -9 };
+  let quietUntil = -9; // 燎原横扫之后这一小段也按一群算
+  function clusterQuiet(rec, x, z) {
+    if (state.time - rec.t < CLUSTER && dist(x, z, rec.x, rec.z) < CLUSTER_R) return true;
+    rec.x = x;
+    rec.z = z;
+    rec.t = state.time;
+    return false;
+  }
+  function killQuiet(e) {
+    if (!((P.heart && P.heart.t > 0) || state.time < quietUntil) || e.isBoss) return false;
+    return clusterQuiet(fullDeath, e.x, e.z);
+  }
   // 位移（燎地往前冲、跳射往后跳）：每帧推一段，撞墙 / 出首领场地就停（起步时在场地里才限制，同反冲弹）；途中不无敌（跳射另给起跳无敌）
   function move2Start(kind, dx, dz, d, dur, ctx, onEnd) {
     const W = G.world;
@@ -10048,7 +10080,7 @@
       const J = sk.jolt, ctx = G.skillCtx(c.id), R = J.r * Math.sqrt(ctx.area);
       const k = J.base + Math.min(J.cap, (amount / Math.max(1, P.maxLife)) * J.per);
       const list = enemiesIn(P.x, P.z, R);
-      groupHit(list, ctx, k, (e) => ({ ang: Math.atan2(e.x - P.x, e.z - P.z), w: 1, kb: 1.2, poise: 18, quiet: true }), false);
+      groupHit(list, ctx, k, (e) => ({ ang: Math.atan2(e.x - P.x, e.z - P.z), w: 0, kb: 1.2, poise: 18, quiet: true }), false); // 命中特效按轻击（低画质上不炸成一大颗星）
       fxOpt('braceJolt', P.x, P.z, R);
       state.stats.jolts = (state.stats.jolts || 0) + 1;
     }
@@ -10165,8 +10197,9 @@
     const aim = P.cast && P.cast.id === ctx.id ? P.cast.aim : a.ang;
     const dx = Math.sin(aim), dz = Math.cos(aim);
     if (sk.mech === 'sweep') {
-      // 燎原：原地横扫，扇面烧成一片
-      SKILL_FX.melee(ctx, { ang: aim, dx, dz, dist: a.dist }, sk.st);
+      // 燎原：原地横扫，扇面烧成一片。一扫打中一群：只有第一只放全套命中特效（其余静音冒暗芯火星，见 melee 的 st.mute），刀光只画一道细边
+      quietUntil = state.time + 0.5;
+      SKILL_FX.melee(ctx, { ang: aim, dx, dz, dist: a.dist }, Object.assign({}, sk.st, { mute: true, fx: 'sweepEdge' }));
       const F = sk.fan, ak = Math.sqrt(ctx.area);
       addBurn({ kind: 'fan', x: P.x, z: P.z, ang: aim, arc: F.arc, len: F.len * ak, t: F.dur * ctx.durK, dur: F.dur * ctx.durK, tt: 0.15, tick: F.tick, mult: F.mult, ctx }, F.max + (ctx.durCap || 0));
       G.sfx('cls2', { type: 'ignite' });
@@ -10247,7 +10280,7 @@
 
   // ---------- 心火 ----------
   SKILL_FX.heart = function (ctx) {
-    const sk = ctx.sk, B = sk.buff;
+    const sk = ctx.sk, B = sk.hbuff;
     const dur = B.dur * ctx.durK;
     P.heart = { t: dur, dur, conv: B.conv || 0, mech: sk.mech || null, ward: 0, wardAt: -99, tt: 0.5 };
     fxOpt('heartOn', P.ent, true);
@@ -10288,10 +10321,10 @@
     while (heartBursts.length && now - heartBursts[0] >= 1) heartBursts.shift();
     if (heartBursts.length >= sk.burst.cap) return;
     heartBursts.push(now);
-    const x = e.x, z = e.z;
-    G.after(0.06, () => heartBurst(x, z, gen + 1));
+    const x = e.x, z = e.z, from = heartCur && heartCurAt ? { x: heartCurAt.x, z: heartCurAt.z } : null; // 连烬：从炸死它的那一圈连过来
+    G.after(0.06, () => heartBurst(x, z, gen + 1, from));
   };
-  function heartBurst(x, z, gen) {
+  function heartBurst(x, z, gen, from) {
     if (!heartOn()) return;
     const sk = G.SKILLS.heartfire, B = sk.burst;
     if (!B) return;
@@ -10300,6 +10333,7 @@
     const R = B.r * Math.sqrt(ctx.area), list = [];
     for (const e of enemiesIn(x, z, R)) if (losClear(x, z, e.x, e.z)) list.push(e);
     heartCur = gen;
+    heartCurAt = { x, z };
     for (const o of list) {
       o.heartMk = gen;
       o.heartMkT = state.time;
@@ -10308,8 +10342,13 @@
       groupHit(list, ctx, B.k, (o) => ({ ang: Math.atan2(o.x - x, o.z - z), w: 0, kb: 0, poise: 6, quiet: true }), true); // 不推人：怪群不被炸散
     } finally {
       heartCur = 0;
+      heartCurAt = null;
     }
-    fxOpt('heartBurst', x, z, R, gen);
+    // 一群里只有第一圈放全套（亮芯 + 细环 + 碎块），其余的只冒暗芯火星；连烬每一跳一道细的暗余烬链（最多一道亮的，0.2 秒灭）
+    const full = !clusterQuiet(fullBurst, x, z);
+    if (full) fxOpt('heartBurst', x, z, R, gen);
+    else fxOpt('emberSpark', x, z, 1);
+    if (from) fxOpt('heartLink', from.x, from.z, x, z, full);
     G.sfx('cls2', { type: 'burst' });
     state.stats.heartBursts = (state.stats.heartBursts || 0) + 1;
   }

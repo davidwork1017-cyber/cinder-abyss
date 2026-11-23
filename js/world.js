@@ -21203,8 +21203,10 @@
     '  col += hot * pulse * 0.18;',
     // boss-golem：首领的预警圈（uBoss = 1）：填充压到 25–35%（还没推到的部分 4%，推满的部分随时间 18% → 28%，最后一小段轻微闪），
     // 外沿的亮边和深线里面再加一道实色红带（离边 0.34–0.55 米），推进的前沿亮线照旧；形状、半径、时序不变
+    // class-d2b2：所有敌方的预警圈都走这一档（小怪的原来是 24–64% 的实心红）；红带的宽度按形状的半宽收（窄的直线 / 十字道不被红带铺满）
     '  if (uBoss > 0.5) {',
-    '    float bBand = smoothstep(0.32, 0.36, d) * (1.0 - smoothstep(0.52, 0.58, d));', // 亮边、深线里面再一道实色红带
+    '    float bw = min(0.2, min(uHalf.x, uHalf.y) * 0.16);',
+    '    float bBand = smoothstep(0.32, 0.36, d) * (1.0 - smoothstep(0.32 + bw, 0.38 + bw, d));', // 亮边、深线里面再一道实色红带
     '    a = 0.04 + inner * (0.18 + 0.1 * uK) + hot * (0.02 + 0.03 * pulse);',
     '    col = mix(mix(uColor, uEdge, max(edge, lead * 0.75)), uColor, bBand);',
     '    edge = max(edge, bBand * 0.92);',
@@ -21255,8 +21257,9 @@
         uArc: { value: arc ? spec.arc : 0 },
         uIn: { value: ringS ? spec.rin : 0 },
         uFill: { value: friendly ? 0.5 : 1 }, // 友方填充减半（vf-vfx2：陨火落下的 0.75 秒里不把落点的怪罩成一片橙）
-        // boss-golem：首领的预警圈换成「醒目的红边 + 25–35% 的淡填充，按结算的时间从里往外推满」，地面和玩家的脚看得见；小怪的不变
-        uBoss: { value: !friendly && spec.owner && spec.owner.isBoss ? 1 : 0 },
+        // boss-golem：首领的预警圈换成「醒目的红边 + 25–35% 的淡填充，按结算的时间从里往外推满」，地面和玩家的脚看得见；
+        // class-d2b2：小怪和没有施放者的敌方预警圈（直线、扇形、十字道）也一样；友方的不变
+        uBoss: { value: !friendly ? 1 : 0 },
         uTime,
       }),
       vertexShader: FX_VERT, fragmentShader: TELE_FRAG,
@@ -24921,9 +24924,9 @@
       return;
     }
     rBurn(lo ? 2 + 30 + 48 : 53 + 84); // 少的那 1 次给下面的小星（tChunk 自己取 1 次）
-    tChunk(1, x, 0.9, z, 0, 0, 0, 0.06, 0.8, 0xffe2a0, 0xff8a3a, 0);
+    tChunk(1, x, 0.9, z, 0, 0, 0, 0.06, lo ? 0.5 : 0.8, 0xffe2a0, 0xff8a3a, 0); // class-d2b2：低画质的小星收小（低画质不该比高画质显得重）
     b1Ring(x, z, R, 0xffb050, 0x8a2a10, 0.36, 0.35);
-    b1Tongues(x, z, R, lo ? 3 : 6, 0.5 + R * 0.12, 0.42, R * 0.5);
+    b1Tongues(x, z, R, lo ? 2 : 6, 0.5 + R * 0.12, 0.42, R * 0.5);
     vsBrush(VSH.chip, 0, 0, 0xff9a4a, 0x5a1e10, 0.3, 0.2, 0.4);
     for (let i = 0, n = lo ? 0 : 6; i < n; i++) { // 余烬：低画质不放（太小看不见，形状批每件都要画整份几何）
       const a = vr(0, TAU), d = R * vr(0.2, 0.8);
@@ -30851,6 +30854,23 @@
     }
   };
   W.leapLoose = function () {};
+  // 连烬的一跳：一道细的暗余烬链（贴在半身高），只有一群里的第一跳亮一下、0.2 秒灭
+  W.heartLink = function (x0, z0, x1, z1, bright) {
+    if (!PF.vShape) return;
+    vsBrush(VSH.bar, 4, 2, bright ? 0xffb060 : 0x8a3412, 0x3a1206, bright ? 0.25 : 0, 0.5, 0.35);
+    vsEmit(x0, 0.7, z0, x1 - x0, 0, z1 - z0, 0.2, 0.035);
+  };
+  // 燎原的横扫：不铺月牙，只沿扇形外沿画一圈细的暗橙边（前一半亮一档、往后变暗），几段贴地，0.22 秒
+  W.sweepEdge = function (x, z, ang, R, arc, hex, dir) {
+    if (!PF.vShape) return true;
+    const n = qualId === 'low' ? 5 : 10, half = (arc / 2) * DEG, seg = ((R * half * 2) / n) * 0.9;
+    vsBrush(VSH.bar, 5, 3, 0xffb060, 0x6a2410, 0.12, 0.45, 0.35);
+    for (let i = 0; i < n; i++) {
+      const a = ang - half + ((i + 0.5) / n) * half * 2, ta = a + Math.PI / 2;
+      vsEmit(x + Math.sin(a) * R - (Math.sin(ta) * seg) / 2, 0.1, z + Math.cos(a) * R - (Math.cos(ta) * seg) / 2, Math.sin(ta) * seg, 0, Math.cos(ta) * seg, 0.22 + i * 0.008, 0.06);
+    }
+    return true;
+  };
   W.leapPinFx = function (e) {
     if (!PF.vShape || !e) return;
     vsBrush(VSH.bar, 4, 3, 0xcfe6b0, 0x3a4a30, 0.2, 0.4, 0.4);
