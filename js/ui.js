@@ -1010,6 +1010,34 @@
   }
 
   // ============================================================
+  // 存档提示条：没写进去（满了 / 隐私模式）、迁移没做成、另一个标签页改了存档。一直挂着，不会自己淡掉
+  // fail：下一次写成功就收起（也能点 × 关掉）；stale：只能刷新，关不掉
+  // ============================================================
+  const SAVE_BAR = {
+    fail: '存档没写进去：浏览器存储满了或不能用。进度先留在内存里，关掉页面就没了。',
+    legacy: '存档备份没写进去（存储满了或不能用），这次先只用一个存档，下次打开再试。',
+    stale: '这个存档在另一个标签页里改过了。这里不再存档，免得互相覆盖，刷新后接着玩。',
+  };
+  let saveBarKind = null;
+  function saveBar(kind, force) {
+    const bar = el.saveBar || (el.saveBar = $('save-bar'));
+    if (!bar) return saveBarKind;
+    if (saveBarKind === 'stale' && !force) return saveBarKind; // 刷新提示一旦出来就一直在
+    if (!kind) {
+      if (saveBarKind === 'legacy' && !force) return saveBarKind; // 写成功不收迁移的提示，要点 ×
+      saveBarKind = null;
+      bar.className = '';
+      bar.innerHTML = '';
+      return null;
+    }
+    saveBarKind = kind;
+    bar.className = 'on ' + kind;
+    bar.innerHTML = '<span>' + SAVE_BAR[kind] + '</span>' +
+      (kind === 'stale' ? '<button type="button" tabindex="-1" class="btn sm primary" data-sb="reload">刷新</button>' : '<button type="button" tabindex="-1" class="btn sm" data-sb="close">×</button>');
+    return kind;
+  }
+
+  // ============================================================
   // 飘字提示（toast）
   // ============================================================
   let lastToast = { msg: '', t: 0 };
@@ -1396,7 +1424,8 @@
     return id === first ? alt[0] : first;
   }
   function codexHtml() {
-    const U = G.save.uniq || { found: {}, best: {}, pity: {} };
+    const U0 = G.save.uniq || { found: {}, best: {}, pity: {} };
+    const U = Object.assign({}, G.codexView ? G.codexView().uniq : U0, { pity: U0.pity || {} }); // 拾到过 / 最高完美度：所有角色合起来；保底按当前角色
     const pity = G.UNIQUE_DROP.pity;
     const nFound = G.UNIQUE_IDS.filter((id) => U.found[id]).length;
     let rows = '';
@@ -1424,7 +1453,8 @@
   // 渊契图鉴（排在烬铸后面）：13 件普通渊契 + 2 件巅峰专属（G.RELIC_CODEX，巅峰的排在最后），拾到过的显示名字、图标和最高完美度；没拾到的是基底的暗剪影。
   // 每件写来源（首领 / 异兆 / 烈印 / 熄烛者；来源还没开放时写「尚未开放」）和保底进度（烈印两件共用一份，巅峰两件共用 save.pinnacle.pity）
   function relicCodexHtml() {
-    const U = G.save.relic || { found: {}, best: {}, pity: {} };
+    const U0 = G.save.relic || { found: {}, best: {}, pity: {} };
+    const U = Object.assign({}, G.codexView ? G.codexView().relic : U0, { pity: U0.pity || {} });
     const D = G.RELIC_DROP;
     const list = G.RELIC_CODEX || G.RELIC_IDS;
     const nFound = list.filter((id) => U.found[id]).length;
@@ -2775,11 +2805,16 @@
         .join('') +
       '</div>' +
       '<div class="opt-gap"></div>' +
-      (ui.delArmed
-        ? '<span class="del-warn">存档删除后无法恢复，确定吗？</span>' +
+      // 删除这个角色：确认两次（角色页同一套话）。删掉的进回收位，换成一个新角色
+      (ui.delArmed === 2
+        ? '<span class="del-warn">' + delFinalText() + '</span>' +
+          '<button type="button" tabindex="-1" class="btn danger" data-act="del-final">真的删除</button>' +
+          '<button type="button" tabindex="-1" class="btn" data-act="del-cancel">取消</button>'
+        : ui.delArmed
+        ? '<span class="del-warn">删除 ' + esc(charLabel(curSummary())) + '？</span>' +
           '<button type="button" tabindex="-1" class="btn danger" data-act="del-confirm">确认删除</button>' +
           '<button type="button" tabindex="-1" class="btn" data-act="del-cancel">取消</button>'
-        : '<button type="button" tabindex="-1" class="btn ghost" data-act="del-save">删除存档</button>') +
+        : '<button type="button" tabindex="-1" class="btn ghost" data-act="del-save">删除这个角色</button>') +
       '</div></div>';
   }
 
@@ -3761,8 +3796,14 @@
       render();
     },
     'del-confirm'() {
-      G.resetSave();
-      location.reload();
+      ui.delArmed = 2;
+      G.sfx('click');
+      render();
+    },
+    'del-final'() {
+      ui.delArmed = false;
+      if (G.resetSave()) location.reload(); // 回收位写不进去时什么都不删（提示条已经亮了）
+      else render();
     },
   };
 
@@ -4254,7 +4295,8 @@
     title: false,
     pause: false,
     ready: false, // 区域建好了（main.js 调 titleReady）：继续 / 新游戏才能点
-    view: null, // 菜单里打开的子页：settings / help / credits / confirm
+    view: null, // 菜单里打开的子页：settings / help / credits / chars
+    del: null, // 角色页里正在删的栏位 { k, step: 1 | 2 }（确认两次）
     hidden: [], // 标题画面期间藏起来的敌人 / 召唤物模型
     after: null, // 离开标题画面后要做的事（首次运行的开场卡片）
     t: 0, // 标题画面开了多久（秒，镜头漂移的相位）
@@ -4263,6 +4305,85 @@
     off: null,
   };
   const hasSave = () => (G.hasSave ? G.hasSave() : true);
+
+  // ---------- 角色栏位（多存档） ----------
+  // 角色名：「职业 · 等级」。D1 还没有职业，一律「未定」
+  const clsName = (cls) => (cls && G.CLASSES && G.CLASSES[cls] ? G.CLASSES[cls].name : '未定');
+  const charLabel = (sum) => clsName(sum && sum.cls) + ' · ' + ((sum && sum.level) || 1) + ' 级';
+  const curSummary = () => ({ cls: typeof G.save.cls === 'string' ? G.save.cls : null, level: G.save.level || 1 });
+  const zoneName = (sum) => (sum.pin ? G.PINNACLE.name : (G.ZONES[sum.zone | 0] || G.ZONES[0]).name);
+  function agoText(t) {
+    if (!(t > 0)) return '更早以前';
+    const s = (Date.now() - t) / 1000;
+    if (s < 90) return '刚刚';
+    if (s < 3600) return Math.round(s / 60) + ' 分钟前';
+    if (s < 86400) return Math.round(s / 3600) + ' 小时前';
+    if (s < 86400 * 30) return Math.round(s / 86400) + ' 天前';
+    const d = new Date(t);
+    return d.getFullYear() + ' 年 ' + (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日';
+  }
+  // 第二次确认的话：回收位里已经有一个角色时，写明它会被彻底删掉
+  function delFinalText() {
+    const tr = G.slots ? G.slots.trash() : null;
+    return '删了就找不回来了。真的删除？' + (tr ? '回收位里的 ' + esc(charLabel(tr.sum)) + ' 会被彻底删除。' : '');
+  }
+  const DEL_ALT = '删掉的角色先放进回收位，在角色页可以恢复。回收位只放最近删掉的一个，再删一个，原来那个就彻底没了。';
+  const slotList = () => (G.slots ? G.slots.list() : { active: 0, slots: [] });
+  const slotsFull = () => !!G.slots && hasSave() && G.slots.firstEmpty() < 0;
+  function charCard(sum, k, active) {
+    if (!sum)
+      return (
+        '<button type="button" tabindex="-1" class="ch-card empty" data-tact="ch-new" data-slot="' + k + '">' +
+        '<b>新建角色</b><span>第 ' + (k + 1) + ' 栏 · 空</span></button>'
+      );
+    return (
+      '<div class="ch-card' + (active ? ' cur' : '') + '" data-slot="' + k + '">' +
+      '<div class="ch-top"><b>' + esc(charLabel(sum)) + '</b>' + (active ? '<em>上次玩的</em>' : '') + '</div>' +
+      '<div class="ch-sub">' + esc(zoneName(sum)) + ' · ' + (sum.tier > 0 ? '轮回 ' + sum.tier : '初入') + '</div>' +
+      '<div class="ch-t">' + agoText(sum.t) + '</div>' +
+      '<div class="ch-acts"><button type="button" tabindex="-1" class="btn sm primary" data-tact="ch-play" data-slot="' + k + '">进入</button>' +
+      '<button type="button" tabindex="-1" class="btn sm ghost" data-tact="ch-del" data-slot="' + k + '">删除</button></div></div>'
+    );
+  }
+  function menuChars() {
+    const L = slotList();
+    const del = menu.del;
+    if (del && L.slots[del.k]) {
+      const sum = L.slots[del.k];
+      const card = '<div class="m-save"><i>' + esc(charLabel(sum)) + '</i><i>' + esc(zoneName(sum)) + '</i><i>' + (sum.tier > 0 ? '轮回 ' + sum.tier : '初入') + '</i><i>' + agoText(sum.t) + '</i></div>';
+      if (del.step === 1)
+        return (
+          '<div class="ch-del" data-step="1"><p class="m-warn">删除 ' + esc(charLabel(sum)) + '？</p>' + card +
+          '<div class="m-acts"><button type="button" tabindex="-1" class="btn danger" data-tact="ch-del2">确认删除</button>' +
+          '<button type="button" tabindex="-1" class="btn" data-tact="ch-cancel">取消</button></div></div>'
+        );
+      return (
+        '<div class="ch-del" data-step="2"><p class="m-warn">' + delFinalText() + '</p>' + card + altBox(DEL_ALT) +
+        '<div class="m-acts"><button type="button" tabindex="-1" class="btn danger" data-tact="ch-del3">真的删除</button>' +
+        '<button type="button" tabindex="-1" class="btn" data-tact="ch-cancel">取消</button></div></div>'
+      );
+    }
+    menu.del = null;
+    const tr = G.slots ? G.slots.trash() : null;
+    const room = L.slots.some((s) => !s);
+    return (
+      '<div class="ch-grid">' + L.slots.map((s, k) => charCard(s, k, !!s && k === L.active)).join('') + '</div>' +
+      (tr
+        ? '<div class="ch-trash"><span>回收位：<b>' + esc(charLabel(tr.sum)) + '</b> · ' + agoText(tr.t).replace('前', '前删除') + '</span>' +
+          (room ? '<button type="button" tabindex="-1" class="btn sm" data-tact="ch-restore">恢复</button>' : '<em>栏位满了，先腾出一栏</em>') + '</div>'
+        : '') +
+      '<p class="m-note">最多 6 个角色。设置、图鉴和新手提示所有角色共用。</p>'
+    );
+  }
+  // 换角色 / 新建后重载页面进去：重载后跳过标题画面（和原来新游戏确认后一样），上一个角色的召唤物、区域、计时器一点不留
+  function enterReload() {
+    try {
+      window.sessionStorage.setItem(G.PLAY_ONCE_KEY, '1');
+    } catch (err) {
+      /* 存储不可用：重载后先到标题画面，「继续游戏」就是这个角色 */
+    }
+    location.reload();
+  }
 
   // 存档概要：等级 / 手里的武器 / 轮回层级 / 所在区域（游戏没有职业，起手武器类型就是这个角色的路子）
   function saveLine() {
@@ -4340,19 +4461,11 @@
       '<p class="m-note">以上素材均以 CC0 授权公开，在此致谢。渲染用 three.js r128（MIT 许可）。其余美术、音效与玩法均为原创。</p>'
     );
   }
-  function menuConfirm() {
-    return (
-      '<p class="m-warn">开始新游戏会覆盖现有的存档，无法恢复：</p>' +
-      '<div class="m-save">' + saveLine() + '</div>' +
-      '<div class="m-acts"><button type="button" tabindex="-1" class="btn danger" data-tact="new-confirm">覆盖存档，开始新游戏</button>' +
-      '<button type="button" tabindex="-1" class="btn" data-tact="back">取消</button></div>'
-    );
-  }
   const MENU_VIEW = {
     settings: ['设置', menuSettings],
     help: ['操作说明', menuHelp],
     credits: ['致谢', menuCredits],
-    confirm: ['新游戏', menuConfirm],
+    chars: ['角色', menuChars],
   };
 
   function renderMenu() {
@@ -4360,6 +4473,14 @@
       const has = hasSave();
       el.tContinue.classList.toggle('has', has); // 没有存档时不显示「继续游戏」
       el.tSave.innerHTML = has ? saveLine() : '';
+      // 角色：有存档才显示；6 栏都满时「新游戏」变灰，提示先删一个
+      const n = has ? slotList().slots.filter(Boolean).length : 0;
+      el.tCharsN.textContent = has ? n + ' / ' + (G.SLOT_N || 6) : '';
+      const full = slotsFull();
+      const lock = has && !!G.slots && G.slots.legacy();
+      el.tChars.classList.toggle('has', has && !lock);
+      el.tNew.classList.toggle('off', full || lock);
+      el.tNewHint.textContent = lock ? '存档写不进去，暂时不能新建' : full ? '6 栏都满了，先删一个' : '';
       el.title.classList.toggle('ready', menu.ready);
     }
     const host = menu.title ? el.tView : el.pView;
@@ -4372,6 +4493,7 @@
         '<div class="m-body">' + v[1]() + '</div></div>'
       : '';
     (menu.title ? el.title : el.pause).classList.toggle('sub', !!v);
+    if (menu.title) el.title.classList.toggle('chars', menu.view === 'chars');
   }
 
   // 标题画面期间敌人 / 召唤物先藏起来（模拟不推进，它们会定在原地）
@@ -4420,7 +4542,7 @@
     menu.title = false;
     menu.view = null;
     document.documentElement.classList.remove('title-on');
-    el.title.classList.remove('on', 'sub');
+    el.title.classList.remove('on', 'sub', 'chars');
     showActors();
     const cam = G.world.camera;
     if (cam && menu.q0) {
@@ -4478,14 +4600,24 @@
     hideTip();
   }
 
-  // 新游戏：没有存档时直接开始（区域已经在背后建好）；有存档时先确认，确认后走原来的删档流程（重置存档后重载页面，重载后跳过标题画面）
+  // 新游戏：没有存档时直接开始（区域已经在背后建好）；有存档时在第一个空栏建一个新角色、重载进去（原来的角色都留着）。6 栏都满时不动
   function newGame() {
     if (hasSave()) {
-      menu.view = 'confirm';
+      const k = G.slots && !G.slots.legacy() ? G.slots.firstEmpty() : -1;
       G.sfx('click');
-      renderMenu();
+      if (k < 0) {
+        renderMenu();
+        return;
+      }
+      if (G.slots.create(k)) enterReload();
+      else renderMenu();
       return;
     }
+    startHere(-1);
+  }
+  // 还没有存档的新角色就地开始（不重载）：k = 落在哪一栏（-1 = 当前栏）
+  function startHere(k) {
+    if (k >= 0 && G.slots) G.slots.claim(k);
     if (G.holdSave) G.holdSave(false);
     G.persist();
     G.sfx('click');
@@ -4502,14 +4634,49 @@
       G.sfx('click');
       playStory(null, {});
     },
-    'new-confirm'() {
-      G.resetSave();
-      try {
-        window.sessionStorage.setItem(G.PLAY_ONCE_KEY, '1');
-      } catch (err) {
-        /* 存储不可用：重载后还是先到标题画面，「继续游戏」就是新角色 */
-      }
-      location.reload();
+    // 角色页：进入（当前加载的就是它就直接继续，否则设成 active 后重载）/ 新建 / 删除（确认两次）/ 恢复
+    'ch-play'(d) {
+      const k = +d.slot;
+      if (G.slots.loaded(k)) return MENU_ACT.continue();
+      G.sfx('click');
+      if (G.slots.select(k)) enterReload();
+    },
+    'ch-new'(d) {
+      const k = +d.slot;
+      if (!hasSave()) return startHere(k);
+      G.sfx('click');
+      if (G.slots.create(k)) enterReload();
+      else renderMenu();
+    },
+    'ch-del'(d) {
+      menu.del = { k: +d.slot, step: 1 };
+      G.sfx('click');
+      renderMenu();
+    },
+    'ch-del2'() {
+      if (menu.del) menu.del.step = 2;
+      G.sfx('click');
+      renderMenu();
+    },
+    'ch-del3'() {
+      const del = menu.del;
+      menu.del = null;
+      if (!del) return;
+      G.sfx('click');
+      const was = G.slots.cur() === del.k;
+      if (G.slots.remove(del.k) && was) location.reload(); // 删的是当前加载的角色：重载回标题画面（不再写回它）
+      else renderMenu();
+    },
+    'ch-cancel'() {
+      menu.del = null;
+      G.sfx('click');
+      renderMenu();
+    },
+    'ch-restore'() {
+      G.sfx('click');
+      const k = G.slots.restore();
+      if (k >= 0 && !G.slots.loaded(G.slots.cur()) && G.slots.cur() === k) location.reload(); // 恢复进了还没存过的新角色那一栏
+      else renderMenu();
     },
     resume() {
       G.sfx('click');
@@ -4522,7 +4689,8 @@
       showTitle(true);
     },
     back() {
-      menu.view = null;
+      if (menu.del) menu.del = null;
+      else menu.view = null;
       G.sfx('click');
       renderMenu();
     },
@@ -4532,9 +4700,11 @@
     if (!a) return;
     const d = a.dataset;
     const k = d.tact;
-    if ((k === 'continue' || k === 'new') && !menu.ready) return;
-    if (MENU_VIEW[k] && k !== 'confirm') {
+    if ((k === 'continue' || k === 'new' || k === 'chars' || k.startsWith('ch-')) && !menu.ready) return;
+    if (k === 'new' && el.tNew.classList.contains('off')) return G.sfx('click');
+    if (MENU_VIEW[k]) {
       menu.view = k;
+      menu.del = null;
       G.sfx('click');
       renderMenu();
     } else if (k === 'quality' || k === 'opt' || k === 'normmode') {
@@ -4562,6 +4732,12 @@
   function onMenuKey(e) {
     if (story.on) return; // 开场故事放着：按键归它
     if (!menu.title && !menu.pause) return;
+    // 标题画面上按键不进游戏，按住 Alt 的详情（删除确认里的回收位说明）在这里切
+    if (menu.title && (e.key === 'Alt' || e.code === 'AltLeft' || e.code === 'AltRight')) {
+      document.body.classList.add('alt-on');
+      e.preventDefault();
+      return;
+    }
     if (e.code === 'Escape' && menu.view) {
       MENU_ACT.back();
     } else if (menu.title) {
@@ -6088,6 +6264,19 @@
     el.tView = $('t-view');
     el.tContinue = $('t-continue');
     el.tSave = $('t-save');
+    el.tNew = $('t-new');
+    el.tNewHint = $('t-new-hint');
+    el.tChars = $('t-chars');
+    el.tCharsN = $('t-chars-n');
+    el.saveBar = $('save-bar');
+    el.saveBar.addEventListener('click', (e) => {
+      const a = e.target.closest('[data-sb]');
+      if (!a) return;
+      if (a.dataset.sb === 'reload') location.reload();
+      else if (saveBarKind !== 'stale') saveBar(null, true);
+    });
+    el.saveBar.addEventListener('mousedown', (e) => e.stopPropagation());
+    if (G.slots && G.slots.legacy()) saveBar('legacy');
     el.pause = $('pause');
     el.pMenu = $('p-menu');
     el.pView = $('p-view');
@@ -6159,6 +6348,13 @@
     });
     // 标题画面 / 暂停菜单：点击不是游戏输入，按钮不拿焦点
     window.addEventListener('keydown', onMenuKey, true);
+    window.addEventListener(
+      'keyup',
+      (e) => {
+        if (menu.title && (e.key === 'Alt' || e.code === 'AltLeft' || e.code === 'AltRight')) document.body.classList.remove('alt-on');
+      },
+      true
+    );
     for (const m of [el.title, el.pause]) {
       m.addEventListener('mousedown', (e) => {
         e.stopPropagation();
@@ -6246,6 +6442,8 @@
     storyOn: () => story.on,
     refresh,
     toast,
+    saveBar: (kind) => saveBar(kind),
+    saveBarKind: () => saveBarKind,
     hurt,
     showHelp,
     showIntro,

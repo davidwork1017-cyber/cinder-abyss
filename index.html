@@ -218,7 +218,8 @@
     </div>
     <div class="m-menu" id="t-menu">
       <button type="button" class="m-btn primary" tabindex="-1" id="t-continue" data-tact="continue"><b>继续游戏</b><span id="t-save"></span></button>
-      <button type="button" class="m-btn" tabindex="-1" id="t-new" data-tact="new"><b>新游戏</b></button>
+      <button type="button" class="m-btn" tabindex="-1" id="t-new" data-tact="new"><b>新游戏</b><span id="t-new-hint"></span></button>
+      <button type="button" class="m-btn" tabindex="-1" id="t-chars" data-tact="chars"><b>角色</b><span id="t-chars-n"></span></button>
       <button type="button" class="m-btn" tabindex="-1" id="t-story" data-tact="story"><b>开场故事</b></button>
       <button type="button" class="m-btn" tabindex="-1" data-tact="settings"><b>设置</b></button>
       <button type="button" class="m-btn" tabindex="-1" data-tact="help"><b>操作说明</b></button>
@@ -235,6 +236,8 @@
 <div id="story"></div>
 
 <div id="toasts"></div>
+<!-- 存档提示条：没写进去 / 另一个标签页改了存档（ui.js 的 saveBar，一直挂着） -->
+<div id="save-bar"></div>
 <div id="tip"></div>
 
 <!-- three.js r186 + 同版本的后期处理 / glTF 解析示例模块，打成一个经典脚本（window.THREE）；由 tools/build-three.mjs 生成，见 vendor/README.md -->

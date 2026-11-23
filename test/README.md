@@ -77,5 +77,6 @@ test:timed 里的步骤从 test:func 拆出来：计时断言原样搬过去（�
 
 - test:func 的第一步是 `tools/check-art.mjs`（只用 Node，不起浏览器）：核对 `assets/ca/` 的自产布景件和打进包的是同一份、符合预算和规矩。单独跑：`npm run check:art`。
 - 第二步是 `tools/check-three.mjs`（也只用 Node）：`vendor/three.bundle.js` 里有游戏用到的每个 `THREE.X`、打包入口的设置和 uuid 的本地改动都在（`docs/vendor-patches.md`）、`js/` 里没有 r128 的写法。单独跑：`npm run check:three`。
+- 多存档步骤（`slotSteps`）要验证「退回旧代码」：`test/serve.mjs` 的 `/__old/<提交>/<路径>` 从 git 里按需取那个提交的文件（`git cat-file`），和当前代码同源、共用 localStorage。旧版本固定为多存档之前最后一版（`OLD_SAVE_BUILD`），需要本地 git 历史里有这个提交；`CINDER_FILE=1` 下没有同源的旧版本，这两步只打一行说明。
 - `CINDER_FILE=1 npm test`：用 file:// 打开（经典脚本 + base64 素材包也能跑），但上线用的是 HTTP。
 - `node test/serve.mjs [端口]`（默认 8080）：自己在浏览器里看。

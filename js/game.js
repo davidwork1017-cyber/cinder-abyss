@@ -739,46 +739,391 @@
   }
   G.defaultQuality = () => (isSoftGL() ? 'low' : /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') ? 'mid' : 'high');
 
+  // =====================================================================
+  // 角色栏位（多存档）
+  // =====================================================================
+  // 存储布局：
+  //   cinder-abyss-save-v1            第 1 栏（原来的单存档，key 不变：退回旧代码时，旧代码读到的就是它）
+  //   cinder-abyss-save-v1-s2 … -s6   第 2–6 栏，格式和第 1 栏完全一样（同一个 sanitize）
+  //   cinder-abyss-save-v1-bak        第一次迁移前第 1 栏的原文，原样复制；只写这一次，以后永远不覆盖
+  //   cinder-abyss-chars              索引 { v: 1, active, slots: [{ cls, level, zone, tier, pin, t, h } | null] }：只是摘要，丢了能按各栏重建。
+  //                                   h = 新代码上次写进这一栏的原文的哈希：对不上就是别的代码（旧版本）写过这一栏，读档时以这一栏为准
+  //   cinder-abyss-global             所有角色共用：设置 opts、新手提示 tut、开场卡片 helpSeen、图鉴（各角色拾到过 / 最高完美度的并集）
+  //   cinder-abyss-trash              最近删掉的一个角色 { v: 1, slot, t, played, text }（text 是那一栏的原文），恢复后清空
+  // 每一栏照旧存整份存档（opts / tut / 图鉴也在里面），所以旧代码读第 1 栏不缺东西。全局那份只是读档时盖上去（没被别的代码改过的栏位才盖），
+  // 存档时再从当前角色取回来。图鉴的保底和「拾到过」（巅峰掉落挑没拾到过的）仍然按角色算，全局图鉴只用来显示。
+  // 栏位之间搬东西（回收位、恢复、备份）一律搬原文，不经 sanitize：不认识的字段（以后的 cls、quest……）原样跟着走。
+  const SLOT_N = (G.SLOT_N = 6);
+  const CHARS_KEY = 'cinder-abyss-chars';
+  const GLOBAL_KEY = 'cinder-abyss-global';
+  const TRASH_KEY = 'cinder-abyss-trash';
+  const BAK_KEY = SAVE_KEY + '-bak';
+  const slotKey = (G.slotKey = (i) => (i === 0 ? SAVE_KEY : SAVE_KEY + '-s' + (i + 1)));
+  G.SAVE_KEYS = { save: SAVE_KEY, chars: CHARS_KEY, global: GLOBAL_KEY, trash: TRASH_KEY, bak: BAK_KEY };
+  const slot = {
+    cur: 0, // 这份存档写回哪一栏（下标 0–5）
+    hash: null, // 当前这一栏上次读到 / 写进去的原文的哈希（null = 这个角色还没存过）
+    legacy: false, // 迁移没做成（备份写不进去）：照旧只用第 1 栏，不写索引和全局，下次启动再试
+    stale: false, // 另一个标签页写了这一栏 / 换了角色：这边不再写，等刷新
+    dead: false, // 当前角色刚被删掉（或被恢复的角色顶替）：不再写回，马上重载
+    failed: false, // 上一次写存档没写进去（提示条亮着）
+  };
+  let glob = null; // 内存里的全局那份（legacy / 存储不可用时为 null）
+  let globTxt = null; // 上次写进去的全局原文：没变就不再写
+  const lsGet = (k) => {
+    try {
+      return window.localStorage.getItem(k);
+    } catch (err) {
+      return null;
+    }
+  };
+  const lsSet = (k, v) => {
+    try {
+      window.localStorage.setItem(k, v);
+      return true;
+    } catch (err) {
+      return false;
+    }
+  };
+  const lsDel = (k) => {
+    try {
+      window.localStorage.removeItem(k);
+      return true;
+    } catch (err) {
+      return false;
+    }
+  };
+  const readJson = (k) => {
+    const t = lsGet(k);
+    if (!t) return null;
+    try {
+      return JSON.parse(t);
+    } catch (err) {
+      return null;
+    }
+  };
+  // 原文的指纹：FNV-1a + 长度（只用来判断「是不是我上次写的那份」）
+  function hashStr(s) {
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+    return (h >>> 0).toString(36) + '.' + s.length;
+  }
+  const intIn = (v, lo, hi, def) => (isNum(v) ? Math.max(lo, Math.min(hi, Math.floor(v))) : def);
+  // 卡片摘要：从存档对象里取（不跑 sanitize、不取随机数）。cls 是 D2 的职业字段，D1 里一直是 null（卡片显示「未定」）
+  function summaryOf(r) {
+    if (!isObj(r) || r.v !== 1) return { cls: null, level: 1, zone: 0, tier: 0, pin: false, bad: true };
+    return {
+      cls: typeof r.cls === 'string' ? r.cls : null,
+      level: intIn(r.level, 1, MAX_LEVEL, 1),
+      zone: intIn(r.lastZone, 0, G.ZONES.length - 1, 0),
+      tier: intIn(r.tier, 0, 999, 0),
+      pin: !!(isObj(r.run) && r.run.pin),
+    };
+  }
+  function summaryOfText(txt) {
+    let r = null;
+    try {
+      r = JSON.parse(txt);
+    } catch (err) {
+      r = null;
+    }
+    return summaryOf(r);
+  }
+  function readIndex() {
+    const r = readJson(CHARS_KEY);
+    if (!isObj(r) || r.v !== 1 || !Array.isArray(r.slots)) return null;
+    const slots = [];
+    for (let i = 0; i < SLOT_N; i++) {
+      const s = r.slots[i];
+      slots.push(isObj(s) ? Object.assign(summaryOf(Object.assign({ v: 1 }, s, { lastZone: s.zone })), { t: isNum(s.t) ? s.t : 0, h: typeof s.h === 'string' ? s.h : null }) : null);
+    }
+    return { v: 1, active: intIn(r.active, 0, SLOT_N - 1, 0), slots };
+  }
+  // 按各栏实际的存档校正索引：有存档没记的补上摘要（h 记 null = 不是新代码写的），记着但存档没了的清掉；active 指着空栏时挪到第一个有存档的栏
+  function syncIndex(idx) {
+    const out = { v: 1, active: idx ? idx.active : 0, slots: [] };
+    for (let i = 0; i < SLOT_N; i++) {
+      const txt = lsGet(slotKey(i));
+      const old = idx && idx.slots[i];
+      if (!txt) out.slots.push(null);
+      else if (old && old.h && old.h === hashStr(txt)) out.slots.push(old);
+      else out.slots.push(Object.assign(summaryOfText(txt), { t: old ? old.t : 0, h: null }));
+    }
+    if (!out.slots[out.active]) {
+      const f = out.slots.findIndex(Boolean);
+      if (f >= 0) out.active = f;
+    }
+    return out;
+  }
+  const writeIndex = (idx) => lsSet(CHARS_KEY, JSON.stringify(idx));
+  // 启动时进哪一栏：索引的 active；那一栏空了就是第一个有存档的栏
+  function resolveActive(idx) {
+    if (!idx) return 0;
+    if (lsGet(slotKey(idx.active))) return idx.active;
+    for (let i = 0; i < SLOT_N; i++) if (lsGet(slotKey(i))) return i;
+    return idx.active;
+  }
+  // 图鉴：{ found: { id: true }, best: { id: 0..100 } }（不认识的 id 也留着，以后的版本认得）
+  function cxOf(c) {
+    const o = { found: {}, best: {} };
+    if (!isObj(c)) return o;
+    if (isObj(c.found)) for (const k of Object.keys(c.found)) if (c.found[k] === true) o.found[k] = true;
+    if (isObj(c.best)) for (const k of Object.keys(c.best)) if (isNum(c.best[k])) o.best[k] = G.clamp(Math.round(c.best[k]), 0, 100);
+    return o;
+  }
+  function cxMerge(...list) {
+    const o = { found: {}, best: {} };
+    for (const c of list) {
+      if (!c) continue;
+      for (const k of Object.keys(c.found || {})) if (c.found[k] === true) o.found[k] = true;
+      for (const k of Object.keys(c.best || {})) if (isNum(c.best[k]) && !(o.best[k] >= c.best[k])) o.best[k] = c.best[k];
+    }
+    return o;
+  }
+  function readGlobal() {
+    const r = readJson(GLOBAL_KEY);
+    if (!isObj(r) || r.v !== 1) return null;
+    const cx = isObj(r.codex) ? r.codex : {};
+    return { v: 1, opts: isObj(r.opts) ? r.opts : null, tut: isObj(r.tut) ? r.tut : {}, helpSeen: r.helpSeen === true, codex: { uniq: cxOf(cx.uniq), relic: cxOf(cx.relic) } };
+  }
+  function writeGlobal() {
+    const S = G.save;
+    const g0 = readGlobal(); // 别的标签页可能写过：图鉴和 helpSeen 合并，不丢
+    const cx = (k) => cxMerge(glob && glob.codex[k], g0 && g0.codex[k], S[k] && cxOf(S[k]));
+    const g = { v: 1, opts: S.opts, tut: S.tut, helpSeen: !!((glob && glob.helpSeen) || (g0 && g0.helpSeen) || S.seenHelp), codex: { uniq: cx('uniq'), relic: cx('relic') } };
+    const txt = JSON.stringify(g);
+    glob = JSON.parse(txt);
+    if (txt === globTxt) return true;
+    if (!lsSet(GLOBAL_KEY, txt)) return false;
+    globTxt = txt;
+    return true;
+  }
+  // 图鉴显示用：全局的并集 + 当前角色（保底计数另外按角色读 save.uniq.pity / save.relic.pity）
+  G.codexView = function () {
+    const S = G.save || {};
+    return { uniq: cxMerge(glob && glob.codex.uniq, S.uniq && cxOf(S.uniq)), relic: cxMerge(glob && glob.codex.relic, S.relic && cxOf(S.relic)) };
+  };
+  // 开场卡片（操作说明）在任何一个角色上看过没有：看过的话新角色只放开场故事、不再弹卡片
+  G.helpSeenGlobal = () => !!(glob && glob.helpSeen);
+
+  function saveFailed(why) {
+    slot.failed = true;
+    if (G.ui && G.ui.saveBar) G.ui.saveBar(why || 'fail');
+    return false;
+  }
+  function saveOk() {
+    if (!slot.failed) return;
+    slot.failed = false;
+    if (G.ui && G.ui.saveBar) G.ui.saveBar(null);
+  }
+
   G.loadSave = function () {
+    G.slotMigrated = false;
+    slot.legacy = false;
+    let idx = readIndex();
+    const old = lsGet(SAVE_KEY);
+    if (!idx) {
+      let any = old !== null;
+      for (let i = 1; i < SLOT_N && !any; i++) any = lsGet(slotKey(i)) !== null;
+      if (any) {
+        // 迁移（只加不改）：先把第 1 栏的原文原样写进备份（已经有备份就不动），再建索引。第 1 栏本身一个字节都不碰。
+        // 备份或索引写不进去（满了 / 隐私模式）：不迁移，照旧按单存档跑第 1 栏，下次启动再试
+        if (old !== null && lsGet(BAK_KEY) === null && !lsSet(BAK_KEY, old)) slot.legacy = true;
+        if (!slot.legacy) {
+          const built = syncIndex(null);
+          if (writeIndex(built)) {
+            idx = built;
+            G.slotMigrated = true;
+          } else slot.legacy = true;
+        }
+      }
+    }
+    const cur = slot.legacy ? 0 : resolveActive(idx);
+    const txt = slot.legacy ? old : lsGet(slotKey(cur));
+    slot.cur = cur;
+    slot.hash = txt ? hashStr(txt) : null;
+    slot.dead = false;
     let raw = null;
     try {
-      const txt = window.localStorage.getItem(SAVE_KEY);
       if (txt) raw = JSON.parse(txt);
     } catch (err) {
       raw = null;
     }
+    glob = null;
+    globTxt = null;
+    if (!slot.legacy && idx) {
+      glob = readGlobal();
+      globTxt = lsGet(GLOBAL_KEY);
+      // 这一栏是新代码上次写的（哈希对得上）：盖上全局的设置和新手提示。别的代码（旧版本、手改）写过就以这一栏为准，存档时再写回全局
+      const mine = isObj(raw) && !!idx.slots[cur] && idx.slots[cur].h === slot.hash;
+      if (glob && mine) {
+        raw = Object.assign({}, raw);
+        if (glob.opts) raw.opts = glob.opts;
+        raw.tut = Object.assign({}, isObj(raw.tut) ? raw.tut : {}, glob.tut);
+      }
+      if (!glob) glob = { v: 1, opts: null, tut: {}, helpSeen: false, codex: { uniq: cxOf(null), relic: cxOf(null) } };
+      if (isObj(raw) && raw.seenHelp === true) glob.helpSeen = true;
+    }
     return setSave(sanitize(raw));
   };
 
-  // 本地有没有存档（标题画面据此决定显示「继续游戏」、新游戏要不要先确认）
+  // 当前栏位有没有存档（标题画面据此决定显示「继续游戏」）。main.js 在 loadSave 之前就会问，所以自己按索引找栏位
   G.hasSave = function () {
     try {
-      return !!window.localStorage.getItem(SAVE_KEY);
+      if (slot.dead) return false;
+      const idx = readIndex();
+      return !!window.localStorage.getItem(slotKey(idx ? resolveActive(idx) : 0));
     } catch (err) {
       return false;
     }
   };
 
   G.persist = function () {
-    try {
-      window.localStorage.setItem(SAVE_KEY, JSON.stringify(G.save));
-      return true;
-    } catch (err) {
-      return false;
+    if (slot.stale || slot.dead || !G.save) return false;
+    const txt = JSON.stringify(G.save);
+    if (!lsSet(slotKey(slot.cur), txt)) return saveFailed('fail');
+    slot.hash = hashStr(txt);
+    if (!slot.legacy) {
+      let idx = readIndex();
+      if (!idx) {
+        idx = syncIndex(null); // 第一次存（或索引被清掉了）：按各栏重建
+        idx.active = slot.cur;
+      }
+      idx.slots[slot.cur] = Object.assign(summaryOf(G.save), { t: Date.now(), h: slot.hash });
+      if (!glob) glob = { v: 1, opts: null, tut: {}, helpSeen: false, codex: { uniq: cxOf(null), relic: cxOf(null) } };
+      if (!writeIndex(idx) || !writeGlobal()) return saveFailed('fail');
     }
+    saveOk();
+    return true;
   };
 
+  // 删除当前角色、换成一个新角色（地图页的「删除这个角色」走这里，确认两次之后）：原来那份先进回收位，回收位写不进去就什么都不删
   G.resetSave = function () {
-    try {
-      window.localStorage.removeItem(SAVE_KEY);
-    } catch (err) {
-      /* 存储不可用时也照常重置内存里的存档 */
+    const txt = slot.dead ? null : lsGet(slotKey(slot.cur));
+    if (txt && !slot.stale && !trashPut(slot.cur, txt)) {
+      saveFailed('fail');
+      return null;
     }
+    slot.hash = null;
     setSave(G.newSave()); // 召唤物在 setSave 里一并散掉
     G.computeStats();
     G.persist();
     return G.save;
   };
+
+  function readTrash() {
+    const r = readJson(TRASH_KEY);
+    if (!isObj(r) || r.v !== 1 || typeof r.text !== 'string' || !r.text) return null;
+    return { slot: intIn(r.slot, 0, SLOT_N - 1, 0), t: isNum(r.t) ? r.t : 0, played: isNum(r.played) ? r.played : 0, text: r.text, sum: summaryOfText(r.text) };
+  }
+  function trashPut(k, txt) {
+    const idx = readIndex();
+    const played = idx && idx.slots[k] ? idx.slots[k].t : 0;
+    return lsSet(TRASH_KEY, JSON.stringify({ v: 1, slot: k, t: Date.now(), played, text: txt }));
+  }
+
+  // 角色栏位的操作（标题画面的角色页用）。都直接读写存储，不经 G.persist；另一个标签页改过存档（stale）时一律不做
+  G.slots = {
+    N: SLOT_N,
+    cur: () => slot.cur,
+    legacy: () => slot.legacy,
+    stale: () => slot.stale,
+    // 当前加载的角色是不是 k 栏里存着的那个（继续玩就行，不用重载）
+    loaded: (k) => k === slot.cur && !slot.dead && slot.hash !== null && lsGet(slotKey(k)) !== null && hashStr(lsGet(slotKey(k))) === slot.hash,
+    // 卡片：[{ cls, level, zone, tier, pin, t } | null] × 6，按各栏实际的存档
+    list() {
+      const idx = syncIndex(readIndex());
+      return { active: idx.active, slots: idx.slots };
+    },
+    trash() {
+      const r = readTrash();
+      return r ? { slot: r.slot, t: r.t, played: r.played, sum: r.sum } : null;
+    },
+    firstEmpty() {
+      if (slot.legacy) return -1;
+      for (let i = 0; i < SLOT_N; i++) if (!lsGet(slotKey(i))) return i;
+      return -1;
+    },
+    // 在空栏 k 建一个新角色（现在的随机起手），设成 active。返回 true 后由界面重载页面进去
+    create(k) {
+      if (slot.legacy || slot.stale || !(k >= 0 && k < SLOT_N) || lsGet(slotKey(k)) !== null) return false;
+      const txt = JSON.stringify(G.newSave());
+      if (!lsSet(slotKey(k), txt)) return saveFailed('fail');
+      const idx = syncIndex(readIndex());
+      idx.slots[k] = Object.assign(summaryOfText(txt), { t: Date.now(), h: hashStr(txt) });
+      idx.active = k;
+      if (!writeIndex(idx)) return saveFailed('fail');
+      return true;
+    },
+    // 换到 k 栏的角色：设成 active，由界面重载页面进去（重载保证上一个角色的召唤物、区域、计时器一点不剩）
+    select(k) {
+      if (slot.legacy || slot.stale || !lsGet(slotKey(k))) return false;
+      const idx = syncIndex(readIndex());
+      idx.active = k;
+      return writeIndex(idx) || saveFailed('fail');
+    },
+    // 删除 k 栏（界面上已经确认过两次）：原文先进回收位（顶掉回收位里原来那个），再清这一栏。删的是当前角色时不再写回
+    remove(k) {
+      if (slot.legacy || slot.stale) return false;
+      const txt = lsGet(slotKey(k));
+      if (txt === null) return false;
+      if (!trashPut(k, txt)) return saveFailed('fail');
+      if (!lsDel(slotKey(k))) return false;
+      if (k === slot.cur) slot.dead = true;
+      const idx = syncIndex(readIndex());
+      writeIndex(idx);
+      return true;
+    },
+    // 恢复回收位里的角色：回原来那一栏，被占了就放第一个空栏；没有空栏返回 -1。恢复后清空回收位
+    restore() {
+      if (slot.legacy || slot.stale) return -1;
+      const tr = readTrash();
+      if (!tr) return -1;
+      let k = lsGet(slotKey(tr.slot)) === null ? tr.slot : -1;
+      if (k < 0) for (let i = 0; i < SLOT_N && k < 0; i++) if (lsGet(slotKey(i)) === null) k = i;
+      if (k < 0) return -1;
+      if (!lsSet(slotKey(k), tr.text)) {
+        saveFailed('fail');
+        return -1;
+      }
+      // 恢复进了当前（还没存过的新角色占着的）栏位：内存里那个不再写回，界面重载
+      if (k === slot.cur) slot.dead = true;
+      const idx = syncIndex(readIndex());
+      idx.slots[k] = Object.assign(tr.sum, { t: tr.played, h: hashStr(tr.text) });
+      writeIndex(idx);
+      lsDel(TRASH_KEY);
+      return k;
+    },
+    // 还没存过的新角色（标题画面上点「新游戏」/ 空栏的「新建角色」）就落在 k 栏
+    claim(k) {
+      if (slot.hash !== null || !(k >= 0 && k < SLOT_N) || lsGet(slotKey(k)) !== null) return false;
+      slot.cur = k;
+      return true;
+    },
+  };
+
+  // 多开标签页：另一个标签页写了这一栏（或清了存储）、或者换了角色，这边就不再写，提示刷新（不覆盖它的进度）
+  function activeOf(txt) {
+    try {
+      const r = JSON.parse(txt);
+      return isObj(r) && isNum(r.active) ? r.active : null;
+    } catch (err) {
+      return null;
+    }
+  }
+  window.addEventListener('storage', (e) => {
+    if (slot.stale || slot.dead) return;
+    try {
+      if (e.storageArea && e.storageArea !== window.localStorage) return;
+    } catch (err) {
+      return;
+    }
+    let hit = e.key === null || e.key === slotKey(slot.cur);
+    if (!hit && e.key === CHARS_KEY && !slot.legacy) hit = activeOf(e.oldValue) !== activeOf(e.newValue);
+    if (!hit) return;
+    slot.stale = true;
+    if (G.ui && G.ui.saveBar) G.ui.saveBar('stale');
+  });
 
   // ---------- 刻式 ----------
   // G.SKILL_V[id] = { o, a, b }：o 就是 data.js 里原来那个对象（原式一字不差），a / b 第一次用到时按 G.SKILL_BASE + set 拼一份、之后复用。
