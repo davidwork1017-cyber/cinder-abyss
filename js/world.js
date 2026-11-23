@@ -21302,9 +21302,11 @@
       if (k >= 1) {
         const R = m.fxR || 0, old = m.oldRng;
         meteorOff(m);
-        if (R > 0) meteorLand2(m, R);
+        if (R > 0) meteorLand2(m, R, old);
         else meteorLand(m);
-        if (R > 0 && old) rBurn(173 - 25); // skill-b1（三相天灾的火）：旧画法 meteorLand 取 173 次、meteorLand2 取 25 次
+        // skill-b1（三相天灾的火）：旧画法 meteorLand 落地时取 173 次（其中碎岩 debrisBurst 66 次，碎岩落地前每帧还要取），
+        // meteorLand2 取 25 次；old 时 meteorLand2 换用同样 11 块的 debrisBurst（每帧的取数一样），其余按次数空取
+        if (R > 0 && old) rBurn(173 - 25 - 66);
       }
     }
   }
@@ -21349,7 +21351,7 @@
 
   // 陨火落地（vf-vfx2）：亮的只有中心一小团火（不混白）和外沿一道往外推、越推越细的冲击环；火舌长在环上往外窜，中间留给被炸的怪；
   // 暗色岩块四溅、落地弹；余波是焦痕里一道道慢慢冷下去的熔岩裂纹 + 一柱烟。不再铺 4.4 米的地面闪光、不再放近白的大星芒
-  function meteorLand2(m, R) {
+  function meteorLand2(m, R, old) {
     const x = m.x, z = m.z, h = m.hex, lo = qualId === 'low';
     flashLight(x, 2.2, z, h, 1.5);
     W.fxFlip(VFB.fire, x, 0.8, z, Math.min(2, R * 0.55), 0.38, h, { grow: 1.25, vy: 0.9 });
@@ -21362,10 +21364,13 @@
       const a = (i / n) * TAU + vr(-0.25, 0.25), d = R * vr(0.45, 0.7), v = R * vr(1, 1.5);
       vsEmit(x + Math.sin(a) * d, 0.05, z + Math.cos(a) * d, Math.sin(a) * v, vr(0.5, 1.5), Math.cos(a) * v, vr(0.42, 0.6), vr(0.45, 0.62), vr(0.7, 1.05), vr(-0.25, 0.25), 0, 0, 3);
     }
-    vsBrush(VSH.chip, 3, 0, 0x5c4c44, 0x5c4c44, 0.2, 0.55);
-    for (let i = 0, n = lo ? 5 : 9; i < n; i++) {
-      const a = vr(0, TAU), v = vr(3.5, 7.5);
-      vsEmit(x + Math.sin(a) * 0.4, 0.5, z + Math.cos(a) * 0.4, Math.sin(a) * v, vr(4, 8.5), Math.cos(a) * v, vr(0.9, 1.3), vr(0.14, 0.26), undefined, vr(0, TAU), vr(6, 12), 22);
+    if (old) debrisBurst(x, z, 11, mixHex(h, 0x2a2420, 0.7), 1); // skill-b1：三相天灾的火——碎岩照旧用 debrisBurst（随机数一样，见 updateMeteors），颜色压成暗岩色
+    else {
+      vsBrush(VSH.chip, 3, 0, 0x5c4c44, 0x5c4c44, 0.2, 0.55);
+      for (let i = 0, n = lo ? 5 : 9; i < n; i++) {
+        const a = vr(0, TAU), v = vr(3.5, 7.5);
+        vsEmit(x + Math.sin(a) * 0.4, 0.5, z + Math.cos(a) * 0.4, Math.sin(a) * v, vr(4, 8.5), Math.cos(a) * v, vr(0.9, 1.3), vr(0.14, 0.26), undefined, vr(0, TAU), vr(6, 12), 22);
+      }
     }
     for (let j = 0, n = lo ? 1 : 3; j < n; j++) {
       const a = (j / n) * TAU + vr(-0.4, 0.4);
@@ -24133,14 +24138,15 @@
   };
   // 一道往外推的细边环：半径小（≤ 1.6 米）时就是形状批的环件；大了改成一圈贴地的细线段一起往外推（长度、宽度随曲线 1 长到 4 倍，正好跟上半径），
   // 环件按半径等比放大到 4–5 米会变成一条粗带（「大范围只画边」）
-  W.thinRing = function (x, z, R, cA, cB, life) {
+  // nN（可选，skill-b1）：线段数（高画质；低画质减半），频繁触发的小环（爆燃 / 冻结）用少一些的段数
+  W.thinRing = function (x, z, R, cA, cB, life, nN) {
     if (!PF.vShape) return;
     if (R <= 1.6) {
       vsBrush(VSH.ring, 2, 1, cA, cB, 0.1, 0.4, 0.35);
       vsEmit(x, 0.09, z, 0, 0, 0, life, R);
       return;
     }
-    const R0 = R / 4, v0 = ((R - R0) * 3) / (1 - Math.exp(-3 * life)), n = Math.max(12, Math.min(40, Math.round(R * 6))) >> (qualId === 'low' ? 1 : 0), seg = ((TAU * R) / n) * 1.05;
+    const R0 = R / 4, v0 = ((R - R0) * 3) / (1 - Math.exp(-3 * life)), n = (nN || Math.max(12, Math.min(40, Math.round(R * 6)))) >> (qualId === 'low' ? 1 : 0), seg = ((TAU * R) / n) * 1.05;
     vsBrush(VSH.bar, 2, 1, cA, cB, 0.1, 0, 0.35);
     for (let i = 0; i < n; i++) {
       const a = (i / n) * TAU;
@@ -24231,20 +24237,25 @@
     for (let i = 0; i < n; i++) Math.random();
   }
   W.rBurn = rBurn;
-  // 爆燃 / 冻结在怪群里一帧能连着炸十几个：每帧只有前几个画全套，多出来的只画一道环（空取照旧，件数不会把形状批的环形缓冲冲掉）
-  const B1_CAP = { high: 4, mid: 3, low: 2 };
-  let b1N = 0, b1Peak = 0;
-  W.b1Info = () => ({ n: b1N, peak: b1Peak, cap: B1_CAP[qualId] || 3 });
-  W.b1Reset = () => { b1Peak = 0; };
+  // 爆燃 / 冻结在怪群里一帧能连着炸十几个：每帧只有前几个画全套，多出来的只留地面痕迹（空取照旧，件数不会把形状批的环形缓冲冲掉）
+  // 另外形状批里活着的件超过 B1_LIVE 时也只画环（环形缓冲 384 件，留给技能本身的件）
+  const B1_CAP = { high: 3, mid: 3, low: 2 }, B1_LIVE = 240;
+  let b1N = 0, b1Peak = 0, b1Full = 0;
+  W.b1Info = () => ({ n: b1N, peak: b1Peak, full: b1Full, cap: B1_CAP[qualId] || 3 });
+  W.b1Reset = () => { b1Peak = 0; b1Full = 0; };
   function b1Take() {
     b1N++;
     if (b1N > b1Peak) b1Peak = b1N;
-    return b1N <= (B1_CAP[qualId] || 3);
+    if (b1N > (B1_CAP[qualId] || 3)) return false;
+    let live = 0;
+    for (let i = 0; i < VS_N; i++) if (vsL[i] > 0) live++;
+    if (live > B1_LIVE) return false;
+    b1Full++;
+    return true;
   }
-  // 一道往外推、越推越细的环件（半径 ≤ 3.5 米的触发特效用一件；更大的走 W.thinRing 的细线段）
-  function b1Ring(x, z, R, cA, cB, life, hot) {
-    vsBrush(VSH.ring, 2, 1, cA, cB, hot === undefined ? 0.25 : hot, 0, 0.35);
-    vsEmit(x, 0.09, z, 0, 0, 0, life, R);
+  // 一道往外推的细边环：W.thinRing（≤ 1.6 米是一件环件；更大的是一圈贴地细线段，触发特效用 12 段、低画质 6 段）
+  function b1Ring(x, z, R, cA, cB, life) {
+    W.thinRing(x, z, R, cA, cB, life, 12);
   }
   // 火舌：长在半径 R 的外沿上往上舔（立着的公告板），out 往外窜的速度
   function b1Tongues(x, z, R, n, h, life, out, cA, cB) {
@@ -24299,7 +24310,7 @@
     if (!PF.vShape) return rBurn(lo ? 2 + 1 + 30 + 48 : 54 + 84);
     if (!b1Take()) {
       rBurn(lo ? 2 + 1 + 30 + 48 : 54 + 84);
-      b1Ring(x, z, R, 0xff9a40, 0x7a2a12, 0.3);
+      W.vDecal(VVD.scorch, x, z, R * 0.5, 2.2, 0x8a3416); // 超出每帧上限的：只留焦痕（地面痕迹池，不占形状批）
       return;
     }
     rBurn(lo ? 2 + 30 + 48 : 53 + 84); // 少的那 1 次给下面的小星（tChunk 自己取 1 次）
@@ -24321,7 +24332,7 @@
     if (!PF.vShape) return;
     const R = r + (boss ? 1.6 : 0.7);
     if (!b1Take()) {
-      b1Ring(x, z, r + 1.0, 0x7fbcd8, 0x24506a, 0.3, 0.1);
+      W.vDecal(VVD.frost, x, z, R * 0.45, 1.8, 0x4f7f8c, { r1: R, grow: 0.25 }); // 超出每帧上限的：只留霜痕
       return;
     }
     b1Ring(x, z, r + 1.2, 0x7fbcd8, 0x24506a, 0.36, 0.12);
@@ -24335,7 +24346,7 @@
     if (!PF.vShape) return;
     const lo = qualId === 'low';
     if (!b1Take()) {
-      b1Ring(x, z, R, 0x6aaed0, 0x1f4a66, 0.3, 0.1);
+      W.vDecal(VVD.frost, x, z, R * 0.35, 1.4, 0x4f7f8c, { r1: R * 0.7, grow: 0.2 });
       return;
     }
     b1Ring(x, z, R, 0x7fbcd8, 0x1f4a66, 0.34, 0.12);
@@ -24353,7 +24364,7 @@
     const hi = mixHex(h, 0xffe0a0, 0.25), dk = mixHex(h, 0x000000, 0.6);
     W.thinRing(x, z, r, hi, dk, 0.45);
     if (type === 'cold') b1Crystals(x, z, r * 0.92, lo ? 6 : 12, 1.4, 0.6);
-    else b1Tongues(x, z, r, lo ? 6 : 12, 1.05, 0.5, r * 0.35, mixHex(h, 0xffd080, 0.35), mixHex(h, 0x000000, 0.25));
+    else b1Tongues(x, z, r, lo ? 5 : 10, 1.35, 0.5, r * 0.12, mixHex(h, 0xffd080, 0.35), mixHex(h, 0x000000, 0.25));
     b1Cracks(x, z, r, lo ? 4 : 7, cr[0], cr[1], 0.3, 2.4);
     b1Chips(x, 0.4, z, lo ? 3 : 6, 0.6, 3, 6.5, 0x5c4c44, 0x3e342e, 0.12, 0.22);
     const vk = type === 'cold' ? VVD.frost : type === 'chaos' ? VVD.void : VVD.scorch;
@@ -24371,7 +24382,7 @@
     const lanes = lo ? [0] : [0, -0.32, 0.32];
     for (let k = 0; k < lanes.length; k++) {
       const off = lanes[k] * w, mid = k === 0;
-      vsBrush(VSH.bar, 5, 3, mid ? mixHex(h, 0xffffff, 0.2) : mixHex(h, 0x3a3048, 0.45), mixHex(h, 0x241c30, 0.7), mid ? 0.2 : 0, 0.3, 0.3);
+      vsBrush(VSH.bar, 5, 3, mid ? mixHex(h, 0x6a5a80, 0.25) : mixHex(h, 0x3a3048, 0.5), mixHex(h, 0x241c30, 0.7), mid ? 0.15 : 0, 0.3, 0.3);
       for (let i = 0; i < segN; i++) {
         const t = i / segN, sx = x0 + dx * t + nx * off, sz = z0 + dz * t + nz * off;
         vsEmit(sx, 0.07 + k * 0.002, sz, ux * L * 1.02, 0, uz * L * 1.02, (mid ? 0.42 : 0.32) + t * 0.18, (mid ? 0.16 : 0.08) * w);
@@ -24393,7 +24404,7 @@
     rBurn(24 * 6);
     if (!PF.vShape) return;
     const lo = qualId === 'low', h = hexOf(hex);
-    b1Ring(x, z, R, mixHex(h, 0xffffff, 0.15), mixHex(h, 0x000000, 0.55), 0.3, 0.2);
+    b1Ring(x, z, R, mixHex(h, 0x6a5a80, 0.2), mixHex(h, 0x000000, 0.55), 0.3);
     b1Chips(x, 0.35, z, lo ? 4 : 8, 0.4, 2.5, 5.5, 0x6a5c54, 0x3e342e, 0.1, 0.2);
     vsBrush(VSH.bar, 4, 2, mixHex(h, 0xffffff, 0.5), h, 0.5, 0.3, 0.5);
     for (let i = 0, n = lo ? 2 : 4; i < n; i++) {
