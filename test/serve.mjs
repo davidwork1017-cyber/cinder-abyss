@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pipeline } from 'node:stream';
+import { execFile } from 'node:child_process';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TYPES = {
@@ -33,6 +34,10 @@ export function serve({ port = 0, host = '127.0.0.1', stats = null, root = ROOT 
       return;
     }
     if (rel.endsWith('/')) rel += 'index.html';
+    // /__old/<提交>/<路径>：发某个旧提交里的文件（git cat-file，按需取、取过就缓存）。和当前代码同源、共用 localStorage，
+    // 测试拿它验证「退回旧代码」：旧版本读新代码写的存档（test/smoke.mjs 的多存档步骤）。Pages 上没有这个路径
+    const om = /^\/__old\/([0-9a-f]{7,40})\/(.+)$/.exec(rel);
+    if (om) return sendOld(req, res, root, om[1], om[2], stats);
     const file = path.join(root, rel);
     // 不许跳出仓库根目录；node_modules 和 .git 不发（Pages 上也没有）
     if (!file.startsWith(root + path.sep) || /[\\/](node_modules|\.git)([\\/]|$)/.test(file.slice(root.length))) {
@@ -58,6 +63,34 @@ export function serve({ port = 0, host = '127.0.0.1', stats = null, root = ROOT 
   return new Promise((ok, fail) => {
     server.once('error', fail);
     server.listen(port, host, () => ok({ server, url: 'http://' + host + ':' + server.address().port + '/' }));
+  });
+}
+
+const oldCache = new Map();
+function sendOld(req, res, root, commit, rel, stats) {
+  if (rel.split('/').some((p) => p === '..' || p === '.' || p === '') || /^(node_modules|\.git)(\/|$)/.test(rel)) {
+    res.writeHead(404).end();
+    return;
+  }
+  const key = commit + ':' + rel;
+  let p = oldCache.get(key);
+  if (!p) {
+    p = new Promise((ok) =>
+      execFile('git', ['-C', root, 'cat-file', 'blob', key], { encoding: 'buffer', maxBuffer: 256 * 1024 * 1024 }, (err, out) => ok(err ? null : out))
+    );
+    oldCache.set(key, p);
+  }
+  p.then((buf) => {
+    if (!buf) {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('404');
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': TYPES[path.extname(rel).toLowerCase()] || 'application/octet-stream', 'Content-Length': buf.length, 'Cache-Control': 'no-cache' });
+    if (stats) {
+      stats.requests = (stats.requests || 0) + 1;
+      stats.bytes = (stats.bytes || 0) + buf.length;
+    }
+    res.end(req.method === 'HEAD' ? undefined : buf);
   });
 }
 
