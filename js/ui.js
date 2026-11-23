@@ -1651,10 +1651,10 @@
         : '<div class="inv-tips"><span>右键 装备 / 卸下</span><i></i><span>拖动 整理 · 换装 · 丢弃</span><i></i><span>Shift+点击 分解</span><i></i><span>通货拖到物品上 改造</span></div>';
 
     el.body.innerHTML =
-      '<div class="inv">' +
-      '<div class="col col-l"><div class="sec-title">装备</div><div class="eq-grid">' + eq + '</div>' +
-      '<div class="sec-title">属性<span class="sec-note">等级 ' + S.level + '</span></div><div class="stats scroll" data-scroll="stats">' + statSheet() + '</div></div>' +
-      '<div class="col col-m"><div class="sec-title">背包<span class="sec-note">' + S.bag.length + ' / ' + G.BAG_SIZE + '</span>' +
+      // 背包列写在前面，装备 + 详情包在 inv-side 里：宽屏 inv-side 是 display: contents，三列照旧摆（CSS 指定列号）；
+      // 手机横屏右半边整列一起滚，竖屏整页一列（见 css 末尾的窄屏规则）
+      '<div class="inv" data-scroll="inv">' +
+      '<div class="col col-m" data-scroll="invbag"><div class="sec-title">背包<span class="sec-note">' + S.bag.length + ' / ' + G.BAG_SIZE + '</span>' +
       '<button type="button" tabindex="-1" class="btn sm uqb' + (sel ? '' : ' on') + '" data-act="codex" data-tip="txt:烬铸与渊契的收集和保底进度">图鉴</button>' +
       '<button type="button" tabindex="-1" class="btn sm" data-act="sort"' + (S.bag.length > 1 ? '' : ' disabled') + '>整理</button>' +
       '<button type="button" tabindex="-1" class="chk' + (withMagic ? ' on' : '') + '" data-act="opt" data-opt="salvageMagic"' + (withRare ? ' disabled' : '') + '><i></i>含魔法</button>' +
@@ -1666,8 +1666,11 @@
       '<div class="sec-title">通货<span class="sec-note">拖到物品上使用</span></div><div class="cur-row">' + cur + '</div>' +
       fragRow() +
       foot + '</div>' +
+      '<div class="inv-side" data-scroll="invside">' +
+      '<div class="col col-l"><div class="sec-title">装备</div><div class="eq-grid">' + eq + '</div>' +
+      '<div class="sec-title">属性<span class="sec-note">等级 ' + S.level + '</span></div><div class="stats scroll" data-scroll="stats">' + statSheet() + '</div></div>' +
       '<div class="col col-r scroll" data-scroll="detail">' + detail + '</div>' +
-      '</div>';
+      '</div></div>';
   }
 
   // ============================================================
@@ -2799,10 +2802,13 @@
     const st = G.state;
     const tier = (ui.mapTier = G.clamp(ui.mapTier, 0, S.maxTier));
     const clearedAt = (z) => S.cleared[z.id] !== undefined && S.cleared[z.id] >= tier;
+    // 主线（quest D2）：这一步要去的区域卡片上一个金色「主线」角标；第 11 步（进轮回层级 1）在层级「1」的按钮上点一个金点。关了「显示主线」都不画
+    const Q = S.quest, qOn = !!(Q && !Q.off && Q.n < G.QUEST_N), qs = qOn ? G.QUEST[Q.n] : null;
+    const qZone = qs && qs.zone ? qs.zone : '', qTier = !!(qs && qs.kind === 'tier');
 
     let tiers = '';
     for (let t = 0; t <= S.maxTier; t++) {
-      tiers += '<button type="button" tabindex="-1" class="tier' + (t === tier ? ' on' : '') + '" data-act="tier" data-tier="' + t + '">' + t + '</button>';
+      tiers += '<button type="button" tabindex="-1" class="tier' + (t === tier ? ' on' : '') + (qTier && t === 1 ? ' q-dot' : '') + '" data-act="tier" data-tier="' + t + '"' + (qTier && t === 1 ? ' data-tip="txt:主线：进轮回层级 1"' : '') + '>' + t + '</button>';
     }
 
     let cards = '';
@@ -2816,7 +2822,7 @@
         '<div class="zone' + (locked ? ' locked' : '') + (here ? ' here' : '') + (cleared ? ' cleared' : '') + '" style="--fog:' + hexCss(z.fog) + ';--acc:' + hexCss(z.accent) + ';--path:' + hexCss(z.path) + ';--rock:' + hexCss(z.rock) + ';--sky:' + hexCss(z.sky) + '">' +
         '<div class="z-art"><div class="z-ridge b"></div><div class="z-ridge a"></div><span class="z-glyph">' + (ZONE_GLYPH[z.id] || z.name[0]) + '</span>' +
         '<span class="z-ord">' + (ZONE_ORD[i] || '') + '</span>' +
-        (cleared ? '<span class="z-badge ok">已通关</span>' : locked ? '<span class="z-badge lock">未解锁</span>' : '') +
+        (cleared ? '<span class="z-badge ok">已通关</span>' : locked ? '<span class="z-badge lock">未解锁</span>' : z.id === qZone ? '<span class="z-badge quest">主线</span>' : '') +
         (here ? '<span class="z-here">当前所在</span>' : '') +
         '</div>' +
         '<div class="z-body"><div class="z-name">' + z.name + '</div>' +
@@ -2854,8 +2860,18 @@
         .join('') +
       '</div>' +
       '<div class="opt-sep"></div>' +
+      // 两个开关上下叠成一列（quest D2 加了「显示主线」，并排时 1024 宽的窗口放不下）；「折叠」的说明挪进悬停提示
+      '<div class="opt-stack">' +
+      '<div class="opt-line" data-tip="txt:地上只留一个小点，悬停或按住 Alt 展开">' +
       '<button type="button" tabindex="-1" class="switch' + (S.opts.hideNormal ? ' on' : '') + '" data-act="opt" data-opt="hideNormal"><i></i></button>' +
-      '<div class="opt-text"><b>折叠普通物品的名牌</b><span>地上只留一个小点，悬停或按住 Alt 展开</span></div>' +
+      '<div class="opt-text"><b>折叠普通物品的名牌</b></div></div>' +
+      // 主线（quest D2）：关了只藏追踪条、小地图上的金色记号和地图上的角标，进度和奖励照常记。主线走完以后不再显示这个开关
+      (Q && Q.n < G.QUEST_N
+        ? '<div class="opt-line" data-tip="txt:右上的主线提示、小地图上的金色箭头和区域卡片上的「主线」角标。关了进度照常记">' +
+          '<button type="button" tabindex="-1" class="switch' + (Q.off ? '' : ' on') + '" data-act="quest"><i></i></button>' +
+          '<div class="opt-text"><b>显示主线</b></div></div>'
+        : '') +
+      '</div>' +
       '<div class="opt-sep"></div>' +
       '<div class="opt-text"><b>画质</b><span>' + (S.opts.quality === 'auto' ? '自动选择，明显掉帧时会自动调低' : '电脑吃力时调低') + '</span></div>' +
       '<div class="seg">' +
@@ -3390,10 +3406,24 @@
   // 把提示框摆到矩形 r 旁边：优先右侧，放不下就左侧，再不行就贴边并躲到上 / 下方
   function placeTip(r, preferLeft) {
     const tip = el.tip;
-    const w = tip.offsetWidth;
-    const h = tip.offsetHeight;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
+    // 手机（尤其横屏）上浮窗可能比屏幕还大：先去掉右边那张「当前装备」对比卡，还放不下就整体缩小（最多缩到 0.7）
+    if (tip.classList.contains('one')) tip.classList.remove('one');
+    if (tip.style.transform) tip.style.transform = '';
+    let w = tip.offsetWidth;
+    let h = tip.offsetHeight;
+    if ((w > vw - 16 || h > vh - 16) && tip.querySelector('.tip-pair')) {
+      tip.classList.add('one');
+      w = tip.offsetWidth;
+      h = tip.offsetHeight;
+    }
+    const k = Math.max(0.7, Math.min(1, (vw - 16) / w, (vh - 16) / h));
+    if (k < 1) {
+      tip.style.transform = 'scale(' + k.toFixed(3) + ')';
+      w *= k;
+      h *= k;
+    }
     let x = r.right + 12;
     if (x + w > vw - 8 || (preferLeft && r.left - 12 - w >= 8)) x = r.left - 12 - w;
     if (x < 8) x = G.clamp(r.left, 8, Math.max(8, vw - w - 8));
@@ -3844,6 +3874,15 @@
       render();
     },
 
+    // 地图页「显示主线」开关（quest D2）：存在 save.quest.off，默认开
+    quest() {
+      const Q = G.save.quest;
+      if (!Q) return;
+      Q.off = !Q.off;
+      G.persist();
+      G.sfx('click');
+      render();
+    },
     // ---- 地图 ----
     tier(d) {
       ui.mapTier = +d.tier;
@@ -4109,7 +4148,8 @@
   function updateQuestHud(now) {
     const Q = G.save.quest, st = G.state;
     const n = Q ? Q.n : G.QUEST_N;
-    const vis = !!(Q && n < G.QUEST_N && !Q.off && !ui.intro && !story.on && !menu.title && !menu.pause);
+    // 第一次进区时右上「正在载入场景…」那一条正好压在追踪条上：素材就绪前先不显示，就绪后淡入（quest D2）
+    const vis = !!(Q && n < G.QUEST_N && !Q.off && !ui.intro && !story.on && !menu.title && !menu.pause && !(G.world.assetsPending && G.world.assetsPending()));
     if (vis !== qh.vis) {
       qh.vis = vis;
       qh.root.classList.toggle('on', vis);

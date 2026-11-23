@@ -631,9 +631,12 @@
       G.hitEnemy(e, ctx, 1, hitInfo(m, Math.atan2(e.x - cx, e.z - cz)));
       n++;
     }
-    W.ring(cx, cz, R, ALLY_HEX, 0.35);
-    W.burst(cx, 0.3, cz, 0xcbbba6, 14, 5, 0.45);
-    W.decal(5, cx, cz, R * 0.8, Math.random() * TAU, 0x9fe8da, 2.2);
+    if (W.colossusSlam) W.colossusSlam(cx, cz, R); // skill-b1：物理的碎石语言（碎石、暗土色细环、尘、暗的地裂痕）；原来是粗的薄荷环 + 浅薄荷贴花
+    else {
+      W.ring(cx, cz, R, ALLY_HEX, 0.35);
+      W.burst(cx, 0.3, cz, 0xcbbba6, 14, 5, 0.45);
+      W.decal(5, cx, cz, R * 0.8, Math.random() * TAU, 0x9fe8da, 2.2);
+    }
     if (dist(cx, cz, P.x, P.z) < 14) W.shake(0.1);
     G.sfx(n ? 'impact' : 'hit', { type: 'phys', w: 1, crit: false });
   }
@@ -664,8 +667,8 @@
       if (e.dead || dist(e.x, e.z, m.x, m.z) - e.r > t.r) continue;
       if (G.tauntEnemy && G.tauntEnemy(e, m, t.dur, t.boss)) n++;
     }
-    W.ring(m.x, m.z, t.r, ALLY_HEX, 0.5);
-    W.ring(m.x, m.z, t.r * 0.55, 0xffffff, 0.3);
+    if (W.thinRing) W.thinRing(m.x, m.z, t.r, 0x3fb8a2, 0x1e4a42, 0.5); // skill-b1：嘲讽范围一道细边，白环去掉
+    else W.ring(m.x, m.z, t.r, ALLY_HEX, 0.5);
     W.burst(m.x, m.height * 0.7, m.z, ALLY_HEX, 16, 4, 0.5);
     if (n) W.text(m.x, m.z, '嘲讽', '#4fe3c8', 18, { y: m.height + 1.2 }); // 抬到头顶血条上方，不压住血条
     G.sfx('boss');
@@ -1241,16 +1244,13 @@
   function bastionFx(m) {
     const W = G.world, B = m.ctx.minion.vx;
     if (!W.kv) return;
-    if (!m.vfx) m.vfx = [W.kv('dome', { hex: ALLY_HEX }), W.kv('glyph', { hex: ALLY_HEX, y: 0.06, k: 1 })];
-    const up = m.rising > 0 ? 0.3 : 0.62; // 护域很大：罩子和符环都压一档，不盖住场面
-    const d = m.vfx[0], g = m.vfx[1];
-    d.x = g.x = m.x;
-    d.z = g.z = m.z;
-    d.sx = d.sz = B.r;
-    d.sy = B.r * 0.55;
-    d.a = up;
+    // skill-b1：护域只画边——一圈魂火青的细线 + 外沿一圈小石碑（画进形状批）；原来是半透明的罩子 + 6 米的浅色宽符环
+    if (!m.vfx) m.vfx = [W.kv('glyph', { hex: ALLY_HEX, y: 0.06, k: 1, edge: 1, stones: 8, ew: 0.08 })];
+    const g = m.vfx[0];
+    g.x = m.x;
+    g.z = m.z;
     g.s = B.r * 2;
-    g.a = Math.min(up, 0.3); // 6 米的符环再暗一档
+    g.a = m.rising > 0 ? 0.35 : 0.7;
     g.ry += 0.004;
   }
   // 骸弓：射一支骨箭（贯穿 archer.pierce 个），箭归这具仆从（命中算召唤物的）
