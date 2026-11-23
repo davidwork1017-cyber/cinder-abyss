@@ -151,6 +151,7 @@
     bagMsg: '', // 背包页底部的一行结果（一键分解的收获等）
     confirm: null, // { uid, x, y } 正在确认丢弃的稀有物品
     salvArm: { uid: null, t: 0 }, // Shift+点击分解稀有物品：第一次点击只是上膛
+    bulkArm: null, // 一键分解含稀有：第一次点击只是上膛 { key: 要分解的物品 uid 串, t }，BULK_ARM_MS 内再点一次才分解
     noClick: false, // 拖拽松手时浏览器紧跟着派发的那一次 click 不算数
     groundLoot: null, // 鼠标正指着的地面掉落
     groundSig: '',
@@ -379,6 +380,7 @@
     }
     updateEncHud();
     updatePinHud();
+    updateQuestHud(now);
 
     setOrb(hud.life, P.life, P.maxLife, P.maxLifeRaw || P.maxLife);
     setOrb(hud.mana, P.mana, P.maxMana, P.maxManaRaw || P.maxMana);
@@ -1240,6 +1242,7 @@
       h += '<div class="ic-sep"></div><div class="ic-line none">没有词缀</div>';
     }
     if (o.vd) h += verdictBlock(o.vd);
+    if (item.lk) h += '<div class="ic-lk"><i class="lk-ico"></i>已锁定 · Ctrl+点击解锁</div>';
     if (o.hint) h += '<div class="ic-hint">' + o.hint + '</div>';
     h += '</div>';
     return h;
@@ -1302,8 +1305,56 @@
       (v ? '<span class="c-vd vd-' + v.badge + '">' + VD_GLYPH[v.badge] + '</span>' : '') +
       (item.affixes.length ? '<span class="c-aff">' + '<i></i>'.repeat(item.affixes.length) + '</span>' : '') +
       (ui.fresh.has(item.uid) ? '<span class="c-new"></span>' : '') +
+      (item.lk ? '<span class="c-lk"><i class="lk-ico"></i></span>' : '') +
       '</div>'
     );
+  }
+
+  // ---------- 一键分解 ----------
+  const BULK_ARM_MS = 4000;
+  // 一键分解的范围：0 普通，1 含魔法，2 含稀有（含稀有时魔法也算上）
+  const bulkCap = () => (G.save.opts.salvageRare ? 2 : G.save.opts.salvageMagic ? 1 : 0);
+  // 换装评估为 ▲（装备后更强）的稀有物品留下，不一键分解（评估只读，和浮窗里的是同一个）
+  const bulkKeep = (it) => {
+    if (it.rarity !== 2) return false;
+    const v = verdict(it);
+    return !!v && v.badge === 'up';
+  };
+  const bulkPlan = () => G.salvagePlan(bulkCap(), bulkKeep);
+  // 期望收获（不掷骰子）：整数写「×n」，带小数的写「约 x」
+  function bulkExpectHtml(plan) {
+    const sum = {};
+    const sure = {}; // 每一件都是必出的整数：写「×n」；有一件靠几率就写「约 x」
+    for (const it of plan) {
+      const e = G.salvageExpect(it);
+      for (const id in e) {
+        sum[id] = (sum[id] || 0) + e[id];
+        sure[id] = sure[id] !== false && e[id] === Math.floor(e[id]);
+      }
+    }
+    return G.CUR_IDS.filter((id) => sum[id] > 0.05).map((id) => {
+      const v = sum[id];
+      const n = sure[id] ? '×' + Math.round(v) : '约' + fmt1(v);
+      // 一行放不下名字：只放图标和数量，悬停图标看是哪种通货
+      return '<span class="res-cur bulk-c" style="--c:' + G.CURRENCY[id].color + '" data-tip="cur:' + id + '" aria-label="' + G.CURRENCY[id].name + ' ' + n + '">' + IC.cur(id) + n + '</span>';
+    }).join('');
+  }
+  // 上膛时按钮的浮窗：这一批会留下什么
+  function bulkKeepText() {
+    const bag = G.save.bag;
+    const lk = bag.filter((it) => it.lk && it.rarity <= 2).length;
+    const up = bag.filter((it) => it.rarity === 2 && !it.lk && bulkKeep(it)).length;
+    const top = bag.filter((it) => it.rarity >= 3).length;
+    const parts = [];
+    if (up) parts.push('更强（▲）的稀有 ' + up + ' 件');
+    if (lk) parts.push('锁定的 ' + lk + ' 件');
+    if (top) parts.push('烬铸 / 渊契 ' + top + ' 件');
+    return BULK_ARM_MS / 1000 + ' 秒内再点一次确认。' + (parts.length ? '会留下：' + parts.join('、') : '');
+  }
+  function bulkDisarm() {
+    clearTimeout(ui.bulkTimer);
+    if (ui.bulkArm && ui.bagMsg && ui.bagMsg.indexOf('bulk-arm') >= 0) ui.bagMsg = '';
+    ui.bulkArm = null;
   }
 
   // 角色属性表
@@ -1470,6 +1521,7 @@
         eq +=
           '<div class="eq r' + it.rarity + (ui.sel === it.uid ? ' sel' : '') + '" data-slot="' + slot + '" data-act="sel" data-item="' + it.uid + '" data-tip="item:' + it.uid + '" data-drag="item:' + it.uid + '">' +
           IC.item(it) + '<span class="c-ilvl">' + it.ilvl + '</span>' +
+          (it.lk ? '<span class="c-lk"><i class="lk-ico"></i></span>' : '') +
           '<span class="eq-name">' + G.SLOT_NAME[slot] + '</span></div>';
       } else {
         eq += '<div class="eq empty" data-slot="' + slot + '">' + IC.slot(slot) + '<span class="eq-name">' + G.SLOT_NAME[slot] + '</span></div>';
@@ -1478,20 +1530,22 @@
 
     // 背包格
     let bag = '';
-    let normals = 0;
-    let magics = 0;
     for (let i = 0; i < G.BAG_SIZE; i++) {
       const it = S.bag[i];
       if (it) {
-        if (it.rarity === 0) normals++;
-        else if (it.rarity === 1) magics++;
         bag += bagCell(it, ui.sel === it.uid, i);
       } else {
         bag += '<div class="cell empty" data-idx="' + i + '"></div>';
       }
     }
-    const withMagic = !!S.opts.salvageMagic;
-    const bulkN = normals + (withMagic ? magics : 0);
+    const withRare = !!S.opts.salvageRare;
+    const withMagic = withRare || !!S.opts.salvageMagic; // 含稀有时魔法也一起分解
+    const plan = bulkPlan();
+    const bulkN = plan.length;
+    const bulkR = plan.filter((it) => it.rarity === 2).length;
+    // 上膛之后要分解的东西变了（捡到 / 锁上 / 换装）：不算数，回到没上膛
+    const armed = !!(ui.bulkArm && ui.bulkArm.key === plan.map((it) => it.uid).join() && performance.now() - ui.bulkArm.t < BULK_ARM_MS);
+    if (ui.bulkArm && !armed) bulkDisarm();
 
     // 通货
     let cur = '';
@@ -1530,6 +1584,8 @@
           : '<button type="button" tabindex="-1" class="btn primary" data-act="equip">装备</button>' +
             '<button type="button" tabindex="-1" class="btn" data-act="salvage">分解</button>' +
             '<button type="button" tabindex="-1" class="btn" data-act="drop">丢弃</button>') +
+        '<button type="button" tabindex="-1" class="btn lk-btn' + (it.lk ? ' on' : '') + '" data-act="lock" aria-pressed="' + !!it.lk + '" data-tip="txt:' +
+        (it.lk ? '已锁定：不会被分解或卖掉。点击或 Ctrl+点击物品解锁' : '锁定后不会被一键分解、自动分解或卖掉。也可以 Ctrl+点击物品') + '"><i class="lk-ico"></i>' + (it.lk ? '已锁' : '锁定') + '</button>' +
         '</div>' +
         (ui.invMsg ? '<div class="inv-msg">' + esc(ui.invMsg) + '</div>' : ui.invOk ? '<div class="inv-msg ok">' + esc(ui.invOk) + '</div>' : '');
       // 烬铸武器 / 渊契的卡片很长（区间、完美度、机制说明）：按钮放到卡片上面，小窗口里也不用往下滚就能点到
@@ -1559,7 +1615,7 @@
 
     const coach = coachBanner('inv');
     const foot = ui.bagMsg
-      ? '<div class="inv-tips res">' + ui.bagMsg + '</div>'
+      ? '<div class="inv-tips res' + (armed ? ' bulk-on' : '') + '">' + ui.bagMsg + '</div>'
       : coach
         ? '<div class="inv-tips coach">' + coach + '</div>'
         : '<div class="inv-tips"><span>右键 装备 / 卸下</span><i></i><span>拖动 整理 · 换装 · 丢弃</span><i></i><span>Shift+点击 分解</span><i></i><span>通货拖到物品上 改造</span></div>';
@@ -1571,8 +1627,11 @@
       '<div class="col col-m"><div class="sec-title">背包<span class="sec-note">' + S.bag.length + ' / ' + G.BAG_SIZE + '</span>' +
       '<button type="button" tabindex="-1" class="btn sm uqb' + (sel ? '' : ' on') + '" data-act="codex" data-tip="txt:烬铸与渊契的收集和保底进度">图鉴</button>' +
       '<button type="button" tabindex="-1" class="btn sm" data-act="sort"' + (S.bag.length > 1 ? '' : ' disabled') + '>整理</button>' +
-      '<button type="button" tabindex="-1" class="chk' + (withMagic ? ' on' : '') + '" data-act="opt" data-opt="salvageMagic"><i></i>含魔法</button>' +
-      '<button type="button" tabindex="-1" class="btn sm" data-act="salvage-all"' + (bulkN ? '' : ' disabled') + '>一键分解' + (bulkN ? '（' + bulkN + '）' : '') + '</button></div>' +
+      '<button type="button" tabindex="-1" class="chk' + (withMagic ? ' on' : '') + '" data-act="opt" data-opt="salvageMagic"' + (withRare ? ' disabled' : '') + '><i></i>含魔法</button>' +
+      '<button type="button" tabindex="-1" class="chk' + (withRare ? ' on' : '') + '" data-act="opt" data-opt="salvageRare" data-tip="txt:稀有物品也一起分解（魔法也算上）。会留下：已锁定的、装备后更强（▲）的、烬铸和渊契"><i></i>含稀有</button>' +
+      '<button type="button" tabindex="-1" class="btn sm' + (armed ? ' armed' : '') + '" data-act="salvage-all"' + (bulkN ? '' : ' disabled') +
+      (armed ? ' data-tip="txt:' + bulkKeepText() + '"' : '') + '>' +
+      (armed ? '确认分解' : '一键分解') + (bulkN ? '（' + bulkN + '）' : '') + '</button></div>' +
       '<div class="bag">' + bag + '</div>' +
       '<div class="sec-title">通货<span class="sec-note">拖到物品上使用</span></div><div class="cur-row">' + cur + '</div>' +
       fragRow() +
@@ -2960,7 +3019,7 @@
       '<p><b>架势</b>：精英和首领血条下的白条，命中削减，几秒不挨打回复。打空后露出<b class="c-gold">破绽</b>：停止出招，受到的伤害 +25%。</p>' +
       '<p><b>处决</b>：对破绽中的敌人按 <kbd>F</kbd>，无敌重创，回复生命、魔力和药剂。首领每被击破一次，架势更难打空。</p>' +
       '<p>屏幕边缘的箭头指向画面外的精英、首领和传送门。</p>' +
-      '<p>死亡不损失经验和物品：在区域入口重生（首领战则在竞技场门外），怪物回到原位，首领回满生命。</p>' +
+      '<p><b>重燃</b>：你心口的余烬还亮着，倒下后在区域入口重燃（首领战则在竞技场门外），不损失经验和物品。怪物回到原位，首领回满生命。</p>' +
       '</div>' +
       '<div class="col scroll" data-scroll="help2"><div class="sec-title">技能与辅助宝石</div>' +
       '<p>怪物掉落<b class="c-teal">技能宝石</b>，更高等级的同名宝石直接升级。在技能页把技能拖到技能栏。</p>' +
@@ -3174,7 +3233,7 @@
     if (kind === 'item') {
       const f = findItem(id);
       if (!f) return '';
-      return itemTip(f.item, f.equipped, f.equipped ? '右键 卸下 · 拖到背包 卸下' : '右键 装备 · 拖动 整理 / 换装 · Shift+点击 分解');
+      return itemTip(f.item, f.equipped, f.equipped ? '右键 卸下 · 拖到背包 卸下' : '右键 装备 · 拖动 整理 / 换装 · ' + (f.item.lk ? '已锁定，不能分解' : 'Shift+点击 分解 · Ctrl+点击 锁定'));
     }
     if (kind === 'cur') {
       const c = G.CURRENCY[id];
@@ -3369,6 +3428,10 @@
     'trd-sell'(d) {
       const f = findItem(d.item);
       if (!f || f.equipped) return;
+      if (f.item.lk) {
+        ui.trdMsg = '「' + f.item.name + '」已锁定，先解锁';
+        return render();
+      }
       const now = performance.now();
       // 稀有以上要再点一次确认（同 Shift+点击分解）
       if (f.item.rarity >= 2 && !(ui.trdArm && ui.trdArm.uid === d.item && now - ui.trdArm.t < 3000)) {
@@ -3402,10 +3465,20 @@
       const f = findItem(d.item);
       if (!f) return;
       const now = performance.now();
+      if (e && (e.ctrlKey || e.metaKey)) {
+        // Ctrl+点击：锁定 / 解锁（Mac 上 Ctrl+点击走右键菜单，见 onPanelContext）
+        toggleLock(f.item);
+        ui.lastSel = { uid: null, t: 0 };
+        return;
+      }
       if (e && e.shiftKey) {
         // Shift+点击：分解背包物品；稀有物品要再点一次确认
         if (f.equipped) {
           ui.invMsg = '穿在身上的装备要先卸下才能分解';
+        } else if (f.item.lk) {
+          ui.salvArm = { uid: null, t: 0 };
+          ui.sel = d.item;
+          ui.invMsg = '已锁定，先解锁（Ctrl+点击）';
         } else if (f.item.rarity >= 2 && !(ui.salvArm.uid === d.item && now - ui.salvArm.t < 3000)) {
           ui.salvArm = { uid: d.item, t: now };
           ui.sel = d.item;
@@ -3453,6 +3526,12 @@
     salvage() {
       const f = selItem();
       if (!f) return;
+      if (f.item.lk) {
+        ui.salvArm = { uid: null, t: 0 };
+        ui.invMsg = '已锁定，先解锁';
+        render();
+        return;
+      }
       const now = performance.now();
       if (f.item.rarity >= 3 && !(ui.salvArm.uid === f.item.uid && now - ui.salvArm.t < 4000)) {
         // 烬铸武器 / 渊契：第一次点只是上膛，4 秒内再点一次「分解」才真的分解
@@ -3475,12 +3554,32 @@
       render();
     },
     'salvage-all'() {
-      const r = G.salvageBulk(G.save.opts.salvageMagic ? 1 : 0);
+      const plan = bulkPlan();
+      if (!plan.length) return render();
+      const key = plan.map((it) => it.uid).join();
+      const rares = plan.filter((it) => it.rarity === 2).length;
+      const now = performance.now();
+      // 含稀有、这一批里真有稀有：第一下只上膛，显示件数和预计收获，BULK_ARM_MS 内再点一次才分解
+      if (rares && !(ui.bulkArm && ui.bulkArm.key === key && now - ui.bulkArm.t < BULK_ARM_MS)) {
+        clearTimeout(ui.bulkTimer);
+        ui.bulkArm = { key, t: now };
+        ui.bagMsg = '<b class="bulk-arm">再点一次确认</b><span>分解 ' + plan.length + ' 件（稀有 ' + rares + '）</span><i></i><span>预计</span>' + bulkExpectHtml(plan);
+        ui.bulkTimer = setTimeout(() => {
+          if (!ui.bulkArm || ui.bulkArm.t !== now) return;
+          bulkDisarm();
+          if (ui.isOpen && ui.tab === 'inv') render();
+        }, BULK_ARM_MS);
+        G.sfx('click');
+        return render();
+      }
+      bulkDisarm();
+      const r = G.salvageBulk(bulkCap(), bulkKeep);
       if (r) {
         // 一行小结：分解了几件、换回了什么
         const parts = [];
         if (r.byRarity[0]) parts.push('普通 ' + r.byRarity[0]);
         if (r.byRarity[1]) parts.push('魔法 ' + r.byRarity[1]);
+        if (r.byRarity[2]) parts.push('稀有 ' + r.byRarity[2]);
         const got = Object.keys(r.gained).map((id) => '<span class="res-cur" style="--c:' + G.CURRENCY[id].color + '">' + IC.cur(id) + G.CURRENCY[id].name + ' ×' + r.gained[id] + '</span>').join('');
         ui.bagMsg = '<b>分解了 ' + r.n + ' 件</b><span>' + parts.join(' · ') + '</span><i></i>' + (got ? '<span>获得</span>' + got : '<span>没有分解出通货（普通物品不含通货）</span>');
         for (const uid of Array.from(ui.fresh)) if (!findItem(uid)) ui.fresh.delete(uid);
@@ -3488,6 +3587,10 @@
         G.sfx('craft');
       }
       render();
+    },
+    lock() {
+      const f = selItem();
+      if (f) toggleLock(f.item);
     },
     sort() {
       G.sortBag();
@@ -3784,7 +3887,10 @@
       renderConfirm();
     }
     if (!a || a.disabled) return;
-    if (a.dataset.act !== 'salvage-all') ui.bagMsg = '';
+    if (a.dataset.act !== 'salvage-all') {
+      ui.bagMsg = '';
+      if (ui.bulkArm) bulkDisarm();
+    }
     if (a.dataset.act !== 'chisel-pick') ui.invOk = ''; // 琢刻石换了哪一条：留到下一次操作
     if (a.dataset.act !== 'tut-reset') ui.tutMsg = '';
     ACT[a.dataset.act](a.dataset, a, e);
@@ -3798,6 +3904,7 @@
     if (!c || !c.dataset.act) return;
     const f = findItem(c.dataset.item);
     if (!f) return;
+    if (e.ctrlKey && e.button === 0) return toggleLock(f.item); // Mac：Ctrl+左键会变成右键菜单，这里当锁定 / 解锁
     ui.bagMsg = '';
     ui.sel = f.item.uid;
     if (f.equipped) {
@@ -3808,6 +3915,20 @@
       ui.fresh.delete(f.item.uid);
       equipSel(f.item);
     }
+  }
+
+  // ---------- 锁定 ----------
+  function toggleLock(item) {
+    const on = G.toggleLock(item);
+    if (on === null) return;
+    ui.sel = item.uid;
+    ui.salvArm = { uid: null, t: 0 };
+    ui.bagMsg = '';
+    if (ui.bulkArm) bulkDisarm();
+    ui.invMsg = '';
+    ui.invOk = (on ? '已锁定「' : '已解锁「') + item.name + '」';
+    G.sfx('click');
+    render();
   }
 
   // ---------- 丢到地上 ----------
@@ -3909,6 +4030,91 @@
   // ============================================================
   const pinHud = { box: null, key: '', bkey: '' };
   const PIN_PHASE = ['残焰', '熄灯', '冠焰'];
+  // ============================================================
+  // 主线追踪条（quest D1）：右上小地图正下方，三行字（主线 k/11 · 做什么 · 怎么做），按住 Alt 多出等级、奖励和一句背景。
+  // 只有 DOM（WebGL draw 0 增加）。每帧只比几个整数 / 布尔（步数、存档代数、要不要显示），内容最多每秒重算两次
+  // ============================================================
+  const qh = { root: null, k: null, goal: null, how: null, alt: null, n: -1, epoch: -1, vis: null, key: '', at: 0, pulse: false, toastQ: [], toastAt: 0 };
+  function initQuestHud() {
+    const r = (qh.root = document.createElement('div'));
+    r.id = 'quest';
+    r.innerHTML = '<div class="q-k"></div><div class="q-goal"></div><div class="q-how"></div><div class="q-alt"></div><div class="q-h">按住 <kbd>Alt</kbd> 查看详情</div>';
+    qh.k = r.children[0];
+    qh.goal = r.children[1];
+    qh.how = r.children[2];
+    qh.alt = r.children[3];
+    $('hud').appendChild(r);
+  }
+  const curList = (o) => Object.keys(o).map((id) => G.CURRENCY[id].name + ' ×' + o[id]).join('、');
+  // 第 n 步（0 起）现在该显示的三行和 Alt 详情。首领等级、区域等级按 G.ZONES 现算
+  function questView(n) {
+    const q = G.QUEST[n], st = G.state, S = G.save;
+    const Z = q.zone ? G.ZONES.find((z) => z.id === q.zone) : null;
+    let goal = q.l1 || '', how = q.l2 || '';
+    if (q.kind === 'boss') {
+      goal = '击败' + G.BOSSES[Z.boss].name;
+      how = q.l2 || '首领 ' + (Z.level + G.QUEST_BOSS_LV) + ' 级';
+    } else if (q.kind === 'in') {
+      goal = '去' + Z.name;
+      // 本区首领倒下、传送门还在：指传送门；传送门没了（重进过区域）：按 M 开地图
+      how = st.portal && !st.pin ? '走进传送门，在地图上选它' : q.l2 || '按 M 打开地图选它';
+    }
+    const det = [];
+    if (Z) det.push('怪物 ' + Z.level + ' 级 · 首领 ' + (Z.level + G.QUEST_BOSS_LV) + ' 级（你 ' + S.level + ' 级）');
+    else det.push('层级 1 怪物等级 +' + G.TIER_LEVELS + '（你 ' + S.level + ' 级）');
+    det.push(q.rw ? '奖励 ' + curList(q.rw) : '首次击败另得 2 点天赋');
+    return { k: '主线 ' + (n + 1) + '/' + G.QUEST_N, goal, how, det, lore: q.lore };
+  }
+  function updateQuestHud(now) {
+    const Q = G.save.quest, st = G.state;
+    const n = Q ? Q.n : G.QUEST_N;
+    const vis = !!(Q && n < G.QUEST_N && !Q.off && !ui.intro && !story.on && !menu.title && !menu.pause);
+    if (vis !== qh.vis) {
+      qh.vis = vis;
+      qh.root.classList.toggle('on', vis);
+      document.body.classList.toggle('quest-on', vis);
+    }
+    // 完成提示：排在同一时刻的其它飘字（首领倒下、层级解锁、区域名）后面，前一条出来 0.45 秒后再出（最多等 2.5 秒）
+    if (qh.toastQ.length && (now - lastToast.t > 450 || now - qh.toastAt > 2500)) {
+      toast(qh.toastQ.shift(), '#ffd98a');
+      qh.toastAt = now;
+    }
+    if (G.saveEpoch !== qh.epoch) {
+      // 换了存档（读档 / 新游戏）：不亮
+      qh.epoch = G.saveEpoch;
+      qh.n = n;
+      qh.pulse = false;
+      qh.key = '';
+    } else if (n !== qh.n) {
+      if (n > qh.n) qh.pulse = true;
+      qh.n = n;
+      qh.key = '';
+    }
+    if (!vis) return;
+    if (qh.key && now - qh.at < 500 && !qh.pulse) return;
+    qh.at = now;
+    const key = n + '|' + (st.portal && !st.pin ? 1 : 0) + '|' + G.save.level;
+    if (key !== qh.key) {
+      qh.key = key;
+      const v = questView(n);
+      qh.k.textContent = v.k;
+      qh.goal.textContent = v.goal;
+      qh.how.textContent = v.how;
+      qh.alt.innerHTML = v.det.map((t) => '<div>' + esc(t) + '</div>').join('') + '<div class="q-lore">' + (v.lore.match(/[^，。]+[，。]?/g) || []).map((c) => '<span>' + esc(c) + '</span>').join('') + '</div>';
+    }
+    // 换步骤时亮一下（1.2 秒）；首领醒着时不亮，打完再亮
+    if (qh.pulse && !(st.boss && st.boss.awake && !st.boss.dead)) {
+      qh.pulse = false;
+      qh.root.classList.remove('pulse');
+      void qh.root.offsetWidth; // 重新开始动画
+      qh.root.classList.add('pulse');
+    }
+  }
+  // game.js 推进主线时调：n 完成到第几步，got 这次加进背包的通货（首领步为 null）
+  function questDone(n, got) {
+    qh.toastQ.push('主线 ' + n + '/' + G.QUEST_N + ' 完成' + (got ? ' · ' + curList(got) : ''));
+  }
+
   function initPinHud() {
     const d = document.createElement('div');
     d.id = 'pin-lamps';
@@ -4104,7 +4310,7 @@
       const got = Object.keys(res).map((id) => '<span class="tp" style="--c:' + G.CURRENCY[id].color + '">' + IC.cur(id) + '<b>' + res[id] + '</b></span>').join('') || '<span class="tp dim">—</span>';
       sell +=
         '<div class="trd-row" data-tip="item:' + it.uid + '">' + ibox(IC.item(it)) + '<span class="trd-name" style="color:' + G.RARITY_COLOR[it.rarity] + '">' + esc(it.name) + '</span>' +
-        '<span class="trd-price">' + got + '</span><button type="button" tabindex="-1" class="btn sm" data-act="trd-sell" data-item="' + it.uid + '">卖</button></div>';
+        '<span class="trd-price">' + got + '</span><button type="button" tabindex="-1" class="btn sm" data-act="trd-sell" data-item="' + it.uid + '"' + (it.lk ? ' disabled>已锁' : '>卖') + '</button></div>';
     }
     const F = S.frags || {}, swapOn = (G.state.tier || 0) >= G.TRADER.fragTier;
     let frags = '';
@@ -6101,6 +6307,7 @@
     initHud();
     initEncHud();
     initPinHud();
+    initQuestHud();
     initWorldUi();
     IC.warm(); // 图标趁空闲分批画好，第一次打开背包不再卡顿
     document.documentElement.style.setProperty('--relic', G.RELIC_COLOR); // 渊契的颜色只在 data.js 写一次，样式表里读 --relic
@@ -6262,6 +6469,9 @@
     bigToast,
     bigToastReset,
     verdict, // 换装评估（只读）：{ badge, score, empty, lines } | null
+    questDone,
+    // 测试读：追踪条现在显示的字、显不显示、排队中的完成提示
+    quest: () => ({ on: !!qh.vis, k: qh.k.textContent, goal: qh.goal.textContent, how: qh.how.textContent, alt: qh.alt.textContent, queued: qh.toastQ.slice() }),
     hints: () => ({ current: coach.cur ? coach.cur.id : null, state: coach.state, all: HINTS.map((h) => h.id), veteran: coach.vet, minShow: coach.minT, shownFor: coach.t }),
   };
 })();

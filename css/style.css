@@ -1907,6 +1907,23 @@ button.pk-row:hover { background: #2a1b10; border-color: var(--ember-2); }
 .sec-title .btn + .chk, .sec-title .btn + .btn, .sec-title .chk + .btn { margin-left: -4px; }
 .inv-tips.res { gap: 8px; font-size: 12.5px; color: #c9b48e; border-top-color: #5e4329; }
 .inv-tips.res b { color: #f2dfb8; font-weight: 600; }
+/* 一键分解含稀有：上膛时按钮变亮，底部一行写预计收获 */
+.btn.sm.armed { color: #fff3dc; border-color: #e08a45; background: linear-gradient(180deg, #8a3f14, #4a1f08); box-shadow: 0 0 0 1px #b4551c, 0 0 12px rgba(255, 130, 50, 0.4); }
+.inv-tips.res.bulk-on { gap: 5px; border-top-color: #b4551c; }
+.inv-tips.res.bulk-on .bulk-c { gap: 2px; font-variant-numeric: tabular-nums; }
+.inv-tips.res.bulk-on .bulk-arm { color: #ffb066; }
+.res-cur { white-space: nowrap; }
+.chk:disabled { cursor: default; opacity: 0.55; }
+.chk:disabled:hover { color: #b9c8ff; border-color: #4760c4; }
+/* 锁：纯 CSS 画的小锁（锁梁 + 锁身），颜色跟着 currentColor */
+.lk-ico { position: relative; display: inline-block; flex: none; width: 9px; height: 11px; vertical-align: -1px; }
+.lk-ico::before { content: ''; position: absolute; left: 1.5px; top: 0; width: 6px; height: 7px; box-sizing: border-box; border: 1.5px solid currentColor; border-bottom: none; border-radius: 3px 3px 0 0; }
+.lk-ico::after { content: ''; position: absolute; left: 0; bottom: 0; width: 9px; height: 6px; background: currentColor; border-radius: 1.5px; }
+.c-lk { position: absolute; left: 4px; bottom: 3px; line-height: 0; color: #f0c674; filter: drop-shadow(0 1px 1px #000) drop-shadow(0 0 2px #000); }
+.eq .c-lk { bottom: auto; top: 3px; left: 4px; }
+.act-row .btn.lk-btn { flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 0 10px; color: var(--dim); }
+.act-row .btn.lk-btn.on { color: #f0c674; border-color: #8a6424; }
+.ic-lk { display: flex; align-items: center; gap: 6px; margin-top: 7px; font-size: 12px; color: #f0c674; }
 .res-cur { display: inline-flex; align-items: center; gap: 3px; color: color-mix(in srgb, var(--c) 72%, #fff); }
 .res-cur .ico { width: 20px; height: 20px; }
 .inv-tips.coach { gap: 8px; font-size: 12.5px; color: #f0e2c8; border-top-color: #c58a4a; }
@@ -2542,6 +2559,38 @@ body.panel-open #coach { display: none; }
 #combo.t1 { --cc: #ffd75e; }
 #combo.t2 { --cc: #ff9a3c; }
 #combo.t3 { --cc: #ff5a44; }
+
+/* ---- 右上：主线追踪条（小地图正下方，quest D1）。没有底板，只用文字阴影，和区域名一类 ---- */
+#quest {
+  position: absolute;
+  right: 14px;
+  top: 194px;
+  width: 210px;
+  text-align: right;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s;
+  text-shadow: 0 1px 3px #000, 0 0 6px #000, 0 0 2px #000;
+}
+#quest.on { opacity: 1; }
+/* 追踪条显示时连击计数往下让：矮屏幕上 34% 正好落在追踪条里（设计稿 §7）；340 px 连按住 Alt 展开的详情（到约 330 px）也让开 */
+body.quest-on #combo { top: max(34%, 340px); }
+body.panel-open #quest { display: none; }
+.q-k { font-size: 11.5px; line-height: 16px; letter-spacing: 2px; color: #d9a66a; }
+.q-goal { font-size: 13.5px; line-height: 21px; font-weight: 600; letter-spacing: 1px; color: #f6e6c4; }
+.q-how { font-size: 12px; line-height: 17px; color: #b6a88f; }
+.q-alt { display: none; margin-top: 5px; font-size: 12px; line-height: 18px; color: #e2d4b8; text-wrap: balance; }
+.q-alt .q-lore { margin-top: 2px; color: #9d917e; }
+.q-lore span { display: inline-block; } /* 背景句只在逗号处换行 */
+.q-h { margin-top: 3px; font-size: 11px; line-height: 15px; color: #857a69; }
+.q-h kbd { margin: 0 1px; font-size: 10px; line-height: 13px; }
+body.alt-on #quest .q-alt { display: block; }
+body.alt-on #quest .q-h { display: none; }
+#quest.pulse .q-goal, #quest.pulse .q-k { animation: q-pulse 1.2s ease-out; }
+@keyframes q-pulse {
+  0% { color: #fff6e0; text-shadow: 0 0 14px rgba(255, 190, 90, 0.95), 0 1px 3px #000; }
+  100% { text-shadow: 0 1px 3px #000, 0 0 6px #000, 0 0 2px #000; }
+}
 
 /* ---- 技能格上方的连段指示：三格，第三格（终结技）更宽 ---- */
 .s-combo { position: absolute; left: 50%; top: -17px; display: none; gap: 3px; transform: translateX(-50%); }
@@ -3686,7 +3735,7 @@ body.paused #reticle, body.paused #coach { display: none; }
 .st-cap {
   position: absolute;
   z-index: 6;
-  max-width: 50%;
+  max-width: max(50%, 300px); /* 很小的横屏上一行 18 个字也放得下 */
   padding: 0.5em 0.85em 0.55em;
   font-family: var(--sans);
   font-weight: 600;
@@ -3703,7 +3752,7 @@ body.paused #reticle, body.paused #coach { display: none; }
 .st-cap.at-tl { left: 4%; top: 5.5%; }
 .st-cap.at-tr { right: 4%; top: 5.5%; }
 .st-cap.at-bl { left: 4%; bottom: 6.5%; }
-.st-cap.at-br { right: 4%; bottom: 6.5%; }
+.st-cap.at-br { right: 4%; bottom: max(6.5%, 50px); } /* 矮的横屏上别压到右下角的「跳过」 */
 /* 竖屏：字幕放到画面下面，不压在画上 */
 #story.tall .st-cap { left: 16px; right: 16px; top: var(--st-top, auto); bottom: auto; max-width: none; text-align: center; }
 #story.tall .st-cap p { white-space: normal; }
