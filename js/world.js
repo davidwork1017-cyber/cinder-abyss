@@ -24336,13 +24336,13 @@
     if (!PF.vShape) return;
     const R = r + (boss ? 1.6 : 0.7);
     if (!b1Take()) {
-      W.vDecal(VVD.frost, x, z, R * 0.45, 1.8, 0x4f7f8c, { r1: R, grow: 0.25 }); // 超出每帧上限的：只留霜痕
+      W.vDecal(VVD.frost, x, z, R * 0.45, 1.8, 0x2e4c58, { r1: R, grow: 0.25 }); // 超出每帧上限的：只留霜痕
       return;
     }
     b1Ring(x, z, r + 1.2, 0x7fbcd8, 0x24506a, 0.36, 0.12);
     b1Crystals(x, z, r + 0.35, (lo ? 3 : 6) + (boss ? 2 : 0), 0.9 + r * 0.6 + (boss ? 0.5 : 0), 0.6);
     b1Shards(x, Math.min(2, h * 0.6), z, lo ? 3 : 6, r * 0.5, 1.8);
-    W.vDecal(VVD.frost, x, z, R * 0.45, boss ? 3 : 2.2, 0x4f7f8c, { r1: R, grow: 0.25 });
+    W.vDecal(VVD.frost, x, z, R * 0.45, boss ? 3 : 2.2, 0x2e4c58, { r1: R, grow: 0.25 });
   }
   // 冰爆（霜环「冰爆」/ 凛冬的碎尸）：细环 + 外沿一圈冰晶 + 冰碴 + 霜痕。空取：W.decal 2 次 + flare 1 次 + 18 粒冰碴（每粒 5 次）+ 8 团霜雾（每团 5 次）
   function b1FrostBlast(x, z, R) {
@@ -24350,13 +24350,13 @@
     if (!PF.vShape) return;
     const lo = qualId === 'low';
     if (!b1Take()) {
-      W.vDecal(VVD.frost, x, z, R * 0.35, 1.4, 0x4f7f8c, { r1: R * 0.7, grow: 0.2 });
+      W.vDecal(VVD.frost, x, z, R * 0.35, 1.4, 0x2e4c58, { r1: R * 0.7, grow: 0.2 });
       return;
     }
     b1Ring(x, z, R, 0x7fbcd8, 0x1f4a66, 0.34, 0.12);
     b1Crystals(x, z, R * 0.92, lo ? 3 : 6, 0.8 + R * 0.12, 0.55);
     b1Shards(x, 1.0, z, lo ? 3 : 6, 0.3, 2 + R * 0.6);
-    W.vDecal(VVD.frost, x, z, R * 0.35, 1.6, 0x4f7f8c, { r1: R * 0.7, grow: 0.2 });
+    W.vDecal(VVD.frost, x, z, R * 0.35, 1.6, 0x2e4c58, { r1: R * 0.7, grow: 0.2 });
   }
   // 地脉涌：外沿一道往外推的细冲击环 + 长在环上的一圈火舌（往外窜）；中间不放亮面，余波是焦痕 + 一道道冷下去的熔岩裂纹 + 几块碎石
   // 空取：W.decal 2 + 起始角 1 + 6 道光带 12 + 26 粒光点（每粒 7 次）+ W.burst 22 粒 + flare 1
@@ -24372,7 +24372,7 @@
     b1Cracks(x, z, r, lo ? 4 : 7, cr[0], cr[1], 0.3, 2.4);
     b1Chips(x, 0.4, z, lo ? 3 : 6, 0.6, 3, 6.5, 0x5c4c44, 0x3e342e, 0.12, 0.22);
     const vk = type === 'cold' ? VVD.frost : type === 'chaos' ? VVD.void : VVD.scorch;
-    W.vDecal(vk, x, z, r * 0.5, 3.5, type === 'cold' ? 0x4f7f8c : dk);
+    W.vDecal(vk, x, z, r * 0.5, 3.5, type === 'cold' ? 0x2e4c58 : dk);
     if (!lo) W.fxFlip(VFB.smoke, x, 0.6, z, 1.6, 1.2, 0x3a302a, { vy: 0.6, up: 0.3, grow: 1.7, a: 0.8 });
     flashLight(x, 2.2, z, h, 1.2);
   }
@@ -24441,7 +24441,7 @@
       b1Ring(x, z, r, 0x7fbcd8, 0x1f4a66, 0.3, 0.12);
       b1Crystals(x, z, r * 0.7, lo ? 3 : 6, 0.9 + r * 0.2, 0.55);
       b1Shards(x, 0.6, z, lo ? 3 : 6, 0.3, 3);
-      W.vDecal(VVD.frost, x, z, r * 0.45, 2.4, 0x4f7f8c, { r1: r * 0.9, grow: 0.2 });
+      W.vDecal(VVD.frost, x, z, r * 0.45, 2.4, 0x2e4c58, { r1: r * 0.9, grow: 0.2 });
       flashLight(x, 2, z, hx, 1.2);
       return;
     }
