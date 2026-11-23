@@ -12540,8 +12540,19 @@
 
   // 挂点的世界坐标：weapon（武器尖端）/ hand / head / chest。结果写进 out（不传则新建一个对象返回）；
   // 每帧都要取的地方请传入自己的 out，避免分配。
+  // 测试用：W.sockShift = { x, y, z } 时玩家的每个挂点（武器尖端 / 手 / 出手点……）整体挪开一点，证明姿势 / 挂点不改变模拟和取随机数的次数
+  W.sockShift = null;
+  const sockShift = (ent, o) => {
+    const s = W.sockShift;
+    if (s && ent === pEnt()) { o.x += s.x; o.y += s.y; o.z += s.z; }
+    return o;
+  };
   W.entSocket = function (ent, name, out) {
     const o = out || { x: 0, y: 0, z: 0 };
+    if (W.sockShift) return sockShift(ent, entSocket0(ent, name, o));
+    return entSocket0(ent, name, o);
+  };
+  function entSocket0(ent, name, o) {
     const s = (ent.sock && ent.sock[name]) || ent.rig.sockets[name];
     const g = ent.group, k = g.scale.x * ent.k;
     let x = 0, y = ent.rig.height * 0.6, z = 0;
@@ -12574,7 +12585,7 @@
     o.x = g.position.x + (x * cs + z * sn) * k;
     o.y = g.position.y + y * k;
     o.z = g.position.z + (z * cs - x * sn) * k;
-    return o;
+    return W.sockShift ? sockShift(ent, o) : o;
   };
   // 这一帧打出去的弹丸画面上从哪儿出来：投掷动作（掷焰 / 飞刃 / 散钉……）从投掷的那只手；
   // 远程武器 / 施法武器、或者正在播武器自己的出手动作（fire_ / r_ / w_ / b_）时从武器的出手点；其余（近战武器施法）从左手
@@ -21252,7 +21263,6 @@
   }
   // 把输入折线细分成锯齿路径，再挤出成贴地朝上的带子；主干上再随机岔出几根渐细的分叉。
   // 各段之间用零宽的顶点对隔开（连接处的四边形面积为零），主干和分叉共用一条带子、一次 draw call
-  const BOLT_SIMCNT = { 1: 1, [G_BAN]: 1, [G_GAT]: 1, [G_FLM]: 1 };
   function boltBuild(b) {
     const path = b.path, wid = b.wid, HW = b.hw || 0.36; // 链雷（vf-vfx2）的主干细一些：横过被打的怪时少盖住一点
     let np = 0;
@@ -21338,9 +21348,9 @@
     }
     // o.emit：玩家用武器放的（疾咒的链雷）——折线从杖头起，不从胸口（只改画面，调用方的点不动）
     const pe = o && o.emit && !W.emitOff ? pEnt() : null;
-    // skill-5a：长杖 / 魂幡 / 机炮 / 喷枪施法的姿势改了（杖拄地、枪端在胸前），出手点跟着挪；第一段折线细分几节（取几次随机数）
-    // 按模拟给的起点算，不按出手点算，取随机数的次数不随姿势变（短杖、弓照旧按出手点算，和以前一模一样）
-    b.cnt0 = pe && BOLT_SIMCNT[pe.gearType] ? 1 : 0;
+    // skill-5a：画面从出手点起时，第一段折线细分几节（取几次随机数）按模拟给的起点算，不按出手点算——
+    // 取随机数的次数不随姿势 / 挂点变（muzzle-socket 之后按出手点算，杖头摆到哪儿会改变后面整场的随机序列）
+    b.cnt0 = pe ? 1 : 0;
     b.sx0 = b.inX[0];
     b.sz0 = b.inZ[0];
     if (pe) {

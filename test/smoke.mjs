@@ -11611,6 +11611,108 @@ async function main() {
     return '哈希 ' + on.hash + '，取随机数 ' + on.calls + ' 次，弹丸 ' + on.shots + ' 发，伤害 ' + on.dmg + '；播到 ' + on.clips;
   });
 
+  await step('挂点只动画面：同一个种子拿长杖 / 魂幡 / 短杖 / 机炮 / 喷枪 / 左轮 / 长弓 / 冰弓打同一场（链雷 / 飞刃 / 远程普攻，边走边打），玩家的挂点（武器尖端 / 手 / 出手点）整体挪开一截和不挪，结果和取随机数的次数一模一样', async () => {
+    const KEY = 'cinder-abyss-save-v1';
+    const save0 = await ev((KEY) => localStorage.getItem(KEY), KEY);
+    const god0 = await ev(() => !!G.player.god);
+    const fresh = async (hold) => {
+      await ev(
+        ([KEY, s, hold]) => {
+          G.holdSave(true);
+          localStorage.setItem(KEY, s);
+          if (hold) sessionStorage.setItem('cinder-test-hold', '1');
+          else sessionStorage.removeItem('cinder-test-hold');
+        },
+        [KEY, save0, hold]
+      );
+      await page.reload({ timeout: 90000 });
+      await install();
+      await until(() => !G.world.assetsPending(), null, 60000);
+      if (!hold) return;
+      await ev(() => {
+        G.debug.zoneSeed(4242);
+        G.enterZone(0, 0);
+      });
+      await until(() => !G.world.assetsPending(), null, 60000);
+    };
+    const run = (off) =>
+      ev(([code, off]) => {
+        eval(code);
+        const P = G.player, S = G.state, W = G.world, save = G.save;
+        window.__testRand.seed('挂点·只动画面');
+        T.arena();
+        P.god = true;
+        W.sockShift = off ? { x: 0.37, y: 0.21, z: -0.29 } : null;
+        const base = Math.random;
+        let calls = 0, shots = 0;
+        Math.random = function () { calls++; return base.call(this); };
+        const sp0 = G.spawnProjectile;
+        G.spawnProjectile = function () { shots++; return sp0.apply(this, arguments); };
+        const es = [[-1.6, -3.4], [0.4, -3.9], [3.0, -1.8], [-3.6, -0.4], [3.4, 0.6], [1.2, 2.2]].map(([dx, dz]) => {
+          const e = G.spawnMob('husk', P.x + dx, P.z + dz, 1, { awake: true });
+          e.wasAwake = true;
+          e.hp = e.maxHp = 1e6;
+          return e;
+        });
+        for (const id of ['blade', 'arc']) {
+          save.skills[id] = Math.max(1, save.skills[id] || 0);
+          save.sockets[id] = save.sockets[id] || [null, null, null];
+        }
+        const clips = {};
+        try {
+          for (const [k, b] of [[0, 1], [1, 7], [2, 2], [3, 8], [4, 9], [5, 12], [6, 5], [7, 13]]) {
+            RW.arm(b);
+            for (let i = 0; i < 150; i++) {
+              const e = es[(k + Math.floor(i / 30)) % es.length];
+              T.aim(e.x, e.z);
+              // 链雷每 25 帧一下（画面从出手点起），飞刃一下，最后按住右键普攻
+              save.bar = ['blade', null, 'arc', null];
+              if (i === 2) G.computeStats();
+              if (i % 25 === 10 && i < 110) G.input.tap[2] = 0.3;
+              if (i === 112) G.input.tap[0] = 0.3;
+              G.input.mouse.b[2] = i >= 125 && i < 145;
+              G.input.keys.KeyD = i >= 118 && i < 140; // 边走边打：持枪找平、减掉胯的转角
+              P.mana = P.maxMana;
+              G.tick(1 / 60);
+              const cn = W.clipOf(P.ent);
+              if (cn) clips[cn] = (clips[cn] || 0) + 1;
+            }
+            G.input.keys.KeyD = false;
+            G.input.mouse.b[2] = false;
+          }
+        } finally {
+          G.input.mouse.b[2] = false;
+          G.input.keys.KeyD = false;
+          G.input.tap.fill(0);
+          Math.random = base;
+          G.spawnProjectile = sp0;
+          W.sockShift = null;
+        }
+        const st = JSON.stringify({ p: [P.x, P.z, P.life, P.mana], e: S.enemies.map((o) => [o.x, o.z, o.hp, o.dead]), proj: S.projectiles.map((q) => [q.x, q.z]), calls, shots });
+        let h = 2166136261;
+        for (let i = 0; i < st.length; i++) h = Math.imul(h ^ st.charCodeAt(i), 16777619);
+        const dmg = es.reduce((a, e) => a + (e.maxHp - e.hp), 0);
+        return { hash: (h >>> 0).toString(16), calls, shots, dmg: Math.round(dmg), clips: Object.keys(clips).sort().join(',') };
+      }, [rangedSetup, off]);
+    let on, off;
+    try {
+      await fresh(true);
+      on = await run(false);
+      await fresh(true);
+      off = await run(true);
+    } finally {
+      await fresh(false);
+      await ev((god0) => {
+        G.debug.hold(true);
+        G.debug.god(god0);
+      }, god0);
+    }
+    assert(on.hash === off.hash && on.calls === off.calls && on.shots === off.shots, '挂点挪开 / 不挪打出来不一样：' + JSON.stringify({ on, off }));
+    assert(on.dmg > 0 && on.shots >= 6, '这一场没打起来：' + JSON.stringify(on));
+    for (const n of ['throw', 'cast', 'fire_revolver', 'fire_eagle']) assert(on.clips.split(',').includes(n), '这一场没播到 ' + n + '：' + on.clips);
+    return '哈希 ' + on.hash + '，取随机数 ' + on.calls + ' 次，弹丸 ' + on.shots + ' 发，伤害 ' + on.dmg + '；播到 ' + on.clips;
+  });
+
   await step('刷新后仍可正常游玩：移动、施法、面板', async () => {
     await ev(() => {
       T.arena();
