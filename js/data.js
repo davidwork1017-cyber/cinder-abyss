@@ -1060,14 +1060,14 @@
         set: { mech: 'bore', explode: 0, pool: null, basicSec: 0.355, bore: { step: 0.05, max: 0.15, cap: 4 }, wm: 0.98, useMult: 1, tags: ['attack', 'projectile', 'fire'] },
       },
     },
-    // 雷楔 A 雷网：打空的楔子钉在准星的地上（存在 dur 秒），link 米内的楔子两两拉出电线（最多 lines 根，新的顶掉旧的），线上的敌人每 tick 秒挨 k 份；
+    // 雷楔 A 雷网：打空的楔子钉在准星附近的地上、放完电的楔子掉在敌人脚下（存在 dur 秒），link 米内的楔子两两拉出电线（最多 lines 根，新的顶掉旧的），线上的敌人每 tick 秒挨 k 份；
     //            打中敌人的照原式放电
     //      B 闷雷：delay 秒后才放电（身上同时留着的楔子更多），每一下 zap 更高，大量累积感电（ailment），不再连锁。单体按 useMult 和原式对等（+8%）
     wedge: {
       a: {
         name: '雷网', pack: '朝地上打布网；单体照原式',
-        desc: '打空的楔子钉在准星附近的地上；4 米内的楔子两两拉出电线，线上的敌人持续挨电。', alt: '地上的楔子存在 7 秒，电线最多 3 根，每 0.25 秒电一下。打中敌人的楔子照原式放电。',
-        set: { mech: 'net', net: { dur: 7, link: 4, lines: 3, tick: 0.25, k: 0.25, w: 0.6 }, useMult: 1.07, tags: ['attack', 'projectile', 'chaining', 'light', 'duration'] },
+        desc: '打空的楔子钉在准星附近的地上，放完电的楔子掉在敌人脚下；4 米内的楔子两两拉出电线，线上的敌人持续挨电。', alt: '地上的楔子存在 7 秒、最多 6 枚，电线最多 3 根，每 0.25 秒电一下。打中敌人的楔子照原式放电。',
+        set: { mech: 'net', net: { dur: 7, link: 4, lines: 3, tick: 0.25, k: 0.12, w: 0.6 }, useMult: 1.07, tags: ['attack', 'projectile', 'chaining', 'light', 'duration'] },
       },
       b: {
         name: '闷雷', pack: '单体更痛；不连锁',

@@ -9423,6 +9423,7 @@
       const tg = W0.n > 0 ? nearestOthers(e, W0.r * Math.sqrt(ctx.area), W0.n) : [];
       for (const o of tg) G.hitEnemy(o, ctx, m * W0.chainK, { ang: Math.atan2(o.x - e.x, o.z - e.z), w: 0, kb: 0, poise: 2, quiet: true });
       fxOpt('wedgeZap', e, tg, st);
+      if (ctx.sk.mech === 'net') netPlant(ctx, e.x, e.z); // 雷网：放完电的楔子掉在敌人脚下，接着拉线
       G.sfx('round', { type: 'zap' });
     });
   }
@@ -9434,9 +9435,13 @@
       x -= p.dx * 0.6;
       z -= p.dz * 0.6;
     }
-    const N = p.ctx.sk.net;
+    netPlant(p.ctx, x, z);
+  }
+  function netPlant(ctx, x, z) {
+    const N = ctx.sk.net;
+    if (!N) return;
     while (netWedges.length >= NET_MAX) fxOpt('netWedge', netWedges.shift(), false);
-    const w = { x, z, t: N.dur * p.ctx.durK, ctx: p.ctx, born: state.time + netWedges.length * 1e-6 };
+    const w = { x, z, t: N.dur * ctx.durK, ctx, born: state.time + netWedges.length * 1e-6 };
     netWedges.push(w);
     fxOpt('netWedge', w, true);
     netRelink();
