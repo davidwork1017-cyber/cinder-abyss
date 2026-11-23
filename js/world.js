@@ -24240,7 +24240,7 @@
   // 爆燃 / 冻结在怪群里一帧能连着炸十几个：每帧只有前几个画全套，多出来的只留地面痕迹（空取照旧，件数不会把形状批的环形缓冲冲掉）
   // 另外形状批里活着的件超过 B1_LIVE 时也只画环（环形缓冲 384 件，留给技能本身的件）
   const B1_CAP = { high: 3, mid: 3, low: 2 }, B1_LIVE = 240;
-  let b1N = 0, b1Peak = 0, b1Full = 0;
+  let b1N = 0, b1Peak = 0, b1Full = 0, vsFrameAll = 0;
   W.b1Info = () => ({ n: b1N, peak: b1Peak, full: b1Full, cap: B1_CAP[qualId] || 3 });
   W.b1Reset = () => { b1Peak = 0; b1Full = 0; };
   function b1Take() {
@@ -24316,7 +24316,7 @@
     rBurn(lo ? 2 + 30 + 48 : 53 + 84); // 少的那 1 次给下面的小星（tChunk 自己取 1 次）
     tChunk(1, x, 0.9, z, 0, 0, 0, 0.06, 0.8, 0xffe2a0, 0xff8a3a, 0);
     b1Ring(x, z, R, 0xffb050, 0x8a2a10, 0.36, 0.35);
-    b1Tongues(x, z, R, lo ? 4 : 8, 0.5 + R * 0.12, 0.42, R * 0.5);
+    b1Tongues(x, z, R, lo ? 3 : 6, 0.5 + R * 0.12, 0.42, R * 0.5);
     vsBrush(VSH.chip, 0, 0, 0xff9a4a, 0x5a1e10, 0.3, 0.2, 0.4);
     for (let i = 0, n = lo ? 3 : 6; i < n; i++) {
       const a = vr(0, TAU), d = R * vr(0.2, 0.8);
@@ -24350,7 +24350,7 @@
       return;
     }
     b1Ring(x, z, R, 0x7fbcd8, 0x1f4a66, 0.34, 0.12);
-    b1Crystals(x, z, R * 0.92, lo ? 4 : 8, 0.8 + R * 0.12, 0.55);
+    b1Crystals(x, z, R * 0.92, lo ? 3 : 6, 0.8 + R * 0.12, 0.55);
     b1Shards(x, 1.0, z, lo ? 3 : 6, 0.3, 2 + R * 0.6);
     W.vDecal(VVD.frost, x, z, R * 0.35, 1.6, 0x4f7f8c, { r1: R * 0.7, grow: 0.2 });
   }
@@ -24362,7 +24362,7 @@
     if (!PF.vShape) return;
     const lo = qualId === 'low', h = hexOf(hex), cr = B1_GB_CRACK[type] || B1_GB_CRACK.fire;
     const hi = mixHex(h, 0xffe0a0, 0.25), dk = mixHex(h, 0x000000, 0.6);
-    W.thinRing(x, z, r, hi, dk, 0.45);
+    W.thinRing(x, z, r, hi, dk, 0.32);
     if (type === 'cold') b1Crystals(x, z, r * 0.92, lo ? 6 : 12, 1.4, 0.6);
     else b1Tongues(x, z, r, lo ? 5 : 10, 1.35, 0.5, r * 0.12, mixHex(h, 0xffd080, 0.35), mixHex(h, 0x000000, 0.25));
     b1Cracks(x, z, r, lo ? 4 : 7, cr[0], cr[1], 0.3, 2.4);
@@ -26528,10 +26528,16 @@
   };
   // 三相共鸣：三色（火 / 冰 / 雷）的三道圈从中心推开，火星流从触发的敌人涌向每个被灌的敌人（另外两种颜色交替）
   const TRI_HEX = { fire: 0xff7a2c, cold: 0x7fd4ff, light: 0xffe45e };
+  // skill-b1：三道 5 米的圈原来是形状批的整环件（放大到 5 米是三道粗带，三相天灾里一秒共鸣好几次，叠成一片三色的漩涡）→ 细线段环；
+  // 一帧里只有前两次共鸣画这三道圈（每个被灌的敌人脚下的小圈照旧）
+  let triFxN = 0, triFxF = -1;
   W.triFx = function (x0, z0, R, t, targets) {
-    W.ring(x0, z0, R, TRI_HEX.fire, 0.7);
-    W.ring(x0, z0, R * 0.8, TRI_HEX.cold, 0.6);
-    W.ring(x0, z0, R * 0.6, TRI_HEX.light, 0.5);
+    if (triFxF !== vsFrameAll) { triFxF = vsFrameAll; triFxN = 0; }
+    if (++triFxN <= 2) {
+      W.thinRing(x0, z0, R, TRI_HEX.fire, mixHex(TRI_HEX.fire, 0x000000, 0.55), 0.7, 16);
+      W.thinRing(x0, z0, R * 0.8, TRI_HEX.cold, mixHex(TRI_HEX.cold, 0x000000, 0.55), 0.6, 16);
+      W.thinRing(x0, z0, R * 0.6, TRI_HEX.light, mixHex(TRI_HEX.light, 0x000000, 0.55), 0.5, 14);
+    }
     flashLight(x0, 2.2, z0, 0xffe8d0, 1.2);
     const others = ['fire', 'cold', 'light'].filter((x) => x !== t);
     for (const k of ['fire', 'cold', 'light']) W.burst(x0, 1.2, z0, TRI_HEX[k], 10, 5, 0.5);
@@ -28663,6 +28669,7 @@
     poolUpdate(ringPool, dt);
     poolUpdate(slashPool, dt);
     b1N = 0; // skill-b1：爆燃 / 冻结每帧画全套的计数
+    vsFrameAll++;
     updateBolts(dt);
     updateAura(dt);
     updateDark(dt);

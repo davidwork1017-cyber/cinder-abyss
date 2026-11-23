@@ -10246,7 +10246,7 @@ async function main() {
     const H = r.high, L = r.low;
     assert(H.d1 <= H.d0 && L.d1 <= L.d0, '爆燃 / 冻结 / 冰爆不该多出 draw：' + JSON.stringify(r));
     assert(H.blast === 138 && L.blast === 81 && H.freeze === 156 && L.freeze === 158 && H.boss === 216 && L.boss === 218 && H.frost === 133 && L.frost === 133, '爆燃 / 冻结 / 冰爆的 Math.random 取数应和换之前一样：' + JSON.stringify(r));
-    assert(H.peak === 20 && H.flood > 20 && H.flood <= H.cap * 26 && L.flood > 0 && L.flood <= L.cap * 13 && L.flood < H.flood, '一帧连炸 20 个爆燃时形状批的件数应有上限（只有前几个画全套）：' + JSON.stringify(r));
+    assert(H.peak === 20 && H.flood > 20 && H.flood <= H.cap * 24 && L.flood > 0 && L.flood <= L.cap * 12 && L.flood < H.flood, '一帧连炸 20 个爆燃时形状批的件数应有上限（只有前几个画全套）：' + JSON.stringify(r));
     return 'draw 高 ' + H.d0 + '→' + H.d1 + ' / 低 ' + L.d0 + '→' + L.d1 + '，取数 ' + [H.blast, L.blast, H.freeze, H.frost].join(' / ') + '，连炸 20 个：件数 高 ' + H.flood + ' / 低 ' + L.flood;
   });
 
