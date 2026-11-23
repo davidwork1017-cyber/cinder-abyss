@@ -18,6 +18,12 @@
       /* 存储不可用就照常显示 */
     }
     if (!skip) document.documentElement.classList.add('title-on');
+    // 换角色 / 新建后的重载：先盖一层「正在载入角色…」，区域建好后由 main.js 揭开（class-d2）
+    try {
+      if (sessionStorage.getItem('cinder-abyss-load-char')) document.documentElement.classList.add('char-loading');
+    } catch (e) {
+      /* 存储不可用就不盖 */
+    }
   })();
 </script>
 </head>
@@ -229,6 +235,9 @@
   </div>
   <div class="t-foot"><span>烬渊 v0.1.0 · 原创网页动作 RPG</span><button type="button" class="t-link" tabindex="-1" data-tact="credits">致谢</button></div>
 </div>
+
+<!-- 换角色 / 新建角色重载时的遮罩（ui.js 的 loadingOn / loadingOff） -->
+<div id="load-char"><div class="lc-box"><i></i><span>正在载入角色…</span></div></div>
 
 <div id="drag-ghost"></div>
 

@@ -2230,6 +2230,98 @@
     price: { rare: { regal: 2, exalt: 1 }, magic: { dust: 3 }, gem: { augment: 2 }, relic: { exalt: 4, chaos: 4, divine: 2 } },
   };
 
+  // ---------- 职业（class-d2）----------
+  // 五个职业，14 种武器每种只归一个职业（G.WTYPE_CLS 由下表推出来）。save.cls 没有或不认识时一切照职业之前的规则：
+  // 不限武器、不限技能、掉落权重不变（测试 harness、bench、旧代码写回的存档都走这条路，Math.random 的调用次数也不变）。
+  // start：新角色的起手武器类型和起手技能；node：白送的起步天赋（不花天赋点），name 是这个职业给它起的名字；
+  // tags：选择页上的玩法标签；line：一句话；skLine：起手技能一句话
+  G.CLASS_IDS = ['guard', 'hunt', 'star', 'lamp', 'forge'];
+  G.CLASSES = {
+    guard: {
+      name: '烬卫', color: '#e2705a', tags: ['近战'], weapons: ['blade', 'hammer', 'katana'],
+      line: '胸口的余烬烧得最旺，顶在最前面，替身后的火挡住灰。',
+      start: { type: 'blade', skill: 'rend' }, skLine: '交叉两刀，让敌人流血',
+      node: { id: 'sm0', name: '烬卫 · 不熄', note: '烬卫的起步天赋：胸口那团火，先替你多扛一下。' },
+    },
+    hunt: {
+      name: '夜猎', color: '#7ed67a', tags: ['近战', '远程'], weapons: ['daggers', 'huntbow', 'emberbow'],
+      line: '灰把天遮住以后，在暗处和冰泥里追猎游魂，靠一双快手活下来。',
+      start: { type: 'huntbow', skill: 'blade' }, skLine: '掷出旋转利刃，穿透 2 个敌人',
+      node: { id: 'dm0', name: '夜猎 · 快手', note: '夜猎的起步天赋：出手比别人快一点。' },
+    },
+    star: {
+      name: '引星人', color: '#6fb2ff', tags: ['法术', '远程'], weapons: ['staff', 'runebow', 'eagle'],
+      line: '盯着天上的裂缝，从坠下的星火里借一点来烧敌人。',
+      start: { type: 'staff', skill: 'ember' }, skLine: '掷出火团，命中后小范围爆炸',
+      node: { id: 'im0', name: '引星人 · 望天', note: '引星人的起步天赋：多攒一点借火用的魔力。' },
+    },
+    lamp: {
+      name: '掌灯人', color: '#4fe3c8', tags: ['召唤', '法术'], weapons: ['banner', 'wand'],
+      line: '把自己的余烬分给倒下的骸骨，让它们站起来替你打。',
+      start: { type: 'banner', skill: 'thrall' }, skLine: '召唤骸骨剑士替你打',
+      node: { id: 'mm0', name: '掌灯人 · 分烬', note: '掌灯人的起步天赋：分出去的火烧得更旺，召唤物伤害更高。' },
+    },
+    forge: {
+      name: '炉匠', color: '#ffb35a', tags: ['枪械', '远程'], weapons: ['gatling', 'flamer', 'revolver'],
+      line: '把首领剩下的火塞进铁膛，打成连发的火。',
+      start: { type: 'gatling', skill: 'nails' }, skLine: '扇形打出 5 枚铁钉',
+      node: { id: 'sm0', name: '炉匠 · 铁膂', note: '炉匠的起步天赋：扛得住铁膛的后坐力。' },
+    },
+  };
+  // 武器类型的叫法（推荐理由、选择页用）
+  G.WTYPE_LABEL = { blade: '刃', hammer: '战锤', katana: '太刀', daggers: '双匕', huntbow: '追猎弓', emberbow: '冰弓', staff: '长杖', runebow: '符文弓', eagle: '鹰眼长弓', banner: '魂幡', wand: '短杖', gatling: '机炮', flamer: '喷枪', revolver: '左轮' };
+  G.wTypeLabel = (t) => G.WTYPE_LABEL[t] || '武器';
+  G.WTYPE_CLS = {};
+  for (const c of G.CLASS_IDS) for (const t of G.CLASSES[c].weapons) G.WTYPE_CLS[t] = c;
+  // 技能宝石要什么武器（不写进 G.SKILLS：刻式会重拼那张表）。null = 通用（掷焰、光环、召唤）。
+  // 武器分组：melee 近战（刃 / 战锤 / 太刀 / 双匕）；bow 弓（四种弓）；hunt 猎弓（追猎弓 / 冰弓）；gun 枪（机炮 / 喷枪 / 左轮）；
+  // focus 法器（长杖 / 短杖 / 魂幡 + 引星人的符文弓 / 鹰眼长弓）
+  G.WGROUPS = {
+    melee: ['blade', 'hammer', 'katana', 'daggers'],
+    bow: ['huntbow', 'emberbow', 'eagle', 'runebow'],
+    hunt: ['huntbow', 'emberbow'],
+    gun: ['gatling', 'flamer', 'revolver'],
+    focus: ['staff', 'wand', 'banner', 'runebow', 'eagle'],
+  };
+  // need：宝石 → 能用它的武器分组（满足其一即可）；name：悬停里「需要 X」的说法
+  G.GEM_NEED = {
+    whirl: 'melee', rend: 'melee', blink: 'melee', shadestep: 'melee',
+    blade: 'shot', nails: 'huntgun',
+    arc: 'focus', meteor: 'focus', frostline: 'focus', icefall: 'focus', discharge: 'focus', tether: 'focus', blackhole: 'focus', vortex: 'focus',
+  };
+  G.NEED_GROUPS = { melee: ['melee'], shot: ['melee', 'bow', 'gun'], huntgun: ['hunt', 'gun'], focus: ['focus'] };
+  G.NEED_NAME = { melee: '近战武器', shot: '近战武器、弓或枪', huntgun: '猎弓或枪', focus: '法器（杖、魂幡、符文弓、鹰眼长弓）' };
+  // 某种武器类型能不能放某个宝石
+  G.typeFitsNeed = function (type, need) {
+    if (!need) return true;
+    if (!type) return false;
+    for (const g of G.NEED_GROUPS[need] || []) if (G.WGROUPS[g].indexOf(type) >= 0) return true;
+    return false;
+  };
+  // 某个职业能不能用某个宝石（它的武器里有一种合适就算）
+  G.classCanUse = function (cls, id) {
+    const C = G.CLASSES[cls];
+    if (!C) return true;
+    const need = G.GEM_NEED[id] || null;
+    return C.weapons.some((t) => G.typeFitsNeed(t, need));
+  };
+  // 每个职业能用的技能宝石（武器技不算）
+  G.classGems = (cls) => G.GEM_SKILLS.filter((id) => G.classCanUse(cls, id));
+  // 掉落加权：本职业武器占武器掉落的 CLASS_LOOT.weapon，本职业能用的技能宝石占 CLASS_LOOT.gem。
+  // 武器的倍率 M 按现在各基底的 drop 权重算准（M = w/(1−w) × 别的基底权重和 ÷ 本职业权重和），还是一次 G.weighted
+  G.CLASS_LOOT = { weapon: 0.65, gem: 0.75 };
+  G.CLASS_WM = {};
+  for (const c of G.CLASS_IDS) {
+    let own = 0, other = 0;
+    for (const b of G.BASES.weapon) {
+      const w = b.drop === undefined ? 1 : b.drop;
+      if (G.WTYPE_CLS[b.type] === c) own += w;
+      else other += w;
+    }
+    const k = G.CLASS_LOOT.weapon;
+    G.CLASS_WM[c] = own > 0 ? ((k / (1 - k)) * other) / own : 1;
+  }
+
   // ---------- 角色基础生命 / 魔力 ----------
   // LIFE_KNEE 级以内和改版前一样（每级 +12 生命、+6 魔力）；再往上每级多给 LIFE_LATE / MANA_LATE，
   // 跟上轮回层级里怪物伤害的成长
