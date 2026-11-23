@@ -2553,7 +2553,7 @@
       const cn = G.clsNodeOf ? G.clsNodeOf(id) : null; // 职业白送的起步天赋（class-d2）：职业色的圈 + 名字
       if (cn) {
         const len = Math.hypot(n.x, n.y) || 1, ux = n.x / len, uy = n.y / len;
-        const lx = ux * (r + 14), ly = uy * (r + 14) + (uy > 0.3 ? 14 : uy < -0.3 ? -4 : 5);
+        const lx = ux * (r + 24), ly = uy * (r + 24) + (uy > 0.3 ? 14 : uy < -0.3 ? -4 : 5);
         labels +=
           '<g transform="translate(' + n1(n.x) + ' ' + n1(n.y) + ')"><text class="tl cls alloc" style="--c:' + G.clsDef().color + '" x="' + n1(lx) + '" y="' + n1(ly) + '" text-anchor="' + (ux > 0.3 ? 'start' : ux < -0.3 ? 'end' : 'middle') + '">' + cn.name + '</text></g>';
       }
@@ -5045,7 +5045,7 @@
     const narrow = innerWidth < 560;
     const side = narrow ? 3.5 * (1 - k) : 3.5;
     const ox = o.x * c + o.z * s, oz = -o.x * s + o.z * c, ol = Math.hypot(ox, oz) || 1;
-    const fwd = (narrow ? -2.6 : 0.9) * k; // 沿镜头朝向（水平）挪：正 = 远离镜头，主角在画面里往下
+    const fwd = (narrow ? -1.8 : 0.9) * k; // 沿镜头朝向（水平）挪：正 = 远离镜头，主角在画面里往下
     // 焦点往镜头左边让 3.5 米：角色站在画面右侧，左边一栏留给标志和按钮
     const fx = menu.focus.x + (Math.sin(t * 0.045) * 1.6 - side * c) * z - (ox / ol) * fwd, fz = menu.focus.z + (Math.cos(t * 0.07) * 1.0 + side * s) * z - (oz / ol) * fwd;
     cam.position.set(fx + ox * z, menu.focus.y + o.y * z, fz + oz * z);

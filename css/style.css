@@ -3700,6 +3700,8 @@ html.title-on #reticle, html.title-on #vignette, html.title-on #lowlife, html.ti
 .cl-rec b { color: var(--ember-2); }
 .cl-list { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 #title.clsv .t-logo { display: none; }
+#title.clsv .m-host, #title.clsv .m-view, #title.clsv .m-body { min-width: 0; }
+.ch-acts { flex-wrap: wrap; }
 @media (max-width: 560px) {
   #title.clsv .t-main { left: 12px; right: 12px; width: auto; top: auto; bottom: 34px; max-height: 62vh; justify-content: flex-end; }
   #title.clsv .m-view { padding: 10px 12px 12px; }
