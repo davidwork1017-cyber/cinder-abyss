@@ -15921,7 +15921,7 @@ async function main() {
     return '30% → ' + r.s30;
   });
 
-  await step('渊式·回旋（回旋解锁）：飞刃穿透所有敌人，到射程尽头折返，回程 ×0.7 再中一次（靶子共吃 1.7 击）、牵一根丝线；退回原式不回旋（免费）；戴着时弓的普攻照旧折返（×0.6、射程 ×0.8），机炮和会爆的掷焰不回旋', async () => {
+  await step('渊式·回旋（回旋解锁）：飞刃穿透敌人（每程最多 8 个），到射程尽头折返，回程 ×0.7 再中一次（靶子共吃 1.7 击）、牵一根丝线；退回原式不回旋（免费）；戴着时弓的普攻照旧折返（×0.6、射程 ×0.8），机炮和会爆的掷焰不回旋', async () => {
     const r = await ev(() => {
       RQT.begin('huixuan');
       RQT.learn('blade', 0);
@@ -16127,7 +16127,7 @@ async function main() {
     return '混相 ' + r.one[3] + ' / 击';
   }));
 
-  await step('渊式·独骸（骸王冠解锁）：烬骸仆从上限固定 1，伤害 ×3.45（单体秒伤 = 3 具的 1.15）、生命 ×3、横斩带 12 个 / 270°、够得 ×3.5 远、牵制 5 只、减伤 +15；群聚多给的上限折成 +35% 伤害 / +40% 生命；骸王体型 ×1.5、头顶冠环；魂火按普通仆从算；摘下退回原式（上限 3）', async () => {
+  await step('渊式·独骸（骸王冠解锁）：烬骸仆从上限固定 1，伤害 ×3.45（单体秒伤 = 3 具的 1.15）、生命 ×3、横斩 270° 每刀最多 4 个、够得 ×3.5 远、牵制 5 只、减伤 +15；群聚多给的上限折成 +35% 伤害 / +40% 生命；骸王体型 ×1.5、头顶冠环；魂火按普通仆从算；摘下退回原式（上限 3）', async () => {
     const r = await ev(() => {
       const bar0 = T.slotSummon('thrall'); // 召唤物只在技能放在技能栏上时存在
       RQT.begin(null);
@@ -16181,7 +16181,7 @@ async function main() {
       return out;
     });
     assert(r.cap[1] === 1 && r.king && Math.abs(r.more - r.wantMore) < 1e-3 && Math.abs(r.life - r.wantLife) < 0.02, '骸王的上限 / 伤害 / 生命不对：' + JSON.stringify(r));
-    assert([r.cleave, r.arc, r.hold, r.dr, r.reach].join() === r.want.join() && r.want.join() === '12,270,5,15,3.5', '骸王的横斩 / 够得着 / 牵制 / 减伤不对：' + JSON.stringify(r));
+    assert([r.cleave, r.arc, r.hold, r.dr, r.reach].join() === r.want.join() && r.want.join() === '3,270,5,15,3.5', '骸王的横斩 / 够得着 / 牵制 / 减伤不对：' + JSON.stringify(r));
     assert((r.dps === null || Math.abs(r.dps - r.kdmg / 3) < 0.01) && r.soulK > 0 && r.soulK <= 1, '单体秒伤应约为 3 具的 骸王倍率 / 3、魂火按普通仆从算：' + JSON.stringify(r));
     assert(r.horde[0] === 1 && Math.abs(r.horde[1] - r.horde[2]) < 1e-3 && r.horde[3] === 1, '群聚多给的上限应折成伤害：' + JSON.stringify(r.horde));
     assert(r.count === 1 && r.big && r.big[0] && r.big[1] === 1.5 && r.big[2] === 1.5 && r.crown === 1, '骸王应只有 1 具、体型 ×1.5、头顶冠环：' + JSON.stringify(r));
@@ -16816,6 +16816,107 @@ async function main() {
     assert(r.c.mech === 'tide' && r.c.cap === 9 && r.c.p14 === 9 && r.c.p5 === 5 && r.c.b14 === 9 && r.c.b5 === 5, '蓄潮每下和潮涌应最多打到 9 个：' + JSON.stringify(r.c));
     return '14 只：每下 9 只、潮涌 9 只；5 只：全挨';
   });
+  await step('渊式上限：独骸的骸王每刀最多砍到 4 个（14 只围着时一刀 4 只，2 只时 2 只都挨）；回旋的利刃去程、回程各最多伤到 8 个（一排 12 只时去程 8、回程 8，5 只时都挨）', async () => {
+    const r = await ev(() => {
+      const P = G.player, out = {};
+      const dummy = (m) => {
+        G.initBuildUp(m);
+        m.buTh = 1e15;
+        m.poiseMax = 0;
+        m.hp = m.maxHp = 1e9;
+        return m;
+      };
+      // 独骸：骸王站定，周围一圈靶子（钉住、不掉血），数每一刀（同一帧）砍到几只
+      const bar0 = T.slotSummon('thrall');
+      RQT.begin('haiwang');
+      RQT.learn('thrall', 0);
+      T.fix(0.999);
+      out.kcap = G.VARIANTS.thrall.c.set.king.cleave + 1;
+      for (const n of [14, 2]) {
+        G.clearEnemies();
+        G.clearMinions();
+        G.summonMinion('thrall', P.x + 3, P.z);
+        G.relicTick(0.3);
+        const k = G.state.minions.find((m) => !m.dead && m.skill === 'thrall');
+        const kx = k.x, kz = k.z;
+        const ms = [];
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * Math.PI * 2, rr = 1.3 + (i % 3) * 0.3;
+          ms.push(dummy(T.mob('husk', kx + Math.sin(a) * rr, kz + Math.cos(a) * rr)));
+        }
+        const home = ms.map((m) => [m.x, m.z]);
+        let frame = new Set(), best = 0, swings = 0;
+        const orig = G.hitEnemy;
+        G.hitEnemy = function (e, ctx) {
+          if (ctx && ctx.id === 'thrall') frame.add(e);
+          return orig.apply(this, arguments);
+        };
+        for (let f = 0; f < 240; f++) {
+          frame = new Set();
+          G.tick(1 / 60);
+          ms.forEach((m, i) => {
+            m.x = home[i][0];
+            m.z = home[i][1];
+            m.hp = m.maxHp;
+          });
+          k.x = kx;
+          k.z = kz;
+          k.hp = k.maxHp;
+          P.life = P.maxLife;
+          if (frame.size) {
+            swings++;
+            best = Math.max(best, frame.size);
+          }
+        }
+        G.hitEnemy = orig;
+        out['k' + n] = [best, swings, !!k.king];
+      }
+      G.clearEnemies();
+      RQT.end();
+      G.save.bar = bar0;
+      // 回旋：沿飞行方向一排靶子（钉住），数去程、回程各伤到几只
+      RQT.begin('huixuan');
+      RQT.learn('blade', 0);
+      T.fix(0.999);
+      out.bcap = G.VARIANTS.blade.c.set.boom.cap;
+      const d = T.openDir(30);
+      out.open = Math.round(d.len);
+      for (const n of [12, 5]) {
+        G.clearEnemies();
+        G.resetRanged();
+        const ms = [];
+        for (let i = 0; i < n; i++) ms.push(dummy(T.mob('husk', P.x + d.x * (3 + i * 0.8), P.z + d.z * (3 + i * 0.8))));
+        const home = ms.map((m) => [m.x, m.z]);
+        const pass = { 1: new Set(), 2: new Set() };
+        const orig = G.hitEnemy;
+        G.hitEnemy = function (e, ctx, mult, info) {
+          const p = info && info.src;
+          if (ctx && ctx.id === 'blade' && p && pass[p.boom]) pass[p.boom].add(e);
+          return orig.apply(this, arguments);
+        };
+        T.aim(P.x + d.x * 6, P.z + d.z * 6);
+        P.cds = {};
+        P.mana = P.maxMana;
+        G.execSkill(G.skillCtx('blade'));
+        for (let f = 0; f < 240; f++) {
+          G.tick(1 / 60);
+          ms.forEach((m, i) => {
+            m.x = home[i][0];
+            m.z = home[i][1];
+            m.hp = m.maxHp;
+          });
+        }
+        G.hitEnemy = orig;
+        out['b' + n] = [pass[1].size, pass[2].size];
+      }
+      G.clearEnemies();
+      RQT.end();
+      return out;
+    });
+    assert(r.kcap === 4 && r.k14[2] && r.k14[1] > 0 && r.k14[0] === 4 && r.k2[0] === 2, '骸王每刀应最多砍到 4 只、2 只时都挨：' + JSON.stringify(r));
+    assert(r.bcap === 8 && r.b12.join() === '8,8' && r.b5.join() === '5,5', '回旋去程、回程应各最多伤到 8 只，5 只时都挨：' + JSON.stringify(r));
+    return '骸王一刀 ' + r.k14[0] + ' 只（' + r.k14[1] + ' 刀）；回旋一排 12 只：去程 ' + r.b12[0] + '、回程 ' + r.b12[1];
+  });
 
   await step('黑洞每跳最多伤到最近的 N 个：挤成一团的 18 只里原式 / 双极每跳 13 只、坍缩每跳 8 只（坍缩一下砸 7 只）、随核每跳 9 只，挨打的就是离洞（双极：离引力索、随核：离你）最近的那几只；只有 5 只时全挨', async () => {
     await ev(TVDEF);
@@ -17012,6 +17113,63 @@ async function main() {
     assert(r.txtB === '<b>黑洞·坍缩</b>：每跳最多伤到最近的 8 个敌人，坍缩最多砸 7 个；怪聚成一团时伤害约 −52%，分散的怪约 −23%，单体不变', '坍缩的提示不对：' + r.txtB);
     assert(r.txtC === '<b>黑洞·随核</b>：每跳最多伤到离你最近的 9 个敌人，怪聚成一团时伤害约 −44%，分散的怪约 −10%；单体不变', '随核的提示不对：' + r.txtC);
     return '老存档（学了黑洞）提示一次，按刻式写降幅，看过不再提示';
+  });
+  await step('独骸 / 回旋改版的提示：选着独骸（回旋）的老存档（没有 dhCap / hxCap）读档后各提示一次，写明上限和降幅，存档往返仍提示，看过不再提示；没选这个渊式的老存档、新存档都不提示', async () => {
+    const r = await ev((keep) => {
+      const out = {};
+      const load = (mut) => {
+        G.persist();
+        const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+        mut(raw);
+        localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+        G.loadSave();
+        return [G.kingNerfed || 0, G.save.dhNote, G.save.dhCap, G.boomNerfed || 0, G.save.hxNote, G.save.hxCap].join();
+      };
+      const old = (vars) => (raw) => {
+        delete raw.dhCap;
+        delete raw.dhNote;
+        delete raw.hxCap;
+        delete raw.hxNote;
+        raw.variants = vars;
+        if (raw.tut) {
+          delete raw.tut.dhnerf;
+          delete raw.tut.hxnerf;
+        }
+      };
+      out.oldK = load(old({ thrall: 'c' }));
+      out.round = load(() => {});
+      out.oldH = load(old({ blade: 'c' }));
+      out.both = load(old({ thrall: 'c', blade: 'c' }));
+      out.other = load(old({ thrall: 'a', blade: 'b' }));
+      out.fresh = load((raw) => {
+        raw.dhCap = 1;
+        raw.hxCap = 1;
+        raw.dhNote = false;
+        raw.hxNote = false;
+        raw.variants = { thrall: 'c', blade: 'c' };
+      });
+      G.save.tut.dhnerf = 1;
+      G.save.tut.hxnerf = 1;
+      G.save.dhNote = false;
+      G.save.hxNote = false;
+      out.seen = load((raw) => {
+        delete raw.dhCap;
+        delete raw.hxCap;
+        raw.variants = { thrall: 'c', blade: 'c' };
+      });
+      out.txtK = G.kingNerfNote();
+      out.txtH = G.boomNerfNote();
+      if (keep) localStorage.setItem('cinder-abyss-save-v1', keep);
+      G.loadSave();
+      G.computeStats();
+      return out;
+    }, varKeep);
+    assert(r.oldK === '1,true,1,0,false,1' && r.round === '1,true,1,0,false,1', '选着独骸的老存档应提示一次：' + JSON.stringify(r));
+    assert(r.oldH === '0,false,1,1,true,1' && r.both === '1,true,1,1,true,1', '选着回旋的老存档应提示一次：' + JSON.stringify(r));
+    assert(r.other === '0,false,1,0,false,1' && r.fresh === '0,false,1,0,false,1' && r.seen === '0,false,1,0,false,1', '没选这个渊式 / 新存档 / 看过的不该提示：' + JSON.stringify(r));
+    assert(r.txtK === '<b>独骸</b>：骸王每刀最多砍到 4 个敌人，怪聚成一团时伤害约 −KPCT%；分散的怪和单体不变', '独骸的提示不对：' + r.txtK);
+    assert(r.txtH === '<b>回旋</b>：利刃去程、回程各最多伤到 8 个敌人，怪排得很密时伤害约 −BPCT%；一般的怪群、分散的怪和单体不变', '回旋的提示不对：' + r.txtH);
+    return '老存档（独骸 / 回旋）各提示一次，看过不再提示';
   });
 
   await step('魂潮改版的提示（dur-tune）：拿着魂幡（R 是魂潮）的老存档（没有 stFz）读档后提示一次「狂热 12 秒 +15%」，存档往返仍提示，看过不再提示；拿着别的武器 / 万魂旗的老存档、新存档都不提示', async () => {

@@ -972,8 +972,8 @@
   Object.assign(G.VARIANTS.blade, {
     c: {
       name: '回旋', relic: 'huixuan', pack: '一条线来回两遍',
-      desc: '更宽的利刃穿透所有敌人，飞到尽头或撞墙后折返，回程再伤一遍路上的敌人。', alt: '回程朝你飞，飞到你身边为止。同一个敌人去程、回程各挨一下。',
-      set: { mech: 'boom', wm: 0.85, pierce: 99, projR: 0.7, useMult: 1.7, boom: { back: 0.7, range: 1.0 } },
+      desc: '更宽的利刃穿透敌人，飞到尽头或撞墙后折返，回程再伤一遍路上的敌人。去程、回程各最多伤到 8 个。', alt: '回程朝你飞，飞到你身边为止。同一个敌人去程、回程各挨一下。',
+      set: { mech: 'boom', wm: 0.85, pierce: 99, projR: 0.7, useMult: 1.7, boom: { back: 0.7, range: 1.0, cap: 8 } },
     },
   });
   Object.assign(G.VARIANTS.whirl, {
@@ -1000,8 +1000,8 @@
   Object.assign(G.VARIANTS.thrall, {
     c: {
       name: '独骸', relic: 'haiwang', pack: '只有一具，更大更硬',
-      desc: '仆从上限固定为 1：召唤一具骸王，体型更大、更耐打，横斩 270° 扫一大片。', alt: '够得更远；受到的伤害 −15%，同时牵制 5 只小怪。多出的仆从上限（群聚、天赋、护符、万魂旗）每个折成 +35% 伤害、+40% 生命。',
-      set: { mech: 'king', king: { perDmg: 0.35, perLife: 0.4, scale: 1.5, life: 3, dmg: 3.45, cleave: 12, arc: 270, reach: 3.5, hold: 5, dr: 15 } },
+      desc: '仆从上限固定为 1：召唤一具骸王，体型更大、更耐打，横斩 270° 扫一大片，每刀最多砍到 4 个敌人。', alt: '够得更远；受到的伤害 −15%，同时牵制 5 只小怪。多出的仆从上限（群聚、天赋、护符、万魂旗）每个折成 +35% 伤害、+40% 生命。',
+      set: { mech: 'king', king: { perDmg: 0.35, perLife: 0.4, scale: 1.5, life: 3, dmg: 3.45, cleave: 3, arc: 270, reach: 3.5, hold: 5, dr: 15 } },
     },
   });
   Object.assign(G.VARIANTS.blackhole, {
@@ -1627,11 +1627,11 @@
     // 渊式：机制说明是「解锁 技能·渊式名：一句话」，那一句按 G.VARIANTS 的参数拼（技能页、图鉴、提示卡都用它）
     const VC = (id) => G.VARIANTS[id].c, SK = G.SKILLS;
     const bo = VC('blade').set.boom, ti = VC('whirl').set.tide, st = VC('meteor').set.star, br = VC('arc').set.bridge, kg = VC('thrall').set.king, fo = VC('blackhole').set.follow;
-    VC('blade').line = '利刃穿透所有敌人，到尽头或撞墙后飞回你身边，回程伤害 ' + pc(bo.back) + '。';
+    VC('blade').line = '利刃穿透敌人，到尽头或撞墙后飞回你身边，回程伤害 ' + pc(bo.back) + '；去程、回程各最多伤到 ' + bo.cap + ' 个。';
     VC('whirl').line = '每下 ' + pc(ti.pulse) + ' 并攒一层潮势；满 ' + ti.max + ' 层卷起潮涌，拽来 ' + SK.whirl.radius * ti.r + ' 米内的敌人，每层 ' + pc(ti.burst) + ' 一下。';
     VC('meteor').line = '放在技能栏上就自动落星，每 ' + st.iv + ' 秒砸向 ' + st.r + ' 米内敌人最密处，伤害 ' + pc(st.mult) + '；不耗魔力，保留 ' + st.reserve + '% 最大魔力。';
     VC('arc').line = '电弧经过的每一段都留下 ' + br.t + ' 秒电桥，每 ' + br.tick + ' 秒电一下碰到的敌人（' + pc(br.mult) + '）。';
-    VC('thrall').line = '只召唤一具骸王：生命 ×' + kg.life + '、伤害 ×' + kg.dmg + '，横斩 ' + kg.arc + '° 带到 ' + kg.cleave + ' 个敌人。';
+    VC('thrall').line = '只召唤一具骸王：生命 ×' + kg.life + '、伤害 ×' + kg.dmg + '，横斩 ' + kg.arc + '°，每刀最多砍到 ' + (kg.cleave + 1) + ' 个敌人。';
     VC('blackhole').line = '黑洞开在你身上、跟着你走，每跳伤害 ' + pc(fo.dmg) + '，最多伤到离你最近的 ' + VC('blackhole').set.cap + ' 个；每 ' + fo.wave.iv + ' 秒把 ' + Math.round(SK.blackhole.radius * fo.radius * fo.wave.k) + ' 米内的敌人往你身边拽。';
     for (const rq of Object.keys(G.VARIANT_RELIC)) {
       const sid = G.VARIANT_RELIC[rq], V = G.VARIANTS[sid].c;

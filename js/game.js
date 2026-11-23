@@ -194,6 +194,8 @@
       wsCap: 1, wsNote: false, // 旋涡斩加「每下最多 9 个」之后的存档；wsNote：选着旋涡斩的老存档，提示还没看过
       bhCap: 1, bhNote: false, // 黑洞加「每跳最多伤到最近的 N 个」之后的存档；bhNote：学了黑洞的老存档，提示还没看过
       stFz: 1, stNote: false, // 魂潮狂热改成 12 秒 +15%（dur-tune）之后的存档；stNote：拿着魂幡（R 是魂潮）的老存档，提示还没看过
+      dhCap: 1, dhNote: false, // 独骸加「每刀最多砍到 N 个」之后的存档；dhNote：选着独骸的老存档，提示还没看过
+      hxCap: 1, hxNote: false, // 回旋加「每程最多伤到 N 个」之后的存档；hxNote：选着回旋的老存档，提示还没看过
       // 渊印：sealSeq 真正进区的次数（择印面板的随机种子，关掉地图再打开还是同样三枚）；
       // run 这一次进区 { zone, tier, seq, seal }（seal 为 null 是素印），读档时区域 / 层级对得上就接着用，倒下重生不动，换区 / 重进清掉
       sealSeq: 0, run: null,
@@ -675,6 +677,13 @@
     s.stNote = !s.tut.stfz && ((raw.stFz === undefined && G.weaponSkillOf(s.equip && s.equip.weapon) === 'soultide') || raw.stNote === true);
     s.stFz = 1;
     G.frenzyNerfed = s.stNote ? 1 : 0;
+    // 渊式独骸 / 回旋加上限（rulea-fix）之前的存档（没有 dhCap / hxCap）：选着这个渊式的提示一次（tut.dhnerf / tut.hxnerf 看过就不再提示）
+    s.dhNote = !s.tut.dhnerf && ((raw.dhCap === undefined && s.variants.thrall === 'c') || raw.dhNote === true);
+    s.dhCap = 1;
+    G.kingNerfed = s.dhNote ? 1 : 0;
+    s.hxNote = !s.tut.hxnerf && ((raw.hxCap === undefined && s.variants.blade === 'c') || raw.hxNote === true);
+    s.hxCap = 1;
+    G.boomNerfed = s.hxNote ? 1 : 0;
     s.variantGen = G.VARIANT_GEN;
     const hadVar = Object.keys(s.variants).length > 0 || Object.keys(G.VARIANTS).some((id) => s.skills[id] >= G.VARIANT_LVL);
     s.varNote = !s.tut.variant2 && ((oldGen && hadVar) || raw.varNote === true);
@@ -3428,6 +3437,10 @@
     if (sk.mech === 'boom') {
       p.boom = 1;
       p.boomBack = sk.boom.back;
+      p.boomCap = sk.boom.cap || 0; // 每程（去程、回程各算）最多伤到几个敌人
+      p.boomN = 0;
+      p.boomCap = sk.boom.cap || 0; // 每程（去程、回程各算）最多伤到几个敌人，多出的照样穿过去、不伤
+      p.boomN = 0;
       p.life *= sk.boom.range;
       return;
     }
@@ -3458,6 +3471,8 @@
     p.home = null;
     p.reseek = 0;
     p.boomK = p.boomBack || RM.huixuan.back;
+    p.boomN = 0; // 回程重新数
+    p.boomN = 0; // 回程重新数
     if (G.world.relicProjTurn) G.world.relicProjTurn(p.mesh, p.dx, p.dz);
     if (p.ctx.sk.mech === 'boom') {
       if (p.mesh && p.mesh.userData) p.mesh.userData.boom2 = true; // 丝线回程变亮
@@ -4576,15 +4591,19 @@
             }
             // 同一次施放的多枚投射物不叠加命中同一个敌人（多重投射打单体不会变成数倍伤害）；
             // 后到的那枚照常消耗穿透 / 连锁 / 引爆，只是不再对它结算直击
+            let cut = false; // 渊式「回旋」这一程已经伤满 boomCap 个：照样穿过去（也记进这次施放），不伤、不冒火花
             if (p.capMap ? capTake(p, e) : !p.cast || !p.cast.has(e)) {
               if (p.cast) p.cast.add(e);
-              // 远程武器的箭 / 子弹：multFn 算这一下的倍率（鹰眼的远距离加成），after 接着结算余烬 / 元素爆炸 / 熔芯弹；src 让专注按箭计数
-              const m = (p.multFn ? p.multFn(p, e) : p.mult || 1) * (p.boomK || 1); // boomK：回旋的回程
-              G.hitEnemy(e, p.ctx, m, { ang: Math.atan2(p.dx, p.dz), src: p, aura: p.aura, minion: p.minion, kb: p.kb, poise: p.poise }); // 顺着弹道推；aura：霜环「冰棱」的冰棱和光环脉冲一样不算连击；minion：骸弓的骨箭算召唤物的；kb / poise：灵弹的重弹（缺省按技能）
-              if (p.after) p.after(p, e, lastHit.killed, lastHit.crit);
-              if (p.ctx.sk.mech === 'hook' && !e.dead) nailHook(p, e); // 刻式「钩钉」：往你身边拽
+              if (p.boomCap && ++p.boomN > p.boomCap) cut = true;
+              else {
+                // 远程武器的箭 / 子弹：multFn 算这一下的倍率（鹰眼的远距离加成），after 接着结算余烬 / 元素爆炸 / 熔芯弹；src 让专注按箭计数
+                const m = (p.multFn ? p.multFn(p, e) : p.mult || 1) * (p.boomK || 1); // boomK：回旋的回程
+                G.hitEnemy(e, p.ctx, m, { ang: Math.atan2(p.dx, p.dz), src: p, aura: p.aura, minion: p.minion, kb: p.kb, poise: p.poise }); // 顺着弹道推；aura：霜环「冰棱」的冰棱和光环脉冲一样不算连击；minion：骸弓的骨箭算召唤物的；kb / poise：灵弹的重弹（缺省按技能）
+                if (p.after) p.after(p, e, lastHit.killed, lastHit.crit);
+                if (p.ctx.sk.mech === 'hook' && !e.dead) nailHook(p, e); // 刻式「钩钉」：往你身边拽
+              }
             }
-            if (!p.explode) projFx(p, 'hit'); // 飞刃擦过敌人的金属火花（爆炸弹的特效在爆炸那一下）
+            if (!p.explode && !cut) projFx(p, 'hit'); // 飞刃擦过敌人的金属火花（爆炸弹的特效在爆炸那一下）
             if (p.pin) {
               bladePin(p, e); // 刻式「钉刃」：钉住第一个，立在它脚下
               alive = false;

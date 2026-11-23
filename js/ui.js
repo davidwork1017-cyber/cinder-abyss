@@ -6179,6 +6179,24 @@
       done: () => false,
     },
     {
+      // 渊式独骸加了「每刀最多砍到 N 个」之前、选着独骸的老存档：提示一次（见 game.js 的 dhNote）；个数读数据，百分比是同装备实测（16 只挤成一团）
+      id: 'dhnerf', calm: true, max: 14,
+      get html() {
+        return G.kingNerfNote();
+      },
+      when: () => G.kingNerfed > 0,
+      done: () => false,
+    },
+    {
+      // 渊式回旋加了「每程最多伤到 N 个」之前、选着回旋的老存档：提示一次（见 game.js 的 hxNote）；只有怪排成一线、一程穿过 N 个以上时才少
+      id: 'hxnerf', calm: true, max: 14,
+      get html() {
+        return G.boomNerfNote();
+      },
+      when: () => G.boomNerfed > 0,
+      done: () => false,
+    },
+    {
       // 旧版双生坠：读档时升成四行（见 game.js 的 migrateTwin）
       id: 'sxmig', calm: true, max: 16,
       html: '<b>双生坠升级</b>：多了暴击伤害和总伤害两行，原有两行按原来的成色换算到新数值；效果改为「余响」',
@@ -6343,8 +6361,20 @@
       G.save.stNote = false;
       G.frenzyNerfed = 0;
     }
+    if (id === 'dhnerf') {
+      G.save.dhNote = false;
+      G.kingNerfed = 0;
+    }
+    if (id === 'hxnerf') {
+      G.save.hxNote = false;
+      G.boomNerfed = 0;
+    }
     G.persist();
   }
+  // 渊式独骸 / 回旋改版提示里的百分比（同装备实测，rulea-fix：独骸 16 只挤成一团；回旋 怪沿飞行方向排得密的那张图）
+  G.NERF_PCT = { king: 0, boom: 0 };
+  G.kingNerfNote = () => '<b>独骸</b>：骸王每刀最多砍到 ' + (G.VARIANTS.thrall.c.set.king.cleave + 1) + ' 个敌人，怪聚成一团时伤害约 −' + G.NERF_PCT.king + '%；分散的怪和单体不变';
+  G.boomNerfNote = () => '<b>回旋</b>：利刃去程、回程各最多伤到 ' + G.VARIANTS.blade.c.set.boom.cap + ' 个敌人，怪排得很密时伤害约 −' + G.NERF_PCT.boom + '%；一般的怪群、分散的怪和单体不变';
   // 黑洞改版提示的那一句（v = 'o' / 'a' / 'b' / 'c'）。百分比是同装备实测（16 只挤成一团 / 10 只散开），上限读数据
   G.holeNerfNote = function (v) {
     const sk = G.skillVariant('blackhole', v), N = sk.cap;
