@@ -1791,7 +1791,7 @@ async function main() {
       G.debug.learnAll();
       return { skills: Object.keys(G.save.skills).length, sups: G.save.supports.length, bar: G.save.bar.slice(), cleave: !!G.SKILLS.cleave || G.GEM_SKILLS.indexOf('cleave') >= 0 };
     });
-    assert(r.skills === 20 && r.sups === 34 && [0, 2, 3].every((i) => r.bar[i]) && r.bar[1] === null && !r.cleave, JSON.stringify(r));
+    assert(r.skills === 24 && r.sups === 34 && [0, 2, 3].every((i) => r.bar[i]) && r.bar[1] === null && !r.cleave, JSON.stringify(r));
   });
 
   for (let i = 0; i < SKILL_IDS.length; i++) {
@@ -1952,7 +1952,7 @@ async function main() {
       G.computeStats();
       return out;
     });
-    assert(r.types === 'blade,staff,wand,daggers,hammer,eagle,katana,banner,gatling,flamer,huntbow,runebow,revolver,emberbow', '武器类型（下标 0..13）不对：' + r.types);
+    assert(r.types === 'blade,staff,wand,daggers,hammer,eagle,katana,banner,gatling,flamer,huntbow,runebow,revolver,emberbow,lantern', '武器类型（下标 0..14，class-d2b1 加了提灯）不对：' + r.types);
     assert(!r.bad.length, '武器数据不对：' + r.bad.join(' '));
     assert(r.speed && r.caster, '双匕应比刃快、战锤慢；杖类的武器伤害应明显偏低：' + JSON.stringify(r));
     assert(r.local.d1.join() === r.local.want.join() && r.local.d1[0] > r.local.d0[0], '本地词缀没有正确加到武器伤害上：' + JSON.stringify(r.local));
@@ -2781,7 +2781,7 @@ async function main() {
       assert(c.id === 'basic_' + k && c.cast && c.cast.indexOf('basic_' + k + ':' + clip0) === 0 && c.dmg > 0 && c.mana === 0 && c.cost === 0 && c.spell && !c.attack, k + '：右键应放出自己的普攻（朝前点出的动作）、打中靶子、不耗魔力、是法术：' + JSON.stringify(c));
     }
     assert(r.cast.staff.proj >= 1 && r.cast.banner.proj >= 1 && r.cast.wand.proj === 0, '灵弹 / 魂引是投射物，疾咒是瞬发的咒光：' + JSON.stringify(r.cast));
-    assert(r.icons.length === 15 && r.icons.every((x) => /:true$/.test(x)), '每个普攻都应有图标：' + r.icons.join(' '));
+    assert(r.icons.length === 16 && r.icons.every((x) => /:true$/.test(x)), '每个普攻都应有图标（class-d2b1 加了点灯）：' + r.icons.join(' '));
     return Object.keys(r.melee).map((k) => k + ' ' + r.melee[k].seq).join(' · ');
   });
 
@@ -7358,7 +7358,7 @@ async function main() {
     cleanText(await ev(() => T.bodyText()), '技能页');
     // 武器普攻卡（.basic-card，拿着远程武器时才生效）另算
     const cards = await ev(() => ({ n: document.querySelectorAll('.skill-card:not(.wsk-card):not(.basic-card)').length, ws: document.querySelectorAll('.wsk-card').length }));
-    assert(cards.n === 20 && cards.ws === 1, '技能卡数量不对（20 张技能卡（裂石击已删除，skill-expand 加了 6 张）+ 1 张武器技卡）：' + JSON.stringify(cards));
+    assert(cards.n === 24 && cards.ws === 1, '技能卡数量不对（24 张技能卡（裂石击已删除，skill-expand 加了 6 张，class-d2b1 加了 4 种特殊弹）+ 1 张武器技卡）：' + JSON.stringify(cards));
     await page.click('[data-act="bind"][data-skill="nova"][data-slot="2"]');
     let r = await ev(() => ({ bar: G.save.bar.slice(), on: document.querySelector('[data-act="bind"][data-skill="nova"][data-slot="2"]').classList.contains('on') }));
     assert(r.bar[2] === 'nova' && r.on && r.bar.filter((b) => b === 'nova').length === 1, '界面绑定失败：' + r.bar);
@@ -7479,7 +7479,7 @@ async function main() {
       mid = await ev(() => { const own = (sel) => Array.from(document.querySelectorAll(sel)).filter((n) => n.dataset.skill !== G.BASIC_CARD).length; return { lit: own('.sock.drop-ok'), dim: own('.sock.drop-no'), cap: document.querySelector('#drag-ghost em').textContent }; });
     });
     // skill-expand：20 个技能 60 个孔；散钉也是投射物（12 / 30 → 15 / 45）
-    assert(mid.lit === 15 && mid.dim === 45 && mid.cap === '镶进 掷焰', '拖辅助宝石时只有带「投射物」标签的技能的槽应亮起（掷焰、飞刃、焚骨祭司、黑旋风、散钉）：' + JSON.stringify(mid));
+    assert(mid.lit === 27 && mid.dim === 45 && mid.cap === '镶进 掷焰', '拖辅助宝石时只有带「投射物」标签的技能的槽应亮起（掷焰、飞刃、焚骨祭司、黑旋风、散钉，class-d2b1 的四种特殊弹）：' + JSON.stringify(mid));
     let r = await ev(() => ({ e: G.save.sockets.ember.slice(), proj: G.skillCtx('ember').proj }));
     assert(r.e[0] === 'multi' && r.proj === 3, '宝石没有镶上：' + JSON.stringify(r));
     await dragTo(sup('brutal'), sock('ember', 1), async () => {
@@ -13517,7 +13517,7 @@ async function main() {
         nails: !F('nails', 'chain') && F('nails', 'multi') && F('nails', 'pierce') && F('nails', 'farshot') && F('nails', 'serrate') && F('nails', 'brutal'),
         serrate: F('rend', 'serrate') && F('whirl', 'serrate') && F('blade', 'serrate') && F('thrall', 'serrate') && F('colossus', 'serrate') && F(G.BASIC_CARD, 'serrate') && !F('ember', 'serrate') && !F('nova', 'serrate') && !F('frostline', 'serrate'),
       };
-      out.drop = Math.abs(G.SKILL_DROP.elite - 0.075 * 20 / 14) < 1e-9 && Math.abs(G.SKILL_DROP.mob - 0.012 * 20 / 14) < 1e-9 && G.GEM_SKILLS.length === 20;
+      out.drop = Math.abs(G.SKILL_DROP.elite - 0.075 * 20 / 14) < 1e-9 && Math.abs(G.SKILL_DROP.mob - 0.012 * 20 / 14) < 1e-9 && G.GEM_SKILLS.length === 24; // class-d2b1：+ 四种特殊弹（掉率常数不变，有职业时另乘 G.gemDropK）
       return out;
     }, NEW_SKILLS);
     assert(!r.bad.length && r.sup, '新技能 / 开刃的数据不全：' + JSON.stringify(r));
@@ -13917,7 +13917,7 @@ async function main() {
       out.n = Object.keys(G.VARIANTS).length;
       out.missing = G.GEM_SKILLS.filter((id) => id !== 'cleave').filter((id) => !(G.VARIANTS[id] && G.VARIANTS[id].a && G.VARIANTS[id].b && G.VARIANTS[id].a.name && G.VARIANTS[id].b.name && G.VARIANTS[id].a.desc && G.VARIANTS[id].b.desc));
       // 第一批的 6 个新技能都在表里（第二批 skill-batch2 补齐），宝石技能一共 20 个
-      out.pend = NEW.every((id) => G.GEM_SKILLS.indexOf(id) >= 0 && !!G.VARIANTS[id]) && G.GEM_SKILLS.length === 20;
+      out.pend = NEW.every((id) => G.GEM_SKILLS.indexOf(id) >= 0 && !!G.VARIANTS[id]) && G.GEM_SKILLS.length === 24;
       out.extra = Object.keys(G.VARIANTS).filter((id) => G.GEM_SKILLS.indexOf(id) < 0 || id === 'cleave');
       out.price = G.VARIANT_LVL === 10 && G.VARIANT_COST.cur === 'chaos' && G.VARIANT_COST.n === 1 && G.CURRENCY.chaos.name === '乱流石';
       s.variants = {};
@@ -13955,7 +13955,7 @@ async function main() {
       G.ui.close();
       return out;
     }, NEW_SKILLS);
-    assert(r.n === 20 && !r.missing.length && !r.extra.length && r.price && r.pend, '刻式表不全：' + JSON.stringify(r));
+    assert(r.n === 24 && !r.missing.length && !r.extra.length && r.price && r.pend, '刻式表不全（class-d2b1 的四种特殊弹也要有 A / B）：' + JSON.stringify(r));
     assert(!r.lv9 && r.btn9 === 0 && r.lock9, '宝石 9 级不该能选刻式：' + JSON.stringify(r));
     assert(r.free && r.refuse && r.paid, '价格不对（第一次免费、之后 1 乱流石、不够拒绝）：' + JSON.stringify(r));
     assert(r.combat && r.asleep, '战斗中应拒绝换刻式：' + JSON.stringify(r));
@@ -13991,7 +13991,7 @@ async function main() {
     return '40 个刻式选一遍再改回，G.SKILLS 深比较不变';
   });
 
-  await step('刻式：单体对等——游戏内 avgHit / useMult / time 算出 40 个比值都在 [0.9, 1.1]（霜环、黑焰按总秒伤 [0.95, 1.05]）', async () => {
+  await step('刻式：单体对等——游戏内 avgHit / useMult / time 算出 48 个比值都在 [0.9, 1.1]（霜环、黑焰按总秒伤 [0.95, 1.05]）', async () => {
     const r = await ev(() => {
       T.arena();
       const s = G.save;
@@ -14012,7 +14012,7 @@ async function main() {
       return rows;
     });
     const bad = r.filter((x) => (x.total ? x.r < 0.95 || x.r > 1.05 : x.r < 0.9 || x.r > 1.1));
-    assert(r.length === 40 && !bad.length, '比值超出范围：' + JSON.stringify(bad));
+    assert(r.length === 48 && !bad.length, '比值超出范围：' + JSON.stringify(bad)); // class-d2b1：+ 四种特殊弹 × A / B
     return r.map((x) => x.name + ' ' + x.r).join(' / ');
   });
 
@@ -14807,7 +14807,7 @@ async function main() {
       const keep = {};
       for (const id of G.GEM_SKILLS) keep[id] = G.SKILLS[id];
       // 渊式（c）：电桥带持续；随核跟着黑洞带持续；其余渊式不带
-      const want = { blackhole: 'oabc', vortex: 'o', arc: 'ac', blade: 'b', pyre: 'a', icefall: 'ob' }; // skill-expand：坠凌带「持续」；skill-batch2：随凌（坠凌 B）也带，重凌（A）一根冰凌不带
+      const want = { blackhole: 'oabc', vortex: 'o', arc: 'ac', blade: 'b', pyre: 'a', icefall: 'ob', molten: 'o', wedge: 'a' }; // class-d2b1：铁水弹原式（铁水）、雷楔 A 雷网带「持续」 // skill-expand：坠凌带「持续」；skill-batch2：随凌（坠凌 B）也带，重凌（A）一根冰凌不带
       const huwoAura = G.skillVariant('vortex', 'a').kind === 'aura'; // 护涡改成光环之后不吃绵延、也镶不上回响
       if (!huwoAura) want.vortex += 'a';
       const bad = [], echoBad = [];
@@ -20455,11 +20455,11 @@ async function d2bSteps() {
 
   await step('D2b-1·长明：熄烛者掉（有职业的存档 25%，连续 2 次没掉下一次必掉，保底单独计）；没有职业的存档不掷，随机数一次都不取', async () => {
     const r = await ev(() => {
-      const PK = G.save.pinnacle, S = G.state, l0 = S.loot.length;
+      const SV = G.save, S = G.state, l0 = S.loot.length;
       const run = (cls, rv, n) => {
         if (cls) G.save.cls = cls;
         else delete G.save.cls;
-        PK.lpity = 0;
+        delete SV.lampPity;
         let calls = 0;
         const R = Math.random;
         Math.random = () => {
@@ -20472,7 +20472,7 @@ async function d2bSteps() {
         } finally {
           Math.random = R;
         }
-        return { got: got.join(''), calls, pity: PK.lpity };
+        return { got: got.join(''), calls, pity: SV.lampPity || 0 };
       };
       const out = { miss: run('lamp', 0.99, 6), hit: run('guard', 0.1, 2), none: run(null, 0.1, 5) };
       const it = S.loot.slice(l0).map((l) => l.data);
@@ -20480,7 +20480,7 @@ async function d2bSteps() {
       out.uq = G.UNIQUES.changming && G.UNIQUES.changming.uskill === 'lampsea' && G.UNIQUES.changming.mech === 'relight' && !G.UNIQUE_BY_BOSS.snuffer;
       for (const l of S.loot.splice(l0)) G.world.removeMesh(l.mesh);
       delete G.save.cls;
-      PK.lpity = 0;
+      delete SV.lampPity;
       return out;
     });
     assert(r.miss.got === '001001' && r.miss.pity === 0, '保底：连续 2 次没掉，第 3 次必掉：' + JSON.stringify(r.miss));
@@ -20842,7 +20842,7 @@ async function classSteps() {
       assert(o.stable, c + '：读档再读一遍存档变了');
       gems[c] = o.gems;
     }
-    assert(JSON.stringify(gems) === JSON.stringify({ guard: 11, hunt: 12, star: 15, lamp: 14, forge: 8 }), '各职业能用的宝石数不对（散钉不给引星人）：' + JSON.stringify(gems));
+    assert(JSON.stringify(gems) === JSON.stringify({ guard: 11, hunt: 12, star: 15, lamp: 14, forge: 12 }), '各职业能用的宝石数不对（散钉不给引星人；class-d2b1：炉匠 + 四种特殊弹）：' + JSON.stringify(gems));
     return JSON.stringify(gems);
   });
 

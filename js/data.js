@@ -296,7 +296,7 @@
       wm: 1.0, basicSec: 0.36, time: 0.6, mana: 7, cd: 0, speed: 32, projR: 0.24, range: 16, ailment: 20, w: 0, kb: 0.2, poise: 6,
       // 命中先打 hit 份，楔子钉在敌人身上，delay 秒后放电：目标挨 zap 份（它身上每多一枚楔子 +stack，最多算 maxStack 枚），再连到 r 米内最多 n 个别的敌人（各 chainK 份）
       wedge: { hit: 0.35, zap: 0.65, delay: 1, stack: 0.15, maxStack: 4, r: 4, n: 3, chainK: 0.5 },
-      useMult: 1.12,
+      useMult: 1.07, // 单体：0.35 + 0.65 ×（平均身上约 1.7 枚 → +10%）
       desc: '雷楔钉进敌人，1 秒后放电，再连到 4 米内最多 3 个敌人。同一个敌人身上楔子越多，放电越痛。',
       alt: '伤害按手里枪的右键开火折算，全部转成闪电。每多一枚楔子放电 +15%（最多算 4 枚）。连锁的每个敌人受到一半伤害。',
     },
@@ -1046,17 +1046,18 @@
     },
     // ---------- 特殊弹的刻式（class-d2b1）----------
     // 铁水弹 A 溅铁：不炸、不留铁水，命中后朝前方溅出 n 道铁水（len 米、arc° 扇面），每道打中一条线上的敌人（每个敌人一次施放只挨一道），各 k 份
+    //        （没有铁水，弹头本身重一些：一份按 basicSec 0.54 / wm 1.5 算，单体和原式的「弹头 + 铁水」持平）
     //        B 熔穿：不炸，贯穿所有敌人，每穿过一个，后面的伤害 +step（最多 +max）
     molten: {
       a: {
         name: '溅铁', pack: '不留铁水；专打怪堆后排',
         desc: '命中后朝前方溅出 5 道铁水（6 米扇面），打中后排的敌人。不留铁水。', alt: '每个敌人一次只挨一道。被命中的那个先挨弹头。',
-        set: { mech: 'splash', explode: 0, pool: null, splash: { n: 5, len: 6, arc: 60, w: 0.7, k: 0.75 }, useMult: 1, tags: ['attack', 'projectile', 'area', 'fire'] },
+        set: { mech: 'splash', explode: 0, pool: null, basicSec: 0.54, wm: 1.5, splash: { n: 5, len: 6, arc: 60, w: 0.7, k: 0.5 }, useMult: 1, tags: ['attack', 'projectile', 'area', 'fire'] },
       },
       b: {
         name: '熔穿', pack: '排成一条线最痛；不炸不留铁水',
         desc: '铁水弹贯穿所有敌人，每穿过一个，后面的伤害 +15%（最多 +60%）。', alt: '不炸开，也不留铁水。',
-        set: { mech: 'bore', explode: 0, pool: null, bore: { step: 0.15, max: 0.6 }, wm: 1.0, useMult: 1.28, tags: ['attack', 'projectile', 'fire'] },
+        set: { mech: 'bore', explode: 0, pool: null, basicSec: 0.42, bore: { step: 0.15, max: 0.6 }, wm: 1.167, useMult: 1.28, tags: ['attack', 'projectile', 'fire'] },
       },
     },
     // 雷楔 A 雷网：打空的楔子钉在准星的地上（存在 dur 秒），link 米内的楔子两两拉出电线（最多 lines 根，新的顶掉旧的），线上的敌人每 tick 秒挨 k 份；
@@ -1066,12 +1067,12 @@
       a: {
         name: '雷网', pack: '朝地上打布网；单体照原式',
         desc: '打空的楔子钉在准星处的地上；4 米内的楔子两两拉出电线，线上的敌人持续挨电。', alt: '地上的楔子存在 7 秒，电线最多 3 根，每 0.25 秒电一下。打中敌人的楔子照原式放电。',
-        set: { mech: 'net', net: { dur: 7, link: 4, lines: 3, tick: 0.25, k: 0.09, w: 0.6 }, useMult: 1.12, tags: ['attack', 'projectile', 'chaining', 'light', 'duration'] },
+        set: { mech: 'net', net: { dur: 7, link: 4, lines: 3, tick: 0.25, k: 0.09, w: 0.6 }, useMult: 1.07, tags: ['attack', 'projectile', 'chaining', 'light', 'duration'] },
       },
       b: {
-        name: '闷雷', pack: '单体更痛；不连锁',
-        desc: '楔子 3 秒后才放电，伤害 ×2.2，大量累积感电。不再连锁。', alt: '同一个敌人身上楔子越多，放电越痛（每多一枚 +15%，最多算 4 枚）。连锁镶不上。',
-        set: { mech: 'dull', noSup: ['chain'], ailment: 200, wedge: { hit: 0.2, zap: 1.43, delay: 3, stack: 0.15, maxStack: 4, r: 0, n: 0, chainK: 0 }, useMult: 1.24, tags: ['attack', 'projectile', 'light'] },
+        name: '闷雷', pack: '单体略痛；不连锁',
+        desc: '楔子 3 秒后才放电，不再连锁；身上能叠满 4 枚，放电 +45%，大量累积感电。', alt: '每多一枚楔子放电 +15%（最多算 4 枚）。连锁镶不上。',
+        set: { mech: 'dull', noSup: ['chain'], ailment: 200, wedge: { hit: 0.2, zap: 0.62, delay: 3, stack: 0.15, maxStack: 4, r: 0, n: 0, chainK: 0 }, useMult: 1.1, tags: ['attack', 'projectile', 'light'] },
       },
     },
     // 霜霰弹 A 散霜：冰屑改成朝四周炸开一圈（半径 r）
@@ -1085,21 +1086,21 @@
       b: {
         name: '凝霜', pack: '不打群；冻住的敌人更痛',
         desc: '不出冰屑，冰霜异常值 ×3；打中冻住的敌人伤害 ×2，并溅到它身边。', alt: '首领进入深寒也算冻住。溅射半径 2.5 米，每个敌人受到 60% 伤害。',
-        set: { mech: 'deep', shard: null, ailment: 240, deep: { frozen: 2, r: 2.5, k: 0.6 }, useMult: 1.12 },
+        set: { mech: 'deep', shard: null, ailment: 240, deep: { frozen: 2, r: 2.5, k: 0.6 }, useMult: 1.05 },
       },
     },
-    // 反冲弹 A 压膛：不后退，蓄 charge 秒后贯穿一条直线（len × width，撞墙截断）
+    // 反冲弹 A 压膛：不后退，蓄 0.5 秒（time 1.0 的一半，出手在 time × 0.5）后贯穿一条直线（len × width，撞墙截断），一发 ×2.0
     //        B 震膛：照样后退，起跳的地方震出一圈冲击（半径 r、k 份，把贴身的怪推开 kb）
     recoil: {
       a: {
         name: '压膛', pack: '不后退；贯穿一条线',
         desc: '不后退，蓄 0.5 秒后打出一发贯穿弹，打穿一条直线上的所有敌人。', alt: '直线长 16 米、宽 1.4 米，撞墙截断。',
-        set: { mech: 'bore', push: null, charge: 0.5, line: { len: 16, width: 1.4 }, heavy: 1.9, tags: ['attack', 'projectile', 'phys'] },
+        set: { mech: 'bore', push: null, time: 1.0, line: { len: 16, width: 1.4 }, heavy: 2.0, useMult: 2.0, tags: ['attack', 'projectile', 'phys'] },
       },
       b: {
         name: '震膛', pack: '退开时把贴身的怪推开',
-        desc: '照样后退 3.5 米，起跳的地方震出一圈冲击（半径 2.5 米），把贴身的怪推开。', alt: '冲击受到 60% 伤害。遇墙就停，不会推出首领场地。',
-        set: { mech: 'shock', heavy: 1.5, shock: { r: 2.5, k: 0.6, kb: 2.2 }, useMult: 1.5, tags: ['attack', 'projectile', 'area', 'phys', 'movement'] },
+        desc: '照样后退 3.5 米，起跳的地方震出一圈冲击（半径 2.5 米），把贴身的怪推开。重弹 ×1.7。', alt: '冲击受到 60% 伤害。遇墙就停，不会推出首领场地。',
+        set: { mech: 'shock', heavy: 1.7, shock: { r: 2.5, k: 0.6, kb: 2.2 }, useMult: 1.7, tags: ['attack', 'projectile', 'area', 'phys', 'movement'] },
       },
     },
   };
@@ -1620,7 +1621,7 @@
   G.UNIQUES.xingshi.mechAlt = '同时最多 ' + G.VOID_MOUTH.max + ' 道，每 ' + G.VOID_MOUTH.gap + ' 秒最多新开一道。';
   // 续火（长明）：死在你灯光里（小灯 lampR 米内、灯海阵里，或你身边 near 米内）的普通怪（不是精英、首领），chance 几率被重新点燃，
   //   站起来替你打 dur 秒。算烬骸仆从（伤害 / 生命按你的烬骸仆从宝石算，没学时按 1 级），但不占仆从上限，同时最多 cap 具。死在灯海里的必定点燃。
-  // 掉落：熄烛者每次击杀 drop 几率，连续 pity 次没掉，下一次必掉（save.pinnacle.lpity，和巅峰渊契的保底分开）。没有职业的存档不掷这一下
+  // 掉落：熄烛者每次击杀 drop 几率，连续 pity 次没掉，下一次必掉（save.lampPity，和巅峰渊契的保底分开）。没有职业的存档不掷这一下
   G.RELIGHT = { chance: 0.3, near: 4, dur: 6, cap: 4, drop: 0.25, pity: 2 };
   G.UNIQUES.changming.mechDesc = '死在你灯光里的普通怪有 ' + pc(G.RELIGHT.chance) + ' 几率被重新点燃，替你打 ' + G.RELIGHT.dur + ' 秒，最多同时 ' + G.RELIGHT.cap + ' 具。';
   G.UNIQUES.changming.mechAlt = '灯光：小灯照到的地方，或你身边 ' + G.RELIGHT.near + ' 米内。点燃的骸骨算烬骸仆从，不占数量上限。死在灯海里的必定点燃。';

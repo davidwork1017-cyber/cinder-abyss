@@ -200,7 +200,7 @@
       // 烛芯（异兆一期）：各种类的个数（熄烛者的开启材料）
       frags: { seal: 0, rift: 0, vow: 0, box: 0 },
       // 熄烛者（D5）：击杀次数、巅峰渊契的保底计数（连续几次没掉）。正在打的那一次挂在 run.pin = { tier, lives }
-      pinnacle: { kills: 0, pity: 0, lpity: 0 }, // lpity：长明（class-d2b1）的保底计数
+      pinnacle: { kills: 0, pity: 0 },
       // 主线（quest D1）：n 已完成的步数 0–G.QUEST_N（步骤按顺序，奖励按 n 只给一次）；off 地图页关掉了「显示主线」（D2 才有开关）；
       // told 已经放过的首领旁白 { 步骤 id: true }（D3 用，见 G.questTell）
       quest: { n: 0, off: false, told: {} },
@@ -711,7 +711,10 @@
     }
     // 熄烛者：击杀次数、巅峰渊契保底（旧存档没有 → 0）
     const rpk = isObj(raw.pinnacle) ? raw.pinnacle : {};
-    s.pinnacle = { kills: toInt(rpk.kills, 0, 1e6, 0), pity: toInt(rpk.pity, 0, G.RELIC_DROP.pinnacle.pity, 0), lpity: toInt(rpk.lpity, 0, G.RELIGHT.pity, 0) };
+    s.pinnacle = { kills: toInt(rpk.kills, 0, 1e6, 0), pity: toInt(rpk.pity, 0, G.RELIC_DROP.pinnacle.pity, 0) };
+    // 长明（class-d2b1）的保底计数：只在不为 0 时才有这个字段（没打过熄烛者 / 刚掉过的存档和以前一字不差，旧版本读到也不认识、照常丢掉）
+    const lp = toInt(raw.lampPity, 0, G.RELIGHT.pity, 0);
+    if (lp > 0) s.lampPity = lp;
     // 烛芯：旧存档没有（全 0）；只认 G.FRAGS 的种类，个数 0–max。旧存档的保底计数 fragPity 不再读，也不再存
     const rfr = isObj(raw.frags) ? raw.frags : {};
     s.frags = {};
@@ -10885,14 +10888,14 @@
     return null;
   }
   G.uniqueDrop = uniqueDrop;
-  // 长明（class-d2b1）：熄烛者每次击杀 G.RELIGHT.drop 几率，连续 pity 次没掉下一次必掉（save.pinnacle.lpity，和巅峰渊契的保底分开）。
+  // 长明（class-d2b1）：熄烛者每次击杀 G.RELIGHT.drop 几率，连续 pity 次没掉下一次必掉（save.lampPity，0 时不写，和巅峰渊契的保底分开）。
   // 没有职业的存档不掷（Math.random 的次数和以前一样）
   function lampDrop(ilvl, x, z) {
     if (!G.clsDef()) return null;
-    const PK = G.save.pinnacle, L = G.RELIGHT;
-    const n = PK.lpity || 0;
+    const S = G.save, L = G.RELIGHT;
+    const n = S.lampPity || 0;
     if (n >= L.pity || Math.random() < L.drop) {
-      PK.lpity = 0;
+      delete S.lampPity;
       const item = G.rollUnique('changming', ilvl);
       const loot = G.spawnLoot('item', item, x, z);
       G.sfx('unique');
@@ -10900,7 +10903,7 @@
       state.stats.uniqueDrops = (state.stats.uniqueDrops || 0) + 1;
       return loot;
     }
-    PK.lpity = n + 1;
+    S.lampPity = n + 1;
     return null;
   }
   G.lampDrop = lampDrop; // 测试用
