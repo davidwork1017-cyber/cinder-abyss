@@ -12037,6 +12037,30 @@
     questT = 0;
     if (questGate()) G.questSync(true);
   };
+  // 主线指路（quest D2）：这一步在本区要去的地方，给小地图画金色箭头 / 细圈。没有就返回 null（关了「显示主线」、主线走完、
+  // 在余烛殿里、进区步传送门没了），追踪条第 3 行写着「按 M 打开地图」。
+  // 走门口 / 打首领的步骤在那个区里：首领场地门（圆形场地是场地中心）；首领醒着时不指（正在打，首领有红菱形）。
+  // 其余（进区、进层级、人在别的区）：传送门还在就指传送门。每帧调，只读，不分配（返回同一个对象）
+  const questAim = { x: 0, z: 0, kind: '' };
+  const questZi = G.QUEST.map((q) => (q.zone ? G.ZONES.findIndex((z) => z.id === q.zone) : -1));
+  G.questTarget = function () {
+    const Q = G.save.quest;
+    if (!Q || Q.off || Q.n >= G.QUEST_N || !state.zone || state.pin) return null;
+    const q = G.QUEST[Q.n];
+    if ((q.kind === 'gate' || q.kind === 'boss') && state.zoneIdx === questZi[Q.n]) {
+      const b = state.boss, a = G.world.zone && G.world.zone.arena;
+      if (!a || (b && b.awake && !b.dead)) return null;
+      questAim.x = a.door ? a.door.x : a.x;
+      questAim.z = a.door ? a.door.z : a.z;
+      questAim.kind = 'gate';
+      return questAim;
+    }
+    if (!state.portal) return null;
+    questAim.x = state.portal.x;
+    questAim.z = state.portal.z;
+    questAim.kind = 'portal';
+    return questAim;
+  };
 
   // =====================================================================
   // 区域

@@ -21683,6 +21683,7 @@ async function titleSteps() {
     const cur2 = await qCur();
     assert(r2.n === 3 && r2.ev === 1, '进霜骨沼泽应完成第 3 步（进区步不触发首领挂钩）：' + JSON.stringify(r2));
     assert(qDiff(cur1, cur2) === '{"dust":1,"regal":1}', '第 3 步奖励应正好 微光尘 +1、冠冕石 +1：' + qDiff(cur1, cur2));
+    await until(() => !G.world.assetsPending(), null, 60000); // D2 起素材载入时追踪条先不显示（第一次进霜骨沼泽）
     await until(() => G.ui.quest().k === '主线 4/11' && window.__qToasts.some((t) => t.includes('主线 3/11 完成')), null, 20000);
     const t = await ev(() => window.__qToasts.filter((s) => s.startsWith('主线')));
     assert(t.includes('主线 2/11 完成') && t.includes('主线 3/11 完成 · 微光尘 ×1、冠冕石 ×1'), '完成提示不对：' + JSON.stringify(t));
@@ -21786,6 +21787,7 @@ async function titleSteps() {
       G.computeStats();
       G.enterZone(2, 0);
     });
+    await until(() => !G.world.assetsPending(), null, 60000); // D2 起素材载入时追踪条先不显示（第一次进雷鸣遗迹）
     await until(() => G.ui.quest().on && G.ui.quest().k === '主线 6/11', null, 10000);
     const half = await ev(() => G.ui.quest());
     assert(vet === false && half.goal === '击败雷霆监察者' && half.how === '首领 12 级', '老手不显示、半路显示第 6 步：' + s([vet, half]));
@@ -21937,6 +21939,310 @@ async function titleSteps() {
       assert(qa.b > q.b + 30 && c.t >= qa.b + 4, w + '：连击计数和追踪条（按住 Alt 展开时）挤在一起：' + JSON.stringify(out[w]));
     }
     return '1280：追踪条 ' + Math.round(out[1280].q.t) + '–' + Math.round(out[1280].q.b) + '，连击 ' + Math.round(out[1280].c.t) + '；1024：' + Math.round(out[1024].q.t) + '–' + Math.round(out[1024].q.b) + '，连击 ' + Math.round(out[1024].c.t);
+  });
+
+  // ------------------------------------------------------------------ 主线指路（quest D2）：小地图金色记号、地图卡片角标、层级金点、「显示主线」开关、载入时先藏追踪条
+  // 存一份主线进度并重进灰烬荒原（n：已完成步数）
+  const qSet = (o) =>
+    ev((o) => {
+      const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+      raw.quest = { n: o.n, off: !!o.off, told: {} };
+      raw.cleared = o.cleared || {};
+      raw.maxTier = o.maxTier || 0;
+      raw.tier = 0;
+      raw.lastZone = o.zone || 0;
+      raw.run = null;
+      localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+      G.loadSave();
+      G.computeStats();
+      G.enterZone(o.zone || 0, 0);
+      G.debug.hold(true);
+      G.debug.god(true);
+    }, o);
+  const isGold = (p) => !!p && p[0] >= 200 && p[1] >= 150 && p[2] <= 120 && p[3] >= 200;
+  await step('小地图：主线目标在截取框外时框边是金色小三角、尖朝目标；关掉「显示主线」后没有（追踪条也收起）；走到首领场地前一间换成套在门上的金色细圈', async () => {
+    await qSet({ n: 0 });
+    await until(() => !G.world.assetsPending(), null, 60000);
+    await frames(3);
+    const a = await ev(() => {
+      const m = G.world.questMark(), t = Object.assign({}, G.questTarget()), P = G.player;
+      const pp = G.world.minimapXY(P.x, P.z), tp = G.world.minimapXY(t.x, t.z);
+      return { m, t, pp, tp, px: m.on ? G.world.minimapPixel(m.x, m.y) : null, info: G.world.minimapInfo(), q: G.ui.quest().on };
+    });
+    assert(a.info.win, '灰烬荒原的小地图应是截取模式（目标才能出框）：' + JSON.stringify(a.info));
+    assert(a.t.kind === 'gate' && a.m.on && a.m.edge, '第 1 步在入口：目标（首领场地门）应在框外、画框边小三角：' + JSON.stringify(a));
+    assert(isGold(a.px), '框边小三角的像素应是金色：' + JSON.stringify(a.px));
+    const dot = (a.m.x - a.pp.x) * (a.tp.x - a.pp.x) + (a.m.y - a.pp.y) * (a.tp.y - a.pp.y);
+    assert(dot > 0, '小三角应在玩家朝目标的那一侧：' + JSON.stringify(a));
+    // 地图页的开关：点掉
+    await ev(() => G.ui.open('map'));
+    await frames(2);
+    await page.click('#panel [data-act="quest"]');
+    const off = await ev(() => ({ off: G.save.quest.off, sw: document.querySelector('#panel [data-act="quest"]').classList.contains('on') }));
+    await ev(() => G.ui.close());
+    await frames(3);
+    const b = await ev((m) => ({ m: G.world.questMark(), px: G.world.minimapPixel(m.x, m.y), q: G.ui.quest().on, tgt: G.questTarget() }), a.m);
+    assert(off.off === true && off.sw === false, '点开关应把 save.quest.off 设成 true：' + JSON.stringify(off));
+    assert(!b.m.on && !b.tgt && !isGold(b.px) && b.q === false, '关掉后小地图上不应再有金色记号、追踪条收起：' + JSON.stringify(b));
+    // 再点开：回来
+    await ev(() => G.ui.open('map'));
+    await frames(2);
+    await page.click('#panel [data-act="quest"]');
+    await ev(() => G.ui.close());
+    await frames(3);
+    const c = await ev(() => ({ off: G.save.quest.off, m: G.world.questMark(), q: G.ui.quest().on }));
+    assert(c.off === false && c.m.on && c.m.edge && c.q, '再打开应回来：' + JSON.stringify(c));
+    // 第 2 步（打首领）：站在首领场地前一间，门在框里 → 金色细圈（圆上取一点）
+    await qSet({ n: 1 });
+    const d = await ev(() => {
+      const z = G.state.zone, p = z.path, room = z.rooms[p[p.length - 2]];
+      T.tp(room.core.x, room.core.z);
+      return { tp: [G.player.x, G.player.z] };
+    });
+    await frames(3);
+    const e = await ev(() => {
+      const m = G.world.questMark(), t = Object.assign({}, G.questTarget()), tp = G.world.minimapXY(t.x, t.z);
+      const ring = [G.world.minimapPixel(m.x + 9, m.y), G.world.minimapPixel(m.x - 9, m.y), G.world.minimapPixel(m.x, m.y + 9), G.world.minimapPixel(m.x, m.y - 9)];
+      return { m, t, tp, ring, awake: !!(G.state.boss && G.state.boss.awake) };
+    });
+    assert(e.t.kind === 'gate' && e.m.on && !e.m.edge && Math.abs(e.m.x - e.tp.x) < 1 && Math.abs(e.m.y - e.tp.y) < 1, '目标在框里应画细圈、圈心在门上：' + JSON.stringify(e));
+    assert(e.ring.filter(isGold).length >= 3, '细圈上应取到金色：' + JSON.stringify(e.ring));
+    // 首领醒着：不指（首领有红菱形）
+    const f = await ev(() => {
+      G.debug.tpBoss();
+      G.debug.step(1);
+      return { awake: !!(G.state.boss && G.state.boss.awake), tgt: G.questTarget() };
+    });
+    await frames(2);
+    const fm = await ev(() => G.world.questMark().on);
+    assert(f.awake && !f.tgt && !fm, '首领醒着时不画金色记号：' + JSON.stringify(f));
+    return '框外小三角 ' + a.px.slice(0, 3).join(',') + '，细圈取到金色 ' + e.ring.filter(isGold).length + '/4';
+  });
+
+  await step('主线：进区步传送门在时指传送门（金色细圈套在紫圈外），传送门没了不指；地图页「主线」角标在对的区域卡片上，第 11 步层级「1」按钮上有金点；关掉开关都不画', async () => {
+    // 首领倒下 → 第 3 步，传送门在首领处
+    await qSet({ n: 1 });
+    const a = await ev(() => {
+      G.killEnemy(G.state.boss);
+      const pt = G.state.portal;
+      T.tp(pt.x, pt.z + 6);
+      return { n: G.questStep(), t: Object.assign({}, G.questTarget()), portal: [pt.x, pt.z] };
+    });
+    await frames(3);
+    const am = await ev(() => G.world.questMark());
+    assert(a.n === 2 && a.t.kind === 'portal' && a.t.x === a.portal[0] && am.on && !am.edge, '第 3 步应指传送门：' + JSON.stringify({ a, am }));
+    // 重进灰烬荒原：传送门没了 → 不指，追踪条第 3 行「按 M 打开地图选它」
+    await ev(() => G.enterZone(0, 0));
+    await frames(3);
+    const b = await ev(() => ({ t: G.questTarget(), m: G.world.questMark().on, how: G.ui.quest().how }));
+    assert(!b.t && !b.m && b.how === '按 M 打开地图选它', '传送门没了应不指、第 3 行让按 M：' + JSON.stringify(b));
+    // 地图卡片角标
+    const card = (o) =>
+      ev(async (o) => {
+        G.save.quest.n = o.n;
+        G.save.quest.off = !!o.off;
+        G.save.cleared = o.cleared;
+        G.save.maxTier = o.maxTier || 0;
+        G.ui.open('map');
+        await new Promise((res) => requestAnimationFrame(res));
+        const cards = [...document.querySelectorAll('#panel .zone')];
+        const r = {
+          badge: cards.map((c, i) => (c.querySelector('.z-badge.quest') ? i : -1)).filter((i) => i >= 0),
+          txt: (document.querySelector('#panel .z-badge.quest') || {}).textContent || '',
+          dot: [...document.querySelectorAll('#panel .tier.q-dot')].map((b) => b.dataset.tier),
+          sw: !!document.querySelector('#panel [data-act="quest"]'),
+        };
+        G.ui.close();
+        return r;
+      }, o);
+    const out = {
+      s1: await card({ n: 0, cleared: {} }),
+      s3: await card({ n: 2, cleared: { ash: 0 } }),
+      s4: await card({ n: 3, cleared: { ash: 0 } }),
+      s9: await card({ n: 8, cleared: { ash: 0, frost: 0, storm: 0, abyss: 0 } }),
+      s11: await card({ n: 10, cleared: { ash: 0, frost: 0, storm: 0, abyss: 0, rift: 0 }, maxTier: 1 }),
+      off: await card({ n: 2, off: true, cleared: { ash: 0 } }),
+      off11: await card({ n: 10, off: true, cleared: { ash: 0, frost: 0, storm: 0, abyss: 0, rift: 0 }, maxTier: 1 }),
+      done: await card({ n: 11, cleared: { ash: 1, frost: 1, storm: 1, abyss: 1, rift: 1 }, maxTier: 2 }),
+    };
+    const J = (o) => JSON.stringify(o.badge) + '|' + JSON.stringify(o.dot);
+    assert(J(out.s1) === '[0]|[]' && out.s1.txt === '主线', '第 1 步角标应在灰烬荒原：' + JSON.stringify(out.s1));
+    assert(J(out.s3) === '[1]|[]' && J(out.s4) === '[1]|[]', '第 3 / 4 步角标应在霜骨沼泽：' + JSON.stringify(out));
+    assert(J(out.s9) === '[4]|[]', '第 9 步角标应在坠星裂谷：' + JSON.stringify(out.s9));
+    assert(J(out.s11) === '[]|["1"]', '第 11 步应只在层级「1」按钮上点金点：' + JSON.stringify(out.s11));
+    assert(J(out.off) === '[]|[]' && J(out.off11) === '[]|[]' && out.off.sw, '关掉「显示主线」不画角标和金点（开关还在）：' + JSON.stringify(out));
+    assert(J(out.done) === '[]|[]' && !out.done.sw, '主线走完：没有角标、金点，也不再显示开关：' + JSON.stringify(out.done));
+    return '角标：第 1 步 荒原、第 3/4 步 霜骨、第 9 步 裂谷；第 11 步 层级 1 金点';
+  });
+
+  await step('主线：「显示主线」开关存档后刷新页面还是关着、再打开也存下；老存档（没有 quest，或 quest 里没有 off）默认开', async () => {
+    await qSet({ n: 2, cleared: { ash: 0 } });
+    await ev(() => G.ui.open('map'));
+    await frames(2);
+    await page.click('#panel [data-act="quest"]');
+    await ev(() => G.ui.close());
+    const stored = await ev(() => JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).quest);
+    await page.reload({ timeout: 90000 });
+    await install();
+    await until(() => !G.world.assetsPending(), null, 60000);
+    await ev(() => {
+      G.debug.hold(true);
+      G.debug.god(true);
+    });
+    await frames(3);
+    const a = await ev(() => ({ off: G.save.quest.off, n: G.save.quest.n, q: G.ui.quest().on, m: G.world.questMark().on }));
+    assert(stored.off === true && a.off === true && a.n === 2 && !a.q && !a.m, '关掉后应马上存下，刷新后还是关着：' + JSON.stringify({ stored, a }));
+    await ev(() => G.ui.open('map'));
+    await frames(2);
+    await page.click('#panel [data-act="quest"]');
+    await ev(() => G.ui.close());
+    const b = await ev(() => {
+      G.loadSave();
+      return { off: G.save.quest.off, stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).quest.off };
+    });
+    assert(b.off === false && b.stored === false, '再打开应存下：' + JSON.stringify(b));
+    const old = await ev(() => {
+      const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1')), out = {};
+      const load = (q) => {
+        const r = JSON.parse(JSON.stringify(raw));
+        if (q === undefined) delete r.quest;
+        else r.quest = q;
+        localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(r));
+        G.loadSave();
+        return G.save.quest.off;
+      };
+      out.noQuest = load(undefined);
+      out.noOff = load({ n: 2 });
+      out.junk = load({ n: 2, off: 'yes' });
+      out.on = load({ n: 2, off: false });
+      localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+      G.loadSave();
+      return out;
+    });
+    assert(old.noQuest === false && old.noOff === false && old.junk === false && old.on === false, '老存档应默认开：' + JSON.stringify(old));
+    return '关 → 刷新仍关 → 开；老存档 off = ' + JSON.stringify(old);
+  });
+
+  await step('主线：第一次进区素材还在载入时（右上「正在载入场景…」那一条）不显示追踪条，就绪后 0.3 秒淡入', async () => {
+    await qSet({ n: 2, cleared: { ash: 0 } });
+    await frames(2);
+    // 让霜骨沼泽的素材包挂起（need 返回一个由测试放行的 promise），模拟第一次进区
+    const a = await ev(() => {
+      const A = G.assets, keep = { need: A.need, settled: A.settled };
+      let rel = null;
+      window.__qRel = () => rel && rel();
+      A.settled = () => false;
+      A.need = () => new Promise((res) => (rel = res));
+      try {
+        G.enterZone(1, 0);
+      } finally {
+        A.need = keep.need;
+        A.settled = keep.settled;
+      }
+      return { pending: G.world.assetsPending(), n: G.questStep() };
+    });
+    await frames(3);
+    const b = await ev(() => {
+      const el = document.getElementById('quest'), cs = getComputedStyle(el);
+      return { pending: G.world.assetsPending(), on: G.ui.quest().on, cls: el.classList.contains('on'), op: cs.opacity, tr: cs.transitionDuration, strip: document.getElementById('zone-loading').classList.contains('on') };
+    });
+    assert(a.pending && a.n === 3 && b.pending && b.strip && !b.on && !b.cls, '素材载入中应不显示追踪条：' + JSON.stringify({ a, b }));
+    await ev(() => window.__qRel());
+    await until(() => !G.world.assetsPending(), null, 20000);
+    await frames(3);
+    const c = await ev(() => ({ on: G.ui.quest().on, k: G.ui.quest().k, tr: getComputedStyle(document.getElementById('quest')).transitionDuration }));
+    assert(c.on && c.k === '主线 4/11' && c.tr === '0.3s', '就绪后应显示（0.3 秒淡入）：' + JSON.stringify(c));
+    // 正常重进（素材已就绪）照常显示
+    await ev(() => G.enterZone(1, 0));
+    await frames(3);
+    await until(() => !G.world.assetsPending(), null, 60000);
+    await frames(2);
+    const d = await ev(() => G.ui.quest().on);
+    assert(d, '重进霜骨沼泽后应照常显示');
+    return '载入中隐藏，就绪后显示（transition ' + c.tr + '）';
+  });
+
+  await step('主线：画着小地图金色记号的首领战，取随机数次数和种子哈希与关掉「显示主线」时一样', async () => {
+    const base = await ev(() => {
+      const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+      raw.cleared = {};
+      raw.maxTier = raw.tier = 0;
+      raw.lastZone = 0;
+      raw.run = null;
+      return raw;
+    });
+    const fresh = async (off, hold) => {
+      await ev(
+        ([raw, off, hold]) => {
+          G.holdSave(true);
+          window.__testRand.seed('主线指路·首领战·载入');
+          raw.quest = { n: 0, off, told: {} };
+          localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+          if (hold) sessionStorage.setItem('cinder-test-hold', '1');
+          else sessionStorage.removeItem('cinder-test-hold');
+        },
+        [base, off, hold]
+      );
+      await page.reload({ timeout: 90000 });
+      await install();
+      await until(() => !G.world.assetsPending(), null, 60000);
+    };
+    // 和上面「主线：首领战…」同一仗，每 6 帧模拟画一帧（含叠加层：小地图和金色记号）
+    const run = () =>
+      ev(() => {
+        const P = G.player, S = G.state, W = G.world;
+        window.__testRand.seed('主线指路·首领战');
+        const rnd = Math.random;
+        let calls = 0, marks = 0, edges = 0;
+        Math.random = function () { calls++; return rnd.call(this); };
+        const n0 = G.questStep();
+        const tk = (k) => {
+          for (let i = 0; i < k; i++) {
+            G.tick(1 / 60);
+            if (i % 6 === 5) {
+              W.render();
+              const m = W.questMark();
+              if (m.on) marks++;
+              if (m.on && m.edge) edges++;
+            }
+          }
+        };
+        try {
+          P.god = true;
+          tk(60); // 入口：目标在框外
+          G.debug.tpBoss();
+          tk(360);
+          G.killEnemy(S.boss);
+          tk(60); // 传送门：细圈
+          G.enterZone(1, 0);
+          tk(120);
+        } finally {
+          Math.random = rnd;
+        }
+        const st = JSON.stringify({ p: [P.x, P.z, P.life, P.mana], e: S.enemies.map((o) => [o.type, o.x, o.z, o.hp, o.dead]), loot: S.loot.length, t: S.time, xp: G.save.xp, calls });
+        let h = 2166136261;
+        for (let i = 0; i < st.length; i++) h = Math.imul(h ^ st.charCodeAt(i), 16777619);
+        return { hash: (h >>> 0).toString(16), calls, n0, n: G.questStep(), marks, edges };
+      });
+    let A, B, C;
+    try {
+      await fresh(false, true);
+      A = await run();
+      await fresh(true, true);
+      B = await run();
+      await fresh(false, true);
+      C = await run();
+    } finally {
+      await fresh(false, false);
+      await ev(() => {
+        G.debug.hold(true);
+        G.debug.god(true);
+      });
+    }
+    assert(A.n0 === 0 && A.n === 3 && B.n === 3 && A.marks >= 10 && A.edges >= 1 && B.marks === 0, '开着时这一仗应画了金色记号（含框边小三角），关掉时一次没画；进度两边都走到 3：' + JSON.stringify({ A, B }));
+    assert(A.hash === C.hash && A.calls === C.calls, '同一份存档打两遍不一样（测试本身不确定）：' + JSON.stringify({ A, C }));
+    assert(A.hash === B.hash && A.calls === B.calls, '金色记号改了模拟或取了随机数：' + JSON.stringify({ A, B }));
+    return '哈希 ' + A.hash + '，取随机数 ' + A.calls + ' 次（开 / 关相同），画了记号 ' + A.marks + ' 帧';
   });
 
   await step('主线：收尾——还原这一组之前的存档', async () => {

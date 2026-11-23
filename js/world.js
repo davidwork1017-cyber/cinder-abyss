@@ -29152,6 +29152,56 @@
     return y + 6;
   }
 
+  // 主线指路（quest D2）：小地图上的金色记号。只在 2D 叠加层上画（WebGL draw 0 增加），不分配、不取随机数。
+  // 目标在框里（离框边至少 11 px，整圈画得下）：套一圈半径 9 px 的金色细圈（在传送门紫圈外面，首领本身的红菱形不重复画）；
+  // 出框或贴着框边：从玩家的点朝目标打一条线，在离框边 7 px 处画一个尖朝外的金色小三角。qMark 记下这一帧画在哪（测试取像素用）
+  const Q_GOLD = '#ffcc4d';
+  const qMark = { on: false, edge: false, x: 0, y: 0 };
+  W.questMark = () => ({ on: qMark.on, edge: qMark.edge, x: qMark.x, y: qMark.y });
+  function drawQuestMark(g, tx, tz, px, pz, mx, my, S) {
+    qMark.on = true;
+    if (tx >= mx + 11 && tx <= mx + S - 11 && tz >= my + 11 && tz <= my + S - 11) {
+      qMark.edge = false;
+      qMark.x = tx;
+      qMark.y = tz;
+      g.beginPath();
+      g.arc(tx, tz, 9, 0, TAU);
+      g.strokeStyle = 'rgba(0,0,0,0.75)';
+      g.lineWidth = 3;
+      g.stroke();
+      g.strokeStyle = Q_GOLD;
+      g.lineWidth = 1.5;
+      g.stroke();
+      return;
+    }
+    let dx = tx - px, dz = tz - pz;
+    const L = Math.hypot(dx, dz) || 1;
+    dx /= L;
+    dz /= L;
+    const x0 = mx + 7, x1 = mx + S - 7, y0 = my + 7, y1 = my + S - 7;
+    let t = 1e9;
+    if (dx > 1e-6) t = Math.min(t, (x1 - px) / dx);
+    else if (dx < -1e-6) t = Math.min(t, (x0 - px) / dx);
+    if (dz > 1e-6) t = Math.min(t, (y1 - pz) / dz);
+    else if (dz < -1e-6) t = Math.min(t, (y0 - pz) / dz);
+    if (!(t > 0) || t >= 1e9) t = 0;
+    const cx = Math.max(x0, Math.min(x1, px + dx * t)), cy = Math.max(y0, Math.min(y1, pz + dz * t));
+    // 尖在外（离框边 1 px），长 10 px、底边宽 11 px（比宝箱的金色小方块大一圈，形状也分得开）；重心在 c − d 处
+    qMark.edge = true;
+    qMark.x = cx - dx;
+    qMark.y = cy - dz;
+    g.beginPath();
+    g.moveTo(cx + dx * 6, cy + dz * 6);
+    g.lineTo(cx - dx * 4.5 - dz * 5.5, cy - dz * 4.5 + dx * 5.5);
+    g.lineTo(cx - dx * 4.5 + dz * 5.5, cy - dz * 4.5 - dx * 5.5);
+    g.closePath();
+    g.fillStyle = Q_GOLD;
+    g.strokeStyle = 'rgba(0,0,0,0.85)';
+    g.lineWidth = 1.5;
+    g.stroke();
+    g.fill();
+  }
+
   function drawOverlay() {
     const g = octx, st = G.state, P = G.player;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -29503,6 +29553,10 @@
         }
         drawEncMarkers(g, X, Z, inMM); // 异兆：灰色六边形 / 走近后的图样（D4，和渊印的领群环错开：这段在宝箱后面）
       }
+      // 主线指路（quest D2）：目标在框里画一圈金色细圈，出了框就在框边画金色小三角指过去
+      const qt = G.questTarget ? G.questTarget() : null;
+      if (qt) drawQuestMark(g, X(qt.x), Z(qt.z), X(P.x), Z(P.z), mx, my, S);
+      else qMark.on = false;
       g.fillStyle = P.dead ? '#888888' : '#ffffff';
       g.strokeStyle = 'rgba(0,0,0,0.9)';
       g.lineWidth = 1.5;
