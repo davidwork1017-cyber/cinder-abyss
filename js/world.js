@@ -12553,6 +12553,45 @@
     o.z = g.position.z + (z * cs - x * sn) * k;
     return o;
   };
+  // 出手点：一发弹丸这一帧从武器的哪里出去（世界坐标，写进 out；不传则新建一个对象返回），按摆好的姿势现算。
+  // 长弓：弓把上搭箭的那一点（拉弓时箭从右手经过它指出去）；机炮 / 喷枪 / 左轮：枪口；长杖 / 短杖：杖头；魂幡：幡头的魂火；
+  // 其余武器：武器尖端；空手：右手。远程普攻、武器技、经武器打出的技能、以后的特殊弹都从这里出（画面上，见 pfDraw 的并线）
+  // 召唤物 / 怪（没有装备）：骨架上有 muzzle 挂点用它，没有就用持武器的那只手（骸弓的骷髅没有弓的模型，箭从右手出）
+  W.muzzleWorld = function (ent, out) {
+    const o = out || { x: 0, y: 0, z: 0 };
+    if (!ent.sock) return W.entSocket(ent, ent.rig.sockets.muzzle ? 'muzzle' : 'hand', o);
+    if (ent.gearType !== G_BOW || !ent.rig.JI || ent.rig.JI.wBo === undefined) return W.entSocket(ent, 'weapon', o);
+    const bj = ent.rig.JI.wBo, bp = ent.rig.joints[bj], M = ent.mdl, m = bj * 12, g = ent.group, k = g.scale.x * ent.k;
+    const lx = 0.39 - bp.px0, ly = 0.84 - bp.py0, lz = BOW_GZ - bp.pz0;
+    const x = M[m] * lx + M[m + 1] * ly + M[m + 2] * lz + M[m + 3];
+    const y = M[m + 4] * lx + M[m + 5] * ly + M[m + 6] * lz + M[m + 7];
+    const z = M[m + 8] * lx + M[m + 9] * ly + M[m + 10] * lz + M[m + 11];
+    const sn = Math.sin(g.rotation.y), cs = Math.cos(g.rotation.y);
+    o.x = g.position.x + (x * cs + z * sn) * k;
+    o.y = g.position.y + y * k;
+    o.z = g.position.z + (z * cs - x * sn) * k;
+    return o;
+  };
+  // 这一帧打出去的弹丸画面上从哪儿出来：投掷动作（掷焰 / 飞刃 / 散钉……）从投掷的那只手；
+  // 远程武器 / 施法武器、或者正在播武器自己的出手动作（fire_ / r_ / w_ / b_）时从武器的出手点；其余（近战武器施法）从左手
+  const EMIT_GEAR = { 1: 1, 2: 1, 5: 1, 7: 1, 8: 1, 9: 1, 10: 1 }; // 长杖 短杖 长弓 魂幡 机炮 喷枪 左轮
+  const EMIT_CLIP = /^(fire|r|w|b)_/;
+  function emitWorld(ent, out) {
+    const c = ent.clip, n = c ? c.name : '';
+    if (n === 'throw') return W.entSocket(ent, ent.gearClips && ent.gearClips.throw === c ? 'hand' : 'handL', out);
+    if (EMIT_GEAR[ent.gearType] || (ent.gearType >= 0 && EMIT_CLIP.test(n))) return W.muzzleWorld(ent, out);
+    return W.entSocket(ent, 'handL', out);
+  }
+  W.emitWorld = emitWorld;
+  W.emitOff = false; // 测试用：true 时弹丸画面不从出手点出来（直接画在弹道上），用来证明出手点只动画面
+  // 模拟这一步里（还没摆这一帧的姿势）要出手点时：上一帧的姿势 + 玩家这一帧已经走开的那一段
+  function emitEst(ent, out) {
+    emitWorld(ent, out);
+    const P = G.player, g = ent.group;
+    out.x += P.x - g.position.x;
+    out.z += P.z - g.position.z;
+    return out;
+  }
   const sock = (rig, name, joint, x, y, z) => (rig.sockets[name] = { j: rig.JI[joint], x: x || 0, y: y || 0, z: z || 0 });
 
   // 受击闪色。k：强度（1 普通，2 重击，3 终结 / 处决）——越重越亮、亮得越久。
@@ -14075,7 +14114,13 @@
     for (let i = 0; i < gj.length; i++) o[gj[i] + 6] = o[gj[i] + 7] = o[gj[i] + 8] = gj[i] === gw ? GEAR_K : 0;
     gunSpinPost(ent, o, sdt || 0);
     o[J.wDL + 6] = o[J.wDL + 7] = o[J.wDL + 8] = g === G_DAG ? GEAR_K : 0;
-    const c = ent.clip, a = g === G_BOW && c && c.arrow ? o[J.wA + 6] : 0;
+    const c = ent.clip;
+    let a = g === G_BOW && c && c.arrow ? o[J.wA + 6] : 0;
+    // 普攻拉弓（fire_<弓>）：弦上的箭跟着真正出手的那一箭走——这一箭出去了就不在弦上；拉满之后还没出手就一直搭着；
+    // 刚换上的下一张弓（还没搭箭）不要上一张弓残留的过渡
+    const nk = g === G_BOW ? bowNock(ent, c) : -1;
+    if (nk === 0) a = 0;
+    else if (nk === 1) a = 1;
     o[J.wA + 6] = o[J.wA + 7] = o[J.wA + 8] = a;
     setGlow(ent, 1 + Math.sin(t * 5) * 0.12);
   }
@@ -14279,6 +14324,18 @@
       T[i] = nx + (v ? 0 : L.x); T[i + 1] = ny + (v ? 0 : L.y); T[i + 2] = nz + (v ? 0 : L.z);
     }
   }
+  // 普攻拉弓的撒放跟着模拟里真正射出的那一箭（ent.bowShots，rangedOnSpawn 里数）：
+  // 返回 0 = 已经撒放（弦回直、弦上没箭），1 = 拉满等出手（弦拉着、箭搭着），-1 = 照动作自己的关键帧
+  function bowNock(ent, c) {
+    if (!c || !c.arrow || !c.draw || c.name.indexOf('fire_') !== 0) return -1;
+    if ((ent.bowShots | 0) > (ent.bowAt | 0)) return 0;
+    const k = ent.cK;
+    if (k < 0.08) return 0;
+    if (k >= c.k0 - 0.04 && k <= c.k0 + 0.2) return 1;
+    return -1;
+  }
+  // 撒放后弦往弓背那边弹过头、来回颤两下（0.16 秒内收住）：弓的绑定坐标里，弦中点 → 握把的方向
+  const SNAP_X = 0.256, SNAP_Y = -0.967, SNAP_A = 0.035;
   function playerIK(ent, sdt) {
     const rig = ent.rig, c = ent.clip, g = ent.gearType, M = ent.mdl;
     let ik = ent.ik;
@@ -14372,7 +14429,11 @@
     }
     // ---- 长弓：弓弦两段转向搭箭点（拉弓时是右手），箭从右手指向弓把 ----
     if (g === G_BOW) {
-      const J = rig.J, o = ent.out, dk = c && c.draw ? kf(c.draw, ent.cK) : 0;
+      const J = rig.J, o = ent.out, nk = bowNock(ent, c);
+      const dk = nk === 0 ? 0 : nk === 1 ? 1 : c && c.draw ? kf(c.draw, ent.cK) : 0;
+      if ((ent.bsDk || 0) > 0.5 && dk < 0.1) ent.snapT = 0;
+      else if (ent.snapT >= 0) ent.snapT = ent.snapT + (sdt || 0) > 0.16 ? -1 : ent.snapT + (sdt || 0);
+      ent.bsDk = dk;
       const bj = rig.JI.wBo, bm = bj * 12, bp = rig.joints[bj], hm = rig.JI.hR * 12, hp = rig.joints[rig.JI.hR];
       let nx = BOW_TIP[0], ny = BOW_TIP[1], nz = BOW_GZ;
       // 右手握点（模型空间）
@@ -14390,6 +14451,11 @@
         nx += (lx - nx) * dk;
         ny += (ly - ny) * dk;
         nz += (lz - nz) * dk;
+      }
+      if (ent.snapT >= 0 && dk < 0.1) {
+        const t = ent.snapT, sa = SNAP_A * Math.exp(-t / 0.045) * Math.sin(t * 88);
+        nx += SNAP_X * sa;
+        ny += SNAP_Y * sa;
       }
       const half = BOW_TIP[2] - BOW_GZ;
       let vx = nx - BOW_TIP[0], vy = ny - BOW_TIP[1], vz = nz - BOW_TIP[2], vl = Math.hypot(vx, vy, vz) || 1;
@@ -20529,6 +20595,7 @@
     f.sp.position.set(x, y, z);
     f.sp.scale.setScalar(size * 0.6);
     f.sp.visible = true;
+    return f;
   }
   function updateFlares(dt) {
     for (let i = 0; i < flares.length; i++) {
@@ -21048,6 +21115,13 @@
     for (let i = 0; i < b.n; i++) {
       b.inX[i] = points[i].x;
       b.inZ[i] = points[i].z;
+    }
+    // o.emit：玩家用武器放的（疾咒的链雷）——折线从杖头起，不从胸口（只改画面，调用方的点不动）
+    const pe = o && o.emit && !W.emitOff ? pEnt() : null;
+    if (pe) {
+      emitEst(pe, _em);
+      b.inX[0] = _em.x;
+      b.inZ[0] = _em.z;
     }
     b.on = true;
     b.t = 0;
@@ -21983,7 +22057,7 @@
   // ----- 秘弹：短杖的追踪小弹（由调用方移动）：拉长的晶尖 + 两粒绕转的光点，拖一条元素色的细带（实例化外形 'dart'） -----
   // opts（可选）：{ dx, dz } 出生时的飞行方向
   W.makeSeeker = function (hex, opts) {
-    return W.makeProjectile(hex, 0.07, false, { kind: 'dart', dx: opts && opts.dx, dz: opts && opts.dz, tint: opts && opts.tint });
+    return W.makeProjectile(hex, 0.07, false, { kind: 'dart', dx: opts && opts.dx, dz: opts && opts.dz, tint: opts && opts.tint, emit: opts && opts.emit });
   };
   // 秘弹出膛 / 命中的一小下闪光
   W.seekerFx = function (x, y, z, hex) {
@@ -22090,7 +22164,7 @@
   };
   // 魂灵（由调用方移动，和 makeProjectile / makeSeeker 一样用 W.removeMesh 移除）：一颗亮的魂火头拖一条渐细的魂尾，朝着移动方向，
   // 一路飘下往上浮的魂火屑
-  W.makeWisp = function (hex) {
+  W.makeWisp = function (hex, look) {
     const h = hexOf(hex === undefined || hex === null ? ALLY_HEX : hex);
     const grp = new T.Group();
     const body = new T.Group();
@@ -22116,6 +22190,8 @@
     u.acc = 0;
     u.ph = rand(0, TAU);
     u.age = 0;
+    u.em = look && look.emit && !W.emitOff && pEnt() ? 1 : 0; // 魂幡放出的：从幡头的魂火里飞出来（见 legacyProj）
+    u.ox = u.oy = u.oz = 0;
     u.lx = NaN; u.lz = NaN;
     u.rib = ribGet(0.2, 0.3, _c.r + (1 - _c.r) * 0.4, _c.g + (1 - _c.g) * 0.4, _c.b + (1 - _c.b) * 0.4, _c.r * 0.4, _c.g * 0.4, _c.b * 0.4); // 魂尾
     grp.position.y = -50;
@@ -23230,7 +23306,15 @@
     u.dz = dl > 0 ? o.dz / dl : 1;
     u.lx = NaN; u.lz = NaN;
     u.trail = true; // world 自己画拖尾（game.js 不再每帧撒通用火花）
+    // opts.emit：从玩家身上打出去的（game.js 判定）——画面上从出手点出来，再并到弹道上（见 pfDraw）
+    // opts.src：别的实体（召唤物）射的，从它自己的出手点出来
+    u.src = !hostile && !W.emitOff && o.src && !o.src.removed ? o.src : null;
+    u.em = (o.emit && !hostile && !W.emitOff && pEnt()) || u.src ? 1 : 0;
+    u.ea = 0;
+    u.emHit = 0;
     u.ox = 0; u.oz = 0; u.oy = 0;
+    u.mz = null;
+    u.fl = null;
     const rd = RIB_DEF[kind];
     u.rib = ribForKind(kind, u, rd);
     if (RANGED_PF[kind]) rangedOnSpawn(kind, u);
@@ -23566,8 +23650,51 @@
       spawnP(x + rand(-0.1, 0.1), y + rand(-0.1, 0.1), z + rand(-0.1, 0.1), rand(-0.6, 0.6), rand(-0.2, 0.8), rand(-0.6, 0.6), rand(0.2, 0.36), u.rad * 2.2, u.r * 0.8, u.g * 0.8, u.b * 0.8, -0.5, 1);
     }
   }
-  function pfDraw(m, u, p, dt) {
-    if (p.y < -10) return; // 还没摆到位置上
+  // 出手点 → 弹道的并线：第一次画到时（这一帧的姿势）取出手点，记下它和弹丸此刻模拟位置的差，
+  // 之后 EMIT_T 秒里这段差按 smoothstep 收到 0。两头的速度都和弹道一致：出膛时顺着弹道方向走，并上时不拐弯。
+  // 只改画的位置：模拟（命中、射程、随机数）一点不动
+  const EMIT_T = 0.1;
+  const _em = { x: 0, y: 0, z: 0 }, _emP = { x: 0, y: 0, z: 0 };
+  function emitStart(u, p) {
+    const src = u.src && !u.src.removed ? u.src : null, ent = u.src ? src : pEnt(), on = u.em === 1 && !!ent;
+    if (on) {
+      if (src) W.muzzleWorld(src, _em);
+      else emitWorld(ent, _em);
+      u.ox = _em.x - p.x; u.oy = _em.y - p.y; u.oz = _em.z - p.z;
+      if (u.mz) { u.mz.x = _em.x; u.mz.y = _em.y; u.mz.z = _em.z; }
+    } else {
+      u.ox = u.oy = u.oz = 0;
+      _em.x = p.x; _em.y = p.y; _em.z = p.z;
+    }
+    if (u.fl && u.fl.on) u.fl.sp.position.set(_em.x, _em.y, _em.z);
+    u.mz = u.fl = u.src = null;
+    // 还没画过就已经打中了（贴脸开火）：枪口焰 / 闪光照样在出手点，弹丸直接画在弹道上（命中点），不再并线
+    u.em = on && !u.emHit ? 2 : 0;
+    u.ea = 0;
+  }
+  // 弹丸这一帧画在哪（写进 _pv）
+  function emitPos(u, p, dt) {
+    _emP.x = p.x; _emP.y = p.y; _emP.z = p.z;
+    if (u.em !== 2) return _emP;
+    const t = u.ea / EMIT_T;
+    u.ea += dt;
+    if (t >= 1) { u.em = 0; return _emP; }
+    const w = 1 - t * t * (3 - 2 * t);
+    _emP.x += u.ox * w; _emP.y += u.oy * w; _emP.z += u.oz * w;
+    return _emP;
+  }
+  W.emitT = EMIT_T;
+  // 还在从出手点并线时就打中了（贴脸开火）：这一帧起直接画在弹道上，命中特效和弹丸对得上；还没画过的见 emitStart
+  function emitHit(u) {
+    if (!u) return;
+    if (u.em === 2) u.em = 0;
+    else if (u.em === 1) u.emHit = 1;
+  }
+  function pfDraw(m, u, sim, dt) {
+    if (sim.y < -10) return; // 还没摆到位置上
+    if (!(u.age > 0) && (u.em === 1 || u.fl || u.mz)) emitStart(u, sim);
+    const p = emitPos(u, sim, dt);
+    u.px = p.x; u.py = p.y; u.pz = p.z; // 画的位置（测试读）
     // vf-vfx2：出手那一下（第一次画到这颗投射物时）：掷焰手上窜起几片小火舌，飞刃出手一记小反光
     if (!(u.age > 0) && !u.hostile && PF.vShape) {
       if (u.vfx === 'ember') {
@@ -23584,24 +23711,27 @@
         tChunk(1, p.x, p.y + 0.05, p.z, 0, 0, 0, 0.06, 0.26, 0xffffff, 0xcfd6e6, 0);
       }
     }
+    // 朝向跟着模拟的弹道走（并线那一小段画的位置有点偏，箭头仍然指着弹道方向）
     if (u.lx === u.lx) {
-      const mx = p.x - u.lx, mz = p.z - u.lz, l2 = mx * mx + mz * mz;
+      const mx = sim.x - u.lx, mz = sim.z - u.lz, l2 = mx * mx + mz * mz;
       if (l2 > 1e-8) {
         const l = Math.sqrt(l2);
         u.dx = mx / l;
         u.dz = mz / l;
       }
     }
-    u.lx = p.x;
-    u.lz = p.z;
-    if (u.rib >= 0) ribHead(u.rib, p.x, p.y, p.z, dt);
-    PF_DRAW[u.vfx](u, p.x, p.y, p.z, dt);
+    u.lx = sim.x;
+    u.lz = sim.z;
+    const x = p.x, y = p.y, z = p.z;
+    if (u.rib >= 0) ribHead(u.rib, x, y, z, dt);
+    PF_DRAW[u.vfx](u, x, y, z, dt);
   }
 
   // ----- 命中 / 撞墙 / 爆炸：W.projImpact(mesh, x, z, how, R) -----
   // how：'hit' 打中目标（可能继续飞）/ 'wall' 撞墙 / 'blast' 爆炸（R 为半径）。认得这种外形就画并返回 true，否则返回 false（调用方用通用火花）
   W.projImpact = function (mesh, x, z, how, R) {
     const u = mesh && mesh.userData;
+    emitHit(u);
     const vk = u && u.vfx;
     if (!vk) return false;
     const y = 1.1;
@@ -25041,17 +25171,34 @@
     }
     u.acc += dt;
     if (u.wisp) {
-      // 刚放出时从幡头的高度落下来（前 0.3 秒），像是从幡上飞出去的
+      // 刚放出时从幡头的高度落下来（前 0.3 秒），像是从幡上飞出去的。
+      // 魂幡自己放出的（u.em）：第一次画到时取幡头魂火的位置，0.3 秒里从那里并到弹道上（smoothstep，只改画面）
       u.ph += dt * 13;
+      if (u.em === 1 && !(u.age > 0) && p.y > -10) {
+        const ent = pEnt();
+        if (ent) {
+          emitWorld(ent, _em);
+          u.ox = _em.x - p.x; u.oy = _em.y - p.y; u.oz = _em.z - p.z;
+          u.em = 2;
+        } else u.em = 0;
+      }
       u.age += dt;
-      const lift = u.age < 0.3 ? (1 - u.age / 0.3) * (1 - u.age / 0.3) * 1.1 : 0;
+      let wx = 0, wz = 0, lift;
+      if (u.em === 2) {
+        const t = Math.min(1, (u.age - dt) / 0.3), w = 1 - t * t * (3 - 2 * t);
+        wx = u.ox * w; wz = u.oz * w; lift = u.oy * w;
+        if (t >= 1) u.em = 0;
+      } else lift = u.age < 0.3 ? (1 - u.age / 0.3) * (1 - u.age / 0.3) * 1.1 : 0;
+      const ry = m.rotation.y, rc = Math.cos(ry), rs = Math.sin(ry);
+      u.wisp.position.x = wx * rc - wz * rs;
+      u.wisp.position.z = wx * rs + wz * rc;
       u.wisp.rotation.y = Math.sin(u.ph) * 0.35;
       u.wisp.position.y = lift + Math.sin(u.ph * 0.5) * 0.08;
-      if (p.y > -10 && u.rib >= 0) ribHead(u.rib, p.x, p.y + u.wisp.position.y, p.z, dt);
+      if (p.y > -10 && u.rib >= 0) ribHead(u.rib, p.x + wx, p.y + u.wisp.position.y, p.z + wz, dt);
       if (u.acc > 0.03 && p.y > -10) {
         u.acc = 0;
         const wh = Math.random() < 0.3 ? 0.5 : 0;
-        spawnP(p.x + rand(-0.08, 0.08), p.y + rand(-0.05, 0.1), p.z + rand(-0.08, 0.08), rand(-0.3, 0.3), rand(0.4, 1.4), rand(-0.3, 0.3), rand(0.3, 0.5), rand(0.14, 0.22), u.r + (1 - u.r) * wh, u.g + (1 - u.g) * wh, u.b + (1 - u.b) * wh, -1, 1.5);
+        spawnP(p.x + wx + rand(-0.08, 0.08), p.y + lift + rand(-0.05, 0.1), p.z + wz + rand(-0.08, 0.08), rand(-0.3, 0.3), rand(0.4, 1.4), rand(-0.3, 0.3), rand(0.3, 0.5), rand(0.14, 0.22), u.r + (1 - u.r) * wh, u.g + (1 - u.g) * wh, u.b + (1 - u.b) * wh, -1, 1.5);
       }
       return;
     }
@@ -25222,7 +25369,7 @@
   W.muzzle = function (ent, s, hex) {
     ent = ent || pEnt();
     if (!ent) return;
-    W.entSocket(ent, 'weapon', _rs);
+    W.muzzleWorld(ent, _rs);
     weaponFwd(ent, _rf);
     muzzleAdd(_rs.x, _rs.y, _rs.z, _rf.x, _rf.z, s || 1, hex === undefined ? 0xffc060 : hexOf(hex));
   };
@@ -25232,22 +25379,18 @@
     if (u.tinted) u.el = elemOf(u.tr, u.tg, u.tb);
     else u.el = kind === 'arrow' ? elemOf(u.r, u.g, u.b) : null;
     if (!ent || u.hostile) return;
-    const P = G.player;
-    W.entSocket(ent, 'weapon', _rs);
-    // 弹丸从枪口出来：画的位置前 0.1 秒从枪口滑到真正的弹道上
-    if (kind === 'bullet' || kind === 'slug' || kind === 'flamelet') {
-      u.ox = _rs.x - P.x; u.oz = _rs.z - P.z; u.oy = _rs.y - 1.1;
-    } else {
-      W.entSocket(ent, 'handL', _rs2);
-      u.ox = _rs2.x - P.x; u.oz = _rs2.z - P.z; u.oy = _rs2.y - 1.1;
-    }
+    // 枪口焰 / 弹壳 / 撒放的闪光在出手这一刻放（取随机数的次数和时机不能变，见 fx-random-neutral）：
+    // 这时角色还是上一帧的姿势，先按它估一个出手点（加上玩家这一帧已经走开的那一段），第一次画到这颗弹丸时再挪到准确的出手点（pfDraw）
+    emitEst(ent, _rs);
     if (kind === 'bullet' || kind === 'slug') {
       const big = kind === 'slug';
       muzzleAdd(_rs.x, _rs.y, _rs.z, u.dx, u.dz, big ? 1.35 : 0.9, big ? 0xff9a40 : 0xffc060);
+      u.mz = RF.muz[RF.muz.length - 1];
       if (!big || Math.random() < 0.5) shellAdd(ent, u.dx, u.dz, big);
     } else if (kind === 'arrow' || kind === 'emberarrow') {
       // 寒冰箭的出手闪光小一号：凛冬一次三支，三团闪光叠在一起会糊成白
-      flare(_rs2.x, _rs2.y, _rs2.z, kind === 'emberarrow' ? 0x3a9cff : u.tinted ? u.hex : 0xfff0d0, kind === 'emberarrow' ? 0.3 : 0.5, 0.06);
+      u.fl = flare(_rs.x, _rs.y, _rs.z, kind === 'emberarrow' ? 0x3a9cff : u.tinted ? u.hex : 0xfff0d0, kind === 'emberarrow' ? 0.3 : 0.5, 0.06);
+      if (u.em && !u.src) ent.bowShots = (ent.bowShots || 0) + 1; // 弓弦：这一箭出去了（见 playerIK 的撒放）
     }
   }
   // 地上一片燃烧的余烬（noDecal：不垫焦痕贴花——刻式「跳焰 / 犁焰 / 焰田」一次铺好几片，每片贴花各占一次 draw call，只留实例化的火）
@@ -25395,6 +25538,7 @@
   function rangedOnPlay(ent, name, opts) {
     if (name.indexOf('fire_') === 0) {
       RF.fireAt = wtime;
+      if (ent.gearType === G_BOW) ent.bowAt = ent.bowShots | 0; // 这一张弓还没射出箭（见 bowNock）
       if (name === 'fire_revolver') ent.revTurn = (ent.revTurn || 0) + 1;
       return;
     }
@@ -25441,10 +25585,9 @@
   }
 
   // ----- 投射物外形 -----
-  // 弹丸画的位置：出生后 0.1 秒内从枪口（或弓）滑到真正的弹道上
+  // 弹丸画的位置（从出手点并到弹道上的那一段已经在 pfDraw 里算好了）
   function rOff(u, x, y, z) {
-    const k = Math.max(0, 1 - u.age / 0.1);
-    _rs.x = x + u.ox * k; _rs.y = y + u.oy * k; _rs.z = z + u.oz * k;
+    _rs.x = x; _rs.y = y; _rs.z = z;
     return _rs;
   }
   PF_DRAW.bullet = function (u, x, y, z, dt) {
@@ -25537,6 +25680,7 @@
     W.projImpact = function (mesh, x, z, how, R) {
       const u = mesh && mesh.userData, vk = u && u.vfx;
       if (!vk || !RANGED_PF[vk]) return impact0(mesh, x, z, how, R);
+      emitHit(u);
       const y = 1.1;
       if (vk === 'bullet' || vk === 'slug') {
         const big = vk === 'slug';
@@ -29152,6 +29296,56 @@
     return y + 6;
   }
 
+  // 主线指路（quest D2）：小地图上的金色记号。只在 2D 叠加层上画（WebGL draw 0 增加），不分配、不取随机数。
+  // 目标在框里（离框边至少 11 px，整圈画得下）：套一圈半径 9 px 的金色细圈（在传送门紫圈外面，首领本身的红菱形不重复画）；
+  // 出框或贴着框边：从玩家的点朝目标打一条线，在离框边 7 px 处画一个尖朝外的金色小三角。qMark 记下这一帧画在哪（测试取像素用）
+  const Q_GOLD = '#ffcc4d';
+  const qMark = { on: false, edge: false, x: 0, y: 0 };
+  W.questMark = () => ({ on: qMark.on, edge: qMark.edge, x: qMark.x, y: qMark.y });
+  function drawQuestMark(g, tx, tz, px, pz, mx, my, S) {
+    qMark.on = true;
+    if (tx >= mx + 11 && tx <= mx + S - 11 && tz >= my + 11 && tz <= my + S - 11) {
+      qMark.edge = false;
+      qMark.x = tx;
+      qMark.y = tz;
+      g.beginPath();
+      g.arc(tx, tz, 9, 0, TAU);
+      g.strokeStyle = 'rgba(0,0,0,0.75)';
+      g.lineWidth = 3;
+      g.stroke();
+      g.strokeStyle = Q_GOLD;
+      g.lineWidth = 1.5;
+      g.stroke();
+      return;
+    }
+    let dx = tx - px, dz = tz - pz;
+    const L = Math.hypot(dx, dz) || 1;
+    dx /= L;
+    dz /= L;
+    const x0 = mx + 7, x1 = mx + S - 7, y0 = my + 7, y1 = my + S - 7;
+    let t = 1e9;
+    if (dx > 1e-6) t = Math.min(t, (x1 - px) / dx);
+    else if (dx < -1e-6) t = Math.min(t, (x0 - px) / dx);
+    if (dz > 1e-6) t = Math.min(t, (y1 - pz) / dz);
+    else if (dz < -1e-6) t = Math.min(t, (y0 - pz) / dz);
+    if (!(t > 0) || t >= 1e9) t = 0;
+    const cx = Math.max(x0, Math.min(x1, px + dx * t)), cy = Math.max(y0, Math.min(y1, pz + dz * t));
+    // 尖在外（离框边 1 px），长 10 px、底边宽 11 px（比宝箱的金色小方块大一圈，形状也分得开）；重心在 c − d 处
+    qMark.edge = true;
+    qMark.x = cx - dx;
+    qMark.y = cy - dz;
+    g.beginPath();
+    g.moveTo(cx + dx * 6, cy + dz * 6);
+    g.lineTo(cx - dx * 4.5 - dz * 5.5, cy - dz * 4.5 + dx * 5.5);
+    g.lineTo(cx - dx * 4.5 + dz * 5.5, cy - dz * 4.5 - dx * 5.5);
+    g.closePath();
+    g.fillStyle = Q_GOLD;
+    g.strokeStyle = 'rgba(0,0,0,0.85)';
+    g.lineWidth = 1.5;
+    g.stroke();
+    g.fill();
+  }
+
   function drawOverlay() {
     const g = octx, st = G.state, P = G.player;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -29503,6 +29697,10 @@
         }
         drawEncMarkers(g, X, Z, inMM); // 异兆：灰色六边形 / 走近后的图样（D4，和渊印的领群环错开：这段在宝箱后面）
       }
+      // 主线指路（quest D2）：目标在框里画一圈金色细圈，出了框就在框边画金色小三角指过去
+      const qt = G.questTarget ? G.questTarget() : null;
+      if (qt) drawQuestMark(g, X(qt.x), Z(qt.z), X(P.x), Z(P.z), mx, my, S);
+      else qMark.on = false;
       g.fillStyle = P.dead ? '#888888' : '#ffffff';
       g.strokeStyle = 'rgba(0,0,0,0.9)';
       g.lineWidth = 1.5;
