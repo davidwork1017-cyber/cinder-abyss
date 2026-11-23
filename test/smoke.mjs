@@ -12192,6 +12192,7 @@ async function main() {
   await step('黑洞：把牵引圈里的小怪往中心拽（越重拽得越慢），首领几乎拽不动；你的黑洞最多 2 个同时在场（第三个顶掉最老的），重叠时各跳各的；回响镶不上', async () => {
     const r = await ev(() => {
       T.arena();
+      G.resetRanged(); // 收掉上一段留下的黑洞（持续 6 秒，T.arena 不收）
       T.fix(0.5);
       const P = G.player, save = G.save;
       save.skills.blackhole = 1;
@@ -12216,14 +12217,23 @@ async function main() {
       const out = { at, husk: a[0] - d0(husk), brute: a[1] - d0(brute), boss: Math.hypot(boss.x - b0[0], boss.z - b0[1]), fx: G.world.holeCount() };
       // 去重：同一个靶子在一个黑洞 / 两个重叠的黑洞里各吃 1 秒
       T.arena();
+      G.resetRanged(); // 收掉上一段留下的黑洞（持续 6 秒，T.arena 不收）
       T.fix(0.5);
+      // 只记黑洞自己的伤害（技能栏上要是有光环之类，也会打到靶子）
+      const bh = new Map(), oh = G.hitEnemy;
+      G.hitEnemy = function (e, ctx) {
+        const v = oh.apply(this, arguments);
+        if (ctx && ctx.id === 'blackhole') bh.set(e, (bh.get(e) || 0) + (v || 0));
+        return v;
+      };
       const one = T.mob('husk', d.x * 5, d.z * 5);
       one.buTh = 1e9;
       T.aim(P.x + d.x * 5, P.z + d.z * 5);
       G.execSkill(G.skillCtx('blackhole'));
       for (let i = 0; i < 60; i++) G.tick(1 / 60);
-      out.dmg1 = Math.round(1e6 - one.hp);
+      out.dmg1 = Math.round(bh.get(one) || 0);
       T.arena();
+      G.resetRanged(); // 收掉上一段留下的黑洞（持续 6 秒，T.arena 不收）
       T.fix(0.5);
       const two = T.mob('husk', d.x * 5, d.z * 5);
       two.buTh = 1e9;
@@ -12232,7 +12242,8 @@ async function main() {
       G.execSkill(G.skillCtx('blackhole'));
       out.n2 = G.chaosHoles().length;
       for (let i = 0; i < 60; i++) G.tick(1 / 60);
-      out.dmg2 = Math.round(1e6 - two.hp);
+      out.dmg2 = Math.round(bh.get(two) || 0);
+      G.hitEnemy = oh;
       G.execSkill(G.skillCtx('blackhole'));
       out.n3 = G.chaosHoles().length; // 第三个顶掉最老的
       out.echo = G.supportFits('blackhole', 'echo');
@@ -14236,6 +14247,7 @@ async function main() {
       TV.setup('blackhole', 'b');
       for (let i = 0; i < 5; i++) TV.mob(7, (i - 2) * 0.7);
       const b = TV.boss(7.5);
+      TV.pin(b); // 2.25 秒里首领会走开，钉住
       TV.cast('blackhole', TV.at(7), 2.25); // 坍缩 0.375 秒一跳：2.25 秒 = 原来 1.5 秒的跳数
       const h = G.chaosHoles()[0];
       const out = { mass: h ? h.mass : -1, grew: h ? +(h.R / h.R0).toFixed(2) : 0 };
@@ -16489,7 +16501,8 @@ async function main() {
           T.fix(0.5);
           const ms = [];
           for (let i = 0; i < n; i++) {
-            const m = v === 'a' ? TV.mob(7, (i % 2 ? 1 : -1) * (0.1 + 0.22 * i)) : TV.mob(7 + Math.cos(i * 2.4) * (0.2 + 0.08 * i), Math.sin(i * 2.4) * (0.2 + 0.08 * i));
+            // 双极：沿索排开，离索的距离一只比一只远（0、0.03、0.06 … 米，都在索宽里）
+            const m = v === 'a' ? TV.mob(7 + (i % 2 ? 1 : -1) * 0.03 * i, (i % 2 ? 1 : -1) * (0.3 + 0.15 * i)) : TV.mob(7 + Math.cos(i * 2.4) * (0.2 + 0.08 * i), Math.sin(i * 2.4) * (0.2 + 0.08 * i));
             ms.push(dummy(m));
             TV.pin(m);
           }
@@ -16506,7 +16519,7 @@ async function main() {
           if (v === 'b') {
             G.input.tap[0] = 0.2; // 再按一次：当场坍缩
             TV.run(0.1);
-            res['c' + n] = TV.st('vCollapseN') > 0 ? G.state.stats.vCollapseN : -1;
+            res['c' + n] = TV.st('vCollapses') > 0 ? G.state.stats.vCollapseN : -1;
           }
           res.cap = G.SKILLS.blackhole.cap;
           if (v === 'b') res.hit = G.SKILLS.blackhole.collapse.hit;
@@ -16519,6 +16532,8 @@ async function main() {
       RQT.learn('blackhole', 0);
       T.fix(0.5);
       const res = { cap: G.SKILLS.blackhole.cap, mech: G.SKILLS.blackhole.mech };
+      const wave = G.SKILLS.blackhole.follow.wave;
+      G.SKILLS.blackhole.follow.wave = null; // 不拽那一把（拽完都挤到你脚下一样远，分不出最近的；拽一把在随核那一步测）
       for (const n of [18, 5]) {
         G.clearEnemies();
         G.resetRanged();
@@ -16552,6 +16567,7 @@ async function main() {
         res['t' + n] = mx;
         res['near' + n] = ms.slice(0, N).every((m) => hits.get(m) > 0) && ms.slice(N).every((m) => !hits.get(m));
       }
+      G.SKILLS.blackhole.follow.wave = wave;
       G.clearEnemies();
       G.resetRanged();
       RQT.end();
@@ -16633,7 +16649,10 @@ async function main() {
       out.txtB = G.holeNerfNote(G.variantOf('blackhole'));
       out.txtA = G.holeNerfNote('a');
       out.txtC = G.holeNerfNote('c');
-      out.none = load(old(0));
+      out.none = load((raw) => {
+        old(12)(raw);
+        delete raw.skills.blackhole; // 没学（等级 0 读档时会按 1 级算）
+      });
       out.fresh = load((raw) => {
         raw.bhCap = 1;
         raw.bhNote = false;
