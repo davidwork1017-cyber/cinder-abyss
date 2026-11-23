@@ -27,6 +27,61 @@
     return arr[arr.length - 1];
   };
 
+  // ---------- 画面随机数（fx-rng）----------
+  // Math.random 只给模拟用：伤害、暴击、AI、掉落、词缀、刷怪、异兆、布局、计时。特效 / 画面上的随机（碎片、火花、贴花朝向、
+  // 飘字的抖动、闪烁、待机动作的相位……）一律取 G.vr / G.vrand / G.vpick，不碰 Math.random：画质档、特效上限、姿势
+  // 只改画面，玩法的随机序列不变（同一个种子 高 / 低 打出来一样）。
+  // 按特效取种子：G.fxFn(名字, fn) 包过的特效每放一次，从（名字, 模拟第几步, 这一步里这个名字的第几个）起一路新的，
+  // 特效里第 k 个零件拿到的数只看这三样，别的特效多取少取、帧快帧慢都挪不动它；特效之外（每帧的闪烁、调用处参数里的随机角）
+  // 取这一步自己的一路（G.fxStep 每个模拟步开头起）。特效返回后接着走外面那一路，不管它里面取了几个。
+  // 建外观期间（world.js 的 withVisualRandom / vfIso、G.vfx.quiet）Math.random 换成了按区域种子 / 自己的序列，
+  // 这时 G.vr 照旧取 Math.random：布景的摆放和原来逐位相同（G.look 记着在不在里面）。
+  let fxS = 0, fxTick = 0, fxN = 0, lookD = 0;
+  const fxCnt = new Map();
+  const fxMix = (a, b) => {
+    let h = Math.imul((a ^ (a >>> 16)) >>> 0, 0x85ebca6b) ^ b;
+    h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+    return (h ^ (h >>> 16)) >>> 0;
+  };
+  const fxHash = (s) => {
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+    return h >>> 0;
+  };
+  // mulberry32 一步
+  const fxNext = () => {
+    fxN++;
+    fxS = (fxS + 0x6d2b79f5) | 0;
+    let t = fxS;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  G.vr = () => (lookD ? Math.random() : fxNext());
+  G.vrand = (a, b) => a + (lookD ? Math.random() : fxNext()) * (b - a);
+  G.fxRand = (a, b) => a + fxNext() * (b - a); // 同 G.vrand，但建外观期间也不转给 Math.random（原来就有自己一路随机数的特效用）
+  G.vpick = (arr) => arr[Math.floor((lookD ? Math.random() : fxNext()) * arr.length)];
+  G.fxStep = () => {
+    fxTick = (fxTick + 1) >>> 0;
+    if (fxCnt.size) fxCnt.clear();
+    fxS = fxMix(0x2545f491, fxTick);
+  };
+  G.fxFn = (name, fn) => {
+    const id = fxHash(name);
+    return function () {
+      const s0 = fxS, k = fxCnt.get(id) || 0;
+      fxCnt.set(id, k + 1);
+      fxS = fxMix(fxMix(id, fxTick), k);
+      try {
+        return fn.apply(this, arguments);
+      } finally {
+        fxS = s0;
+      }
+    };
+  };
+  G.look = (on) => (lookD = Math.max(0, lookD + (on ? 1 : -1)));
+  G.fxInfo = () => ({ tick: fxTick, n: fxN, look: lookD }); // 测试用：n = G.vr 一共取了几次（建外观期间转给 Math.random 的不算）
+
   // 混沌（chaos）：伤害提高 = 伤害提高 + 元素伤害提高（只算一次）+ 火焰 / 冰霜 / 闪电三项各自的提高 + 混沌伤害提高，
   // 总额外只吃 moreChaos，不吃「元素过载」的 moreElem（见 game.js 的 skillCtx）。混沌不是元素：G.ELEMS 里没有它
   G.TYPES = ['phys', 'fire', 'cold', 'light', 'chaos'];

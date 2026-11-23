@@ -4165,8 +4165,8 @@
 
     // 数字：普通的小而快；暴击更大、换一套配色、沿抛物线甩出去；终结技最大
     const shown = Math.max(1, Math.round(hit.total));
-    const tx = e.x + G.rand(-0.35, 0.35);
-    const tz = e.z + G.rand(-0.25, 0.25);
+    const tx = e.x + G.vrand(-0.35, 0.35);
+    const tz = e.z + G.vrand(-0.25, 0.25);
     const ty = Math.min(2.6, h * 0.5); // 从胸口冒出来，升到头顶为止，不压住血条和名字
     const faint = inf.aura || inf.faint;
     if (faint) {
@@ -4446,7 +4446,7 @@
     }
 
     P.life -= dmg;
-    W.text(P.x + G.rand(-0.3, 0.3), P.z, '-' + Math.round(dmg), '#ff5a4a', 17);
+    W.text(P.x + G.vrand(-0.3, 0.3), P.z, '-' + Math.round(dmg), '#ff5a4a', 17);
     W.shake(Math.min(0.6, 0.18 + (dmg / P.maxLife) * 1.6));
     G.ui.hurt();
     const far = src && Math.hypot(P.x - src.x, P.z - src.z) > 0.05;
@@ -5820,8 +5820,8 @@
     if (!c.clipOk && !fxOpt('flameCone', P.x, P.z, c.aim, R, sk.arc, ctx.time * 2.2)) {
       // world 没有喷火的动作（它会自己画火舌）时：撒几点火星顶上
       for (let i = 0; i < 3; i++) {
-        const a = c.aim + G.rand(-half, half) * 0.8;
-        const d = G.rand(0.8, R);
+        const a = c.aim + G.vrand(-half, half) * 0.8;
+        const d = G.vrand(0.8, R);
         W.burst(P.x + Math.sin(a) * d, 1.0, P.z + Math.cos(a) * d, i ? 0xff8a3c : 0xffd28a, 2, 1.6, 0.25);
       }
     }
@@ -5845,7 +5845,7 @@
     f.tt = Math.min(0.15, f.tick);
     if (fields.length >= MAX_FIELDS) fields.shift();
     fields.push(f);
-    if (!fxOpt('emberGround', f.x, f.z, f.r, f.dur, f.kind === 'burn', !!f.noDecal)) G.world.decal(1, f.x, f.z, f.r * 0.9, Math.random() * TAU, f.hex || 0xff7a2c, f.dur);
+    if (!fxOpt('emberGround', f.x, f.z, f.r, f.dur, f.kind === 'burn', !!f.noDecal)) G.world.decal(1, f.x, f.z, f.r * 0.9, G.vr() * TAU, f.hex || 0xff7a2c, f.dur);
     return f;
   }
   function updateFields(dt) {
@@ -6604,7 +6604,7 @@
         W.slash(P.x, P.z, a.ang, st.reach * k + 0.4, 130, hex, { dur: 0.22, inner: 0.62, y: 1.1, tilt: Math.PI / 2, pitch: -0.52, dir: -1 });
         W.ring(cx, cz, R, hex, 0.34);
         if (!st.wave) W.ring(cx, cz, R * 0.55, 0xffe2b0, 0.2); // 带冲击波的（战锤普攻的终结）外面还要荡一圈：里面这圈省掉，场上同时的环（各占一次 draw call）不多出来
-        W.decal(5, cx, cz, R * 0.95, Math.random() * TAU, 0xffb050, 2.6);
+        W.decal(5, cx, cz, R * 0.95, G.vr() * TAU, 0xffb050, 2.6);
         W.smashFx(cx, cz, R, a.ang);
         W.shake(0.24);
       } else if (st.shape === 'line') {
@@ -6869,7 +6869,7 @@
       const n = c && c.channel ? c.pulses : 0;
       const rk = sk.mech === 'tide' ? G.relicSpinPulse(ctx) : 1; // 渊式「蓄潮」：每跳打得轻、攒层
       if (sk.mech === 'pull') whirlPull(ctx); // 刻式「旋涡斩」：先把一圈敌人往身边吸
-      W.slash(P.x, P.z, Math.random() * TAU, R, 360, hex, sk.mech === 'pull' ? { dur: 0.2, inner: 0.35, y: 0.6, dir: -1 } : { dur: 0.2, inner: 0.6, y: 0.9 });
+      W.slash(P.x, P.z, G.vr() * TAU, R, 360, hex, sk.mech === 'pull' ? { dur: 0.2, inner: 0.35, y: 0.6, dir: -1 } : { dur: 0.2, inner: 0.6, y: 0.9 });
       if (W.spinPulse) W.spinPulse(P.ent, R, hex, ctx.time * 1.6, n === 1, sk.mech === 'pull' ? -1 : 1); // vf-vfx2：绕身的风刃、脚下的风纹、起手的尘环；刻式「旋涡斩」风刃反着转、往里收
       if (n % 2 === 1) W.burst(P.x, 0.25, P.z, 0xbfb3a0, 4, R * 0.9, 0.3); // 脚下扬起的尘
       G.sfx('swing', { step: n % 2 });
@@ -7256,7 +7256,7 @@
     W.bolt([{ x: P.x, z: P.z }, { x, z }], 0xffe45e, true);
     if (W.vShock) W.vShock(x, z, S.r * Math.sqrt(ctx.area), 0xffe45e, 0.3, 0); // 电桩的范围：一道往外推的细环
     else W.ring(x, z, S.r * Math.sqrt(ctx.area), 0xffe45e, 0.3);
-    W.decal(3, x, z, 0.9, Math.random() * TAU, 0xffe45e, py.t);
+    W.decal(3, x, z, 0.9, G.vr() * TAU, 0xffe45e, py.t);
     py.tt = S.tick * 0.6; // 插下去之后很快电第一下（不当帧电：按住连插也不会多电）
     state.stats.vPylons = (state.stats.vPylons || 0) + 1;
     vCount();
@@ -7385,7 +7385,7 @@
     while (VS.cores.length >= 3) coreOff(VS.cores[0], true);
     VS.cores.push({
       x, z, ctx, t: C.dur, n: 0, gap: 0.3, R: C.r * Math.sqrt(ctx.area),
-      fx: W.kv('rock', { hex: 0x3a1a10, x, z, y: 0.25, s: 1.25, ry: Math.random() * TAU }), glow: W.kv('orb', { hex: 0xff5a1c, x, z, y: 0.45, s: 0.8, k: 0.4 }),
+      fx: W.kv('rock', { hex: 0x3a1a10, x, z, y: 0.25, s: 1.25, ry: G.vr() * TAU }), glow: W.kv('orb', { hex: 0xff5a1c, x, z, y: 0.45, s: 0.8, k: 0.4 }),
       ring: W.kv('glyph', { hex: 0xff5a2c, x, z, y: 0.05, s: C.r * Math.sqrt(ctx.area) * 2, k: 1 }),
     });
     state.stats.vCores = (state.stats.vCores || 0) + 1;
@@ -7469,7 +7469,7 @@
         G.hitEnemy(e, p.ctx, S.mult, { ang: ang + (side * Math.PI) / 2, w: 1, kb: 1.8, poise: 14, quiet: true, core: true });
         if (!e.isBoss && W.knockUp) W.knockUp(e.ent, 0.5);
       }
-      if (Math.random() < 0.6) W.burst(p.x, 0.4, p.z, 0xffa040, 3, 3, 0.3);
+      if (G.vr() < 0.6) W.burst(p.x, 0.4, p.z, 0xffa040, 3, 3, 0.3);
       // 每 2.6 米留一片火（沟里的火）
       if (p.d - p.fd >= 2.6 || (p.d >= p.len && p.fd < p.len - 0.5)) {
         p.fd = p.d;
@@ -7586,7 +7586,7 @@
     }
     if (W.shadowStep) W.shadowStep(ox, oz, px, pz, hex);
     W.afterimage(P.ent, ox, oz, hex, 0.8, 0.35, 0, P.face);
-    W.slash(px, pz, Math.random() * TAU, 1.6, 360, hex, { dur: 0.25, inner: 0.7, y: 1.0 });
+    W.slash(px, pz, G.vr() * TAU, 1.6, 360, hex, { dur: 0.25, inner: 0.7, y: 1.0 });
     G.hitEnemy(e, ctx, 1, { ang: Math.atan2(e.x - px, e.z - pz), w: 2, poise: (sk.poise || 0) * (e.isBoss ? S.poise : 1), quiet: true });
     const R = S.r * Math.sqrt(ctx.area);
     for (const o of enemiesIn(px, pz, R)) if (o !== e) G.hitEnemy(o, ctx, S.side, { ang: Math.atan2(o.x - px, o.z - pz), quiet: true });
@@ -7657,7 +7657,7 @@
     c.fx.rz += dt * 26;
     c.fx.y = c.ph === 'hover' ? 0.9 + Math.sin(state.time * 12) * 0.05 : 1.0;
     c.ring.a = c.ph === 'hover' ? 1 : 0.3;
-    if (Math.random() < 0.5) W.burst(c.x, 0.9, c.z, 0xe8c9a0, 1, 1.5, 0.2);
+    if (G.vr() < 0.5) W.burst(c.x, 0.9, c.z, 0xe8c9a0, 1, 1.5, 0.2);
     const R = S.r * Math.sqrt(c.ctx.area);
     let n = 0;
     for (const e of enemiesIn(c.x, c.z, R)) {
@@ -7670,7 +7670,7 @@
       n++;
     }
     if (n) {
-      W.slash(c.x, c.z, Math.random() * TAU, R, 360, 0xe8c9a0, { dur: 0.14, inner: 0.7, y: 0.95 });
+      W.slash(c.x, c.z, G.vr() * TAU, R, 360, 0xe8c9a0, { dur: 0.14, inner: 0.7, y: 0.95 });
       G.sfx('impact', { type: 'phys', w: 0, crit: lastHit.crit });
       state.stats.vDiscHits = (state.stats.vDiscHits || 0) + n;
     }
@@ -7704,7 +7704,7 @@
       k++;
     }
     W.smashFx(P.x, P.z, R, ang);
-    W.decal(5, P.x, P.z, R * 0.9, Math.random() * TAU, 0xffb050, 2.4);
+    W.decal(5, P.x, P.z, R * 0.9, G.vr() * TAU, 0xffb050, 2.4);
     if (W.vShock) W.vShock(P.x, P.z, R, hexOf(sk.color), 0.3, 0);
     else W.ring(P.x, P.z, R, hexOf(sk.color), 0.35);
     W.shake(0.2 + 0.04 * n);
@@ -8497,9 +8497,9 @@
     if (sk.mech === 'focus') return dischargeFocus(ctx, R, hex); // 刻式「聚雷」：只打最近的一个
     if (!fxOpt('dischargeFx', P.x, P.z, R, hex)) {
       // 没有形状批时：6 道细电弧从身上放射出去（池化的电弧，minor 不带闪光和贴花）
-      const a0 = Math.random() * TAU;
+      const a0 = G.vr() * TAU;
       for (let i = 0; i < 6; i++) {
-        const aa = a0 + (i / 6) * TAU, am = aa + G.rand(-0.35, 0.35);
+        const aa = a0 + (i / 6) * TAU, am = aa + G.vrand(-0.35, 0.35);
         W.bolt([{ x: P.x, z: P.z }, { x: P.x + Math.sin(am) * R * 0.5, z: P.z + Math.cos(am) * R * 0.5 }, { x: P.x + Math.sin(aa) * R, z: P.z + Math.cos(aa) * R }], hex, true);
       }
     }
@@ -9046,7 +9046,7 @@
       if (!fxOpt('groundBurst', P.x, P.z, R, hex, t)) {
         W.ring(P.x, P.z, R, hex, 0.45);
         W.ring(P.x, P.z, R * 0.6, 0xffffff, 0.25);
-        W.decal(t === 'fire' ? 1 : t === 'cold' ? 2 : 3, P.x, P.z, R * 0.85, Math.random() * TAU, hex, 3);
+        W.decal(t === 'fire' ? 1 : t === 'cold' ? 2 : 3, P.x, P.z, R * 0.85, G.vr() * TAU, hex, 3);
         W.burst(P.x, 0.4, P.z, hex, 40, R * 1.6, 0.6);
       }
       G.sfx('cast', { id: ctx.id, type: t });
@@ -9160,7 +9160,7 @@
       const wl = Math.max(0.5, len - sk.reach);
       if (!fxOpt('shockwave', ix, iz, a, wl, sk.w0 * k, sk.w1 * k, hex, wl / sk.wave / 0.72)) {
         W.ring(ix, iz, R, hex, 0.35);
-        W.decal(5, ix, iz, R * 0.95, Math.random() * TAU, 0xffc890, 2.6);
+        W.decal(5, ix, iz, R * 0.95, G.vr() * TAU, 0xffc890, 2.6);
         W.burst(ix, 0.3, iz, 0xcbbba6, 18, 6.5, 0.45);
         for (let d = sk.reach + 1.5; d <= len; d += 1.5) {
           const px = x0 + sn * d;
@@ -9168,7 +9168,7 @@
           const half = ((sk.w0 + (sk.w1 - sk.w0) * (d / len)) / 2) * k;
           G.after((d - sk.reach) / sk.wave, () => {
             W.burst(px, 0.3, pz, 0xcbbba6, 6, 2 + half, 0.4);
-            W.decal(5, px, pz, half * 0.8, Math.random() * TAU, 0xffc890, 1.6);
+            W.decal(5, px, pz, half * 0.8, G.vr() * TAU, 0xffc890, 1.6);
           });
         }
       }
@@ -9227,7 +9227,7 @@
           W.dashFx(x0, z0, xe, ze, hex);
           if (dd > 0.3) W.decal(0, (x0 + xe) / 2, (z0 + ze) / 2, dd / 2, a, hex, 0.6, 0.25);
         }
-        if (W.cutLine) for (const e of reached()) W.cutLine(e.x, e.z, a + Math.PI / 2 + (Math.random() - 0.5) * 0.7, 1.8 + e.r * 2, hex, sk.delay);
+        if (W.cutLine) for (const e of reached()) W.cutLine(e.x, e.z, a + Math.PI / 2 + (G.vr() - 0.5) * 0.7, 1.8 + e.r * 2, hex, sk.delay);
       });
       G.after(dashT + sk.delay, () => {
         if (P.dead) return;
@@ -9890,7 +9890,7 @@
       // 斩痕：这一闪的目标留一整道，沿路 / 身边挨了刀的留半道（sk.side）——怪群里多炸一些，单挑首领不变
       for (const o of live) {
         addCut(run, o, o === e ? 1 : sk.side);
-        fxOpt('ashMark', o.ent, a + Math.PI / 2 + G.rand(-0.6, 0.6), run.cuts.get(o), o.height || 2);
+        fxOpt('ashMark', o.ent, a + Math.PI / 2 + G.vrand(-0.6, 0.6), run.cuts.get(o), o.height || 2);
       }
       G.sfx('swing', { step: run.hops % 2 });
       if (live.length) wsStrike(ctx, live, sk.pass, { ang: a, w: 0, kb: sk.kb, poise: sk.poise, stop: sk.stop, dir: a });
@@ -10215,7 +10215,7 @@
       G.hitEnemy(o, p.ctx, S.mult, { ang: Math.atan2(o.x - x, o.z - z), w: 0, kb: 0.15, poise: 2, quiet: true, faint: true, extra: true });
       n++;
     }
-    if (n && Math.random() < 0.5) G.world.burst(x, 1.0, z, 0xffcf7a, 6, 4, 0.2);
+    if (n && G.vr() < 0.5) G.world.burst(x, 1.0, z, 0xffcf7a, 6, 4, 0.2);
     state.stats.wildSplash = (state.stats.wildSplash || 0) + n;
   }
 
@@ -10461,7 +10461,7 @@
     W.ring(e.x, e.z, e.r + 3.4, 0xfff0c0, 0.4);
     W.ring(e.x, e.z, e.r + 1.8, 0xffffff, 0.22);
     W.burst(hx, h * 0.5, hz, 0xfff0c0, 34, 9, 0.6);
-    W.decal(5, e.x, e.z, e.r + 2.2, Math.random() * TAU, 0xffd28a, 3.2);
+    W.decal(5, e.x, e.z, e.r + 2.2, G.vr() * TAU, 0xffd28a, 3.2);
     W.shake(0.8);
     W.punch(ang, 0.75);
     W.fovKick(5);
@@ -12267,7 +12267,7 @@
           shape: 'circle', x, z, r: D.r, dur: D.warn, dmg: hit, dtype: 'fire', owner: null, friendly: false,
           onFire() {
             W.burst(x, 0.5, z, 0xff8a3c, 16, 5, 0.5);
-            W.decal(1, x, z, D.r * 0.8, Math.random() * TAU, 0xff6a2a, 3);
+            W.decal(1, x, z, D.r * 0.8, G.vr() * TAU, 0xff6a2a, 3);
             // 打怪 × mobK（烬晶不吃：要你自己打碎）
             for (const e of state.enemies) if (!e.dead && !e.fixed && !e.isBoss && dist(e.x, e.z, x, z) <= D.r + e.r * 0.5) encHurt(e, hit * D.mobK);
           },

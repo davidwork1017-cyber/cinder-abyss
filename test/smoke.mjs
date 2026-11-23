@@ -11372,6 +11372,136 @@ async function main() {
     return '哈希 ' + on.hash + '，取随机数 ' + on.calls + ' 次，弹丸 ' + on.shots + ' 发，伤害 ' + on.dmg;
   });
 
+  // fx-rng：特效 / 画面的随机数取 G.vr（按特效取种子），不取 Math.random。画质档、特效上限、火把多少只改画面，不改玩法：
+  // 同一个种子（每遍都重载、重进钉死布局的第 0 区）打三场——铁水弹（炉匠，机炮）、链雷、三相天灾（长杖的烬铸技能），
+  // 高 / 低画质、以及高画质下特效全部静音（W.fxMute 钉死在开）+ 爆燃上限压到 0（全部走超出上限的路）+ 火把只留 1 盏，
+  // 局面哈希和 Math.random 次数逐位相同；画面随机数取的次数各遍不一样（说明特效确实多了 / 少了）。
+  // 反面对照：开打前多取一次 Math.random，哈希就变（这一步测得出差别）
+  await step('确定性（fx-rng）：画质 高 / 低、特效静音 + 爆燃上限压到 0 + 火把只留 1 盏，同一个种子打铁水弹 / 链雷 / 三相天灾，局面和 Math.random 次数逐位相同；画面随机数不取 Math.random', async () => {
+    const KEY = 'cinder-abyss-save-v1';
+    const save0 = await ev((KEY) => localStorage.getItem(KEY), KEY);
+    const god0 = await ev(() => !!G.player.god);
+    const fresh = async (hold) => {
+      await ev(
+        ([KEY, s, hold]) => {
+          G.holdSave(true);
+          localStorage.setItem(KEY, s);
+          if (hold) sessionStorage.setItem('cinder-test-hold', '1');
+          else sessionStorage.removeItem('cinder-test-hold');
+        },
+        [KEY, save0, hold]
+      );
+      await page.reload({ timeout: 90000 });
+      await install();
+      await until(() => !G.world.assetsPending(), null, 60000);
+      if (!hold) return;
+      await ev(() => {
+        G.debug.zoneSeed(4242);
+        G.enterZone(0, 0);
+      });
+      await until(() => !G.world.assetsPending(), null, 60000);
+    };
+    const run = (o) =>
+      ev((o) => {
+        const P = G.player, S = G.state, W = G.world, save = G.save;
+        W.setQuality(o.q);
+        const torches = W.debugTorches(o.torch);
+        window.__testRand.seed('确定性·画质无关');
+        T.arena();
+        P.god = true;
+        if (o.extra) Math.random();
+        const fxMute0 = W.fxMute;
+        if (o.cap) {
+          W.fxMute(true);
+          W.fxMute = () => {}; // 游戏里每次放完会关掉：钉死在开
+          W.b1Cap(0);
+        }
+        const base = Math.random, v0 = G.fxInfo().n;
+        let calls = 0;
+        Math.random = function () { calls++; return base.call(this); };
+        const out = [];
+        const pack = () => [[6, 0], [6.9, 1.1], [6.9, -1.1], [7.9, 0.2], [8.4, -1.6]].map(([dx, dz]) => {
+          const e = G.spawnMob('husk', P.x + dx, P.z + dz, 10, { awake: true });
+          e.wasAwake = true;
+          e.hp = e.maxHp = 1e6;
+          e.atkCd = 1e9;
+          e.speed = 0;
+          return e;
+        });
+        const st = () => JSON.stringify({ p: [P.x, P.z, P.life, P.mana], e: S.enemies.map((e) => [e.x, e.z, e.hp, e.dead]), proj: S.projectiles.map((q) => [q.x, q.z]), calls });
+        try {
+          for (const id of ['molten', 'arc', 'tristorm']) {
+            G.clearEnemies();
+            P.cds = {};
+            save.bar = [null, null, null, null];
+            if (id === 'molten') {
+              save.cls = 'forge';
+              save.clsLock = {};
+              const w = G.rollItem(20, 0, 'weapon', 8);
+              w.wbase = G.weaponBaseDmg(8, 20);
+              w.imp = null;
+              save.equip.weapon = G.refreshWeapon(w);
+              save.skills.molten = 20;
+              save.bar[0] = 'molten';
+            } else if (id === 'arc') {
+              delete save.cls;
+              save.equip.weapon = G.rollItem(20, 0, 'weapon', 1);
+              save.skills.arc = 20;
+              save.bar[2] = 'arc';
+            } else {
+              const U = Object.keys(G.UNIQUES).find((u) => G.UNIQUES[u].uskill === 'tristorm');
+              save.equip.weapon = G.rollUnique(U, 20, 0.5);
+            }
+            G.computeStats();
+            const es = pack();
+            for (let i = 0; i < 150; i++) {
+              const e = es[0];
+              T.aim(e.x, e.z);
+              P.mana = P.maxMana;
+              if (id === 'molten') G.input.mouse.b[0] = i < 100;
+              else if (id === 'arc') { if (i % 20 === 0 && i < 120) G.input.tap[2] = 0.25; }
+              else if (i === 0) G.input.tap[4] = 0.25;
+              G.tick(1 / 60);
+            }
+            G.input.mouse.b[0] = false;
+            G.input.tap.fill(0);
+            out.push({ id, dmg: Math.round(es.reduce((a, e) => a + (e.maxHp - e.hp), 0)), st: st() });
+          }
+        } finally {
+          Math.random = base;
+          G.input.mouse.b[0] = false;
+          W.fxMute = fxMute0;
+          W.fxMute(false);
+          W.b1Cap(null);
+          delete save.cls;
+        }
+        const all = out.map((x) => x.st).join('|');
+        let h = 2166136261;
+        for (let i = 0; i < all.length; i++) h = Math.imul(h ^ all.charCodeAt(i), 16777619);
+        return { hash: (h >>> 0).toString(16), calls, vis: G.fxInfo().n - v0, dmg: out.map((x) => x.id + ' ' + x.dmg).join(' / '), torches, b1: W.b1Info().peak };
+      }, o);
+    const R = {};
+    try {
+      for (const [k, o] of [['high', { q: 'high' }], ['low', { q: 'low' }], ['cap', { q: 'high', cap: true, torch: 1 }], ['ctl', { q: 'high', extra: true }]]) {
+        await fresh(true);
+        R[k] = await run(o);
+      }
+    } finally {
+      await fresh(false);
+      await ev((god0) => {
+        G.debug.hold(true);
+        G.debug.god(god0);
+      }, god0);
+    }
+    const { high: H, low: L, cap: C, ctl: X } = R;
+    assert(H.hash === L.hash && H.calls === L.calls, '高 / 低画质打出来不一样：' + JSON.stringify(R));
+    assert(H.hash === C.hash && H.calls === C.calls, '特效静音 / 爆燃上限 / 火把少了打出来不一样：' + JSON.stringify(R));
+    assert(X.hash !== H.hash, '反面对照没有测出差别（多取一次 Math.random 哈希应该变）：' + JSON.stringify(R));
+    assert(H.vis !== L.vis && H.vis !== C.vis && H.vis > 0, '画面随机数取的次数各遍应该不一样（特效多了 / 少了）：' + JSON.stringify(R));
+    assert(C.torches > 1 && /molten [1-9]/.test(H.dmg) && /arc [1-9]/.test(H.dmg) && /tristorm [1-9]/.test(H.dmg), '三场都应打中、区里应有不止 1 盏火把：' + JSON.stringify(R));
+    return '哈希 ' + H.hash + '，Math.random ' + H.calls + ' 次（三遍一样），伤害 ' + H.dmg + '；画面随机数 高 ' + H.vis + ' / 低 ' + L.vis + ' / 静音 ' + C.vis + '（火把 ' + C.torches + ' → 1）';
+  });
+
 
   // 首领指纹（boss-golem）：固定种子打一场 15 秒的首领战（无敌的玩家按住右键普攻），把局面（玩家、敌人的位置 / 生命 / 状态 / 出招计时、
   // 弹幕、预警圈）和取随机数的次数哈希成一个指纹。期望值在换模型之前的 main 上量好写死：换外观（模型、动作、发光）不许动到模拟的一个比特。
