@@ -788,7 +788,6 @@
     const hexP = (cx, cy, rx, ry) => [cx - rx, cy, cx - rx * 0.5, cy - ry, cx + rx * 0.5, cy - ry, cx + rx, cy, cx + rx * 0.5, cy + ry, cx - rx * 0.5, cy + ry];
     solid(g, (p) => p.P([hx - 6, hy + 4, hx, hy, hx + 6, hy + 4]), frame, { hi: 0.5, bevel: 0.9, lw: 1.7 });
     solid(g, (p) => p.R(hx - 7, hy + 4, 14, 18, 2.4), glass, { hi: 0.45, lo: 0.4, bevel: 1.1, lw: 1.9 });
-    glow(g, (p) => p.M(hx, hy + 8).C(hx + 3.2, hy + 11.5, hx + 2.6, hy + 16, hx, hy + 16.4).C(hx - 2.6, hy + 16, hx - 3.2, hy + 11.5, hx, hy + 8).Z(), C.ember, { blur: 7, core: '#fff1c8' });
     for (const x of [-7, 0, 7]) tube(g, (p) => p.M(hx + x, hy + 4).L(hx + x, hy + 22), frame, 1.3);
     solid(g, (p) => p.R(hx - 8, hy + 3, 16, 2.6, 0.8), frame, { bevel: 0.7, lw: 1.5 });
     solid(g, (p) => p.R(hx - 8, hy + 21, 16, 2.8, 0.8), frame, { bevel: 0.7, lw: 1.5 });
@@ -796,6 +795,8 @@
       tube(g, (p) => p.M(hx - 8, hy + 6).Q(hx, hy + 13, hx + 8, hy + 19), C.bone, 1.6);
       solid(g, (p) => p.P([hx - 1.4, hy - 0.4, hx, hy - 5.4, hx + 1.4, hy - 0.4]), C.bone, { bevel: 0, lw: 1.3 });
     }
+    // 亮芯最后画（单独一层发光，压在框和骨饰上面）
+    glow(g, (p) => p.M(hx, hy + 7.5).C(hx + 3.6, hy + 11.5, hx + 3, hy + 16.5, hx, hy + 17).C(hx - 3, hy + 16.5, hx - 3.6, hy + 11.5, hx, hy + 7.5).Z(), C.ember, { blur: 8, core: '#fff1c8' });
     if (uq) spark(g, hx + 9, hy + 2, 4.2, '#ffe2b8');
   }
   function drawLantern(g, t) {
@@ -1207,18 +1208,18 @@
     // ---------- 特殊弹（class-d2b1）：弹头斜朝右上，各自的记号 ----------
     // 铁水弹：一颗冒红光的铁弹，下面挂一滴铁水
     molten(g, col) {
-      const m = rot(45, 1, -3, 2);
+      const m = rot(45, 1.3, -3, 1);
       glow(g, (p) => p.M(-4, -6).Q(0, -20, 4, -6).Z(), col, { m, blur: 8, core: rgba(lite(col, 0.3), 0.5) });
       solid(g, (p) => p.M(-5, 12).L(-5, -4).Q(-5, -14, 0, -18).Q(5, -14, 5, -4).L(5, 12).Z(), '#5a4a46', { m, hi: 0.35, lo: 0.5, lw: 2 });
       glow(g, (p) => p.M(-3.4, -5).Q(0, -15, 3.4, -5).Q(0, -8, -3.4, -5).Z(), col, { m, blur: 5, core: lite(col, 0.5) });
       solid(g, (p) => p.R(-5.6, 9, 11.2, 4, 1), C.copper, { m, bevel: 0.9, lw: 1.6 });
-      const dx = 2, dy = 17;
+      const dx = 3, dy = 20;
       glow(g, (p) => p.M(dx, dy - 6).C(dx + 3.6, dy - 1, dx + 3.6, dy + 3, dx, dy + 4.4).C(dx - 3.6, dy + 3, dx - 3.6, dy - 1, dx, dy - 6).Z(), col, { blur: 6, core: lite(col, 0.35) });
       solid(g, (p) => p.E(dx - 0.8, dy + 1.4, 1.2), '#ffd8a0', { bevel: 0, lw: 0 });
     },
     // 雷楔：一枚楔形铁钉，外面缠着折线电弧
     wedge(g, col) {
-      const m = rot(40, 1.05, -2, 2);
+      const m = rot(40, 1.3, -2, 2);
       solid(g, (p) => p.P([-5, 14, 5, 14, 3.4, -6, 0, -22, -3.4, -6]), C.ironD, { m, hi: 0.5, lo: 0.4, lw: 2 });
       solid(g, (p) => p.R(-6.4, 12, 12.8, 4, 1), C.iron, { m, bevel: 0.9, lw: 1.6 });
       line(g, (p) => p.M(0, 12).L(0, -18), rgba('#ffffff', 0.3), 1, m);
@@ -1228,18 +1229,18 @@
     },
     // 霜霰弹：一颗弹壳，前头炸出三道冰屑
     rime(g, col) {
-      const m = rot(45, 1, -6, 6);
+      const m = rot(45, 1.25, -7, 7);
       solid(g, (p) => p.M(-4.6, 14).L(-4.6, 0).Q(-4.6, -8, 0, -11).Q(4.6, -8, 4.6, 0).L(4.6, 14).Z(), C.silver, { m, hi: 0.45, lo: 0.45, lw: 2 });
       solid(g, (p) => p.R(-5.4, 11, 10.8, 3.6, 1), C.copper, { m, bevel: 0.9, lw: 1.6 });
       for (const [a, l] of [[-28, 13], [0, 16], [28, 13]]) {
-        const mm = rot(45 + a, 1, 4, -4);
+        const mm = rot(45 + a, 1.25, 3, -3);
         glow(g, (p) => p.P([-1.8, -8, 0, -8 - l, 1.8, -8]), col, { m: mm, blur: 5, core: lite(col, 0.55) });
         solid(g, (p) => p.P([-1.8, -8, 0, -8 - l, 1.8, -8]), lite(col, 0.35), { m: mm, hi: 0.7, lo: 0.3, lw: 1.4, bevel: 0.6 });
       }
     },
     // 反冲弹：粗弹头加一道往后指的弧形箭头
     recoil(g, col) {
-      const m = rot(45, 1, 4, -4);
+      const m = rot(45, 1.25, 5, -5);
       solid(g, (p) => p.M(-6.4, 10).L(-6.4, -4).Q(-6.4, -15, 0, -19).Q(6.4, -15, 6.4, -4).L(6.4, 10).Z(), '#9a8a74', { m, hi: 0.45, lo: 0.5, lw: 2.1 });
       solid(g, (p) => p.R(-7.2, 7, 14.4, 4.6, 1.2), C.copper, { m, bevel: 1, lw: 1.7 });
       line(g, (p) => p.M(-6.4, -2).L(6.4, -2), dark('#9a8a74', 0.45), 1.1, m);
