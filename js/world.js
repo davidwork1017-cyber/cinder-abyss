@@ -12767,6 +12767,7 @@
       vx: Math.sin(a) * f, vz: Math.cos(a) * f,
       vy: f > 5 ? Math.min(9, 2 + f * 0.32) : 0, // 力道够大才离地
       spin: f > 5 ? (Math.random() < 0.5 ? -1 : 1) * Math.min(16, f * 0.9) : 0,
+      quiet: !!fxMute, // class-d2b2：静音着死的（一群里第二具起）：消散时的碎屑、形状件、地上的痕迹也静音（随机数照取）
     };
     if (o.color !== undefined) _c.set(o.color);
     else if (st) _c.set(st.edge);
@@ -12882,8 +12883,10 @@
     B.n++;
   }
   function updateDying(dt) {
+    const m0 = fxMute;
     for (let i = dyingEnts.length - 1; i >= 0; i--) {
       const ent = dyingEnts[i], d = ent.dying;
+      fxMute = d && d.quiet ? 1 : m0; // class-d2b2：静音着死的这一具，整段死法（火星、碎屑、形状件、地上的痕迹）都静音，随机数照取
       if (ent.removed) {
         dyingEnts.splice(i, 1);
         continue;
@@ -12968,6 +12971,7 @@
         }
       }
     }
+    fxMute = m0;
   }
   function disposeEnt(ent) {
     if (ent.removed) return;
