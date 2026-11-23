@@ -382,7 +382,8 @@ async function install() {
         const b = G.spawnBoss(kind, P.x + 6, P.z, 1);
         b.awake = true;
         const swaps = [], model0 = b.ent.rig.bossModel || null;
-        W.onBossSwap = (ent) => { if (ent === b.ent) swaps.push({ t: +(G.state.time || 0).toFixed(3), busy: b.busy, dash: !!b.dash, broken: b.brokenT > 0, clip: W.clipOf(ent), awake: b.awake }); };
+        let tick = 0;
+        W.onBossSwap = (ent) => { if (ent === b.ent) swaps.push({ t: +(tick / 60).toFixed(3), busy: b.busy, dash: !!b.dash, broken: b.brokenT > 0, clip: W.clipOf(ent), awake: b.awake }); };
         const base = Math.random;
         let calls = 0, pats = 0;
         Math.random = function () { calls++; return base.call(this); };
@@ -403,6 +404,7 @@ async function install() {
             if (late && W.debugBossPack && i === Math.round(late * 60)) W.debugBossPack(true);
             T.aim(b.x, b.z);
             G.input.mouse.b[2] = true;
+            tick = i + 1;
             G.tick(1 / 60);
             if (b.lastPattern !== last) { pats++; last = b.lastPattern; }
             if (i % 60 === 59) out.push(fnv(state()));
@@ -10861,20 +10863,19 @@ async function main() {
             const a = Math.max(0, ev0.at - 24), w = trace.slice(a, ev0.at + 24), at = ev0.at - a, best = Math.max(...w);
             pose = { atVal: +w[at].toFixed(3), best: +best.toFixed(3), bestAt: w.indexOf(best) - at, near: w[at] >= best - 0.06 };
           }
-          out[p] = Object.assign({ has: !!(b.ent.rig.clips[p] && b.ent.rig.clips[p + '_w']), wind: WIND[p], k0: b.ent.rig.clips[p].k0, model: b.ent.rig.bossModel, pose }, ev0);
+          const cp = b.ent.rig.clips[p];
+          out[p] = Object.assign({ has: !!(cp && b.ent.rig.clips[p + '_w']), wind: WIND[p], k0: cp ? cp.k0 : null, model: b.ent.rig.bossModel, pose }, ev0);
           G.clearEnemies();
         }
-        // 蓄力时挨打：骨盆 / 根骨骼不动，只有 hitJ 抖一点（steady）
+        // 蓄力时挨打：骨盆（根关节）和挨打的另一只一模一样，只有 hitJ 抖一点（steady）。两只同时起同一个蓄力，只打其中一只
         T.lane();
-        const b = G.spawnBoss('golem', P.x + 4, P.z, 1);
-        b.cd = b.busy = 1e9;
-        W.play(b.ent, 'slam_w', { dur: 0.8 });
+        const b = G.spawnBoss('golem', P.x + 4, P.z, 1), c = G.spawnBoss('golem', P.x + 4, P.z + 6, 1);
+        for (const x of [b, c]) { x.cd = x.busy = 1e9; W.play(x.ent, 'slam_w', { dur: 0.8 }); }
         for (let i = 0; i < 30; i++) G.tick(1 / 60);
-        const before = Array.from(b.ent.out.slice(0, 9));
         W.hitReact(b.ent, 0, 2);
         G.tick(1 / 60); G.tick(1 / 60); G.tick(1 / 60);
-        const after = Array.from(b.ent.out.slice(0, 9)), hj = b.ent.rig.hitJ[0];
-        out.steady = { root: Math.max(...after.map((v, i) => Math.abs(v - before[i]))), hitJ: [b.ent.out[hj], b.ent.out[hj + 2]] };
+        const hj = b.ent.rig.hitJ[0];
+        out.steady = { root: Math.max(...Array.from(b.ent.out.slice(0, 9)).map((v, i) => Math.abs(v - c.ent.out[i]))), hitJ: +Math.hypot(b.ent.out[hj] - c.ent.out[hj], b.ent.out[hj + 2] - c.ent.out[hj + 2]).toFixed(4) };
       } finally {
         G.telegraph = tel0;
         G.spawnProjectile = sp0;
@@ -10889,7 +10890,7 @@ async function main() {
       assert(x.same && Math.abs(x.cT - x.contact) <= 1 / 60 + 1e-6 && Math.abs(x.contact - x.lead) < 1e-6, p + '：' + x.kind + '的那一帧应正好是出手动作的接触帧：' + JSON.stringify(x));
       assert(x.pose && x.pose.near, p + '：接触帧应是接触的姿势（锤石最低 / 双臂最开 / 冲到最前），差了 ' + (x.pose && x.pose.bestAt) + ' 帧：' + JSON.stringify(x.pose));
     }
-    assert(r.steady.root < 1e-6, '蓄力时挨打，骨盆不该仰 / 压扁：' + JSON.stringify(r.steady));
+    assert(r.steady.root < 1e-6 && r.steady.hitJ > 0.005 && r.steady.hitJ <= 0.121, '蓄力时挨打，骨盆不该仰 / 压扁，只在 hitJ 上抖一下（≤ 0.12 弧度）：' + JSON.stringify(r.steady));
     return r.pats.map((p) => p + ' 提前 ' + r[p].lead.toFixed(2) + ' s，' + r[p].kind + '时 cT − 接触 = ' + ((r[p].cT - r[p].contact) * 1000).toFixed(1) + ' ms').join('；');
   });
 

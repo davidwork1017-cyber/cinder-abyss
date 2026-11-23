@@ -19036,7 +19036,8 @@
       if (iconsBusy && ++waited < 120) return void setTimeout(tick, 500);
       G.assets.need([sp.pack]).then((ok) => {
         bossWait[kind] = false;
-        if (ok) bossQueueSwap(kind);
+        // 建骨架（约 20 ms）单独放一个任务，不和包的解码、空闲切片挤在同一帧里
+        if (ok) setTimeout(() => bossQueueSwap(kind), 0);
       });
     };
     tick();
