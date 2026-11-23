@@ -2799,10 +2799,13 @@
     const st = G.state;
     const tier = (ui.mapTier = G.clamp(ui.mapTier, 0, S.maxTier));
     const clearedAt = (z) => S.cleared[z.id] !== undefined && S.cleared[z.id] >= tier;
+    // 主线（quest D2）：这一步要去的区域卡片上一个金色「主线」角标；第 11 步（进轮回层级 1）在层级「1」的按钮上点一个金点。关了「显示主线」都不画
+    const Q = S.quest, qOn = !!(Q && !Q.off && Q.n < G.QUEST_N), qs = qOn ? G.QUEST[Q.n] : null;
+    const qZone = qs && qs.zone ? qs.zone : '', qTier = !!(qs && qs.kind === 'tier');
 
     let tiers = '';
     for (let t = 0; t <= S.maxTier; t++) {
-      tiers += '<button type="button" tabindex="-1" class="tier' + (t === tier ? ' on' : '') + '" data-act="tier" data-tier="' + t + '">' + t + '</button>';
+      tiers += '<button type="button" tabindex="-1" class="tier' + (t === tier ? ' on' : '') + (qTier && t === 1 ? ' q-dot' : '') + '" data-act="tier" data-tier="' + t + '"' + (qTier && t === 1 ? ' data-tip="txt:主线：进轮回层级 1"' : '') + '>' + t + '</button>';
     }
 
     let cards = '';
@@ -2816,7 +2819,7 @@
         '<div class="zone' + (locked ? ' locked' : '') + (here ? ' here' : '') + (cleared ? ' cleared' : '') + '" style="--fog:' + hexCss(z.fog) + ';--acc:' + hexCss(z.accent) + ';--path:' + hexCss(z.path) + ';--rock:' + hexCss(z.rock) + ';--sky:' + hexCss(z.sky) + '">' +
         '<div class="z-art"><div class="z-ridge b"></div><div class="z-ridge a"></div><span class="z-glyph">' + (ZONE_GLYPH[z.id] || z.name[0]) + '</span>' +
         '<span class="z-ord">' + (ZONE_ORD[i] || '') + '</span>' +
-        (cleared ? '<span class="z-badge ok">已通关</span>' : locked ? '<span class="z-badge lock">未解锁</span>' : '') +
+        (cleared ? '<span class="z-badge ok">已通关</span>' : locked ? '<span class="z-badge lock">未解锁</span>' : z.id === qZone ? '<span class="z-badge quest">主线</span>' : '') +
         (here ? '<span class="z-here">当前所在</span>' : '') +
         '</div>' +
         '<div class="z-body"><div class="z-name">' + z.name + '</div>' +
@@ -2854,8 +2857,18 @@
         .join('') +
       '</div>' +
       '<div class="opt-sep"></div>' +
+      // 两个开关上下叠成一列（quest D2 加了「显示主线」，并排时 1024 宽的窗口放不下）；「折叠」的说明挪进悬停提示
+      '<div class="opt-stack">' +
+      '<div class="opt-line" data-tip="txt:地上只留一个小点，悬停或按住 Alt 展开">' +
       '<button type="button" tabindex="-1" class="switch' + (S.opts.hideNormal ? ' on' : '') + '" data-act="opt" data-opt="hideNormal"><i></i></button>' +
-      '<div class="opt-text"><b>折叠普通物品的名牌</b><span>地上只留一个小点，悬停或按住 Alt 展开</span></div>' +
+      '<div class="opt-text"><b>折叠普通物品的名牌</b></div></div>' +
+      // 主线（quest D2）：关了只藏追踪条、小地图上的金色记号和地图上的角标，进度和奖励照常记。主线走完以后不再显示这个开关
+      (Q && Q.n < G.QUEST_N
+        ? '<div class="opt-line" data-tip="txt:右上的主线提示、小地图上的金色箭头和区域卡片上的「主线」角标。关了进度照常记">' +
+          '<button type="button" tabindex="-1" class="switch' + (Q.off ? '' : ' on') + '" data-act="quest"><i></i></button>' +
+          '<div class="opt-text"><b>显示主线</b></div></div>'
+        : '') +
+      '</div>' +
       '<div class="opt-sep"></div>' +
       '<div class="opt-text"><b>画质</b><span>' + (S.opts.quality === 'auto' ? '自动选择，明显掉帧时会自动调低' : '电脑吃力时调低') + '</span></div>' +
       '<div class="seg">' +
@@ -3844,6 +3857,15 @@
       render();
     },
 
+    // 地图页「显示主线」开关（quest D2）：存在 save.quest.off，默认开
+    quest() {
+      const Q = G.save.quest;
+      if (!Q) return;
+      Q.off = !Q.off;
+      G.persist();
+      G.sfx('click');
+      render();
+    },
     // ---- 地图 ----
     tier(d) {
       ui.mapTier = +d.tier;
@@ -4109,7 +4131,8 @@
   function updateQuestHud(now) {
     const Q = G.save.quest, st = G.state;
     const n = Q ? Q.n : G.QUEST_N;
-    const vis = !!(Q && n < G.QUEST_N && !Q.off && !ui.intro && !story.on && !menu.title && !menu.pause);
+    // 第一次进区时右上「正在载入场景…」那一条正好压在追踪条上：素材就绪前先不显示，就绪后淡入（quest D2）
+    const vis = !!(Q && n < G.QUEST_N && !Q.off && !ui.intro && !story.on && !menu.title && !menu.pause && !(G.world.assetsPending && G.world.assetsPending()));
     if (vis !== qh.vis) {
       qh.vis = vis;
       qh.root.classList.toggle('on', vis);
