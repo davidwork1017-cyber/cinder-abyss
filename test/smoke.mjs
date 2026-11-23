@@ -20703,7 +20703,7 @@ async function classSteps() {
   });
 
   // 界面：标题画面「新游戏」先选职业；老角色（没有职业）进游戏前选一次（带推荐）；角色页卡片显示职业、重看开场、改选一次；载入角色的遮罩；起步天赋的名字；变灰宝石的提示
-  await step('职业·界面：新游戏先选职业（5 张卡：一句话、武器、起手；主角换上起手武器；Alt 列出能用的宝石）→ 开场故事 → 引星人起手', async () => {
+  await step('职业·界面：新游戏先选职业（5 张卡：一句话、武器、起手；主角换上起手武器；Alt 列出能用的宝石，不写个数）→ 开场故事 → 引星人起手', async () => {
     await fresh({ title: true });
     await install();
     await until(() => G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, 90000);
@@ -20714,7 +20714,7 @@ async function classSteps() {
     cleanText(v.txt, '职业选择');
     await page.click('.cl-card[data-cls="star"]');
     v = await ev(() => ({ sel: G.ui.classView().sel, gear: G.player.ent.gearType, alt: document.querySelector('#title [data-view="cls"] .alt-d').innerText, stored: localStorage.getItem('cinder-abyss-save-v1') }));
-    assert(v.sel === 'star' && v.alt.includes('能用的技能宝石（15）') && v.alt.includes('引星人 · 望天'), '选中引星人后 Alt 详情不对：' + JSON.stringify(v));
+    assert(v.sel === 'star' && v.alt.includes('能用的技能宝石：') && v.alt.includes('链雷') && v.alt.includes('引星人 · 望天'), '选中引星人后 Alt 详情不对：' + JSON.stringify(v));
     assert(v.stored === null, '选职业时还不该写存档');
     const gStaff = await ev(() => { const g = G.player.ent.gearType; G.world.setPlayerGear({ weapon: { slot: 'weapon', baseIdx: 1, rarity: 0 } }); return g === G.player.ent.gearType; });
     assert(gStaff, '选中引星人时主角手里应换成长杖');
@@ -20727,7 +20727,7 @@ async function classSteps() {
     return v.alt.slice(0, 60);
   });
 
-  await step('职业·界面：角色页卡片显示职业 · 等级 / 区域 / 轮回；「重看开场」放开场故事；老角色（没有职业）换进去时先盖「正在载入角色…」，再停在选职业（推荐 + 理由、默认选中推荐的）', async () => {
+  await step('职业·界面：角色页卡片显示职业 · 等级 / 区域 / 轮回；「重看开场」放开场故事；老角色（没有职业）换进去时先盖「正在载入角色…」，再停在选职业（推荐 + 理由、默认选中推荐的、卡上写保留什么）', async () => {
     // 第 2 栏：一个没有职业的老角色（太刀 + 旋风斩，学了链雷）
     await ev(() => {
       const s = G.newSave();
@@ -20766,6 +20766,7 @@ async function classSteps() {
     assert(v.lc && !v.lcNow, '重载后的页面一开始应盖着遮罩、区域建好后揭开：' + JSON.stringify({ lc: v.lc, now: v.lcNow }));
     assert(v.view.mode === 'pick' && v.view.sel === 'guard' && v.view.rec.cls === 'guard' && /太刀/.test(v.view.rec.why) && /旋风斩/.test(v.view.rec.why) && v.cls === undefined, '老角色应停在选职业、推荐烬卫：' + JSON.stringify(v.view));
     assert(v.txt.includes('推荐') && v.txt.includes('变灰：链雷'), '选职业页应写推荐理由和会变灰的技能：' + v.txt.slice(0, 300));
+    assert(v.txt.includes('保留') && v.txt.includes('太刀 · 旋风斩') && !v.txt.includes('起手'), '老角色的卡上应写「保留：太刀 · 旋风斩」、不写起手：' + v.txt.slice(0, 300));
     cleanText(v.txt, '老角色选职业');
     await page.click('[data-tact="cl-ok"]');
     const a = await ev(() => ({ title: G.ui.titleOn(), cls: G.save.cls, re: G.save.clsRe, lock: Object.keys(G.save.clsLock).join(), skills: Object.keys(G.save.skills).sort().join(), stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1-s2')).cls }));

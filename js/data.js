@@ -2257,7 +2257,7 @@
     },
     lamp: {
       name: '掌灯人', color: '#4fe3c8', tags: ['召唤', '法术'], weapons: ['banner', 'wand'],
-      line: '熄烛者灭火，掌灯人点火：把自己的余烬分给倒下的骸骨，让它们站起来替自己打。',
+      line: '把自己的余烬分给倒下的骸骨，让它们站起来替你打。',
       start: { type: 'banner', skill: 'thrall' }, skLine: '召唤骸骨剑士替你打',
       node: { id: 'mm0', name: '掌灯人 · 分烬', note: '掌灯人的起步天赋：分出去的火烧得更旺，召唤物伤害更高。' },
     },

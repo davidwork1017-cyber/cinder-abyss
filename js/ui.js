@@ -4756,9 +4756,19 @@
       '<div class="cl-top"><b>' + C.name + '</b>' + C.tags.map((t) => '<i>' + t + '</i>').join('') + (rec ? '<em>推荐</em>' : cur ? '<em class="dim">现在</em>' : '') + '</div>' +
       '<div class="cl-line">' + C.line + '</div>' +
       '<div class="cl-row"><span class="cl-k">武器</span>' + C.weapons.map(clsWIcon).join('') + '<span class="cl-v">' + C.weapons.map(G.wTypeLabel).join(' · ') + '</span></div>' +
-      '<div class="cl-row"><span class="cl-k">起手</span><span class="tc-skico sm" style="--c:' + sk.color + '">' + IC.skill(C.start.skill) + '</span><span class="cl-v">' + G.wTypeLabel(C.start.type) + ' + ' + sk.name + '：' + C.skLine + '</span></div>' +
+      (menu.cls.mode === 'new'
+        ? '<div class="cl-row"><span class="cl-k">起手</span><span class="tc-skico sm" style="--c:' + sk.color + '">' + IC.skill(C.start.skill) + '</span><span class="cl-v">' + G.wTypeLabel(C.start.type) + ' + ' + sk.name + '：' + C.skLine + '</span></div>'
+        : '<div class="cl-row"><span class="cl-k">保留</span><span class="cl-v">' + clsKeep(c) + '</span></div>') + // 老角色：手里的东西不会被换掉，写留下的
+
       '</button>'
     );
+  }
+  // 老角色选这个职业时留着能用的：手里会拿的那把武器的类型 · 技能栏上这个职业能用的宝石
+  function clsKeep(c) {
+    const S = G.save, held = clsHeld(c), out = [];
+    if (held) out.push(G.wTypeLabel(G.wTypeOfItem(held)));
+    for (const id of S.bar.concat(S.rmbKeep ? [S.rmbKeep] : [])) if (id && S.skills[id] && G.SKILLS[id] && G.classCanUse(c, id) && out.indexOf(G.SKILLS[id].name) < 0) out.push(G.SKILLS[id].name);
+    return out.length ? esc(out.join(' · ')) : '学过的技能和东西都还在，只是这个职业暂时用不上';
   }
   // 老角色选这个职业之后会怎样（两三行，说清楚东西都还在）
   function clsEffect(c) {
@@ -4779,7 +4789,7 @@
     const gems = G.classGems(c).map((id) => G.SKILLS[id].name);
     const st = Object.keys(n.stats).map((k) => G.fmtStat(k, n.stats[k])).join('，');
     return (
-      '能用的技能宝石（' + gems.length + '）：' + gems.join('、') + '。<br>' +
+      '能用的技能宝石：' + gems.join('、') + '。<br>' +
       '白送的起步天赋：' + C.node.name + '（' + st + '），不花天赋点。<br>' +
       '掉落：武器多半是' + C.name + '的，技能宝石多半是能用的；用不上的技能宝石掉下来是无铭宝石。别的职业的武器可以放进共享仓库给别的角色。' +
       (menu.cls.mode === 'new' ? '<br>选定后不能改。' : menu.cls.mode === 'pick' ? '<br>东西一件不删。之后能在角色页免费改选一次。' : '<br>这是唯一一次免费改选，改完就不能再改。')
