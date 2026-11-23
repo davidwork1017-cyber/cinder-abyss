@@ -24926,7 +24926,7 @@
   function b1Blast(x, z, R) {
     const lo = qualId === 'low';
     if (!PF.vShape) return rBurn(lo ? 2 + 1 + 30 + 48 : 54 + 84);
-    if (!b1Take()) {
+    if (blastCalm(x, z) || !b1Take()) { // class-d2b2：心火 / 燎原的「一群只放一处」：同一群里第二个起只留焦痕
       rBurn(lo ? 2 + 1 + 30 + 48 : 54 + 84);
       W.vDecal(VVD.scorch, x, z, R * 0.5, 2.2, 0x8a3416); // 超出每帧上限的：只留焦痕（地面痕迹池，不占形状批）
       return;
@@ -30865,7 +30865,17 @@
   // 命中特效的「一群只放一处」（class-d2b2）：心火期间 / 燎原横扫之后，CAL_T 秒内、CAL_R 米内已经放过一处全套的，
   // 其余命中静音（随机数照取：spawnP / tChunk / 地上的星形印子都按 fxMute 照取不画），只冒一颗暗芯火星。game.js 每帧开关
   let impactCalm = 0;
-  const CAL_T = 0.15, CAL_R = 6, calImp = { x: 0, z: 0, t: -9 };
+  const CAL_T = 0.15, CAL_R = 6, calImp = { x: 0, z: 0, t: -9 }, calBlast = { x: 0, z: 0, t: -9 };
+  // 爆燃 / 尸爆（b1Blast）：一群里 0.3 秒内只放一个全套（其余走「超出每帧上限」那条路：只留焦痕，随机数照取）
+  function blastCalm(x, z) {
+    if (!impactCalm) return false;
+    const now = G.state ? G.state.time : 0;
+    if (now - calBlast.t < 0.3 && Math.hypot(x - calBlast.x, z - calBlast.z) < CAL_R) return true;
+    calBlast.x = x;
+    calBlast.z = z;
+    calBlast.t = now;
+    return false;
+  }
   W.setImpactCalm = (on) => {
     impactCalm = on ? 1 : 0;
   };
