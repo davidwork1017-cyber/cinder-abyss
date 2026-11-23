@@ -179,7 +179,7 @@
     if (!(baseIdx >= 0 && baseIdx < bases.length) || baseIdx !== Math.floor(baseIdx)) {
       const cls = slot === 'weapon' && G.save && typeof G.save.cls === 'string' && G.CLASS_WM[G.save.cls] ? G.save.cls : null;
       const M = cls ? G.CLASS_WM[cls] : 1;
-      baseIdx = bases.indexOf(G.weighted(bases, (b) => (b.drop === undefined ? 1 : b.drop) * (cls && G.WTYPE_CLS[b.type] === cls ? M : 1)));
+      baseIdx = bases.indexOf(G.weighted(bases, (b) => G.baseDropW(b, cls) * (cls && G.WTYPE_CLS[b.type] === cls ? M : 1)));
     }
     const base = bases[baseIdx];
     const nameIdx = Math.min(G.nameTier(ilvl), base.names.length - 1);

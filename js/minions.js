@@ -133,7 +133,7 @@
   function aliveOf(skill) {
     let n = 0;
     for (let i = 0; i < boneQ.length; i++) if (boneQ[i].sk === skill) n++;
-    for (let i = 0; i < list.length; i++) if (!list[i].dead && list[i].skill === skill) n++;
+    for (let i = 0; i < list.length; i++) if (!list[i].dead && list[i].skill === skill && !list[i].relit) n++; // 续火的骸骨不占上限（class-d2b1）
     return n;
   }
   G.minionCount = aliveOf; // 某个召唤技能现存的召唤物数量（自动召唤据此判断要不要补）
@@ -142,7 +142,7 @@
     let best = null;
     for (let i = 0; i < list.length; i++) {
       const m = list[i];
-      if (m.dead || m.skill !== skill) continue;
+      if (m.dead || m.skill !== skill || m.relit) continue;
       const f = m.hp / m.maxHp;
       if (!best || f < best.hp / best.maxHp - 1e-6 || (Math.abs(f - best.hp / best.maxHp) <= 1e-6 && m.born < best.born)) best = m;
     }
@@ -175,6 +175,7 @@
     return !!(save && save.skills[id] && Array.isArray(save.bar) && save.bar.indexOf(id) >= 0);
   }
   function sourceOn(m) {
+    if (m.relit) return P.uMech === 'relight'; // 续火的骸骨：手里还拿着长明（class-d2b1）
     if (m.expire) return !!G.save && G.weaponSkill() === m.skill;
     return skillOn(m.skill);
   }
@@ -255,6 +256,38 @@
       spX: 0, spZ: 0, spBest: Infinity, spT: 0,
       born: S.time, ctx, expire: S.time + (dur || 8), life: dur || 8,
     };
+    list.push(m);
+    startRise(m);
+    return m;
+  };
+  // 续火（长明，class-d2b1）：死在灯光里的普通怪站起来，算烬骸仆从（数值按你的烬骸仆从宝石，没学时 1 级），dur 秒后消散。
+  // 不占仆从上限（aliveOf / weakestOf 跳过 m.relit），同时最多 G.RELIGHT.cap 具（game.js 的 relightCheck 管）。外观：灯火映着的骸骨（world.relitLook）
+  G.relitCount = function () {
+    let n = 0;
+    for (const m of list) if (!m.dead && m.relit) n++;
+    return n;
+  };
+  G.summonRelit = function (x, z, dur) {
+    if (!S.zone) return null;
+    const ctx = G.skillCtx('thrall');
+    if (!ctx || !ctx.minion) return null;
+    const mi = ctx.minion;
+    const K = KIND.thrall;
+    const W = G.world;
+    let at = { x, z };
+    if (!W.walkable(x, z, K.r + 0.1)) at = spotToward(x, z, 6, K.r + 0.1);
+    const m = {
+      kind: 'thrall', skill: 'thrall', relit: true, name: K.name, ent: makeEnt('thrall'),
+      x: at.x, z: at.z, ang: Math.atan2(at.x - P.x, at.z - P.z), r: K.r, height: K.height,
+      hp: mi.life, maxHp: mi.life, dr: mi.dr, armour: mi.armour || 0, res: mi.res || null, dead: false,
+      target: null, atkT: 0.1, tauntCd: 0, tauntCdMax: 0,
+      state: 'idle', stateT: 0, strikeT: -1, rising: 0, riseMax: K.rise, riseClip: true,
+      moving: false, stuckT: 0, seekT: 0, hurtT: 0, volley: null, ignore: null, ignoreT: 0,
+      navT: 0, navWp: false, navX: 0, navZ: 0, navTx: 0, navTz: 0,
+      spX: 0, spZ: 0, spBest: Infinity, spT: 0,
+      born: S.time, ctx, expire: S.time + (dur || 6), life: dur || 6,
+    };
+    if (W.relitLook) W.relitLook(m.ent, dur || 6);
     list.push(m);
     startRise(m);
     return m;
@@ -348,7 +381,7 @@
     if (m.hp <= 0) {
       if (G.soulFire) G.soulFire(m); // 万魂旗：倒下时化作魂火炸开（被替换、换区域时的消失不算）
       if (P.relic && P.relic.tongshang) G.relicMinionDown(m); // 渊契「同殇」：召唤物倒下时回血
-      if (m.ctx.minion.mech === 'bone') boneBurst(m); // 刻式「骸爆」：炸一圈骨片，过一会儿拼回来
+      if (m.ctx.minion.mech === 'bone' && !m.relit) boneBurst(m); // 刻式「骸爆」：炸一圈骨片，过一会儿拼回来
       removeMinion(m, ang, G.TYPE_NAME[dtype] ? dtype : 'phys');
     }
     return true;
@@ -1446,6 +1479,7 @@
     if (S.focus && (S.focus.dead || !(S.focusT > 0))) S.focus = null;
     if (frenzyT > 0) frenzyT = Math.max(0, frenzyT - dt);
     const fz = frenzyMul();
+    const lampOn = !!(G.lampAny && G.lampAny()); // 场上有小灯 / 灯海（class-d2b1）
     if (bolts.length) updateBolts(dt); // 祭司倒下了，飞在半路的火弹照样落地
     if (rocks.length) updateRocks(dt); // 守像倒下了，抛在半空的巨石照样落地
     if (boneQ.length) updateBones(dt);
@@ -1486,7 +1520,7 @@
       m.moving = false;
       if (m.hurtT > 0) m.hurtT -= dt;
       if (m.ignoreT > 0) m.ignoreT -= dt;
-      if (m.atkT > 0) m.atkT -= dt * fz;
+      if (m.atkT > 0) m.atkT -= dt * fz * (lampOn ? G.lampHaste(m) : 1); // 提灯的小灯 / 灯海里攻速更快（class-d2b1）
       if (m.tauntCd > 0) m.tauntCd = Math.max(0, m.tauntCd - dt);
 
       if (m.rising > 0) {
