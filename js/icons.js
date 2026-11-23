@@ -773,10 +773,39 @@
     if (t >= 2) spark(g, m[0] * -13.8 + m[4], m[1] * -13.8 + m[5], 5.2, '#ffffff'); // spark 不吃变换：手动换到图标坐标
   }
 
+
+  // 武器 14：提灯（class-d2b1；铜皮 / 琉璃 / 渊火）。斜挑的灯杆，杆头的钩下挂一盏六角灯框，罩里一点亮芯（亮芯单独一层发光）；
+  // t2：灯框缠骨饰、灯罩暗红
+  function lanternIcon(g, t, uq) {
+    const m = rot(40, 1.05, -6, 4);
+    const glass = t === 2 ? '#b8442a' : t === 1 ? '#f0b04a' : '#d8903e', frame = t === 0 ? C.copper : C.gold;
+    tube(g, (p) => p.M(0, 24).L(0, -16), C.ironD, 3.2, { m });
+    solid(g, (p) => p.R(-2.6, 15, 5.2, 8, 1.2), C.leatherD, { m, bevel: 1 });
+    tube(g, (p) => p.M(0, -16).Q(0, -22, 5, -22).Q(9, -22, 9, -18), C.ironD, 2.2, { m });
+    // 灯挂在钩下（屏幕上竖直往下，不跟杆转）
+    const hx = 15.2, hy = -6.6;
+    tube(g, (p) => p.M(hx, hy - 3).L(hx, hy + 1), C.ironD, 1.3);
+    const hexP = (cx, cy, rx, ry) => [cx - rx, cy, cx - rx * 0.5, cy - ry, cx + rx * 0.5, cy - ry, cx + rx, cy, cx + rx * 0.5, cy + ry, cx - rx * 0.5, cy + ry];
+    solid(g, (p) => p.P([hx - 6, hy + 4, hx, hy, hx + 6, hy + 4]), frame, { hi: 0.5, bevel: 0.9, lw: 1.7 });
+    solid(g, (p) => p.R(hx - 7, hy + 4, 14, 18, 2.4), glass, { hi: 0.45, lo: 0.4, bevel: 1.1, lw: 1.9 });
+    for (const x of [-7, 0, 7]) tube(g, (p) => p.M(hx + x, hy + 4).L(hx + x, hy + 22), frame, 1.3);
+    solid(g, (p) => p.R(hx - 8, hy + 3, 16, 2.6, 0.8), frame, { bevel: 0.7, lw: 1.5 });
+    solid(g, (p) => p.R(hx - 8, hy + 21, 16, 2.8, 0.8), frame, { bevel: 0.7, lw: 1.5 });
+    if (t === 2) {
+      tube(g, (p) => p.M(hx - 8, hy + 6).Q(hx, hy + 13, hx + 8, hy + 19), C.bone, 1.6);
+      solid(g, (p) => p.P([hx - 1.4, hy - 0.4, hx, hy - 5.4, hx + 1.4, hy - 0.4]), C.bone, { bevel: 0, lw: 1.3 });
+    }
+    // 亮芯最后画（单独一层发光，压在框和骨饰上面）
+    glow(g, (p) => p.M(hx, hy + 7.5).C(hx + 3.6, hy + 11.5, hx + 3, hy + 16.5, hx, hy + 17).C(hx - 3, hy + 16.5, hx - 3.6, hy + 11.5, hx, hy + 7.5).Z(), C.ember, { blur: 8, core: '#fff1c8' });
+    if (uq) spark(g, hx + 9, hy + 2, 4.2, '#ffe2b8');
+  }
+  function drawLantern(g, t) {
+    lanternIcon(g, t, false);
+  }
   const WEAPON_TYPES = ['blade', 'staff', 'wand', 'daggers', 'hammer', 'eagle', 'katana', 'banner'];
   const WEAPON_DRAW = {
     blade: drawBlade, staff: drawStaff, wand: drawWand, daggers: drawDaggers, hammer: drawHammer, bow: drawBow, eagle: drawBow, katana: drawKatana, banner: drawBanner,
-    gatling: drawGatling, flamer: drawFlamer, revolver: drawRevolver, huntbow: drawHuntbow, runebow: drawRunebow, emberbow: drawEmberbow,
+    gatling: drawGatling, flamer: drawFlamer, revolver: drawRevolver, huntbow: drawHuntbow, runebow: drawRunebow, emberbow: drawEmberbow, lantern: drawLantern,
   };
   function weaponType(baseIdx) {
     const b = G.BASES && G.BASES.weapon && G.BASES.weapon[baseIdx];
@@ -1176,6 +1205,48 @@
       }
       spark(g, 18, -20, 4.6, '#ffffff');
     },
+    // ---------- 特殊弹（class-d2b1）：弹头斜朝右上，各自的记号 ----------
+    // 铁水弹：一颗冒红光的铁弹，下面挂一滴铁水
+    molten(g, col) {
+      const m = rot(45, 1.3, -3, 1);
+      glow(g, (p) => p.M(-4, -6).Q(0, -20, 4, -6).Z(), col, { m, blur: 8, core: rgba(lite(col, 0.3), 0.5) });
+      solid(g, (p) => p.M(-5, 12).L(-5, -4).Q(-5, -14, 0, -18).Q(5, -14, 5, -4).L(5, 12).Z(), '#5a4a46', { m, hi: 0.35, lo: 0.5, lw: 2 });
+      glow(g, (p) => p.M(-3.4, -5).Q(0, -15, 3.4, -5).Q(0, -8, -3.4, -5).Z(), col, { m, blur: 5, core: lite(col, 0.5) });
+      solid(g, (p) => p.R(-5.6, 9, 11.2, 4, 1), C.copper, { m, bevel: 0.9, lw: 1.6 });
+      const dx = 3, dy = 20;
+      glow(g, (p) => p.M(dx, dy - 6).C(dx + 3.6, dy - 1, dx + 3.6, dy + 3, dx, dy + 4.4).C(dx - 3.6, dy + 3, dx - 3.6, dy - 1, dx, dy - 6).Z(), col, { blur: 6, core: lite(col, 0.35) });
+      solid(g, (p) => p.E(dx - 0.8, dy + 1.4, 1.2), '#ffd8a0', { bevel: 0, lw: 0 });
+    },
+    // 雷楔：一枚楔形铁钉，外面缠着折线电弧
+    wedge(g, col) {
+      const m = rot(40, 1.3, -2, 2);
+      solid(g, (p) => p.P([-5, 14, 5, 14, 3.4, -6, 0, -22, -3.4, -6]), C.ironD, { m, hi: 0.5, lo: 0.4, lw: 2 });
+      solid(g, (p) => p.R(-6.4, 12, 12.8, 4, 1), C.iron, { m, bevel: 0.9, lw: 1.6 });
+      line(g, (p) => p.M(0, 12).L(0, -18), rgba('#ffffff', 0.3), 1, m);
+      glow(g, (p) => p.M(-10, 10).L(-4, 4).L(-8, 0).L(-1, -8).L(-5, -11).L(3, -20), col, { m, stroke: 1.5, blur: 5, core: lite(col, 0.6) });
+      glow(g, (p) => p.M(10, 6).L(5, 1).L(9, -3).L(4, -10), col, { m, stroke: 1.2, blur: 4, core: lite(col, 0.6) });
+      spark(g, 15, -17, 4.6, '#ffffff');
+    },
+    // 霜霰弹：一颗弹壳，前头炸出三道冰屑
+    rime(g, col) {
+      const m = rot(45, 1.25, -7, 7);
+      solid(g, (p) => p.M(-4.6, 14).L(-4.6, 0).Q(-4.6, -8, 0, -11).Q(4.6, -8, 4.6, 0).L(4.6, 14).Z(), C.silver, { m, hi: 0.45, lo: 0.45, lw: 2 });
+      solid(g, (p) => p.R(-5.4, 11, 10.8, 3.6, 1), C.copper, { m, bevel: 0.9, lw: 1.6 });
+      for (const [a, l] of [[-28, 13], [0, 16], [28, 13]]) {
+        const mm = rot(45 + a, 1.25, 3, -3);
+        glow(g, (p) => p.P([-1.8, -8, 0, -8 - l, 1.8, -8]), col, { m: mm, blur: 5, core: lite(col, 0.55) });
+        solid(g, (p) => p.P([-1.8, -8, 0, -8 - l, 1.8, -8]), lite(col, 0.35), { m: mm, hi: 0.7, lo: 0.3, lw: 1.4, bevel: 0.6 });
+      }
+    },
+    // 反冲弹：粗弹头加一道往后指的弧形箭头
+    recoil(g, col) {
+      const m = rot(45, 1.25, 5, -5);
+      solid(g, (p) => p.M(-6.4, 10).L(-6.4, -4).Q(-6.4, -15, 0, -19).Q(6.4, -15, 6.4, -4).L(6.4, 10).Z(), '#9a8a74', { m, hi: 0.45, lo: 0.5, lw: 2.1 });
+      solid(g, (p) => p.R(-7.2, 7, 14.4, 4.6, 1.2), C.copper, { m, bevel: 1, lw: 1.7 });
+      line(g, (p) => p.M(-6.4, -2).L(6.4, -2), dark('#9a8a74', 0.45), 1.1, m);
+      glow(g, (p) => p.M(4, 22).Q(-16, 22, -19, 4), col, { stroke: 2.4, blur: 5, core: lite(col, 0.5) });
+      solid(g, (p) => p.P([-24, 7, -19, -3, -14, 7]), lite(col, 0.2), { hi: 0.6, lw: 1.6, bevel: 0.7 });
+    },
     // 放血：交叉的两道刃痕（钢色，边上带一点血色），下面挂两滴暗红
     rend(g, col) {
       const steel = mix(C.steel, col, 0.25);
@@ -1196,7 +1267,7 @@
   // =====================================================================
   const WSKILL_COLOR = {
     blade: '#f0e2c4', staff: '#c79bff', wand: '#9fd0ff', daggers: '#b58cff', hammer: '#e8b070', bow: '#a8e08a', katana: '#ff9a7a', banner: ALLY,
-    gatling: '#ffb36a', flamer: '#ff6a2c', revolver: '#ffcf7a', huntbow: '#bfe8a0', eagle: '#e8f4ff', runebow: '#c9a6ff', emberbow: '#9fd8ff',
+    gatling: '#ffb36a', flamer: '#ff6a2c', revolver: '#ffcf7a', huntbow: '#bfe8a0', eagle: '#e8f4ff', runebow: '#c9a6ff', emberbow: '#9fd8ff', lantern: '#ffb347',
   };
   // 一支箭（尖朝 -y，长约 30）：箭杆、箭羽、箭镞；col 是箭镞 / 光的颜色
   function arrowAt(g, m, col, o) {
@@ -1207,7 +1278,23 @@
     glow(g, (p) => p.P([0, -16, 3, -8, 0, -9.6, -3, -8]), col, { m, blur: o.blur || 5, core: lite(col, 0.55) });
     solid(g, (p) => p.P([0, -16, 3, -8, 0, -9.6, -3, -8]), lite(col, 0.35), { m, bevel: 0, lw: 1.2 });
   }
+  // 提灯的小灯（点灯 / 借火 / 灯海共用）：六角框 + 罩里的火苗
+  function miniLamp(g, x, y, k, col, hot) {
+    solid(g, (p) => p.P([x - 5 * k, y - 6 * k, x, y - 10 * k, x + 5 * k, y - 6 * k]), C.gold, { hi: 0.5, bevel: 0.7, lw: 1.4 });
+    solid(g, (p) => p.R(x - 5.4 * k, y - 6 * k, 10.8 * k, 13 * k, 1.8 * k), '#d08a3a', { hi: 0.45, lo: 0.4, bevel: 0.8, lw: 1.6 });
+    glow(g, (p) => p.M(x, y - 3 * k).C(x + 2.6 * k, y, x + 2 * k, y + 4 * k, x, y + 4.4 * k).C(x - 2 * k, y + 4 * k, x - 2.6 * k, y, x, y - 3 * k).Z(), col, { blur: hot ? 8 : 5, core: '#fff1c8' });
+    solid(g, (p) => p.R(x - 6 * k, y + 6 * k, 12 * k, 2.4 * k, 0.6), C.gold, { bevel: 0.6, lw: 1.3 });
+  }
   const WSKILL_DRAW = {
+    // 借火：中间一盏灯，火往两边借出去（两道火舌）；两边各一个骷髅剪影的头顶被点亮
+    lantern(g, col) {
+      for (const sx of [-1, 1]) {
+        glow(g, (p) => p.M(0, -2).Q(sx * 10, -16, sx * 19, -10).Q(sx * 12, -9, sx * 2, 4).Z(), col, { blur: 6, core: rgba(lite(col, 0.4), 0.8) });
+        solid(g, (p) => p.E(sx * 19, 6, 5.6, 6).R(sx * 19 - 3.4, 9, 6.8, 6, 1.4), C.boneD, { hi: 0.4, lo: 0.5, bevel: 0.8, lw: 1.6 });
+        glow(g, (p) => p.E(sx * 19, -3.6, 2.4), col, { blur: 5, core: '#fff1c8' });
+      }
+      miniLamp(g, 0, 8, 1.3, col, true);
+    },
     // 熔光射线：枪口（左下）喷出一道粗光束斜贯到右上，外焰橙红、芯白热，一路缠着电弧，落点炸开
     gatling(g, col) {
       const m = rot(-45, 1, 0, 0);
@@ -1419,6 +1506,17 @@
     else for (const [x, y, r] of [[-16, 24, 1.6], [-5, 26, 1.1], [9, 23.5, 1.4], [19, 25.5, 1.0]]) glow(g, (p) => p.E(x, y, r), F.glow, { blur: 4, core: F.mote });
   }
   const USKILL_DRAW = {
+    // 灯海：一圈八盏小灯围着中间的空地，地上一道断续的光边
+    lampsea(g, col) {
+      emberFrame(g);
+      line(g, (p) => p.E(0, 4, 19, 12), rgba(lite(col, 0.2), 0.9), 1.6, null, [3.4, 2.6]);
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * TAU + Math.PI / 8;
+        const x = Math.cos(a) * 18, y = 4 + Math.sin(a) * 11.5;
+        miniLamp(g, x, y - 4, 0.58 + (Math.sin(a) + 1) * 0.08, col, false);
+      }
+      glow(g, (p) => p.E(0, 2, 4.2), col, { blur: 8, core: '#fff1c8' });
+    },
     // 乱射：中间一把左轮，八道弹道朝四面八方甩出去，弹道尽头各一点火星
     wildfire(g, col) {
       emberFrame(g);
@@ -1652,6 +1750,13 @@
       glow(g, (p) => p.E(22, 8, 2.6), col, { blur: 5, core: lite(col, 0.7) });
       spark(g, 14, -20, 6, '#ffffff');
     },
+    // 提灯「点灯」：一团灯火沿弧线甩向右上，落点立着一盏小灯，脚下一圈断续的光边
+    lantern(g, col) {
+      line(g, (p) => p.M(-24, 20).Q(-14, -14, 6, -8), rgba(lite(col, 0.3), 0.8), 1.6, null, [3, 2.2]);
+      glow(g, (p) => p.E(-10, -6, 3.6), col, { blur: 7, core: '#fff1c8' });
+      line(g, (p) => p.E(14, 18, 13, 4.4), rgba(lite(col, 0.2), 0.85), 1.6, null, [3.2, 2.6]);
+      miniLamp(g, 14, 6, 1.25, col, true);
+    },
     // 魂幡「魂引」：一缕水滴形的魂灵拐着弧线扑向右上的靶点，靶点外两道折角（集火标记）
     banner(g, col) {
       line(g, (p) => p.M(-24, 22).Q(-22, -4, 0, -6), rgba(lite(col, 0.3), 0.8), 1.6, null, [3, 2.2]);
@@ -1882,6 +1987,10 @@
 
   // 有自己图标的烬铸（物品图标键 it-uq-<id>）；别的烬铸照旧按「部位 + 基底 + 档次」取键
   const UQ_DRAW = {
+    // 长明：第三阶的提灯，灯罩里的火更亮，旁边一点星芒
+    changming(g) {
+      lanternIcon(g, 2, true);
+    },
     // 星蚀：暗银的杖身，杖头一圈镂空的托爪夹着一块近黑的星核，外圈品红的裂光
     xingshi(g) {
       const m = rot(45, 1.12, -2, 2);
