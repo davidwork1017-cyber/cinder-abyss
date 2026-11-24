@@ -163,6 +163,33 @@
     "x_hleg_r_01",
     "x_hleg_r_02",
     "x_hleg_r_03"
+   ],
+   "warden": [
+    "pelvis",
+    "x_base",
+    "x_column",
+    "head",
+    "x_eye",
+    "x_lid_t",
+    "x_lid_b",
+    "x_rod_l",
+    "x_rod_r",
+    "x_ring_a",
+    "x_ring_b",
+    "x_orbit",
+    "x_plate_01",
+    "x_plate_02",
+    "x_plate_03",
+    "hand_l",
+    "x_finger_l_01",
+    "x_finger_l_02",
+    "x_finger_l_03",
+    "x_thumb_l",
+    "hand_r",
+    "x_finger_r_01",
+    "x_finger_r_02",
+    "x_finger_r_03",
+    "x_thumb_r"
    ]
   }
  }

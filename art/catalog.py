@@ -121,6 +121,8 @@ CATALOG = [
          bake=dict(ao=0.6, grad=0.8, wear=0.4, grime=0.25, gain=1.32), finish=dict(dust=0.0), cues=dict(second=False, val=0.24, lichen=0)),
     dict(id='ca/boss_weaver', gen='weaver', seed=229, cat='boss', zone='boss', home='frost', ship=True, replaces=None,
          bake=dict(ao=0.6, grad=0.8, wear=0.4, grime=0.2, gain=1.25), finish=dict(dust=0.0), cues=dict(second=False, val=0.22, lichen=0)),
+    dict(id='ca/boss_warden', gen='warden', seed=241, cat='boss', zone='boss', home='storm', ship=True, replaces=None,
+         bake=dict(ao=0.6, grad=0.7, wear=0.5, grime=0.2, gain=1.3), finish=dict(dust=0.0), cues=dict(second=False, val=0.22, lichen=0)),
 ]
 
 # 看板（lineup）：每个生成器 × 几个种子，参数沿用清单里第一个用到它的件

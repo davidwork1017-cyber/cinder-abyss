@@ -19364,6 +19364,25 @@
       // 首领缺省的暖色自发光在冰原上把暖灰的甲壳烧成橙褐、霜丝袍子烧成米色：换成很淡的中性色，染色收到中性（甲壳是暖灰、袍子是冷灰蓝，两种冷暖靠调色板本身分开）
       emis: [0x3a3c40, 0.16], tint: 0xc2ceda,
     },
+    // boss-warden：雷霆监察者。悬浮的立柱，没有脚（不贴地：悬浮的起伏、破防坠到底环上、死亡砸地都在动作里，和原来的程序化外观一样）。
+    // 眼（x_eye）就是芯：四招蓄力时越来越亮，十字 / 冲锋 / 雷环出手那一下最亮，轰炸的时候一直亮着；
+    // 两道环反向转、三块护盾板绕着转（rings：按时钟，招式里按 ringK 转快或停转，狂暴转得更快；雷环蓄力时两道环收紧、出手那一下张开：ringS），
+    // 和原来的程序化外观一样不进动作表；武器挂点 = 右手掌心前面，手 = 左手掌心前面
+    warden: {
+      pack: 'boss-warden',
+      alias: { cross: 'cross', barrage: 'barrage', charge: 'charge', ring: 'ring', slam: 'cross', fan: 'barrage', spiral: 'ring', summon: 'barrage' },
+      reach: 3.4, emb: [4.4, 1.3, 5],
+      sock: { weapon: ['hand_r', 0, 0, 0.75], hand: ['hand_l', 0, 0, 0.75], head: ['x_eye', 0, 0, 0.1], chest: ['x_column', 0, 1.6, 0.62] },
+      hitJ: ['head', 'x_column'], core: 'x_eye',
+      heatW: ['cross_w', 'barrage_w', 'charge_w', 'ring_w'], heatS: ['cross', 'charge', 'ring'], heatH: ['barrage'],
+      rings: [['x_ring_a', 1.3], ['x_ring_b', -1.8], ['x_orbit', -0.55]],
+      ringK: { cross_w: 3.2, cross: 2.6, barrage_w: 2.4, barrage: 2.2, charge_w: 2.4, charge: 1.8, ring_w: 0.04, ring: 4.2, broken: 0.05, death: 0 },
+      ringS: ['x_ring_a', 'x_ring_b'],
+      // 柱身 / 手 / 护盾板的风化淡青铜（10 灰白石）和眼匣、护腕、指节的暗铁（17 黑曜石）在这只首领身上按金属
+      rowSurf: { 10: 'metal', 17: 'metal' },
+      // 缺省的暖色自发光把灰白石烧成粉橙：换成很淡的中性色；染色往暖黄里偏一点，灰白石进游戏是风化的淡青铜（比雷鸣遗迹的靛蓝墙亮、偏暖）
+      emis: [0x3c3a36, 0.14], tint: 0xfcf0d8,
+    },
   };
   // 调色板行 → 表面（粗糙度 / 金属度），行号见 art/ca/palette.py（13 板岩在首领身上只有霜织者的霜丝袍子 / 霜纱用：按布）
   const BOSS_ROW_SURF = ['stone', 'stone', 'bone', 'metal', 'glow', 'stone', 'stone', 'leather', 'metal', 'stone', 'stone', 'stone', 'leather', 'cloth', 'ice', 'gold', 'stone', 'ice', 'cloth'];
@@ -19402,7 +19421,7 @@
       // 三个角都发光的三角形进发光网格（和 C 模型的 cs.vglow 一样）
       const g0 = 1 - C8[t * 4 + 3] / 255, g1 = 1 - C8[t * 4 + 7] / 255, g2 = 1 - C8[t * 4 + 11] / 255;
       const isG = g0 > 0.01 && g1 > 0.01 && g2 > 0.01, o = isG ? glow : body;
-      const sf = SURF[BOSS_ROW_SURF[R8[t / 3]] || 'stone'] || SURF.stone;
+      const sf = SURF[(sp.rowSurf && sp.rowSurf[R8[t / 3]]) || BOSS_ROW_SURF[R8[t / 3]] || 'stone'] || SURF.stone;
       for (let q = 0; q < 3; q++) {
         const v = CI[t + q], k = (t + q) * 4;
         o.P.push(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]);
@@ -19429,8 +19448,9 @@
     rig.skin4 = true;
     rig.bossModel = kind;
     rig.hitJ = sp.hitJ.map((nm) => rig.J[nm]);
-    rig.feet = sp.feet.map((nm) => rig.JI[nm]);
-    rig.ankle = rig.joints[rig.feet[0]].py;
+    // 没有脚的首领（熄烛者：袍子拖地滑行）不写 feet：不贴地，起伏、下沉都在动作里（和原来的程序化外观一样）
+    rig.feet = sp.feet ? sp.feet.map((nm) => rig.JI[nm]) : null;
+    rig.ankle = rig.feet ? rig.joints[rig.feet[0]].py : 0;
     for (const k in sp.sock) sock(rig, k, sp.sock[k][0], sp.sock[k][1], sp.sock[k][2], sp.sock[k][3]);
     // 动作：每个通道 n 帧，k = f / (n − 1)，Int16 / q
     const keysOf = (c) => {
@@ -19476,6 +19496,7 @@
     const coreJ = sp.core ? rig.J[sp.core] : -1, emb = sp.emb, heatW = sp.heatW || [], heatS = sp.heatS || [];
     const spinJ = sp.spin ? rig.J[sp.spin[0]] : -1;
     const heatP = sp.heatP || [], heatH = sp.heatH || [];
+    const ringJ = (sp.rings || []).map((r) => rig.J[r[0]]), ringSJ = (sp.ringS || []).map((nm) => rig.J[nm]);
     rig.post = function (ent, o, t, dt) {
       // 炉芯：随呼吸一明一暗；蓄力时蓄热、出手那一下最亮（heatW / heatS 里的动作）；破防时明灭；死亡先暴涨再熄掉。全是确定性的（不取随机数）
       // heatP：出手以后一明一暗地脉动（坍缩拽人）；heatH：出手以后一直亮着、末尾熄下去（吐息）
@@ -19496,6 +19517,19 @@
         // 冠环：按时钟慢慢转，spin[2] 那段动作里转得快（只看外观实体自己的时间，不取随机数）
         ent.spinA = (ent.spinA || 0) + dt * (sp.spin[1] + (n === sp.spin[2] && !ent.dying ? sp.spin[3] * Math.min(1, k * 8) * Math.min(1, (1 - k) * 6) : 0));
         o[spinJ + 1] += ent.spinA;
+      }
+      if (ringJ.length) {
+        // boss-warden：两道环 / 护盾板绕各自的竖轴转（叠在动作给的歪斜上），转速按正在播的动作（ringK）平滑地变，狂暴再快 60%；
+        // 雷环蓄力时两道环收紧到 0.84，出手那一下张开到 1.25 再缩回来。只看外观实体自己的时间和动作，不取随机数
+        const want = (ent.dying ? sp.ringK.death || 0 : n in sp.ringK ? sp.ringK[n] : 1) * (1 + 0.6 * ent.moodK);
+        if (ent.ringK === undefined) { ent.ringK = 1; ent.ringA = [0, 0, 0]; }
+        ent.ringK += (want - ent.ringK) * Math.min(1, dt * 6);
+        for (let i = 0; i < ringJ.length; i++) {
+          ent.ringA[i] += dt * sp.rings[i][1] * ent.ringK;
+          o[ringJ[i] + 1] += ent.ringA[i];
+        }
+        const sc = n === 'ring_w' ? 1 - 0.16 * k : n === 'ring' ? (k < c.k0 ? 0.84 + 0.41 * smooth01(k / c.k0) : 1 + 0.25 * (1 - smooth01((k - c.k0) / 0.5))) : 1;
+        for (let i = 0; i < ringSJ.length; i++) o[ringSJ[i] + 6] = o[ringSJ[i] + 7] = o[ringSJ[i] + 8] = sc;
       }
       if (coreJ >= 0) {
         const sc = (1 + Math.sin(t * 3) * 0.06) * (0.85 + 0.15 * heat);
