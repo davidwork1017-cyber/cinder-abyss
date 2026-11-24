@@ -25943,6 +25943,7 @@ async function uiDeskStyleStep() {
     await page.setViewportSize({ width: 1366, height: 768 });
     await ev(() => {
       G.ui.close();
+      localStorage.removeItem('cinder-abyss-ui-seen'); // 和在 main 上量的一样：第一次打开，底部那一行是一次性提示（main 上是常驻的操作说明）
       G.ui.open('inv');
     });
     await panelSettled();

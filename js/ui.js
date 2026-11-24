@@ -1817,7 +1817,10 @@
     if (sh.classList.contains('pop')) {
       const src = ui.card && el.body.querySelector('[data-item="' + ui.card.uid + '"].cell, [data-item="' + ui.card.uid + '"].eq, .cell[data-uid="' + ui.card.uid + '"]');
       const br = fRect(el.body.getBoundingClientRect());
+      const pw = fRect(el.win.getBoundingClientRect());
       const vw = fW(), vh = fH();
+      // 卡片整个在页面正文里：不盖页头和页签，太高就让中间那段滚动（data-list）
+      sh.style.maxHeight = Math.max(160, Math.floor(br.height)) + 'px';
       const w = sh.offsetWidth, h = sh.offsetHeight;
       const r = src ? fRect(src.getBoundingClientRect()) : { left: vw / 2, right: vw / 2, top: vh / 2 - h / 2, bottom: vh / 2 };
       // 背包格里的物品：卡片放在整块格子外面（先左后右），别的格子和下面的通货照样点得到、拖得到；放不下才贴着这一格
@@ -1830,7 +1833,8 @@
         if (x + w > vw - 8) x = r.left - 10 - w;
         if (x < 8) x = G.clamp(r.left, 8, Math.max(8, vw - w - 8));
       }
-      const y = G.clamp(r.top - 40, 8, Math.max(8, vh - h - 8));
+      x = G.clamp(x, pw.left + 8, Math.max(pw.left + 8, pw.right - w - 8));
+      const y = G.clamp(r.top - 40, br.top, Math.max(br.top, br.bottom - h));
       sh.style.left = Math.round(x - br.left) + 'px';
       sh.style.top = Math.round(y - br.top) + 'px';
     }
@@ -2006,7 +2010,7 @@
         '<div class="stp-grid">' + (touchV === 'bag' ? bagGrid() : stashGrid) + '</div>' +
         '<div class="stp-side"><div class="sh-tabs">' + tabs +
         '<button type="button" tabindex="-1" class="sh-tab bagv' + (touchV === 'bag' ? ' on' : '') + '" data-act="stash-view" data-v="bag">背包<em>' + G.save.bag.length + '</em></button></div>' +
-        '<div class="stp-n">' + (touchV === 'bag' ? '背包 <b>' + G.save.bag.length + '</b> / ' + G.BAG_SIZE : '仓库 <b>' + total + '</b>') + '<span class="stp-all">所有角色共用</span></div>' +
+        '<div class="stp-n">' + (touchV === 'bag' ? '背包 <b>' + G.save.bag.length + '</b> / ' + G.BAG_SIZE : '仓库 <b>' + total + '</b>') + (touchV === 'bag' ? '' : '<span class="stp-all">所有角色共用</span>') + '</div>' + // 背包不是共用的，只在仓库页写
         (portrait ? helpBtn('in-page') : '') + '</div></div>' +
         msg + '</div>';
     } else {
@@ -7515,6 +7519,7 @@
   function init() {
     el.panel = $('panel');
     el.body = $('panel-body');
+    el.win = $('panel-win');
     el.picker = $('picker');
     el.tip = $('tip');
     el.toasts = $('toasts');

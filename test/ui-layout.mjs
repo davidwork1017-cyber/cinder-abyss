@@ -5,7 +5,7 @@
 //   c. 页面没有横向溢出
 //   d. 触屏：页头 ≤ 36 px；字号 ≥ 11 px；button / [data-act] / .cell / .tab 的盒子 ≥ 44×44（桌面只查字号）
 //   e. elementFromPoint 打到每个点按目标的中心，打到的是它自己（或它里面的东西）
-//   f. 卡片 / 弹出菜单打开时，里面的操作条整个在视口里（「点外面关掉」由调用方去点）
+//   f. 卡片整个在页面正文里、不盖页头和页签；卡片 / 弹出菜单打开时，里面的操作条整个在视口里（「点外面关掉」由调用方去点）
 // opts：{ touch: bool, roots: '#panel-win, …'（默认 #panel-win 和面板里的浮层）, max: 每类最多列几条 }
 export function uiLayoutCheck(opts) {
   const o = Object.assign({ touch: false, roots: '#panel-win, #panel .sheet, #panel .ui-pop, #confirm.on', max: 6 }, opts || {});
@@ -93,6 +93,14 @@ export function uiLayoutCheck(opts) {
     const ov = hit && hit.closest('#panel .sheet, #panel .ui-pop, #confirm');
     if (ov && !ov.contains(e)) continue;
     out.e.push(nm(e) + ' 被 ' + (hit ? nm(hit) : '空') + ' 挡住');
+  }
+  // f：卡片整个在页面正文里（不盖页头 / 页签、不出面板），操作条在视口里
+  const body = document.getElementById('panel-body'), head = document.getElementById('panel-head');
+  for (const sh of document.querySelectorAll('#panel .sheet')) {
+    if (!vis(sh) || !body) continue;
+    const r = sh.getBoundingClientRect(), b = body.getBoundingClientRect(), hd = head.getBoundingClientRect();
+    if (r.left < b.left - 1 - 16 || r.right > b.right + 1 + 16 || r.top < b.top - 1 || r.bottom > b.bottom + 1) out.f.push('卡片出了正文 ' + R(r) + ' / 正文 ' + R(b));
+    if (r.top < hd.bottom - 0.5 && r.bottom > hd.top && r.left < hd.right && r.right > hd.left) out.f.push('卡片盖住了页头 ' + R(r));
   }
   // f：卡片 / 弹出菜单的操作条在视口里
   for (const bar of document.querySelectorAll('#panel .sheet .sh-acts, #panel .ui-pop')) {

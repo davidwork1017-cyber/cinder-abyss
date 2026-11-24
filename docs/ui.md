@@ -27,7 +27,7 @@
 | 页签 | `TABS` 里加一行 `[页名, 两个字, 按键, 一个字]`，`RENDER[页名]` 给渲染函数。按键在 `js/main.js` 的 `PANEL_KEYS` |
 | `pageNote(页名, html, cls, keep, right)` | 页面底部那一行：一次性提示、新手提示、操作结果。`keep` 时窄屏上一直占位（内容换了页面不跳），`right` 放在右边（比如件数） |
 | `helpBtn('in-page')` | 竖屏时放进页面工具栏的 `[?]`（页头的那个自动隐藏） |
-| `sheetHtml({ head, body, acts, msg, cls })` | 卡片：头部固定，`body` 是唯一滚动区，`acts` 是底部 44 px 的操作条。位置由 `placeCard()` 和 css 定 |
+| `sheetHtml({ head, body, acts, msg, cls })` | 卡片：头部固定，`body` 是唯一滚动区，`acts` 是底部 44 px 的操作条。位置由 `placeCard()` 和 css 定：整张卡片在页面正文里，不盖页头和页签；桌面上放在背包格外面（先左后右），太高就让中间那段滚动 |
 | `ui.card` / `openCard()` / `closeCard()` / `clickItem()` | 物品卡的状态。点卡片外面、点 `✕`、再点同一件、Esc 都会收起；点另一件物品直接换内容 |
 | `ui.pop` + `popHtml()` / `placePop()` | 锚在按钮下面的小菜单（`kind`：筛选、⋯、说明）。点外面收起；锚点按钮的 `data-act` 和 `kind` 同名，再点一次也收起 |
 
