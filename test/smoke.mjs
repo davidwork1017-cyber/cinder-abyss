@@ -26646,10 +26646,22 @@ async function touchSteps() {
     await frames(2);
     const s9 = await st();
     const reset = await ev(() => !!document.querySelector('.sheet.tsum [data-act="tree-reset"]:not(:disabled)'));
+    // 汇总卡下面还有支路 / 加成：底边渐隐（能往下滑）
+    const more = await ev(() => { const l = document.querySelector('.sheet.tsum .sh-body'); return { more: l.classList.contains('more'), over: l.scrollHeight > l.clientHeight + 2 }; });
+    assert(more.more === more.over, '汇总卡内容超出时应有渐隐、不超出时没有：' + JSON.stringify(more));
+    // 重置照旧要点两次：第一次只变成「再点一次确认重置」，卡片不关
+    const rb = await ev(() => T.rect('.sheet.tsum [data-act="tree-reset"]'));
+    await touch.tap(rb.x, rb.y);
+    await frames(2);
+    const r1 = await ev(() => ({ p: G.save.passives.length, txt: document.querySelector('.sheet.tsum [data-act="tree-reset"]').textContent, sum: !!document.querySelector('.sheet.tsum') }));
+    await touch.tap(rb.x, rb.y);
+    await frames(2);
+    const r2 = await ev(() => ({ p: G.save.passives.filter((id) => id !== 'start' && !(G.clsNodeOf && G.clsNodeOf(id))).length, sum: !!document.querySelector('.sheet.tsum') }));
+    assert(r1.p === s9.p.split(',').length && r1.txt.includes('再点一次') && r1.sum && r2.p === 0 && r2.sum, '触屏重置应要点两次、卡片留着：' + JSON.stringify({ r1, r2 }));
     await touch.tap(b.x, b.y);
     await frames(2);
     const s10 = await st();
-    assert(s9.sum && reset && !s10.sum, '点数应打开汇总卡（有重置）、再点收起：' + JSON.stringify({ s9: s9.sum, reset, s10: s10.sum }));
+    assert(s9.sum && reset && !s10.sum, '点数应打开汇总卡（有重置）、点外面收起：' + JSON.stringify({ s9: s9.sum, reset, s10: s10.sum }));
     await ev(() => { G.resetPassives(); G.ui.close(); });
     return '点亮 dm1 → ' + nx + '，旁点取 im0，双指放大 ' + Math.round((s5.vb[2] / s6.vb[2]) * 100) + '%';
   });

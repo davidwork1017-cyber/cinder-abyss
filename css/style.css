@@ -1598,6 +1598,7 @@ html.touch-ui .tn .hit, html.touch-ui .tn .halo { pointer-events: none; }
   .tsum .sh-name b { font-size: var(--fs-lg); color: #8f816c; }
   .tsum .sh-name b.has { color: #ffc27a; }
   .tsum .sh-body { padding: 6px 10px 8px; }
+  .tsum .sh-body.more { -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(180deg, #000 calc(100% - 28px), transparent); }
   .tsum .pts-note { margin: 0; font-size: var(--fs-sm); }
   .tsum .arm { height: 30px; font-size: var(--fs-base); }
   .tsum .arm span { font-size: var(--fs-xs); }

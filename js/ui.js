@@ -3073,6 +3073,13 @@
       if (sh.classList.contains('bottom')) view.style.bottom = Math.max(0, t.offsetTop + t.offsetHeight - sh.offsetTop + 6) + 'px';
       else view.style.right = Math.max(0, t.offsetLeft + t.offsetWidth - sh.offsetLeft + 6) + 'px';
     }
+    // 汇总卡下面还有内容（支路、加成）时底边渐隐，看得出能往下滑
+    const lb = el.body.querySelector('.sheet.tsum .sh-body');
+    if (lb) {
+      const more = () => lb.classList.toggle('more', lb.scrollTop + lb.clientHeight < lb.scrollHeight - 2);
+      lb.addEventListener('scroll', more, { passive: true });
+      requestAnimationFrame(more);
+    }
     treeApply();
   }
 
