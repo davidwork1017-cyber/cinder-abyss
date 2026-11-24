@@ -21905,7 +21905,7 @@ async function d2b2Steps() {
     return '空地 ' + r.openLeap + ' / ' + r.openDash + ' 米；' + r.rooms.join(' ') + '；裂谷 ' + r.rift + '；拆招 闪 ' + r.blinkN + ' / 原地 ' + r.stayN;
   });
 
-  await step('D2b-2·心火：持续 16 秒（再按从头计时），40% 物理转火（化元之后按剩下的算）；打死的敌人炸成余烬（每秒最多 6 次）；护火每次近战命中叠一层减伤（最多 8 层）；连烬接着炸一代；换下重兵就灭', async () => {
+  await step('D2b-2·心火：持续 16 秒（再按从头计时），40% 物理转火（和化元不叠：已经是火的算在里面）；打死的敌人炸成余烬（每秒最多 6 次）；护火每次近战命中叠一层减伤（最多 8 层）；连烬接着炸一代；换下重兵就灭', async () => {
     const r = await withCls('guard', () =>
       ev(() => {
         T.lane();
@@ -21918,6 +21918,13 @@ async function d2b2Steps() {
         out.dur = h0 && +h0.dur.toFixed(2);
         const base = G.skillCtx('whirl').base;
         out.fire = base.fire ? +(base.fire[0] / (base.fire[0] + base.phys[0])).toFixed(3) : 0;
+        // 镶着化元（60% 转火）：心火不再叠，还是 60%
+        if (G.save.supports.indexOf('convert') < 0) G.save.supports.push('convert');
+        const sk0 = (G.save.sockets.whirl || [null, null, null]).slice();
+        G.save.sockets.whirl = ['convert', null, null];
+        const b2 = G.skillCtx('whirl').base;
+        out.fireConv = b2.fire ? +(b2.fire[0] / (b2.fire[0] + (b2.phys ? b2.phys[0] : 0))).toFixed(3) : 0;
+        G.save.sockets.whirl = sk0;
         D2.run(15);
         out.at15 = !!G.heartState();
         D2.cast('heartfire', P.x + 3, P.z, 10); // 再按从头计时
@@ -21970,7 +21977,7 @@ async function d2b2Steps() {
       })
     );
     assert(r.dur === 16 && r.at15 && r.refresh && !r.after, '心火应持续 16 秒、再按从头计时：' + JSON.stringify(r));
-    assert(Math.abs(r.fire - 0.4) < 0.01, '心火期间应有 40% 物理转成火：' + JSON.stringify(r));
+    assert(Math.abs(r.fire - 0.4) < 0.01 && Math.abs(r.fireConv - 0.6) < 0.01, '心火期间应有 40% 物理转成火，和化元（60%）不叠加：' + JSON.stringify(r));
     assert(r.bursts >= 6, '打死的敌人应炸成余烬：' + JSON.stringify(r));
     assert(r.convA && r.ward === 8 && Math.abs(r.taken - 0.76) < 1e-6, '护火：不转火、叠满 8 层、受到的伤害 −24%：' + JSON.stringify(r));
     assert(r.chain === 2 && r.chainDead === 3, '连烬：余烬炸死的应接着炸一代（第 4 只炸不到）：' + JSON.stringify(r));

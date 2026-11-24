@@ -2252,7 +2252,7 @@
       }
     }
     G.supXCtx(ctx, sups, isAura); // 取舍型 / 改玩法的辅助（support-expand）：ctx.x、冷却、穿透、光环效果
-    if (P.heart) G.heartCtx(ctx); // 心火（class-d2b2）：化元之后再转一部分物理成火
+    if (P.heart) G.heartCtx(ctx); // 心火（class-d2b2）：火不到 40% 的补到 40%（和化元不叠加）
     if (P.relic.any || ctx.sk.mech === 'king') G.relicCtx(ctx); // 渊契：必然、同殇等改上下文；渊式「独骸」
     G.sealCtx(ctx); // 渊印的玩家侧印纹（迟滞 / 蚀环 / 孤影）
     return ctx;
@@ -10297,12 +10297,16 @@
     P.heart = null;
     fxOpt('heartOn', P.ent, false);
   }
-  // skillCtx 末尾调：心火期间你的攻击 conv% 物理转成火（化元之后，按剩下的物理算）
+  // skillCtx 末尾调：心火期间你的攻击至少 conv% 是火：物理补成火，补到「物理 + 火」里火占 conv% 为止（化元已经转过去的算在里面，不叠加：
+  // 叠着化元时火焰占到 76%，打怪群是别的第二格的 1.3 倍）
   G.heartCtx = function (ctx) {
     if (!heartOn() || !(P.heart.conv > 0) || !ctx.attack || !ctx.base.phys) return;
     const k = P.heart.conv / 100, p = ctx.base.phys, b = ctx.base.fire || [0, 0];
-    ctx.base.fire = [b[0] + p[0] * k, b[1] + p[1] * k];
-    ctx.base.phys = [p[0] * (1 - k), p[1] * (1 - k)];
+    const tot = p[0] + p[1] + b[0] + b[1];
+    const mv = tot > 0 ? Math.max(0, Math.min(1, (tot * k - b[0] - b[1]) / Math.max(1e-9, p[0] + p[1]))) : 0;
+    if (!(mv > 0)) return;
+    ctx.base.fire = [b[0] + p[0] * mv, b[1] + p[1] * mv];
+    ctx.base.phys = [p[0] * (1 - mv), p[1] * (1 - mv)];
   };
   // 受到的伤害倍率（护火）
   G.heartTaken = () => (heartOn() && P.heart.ward > 0 ? 1 - (P.heart.ward * G.SKILLS.heartfire.ward.dr) / 100 : 1);
