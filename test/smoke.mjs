@@ -25512,7 +25512,7 @@ async function touchSteps() {
     return '按钮 ' + acts.join(' / ') + '；打 ' + busy.sec + ' 秒文字处理 ' + busy.calls + ' 次，提示卡收成一行';
   });
 
-  await step('触屏：长按看详情——技能、天赋、地图的区域卡片（450 ms 出浮窗和详情，松手留着，下一次碰屏幕收起）；长按天赋不会点亮；背包里挪过 8 px 是拖拽（拖到装备栏穿上），不到 8 px 是长按', async () => {
+  await step('触屏：长按看详情——技能、天赋、地图的区域卡片（450 ms 出浮窗和详情，松手留着，下一次碰屏幕收起）；长按天赋不会点亮；背包里挪过 8 px 是拖拽（拖到装备栏穿上），不到 8 px 是长按；竖屏背包从格子以外竖着划照常滚动', async () => {
     await touchPage();
     await ev(() => {
       G.debug.learnAll();
@@ -25602,7 +25602,28 @@ async function touchSteps() {
     await ev(() => G.ui.close());
     assert(!out.still.drag && out.still.lp === 'on', '挪 5 px 按住应是长按、不是拖拽：' + JSON.stringify(out.still));
     assert(out.mid.drag && !out.mid.lp && out.worn, '挪过 8 px 应是拖拽，拖到装备栏应穿上：' + JSON.stringify(out));
-    return '技能 / 天赋 / 区域卡片长按出详情、松手留着；天赋点亮数 ' + n0 + ' → ' + n1 + '；拖拽穿上鞋子';
+    // 竖屏的背包整页滚动：只有拖拽源（格子）是 touch-action: none，滚动容器不是；从格子以外的地方竖着划能滚
+    await page.setViewportSize({ width: 390, height: 844 });
+    await ev(() => {
+      for (let i = 0; i < 10; i++) G.debug.giveItem(i % 3, null, null, 20); // 背包放满一点，整页要能滚
+      G.ui.open('inv');
+    });
+    await frames(3);
+    const sc = await ev(() => {
+      const inv = document.querySelector('.inv'), cell = document.querySelector('.cell[data-item]');
+      const t = T.rect(document.querySelector('.col-m > .sec-title')); // 背包标题行（格子上面），从它的左端开始划
+      return { inv: getComputedStyle(inv).touchAction, oy: getComputedStyle(inv).overflowY, cell: getComputedStyle(cell).touchAction, room: inv.scrollHeight - inv.clientHeight, x: t.l + 16, y: t.y, top0: inv.scrollTop };
+    });
+    await touch.drag(sc.x, sc.y, sc.x, Math.max(12, sc.y - 180), 8);
+    await touch.up();
+    await sleep(400);
+    sc.top1 = await ev(() => document.querySelector('.inv').scrollTop);
+    await ev(() => G.ui.close());
+    await page.setViewportSize({ width: 844, height: 390 });
+    await frames(2);
+    assert(sc.inv === 'auto' && sc.oy === 'auto' && sc.cell === 'none' && sc.room > 50, '竖屏背包：滚动容器应保持默认 touch-action、格子才是 none：' + JSON.stringify(sc));
+    assert(sc.top1 > sc.top0 + 40, '竖屏背包从格子以外竖着划应能滚动：' + JSON.stringify(sc));
+    return '技能 / 天赋 / 区域卡片长按出详情、松手留着；天赋点亮数 ' + n0 + ' → ' + n1 + '；拖拽穿上鞋子；竖屏背包划动滚了 ' + Math.round(sc.top1 - sc.top0) + ' px';
   });
 
   await step('触屏：M2 设置——左手模式（右下拖摇杆能走、左下的按钮能按）、按钮大小、震动（安卓桩：重击 / 翻滚 / 残血各震一次、120 ms 限频、残血不连震、关掉不震、没有 vibrate 时设置里不显示）、主题色', async () => {
@@ -25706,6 +25727,123 @@ async function touchSteps() {
     assert(c3 === c2, '关掉震动后翻滚不该震：' + JSON.stringify({ c2, c3 }));
     assert(!out.rowsNoVib.includes('震动') && out.rowsNoVib.includes('按钮大小'), '没有 vibrate（iPhone）时不显示震动这一项：' + out.rowsNoVib.join(','));
     return '左手模式能走能滚；震动 ' + out.vib.l4.join(' / ') + '、限频 ' + out.vib.burst + ' 次、关掉 0 次';
+  });
+
+  await step('触屏：横屏开始——竖着拿手机，竖屏提示里点「横屏开始」，锁不了横屏就把画面转 90°（html.t-rot）；转着时摇杆方向、按钮、拖动瞄准（< 0.3 m）、面板都按转过的画面算；⟲ 换方向；手机真横过来自动退出；标题画面也有这个按钮', async () => {
+    await touchPage({ width: 390, height: 844 });
+    // 画面坐标 ↔ 屏幕坐标（CDP 发的触摸是屏幕坐标）
+    const scr = (x, y) => ev(([x, y]) => G.toScreen(x, y), [x, y]);
+    const fdrag = async (sx, sy, dx, dy, n) => {
+      // 从屏幕上的 (sx, sy) 按下，沿画面里的 (dx, dy) 拖 n 步，不松手
+      const f = await ev(([x, y]) => G.toFrame(x, y), [sx, sy]);
+      await touch.down(sx, sy);
+      for (let i = 1; i <= n; i++) {
+        const q = await scr(f.x + (dx * i) / n, f.y + (dy * i) / n);
+        await touch.move(q.x, q.y);
+      }
+    };
+    const s0 = await ev(() => ({ st: G.touch.state(), mask: getComputedStyle(document.getElementById('t-portrait')).display, txt: document.getElementById('t-portrait').innerText, btn: T.rect('#t-portrait [data-trot]') }));
+    assert(s0.st.portrait && s0.st.blocked && s0.mask !== 'none' && /横过来玩/.test(s0.txt) && s0.btn && s0.btn.h >= 44, '竖屏提示里应有「横屏开始」：' + JSON.stringify(s0));
+    await touch.tap(s0.btn.x, s0.btn.y);
+    await until(() => G.touch.state().rot, null, 8000);
+    await frames(3);
+    const s1 = await ev(() => {
+      const gl = document.getElementById('gl');
+      return { st: G.touch.state(), cls: document.documentElement.className, gl: [gl.style.width, gl.style.height], body: document.body.style.transform, paused: G.state.paused, vw: G.viewW(), vh: G.viewH(), try: G.touch.rotTry, mask: getComputedStyle(document.getElementById('t-portrait')).display };
+    });
+    assert(s1.st.rot === 'cw' && /t-rot/.test(s1.cls) && /t-land/.test(s1.cls) && !/t-portrait/.test(s1.cls) && !s1.st.portrait && !s1.st.blocked && s1.mask === 'none', '应进旋转横屏（顺时针）：' + JSON.stringify(s1));
+    assert(s1.vw === 844 && s1.vh === 390 && s1.gl[0] === '844px' && s1.gl[1] === '390px' && /rotate\(90deg\)/.test(s1.body), '画面应是 844×390、画布跟着转：' + JSON.stringify(s1));
+    // 摇杆：画面里往右拖 → 往右走（+x），往上拖 → input.move.z ≈ −1
+    const x0 = await ev(() => G.player.x);
+    const p0 = await scr(150, 300);
+    await fdrag(p0.x, p0.y, 45, 0, 4);
+    const k1 = await ev(() => ({ st: G.touch.state().stick, mv: G.input.move && Object.assign({}, G.input.move) }));
+    const x1 = await ev(() => (G.debug.step(0.3), G.player.x));
+    await touch.up();
+    await fdrag(p0.x, p0.y, 0, -45, 4);
+    const k2 = await ev(() => ({ st: G.touch.state().stick, mv: G.input.move && Object.assign({}, G.input.move) }));
+    await touch.up();
+    assert(k1.st && Math.abs(k1.st.a) < 0.02 && k1.mv.x > 0.99 && x1 > x0 + 1.5, '转着时摇杆往画面右边拖应往右走：' + JSON.stringify({ k1, x0, x1 }));
+    assert(k2.mv && k2.mv.z < -0.99, '往画面上方拖应往 −z 走：' + JSON.stringify(k2));
+    // 按钮：点翻滚
+    await ev(() => G.debug.step(0.5));
+    const rb = await tbRect('roll');
+    await touch.tap(rb.x, rb.y);
+    const rolled = await ev(() => G.player.roll.t > 0);
+    assert(rolled, '转着时点翻滚应翻滚');
+    // 拖动瞄准：从 E 往画面左上拖，准星落点和 input.aim 差不到 0.3 m，松手陨火落在那里
+    await ev(() => {
+      G.debug.step(1.5);
+      G.debug.learnAll();
+      G.save.bar[3] = 'meteor';
+      G.computeStats();
+      G.player.mana = G.player.maxMana = 9999;
+      G.player.cds = {};
+      window.__fall = [];
+      const W = G.world;
+      if (!window.__fallOrig) {
+        window.__fallOrig = W.meteorFall;
+        W.meteorFall = function (x, z) {
+          window.__fall.push({ x, z });
+          return window.__fallOrig.apply(this, arguments);
+        };
+      }
+    });
+    await frames(2);
+    const e = await tbRect('s3');
+    const dx = -100, dy = -30;
+    await fdrag(e.x, e.y, dx, dy, 4);
+    await frames(2);
+    const a = await ev(() => {
+      const r = document.getElementById('reticle');
+      const m = /translate\(([-\d.]+)px,\s*([-\d.]+)px\)/.exec(r.style.transform);
+      const g = m ? G.world.screenToGround(+m[1], +m[2]) : null;
+      return { aim: G.input.aim, ret: g, vis: getComputedStyle(r).display !== 'none', P: { x: G.player.x, z: G.player.z } };
+    });
+    const L = Math.hypot(dx, dy), f = Math.min(1, (L - 20) / 110), rr = 14 * f;
+    const want = { x: a.P.x + (dx / L) * rr, z: a.P.z + (dy / L) * rr };
+    await touch.up();
+    const c = await ev(() => (G.debug.step(1.5), { fall: window.__fall.slice(), cd: G.player.cds.meteor || 0 }));
+    assert(a.vis && a.aim && a.ret, '转着时拖动应显示准星：' + JSON.stringify(a));
+    assert(Math.hypot(a.aim.x - want.x, a.aim.z - want.z) < 0.05 && Math.hypot(a.ret.x - a.aim.x, a.ret.z - a.aim.z) < 0.3, '转着时拖动瞄准的落点不对：' + JSON.stringify({ a, want }));
+    assert(c.cd > 0 && c.fall.length === 1 && Math.hypot(c.fall[0].x - want.x, c.fall[0].z - want.z) < 0.3, '松手应在拖到的地方放出陨火：' + JSON.stringify({ c, want }));
+    // 顶栏「包」打开背包：面板铺满转过的画面
+    const ib = await ev(() => T.rect('[data-tt="inv"]'));
+    await touch.tap(ib.x, ib.y);
+    await frames(3);
+    const pw = await ev(() => ({ open: G.ui.isOpen(), r: G.rectToFrame(document.getElementById('panel-win').getBoundingClientRect()) }));
+    await ev(() => G.ui.close());
+    await frames(2);
+    assert(pw.open && Math.abs(pw.r.width - 844) < 2 && Math.abs(pw.r.height - 390) < 2 && Math.abs(pw.r.left) < 1, '转着时背包应铺满 844×390 的画面：' + JSON.stringify(pw));
+    // ⟲：换成逆时针，摇杆照样按画面方向走
+    const fb = await ev(() => T.rect('[data-tt="rot"]'));
+    await touch.tap(fb.x, fb.y);
+    await frames(2);
+    const s2 = await ev(() => ({ rot: G.touch.state().rot, body: document.body.style.transform }));
+    const p1 = await scr(150, 300);
+    await fdrag(p1.x, p1.y, 45, 0, 4);
+    const k3 = await ev(() => ({ st: G.touch.state().stick, mv: G.input.move && Object.assign({}, G.input.move) }));
+    await touch.up();
+    assert(fb && s2.rot === 'ccw' && /rotate\(-90deg\)/.test(s2.body) && k3.mv && k3.mv.x > 0.99, '⟲ 应换成逆时针、摇杆方向照旧：' + JSON.stringify({ s2, k3 }));
+    // 手机真横过来：自动退出
+    await page.setViewportSize({ width: 844, height: 390 });
+    await frames(3);
+    const s3 = await ev(() => ({ rot: G.touch.state().rot, cls: document.documentElement.className, body: document.body.style.transform, vw: G.viewW(), sa: document.documentElement.style.getPropertyValue('--sa-l') }));
+    assert(!s3.rot && !/t-rot/.test(s3.cls) && /t-land/.test(s3.cls) && !s3.body && s3.vw === 844 && !s3.sa, '真横屏时应退出旋转横屏、恢复原样：' + JSON.stringify(s3));
+    // 标题画面竖着时右上角也有「横屏开始」，点了在标题画面上就转过来，⟲ 也在
+    await page.setViewportSize({ width: 390, height: 844 });
+    await frames(2);
+    await ev(() => G.ui.showTitle(true));
+    await frames(3);
+    const tb = await ev(() => T.rect('#t-rot-go'));
+    assert(tb && tb.w >= 44 && tb.h >= 44, '标题画面竖着时应有「横屏开始」：' + JSON.stringify(tb));
+    await touch.tap(tb.x, tb.y);
+    await until(() => G.touch.state().rot, null, 8000);
+    await frames(2);
+    const s4 = await ev(() => ({ rot: G.touch.state().rot, flip: T.rect('#t-rot-flip'), go: getComputedStyle(document.getElementById('t-rot-go')).display, menu: G.rectToFrame(document.querySelector('#t-menu').getBoundingClientRect()) }));
+    assert(s4.rot && s4.flip && s4.flip.w >= 44 && s4.go === 'none' && s4.menu.left >= 0 && s4.menu.bottom <= 390, '标题画面应转过来、菜单在画面里：' + JSON.stringify(s4));
+    await ev(() => G.touch.setRot(null));
+    return '「横屏开始」→ ' + s1.try + ' → 旋转 ' + s1.st.rot + '，画面 ' + s1.vw + '×' + s1.vh + '；摇杆 / 翻滚 / 拖动瞄准 / 背包都对；⟲ → ' + s2.rot + '；真横屏自动退出';
   });
 
   await step('旁白卡：帧率掉到约 2 fps 时按真实时间放，长度和正常时一样（约 5 秒）；触屏下不压顶栏、小地图、追踪条、按钮簇和提示卡', async () => {
@@ -25841,7 +25979,7 @@ async function touchSteps() {
     return ok.log.join(' → ') + '；存档失败：' + bad.log.join(' → ');
   });
 
-  await step('触屏：布局——844×390 / 667×375 / 932×430（含安全区）/ 390×844 / 1024×768 下摇杆区、按钮簇、小地图、追踪、顶栏、首领条互不重叠，按钮 ≥ 44 px 且在屏内，「开始」在屏内；按钮大小 小 / 中 / 大、左手模式在横屏各尺寸下同样成立', async () => {
+  await step('触屏：布局——844×390 / 667×375 / 932×430（含安全区）/ 390×844 / 1024×768 下摇杆区、按钮簇、小地图、追踪、顶栏、首领条互不重叠，按钮 ≥ 44 px 且在屏内，「开始」在屏内；按钮大小 小 / 中 / 大、左手模式在横屏各尺寸下同样成立；旋转横屏（390×844 顺 / 逆时针、375×667）按转过的画面同样成立', async () => {
     await touchPage();
     const SIZES = [
       [844, 340, null], // iOS 横屏：地址栏 / 工具栏占掉一截的可见高度
@@ -25853,10 +25991,15 @@ async function touchSteps() {
       [932, 430, { l: 47, r: 47, b: 21 }],
       [390, 844, { t: 47, b: 34 }],
       [1024, 768, { b: 20 }],
+      // 旋转横屏（竖着拿手机点「横屏开始」、锁不了横屏时）：画面转 90°，按转过的画面量
+      [390, 844, { t: 47, b: 34 }, 'cw'],
+      [390, 844, { t: 47, b: 34 }, 'ccw'],
+      [375, 667, null, 'cw'],
     ];
     const out = [];
-    for (const [w, h, sa] of SIZES) {
+    for (const [w, h, sa, rot] of SIZES) {
       await page.setViewportSize({ width: w, height: h });
+      await ev((rot) => G.touch.setRot(rot || null), rot);
       await ev((sa) => {
         const s = document.documentElement.style;
         for (const k of ['t', 'r', 'b', 'l']) s.setProperty('--t-safe-' + k, sa && sa[k] ? sa[k] + 'px' : '0px');
@@ -25870,10 +26013,10 @@ async function touchSteps() {
       }, sa);
       await frames(3);
       const measure = () => ev((sa) => {
-        const W = innerWidth, H = innerHeight;
+        const W = G.viewW(), H = G.viewH(); // 旋转横屏时是转过的画面（平时 = innerWidth / innerHeight）
         const vis = (n) => n && n.getClientRects().length && getComputedStyle(n).display !== 'none' && getComputedStyle(n).visibility !== 'hidden';
         const box = (n) => {
-          const b = n.getBoundingClientRect();
+          const b = G.rectToFrame(n.getBoundingClientRect());
           return { l: b.left, t: b.top, r: b.right, b: b.bottom, w: b.width, h: b.height };
         };
         const union = (list) => list.reduce((u, b) => (u ? { l: Math.min(u.l, b.l), t: Math.min(u.t, b.t), r: Math.max(u.r, b.r), b: Math.max(u.b, b.b) } : b), null);
@@ -25896,7 +26039,10 @@ async function touchSteps() {
             const a = areas[ks[i]], b = areas[ks[j]];
             if (a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b) hits.push(ks[i] + '×' + ks[j]);
           }
-        const sl = (sa && sa.l) || 0, sr = (sa && sa.r) || 0, st = (sa && sa.t) || 0, sb = (sa && sa.b) || 0;
+        // 安全区（屏幕的四边）换到画面的四边：转着的时候竖屏的刘海 / 底部横条在画面的左右
+        const SIDE = G.rot ? (G.rot.dir === 'cw' ? { t: 'r', r: 'b', b: 'l', l: 't' } : { t: 'l', r: 't', b: 'r', l: 'b' }) : { t: 't', r: 'r', b: 'b', l: 'l' };
+        const ins = (k) => (sa && sa[SIDE[k]]) || 0;
+        const sl = ins('l'), sr = ins('r'), st = ins('t'), sb = ins('b');
         const allBtns = btns.concat(Array.from(document.querySelectorAll('#t-top button')).filter(vis).map(box));
         const small = allBtns.filter((b) => b.w < 44 || b.h < 44).length;
         const off = allBtns.filter((b) => b.l < sl || b.t < st || b.r > W - sr || b.b > H - sb).length;
@@ -25905,10 +26051,10 @@ async function touchSteps() {
         const cx = (b) => (b.l + b.r) / 2;
         const side = !areas.cluster || !areas.stick ? 'ok' : P.mirror ? (cx(areas.cluster) < W / 2 && cx(areas.stick) > W / 2 ? 'ok' : 'bad') : cx(areas.cluster) > W / 2 && cx(areas.stick) < W / 2 ? 'ok' : 'bad';
         const big = document.querySelector('[data-tb="s0"]');
-        return { size: W + '×' + H, sa: !!sa, pref: P.size + (P.mirror ? '+左手' : ''), n: allBtns.length, hits, small, off, side, s0: vis(big) ? Math.round(box(big).w) : 0, portrait: G.touch.state().portrait, ks: ks.join('/') };
+        return { size: W + '×' + H, rot: G.rot ? G.rot.dir : '', sa: !!sa, pref: P.size + (P.mirror ? '+左手' : ''), n: allBtns.length, hits, small, off, side, s0: vis(big) ? Math.round(box(big).w) : 0, portrait: G.touch.state().portrait, ks: ks.join('/') };
       }, sa);
       // 按钮大小（小 / 中 / 大）和左手模式：横屏每个尺寸都量一遍
-      const PREFS = w > h && w < 1000 ? [['m', false], ['s', false], ['l', false], ['m', true], ['l', true]] : [['m', false]];
+      const PREFS = (w > h || rot) && w < 1000 ? [['m', false], ['s', false], ['l', false], ['m', true], ['l', true]] : [['m', false]];
       let r = null;
       for (const [size, mirror] of PREFS) {
         await ev(([size, mirror]) => {
@@ -25934,14 +26080,15 @@ async function touchSteps() {
       Object.assign(
         r,
         await ev(() => {
-          const go = document.getElementById('intro-go').getBoundingClientRect();
+          const go = G.rectToFrame(document.getElementById('intro-go').getBoundingClientRect());
           G.ui.close();
-          return { goOk: go.top >= 0 && go.bottom <= innerHeight && go.left >= 0 && go.right <= innerWidth && go.height >= 44, go: [go.left, go.top, go.width, go.height].map(Math.round) };
+          return { goOk: go.top >= 0 && go.bottom <= G.viewH() && go.left >= 0 && go.right <= G.viewW() && go.height >= 44, go: [go.left, go.top, go.width, go.height].map(Math.round) };
         })
       );
       out.push(r);
+      await ev(() => G.touch.setRot(null));
     }
-    const bad = out.filter((r) => r.hits.length || r.small || r.off || r.side !== 'ok' || (r.goOk === false) || (r.goOk === undefined && r.pref === 'm') || (r.portrait ? r.n !== 0 : r.n < 15) || (r.portrait !== (r.size === '390×844')));
+    const bad = out.filter((r) => r.hits.length || r.small || r.off || r.side !== 'ok' || (r.goOk === false) || (r.goOk === undefined && r.pref === 'm') || (r.portrait ? r.n !== 0 : r.n < 15) || (r.portrait !== (r.size === '390×844' && !r.rot)));
     assert(!bad.length, '布局有问题：' + JSON.stringify(bad));
     // 按钮大小确实变了：主攻键 小 < 中 < 大
     const s0 = (pref) => (out.find((r) => r.size === '844×390' && !r.sa && r.pref === pref) || {}).s0;
@@ -25951,7 +26098,7 @@ async function touchSteps() {
       document.getElementById('t-f').classList.remove('on');
       document.getElementById('coach').className = '';
     });
-    return out.filter((r) => r.pref === 'm').map((r) => r.size + (r.sa ? '+安全区' : '') + ' ' + r.n + ' 键').join('，') + '；按钮大小 / 左手模式另量 ' + out.filter((r) => r.pref !== 'm').length + ' 次，主攻键 ' + s0('s') + ' / ' + s0('m') + ' / ' + s0('l') + ' px';
+    return out.filter((r) => r.pref === 'm').map((r) => r.size + (r.rot ? '（旋转 ' + r.rot + '）' : '') + (r.sa ? '+安全区' : '') + ' ' + r.n + ' 键').join('，') + '；按钮大小 / 左手模式另量 ' + out.filter((r) => r.pref !== 'm').length + ' 次，主攻键 ' + s0('s') + ' / ' + s0('m') + ' / ' + s0('l') + ' px';
   });
 
   await step('触屏：iOS 工具栏占掉高度（844×340 / 667×320）时标题画面、职业选择、开场卡片、背包和暂停菜单都放得下', async () => {
@@ -26013,7 +26160,7 @@ async function touchSteps() {
     return out.map((r) => r.size).join('，');
   });
 
-  await step('触屏：桌面窗口不开触屏模式（没有 html.touch-ui、没有触屏 DOM、G.touch.on 为假），开场卡片的「开始」在 1280×360 / 1024×360 里也在屏内', async () => {
+  await step('触屏：桌面窗口不开触屏模式（没有 html.touch-ui / t-land / t-rot、没有触屏 DOM、G.touch.on 为假，G.viewW / viewH 就是窗口尺寸），开场卡片的「开始」在 1280×360 / 1024×360 里也在屏内', async () => {
     if (browser) await browser.close().catch(() => {});
     ({ browser, page, errors } = await launch({ width: 1280, height: 360 }));
     await install();
@@ -26031,6 +26178,8 @@ async function touchSteps() {
             on: G.touch.on,
             mode: G.touch.mode,
             cls: document.documentElement.classList.contains('touch-ui'),
+            land: ['t-land', 't-rot', 't-portrait'].some((c) => document.documentElement.classList.contains(c)),
+            view: G.rot === null && G.viewW() === innerWidth && G.viewH() === innerHeight && G.toFrame(3, 4).x === 3 && G.toFrame(3, 4).y === 4 && G.toScreen(5, 6).y === 6,
             dom: !!document.getElementById('touch') || document.querySelectorAll('[data-tb]').length,
             mf: !!document.querySelector('link[rel=manifest]'),
             vp: document.querySelector('meta[name=viewport]').content,
@@ -26040,7 +26189,7 @@ async function touchSteps() {
         })
       );
     }
-    const bad = out.filter((r) => r.on || r.cls || r.dom || r.mf || r.aim !== null || r.vp !== 'width=device-width, initial-scale=1' || !r.go);
+    const bad = out.filter((r) => r.on || r.cls || r.land || !r.view || r.dom || r.mf || r.aim !== null || r.vp !== 'width=device-width, initial-scale=1' || !r.go);
     assert(!bad.length, '桌面不应开触屏、「开始」应在屏内：' + JSON.stringify(bad));
     await ev(() => G.ui.close());
     return out.map((r) => r.size).join(' / ');

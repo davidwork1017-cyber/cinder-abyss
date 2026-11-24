@@ -223,15 +223,97 @@ await step('M2：iPhone 没有震动接口，设置里不显示「震动」；�
   });
   await page.waitForTimeout(500);
   await touch('touchstart', '.zone[data-tip="zone:1:0"]');
-  await page.waitForTimeout(700);
+  // 按住到长按触发（机器忙时 WebKit 一帧几百毫秒，计时器会晚到）再松手
+  await until(() => G.touch.state().lp === 'on', null, 5000).catch(() => {});
+  await page.waitForTimeout(150);
   const a = await ev(() => ({ tip: getComputedStyle(document.getElementById('tip')).display !== 'none' && document.getElementById('tip').textContent.length > 0, lp: G.touch.state().lp }));
   await touch('touchend', '.zone[data-tip="zone:1:0"]');
-  await page.waitForTimeout(200);
+  await page.waitForTimeout(300);
   const b = await ev(() => ({ tip: getComputedStyle(document.getElementById('tip')).display !== 'none', lp: G.touch.state().lp }));
   await ev(() => G.ui.close());
   assert(!r.can && !rows.includes('震动') && rows.includes('按钮大小') && rows.includes('左手模式'), '没有震动接口时不该显示震动：' + JSON.stringify({ r, rows }));
   assert(a.tip && a.lp === 'on' && b.tip && b.lp === 'stuck', '长按区域卡片应出详情、松手留着：' + JSON.stringify({ a, b }));
   return 'vibrate ' + r.vib + '，设置 ' + rows.length + ' 项（无震动）；长按详情留着';
+});
+
+// ---------- 竖着拿 iPhone：「横屏开始」→ 旋转横屏（iPhone 没有 screen.orientation.lock），在转过的画面里新游戏、走、打、开背包 ----------
+await step('竖屏（iPhone 竖着拿）：标题画面点「横屏开始」→ 画面转 90°；转着新建角色（选职业、重载后接着转）、摇杆往画面右边走、按住主攻放技能、顶栏开背包', async () => {
+  await page.setViewportSize({ width: 390, height: 664 });
+  await page.reload();
+  await until(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, 120000);
+  await page.waitForTimeout(300);
+  const t0 = await ev(() => ({ st: G.touch.state(), go: getComputedStyle(document.getElementById('t-rot-go')).display, lock: !!(screen.orientation && screen.orientation.lock), fs: !!document.documentElement.requestFullscreen }));
+  assert(t0.st.portrait && t0.go !== 'none', '竖着时标题画面应有「横屏开始」：' + JSON.stringify(t0));
+  await tap('#t-rot-go');
+  await until(() => G.touch.state().rot, null, 10000);
+  await page.waitForTimeout(400);
+  const t1 = await ev(() => ({ st: G.touch.state(), cls: document.documentElement.className, vw: G.viewW(), vh: G.viewH(), body: document.body.style.transform, try: G.touch.rotTry }));
+  assert(t1.st.rot && /t-rot/.test(t1.cls) && t1.vw === 664 && t1.vh === 390 && /rotate/.test(t1.body), '应转成 664×390 的横屏画面：' + JSON.stringify(t1));
+  // 转着新建角色：选职业要重载页面，重载后（手机还竖着）接着转
+  await tap('#t-new');
+  await until(() => G.ui.classView && G.ui.classView());
+  await tap('.cl-card[data-cls]');
+  await tap('[data-tact="cl-ok"]');
+  await page.waitForLoadState('load').catch(() => {});
+  await until(() => window.G && G.state && G.state.zone && G.player && G.player.ent && G.touch, null, 120000);
+  // 新角色先放开场故事：「跳过」淡入以后点掉，直到开场卡片出来（机器忙时故事、卡片都晚一点）
+  let q = null;
+  for (const t0 = Date.now(); Date.now() - t0 < 90000; ) {
+    q = await ev(() => {
+      const n = document.querySelector('.st-skip');
+      return { story: G.ui.storyOn(), intro: document.getElementById('intro').classList.contains('on'), skip: !!(n && n.getBoundingClientRect().width > 0), title: G.ui.titleOn(), open: G.ui.isOpen(), rot: G.touch.state().rot, cls: document.documentElement.className, view: G.ui.classView && G.ui.classView(), url: location.search };
+    });
+    if (q.intro) break;
+    if (q.story && q.skip) await tap('.st-skip').catch(() => {});
+    // 开场故事和开场卡片所有角色共用：前面那一步看过了，第二个角色就直接进游戏
+    if (!q.story && !q.title && !q.open && (await ev(() => G.save.seenHelp && G.save.seenStory))) break;
+    await page.waitForTimeout(700);
+  }
+  assert(q && (q.intro || (!q.story && !q.open)), '应进到游戏或开场卡片：' + JSON.stringify(q));
+  const rot2 = await ev(() => G.touch.state().rot);
+  if (q.intro) await tap('#intro-go');
+  await page.waitForTimeout(600);
+  if (await ev(() => G.touch.state().hint)) await tap('#t-hint-ok');
+  await page.waitForTimeout(300);
+  const g0 = await ev(() => ({ st: G.touch.state(), open: G.ui.isOpen(), x: G.player.x }));
+  assert(rot2 && g0.st.rot === rot2 && !g0.open && !g0.st.blocked, '重载后应接着转、进到游戏里：' + JSON.stringify({ rot2, g0 }));
+  // 摇杆：画面里往右 = 屏幕上往下（顺时针）/ 往上（逆时针）
+  const sy = g0.st.rot === 'cw' ? 1 : -1;
+  await touch('touchstart', '#t-stick', 0, 0);
+  await touch('touchmove', '#t-stick', 0, 50 * sy);
+  await page.waitForTimeout(1000);
+  const m = await ev(() => ({ mv: G.input.move && { x: G.input.move.x, z: G.input.move.z }, x: G.player.x }));
+  await touch('touchend', '#t-stick', 0, 50 * sy);
+  assert(m.mv && m.mv.x > 0.95 && m.x > g0.x + 0.3, '转着时摇杆往画面右边拖应往右走：' + JSON.stringify({ g0, m }));
+  // 按住主攻
+  await ev(() => {
+    window.__casts = 0;
+    let last = G.player.cast;
+    const f = () => {
+      const c = G.player.cast;
+      if (c && c !== last && c.id === G.save.bar[0]) window.__casts++;
+      last = c;
+      if (window.__casts >= 0) requestAnimationFrame(f);
+    };
+    requestAnimationFrame(f);
+  });
+  await touch('touchstart', '[data-tb="s0"]');
+  await page.waitForTimeout(1200);
+  const c = await ev(() => ({ b: G.input.mouse.b[0], casts: window.__casts }));
+  await touch('touchend', '[data-tb="s0"]');
+  await ev(() => (window.__casts = -1));
+  assert(c.b && c.casts >= 1, '转着时按住主攻应施法：' + JSON.stringify(c));
+  // 顶栏「包」：背包铺满转过的画面
+  await tap('[data-tt="inv"]');
+  await page.waitForTimeout(500);
+  const pw = await ev(async () => {
+    const n = document.getElementById('panel-win');
+    for (let el = n; el; el = el.parentElement) if (el.getAnimations) await Promise.all(el.getAnimations().map((x) => x.finished.catch(() => {}))); // 入场动画（往上 8 px、0.99 倍）放完再量
+    return { open: G.ui.isOpen(), r: G.rectToFrame(n.getBoundingClientRect()) };
+  });
+  await ev(() => G.ui.close());
+  assert(pw.open && Math.abs(pw.r.width - 664) < 2 && Math.abs(pw.r.height - 390) < 2, '转着时背包应铺满画面：' + JSON.stringify(pw));
+  return '锁横屏 ' + (t0.lock ? '有' : '无') + ' → 旋转 ' + t1.st.rot + '（' + t1.vw + '×' + t1.vh + '），重载后接着转；走了 ' + (m.x - g0.x).toFixed(2) + ' m，主攻 ' + c.casts + ' 次，背包铺满';
 });
 
 await browser.close();

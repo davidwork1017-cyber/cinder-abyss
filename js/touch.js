@@ -239,14 +239,14 @@
   }
   // 能放准星的区域（屏幕坐标）：顶栏和区域名下面、四边安全区以内；右上角小地图和追踪条那一块再往下让
   function playArea() {
-    const s = safe(), W0 = window.innerWidth, H0 = window.innerHeight;
+    const s = safe(), W0 = G.viewW(), H0 = G.viewH();
     const bot = (sel) => {
       const n = document.querySelector(sel);
       if (!n || !n.getClientRects().length) return 0;
-      return n.getBoundingClientRect().bottom;
+      return G.rectToFrame(n.getBoundingClientRect()).bottom;
     };
     const q = document.getElementById('quest');
-    const qr = q && q.getClientRects().length ? q.getBoundingClientRect() : null;
+    const qr = q && q.getClientRects().length ? G.rectToFrame(q.getBoundingClientRect()) : null;
     const mm = W.mmTouch;
     return {
       l: s.l + 12, r: W0 - s.r - 12, b: H0 - s.b - 12,
@@ -267,7 +267,7 @@
     return tb && tb[0] === 's' ? +tb.slice(1) : -1;
   }
   function overBtn(b, x, y) {
-    const r = b.el.getBoundingClientRect();
+    const r = G.rectToFrame(b.el.getBoundingClientRect());
     return x >= r.left - 8 && x <= r.right + 8 && y >= r.top - 8 && y <= r.bottom + 8;
   }
 
@@ -280,7 +280,7 @@
     if (kind === 'F') return G.press('KeyF');
     const slot = slotOf(el);
     if (slot < 0) return;
-    const r = el.getBoundingClientRect();
+    const r = G.rectToFrame(el.getBoundingClientRect());
     const b = { el, slot, x0: t.clientX, y0: t.clientY, cx: r.left + r.width / 2, cy: r.top + r.height / 2, t0: performance.now(), drag: false, held: false, range: skillRange(slot), retT: 0 };
     b.play = slot >= 0 ? playArea() : null;
     btns.set(t.identifier, b);
@@ -380,10 +380,17 @@
   }
 
   // ---------- 触摸事件 ----------
+  // 触点换到画面坐标（旋转横屏时屏幕坐标和画面坐标差 90°；平时原样返回）。下面的摇杆、按钮、拖动瞄准、长按都按画面坐标算
+  const fr = (t) => {
+    if (!G.rot) return t;
+    const q = G.toFrame(t.clientX, t.clientY);
+    return { identifier: t.identifier, target: t.target, clientX: q.x, clientY: q.y };
+  };
   function onStart(e) {
     if (!T.on) return;
     lastTouch = performance.now();
-    for (const t of e.changedTouches) {
+    for (const t0 of e.changedTouches) {
+      const t = fr(t0);
       const tg = t.target && t.target.closest ? t.target : null;
       const b = tg && tg.closest('[data-tb]');
       if (b) {
@@ -406,13 +413,14 @@
         taps.set(t.identifier, { x: t.clientX, y: t.clientY, t0: performance.now(), moved: false });
       }
       // 其余（面板、菜单、顶栏的按钮）照常：滚动、点击都交给浏览器；按住不动是长按看详情
-      lpStart(t);
+      lpStart(t, e.timeStamp);
     }
   }
   function onMove(e) {
     if (!T.on) return;
     lastTouch = performance.now();
-    for (const t of e.changedTouches) {
+    for (const t0 of e.changedTouches) {
+      const t = fr(t0);
       lpMove(t);
       const b = btns.get(t.identifier);
       if (b) {
@@ -436,7 +444,8 @@
     // iOS 只在 touchend 里放行声音：第一次松手时建 AudioContext，切后台回来被挂起的也在这里唤醒
     if (G.audio && G.audio.unlock) G.audio.unlock();
     const cancel = e.type === 'touchcancel';
-    for (const t of e.changedTouches) {
+    for (const t0 of e.changedTouches) {
+      const t = fr(t0);
       lpEnd(e, t, cancel);
       const b = btns.get(t.identifier);
       if (b) {
@@ -571,19 +580,21 @@
   const LP_MOVE = 8;
   let lp = null;
   let lpEndAt = -1e9; // 长按松手的时刻：之后 600 ms 内的 click 不算
-  function lpStart(t) {
+  function lpStart(t, ts) {
     lpCancel();
     const tg = t.target && t.target.nodeType === 1 ? t.target : null;
     if (!tg || !tg.closest('#panel, #title, #pause, #tip')) return;
     const x = t.clientX, y = t.clientY, id = t.identifier;
-    lp = { id, x, y, on: false, stuck: false, timer: setTimeout(() => {
+    lp = { id, x, y, ts, on: false, stuck: false, timer: setTimeout(() => {
       if (!lp || lp.id !== id) return;
       lp.on = true;
       input.alt = true;
       document.documentElement.classList.add('t-lp'); // 浮窗只在长按时出现（轻点交给详情栏）
       // 浮窗按悬停出：在手指下面补一组 mouseover / mousemove
-      const el = document.elementFromPoint(x, y);
-      if (el) for (const type of ['mouseover', 'mousemove']) el.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y }));
+      const sp = G.toScreen(x, y); // 补发的鼠标事件用屏幕坐标（ui.js 自己再换回画面坐标）
+      // 手指按下去的那个元素（机器忙时面板还在入场动画里挪动，按坐标找可能找到格子之间的空隙）；它已经不在页面上了才按坐标找
+      const el = tg.isConnected ? tg : document.elementFromPoint(sp.x, sp.y);
+      if (el) for (const type of ['mouseover', 'mousemove']) el.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: sp.x, clientY: sp.y }));
       T.lpCount = (T.lpCount || 0) + 1;
     }, LONG_MS) };
   }
@@ -593,7 +604,9 @@
   // 松手：没到 450 ms 的照常（click 交给浏览器）；已经弹出详情的留着浮窗，吞掉这次 click
   function lpEnd(e, t, cancel) {
     if (!lp || lp.id !== t.identifier) return;
-    if (!lp.on || cancel) return lpCancel();
+    // 按住的时长按触摸事件自己的时间戳算：主线程卡的时候（一帧几百毫秒）计时器可能比松手的事件先跑，其实只按了一下，照轻点处理
+    const short = lp.ts !== undefined && e.timeStamp - lp.ts < LONG_MS;
+    if (!lp.on || cancel || short) return lpCancel();
     clearTimeout(lp.timer);
     lp.stuck = true;
     lp.id = null;
@@ -630,6 +643,7 @@
     ['map', '图', '地图'],
     ['labels', '名牌', '展开地上的名牌'],
     ['menu', '≡', '暂停菜单'],
+    ['rot', '⟲', '画面换个方向'], // 只在旋转横屏时显示
   ];
   function build() {
     const root = document.createElement('div');
@@ -642,7 +656,9 @@
       '<div class="t-btns">' + TOP_BTNS.map((b) => '<button type="button" tabindex="-1" data-tt="' + b[0] + '" aria-label="' + b[2] + '">' + b[1] + '</button>').join('') + '</div>' +
       '</div>' +
       '<div id="t-f" data-tb="F">F</div>' +
-      '<div id="t-portrait"><div><b>请横屏游玩</b><span>把手机横过来就能继续</span></div></div>' +
+      '<div id="t-portrait"><div><b>横过来玩</b><span>把手机横过来，或者点下面的按钮</span><button type="button" class="btn primary" tabindex="-1" data-trot="go">横屏开始</button></div></div>' +
+      '<button type="button" id="t-rot-go" class="btn primary" tabindex="-1" data-trot="go">横屏开始</button>' +
+      '<button type="button" id="t-rot-flip" class="btn" tabindex="-1" data-trot="flip" aria-label="换个方向">⟲</button>' +
       '<div id="t-hint"><div class="th-card"><div class="th-title">触屏操作</div>' +
       '<div class="th-list">' +
       '<div><b>左下拖动</b>移动</div>' +
@@ -672,9 +688,12 @@
     const coach = document.getElementById('coach');
     if (coach) coach.addEventListener('click', () => T.on && coach.classList.toggle('t-open'));
     root.addEventListener('click', (e) => {
+      const rb = e.target.closest('[data-trot]');
+      if (rb) return rb.dataset.trot === 'flip' ? flipRot() : goLandscape();
       const b = e.target.closest('[data-tt]');
       if (!b) return;
       const k = b.dataset.tt;
+      if (k === 'rot') return flipRot();
       if (k === 'labels') {
         labelsOn = !labelsOn;
         input.alt = labelsOn;
@@ -759,21 +778,25 @@
     window.addEventListener('pageshow', resumeAudio);
     window.addEventListener('blur', releaseAll);
     window.addEventListener('pagehide', releaseAll);
+    watchTilt(true);
     setManifest(true);
     setThemeColor(true);
     applyPrefs();
     layout();
     if (!raf) raf = requestAnimationFrame(tick);
     lockLandscape();
+    restoreRot();
   }
   function disable() {
+    setRot(null);
+    watchTilt(false);
     T.on = false;
     releaseAll();
     input.aim = null;
     if (labelsOn) input.alt = false;
     labelsOn = false;
     if (dom) dom.labels.classList.remove('on');
-    document.documentElement.classList.remove('touch-ui', 't-portrait', 't-boss', 't-aiming');
+    document.documentElement.classList.remove('touch-ui', 't-portrait', 't-land', 't-boss', 't-aiming');
     if (dom) dom.bossOn = null;
     setViewportFit(false);
     tagCluster(false);
@@ -855,6 +878,124 @@
     }
   }
 
+  // ============================================================
+  // 横屏开始（手机版 M2）：竖着拿手机时点「横屏开始」。安卓等支持的浏览器进全屏、锁横屏；
+  // iPhone（WebKit 没有 screen.orientation.lock，iPhone 上也不能让页面全屏）或者锁不住时，把整个页面转 90° 画（html.t-rot），
+  // 手机转过来就是横屏，系统的方向锁开着也行。真横过来时自动退出。
+  // body 整个转过去（画布、HUD、面板、菜单都在里面）；坐标换算见 world.js 的 G.toFrame / G.viewW，CSS 见 style.css 的 t-rot / t-rh* / --vw
+  // ============================================================
+  let tilt = null; // 最近一次的左右倾斜（deviceorientation 的 gamma，度）：安卓不用授权就有；iPhone 要弹授权框，不要它，默认顺时针
+  const onTilt = (e) => {
+    if (e.gamma !== null && e.gamma !== undefined) tilt = e.gamma;
+  };
+  function watchTilt(on) {
+    const D = window.DeviceOrientationEvent;
+    if (!D || typeof D.requestPermission === 'function') return;
+    if (on) window.addEventListener('deviceorientation', onTilt, { passive: true });
+    else window.removeEventListener('deviceorientation', onTilt, { passive: true });
+  }
+  // 往哪边转：手机往右倒（gamma > 0，右边往下）时画面逆时针转，否则顺时针（手机往左倒、左边往下，横过来时刘海在左）
+  const pickDir = () => (tilt !== null && tilt > 20 ? 'ccw' : 'cw');
+  const SAFE = ['t', 'r', 'b', 'l'];
+  const SAFE_ENV = { t: 'top', r: 'right', b: 'bottom', l: 'left' };
+  // 画面的四边对应屏幕的哪一边（安全区跟着换：竖着时的刘海、底部横条转过去以后在画面的左右）
+  const ROT_SIDE = { cw: { t: 'r', r: 'b', b: 'l', l: 't' }, ccw: { t: 'l', r: 't', b: 'r', l: 'b' } };
+  function placeRot() {
+    const R = G.rot, Ws = window.innerWidth, Hs = window.innerHeight, b = document.body.style, de = document.documentElement;
+    b.position = 'fixed';
+    b.left = b.top = '0px';
+    b.width = Hs + 'px';
+    b.height = Ws + 'px';
+    b.transformOrigin = '0 0';
+    b.transform = R.dir === 'cw' ? 'translate(' + Ws + 'px, 0) rotate(90deg)' : 'translate(0, ' + Hs + 'px) rotate(-90deg)';
+    // CSS 里的 vw / vh 换成转过的画面（style.css 写的是 var(--vw, 1vw)，平时不设）
+    de.style.setProperty('--vw', Hs / 100 + 'px');
+    de.style.setProperty('--vh', Ws / 100 + 'px');
+    de.style.setProperty('--dvh', Ws / 100 + 'px');
+    for (const k of SAFE) {
+      const sk = ROT_SIDE[R.dir][k];
+      de.style.setProperty('--sa-' + k, 'max(env(safe-area-inset-' + SAFE_ENV[sk] + ', 0px), var(--t-safe-' + sk + ', 0px))');
+    }
+    // 按画面尺寸的那几段（max-height 780 / 600 / 360 / 345、max-width 720）：style.css 里有 t-rh* / t-rw720 的副本
+    const fw = Hs, fh = Ws, c = de.classList;
+    c.toggle('t-rh780', fh <= 780);
+    c.toggle('t-rh600', fh <= 600);
+    c.toggle('t-rh360', fh <= 360);
+    c.toggle('t-rh345', fh <= 345);
+    c.toggle('t-rw720', fw <= 720);
+  }
+  const ROT_KEY = 'cinder-abyss-rot'; // sessionStorage：这个标签页里转着的方向
+  function restoreRot() {
+    let d = null;
+    try {
+      d = sessionStorage.getItem(ROT_KEY);
+    } catch (e) {
+      d = null;
+    }
+    if ((d === 'cw' || d === 'ccw') && window.innerHeight > window.innerWidth) setRot(d);
+  }
+  const ROT_CLS = ['t-rot', 't-rot-cw', 't-rot-ccw', 't-tsub', 't-rh780', 't-rh600', 't-rh360', 't-rh345', 't-rw720'];
+  function setRot(dir) {
+    if (dir && !T.on) return false;
+    const was = G.rot ? G.rot.dir : null;
+    if ((dir || null) === was) return !!dir;
+    const de = document.documentElement, c = de.classList;
+    releaseAll();
+    lpCancel();
+    if (dir) {
+      G.rot = { dir, get W() { return window.innerWidth; }, get H() { return window.innerHeight; } };
+      c.add('t-rot');
+      c.toggle('t-rot-cw', dir === 'cw');
+      c.toggle('t-rot-ccw', dir === 'ccw');
+      placeRot();
+    } else {
+      G.rot = null;
+      for (const k of ROT_CLS) c.remove(k);
+      const b = document.body.style;
+      for (const k of ['position', 'left', 'top', 'width', 'height', 'transform', 'transform-origin']) b.removeProperty(k);
+      for (const k of ['--vw', '--vh', '--dvh', '--sa-t', '--sa-r', '--sa-b', '--sa-l']) de.style.removeProperty(k);
+    }
+    T.rotN = (T.rotN || 0) + 1;
+    // 这次会话里记住（选完职业、读档会重载页面，重载后手机还竖着就接着转）；真横过来退出时清掉
+    try {
+      if (dir) sessionStorage.setItem(ROT_KEY, dir);
+      else sessionStorage.removeItem(ROT_KEY);
+    } catch (e) {
+      /* 隐私模式 */
+    }
+    layout();
+    window.dispatchEvent(new Event('resize')); // 画布、叠加层、面板按新的画面尺寸重排（world.js / ui.js 听 resize）
+    return !!dir;
+  }
+  function flipRot() {
+    if (G.rot) setRot(G.rot.dir === 'cw' ? 'ccw' : 'cw');
+  }
+  // 「横屏开始」：先试真横屏（全屏 + 锁横屏，要在点击里直接调）；不支持、被拒绝，或者说锁住了画面却还是竖的，就转 90° 画
+  function goLandscape() {
+    if (!T.on || window.innerWidth > window.innerHeight) return Promise.resolve('land');
+    if (G.rot) return Promise.resolve(G.rot.dir);
+    const fallback = () => {
+      if (window.innerWidth > window.innerHeight) return 'land';
+      setRot(pickDir());
+      return G.rot ? G.rot.dir : null;
+    };
+    let p = null;
+    try {
+      const de = document.documentElement;
+      const full = !document.fullscreenElement && de.requestFullscreen ? de.requestFullscreen({ navigationUI: 'hide' }) : null;
+      const so = window.screen && screen.orientation;
+      if (so && so.lock) p = Promise.resolve(full).then(() => so.lock('landscape'));
+    } catch (e) {
+      p = null;
+    }
+    T.rotTry = p ? 'lock' : 'none';
+    if (!p) return Promise.resolve(fallback());
+    return p.then(
+      () => new Promise((res) => setTimeout(() => res(fallback()), 700)),
+      () => fallback()
+    );
+  }
+
   // 安全区：真机读 env()（CSS 里），测试用 --t-safe-* 变量假装；小地图画在 2D 画布上，这里把 CSS 算出来的边距读回来
   // （自定义属性里的 env() / max() 读出来是原文，所以用一个按 --sa-* 摆放的隐形探针元素量出像素）
   function safe() {
@@ -867,12 +1008,15 @@
     if (!T.on) return;
     // 可见高度：iOS 的工具栏会占掉一截（100vh 比看得见的高），按 visualViewport 算
     const vv = window.visualViewport;
-    document.documentElement.style.setProperty('--app-h', Math.round(vv && vv.height > 0 ? vv.height : window.innerHeight) + 'px');
+    if (G.rot) placeRot(); // 旋转横屏：屏幕尺寸变了（工具栏伸缩）就重新摆
+    document.documentElement.style.setProperty('--app-h', Math.round(G.rot ? G.viewH() : vv && vv.height > 0 ? vv.height : window.innerHeight) + 'px');
     const s = safe();
     const k = MM_SIZE / ((W.minimapInfo && W.minimapInfo().size) || 172);
-    W.mmTouch = { x: window.innerWidth - s.r - 8 - MM_SIZE, y: s.t + 6, k };
-    T.portrait = window.innerHeight > window.innerWidth;
-    document.documentElement.classList.toggle('t-portrait', T.portrait);
+    W.mmTouch = { x: G.viewW() - s.r - 8 - MM_SIZE, y: s.t + 6, k };
+    T.portrait = G.viewH() > G.viewW(); // 画面是竖的（旋转横屏时画面是横的）
+    const c = document.documentElement.classList;
+    c.toggle('t-portrait', T.portrait);
+    c.toggle('t-land', !T.portrait); // 画面是横的：真横屏或者旋转横屏（给面板布局用）
   }
 
   // ---------- 每帧：竖屏遮罩、提示卡、按住时重新选目标、F 显隐、血条 ----------
@@ -907,7 +1051,12 @@
     raf = requestAnimationFrame(tick);
     const dt = Math.min(0.1, Math.max(0, (now - (lastT || now)) / 1000));
     lastT = now;
-    if (T.portrait !== window.innerHeight > window.innerWidth) layout();
+    if (G.rot && window.innerWidth > window.innerHeight) setRot(null); // 手机真的横过来了：退出旋转横屏
+    if (G.rot) {
+      const ti = document.getElementById('title');
+      document.documentElement.classList.toggle('t-tsub', !!(ti && ti.classList.contains('sub'))); // 标题画面在子页上：右上角让给「返回」
+    }
+    if (T.portrait !== G.viewH() > G.viewW()) layout();
     dom.portrait.classList.toggle('on', T.portrait);
     // 首次提示卡：第一次真正进到游戏画面（开场卡片、故事、标题都收起）时弹一次，每台设备一次
     if (!T.hintOn && G.state.zone && !G.ui.isOpen() && !T.portrait && lsGet(HINT_KEY) !== '1') {
@@ -991,11 +1140,15 @@
     labels: labelsOn,
     lp: lp ? (lp.stuck ? 'stuck' : lp.on ? 'on' : 'wait') : '',
     prefs: Object.assign({}, T.prefs),
+    rot: G.rot ? G.rot.dir : null,
+    view: [G.viewW(), G.viewH()],
     vibe: { can: canVibe(), n: vb.n, log: vb.log.slice() },
     lpCount: T.lpCount || 0,
     txt: { calls: txtStats.calls, ms: +txtStats.ms.toFixed(2) },
   });
   T.keys = { MODE_KEY, HINT_KEY, SIZE_KEY, MIRROR_KEY, VIBE_KEY };
+  T.setRot = setRot; // 测试用
+  T.goLandscape = goLandscape;
 
   const init = () => {
     if (want()) enable();

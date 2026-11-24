@@ -142,8 +142,9 @@
     });
 
     window.addEventListener('mousemove', (e) => {
-      input.mouse.x = e.clientX;
-      input.mouse.y = e.clientY;
+      const p = G.toFrame(e.clientX, e.clientY); // 旋转横屏时换到转过的画面里（平时原样）
+      input.mouse.x = p.x;
+      input.mouse.y = p.y;
     });
 
     // 只有落在画布上的按下才算游戏输入（HUD 上真正的按钮会自己接住事件）
@@ -152,10 +153,11 @@
       const onCanvas = !t || t === document.body || t === document.documentElement || t.tagName === 'CANVAS';
       if (!onCanvas || G.ui.isOpen()) return;
       e.preventDefault();
-      input.mouse.x = e.clientX;
-      input.mouse.y = e.clientY;
+      const p = G.toFrame(e.clientX, e.clientY);
+      input.mouse.x = p.x;
+      input.mouse.y = p.y;
       refreshMouseWorld();
-      if (e.button === 0 && canvasTap(e.clientX, e.clientY)) return;
+      if (e.button === 0 && canvasTap(p.x, p.y)) return;
       if (e.button >= 0 && e.button <= 2) input.mouse.b[e.button] = true;
       const slot = MOUSE_SLOT[e.button];
       if (slot !== undefined) pressSlot(slot, e.shiftKey);
