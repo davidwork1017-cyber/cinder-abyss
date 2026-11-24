@@ -169,6 +169,7 @@
   let labelsOn = false;
   let raf = 0;
   let introSaved = null;
+  let introSeen = false; // 这台设备上触屏版的开场卡片弹过了
 
   const live = () => T.on && !T.blocked && !G.ui.isOpen() && !!G.state.zone;
   const onCanvas = (t) => !t || t === document.body || t === document.documentElement || t.tagName === 'CANVAS';
@@ -680,6 +681,7 @@
       f: q('#t-f'),
       portrait: q('#t-portrait'),
       hint: q('#t-hint'),
+      intro: document.getElementById('intro'),
       tree: q('[data-tt="tree"]'),
       labels: q('[data-tt="labels"]'),
       fOn: null,
@@ -914,7 +916,8 @@
     de.style.setProperty('--dvh', Ws / 100 + 'px');
     for (const k of SAFE) {
       const sk = ROT_SIDE[R.dir][k];
-      de.style.setProperty('--sa-' + k, 'max(env(safe-area-inset-' + SAFE_ENV[sk] + ', 0px), var(--t-safe-' + sk + ', 0px))');
+      // 左右照样至少 12 px（屏幕四角是圆的，转过去以后画面的四角还是那几个圆角；同 style.css 的 --sa-l / --sa-r）
+      de.style.setProperty('--sa-' + k, 'max(env(safe-area-inset-' + SAFE_ENV[sk] + ', 0px), var(--t-safe-' + sk + ', 0px)' + (k === 'l' || k === 'r' ? ', 12px)' : ')'));
     }
     // 按画面尺寸的那几段（max-height 780 / 600 / 360 / 345、max-width 720）：style.css 里有 t-rh* / t-rw720 的副本
     const fw = Hs, fh = Ws, c = de.classList;
@@ -1012,7 +1015,7 @@
     document.documentElement.style.setProperty('--app-h', Math.round(G.rot ? G.viewH() : vv && vv.height > 0 ? vv.height : window.innerHeight) + 'px');
     const s = safe();
     const k = MM_SIZE / ((W.minimapInfo && W.minimapInfo().size) || 172);
-    W.mmTouch = { x: G.viewW() - s.r - 8 - MM_SIZE, y: s.t + 6, k };
+    W.mmTouch = { x: G.viewW() - s.r - 8 - MM_SIZE, y: Math.max(s.t, 4) + 6, k }; // 顶上留 4 px：和右边的 12 px 一起躲开圆角（同顶栏的 --sa-t4）
     T.portrait = G.viewH() > G.viewW(); // 画面是竖的（旋转横屏时画面是横的）
     const c = document.documentElement.classList;
     c.toggle('t-portrait', T.portrait);
@@ -1058,8 +1061,15 @@
     }
     if (T.portrait !== G.viewH() > G.viewW()) layout();
     dom.portrait.classList.toggle('on', T.portrait);
-    // 首次提示卡：第一次真正进到游戏画面（开场卡片、故事、标题都收起）时弹一次，每台设备一次
-    if (!T.hintOn && G.state.zone && !G.ui.isOpen() && !T.portrait && lsGet(HINT_KEY) !== '1') {
+    // 触屏下开场卡片讲的就是触屏操作（swapIntro）：它弹过，首次提示卡就不再弹，不然同一套操作连讲两遍。
+    // 卡片一打开就记下（不等点「开始」）：开着卡片刷新页面，回来也不会补弹提示卡
+    if (!introSeen && dom.intro && dom.intro.classList.contains('on')) {
+      introSeen = true;
+      lsSet(HINT_KEY, '1');
+    }
+    // 首次提示卡：第一次真正进到游戏画面（开场卡片、故事、标题都收起）时弹一次，每台设备一次；
+    // 只给没弹开场卡片的人（这台设备上的老角色、别的角色看过开场卡片的新角色）
+    if (!T.hintOn && !introSeen && G.state.zone && !G.ui.isOpen() && !T.portrait && lsGet(HINT_KEY) !== '1') {
       T.hintOn = true;
       dom.hint.classList.add('on');
     }

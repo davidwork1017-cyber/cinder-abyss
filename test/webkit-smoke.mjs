@@ -2,10 +2,12 @@
 // iPhone 上的 Chrome 底下也是 WebKit：这里能查出 JS / CSS / WebGL2 的兼容问题；iOS 特有的 GPU、系统行为查不出来。
 // 需要 Playwright 的 WebKit 浏览器（npx playwright@<playwright-core 的版本> install webkit），所以不在 npm test 里：
 //   npm run test:webkit（开发机上：cc-slot pool <名字> smoke -- npm run test:webkit）
-// 流程：载入 → 标题画面 → 新游戏选职业 → 进区 → 开场卡片 / 首次提示卡 → 摇杆移动 → 按住主攻施法 → 第一次松手解锁声音 → 0 页面报错
+// 流程：载入 → 标题画面 → 新游戏选职业 → 进区 → 开场卡片（只这一张教程）→ 摇杆移动 → 按住主攻施法 → 第一次松手解锁声音 → 0 页面报错
+// 最后换一个新的浏览器配置量 iPhone 圆角：标题、职业选择、开场故事、HUD、背包、技能、暂停菜单、开场卡片的字和按钮都不碰四角的圆角（test/corner-mask.mjs）
 import { webkit, devices } from 'playwright-core';
 import { execSync } from 'node:child_process';
 import { GAME_URL } from './harness.mjs';
+import { cornerScenes, cornerHud } from './corner-mask.mjs';
 
 let passed = 0, failed = 0;
 const lines = [];
@@ -118,7 +120,7 @@ await step('载入：标题画面出现，WebGL2 可用（或给出明确的提�
   return 'WebGL2 ' + info.gl2 + '，coarse ' + info.coarse + '，触点 ' + info.mtp + '，画质 ' + info.q + '（默认 ' + info.dq + '），可见 ' + info.vv + '，清单 ' + info.manifest;
 });
 
-await step('新游戏：选职业（点卡片、点确定），重载后进区；开场卡片「开始」、首次提示卡「知道了」都点得到', async () => {
+await step('新游戏：选职业（点卡片、点确定），重载后进区；开场卡片「开始」点得到，之后不再接着弹「触屏操作」卡（只一张教程）', async () => {
   await tap('#t-new');
   await until(() => G.ui.classView && G.ui.classView());
   await tap('.cl-card[data-cls]');
@@ -129,13 +131,23 @@ await step('新游戏：选职业（点卡片、点确定），重载后进区�
   await page.waitForTimeout(1500);
   if (await ev(() => G.ui.storyOn())) await tap('.st-skip');
   await until(() => document.getElementById('intro').classList.contains('on'), null, 60000);
+  // 开场卡片打开以后每帧看提示卡：一次都不该出现
+  await ev(() => {
+    window.__hint = 0;
+    const f = () => {
+      if (document.getElementById('t-hint').classList.contains('on')) window.__hint++;
+      requestAnimationFrame(f);
+    };
+    requestAnimationFrame(f);
+  });
+  const txt = await ev(() => document.querySelector('.intro-keys').innerText);
+  assert(/拖动/.test(txt) && !/右键|左键|空格/.test(txt), '开场卡片应是触屏说法：' + txt);
   await tap('#intro-go');
-  await until(() => G.touch.state().hint, null, 30000);
-  await tap('#t-hint-ok');
-  await page.waitForTimeout(500);
-  const s = await ev(() => ({ open: G.ui.isOpen(), st: G.touch.state(), cls: G.save.cls, zone: G.state.zone.def.name }));
+  await page.waitForTimeout(2500);
+  const s = await ev(() => ({ open: G.ui.isOpen(), st: G.touch.state(), hintFrames: window.__hint, key: localStorage.getItem('cinder-abyss-touch-hint'), cls: G.save.cls, zone: G.state.zone.def.name }));
+  assert(!s.hintFrames && !s.st.hint && s.key === '1', '开场卡片之后不该再弹「触屏操作」卡：' + JSON.stringify(s));
   assert(!s.open && !s.st.blocked && s.cls, '应已进到游戏里：' + JSON.stringify(s));
-  return s.cls + ' · ' + s.zone;
+  return s.cls + ' · ' + s.zone + ' · 教程 1 张';
 });
 
 await step('触屏：摇杆往右拖就往右走、松手停；第一次松手后 AudioContext 建好', async () => {
@@ -314,6 +326,32 @@ await step('竖屏（iPhone 竖着拿）：标题画面点「横屏开始」→ 
   await ev(() => G.ui.close());
   assert(pw.open && Math.abs(pw.r.width - 664) < 2 && Math.abs(pw.r.height - 390) < 2, '转着时背包应铺满画面：' + JSON.stringify(pw));
   return '锁横屏 ' + (t0.lock ? '有' : '无') + ' → 旋转 ' + t1.st.rot + '（' + t1.vw + '×' + t1.vh + '），重载后接着转；走了 ' + (m.x - g0.x).toFixed(2) + ' m，主攻 ' + c.casts + ' 次，背包铺满';
+});
+
+await step('iPhone 圆角：四角各一块半径 47 px 的遮罩，标题、职业选择、开场故事、HUD（提示卡、旁白卡、首领条、F 键）、背包、技能、暂停菜单、开场卡片的字和按钮都不碰', async () => {
+  const c2 = await browser.newContext(Object.assign({}, dev));
+  const p2 = await c2.newPage();
+  const err2 = [];
+  p2.on('pageerror', (e) => err2.push('pageerror: ' + (e.stack || e.message)));
+  p2.on('response', (r) => {
+    if (r.status() >= 400) err2.push('HTTP ' + r.status() + ' ' + r.url());
+  });
+  try {
+    await p2.goto(GAME_URL);
+    await p2.waitForFunction(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, { timeout: 120000 });
+    const r = await cornerScenes(p2, [null]);
+    if (process.env.WEBKIT_CORNER_SHOT) await p2.screenshot({ path: process.env.WEBKIT_CORNER_SHOT });
+    // M2：按钮大小「大」+ 左手模式；竖着拿时的旋转横屏
+    const vp = dev.viewport;
+    const r2 = await cornerHud(p2, [[vp.width, vp.height, 'l', true], [390, 664, 'l', false, 'cw']]);
+    r.lines.push(...r2.lines);
+    r.bad.push(...r2.bad);
+    assert(!err2.length, '页面报错：' + err2.join(' | '));
+    assert(!r.bad.length, '有字或按钮碰到圆角：' + r.bad.join(' ｜ '));
+    return r.lines.join('，');
+  } finally {
+    await c2.close();
+  }
 });
 
 await browser.close();

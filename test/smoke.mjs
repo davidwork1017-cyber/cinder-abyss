@@ -3,6 +3,7 @@
 // 分两份（见 test/README.md）：main() 是 test:func（不看墙钟，可以和别的 Chrome 一起跑），timedMain() 是 test:timed（要独占机器）。
 // node test/smoke.mjs = 两份都跑（先 func 后 timed）；--func / --timed 只跑一份。
 import { launch as launchFull, GAME_URL } from './harness.mjs';
+import { cornerScenes, cornerHud } from './corner-mask.mjs';
 import { execSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 import { checkArt } from '../tools/check-art.mjs';
@@ -11983,8 +11984,10 @@ async function main() {
   const BOSS_FP = {
     // fx-rng 重定：特效的随机数从 Math.random 分出去以后（画面随机数 G.vr），模拟这一路只剩 112 次。原来 main 691ef67（程序化外观）上量的是 12254fc1 / 24478 次
     golem: { hash: '4fc99b3d', calls: 112, secs: '9e1090d0,a448b82d,d32dc0c0,cd636106,d1d75655,66e79a53,47bda2f4,c30ac709,617cb6b2,36a0a0ec,5a7ca4f7,f574dfb2,2095a119,b3f4a835,cdbea357'.split(',') },
+    lord: { hash: '6bcd5507', calls: 114, secs: '24815422,e21feb3a,ebe73ddb,5d25957d,b63a99b0,8e38a8e6,7dba3ec4,c48bbb94,b7d35d0a,a5d6ea59,63f52b72,e7eac088,98c19b85,e738b0a0,4d2180d1'.split(',') }, // main 25e390e（fx-rng 之后，程序化外观）上量的；fx-rng 之前 main a2831c3 上是 5ed52b42 / 30070 次
   };
-  await step('首领指纹：熔渣巨像固定种子打 15 秒，局面和取随机数次数和换模型之前逐位相同；首领包打到一半才到，也只在招式之间换模型、指纹不变', async () => {
+  // tiers（boss-lord 起）：再按另一档画质打一遍，指纹也要一样（fx-rng 的「高 = 低」规则用在首领战上）
+  const bossFpStep = (kind, CN, tiers) => step('首领指纹：' + CN + '固定种子打 15 秒，局面和取随机数次数和换模型之前逐位相同；首领包打到一半才到，也只在招式之间换模型、指纹不变' + (tiers ? '；换一档画质打出来也一样' : ''), async () => {
     const KEY = 'cinder-abyss-save-v1';
     const save0 = await ev((KEY) => localStorage.getItem(KEY), KEY);
     // 和前面的步骤留下的存档无关：用一份固定种子的新角色存档（开场卡片 / 新手提示都标成看过）打，指纹只取决于游戏本身
@@ -12011,17 +12014,25 @@ async function main() {
       await install();
       await until(() => !G.world.assetsPending(), null, 60000);
       // 首领包（boss-golem）平时等图标预热画完才加载：这里直接要，确保打的是新模型（在 main 上量期望值时没有这个包，跳过）
-      if (await ev(() => !!(G.world.bossRig && G.assets.known('boss-golem')))) {
-        await ev(() => G.assets.need(['boss-golem']));
-        await until(() => G.world.bossRig('golem'), null, 60000);
+      if (await ev((kind) => !!(G.world.bossRig && G.assets.known('boss-' + kind)), kind)) {
+        await ev((kind) => G.assets.need(['boss-' + kind]), kind);
+        await until((kind) => G.world.bossRig(kind), kind, 60000);
       }
     };
-    let r, rl;
+    let r, rl, rq = null, q0 = null;
     try {
       await fresh(true, canon);
-      r = await ev(() => T.fingerprint('golem'));
+      q0 = await ev(() => G.world.quality());
+      r = await ev((kind) => T.fingerprint(kind), kind);
       await fresh(true, canon);
-      rl = await ev(() => T.fingerprint('golem', 15, 4.2));
+      rl = await ev((kind) => T.fingerprint(kind, 15, 4.2), kind);
+      if (tiers) {
+        const cq = JSON.parse(canon);
+        cq.opts.quality = q0 === 'low' ? 'high' : 'low';
+        await fresh(true, JSON.stringify(cq));
+        rq = await ev((kind) => Object.assign(T.fingerprint(kind), { q: G.world.quality() }), kind);
+        assert(rq.q !== q0, '换画质没换成：' + q0 + ' → ' + rq.q);
+      }
     } finally {
       await fresh(false, save0);
       await ev(() => {
@@ -12029,32 +12040,34 @@ async function main() {
         G.debug.god(true);
       });
     }
-    const want = BOSS_FP.golem;
-    for (const [tag, x] of [['新模型', r], ['打到一半才换模型', rl]]) {
+    const want = BOSS_FP[kind];
+    for (const [tag, x] of [['新模型', r], ['打到一半才换模型', rl]].concat(rq ? [['画质 ' + rq.q, rq]] : [])) {
       if (x.hash !== want.hash || x.calls !== want.calls) {
         const k = x.secs.findIndex((h, i) => h !== want.secs[i]);
-        throw new Error('熔渣巨像的指纹变了（' + tag + '）：' + JSON.stringify({ hash: x.hash, calls: x.calls, want: [want.hash, want.calls], firstDiffSec: k, secs: x.secs.join(',') }));
+        throw new Error(CN + '的指纹变了（' + tag + '）：' + JSON.stringify({ hash: x.hash, calls: x.calls, want: [want.hash, want.calls], firstDiffSec: k, secs: x.secs.join(',') }));
       }
     }
-    assert(r.model0 === 'golem' && r.model === 'golem' && !r.swaps.length, '这一遍应该从头到尾都是新模型：' + JSON.stringify({ model0: r.model0, model: r.model, swaps: r.swaps }));
-    assert(rl.model0 === null && rl.model === 'golem' && rl.swaps.length === 1, '打到一半包到了：应先是程序化外观、之后换成新模型（只换一次）：' + JSON.stringify({ model0: rl.model0, model: rl.model, swaps: rl.swaps }));
+    assert(r.model0 === kind && r.model === kind && !r.swaps.length, '这一遍应该从头到尾都是新模型：' + JSON.stringify({ model0: r.model0, model: r.model, swaps: r.swaps }));
+    assert(rl.model0 === null && rl.model === kind && rl.swaps.length === 1, '打到一半包到了：应先是程序化外观、之后换成新模型（只换一次）：' + JSON.stringify({ model0: rl.model0, model: rl.model, swaps: rl.swaps }));
     const sw = rl.swaps[0];
     assert(sw.t >= 4.2 && !(sw.busy > 0) && !sw.dash && !sw.broken && sw.clip === null, '换模型只能在首领闲着的时候（招式之间、没在播动作）：' + JSON.stringify(sw));
-    return '指纹 ' + r.hash + '，取随机数 ' + r.calls + ' 次，出招 ' + r.pats + ' 次，玩家打掉 ' + r.dmg + ' 点生命；打到一半包到了：第 ' + sw.t.toFixed(2) + ' 秒在招式之间换上新模型，指纹不变';
+    return '指纹 ' + r.hash + '，取随机数 ' + r.calls + ' 次，出招 ' + r.pats + ' 次，玩家打掉 ' + r.dmg + ' 点生命；打到一半包到了：第 ' + sw.t.toFixed(2) + ' 秒在招式之间换上新模型，指纹不变' + (rq ? '；画质 ' + q0 + ' / ' + rq.q + ' 指纹一样' : '');
   });
+  await bossFpStep('golem', '熔渣巨像');
+  await bossFpStep('lord', '烬渊之主', true);
 
   // boss-golem：首领模型的三步（模型 / 出手对拍 / 死亡和破防），量的都是新模型（首领包到了以后建的骨架）
   const BOSS_BONES = JSON.parse(readFileSync(new URL('../art/rig.json', import.meta.url), 'utf8')).boss;
   const BOSS_BUDGET = JSON.parse(readFileSync(new URL('../art/budgets.json', import.meta.url), 'utf8')).categories.boss;
   const BOSS_MAN = JSON.parse(readFileSync(new URL('../assets/ca/manifest.json', import.meta.url), 'utf8')).assets.filter((a) => a.category === 'boss');
-  await step('首领模型：熔渣巨像用脚本生成的蒙皮模型（assets/ca/boss/golem.glb），骨骼是 art/rig.json 那一组、三角形在预算内、3 个网格 + 本体的阴影、占地半径和身高跟原来的差不多', async () => {
-    await ev(() => G.assets.need(['boss-golem']));
-    await until(() => G.world.bossRig('golem'), null, 60000);
-    const r = await ev(() => {
+  const bossModelStep = (kind, CN) => step('首领模型：' + CN + '用脚本生成的蒙皮模型（assets/ca/boss/' + kind + '.glb），骨骼是 art/rig.json 那一组、三角形在预算内、3 个网格 + 本体的阴影、占地半径和身高跟原来的差不多', async () => {
+    await ev((kind) => G.assets.need(['boss-' + kind]), kind);
+    await until((kind) => G.world.bossRig(kind), kind, 60000);
+    const r = await ev((kind) => {
       T.lane();
-      const P = G.player, W = G.world, b = G.spawnBoss('golem', P.x + 6, P.z, 1);
+      const P = G.player, W = G.world, b = G.spawnBoss(kind, P.x + 6, P.z, 1);
       b.cd = b.busy = 1e9;
-      const rig = b.ent.rig, old = W.bossOldRig('golem');
+      const rig = b.ent.rig, old = W.bossOldRig(kind);
       // 占地半径：静止姿态的俯视投影按 5 cm 的格子铺满，面积换成等面积圆的半径（游戏镜头里看到的「身子有多大」）
       const footR = (geos) => {
         const cell = 0.05, seen = new Set();
@@ -12093,9 +12106,9 @@ async function main() {
           return [+C.toFixed(3), +A.toFixed(3)];
         })(),
       };
-    });
-    const want = BOSS_BONES.kinds.golem, man = BOSS_MAN.find((a) => a.id === 'ca/boss_golem');
-    assert(r.model === 'golem' && r.skin4, '熔渣巨像没用上新模型：' + JSON.stringify({ model: r.model, skin4: r.skin4 }));
+    }, kind);
+    const want = BOSS_BONES.kinds[kind], man = BOSS_MAN.find((a) => a.id === 'ca/boss_' + kind);
+    assert(r.model === kind && r.skin4, CN + '没用上新模型：' + JSON.stringify({ model: r.model, skin4: r.skin4 }));
     assert(r.bones.slice().sort().join() === want.slice().sort().join() && r.bones.length <= BOSS_BONES.maxBones && r.bones.length <= BOSS_BUDGET.bones, '骨骼和 art/rig.json 的不一致或超过 ' + BOSS_BUDGET.bones + ' 根：' + r.bones.join(','));
     assert(r.tris <= BOSS_BUDGET.tris && man && r.tris === man.tris, '三角形 ' + r.tris + '（预算 ' + BOSS_BUDGET.tris + '，清单 ' + (man && man.tris) + '）');
     assert(r.meshes === 3 && r.shadow === 1 && r.body && r.glow && !r.aux, '应是本体 + 发光 + 地上光晕 3 个网格、只有本体投影：' + JSON.stringify(r));
@@ -12104,37 +12117,56 @@ async function main() {
     assert(r.coreGlow[0] > 0 && r.coreGlow[0] / r.coreGlow[1] < 0.25, '发光面里近白的芯应只占一小部分（面积）：' + r.coreGlow.join(' / ') + ' m²');
     return r.bones.length + ' 根骨骼，' + r.tris + ' 个三角形，占地半径 ' + r.r.toFixed(2) + '（原来 ' + r.rOld.toFixed(2) + '，碰撞 ' + r.defR + '），身高 ' + r.h + '（原来 ' + r.hOld + '），近白的芯占发光面积 ' + r.coreGlow.join(' / ') + ' m²';
   });
+  await bossModelStep('golem', '熔渣巨像');
+  await bossModelStep('lord', '烬渊之主');
 
-  await step('首领出手对拍：熔渣巨像每一招的蓄力 / 出手动作都在，出手提前量比蓄力短，伤害 / 起冲 / 弹幕离手的那一帧正好是出手动作的接触帧（误差不到一帧）；蓄力时挨打不晃', async () => {
-    await ev(() => G.assets.need(['boss-golem']));
-    await until(() => G.world.bossRig('golem'), null, 60000);
-    const WIND = { slam: 0.95, charge: 0.75, ring: 0.45 }; // enemies.js 的 PATTERN_WIND（模拟里的蓄力时长，换模型不动）
-    const r = await ev((WIND) => {
-      const P = G.player, W = G.world, out = { pats: G.BOSSES.golem.patterns.slice() }, tel0 = G.telegraph, sp0 = G.spawnProjectile;
+  // 每只首领：招式、模拟里的蓄力时长（enemies.js 的 PATTERN_WIND，换模型不动）、接触姿势的量（接触帧应是极值）、出事件的方式、蓄力时挨打用的蓄力动作
+  //   量：weaponLow = 武器挂点最低（锤石落地 / 剑插进地里），handsApart = 两只手离得最远，pelvisFwd = 骨盆冲到最前，handFwd = 左手（hand 挂点的关节）甩到最前，
+  //   handUp = 左手举到最高，weaponUp = 武器挂点最高（剑举向天）
+  //   事件：缺省 = 预警结算或弹幕离手；mob = 小怪现身；time = 蓄力时长到点（落石的预警在起手时就出了，落地在之后，没有对着出手那一刻的事件）
+  const BOSS_CLIPS = {
+    golem: { CN: '熔渣巨像', wind: { slam: 0.95, charge: 0.75, ring: 0.45 }, m: { slam: 'weaponLow', ring: 'handsApart', charge: 'pelvisFwd' }, ev: {}, steady: ['slam_w', 0.8] },
+    lord: { CN: '烬渊之主', wind: { slam: 0.95, fan: 0.4, spiral: 0.25, cross: 0.9, barrage: 0.3, summon: 0.5 }, m: { slam: 'weaponLow', fan: 'handFwd', spiral: 'handUp', cross: 'weaponLow', barrage: 'weaponUp', summon: 'weaponLow' }, ev: { barrage: 'time', summon: 'mob' }, steady: ['slam_w', 0.8] },
+  };
+  const bossClipStep = (kind) => step('首领出手对拍：' + BOSS_CLIPS[kind].CN + '每一招的蓄力 / 出手动作都在，出手提前量比蓄力短，伤害 / 起冲 / 弹幕离手的那一帧正好是出手动作的接触帧（误差不到一帧）；蓄力时挨打不晃', async () => {
+    await ev((kind) => G.assets.need(['boss-' + kind]), kind);
+    await until((kind) => G.world.bossRig(kind), kind, 60000);
+    const C = BOSS_CLIPS[kind], WIND = C.wind;
+    const r = await ev(([kind, C]) => {
+      const WIND = C.wind;
+      const P = G.player, W = G.world, out = { pats: G.BOSSES[kind].patterns.slice() }, tel0 = G.telegraph, sp0 = G.spawnProjectile, sm0 = G.spawnMob;
       try {
         for (const p of out.pats) {
           T.lane();
           G.debug.god(true);
-          const b = G.spawnBoss('golem', P.x + 4, P.z, 1);
+          const b = G.spawnBoss(kind, P.x + 4, P.z, 1);
           b.def = Object.assign({}, b.def, { patterns: [p] });
           b.awake = true;
           b.cd = 0;
           let ev0 = null;
           // 接触姿势的量：砸地 = 锤石（weapon 挂点）的高度（落地时最低），弹幕 = 两只手的距离（张到最开时最大），冲锋 = 骨盆往前冲出去的位移
           const S0 = {}, mt = () => {
-            const e = b.ent, wp = W.entSocket(e, 'weapon'), hd = W.entSocket(e, 'hand'), M = e.mdl, pz = M[e.rig.JI.pelvis * 12 + 11];
-            return p === 'slam' ? -wp.y : p === 'ring' ? Math.hypot(wp.x - hd.x, wp.z - hd.z) : pz;
+            const e = b.ent, wp = W.entSocket(e, 'weapon'), hd = W.entSocket(e, 'hand'), M = e.mdl, pz = M[e.rig.JI.pelvis * 12 + 11], hj = e.rig.JI.hand_l;
+            const m = C.m[p];
+            return m === 'weaponLow' ? -wp.y : m === 'handsApart' ? Math.hypot(wp.x - hd.x, wp.z - hd.z) : m === 'pelvisFwd' ? pz : m === 'handFwd' ? M[hj * 12 + 11] : m === 'handUp' ? M[hj * 12 + 7] : wp.y;
           };
           const trace = [];
           const snap = (kind) => { if (!ev0 && b.lastPattern === p) ev0 = { kind, clip: W.clipOf(b.ent), same: b.ent.clip === b.ent.rig.clips[p], cT: b.ent.cT, contact: b.ent.cContact, lead: W.clipLead(b.ent, p), at: trace.length }; };
           G.telegraph = function (t) { if (t.owner === b && t.onFire) { const f = t.onFire; t.onFire = function () { snap('预警结算'); return f.apply(this, arguments); }; } return tel0.apply(this, arguments); };
-          G.spawnProjectile = function (q) { if (q.owner !== 'p') snap('弹幕离手'); return sp0.apply(this, arguments); };
+          G.spawnProjectile = function (q) { if (q.owner !== 'p' && !C.ev[p]) snap('弹幕离手'); return sp0.apply(this, arguments); };
+          G.spawnMob = function () { if (C.ev[p] === 'mob') snap('小怪现身'); return sm0.apply(this, arguments); };
+          let since = -1;
           for (let i = 0; i < 400 && (!ev0 || trace.length < ev0.at + 24); i++) {
             G.tick(1 / 60);
-            if (b.lastPattern === p) trace.push(mt());
+            if (b.lastPattern === p) {
+              since++;
+              trace.push(mt());
+              if (C.ev[p] === 'time' && since === Math.round(WIND[p] * 60)) snap('蓄力到点');
+            }
           }
           G.telegraph = tel0;
           G.spawnProjectile = sp0;
+          G.spawnMob = sm0;
           // 接触帧前后 0.4 秒里，这个量在接触帧（出事件的那一帧）是不是已经到了极值（差不到 6 cm：锤石已经落地 / 双臂已经张开 / 已经冲出去）
           let pose = null;
           if (ev0) {
@@ -12147,10 +12179,10 @@ async function main() {
         }
         // 蓄力时挨打：骨盆（根关节）和挨打的另一只一模一样，只有 hitJ 抖一点（steady）。两只同时起同一个蓄力，只打其中一只
         T.lane();
-        const b = G.spawnBoss('golem', P.x + 4, P.z, 1), c = G.spawnBoss('golem', P.x + 4, P.z + 6, 1);
+        const b = G.spawnBoss(kind, P.x + 4, P.z, 1), c = G.spawnBoss(kind, P.x + 4, P.z + 6, 1);
         c.ent.phase = b.ent.phase; c.ent.clock = b.ent.clock; c.ent.walk = b.ent.walk; // 移动姿态（呼吸）的相位一样，两只只差挨不挨打
         // 只推进这两只的动画（不跑模拟：地面伤害、异常之类会让两只的状态不一样）
-        for (const x of [b, c]) { x.cd = x.busy = 1e9; x.ent.hitT = 0; W.play(x.ent, 'slam_w', { dur: 0.8 }); }
+        for (const x of [b, c]) { x.cd = x.busy = 1e9; x.ent.hitT = 0; W.play(x.ent, C.steady[0], { dur: C.steady[1] }); }
         const step2 = () => { for (const x of [b, c]) W.animEnt(x.ent, 1 / 60, false); };
         for (let i = 0; i < 30; i++) step2();
         W.hitReact(b.ent, 0, 2);
@@ -12160,28 +12192,31 @@ async function main() {
       } finally {
         G.telegraph = tel0;
         G.spawnProjectile = sp0;
+        G.spawnMob = sm0;
       }
       return out;
-    }, WIND);
-    assert(r.pats.join() === 'slam,charge,ring', '熔渣巨像的招式变了：' + r.pats.join());
+    }, [kind, C]);
+    assert(r.pats.join() === Object.keys(WIND).join(), C.CN + '的招式变了：' + r.pats.join());
     for (const p of r.pats) {
       const x = r[p];
-      assert(x.has && x.model === 'golem', p + '：缺蓄力或出手动作：' + JSON.stringify(x));
+      assert(x.has && x.model === kind, p + '：缺蓄力或出手动作：' + JSON.stringify(x));
       assert(x.lead > 0.05 && x.lead < x.wind, p + '：出手提前量 ' + x.lead + ' 应比蓄力 ' + x.wind + ' 短');
       assert(x.same && Math.abs(x.cT - x.contact) <= 1 / 60 + 1e-6 && Math.abs(x.contact - x.lead) < 1e-6, p + '：' + x.kind + '的那一帧应正好是出手动作的接触帧：' + JSON.stringify(x));
-      assert(x.pose && x.pose.near, p + '：接触帧应是接触的姿势（锤石最低 / 双臂最开 / 冲到最前），差了 ' + (x.pose && x.pose.bestAt) + ' 帧：' + JSON.stringify(x.pose));
+      assert(x.pose && x.pose.near, p + '：接触帧应是接触的姿势（' + C.m[p] + ' 到了极值），差了 ' + (x.pose && x.pose.bestAt) + ' 帧：' + JSON.stringify(x.pose));
     }
     assert(r.steady.root < 1e-6 && r.steady.hitJ > 0.005 && r.steady.hitJ <= 0.121, '蓄力时挨打，骨盆不该仰 / 压扁，只在 hitJ 上抖一下（≤ 0.12 弧度）：' + JSON.stringify(r.steady));
     return r.pats.map((p) => p + ' 提前 ' + r[p].lead.toFixed(2) + ' s，' + r[p].kind + '时 cT − 接触 = ' + ((r[p].cT - r[p].contact) * 1000).toFixed(1) + ' ms').join('；');
   });
+  await bossClipStep('golem');
+  await bossClipStep('lord');
 
-  await step('首领死亡和破防：熔渣巨像死亡动作砸到地上的那一刻是 0.90 秒（vfx3 第三段冲击环），破防垮下去以后从跪稳的姿势循环、不重播垮下去那一段', async () => {
-    await ev(() => G.assets.need(['boss-golem']));
-    await until(() => G.world.bossRig('golem'), null, 60000);
-    const r = await ev(() => {
+  const bossDeathStep = (kind, CN) => step('首领死亡和破防：' + CN + '死亡动作砸到地上的那一刻是 0.90 秒（vfx3 第三段冲击环），破防垮下去以后从跪稳的姿势循环、不重播垮下去那一段', async () => {
+    await ev((kind) => G.assets.need(['boss-' + kind]), kind);
+    await until((kind) => G.world.bossRig(kind), kind, 60000);
+    const r = await ev((kind) => {
       const P = G.player, W = G.world;
       T.lane();
-      const b = G.spawnBoss('golem', P.x + 6, P.z, 1);
+      const b = G.spawnBoss(kind, P.x + 6, P.z, 1);
       b.cd = b.busy = 1e9;
       const e = b.ent, rig = e.rig, pel = rig.JI.pelvis * 12 + 7;
       // 死亡：按 1/60 秒推进，骨盆最低（砸到地上）的那一刻
@@ -12206,12 +12241,14 @@ async function main() {
       }
       out.broken = { loopFrom: c.loopFrom, dur: c.dur, wraps, minWrap };
       return out;
-    });
+    }, kind);
     assert(Math.abs(r.impact - 0.9) <= 1 / 60 && Math.abs(r.lowAt - 0.9) <= 1 / 60 + 1e-6, '死亡动作应在 0.90 秒砸到地上：' + JSON.stringify(r));
     const bk = r.broken;
     assert(bk.loopFrom > 0 && bk.wraps >= 2 && bk.minWrap >= bk.loopFrom * bk.dur - 1e-6, '破防应从 loopFrom 开始循环：' + JSON.stringify(bk));
     return '砸地 ' + r.lowAt.toFixed(3) + ' s（动作标的 ' + r.impact + ' s）；破防循环 ' + bk.wraps + ' 次，每次从 ' + (bk.loopFrom * bk.dur).toFixed(2) + ' s 起';
   });
+  await bossDeathStep('golem', '熔渣巨像');
+  await bossDeathStep('lord', '烬渊之主');
 
   await step('刷新后仍可正常游玩：移动、施法、面板', async () => {
     await ev(() => {
@@ -25357,8 +25394,25 @@ async function touchSteps() {
     return '暂停时 time ' + t0;
   });
 
-  await step('触屏：首次提示卡每台设备只出一次（全局键，换角色也不再出）；设置里「触屏操作」能关掉、再改回自动', async () => {
+  await step('触屏：首次提示卡只给没弹开场卡片的角色，每台设备只出一次（全局键，换角色也不再出）；设置里「触屏操作」能关掉、再改回自动', async () => {
+    // 这一页开头弹过触屏版的开场卡片，提示卡就不该再出（新角色只看一张教程，见「新角色只弹一张操作教程」）。
+    // 提示卡留给开场卡片早就看过的角色（触屏上线前的老角色）：清掉设备键、开场卡片记成看过，重载
     await ev((k) => localStorage.removeItem(k), TOUCH_HINT_KEY);
+    await frames(3);
+    const a0 = await ev(() => G.touch.state());
+    assert(!a0.hint, '这一页弹过开场卡片，不该再弹提示卡：' + JSON.stringify(a0));
+    await ev((k) => {
+      localStorage.removeItem(k);
+      G.save.seenHelp = true;
+      G.persist();
+    }, TOUCH_HINT_KEY);
+    await page.reload({ timeout: 90000 });
+    await install();
+    await ev(() => {
+      G.ui.close();
+      G.debug.hold(true);
+      T.tapsOn = () => G.input.tap.some((v) => v > 0) || G.input.mouse.b.some(Boolean);
+    });
     await frames(3);
     const a = await ev(() => ({ st: G.touch.state(), vis: T.rect('#t-hint .th-card'), txt: document.getElementById('t-hint').innerText, paused: G.state.paused }));
     assert(a.st.hint && a.st.blocked && a.paused && a.vis && a.vis.w > 0, '没看过时应弹出提示卡并暂停：' + JSON.stringify(a));
@@ -25374,6 +25428,7 @@ async function touchSteps() {
     await ev(() => {
       G.ui.close();
       G.debug.hold(true);
+      T.tapsOn = () => G.input.tap.some((v) => v > 0) || G.input.mouse.b.some(Boolean);
     });
     await frames(3);
     const c = await ev(() => G.touch.state());
@@ -26158,6 +26213,97 @@ async function touchSteps() {
     const bad = out.filter((r) => r.bad.length || (r.appH !== undefined && r.appH !== r.size.split('×')[1] + 'px'));
     assert(!bad.length, '矮屏下有东西跑出屏幕：' + JSON.stringify(bad));
     return out.map((r) => r.size).join('，');
+  });
+
+  await step('触屏：新角色只弹一张操作教程（触屏版开场卡片，之后不再接着弹「触屏操作」卡）；刷新、转竖屏再转回都不补弹', async () => {
+    if (browser) await browser.close().catch(() => {});
+    ({ browser, page, errors } = await launch({ width: 844, height: 390, mobile: { scale: 3 }, title: true }));
+    await until(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, 90000);
+    // 每帧看开场卡片和提示卡：打开的那一刻记一笔（页面重载后重新装）
+    const watch = () =>
+      ev(() => {
+        window.__tut = [];
+        const last = {};
+        const f = () => {
+          for (const [id, k] of [['intro', 'intro'], ['t-hint', 'hint']]) {
+            const n = document.getElementById(id);
+            const on = !!(n && n.classList.contains('on'));
+            if (on && !last[k]) window.__tut.push(k);
+            last[k] = on;
+          }
+          requestAnimationFrame(f);
+        };
+        requestAnimationFrame(f);
+      });
+    // 新游戏 → 选职业 → 页面重载进区 → 开场故事（跳过）→ 开场卡片
+    await ev(() => document.getElementById('t-new').click());
+    await until(() => G.ui.classView && G.ui.classView());
+    const tapEl = async (sel) => {
+      const r = await ev((sel) => {
+        const b = document.querySelector(sel).getBoundingClientRect();
+        return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+      }, sel);
+      await page.touchscreen.tap(r.x, r.y);
+    };
+    await tapEl('.cl-card[data-cls]');
+    await tapEl('[data-tact="cl-ok"]').catch(() => {}); // 有旧存档时选完职业会重载页面；新的浏览器配置直接开始
+    await until(() => window.G && G.ui && G.state && G.state.zone && G.player && G.player.ent && !G.ui.titleOn() && G.ui.storyOn(), null, 90000);
+    await watch();
+    await until(() => document.querySelector('#story.ready .st-skip'), null, 30000); // 故事脚本用到时才加载
+    await ev(() => document.querySelector('#story .st-skip').click());
+    await until(() => document.getElementById('intro').classList.contains('on'), null, 30000);
+    const a = await ev((k) => ({ txt: document.querySelector('.intro-keys').innerText, key: localStorage.getItem(k), on: G.touch.on, cls: G.save.cls }), TOUCH_HINT_KEY);
+    assert(a.on && /拖动/.test(a.txt) && /大按钮/.test(a.txt) && !/[WASD]|右键|左键|空格/.test(a.txt), '触屏下开场卡片应是触屏说法：' + JSON.stringify(a));
+    const go = await ev(() => {
+      const r = document.getElementById('intro-go').getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    await page.touchscreen.tap(go.x, go.y);
+    await until(() => !document.getElementById('intro').classList.contains('on'), null, 10000);
+    await sleep(2500);
+    await frames(10);
+    const b = await ev((k) => ({ tut: window.__tut, st: G.touch.state(), key: localStorage.getItem(k), open: G.ui.isOpen() }), TOUCH_HINT_KEY);
+    assert(JSON.stringify(b.tut) === '["intro"]' && !b.st.hint && !b.st.blocked && !b.open && b.key === '1', '新角色应只弹开场卡片一张：' + JSON.stringify(b));
+    // 刷新（回到标题画面，点「继续游戏」）：一张都不补
+    await page.reload({ timeout: 90000 });
+    await until(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, 90000);
+    await watch();
+    await ev(() => document.getElementById('t-continue').click());
+    await until(() => !G.ui.titleOn() && G.state.zone);
+    await sleep(2500);
+    await frames(10);
+    const c = await ev(() => ({ tut: window.__tut, st: G.touch.state(), seen: G.save.seenHelp }));
+    assert(!c.tut.length && !c.st.hint && c.seen, '刷新后不该再弹教程：' + JSON.stringify(c));
+    // 转竖屏再转回横屏
+    await page.setViewportSize({ width: 390, height: 844 });
+    await frames(5);
+    const p = await ev(() => G.touch.state().portrait);
+    await page.setViewportSize({ width: 844, height: 390 });
+    await sleep(1500);
+    await frames(10);
+    const d = await ev(() => ({ tut: window.__tut, st: G.touch.state() }));
+    assert(p && !d.tut.length && !d.st.hint && !d.st.portrait, '转竖屏再转回不该再弹教程：' + JSON.stringify({ p, d }));
+    return a.cls + '：开场卡片 1 张；刷新、转屏后 0 张';
+  });
+
+  await step('触屏：iPhone 圆角（四角各一块半径 47 px 的遮罩）——844×390 / 844×340 / 667×320 下标题、职业选择、开场故事、HUD（提示卡、旁白卡、首领条、F 键）、背包、技能、暂停菜单、开场卡片的字和按钮都不碰圆角', async () => {
+    if (browser) await browser.close().catch(() => {});
+    ({ browser, page, errors } = await launch({ width: 844, height: 390, mobile: { scale: 3 }, title: true }));
+    await until(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, 90000);
+    const r = await cornerScenes(page, [[844, 390], [844, 340], [667, 320]]);
+    assert(!r.bad.length, '有字或按钮碰到圆角：' + r.bad.join(' ｜ '));
+    return r.lines.length + ' 个画面，共量 ' + r.lines.reduce((n, l) => n + +l.split(' ').pop(), 0) + ' 个框';
+  });
+
+  await step('触屏：圆角（M2）——按钮大小「大」、左手模式、旋转横屏（顺 / 逆时针）下 HUD 和背包的字和按钮也不碰 iPhone 圆角', async () => {
+    await touchPage();
+    const r = await cornerHud(page, [
+      [844, 390, 'l', false], [844, 390, 'l', true], [844, 390, 'm', true], [667, 320, 'l', true], [844, 340, 'l', false],
+      [390, 844, 'm', false, 'cw'], [390, 844, 'l', true, 'ccw'], [375, 667, 'l', false, 'cw'],
+    ]);
+    await page.setViewportSize({ width: 844, height: 390 });
+    assert(!r.bad.length, '有字或按钮碰到圆角：' + r.bad.join(' ｜ '));
+    return r.lines.length + ' 个画面，共量 ' + r.lines.reduce((n, l) => n + +l.split(' ').pop(), 0) + ' 个框';
   });
 
   await step('触屏：桌面窗口不开触屏模式（没有 html.touch-ui / t-land / t-rot、没有触屏 DOM、G.touch.on 为假，G.viewW / viewH 就是窗口尺寸），开场卡片的「开始」在 1280×360 / 1024×360 里也在屏内', async () => {
