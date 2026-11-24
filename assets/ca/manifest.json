@@ -1464,13 +1464,13 @@
    "ship": true,
    "replaces": null,
    "tris": 4304,
-   "verts": 11606,
+   "verts": 11616,
    "materials": 1,
    "textures": 1,
    "bounds": {
     "min": [
      -1.652,
-     0.02,
+     0,
      -1.537
     ],
     "max": [
@@ -1479,9 +1479,9 @@
      1.606
     ]
    },
-   "h": 5.35,
+   "h": 5.37,
    "r": 1.693,
-   "y0": 0.02,
+   "y0": 0,
    "source": {
     "script": "art/ca/boss/snuffer.py",
     "clips": "art/ca/boss/snuffer_clips.py",
@@ -1521,7 +1521,7 @@
     "wick_w"
    ],
    "home": "pin",
-   "sha256": "1df6b1981fb7a0722dcedeb044fb0441a4772e7905d4b15a9f7d60072f00cb6a"
+   "sha256": "74406548a1fb6bdabfe5551b0bfedeea4f68310a9a567904b7119c4f4177a11b"
   },
   {
    "id": "ca/crown_brazier",
