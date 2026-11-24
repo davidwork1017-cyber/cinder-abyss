@@ -118,3 +118,45 @@ export const UI_SIZES = [
   [390, 844, true, 0], [390, 844, true, 59],
   [1920, 1080, false, 0], [1366, 768, false, 0], [1280, 720, false, 0],
 ];
+
+// 「点卡片外面」用的点：页面正文里、不在卡片 / 小菜单下面、离点按目标最远的空白处（手机会把点在目标旁边的一下吸到目标上），
+// 离最近的目标至少 10 px。在页面里跑；找不到返回 null
+export function uiBlankPoint() {
+  const body = document.getElementById('panel-body');
+  const b = body.getBoundingClientRect();
+  const over = Array.from(document.querySelectorAll('#panel .sheet, #panel .ui-pop')).map((n) => n.getBoundingClientRect());
+  const tg = Array.from(document.querySelectorAll('#panel button, #panel [data-act], #panel .cell, #panel .eq')).filter((n) => n.getClientRects().length).map((n) => n.getBoundingClientRect());
+  const gap = (x, y, r) => Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom));
+  let best = null;
+  for (let y = b.top + 3; y < b.bottom - 3; y += 4)
+    for (let x = b.left + 3; x < b.right - 3; x += 4) {
+      if (over.some((r) => x >= r.left - 4 && x <= r.right + 4 && y >= r.top - 4 && y <= r.bottom + 4)) continue;
+      const d = Math.min(...tg.map((r) => gap(x, y, r)));
+      if (best && d <= best.d) continue;
+      const h = document.elementFromPoint(x, y);
+      if (h && body.contains(h) && !h.closest('.sheet, .ui-pop')) best = { x, y, d };
+    }
+  return best && best.d >= 10 ? best : null;
+}
+
+// 桌面样式不变（UI-R B1）：1366×768 下这些元素的计算样式和 main（7cf4f95）逐项相等。数值是在 main 上量的（vf-shots/ui-b1/styles-main.json），
+// 有意改动的几项不在表里或已改成新值：.c-ilvl 10.5 → 11 px（最小字号 11）；.chk（含魔法 / 含稀有）挪进「筛选」菜单；底部常驻的操作说明并进一次性提示；
+// 「char 」开头的在「属性」页签里量（main 上属性表在背包页）
+export const DESK_STYLE_SPEC = {"#panel-win": ["width", "height", "background-image", "border-top-color"], "#panel-head": ["height", "padding-left", "padding-right", "background-image", "border-bottom-color"], ".brand": ["width", "font-size", "letter-spacing", "color", "font-family"], ".tab": ["font-size", "letter-spacing", "padding-left", "padding-right", "color", "font-family", "font-weight"], ".tab.on": ["color", "text-shadow"], ".tab kbd": ["font-size", "opacity"], "#panel-close": ["width", "font-size", "color"], "#panel-body": ["padding-top", "padding-left", "padding-bottom"], ".sec-title": ["height", "font-size", "letter-spacing", "color", "font-family", "margin-bottom"], ".sec-note": ["font-size", "color"], ".eq-grid": ["width", "column-gap"], ".eq": ["width", "height", "border-top-color", "border-radius", "background-image"], ".eq-name": ["font-size", "color"], ".bag .cell": ["width", "height", "border-radius", "box-shadow"], ".bag": ["column-gap", "row-gap"], ".c-ilvl": ["font-size", "color"], ".cur": ["height", "width", "font-size", "border-top-color", "background-color"], ".cur b": ["font-size"], ".btn.sm": ["height", "font-size", "padding-left", "letter-spacing"], ".inv-tips": ["font-size", "padding-top", "border-top-color"], "char .st-row": ["font-size", "line-height", "color", "letter-spacing"], "char .st-row b": ["font-size", "line-height", "color", "letter-spacing"], "char .st-group": ["font-size", "line-height", "color", "letter-spacing"]};
+export const DESK_STYLE_MAIN = { "#panel-win|width": "1267.2px", "#panel-win|height": "699.5px", "#panel-win|background-image": "radial-gradient(70% 40% at 50% 0%, rgba(255, 120, 40, 0.07), rgba(0, 0, 0, 0) 70%), linear-gradient(rgb(23, 16, 12), rgb(13, 9, 7))", "#panel-win|border-top-color": "rgb(94, 67, 41)", "#panel-head|height": "49.5px", "#panel-head|padding-left": "20px", "#panel-head|padding-right": "14px", "#panel-head|background-image": "linear-gradient(rgba(48, 32, 20, 0.6), rgba(18, 12, 9, 0.2))", "#panel-head|border-bottom-color": "rgb(94, 67, 41)", ".brand|width": "148.5px", ".brand|font-size": "22px", ".brand|letter-spacing": "8px", ".brand|color": "rgb(242, 223, 184)", ".brand|font-family": "\"Songti SC\", STSong, \"Noto Serif SC\", serif", ".tab|font-size": "17px", ".tab|letter-spacing": "4px", ".tab|padding-left": "24px", ".tab|padding-right": "24px", ".tab|color": "rgb(255, 226, 176)", ".tab|font-family": "\"Songti SC\", STSong, \"Noto Serif SC\", serif", ".tab|font-weight": "700", ".tab.on|color": "rgb(255, 226, 176)", ".tab.on|text-shadow": "rgba(255, 130, 50, 0.55) 0px 0px 14px", ".tab kbd|font-size": "11px", ".tab kbd|opacity": "1", "#panel-close|width": "148.5px", "#panel-close|font-size": "12.5px", "#panel-close|color": "rgb(154, 139, 118)", "#panel-body|padding-top": "14px", "#panel-body|padding-left": "18px", "#panel-body|padding-bottom": "16px", ".sec-title|height": "25.7px", ".sec-title|font-size": "15.5px", ".sec-title|letter-spacing": "3px", ".sec-title|color": "rgb(230, 197, 138)", ".sec-title|font-family": "\"Songti SC\", STSong, \"Noto Serif SC\", serif", ".sec-title|margin-bottom": "8px", ".sec-note|font-size": "12px", ".sec-note|color": "rgb(154, 139, 118)", ".eq-grid|width": "297px", ".eq-grid|column-gap": "6px", ".eq|width": "69.8px", ".eq|height": "74px", ".eq|border-top-color": "rgb(93, 87, 76)", ".eq|border-radius": "3px", ".eq|background-image": "radial-gradient(circle at 50% 30%, rgb(30, 23, 18), rgb(14, 10, 8) 80%)", ".eq-name|font-size": "11px", ".eq-name|color": "rgb(140, 127, 109)", ".bag .cell|width": "66.8px", ".bag .cell|height": "66.8px", ".bag .cell|border-radius": "3px", ".bag .cell|box-shadow": "rgba(0, 0, 0, 0.7) 0px 0px 12px 0px inset", ".bag|column-gap": "6px", ".bag|row-gap": "6px", ".c-ilvl|font-size": "11px", ".c-ilvl|color": "rgb(169, 154, 130)", ".cur|height": "63.4px", ".cur|width": "66.8px", ".cur|font-size": "11.5px", ".cur|border-top-color": "rgb(46, 34, 25)", ".cur|background-color": "rgb(16, 11, 8)", ".cur b|font-size": "12.5px", ".btn.sm|height": "23.8px", ".btn.sm|font-size": "12px", ".btn.sm|padding-left": "10px", ".btn.sm|letter-spacing": "1px", ".inv-tips|font-size": "11.5px", ".inv-tips|padding-top": "10px", ".inv-tips|border-top-color": "rgb(36, 26, 19)", "char .st-row|font-size": "12.5px", "char .st-row|line-height": "23px", "char .st-row|color": "rgb(169, 154, 130)", "char .st-row|letter-spacing": "normal", "char .st-row b|font-size": "12.5px", "char .st-row b|line-height": "23px", "char .st-row b|color": "rgb(255, 138, 122)", "char .st-row b|letter-spacing": "normal", "char .st-group|font-size": "11.5px", "char .st-group|line-height": "normal", "char .st-group|color": "rgb(176, 134, 80)", "char .st-group|letter-spacing": "4px" };
+// 在页面里跑：按 spec 读计算样式，宽高用 getBoundingClientRect（保留一位小数）
+export function uiStyleRead(spec) {
+  const r = {};
+  for (const key in spec) {
+    const sel = key.replace(/^char /, '');
+    const e = document.querySelector('#panel ' + sel) || document.querySelector(sel);
+    for (const p of spec[key]) {
+      if (!e) {
+        r[key + '|' + p] = null;
+        continue;
+      }
+      r[key + '|' + p] = p === 'width' || p === 'height' ? Math.round(e.getBoundingClientRect()[p] * 10) / 10 + 'px' : getComputedStyle(e).getPropertyValue(p);
+    }
+  }
+  return r;
+}

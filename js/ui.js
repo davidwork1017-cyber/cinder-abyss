@@ -1572,22 +1572,23 @@
   //   data-list：一个页面状态里只有它能纵向滚动（test/ui-layout.mjs 按这个标记检查）
   // ============================================================
   const UI_SEEN_KEY = 'cinder-abyss-ui-seen'; // 设备本地：哪些页的一次性提示看过了（{ inv: 1, … }）。不进存档
-  let uiSeenMap = null;
-  function uiSeen(tab) {
-    if (!uiSeenMap) {
-      try {
-        uiSeenMap = JSON.parse(localStorage.getItem(UI_SEEN_KEY) || '{}') || {};
-      } catch (e) {
-        uiSeenMap = {};
-      }
+  // 每次都读 localStorage（只有几个字节）：别的标签页、清掉浏览器数据之后都跟着变。存储不能用时退回内存里的一份
+  let uiSeenMem = {};
+  function uiSeenMap() {
+    try {
+      return JSON.parse(localStorage.getItem(UI_SEEN_KEY) || '{}') || {};
+    } catch (e) {
+      return uiSeenMem;
     }
-    return !!uiSeenMap[tab];
   }
+  const uiSeen = (tab) => !!uiSeenMap()[tab];
   function uiSeenMark(tab) {
     if (!PAGE_HINTS[tab] || uiSeen(tab)) return;
-    uiSeenMap[tab] = 1;
+    const m = uiSeenMap();
+    m[tab] = 1;
+    uiSeenMem = m;
     try {
-      localStorage.setItem(UI_SEEN_KEY, JSON.stringify(uiSeenMap));
+      localStorage.setItem(UI_SEEN_KEY, JSON.stringify(m));
     } catch (e) {}
   }
   // 窄屏 / 触屏的排法（和 css 里「手机」那组媒体查询同一个条件）；竖屏另算
@@ -5160,6 +5161,7 @@
       closeCard();
       ui.pop = null;
       ui.stashMsg = '';
+      ui.stashView = 'stash'; // 仓库页每次打开先看仓库
       if (tab === 'map') ui.mapTier = G.clamp(G.state.tier || 0, 0, G.save.maxTier);
     }
     ui.tab = tab;
@@ -6006,6 +6008,12 @@
     drag.hover = null;
     drag.info = NO_DROP;
     closePicker();
+    // 拖物品时收起物品卡和小菜单（桌面上卡片盖在装备栏上，得让出落点）；拖通货时卡片留着，它本身就是落点
+    if (a.kind === 'item' && (ui.card || ui.pop)) {
+      closeCard();
+      ui.pop = null;
+      for (const n of el.body.querySelectorAll('.sheet, .ui-pop')) n.remove();
+    }
     if (ui.confirm) {
       ui.confirm = null;
       renderConfirm();

@@ -3,11 +3,12 @@
 // 分两份（见 test/README.md）：main() 是 test:func（不看墙钟，可以和别的 Chrome 一起跑），timedMain() 是 test:timed（要独占机器）。
 // node test/smoke.mjs = 两份都跑（先 func 后 timed）；--func / --timed 只跑一份。
 import { launch as launchFull, GAME_URL } from './harness.mjs';
+import { cornerScenes, cornerCheck } from './corner-mask.mjs';
 import { execSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 import { checkArt } from '../tools/check-art.mjs';
 import { checkThree } from '../tools/check-three.mjs';
-import { uiLayoutCheck, UI_SIZES } from './ui-layout.mjs';
+import { uiLayoutCheck, uiBlankPoint, UI_SIZES, DESK_STYLE_SPEC, DESK_STYLE_MAIN, uiStyleRead } from './ui-layout.mjs';
 
 const SAVE_KEY = 'cinder-abyss-save-v1';
 let G_CUR_N = 8, G_UQ_COLOR = '#ff9b3d', G_SOUL_INH = 1.5, G_SOUL_K = 0.2;
@@ -7311,6 +7312,44 @@ async function main() {
     }, ids.body);
     assert(r.stay, '刚丢下的稀有物品站着不动就被吸回去了');
     assert(r.back, '走开再回来应能重新自动拾取');
+  });
+
+  await uiStep('拖拽：物品卡开着时（桌面卡片盖在装备栏上）从背包拖到装备栏照样穿上——开始拖就收起卡片；拖通货时卡片留着当落点', async () => {
+    const ids = await ev(() => {
+      G.save.bag.length = 0;
+      delete G.save.equip.boots;
+      G.save.cur.dust = 2;
+      return { a: G.debug.giveItem(1, 'ring').uid, b: G.debug.giveItem(0, 'boots').uid, white: G.debug.giveItem(0, 'gloves').uid };
+    });
+    const cell = (u) => '.cell[data-item="' + u + '"]';
+    await page.keyboard.press('KeyI');
+    // 通货拖到卡片上：卡片一直开着，改造生效
+    await clickCard(cell(ids.white));
+    await dragTo('.cur[data-cur="dust"]', '.sheet .detail-card');
+    let r = await ev((u) => ({ card: !!document.querySelector('#panel .sheet'), rarity: G.save.bag.find((x) => x.uid === u).rarity }), ids.white);
+    assert(r.card && r.rarity === 1, '拖通货到卡片上：卡片应留着、物品变成魔法：' + JSON.stringify(r));
+    // 卡片开着（盖着装备栏），从背包把鞋子拖到鞋子格
+    await clickCard(cell(ids.a));
+    const covered = await ev(() => {
+      const s = document.querySelector('#panel .sheet').getBoundingClientRect(), e = document.querySelector('.eq[data-slot="boots"]').getBoundingClientRect();
+      return s.left < e.right && e.left < s.right && s.top < e.bottom && e.top < s.bottom;
+    });
+    let mid = null;
+    // 终点按坐标给：拖起来之前鞋子格被卡片盖着（dragView 的「两端露在视野里」查的是拖之前），拖起来以后卡片收起
+    const boots = await ev(() => T.rect('.eq[data-slot="boots"]'));
+    await dragTo(cell(ids.b), { x: boots.x, y: boots.y }, async () => {
+      mid = await ev(() => ({ card: !!document.querySelector('#panel .sheet'), ok: !!document.querySelector('.eq[data-slot="boots"].drop-ok') }));
+    });
+    r = await ev((u) => ({ worn: !!G.save.equip.boots && G.save.equip.boots.uid === u, card: !!document.querySelector('#panel .sheet') }), ids.b);
+    assert(!mid.card && mid.ok, '开始拖物品时应收起卡片、鞋子格亮起：' + JSON.stringify(mid));
+    assert(r.worn && !r.card, '卡片开着时拖到装备栏应穿上：' + JSON.stringify(r));
+    await closePanel();
+    await ev(() => {
+      G.save.bag.length = 0;
+      delete G.save.equip.boots;
+      G.computeStats();
+    });
+    return '卡片' + (covered ? '盖着' : '没盖着') + '鞋子格，拖过去照样穿上';
   });
 
   await uiStep('换装评估：提示里的增减与真实换装后的变化一致；评估不改动角色、存档与 localStorage；背包角标与评估一致', async () => {
@@ -25250,8 +25289,25 @@ async function touchSteps() {
     return '暂停时 time ' + t0;
   });
 
-  await step('触屏：首次提示卡每台设备只出一次（全局键，换角色也不再出）；设置里「触屏操作」能关掉、再改回自动', async () => {
+  await step('触屏：首次提示卡只给没弹开场卡片的角色，每台设备只出一次（全局键，换角色也不再出）；设置里「触屏操作」能关掉、再改回自动', async () => {
+    // 这一页开头弹过触屏版的开场卡片，提示卡就不该再出（新角色只看一张教程，见「新角色只弹一张操作教程」）。
+    // 提示卡留给开场卡片早就看过的角色（触屏上线前的老角色）：清掉设备键、开场卡片记成看过，重载
     await ev((k) => localStorage.removeItem(k), TOUCH_HINT_KEY);
+    await frames(3);
+    const a0 = await ev(() => G.touch.state());
+    assert(!a0.hint, '这一页弹过开场卡片，不该再弹提示卡：' + JSON.stringify(a0));
+    await ev((k) => {
+      localStorage.removeItem(k);
+      G.save.seenHelp = true;
+      G.persist();
+    }, TOUCH_HINT_KEY);
+    await page.reload({ timeout: 90000 });
+    await install();
+    await ev(() => {
+      G.ui.close();
+      G.debug.hold(true);
+      T.tapsOn = () => G.input.tap.some((v) => v > 0) || G.input.mouse.b.some(Boolean);
+    });
     await frames(3);
     const a = await ev(() => ({ st: G.touch.state(), vis: T.rect('#t-hint .th-card'), txt: document.getElementById('t-hint').innerText, paused: G.state.paused }));
     assert(a.st.hint && a.st.blocked && a.paused && a.vis && a.vis.w > 0, '没看过时应弹出提示卡并暂停：' + JSON.stringify(a));
@@ -25267,6 +25323,7 @@ async function touchSteps() {
     await ev(() => {
       G.ui.close();
       G.debug.hold(true);
+      T.tapsOn = () => G.input.tap.some((v) => v > 0) || G.input.mouse.b.some(Boolean);
     });
     await frames(3);
     const c = await ev(() => G.touch.state());
@@ -25689,6 +25746,86 @@ async function touchSteps() {
     return out.map((r) => r.size).join('，');
   });
 
+  await step('触屏：新角色只弹一张操作教程（触屏版开场卡片，之后不再接着弹「触屏操作」卡）；刷新、转竖屏再转回都不补弹', async () => {
+    if (browser) await browser.close().catch(() => {});
+    ({ browser, page, errors } = await launch({ width: 844, height: 390, mobile: { scale: 3 }, title: true }));
+    await until(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, 90000);
+    // 每帧看开场卡片和提示卡：打开的那一刻记一笔（页面重载后重新装）
+    const watch = () =>
+      ev(() => {
+        window.__tut = [];
+        const last = {};
+        const f = () => {
+          for (const [id, k] of [['intro', 'intro'], ['t-hint', 'hint']]) {
+            const n = document.getElementById(id);
+            const on = !!(n && n.classList.contains('on'));
+            if (on && !last[k]) window.__tut.push(k);
+            last[k] = on;
+          }
+          requestAnimationFrame(f);
+        };
+        requestAnimationFrame(f);
+      });
+    // 新游戏 → 选职业 → 页面重载进区 → 开场故事（跳过）→ 开场卡片
+    await ev(() => document.getElementById('t-new').click());
+    await until(() => G.ui.classView && G.ui.classView());
+    const tapEl = async (sel) => {
+      const r = await ev((sel) => {
+        const b = document.querySelector(sel).getBoundingClientRect();
+        return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+      }, sel);
+      await page.touchscreen.tap(r.x, r.y);
+    };
+    await tapEl('.cl-card[data-cls]');
+    await tapEl('[data-tact="cl-ok"]').catch(() => {}); // 有旧存档时选完职业会重载页面；新的浏览器配置直接开始
+    await until(() => window.G && G.ui && G.state && G.state.zone && G.player && G.player.ent && !G.ui.titleOn() && G.ui.storyOn(), null, 90000);
+    await watch();
+    await until(() => document.querySelector('#story.ready .st-skip'), null, 30000); // 故事脚本用到时才加载
+    await ev(() => document.querySelector('#story .st-skip').click());
+    await until(() => document.getElementById('intro').classList.contains('on'), null, 30000);
+    const a = await ev((k) => ({ txt: document.querySelector('.intro-keys').innerText, key: localStorage.getItem(k), on: G.touch.on, cls: G.save.cls }), TOUCH_HINT_KEY);
+    assert(a.on && /拖动/.test(a.txt) && /大按钮/.test(a.txt) && !/[WASD]|右键|左键|空格/.test(a.txt), '触屏下开场卡片应是触屏说法：' + JSON.stringify(a));
+    const go = await ev(() => {
+      const r = document.getElementById('intro-go').getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    await page.touchscreen.tap(go.x, go.y);
+    await until(() => !document.getElementById('intro').classList.contains('on'), null, 10000);
+    await sleep(2500);
+    await frames(10);
+    const b = await ev((k) => ({ tut: window.__tut, st: G.touch.state(), key: localStorage.getItem(k), open: G.ui.isOpen() }), TOUCH_HINT_KEY);
+    assert(JSON.stringify(b.tut) === '["intro"]' && !b.st.hint && !b.st.blocked && !b.open && b.key === '1', '新角色应只弹开场卡片一张：' + JSON.stringify(b));
+    // 刷新（回到标题画面，点「继续游戏」）：一张都不补
+    await page.reload({ timeout: 90000 });
+    await until(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, 90000);
+    await watch();
+    await ev(() => document.getElementById('t-continue').click());
+    await until(() => !G.ui.titleOn() && G.state.zone);
+    await sleep(2500);
+    await frames(10);
+    const c = await ev(() => ({ tut: window.__tut, st: G.touch.state(), seen: G.save.seenHelp }));
+    assert(!c.tut.length && !c.st.hint && c.seen, '刷新后不该再弹教程：' + JSON.stringify(c));
+    // 转竖屏再转回横屏
+    await page.setViewportSize({ width: 390, height: 844 });
+    await frames(5);
+    const p = await ev(() => G.touch.state().portrait);
+    await page.setViewportSize({ width: 844, height: 390 });
+    await sleep(1500);
+    await frames(10);
+    const d = await ev(() => ({ tut: window.__tut, st: G.touch.state() }));
+    assert(p && !d.tut.length && !d.st.hint && !d.st.portrait, '转竖屏再转回不该再弹教程：' + JSON.stringify({ p, d }));
+    return a.cls + '：开场卡片 1 张；刷新、转屏后 0 张';
+  });
+
+  await step('触屏：iPhone 圆角（四角各一块半径 47 px 的遮罩）——844×390 / 844×340 / 667×320 下标题、职业选择、开场故事、HUD（提示卡、旁白卡、首领条、F 键）、背包、技能、暂停菜单、开场卡片的字和按钮都不碰圆角', async () => {
+    if (browser) await browser.close().catch(() => {});
+    ({ browser, page, errors } = await launch({ width: 844, height: 390, mobile: { scale: 3 }, title: true }));
+    await until(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, 90000);
+    const r = await cornerScenes(page, [[844, 390], [844, 340], [667, 320]]);
+    assert(!r.bad.length, '有字或按钮碰到圆角：' + r.bad.join(' ｜ '));
+    return r.lines.length + ' 个画面，共量 ' + r.lines.reduce((n, l) => n + +l.split(' ').pop(), 0) + ' 个框';
+  });
+
   await step('触屏：桌面窗口不开触屏模式（没有 html.touch-ui、没有触屏 DOM、G.touch.on 为假），开场卡片的「开始」在 1280×360 / 1024×360 里也在屏内', async () => {
     if (browser) await browser.close().catch(() => {});
     ({ browser, page, errors } = await launch({ width: 1280, height: 360 }));
@@ -25723,6 +25860,7 @@ async function touchSteps() {
   });
 
   await uiLayoutSteps('bag');
+  await uiDeskStyleStep();
   await uiLayoutSteps('stash');
   await uiLayoutSteps('char');
 }
@@ -25789,13 +25927,38 @@ async function uiFixture() {
     return { rare: '.cell[data-item="' + rare + '"]', eqRing: '.eq[data-item="' + s.equip.ring.uid + '"]' };
   }, TOUCH_HINT_KEY);
 }
+// 桌面样式不变：1366×768 下页头、页签、小标题、格子、通货、按钮、属性行的计算样式和 main 逐项相等（表在 test/ui-layout.mjs）
+async function uiDeskStyleStep() {
+  await step('界面布局·桌面样式：1366×768 下页头 50 px、品牌字、页签 17 px、小标题 15.5 px、装备格 / 背包格 / 通货的尺寸和颜色、属性行和 main 逐项相等（有意改动的只有 .c-ilvl 10.5 → 11 px）', async () => {
+    assert(uiPages && uiPages.desk, '要先跑「界面布局·背包（桌面）」');
+    ({ browser, page, errors } = uiPages.desk);
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await ev(() => {
+      G.ui.close();
+      G.ui.open('inv');
+    });
+    await panelSettled();
+    const got = await ev(uiStyleRead, DESK_STYLE_SPEC);
+    await ev(() => G.ui.open('char', 'stats'));
+    await frames(2);
+    const got2 = await ev(uiStyleRead, DESK_STYLE_SPEC);
+    await ev(() => G.ui.close());
+    const bad = [];
+    for (const k in DESK_STYLE_MAIN) {
+      const v = k.startsWith('char ') ? got2[k] : got[k];
+      if (v !== DESK_STYLE_MAIN[k]) bad.push(k + '：main ' + DESK_STYLE_MAIN[k] + '，现在 ' + v);
+    }
+    assert(!bad.length, bad.length + ' 项和 main 不一样：' + bad.slice(0, 8).join(' ｜ '));
+    return Object.keys(DESK_STYLE_MAIN).length + ' 项相等';
+  });
+}
 let uiPages = null; // { touch: { browser, page, errors, fx }, desk: {…} }：三个面板共用，最后一个面板跑完关掉
 async function uiLayoutSteps(panel) {
   const P = UI_PANELS[panel];
   for (const mode of ['touch', 'desk']) {
     const sizes = UI_SIZES.filter((z) => z[2] === (mode === 'touch'));
     const names = sizes.map((z) => z[0] + '×' + z[1] + (z[3] ? '+' + z[3] : '')).filter((v, i, a) => a.indexOf(v) === i);
-    await step('界面布局·' + P.label + '（' + (mode === 'touch' ? '触屏' : '桌面') + '）：' + names.join(' / ') + ' 下每个状态都在屏内、只有 data-list 滚动、不横向溢出、页头 ≤ 36 / 字号 ≥ 11 / 点按区 ≥ 44（触屏）、按钮点得到、点卡片外面能收起', async () => {
+    await step('界面布局·' + P.label + '（' + (mode === 'touch' ? '触屏' : '桌面') + '）：' + names.join(' / ') + ' 下每个状态都在屏内、只有 data-list 滚动、不横向溢出、页头 ≤ 36 / 字号 ≥ 11 / 点按区 ≥ 44（触屏）、按钮点得到、点卡片外面能收起、横屏不碰 iPhone 圆角', async () => {
       uiPages = uiPages || {};
       if (!uiPages[mode]) {
         if (browser && !Object.values(uiPages).some((u) => u.browser === browser)) await browser.close().catch(() => {}); // 前面步骤留下的浏览器（布局步骤自己的两个留着，三个面板共用）
@@ -25857,13 +26020,15 @@ async function uiLayoutSteps(panel) {
             await ev(async () => { for (const n of document.querySelectorAll('#panel-win, #panel-win *, #panel .sheet')) for (const a of n.getAnimations()) await a.finished.catch(() => {}); });
             const r = await ev(uiLayoutCheck, { touch: isTouch, max: 3 });
             if (r.n) bad.push(where + ' ' + S.id + '：' + Object.entries(r.res).map(([k, v]) => k + ' ' + v.n + '（' + v.s.join('；') + '）').join(' '));
+            // g：iPhone 圆角（半径 47 px，test/corner-mask.mjs）。横屏、安全区读出来是 0 的时候（Chrome 标签页里常见）字和按钮都不碰四角
+            if (isTouch && w > h && !sa) {
+              const c = await ev(cornerCheck, { R: 47 });
+              if (c.hits.length) bad.push(where + ' ' + S.id + '：圆角 ' + c.hits.slice(0, 3).map((x) => x.corner + ' ' + x.what).join('；'));
+            }
             if (S.card) {
-              // f：点卡片外面（页面左边的空白）收起卡片
-              const p = await ev(() => {
-                const s = document.querySelector('#panel .sheet').getBoundingClientRect();
-                const b = document.getElementById('panel-body').getBoundingClientRect();
-                return { x: b.left + 3, y: s.top > b.top + 40 ? (b.top + s.top) / 2 : (b.top + b.bottom) / 2 };
-              });
+              // f：点卡片外面的空白处收起卡片（离格子、按钮都远一点，手机不会把这一下吸到格子上）
+              const p = await ev(uiBlankPoint);
+              if (!p) throw new Error(where + ' 卡片外面找不到空白处');
               if (isTouch) await touch.tap(p.x, p.y);
               else await page.mouse.click(p.x, p.y);
               await frames(2);
@@ -25880,7 +26045,8 @@ async function uiLayoutSteps(panel) {
         // 最后一个面板跑完：关掉两个浏览器
         for (const k in uiPages) await uiPages[k].browser.close().catch(() => {});
         uiPages = null;
-        browser = null;
+        browser = page = null; // 后面的步骤自己开浏览器；step() 收尾时看到 page 为空就不再等
+        errors = [];
       }
       return sizes.length + ' 组尺寸，共 ' + nStates + ' 个状态';
     });
