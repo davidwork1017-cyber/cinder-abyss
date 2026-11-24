@@ -6,6 +6,7 @@
 //   d. 触屏：页头 ≤ 36 px；字号 ≥ 11 px；button / [data-act] / .cell / .tab 的盒子 ≥ 44×44（桌面只查字号）
 //   e. elementFromPoint 打到每个点按目标的中心，打到的是它自己（或它里面的东西）
 //   f. 卡片整个在页面正文里、不盖页头和页签；卡片 / 弹出菜单打开时，里面的操作条整个在视口里（「点外面关掉」由调用方去点）
+// 可平移的画布（[data-pan]，比如天赋盘，B3）：被画布边裁掉的内容拖过去就看得见，a 不算；画布上浮着的按钮（[data-float]）盖住的画布内容，e 不算
 // opts：{ touch: bool, roots: '#panel-win, …'（默认 #panel-win 和面板里的浮层）, max: 每类最多列几条 }
 export function uiLayoutCheck(opts) {
   const o = Object.assign({ touch: false, roots: '#panel-win, #panel .sheet, #panel .ui-pop, #confirm.on', max: 6 }, opts || {});
@@ -58,13 +59,28 @@ export function uiLayoutCheck(opts) {
       // a：在视口里（data-list 里滚得到的除外；被别的祖先裁掉也算出界）
       let clip = { l: 0, t: 0, r: vw, b: vh };
       let inList = null;
+      const pan = e.closest('[data-pan]');
       for (let p = scrollerOf(e); p; p = scrollerOf(p)) {
         const pr = BR(p);
+        if (pan && pan.contains(p)) continue; // 画布自己和它里面的裁切不算（平移过去就看得见），只看画布外面的祖先
         if (p.hasAttribute('data-list') && !inList) inList = p;
         clip = { l: Math.max(clip.l, pr.left), t: Math.max(clip.t, pr.top), r: Math.min(clip.r, pr.right), b: Math.min(clip.b, pr.bottom) };
       }
       const outVp = r.left < -1 || r.top < -1 || r.right > vw + 1 || r.bottom > vh + 1;
       const outClip = r.left < clip.l - 1 || r.top < clip.t - 1 || r.right > clip.r + 1 || r.bottom > clip.b + 1;
+      const cr = pan && e !== pan ? BR(pan) : null;
+      const outPan = !!cr && (r.left < cr.left - 1 || r.top < cr.top - 1 || r.right > cr.right + 1 || r.bottom > cr.bottom + 1);
+      if (cr && (outVp || outClip || outPan)) {
+        // 画布里的东西：画布本身在视口里、没被外面裁掉就行；露在画布外面的那部分不检查（e 也只查露出来的）
+        if (cr.left >= Math.max(-1, clip.l - 1) && cr.top >= Math.max(-1, clip.t - 1) && cr.right <= Math.min(vw + 1, clip.r + 1) && cr.bottom <= Math.min(vh + 1, clip.b + 1)) {
+          const ix = Math.max(r.left, cr.left) < Math.min(r.right, cr.right) && Math.max(r.top, cr.top) < Math.min(r.bottom, cr.bottom);
+          if (isT && ix) {
+            const cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
+            if (cx >= cr.left && cx <= cr.right && cy >= cr.top && cy <= cr.bottom) targets.push(e); // 中心露在画布里的才打 elementFromPoint
+          }
+          continue;
+        }
+      }
       if (outVp || outClip) {
         // data-list 里：滚过去就看得见（列表本身在视口里、元素宽度放得下）
         const lr = inList && BR(inList);
@@ -96,6 +112,8 @@ export function uiLayoutCheck(opts) {
     // 打开着的卡片 / 小菜单 / 确认框本来就盖在页面上：被它们盖住的格子不算（它们自己里面的按钮照查）
     const ov = hit && hit.closest('#panel .sheet, #panel .ui-pop, #confirm');
     if (ov && !ov.contains(e)) continue;
+    // 画布上浮着的按钮盖住的画布内容：拖开就点得到
+    if (hit && e.closest('[data-pan]') && hit.closest('[data-float]')) continue;
     out.e.push(nm(e) + ' 被 ' + (hit ? nm(hit) : '空') + ' 挡住');
   }
   // f：卡片整个在页面正文里（不盖页头 / 页签、不出面板），操作条在视口里
@@ -138,7 +156,15 @@ export function uiBlankPoint() {
   const body = document.getElementById('panel-body');
   const b = body.getBoundingClientRect();
   const over = Array.from(document.querySelectorAll('#panel .sheet, #panel .ui-pop')).map((n) => n.getBoundingClientRect());
-  const tg = Array.from(document.querySelectorAll('#panel button, #panel [data-act], #panel .cell, #panel .eq')).filter((n) => n.getClientRects().length).map((n) => n.getBoundingClientRect());
+  // 画布（[data-pan]）里的目标只算露在画布里的那一块，拖到画布外面的不算
+  const tg = Array.from(document.querySelectorAll('#panel button, #panel [data-act], #panel .cell, #panel .eq')).filter((n) => n.getClientRects().length).map((n) => {
+    const r = n.getBoundingClientRect();
+    const pan = n.closest('[data-pan]');
+    if (!pan || pan === n) return r;
+    const c = pan.getBoundingClientRect();
+    const q = { left: Math.max(r.left, c.left), top: Math.max(r.top, c.top), right: Math.min(r.right, c.right), bottom: Math.min(r.bottom, c.bottom) };
+    return q.left < q.right && q.top < q.bottom ? q : null;
+  }).filter(Boolean);
   const gap = (x, y, r) => Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom));
   let best = null;
   for (let y = b.top + 3; y < b.bottom - 3; y += 4)
