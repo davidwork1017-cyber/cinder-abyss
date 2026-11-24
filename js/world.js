@@ -18952,7 +18952,7 @@
       heatW: ['fan_w', 'spiral_w', 'barrage_w', 'summon_w'], heatS: ['fan', 'spiral', 'barrage', 'summon'],
       spin: ['x_crown', 1.2, 'spiral', 4.5],
       // 黑曜石的背光面在烬渊的品红补光下压得太黑（灰度中位数比地面还低）：躯体的暖色自发光比熔渣巨像强一点（甲缝里透出的熔炉热）
-      emis: [0x4a4650, 0.46],
+      emis: [0x4e4844, 0.54],
     },
   };
   // 调色板行 → 表面（粗糙度 / 金属度），行号见 art/ca/palette.py
