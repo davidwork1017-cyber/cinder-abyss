@@ -27268,7 +27268,7 @@ async function touchSteps() {
       }, sel);
       await page.touchscreen.tap(r.x, r.y);
     };
-    await tapEl('.cl-card[data-cls]');
+    await tapEl('[data-tact="cl-sel"][data-cls]'); // B4b：窄屏的职业在一排标签里（.cl-tab），桌面是卡片（.cl-card）
     await tapEl('[data-tact="cl-ok"]').catch(() => {}); // 有旧存档时选完职业会重载页面；新的浏览器配置直接开始
     await until(() => window.G && G.ui && G.state && G.state.zone && G.player && G.player.ent && !G.ui.titleOn() && G.ui.storyOn(), null, 90000);
     await watch();

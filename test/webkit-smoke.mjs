@@ -124,7 +124,7 @@ await step('载入：标题画面出现，WebGL2 可用（或给出明确的提�
 await step('新游戏：选职业（点卡片、点确定），重载后进区；开场卡片「开始」点得到，之后不再接着弹「触屏操作」卡（只一张教程）', async () => {
   await tap('#t-new');
   await until(() => G.ui.classView && G.ui.classView());
-  await tap('.cl-card[data-cls]');
+  await tap('[data-tact="cl-sel"][data-cls]'); // B4b：窄屏的职业在一排标签里（.cl-tab）
   // 点「确定」会重载页面：先等着导航再点（只等 load 的话，旧页面本来就 load 完了，接下来的读取可能落在重载途中）
   const nav = page.waitForNavigation({ timeout: 120000 }).catch(() => {});
   await tap('[data-tact="cl-ok"]');
@@ -426,7 +426,7 @@ await step('竖屏（iPhone 竖着拿）：标题画面点「横屏开始」→ 
   // 转着新建角色：选职业要重载页面，重载后（手机还竖着）接着转
   await tap('#t-new');
   await until(() => G.ui.classView && G.ui.classView());
-  await tap('.cl-card[data-cls]');
+  await tap('[data-tact="cl-sel"][data-cls]'); // B4b：窄屏的职业在一排标签里（.cl-tab）
   // 点「确定」会重载页面：先等着导航再点（只等 load 的话，旧页面本来就 load 完了，接下来的读取可能落在重载途中）
   const nav = page.waitForNavigation({ timeout: 120000 }).catch(() => {});
   await tap('[data-tact="cl-ok"]');
