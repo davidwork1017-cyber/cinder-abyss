@@ -12666,13 +12666,48 @@
     if (ent.flashT <= 0) flashing.push(ent);
     ent.flashD = 0.08 + 0.025 * s;
     ent.flashT = ent.flashD;
-    ent.flashK = 0.62 + 0.2 * s;
+    ent.flashK = (0.62 + 0.2 * s) * (impStyle && IMP_RIM[impStyle] ? 0.5 : 1); // skill-b3a：招牌重斩的整身闪压一半，让轮廓闪读得出来
     const ms = ent.mats;
     for (let i = 0; i < ms.length; i++) {
       ms[i].emissive.setRGB(FLASH_RGB[0], FLASH_RGB[1], FLASH_RGB[2]);
       ms[i].emissiveIntensity = ms[i].userData.fi * ent.flashK;
     }
+    if (impStyle && IMP_RIM[impStyle]) W.rimFlash(ent, IMP_RIM[impStyle], 3.5, 0.05); // skill-b3a：重斩命中再加一道余烬色的轮廓闪
   };
+  // skill-b3a：轮廓闪（约 50 毫秒，按真实时间走，顿帧里也只是一眨眼）：只加在这一只的轮廓光上（uRim 是每个实体自己的 uniform，
+  // 不共用材质、不新建材质 / 着色器）；加上去的量记下来，到时原样扣回。受击闪光关了就不放。颜色是余烬 / 钢色 / 暗紫，不发白
+  const rimFl = [];
+  W.rimFlash = function (ent, hex, k, dur) {
+    if (!ent || ent.removed || ent.dying || !ent.uRim) return;
+    if (G.save && G.save.opts && G.save.opts.hitFlash === false) return;
+    let it = null;
+    for (let i = 0; i < rimFl.length; i++) if (rimFl[i].ent === ent) { it = rimFl[i]; break; }
+    if (!it) {
+      it = { ent, t: 0, dur: 0.05, add: new T.Color(0), col: new T.Color() };
+      rimFl.push(it);
+    }
+    it.t = 0;
+    it.dur = dur || 0.05;
+    it.col.set(hex).convertSRGBToLinear().multiplyScalar(k || 1.9);
+    const u = ent.uRim.value; // 当场就亮（这一帧就画得出来，不等下一次更新）
+    u.r = Math.max(0, u.r - it.add.r); u.g = Math.max(0, u.g - it.add.g); u.b = Math.max(0, u.b - it.add.b);
+    it.add.copy(it.col);
+    u.add(it.add);
+  };
+  W.rimFlashInfo = () => rimFl.length; // 测试用
+  function updateRimFlash(raw) {
+    for (let i = rimFl.length - 1; i >= 0; i--) {
+      const it = rimFl[i], e = it.ent, u = e.uRim.value;
+      it.t += raw;
+      u.r = Math.max(0, u.r - it.add.r); u.g = Math.max(0, u.g - it.add.g); u.b = Math.max(0, u.b - it.add.b);
+      if (e.removed || it.t >= it.dur) {
+        rimFl.splice(i, 1);
+        continue;
+      }
+      it.add.copy(it.col).multiplyScalar(it.t / it.dur < 0.55 ? 1 : 0.45); // 同受击闪光：两档跳变
+      u.add(it.add);
+    }
+  }
   // 顿帧期间模型原地抖动（按真实时间衰减，不受时间缩放影响）
   const shudders = [];
   W.shudder = function (ent, amp, dur) {
@@ -21309,8 +21344,14 @@
   // skill-b2：W.impactStyle('cut' | 'ash' | 'blink' | null)——瞬断 / 千刃归烬 / 换影的重斩命中时临时换画法：物理的近白弯月（重击 + 暴击约 1.5 米）换成一道细斩线，
   // 星芒缩小一半；只换形状批里的件，随机数一样。调用方在 wsStrike / hitEnemy 前后成对设置
   let impStyle = null;
-  const IMP_STYLE = { cut: [0xd8e2f4, 0x9fb0cc], ash: [0xffc890, 0xff9b3d], blink: [0xd8c8f4, 0x8a74b8] };
+  // skill-b3a：heavy = 其余近战重击（武器技的重斩、普攻的重击 / 终结）也换成细斩线（只换线，不加轮廓闪 / 暗芯斩痕：那是三招招牌的）
+  const IMP_STYLE = { cut: [0xd8e2f4, 0x9fb0cc], ash: [0xffc890, 0xff9b3d], blink: [0xd8c8f4, 0x8a74b8], heavy: [0xeadcc0, 0xa08a6c] };
+  // skill-b3a：重斩命中的分量（不铺面）：怪身上的轮廓闪颜色 + 每一下一道粗一点、暗芯的余烬斩痕（外沿余烬、芯是焦黑）
+  const IMP_RIM = { cut: 0xff9a50, ash: 0xff7a2c, blink: 0xb07aff };
+  const IMP_STREAK = { cut: [0xd8642a, 0x7a2a12], ash: [0xe0702a, 0x8a2e10], blink: [0xa060d0, 0x4a2470] };
+  let impKickT = -9;
   W.impactStyle = (s2) => { impStyle = s2 || null; };
+  W.impactStyleNow = () => impStyle;
   W.impact = function (x, y, z, ang, type, w, crit) {
     const hex = IMPACT_HEX[type] || IMPACT_HEX.phys, pal = HIT_PAL[type] || HIT_PAL.phys, lo = qualId === 'low';
     _c.set(hex);
@@ -21322,6 +21363,23 @@
     }
     // vf-vfx2：雷击不放烟团（浅色的圆团在怪脚下像一块白斑；雷的形状语言里只有折线）
     if (type !== 'light') tPuffs(x + sn * 0.2, 0.3, z + cs * 0.2, (lo ? 1 : 2) + w, 1.6 + w * 0.6, 0.9, 0.36 + w * 0.06, 0.24 + w * 0.05, mixHex(pal[3], 0xf4e2d4, 0.7), pal[3]);
+    if (impStyle && IMP_STREAK[impStyle] && PF.vShape) {
+      // skill-b3a：一道横过目标的暗芯余烬斩痕：外层余烬色（粗 0.2 米），里面压一道焦黑的芯，没有亮芯；0.14 秒收窄消失
+      // 斩痕斜着横过目标（离垂直于这一击的方向再偏 0.5～0.8 弧度，一下左斜一下右斜），从上往下斜劈：在俯视镜头下读成一道斜斩，不是一根立柱
+      const st = IMP_STREAK[impStyle], sg = vr(0, 1) < 0.5 ? -1 : 1, a = ang + Math.PI / 2 + sg * vr(0.5, 0.8), dx = Math.sin(a), dz = Math.cos(a);
+      const L = 1.25 + w * 0.2 + (crit ? 0.25 : 0), y0 = y + 0.1, dy = 0.55;
+      vsBrush(VSH.bar, 4, 3, st[0], st[1], 0, 0.55, 0.45);
+      vsEmit(x - dx * L * 0.5, y0 + dy * 0.5, z - dz * L * 0.5, dx * L, -dy, dz * L, 0.14, 0.34);
+      // 焦黑的芯：同一条线、窄一半，往镜头那边挪一点画在前面
+      vsBrush(VSH.bar, 4, 3, 0x2a1008, 0x160806, 0, 0.3, 1);
+      vsEmit(x - dx * L * 0.42, y0 + dy * 0.42 + 0.07, z - dz * L * 0.42 + 0.06, dx * L * 0.84, -dy * 0.84, dz * L * 0.84, 0.13, 0.19);
+      // 镜头轻顶一下（只在本来就有顿帧 / 镜头顶的重斩上；每 0.12 秒最多一次，不会叠成一直在晃；镜头震动关了 W.punch 自己不动）
+      const now = G.state ? G.state.time : 0;
+      if (Math.abs(now - impKickT) > 0.12) {
+        impKickT = now;
+        W.punch(ang, 0.07);
+      }
+    }
     const n = 3 + w * 2 + (crit ? 3 : 0), sp = 9 + w * 3.5;
     for (let i = 0; i < n; i++) {
       const a = ang + rand(-0.7, 0.7) * (i % 4 === 0 ? 2.2 : 1), v = sp * rand(0.35, 1);
@@ -21843,11 +21901,13 @@
     // vf-vfx3：敌方的电弧（o.foe）：元素色、不往白混、细一些，芯只混一成白；落点不再一个个放星芒 / 闪光 / 近白火花，
     // 换成小号的雷系命中（折线放射），起点（首领身上）一记 ≤ 1.2 米、60 毫秒的亮芯
     if (foe) b.u.uColor.value.set(mixHex(hexOf(hex), 0x000000, 0.4)).convertSRGBToLinear(); // 加色混合：雷的亮黄本身灰度 ~88 %，叠在亮地面上就成白线，压暗四成
+    // skill-b3a：低画质直接画到画布、没有后期的色调压缩，加色的主干叠在亮地面上整条成白（审计 #22）：低画质颜色压暗三成、不往白混，芯只混两成白、主干细一点
+    else if (qualId === 'low') b.u.uColor.value.set(mixHex(hexOf(hex), 0x000000, 0.3)).convertSRGBToLinear();
     else b.u.uColor.value.set(hex).lerp(_c2.set(0xffffff), 0.35).convertSRGBToLinear();
-    b.u.uWhite.value = foe ? 0.12 : 0.7;
+    b.u.uWhite.value = foe ? 0.12 : qualId === 'low' ? 0.2 : 0.7;
     b.u.uOpacity.value = 1;
     b.u.uSeed.value = vr(0, 1);
-    b.hw = foe ? 0.28 : o && o.v2 && !minor ? 0.25 : 0.36; // 敌方：半宽 0.28（看图后：0.22 在游戏镜头下撑不起这一击；加宽不加白）
+    b.hw = (foe ? 0.28 : o && o.v2 && !minor ? 0.25 : 0.36) * (!foe && qualId === 'low' ? 0.8 : 1); // 敌方：半宽 0.28（看图后：0.22 在游戏镜头下撑不起这一击；加宽不加白）
     boltBuild(b);
     b.mesh.visible = true;
     if (o && o.v2 && !minor) {
@@ -25232,12 +25292,12 @@
     const lo = qualId === 'low';
     b2Ring(x, z, R, B2_DUST, B2_DUST_D, 0.4);
     vsBrush(VSH.chip, 3, 0, B2_BONE, B2_BONE_D, 0, 0.45, 0.5);
-    for (let i = 0, n = (lo ? 3 : 7) + (big ? 2 : 0); i < n; i++) {
+    for (let i = 0, n = (lo ? 2 : 4) + (big ? 1 : 0); i < n; i++) { // skill-b3a：碎骨少四成（7 / 3 → 4 / 2）
       const a = vr(0, TAU), v = vr(2, 4.5) * Math.min(1.5, 0.6 + R * 0.25);
       vsEmit(x + Math.sin(a) * R * 0.3, 0.3, z + Math.cos(a) * R * 0.3, Math.sin(a) * v, vr(2.5, 5), Math.cos(a) * v, vr(0.7, 1.0), vr(0.1, 0.18), undefined, vr(0, TAU), vr(-9, 9), 18);
     }
     vsBrush(VSH.bar, 1, 0, B2_BONE, B2_BONE_D, 0, 0.45, 0.5);
-    for (let i = 0, n = lo ? 2 : 4; i < n; i++) {
+    for (let i = 0, n = lo ? 1 : 2; i < n; i++) {
       const a = vr(0, TAU), d = R * vr(0.3, 0.8);
       vsEmit(x + Math.sin(a) * d, 0.2, z + Math.cos(a) * d, Math.sin(a) * 1.5, vr(2, 3.5), Math.cos(a) * 1.5, vr(0.5, 0.7), 0.05, 0.28, vr(-0.6, 0.6), vr(-6, 6), 14);
     }
@@ -25275,6 +25335,17 @@
       const a = (i / n) * TAU + vr(-0.25, 0.25), d = R * vr(0.82, 0.96), v = out * vr(0.7, 1.2);
       vsEmit(x + Math.sin(a) * d, 0.05, z + Math.cos(a) * d, Math.sin(a) * v, vr(0.4, 1.0), Math.cos(a) * v, life * vr(0.8, 1.15), h * vr(0.5, 0.65), h * vr(0.85, 1.15), vr(-0.25, 0.25), 0, 0, 3);
     }
+  }
+  // skill-b3a：钉在环上的火舌（爆燃）：均匀长在半径 R 的外沿上、不往外飞，尖朝外上方斜倾；另有一片短命的散舌（0.16 秒）
+  function b1RimTongues(x, z, R, n, h, life) {
+    vsBrush(VSH.tongue, 6, 0, 0xffc24a, 0xd2401c, 0.3, 0.6, 0.4);
+    const a0 = vr(0, TAU);
+    for (let i = 0; i < n; i++) {
+      const a = a0 + (i / n) * TAU + vr(-0.2, 0.2), d = R * vr(0.9, 1);
+      vsEmit(x + Math.sin(a) * d, 0.05, z + Math.cos(a) * d, Math.sin(a) * 0.01, 0, Math.cos(a) * 0.01, life * vr(0.85, 1.1), h * vr(0.45, 0.55), h * vr(0.85, 1.1), vr(0.45, 0.7));
+    }
+    const a = a0 + Math.PI / n, d = R * 0.9;
+    vsEmit(x + Math.sin(a) * d, 0.05, z + Math.cos(a) * d, Math.sin(a) * 0.01, 0, Math.cos(a) * 0.01, 0.16, h * 0.4, h * 0.7, 0.8);
   }
   // 熔岩 / 地裂纹：从中间往外的几道折线（贴地，先亮后暗；和陨火落地同一种画法）
   function b1Cracks(x, z, R, n, cA, cB, hot, life) {
@@ -25324,7 +25395,7 @@
     }
     tChunk(1, x, 0.9, z, 0, 0, 0, 0.06, 0.8, 0xffe2a0, 0xff8a3a, 0);
     b1Ring(x, z, R, 0xffb050, 0x8a2a10, 0.36, 0.35);
-    b1Tongues(x, z, R, lo ? 3 : 6, 0.5 + R * 0.12, 0.42, R * 0.5);
+    b1RimTongues(x, z, R, lo ? 2 : 3, 0.5 + R * 0.12, 0.42); // skill-b3a：火舌钉在环上、尖朝外，件数减半（原来 6 / 3 片往外飞，像一把纸屑）
     vsBrush(VSH.chip, 0, 0, 0xff9a4a, 0x5a1e10, 0.3, 0.2, 0.4);
     for (let i = 0, n = lo ? 0 : 6; i < n; i++) { // 余烬：低画质不放（太小看不见，形状批每件都要画整份几何）
       const a = vr(0, TAU), d = R * vr(0.2, 0.8);
@@ -25355,8 +25426,8 @@
       return;
     }
     b1Ring(x, z, R, 0x7fbcd8, 0x1f4a66, 0.34, 0.12);
-    b1Crystals(x, z, R * 0.92, lo ? 3 : 6, 0.8 + R * 0.12, 0.55);
-    b1Shards(x, 1.0, z, lo ? 3 : 6, 0.3, 2 + R * 0.6);
+    b1Crystals(x, z, R * (lo ? 0.92 : 0.7), lo ? 3 : 5, 0.8 + R * 0.12, 0.55); // skill-b3a：高画质冰晶往里收、少一根
+    b1Shards(x, 1.0, z, lo ? 3 : 5, 0.3, lo ? 2 + R * 0.6 : 1.2 + R * 0.3); // skill-b3a：高画质的冰碴收拢（原来 2 + 0.6R 的速度甩出四五米、一片噪点）
     W.vDecal(VVD.frost, x, z, R * 0.35, 1.6, 0x2e4c58, { r1: R * 0.7, grow: 0.2 });
   }
   // 地脉涌：外沿一道往外推的细冲击环 + 长在环上的一圈火舌（往外窜）；中间不放亮面，余波是焦痕 + 一道道冷下去的熔岩裂纹 + 几块碎石
@@ -27001,9 +27072,9 @@
     const pulse = (1 + 0.12 * Math.sin(wtime * 47) + 0.06 * Math.sin(wtime * 83)) * (L.ext >= wtime && L.w > 0 ? L.w : 1);
     // 外焰（火）→ 内焰 → 白热的芯
     mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.75 * pulse, len);
-    pfPut('beam', 0.75, 0.2, 0.04); // skill-b2：外焰压一点（原来 0.95 / 0.26 / 0.05）
-    mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.34 * pulse, len);
-    pfPut('beam', 0.6, 0.24, 0.05); // skill-b2：内焰压两档（原来 1.4 / 0.75 / 0.22，叠在外焰上整条成了近白）
+    pfPut('beam', 0.56, 0.13, 0.025); // skill-b2：外焰压一点（原来 0.95 / 0.26 / 0.05）；skill-b3a：再压（贴图中线是尖峰，加色叠上去过了色调压缩的肩就发黄白）
+    mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.26 * pulse, len);
+    pfPut('beam', 0.3, 0.06, 0.012); // skill-b2：内焰压两档（原来 1.4 / 0.75 / 0.22，叠在外焰上整条成了近白）；skill-b3a：再收窄、偏红（叠在外焰上中间还剩一道黄线）
     // skill-b2：白热的芯只留枪口那一段（≤ 1.2 米）、只在放出后的 60 毫秒里（原来是整条 12 米、0.4 秒的近白粗芯）
     if (wtime - (L.rel || -9) < 0.06) {
       const cl = Math.min(1.2, len), cf = cl / len;
@@ -27017,7 +27088,7 @@
       const f = (i + hash2(Math.floor(wtime * 20), i + 9)) / nArc;
       _pq.copy(camQ).multiply(_pq2.setFromAxisAngle(Z_AXIS, Math.atan2(dz, dx) + rand(-0.5, 0.5)));
       mPose(x0 + dx * len * f, y0 + (y1 - y0) * f, z0 + dz * len * f, _pq, rand(0.9, 1.5), rand(0.3, 0.45), 1);
-      pfPut('arc', 0.7, 0.42, 0.12);
+      pfPut('arc', 0.62, 0.3, 0.08); // skill-b3a：缠在光束上的电弧少一点黄（原来 0.7 / 0.42 / 0.12，叠在中线上就是那道黄线）
     }
     // skill-b2：两头的光晕收小、压暗（原来枪口 1.4 米、终点 2.2 米、地上 2.4 米的亮团）
     mBill(x0, y0, z0, 0.9 * pulse);
@@ -28169,11 +28240,12 @@
     }
     flashLight(x, 3, z, ALLY_HEX, 2.6);
     const dx = x - fx, dz = z - fz, d = Math.hypot(dx, dz) || 1;
-    for (let i = 0; i < 30; i++) {
-      const k = i / 30, warm = i % 4 === 0;
+    // skill-b3a：魂流 / 法阵里往上冒的魂火屑各少四成（+0.5 秒时满场的碎点）
+    for (let i = 0, nS = b2 ? 18 : 30; i < nS; i++) {
+      const k = i / nS, warm = i % 4 === 0;
       spawnP(fx + dx * k, 0.4 + Math.sin(k * Math.PI) * 2.2, fz + dz * k, (dx / d) * 4, rand(0.5, 1.5), (dz / d) * 4, rand(0.5, 0.8), rand(0.16, 0.26), warm ? 1 : ALLY_RGB.r, warm ? 0.62 : ALLY_RGB.g, warm ? 0.3 : ALLY_RGB.b, -0.6, 1);
     }
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0, nS = b2 ? 24 : 40; i < nS; i++) {
       const a = rand(0, TAU), r = Math.sqrt(vrnd()) * R;
       spawnP(x + Math.sin(a) * r, 0.15, z + Math.cos(a) * r, 0, rand(3, 7), 0, rand(0.6, 1.2), rand(0.14, 0.28), ALLY_RGB.r, ALLY_RGB.g, ALLY_RGB.b, -1.5, 0.8);
     }
@@ -28197,7 +28269,7 @@
   W.champLand = function (x, z, R) {
     if (PF.vShape) {
       b2BoneLand(x, z, R, false);
-      W.burst(x, 0.3, z, 0xcbbba6, 12, 5, 0.45);
+      W.burst(x, 0.3, z, 0xcbbba6, 7, 5, 0.45); // skill-b3a：尘点少四成（12 → 7）
       W.shake(0.12);
       return;
     }
@@ -29931,6 +30003,7 @@
     updateFlares(dt);
     updateTrail(dt);
     updateShudders(raw);
+    updateRimFlash(raw);
     poolUpdate(ringPool, dt);
     poolUpdate(slashPool, dt);
     b1N = 0; // skill-b1：爆燃 / 冻结每帧画全套的计数
@@ -31021,6 +31094,10 @@
           b1Chips(x, 0.5, z, 1, 0.2, 1, 2.5, 0x9a3a12, 0x3a1206, 0.05, 0.08);
           return true;
         }
+        // skill-b3a：第一枚炸开多一下余烬色的闪（0.55 米、60 毫秒的小芯，橙不混白，画进形状批）+ 一记暖光，炸开那一下更有分量
+        vsBrush(VSH.ring, 0, 0, 0xffa050, 0xd0501a, 0.12, 0, 0.35);
+        vsEmit(x, 0.7, z, 0, 0, 0, 0.06, 0.55);
+        flashLight(x, 1.6, z, 0xff6a20, 0.8);
         W.thinRing(x, z, R, 0xff8a3c, 0x5a1a08, 0.3, 12);
         b1Tongues(x, z, R * 0.92, lo ? 2 : 3, 0.4, 0.4, 0, 0xd8702a, 0x6a1c0a);
         b1Chips(x, 0.6, z, lo ? 2 : 3, 0.2, 1.5, 3.5, 0xa8401a, 0x3a1206, 0.05, 0.1);

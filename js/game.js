@@ -4216,7 +4216,13 @@
       W.hitReact(e.ent, ang, 0.9 + feel * 0.4); // 顺着这一击的方向一仰
       // 持续伤害的跳（黑洞 / 黑旋风，inf.tick）：只甩几片实例化的尖片，不留地面贴花、不打闪光（怪堆里每秒几十跳，贴花每片一次 draw call）
       if (inf.tick && W.chaosTick) W.chaosTick(e.x - sn * e.r * 0.7, h * 0.5, e.z - cs * e.r * 0.7, ang, hit.crit);
-      else if (inf.splash !== 2) W.impact(e.x - sn * e.r * 0.7, h * 0.5, e.z - cs * e.r * 0.7, ang, top, feel, hit.crit); // 溅击：一次溅射只给前 3 个敌人冒火花
+      else if (inf.splash !== 2) {
+        // skill-b3a：召唤物（英灵、骸仆……）的重击命中也换成细斩线：一群召唤物一起砍时满屏的近白弯月（只换画法）
+        const hv = (inf.minion || ctx.minion) && feel >= 1 && W.impactStyleNow && !W.impactStyleNow();
+        if (hv) W.impactStyle('heavy');
+        W.impact(e.x - sn * e.r * 0.7, h * 0.5, e.z - cs * e.r * 0.7, ang, top, feel, hit.crit); // 溅击：一次溅射只给前 3 个敌人冒火花
+        if (hv) W.impactStyle(null);
+      }
       if (ctx.flame > 0 && W.flameHit) W.flameHit(e.x, h * 0.55, e.z, e.r, ang); // 黑焰：命中点甩出几片品红的小火舌
     }
     // vf-vfx2：重击档的法术暴击顿一下、镜头轻震（法术来源每 0.3 秒最多一次；持续伤害 / 光环 / 召唤物 / 异常触发的不算）
@@ -6687,6 +6693,9 @@
       if (!hits.length) return;
       let crit = false;
       let top = 'phys';
+      const heavy = st.w >= 1 && W.impactStyleNow && !W.impactStyleNow(); // skill-b3a：普攻的重击 / 终结：命中的近白弯月换成细斩线（只换画法）
+      if (heavy) W.impactStyle('heavy');
+      try {
       for (const e of hits) {
         // 击退方向：从玩家指向敌人；横斩再带一点顺着刀势的切向，两段的手感因此不同
         let ang = Math.atan2(e.x - P.x, e.z - P.z);
@@ -6697,6 +6706,7 @@
         top = lastHit.type;
         if (!e.dead) W.shudder(e.ent, 0.05 + st.w * 0.03, (st.stop + 50) / 1000);
       }
+      } finally { if (heavy) W.impactStyle(null); }
       // 这一刀砍中了：顿帧、镜头顺势一顶、一声闷响；终结技再加一记推近
       const stop = (st.stop + (crit ? 25 : 0)) * ctx.stopK;
       G.hitStop(stop);
@@ -8885,6 +8895,10 @@
     const use = o.ctx || ctx;
     let crit = false;
     let top = 'phys';
+    // skill-b3a：重斩（w ≥ 1）命中的近白弯月换成细斩线（瞬断 / 千刃 / 换影自己设了样式的不动；只换画法）
+    const heavy = o.w >= 1 && W.impactStyleNow && !W.impactStyleNow();
+    if (heavy) W.impactStyle('heavy');
+    try {
     for (const e of hits) {
       if (e.dead) continue;
       const ang = typeof o.ang === 'function' ? o.ang(e) : o.ang !== undefined ? o.ang : Math.atan2(e.x - P.x, e.z - P.z);
@@ -8894,6 +8908,7 @@
       if (!e.dead && o.w >= 1) W.shudder(e.ent, 0.05 + o.w * 0.03, ((o.stop || 0) + 50) / 1000);
       if (o.knockUp && !e.dead && !e.isBoss) fxOpt('knockUp', e.ent, o.knockUp);
     }
+    } finally { if (heavy) W.impactStyle(null); }
     const stop = ((o.stop || 0) + (crit ? 25 : 0)) * ctx.stopK;
     if (stop > 0) {
       G.hitStop(stop);
@@ -9932,7 +9947,10 @@
         fxOpt('ashMark', o.ent, a + Math.PI / 2 + G.vrand(-0.6, 0.6), run.cuts.get(o), o.height || 2);
       }
       G.sfx('swing', { step: run.hops % 2 });
-      if (live.length) wsStrike(ctx, live, sk.pass, { ang: a, w: 0, kb: sk.kb, poise: sk.poise, stop: sk.stop, dir: a });
+      if (live.length) {
+        if (W.impactStyle) W.impactStyle('ash'); // skill-b3a：连闪的每一刀也按千刃的重斩画（轮廓闪 + 暗芯斩痕 + 细斩线，不再是近白弯月；只换画法）
+        try { wsStrike(ctx, live, sk.pass, { ang: a, w: 0, kb: sk.kb, poise: sk.poise, stop: sk.stop, dir: a }); } finally { if (W.impactStyle) W.impactStyle(null); }
+      }
       G.after(gapT, () => cutHop(c, run));
     });
   }
