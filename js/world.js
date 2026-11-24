@@ -6,6 +6,29 @@
   const T = THREE;
   const W = (G.world = {});
   const TAU = Math.PI * 2;
+  // 画面坐标（手机版 M2「横屏开始」）：竖着拿手机时可以把整个页面转 90° 当横屏玩（html.t-rot，js/touch.js 管）。
+  // 转着的时候事件的 clientX / Y、getBoundingClientRect 都是屏幕坐标，页面布局和 3D 画面按转过的画面算：
+  // 读位置的地方用 G.toFrame / G.rectToFrame 换过来，画面尺寸用 G.viewW / G.viewH，交给 elementFromPoint 的用 G.toScreen 换回去。
+  // G.rot 平时（桌面永远）是 null，这几个原样返回
+  G.rot = null; // 转着时：{ dir: 'cw' | 'ccw', W, H }，W / H 是屏幕（竖着）的宽高
+  G.viewW = () => (G.rot ? G.rot.H : window.innerWidth);
+  G.viewH = () => (G.rot ? G.rot.W : window.innerHeight);
+  G.toFrame = (x, y) => {
+    const r = G.rot;
+    if (!r) return { x, y };
+    return r.dir === 'cw' ? { x: y, y: r.W - x } : { x: r.H - y, y: x };
+  };
+  G.toScreen = (x, y) => {
+    const r = G.rot;
+    if (!r) return { x, y };
+    return r.dir === 'cw' ? { x: r.W - y, y: x } : { x: y, y: r.H - x };
+  };
+  G.rectToFrame = (b) => {
+    if (!G.rot) return b;
+    const a = G.toFrame(b.left, b.top), c = G.toFrame(b.right, b.bottom); // 转 90° 后矩形还是横平竖直的，对角两点就够
+    const l = Math.min(a.x, c.x), t = Math.min(a.y, c.y), r = Math.max(a.x, c.x), bt = Math.max(a.y, c.y);
+    return { left: l, top: t, right: r, bottom: bt, width: r - l, height: bt - t, x: l, y: t };
+  };
   // 世界层的 rand 是画面随机数（data.js 的 G.vrand）：特效 / 画面用它；建外观期间它照旧取换过的 Math.random（布景摆放不变）。
   // 模拟要的随机（布局种子、异兆点位）直接写 Math.random，不走 rand
   const rand = G.vrand, vrnd = G.vr;
@@ -2941,8 +2964,8 @@
   };
 
   W.resize = function () {
-    vw = Math.max(1, window.innerWidth);
-    vh = Math.max(1, window.innerHeight);
+    vw = Math.max(1, G.viewW());
+    vh = Math.max(1, G.viewH());
     dpr = Math.min(window.devicePixelRatio || 1, qual.dpr);
     const glDpr = dpr * (qual.scale || 1); // 3D 画面的像素比（低档比叠加层低一点，见 QUALITY.low.scale）
     renderer.setPixelRatio(glDpr);
@@ -19317,6 +19340,18 @@
       // 黑曜石的背光面在烬渊的品红补光下压得太黑（灰度中位数比地面还低）：躯体的暖色自发光比熔渣巨像强一点（甲缝里透出的熔炉热）
       emis: [0x4e4844, 0.54],
     },
+    // boss-behemoth：衔星巨兽。嘴里的星（x_star）就是芯：流星犁地 / 坍缩 / 吐息蓄力时越烧越亮，犁地落蹄那一下最亮，
+    // 坍缩拽的时候一明一暗（heatP），吐息喷的时候一直亮着（heatH）；武器挂点 = 下巴尖（吐息的口），手 = 左前蹄
+    behemoth: {
+      pack: 'boss-behemoth',
+      alias: { slam: 'slam', charge: 'slam', ring: 'starfall', spiral: 'starfall', fan: 'sweep', barrage: 'starfall', summon: 'gravity', cross: 'slam' },
+      reach: 3.6, emb: [4.0, 1.0, 6],
+      sock: { weapon: ['x_jaw', 0, -0.2, 0.85], hand: ['x_fleg_l_03', 0, -0.1, 0.1], head: ['head', 0, 0.5, 0.3], chest: ['x_star', 0, 0, 0] },
+      hitJ: ['spine_03', 'head'], feet: ['x_fleg_l_03', 'x_fleg_r_03', 'x_hleg_l_03', 'x_hleg_r_03'], core: 'x_star',
+      heatW: ['starfall_w', 'gravity_w', 'sweep_w', 'slam_w'], heatS: ['starfall', 'slam'], heatP: ['gravity'], heatH: ['sweep'],
+      // 裂谷的主光偏暖白（0xfff2e0）：中性的玄武岩皮甲在里面发土黄。躯体染色往冷里收一点、自发光换成很淡的中性色，进游戏是中性的石墨灰
+      emis: [0x3e3a38, 0.12], tint: 0xdce4ec,
+    },
   };
   // 调色板行 → 表面（粗糙度 / 金属度），行号见 art/ca/palette.py
   const BOSS_ROW_SURF = ['stone', 'stone', 'bone', 'metal', 'glow', 'stone', 'stone', 'leather', 'metal', 'stone', 'stone', 'stone', 'leather', 'stone', 'ice', 'gold', 'stone', 'ice', 'cloth'];
@@ -19428,12 +19463,16 @@
     rig.moodTrack = tracks.mood ? tracks.mood.tr : null;
     const coreJ = sp.core ? rig.J[sp.core] : -1, emb = sp.emb, heatW = sp.heatW || [], heatS = sp.heatS || [];
     const spinJ = sp.spin ? rig.J[sp.spin[0]] : -1;
+    const heatP = sp.heatP || [], heatH = sp.heatH || [];
     rig.post = function (ent, o, t, dt) {
       // 炉芯：随呼吸一明一暗；蓄力时蓄热、出手那一下最亮（heatW / heatS 里的动作）；破防时明灭；死亡先暴涨再熄掉。全是确定性的（不取随机数）
+      // heatP：出手以后一明一暗地脉动（坍缩拽人）；heatH：出手以后一直亮着、末尾熄下去（吐息）
       const c = ent.clip, n = c ? c.name : '', k = ent.cK;
       let heat = 1;
       if (heatW.indexOf(n) >= 0) heat = 1 + 0.7 * k;
       else if (heatS.indexOf(n) >= 0) heat = 1 + 0.9 * hump(k, 0, c.k0, c.k0 + 0.05, 0.6);
+      else if (heatP.indexOf(n) >= 0) heat = 1.5 + 0.4 * Math.sin(k * TAU * 6) * Math.min(1, k * 8);
+      else if (heatH.indexOf(n) >= 0) heat = 1 + 0.9 * hump(k, 0, c.k0, 0.9, 1);
       else if (n === 'broken') heat = 0.7 + 0.25 * Math.max(0, Math.sin(k * TAU * 5));
       else if (n === 'death') heat = k < 0.5 ? 1 + k * 2 : Math.max(0.15, 2 - (k - 0.5) * 4);
       ent.moodK = (ent.moodK || 0) + ((ent.mood ? 1 : 0) - (ent.moodK || 0)) * Math.min(1, dt * 3);
@@ -19518,7 +19557,7 @@
   const BOSS_EMIS = [0x6e4c38, 0.18];
   function bossLook(ent) {
     const m = ent.bodyMat, sp = BOSS_SPEC[ent.rig.bossModel], em = (sp && sp.emis) || BOSS_EMIS;
-    m.color.copy(lin(0xf4ece4));
+    m.color.copy(lin((sp && sp.tint) || 0xf4ece4));
     m.userData.e0 = lin(em[0]);
     m.userData.ei0 = em[1];
     m.emissive.copy(m.userData.e0);

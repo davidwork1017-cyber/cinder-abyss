@@ -125,7 +125,7 @@ kbd {
   position: absolute;
   top: 16px;
   left: 50%;
-  width: min(560px, 42vw);
+  width: min(560px, calc(42 * var(--vw, 1vw)));
   transform: translate(-50%, -8px);
   opacity: 0;
   transition: opacity 0.4s, transform 0.4s;
@@ -597,8 +597,8 @@ kbd {
 #panel.on { display: flex; }
 #panel-win {
   position: relative;
-  width: min(1280px, 96vw);
-  height: min(736px, 92vh);
+  width: min(1280px, calc(96 * var(--vw, 1vw)));
+  height: min(736px, calc(92 * var(--vh, 1vh)));
   display: flex;
   flex-direction: column;
   background:
@@ -1387,7 +1387,7 @@ body.alt-on .skill-list .sk-desc .alt-d { visibility: visible; }
 }
 #picker.on { display: block; }
 .pk-title { margin: 0 4px 8px 2px; font-family: var(--serif); font-weight: 700; font-size: 14.5px; letter-spacing: 1.5px; color: var(--gold); }
-.pk-list { max-height: min(330px, 46vh); padding-right: 4px; }
+.pk-list { max-height: min(330px, calc(46 * var(--vh, 1vh))); padding-right: 4px; }
 .pk-row {
   display: block;
   width: 100%;
@@ -2041,7 +2041,7 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .cf-row .btn { flex: 1; }
 
 /* 琢刻石：挑一条词缀重洗 */
-#confirm.chisel { width: 400px; max-width: calc(100vw - 16px); border-color: #7fae52; }
+#confirm.chisel { width: 400px; max-width: calc(calc(100 * var(--vw, 1vw)) - 16px); border-color: #7fae52; }
 #confirm.chisel .cf-row .btn { flex: none; min-width: 96px; }
 .cz-list { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
 .cz-aff {
@@ -2524,7 +2524,7 @@ body.panel-open #coach { display: none; }
 }
 #intro.on { display: grid; }
 .intro-card {
-  width: min(520px, 92vw);
+  width: min(520px, calc(92 * var(--vw, 1vw)));
   padding: 26px 34px 22px;
   text-align: center;
   background:
@@ -2779,7 +2779,7 @@ body.alt-on #quest .q-h { display: none; }
   position: absolute;
   left: 204px;
   bottom: 20px;
-  max-width: calc(50vw - 446px); /* 让开技能栏（含武器技格）的左半边 */
+  max-width: calc(calc(50 * var(--vw, 1vw)) - 446px); /* 让开技能栏（含武器技格）的左半边 */
   display: none;
   flex-wrap: wrap-reverse;
   align-items: flex-end;
@@ -2959,6 +2959,13 @@ body.alt-on #quest .q-h { display: none; }
   .wsk-row { margin-top: 6px; padding-top: 6px; }
   .wsl em { display: none; }
 }
+/* 旋转横屏（html.t-rot，手机版 M2）：按转过的画面尺寸套用上面这一段（(max-height: 780px)，js/touch.js 设 t-rh780） */
+  :where(html.t-rh780) .wsk-card { margin-bottom: 6px; padding: 8px 10px; }
+  :where(html.t-rh780) .wsk-card .sk-anote.cd { display: none; }
+  :where(html.t-rh780) .wsk-card .sk-desc { margin-top: 5px; }
+  :where(html.t-rh780) .wsk-row { margin-top: 6px; padding-top: 6px; }
+  :where(html.t-rh780) .wsl em { display: none; }
+
 .wsk-empty { display: flex; gap: 12px; align-items: center; }
 .wsk-empty b { font-family: var(--serif); font-size: 15px; letter-spacing: 1px; color: #e6d6b8; }
 .wsk-empty p { margin: 3px 0 0; font-size: 12px; line-height: 17px; color: #b9ac96; }
@@ -3083,6 +3090,9 @@ body.alt-on #quest .q-h { display: none; }
 @media (max-height: 780px) {
   .icard.r3 .ic-lore, .icard.r3 .ic-lock { display: none; }
 }
+/* 旋转横屏（html.t-rot，手机版 M2）：按转过的画面尺寸套用上面这一段（(max-height: 780px)，js/touch.js 设 t-rh780） */
+  :where(html.t-rh780) .icard.r3 .ic-lore, :where(html.t-rh780) .icard.r3 .ic-lock { display: none; }
+
 .act-row.top + .inv-msg { margin: -2px 0 8px; }
 .craft-grid.locked { opacity: 0.55; filter: saturate(0.4); }
 .btn.sm.uqb { margin-left: auto; color: #ffb066; border-color: #7a3a14; }
@@ -3117,6 +3127,9 @@ body.alt-on #quest .q-h { display: none; }
 @media (max-height: 780px) {
   .icard.r4 .ic-lore, .icard.r4 .ic-lock { display: none; }
 }
+/* 旋转横屏（html.t-rot，手机版 M2）：按转过的画面尺寸套用上面这一段（(max-height: 780px)，js/touch.js 设 t-rh780） */
+  :where(html.t-rh780) .icard.r4 .ic-lore, :where(html.t-rh780) .icard.r4 .ic-lock { display: none; }
+
 .codex-t.rq { margin-top: 18px; }
 .cx-row.rq.found { border-color: #1f5a44; background: linear-gradient(90deg, color-mix(in srgb, var(--relic, #6fe0b0) 14%, transparent), #08100d 70%); }
 .cx-row.rq.found .cx-name { color: var(--relic, #6fe0b0); }
@@ -3248,6 +3261,9 @@ body.alt-on #quest .q-h { display: none; }
 .usl.on { background: rgba(90, 38, 8, 0.5); border-color: #c4621e; box-shadow: 0 0 8px rgba(255, 120, 40, 0.35); }
 .usl.on em { color: #ffb066; }
 @media (max-height: 780px) { .usl em { display: none; } }
+/* 旋转横屏（html.t-rot，手机版 M2）：按转过的画面尺寸套用上面这一段（(max-height: 780px)，js/touch.js 设 t-rh780） */
+ :where(html.t-rh780) .usl em { display: none; } 
+
 .wbarslot.uskill { border-color: #a0501c; box-shadow: 0 0 8px rgba(255, 120, 40, 0.25); }
 .wbarslot.uskill .bs-txt span { color: #ffb066; }
 .hc.hw.uskill { border-color: #6a3414; background: linear-gradient(90deg, rgba(90, 38, 8, 0.3), transparent 70%); }
@@ -3257,6 +3273,10 @@ body.alt-on #quest .q-h { display: none; }
   .ic-usk .u-d { display: none; }
   .ic-usk em { margin-top: 0; }
 }
+/* 旋转横屏（html.t-rot，手机版 M2）：按转过的画面尺寸套用上面这一段（(max-height: 780px)，js/touch.js 设 t-rh780） */
+  :where(html.t-rh780) .ic-usk .u-d { display: none; }
+  :where(html.t-rh780) .ic-usk em { margin-top: 0; }
+
 
 /* ===== 远程武器：量表（热度 / 专注）、R 格的灌注、右键的武器普攻 ===== */
 #gauge { display: none; width: 22px; flex-direction: column; align-items: center; gap: 5px; margin-left: -4px; }
@@ -3467,7 +3487,7 @@ body.alt-on #quest .q-h { display: none; }
   position: absolute;
   top: 92px;
   left: 50%;
-  width: min(380px, 34vw);
+  width: min(380px, calc(34 * var(--vw, 1vw)));
   transform: translate(-50%, -6px);
   opacity: 0;
   transition: opacity 0.3s, transform 0.3s;
@@ -3588,17 +3608,17 @@ html.title-on #reticle, html.title-on #vignette, html.title-on #lowlife, html.ti
 #title.ready .t-veil { opacity: 0; }
 .t-main {
   position: absolute;
-  left: clamp(24px, 7vw, 120px);
+  left: clamp(24px, calc(7 * var(--vw, 1vw)), 120px);
   top: 0;
   bottom: 44px;
-  width: min(400px, calc(100vw - 48px));
+  width: min(400px, calc(calc(100 * var(--vw, 1vw)) - 48px));
   display: flex;
   flex-direction: column;
   justify-content: center;
 }
-#title.sub .t-main { width: min(560px, calc(100vw - 48px)); }
+#title.sub .t-main { width: min(560px, calc(calc(100 * var(--vw, 1vw)) - 48px)); }
 .t-logo { display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 14px; }
-.t-emblem { grid-row: span 2; width: clamp(72px, 15vh, 120px); height: clamp(72px, 15vh, 120px); filter: drop-shadow(0 0 12px rgba(255, 120, 40, 0.5)); }
+.t-emblem { grid-row: span 2; width: clamp(72px, calc(15 * var(--vh, 1vh)), 120px); height: clamp(72px, calc(15 * var(--vh, 1vh)), 120px); filter: drop-shadow(0 0 12px rgba(255, 120, 40, 0.5)); }
 .t-flame { transform-origin: 60px 96px; animation: t-flick 3.4s ease-in-out infinite; }
 .t-spark { animation: t-rise 4.2s ease-out infinite; }
 .t-spark.b { animation-delay: 1.4s; }
@@ -3616,7 +3636,7 @@ html.title-on #reticle, html.title-on #vignette, html.title-on #lowlife, html.ti
 .t-name {
   font-family: var(--serif);
   font-weight: 700;
-  font-size: clamp(46px, 11vh, 86px);
+  font-size: clamp(46px, calc(11 * var(--vh, 1vh)), 86px);
   line-height: 1.08;
   letter-spacing: 0.28em;
   background: linear-gradient(180deg, #fff1d2 0%, #f2c27a 48%, #b85a22 100%);
@@ -3627,7 +3647,7 @@ html.title-on #reticle, html.title-on #vignette, html.title-on #lowlife, html.ti
 }
 .t-sub { align-self: start; font-size: 13px; letter-spacing: 3px; color: var(--dim); }
 #title.sub .t-sub { display: none; }
-.m-menu { display: flex; flex-direction: column; gap: 8px; width: min(300px, 100%); margin-top: clamp(16px, 4.5vh, 40px); }
+.m-menu { display: flex; flex-direction: column; gap: 8px; width: min(300px, 100%); margin-top: clamp(16px, calc(4.5 * var(--vh, 1vh)), 40px); }
 .m-btn {
   display: flex;
   align-items: baseline;
@@ -3697,9 +3717,12 @@ html.title-on #reticle, html.title-on #vignette, html.title-on #lowlife, html.ti
 #t-new.off { opacity: 0.5; cursor: default; }
 #t-new.off:hover { color: #e6d7bd; border-color: var(--line-2); border-left-color: #5e4329; box-shadow: none; }
 #t-new-hint:empty, #t-chars-n:empty { display: none; }
-#title.sub.chars .t-main { width: min(640px, calc(100vw - 32px)); }
+#title.sub.chars .t-main { width: min(640px, calc(calc(100 * var(--vw, 1vw)) - 32px)); }
 /* 窄窗口（手机横屏 667 宽之类）：左边距 + 640 会跑出右边，宽度再扣掉左边距（1024 及以上不受影响） */
-@media (max-width: 720px) { #title.sub.chars .t-main { width: calc(100vw - 16px - clamp(24px, 7vw, 120px)); } }
+@media (max-width: 720px) { :where(html:not(.t-rot)) #title.sub.chars .t-main { width: calc(calc(100 * var(--vw, 1vw)) - 16px - clamp(24px, calc(7 * var(--vw, 1vw)), 120px)); } }
+/* 旋转横屏（html.t-rot，手机版 M2）：按转过的画面尺寸套用上面这一段（(max-width: 720px)，js/touch.js 设 t-rw720） */
+ :where(html.t-rw720) #title.sub.chars .t-main { width: calc(calc(100 * var(--vw, 1vw)) - 16px - clamp(24px, calc(7 * var(--vw, 1vw)), 120px)); } 
+
 .ch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 10px; padding: 6px 0 2px; }
 .ch-card {
   display: flex;
@@ -3745,10 +3768,10 @@ html.title-on #reticle, html.title-on #vignette, html.title-on #lowlife, html.ti
 #title.clsv .m-host, #title.clsv .m-view, #title.clsv .m-body { min-width: 0; }
 .ch-acts { flex-wrap: wrap; }
 @media (max-width: 560px) {
-  #title.clsv .t-main { left: 12px; right: 12px; width: auto; top: auto; bottom: 34px; max-height: 62vh; justify-content: flex-end; }
-  #title.clsv .m-view { padding: 10px 12px 12px; }
-  #title.clsv .t-shade { background: linear-gradient(180deg, transparent 0%, transparent 30%, rgba(6, 4, 3, 0.85) 48%); }
-  .cl-line { font-size: 12px; }
+  :where(html:not(.t-rot)) #title.clsv .t-main { left: 12px; right: 12px; width: auto; top: auto; bottom: 34px; max-height: calc(62 * var(--vh, 1vh)); justify-content: flex-end; }
+  :where(html:not(.t-rot)) #title.clsv .m-view { padding: 10px 12px 12px; }
+  :where(html:not(.t-rot)) #title.clsv .t-shade { background: linear-gradient(180deg, transparent 0%, transparent 30%, rgba(6, 4, 3, 0.85) 48%); }
+  :where(html:not(.t-rot)) .cl-line { font-size: 12px; }
 }
 .cl-card {
   display: flex;
@@ -3791,17 +3814,17 @@ html.char-loading #load-char { display: flex; }
 .lc-box { display: flex; align-items: center; gap: 12px; padding: 14px 22px; font-family: var(--serif); font-size: 16px; letter-spacing: 3px; color: #e6d7bd; background: linear-gradient(180deg, #1a120d, #0d0907); border: 1px solid var(--line-2); }
 .lc-box i { width: 14px; height: 14px; border-radius: 50%; background: radial-gradient(circle, #ffd28a 0%, #ff7a2c 55%, transparent 70%); animation: t-flick 1.4s ease-in-out infinite; }
 /* 存档提示条：盖在标题画面和 HUD 之上，一直挂着 */
-#save-bar { position: fixed; left: 50%; top: 10px; z-index: 40; display: none; transform: translateX(-50%); max-width: calc(100vw - 24px); align-items: center; gap: 12px; padding: 8px 10px 8px 14px; font-size: 13px; line-height: 1.5; color: #f3e3c6; background: rgba(48, 18, 10, 0.96); border: 1px solid #9a4a2a; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.7); }
+#save-bar { position: fixed; left: 50%; top: 10px; z-index: 40; display: none; transform: translateX(-50%); max-width: calc(calc(100 * var(--vw, 1vw)) - 24px); align-items: center; gap: 12px; padding: 8px 10px 8px 14px; font-size: 13px; line-height: 1.5; color: #f3e3c6; background: rgba(48, 18, 10, 0.96); border: 1px solid #9a4a2a; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.7); }
 #save-bar.on { display: flex; }
 #save-bar.stale { border-color: var(--ember); }
 #save-bar .btn { flex: none; }
 @media (max-width: 520px) {
-  .ch-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
-  .ch-card { min-height: 104px; padding: 8px 9px; }
-  .ch-top { flex-direction: column; gap: 0; }
-  .ch-trash { flex-wrap: wrap; }
+  :where(html:not(.t-rot)) .ch-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  :where(html:not(.t-rot)) .ch-card { min-height: 104px; padding: 8px 9px; }
+  :where(html:not(.t-rot)) .ch-top { flex-direction: column; gap: 0; }
+  :where(html:not(.t-rot)) .ch-trash { flex-wrap: wrap; }
 }
-.t-foot { position: absolute; left: clamp(24px, 7vw, 120px); bottom: 14px; display: flex; align-items: center; gap: 12px; font-size: 11.5px; letter-spacing: 1px; color: var(--faint); }
+.t-foot { position: absolute; left: clamp(24px, calc(7 * var(--vw, 1vw)), 120px); bottom: 14px; display: flex; align-items: center; gap: 12px; font-size: 11.5px; letter-spacing: 1px; color: var(--faint); }
 .t-link { padding: 0; font-size: 11.5px; letter-spacing: 2px; color: var(--bronze); background: none; border: none; border-bottom: 1px dotted #6b4a28; cursor: pointer; }
 .t-link:hover { color: var(--ember-2); border-bottom-color: var(--ember-2); }
 
@@ -3815,8 +3838,8 @@ html.char-loading #load-char { display: flex; }
 }
 #pause.on { display: grid; }
 .pause-card {
-  width: min(340px, calc(100vw - 32px));
-  max-height: calc(100vh - 32px);
+  width: min(340px, calc(calc(100 * var(--vw, 1vw)) - 32px));
+  max-height: calc(calc(100 * var(--vh, 1vh)) - 32px);
   display: flex;
   flex-direction: column;
   padding: 22px 26px 24px;
@@ -3827,7 +3850,7 @@ html.char-loading #load-char { display: flex; }
   box-shadow: 0 0 0 1px #080504, 0 0 0 3px #1c130d, 0 0 0 4px #3d2c1e, 0 24px 80px rgba(0, 0, 0, 0.85);
   animation: panel-in 0.16s ease-out;
 }
-#pause.sub .pause-card { width: min(560px, calc(100vw - 32px)); padding: 6px 8px 8px; }
+#pause.sub .pause-card { width: min(560px, calc(calc(100 * var(--vw, 1vw)) - 32px)); padding: 6px 8px 8px; }
 .pause-title { margin-bottom: 16px; text-align: center; font-family: var(--serif); font-weight: 700; font-size: 26px; letter-spacing: 14px; text-indent: 14px; color: #f2dfb8; text-shadow: 0 0 20px rgba(255, 120, 40, 0.5), 0 3px 6px #000; }
 #pause.sub .pause-title { display: none; }
 #pause .m-menu { width: 100%; margin-top: 0; }
@@ -3974,7 +3997,7 @@ body.paused #reticle, body.paused #coach { display: none; }
    1024×640 这类宽屏不进这里（只用上面的中等宽度规则）。
    ============================================================ */
 @media (max-width: 900px), (max-height: 500px) {
-  #panel-win { width: 100vw; height: 100vh; height: 100dvh; }
+  #panel-win { width: calc(100 * var(--vw, 1vw)); height: calc(100 * var(--vh, 1vh)); height: calc(100 * var(--dvh, 1dvh)); }
   #panel-win::before, #panel-win::after { display: none; }
   #panel-head { height: 40px; padding: 0 4px 0 12px; }
   .brand { width: auto; font-size: 17px; letter-spacing: 3px; gap: 7px; }
@@ -4005,26 +4028,26 @@ body.paused #reticle, body.paused #coach { display: none; }
   .col-m > .sec-title:first-child::after { flex: 1 0 24px; }
   .col-m > .sec-title .btn.sm, .col-m > .sec-title .chk { height: 30px; }
   .inv-tips { flex-wrap: wrap; row-gap: 4px; white-space: normal; text-align: center; }
-  .tcard { max-width: calc(100vw - 16px); }
+  .tcard { max-width: calc(calc(100 * var(--vw, 1vw)) - 16px); }
 }
 @media (max-width: 600px) {
-  .brand { display: none; }
-  #tabs { justify-content: flex-start; gap: 0; }
-  .tab { padding: 0 9px; letter-spacing: 1px; }
-  #panel-body { padding: 8px 8px 10px; }
+  :where(html:not(.t-rot)) .brand { display: none; }
+  :where(html:not(.t-rot)) #tabs { justify-content: flex-start; gap: 0; }
+  :where(html:not(.t-rot)) .tab { padding: 0 9px; letter-spacing: 1px; }
+  :where(html:not(.t-rot)) #panel-body { padding: 8px 8px 10px; }
 
   /* 竖屏：一列，整页滚动。顺序：装备 → 背包 → 物品详情 → 属性 */
-  .inv { display: flex; flex-direction: column; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #5e4329 transparent; }
-  .inv-side { display: contents; }
-  .inv > .col-m { order: 2; flex: none; margin-top: 14px; padding-right: 0; overflow: visible; }
-  .inv-side > .col-r { order: 3; margin-top: 14px; }
-  .col-l > .sec-title:nth-child(3), .col-l > .stats { order: 4; }
-  .col-l > .sec-title:nth-child(3) { margin-top: 14px; }
-  .eq-grid { grid-template-columns: repeat(4, minmax(0, 76px)); gap: 6px; }
-  .bag { grid-template-columns: repeat(7, minmax(0, 1fr)); }
-  .cur-row { grid-template-columns: repeat(4, 1fr); }
-  .inv-tips { margin-top: 10px; }
-  .tip-pair { flex-direction: column; }
+  :where(html:not(.t-rot)) .inv { display: flex; flex-direction: column; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #5e4329 transparent; }
+  :where(html:not(.t-rot)) .inv-side { display: contents; }
+  :where(html:not(.t-rot)) .inv > .col-m { order: 2; flex: none; margin-top: 14px; padding-right: 0; overflow: visible; }
+  :where(html:not(.t-rot)) .inv-side > .col-r { order: 3; margin-top: 14px; }
+  :where(html:not(.t-rot)) .col-l > .sec-title:nth-child(3), :where(html:not(.t-rot)) .col-l > .stats { order: 4; }
+  :where(html:not(.t-rot)) .col-l > .sec-title:nth-child(3) { margin-top: 14px; }
+  :where(html:not(.t-rot)) .eq-grid { grid-template-columns: repeat(4, minmax(0, 76px)); gap: 6px; }
+  :where(html:not(.t-rot)) .bag { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  :where(html:not(.t-rot)) .cur-row { grid-template-columns: repeat(4, 1fr); }
+  :where(html:not(.t-rot)) .inv-tips { margin-top: 10px; }
+  :where(html:not(.t-rot)) .tip-pair { flex-direction: column; }
 }
 
 /* ---------- 职业（class-d2）：变灰的技能、物品的职业行、职业起步天赋、共享仓库 ---------- */
@@ -4062,12 +4085,12 @@ body.paused #reticle, body.paused #coach { display: none; }
   bottom: max(26%, 200px);
   z-index: 32;
   display: none;
-  max-width: calc(100vw - 32px);
+  max-width: calc(calc(100 * var(--vw, 1vw)) - 32px);
   box-sizing: border-box;
   padding: 0.5em 0.95em 0.55em;
   font-family: var(--sans);
   font-weight: 600;
-  font-size: clamp(15px, 1.6vw, 21px);
+  font-size: clamp(15px, calc(1.6 * var(--vw, 1vw)), 21px);
   line-height: 1.55;
   letter-spacing: 0.04em;
   color: #1d130d;
@@ -4088,8 +4111,8 @@ body.paused #reticle, body.paused #coach { display: none; }
 #narr p + p { opacity: 0; transition: opacity 0.4s ease; }
 #narr.l2 p + p { opacity: 1; }
 @media (max-width: 560px) {
-  #narr { bottom: max(24%, 190px); width: calc(100vw - 32px); text-align: center; }
-  #narr p { white-space: normal; }
+  :where(html:not(.t-rot)) #narr { bottom: max(24%, 190px); width: calc(calc(100 * var(--vw, 1vw)) - 32px); text-align: center; }
+  :where(html:not(.t-rot)) #narr p { white-space: normal; }
 }
 @media (prefers-reduced-motion: reduce) {
   #narr, #narr.on { transform: translate(-50%, 0); }
@@ -4099,7 +4122,7 @@ body.paused #reticle, body.paused #coach { display: none; }
    开场卡片在矮窗口（桌面小窗、手机横屏）：收紧排版，「开始」一直在屏幕里（最低 360 高）
    ============================================================ */
 @media (max-height: 600px) {
-  .intro-card { max-height: calc(100vh - 12px); overflow-y: auto; box-sizing: border-box; padding: 14px 24px 12px; }
+  .intro-card { max-height: calc(calc(100 * var(--vh, 1vh)) - 12px); overflow-y: auto; box-sizing: border-box; padding: 14px 24px 12px; }
   .intro-title { font-size: 30px; letter-spacing: 12px; text-indent: 12px; }
   .intro-sub { margin-top: 0; }
   .intro-keys { grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0 10px; }
@@ -4109,6 +4132,17 @@ body.paused #reticle, body.paused #coach { display: none; }
   #intro-go { height: 36px; }
   .intro-foot { margin-top: 8px; }
 }
+/* 旋转横屏（html.t-rot，手机版 M2）：按转过的画面尺寸套用上面这一段（(max-height: 600px)，js/touch.js 设 t-rh600） */
+  :where(html.t-rh600) .intro-card { max-height: calc(calc(100 * var(--vh, 1vh)) - 12px); overflow-y: auto; box-sizing: border-box; padding: 14px 24px 12px; }
+  :where(html.t-rh600) .intro-title { font-size: 30px; letter-spacing: 12px; text-indent: 12px; }
+  :where(html.t-rh600) .intro-sub { margin-top: 0; }
+  :where(html.t-rh600) .intro-keys { grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0 10px; }
+  :where(html.t-rh600) .intro-keys div { padding: 8px 4px 7px; font-size: 12.5px; line-height: 17px; letter-spacing: 1px; }
+  :where(html.t-rh600) .intro-keys span { margin-bottom: 5px; }
+  :where(html.t-rh600) .intro-card p { margin-bottom: 10px; line-height: 19px; }
+  :where(html.t-rh600) #intro-go { height: 36px; }
+  :where(html.t-rh600) .intro-foot { margin-top: 8px; }
+
 
 /* 画面丢失（WebGL 上下文被收回）：先存档，存成功了等画面回来就重载（main.js） */
 #ctx-lost { position: fixed; inset: 0; z-index: 95; display: none; place-items: center; padding: 0 24px; text-align: center; font-size: 16px; letter-spacing: 2px; color: #f2dfb8; background: rgba(6, 4, 3, 0.92); }
@@ -4127,7 +4161,9 @@ html.touch-ui {
   --sa-b: max(env(safe-area-inset-bottom, 0px), var(--t-safe-b, 0px));
   --sa-l: max(env(safe-area-inset-left, 0px), var(--t-safe-l, 0px), 12px);
   --cr: calc(var(--sa-r) + 10px);
+  --cl: calc(var(--sa-l) + 10px);
   --cb: calc(var(--sa-b) + 10px);
+  --tk: 1; /* 按钮大小（M2 设置：小 / 中 / 大），按钮簇的尺寸和间距都乘它 */
   -webkit-touch-callout: none;
   -webkit-text-size-adjust: 100%;
 }
@@ -4189,7 +4225,7 @@ html.touch-ui #combo-n { font-size: 38px; line-height: 38px; }
 html.touch-ui .cb-label { font-size: 11px; letter-spacing: 4px; text-indent: 4px; }
 html.touch-ui .cb-bar { width: 64px; margin-top: 4px; }
 /* 提示卡：顶栏下方居中、不超过 40% 宽、最多两行（点一下展开），不压摇杆区和按钮簇；首领条出来时排到它下面 */
-html.touch-ui #coach { --cw: min(40vw, 360px, calc(100vw - 2 * max(var(--sa-l), var(--sa-r)) - 348px)); left: 50%; top: calc(var(--sa-t) + 56px); width: var(--cw); margin-left: calc(var(--cw) / -2); box-sizing: border-box; padding: 5px 10px 6px; border-left-width: 2px; }
+html.touch-ui #coach { --cw: min(calc(40 * var(--vw, 1vw)), 360px, calc(calc(100 * var(--vw, 1vw)) - 2 * max(var(--sa-l), var(--sa-r)) - 348px)); left: 50%; top: calc(var(--sa-t) + 56px); width: var(--cw); margin-left: calc(var(--cw) / -2); box-sizing: border-box; padding: 5px 10px 6px; border-left-width: 2px; }
 html.touch-ui #coach.on { pointer-events: auto; }
 html.touch-ui.t-boss #coach { top: calc(var(--sa-t) + 112px); }
 html.touch-ui #coach .co-tag, html.touch-ui #coach .co-ok { display: none; }
@@ -4210,27 +4246,29 @@ html.touch-ui .bar-sep, html.touch-ui #gauge, html.touch-ui #pp-remind { display
 html.touch-ui #xp { position: fixed; left: var(--sa-l); right: var(--sa-r); bottom: var(--sa-b); width: auto; height: 3px; gap: 0; }
 html.touch-ui #xp-lv, html.touch-ui #xp-pct { display: none; }
 html.touch-ui #xp .xp-track { height: 3px; border: none; border-radius: 0; }
-html.touch-ui [data-tb] { position: absolute; pointer-events: auto; touch-action: none; -webkit-tap-highlight-color: transparent; }
-html.touch-ui .slot[data-tb] { --sz: 54px; width: var(--sz); height: var(--sz); gap: 0; }
+/* 按钮簇：每颗按钮的位置写成离右下角的 --x / --y（像素数，不带单位），尺寸和间距都乘 --tk（按钮大小）；左手模式（t-mirror）只把 right 换成 left */
+html.touch-ui [data-tb] { --x: 0; --y: 0; position: absolute; right: calc(var(--cr) + var(--x) * var(--tk) * 1px); bottom: calc(var(--cb) + var(--y) * var(--tk) * 1px); pointer-events: auto; touch-action: none; -webkit-tap-highlight-color: transparent; }
+html.touch-ui.t-mirror [data-tb] { right: auto; left: calc(var(--cl) + var(--x) * var(--tk) * 1px); }
+html.touch-ui .slot[data-tb] { --s: 54; --sz: calc(var(--s) * var(--tk) * 1px); width: var(--sz); height: var(--sz); gap: 0; }
 html.touch-ui .slot[data-tb] .s-icon { width: var(--sz); height: var(--sz); border-radius: 50%; }
 html.touch-ui .slot[data-tb] .s-icon > .s-img { inset: 18%; }
 html.touch-ui .slot[data-tb] .s-key, html.touch-ui .slot.basic[data-tb] .s-icon::after { display: none; }
 html.touch-ui .slot[data-tb] .s-cdnum { font-size: 17px; }
 html.touch-ui .slot.t-down .s-icon, html.touch-ui #dodge.t-down .d-icon, html.touch-ui .flask.t-down .flask-body, html.touch-ui #t-f.t-down { filter: brightness(1.35); }
-html.touch-ui .slot[data-tb="s0"] { --sz: 76px; right: var(--cr); bottom: var(--cb); }
-html.touch-ui .slot[data-tb="s1"] { --sz: 58px; right: calc(var(--cr) + 86px); bottom: var(--cb); }
-html.touch-ui .slot[data-tb="s2"] { right: calc(var(--cr) + 80px); bottom: calc(var(--cb) + 70px); }
-html.touch-ui .slot[data-tb="s3"] { right: calc(var(--cr) + 11px); bottom: calc(var(--cb) + 86px); }
-html.touch-ui .slot[data-tb="s4"] { right: calc(var(--cr) + 150px); bottom: calc(var(--cb) + 66px); }
-html.touch-ui #dodge[data-tb] { width: 52px; height: 52px; margin: 0; gap: 0; right: calc(var(--cr) + 152px); bottom: calc(var(--cb) + 4px); }
-html.touch-ui #dodge[data-tb] .d-icon { width: 52px; height: 52px; box-sizing: border-box; }
+html.touch-ui .slot[data-tb="s0"] { --s: 76; }
+html.touch-ui .slot[data-tb="s1"] { --s: 58; --x: 86; }
+html.touch-ui .slot[data-tb="s2"] { --x: 80; --y: 70; }
+html.touch-ui .slot[data-tb="s3"] { --x: 11; --y: 86; }
+html.touch-ui .slot[data-tb="s4"] { --x: 150; --y: 66; }
+html.touch-ui #dodge[data-tb] { --x: 152; --y: 4; --sz: calc(52px * var(--tk)); width: var(--sz); height: var(--sz); margin: 0; gap: 0; }
+html.touch-ui #dodge[data-tb] .d-icon { width: var(--sz); height: var(--sz); box-sizing: border-box; }
 html.touch-ui #dodge[data-tb] .s-key { display: none; }
-html.touch-ui .flask[data-tb] { width: 46px; height: 50px; margin: 0; gap: 0; justify-content: center; border-radius: 8px; background: rgba(14, 9, 6, 0.55); border: 1px solid rgba(150, 110, 64, 0.45); box-sizing: border-box; }
+html.touch-ui .flask[data-tb] { --y: 6; width: max(44px, calc(46px * var(--tk))); height: max(44px, calc(50px * var(--tk))); margin: 0; gap: 0; justify-content: center; border-radius: 8px; background: rgba(14, 9, 6, 0.55); border: 1px solid rgba(150, 110, 64, 0.45); box-sizing: border-box; }
 html.touch-ui .flask[data-tb] kbd { display: none; }
-html.touch-ui #flask-life[data-tb] { right: calc(var(--cr) + 264px); bottom: calc(var(--cb) + 6px); }
-html.touch-ui #flask-mana[data-tb] { right: calc(var(--cr) + 214px); bottom: calc(var(--cb) + 6px); }
+html.touch-ui #flask-life[data-tb] { --x: 264; }
+html.touch-ui #flask-mana[data-tb] { --x: 214; }
 /* F 情境键：附近有可处决的敌人、掉落、宝箱或异兆互动点时才出现（武器技左边、药瓶上方：矮屏上也不碰右上的追踪条） */
-#t-f { display: none; z-index: 6; width: 52px; height: 52px; right: calc(var(--cr) + 212px); bottom: calc(var(--cb) + 66px); box-sizing: border-box; place-items: center; font-size: 20px; font-weight: 700; color: #1a0f08; background: radial-gradient(circle at 50% 35%, #ffe2a0, #d88a2c); border: 2px solid #fff1d0; border-radius: 50%; box-shadow: 0 0 14px rgba(255, 170, 60, 0.7); }
+#t-f { --x: 212; --y: 66; display: none; z-index: 6; width: max(44px, calc(52px * var(--tk))); height: max(44px, calc(52px * var(--tk))); box-sizing: border-box; place-items: center; font-size: 20px; font-weight: 700; color: #1a0f08; background: radial-gradient(circle at 50% 35%, #ffe2a0, #d88a2c); border: 2px solid #fff1d0; border-radius: 50%; box-shadow: 0 0 14px rgba(255, 170, 60, 0.7); }
 #t-f.on { display: grid; }
 
 /* 浮动摇杆：左下 45% 宽、下一半高的区域里落指生成 */
@@ -4250,7 +4288,7 @@ html.touch-ui.t-portrait #t-top, html.touch-ui.t-portrait #t-stick, html.touch-u
 /* 首次提示卡：每台设备一次 */
 #t-hint { position: fixed; inset: 0; z-index: 21; display: none; place-items: center; padding: 12px; background: rgba(4, 2, 2, 0.62); }
 #t-hint.on { display: grid; }
-.th-card { width: min(440px, 92vw); max-height: calc(100vh - 24px); overflow-y: auto; box-sizing: border-box; padding: 16px 20px 14px; text-align: center; background: linear-gradient(180deg, rgba(42, 25, 12, 0.97), rgba(16, 10, 7, 0.97)); border: 1px solid #c58a4a; border-radius: 4px; }
+.th-card { width: min(440px, calc(92 * var(--vw, 1vw))); max-height: calc(calc(100 * var(--vh, 1vh)) - 24px); overflow-y: auto; box-sizing: border-box; padding: 16px 20px 14px; text-align: center; background: linear-gradient(180deg, rgba(42, 25, 12, 0.97), rgba(16, 10, 7, 0.97)); border: 1px solid #c58a4a; border-radius: 4px; }
 .th-title { font-family: var(--serif); font-size: 18px; letter-spacing: 6px; color: #f2dfb8; }
 .th-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0; }
 .th-list div { padding: 8px 6px; font-size: 13px; line-height: 19px; color: #e6d7bd; background: #110c09; border: 1px solid #2e2219; border-radius: 3px; }
@@ -4271,7 +4309,7 @@ html.touch-ui .m-btn kbd, html.touch-ui .m-head kbd, html.touch-ui #panel-close 
 
 /* 触屏：可见高度。iOS 上 100vh 是工具栏收起时的高度，比看得见的高；js/touch.js 按 visualViewport 写 --app-h（没有就用 dvh）。
    全屏的层用 inset: 0（贴着可见区域），这里只把按 vh 算尺寸的几处换掉 */
-html.touch-ui { --app-h: 100dvh; }
+html.touch-ui { --app-h: calc(100 * var(--dvh, 1dvh)); }
 html.touch-ui #panel-win { height: min(736px, calc(var(--app-h) * 0.92)); }
 @media (max-width: 900px), (max-height: 500px) {
   html.touch-ui #panel-win { height: var(--app-h); }
@@ -4285,7 +4323,7 @@ html.touch-ui .t-name { font-size: clamp(40px, calc(var(--app-h) * 0.11), 86px);
 html.touch-ui .m-menu { margin-top: clamp(10px, calc(var(--app-h) * 0.045), 40px); }
 html.touch-ui body, html.touch-ui #panel, html.touch-ui #hud, html.touch-ui #title, html.touch-ui #intro, html.touch-ui #pause { height: var(--app-h); bottom: auto; }
 @media (max-width: 560px) {
-  html.touch-ui #title.clsv .t-main { max-height: calc(var(--app-h) * 0.62); }
+  html.touch-ui:where(:not(.t-rot)) #title.clsv .t-main { max-height: calc(var(--app-h) * 0.62); }
 }
 /* 矮屏（iOS 横屏工具栏占掉一截，340 高以下）：开场卡片再收紧 */
 @media (max-height: 360px) {
@@ -4296,6 +4334,14 @@ html.touch-ui body, html.touch-ui #panel, html.touch-ui #hud, html.touch-ui #tit
   .intro-card p { margin-bottom: 8px; font-size: 12px; line-height: 17px; }
   .intro-foot { margin-top: 6px; }
 }
+/* 旋转横屏（html.t-rot，手机版 M2）：按转过的画面尺寸套用上面这一段（(max-height: 360px)，js/touch.js 设 t-rh360） */
+  :where(html.t-rh360) .intro-card { padding: 10px 20px 10px; }
+  :where(html.t-rh360) .intro-title { font-size: 24px; letter-spacing: 10px; text-indent: 10px; }
+  :where(html.t-rh360) .intro-keys { margin: 8px 0 8px; }
+  :where(html.t-rh360) .intro-keys div { padding: 6px 4px 5px; }
+  :where(html.t-rh360) .intro-card p { margin-bottom: 8px; font-size: 12px; line-height: 17px; }
+  :where(html.t-rh360) .intro-foot { margin-top: 6px; }
+
 html.touch-ui .st-skip kbd { display: none; }
 /* 职业选择在矮屏上要滚动：「以 X 开始」钉在列表底部，不用滚到底才找得到 */
 html.touch-ui #title .m-body .m-acts { position: sticky; bottom: 0; z-index: 2; margin: 8px 0 0; padding: 8px 0 2px; background: #0d0907; border-top: 1px solid var(--line-2); box-shadow: 0 -8px 10px #0d0907; }
@@ -4311,5 +4357,60 @@ html.touch-ui #coach.on.t-min:not(.t-open) { opacity: 0.55; }
 html.touch-ui #coach.t-min:not(.t-open) .co-body { -webkit-line-clamp: 1; }
 
 /* 触屏：旁白卡放在顶栏、提示卡下方居中，字小一号、可以折行，不压小地图 / 追踪条、摇杆区和按钮簇 */
-html.touch-ui #narr { bottom: auto; top: calc(var(--sa-t) + 104px); max-width: calc(100vw - 2 * max(var(--sa-l), var(--sa-r)) - 360px); font-size: 13px; line-height: 1.5; }
+html.touch-ui #narr { bottom: auto; top: calc(var(--sa-t) + 104px); max-width: calc(calc(100 * var(--vw, 1vw)) - 2 * max(var(--sa-l), var(--sa-r)) - 360px); font-size: 13px; line-height: 1.5; }
 html.touch-ui #narr p { white-space: normal; }
+
+/* ============================================================
+   手机版 M2（只在 html.touch-ui 下）：长按 / 拖拽、按钮大小、左手模式（面板布局交给 UI-R，这里不动）
+   ============================================================ */
+/* 背包里的拖拽源：手指按住不动是长按看详情，挪过 8 px 才是拖拽（浏览器不抢去滚动）；辅助宝石列表很长，竖着划照常滚动，横着拖才是拖拽 */
+html.touch-ui #panel [data-drag] { touch-action: none; -webkit-touch-callout: none; }
+html.touch-ui #panel .sup[data-drag] { touch-action: pan-y; }
+/* 天赋盘：放大后一根手指拖动平移（不让浏览器滚动页面） */
+html.touch-ui .tree-view { touch-action: none; }
+/* 地图卡片的长按详情：区域字 */
+.tc-glyph { display: grid; place-items: center; width: 42px; height: 42px; font-family: var(--serif); font-size: 26px; color: var(--c); background: #0e0a08; border: 1px solid color-mix(in srgb, var(--c) 50%, #3d2c1e); border-radius: 4px; }
+
+/* ---------- M2 设置：按钮大小、左手模式 ---------- */
+html.touch-ui.t-size-s { --tk: 0.88; }
+html.touch-ui.t-size-l { --tk: 1.15; }
+/* 大按钮在窄屏 / 矮屏上放不下那么大：667 宽时 1.1 倍、摇杆区收窄到 40%；可见高度 345 以下只大一点点（不压右上的追踪条和提示卡） */
+@media (max-width: 720px) {
+  html.touch-ui.t-size-l:where(:not(.t-rot)) { --tk: 1.1; }
+  html.touch-ui.t-size-l:where(:not(.t-rot)) #t-stick { width: 40%; }
+}
+/* 旋转横屏（html.t-rot，手机版 M2）：按转过的画面尺寸套用上面这一段（(max-width: 720px)，js/touch.js 设 t-rw720） */
+  html.touch-ui.t-size-l:where(.t-rw720) { --tk: 1.1; }
+  html.touch-ui.t-size-l:where(.t-rw720) #t-stick { width: 40%; }
+
+@media (max-height: 345px) {
+  html.touch-ui.t-size-l { --tk: 1.04; }
+}
+/* 旋转横屏（html.t-rot，手机版 M2）：按转过的画面尺寸套用上面这一段（(max-height: 345px)，js/touch.js 设 t-rh345） */
+  html.touch-ui.t-size-l:where(.t-rh345) { --tk: 1.04; }
+
+/* 左手模式：摇杆区挪到右下，按钮簇在左下（顶栏、小地图、追踪条不动） */
+html.touch-ui.t-mirror #t-stick { left: auto; right: 0; }
+
+/* ---------- 横屏开始（手机版 M2）：竖着拿手机时的「横屏开始」按钮、旋转横屏的 ⟲（js/touch.js；整页怎么转见 setRot） ---------- */
+#t-rot-go, #t-rot-flip { display: none; }
+#t-portrait .btn { margin-top: 18px; height: 48px; padding: 0 28px; font-size: 16px; letter-spacing: 4px; }
+/* 标题画面竖着时：右上角一个「横屏开始」（游戏里竖着时在竖屏提示里） */
+html.touch-ui.t-portrait.title-on #t-rot-go { display: block; position: fixed; z-index: 30; top: calc(var(--sa-t) + 12px); right: calc(var(--sa-r) + 12px); height: 44px; padding: 0 16px; font-size: 15px; letter-spacing: 2px; }
+/* 旋转横屏时：标题画面右上角一个 ⟲；游戏里在顶栏 */
+html.touch-ui.t-rot.title-on #t-rot-flip { display: block; position: fixed; z-index: 30; top: calc(var(--sa-t) + 10px); right: calc(var(--sa-r) + 10px); width: 44px; height: 44px; padding: 0; font-size: 20px; }
+html.touch-ui:not(.t-rot) .t-btns [data-tt="rot"] { display: none; }
+/* 旋转横屏：html 底色补满屏幕（body 转过去之后的四周） */
+html.touch-ui.t-rot { background: #0a0706; }
+/* 旋转横屏下 WebKit 的 position: sticky 不跟着转过的 body 走（职业选择的「以 X 开始」钉不住，掉到列表下面看不见）：
+   这时改成 m-body 竖着排、只让卡片列表滚动，按钮行自然在最下面 */
+html.touch-ui.t-rot #title.clsv .m-body { display: flex; flex-direction: column; overflow: hidden; }
+html.touch-ui.t-rot #title.clsv .m-body > * { flex: none; }
+html.touch-ui.t-rot #title.clsv .m-body > .cl-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+html.touch-ui.t-rot #title.clsv .m-body .m-acts { position: static; }
+/* 标题画面的子页（角色、职业选择、设置……）右上角有「返回」：⟲ 只在标题主菜单上出 */
+html.touch-ui.t-rot.title-on.t-tsub #t-rot-flip { display: none; }
+/* 左手模式：摇杆区在右下，圆角也换到右下（同 mobile-hotfix 给左下的那个） */
+html.touch-ui.t-mirror #t-stick { border-bottom-left-radius: 0; border-bottom-right-radius: 50px; }
+/* 标题画面竖着时：不叠游戏里那层「横过来玩」（标题画面半透明，会透出来压着菜单），右上角的「横屏开始」就够了 */
+html.touch-ui.title-on #t-portrait { display: none !important; }

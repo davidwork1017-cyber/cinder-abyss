@@ -5059,8 +5059,11 @@
   // =====================================================================
   // 玩家
   // =====================================================================
-  // 键盘移动方向（单位向量），没按则为 null
+  // 键盘移动方向（单位向量），没按则为 null。
+  // 触屏的模拟摇杆写 G.input.move = { x, z, k }（单位向量 + 推杆幅度 0–1，js/touch.js）；桌面永远是 null，照旧走键盘这条路
   function moveDir() {
+    const tm = G.input.move;
+    if (tm) return tm;
     const k = G.input.keys;
     const mx = (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0);
     const mz = (k.KeyS || k.ArrowDown ? 1 : 0) - (k.KeyW || k.ArrowUp ? 1 : 0);
@@ -11508,7 +11511,8 @@
             const c = P.cast;
             let k = !c ? 1 : c.channel || c.ws ? c.move : c.st ? (c.fired ? 0.55 : 0.25) : c.mv !== undefined ? c.mv : 0.4; // mv：特殊弹拿左轮时边走边打（class-d2b1）
             if (P.rstate) k = Math.max(k, G.SKILLS[P.rstate.id].move || 1); // 乱射期间照常走动
-            const sp = P.moveSpeed * k * dt * terr.k;
+            let sp = P.moveSpeed * k * dt * terr.k;
+            if (mv.k !== undefined) sp *= mv.k; // 触屏摇杆推得浅就走得慢（走 / 跑的动作按实际速度混合）
             movePlayer(mv.x * sp, mv.z * sp);
             if (!P.cast) P.face = Math.atan2(mv.x, mv.z);
           }

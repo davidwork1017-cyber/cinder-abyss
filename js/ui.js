@@ -375,7 +375,7 @@
     if (altOn !== ui.altOn) {
       ui.altOn = altOn;
       document.body.classList.toggle('alt-on', altOn);
-      if (ui.tipEl && el.tip.classList.contains('on')) placeTip(ui.tipEl.getBoundingClientRect());
+      if (ui.tipEl && el.tip.classList.contains('on')) placeTip(G.rectToFrame(ui.tipEl.getBoundingClientRect()));
       else if (ui.groundLoot) wui.tipX = -1;
     }
     updateEncHud();
@@ -2445,9 +2445,9 @@
     box.classList.add('on');
     // 贴着插槽放在下方；放不下就放上方；两边都不够就选宽裕的一边并压缩列表高度，始终不盖住插槽
     const list = box.querySelector('.pk-list');
-    const r = anchor.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
+    const r = G.rectToFrame(anchor.getBoundingClientRect());
+    const vw = G.viewW();
+    const vh = G.viewH();
     const below = vh - r.bottom - 14;
     const above = r.top - 14;
     let h = box.offsetHeight;
@@ -2698,7 +2698,7 @@
     const svg = document.getElementById('tree-svg');
     if (!svg) return;
     const v = treeVb();
-    const r = svg.getBoundingClientRect();
+    const r = G.rectToFrame(svg.getBoundingClientRect());
     const k = treeScale(svg, v);
     const ox = r.left + (r.width - v.w * k) / 2, oy = r.top + (r.height - v.h * k) / 2;
     if (sx === undefined) {
@@ -2722,8 +2722,9 @@
     if (!view || e.target.closest('.tree-zoom') || !ui.tv) return; // 全览时没有可平移的余地
     tpan.armed = true;
     tpan.on = false;
-    tpan.x = e.clientX;
-    tpan.y = e.clientY;
+    const p = G.toFrame(e.clientX, e.clientY);
+    tpan.x = p.x;
+    tpan.y = p.y;
     tpan.v = Object.assign({}, ui.tv);
   }
   function treePanMove(e) {
@@ -2732,7 +2733,8 @@
       tpan.armed = tpan.on = false;
       return;
     }
-    const dx = e.clientX - tpan.x, dy = e.clientY - tpan.y;
+    const p = G.toFrame(e.clientX, e.clientY);
+    const dx = p.x - tpan.x, dy = p.y - tpan.y;
     if (!tpan.on && Math.hypot(dx, dy) < 6) return;
     if (!tpan.on) {
       tpan.on = true;
@@ -2761,7 +2763,8 @@
     e.preventDefault();
     hideTip();
     const d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
-    treeZoom(Math.exp(G.clamp(d, -240, 240) * 0.0016), e.clientX, e.clientY);
+    const p = G.toFrame(e.clientX, e.clientY);
+    treeZoom(Math.exp(G.clamp(d, -240, 240) * 0.0016), p.x, p.y);
   }
 
   // ============================================================
@@ -2881,6 +2884,24 @@
   // ============================================================
   // 地图页
   // ============================================================
+  // 地图上的区域卡片（只在触屏下挂 data-tip）：长按看全部信息（区域、怪物等级、元素、简介、首领、解锁条件），手机上卡片太挤时也能看全
+  function zoneTip(key) {
+    const [zi, ti] = key.split(':').map(Number);
+    const z = G.ZONES[zi];
+    if (!z) return '';
+    const S = G.save, boss = G.BOSSES[z.boss];
+    const clearedAt = (q) => S.cleared[q.id] !== undefined && S.cleared[q.id] >= ti;
+    const locked = zi > 0 && !clearedAt(G.ZONES[zi - 1]);
+    const st = locked ? '先在本层级击败「' + G.ZONES[zi - 1].name + '」的首领' : clearedAt(z) ? '本层级已通关' : '还没通关';
+    return (
+      '<div class="tcard" style="--c:' + hexCss(z.accent) + '">' + tcHead('<span class="tc-glyph">' + (ZONE_GLYPH[z.id] || z.name[0]) + '</span>', z.name, (ZONE_ORD[zi] || '') + ' · 轮回层级 ' + ti) +
+      '<div class="tc-desc">怪物等级 <b>' + (z.level + ti * G.TIER_LEVELS) + '</b> · <span style="color:' + G.TYPE_COLOR[z.elem] + '">' + G.TYPE_NAME[z.elem] + '</span></div>' +
+      '<div class="tc-desc">' + z.desc + '</div>' +
+      '<div class="tc-desc">首领 <b>' + boss.name + '</b>' + (S.bossKills[z.boss] ? ' · 曾击败' : '') + '</div>' +
+      '<div class="tc-hint' + (locked ? ' dim' : '') + '">' + st + '</div></div>'
+    );
+  }
+
   function renderMap() {
     const S = G.save;
     const st = G.state;
@@ -2903,7 +2924,7 @@
       const lvl = z.level + tier * G.TIER_LEVELS;
       const boss = G.BOSSES[z.boss];
       cards +=
-        '<div class="zone' + (locked ? ' locked' : '') + (here ? ' here' : '') + (cleared ? ' cleared' : '') + '" style="--fog:' + hexCss(z.fog) + ';--acc:' + hexCss(z.accent) + ';--path:' + hexCss(z.path) + ';--rock:' + hexCss(z.rock) + ';--sky:' + hexCss(z.sky) + '">' +
+        '<div class="zone' + (locked ? ' locked' : '') + (here ? ' here' : '') + (cleared ? ' cleared' : '') + '"' + (touchOn() ? ' data-tip="zone:' + i + ':' + tier + '"' : '') + ' style="--fog:' + hexCss(z.fog) + ';--acc:' + hexCss(z.accent) + ';--path:' + hexCss(z.path) + ';--rock:' + hexCss(z.rock) + ';--sky:' + hexCss(z.sky) + '">' +
         '<div class="z-art"><div class="z-ridge b"></div><div class="z-ridge a"></div><span class="z-glyph">' + (ZONE_GLYPH[z.id] || z.name[0]) + '</span>' +
         '<span class="z-ord">' + (ZONE_ORD[i] || '') + '</span>' +
         (cleared ? '<span class="z-badge ok">已通关</span>' : locked ? '<span class="z-badge lock">未解锁</span>' : z.id === qZone ? '<span class="z-badge quest">主线</span>' : '') +
@@ -3392,6 +3413,7 @@
 
   function tipHtml(kind, id) {
     if (kind === 'frag') return fragTip(id);
+    if (kind === 'zone') return zoneTip(id);
     if (kind === 'trd') {
       const o = G.state.trader && G.state.trader.stock && G.state.trader.stock[+id];
       return o && o.kind === 'item' ? itemTip(o.item, false, '拾烬客的货架 · 点「买下」') : '';
@@ -3540,8 +3562,8 @@
   // 把提示框摆到矩形 r 旁边：优先右侧，放不下就左侧，再不行就贴边并躲到上 / 下方
   function placeTip(r, preferLeft) {
     const tip = el.tip;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
+    const vw = G.viewW();
+    const vh = G.viewH();
     // 手机（尤其横屏）上浮窗可能比屏幕还大：先去掉右边那张「当前装备」对比卡，还放不下就整体缩小（最多缩到 0.7）
     if (tip.classList.contains('one')) tip.classList.remove('one');
     if (tip.style.transform) tip.style.transform = '';
@@ -3580,7 +3602,7 @@
     ui.groundLoot = null;
     el.tip.innerHTML = html;
     el.tip.classList.add('on');
-    placeTip(target.getBoundingClientRect());
+    placeTip(G.rectToFrame(target.getBoundingClientRect()));
     // 看过了：去掉「新」标记
     if (kind === 'item' && ui.fresh.delete(id)) {
       const dot = target.querySelector('.c-new');
@@ -3597,7 +3619,8 @@
   // 重渲染之后，鼠标下面的元素换了一批：按鼠标位置重新决定提示
   function retip() {
     if (ui.mouseX < 0 || !ui.isOpen || drag.on) return hideTip();
-    const under = document.elementFromPoint(ui.mouseX, ui.mouseY);
+    const sp = G.toScreen(ui.mouseX, ui.mouseY);
+    const under = document.elementFromPoint(sp.x, sp.y);
     const t = under && under.closest('[data-tip]');
     if (t) showTip(t);
     else hideTip();
@@ -4267,10 +4290,10 @@
       chiselBox(box, f.item);
       box.classList.add('on');
       // 没有鼠标位置（键盘 / 测试）时放在窗口中间
-      const x = c.x >= 0 ? c.x : window.innerWidth / 2;
-      const y = c.y >= 0 ? c.y : window.innerHeight / 2 + box.offsetHeight / 2;
-      box.style.left = Math.round(G.clamp(x - box.offsetWidth / 2, 8, window.innerWidth - box.offsetWidth - 8)) + 'px';
-      box.style.top = Math.round(G.clamp(y - box.offsetHeight - 12, 8, window.innerHeight - box.offsetHeight - 8)) + 'px';
+      const x = c.x >= 0 ? c.x : G.viewW() / 2;
+      const y = c.y >= 0 ? c.y : G.viewH() / 2 + box.offsetHeight / 2;
+      box.style.left = Math.round(G.clamp(x - box.offsetWidth / 2, 8, G.viewW() - box.offsetWidth - 8)) + 'px';
+      box.style.top = Math.round(G.clamp(y - box.offsetHeight - 12, 8, G.viewH() - box.offsetHeight - 8)) + 'px';
       return;
     }
     box.innerHTML =
@@ -4279,8 +4302,8 @@
       '<div class="cf-row"><button type="button" tabindex="-1" class="btn danger" data-act="drop-yes">丢下</button>' +
       '<button type="button" tabindex="-1" class="btn" data-act="drop-no">取消</button></div>';
     box.classList.add('on');
-    box.style.left = Math.round(G.clamp(c.x - box.offsetWidth / 2, 8, window.innerWidth - box.offsetWidth - 8)) + 'px';
-    box.style.top = Math.round(G.clamp(c.y - box.offsetHeight - 12, 8, window.innerHeight - box.offsetHeight - 8)) + 'px';
+    box.style.left = Math.round(G.clamp(c.x - box.offsetWidth / 2, 8, G.viewW() - box.offsetWidth - 8)) + 'px';
+    box.style.top = Math.round(G.clamp(c.y - box.offsetHeight - 12, 8, G.viewH() - box.offsetHeight - 8)) + 'px';
   }
 
   // ============================================================
@@ -5090,6 +5113,21 @@
     const v = G.save.opts[k] | 0;
     return '<div class="vol"><input type="range" tabindex="-1" min="0" max="100" step="5" value="' + v + '" data-tact="vol" data-k="' + k + '"><output>' + v + '</output></div>';
   }
+  // 手机版 M2 的触屏设置（只在触屏模式下显示；存在这台设备上）：按钮大小、左手模式、震动（没有震动接口的设备不显示）
+  const SET_TS = [['s', '小'], ['m', '中'], ['l', '大']];
+  function touchSettings(row) {
+    const P = G.touch.prefs;
+    return (
+      row('按钮大小', '右下的攻击、技能、翻滚键',
+        '<div class="seg">' + SET_TS.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (P.size === o[0] ? ' on' : '') + '" data-tact="tsize" data-v="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') +
+      row('左手模式', '摇杆放右边，按钮放左边',
+        '<button type="button" tabindex="-1" class="switch' + (P.mirror ? ' on' : '') + '" data-tact="tmirror"><i></i></button>') +
+      (G.touch.canVibe()
+        ? row('震动', '挨重击、翻滚、残血时短震一下',
+            '<button type="button" tabindex="-1" class="switch' + (P.vibe ? ' on' : '') + '" data-tact="tvibe"><i></i></button>')
+        : '')
+    );
+  }
   function menuSettings() {
     const S = G.save;
     const q = G.world.quality ? G.world.quality() : S.opts.quality;
@@ -5100,6 +5138,7 @@
       // 触屏操作（mobile M1）：自动 = 手机、平板上打开；存在这台设备上（不进存档）
       (G.touch ? row('触屏操作', '自动：手机、平板上打开',
         '<div class="seg">' + SET_T.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (G.touch.mode === o[0] ? ' on' : '') + '" data-tact="touchmode" data-m="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') : '') +
+      (touchOn() ? touchSettings(row) : '') +
       row('普通物品', '魔法、稀有物品总是自动拾取',
         '<div class="seg">' + SET_N.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (normMode() === o[0] ? ' on' : '') + '" data-tact="normmode" data-mode="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') +
       row('折叠普通物品的名牌', '地上只留一个小点，悬停或按住 Alt 展开',
@@ -5118,7 +5157,9 @@
       row('静音', '关掉所有声音',
         '<button type="button" tabindex="-1" class="switch' + (S.opts.mute ? ' on' : '') + '" data-tact="opt" data-opt="mute"><i></i></button>') +
       SET_VOL.map((o) => row(o[1], o[2], volSlider(o[0]))).join('') +
-      '<p class="m-note">设置会存进存档，前三项在游戏里的地图页也能改。</p>'
+      (touchOn()
+        ? '<p class="m-note">画质、普通物品和名牌折叠在游戏里的地图页也能改。触屏的几项只存在这台设备上，不进存档。</p>'
+        : '<p class="m-note">设置会存进存档，前三项在游戏里的地图页也能改。</p>')
     );
   }
   function menuHelp() {
@@ -5263,11 +5304,11 @@
     const c = Math.cos(yaw), s = Math.sin(yaw);
     // 职业选择（class-d2）：镜头推近到主角身上（距离 × 0.42），看得清他手里换上的起手武器；离开子页再慢慢拉回去。
     // 漂移和往左让的距离一起缩，主角还在画面右侧的同一处，只是更大
-    const zk = menu.view === 'cls' ? (innerWidth < 560 ? 0.6 : 0.42) : 1; // 手机竖屏上留出头顶的余量
+    const zk = menu.view === 'cls' ? (G.viewW() < 560 ? 0.6 : 0.42) : 1; // 手机竖屏上留出头顶的余量
     menu.zoom = menu.zoom === undefined ? zk : menu.zoom + (zk - menu.zoom) * Math.min(1, dt * 3);
     const z = menu.zoom, o = menu.off, k = (1 - z) / 0.58; // k：推近的程度 0..1
     // 窄屏（手机）：主角居中、往画面上方挪（职业选择那一栏在下面）；宽屏：往下挪一点，别顶到画面上沿
-    const narrow = innerWidth < 560;
+    const narrow = G.viewW() < 560;
     const side = narrow ? 3.5 * (1 - k) : 3.5;
     const ox = o.x * c + o.z * s, oz = -o.x * s + o.z * c, ol = Math.hypot(ox, oz) || 1;
     const fwd = (narrow ? -1.8 : 0.9) * k; // 沿镜头朝向（水平）挪：正 = 远离镜头，主角在画面里往下
@@ -5336,6 +5377,21 @@
   const MENU_ACT = {
     touchmode(d) {
       if (G.touch) G.touch.setMode(d.m);
+      G.sfx('click');
+      renderMenu();
+    },
+    tsize(d) {
+      if (G.touch) G.touch.setPref('size', d.v);
+      G.sfx('click');
+      renderMenu();
+    },
+    tmirror() {
+      if (G.touch) G.touch.setPref('mirror', !G.touch.prefs.mirror);
+      G.sfx('click');
+      renderMenu();
+    },
+    tvibe() {
+      if (G.touch) G.touch.setPref('vibe', !G.touch.prefs.vibe);
       G.sfx('click');
       renderMenu();
     },
@@ -5517,21 +5573,26 @@
     drag.armed = { kind: key.slice(0, cut), id: key.slice(cut + 1), src, x: e.clientX, y: e.clientY };
   }
   function dragMove(e) {
-    if (drag.on) return dragTrack(e.clientX, e.clientY);
+    if (drag.on) {
+      const p = G.toFrame(e.clientX, e.clientY);
+      return dragTrack(p.x, p.y);
+    }
     const a = drag.armed;
     if (!a) return;
     if (!(e.buttons & 1)) {
       drag.armed = null;
       return;
     }
-    if (Math.hypot(e.clientX - a.x, e.clientY - a.y) < 6) return; // 没挪出几像素：还是一次点击
+    if (Math.hypot(e.clientX - a.x, e.clientY - a.y) < (e.pointerType === 'touch' ? 8 : 6)) return; // 没挪出几像素：还是一次点击（手指按住不动是长按看详情，挪过 8 px 才是拖拽）
     drag.armed = null;
-    dragStart(a, e.clientX, e.clientY);
+    const p = G.toFrame(e.clientX, e.clientY);
+    dragStart(a, p.x, p.y);
   }
   function dragUp(e) {
     drag.armed = null;
     if (!drag.on) return;
-    dragTrack(e.clientX, e.clientY);
+    const p = G.toFrame(e.clientX, e.clientY);
+    dragTrack(p.x, p.y);
     const info = drag.info;
     endDrag();
     swallowClick();
@@ -5784,7 +5845,8 @@
     drag.x = x;
     drag.y = y;
     el.ghost.style.transform = 'translate(' + Math.round(x) + 'px,' + Math.round(y) + 'px)';
-    const info = dropInfo(document.elementFromPoint(x, y));
+    const sp = G.toScreen(x, y); // drag.x / y 是画面坐标，elementFromPoint 要屏幕坐标
+    const info = dropInfo(document.elementFromPoint(sp.x, sp.y));
     if (drag.hover !== info.el || (drag.info && drag.info.ok !== info.ok)) {
       if (drag.hover) drag.hover.classList.remove('drop-hover', 'drop-bad');
       drag.hover = info.el;
@@ -5810,7 +5872,7 @@
     edge.t = now;
     const list = el.body.querySelector('.skill-list');
     if (!list || !dt) return;
-    const r = list.getBoundingClientRect();
+    const r = G.rectToFrame(list.getBoundingClientRect());
     const x = drag.x, y = drag.y;
     let k = 0;
     if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
@@ -6214,7 +6276,7 @@
     const h = (e.height || 1.8) * (e.elite ? 1.3 : 1);
     const q = G.world.project(e.x, h + 0.35, e.z);
     // 镜头近了以后，画面上方的高个子敌人头顶会顶出屏幕：名牌夹在屏幕里（左右各留 6 像素，上边留 6 像素）
-    const hw = (wui.plateW || 0) / 2, vw = window.innerWidth;
+    const hw = (wui.plateW || 0) / 2, vw = G.viewW();
     const x = Math.min(Math.max(q.x, hw + 6), Math.max(hw + 6, vw - hw - 6));
     const y = Math.max(q.y - (e.elite ? 24 : mini ? 16 : 10), (wui.plateH || 0) + 6);
     p.style.transform = 'translate(' + Math.round(x) + 'px,' + Math.round(y) + 'px) translate(-50%,-100%)';
@@ -6245,8 +6307,8 @@
         if (e.elite && e.awake && !e.dead && !e.isBoss) add('elite', e.x, e.z);
       }
     }
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
+    const vw = G.viewW();
+    const vh = G.viewH();
     const L = 46, R = vw - 46, T = 120, B = vh - 218;
     let used = 0;
     let org = null;
@@ -6307,7 +6369,10 @@
     let ally = null;
     // 面板 / 开场卡片刚关掉：鼠标不动就没有 mousemove，overCanvas 还停在「鼠标在面板上」，准星和系统指针会一起消失。
     // 这里按鼠标现在的位置重新判断一次（只在关掉的那一帧读一次布局）
-    if (live && !rx.live && ui.mouseX >= 0) ui.overCanvas = retOnCanvas(document.elementFromPoint(ui.mouseX, ui.mouseY));
+    if (live && !rx.live && ui.mouseX >= 0) {
+      const sp = G.toScreen(ui.mouseX, ui.mouseY);
+      ui.overCanvas = retOnCanvas(document.elementFromPoint(sp.x, sp.y));
+    }
     rx.live = live;
     const aim = live && ui.overCanvas && ui.mouseX >= 0;
     if (aim && !P.dead) {
@@ -6408,10 +6473,10 @@
       }
       const h = Math.min(3.6, (ex.height || 2) * (ex.elite ? 1.3 : 1));
       const q = W.project(ex.x, h + 0.5, ex.z);
-      const vw = window.innerWidth;
+      const vw = G.viewW();
       // 留在画面里，并且让开右上角的小地图（和方向箭头同一套避让）
       const qx = Math.round(G.clamp(q.x, 80, vw - 80));
-      let qy = Math.round(G.clamp(q.y - (ex.isBoss ? 4 : 30), 96, window.innerHeight - 230));
+      let qy = Math.round(G.clamp(q.y - (ex.isBoss ? 4 : 30), 96, G.viewH() - 230));
       if (qx > vw - 290 && qy < 244) qy = 244;
       if (qx !== wui.execX || qy !== wui.execY) {
         wui.execX = qx;
@@ -7227,21 +7292,23 @@
       }
     });
     document.addEventListener('mousemove', (e) => {
-      ui.mouseX = e.clientX;
-      ui.mouseY = e.clientY;
+      const p = G.toFrame(e.clientX, e.clientY);
+      ui.mouseX = p.x;
+      ui.mouseY = p.y;
       const t = e.target;
       ui.overCanvas = !t || t === document.body || t === document.documentElement || t.tagName === 'CANVAS';
-      wui.ret.style.transform = 'translate(' + e.clientX + 'px,' + e.clientY + 'px)'; // 准星直接跟鼠标，不等下一帧
+      wui.ret.style.transform = 'translate(' + p.x + 'px,' + p.y + 'px)'; // 准星直接跟鼠标，不等下一帧
       const now = performance.now();
       if (now - rx.moveAt > RET_IDLE && wui.retState !== 'off') retPing(now); // 停了一阵再动：提示一下准星在哪
       rx.moveAt = now;
     });
     // 鼠标不动、它下面的东西变了（面板关掉、提示卡收起）时浏览器会补发 mouseover：顺手更新准星的位置和「在不在画面上」
     document.addEventListener('mouseover', (e) => {
-      ui.mouseX = e.clientX;
-      ui.mouseY = e.clientY;
+      const p = G.toFrame(e.clientX, e.clientY);
+      ui.mouseX = p.x;
+      ui.mouseY = p.y;
       ui.overCanvas = retOnCanvas(e.target);
-      wui.ret.style.transform = 'translate(' + e.clientX + 'px,' + e.clientY + 'px)';
+      wui.ret.style.transform = 'translate(' + p.x + 'px,' + p.y + 'px)';
     });
     // 切回窗口：鼠标可能一直停在原处，提示一下准星在哪
     window.addEventListener('focus', () => {
