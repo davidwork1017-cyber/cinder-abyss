@@ -25667,9 +25667,12 @@ async function touchKit() {
     },
     up: () => send('touchEnd', []),
     cancel: () => send('touchCancel', []),
+    // 轻点：两个事件带上相隔 50 ms 的时间戳。机器忙时 touchStart 和 touchEnd 之间可能真隔了半秒以上，
+    // 页面按事件时间戳判长按（js/touch.js 的 lpEnd），不带时间戳就会把这一下当成长按、吞掉 click
     async tap(x, y) {
-      await send('touchStart', [{ x, y }]);
-      await send('touchEnd', []);
+      const t = Date.now() / 1000;
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [pt({ x, y })], timestamp: t });
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], timestamp: t + 0.05 });
     },
     // 从 (x0, y0) 分几步拖到 (x1, y1)，不松手
     async drag(x0, y0, x1, y1, n) {
@@ -26311,7 +26314,7 @@ async function touchSteps() {
     return '按钮 ' + acts.join(' / ') + '；打 ' + busy.sec + ' 秒文字处理 ' + busy.calls + ' 次，提示卡收成一行';
   });
 
-  await step('触屏：长按看详情——技能、天赋、地图的区域卡片（450 ms 出浮窗和详情，松手留着，下一次碰屏幕收起）；长按天赋不会点亮；背包里挪过 8 px 是拖拽（拖到装备栏穿上），不到 8 px 是长按；竖屏背包从格子以外竖着划照常滚动', async () => {
+  await step('触屏：长按看详情——技能、天赋、地图的区域卡片（450 ms 出浮窗和详情，松手留着，下一次碰屏幕收起）；长按天赋不会点亮；背包里挪过 8 px 是拖拽（拖到装备栏穿上），不到 8 px 是长按；竖屏滚动区（图鉴列表）竖着划照常滚动', async () => {
     await touchPage();
     await ev(() => {
       G.debug.learnAll();
@@ -26409,28 +26412,33 @@ async function touchSteps() {
     await ev(() => G.ui.close());
     assert(!out.still.drag && out.still.lp === 'on', '挪 5 px 按住应是长按、不是拖拽：' + JSON.stringify(out.still));
     assert(out.mid.drag && !out.mid.lp && out.worn, '挪过 8 px 应是拖拽，拖到装备栏应穿上：' + JSON.stringify(out));
-    // 竖屏的背包整页滚动：只有拖拽源（格子）是 touch-action: none，滚动容器不是；从格子以外的地方竖着划能滚
+    // 竖屏：只有拖拽源（格子）是 touch-action: none，滚动区不是；在滚动区里竖着划能滚。
+    // UI-R B1 起竖屏背包一屏放下、不再整页滚动（一个页面只有 data-list 能滚），滚动区换成「属性·图鉴」的列表（data-list）
     await page.setViewportSize({ width: 390, height: 844 });
     await ev(() => {
-      for (let i = 0; i < 10; i++) G.debug.giveItem(i % 3, null, null, 20); // 背包放满一点，整页要能滚
+      for (let i = 0; i < 10; i++) G.debug.giveItem(i % 3, null, null, 20);
       G.ui.open('inv');
     });
     await frames(3);
+    const cellTa = await ev(() => getComputedStyle(document.querySelector('.cell[data-item]')).touchAction);
+    await ev(() => G.ui.open('char', 'codex'));
+    await frames(3);
     const sc = await ev(() => {
-      const inv = document.querySelector('.inv'), cell = document.querySelector('.cell[data-item]');
-      const t = T.rect(document.querySelector('.col-m > .sec-title')); // 背包标题行（格子上面），从它的左端开始划
-      return { inv: getComputedStyle(inv).touchAction, oy: getComputedStyle(inv).overflowY, cell: getComputedStyle(cell).touchAction, room: inv.scrollHeight - inv.clientHeight, x: t.l + 16, y: t.y, top0: inv.scrollTop };
+      const inv = document.querySelector('#panel-body [data-list]');
+      const t = T.rect(inv);
+      return { inv: getComputedStyle(inv).touchAction, oy: getComputedStyle(inv).overflowY, cell: null, room: inv.scrollHeight - inv.clientHeight, x: t.l + 16, y: t.b - 30, top0: inv.scrollTop };
     });
+    sc.cell = cellTa;
     await touch.drag(sc.x, sc.y, sc.x, Math.max(12, sc.y - 180), 8);
     await touch.up();
     await sleep(400);
-    sc.top1 = await ev(() => document.querySelector('.inv').scrollTop);
+    sc.top1 = await ev(() => document.querySelector('#panel-body [data-list]').scrollTop);
     await ev(() => G.ui.close());
     await page.setViewportSize({ width: 844, height: 390 });
     await frames(2);
-    assert(sc.inv === 'auto' && sc.oy === 'auto' && sc.cell === 'none' && sc.room > 50, '竖屏背包：滚动容器应保持默认 touch-action、格子才是 none：' + JSON.stringify(sc));
-    assert(sc.top1 > sc.top0 + 40, '竖屏背包从格子以外竖着划应能滚动：' + JSON.stringify(sc));
-    return '技能 / 天赋 / 区域卡片长按出详情、松手留着；天赋点亮数 ' + n0 + ' → ' + n1 + '；拖拽穿上鞋子；竖屏背包划动滚了 ' + Math.round(sc.top1 - sc.top0) + ' px';
+    assert(sc.inv === 'auto' && sc.oy === 'auto' && sc.cell === 'none' && sc.room > 50, '竖屏：滚动区（data-list）应保持默认 touch-action、格子才是 none：' + JSON.stringify(sc));
+    assert(sc.top1 > sc.top0 + 40, '竖屏：在滚动区里竖着划应能滚动：' + JSON.stringify(sc));
+    return '技能 / 天赋 / 区域卡片长按出详情、松手留着；天赋点亮数 ' + n0 + ' → ' + n1 + '；拖拽穿上鞋子；竖屏图鉴列表划动滚了 ' + Math.round(sc.top1 - sc.top0) + ' px';
   });
 
   await step('触屏：M2 设置——左手模式（右下拖摇杆能走、左下的按钮能按）、按钮大小、震动（安卓桩：重击 / 翻滚 / 残血各震一次、120 ms 限频、残血不连震、关掉不震、没有 vibrate 时设置里不显示）、主题色', async () => {
