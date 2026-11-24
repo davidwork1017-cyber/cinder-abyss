@@ -266,6 +266,84 @@ await step('面板布局（UI-R B1）：844×340 / 390×844 下背包（空、�
   return '2 个尺寸 × 8 个状态 = ' + n + ' 次检查';
 });
 
+await step('面板布局（UI-R B3）：844×340 / 390×844 下天赋页（全览、说明、汇总卡、节点卡、点亮后）都过 a–f 检查；点节点出节点卡、按「点亮」才点亮，点卡片外面能收起', async () => {
+  await ev(() => {
+    G.debug.hold(true);
+    G.debug.setLevel(30);
+    G.resetPassives();
+    G.allocPassive('sm0');
+    G.allocPassive('dm0');
+    G.computeStats();
+  });
+  const vp0 = page.viewportSize();
+  const bad = [];
+  let n = 0;
+  // 一直循环的动画（可点亮节点的光圈）不等
+  const settle = () => ev(async () => {
+    for (const x of document.querySelectorAll('#panel-win, #panel-win *, #panel .sheet')) for (const a of x.getAnimations()) if (a.effect && a.effect.getComputedTiming().iterations !== Infinity) await a.finished.catch(() => {});
+  });
+  const tapNode = async (id) => {
+    const r = await ev((id) => { const b = document.querySelector('#tree-svg [data-node="' + id + '"] .shape').getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; }, id);
+    await page.touchscreen.tap(r.x, r.y);
+  };
+  for (const [w, h] of [[844, 340], [390, 844]]) {
+    await page.setViewportSize({ width: w, height: h });
+    await page.waitForTimeout(300);
+    const states = [
+      ['全览', []],
+      ['说明', [w <= 600 ? '#panel-body [data-act="hint"]' : '#panel-q']],
+      ['汇总卡', ['[data-act="tree-sum"]'], true],
+      ['节点卡', ['node:dm1'], true],
+      ['点亮后', ['node:dm1', '.sheet.tnode [data-act="node-go"]'], true],
+    ];
+    for (const [id, taps, card] of states) {
+      n++;
+      try {
+        await ev(() => {
+          G.ui.close();
+          G.resetPassives();
+          G.allocPassive('sm0');
+          G.allocPassive('dm0');
+          G.ui.open('tree');
+          const f = document.querySelector('[data-act="tree-zoom"][data-z="fit"]');
+          if (f && !f.classList.contains('on')) f.click();
+        });
+        await page.waitForTimeout(150);
+        for (const sel of taps) {
+          if (sel.startsWith('node:')) await tapNode(sel.slice(5));
+          else await tap(sel);
+          await page.waitForTimeout(200);
+        }
+        await settle();
+        const r = await ev(uiLayoutCheck, { touch: true, max: 3 });
+        if (r.n) bad.push(w + '×' + h + ' ' + id + '：' + Object.entries(r.res).map(([k, v]) => k + ' ' + v.n + '（' + v.s.join('；') + '）').join(' '));
+        const lit = await ev(() => G.save.passives.includes('dm1'));
+        if (id === '节点卡' && (lit || !(await ev(() => !!document.querySelector('.sheet.tnode'))))) bad.push(w + '×' + h + ' 节点卡：轻点应只出卡片、不点亮');
+        if (id === '点亮后' && (!lit || !(await ev(() => !!document.querySelector('.sheet.tnode.lit'))))) bad.push(w + '×' + h + ' 点亮后：按「点亮」应点亮、卡片留着');
+        if (card) {
+          assert(await ev(() => !!document.querySelector('#panel .sheet')), id + ' 没有打开卡片');
+          const p = await ev(uiBlankPoint);
+          assert(p, id + ' 卡片外面找不到空白处');
+          await page.touchscreen.tap(p.x, p.y);
+          await page.waitForTimeout(200);
+          if (await ev(() => !!document.querySelector('#panel .sheet'))) bad.push(w + '×' + h + ' ' + id + '：点卡片外面没有收起');
+        }
+      } catch (e) {
+        bad.push(w + '×' + h + ' ' + id + '：' + String(e.message || e).slice(0, 200));
+      }
+    }
+  }
+  await ev(() => {
+    G.ui.close();
+    G.resetPassives();
+    G.debug.hold(false); // 后面的步骤要看游戏在跑
+  });
+  if (vp0) await page.setViewportSize(vp0);
+  await page.waitForTimeout(300);
+  assert(!bad.length, bad.length + ' 处不合格：' + bad.slice(0, 6).join(' ｜ '));
+  return '2 个尺寸 × 5 个状态 = ' + n + ' 次检查';
+});
+
 await step('面板布局（UI-R B4b）：844×340 / 390×844 下拾烬客（货架、卖出、烛芯、物品卡）和标题画面（主菜单、角色页、删除确认、职业选择）都过 a–f 检查，点卡片外面能收起', async () => {
   // 角色页要有几张卡：另外放 3 个角色和回收位一个（这一步收尾时删掉，后面的步骤看到的存档不变）
   const KEYS = ['cinder-abyss-save-v1-s4', 'cinder-abyss-save-v1-s5', 'cinder-abyss-save-v1-s6', 'cinder-abyss-trash'];
