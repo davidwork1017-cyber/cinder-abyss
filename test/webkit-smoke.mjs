@@ -197,6 +197,9 @@ await step('触屏：按住主攻放出左键技能（每帧记下出手），�
 
 await step('面板布局（UI-R B1）：844×340 / 390×844 下背包（空、筛选、说明、物品卡）、仓库（格子、物品卡）、属性（属性、图鉴）都过 a–f 检查（test/ui-layout.mjs），点卡片外面能收起', async () => {
   const fx = await ev(() => {
+    // 这一步只看面板：首次提示卡「触屏操作」要是还开着（它盖在面板上面），先收起
+    const ok = document.getElementById('t-hint-ok');
+    if (document.getElementById('t-hint') && document.getElementById('t-hint').classList.contains('on') && ok) ok.click();
     G.debug.hold(true);
     const s = G.save;
     G.debug.setLevel(30);
