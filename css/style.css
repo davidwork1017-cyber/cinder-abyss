@@ -1295,12 +1295,12 @@ body.alt-on .sk-desc .alt-h { display: block; visibility: hidden; }
   .sk-nums .sk-num:nth-child(n + 4) { border-top: 1px solid #201710; }
   .sk-nums.ally .sk-num:nth-child(n + 4) { border-top-color: #12302b; }
 }
-.sk-detail .sk-desc:has(> .alt-box) { display: grid; grid-template-columns: minmax(0, 1fr); }
-.sk-detail .sk-desc > .alt-box { display: contents; }
-.sk-detail .sk-desc > .sk-dt { grid-area: 1 / 1; }
-.sk-detail .sk-desc .alt-h { grid-area: 2 / 1; margin-top: 5px; }
-.sk-detail .sk-desc .alt-d { grid-area: 1 / 1 / 3 / 2; position: static; display: block; visibility: hidden; margin: -3px -6px 2px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5); }
-body.alt-on .sk-detail .sk-desc .alt-d { visibility: visible; }
+.sk-detail > .skill-card .sk-desc:has(> .alt-box) { display: grid; grid-template-columns: minmax(0, 1fr); }
+.sk-detail > .skill-card .sk-desc > .alt-box { display: contents; }
+.sk-detail > .skill-card .sk-desc > .sk-dt { grid-area: 1 / 1; }
+.sk-detail > .skill-card .sk-desc .alt-h { grid-area: 2 / 1; margin-top: 5px; }
+.sk-detail > .skill-card .sk-desc .alt-d { grid-area: 1 / 1 / 3 / 2; position: static; display: block; visibility: hidden; margin: -3px -6px 2px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5); }
+body.alt-on .sk-detail > .skill-card .sk-desc .alt-d { visibility: visible; }
 
 .skill-more {
   grid-column: 1 / -1;

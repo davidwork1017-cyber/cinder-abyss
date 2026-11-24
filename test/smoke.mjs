@@ -8,7 +8,7 @@ import { execSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 import { checkArt } from '../tools/check-art.mjs';
 import { checkThree } from '../tools/check-three.mjs';
-import { uiLayoutCheck, uiBlankPoint, UI_SIZES, DESK_STYLE_SPEC, DESK_STYLE_MAIN, uiStyleRead } from './ui-layout.mjs';
+import { uiLayoutCheck, uiBlankPoint, UI_SIZES, DESK_STYLE_SPEC, DESK_STYLE_MAIN, uiStyleRead, DESK_STYLE_SK_SPEC, DESK_STYLE_SK_MAIN } from './ui-layout.mjs';
 
 const SAVE_KEY = 'cinder-abyss-save-v1';
 let G_CUR_N = 8, G_UQ_COLOR = '#ff9b3d', G_SOUL_INH = 1.5, G_SOUL_K = 0.2;
@@ -27433,6 +27433,23 @@ async function uiDeskStyleStep() {
     }
     assert(!bad.length, bad.length + ' 项和 main 不一样：' + bad.slice(0, 8).join(' ｜ '));
     return Object.keys(DESK_STYLE_MAIN).length + ' 项相等';
+  });
+}
+// UI-R B2：技能页的桌面样式不变：1366×768 下技能栏格、技能卡、辅助宝石卡、小标题的计算样式和 main 4484d08 逐项相等（表在 test/ui-layout.mjs）
+async function uiDeskStyleSkillsStep() {
+  await step('界面布局·桌面样式（技能页）：1366×768 下技能栏格、技能卡（卡框、卡名、标签、按键标签、说明、数值、辅助槽）、辅助宝石卡、小标题和 main 逐项相等（有意改动的只有 .sk-num span 10.5 → 11 px）', async () => {
+    assert(uiPages && uiPages.desk, '要先跑「界面布局·背包（桌面）」');
+    ({ browser, page, errors } = uiPages.desk);
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await skOpen({ open: (tab, sub) => ev(([tab, sub]) => { G.ui.close(); localStorage.removeItem('cinder-abyss-ui-seen'); G.ui.open(tab, sub); }, [tab, sub]) }, 'skills');
+    await ev(() => G.ui.open('skills', G.save.bar[0])); // 和在 main 上量的一样：中间是技能栏第一格的卡（main 上是列表里第一张技能卡）
+    await panelSettled();
+    const got = await ev(uiStyleRead, DESK_STYLE_SK_SPEC);
+    await ev(() => G.ui.close());
+    const bad = [];
+    for (const k in DESK_STYLE_SK_MAIN) if (got[k] !== DESK_STYLE_SK_MAIN[k]) bad.push(k + '：main ' + DESK_STYLE_SK_MAIN[k] + '，现在 ' + got[k]);
+    assert(!bad.length, bad.length + ' 项和 main 不一样：' + bad.slice(0, 8).join(' ｜ '));
+    return Object.keys(DESK_STYLE_SK_MAIN).length + ' 项相等';
   });
 }
 let uiPages = null; // { touch: { browser, page, errors, fx }, desk: {…} }：三个面板共用，最后一个面板跑完关掉
