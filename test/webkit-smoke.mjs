@@ -351,10 +351,12 @@ await step('竖屏（iPhone 竖着拿）：标题画面点「横屏开始」→ 
   for (const t0 = Date.now(); Date.now() - t0 < 90000; ) {
     q = await ev(() => {
       const n = document.querySelector('.st-skip');
-      return { story: G.ui.storyOn(), intro: document.getElementById('intro').classList.contains('on'), skip: !!(n && n.getBoundingClientRect().width > 0), title: G.ui.titleOn(), open: G.ui.isOpen(), rot: G.touch.state().rot, cls: document.documentElement.className, view: G.ui.classView && G.ui.classView(), url: location.search };
+      return { story: G.ui.storyOn(), ended: !!(G.story && G.story.info && G.story.info().ended), intro: document.getElementById('intro').classList.contains('on'), skip: !!(n && n.getBoundingClientRect().width > 0), title: G.ui.titleOn(), open: G.ui.isOpen(), rot: G.touch.state().rot, cls: document.documentElement.className, view: G.ui.classView && G.ui.classView(), url: location.search };
     });
     if (q.intro) break;
-    if (q.story && q.skip) await tap('.st-skip').catch(() => {});
+    // 已经在收尾淡出的故事不再点「跳过」：那时模拟已经接着跑了，淡出中的故事层不接点按，这一下会落到下面 HUD 的主攻键上，
+    // 记进缓冲、起手一次（下面量摇杆位移时撞上过这一刀）
+    if (q.story && q.skip && !q.ended) await tap('.st-skip').catch(() => {});
     // 开场故事和开场卡片所有角色共用：前面那一步看过了，第二个角色就直接进游戏
     if (!q.story && !q.title && !q.open && (await ev(() => G.save.seenHelp && G.save.seenStory))) break;
     await page.waitForTimeout(700);
