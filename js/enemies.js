@@ -1007,7 +1007,7 @@
       }
       // 冲锋蓄力：方向锁死在预警道上，后蹄刨地扬尘
       e.vis = -0.28 * (1 - Math.max(0, e.stateT) / def.windup);
-      if (Math.random() < dt * 14) W.burst(e.x - e.laneDx * e.r, 0.2, e.z - e.laneDz * e.r, 0xbfb6a6, 2, 2, 0.35);
+      if (G.vr() < dt * 14) W.burst(e.x - e.laneDx * e.r, 0.2, e.z - e.laneDz * e.r, 0xbfb6a6, 2, 2, 0.35);
       if (e.stateT > 0) return;
       e.state = 'dash';
       e.dashLeft = e.laneLen;
@@ -1035,7 +1035,7 @@
         remain -= m;
         chargeHits(e, P);
       }
-      if (Math.random() < dt * 20) W.burst(e.x, 0.2, e.z, 0xbfb6a6, 2, 2.5, 0.3);
+      if (G.vr() < dt * 20) W.burst(e.x, 0.2, e.z, 0xbfb6a6, 2, 2.5, 0.3);
       if (wall || e.dashLeft <= 1e-3) {
         W.stop(e.ent, 0.15);
         e.state = 'recover';
@@ -2219,7 +2219,7 @@
     const W = G.world;
     if (cinders.length >= T.max) cinders.shift();
     cinders.push({ x: e.x, z: e.z, t: T.t, r: T.r, owner: e });
-    W.decal(1, e.x, e.z, T.r * 1.15, Math.random() * TAU, 0xff6a2a, T.t);
+    W.decal(1, e.x, e.z, T.r * 1.15, G.vr() * TAU, 0xff6a2a, T.t);
     W.foeHit(e.x, e.z, T.r, 'fire', { noRing: true, k: 0.4 }); // vf-vfx3：余烬地落下的火舌
   }
   // 玩家被钩链拽向 (x, z)：一步 0.25 m，前面那一步 sdAt < stop（快到墙、熔岩、虚空边）就停，最多拽 dist 米

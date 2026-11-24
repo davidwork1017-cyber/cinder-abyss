@@ -3,6 +3,7 @@
 // 分两份（见 test/README.md）：main() 是 test:func（不看墙钟，可以和别的 Chrome 一起跑），timedMain() 是 test:timed（要独占机器）。
 // node test/smoke.mjs = 两份都跑（先 func 后 timed）；--func / --timed 只跑一份。
 import { launch as launchFull, GAME_URL } from './harness.mjs';
+import { cornerScenes } from './corner-mask.mjs';
 import { execSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 import { checkArt } from '../tools/check-art.mjs';
@@ -43,6 +44,15 @@ const timed = async (kind, guard, p) => {
 };
 const launch = async (o) => {
   const r = await launchFull(Object.assign({ dpr: cheap ? CHEAP_DPR : null, seed: SEEDED ? seedKey(curStep) : null }, o));
+  // 主线旁白卡（quest D3）：放的时机按真实时间（打完仗、飘字出完），会在别的步骤中途弹出来接走 Esc / 回车，所以测试默认关掉；
+  // 测旁白的那几步在 sessionStorage 里设 cinder-test-narr 再打开（install 和每次导航前都按它设 window.__noNarr）
+  await r.page.addInitScript(() => {
+    try {
+      window.__noNarr = !sessionStorage.getItem('cinder-test-narr');
+    } catch (e) {
+      window.__noNarr = true;
+    }
+  });
   if (AUDIT) {
     const pg = r.page, reload = pg.reload.bind(pg), nav = pg.waitForNavigation.bind(pg);
     pg.reload = (opt) => timed('reload', (opt && opt.timeout) || 30000, reload(opt));
@@ -133,6 +143,13 @@ async function auditFlush(name) {
 async function install() {
   await timed('install', 30000, page.waitForFunction(() => window.G && G.debug && G.state && G.state.zone && G.player && G.player.ent, null, { timeout: 30000 }));
   if (AUDIT) await ev(() => { window.__audit = true; });
+  await ev(() => {
+    try {
+      window.__noNarr = !sessionStorage.getItem('cinder-test-narr'); // 主线旁白卡默认关（见 launch）
+    } catch (e) {
+      window.__noNarr = true;
+    }
+  });
   await ev(() => {
     const G = window.G, W = G.world, P = G.player, S = G.state;
     const T = (window.T = {
@@ -3610,6 +3627,188 @@ async function main() {
     assert(r.shots >= 9, '拉弓没射出几箭：' + JSON.stringify(r));
     assert(!r.bad.length, r.bad.slice(0, 6).join(' ｜ ') + ' 共 ' + r.bad.length + ' 例');
     return r.shots + ' 箭：出手那一帧都已撒放，前一帧都拉满搭着箭';
+  });
+
+  // skill-5a：宝石技能的出手动作按握法出版本（长柄 / 双手枪拿着什么都不撒手），拖尾只给有刃的武器；只动画面
+  await step('按握法的出手动作：长柄（长杖 / 魂幡 / 战锤 / 太刀）的 throw / cast、双手枪（机炮 / 喷枪）的 throw / cast / attack1 / flicker / spin 都有自己的版本，时长和命中帧 k0 和原动作一样，命中帧照样落在 contact 上', async () => {
+    const r = await ev((code) => {
+      eval(code);
+      const P = G.player, W = G.world, save = G.save, out = { n: 0, bad: [] };
+      const keepW = save.equip.weapon;
+      const LONG = ['throw', 'cast'], GUN = ['throw', 'cast', 'attack1', 'flicker', 'flicker2', 'spin'];
+      try {
+        for (const [b, names, emit] of [[1, LONG, 'handL'], [7, LONG, 'handL'], [4, LONG, 'handL'], [6, LONG, 'handL'], [8, GUN, 'muzzle'], [9, GUN, 'muzzle']]) {
+          T.arena();
+          RW.arm(b);
+          const rig = P.ent.rig, gc = P.ent.gearClips || {};
+          for (const n of names) {
+            const c = gc[n], c0 = rig.clips[n], tag = b + '/' + n;
+            if (!c || !c.g5) { out.bad.push(tag + ' 没有按握法的版本'); continue; }
+            if (c.dur !== c0.dur || c.k0 !== c0.k0 || c.loop !== c0.loop) out.bad.push(tag + ' 时长 / k0 / 循环变了 ' + JSON.stringify([c.dur, c.k0, c.loop, c0.dur, c0.k0, c0.loop]));
+            if (n === 'throw' && c.emit !== emit) out.bad.push(tag + ' 出手点 ' + c.emit + '（应 ' + emit + '）');
+            // 实际播一遍：命中帧落在 contact（0.3 秒 = 18 帧）上，新旧两版的归一化时间一帧一帧都一样
+            const ks = [];
+            for (const off of [false, true]) {
+              W.grip5Off = off;
+              W.stop(P.ent, 0);
+              RW.run(4);
+              W.play(P.ent, n, { dur: 0.6, contact: 0.3, loop: c.loop });
+              const want = off ? c0 : c;
+              if (P.ent.clip !== want) out.bad.push(tag + (off ? ' 关掉后' : '') + ' 播的不是' + (off ? '原动作' : '按握法的版本'));
+              const k = [];
+              for (let i = 0; i < 24; i++) { G.tick(1 / 60); k.push(P.ent.cK); }
+              ks.push(k);
+            }
+            W.grip5Off = false;
+            if (JSON.stringify(ks[0]) !== JSON.stringify(ks[1])) out.bad.push(tag + ' 归一化时间和原动作不一样');
+            if (!c.loop && !(Math.abs(ks[0][17] - c.k0) < 0.02)) out.bad.push(tag + ' contact 那一帧 k = ' + ks[0][17].toFixed(3) + '（k0 ' + c.k0 + '）');
+            out.n++;
+            W.stop(P.ent, 0);
+          }
+          // 单手 / 弓不换：刃、短杖、左轮、长弓没有这些版本（弓的 throw 是原来的镜像版）
+        }
+        for (const b of [0, 2, 12]) {
+          RW.arm(b);
+          const gc = P.ent.gearClips || {};
+          for (const n of ['throw', 'cast', 'attack1', 'spin']) if (gc[n] && gc[n].g5) out.bad.push(b + '/' + n + ' 单手武器不该换');
+        }
+      } finally {
+        W.grip5Off = false;
+        save.equip.weapon = keepW;
+        G.computeStats();
+        T.arena();
+      }
+      return out;
+    }, rangedSetup);
+    assert(r.n === 20, '按握法的版本数 ' + r.n + '（应 20）：' + r.bad.slice(0, 4).join(' ｜ '));
+    assert(!r.bad.length, r.bad.slice(0, 6).join(' ｜ ') + ' 共 ' + r.bad.length + ' 例');
+    return r.n + ' 个版本：时长 / k0 / 命中帧和原动作一样';
+  });
+
+  await step('按握法的出手动作：飞刃（投掷）拿长柄从左手扔、武器扛在肩上，拿双手枪从枪口打出；弹丸第一帧画在 emitWorld 给的出手点上（出手点挂点同上）', async () => {
+    const r = await ev((code) => {
+      eval(code);
+      const P = G.player, W = G.world, save = G.save, out = { n: 0, bad: [], rows: [] };
+      const keepW = save.equip.weapon, keepBuild = T.buildSnap();
+      let last = null;
+      const sp0 = G.spawnProjectile;
+      G.spawnProjectile = function (p) {
+        const q = sp0.apply(this, arguments);
+        if (q && q.owner === 'p' && !q.minion && !q.forked) last = q;
+        return q;
+      };
+      const d3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+      try {
+        save.skills.blade = Math.max(1, save.skills.blade || 0);
+        save.sockets.blade = save.sockets.blade || [null, null, null];
+        save.bar = ['blade', null, null, null];
+        for (const [b, sock] of [[1, 'handL'], [7, 'handL'], [4, 'handL'], [6, 'handL'], [8, 'muzzle'], [9, 'muzzle']]) {
+          T.lane();
+          RW.arm(b);
+          G.computeStats();
+          const od = T.openDir(10), F = Math.atan2(od.x, od.z);
+          P.face = P.drawFace = F;
+          W.setEnt(P.ent, P.x, P.z, F);
+          RW.run(20);
+          last = null;
+          for (let i = 0; i < 120 && !last; i++) {
+            T.aim(P.x + Math.sin(F) * 8, P.z + Math.cos(F) * 8);
+            if (i % 30 === 0) G.input.tap[0] = 0.3;
+            P.mana = P.maxMana;
+            G.tick(1 / 60);
+          }
+          G.input.tap[0] = 0;
+          if (!last) { out.bad.push(b + ' 没扔出飞刃'); continue; }
+          const u = last.mesh.userData, f0 = { x: u.px, y: u.py, z: u.pz };
+          const em = W.emitWorld(P.ent), want = sock === 'muzzle' ? W.muzzleWorld(P.ent) : W.entSocket(P.ent, 'handL');
+          const e0 = d3(f0, em), e1 = d3(em, want);
+          out.rows.push(b + ':' + e0.toFixed(4) + '/' + e1.toFixed(4));
+          if (W.clipOf(P.ent) !== 'throw' || !P.ent.clip.g5) out.bad.push(b + ' 出手时播的不是按握法的投掷');
+          if (!(e0 <= 0.005)) out.bad.push(b + ' 第一帧离出手点 ' + e0.toFixed(3) + ' 米');
+          if (!(e1 <= 1e-6)) out.bad.push(b + ' 出手点不是' + sock + '（差 ' + e1.toFixed(3) + ' 米）');
+          out.n++;
+          RW.run(40);
+        }
+      } finally {
+        G.spawnProjectile = sp0;
+        G.input.tap[0] = 0;
+        T.buildRestore(keepBuild);
+        save.equip.weapon = keepW;
+        G.computeStats();
+        T.arena();
+      }
+      return out;
+    }, rangedSetup);
+    assert(r.n === 6, '只扔出 ' + r.n + ' 把：' + r.bad.join(' ｜ '));
+    assert(!r.bad.length, r.bad.slice(0, 6).join(' ｜ '));
+    return '6 种武器：第一帧离出手点 / 出手点离挂点（米）' + r.rows.join('，');
+  });
+
+  await step('拖尾只给有刃的武器：刃 / 长杖头 / 双匕 / 战锤头 / 太刀 / 魂幡头挥 attack1 拉刀光，短杖 / 四种弓 / 机炮 / 喷枪 / 左轮不拉；枪的旋风斩画尘带不画刀光；物理刀光是暖灰、没有近白的色带', async () => {
+    const r = await ev((code) => {
+      eval(code);
+      const P = G.player, W = G.world, save = G.save, out = { on: [], off: [], bad: [] };
+      const keepW = save.equip.weapon;
+      const BLADE = { 0: 1, 1: 1, 3: 1, 4: 1, 6: 1, 7: 1 };
+      try {
+        T.arena();
+        for (let b = 0; b < 14; b++) {
+          RW.arm(b);
+          W.stop(P.ent, 0);
+          RW.run(30);
+          W.setTrail(G.TYPE_HEX.phys);
+          W.play(P.ent, 'attack1', { dur: 0.45, contact: 0.22 });
+          let mx = 0;
+          for (let i = 0; i < 30; i++) {
+            G.tick(1 / 60);
+            const t = W.trailInfo();
+            if (!t.dust) mx = Math.max(mx, t.n);
+          }
+          (mx > 0 ? out.on : out.off).push(b);
+          if (!!BLADE[b] !== mx > 0) out.bad.push(b + (mx > 0 ? ' 不该拉刀光（' + mx + ' 个采样）' : ' 没拉刀光'));
+        }
+        // 枪的旋风斩：尘带
+        for (const b of [8, 9]) {
+          RW.arm(b);
+          W.stop(P.ent, 0);
+          RW.run(30);
+          W.play(P.ent, 'spin', { loop: true, dur: 0.36 });
+          let dust = 0, blade = 0;
+          for (let i = 0; i < 24; i++) {
+            G.tick(1 / 60);
+            const t = W.trailInfo();
+            if (t.dust) dust = Math.max(dust, t.n);
+            else blade = Math.max(blade, t.n);
+          }
+          W.stop(P.ent, 0);
+          if (!(dust > 4) || blade) out.bad.push(b + ' 旋风斩尘带 ' + dust + ' / 刀光 ' + blade);
+        }
+        // 物理刀光的配色：暖灰（红 ≥ 绿 ≥ 蓝，不偏青），三档都不近白（先挥一刀，从上面枪的尘带换回刀光的画法）
+        RW.arm(0);
+        RW.run(30);
+        W.setTrail(G.TYPE_HEX.phys);
+        W.play(P.ent, 'attack1', { dur: 0.45, contact: 0.22 });
+        RW.run(30);
+        if (W.trailInfo().dust) out.bad.push('挥刃之后还是尘带的画法');
+        const c = W.trailInfo().c;
+        out.c = c.map((h) => h.toString(16));
+        const ch = (h) => [(h >> 16) & 255, (h >> 8) & 255, h & 255];
+        for (const h of c) {
+          const [R, Gg, B] = ch(h);
+          if (!(R >= Gg && Gg >= B)) out.bad.push('物理刀光偏冷 ' + h.toString(16));
+          if (Math.min(R, Gg, B) >= 0xe6) out.bad.push('物理刀光近白 ' + h.toString(16));
+        }
+        W.setTrail(0xfff0c0); // 处决的奶油色也按物理画
+        if (W.trailInfo().c[1] !== c[1]) out.bad.push('处决刀光没按物理上色');
+      } finally {
+        save.equip.weapon = keepW;
+        G.computeStats();
+        T.arena();
+      }
+      return out;
+    }, rangedSetup);
+    assert(!r.bad.length, r.bad.slice(0, 8).join(' ｜ '));
+    return '拉刀光 ' + r.on.join(' ') + '；不拉 ' + r.off.join(' ') + '；物理配色 ' + r.c.join(' / ');
   });
 
   await step('量表：热度开火上涨、停火回落、满了不掉；专注命中上涨（暴击 / 远距离更多），挨打掉一点；量表没满时 R 灰着按不出，满了能放、放完清零；不扣魔力、不进冷却', async () => {
@@ -10694,6 +10893,8 @@ async function main() {
       const rare = G.spawnLoot('item', G.rollItem(10, 2, 'ring'), P.x + 2, P.z);
       const uq = G.spawnLoot('item', G.rollUnique(Object.keys(G.UNIQUES)[0], 10), P.x - 2, P.z);
       const cur = G.spawnLoot('cur', Object.keys(G.CURRENCY)[0], P.x, P.z + 2);
+      // 落点在 2.4 米内随机：通货落到离玩家 2.2 米以内会在这 0.5 秒里被自动捡走（少一圈地面环）。三件都先不自动拾取，结果不看落点
+      rare.noAuto = uq.noAuto = cur.noAuto = true;
       G.debug.step(0.5);
       W.render();
       const parts = W.projFxInfo().parts;
@@ -10787,7 +10988,7 @@ async function main() {
     return '件数 ' + Object.entries(r.el).map(([k, v]) => k + ' ' + v).join(' / ') + '，细边环 ' + r.thin + '，砸地 r ' + r.slam.r + ' / ' + r.slam.dur + ' 秒';
   });
 
-  await step('技能打磨第 1 批（skill-b1）：爆燃 / 冻结 / 冰爆画进形状批——高 / 低画质都不多一次 draw；Math.random 取数和换之前一样（爆燃 高 138 / 低 81，冻结 156、首领 216，低画质各多 2，冰爆 133）；一帧里连炸 20 个爆燃，只有前几个画全套', async () => {
+  await step('技能打磨第 1 批（skill-b1）：爆燃 / 冻结 / 冰爆画进形状批——高 / 低画质都不多一次 draw；一次 Math.random 都不取（fx-rng：只取画面随机数）；一帧里连炸 20 个爆燃，只有前几个画全套', async () => {
     const r = await ev(() => {
       const W = G.world, P = G.player, R = W.renderer, out = {}, q0 = W.quality();
       G.clearEnemies();
@@ -10825,9 +11026,76 @@ async function main() {
     });
     const H = r.high, L = r.low;
     assert(H.d1 <= H.d0 && L.d1 <= L.d0, '爆燃 / 冻结 / 冰爆不该多出 draw：' + JSON.stringify(r));
-    assert(H.blast === 138 && L.blast === 81 && H.freeze === 156 && L.freeze === 158 && H.boss === 216 && L.boss === 218 && H.frost === 133 && L.frost === 133, '爆燃 / 冻结 / 冰爆的 Math.random 取数应和换之前一样：' + JSON.stringify(r));
+    assert([H, L].every((o) => o.blast === 0 && o.freeze === 0 && o.boss === 0 && o.frost === 0), '爆燃 / 冻结 / 冰爆不该取 Math.random（画面随机数是 G.vr）：' + JSON.stringify(r));
     assert(H.peak === 20 && H.flood > 20 && H.flood <= H.cap * 24 && L.flood > 0 && L.flood <= L.cap * 12 && L.flood < H.flood, '一帧连炸 20 个爆燃时形状批的件数应有上限（只有前几个画全套）：' + JSON.stringify(r));
     return 'draw 高 ' + H.d0 + '→' + H.d1 + ' / 低 ' + L.d0 + '→' + L.d1 + '，取数 ' + [H.blast, L.blast, H.freeze, H.frost].join(' / ') + '，连炸 20 个：件数 高 ' + H.flood + ' / 低 ' + L.flood;
+  });
+
+  await step('技能打磨第 2 批（skill-b2）：瞬断的斩线 / 万魂降临的法阵和光柱改成鬼影 + 形状批，连同爆燃 / 冻结高 / 低画质都不多一次 draw；这些特效、电弧（旧 / v2）、重斩命中（细斩线）一次 Math.random 都不取（fx-rng：只取画面随机数）', async () => {
+    const r = await ev(() => {
+      const W = G.world, P = G.player, R = W.renderer, out = {}, q0 = W.quality();
+      G.clearEnemies();
+      const draws = () => { R.info.autoReset = false; R.info.reset(); W.render(); const c = R.info.render.calls; R.info.autoReset = true; return c; };
+      const cnt = (f) => { const r0 = Math.random; let n = 0; Math.random = function () { n++; return r0.apply(this, arguments); }; try { f(); } finally { Math.random = r0; } return n; };
+      const sd = (k) => window.__testRand && window.__testRand.seed('skill-b2:' + k);
+      for (const q of ['high', 'low']) {
+        W.setQuality(q);
+        W.clearFx();
+        const x = P.x + 3, z = P.z;
+        // 基线：形状批、碎块、地面痕迹、粒子各已经有一件在画
+        W.breakFx(P.x - 3, 1, P.z, 0.4);
+        W.vDecal('scorch', P.x - 3, P.z, 0.6, 2, 0x4a3e34);
+        W.burst(P.x - 3, 1, P.z, 0x808080, 4, 0.5, 3);
+        G.debug.step(0.02);
+        const o = { d0: draws() };
+        o.blast = cnt(() => W.blastFx(x, z, 3.25));
+        o.freeze = cnt(() => W.freezeFx(x + 2, z, 0.5, 2, false));
+        o.cut = cnt(() => W.cutLine(x + 2, z, 1.2, 2.8, 0xe8f0ff, 0.35));
+        o.host = cnt(() => W.soulHost(x, z + 3, 6, P.x, P.z));
+        o.champ = cnt(() => { for (let i = 0; i < 6; i++) { W.champFx(x + i, z + 4); W.champLand(x + i, z + 4, 2.2); } });
+        o.ghost = W.b2Info();
+        G.debug.step(0.02);
+        o.d1 = draws();
+        G.debug.step(0.4); // 斩线落下（鬼影：网格不画）
+        o.d2 = draws();
+        W.clearFx();
+        G.debug.step(0.02);
+        o.ash = cnt(() => W.ashBurst(x + 1, z + 1, 2, 0.6, 4, 0));
+        o.dash = cnt(() => W.dashCut(P.ent, x, z, x + 5, z, 0xe8f0ff));
+        o.shadow = cnt(() => W.shadowStep(x, z, x + 4, z, 0xc7a6ff, { dim: true }));
+        const p3 = [{ x, z }, { x: x + 3, z }, { x: x + 5, z: z + 1 }], p2 = [{ x, z }, { x: x + 3, z }];
+        o.bolt = [];
+        for (let k = 0; k < 3; k++) {
+          const v = [];
+          sd('b' + k); v.push(cnt(() => W.bolt(p3, 0xc9b4ff)));
+          sd('b' + k); v.push(cnt(() => W.bolt(p3, 0xc9b4ff, false, { v2: true })));
+          sd('m' + k); v.push(cnt(() => W.bolt(p2, 0xfffbe6, true)));
+          W.clearFx();
+          o.bolt.push(v);
+        }
+        o.imp = [];
+        for (const st of ['cut', 'ash', 'blink']) {
+          sd('i' + st); const a = cnt(() => W.impact(x, 1, z, 0.5, 'phys', 2, true));
+          sd('i' + st); W.impactStyle(st); const b = cnt(() => W.impact(x, 1, z, 0.5, 'phys', 2, true)); W.impactStyle(null);
+          o.imp.push([a, b]);
+        }
+        W.clearFx();
+        G.debug.step(0.02);
+        out[q] = o;
+      }
+      W.setQuality(q0);
+      W.clearFx();
+      return out;
+    });
+    const H = r.high, L = r.low;
+    assert(H.d1 <= H.d0 && L.d1 <= L.d0 && H.d2 <= H.d0 && L.d2 <= L.d0, '爆燃 / 冻结 / 瞬断斩线 / 万魂降临不该多出 draw：' + JSON.stringify(r));
+    assert(H.ghost.ghostStreaks >= 1 && H.ghost.ghostSummons === 6 && L.ghost.ghostSummons === 6, '瞬断的斩线、万魂降临的法阵（池子 6 个）应走鬼影：' + JSON.stringify(r));
+    for (const o of [H, L]) {
+      assert(o.cut === 0 && o.host === 0 && o.champ === 0 && o.ash === 0 && o.dash === 0 && o.shadow === 0 && o.blast === 0 && o.freeze === 0, '这些特效不该取 Math.random（画面随机数是 G.vr）：' + JSON.stringify(r));
+      assert(o.bolt.every((v) => v.every((c) => c === 0)), '电弧（旧 / v2）不该取 Math.random：' + JSON.stringify(o.bolt));
+      assert(o.imp.every((v) => v[0] === 0 && v[1] === 0), '重斩命中（原样 / 细斩线）不该取 Math.random：' + JSON.stringify(o.imp));
+    }
+    return 'draw 高 ' + H.d0 + '→' + H.d1 + '→' + H.d2 + ' / 低 ' + L.d0 + '→' + L.d1 + '→' + L.d2 + '，鬼影法阵 ' + H.ghost.ghostSummons + '，Math.random 取数全 0';
   });
 
   await step('特效三期第 3 部分（vf-vfx3）：区域氛围——霜骨沼泽 / 雷鸣遗迹 / 烬渊深处 / 坠星裂谷 / 余烛殿各有一个氛围 Points（高画质画、低画质不画）；设置「环境特效」新存档和老存档都默认开，关掉后不画、也不撒全局粒子', async () => {
@@ -11371,15 +11639,355 @@ async function main() {
     assert(on.shots >= 10 && on.dmg > 0, '混战没打起来：' + JSON.stringify(on));
     return '哈希 ' + on.hash + '，取随机数 ' + on.calls + ' 次，弹丸 ' + on.shots + ' 发，伤害 ' + on.dmg;
   });
+  await step('按握法的出手动作：只动画面——同一个种子拿长杖 / 魂幡 / 战锤 / 太刀 / 机炮 / 喷枪 / 左轮打同一场（飞刃 / 链雷 / 旋风斩 / 放血 / 影步连斩 / 远程普攻，边走边打），新动作 / 持枪找平 / 左轮提前抬枪开着和关着结果一模一样', async () => {
+    const KEY = 'cinder-abyss-save-v1';
+    const save0 = await ev((KEY) => localStorage.getItem(KEY), KEY);
+    const god0 = await ev(() => !!G.player.god);
+    const fresh = async (hold) => {
+      await ev(
+        ([KEY, s, hold]) => {
+          G.holdSave(true);
+          localStorage.setItem(KEY, s);
+          if (hold) sessionStorage.setItem('cinder-test-hold', '1');
+          else sessionStorage.removeItem('cinder-test-hold');
+        },
+        [KEY, save0, hold]
+      );
+      await page.reload({ timeout: 90000 });
+      await install();
+      await until(() => !G.world.assetsPending(), null, 60000);
+      if (!hold) return;
+      await ev(() => {
+        G.debug.zoneSeed(4242);
+        G.enterZone(0, 0);
+      });
+      await until(() => !G.world.assetsPending(), null, 60000);
+    };
+    const run = (off) =>
+      ev(([code, off]) => {
+        eval(code);
+        const P = G.player, S = G.state, W = G.world, save = G.save;
+        window.__testRand.seed('握法·只动画面');
+        T.arena();
+        P.god = true;
+        W.grip5Off = off;
+        const base = Math.random;
+        let calls = 0, shots = 0;
+        Math.random = function () { calls++; return base.call(this); };
+        const sp0 = G.spawnProjectile;
+        G.spawnProjectile = function () { shots++; return sp0.apply(this, arguments); };
+        const es = [[-1.6, -3.4], [0.4, -3.9], [3.0, -1.8], [-3.6, -0.4], [3.4, 0.6], [1.2, 2.2]].map(([dx, dz]) => {
+          const e = G.spawnMob('husk', P.x + dx, P.z + dz, 1, { awake: true });
+          e.wasAwake = true;
+          e.hp = e.maxHp = 1e6;
+          return e;
+        });
+        for (const id of ['blade', 'arc', 'whirl', 'rend', 'shadestep']) {
+          save.skills[id] = Math.max(1, save.skills[id] || 0);
+          save.sockets[id] = save.sockets[id] || [null, null, null];
+        }
+        const clips = {};
+        try {
+          for (const [k, b] of [[0, 1], [1, 7], [2, 4], [3, 6], [4, 8], [5, 9], [6, 12]]) {
+            RW.arm(b);
+            for (let i = 0; i < 150; i++) {
+              const e = es[(k + Math.floor(i / 30)) % es.length];
+              T.aim(e.x, e.z);
+              // 技能栏能用的是 0 / 2 / 3（1 是武器普攻）：前一半飞刃 / 链雷 / 放血，后一半旋风斩 / 影步连斩
+              save.bar = i < 78 ? ['blade', null, 'arc', 'rend'] : ['whirl', null, 'shadestep', null];
+              if (i === 2 || i === 78) G.computeStats();
+              if (i === 5) G.input.tap[0] = 0.3;
+              if (i === 30) G.input.tap[2] = 0.3;
+              if (i === 55) G.input.tap[3] = 0.3;
+              if (i === 80) G.input.tap[0] = 0.3;
+              if (i === 100) G.input.tap[2] = 0.3;
+              G.input.mouse.b[2] = i >= 125 && i < 145;
+              G.input.keys.KeyD = i >= 118 && i < 140; // 边走边打：持枪找平、减掉胯的转角
+              P.mana = P.maxMana;
+              G.tick(1 / 60);
+              const cn = W.clipOf(P.ent);
+              if (cn) clips[cn] = (clips[cn] || 0) + 1;
+            }
+            G.input.keys.KeyD = false;
+            G.input.mouse.b[2] = false;
+          }
+        } finally {
+          G.input.mouse.b[2] = false;
+          G.input.keys.KeyD = false;
+          G.input.tap.fill(0);
+          Math.random = base;
+          G.spawnProjectile = sp0;
+          W.grip5Off = false;
+        }
+        const st = JSON.stringify({ p: [P.x, P.z, P.life, P.mana], e: S.enemies.map((o) => [o.x, o.z, o.hp, o.dead]), proj: S.projectiles.map((q) => [q.x, q.z]), calls, shots });
+        let h = 2166136261;
+        for (let i = 0; i < st.length; i++) h = Math.imul(h ^ st.charCodeAt(i), 16777619);
+        const dmg = es.reduce((a, e) => a + (e.maxHp - e.hp), 0);
+        return { hash: (h >>> 0).toString(16), calls, shots, dmg: Math.round(dmg), clips: Object.keys(clips).sort().join(',') };
+      }, [rangedSetup, off]);
+    let on, off;
+    try {
+      await fresh(true);
+      on = await run(false);
+      await fresh(true);
+      off = await run(true);
+    } finally {
+      await fresh(false);
+      await ev((god0) => {
+        G.debug.hold(true);
+        G.debug.god(god0);
+      }, god0);
+    }
+    assert(on.hash === off.hash && on.calls === off.calls && on.shots === off.shots, '新动作开着 / 关着打出来不一样：' + JSON.stringify({ on, off }));
+    assert(on.dmg > 0 && on.shots >= 6, '这一场没打起来：' + JSON.stringify(on));
+    for (const n of ['throw', 'cast', 'spin', 'attack1', 'fire_revolver']) assert(on.clips.split(',').includes(n), '这一场没播到 ' + n + '：' + on.clips);
+    return '哈希 ' + on.hash + '，取随机数 ' + on.calls + ' 次，弹丸 ' + on.shots + ' 发，伤害 ' + on.dmg + '；播到 ' + on.clips;
+  });
+
+  await step('挂点只动画面：同一个种子拿长杖 / 魂幡 / 短杖 / 机炮 / 喷枪 / 左轮 / 长弓 / 冰弓打同一场（链雷 / 飞刃 / 远程普攻，边走边打），玩家的挂点（武器尖端 / 手 / 出手点）整体挪开一截和不挪，结果和取随机数的次数一模一样', async () => {
+    const KEY = 'cinder-abyss-save-v1';
+    const save0 = await ev((KEY) => localStorage.getItem(KEY), KEY);
+    const god0 = await ev(() => !!G.player.god);
+    const fresh = async (hold) => {
+      await ev(
+        ([KEY, s, hold]) => {
+          G.holdSave(true);
+          localStorage.setItem(KEY, s);
+          if (hold) sessionStorage.setItem('cinder-test-hold', '1');
+          else sessionStorage.removeItem('cinder-test-hold');
+        },
+        [KEY, save0, hold]
+      );
+      await page.reload({ timeout: 90000 });
+      await install();
+      await until(() => !G.world.assetsPending(), null, 60000);
+      if (!hold) return;
+      await ev(() => {
+        G.debug.zoneSeed(4242);
+        G.enterZone(0, 0);
+      });
+      await until(() => !G.world.assetsPending(), null, 60000);
+    };
+    const run = (off) =>
+      ev(([code, off]) => {
+        eval(code);
+        const P = G.player, S = G.state, W = G.world, save = G.save;
+        window.__testRand.seed('挂点·只动画面');
+        T.arena();
+        P.god = true;
+        W.sockShift = off ? { x: 0.37, y: 0.21, z: -0.29 } : null;
+        const base = Math.random;
+        let calls = 0, shots = 0;
+        Math.random = function () { calls++; return base.call(this); };
+        const sp0 = G.spawnProjectile;
+        G.spawnProjectile = function () { shots++; return sp0.apply(this, arguments); };
+        const es = [[-1.6, -3.4], [0.4, -3.9], [3.0, -1.8], [-3.6, -0.4], [3.4, 0.6], [1.2, 2.2]].map(([dx, dz]) => {
+          const e = G.spawnMob('husk', P.x + dx, P.z + dz, 1, { awake: true });
+          e.wasAwake = true;
+          e.hp = e.maxHp = 1e6;
+          return e;
+        });
+        for (const id of ['blade', 'arc']) {
+          save.skills[id] = Math.max(1, save.skills[id] || 0);
+          save.sockets[id] = save.sockets[id] || [null, null, null];
+        }
+        const clips = {};
+        try {
+          for (const [k, b] of [[0, 1], [1, 7], [2, 2], [3, 8], [4, 9], [5, 12], [6, 5], [7, 13]]) {
+            RW.arm(b);
+            for (let i = 0; i < 150; i++) {
+              const e = es[(k + Math.floor(i / 30)) % es.length];
+              T.aim(e.x, e.z);
+              // 链雷每 25 帧一下（画面从出手点起），飞刃一下，最后按住右键普攻
+              save.bar = ['blade', null, 'arc', null];
+              if (i === 2) G.computeStats();
+              if (i % 25 === 10 && i < 110) G.input.tap[2] = 0.3;
+              if (i === 112) G.input.tap[0] = 0.3;
+              G.input.mouse.b[2] = i >= 125 && i < 145;
+              G.input.keys.KeyD = i >= 118 && i < 140; // 边走边打：持枪找平、减掉胯的转角
+              P.mana = P.maxMana;
+              G.tick(1 / 60);
+              const cn = W.clipOf(P.ent);
+              if (cn) clips[cn] = (clips[cn] || 0) + 1;
+            }
+            G.input.keys.KeyD = false;
+            G.input.mouse.b[2] = false;
+          }
+        } finally {
+          G.input.mouse.b[2] = false;
+          G.input.keys.KeyD = false;
+          G.input.tap.fill(0);
+          Math.random = base;
+          G.spawnProjectile = sp0;
+          W.sockShift = null;
+        }
+        const st = JSON.stringify({ p: [P.x, P.z, P.life, P.mana], e: S.enemies.map((o) => [o.x, o.z, o.hp, o.dead]), proj: S.projectiles.map((q) => [q.x, q.z]), calls, shots });
+        let h = 2166136261;
+        for (let i = 0; i < st.length; i++) h = Math.imul(h ^ st.charCodeAt(i), 16777619);
+        const dmg = es.reduce((a, e) => a + (e.maxHp - e.hp), 0);
+        return { hash: (h >>> 0).toString(16), calls, shots, dmg: Math.round(dmg), clips: Object.keys(clips).sort().join(',') };
+      }, [rangedSetup, off]);
+    let on, off;
+    try {
+      await fresh(true);
+      on = await run(false);
+      await fresh(true);
+      off = await run(true);
+    } finally {
+      await fresh(false);
+      await ev((god0) => {
+        G.debug.hold(true);
+        G.debug.god(god0);
+      }, god0);
+    }
+    assert(on.hash === off.hash && on.calls === off.calls && on.shots === off.shots, '挂点挪开 / 不挪打出来不一样：' + JSON.stringify({ on, off }));
+    assert(on.dmg > 0 && on.shots >= 6, '这一场没打起来：' + JSON.stringify(on));
+    for (const n of ['throw', 'cast', 'fire_revolver', 'fire_eagle']) assert(on.clips.split(',').includes(n), '这一场没播到 ' + n + '：' + on.clips);
+    return '哈希 ' + on.hash + '，取随机数 ' + on.calls + ' 次，弹丸 ' + on.shots + ' 发，伤害 ' + on.dmg + '；播到 ' + on.clips;
+  });
+
+
+  // fx-rng：特效 / 画面的随机数取 G.vr（按特效取种子），不取 Math.random。画质档、特效上限、火把多少只改画面，不改玩法：
+  // 同一个种子（每遍都重载、重进钉死布局的第 0 区）打三场——铁水弹（炉匠，机炮）、链雷、三相天灾（长杖的烬铸技能），
+  // 高 / 低画质、以及高画质下特效全部静音（W.fxMute 钉死在开）+ 爆燃上限压到 0（全部走超出上限的路）+ 火把只留 1 盏，
+  // 局面哈希和 Math.random 次数逐位相同；画面随机数取的次数各遍不一样（说明特效确实多了 / 少了）。
+  // 反面对照：开打前多取一次 Math.random，哈希就变（这一步测得出差别）
+  await step('确定性（fx-rng）：画质 高 / 低、特效静音 + 爆燃上限压到 0 + 火把只留 1 盏，同一个种子打铁水弹 / 链雷 / 三相天灾，局面和 Math.random 次数逐位相同；画面随机数不取 Math.random', async () => {
+    const KEY = 'cinder-abyss-save-v1';
+    const save0 = await ev((KEY) => localStorage.getItem(KEY), KEY);
+    const god0 = await ev(() => !!G.player.god);
+    const fresh = async (hold) => {
+      await ev(
+        ([KEY, s, hold]) => {
+          G.holdSave(true);
+          localStorage.setItem(KEY, s);
+          if (hold) sessionStorage.setItem('cinder-test-hold', '1');
+          else sessionStorage.removeItem('cinder-test-hold');
+        },
+        [KEY, save0, hold]
+      );
+      await page.reload({ timeout: 90000 });
+      await install();
+      await until(() => !G.world.assetsPending(), null, 60000);
+      if (!hold) return;
+      await ev(() => {
+        G.debug.zoneSeed(4242);
+        G.enterZone(0, 0);
+      });
+      await until(() => !G.world.assetsPending(), null, 60000);
+    };
+    const run = (o) =>
+      ev((o) => {
+        const P = G.player, S = G.state, W = G.world, save = G.save;
+        W.setQuality(o.q);
+        const torches = W.debugTorches(o.torch);
+        window.__testRand.seed('确定性·画质无关');
+        T.arena();
+        P.god = true;
+        if (o.extra) Math.random();
+        const fxMute0 = W.fxMute;
+        if (o.cap) {
+          W.fxMute(true);
+          W.fxMute = () => {}; // 游戏里每次放完会关掉：钉死在开
+          W.b1Cap(0);
+        }
+        const base = Math.random, v0 = G.fxInfo().n;
+        let calls = 0;
+        Math.random = function () { calls++; return base.call(this); };
+        const out = [];
+        const pack = () => [[6, 0], [6.9, 1.1], [6.9, -1.1], [7.9, 0.2], [8.4, -1.6]].map(([dx, dz]) => {
+          const e = G.spawnMob('husk', P.x + dx, P.z + dz, 10, { awake: true });
+          e.wasAwake = true;
+          e.hp = e.maxHp = 1e6;
+          e.atkCd = 1e9;
+          e.speed = 0;
+          return e;
+        });
+        const st = () => JSON.stringify({ p: [P.x, P.z, P.life, P.mana], e: S.enemies.map((e) => [e.x, e.z, e.hp, e.dead]), proj: S.projectiles.map((q) => [q.x, q.z]), calls });
+        try {
+          for (const id of ['molten', 'arc', 'tristorm']) {
+            G.clearEnemies();
+            P.cds = {};
+            save.bar = [null, null, null, null];
+            if (id === 'molten') {
+              save.cls = 'forge';
+              save.clsLock = {};
+              const w = G.rollItem(20, 0, 'weapon', 8);
+              w.wbase = G.weaponBaseDmg(8, 20);
+              w.imp = null;
+              save.equip.weapon = G.refreshWeapon(w);
+              save.skills.molten = 20;
+              save.bar[0] = 'molten';
+            } else if (id === 'arc') {
+              delete save.cls;
+              save.equip.weapon = G.rollItem(20, 0, 'weapon', 1);
+              save.skills.arc = 20;
+              save.bar[2] = 'arc';
+            } else {
+              const U = Object.keys(G.UNIQUES).find((u) => G.UNIQUES[u].uskill === 'tristorm');
+              save.equip.weapon = G.rollUnique(U, 20, 0.5);
+            }
+            G.computeStats();
+            const es = pack();
+            for (let i = 0; i < 150; i++) {
+              const e = es[0];
+              T.aim(e.x, e.z);
+              P.mana = P.maxMana;
+              if (id === 'molten') G.input.mouse.b[0] = i < 100;
+              else if (id === 'arc') { if (i % 20 === 0 && i < 120) G.input.tap[2] = 0.25; }
+              else if (i === 0) G.input.tap[4] = 0.25;
+              G.tick(1 / 60);
+            }
+            G.input.mouse.b[0] = false;
+            G.input.tap.fill(0);
+            out.push({ id, dmg: Math.round(es.reduce((a, e) => a + (e.maxHp - e.hp), 0)), st: st() });
+          }
+        } finally {
+          Math.random = base;
+          G.input.mouse.b[0] = false;
+          W.fxMute = fxMute0;
+          W.fxMute(false);
+          W.b1Cap(null);
+          delete save.cls;
+        }
+        const all = out.map((x) => x.st).join('|');
+        let h = 2166136261;
+        for (let i = 0; i < all.length; i++) h = Math.imul(h ^ all.charCodeAt(i), 16777619);
+        return { hash: (h >>> 0).toString(16), calls, vis: G.fxInfo().n - v0, dmg: out.map((x) => x.id + ' ' + x.dmg).join(' / '), torches, b1: W.b1Info().peak };
+      }, o);
+    const R = {};
+    try {
+      for (const [k, o] of [['high', { q: 'high' }], ['low', { q: 'low' }], ['cap', { q: 'high', cap: true, torch: 1 }], ['ctl', { q: 'high', extra: true }]]) {
+        await fresh(true);
+        R[k] = await run(o);
+      }
+    } finally {
+      await fresh(false);
+      await ev((god0) => {
+        G.debug.hold(true);
+        G.debug.god(god0);
+      }, god0);
+    }
+    const { high: H, low: L, cap: C, ctl: X } = R;
+    assert(H.hash === L.hash && H.calls === L.calls, '高 / 低画质打出来不一样：' + JSON.stringify(R));
+    assert(H.hash === C.hash && H.calls === C.calls, '特效静音 / 爆燃上限 / 火把少了打出来不一样：' + JSON.stringify(R));
+    assert(X.hash !== H.hash, '反面对照没有测出差别（多取一次 Math.random 哈希应该变）：' + JSON.stringify(R));
+    assert(H.vis !== L.vis && H.vis !== C.vis && H.vis > 0, '画面随机数取的次数各遍应该不一样（特效多了 / 少了）：' + JSON.stringify(R));
+    assert(C.torches > 1 && /molten [1-9]/.test(H.dmg) && /arc [1-9]/.test(H.dmg) && /tristorm [1-9]/.test(H.dmg), '三场都应打中、区里应有不止 1 盏火把：' + JSON.stringify(R));
+    return '哈希 ' + H.hash + '，Math.random ' + H.calls + ' 次（三遍一样），伤害 ' + H.dmg + '；画面随机数 高 ' + H.vis + ' / 低 ' + L.vis + ' / 静音 ' + C.vis + '（火把 ' + C.torches + ' → 1）';
+  });
 
 
   // 首领指纹（boss-golem）：固定种子打一场 15 秒的首领战（无敌的玩家按住右键普攻），把局面（玩家、敌人的位置 / 生命 / 状态 / 出招计时、
   // 弹幕、预警圈）和取随机数的次数哈希成一个指纹。期望值在换模型之前的 main 上量好写死：换外观（模型、动作、发光）不许动到模拟的一个比特。
   // 每秒一个分段哈希，对不上时报出从第几秒开始分叉
   const BOSS_FP = {
-    golem: { hash: '12254fc1', calls: 24478, secs: '148ea293,c881c904,75185249,adcad3a0,216be412,0b454798,593b24af,98a43332,2d128b77,d329e6e7,2d4fcadf,5bae6cb2,d82314bd,b85bde0a,edc5dd33'.split(',') }, // main 691ef67（程序化外观）上量的
+    // fx-rng 重定：特效的随机数从 Math.random 分出去以后（画面随机数 G.vr），模拟这一路只剩 112 次。原来 main 691ef67（程序化外观）上量的是 12254fc1 / 24478 次
+    golem: { hash: '4fc99b3d', calls: 112, secs: '9e1090d0,a448b82d,d32dc0c0,cd636106,d1d75655,66e79a53,47bda2f4,c30ac709,617cb6b2,36a0a0ec,5a7ca4f7,f574dfb2,2095a119,b3f4a835,cdbea357'.split(',') },
+    lord: { hash: '6bcd5507', calls: 114, secs: '24815422,e21feb3a,ebe73ddb,5d25957d,b63a99b0,8e38a8e6,7dba3ec4,c48bbb94,b7d35d0a,a5d6ea59,63f52b72,e7eac088,98c19b85,e738b0a0,4d2180d1'.split(',') }, // main 25e390e（fx-rng 之后，程序化外观）上量的；fx-rng 之前 main a2831c3 上是 5ed52b42 / 30070 次
   };
-  await step('首领指纹：熔渣巨像固定种子打 15 秒，局面和取随机数次数和换模型之前逐位相同；首领包打到一半才到，也只在招式之间换模型、指纹不变', async () => {
+  // tiers（boss-lord 起）：再按另一档画质打一遍，指纹也要一样（fx-rng 的「高 = 低」规则用在首领战上）
+  const bossFpStep = (kind, CN, tiers) => step('首领指纹：' + CN + '固定种子打 15 秒，局面和取随机数次数和换模型之前逐位相同；首领包打到一半才到，也只在招式之间换模型、指纹不变' + (tiers ? '；换一档画质打出来也一样' : ''), async () => {
     const KEY = 'cinder-abyss-save-v1';
     const save0 = await ev((KEY) => localStorage.getItem(KEY), KEY);
     // 和前面的步骤留下的存档无关：用一份固定种子的新角色存档（开场卡片 / 新手提示都标成看过）打，指纹只取决于游戏本身
@@ -11406,17 +12014,25 @@ async function main() {
       await install();
       await until(() => !G.world.assetsPending(), null, 60000);
       // 首领包（boss-golem）平时等图标预热画完才加载：这里直接要，确保打的是新模型（在 main 上量期望值时没有这个包，跳过）
-      if (await ev(() => !!(G.world.bossRig && G.assets.known('boss-golem')))) {
-        await ev(() => G.assets.need(['boss-golem']));
-        await until(() => G.world.bossRig('golem'), null, 60000);
+      if (await ev((kind) => !!(G.world.bossRig && G.assets.known('boss-' + kind)), kind)) {
+        await ev((kind) => G.assets.need(['boss-' + kind]), kind);
+        await until((kind) => G.world.bossRig(kind), kind, 60000);
       }
     };
-    let r, rl;
+    let r, rl, rq = null, q0 = null;
     try {
       await fresh(true, canon);
-      r = await ev(() => T.fingerprint('golem'));
+      q0 = await ev(() => G.world.quality());
+      r = await ev((kind) => T.fingerprint(kind), kind);
       await fresh(true, canon);
-      rl = await ev(() => T.fingerprint('golem', 15, 4.2));
+      rl = await ev((kind) => T.fingerprint(kind, 15, 4.2), kind);
+      if (tiers) {
+        const cq = JSON.parse(canon);
+        cq.opts.quality = q0 === 'low' ? 'high' : 'low';
+        await fresh(true, JSON.stringify(cq));
+        rq = await ev((kind) => Object.assign(T.fingerprint(kind), { q: G.world.quality() }), kind);
+        assert(rq.q !== q0, '换画质没换成：' + q0 + ' → ' + rq.q);
+      }
     } finally {
       await fresh(false, save0);
       await ev(() => {
@@ -11424,32 +12040,34 @@ async function main() {
         G.debug.god(true);
       });
     }
-    const want = BOSS_FP.golem;
-    for (const [tag, x] of [['新模型', r], ['打到一半才换模型', rl]]) {
+    const want = BOSS_FP[kind];
+    for (const [tag, x] of [['新模型', r], ['打到一半才换模型', rl]].concat(rq ? [['画质 ' + rq.q, rq]] : [])) {
       if (x.hash !== want.hash || x.calls !== want.calls) {
         const k = x.secs.findIndex((h, i) => h !== want.secs[i]);
-        throw new Error('熔渣巨像的指纹变了（' + tag + '）：' + JSON.stringify({ hash: x.hash, calls: x.calls, want: [want.hash, want.calls], firstDiffSec: k, secs: x.secs.join(',') }));
+        throw new Error(CN + '的指纹变了（' + tag + '）：' + JSON.stringify({ hash: x.hash, calls: x.calls, want: [want.hash, want.calls], firstDiffSec: k, secs: x.secs.join(',') }));
       }
     }
-    assert(r.model0 === 'golem' && r.model === 'golem' && !r.swaps.length, '这一遍应该从头到尾都是新模型：' + JSON.stringify({ model0: r.model0, model: r.model, swaps: r.swaps }));
-    assert(rl.model0 === null && rl.model === 'golem' && rl.swaps.length === 1, '打到一半包到了：应先是程序化外观、之后换成新模型（只换一次）：' + JSON.stringify({ model0: rl.model0, model: rl.model, swaps: rl.swaps }));
+    assert(r.model0 === kind && r.model === kind && !r.swaps.length, '这一遍应该从头到尾都是新模型：' + JSON.stringify({ model0: r.model0, model: r.model, swaps: r.swaps }));
+    assert(rl.model0 === null && rl.model === kind && rl.swaps.length === 1, '打到一半包到了：应先是程序化外观、之后换成新模型（只换一次）：' + JSON.stringify({ model0: rl.model0, model: rl.model, swaps: rl.swaps }));
     const sw = rl.swaps[0];
     assert(sw.t >= 4.2 && !(sw.busy > 0) && !sw.dash && !sw.broken && sw.clip === null, '换模型只能在首领闲着的时候（招式之间、没在播动作）：' + JSON.stringify(sw));
-    return '指纹 ' + r.hash + '，取随机数 ' + r.calls + ' 次，出招 ' + r.pats + ' 次，玩家打掉 ' + r.dmg + ' 点生命；打到一半包到了：第 ' + sw.t.toFixed(2) + ' 秒在招式之间换上新模型，指纹不变';
+    return '指纹 ' + r.hash + '，取随机数 ' + r.calls + ' 次，出招 ' + r.pats + ' 次，玩家打掉 ' + r.dmg + ' 点生命；打到一半包到了：第 ' + sw.t.toFixed(2) + ' 秒在招式之间换上新模型，指纹不变' + (rq ? '；画质 ' + q0 + ' / ' + rq.q + ' 指纹一样' : '');
   });
+  await bossFpStep('golem', '熔渣巨像');
+  await bossFpStep('lord', '烬渊之主', true);
 
   // boss-golem：首领模型的三步（模型 / 出手对拍 / 死亡和破防），量的都是新模型（首领包到了以后建的骨架）
   const BOSS_BONES = JSON.parse(readFileSync(new URL('../art/rig.json', import.meta.url), 'utf8')).boss;
   const BOSS_BUDGET = JSON.parse(readFileSync(new URL('../art/budgets.json', import.meta.url), 'utf8')).categories.boss;
   const BOSS_MAN = JSON.parse(readFileSync(new URL('../assets/ca/manifest.json', import.meta.url), 'utf8')).assets.filter((a) => a.category === 'boss');
-  await step('首领模型：熔渣巨像用脚本生成的蒙皮模型（assets/ca/boss/golem.glb），骨骼是 art/rig.json 那一组、三角形在预算内、3 个网格 + 本体的阴影、占地半径和身高跟原来的差不多', async () => {
-    await ev(() => G.assets.need(['boss-golem']));
-    await until(() => G.world.bossRig('golem'), null, 60000);
-    const r = await ev(() => {
+  const bossModelStep = (kind, CN) => step('首领模型：' + CN + '用脚本生成的蒙皮模型（assets/ca/boss/' + kind + '.glb），骨骼是 art/rig.json 那一组、三角形在预算内、3 个网格 + 本体的阴影、占地半径和身高跟原来的差不多', async () => {
+    await ev((kind) => G.assets.need(['boss-' + kind]), kind);
+    await until((kind) => G.world.bossRig(kind), kind, 60000);
+    const r = await ev((kind) => {
       T.lane();
-      const P = G.player, W = G.world, b = G.spawnBoss('golem', P.x + 6, P.z, 1);
+      const P = G.player, W = G.world, b = G.spawnBoss(kind, P.x + 6, P.z, 1);
       b.cd = b.busy = 1e9;
-      const rig = b.ent.rig, old = W.bossOldRig('golem');
+      const rig = b.ent.rig, old = W.bossOldRig(kind);
       // 占地半径：静止姿态的俯视投影按 5 cm 的格子铺满，面积换成等面积圆的半径（游戏镜头里看到的「身子有多大」）
       const footR = (geos) => {
         const cell = 0.05, seen = new Set();
@@ -11488,9 +12106,9 @@ async function main() {
           return [+C.toFixed(3), +A.toFixed(3)];
         })(),
       };
-    });
-    const want = BOSS_BONES.kinds.golem, man = BOSS_MAN.find((a) => a.id === 'ca/boss_golem');
-    assert(r.model === 'golem' && r.skin4, '熔渣巨像没用上新模型：' + JSON.stringify({ model: r.model, skin4: r.skin4 }));
+    }, kind);
+    const want = BOSS_BONES.kinds[kind], man = BOSS_MAN.find((a) => a.id === 'ca/boss_' + kind);
+    assert(r.model === kind && r.skin4, CN + '没用上新模型：' + JSON.stringify({ model: r.model, skin4: r.skin4 }));
     assert(r.bones.slice().sort().join() === want.slice().sort().join() && r.bones.length <= BOSS_BONES.maxBones && r.bones.length <= BOSS_BUDGET.bones, '骨骼和 art/rig.json 的不一致或超过 ' + BOSS_BUDGET.bones + ' 根：' + r.bones.join(','));
     assert(r.tris <= BOSS_BUDGET.tris && man && r.tris === man.tris, '三角形 ' + r.tris + '（预算 ' + BOSS_BUDGET.tris + '，清单 ' + (man && man.tris) + '）');
     assert(r.meshes === 3 && r.shadow === 1 && r.body && r.glow && !r.aux, '应是本体 + 发光 + 地上光晕 3 个网格、只有本体投影：' + JSON.stringify(r));
@@ -11499,37 +12117,56 @@ async function main() {
     assert(r.coreGlow[0] > 0 && r.coreGlow[0] / r.coreGlow[1] < 0.25, '发光面里近白的芯应只占一小部分（面积）：' + r.coreGlow.join(' / ') + ' m²');
     return r.bones.length + ' 根骨骼，' + r.tris + ' 个三角形，占地半径 ' + r.r.toFixed(2) + '（原来 ' + r.rOld.toFixed(2) + '，碰撞 ' + r.defR + '），身高 ' + r.h + '（原来 ' + r.hOld + '），近白的芯占发光面积 ' + r.coreGlow.join(' / ') + ' m²';
   });
+  await bossModelStep('golem', '熔渣巨像');
+  await bossModelStep('lord', '烬渊之主');
 
-  await step('首领出手对拍：熔渣巨像每一招的蓄力 / 出手动作都在，出手提前量比蓄力短，伤害 / 起冲 / 弹幕离手的那一帧正好是出手动作的接触帧（误差不到一帧）；蓄力时挨打不晃', async () => {
-    await ev(() => G.assets.need(['boss-golem']));
-    await until(() => G.world.bossRig('golem'), null, 60000);
-    const WIND = { slam: 0.95, charge: 0.75, ring: 0.45 }; // enemies.js 的 PATTERN_WIND（模拟里的蓄力时长，换模型不动）
-    const r = await ev((WIND) => {
-      const P = G.player, W = G.world, out = { pats: G.BOSSES.golem.patterns.slice() }, tel0 = G.telegraph, sp0 = G.spawnProjectile;
+  // 每只首领：招式、模拟里的蓄力时长（enemies.js 的 PATTERN_WIND，换模型不动）、接触姿势的量（接触帧应是极值）、出事件的方式、蓄力时挨打用的蓄力动作
+  //   量：weaponLow = 武器挂点最低（锤石落地 / 剑插进地里），handsApart = 两只手离得最远，pelvisFwd = 骨盆冲到最前，handFwd = 左手（hand 挂点的关节）甩到最前，
+  //   handUp = 左手举到最高，weaponUp = 武器挂点最高（剑举向天）
+  //   事件：缺省 = 预警结算或弹幕离手；mob = 小怪现身；time = 蓄力时长到点（落石的预警在起手时就出了，落地在之后，没有对着出手那一刻的事件）
+  const BOSS_CLIPS = {
+    golem: { CN: '熔渣巨像', wind: { slam: 0.95, charge: 0.75, ring: 0.45 }, m: { slam: 'weaponLow', ring: 'handsApart', charge: 'pelvisFwd' }, ev: {}, steady: ['slam_w', 0.8] },
+    lord: { CN: '烬渊之主', wind: { slam: 0.95, fan: 0.4, spiral: 0.25, cross: 0.9, barrage: 0.3, summon: 0.5 }, m: { slam: 'weaponLow', fan: 'handFwd', spiral: 'handUp', cross: 'weaponLow', barrage: 'weaponUp', summon: 'weaponLow' }, ev: { barrage: 'time', summon: 'mob' }, steady: ['slam_w', 0.8] },
+  };
+  const bossClipStep = (kind) => step('首领出手对拍：' + BOSS_CLIPS[kind].CN + '每一招的蓄力 / 出手动作都在，出手提前量比蓄力短，伤害 / 起冲 / 弹幕离手的那一帧正好是出手动作的接触帧（误差不到一帧）；蓄力时挨打不晃', async () => {
+    await ev((kind) => G.assets.need(['boss-' + kind]), kind);
+    await until((kind) => G.world.bossRig(kind), kind, 60000);
+    const C = BOSS_CLIPS[kind], WIND = C.wind;
+    const r = await ev(([kind, C]) => {
+      const WIND = C.wind;
+      const P = G.player, W = G.world, out = { pats: G.BOSSES[kind].patterns.slice() }, tel0 = G.telegraph, sp0 = G.spawnProjectile, sm0 = G.spawnMob;
       try {
         for (const p of out.pats) {
           T.lane();
           G.debug.god(true);
-          const b = G.spawnBoss('golem', P.x + 4, P.z, 1);
+          const b = G.spawnBoss(kind, P.x + 4, P.z, 1);
           b.def = Object.assign({}, b.def, { patterns: [p] });
           b.awake = true;
           b.cd = 0;
           let ev0 = null;
           // 接触姿势的量：砸地 = 锤石（weapon 挂点）的高度（落地时最低），弹幕 = 两只手的距离（张到最开时最大），冲锋 = 骨盆往前冲出去的位移
           const S0 = {}, mt = () => {
-            const e = b.ent, wp = W.entSocket(e, 'weapon'), hd = W.entSocket(e, 'hand'), M = e.mdl, pz = M[e.rig.JI.pelvis * 12 + 11];
-            return p === 'slam' ? -wp.y : p === 'ring' ? Math.hypot(wp.x - hd.x, wp.z - hd.z) : pz;
+            const e = b.ent, wp = W.entSocket(e, 'weapon'), hd = W.entSocket(e, 'hand'), M = e.mdl, pz = M[e.rig.JI.pelvis * 12 + 11], hj = e.rig.JI.hand_l;
+            const m = C.m[p];
+            return m === 'weaponLow' ? -wp.y : m === 'handsApart' ? Math.hypot(wp.x - hd.x, wp.z - hd.z) : m === 'pelvisFwd' ? pz : m === 'handFwd' ? M[hj * 12 + 11] : m === 'handUp' ? M[hj * 12 + 7] : wp.y;
           };
           const trace = [];
           const snap = (kind) => { if (!ev0 && b.lastPattern === p) ev0 = { kind, clip: W.clipOf(b.ent), same: b.ent.clip === b.ent.rig.clips[p], cT: b.ent.cT, contact: b.ent.cContact, lead: W.clipLead(b.ent, p), at: trace.length }; };
           G.telegraph = function (t) { if (t.owner === b && t.onFire) { const f = t.onFire; t.onFire = function () { snap('预警结算'); return f.apply(this, arguments); }; } return tel0.apply(this, arguments); };
-          G.spawnProjectile = function (q) { if (q.owner !== 'p') snap('弹幕离手'); return sp0.apply(this, arguments); };
+          G.spawnProjectile = function (q) { if (q.owner !== 'p' && !C.ev[p]) snap('弹幕离手'); return sp0.apply(this, arguments); };
+          G.spawnMob = function () { if (C.ev[p] === 'mob') snap('小怪现身'); return sm0.apply(this, arguments); };
+          let since = -1;
           for (let i = 0; i < 400 && (!ev0 || trace.length < ev0.at + 24); i++) {
             G.tick(1 / 60);
-            if (b.lastPattern === p) trace.push(mt());
+            if (b.lastPattern === p) {
+              since++;
+              trace.push(mt());
+              if (C.ev[p] === 'time' && since === Math.round(WIND[p] * 60)) snap('蓄力到点');
+            }
           }
           G.telegraph = tel0;
           G.spawnProjectile = sp0;
+          G.spawnMob = sm0;
           // 接触帧前后 0.4 秒里，这个量在接触帧（出事件的那一帧）是不是已经到了极值（差不到 6 cm：锤石已经落地 / 双臂已经张开 / 已经冲出去）
           let pose = null;
           if (ev0) {
@@ -11542,10 +12179,10 @@ async function main() {
         }
         // 蓄力时挨打：骨盆（根关节）和挨打的另一只一模一样，只有 hitJ 抖一点（steady）。两只同时起同一个蓄力，只打其中一只
         T.lane();
-        const b = G.spawnBoss('golem', P.x + 4, P.z, 1), c = G.spawnBoss('golem', P.x + 4, P.z + 6, 1);
+        const b = G.spawnBoss(kind, P.x + 4, P.z, 1), c = G.spawnBoss(kind, P.x + 4, P.z + 6, 1);
         c.ent.phase = b.ent.phase; c.ent.clock = b.ent.clock; c.ent.walk = b.ent.walk; // 移动姿态（呼吸）的相位一样，两只只差挨不挨打
         // 只推进这两只的动画（不跑模拟：地面伤害、异常之类会让两只的状态不一样）
-        for (const x of [b, c]) { x.cd = x.busy = 1e9; x.ent.hitT = 0; W.play(x.ent, 'slam_w', { dur: 0.8 }); }
+        for (const x of [b, c]) { x.cd = x.busy = 1e9; x.ent.hitT = 0; W.play(x.ent, C.steady[0], { dur: C.steady[1] }); }
         const step2 = () => { for (const x of [b, c]) W.animEnt(x.ent, 1 / 60, false); };
         for (let i = 0; i < 30; i++) step2();
         W.hitReact(b.ent, 0, 2);
@@ -11555,28 +12192,31 @@ async function main() {
       } finally {
         G.telegraph = tel0;
         G.spawnProjectile = sp0;
+        G.spawnMob = sm0;
       }
       return out;
-    }, WIND);
-    assert(r.pats.join() === 'slam,charge,ring', '熔渣巨像的招式变了：' + r.pats.join());
+    }, [kind, C]);
+    assert(r.pats.join() === Object.keys(WIND).join(), C.CN + '的招式变了：' + r.pats.join());
     for (const p of r.pats) {
       const x = r[p];
-      assert(x.has && x.model === 'golem', p + '：缺蓄力或出手动作：' + JSON.stringify(x));
+      assert(x.has && x.model === kind, p + '：缺蓄力或出手动作：' + JSON.stringify(x));
       assert(x.lead > 0.05 && x.lead < x.wind, p + '：出手提前量 ' + x.lead + ' 应比蓄力 ' + x.wind + ' 短');
       assert(x.same && Math.abs(x.cT - x.contact) <= 1 / 60 + 1e-6 && Math.abs(x.contact - x.lead) < 1e-6, p + '：' + x.kind + '的那一帧应正好是出手动作的接触帧：' + JSON.stringify(x));
-      assert(x.pose && x.pose.near, p + '：接触帧应是接触的姿势（锤石最低 / 双臂最开 / 冲到最前），差了 ' + (x.pose && x.pose.bestAt) + ' 帧：' + JSON.stringify(x.pose));
+      assert(x.pose && x.pose.near, p + '：接触帧应是接触的姿势（' + C.m[p] + ' 到了极值），差了 ' + (x.pose && x.pose.bestAt) + ' 帧：' + JSON.stringify(x.pose));
     }
     assert(r.steady.root < 1e-6 && r.steady.hitJ > 0.005 && r.steady.hitJ <= 0.121, '蓄力时挨打，骨盆不该仰 / 压扁，只在 hitJ 上抖一下（≤ 0.12 弧度）：' + JSON.stringify(r.steady));
     return r.pats.map((p) => p + ' 提前 ' + r[p].lead.toFixed(2) + ' s，' + r[p].kind + '时 cT − 接触 = ' + ((r[p].cT - r[p].contact) * 1000).toFixed(1) + ' ms').join('；');
   });
+  await bossClipStep('golem');
+  await bossClipStep('lord');
 
-  await step('首领死亡和破防：熔渣巨像死亡动作砸到地上的那一刻是 0.90 秒（vfx3 第三段冲击环），破防垮下去以后从跪稳的姿势循环、不重播垮下去那一段', async () => {
-    await ev(() => G.assets.need(['boss-golem']));
-    await until(() => G.world.bossRig('golem'), null, 60000);
-    const r = await ev(() => {
+  const bossDeathStep = (kind, CN) => step('首领死亡和破防：' + CN + '死亡动作砸到地上的那一刻是 0.90 秒（vfx3 第三段冲击环），破防垮下去以后从跪稳的姿势循环、不重播垮下去那一段', async () => {
+    await ev((kind) => G.assets.need(['boss-' + kind]), kind);
+    await until((kind) => G.world.bossRig(kind), kind, 60000);
+    const r = await ev((kind) => {
       const P = G.player, W = G.world;
       T.lane();
-      const b = G.spawnBoss('golem', P.x + 6, P.z, 1);
+      const b = G.spawnBoss(kind, P.x + 6, P.z, 1);
       b.cd = b.busy = 1e9;
       const e = b.ent, rig = e.rig, pel = rig.JI.pelvis * 12 + 7;
       // 死亡：按 1/60 秒推进，骨盆最低（砸到地上）的那一刻
@@ -11601,12 +12241,14 @@ async function main() {
       }
       out.broken = { loopFrom: c.loopFrom, dur: c.dur, wraps, minWrap };
       return out;
-    });
+    }, kind);
     assert(Math.abs(r.impact - 0.9) <= 1 / 60 && Math.abs(r.lowAt - 0.9) <= 1 / 60 + 1e-6, '死亡动作应在 0.90 秒砸到地上：' + JSON.stringify(r));
     const bk = r.broken;
     assert(bk.loopFrom > 0 && bk.wraps >= 2 && bk.minWrap >= bk.loopFrom * bk.dur - 1e-6, '破防应从 loopFrom 开始循环：' + JSON.stringify(bk));
     return '砸地 ' + r.lowAt.toFixed(3) + ' s（动作标的 ' + r.impact + ' s）；破防循环 ' + bk.wraps + ' 次，每次从 ' + (bk.loopFrom * bk.dur).toFixed(2) + ' s 起';
   });
+  await bossDeathStep('golem', '熔渣巨像');
+  await bossDeathStep('lord', '烬渊之主');
 
   await step('刷新后仍可正常游玩：移动、施法、面板', async () => {
     await ev(() => {
@@ -16583,7 +17225,7 @@ async function main() {
     return '30% → ' + r.s30;
   });
 
-  await step('渊式·回旋（回旋解锁）：飞刃穿透所有敌人，到射程尽头折返，回程 ×0.7 再中一次（靶子共吃 1.7 击）、牵一根丝线；退回原式不回旋（免费）；戴着时弓的普攻照旧折返（×0.6、射程 ×0.8），机炮和会爆的掷焰不回旋', async () => {
+  await step('渊式·回旋（回旋解锁）：飞刃穿透敌人（每程最多 8 个），到射程尽头折返，回程 ×0.7 再中一次（靶子共吃 1.7 击）、牵一根丝线；退回原式不回旋（免费）；戴着时弓的普攻照旧折返（×0.6、射程 ×0.8），机炮和会爆的掷焰不回旋', async () => {
     const r = await ev(() => {
       RQT.begin('huixuan');
       RQT.learn('blade', 0);
@@ -16789,7 +17431,7 @@ async function main() {
     return '混相 ' + r.one[3] + ' / 击';
   }));
 
-  await step('渊式·独骸（骸王冠解锁）：烬骸仆从上限固定 1，伤害 ×3.45（单体秒伤 = 3 具的 1.15）、生命 ×3、横斩带 12 个 / 270°、够得 ×3.5 远、牵制 5 只、减伤 +15；群聚多给的上限折成 +35% 伤害 / +40% 生命；骸王体型 ×1.5、头顶冠环；魂火按普通仆从算；摘下退回原式（上限 3）', async () => {
+  await step('渊式·独骸（骸王冠解锁）：烬骸仆从上限固定 1，伤害 ×3.45（单体秒伤 = 3 具的 1.15）、生命 ×3、横斩 270° 每刀最多 4 个、够得 ×3.5 远、牵制 5 只、减伤 +15；群聚多给的上限折成 +35% 伤害 / +40% 生命；骸王体型 ×1.5、头顶冠环；魂火按普通仆从算；摘下退回原式（上限 3）', async () => {
     const r = await ev(() => {
       const bar0 = T.slotSummon('thrall'); // 召唤物只在技能放在技能栏上时存在
       RQT.begin(null);
@@ -16843,7 +17485,7 @@ async function main() {
       return out;
     });
     assert(r.cap[1] === 1 && r.king && Math.abs(r.more - r.wantMore) < 1e-3 && Math.abs(r.life - r.wantLife) < 0.02, '骸王的上限 / 伤害 / 生命不对：' + JSON.stringify(r));
-    assert([r.cleave, r.arc, r.hold, r.dr, r.reach].join() === r.want.join() && r.want.join() === '12,270,5,15,3.5', '骸王的横斩 / 够得着 / 牵制 / 减伤不对：' + JSON.stringify(r));
+    assert([r.cleave, r.arc, r.hold, r.dr, r.reach].join() === r.want.join() && r.want.join() === '3,270,5,15,3.5', '骸王的横斩 / 够得着 / 牵制 / 减伤不对：' + JSON.stringify(r));
     assert((r.dps === null || Math.abs(r.dps - r.kdmg / 3) < 0.01) && r.soulK > 0 && r.soulK <= 1, '单体秒伤应约为 3 具的 骸王倍率 / 3、魂火按普通仆从算：' + JSON.stringify(r));
     assert(r.horde[0] === 1 && Math.abs(r.horde[1] - r.horde[2]) < 1e-3 && r.horde[3] === 1, '群聚多给的上限应折成伤害：' + JSON.stringify(r.horde));
     assert(r.count === 1 && r.big && r.big[0] && r.big[1] === 1.5 && r.big[2] === 1.5 && r.crown === 1, '骸王应只有 1 具、体型 ×1.5、头顶冠环：' + JSON.stringify(r));
@@ -17478,6 +18120,107 @@ async function main() {
     assert(r.c.mech === 'tide' && r.c.cap === 9 && r.c.p14 === 9 && r.c.p5 === 5 && r.c.b14 === 9 && r.c.b5 === 5, '蓄潮每下和潮涌应最多打到 9 个：' + JSON.stringify(r.c));
     return '14 只：每下 9 只、潮涌 9 只；5 只：全挨';
   });
+  await step('渊式上限：独骸的骸王每刀最多砍到 4 个（14 只围着时一刀 4 只，2 只时 2 只都挨）；回旋的利刃去程、回程各最多伤到 8 个（一排 12 只时去程 8、回程 8，5 只时都挨）', async () => {
+    const r = await ev(() => {
+      const P = G.player, out = {};
+      const dummy = (m) => {
+        G.initBuildUp(m);
+        m.buTh = 1e15;
+        m.poiseMax = 0;
+        m.hp = m.maxHp = 1e9;
+        return m;
+      };
+      // 独骸：骸王站定，周围一圈靶子（钉住、不掉血），数每一刀（同一帧）砍到几只
+      const bar0 = T.slotSummon('thrall');
+      RQT.begin('haiwang');
+      RQT.learn('thrall', 0);
+      T.fix(0.999);
+      out.kcap = G.VARIANTS.thrall.c.set.king.cleave + 1;
+      for (const n of [14, 2]) {
+        G.clearEnemies();
+        G.clearMinions();
+        G.summonMinion('thrall', P.x + 3, P.z);
+        G.relicTick(0.3);
+        const k = G.state.minions.find((m) => !m.dead && m.skill === 'thrall');
+        const kx = k.x, kz = k.z;
+        const ms = [];
+        for (let i = 0; i < n; i++) {
+          const a = n > 4 ? (i / n) * Math.PI * 2 : i * 0.6, rr = 1.3 + (i % 3) * 0.3; // 2 只时挨着站在同一边（270° 的扇面扫不到身后）
+          ms.push(dummy(T.mob('husk', kx + Math.sin(a) * rr, kz + Math.cos(a) * rr)));
+        }
+        const home = ms.map((m) => [m.x, m.z]);
+        let frame = new Set(), best = 0, swings = 0;
+        const orig = G.hitEnemy;
+        G.hitEnemy = function (e, ctx) {
+          if (ctx && ctx.id === 'thrall') frame.add(e);
+          return orig.apply(this, arguments);
+        };
+        for (let f = 0; f < 240; f++) {
+          frame = new Set();
+          G.tick(1 / 60);
+          ms.forEach((m, i) => {
+            m.x = home[i][0];
+            m.z = home[i][1];
+            m.hp = m.maxHp;
+          });
+          k.x = kx;
+          k.z = kz;
+          k.hp = k.maxHp;
+          P.life = P.maxLife;
+          if (frame.size) {
+            swings++;
+            best = Math.max(best, frame.size);
+          }
+        }
+        G.hitEnemy = orig;
+        out['k' + n] = [best, swings, !!k.king];
+      }
+      G.clearEnemies();
+      RQT.end();
+      G.save.bar = bar0;
+      // 回旋：沿飞行方向一排靶子（钉住），数去程、回程各伤到几只
+      RQT.begin('huixuan');
+      RQT.learn('blade', 0);
+      T.fix(0.999);
+      out.bcap = G.VARIANTS.blade.c.set.boom.cap;
+      const d = T.openDir(30);
+      out.open = Math.round(d.len);
+      for (const n of [12, 5]) {
+        G.clearEnemies();
+        G.resetRanged();
+        const ms = [];
+        for (let i = 0; i < n; i++) ms.push(dummy(T.mob('husk', P.x + d.x * (3 + i * 0.8), P.z + d.z * (3 + i * 0.8))));
+        const home = ms.map((m) => [m.x, m.z]);
+        const pass = { 1: new Set(), 2: new Set() };
+        const orig = G.hitEnemy;
+        G.hitEnemy = function (e, ctx, mult, info) {
+          const p = info && info.src;
+          if (ctx && ctx.id === 'blade' && p && pass[p.boom]) pass[p.boom].add(e);
+          return orig.apply(this, arguments);
+        };
+        T.aim(P.x + d.x * 6, P.z + d.z * 6);
+        P.cds = {};
+        P.mana = P.maxMana;
+        G.execSkill(G.skillCtx('blade'));
+        for (let f = 0; f < 240; f++) {
+          G.tick(1 / 60);
+          ms.forEach((m, i) => {
+            m.x = home[i][0];
+            m.z = home[i][1];
+            m.hp = m.maxHp;
+          });
+        }
+        G.hitEnemy = orig;
+        out['b' + n] = [pass[1].size, pass[2].size];
+      }
+      G.clearEnemies();
+      RQT.end();
+      return out;
+    });
+    assert(r.kcap === 4 && r.k14[2] && r.k14[1] > 0 && r.k14[0] === 4 && r.k2[0] === 2, '骸王每刀应最多砍到 4 只、2 只时都挨：' + JSON.stringify(r));
+    assert(r.bcap === 8 && r.b12.join() === '8,8' && r.b5.join() === '5,5', '回旋去程、回程应各最多伤到 8 只，5 只时都挨：' + JSON.stringify(r));
+    return '骸王一刀 ' + r.k14[0] + ' 只（' + r.k14[1] + ' 刀）；回旋一排 12 只：去程 ' + r.b12[0] + '、回程 ' + r.b12[1];
+  });
 
   await step('黑洞每跳最多伤到最近的 N 个：挤成一团的 18 只里原式 / 双极每跳 13 只、坍缩每跳 8 只（坍缩一下砸 7 只）、随核每跳 9 只，挨打的就是离洞（双极：离引力索、随核：离你）最近的那几只；只有 5 只时全挨', async () => {
     await ev(TVDEF);
@@ -17674,6 +18417,63 @@ async function main() {
     assert(r.txtB === '<b>黑洞·坍缩</b>：每跳最多伤到最近的 8 个敌人，坍缩最多砸 7 个；怪聚成一团时伤害约 −52%，分散的怪约 −23%，单体不变', '坍缩的提示不对：' + r.txtB);
     assert(r.txtC === '<b>黑洞·随核</b>：每跳最多伤到离你最近的 9 个敌人，怪聚成一团时伤害约 −44%，分散的怪约 −10%；单体不变', '随核的提示不对：' + r.txtC);
     return '老存档（学了黑洞）提示一次，按刻式写降幅，看过不再提示';
+  });
+  await step('独骸 / 回旋改版的提示：选着独骸（回旋）的老存档（没有 dhCap / hxCap）读档后各提示一次，写明上限和降幅，存档往返仍提示，看过不再提示；没选这个渊式的老存档、新存档都不提示', async () => {
+    const r = await ev((keep) => {
+      const out = {};
+      const load = (mut) => {
+        G.persist();
+        const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+        mut(raw);
+        localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+        G.loadSave();
+        return [G.kingNerfed || 0, G.save.dhNote, G.save.dhCap, G.boomNerfed || 0, G.save.hxNote, G.save.hxCap].join();
+      };
+      const old = (vars) => (raw) => {
+        delete raw.dhCap;
+        delete raw.dhNote;
+        delete raw.hxCap;
+        delete raw.hxNote;
+        raw.variants = vars;
+        if (raw.tut) {
+          delete raw.tut.dhnerf;
+          delete raw.tut.hxnerf;
+        }
+      };
+      out.oldK = load(old({ thrall: 'c' }));
+      out.round = load(() => {});
+      out.oldH = load(old({ blade: 'c' }));
+      out.both = load(old({ thrall: 'c', blade: 'c' }));
+      out.other = load(old({ thrall: 'a', blade: 'b' }));
+      out.fresh = load((raw) => {
+        raw.dhCap = 1;
+        raw.hxCap = 1;
+        raw.dhNote = false;
+        raw.hxNote = false;
+        raw.variants = { thrall: 'c', blade: 'c' };
+      });
+      G.save.tut.dhnerf = 1;
+      G.save.tut.hxnerf = 1;
+      G.save.dhNote = false;
+      G.save.hxNote = false;
+      out.seen = load((raw) => {
+        delete raw.dhCap;
+        delete raw.hxCap;
+        raw.variants = { thrall: 'c', blade: 'c' };
+      });
+      out.txtK = G.kingNerfNote();
+      out.txtH = G.boomNerfNote();
+      if (keep) localStorage.setItem('cinder-abyss-save-v1', keep);
+      G.loadSave();
+      G.computeStats();
+      return out;
+    }, varKeep);
+    assert(r.oldK === '1,true,1,0,false,1' && r.round === '1,true,1,0,false,1', '选着独骸的老存档应提示一次：' + JSON.stringify(r));
+    assert(r.oldH === '0,false,1,1,true,1' && r.both === '1,true,1,1,true,1', '选着回旋的老存档应提示一次：' + JSON.stringify(r));
+    assert(r.other === '0,false,1,0,false,1' && r.fresh === '0,false,1,0,false,1' && r.seen === '0,false,1,0,false,1', '没选这个渊式 / 新存档 / 看过的不该提示：' + JSON.stringify(r));
+    assert(r.txtK === '<b>独骸</b>：骸王每刀最多砍到 4 个敌人，怪聚成一团时伤害约 −35%；分散的怪和单体不变', '独骸的提示不对：' + r.txtK);
+    assert(r.txtH === '<b>回旋</b>：利刃去程、回程各最多伤到 8 个敌人，怪沿一条线排得很密时伤害最多约 −30%；一般的怪群、分散的怪和单体不变', '回旋的提示不对：' + r.txtH);
+    return '老存档（独骸 / 回旋）各提示一次，看过不再提示';
   });
 
   await step('魂潮改版的提示（dur-tune）：拿着魂幡（R 是魂潮）的老存档（没有 stFz）读档后提示一次「狂热 12 秒 +15%」，存档往返仍提示，看过不再提示；拿着别的武器 / 万魂旗的老存档、新存档都不提示', async () => {
@@ -22087,6 +22887,19 @@ async function classSteps() {
       n++;
       return R();
     };
+    // fx-rng：掉落模型（W.makeLoot）转圈的速度 / 相位是画面上的随机：旧版本取 Math.random，新版本取画面随机数（G.vr）。
+    // 两边都让它在自己的一路里取，比的只是模拟的那一路（物品、掉落、货架）
+    const Wd = G.world, mk = Wd.makeLoot;
+    let ms = 7;
+    Wd.makeLoot = function () {
+      const r0 = Math.random;
+      Math.random = () => (ms = (ms * 16807) % 2147483647) / 2147483647;
+      try {
+        return mk.apply(this, arguments);
+      } finally {
+        Math.random = r0;
+      }
+    };
     const items = [];
     const loot = [];
     const L = G.state.loot, l0 = L.length;
@@ -22100,12 +22913,13 @@ async function classSteps() {
       items.push({ stock });
     } finally {
       Math.random = R;
+      Wd.makeLoot = mk;
     }
     for (const l of L.splice(l0)) G.world.removeMesh(l.mesh);
     return { json: JSON.stringify({ items, loot }), n, nLoot: loot.length };
   };
 
-  await step('职业·没有职业的存档：物品 / 怪物掉落 / 拾烬客货架的序列和职业之前的 main（' + CLASS_BASE_BUILD + '）一字不差，Math.random 调用次数一样', async () => {
+  await step('职业·没有职业的存档：物品 / 怪物掉落 / 拾烬客货架的序列和职业之前的 main（' + CLASS_BASE_BUILD + '）一字不差，Math.random 调用次数一样（掉落模型的画面随机数两边都不算）', async () => {
     if (process.env.CINDER_FILE) return 'file:// 下没有同源的旧版本，这一步要 HTTP（默认就是）';
     await fresh({ url: GAME_URL.replace(/index\.html$/, '__old/' + CLASS_BASE_BUILD + '/index.html') });
     await until(() => window.G && G.state && G.state.zone && G.player && G.player.ent && G.debug, null, 90000);
@@ -24398,6 +25212,343 @@ async function titleSteps() {
     return '哈希 ' + A.hash + '，取随机数 ' + A.calls + ' 次（开 / 关相同），画了记号 ' + A.marks + ' 帧';
   });
 
+  // ------------------------------------------------------------------ 主线旁白卡（quest D3）：首领步 / 进轮回层级 1 真正完成时放一张两行的旁白卡
+  // 测试默认关着（launch / install 按 sessionStorage 的 cinder-test-narr 设 window.__noNarr），这几步打开、结束时关回去
+  const narrOn = (on) =>
+    ev((on) => {
+      if (on) sessionStorage.setItem('cinder-test-narr', '1');
+      else sessionStorage.removeItem('cinder-test-narr');
+      window.__noNarr = !on;
+    }, on);
+  // 页面里每帧记下哪张卡开始放了（id、时间）
+  const narrWatch = () =>
+    ev(() => {
+      window.__nl = [];
+      if (window.__nlOn) return;
+      window.__nlOn = true;
+      let last = '';
+      const f = () => {
+        const v = G.ui.narr(), id = v.on ? v.id : '';
+        if (id !== last) {
+          if (id) window.__nl.push({ id, t: performance.now() });
+          last = id;
+        }
+        requestAnimationFrame(f);
+      };
+      requestAnimationFrame(f);
+    });
+  const NARR = {
+    ash_boss: ['巨像倒了，它攒的火落到你手里。', '灰是从底下来的，接着往下走。'],
+    rift_boss: ['巨兽嘴里那颗星，灭了。', '可天上的裂口还在，星星还会落下来。'],
+    tier_one: ['灰又冒上来了，比上回更厚。', '余烬未冷，再走一遍。'],
+  };
+  await step('主线旁白：真打死熔渣巨像 → 卡片先排着，还有醒着的敌人、敌方预警圈时不放，打完才放（两行）；开始放就记进 told 并存档；面板盖着时停住；点卡片跳过，点击不算游戏输入', async () => {
+    await narrOn(true);
+    try {
+      await qSet({ n: 1 });
+      await until(() => !G.world.assetsPending(), null, 60000);
+      await narrWatch();
+      const a = await ev(() => {
+        const S = G.state;
+        const foe = S.enemies.find((e) => !e.isBoss && !e.dead);
+        foe.awake = true; // 还有一只在打
+        window.__nFoe = foe;
+        G.killEnemy(S.boss);
+        return { n: G.questStep(), v: G.ui.narr(), told: G.questTold('ash_boss'), awake: S.enemies.filter((e) => e.awake && !e.dead).length };
+      });
+      assert(a.n === 2 && !a.v.on && JSON.stringify(a.v.queued) === '["ash_boss"]' && !a.told && a.awake === 1, '首领倒下应排上熔渣巨像的卡、先不放：' + JSON.stringify(a));
+      await page.waitForTimeout(4500);
+      const b = await ev(() => ({ v: G.ui.narr(), nl: window.__nl.length }));
+      assert(!b.v.on && b.nl === 0 && JSON.stringify(b.v.queued) === '["ash_boss"]', '还有醒着的敌人时不应放：' + JSON.stringify(b));
+      // 敌人不打了，但还有一个敌方预警圈
+      await ev(() => {
+        window.__nFoe.awake = false;
+        window.__nTel = G.telegraph({ shape: 'circle', x: G.player.x + 30, z: G.player.z, r: 2, dur: 999, dmg: 0, friendly: false });
+      });
+      await page.waitForTimeout(3000);
+      const c = await ev(() => ({ v: G.ui.narr(), nl: window.__nl.length, tel: G.state.telegraphs.length }));
+      assert(!c.v.on && c.nl === 0 && c.tel >= 1, '敌方预警圈还在时不应放：' + JSON.stringify(c));
+      const t0 = await ev(() => {
+        const S = G.state, t = window.__nTel;
+        G.world.removeTelegraph(t.handle);
+        S.telegraphs.splice(S.telegraphs.indexOf(t), 1);
+        return performance.now();
+      });
+      await until(() => G.ui.narr().on, null, 15000);
+      await until(() => getComputedStyle(document.querySelector('#narr p + p')).opacity === '1' && getComputedStyle(document.getElementById('narr')).opacity === '1', null, 5000);
+      const d = await ev(() => {
+        const r = document.getElementById('narr'), bb = r.getBoundingClientRect(), cs = getComputedStyle(r);
+        return {
+          v: G.ui.narr(), nl: window.__nl.slice(), told: G.questTold('ash_boss'), raw: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).quest.told,
+          box: [bb.left, bb.top, bb.width, bb.height], vw: innerWidth, vh: innerHeight, op: cs.opacity, bg: cs.backgroundColor, bw: parseFloat(cs.borderTopWidth), bc: cs.borderTopColor, l2: getComputedStyle(r.children[1]).opacity,
+        };
+      });
+      assert(d.v.id === 'ash_boss' && JSON.stringify(d.v.lines) === JSON.stringify(NARR.ash_boss), '应放熔渣巨像的两行：' + JSON.stringify(d.v));
+      assert(d.nl.length === 1 && d.nl[0].t - t0 >= 1000, '预警圈没了之后至少平静 1 秒才放：' + JSON.stringify({ nl: d.nl, t0 }));
+      assert(d.told && d.raw.ash_boss === true, '开始放就应记进 told 并存档：' + JSON.stringify(d));
+      assert(d.op === '1' && d.l2 === '1' && d.bg === 'rgb(242, 232, 210)' && d.bw >= 2 && d.bc === 'rgb(18, 11, 8)', '卡片应是开场字幕框的样子、两行都出来：' + JSON.stringify(d));
+      assert(Math.abs(d.box[0] + d.box[2] / 2 - d.vw / 2) < 2 && d.box[0] > 0 && d.box[0] + d.box[2] < d.vw && d.box[1] > d.vh / 2 && d.box[1] + d.box[3] < d.vh - 150, '卡片应在屏幕中下方居中：' + JSON.stringify(d.box));
+      // 面板盖着：藏起来、计时停住；关掉接着放
+      const h1 = await ev(async () => {
+        G.ui.open('map');
+        await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+        const t1 = G.ui.narr().t;
+        await new Promise((res) => setTimeout(res, 800));
+        const v = G.ui.narr(), vis = getComputedStyle(document.getElementById('narr')).visibility;
+        G.ui.close();
+        return { held: v.held, dt: v.t - t1, vis, on: v.on, t: v.t };
+      });
+      assert(h1.held && h1.vis === 'hidden' && h1.dt < 0.05 && h1.on, '面板开着时卡片应藏起来、计时停住：' + JSON.stringify(h1));
+      await until((t) => !G.ui.narr().held && G.ui.narr().t > t + 0.1, h1.t, 10000); // 关掉后接着放
+      const h2 = await ev(() => ({ v: G.ui.narr(), vis: getComputedStyle(document.getElementById('narr')).visibility }));
+      assert(h2.v.on && !h2.v.out && h2.vis === 'visible', '面板关掉后卡片应接着放：' + JSON.stringify(h2));
+      // 点卡片：跳过，不算游戏输入
+      const bb = await ev(() => {
+        const r = document.getElementById('narr').getBoundingClientRect();
+        return [r.left + r.width / 2, r.top + r.height / 2];
+      });
+      await page.mouse.move(bb[0], bb[1]);
+      await page.mouse.down();
+      const e = await ev(() => ({ v: G.ui.narr(), b0: !!G.input.mouse.b[0], cast: !!G.player.cast }));
+      await page.mouse.up();
+      assert(e.v.out && !e.b0 && !e.cast, '点卡片应跳过、不算游戏输入：' + JSON.stringify(e));
+      await until(() => !G.ui.narr().on, null, 3000);
+      const f = await ev(() => ({ show: document.getElementById('narr').classList.contains('show'), q: G.ui.narr().queued }));
+      assert(!f.show && f.q.length === 0, '跳过后卡片应收起：' + JSON.stringify(f));
+      return '等敌人 4.5 秒、等预警圈 3 秒都没放，平静 ' + Math.round(d.nl[0].t - t0) + ' ms 后放，放 ' + d.v.dur.toFixed(1) + ' 秒';
+    } finally {
+      await narrOn(false);
+    }
+  });
+
+  await step('主线旁白：每张卡每个角色只放一次（刷新页面后不再放）；读档推算出来的首领步不放', async () => {
+    await narrOn(true);
+    try {
+      await page.reload({ timeout: 90000 });
+      await install();
+      await until(() => !G.world.assetsPending(), null, 60000);
+      await narrWatch();
+      await page.waitForTimeout(4000);
+      const a = await ev(() => ({ told: G.questTold('ash_boss'), n: G.questStep(), nl: window.__nl.length, v: G.ui.narr(), noNarr: window.__noNarr }));
+      assert(!a.noNarr && a.told && a.n === 2 && a.nl === 0 && !a.v.on && a.v.queued.length === 0, '刷新后不应再放：' + JSON.stringify(a));
+      // 再真打死一次熔渣巨像（已经放过）：不排
+      const b = await ev(() => {
+        G.enterZone(0, 0);
+        G.debug.hold(true);
+        G.debug.god(true);
+        G.killEnemy(G.state.boss);
+        return G.ui.narr().queued;
+      });
+      assert(b.length === 0, '放过的卡再打死首领也不排：' + JSON.stringify(b));
+      // 老存档：荒原 / 霜骨已通关、lastZone 2 → 读档推算到第 5 步，两个首领步都是推算出来的
+      await qSet({ n: 0, cleared: { ash: 0, frost: 0 }, zone: 2 });
+      await until(() => !G.world.assetsPending(), null, 60000);
+      await narrWatch();
+      await page.waitForTimeout(4000);
+      const c = await ev(() => ({ n: G.questStep(), told: JSON.stringify(G.save.quest.told), nl: window.__nl.length, v: G.ui.narr() }));
+      assert(c.n === 5 && c.told === '{}' && c.nl === 0 && !c.v.on && c.v.queued.length === 0, '推算出来的首领步不应放卡：' + JSON.stringify(c));
+      return '刷新后 0 张，推算到第 ' + c.n + ' 步 0 张';
+    } finally {
+      await narrOn(false);
+    }
+  });
+
+  await step('主线旁白：打死衔星巨兽 → 卡片，回车跳过；第一次进轮回层级 1 → 层级卡（素材载完、飘字出完才放），Esc 只跳过卡片、不开暂停菜单，收起后 Esc 照常开', async () => {
+    await narrOn(true);
+    try {
+      await qSet({ n: 9, cleared: { ash: 0, frost: 0, storm: 0, abyss: 0 }, zone: 4 });
+      await until(() => !G.world.assetsPending(), null, 90000);
+      await narrWatch();
+      const a = await ev(() => {
+        G.killEnemy(G.state.boss);
+        return { n: G.questStep(), maxTier: G.save.maxTier, q: G.ui.narr().queued };
+      });
+      assert(a.n === 10 && a.maxTier === 1 && JSON.stringify(a.q) === '["rift_boss"]', '打死衔星巨兽应排上它的卡：' + JSON.stringify(a));
+      await until(() => G.ui.narr().on, null, 20000);
+      const b = await ev(() => G.ui.narr());
+      assert(b.id === 'rift_boss' && JSON.stringify(b.lines) === JSON.stringify(NARR.rift_boss), '应放衔星巨兽的两行：' + JSON.stringify(b));
+      await page.keyboard.press('Enter');
+      const b2 = await ev(() => ({ v: G.ui.narr(), open: G.ui.isOpen() }));
+      assert(b2.v.out && !b2.open, '回车应跳过：' + JSON.stringify(b2));
+      await until(() => !G.ui.narr().on, null, 3000);
+      // 进轮回层级 1
+      const c = await ev(() => {
+        G.enterZone(0, 1);
+        G.debug.hold(true);
+        G.debug.god(true);
+        return { n: G.questStep(), tier: G.state.tier, q: G.ui.narr().queued, told: G.questTold('tier_one') };
+      });
+      assert(c.n === 11 && c.tier === 1 && JSON.stringify(c.q) === '["tier_one"]' && !c.told, '第一次进层级 1 应排上层级卡：' + JSON.stringify(c));
+      await until(() => G.ui.narr().on, null, 60000);
+      const d = await ev(() => ({ v: G.ui.narr(), pend: G.world.assetsPending(), qq: G.ui.quest().queued.length, told: G.questTold('tier_one') }));
+      assert(d.v.id === 'tier_one' && JSON.stringify(d.v.lines) === JSON.stringify(NARR.tier_one) && !d.pend && d.qq === 0 && d.told, '应放层级卡（素材载完、完成提示排完）：' + JSON.stringify(d));
+      await page.keyboard.press('Escape');
+      const e = await ev(() => ({ v: G.ui.narr(), open: G.ui.isOpen() }));
+      assert(e.v.out && !e.open, 'Esc 应只跳过卡片、不开暂停菜单：' + JSON.stringify(e));
+      await until(() => !G.ui.narr().on, null, 3000);
+      await page.keyboard.press('Escape');
+      const f = await ev(() => G.ui.isOpen());
+      await page.keyboard.press('Escape');
+      const g = await ev(() => G.ui.isOpen());
+      assert(f && !g, '卡片收起后 Esc 应照常开 / 关暂停菜单：' + JSON.stringify({ f, g }));
+      return '衔星巨兽卡回车跳过，层级卡 Esc 跳过';
+    } finally {
+      await narrOn(false);
+    }
+  });
+
+  await step('主线旁白：按角色——新角色第一次打死熔渣巨像也放它自己的卡；切回原来的角色，它的 told 不变', async () => {
+    const snap = await ev(() => JSON.stringify(Object.assign({}, localStorage)));
+    await narrOn(true);
+    try {
+      const a = await ev(() => {
+        G.persist();
+        const k = G.slots.firstEmpty();
+        return { k, cur: G.slots.cur(), told: JSON.stringify(G.save.quest.told), made: G.slots.create(k) };
+      });
+      assert(a.k > 0 && a.made && a.told.includes('tier_one') && !a.told.includes('ash_boss'), '应能建新角色（原角色这份存档放过层级卡、没放过熔渣巨像的卡）：' + JSON.stringify(a));
+      await Promise.all([page.waitForEvent('load', { timeout: 90000 }), ev(() => { sessionStorage.setItem(G.PLAY_ONCE_KEY, '1'); location.reload(); })]);
+      await install();
+      const b = await ev(() => {
+        G.ui.close();
+        G.save.seenHelp = G.save.seenStory = true;
+        G.enterZone(0, 0);
+        G.debug.hold(true);
+        G.debug.god(true);
+        return { cur: G.slots.cur(), n: G.questStep(), told: JSON.stringify(G.save.quest.told) };
+      });
+      assert(b.cur === a.k && b.n === 0 && b.told === '{}', '新角色的主线应是新的：' + JSON.stringify(b));
+      await until(() => !G.world.assetsPending(), null, 60000);
+      await narrWatch();
+      const q = await ev(() => {
+        G.killEnemy(G.state.boss);
+        return G.ui.narr().queued;
+      });
+      assert(JSON.stringify(q) === '["ash_boss"]', '新角色打死熔渣巨像应排上卡：' + JSON.stringify(q));
+      await until(() => G.ui.narr().on && G.ui.narr().id === 'ash_boss', null, 20000);
+      const c = await ev(() => ({ told: G.questTold('ash_boss'), raw: JSON.parse(localStorage.getItem(G.slotKey(G.slots.cur()))).quest.told }));
+      assert(c.told && c.raw.ash_boss === true, '新角色放过后记在自己的存档里：' + JSON.stringify(c));
+      await ev(() => G.ui.narrSkip());
+      await Promise.all([page.waitForEvent('load', { timeout: 90000 }), ev((k) => { G.slots.select(k); sessionStorage.setItem(G.PLAY_ONCE_KEY, '1'); location.reload(); }, a.cur)]);
+      await install();
+      const d = await ev(() => ({ cur: G.slots.cur(), told: JSON.stringify(G.save.quest.told) }));
+      assert(d.cur === a.cur && d.told === a.told && !d.told.includes('ash_boss'), '切回原角色 told 应不变（新角色放的熔渣巨像卡不串过来）：' + JSON.stringify({ a, d }));
+      return '新角色在第 ' + (a.k + 1) + ' 栏放了自己的卡';
+    } finally {
+      await narrOn(false);
+      await ev((snap) => {
+        G.holdSave(true);
+        const o = JSON.parse(snap);
+        localStorage.clear();
+        for (const k of Object.keys(o)) localStorage.setItem(k, o[k]);
+      }, snap);
+      await page.reload({ timeout: 90000 });
+      await install();
+      await until(() => !G.world.assetsPending(), null, 60000);
+    }
+  });
+
+  await step('主线旁白：首领战取随机数次数和种子哈希，开着旁白卡（打完放了一张）和关着时一样', async () => {
+    const base = await ev(() => {
+      const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+      raw.cleared = {};
+      raw.maxTier = raw.tier = 0;
+      raw.lastZone = 0;
+      raw.run = null;
+      raw.quest = { n: 0, off: false, told: {} };
+      return raw;
+    });
+    const fresh = async (narr, hold) => {
+      await ev(
+        ([raw, narr, hold]) => {
+          G.holdSave(true);
+          window.__testRand.seed('主线旁白·首领战·载入');
+          localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+          if (hold) sessionStorage.setItem('cinder-test-hold', '1');
+          else sessionStorage.removeItem('cinder-test-hold');
+          if (narr) sessionStorage.setItem('cinder-test-narr', '1');
+          else sessionStorage.removeItem('cinder-test-narr');
+        },
+        [base, narr, hold]
+      );
+      await page.reload({ timeout: 90000 });
+      await install();
+      await until(() => !G.world.assetsPending(), null, 60000);
+    };
+    // 和「主线：首领战…」同一仗（门口 → 首领 → 进霜骨），进霜骨后停下等真实时间 6 秒（开着时这期间放卡），再打 4 秒
+    const fight = () =>
+      ev(() => {
+        const P = G.player, S = G.state;
+        window.__testRand.seed('主线旁白·首领战');
+        const rnd = Math.random;
+        window.__nCalls = 0;
+        window.__nRnd = rnd;
+        Math.random = function () { window.__nCalls++; return rnd.call(this); };
+        P.god = true;
+        try {
+          for (let i = 0; i < 60; i++) G.tick(1 / 60);
+          G.debug.tpBoss();
+          for (let i = 0; i < 360; i++) G.tick(1 / 60);
+          G.killEnemy(S.boss);
+          for (let i = 0; i < 60; i++) G.tick(1 / 60);
+          G.enterZone(1, 0);
+          for (let i = 0; i < 120; i++) G.tick(1 / 60);
+        } finally {
+          Math.random = rnd;
+        }
+        return { n: G.questStep(), q: G.ui.narr().queued };
+      });
+    const rest = () =>
+      ev(() => {
+        const P = G.player, S = G.state, rnd = window.__nRnd;
+        let calls = window.__nCalls;
+        Math.random = function () { calls++; return rnd.call(this); };
+        try {
+          for (let i = 0; i < 240; i++) G.tick(1 / 60);
+        } finally {
+          Math.random = rnd;
+        }
+        const st = JSON.stringify({ p: [P.x, P.z, P.life, P.mana], e: S.enemies.map((o) => [o.type, o.x, o.z, o.hp, o.dead]), loot: S.loot.length, t: S.time, xp: G.save.xp, calls });
+        let h = 2166136261;
+        for (let i = 0; i < st.length; i++) h = Math.imul(h ^ st.charCodeAt(i), 16777619);
+        return { hash: (h >>> 0).toString(16), calls, n: G.questStep(), told: JSON.stringify(G.save.quest.told) };
+      });
+    // 开着时等到卡片放出来（最多 40 秒：进霜骨的素材要载完）；关着时等 6 秒。模拟一直停着，等多久不影响这一仗
+    const run = async (narr) => {
+      await narrWatch();
+      const a = await fight();
+      const t0 = Date.now();
+      if (narr) await until(() => window.__nl.length > 0, null, 40000).catch(() => {});
+      else await page.waitForTimeout(6000);
+      const w = Date.now() - t0;
+      const nl = await ev(() => window.__nl.map((x) => x.id));
+      const why = await ev(() => ({
+        awake: G.state.enemies.filter((e) => e.awake && !e.dead).length, tel: G.state.telegraphs.filter((t) => !t.friendly).length,
+        pend: G.world.assetsPending(), dead: G.player.dead, qq: G.ui.quest().queued.length,
+      }));
+      return Object.assign(await rest(), { q: a.q, nl, w, why });
+    };
+    let A, B, C;
+    try {
+      await fresh(true, true);
+      A = await run(true);
+      await fresh(false, true);
+      B = await run(false);
+      await fresh(true, true);
+      C = await run(true);
+    } finally {
+      await fresh(false, false);
+      await ev(() => {
+        G.debug.hold(true);
+        G.debug.god(true);
+      });
+    }
+    assert(A.n === 3 && JSON.stringify(A.q) === '["ash_boss"]' && JSON.stringify(A.nl) === '["ash_boss"]' && B.q.length === 0 && B.nl.length === 0, '开着时这一仗打完应放熔渣巨像的卡，关着时不放：' + JSON.stringify({ A, B }));
+    assert(A.hash === C.hash && A.calls === C.calls, '同一份存档打两遍不一样（测试本身不确定）：' + JSON.stringify({ A, C }));
+    assert(A.hash === B.hash && A.calls === B.calls, '旁白卡改了模拟或取了随机数：' + JSON.stringify({ A, B }));
+    return '哈希 ' + A.hash + '，取随机数 ' + A.calls + ' 次（开 / 关相同）';
+  });
+
   await step('主线：收尾——还原这一组之前的存档', async () => {
     await ev((keep) => {
       G.holdSave(true);
@@ -24409,11 +25560,880 @@ async function titleSteps() {
     const n = await ev(() => G.questStep());
     return '主线 n ' + n;
   });
+
+  await touchSteps();
+}
+
+// ------------------------------------------------------------------ 触屏（mobile M1，设计稿 game-workspace/notes/mobile-design §5）
+// 手机模拟（844×390、DPR 3、isMobile + hasTouch）里用 CDP 的 Input.dispatchTouchEvent 发真实触摸事件；最后在桌面窗口里查开场卡片和「桌面不开触屏」。
+// 单独跑：node test/smoke.mjs --touch
+const TOUCH_HINT_KEY = 'cinder-abyss-touch-hint';
+let touch = null;
+async function touchKit() {
+  const cdp = await page.context().newCDPSession(page);
+  const pt = (p) => ({ x: p.x, y: p.y, id: p.id || 0, radiusX: 3, radiusY: 3, force: 1 });
+  const send = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(pt) });
+  return {
+    down: (x, y) => send('touchStart', [{ x, y }]),
+    // touchmove 按帧合并（一帧里发几次只送到最后一次）：每次移动后等一帧，中间的位置都送到页面
+    move: async (x, y) => {
+      await send('touchMove', [{ x, y }]);
+      await frames(1);
+    },
+    up: () => send('touchEnd', []),
+    async tap(x, y) {
+      await send('touchStart', [{ x, y }]);
+      await send('touchEnd', []);
+    },
+    // 从 (x0, y0) 分几步拖到 (x1, y1)，不松手
+    async drag(x0, y0, x1, y1, n) {
+      await send('touchStart', [{ x: x0, y: y0 }]);
+      for (let i = 1; i <= (n || 6); i++) {
+        await send('touchMove', [{ x: x0 + ((x1 - x0) * i) / (n || 6), y: y0 + ((y1 - y0) * i) / (n || 6) }]);
+        await frames(1);
+      }
+    },
+  };
+}
+// 新开一个手机模拟的浏览器：新存档，关掉开场卡片、新手提示和首次提示卡，无敌，按模拟时间推进
+async function touchPage(o) {
+  if (browser) await browser.close().catch(() => {});
+  ({ browser, page, errors } = await launch(Object.assign({ width: 844, height: 390, mobile: { scale: 3 } }, o || {})));
+  await install();
+  await ev((k) => {
+    localStorage.setItem(k, '1');
+    G.save.seenHelp = G.save.seenStory = true;
+    for (const id of G.ui.hints().all) G.save.tut[id] = 1;
+    G.ui.close();
+    G.debug.god(true);
+    G.debug.hold(true);
+    // 数出手：每 1/60 秒推进一步，P.cast 换了一个（且是这个技能）就算一次
+    T.castsDuring = (sec, id) => {
+      let n = 0, last = G.player.cast;
+      for (let i = 0; i < Math.round(sec * 60); i++) {
+        G.debug.step(1 / 60);
+        const c = G.player.cast;
+        if (c && c !== last && (!id || c.id === id)) n++;
+        last = c;
+      }
+      return n;
+    };
+    T.tapsOn = () => G.input.tap.some((v) => v > 0) || G.input.mouse.b.some(Boolean);
+    // 走到 main.js 冒泡阶段那一层的 mousedown（触屏模式下应当一个都没有）
+    window.__mdown = 0;
+    window.addEventListener('mousedown', () => window.__mdown++);
+  }, TOUCH_HINT_KEY);
+  await frames(2);
+  touch = await touchKit();
+}
+const tbRect = (tb) => ev((tb) => T.rect('[data-tb="' + tb + '"]'), tb);
+
+async function touchSteps() {
+  await step('触屏：手机模拟下自动打开触屏模式；摇杆往右拖 → KeyD、玩家往右走，扇区有回差，松手键全清', async () => {
+    await touchPage();
+    const s0 = await ev(() => ({ st: G.touch.state(), cls: document.documentElement.className, vp: document.querySelector('meta[name=viewport]').content, q: G.defaultQuality(), coarse: matchMedia('(pointer: coarse)').matches, mtp: navigator.maxTouchPoints, x: G.player.x }));
+    assert(s0.st.on && s0.st.mode === 'auto' && /touch-ui/.test(s0.cls) && /viewport-fit=cover/.test(s0.vp), '手机模拟下应自动打开触屏模式：' + JSON.stringify(s0));
+    assert(s0.coarse && s0.mtp > 0, '模拟环境不是 coarse 触屏：' + JSON.stringify(s0));
+    // 「添加到主屏幕」：触屏模式挂上清单，清单和图标都取得到、尺寸对得上
+    const mf = await ev(async () => {
+      const l = document.querySelector('link[rel=manifest]');
+      if (!l) return { link: false };
+      const j = await (await fetch(l.href)).json();
+      const icons = [];
+      for (const ic of j.icons.concat([{ src: document.querySelector('link[rel=apple-touch-icon]').getAttribute('href'), sizes: '180x180' }])) {
+        const im = new Image();
+        im.src = ic.src;
+        await im.decode();
+        icons.push(ic.sizes + '=' + im.naturalWidth + 'x' + im.naturalHeight);
+      }
+      return { link: true, display: j.display, orient: j.orientation, icons, apple: document.querySelector('meta[name=apple-mobile-web-app-capable]').content };
+    });
+    assert(mf.link && mf.display === 'fullscreen' && mf.orient === 'landscape' && mf.apple === 'yes' && mf.icons.every((x) => x.split('=')[0] === x.split('=')[1]), '主屏清单 / 图标不对：' + JSON.stringify(mf));
+    // 摇杆盘半径 54 px（拖得更远底座会跟着走），这里都在 45 px 以内拖
+    await touch.drag(150, 300, 195, 300);
+    const k1 = await ev(() => Object.assign({}, G.input.keys));
+    assert(k1.KeyD && !k1.KeyW && !k1.KeyA && !k1.KeyS, '往右拖应只按下 D：' + JSON.stringify(k1));
+    // 26° 往下：刚过 22.5° 的扇区边，回差内仍只按 D；拖到 45° 才变成 D + S
+    await touch.move(150 + 45 * Math.cos(0.454), 300 + 45 * Math.sin(0.454));
+    const k2 = await ev(() => Object.assign({}, G.input.keys));
+    await touch.move(150 + 45 * Math.cos(0.785), 300 + 45 * Math.sin(0.785));
+    const k3 = await ev(() => Object.assign({}, G.input.keys));
+    assert(k2.KeyD && !k2.KeyS, '扇区边上（26°）应有回差，仍只按 D：' + JSON.stringify(k2));
+    assert(k3.KeyD && k3.KeyS, '拖到 45° 应按下 D + S：' + JSON.stringify(k3));
+    await touch.move(195, 300);
+    const x1 = await ev(() => (G.debug.step(0.6), G.player.x));
+    assert(x1 > s0.x + 1.5, '按着摇杆推进 0.6 秒应往右走：' + s0.x + ' → ' + x1);
+    await touch.up();
+    const k4 = await ev(() => ({ k: Object.keys(G.input.keys).filter((k) => G.input.keys[k]), st: G.touch.state().stick, audio: !!G.audio.ctx() }));
+    assert(!k4.k.length && k4.st === -1, '松手后键应全清：' + JSON.stringify(k4));
+    assert(k4.audio, '第一次松手后应建好 AudioContext（iOS 只认 touchend）');
+    return '走了 ' + (x1 - s0.x).toFixed(2) + ' m';
+  });
+
+  await step('触屏：按住主攻 1 秒连放 ≥ 2 次（mouse.b[0]、自动瞄准最近的敌人）；轻点 Q 记进缓冲', async () => {
+    await ev(() => {
+      G.debug.learnAll();
+      G.save.bar[2] = 'arc';
+      G.save.bar[3] = 'meteor';
+      G.computeStats();
+      G.player.mana = G.player.maxMana = 9999;
+      window.__mob = T.mob('husk', 3, 0.5);
+    });
+    await frames(2);
+    const m = await tbRect('s0');
+    assert(m && m.w >= 70, '主攻按钮应有 72 px 左右：' + JSON.stringify(m));
+    await touch.down(m.x, m.y);
+    const s = await ev(() => ({ b: G.input.mouse.b.slice(), aim: G.input.aim, mob: { x: window.__mob.x, z: window.__mob.z }, st: G.touch.state() }));
+    assert(s.b[0] && s.aim && Math.hypot(s.aim.x - s.mob.x, s.aim.z - s.mob.z) < 0.01, '按下主攻：mouse.b[0] 应为真、瞄准落在敌人身上：' + JSON.stringify(s));
+    const n = await ev((id) => T.castsDuring(1, id), await ev(() => G.save.bar[0]));
+    await touch.up();
+    const after = await ev(() => G.input.mouse.b.slice());
+    assert(n >= 2, '按住 1 秒应至少放出 2 次：' + n);
+    assert(!after[0], '松手后 mouse.b[0] 应清掉');
+    await ev(() => {
+      G.debug.step(1);
+      G.input.tap.fill(0);
+    });
+    const q = await tbRect('s2');
+    await touch.tap(q.x, q.y);
+    const t = await ev(() => ({ tap: G.input.tap.slice(), keyQ: !!G.input.keys.KeyQ }));
+    assert(t.tap[2] > 0 && !t.keyQ, '轻点 Q 应记进 tap[2] 缓冲、不留按住状态：' + JSON.stringify(t));
+    const qn = await ev(() => T.castsDuring(1, 'arc'));
+    assert(qn === 1, '轻点 Q 应正好放出一次链雷：' + qn);
+    return '主攻 ' + n + ' 次';
+  });
+
+  await step('触屏：从 E 拖出去手动瞄准——准星落点和 input.aim 差不到 0.3 m，松手在那里放出陨火', async () => {
+    await ev(() => {
+      G.debug.step(1);
+      const W = G.world;
+      window.__fall = [];
+      if (!window.__fallOrig) {
+        window.__fallOrig = W.meteorFall;
+        W.meteorFall = function (x, z) {
+          window.__fall.push({ x, z });
+          return window.__fallOrig.apply(this, arguments);
+        };
+      }
+      G.player.cds = {};
+    });
+    const e = await tbRect('s3');
+    const dx = -100, dy = -30;
+    await touch.drag(e.x, e.y, e.x + dx, e.y + dy, 4);
+    await frames(2);
+    const a = await ev(() => {
+      const r = document.getElementById('reticle');
+      const m = /translate\(([-\d.]+)px,\s*([-\d.]+)px\)/.exec(r.style.transform);
+      const g = m ? G.world.screenToGround(+m[1], +m[2]) : null;
+      return { aim: G.input.aim, ret: g, vis: getComputedStyle(r).display !== 'none', P: { x: G.player.x, z: G.player.z }, aiming: document.documentElement.classList.contains('t-aiming') };
+    });
+    const L = Math.hypot(dx, dy), f = Math.min(1, (L - 20) / 110), r = 14 * f;
+    const want = { x: a.P.x + (dx / L) * r, z: a.P.z + (dy / L) * r };
+    assert(a.vis && a.aiming && a.aim && a.ret, '拖动时应显示准星：' + JSON.stringify(a));
+    assert(Math.hypot(a.aim.x - want.x, a.aim.z - want.z) < 0.05, 'input.aim 应是玩家 + 方向 × 射程比例：' + JSON.stringify({ aim: a.aim, want }));
+    const de = Math.hypot(a.ret.x - a.aim.x, a.ret.z - a.aim.z);
+    assert(de < 0.3, '准星的落点和 input.aim 差了 ' + de.toFixed(2) + ' m');
+    await touch.up();
+    const c = await ev(() => {
+      G.debug.step(1.5);
+      return { fall: window.__fall.slice(), cd: G.player.cds.meteor || 0, aiming: document.documentElement.classList.contains('t-aiming') };
+    });
+    assert(c.cd > 0 && c.fall.length === 1, '松手应放出一次陨火：' + JSON.stringify(c));
+    const dm = Math.hypot(c.fall[0].x - want.x, c.fall[0].z - want.z);
+    assert(dm < 0.3, '陨火落点离拖动的落点 ' + dm.toFixed(2) + ' m');
+    assert(!c.aiming, '松手后准星应收起');
+    // 拖回按钮上松手 = 取消
+    await ev(() => {
+      G.player.cds = {};
+      window.__tend = [];
+      window.addEventListener('touchend', (ev) => window.__tend.push([ev.changedTouches[0].clientX, ev.changedTouches[0].clientY]), { once: true });
+      window.__tm = [];
+      window.__tmL = (ev) => window.__tm.push([ev.type[5], Math.round(ev.changedTouches[0].clientX), JSON.stringify(G.touch.state().held), Math.round(performance.now())]);
+      window.addEventListener('touchstart', window.__tmL);
+      window.addEventListener('touchmove', window.__tmL);
+    });
+    await touch.drag(e.x, e.y, e.x - 90, e.y, 3);
+    await touch.move(e.x - 40, e.y);
+    await touch.move(e.x + 2, e.y);
+    await frames(1);
+    await touch.up();
+    const z = await ev(() => {
+      G.debug.step(1);
+      window.removeEventListener('touchstart', window.__tmL);
+      window.removeEventListener('touchmove', window.__tmL);
+      return { cd: G.player.cds.meteor || 0, n: window.__fall.length, end: window.__tend, tm: window.__tm };
+    });
+    assert(!z.cd && z.n === 1, '拖回按钮上松手应取消：' + JSON.stringify(z));
+    // 拖得又远又往上：落点会跑到顶栏 / 区域名底下——沿着同一方向收回来，准星留在能看见的地方
+    await touch.drag(e.x, e.y, e.x - 160, e.y - 150, 5);
+    await frames(1);
+    const cl = await ev(() => {
+      const r = document.getElementById('reticle');
+      const m = /translate\(([-\d.]+)px,\s*([-\d.]+)px\)/.exec(r.style.transform);
+      const zb = document.getElementById('zone-box').getBoundingClientRect().bottom, tb = document.getElementById('t-top').getBoundingClientRect().bottom;
+      const P = G.player, a = G.input.aim;
+      return { y: m ? +m[2] : -1, x: m ? +m[1] : -1, top: Math.max(zb, tb), d: Math.hypot(a.x - P.x, a.z - P.z), ang: Math.atan2(a.z - P.z, a.x - P.x) };
+    });
+    await touch.move(e.x + 2, e.y);
+    await touch.up();
+    const wantAng = Math.atan2(-150, -160);
+    assert(cl.y >= cl.top && cl.x >= 0 && cl.d > 1 && cl.d < 14 && Math.abs(cl.ang - wantAng) < 0.01, '拖到顶栏方向时准星应收回到可见区域、方向不变：' + JSON.stringify(cl));
+    return '误差 ' + de.toFixed(3) + ' m，落点 ' + dm.toFixed(3) + ' m';
+  });
+
+  await step('触屏：点翻滚就滚、点药瓶就喝；附近有掉落时 F 出现，点 F 拾取', async () => {
+    await ev(() => {
+      G.debug.step(2);
+      const P = G.player;
+      P.roll.cd = 0;
+      P.cast = null;
+    });
+    const d = await tbRect('roll');
+    await touch.tap(d.x, d.y);
+    const roll = await ev(() => G.player.roll.t);
+    assert(roll > 0, '点翻滚应立刻翻滚');
+    await ev(() => {
+      G.debug.step(1.5);
+      G.player.life = Math.round(G.player.maxLife * 0.4);
+    });
+    const f0 = await ev(() => G.player.flask.life);
+    const fl = await tbRect('f1');
+    assert(fl.w >= 44 && fl.h >= 44, '药瓶按钮应 ≥ 44 px：' + JSON.stringify(fl));
+    await touch.tap(fl.x, fl.y);
+    const f1 = await ev(() => G.player.flask.life);
+    assert(f1 < f0, '点生命药瓶应用掉一次充能：' + f0 + ' → ' + f1);
+    const noF = await ev(() => G.touch.state().f);
+    await ev(() => {
+      const P = G.player;
+      for (let i = G.state.loot.length - 1; i >= 0; i--) G.state.loot.splice(i, 1);
+      window.__bag0 = G.save.bag.length;
+      G.spawnLoot('item', G.rollItem(1, 0), P.x + 1.2, P.z);
+    });
+    await frames(3);
+    const st = await ev(() => ({ f: G.touch.state().f, vis: getComputedStyle(document.getElementById('t-f')).display !== 'none', loot: G.state.loot.length }));
+    assert(!noF && st.f && st.vis && st.loot === 1, '附近有掉落时 F 应出现（没有时不出现）：' + JSON.stringify({ noF, st }));
+    const F = await tbRect('F');
+    assert(F.w >= 44 && F.h >= 44, 'F 应 ≥ 44 px');
+    await touch.tap(F.x, F.y);
+    const got = await ev(() => ({ loot: G.state.loot.length, bag: G.save.bag.length - window.__bag0 }));
+    assert(got.loot === 0 && got.bag === 1, '点 F 应拾取：' + JSON.stringify(got));
+    return '药瓶 ' + f0.toFixed(2) + ' → ' + f1.toFixed(2);
+  });
+
+  await step('触屏：点空地不放技能、不出兼容 mousedown；点顶栏按钮只开面板、绝不同时放技能；名牌开关', async () => {
+    await ev(() => {
+      G.debug.step(1);
+      G.input.tap.fill(0);
+      G.player.cast = null;
+      window.__mdown = 0;
+      for (let i = G.state.loot.length - 1; i >= 0; i--) G.state.loot.splice(i, 1);
+      window.__mob.dead = true;
+    });
+    await touch.tap(560, 175);
+    await frames(2);
+    const a = await ev(() => ({ taps: T.tapsOn(), md: window.__mdown, cast: (G.debug.step(0.3), G.player.cast && G.player.cast.id) }));
+    assert(!a.taps && a.md === 0 && !a.cast, '点空地不应放技能：' + JSON.stringify(a));
+    const btn = await ev(() => T.rect('#t-top [data-tt="map"]'));
+    assert(btn.w >= 44 && btn.h >= 44, '顶栏按钮应 ≥ 44 px：' + JSON.stringify(btn));
+    await touch.tap(btn.x, btn.y);
+    await frames(2);
+    const b = await ev(() => ({ tab: T.tab(), taps: T.tapsOn(), md: window.__mdown, cast: G.player.cast && G.player.cast.id }));
+    assert(b.tab === 'map' && !b.taps && !b.cast, '点「图」应只打开地图页：' + JSON.stringify(b));
+    await ev(() => G.ui.close());
+    await frames(1);
+    const nb = await ev(() => T.rect('#t-top [data-tt="labels"]'));
+    await touch.tap(nb.x, nb.y);
+    await frames(2);
+    const l1 = await ev(() => ({ alt: G.input.alt, on: G.touch.state().labels, taps: T.tapsOn() }));
+    await touch.tap(nb.x, nb.y);
+    await frames(2);
+    const l2 = await ev(() => ({ alt: G.input.alt, on: G.touch.state().labels }));
+    assert(l1.alt && l1.on && !l1.taps && !l2.alt && !l2.on, '「名牌」开关应切换名牌展开：' + JSON.stringify({ l1, l2 }));
+    return '兼容 mousedown ' + a.md + ' / ' + b.md;
+  });
+
+  await step('触屏：竖屏时盖上「请横屏游玩」、模拟暂停，转回横屏继续', async () => {
+    await ev(() => G.debug.hold(false));
+    await page.setViewportSize({ width: 390, height: 844 });
+    await frames(3);
+    const t0 = await ev(() => G.state.time);
+    await frames(4);
+    const p = await ev(() => ({ st: G.touch.state(), paused: G.state.paused, t: G.state.time, mask: T.rect('#t-portrait'), txt: document.getElementById('t-portrait').innerText, cl: getComputedStyle(document.querySelector('[data-tb="s0"]')).display }));
+    assert(p.st.portrait && p.st.blocked && p.paused && p.t === t0, '竖屏时应暂停：' + JSON.stringify({ st: p.st, paused: p.paused, t0, t: p.t }));
+    assert(p.mask && p.mask.w >= 390 && p.mask.h >= 844 && p.txt.includes('横屏') && p.cl === 'none', '竖屏遮罩应盖满、按钮簇隐藏：' + JSON.stringify(p));
+    await page.setViewportSize({ width: 844, height: 390 });
+    await frames(3);
+    const t1 = await ev(() => G.state.time);
+    await frames(4);
+    const q = await ev(() => ({ st: G.touch.state(), paused: G.state.paused, t: G.state.time }));
+    assert(!q.st.blocked && !q.paused && q.t > t1, '转回横屏应继续：' + JSON.stringify(q));
+    await ev(() => G.debug.hold(true));
+    return '暂停时 time ' + t0;
+  });
+
+  await step('触屏：首次提示卡只给没弹开场卡片的角色，每台设备只出一次（全局键，换角色也不再出）；设置里「触屏操作」能关掉、再改回自动', async () => {
+    // 这一页开头弹过触屏版的开场卡片，提示卡就不该再出（新角色只看一张教程，见「新角色只弹一张操作教程」）。
+    // 提示卡留给开场卡片早就看过的角色（触屏上线前的老角色）：清掉设备键、开场卡片记成看过，重载
+    await ev((k) => localStorage.removeItem(k), TOUCH_HINT_KEY);
+    await frames(3);
+    const a0 = await ev(() => G.touch.state());
+    assert(!a0.hint, '这一页弹过开场卡片，不该再弹提示卡：' + JSON.stringify(a0));
+    await ev((k) => {
+      localStorage.removeItem(k);
+      G.save.seenHelp = true;
+      G.persist();
+    }, TOUCH_HINT_KEY);
+    await page.reload({ timeout: 90000 });
+    await install();
+    await ev(() => {
+      G.ui.close();
+      G.debug.hold(true);
+      T.tapsOn = () => G.input.tap.some((v) => v > 0) || G.input.mouse.b.some(Boolean);
+    });
+    await frames(3);
+    const a = await ev(() => ({ st: G.touch.state(), vis: T.rect('#t-hint .th-card'), txt: document.getElementById('t-hint').innerText, paused: G.state.paused }));
+    assert(a.st.hint && a.st.blocked && a.paused && a.vis && a.vis.w > 0, '没看过时应弹出提示卡并暂停：' + JSON.stringify(a));
+    assert(/拖动/.test(a.txt) && /瞄准/.test(a.txt) && /攻击/.test(a.txt), '提示卡内容不对：' + a.txt);
+    const ok = await ev(() => T.rect('#t-hint-ok'));
+    assert(ok.h >= 44, '「知道了」应 ≥ 44 px');
+    await touch.tap(ok.x, ok.y);
+    await frames(2);
+    const b = await ev((k) => ({ st: G.touch.state(), key: localStorage.getItem(k), taps: T.tapsOn() }), TOUCH_HINT_KEY);
+    assert(!b.st.hint && !b.st.blocked && b.key === '1' && !b.taps, '点「知道了」应收起并记下：' + JSON.stringify(b));
+    await page.reload({ timeout: 90000 });
+    await install();
+    await ev(() => {
+      G.ui.close();
+      G.debug.hold(true);
+      T.tapsOn = () => G.input.tap.some((v) => v > 0) || G.input.mouse.b.some(Boolean);
+    });
+    await frames(3);
+    const c = await ev(() => G.touch.state());
+    assert(!c.hint, '刷新后不应再弹：' + JSON.stringify(c));
+    // 设置项：暂停菜单 → 设置 → 触屏操作 关 / 自动
+    await ev(() => G.ui.pause());
+    await page.click('#p-menu [data-tact="settings"]');
+    const seg = await ev(() => Array.from(document.querySelectorAll('#p-view [data-tact="touchmode"]')).map((n) => n.dataset.m + (n.classList.contains('on') ? '*' : '')).join(','));
+    assert(seg === 'auto*,on,off', '设置里应有「触屏操作：自动 / 开 / 关」：' + seg);
+    await page.click('#p-view [data-tact="touchmode"][data-m="off"]');
+    const off = await ev(() => ({ on: G.touch.on, cls: document.documentElement.className, key: localStorage.getItem('cinder-abyss-touch'), tb: document.querySelectorAll('#hud [data-tb]').length, intro: document.querySelector('.intro-keys').innerText }));
+    assert(!off.on && !/touch-ui/.test(off.cls) && off.key === 'off' && off.tb === 0 && /W/.test(off.intro), '关掉后应回到桌面布局：' + JSON.stringify(off));
+    await page.click('#p-view [data-tact="touchmode"][data-m="auto"]');
+    const au = await ev(() => ({ on: G.touch.on, key: localStorage.getItem('cinder-abyss-touch') }));
+    assert(au.on && au.key === null, '改回自动应重新打开：' + JSON.stringify(au));
+    await ev(() => G.ui.close());
+    return '提示卡一次，设置三档';
+  });
+
+  await step('触屏：开场卡片、背包、技能、天赋、地图、帮助、浮窗、暂停菜单里没有鼠标 / 键盘说法（右键 / 左键 / 悬停 / Alt / WASD / Shift，Esc / Enter 角标）；点物品 → 详情里点「装备」穿上；长按看详情；长按不会误穿', async () => {
+    await touchPage();
+    // 打一场（没开面板）：触屏文字处理一次都不该跑（只盯面板 / 浮窗 / 菜单，不盯 HUD）；提示卡打起来 4 秒后收成一行
+    const busy = await ev(async () => {
+      const P = G.player;
+      for (let i = 0; i < 8; i++) T.mob('husk', Math.sin(i) * 4, Math.cos(i) * 4);
+      const co = document.getElementById('coach');
+      co.querySelector('.co-body').textContent = '提示卡测试：打起来以后四秒收成一行，点一下展开';
+      co.dataset.hint = 'touchtest';
+      co.className = 'on';
+      await new Promise((r) => setTimeout(r, 0)); // 上面改提示卡文字的那一次处理先跑完（MutationObserver 是微任务）
+      const c0 = G.touch.state().txt.calls;
+      G.debug.hold(false);
+      G.input.mouse.b[0] = true;
+      const t0 = performance.now();
+      await new Promise((res) => {
+        const f = () => (co.classList.contains('t-min') || performance.now() - t0 > 30000 ? res() : requestAnimationFrame(f));
+        requestAnimationFrame(f);
+      });
+      G.input.mouse.b[0] = false;
+      G.debug.hold(true);
+      const st = G.touch.state();
+      const out = { calls: st.txt.calls - c0, ms: st.txt.ms, min: co.classList.contains('t-min'), sec: +((performance.now() - t0) / 1000).toFixed(1), lines: Math.round(co.querySelector('.co-body').getBoundingClientRect().height / 17) };
+      co.className = '';
+      for (const e of G.state.enemies) if (e.atkCd === 1e9) e.dead = true;
+      return out;
+    });
+    assert(busy.calls === 0, '没开面板时触屏文字处理不该跑：' + JSON.stringify(busy));
+    assert(busy.min && busy.lines === 1, '打起来后提示卡应收成一行：' + JSON.stringify(busy));
+    const scan = (where) =>
+      ev((where) => {
+        const bad = [];
+        const m = document.body.innerText.match(/[^\n]{0,14}(右键|左键|悬停|Alt|WASD|Shift)[^\n]{0,14}/g);
+        if (m) for (const x of m) bad.push(where + '：' + x);
+        for (const k of document.querySelectorAll('kbd')) if (k.getClientRects().length && /^(Esc|Enter|Shift|Alt)$/.test(k.textContent.trim())) bad.push(where + '：角标 ' + k.textContent.trim());
+        return bad;
+      }, where);
+    let bad = [];
+    await ev(() => G.ui.showIntro());
+    await frames(2);
+    bad = bad.concat(await scan('开场卡片'));
+    await ev(() => {
+      G.ui.close();
+      G.debug.learnAll();
+      window.__helm = G.debug.giveItem(1, 'helm');
+      G.debug.giveItem(2, 'weapon');
+      G.ui.open('inv');
+    });
+    await frames(3);
+    bad = bad.concat(await scan('背包'));
+    // 长按另一格：按住 Alt 的效果（详情展开），松手收起；安卓长按带出来的 contextmenu 不会把它穿上
+    const cell2 = await ev(() => T.rect('.cell[data-item]:not([data-item="' + window.__helm.uid + '"])'));
+    await touch.down(cell2.x, cell2.y);
+    await sleep(700);
+    const lp = await ev(() => {
+      const n = document.elementFromPoint(innerWidth / 2, 10);
+      const c = document.querySelector('.cell[data-item]:not([data-item="' + window.__helm.uid + '"])');
+      const uid = c.dataset.item;
+      c.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 1, clientY: 1 }));
+      const tip = document.getElementById('tip');
+      return { alt: G.input.alt, worn: Object.values(G.save.equip).some((it) => it && it.uid === uid), n: !!n, tip: getComputedStyle(tip).display !== 'none' && tip.textContent.length > 0 };
+    });
+    await touch.up();
+    await frames(2);
+    const lp2 = await ev(() => G.input.alt);
+    const tip2 = await ev(() => getComputedStyle(document.getElementById('tip')).display);
+    assert(lp.alt && lp.tip && !lp2 && tip2 === 'none', '长按应出浮窗并展开详情、松手收起：' + JSON.stringify({ lp, lp2, tip2 }));
+    assert(!lp.worn, '长按（contextmenu）不应把物品穿上');
+    // 点一下物品：详情里有「装备」等按钮（浮窗也会出来）
+    const cell = await ev(() => T.rect('.cell[data-item="' + window.__helm.uid + '"]'));
+    await touch.tap(cell.x, cell.y);
+    await frames(3);
+    const acts = await ev(() => Array.from(document.querySelectorAll('#panel-body .act-row button')).filter((b) => b.getClientRects().length).map((b) => b.textContent.trim()));
+    bad = bad.concat(await scan('背包·选中'));
+    assert(acts.includes('装备') && acts.includes('分解') && acts.includes('丢弃'), '点物品后详情里应有 装备 / 分解 / 丢弃：' + acts.join(','));
+    const eq = await ev(() => {
+      const b = document.querySelector('#panel-body .act-row [data-act="equip"]');
+      const r = T.rect(b);
+      return r && r.t >= 0 && r.b <= innerHeight ? r : Object.assign({ offscreen: true }, r);
+    });
+    assert(eq && !eq.offscreen, '「装备」按钮应不用滚动就在屏幕里：' + JSON.stringify(eq));
+    assert(eq && eq.w >= 44 && eq.h >= 30, '「装备」按钮太小：' + JSON.stringify(eq));
+    await touch.tap(eq.x, eq.y);
+    await frames(2);
+    const worn = await ev(() => G.save.equip.helm && G.save.equip.helm.uid === window.__helm.uid);
+    assert(worn, '点「装备」应穿上');
+    for (const tab of ['skills', 'tree', 'map', 'help']) {
+      await ev((tab) => G.ui.open(tab), tab);
+      await frames(3);
+      bad = bad.concat(await scan(tab));
+    }
+    // 技能页：点一张技能卡（浮窗）
+    const card = await ev(() => T.rect('#panel-body [data-tip]'));
+    if (card) {
+      await touch.tap(card.x, card.y);
+      await frames(2);
+      bad = bad.concat(await scan('技能页浮窗'));
+    }
+    await ev(() => {
+      G.ui.close();
+      G.ui.pause();
+    });
+    for (const sub of ['settings', 'help']) {
+      await page.click('#p-menu [data-tact="' + sub + '"]');
+      await frames(1);
+      bad = bad.concat(await scan('暂停菜单·' + sub));
+      await ev(() => document.querySelector('#pause [data-tact="back"]') && document.querySelector('#pause [data-tact="back"]').click());
+    }
+    await ev(() => G.ui.close());
+    assert(!bad.length, '触屏下还有鼠标 / 键盘说法：' + Array.from(new Set(bad)).slice(0, 12).join(' ｜ '));
+    return '按钮 ' + acts.join(' / ') + '；打 ' + busy.sec + ' 秒文字处理 ' + busy.calls + ' 次，提示卡收成一行';
+  });
+
+  await step('旁白卡：帧率掉到约 2 fps 时按真实时间放，长度和正常时一样（约 5 秒）；触屏下不压顶栏、小地图、追踪条、按钮簇和提示卡', async () => {
+    await touchPage();
+    await ev(() => {
+      sessionStorage.setItem('cinder-test-narr', '1');
+      window.__noNarr = false;
+      G.debug.tpBoss();
+      G.debug.step(1); // 第 1 步「走到首领场地门口」
+      G.killEnemy(G.state.boss);
+      G.debug.killAll();
+      G.debug.step(0.5);
+      for (let i = G.state.loot.length - 1; i >= 0; i--) G.state.loot.splice(i, 1);
+      // 把帧率压到约 2 fps：每帧里空转 450 ms
+      window.__thr = true;
+      const blk = () => {
+        if (!window.__thr) return;
+        const t = performance.now();
+        while (performance.now() - t < 450) {}
+        requestAnimationFrame(blk);
+      };
+      requestAnimationFrame(blk);
+      // 每 50 ms 记一次卡片开没开（setTimeout 插在两帧之间跑）
+      window.__nt = { on: 0, off: 0 };
+      const poll = () => {
+        const v = G.ui.narr();
+        if (v.on && !window.__nt.on) window.__nt.on = performance.now(), (window.__nt.dur = v.dur), (window.__nt.id = v.id);
+        if (window.__nt.on && !v.on && !window.__nt.off) window.__nt.off = performance.now();
+        if (!window.__nt.off) setTimeout(poll, 50);
+      };
+      poll();
+      G.debug.hold(false);
+    });
+    await until(() => window.__nt.on > 0, null, 60000);
+    await sleep(800);
+    // 卡片在的时候量一下位置
+    const lay = await ev(() => {
+      const box = (s) => {
+        const n = document.querySelector(s);
+        if (!n || !n.getClientRects().length) return null;
+        const b = n.getBoundingClientRect();
+        return { l: b.left, t: b.top, r: b.right, b: b.bottom };
+      };
+      const mm = G.world.mmTouch;
+      const n = box('#narr');
+      const others = { top: box('#t-top'), tracker: document.getElementById('quest').textContent ? box('#quest') : null, minimap: mm ? { l: mm.x, t: mm.y, r: mm.x + 110, b: mm.y + 110 } : null, coach: document.getElementById('coach').classList.contains('on') ? box('#coach') : null };
+      const tb = Array.from(document.querySelectorAll('[data-tb]')).filter((x) => x.getClientRects().length).map((x) => x.getBoundingClientRect());
+      const hits = [];
+      for (const k in others) {
+        const o = others[k];
+        if (o && n.l < o.r && o.l < n.r && n.t < o.b && o.t < n.b) hits.push(k);
+      }
+      if (tb.some((o) => n.l < o.right && o.left < n.right && n.t < o.bottom && o.top < n.bottom)) hits.push('cluster');
+      return { n, hits };
+    });
+    await until(() => window.__nt.off > 0, null, 90000);
+    const r = await ev(() => {
+      window.__thr = false;
+      G.debug.hold(true);
+      sessionStorage.removeItem('cinder-test-narr');
+      window.__noNarr = true;
+      return { id: window.__nt.id, dur: window.__nt.dur, wall: +((window.__nt.off - window.__nt.on) / 1000).toFixed(2) };
+    });
+    assert(r.id === 'ash_boss' && Math.abs(r.wall - r.dur) < 1.3, '约 2 fps 时旁白卡应按真实时间放完：' + JSON.stringify(r));
+    assert(lay.n && !lay.hits.length, '触屏下旁白卡压到了：' + JSON.stringify(lay));
+    return '设定 ' + r.dur.toFixed(1) + ' 秒，约 2 fps 下实际 ' + r.wall + ' 秒';
+  });
+
+  await step('触屏：切到后台 / pagehide 时存档，并遵守「另一个标签页写过就停写」；触屏模式下切回来停在暂停菜单', async () => {
+    const r = await ev(() => {
+      G.debug.hold(true);
+      const key = 'cinder-abyss-save-v1';
+      const out = {};
+      G.save.xp = 11;
+      window.dispatchEvent(new Event('pagehide'));
+      out.saved = JSON.parse(localStorage.getItem(key)).xp;
+      G.save.xp = 12;
+      Object.defineProperty(document, 'hidden', { value: true, configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+      out.hiddenSaved = JSON.parse(localStorage.getItem(key)).xp;
+      out.pause = G.ui.paused();
+      delete document.hidden;
+      // 另一个标签页写了这一栏：这边变成 stale，之后的 pagehide 不能再写
+      window.dispatchEvent(new StorageEvent('storage', { key, oldValue: 'a', newValue: 'b', storageArea: localStorage }));
+      out.stale = G.slots.stale();
+      G.save.xp = 13;
+      window.dispatchEvent(new Event('pagehide'));
+      out.afterStale = JSON.parse(localStorage.getItem(key)).xp;
+      return out;
+    });
+    assert(r.saved === 11 && r.hiddenSaved === 12, 'pagehide / 切后台应各存一次：' + JSON.stringify(r));
+    assert(r.pause, '触屏模式下切到后台应打开暂停菜单：' + JSON.stringify(r));
+    assert(r.stale && r.afterStale === 12, '另一个标签页写过之后 pagehide 不能再写：' + JSON.stringify(r));
+    return 'xp 11 → 12，停写后仍是 ' + r.afterStale;
+  });
+
+  await step('触屏：画面丢失（WEBGL_lose_context）→ 先存档、存成功了画面回来才重载，提示「画面丢失，正在恢复…」；存不进去就不重载', async () => {
+    const run = async (fail) => {
+      await touchPage();
+      return ev(
+        (fail) =>
+          new Promise((res) => {
+            const log = [];
+            const real = G.persist;
+            G.persist = () => {
+              log.push('save');
+              return fail ? false : real();
+            };
+            G.reloadPage = () => log.push('reload');
+            G.save.xp = 21;
+            const cv = document.getElementById('gl');
+            const gl = cv.getContext('webgl2') || cv.getContext('webgl');
+            const ext = gl.getExtension('WEBGL_lose_context');
+            cv.addEventListener('webglcontextlost', () => setTimeout(() => {
+              const n = document.getElementById('ctx-lost');
+              const mid = { log: log.slice(), txt: n ? n.textContent : '', vis: !!n && getComputedStyle(n).display !== 'none', paused: (G.debug.hold(false), false) };
+              requestAnimationFrame(() => requestAnimationFrame(() => {
+                mid.paused = G.state.paused;
+                ext.restoreContext();
+                setTimeout(() => res({ mid, log: log.slice(), xp: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).xp }), 300);
+              }));
+            }, 50), { once: true });
+            ext.loseContext();
+          }),
+        fail
+      );
+    };
+    const ok = await run(false);
+    assert(ok.mid.vis && ok.mid.txt === '画面丢失，正在恢复…' && ok.mid.paused, '丢失时应提示并暂停：' + JSON.stringify(ok.mid));
+    assert(ok.mid.log.join() === 'save' && ok.log.join() === 'save,reload' && ok.xp === 21, '应先存档、画面回来再重载：' + JSON.stringify(ok));
+    const bad = await run(true);
+    assert(bad.log.join() === 'save' && bad.mid.vis && /存档没写进去/.test(bad.mid.txt), '存不进去时不应重载：' + JSON.stringify(bad));
+    return ok.log.join(' → ') + '；存档失败：' + bad.log.join(' → ');
+  });
+
+  await step('触屏：布局——844×390 / 667×375 / 932×430（含安全区）/ 390×844 / 1024×768 下摇杆区、按钮簇、小地图、追踪、顶栏、首领条互不重叠，按钮 ≥ 44 px 且在屏内，「开始」在屏内', async () => {
+    await touchPage();
+    const SIZES = [
+      [844, 340, null], // iOS 横屏：地址栏 / 工具栏占掉一截的可见高度
+      [667, 320, { l: 44, r: 44 }],
+      [844, 390, null],
+      [844, 390, { l: 44, r: 44, b: 21 }],
+      [667, 375, null],
+      [667, 375, { l: 44, r: 44, b: 21 }],
+      [932, 430, { l: 47, r: 47, b: 21 }],
+      [390, 844, { t: 47, b: 34 }],
+      [1024, 768, { b: 20 }],
+    ];
+    const out = [];
+    for (const [w, h, sa] of SIZES) {
+      await page.setViewportSize({ width: w, height: h });
+      await ev((sa) => {
+        const s = document.documentElement.style;
+        for (const k of ['t', 'r', 'b', 'l']) s.setProperty('--t-safe-' + k, sa && sa[k] ? sa[k] + 'px' : '0px');
+        window.dispatchEvent(new Event('resize'));
+        document.getElementById('boss-box').classList.add('on'); // 首领条、F 键、追踪条、提示卡都按出现时的位置量
+        document.getElementById('t-f').classList.add('on');
+        // 提示卡：放一条很长的提示（触屏下最多两行），首领条出来时它排在首领条下面
+        const co = document.getElementById('coach');
+        co.querySelector('.co-body').innerHTML = '按住右下的<b>大按钮</b>施放「掷焰」，旁边的是武器普攻「疾咒」。会自动瞄准，从按钮拖出去可以手动瞄，拖回按钮上取消，松手就放出';
+        co.className = 'on';
+      }, sa);
+      await frames(3);
+      const r = await ev((sa) => {
+        const W = innerWidth, H = innerHeight;
+        const vis = (n) => n && n.getClientRects().length && getComputedStyle(n).display !== 'none' && getComputedStyle(n).visibility !== 'hidden';
+        const box = (n) => {
+          const b = n.getBoundingClientRect();
+          return { l: b.left, t: b.top, r: b.right, b: b.bottom, w: b.width, h: b.height };
+        };
+        const union = (list) => list.reduce((u, b) => (u ? { l: Math.min(u.l, b.l), t: Math.min(u.t, b.t), r: Math.max(u.r, b.r), b: Math.max(u.b, b.b) } : b), null);
+        const btns = Array.from(document.querySelectorAll('[data-tb]')).filter(vis).map(box);
+        const q = document.getElementById('quest');
+        const mm = G.world.mmTouch;
+        const areas = {
+          stick: vis(document.getElementById('t-stick')) ? box(document.getElementById('t-stick')) : null,
+          cluster: union(btns),
+          minimap: mm && !G.touch.state().portrait ? { l: mm.x, t: mm.y, r: mm.x + 110, b: mm.y + 110 } : null,
+          tracker: vis(q) && q.textContent ? box(q) : null,
+          top: vis(document.getElementById('t-top')) ? box(document.getElementById('t-top')) : null,
+          boss: vis(document.getElementById('boss-box')) && !G.touch.state().portrait ? box(document.getElementById('boss-box')) : null,
+          coach: vis(document.getElementById('coach')) && !G.touch.state().portrait ? box(document.getElementById('coach')) : null,
+        };
+        const ks = Object.keys(areas).filter((k) => areas[k]);
+        const hits = [];
+        for (let i = 0; i < ks.length; i++)
+          for (let j = i + 1; j < ks.length; j++) {
+            const a = areas[ks[i]], b = areas[ks[j]];
+            if (a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b) hits.push(ks[i] + '×' + ks[j]);
+          }
+        const sl = (sa && sa.l) || 0, sr = (sa && sa.r) || 0, st = (sa && sa.t) || 0, sb = (sa && sa.b) || 0;
+        const allBtns = btns.concat(Array.from(document.querySelectorAll('#t-top button')).filter(vis).map(box));
+        const small = allBtns.filter((b) => b.w < 44 || b.h < 44).length;
+        const off = allBtns.filter((b) => b.l < sl || b.t < st || b.r > W - sr || b.b > H - sb).length;
+        return { size: W + '×' + H, sa: !!sa, n: allBtns.length, hits, small, off, portrait: G.touch.state().portrait, ks: ks.join('/') };
+      }, sa);
+      // 开场卡片有入场动画：打开后等它停下来再量「开始」
+      await ev(() => G.ui.showIntro());
+      await sleep(700);
+      await ev(async () => {
+        for (let el = document.getElementById('intro-go'); el; el = el.parentElement) await Promise.all(el.getAnimations().map((x) => x.finished.catch(() => {})));
+      });
+      Object.assign(
+        r,
+        await ev(() => {
+          const go = document.getElementById('intro-go').getBoundingClientRect();
+          G.ui.close();
+          return { goOk: go.top >= 0 && go.bottom <= innerHeight && go.left >= 0 && go.right <= innerWidth && go.height >= 44, go: [go.left, go.top, go.width, go.height].map(Math.round) };
+        })
+      );
+      out.push(r);
+    }
+    const bad = out.filter((r) => r.hits.length || r.small || r.off || !r.goOk || (r.portrait ? r.n !== 0 : r.n < 15) || (r.portrait !== (r.size === '390×844')));
+    assert(!bad.length, '布局有问题：' + JSON.stringify(bad));
+    await ev(() => {
+      document.getElementById('boss-box').classList.remove('on');
+      document.getElementById('t-f').classList.remove('on');
+      document.getElementById('coach').className = '';
+    });
+    return out.map((r) => r.size + (r.sa ? '+安全区' : '') + ' ' + r.n + ' 键').join('，');
+  });
+
+  await step('触屏：iOS 工具栏占掉高度（844×340 / 667×320）时标题画面、职业选择、开场卡片、背包和暂停菜单都放得下', async () => {
+    if (browser) await browser.close().catch(() => {});
+    ({ browser, page, errors } = await launch({ width: 844, height: 340, mobile: { scale: 3 }, title: true }));
+    await until(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, 90000);
+    const out = [];
+    const inside = (sel) =>
+      ev(async (sel) => {
+        const bad = [];
+        for (const n of document.querySelectorAll(sel)) {
+          if (!n.getClientRects().length) continue;
+          // 入场动画（面板往上 8 px、0.99 倍）放完再量：机器忙时 0.8 秒不一定放得完
+          for (let el = n; el; el = el.parentElement) await Promise.all(el.getAnimations().map((x) => x.finished.catch(() => {})));
+          const b = n.getBoundingClientRect();
+          if (b.left < -0.5 || b.top < -0.5 || b.right > innerWidth + 0.5 || b.bottom > innerHeight + 0.5) bad.push(sel + ' ' + [b.left, b.top, b.right, b.bottom].map(Math.round).join(','));
+        }
+        return bad;
+      }, sel);
+    for (const [w, h] of [[844, 340], [667, 320]]) {
+      await page.setViewportSize({ width: w, height: h });
+      await frames(2);
+      const appH = await ev(() => getComputedStyle(document.documentElement).getPropertyValue('--app-h').trim());
+      let bad = [].concat(await inside('.t-logo'), await inside('#t-menu .m-btn'));
+      await ev(() => document.getElementById('t-new').click());
+      await until(() => G.ui.classView && G.ui.classView());
+      await sleep(300);
+      bad = bad.concat(await inside('#title .m-view'), await inside('#title [data-tact="cl-ok"]'), await inside('#title .m-head .btn'));
+      await ev(() => document.querySelector('#title [data-tact="back"]').click());
+      await frames(1);
+      out.push({ size: w + '×' + h, appH, bad });
+    }
+    // 进游戏：开场卡片、背包、暂停菜单
+    await ev(() => document.getElementById('t-continue').click());
+    await until(() => !G.ui.titleOn());
+    for (const [w, h] of [[844, 340], [667, 320]]) {
+      await page.setViewportSize({ width: w, height: h });
+      await frames(2);
+      await ev(() => G.ui.showIntro());
+      await sleep(700);
+      let bad = await inside('#intro-go');
+      await ev(() => {
+        G.ui.close();
+        G.ui.open('inv');
+      });
+      await sleep(800); // 面板的入场动画（往上 8 px、0.99 倍）
+      bad = bad.concat(await inside('#panel-win'), await inside('#panel-close'), await inside('#tabs'));
+      await ev(() => {
+        G.ui.close();
+        G.ui.pause();
+      });
+      await sleep(300);
+      bad = bad.concat(await inside('.pause-card'), await inside('#p-menu .m-btn'));
+      await ev(() => G.ui.close());
+      out.push({ size: w + '×' + h + ' 游戏', bad });
+    }
+    const bad = out.filter((r) => r.bad.length || (r.appH !== undefined && r.appH !== r.size.split('×')[1] + 'px'));
+    assert(!bad.length, '矮屏下有东西跑出屏幕：' + JSON.stringify(bad));
+    return out.map((r) => r.size).join('，');
+  });
+
+  await step('触屏：新角色只弹一张操作教程（触屏版开场卡片，之后不再接着弹「触屏操作」卡）；刷新、转竖屏再转回都不补弹', async () => {
+    if (browser) await browser.close().catch(() => {});
+    ({ browser, page, errors } = await launch({ width: 844, height: 390, mobile: { scale: 3 }, title: true }));
+    await until(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, 90000);
+    // 每帧看开场卡片和提示卡：打开的那一刻记一笔（页面重载后重新装）
+    const watch = () =>
+      ev(() => {
+        window.__tut = [];
+        const last = {};
+        const f = () => {
+          for (const [id, k] of [['intro', 'intro'], ['t-hint', 'hint']]) {
+            const n = document.getElementById(id);
+            const on = !!(n && n.classList.contains('on'));
+            if (on && !last[k]) window.__tut.push(k);
+            last[k] = on;
+          }
+          requestAnimationFrame(f);
+        };
+        requestAnimationFrame(f);
+      });
+    // 新游戏 → 选职业 → 页面重载进区 → 开场故事（跳过）→ 开场卡片
+    await ev(() => document.getElementById('t-new').click());
+    await until(() => G.ui.classView && G.ui.classView());
+    const tapEl = async (sel) => {
+      const r = await ev((sel) => {
+        const b = document.querySelector(sel).getBoundingClientRect();
+        return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+      }, sel);
+      await page.touchscreen.tap(r.x, r.y);
+    };
+    await tapEl('.cl-card[data-cls]');
+    await tapEl('[data-tact="cl-ok"]').catch(() => {}); // 有旧存档时选完职业会重载页面；新的浏览器配置直接开始
+    await until(() => window.G && G.ui && G.state && G.state.zone && G.player && G.player.ent && !G.ui.titleOn() && G.ui.storyOn(), null, 90000);
+    await watch();
+    await until(() => document.querySelector('#story.ready .st-skip'), null, 30000); // 故事脚本用到时才加载
+    await ev(() => document.querySelector('#story .st-skip').click());
+    await until(() => document.getElementById('intro').classList.contains('on'), null, 30000);
+    const a = await ev((k) => ({ txt: document.querySelector('.intro-keys').innerText, key: localStorage.getItem(k), on: G.touch.on, cls: G.save.cls }), TOUCH_HINT_KEY);
+    assert(a.on && /拖动/.test(a.txt) && /大按钮/.test(a.txt) && !/[WASD]|右键|左键|空格/.test(a.txt), '触屏下开场卡片应是触屏说法：' + JSON.stringify(a));
+    const go = await ev(() => {
+      const r = document.getElementById('intro-go').getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    await page.touchscreen.tap(go.x, go.y);
+    await until(() => !document.getElementById('intro').classList.contains('on'), null, 10000);
+    await sleep(2500);
+    await frames(10);
+    const b = await ev((k) => ({ tut: window.__tut, st: G.touch.state(), key: localStorage.getItem(k), open: G.ui.isOpen() }), TOUCH_HINT_KEY);
+    assert(JSON.stringify(b.tut) === '["intro"]' && !b.st.hint && !b.st.blocked && !b.open && b.key === '1', '新角色应只弹开场卡片一张：' + JSON.stringify(b));
+    // 刷新（回到标题画面，点「继续游戏」）：一张都不补
+    await page.reload({ timeout: 90000 });
+    await until(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, 90000);
+    await watch();
+    await ev(() => document.getElementById('t-continue').click());
+    await until(() => !G.ui.titleOn() && G.state.zone);
+    await sleep(2500);
+    await frames(10);
+    const c = await ev(() => ({ tut: window.__tut, st: G.touch.state(), seen: G.save.seenHelp }));
+    assert(!c.tut.length && !c.st.hint && c.seen, '刷新后不该再弹教程：' + JSON.stringify(c));
+    // 转竖屏再转回横屏
+    await page.setViewportSize({ width: 390, height: 844 });
+    await frames(5);
+    const p = await ev(() => G.touch.state().portrait);
+    await page.setViewportSize({ width: 844, height: 390 });
+    await sleep(1500);
+    await frames(10);
+    const d = await ev(() => ({ tut: window.__tut, st: G.touch.state() }));
+    assert(p && !d.tut.length && !d.st.hint && !d.st.portrait, '转竖屏再转回不该再弹教程：' + JSON.stringify({ p, d }));
+    return a.cls + '：开场卡片 1 张；刷新、转屏后 0 张';
+  });
+
+  await step('触屏：iPhone 圆角（四角各一块半径 47 px 的遮罩）——844×390 / 844×340 / 667×320 下标题、职业选择、开场故事、HUD（提示卡、旁白卡、首领条、F 键）、背包、技能、暂停菜单、开场卡片的字和按钮都不碰圆角', async () => {
+    if (browser) await browser.close().catch(() => {});
+    ({ browser, page, errors } = await launch({ width: 844, height: 390, mobile: { scale: 3 }, title: true }));
+    await until(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, 90000);
+    const r = await cornerScenes(page, [[844, 390], [844, 340], [667, 320]]);
+    assert(!r.bad.length, '有字或按钮碰到圆角：' + r.bad.join(' ｜ '));
+    return r.lines.length + ' 个画面，共量 ' + r.lines.reduce((n, l) => n + +l.split(' ').pop(), 0) + ' 个框';
+  });
+
+  await step('触屏：桌面窗口不开触屏模式（没有 html.touch-ui、没有触屏 DOM、G.touch.on 为假），开场卡片的「开始」在 1280×360 / 1024×360 里也在屏内', async () => {
+    if (browser) await browser.close().catch(() => {});
+    ({ browser, page, errors } = await launch({ width: 1280, height: 360 }));
+    await install();
+    const out = [];
+    for (const [w, h] of [[1280, 360], [1024, 360], [1440, 900]]) {
+      await page.setViewportSize({ width: w, height: h });
+      await frames(2);
+      await ev(() => G.ui.showIntro());
+      await sleep(700); // 开场卡片的入场动画
+      out.push(
+        await ev(() => {
+          const go = document.getElementById('intro-go').getBoundingClientRect();
+          return {
+            size: innerWidth + '×' + innerHeight,
+            on: G.touch.on,
+            mode: G.touch.mode,
+            cls: document.documentElement.classList.contains('touch-ui'),
+            dom: !!document.getElementById('touch') || document.querySelectorAll('[data-tb]').length,
+            mf: !!document.querySelector('link[rel=manifest]'),
+            vp: document.querySelector('meta[name=viewport]').content,
+            aim: G.input.aim,
+            go: go.top >= 0 && go.bottom <= innerHeight && go.left >= 0 && go.right <= innerWidth,
+          };
+        })
+      );
+    }
+    const bad = out.filter((r) => r.on || r.cls || r.dom || r.mf || r.aim !== null || r.vp !== 'width=device-width, initial-scale=1' || !r.go);
+    assert(!bad.length, '桌面不应开触屏、「开始」应在屏内：' + JSON.stringify(bad));
+    await ev(() => G.ui.close());
+    return out.map((r) => r.size).join(' / ');
+  });
 }
 
 // 跑哪几份：默认两份都跑（先 func 后 timed，各用一个新浏览器）；--func / --timed 只跑一份。
 // 只跑 func，或在 cc-slot 的池里跑（CC_SLOT_HELD=pool:…，或手动设 CC_POOL=1）时，每行的耗时和 ms 数字标成不可比
-const PARTS = process.argv.includes('--func') ? ['func'] : process.argv.includes('--timed') ? ['timed'] : ['func', 'timed'];
+const PARTS = process.argv.includes('--func') ? ['func'] : process.argv.includes('--timed') ? ['timed'] : process.argv.includes('--touch') ? ['touch'] : ['func', 'timed'];
 const POOL = !!process.env.CC_POOL || /^pool:/.test(process.env.CC_SLOT_HELD || '');
 const sum = (p, f) => (f ? '失败 ' + f + ' 项，' : '') + '通过 ' + p + ' 项';
 (async () => {
@@ -24424,11 +26444,11 @@ const sum = (p, f) => (f ? '失败 ' + f + ' 项，' : '') + '通过 ' + p + ' �
   const per = [];
   for (const part of PARTS) {
     NC_TAG = POOL || (part === 'func' && PARTS.length === 1) ? ' [pool, not comparable]' : '';
-    cheap = part === 'func' && !process.env.CINDER_FULL;
+    cheap = (part === 'func' || part === 'touch') && !process.env.CINDER_FULL;
     console.log('== test:' + part + ' · HEAD ' + head + ' · ' + new Date().toISOString() + ' · 槽位 ' + (process.env.CC_SLOT_HELD || '无') + (cheap ? ' · 省渲染 dpr ' + CHEAP_DPR + '（' + FULL_RES.length + ' 类步骤按 1）' : '') + (NC_TAG ? ' · 耗时数字不可比' + NC_TAG : '') + (part === 'timed' && POOL ? ' · 警告：计时步骤在池里跑，结果不作数' : ''));
     const p0 = passed, f0 = failed;
     try {
-      await (part === 'func' ? main() : timedMain());
+      await (part === 'func' ? main() : part === 'touch' ? touchSteps() : timedMain());
     } catch (e) {
       failed++;
       console.log('FAIL 测试脚本自身出错 — ' + (e && e.stack ? e.stack : e));

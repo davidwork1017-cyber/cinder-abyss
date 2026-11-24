@@ -19,7 +19,7 @@
   const itemIcon = (item, cls) => ibox(IC.item(item), 'r' + item.rarity + (cls ? ' ' + cls : ''));
   // 按住 Alt 才展开的详情（触发规则、边界情况）：数据里的 alt / mechAlt。没有详情就什么都不加，提示行也不出；
   // 展开与否由 body 的 alt-on 类切换（见 update），所以浮窗、技能卡都不用重渲染
-  const altBox = (d) => (d ? '<div class="alt-box"><div class="alt-d">' + d + '</div><div class="alt-h">按住 <kbd>Alt</kbd> 查看详情</div></div>' : '');
+  const altBox = (d) => (d ? '<div class="alt-box"><div class="alt-d">' + d + '</div><div class="alt-h">' + (G.touch && G.touch.on ? '长按查看详情' : '按住 <kbd>Alt</kbd> 查看详情') + '</div></div>' : '');
 
   const KEY_LABEL = ['左键', '右键', 'Q', 'E'];
   const W_SLOT = 4; // 施放系统里武器技的格子号（R 键）；技能栏存档只有前 4 格，这一格由手里的武器决定
@@ -381,6 +381,7 @@
     updateEncHud();
     updatePinHud();
     updateQuestHud(now);
+    updateNarr(now);
 
     setOrb(hud.life, P.life, P.maxLife, P.maxLifeRaw || P.maxLife);
     setOrb(hud.mana, P.mana, P.maxMana, P.maxManaRaw || P.maxMana);
@@ -1052,6 +1053,7 @@
   let lastToast = { msg: '', t: 0 };
   // icon：可选的图标 HTML（G.icons.* 的返回值），显示在文字前面
   function toast(msg, color, icon) {
+    msg = touchText(msg);
     const box = el.toasts || (el.toasts = $('toasts'));
     const now = performance.now();
     if (msg === lastToast.msg && now - lastToast.t < 500) return; // 同一句话短时间内不重复刷
@@ -1663,7 +1665,7 @@
         '</div>' +
         (ui.invMsg ? '<div class="inv-msg">' + esc(ui.invMsg) + '</div>' : ui.invOk ? '<div class="inv-msg ok">' + esc(ui.invOk) + '</div>' : '');
       // 烬铸武器 / 渊契的卡片很长（区间、完美度、机制说明）：按钮放到卡片上面，小窗口里也不用往下滚就能点到
-      const fixed = it.rarity >= 3;
+      const fixed = it.rarity >= 3 || touchOn(); // 触屏：按钮一律放在卡片上面（手机上详情栏很矮，不用往下滚就能点「装备」）
       detail =
         '<div class="sec-title">' + (sel.equipped ? '已装备' : '背包物品') + '</div>' +
         (fixed ? acts : '') +
@@ -2066,7 +2068,7 @@
     const k = slot >= 0 ? KEY_LABEL[slot] : '';
     const how = slot < 0
       ? '放进技能栏后生效'
-      : (on ? '数量不满时在你身边自动补上，魔力不够就暂停' : '开启后自动召唤到上限') + ' · 按 <kbd>' + k + '</kbd> 切换 · <kbd>Shift</kbd>+<kbd>' + k + '</kbd> 在准星处召唤一次';
+      : (on ? '数量不满时在你身边自动补上，魔力不够就暂停' : '开启后自动召唤到上限') + (touchOn() ? ' · 轻点技能键切换 · 从技能键拖出去松手，在准星处召唤一次' : ' · 按 <kbd>' + k + '</kbd> 切换 · <kbd>Shift</kbd>+<kbd>' + k + '</kbd> 在准星处召唤一次');
     return (
       '<div class="sk-auto' + (on ? ' on' : '') + '">' +
       '<button type="button" tabindex="-1" class="sk-auto-btn" data-act="autosum" data-skill="' + id + '" aria-pressed="' + on + '"><i></i>自动召唤<b>' + (on ? '开' : '关') + '</b></button>' +
@@ -2995,7 +2997,7 @@
     const blocked = ['echo', 'leech', 'pierce', 'chain'].filter((id) => G.SUPPORTS[id]).map((id) => G.SUPPORTS[id].name).join('、');
     return (
       '<div class="sec-title">召唤与集火</div>' +
-      '<p>召唤技能的按键开关<b class="c-ally">自动召唤</b>（技能卡上也能切换）：没到上限、魔力够时自动补，魔力不够暂停（以血为引时低于四成生命不补）。按住 <kbd>Shift</kbd> 再按键，在准星处手动召唤。</p>' +
+      '<p>召唤技能的按键开关<b class="c-ally">自动召唤</b>（技能卡上也能切换）：没到上限、魔力够时自动补，魔力不够暂停（以血为引时低于四成生命不补）。' + (touchOn() ? '从技能键拖出去松手，在准星处手动召唤。' : '按住 <kbd>Shift</kbd> 再按键，在准星处手动召唤。') + '</p>' +
       '<p><b class="c-ally">' + name('thrall', '烬骸仆从') + '</b>满了再召唤会替换伤得最重的那具；<b class="c-ally">' + name('colossus', '石誓守像') + '</b>只有一尊，会<b>嘲讽</b>周围的敌人（含首领）。</p>' +
       '<p><b class="c-ally">' + name('pyre', '焚骨祭司') + '</b>是清怪主力：在后排掷火弹、攒<b>焰蓄</b>放大招，很脆。上限 2 位，只有镶在它身上的群聚能多唤一位；多重投射让它分头掷；拿杖或魂幡时继承更多武器伤害。</p>' +
       '<p>召唤物优先<b>集火</b>你<b>亲手打中</b>的敌人。仆从最多缠住两只怪、守像四只。</p>' +
@@ -3115,6 +3117,39 @@
     );
   }
 
+  // 触屏模式（js/touch.js）开着：提示、操作说明换成触屏说法
+  const touchOn = () => !!(G.touch && G.touch.on);
+  // 提示卡、飘出的提示、追踪条里写着键位的地方：触屏模式下换成对应的按钮（桌面原样返回）
+  const TOUCH_PANEL = { I: '点顶栏的「包」', G: '点顶栏的「技」', P: '点顶栏的「赋」', M: '点顶栏的「图」', H: '点顶栏的 ≡ 看操作说明' };
+  const TOUCH_TXT = [
+    [/按 ?<kbd>([QE]|左键)<\/kbd> 开关<b>自动召唤<\/b>（补到上限，魔力不够时暂停），<kbd>Shift<\/kbd>\+<kbd>\1<\/kbd> 在准星处召唤/g, '轻点技能键开关<b>自动召唤</b>（补到上限，魔力不够时暂停），拖出去松手在准星处召唤'],
+    [/按 ?<kbd>([IGPMH])<\/kbd>/g, (m, k) => TOUCH_PANEL[k]],
+    [/按 ([IGPMH])(?![A-Za-z])/g, (m, k) => TOUCH_PANEL[k]],
+    [/按 ?<kbd>R<\/kbd>/g, '点<b>武器技键</b>'],
+    [/按 ?<kbd>F<\/kbd>/g, '点 <kbd>F</kbd> 键'],
+    [/按 F(?![A-Za-z])/g, '点 F 键'],
+    [/按住 ?<kbd>右键<\/kbd>/g, '按住<b>普攻键</b>'],
+    [/<kbd>右键<\/kbd>/g, '<b>普攻键</b>'],
+    [/<kbd>左键<\/kbd>/g, '<b>大按钮</b>'],
+    [/<kbd>空格<\/kbd>/g, '<b>翻</b>键'],
+  ];
+  function touchText(s) {
+    if (!touchOn() || typeof s !== 'string') return s;
+    for (const [re, to] of TOUCH_TXT) s = s.replace(re, to);
+    return s;
+  }
+  // 触屏的操作说明（标题画面 / 暂停菜单的「操作说明」）
+  const HELP_TOUCH = [
+    [['左下'], '拖动移动'],
+    [['大按钮'], '主攻技能，按住连放'],
+    [['技能键'], '轻点自动瞄准；拖出去手动瞄准，松手放出，拖回按钮上取消'],
+    [['翻'], '翻滚，短暂无敌，可取消挥砍'],
+    [['药瓶'], '生命 / 魔力药剂'],
+    [['F'], '附近有破绽中的敌人或掉落时出现：处决或拾取'],
+    [['点名牌'], '拾取地上的物品；点宝箱打开'],
+    [['包', '技', '赋', '图'], '背包 / 技能 / 天赋 / 地图'],
+    [['名牌'], '展开地上所有的名牌'],
+  ];
   // 按键表：帮助页和标题画面 / 暂停菜单里的「操作说明」共用
   const HELP_KEYS = [
     [['W', 'A', 'S', 'D'], '移动（方向键亦可）'],
@@ -3138,7 +3173,7 @@
     el.body.innerHTML =
       '<div class="help">' +
       '<div class="col scroll" data-scroll="help1"><div class="sec-title">操作</div>' +
-      HELP_KEYS.map((k) => key(k[0], k[1])).join('') +
+      (touchOn() ? HELP_TOUCH : HELP_KEYS).map((k) => key(k[0], k[1])).join('') +
       '<div class="sec-title">战斗须知</div>' +
       '<p>地上的<b class="c-red">红色区域</b>是即将落下的攻击，填满前走出去或翻滚穿过。</p>' +
       '<p>护甲减少物理伤害，抗性减少对应元素伤害（上限 75%）。</p>' +
@@ -4323,7 +4358,7 @@
       const v = questView(n);
       qh.k.textContent = v.k;
       qh.goal.textContent = v.goal;
-      qh.how.textContent = v.how;
+      qh.how.textContent = touchText(v.how);
       qh.alt.innerHTML = v.det.map((t) => '<div>' + esc(t) + '</div>').join('') + '<div class="q-lore">' + (v.lore.match(/[^，。]+[，。]?/g) || []).map((c) => '<span>' + esc(c) + '</span>').join('') + '</div>';
     }
     // 换步骤时亮一下（1.2 秒）；首领醒着时不亮，打完再亮
@@ -4337,6 +4372,124 @@
   // game.js 推进主线时调：n 完成到第几步，got 这次加进背包的通货（首领步为 null）
   function questDone(n, got) {
     qh.toastQ.push('主线 ' + n + '/' + G.QUEST_N + ' 完成' + (got ? ' · ' + curList(got) : ''));
+  }
+
+  // ============================================================
+  // 主线旁白卡（quest D3）：首领步 / 进轮回层级 1 在这次游戏里真正完成时（G.onQuest，读档推算的不算）放一张两行的旁白卡，
+  // 和开场故事的字幕框同一个样子。不在战斗里放：排着，等没有醒着的敌人、没有敌方预警圈连续 1 秒，完成提示和掉落飘字都出完了再放。
+  // 每个角色每张卡只放一次（开始放时记进 save.quest.told 并马上存档）。点卡片、回车或 Esc 跳过；不受「显示主线」开关影响。
+  // 只碰 DOM，不取随机数、不改模拟用到的状态
+  // ============================================================
+  const NARR_IN = 0.4, NARR_GAP = 0.5, NARR_OUT = 0.6, NARR_SKIP = 0.25; // 淡入、第二行晚多少、淡出、跳过时的淡出（秒）
+  const nc = { root: null, l1: null, l2: null, q: [], cur: null, last: 0, epoch: -1, gapAt: 0, held: false };
+  function initNarr() {
+    const r = (nc.root = document.createElement('div'));
+    r.id = 'narr';
+    r.setAttribute('role', 'status');
+    r.innerHTML = '<p></p><p></p>';
+    nc.l1 = r.children[0];
+    nc.l2 = r.children[1];
+    r.addEventListener('mousedown', (e) => {
+      e.stopPropagation(); // 点卡片只是跳过，不是游戏输入
+      e.preventDefault();
+      narrSkip();
+    });
+    document.body.appendChild(r);
+    G.onQuest((e) => {
+      const q = G.QUEST[e.step - 1];
+      if (window.__noNarr || !q || !q.nar || q.id !== e.id || G.questTold(e.id)) return; // __noNarr：自动测试默认关（见 test/smoke.mjs），旁白那几步再打开
+      if ((nc.cur && nc.cur.id === e.id) || nc.q.some((x) => x.id === e.id)) return;
+      nc.q.push({ id: e.id, lines: q.nar, at: performance.now(), epoch: G.saveEpoch, calm: 0 });
+    });
+  }
+  // 战斗结束了没有：玩家活着、在区域里、素材载好了，没有醒着的敌人，也没有敌方的预警圈
+  function narrCalm() {
+    const st = G.state;
+    if (G.player.dead || !st.zone || (G.world.assetsPending && G.world.assetsPending())) return false;
+    if (narrAwake()) return false;
+    for (const t of st.telegraphs) if (!t.friendly) return false;
+    return true;
+  }
+  function narrAwake() {
+    for (const e of G.state.enemies) if (e.awake && !e.dead) return true;
+    return false;
+  }
+  function narrSkip() {
+    const c = nc.cur;
+    if (!c || c.out) return false;
+    c.out = true;
+    c.end = c.t + NARR_SKIP;
+    nc.root.style.setProperty('--narr-out', NARR_SKIP + 's');
+    nc.root.classList.remove('on');
+    return true;
+  }
+  function updateNarr(now) {
+    // 按真实时间走（只是界面，和模拟无关）：帧率很低时一帧 0.5 秒以上，原来封顶 0.1 秒会把 5 秒的卡拖成 20 秒。
+    // 单帧封顶 1 秒：切到后台再回来（rAF 停了很久）最多跳 1 秒，盖着的时候照旧停住（见下面 blocked）
+    const dt = nc.last ? Math.min(1, (now - nc.last) / 1000) : 0;
+    nc.last = now;
+    if (G.saveEpoch !== nc.epoch) {
+      // 换了角色 / 读档：之前那份存档排着的卡不带过去（换档之后才排上的留着，可能和换档在同一帧），正在放的收起
+      nc.epoch = G.saveEpoch;
+      for (let i = nc.q.length - 1; i >= 0; i--) if (nc.q[i].epoch !== G.saveEpoch) nc.q.splice(i, 1);
+      if (nc.cur) narrSkip();
+    }
+    // 面板、暂停菜单、开场卡片、开场故事、标题画面盖着时：先藏起来、计时停住，关掉后接着放
+    const blocked = ui.isOpen || ui.intro || story.on || menu.title || menu.pause;
+    if (blocked !== nc.held) {
+      nc.held = blocked;
+      nc.root.classList.toggle('held', blocked);
+    }
+    if (blocked) return;
+    const c = nc.cur;
+    if (c) {
+      c.t += dt;
+      if (!c.out && c.t >= NARR_GAP && !c.l2) {
+        c.l2 = true;
+        nc.root.classList.add('l2');
+      }
+      // 又打起来了（敌人醒了）或倒下了：提前收起
+      if (!c.out && (G.player.dead || narrAwake())) narrSkip();
+      if (!c.out && c.t >= c.dur - NARR_OUT) {
+        c.out = true;
+        c.end = c.dur;
+        nc.root.style.setProperty('--narr-out', NARR_OUT + 's');
+        nc.root.classList.remove('on');
+      }
+      if (c.out && c.t >= c.end) {
+        nc.cur = null;
+        nc.root.classList.remove('show', 'l2');
+        nc.gapAt = now;
+      }
+      return;
+    }
+    if (!nc.q.length) return;
+    const it = nc.q[0];
+    if (it.epoch !== G.saveEpoch || G.questTold(it.id)) {
+      nc.q.shift();
+      return;
+    }
+    // 首领倒下那一刻之后至少 1.5 秒；完成提示排完、最后一条飘字出来 1.2 秒后；两张卡之间隔 0.8 秒
+    if (now - it.at < 1500 || now - nc.gapAt < 800 || qh.toastQ.length || now - lastToast.t < 1200) return;
+    if (!narrCalm()) {
+      it.calm = 0;
+      return;
+    }
+    if (!it.calm) it.calm = now;
+    if (now - it.calm < 1000) return;
+    nc.q.shift();
+    G.questTell(it.id);
+    G.persist(); // 马上存：放过的卡关页面后不再放
+    const n = it.lines.reduce((a, l) => a + (l.match(/[㐀-鿿]/g) || []).length, 0);
+    nc.cur = { id: it.id, t: 0, dur: Math.max(5, 1.6 + 0.14 * n), out: false, end: 0, l2: false };
+    nc.l1.textContent = it.lines[0];
+    nc.l2.textContent = it.lines[1] || '';
+    nc.root.dataset.id = it.id;
+    nc.root.style.setProperty('--narr-in', NARR_IN + 's');
+    nc.root.classList.remove('l2');
+    nc.root.classList.add('show');
+    void nc.root.offsetWidth; // 从透明开始淡入
+    nc.root.classList.add('on');
   }
 
   function initPinHud() {
@@ -4866,7 +5019,8 @@
       head +
       '<div class="cl-list">' + G.CLASS_IDS.map((c) => clsCard(c, c === M.sel, !!rec && rec.cls === c)).join('') + '</div>' +
       fx + altBox(clsAlt(M.sel)) +
-      '<div class="m-acts"><button type="button" tabindex="-1" class="btn primary' + (same ? ' off' : '') + '" data-tact="cl-ok">' + ok + '</button></div>'
+      '<div class="m-acts"><button type="button" tabindex="-1" class="btn primary' + (same ? ' off' : '') + '" data-tact="cl-ok">' + ok + '</button>' +
+      (touchOn() ? '<button type="button" tabindex="-1" class="btn" data-tact="back">返回</button>' : '') + '</div>' // 触屏：底栏里也放一个返回，矮屏上不用回到顶上找
     );
   }
   // 选定之后的一条提示：职业、卸下 / 换上的武器
@@ -4924,6 +5078,7 @@
 
   const SET_Q = [['high', '高'], ['mid', '中'], ['low', '低']];
   const SET_N = [['manual', '手动拾取'], ['auto', '自动拾取'], ['scrap', '自动丢弃']];
+  const SET_T = [['auto', '自动'], ['on', '开'], ['off', '关']];
   // 音量滑条：[存档里的键, 名字, 说明]
   const SET_VOL = [
     ['volMaster', '总音量', '所有声音一起调'],
@@ -4942,6 +5097,9 @@
     return (
       row('画质', S.opts.quality === 'auto' ? '自动选择，明显掉帧时会自动调低' : '电脑吃力时调低',
         '<div class="seg">' + SET_Q.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (q === o[0] ? ' on' : '') + '" data-tact="quality" data-q="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') +
+      // 触屏操作（mobile M1）：自动 = 手机、平板上打开；存在这台设备上（不进存档）
+      (G.touch ? row('触屏操作', '自动：手机、平板上打开',
+        '<div class="seg">' + SET_T.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (G.touch.mode === o[0] ? ' on' : '') + '" data-tact="touchmode" data-m="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') : '') +
       row('普通物品', '魔法、稀有物品总是自动拾取',
         '<div class="seg">' + SET_N.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (normMode() === o[0] ? ' on' : '') + '" data-tact="normmode" data-mode="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') +
       row('折叠普通物品的名牌', '地上只留一个小点，悬停或按住 Alt 展开',
@@ -4965,7 +5123,7 @@
   }
   function menuHelp() {
     return (
-      '<div class="m-keys">' + HELP_KEYS.map((k) => '<div class="hk"><span class="hk-keys">' + k[0].map((x) => '<kbd>' + x + '</kbd>').join('') + '</span><span>' + k[1] + '</span></div>').join('') + '</div>' +
+      '<div class="m-keys">' + (touchOn() ? HELP_TOUCH : HELP_KEYS).map((k) => '<div class="hk"><span class="hk-keys">' + k[0].map((x) => '<kbd>' + x + '</kbd>').join('') + '</span><span>' + k[1] + '</span></div>').join('') + '</div>' +
       '<p class="m-note">沿着路一直向前，击败尽头的首领。战斗、宝石、天赋和通货的说明在游戏里按 <kbd>H</kbd> 查看。</p>'
     );
   }
@@ -5176,6 +5334,11 @@
     hideTitle();
   }
   const MENU_ACT = {
+    touchmode(d) {
+      if (G.touch) G.touch.setMode(d.m);
+      G.sfx('click');
+      renderMenu();
+    },
     continue() {
       G.sfx('click');
       if (G.needClassPick && G.needClassPick()) return openClass('pick'); // 老角色先选职业（class-d2）
@@ -6369,13 +6532,17 @@
   const HINTS = [
     {
       id: 'execute', urgent: true, max: 10,
-      html: '敌人露出<b class="c-gold">破绽</b>：靠近按 <kbd>F</kbd> <b>处决</b>，重创并回复生命、魔力和药剂',
+      get html() {
+        return '敌人露出<b class="c-gold">破绽</b>：靠近' + (touchOn() ? '点 <kbd>F</kbd> 键' : '按 <kbd>F</kbd>') + ' <b>处决</b>，重创并回复生命、魔力和药剂';
+      },
       when: () => enemyNear(16, (e) => e.brokenT > 0.8 && !e.executed),
       done: (b) => G.state.stats.execs > b.execs,
     },
     {
       id: 'flask', urgent: true, max: 14,
-      html: '生命见底：按 <kbd>1</kbd> 喝<b>生命药剂</b>（<kbd>2</kbd> 魔力）。击杀敌人充能',
+      get html() {
+        return touchOn() ? '生命见底：点右下的<b>红药瓶</b>（蓝的是魔力）。击杀敌人充能' : '生命见底：按 <kbd>1</kbd> 喝<b>生命药剂</b>（<kbd>2</kbd> 魔力）。击杀敌人充能';
+      },
       when: () => lifeFrac() < 0.5 && G.player.flask.life >= 1,
       done: (b) => G.player.flask.life < b.flask - 0.5 || lifeFrac() > 0.9,
     },
@@ -6429,7 +6596,9 @@
     },
     {
       id: 'move', basic: true, max: 40,
-      html: '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动，沿着路一直往前走',
+      get html() {
+        return touchOn() ? '在左下拖动<b>摇杆</b>移动，沿着路一直往前走' : '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动，沿着路一直往前走';
+      },
       when: () => true,
       done: () => coach.moved > 5,
     },
@@ -6440,6 +6609,7 @@
         const bid = G.weaponBasic ? G.weaponBasic() : null;
         const bk = bid && G.SKILLS[bid];
         const l = G.save && G.save.bar[0] && G.SKILLS[G.save.bar[0]];
+        if (touchOn()) return '按住右下的<b>大按钮</b>' + (l ? '施放「' + l.name + '」' : '放技能') + '，旁边的是武器普攻' + (bk ? '「' + bk.name + '」' : '') + '。会自动瞄准，从按钮拖出去可以手动瞄';
         return '按住 <kbd>右键</kbd> 武器普攻' + (bk ? '「' + bk.name + '」' : '') + '，<kbd>左键</kbd> ' + (l ? '施放「' + l.name + '」' : '放技能') + '，都朝准星方向';
       },
       when: () => true,
@@ -6447,7 +6617,9 @@
     },
     {
       id: 'dodge', basic: true, need: 'attack', max: 40,
-      html: '<kbd>空格</kbd> 翻滚，途中无敌。滚出地上的<b class="c-red">红色区域</b>',
+      get html() {
+        return (touchOn() ? '点<b>翻</b>键' : '<kbd>空格</kbd>') + ' 翻滚，途中无敌。滚出地上的<b class="c-red">红色区域</b>';
+      },
       when: () => G.state.enemies.some((e) => e.awake && !e.dead),
       done: () => coach.rolled,
     },
@@ -6457,6 +6629,7 @@
         const bid = G.weaponBasic ? G.weaponBasic() : null;
         const sk = bid && G.SKILLS[bid];
         const n = sk && sk.combo ? sk.combo.length : 3;
+        if (touchOn()) return '按住<b>普攻键</b>连出<b>' + (['', '一', '两', '三', '四'][n] || n) + '段</b>' + (sk ? '「' + sk.name + '」' : '') + '，末段是<b>终结技</b>，伤害最高。出招中可点<b>翻</b>键取消';
         return '按住 <kbd>右键</kbd> 连出<b>' + (['', '一', '两', '三', '四'][n] || n) + '段</b>' + (sk ? '「' + sk.name + '」' : '') + '，末段是<b>终结技</b>，伤害最高。出招中可按 <kbd>空格</kbd> 翻滚取消';
       },
       when: () => comboOnBar() && enemyNear(9, (e) => e.awake),
@@ -6468,7 +6641,7 @@
       get html() {
         const id = curWSkill();
         const sk = id ? G.SKILLS[id] : null;
-        return '按 <kbd>R</kbd> 放<b>武器技</b>' + (sk ? '「' + sk.name + '」' : '') + '：每种武器自带一招，有冷却、单次伤害高';
+        return (touchOn() ? '点<b>武器技键</b>' : '按 <kbd>R</kbd>') + ' 放<b>武器技</b>' + (sk ? '「' + sk.name + '」' : '') + '：每种武器自带一招，有冷却、单次伤害高';
       },
       when: () => {
         const id = curWSkill();
@@ -6558,6 +6731,24 @@
       done: () => false,
     },
     {
+      // 渊式独骸加了「每刀最多砍到 N 个」之前、选着独骸的老存档：提示一次（见 game.js 的 dhNote）；个数读数据，百分比是同装备实测（16 只挤成一团）
+      id: 'dhnerf', calm: true, max: 14,
+      get html() {
+        return G.kingNerfNote();
+      },
+      when: () => G.kingNerfed > 0,
+      done: () => false,
+    },
+    {
+      // 渊式回旋加了「每程最多伤到 N 个」之前、选着回旋的老存档：提示一次（见 game.js 的 hxNote）；只有怪排成一线、一程穿过 N 个以上时才少
+      id: 'hxnerf', calm: true, max: 14,
+      get html() {
+        return G.boomNerfNote();
+      },
+      when: () => G.boomNerfed > 0,
+      done: () => false,
+    },
+    {
       // 旧版双生坠：读档时升成四行（见 game.js 的 migrateTwin）
       id: 'sxmig', calm: true, max: 16,
       html: '<b>双生坠升级</b>：多了暴击伤害和总伤害两行，原有两行按原来的成色换算到新数值；效果改为「余响」',
@@ -6614,7 +6805,9 @@
     },
     {
       id: 'loot', calm: true, max: 22,
-      html: '有掉落：魔法、稀有物品走过去就捡，普通物品按 <kbd>F</kbd> 或点名牌。<br>准星停在名牌上看属性，按住 <kbd>Alt</kbd> 看概要',
+      get html() {
+        return touchOn() ? '有掉落：魔法、稀有物品走过去就捡，普通物品点名牌或 <kbd>F</kbd> 键。<br>顶栏的「名牌」展开全部名牌' : '有掉落：魔法、稀有物品走过去就捡，普通物品按 <kbd>F</kbd> 或点名牌。<br>准星停在名牌上看属性，按住 <kbd>Alt</kbd> 看概要';
+      },
       when: () => G.state.loot.some((l) => l.kind === 'item' && Math.hypot(l.x - G.player.x, l.z - G.player.z) < 9),
       done: (b) => coach.sawGround || G.save.bag.length > b.bag,
     },
@@ -6689,7 +6882,7 @@
       bag: G.save.bag.length, cur: curTotal(), equip: equipSig(), passives: G.save.passives.length, flask: P.flask.life, zone: G.state.zone,
       finishers: cs.finishers, breaks: cs.breaks, execs: cs.execs, blank: G.save.blankGems.length,
     };
-    el.coachBody.innerHTML = h.html;
+    el.coachBody.innerHTML = touchText(h.html);
     el.coach.dataset.hint = h.id;
     el.coach.className = 'on';
     G.sfx('pickup');
@@ -6722,8 +6915,20 @@
       G.save.stNote = false;
       G.frenzyNerfed = 0;
     }
+    if (id === 'dhnerf') {
+      G.save.dhNote = false;
+      G.kingNerfed = 0;
+    }
+    if (id === 'hxnerf') {
+      G.save.hxNote = false;
+      G.boomNerfed = 0;
+    }
     G.persist();
   }
+  // 渊式独骸 / 回旋改版提示里的百分比（同装备实测，rulea-fix：独骸 16 只挤成一团；回旋 怪沿飞行方向排得密的那张图）
+  G.NERF_PCT = { king: 35, boom: 30 }; // 独骸 1091 → 693 / 1005 → 693（−36 / −31%）；回旋只在怪沿飞行方向排得密的那张图上少：−10%（截断口径）～ −31%（稳态口径），其余不变
+  G.kingNerfNote = () => '<b>独骸</b>：骸王每刀最多砍到 ' + (G.VARIANTS.thrall.c.set.king.cleave + 1) + ' 个敌人，怪聚成一团时伤害约 −' + G.NERF_PCT.king + '%；分散的怪和单体不变';
+  G.boomNerfNote = () => '<b>回旋</b>：利刃去程、回程各最多伤到 ' + G.VARIANTS.blade.c.set.boom.cap + ' 个敌人，怪沿一条线排得很密时伤害最多约 −' + G.NERF_PCT.boom + '%；一般的怪群、分散的怪和单体不变';
   // 黑洞改版提示的那一句（v = 'o' / 'a' / 'b' / 'c'）。百分比是同装备实测（16 只挤成一团 / 10 只散开），上限读数据
   G.holeNerfNote = function (v) {
     const sk = G.skillVariant('blackhole', v), N = sk.cap;
@@ -6735,7 +6940,7 @@
   // 面板里接着提示的那一句（当前提示与这个页签有关时）
   function coachBanner(tab) {
     const h = coach.cur;
-    return h && coach.state === 'show' && h.panel && h.panel.tab === tab ? '<b class="co-mark">提示</b><span>' + h.panel.html + '</span>' : '';
+    return h && coach.state === 'show' && h.panel && h.panel.tab === tab ? '<b class="co-mark">提示</b><span>' + touchText(h.panel.html) + '</span>' : '';
   }
 
   function updateCoach(now) {
@@ -6909,6 +7114,7 @@
     initEncHud();
     initPinHud();
     initQuestHud();
+    initNarr();
     initWorldUi();
     IC.warm(); // 图标趁空闲分批画好，第一次打开背包不再卡顿
     document.documentElement.style.setProperty('--relic', G.RELIC_COLOR); // 渊契的颜色只在 data.js 写一次，样式表里读 --relic
@@ -6951,6 +7157,11 @@
             ui.confirm = null;
             renderConfirm();
           }
+          e.stopPropagation();
+          e.preventDefault();
+        } else if (nc.cur && !nc.cur.out && !ui.isOpen && !ui.intro && !menu.title && !menu.pause && (e.code === 'Escape' || e.code === 'Enter' || e.code === 'NumpadEnter')) {
+          // 主线旁白卡放着：Esc / 回车只跳过它（不开暂停菜单）
+          if (!e.repeat) narrSkip();
           e.stopPropagation();
           e.preventDefault();
         } else if (ui.intro && (e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Space')) {
@@ -7084,6 +7295,8 @@
     verdict, // 换装评估（只读）：{ badge, score, empty, lines } | null
     questDone,
     // 测试读：追踪条现在显示的字、显不显示、排队中的完成提示
+    narr: () => ({ on: !!nc.cur, id: nc.cur ? nc.cur.id : '', out: !!(nc.cur && nc.cur.out), t: nc.cur ? nc.cur.t : 0, dur: nc.cur ? nc.cur.dur : 0, lines: nc.cur ? [nc.l1.textContent, nc.l2.textContent] : [], queued: nc.q.map((x) => x.id), held: nc.root.classList.contains('held') }),
+    narrSkip,
     quest: () => ({ on: !!qh.vis, k: qh.k.textContent, goal: qh.goal.textContent, how: qh.how.textContent, alt: qh.alt.textContent, queued: qh.toastQ.slice() }),
     hints: () => ({ current: coach.cur ? coach.cur.id : null, state: coach.state, all: HINTS.map((h) => h.id), veteran: coach.vet, minShow: coach.minT, shownFor: coach.t }),
   };

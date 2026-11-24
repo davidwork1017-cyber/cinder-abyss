@@ -668,7 +668,7 @@
     else {
       W.ring(cx, cz, R, ALLY_HEX, 0.35);
       W.burst(cx, 0.3, cz, 0xcbbba6, 14, 5, 0.45);
-      W.decal(5, cx, cz, R * 0.8, Math.random() * TAU, 0x9fe8da, 2.2);
+      W.decal(5, cx, cz, R * 0.8, G.vr() * TAU, 0x9fe8da, 2.2);
     }
     if (dist(cx, cz, P.x, P.z) < 14) W.shake(0.1);
     G.sfx(n ? 'impact' : 'hit', { type: 'phys', w: 1, crit: false });
@@ -880,7 +880,7 @@
       mesh.position.set(_sk.x, _sk.y, _sk.z);
       bolts.push({
         m, ctx: m.ctx, tg: t, x: _sk.x, z: _sk.z, y0: _sk.y, d0: dd, tx, tz, life: 2.2, mesh, cast,
-        R: mi.explode, per: mi.charge ? mi.charge.per : 0, wob: Math.random() * TAU,
+        R: mi.explode, per: mi.charge ? mi.charge.per : 0, wob: G.vr() * TAU,
       });
     }
     G.sfx('cast');
@@ -1253,8 +1253,8 @@
         G.hitEnemy(e, r.ctx, 1, { ang: Math.atan2(e.x - r.tx, e.z - r.tz), w: 1, kb: 1.1, poise: 9, quiet: true, minion: r.m });
         n++;
       }
-      W.smashFx(r.tx, r.tz, R, Math.random() * TAU);
-      W.decal(5, r.tx, r.tz, R * 0.8, Math.random() * TAU, 0x9fe8da, 2.2);
+      W.smashFx(r.tx, r.tz, R, G.vr() * TAU);
+      W.decal(5, r.tx, r.tz, R * 0.8, G.vr() * TAU, 0x9fe8da, 2.2);
       if (dist(r.tx, r.tz, P.x, P.z) < 14) W.shake(0.12);
       G.sfx(n ? 'impact' : 'hit', { type: 'phys', w: 1, crit: false });
       S.stats.vRockHits = (S.stats.vRockHits || 0) + n;

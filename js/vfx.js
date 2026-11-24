@@ -24,9 +24,11 @@
   V.quiet = function (fn) {
     const r = Math.random;
     Math.random = qrand;
+    G.look(true); // 期间 G.vr 也取 qrand（data.js）
     try {
       return fn();
     } finally {
+      G.look(false);
       Math.random = r;
     }
   };
