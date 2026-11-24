@@ -1622,6 +1622,7 @@
     e.phase = ph;
     e.lastPattern = null;
     W.text(e.x, e.z, ph === 1 ? '熄灯' : '冠焰', '#ffd27a', 28);
+    if (W.bossMood) W.bossMood(e.ent, ph); // boss-golem：只告诉外观换了阶段（不读回、不改模拟、不取随机数）
     (W.foeRing || W.ring)(e.x, e.z, e.r + 4, 0xffb24a, 0.6); // vf-vfx3：细边
     W.shake(0.4);
     G.sfx('boss');
@@ -1788,6 +1789,7 @@
       e.enraged = true;
       (W.foeRing || W.ring)(e.x, e.z, e.r + 4, 0xff3a2a, 0.6); // vf-vfx3：狂暴的环改细边
       W.text(e.x, e.z, '狂暴', '#ff5040', 26);
+      if (W.bossMood) W.bossMood(e.ent, 1); // boss-golem：只告诉外观进了狂暴（不读回、不改模拟、不取随机数）
       W.shake(0.4);
       G.sfx('boss');
     }

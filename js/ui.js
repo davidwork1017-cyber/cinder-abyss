@@ -26,7 +26,7 @@
 
   // ---------- 武器 ----------
   // 武器类型名：优先用数据里的写法，没有就用这张表
-  const WTYPE_NAME = { blade: '刃', staff: '长杖', wand: '短杖', daggers: '双匕', hammer: '战锤', bow: '长弓', katana: '太刀', banner: '魂幡', gatling: '机炮', flamer: '喷枪', revolver: '左轮', huntbow: '猎弓', eagle: '长弓', runebow: '符文弓', emberbow: '霜弓' };
+  const WTYPE_NAME = { blade: '刃', staff: '长杖', wand: '短杖', daggers: '双匕', hammer: '战锤', bow: '长弓', katana: '太刀', banner: '魂幡', lantern: '提灯', gatling: '机炮', flamer: '喷枪', revolver: '左轮', huntbow: '猎弓', eagle: '长弓', runebow: '符文弓', emberbow: '霜弓' };
   const WTYPE_ORDER = ['blade', 'staff', 'wand', 'daggers', 'hammer', 'bow', 'katana', 'banner'];
   const GUN_TYPES = ['gatling', 'flamer', 'revolver'];
   const wBase = (item) => (item && item.slot === 'weapon' && G.BASES.weapon ? G.BASES.weapon[item.baseIdx | 0] || null : null);
@@ -59,7 +59,7 @@
     return null;
   }
   // 武器技的成长方式：attack 随武器伤害；minion 按召唤物（魂幡）；其余是法术，随武器物品等级与元素加成
-  const wGrowKind = (sk) => (sk.tags.indexOf('attack') >= 0 ? 'attack' : sk.tags.indexOf('minion') >= 0 || sk.minion || sk.wtype === 'banner' ? 'minion' : 'spell');
+  const wGrowKind = (sk) => (sk.tags.indexOf('attack') >= 0 ? 'attack' : sk.wtype === 'lantern' ? 'spell' : sk.tags.indexOf('minion') >= 0 || sk.minion || sk.wtype === 'banner' ? 'minion' : 'spell'); // 提灯的借火 / 灯海是法术（带召唤物标签只因为管召唤物）
   const WGROW_TIP = { attack: '随武器伤害成长', minion: '按召唤物计算', spell: '随武器物品等级与元素加成成长' };
   const isWSkill = (id) => !!(id && G.SKILLS[id] && (G.SKILLS[id].weaponOnly || G.SKILLS[id].tags.indexOf('weapon') >= 0));
   // 某件武器自带的武器技 id（数据里没有时为 null）
@@ -381,6 +381,7 @@
     updateEncHud();
     updatePinHud();
     updateQuestHud(now);
+    updateNarr(now);
 
     setOrb(hud.life, P.life, P.maxLife, P.maxLifeRaw || P.maxLife);
     setOrb(hud.mana, P.mana, P.maxMana, P.maxManaRaw || P.maxMana);
@@ -1792,7 +1793,7 @@
     const n = (v, d) => (typeof v === 'number' && isFinite(v) ? v : d);
     const sk = G.SKILLS[id] || {};
     let count = 0;
-    for (const mm of liveMinions()) if (mm && !mm.dead && (mm.skill === id || (!mm.skill && mm.kind === sk.minion))) count++;
+    for (const mm of liveMinions()) if (mm && !mm.dead && !mm.relit && (mm.skill === id || (!mm.skill && mm.kind === sk.minion))) count++; // 续火的骸骨不算
     const rateCtx = m && m.interval > 0 ? 1 / m.interval : 0;
     return {
       count: n(info.count, count),
@@ -1853,7 +1854,7 @@
   const BASIC_KEY = () => G.BASIC_CARD || 'wbasic';
   const RANGED_ORDER = ['gatling', 'flamer', 'revolver', 'huntbow', 'eagle', 'runebow', 'emberbow'];
   // 卡片底下一排：每种武器各自的普攻（近战、施法、魂幡、空手在前，远程在后）
-  const BASIC_ORDER = ['blade', 'daggers', 'hammer', 'katana', 'staff', 'wand', 'banner', 'fists'].concat(RANGED_ORDER);
+  const BASIC_ORDER = ['blade', 'daggers', 'hammer', 'katana', 'staff', 'wand', 'banner', 'lantern', 'fists'].concat(RANGED_ORDER);
   const basicTypeName = (t) => {
     if (t === 'fists') return '空手';
     const bi = (G.BASES.weapon || []).findIndex((b) => b && b.type === t);
@@ -2249,6 +2250,11 @@
           (sk.mech === 'lance' ? '扎中第一个敌人就停' : sk.mech === 'fork' ? '前 ' + sk.fork.max + ' 个敌人脚下各刺出两道 ' + fmt1(sk.fork.len * k) + ' 米的岔脊（伤害 ' + Math.round(sk.fork.k * 100) + '%）' : '同一次施放每个敌人只中一下') + '</div>';
       } else if (sk.kind === 'burst' && sk.focus) {
         note += '<div class="sk-anote"><i></i>只打身边 ' + fmt1(sk.radius * Math.sqrt(ctx.area)) + ' 米内最近的 1 个 · 连着第 ' + sk.focus.n + ' 下过载 ×' + sk.focus.k + '（平均击中已按这个折算）</div>';
+      } else if (sk.kind === 'round') {
+        // 特殊弹（class-d2b1）：弹的形状跟手里的枪走
+        const sh = G.roundShape(), gun = G.roundGun();
+        note += '<div class="sk-anote"><i></i>' + (gun ? G.wTypeLabel(gun) : '没拿枪') + '：' + (sh.n > 1 ? sh.n + ' 枚，每枚 ' + Math.round(sh.k * 100) + '%' : '一发 ' + Math.round(sh.k * 100) + '%') +
+          (sh.move ? '，可以边走边打' : '') + (sh.rangeK ? '，射程 ×' + sh.rangeK : '') + (gun ? ' · 伤害按右键连射 ' + sk.basicSec + ' 秒算' : '') + '</div>';
       } else if (sk.kind === 'burst') {
         note += '<div class="sk-anote"><i></i>' + (sk.dash ? '先朝准星冲出至多 ' + sk.dash.max + ' 米 · ' : '') + '以自身为中心，半径 ' + fmt1(sk.radius * Math.sqrt(ctx.area)) + ' 米，最多打最近的 ' + sk.maxHit + ' 个，不穿墙</div>';
       }
@@ -4353,6 +4359,122 @@
   // game.js 推进主线时调：n 完成到第几步，got 这次加进背包的通货（首领步为 null）
   function questDone(n, got) {
     qh.toastQ.push('主线 ' + n + '/' + G.QUEST_N + ' 完成' + (got ? ' · ' + curList(got) : ''));
+  }
+
+  // ============================================================
+  // 主线旁白卡（quest D3）：首领步 / 进轮回层级 1 在这次游戏里真正完成时（G.onQuest，读档推算的不算）放一张两行的旁白卡，
+  // 和开场故事的字幕框同一个样子。不在战斗里放：排着，等没有醒着的敌人、没有敌方预警圈连续 1 秒，完成提示和掉落飘字都出完了再放。
+  // 每个角色每张卡只放一次（开始放时记进 save.quest.told 并马上存档）。点卡片、回车或 Esc 跳过；不受「显示主线」开关影响。
+  // 只碰 DOM，不取随机数、不改模拟用到的状态
+  // ============================================================
+  const NARR_IN = 0.4, NARR_GAP = 0.5, NARR_OUT = 0.6, NARR_SKIP = 0.25; // 淡入、第二行晚多少、淡出、跳过时的淡出（秒）
+  const nc = { root: null, l1: null, l2: null, q: [], cur: null, last: 0, epoch: -1, gapAt: 0, held: false };
+  function initNarr() {
+    const r = (nc.root = document.createElement('div'));
+    r.id = 'narr';
+    r.setAttribute('role', 'status');
+    r.innerHTML = '<p></p><p></p>';
+    nc.l1 = r.children[0];
+    nc.l2 = r.children[1];
+    r.addEventListener('mousedown', (e) => {
+      e.stopPropagation(); // 点卡片只是跳过，不是游戏输入
+      e.preventDefault();
+      narrSkip();
+    });
+    document.body.appendChild(r);
+    G.onQuest((e) => {
+      const q = G.QUEST[e.step - 1];
+      if (window.__noNarr || !q || !q.nar || q.id !== e.id || G.questTold(e.id)) return; // __noNarr：自动测试默认关（见 test/smoke.mjs），旁白那几步再打开
+      if ((nc.cur && nc.cur.id === e.id) || nc.q.some((x) => x.id === e.id)) return;
+      nc.q.push({ id: e.id, lines: q.nar, at: performance.now(), epoch: G.saveEpoch, calm: 0 });
+    });
+  }
+  // 战斗结束了没有：玩家活着、在区域里、素材载好了，没有醒着的敌人，也没有敌方的预警圈
+  function narrCalm() {
+    const st = G.state;
+    if (G.player.dead || !st.zone || (G.world.assetsPending && G.world.assetsPending())) return false;
+    if (narrAwake()) return false;
+    for (const t of st.telegraphs) if (!t.friendly) return false;
+    return true;
+  }
+  function narrAwake() {
+    for (const e of G.state.enemies) if (e.awake && !e.dead) return true;
+    return false;
+  }
+  function narrSkip() {
+    const c = nc.cur;
+    if (!c || c.out) return false;
+    c.out = true;
+    c.end = c.t + NARR_SKIP;
+    nc.root.style.setProperty('--narr-out', NARR_SKIP + 's');
+    nc.root.classList.remove('on');
+    return true;
+  }
+  function updateNarr(now) {
+    const dt = nc.last ? Math.min(0.1, (now - nc.last) / 1000) : 0;
+    nc.last = now;
+    if (G.saveEpoch !== nc.epoch) {
+      // 换了角色 / 读档：之前那份存档排着的卡不带过去（换档之后才排上的留着，可能和换档在同一帧），正在放的收起
+      nc.epoch = G.saveEpoch;
+      for (let i = nc.q.length - 1; i >= 0; i--) if (nc.q[i].epoch !== G.saveEpoch) nc.q.splice(i, 1);
+      if (nc.cur) narrSkip();
+    }
+    // 面板、暂停菜单、开场卡片、开场故事、标题画面盖着时：先藏起来、计时停住，关掉后接着放
+    const blocked = ui.isOpen || ui.intro || story.on || menu.title || menu.pause;
+    if (blocked !== nc.held) {
+      nc.held = blocked;
+      nc.root.classList.toggle('held', blocked);
+    }
+    if (blocked) return;
+    const c = nc.cur;
+    if (c) {
+      c.t += dt;
+      if (!c.out && c.t >= NARR_GAP && !c.l2) {
+        c.l2 = true;
+        nc.root.classList.add('l2');
+      }
+      // 又打起来了（敌人醒了）或倒下了：提前收起
+      if (!c.out && (G.player.dead || narrAwake())) narrSkip();
+      if (!c.out && c.t >= c.dur - NARR_OUT) {
+        c.out = true;
+        c.end = c.dur;
+        nc.root.style.setProperty('--narr-out', NARR_OUT + 's');
+        nc.root.classList.remove('on');
+      }
+      if (c.out && c.t >= c.end) {
+        nc.cur = null;
+        nc.root.classList.remove('show', 'l2');
+        nc.gapAt = now;
+      }
+      return;
+    }
+    if (!nc.q.length) return;
+    const it = nc.q[0];
+    if (it.epoch !== G.saveEpoch || G.questTold(it.id)) {
+      nc.q.shift();
+      return;
+    }
+    // 首领倒下那一刻之后至少 1.5 秒；完成提示排完、最后一条飘字出来 1.2 秒后；两张卡之间隔 0.8 秒
+    if (now - it.at < 1500 || now - nc.gapAt < 800 || qh.toastQ.length || now - lastToast.t < 1200) return;
+    if (!narrCalm()) {
+      it.calm = 0;
+      return;
+    }
+    if (!it.calm) it.calm = now;
+    if (now - it.calm < 1000) return;
+    nc.q.shift();
+    G.questTell(it.id);
+    G.persist(); // 马上存：放过的卡关页面后不再放
+    const n = it.lines.reduce((a, l) => a + (l.match(/[㐀-鿿]/g) || []).length, 0);
+    nc.cur = { id: it.id, t: 0, dur: Math.max(5, 1.6 + 0.14 * n), out: false, end: 0, l2: false };
+    nc.l1.textContent = it.lines[0];
+    nc.l2.textContent = it.lines[1] || '';
+    nc.root.dataset.id = it.id;
+    nc.root.style.setProperty('--narr-in', NARR_IN + 's');
+    nc.root.classList.remove('l2');
+    nc.root.classList.add('show');
+    void nc.root.offsetWidth; // 从透明开始淡入
+    nc.root.classList.add('on');
   }
 
   function initPinHud() {
@@ -6594,6 +6716,24 @@
       done: () => false,
     },
     {
+      // 渊式独骸加了「每刀最多砍到 N 个」之前、选着独骸的老存档：提示一次（见 game.js 的 dhNote）；个数读数据，百分比是同装备实测（16 只挤成一团）
+      id: 'dhnerf', calm: true, max: 14,
+      get html() {
+        return G.kingNerfNote();
+      },
+      when: () => G.kingNerfed > 0,
+      done: () => false,
+    },
+    {
+      // 渊式回旋加了「每程最多伤到 N 个」之前、选着回旋的老存档：提示一次（见 game.js 的 hxNote）；只有怪排成一线、一程穿过 N 个以上时才少
+      id: 'hxnerf', calm: true, max: 14,
+      get html() {
+        return G.boomNerfNote();
+      },
+      when: () => G.boomNerfed > 0,
+      done: () => false,
+    },
+    {
       // 旧版双生坠：读档时升成四行（见 game.js 的 migrateTwin）
       id: 'sxmig', calm: true, max: 16,
       html: '<b>双生坠升级</b>：多了暴击伤害和总伤害两行，原有两行按原来的成色换算到新数值；效果改为「余响」',
@@ -6760,8 +6900,20 @@
       G.save.stNote = false;
       G.frenzyNerfed = 0;
     }
+    if (id === 'dhnerf') {
+      G.save.dhNote = false;
+      G.kingNerfed = 0;
+    }
+    if (id === 'hxnerf') {
+      G.save.hxNote = false;
+      G.boomNerfed = 0;
+    }
     G.persist();
   }
+  // 渊式独骸 / 回旋改版提示里的百分比（同装备实测，rulea-fix：独骸 16 只挤成一团；回旋 怪沿飞行方向排得密的那张图）
+  G.NERF_PCT = { king: 35, boom: 30 }; // 独骸 1091 → 693 / 1005 → 693（−36 / −31%）；回旋只在怪沿飞行方向排得密的那张图上少：−10%（截断口径）～ −31%（稳态口径），其余不变
+  G.kingNerfNote = () => '<b>独骸</b>：骸王每刀最多砍到 ' + (G.VARIANTS.thrall.c.set.king.cleave + 1) + ' 个敌人，怪聚成一团时伤害约 −' + G.NERF_PCT.king + '%；分散的怪和单体不变';
+  G.boomNerfNote = () => '<b>回旋</b>：利刃去程、回程各最多伤到 ' + G.VARIANTS.blade.c.set.boom.cap + ' 个敌人，怪沿一条线排得很密时伤害最多约 −' + G.NERF_PCT.boom + '%；一般的怪群、分散的怪和单体不变';
   // 黑洞改版提示的那一句（v = 'o' / 'a' / 'b' / 'c'）。百分比是同装备实测（16 只挤成一团 / 10 只散开），上限读数据
   G.holeNerfNote = function (v) {
     const sk = G.skillVariant('blackhole', v), N = sk.cap;
@@ -6947,6 +7099,7 @@
     initEncHud();
     initPinHud();
     initQuestHud();
+    initNarr();
     initWorldUi();
     IC.warm(); // 图标趁空闲分批画好，第一次打开背包不再卡顿
     document.documentElement.style.setProperty('--relic', G.RELIC_COLOR); // 渊契的颜色只在 data.js 写一次，样式表里读 --relic
@@ -6989,6 +7142,11 @@
             ui.confirm = null;
             renderConfirm();
           }
+          e.stopPropagation();
+          e.preventDefault();
+        } else if (nc.cur && !nc.cur.out && !ui.isOpen && !ui.intro && !menu.title && !menu.pause && (e.code === 'Escape' || e.code === 'Enter' || e.code === 'NumpadEnter')) {
+          // 主线旁白卡放着：Esc / 回车只跳过它（不开暂停菜单）
+          if (!e.repeat) narrSkip();
           e.stopPropagation();
           e.preventDefault();
         } else if (ui.intro && (e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Space')) {
@@ -7122,6 +7280,8 @@
     verdict, // 换装评估（只读）：{ badge, score, empty, lines } | null
     questDone,
     // 测试读：追踪条现在显示的字、显不显示、排队中的完成提示
+    narr: () => ({ on: !!nc.cur, id: nc.cur ? nc.cur.id : '', out: !!(nc.cur && nc.cur.out), t: nc.cur ? nc.cur.t : 0, dur: nc.cur ? nc.cur.dur : 0, lines: nc.cur ? [nc.l1.textContent, nc.l2.textContent] : [], queued: nc.q.map((x) => x.id), held: nc.root.classList.contains('held') }),
+    narrSkip,
     quest: () => ({ on: !!qh.vis, k: qh.k.textContent, goal: qh.goal.textContent, how: qh.how.textContent, alt: qh.alt.textContent, queued: qh.toastQ.slice() }),
     hints: () => ({ current: coach.cur ? coach.cur.id : null, state: coach.state, all: HINTS.map((h) => h.id), veteran: coach.vet, minShow: coach.minT, shownFor: coach.t }),
   };
