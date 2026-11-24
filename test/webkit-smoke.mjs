@@ -6,7 +6,7 @@
 // 最后换一个新的浏览器配置量 iPhone 圆角：标题、职业选择、开场故事、HUD、背包、技能、暂停菜单、开场卡片的字和按钮都不碰四角的圆角（test/corner-mask.mjs）
 import { webkit, devices } from 'playwright-core';
 import { execSync } from 'node:child_process';
-import { GAME_URL } from './harness.mjs';
+import { GAME_URL, diagStep, outerTimeoutWarning } from './harness.mjs'; // 引入 harness 也就装上了它的信号处理：SIGTERM 时打 KILLED、立即退出
 import { uiLayoutCheck, uiBlankPoint } from './ui-layout.mjs';
 import { cornerScenes, cornerHud } from './corner-mask.mjs';
 
@@ -22,7 +22,10 @@ try {
 } catch (e) {}
 console.log('== test:webkit · HEAD ' + head + ' · ' + new Date().toISOString() + ' · ' + (dev ? 'iPhone 横屏 ' + dev.viewport.width + '×' + dev.viewport.height + ' DPR ' + dev.deviceScaleFactor : '?') + ' · 槽位 ' + (process.env.CC_SLOT_HELD || '无'));
 
-const browser = await webkit.launch({ headless: true });
+const tw = outerTimeoutWarning(15); // 正常 5 分钟左右
+if (tw) console.log(tw);
+// 信号交给 harness（记一行再退出）；Playwright 自己接的话只关浏览器、进程照跑
+const browser = await webkit.launch({ headless: true, handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false });
 const ctx = await browser.newContext(Object.assign({}, dev));
 const page = await ctx.newPage();
 const errors = [];
@@ -81,6 +84,7 @@ const touch = (type, s, dx, dy) =>
   }, [type, s, dx, dy]);
 
 async function step(name, fn) {
+  diagStep('webkit：' + name);
   const t0 = Date.now();
   try {
     const info = await fn();

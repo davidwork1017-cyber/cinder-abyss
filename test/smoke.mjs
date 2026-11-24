@@ -2,7 +2,7 @@
 // 每一步打印一行 ok / FAIL；任何一步失败或页面出现报错，进程以非 0 退出。
 // 分两份（见 test/README.md）：main() 是 test:func（不看墙钟，可以和别的 Chrome 一起跑），timedMain() 是 test:timed（要独占机器）。
 // node test/smoke.mjs = 两份都跑（先 func 后 timed）；--func / --timed 只跑一份。
-import { launch as launchFull, GAME_URL } from './harness.mjs';
+import { launch as launchFull, GAME_URL, diagStep, deathNote, browserDeaths, LOG_DIR, outerTimeoutWarning } from './harness.mjs';
 import { cornerScenes, cornerHud, cornerCheck } from './corner-mask.mjs';
 import { execSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -44,6 +44,7 @@ const timed = async (kind, guard, p) => {
   return r;
 };
 const launch = async (o) => {
+  diagStep(curStep);
   const r = await launchFull(Object.assign({ dpr: cheap ? CHEAP_DPR : null, seed: SEEDED ? seedKey(curStep) : null }, o));
   // 主线旁白卡（quest D3）：放的时机按真实时间（打完仗、飘字出完），会在别的步骤中途弹出来接走 Esc / 回车，所以测试默认关掉；
   // 测旁白的那几步在 sessionStorage 里设 cinder-test-narr 再打开（install 和每次导航前都按它设 window.__noNarr）
@@ -115,6 +116,7 @@ async function step(name, fn) {
   const full = cheap && FULL_RES.some((p) => name.startsWith(p));
   if (full) await setDpr(1);
   curStep = name;
+  diagStep(name);
   await reseed(name);
   const t0 = Date.now();
   try {
@@ -128,7 +130,7 @@ async function step(name, fn) {
     await auditFlush(name);
     failed++;
     const extra = errors && errors.length ? ' ｜页面报错：' + errors.splice(0).join(' | ').slice(0, 600) : '';
-    console.log('FAIL ' + name + ' — ' + String(e && e.message ? e.message : e).split('\n').slice(0, 6).join(' / ') + extra);
+    console.log('FAIL ' + name + ' — ' + String(e && e.message ? e.message : e).split('\n').slice(0, 6).join(' / ') + extra + deathNote(e && e.message ? e.message : e));
   }
   if (full) await setDpr(CHEAP_DPR);
 }
@@ -27445,7 +27447,10 @@ const sum = (p, f) => (f ? '失败 ' + f + ' 项，' : '') + '通过 ' + p + ' �
   for (const part of PARTS) {
     NC_TAG = POOL || (part === 'func' && PARTS.length === 1) ? ' [pool, not comparable]' : '';
     cheap = (part === 'func' || part === 'touch') && !process.env.CINDER_FULL;
-    console.log('== test:' + part + ' · HEAD ' + head + ' · ' + new Date().toISOString() + ' · 槽位 ' + (process.env.CC_SLOT_HELD || '无') + (cheap ? ' · 省渲染 dpr ' + CHEAP_DPR + '（' + FULL_RES.length + ' 类步骤按 1）' : '') + (NC_TAG ? ' · 耗时数字不可比' + NC_TAG : '') + (part === 'timed' && POOL ? ' · 警告：计时步骤在池里跑，结果不作数' : ''));
+    console.log('== test:' + part + ' · HEAD ' + head + ' · ' + new Date().toISOString() + ' · 槽位 ' + (process.env.CC_SLOT_HELD || '无') + (cheap ? ' · 省渲染 dpr ' + CHEAP_DPR + '（' + FULL_RES.length + ' 类步骤按 1）' : '') + (NC_TAG ? ' · 耗时数字不可比' + NC_TAG : '') + ' · Chrome 日志 ' + LOG_DIR.replace(/^.*\/(test-logs\/)/, '$1') + (part === 'timed' && POOL ? ' · 警告：计时步骤在池里跑，结果不作数' : ''));
+    // 外层 timeout 剩的时间不到正常耗时的两倍左右（池里 test:func 45–56 分钟）就先警告一行
+    const tw = outerTimeoutWarning(part === 'func' ? 100 : part === 'touch' ? 30 : 15);
+    if (tw) console.log(tw);
     const p0 = passed, f0 = failed;
     try {
       await (part === 'func' ? main() : part === 'touch' ? touchSteps() : timedMain());
@@ -27462,6 +27467,8 @@ const sum = (p, f) => (f ? '失败 ' + f + ' 项，' : '') + '通过 ' + p + ' �
     console.log('\naudit 最接近超时的等待：');
     for (const w of top) console.log('audit   ' + Math.round((100 * w.ms) / w.guard) + '%  ' + w.kind + ' ' + w.ms + 'ms / ' + w.guard + 'ms  ' + w.step.slice(0, 60));
   }
+  // Chrome 中途意外退出（不是测试关的）：列在合计上面，详情在 Chrome 日志目录的 run.log（test/README.md「Chrome 中途退出」）
+  if (browserDeaths.length) console.log('\nCHROME-DIED 本次有 ' + browserDeaths.length + ' 个浏览器意外退出：' + browserDeaths.map((d) => '#' + d.id + ' ' + d.at.slice(11, 19) + 'Z「' + d.step.slice(0, 30) + '」' + (d.exit || '')).join(' ｜ ') + '，日志 ' + LOG_DIR.replace(/^.*\/(test-logs\/)/, '$1'));
   console.log('\n' + per.join(' · '));
   console.log(sum(passed, failed));
   process.exit(failed ? 1 : 0);
