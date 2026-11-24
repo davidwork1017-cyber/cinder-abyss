@@ -9287,7 +9287,7 @@
         const alive = reached();
         if (!W.cutLine) for (const e of alive) W.slash(e.x, e.z, a + Math.PI / 2, 1.6 + e.r, 30, hex, { dur: 0.18, inner: 0.5, y: 1.1 });
         if (!alive.length) return;
-        if (W.impactStyle) W.impactStyle('cut'); // skill-b2：命中的近白弯月换成细斩线（只换画法）
+        if (W.impactStyle) W.impactStyle('cut', true); // skill-b2：命中的近白弯月换成细斩线（只换画法）；skill-b3a：这是瞬断的最后一下（多一颗小近白芯）
         try { wsStrike(ctx, alive, 1, { ang: a, w: sk.w, kb: sk.kb, poise: sk.poise, stop: sk.stop, dir: a }); } finally { if (W.impactStyle) W.impactStyle(null); }
         G.sfx('finisher');
       });
@@ -9991,7 +9991,7 @@
         marks += mk;
       }
       fxOpt('ashBurst', e.x, e.z, e.height || 2, e.r, it.n, mk);
-      if (W.impactStyle) W.impactStyle('ash'); // skill-b2：同上（余烬色）
+      if (W.impactStyle) W.impactStyle('ash', true); // skill-b2：同上（余烬色）；skill-b3a：收刀齐爆是最后一下
       try { total += G.hitEnemy(e, ctx, it.n * sk.cut + mk * sk.mark, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 2, kb: sk.kb * 2, poise: sk.cutPoise, quiet: true }) || 0; } finally { if (W.impactStyle) W.impactStyle(null); }
       crit = crit || lastHit.crit;
       if (!e.dead) W.shudder(e.ent, 0.14, 0.24);

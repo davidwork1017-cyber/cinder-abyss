@@ -12672,7 +12672,7 @@
       ms[i].emissive.setRGB(FLASH_RGB[0], FLASH_RGB[1], FLASH_RGB[2]);
       ms[i].emissiveIntensity = ms[i].userData.fi * ent.flashK;
     }
-    if (impStyle && IMP_RIM[impStyle]) W.rimFlash(ent, IMP_RIM[impStyle], 3.5, 0.05); // skill-b3a：重斩命中再加一道余烬色的轮廓闪
+    if (impStyle && IMP_RIM[impStyle]) W.rimFlash(ent, IMP_RIM[impStyle], 4, 0.09); // skill-b3a：重斩命中再加一道余烬色的轮廓闪（90 毫秒：头 35% 满亮，之后很快收掉）
   };
   // skill-b3a：轮廓闪（约 50 毫秒，按真实时间走，顿帧里也只是一眨眼）：只加在这一只的轮廓光上（uRim 是每个实体自己的 uniform，
   // 不共用材质、不新建材质 / 着色器）；加上去的量记下来，到时原样扣回。受击闪光关了就不放。颜色是余烬 / 钢色 / 暗紫，不发白
@@ -12704,7 +12704,8 @@
         rimFl.splice(i, 1);
         continue;
       }
-      it.add.copy(it.col).multiplyScalar(it.t / it.dur < 0.55 ? 1 : 0.45); // 同受击闪光：两档跳变
+      const f = it.t / it.dur;
+      it.add.copy(it.col).multiplyScalar(f < 0.35 ? 1 : Math.max(0, 1 - (f - 0.35) / 0.65) * 0.7); // 头 35% 满亮，之后很快衰减
       u.add(it.add);
     }
   }
@@ -21348,9 +21349,10 @@
   const IMP_STYLE = { cut: [0xd8e2f4, 0x9fb0cc], ash: [0xffc890, 0xff9b3d], blink: [0xd8c8f4, 0x8a74b8], heavy: [0xeadcc0, 0xa08a6c] };
   // skill-b3a：重斩命中的分量（不铺面）：怪身上的轮廓闪颜色 + 每一下一道粗一点、暗芯的余烬斩痕（外沿余烬、芯是焦黑）
   const IMP_RIM = { cut: 0xff9a50, ash: 0xff7a2c, blink: 0xb07aff };
-  const IMP_STREAK = { cut: [0xd8642a, 0x7a2a12], ash: [0xe0702a, 0x8a2e10], blink: [0xa060d0, 0x4a2470] };
+  const IMP_STREAK = { cut: [0xff8a3a, 0xc04a1a], ash: [0xffa040, 0xcc5418], blink: [0xc58aff, 0x7a44c0] }; // 亮余烬边（前 40% 亮一档，之后余烬色），不混白
   let impKickT = -9;
-  W.impactStyle = (s2) => { impStyle = s2 || null; };
+  let impFin = false; // skill-b3a：这一下是瞬断 / 千刃收刀的最后一下（多一颗 ≤ 60 毫秒的小近白芯）
+  W.impactStyle = (s2, fin) => { impStyle = s2 || null; impFin = !!(s2 && fin); };
   W.impactStyleNow = () => impStyle;
   W.impact = function (x, y, z, ang, type, w, crit) {
     const hex = IMPACT_HEX[type] || IMPACT_HEX.phys, pal = HIT_PAL[type] || HIT_PAL.phys, lo = qualId === 'low';
@@ -21364,20 +21366,34 @@
     // vf-vfx2：雷击不放烟团（浅色的圆团在怪脚下像一块白斑；雷的形状语言里只有折线）
     if (type !== 'light') tPuffs(x + sn * 0.2, 0.3, z + cs * 0.2, (lo ? 1 : 2) + w, 1.6 + w * 0.6, 0.9, 0.36 + w * 0.06, 0.24 + w * 0.05, mixHex(pal[3], 0xf4e2d4, 0.7), pal[3]);
     if (impStyle && IMP_STREAK[impStyle] && PF.vShape) {
-      // skill-b3a：一道横过目标的暗芯余烬斩痕：外层余烬色（粗 0.2 米），里面压一道焦黑的芯，没有亮芯；0.14 秒收窄消失
-      // 斩痕斜着横过目标（离垂直于这一击的方向再偏 0.5～0.8 弧度，一下左斜一下右斜），从上往下斜劈：在俯视镜头下读成一道斜斩，不是一根立柱
-      const st = IMP_STREAK[impStyle], sg = vr(0, 1) < 0.5 ? -1 : 1, a = ang + Math.PI / 2 + sg * vr(0.5, 0.8), dx = Math.sin(a), dz = Math.cos(a);
-      const L = 1.25 + w * 0.2 + (crit ? 0.25 : 0), y0 = y + 0.1, dy = 0.55;
-      vsBrush(VSH.bar, 4, 3, st[0], st[1], 0, 0.55, 0.45);
-      vsEmit(x - dx * L * 0.5, y0 + dy * 0.5, z - dz * L * 0.5, dx * L, -dy, dz * L, 0.14, 0.34);
+      // skill-b3a：招牌重斩的分量（不铺面）。斩痕顺着这一刀的走向（ang）贯穿目标，长约 1.8 米（敌人身宽的一倍半到两倍），从高往低斜劈；
+      // 外层是亮余烬边（0.42 米宽，不混白），里面压一道焦黑的芯，0.18 秒里收窄、挖洞渐隐
+      const st = IMP_STREAK[impStyle], a = ang + vr(-0.12, 0.12), dx = Math.sin(a), dz = Math.cos(a);
+      const cx = x + sn * 0.35, cz = z + cs * 0.35; // 命中点在怪身前沿：斩痕的中点挪回怪身上
+      const L = 1.8 + w * 0.15 + (crit ? 0.25 : 0), y0 = y + 0.12, dy = 0.5;
+      vsBrush(VSH.bar, 4, 3, st[0], st[1], 0.08, 0.15, 0.4);
+      vsEmit(cx - dx * L * 0.5, y0 + dy * 0.5, cz - dz * L * 0.5, dx * L, -dy, dz * L, 0.18, 0.42);
       // 焦黑的芯：同一条线、窄一半，往镜头那边挪一点画在前面
-      vsBrush(VSH.bar, 4, 3, 0x2a1008, 0x160806, 0, 0.3, 1);
-      vsEmit(x - dx * L * 0.42, y0 + dy * 0.42 + 0.07, z - dz * L * 0.42 + 0.06, dx * L * 0.84, -dy * 0.84, dz * L * 0.84, 0.13, 0.19);
+      vsBrush(VSH.bar, 4, 3, 0x2a1008, 0x140806, 0, 0.25, 1);
+      vsEmit(cx - dx * L * 0.43, y0 + dy * 0.43 + 0.08, cz - dz * L * 0.43 + 0.07, dx * L * 0.86, -dy * 0.86, dz * L * 0.86, 0.17, 0.2);
+      // 地上一道短短的焦黑裂痕（贴地折线段，比地面暗；头 15% 透一点余烬，1.1 秒收没；画进形状批，低画质也不多 draw）
+      vsBrush(VSH.bar, 5, 3, 0x6a2a12, 0x1c100a, 0, 0.35, 0.15);
+      const gx = cx - dx * 0.75, gz = cz - dz * 0.75;
+      vsEmit(gx, 0.07, gz, dx * 1.5, 0, dz * 1.5, 1.1, 0.16);
+      for (const sg of [-1, 1]) {
+        const b = a + sg * vr(0.5, 0.9), l = vr(0.3, 0.45), px = cx + dx * sg * vr(0.1, 0.35), pz = cz + dz * sg * vr(0.1, 0.35);
+        vsEmit(px, 0.072, pz, Math.sin(b) * l, 0, Math.cos(b) * l, 0.9, 0.09);
+      }
+      // 瞬断 / 千刃收刀的最后一下：命中点一颗很小的近白芯（0.5 米、60 毫秒），把那一下卖出去
+      if (impFin) {
+        vsBrush(VSH.ring, 0, 0, 0xfff4e0, 0xffb060, 1, 0, 0.3);
+        vsEmit(cx, y0, cz, 0, 0, 0, 0.06, 0.5);
+      }
       // 镜头轻顶一下（只在本来就有顿帧 / 镜头顶的重斩上；每 0.12 秒最多一次，不会叠成一直在晃；镜头震动关了 W.punch 自己不动）
       const now = G.state ? G.state.time : 0;
       if (Math.abs(now - impKickT) > 0.12) {
         impKickT = now;
-        W.punch(ang, 0.07);
+        W.punch(ang, 0.09);
       }
     }
     const n = 3 + w * 2 + (crit ? 3 : 0), sp = 9 + w * 3.5;
@@ -27071,10 +27087,15 @@
     }
     const pulse = (1 + 0.12 * Math.sin(wtime * 47) + 0.06 * Math.sin(wtime * 83)) * (L.ext >= wtime && L.w > 0 ? L.w : 1);
     // 外焰（火）→ 内焰 → 白热的芯
-    mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.75 * pulse, len);
-    pfPut('beam', 0.56, 0.13, 0.025); // skill-b2：外焰压一点（原来 0.95 / 0.26 / 0.05）；skill-b3a：再压（贴图中线是尖峰，加色叠上去过了色调压缩的肩就发黄白）
-    mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.26 * pulse, len);
-    pfPut('beam', 0.3, 0.06, 0.012); // skill-b2：内焰压两档（原来 1.4 / 0.75 / 0.22，叠在外焰上整条成了近白）；skill-b3a：再收窄、偏红（叠在外焰上中间还剩一道黄线）
+    // skill-b3a：光束身是暗一档的余烬红（加色叠在地面上也只是红橙，不过色调压缩的肩），中间一道很细的热芯（橙黄、不混白）；
+    // 近白只留枪口（放出后 60 毫秒）和落点的一小颗。低画质直接画到画布、没有色调压缩：再压两成
+    const kl = qualId === 'low' ? 0.8 : 1;
+    mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.62 * pulse, len);
+    pfPut('beam', 0.2 * kl, 0.02 * kl, 0.004 * kl); // skill-b2：外焰压一点（原来 0.95 / 0.26 / 0.05）
+    mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.28 * pulse, len);
+    pfPut('beam', 0.17 * kl, 0.022 * kl, 0.004 * kl); // skill-b2：内焰压两档（原来 1.4 / 0.75 / 0.22，叠在外焰上整条成了近白）
+    mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.07, len);
+    pfPut('beam', 0.32 * kl, 0.065 * kl, 0.012 * kl); // skill-b3a：细热芯（三层加地面也只到橙：地面本身约 0.4，光束只能再加约 0.5，过了就被色调压缩推成黄白）
     // skill-b2：白热的芯只留枪口那一段（≤ 1.2 米）、只在放出后的 60 毫秒里（原来是整条 12 米、0.4 秒的近白粗芯）
     if (wtime - (L.rel || -9) < 0.06) {
       const cl = Math.min(1.2, len), cf = cl / len;
@@ -27088,15 +27109,21 @@
       const f = (i + hash2(Math.floor(wtime * 20), i + 9)) / nArc;
       _pq.copy(camQ).multiply(_pq2.setFromAxisAngle(Z_AXIS, Math.atan2(dz, dx) + rand(-0.5, 0.5)));
       mPose(x0 + dx * len * f, y0 + (y1 - y0) * f, z0 + dz * len * f, _pq, rand(0.9, 1.5), rand(0.3, 0.45), 1);
-      pfPut('arc', 0.62, 0.3, 0.08); // skill-b3a：缠在光束上的电弧少一点黄（原来 0.7 / 0.42 / 0.12，叠在中线上就是那道黄线）
+      pfPut('arc', 0.42 * kl, 0.1 * kl, 0.025 * kl); // skill-b3a：缠在光束上的电弧偏余烬红（原来 0.7 / 0.42 / 0.12，叠在中线上就是那道黄线）
     }
     // skill-b2：两头的光晕收小、压暗（原来枪口 1.4 米、终点 2.2 米、地上 2.4 米的亮团）
-    mBill(x0, y0, z0, 0.9 * pulse);
-    pfPut('glow', 1.0, 0.42, 0.08);
-    mBill(x1, y1, z1, 1.2 * pulse);
-    pfPut('glow', 1.0, 0.38, 0.07);
-    mPose(x1, 0.07, z1, _qFlat, 1.4, 1.4, 1);
-    pfPut('glow', 0.7, 0.22, 0.04);
+    // skill-b3a：两头的光晕再收一档、偏余烬色；落点多一颗很小的暖白芯（0.3 米、60 毫秒）
+    const pg = Math.min(1.2, pulse); // 光晕不跟着放出那一下的加粗（w）一起胀：落点的亮团留小
+    mBill(x0, y0, z0, 0.75 * pg);
+    pfPut('glow', 0.7 * kl, 0.22 * kl, 0.04 * kl);
+    mBill(x1, y1, z1, 0.95 * pg);
+    pfPut('glow', 0.7 * kl, 0.2 * kl, 0.035 * kl);
+    if (wtime - (L.rel || -9) < 0.06) {
+      mBill(x1, y1, z1, 0.3); // 近白只给放出后的 60 毫秒
+      pfPut('core', 1.0, 0.82, 0.6);
+    }
+    mPose(x1, 0.07, z1, _qFlat, 1.0, 1.0, 1);
+    pfPut('glow', 0.5 * kl, 0.14 * kl, 0.03 * kl);
     if (dt > 0) {
       for (let i = 0; i < 3; i++) {
         const a = rand(0, TAU), v = rand(2, 6), el = vrnd() < 0.4;
