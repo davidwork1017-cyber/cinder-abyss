@@ -47,6 +47,10 @@
 - **Alt 详情**：窄屏卡片里是点开的「详情」折叠（`ui.foldAlt` 时 `altBox` 出 `<details>`），桌面照旧按住 Alt。
 - `G.ui.open('skills', x)`：x 是子页签名（`skills` / `sup` / `learn`），或一行的键（技能 id / `G.BASIC_CARD` / `'wskill'`）：桌面选中它，窄屏开它的卡片。测试里用 `T.skCard(id)` / `T.skCards(f)` 拿卡片。
 
+## 天赋盘的触屏默认视口（dev-48，随 B2）
+
+触屏上这次打开游戏后第一次看天赋盘：以前沿（已点亮 + 能点亮）的外框中心为准放大一档；能点亮的每一个都要整个在盘面里、不压在点数 / 缩放 / 底部那一行下面，放不下就少放大一点（最多退回全览）；能点亮的彼此在屏幕上不到 44 px 而盘面还放得下时再放大。之后记住玩家自己的缩放和平移（`ui.tv`，只在内存里，不进存档），「全览」一下回去。桌面不变。测试用 `G.ui.treeViewReset()` / `G.ui.treeFront()`。
+
 ## 测试
 
 `test/ui-layout.mjs` 的 `uiLayoutCheck({ touch })` 在页面里跑，返回不合格项：

@@ -3386,6 +3386,8 @@
       treeRO.disconnect();
       treeRO.observe(svg);
     }
+    // 触屏：这次打开游戏以后第一次看天赋盘（ui.tv 还没定过）：放大一档、对准前沿（treeFront）。之后记住玩家自己的缩放和平移，「全览」照旧一下回去
+    if (ui.tv === undefined && touchOn() && compactUi() && svg.clientWidth > 0) ui.tv = treeFront(svg).v;
     const v = treeVb();
     svg.setAttribute('viewBox', vbStr(v));
     const k = treeScale(svg, v);
@@ -3401,6 +3403,63 @@
     }
     const fit = el.body.querySelector('.tree-zoom [data-z="fit"]');
     if (fit) fit.classList.toggle('on', !ui.tv);
+  }
+  // 前沿：已点亮的天赋和现在能点亮的。触屏默认的视口：以前沿的外框中心为准放大一档（和「＋」一样 0.7 倍）；
+  // 能点亮的每一个都要整个在盘面里、不压在左上的点数 / 右下的缩放 / 底部那一行下面，放不下就少放大一点（最多退回全览）；
+  // 能点亮的彼此挨得太近（屏幕上不到 44 px）而盘面还放得下时，再放大，直到 44 px 或放不下为止。
+  // 返回 { v: 视口（null = 全览）, close: 不到 44 px 的对数, av: 能点亮的个数 }（测试也读）
+  function treeFront(svg) {
+    const T = G.TREE, alloc = new Set(G.save.passives), F = treeFit();
+    const fr = [], av = [];
+    for (const id in T) {
+      const n = T[id];
+      const a = alloc.has(id), can = !a && n.links.some((l) => alloc.has(l));
+      if (a || can) fr.push(n);
+      if (can) av.push(n);
+    }
+    if (!fr.length) return { v: null, close: 0, av: 0 };
+    const r = fRect(svg.getBoundingClientRect());
+    const cw = svg.clientWidth, ch = svg.clientHeight;
+    const blocks = Array.from(el.body.querySelectorAll('.tree-view [data-float], .tree-view > .pg-note')).map((n) => fRect(n.getBoundingClientRect())).filter((b) => b.width > 0 && b.height > 0);
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const n of fr) {
+      x0 = Math.min(x0, n.x); x1 = Math.max(x1, n.x);
+      y0 = Math.min(y0, n.y); y1 = Math.max(y1, n.y);
+    }
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    // 按宽度 w 摆出来的视口和每个能点亮的天赋在屏幕上的位置
+    const lay = (w) => {
+      const h = (w * F.h) / F.w;
+      const v = treeClamp({ x: cx - w / 2, y: cy - h / 2, w, h });
+      const u = v || F;
+      const k = Math.min(cw / u.w, ch / u.h);
+      const ox = r.left + (cw - u.w * k) / 2, oy = r.top + (ch - u.h * k) / 2;
+      const pts = av.map((n) => ({ x: ox + (n.x - u.x) * k, y: oy + (n.y - u.y) * k, rr: NODE_R[n.kind] * k + 3 }));
+      const ok = pts.every((p) => p.x - p.rr >= r.left && p.x + p.rr <= r.left + cw && p.y - p.rr >= r.top && p.y + p.rr <= r.top + ch && !blocks.some((b) => p.x + p.rr > b.left && p.x - p.rr < b.right && p.y + p.rr > b.top && p.y - p.rr < b.bottom));
+      // 挨着的一对 = 每个天赋和离它最近的那个；同一对只算一次
+      const near = new Set();
+      for (let i = 0; i < pts.length; i++) {
+        let d = Infinity, j0 = -1;
+        for (let j = 0; j < pts.length; j++) if (j !== i) { const dd = Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y); if (dd < d) (d = dd), (j0 = j); }
+        if (d < 44) near.add(Math.min(i, j0) + '-' + Math.max(i, j0));
+      }
+      return { v, ok, close: near.size };
+    };
+    let best = null;
+    for (const f of [0.7, 0.8, 0.9]) {
+      const L = lay(F.w * f);
+      if (L.ok) {
+        best = L;
+        break;
+      }
+    }
+    if (!best) return Object.assign(lay(F.w), { v: null, av: av.length });
+    for (let w = (best.v ? best.v.w : F.w) * 0.85; best.close && w >= F.w / TREE_ZMAX; w *= 0.85) {
+      const L = lay(w);
+      if (!L.ok) break;
+      best = L;
+    }
+    return Object.assign(best, { av: av.length });
   }
   // 以屏幕点 (sx, sy) 为中心缩放 f 倍（f < 1 放大）；不给点就以视口中心
   function treeZoom(f, sx, sy) {
@@ -8311,6 +8370,14 @@
     narr: () => ({ on: !!nc.cur, id: nc.cur ? nc.cur.id : '', out: !!(nc.cur && nc.cur.out), t: nc.cur ? nc.cur.t : 0, dur: nc.cur ? nc.cur.dur : 0, lines: nc.cur ? [nc.l1.textContent, nc.l2.textContent] : [], queued: nc.q.map((x) => x.id), held: nc.root.classList.contains('held') }),
     narrSkip,
     quest: () => ({ on: !!qh.vis, k: qh.k.textContent, goal: qh.goal.textContent, how: qh.how.textContent, alt: qh.alt.textContent, queued: qh.toastQ.slice() }),
+    // 测试用：天赋盘回到「这次还没看过」（下次在触屏上打开按前沿放大一档）；treeFront() 读默认视口的结果
+    treeViewReset: () => {
+      ui.tv = undefined;
+    },
+    treeFront: () => {
+      const svg = document.getElementById('tree-svg');
+      return svg ? Object.assign({}, treeFront(svg), { tv: ui.tv }) : null;
+    },
     hints: () => ({ current: coach.cur ? coach.cur.id : null, state: coach.state, all: HINTS.map((h) => h.id), veteran: coach.vet, minShow: coach.minT, shownFor: coach.t }),
   };
 })();

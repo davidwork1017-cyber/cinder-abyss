@@ -27487,6 +27487,7 @@ async function touchSteps() {
   await uiLayoutSteps('skills');
   await uiLayoutSteps('tree');
   await uiTreeStyleStep();
+  await uiTreeTouchZoomStep();
 }
 
 // ------------------------------------------------------------------ 面板布局（UI-R，docs/ui.md「测试」）
@@ -27684,6 +27685,100 @@ async function uiDeskStyleSkillsStep() {
     for (const k in DESK_STYLE_SK_MAIN) if (got[k] !== DESK_STYLE_SK_MAIN[k]) bad.push(k + '：main ' + DESK_STYLE_SK_MAIN[k] + '，现在 ' + got[k]);
     assert(!bad.length, bad.length + ' 项和 main 不一样：' + bad.slice(0, 8).join(' ｜ '));
     return Object.keys(DESK_STYLE_SK_MAIN).length + ' 项相等';
+  });
+}
+// 天赋盘的触屏默认视口（dev-48，随 UI-R B2）：这次打开游戏后第一次看天赋盘，放大一档、对准前沿（已点亮 + 能点亮）。
+// 每个能点亮的天赋都整个在盘面里、点得到（不被点数 / 缩放 / 底部那一行挡住）；挨着的两个能点亮的天赋屏幕上不到 44 px 的对数报出来。
+// 「全览」一下回去；关掉再开记住上次的缩放和平移（不进存档）。新角色和中期角色（约 20 点），734×338 / 667×320 / 390×844 / 旋转横屏
+async function uiTreeTouchZoomStep() {
+  await step('天赋盘触屏默认视口：新角色和点了约 20 点的角色在 734×338 / 667×320 / 390×844 / 旋转横屏下第一次打开放大一档、对准前沿，能点亮的都在盘面里点得到；「全览」一下回去；关掉再开记住缩放和平移', async () => {
+    if (browser) await browser.close().catch(() => {});
+    ({ browser, page, errors } = await launch({ width: 734, height: 338, mobile: { scale: 2 }, dpr: null }));
+    await install();
+    await ev(() => {
+      G.save.seenHelp = G.save.seenStory = true;
+      for (const id of G.ui.hints().all) G.save.tut[id] = 1;
+      localStorage.setItem('cinder-abyss-ui-seen', JSON.stringify({ tree: 1 }));
+      G.ui.close();
+      G.debug.hold(true);
+      G.debug.setLevel(40);
+    });
+    const bad = [], rep = [];
+    for (const [w, h, rot] of [[734, 338], [667, 320], [390, 844], [390, 844, 'cw']]) {
+      await page.setViewportSize({ width: w, height: h });
+      await ev((rot) => G.touch.setRot && G.touch.setRot(rot || null), rot);
+      for (const who of ['新角色', '中期']) {
+        const where = w + '×' + h + (rot ? '（转）' : '') + ' ' + who;
+        const r = await ev(async (mid) => {
+          G.ui.close();
+          G.resetPassives();
+          if (mid) {
+            // 约 20 点：每次点亮能点亮的里 id 最小的那个（固定的一条路）
+            for (let i = 0; i < 20; i++) {
+              const can = Object.keys(G.TREE).filter((id) => !G.save.passives.includes(id) && G.TREE[id].links.some((l) => G.save.passives.includes(l))).sort();
+              if (!can.length || !G.allocPassive(can[0])) break;
+            }
+          }
+          G.computeStats();
+          G.ui.treeViewReset();
+          G.ui.open('tree');
+          for (let i = 0; i < 3; i++) await new Promise((res) => requestAnimationFrame(res));
+          for (const n of [document.getElementById('panel'), ...document.querySelectorAll('#panel *')]) for (const a of n.getAnimations()) if (a.effect && a.effect.getComputedTiming().iterations !== Infinity) await a.finished.catch(() => {});
+          for (let i = 0; i < 2; i++) await new Promise((res) => requestAnimationFrame(res));
+          const svg = document.getElementById('tree-svg');
+          const F = (b) => (G.rectToFrame ? G.rectToFrame(b) : b);
+          const sr = F(svg.getBoundingClientRect());
+          const out = { used: G.passivePoints().used, vb: svg.getAttribute('viewBox'), zoomed: svg.classList.contains('zoomed'), off: [], hid: [] };
+          for (const g of svg.querySelectorAll('.tn.avail')) {
+            const sh = g.querySelector('.shape'), b = F(sh.getBoundingClientRect());
+            if (b.left < sr.left - 1 || b.right > sr.right + 1 || b.top < sr.top - 1 || b.bottom > sr.bottom + 1) out.off.push(g.dataset.node);
+            const q = sh.getBoundingClientRect(), hit = document.elementFromPoint(q.left + q.width / 2, q.top + q.height / 2);
+            if (!hit || !g.contains(hit)) out.hid.push(g.dataset.node);
+          }
+          out.n = svg.querySelectorAll('.tn.avail').length;
+          const fr = G.ui.treeFront();
+          out.close = fr.close;
+          return out;
+        }, who === '中期');
+        rep.push(where + '：' + (r.zoomed ? '放大' : '全览') + '，能点亮 ' + r.n + ' 个，不到 44 px ' + r.close + ' 对');
+        if (!r.zoomed) bad.push(where + ' 第一次打开没有放大（' + r.vb + '）');
+        if (r.off.length || r.hid.length) bad.push(where + ' 能点亮的天赋出了盘面 ' + r.off.join(',') + ' / 被挡住 ' + r.hid.join(','));
+        if (who === '中期' && !(r.used >= 18)) bad.push(where + ' 只点了 ' + r.used + ' 点');
+      }
+    }
+    // 记住缩放和平移：放大一档后关掉再开，视口不变；「全览」一下回去，关掉再开还是全览；桌面不受影响（B3 的桌面样式那一步量的是全览的 viewBox）
+    const mem = await ev(async () => {
+      const raf = () => new Promise((res) => requestAnimationFrame(res));
+      const vb = () => document.getElementById('tree-svg').getAttribute('viewBox');
+      document.querySelector('[data-act="tree-zoom"][data-z="in"]').click();
+      await raf();
+      const a = vb();
+      G.ui.close();
+      G.ui.open('tree');
+      await raf();
+      await raf();
+      const b = vb();
+      document.querySelector('[data-act="tree-zoom"][data-z="fit"]').click();
+      await raf();
+      const c = { vb: vb(), zoomed: document.getElementById('tree-svg').classList.contains('zoomed') };
+      G.ui.close();
+      G.ui.open('tree');
+      await raf();
+      await raf();
+      const d = { vb: vb(), zoomed: document.getElementById('tree-svg').classList.contains('zoomed') };
+      G.ui.close();
+      return { a, b, c, d, saveKeys: Object.keys(G.save).some((k) => /^tv$|tree.*view/i.test(k)) };
+    });
+    if (mem.a !== mem.b) bad.push('关掉再开没有记住缩放：' + mem.a + ' → ' + mem.b);
+    if (mem.c.zoomed || mem.d.zoomed || mem.c.vb !== mem.d.vb) bad.push('「全览」之后关掉再开应还是全览：' + JSON.stringify([mem.c, mem.d]));
+    if (mem.saveKeys) bad.push('视口不该进存档');
+    await ev(() => {
+      G.touch.setRot && G.touch.setRot(null);
+      G.resetPassives();
+      G.debug.hold(false);
+    });
+    assert(!bad.length, bad.length + ' 处不合格：' + bad.slice(0, 6).join(' ｜ '));
+    return rep.join('；');
   });
 }
 // 天赋页的桌面样式不变（UI-R B3）：1366×768 下盘面、侧栏、天赋点、支路、加成、缩放按钮、节点和名字的计算样式，以及全览的 viewBox，和 main 逐项相等（表在 test/ui-style-tree.mjs）
