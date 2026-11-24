@@ -4743,7 +4743,7 @@ html.touch-ui { --fs-md: 14px; --fs-lg: 16px; --head-h: 36px; --hit: 44px; }
 .zone.zc .z-body { padding: 6px 8px 8px; }
 .zone.zc .z-name { overflow: hidden; font-size: var(--fs-md); letter-spacing: 1px; white-space: nowrap; text-overflow: ellipsis; }
 .zone.zc .z-meta { margin-top: 3px; font-size: var(--fs-sm); }
-.zone.zc .pn-art { width: auto; border-right: 0; border-bottom: 1px solid #3d2c1e; }
+.zone.zc .pn-art { width: auto; height: auto; border-right: 0; border-bottom: 1px solid #3d2c1e; } /* 地图下面那一条的 54 px 高不带过来 */
 .zone.zc.pin .z-glyph { color: #ffd8a0; text-shadow: 0 0 28px #ffb24a, 0 4px 10px rgba(0, 0, 0, 0.7); }
 .zone.zc.pin.ready { border-color: #8a6a3a; }
 /* 区域卡（.sheet，窄屏） */
@@ -4782,6 +4782,8 @@ html.touch-ui .seal-card > kbd { display: none; }
   :where(html:not(.t-rot)) .map.por .zone.zc .z-art { flex: none; width: 112px; border-bottom: 0; border-right: 1px solid #3d2c1e; }
   :where(html:not(.t-rot)) .map.por .zone.zc .z-body { flex: 1; min-width: 0; justify-content: center; padding: 8px 12px; }
   :where(html:not(.t-rot)) .map.por .zone.zc .z-ord { display: none; }
+  :where(html:not(.t-rot)) .map.por .zone.zc .z-glyph { top: 56%; font-size: 32px; } /* 让开右上的角标 */
+  :where(html:not(.t-rot)) .map.por .zone.zc .pn-art { border-bottom: 0; border-right: 1px solid #3d2c1e; }
   :where(html:not(.t-rot)) .map.por .map-bar .ui-q.in-page { margin-left: auto; }
 }
 
