@@ -26443,11 +26443,31 @@ async function touchSteps() {
       const b = await tipNow();
       return { r, a, b };
     };
+    // 「碰一下别处」：点面板正文里离所有点按目标（按钮、页签、格子、带浮窗的卡片）最远的一处空白（同 test/ui-layout.mjs 的 uiBlankPoint，再躲开 data-tip 的卡片）。
+    // 原来固定点顶栏 left + 30：B1 / M2 以后那里是「背包」页签，只有 touch.js 在长按松手后 600 ms 内吞掉这一下才没事，机器一忙就切到背包页
+    const tabNow = () => ev(() => { const t = document.querySelector('#panel-head .tab.on'); return t ? t.textContent : null; });
     const dismiss = async () => {
-      const hd = await ev(() => T.rect('#panel-head'));
+      const tab0 = await tabNow();
+      const hd = await ev(() => {
+        const body = document.getElementById('panel-body'), b = body.getBoundingClientRect();
+        const tg = Array.from(document.querySelectorAll('#panel button, #panel [data-act], #panel .cell, #panel .eq, #panel [data-tip], #panel .zone')).filter((n) => n.getClientRects().length).map((n) => n.getBoundingClientRect());
+        const gap = (x, y, r) => Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom));
+        let best = null;
+        for (let y = b.top + 3; y < b.bottom - 3; y += 4)
+          for (let x = b.left + 3; x < b.right - 3; x += 4) {
+            const d = tg.length ? Math.min(...tg.map((r) => gap(x, y, r))) : 99;
+            if (best && d <= best.d) continue;
+            const h = document.elementFromPoint(x, y);
+            if (h && body.contains(h) && !h.closest('button, a, input, select, [data-act], [data-tip], .zone, .cell, .eq')) best = { l: x - 30, y, d };
+          }
+        return best && best.d >= 10 ? best : null;
+      });
+      assert(hd, '面板正文里找不到一处离点按目标 ≥ 10 px 的空白，没法「碰一下别处」');
       await touch.tap(hd.l + 30, hd.y);
       await frames(2);
       await uiWait(() => !document.getElementById('tip').classList.contains('on') && document.body.classList.contains('alt-on') === !!G.input.alt); // 收不起来的话照样读出来，交给下面的断言报
+      const tab1 = await tabNow();
+      assert(tab1 === tab0, '「碰一下别处」不该换页签：' + tab0 + ' → ' + tab1);
       return tipNow();
     };
     const out = {};
