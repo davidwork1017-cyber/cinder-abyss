@@ -256,7 +256,10 @@ await step('面板布局（UI-R B1）：844×340 / 390×844 下背包（空、�
       }
     }
   }
-  await ev(() => G.ui.close());
+  await ev(() => {
+    G.ui.close();
+    G.debug.hold(false); // 准备时按住了模拟（布局检查不用它跑）：还回去，后面的步骤要看游戏在跑
+  });
   if (vp0) await page.setViewportSize(vp0);
   await page.waitForTimeout(300);
   assert(!bad.length, bad.length + ' 处不合格：' + bad.slice(0, 6).join(' ｜ '));
