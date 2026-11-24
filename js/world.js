@@ -19263,10 +19263,23 @@
       reach: 3.2, emb: [3.2, 0.9, 7],
       sock: { weapon: ['x_hammer', 0, -0.62, 0], hand: ['x_finger_l_02', 0, -0.6, 0.12], head: ['head', 0, 0.4, 0], chest: ['x_core', 0, 0, 0.2] },
       hitJ: ['spine_03', 'head'], feet: ['foot_l', 'foot_r'], core: 'x_core',
+      heatW: ['ring_w'], heatS: ['ring'],
+    },
+    // boss-lord：烬渊之主。剑尖的挂点 = 静止姿态的剑尖（相对 x_sword 枢轴）；冠环（x_crown）在 post 里按时钟转（螺旋时转得快），和原来的程序化外观一样不进动作表
+    lord: {
+      pack: 'boss-lord',
+      alias: { slam: 'slam', fan: 'fan', spiral: 'spiral', cross: 'cross', barrage: 'barrage', summon: 'summon', charge: 'slam', ring: 'spiral' },
+      reach: 3.8, emb: [3.2, 1.0, 9],
+      sock: { weapon: ['x_sword', -0.3, -1.94, 1.9], hand: ['hand_l', 0.02, -0.36, 0.14], head: ['head', 0, 0.45, 0.1], chest: ['x_core', 0, 0, 0.2] },
+      hitJ: ['spine_03', 'head'], feet: ['foot_l', 'foot_r'], core: 'x_core',
+      heatW: ['fan_w', 'spiral_w', 'barrage_w', 'summon_w'], heatS: ['fan', 'spiral', 'barrage', 'summon'],
+      spin: ['x_crown', 1.2, 'spiral', 4.5],
+      // 黑曜石的背光面在烬渊的品红补光下压得太黑（灰度中位数比地面还低）：躯体的暖色自发光比熔渣巨像强一点（甲缝里透出的熔炉热）
+      emis: [0x4e4844, 0.54],
     },
   };
   // 调色板行 → 表面（粗糙度 / 金属度），行号见 art/ca/palette.py
-  const BOSS_ROW_SURF = ['stone', 'stone', 'bone', 'metal', 'glow', 'stone', 'stone', 'leather', 'metal', 'stone', 'stone', 'stone', 'leather', 'stone', 'ice', 'gold', 'stone'];
+  const BOSS_ROW_SURF = ['stone', 'stone', 'bone', 'metal', 'glow', 'stone', 'stone', 'leather', 'metal', 'stone', 'stone', 'stone', 'leather', 'stone', 'ice', 'gold', 'stone', 'ice', 'cloth'];
   const bossS2L = (() => {
     const t = new Float32Array(256);
     for (let i = 0; i < 256; i++) { const c = i / 255; t[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
@@ -19373,19 +19386,25 @@
       }
     };
     rig.moodTrack = tracks.mood ? tracks.mood.tr : null;
-    const coreJ = sp.core ? rig.J[sp.core] : -1, emb = sp.emb;
+    const coreJ = sp.core ? rig.J[sp.core] : -1, emb = sp.emb, heatW = sp.heatW || [], heatS = sp.heatS || [];
+    const spinJ = sp.spin ? rig.J[sp.spin[0]] : -1;
     rig.post = function (ent, o, t, dt) {
-      // 炉芯：随呼吸一明一暗；弹幕蓄力时蓄热、出手那一下最亮；破防时明灭；死亡先暴涨再熄掉。全是确定性的（不取随机数）
+      // 炉芯：随呼吸一明一暗；蓄力时蓄热、出手那一下最亮（heatW / heatS 里的动作）；破防时明灭；死亡先暴涨再熄掉。全是确定性的（不取随机数）
       const c = ent.clip, n = c ? c.name : '', k = ent.cK;
       let heat = 1;
-      if (n === 'ring_w') heat = 1 + 0.7 * k;
-      else if (n === 'ring') heat = 1 + 0.9 * hump(k, 0, c.k0, c.k0 + 0.05, 0.6);
+      if (heatW.indexOf(n) >= 0) heat = 1 + 0.7 * k;
+      else if (heatS.indexOf(n) >= 0) heat = 1 + 0.9 * hump(k, 0, c.k0, c.k0 + 0.05, 0.6);
       else if (n === 'broken') heat = 0.7 + 0.25 * Math.max(0, Math.sin(k * TAU * 5));
       else if (n === 'death') heat = k < 0.5 ? 1 + k * 2 : Math.max(0.15, 2 - (k - 0.5) * 4);
       ent.moodK = (ent.moodK || 0) + ((ent.mood ? 1 : 0) - (ent.moodK || 0)) * Math.min(1, dt * 3);
       if (rig.moodTrack && ent.moodK > 0.001) {
         const tr = rig.moodTrack;
         for (let i = 0; i < tr.ci.length; i++) o[tr.ci[i]] += kfL(tr.cK[i], 0) * ent.moodK;
+      }
+      if (spinJ >= 0) {
+        // 冠环：按时钟慢慢转，spin[2] 那段动作里转得快（只看外观实体自己的时间，不取随机数）
+        ent.spinA = (ent.spinA || 0) + dt * (sp.spin[1] + (n === sp.spin[2] && !ent.dying ? sp.spin[3] * Math.min(1, k * 8) * Math.min(1, (1 - k) * 6) : 0));
+        o[spinJ + 1] += ent.spinA;
       }
       if (coreJ >= 0) {
         const sc = (1 + Math.sin(t * 3) * 0.06) * (0.85 + 0.15 * heat);
@@ -19458,10 +19477,10 @@
   // 背光面压回中性偏暖；亮度只抬一点点（灰度检查照样量）
   const BOSS_EMIS = [0x6e4c38, 0.18];
   function bossLook(ent) {
-    const m = ent.bodyMat;
+    const m = ent.bodyMat, sp = BOSS_SPEC[ent.rig.bossModel], em = (sp && sp.emis) || BOSS_EMIS;
     m.color.copy(lin(0xf4ece4));
-    m.userData.e0 = lin(BOSS_EMIS[0]);
-    m.userData.ei0 = BOSS_EMIS[1];
+    m.userData.e0 = lin(em[0]);
+    m.userData.ei0 = em[1];
     m.emissive.copy(m.userData.e0);
     m.emissiveIntensity = m.userData.ei0;
     ent.uRim.value.setRGB(0.07, 0.065, 0.06);
