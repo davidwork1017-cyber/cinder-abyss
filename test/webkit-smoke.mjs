@@ -299,10 +299,15 @@ await step('竖屏（iPhone 竖着拿）：标题画面点「横屏开始」→ 
   const sy = g0.st.rot === 'cw' ? 1 : -1;
   await touch('touchstart', '#t-stick', 0, 0);
   await touch('touchmove', '#t-stick', 0, 50 * sy);
-  await page.waitForTimeout(1000);
-  const m = await ev(() => ({ mv: G.input.move && { x: G.input.move.x, z: G.input.move.z }, x: G.player.x }));
+  await page.waitForTimeout(300);
+  // 按住时按模拟时间推进 0.3 秒量位移（按墙钟等的话，机器忙时一秒只跑几帧，走的距离不定）
+  const m = await ev(() => {
+    const x0 = G.player.x;
+    G.debug.step(0.3);
+    return { mv: G.input.move && { x: G.input.move.x, z: G.input.move.z, k: G.input.move.k }, x: G.player.x, dx: G.player.x - x0, sp: G.player.moveSpeed };
+  });
   await touch('touchend', '#t-stick', 0, 50 * sy);
-  assert(m.mv && m.mv.x > 0.95 && m.x > g0.x + 0.3, '转着时摇杆往画面右边拖应往右走：' + JSON.stringify({ g0, m }));
+  assert(m.mv && m.mv.x > 0.95 && m.dx > 0.3 * m.sp * 0.7, '转着时摇杆往画面右边拖应往右走：' + JSON.stringify({ g0, m }));
   // 按住主攻
   await ev(() => {
     window.__casts = 0;
