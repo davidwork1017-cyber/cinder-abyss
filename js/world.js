@@ -6,6 +6,29 @@
   const T = THREE;
   const W = (G.world = {});
   const TAU = Math.PI * 2;
+  // 画面坐标（手机版 M2「横屏开始」）：竖着拿手机时可以把整个页面转 90° 当横屏玩（html.t-rot，js/touch.js 管）。
+  // 转着的时候事件的 clientX / Y、getBoundingClientRect 都是屏幕坐标，页面布局和 3D 画面按转过的画面算：
+  // 读位置的地方用 G.toFrame / G.rectToFrame 换过来，画面尺寸用 G.viewW / G.viewH，交给 elementFromPoint 的用 G.toScreen 换回去。
+  // G.rot 平时（桌面永远）是 null，这几个原样返回
+  G.rot = null; // 转着时：{ dir: 'cw' | 'ccw', W, H }，W / H 是屏幕（竖着）的宽高
+  G.viewW = () => (G.rot ? G.rot.H : window.innerWidth);
+  G.viewH = () => (G.rot ? G.rot.W : window.innerHeight);
+  G.toFrame = (x, y) => {
+    const r = G.rot;
+    if (!r) return { x, y };
+    return r.dir === 'cw' ? { x: y, y: r.W - x } : { x: r.H - y, y: x };
+  };
+  G.toScreen = (x, y) => {
+    const r = G.rot;
+    if (!r) return { x, y };
+    return r.dir === 'cw' ? { x: r.W - y, y: x } : { x: y, y: r.H - x };
+  };
+  G.rectToFrame = (b) => {
+    if (!G.rot) return b;
+    const a = G.toFrame(b.left, b.top), c = G.toFrame(b.right, b.bottom); // 转 90° 后矩形还是横平竖直的，对角两点就够
+    const l = Math.min(a.x, c.x), t = Math.min(a.y, c.y), r = Math.max(a.x, c.x), bt = Math.max(a.y, c.y);
+    return { left: l, top: t, right: r, bottom: bt, width: r - l, height: bt - t, x: l, y: t };
+  };
   // 世界层的 rand 是画面随机数（data.js 的 G.vrand）：特效 / 画面用它；建外观期间它照旧取换过的 Math.random（布景摆放不变）。
   // 模拟要的随机（布局种子、异兆点位）直接写 Math.random，不走 rand
   const rand = G.vrand, vrnd = G.vr;
@@ -2941,8 +2964,8 @@
   };
 
   W.resize = function () {
-    vw = Math.max(1, window.innerWidth);
-    vh = Math.max(1, window.innerHeight);
+    vw = Math.max(1, G.viewW());
+    vh = Math.max(1, G.viewH());
     dpr = Math.min(window.devicePixelRatio || 1, qual.dpr);
     const glDpr = dpr * (qual.scale || 1); // 3D 画面的像素比（低档比叠加层低一点，见 QUALITY.low.scale）
     renderer.setPixelRatio(glDpr);

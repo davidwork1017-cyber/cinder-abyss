@@ -197,7 +197,7 @@
   // 舞台：16:10，整个塞进窗口（四周留黑边）；竖屏手机字幕挪到画面下面
   function layout() {
     if (!st.el) return;
-    const vw = window.innerWidth, vh = window.innerHeight;
+    const vw = G.viewW ? G.viewW() : window.innerWidth, vh = G.viewH ? G.viewH() : window.innerHeight; // 旋转横屏时按转过的画面算
     const tall = vw / vh < 1.2;
     const capH = tall ? Math.min(160, vh * 0.24) : 0;
     let w = vw, hh = vw / 1.6;
@@ -228,10 +228,11 @@
   function onDown(e) {
     if (e.target === st.skipEl || (e.button !== undefined && e.button > 0 && e.pointerType === 'mouse')) return;
     e.preventDefault();
-    st.hold = { t0: performance.now(), x: e.clientX, y: e.clientY, id: e.pointerId };
+    const p = G.toFrame ? G.toFrame(e.clientX, e.clientY) : { x: e.clientX, y: e.clientY };
+    st.hold = { t0: performance.now(), x: p.x, y: p.y, id: e.pointerId };
     const r = st.holdEl.style;
-    r.left = e.clientX + 'px';
-    r.top = e.clientY + 'px';
+    r.left = p.x + 'px';
+    r.top = p.y + 'px';
   }
   function onUp(e) {
     const hd = st.hold;

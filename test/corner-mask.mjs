@@ -92,11 +92,14 @@ export function cornerCheck(o) {
     if (box.r - box.l < 1 || box.b - box.t < 1) continue;
     const s = cs(el);
     const px = (v) => parseFloat(v) || 0;
+    // 旋转横屏（手机版 M2，html.t-rot）：元素自己的四个圆角转过去以后落在屏幕的另一个角上（屏幕的哪个角 ← 元素的哪个角）
+    const ROTK = !(window.G && G.rot) ? null : G.rot.dir === 'cw' ? { TopLeft: 'BottomLeft', TopRight: 'TopLeft', BottomRight: 'TopRight', BottomLeft: 'BottomRight' } : { TopLeft: 'TopRight', TopRight: 'BottomRight', BottomRight: 'BottomLeft', BottomLeft: 'TopLeft' };
+    const radOf = (k) => px(s['border' + (ROTK ? ROTK[k] : k) + 'Radius']);
     const rad = {
-      TopLeft: box.l === b0.left && box.t === b0.top ? px(s.borderTopLeftRadius) : 0,
-      TopRight: box.r === b0.right && box.t === b0.top ? px(s.borderTopRightRadius) : 0,
-      BottomLeft: box.l === b0.left && box.b === b0.bottom ? px(s.borderBottomLeftRadius) : 0,
-      BottomRight: box.r === b0.right && box.b === b0.bottom ? px(s.borderBottomRightRadius) : 0,
+      TopLeft: box.l === b0.left && box.t === b0.top ? radOf('TopLeft') : 0,
+      TopRight: box.r === b0.right && box.t === b0.top ? radOf('TopRight') : 0,
+      BottomLeft: box.l === b0.left && box.b === b0.bottom ? radOf('BottomLeft') : 0,
+      BottomRight: box.r === b0.right && box.b === b0.bottom ? radOf('BottomRight') : 0,
     };
     n++;
     for (const k of hitsMask(box, rad)) hits.push({ what: label(el), corner: k, box: rd(box) });
@@ -123,7 +126,9 @@ export function cornerCheck(o) {
   // 3) 小地图（画在 2D 画布上，没有元素）
   const mm = window.G && G.world && G.world.mmTouch;
   if (mm && document.documentElement.classList.contains('touch-ui') && !document.documentElement.classList.contains('t-portrait') && !(G.ui.titleOn && G.ui.titleOn())) {
-    const box = { l: mm.x, t: mm.y, r: mm.x + 110, b: mm.y + 110 };
+    // W.mmTouch 是画面坐标：旋转横屏时换回屏幕坐标再量
+    const p1 = G.toScreen ? G.toScreen(mm.x, mm.y) : { x: mm.x, y: mm.y }, p2 = G.toScreen ? G.toScreen(mm.x + 110, mm.y + 110) : { x: mm.x + 110, y: mm.y + 110 };
+    const box = { l: Math.min(p1.x, p2.x), t: Math.min(p1.y, p2.y), r: Math.max(p1.x, p2.x), b: Math.max(p1.y, p2.y) };
     n++;
     for (const k of hitsMask(box, null)) hits.push({ what: '小地图', corner: k, box: rd(box) });
   }
@@ -273,5 +278,62 @@ export async function cornerScenes(page, sizes, o) {
     await check('开场卡片');
     await ev(() => G.ui.close());
   }
+  return { lines, bad };
+}
+
+// 手机版 M2：按钮大小、左手模式、旋转横屏下 HUD 和背包也不碰圆角。configs：[[宽, 高, 按钮大小 's'|'m'|'l', 左手模式, 旋转 null|'cw'|'ccw'], ...]
+// 量的是屏幕坐标：旋转横屏时屏幕的四个圆角还在原地，转过去的画面的四角正好落在那里。调用前要已经在游戏里（标题、故事、卡片都收起）
+export async function cornerHud(page, configs, o) {
+  const R = (o && o.R) || 47;
+  const ev = (f, a) => page.evaluate(f, a);
+  const lines = [], bad = [];
+  const settle = async () => {
+    await page.waitForTimeout(120);
+    await ev(() =>
+      Promise.race([
+        Promise.all(document.getAnimations().filter((a) => a.effect && isFinite(a.effect.getComputedTiming().endTime)).map((a) => a.finished.catch(() => {}))),
+        new Promise((r) => setTimeout(r, 3000)),
+      ])
+    );
+    await ev(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  };
+  const check = async (tag) => {
+    await settle();
+    const r = await ev(cornerCheck, { R });
+    lines.push(r.W + '×' + r.H + ' ' + tag + ' ' + r.n);
+    if (r.hits.length) bad.push(r.W + '×' + r.H + ' ' + tag + '：' + r.hits.map((h) => h.corner + ' ' + h.what + ' [' + h.box + ']').join(' | '));
+  };
+  for (const [w, h, size, mirror, rot] of configs) {
+    await page.setViewportSize({ width: w, height: h });
+    await page.waitForTimeout(150);
+    await ev(([size, mirror, rot]) => {
+      G.touch.setRot(rot || null);
+      G.touch.setPref('size', size || 'm');
+      G.touch.setPref('mirror', !!mirror);
+      window.dispatchEvent(new Event('resize'));
+      document.getElementById('boss-box').classList.add('on');
+      document.getElementById('t-f').classList.add('on');
+      const co = document.getElementById('coach');
+      co.querySelector('.co-body').innerHTML = '按住右下的<b>大按钮</b>施放「掷焰」，旁边的是武器普攻「疾咒」。会自动瞄准，从按钮拖出去可以手动瞄，拖回按钮上取消，松手就放出';
+      co.className = 'on';
+    }, [size, mirror, rot]);
+    const tag = '（' + (size || 'm') + (mirror ? ' 左手' : '') + (rot ? ' 旋转' + rot : '') + '）';
+    await check('HUD' + tag);
+    await ev(() => {
+      document.getElementById('boss-box').classList.remove('on');
+      document.getElementById('t-f').classList.remove('on');
+      document.getElementById('coach').className = '';
+      if (G.rot) G.ui.open('inv');
+    });
+    if (rot) {
+      await check('背包' + tag);
+      await ev(() => G.ui.close());
+    }
+  }
+  await ev(() => {
+    G.touch.setRot(null);
+    G.touch.setPref('size', 'm');
+    G.touch.setPref('mirror', false);
+  });
   return { lines, bad };
 }
