@@ -9,7 +9,11 @@
 // opts：{ touch: bool, roots: '#panel-win, …'（默认 #panel-win 和面板里的浮层）, max: 每类最多列几条 }
 export function uiLayoutCheck(opts) {
   const o = Object.assign({ touch: false, roots: '#panel-win, #panel .sheet, #panel .ui-pop, #confirm.on', max: 6 }, opts || {});
-  const vw = innerWidth, vh = innerHeight;
+  // 旋转横屏（mobile-m2）：位置换到画面坐标（G.rectToFrame / viewW / viewH）；elementFromPoint 用屏幕坐标。没有这几个函数时就是原样
+  const G0 = window.G || {};
+  const F = (r) => (G0.rectToFrame ? G0.rectToFrame(r) : r);
+  const BR = (e) => F(e.getBoundingClientRect());
+  const vw = G0.viewW ? G0.viewW() : innerWidth, vh = G0.viewH ? G0.viewH() : innerHeight;
   const out = { a: [], b: [], c: [], d: [], e: [], f: [] };
   const R = (r) => [r.left, r.top, r.right, r.bottom].map(Math.round).join(',');
   const vis = (e) => {
@@ -42,7 +46,7 @@ export function uiLayoutCheck(opts) {
       seen.add(e);
       if (!vis(e)) continue;
       const cs = getComputedStyle(e);
-      const r = e.getBoundingClientRect();
+      const r = BR(e);
       const txt = Array.from(e.childNodes).some((n) => n.nodeType === 3 && n.textContent.trim());
       const isT = e.matches(TARGET) && !e.disabled && !e.closest('[inert]');
       // b：只有 data-list 能纵向溢出
@@ -55,7 +59,7 @@ export function uiLayoutCheck(opts) {
       let clip = { l: 0, t: 0, r: vw, b: vh };
       let inList = null;
       for (let p = scrollerOf(e); p; p = scrollerOf(p)) {
-        const pr = p.getBoundingClientRect();
+        const pr = BR(p);
         if (p.hasAttribute('data-list') && !inList) inList = p;
         clip = { l: Math.max(clip.l, pr.left), t: Math.max(clip.t, pr.top), r: Math.min(clip.r, pr.right), b: Math.min(clip.b, pr.bottom) };
       }
@@ -63,7 +67,7 @@ export function uiLayoutCheck(opts) {
       const outClip = r.left < clip.l - 1 || r.top < clip.t - 1 || r.right > clip.r + 1 || r.bottom > clip.b + 1;
       if (outVp || outClip) {
         // data-list 里：滚过去就看得见（列表本身在视口里、元素宽度放得下）
-        const lr = inList && inList.getBoundingClientRect();
+        const lr = inList && BR(inList);
         const reach = inList && lr.top >= -1 && lr.bottom <= vh + 1 && r.left >= lr.left - 1 && r.right <= lr.right + 1;
         if (!reach) out.a.push(nm(e) + ' ' + R(r) + (outVp ? ' 视口外' : ' 被裁'));
         continue;
@@ -72,13 +76,13 @@ export function uiLayoutCheck(opts) {
     }
   }
   // c：横向溢出
-  if (document.documentElement.scrollWidth > vw + 0.5) out.c.push('页面横向 ' + document.documentElement.scrollWidth + ' > ' + vw);
+  if (document.documentElement.scrollWidth > innerWidth + 0.5) out.c.push('页面横向 ' + document.documentElement.scrollWidth + ' > ' + vw);
   // d：页头、点按区
   if (o.touch) {
     const head = document.getElementById('panel-head');
-    if (head && vis(head) && head.getBoundingClientRect().height > 36.5) out.d.push('页头 ' + Math.round(head.getBoundingClientRect().height) + ' px');
+    if (head && vis(head) && BR(head).height > 36.5) out.d.push('页头 ' + Math.round(BR(head).height) + ' px');
     for (const e of targets) {
-      const r = e.getBoundingClientRect();
+      const r = BR(e);
       if (r.width < 43.5 || r.height < 43.5) out.d.push('点按区 ' + Math.round(r.width) + '×' + Math.round(r.height) + ' ' + nm(e));
     }
   }
@@ -98,14 +102,14 @@ export function uiLayoutCheck(opts) {
   const body = document.getElementById('panel-body'), head = document.getElementById('panel-head');
   for (const sh of document.querySelectorAll('#panel .sheet')) {
     if (!vis(sh) || !body) continue;
-    const r = sh.getBoundingClientRect(), b = body.getBoundingClientRect(), hd = head.getBoundingClientRect();
+    const r = BR(sh), b = BR(body), hd = BR(head);
     if (r.left < b.left - 1 - 16 || r.right > b.right + 1 + 16 || r.top < b.top - 1 || r.bottom > b.bottom + 1) out.f.push('卡片出了正文 ' + R(r) + ' / 正文 ' + R(b));
     if (r.top < hd.bottom - 0.5 && r.bottom > hd.top && r.left < hd.right && r.right > hd.left) out.f.push('卡片盖住了页头 ' + R(r));
   }
   // f：卡片 / 弹出菜单的操作条在视口里
   for (const bar of document.querySelectorAll('#panel .sheet .sh-acts, #panel .ui-pop')) {
     if (!vis(bar)) continue;
-    const r = bar.getBoundingClientRect();
+    const r = BR(bar);
     if (r.left < -1 || r.top < -1 || r.right > vw + 1 || r.bottom > vh + 1) out.f.push(nm(bar) + ' ' + R(r));
   }
   const res = {};
