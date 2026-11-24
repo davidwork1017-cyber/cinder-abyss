@@ -25620,8 +25620,16 @@ async function touchSteps() {
     const zName = await ev(() => G.ZONES[1].name);
     out.zone = await press('.zone[data-tip="zone:1:0"]');
     out.zoneOff = await dismiss();
-    // 轻点（不到 450 ms）不出浮窗
-    out.tap = await press('.zone[data-tip="zone:0:0"]', 150);
+    // 轻点（不到 450 ms）不出浮窗：按下 120 ms 就松手，松手之后再看（中途去页面里读状态会把按住的时间拖长）
+    {
+      const r0 = await ev(() => T.rect('.zone[data-tip="zone:0:0"]'));
+      await touch.down(r0.x, r0.y);
+      await sleep(120);
+      await touch.up();
+      await frames(2);
+      await sleep(600); // 计时器要是还在跑，这时候早该弹出来了
+      out.tap = { r: r0, a: { vis: false }, b: await tipNow() };
+    }
     assert(out.skill.a.vis && out.skill.a.altOn && out.skill.a.txt.includes(skName) && out.skill.b.vis && out.skill.b.lp === 'stuck', '长按技能栏的格子应出浮窗和详情、松手留着：' + JSON.stringify(out.skill));
     assert(!out.skillOff.vis && !out.skillOff.alt, '碰一下别处应收起：' + JSON.stringify(out.skillOff));
     assert(node && out.tree.a.vis && out.tree.b.vis && n1 === n0, '长按天赋应出浮窗、不点亮：' + JSON.stringify({ node, n0, n1, a: out.tree.a }));
