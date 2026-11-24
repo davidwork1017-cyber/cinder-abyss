@@ -9,6 +9,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { checkArt } from '../tools/check-art.mjs';
 import { checkThree } from '../tools/check-three.mjs';
 import { uiLayoutCheck, uiBlankPoint, UI_SIZES, DESK_STYLE_SPEC, DESK_STYLE_MAIN, uiStyleRead } from './ui-layout.mjs';
+import { TREE_STYLE_SPEC, TREE_STYLE_MAIN } from './ui-style-tree.mjs';
 
 const SAVE_KEY = 'cinder-abyss-save-v1';
 let G_CUR_N = 8, G_UQ_COLOR = '#ff9b3d', G_SOUL_INH = 1.5, G_SOUL_K = 0.2;
@@ -26378,6 +26379,26 @@ async function touchSteps() {
       await frames(3);
       bad = bad.concat(await scan(tab));
     }
+    // UI-R B3：天赋页第一次打开的那一行、[?] 的说明、汇总卡、节点卡（触屏点节点出卡片）
+    await ev(() => {
+      G.ui.close();
+      localStorage.removeItem('cinder-abyss-ui-seen');
+      G.ui.open('tree');
+    });
+    await frames(3);
+    bad = bad.concat(await scan('tree·第一次'));
+    for (const c of ['#panel-q', '[data-act="tree-sum"]']) {
+      await ev((c) => document.querySelector(c).click(), c);
+      await frames(2);
+      bad = bad.concat(await scan('tree·' + c));
+    }
+    await ev(() => document.querySelector('[data-act="card-close"]').click());
+    const tn = await ev(() => T.rect('#tree-svg .tn.avail .shape'));
+    await touch.tap(tn.x, tn.y);
+    await frames(2);
+    assert(await ev(() => !!document.querySelector('.sheet.tnode')), '触屏点天赋应出节点卡');
+    bad = bad.concat(await scan('tree·节点卡'));
+    await ev(() => G.ui.close());
     // 技能页：点一张技能卡（浮窗）
     const card = await ev(() => T.rect('#panel-body [data-tip]'));
     if (card) {
@@ -26525,6 +26546,112 @@ async function touchSteps() {
     assert(sc.inv === 'auto' && sc.oy === 'auto' && sc.cell === 'none' && sc.room > 50, '竖屏：滚动区（data-list）应保持默认 touch-action、格子才是 none：' + JSON.stringify(sc));
     assert(sc.top1 > sc.top0 + 40, '竖屏：在滚动区里竖着划应能滚动：' + JSON.stringify(sc));
     return '技能 / 天赋 / 区域卡片长按出详情、松手留着；天赋点亮数 ' + n0 + ' → ' + n1 + '；拖拽穿上鞋子；竖屏图鉴列表划动滚了 ' + Math.round(sc.top1 - sc.top0) + ' px';
+  });
+
+  await step('触屏：天赋页（UI-R B3）——点节点出节点卡、按「点亮」才点亮、卡片留着接着点下一个、再点同一个收起；点在节点旁边取最近的节点；单指拖动平移、双指缩放；两指手势（缩放、两指按住）不开卡、不点亮也不退回；左上的点数打开汇总卡', async () => {
+    await touchPage();
+    const cdp = await page.context().newCDPSession(page);
+    const tp = (pts) => pts.map((p, i) => ({ x: p[0], y: p[1], id: 10 + i, radiusX: 3, radiusY: 3, force: 1 }));
+    const two = async (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: tp(pts) });
+    await ev(() => {
+      G.debug.setLevel(20);
+      G.resetPassives();
+      G.allocPassive('sm0');
+      G.allocPassive('dm0');
+      G.computeStats();
+      G.ui.open('tree');
+    });
+    await frames(3);
+    const st = () => ev(() => ({ p: G.save.passives.slice().sort().join(','), card: (document.querySelector('.sheet.tnode .sh-name') || {}).textContent || null, sum: !!document.querySelector('.sheet.tsum'), tip: document.getElementById('tip').classList.contains('on'), vb: document.getElementById('tree-svg').getAttribute('viewBox').split(' ').map(Number), free: G.passivePoints().free }));
+    const ctr = (id) => ev((id) => T.rect('#tree-svg [data-node="' + id + '"] .shape'), id);
+    const tapNode = async (id) => { const r = await ctr(id); await touch.tap(r.x, r.y); await frames(2); };
+    const s0 = await st();
+    // 点 dm1：出卡片，不点亮
+    await tapNode('dm1');
+    const s1 = await st();
+    assert(s1.card === (await ev(() => G.TREE.dm1.name)) && s1.p === s0.p, '轻点节点应只出节点卡、不点亮：' + JSON.stringify({ s0, s1 }));
+    // 按「点亮」：点亮，卡片留着
+    let b = await ev(() => T.rect('.sheet.tnode [data-act="node-go"]'));
+    await touch.tap(b.x, b.y);
+    await frames(2);
+    const s2 = await st();
+    assert(s2.p.split(',').includes('dm1') && s2.free === s0.free - 1 && s2.card === s1.card && (await ev(() => !!document.querySelector('.sheet.tnode.lit'))), '按「点亮」应点亮、卡片留着：' + JSON.stringify(s2));
+    // 接着点下一个（dm1 相邻、还没点的）再点亮
+    const nx = await ev(() => G.TREE.dm1.links.find((l) => !G.save.passives.includes(l)));
+    await tapNode(nx);
+    b = await ev(() => T.rect('.sheet.tnode [data-act="node-go"]'));
+    await touch.tap(b.x, b.y);
+    await frames(2);
+    const s3 = await st();
+    assert(s3.p.split(',').includes(nx) && s3.card === (await ev((id) => G.TREE[id].name, nx)), '卡片开着时点下一个节点应换内容并能接着点亮：' + JSON.stringify({ nx, s3 }));
+    // 再点同一个：收起，不退回
+    await tapNode(nx);
+    const s4 = await st();
+    assert(!s4.card && s4.p === s3.p, '再点同一个节点应收起卡片、不退回：' + JSON.stringify(s4));
+    // 点在节点旁边（离它中心 7 px、比别的节点都近的一点）：出它的卡片
+    const near = await ev(() => {
+      const c = Array.from(document.querySelectorAll('#tree-svg .tn')).map((g) => { const r = g.querySelector('.shape').getBoundingClientRect(); return { id: g.dataset.node, x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+      for (const a of c) {
+        if (a.id !== 'im0') continue;
+        for (let k = 0; k < 16; k++) {
+          const x = a.x + 7 * Math.cos((k * Math.PI) / 8), y = a.y + 7 * Math.sin((k * Math.PI) / 8);
+          const best = c.reduce((m, q) => (Math.hypot(q.x - x, q.y - y) < Math.hypot(m.x - x, m.y - y) ? q : m));
+          if (best === a && c.every((q) => q === a || Math.hypot(q.x - x, q.y - y) > Math.hypot(a.x - x, a.y - y) + 3)) return { id: a.id, x, y };
+        }
+      }
+      return null;
+    });
+    assert(near, '找不到 im0 旁边的点');
+    await touch.tap(near.x, near.y);
+    await frames(2);
+    const s5 = await st();
+    assert(s5.card === (await ev(() => G.TREE.im0.name)) && s5.p === s3.p, '点在节点旁边应取最近的节点：' + JSON.stringify({ near, s5 }));
+    // 卡片开着时双指放大：缩放了，不点亮 / 退回，卡片还是原来那张
+    const sv = await ev(() => T.rect('#tree-svg'));
+    const cx = sv.x, cy = sv.y;
+    await two('touchStart', [[cx - 20, cy], [cx + 20, cy]]);
+    for (let i = 1; i <= 6; i++) {
+      await two('touchMove', [[cx - 20 - i * 12, cy], [cx + 20 + i * 12, cy]]);
+      await frames(1);
+    }
+    await two('touchEnd', []);
+    await frames(2);
+    const s6 = await st();
+    assert(s6.vb[2] < s5.vb[2] * 0.6 && s6.p === s5.p && s6.card === s5.card, '双指张开应放大、不点亮也不退回：' + JSON.stringify({ s5: s5.vb, s6 }));
+    // 两根手指按在两个节点上不动 600 ms 再先后抬起：不出卡片、不出浮窗、不点亮
+    await ev(() => document.querySelector('[data-act="card-close"]').click());
+    await ev(() => document.querySelector('[data-act="tree-zoom"][data-z="fit"]').click());
+    await frames(2);
+    const pa = await ctr('dm1'), pb = await ctr('sm1');
+    await two('touchStart', [[pa.x, pa.y], [pb.x, pb.y]]);
+    await sleep(600);
+    await two('touchMove', [[pa.x, pa.y]]); // 只列还按着的那根：另一根（sm1 上的）抬起
+    await sleep(150);
+    await two('touchEnd', []);
+    await frames(3);
+    const s7 = await st();
+    assert(!s7.card && !s7.tip && s7.p === s5.p, '两指按住再抬起不应开卡、出浮窗或改天赋：' + JSON.stringify(s7));
+    // 放大后单指拖动：平移，不开卡
+    await ev(() => document.querySelector('[data-act="tree-zoom"][data-z="in"]').click());
+    await frames(2);
+    const v8 = (await st()).vb;
+    await touch.drag(cx, cy, cx + 60, cy + 30, 6);
+    await touch.up();
+    await frames(2);
+    const s8 = await st();
+    assert(s8.vb[2] === v8[2] && (s8.vb[0] < v8[0] || s8.vb[1] < v8[1]) && !s8.card && s8.p === s5.p, '放大后单指拖动应平移、不开卡：' + JSON.stringify({ v8, s8 }));
+    // 左上的「n 点可用」：汇总卡（重置按钮在卡片里），再点收起
+    b = await ev(() => T.rect('[data-act="tree-sum"]'));
+    await touch.tap(b.x, b.y);
+    await frames(2);
+    const s9 = await st();
+    const reset = await ev(() => !!document.querySelector('.sheet.tsum [data-act="tree-reset"]:not(:disabled)'));
+    await touch.tap(b.x, b.y);
+    await frames(2);
+    const s10 = await st();
+    assert(s9.sum && reset && !s10.sum, '点数应打开汇总卡（有重置）、再点收起：' + JSON.stringify({ s9: s9.sum, reset, s10: s10.sum }));
+    await ev(() => { G.resetPassives(); G.ui.close(); });
+    return '点亮 dm1 → ' + nx + '，旁点取 im0，双指放大 ' + Math.round((s5.vb[2] / s6.vb[2]) * 100) + '%';
   });
 
   await step('触屏：M2 设置——左手模式（右下拖摇杆能走、左下的按钮能按）、按钮大小、震动（安卓桩：重击 / 翻滚 / 残血各震一次、120 ms 限频、残血不连震、关掉不震、没有 vibrate 时设置里不显示）、主题色', async () => {
@@ -27239,6 +27366,8 @@ async function touchSteps() {
   await uiDeskStyleStep();
   await uiLayoutSteps('stash');
   await uiLayoutSteps('char');
+  await uiLayoutSteps('tree');
+  await uiTreeStyleStep();
 }
 
 // ------------------------------------------------------------------ 面板布局（UI-R，docs/ui.md「测试」）
@@ -27274,7 +27403,58 @@ const UI_PANELS = {
       { id: '图鉴', go: async (D) => { await D.open('char', 'stats'); await D.tap('[data-act="sub"][data-sub="codex"]', '.char-codex'); } },
     ],
   },
+  // 天赋（B3）：全览另查每个节点都在盘面里、点得到、名字不小于 11 px（treeFitCheck）；触屏点节点出节点卡，窄屏点「n 点可用」出汇总卡
+  tree: {
+    label: '天赋',
+    states: [
+      { id: '全览', go: (D) => treeOpen(D), check: () => ev(treeFitCheck) },
+      { id: '说明', go: async (D) => { await treeOpen(D); await D.tap(D.portrait ? '#panel-body [data-act="hint"]' : '#panel-q', '.ui-pop'); } },
+      { id: '放大', go: async (D) => { await treeOpen(D); await D.tap('[data-act="tree-zoom"][data-z="in"]'); await D.tap('[data-act="tree-zoom"][data-z="in"]'); } },
+      { id: '汇总卡', card: true, only: 'compact', go: async (D) => { await treeOpen(D); await D.tap('[data-act="tree-sum"]', '.sheet.tsum'); }, check: () => ev(treeFitCheck) },
+      { id: '节点卡', card: true, only: 'touch', go: async (D) => { await treeOpen(D); await D.tap('#tree-svg [data-node="dm1"]', '.sheet.tnode [data-act="node-go"]:not(:disabled)'); }, check: () => ev(treeFitCheck) },
+      { id: '点亮后', card: true, only: 'touch', go: async (D) => { await treeOpen(D); await D.tap('#tree-svg [data-node="dm1"]', '.sheet.tnode [data-act="node-go"]:not(:disabled)'); await D.tap('.sheet.tnode [data-act="node-go"]', '.sheet.tnode.lit'); } },
+      { id: '放大后节点卡', card: true, only: 'touch', go: async (D) => { await treeOpen(D); await D.tap('[data-act="tree-zoom"][data-z="in"]'); await D.tap('[data-act="tree-zoom"][data-z="in"]'); await D.tap('#tree-svg [data-node="sm1"]', '.sheet.tnode'); } },
+    ],
+  },
 };
+// 天赋页的布局状态：全览、点过体魄（sm0）和敏捷（dm0），迅影的下一个（dm1）可点亮
+async function treeOpen(D) {
+  await D.open('tree');
+  await ev(() => {
+    G.resetPassives();
+    G.allocPassive('sm0');
+    G.allocPassive('dm0');
+    G.ui.refresh();
+    const f = document.querySelector('[data-act="tree-zoom"][data-z="fit"]');
+    if (f && !f.classList.contains('on')) f.click();
+  });
+  await frames(2);
+}
+// 全览（卡片开着时是让开卡片之后的盘面）：每个节点整个在盘面里、节点中心点得到它自己（不被左上的点数、右下的缩放挡住），
+// 画出来的名字在屏幕上不小于 11 px。在页面里跑，返回不合格项
+function treeFitCheck() {
+  const out = [];
+  const svg = document.getElementById('tree-svg');
+  const F = (r) => (G.rectToFrame ? G.rectToFrame(r) : r);
+  const s = F(svg.getBoundingClientRect());
+  const ctm = svg.getScreenCTM();
+  const k = Math.hypot(ctm.a, ctm.b);
+  const lk = parseFloat(getComputedStyle(svg).getPropertyValue('--lk')) || 1;
+  for (const g of svg.querySelectorAll('.tn')) {
+    const sh = g.querySelector('.shape');
+    const b = F(sh.getBoundingClientRect());
+    if (b.left < s.left - 1 || b.right > s.right + 1 || b.top < s.top - 1 || b.bottom > s.bottom + 1) out.push('节点出了盘面 ' + g.dataset.node);
+    const r = sh.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    if (!hit || !g.contains(hit)) out.push('节点 ' + g.dataset.node + ' 被 ' + (hit ? hit.tagName.toLowerCase() + '.' + String(hit.className.baseVal !== undefined ? hit.className.baseVal : hit.className).split(' ')[0] : '空') + ' 挡住');
+  }
+  for (const t of svg.querySelectorAll('text.tl')) {
+    if (getComputedStyle(t).display === 'none') continue;
+    const px = parseFloat(getComputedStyle(t).fontSize) * lk * k;
+    if (px < 10.95) out.push('名字 ' + t.textContent + ' ' + px.toFixed(1) + ' px');
+  }
+  return out.slice(0, 4);
+}
 // 布局检查用的角色：30 级、学会全部技能、背包 29 件、身上有戒指和胸甲、仓库 18 件
 async function uiFixture() {
   await install();
@@ -27327,6 +27507,39 @@ async function uiDeskStyleStep() {
     }
     assert(!bad.length, bad.length + ' 项和 main 不一样：' + bad.slice(0, 8).join(' ｜ '));
     return Object.keys(DESK_STYLE_MAIN).length + ' 项相等';
+  });
+}
+// 天赋页的桌面样式不变（UI-R B3）：1366×768 下盘面、侧栏、天赋点、支路、加成、缩放按钮、节点和名字的计算样式，以及全览的 viewBox，和 main 逐项相等（表在 test/ui-style-tree.mjs）
+async function uiTreeStyleStep() {
+  await step('界面布局·天赋桌面样式：1366×768 下盘面和侧栏的尺寸、天赋点 40 px、支路行、加成、缩放按钮、节点和名字的样式、全览的 viewBox 和 main 逐项相等（有意改动：图例挪进 [?]、缩放按钮挪到右下竖排）', async () => {
+    if (browser) await browser.close().catch(() => {});
+    ({ browser, page, errors } = await launch({ width: 1366, height: 768, dpr: null }));
+    await install();
+    await ev(() => {
+      G.save.seenHelp = G.save.seenStory = true;
+      for (const id of G.ui.hints().all) G.save.tut[id] = 1;
+      G.ui.close();
+      G.debug.hold(true);
+      G.debug.setLevel(30);
+      G.resetPassives();
+      G.allocPassive('sm0');
+      localStorage.setItem('cinder-abyss-ui-seen', JSON.stringify({ tree: 1 })); // 和在 main 上量的一样：侧栏结果那一行是空的
+      G.ui.open('tree');
+    });
+    await panelSettled();
+    await frames(2);
+    const got = await ev(uiStyleRead, TREE_STYLE_SPEC);
+    got['#tree-svg|viewBox'] = await ev(() => document.getElementById('tree-svg').getAttribute('viewBox'));
+    const legend = await ev(() => !!document.querySelector('.tree-legend'));
+    await ev(() => {
+      G.ui.close();
+      G.resetPassives();
+      G.debug.hold(false);
+    });
+    const bad = [];
+    for (const k in TREE_STYLE_MAIN) if (got[k] !== TREE_STYLE_MAIN[k]) bad.push(k + '：main ' + TREE_STYLE_MAIN[k] + '，现在 ' + got[k]);
+    assert(Object.keys(TREE_STYLE_MAIN).length > 40 && !bad.length && !legend, bad.length + ' 项和 main 不一样' + (legend ? '（图例还在盘面上）' : '') + '：' + bad.slice(0, 8).join(' ｜ '));
+    return Object.keys(TREE_STYLE_MAIN).length + ' 项相等';
   });
 }
 let uiPages = null; // { touch: { browser, page, errors, fx }, desk: {…} }：三个面板共用，最后一个面板跑完关掉
@@ -27391,13 +27604,16 @@ async function uiLayoutSteps(panel) {
         };
         for (const S of P.states) {
           if (S.only === 'compact' && !D.compact) continue;
+          if (S.only === 'touch' && !isTouch) continue;
           nStates++;
           try {
             await S.go(D);
             // 入场动画放完再量
-            await ev(async () => { for (const n of document.querySelectorAll('#panel-win, #panel-win *, #panel .sheet')) for (const a of n.getAnimations()) await a.finished.catch(() => {}); });
+            // 一直循环的动画（天赋盘上可点亮节点的光圈）不等
+            await ev(async () => { for (const n of document.querySelectorAll('#panel-win, #panel-win *, #panel .sheet')) for (const a of n.getAnimations()) if (a.effect && a.effect.getComputedTiming().iterations !== Infinity) await a.finished.catch(() => {}); });
             const r = await ev(uiLayoutCheck, { touch: isTouch, max: 3 });
             if (r.n) bad.push(where + ' ' + S.id + '：' + Object.entries(r.res).map(([k, v]) => k + ' ' + v.n + '（' + v.s.join('；') + '）').join(' '));
+            if (S.check) for (const x of await S.check(D)) bad.push(where + ' ' + S.id + '：' + x);
             // g：iPhone 圆角（半径 47 px，test/corner-mask.mjs）。横屏、安全区读出来是 0 的时候（Chrome 标签页里常见）字和按钮都不碰四角
             if (isTouch && w > h && !sa) {
               const c = await ev(cornerCheck, { R: 47 });
@@ -27419,7 +27635,7 @@ async function uiLayoutSteps(panel) {
       }
       await ev(() => G.ui.close());
       assert(!bad.length, bad.length + ' 处不合格：' + bad.slice(0, 8).join(' ｜ '));
-      if (panel === 'char' && mode === 'desk') {
+      if (panel === 'tree' && mode === 'desk') {
         // 最后一个面板跑完：关掉两个浏览器
         for (const k in uiPages) await uiPages[k].browser.close().catch(() => {});
         uiPages = null;

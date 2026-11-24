@@ -1421,7 +1421,8 @@ button.pk-row:hover { background: #2a1b10; border-color: var(--ember-2); }
 #tree-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 #tree-svg.zoomed { cursor: grab; }
 .tree-view.panning #tree-svg, .tree-view.panning .tn { cursor: grabbing; }
-.tree-zoom { position: absolute; right: 12px; top: 8px; display: flex; gap: 4px; }
+/* 缩放按钮在盘面右下角竖排（UI-R B3：以前在右上，和图例挤在一起） */
+.tree-zoom { position: absolute; right: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 4px; }
 .tree-zoom button {
   min-width: 30px;
   height: 26px;
@@ -1531,6 +1532,94 @@ button.pk-row:hover { background: #2a1b10; border-color: var(--ember-2); }
 .ts-none { font-size: 12.5px; line-height: 20px; color: var(--faint); }
 .tree-msg { flex: none; min-height: 36px; margin: 8px 0; font-size: 12px; line-height: 18px; color: #9fdc8a; display: flex; align-items: flex-end; }
 .tree-msg.bad { color: #ff8a7a; }
+
+/* ---- UI-R B3：天赋页（docs/ui.md）。桌面：图例和说明挪进 [?]；窄屏 / 触屏：盘面铺满、汇总卡、节点卡 ---- */
+.tree-msg.hint { color: #c9b48e; }
+.pop-line .lg { margin-right: 12px; font-size: var(--fs-sm); }
+#tree-svg.nolab .tl { display: none; }
+/* 触屏：节点的点按圆只撑大盒子（js 按缩放算成屏幕上 44 px），点哪个节点由 treePick 按离手指最近算 */
+html.touch-ui .tn .hit, html.touch-ui .tn .halo { pointer-events: none; }
+.tree-chip .dd, .tree-chip i.dd { display: inline-block; width: 0; height: 0; margin-left: 4px; vertical-align: 2px; border: 4px solid transparent; border-top-color: currentColor; border-bottom: none; }
+@media (max-width: 900px), (max-height: 500px) {
+  .tree.cpt { position: relative; display: block; height: 100%; }
+  .tree.cpt .tree-view { position: absolute; inset: 0; }
+  /* 盘面让开右边那列缩放按钮（横屏的盘面是按高度放的，右边本来就空着）；竖屏缩放按钮横排在底下，盘面让开底下一行 */
+  .tree.cpt #tree-svg { width: calc(100% - 56px); } /* svg 是替换元素：absolute 加 right 撑不开，直接给宽高 */
+  .tree.cpt.por #tree-svg { width: 100%; height: calc(100% - 56px); }
+  .tree.cpt.por .tree-zoom { flex-direction: row; }
+  .tree.cpt.por .pg-note { max-width: calc(100% - 160px); }
+  .tree-top { position: absolute; z-index: 1; left: 6px; right: 6px; top: 6px; display: flex; align-items: flex-start; justify-content: space-between; pointer-events: none; }
+  .tree-top > * { pointer-events: auto; }
+  .tree-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    height: 44px;
+    padding: 0 12px;
+    font: inherit;
+    font-size: var(--fs-md);
+    letter-spacing: 1px;
+    color: #c9b99c;
+    background: rgba(17, 12, 9, 0.88);
+    border: 1px solid #3d2c1e;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .tree-chip b { font-family: var(--serif); font-size: 17px; color: #8f816c; font-variant-numeric: tabular-nums; }
+  .tree-chip.has { color: #f2dfb8; border-color: #a8662c; background: linear-gradient(180deg, rgba(43, 26, 12, 0.92), rgba(21, 13, 8, 0.92)); }
+  .tree-chip.has b { color: #ffc27a; text-shadow: 0 0 10px rgba(255, 140, 50, 0.6); }
+  .tree-chip.on { border-color: var(--ember-2); }
+  .tree-top .ui-q.in-page { width: 44px; height: 44px; margin: 0; background: rgba(17, 12, 9, 0.88); border-radius: 50%; }
+  /* 右下角三个 44 px 按钮，离盘面边 8 px（加上正文的内边距，离屏幕边 16 px 以上，躲开 iPhone 圆角） */
+  .tree.cpt .tree-zoom { z-index: 1; right: 8px; bottom: 8px; }
+  .tree.cpt .tree-zoom button { width: 44px; min-width: 44px; height: 44px; padding: 0; font-size: 18px; background: rgba(21, 16, 12, 0.88); }
+  .tree.cpt .tree-zoom button[data-z="fit"] { font-size: var(--fs-base); }
+  /* 底部一行（一次性提示 / 新手提示 / 操作结果）浮在盘面左下，不挡点击 */
+  .tree.cpt .pg-note {
+    position: absolute;
+    left: 6px;
+    bottom: 6px;
+    max-width: calc(100% - 70px);
+    margin: 0;
+    padding: 4px 8px;
+    font-size: var(--fs-sm);
+    line-height: 16px;
+    white-space: normal;
+    justify-content: flex-start;
+    background: rgba(10, 7, 6, 0.82);
+    border: 1px solid #2e2219;
+    border-radius: 3px;
+    pointer-events: none;
+  }
+  .tree.cpt .pg-note.coach { border-color: #c58a4a; }
+  .tree.cpt .pg-note .tree-msg { display: inline; min-height: 0; margin: 0; font-size: inherit; }
+  /* 卡片：天赋的竖屏底部卡最高 55%，上面还看得见盘面和选中的节点 */
+  .sheet.dock.bottom.tnode, .sheet.dock.bottom.tsum { max-height: 55%; }
+  .tsum .sh-name b { font-size: var(--fs-lg); color: #8f816c; }
+  .tsum .sh-name b.has { color: #ffc27a; }
+  .tsum .sh-body { padding: 6px 10px 8px; }
+  .tsum .pts-note { margin: 0; font-size: var(--fs-sm); }
+  .tsum .arm { height: 30px; font-size: var(--fs-base); }
+  .tsum .arm span { font-size: var(--fs-xs); }
+  .tsum .sec-title { margin-top: 10px; }
+  .tsum .tree-sum { min-height: 0; }
+  .tsum .ts-line, .tsum .ts-none { font-size: var(--fs-base); }
+  .tsum .sh-acts .btn.danger { color: #ffb4a6; border-color: #b4551c; }
+  .tnc-ico { flex: none; width: 22px; height: 22px; margin: 0 4px 0 6px; background: #130e0b; border: 2px solid #43352a; border-radius: 50%; }
+  .tnc-ico.keystone { width: 20px; height: 20px; border-radius: 2px; transform: rotate(45deg); }
+  .tnc-ico.notable { box-shadow: inset 0 0 0 3px #130e0b, inset 0 0 0 5px var(--c); }
+  .tnc-ico.avail { border-color: var(--c); }
+  .tnc-ico.alloc { background: var(--c); border-color: #fff4dc; }
+  .tnc-pts { flex: none; margin-right: 2px; font-size: var(--fs-sm); color: var(--dim); white-space: nowrap; }
+  .tnc-pts b { color: #ffc27a; font-variant-numeric: tabular-nums; }
+  .tnc-body { padding: 8px 12px 4px; }
+  .tnc-stat { font-size: var(--fs-base); line-height: 20px; color: #a9b6ff; }
+  .tnc-stat.bad { color: #ff8a7a; }
+  .tnc-st { margin-top: 6px; font-size: var(--fs-sm); line-height: 17px; color: #c9b48e; }
+  .tnc-st.ok { color: #9fdc8a; }
+  .tnc-st.bad { color: #ff8a7a; }
+  .tnc-st + .tnc-st { margin-top: 2px; }
+}
 
 /* ============================================================
    地图页

@@ -440,6 +440,11 @@
         if (e.cancelable) e.preventDefault();
         taps.set(t.identifier, { x: t.clientX, y: t.clientY, t0: performance.now(), moved: false });
       }
+      // 天赋盘上第二根手指落下是双指缩放（ui.js 的 treePinch）：不算长按，前一根手指的长按也取消
+      if (tg && tg.closest('.tree-view') && e.touches.length > 1) {
+        lpCancel();
+        continue;
+      }
       // 其余（面板、菜单、顶栏的按钮）照常：滚动、点击都交给浏览器；按住不动是长按看详情
       lpStart(t, e.timeStamp);
     }
