@@ -3965,7 +3965,7 @@ body.paused #reticle, body.paused #coach { display: none; }
   --st-g: clamp(5px, calc(var(--st-w, 1280px) * 0.008), 12px);
 }
 #story.on { display: block; }
-#story.ending { pointer-events: none; }
+/* 淡出的时候（#story.ending）这一层照样接住点击，淡完收起后才放给游戏（UI-R B4b：连点两下「跳过」，第二下不会落到 HUD 的攻击键上） */
 .st-stage {
   position: absolute;
   background: var(--st-paper);

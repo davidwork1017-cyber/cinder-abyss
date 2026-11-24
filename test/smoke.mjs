@@ -26896,6 +26896,73 @@ async function touchSteps() {
     return out.join(' / ') + ' 两张卡关掉后都没有出手';
   });
 
+  await step('触屏：开场故事点「跳过」后淡出的那 1 秒里再点一下「跳过」，第二下不漏进游戏（横屏 844×390 和旋转横屏 390×844；故事收起后 1 秒里不出手、没有按着的按钮、没有缓冲的轻点）', async () => {
+    const out = [];
+    for (const [w, h, rot] of [[844, 390, null], [390, 844, 'cw']]) {
+      if (browser) await browser.close().catch(() => {});
+      ({ browser, page, errors } = await launch({ width: w, height: h, mobile: { scale: 3 } }));
+      await install();
+      touch = await touchKit();
+      await ev((k) => {
+        localStorage.setItem(k, '1');
+        G.save.seenHelp = G.save.seenStory = true;
+        for (const id of G.ui.hints().all) G.save.tut[id] = 1;
+        G.ui.close();
+        G.debug.god(true);
+      }, TOUCH_HINT_KEY);
+      if (rot) {
+        await ev((rot) => G.touch.setRot(rot), rot);
+        await until(() => !!G.touch.state().rot, null, 10000);
+      }
+      await ev(() => G.ui.playStory());
+      await until(() => {
+        const n = document.querySelector('#story.ready .st-skip');
+        return !!n && n.getBoundingClientRect().width > 0 && +getComputedStyle(n).opacity > 0.5;
+      }, null, 60000);
+      const r = await ev(() => {
+        const b = document.querySelector('#story .st-skip').getBoundingClientRect();
+        return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+      });
+      await ev(() => {
+        window.__tt = [];
+        window.__ttOff = false;
+        const P = G.player, I = G.input;
+        const f = () => {
+          const held = G.touch.state().held.length;
+          if (P.cast || held || I.mouse.b.some(Boolean) || (I.tap && I.tap.some((v) => v > 0))) window.__tt.push({ cast: P.cast ? P.cast.id : null, held, b: I.mouse.b.map(Number).join(''), tap: I.tap ? I.tap.join(',') : '' });
+          if (!window.__ttOff) requestAnimationFrame(f);
+        };
+        requestAnimationFrame(f);
+      });
+      // 每次 touchstart 记下那一刻故事是不是还在淡出、落在哪：第二下要在淡出时按下去才算数（机器忙时可能晚到）
+      await ev(() => {
+        window.__ts = [];
+        window.addEventListener('touchstart', (e) => window.__ts.push({ fading: !!document.querySelector('#story.ending'), inStory: !!(e.target.closest && e.target.closest('#story')) }), true);
+      });
+      await touch.tap(r.x, r.y);
+      await until(() => !!document.querySelector('#story.ending'), null, 5000);
+      await touch.tap(r.x, r.y); // 淡出途中的第二下（淡出 1 秒）
+      await until(() => !G.ui.storyOn(), null, 10000);
+      await sleep(1000);
+      const leak = await ev(() => {
+        window.__ttOff = true;
+        return window.__tt.splice(0);
+      });
+      const ts = await ev(() => window.__ts);
+      const where = w + '×' + h + (rot ? '（转）' : '');
+      const second = ts[1];
+      if (!second || !second.fading) {
+        out.push(where + ' 第二下晚了（故事已经收起），这一遍不算'); // 机器太忙；看下面「至少一遍」
+        continue;
+      }
+      assert(second.inStory, where + ' 淡出时的第二下没落在故事那一层上：' + JSON.stringify(ts));
+      assert(!leak.length, where + ' 淡出时的第二下漏进了游戏：' + JSON.stringify(leak.slice(0, 4)));
+      out.push(where + ' 接住');
+    }
+    assert(out.some((x) => x.endsWith('接住')), '两遍的第二下都没赶上淡出：' + out.join(' / '));
+    return out.join(' / ');
+  });
+
   // UI-R B4b：HUD 上的几块两两不重叠（审计 §11）。提示卡、旁白卡直接摆出来量（旁白卡的排队 / 计时由上面那一步测）
   await step('触屏：HUD 不打架（UI-R B4b）——844×340 / 734×338 / 667×320（安全区 0 和 59）、按钮 M / L、左手开关下，主线追踪条、小地图、按钮簇、区域名、顶栏、提示卡（两行 / 点开的长提示）和旁白卡两两不重叠；旁白卡放着时提示卡让开，放完回来', async () => {
     await touchPage({ width: 844, height: 340, mobile: { scale: 2 } });
