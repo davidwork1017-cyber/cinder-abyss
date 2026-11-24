@@ -3998,6 +3998,8 @@
     sel(d, a, e) {
       const f = findItem(d.item);
       if (!f) return;
+      clearTimeout(ui.cardTimer); // 上一下单击还在等双击窗口：这一下（Shift / Ctrl / 另一件）说了算
+      ui.cardTimer = 0;
       const now = performance.now();
       if (e && (e.ctrlKey || e.metaKey)) {
         // Ctrl+点击：锁定 / 解锁（Mac 上 Ctrl+点击走右键菜单，见 onPanelContext）
@@ -4591,6 +4593,8 @@
   // 右键：背包物品 → 装备；身上的装备 → 卸下
   function onPanelContext(e) {
     e.preventDefault();
+    clearTimeout(ui.cardTimer); // 单击后马上右键：不再弹出卡片
+    ui.cardTimer = 0;
     if (drag.on) return cancelDrag();
     const c = e.target.closest('[data-item]');
     if (!c || !c.dataset.act) return;

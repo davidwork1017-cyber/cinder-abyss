@@ -553,6 +553,11 @@ async function dragTo(from, to, mid, land) {
   }
 }
 
+// 这件物品的卡片没开着才去点（再点一次同一件会收起卡片，UI-R B1）
+async function ensureCard(sel) {
+  const open = await ev((sel) => { const n = document.querySelector(sel); return !!n && !!document.querySelector('#panel .sheet .detail-card[data-item="' + (n.dataset.item || n.dataset.uid) + '"]'); }, sel);
+  if (!open) await clickCard(sel);
+}
 // 打开背包页的「筛选」菜单（含魔法 / 含稀有 / 整理 / 图鉴都在里面，UI-R B1）；已经开着就不动
 async function openFilter() {
   if (!(await ev(() => !!document.querySelector('#panel .ui-pop.pop-filter')))) await page.click('[data-act="filter"]');
@@ -560,8 +565,10 @@ async function openFilter() {
 }
 // 单击背包里的物品，等物品卡打开（UI-R B1：桌面单击要等双击窗口过了才开卡，见 docs/ui.md）
 async function clickCard(sel) {
+  const uid = await ev((sel) => { const n = document.querySelector(sel); return n ? n.dataset.item || n.dataset.uid : null; }, sel);
   await page.click(sel);
-  await until(() => !!document.querySelector('#panel .sheet'), null, 10000);
+  // 等的是「这一件」的卡片（另一件的卡片开着时，它在双击窗口里还留着）
+  await until((u) => !!document.querySelector('#panel .sheet .detail-card[data-item="' + u + '"]'), uid, 10000);
 }
 
 async function closePanel() {
@@ -7265,6 +7272,7 @@ async function main() {
     await dragTo('.cur[data-cur="alch"]', '.detail-card');
     r = await ev((u) => ({ rarity: G.save.bag.find((x) => x.uid === u).rarity, alch: G.save.cur.alch }), ids.ring);
     assert(r.rarity === 2 && r.alch === 1, '通货拖到详情卡上没有生效：' + JSON.stringify(r));
+    await page.keyboard.press('Escape'); // 收起物品卡：桌面卡片放在格子外面、盖着装备栏（拖通货时卡片留着当落点）
     await dragTo('.cur[data-cur="divine"]', '.eq[data-slot="weapon"]');
     r = await ev(() => ({ divine: G.save.cur.divine, w: G.save.equip.weapon.rarity }));
     assert(r.divine === (r.w >= 1 ? 1 : 2), '通货拖到装备栏的结果不对：' + JSON.stringify(r));
@@ -13017,7 +13025,7 @@ async function main() {
     assert(mid && mid.no && /烬铸武器无法改造/.test(mid.cap), '拖到烬铸武器上应变暗并写明原因：' + JSON.stringify(mid));
     assert(await ev((u) => G.save.cur.chisel >= 2 && !!G.save.bag.find((b) => b.uid === u), pre.uid), '拖放后琢刻石被消耗了');
     // 分解：第一次只上膛，第二次才分解，固定得到 UNIQUE_SALVAGE
-    await page.click('.cell[data-item="' + pre.uid + '"]');
+    await ensureCard('.cell[data-item="' + pre.uid + '"]');
     const c0 = await ev(() => Object.assign({}, G.save.cur));
     await page.click('[data-act="salvage"]');
     const armed = await ev((u) => ({ still: !!G.save.bag.find((b) => b.uid === u), msg: document.querySelector('.inv-msg') ? document.querySelector('.inv-msg').textContent : '' }), pre.uid);
