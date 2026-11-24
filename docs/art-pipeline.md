@@ -108,7 +108,7 @@ npm run build:art && git status --short assets/ca js/assets   # 没有输出 = �
 
 ## 首领（boss-golem 起）
 
-首领也是脚本生成的件，多了骨架、蒙皮和动作。第一只是熔渣巨像（`ca/boss_golem`），其余五只按 `notes` 里的设计稿逐个换。
+首领也是脚本生成的件，多了骨架、蒙皮和动作。第一只是熔渣巨像（`ca/boss_golem`），第二只是烬渊之主（`ca/boss_lord`，31 根骨骼：20 根标准 + 剑、两翼各两节、披风三节、前襟、冠、炉芯），其余四只按 `notes` 里的设计稿逐个换。
 
 | 路径 | 内容 |
 | --- | --- |

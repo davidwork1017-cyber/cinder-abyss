@@ -12829,6 +12829,7 @@
       vx: Math.sin(a) * f, vz: Math.cos(a) * f,
       vy: f > 5 ? Math.min(9, 2 + f * 0.32) : 0, // 力道够大才离地
       spin: f > 5 ? (vrnd() < 0.5 ? -1 : 1) * Math.min(16, f * 0.9) : 0,
+      quiet: !!fxMute, // class-d2b2：静音着死的（一群里第二具起）：消散时的碎屑、形状件、地上的痕迹也静音
     };
     if (o.color !== undefined) _c.set(o.color);
     else if (st) _c.set(st.edge);
@@ -12944,8 +12945,10 @@
     B.n++;
   }
   function updateDying(dt) {
+    const m0 = fxMute;
     for (let i = dyingEnts.length - 1; i >= 0; i--) {
       const ent = dyingEnts[i], d = ent.dying;
+      fxMute = d && d.quiet ? 1 : m0; // class-d2b2：静音着死的这一具，整段死法（火星、碎屑、形状件、地上的痕迹）都静音，随机数照取
       if (ent.removed) {
         dyingEnts.splice(i, 1);
         continue;
@@ -13030,6 +13033,7 @@
         }
       }
     }
+    fxMute = m0;
   }
   function disposeEnt(ent) {
     if (ent.removed) return;
@@ -19299,10 +19303,23 @@
       reach: 3.2, emb: [3.2, 0.9, 7],
       sock: { weapon: ['x_hammer', 0, -0.62, 0], hand: ['x_finger_l_02', 0, -0.6, 0.12], head: ['head', 0, 0.4, 0], chest: ['x_core', 0, 0, 0.2] },
       hitJ: ['spine_03', 'head'], feet: ['foot_l', 'foot_r'], core: 'x_core',
+      heatW: ['ring_w'], heatS: ['ring'],
+    },
+    // boss-lord：烬渊之主。剑尖的挂点 = 静止姿态的剑尖（相对 x_sword 枢轴）；冠环（x_crown）在 post 里按时钟转（螺旋时转得快），和原来的程序化外观一样不进动作表
+    lord: {
+      pack: 'boss-lord',
+      alias: { slam: 'slam', fan: 'fan', spiral: 'spiral', cross: 'cross', barrage: 'barrage', summon: 'summon', charge: 'slam', ring: 'spiral' },
+      reach: 3.8, emb: [3.2, 1.0, 9],
+      sock: { weapon: ['x_sword', -0.3, -1.94, 1.9], hand: ['hand_l', 0.02, -0.36, 0.14], head: ['head', 0, 0.45, 0.1], chest: ['x_core', 0, 0, 0.2] },
+      hitJ: ['spine_03', 'head'], feet: ['foot_l', 'foot_r'], core: 'x_core',
+      heatW: ['fan_w', 'spiral_w', 'barrage_w', 'summon_w'], heatS: ['fan', 'spiral', 'barrage', 'summon'],
+      spin: ['x_crown', 1.2, 'spiral', 4.5],
+      // 黑曜石的背光面在烬渊的品红补光下压得太黑（灰度中位数比地面还低）：躯体的暖色自发光比熔渣巨像强一点（甲缝里透出的熔炉热）
+      emis: [0x4e4844, 0.54],
     },
   };
   // 调色板行 → 表面（粗糙度 / 金属度），行号见 art/ca/palette.py
-  const BOSS_ROW_SURF = ['stone', 'stone', 'bone', 'metal', 'glow', 'stone', 'stone', 'leather', 'metal', 'stone', 'stone', 'stone', 'leather', 'stone', 'ice', 'gold', 'stone'];
+  const BOSS_ROW_SURF = ['stone', 'stone', 'bone', 'metal', 'glow', 'stone', 'stone', 'leather', 'metal', 'stone', 'stone', 'stone', 'leather', 'stone', 'ice', 'gold', 'stone', 'ice', 'cloth'];
   const bossS2L = (() => {
     const t = new Float32Array(256);
     for (let i = 0; i < 256; i++) { const c = i / 255; t[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
@@ -19409,19 +19426,25 @@
       }
     };
     rig.moodTrack = tracks.mood ? tracks.mood.tr : null;
-    const coreJ = sp.core ? rig.J[sp.core] : -1, emb = sp.emb;
+    const coreJ = sp.core ? rig.J[sp.core] : -1, emb = sp.emb, heatW = sp.heatW || [], heatS = sp.heatS || [];
+    const spinJ = sp.spin ? rig.J[sp.spin[0]] : -1;
     rig.post = function (ent, o, t, dt) {
-      // 炉芯：随呼吸一明一暗；弹幕蓄力时蓄热、出手那一下最亮；破防时明灭；死亡先暴涨再熄掉。全是确定性的（不取随机数）
+      // 炉芯：随呼吸一明一暗；蓄力时蓄热、出手那一下最亮（heatW / heatS 里的动作）；破防时明灭；死亡先暴涨再熄掉。全是确定性的（不取随机数）
       const c = ent.clip, n = c ? c.name : '', k = ent.cK;
       let heat = 1;
-      if (n === 'ring_w') heat = 1 + 0.7 * k;
-      else if (n === 'ring') heat = 1 + 0.9 * hump(k, 0, c.k0, c.k0 + 0.05, 0.6);
+      if (heatW.indexOf(n) >= 0) heat = 1 + 0.7 * k;
+      else if (heatS.indexOf(n) >= 0) heat = 1 + 0.9 * hump(k, 0, c.k0, c.k0 + 0.05, 0.6);
       else if (n === 'broken') heat = 0.7 + 0.25 * Math.max(0, Math.sin(k * TAU * 5));
       else if (n === 'death') heat = k < 0.5 ? 1 + k * 2 : Math.max(0.15, 2 - (k - 0.5) * 4);
       ent.moodK = (ent.moodK || 0) + ((ent.mood ? 1 : 0) - (ent.moodK || 0)) * Math.min(1, dt * 3);
       if (rig.moodTrack && ent.moodK > 0.001) {
         const tr = rig.moodTrack;
         for (let i = 0; i < tr.ci.length; i++) o[tr.ci[i]] += kfL(tr.cK[i], 0) * ent.moodK;
+      }
+      if (spinJ >= 0) {
+        // 冠环：按时钟慢慢转，spin[2] 那段动作里转得快（只看外观实体自己的时间，不取随机数）
+        ent.spinA = (ent.spinA || 0) + dt * (sp.spin[1] + (n === sp.spin[2] && !ent.dying ? sp.spin[3] * Math.min(1, k * 8) * Math.min(1, (1 - k) * 6) : 0));
+        o[spinJ + 1] += ent.spinA;
       }
       if (coreJ >= 0) {
         const sc = (1 + Math.sin(t * 3) * 0.06) * (0.85 + 0.15 * heat);
@@ -19494,10 +19517,10 @@
   // 背光面压回中性偏暖；亮度只抬一点点（灰度检查照样量）
   const BOSS_EMIS = [0x6e4c38, 0.18];
   function bossLook(ent) {
-    const m = ent.bodyMat;
+    const m = ent.bodyMat, sp = BOSS_SPEC[ent.rig.bossModel], em = (sp && sp.emis) || BOSS_EMIS;
     m.color.copy(lin(0xf4ece4));
-    m.userData.e0 = lin(BOSS_EMIS[0]);
-    m.userData.ei0 = BOSS_EMIS[1];
+    m.userData.e0 = lin(em[0]);
+    m.userData.ei0 = em[1];
     m.emissive.copy(m.userData.e0);
     m.emissiveIntensity = m.userData.ei0;
     ent.uRim.value.setRGB(0.07, 0.065, 0.06);
@@ -21261,6 +21284,7 @@
   const ldC = new Float32Array(LD_N * 3), _ldc = new T.Color();
   let ldMesh = null, ldFx = null, ldLive = 0;
   W.decal = function (kind, x, z, r, ang, hex, dur, wide) {
+    if (fxMute) return 0; // class-d2b2：静音时不留痕迹（种子取画面随机数，不牵动玩法）
     let it = -1;
     for (let i = 0; i < LD_N; i++) {
       const d = (decalNext + i) % LD_N;
@@ -21528,9 +21552,12 @@
     '  col += hot * pulse * 0.18;',
     // boss-golem：首领的预警圈（uBoss = 1）：填充压到 25–35%（还没推到的部分 4%，推满的部分随时间 18% → 28%，最后一小段轻微闪），
     // 外沿的亮边和深线里面再加一道实色红带（离边 0.34–0.55 米），推进的前沿亮线照旧；形状、半径、时序不变
+    // class-d2b2：所有敌方的预警圈都走这一档（小怪的原来是 24–64% 的实心红）；红带的宽度按形状的半宽收（窄的直线 / 十字道不被红带铺满）
     '  if (uBoss > 0.5) {',
-    '    float bBand = smoothstep(0.32, 0.36, d) * (1.0 - smoothstep(0.52, 0.58, d));', // 亮边、深线里面再一道实色红带
+    '    float bw = min(0.2, min(uHalf.x, uHalf.y) * 0.16);',
+    '    float bBand = smoothstep(0.32, 0.36, d) * (1.0 - smoothstep(0.32 + bw, 0.38 + bw, d));', // 亮边、深线里面再一道实色红带
     '    a = 0.04 + inner * (0.18 + 0.1 * uK) + hot * (0.02 + 0.03 * pulse);',
+    '    if (uShape > 0.5 && uShape < 1.5) a *= 0.75;', // class-d2b2：直线 / 十字道又长又常常叠在一起，填充再压一档（推满约 21%）
     '    col = mix(mix(uColor, uEdge, max(edge, lead * 0.75)), uColor, bBand);',
     '    edge = max(edge, bBand * 0.92);',
     '  }',
@@ -21582,8 +21609,9 @@
         uArc: { value: arc ? spec.arc : 0 },
         uIn: { value: ringS ? spec.rin : 0 },
         uFill: { value: friendly ? 0.5 : 1 }, // 友方填充减半（vf-vfx2：陨火落下的 0.75 秒里不把落点的怪罩成一片橙）
-        // boss-golem：首领的预警圈换成「醒目的红边 + 25–35% 的淡填充，按结算的时间从里往外推满」，地面和玩家的脚看得见；小怪的不变
-        uBoss: { value: !friendly && spec.owner && spec.owner.isBoss ? 1 : 0 },
+        // boss-golem：首领的预警圈换成「醒目的红边 + 25–35% 的淡填充，按结算的时间从里往外推满」，地面和玩家的脚看得见；
+        // class-d2b2：小怪和没有施放者的敌方预警圈（直线、扇形、十字道）也一样；友方的不变
+        uBoss: { value: !friendly ? 1 : 0 },
         uTime,
       }),
       vertexShader: FX_VERT, fragmentShader: TELE_FRAG,
@@ -25405,11 +25433,11 @@
   function b1Blast(x, z, R) {
     const lo = qualId === 'low';
     if (!PF.vShape) return;
-    if (!b1Take()) {
+    if (blastCalm(x, z) || !b1Take()) { // class-d2b2：心火 / 燎原的「一群只放一处」：同一群里第二个起只留焦痕
       W.vDecal(VVD.scorch, x, z, R * 0.5, 2.2, 0x8a3416); // 超出每帧上限的：只留焦痕（地面痕迹池，不占形状批）
       return;
     }
-    tChunk(1, x, 0.9, z, 0, 0, 0, 0.06, 0.8, 0xffe2a0, 0xff8a3a, 0);
+    tChunk(1, x, 0.9, z, 0, 0, 0, 0.06, lo ? 0.5 : 0.8, 0xffe2a0, 0xff8a3a, 0); // class-d2b2：低画质的小星收小（低画质不该比高画质显得重）
     b1Ring(x, z, R, 0xffb050, 0x8a2a10, 0.36, 0.35);
     b1RimTongues(x, z, R, lo ? 2 : 3, 0.5 + R * 0.12, 0.42); // skill-b3a：火舌钉在环上、尖朝外，件数减半（原来 6 / 3 片往外飞，像一把纸屑）
     vsBrush(VSH.chip, 0, 0, 0xff9a4a, 0x5a1e10, 0.3, 0.2, 0.4);
@@ -31152,6 +31180,346 @@
     return true;
   };
 
+  // ==============================================================
+  // class-d2b2：绊雷 / 硬接 / 燎地 / 心火 / 跳射的特效。vfx2：亮芯小（≤ 0.5 米、≤ 60 毫秒），大范围只画边，余烬比地面暗；
+  // 全部画进共用的形状批（一次 draw），低画质件数减半、不留地面痕迹（地面痕迹网格在低画质上会多一次 draw）。随机只用形状批自己的 vr。
+  // 常驻的东西（绊雷、火痕、燎原的火地、心火的刃上火线、格挡 / 招架的提示）每帧按 game.js 的状态用 vsNow 画（接在 W.d2bDraw 后面）
+  // =====================================================================
+  const _bs = { x: 0, y: 0, z: 0 };
+  // 一盏绊雷：暗铁的三脚小件 + 一点红灯（上膛后才亮，快到时间闪得更快），触发半径只画 6 个暗点
+  function mineDraw(m, t, lo) {
+    const fade = Math.min(1, m.t / 0.4);
+    _kvp.set(m.x, 0.09, m.z);
+    _kve.set(0, m.id * 1.3, 0, 'YXZ');
+    _kvq.setFromEuler(_kve);
+    _kvs.set(0.3, 0.13, 0.3);
+    _pm.compose(_kvp, _kvq, _kvs);
+    d2bLin(0x6a625a, fade);
+    vsNow(VSH.chip, _dc.r, _dc.g, _dc.b, 0, 0.55, 0); // 暗铁灰，比地面亮一档才看得出来
+    if (m.arm <= 0) {
+      const rate = m.t < 1.5 ? 14 : 5, on = Math.sin(t * rate + m.id) > -0.2;
+      if (on) {
+        mPose(m.x, 0.26, m.z, _pqI, 0.075, 0.075, 0.075);
+        d2bLin(0xff3a20, 0.95 * fade);
+        vsNow(VSH.chip, _dc.r, _dc.g, _dc.b, 0.8, 0, 0);
+      }
+      const n = lo ? 3 : 6, R = (m.ctx && m.ctx.sk.mine ? m.ctx.sk.mine.trig : 1.6) + 0.3;
+      d2bLin(0xa03420, 0.7 * fade);
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * TAU + m.id;
+        _kvp.set(m.x + Math.sin(a) * R, 0.04, m.z + Math.cos(a) * R);
+        _kvq.identity();
+        _kvs.set(0.07, 0.025, 0.07);
+        _pm.compose(_kvp, _kvq, _kvs);
+        vsNow(VSH.chip, _dc.r, _dc.g, _dc.b, 0.15, 0.3, 0);
+      }
+    }
+  }
+  // 一段火痕上的余烬：暗色碎块贴地 + 一跳一跳的小火苗（亮芯小）
+  function emberAt(x, z, k, t, ph, lo, big) {
+    _kvp.set(x, 0.03, z);
+    _kve.set(0, ph, 0, 'YXZ');
+    _kvq.setFromEuler(_kve);
+    _kvs.set(0.22, 0.05, 0.16);
+    _pm.compose(_kvp, _kvq, _kvs);
+    d2bLin(0x6a2010, k);
+    vsNow(VSH.chip, _dc.r, _dc.g, _dc.b, 0.35 * k * (0.6 + 0.4 * Math.sin(t * 7 + ph)), 0.45, 0);
+    const f = 0.5 + 0.5 * Math.sin(t * 9 + ph * 3);
+    if (f < 0.2) return; // 火苗一跳一跳的
+    const h = (big ? 0.42 : 0.32) * (0.4 + 0.6 * f) * k;
+    mFlame(x, 0.05 + h * 0.4, z, 0.14 * k, h);
+    d2bLin(0xff8a30, k);
+    vsNow(VSH.tongue, _dc.r, _dc.g, _dc.b, 0.6 * k, 0.4, 0.3);
+  }
+  function burnDraw(b, t, lo) {
+    const fade = Math.min(1, b.t / 0.8, (b.dur - b.t) / 0.2 + 0.3);
+    if (b.kind === 'trail') {
+      const dx = b.bx - b.ax, dz = b.bz - b.az, L = Math.hypot(dx, dz) || 1, n = Math.max(2, Math.round(L / (lo ? 1.1 : 0.55)));
+      const sx = -dz / L, sz = dx / L, ang = Math.atan2(dx, dz);
+      for (let i = 0; i <= n; i++) {
+        const f = i / n, w = ((i * 7) % 5) / 5 - 0.4;
+        emberAt(b.ax + dx * f + sx * w * b.w * 0.6, b.az + dz * f + sz * w * b.w * 0.6, fade, t, i * 1.9 + b.ax, lo, false);
+      }
+      // 两侧贴地的断续暗边线（宽度的提示，不铺面）
+      if (!lo) {
+        d2bLin(0x8a3412, 0.55 * fade);
+        const seg = (L / n) * 0.5;
+        for (const s of [-1, 1])
+          for (let i = 0; i < n; i++) {
+            const f = (i + 0.5) / n;
+            mFlat(b.ax + dx * f + sx * s * b.w * 0.5, 0.06, b.az + dz * f + sz * s * b.w * 0.5, ang, 0.045, seg);
+            vsNow(VSH.bar, _dc.r, _dc.g, _dc.b, 0.08, 0.3, 0);
+          }
+      }
+      return;
+    }
+    // 燎原的火地：扇面外沿的断续边线 + 沿外沿和两条边的余烬
+    const half = (b.arc / 2) * DEG, nA = lo ? 5 : 10, seg = ((b.len * half * 2) / nA) * 0.55;
+    d2bLin(0x8a3412, 0.55 * fade);
+    if (!lo)
+      for (let i = 0; i < nA; i++) {
+        const a = b.ang - half + ((i + 0.5) / nA) * half * 2;
+        mFlat(b.x + Math.sin(a) * b.len, 0.06, b.z + Math.cos(a) * b.len, a + Math.PI / 2, 0.05, seg);
+        vsNow(VSH.bar, _dc.r, _dc.g, _dc.b, 0.08, 0.3, 0);
+      }
+    for (let i = 0; i <= nA; i++) {
+      const a = b.ang - half + (i / nA) * half * 2;
+      emberAt(b.x + Math.sin(a) * b.len * 0.92, b.z + Math.cos(a) * b.len * 0.92, fade, t, i * 2.3 + b.x, lo, false);
+    }
+    const nS = lo ? 2 : 3;
+    for (const s of [-1, 1])
+      for (let i = 1; i <= nS; i++) {
+        const a = b.ang + s * half, d = (b.len * i) / (nS + 1);
+        emberAt(b.x + Math.sin(a) * d, b.z + Math.cos(a) * d, fade, t, i * 3.1 + s, lo, false);
+      }
+  }
+  W.d2b2Draw = function () {
+    if (!PF.vShape || !G.mineState) return;
+    const t = G.state ? G.state.time : 0, lo = qualId === 'low';
+    const ms = G.mineState();
+    for (let i = 0; i < ms.length; i++) mineDraw(ms[i], t, lo);
+    const bs = G.burnState();
+    for (let i = 0; i < bs.length; i++) burnDraw(bs[i], t, lo);
+    const P = G.player, ent = P && P.ent;
+    if (!ent || ent.removed || !ent.group.visible) return;
+    // 心火：刃上缠一道细火线（刃上 2–3 根小火舌，亮芯小）；护火的层数是脚下几点暗橙
+    const H = G.heartState();
+    if (H) {
+      W.entSocket(ent, 'weapon', _bs);
+      const n = lo ? 2 : 3, fade = Math.min(1, H.t / 0.8);
+      for (let i = 0; i < n; i++) {
+        const f = 0.6 + 0.4 * Math.sin(t * 11 + i * 2.1), h = 0.22 * f * fade;
+        mFlame(_bs.x + Math.sin(t * 3 + i) * 0.06, _bs.y - 0.1 + i * 0.16, _bs.z + Math.cos(t * 3 + i) * 0.06, 0.08, h);
+        d2bLin(i ? 0xff7a2a : 0xffa040, fade);
+        vsNow(VSH.tongue, _dc.r, _dc.g, _dc.b, 0.5, 0.4, 0.3);
+      }
+      if (H.ward > 0) {
+        d2bLin(0xc85a1e, 0.7);
+        for (let i = 0; i < H.ward; i++) {
+          if (lo && i & 1) continue;
+          const a = (i / 8) * TAU + t * 0.8;
+          _kvp.set(P.x + Math.sin(a) * 0.8, 0.06, P.z + Math.cos(a) * 0.8);
+          _kvq.identity();
+          _kvs.set(0.06, 0.03, 0.06);
+          _pm.compose(_kvp, _kvq, _kvs);
+          vsNow(VSH.chip, _dc.r, _dc.g, _dc.b, 0.3, 0.3, 0);
+        }
+      }
+    }
+    // 硬接：格挡时刃边一道亮线 + 身前一道很淡的贴地弧（挡得住的方向）；拆招的窗口是一道往里收的金色弧，收没了窗口就关
+    const B = G.braceState();
+    if (B && !B.done) {
+      W.entSocket(ent, 'weapon', _bs);
+      mStretch(_bs.x, _bs.y + 0.05, _bs.z, 0, 1, 0, 0.035, 0.55);
+      d2bLin(B.parry ? 0xffe0a0 : 0xf0e2c0, 0.9);
+      vsNow(VSH.bar, _dc.r, _dc.g, _dc.b, 0.45, 0.2, 0);
+      const sk = G.SKILLS[B.id], arc = B.parry ? 70 * DEG : (sk.block ? sk.block.arc : 80) * DEG;
+      const R = B.parry ? 1.5 - 0.6 * Math.min(1, B.t / B.win) : 1.3, n = lo ? 4 : 8, seg = ((R * arc * 2) / n) * 0.6;
+      d2bLin(B.parry ? 0xd8a840 : 0x9a8a6a, B.parry ? 0.8 : 0.45);
+      for (let i = 0; i < n; i++) {
+        const a = B.aim - arc + ((i + 0.5) / n) * arc * 2;
+        mFlat(P.x + Math.sin(a) * R, 0.07, P.z + Math.cos(a) * R, a + Math.PI / 2, 0.04, seg);
+        vsNow(VSH.bar, _dc.r, _dc.g, _dc.b, B.parry ? 0.25 : 0.06, 0.3, 0);
+      }
+    }
+  };
+  {
+    const d2bDraw1 = W.d2bDraw;
+    W.d2bDraw = function (dt) {
+      d2bDraw1(dt);
+      W.d2b2Draw(dt);
+    };
+  }
+  // ---------- 一次性的件（vsEmit，走环形缓冲） ----------
+  // 射出的绊雷：一个暗铁小件从出手点飞到落点（不打怪），带一点红芯
+  W.snareShot = function (ent, x0, z0, x1, z1, fly) {
+    if (!PF.vShape) return;
+    const mz = ent ? emitWorld(ent, _bs) : { x: x0, y: 1.1, z: z0 }, f = Math.max(0.05, fly);
+    vsBrush(VSH.chip, 3, 0, 0x5a5048, 0x2a2622, 0.15, 0.5, 1);
+    vsEmit(mz.x, mz.y, mz.z, (x1 - mz.x) / f, (0.1 - mz.y) / f + 4 * f, (z1 - mz.z) / f, f, 0.1, undefined, 0, 8, 8);
+  };
+  W.mineSet = function (m, on) {
+    if (!PF.vShape || !on) return;
+    b1Chips(m.x, 0.1, m.z, qualId === 'low' ? 1 : 3, 0.1, 0.6, 1.4, 0x6a5e50, 0x2a2420, 0.04, 0.07);
+  };
+  W.mineBoom = function (x, z, R, small) {
+    if (!PF.vShape) return;
+    const lo = qualId === 'low';
+    W.thinRing(x, z, R, 0xe0a070, 0x5a2a14, 0.3, small ? 10 : 14);
+    vsBrush(VSH.ring, 0, 0, 0xffe8c0, 0xff9a40, 1, 0, 0.3);
+    vsEmit(x, 0.4, z, 0, 0, 0, 0.06, small ? 0.3 : 0.5); // 亮芯 ≤ 0.5 米、≤ 60 毫秒
+    b1Chips(x, 0.3, z, (lo ? 3 : 6) >> (small ? 1 : 0), 0.15, 2, R * 2.2, 0x6a5e50, 0x2a2420, 0.05, 0.1);
+    b1Tongues(x, z, R * 0.6, (lo ? 2 : 4) >> (small ? 1 : 0), 0.4, 0.35, 0.6, 0xd8702a, 0x6a1c0a);
+    if (!lo && !small) W.vDecal('scorch', x, z, R * 0.45, 2.5, 0x241610);
+  };
+  W.mineTether = function (x, z, R, list) {
+    if (!PF.vShape) return;
+    W.thinRing(x, z, R, 0xb8a890, 0x3a3228, 0.3, 12);
+    vsBrush(VSH.bar, 4, 3, 0x8a8478, 0x3a3630, 0.05, 0.5, 0.5);
+    const n = Math.min(list.length, qualId === 'low' ? 4 : 8);
+    for (let i = 0; i < n; i++) {
+      const e = list[i];
+      vsEmit(x, 0.15, z, e.x - x, 0.6, e.z - z, 0.5, 0.05);
+    }
+  };
+  W.bombletFly = function (x0, z0, x1, z1, t) {
+    if (!PF.vShape) return;
+    vsBrush(VSH.chip, 3, 0, 0x5a5048, 0x2a2622, 0.2, 0.5, 1);
+    vsEmit(x0, 0.4, z0, (x1 - x0) / t, 3 * t, (z1 - z0) / t, t, 0.08, undefined, 0, 9, 8);
+  };
+  // 格挡挡下一击：刃边几颗火星 + 一道短亮线（朝来的方向）
+  W.braceClang = function (ent, ang) {
+    if (!PF.vShape || !ent) return;
+    W.entSocket(ent, 'weapon', _bs);
+    vsBrush(VSH.chip, 0, 0, 0xfff0c8, 0xb07030, 0.6, 0.2, 0.3);
+    for (let i = 0, n = qualId === 'low' ? 2 : 4; i < n; i++) vsEmit(_bs.x, _bs.y, _bs.z, Math.sin(ang + vr(-0.8, 0.8)) * vr(2, 4), vr(1, 3), Math.cos(ang + vr(-0.8, 0.8)) * vr(2, 4), vr(0.15, 0.25), 0.04, 0.04, 0, 0, 10);
+    vsBrush(VSH.bar, 4, 2, 0xfff4d8, 0xc8a060, 0.5, 0.2);
+    vsEmit(_bs.x - Math.cos(ang) * 0.3, _bs.y, _bs.z + Math.sin(ang) * 0.3, Math.cos(ang) * 0.6, 0, -Math.sin(ang) * 0.6, 0.08, 0.04);
+  };
+  W.braceJolt = function (x, z, R) {
+    if (!PF.vShape) return;
+    W.thinRing(x, z, R, 0xe8d2a8, 0x4a3e30, 0.28, 14);
+    b1Chips(x, 0.2, z, qualId === 'low' ? 3 : 6, R * 0.4, 2, 4, 0x8a7a64, 0x3a3028, 0.05, 0.1);
+  };
+  // 拆招：原地一下小金芯，闪过去的路上一道贴地的残影带
+  W.parryFlash = function (x0, z0, x1, z1, moved) {
+    if (!PF.vShape) return;
+    vsBrush(VSH.ring, 0, 0, 0xfff0c0, 0xd8a040, 1, 0, 0.3);
+    vsEmit(x0, 1.1, z0, 0, 0, 0, 0.06, 0.4);
+    if (!moved) return;
+    vsBrush(VSH.bar, 5, 3, 0xd8c8a8, 0x4a4030, 0.05, 0.4, 0.4);
+    vsEmit(x0, 0.06, z0, x1 - x0, 0, z1 - z0, 0.3, 0.12);
+  };
+  W.braceCounter = function () {}; // 反砍的细弯月由近战的刀光画（W.slash）
+  W.scorchDrag = function (ent, on) {
+    if (!PF.vShape || !on || !ent) return;
+    b1Chips(G.player.x, 0.1, G.player.z, qualId === 'low' ? 1 : 3, 0.2, 1, 2, 0xa8401a, 0x3a1206, 0.04, 0.08);
+  };
+  W.burnSet = function (b, on) {
+    if (!PF.vShape || !on) return;
+    const lo = qualId === 'low';
+    if (b.kind === 'trail') {
+      const n = lo ? 2 : 4;
+      vsBrush(VSH.tongue, 1, 0, 0xffb04a, 0xb8401a, 0.3, 0.6, 0.4);
+      for (let i = 0; i < n; i++) {
+        const f = (i + 0.5) / n;
+        vsEmit(b.ax + (b.bx - b.ax) * f, 0.05, b.az + (b.bz - b.az) * f, 0, vr(0.5, 1), 0, vr(0.35, 0.45), 0.18, vr(0.4, 0.55), vr(-0.2, 0.2), 0, 0, 3);
+      }
+    } else b1Tongues(b.x + Math.sin(b.ang) * b.len * 0.6, b.z + Math.cos(b.ang) * b.len * 0.6, b.len * 0.5, lo ? 3 : 5, 0.45, 0.4, 0.3, 0xffb04a, 0xb8401a);
+  };
+  // 爆痕：整条火痕炸开——沿着两边往上窜的火舌（长在边上）+ 碎块，中间不铺亮面
+  W.scorchBoom = function (x0, z0, ang, L, w) {
+    if (!PF.vShape) return;
+    const lo = qualId === 'low', n = Math.max(2, Math.round(L / (lo ? 1.4 : 0.8))), sx = Math.cos(ang), sz = -Math.sin(ang);
+    vsBrush(VSH.tongue, 1, 0, 0xffb04a, 0xa8301a, 0.3, 0.6, 0.4);
+    for (let i = 0; i < n; i++)
+      for (const s of [-1, 1]) {
+        const f = (i + 0.5) / n;
+        vsEmit(x0 + Math.sin(ang) * L * f + sx * s * w * 0.45, 0.05, z0 + Math.cos(ang) * L * f + sz * s * w * 0.45, sx * s * 0.6, vr(0.8, 1.4), sz * s * 0.6, vr(0.35, 0.5), 0.2, vr(0.5, 0.7), vr(-0.2, 0.2), 0, 0, 3);
+      }
+    b1Chips(x0 + Math.sin(ang) * L * 0.5, 0.2, z0 + Math.cos(ang) * L * 0.5, lo ? 3 : 6, L * 0.3, 1.5, 3.5, 0xa8401a, 0x3a1206, 0.05, 0.1);
+  };
+  // 上挑：刀光由近战画，这里只加几颗往上飞的暗芯火星
+  W.scorchLift = function (x, z, ang, R) {
+    if (!PF.vShape) return;
+    vsBrush(VSH.chip, 0, 0, 0xff9a4a, 0x5a1e10, 0.3, 0.2, 0.4);
+    for (let i = 0, n = qualId === 'low' ? 2 : 4; i < n; i++) {
+      const d = R * vr(0.4, 0.9);
+      vsEmit(x + Math.sin(ang) * d, 0.4, z + Math.cos(ang) * d, vr(-0.5, 0.5), vr(3, 5), vr(-0.5, 0.5), vr(0.5, 0.8), 0.06, 0.06, 0, 0, 6, 0.6);
+    }
+  };
+  W.heartOn = function (ent, on) {
+    if (!PF.vShape || !on || !ent) return;
+    const x = G.player.x, z = G.player.z;
+    b1Tongues(x, z, 0.6, qualId === 'low' ? 2 : 4, 0.4, 0.4, 0.3, 0xffa040, 0xb83a18);
+    W.thinRing(x, z, 1.1, 0xff8a3c, 0x5a1e10, 0.35, 12);
+  };
+  // 余烬炸开：一个小亮芯 + 一圈细边 + 往下掉的碎块
+  W.heartBurst = function (x, z, R, gen) {
+    if (!PF.vShape) return;
+    const lo = qualId === 'low';
+    vsBrush(VSH.ring, 0, 0, 0xffd090, 0xff7a30, 1, 0, 0.3);
+    vsEmit(x, 0.7, z, 0, 0, 0, 0.06, 0.35);
+    W.thinRing(x, z, Math.min(1.6, R), 0xc86a2c, 0x4a1608, 0.3); // 一道细的单环（半径大了会变成一圈往外甩的长线段）
+    vsBrush(VSH.chip, 3, 0, 0xb8481a, 0x3a1206, 0.15, 0.5, 0.4);
+    for (let i = 0, n = lo ? 2 : 5; i < n; i++) {
+      const a = vr(0, TAU), v = vr(0.8, 2);
+      vsEmit(x + Math.sin(a) * 0.2, 1.2, z + Math.cos(a) * 0.2, Math.sin(a) * v, vr(0.5, 1.5), Math.cos(a) * v, vr(0.6, 0.9), vr(0.05, 0.1), undefined, vr(0, TAU), vr(-8, 8), 16);
+    }
+  };
+  // 跳射：往后跳的那一段贴地一道很淡的残影弧（几小段，越往后越淡）
+  W.leapArc = function (x, z, aim, d, dur) {
+    if (!PF.vShape) return;
+    const n = qualId === 'low' ? 3 : 6, dx = -Math.sin(aim), dz = -Math.cos(aim);
+    vsBrush(VSH.bar, 5, 3, 0x9ab88a, 0x2a3424, 0.05, 0.4, 0.3);
+    for (let i = 0; i < n; i++) {
+      const f0 = i / n, f1 = (i + 0.6) / n, lift = Math.sin(Math.PI * f0) * 0.5;
+      vsEmit(x + dx * d * f0, 0.08 + lift, z + dz * d * f0, dx * d * (f1 - f0), 0, dz * d * (f1 - f0), dur + 0.15 - f0 * 0.1, 0.05);
+    }
+  };
+  W.leapLoose = function () {};
+  // 命中特效的「一群只放一处」（class-d2b2）：心火期间 / 燎原横扫之后，CAL_T 秒内、CAL_R 米内已经放过一处全套的，
+  // 其余命中静音（随机数照取：spawnP / tChunk / 地上的星形印子都按 fxMute 照取不画），只冒一颗暗芯火星。game.js 每帧开关
+  let impactCalm = 0;
+  const CAL_T = 0.15, CAL_R = 6, calImp = { x: 0, z: 0, t: -9 }, calBlast = { x: 0, z: 0, t: -9 };
+  // 爆燃 / 尸爆（b1Blast）：一群里 0.3 秒内只放一个全套（其余走「超出每帧上限」那条路：只留焦痕，随机数照取）
+  function blastCalm(x, z) {
+    if (!impactCalm) return false;
+    const now = G.state ? G.state.time : 0;
+    if (now - calBlast.t < 0.3 && Math.hypot(x - calBlast.x, z - calBlast.z) < CAL_R) return true;
+    calBlast.x = x;
+    calBlast.z = z;
+    calBlast.t = now;
+    return false;
+  }
+  W.setImpactCalm = (on) => {
+    impactCalm = on ? 1 : 0;
+  };
+  const impactFull = W.impact;
+  W.impact = function (x, y, z, ang, type, w, crit) {
+    if (!impactCalm || fxMute) return impactFull(x, y, z, ang, type, w, crit);
+    const now = G.state ? G.state.time : 0;
+    if (!(now - calImp.t < CAL_T && Math.hypot(x - calImp.x, z - calImp.z) < CAL_R)) {
+      calImp.x = x;
+      calImp.z = z;
+      calImp.t = now;
+      return impactFull(x, y, z, ang, type, w, crit);
+    }
+    fxMute = 1;
+    try {
+      impactFull(x, y, z, ang, type, w, crit);
+    } finally {
+      fxMute = 0;
+    }
+    if (!PF.vShape) return;
+    vsBrush(VSH.chip, 3, 0, 0x9a3a12, 0x3a1408, 0.12, 0.6, 0.4);
+    vsEmit(x + vr(-0.2, 0.2), y, z + vr(-0.2, 0.2), vr(-1.2, 1.2), vr(1.2, 2.4), vr(-1.2, 1.2), vr(0.3, 0.45), vr(0.04, 0.07), undefined, vr(0, TAU), vr(-8, 8), 14);
+  };
+  // 连烬的一跳：一道细的暗余烬链（贴在半身高），只有一群里的第一跳亮一下、0.2 秒灭
+  W.heartLink = function (x0, z0, x1, z1, bright) {
+    if (!PF.vShape) return;
+    vsBrush(VSH.bar, 4, 2, bright ? 0xffb060 : 0x8a3412, 0x3a1206, bright ? 0.25 : 0, 0.5, 0.35);
+    vsEmit(x0, 0.7, z0, x1 - x0, 0, z1 - z0, 0.2, 0.035);
+  };
+  // 燎原的横扫：不铺月牙，只沿扇形外沿画一圈细的暗橙边（前一半亮一档、往后变暗），几段贴地，0.22 秒
+  W.sweepEdge = function (x, z, ang, R, arc, hex, dir) {
+    if (!PF.vShape) return true;
+    const n = qualId === 'low' ? 5 : 10, half = (arc / 2) * DEG, seg = ((R * half * 2) / n) * 0.9;
+    vsBrush(VSH.bar, 5, 3, 0xffb060, 0x6a2410, 0.12, 0.45, 0.35);
+    for (let i = 0; i < n; i++) {
+      const a = ang - half + ((i + 0.5) / n) * half * 2, ta = a + Math.PI / 2;
+      vsEmit(x + Math.sin(a) * R - (Math.sin(ta) * seg) / 2, 0.1, z + Math.cos(a) * R - (Math.cos(ta) * seg) / 2, Math.sin(ta) * seg, 0, Math.cos(ta) * seg, 0.22 + i * 0.008, 0.06);
+    }
+    return true;
+  };
+  W.leapPinFx = function (e) {
+    if (!PF.vShape || !e) return;
+    vsBrush(VSH.bar, 4, 3, 0xcfe6b0, 0x3a4a30, 0.2, 0.4, 0.4);
+    for (let i = 0, n = qualId === 'low' ? 2 : 3; i < n; i++) {
+      const a = (i / 3) * TAU + vr(-0.3, 0.3);
+      vsEmit(e.x + Math.sin(a) * 0.6, 0.05, e.z + Math.cos(a) * 0.6, -Math.sin(a) * 0.5, 0.7, -Math.cos(a) * 0.5, 1, 0.04);
+    }
+  };
   // ---------- fx-rng：放特效的入口按特效取种子 ----------
   // 这些入口每调一次，画面随机数（rand / vrnd / vr / textRand）从（名字, 模拟第几步, 这一步里这个名字的第几次）起一路新的（data.js 的 G.fxFn），
   // 返回后接着走调用处那一路。同一个特效在 高 / 低、特效多的时候少的时候看起来一样，也不牵动玩法的随机序列。
