@@ -2058,6 +2058,11 @@
       // 元素异常值：回落、感电 / 重度冰缓倒计时；slow 是冰缓的减速比例（移动和出手节奏一起放慢）
       const slow = G.tickBuildUp(e, dt);
       e.slowK = 1 - slow;
+      if (e.snareT > 0) {
+        // 绊雷「钉索」（class-d2b2）：首领不钉，只减速
+        e.snareT -= dt;
+        e.slowK *= 1 - (e.snareK || 0);
+      }
       if (e.isBoss) e.freeze = e.stunT = e.stagT = e.bindT = 0; // 首领免疫冻结、眩晕与踉跄（渊缚对首领只减速）
       // 架势：破绽倒计时（被处决途中不走）；平时几秒不挨打后回复
       if (e.poiseMax > 0) {

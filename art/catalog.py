@@ -117,6 +117,8 @@ CATALOG = [
          bake=dict(ao=0.7, grad=0.9, wear=0.4, grime=0.3, gain=1.15), finish=dict(dust=0.12), cues=dict(second=True, val=0.3, lichen=0.1)),
     dict(id='ca/boss_lord', gen='lord', seed=191, cat='boss', zone='boss', home='abyss', ship=True, replaces=None,
          bake=dict(ao=0.6, grad=0.7, wear=0.5, grime=0.2, gain=1.1), finish=dict(dust=0.0), cues=dict(second=False, val=0.22, lichen=0)),
+    dict(id='ca/boss_behemoth', gen='behemoth', seed=207, cat='boss', zone='boss', home='rift', ship=True, replaces=None,
+         bake=dict(ao=0.6, grad=0.8, wear=0.4, grime=0.25, gain=1.32), finish=dict(dust=0.0), cues=dict(second=False, val=0.24, lichen=0)),
 ]
 
 # 看板（lineup）：每个生成器 × 几个种子，参数沿用清单里第一个用到它的件

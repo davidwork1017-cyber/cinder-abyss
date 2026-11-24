@@ -2255,6 +2255,19 @@
         const sh = G.roundShape(), gun = G.roundGun();
         note += '<div class="sk-anote"><i></i>' + (gun ? G.wTypeLabel(gun) : '没拿枪') + '：' + (sh.n > 1 ? sh.n + ' 枚，每枚 ' + Math.round(sh.k * 100) + '%' : '一发 ' + Math.round(sh.k * 100) + '%') +
           (sh.move ? '，可以边走边打' : '') + (sh.rangeK ? '，射程 ×' + sh.rangeK : '') + (gun ? ' · 伤害按右键连射 ' + sk.basicSec + ' 秒算' : '') + '</div>';
+      } else if (sk.kind === 'snare') {
+        // class-d2b2：绊雷
+        const M = sk.mine;
+        note += '<div class="sk-anote"><i></i>最多 ' + (M.max + (ctx.durCap || 0)) + ' 枚 · 每枚 ' + fmt1(M.dur * ctx.durK) + ' 秒 · 敌人走进 ' + M.trig + ' 米触发' + (sk.mech === 'tether' ? ' · 钉住 ' + sk.root.t + ' 秒' : ' · 炸开半径 ' + fmt1(sk.radius * Math.sqrt(ctx.area)) + ' 米') + (G.roundGun() ? ' · 拿枪：一枚按右键连射 ' + sk.gunSec + ' 秒算' : '') + '</div>';
+      } else if (sk.kind === 'brace') {
+        note += '<div class="sk-anote"><i></i>' + (sk.mech === 'parry' ? '招架 ' + sk.parry.win + ' 秒 · 反刺 ×' + sk.parry.k + '（必定暴击）· 没招架到 ' + sk.parry.cd + ' 秒内不能再招架'
+          : '正面减伤 ' + sk.block.dr + '% · 最多挡 ' + sk.block.max + ' 秒' + (sk.mech === 'jolt' ? ' · 每挡一下震一圈（半径 ' + sk.jolt.r + ' 米）' : ' · 反砍 ×' + sk.counter.base + ' ~ ×' + fmt1(sk.counter.base + sk.counter.cap))) + '</div>';
+      } else if (sk.kind === 'scorch') {
+        note += '<div class="sk-anote"><i></i>' + (sk.dash ? '冲 ' + sk.dash.d + ' 米' : '原地横扫') + (sk.trail ? ' · 火痕 ' + fmt1(sk.trail.dur * ctx.durK) + ' 秒' : sk.fan ? ' · 火地 ' + fmt1(sk.fan.dur * ctx.durK) + ' 秒' : sk.boom ? ' · 上挑时火痕炸开' : '') + ' · 一半伤害是火焰</div>';
+      } else if (sk.kind === 'heart') {
+        note += '<div class="sk-anote"><i></i>持续 ' + fmt1(sk.hbuff.dur * ctx.durK) + ' 秒' + (sk.ward ? ' · 护火每层 −' + sk.ward.dr + '%（最多 ' + sk.ward.max + ' 层）' : ' · 物理转火 ' + sk.hbuff.conv + '% · 余烬半径 ' + sk.burst.r + ' 米') + '</div>';
+      } else if (sk.kind === 'leap') {
+        note += '<div class="sk-anote"><i></i>往后跳 ' + sk.leap.d + ' 米 · ' + (sk.arrows.n > 1 ? sk.arrows.n + ' 支箭' : '一支箭') + ' · 起跳 ' + sk.leap.iframe + ' 秒无敌</div>';
       } else if (sk.kind === 'burst') {
         note += '<div class="sk-anote"><i></i>' + (sk.dash ? '先朝准星冲出至多 ' + sk.dash.max + ' 米 · ' : '') + '以自身为中心，半径 ' + fmt1(sk.radius * Math.sqrt(ctx.area)) + ' 米，最多打最近的 ' + sk.maxHit + ' 个，不穿墙</div>';
       }
