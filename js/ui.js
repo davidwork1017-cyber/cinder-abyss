@@ -2868,7 +2868,7 @@
   // ============================================================
   // 地图页
   // ============================================================
-  // 地图上的区域卡片（只在触屏下挂 data-tip，长按看全部信息：手机上卡片收成一行，简介和首领藏起来了）
+  // 地图上的区域卡片（只在触屏下挂 data-tip）：长按看全部信息（区域、怪物等级、元素、简介、首领、解锁条件），手机上卡片太挤时也能看全
   function zoneTip(key) {
     const [zi, ti] = key.split(':').map(Number);
     const z = G.ZONES[zi];
@@ -5096,12 +5096,10 @@
     const v = G.save.opts[k] | 0;
     return '<div class="vol"><input type="range" tabindex="-1" min="0" max="100" step="5" value="' + v + '" data-tact="vol" data-k="' + k + '"><output>' + v + '</output></div>';
   }
-  // 手机版 M2 的触屏设置（只在触屏模式下显示；存在这台设备上）：按钮大小、左手模式、震动（没有震动接口的设备不显示）、画面清晰度（只显示）
+  // 手机版 M2 的触屏设置（只在触屏模式下显示；存在这台设备上）：按钮大小、左手模式、震动（没有震动接口的设备不显示）
   const SET_TS = [['s', '小'], ['m', '中'], ['l', '大']];
   function touchSettings(row) {
     const P = G.touch.prefs;
-    const gi = G.world.gfxInfo ? G.world.gfxInfo() : null;
-    const pct = gi ? Math.round(gi.scale * 100) : 100;
     return (
       row('按钮大小', '右下的攻击、技能、翻滚键',
         '<div class="seg">' + SET_TS.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (P.size === o[0] ? ' on' : '') + '" data-tact="tsize" data-v="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') +
@@ -5110,9 +5108,7 @@
       (G.touch.canVibe()
         ? row('震动', '挨重击、翻滚、残血时短震一下',
             '<button type="button" tabindex="-1" class="switch' + (P.vibe ? ' on' : '') + '" data-tact="tvibe"><i></i></button>')
-        : '') +
-      row('画面清晰度', gi && gi.floor ? '低画质还在掉帧，已自动降到 70%（这次运行有效）' : '跟着画质走；低画质还掉帧时自动降到 70%',
-        '<span class="m-val' + (gi && gi.floor ? ' warn' : '') + '" data-scale="' + pct + '">' + pct + '%</span>')
+        : '')
     );
   }
   function menuSettings() {

@@ -25605,7 +25605,7 @@ async function touchSteps() {
     return '技能 / 天赋 / 区域卡片长按出详情、松手留着；天赋点亮数 ' + n0 + ' → ' + n1 + '；拖拽穿上鞋子';
   });
 
-  await step('触屏：M2 设置——左手模式（右下拖摇杆能走、左下的按钮能按）、按钮大小、震动（安卓桩：重击 / 翻滚 / 残血各震一次、120 ms 限频、残血不连震、关掉不震、没有 vibrate 时设置里不显示）、低画质掉帧兜底到 0.7（手动选低不兜底，设置里显示 70%）、主题色', async () => {
+  await step('触屏：M2 设置——左手模式（右下拖摇杆能走、左下的按钮能按）、按钮大小、震动（安卓桩：重击 / 翻滚 / 残血各震一次、120 ms 限频、残血不连震、关掉不震、没有 vibrate 时设置里不显示）、主题色', async () => {
     await touchPage();
     const out = {};
     // 震动桩：记下每次调用
@@ -25701,49 +25701,11 @@ async function touchSteps() {
     await frames(1);
     out.rowsNoVib = await ev(() => Array.from(document.querySelectorAll('#p-view .m-row .opt-text b')).map((b) => b.textContent));
     await ev(() => G.ui.close());
-    assert(['按钮大小', '左手模式', '震动', '画面清晰度'].every((k) => out.rows.includes(k)), '设置里应有触屏几项：' + out.rows.join(','));
+    assert(['按钮大小', '左手模式', '震动'].every((k) => out.rows.includes(k)), '设置里应有触屏几项：' + out.rows.join(','));
     assert(!out.prefs.p.vibe && out.prefs.p.size === 'l' && out.prefs.k[0] === '0' && out.prefs.k[1] === 'l' && /t-size-l/.test(out.prefs.cls), '设置应改到偏好并存在设备上：' + JSON.stringify(out.prefs));
     assert(c3 === c2, '关掉震动后翻滚不该震：' + JSON.stringify({ c2, c3 }));
     assert(!out.rowsNoVib.includes('震动') && out.rowsNoVib.includes('按钮大小'), '没有 vibrate（iPhone）时不显示震动这一项：' + out.rowsNoVib.join(','));
-    // 低画质掉帧兜底：手动选低不兜底；自动画质（手机默认低）连续 4 秒帧间隔 > 24 ms → 像素比 0.7，设置里显示 70%
-    const slow = (sec) =>
-      ev(async (sec) => {
-        const t0 = performance.now();
-        await new Promise((res) => {
-          const f = () => {
-            const t = performance.now();
-            while (performance.now() - t < 32) {}
-            if (performance.now() - t0 < sec * 1000) requestAnimationFrame(f);
-            else res();
-          };
-          requestAnimationFrame(f);
-        });
-        return G.world.gfxInfo();
-      }, sec);
-    await ev(() => {
-      G.save.opts.quality = 'low';
-      G.world.scaleFloor = false;
-      G.world.setQuality('low');
-    });
-    out.manual = await slow(5);
-    await ev(() => {
-      G.save.opts.quality = 'auto';
-      G.world.setQuality('auto');
-    });
-    out.q = await ev(() => G.world.quality());
-    out.auto = await slow(5.5);
-    await ev(() => G.ui.pause());
-    await page.click('#p-menu [data-tact="settings"]');
-    await frames(1);
-    out.scaleRow = await ev(() => {
-      const v = document.querySelector('#p-view .m-val[data-scale]');
-      return v ? v.textContent + (v.classList.contains('warn') ? ' warn' : '') : null;
-    });
-    await ev(() => G.ui.close());
-    assert(!out.manual.floor && out.manual.scale === 0.85, '手动选低画质不该兜底：' + JSON.stringify(out.manual));
-    assert(out.q === 'low' && out.auto.floor && out.auto.scale === 0.7, '自动画质在低档还掉帧应降到 0.7：' + JSON.stringify({ q: out.q, auto: out.auto }));
-    assert(out.scaleRow === '70% warn', '设置里应显示 70%：' + out.scaleRow);
-    return '左手模式能走能滚；震动 ' + out.vib.l4.join(' / ') + '、限频 ' + out.vib.burst + ' 次、关掉 0 次；兜底 ' + out.manual.scale + ' → ' + out.auto.scale;
+    return '左手模式能走能滚；震动 ' + out.vib.l4.join(' / ') + '、限频 ' + out.vib.burst + ' 次、关掉 0 次';
   });
 
   await step('旁白卡：帧率掉到约 2 fps 时按真实时间放，长度和正常时一样（约 5 秒）；触屏下不压顶栏、小地图、追踪条、按钮簇和提示卡', async () => {
@@ -25990,101 +25952,6 @@ async function touchSteps() {
       document.getElementById('coach').className = '';
     });
     return out.filter((r) => r.pref === 'm').map((r) => r.size + (r.sa ? '+安全区' : '') + ' ' + r.n + ' 键').join('，') + '；按钮大小 / 左手模式另量 ' + out.filter((r) => r.pref !== 'm').length + ' 次，主攻键 ' + s0('s') + ' / ' + s0('m') + ' / ' + s0('l') + ' px';
-  });
-
-  await step('触屏：T44——地图页每张区域卡片的「进入」看得见、选项不挤成竖排；技能页的辅助宝石滚得到；天赋页图例不压缩放键；角色页两排卡片都在框里（844×390 / 667×320 / 390×844）', async () => {
-    await touchPage();
-    await ev(() => {
-      G.debug.learnAll();
-      G.debug.setLevel(30);
-      G.computeStats();
-    });
-    const out = [];
-    const ov = (a, b) => a && b && a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
-    for (const [w, h] of [[844, 390], [667, 320], [390, 844]]) {
-      await page.setViewportSize({ width: w, height: h });
-      await frames(2);
-      const r = { size: w + '×' + h, bad: [] };
-      await ev(() => G.ui.open('map'));
-      await frames(3);
-      Object.assign(r, await ev(() => {
-        const bad = [];
-        for (const z of document.querySelectorAll('.zone')) {
-          const c = T.rect(z), b = T.rect(z.querySelector('.btn, .z-lock')), nm = z.querySelector('.z-name');
-          if (!b || b.h < 39 || b.t < c.t - 0.5 || b.b > c.b + 0.5) bad.push('进入键 ' + JSON.stringify({ c, b }));
-          if (nm.getBoundingClientRect().height > 26) bad.push('区域名折行');
-        }
-        for (const b of document.querySelectorAll('.map-opts .opt-text b')) if (b.getBoundingClientRect().height > 22) bad.push('选项挤成竖排：' + b.textContent);
-        // 进入键在屏幕里（横屏不用滚，竖屏第一张卡不用滚）
-        const go = T.rect(document.querySelector('.zone .btn'));
-        if (!go || go.b > innerHeight || go.t < 0) bad.push('第一张卡的进入键不在屏里 ' + JSON.stringify(go));
-        // 整页滚到底，选项行最下面那一排（删除角色）够得着
-        const host = document.getElementById('panel-body');
-        host.scrollTop = 1e6;
-        const del = T.rect(document.querySelector('[data-act="del-save"]'));
-        if (!del || del.b > innerHeight + 0.5) bad.push('滚到底也看不到「删除这个角色」' + JSON.stringify(del));
-        host.scrollTop = 0;
-        return { mapBad: bad };
-      }));
-      await ev(() => G.ui.open('skills'));
-      await frames(3);
-      Object.assign(r, await ev(() => {
-        const bad = [];
-        const sl = document.querySelector('.sup-list');
-        const side = document.querySelector('.skills > .col-side');
-        const sc = getComputedStyle(side).overflowY === 'auto' ? side : document.querySelector('.skills');
-        sc.scrollTop = 1e6;
-        const sb = T.rect(sl);
-        if (!sb || sb.t > innerHeight - 40) bad.push('辅助宝石滚不到 ' + JSON.stringify(sb));
-        sc.scrollTop = 0;
-        for (const b of document.querySelectorAll('.barslot, .wbarslot')) {
-          const x = T.rect(b), ic = T.rect(b.querySelector('.bs-icon'));
-          if (x.h < 44 || !ic || ic.w < 30 || x.r > innerWidth + 0.5) bad.push('技能栏格子 ' + JSON.stringify(x));
-        }
-        return { skBad: bad };
-      }));
-      await ev(() => G.ui.open('tree'));
-      await frames(3);
-      Object.assign(r, await ev(() => {
-        const bad = [];
-        const lg = T.rect('.tree-legend'), zm = T.rect('.tree-zoom'), tv = T.rect('.tree-view');
-        if (lg.l < zm.r && zm.l < lg.r && lg.t < zm.b && zm.t < lg.b) bad.push('图例压着缩放键');
-        if (lg.h > 40) bad.push('图例挤成竖排 ' + JSON.stringify(lg));
-        if (lg.b > tv.b + 0.5 || lg.l < tv.l - 0.5) bad.push('图例出了天赋盘');
-        for (const b of document.querySelectorAll('.tree-zoom button')) if (b.getBoundingClientRect().height < 36) bad.push('缩放键太小');
-        return { trBad: bad };
-      }));
-      await ev(() => G.ui.close());
-      out.push(r);
-    }
-    // 角色页：横屏两种高度，六张卡都在框里不用滚
-    const chars = [];
-    for (const [w, h] of [[844, 390], [667, 320]]) {
-      await page.setViewportSize({ width: w, height: h });
-      await frames(2);
-      await ev(() => G.ui.showTitle(true));
-      await until(() => document.querySelector('[data-tact="chars"]') && document.getElementById('title').classList.contains('ready'), null, 30000);
-      await ev(() => document.querySelector('[data-tact="chars"]').click());
-      await frames(3);
-      chars.push(await ev(async () => {
-        for (let el = document.querySelector('.ch-grid'); el; el = el.parentElement) await Promise.all(el.getAnimations().map((x) => x.finished.catch(() => {})));
-        const body = document.querySelector('#title .m-body').getBoundingClientRect();
-        const cards = Array.from(document.querySelectorAll('.ch-card')).map((c) => c.getBoundingClientRect());
-        const cut = cards.filter((c) => c.bottom > body.bottom + 0.5 || c.top < body.top - 0.5).length;
-        const view = document.querySelector('#title .m-view').getBoundingClientRect();
-        return { size: innerWidth + '×' + innerHeight, n: cards.length, cut, viewIn: view.top >= 0 && view.bottom <= innerHeight, rows: new Set(cards.map((c) => Math.round(c.top))).size };
-      }));
-      await page.reload({ timeout: 90000 });
-      await install();
-      await ev(() => {
-        G.save.seenHelp = G.save.seenStory = true;
-        G.ui.close();
-      });
-    }
-    const bad = out.filter((r) => r.mapBad.length || r.skBad.length || r.trBad.length);
-    assert(!bad.length, 'T44 面板还有问题：' + JSON.stringify(bad));
-    assert(chars.every((c) => c.n === 6 && c.cut === 0 && c.viewIn && c.rows === 2), '角色页两排卡片应都在框里：' + JSON.stringify(chars));
-    return out.map((r) => r.size).join(' / ') + ' 地图、技能、天赋都过；角色页 ' + chars.map((c) => c.size + ' ' + c.rows + ' 排').join('，');
   });
 
   await step('触屏：iOS 工具栏占掉高度（844×340 / 667×320）时标题画面、职业选择、开场卡片、背包和暂停菜单都放得下', async () => {

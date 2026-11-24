@@ -1325,17 +1325,9 @@
       if (window.console) console.warn('[画面] FXAA 初始化失败，改为直接渲染', e);
     }
   }
-  // 3D 画面的像素比系数：画质表里的 scale；触屏下低画质还掉帧时兜底到 FLOOR_SCALE（W.scaleFloor，只在触屏 + 自动画质 + 低档时生效）
-  const FLOOR_SCALE = 0.7;
-  W.scaleFloor = false;
-  function glScale() {
-    if (W.scaleFloor && qualId === 'low' && touchOnQ() && G.save && G.save.opts && G.save.opts.quality === 'auto') return FLOOR_SCALE;
-    return qual.scale || 1;
-  }
-  const touchOnQ = () => !!(G.touch && G.touch.on);
   function fxaaSize() {
     if (!post.fx) return;
-    const k = dpr * glScale();
+    const k = dpr * (qual.scale || 1);
     post.fx.setPixelRatio(k);
     post.fx.setSize(vw, vh);
     post.fxPass.uniforms.resolution.value.set(1 / Math.max(1, Math.round(vw * k)), 1 / Math.max(1, Math.round(vh * k)));
@@ -1413,7 +1405,7 @@
   W.gfxInfo = () => ({
     three: T.REVISION,
     postRT: post.ok ? !!(post.rt.isXRRenderTarget && post.composer.renderTarget2.isXRRenderTarget) : null, // 后期目标是 displayRT（见上）
-    quality: qualId, post: !!(post.ok && qual.post), bloom: !!(post.ok && qual.post && qual.bloom), dpr, scale: glScale(), floor: glScale() === FLOOR_SCALE,
+    quality: qualId, post: !!(post.ok && qual.post), bloom: !!(post.ok && qual.post && qual.bloom), dpr, scale: qual.scale || 1,
     smaa: !!(post.ok && qual.post && post.smaa && post.smaa.enabled), fxaa: !!(!(post.ok && qual.post) && post.fx && qual.fxaa),
     decals: !!(zoneGroup && zoneGroup.getObjectByName('groundDecals')), decalsOn: !!(zoneGroup && zoneGroup.getObjectByName('groundDecals') && zoneGroup.getObjectByName('groundDecals').visible), layer: !!(zoneFx && zoneFx.layer),
     hd: !!(zoneFx && zoneFx.hd), fires: zoneFx && zoneFx.fires ? zoneFx.fires.list.length : 0, mist: !!(zoneFx && zoneFx.mist && zoneFx.mist.visible),
@@ -2952,7 +2944,7 @@
     vw = Math.max(1, window.innerWidth);
     vh = Math.max(1, window.innerHeight);
     dpr = Math.min(window.devicePixelRatio || 1, qual.dpr);
-    const glDpr = dpr * glScale(); // 3D 画面的像素比（低档比叠加层低一点，见 QUALITY.low.scale；触屏兜底再低一点，见 glScale）
+    const glDpr = dpr * (qual.scale || 1); // 3D 画面的像素比（低档比叠加层低一点，见 QUALITY.low.scale）
     renderer.setPixelRatio(glDpr);
     renderer.setSize(vw, vh);
     if (post.ok) {
@@ -30664,15 +30656,13 @@
     }
   }
 
-  // 自动画质（存档里是 'auto'，即玩家没手动选过）：连续 4 秒平均帧间隔超过 24 毫秒（明显掉帧）就降一档，只在本次运行有效。
-  // 手机版 M2：触屏模式下已经降到低画质还在掉帧，再把 3D 画面的像素比降到 0.7（兜底，不再往下降；同样只在本次运行有效）。桌面不走这一步
+  // 自动画质（存档里是 'auto'，即玩家没手动选过）：连续 4 秒平均帧间隔超过 24 毫秒（明显掉帧）就降一档，只在本次运行有效
   const autoQ = { last: 0, acc: 0, n: 0 };
   function autoQualityWatch() {
     const now = performance.now();
     const d = autoQ.last ? now - autoQ.last : 0;
     autoQ.last = now;
-    const floorWatch = qualId === 'low' && !W.scaleFloor && touchOnQ(); // 低画质：只有触屏还要再看一档（像素比兜底）
-    if ((qualId === 'low' && !floorWatch) || !G.save || !G.save.opts || G.save.opts.quality !== 'auto' || document.hidden || pendingZone || G.state.paused) {
+    if (qualId === 'low' || !G.save || !G.save.opts || G.save.opts.quality !== 'auto' || document.hidden || pendingZone || G.state.paused) {
       autoQ.acc = autoQ.n = 0;
       return;
     }
@@ -30685,12 +30675,7 @@
     if (autoQ.acc < 4000) return;
     const avg = autoQ.acc / autoQ.n;
     autoQ.acc = autoQ.n = 0;
-    if (avg > 24 && floorWatch) {
-      W.scaleFloor = true;
-      if (window.console) console.info('[画面] 帧间隔平均 ' + avg.toFixed(1) + ' 毫秒，低画质下像素比再降到 ' + FLOOR_SCALE);
-      W.resize();
-      if (G.ui && G.ui.refresh && G.ui.isOpen && G.ui.isOpen()) G.ui.refresh();
-    } else if (avg > 24) {
+    if (avg > 24) {
       const next = qualId === 'high' ? 'mid' : 'low';
       if (window.console) console.info('[画面] 帧间隔平均 ' + avg.toFixed(1) + ' 毫秒，画质自动降到「' + (next === 'mid' ? '中' : '低') + '」');
       W.setQuality(next);

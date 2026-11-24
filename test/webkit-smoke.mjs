@@ -211,7 +211,7 @@ await step('画面：渲染在跑（时间在走、没有丢失上下文），�
   return '画质 ' + g.quality + '（后期 ' + g.post + '，DPR ' + g.dpr + ' × ' + g.scale + '），GPU 纹理 ' + g.tex + ' 张、场景材质约 ' + g.texMB + ' MB，draws ' + g.draws;
 });
 
-await step('M2：iPhone 没有震动接口，设置里不显示「震动」；地图页区域卡片的「进入」看得见；长按区域卡片出详情，松手留着', async () => {
+await step('M2：iPhone 没有震动接口，设置里不显示「震动」；长按地图上的区域卡片出详情，松手留着', async () => {
   const r = await ev(() => ({ vib: typeof navigator.vibrate, can: G.touch.canVibe() }));
   await ev(() => G.ui.pause());
   await tap('#p-menu [data-tact="settings"]');
@@ -222,10 +222,6 @@ await step('M2：iPhone 没有震动接口，设置里不显示「震动」；�
     G.ui.open('map');
   });
   await page.waitForTimeout(500);
-  const m = await ev(() => {
-    const z = document.querySelector('.zone'), b = z.querySelector('.btn').getBoundingClientRect(), c = z.getBoundingClientRect();
-    return { inCard: b.top >= c.top - 0.5 && b.bottom <= c.bottom + 0.5, onScreen: b.bottom <= innerHeight && b.top >= 0, h: Math.round(b.height), scroll: getComputedStyle(document.getElementById('panel-body')).overflowY };
-  });
   await touch('touchstart', '.zone[data-tip="zone:1:0"]');
   await page.waitForTimeout(700);
   const a = await ev(() => ({ tip: getComputedStyle(document.getElementById('tip')).display !== 'none' && document.getElementById('tip').textContent.length > 0, lp: G.touch.state().lp }));
@@ -234,9 +230,8 @@ await step('M2：iPhone 没有震动接口，设置里不显示「震动」；�
   const b = await ev(() => ({ tip: getComputedStyle(document.getElementById('tip')).display !== 'none', lp: G.touch.state().lp }));
   await ev(() => G.ui.close());
   assert(!r.can && !rows.includes('震动') && rows.includes('按钮大小') && rows.includes('左手模式'), '没有震动接口时不该显示震动：' + JSON.stringify({ r, rows }));
-  assert(m.inCard && m.onScreen && m.h >= 39 && m.scroll === 'auto', '地图页卡片的进入键应看得见、整页能滚：' + JSON.stringify(m));
   assert(a.tip && a.lp === 'on' && b.tip && b.lp === 'stuck', '长按区域卡片应出详情、松手留着：' + JSON.stringify({ a, b }));
-  return 'vibrate ' + r.vib + '，设置 ' + rows.length + ' 项（无震动）；进入键 ' + m.h + ' px；长按详情留着';
+  return 'vibrate ' + r.vib + '，设置 ' + rows.length + ' 项（无震动）；长按详情留着';
 });
 
 await browser.close();

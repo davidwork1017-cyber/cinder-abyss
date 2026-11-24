@@ -4311,7 +4311,7 @@ html.touch-ui #narr { bottom: auto; top: calc(var(--sa-t) + 104px); max-width: c
 html.touch-ui #narr p { white-space: normal; }
 
 /* ============================================================
-   手机版 M2（只在 html.touch-ui 下）：长按 / 拖拽、T44 剩下的面板（角色页、技能 / 天赋 / 地图页太挤）
+   手机版 M2（只在 html.touch-ui 下）：长按 / 拖拽、按钮大小、左手模式（面板布局交给 UI-R，这里不动）
    ============================================================ */
 /* 背包里的拖拽源：手指按住不动是长按看详情，挪过 8 px 才是拖拽（浏览器不抢去滚动）；辅助宝石列表很长，竖着划照常滚动，横着拖才是拖拽 */
 html.touch-ui #panel [data-drag] { touch-action: none; -webkit-touch-callout: none; }
@@ -4320,105 +4320,6 @@ html.touch-ui #panel .sup[data-drag] { touch-action: pan-y; }
 html.touch-ui .tree-view { touch-action: none; }
 /* 地图卡片的长按详情：区域字 */
 .tc-glyph { display: grid; place-items: center; width: 42px; height: 42px; font-family: var(--serif); font-size: 26px; color: var(--c); background: #0e0a08; border: 1px solid color-mix(in srgb, var(--c) 50%, #3d2c1e); border-radius: 4px; }
-
-/* ---------- 角色页：横屏矮屏上两排卡片都放得下（藏起标志、卡片收紧、三列） ---------- */
-@media (max-height: 500px) {
-  html.touch-ui #title.sub.chars .t-logo { display: none; }
-  html.touch-ui #title.sub.chars .t-main { top: 6px; bottom: 30px; justify-content: flex-start; }
-  html.touch-ui #title.sub.chars .m-view { margin-top: 4px; padding: 8px 14px 10px; }
-  html.touch-ui #title.sub.chars .m-head { padding-bottom: 5px; }
-  html.touch-ui .ch-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding-top: 4px; }
-  html.touch-ui .ch-card { min-height: 0; padding: 6px 10px; gap: 1px; }
-  html.touch-ui .ch-card.empty { min-height: 64px; }
-  html.touch-ui .ch-acts { padding-top: 4px; }
-  html.touch-ui .ch-acts .btn { height: 30px; }
-  html.touch-ui .ch-foot { margin-top: 6px; }
-  html.touch-ui .ch-foot .m-note { font-size: 11.5px; line-height: 16px; }
-  html.touch-ui .ch-trash { margin-top: 6px; padding: 5px 10px; }
-}
-@media (max-height: 360px) {
-  html.touch-ui .ch-card .ch-t { display: none; }
-  html.touch-ui .ch-card.empty { min-height: 54px; }
-  html.touch-ui .ch-card.empty span { display: none; }
-}
-
-/* ---------- 技能页 ---------- */
-@media (max-width: 900px), (max-height: 500px) {
-  html.touch-ui .skills { grid-template-columns: minmax(0, 1fr) minmax(220px, 34%); gap: 12px; }
-  /* 右栏（武器技 + 辅助宝石）整栏滚动：矮屏上武器技卡片就占满了，辅助宝石原来被挤出屏外 */
-  html.touch-ui .skills > .col-side { overflow-y: auto; scrollbar-width: thin; scrollbar-color: #5e4329 transparent; padding-right: 4px; }
-  html.touch-ui .skills > .col-side > .sup-list { flex: none; min-height: auto; overflow: visible; }
-  html.touch-ui .barstrip { gap: 6px; }
-}
-/* 技能栏的格子窄到不到 100 px：只留图标和按键（技能名长按看） */
-@container bslot (max-width: 100px) {
-  html.touch-ui .bs-icon { width: 34px; height: 34px; }
-  html.touch-ui .barslot .bs-txt, html.touch-ui .wbarslot .bs-txt { margin: 0 3px 0 5px; }
-  html.touch-ui .bs-txt b { font-size: 12px; }
-}
-/* 竖屏：一列，整页滚动（技能栏 → 技能 → 武器技 → 辅助宝石） */
-@media (max-width: 600px) {
-  html.touch-ui .skills { display: flex; flex-direction: column; overflow-y: auto; gap: 14px; scrollbar-width: thin; scrollbar-color: #5e4329 transparent; }
-  html.touch-ui .skills > .col { flex: none; min-height: auto; overflow: visible; padding-right: 0; }
-  html.touch-ui .skill-list { flex: none; min-height: auto; overflow: visible; grid-template-columns: minmax(0, 1fr); }
-  html.touch-ui .barstrip { flex-wrap: wrap; }
-  html.touch-ui .barstrip > * { flex: 1 1 30%; max-width: none; }
-}
-
-/* ---------- 天赋页 ---------- */
-@media (max-width: 900px), (max-height: 500px) {
-  html.touch-ui .tree { grid-template-columns: minmax(0, 1fr) minmax(210px, 32%); gap: 12px; }
-  /* 图例挪到左下角，不和右上的缩放键、说明挤在一起；「滚轮缩放」这类鼠标说明不显示 */
-  html.touch-ui .tree-legend { top: auto; bottom: 8px; left: 10px; right: 10px; flex-wrap: wrap; gap: 4px 12px; pointer-events: none; }
-  html.touch-ui .tree-legend .lg { white-space: nowrap; }
-  html.touch-ui .tree-legend .lg-sep, html.touch-ui .tree-legend > span:last-child:not(.lg) { display: none; }
-  html.touch-ui .tree-zoom { top: 6px; right: 6px; }
-  html.touch-ui .tree-zoom button { min-width: 40px; height: 36px; }
-  /* 右栏整栏滚动：天赋点、六条支路、已获得的加成、重置 */
-  html.touch-ui .tree-side { overflow-y: auto; scrollbar-width: thin; scrollbar-color: #5e4329 transparent; padding-right: 4px; }
-  html.touch-ui .tree-side > .tree-sum { flex: none; min-height: 0; overflow: visible; }
-  html.touch-ui .tree-side > .btn { flex: none; }
-  html.touch-ui .pts { padding: 6px 12px; }
-  html.touch-ui .pts > b { font-size: 32px; line-height: 36px; }
-}
-@media (max-width: 600px) {
-  html.touch-ui .tree { display: flex; flex-direction: column; overflow-y: auto; gap: 12px; scrollbar-width: thin; scrollbar-color: #5e4329 transparent; }
-  html.touch-ui .tree-view { flex: none; height: min(520px, calc(var(--app-h) * 0.58)); }
-  html.touch-ui .tree-side { flex: none; overflow: visible; }
-}
-
-/* ---------- 地图页：卡片收成一小块（区域字、名字、怪物等级、进入），简介和首领长按看；整页滚动，选项行放不下就换行 ---------- */
-@media (max-width: 900px), (max-height: 500px) {
-  html.touch-ui .map { height: auto; min-height: 100%; }
-  html.touch-ui #panel-body:has(> .map) { overflow-y: auto; scrollbar-width: thin; scrollbar-color: #5e4329 transparent; }
-  html.touch-ui .tier-row { gap: 10px; flex-wrap: wrap; }
-  html.touch-ui .tier { min-width: 40px; height: 36px; }
-  html.touch-ui .zones { flex: none; gap: 8px; margin-top: 10px; }
-  html.touch-ui .zone { min-height: 0; }
-  html.touch-ui .z-art { flex: none; height: 46px; min-height: 0; }
-  html.touch-ui .zones .z-glyph { font-size: 40px; }
-  html.touch-ui .z-body { padding: 6px 9px 8px; }
-  html.touch-ui .zones .z-name { font-size: 15px; letter-spacing: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  html.touch-ui .zones .z-meta { margin-top: 2px; font-size: 11px; gap: 4px; }
-  html.touch-ui .zones .z-meta span { white-space: nowrap; }
-  html.touch-ui .zones .z-desc, html.touch-ui .zones .z-boss { display: none; }
-  html.touch-ui .z-body .btn, html.touch-ui .z-lock { margin-top: 6px; height: 40px; }
-  html.touch-ui .z-lock { padding: 0 4px; font-size: 11px; line-height: 14px; text-align: center; overflow: hidden; }
-  html.touch-ui .zones .z-badge, html.touch-ui .zones .z-here, html.touch-ui .zones .z-ord { font-size: 10.5px; }
-  html.touch-ui .pin-node, html.touch-ui .seal-pick, html.touch-ui .seal-now { flex: none; }
-  html.touch-ui .map-opts { flex-wrap: wrap; row-gap: 10px; }
-  html.touch-ui .map-opts > * { flex-shrink: 0; }
-  html.touch-ui .map-opts > .opt-text { flex: 0 1 auto; min-width: 0; max-width: 200px; }
-  html.touch-ui .map-opts > .opt-text b { white-space: nowrap; }
-  html.touch-ui .map-opts .seg-b { min-height: 36px; }
-}
-@media (max-width: 600px) {
-  html.touch-ui .zones { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  html.touch-ui .map-opts > .opt-sep { display: none; }
-}
-@media (min-width: 601px) and (max-width: 720px) {
-  html.touch-ui .zones .z-ord { display: none; } /* 卡片只有 120 多像素宽：「第一境」和角标挤在一起，留角标 */
-}
 
 /* ---------- M2 设置：按钮大小、左手模式 ---------- */
 html.touch-ui.t-size-s { --tk: 0.88; }
@@ -4433,5 +4334,3 @@ html.touch-ui.t-size-l { --tk: 1.15; }
 }
 /* 左手模式：摇杆区挪到右下，按钮簇在左下（顶栏、小地图、追踪条不动） */
 html.touch-ui.t-mirror #t-stick { left: auto; right: 0; }
-.m-val { flex: none; min-width: 52px; padding: 4px 8px; text-align: center; font-size: 13px; font-weight: 600; color: #e6d7bd; background: #130d0a; border: 1px solid #3d2c1e; border-radius: 3px; font-variant-numeric: tabular-nums; }
-.m-val.warn { color: #ffcf8a; border-color: #8a5a2a; }
