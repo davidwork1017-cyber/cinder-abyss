@@ -3698,6 +3698,8 @@ html.title-on #reticle, html.title-on #vignette, html.title-on #lowlife, html.ti
 #t-new.off:hover { color: #e6d7bd; border-color: var(--line-2); border-left-color: #5e4329; box-shadow: none; }
 #t-new-hint:empty, #t-chars-n:empty { display: none; }
 #title.sub.chars .t-main { width: min(640px, calc(100vw - 32px)); }
+/* 窄窗口（手机横屏 667 宽之类）：左边距 + 640 会跑出右边，宽度再扣掉左边距（1024 及以上不受影响） */
+@media (max-width: 720px) { #title.sub.chars .t-main { width: calc(100vw - 16px - clamp(24px, 7vw, 120px)); } }
 .ch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 10px; padding: 6px 0 2px; }
 .ch-card {
   display: flex;
@@ -4049,3 +4051,257 @@ body.paused #reticle, body.paused #coach { display: none; }
 .btn.sm.stb { margin-left: auto; color: #ffd28a; border-color: #6b4a28; }
 .btn.sm.stb.on { background: rgba(120, 80, 30, 0.35); }
 .m-view.still { animation: none; }
+
+/* ============================================================
+   主线旁白卡（quest D3，ui.js updateNarr）：和开场故事的字幕框同一个样子（米色底、墨色粗边、硬投影），
+   屏幕中下方居中（角色脚下和技能栏之间，不挡角色和前方的路）；只有卡片本身接点击（点一下跳过），其余地方照常是游戏输入
+   ============================================================ */
+#narr {
+  position: fixed;
+  left: 50%;
+  bottom: max(26%, 200px);
+  z-index: 32;
+  display: none;
+  max-width: calc(100vw - 32px);
+  box-sizing: border-box;
+  padding: 0.5em 0.95em 0.55em;
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: clamp(15px, 1.6vw, 21px);
+  line-height: 1.55;
+  letter-spacing: 0.04em;
+  color: #1d130d;
+  background: #f2e8d2;
+  border: 2.5px solid #120b08;
+  box-shadow: 4px 4px 0 rgba(10, 6, 4, 0.9);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  opacity: 0;
+  transform: translate(-50%, 6px);
+  transition: opacity var(--narr-out, 0.6s) ease, transform var(--narr-out, 0.6s) ease;
+}
+#narr.show { display: block; }
+#narr.on { opacity: 1; transform: translate(-50%, 0); transition-duration: var(--narr-in, 0.4s); }
+#narr.held { visibility: hidden; }
+#narr p { margin: 0; white-space: nowrap; }
+#narr p + p { opacity: 0; transition: opacity 0.4s ease; }
+#narr.l2 p + p { opacity: 1; }
+@media (max-width: 560px) {
+  #narr { bottom: max(24%, 190px); width: calc(100vw - 32px); text-align: center; }
+  #narr p { white-space: normal; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #narr, #narr.on { transform: translate(-50%, 0); }
+}
+
+/* ============================================================
+   开场卡片在矮窗口（桌面小窗、手机横屏）：收紧排版，「开始」一直在屏幕里（最低 360 高）
+   ============================================================ */
+@media (max-height: 600px) {
+  .intro-card { max-height: calc(100vh - 12px); overflow-y: auto; box-sizing: border-box; padding: 14px 24px 12px; }
+  .intro-title { font-size: 30px; letter-spacing: 12px; text-indent: 12px; }
+  .intro-sub { margin-top: 0; }
+  .intro-keys { grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0 10px; }
+  .intro-keys div { padding: 8px 4px 7px; font-size: 12.5px; line-height: 17px; letter-spacing: 1px; }
+  .intro-keys span { margin-bottom: 5px; }
+  .intro-card p { margin-bottom: 10px; line-height: 19px; }
+  #intro-go { height: 36px; }
+  .intro-foot { margin-top: 8px; }
+}
+
+/* 画面丢失（WebGL 上下文被收回）：先存档，存成功了等画面回来就重载（main.js） */
+#ctx-lost { position: fixed; inset: 0; z-index: 95; display: none; place-items: center; padding: 0 24px; text-align: center; font-size: 16px; letter-spacing: 2px; color: #f2dfb8; background: rgba(6, 4, 3, 0.92); }
+#ctx-lost.on { display: grid; }
+
+/* ============================================================
+   触屏 HUD（js/touch.js）：全部写在 html.touch-ui 下面，桌面不受影响
+   安全区：真机用 env(safe-area-inset-*)，测试用 --t-safe-* 假装
+   ============================================================ */
+html.touch-ui {
+  --sa-t: max(env(safe-area-inset-top, 0px), var(--t-safe-t, 0px));
+  --sa-r: max(env(safe-area-inset-right, 0px), var(--t-safe-r, 0px));
+  --sa-b: max(env(safe-area-inset-bottom, 0px), var(--t-safe-b, 0px));
+  --sa-l: max(env(safe-area-inset-left, 0px), var(--t-safe-l, 0px));
+  --cr: calc(var(--sa-r) + 10px);
+  --cb: calc(var(--sa-b) + 10px);
+  -webkit-touch-callout: none;
+  -webkit-text-size-adjust: 100%;
+}
+html.touch-ui, html.touch-ui body { overscroll-behavior: none; }
+html.touch-ui #gl, html.touch-ui #overlay, html.touch-ui #touch { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+html.touch-ui #hud, html.touch-ui #hud * { -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+html.touch-ui #gl { cursor: default; }
+#touch { display: none; }
+html.touch-ui #touch { display: block; }
+html.touch-ui.title-on #t-top, html.touch-ui.title-on #t-stick, html.touch-ui.title-on #t-f { display: none; }
+#t-safe { position: fixed; top: var(--sa-t); right: var(--sa-r); bottom: var(--sa-b); left: var(--sa-l); visibility: hidden; pointer-events: none; }
+
+/* 左上：生命 / 法力横条 + 面板入口 */
+#t-top { position: fixed; left: calc(var(--sa-l) + 8px); top: calc(var(--sa-t) + 6px); z-index: 6; display: flex; align-items: flex-start; gap: 8px; }
+.t-bars { width: 148px; display: flex; flex-direction: column; gap: 4px; padding-top: 2px; }
+.t-bar { position: relative; height: 18px; overflow: hidden; background: rgba(10, 7, 5, 0.82); border: 1px solid #6b4e30; border-radius: 3px; }
+.t-bar i { position: absolute; inset: 0; transform-origin: left center; }
+.t-bar.life i { background: linear-gradient(180deg, #ff6a50, #a8170e); }
+.t-bar.mana i { background: linear-gradient(180deg, #6aa6ff, #1c4aa8); }
+.t-bar b { position: absolute; inset: 0; font-size: 11.5px; line-height: 17px; font-weight: 600; text-align: center; color: #fff; text-shadow: 0 1px 2px #000, 0 0 3px #000; font-variant-numeric: tabular-nums; }
+.t-btns { display: flex; gap: 4px; }
+.t-btns button {
+  position: relative;
+  min-width: 44px;
+  height: 44px;
+  padding: 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #f2dfb8;
+  background: rgba(14, 9, 6, 0.72);
+  border: 1px solid rgba(150, 110, 64, 0.6);
+  border-radius: 6px;
+  touch-action: manipulation;
+}
+.t-btns button.on { color: #fff3dc; background: linear-gradient(180deg, #b4551c, #6f2c0b); border-color: #ffb066; }
+.t-btns button.dot::after { content: ''; position: absolute; right: 4px; top: 4px; width: 8px; height: 8px; border-radius: 50%; background: #ff9a3c; box-shadow: 0 0 6px #ff9a3c; }
+
+/* 区域名挪到横条下面，字小一号；按键提示隐藏 */
+html.touch-ui #zone-box { left: calc(var(--sa-l) + 8px); top: calc(var(--sa-t) + 56px); max-width: 176px; }
+html.touch-ui #zone-name { font-size: 15px; letter-spacing: 2px; }
+html.touch-ui #zone-sub { margin-top: 1px; font-size: 11px; }
+html.touch-ui #zone-sub i { margin: 0 4px 2px; }
+html.touch-ui #keyhints { display: none; }
+html.touch-ui .orb { display: none; }
+html.touch-ui .orb-wrap { display: contents; }
+
+/* 首领条：顶栏下面、小地图左边 */
+html.touch-ui #boss-box { top: calc(var(--sa-t) + 56px); left: calc(var(--sa-l) + 196px); right: calc(var(--sa-r) + 132px); width: auto; max-width: 460px; margin: 0 auto; transform: translateY(-8px); }
+html.touch-ui #boss-box.on { transform: none; }
+
+/* 右上：小地图（2D 画布上画，110 px，见 W.mmTouch），主线追踪紧贴在下面，两行 */
+html.touch-ui #quest { right: calc(var(--sa-r) + 8px); top: calc(var(--sa-t) + 122px); width: 158px; }
+html.touch-ui #quest .q-k { font-size: 11px; line-height: 15px; letter-spacing: 1px; }
+html.touch-ui #quest .q-goal { font-size: 13px; line-height: 18px; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+html.touch-ui #quest .q-how, html.touch-ui #quest .q-h, html.touch-ui #quest .q-alt { display: none; }
+html.touch-ui #zone-loading { right: calc(var(--sa-r) + 8px); top: calc(var(--sa-t) + 122px); width: 110px; padding: 4px 6px; font-size: 11px; }
+html.touch-ui body.quest-on #combo, html.touch-ui #combo { top: calc(var(--sa-t) + 118px); right: calc(var(--sa-r) + 176px); }
+html.touch-ui #combo-n { font-size: 38px; line-height: 38px; }
+html.touch-ui .cb-label { font-size: 11px; letter-spacing: 4px; text-indent: 4px; }
+html.touch-ui .cb-bar { width: 64px; margin-top: 4px; }
+/* 提示卡：顶栏下方居中、不超过 40% 宽、最多两行（点一下展开），不压摇杆区和按钮簇；首领条出来时排到它下面 */
+html.touch-ui #coach { --cw: min(40vw, 360px, calc(100vw - 2 * max(var(--sa-l), var(--sa-r)) - 348px)); left: 50%; top: calc(var(--sa-t) + 56px); width: var(--cw); margin-left: calc(var(--cw) / -2); box-sizing: border-box; padding: 5px 10px 6px; border-left-width: 2px; }
+html.touch-ui #coach.on { pointer-events: auto; }
+html.touch-ui.t-boss #coach { top: calc(var(--sa-t) + 112px); }
+html.touch-ui #coach .co-tag, html.touch-ui #coach .co-ok { display: none; }
+html.touch-ui .co-body { margin-top: 0; font-size: 12px; line-height: 17px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+html.touch-ui #coach.t-open .co-body { display: block; -webkit-line-clamp: unset; }
+html.touch-ui #feed { left: calc(var(--sa-l) + 8px); bottom: auto; top: calc(var(--sa-t) + 100px); }
+html.touch-ui #toasts { top: calc(var(--sa-t) + 116px); }
+html.touch-ui #big-toast { top: 30%; }
+
+/* 准星只在拖动瞄准时出现 */
+html.touch-ui #reticle { display: none !important; }
+html.touch-ui.t-aiming #reticle { display: block !important; }
+
+/* 底部：经验条压成 3 px 贴底；技能栏拆开，格子摆成右下的按钮簇 */
+html.touch-ui #console { position: fixed; inset: 0; left: 0; bottom: 0; transform: none; display: block; pointer-events: none; }
+html.touch-ui #bar, html.touch-ui #slots { display: contents; }
+html.touch-ui .bar-sep, html.touch-ui #gauge, html.touch-ui #pp-remind { display: none !important; }
+html.touch-ui #xp { position: fixed; left: var(--sa-l); right: var(--sa-r); bottom: var(--sa-b); width: auto; height: 3px; gap: 0; }
+html.touch-ui #xp-lv, html.touch-ui #xp-pct { display: none; }
+html.touch-ui #xp .xp-track { height: 3px; border: none; border-radius: 0; }
+html.touch-ui [data-tb] { position: absolute; pointer-events: auto; touch-action: none; -webkit-tap-highlight-color: transparent; }
+html.touch-ui .slot[data-tb] { --sz: 54px; width: var(--sz); height: var(--sz); gap: 0; }
+html.touch-ui .slot[data-tb] .s-icon { width: var(--sz); height: var(--sz); border-radius: 50%; }
+html.touch-ui .slot[data-tb] .s-icon > .s-img { inset: 18%; }
+html.touch-ui .slot[data-tb] .s-key, html.touch-ui .slot.basic[data-tb] .s-icon::after { display: none; }
+html.touch-ui .slot[data-tb] .s-cdnum { font-size: 17px; }
+html.touch-ui .slot.t-down .s-icon, html.touch-ui #dodge.t-down .d-icon, html.touch-ui .flask.t-down .flask-body, html.touch-ui #t-f.t-down { filter: brightness(1.35); }
+html.touch-ui .slot[data-tb="s0"] { --sz: 76px; right: var(--cr); bottom: var(--cb); }
+html.touch-ui .slot[data-tb="s1"] { --sz: 58px; right: calc(var(--cr) + 86px); bottom: var(--cb); }
+html.touch-ui .slot[data-tb="s2"] { right: calc(var(--cr) + 80px); bottom: calc(var(--cb) + 70px); }
+html.touch-ui .slot[data-tb="s3"] { right: calc(var(--cr) + 11px); bottom: calc(var(--cb) + 86px); }
+html.touch-ui .slot[data-tb="s4"] { right: calc(var(--cr) + 150px); bottom: calc(var(--cb) + 66px); }
+html.touch-ui #dodge[data-tb] { width: 52px; height: 52px; margin: 0; gap: 0; right: calc(var(--cr) + 152px); bottom: calc(var(--cb) + 4px); }
+html.touch-ui #dodge[data-tb] .d-icon { width: 52px; height: 52px; box-sizing: border-box; }
+html.touch-ui #dodge[data-tb] .s-key { display: none; }
+html.touch-ui .flask[data-tb] { width: 46px; height: 50px; margin: 0; gap: 0; justify-content: center; border-radius: 8px; background: rgba(14, 9, 6, 0.55); border: 1px solid rgba(150, 110, 64, 0.45); box-sizing: border-box; }
+html.touch-ui .flask[data-tb] kbd { display: none; }
+html.touch-ui #flask-life[data-tb] { right: calc(var(--cr) + 264px); bottom: calc(var(--cb) + 6px); }
+html.touch-ui #flask-mana[data-tb] { right: calc(var(--cr) + 214px); bottom: calc(var(--cb) + 6px); }
+/* F 情境键：附近有可处决的敌人、掉落、宝箱或异兆互动点时才出现（武器技左边、药瓶上方：矮屏上也不碰右上的追踪条） */
+#t-f { display: none; z-index: 6; width: 52px; height: 52px; right: calc(var(--cr) + 212px); bottom: calc(var(--cb) + 66px); box-sizing: border-box; place-items: center; font-size: 20px; font-weight: 700; color: #1a0f08; background: radial-gradient(circle at 50% 35%, #ffe2a0, #d88a2c); border: 2px solid #fff1d0; border-radius: 50%; box-shadow: 0 0 14px rgba(255, 170, 60, 0.7); }
+#t-f.on { display: grid; }
+
+/* 浮动摇杆：左下 45% 宽、下一半高的区域里落指生成 */
+#t-stick { position: fixed; left: 0; bottom: 0; width: 45%; height: 50%; z-index: 5; }
+#t-stick i { position: fixed; left: 0; top: 0; display: none; border-radius: 50%; pointer-events: none; }
+#t-stick.on i { display: block; }
+#t-stick .t-base { width: 108px; height: 108px; margin: -54px 0 0 -54px; background: rgba(20, 13, 9, 0.35); border: 2px solid rgba(242, 223, 184, 0.45); box-sizing: border-box; }
+#t-stick .t-knob { width: 50px; height: 50px; margin: -25px 0 0 -25px; background: radial-gradient(circle at 50% 35%, rgba(255, 236, 200, 0.85), rgba(190, 130, 70, 0.75)); box-shadow: 0 0 10px rgba(0, 0, 0, 0.5); }
+
+/* 竖屏：盖一层「请横屏游玩」，模拟暂停（面板、标题画面、菜单在它上面，照常可用） */
+#t-portrait { position: fixed; inset: 0; z-index: 9; display: none; place-items: center; text-align: center; background: rgba(6, 4, 3, 0.94); }
+#t-portrait.on { display: grid; }
+#t-portrait b { display: block; font-family: var(--serif); font-size: 22px; letter-spacing: 6px; color: #f2dfb8; }
+#t-portrait span { display: block; margin-top: 10px; font-size: 13px; letter-spacing: 1px; color: #b9ac96; }
+html.touch-ui.t-portrait #t-top, html.touch-ui.t-portrait #t-stick, html.touch-ui.t-portrait #t-f, html.touch-ui.t-portrait [data-tb] { display: none !important; }
+
+/* 首次提示卡：每台设备一次 */
+#t-hint { position: fixed; inset: 0; z-index: 21; display: none; place-items: center; padding: 12px; background: rgba(4, 2, 2, 0.62); }
+#t-hint.on { display: grid; }
+.th-card { width: min(440px, 92vw); max-height: calc(100vh - 24px); overflow-y: auto; box-sizing: border-box; padding: 16px 20px 14px; text-align: center; background: linear-gradient(180deg, rgba(42, 25, 12, 0.97), rgba(16, 10, 7, 0.97)); border: 1px solid #c58a4a; border-radius: 4px; }
+.th-title { font-family: var(--serif); font-size: 18px; letter-spacing: 6px; color: #f2dfb8; }
+.th-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0; }
+.th-list div { padding: 8px 6px; font-size: 13px; line-height: 19px; color: #e6d7bd; background: #110c09; border: 1px solid #2e2219; border-radius: 3px; }
+.th-list b { display: block; color: #ffd9a0; font-weight: 600; }
+#t-hint-ok { min-width: 120px; height: 44px; font-size: 15px; letter-spacing: 4px; }
+
+/* 开场卡片：触屏说法（js/touch.js 换内容），去掉 Enter */
+html.touch-ui .intro-keys span { align-items: center; font-weight: 600; color: #ffd9a0; }
+html.touch-ui #intro-go { height: 44px; }
+html.touch-ui #intro-go kbd { display: none; }
+/* 触屏没有键盘：菜单和面板上的按键角标（Esc、Enter）不显示 */
+html.touch-ui .m-btn kbd, html.touch-ui .m-head kbd, html.touch-ui #panel-close kbd { display: none; }
+
+/* 触屏：可见高度。iOS 上 100vh 是工具栏收起时的高度，比看得见的高；js/touch.js 按 visualViewport 写 --app-h（没有就用 dvh）。
+   全屏的层用 inset: 0（贴着可见区域），这里只把按 vh 算尺寸的几处换掉 */
+html.touch-ui { --app-h: 100dvh; }
+html.touch-ui #panel-win { height: min(736px, calc(var(--app-h) * 0.92)); }
+@media (max-width: 900px), (max-height: 500px) {
+  html.touch-ui #panel-win { height: var(--app-h); }
+}
+html.touch-ui .pause-card { max-height: calc(var(--app-h) - 16px); }
+html.touch-ui .intro-card { max-height: calc(var(--app-h) - 12px); overflow-y: auto; box-sizing: border-box; }
+html.touch-ui .th-card { max-height: calc(var(--app-h) - 24px); }
+html.touch-ui .pk-list { max-height: min(330px, calc(var(--app-h) * 0.46)); }
+html.touch-ui .t-emblem { width: clamp(56px, calc(var(--app-h) * 0.15), 120px); height: clamp(56px, calc(var(--app-h) * 0.15), 120px); }
+html.touch-ui .t-name { font-size: clamp(40px, calc(var(--app-h) * 0.11), 86px); }
+html.touch-ui .m-menu { margin-top: clamp(10px, calc(var(--app-h) * 0.045), 40px); }
+html.touch-ui body, html.touch-ui #panel, html.touch-ui #hud, html.touch-ui #title, html.touch-ui #intro, html.touch-ui #pause { height: var(--app-h); bottom: auto; }
+@media (max-width: 560px) {
+  html.touch-ui #title.clsv .t-main { max-height: calc(var(--app-h) * 0.62); }
+}
+/* 矮屏（iOS 横屏工具栏占掉一截，340 高以下）：开场卡片再收紧 */
+@media (max-height: 360px) {
+  .intro-card { padding: 10px 20px 10px; }
+  .intro-title { font-size: 24px; letter-spacing: 10px; text-indent: 10px; }
+  .intro-keys { margin: 8px 0 8px; }
+  .intro-keys div { padding: 6px 4px 5px; }
+  .intro-card p { margin-bottom: 8px; font-size: 12px; line-height: 17px; }
+  .intro-foot { margin-top: 6px; }
+}
+html.touch-ui .st-skip kbd { display: none; }
+/* 职业选择在矮屏上要滚动：「以 X 开始」钉在列表底部，不用滚到底才找得到 */
+html.touch-ui #title .m-body .m-acts { position: sticky; bottom: 0; z-index: 2; margin: 8px 0 0; padding: 8px 0 2px; background: #0d0907; border-top: 1px solid var(--line-2); box-shadow: 0 -8px 10px #0d0907; }
+html.touch-ui .slot.empty[data-tb] { opacity: 0.5; }
+html.touch-ui kbd.t-kh { display: none; }
+/* 触屏：轻点不出悬停浮窗（详情栏里已经有了，浮窗只会挡住格子），长按时才出 */
+html.touch-ui:not(.t-lp) #tip { display: none !important; }
+/* 触屏的按键表：标签都很短，左列按内容收窄，说明占满剩下的宽度 */
+html.touch-ui .hk-keys { width: auto; min-width: 52px; }
+html.touch-ui .hk > span:last-child { flex: 1; min-width: 0; }
+/* 打起来以后提示卡收成一行、变淡（js/touch.js 加 t-min；点一下展开） */
+html.touch-ui #coach.on.t-min:not(.t-open) { opacity: 0.55; }
+html.touch-ui #coach.t-min:not(.t-open) .co-body { -webkit-line-clamp: 1; }
+
+/* 触屏：旁白卡放在顶栏、提示卡下方居中，字小一号、可以折行，不压小地图 / 追踪条、摇杆区和按钮簇 */
+html.touch-ui #narr { bottom: auto; top: calc(var(--sa-t) + 104px); max-width: calc(100vw - 2 * max(var(--sa-l), var(--sa-r)) - 360px); font-size: 13px; line-height: 1.5; }
+html.touch-ui #narr p { white-space: normal; }

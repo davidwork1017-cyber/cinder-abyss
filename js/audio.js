@@ -179,7 +179,8 @@
   function audioInit() {
     try {
       if (live) {
-        if (live.ac.state === 'suspended') live.ac.resume();
+        // iOS 切后台回来是 'interrupted'（桌面只有 suspended / running / closed 三种，和原来一样）
+        if (live.ac.state !== 'running' && live.ac.state !== 'closed') live.ac.resume();
         return;
       }
       const AC = window.AudioContext || window.webkitAudioContext;
@@ -593,9 +594,65 @@
     death: ['sfx', 4, 0.35], boss: ['sfx', 4, 0.3, 1.41], finisher: ['sfx', 4, 0.2, 1.58], break: ['sfx', 4, 0.25, 1.58],
     execstart: ['sfx', 4, 0.1], execute: ['sfx', 4, 0.3, 1.58], markburst: ['sfx', 3, 0.15], ashcuts: ['sfx', 4, 0.3, 1.41],
     tristorm: ['sfx', 4, 0.3, 1.41], soulhost: ['sfx', 4, 0.35, 1.41], soulfire: ['sfx', 3, 0.15],
+    round: ['sfx', 2, 0.05], lamp: ['sfx', 2, 0.08], // 特殊弹 / 提灯（class-d2b1）
   };
 
   const SFX = {
+    // 特殊弹（class-d2b1）：p.type 弹种（zap = 雷楔放电）。铁水弹闷响一枪接滋滋声；雷楔叮地钉进去；霜霰弹一枪清脆的接碎冰声；反冲弹很重的一声炮响接靴底刮地
+    round(t, p) {
+      const v = jit(0.05);
+      if (p.type === 'molten') {
+        noise('lowpass', 1800 * v, 200, t, 0.14, 0.42, 0.8, 0.002);
+        tone('sine', 95 * v, 42, t, 0.16, 0.26, 0.003);
+        crackle(t + 0.08, 0.45, 9, 3200, 0.07);
+        noise('highpass', 2600, 3400, t + 0.08, 0.4, 0.045, 0.7, 0.05);
+      } else if (p.type === 'wedge') {
+        noise('bandpass', 2400 * v, 900, t, 0.06, 0.24, 1.2, 0.002);
+        fm(1900 * v, 2.4, 1.6, t + 0.01, 0.12, 0.09, 0.001);
+        tick(t + 0.005, 4200, 0.16);
+      } else if (p.type === 'zap') {
+        trim(0.9);
+        crackle(t, 0.07, 7, 4600, 0.16);
+        noise('highpass', 3000 * v, 5200, t, 0.05, 0.18, 0.8, 0.001);
+        tone('square', 180 * v, 90, t, 0.04, 0.05, 0.001, 2400);
+      } else if (p.type === 'rime') {
+        tick(t, 5200, 0.3, 0.008);
+        noise('highpass', 2600 * v, 1400, t, 0.09, 0.3, 0.9, 0.001);
+        crackle(t + 0.05, 0.16, 8, 5200, 0.09);
+        noise('bandpass', 3800, 2600, t + 0.05, 0.14, 0.06, 1.4, 0.004);
+      } else {
+        noise('lowpass', 2200 * v, 140, t, 0.32, 0.6, 0.7, 0.002);
+        tone('sine', 72 * v, 30, t, 0.3, 0.42, 0.003);
+        tick(t, 2600, 0.3, 0.014);
+        noise('bandpass', 700 * v, 380, t + 0.08, 0.26, 0.1, 1.1, 0.02);
+      }
+    },
+    // 提灯（class-d2b1）：p.phase。甩灯 = 一声短的铜铃加呼的一下；落地 = 一下噗火；借火 = 低沉的火声往上涨；炸灯 = 闷的一声；灯海 = 往上涨的火声加两声铃
+    lamp(t, p) {
+      const v = jit(0.04);
+      const bell = (t0, f, vol) => {
+        fm(f * v, 2.76, 1.4, t0, 0.32, vol, 0.002);
+        tone('sine', f * 2.01 * v, f * 2.0 * v, t0, 0.22, vol * 0.35, 0.002);
+      };
+      if (p.phase === 'throw') {
+        bell(t, 1250, 0.07);
+        noise('bandpass', 700 * v, 1500, t, 0.16, 0.1, 0.8, 0.03);
+      } else if (p.phase === 'land') {
+        noise('lowpass', 900 * v, 220, t, 0.13, 0.22, 0.8, 0.004);
+        crackle(t + 0.03, 0.18, 4, 2600, 0.04);
+      } else if (p.phase === 'lend' || p.phase === 'sea') {
+        noise('lowpass', 220 * v, 1100, t, 0.7, 0.24, 0.9, 0.25);
+        tone('sine', 70 * v, 120, t, 0.6, 0.12, 0.2);
+        crackle(t + 0.2, 0.5, 8, 2400, 0.05);
+        if (p.phase === 'sea') {
+          bell(t + 0.05, 1050, 0.06);
+          bell(t + 0.18, 1400, 0.05);
+        }
+      } else {
+        noise('lowpass', 1300 * v, 180, t, 0.2, 0.34, 0.8, 0.003);
+        tone('sine', 88 * v, 40, t, 0.18, 0.2, 0.003);
+      }
+    },
     // 远程普攻：机炮短促的「哒」、左轮沉的一声「砰」带金属尾音、弓弦的「嘣」
     shot(t, p) {
       const v = jit(0.05);
@@ -936,7 +993,7 @@
   };
 
   // 同名音效限流（毫秒）：避免同帧叠成一声巨响
-  const MIN_GAP = { shot: 40, hit: 55, crit: 70, cast: 60, hurt: 120, pickup: 60, click: 30, roll: 100, heart: 300, deny: 160, ready: 120, drop: 80, impact: 40, swing: 70, finisher: 150, ashcuts: 300, tristorm: 300, soulhost: 300, break: 200, execute: 200, execstart: 200, kill: 70 };
+  const MIN_GAP = { round: 40, lamp: 50, shot: 40, hit: 55, crit: 70, cast: 60, hurt: 120, pickup: 60, click: 30, roll: 100, heart: 300, deny: 160, ready: 120, drop: 80, impact: 40, swing: 70, finisher: 150, ashcuts: 300, tristorm: 300, soulhost: 300, break: 200, execute: 200, execstart: 200, kill: 70 };
   const NO_P = {};
 
   // 排一次音效：nowMs 限流用的时钟，t 开始时间（AudioContext 时间）
@@ -999,6 +1056,8 @@
     CEIL,
     init: audioInit,
     ctx: () => (live ? live.ac : null),
+    // 在用户手势里建 / 唤醒 AudioContext（同首次按键、点击）。iOS 只认 touchend，触屏模式（js/touch.js）在 touchend 里调它
+    unlock: () => audioInit(),
     running: () => !!live && live.ac.state === 'running',
     bus: (name) => (live && live.bus[name]) || null,
     reverb: () => (live ? live.rvIn : null),

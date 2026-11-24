@@ -194,6 +194,8 @@
       wsCap: 1, wsNote: false, // 旋涡斩加「每下最多 9 个」之后的存档；wsNote：选着旋涡斩的老存档，提示还没看过
       bhCap: 1, bhNote: false, // 黑洞加「每跳最多伤到最近的 N 个」之后的存档；bhNote：学了黑洞的老存档，提示还没看过
       stFz: 1, stNote: false, // 魂潮狂热改成 12 秒 +15%（dur-tune）之后的存档；stNote：拿着魂幡（R 是魂潮）的老存档，提示还没看过
+      dhCap: 1, dhNote: false, // 独骸加「每刀最多砍到 N 个」之后的存档；dhNote：选着独骸的老存档，提示还没看过
+      hxCap: 1, hxNote: false, // 回旋加「每程最多伤到 N 个」之后的存档；hxNote：选着回旋的老存档，提示还没看过
       // 渊印：sealSeq 真正进区的次数（择印面板的随机种子，关掉地图再打开还是同样三枚）；
       // run 这一次进区 { zone, tier, seq, seal }（seal 为 null 是素印），读档时区域 / 层级对得上就接着用，倒下重生不动，换区 / 重进清掉
       sealSeq: 0, run: null,
@@ -675,6 +677,13 @@
     s.stNote = !s.tut.stfz && ((raw.stFz === undefined && G.weaponSkillOf(s.equip && s.equip.weapon) === 'soultide') || raw.stNote === true);
     s.stFz = 1;
     G.frenzyNerfed = s.stNote ? 1 : 0;
+    // 渊式独骸 / 回旋加上限（rulea-fix）之前的存档（没有 dhCap / hxCap）：选着这个渊式的提示一次（tut.dhnerf / tut.hxnerf 看过就不再提示）
+    s.dhNote = !s.tut.dhnerf && ((raw.dhCap === undefined && s.variants.thrall === 'c') || raw.dhNote === true);
+    s.dhCap = 1;
+    G.kingNerfed = s.dhNote ? 1 : 0;
+    s.hxNote = !s.tut.hxnerf && ((raw.hxCap === undefined && s.variants.blade === 'c') || raw.hxNote === true);
+    s.hxCap = 1;
+    G.boomNerfed = s.hxNote ? 1 : 0;
     s.variantGen = G.VARIANT_GEN;
     const hadVar = Object.keys(s.variants).length > 0 || Object.keys(G.VARIANTS).some((id) => s.skills[id] >= G.VARIANT_LVL);
     s.varNote = !s.tut.variant2 && ((oldGen && hadVar) || raw.varNote === true);
@@ -712,6 +721,9 @@
     // 熄烛者：击杀次数、巅峰渊契保底（旧存档没有 → 0）
     const rpk = isObj(raw.pinnacle) ? raw.pinnacle : {};
     s.pinnacle = { kills: toInt(rpk.kills, 0, 1e6, 0), pity: toInt(rpk.pity, 0, G.RELIC_DROP.pinnacle.pity, 0) };
+    // 长明（class-d2b1）的保底计数：只在不为 0 时才有这个字段（没打过熄烛者 / 刚掉过的存档和以前一字不差，旧版本读到也不认识、照常丢掉）
+    const lp = toInt(raw.lampPity, 0, G.RELIGHT.pity, 0);
+    if (lp > 0) s.lampPity = lp;
     // 烛芯：旧存档没有（全 0）；只认 G.FRAGS 的种类，个数 0–max。旧存档的保底计数 fragPity 不再读，也不再存
     const rfr = isObj(raw.frags) ? raw.frags : {};
     s.frags = {};
@@ -777,7 +789,7 @@
   }
   G.noteRelic = (it) => noteRelic(it);
 
-  // 画质档位：桌面默认高，手机 / 平板默认中
+  // 画质档位：桌面默认高，手机默认低、平板默认中
   G.QUALITY_IDS = ['high', 'mid', 'low'];
   // 浏览器在用软件渲染（显卡被禁用、SwiftShader / llvmpipe 之类）时默认低：后期处理在 CPU 上太贵
   let softGL = null;
@@ -796,7 +808,17 @@
     }
     return softGL;
   }
-  G.defaultQuality = () => (isSoftGL() ? 'low' : /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') ? 'mid' : 'high');
+  // 触屏设备（主指针是 coarse 且有触点，不只看 UA）：短边不到 500 px 的手机默认低，平板默认中（mobile-design §3）。
+  // 其余照旧：UA 像手机 / 平板但主指针不是 coarse 的默认中，桌面默认高
+  function coarseTouch() {
+    try {
+      return !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches && (navigator.maxTouchPoints > 0 || 'ontouchstart' in window));
+    } catch (e) {
+      return false;
+    }
+  }
+  const shortSide = () => Math.min((window.screen && window.screen.width) || window.innerWidth, (window.screen && window.screen.height) || window.innerHeight);
+  G.defaultQuality = () => (isSoftGL() ? 'low' : coarseTouch() ? (shortSide() < 500 ? 'low' : 'mid') : /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') ? 'mid' : 'high');
 
   // =====================================================================
   // 角色栏位（多存档）
@@ -1987,17 +2009,20 @@
   // 技能在某个等级下的基础伤害（还没算你的伤害属性）：{ 类型: [最小, 最大] }。攻击技能按当前武器算。
   // 技能卡 / 宝石提示用；lvl 缺省取已学等级
   // 攻速折进伤害的攻击技能：有冷却、不是武器技（武器技各自按自己的武器定好了数值）
-  G.cdAps = (sk) => !!(sk && sk.wm && sk.cd > 0 && !sk.weaponOnly && sk.kind !== 'summon');
+  G.cdAps = (sk) => !!(sk && sk.wm && sk.cd > 0 && !sk.weaponOnly && sk.kind !== 'summon' && !sk.round); // 特殊弹按普攻折算，攻速已经算在发数里
   // 按普攻折算的量表技（熔光射线：basicOf / basicSec）：一发 = 普攻转满之后扫射 basicSec 秒的发数。
   // 每秒发数 = 武器攻速 × 攻击速度 ÷ 普攻的 time（不算辅助宝石：武器技镶不了辅助）；没拿着对应的武器时按 1.0 攻速算
   G.basicShots = function (sk) {
-    const b = G.SKILLS[sk.basicOf];
+    const b = G.SKILLS[sk.basicOf || G.roundBasicId(sk)]; // 特殊弹（class-d2b1）按手里那把枪的右键折算
     if (!b) return 1;
     const wp = G.weaponStats(G.save.equip.weapon);
     return (sk.basicSec * (P.speedMult || 1) * (wp.aps > 0 ? wp.aps : 1)) / b.time;
   };
   // 攻击技能实际的武器倍率：按普攻折算的 = 普攻的 wm × 折算的发数，其余就是 wm
-  G.skillWm = (sk) => (sk.basicOf && G.SKILLS[sk.basicOf] ? G.SKILLS[sk.basicOf].wm * G.basicShots(sk) : sk.wm);
+  G.skillWm = (sk) => {
+    const bo = sk.basicOf || G.roundBasicId(sk);
+    return bo && G.SKILLS[bo] ? G.SKILLS[bo].wm * G.basicShots(sk) : sk.wm;
+  };
   G.skillBase = function (id, lvl) {
     const sk = G.SKILLS[id];
     if (!sk) return {};
@@ -2016,7 +2041,8 @@
       // 星蚀（渊口）：拿着它时短杖的秘弹连射固定为混沌
       // 施法武器的普攻（灵弹 / 疾咒）也只取火 / 冰 / 雷里加成最高的那种，不取混沌（编排者定：混沌吃三种元素各自的伤害提高，
       // 普攻跟着混沌走就比冷却之后的黑旋风还痛）
-      const el = sk.kind === 'wwand' && P.uMech === 'void' ? 'chaos' : G.topElem(sk.elem);
+      // fixElem：元素固定（提灯的点灯 / 借火 / 灯海是纯火焰，class-d2b1）
+      const el = sk.fixElem ? sk.elem : sk.kind === 'wwand' && P.uMech === 'void' ? 'chaos' : G.topElem(sk.elem);
       out[el] = [sk.edmg[0] * scale, sk.edmg[1] * scale];
       return out;
     }
@@ -2052,7 +2078,7 @@
     }
     // 装备上的「附加 X 伤害」每一击都加一份：机炮、喷枪这类一秒十几跳的普攻只按 addEff 计（不然附加伤害按发数翻好几倍）
     // 按普攻折算的量表技：普攻每发的那一份 × 折算的发数（和武器伤害一样按扫射 basicSec 秒算）
-    const bsk = sk.basicOf && G.SKILLS[sk.basicOf];
+    const bsk = G.SKILLS[sk.basicOf || G.roundBasicId(sk)]; // 特殊弹：按这把枪自己的 addEff（机炮 25% / 喷枪 30% / 左轮 75%）× 折算的发数
     const addEff = bsk ? (bsk.addEff === undefined ? 1 : bsk.addEff) * G.basicShots(sk) : sk.addEff === undefined ? 1 : sk.addEff;
     if (!mScale) for (const t of TYPES) {
       const v = (S['add' + G.CAP[t]] || 0) * addEff;
@@ -2423,7 +2449,9 @@
     // 连击技能按三段的平均倍率折算（ctx.time 也是平均段长）；武器技按一次施放对单体的倍率总和（useMult）折算
     // ——必定暴击的（影刺）按暴击伤害算，不按暴击率折算
     const sk = ctx.sk;
-    return pre * (1 + extraPct / 100) * ctx.more * (sk.sureCrit ? ctx.critMulti / 100 : critK) * (sk.comboAvg || sk.useMult || 1);
+    // 特殊弹（class-d2b1）：ctx 是一份，一次施放按枪的形状打出 n 枚 × k 份（useMult 是在这之上的倍数：铁水、放电、重弹）
+    const rk = sk.round ? G.roundShape().n * G.roundShape().k : 1;
+    return pre * (1 + extraPct / 100) * ctx.more * (sk.sureCrit ? ctx.critMulti / 100 : critK) * (sk.comboAvg || sk.useMult || 1) * rk;
   };
 
   // =====================================================================
@@ -3709,6 +3737,8 @@
     if (sk.mech === 'boom') {
       p.boom = 1;
       p.boomBack = sk.boom.back;
+      p.boomCap = sk.boom.cap || 0; // 每程（去程、回程各算）最多伤到几个敌人，多出的照样穿过去、不伤
+      p.boomN = 0;
       p.life *= sk.boom.range;
       return;
     }
@@ -3739,6 +3769,7 @@
     p.home = null;
     p.reseek = 0;
     p.boomK = p.boomBack || RM.huixuan.back;
+    p.boomN = 0; // 回程重新数
     if (G.world.relicProjTurn) G.world.relicProjTurn(p.mesh, p.dx, p.dz);
     if (p.ctx.sk.mech === 'boom') {
       if (p.mesh && p.mesh.userData) p.mesh.userData.boom2 = true; // 丝线回程变亮
@@ -4124,6 +4155,12 @@
     const hp0 = e.hp;
     // 敌人的元素抗性：穿透 = 技能的（破障）+ 你亲手的命中再加装备上的「元素穿透」（召唤物不吃）。
     // 异常触发的伤害（ctx.proc：爆燃 / 电弧 / 尸爆 / 放电 / 锁链等）本来就是按扣过抗性的伤害算的，不再扣一次
+    // 借火（class-d2b1）：召唤物每一击附带一份火焰伤害
+    if (inf.minion && !ctx.proc && P.lend && P.lend.t > 0) {
+      const a = (hit.total * P.lend.fire) / 100;
+      hit.parts.fire = (hit.parts.fire || 0) + a;
+      hit.total += a;
+    }
     if (!ctx.proc) G.applyResist(e, hit, (ctx.pen || 0) + (inf.minion || ctx.minion || ctx.asMinion ? 0 : P.S.elemPen || 0));
     e.hp -= hit.total;
     if (ctx.bleed > 0 && !ctx.proc && hit.parts.phys > 0 && e.hp > 0) addBleed(e, (hit.parts.phys * ctx.bleed) / 100, ctx.sk.bleedCap); // 流血：这一击的物理部分（剜创：它打中的最多叠 bleedCap 层）
@@ -4150,8 +4187,8 @@
 
     // 数字：普通的小而快；暴击更大、换一套配色、沿抛物线甩出去；终结技最大
     const shown = Math.max(1, Math.round(hit.total));
-    const tx = e.x + G.rand(-0.35, 0.35);
-    const tz = e.z + G.rand(-0.25, 0.25);
+    const tx = e.x + G.vrand(-0.35, 0.35);
+    const tz = e.z + G.vrand(-0.25, 0.25);
     const ty = Math.min(2.6, h * 0.5); // 从胸口冒出来，升到头顶为止，不压住血条和名字
     const faint = inf.aura || inf.faint;
     if (faint) {
@@ -4310,6 +4347,7 @@
     });
     state.stats.kills++;
     G.sfx('kill', { type, big: !!(e.elite || e.isBoss) });
+    if (P.uMech === 'relight') relightCheck(e); // 长明「续火」（class-d2b1）
     // 烬断（残刃）：倒下的敌人身上的残刃飞到 MARK.jump 米内最近的敌人身上接着叠（够层数就引爆）
     if (e.marks > 0) {
       if (P.uMech === 'blade') markJump(e);
@@ -4430,7 +4468,7 @@
     }
 
     P.life -= dmg;
-    W.text(P.x + G.rand(-0.3, 0.3), P.z, '-' + Math.round(dmg), '#ff5a4a', 17);
+    W.text(P.x + G.vrand(-0.3, 0.3), P.z, '-' + Math.round(dmg), '#ff5a4a', 17);
     W.shake(Math.min(0.6, 0.18 + (dmg / P.maxLife) * 1.6));
     G.ui.hurt();
     const far = src && Math.hypot(P.x - src.x, P.z - src.z) > 0.05;
@@ -4729,7 +4767,12 @@
         if (p.cast.has(e)) continue;
         p.cast.add(e);
       }
+      if (p.vol) G.world.fxMute(true); // class-d2b1：铁水弹炸到的别的怪只冒几颗暗芯火星
       G.hitEnemy(e, p.ctx, p.blastMult || 1, { ang: Math.atan2(e.x - p.x, e.z - p.z), kb: p.kb, poise: p.poise }); // 从爆心往外推；blastMult：灵弹这一段的倍率
+      if (p.vol) {
+        G.world.fxMute(false);
+        fxOpt('emberSpark', e.x, e.z, e.height);
+      }
     }
     if (p.burst) staffBurst(p, R, skip); // 灵弹的重弹：按元素追加
     // 魂火炸开有自己的特效（world.wispBurst，可选）
@@ -4861,15 +4904,31 @@
             }
             // 同一次施放的多枚投射物不叠加命中同一个敌人（多重投射打单体不会变成数倍伤害）；
             // 后到的那枚照常消耗穿透 / 连锁 / 引爆，只是不再对它结算直击
+            let cut = false; // 渊式「回旋」这一程已经伤满 boomCap 个：照样穿过去（也记进这次施放），不伤、不冒火花
             if (p.capMap ? capTake(p, e) : !p.cast || !p.cast.has(e)) {
               if (p.cast) p.cast.add(e);
-              // 远程武器的箭 / 子弹：multFn 算这一下的倍率（鹰眼的远距离加成），after 接着结算余烬 / 元素爆炸 / 熔芯弹；src 让专注按箭计数
-              const m = (p.multFn ? p.multFn(p, e) : p.mult || 1) * (p.boomK || 1); // boomK：回旋的回程
-              G.hitEnemy(e, p.ctx, m, { ang: Math.atan2(p.dx, p.dz), src: p, aura: p.aura, minion: p.minion, kb: p.kb, poise: p.poise }); // 顺着弹道推；aura：霜环「冰棱」的冰棱和光环脉冲一样不算连击；minion：骸弓的骨箭算召唤物的；kb / poise：灵弹的重弹（缺省按技能）
-              if (p.after) p.after(p, e, lastHit.killed, lastHit.crit);
-              if (p.ctx.sk.mech === 'hook' && !e.dead) nailHook(p, e); // 刻式「钩钉」：往你身边拽
+              if (p.boomCap && ++p.boomN > p.boomCap) cut = true;
+              else {
+                // 远程武器的箭 / 子弹：multFn 算这一下的倍率（鹰眼的远距离加成），after 接着结算余烬 / 元素爆炸 / 熔芯弹；src 让专注按箭计数
+                const m = (p.multFn ? p.multFn(p, e) : p.mult || 1) * (p.boomK || 1); // boomK：回旋的回程
+                // class-d2b1：铁水弹的命中（连带引出的爆燃、溅到的伤害）特效全部静音，一次施放只放一处：
+                // 有爆炸的由第一枚炸开那一下画（W.projImpact 的 rd_molten），溅铁 / 熔穿在第一处命中画一个小的；其余的怪只冒几颗暗芯火星
+                const mu = !!p.vol, first = mu && !p.vol.shown;
+                if (mu) {
+                  p.vol.shown = true;
+                  G.world.fxMute(true);
+                }
+                G.hitEnemy(e, p.ctx, m, { ang: Math.atan2(p.dx, p.dz), src: p, aura: p.aura, minion: p.minion, kb: p.kb, poise: p.poise });
+                if (mu) {
+                  G.world.fxMute(false);
+                  if (first && !(p.explode > 0)) fxOpt('moltenHit', e.x, e.z, Math.atan2(p.dx, p.dz));
+                  else fxOpt('emberSpark', e.x, e.z, e.height);
+                } // 顺着弹道推；aura：霜环「冰棱」的冰棱和光环脉冲一样不算连击；minion：骸弓的骨箭算召唤物的；kb / poise：灵弹的重弹（缺省按技能）
+                if (p.after) p.after(p, e, lastHit.killed, lastHit.crit);
+                if (p.ctx.sk.mech === 'hook' && !e.dead) nailHook(p, e); // 刻式「钩钉」：往你身边拽
+              }
             }
-            if (!p.explode) projFx(p, 'hit'); // 飞刃擦过敌人的金属火花（爆炸弹的特效在爆炸那一下）
+            if (!p.explode && !cut) projFx(p, 'hit'); // 飞刃擦过敌人的金属火花（爆炸弹的特效在爆炸那一下）
             if (p.pin) {
               bladePin(p, e); // 刻式「钉刃」：钉住第一个，立在它脚下
               alive = false;
@@ -4899,6 +4958,11 @@
       }
       if (!alive) {
         if (p.pin && !p.pinned) bladePin(p, null); // 钉刃没碰到敌人：立在飞行的尽头 / 墙前
+        if (p.onEnd && !p.ended) {
+          // class-d2b1：点灯落地留灯、铁水弹 / 雷网的楔子没打中时落在尽头（只调一次；自己看 p.didHit / p.lampAt）
+          p.ended = true;
+          p.onEnd(p);
+        }
         // 到达射程尽头的爆炸弹也要炸开（fizzle 的——魂火——没碰到敌人就悄悄散掉）
         if (p.life <= 0 && p.owner === 'p' && p.explode > 0 && !p.fizzle) explodeAt(p, null);
         else if (p.life <= 0 && p.fizzle) W.burst(p.x, 1.1, p.z, p.color, 6, 2, 0.3);
@@ -5223,6 +5287,7 @@
       // 出手动作：连击三段各有各的挥法，其余按技能类型；命中帧对在生效的时刻
       const kind = sk.kind;
       const clip = st ? st.clip : cs ? cs.clip : sk.bclip || (kind === 'proj' || sk.mech === 'throw' ? 'throw' : kind === 'blink' ? 'blink' : kind === 'melee' ? 'attack1' : 'cast'); // 召唤也用施法动作；bclip：武器普攻自己的出手动作
+      if (kind === 'round' && G.roundShape().move) c.mv = G.roundShape().move; // 特殊弹 + 左轮：可以边走边打（照常经过上面的职业 / 魔力 / 冷却检查）
       G.world.play(P.ent, clip, { dur: st ? c.dur + 0.1 : c.dur * 1.3, contact: c.fireT });
       if (st) {
         G.world.setTrail(G.TYPE_HEX[mainType(ctx)]);
@@ -5598,6 +5663,8 @@
     }
     // 弓：切入过渡不长于拉弓起手的 0.4（攻速很快时第一箭不会还没摆好侧身、手还在半路就开始拉弦）
     else if (sk.draw) playFire(sk.rtype, { dur: Math.max(0.2, first + 0.18), contact: Math.max(0.02, first), fade: Math.min(0.06, Math.max(0.02, first) * 0.4) });
+    // 左轮：按下就开始拔枪，抬到肩高正好赶上第一发（原来第一发出手时动作才开始播，子弹从还垂着的枪口出去）。只动画面：不碰 first / cdT / 模拟
+    else if (sk.rtype === 'revolver' && !G.world.grip5Off) playFire('revolver', { dur: first + 0.28, contact: first, fade: Math.min(0.05, first), raise: true });
     return true;
   }
 
@@ -5781,8 +5848,8 @@
     if (!c.clipOk && !fxOpt('flameCone', P.x, P.z, c.aim, R, sk.arc, ctx.time * 2.2)) {
       // world 没有喷火的动作（它会自己画火舌）时：撒几点火星顶上
       for (let i = 0; i < 3; i++) {
-        const a = c.aim + G.rand(-half, half) * 0.8;
-        const d = G.rand(0.8, R);
+        const a = c.aim + G.vrand(-half, half) * 0.8;
+        const d = G.vrand(0.8, R);
         W.burst(P.x + Math.sin(a) * d, 1.0, P.z + Math.cos(a) * d, i ? 0xff8a3c : 0xffd28a, 2, 1.6, 0.25);
       }
     }
@@ -5806,7 +5873,7 @@
     f.tt = Math.min(0.15, f.tick);
     if (fields.length >= MAX_FIELDS) fields.shift();
     fields.push(f);
-    if (!fxOpt('emberGround', f.x, f.z, f.r, f.dur, f.kind === 'burn', !!f.noDecal)) G.world.decal(1, f.x, f.z, f.r * 0.9, Math.random() * TAU, f.hex || 0xff7a2c, f.dur);
+    if (!fxOpt('emberGround', f.x, f.z, f.r, f.dur, f.kind === 'burn', !!f.noDecal)) G.world.decal(1, f.x, f.z, f.r * 0.9, G.vr() * TAU, f.hex || 0xff7a2c, f.dur);
     return f;
   }
   function updateFields(dt) {
@@ -5911,7 +5978,7 @@
         G.hitEnemy(e, ctx, B.mult, { ang: Math.atan2(e.x - ox, e.z - oz), quiet: true });
         st.cbArcHits = (st.cbArcHits || 0) + 1;
       }
-      if (pts.length > 1) W.bolt(pts, hex);
+      if (pts.length > 1) W.bolt(pts, hex, false, { v2: true }); // skill-b2：旧电弧 → 链雷的折线语言
       st.cbLight = (st.cbLight || 0) + 1;
     }
     fxOpt('cbBurst', ox, oz, R, el, hex); // 元素的形状（world.cbBurst：火舌 / 冰晶 / 电花），没有时只有爆炸本身
@@ -5965,7 +6032,7 @@
       G.hitEnemy(e, ctx, M.mult * k, { ang: Math.atan2(e.x - src.x, e.z - src.z), w: 0, kb: 0.5, poise: 3 * k, quiet: e !== src }); // w 0：几只一起炸时命中的亮星别连成一片
       state.stats.cbPopHits = (state.stats.cbPopHits || 0) + 1;
     }
-    if (pts.length) W.bolt(pts, hex);
+    if (pts.length) W.bolt(pts, hex, false, { v2: true }); // skill-b2：同上
     if (!fxOpt('cbPop', src.x, src.z, src.r, hex, src.height || 2) && W.vShock) W.vShock(src.x, src.z, src.r + 1.0, hex, 0.24, 0.5);
     state.stats.cbPops = (state.stats.cbPops || 0) + 1;
     state.stats.cbJumps = (state.stats.cbJumps || 0) + n;
@@ -6509,6 +6576,7 @@
     }
     if (P.rstate) updateWildfire(dt);
     updateFields(dt);
+    tickD2b(dt); // 特殊弹 / 提灯（class-d2b1）
     if (CB.marks.size) tickWandMarks();
   }
   function endBuff() {
@@ -6534,6 +6602,7 @@
     resetVariants(); // 刻式第二版留在场上的东西
     resetBleed(); // 流血
     G.relicReset(); // 渊契的电桥、蓄潮
+    resetD2b(); // 特殊弹的铁水 / 雷网，提灯的小灯 / 灯海 / 借火（class-d2b1）
   }
   G.resetRanged = resetRanged;
 
@@ -6563,7 +6632,7 @@
         W.slash(P.x, P.z, a.ang, st.reach * k + 0.4, 130, hex, { dur: 0.22, inner: 0.62, y: 1.1, tilt: Math.PI / 2, pitch: -0.52, dir: -1 });
         W.ring(cx, cz, R, hex, 0.34);
         if (!st.wave) W.ring(cx, cz, R * 0.55, 0xffe2b0, 0.2); // 带冲击波的（战锤普攻的终结）外面还要荡一圈：里面这圈省掉，场上同时的环（各占一次 draw call）不多出来
-        W.decal(5, cx, cz, R * 0.95, Math.random() * TAU, 0xffb050, 2.6);
+        W.decal(5, cx, cz, R * 0.95, G.vr() * TAU, 0xffb050, 2.6);
         W.smashFx(cx, cz, R, a.ang);
         W.shake(0.24);
       } else if (st.shape === 'line') {
@@ -6828,7 +6897,7 @@
       const n = c && c.channel ? c.pulses : 0;
       const rk = sk.mech === 'tide' ? G.relicSpinPulse(ctx) : 1; // 渊式「蓄潮」：每跳打得轻、攒层
       if (sk.mech === 'pull') whirlPull(ctx); // 刻式「旋涡斩」：先把一圈敌人往身边吸
-      W.slash(P.x, P.z, Math.random() * TAU, R, 360, hex, sk.mech === 'pull' ? { dur: 0.2, inner: 0.35, y: 0.6, dir: -1 } : { dur: 0.2, inner: 0.6, y: 0.9 });
+      W.slash(P.x, P.z, G.vr() * TAU, R, 360, hex, sk.mech === 'pull' ? { dur: 0.2, inner: 0.35, y: 0.6, dir: -1 } : { dur: 0.2, inner: 0.6, y: 0.9 });
       if (W.spinPulse) W.spinPulse(P.ent, R, hex, ctx.time * 1.6, n === 1, sk.mech === 'pull' ? -1 : 1); // vf-vfx2：绕身的风刃、脚下的风纹、起手的尘环；刻式「旋涡斩」风刃反着转、往里收
       if (n % 2 === 1) W.burst(P.x, 0.25, P.z, 0xbfb3a0, 4, R * 0.9, 0.3); // 脚下扬起的尘
       G.sfx('swing', { step: n % 2 });
@@ -6863,14 +6932,13 @@
       // 从目标点往回退，直到落在可走的地方
       let d = Math.min(sk.range, a.dist);
       while (d > 0 && !W.walkable(ox + a.dx * d, oz + a.dz * d, 0.6)) d -= 0.4;
-      // skill-b1：起点不再放一团火花、路上不再是旧的近白闪电，换成贴地的残影带（W.bolt 走鬼影：随机数照取、不显示）
-      if (W.blinkOrigin) W.blinkOrigin();
-      else W.burst(ox, 1.0, oz, hex, 18, 4, 0.4);
+      // skill-b1：起点不再放一团火花、路上不再是旧的近白闪电，换成贴地的残影带（没有残影带时退回旧画法）
+      if (!W.blinkBand) W.burst(ox, 1.0, oz, hex, 18, 4, 0.4);
       if (d > 0) {
         P.x = ox + a.dx * d;
         P.z = oz + a.dz * d;
-        W.bolt([{ x: ox, z: oz }, { x: P.x, z: P.z }], hex, false, { ghost: !!W.blinkBand });
         if (W.blinkBand) W.blinkBand(ox, oz, P.x, P.z, hex);
+        else W.bolt([{ x: ox, z: oz }, { x: P.x, z: P.z }], hex, false);
       }
       P.roll.t = 0;
       P.iframe = Math.max(P.iframe, 0.2);
@@ -7215,7 +7283,7 @@
     W.bolt([{ x: P.x, z: P.z }, { x, z }], 0xffe45e, true);
     if (W.vShock) W.vShock(x, z, S.r * Math.sqrt(ctx.area), 0xffe45e, 0.3, 0); // 电桩的范围：一道往外推的细环
     else W.ring(x, z, S.r * Math.sqrt(ctx.area), 0xffe45e, 0.3);
-    W.decal(3, x, z, 0.9, Math.random() * TAU, 0xffe45e, py.t);
+    W.decal(3, x, z, 0.9, G.vr() * TAU, 0xffe45e, py.t);
     py.tt = S.tick * 0.6; // 插下去之后很快电第一下（不当帧电：按住连插也不会多电）
     state.stats.vPylons = (state.stats.vPylons || 0) + 1;
     vCount();
@@ -7305,10 +7373,16 @@
   // 过载：最后一下折回你身上，n 个敌人各给一份雷盾、回一点魔力；电弧一跳比一跳粗（后面的段多叠一道）
   function arcOverload(ctx, pts, n, hex) {
     const W = G.world, O = ctx.sk.over;
-    for (let i = 2; i < pts.length; i++) W.bolt([pts[i - 1], pts[i]], 0xfffbe6, i < 3);
+    // skill-b2：叠上去的近白电弧（0xfffbe6，第 3 段起带地面闪光 + 白火花）换成形状批里的元素色折线，越往后叠得越多（没有形状批时退回旧电弧）
+    const gz = !!W.b2Strand;
+    for (let i = 2; i < pts.length; i++) {
+      if (gz) W.b2Strand(pts[i - 1], pts[i], hex, i - 1);
+      else W.bolt([pts[i - 1], pts[i]], 0xfffbe6, i < 3);
+    }
     if (!n) return;
     const last = pts[pts.length - 1];
-    W.bolt([last, { x: P.x, z: P.z }], hex, true);
+    if (gz) W.b2Strand(last, { x: P.x, z: P.z }, hex, 0, true);
+    else W.bolt([last, { x: P.x, z: P.z }], hex, true);
     W.burst(P.x, 1.1, P.z, 0xffe45e, 10, 3, 0.3);
     const v = P.maxLife * O.shield * n;
     P.vShield = { v: Math.max(v, (P.vShield && P.vShield.v) || 0), t: O.dur };
@@ -7344,7 +7418,7 @@
     while (VS.cores.length >= 3) coreOff(VS.cores[0], true);
     VS.cores.push({
       x, z, ctx, t: C.dur, n: 0, gap: 0.3, R: C.r * Math.sqrt(ctx.area),
-      fx: W.kv('rock', { hex: 0x3a1a10, x, z, y: 0.25, s: 1.25, ry: Math.random() * TAU }), glow: W.kv('orb', { hex: 0xff5a1c, x, z, y: 0.45, s: 0.8, k: 0.4 }),
+      fx: W.kv('rock', { hex: 0x3a1a10, x, z, y: 0.25, s: 1.25, ry: G.vr() * TAU }), glow: W.kv('orb', { hex: 0xff5a1c, x, z, y: 0.45, s: 0.8, k: 0.4 }),
       ring: W.kv('glyph', { hex: 0xff5a2c, x, z, y: 0.05, s: C.r * Math.sqrt(ctx.area) * 2, k: 1 }),
     });
     state.stats.vCores = (state.stats.vCores || 0) + 1;
@@ -7428,7 +7502,7 @@
         G.hitEnemy(e, p.ctx, S.mult, { ang: ang + (side * Math.PI) / 2, w: 1, kb: 1.8, poise: 14, quiet: true, core: true });
         if (!e.isBoss && W.knockUp) W.knockUp(e.ent, 0.5);
       }
-      if (Math.random() < 0.6) W.burst(p.x, 0.4, p.z, 0xffa040, 3, 3, 0.3);
+      if (G.vr() < 0.6) W.burst(p.x, 0.4, p.z, 0xffa040, 3, 3, 0.3);
       // 每 2.6 米留一片火（沟里的火）
       if (p.d - p.fd >= 2.6 || (p.d >= p.len && p.fd < p.len - 0.5)) {
         p.fd = p.d;
@@ -7535,20 +7609,25 @@
     P.roll.t = 0;
     P.iframe = Math.max(P.iframe, 0.2);
     // 两道交叉的闪光、两头各一团旋影
-    // skill-b1：两道闪电换成贴地的残影带（你过去的那道亮一些，敌人被换回来的那道窄、暗）；W.bolt 走鬼影（随机数照取、不显示）
+    // skill-b1：两道闪电换成贴地的残影带（你过去的那道亮一些，敌人被换回来的那道窄、暗）；没有残影带时退回旧的两道闪电
     const gh = !!W.blinkBand;
-    W.bolt([{ x: ox, z: oz }, { x: px, z: pz }], hex, false, { ghost: gh });
-    if (!e.isBoss) W.bolt([{ x: px + 0.3, z: pz }, { x: e.x + 0.3, z: e.z }], 0xffffff, true, { ghost: gh });
+    if (!gh) {
+      W.bolt([{ x: ox, z: oz }, { x: px, z: pz }], hex, false);
+      if (!e.isBoss) W.bolt([{ x: px + 0.3, z: pz }, { x: e.x + 0.3, z: e.z }], 0xffffff, true);
+    }
     if (gh) {
       W.blinkBand(ox, oz, px, pz, hex);
       if (!e.isBoss) W.blinkBand(px, pz, e.x, e.z, 0x8a7aa0, { w: 0.6 });
     }
-    if (W.shadowStep) W.shadowStep(ox, oz, px, pz, hex);
-    W.afterimage(P.ent, ox, oz, hex, 0.8, 0.35, 0, P.face);
-    W.slash(px, pz, Math.random() * TAU, 1.6, 360, hex, { dur: 0.25, inner: 0.7, y: 1.0 });
-    G.hitEnemy(e, ctx, 1, { ang: Math.atan2(e.x - px, e.z - pz), w: 2, poise: (sk.poise || 0) * (e.isBoss ? S.poise : 1), quiet: true });
-    const R = S.r * Math.sqrt(ctx.area);
-    for (const o of enemiesIn(px, pz, R)) if (o !== e) G.hitEnemy(o, ctx, S.side, { ang: Math.atan2(o.x - px, o.z - pz), quiet: true });
+    if (W.shadowStep) W.shadowStep(ox, oz, px, pz, hex, { dim: gh }); // skill-b2：一路的暗影粒压暗、落点不闪光
+    W.afterimage(P.ent, ox, oz, gh ? 0x5a4a78 : hex, gh ? 0.55 : 0.8, 0.35, 0, P.face); // skill-b2：残影暗紫灰（加色的浅紫 0.8 叠出来近白）
+    W.slash(px, pz, G.vr() * TAU, 1.6, 360, hex, { dur: 0.25, inner: 0.7, y: 1.0 });
+    if (W.impactStyle) W.impactStyle('blink'); // skill-b2：命中的近白弯月换成细斩线（只换画法）
+    try {
+      G.hitEnemy(e, ctx, 1, { ang: Math.atan2(e.x - px, e.z - pz), w: 2, poise: (sk.poise || 0) * (e.isBoss ? S.poise : 1), quiet: true });
+      const R = S.r * Math.sqrt(ctx.area);
+      for (const o of enemiesIn(px, pz, R)) if (o !== e) G.hitEnemy(o, ctx, S.side, { ang: Math.atan2(o.x - px, o.z - pz), quiet: true });
+    } finally { if (W.impactStyle) W.impactStyle(null); }
     G.hitStop(((sk.stop || 70) + 10) * ctx.stopK);
     W.shake(0.3);
     G.sfx('impact', { type: 'phys', w: 2, crit: lastHit.crit });
@@ -7616,7 +7695,7 @@
     c.fx.rz += dt * 26;
     c.fx.y = c.ph === 'hover' ? 0.9 + Math.sin(state.time * 12) * 0.05 : 1.0;
     c.ring.a = c.ph === 'hover' ? 1 : 0.3;
-    if (Math.random() < 0.5) W.burst(c.x, 0.9, c.z, 0xe8c9a0, 1, 1.5, 0.2);
+    if (G.vr() < 0.5) W.burst(c.x, 0.9, c.z, 0xe8c9a0, 1, 1.5, 0.2);
     const R = S.r * Math.sqrt(c.ctx.area);
     let n = 0;
     for (const e of enemiesIn(c.x, c.z, R)) {
@@ -7629,7 +7708,7 @@
       n++;
     }
     if (n) {
-      W.slash(c.x, c.z, Math.random() * TAU, R, 360, 0xe8c9a0, { dur: 0.14, inner: 0.7, y: 0.95 });
+      W.slash(c.x, c.z, G.vr() * TAU, R, 360, 0xe8c9a0, { dur: 0.14, inner: 0.7, y: 0.95 });
       G.sfx('impact', { type: 'phys', w: 0, crit: lastHit.crit });
       state.stats.vDiscHits = (state.stats.vDiscHits || 0) + n;
     }
@@ -7663,7 +7742,7 @@
       k++;
     }
     W.smashFx(P.x, P.z, R, ang);
-    W.decal(5, P.x, P.z, R * 0.9, Math.random() * TAU, 0xffb050, 2.4);
+    W.decal(5, P.x, P.z, R * 0.9, G.vr() * TAU, 0xffb050, 2.4);
     if (W.vShock) W.vShock(P.x, P.z, R, hexOf(sk.color), 0.3, 0);
     else W.ring(P.x, P.z, R, hexOf(sk.color), 0.35);
     W.shake(0.2 + 0.04 * n);
@@ -7797,7 +7876,7 @@
     const h1 = addHole(Object.assign({ x: p1.x, z: p1.z }, base, { twinB: true }));
     h0.twin = h1;
     h1.twin = h0;
-    h0.tether = G.world.kv('band', { hex: 0xff6ad2, w: T.w * Math.sqrt(ctx.area), y: 0.35, x0: p0.x, z0: p0.z, x1: p1.x, z1: p1.z });
+    h0.tether = G.world.kv('band', { hex: 0xff6ad2, w: T.w * Math.sqrt(ctx.area), y: 0.35, x0: p0.x, z0: p0.z, x1: p1.x, z1: p1.z, ripple: 1 }); // skill-b2：两条品红波纹带（形状批）
     h1.tether = null;
     state.stats.vTwins = (state.stats.vTwins || 0) + 1;
     return h0;
@@ -8456,9 +8535,9 @@
     if (sk.mech === 'focus') return dischargeFocus(ctx, R, hex); // 刻式「聚雷」：只打最近的一个
     if (!fxOpt('dischargeFx', P.x, P.z, R, hex)) {
       // 没有形状批时：6 道细电弧从身上放射出去（池化的电弧，minor 不带闪光和贴花）
-      const a0 = Math.random() * TAU;
+      const a0 = G.vr() * TAU;
       for (let i = 0; i < 6; i++) {
-        const aa = a0 + (i / 6) * TAU, am = aa + G.rand(-0.35, 0.35);
+        const aa = a0 + (i / 6) * TAU, am = aa + G.vrand(-0.35, 0.35);
         W.bolt([{ x: P.x, z: P.z }, { x: P.x + Math.sin(am) * R * 0.5, z: P.z + Math.cos(am) * R * 0.5 }, { x: P.x + Math.sin(aa) * R, z: P.z + Math.cos(aa) * R }], hex, true);
       }
     }
@@ -8748,8 +8827,8 @@
   // 特效先找 world 里可选的专用函数（见各技能里的 fxOpt 调用），没有就用现有的通用特效顶上
   const WS_FALLBACK = {
     wblade: ['attack1', 'attack2'], wstaff: ['cast'], wwand: ['cast'], wdaggers: ['blink', 'flicker'],
-    whammer: ['attack3'], wkatana: ['blink'], wbanner: ['cast'],
-    ukatana: ['flicker'], ustaff: ['cast'], ubanner: ['cast'],
+    whammer: ['attack3'], wkatana: ['blink'], wbanner: ['cast'], wlantern: ['cast'],
+    ukatana: ['flicker'], ustaff: ['cast'], ubanner: ['cast'], ulantern: ['cast'],
     rgatling: ['cast'], rflamer: ['cast'], rrevolver: ['throw'], rbuff: ['cast'],
   };
   function fxOpt(name) {
@@ -9005,7 +9084,7 @@
       if (!fxOpt('groundBurst', P.x, P.z, R, hex, t)) {
         W.ring(P.x, P.z, R, hex, 0.45);
         W.ring(P.x, P.z, R * 0.6, 0xffffff, 0.25);
-        W.decal(t === 'fire' ? 1 : t === 'cold' ? 2 : 3, P.x, P.z, R * 0.85, Math.random() * TAU, hex, 3);
+        W.decal(t === 'fire' ? 1 : t === 'cold' ? 2 : 3, P.x, P.z, R * 0.85, G.vr() * TAU, hex, 3);
         W.burst(P.x, 0.4, P.z, hex, 40, R * 1.6, 0.6);
       }
       G.sfx('cast', { id: ctx.id, type: t });
@@ -9119,7 +9198,7 @@
       const wl = Math.max(0.5, len - sk.reach);
       if (!fxOpt('shockwave', ix, iz, a, wl, sk.w0 * k, sk.w1 * k, hex, wl / sk.wave / 0.72)) {
         W.ring(ix, iz, R, hex, 0.35);
-        W.decal(5, ix, iz, R * 0.95, Math.random() * TAU, 0xffc890, 2.6);
+        W.decal(5, ix, iz, R * 0.95, G.vr() * TAU, 0xffc890, 2.6);
         W.burst(ix, 0.3, iz, 0xcbbba6, 18, 6.5, 0.45);
         for (let d = sk.reach + 1.5; d <= len; d += 1.5) {
           const px = x0 + sn * d;
@@ -9127,7 +9206,7 @@
           const half = ((sk.w0 + (sk.w1 - sk.w0) * (d / len)) / 2) * k;
           G.after((d - sk.reach) / sk.wave, () => {
             W.burst(px, 0.3, pz, 0xcbbba6, 6, 2 + half, 0.4);
-            W.decal(5, px, pz, half * 0.8, Math.random() * TAU, 0xffc890, 1.6);
+            W.decal(5, px, pz, half * 0.8, G.vr() * TAU, 0xffc890, 1.6);
           });
         }
       }
@@ -9186,14 +9265,15 @@
           W.dashFx(x0, z0, xe, ze, hex);
           if (dd > 0.3) W.decal(0, (x0 + xe) / 2, (z0 + ze) / 2, dd / 2, a, hex, 0.6, 0.25);
         }
-        if (W.cutLine) for (const e of reached()) W.cutLine(e.x, e.z, a + Math.PI / 2 + (Math.random() - 0.5) * 0.7, 1.8 + e.r * 2, hex, sk.delay);
+        if (W.cutLine) for (const e of reached()) W.cutLine(e.x, e.z, a + Math.PI / 2 + (G.vr() - 0.5) * 0.7, 1.8 + e.r * 2, hex, sk.delay);
       });
       G.after(dashT + sk.delay, () => {
         if (P.dead) return;
         const alive = reached();
         if (!W.cutLine) for (const e of alive) W.slash(e.x, e.z, a + Math.PI / 2, 1.6 + e.r, 30, hex, { dur: 0.18, inner: 0.5, y: 1.1 });
         if (!alive.length) return;
-        wsStrike(ctx, alive, 1, { ang: a, w: sk.w, kb: sk.kb, poise: sk.poise, stop: sk.stop, dir: a });
+        if (W.impactStyle) W.impactStyle('cut'); // skill-b2：命中的近白弯月换成细斩线（只换画法）
+        try { wsStrike(ctx, alive, 1, { ang: a, w: sk.w, kb: sk.kb, poise: sk.poise, stop: sk.stop, dir: a }); } finally { if (W.impactStyle) W.impactStyle(null); }
         G.sfx('finisher');
       });
     },
@@ -9231,6 +9311,532 @@
     if (n) G.world.text(P.x, P.z, '狂热', '#4fe3c8', 16);
     G.sfx('cast', { id: ctx.id });
   };
+
+  // =====================================================================
+  // class-d2b1：炉匠的特殊弹（铁水弹 / 雷楔 / 霜霰弹 / 反冲弹）和掌灯人的提灯（点灯 / 借火 / 灯海 / 续火）
+  // 地上的东西都有同时存在的上限：小灯 3 盏、铁水 4 摊、雷网 3 根线（绵延各 +durCap），续火的骸骨 4 具
+  // =====================================================================
+  // 持续伤害的一跳（铁水 / 小灯 / 灯海 / 雷网）：命中特效静音（见 world.js 的 W.fxMute），地上的东西本身就是提示；
+  // spark：顺手冒两颗暗芯小火星
+  function tickHit(e, ctx, mult, info, spark) {
+    G.world.fxMute(true);
+    G.hitEnemy(e, ctx, mult, info);
+    G.world.fxMute(false);
+    if (spark) fxOpt('emberSpark', e.x, e.z, e.height);
+  }
+  // ---------- 特殊弹 ----------
+  // 手里这把枪（机炮 / 喷枪 / 左轮）；不是枪返回 null
+  function roundGun() {
+    const t = wTypeOfItem(G.save && G.save.equip && G.save.equip.weapon);
+    return t && G.ROUND_GUN[t] ? t : null;
+  }
+  G.roundGun = roundGun;
+  // 特殊弹按哪一招普攻折算伤害（同熔光射线的 basicOf）：手里那把枪的右键；不是枪时 null（按 wm 乘手里武器的伤害）
+  G.roundBasicId = function (sk) {
+    if (!sk || !sk.round) return null;
+    const t = roundGun();
+    return t ? 'basic_' + t : null;
+  };
+  G.roundShape = () => G.ROUND_GUN[roundGun() || 'none'];
+  const roundPools = []; // 铁水 { x, z, r, t, dur, tt, tick, mult, ctx }
+  const netWedges = []; // 雷网：钉在地上的楔子 { x, z, t, ctx, born }
+  let netLines = []; // 拉出来的电线 [{ a, b }]
+  let netTT = 0;
+  let push = null; // 反冲弹的后坐力 { dx, dz, left, sp, arena }
+  const NET_MAX = 6; // 地上的楔子最多这么多枚（电线另有上限）
+  // 这一枚弹的热度：这把枪开火 basicSec 秒的热度 × 这一枚的份数（打中过东西时才按全额，同普攻）
+  function roundHeat(sk, gun, k) {
+    if (!gun) return;
+    const b = G.SKILLS['basic_' + gun];
+    const hps = b.heatShot ? b.heatShot / b.time : b.heat;
+    gainHeat(hps * (sk.basicSec || 0) * k);
+  }
+  function roundCast(ctx) {
+    const sk = ctx.sk;
+    const gun = roundGun();
+    const sh = G.ROUND_GUN[gun || 'none'];
+    const rctx = sk.elem && sk.elem !== 'phys' ? elemCtx(ctx, sk.elem) : ctx;
+    const aim = P.cast && P.cast.id === ctx.id ? P.cast.aim : aimInfo().ang;
+    const x0 = P.x, z0 = P.z;
+    const vol = { shown: false, n: 0 }; // 这一次施放的几枚弹共用：只有第一处命中放全套命中特效（铁水弹，见 molten 的 vol）
+    const fire = (i) => {
+      if (P.dead) return;
+      roundShell(rctx, sk, gun, sh, i, aim, vol);
+    };
+    fire(0);
+    for (let i = 1; i < sh.n; i++) {
+      if (sh.gap) G.after(sh.gap * i, () => fire(i));
+      else fire(i);
+    }
+    if (sk.round === 'recoil') {
+      if (sk.mech === 'shock') recoilShock(rctx, x0, z0);
+      if (sk.push) recoilPush(sk, aim);
+    }
+    G.sfx('round', { type: sk.round, gun: gun || 'revolver' });
+  }
+  function roundShell(ctx, sk, gun, sh, i, aim, vol) {
+    const n = Math.max(1, ctx.proj);
+    let a0 = aim;
+    if (sh.fan && sh.n > 1) a0 += (-sh.fan / 2 + (sh.fan * i) / (sh.n - 1)) * DEG;
+    else if (sh.spread) a0 += (i - (sh.n - 1) / 2) * sh.spread * DEG;
+    const fan = n > 1 ? Math.min(30, 8 * (n - 1)) * DEG : 0;
+    const cast = new Set();
+    const k = sh.k * (sk.heavy || 1);
+    const line = sk.mech === 'bore' && sk.line;
+    const range = (line ? line.len : sk.range) * (sh.rangeK || 1);
+    const pk = sh.k / 1.1; // 击退、架势按这一枚的份数摊（机炮三枚加起来和左轮一发差不多）
+    const W0 = sk.wedge;
+    for (let j = 0; j < n; j++) {
+      const ang = a0 + (n > 1 ? -fan / 2 + (fan * j) / (n - 1) : 0);
+      const p = shootProj(ctx, ang, { cast, vk: 'rd_' + sk.round, mult: W0 ? k * W0.hit : k, range, speed: line ? 70 : sk.speed, r: sk.projR, after: roundAfter });
+      p.rk = k;
+      p.round = sk.round;
+      p.kb = (sk.kb || 0) * pk;
+      p.poise = (sk.poise || 0) * pk;
+      p.ranged = false; // 不当普攻的弹算（专注、普攻的命中特效）
+      if (sk.round === 'molten') {
+        p.vol = vol;
+        if (vol && vol.n++ > 0 && p.mesh && p.mesh.userData) p.mesh.userData.d2bQuiet = true; // 第二枚起炸开只放几颗碎块
+        if (sk.explode > 0) {
+          p.explode = sk.explode;
+          p.blastMult = k;
+        }
+        if (sk.pool) p.onEnd = moltenEnd;
+        if (sk.mech === 'bore') {
+          const B = sk.bore;
+          p.pierce = B.cap ? B.cap - 1 : 999;
+          p.multFn = (q) => q.rk * (1 + Math.min(B.max, B.step * Math.max(0, q.hit.size - 1)));
+        }
+      } else if (line) p.pierce = 999;
+      else if (sk.round === 'wedge' && sk.mech === 'net') {
+        const ai = aimInfo();
+        p.life = Math.max(0.05, (G.clamp(ai.dist + 1.5, 2, range) - 0.8) / p.speed); // 打空的楔子钉在准星稍过去一点（准星上站着的敌人照样打得到）
+        p.onEnd = netEnd;
+      } else if (sk.round === 'rime' && sk.mech === 'deep') {
+        const D = sk.deep;
+        p.multFn = (q, e) => {
+          q.frz = e.freeze > 0 || e.bossChill > 0;
+          return q.rk * (q.frz ? D.frozen : 1);
+        };
+      }
+    }
+    roundHeat(sk, gun, sh.k);
+    if (gun) fxOpt('muzzle', P.ent, sh.k / 1.1 + 0.3, sk.color); // 枪口焰（出手点，W.muzzleWorld）
+  }
+  // 弹打中一个敌人之后（直击已经结算过）
+  function roundAfter(p, e) {
+    P.gun.hitT = 0; // 打中过东西：热度按全额涨
+    p.didHit = true;
+    const sk = p.ctx.sk;
+    if (sk.round === 'molten') {
+      if (sk.mech === 'splash') moltenSplash(p, e);
+      else if (sk.pool) moltenPool(p.ctx, e.x, e.z);
+    } else if (sk.round === 'wedge') wedgeStick(p, e);
+    else if (sk.round === 'rime') {
+      if (sk.mech === 'deep') {
+        if (p.frz) {
+          const D = sk.deep;
+          for (const o of enemiesIn(e.x, e.z, D.r * Math.sqrt(p.ctx.area))) if (o !== e) G.hitEnemy(o, p.ctx, p.rk * D.k, { ang: Math.atan2(o.x - e.x, o.z - e.z), w: 0, kb: 0.3, poise: 4, quiet: true });
+          fxOpt('rimeBurst', e.x, e.z, D.r, true);
+        }
+      } else rimeShards(p, e);
+    }
+  }
+  // 铁水弹没打中敌人（撞墙 / 飞到尽头炸开）：照样留一摊铁水
+  function moltenEnd(p) {
+    if (p.didHit) return;
+    let x = p.x, z = p.z;
+    if (!G.world.walkable(x, z, 0.2)) {
+      x -= p.dx * 0.6;
+      z -= p.dz * 0.6;
+    }
+    moltenPool(p.ctx, x, z);
+  }
+  function moltenPool(ctx, x, z) {
+    const sk = ctx.sk, D = sk.pool;
+    if (!D) return null;
+    const cap = D.max + (ctx.durCap || 0);
+    while (roundPools.length >= cap) poolOff(roundPools.shift());
+    const f = { x, z, r: D.r * Math.sqrt(ctx.area), t: D.dur * ctx.durK, dur: D.dur * ctx.durK, tt: 0.15, tick: D.tick, mult: D.mult, ctx };
+    roundPools.push(f);
+    fxOpt('moltenPool', f, true);
+    return f;
+  }
+  function poolOff(f) {
+    if (f) fxOpt('moltenPool', f, false);
+  }
+  // 溅铁：从命中处朝前方溅出 n 道铁水，每道打一条线；每个敌人这一枚只挨一道
+  function moltenSplash(p, e) {
+    const S0 = p.ctx.sk.splash;
+    const ang = Math.atan2(p.dx, p.dz);
+    const done = new Set([e]);
+    const len = S0.len * Math.sqrt(p.ctx.area);
+    for (let i = 0; i < S0.n; i++) {
+      const a = ang + (S0.n > 1 ? -S0.arc / 2 + (S0.arc * i) / (S0.n - 1) : 0) * DEG;
+      const L = rayLen(e.x, e.z, a, len, -0.3);
+      for (const o of enemiesInLine(e.x, e.z, a, L, S0.w / 2)) {
+        if (done.has(o)) continue;
+        done.add(o);
+        tickHit(o, p.ctx, p.rk * S0.k, { ang: a, w: 0, kb: 0.4, poise: 4, quiet: true }, true); // 溅到的怪：命中特效静音，只冒几颗暗芯火星
+      }
+    }
+    fxOpt('moltenSplash', e.x, e.z, ang, S0.arc, len, S0.n);
+  }
+  // 雷楔：钉进敌人，delay 秒后放电（身上的楔子越多越痛），再连到附近的敌人
+  function wedgeStick(p, e) {
+    const W0 = p.ctx.sk.wedge, ctx = p.ctx, k = p.rk;
+    e.wedges = (e.wedges || 0) + 1;
+    fxOpt('wedgeStick', e, W0.delay);
+    G.after(W0.delay, () => {
+      e.wedges = Math.max(0, (e.wedges || 1) - 1);
+      if (e.dead) return;
+      const st = Math.min(W0.maxStack, e.wedges + 1);
+      const m = k * W0.zap * (1 + W0.stack * (st - 1));
+      G.hitEnemy(e, ctx, m, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 1, kb: 0, poise: 4 });
+      const tg = W0.n > 0 ? nearestOthers(e, W0.r * Math.sqrt(ctx.area), W0.n) : [];
+      for (const o of tg) G.hitEnemy(o, ctx, m * W0.chainK, { ang: Math.atan2(o.x - e.x, o.z - e.z), w: 0, kb: 0, poise: 2, quiet: true });
+      fxOpt('wedgeZap', e, tg, st);
+      if (ctx.sk.mech === 'net') netPlant(ctx, e.x, e.z); // 雷网：放完电的楔子掉在敌人脚下，接着拉线
+      G.sfx('round', { type: 'zap' });
+    });
+  }
+  // 雷网：打空的楔子钉在地上，link 米内的两两拉线
+  function netEnd(p) {
+    if (p.didHit) return;
+    let x = p.x, z = p.z;
+    if (!G.world.walkable(x, z, 0.2)) {
+      x -= p.dx * 0.6;
+      z -= p.dz * 0.6;
+    }
+    netPlant(p.ctx, x, z);
+  }
+  function netPlant(ctx, x, z) {
+    const N = ctx.sk.net;
+    if (!N) return;
+    while (netWedges.length >= NET_MAX) fxOpt('netWedge', netWedges.shift(), false);
+    const w = { x, z, t: N.dur * ctx.durK, ctx, born: state.time + netWedges.length * 1e-6 };
+    netWedges.push(w);
+    fxOpt('netWedge', w, true);
+    netRelink();
+  }
+  function netRelink() {
+    const pairs = [];
+    for (let i = 0; i < netWedges.length; i++)
+      for (let j = i + 1; j < netWedges.length; j++) {
+        const a = netWedges[i], b = netWedges[j];
+        const N = (b.born > a.born ? b : a).ctx.sk.net;
+        const d = dist(a.x, a.z, b.x, b.z);
+        if (!N || d < 1 || d > N.link * Math.sqrt(b.ctx.area) || !losClear(a.x, a.z, b.x, b.z)) continue; // 不到 1 米的两枚不拉线（掉在同一个敌人脚下的不算一根线）
+        pairs.push({ a, b, age: Math.min(a.born, b.born), newest: Math.max(a.born, b.born) });
+      }
+    // 新的顶掉旧的：按两端里较新的那一枚排，再按较旧的那一枚
+    pairs.sort((u, v) => v.newest - u.newest || v.age - u.age);
+    const last = netWedges.length ? netWedges[netWedges.length - 1].ctx : null;
+    const cap = last && last.sk.net ? last.sk.net.lines + (last.durCap || 0) : 3;
+    netLines = pairs.slice(0, cap);
+  }
+  function segDist(px, pz, ax, az, bx, bz) {
+    const vx = bx - ax, vz = bz - az;
+    const L2 = vx * vx + vz * vz || 1;
+    const t = G.clamp(((px - ax) * vx + (pz - az) * vz) / L2, 0, 1);
+    return Math.hypot(px - ax - vx * t, pz - az - vz * t);
+  }
+  function tickNet(dt) {
+    let gone = false;
+    for (let i = netWedges.length - 1; i >= 0; i--) {
+      const w = netWedges[i];
+      w.t -= dt;
+      if (w.t <= 0) {
+        netWedges.splice(i, 1);
+        fxOpt('netWedge', w, false);
+        gone = true;
+      }
+    }
+    if (gone) netRelink();
+    if (!netLines.length) return;
+    netTT -= dt;
+    if (netTT > 0) return;
+    const ctx = netWedges[netWedges.length - 1].ctx, N = ctx.sk.net;
+    netTT += N.tick;
+    for (const e of state.enemies) {
+      if (e.dead || state.time - (e.netAt || -99) < N.tick * 0.95) continue;
+      for (const L of netLines) {
+        if (segDist(e.x, e.z, L.a.x, L.a.z, L.b.x, L.b.z) > N.w / 2 + e.r) continue;
+        e.netAt = state.time;
+        tickHit(e, ctx, N.k, { ang: 0, w: 0, kb: 0, poise: 1, quiet: true, faint: true, extra: true }, false);
+        break;
+      }
+    }
+  }
+  G.netState = () => ({ wedges: netWedges, lines: netLines });
+  G.roundPools = () => roundPools;
+  // 霜霰弹：冰屑（原式：敌人背后的扇面；散霜：四周一圈）。不打被命中的那个
+  function rimeShards(p, e) {
+    const S0 = p.ctx.sk.shard;
+    if (!S0) return;
+    const ak = Math.sqrt(p.ctx.area);
+    const dir = Math.atan2(p.dx, p.dz);
+    if (S0.r) {
+      const R = S0.r * ak;
+      for (const o of enemiesIn(e.x, e.z, R)) if (o !== e) G.hitEnemy(o, p.ctx, p.rk * S0.k, { ang: Math.atan2(o.x - e.x, o.z - e.z), w: 0, kb: 0.3, poise: 3, quiet: true });
+      fxOpt('rimeBurst', e.x, e.z, R, false);
+      return;
+    }
+    const L = S0.len * ak, half = (S0.arc / 2) * DEG;
+    for (const o of enemiesIn(e.x, e.z, L)) {
+      if (o === e) continue;
+      const d = dist(o.x, o.z, e.x, e.z);
+      if (d > o.r + 0.3 && Math.abs(angDiff(Math.atan2(o.x - e.x, o.z - e.z), dir)) > half + Math.asin(Math.min(1, o.r / Math.max(0.01, d)))) continue;
+      if (!losClear(e.x, e.z, o.x, o.z)) continue;
+      G.hitEnemy(o, p.ctx, p.rk * S0.k, { ang: Math.atan2(o.x - e.x, o.z - e.z), w: 0, kb: 0.3, poise: 3, quiet: true });
+    }
+    fxOpt('rimeFan', e.x, e.z, dir, S0.arc, L);
+  }
+  // 反冲弹：后坐力把你往后推（撞墙即停；起跳时在首领场地里就不出场地）
+  function recoilPush(sk, aim) {
+    const W = G.world;
+    const D = sk.push;
+    push = { dx: -Math.sin(aim), dz: -Math.cos(aim), left: D.d, sp: D.d / D.dur, arena: !!(W.zone && W.zone.arena && W.inArena(P.x, P.z)), x0: P.x, z0: P.z };
+    fxOpt('recoilSlide', P.x, P.z, aim, D.dur);
+  }
+  function tickPush(dt) {
+    if (!push) return;
+    if (P.dead || P.roll.t > 0) {
+      push = null;
+      return;
+    }
+    const W = G.world;
+    let step = Math.min(push.left, push.sp * dt);
+    push.left -= step;
+    while (step > 1e-5) {
+      const s = Math.min(0.12, step);
+      step -= s;
+      const nx = P.x + push.dx * s, nz = P.z + push.dz * s;
+      if (!W.walkable(nx, nz, PLAYER_PAD) || (push.arena && !W.inArena(nx, nz))) {
+        push.left = 0;
+        break;
+      }
+      P.x = nx;
+      P.z = nz;
+    }
+    if (push.left <= 1e-5) {
+      state.stats.recoilDist = dist(P.x, P.z, push.x0, push.z0); // 测试用：这一次推了多远
+      push = null;
+    }
+  }
+  G.pushState = () => push;
+  // 震膛：起跳的地方震出一圈冲击，把贴身的怪推开
+  function recoilShock(ctx, x, z) {
+    const S0 = ctx.sk.shock, R = S0.r * Math.sqrt(ctx.area);
+    for (const e of enemiesIn(x, z, R)) G.hitEnemy(e, ctx, S0.k, { ang: Math.atan2(e.x - x, e.z - z), w: 1, kb: S0.kb, poise: 20 });
+    fxOpt('recoilShock', x, z, R);
+  }
+  SKILL_FX.round = function (ctx) {
+    roundCast(ctx);
+  };
+
+  // ---------- 提灯：点灯 / 借火 / 灯海 / 续火 ----------
+  const lamps = []; // { x, z, t, dur, tt, r0, ak, tick, mult, haste, ctx, born }
+  let sea = null; // 灯海 { x, z, r, t, dur, tt, ctx }
+  G.lampState = () => ({ lamps, sea, lend: P.lend && P.lend.t > 0 ? P.lend : null });
+  const lendOn = () => !!(P.lend && P.lend.t > 0);
+  function lampR(l) {
+    return (lendOn() ? G.SKILLS.lendfire.buff.lampR : l.r0) * l.ak;
+  }
+  G.lampR = lampR;
+  SKILL_FX.blamp = function (ctx) {
+    const sk = ctx.sk;
+    const ai = aimInfo();
+    const aim = P.cast && P.cast.id === ctx.id ? P.cast.aim : ai.ang;
+    const d = G.clamp(ai.dist, 2, sk.range);
+    const n = Math.max(1, ctx.proj);
+    const fan = n > 1 ? Math.min(40, 14 * (n - 1)) * DEG : 0;
+    const cast = new Set();
+    for (let j = 0; j < n; j++) {
+      const ang = aim + (n > 1 ? -fan / 2 + (fan * j) / (n - 1) : 0);
+      const dx = Math.sin(ang), dz = Math.cos(ang);
+      const p = G.spawnProjectile({
+        owner: 'p', x: P.x + dx * 0.6, z: P.z + dz * 0.6, dx, dz, speed: sk.speed, r: sk.projR, life: Math.max(0.05, (d - 0.6) / sk.speed),
+        color: hexOf(sk.color), ctx, pierce: 0, chain: 0, explode: sk.explode, hit: new Set(), cast, vk: 'lampglob',
+      });
+      p.after = (q, e) => {
+        q.lampAt = { x: e.x, z: e.z };
+      };
+      p.onEnd = lampEnd;
+    }
+    G.sfx('lamp', { phase: 'throw' });
+  };
+  function lampEnd(p) {
+    let x = p.lampAt ? p.lampAt.x : p.x, z = p.lampAt ? p.lampAt.z : p.z;
+    if (!G.world.walkable(x, z, 0.2)) {
+      x = p.x - p.dx * 0.7;
+      z = p.z - p.dz * 0.7;
+      if (!G.world.walkable(x, z, 0.2)) return;
+    }
+    placeLamp(p.ctx, x, z);
+  }
+  function placeLamp(ctx, x, z) {
+    const L = ctx.sk.lamp;
+    if (!L) return null;
+    const cap = L.max + (ctx.durCap || 0);
+    while (lamps.length >= cap) lampOff(lamps.shift(), false);
+    const l = { x, z, t: L.dur * ctx.durK, dur: L.dur * ctx.durK, tt: 0.2, r0: L.r, ak: Math.sqrt(ctx.area), tick: L.tick, mult: L.mult, haste: L.haste, ctx, born: state.time };
+    lamps.push(l);
+    fxOpt('lampPlace', l, true);
+    G.sfx('lamp', { phase: 'land' });
+    state.stats.lampsPlaced = (state.stats.lampsPlaced || 0) + 1;
+    return l;
+  }
+  G.placeLamp = (x, z) => placeLamp(G.skillCtx('basic_lantern'), x, z); // 测试用
+  function lampOff(l, boom) {
+    if (l) fxOpt('lampPlace', l, false, !!boom);
+  }
+  // 借火结束：每盏小灯炸开
+  function lendEnd(boom) {
+    const L = P.lend;
+    P.lend = null;
+    fxOpt('lendFx', false);
+    if (!boom || !L) return;
+    const B = G.SKILLS.lendfire.boom;
+    while (lamps.length) {
+      const l = lamps.shift();
+      const R = B.r * l.ak;
+      for (const e of enemiesIn(l.x, l.z, R)) G.hitEnemy(e, L.ctx, B.mult, { ang: Math.atan2(e.x - l.x, e.z - l.z), w: 1, kb: 0.8, poise: 10, quiet: true });
+      lampOff(l, true);
+      fxOpt('lampBoom', l.x, l.z, R);
+    }
+    G.sfx('lamp', { phase: 'boom' });
+  }
+  WS_FX.wlantern = function (ctx) {
+    const B = ctx.sk.buff;
+    P.lend = { t: B.dur, dur: B.dur, ctx, fire: B.minionFire, burn: B.burn };
+    fxOpt('lendFx', true);
+    G.world.text(P.x, P.z, '借火', ctx.sk.color, 16);
+    G.sfx('lamp', { phase: 'lend' });
+  };
+  WS_FX.ulantern = function (ctx) {
+    const sk = ctx.sk;
+    if (sea) fxOpt('lampSea', sea, false);
+    sea = { x: P.x, z: P.z, r: sk.r * Math.sqrt(ctx.area), n: sk.n, t: sk.dur, dur: sk.dur, tt: 0.2, tick: sk.tick, mult: sk.mult, haste: sk.haste, ctx };
+    fxOpt('lampSea', sea, true);
+    G.sfx('lamp', { phase: 'sea' });
+  };
+  // 召唤物在灯光里的攻速倍率（minions.js 的攻击倒计时用）
+  G.lampAny = () => lamps.length > 0 || !!sea;
+  G.lampHaste = function (m) {
+    if (sea && dist(m.x, m.z, sea.x, sea.z) <= sea.r) return 1 + sea.haste;
+    for (const l of lamps) if (dist(m.x, m.z, l.x, l.z) <= lampR(l)) return 1 + l.haste;
+    return 1;
+  };
+  // 借火：召唤物每一击附带的火焰伤害（%），没有借火时 0
+  G.lendFire = () => (lendOn() ? P.lend.fire : 0);
+  function tickLamps(dt) {
+    // 借火：到点炸灯；换下了提灯就悄悄结束
+    if (P.lend) {
+      if (wTypeOfItem(G.save.equip.weapon) !== 'lantern') lendEnd(false);
+      else {
+        P.lend.t -= dt;
+        if (P.lend.t <= 0) lendEnd(true);
+      }
+    }
+    const lb = lendOn() ? P.lend.burn : 1;
+    for (let i = lamps.length - 1; i >= 0; i--) {
+      const l = lamps[i];
+      l.t -= dt;
+      if (l.t <= 0) {
+        lamps.splice(i, 1);
+        lampOff(l, false);
+        continue;
+      }
+      l.tt -= dt;
+      if (l.tt > 0) continue;
+      l.tt += l.tick;
+      const R = lampR(l);
+      for (const e of enemiesIn(l.x, l.z, R)) {
+        if (state.time - (e.lampAt || -99) < l.tick * 0.95) continue;
+        e.lampAt = state.time;
+        tickHit(e, l.ctx, l.mult * lb, { ang: Math.atan2(e.x - l.x, e.z - l.z), w: 0, kb: 0, poise: 1, quiet: true, faint: true, extra: true }, false);
+      }
+    }
+    if (sea) {
+      sea.t -= dt;
+      if (sea.t <= 0 || wTypeOfItem(G.save.equip.weapon) !== 'lantern') {
+        fxOpt('lampSea', sea, false);
+        sea = null;
+      } else {
+        sea.tt -= dt;
+        if (sea.tt <= 0) {
+          sea.tt += sea.tick;
+          for (const e of enemiesIn(sea.x, sea.z, sea.r)) {
+            if (state.time - (e.seaAt || -99) < sea.tick * 0.95) continue;
+            e.seaAt = state.time;
+            tickHit(e, sea.ctx, sea.mult, { ang: Math.atan2(e.x - sea.x, e.z - sea.z), w: 0, kb: 0, poise: 1, quiet: true, faint: true, extra: true }, false);
+          }
+        }
+      }
+    }
+    if (lamps.length || sea || P.lend) fxOpt('lampTick', lamps, sea, lendOn(), dt);
+  }
+  // 续火（长明）：死在灯光里的普通怪站起来替你打一会儿
+  function relightCheck(e) {
+    if (e.elite || e.isBoss || e.pin || e.noXp) return;
+    const L = G.RELIGHT;
+    let lit = sea && dist(e.x, e.z, sea.x, sea.z) <= sea.r ? 2 : 0;
+    if (!lit && dist(e.x, e.z, P.x, P.z) <= L.near) lit = 1;
+    if (!lit) for (const l of lamps) if (dist(e.x, e.z, l.x, l.z) <= lampR(l)) {
+      lit = 1;
+      break;
+    }
+    if (!lit) return;
+    if (lit === 1 && Math.random() >= L.chance) return;
+    if (!G.summonRelit || G.relitCount() >= L.cap) return;
+    if (G.summonRelit(e.x, e.z, L.dur)) state.stats.relit = (state.stats.relit || 0) + 1;
+  }
+  G.relightCheck = relightCheck;
+  // 每帧（tickRanged 里）和换区域时
+  function tickD2b(dt) {
+    if (push) tickPush(dt);
+    if (roundPools.length) {
+      for (let i = roundPools.length - 1; i >= 0; i--) {
+        const f = roundPools[i];
+        f.t -= dt;
+        if (f.t <= 0) {
+          roundPools.splice(i, 1);
+          poolOff(f);
+          continue;
+        }
+        f.tt -= dt;
+        if (f.tt > 0) continue;
+        f.tt += f.tick;
+        for (const e of enemiesIn(f.x, f.z, f.r)) {
+          if (state.time - (e.moltenAt || -99) < f.tick * 0.95) continue;
+          e.moltenAt = state.time;
+          tickHit(e, f.ctx, f.mult, { ang: Math.atan2(e.x - f.x, e.z - f.z), w: 0, kb: 0, poise: 1, quiet: true, faint: true, extra: true }, true);
+        }
+      }
+      fxOpt('moltenTick', roundPools, dt);
+    }
+    if (netWedges.length) {
+      tickNet(dt);
+      fxOpt('netTick', netWedges, netLines, dt);
+    }
+    if (lamps.length || sea || P.lend) tickLamps(dt);
+  }
+  function resetD2b() {
+    for (const f of roundPools) poolOff(f);
+    roundPools.length = 0;
+    for (const w of netWedges) fxOpt('netWedge', w, false);
+    netWedges.length = 0;
+    netLines = [];
+    netTT = 0;
+    push = null;
+    for (const l of lamps) lampOff(l, false);
+    lamps.length = 0;
+    if (sea) fxOpt('lampSea', sea, false);
+    sea = null;
+    if (P.lend) lendEnd(false);
+  }
+  G.d2bState = () => ({ pools: roundPools.length, wedges: netWedges.length, lines: netLines.length, lamps: lamps.length, sea: !!sea, lend: lendOn(), push: !!push });
 
   // =====================================================================
   // 烬铸技（拿着烬铸武器时 R 上的那一招，见 data.js 的 ashcuts / tristorm / soulhost）
@@ -9323,7 +9929,7 @@
       // 斩痕：这一闪的目标留一整道，沿路 / 身边挨了刀的留半道（sk.side）——怪群里多炸一些，单挑首领不变
       for (const o of live) {
         addCut(run, o, o === e ? 1 : sk.side);
-        fxOpt('ashMark', o.ent, a + Math.PI / 2 + G.rand(-0.6, 0.6), run.cuts.get(o), o.height || 2);
+        fxOpt('ashMark', o.ent, a + Math.PI / 2 + G.vrand(-0.6, 0.6), run.cuts.get(o), o.height || 2);
       }
       G.sfx('swing', { step: run.hops % 2 });
       if (live.length) wsStrike(ctx, live, sk.pass, { ang: a, w: 0, kb: sk.kb, poise: sk.poise, stop: sk.stop, dir: a });
@@ -9367,7 +9973,8 @@
         marks += mk;
       }
       fxOpt('ashBurst', e.x, e.z, e.height || 2, e.r, it.n, mk);
-      total += G.hitEnemy(e, ctx, it.n * sk.cut + mk * sk.mark, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 2, kb: sk.kb * 2, poise: sk.cutPoise, quiet: true }) || 0;
+      if (W.impactStyle) W.impactStyle('ash'); // skill-b2：同上（余烬色）
+      try { total += G.hitEnemy(e, ctx, it.n * sk.cut + mk * sk.mark, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 2, kb: sk.kb * 2, poise: sk.cutPoise, quiet: true }) || 0; } finally { if (W.impactStyle) W.impactStyle(null); }
       crit = crit || lastHit.crit;
       if (!e.dead) W.shudder(e.ent, 0.14, 0.24);
     }
@@ -9648,7 +10255,7 @@
       G.hitEnemy(o, p.ctx, S.mult, { ang: Math.atan2(o.x - x, o.z - z), w: 0, kb: 0.15, poise: 2, quiet: true, faint: true, extra: true });
       n++;
     }
-    if (n && Math.random() < 0.5) G.world.burst(x, 1.0, z, 0xffcf7a, 6, 4, 0.2);
+    if (n && G.vr() < 0.5) G.world.burst(x, 1.0, z, 0xffcf7a, 6, 4, 0.2);
     state.stats.wildSplash = (state.stats.wildSplash || 0) + n;
   }
 
@@ -9894,7 +10501,7 @@
     W.ring(e.x, e.z, e.r + 3.4, 0xfff0c0, 0.4);
     W.ring(e.x, e.z, e.r + 1.8, 0xffffff, 0.22);
     W.burst(hx, h * 0.5, hz, 0xfff0c0, 34, 9, 0.6);
-    W.decal(5, e.x, e.z, e.r + 2.2, Math.random() * TAU, 0xffd28a, 3.2);
+    W.decal(5, e.x, e.z, e.r + 2.2, G.vr() * TAU, 0xffd28a, 3.2);
     W.shake(0.8);
     W.punch(ang, 0.75);
     W.fovKick(5);
@@ -10212,7 +10819,7 @@
           if (mv && !still) {
             // 施法中走得慢；挥砍出手前几乎钉在原地（那一小步由连击自己迈）；旋风斩边转边走
             const c = P.cast;
-            let k = !c ? 1 : c.channel || c.ws ? c.move : c.st ? (c.fired ? 0.55 : 0.25) : 0.4;
+            let k = !c ? 1 : c.channel || c.ws ? c.move : c.st ? (c.fired ? 0.55 : 0.25) : c.mv !== undefined ? c.mv : 0.4; // mv：特殊弹拿左轮时边走边打（class-d2b1）
             if (P.rstate) k = Math.max(k, G.SKILLS[P.rstate.id].move || 1); // 乱射期间照常走动
             const sp = P.moveSpeed * k * dt * terr.k;
             movePlayer(mv.x * sp, mv.z * sp);
@@ -10262,13 +10869,15 @@
   // 辅助从 22 种（含绵延、破障）加到 33 种（support-expand 两批）：几率 ×1.5（原来 2 / 0.3 / 0.025），每一种辅助的掉率和原来差不多，老宝石不会变稀
   const SUPPORT_DROP = (G.SUPPORT_DROP = { boss: 3, elite: 0.45, mob: 0.0375 });
   // 随机技能宝石（首领另有一颗必掉）：技能宝石从 14 种加到 20 种（skill-expand），精英 / 普通怪的几率 × 20/14（原来 0.075 / 0.012），每一种老宝石的掉率不变
+  // 有职业的存档再乘 G.gemDropK（宝石总数 / 20：特殊弹加到 24 种，class-d2b1）；没有职业时池子还是那 20 种，几率不变
   const SKILL_DROP = (G.SKILL_DROP = { elite: (0.075 * 20) / 14, mob: (0.012 * 20) / 14 });
   // preferNew：挑玩家还没有的宝石的概率
   // 有职业时（class-d2）：最后那一下 G.pick 换成一次 G.weighted，本职业能用的宝石合起来占 G.CLASS_LOOT.gem（75%），
   // 随机数次数和没有职业时一样；用不上的那 25% 由 G.spawnLoot 变成同等级的无铭宝石。usable：只挑能用的（拾烬客的货架）
   function pickSkillGem(preferNew, usable) {
     const C = G.clsDef();
-    const all = C && usable ? G.classGems(G.save.cls) : G.GEM_SKILLS; // 武器技不掉落
+    // 武器技不掉落；没有职业时不掉 clsOnly 的宝石（特殊弹，class-d2b1），池子和随机数次数都和以前一样
+    const all = C && usable ? G.classGems(G.save.cls) : G.gemDropPool(G.save.cls);
     const fresh = all.filter((id) => !G.save.skills[id]);
     const pool = fresh.length && Math.random() < preferNew ? fresh : all;
     const id = C ? classGemPick(pool) : G.pick(pool);
@@ -10322,7 +10931,7 @@
       // 还没有任何辅助宝石时，第一只精英必掉一颗
       const needFirst = save.supports.length === 0 && !state.loot.some((l) => l.kind === 'support');
       if (needFirst || Math.random() < SUPPORT_DROP.elite) G.spawnLoot('support', pickSupportGem(needFirst ? 1 : 0.7), x, z);
-      if (Math.random() < SKILL_DROP.elite) G.spawnLoot('skill', pickSkillGem(0.7), x, z);
+      if (Math.random() < SKILL_DROP.elite * G.gemDropK(save.cls)) G.spawnLoot('skill', pickSkillGem(0.7), x, z);
       if (Math.random() < BLANK_DROP.elite) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
       return;
     }
@@ -10331,7 +10940,7 @@
     const zk = L ? e.hordeK || 1 : 1, kItem = L ? L.item * zk : 1, kCur = L ? L.cur * zk : 1, kGem = L ? L.gem * zk : 1;
     if (Math.random() < 0.14 * kItem * qk) G.spawnLoot('item', G.rollItem(ilvl, G.rollRarity(rm)), x, z);
     if (Math.random() < 0.09 * kCur * qk) G.spawnLoot('cur', G.rollCurrency(), x, z);
-    if (Math.random() < SKILL_DROP.mob * kGem) G.spawnLoot('skill', pickSkillGem(0.7), x, z);
+    if (Math.random() < SKILL_DROP.mob * kGem * G.gemDropK(save.cls)) G.spawnLoot('skill', pickSkillGem(0.7), x, z);
     if (Math.random() < SUPPORT_DROP.mob * kGem) G.spawnLoot('support', pickSupportGem(0.7), x, z);
     if (Math.random() < BLANK_DROP.mob * kGem) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
   };
@@ -10359,6 +10968,25 @@
     return null;
   }
   G.uniqueDrop = uniqueDrop;
+  // 长明（class-d2b1）：熄烛者每次击杀 G.RELIGHT.drop 几率，连续 pity 次没掉下一次必掉（save.lampPity，0 时不写，和巅峰渊契的保底分开）。
+  // 没有职业的存档不掷（Math.random 的次数和以前一样）
+  function lampDrop(ilvl, x, z) {
+    if (!G.clsDef()) return null;
+    const S = G.save, L = G.RELIGHT;
+    const n = S.lampPity || 0;
+    if (n >= L.pity || Math.random() < L.drop) {
+      delete S.lampPity;
+      const item = G.rollUnique('changming', ilvl);
+      const loot = G.spawnLoot('item', item, x, z);
+      G.sfx('unique');
+      if (G.ui.bigToast) G.ui.bigToast('烬铸武器', item.name, G.RARITY_COLOR[3], G.UNIQUES.changming.mechName);
+      state.stats.uniqueDrops = (state.stats.uniqueDrops || 0) + 1;
+      return loot;
+    }
+    S.lampPity = n + 1;
+    return null;
+  }
+  G.lampDrop = lampDrop; // 测试用
 
   G.spawnLoot = function (kind, data, x, z) {
     const W = G.world;
@@ -11679,7 +12307,7 @@
           shape: 'circle', x, z, r: D.r, dur: D.warn, dmg: hit, dtype: 'fire', owner: null, friendly: false,
           onFire() {
             W.burst(x, 0.5, z, 0xff8a3c, 16, 5, 0.5);
-            W.decal(1, x, z, D.r * 0.8, Math.random() * TAU, 0xff6a2a, 3);
+            W.decal(1, x, z, D.r * 0.8, G.vr() * TAU, 0xff6a2a, 3);
             // 打怪 × mobK（烬晶不吃：要你自己打碎）
             for (const e of state.enemies) if (!e.dead && !e.fixed && !e.isBoss && dist(e.x, e.z, x, z) <= D.r + e.r * 0.5) encHurt(e, hit * D.mobK);
           },
@@ -12268,6 +12896,7 @@
       relicSpawn(pid, ilvl, x, z);
     } else PK.pity++;
     if (Math.random() < D.normal) relicSpawn(G.pick(G.RELIC_IDS), ilvl, x, z);
+    lampDrop(ilvl, x, z);
     PK.kills++;
     state.stats.pinKills = (state.stats.pinKills || 0) + 1;
     state.pinLast = { relic: pid, first };
@@ -12296,7 +12925,8 @@
   // 只读现有进度（cleared / lastZone / tier）和「走到首领场地门口」，不加新事件。推进时不取随机数、不改任何模拟用到的状态：
   // 奖励直接加进 save.cur，提示交给界面层排队（G.ui.questDone）。固定种子的仗打出来和没有主线时逐位相同
   const questFns = [];
-  // D3 的挂钩：首领步在这次游戏里真正完成时（不是读档推算出来的）调 fn({ step, id, zone, live: true })。
+  // D3 的挂钩：首领步和进轮回层级 1 那一步在这次游戏里真正完成时（不是读档推算出来的）调 fn({ step, id, zone, live: true })
+  // （层级步没有 zone）。界面层拿它排旁白卡（ui.js updateNarr）。
   // 放过旁白后调 G.questTell(id) 记进 save.quest.told，G.questTold(id) 读
   G.onQuest = (fn) => {
     if (typeof fn === 'function') questFns.push(fn);
@@ -12338,7 +12968,7 @@
     if (G.ui && G.ui.questDone) G.ui.questDone(n, any ? got : null);
     for (let k = from; k < n; k++) {
       const q = G.QUEST[k];
-      if (q.kind !== 'boss') continue;
+      if (q.kind !== 'boss' && q.kind !== 'tier') continue;
       for (const fn of questFns) {
         try {
           fn({ step: k + 1, id: q.id, zone: q.zone, live: true });
