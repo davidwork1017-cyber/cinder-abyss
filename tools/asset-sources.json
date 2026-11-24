@@ -13,12 +13,12 @@
     "Snow013": { "src": "ambientcg", "page": "https://ambientcg.com/a/Snow013" },
     "Rock035": { "src": "ambientcg", "page": "https://ambientcg.com/a/Rock035" },
     "Lava001": { "src": "ambientcg", "page": "https://ambientcg.com/a/Lava001", "rFrom": "Emission" },
-    "g_decals": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）" },
-    "g_cover_ash": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）" },
-    "g_cover_frost": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）" },
-    "g_cover_storm": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）" },
-    "g_cover_abyss": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）" },
-    "g_cover_rift": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）" }
+    "g_decals": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）", "class": "decals", "kinds": ["albedo", "arh"], "skipLow": true },
+    "g_cover_ash": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）", "class": "cover", "kinds": ["albedo", "arh"] },
+    "g_cover_frost": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）", "class": "cover", "kinds": ["albedo", "arh"] },
+    "g_cover_storm": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）", "class": "cover", "kinds": ["albedo", "arh"] },
+    "g_cover_abyss": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）", "class": "cover", "kinds": ["albedo", "arh"] },
+    "g_cover_rift": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）", "class": "cover", "kinds": ["albedo", "arh"] }
   },
   "sources": {
     "ual": {
@@ -46,7 +46,7 @@
     "zone-storm": { "textures": ["monastery_stone_floor", "rocky_trail", "g_cover_storm"], "with": ["kit-storm"] },
     "kit-abyss": { "kit": "abyss" },
     "kit-crown": { "kit": "crown" },
-    "zone-abyss": { "textures": ["dark_rock_02", "Lava001", "g_cover_abyss"], "with": ["kit-abyss", "kit-crown"] },
+    "zone-abyss": { "textures": ["dark_rock_02", "g_cover_abyss"], "with": ["kit-abyss", "kit-crown"] },
     "kit-rift": { "kit": "rift" },
     "kit-gear": { "kit": "gear" },
     "zone-rift": { "textures": ["slate_floor", "moon_01", "g_cover_rift"], "with": ["kit-rift"] },
