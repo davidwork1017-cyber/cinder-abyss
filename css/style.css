@@ -3529,6 +3529,29 @@ body.alt-on #quest .q-h { display: none; }
 .trd-frag .ibox .ico { width: 30px; height: 30px; }
 .trd-msg { min-height: 20px; margin: 8px 0 0; font-size: 13px; color: #ffd28a; }
 .trd-none { font-size: 13px; color: var(--faint); }
+/* UI-R B4b：桌面两列各是一个列表（data-list），一次性提示在最下面占一行；窄屏 / 触屏分子页签 货架 | 卖出 | 烛芯（docs/ui.md） */
+.trader { grid-template-rows: minmax(0, 1fr) auto; row-gap: 6px; }
+.trader > .pg-note { grid-column: 1 / -1; }
+.trd-cost { display: flex; align-items: center; gap: 8px; padding: 8px 12px 2px; font-size: var(--fs-sm); color: var(--dim); }
+.trd-gemd { padding: 6px 12px; }
+.trd-gemd .tc-desc { margin: 0; font-size: var(--fs-base); line-height: 1.6; color: #e6d7bd; }
+.trd-gem { margin: 6px 0 0; font-size: var(--fs-sm); line-height: 1.5; color: var(--dim); }
+@media (max-width: 900px), (max-height: 500px) {
+  .trp.cpt { position: relative; height: 100%; display: flex; flex-direction: column; min-height: 0; }
+  .trp .subtab em { margin-left: 4px; font-family: var(--sans); font-style: normal; font-weight: 400; font-size: var(--fs-xs); letter-spacing: 0; color: var(--dim); }
+  .trd-list { flex: 1 1 auto; min-height: 0; padding: 6px 2px 2px 0; }
+  .trp .trd-row, .trp .trd-frag { min-height: 46px; gap: 8px; margin-bottom: 4px; padding: 0 0 0 6px; box-sizing: border-box; }
+  .trp .trd-row { cursor: pointer; }
+  .trp .trd-row.sel { border-color: var(--ember-2); background: #1c130d; }
+  .trp .trd-row .ibox { width: 36px; height: 36px; }
+  .trp .trd-row .ibox .ico { width: 32px; height: 32px; }
+  .trp .trd-name { font-size: var(--fs-base); }
+  .trp .trd-price { gap: 4px; }
+  .trp .trd-row .btn.sm, .trp .trd-frag .btn.sm { flex: none; width: 64px; height: 44px; padding: 0; font-size: var(--fs-base); letter-spacing: 1px; }
+  .trp .trd-frags { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 4px; }
+  .trp .trd-frag { margin-bottom: 0; font-size: var(--fs-base); }
+  .trd-lead { margin: 0 0 6px; font-size: var(--fs-sm); line-height: 18px; color: var(--dim); }
+}
 .frag-row { grid-template-columns: repeat(4, 1fr); }
 
 /* ===== 余烛殿（D5）：HUD 左上的魂灯、地图页的余烛殿节点 ===== */
@@ -3815,6 +3838,85 @@ html.char-loading #load-char { display: flex; }
 .t-foot { position: absolute; left: clamp(24px, calc(7 * var(--vw, 1vw)), 120px); bottom: 14px; display: flex; align-items: center; gap: 12px; font-size: 11.5px; letter-spacing: 1px; color: var(--faint); }
 .t-link { padding: 0; font-size: 11.5px; letter-spacing: 2px; color: var(--bronze); background: none; border: none; border-bottom: 1px dotted #6b4a28; cursor: pointer; }
 .t-link:hover { color: var(--ember-2); border-bottom-color: var(--ember-2); }
+/* ---- UI-R B4b：矮屏（画面高 ≤ 500）的标题画面、角色页、职业选择（docs/ui.md）----
+   标题：标志缩成左边 64 px 的图标加字，菜单在右边排两列（每个 44 px），「继续游戏」占一整行，页脚放到右下。
+   角色页 / 职业选择：子页占满整个高度，不显示标志和页脚；里面只有卡片区滚动 */
+@media (max-height: 500px) {
+  #title:not(.sub) .t-main { flex-direction: row; align-items: center; justify-content: space-between; gap: 20px; top: calc(var(--sa-t4, 0px) + 6px); bottom: calc(var(--sa-b, 0px) + 46px); left: max(24px, calc(var(--sa-l, 0px) + 12px)); right: max(24px, calc(var(--sa-r, 0px) + 12px)); width: auto; }
+  #title:not(.sub) .t-logo { flex: none; column-gap: 10px; }
+  #title .t-emblem { width: 64px; height: 64px; }
+  #title .t-name { font-size: 36px; }
+  #title .t-sub { font-size: 12px; letter-spacing: 2px; }
+  #title:not(.sub) .m-menu { flex: 0 1 440px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: auto; min-width: 0; margin-top: 0; }
+  #title .m-menu .m-btn { min-width: 0; padding: 0 12px; letter-spacing: 2px; white-space: nowrap; }
+  #title #t-continue { grid-column: 1 / -1; flex-direction: row; align-items: center; justify-content: flex-start; gap: 10px; height: 44px; min-height: 44px; padding: 0 12px; }
+  #title #t-save { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  #title #t-new.wide, #title .t-wait { grid-column: 1 / -1; }
+  #title .m-btn span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  #title .t-foot { left: auto; right: max(36px, calc(var(--sa-r, 0px) + 16px)); bottom: calc(var(--sa-b, 0px) + 6px); }
+  #title.sub.chars .t-main { top: calc(var(--sa-t4, 0px) + 4px); bottom: calc(var(--sa-b, 0px) + 8px); left: max(24px, calc(var(--sa-l, 0px) + 12px)); justify-content: flex-start; }
+  #title.chars .t-logo, #title.chars .t-foot { display: none; }
+  #title.chars .m-host { flex: 0 1 auto; }
+  #title.chars .m-view { margin-top: 0; padding: 6px 12px 8px; }
+}
+/* 旋转横屏（html.t-rot，手机版 M2）：按转过的画面尺寸套用上面这一段（(max-height: 500px)，js/touch.js 设 t-rh500） */
+:where(html.t-rh500) #title:not(.sub) .t-main { flex-direction: row; align-items: center; justify-content: space-between; gap: 20px; top: calc(var(--sa-t4, 0px) + 6px); bottom: calc(var(--sa-b, 0px) + 46px); left: max(24px, calc(var(--sa-l, 0px) + 12px)); right: max(24px, calc(var(--sa-r, 0px) + 12px)); width: auto; }
+:where(html.t-rh500) #title:not(.sub) .t-logo { flex: none; column-gap: 10px; }
+:where(html.t-rh500) #title .t-emblem { width: 64px; height: 64px; }
+:where(html.t-rh500) #title .t-name { font-size: 36px; }
+:where(html.t-rh500) #title .t-sub { font-size: 12px; letter-spacing: 2px; }
+:where(html.t-rh500) #title:not(.sub) .m-menu { flex: 0 1 440px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: auto; min-width: 0; margin-top: 0; }
+:where(html.t-rh500) #title .m-menu .m-btn { min-width: 0; padding: 0 12px; letter-spacing: 2px; white-space: nowrap; }
+:where(html.t-rh500) #title #t-continue { grid-column: 1 / -1; flex-direction: row; align-items: center; justify-content: flex-start; gap: 10px; height: 44px; min-height: 44px; padding: 0 12px; }
+:where(html.t-rh500) #title #t-save { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+:where(html.t-rh500) #title #t-new.wide, :where(html.t-rh500) #title .t-wait { grid-column: 1 / -1; }
+:where(html.t-rh500) #title .m-btn span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+:where(html.t-rh500) #title .t-foot { left: auto; right: max(36px, calc(var(--sa-r, 0px) + 16px)); bottom: calc(var(--sa-b, 0px) + 6px); }
+:where(html.t-rh500) #title.sub.chars .t-main { top: calc(var(--sa-t4, 0px) + 4px); bottom: calc(var(--sa-b, 0px) + 8px); left: max(24px, calc(var(--sa-l, 0px) + 12px)); justify-content: flex-start; }
+:where(html.t-rh500) #title.chars .t-logo, :where(html.t-rh500) #title.chars .t-foot { display: none; }
+:where(html.t-rh500) #title.chars .m-host { flex: 0 1 auto; }
+:where(html.t-rh500) #title.chars .m-view { margin-top: 0; padding: 6px 12px 8px; }
+/* 角色页、职业选择的窄屏排法（ui.js 给 .m-view 加 cpt）：m-body 不滚，里面的卡片区（data-list）滚 */
+.m-view.cpt .m-body { display: flex; flex-direction: column; overflow: hidden; padding-right: 0; }
+.m-view.cpt .m-body > * { flex: none; }
+.m-view.cpt .m-body > .cl-one, .m-view.cpt .m-body > .ch-grid { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+/* 职业选择（窄屏）：一排五个职业标签 + 选中的这一张 */
+.cl-tabs { display: flex; gap: 4px; padding: 6px 0 4px; }
+.cl-tab { position: relative; flex: 1 1 0; min-width: 44px; height: 44px; padding: 0 2px; font-family: var(--serif); font-weight: 700; font-size: 14px; letter-spacing: 1px; color: color-mix(in srgb, var(--c) 70%, #e6d7bd); background: linear-gradient(180deg, rgba(36, 26, 19, 0.94), rgba(18, 12, 9, 0.86)); border: 1px solid var(--line-2); border-bottom: 2px solid #3d2c1e; border-radius: 2px; cursor: pointer; white-space: nowrap; }
+.cl-tab.on { color: #fff3dc; background: linear-gradient(180deg, color-mix(in srgb, var(--c) 30%, #2a1c13), rgba(24, 16, 11, 0.94)); border-color: var(--c); border-bottom-color: var(--c); }
+.cl-tab.rec::after { content: ''; position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--ember-2); box-shadow: 0 0 5px var(--ember-2); }
+.cl-one { padding: 2px 4px 2px 0; }
+.cl-one .cl-intro { margin-top: 2px; }
+.cl-one-card { cursor: default; }
+.cl-one-card:hover { border-color: var(--c); }
+/* 角色页（窄屏）：紧凑卡片 64 px，横屏三列、竖屏一列 */
+.ch-grid.cpt { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; align-content: start; padding: 4px 4px 2px 0; }
+.ch-card.cpt { flex-direction: row; align-items: center; gap: 4px; height: 64px; min-height: 64px; padding: 4px 2px 4px 10px; box-sizing: border-box; cursor: pointer; }
+.ch-card.cpt:hover { border-color: var(--ember-2); }
+.ch-card.cpt .ch-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.ch-card.cpt .ch-top { display: block; }
+.ch-card.cpt .ch-top b { display: block; font-size: 14px; line-height: 18px; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ch-card.cpt .ch-sub, .ch-card.cpt .ch-t { font-size: var(--fs-xs); line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ch-card.cpt .ch-sub { font-size: var(--fs-sm); }
+.ch-card.cpt .ch-t em { margin-left: 6px; font-style: normal; color: var(--ember-2); }
+.ch-card.cpt .ch-x { flex: none; width: 44px; height: 44px; padding: 0; letter-spacing: 0; }
+.ch-grid.cpt .ch-card.empty { height: 64px; min-height: 64px; box-sizing: border-box; }
+.ch-foot .btn + .btn { margin-left: -2px; }
+.m-view.cpt .ch-trash { margin-top: 6px; padding: 0 0 0 12px; min-height: 46px; box-sizing: border-box; }
+.m-view.cpt .ch-foot { margin-top: 6px; }
+.m-view.cpt .ch-foot .m-note { font-size: var(--fs-xs); line-height: 15px; }
+@media (max-width: 600px) {
+  :where(html:not(.t-rot)) .ch-grid.cpt { grid-template-columns: 1fr; }
+  :where(html:not(.t-rot)) .ch-card.cpt .ch-top { flex-direction: row; }
+  :where(html:not(.t-rot)) #title.chars .t-logo, :where(html:not(.t-rot)) #title.chars .t-foot { display: none; } /* 竖屏：标志让给角色列表，页脚不压在子页上 */
+}
+/* 触屏：标题画面子页里的按钮一律 44 px 高；子页头 36 px，「返回」的点按区上下伸出去；「致谢」点按区 44 px（虚线改成文字下划线） */
+html.touch-ui #title .m-view .btn { height: 44px; min-width: 44px; }
+html.touch-ui #title .m-head { height: 36px; padding-bottom: 0; box-sizing: border-box; }
+html.touch-ui #title .m-head .btn { margin: -5px 0 -4px; }
+html.touch-ui .t-link { height: 44px; padding: 0 10px; border-bottom: none; text-decoration: underline dotted #6b4a28; text-underline-offset: 4px; }
+html.touch-ui .t-foot { gap: 2px; }
+#title .alt-h kbd { font-size: var(--fs-xs); } /* 10.5 → 11 px：最小字号 11 */
 
 #pause {
   position: fixed;
@@ -4171,6 +4273,9 @@ html.touch-ui #quest { right: calc(var(--sa-r) + 8px); top: calc(var(--sa-t) + 1
 html.touch-ui #quest .q-k { font-size: 11px; line-height: 15px; letter-spacing: 1px; }
 html.touch-ui #quest .q-goal { font-size: 13px; line-height: 18px; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 html.touch-ui #quest .q-how, html.touch-ui #quest .q-h, html.touch-ui #quest .q-alt { display: none; }
+/* UI-R B4b：矮屏 + L 档按钮、或者打起来时收成一行（只留目标，js/touch.js 加 t-q1）；点按区上下各垫 13 px 到 44 px，点一下展开 3 秒 */
+html.touch-ui #quest.t-q1 { pointer-events: auto; margin-top: -13px; padding: 13px 0; }
+html.touch-ui #quest.t-q1 .q-k { display: none; }
 html.touch-ui #zone-loading { right: calc(var(--sa-r) + 8px); top: calc(var(--sa-t) + 122px); width: 110px; padding: 4px 6px; font-size: 11px; }
 html.touch-ui body.quest-on #combo, html.touch-ui #combo { top: calc(var(--sa-t) + 118px); right: calc(var(--sa-r) + 176px); }
 html.touch-ui #combo-n { font-size: 38px; line-height: 38px; }
@@ -4311,6 +4416,11 @@ html.touch-ui #coach.t-min:not(.t-open) .co-body { -webkit-line-clamp: 1; }
 /* 触屏：旁白卡放在顶栏、提示卡下方居中，字小一号、可以折行，不压小地图 / 追踪条、摇杆区和按钮簇 */
 html.touch-ui #narr { bottom: auto; top: calc(var(--sa-t) + 104px); max-width: calc(calc(100 * var(--vw, 1vw)) - 2 * max(var(--sa-l), var(--sa-r)) - 360px); font-size: 13px; line-height: 1.5; }
 html.touch-ui #narr p { white-space: normal; }
+/* UI-R B4b：旁白卡放着的几秒里提示卡先让开（放完再出来），旁白卡用它的位置，不再盖住它；首领条在时往下让。
+   手机横屏两边有安全区时旁白卡只有 190 px 宽、会折成四五行，排在提示卡下面就压到按钮簇 */
+html.touch-ui body:has(#narr.show:not(.held)) #coach { visibility: hidden; }
+html.touch-ui #narr { top: calc(var(--sa-t) + 56px); }
+html.touch-ui.t-boss #narr { top: calc(var(--sa-t) + 112px); }
 
 /* ============================================================
    手机版 M2（只在 html.touch-ui 下）：长按 / 拖拽、按钮大小、左手模式（面板布局交给 UI-R，这里不动）
@@ -4462,8 +4572,8 @@ html.touch-ui { --fs-md: 14px; --fs-lg: 16px; --head-h: 36px; --hit: 44px; }
 .sheet .sh-head { background: linear-gradient(180deg, color-mix(in srgb, var(--rc, #6d675c) 16%, transparent), rgba(20, 13, 9, 0.2)); }
 .sheet.top .sh-name { text-shadow: 0 0 8px color-mix(in srgb, var(--rc) 55%, transparent), 0 1px 2px #000; }
 /* 触屏卡片的「改造」：通货一行 44 px */
-.cl-list { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px 0; }
-.cl-row {
+.sheet .cl-list { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px 0; }
+.sheet .cl-row {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -4476,13 +4586,13 @@ html.touch-ui { --fs-md: 14px; --fs-lg: 16px; --head-h: 36px; --hit: 44px; }
   border-radius: 3px;
   cursor: pointer;
 }
-.cl-row .ico { flex: none; width: 28px; height: 28px; }
+.sheet .cl-row .ico { flex: none; width: 28px; height: 28px; }
 .cl-name { flex: 1; min-width: 0; font-size: var(--fs-base); line-height: 17px; }
 .cl-name em { display: block; font-style: normal; font-size: var(--fs-xs); line-height: 15px; color: var(--dim); }
-.cl-row b { flex: none; color: #fff; font-variant-numeric: tabular-nums; }
-.cl-row:disabled { color: var(--faint); background: #100b08; border-color: #251b13; cursor: default; }
-.cl-row:disabled .ico { filter: grayscale(0.9) brightness(0.6); opacity: 0.5; }
-.cl-row:disabled b, .cl-row:disabled em { color: var(--faint); }
+.sheet .cl-row b { flex: none; color: #fff; font-variant-numeric: tabular-nums; }
+.sheet .cl-row:disabled { color: var(--faint); background: #100b08; border-color: #251b13; cursor: default; }
+.sheet .cl-row:disabled .ico { filter: grayscale(0.9) brightness(0.6); opacity: 0.5; }
+.sheet .cl-row:disabled b, .sheet .cl-row:disabled em { color: var(--faint); }
 .cl-none { padding: 18px 12px; text-align: center; color: var(--dim); }
 
 /* ---- 小菜单 ---- */

@@ -8,7 +8,7 @@ import { execSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 import { checkArt } from '../tools/check-art.mjs';
 import { checkThree } from '../tools/check-three.mjs';
-import { uiLayoutCheck, uiBlankPoint, UI_SIZES, DESK_STYLE_SPEC, DESK_STYLE_MAIN, uiStyleRead } from './ui-layout.mjs';
+import { uiLayoutCheck, uiBlankPoint, UI_SIZES, DESK_STYLE_SPEC, DESK_STYLE_MAIN, uiStyleRead, B4B_STYLE_SPEC, B4B_STYLE_MAIN } from './ui-layout.mjs';
 
 const SAVE_KEY = 'cinder-abyss-save-v1';
 let G_CUR_N = 8, G_UQ_COLOR = '#ff9b3d', G_SOUL_INH = 1.5, G_SOUL_K = 0.2;
@@ -26373,6 +26373,29 @@ async function touchSteps() {
       await frames(3);
       bad = bad.concat(await scan(tab + (sub ? '·' + sub : '') + (clicks.length ? '·' + clicks.join('') : '')));
     }
+    // UI-R B4b：拾烬客三个子页签、[?] 的说明、货架上一件的卡片，标题画面的角色页和职业选择
+    await ev(() => {
+      G.ui.close();
+      localStorage.removeItem('cinder-abyss-ui-seen');
+      G.traderOpen({ level: 5 });
+    });
+    await frames(2);
+    bad = bad.concat(await scan('拾烬客·货架'));
+    for (const c of ['#panel-q', '[data-act="trd-view"][data-v="sell"]', '[data-act="trd-view"][data-v="frag"]', '[data-act="trd-view"][data-v="stock"]', '.trd-row[data-act="trd-card"]']) {
+      await ev((c) => document.querySelector(c).click(), c);
+      await frames(2);
+      bad = bad.concat(await scan('拾烬客·' + c));
+    }
+    await ev(() => {
+      G.ui.close();
+      G.ui.showTitle(true);
+    });
+    for (const c of ['#t-chars', '#title [data-tact="back"]', '#t-new']) {
+      await ev((c) => document.querySelector(c).click(), c);
+      await frames(2);
+      bad = bad.concat(await scan('标题画面·' + c));
+    }
+    await ev(() => G.ui.hideTitle());
     for (const tab of ['skills', 'tree', 'map', 'help']) {
       await ev((tab) => G.ui.open(tab), tab);
       await frames(3);
@@ -26790,7 +26813,7 @@ async function touchSteps() {
       };
       const mm = G.world.mmTouch;
       const n = box('#narr');
-      const others = { top: box('#t-top'), tracker: document.getElementById('quest').textContent ? box('#quest') : null, minimap: mm ? { l: mm.x, t: mm.y, r: mm.x + 110, b: mm.y + 110 } : null, coach: document.getElementById('coach').classList.contains('on') ? box('#coach') : null };
+      const others = { top: box('#t-top'), tracker: document.getElementById('quest').textContent ? box('#quest') : null, minimap: mm ? { l: mm.x, t: mm.y, r: mm.x + 110, b: mm.y + 110 } : null, coach: document.getElementById('coach').classList.contains('on') && getComputedStyle(document.getElementById('coach')).visibility !== 'hidden' ? box('#coach') : null }; // B4b：旁白卡放着时提示卡让开（visibility: hidden），让开的不算
       const tb = Array.from(document.querySelectorAll('[data-tb]')).filter((x) => x.getClientRects().length).map((x) => x.getBoundingClientRect());
       const hits = [];
       for (const k in others) {
@@ -26811,6 +26834,158 @@ async function touchSteps() {
     assert(r.id === 'ash_boss' && Math.abs(r.wall - r.dur) < 1.3, '约 2 fps 时旁白卡应按真实时间放完：' + JSON.stringify(r));
     assert(lay.n && !lay.hits.length, '触屏下旁白卡压到了：' + JSON.stringify(lay));
     return '设定 ' + r.dur.toFixed(1) + ' 秒，约 2 fps 下实际 ' + r.wall + ' 秒';
+  });
+
+  // UI-R B4b：HUD 上的几块两两不重叠（审计 §11）。提示卡、旁白卡直接摆出来量（旁白卡的排队 / 计时由上面那一步测）
+  await step('触屏：HUD 不打架（UI-R B4b）——844×340 / 734×338 / 667×320（安全区 0 和 59）、按钮 M / L、左手开关下，主线追踪条、小地图、按钮簇、区域名、顶栏、提示卡（两行 / 点开的长提示）和旁白卡两两不重叠；旁白卡放着时提示卡让开，放完回来', async () => {
+    await touchPage({ width: 844, height: 340, mobile: { scale: 2 } });
+    await until(() => !!document.querySelector('#quest.on'), null, 30000);
+    const probe = () =>
+      ev(() => {
+        const F = (r) => (G.rectToFrame ? G.rectToFrame(r) : r);
+        const vis = (e) => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden' && +getComputedStyle(e).opacity > 0.05;
+        const box = (e) => {
+          const r = F(e.getBoundingClientRect());
+          return { l: r.left, t: r.top, r: r.right, b: r.bottom };
+        };
+        const items = [];
+        const q = [...document.querySelectorAll('#quest.on .q-k, #quest.on .q-goal')].filter(vis).map(box); // 追踪条只量字（身后很淡的暗底不算）
+        if (q.length) items.push(['追踪条', { l: Math.min(...q.map((k) => k.l)), t: Math.min(...q.map((k) => k.t)), r: Math.max(...q.map((k) => k.r)), b: Math.max(...q.map((k) => k.b)) }]);
+        for (const [n, sel] of [['提示卡', '#coach.on'], ['旁白卡', '#narr.show'], ['区域名', '#zone-box'], ['顶栏', '#t-top'], ['首领条', '#boss-box.on']]) {
+          const e = document.querySelector(sel);
+          if (vis(e)) items.push([n, box(e)]);
+        }
+        const mm = G.world.mmTouch;
+        if (mm) items.push(['小地图', { l: mm.x, t: mm.y, r: mm.x + 110, b: mm.y + 110 }]);
+        for (const e of document.querySelectorAll('[data-tb], #t-f.on')) if (vis(e)) items.push(['按钮 ' + (e.dataset.tb || e.id), box(e)]);
+        const hits = [];
+        for (let i = 0; i < items.length; i++)
+          for (let j = i + 1; j < items.length; j++) {
+            const [a, A] = items[i], [b, B] = items[j];
+            if (a.startsWith('按钮') && b.startsWith('按钮')) continue;
+            if ((a === '顶栏' && b === '小地图') || (a === '小地图' && b === '顶栏')) continue; // 667×320 + 59 时顶栏最右的「≡」伸到小地图下面：mobile-m2 的排法，不归这一批（报告里写了）
+            const ox = Math.min(A.r, B.r) - Math.max(A.l, B.l), oy = Math.min(A.b, B.b) - Math.max(A.t, B.t);
+            if (ox > 0.5 && oy > 0.5) hits.push(a + ' × ' + b + ' ' + Math.round(ox) + '×' + Math.round(oy));
+          }
+        return { hits, n: items.length, coach: vis(document.getElementById('coach')), narr: vis(document.getElementById('narr')) };
+      });
+    const setCoach = (txt, open) =>
+      ev(([txt, open]) => {
+        const co = document.getElementById('coach');
+        co.querySelector('.co-body').textContent = txt;
+        co.dataset.hint = 'hudtest';
+        co.className = 'on' + (open ? ' t-open' : '');
+      }, [txt, open]);
+    const setNarr = (on) =>
+      ev((on) => {
+        const n = document.getElementById('narr');
+        const q = G.QUEST.find((x) => x.nar);
+        n.children[0].textContent = q.nar[0];
+        n.children[1].textContent = q.nar[1] || '';
+        n.classList.toggle('show', on);
+        n.classList.toggle('on', on);
+        n.classList.toggle('l2', on);
+      }, on);
+    const SHORT = '在左下拖动摇杆移动，沿着路一直往前走，走到尽头的首领场地';
+    const LONG = '首领倒下后会留下一道传送门：走进去打开地图，选下一个区域。地图上金色的角标是主线要去的地方，层级越高怪物越强、掉落越好。';
+    const bad = [];
+    let n = 0;
+    for (const [w, h, sa] of [[844, 340, 0], [844, 340, 59], [734, 338, 0], [734, 338, 59], [667, 320, 0], [667, 320, 59]]) {
+      await page.setViewportSize({ width: w, height: h });
+      for (const size of ['m', 'l'])
+        for (const mirror of [false, true]) {
+          await ev(([size, mirror, sa]) => {
+            G.touch.setPref('size', size);
+            G.touch.setPref('mirror', mirror);
+            const st = document.documentElement.style;
+            for (const k of ['l', 'r']) {
+              if (sa) st.setProperty('--t-safe-' + k, sa + 'px');
+              else st.removeProperty('--t-safe-' + k);
+            }
+          }, [size, mirror, sa]);
+          for (const [st, txt, open, narr] of [['两行提示卡', SHORT, false, false], ['点开的长提示', LONG, true, false], ['两行提示卡 + 旁白卡', SHORT, false, true], ['点开的长提示 + 旁白卡', LONG, true, true]]) {
+            await setCoach(txt, open);
+            await setNarr(narr);
+            await frames(2);
+            await sleep(300); // 提示卡、旁白卡的淡入
+            const r = await probe();
+            n++;
+            const where = w + '×' + h + (sa ? '+' + sa : '') + ' ' + size.toUpperCase() + (mirror ? ' 左手' : '') + ' ' + st;
+            if (r.hits.length) bad.push(where + '：' + r.hits.join('；'));
+            if (narr && r.coach) bad.push(where + '：旁白卡放着时提示卡没让开');
+            if (!narr && !r.coach) bad.push(where + '：提示卡不见了');
+          }
+        }
+    }
+    await setNarr(false);
+    await frames(2);
+    const back = await probe();
+    await ev(() => {
+      document.getElementById('coach').className = '';
+      G.touch.setPref('size', 'm');
+      G.touch.setPref('mirror', false);
+      for (const k of ['l', 'r']) document.documentElement.style.removeProperty('--t-safe-' + k);
+    });
+    assert(back.coach, '旁白卡收起后提示卡应回来');
+    assert(!bad.length, bad.length + ' 处重叠：' + bad.slice(0, 8).join(' ｜ '));
+    return n + ' 个画面，两两不重叠';
+  });
+
+  await step('触屏：主线追踪条收成一行（UI-R B4b）——667×320 用 L 档按钮时只剩目标（点按区 ≥ 44 px），点一下展开约 3 秒再收起，换成新的一步时也先展开（打着也一样）；844×340 M 档平时两行，打起来收成一行，打完停 2 秒展开', async () => {
+    await touchPage({ width: 667, height: 320, mobile: { scale: 2 } });
+    await until(() => !!document.querySelector('#quest.on'), null, 30000);
+    await ev(() => G.touch.setPref('size', 'l'));
+    await until(() => !!document.querySelector('#quest.t-q1'), null, 15000);
+    const one = await ev(() => {
+      const q = document.getElementById('quest');
+      const r = q.getBoundingClientRect();
+      return { k: getComputedStyle(q.querySelector('.q-k')).display, goal: q.querySelector('.q-goal').textContent, h: r.height, w: r.width, pe: getComputedStyle(q).pointerEvents, hit: q.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)) };
+    });
+    assert(one.k === 'none' && one.goal && one.h >= 43.5 && one.w >= 43.5 && one.pe === 'auto' && one.hit, '667×320 + L 档时追踪条应收成一行、点按区 ≥ 44 px：' + JSON.stringify(one));
+    // 点一下：展开，约 3 秒后收起
+    const r = await ev(() => T.rect('#quest .q-goal'));
+    await touch.tap(r.x, r.y);
+    await frames(2);
+    const opened = await ev(() => !document.getElementById('quest').classList.contains('t-q1'));
+    const t0 = Date.now();
+    await until(() => !!document.querySelector('#quest.t-q1'), null, 15000);
+    const held = Date.now() - t0;
+    assert(opened && held >= 2000, '点一下应展开约 3 秒：' + JSON.stringify({ opened, held }));
+    // 换成新的一步：先展开（首领醒着、打着也一样），过一会儿再收起
+    const g0 = one.goal;
+    await ev(() => {
+      G.debug.tpBoss();
+      G.debug.step(1); // 第 1 步「走到首领场地门口」
+      window.__mob = T.mob('husk', 2, 0); // 身边有醒着的敌人：打着
+    });
+    await until((g0) => document.querySelector('#quest .q-goal').textContent !== g0, g0, 15000);
+    await frames(2); // 触屏那边每帧看一次目标有没有换（下一帧才轮到它）
+    const step2 = await ev(() => ({ one: document.getElementById('quest').classList.contains('t-q1'), goal: document.querySelector('#quest .q-goal').textContent }));
+    await until(() => !!document.querySelector('#quest.t-q1'), null, 15000);
+    assert(!step2.one, '换成新的一步时（打着也一样）应先展开：' + JSON.stringify(step2));
+    // 844×340、M 档：没打的时候两行；打起来收成一行，打完停 2 秒展开
+    await page.setViewportSize({ width: 844, height: 340 });
+    await ev(() => {
+      G.touch.setPref('size', 'm');
+      window.__mob.dead = true;
+      for (const e of G.state.enemies) if (!e.dead) e.awake = false;
+    });
+    await until(() => !document.querySelector('#quest.t-q1'), null, 15000);
+    await ev(() => {
+      window.__mob = T.mob('husk', 2, 0);
+    });
+    await until(() => !!document.querySelector('#quest.t-q1'), null, 15000);
+    await ev(() => {
+      window.__mob.dead = true;
+    });
+    const t1 = Date.now();
+    await until(() => !document.querySelector('#quest.t-q1'), null, 15000);
+    const calm = Date.now() - t1;
+    await ev(() => {
+      for (const e of G.state.enemies) if (e.atkCd === 1e9) e.dead = true;
+    });
+    assert(calm >= 1500, '打完应停约 2 秒再展开：' + calm + ' ms');
+    return '点开 ' + (held / 1000).toFixed(1) + ' 秒，打完 ' + (calm / 1000).toFixed(1) + ' 秒后展开';
   });
 
   await step('触屏：切到后台 / pagehide 时存档，并遵守「另一个标签页写过就停写」；触屏模式下切回来停在暂停菜单', async () => {
@@ -27027,7 +27202,7 @@ async function touchSteps() {
       await ev(() => document.getElementById('t-new').click());
       await until(() => G.ui.classView && G.ui.classView());
       await sleep(300);
-      bad = bad.concat(await inside('#title .m-view'), await inside('#title [data-tact="cl-ok"]'), await inside('#title .m-head .btn'));
+      bad = bad.concat(await inside('#title .m-view'), await inside('#title [data-tact="cl-ok"]'), await inside('#title [data-view="cls"] [data-tact="back"]')); // B4b：窄屏的「返回」只在底栏（右上不再重复）
       await ev(() => document.querySelector('#title [data-tact="back"]').click());
       await frames(1);
       out.push({ size: w + '×' + h, appH, bad });
@@ -27239,6 +27414,10 @@ async function touchSteps() {
   await uiDeskStyleStep();
   await uiLayoutSteps('stash');
   await uiLayoutSteps('char');
+  await uiLayoutSteps('trader');
+  await uiLayoutSteps('title');
+  await uiDeskStyleB4b();
+  await uiLayoutDone();
 }
 
 // ------------------------------------------------------------------ 面板布局（UI-R，docs/ui.md「测试」）
@@ -27274,6 +27453,32 @@ const UI_PANELS = {
       { id: '图鉴', go: async (D) => { await D.open('char', 'stats'); await D.tap('[data-act="sub"][data-sub="codex"]', '.char-codex'); } },
     ],
   },
+  // UI-R B4b：拾烬客（窄屏子页签 货架 / 卖出 / 烛芯，点一行出卡片）、标题画面（主菜单、角色页、删除确认、职业选择）
+  trader: {
+    label: '拾烬客',
+    states: [
+      { id: '货架', go: (D) => D.trader() },
+      { id: '说明', go: async (D) => { await D.trader(); await D.tap(D.portrait ? '#panel-body [data-act="hint"]' : '#panel-q', '.ui-pop'); } },
+      { id: '卖出', only: 'compact', go: async (D) => { await D.trader(); await D.tap('[data-act="trd-view"][data-v="sell"]', '.trp[data-v="sell"]'); } },
+      { id: '烛芯', only: 'compact', go: async (D) => { await D.trader(); await D.tap('[data-act="trd-view"][data-v="frag"]', '.trp[data-v="frag"]'); } },
+      { id: '货架物品卡', card: true, only: 'compact', go: async (D) => { await D.trader(); await D.tap('.trd-row[data-act="trd-card"]', '.sheet.trd'); } },
+      { id: '宝石卡', card: true, only: 'compact', go: async (D) => { await D.trader(); await D.tap('.trd-row[data-act="trd-card"][data-i="' + D.gemRow + '"]', '.sheet.trd'); } },
+      { id: '卖出物品卡', card: true, only: 'compact', go: async (D) => { await D.trader(); await D.tap('[data-act="trd-view"][data-v="sell"]', '.trp[data-v="sell"]'); await D.tap('.trd-row[data-act="trd-card"]', '.sheet.trd'); } },
+    ],
+  },
+  title: {
+    label: '标题画面',
+    check: { roots: '#title .t-main, #title .t-foot, #t-rot-go, #t-rot-flip', head: '#title .m-head' },
+    states: [
+      { id: '主菜单', go: (D) => D.title() },
+      { id: '角色页', go: async (D) => { await D.title(); await D.tap('#t-chars', '#title [data-view="chars"]'); } },
+      { id: '删除确认', go: async (D) => { await D.title(); await D.tap('#t-chars', '#title [data-view="chars"]'); await D.tap('[data-tact="ch-del"][data-slot="1"]', '.ch-del[data-step="1"]'); } },
+      { id: '再确认一次', go: async (D) => { await D.title(); await D.tap('#t-chars', '#title [data-view="chars"]'); await D.tap('[data-tact="ch-del"][data-slot="1"]', '.ch-del[data-step="1"]'); await D.tap('[data-tact="ch-del2"]', '.ch-del[data-step="2"]'); } },
+      { id: '选职业', go: async (D) => { await D.title(); await D.tap('#t-new', '#title [data-view="cls"]'); } },
+      { id: '选职业·换一个', go: async (D) => { await D.title(); await D.tap('#t-new', '#title [data-view="cls"]'); await D.tap('#title [data-tact="cl-sel"][data-cls="lamp"]', '#title [data-tact="cl-sel"][data-cls="lamp"].on'); } },
+      { id: '老角色选职业', go: async (D) => { await D.title(); await ev(() => G.ui.openClass('pick')); await until(() => !!document.querySelector('#title [data-view="cls"]')); await frames(2); } },
+    ],
+  },
 };
 // 布局检查用的角色：30 级、学会全部技能、背包 29 件、身上有戒指和胸甲、仓库 18 件
 async function uiFixture() {
@@ -27298,6 +27503,21 @@ async function uiFixture() {
     if (!s.equip.ring) s.equip.ring = G.rollItem(26, 2, 'ring');
     if (!s.equip.body) s.equip.body = G.rollItem(26, 1, 'body');
     if (G.stash && G.stash.ok()) for (let i = G.stash.list().length; i < 18; i++) G.stash.put(G.rollItem(20, i % 3, slots[i % slots.length]), true);
+    // B4b：角色页（另外 3 个角色、回收位一个、空 2 栏），载入着的角色还能改选一次（卡片最挤的情况），烛芯
+    s.clsRe = true;
+    s.frags = { seal: 3, rift: 1, vow: 2, box: 0 };
+    const mk = (cls, lvl, zone, tier) => {
+      const x = G.newClassSave(cls);
+      x.level = lvl;
+      x.lastZone = zone;
+      x.maxTier = tier;
+      x.seenHelp = x.seenStory = true;
+      return JSON.stringify(x);
+    };
+    localStorage.setItem('cinder-abyss-save-v1-s2', mk('hunt', 12, 1, 0));
+    localStorage.setItem('cinder-abyss-save-v1-s3', mk('lamp', 41, 3, 2));
+    localStorage.setItem('cinder-abyss-save-v1-s4', mk('forge', 7, 0, 0));
+    localStorage.setItem('cinder-abyss-trash', JSON.stringify({ v: 1, slot: 5, t: Date.now() - 3 * 3600e3, played: 0, text: mk('guard', 19, 2, 1) }));
     G.computeStats();
     G.persist();
     return { rare: '.cell[data-item="' + rare + '"]', eqRing: '.eq[data-item="' + s.equip.ring.uid + '"]' };
@@ -27329,7 +27549,62 @@ async function uiDeskStyleStep() {
     return Object.keys(DESK_STYLE_MAIN).length + ' 项相等';
   });
 }
-let uiPages = null; // { touch: { browser, page, errors, fx }, desk: {…} }：三个面板共用，最后一个面板跑完关掉
+// 桌面样式不变（B4b）：1366×768 下标题画面、角色页、职业选择、拾烬客和 main 逐项相等（表在 test/ui-layout.mjs，有意改动的见 B4B_STYLE_CHANGED）
+async function uiDeskStyleB4b() {
+  await step('界面布局·桌面样式（标题画面 / 角色页 / 职业选择 / 拾烬客）：1366×768 下标志、菜单按钮、页脚、角色卡、职业卡、货架行和 main 逐项相等（有意改动：职业卡回到 B1 之前的样子、标题画面的按键角标 10.5 → 11 px）', async () => {
+    assert(uiPages && uiPages.desk, '要先跑「界面布局·标题画面（桌面）」');
+    ({ browser, page, errors } = uiPages.desk);
+    await page.setViewportSize({ width: 1366, height: 768 });
+    const settle = () => ev(async () => {
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      for (const n of document.querySelectorAll('#panel-win, #panel-win *, #title, #title *')) for (const a of n.getAnimations()) if (a.effect && a.effect.getTiming().iterations !== Infinity) await a.finished.catch(() => {});
+    });
+    const got = {};
+    const read = async (st) => {
+      await settle();
+      const r = await ev(uiStyleRead, B4B_STYLE_SPEC[st]);
+      for (const k in r) got[st + '|' + k] = r[k];
+    };
+    await ev(() => {
+      G.ui.close();
+      G.ui.showTitle(true);
+    });
+    await until(() => document.getElementById('title').classList.contains('ready'));
+    await read('title');
+    await page.click('#t-chars');
+    await read('chars');
+    await page.click('#title [data-tact="back"]');
+    await page.click('#t-new');
+    await read('cls');
+    await ev(() => G.ui.hideTitle());
+    await ev(() => {
+      window.__uiTier = G.state.tier || 0;
+      G.state.tier = Math.max(G.state.tier || 0, G.TRADER.fragTier);
+      localStorage.setItem('cinder-abyss-ui-seen', JSON.stringify({ trader: 1 })); // main 上没有一次性提示那一行
+      if (G.state.trader && G.state.trader.stock) G.ui.open('trader');
+      else G.traderOpen({ level: 28 });
+    });
+    await read('trader');
+    await ev(() => {
+      G.ui.close();
+      G.state.tier = window.__uiTier;
+      delete window.__uiTier;
+    });
+    const bad = [];
+    for (const k in B4B_STYLE_MAIN) if (got[k] !== B4B_STYLE_MAIN[k]) bad.push(k + '：期望 ' + B4B_STYLE_MAIN[k] + '，现在 ' + got[k]);
+    assert(!bad.length, bad.length + ' 项和 main 不一样：' + bad.slice(0, 8).join(' ｜ '));
+    return Object.keys(B4B_STYLE_MAIN).length + ' 项相等';
+  });
+}
+// 布局步骤全部跑完：关掉两个浏览器
+async function uiLayoutDone() {
+  if (!uiPages) return;
+  for (const k in uiPages) await uiPages[k].browser.close().catch(() => {});
+  uiPages = null;
+  browser = page = null; // 后面的步骤自己开浏览器；step() 收尾时看到 page 为空就不再等
+  errors = [];
+}
+let uiPages = null; // { touch: { browser, page, errors, fx }, desk: {…} }：几个面板共用，uiLayoutDone 关掉
 async function uiLayoutSteps(panel) {
   const P = UI_PANELS[panel];
   for (const mode of ['touch', 'desk']) {
@@ -27362,12 +27637,37 @@ async function uiLayoutSteps(panel) {
           portrait: w <= 600 && !rot, // 旋转横屏的画面是横的
           rare: fx.rare,
           eqRing: fx.eqRing,
+          gemRow: 0,
           async open(tab, sub) {
             await ev(([tab, sub]) => {
+              if (G.ui.titleOn()) G.ui.hideTitle();
               G.ui.close();
               localStorage.removeItem('cinder-abyss-ui-seen'); // 一次性提示也算进布局（第一次打开的样子）
               G.ui.open(tab, sub);
             }, [tab, sub]);
+            await frames(2);
+          },
+          // 拾烬客（B4b）：第一次来时摆货（物品等级 28），轮回层级抬到能换烛芯（这一步收尾时还原）
+          async trader() {
+            D.gemRow = await ev(() => {
+              if (G.ui.titleOn()) G.ui.hideTitle();
+              G.ui.close();
+              if (window.__uiTier === undefined) window.__uiTier = G.state.tier || 0;
+              G.state.tier = Math.max(G.state.tier || 0, G.TRADER.fragTier);
+              localStorage.removeItem('cinder-abyss-ui-seen');
+              if (G.state.trader && G.state.trader.stock) G.ui.open('trader');
+              else G.traderOpen({ level: 28 });
+              return G.state.trader.stock.findIndex((o) => o.kind !== 'item');
+            });
+            await frames(2);
+          },
+          // 标题画面（B4b）：从游戏里回到标题画面（区域早就建好了，马上能点）
+          async title() {
+            await ev(() => {
+              G.ui.close();
+              G.ui.showTitle(true);
+            });
+            await until(() => document.getElementById('title').classList.contains('ready'));
             await frames(2);
           },
           // 点一下（触屏发真实触摸，桌面用鼠标），等 want 出现
@@ -27396,7 +27696,7 @@ async function uiLayoutSteps(panel) {
             await S.go(D);
             // 入场动画放完再量
             await ev(async () => { for (const n of document.querySelectorAll('#panel-win, #panel-win *, #panel .sheet')) for (const a of n.getAnimations()) await a.finished.catch(() => {}); });
-            const r = await ev(uiLayoutCheck, { touch: isTouch, max: 3 });
+            const r = await ev(uiLayoutCheck, Object.assign({ touch: isTouch, max: 3 }, P.check || {}));
             if (r.n) bad.push(where + ' ' + S.id + '：' + Object.entries(r.res).map(([k, v]) => k + ' ' + v.n + '（' + v.s.join('；') + '）').join(' '));
             // g：iPhone 圆角（半径 47 px，test/corner-mask.mjs）。横屏、安全区读出来是 0 的时候（Chrome 标签页里常见）字和按钮都不碰四角
             if (isTouch && w > h && !sa) {
@@ -27417,15 +27717,13 @@ async function uiLayoutSteps(panel) {
           }
         }
       }
-      await ev(() => G.ui.close());
+      await ev(() => {
+        if (G.ui.titleOn()) G.ui.hideTitle();
+        G.ui.close();
+        if (window.__uiTier !== undefined) G.state.tier = window.__uiTier; // 拾烬客那几步抬过的轮回层级
+        delete window.__uiTier;
+      });
       assert(!bad.length, bad.length + ' 处不合格：' + bad.slice(0, 8).join(' ｜ '));
-      if (panel === 'char' && mode === 'desk') {
-        // 最后一个面板跑完：关掉两个浏览器
-        for (const k in uiPages) await uiPages[k].browser.close().catch(() => {});
-        uiPages = null;
-        browser = page = null; // 后面的步骤自己开浏览器；step() 收尾时看到 page 为空就不再等
-        errors = [];
-      }
       return sizes.length + ' 组尺寸，共 ' + nStates + ' 个状态';
     });
   }

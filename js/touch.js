@@ -716,6 +716,13 @@
     // 提示卡在触屏下只显示两行，点一下展开 / 收起
     const coach = document.getElementById('coach');
     if (coach) coach.addEventListener('click', () => T.on && coach.classList.toggle('t-open'));
+    // 收成一行的主线追踪条：点一下展开 3 秒（UI-R B4b）
+    const quest = document.getElementById('quest');
+    if (quest)
+      quest.addEventListener('click', () => {
+        if (!T.on || !dom) return;
+        dom.qOpen = performance.now() + 3000;
+      });
     root.addEventListener('click', (e) => {
       const rb = e.target.closest('[data-trot]');
       if (rb) return rb.dataset.trot === 'flip' ? flipRot() : goLandscape();
@@ -829,6 +836,7 @@
     if (dom) dom.labels.classList.remove('on');
     document.documentElement.classList.remove('touch-ui', 't-portrait', 't-land', 't-boss', 't-aiming');
     if (dom) dom.bossOn = null;
+    if (dom) dom.qOne = null; // 主线追踪条收成一行的状态：下次打开触屏模式重新算
     setViewportFit(false);
     tagCluster(false);
     swapIntro(false);
@@ -948,10 +956,11 @@
       // 左右照样至少 12 px（屏幕四角是圆的，转过去以后画面的四角还是那几个圆角；同 style.css 的 --sa-l / --sa-r）
       de.style.setProperty('--sa-' + k, 'max(env(safe-area-inset-' + SAFE_ENV[sk] + ', 0px), var(--t-safe-' + sk + ', 0px)' + (k === 'l' || k === 'r' ? ', 12px)' : ')'));
     }
-    // 按画面尺寸的那几段（max-height 780 / 600 / 360 / 345、max-width 720）：style.css 里有 t-rh* / t-rw720 的副本
+    // 按画面尺寸的那几段（max-height 780 / 600 / 500 / 360 / 345、max-width 720）：style.css 里有 t-rh* / t-rw720 的副本
     const fw = Hs, fh = Ws, c = de.classList;
     c.toggle('t-rh780', fh <= 780);
     c.toggle('t-rh600', fh <= 600);
+    c.toggle('t-rh500', fh <= 500); // UI-R B4b：矮屏的标题画面 / 角色页 / 职业选择
     c.toggle('t-rh360', fh <= 360);
     c.toggle('t-rh345', fh <= 345);
     c.toggle('t-rw720', fw <= 720);
@@ -966,7 +975,7 @@
     }
     if ((d === 'cw' || d === 'ccw') && window.innerHeight > window.innerWidth) setRot(d);
   }
-  const ROT_CLS = ['t-rot', 't-rot-cw', 't-rot-ccw', 't-tsub', 't-rh780', 't-rh600', 't-rh360', 't-rh345', 't-rw720'];
+  const ROT_CLS = ['t-rot', 't-rot-cw', 't-rot-ccw', 't-tsub', 't-rh780', 't-rh600', 't-rh500', 't-rh360', 't-rh345', 't-rw720'];
   function setRot(dir) {
     if (dir && !T.on) return false;
     const was = G.rot ? G.rot.dir : null;
@@ -1152,6 +1161,24 @@
       if (shown && !co.classList.contains('t-min')) {
         dom.coT = fighting() ? (dom.coT || 0) + dt : 0;
         if (dom.coT >= 4) co.classList.add('t-min');
+      }
+    }
+    // 主线追踪条（UI-R B4b）：画面矮（< 360）又用 L 档按钮，或者打起来了，收成一行（只留目标，不压按钮簇）；
+    // 点一下展开 3 秒；目标换成新的一步时也先展开 3 秒（打着也一样），再收起。打完停 2 秒才展开回来
+    const qe = document.getElementById('quest');
+    if (qe) {
+      const g = qe.querySelector('.q-goal');
+      const goal = g ? g.textContent : '';
+      if (goal !== dom.qGoal) {
+        dom.qGoal = goal;
+        dom.qOpen = now + 3000;
+      }
+      const fight = fighting();
+      dom.qCalm = fight ? 0 : (dom.qCalm || 0) + dt;
+      const one = ((G.viewH() < 360 && T.prefs.size === 'l') || fight || dom.qCalm < 2) && now >= (dom.qOpen || 0);
+      if (one !== dom.qOne) {
+        dom.qOne = one;
+        qe.classList.toggle('t-q1', one);
       }
     }
     // 首领条出来时提示卡往下让（两者都在顶栏下方居中）

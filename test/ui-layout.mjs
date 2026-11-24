@@ -6,9 +6,9 @@
 //   d. 触屏：页头 ≤ 36 px；字号 ≥ 11 px；button / [data-act] / .cell / .tab 的盒子 ≥ 44×44（桌面只查字号）
 //   e. elementFromPoint 打到每个点按目标的中心，打到的是它自己（或它里面的东西）
 //   f. 卡片整个在页面正文里、不盖页头和页签；卡片 / 弹出菜单打开时，里面的操作条整个在视口里（「点外面关掉」由调用方去点）
-// opts：{ touch: bool, roots: '#panel-win, …'（默认 #panel-win 和面板里的浮层）, max: 每类最多列几条 }
+// opts：{ touch: bool, roots: '#panel-win, …'（默认 #panel-win 和面板里的浮层）, head: 量高度的页头（默认 #panel-head；标题画面的子页传 #title .m-head）, max: 每类最多列几条 }
 export function uiLayoutCheck(opts) {
-  const o = Object.assign({ touch: false, roots: '#panel-win, #panel .sheet, #panel .ui-pop, #confirm.on', max: 6 }, opts || {});
+  const o = Object.assign({ touch: false, roots: '#panel-win, #panel .sheet, #panel .ui-pop, #confirm.on', head: '#panel-head', max: 6 }, opts || {});
   // 旋转横屏（mobile-m2）：位置换到画面坐标（G.rectToFrame / viewW / viewH）；elementFromPoint 用屏幕坐标。没有这几个函数时就是原样
   const G0 = window.G || {};
   const F = (r) => (G0.rectToFrame ? G0.rectToFrame(r) : r);
@@ -79,8 +79,7 @@ export function uiLayoutCheck(opts) {
   if (document.documentElement.scrollWidth > innerWidth + 0.5) out.c.push('页面横向 ' + document.documentElement.scrollWidth + ' > ' + vw);
   // d：页头、点按区
   if (o.touch) {
-    const head = document.getElementById('panel-head');
-    if (head && vis(head) && BR(head).height > 36.5) out.d.push('页头 ' + Math.round(BR(head).height) + ' px');
+    for (const head of document.querySelectorAll(o.head)) if (vis(head) && BR(head).height > 36.5) out.d.push('页头 ' + Math.round(BR(head).height) + ' px');
     for (const e of targets) {
       const r = BR(e);
       if (r.width < 43.5 || r.height < 43.5) out.d.push('点按区 ' + Math.round(r.width) + '×' + Math.round(r.height) + ' ' + nm(e));
@@ -173,3 +172,57 @@ export function uiStyleRead(spec) {
   }
   return r;
 }
+
+// 桌面样式不变（UI-R B4b）：1366×768 下标题画面、角色页、职业选择、拾烬客的计算样式和 main（4484d08）逐项相等。按状态分组，
+// 键是「状态|选择器|属性」，读法同 uiStyleRead（宽高用 getBoundingClientRect）。数值在 main 上量（vf-shots/ui-b4b/styles-main.json），
+// 有意改动的几项见 B4B_STYLE_CHANGED
+export const B4B_STYLE_SPEC = {
+  title: {
+    '#title .t-main': ['width', 'left'],
+    '#title .t-name': ['font-size', 'letter-spacing', 'font-family'],
+    '#title .t-emblem': ['width'],
+    '#title .m-menu': ['width', 'row-gap', 'margin-top'],
+    '#title .m-btn': ['height', 'font-size', 'letter-spacing', 'padding-left', 'color', 'border-left-color', 'background-image'],
+    '#title #t-continue': ['height', 'padding-top'],
+    '#title .t-foot': ['font-size', 'left', 'bottom', 'color'],
+    '#title .t-link': ['font-size', 'height', 'border-bottom-style'],
+  },
+  chars: {
+    '#title .m-view': ['width', 'padding-top', 'padding-left', 'background-image'],
+    '#title .m-head b': ['font-size', 'letter-spacing', 'color'],
+    '#title .m-head .btn': ['height', 'font-size'],
+    '#title .ch-card': ['height', 'padding-left', 'border-left-color', 'background-image'],
+    '#title .ch-top b': ['font-size', 'letter-spacing'],
+    '#title .ch-sub': ['font-size', 'color'],
+    '#title .ch-acts .btn': ['height', 'font-size'],
+    '#title .ch-card.empty': ['height', 'border-top-style'],
+    '#title .ch-trash': ['height', 'font-size'],
+    '#title .ch-foot .m-note': ['font-size', 'color'],
+  },
+  cls: {
+    '#title .m-view': ['width', 'padding-top'],
+    '#title .cl-card': ['width', 'padding-top', 'border-left-color'],
+    '#title .cl-card.on': ['height', 'background-image', 'border-top-color'],
+    '#title .cl-top b': ['font-size', 'letter-spacing'],
+    '#title .cl-line': ['font-size', 'line-height', 'color'],
+    '#title .cl-card.on .cl-row': ['min-height', 'font-size', 'color', 'padding-left', 'background-image', 'border-top-width'],
+    '#title .m-acts .btn': ['height', 'font-size'],
+    '#title .alt-h kbd': ['font-size'],
+  },
+  trader: {
+    '.trader': ['column-gap'],
+    '.trader .sec-title': ['font-size', 'letter-spacing', 'color'],
+    '.trd-row': ['height', 'padding-top', 'margin-bottom', 'background-color', 'border-top-color'],
+    '.trd-name': ['font-size'],
+    '.trd-row .btn.sm': ['height', 'width', 'font-size'],
+    '.trd-frag': ['height', 'font-size'],
+    '.tp': ['font-size'],
+    '.trd-msg': ['font-size', 'color'],
+  },
+};
+
+// main 上的值；B4B_STYLE_CHANGED 里的几项是有意改动（值是 main 的，期望值已换成新的）：
+//   职业卡 .cl-card 宽 578 → 594、.cl-row 22 px 一行的样子：B1 的「改造」通货列表（.cl-list / .cl-row）样式漏到了职业选择上，B4b 把它收进 .sheet，职业卡回到 B1 之前的样子
+//   .alt-h kbd 10.5 → 11 px（只在标题画面里）：最小字号 11
+export const B4B_STYLE_MAIN = {"title|#title .t-main|width":"400px","title|#title .t-main|left":"95.62px","title|#title .t-name|font-size":"84.48px","title|#title .t-name|letter-spacing":"23.6544px","title|#title .t-name|font-family":"\"Songti SC\", STSong, \"Noto Serif SC\", serif","title|#title .t-emblem|width":"115.2px","title|#title .m-menu|width":"300px","title|#title .m-menu|row-gap":"8px","title|#title .m-menu|margin-top":"34.56px","title|#title .m-btn|height":"61px","title|#title .m-btn|font-size":"17px","title|#title .m-btn|letter-spacing":"4px","title|#title .m-btn|padding-left":"18px","title|#title .m-btn|color":"rgb(230, 215, 189)","title|#title .m-btn|border-left-color":"rgb(255, 122, 44)","title|#title .m-btn|background-image":"linear-gradient(90deg, rgba(122, 48, 14, 0.94), rgba(44, 20, 9, 0.62))","title|#title #t-continue|height":"61px","title|#title #t-continue|padding-top":"7px","title|#title .t-foot|font-size":"11.5px","title|#title .t-foot|left":"95.62px","title|#title .t-foot|bottom":"14px","title|#title .t-foot|color":"rgb(109, 97, 82)","title|#title .t-link|font-size":"11.5px","title|#title .t-link|height":"17px","title|#title .t-link|border-bottom-style":"dotted","chars|#title .m-view|width":"640px","chars|#title .m-view|padding-top":"14px","chars|#title .m-view|padding-left":"20px","chars|#title .m-view|background-image":"radial-gradient(70% 40% at 50% 0%, rgba(255, 120, 40, 0.08), rgba(0, 0, 0, 0) 70%), linear-gradient(rgba(26, 18, 13, 0.97), rgba(13, 9, 7, 0.97))","chars|#title .m-head b|font-size":"17px","chars|#title .m-head b|letter-spacing":"4px","chars|#title .m-head b|color":"rgb(230, 197, 138)","chars|#title .m-head .btn|height":"24px","chars|#title .m-head .btn|font-size":"12px","chars|#title .ch-card|height":"149px","chars|#title .ch-card|padding-left":"12px","chars|#title .ch-card|border-left-color":"rgb(111, 178, 255)","chars|#title .ch-card|background-image":"linear-gradient(rgba(36, 26, 19, 0.94), rgba(18, 12, 9, 0.9))","chars|#title .ch-top b|font-size":"15px","chars|#title .ch-top b|letter-spacing":"1px","chars|#title .ch-sub|font-size":"12.5px","chars|#title .ch-sub|color":"rgb(217, 185, 138)","chars|#title .ch-acts .btn|height":"24px","chars|#title .ch-acts .btn|font-size":"12px","chars|#title .ch-card.empty|height":"117px","chars|#title .ch-card.empty|border-top-style":"dashed","chars|#title .ch-trash|height":"42px","chars|#title .ch-trash|font-size":"12.5px","chars|#title .ch-foot .m-note|font-size":"12px","chars|#title .ch-foot .m-note|color":"rgb(109, 97, 82)","cls|#title .m-view|width":"640px","cls|#title .m-view|padding-top":"14px","cls|#title .cl-card|width":"594px","cls|#title .cl-card|padding-top":"7px","cls|#title .cl-card|border-left-color":"rgb(226, 112, 90)","cls|#title .cl-card.on|height":"111.8px","cls|#title .cl-card.on|background-image":"linear-gradient(90deg, rgba(60, 38, 22, 0.96), rgba(24, 16, 11, 0.9))","cls|#title .cl-card.on|border-top-color":"rgb(226, 112, 90)","cls|#title .cl-top b|font-size":"16px","cls|#title .cl-top b|letter-spacing":"2px","cls|#title .cl-line|font-size":"12.5px","cls|#title .cl-line|line-height":"18.75px","cls|#title .cl-line|color":"rgb(217, 199, 168)","cls|#title .cl-card.on .cl-row|min-height":"22px","cls|#title .cl-card.on .cl-row|font-size":"12px","cls|#title .cl-card.on .cl-row|color":"rgb(154, 139, 118)","cls|#title .cl-card.on .cl-row|padding-left":"0px","cls|#title .cl-card.on .cl-row|background-image":"none","cls|#title .cl-card.on .cl-row|border-top-width":"0px","cls|#title .m-acts .btn|height":"32px","cls|#title .m-acts .btn|font-size":"13px","cls|#title .alt-h kbd|font-size":"11px","trader|.trader|column-gap":"26px","trader|.trader .sec-title|font-size":"15.5px","trader|.trader .sec-title|letter-spacing":"3px","trader|.trader .sec-title|color":"rgb(230, 197, 138)","trader|.trd-row|height":"52px","trader|.trd-row|padding-top":"5px","trader|.trd-row|margin-bottom":"5px","trader|.trd-row|background-color":"rgb(16, 11, 8)","trader|.trd-row|border-top-color":"rgb(46, 34, 25)","trader|.trd-name|font-size":"13px","trader|.trd-row .btn.sm|height":"24px","trader|.trd-row .btn.sm|width":"48px","trader|.trd-row .btn.sm|font-size":"12px","trader|.trd-frag|height":"44px","trader|.trd-frag|font-size":"12.5px","trader|.tp|font-size":"12.5px","trader|.trd-msg|font-size":"13px","trader|.trd-msg|color":"rgb(255, 210, 138)"};
+export const B4B_STYLE_CHANGED = {"cls|#title .cl-card|width":"578px","cls|#title .cl-card.on|height":"155.8px","cls|#title .cl-card.on .cl-row|min-height":"44px","cls|#title .cl-card.on .cl-row|color":"color(srgb 0.918118 0.596235 0.534118)","cls|#title .cl-card.on .cl-row|padding-left":"6px","cls|#title .cl-card.on .cl-row|background-image":"linear-gradient(rgb(42, 30, 21), rgb(23, 16, 11))","cls|#title .cl-card.on .cl-row|border-top-width":"1px","cls|#title .alt-h kbd|font-size":"10.5px"};

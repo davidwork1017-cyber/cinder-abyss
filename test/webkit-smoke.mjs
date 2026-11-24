@@ -266,6 +266,97 @@ await step('面板布局（UI-R B1）：844×340 / 390×844 下背包（空、�
   return '2 个尺寸 × 8 个状态 = ' + n + ' 次检查';
 });
 
+await step('面板布局（UI-R B4b）：844×340 / 390×844 下拾烬客（货架、卖出、烛芯、物品卡）和标题画面（主菜单、角色页、删除确认、职业选择）都过 a–f 检查，点卡片外面能收起', async () => {
+  // 角色页要有几张卡：另外放 3 个角色和回收位一个（这一步收尾时删掉，后面的步骤看到的存档不变）
+  const KEYS = ['cinder-abyss-save-v1-s4', 'cinder-abyss-save-v1-s5', 'cinder-abyss-save-v1-s6', 'cinder-abyss-trash'];
+  const added = await ev((KEYS) => {
+    G.debug.hold(true);
+    window.__wkTier = G.state.tier || 0;
+    window.__wkFrags = G.save.frags;
+    G.state.tier = Math.max(G.state.tier || 0, G.TRADER.fragTier);
+    G.save.frags = { seal: 3, rift: 1, vow: 2, box: 0 };
+    const mk = (cls, lvl) => {
+      const x = G.newClassSave(cls);
+      x.level = lvl;
+      x.seenHelp = x.seenStory = true;
+      return JSON.stringify(x);
+    };
+    const out = [];
+    const vals = [mk('hunt', 12), mk('lamp', 41), mk('forge', 7), JSON.stringify({ v: 1, slot: 5, t: Date.now() - 3600e3, played: 0, text: mk('guard', 19) })];
+    KEYS.forEach((k, i) => {
+      if (localStorage.getItem(k) === null) {
+        localStorage.setItem(k, vals[i]);
+        out.push(k);
+      }
+    });
+    if (!(G.state.trader && G.state.trader.stock)) G.traderOpen({ level: 28 });
+    G.ui.close();
+    return out;
+  }, KEYS);
+  const vp0 = page.viewportSize();
+  const bad = [];
+  let n = 0;
+  const settle = () => ev(async () => {
+    for (const x of document.querySelectorAll('#panel-win, #panel-win *, #panel .sheet, #title .m-view')) for (const a of x.getAnimations()) await a.finished.catch(() => {});
+  });
+  const TITLE = { roots: '#title .t-main, #title .t-foot, #t-rot-go, #t-rot-flip', head: '#title .m-head' };
+  for (const [w, h] of [[844, 340], [390, 844]]) {
+    await page.setViewportSize({ width: w, height: h });
+    await page.waitForTimeout(300);
+    const states = [
+      ['货架', 'trader', []],
+      ['卖出', 'trader', ['[data-act="trd-view"][data-v="sell"]']],
+      ['烛芯', 'trader', ['[data-act="trd-view"][data-v="frag"]']],
+      ['货架物品卡', 'trader', ['.trd-row[data-act="trd-card"]'], true],
+      ['标题', 'title', []],
+      ['角色页', 'title', ['#t-chars']],
+      ['删除确认', 'title', ['#t-chars', '[data-tact="ch-del"]']],
+      ['选职业', 'title', ['#t-new']],
+    ];
+    for (const [id, where, taps, card] of states) {
+      n++;
+      try {
+        await ev((where) => {
+          if (G.ui.titleOn()) G.ui.hideTitle();
+          G.ui.close();
+          if (where === 'title') G.ui.showTitle(true);
+          else G.ui.open('trader');
+        }, where);
+        await page.waitForTimeout(200);
+        for (const sel of taps) {
+          await tap(sel);
+          await page.waitForTimeout(250);
+        }
+        await settle();
+        const r = await ev(uiLayoutCheck, Object.assign({ touch: true, max: 3 }, where === 'title' ? TITLE : {}));
+        if (r.n) bad.push(w + '×' + h + ' ' + id + '：' + Object.entries(r.res).map(([k, v]) => k + ' ' + v.n + '（' + v.s.join('；') + '）').join(' '));
+        if (card) {
+          assert(await ev(() => !!document.querySelector('#panel .sheet')), id + ' 没有打开卡片');
+          const p = await ev(uiBlankPoint);
+          assert(p, id + ' 卡片外面找不到空白处');
+          await page.touchscreen.tap(p.x, p.y);
+          await page.waitForTimeout(200);
+          if (await ev(() => !!document.querySelector('#panel .sheet'))) bad.push(w + '×' + h + ' ' + id + '：点卡片外面没有收起');
+        }
+      } catch (e) {
+        bad.push(w + '×' + h + ' ' + id + '：' + String(e.message || e).slice(0, 200));
+      }
+    }
+  }
+  await ev((added) => {
+    if (G.ui.titleOn()) G.ui.hideTitle();
+    G.ui.close();
+    for (const k of added) localStorage.removeItem(k);
+    G.state.tier = window.__wkTier;
+    G.save.frags = window.__wkFrags;
+    G.debug.hold(false);
+  }, added);
+  if (vp0) await page.setViewportSize(vp0);
+  await page.waitForTimeout(300);
+  assert(!bad.length, bad.length + ' 处不合格：' + bad.slice(0, 6).join(' ｜ '));
+  return '2 个尺寸 × 8 个状态 = ' + n + ' 次检查';
+});
+
 await step('画面：渲染在跑（时间在走、没有丢失上下文），纹理内存', async () => {
   const t0 = await ev(() => G.state.time);
   await page.waitForTimeout(1500);
