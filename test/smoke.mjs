@@ -11013,7 +11013,8 @@ async function main() {
         G.debug.step(0.02);
         const n0 = W.vShapeLive();
         W.b1Reset();
-        for (let i = 0; i < 20; i++) W.blastFx(x + (i % 5), z + ((i / 5) | 0), 3.25);
+        // skill-b3a：爆燃有了「一群只放一处」（0.3 秒、6 米内只放一个全套），这里测每帧上限，20 个爆燃彼此隔开 7 米
+        for (let i = 0; i < 20; i++) W.blastFx(x + (i % 5) * 7, z + ((i / 5) | 0) * 7, 3.25);
         o.flood = W.vShapeLive() - n0;
         o.peak = W.b1Info().peak;
         o.cap = W.b1Info().cap;
@@ -11145,6 +11146,12 @@ async function main() {
         o.offN = W.rimFlashInfo();
         G.save.opts.hitFlash = true;
         o.molten = cnt(() => W.projImpact({ userData: { vfx: 'rd_molten' } }, P.x + 4, P.z + 1, 'blast', 1.8));
+        // 爆燃 / 尸爆的「一群只放一处」（所有技能）：同一处一帧连炸 5 个，形状批的件数和只炸 1 个一样（其余只留焦痕）
+        W.clearFx(); W.b1Reset();
+        let v0 = W.vShapeLive(); W.blastFx(P.x - 4, P.z, 3); o.blast1 = W.vShapeLive() - v0;
+        W.clearFx(); W.b1Reset();
+        v0 = W.vShapeLive(); for (let i = 0; i < 5; i++) W.blastFx(P.x - 4 + i * 0.5, P.z, 3); o.blast5 = W.vShapeLive() - v0;
+        W.clearFx(); W.b1Reset();
         G.debug.step(0.02);
         o.dm = draws();
         W.clearFx();
@@ -11169,6 +11176,7 @@ async function main() {
       }
       assert(o.offN === 0, q + '：受击闪光关了不该有轮廓闪：' + JSON.stringify(o));
       assert(o.molten === 0 && o.dm <= o.d0, q + '：铁水弹炸开不该取 Math.random、不该多出 draw：' + JSON.stringify(o));
+      assert(o.blast1 > 0 && o.blast5 === o.blast1, q + '：同一处连炸 5 个爆燃只该放一个全套：' + JSON.stringify(o));
     }
     return 'draw 高 ' + r.high.d0 + '，命中 ' + r.high.dRef + '→' + r.high.st.cut.d + ' / 低 ' + r.low.d0 + '，命中 ' + r.low.dRef + '→' + r.low.st.cut.d + '，铁水弹 ' + r.high.dm + ' / ' + r.low.dm + '，轮廓闪 +' + r.high.st.cut.up.toFixed(2) + ' 复原，Math.random 取数全 0';
   });
@@ -11231,6 +11239,7 @@ async function main() {
       W.clearFx();
       W.bolt([{ x: P.x, z: P.z }, { x: P.x + 4, z: P.z }], G.TYPE_HEX.light, false, { v2: true });
       out.playerWhite = W.boltWhites();
+      out.q = W.quality();
       W.clearFx();
       W.riftStrike(P.x + 3, P.z, 1.35, G.TYPE_HEX.light, true);
       out.streak = W.streakFoe();
@@ -11238,7 +11247,9 @@ async function main() {
       return out;
     });
     assert(r.foeWhite.length >= 1 && r.foeWhite.every((v) => Math.abs(v - 0.12) < 1e-6) && r.foeShapes >= 4, '敌方电弧的芯应只混一成白、落点放形状件：' + JSON.stringify(r));
-    assert(r.playerWhite.length >= 1 && r.playerWhite.every((v) => Math.abs(v - 0.7) < 1e-6), '玩家的电弧应照旧（芯混七成白）：' + JSON.stringify(r));
+    // skill-b3a：低画质玩家电弧的芯只混两成白（低画质没有色调压缩，混七成整条成白，审计 #22）；高 / 中照旧七成
+    const pw = r.q === 'low' ? 0.2 : 0.7;
+    assert(r.playerWhite.length >= 1 && r.playerWhite.every((v) => Math.abs(v - pw) < 1e-6), '玩家的电弧应照旧（芯混七成白，低画质两成）：' + JSON.stringify(r));
     assert(r.streak.all >= 2 && r.streak.foe === r.streak.all, '流星犁地的天降光带应全是敌方模式（只有头上一小段亮）：' + JSON.stringify(r));
     return '敌方电弧芯 ' + r.foeWhite[0] + ' / 玩家 ' + r.playerWhite[0] + '，形状件 ' + r.foeShapes + '，光带 ' + r.streak.foe + ' / ' + r.streak.all;
   });

@@ -25357,7 +25357,7 @@
   let b1N = 0, b1Peak = 0, b1Full = 0, vsFrameAll = 0, b1CapT = null;
   W.b1Info = () => ({ n: b1N, peak: b1Peak, full: b1Full, cap: b1CapT !== null ? b1CapT : B1_CAP[qualId] || 3 });
   W.b1Cap = (v) => (b1CapT = v === null || v === undefined ? null : v); // 测试用：强行改每帧的上限（0 = 全部走超出上限的那条路）
-  W.b1Reset = () => { b1Peak = 0; b1Full = 0; };
+  W.b1Reset = () => { b1Peak = 0; b1Full = 0; calBlast.t = -9; }; // 测试用；skill-b3a：连同爆燃的「一群只放一处」记录一起清
   function b1Take() {
     b1N++;
     if (b1N > b1Peak) b1Peak = b1N;
