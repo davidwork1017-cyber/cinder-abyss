@@ -4233,6 +4233,10 @@ html.touch-ui.title-on #t-top, html.touch-ui.title-on #t-stick, html.touch-ui.ti
 /* 左上：生命 / 法力横条 + 面板入口 */
 #t-top { position: fixed; left: calc(var(--sa-l) + 8px); top: calc(var(--sa-t4) + 6px); z-index: 6; display: flex; align-items: flex-start; gap: 8px; }
 .t-bars { width: 148px; display: flex; flex-direction: column; gap: 4px; padding-top: 2px; }
+/* UI-R B4b：窄屏又有刘海安全区时（667 宽 + 两边 59 px）顶栏最右的「≡」会伸到小地图下面：生命 / 法力条收窄（最窄 100 px），按钮照旧 44 px。
+   顶栏右沿 = 左安全区 + 8 + 条宽 + 8 + 6 个按钮 284，小地图左沿 = 宽 − 右安全区 − 8 − 110，中间留 6 px；旋转横屏多一个 ⟲（48 px） */
+html.touch-ui .t-bars { width: clamp(100px, calc(100 * var(--vw, 1vw) - var(--sa-l) - var(--sa-r) - 426px), 148px); }
+html.touch-ui.t-rot .t-bars { width: clamp(100px, calc(100 * var(--vw, 1vw) - var(--sa-l) - var(--sa-r) - 474px), 148px); }
 .t-bar { position: relative; height: 18px; overflow: hidden; background: rgba(10, 7, 5, 0.82); border: 1px solid #6b4e30; border-radius: 3px; }
 .t-bar i { position: absolute; inset: 0; transform-origin: left center; }
 .t-bar.life i { background: linear-gradient(180deg, #ff6a50, #a8170e); }
@@ -4273,8 +4277,10 @@ html.touch-ui #quest { right: calc(var(--sa-r) + 8px); top: calc(var(--sa-t) + 1
 html.touch-ui #quest .q-k { font-size: 11px; line-height: 15px; letter-spacing: 1px; }
 html.touch-ui #quest .q-goal { font-size: 13px; line-height: 18px; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 html.touch-ui #quest .q-how, html.touch-ui #quest .q-h, html.touch-ui #quest .q-alt { display: none; }
-/* UI-R B4b：矮屏 + L 档按钮、或者打起来时收成一行（只留目标，js/touch.js 加 t-q1）；点按区上下各垫 13 px 到 44 px，点一下展开 3 秒 */
-html.touch-ui #quest.t-q1 { pointer-events: auto; margin-top: -13px; padding: 13px 0; }
+/* UI-R B4b：矮屏 + L 档按钮、或者打起来时收成一行（只留目标，js/touch.js 加 t-q1），点一下展开 3 秒。
+   点按区用 ::after 上下各伸 13 px 到 44 px（框本身不动，不和小地图、按钮簇挤在一起） */
+html.touch-ui #quest.t-q1 { pointer-events: auto; }
+html.touch-ui #quest.t-q1::after { content: ''; position: absolute; left: -6px; right: 0; top: -13px; bottom: -13px; }
 html.touch-ui #quest.t-q1 .q-k { display: none; }
 html.touch-ui #zone-loading { right: calc(var(--sa-r) + 8px); top: calc(var(--sa-t) + 122px); width: 110px; padding: 4px 6px; font-size: 11px; }
 html.touch-ui body.quest-on #combo, html.touch-ui #combo { top: calc(var(--sa-t) + 118px); right: calc(var(--sa-r) + 176px); }

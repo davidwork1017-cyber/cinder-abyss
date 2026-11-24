@@ -26863,7 +26863,6 @@ async function touchSteps() {
           for (let j = i + 1; j < items.length; j++) {
             const [a, A] = items[i], [b, B] = items[j];
             if (a.startsWith('按钮') && b.startsWith('按钮')) continue;
-            if ((a === '顶栏' && b === '小地图') || (a === '小地图' && b === '顶栏')) continue; // 667×320 + 59 时顶栏最右的「≡」伸到小地图下面：mobile-m2 的排法，不归这一批（报告里写了）
             const ox = Math.min(A.r, B.r) - Math.max(A.l, B.l), oy = Math.min(A.b, B.b) - Math.max(A.t, B.t);
             if (ox > 0.5 && oy > 0.5) hits.push(a + ' × ' + b + ' ' + Math.round(ox) + '×' + Math.round(oy));
           }
@@ -26931,7 +26930,7 @@ async function touchSteps() {
     return n + ' 个画面，两两不重叠';
   });
 
-  await step('触屏：主线追踪条收成一行（UI-R B4b）——667×320 用 L 档按钮时只剩目标（点按区 ≥ 44 px），点一下展开约 3 秒再收起，换成新的一步时也先展开（打着也一样）；844×340 M 档平时两行，打起来收成一行，打完停 2 秒展开', async () => {
+  await step('触屏：主线追踪条收成一行（UI-R B4b）——667×320 用 L 档按钮时只剩目标（点按区高 44 px），点一下展开约 3 秒再收起，换成新的一步时也先展开（打着也一样）；844×340 M 档平时两行，打起来收成一行，打完停 2 秒展开', async () => {
     await touchPage({ width: 667, height: 320, mobile: { scale: 2 } });
     await until(() => !!document.querySelector('#quest.on'), null, 30000);
     await ev(() => G.touch.setPref('size', 'l'));
@@ -26939,9 +26938,12 @@ async function touchSteps() {
     const one = await ev(() => {
       const q = document.getElementById('quest');
       const r = q.getBoundingClientRect();
-      return { k: getComputedStyle(q.querySelector('.q-k')).display, goal: q.querySelector('.q-goal').textContent, h: r.height, w: r.width, pe: getComputedStyle(q).pointerEvents, hit: q.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)) };
+      const x = r.left + r.width / 2, y = r.top + r.height / 2;
+      const at = (dy) => q.contains(document.elementFromPoint(x, y + dy));
+      // 点按区：上下各伸 13 px（::after），中间和上下 21 px 处都点得到
+      return { k: getComputedStyle(q.querySelector('.q-k')).display, goal: q.querySelector('.q-goal').textContent, h: r.height, w: r.width, pe: getComputedStyle(q).pointerEvents, hit: at(0) && at(-21) && at(21) };
     });
-    assert(one.k === 'none' && one.goal && one.h >= 43.5 && one.w >= 43.5 && one.pe === 'auto' && one.hit, '667×320 + L 档时追踪条应收成一行、点按区 ≥ 44 px：' + JSON.stringify(one));
+    assert(one.k === 'none' && one.goal && one.h <= 24 && one.w >= 43.5 && one.pe === 'auto' && one.hit, '667×320 + L 档时追踪条应收成一行、点按区上下 44 px：' + JSON.stringify(one));
     // 点一下：展开，约 3 秒后收起
     const r = await ev(() => T.rect('#quest .q-goal'));
     await touch.tap(r.x, r.y);
