@@ -199,7 +199,7 @@ await step('触屏：按住主攻放出左键技能（每帧记下出手），�
   return m1.id + ' 出手 ' + m1.casts + ' 次';
 });
 
-await step('面板布局（UI-R B1）：844×340 / 390×844 下背包（空、筛选、说明、物品卡）、仓库（格子、物品卡）、属性（属性、图鉴）都过 a–f 检查（test/ui-layout.mjs），点卡片外面能收起', async () => {
+await step('面板布局（UI-R B1 + B4a）：844×340 / 390×844 下背包（空、筛选、说明、物品卡）、仓库（格子、物品卡）、属性（属性、图鉴）、地图（卡片、区域卡、说明）、帮助（操作、武器）、设置都过 a–f 检查（test/ui-layout.mjs），点卡片外面能收起', async () => {
   const fx = await ev(() => {
     G.debug.hold(true);
     const s = G.save;
@@ -216,7 +216,7 @@ await step('面板布局（UI-R B1）：844×340 / 390×844 下背包（空、�
   const bad = [];
   let n = 0;
   const settle = () => ev(async () => {
-    for (const x of document.querySelectorAll('#panel-win, #panel-win *, #panel .sheet')) for (const a of x.getAnimations()) await a.finished.catch(() => {});
+    for (const x of document.querySelectorAll('#panel-win, #panel-win *, #panel .sheet, #pause, #pause *')) for (const a of x.getAnimations()) await a.finished.catch(() => {});
   });
   for (const [w, h] of [[844, 340], [390, 844]]) {
     await page.setViewportSize({ width: w, height: h });
@@ -230,18 +230,29 @@ await step('面板布局（UI-R B1）：844×340 / 390×844 下背包（空、�
       ['仓库物品卡', ['stash'], ['.stp [data-grid="stash"] .cell[data-uid]'], true],
       ['属性', ['char', 'stats'], []],
       ['图鉴', ['char', 'stats'], ['[data-act="sub"][data-sub="codex"]']],
+      // UI-R B4a：地图（区域卡片一排、区域卡、说明）、帮助（话题）、暂停菜单 → 设置
+      ['地图', ['map'], []],
+      ['区域卡', ['map'], ['.zone.zc[data-zone="1"]'], true],
+      ['地图说明', ['map'], [w <= 600 ? '#panel-body [data-act="hint"]' : '#panel-q']],
+      ['帮助', ['help', 'keys'], []],
+      ['帮助·武器', ['help', 'keys'], ['[data-act="topic"][data-topic="weapon"]']],
+      ['设置', ['pause'], ['#p-menu [data-tact="settings"]'], false, '#pause .pause-card'],
     ];
-    for (const [id, open, taps, card] of states) {
+    for (const [id, open, taps, card, roots] of states) {
       n++;
       try {
-        await ev(([t, sub]) => { G.ui.close(); G.ui.open(t, sub); }, open);
+        await ev(([t, sub]) => {
+          G.ui.close();
+          if (t === 'pause') G.ui.pause();
+          else G.ui.open(t, sub);
+        }, open);
         await page.waitForTimeout(150);
         for (const sel of taps) {
           await tap(sel);
           await page.waitForTimeout(200);
         }
         await settle();
-        const r = await ev(uiLayoutCheck, { touch: true, max: 3 });
+        const r = await ev(uiLayoutCheck, roots ? { touch: true, max: 3, roots } : { touch: true, max: 3 });
         if (r.n) bad.push(w + '×' + h + ' ' + id + '：' + Object.entries(r.res).map(([k, v]) => k + ' ' + v.n + '（' + v.s.join('；') + '）').join(' '));
         if (card) {
           assert(await ev(() => !!document.querySelector('#panel .sheet')), id + ' 没有打开卡片');
@@ -263,7 +274,7 @@ await step('面板布局（UI-R B1）：844×340 / 390×844 下背包（空、�
   if (vp0) await page.setViewportSize(vp0);
   await page.waitForTimeout(300);
   assert(!bad.length, bad.length + ' 处不合格：' + bad.slice(0, 6).join(' ｜ '));
-  return '2 个尺寸 × 8 个状态 = ' + n + ' 次检查';
+  return '2 个尺寸 × ' + n / 2 + ' 个状态 = ' + n + ' 次检查';
 });
 
 await step('画面：渲染在跑（时间在走、没有丢失上下文），纹理内存', async () => {

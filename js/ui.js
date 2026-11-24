@@ -142,8 +142,9 @@
     blankTimer: 0,
     blankMsg: '', // 技能页顶部的一行结果（刚用无铭宝石学会 / 升级了什么）
     mapTier: 0,
+    zcard: null, // 地图页（窄屏）开着的区域卡：区域序号的字符串，或 'pin'（余烛殿）
+    helpTopic: 'keys', // 帮助页当前的话题
     sealPick: null, // 择印面板（层级 ≥ 1 点「进入」后叠在地图页上）：{ zone, tier, seals: [浅印, 深印, 烬印] }
-    delArmed: false,
     tipEl: null,
     mouseX: -1,
     mouseY: -1,
@@ -1612,6 +1613,15 @@
     char: {
       touch: { once: '属性跟着装备和天赋变', list: ['属性：这个角色现在的全部数值', '图鉴：烬铸和渊契的收集进度与保底', '拾到过的记录所有角色共用，保底按角色算'] },
       desk: { once: '属性跟着装备和天赋变', list: ['属性：这个角色现在的全部数值', '图鉴：烬铸和渊契的收集进度与保底', '拾到过的记录所有角色共用，保底按角色算'] },
+    },
+    // B4a：地图、帮助。渊印的图例放在地图的 [?] 里
+    map: {
+      touch: { once: '点区域卡片看详情，再点「进入」', list: ['点区域卡片：怪物等级、首领和「进入」', '按住卡片：看浮窗', '轮回层级越高，怪物和物品等级越高', '<i class="sc mob">戾</i> 怪物侧印纹，强化怪物', '<i class="sc player">竭</i> 玩家侧印纹，削弱你', '<i class="lg-ring"></i> 小地图上的领群者', '拾取、画质、删除角色：≡ → 设置'] },
+      desk: { once: '选好轮回层级，点区域卡片上的「进入」', list: ['选好轮回层级，点区域卡片上的「进入」', '轮回层级越高，怪物和物品等级越高', '<i class="sc mob">戾</i> 怪物侧印纹，强化怪物', '<i class="sc player">竭</i> 玩家侧印纹，削弱你', '<i class="lg-ring"></i> 小地图上的领群者', '拾取、画质、删除角色：Esc → 设置'] },
+    },
+    help: {
+      touch: { once: '选一个话题看说明', list: ['选一个话题，旁边只显示这一节', '「操作」最下面可以重新显示新手提示'] },
+      desk: { once: '选一个话题看说明', list: ['选一个话题，右边只显示这一节', '「操作」最下面可以重新显示新手提示'] },
     },
   };
   const pageHints = (tab) => (PAGE_HINTS[tab] ? PAGE_HINTS[tab][touchOn() ? 'touch' : 'desk'] : null);
@@ -3196,11 +3206,13 @@
     const z = G.ZONES[sp.zone], T = G.sealTierDef(sp.tier);
     let cards = sealCardHtml(null, 0, T);
     sp.seals.forEach((s, i) => (cards += sealCardHtml(s, i + 1, T)));
-    return '<div class="seal-pick"><div class="sp-box">' +
+    // 窄屏 / 触屏（B4a）：铺满页面正文的一层，头部固定，几张印并排，印的这一排是唯一的滚动区
+    const cpt = compactUi();
+    return '<div class="seal-pick' + (cpt ? ' cpt' : '') + (portraitUi() ? ' por' : '') + '"><div class="sp-box">' +
       '<div class="sp-head"><div class="sec-title">择印 · ' + z.name + ' · 轮回 ' + sp.tier + '</div>' +
-      '<span class="sp-note">词缀越凶，掉落和经验越多。数字键 1–4 选择，Esc 返回</span>' +
+      '<span class="sp-note">词缀越凶，掉落和经验越多。' + (touchOn() ? '点一张印进区' : '数字键 1–4 选择，Esc 返回') + '</span>' +
       '<button type="button" tabindex="-1" class="btn sm" data-act="seal-cancel">返回</button></div>' +
-      '<div class="sp-cards">' + cards + '</div></div></div>';
+      '<div class="sp-cards' + (cpt ? ' scroll" data-list data-scroll="seals' : '') + '">' + cards + '</div></div></div>';
   }
   function pickSeal(i) {
     const sp = ui.sealPick;
@@ -3235,100 +3247,153 @@
     );
   }
 
+  // 第 i 个区域在层级 tier 上的状态（桌面卡片、触屏卡片、区域卡共用）
+  function zoneState(i, tier) {
+    const S = G.save, st = G.state, z = G.ZONES[i];
+    const clearedAt = (q) => S.cleared[q.id] !== undefined && S.cleared[q.id] >= tier;
+    // 主线（quest D2）：这一步要去的区域卡片上一个金色「主线」角标。关了「显示主线」不画
+    const Q = S.quest, qs = Q && !Q.off && Q.n < G.QUEST_N ? G.QUEST[Q.n] : null;
+    return {
+      z,
+      locked: i > 0 && !clearedAt(G.ZONES[i - 1]),
+      cleared: clearedAt(z),
+      here: st.zoneIdx === i && st.tier === tier && !st.pin, // 在余烛殿里时不算在哪个区域
+      lvl: z.level + tier * G.TIER_LEVELS,
+      boss: G.BOSSES[z.boss],
+      quest: !!(qs && qs.zone && qs.zone === z.id),
+    };
+  }
+  const zoneVars = (z) => '--fog:' + hexCss(z.fog) + ';--acc:' + hexCss(z.accent) + ';--path:' + hexCss(z.path) + ';--rock:' + hexCss(z.rock) + ';--sky:' + hexCss(z.sky);
+  const zoneCls = (s) => (s.locked ? ' locked' : '') + (s.here ? ' here' : '') + (s.cleared ? ' cleared' : '');
+  function zoneArt(s, i) {
+    const z = s.z;
+    return (
+      '<div class="z-art"><div class="z-ridge b"></div><div class="z-ridge a"></div><span class="z-glyph">' + (ZONE_GLYPH[z.id] || z.name[0]) + '</span>' +
+      '<span class="z-ord">' + (ZONE_ORD[i] || '') + '</span>' +
+      (s.cleared ? '<span class="z-badge ok">已通关</span>' : s.locked ? '<span class="z-badge lock">未解锁</span>' : s.quest ? '<span class="z-badge quest">主线</span>' : '') +
+      (s.here ? '<span class="z-here">当前所在</span>' : '') +
+      '</div>'
+    );
+  }
+  const zoneMeta = (s) => '<div class="z-meta"><span>怪物等级 <b>' + s.lvl + '</b></span><span style="color:' + G.TYPE_COLOR[s.z.elem] + '">' + G.TYPE_NAME[s.z.elem] + '</span></div>';
+  const zoneBoss = (s) => '<div class="z-boss"><span>首领</span><b>' + s.boss.name + '</b>' + (G.save.bossKills[s.z.boss] ? '<em>曾击败</em>' : '') + '</div>';
+  const zoneLock = (i) => '<div class="z-lock">先在本层级击败「' + G.ZONES[i - 1].name + '」的首领</div>';
+  const zoneEnter = (s, i) => '<button type="button" tabindex="-1" class="btn primary" data-act="enter" data-zone="' + i + '">' + (s.here ? '重新进入' : '进入') + '</button>';
+  // 余烛殿有几种烛芯在手里
+  const pinFragN = () => G.FRAG_IDS.filter((id) => G.save.frags && G.save.frags[id] > 0).length;
+
+  // 区域卡（窄屏 / 触屏，B4a）：点区域卡片从右侧滑出（竖屏从底部升起），里面是区域的全部信息和「进入」；余烛殿的卡片里是烛芯、层级和「点燃」
+  function zoneSheet(tier) {
+    const k = ui.zcard;
+    if (k === null || k === undefined) return '';
+    if (k === 'pin') {
+      if (!G.pinOpen || !G.pinOpen()) return (ui.zcard = null), '';
+      const S = G.save, PN = G.PIN, ready = G.pinReady();
+      const t = (ui.pinTier = G.clamp(ui.pinTier || PN.minTier, PN.minTier, S.maxTier));
+      const kills = (S.pinnacle && S.pinnacle.kills) || 0;
+      let slots = '', tiers = '';
+      for (const id of G.FRAG_IDS) {
+        const f = G.FRAGS[id], n = (S.frags && S.frags[id]) || 0;
+        slots += '<div class="pn-slot' + (n ? ' ok' : '') + '" data-tip="frag:' + id + '" style="--c:' + f.color + '">' + ibox(IC.frag(id), 'curb') + '<span>' + f.name + '</span><b>' + n + '</b></div>';
+      }
+      for (let j = PN.minTier; j <= S.maxTier; j++) tiers += '<button type="button" tabindex="-1" class="tier' + (j === t ? ' on' : '') + '" data-act="pin-tier" data-tier="' + j + '">' + j + '</button>';
+      return sheetHtml({
+        cls: 'zs pin' + (ready ? ' ready' : ''),
+        rc: '#b08650',
+        head: '<span class="zs-g pn">烛</span><div class="sh-ttl"><div class="sh-name">' + G.PINNACLE.name + '</div><div class="sh-kind">首领 ' + G.BOSSES.snuffer.name + (S.bossKills.snuffer ? ' · 已击败 ' + kills + ' 次' : '') + (G.state.pin ? ' · 当前所在' : '') + '</div></div>',
+        body:
+          '<div class="zs-in"><div class="pn-desc">' + G.PINNACLE.desc + '四种烛芯各献 1 个进场；倒下 ' + G.PIN_LIVES + ' 次失败，退还 ' + G.PIN_REFUND + ' 个。</div>' +
+          '<div class="pn-slots">' + slots + '</div>' +
+          '<div class="pn-row"><span class="pn-k">层级</span><div class="tiers">' + tiers + '</div><span class="pn-lv">首领等级 <b>' + G.pinLevel(t) + '</b></span></div>' +
+          (ready ? '' : '<div class="pn-need">四种烛芯各需 1 个：轮回 ' + G.FRAG_DROP.minTier + ' 起的首领和异兆会掉（' + fragRates() + '），拾烬客 2 换 1</div>') +
+          (ui.pinMsg ? '<div class="pn-need bad">' + esc(ui.pinMsg) + '</div>' : '') + '</div>',
+        acts: '<button type="button" tabindex="-1" class="btn primary pn-go" data-act="pin-light"' + (ready ? '' : ' disabled') + '>点燃</button>',
+      });
+    }
+    const i = +k, s = zoneState(i, tier), z = s.z;
+    if (!z) return (ui.zcard = null), '';
+    const st = s.locked ? '' : s.cleared ? '本层级已通关' : '还没通关';
+    return sheetHtml({
+      cls: 'zs',
+      rc: hexCss(z.accent),
+      head: '<span class="zs-g" style="' + zoneVars(z) + '">' + (ZONE_GLYPH[z.id] || z.name[0]) + '</span><div class="sh-ttl"><div class="sh-name">' + z.name + '</div><div class="sh-kind">' + (ZONE_ORD[i] || '') + ' · 轮回 ' + tier + (s.here ? ' · 当前所在' : '') + '</div></div>',
+      body: '<div class="zs-in">' + zoneMeta(s) + '<div class="z-desc">' + z.desc + '</div>' + zoneBoss(s) + (st ? '<div class="zs-st">' + st + (s.quest ? ' · 主线要去这里' : '') + '</div>' : '') + '</div>',
+      acts: s.locked ? zoneLock(i) : zoneEnter(s, i),
+    });
+  }
+
   function renderMap() {
     const S = G.save;
     const st = G.state;
     const tier = (ui.mapTier = G.clamp(ui.mapTier, 0, S.maxTier));
-    const clearedAt = (z) => S.cleared[z.id] !== undefined && S.cleared[z.id] >= tier;
-    // 主线（quest D2）：这一步要去的区域卡片上一个金色「主线」角标；第 11 步（进轮回层级 1）在层级「1」的按钮上点一个金点。关了「显示主线」都不画
+    const cpt = compactUi(), por = portraitUi();
+    const ine = ui.sealPick ? ' inert' : ''; // 择印那一层盖着时，下面的地图点不到（.map-in 是 display: contents，不影响排法）
+    // 主线（quest D2）：第 11 步（进轮回层级 1）在层级「1」的按钮上点一个金点。关了「显示主线」不画
     const Q = S.quest, qOn = !!(Q && !Q.off && Q.n < G.QUEST_N), qs = qOn ? G.QUEST[Q.n] : null;
-    const qZone = qs && qs.zone ? qs.zone : '', qTier = !!(qs && qs.kind === 'tier');
+    const qTier = !!(qs && qs.kind === 'tier');
 
     let tiers = '';
     for (let t = 0; t <= S.maxTier; t++) {
       tiers += '<button type="button" tabindex="-1" class="tier' + (t === tier ? ' on' : '') + (qTier && t === 1 ? ' q-dot' : '') + '" data-act="tier" data-tier="' + t + '"' + (qTier && t === 1 ? ' data-tip="txt:主线：进轮回层级 1"' : '') + '>' + t + '</button>';
     }
+    const run = st.run && st.run.seal;
+    // 本次进区的印（层级 ≥ 1 才有）：一行。图例在 [?] 里
+    const sealNow = S.maxTier >= 1
+      ? '<div class="seal-now"><span class="sn-k">本次进区</span>' +
+        (run ? '<b class="sn-name g' + run.g + '">' + G.sealName(run) + '</b>' + sealChips(run, 'map') + '<span class="sn-rw">' + sealRewardText(run.W) + '</span>' : '<b class="sn-name plain">素印</b><span class="sn-rw">没有词缀</span>') + '</div>'
+      : '';
 
+    if (!cpt) {
+      // 桌面：层级 + 五张区域卡（卡片里直接「进入」）+ 余烛殿。拾取、画质、删除角色挪进了设置
+      let cards = '';
+      G.ZONES.forEach((z, i) => {
+        const s = zoneState(i, tier);
+        cards +=
+          '<div class="zone' + zoneCls(s) + '"' + (touchOn() ? ' data-tip="zone:' + i + ':' + tier + '"' : '') + ' style="' + zoneVars(z) + '">' + zoneArt(s, i) +
+          '<div class="z-body"><div class="z-name">' + z.name + '</div>' + zoneMeta(s) + '<div class="z-desc">' + z.desc + '</div>' + zoneBoss(s) +
+          (s.locked ? zoneLock(i) : zoneEnter(s, i)) + '</div></div>';
+      });
+      el.body.innerHTML =
+        '<div class="map wide">' +
+        '<div class="map-in"' + ine + '>' +
+        '<div class="map-top"><div class="sec-title">轮回层级</div>' +
+        '<div class="tier-row"><div class="tiers">' + tiers + '</div>' +
+        '<div class="tier-note">每高一层，怪物等级 +' + G.TIER_LEVELS + '，物品等级随之提高。' +
+        (S.maxTier === 0 ? '击败最后一个区域的首领后开启下一层。' : '在最高层级击败最后一个区域的首领开启下一层。') + '</div></div>' +
+        sealNow + '</div>' +
+        '<div class="zones" style="--nz:' + G.ZONES.length + '">' + cards + '</div>' +
+        pinNodeHtml() +
+        pageNote('map', '') +
+        '</div>' +
+        sealPickHtml() +
+        '</div>' + popHtml();
+      return;
+    }
+    // 窄屏 / 触屏：层级一行 + 区域卡片一排（横屏横着滑，竖屏竖着滚，这是唯一的滚动区）；点卡片出区域卡
+    if (ui.sealPick) ui.zcard = null;
     let cards = '';
     G.ZONES.forEach((z, i) => {
-      const locked = i > 0 && !clearedAt(G.ZONES[i - 1]);
-      const cleared = clearedAt(z);
-      const here = st.zoneIdx === i && st.tier === tier && !st.pin; // 在余烛殿里时不算在哪个区域
-      const lvl = z.level + tier * G.TIER_LEVELS;
-      const boss = G.BOSSES[z.boss];
+      const s = zoneState(i, tier);
       cards +=
-        '<div class="zone' + (locked ? ' locked' : '') + (here ? ' here' : '') + (cleared ? ' cleared' : '') + '"' + (touchOn() ? ' data-tip="zone:' + i + ':' + tier + '"' : '') + ' style="--fog:' + hexCss(z.fog) + ';--acc:' + hexCss(z.accent) + ';--path:' + hexCss(z.path) + ';--rock:' + hexCss(z.rock) + ';--sky:' + hexCss(z.sky) + '">' +
-        '<div class="z-art"><div class="z-ridge b"></div><div class="z-ridge a"></div><span class="z-glyph">' + (ZONE_GLYPH[z.id] || z.name[0]) + '</span>' +
-        '<span class="z-ord">' + (ZONE_ORD[i] || '') + '</span>' +
-        (cleared ? '<span class="z-badge ok">已通关</span>' : locked ? '<span class="z-badge lock">未解锁</span>' : z.id === qZone ? '<span class="z-badge quest">主线</span>' : '') +
-        (here ? '<span class="z-here">当前所在</span>' : '') +
-        '</div>' +
-        '<div class="z-body"><div class="z-name">' + z.name + '</div>' +
-        '<div class="z-meta"><span>怪物等级 <b>' + lvl + '</b></span><span style="color:' + G.TYPE_COLOR[z.elem] + '">' + G.TYPE_NAME[z.elem] + '</span></div>' +
-        '<div class="z-desc">' + z.desc + '</div>' +
-        '<div class="z-boss"><span>首领</span><b>' + boss.name + '</b>' + (S.bossKills[z.boss] ? '<em>曾击败</em>' : '') + '</div>' +
-        (locked
-          ? '<div class="z-lock">先在本层级击败「' + G.ZONES[i - 1].name + '」的首领</div>'
-          : '<button type="button" tabindex="-1" class="btn primary" data-act="enter" data-zone="' + i + '">' + (here ? '重新进入' : '进入') + '</button>') +
-        '</div></div>';
+        '<button type="button" tabindex="-1" class="zone zc' + zoneCls(s) + (ui.zcard === String(i) ? ' sel' : '') + '" data-act="zone" data-zone="' + i + '"' + (touchOn() ? ' data-tip="zone:' + i + ':' + tier + '"' : '') + ' style="' + zoneVars(z) + '">' + zoneArt(s, i) +
+        '<div class="z-body"><div class="z-name">' + z.name + '</div>' + zoneMeta(s) + '</div></button>';
     });
-
-    const run = st.run && st.run.seal;
+    if (G.pinOpen && G.pinOpen()) {
+      const ready = G.pinReady();
+      cards +=
+        '<button type="button" tabindex="-1" class="zone zc pin' + (ready ? ' ready' : '') + (st.pin ? ' here' : '') + (ui.zcard === 'pin' ? ' sel' : '') + '" data-act="zone" data-zone="pin">' +
+        '<div class="z-art pn-art"><span class="z-glyph">烛</span>' + (ready ? '<span class="z-badge ok">可点燃</span>' : '') + (st.pin ? '<span class="z-here">当前所在</span>' : '') + '</div>' +
+        '<div class="z-body"><div class="z-name">' + G.PINNACLE.name + '</div><div class="z-meta"><span>烛芯 <b>' + pinFragN() + ' / ' + G.FRAG_IDS.length + '</b></span></div></div></button>';
+    }
     el.body.innerHTML =
-      '<div class="map">' +
-      '<div class="map-top"><div class="sec-title">轮回层级</div>' +
-      '<div class="tier-row"><div class="tiers">' + tiers + '</div>' +
-      '<div class="tier-note">每高一层，怪物等级 +' + G.TIER_LEVELS + '，物品等级随之提高。' +
-      (S.maxTier === 0 ? '击败最后一个区域的首领后开启下一层。' : '在最高层级击败最后一个区域的首领开启下一层。') + '</div></div>' +
-      // 渊印：这次进区的印（层级 ≥ 1 才有）和图例
-      (S.maxTier >= 1
-        ? '<div class="seal-now"><span class="sn-k">本次进区</span>' +
-          (run ? '<b class="sn-name g' + run.g + '">' + G.sealName(run) + '</b>' + sealChips(run, 'map') + '<span class="sn-rw">' + sealRewardText(run.W) + '</span>' : '<b class="sn-name plain">素印</b><span class="sn-rw">没有词缀</span>') +
-          '<span class="seal-legend"><i class="sc mob">戾</i>怪物侧印纹<i class="sc player">竭</i>玩家侧印纹<i class="lg-ring"></i>小地图上的领群者</span></div>'
-        : '') +
+      '<div class="map cpt' + (por ? ' por' : '') + '">' +
+      '<div class="map-in"' + ine + '>' +
+      '<div class="map-bar"><span class="mb-k">轮回</span><div class="tiers">' + tiers + '</div>' + sealNow + (por ? helpBtn('in-page') : '') + '</div>' +
+      '<div class="zrow scroll" data-list data-scroll="zones">' + cards + '</div>' +
+      pageNote('map', '') +
       '</div>' +
-      '<div class="zones" style="--nz:' + G.ZONES.length + '">' + cards + '</div>' +
-      pinNodeHtml() +
       sealPickHtml() +
-      '<div class="map-opts">' +
-      '<div class="opt-text"><b>普通物品</b><span>魔法、稀有物品总是自动拾取</span></div>' +
-      '<div class="seg">' +
-      [['manual', '手动拾取', '走过不捡，按 F 或点击名牌拾取'], ['auto', '自动拾取', '走过就捡进背包'], ['scrap', '自动丢弃', '走过就地丢弃']]
-        .map((o) => '<button type="button" tabindex="-1" class="seg-b' + (normMode() === o[0] ? ' on' : '') + '" data-act="normmode" data-mode="' + o[0] + '" data-tip="txt:' + o[2] + '">' + o[1] + '</button>')
-        .join('') +
-      '</div>' +
-      '<div class="opt-sep"></div>' +
-      // 两个开关上下叠成一列（quest D2 加了「显示主线」，并排时 1024 宽的窗口放不下）；「折叠」的说明挪进悬停提示
-      '<div class="opt-stack">' +
-      '<div class="opt-line" data-tip="txt:地上只留一个小点，悬停或按住 Alt 展开">' +
-      '<button type="button" tabindex="-1" class="switch' + (S.opts.hideNormal ? ' on' : '') + '" data-act="opt" data-opt="hideNormal"><i></i></button>' +
-      '<div class="opt-text"><b>折叠普通物品的名牌</b></div></div>' +
-      // 主线（quest D2）：关了只藏追踪条、小地图上的金色记号和地图上的角标，进度和奖励照常记。主线走完以后不再显示这个开关
-      (Q && Q.n < G.QUEST_N
-        ? '<div class="opt-line" data-tip="txt:右上的主线提示、小地图上的金色箭头和区域卡片上的「主线」角标。关了进度照常记">' +
-          '<button type="button" tabindex="-1" class="switch' + (Q.off ? '' : ' on') + '" data-act="quest"><i></i></button>' +
-          '<div class="opt-text"><b>显示主线</b></div></div>'
-        : '') +
-      '</div>' +
-      '<div class="opt-sep"></div>' +
-      '<div class="opt-text"><b>画质</b><span>' + (S.opts.quality === 'auto' ? '自动选择，明显掉帧时会自动调低' : '电脑吃力时调低') + '</span></div>' +
-      '<div class="seg">' +
-      [['high', '高', '泛光、调色与暗角，4 倍多重采样抗锯齿，高分屏最高按 1.5 倍像素渲染'], ['mid', '中', '保留泛光与调色；泛光按一半分辨率计算，不画贴地薄雾，阴影精度减半，抗锯齿降为 2 倍，高分屏最高 1.25 倍像素'], ['low', '低', '关闭泛光、调色等后期效果和贴地薄雾，阴影精度减半，适合老旧电脑']]
-        .map((o) => '<button type="button" tabindex="-1" class="seg-b' + ((G.world.quality ? G.world.quality() : S.opts.quality) === o[0] ? ' on' : '') + '" data-act="quality" data-q="' + o[0] + '" data-tip="txt:' + o[2] + '">' + o[1] + '</button>')
-        .join('') +
-      '</div>' +
-      '<div class="opt-gap"></div>' +
-      // 删除这个角色：确认两次（角色页同一套话）。删掉的进回收位，换成一个新角色
-      (ui.delArmed === 2
-        ? '<span class="del-warn">' + delFinalText() + '</span>' +
-          '<button type="button" tabindex="-1" class="btn danger" data-act="del-final">真的删除</button>' +
-          '<button type="button" tabindex="-1" class="btn" data-act="del-cancel">取消</button>'
-        : ui.delArmed
-        ? '<span class="del-warn">删除 ' + esc(charLabel(curSummary())) + '？</span>' +
-          '<button type="button" tabindex="-1" class="btn danger" data-act="del-confirm">确认删除</button>' +
-          '<button type="button" tabindex="-1" class="btn" data-act="del-cancel">取消</button>'
-        : '<button type="button" tabindex="-1" class="btn ghost" data-act="del-save">删除这个角色</button>') +
-      '</div></div>';
+      '</div>' + zoneSheet(tier) + popHtml();
   }
 
   // ============================================================
@@ -3517,17 +3582,17 @@
     [['I', 'C', 'G', 'P', 'M'], '背包 / 属性 / 技能 / 天赋 / 地图'],
     [['H', 'Esc'], '打开帮助 / 关闭面板；没有面板时 Esc 暂停'],
   ];
-  function renderHelp() {
-    const key = (k, t) => '<div class="hk"><span class="hk-keys">' + k.map((x) => '<kbd>' + x + '</kbd>').join('') + '</span><span>' + t + '</span></div>';
-    let curs = '';
-    for (const id of G.CUR_IDS) {
-      const c = G.CURRENCY[id];
-      curs += '<div class="hc" style="--c:' + c.color + '">' + IC.cur(id) + '<b>' + c.name + '</b><span>' + c.desc + '</span></div>';
-    }
-    el.body.innerHTML =
-      '<div class="help">' +
-      '<div class="col scroll" data-scroll="help1"><div class="sec-title">操作</div>' +
-      (touchOn() ? HELP_TOUCH : HELP_KEYS).map((k) => key(k[0], k[1])).join('') +
+  // 帮助页（B4a）：左边一列话题，右边只显示一个话题（唯一的滚动区）；竖屏话题是顶上一排横滑的标签。
+  // 暂停菜单的「操作说明」直接打开「操作」这一节，只留一份文字
+  const helpKey = (k, t) => '<div class="hk"><span class="hk-keys">' + k.map((x) => '<kbd>' + x + '</kbd>').join('') + '</span><span>' + t + '</span></div>';
+  const HELP_TOPICS = [
+    ['keys', '操作', () =>
+      '<div class="sec-title">操作</div>' +
+      (touchOn() ? HELP_TOUCH : HELP_KEYS).map((k) => helpKey(k[0], k[1])).join('') +
+      '<div class="help-foot"><button type="button" tabindex="-1" class="btn sm" data-act="tut-reset">重新显示新手提示</button>' +
+      '<span>' + (ui.tutMsg || '已看过 ' + Object.keys(G.save.tut).length + ' / ' + HINTS.length + ' 条') + '</span></div>'
+    ],
+    ['fight', '战斗', () =>
       '<div class="sec-title">战斗须知</div>' +
       '<p>地上的<b class="c-red">红色区域</b>是即将落下的攻击，填满前走出去或翻滚穿过。</p>' +
       '<p>护甲减少物理伤害，抗性减少对应元素伤害（上限 75%）。</p>' +
@@ -3535,47 +3600,78 @@
       '<p><b>敌人的抗性</b>：每个区的敌人抗本区的元素' + (G.ENEMY_RES.boss === G.ENEMY_RES.mob ? ' ' + G.ENEMY_RES.mob + '%（首领也是）' : '，小怪和精英 ' + G.ENEMY_RES.mob + '%，首领 ' + G.ENEMY_RES.boss + '%') + '，名牌和首领血条上写着「抗火」这类小签。物理、混沌不受抗性影响。' +
       '感电让三种元素抗性各降 ' + G.ENEMY_RES.shock + '%（不会降到 0 以下）；辅助<b>破障</b>和装备上的<b>元素穿透</b>能把抗性压到负数，最低 −' + Math.abs(G.ENEMY_RES.floor) + '%。</p>' +
       helpBuildUp() +
+      '<p>屏幕边缘的箭头指向画面外的精英、首领和传送门。</p>' +
+      '<p><b>重燃</b>：你心口的余烬还亮着，倒下后在区域入口重燃（首领战则在竞技场门外），不损失经验和物品。怪物回到原位，首领回满生命。</p>'
+    ],
+    ['combo', '连击', () =>
       '<div class="sec-title">连击、架势与处决</div>' +
       '<p><b>连击</b>：近战普攻按住逐段打出（双匕四段，其余三段），末段<b>终结技</b>伤害最高、打飞敌人。停手、翻滚或换技能会从头开始。</p>' +
       '<p>动作中的按键会被记住，能出手时立刻放出。<b>翻滚可以取消挥砍</b>。</p>' +
       '<p><b>架势</b>：精英和首领血条下的白条，命中削减，几秒不挨打回复。打空后露出<b class="c-gold">破绽</b>：停止出招，受到的伤害 +25%。</p>' +
-      '<p><b>处决</b>：对破绽中的敌人按 <kbd>F</kbd>，无敌重创，回复生命、魔力和药剂。首领每被击破一次，架势更难打空。</p>' +
-      '<p>屏幕边缘的箭头指向画面外的精英、首领和传送门。</p>' +
-      '<p><b>重燃</b>：你心口的余烬还亮着，倒下后在区域入口重燃（首领战则在竞技场门外），不损失经验和物品。怪物回到原位，首领回满生命。</p>' +
-      '</div>' +
-      '<div class="col scroll" data-scroll="help2"><div class="sec-title">技能与辅助宝石</div>' +
+      '<p><b>处决</b>：对破绽中的敌人按 <kbd>F</kbd>，无敌重创，回复生命、魔力和药剂。首领每被击破一次，架势更难打空。</p>'
+    ],
+    ['skill', '技能', () =>
+      '<div class="sec-title">技能与辅助宝石</div>' +
       '<p>怪物掉落<b class="c-teal">技能宝石</b>，更高等级的同名宝石直接升级。在技能页把技能拖到技能栏。</p>' +
       '<p><b class="c-blank">无铭技能宝石</b>可学会任一技能，或把更低等级的已学技能升到它的等级，先用最高的那颗。每个首领首次倒下必掉一颗。</p>' +
       '<p>每个技能有 3 个辅助槽。<b>辅助宝石</b>改变所镶的技能，代价是更高的魔力消耗。一颗只能镶一个技能，技能要带它要求的标签。</p>' +
       '<p><b>刻式</b>：宝石 ' + G.VARIANT_LVL + ' 级后可选 A / B 两种刻式，各加一条新规则。首次免费，之后每换一次 ' + G.VARIANT_COST.n + ' 颗' + G.CURRENCY[G.VARIANT_COST.cur].name + '；' + G.VARIANT_SAFE_R + ' 米内有醒着的敌人时不能换。</p>' +
       '<p><b>光环</b>（' + (G.SKILLS.nova ? G.SKILLS.nova.name : '霜环') + '）放进技能栏即常驻生效，<b>保留</b>一部分最大魔力（以血为引时保留生命）。</p>' +
-      helpSummon() +
+      helpSummon()
+    ],
+    ['weapon', '武器', () => helpWeapons()],
+    ['tree', '天赋', () =>
       '<div class="sec-title">天赋盘</div>' +
       '<p>每升一级得 1 点天赋，首次击败每个首领再得 2 点。五条支路：<b style="color:#e2705a">铸躯</b>（生命与物理）、<b style="color:#7ed67a">迅影</b>（速度与暴击）、<b style="color:#6fb2ff">秘识</b>（魔力与元素）、<b class="c-ally">统御</b>（召唤物）、<b style="color:#ff6ad2">噬渊</b>（混沌、渊缚与黑洞）；相邻支路间有<b style="color:#e0be6e">交汇</b>天赋。满级也点不满，要有取舍。</p>' +
-      '<p>每条支路有两个<b>基石天赋</b>，效果强但有代价。天赋可随时免费退回。</p>' +
-      helpEnc() +
+      '<p>每条支路有两个<b>基石天赋</b>，效果强但有代价。天赋可随时免费退回。</p>'
+    ],
+    ['enc', '异兆', () => helpEnc()],
+    ['zone', '区域', () =>
       '<div class="sec-title">区域与轮回</div>' +
       '<p>每个区域尽头有一名首领，击败后出现通往地图的传送门。</p>' +
       '<p>击败最后一个区域（' + G.ZONES[G.ZONES.length - 1].name + '）的首领开启<b>轮回层级</b>：每高一层，怪物等级 +' + G.TIER_LEVELS + '，物品等级随之提高。</p>' +
       '<p><b>渊印</b>：轮回 1 起进区前选印。印纹越多越凶（<b class="c-red">橙红</b>签强化怪物，<b style="color:#c49cff">紫色</b>签削弱你），物品数量、稀有度和经验加得越多。总权重 ' + G.SEAL.lieW + ' 以上为<b>烈印</b>，首领可掉两件渊契。轮回 ' + G.FRAG_DROP.minTier + ' 起，印还决定<b>烛芯</b>几率：' + fragRates() + '。</p>' +
-      '<p>游戏会自动存档。</p>' +
-      '<div class="sec-title">素材来源</div>' +
-      '<p class="credits">地面与岩壁贴图来自 <b>Poly Haven</b>、<b>ambientCG</b>，布景模型来自 <b>KayKit</b>（Kay Lousberg）与 <b>Kenney</b>，主角、游魂、烬骸仆从与喷吐者的模型和人形角色的部分动作来自 <b>Quaternius</b>，均以 CC0 授权公开，在此致谢。</p>' +
-      '<div class="help-foot"><button type="button" tabindex="-1" class="btn sm" data-act="tut-reset">重新显示新手提示</button>' +
-      '<span>' + (ui.tutMsg || '已看过 ' + Object.keys(G.save.tut).length + ' / ' + HINTS.length + ' 条') + '</span></div>' +
-      '</div>' +
-      '<div class="col scroll" data-scroll="help3">' + helpWeapons() + '<div class="sec-title">装备与词缀</div>' +
+      '<p>游戏会自动存档。</p>'
+    ],
+    ['gear', '装备', () =>
+      '<div class="sec-title">装备与词缀</div>' +
       '<p>装备分<b style="color:' + G.RARITY_COLOR[0] + '">普通</b>、<b style="color:' + G.RARITY_COLOR[1] + '">魔法</b>（最多 2 条词缀）和<b style="color:' + G.RARITY_COLOR[2] + '">稀有</b>（最多 6 条）。词缀分前缀与后缀，各占一半。</p>' +
       '<p><span class="ic-tier t4">T4</span> 是词缀阶级，物品等级决定最高阶。</p>' +
       '<p><b class="vd-up">▲</b> <b class="vd-down">▼</b> 是与身上同部位的比较。悬停背包格子或<b>地上的名牌</b>看完整属性。</p>' +
       '<p><b style="color:' + G.RARITY_COLOR[3] + '">烬铸</b>武器由轮回层级的首领掉落：词缀行固定、数值在区间内掷出（<b>完美度</b>），带独有机制并把 <kbd>R</kbd> 换成<b>烬铸技</b>。无法改造。「烬铸图鉴」记录收集和保底。</p>' +
-      '<p><b>背包操作</b>：右键装备 / 卸下；拖动换装、整理，拖出窗口丢弃；Shift+点击分解（稀有需再点一次）。</p>' +
+      '<p><b>背包操作</b>：右键装备 / 卸下；拖动换装、整理，拖出窗口丢弃；Shift+点击分解（稀有需再点一次）。</p>'
+    ],
+    ['cur', '通货', () => {
+      let curs = '';
+      for (const id of G.CUR_IDS) {
+        const c = G.CURRENCY[id];
+        curs += '<div class="hc" style="--c:' + c.color + '">' + IC.cur(id) + '<b>' + c.name + '</b><span>' + c.desc + '</span></div>';
+      }
+      return (
       '<div class="sec-title">通货</div>' +
       '<p>通货用来改造装备：<b>拖到一件物品上</b>，或选中物品后点右侧的通货按钮。</p>' +
       '<div class="hc-list">' + curs + '</div>' +
       '<p><b style="color:' + G.CURRENCY.chisel.color + '">' + G.CURRENCY.chisel.name + '</b>：拖到物品上后点选一条词缀，只重洗这一条。取消或 <kbd>Esc</kbd> 不消耗。</p>' +
-      '<p>分解魔法物品可能得微光尘，稀有物品必得增幅尘。首领首次被击败保底掉升华石和乱流石各一颗。</p>' +
-      '</div></div>';
+      '<p>分解魔法物品可能得微光尘，稀有物品必得增幅尘。首领首次被击败保底掉升华石和乱流石各一颗。</p>'
+      );
+    }],
+    ['credits', '致谢', () =>
+      '<div class="sec-title">素材来源</div>' +
+      '<p class="credits">地面与岩壁贴图来自 <b>Poly Haven</b>、<b>ambientCG</b>，布景模型来自 <b>KayKit</b>（Kay Lousberg）与 <b>Kenney</b>，主角、游魂、烬骸仆从与喷吐者的模型和人形角色的部分动作来自 <b>Quaternius</b>，均以 CC0 授权公开，在此致谢。</p>'
+    ],
+  ];
+  function renderHelp() {
+    const id = HELP_TOPICS.some((t) => t[0] === ui.helpTopic) ? ui.helpTopic : (ui.helpTopic = 'keys');
+    const T = HELP_TOPICS.find((t) => t[0] === id);
+    const por = portraitUi();
+    const topics = HELP_TOPICS.map((t) => '<button type="button" tabindex="-1" class="ht' + (t[0] === id ? ' on' : '') + '" data-act="topic" data-topic="' + t[0] + '">' + t[1] + '</button>').join('');
+    el.body.innerHTML =
+      '<div class="help2' + (compactUi() ? ' cpt' : ' wide') + (por ? ' por' : '') + '">' +
+      // 竖屏：话题是顶上一排横滑的标签，[?] 在这一排的右边（不跟着滑）
+      (por ? '<div class="h-tbar">' : '') + '<div class="h-topics scroll" data-list data-scroll="help-topics">' + topics + '</div>' + (por ? helpBtn('in-page') + '</div>' : '') +
+      '<div class="h-body scroll" data-list data-scroll="help-' + id + '"><div class="help h-in">' + T[2]() + '</div></div>' +
+      pageNote('help', '') +
+      '</div>' + popHtml();
   }
 
   // ============================================================
@@ -4146,6 +4242,12 @@
       G.sfx('click');
       render();
     },
+    // 帮助页：换话题
+    topic(d) {
+      ui.helpTopic = d.topic;
+      G.sfx('click');
+      render();
+    },
     sub(d) {
       ui.charSub = d.sub === 'codex' ? 'codex' : 'stats';
       G.sfx('click');
@@ -4518,6 +4620,13 @@
       render();
     },
     // ---- 地图 ----
+    // 窄屏：点区域卡片开区域卡，再点同一张收起
+    zone(d) {
+      ui.zcard = ui.zcard === d.zone ? null : d.zone;
+      ui.pinMsg = '';
+      G.sfx('click');
+      render();
+    },
     tier(d) {
       ui.mapTier = +d.tier;
       G.sfx('click');
@@ -4527,6 +4636,7 @@
       G.sfx('click');
       // 渊印：轮回层级 ≥ 1 先弹择印面板（三枚印由 sealSeq 定，关掉再开还是这三枚），层级 0 直接进
       if (ui.mapTier >= 1) {
+        ui.zcard = null;
         ui.sealPick = { zone: +d.zone, tier: ui.mapTier, seals: G.rollSeals(+d.zone, ui.mapTier) };
         render();
         return;
@@ -4561,26 +4671,6 @@
       G.sfx('click');
       render();
     },
-    'del-save'() {
-      ui.delArmed = true;
-      G.sfx('click');
-      render();
-    },
-    'del-cancel'() {
-      ui.delArmed = false;
-      G.sfx('click');
-      render();
-    },
-    'del-confirm'() {
-      ui.delArmed = 2;
-      G.sfx('click');
-      render();
-    },
-    'del-final'() {
-      ui.delArmed = false;
-      if (G.resetSave()) location.reload(); // 回收位写不进去时什么都不删（提示条已经亮了）
-      else render();
-    },
   };
 
   const BLANK_ARM_MS = 4000; // 无铭宝石的「再点一次确认」保持多久
@@ -4608,6 +4698,10 @@
     }
     if (ui.card && !e.target.closest('.sheet') && !e.target.closest('.ui-pop') && act !== 'sel' && !(act === 'stash-take' && a.classList.contains('cell')) && !e.target.closest('#confirm')) {
       closeCard();
+      shut = true;
+    }
+    if (ui.zcard !== null && !e.target.closest('.sheet') && !e.target.closest('.ui-pop') && act !== 'zone') {
+      ui.zcard = null;
       shut = true;
     }
     if (shut && !act) {
@@ -5181,6 +5275,7 @@
     if (menu.title) return; // 标题画面上不开面板
     if (!RENDER[tab]) tab = 'inv';
     if (tab === 'char' && sub) ui.charSub = sub === 'codex' ? 'codex' : 'stats';
+    if (tab === 'help' && sub) ui.helpTopic = sub; // 帮助页的话题（暂停菜单的「操作说明」打开「操作」）
     if (ui.intro) closeIntro();
     closePause();
     const wasOpen = ui.isOpen;
@@ -5189,7 +5284,6 @@
       cancelDrag();
       ui.picker = null;
       ui.confirm = null;
-      ui.delArmed = false;
       ui.invMsg = '';
       ui.invOk = '';
       ui.bagMsg = '';
@@ -5204,6 +5298,7 @@
       if (wasOpen) uiSeenMark(ui.tab); // 离开这一页：一次性提示算看过了
       closeCard();
       ui.pop = null;
+      ui.zcard = null;
       ui.stashMsg = '';
       ui.stashView = 'stash'; // 仓库页每次打开先看仓库
       if (tab === 'map') ui.mapTier = G.clamp(G.state.tier || 0, 0, G.save.maxTier);
@@ -5228,6 +5323,7 @@
     uiSeenMark(ui.tab); // 关掉面板：这一页的一次性提示以后不再自动出
     closeCard();
     ui.pop = null;
+    ui.zcard = null;
     disarmReset();
     el.panel.classList.remove('on');
     el.picker.classList.remove('on');
@@ -5314,6 +5410,7 @@
     ready: false, // 区域建好了（main.js 调 titleReady）：继续 / 新游戏才能点
     view: null, // 菜单里打开的子页：settings / help / credits / chars
     del: null, // 角色页里正在删的栏位 { k, step: 1 | 2 }（确认两次）
+    delSelf: 0, // 暂停菜单的设置里删当前角色：0 没在删 / 1 第一次确认 / 2 第二次确认
     hidden: [], // 标题画面期间藏起来的敌人 / 召唤物模型
     after: null, // 离开标题画面后要做的事（首次运行的开场卡片）
     t: 0, // 标题画面开了多久（秒，镜头漂移的相位）
@@ -5567,51 +5664,61 @@
   }
   // 手机版 M2 的触屏设置（只在触屏模式下显示；存在这台设备上）：按钮大小、左手模式、震动（没有震动接口的设备不显示）
   const SET_TS = [['s', '小'], ['m', '中'], ['l', '大']];
-  function touchSettings(row) {
+  // 设置（B4a）：分组（画面 / 操作 / 拾取 / 打击手感 / 声音 / 角色），放得下时两列；开关整行都能点，行高 44 px（触屏）
+  const setSeg = (list, cur, tact, key) => '<div class="seg">' + list.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (cur === o[0] ? ' on' : '') + '" data-tact="' + tact + '" data-' + key + '="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>';
+  const setRow = (name, note, ctrl) => '<div class="m-row"><div class="opt-text"><b>' + name + '</b><span>' + note + '</span></div>' + ctrl + '</div>';
+  // 开关行：整行是一个按钮（data-tact 在行上，on 也在行上），右边画一个开关
+  const setSw = (name, note, on, attrs) => '<button type="button" tabindex="-1" class="m-row sw' + (on ? ' on' : '') + '" ' + attrs + '><span class="opt-text"><b>' + name + '</b><span>' + note + '</span></span><span class="switch' + (on ? ' on' : '') + '"><i></i></span></button>';
+  const setGrp = (name, rows) => (rows ? '<div class="m-grp"><div class="m-gt">' + name + '</div>' + rows + '</div>' : '');
+  function touchSettings() {
     const P = G.touch.prefs;
     return (
-      row('按钮大小', '右下的攻击、技能、翻滚键',
-        '<div class="seg">' + SET_TS.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (P.size === o[0] ? ' on' : '') + '" data-tact="tsize" data-v="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') +
-      row('左手模式', '摇杆放右边，按钮放左边',
-        '<button type="button" tabindex="-1" class="switch' + (P.mirror ? ' on' : '') + '" data-tact="tmirror"><i></i></button>') +
-      (G.touch.canVibe()
-        ? row('震动', '挨重击、翻滚、残血时短震一下',
-            '<button type="button" tabindex="-1" class="switch' + (P.vibe ? ' on' : '') + '" data-tact="tvibe"><i></i></button>')
-        : '')
+      setRow('按钮大小', '右下的攻击、技能、翻滚键', setSeg(SET_TS, P.size, 'tsize', 'v')) +
+      setSw('左手模式', '摇杆放右边，按钮放左边', P.mirror, 'data-tact="tmirror"') +
+      (G.touch.canVibe() ? setSw('震动', '挨重击、翻滚、残血时短震一下', P.vibe, 'data-tact="tvibe"') : '')
+    );
+  }
+  // 删除这个角色（从地图页挪过来，只在游戏里的暂停菜单有；标题画面的角色页另有删除）：确认两次，话和以前一样
+  function setDelRow() {
+    const d = menu.delSelf;
+    return (
+      '<div class="m-row del">' +
+      (d === 2
+        ? '<span class="del-warn">' + delFinalText() + '</span><span class="m-dacts"><button type="button" tabindex="-1" class="btn danger" data-tact="del-final">真的删除</button>' +
+          '<button type="button" tabindex="-1" class="btn" data-tact="del-cancel">取消</button></span>'
+        : d
+        ? '<span class="del-warn">删除 ' + esc(charLabel(curSummary())) + '？</span><span class="m-dacts"><button type="button" tabindex="-1" class="btn danger" data-tact="del-confirm">确认删除</button>' +
+          '<button type="button" tabindex="-1" class="btn" data-tact="del-cancel">取消</button></span>'
+        : '<span class="opt-text"><b>删除这个角色</b><span>删掉的先放进回收位，在角色页可以恢复</span></span><button type="button" tabindex="-1" class="btn ghost" data-tact="del-save">删除</button>') +
+      '</div>'
     );
   }
   function menuSettings() {
-    const S = G.save;
-    const q = G.world.quality ? G.world.quality() : S.opts.quality;
-    const row = (name, note, ctrl) => '<div class="m-row"><div class="opt-text"><b>' + name + '</b><span>' + note + '</span></div>' + ctrl + '</div>';
+    const S = G.save, o = S.opts, Q = S.quest;
+    const q = G.world.quality ? G.world.quality() : o.quality;
     return (
-      row('画质', S.opts.quality === 'auto' ? '自动选择，明显掉帧时会自动调低' : '电脑吃力时调低',
-        '<div class="seg">' + SET_Q.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (q === o[0] ? ' on' : '') + '" data-tact="quality" data-q="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') +
-      // 触屏操作（mobile M1）：自动 = 手机、平板上打开；存在这台设备上（不进存档）
-      (G.touch ? row('触屏操作', '自动：手机、平板上打开',
-        '<div class="seg">' + SET_T.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (G.touch.mode === o[0] ? ' on' : '') + '" data-tact="touchmode" data-m="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') : '') +
-      (touchOn() ? touchSettings(row) : '') +
-      row('普通物品', '魔法、稀有物品总是自动拾取',
-        '<div class="seg">' + SET_N.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (normMode() === o[0] ? ' on' : '') + '" data-tact="normmode" data-mode="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') +
-      row('折叠普通物品的名牌', '地上只留一个小点，悬停或按住 Alt 展开',
-        '<button type="button" tabindex="-1" class="switch' + (S.opts.hideNormal ? ' on' : '') + '" data-tact="opt" data-opt="hideNormal"><i></i></button>') +
+      '<div class="m-grps">' +
+      setGrp('画面',
+        setRow('画质', o.quality === 'auto' ? '自动选择，明显掉帧时会自动调低' : '电脑吃力时调低', setSeg(SET_Q, q, 'quality', 'q')) +
+        // vf-vfx3：区域氛围（飘雪、余烬、远处的雷……），默认开
+        setSw('环境特效', '各区飘雪、余烬、远雷这类背景效果', o.ambience !== false, 'data-tact="opt" data-opt="ambience"')) +
+      // 触屏操作（mobile M1）：自动 = 手机、平板上打开；存在这台设备上（不进存档）。手机版 M2 的几项只在触屏模式下显示
+      setGrp('操作', (G.touch ? setRow('触屏操作', '自动：手机、平板上打开', setSeg(SET_T, G.touch.mode, 'touchmode', 'm')) : '') + (touchOn() ? touchSettings() : '')) +
+      setGrp('拾取',
+        setRow('普通物品', '魔法、稀有物品总是自动拾取', setSeg(SET_N, normMode(), 'normmode', 'mode')) +
+        setSw('折叠普通物品的名牌', '地上只留一个小点，悬停或按住 Alt 展开', !!o.hideNormal, 'data-tact="opt" data-opt="hideNormal"') +
+        // 主线（quest D2）：关了只藏追踪条、小地图上的金色记号和地图上的角标，进度和奖励照常记。主线走完以后不再显示这个开关
+        (Q && Q.n < G.QUEST_N ? setSw('显示主线', '追踪条、小地图上的金色箭头和区域卡片上的角标。关了进度照常记', !Q.off, 'data-tact="quest"') : '')) +
       // 打击手感（vf-vfx2）：三个开关，默认都开
-      row('受击闪光', '敌人挨打时闪一下亮光',
-        '<button type="button" tabindex="-1" class="switch' + (S.opts.hitFlash !== false ? ' on' : '') + '" data-tact="opt" data-opt="hitFlash"><i></i></button>') +
-      row('顿帧', '重击、暴击时画面停顿一瞬',
-        '<button type="button" tabindex="-1" class="switch' + (S.opts.hitStop !== false ? ' on' : '') + '" data-tact="opt" data-opt="hitStop"><i></i></button>') +
-      row('镜头震动', '大招落地、挨重击时镜头晃一下',
-        '<button type="button" tabindex="-1" class="switch' + (S.opts.shake !== false ? ' on' : '') + '" data-tact="opt" data-opt="shake"><i></i></button>') +
-      // vf-vfx3：区域氛围（飘雪、余烬、远处的雷……），默认开
-      row('环境特效', '各区飘雪、余烬、远雷这类背景效果',
-        '<button type="button" tabindex="-1" class="switch' + (S.opts.ambience !== false ? ' on' : '') + '" data-tact="opt" data-opt="ambience"><i></i></button>') +
+      setGrp('打击手感',
+        setSw('受击闪光', '敌人挨打时闪一下亮光', o.hitFlash !== false, 'data-tact="opt" data-opt="hitFlash"') +
+        setSw('顿帧', '重击、暴击时画面停顿一瞬', o.hitStop !== false, 'data-tact="opt" data-opt="hitStop"') +
+        setSw('镜头震动', '大招落地、挨重击时镜头晃一下', o.shake !== false, 'data-tact="opt" data-opt="shake"')) +
       // sfx-synth：声音。滑条拖动时立即生效（onMenuInput），松手才存档
-      row('静音', '关掉所有声音',
-        '<button type="button" tabindex="-1" class="switch' + (S.opts.mute ? ' on' : '') + '" data-tact="opt" data-opt="mute"><i></i></button>') +
-      SET_VOL.map((o) => row(o[1], o[2], volSlider(o[0]))).join('') +
-      (touchOn()
-        ? '<p class="m-note">画质、普通物品和名牌折叠在游戏里的地图页也能改。触屏的几项只存在这台设备上，不进存档。</p>'
-        : '<p class="m-note">设置会存进存档，前三项在游戏里的地图页也能改。</p>')
+      setGrp('声音', setSw('静音', '关掉所有声音', !!o.mute, 'data-tact="opt" data-opt="mute"') + SET_VOL.map((v) => setRow(v[1], v[2], volSlider(v[0]))).join('')) +
+      (menu.title ? '' : setGrp('角色', setDelRow())) +
+      '</div>' +
+      (touchOn() ? '<p class="m-note">设置会存进存档；触屏的几项只存在这台设备上。</p>' : '<p class="m-note">设置会存进存档。</p>')
     );
   }
   function menuHelp() {
@@ -5668,9 +5775,10 @@
     host.innerHTML = v
       ? '<div class="m-view' + (still ? ' still' : '') + '" data-view="' + menu.view + '"><div class="m-head"><b>' + (typeof v[0] === 'function' ? v[0]() : v[0]) + '</b>' +
         '<button type="button" tabindex="-1" class="btn sm" data-tact="back">返回<kbd>Esc</kbd></button></div>' +
-        '<div class="m-body">' + v[1]() + '</div></div>'
+        '<div class="m-body" data-list data-scroll="menu">' + v[1]() + '</div></div>'
       : '';
     (menu.title ? el.title : el.pause).classList.toggle('sub', !!v);
+    if (!menu.title) el.pause.classList.toggle('set', menu.view === 'settings'); // 设置：卡片放宽，放得下时两列
     if (menu.title) {
       el.title.classList.toggle('chars', menu.view === 'chars' || menu.view === 'cls');
       el.title.classList.toggle('clsv', menu.view === 'cls'); // 职业选择：藏起标志，手机上改成底部一栏、上面露出主角
@@ -5786,6 +5894,7 @@
     if (!menu.pause) return;
     menu.pause = false;
     menu.view = null;
+    menu.delSelf = 0;
     el.pause.classList.remove('on', 'sub');
     document.body.classList.remove('paused');
     el.pView.innerHTML = '';
@@ -5827,6 +5936,27 @@
     hideTitle();
   }
   const MENU_ACT = {
+    // 设置里的「删除这个角色」（B4a 从地图页挪过来）：确认两次，删掉的进回收位，换成一个新角色
+    'del-save'() {
+      menu.delSelf = 1;
+      G.sfx('click');
+      renderMenu();
+    },
+    'del-cancel'() {
+      menu.delSelf = 0;
+      G.sfx('click');
+      renderMenu();
+    },
+    'del-confirm'() {
+      menu.delSelf = 2;
+      G.sfx('click');
+      renderMenu();
+    },
+    'del-final'() {
+      menu.delSelf = 0;
+      if (G.resetSave()) location.reload(); // 回收位写不进去时什么都不删（提示条已经亮了）
+      else renderMenu();
+    },
     touchmode(d) {
       if (G.touch) G.touch.setMode(d.m);
       G.sfx('click');
@@ -5941,7 +6071,8 @@
       showTitle(true);
     },
     back() {
-      if (menu.del) menu.del = null;
+      if (menu.delSelf) menu.delSelf = 0;
+      else if (menu.del) menu.del = null;
       else if (menu.view === 'cls') {
         const re = menu.cls && menu.cls.mode === 'repick';
         closeClass();
@@ -5958,14 +6089,19 @@
     const k = d.tact;
     if ((k === 'continue' || k === 'new' || k === 'chars' || k.startsWith('ch-') || k.startsWith('cl-')) && !menu.ready) return;
     if (k === 'new' && el.tNew.classList.contains('off')) return G.sfx('click');
-    if (MENU_VIEW[k] && k !== 'cls') {
+    if (k === 'help' && menu.pause && !menu.title) {
+      // 游戏里的「操作说明」直接打开帮助页的「操作」（只留一份文字）；标题画面上帮助页打不开，照旧是只读的一页
+      G.sfx('click');
+      open('help', 'keys');
+    } else if (MENU_VIEW[k] && k !== 'cls') {
       closeClass();
       menu.view = k;
       menu.del = null;
+      menu.delSelf = 0;
       G.sfx('click');
       renderMenu();
-    } else if (k === 'quality' || k === 'opt' || k === 'normmode') {
-      ACT[k](d); // 和地图页的选项走同一套：立即生效并存档
+    } else if (k === 'quality' || k === 'opt' || k === 'normmode' || k === 'quest') {
+      ACT[k](d); // 和存档选项走同一套：立即生效并存档
       renderMenu();
     } else if (MENU_ACT[k]) MENU_ACT[k](d);
   }
@@ -7678,9 +7814,10 @@
           else ACT['seal-cancel']();
           e.stopPropagation();
           e.preventDefault();
-        } else if (e.code === 'Escape' && ui.isOpen && !drag.on && !ui.confirm && (ui.card || ui.pop)) {
+        } else if (e.code === 'Escape' && ui.isOpen && !drag.on && !ui.confirm && (ui.card || ui.pop || ui.zcard !== null)) {
           // 卡片 / 小菜单开着：Esc 只收起它，不关面板
           ui.pop = null;
+          ui.zcard = null;
           closeCard();
           render();
           e.stopPropagation();

@@ -8,7 +8,7 @@ import { execSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 import { checkArt } from '../tools/check-art.mjs';
 import { checkThree } from '../tools/check-three.mjs';
-import { uiLayoutCheck, uiBlankPoint, UI_SIZES, DESK_STYLE_SPEC, DESK_STYLE_MAIN, uiStyleRead } from './ui-layout.mjs';
+import { uiLayoutCheck, uiBlankPoint, UI_SIZES, DESK_STYLE_SPEC, DESK_STYLE_MAIN, DESK_STYLE_B4A_SPEC, DESK_STYLE_B4A_MAIN, uiStyleRead } from './ui-layout.mjs';
 
 const SAVE_KEY = 'cinder-abyss-save-v1';
 let G_CUR_N = 8, G_UQ_COLOR = '#ff9b3d', G_SOUL_INH = 1.5, G_SOUL_K = 0.2;
@@ -576,6 +576,19 @@ async function closePanel() {
   for (let i = 0; i < 2 && (await ev(() => !!document.querySelector('#panel .sheet, #panel .ui-pop'))); i++) await page.keyboard.press('Escape');
   if (await ev(() => G.ui.isOpen())) await page.keyboard.press('Escape');
   assert(!(await ev(() => G.ui.isOpen())), 'Esc 没有关掉面板');
+}
+
+// UI-R B4a：拾取、画质、显示主线、删除这个角色从地图页挪进了设置（暂停菜单 → 设置）
+async function openSettings() {
+  await ev(() => {
+    G.ui.close();
+    G.ui.pause();
+  });
+  await page.click('#p-menu [data-tact="settings"]');
+}
+async function closeSettings() {
+  await ev(() => G.ui.close()); // 连暂停菜单一起关
+  assert(!(await ev(() => G.ui.paused())), '设置没有关掉');
 }
 
 // 面板打开时有 0.16 秒的入场动画（缩放 0.99 → 1），getBoundingClientRect 量到的宽高跟着变；机器忙时这段动画会拖到一两秒。
@@ -5305,7 +5318,7 @@ async function main() {
     await ev(() => G.clearEnemies());
     // 帮助页那一段：数字从 G.ENEMY_RES 读
     u = await ev(() => {
-      G.ui.open('help');
+      G.ui.open('help', 'fight'); // B4a：帮助页一次只显示一个话题
       const p = Array.from(document.querySelectorAll('p')).find((n) => /敌人的抗性/.test(n.innerText));
       const t = p ? p.innerText : '';
       G.ui.close();
@@ -6813,6 +6826,12 @@ async function main() {
       const r = await ev(() => ({ tab: T.tab(), txt: T.bodyText(), on: document.querySelector('.tab.on') && document.querySelector('.tab.on').dataset.tab }));
       assert(r.tab === tab && r.on === tab, key + ' 没有打开 ' + tab + '（实际 ' + r.tab + '）');
       cleanText(r.txt, tab + ' 页');
+      // B4a：帮助页一次只显示一个话题，每个话题都查一遍
+      if (tab === 'help') {
+        const ids = await ev(() => Array.from(document.querySelectorAll('[data-act="topic"]')).map((b) => b.dataset.topic));
+        assert(ids.length >= 9, '帮助页的话题不全：' + ids.join());
+        for (const id of ids) cleanText(await ev((id) => (G.ui.open('help', id), T.bodyText()), id), 'help·' + id + ' 页');
+      }
       const t0 = await ev(() => G.state.time);
       await page.keyboard.down('KeyD');
       await frames(2);
@@ -7481,18 +7500,18 @@ async function main() {
     r2 = await ev(() => ({ on: document.getElementById('tip').classList.contains('on'), rows: document.querySelectorAll('#tip .tr-row').length, now: document.querySelectorAll('#tip .tr-row.now').length, txt: document.getElementById('tip').innerText }));
     assert(r2.on && r2.rows === 10 && r2.now === 1 && r2.txt.includes('本阶范围'), '悬停词缀应说明各阶范围：' + JSON.stringify(r2));
     cleanText(r2.txt, '词缀提示');
-    // 地图页的筛选选项
-    await page.keyboard.press('KeyM');
-    await page.click('[data-act="normmode"][data-mode="scrap"]');
-    await page.click('[data-act="opt"][data-opt="hideNormal"]');
+    // 拾取选项（B4a：从地图页挪进设置的「拾取」一组）
+    await openSettings();
+    await page.click('#p-view [data-tact="normmode"][data-mode="scrap"]');
+    await page.click('#p-view [data-tact="opt"][data-opt="hideNormal"]');
     r2 = await ev(() => {
-      const row = document.querySelector('.map-opts').getBoundingClientRect();
-      const kids = Array.from(document.querySelector('.map-opts').children).map((n) => n.getBoundingClientRect());
-      return { o: G.save.opts, stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).opts, fits: kids.every((k) => k.left >= row.left - 1 && k.right <= row.right + 1), on: document.querySelector('.seg-b.on').dataset.mode };
+      const rows = Array.from(document.querySelector('#p-view [data-tact="normmode"]').closest('.m-grp').querySelectorAll('.m-row'));
+      const fits = rows.length > 0 && rows.every((row) => { const b = row.getBoundingClientRect(); return Array.from(row.children).every((n) => { const k = n.getBoundingClientRect(); return k.left >= b.left - 1 && k.right <= b.right + 1; }); });
+      return { o: G.save.opts, stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).opts, fits, on: document.querySelector('#p-view .seg-b.on[data-tact="normmode"]').dataset.mode };
     });
     assert(r2.o.autoWhite && r2.o.autoSalvage && r2.o.hideNormal && r2.o.salvageMagic && JSON.stringify(r2.o) === JSON.stringify(r2.stored) && r2.on === 'scrap', '筛选选项没有生效或没有存档：' + JSON.stringify(r2));
     assert(r2.fits, '选项一行放不下');
-    await closePanel();
+    await closeSettings();
     r2 = await ev(() => {
       T.clearLoot();
       G.save.bag.length = 0;
@@ -7923,7 +7942,7 @@ async function main() {
         const wc = document.querySelector('.wsk-card');
         out.skills = { card: !!wc, name: wc ? wc.innerText.includes(G.SKILLS[G.weaponSkill()].name) : false, row: wc ? wc.querySelectorAll('.wsl').length : 0, atk: document.querySelectorAll('.sk-anote.wpn').length };
         G.ui.close();
-        G.ui.open('help');
+        G.ui.open('help', 'weapon'); // B4a：帮助页一次只显示一个话题
         out.help = document.getElementById('panel-body').innerText.includes('武器与武器技');
         G.ui.close();
       } finally {
@@ -8677,6 +8696,7 @@ async function main() {
     await shown('passive');
     // 帮助页可以重置
     await page.keyboard.press('KeyH');
+    await page.click('[data-act="topic"][data-topic="keys"]'); // B4a：按钮在「操作」这一节的最下面（帮助页记着上次看的话题）
     await page.click('[data-act="tut-reset"]');
     r = await ev(() => ({ n: Object.keys(G.save.tut).length, txt: document.querySelector('.help-foot').innerText }));
     assert(r.n === 0 && r.txt.includes('已重置'), '帮助页的「重新显示新手提示」无效');
@@ -11468,12 +11488,12 @@ async function main() {
     assert(r.layers.every((z) => z.endsWith(':layer+decals')), '有区域没有地面覆盖层或贴花层：' + r.layers.join(' '));
     assert(r.aa.join() === 'high:none+decals,mid:none+decals,low:none', '贴花层 / 抗锯齿的画质档位不对：' + r.aa.join(' '));
     assert(r.bail.n === 1 && r.bail.idx > 6 && r.bail.zone === 'frost', '进区后马上换区：贴花层没有按新区填好（或旧区的留下来了）：' + JSON.stringify(r.bail));
-    // 地图页的画质按钮：点了立即生效并写进存档
-    await page.keyboard.press('KeyM');
-    await page.click('[data-act="quality"][data-q="mid"]');
-    const u = await ev(() => ({ q: G.world.quality(), o: G.save.opts.quality, st: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).opts.quality, on: document.querySelector('[data-act="quality"].on').dataset.q }));
-    await page.click('[data-act="quality"][data-q="' + r.eff + '"]');
-    await closePanel();
+    // 设置里的画质按钮（B4a：从地图页挪进设置）：点了立即生效并写进存档
+    await openSettings();
+    await page.click('#p-view [data-tact="quality"][data-q="mid"]');
+    const u = await ev(() => ({ q: G.world.quality(), o: G.save.opts.quality, st: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).opts.quality, on: document.querySelector('#p-view [data-tact="quality"].on').dataset.q }));
+    await page.click('#p-view [data-tact="quality"][data-q="' + r.eff + '"]');
+    await closeSettings();
     assert(u.q === 'mid' && u.o === 'mid' && u.st === 'mid' && u.on === 'mid', '画质按钮没有生效或没有存档：' + JSON.stringify(u));
     const back = await ev((q0) => {
       G.save.opts.quality = q0; // 恢复成测试开始时的设置（可能是 auto）
@@ -13867,20 +13887,20 @@ async function main() {
   // multisave-d1：删除要确认两次（「删除 未定 · N 级？」→「删了就找不回来了。真的删除？」），删掉的角色先进回收位；
   // 开场卡片改成所有角色共用一份「看过」，所以删完的新角色不再弹（原来断言「全新存档应再次弹出开场卡片」）
   await step('删除存档：确认两次后换成全新角色，原来的进回收位', async () => {
-    await page.keyboard.press('KeyM');
-    await page.click('[data-act="del-save"]');
-    const ask = await ev(() => ({ confirm: !!document.querySelector('[data-act="del-confirm"]'), lvl: G.save.level, txt: (document.querySelector('.del-warn') || {}).innerText || '' }));
+    await openSettings(); // B4a：「删除这个角色」从地图页挪进设置的最下面（data-act → data-tact，流程和文字不变）
+    await page.click('#p-view [data-tact="del-save"]');
+    const ask = await ev(() => ({ confirm: !!document.querySelector('#p-view [data-tact="del-confirm"]'), lvl: G.save.level, txt: (document.querySelector('#p-view .del-warn') || {}).innerText || '' }));
     assert(ask.confirm && ask.lvl > 1 && ask.txt === '删除 未定 · ' + ask.lvl + ' 级？', '删除存档应先要求确认：' + JSON.stringify(ask));
-    await page.click('[data-act="del-cancel"]');
-    assert(await ev(() => !document.querySelector('[data-act="del-confirm"]')), '取消无效');
-    await page.click('[data-act="del-save"]');
-    await page.click('[data-act="del-confirm"]');
-    const ask2 = await ev(() => ({ final: !!document.querySelector('[data-act="del-final"]'), txt: (document.querySelector('.del-warn') || {}).innerText || '' }));
+    await page.click('#p-view [data-tact="del-cancel"]');
+    assert(await ev(() => !document.querySelector('#p-view [data-tact="del-confirm"]')), '取消无效');
+    await page.click('#p-view [data-tact="del-save"]');
+    await page.click('#p-view [data-tact="del-confirm"]');
+    const ask2 = await ev(() => ({ final: !!document.querySelector('#p-view [data-tact="del-final"]'), txt: (document.querySelector('#p-view .del-warn') || {}).innerText || '' }));
     assert(ask2.final && ask2.txt.startsWith('删了就找不回来了。真的删除？'), '第一次确认后应再问一次：' + JSON.stringify(ask2));
     const keep = await ev(() => localStorage.getItem('cinder-abyss-save-v1'));
     // 防卡死的超时（不是行为断言）：15 → 30 秒。实测（188deef 之后，池里）这次重载 8.4–12.2 秒（10 次），四个 Chrome 一起跑的 test:func 里整步 13.9–15.0 秒、
     // 一次超过 15 秒失败；按最慢的约 2 倍定
-    await Promise.all([page.waitForNavigation({ timeout: 30000 }), page.click('[data-act="del-final"]')]);
+    await Promise.all([page.waitForNavigation({ timeout: 30000 }), page.click('#p-view [data-tact="del-final"]')]);
     await install();
     await frames(2);
     const r = await ev(() => ({ sum: G.debug.summary(), open: T.introOpen(), equip: Object.keys(G.save.equip).join(), maxTier: G.save.maxTier, seenHelp: G.save.seenHelp, trash: JSON.parse(localStorage.getItem('cinder-abyss-trash') || 'null'), cur: G.slots.cur() }));
@@ -24260,9 +24280,14 @@ async function titleSteps() {
     await page.keyboard.press('Escape');
     r = await ev(() => ({ pause: G.ui.paused(), view: !!document.querySelector('#pause .m-view'), menu: getComputedStyle(document.getElementById('p-menu')).display }));
     assert(r.pause && !r.view && r.menu !== 'none', '子页里 Esc 应回到暂停菜单：' + JSON.stringify(r));
+    // B4a：暂停菜单的「操作说明」直接打开帮助页的「操作」（只留一份文字）；Esc 关掉帮助页回到游戏，再按 Esc 回到暂停菜单
     await page.click('#p-menu [data-tact="help"]');
-    cleanText(await ev(() => document.querySelector('#pause .m-view').innerText), '暂停菜单的操作说明');
+    r = await ev(() => ({ tab: T.tab(), topic: (document.querySelector('#panel [data-act="topic"].on') || { dataset: {} }).dataset.topic, txt: document.getElementById('panel-body').innerText }));
+    assert(r.tab === 'help' && r.topic === 'keys', '暂停菜单的「操作说明」应打开帮助页的「操作」：' + JSON.stringify({ tab: r.tab, topic: r.topic }));
+    cleanText(r.txt, '暂停菜单的操作说明');
     await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    assert(await ev(() => G.ui.paused()), 'Esc 关掉帮助页后再按一次 Esc 应回到暂停菜单');
     await page.keyboard.press('KeyI');
     r = await ev(() => ({ pause: G.ui.paused(), tab: T.tab() }));
     assert(!r.pause && r.tab === 'inv', '暂停时按 I 应换成背包：' + JSON.stringify(r));
@@ -24365,10 +24390,10 @@ async function titleSteps() {
     assert(r.hide === !h0 && r.stored.hideNormal === !h0, '标题画面上的开关应存档：' + JSON.stringify(r));
     await page.keyboard.press('Escape');
     await page.click('#t-continue');
-    await page.keyboard.press('KeyM');
-    r = await ev(() => ({ live: G.world.quality(), on: (document.querySelector('#panel-body .seg-b.on[data-act="quality"]') || { dataset: {} }).dataset.q }));
+    await openSettings(); // B4a：画质按钮从地图页挪进了设置
+    r = await ev(() => ({ live: G.world.quality(), on: (document.querySelector('#p-view .seg-b.on[data-tact="quality"]') || { dataset: {} }).dataset.q }));
     assert(r.live === q && r.on === q, '进游戏后画质应还是标题画面上选的那一档：' + JSON.stringify(r));
-    await closePanel();
+    await closeSettings();
     await page.reload({ timeout: 90000 });
     await install();
     await waitReady();
@@ -24703,8 +24728,7 @@ async function titleSteps() {
     await page.keyboard.press('Escape');
     assert(await fit('.pause-card, #p-menu .m-btn'), '1024×640 下暂停菜单跑出了窗口');
     await page.click('#p-menu [data-tact="help"]');
-    assert(await fit('.pause-card'), '1024×640 下暂停菜单的操作说明跑出了窗口');
-    await page.keyboard.press('Escape');
+    assert(await fit('#panel-win, .pause-card'), '1024×640 下暂停菜单的操作说明跑出了窗口'); // B4a：操作说明是帮助页的「操作」
     await page.keyboard.press('Escape');
     assert(!(await ev(() => G.ui.isOpen())), '收尾：暂停菜单没关掉');
   });
@@ -25112,20 +25136,18 @@ async function titleSteps() {
     assert(isGold(a.px), '框边小三角的像素应是金色：' + JSON.stringify(a.px));
     const dot = (a.m.x - a.pp.x) * (a.tp.x - a.pp.x) + (a.m.y - a.pp.y) * (a.tp.y - a.pp.y);
     assert(dot > 0, '小三角应在玩家朝目标的那一侧：' + JSON.stringify(a));
-    // 地图页的开关：点掉
-    await ev(() => G.ui.open('map'));
-    await frames(2);
-    await page.click('#panel [data-act="quest"]');
-    const off = await ev(() => ({ off: G.save.quest.off, sw: document.querySelector('#panel [data-act="quest"]').classList.contains('on') }));
+    // 设置里的开关（B4a：从地图页挪进设置的「拾取」一组）：点掉
+    await openSettings();
+    await page.click('#p-view [data-tact="quest"]');
+    const off = await ev(() => ({ off: G.save.quest.off, sw: document.querySelector('#p-view [data-tact="quest"]').classList.contains('on') }));
     await ev(() => G.ui.close());
     await frames(3);
     const b = await ev((m) => ({ m: G.world.questMark(), px: G.world.minimapPixel(m.x, m.y), q: G.ui.quest().on, tgt: G.questTarget() }), a.m);
     assert(off.off === true && off.sw === false, '点开关应把 save.quest.off 设成 true：' + JSON.stringify(off));
     assert(!b.m.on && !b.tgt && !isGold(b.px) && b.q === false, '关掉后小地图上不应再有金色记号、追踪条收起：' + JSON.stringify(b));
     // 再点开：回来
-    await ev(() => G.ui.open('map'));
-    await frames(2);
-    await page.click('#panel [data-act="quest"]');
+    await openSettings();
+    await page.click('#p-view [data-tact="quest"]');
     await ev(() => G.ui.close());
     await frames(3);
     const c = await ev(() => ({ off: G.save.quest.off, m: G.world.questMark(), q: G.ui.quest().on }));
@@ -25188,8 +25210,13 @@ async function titleSteps() {
           badge: cards.map((c, i) => (c.querySelector('.z-badge.quest') ? i : -1)).filter((i) => i >= 0),
           txt: (document.querySelector('#panel .z-badge.quest') || {}).textContent || '',
           dot: [...document.querySelectorAll('#panel .tier.q-dot')].map((b) => b.dataset.tier),
-          sw: !!document.querySelector('#panel [data-act="quest"]'),
+          sw: false,
         };
+        // B4a：「显示主线」开关在设置里
+        G.ui.close();
+        G.ui.pause();
+        document.querySelector('#p-menu [data-tact="settings"]').click();
+        r.sw = !!document.querySelector('#p-view [data-tact="quest"]');
         G.ui.close();
         return r;
       }, o);
@@ -25215,9 +25242,8 @@ async function titleSteps() {
 
   await step('主线：「显示主线」开关存档后刷新页面还是关着、再打开也存下；老存档（没有 quest，或 quest 里没有 off）默认开', async () => {
     await qSet({ n: 2, cleared: { ash: 0 } });
-    await ev(() => G.ui.open('map'));
-    await frames(2);
-    await page.click('#panel [data-act="quest"]');
+    await openSettings(); // B4a：开关在设置里
+    await page.click('#p-view [data-tact="quest"]');
     await ev(() => G.ui.close());
     const stored = await ev(() => JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).quest);
     await page.reload({ timeout: 90000 });
@@ -25230,9 +25256,8 @@ async function titleSteps() {
     await frames(3);
     const a = await ev(() => ({ off: G.save.quest.off, n: G.save.quest.n, q: G.ui.quest().on, m: G.world.questMark().on }));
     assert(stored.off === true && a.off === true && a.n === 2 && !a.q && !a.m, '关掉后应马上存下，刷新后还是关着：' + JSON.stringify({ stored, a }));
-    await ev(() => G.ui.open('map'));
-    await frames(2);
-    await page.click('#panel [data-act="quest"]');
+    await openSettings();
+    await page.click('#p-view [data-tact="quest"]');
     await ev(() => G.ui.close());
     const b = await ev(() => {
       G.loadSave();
@@ -26378,6 +26403,33 @@ async function touchSteps() {
       await frames(3);
       bad = bad.concat(await scan(tab));
     }
+    // UI-R B4a：帮助页的每个话题，地图 / 帮助页的 [?] 说明和第一次打开时底部那一行，地图的区域卡（新加的提示文字也过一遍）
+    const topics = await ev(() => Array.from(document.querySelectorAll('[data-act="topic"]')).map((b) => b.dataset.topic));
+    assert(topics.length >= 9, '帮助页的话题不全：' + topics.join());
+    for (const id of topics) {
+      await ev((id) => G.ui.open('help', id), id);
+      await frames(2);
+      bad = bad.concat(await scan('help·' + id));
+    }
+    for (const tab of ['map', 'help']) {
+      await ev((tab) => {
+        G.ui.close();
+        localStorage.removeItem('cinder-abyss-ui-seen');
+        G.ui.open(tab);
+      }, tab);
+      await frames(2);
+      bad = bad.concat(await scan(tab + '·第一次'));
+      await ev(() => document.querySelector('#panel-q').click());
+      await frames(2);
+      bad = bad.concat(await scan(tab + '·[?]'));
+    }
+    await ev(() => {
+      G.ui.open('map');
+      document.querySelector('#panel .zone.zc[data-zone="0"]').click();
+    });
+    await frames(2);
+    assert(await ev(() => !!document.querySelector('#panel .sheet.zs')), '触屏地图：点区域卡片应出区域卡');
+    bad = bad.concat(await scan('地图·区域卡'));
     // 技能页：点一张技能卡（浮窗）
     const card = await ev(() => T.rect('#panel-body [data-tip]'));
     if (card) {
@@ -27238,6 +27290,10 @@ async function touchSteps() {
   await uiLayoutSteps('bag');
   await uiDeskStyleStep();
   await uiLayoutSteps('stash');
+  await uiLayoutSteps('map'); // B4a
+  await uiLayoutSteps('help'); // B4a
+  await uiLayoutSteps('settings'); // B4a
+  await uiDeskStyleB4aStep(); // B4a
   await uiLayoutSteps('char');
 }
 
@@ -27274,7 +27330,76 @@ const UI_PANELS = {
       { id: '图鉴', go: async (D) => { await D.open('char', 'stats'); await D.tap('[data-act="sub"][data-sub="codex"]', '.char-codex'); } },
     ],
   },
+  // UI-R B4a：地图（区域卡片一排、区域卡、余烛殿、择印）、帮助（话题）、暂停菜单和设置
+  map: {
+    label: '地图',
+    states: [
+      { id: '地图', go: (D) => D.open('map') },
+      { id: '轮回 3', go: async (D) => { await uiMapLate(); await D.open('map'); } },
+      { id: '说明', go: async (D) => { await uiMapLate(); await D.open('map'); await D.tap(D.portrait ? '#panel-body [data-act="hint"]' : '#panel-q', '.ui-pop'); } },
+      { id: '区域卡', card: true, only: 'compact', go: async (D) => { await uiMapLate(); await D.open('map'); await D.tap('.zone.zc[data-zone="1"]', '.sheet.zs'); } },
+      { id: '余烛殿', card: true, only: 'compact', go: async (D) => { await uiMapLate(); await D.open('map'); await D.tap('.zone.zc[data-zone="pin"]', '.sheet.zs.pin'); } },
+      {
+        id: '择印',
+        go: async (D) => {
+          await uiMapLate();
+          await D.open('map');
+          await D.tap('[data-act="tier"][data-tier="1"]', '[data-act="tier"][data-tier="1"].on');
+          if (D.compact) {
+            await D.tap('.zone.zc[data-zone="0"]', '.sheet.zs');
+            await D.tap('.sheet [data-act="enter"]', '.seal-pick');
+          } else await D.tap('[data-act="enter"][data-zone="0"]', '.seal-pick');
+        },
+      },
+    ],
+  },
+  help: {
+    label: '帮助',
+    states: [
+      { id: '操作', go: (D) => D.open('help', 'keys') },
+      { id: '武器', go: async (D) => { await D.open('help', 'keys'); await D.tap('[data-act="topic"][data-topic="weapon"]', '[data-act="topic"][data-topic="weapon"].on'); } },
+      { id: '说明', go: async (D) => { await D.open('help', 'keys'); await D.tap(D.portrait ? '#panel-body [data-act="hint"]' : '#panel-q', '.ui-pop'); } },
+    ],
+  },
+  settings: {
+    label: '暂停和设置',
+    roots: '#pause .pause-card',
+    states: [
+      { id: '暂停菜单', go: () => uiPauseOpen() },
+      { id: '设置', go: async (D) => { await uiPauseOpen(); await D.tap('#p-menu [data-tact="settings"]', '#pause .m-view[data-view="settings"]'); } },
+      {
+        id: '删除确认',
+        go: async (D) => {
+          await uiPauseOpen();
+          await D.tap('#p-menu [data-tact="settings"]', '#pause .m-view[data-view="settings"]');
+          await D.tap('#pause [data-tact="del-save"]', '#pause [data-tact="del-confirm"]');
+          await D.tap('#pause [data-tact="del-confirm"]', '#pause [data-tact="del-final"]'); // 只到第二次确认，不点「真的删除」
+        },
+      },
+    ],
+  },
 };
+// 地图：轮回 3 都开了、前四个区在 2 层通关、四种烛芯各一个（余烛殿出现、能点燃）、这次进区带着一枚印（「本次进区」那一行最长的样子）
+async function uiMapLate() {
+  await ev(() => {
+    const s = G.save;
+    s.maxTier = 3;
+    s.cleared = { ash: 3, frost: 3, storm: 2, abyss: 2 };
+    s.frags = s.frags || {};
+    for (const id of G.FRAG_IDS) s.frags[id] = 1;
+    if (G.state.run && !G.state.run.seal) {
+      const seals = G.rollSeals(0, 3);
+      G.state.run.seal = seals[seals.length - 1];
+    }
+  });
+}
+async function uiPauseOpen() {
+  await ev(() => {
+    G.ui.close();
+    G.ui.pause();
+  });
+  await frames(2);
+}
 // 布局检查用的角色：30 级、学会全部技能、背包 29 件、身上有戒指和胸甲、仓库 18 件
 async function uiFixture() {
   await install();
@@ -27327,6 +27452,47 @@ async function uiDeskStyleStep() {
     }
     assert(!bad.length, bad.length + ' 项和 main 不一样：' + bad.slice(0, 8).join(' ｜ '));
     return Object.keys(DESK_STYLE_MAIN).length + ' 项相等';
+  });
+}
+// 桌面样式不变（B4a）：1366×768 下地图、帮助、设置的关键元素和 main 4484d08 逐项相等（表在 test/ui-layout.mjs，有意改动的不在表里）
+async function uiDeskStyleB4aStep() {
+  await step('界面布局·桌面样式（地图 / 帮助 / 设置）：1366×768 下层级按钮、区域卡片的字和颜色、帮助的段落 / 按键表、设置行的字 / 分段按钮 / 开关 / 滑条和 main 逐项相等', async () => {
+    assert(uiPages && uiPages.desk, '要先跑「界面布局」的桌面那几步');
+    ({ browser, page, errors } = uiPages.desk);
+    await page.setViewportSize({ width: 1366, height: 768 });
+    const settle = () => ev(async () => { for (const n of document.querySelectorAll('#panel-win, #panel-win *, #pause, #pause *')) for (const a of n.getAnimations()) await a.finished.catch(() => {}); });
+    const pick = (pre) => Object.fromEntries(Object.entries(DESK_STYLE_B4A_SPEC).filter(([k]) => k.startsWith(pre + ' ')));
+    // 和 main 一样的地图：轮回 0、没有余烛殿（布局步骤里改过的进度先放回去）
+    const keep = await ev(() => JSON.stringify({ maxTier: G.save.maxTier, cleared: G.save.cleared }));
+    await ev(() => {
+      G.ui.close();
+      G.save.maxTier = 0;
+      G.save.cleared = {};
+      G.ui.open('map');
+    });
+    await settle();
+    const got = await ev(uiStyleRead, pick('map'));
+    await ev(() => G.ui.open('help', 'keys'));
+    await settle();
+    Object.assign(got, await ev(uiStyleRead, pick('help')));
+    await ev(() => G.ui.open('help', 'fight'));
+    await settle();
+    Object.assign(got, await ev(uiStyleRead, pick('helpf')));
+    await ev(() => {
+      G.ui.close();
+      G.ui.pause();
+      document.querySelector('#p-menu [data-tact="settings"]').click();
+    });
+    await settle();
+    Object.assign(got, await ev(uiStyleRead, pick('set')));
+    await ev((k) => {
+      G.ui.close();
+      Object.assign(G.save, JSON.parse(k));
+    }, keep);
+    const bad = [];
+    for (const k in DESK_STYLE_B4A_MAIN) if (got[k] !== DESK_STYLE_B4A_MAIN[k]) bad.push(k + '：main ' + DESK_STYLE_B4A_MAIN[k] + '，现在 ' + got[k]);
+    assert(!bad.length, bad.length + ' 项和 main 不一样：' + bad.slice(0, 8).join(' ｜ '));
+    return Object.keys(DESK_STYLE_B4A_MAIN).length + ' 项相等';
   });
 }
 let uiPages = null; // { touch: { browser, page, errors, fx }, desk: {…} }：三个面板共用，最后一个面板跑完关掉
@@ -27395,8 +27561,8 @@ async function uiLayoutSteps(panel) {
           try {
             await S.go(D);
             // 入场动画放完再量
-            await ev(async () => { for (const n of document.querySelectorAll('#panel-win, #panel-win *, #panel .sheet')) for (const a of n.getAnimations()) await a.finished.catch(() => {}); });
-            const r = await ev(uiLayoutCheck, { touch: isTouch, max: 3 });
+            await ev(async () => { for (const n of document.querySelectorAll('#panel-win, #panel-win *, #panel .sheet, #pause, #pause *')) for (const a of n.getAnimations()) await a.finished.catch(() => {}); });
+            const r = await ev(uiLayoutCheck, P.roots ? { touch: isTouch, max: 3, roots: P.roots } : { touch: isTouch, max: 3 });
             if (r.n) bad.push(where + ' ' + S.id + '：' + Object.entries(r.res).map(([k, v]) => k + ' ' + v.n + '（' + v.s.join('；') + '）').join(' '));
             // g：iPhone 圆角（半径 47 px，test/corner-mask.mjs）。横屏、安全区读出来是 0 的时候（Chrome 标签页里常见）字和按钮都不碰四角
             if (isTouch && w > h && !sa) {
