@@ -1463,8 +1463,8 @@
    "file": "assets/ca/boss/weaver.glb",
    "ship": true,
    "replaces": null,
-   "tris": 4174,
-   "verts": 11179,
+   "tris": 4446,
+   "verts": 12094,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -1475,11 +1475,11 @@
     ],
     "max": [
      2.634,
-     4.897,
+     4.985,
      2.345
     ]
    },
-   "h": 4.897,
+   "h": 4.985,
    "r": 2.64,
    "y0": 0,
    "source": {
@@ -1515,7 +1515,7 @@
     "walk"
    ],
    "home": "frost",
-   "sha256": "139a7083dca3f93b6afce9dbd6b99d91717262983d0450317ff0604336466073"
+   "sha256": "8b3af5e849154626e1ee42516484b74ed5fb1fedd30bf9d6a255f0a9002cd64a"
   },
   {
    "id": "ca/crown_brazier",

@@ -35,6 +35,22 @@ def leg_pts(fr, sd):
     return P(hr, HIP_Y), P(KNEE_R, KNEE_Y), P(ANK_R, ANK_Y), P(TIP_R, 0.0)
 
 
+# 人形上身整体放大一点（围着腰底 UB_PIV 缩放 UB_SCALE）：上身的零件和骨骼枢轴都按这个写，换算统一走 ub()
+UB_PIV, UB_SCALE = (0.0, 2.72, 0.44), 1.06
+UPPER = ('spine_01', 'spine_02', 'spine_03', 'x_core', 'neck_01', 'head', 'x_crown', 'upperarm_l', 'lowerarm_l', 'hand_l', 'upperarm_r', 'lowerarm_r', 'hand_r', 'x_veil_01', 'x_veil_02', 'x_veil_03')
+
+
+def ub(p, sc=UB_SCALE):
+    return tuple(UB_PIV[i] + (p[i] - UB_PIV[i]) * sc for i in range(3))
+
+
+XF = [1.0]  # 搭上身那一段时 = UB_SCALE（零件的点经 X() 换算），其余 = 1
+
+
+def X(p):
+    return p if XF[0] == 1.0 else ub(p, XF[0])
+
+
 # 骨架（37 根）：枢轴是游戏坐标。左 = +x（它自己的左边），面朝 +z。
 # 根骨骼 pelvis = 蛛头胸（腿都挂在它上面）；人形上身从头胸前上方长出来（spine_01..03、neck_01、head，手臂直接挂在 spine_03 上，没有锁骨）
 BONES = [
@@ -47,13 +63,13 @@ BONES = [
     ('x_core', 'spine_03', (0, 3.56, 0.74)),
     ('neck_01', 'spine_03', (0, 3.92, 0.47)),
     ('head', 'neck_01', (0, 4.06, 0.49)),
-    ('x_crown', 'head', (0, 4.5, 0.46)),
+    ('x_crown', 'head', (0, 4.46, 0.47)),
     ('upperarm_l', 'spine_03', (0.44, 3.8, 0.47)),
     ('lowerarm_l', 'upperarm_l', (0.56, 3.12, 0.52)),
-    ('hand_l', 'lowerarm_l', (0.62, 2.52, 0.6)),
+    ('hand_l', 'lowerarm_l', (0.63, 2.4, 0.62)),
     ('upperarm_r', 'spine_03', (-0.44, 3.8, 0.47)),
     ('lowerarm_r', 'upperarm_r', (-0.56, 3.12, 0.52)),
-    ('hand_r', 'lowerarm_r', (-0.62, 2.52, 0.6)),
+    ('hand_r', 'lowerarm_r', (-0.63, 2.4, 0.62)),
     ('x_veil_01', 'spine_03', (0, 3.86, 0.3)),
     ('x_veil_02', 'x_veil_01', (0, 3.2, 0.1)),
     ('x_veil_03', 'x_veil_02', (0, 2.95, -0.4)),
@@ -63,6 +79,7 @@ for _fr, _a, _bz, _hr in LEGS:
         _h, _k, _an, _t = leg_pts(_fr, _sd)
         _n = 'x_%sleg_%s_' % (_fr, _sd)
         BONES += [(_n + '01', 'pelvis', _h), (_n + '02', _n + '01', _k), (_n + '03', _n + '02', _an)]
+BONES = [(n, par, ub(c) if n in UPPER else c) for n, par, c in BONES]
 SKEL = rig.Skel(BONES)
 B = SKEL.index
 PIV = {b[0]: b[2] for b in BONES}
@@ -85,7 +102,7 @@ def _pts(local, c, rot=(0, 0, 0)):
     out = []
     for p in local:
         q = R @ Vector(p)
-        out.append(g2b((c[0] + q.x, c[1] + q.y, c[2] + q.z)))
+        out.append(g2b(X((c[0] + q.x, c[1] + q.y, c[2] + q.z))))
     return out
 
 
@@ -108,7 +125,7 @@ def hull_at(k, bone, local, c, rot=(0, 0, 0), row='basalt', tone=0.5, jitter=0.0
 
 def hull_g(k, bone, pts, row='basalt', tone=0.5, jitter=0.05, glow=0, dust=0, soft=False):
     """游戏坐标的点集直接取凸包"""
-    vs = k.hull([g2b(p) for p in pts], row, _tone(row, tone), jitter, glow, dust)
+    vs = k.hull([g2b(X(p)) for p in pts], row, _tone(row, tone), jitter, glow, dust)
     return k.bind(vs, B[bone], soft)
 
 
@@ -116,7 +133,7 @@ def hull_frame(k, bone, pts_uvw, o, d, hint=(1, 0, 0), row='basalt', tone=0.5, j
     """局部 (u, v, w) 点集 → 以 o 为原点、v 沿 d 的凸包（冰冠的刃、骨刺、指头这类斜着的件）"""
     u, v, w = _frame(d, hint)
     O = Vector(o)
-    P = [g2b(tuple(O + u * a + v * b + w * c)) for a, b, c in pts_uvw]
+    P = [g2b(X(tuple(O + u * a + v * b + w * c))) for a, b, c in pts_uvw]
     vs = k.hull(P, row, _tone(row, tone), jitter, glow, dust)
     return k.bind(vs, B[bone])
 
@@ -152,7 +169,7 @@ def blob(k, bone, c, r, n=14, rot=(0, 0, 0), row='basalt', tone=0.5, jitter=0.05
 
 def loft(k, bone, pts, radii, sides=8, squash=1.0, row='basalt', tone=0.5, jitter=0.05, cap0=True, cap1=True, twist=0.0, soft=False, glow=0, tip=False, rings=None):
     """沿折线的渐变截面管（椭圆截面：squash < 1 压扁）；soft = 软接缝；tip = 末端收成尖；rings = 每一圈绑哪根骨骼"""
-    vs, segs = k.tube([g2b(p) for p in pts], radii, sides=sides, row=row, tone=_tone(row, tone), jitter=jitter, tip=tip, cap0=cap0, cap1=cap1, squash=squash, twist=twist)
+    vs, segs = k.tube([g2b(X(p)) for p in pts], [r * XF[0] for r in radii], sides=sides, row=row, tone=_tone(row, tone), jitter=jitter, tip=tip, cap0=cap0, cap1=cap1, squash=squash, twist=twist)
     k.tag([f for sg in segs for f in sg], row, tone if glow else _tone(row, tone), 0.04 if glow else jitter, glow=glow, dust=0)
     if rings is None:
         return k.bind(vs, B[bone], soft)
@@ -214,7 +231,7 @@ def ybody(k, secs, sides=14, row='slate', tone=0.5, jitter=0.04, wob=0.015, rigi
             x = a * math.copysign(abs(c) ** e, c)
             z = (f if s > 0 else b) * math.copysign(abs(s) ** e, s)
             j = 1 + k.r(-wob, wob)
-            ring.append(bm.verts.new(g2b((cx + x * j, y + k.r(-wob, wob) * 0.3, cz + z * j))))
+            ring.append(bm.verts.new(g2b(X((cx + x * j, y + k.r(-wob, wob) * 0.3, cz + z * j)))))
         k.bind(ring, B[bn], bn not in rigid)
         rings.append(ring)
     faces = _ring_faces(k, rings, close0, close1)
@@ -243,6 +260,8 @@ def sheet(k, rows, row='slate', tone=0.5, jitter=0.05, thick=0.04, bind=None, du
     """布片：rows = 自上而下的若干排点（游戏坐标，每排同样多的点），带厚度的一整张（正反两面 + 一圈边），
     bind(点, 排号, 列号) → (骨骼名, 软接缝)。返回全部顶点"""
     bm = k.bm
+    src = rows
+    rows = [[X(p) for p in r] for r in rows]
     R, C = len(rows), len(rows[0])
 
     def nrm(i, j):
@@ -271,7 +290,7 @@ def sheet(k, rows, row='slate', tone=0.5, jitter=0.05, thick=0.04, bind=None, du
     vs = []
     for i in range(R):
         for j in range(C):
-            bn, sf = bind(rows[i][j], i, j)
+            bn, sf = bind(src[i][j], i, j)
             k.bind([F[i][j], Bk[i][j]], B[bn], sf)
             vs += [F[i][j], Bk[i][j]]
     return vs, faces
@@ -293,6 +312,7 @@ def _norm(v):
 # ---------------------------------------------------------------- 造型
 def build(k):
     """搭形，返回 dict(skel, soft, clips, height)"""
+    XF[0] = 1.0
     # ---- 蛛头胸：低平的一块甲壳（前窄后宽一点、背上平），六条腿都从它两侧长出来 ----
     csecs = [
         # (x, y, z, 半宽, 背高, 腹深, 方形度, 骨骼)
@@ -369,9 +389,9 @@ def build(k):
                        q0, tuple(q1[i] - q0[i] for i in range(3)), hint=up, row='starglass', tone=0.55, jitter=0.0, glow=0.42)
         # 膝：暗的关节球 + 骨刺（往外、往上翘，0.45 m）
         blob(k, b2, kp, (0.2, 0.19, 0.2), n=12, row='char', tone=0.3)
-        sp = _norm(_add(_add((0, 1.0, 0), d, 0.75), fem, 0.2))
-        hull_frame(k, b2, [(-0.085, 0.0, -0.065), (0.085, 0.0, -0.065), (-0.085, 0.0, 0.065), (0.085, 0.0, 0.065), (0.0, 0.52, 0.0), (0.0, 0.22, 0.055)],
-                   _add(kp, sp, 0.1), sp, hint=fem, row='starglass', tone=0.4, jitter=0.03)
+        sp = _norm(_add(_add(d, (0, 0.38, 0)), (0, 0, -1.0), 0.4))
+        hull_frame(k, b2, [(-0.06, 0.0, -0.05), (0.06, 0.0, -0.05), (-0.06, 0.0, 0.05), (0.06, 0.0, 0.05), (0.0, 0.3, 0.0), (0.0, 0.13, 0.04)],
+                   _add(kp, sp, 0.1), sp, hint=fem, row='starglass', tone=0.1, jitter=0.03)
         # 胫节：长，从膝到踝收细（中间往外鼓一点），三分之一处一道暗环
         t1, t2 = _add(_lerp(kp, ap, 0.33), d, 0.17), _add(_lerp(kp, ap, 0.66), d, 0.12)
         tv = loft(k, b2, [kp, t1, t2, ap], [0.165, 0.15, 0.125, 0.105], sides=8, squash=0.86, row='basalt', tone=0.38, soft=True)
@@ -383,107 +403,121 @@ def build(k):
         loft(k, b3, [ap, cl], [0.1, 0.085], sides=7, squash=0.9, row='basalt', tone=0.3, soft=True)
         loft(k, b3, [_lerp(ap, tp, 0.44), _lerp(ap, tp, 0.74), tp], [0.092, 0.075, 0.0], sides=6, row='starglass', tone=0.55, tip=True, glow=0.4)
 
-    # ---- 袍子和上身：从头胸前上方立起来，袍摆罩在头胸前面；细腰、窄肩（成人比例），霜丝外袍、胸前一道暗的内衬 ----
+    XF[0] = UB_SCALE
+    # ---- 袍子和上身：从头胸前上方立起来；袍摆在头胸上往外撒开一圈，细腰（暗的系带），胸、肩收窄（成人比例），霜丝外袍、胸前一道暗的内衬 ----
     tsecs = [
         # (y, x, z, 半宽, 前深, 后深, 方形度, 骨骼)
-        (2.56, 0, 0.4, 0.5, 0.44, 0.4, 2.2, 'pelvis'),
-        (2.76, 0, 0.43, 0.38, 0.31, 0.3, 2.2, 'spine_01'),
-        (2.98, 0, 0.46, 0.26, 0.2, 0.19, 2.0, 'spine_01'),
-        (3.2, 0, 0.47, 0.3, 0.22, 0.2, 2.0, 'spine_02'),
-        (3.44, 0, 0.48, 0.37, 0.24, 0.22, 2.05, 'spine_03'),
-        (3.66, 0, 0.48, 0.41, 0.23, 0.21, 2.1, 'spine_03'),
-        (3.8, 0, 0.47, 0.4, 0.19, 0.19, 2.1, 'spine_03'),
-        (3.92, 0, 0.47, 0.17, 0.13, 0.13, 2.0, 'neck_01'),
+        (2.6, 0, 0.42, 0.62, 0.56, 0.48, 2.0, 'pelvis'),
+        (2.78, 0, 0.44, 0.45, 0.37, 0.33, 2.0, 'spine_01'),
+        (2.98, 0, 0.46, 0.25, 0.2, 0.18, 2.0, 'spine_01'),
+        (3.2, 0, 0.47, 0.29, 0.21, 0.19, 2.0, 'spine_02'),
+        (3.44, 0, 0.48, 0.35, 0.23, 0.21, 2.05, 'spine_03'),
+        (3.64, 0, 0.48, 0.39, 0.22, 0.2, 2.1, 'spine_03'),
+        (3.8, 0, 0.47, 0.37, 0.18, 0.18, 2.1, 'spine_03'),
+        (3.92, 0, 0.47, 0.16, 0.12, 0.12, 2.0, 'neck_01'),
     ]
-    tv, _ = ybody(k, tsecs, sides=16, row='slate', tone=0.44)
-    # 内衬：胸前一道竖着的 V（暗），腰上一道暗的系带
+    tv, _ = ybody(k, tsecs, sides=18, row='slate', tone=0.46)
+    # 袍摆往下那一圈深一档（裙摆的阴影面），腰上一道暗的系带，胸前一道窄的暗内衬
+    retag(k, tv, lambda p, n: ('slate', 0.34, 0.03) if p[1] < 2.72 else None)
     hull_g(k, 'spine_03', [(-0.08, 3.8, 0.66), (0.08, 3.8, 0.66), (-0.035, 3.48, 0.72), (0.035, 3.48, 0.72), (0, 3.1, 0.7), (-0.06, 3.8, 0.6), (0.06, 3.8, 0.6), (0, 3.14, 0.64)], row='obsidian', tone=0.2, jitter=0.03)
-    loft(k, 'spine_01', [(0, 2.97, 0.46), (0, 3.03, 0.46)], [0.27, 0.27], sides=12, squash=0.78, row='char', tone=0.24, jitter=0.03)
-    # 袍摆垂在头胸前面的两片（软的布，挂在 spine_01 上）：前面一片长、两侧各一片短
-    for (ang, w, ln) in ((0.0, 0.42, 0.62), (0.75, 0.32, 0.46), (-0.75, 0.32, 0.46)):
-        cx, cz = math.sin(ang) * 0.44, 0.44 + math.cos(ang) * 0.36
-        rows = []
-        for i, f in enumerate((0.0, 0.33, 0.66, 1.0)):
-            y = 2.78 - ln * f
-            out = 0.05 + 0.22 * f
-            rr = []
-            for x in (-1, -0.5, 0, 0.5, 1):
-                xx = x * w * (1 + 0.25 * f)
-                px = cx + math.cos(ang) * xx + math.sin(ang) * out
-                pz = cz - math.sin(ang) * xx + math.cos(ang) * out
-                rr.append((px, y - (k.r(0, 0.06) if i == 3 else 0), pz))
-            rows.append(rr)
-        sheet(k, rows, row='slate', tone=0.32, thick=0.035, bind=lambda p, i, j: ('spine_01', i > 0))
-    # ---- 胸口的霜结：一小团近白的芯（唯一近白的两处之一），外面六根短的霜色光刺（元素色，不到近白） ----
+    loft(k, 'spine_01', [(0, 2.95, 0.46), (0, 3.03, 0.46)], [0.27, 0.27], sides=12, squash=0.78, row='char', tone=0.22, jitter=0.03)
+    hull_g(k, 'spine_01', [(-0.05, 2.99, 0.66), (0.05, 2.99, 0.66), (-0.04, 2.7, 0.7), (0.04, 2.7, 0.7), (0, 2.6, 0.68), (0, 2.99, 0.6)], row='char', tone=0.22, jitter=0.03)  # 系带垂下的一截
+    # 袍摆前面垂下的一片（软的布，挂在 spine_01 上），盖住头胸前沿
+    rows = []
+    for i, f in enumerate((0.0, 0.33, 0.66, 1.0)):
+        y = 2.74 - 0.5 * f
+        rr = []
+        for x in (-1, -0.5, 0, 0.5, 1):
+            rr.append((x * 0.36 * (1 + 0.2 * f), y - (k.r(0, 0.05) if i == 3 else 0), 0.86 + 0.2 * f - 0.06 * x * x))
+        rows.append(rr)
+    sheet(k, rows, row='slate', tone=0.36, thick=0.035, bind=lambda p, i, j: ('spine_01', i > 0))
+    # ---- 胸口的霜结：近白的芯（两处近白之一）+ 六根短的霜光刺和六根更细更长的淡光丝（元素色，远看是胸口一点亮、一圈淡蓝） ----
     kc = PIV['x_core']
-    blob(k, 'x_core', kc, (0.075, 0.075, 0.05), n=12, row='starglass', tone=0.98, jitter=0.01, glow=1.0)
-    for i in range(6):
-        a = TAU * i / 6 + 0.26
-        dd = (math.cos(a), math.sin(a), 0.12)
-        hull_frame(k, 'x_core', [(-0.026, 0.05, -0.02), (0.026, 0.05, -0.02), (-0.026, 0.05, 0.02), (0.026, 0.05, 0.02), (0, 0.16 + 0.04 * (i % 2), 0)], kc, dd, hint=(0, 0, 1), row='starglass', tone=0.6, jitter=0.0, glow=0.44)
-    # ---- 手臂：霜丝的袖子（上臂收、前臂外张成喇叭袖），袖口里是暗甲的小臂，细长的手（四根长指 + 拇指） ----
+    XF[0] = 1.0
+    blob(k, 'x_core', kc, (0.1, 0.1, 0.065), n=14, row='starglass', tone=0.98, jitter=0.01, glow=1.0)
+    for i in range(12):
+        a = TAU * i / 12 + 0.26
+        dd = (math.cos(a), math.sin(a), 0.14)
+        ln, w, g = (0.27, 0.03, 0.5) if i % 2 == 0 else (0.36, 0.016, 0.32)
+        hull_frame(k, 'x_core', [(-w, 0.07, -w * 0.7), (w, 0.07, -w * 0.7), (-w, 0.07, w * 0.7), (w, 0.07, w * 0.7), (0, ln, 0)], kc, dd, hint=(0, 0, 1), row='starglass', tone=0.6, jitter=0.0, glow=g)
+    XF[0] = UB_SCALE
+    # ---- 手臂：霜丝的袖子（上臂收、前臂外张成喇叭袖，袖口亮一档），袖口里是暗甲的小臂，细长的手（四根长指 + 拇指） ----
     for s in (1, -1):
         sd = 'l' if s > 0 else 'r'
         ua, la, hd = 'upperarm_' + sd, 'lowerarm_' + sd, 'hand_' + sd
-        pu, pl, ph = PIV[ua], PIV[la], PIV[hd]
-        loft(k, ua, [_add(pu, (0, 0.06, 0)), _lerp(pu, pl, 0.5), pl], [0.13, 0.115, 0.11], sides=8, row='slate', tone=0.44, soft=False)
-        blob(k, ua, _add(pu, (s * 0.02, -0.02, 0)), (0.14, 0.11, 0.14), n=12, row='slate', tone=0.4)  # 肩头
-        loft(k, la, [pl, _lerp(pl, ph, 0.45), _lerp(pl, ph, 0.78)], [0.11, 0.15, 0.2], sides=9, row='slate', tone=0.42, cap1=False, soft=True)
+        pu, pl, ph = [ub(PIV[n], 1 / UB_SCALE) for n in (ua, la, hd)]  # 枢轴已经放大过：零件按放大前的坐标写，再经 X() 一起放大
+        loft(k, ua, [_add(pu, (0, 0.06, 0)), _lerp(pu, pl, 0.5), pl], [0.135, 0.125, 0.115], sides=8, row='slate', tone=0.5, soft=False)
+        blob(k, ua, _add(pu, (s * 0.03, -0.01, 0)), (0.15, 0.12, 0.15), n=12, row='slate', tone=0.48)  # 肩头
+        cv = loft(k, la, [pl, _lerp(pl, ph, 0.45), _lerp(pl, ph, 0.8)], [0.115, 0.16, 0.22], sides=9, row='slate', tone=0.46, cap1=False, soft=True)
+        retag(k, cv, lambda p, n: ('slate', 0.62, 0.03) if p[1] < _lerp(pl, ph, 0.6)[1] * UB_SCALE + UB_PIV[1] * (1 - UB_SCALE) else None)
         loft(k, la, [_lerp(pl, ph, 0.5), ph], [0.065, 0.055], sides=6, row='basalt', tone=0.36)
-        # 手：掌 + 四根两节的长指（往前下方垂）+ 拇指
         hbox(k, hd, _add(ph, (0, -0.08, 0.02)), (0.07, 0.16, 0.11), row='basalt', tone=0.4, bevel=0.02)
         for i in range(4):
             off = (i - 1.5) * 0.026
-            base = _add(ph, (s * 0.0, -0.15, 0.02 + off))
+            base = _add(ph, (0.0, -0.15, 0.02 + off))
             loft(k, hd, [base, _add(base, (s * 0.01, -0.1, 0.02)), _add(base, (s * 0.01, -0.2, 0.05))], [0.016, 0.014, 0.0], sides=4, row='basalt', tone=0.42, tip=True, jitter=0.02)
         loft(k, hd, [_add(ph, (-s * 0.03, -0.1, 0.06)), _add(ph, (-s * 0.05, -0.16, 0.11))], [0.016, 0.0], sides=4, row='basalt', tone=0.42, tip=True, jitter=0.02)
-    # ---- 颈、头：细长的颈（高领），椭圆的脸（灰白的面具，两道很窄的霜光眼缝），后脑和两侧披着暗色的头巾往颈后垂 ----
+    # ---- 颈、头：细长的颈（高领），脸（灰白，眉骨 / 鼻梁 / 颧骨，两道很窄的霜光眼缝）藏在一顶霜丝的兜帽里（帽尖往后），帽口一圈暗的内衬 ----
     loft(k, 'neck_01', [(0, 3.86, 0.47), (0, 4.0, 0.48), (0, 4.12, 0.49)], [0.1, 0.085, 0.08], sides=8, row='pale', tone=0.3, soft=True)
-    hull_g(k, 'neck_01', [(-0.17, 3.84, 0.62), (0.17, 3.84, 0.62), (-0.18, 3.84, 0.34), (0.18, 3.84, 0.34), (-0.13, 4.02, 0.6), (0.13, 4.02, 0.6), (-0.14, 4.04, 0.36), (0.14, 4.04, 0.36)], row='slate', tone=0.34)  # 高领
+    hull_g(k, 'neck_01', [(-0.17, 3.84, 0.62), (0.17, 3.84, 0.62), (-0.18, 3.84, 0.34), (0.18, 3.84, 0.34), (-0.13, 4.02, 0.6), (0.13, 4.02, 0.6), (-0.14, 4.04, 0.36), (0.14, 4.04, 0.36)], row='slate', tone=0.4)  # 高领
+    H0 = (0.0, 4.08, 0.5)
+    H = lambda p: tuple(H0[i] + (p[i] - H0[i]) * 0.9 for i in range(3))  # 头小一号（成人比例：头小、脖子和躯干长）
     face = [(-0.15, 4.2, 0.62), (0.15, 4.2, 0.62), (-0.1, 4.08, 0.64), (0.1, 4.08, 0.64), (0, 4.04, 0.65),
-            (-0.17, 4.38, 0.6), (0.17, 4.38, 0.6), (-0.15, 4.52, 0.56), (0.15, 4.52, 0.56), (0, 4.58, 0.54),
-            (-0.17, 4.3, 0.4), (0.17, 4.3, 0.4), (0, 4.5, 0.36), (0, 4.16, 0.42), (0, 4.32, 0.7)]
-    hull_g(k, 'head', face, row='pale', tone=0.34, jitter=0.03)
-    hull_g(k, 'head', [(-0.13, 4.4, 0.62), (0.13, 4.4, 0.62), (-0.12, 4.44, 0.6), (0.12, 4.44, 0.6), (0, 4.43, 0.66), (0, 4.38, 0.65)], row='pale', tone=0.22, jitter=0.02)  # 眉骨
-    hull_g(k, 'head', [(0, 4.38, 0.66), (-0.03, 4.25, 0.69), (0.03, 4.25, 0.69), (0, 4.23, 0.72), (0, 4.24, 0.66)], row='pale', tone=0.44, jitter=0.02)  # 鼻梁
+            (-0.16, 4.38, 0.6), (0.16, 4.38, 0.6), (-0.13, 4.5, 0.57), (0.13, 4.5, 0.57), (0, 4.54, 0.56),
+            (-0.15, 4.3, 0.42), (0.15, 4.3, 0.42), (0, 4.46, 0.4), (0, 4.16, 0.44), (0, 4.32, 0.7)]
+    hull_g(k, 'head', [H(p) for p in face], row='pale', tone=0.34, jitter=0.03)
+    hull_g(k, 'head', [H(p) for p in [(-0.12, 4.4, 0.62), (0.12, 4.4, 0.62), (-0.11, 4.44, 0.6), (0.11, 4.44, 0.6), (0, 4.43, 0.66), (0, 4.38, 0.65)]], row='pale', tone=0.22, jitter=0.02)  # 眉骨
+    hull_g(k, 'head', [H(p) for p in [(0, 4.38, 0.66), (-0.03, 4.25, 0.69), (0.03, 4.25, 0.69), (0, 4.23, 0.72), (0, 4.24, 0.66)]], row='pale', tone=0.44, jitter=0.02)  # 鼻梁
     for s in (1, -1):
-        hull_g(k, 'head', [(s * 0.15, 4.32, 0.58), (s * 0.12, 4.26, 0.63), (s * 0.15, 4.2, 0.58), (s * 0.17, 4.27, 0.54), (s * 0.13, 4.3, 0.6)], row='pale', tone=0.42, jitter=0.02)  # 颧骨
-        hull_g(k, 'head', [(s * 0.2, 4.5, 0.48), (s * 0.19, 4.3, 0.5), (s * 0.17, 4.14, 0.48), (s * 0.15, 4.04, 0.4), (s * 0.21, 4.36, 0.36), (s * 0.17, 4.16, 0.36)], row='obsidian', tone=0.26, jitter=0.03)  # 鬓边的头发
-    hull_g(k, 'head', [(-0.19, 4.24, 0.5), (0.19, 4.24, 0.5), (-0.2, 4.46, 0.5), (0.2, 4.46, 0.5), (0, 4.62, 0.44), (-0.16, 4.58, 0.36), (0.16, 4.58, 0.36),
-                       (-0.18, 4.2, 0.3), (0.18, 4.2, 0.3), (0, 4.5, 0.22), (-0.12, 3.98, 0.3), (0.12, 3.98, 0.3), (0, 4.0, 0.24)], row='obsidian', tone=0.3, jitter=0.03)  # 头巾
-    for s in (1, -1):
-        hbox(k, 'head', (s * 0.07, 4.34, 0.64), (0.08, 0.02, 0.03), rot=(0, -s * 0.2, s * 0.15), row='starglass', tone=0.6, bevel=0.0, glow=0.5, dust=0)
-    # ---- 冰冠：头顶一圈暗的冰箍，五片收紧的冰刃（中间最高，往外依次矮、略往外斜）；中间那片是霜光（元素色），根部一点近白 ----
-    ck = PIV['x_crown']
+        hull_g(k, 'head', [H(p) for p in [(s * 0.14, 4.32, 0.58), (s * 0.11, 4.26, 0.63), (s * 0.14, 4.2, 0.58), (s * 0.16, 4.27, 0.54), (s * 0.12, 4.3, 0.6)]], row='pale', tone=0.42, jitter=0.02)  # 颧骨
+        hbox(k, 'head', H((s * 0.065, 4.34, 0.64)), (0.068, 0.018, 0.027), rot=(0, -s * 0.2, s * 0.15), row='starglass', tone=0.6, bevel=0.0, glow=0.5, dust=0)
+    hood = [(0, 4.64, 0.34), (0, 4.58, 0.5), (-0.13, 4.6, 0.44), (0.13, 4.6, 0.44),
+            (-0.2, 4.42, 0.56), (0.2, 4.42, 0.56), (-0.2, 4.18, 0.54), (0.2, 4.18, 0.54), (-0.18, 4.0, 0.5), (0.18, 4.0, 0.5),
+            (-0.18, 4.4, 0.3), (0.18, 4.4, 0.3), (0, 4.42, 0.2), (0, 4.12, 0.22), (-0.18, 3.96, 0.3), (0.18, 3.96, 0.3), (0, 3.92, 0.26)]
+    hull_g(k, 'head', [H(p) for p in hood], row='slate', tone=0.6, jitter=0.03)
+    for s in (1, -1):  # 帽口两侧一道暗的内衬（脸和兜帽分得开）
+        hull_g(k, 'head', [H(p) for p in [(s * 0.17, 4.48, 0.6), (s * 0.2, 4.4, 0.59), (s * 0.2, 4.1, 0.56), (s * 0.15, 4.02, 0.56), (s * 0.15, 4.4, 0.52), (s * 0.15, 4.1, 0.5)]], row='obsidian', tone=0.18, jitter=0.02)
+    # ---- 冰冠：帽檐上方一圈暗的冰箍，五片收紧的冰刃（中间最高，往外依次矮、略往外斜）；中间那片是霜光（元素色），根部一点近白 ----
+    ck = ub(PIV['x_crown'], 1 / UB_SCALE)
     for i, (a, h) in enumerate(((-0.52, 0.24), (-0.26, 0.33), (0.0, 0.42), (0.26, 0.33), (0.52, 0.24))):
         dd = (-math.sin(a), math.cos(a), -0.12)
-        base = (ck[0] + math.sin(-a) * 0.15, ck[1] - 0.02, ck[2] + 0.08 - abs(a) * 0.08)
+        base = (ck[0] + math.sin(-a) * 0.15, ck[1] - 0.02, ck[2] + 0.1 - abs(a) * 0.08)
         g = 0.5 if i == 2 else 0
         hull_frame(k, 'x_crown', [(-0.065, 0.0, -0.035), (0.065, 0.0, -0.035), (-0.065, 0.0, 0.035), (0.065, 0.0, 0.035), (-0.042, h * 0.6, 0.0), (0.042, h * 0.55, 0.0), (0.0, h, 0.0)],
                    base, dd, hint=(1, 0, 0), row='starglass', tone=0.6 if g else 0.42, jitter=0.03, glow=g)
-    blob(k, 'x_crown', (ck[0], ck[1] + 0.06, ck[2] + 0.1), (0.04, 0.05, 0.03), n=10, row='starglass', tone=0.98, jitter=0.0, glow=1.0)
-    loft(k, 'x_crown', [(-0.17, 4.47, 0.5), (0, 4.5, 0.58), (0.17, 4.47, 0.5)], [0.026, 0.03, 0.026], sides=4, row='starglass', tone=0.3, jitter=0.02)
-    # ---- 霜纱：肩后垂下的两层（外层短而宽、下摆参差；内层长一点、颜色深一档，顺着头胸背后铺到蛛腹前） ----
+    blob(k, 'x_crown', (ck[0], ck[1] + 0.06, ck[2] + 0.12), (0.04, 0.05, 0.03), n=10, row='starglass', tone=0.98, jitter=0.0, glow=1.0)
+    loft(k, 'x_crown', [(-0.16, 4.43, 0.55), (0, 4.46, 0.62), (0.16, 4.43, 0.55)], [0.026, 0.03, 0.026], sides=4, row='starglass', tone=0.3, jitter=0.02)
+    # ---- 霜纱（两层，淡的霜丝）：外层是一圈搭在肩上的短披（前面开口、下摆参差，正面看是一对淡色的肩）；
+    # 内层从肩胛垂下、往后往两边撒开，铺在头胸背上（宽过上身，游戏镜头从前上方两边都看得见） ----
+    rows = []
+    for i, (y, r) in enumerate(((3.97, 0.19), (3.88, 0.42), (3.7, 0.54), (3.5, 0.6))):
+        rr = []
+        for j in range(11):
+            th = math.radians(54 + 252 * j / 10)  # 从左前绕过背后到右前（前面开口，露出胸口的霜结）
+            yy = y - (k.r(0.0, 0.07) if i == 3 else 0) - (0.06 * abs(math.cos(th)) if i == 3 else 0)
+            rr.append((math.sin(th) * r, yy, 0.45 + math.cos(th) * r * 0.78))
+        rows.append(rr)
+    sheet(k, rows, row='slate', tone=0.44, thick=0.03, bind=lambda p, i, j: ('spine_03', False))
+    loft(k, 'spine_03', [_add(p, (0, -0.012, 0)) for p in rows[-1]], [0.022] * len(rows[-1]), sides=4, row='slate', tone=0.82, jitter=0.02, cap0=False, cap1=False)  # 下摆一道淡的亮边
+
     def veil_bone(p, i, j):
         return ('x_veil_01' if p[1] > 3.3 else 'x_veil_02' if p[2] > -0.2 else 'x_veil_03', i > 0)
-    for layer, (w0, w1, path, tone, cols) in enumerate((
-        (0.38, 0.62, [(3.86, 0.3), (3.5, 0.2), (3.15, 0.08), (2.98, -0.12), (2.92, -0.4)], 0.5, 7),
-        (0.32, 0.46, [(3.8, 0.24), (3.42, 0.12), (3.1, -0.02), (2.94, -0.24), (2.88, -0.46)], 0.36, 7))):
-        rows = []
-        n = len(path)
-        for i, (y, z) in enumerate(path):
-            f = i / (n - 1)
-            hw = w0 + (w1 - w0) * f
-            rr = []
-            for j in range(cols):
-                x = (j / (cols - 1)) * 2 - 1
-                yy = y + 0.05 * (1 - x * x) * f - (layer * 0.03)
-                if i == n - 1:
-                    yy -= k.r(0.0, 0.07)
-                zz = z - 0.12 * x * x * f - layer * 0.04
-                rr.append((x * hw, yy, zz))
-            rows.append(rr)
-        sheet(k, rows, row='slate', tone=tone, thick=0.03, bind=veil_bone)
+    path = [(3.76, 0.26, 0.34), (3.42, 0.12, 0.5), (3.12, -0.02, 0.62), (2.96, -0.26, 0.74), (2.9, -0.56, 0.82), (2.86, -0.82, 0.86)]
+    rows = []
+    for i, (y, z, hw) in enumerate(path):
+        f = i / (len(path) - 1)
+        rr = []
+        for j in range(9):
+            x = (j / 8) * 2 - 1
+            yy = y + 0.06 * (1 - x * x) * f - (k.r(0.0, 0.08) if i == len(path) - 1 else 0) - 0.1 * x * x * f
+            rr.append((x * hw, yy, z - 0.14 * x * x * f))
+        rows.append(rr)
+    sheet(k, rows, row='slate', tone=0.4, thick=0.03, bind=veil_bone)
+    # 亮边：下摆和两侧各一道细的淡霜丝边（不透明的细条，不加 draw）；中间是暗一档的淡填充
+    for edge in (rows[-1], [r[0] for r in rows], [r[-1] for r in rows]):
+        pts = [_add(p, (0, 0.012, 0)) for p in edge]
+        loft(k, 'x_veil_01', pts, [0.022] * len(pts), sides=4, row='slate', tone=0.8, jitter=0.02, cap0=False, cap1=False, rings=[veil_bone(p, 1, 0)[0] for p in edge])
+    XF[0] = 1.0
 
     soft = [
         # (子骨骼, 父骨骼, 枢轴, 轴（父 → 子）, 带宽)
