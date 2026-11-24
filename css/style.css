@@ -1153,21 +1153,7 @@ body.alt-on .sk-desc .alt-h { display: block; visibility: hidden; }
 /* ============================================================
    技能页
    ============================================================ */
-.skills {
-  height: 100%;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  gap: 20px;
-}
-.skill-list {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  align-content: start;
-  padding-right: 6px;
-}
+/* 排法（桌面三栏、窄屏子页签和列表、技能卡）在文件末尾「UI-R B2」一节 */
 .skill-card {
   --c: #ccc;
   position: relative;
@@ -1250,7 +1236,7 @@ body.alt-on .sk-desc .alt-h { display: block; visibility: hidden; }
 }
 .sk-num { padding: 5px 0 6px; text-align: center; border-left: 1px solid #201710; min-width: 0; }
 .sk-num:first-child { border-left: none; }
-.sk-num span { display: block; font-size: 10.5px; color: #8c7f6d; white-space: nowrap; }
+.sk-num span { display: block; font-size: 11px; color: #8c7f6d; white-space: nowrap; }
 .sk-num b { display: block; margin-top: 1px; font-size: 14px; font-weight: 600; color: #ecdfc8; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .sk-num.hl b { color: color-mix(in srgb, var(--c) 65%, #fff); }
 .sk-socks { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
@@ -1291,14 +1277,13 @@ body.alt-on .sk-desc .alt-h { display: block; visibility: hidden; }
 .sock.full:hover { border-color: #ff8a7a; color: #ffd9d0; }
 
 /* ---------- 技能卡版式（card-layout）----------
-   两列等宽（原来 1fr 被宽卡的最小宽度撑开，右列被挤到 300px 还溢出列表）；一张卡不到 360px 时整列改成一列。
+   技能页中间那一栏（.sk-detail，一次一张）和窄屏技能卡（.skc-in）里的卡片。
    卡片窄（内容宽 ≤ 440px）时：图标占两行，名字 + 标签一行，按键标签挪到下一行；数值 ≤ 480px 时排成 3 × 2。
-   滚动条的位置一直留着（scrollbar-gutter），卡片多到出滚动条时列宽不变。
    按住 Alt 的详情就地盖住说明文字（和说明同一格，格高取两者较高的），不再浮到刻式按钮、数值上，按下 / 松开卡片不跳 */
-.skill-list { grid-template-columns: repeat(auto-fill, minmax(max(360px, calc((100% - 12px) / 2)), 1fr)); scrollbar-gutter: stable; }
-.skill-list > .skill-card { container: skcard / inline-size; }
-.skill-list .sk-name { word-break: keep-all; overflow-wrap: anywhere; }
-.skill-list .basic-card .wsk-row { flex-wrap: wrap; row-gap: 2px; }
+.sk-detail { scrollbar-gutter: stable; }
+.sk-detail > .skill-card, .skc-in.skill-card { container: skcard / inline-size; }
+.sk-detail .sk-name { word-break: keep-all; overflow-wrap: anywhere; }
+.sk-detail .basic-card .wsk-row, .skc-in.basic-card .wsk-row { flex-wrap: wrap; row-gap: 2px; }
 @container skcard (max-width: 440px) {
   .skill-card:not(.basic-card) > .sk-top { display: grid; grid-template-columns: 52px minmax(0, 1fr); column-gap: 12px; row-gap: 7px; align-items: center; }
   .skill-card:not(.basic-card) > .sk-top > .sk-icon { grid-row: 1 / span 2; align-self: start; }
@@ -1310,12 +1295,12 @@ body.alt-on .sk-desc .alt-h { display: block; visibility: hidden; }
   .sk-nums .sk-num:nth-child(n + 4) { border-top: 1px solid #201710; }
   .sk-nums.ally .sk-num:nth-child(n + 4) { border-top-color: #12302b; }
 }
-.skill-list .sk-desc:has(> .alt-box) { display: grid; grid-template-columns: minmax(0, 1fr); }
-.skill-list .sk-desc > .alt-box { display: contents; }
-.skill-list .sk-desc > .sk-dt { grid-area: 1 / 1; }
-.skill-list .sk-desc .alt-h { grid-area: 2 / 1; margin-top: 5px; }
-.skill-list .sk-desc .alt-d { grid-area: 1 / 1 / 3 / 2; position: static; display: block; visibility: hidden; margin: -3px -6px 2px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5); }
-body.alt-on .skill-list .sk-desc .alt-d { visibility: visible; }
+.sk-detail .sk-desc:has(> .alt-box) { display: grid; grid-template-columns: minmax(0, 1fr); }
+.sk-detail .sk-desc > .alt-box { display: contents; }
+.sk-detail .sk-desc > .sk-dt { grid-area: 1 / 1; }
+.sk-detail .sk-desc .alt-h { grid-area: 2 / 1; margin-top: 5px; }
+.sk-detail .sk-desc .alt-d { grid-area: 1 / 1 / 3 / 2; position: static; display: block; visibility: hidden; margin: -3px -6px 2px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5); }
+body.alt-on .sk-detail .sk-desc .alt-d { visibility: visible; }
 
 .skill-more {
   grid-column: 1 / -1;
@@ -1360,22 +1345,12 @@ body.alt-on .skill-list .sk-desc .alt-d { visibility: visible; }
 .sup-loc { color: #3fe0c8; }
 .sup-none { padding: 22px 16px; font-size: 12.5px; line-height: 21px; text-align: center; color: var(--dim); border: 1px dashed #2e2219; border-radius: 3px; }
 
-/* ---- 辅助宝石选择器 ---- */
-#picker {
-  position: fixed;
-  left: 0;
-  top: 0;
-  z-index: 12;
-  display: none;
-  width: 330px;
-  padding: 10px 6px 8px 10px;
-  background: linear-gradient(180deg, #1e1610, #0f0a08);
-  border: 1px solid #a87b46;
-  box-shadow: 0 0 0 1px #080504, 0 14px 44px rgba(0, 0, 0, 0.9), 0 0 24px rgba(255, 120, 40, 0.14);
-}
-#picker.on { display: block; }
-.pk-title { margin: 0 4px 8px 2px; font-family: var(--serif); font-weight: 700; font-size: 14.5px; letter-spacing: 1.5px; color: var(--gold); }
-.pk-list { max-height: min(330px, calc(46 * var(--vh, 1vh))); padding-right: 4px; }
+/* ---- 选辅助宝石：卡片中间那段换成这个列表（UI-R B2，不再是浮层） ---- */
+#picker { margin-top: 10px; }
+.pk-title { display: flex; align-items: center; gap: 8px; margin: 0 0 8px 2px; font-family: var(--serif); font-weight: 700; font-size: 14.5px; letter-spacing: 1.5px; color: var(--gold); }
+.pk-title > span { flex: 1; min-width: 0; }
+.pk-back { flex: none; font-family: var(--sans); font-weight: 400; }
+.pk-list { padding-right: 2px; }
 .pk-row {
   display: block;
   width: 100%;
@@ -4716,4 +4691,140 @@ html.touch-ui { --fs-md: 14px; --fs-lg: 16px; --head-h: 36px; --hit: 44px; }
 /* 触屏横屏（真横屏或旋转横屏，html.t-land）：页签整行往里收 16 px，第一个页签不碰左上的圆角（竖屏顶上有状态栏的安全区，不用收） */
 @media (max-width: 900px), (max-height: 500px) {
   html.touch-ui.t-land #panel-head { padding-left: 16px; }
+}
+
+/* ============================================================
+   UI-R B2：技能页（桌面三栏 列表 | 选中的卡片 | 辅助宝石；窄屏 技能栏 + 子页签 + 列表 + 技能卡）。规则见 docs/ui.md
+   ============================================================ */
+.skills.skp.wide { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.skp.wide > .skb-top { flex: none; margin-bottom: 12px; }
+.skp.wide > .sk-cols { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 360px minmax(0, 720px) 300px; justify-content: center; column-gap: 20px; }
+.skp.wide > .pg-note { flex: none; }
+.skp.wide .blank-bar { flex: none; margin-bottom: 10px; }
+.sk-list, .sk-detail, .skp .sup-list { flex: 1 1 auto; min-height: 0; }
+.sk-list { padding-right: 4px; }
+.sk-detail { padding-right: 4px; }
+.sk-detail > .skill-card, .sk-detail > .wsk-card { margin-bottom: 4px; }
+.skp .sk-list .skill-more { margin-top: 10px; }
+.skp .sk-list .cls-group { margin: 12px 0 6px; }
+.skp .sk-list .cls-group span { display: block; margin-top: 2px; font-size: 11px; letter-spacing: 0; color: var(--faint); }
+/* 列表的一行：44 px，整行都能点；图标在桌面上能拖进技能栏 */
+.sk-row, .sup-row {
+  --c: #8c7f6d;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 44px;
+  margin-bottom: 2px;
+  padding: 0 8px 0 4px;
+  text-align: left;
+  font-family: var(--sans);
+  background: #110c09;
+  border: 1px solid #241a12;
+  border-left: 2px solid color-mix(in srgb, var(--c) 50%, #241a12);
+  border-radius: 2px;
+  cursor: pointer;
+}
+.sk-row:hover, .sup-row:hover { background: #1b130d; border-color: #4a3524; border-left-color: var(--c); }
+.sk-row.on, .sup-row.on { background: linear-gradient(90deg, color-mix(in srgb, var(--c) 16%, #140e0a), #140e0a 70%); border-color: color-mix(in srgb, var(--c) 45%, #3d2c1e); border-left-color: var(--c); }
+.sk-row.cls-off { filter: grayscale(0.85); opacity: 0.6; }
+.skr-ic {
+  position: relative;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 3px;
+  background: radial-gradient(circle at 50% 32%, color-mix(in srgb, var(--c) 58%, #000), color-mix(in srgb, var(--c) 13%, #0a0706) 88%);
+  border: 1px solid color-mix(in srgb, var(--c) 62%, #000);
+}
+.skr-ic .ico { position: absolute; inset: 2px; width: auto; height: auto; }
+.sk-row .skr-ic[data-drag] { cursor: grab; }
+.skr-t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.skr-t b, .skr-t > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.skr-t b { font-family: var(--serif); font-size: 13.5px; font-weight: 700; line-height: 18px; letter-spacing: 1px; color: color-mix(in srgb, var(--c) 55%, #fff); }
+.skr-t b em { margin-left: 6px; font-family: var(--sans); font-style: normal; font-weight: 400; font-size: 11px; letter-spacing: 0; color: #3fe0c8; }
+.skr-t > span { font-size: 11px; line-height: 15px; color: #8c7f6d; }
+.skr-dots { flex: none; display: flex; gap: 3px; width: 33px; }
+.skr-dots i { width: 9px; height: 9px; border-radius: 50%; border: 1px solid #4a3a2a; background: #070504; }
+.skr-dots i.on { border-color: #fff; background: radial-gradient(circle at 35% 30%, #fff, #b9c0d6 60%, #6a7088); }
+.skr-k { flex: none; min-width: 34px; padding: 0 5px; font-size: 11px; line-height: 20px; text-align: center; color: #ffe2b0; background: #2a170b; border: 1px solid #6f3a14; border-radius: 3px; white-space: nowrap; }
+.skr-k.none { visibility: hidden; }
+.sup-row .skr-ic { --c: inherit; }
+.spr-loc { flex: none; max-width: 40%; overflow: hidden; font-size: 11px; color: var(--faint); white-space: nowrap; text-overflow: ellipsis; }
+.sup-row.used .spr-loc { color: #3fe0c8; }
+.sup-row.used { border-left-color: #3fe0c8; }
+.barslot[data-act], .wbarslot[data-act] { cursor: pointer; }
+.barslot[data-act]:hover, .wbarslot[data-act]:hover { border-color: #4a3524; }
+.wsl em, .usl em { font-size: 11px; } /* 10 → 11 px：最小字号 11 */
+.sk-auto kbd, .alt-h kbd { font-size: 11px; }
+/* 卡片里的「详情」折叠（窄屏，不用长按） */
+.alt-fold { margin-top: 6px; }
+.alt-fold summary { display: flex; align-items: center; min-height: 32px; font-size: var(--fs-sm); color: var(--bronze); cursor: pointer; list-style: none; }
+.alt-fold summary::-webkit-details-marker { display: none; }
+.alt-fold summary::before { content: ''; width: 0; height: 0; margin-right: 6px; border: 4px solid transparent; border-left-color: currentColor; border-right: none; }
+.alt-fold[open] summary::before { transform: rotate(90deg); }
+.alt-fd { padding: 6px 8px; font-size: var(--fs-sm); line-height: 18px; color: #cdbfa6; background: #0d0907; border: 1px solid #261c14; border-radius: 2px; }
+
+/* 技能卡 / 辅助卡（.sheet.skc）：卡片的颜色跟着技能 */
+.sheet.skc { --c: var(--rc); }
+.sheet.skc .sh-head .sk-icon { width: 40px; height: 40px; }
+.sheet.skc .sh-head .sk-icon .ico { width: 34px; height: 34px; }
+.sheet.skc .sh-head .sk-icon .wsk-slot { font-size: 16px; }
+.sheet.skc .sh-name { color: color-mix(in srgb, var(--c) 60%, #fff); }
+.sheet.skc .sh-name em { margin-left: 8px; font-family: var(--sans); font-style: normal; font-weight: 400; font-size: var(--fs-xs); letter-spacing: 0; color: #3fe0c8; }
+.sheet.skc .sh-name .sk-vn { margin-left: 6px; font-size: var(--fs-xs); }
+.skc-in { padding: 8px 10px 4px; }
+.skc-in.skill-card, .skc-in.wsk-card { background: none; border: none; border-radius: 0; box-shadow: none; }
+.skc-in > .sk-socks { margin: 0 0 8px; }
+.skc-in > .sk-desc { margin-top: 0; }
+.skc-in .sk-up { margin-bottom: 8px; }
+.skc-in .sk-up .blank-up { margin-left: 0; }
+.supc .sup-desc { margin-top: 0; font-size: var(--fs-base); line-height: 19px; }
+.spc-at { margin: 8px 0 10px; font-size: var(--fs-sm); color: var(--dim); }
+.sh-acts .sh-al { flex: none; align-self: center; font-size: var(--fs-sm); color: var(--dim); }
+.sh-acts .btn.sk-bind.on { color: #fff3dc; background: linear-gradient(180deg, #b4551c, #6f2c0b); border-color: #ffb066; }
+.sh-msg.bk-msg { font-size: var(--fs-sm); color: #d8c8ff; }
+
+/* ---- 窄屏 / 触屏：技能栏一行 44 px，子页签，列表是唯一的滚动区；卡片侧滑 / 底部升起 ---- */
+@media (max-width: 900px), (max-height: 500px) {
+  .skp.cpt { position: relative; height: 100%; display: flex; flex-direction: column; min-height: 0; }
+  .skp.cpt .barstrip { gap: 4px; }
+  .skp.cpt .barslot, .skp.cpt .wbarslot { height: 44px; max-width: none; padding: 0 0 0 3px; }
+  .skp.cpt .bs-icon { width: 36px; height: 36px; }
+  .skp.cpt .barslot .bs-txt, .skp.cpt .wbarslot .bs-txt { margin: 0 4px 0 6px; }
+  .skp.cpt .bs-txt span { font-size: var(--fs-xs); line-height: 14px; letter-spacing: 0; }
+  .skp.cpt .bs-txt b { font-size: var(--fs-sm); line-height: 17px; letter-spacing: 0; }
+  .skp.cpt .subtabs { margin-top: 4px; }
+  .skp.cpt .sk-list { margin-top: 8px; padding-right: 0; }
+  .skp.cpt .skr-t b { font-size: var(--fs-base); }
+  .skp.cpt > .pg-note { flex: none; min-height: 22px; margin: 4px 0 0; padding: 3px 4px 0; font-size: var(--fs-sm); line-height: 16px; }
+  .skp.cpt .blank-bar { margin: 0 0 8px; padding: 6px 8px; }
+  .skp.cpt .bk-top b { font-size: var(--fs-md); }
+  .skp.cpt .skill-more { padding: 0; border: none; }
+  .skp.cpt .sm-list { flex-direction: column; gap: 2px; margin-top: 6px; }
+  .skp.cpt .sm-list span, .skp.cpt .sm-learn { min-height: 44px; width: 100%; }
+  .skp.cpt .sm-learn em { margin-left: auto; }
+  .skp.cpt .sm-title span { display: block; margin: 2px 0 0; letter-spacing: 0; }
+  .skp.cpt .subtab.dim { opacity: 0.5; }
+  /* 卡片里能点的都不小于 44 px */
+  .sheet.skc .sock { height: 44px; border-radius: 22px; overflow: hidden; text-overflow: ellipsis; }
+  .sheet.skc .sv-btn { min-height: 44px; padding: 0 10px; }
+  .sheet.skc .sk-var { gap: 4px; }
+  .sheet.skc .blank-up, .sheet.skc .sk-auto-btn { min-height: 44px; }
+  .sheet.skc .alt-fold summary { min-height: 44px; }
+  .sheet.skc .pk-row { min-height: 44px; }
+  .sheet.skc .pk-back { min-width: 64px; height: 44px; font-size: var(--fs-base); }
+  .sheet.skc .wsk-row { gap: 2px; }
+  .sheet.skc .sk-nums .sk-num b { font-size: 16px; }
+  .sheet.skc .sh-acts .btn.sk-bind { flex: 1 1 0; letter-spacing: 0; }
+}
+/* 竖屏：技能栏五个 64 px 的方块（图标 + 键名），卡片从底部升起。旋转横屏（html.t-rot）不套这一段 */
+@media (max-width: 600px) {
+  :where(html:not(.t-rot)) .skp.por .barstrip { justify-content: center; }
+  :where(html:not(.t-rot)) .skp.por .barslot, :where(html:not(.t-rot)) .skp.por .wbarslot { flex: 0 1 64px; height: 64px; flex-direction: column; justify-content: center; padding: 2px 0; }
+  :where(html:not(.t-rot)) .skp.por .bs-icon { width: 40px; height: 40px; }
+  :where(html:not(.t-rot)) .skp.por .barslot .bs-txt, :where(html:not(.t-rot)) .skp.por .wbarslot .bs-txt { margin: 1px 0 0; text-align: center; }
+  :where(html:not(.t-rot)) .skp.por .bs-txt b { display: none; }
+  :where(html:not(.t-rot)) .skp.por .subtabs .ui-q.in-page { margin: 0 0 -8px auto; padding-bottom: 8px; background: none; border: none; }
 }

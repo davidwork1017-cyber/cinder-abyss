@@ -266,6 +266,73 @@ await step('面板布局（UI-R B1）：844×340 / 390×844 下背包（空、�
   return '2 个尺寸 × 8 个状态 = ' + n + ' 次检查';
 });
 
+await step('面板布局（UI-R B2）：844×340 / 390×844 下技能页（列表、说明、技能卡、选辅助、武器技卡、辅助、辅助卡、学习）都过 a–f 检查，点卡片外面能收起', async () => {
+  const k = await ev(() => {
+    G.debug.hold(true);
+    const s = G.save;
+    G.debug.setLevel(30);
+    G.debug.learnAll();
+    for (const id of Object.keys(G.SUPPORTS).slice(0, 10)) if (!s.supports.includes(id)) s.supports.push(id);
+    s.blankGems = [22];
+    const sup = s.supports.find((x) => G.supportFits(s.bar[0], x));
+    if (sup && !Object.values(s.sockets).some((a) => a && a.includes(sup))) G.socketSupport(s.bar[0], 0, sup);
+    G.computeStats();
+    return s.bar[0];
+  });
+  const vp0 = page.viewportSize();
+  const bad = [];
+  let n = 0;
+  const settle = () => ev(async () => {
+    for (const x of document.querySelectorAll('#panel-win, #panel-win *, #panel .sheet')) for (const a of x.getAnimations()) await a.finished.catch(() => {});
+  });
+  for (const [w, h] of [[844, 340], [390, 844]]) {
+    await page.setViewportSize({ width: w, height: h });
+    await page.waitForTimeout(300);
+    const states = [
+      ['列表', 'skills', []],
+      ['说明', 'skills', [w <= 600 ? '#panel-body [data-act="hint"]' : '#panel-q']],
+      ['技能卡', 'skills', ['.sk-list [data-act="sk-sel"][data-skill="' + k + '"]'], true],
+      ['选辅助', k, ['.sheet .sock[data-skill="' + k + '"]:not(.full)'], true],
+      ['武器技卡', 'skills', ['.sk-list [data-act="sk-sel"][data-skill="wskill"]'], true],
+      ['辅助', 'sup', []],
+      ['辅助卡', 'sup', ['.sup-row'], true],
+      ['学习', 'learn', []],
+    ];
+    for (const [id, sub, taps, card] of states) {
+      n++;
+      try {
+        await ev((sub) => { G.ui.close(); G.ui.open('skills', sub); }, sub);
+        await page.waitForTimeout(150);
+        for (const sel of taps) {
+          await tap(sel);
+          await page.waitForTimeout(200);
+        }
+        await settle();
+        const r = await ev(uiLayoutCheck, { touch: true, max: 3 });
+        if (r.n) bad.push(w + '×' + h + ' ' + id + '：' + Object.entries(r.res).map(([k, v]) => k + ' ' + v.n + '（' + v.s.join('；') + '）').join(' '));
+        if (card) {
+          assert(await ev(() => !!document.querySelector('#panel .sheet')), id + ' 没有打开卡片');
+          const p = await ev(uiBlankPoint);
+          assert(p, id + ' 卡片外面找不到空白处');
+          await page.touchscreen.tap(p.x, p.y);
+          await page.waitForTimeout(200);
+          if (await ev(() => !!document.querySelector('#panel .sheet'))) bad.push(w + '×' + h + ' ' + id + '：点卡片外面没有收起');
+        }
+      } catch (e) {
+        bad.push(w + '×' + h + ' ' + id + '：' + String(e.message || e).slice(0, 200));
+      }
+    }
+  }
+  await ev(() => {
+    G.ui.close();
+    G.debug.hold(false); // 还回去，后面的步骤要看游戏在跑
+  });
+  if (vp0) await page.setViewportSize(vp0);
+  await page.waitForTimeout(300);
+  assert(!bad.length, bad.length + ' 处不合格：' + bad.slice(0, 6).join(' ｜ '));
+  return '2 个尺寸 × 8 个状态 = ' + n + ' 次检查';
+});
+
 await step('画面：渲染在跑（时间在走、没有丢失上下文），纹理内存', async () => {
   const t0 = await ev(() => G.state.time);
   await page.waitForTimeout(1500);
