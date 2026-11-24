@@ -4116,13 +4116,16 @@ body.paused #reticle, body.paused #coach { display: none; }
 
 /* ============================================================
    触屏 HUD（js/touch.js）：全部写在 html.touch-ui 下面，桌面不受影响
-   安全区：真机用 env(safe-area-inset-*)，测试用 --t-safe-* 假装
+   安全区：真机用 env(safe-area-inset-*)，测试用 --t-safe-* 假装。
+   iPhone 的屏幕四角是圆的（半径约 47 px），普通 Chrome 标签页里安全区读出来常常是 0：左右至少留 12 px、顶上那一排 4 px，
+   贴边的东西再各自加 6～10 px，角上的字和按钮就落在圆角里面（test/corner-mask.mjs 量）
    ============================================================ */
 html.touch-ui {
   --sa-t: max(env(safe-area-inset-top, 0px), var(--t-safe-t, 0px));
-  --sa-r: max(env(safe-area-inset-right, 0px), var(--t-safe-r, 0px));
+  --sa-t4: max(var(--sa-t), 4px); /* 顶上那一排（顶栏、小地图、面板页头）用 */
+  --sa-r: max(env(safe-area-inset-right, 0px), var(--t-safe-r, 0px), 12px);
   --sa-b: max(env(safe-area-inset-bottom, 0px), var(--t-safe-b, 0px));
-  --sa-l: max(env(safe-area-inset-left, 0px), var(--t-safe-l, 0px));
+  --sa-l: max(env(safe-area-inset-left, 0px), var(--t-safe-l, 0px), 12px);
   --cr: calc(var(--sa-r) + 10px);
   --cb: calc(var(--sa-b) + 10px);
   -webkit-touch-callout: none;
@@ -4138,7 +4141,7 @@ html.touch-ui.title-on #t-top, html.touch-ui.title-on #t-stick, html.touch-ui.ti
 #t-safe { position: fixed; top: var(--sa-t); right: var(--sa-r); bottom: var(--sa-b); left: var(--sa-l); visibility: hidden; pointer-events: none; }
 
 /* 左上：生命 / 法力横条 + 面板入口 */
-#t-top { position: fixed; left: calc(var(--sa-l) + 8px); top: calc(var(--sa-t) + 6px); z-index: 6; display: flex; align-items: flex-start; gap: 8px; }
+#t-top { position: fixed; left: calc(var(--sa-l) + 8px); top: calc(var(--sa-t4) + 6px); z-index: 6; display: flex; align-items: flex-start; gap: 8px; }
 .t-bars { width: 148px; display: flex; flex-direction: column; gap: 4px; padding-top: 2px; }
 .t-bar { position: relative; height: 18px; overflow: hidden; background: rgba(10, 7, 5, 0.82); border: 1px solid #6b4e30; border-radius: 3px; }
 .t-bar i { position: absolute; inset: 0; transform-origin: left center; }
@@ -4231,7 +4234,7 @@ html.touch-ui #flask-mana[data-tb] { right: calc(var(--cr) + 214px); bottom: cal
 #t-f.on { display: grid; }
 
 /* 浮动摇杆：左下 45% 宽、下一半高的区域里落指生成 */
-#t-stick { position: fixed; left: 0; bottom: 0; width: 45%; height: 50%; z-index: 5; }
+#t-stick { position: fixed; left: 0; bottom: 0; width: 45%; height: 50%; z-index: 5; border-bottom-left-radius: 50px; } /* 圆角跟着屏幕的圆角走（圆角外本来也按不到） */
 #t-stick i { position: fixed; left: 0; top: 0; display: none; border-radius: 50%; pointer-events: none; }
 #t-stick.on i { display: block; }
 #t-stick .t-base { width: 108px; height: 108px; margin: -54px 0 0 -54px; background: rgba(20, 13, 9, 0.35); border: 2px solid rgba(242, 223, 184, 0.45); box-sizing: border-box; }
@@ -4260,6 +4263,11 @@ html.touch-ui #intro-go { height: 44px; }
 html.touch-ui #intro-go kbd { display: none; }
 /* 触屏没有键盘：菜单和面板上的按键角标（Esc、Enter）不显示 */
 html.touch-ui .m-btn kbd, html.touch-ui .m-head kbd, html.touch-ui #panel-close kbd { display: none; }
+/* 铺满屏幕的面板：四边让出安全区（含上面的最小边距），「关闭」再往里收一点，不碰右上的圆角 */
+@media (max-width: 900px), (max-height: 500px) {
+  html.touch-ui #panel-win { box-sizing: border-box; padding: var(--sa-t4) var(--sa-r) var(--sa-b) var(--sa-l); }
+  html.touch-ui #panel-close { margin: 6px 4px 0 0; }
+}
 
 /* 触屏：可见高度。iOS 上 100vh 是工具栏收起时的高度，比看得见的高；js/touch.js 按 visualViewport 写 --app-h（没有就用 dvh）。
    全屏的层用 inset: 0（贴着可见区域），这里只把按 vh 算尺寸的几处换掉 */

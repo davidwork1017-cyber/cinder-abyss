@@ -3,6 +3,7 @@
 // 分两份（见 test/README.md）：main() 是 test:func（不看墙钟，可以和别的 Chrome 一起跑），timedMain() 是 test:timed（要独占机器）。
 // node test/smoke.mjs = 两份都跑（先 func 后 timed）；--func / --timed 只跑一份。
 import { launch as launchFull, GAME_URL } from './harness.mjs';
+import { cornerScenes } from './corner-mask.mjs';
 import { execSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 import { checkArt } from '../tools/check-art.mjs';
@@ -25186,8 +25187,25 @@ async function touchSteps() {
     return '暂停时 time ' + t0;
   });
 
-  await step('触屏：首次提示卡每台设备只出一次（全局键，换角色也不再出）；设置里「触屏操作」能关掉、再改回自动', async () => {
+  await step('触屏：首次提示卡只给没弹开场卡片的角色，每台设备只出一次（全局键，换角色也不再出）；设置里「触屏操作」能关掉、再改回自动', async () => {
+    // 这一页开头弹过触屏版的开场卡片，提示卡就不该再出（新角色只看一张教程，见「新角色只弹一张操作教程」）。
+    // 提示卡留给开场卡片早就看过的角色（触屏上线前的老角色）：清掉设备键、开场卡片记成看过，重载
     await ev((k) => localStorage.removeItem(k), TOUCH_HINT_KEY);
+    await frames(3);
+    const a0 = await ev(() => G.touch.state());
+    assert(!a0.hint, '这一页弹过开场卡片，不该再弹提示卡：' + JSON.stringify(a0));
+    await ev((k) => {
+      localStorage.removeItem(k);
+      G.save.seenHelp = true;
+      G.persist();
+    }, TOUCH_HINT_KEY);
+    await page.reload({ timeout: 90000 });
+    await install();
+    await ev(() => {
+      G.ui.close();
+      G.debug.hold(true);
+      T.tapsOn = () => G.input.tap.some((v) => v > 0) || G.input.mouse.b.some(Boolean);
+    });
     await frames(3);
     const a = await ev(() => ({ st: G.touch.state(), vis: T.rect('#t-hint .th-card'), txt: document.getElementById('t-hint').innerText, paused: G.state.paused }));
     assert(a.st.hint && a.st.blocked && a.paused && a.vis && a.vis.w > 0, '没看过时应弹出提示卡并暂停：' + JSON.stringify(a));
@@ -25203,6 +25221,7 @@ async function touchSteps() {
     await ev(() => {
       G.ui.close();
       G.debug.hold(true);
+      T.tapsOn = () => G.input.tap.some((v) => v > 0) || G.input.mouse.b.some(Boolean);
     });
     await frames(3);
     const c = await ev(() => G.touch.state());
@@ -25612,6 +25631,86 @@ async function touchSteps() {
     const bad = out.filter((r) => r.bad.length || (r.appH !== undefined && r.appH !== r.size.split('×')[1] + 'px'));
     assert(!bad.length, '矮屏下有东西跑出屏幕：' + JSON.stringify(bad));
     return out.map((r) => r.size).join('，');
+  });
+
+  await step('触屏：新角色只弹一张操作教程（触屏版开场卡片，之后不再接着弹「触屏操作」卡）；刷新、转竖屏再转回都不补弹', async () => {
+    if (browser) await browser.close().catch(() => {});
+    ({ browser, page, errors } = await launch({ width: 844, height: 390, mobile: { scale: 3 }, title: true }));
+    await until(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, 90000);
+    // 每帧看开场卡片和提示卡：打开的那一刻记一笔（页面重载后重新装）
+    const watch = () =>
+      ev(() => {
+        window.__tut = [];
+        const last = {};
+        const f = () => {
+          for (const [id, k] of [['intro', 'intro'], ['t-hint', 'hint']]) {
+            const n = document.getElementById(id);
+            const on = !!(n && n.classList.contains('on'));
+            if (on && !last[k]) window.__tut.push(k);
+            last[k] = on;
+          }
+          requestAnimationFrame(f);
+        };
+        requestAnimationFrame(f);
+      });
+    // 新游戏 → 选职业 → 页面重载进区 → 开场故事（跳过）→ 开场卡片
+    await ev(() => document.getElementById('t-new').click());
+    await until(() => G.ui.classView && G.ui.classView());
+    const tapEl = async (sel) => {
+      const r = await ev((sel) => {
+        const b = document.querySelector(sel).getBoundingClientRect();
+        return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+      }, sel);
+      await page.touchscreen.tap(r.x, r.y);
+    };
+    await tapEl('.cl-card[data-cls]');
+    await tapEl('[data-tact="cl-ok"]').catch(() => {}); // 有旧存档时选完职业会重载页面；新的浏览器配置直接开始
+    await until(() => window.G && G.ui && G.state && G.state.zone && G.player && G.player.ent && !G.ui.titleOn() && G.ui.storyOn(), null, 90000);
+    await watch();
+    await until(() => document.querySelector('#story.ready .st-skip'), null, 30000); // 故事脚本用到时才加载
+    await ev(() => document.querySelector('#story .st-skip').click());
+    await until(() => document.getElementById('intro').classList.contains('on'), null, 30000);
+    const a = await ev((k) => ({ txt: document.querySelector('.intro-keys').innerText, key: localStorage.getItem(k), on: G.touch.on, cls: G.save.cls }), TOUCH_HINT_KEY);
+    assert(a.on && /拖动/.test(a.txt) && /大按钮/.test(a.txt) && !/[WASD]|右键|左键|空格/.test(a.txt), '触屏下开场卡片应是触屏说法：' + JSON.stringify(a));
+    const go = await ev(() => {
+      const r = document.getElementById('intro-go').getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    await page.touchscreen.tap(go.x, go.y);
+    await until(() => !document.getElementById('intro').classList.contains('on'), null, 10000);
+    await sleep(2500);
+    await frames(10);
+    const b = await ev((k) => ({ tut: window.__tut, st: G.touch.state(), key: localStorage.getItem(k), open: G.ui.isOpen() }), TOUCH_HINT_KEY);
+    assert(JSON.stringify(b.tut) === '["intro"]' && !b.st.hint && !b.st.blocked && !b.open && b.key === '1', '新角色应只弹开场卡片一张：' + JSON.stringify(b));
+    // 刷新（回到标题画面，点「继续游戏」）：一张都不补
+    await page.reload({ timeout: 90000 });
+    await until(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, 90000);
+    await watch();
+    await ev(() => document.getElementById('t-continue').click());
+    await until(() => !G.ui.titleOn() && G.state.zone);
+    await sleep(2500);
+    await frames(10);
+    const c = await ev(() => ({ tut: window.__tut, st: G.touch.state(), seen: G.save.seenHelp }));
+    assert(!c.tut.length && !c.st.hint && c.seen, '刷新后不该再弹教程：' + JSON.stringify(c));
+    // 转竖屏再转回横屏
+    await page.setViewportSize({ width: 390, height: 844 });
+    await frames(5);
+    const p = await ev(() => G.touch.state().portrait);
+    await page.setViewportSize({ width: 844, height: 390 });
+    await sleep(1500);
+    await frames(10);
+    const d = await ev(() => ({ tut: window.__tut, st: G.touch.state() }));
+    assert(p && !d.tut.length && !d.st.hint && !d.st.portrait, '转竖屏再转回不该再弹教程：' + JSON.stringify({ p, d }));
+    return a.cls + '：开场卡片 1 张；刷新、转屏后 0 张';
+  });
+
+  await step('触屏：iPhone 圆角（四角各一块半径 47 px 的遮罩）——844×390 / 844×340 / 667×320 下标题、职业选择、开场故事、HUD（提示卡、旁白卡、首领条、F 键）、背包、技能、暂停菜单、开场卡片的字和按钮都不碰圆角', async () => {
+    if (browser) await browser.close().catch(() => {});
+    ({ browser, page, errors } = await launch({ width: 844, height: 390, mobile: { scale: 3 }, title: true }));
+    await until(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, 90000);
+    const r = await cornerScenes(page, [[844, 390], [844, 340], [667, 320]]);
+    assert(!r.bad.length, '有字或按钮碰到圆角：' + r.bad.join(' ｜ '));
+    return r.lines.length + ' 个画面，共量 ' + r.lines.reduce((n, l) => n + +l.split(' ').pop(), 0) + ' 个框';
   });
 
   await step('触屏：桌面窗口不开触屏模式（没有 html.touch-ui、没有触屏 DOM、G.touch.on 为假），开场卡片的「开始」在 1280×360 / 1024×360 里也在屏内', async () => {
