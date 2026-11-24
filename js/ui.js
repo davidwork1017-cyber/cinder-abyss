@@ -5096,6 +5096,25 @@
     const v = G.save.opts[k] | 0;
     return '<div class="vol"><input type="range" tabindex="-1" min="0" max="100" step="5" value="' + v + '" data-tact="vol" data-k="' + k + '"><output>' + v + '</output></div>';
   }
+  // 手机版 M2 的触屏设置（只在触屏模式下显示；存在这台设备上）：按钮大小、左手模式、震动（没有震动接口的设备不显示）、画面清晰度（只显示）
+  const SET_TS = [['s', '小'], ['m', '中'], ['l', '大']];
+  function touchSettings(row) {
+    const P = G.touch.prefs;
+    const gi = G.world.gfxInfo ? G.world.gfxInfo() : null;
+    const pct = gi ? Math.round(gi.scale * 100) : 100;
+    return (
+      row('按钮大小', '右下的攻击、技能、翻滚键',
+        '<div class="seg">' + SET_TS.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (P.size === o[0] ? ' on' : '') + '" data-tact="tsize" data-v="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') +
+      row('左手模式', '摇杆放右边，按钮放左边',
+        '<button type="button" tabindex="-1" class="switch' + (P.mirror ? ' on' : '') + '" data-tact="tmirror"><i></i></button>') +
+      (G.touch.canVibe()
+        ? row('震动', '挨重击、翻滚、残血时短震一下',
+            '<button type="button" tabindex="-1" class="switch' + (P.vibe ? ' on' : '') + '" data-tact="tvibe"><i></i></button>')
+        : '') +
+      row('画面清晰度', gi && gi.floor ? '低画质还在掉帧，已自动降到 70%（这次运行有效）' : '跟着画质走；低画质还掉帧时自动降到 70%',
+        '<span class="m-val' + (gi && gi.floor ? ' warn' : '') + '" data-scale="' + pct + '">' + pct + '%</span>')
+    );
+  }
   function menuSettings() {
     const S = G.save;
     const q = G.world.quality ? G.world.quality() : S.opts.quality;
@@ -5106,6 +5125,7 @@
       // 触屏操作（mobile M1）：自动 = 手机、平板上打开；存在这台设备上（不进存档）
       (G.touch ? row('触屏操作', '自动：手机、平板上打开',
         '<div class="seg">' + SET_T.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (G.touch.mode === o[0] ? ' on' : '') + '" data-tact="touchmode" data-m="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') : '') +
+      (touchOn() ? touchSettings(row) : '') +
       row('普通物品', '魔法、稀有物品总是自动拾取',
         '<div class="seg">' + SET_N.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (normMode() === o[0] ? ' on' : '') + '" data-tact="normmode" data-mode="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') +
       row('折叠普通物品的名牌', '地上只留一个小点，悬停或按住 Alt 展开',
@@ -5124,7 +5144,9 @@
       row('静音', '关掉所有声音',
         '<button type="button" tabindex="-1" class="switch' + (S.opts.mute ? ' on' : '') + '" data-tact="opt" data-opt="mute"><i></i></button>') +
       SET_VOL.map((o) => row(o[1], o[2], volSlider(o[0]))).join('') +
-      '<p class="m-note">设置会存进存档，前三项在游戏里的地图页也能改。</p>'
+      (touchOn()
+        ? '<p class="m-note">画质、普通物品和名牌折叠在游戏里的地图页也能改。触屏的几项只存在这台设备上，不进存档。</p>'
+        : '<p class="m-note">设置会存进存档，前三项在游戏里的地图页也能改。</p>')
     );
   }
   function menuHelp() {
@@ -5342,6 +5364,21 @@
   const MENU_ACT = {
     touchmode(d) {
       if (G.touch) G.touch.setMode(d.m);
+      G.sfx('click');
+      renderMenu();
+    },
+    tsize(d) {
+      if (G.touch) G.touch.setPref('size', d.v);
+      G.sfx('click');
+      renderMenu();
+    },
+    tmirror() {
+      if (G.touch) G.touch.setPref('mirror', !G.touch.prefs.mirror);
+      G.sfx('click');
+      renderMenu();
+    },
+    tvibe() {
+      if (G.touch) G.touch.setPref('vibe', !G.touch.prefs.vibe);
       G.sfx('click');
       renderMenu();
     },

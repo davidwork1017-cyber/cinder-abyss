@@ -10,6 +10,10 @@
   // 设备级的设置（不进存档：触屏是这台设备的属性，换角色也不变）。隐私模式下存储可能抛错，读写都包着
   const MODE_KEY = 'cinder-abyss-touch'; // 'auto' | 'on' | 'off'，没有 = auto
   const HINT_KEY = 'cinder-abyss-touch-hint'; // 首次提示卡看过了
+  // M2 的触屏设置，也存在这台设备上：按钮大小 s / m / l（没有 = m）、左手模式（'1' = 开）、震动（'0' = 关，没有 = 开）
+  const SIZE_KEY = 'cinder-abyss-touch-size';
+  const MIRROR_KEY = 'cinder-abyss-touch-mirror';
+  const VIBE_KEY = 'cinder-abyss-touch-vibe';
   const lsGet = (k) => {
     try {
       return window.localStorage.getItem(k);
@@ -40,6 +44,13 @@
   // iPadOS 的 UA 写 Macintosh，靠 coarse 也认得出
   const autoOn = () => !!(mq && mq.matches && (navigator.maxTouchPoints > 0 || 'ontouchstart' in window));
 
+  const readPrefs = () => {
+    const sz = lsGet(SIZE_KEY);
+    return { size: sz === 's' || sz === 'l' ? sz : 'm', mirror: lsGet(MIRROR_KEY) === '1', vibe: lsGet(VIBE_KEY) !== '0' };
+  };
+  // 安卓的 Chrome / 火狐有 navigator.vibrate；iPhone（包括 iPhone 上的 Chrome，底层是 WebKit）没有，震动这一项整个不显示
+  const canVibe = () => typeof navigator.vibrate === 'function';
+
   const T = (G.touch = {
     on: false,
     mode: readMode(),
@@ -47,7 +58,74 @@
     portrait: false,
     autoOn,
     setMode,
+    prefs: readPrefs(),
+    setPref,
+    canVibe,
   });
+  function setPref(k, v) {
+    const P = T.prefs;
+    if (k === 'size') {
+      P.size = v === 's' || v === 'l' ? v : 'm';
+      lsSet(SIZE_KEY, P.size === 'm' ? null : P.size);
+    } else if (k === 'mirror') {
+      P.mirror = !!v;
+      lsSet(MIRROR_KEY, P.mirror ? '1' : null);
+    } else if (k === 'vibe') {
+      P.vibe = !!v;
+      lsSet(VIBE_KEY, P.vibe ? null : '0');
+      if (P.vibe) buzz('roll', true); // 打开时震一下，知道是什么感觉
+    }
+    applyPrefs();
+    return P;
+  }
+  function applyPrefs() {
+    const c = document.documentElement.classList, on = T.on, P = T.prefs;
+    c.toggle('t-size-s', on && P.size === 's');
+    c.toggle('t-size-l', on && P.size === 'l');
+    c.toggle('t-mirror', on && P.mirror);
+    if (on) layout();
+  }
+
+  // ---------- 震动（安卓）：重击、翻滚、残血时短震。只读玩家状态，不碰模拟；两次之间至少隔 120 ms，残血每 6 秒最多一次 ----------
+  const BUZZ = { hit: 35, roll: 12, exec: 28, low: [40, 70, 40] };
+  const BUZZ_GAP = 120;
+  const LOW_FRAC = 0.3, LOW_GAP = 6000;
+  const HIT_FRAC = 0.12; // 一帧里掉了这么多最大生命 = 重击
+  const vb = { last: -1e9, lowAt: -1e9, life: -1, roll: false, exec: false, low: false, n: 0, log: [] };
+  function buzz(kind, force) {
+    if (!canVibe() || (!force && !(T.on && T.prefs.vibe))) return false;
+    const now = performance.now();
+    if (!force && now - vb.last < BUZZ_GAP) return false;
+    vb.last = now;
+    try {
+      navigator.vibrate(BUZZ[kind]);
+    } catch (e) {
+      return false;
+    }
+    vb.n++;
+    vb.log.push(kind);
+    if (vb.log.length > 20) vb.log.shift();
+    return true;
+  }
+  function vibeWatch(now) {
+    const P = G.player;
+    if (!P || !G.state.zone || P.dead || G.state.paused) {
+      vb.life = -1;
+      return;
+    }
+    const max = P.maxLife || 1;
+    if (vb.life >= 0 && vb.life - P.life >= max * HIT_FRAC) buzz('hit');
+    vb.life = P.life;
+    const rolling = P.roll.t > 0;
+    if (rolling && !vb.roll) buzz('roll');
+    vb.roll = rolling;
+    const ex = !!(P.exec && P.exec.hit);
+    if (ex && !vb.exec) buzz('exec');
+    vb.exec = ex;
+    const low = P.life < max * LOW_FRAC;
+    if (low && (!vb.low || now - vb.lowAt >= LOW_GAP) && buzz('low')) vb.lowAt = now;
+    vb.low = low;
+  }
   const want = () => T.mode === 'on' || (T.mode === 'auto' && autoOn());
   function apply() {
     const w = want();
@@ -682,8 +760,11 @@
     window.addEventListener('blur', releaseAll);
     window.addEventListener('pagehide', releaseAll);
     setManifest(true);
+    setThemeColor(true);
+    applyPrefs();
     layout();
     if (!raf) raf = requestAnimationFrame(tick);
+    lockLandscape();
   }
   function disable() {
     T.on = false;
@@ -713,6 +794,8 @@
     window.removeEventListener('blur', releaseAll);
     window.removeEventListener('pagehide', releaseAll);
     setManifest(false);
+    setThemeColor(false);
+    applyPrefs();
     document.documentElement.style.removeProperty('--app-h');
     W.mmTouch = null;
     T.blocked = T.portrait = T.hintOn = false;
@@ -746,6 +829,30 @@
       l.href = 'manifest.json';
       document.head.appendChild(l);
     } else if (!on && l) l.remove();
+  }
+
+  // 安卓的地址栏 / 任务切换里的颜色（只在触屏模式下挂；桌面不加，地址栏照旧）
+  function setThemeColor(on) {
+    let m = document.querySelector('meta[name="theme-color"]');
+    if (on && !m) {
+      m = document.createElement('meta');
+      m.name = 'theme-color';
+      m.content = '#0a0706';
+      document.head.appendChild(m);
+    } else if (!on && m) m.remove();
+  }
+  // 从主屏幕全屏打开时（安卓）锁横屏；浏览器里打开、iPhone 上都不支持，悄悄失败就算了（竖屏遮罩照旧兜底）
+  function lockLandscape() {
+    try {
+      const so = screen.orientation;
+      const full = matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || !!document.fullscreenElement;
+      if (full && so && so.lock) {
+        const p = so.lock('landscape');
+        if (p && p.catch) p.catch(() => {});
+      }
+    } catch (e) {
+      /* 不支持 */
+    }
   }
 
   // 安全区：真机读 env()（CSS 里），测试用 --t-safe-* 变量假装；小地图画在 2D 画布上，这里把 CSS 算出来的边距读回来
@@ -812,7 +919,9 @@
     if (T.blocked && !was) releaseAll();
     if (G.ui.isOpen() || T.blocked) {
       if (btns.size || stick) releaseAll();
+      vb.life = -1;
     } else {
+      vibeWatch(now);
       // 按住主攻 / 普攻（没拖动）：每 0.25 秒重新选一次目标，目标死了立刻换
       for (const b of btns.values()) {
         if (!b.held || b.drag) continue;
@@ -881,10 +990,12 @@
     f: !!(dom && dom.fOn),
     labels: labelsOn,
     lp: lp ? (lp.stuck ? 'stuck' : lp.on ? 'on' : 'wait') : '',
+    prefs: Object.assign({}, T.prefs),
+    vibe: { can: canVibe(), n: vb.n, log: vb.log.slice() },
     lpCount: T.lpCount || 0,
     txt: { calls: txtStats.calls, ms: +txtStats.ms.toFixed(2) },
   });
-  T.keys = { MODE_KEY, HINT_KEY };
+  T.keys = { MODE_KEY, HINT_KEY, SIZE_KEY, MIRROR_KEY, VIBE_KEY };
 
   const init = () => {
     if (want()) enable();

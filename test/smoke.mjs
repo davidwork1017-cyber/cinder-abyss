@@ -25605,6 +25605,147 @@ async function touchSteps() {
     return '技能 / 天赋 / 区域卡片长按出详情、松手留着；天赋点亮数 ' + n0 + ' → ' + n1 + '；拖拽穿上鞋子';
   });
 
+  await step('触屏：M2 设置——左手模式（右下拖摇杆能走、左下的按钮能按）、按钮大小、震动（安卓桩：重击 / 翻滚 / 残血各震一次、120 ms 限频、残血不连震、关掉不震、没有 vibrate 时设置里不显示）、低画质掉帧兜底到 0.7（手动选低不兜底，设置里显示 70%）、主题色', async () => {
+    await touchPage();
+    const out = {};
+    // 震动桩：记下每次调用
+    await ev(() => {
+      window.__vib = [];
+      navigator.vibrate = (p) => (window.__vib.push(p), true);
+    });
+    // 主题色：触屏模式挂上 theme-color
+    out.theme = await ev(() => (document.querySelector('meta[name="theme-color"]') || {}).content || null);
+    // 左手模式：摇杆区在右下，按钮簇在左下
+    await ev(() => G.touch.setPref('mirror', true));
+    await frames(2);
+    const x0 = await ev(() => G.player.x);
+    await touch.drag(844 - 150, 300, 844 - 150 + 40, 300, 4);
+    out.mStick = await ev(() => G.touch.state().stick);
+    const x1 = await ev(() => (G.debug.step(0.3), G.player.x));
+    await touch.up();
+    const roll = await tbRect('roll');
+    out.mRoll = roll.x < 422;
+    await touch.tap(roll.x, roll.y);
+    out.mRolled = await ev(() => G.player.roll.t > 0);
+    await ev(() => (G.debug.step(1.2), G.touch.setPref('mirror', false)));
+    await frames(2);
+    out.unMirror = await tbRect('roll');
+    assert(out.theme === '#0a0706', '触屏模式应挂上主题色：' + out.theme);
+    assert(out.mStick && Math.abs(out.mStick.a) < 0.05 && x1 > x0 + 1, '左手模式下在右下拖摇杆应能往右走：' + JSON.stringify({ out, x0, x1 }));
+    assert(out.mRoll && out.mRolled && out.unMirror.x > 422, '左手模式下翻滚键在左边、点了能滚，关掉后回到右边：' + JSON.stringify(out));
+    // 震动：翻滚、重击、残血
+    const vib = async (fn) => {
+      await ev(fn);
+      await frames(3);
+      return ev(() => G.touch.state().vibe.log.slice());
+    };
+    await ev(() => {
+      G.player.life = G.player.maxLife;
+      G.debug.step(1);
+    });
+    await frames(3);
+    const n0 = (await ev(() => G.touch.state().vibe.log)).length;
+    const l1 = await vib(() => G.press('Space'));
+    await sleep(200);
+    const l2 = await vib(() => (G.player.life -= G.player.maxLife * 0.2));
+    await sleep(200);
+    const l2b = await vib(() => (G.player.life = G.player.maxLife * 0.33)); // 又一次重击，还没到残血
+    await sleep(200);
+    const l3 = await vib(() => (G.player.life = G.player.maxLife * 0.25)); // 掉得不多（< 12%），但跌破三成：残血
+    await sleep(1000); // 一直残血：6 秒内不再震
+    const l4 = await ev(() => G.touch.state().vibe.log.slice());
+    // 限频：同一帧里翻滚 + 重击，只震一次
+    await ev(() => {
+      G.player.life = G.player.maxLife;
+      G.debug.step(1.2);
+    });
+    await sleep(200);
+    await frames(2);
+    const c0 = await ev(() => G.touch.state().vibe.n);
+    await ev(() => {
+      G.press('Space');
+      G.player.life -= G.player.maxLife * 0.2;
+    });
+    await frames(3);
+    const c1 = await ev(() => G.touch.state().vibe.n);
+    out.vib = { n0, l1: l1.slice(n0), l2: l2.slice(n0), l2b: l2b.slice(n0), l3: l3.slice(n0), l4: l4.slice(n0), burst: c1 - c0, calls: await ev(() => window.__vib.length) };
+    assert(out.vib.l1.join() === 'roll' && out.vib.l2.join() === 'roll,hit' && out.vib.l2b.join() === 'roll,hit,hit' && out.vib.l3.join() === 'roll,hit,hit,low' && out.vib.l4.join() === 'roll,hit,hit,low', '翻滚 / 重击 / 残血应各震一次、残血不连震：' + JSON.stringify(out.vib));
+    assert(out.vib.burst === 1, '同一帧里翻滚加重击应只震一次（120 ms 限频）：' + JSON.stringify(out.vib));
+    // 设置：关掉震动后不再震；没有 vibrate 时这一项不显示
+    await ev(() => {
+      G.player.life = G.player.maxLife;
+      G.debug.step(1.2);
+      G.ui.pause();
+    });
+    await page.click('#p-menu [data-tact="settings"]');
+    await frames(1);
+    out.rows = await ev(() => Array.from(document.querySelectorAll('#p-view .m-row .opt-text b')).map((b) => b.textContent));
+    await page.click('#p-view [data-tact="tvibe"]');
+    await page.click('#p-view [data-tact="tsize"][data-v="l"]');
+    out.prefs = await ev(() => ({ p: G.touch.state().prefs, k: [localStorage.getItem('cinder-abyss-touch-vibe'), localStorage.getItem('cinder-abyss-touch-size')], cls: document.documentElement.className }));
+    await ev(() => G.ui.close());
+    await sleep(200);
+    const c2 = await ev(() => G.touch.state().vibe.n);
+    await ev(() => G.press('Space'));
+    await frames(3);
+    const c3 = await ev(() => G.touch.state().vibe.n);
+    await ev(() => {
+      G.touch.setPref('vibe', true);
+      G.touch.setPref('size', 'm');
+      delete navigator.vibrate;
+      const had = 'vibrate' in Navigator.prototype;
+      if (had) Object.defineProperty(Navigator.prototype, 'vibrate', { value: undefined, configurable: true, writable: true });
+      G.ui.pause();
+    });
+    await page.click('#p-menu [data-tact="settings"]');
+    await frames(1);
+    out.rowsNoVib = await ev(() => Array.from(document.querySelectorAll('#p-view .m-row .opt-text b')).map((b) => b.textContent));
+    await ev(() => G.ui.close());
+    assert(['按钮大小', '左手模式', '震动', '画面清晰度'].every((k) => out.rows.includes(k)), '设置里应有触屏几项：' + out.rows.join(','));
+    assert(!out.prefs.p.vibe && out.prefs.p.size === 'l' && out.prefs.k[0] === '0' && out.prefs.k[1] === 'l' && /t-size-l/.test(out.prefs.cls), '设置应改到偏好并存在设备上：' + JSON.stringify(out.prefs));
+    assert(c3 === c2, '关掉震动后翻滚不该震：' + JSON.stringify({ c2, c3 }));
+    assert(!out.rowsNoVib.includes('震动') && out.rowsNoVib.includes('按钮大小'), '没有 vibrate（iPhone）时不显示震动这一项：' + out.rowsNoVib.join(','));
+    // 低画质掉帧兜底：手动选低不兜底；自动画质（手机默认低）连续 4 秒帧间隔 > 24 ms → 像素比 0.7，设置里显示 70%
+    const slow = (sec) =>
+      ev(async (sec) => {
+        const t0 = performance.now();
+        await new Promise((res) => {
+          const f = () => {
+            const t = performance.now();
+            while (performance.now() - t < 32) {}
+            if (performance.now() - t0 < sec * 1000) requestAnimationFrame(f);
+            else res();
+          };
+          requestAnimationFrame(f);
+        });
+        return G.world.gfxInfo();
+      }, sec);
+    await ev(() => {
+      G.save.opts.quality = 'low';
+      G.world.scaleFloor = false;
+      G.world.setQuality('low');
+    });
+    out.manual = await slow(5);
+    await ev(() => {
+      G.save.opts.quality = 'auto';
+      G.world.setQuality('auto');
+    });
+    out.q = await ev(() => G.world.quality());
+    out.auto = await slow(5.5);
+    await ev(() => G.ui.pause());
+    await page.click('#p-menu [data-tact="settings"]');
+    await frames(1);
+    out.scaleRow = await ev(() => {
+      const v = document.querySelector('#p-view .m-val[data-scale]');
+      return v ? v.textContent + (v.classList.contains('warn') ? ' warn' : '') : null;
+    });
+    await ev(() => G.ui.close());
+    assert(!out.manual.floor && out.manual.scale === 0.85, '手动选低画质不该兜底：' + JSON.stringify(out.manual));
+    assert(out.q === 'low' && out.auto.floor && out.auto.scale === 0.7, '自动画质在低档还掉帧应降到 0.7：' + JSON.stringify({ q: out.q, auto: out.auto }));
+    assert(out.scaleRow === '70% warn', '设置里应显示 70%：' + out.scaleRow);
+    return '左手模式能走能滚；震动 ' + out.vib.l4.join(' / ') + '、限频 ' + out.vib.burst + ' 次、关掉 0 次；兜底 ' + out.manual.scale + ' → ' + out.auto.scale;
+  });
+
   await step('旁白卡：帧率掉到约 2 fps 时按真实时间放，长度和正常时一样（约 5 秒）；触屏下不压顶栏、小地图、追踪条、按钮簇和提示卡', async () => {
     await touchPage();
     await ev(() => {
@@ -25738,7 +25879,7 @@ async function touchSteps() {
     return ok.log.join(' → ') + '；存档失败：' + bad.log.join(' → ');
   });
 
-  await step('触屏：布局——844×390 / 667×375 / 932×430（含安全区）/ 390×844 / 1024×768 下摇杆区、按钮簇、小地图、追踪、顶栏、首领条互不重叠，按钮 ≥ 44 px 且在屏内，「开始」在屏内', async () => {
+  await step('触屏：布局——844×390 / 667×375 / 932×430（含安全区）/ 390×844 / 1024×768 下摇杆区、按钮簇、小地图、追踪、顶栏、首领条互不重叠，按钮 ≥ 44 px 且在屏内，「开始」在屏内；按钮大小 小 / 中 / 大、左手模式在横屏各尺寸下同样成立', async () => {
     await touchPage();
     const SIZES = [
       [844, 340, null], // iOS 横屏：地址栏 / 工具栏占掉一截的可见高度
@@ -25766,7 +25907,7 @@ async function touchSteps() {
         co.className = 'on';
       }, sa);
       await frames(3);
-      const r = await ev((sa) => {
+      const measure = () => ev((sa) => {
         const W = innerWidth, H = innerHeight;
         const vis = (n) => n && n.getClientRects().length && getComputedStyle(n).display !== 'none' && getComputedStyle(n).visibility !== 'hidden';
         const box = (n) => {
@@ -25797,8 +25938,31 @@ async function touchSteps() {
         const allBtns = btns.concat(Array.from(document.querySelectorAll('#t-top button')).filter(vis).map(box));
         const small = allBtns.filter((b) => b.w < 44 || b.h < 44).length;
         const off = allBtns.filter((b) => b.l < sl || b.t < st || b.r > W - sr || b.b > H - sb).length;
-        return { size: W + '×' + H, sa: !!sa, n: allBtns.length, hits, small, off, portrait: G.touch.state().portrait, ks: ks.join('/') };
+        const P = G.touch.state().prefs;
+        // 左手模式：按钮簇的中心在左半边、摇杆区的中心在右半边；不是左手模式时反过来
+        const cx = (b) => (b.l + b.r) / 2;
+        const side = !areas.cluster || !areas.stick ? 'ok' : P.mirror ? (cx(areas.cluster) < W / 2 && cx(areas.stick) > W / 2 ? 'ok' : 'bad') : cx(areas.cluster) > W / 2 && cx(areas.stick) < W / 2 ? 'ok' : 'bad';
+        const big = document.querySelector('[data-tb="s0"]');
+        return { size: W + '×' + H, sa: !!sa, pref: P.size + (P.mirror ? '+左手' : ''), n: allBtns.length, hits, small, off, side, s0: vis(big) ? Math.round(box(big).w) : 0, portrait: G.touch.state().portrait, ks: ks.join('/') };
       }, sa);
+      // 按钮大小（小 / 中 / 大）和左手模式：横屏每个尺寸都量一遍
+      const PREFS = w > h && w < 1000 ? [['m', false], ['s', false], ['l', false], ['m', true], ['l', true]] : [['m', false]];
+      let r = null;
+      for (const [size, mirror] of PREFS) {
+        await ev(([size, mirror]) => {
+          G.touch.setPref('size', size);
+          G.touch.setPref('mirror', mirror);
+        }, [size, mirror]);
+        await frames(2);
+        const m = await measure();
+        if (!r) r = m;
+        else out.push(m);
+      }
+      await ev(() => {
+        G.touch.setPref('size', 'm');
+        G.touch.setPref('mirror', false);
+      });
+      await frames(1);
       // 开场卡片有入场动画：打开后等它停下来再量「开始」
       await ev(() => G.ui.showIntro());
       await sleep(700);
@@ -25815,14 +25979,112 @@ async function touchSteps() {
       );
       out.push(r);
     }
-    const bad = out.filter((r) => r.hits.length || r.small || r.off || !r.goOk || (r.portrait ? r.n !== 0 : r.n < 15) || (r.portrait !== (r.size === '390×844')));
+    const bad = out.filter((r) => r.hits.length || r.small || r.off || r.side !== 'ok' || (r.goOk === false) || (r.goOk === undefined && r.pref === 'm') || (r.portrait ? r.n !== 0 : r.n < 15) || (r.portrait !== (r.size === '390×844')));
     assert(!bad.length, '布局有问题：' + JSON.stringify(bad));
+    // 按钮大小确实变了：主攻键 小 < 中 < 大
+    const s0 = (pref) => (out.find((r) => r.size === '844×390' && !r.sa && r.pref === pref) || {}).s0;
+    assert(s0('s') < s0('m') && s0('m') < s0('l'), '按钮大小没变：' + JSON.stringify({ s: s0('s'), m: s0('m'), l: s0('l') }));
     await ev(() => {
       document.getElementById('boss-box').classList.remove('on');
       document.getElementById('t-f').classList.remove('on');
       document.getElementById('coach').className = '';
     });
-    return out.map((r) => r.size + (r.sa ? '+安全区' : '') + ' ' + r.n + ' 键').join('，');
+    return out.filter((r) => r.pref === 'm').map((r) => r.size + (r.sa ? '+安全区' : '') + ' ' + r.n + ' 键').join('，') + '；按钮大小 / 左手模式另量 ' + out.filter((r) => r.pref !== 'm').length + ' 次，主攻键 ' + s0('s') + ' / ' + s0('m') + ' / ' + s0('l') + ' px';
+  });
+
+  await step('触屏：T44——地图页每张区域卡片的「进入」看得见、选项不挤成竖排；技能页的辅助宝石滚得到；天赋页图例不压缩放键；角色页两排卡片都在框里（844×390 / 667×320 / 390×844）', async () => {
+    await touchPage();
+    await ev(() => {
+      G.debug.learnAll();
+      G.debug.setLevel(30);
+      G.computeStats();
+    });
+    const out = [];
+    const ov = (a, b) => a && b && a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+    for (const [w, h] of [[844, 390], [667, 320], [390, 844]]) {
+      await page.setViewportSize({ width: w, height: h });
+      await frames(2);
+      const r = { size: w + '×' + h, bad: [] };
+      await ev(() => G.ui.open('map'));
+      await frames(3);
+      Object.assign(r, await ev(() => {
+        const bad = [];
+        for (const z of document.querySelectorAll('.zone')) {
+          const c = T.rect(z), b = T.rect(z.querySelector('.btn, .z-lock')), nm = z.querySelector('.z-name');
+          if (!b || b.h < 39 || b.t < c.t - 0.5 || b.b > c.b + 0.5) bad.push('进入键 ' + JSON.stringify({ c, b }));
+          if (nm.getBoundingClientRect().height > 26) bad.push('区域名折行');
+        }
+        for (const b of document.querySelectorAll('.map-opts .opt-text b')) if (b.getBoundingClientRect().height > 22) bad.push('选项挤成竖排：' + b.textContent);
+        // 进入键在屏幕里（横屏不用滚，竖屏第一张卡不用滚）
+        const go = T.rect(document.querySelector('.zone .btn'));
+        if (!go || go.b > innerHeight || go.t < 0) bad.push('第一张卡的进入键不在屏里 ' + JSON.stringify(go));
+        // 整页滚到底，选项行最下面那一排（删除角色）够得着
+        const host = document.getElementById('panel-body');
+        host.scrollTop = 1e6;
+        const del = T.rect(document.querySelector('[data-act="del-save"]'));
+        if (!del || del.b > innerHeight + 0.5) bad.push('滚到底也看不到「删除这个角色」' + JSON.stringify(del));
+        host.scrollTop = 0;
+        return { mapBad: bad };
+      }));
+      await ev(() => G.ui.open('skills'));
+      await frames(3);
+      Object.assign(r, await ev(() => {
+        const bad = [];
+        const sl = document.querySelector('.sup-list');
+        const side = document.querySelector('.skills > .col-side');
+        const sc = getComputedStyle(side).overflowY === 'auto' ? side : document.querySelector('.skills');
+        sc.scrollTop = 1e6;
+        const sb = T.rect(sl);
+        if (!sb || sb.t > innerHeight - 40) bad.push('辅助宝石滚不到 ' + JSON.stringify(sb));
+        sc.scrollTop = 0;
+        for (const b of document.querySelectorAll('.barslot, .wbarslot')) {
+          const x = T.rect(b), ic = T.rect(b.querySelector('.bs-icon'));
+          if (x.h < 44 || !ic || ic.w < 30 || x.r > innerWidth + 0.5) bad.push('技能栏格子 ' + JSON.stringify(x));
+        }
+        return { skBad: bad };
+      }));
+      await ev(() => G.ui.open('tree'));
+      await frames(3);
+      Object.assign(r, await ev(() => {
+        const bad = [];
+        const lg = T.rect('.tree-legend'), zm = T.rect('.tree-zoom'), tv = T.rect('.tree-view');
+        if (lg.l < zm.r && zm.l < lg.r && lg.t < zm.b && zm.t < lg.b) bad.push('图例压着缩放键');
+        if (lg.h > 40) bad.push('图例挤成竖排 ' + JSON.stringify(lg));
+        if (lg.b > tv.b + 0.5 || lg.l < tv.l - 0.5) bad.push('图例出了天赋盘');
+        for (const b of document.querySelectorAll('.tree-zoom button')) if (b.getBoundingClientRect().height < 36) bad.push('缩放键太小');
+        return { trBad: bad };
+      }));
+      await ev(() => G.ui.close());
+      out.push(r);
+    }
+    // 角色页：横屏两种高度，六张卡都在框里不用滚
+    const chars = [];
+    for (const [w, h] of [[844, 390], [667, 320]]) {
+      await page.setViewportSize({ width: w, height: h });
+      await frames(2);
+      await ev(() => G.ui.showTitle(true));
+      await until(() => document.querySelector('[data-tact="chars"]') && document.getElementById('title').classList.contains('ready'), null, 30000);
+      await ev(() => document.querySelector('[data-tact="chars"]').click());
+      await frames(3);
+      chars.push(await ev(async () => {
+        for (let el = document.querySelector('.ch-grid'); el; el = el.parentElement) await Promise.all(el.getAnimations().map((x) => x.finished.catch(() => {})));
+        const body = document.querySelector('#title .m-body').getBoundingClientRect();
+        const cards = Array.from(document.querySelectorAll('.ch-card')).map((c) => c.getBoundingClientRect());
+        const cut = cards.filter((c) => c.bottom > body.bottom + 0.5 || c.top < body.top - 0.5).length;
+        const view = document.querySelector('#title .m-view').getBoundingClientRect();
+        return { size: innerWidth + '×' + innerHeight, n: cards.length, cut, viewIn: view.top >= 0 && view.bottom <= innerHeight, rows: new Set(cards.map((c) => Math.round(c.top))).size };
+      }));
+      await page.reload({ timeout: 90000 });
+      await install();
+      await ev(() => {
+        G.save.seenHelp = G.save.seenStory = true;
+        G.ui.close();
+      });
+    }
+    const bad = out.filter((r) => r.mapBad.length || r.skBad.length || r.trBad.length);
+    assert(!bad.length, 'T44 面板还有问题：' + JSON.stringify(bad));
+    assert(chars.every((c) => c.n === 6 && c.cut === 0 && c.viewIn && c.rows === 2), '角色页两排卡片应都在框里：' + JSON.stringify(chars));
+    return out.map((r) => r.size).join(' / ') + ' 地图、技能、天赋都过；角色页 ' + chars.map((c) => c.size + ' ' + c.rows + ' 排').join('，');
   });
 
   await step('触屏：iOS 工具栏占掉高度（844×340 / 667×320）时标题画面、职业选择、开场卡片、背包和暂停菜单都放得下', async () => {

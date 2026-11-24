@@ -4124,7 +4124,9 @@ html.touch-ui {
   --sa-b: max(env(safe-area-inset-bottom, 0px), var(--t-safe-b, 0px));
   --sa-l: max(env(safe-area-inset-left, 0px), var(--t-safe-l, 0px));
   --cr: calc(var(--sa-r) + 10px);
+  --cl: calc(var(--sa-l) + 10px);
   --cb: calc(var(--sa-b) + 10px);
+  --tk: 1; /* 按钮大小（M2 设置：小 / 中 / 大），按钮簇的尺寸和间距都乘它 */
   -webkit-touch-callout: none;
   -webkit-text-size-adjust: 100%;
 }
@@ -4207,27 +4209,29 @@ html.touch-ui .bar-sep, html.touch-ui #gauge, html.touch-ui #pp-remind { display
 html.touch-ui #xp { position: fixed; left: var(--sa-l); right: var(--sa-r); bottom: var(--sa-b); width: auto; height: 3px; gap: 0; }
 html.touch-ui #xp-lv, html.touch-ui #xp-pct { display: none; }
 html.touch-ui #xp .xp-track { height: 3px; border: none; border-radius: 0; }
-html.touch-ui [data-tb] { position: absolute; pointer-events: auto; touch-action: none; -webkit-tap-highlight-color: transparent; }
-html.touch-ui .slot[data-tb] { --sz: 54px; width: var(--sz); height: var(--sz); gap: 0; }
+/* 按钮簇：每颗按钮的位置写成离右下角的 --x / --y（像素数，不带单位），尺寸和间距都乘 --tk（按钮大小）；左手模式（t-mirror）只把 right 换成 left */
+html.touch-ui [data-tb] { --x: 0; --y: 0; position: absolute; right: calc(var(--cr) + var(--x) * var(--tk) * 1px); bottom: calc(var(--cb) + var(--y) * var(--tk) * 1px); pointer-events: auto; touch-action: none; -webkit-tap-highlight-color: transparent; }
+html.touch-ui.t-mirror [data-tb] { right: auto; left: calc(var(--cl) + var(--x) * var(--tk) * 1px); }
+html.touch-ui .slot[data-tb] { --s: 54; --sz: calc(var(--s) * var(--tk) * 1px); width: var(--sz); height: var(--sz); gap: 0; }
 html.touch-ui .slot[data-tb] .s-icon { width: var(--sz); height: var(--sz); border-radius: 50%; }
 html.touch-ui .slot[data-tb] .s-icon > .s-img { inset: 18%; }
 html.touch-ui .slot[data-tb] .s-key, html.touch-ui .slot.basic[data-tb] .s-icon::after { display: none; }
 html.touch-ui .slot[data-tb] .s-cdnum { font-size: 17px; }
 html.touch-ui .slot.t-down .s-icon, html.touch-ui #dodge.t-down .d-icon, html.touch-ui .flask.t-down .flask-body, html.touch-ui #t-f.t-down { filter: brightness(1.35); }
-html.touch-ui .slot[data-tb="s0"] { --sz: 76px; right: var(--cr); bottom: var(--cb); }
-html.touch-ui .slot[data-tb="s1"] { --sz: 58px; right: calc(var(--cr) + 86px); bottom: var(--cb); }
-html.touch-ui .slot[data-tb="s2"] { right: calc(var(--cr) + 80px); bottom: calc(var(--cb) + 70px); }
-html.touch-ui .slot[data-tb="s3"] { right: calc(var(--cr) + 11px); bottom: calc(var(--cb) + 86px); }
-html.touch-ui .slot[data-tb="s4"] { right: calc(var(--cr) + 150px); bottom: calc(var(--cb) + 66px); }
-html.touch-ui #dodge[data-tb] { width: 52px; height: 52px; margin: 0; gap: 0; right: calc(var(--cr) + 152px); bottom: calc(var(--cb) + 4px); }
-html.touch-ui #dodge[data-tb] .d-icon { width: 52px; height: 52px; box-sizing: border-box; }
+html.touch-ui .slot[data-tb="s0"] { --s: 76; }
+html.touch-ui .slot[data-tb="s1"] { --s: 58; --x: 86; }
+html.touch-ui .slot[data-tb="s2"] { --x: 80; --y: 70; }
+html.touch-ui .slot[data-tb="s3"] { --x: 11; --y: 86; }
+html.touch-ui .slot[data-tb="s4"] { --x: 150; --y: 66; }
+html.touch-ui #dodge[data-tb] { --x: 152; --y: 4; --sz: calc(52px * var(--tk)); width: var(--sz); height: var(--sz); margin: 0; gap: 0; }
+html.touch-ui #dodge[data-tb] .d-icon { width: var(--sz); height: var(--sz); box-sizing: border-box; }
 html.touch-ui #dodge[data-tb] .s-key { display: none; }
-html.touch-ui .flask[data-tb] { width: 46px; height: 50px; margin: 0; gap: 0; justify-content: center; border-radius: 8px; background: rgba(14, 9, 6, 0.55); border: 1px solid rgba(150, 110, 64, 0.45); box-sizing: border-box; }
+html.touch-ui .flask[data-tb] { --y: 6; width: max(44px, calc(46px * var(--tk))); height: max(44px, calc(50px * var(--tk))); margin: 0; gap: 0; justify-content: center; border-radius: 8px; background: rgba(14, 9, 6, 0.55); border: 1px solid rgba(150, 110, 64, 0.45); box-sizing: border-box; }
 html.touch-ui .flask[data-tb] kbd { display: none; }
-html.touch-ui #flask-life[data-tb] { right: calc(var(--cr) + 264px); bottom: calc(var(--cb) + 6px); }
-html.touch-ui #flask-mana[data-tb] { right: calc(var(--cr) + 214px); bottom: calc(var(--cb) + 6px); }
+html.touch-ui #flask-life[data-tb] { --x: 264; }
+html.touch-ui #flask-mana[data-tb] { --x: 214; }
 /* F 情境键：附近有可处决的敌人、掉落、宝箱或异兆互动点时才出现（武器技左边、药瓶上方：矮屏上也不碰右上的追踪条） */
-#t-f { display: none; z-index: 6; width: 52px; height: 52px; right: calc(var(--cr) + 212px); bottom: calc(var(--cb) + 66px); box-sizing: border-box; place-items: center; font-size: 20px; font-weight: 700; color: #1a0f08; background: radial-gradient(circle at 50% 35%, #ffe2a0, #d88a2c); border: 2px solid #fff1d0; border-radius: 50%; box-shadow: 0 0 14px rgba(255, 170, 60, 0.7); }
+#t-f { --x: 212; --y: 66; display: none; z-index: 6; width: max(44px, calc(52px * var(--tk))); height: max(44px, calc(52px * var(--tk))); box-sizing: border-box; place-items: center; font-size: 20px; font-weight: 700; color: #1a0f08; background: radial-gradient(circle at 50% 35%, #ffe2a0, #d88a2c); border: 2px solid #fff1d0; border-radius: 50%; box-shadow: 0 0 14px rgba(255, 170, 60, 0.7); }
 #t-f.on { display: grid; }
 
 /* 浮动摇杆：左下 45% 宽、下一半高的区域里落指生成 */
@@ -4415,3 +4419,19 @@ html.touch-ui .tree-view { touch-action: none; }
 @media (min-width: 601px) and (max-width: 720px) {
   html.touch-ui .zones .z-ord { display: none; } /* 卡片只有 120 多像素宽：「第一境」和角标挤在一起，留角标 */
 }
+
+/* ---------- M2 设置：按钮大小、左手模式 ---------- */
+html.touch-ui.t-size-s { --tk: 0.88; }
+html.touch-ui.t-size-l { --tk: 1.15; }
+/* 大按钮在窄屏 / 矮屏上放不下那么大：667 宽时 1.1 倍、摇杆区收窄到 40%；可见高度 345 以下只大一点点（不压右上的追踪条和提示卡） */
+@media (max-width: 720px) {
+  html.touch-ui.t-size-l { --tk: 1.1; }
+  html.touch-ui.t-size-l #t-stick { width: 40%; }
+}
+@media (max-height: 345px) {
+  html.touch-ui.t-size-l { --tk: 1.04; }
+}
+/* 左手模式：摇杆区挪到右下，按钮簇在左下（顶栏、小地图、追踪条不动） */
+html.touch-ui.t-mirror #t-stick { left: auto; right: 0; }
+.m-val { flex: none; min-width: 52px; padding: 4px 8px; text-align: center; font-size: 13px; font-weight: 600; color: #e6d7bd; background: #130d0a; border: 1px solid #3d2c1e; border-radius: 3px; font-variant-numeric: tabular-nums; }
+.m-val.warn { color: #ffcf8a; border-color: #8a5a2a; }
