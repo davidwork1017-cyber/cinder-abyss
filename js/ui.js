@@ -2868,6 +2868,24 @@
   // ============================================================
   // 地图页
   // ============================================================
+  // 地图上的区域卡片（只在触屏下挂 data-tip，长按看全部信息：手机上卡片收成一行，简介和首领藏起来了）
+  function zoneTip(key) {
+    const [zi, ti] = key.split(':').map(Number);
+    const z = G.ZONES[zi];
+    if (!z) return '';
+    const S = G.save, boss = G.BOSSES[z.boss];
+    const clearedAt = (q) => S.cleared[q.id] !== undefined && S.cleared[q.id] >= ti;
+    const locked = zi > 0 && !clearedAt(G.ZONES[zi - 1]);
+    const st = locked ? '先在本层级击败「' + G.ZONES[zi - 1].name + '」的首领' : clearedAt(z) ? '本层级已通关' : '还没通关';
+    return (
+      '<div class="tcard" style="--c:' + hexCss(z.accent) + '">' + tcHead('<span class="tc-glyph">' + (ZONE_GLYPH[z.id] || z.name[0]) + '</span>', z.name, (ZONE_ORD[zi] || '') + ' · 轮回层级 ' + ti) +
+      '<div class="tc-desc">怪物等级 <b>' + (z.level + ti * G.TIER_LEVELS) + '</b> · <span style="color:' + G.TYPE_COLOR[z.elem] + '">' + G.TYPE_NAME[z.elem] + '</span></div>' +
+      '<div class="tc-desc">' + z.desc + '</div>' +
+      '<div class="tc-desc">首领 <b>' + boss.name + '</b>' + (S.bossKills[z.boss] ? ' · 曾击败' : '') + '</div>' +
+      '<div class="tc-hint' + (locked ? ' dim' : '') + '">' + st + '</div></div>'
+    );
+  }
+
   function renderMap() {
     const S = G.save;
     const st = G.state;
@@ -2890,7 +2908,7 @@
       const lvl = z.level + tier * G.TIER_LEVELS;
       const boss = G.BOSSES[z.boss];
       cards +=
-        '<div class="zone' + (locked ? ' locked' : '') + (here ? ' here' : '') + (cleared ? ' cleared' : '') + '" style="--fog:' + hexCss(z.fog) + ';--acc:' + hexCss(z.accent) + ';--path:' + hexCss(z.path) + ';--rock:' + hexCss(z.rock) + ';--sky:' + hexCss(z.sky) + '">' +
+        '<div class="zone' + (locked ? ' locked' : '') + (here ? ' here' : '') + (cleared ? ' cleared' : '') + '"' + (touchOn() ? ' data-tip="zone:' + i + ':' + tier + '"' : '') + ' style="--fog:' + hexCss(z.fog) + ';--acc:' + hexCss(z.accent) + ';--path:' + hexCss(z.path) + ';--rock:' + hexCss(z.rock) + ';--sky:' + hexCss(z.sky) + '">' +
         '<div class="z-art"><div class="z-ridge b"></div><div class="z-ridge a"></div><span class="z-glyph">' + (ZONE_GLYPH[z.id] || z.name[0]) + '</span>' +
         '<span class="z-ord">' + (ZONE_ORD[i] || '') + '</span>' +
         (cleared ? '<span class="z-badge ok">已通关</span>' : locked ? '<span class="z-badge lock">未解锁</span>' : z.id === qZone ? '<span class="z-badge quest">主线</span>' : '') +
@@ -3379,6 +3397,7 @@
 
   function tipHtml(kind, id) {
     if (kind === 'frag') return fragTip(id);
+    if (kind === 'zone') return zoneTip(id);
     if (kind === 'trd') {
       const o = G.state.trader && G.state.trader.stock && G.state.trader.stock[+id];
       return o && o.kind === 'item' ? itemTip(o.item, false, '拾烬客的货架 · 点「买下」') : '';
@@ -5511,7 +5530,7 @@
       drag.armed = null;
       return;
     }
-    if (Math.hypot(e.clientX - a.x, e.clientY - a.y) < 6) return; // 没挪出几像素：还是一次点击
+    if (Math.hypot(e.clientX - a.x, e.clientY - a.y) < (e.pointerType === 'touch' ? 8 : 6)) return; // 没挪出几像素：还是一次点击（手指按住不动是长按看详情，挪过 8 px 才是拖拽）
     drag.armed = null;
     dragStart(a, e.clientX, e.clientY);
   }

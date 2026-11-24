@@ -359,7 +359,7 @@
     if (G.audio && G.audio.unlock) G.audio.unlock();
     const cancel = e.type === 'touchcancel';
     for (const t of e.changedTouches) {
-      if (lp && lp.id === t.identifier) lpCancel();
+      lpEnd(e, t, cancel);
       const b = btns.get(t.identifier);
       if (b) {
         if (e.cancelable) e.preventDefault();
@@ -486,15 +486,19 @@
     }
   }
 
-  // ---------- 长按看详情（面板、菜单里）：按住 450 ms 不动 = 按住 Alt，浮窗跟着手指出来；松手收起 ----------
+  // ---------- 长按看详情（面板、菜单里）：按住 450 ms 不动 = 按住 Alt，浮窗在手指旁边出来 ----------
+  // 松手后浮窗留着（手指挡着时也能看完），下一次碰屏幕、面板关掉时收起；长按之后的那次 click 吞掉（不会顺手点亮天赋、穿上装备）。
+  // 手指移动超过 8 px 就不是长按：在背包里是拖拽（ui.js 的拖拽对触摸用 8 px 的门槛），在列表里是滚动
   const LONG_MS = 450;
+  const LP_MOVE = 8;
   let lp = null;
+  let lpEndAt = -1e9; // 长按松手的时刻：之后 600 ms 内的 click 不算
   function lpStart(t) {
     lpCancel();
     const tg = t.target && t.target.nodeType === 1 ? t.target : null;
     if (!tg || !tg.closest('#panel, #title, #pause, #tip')) return;
     const x = t.clientX, y = t.clientY, id = t.identifier;
-    lp = { id, x, y, on: false, timer: setTimeout(() => {
+    lp = { id, x, y, on: false, stuck: false, timer: setTimeout(() => {
       if (!lp || lp.id !== id) return;
       lp.on = true;
       input.alt = true;
@@ -502,10 +506,21 @@
       // 浮窗按悬停出：在手指下面补一组 mouseover / mousemove
       const el = document.elementFromPoint(x, y);
       if (el) for (const type of ['mouseover', 'mousemove']) el.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y }));
+      T.lpCount = (T.lpCount || 0) + 1;
     }, LONG_MS) };
   }
   function lpMove(t) {
-    if (lp && lp.id === t.identifier && Math.hypot(t.clientX - lp.x, t.clientY - lp.y) > 8) lpCancel(); // 移动超过 8 px：是拖拽 / 滚动，不是长按
+    if (lp && !lp.stuck && lp.id === t.identifier && Math.hypot(t.clientX - lp.x, t.clientY - lp.y) > LP_MOVE) lpCancel(); // 是拖拽 / 滚动，不是长按
+  }
+  // 松手：没到 450 ms 的照常（click 交给浏览器）；已经弹出详情的留着浮窗，吞掉这次 click
+  function lpEnd(e, t, cancel) {
+    if (!lp || lp.id !== t.identifier) return;
+    if (!lp.on || cancel) return lpCancel();
+    clearTimeout(lp.timer);
+    lp.stuck = true;
+    lp.id = null;
+    lpEndAt = performance.now();
+    if (e.cancelable) e.preventDefault();
   }
   function lpCancel() {
     if (!lp) return;
@@ -513,6 +528,12 @@
     if (lp.on && !labelsOn) input.alt = false;
     document.documentElement.classList.remove('t-lp');
     lp = null;
+  }
+  function onLpClick(e) {
+    if (!T.on || performance.now() - lpEndAt > 600) return;
+    lpEndAt = -1e9;
+    e.stopImmediatePropagation();
+    e.preventDefault();
   }
   // 安卓长按会发 contextmenu：面板里它等于右键（穿上 / 卸下），触摸带出来的一律拦掉
   function onCtxMenu(e) {
@@ -652,6 +673,7 @@
     window.addEventListener('touchcancel', onEnd, { passive: false });
     window.addEventListener('mousedown', onCompatMouse, true);
     window.addEventListener('contextmenu', onCtxMenu, true);
+    window.addEventListener('click', onLpClick, true);
     watchText(true);
     window.addEventListener('resize', layout);
     if (window.visualViewport) window.visualViewport.addEventListener('resize', layout);
@@ -681,6 +703,7 @@
     window.removeEventListener('touchcancel', onEnd, { passive: false });
     window.removeEventListener('mousedown', onCompatMouse, true);
     window.removeEventListener('contextmenu', onCtxMenu, true);
+    window.removeEventListener('click', onLpClick, true);
     watchText(false);
     lpCancel();
     window.removeEventListener('resize', layout);
@@ -804,6 +827,7 @@
         aimClearAt = 0;
       }
     }
+    if (lp && lp.stuck && !G.ui.isOpen()) lpCancel(); // 面板关了：留着的详情浮窗收起
     if (labelsOn && !input.alt) input.alt = true; // 失焦清输入会把 Alt 清掉：名牌开关开着就补回来
     // 拖动瞄准时准星跟着落点
     if (anyDrag()) {
@@ -856,6 +880,8 @@
     aim: input.aim ? { x: input.aim.x, z: input.aim.z } : null,
     f: !!(dom && dom.fOn),
     labels: labelsOn,
+    lp: lp ? (lp.stuck ? 'stuck' : lp.on ? 'on' : 'wait') : '',
+    lpCount: T.lpCount || 0,
     txt: { calls: txtStats.calls, ms: +txtStats.ms.toFixed(2) },
   });
   T.keys = { MODE_KEY, HINT_KEY };

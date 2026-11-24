@@ -25457,9 +25457,15 @@ async function touchSteps() {
     });
     await touch.up();
     await frames(2);
+    // M2：松手后浮窗留着（手指挡着时也能看完），下一次碰屏幕才收起
     const lp2 = await ev(() => G.input.alt);
     const tip2 = await ev(() => getComputedStyle(document.getElementById('tip')).display);
-    assert(lp.alt && lp.tip && !lp2 && tip2 === 'none', '长按应出浮窗并展开详情、松手收起：' + JSON.stringify({ lp, lp2, tip2 }));
+    const hd = await ev(() => T.rect('#panel-head'));
+    await touch.tap(hd.l + 30, hd.y);
+    await frames(2);
+    const lp3 = await ev(() => ({ alt: G.input.alt, tip: getComputedStyle(document.getElementById('tip')).display }));
+    assert(lp.alt && lp.tip && lp2 && tip2 !== 'none', '长按应出浮窗并展开详情，松手后留着：' + JSON.stringify({ lp, lp2, tip2 }));
+    assert(!lp3.alt && lp3.tip === 'none', '下一次碰屏幕应收起长按的浮窗：' + JSON.stringify(lp3));
     assert(!lp.worn, '长按（contextmenu）不应把物品穿上');
     // 点一下物品：详情里有「装备」等按钮（浮窗也会出来）
     const cell = await ev(() => T.rect('.cell[data-item="' + window.__helm.uid + '"]'));
@@ -25504,6 +25510,99 @@ async function touchSteps() {
     await ev(() => G.ui.close());
     assert(!bad.length, '触屏下还有鼠标 / 键盘说法：' + Array.from(new Set(bad)).slice(0, 12).join(' ｜ '));
     return '按钮 ' + acts.join(' / ') + '；打 ' + busy.sec + ' 秒文字处理 ' + busy.calls + ' 次，提示卡收成一行';
+  });
+
+  await step('触屏：长按看详情——技能、天赋、地图的区域卡片（450 ms 出浮窗和详情，松手留着，下一次碰屏幕收起）；长按天赋不会点亮；背包里挪过 8 px 是拖拽（拖到装备栏穿上），不到 8 px 是长按', async () => {
+    await touchPage();
+    await ev(() => {
+      G.debug.learnAll();
+      G.debug.setLevel(20);
+      G.computeStats();
+    });
+    const tipNow = () =>
+      ev(() => {
+        const t = document.getElementById('tip');
+        return { vis: getComputedStyle(t).display !== 'none' && t.classList.contains('on'), txt: t.textContent.slice(0, 80), alt: G.input.alt, altOn: document.body.classList.contains('alt-on'), lp: G.touch.state().lp, box: T.rect(t) };
+      });
+    const press = async (sel, ms) => {
+      const r = await ev((sel) => T.rect(sel), sel);
+      assert(r, '找不到 ' + sel);
+      await touch.down(r.x, r.y);
+      await sleep(ms || 650);
+      const a = await tipNow();
+      await touch.up();
+      await frames(2);
+      const b = await tipNow();
+      return { r, a, b };
+    };
+    const dismiss = async () => {
+      const hd = await ev(() => T.rect('#panel-head'));
+      await touch.tap(hd.l + 30, hd.y);
+      await frames(2);
+      return tipNow();
+    };
+    const out = {};
+    // 技能：技能栏里的一格
+    await ev(() => G.ui.open('skills'));
+    await frames(3);
+    const skName = await ev(() => G.SKILLS[document.querySelector('.barslot[data-tip^="skdrag:"]').dataset.tip.slice(7)].name);
+    out.skill = await press('.barslot[data-tip^="skdrag:"]');
+    out.skillOff = await dismiss();
+    // 天赋：一个能点亮的点，长按只看不点
+    await ev(() => G.ui.open('tree'));
+    await frames(3);
+    const n0 = await ev(() => document.querySelectorAll('.tn.alloc').length);
+    const node = await ev(() => {
+      const n = document.querySelector('.tn.avail');
+      return n ? n.dataset.node : null;
+    });
+    out.tree = await press('.tn[data-node="' + node + '"]');
+    const n1 = await ev(() => document.querySelectorAll('.tn.alloc').length);
+    out.treeOff = await dismiss();
+    // 地图：区域卡片（手机上卡片收成一块，简介和首领在长按的浮窗里）
+    await ev(() => G.ui.open('map'));
+    await frames(3);
+    const zName = await ev(() => G.ZONES[1].name);
+    out.zone = await press('.zone[data-tip="zone:1:0"]');
+    out.zoneOff = await dismiss();
+    // 轻点（不到 450 ms）不出浮窗
+    out.tap = await press('.zone[data-tip="zone:0:0"]', 150);
+    assert(out.skill.a.vis && out.skill.a.altOn && out.skill.a.txt.includes(skName) && out.skill.b.vis && out.skill.b.lp === 'stuck', '长按技能栏的格子应出浮窗和详情、松手留着：' + JSON.stringify(out.skill));
+    assert(!out.skillOff.vis && !out.skillOff.alt, '碰一下别处应收起：' + JSON.stringify(out.skillOff));
+    assert(node && out.tree.a.vis && out.tree.b.vis && n1 === n0, '长按天赋应出浮窗、不点亮：' + JSON.stringify({ node, n0, n1, a: out.tree.a }));
+    assert(!out.treeOff.vis, '天赋浮窗应能收起：' + JSON.stringify(out.treeOff));
+    assert(out.zone.a.vis && out.zone.a.txt.includes(zName) && /首领/.test(out.zone.a.txt) && out.zone.b.vis, '长按区域卡片应出区域详情：' + JSON.stringify(out.zone));
+    assert(!out.tap.a.vis && !out.tap.b.vis, '轻点不该出浮窗：' + JSON.stringify(out.tap));
+    const inBox = (b) => b && b.l >= 0 && b.t >= 0 && b.r <= 844 && b.b <= 390;
+    assert(inBox(out.skill.a.box) && inBox(out.tree.a.box) && inBox(out.zone.a.box), '浮窗应在屏幕里：' + JSON.stringify([out.skill.a.box, out.tree.a.box, out.zone.a.box]));
+    // 背包：挪 5 px 再按住 = 长按（不拖）；挪过 8 px = 拖拽，拖到装备栏穿上
+    await ev(() => {
+      G.ui.close();
+      const old = G.save.equip.boots;
+      if (old) G.unequip('boots');
+      window.__boots = G.debug.giveItem(1, 'boots');
+      G.ui.open('inv');
+    });
+    await frames(3);
+    const c = await ev(() => T.rect('.cell[data-item="' + window.__boots.uid + '"]'));
+    await touch.down(c.x, c.y);
+    await touch.move(c.x + 5, c.y);
+    await sleep(650);
+    out.still = await ev(() => ({ drag: document.body.classList.contains('dragging'), lp: G.touch.state().lp }));
+    await touch.up();
+    await frames(2);
+    await dismiss();
+    const eq = await ev(() => T.rect('.eq[data-slot="boots"]'));
+    await touch.down(c.x, c.y);
+    for (let i = 1; i <= 8; i++) await touch.move(c.x + ((eq.x - c.x) * i) / 8, c.y + ((eq.y - c.y) * i) / 8);
+    out.mid = await ev(() => ({ drag: document.body.classList.contains('dragging'), lp: G.touch.state().lp }));
+    await touch.up();
+    await frames(2);
+    out.worn = await ev(() => !!(G.save.equip.boots && G.save.equip.boots.uid === window.__boots.uid));
+    await ev(() => G.ui.close());
+    assert(!out.still.drag && out.still.lp === 'on', '挪 5 px 按住应是长按、不是拖拽：' + JSON.stringify(out.still));
+    assert(out.mid.drag && !out.mid.lp && out.worn, '挪过 8 px 应是拖拽，拖到装备栏应穿上：' + JSON.stringify(out));
+    return '技能 / 天赋 / 区域卡片长按出详情、松手留着；天赋点亮数 ' + n0 + ' → ' + n1 + '；拖拽穿上鞋子';
   });
 
   await step('旁白卡：帧率掉到约 2 fps 时按真实时间放，长度和正常时一样（约 5 秒）；触屏下不压顶栏、小地图、追踪条、按钮簇和提示卡', async () => {
