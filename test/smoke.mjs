@@ -26836,6 +26836,66 @@ async function touchSteps() {
     return '设定 ' + r.dur.toFixed(1) + ' 秒，约 2 fps 下实际 ' + r.wall + ' 秒';
   });
 
+  await step('触屏：点「开始」关开场卡片、点「知道了」关触屏提示卡，这一下不漏进游戏（横屏 844×390 和旋转横屏 390×844 各一遍；关掉后 0.8 秒里不出手、没有按着的按钮、没有按住的鼠标键、没有缓冲的轻点）', async () => {
+    const out = [];
+    for (const [w, h, rot] of [[844, 390, null], [390, 844, 'cw']]) {
+      if (browser) await browser.close().catch(() => {});
+      ({ browser, page, errors } = await launch({ width: w, height: h, mobile: { scale: 3 } }));
+      await install();
+      touch = await touchKit();
+      await until(() => document.getElementById('intro').classList.contains('on'), null, 30000);
+      if (rot) {
+        await ev((rot) => G.touch.setRot(rot), rot);
+        await until(() => !!G.touch.state().rot, null, 10000);
+        await sleep(300);
+      }
+      // 每帧记一次：出手、按着的按钮簇、鼠标键、缓冲的轻点
+      await ev(() => {
+        window.__tt = [];
+        window.__ttOff = false;
+        const P = G.player, I = G.input;
+        const f = () => {
+          const held = G.touch.state().held.length;
+          if (P.cast || held || I.mouse.b.some(Boolean) || (I.tap && I.tap.some((v) => v > 0))) window.__tt.push({ cast: P.cast ? P.cast.id : null, held, b: I.mouse.b.map(Number).join(''), tap: I.tap ? I.tap.join(',') : '' });
+          if (!window.__ttOff) requestAnimationFrame(f);
+        };
+        requestAnimationFrame(f);
+      });
+      // 点元素中心（屏幕坐标：旋转横屏时元素的屏幕框已经转过来了，直接取中心）
+      const tapEl = async (sel) => {
+        const r = await ev((sel) => {
+          const n = document.querySelector(sel);
+          if (!n || !n.getClientRects().length) return null;
+          const b = n.getBoundingClientRect();
+          return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+        }, sel);
+        assert(r, '找不到 ' + sel);
+        await touch.tap(r.x, r.y);
+        await sleep(800);
+        return ev(() => window.__tt.splice(0));
+      };
+      const a = await tapEl('#intro-go');
+      const introGone = await ev(() => !document.getElementById('intro').classList.contains('on'));
+      // 触屏提示卡：清掉「看过了」，等它弹出来
+      await ev(() => {
+        localStorage.removeItem(G.touch.keys.HINT_KEY);
+        G.touch.introSeen = false;
+      });
+      await until(() => !!document.querySelector('#t-hint.on'), null, 15000);
+      await sleep(300);
+      const b = await tapEl('#t-hint-ok');
+      const hintGone = await ev(() => {
+        window.__ttOff = true;
+        return !document.querySelector('#t-hint.on');
+      });
+      const where = w + '×' + h + (rot ? '（转）' : '');
+      assert(introGone && hintGone, where + ' 点了没关掉：' + JSON.stringify({ introGone, hintGone }));
+      assert(!a.length && !b.length, where + ' 关卡片的这一下漏进了游戏：' + JSON.stringify({ intro: a.slice(0, 4), hint: b.slice(0, 4) }));
+      out.push(where);
+    }
+    return out.join(' / ') + ' 两张卡关掉后都没有出手';
+  });
+
   // UI-R B4b：HUD 上的几块两两不重叠（审计 §11）。提示卡、旁白卡直接摆出来量（旁白卡的排队 / 计时由上面那一步测）
   await step('触屏：HUD 不打架（UI-R B4b）——844×340 / 734×338 / 667×320（安全区 0 和 59）、按钮 M / L、左手开关下，主线追踪条、小地图、按钮簇、区域名、顶栏、提示卡（两行 / 点开的长提示）和旁白卡两两不重叠；旁白卡放着时提示卡让开，放完回来', async () => {
     await touchPage({ width: 844, height: 340, mobile: { scale: 2 } });

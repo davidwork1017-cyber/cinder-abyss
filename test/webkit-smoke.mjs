@@ -448,10 +448,27 @@ await step('竖屏（iPhone 竖着拿）：标题画面点「横屏开始」→ 
   }
   assert(q && (q.intro || (!q.story && !q.open)), '应进到游戏或开场卡片：' + JSON.stringify(q));
   const rot2 = await ev(() => G.touch.state().rot);
+  // B4b：关开场卡片 / 提示卡的这一下不能漏进游戏（不出手、没有按着的按钮、没有缓冲的轻点）：关之前开始每帧记
+  await ev(() => {
+    window.__tt = [];
+    window.__ttOff = false;
+    const P = G.player, I = G.input;
+    const f = () => {
+      const held = G.touch.state().held.length;
+      if (P.cast || held || I.mouse.b.some(Boolean) || (I.tap && I.tap.some((v) => v > 0))) window.__tt.push({ cast: P.cast ? P.cast.id : null, held, b: I.mouse.b.map(Number).join('') });
+      if (!window.__ttOff) requestAnimationFrame(f);
+    };
+    requestAnimationFrame(f);
+  });
   if (q.intro) await tap('#intro-go');
   await page.waitForTimeout(600);
   if (await ev(() => G.touch.state().hint)) await tap('#t-hint-ok');
   await page.waitForTimeout(300);
+  const leak = await ev(() => {
+    window.__ttOff = true;
+    return window.__tt.splice(0);
+  });
+  assert(!leak.length, '关开场卡片 / 提示卡的这一下漏进了游戏：' + JSON.stringify(leak.slice(0, 4)));
   const g0 = await ev(() => ({ st: G.touch.state(), open: G.ui.isOpen(), x: G.player.x }));
   assert(rot2 && g0.st.rot === rot2 && !g0.open && !g0.st.blocked, '重载后应接着转、进到游戏里：' + JSON.stringify({ rot2, g0 }));
   // 摇杆：画面里往右 = 屏幕上往下（顺时针）/ 往上（逆时针）
