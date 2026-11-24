@@ -442,8 +442,8 @@ def _hands(k):
         palm = [(-0.26, -0.08, 0.12), (0.26, -0.08, 0.12), (-0.27, -0.08, 0.5), (0.27, -0.08, 0.5), (-0.24, 0.1, 0.12), (0.24, 0.1, 0.12), (-0.25, 0.1, 0.5), (0.25, 0.1, 0.5), (0, -0.11, 0.3)]
         hull_g(k, hd, [(hx + x, HAND_Y + y, HAND_Z + z) for x, y, z in palm], row='obsidian', tone=0.32)
         back = [(-0.22, 0.08, 0.14), (0.22, 0.08, 0.14), (-0.24, 0.08, 0.5), (0.24, 0.08, 0.5), (-0.16, 0.2, 0.2), (0.16, 0.2, 0.2), (-0.17, 0.19, 0.44), (0.17, 0.19, 0.44), (0, 0.23, 0.32)]
-        hv = hull_g(k, hd, [(hx + x, HAND_Y + y, HAND_Z + z) for x, y, z in back], row='pale', tone=0.44)
-        retag(k, hv, lambda p, n: ('pale', 0.52, 0.02) if n[1] > 0.8 else None)
+        hv = hull_g(k, hd, [(hx + x, HAND_Y + y, HAND_Z + z) for x, y, z in back], row='pale', tone=0.38)
+        retag(k, hv, lambda p, n: ('pale', 0.42, 0.02) if n[1] > 0.8 else None)
         # 指根的指节护（一排三块）
         for fx in FING_X:
             x = hx + s * fx
@@ -464,8 +464,8 @@ def _hands(k):
                         seg.append(g2b((x + math.cos(th) * rr, y + math.sin(th) * rr * 0.86, z0 + zz)))
                 if j == 2:
                     seg.append(g2b((x, y - 0.01, z0 + L + 0.04)))  # 指尖收成钝的尖
-                sv = k.bind(k.hull(seg, 'pale', 0.42, 0.03, 0, 0), B[bone])
-                retag(k, sv, lambda p, n: ('pale', 0.5, 0.02) if n[1] > 0.6 else ('obsidian', 0.3, 0.02) if n[1] < -0.5 else None)
+                sv = k.bind(k.hull(seg, 'pale', 0.36, 0.03, 0, 0), B[bone])
+                retag(k, sv, lambda p, n: ('pale', 0.42, 0.02) if n[1] > 0.6 else ('obsidian', 0.3, 0.02) if n[1] < -0.5 else None)
             z0 += ln
         # 拇指：在里侧（朝柱身），两节，往前、往里斜
         tb = 'x_thumb_' + sd
@@ -483,7 +483,7 @@ def _hands(k):
                     seg.append(g2b(tuple(c + uu * (math.cos(th) * rr) + ww * (math.sin(th) * rr))))
             if j == 1:
                 seg.append(g2b(tuple(bpt + tdir * 0.04)))
-            k.bind(k.hull(seg, 'pale', 0.42, 0.03, 0, 0), B[tb])
+            k.bind(k.hull(seg, 'pale', 0.36, 0.03, 0, 0), B[tb])
             if j == 0:
                 blob(k, tb, tuple(bpt + tdir * 0.01), (0.068, 0.064, 0.068), n=10, row='obsidian', tone=0.34)
 
