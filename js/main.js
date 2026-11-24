@@ -17,7 +17,7 @@
   });
   // 动作途中按下的输入会缓冲到「能出手」的那一刻：时长由 G.bufferTime 按手上的动作还剩多久来定
   const MOUSE_SLOT = { 0: 0, 2: 1 }; // 鼠标键 → 技能栏格子
-  const PANEL_KEYS = { KeyI: 'inv', KeyG: 'skills', KeyP: 'tree', KeyM: 'map', KeyH: 'help' };
+  const PANEL_KEYS = { KeyI: 'inv', KeyC: 'char', KeyG: 'skills', KeyP: 'tree', KeyM: 'map', KeyH: 'help' }; // C：属性（UI-R B1）
   const NO_SCROLL = { Space: 1, ArrowUp: 1, ArrowDown: 1, ArrowLeft: 1, ArrowRight: 1, Tab: 1 };
 
   // keepAlt：面板开着时每帧都清一次输入，但 Alt 要留着（浮窗里「按住 Alt 查看详情」读它）

@@ -93,12 +93,15 @@
   const fmtDmg = (v) => (v < 10 ? fmt1(v) : fmtInt(v));
   // 卡片上的标签行：「召唤」紧挨着「召唤物」是重复的说法（1280 宽时还会把标签行挤成两行），卡片上不显示
   const cardTags = (sk) => (sk.tags.indexOf('minion') >= 0 ? sk.tags.filter((t) => t !== 'summon') : sk.tags);
+  // 面板页签：[页名, 名字, 按键, 竖屏的一个字]。仓库没有快捷键
   const TABS = [
-    ['inv', '背包', 'I'],
-    ['skills', '技能', 'G'],
-    ['tree', '天赋', 'P'],
-    ['map', '地图', 'M'],
-    ['help', '帮助', 'H'],
+    ['inv', '背包', 'I', '包'],
+    ['stash', '仓库', '', '仓'],
+    ['char', '属性', 'C', '属'],
+    ['skills', '技能', 'G', '技'],
+    ['tree', '天赋', 'P', '赋'],
+    ['map', '地图', 'M', '图'],
+    ['help', '帮助', 'H', '帮'],
   ];
   const ARM_INFO = {
     s: { name: '铸躯', hint: '生命 · 护甲 · 物理' },
@@ -156,6 +159,12 @@
     groundLoot: null, // 鼠标正指着的地面掉落
     groundSig: '',
     hoverEnemy: null,
+    card: null, // 打开着的物品卡 { uid, stash, view: 'info' | 'cmp' | 'craft', ovf }（docs/ui.md）
+    cardTimer: 0, // 桌面单击：等双击窗口过了再开卡
+    pop: null, // 打开着的小菜单 { kind: 'filter' | 'more' | 'hint', at: 锚点选择器 }
+    stashPage: 0,
+    stashView: 'stash', // 窄屏仓库页现在显示的格子：'stash' / 'bag'
+    charSub: 'stats', // 属性页的子页签：'stats' / 'codex'
   };
 
   const el = {}; // 常用 DOM 引用
@@ -1241,9 +1250,11 @@
     const L = G.itemLines(item);
     let h = '<div class="icard r' + item.rarity + '">';
     if (o.tag) h += '<div class="ic-tag">' + o.tag + '</div>';
-    h += '<div class="ic-head">' + itemIcon(item) + '<div class="ic-ttl"><div class="ic-name">' + esc(item.name) + '</div>';
-    if (item.name !== item.baseName) h += '<div class="ic-base">' + esc(item.baseName) + '</div>';
-    h += '</div></div>';
+    if (!o.noHead) {
+      h += '<div class="ic-head">' + itemIcon(item) + '<div class="ic-ttl"><div class="ic-name">' + esc(item.name) + '</div>';
+      if (item.name !== item.baseName) h += '<div class="ic-base">' + esc(item.baseName) + '</div>';
+      h += '</div></div>';
+    } else if (item.name !== item.baseName) h += '<div class="ic-base sh">' + esc(item.baseName) + '</div>'; // 卡片头部已经有名字和图标：只补一行基底名
     const isW = item.slot === 'weapon';
     h += '<div class="ic-meta"><span>' + G.RARITY_NAME[item.rarity] + ' · ' + (isW ? G.SLOT_NAME.weapon + ' · ' + wTypeName(item.baseIdx | 0) : G.SLOT_NAME[item.slot]) + '</span><span>物品等级 ' + item.ilvl + '</span></div>';
     // 职业（class-d2）：有职业的角色看武器时多一行「职业：X」，别的职业的标红（装不上）
@@ -1479,7 +1490,8 @@
     if (s('moreLife')) h += row('生命总量', pct(s('moreLife')), s('moreLife') > 0 ? '#9fdc8a' : '#ff7a6a');
     if (s('bloodMagic')) h += row('技能消耗', '生命', '#ff7a6a');
     h += '</div>';
-    return h;
+    // 每组（小标题 + 两列数值）包成一块：宽屏按列排开时一组不拆到两列
+    return '<div class="st-sec">' + h.replace(/<\/div><div class="st-group/g, '</div></div><div class="st-sec"><div class="st-group') + '</div>';
   }
 
   // 烬铸图鉴：三把烬铸武器（拾到过没有、见过的最高完美度）和各首领的保底进度
@@ -1551,176 +1563,479 @@
     );
   }
 
-  // 共享仓库（class-d2）：右栏的一页，4 页 × 40 格，所有角色共用；点仓库里的物品取进背包，背包物品详情里有「放进仓库」
-  function stashHtml() {
-    const ok = G.stash && G.stash.ok();
-    const items = ok ? G.stash.list() : [];
-    ui.stashCache = items;
-    const P = G.stash ? G.stash.PAGE : 40, N = G.stash ? G.stash.PAGES : 4;
-    const pg = G.clamp(ui.stashPage | 0, 0, N - 1);
-    let tabs = '';
-    for (let p = 0; p < N; p++) {
-      const n = items.slice(p * P, (p + 1) * P).length;
-      tabs += '<button type="button" tabindex="-1" class="sh-tab' + (p === pg ? ' on' : '') + '" data-act="stash-page" data-p="' + p + '">' + (p + 1) + (n ? '<em>' + n + '</em>' : '') + '</button>';
+  // ============================================================
+  // UI-R 共用组件（B1，说明见 docs/ui.md）
+  //   面板外壳：页签（TABS）、页头的 [?]、每页第一次打开时的一行提示（本地记「看过了」，不进存档）
+  //   .sheet：物品卡等「点了才出现」的卡片。头部固定 / 中间唯一的滚动区（data-list）/ 底部操作条（.sh-acts）
+  //     宽屏桌面：锚在格子旁边的浮卡；窄屏和触屏（compactUi()）：横屏从右侧滑出，竖屏从底部升起
+  //   .ui-pop：锚在按钮下面的小菜单（筛选、「⋯」、[?] 的说明）。点外面就关
+  //   data-list：一个页面状态里只有它能纵向滚动（test/ui-layout.mjs 按这个标记检查）
+  // ============================================================
+  const UI_SEEN_KEY = 'cinder-abyss-ui-seen'; // 设备本地：哪些页的一次性提示看过了（{ inv: 1, … }）。不进存档
+  let uiSeenMap = null;
+  function uiSeen(tab) {
+    if (!uiSeenMap) {
+      try {
+        uiSeenMap = JSON.parse(localStorage.getItem(UI_SEEN_KEY) || '{}') || {};
+      } catch (e) {
+        uiSeenMap = {};
+      }
     }
+    return !!uiSeenMap[tab];
+  }
+  function uiSeenMark(tab) {
+    if (!PAGE_HINTS[tab] || uiSeen(tab)) return;
+    uiSeenMap[tab] = 1;
+    try {
+      localStorage.setItem(UI_SEEN_KEY, JSON.stringify(uiSeenMap));
+    } catch (e) {}
+  }
+  // 窄屏 / 触屏的排法（和 css 里「手机」那组媒体查询同一个条件）；竖屏另算
+  const COMPACT_MQ = '(max-width: 900px), (max-height: 500px)';
+  const compactUi = () => window.matchMedia(COMPACT_MQ).matches;
+  const portraitUi = () => compactUi() && window.innerWidth <= 600;
+  // 每页的说明：once = 第一次打开时底部那一行；list = 点 [?] 看到的全部。触屏、桌面各一套说法
+  const PAGE_HINTS = {
+    inv: {
+      touch: { once: '点物品看详情，点两下直接穿上', list: ['点物品：看详情、装备、分解、改造', '同一件物品连点两下：直接穿上', '按住物品：看浮窗；按住拖到装备栏：换装', '「筛选」：一键分解的范围、整理、图鉴', '<b class="vd-up">▲</b> 表示装备后更强'] },
+      desk: { once: '单击物品打开操作，双击或右键穿上', list: ['单击物品：装备、分解、丢弃、锁定和通货改造', '双击或右键：穿上 / 卸下', '拖动：整理、换装，拖出窗口丢弃', '把通货拖到物品上改造', 'Shift+点击 分解 · Ctrl+点击 锁定', '<b class="vd-up">▲</b> 表示装备后更强'] },
+    },
+    stash: {
+      touch: { once: '点物品取出，或放进仓库', list: ['仓库所有角色共用，4 页共 160 格', '点仓库里的物品：取进背包', '切到「背包」，点物品：放进仓库', '只放物品，通货和宝石不进仓库'] },
+      desk: { once: '点仓库物品取进背包，点背包物品放进仓库', list: ['仓库所有角色共用，4 页共 160 格', '点仓库里的物品：取进背包', '点背包里的物品：选「放进仓库」', 'Shift+点击背包物品：直接放进仓库', '只放物品，通货和宝石不进仓库'] },
+    },
+    char: {
+      touch: { once: '属性跟着装备和天赋变', list: ['属性：这个角色现在的全部数值', '图鉴：烬铸和渊契的收集进度与保底', '拾到过的记录所有角色共用，保底按角色算'] },
+      desk: { once: '属性跟着装备和天赋变', list: ['属性：这个角色现在的全部数值', '图鉴：烬铸和渊契的收集进度与保底', '拾到过的记录所有角色共用，保底按角色算'] },
+    },
+  };
+  const pageHints = (tab) => (PAGE_HINTS[tab] ? PAGE_HINTS[tab][touchOn() ? 'touch' : 'desk'] : null);
+  // 页面底部的一行：一次性提示 / 新手提示 / 操作结果。触屏上浮在页面底部（不占格子的高度），桌面在页面最下面占一行
+  // keep：窄屏上这一行一直占着位置（右边放 right，比如背包的件数），内容换了页面不跳
+  function pageNote(tab, html, cls, keep, right) {
+    if (!html && PAGE_HINTS[tab] && !uiSeen(tab)) {
+      html = '<span>' + pageHints(tab).once + '</span>';
+      cls = 'hint';
+    }
+    if (!html && !keep) return '';
+    return '<div class="pg-note inv-tips ' + (cls || '') + '"><div class="pg-msg">' + (html || '') + '</div>' + (right ? '<div class="pg-r">' + right + '</div>' : '') + '</div>';
+  }
+  // [?] 按钮（页头里；竖屏放进页面的工具栏）
+  const helpBtn = (cls) => '<button type="button" tabindex="-1" class="ui-q' + (cls ? ' ' + cls : '') + (ui.pop && ui.pop.kind === 'hint' ? ' on' : '') + '" data-act="hint" aria-label="这一页的说明">?</button>';
+
+  // 小菜单：ui.pop = { kind, at }（at：锚点按钮的选择器）。内容按 kind 现做
+  function popHtml() {
+    const p = ui.pop;
+    if (!p) return '';
+    let rows = '';
+    if (p.kind === 'hint') {
+      const H = pageHints(ui.tab);
+      if (!H) return '';
+      rows = '<div class="pop-t">这一页怎么用</div>' + H.list.map((t) => '<div class="pop-line">' + t + '</div>').join('');
+    } else if (p.kind === 'filter') {
+      const S = G.save;
+      const withRare = !!S.opts.salvageRare;
+      const withMagic = withRare || !!S.opts.salvageMagic;
+      rows =
+        '<div class="pop-t">一键分解的范围</div>' +
+        '<button type="button" tabindex="-1" class="pop-row chk' + (withMagic ? ' on' : '') + '" data-act="opt" data-opt="salvageMagic"' + (withRare ? ' disabled' : '') + '><i></i>含魔法</button>' +
+        '<button type="button" tabindex="-1" class="pop-row chk' + (withRare ? ' on' : '') + '" data-act="opt" data-opt="salvageRare"><i></i>含稀有<em>留下锁定的、更强的</em></button>' +
+        '<div class="pop-sep"></div>' +
+        '<button type="button" tabindex="-1" class="pop-row" data-act="sort"' + (S.bag.length > 1 ? '' : ' disabled') + '>整理背包</button>' +
+        '<button type="button" tabindex="-1" class="pop-row" data-act="codex">图鉴<em>烬铸和渊契</em></button>';
+    } else if (p.kind === 'more') {
+      const f = cardItem();
+      if (!f) return '';
+      rows =
+        (f.equipped ? '' : '<button type="button" tabindex="-1" class="pop-row" data-act="drop">丢弃</button>') +
+        '<button type="button" tabindex="-1" class="pop-row lk-btn' + (f.item.lk ? ' on' : '') + '" data-act="lock" aria-pressed="' + !!f.item.lk + '"><i class="lk-ico"></i>' + (f.item.lk ? '解锁' : '锁定') + '</button>';
+    }
+    return '<div class="ui-pop pop-' + p.kind + '" data-pop="' + p.kind + '">' + rows + '</div>';
+  }
+  // 小菜单贴在锚点按钮下面（放不下就放上面），左右夹在面板里
+  function placePop() {
+    const pop = el.body.querySelector('.ui-pop');
+    if (!pop || !ui.pop) return;
+    const at = el.panel.querySelector(ui.pop.at);
+    const br = el.body.getBoundingClientRect();
+    if (!at) return;
+    const r = at.getBoundingClientRect();
+    const w = pop.offsetWidth, h = pop.offsetHeight;
+    const vh = window.innerHeight;
+    // 左右夹在页面正文里（触屏上正文已经让开了安全区和圆角）
+    const lo = br.left + 2, hi = br.right - 2;
+    let x = r.right - w;
+    if (x < lo) x = r.left;
+    x = G.clamp(x, lo, Math.max(lo, hi - w));
+    let y = r.bottom + 4;
+    if (y + h > vh - 8) y = Math.max(8, r.top - 4 - h);
+    pop.style.left = Math.round(x - br.left) + 'px';
+    pop.style.top = Math.round(y - br.top) + 'px';
+  }
+
+  // ---------- 卡片（.sheet） ----------
+  // o：{ head, body, acts, msg, cls }。body 是唯一的滚动区（data-list），acts 是底部固定的操作条
+  function sheetHtml(o) {
+    return (
+      '<div class="sheet ' + (compactUi() ? (portraitUi() ? 'dock bottom' : 'dock side') : 'pop') + (o.cls ? ' ' + o.cls : '') + '">' +
+      '<div class="sh-head">' + o.head + '<button type="button" tabindex="-1" class="sh-x" data-act="card-close" aria-label="收起">✕</button></div>' +
+      '<div class="sh-body scroll" data-list data-scroll="sheet">' + o.body + '</div>' +
+      (o.msg || '') +
+      (o.acts ? '<div class="sh-acts act-row">' + o.acts + '</div>' : '') +
+      '</div>'
+    );
+  }
+  // 卡片的头部：图标、名字、类型（固定不滚）
+  const sheetHead = (item, extra) =>
+    itemIcon(item) + '<div class="sh-ttl"><div class="sh-name" style="color:' + G.RARITY_COLOR[item.rarity] + '">' + esc(item.name) + '</div>' +
+    '<div class="sh-kind">' + G.RARITY_NAME[item.rarity] + ' · ' + (item.slot === 'weapon' ? wTypeName(item.baseIdx | 0) : G.SLOT_NAME[item.slot]) + ' · ' + item.ilvl + ' 级</div></div>' + (extra || '');
+  // 卡片里现在是哪件物品：背包 / 身上（findItem），或仓库里的（ui.card.stash）
+  function cardItem() {
+    if (!ui.card) return null;
+    if (ui.card.stash) {
+      const it = (ui.stashCache || []).find((x) => x.uid === ui.card.uid);
+      return it ? { item: it, stash: true } : null;
+    }
+    return findItem(ui.card.uid);
+  }
+  function openCard(uid, stash) {
+    clearTimeout(ui.cardTimer);
+    ui.cardTimer = 0;
+    ui.card = { uid, stash: !!stash, view: 'info', ovf: false };
+    ui.pop = null;
+    ui.confirm = null;
+    if (!stash) ui.sel = uid;
+  }
+  function closeCard() {
+    clearTimeout(ui.cardTimer);
+    ui.cardTimer = 0;
+    const had = !!ui.card;
+    ui.card = null;
+    if (ui.pop && ui.pop.kind === 'more') ui.pop = null;
+    return had;
+  }
+  // 物品卡：背包页和仓库页共用。stashTab：在仓库页（操作条换成 放进仓库 / 取出）
+  function itemSheet(stashTab) {
+    const f = cardItem();
+    if (!f) {
+      ui.card = null;
+      return '';
+    }
+    const S = G.save;
+    const it = f.item;
+    const touch = touchOn();
+    const dock = compactUi();
+    const view = ui.card.view;
+    const eqOf = !f.equipped && !f.stash ? S.equip[it.slot] : null;
+    const stashOk = !!(G.stash && G.stash.ok());
+    // 中间：物品卡 / 对比（身上那件） / 改造（通货列表）
+    let body;
+    if (view === 'cmp' && eqOf) {
+      body = '<div class="detail-card cmp" data-item="' + eqOf.uid + '">' + itemCard(eqOf, { tag: '当前装备', compact: true }) + '</div>';
+    } else if (view === 'craft' && !f.stash) {
+      body = craftList(it);
+    } else {
+      body =
+        '<div class="detail-card' + (ui.flash ? ' flash' : '') + '" data-item="' + it.uid + '">' +
+        itemCard(it, { noHead: true, vd: f.equipped || f.stash ? null : verdict(it), affTips: !touch, compact: true, cmp: f.equipped || f.stash ? null : eqOf }) + '</div>';
+      // 桌面：通货改造直接放在卡片里（点击，或把通货拖到物品上）
+      if (!dock && !f.stash) body += craftGrid(it);
+    }
+    ui.flash = false;
+    const B = (act, label, cls, extra) => '<button type="button" tabindex="-1" class="btn' + (cls ? ' ' + cls : '') + '" data-act="' + act + '"' + (extra || '') + '>' + label + '</button>';
+    const lockB = (cls) => B('lock', '<i class="lk-ico"></i>' + (it.lk ? '已锁' : '锁定'), 'lk-btn' + (it.lk ? ' on' : '') + (cls ? ' ' + cls : ''), ' aria-pressed="' + !!it.lk + '"' + (touch ? '' : ' data-tip="txt:' + (it.lk ? '已锁定：不会被分解或卖掉。点击或 Ctrl+点击物品解锁' : '锁定后不会被一键分解、自动分解或卖掉。也可以 Ctrl+点击物品') + '"'));
+    const craftB = dock && !f.stash ? B('craftview', view === 'craft' ? '详情' : '改造', view === 'craft' ? 'on' : '') : '';
+    const ovf = ui.card.ovf; // 触屏：按钮放不下（有一个窄过 44 px）时，丢弃 / 锁定收进「⋯」
+    const moreB = B('more', '⋯', ui.pop && ui.pop.kind === 'more' ? 'on' : '', ' aria-label="更多"');
+    let acts;
+    if (f.stash) {
+      acts = B('stash-take', '取出', 'primary', ' data-uid="' + it.uid + '"');
+    } else if (stashTab) {
+      acts = (f.equipped ? '' : B('stash-put', '放进仓库', 'primary', stashOk ? '' : ' disabled')) + lockB();
+    } else if (f.equipped) {
+      acts = B('unequip', '卸下', 'primary') + craftB + lockB();
+    } else {
+      acts =
+        B('equip', '装备', 'primary') + B('salvage', '分解') +
+        (stashOk ? B('stash-put', '仓库', '', touch ? '' : ' data-tip="txt:放进所有角色共用的仓库"') : '') + craftB +
+        (ovf ? moreB : B('drop', '丢弃') + lockB());
+    }
+    const msg = ui.invMsg ? '<div class="inv-msg sh-msg">' + esc(ui.invMsg) + '</div>' : ui.invOk ? '<div class="inv-msg sh-msg ok">' + esc(ui.invOk) + '</div>' : '';
+    const cmpB = dock && eqOf ? '<button type="button" tabindex="-1" class="sh-b' + (view === 'cmp' ? ' on' : '') + '" data-act="cmp">对比</button>' : '';
+    return sheetHtml({ head: sheetHead(view === 'cmp' && eqOf ? eqOf : it, cmpB), body, acts, msg, cls: (f.equipped ? 'eqd' : f.stash ? 'st' : 'bg') + (it.rarity >= 3 ? ' top' : '') });
+  }
+  // 桌面卡片里的通货改造（两列小按钮，和以前的详情栏一样）
+  function craftGrid(it) {
+    const S = G.save;
+    const fixed = it.rarity >= 3;
+    let np = 0, ns = 0;
+    for (const a of it.affixes) {
+      if (G.AFFIX_BY_ID[a.id].type === 'prefix') np++;
+      else ns++;
+    }
+    const cap = it.rarity === 2 ? 3 : it.rarity === 1 ? 1 : 0;
+    let craft = '';
+    for (const id of G.CUR_IDS) {
+      const c = G.CURRENCY[id];
+      const n = S.cur[id] || 0;
+      const ok = n > 0 && G.canCraft(it, id);
+      craft +=
+        '<button type="button" tabindex="-1" class="craft-btn" data-act="craft" data-cur="' + id + '" data-tip="cur:' + id + '" style="--c:' + c.color + '"' +
+        (ok ? '' : ' disabled') + '>' + IC.cur(id) + '<span>' + c.name + '</span><b>' + n + '</b></button>';
+    }
+    return (
+      (fixed ? '' : cap ? '<div class="aff-count">前缀 <b>' + np + '</b>/' + cap + '<i></i>后缀 <b>' + ns + '</b>/' + cap + '<i></i>悬停词缀查看阶级</div>' : '<div class="aff-count">普通物品没有词缀，可以用通货改造</div>') +
+      '<div class="sec-title sm">通货改造<span class="sec-note">' + (fixed ? lockText(it) : '点击，或把通货拖到物品上') + '</span></div>' +
+      '<div class="craft-grid' + (fixed ? ' locked' : '') + '">' + craft + '</div>'
+    );
+  }
+  // 触屏卡片的「改造」：通货列表，一行 44 px（名字、持有、这次会做什么）
+  function craftList(it) {
+    const S = G.save;
+    if (it.rarity >= 3) return '<div class="cl-none">' + lockText(it) + '</div>';
+    let rows = '';
+    for (const id of G.CUR_IDS) {
+      const c = G.CURRENCY[id];
+      const n = S.cur[id] || 0;
+      const ok = n > 0 && G.canCraft(it, id);
+      rows +=
+        '<button type="button" tabindex="-1" class="cl-row" data-act="craft" data-cur="' + id + '" style="--c:' + c.color + '"' + (ok ? '' : ' disabled') + '>' +
+        IC.cur(id) + '<span class="cl-name">' + c.name + '<em>' + c.desc + '</em></span><b>' + n + '</b></button>';
+    }
+    return '<div class="cl-list">' + rows + '</div>';
+  }
+  // 卡片放好位置：桌面浮卡锚在格子旁边（复用浮窗的摆法），窄屏的侧滑卡 / 底部卡由 css 定位
+  function placeCard() {
+    const sh = el.body.querySelector('.sheet');
+    if (!sh) return;
+    if (sh.classList.contains('pop')) {
+      const src = ui.card && el.body.querySelector('[data-item="' + ui.card.uid + '"].cell, [data-item="' + ui.card.uid + '"].eq, .cell[data-uid="' + ui.card.uid + '"]');
+      const br = el.body.getBoundingClientRect();
+      const vw = window.innerWidth, vh = window.innerHeight;
+      const w = sh.offsetWidth, h = sh.offsetHeight;
+      const r = src ? src.getBoundingClientRect() : { left: vw / 2, right: vw / 2, top: vh / 2 - h / 2, bottom: vh / 2 };
+      let x = r.right + 10;
+      if (x + w > vw - 8) x = r.left - 10 - w;
+      if (x < 8) x = G.clamp(r.left, 8, Math.max(8, vw - w - 8));
+      const y = G.clamp(r.top - 40, 8, Math.max(8, vh - h - 8));
+      sh.style.left = Math.round(x - br.left) + 'px';
+      sh.style.top = Math.round(y - br.top) + 'px';
+    }
+    // 触屏：按钮放不下就把丢弃 / 锁定收进「⋯」，再排一次（每次开卡最多一次）
+    if (touchOn() && ui.card && !ui.card.ovf && Array.from(sh.querySelectorAll('.sh-acts .btn')).some((b) => b.getBoundingClientRect().width < 43.5)) {
+      ui.card.ovf = true;
+      render();
+    }
+  }
+  // 单击 / 轻点物品：桌面等双击的窗口过了才开卡（双击、拖动都不会闪一下）；触屏马上开
+  const CARD_DELAY = 250;
+  function clickItem(uid, stash) {
+    clearTimeout(ui.cardTimer);
+    if (ui.card && ui.card.uid === uid && !stash === !ui.card.stash) {
+      closeCard(); // 再点一次同一件：收起
+      return render();
+    }
+    if (touchOn() || stash || compactUi()) {
+      openCard(uid, stash);
+      return render();
+    }
+    ui.sel = uid;
+    render();
+    ui.cardTimer = setTimeout(() => {
+      ui.cardTimer = 0;
+      if (!ui.isOpen || ui.sel !== uid || !findItem(uid)) return;
+      openCard(uid, false);
+      render();
+    }, CARD_DELAY);
+  }
+
+  // ---------- 格子 ----------
+  function eqCell(slot, cls) {
+    const it = G.save.equip[slot];
+    if (it)
+      return (
+        '<div class="eq r' + it.rarity + (ui.sel === it.uid ? ' sel' : '') + (cls || '') + '" data-slot="' + slot + '" data-act="sel" data-item="' + it.uid + '" data-tip="item:' + it.uid + '" data-drag="item:' + it.uid + '">' +
+        IC.item(it) + '<span class="c-ilvl">' + it.ilvl + '</span>' +
+        (it.lk ? '<span class="c-lk"><i class="lk-ico"></i></span>' : '') +
+        '<span class="eq-name">' + G.SLOT_NAME[slot] + '</span></div>'
+      );
+    return '<div class="eq empty' + (cls || '') + '" data-slot="' + slot + '">' + IC.slot(slot) + '<span class="eq-name">' + G.SLOT_NAME[slot] + '</span></div>';
+  }
+  // 背包格（40 格）；竖屏 7 列时补两格空位，最后一行不缺角
+  function bagGrid() {
+    const S = G.save;
+    let bag = '';
+    for (let i = 0; i < G.BAG_SIZE; i++) {
+      const it = S.bag[i];
+      bag += it ? bagCell(it, ui.sel === it.uid, i) : '<div class="cell empty" data-idx="' + i + '"></div>';
+    }
+    if (portraitUi()) bag += '<div class="cell empty pad"></div>'.repeat((7 - (G.BAG_SIZE % 7)) % 7);
+    return '<div class="bag" data-grid="bag">' + bag + '</div>';
+  }
+  // 一键分解：按钮上的件数和上膛状态（上膛后要分解的东西变了就不算数）
+  function bulkState() {
+    const plan = bulkPlan();
+    const armed = !!(ui.bulkArm && ui.bulkArm.key === plan.map((it) => it.uid).join() && performance.now() - ui.bulkArm.t < BULK_ARM_MS);
+    if (ui.bulkArm && !armed) bulkDisarm();
+    return { n: plan.length, armed };
+  }
+  function bulkBtn(b, cls) {
+    return (
+      '<button type="button" tabindex="-1" class="btn sm bulk' + (b.armed ? ' armed' : '') + (cls ? ' ' + cls : '') + '" data-act="salvage-all"' + (b.n ? '' : ' disabled') +
+      (b.armed && !touchOn() ? ' data-tip="txt:' + bulkKeepText() + '"' : '') + '>' +
+      (b.armed ? '确认分解' : compactUi() ? '分解' : '一键分解') + (b.n ? '<em>（' + b.n + '）</em>' : '') + '</button>'
+    );
+  }
+  const filterBtn = (cls) => '<button type="button" tabindex="-1" class="btn sm flt' + (ui.pop && ui.pop.kind === 'filter' ? ' on' : '') + (cls ? ' ' + cls : '') + '" data-act="filter">筛选<i class="dd"></i></button>';
+
+  // ============================================================
+  // 背包页：背包格 + 装备栏 + 工具（筛选 / 一键分解 / ?）；桌面多一排通货（拖到物品上改造）。物品详情是点了才出现的卡片
+  // ============================================================
+  function renderInv() {
+    const S = G.save;
+    if (ui.sel && !findItem(ui.sel)) ui.sel = null;
+    if (ui.card && !cardItem()) ui.card = null;
+    const b = bulkState();
+    const compact = compactUi();
+    const portrait = portraitUi();
+    let eq = '';
+    for (const slot of G.SLOTS) eq += eqCell(slot);
+    // 通货（桌面）：拖到物品上改造的来源
+    let cur = '';
+    if (!compact) {
+      for (const id of G.CUR_IDS) {
+        const c = G.CURRENCY[id];
+        const n = S.cur[id] || 0;
+        cur +=
+          '<div class="cur' + (n ? '' : ' zero') + '" data-cur="' + id + '" data-tip="cur:' + id + '"' + (n ? ' data-drag="cur:' + id + '"' : '') + ' style="--c:' + c.color + '">' +
+          IC.cur(id) + '<span class="cur-name">' + c.name + '</span><b>' + n + '</b></div>';
+      }
+    }
+    const coach = coachBanner('inv');
+    const count = '<span class="bag-n">背包 <b>' + S.bag.length + '</b> / ' + G.BAG_SIZE + '</span>';
+    const keep = compact && !portrait;
+    const right = keep ? count : '';
+    const msg = ui.bagMsg
+      ? pageNote('inv', ui.bagMsg, 'res' + (b.armed ? ' bulk-on' : ''), keep, right)
+      : ui.invMsg && !ui.card
+        ? pageNote('inv', '<span class="inv-msg">' + esc(ui.invMsg) + '</span>', 'res', keep, right)
+        : ui.invOk && !ui.card
+          ? pageNote('inv', '<span class="inv-msg ok">' + esc(ui.invOk) + '</span>', 'res', keep, right)
+          : coach
+            ? pageNote('inv', coach, 'coach', keep, right)
+            : pageNote('inv', '', '', keep, right);
+    let html;
+    if (compact) {
+      // 窄屏 / 触屏：横屏 背包格 | 装备 2×4 + 工具；竖屏一列：装备 4×2、工具行、背包 7 列
+      html =
+        '<div class="inv inv2 cpt' + (portrait ? ' por' : '') + '"><div class="pg-row">' +
+        '<div class="inv-bag">' + bagGrid() + '</div>' +
+        '<div class="inv-side"><div class="eq-grid">' + eq + '</div>' +
+        '<div class="inv-tools">' + filterBtn() + bulkBtn(b) + (portrait ? count + helpBtn('in-page') : '') + '</div></div></div>' +
+        msg + '</div>';
+    } else {
+      html =
+        '<div class="inv inv2 wide">' +
+        '<div class="col inv-eq"><div class="sec-title">装备</div><div class="eq-grid">' + eq + '</div></div>' +
+        '<div class="col inv-main"><div class="sec-title">背包<span class="sec-note">' + S.bag.length + ' / ' + G.BAG_SIZE + '</span>' + filterBtn() + bulkBtn(b) + '</div>' +
+        bagGrid() +
+        '<div class="sec-title">通货<span class="sec-note">拖到物品上使用</span></div><div class="cur-row">' + cur + '</div></div>' +
+        msg + '</div>';
+    }
+    el.body.innerHTML = html + itemSheet(false) + popHtml();
+  }
+
+  // ============================================================
+  // 仓库页（class-d2 的共享仓库，独立一页）：桌面 仓库格 | 背包格 并排；触屏一个格子区，旁边切换 仓库 1–4 / 背包
+  // 写入守卫（另一个标签页在写、存档写不进去、老角色没选职业）照旧在 G.stash 里
+  // ============================================================
+  function stashCells(items, pg, P) {
     let cells = '';
     for (let i = pg * P; i < (pg + 1) * P; i++) {
       const it = items[i];
       cells += it
-        ? '<div class="cell r' + it.rarity + (G.offClassItem && G.offClassItem(it) ? ' cls-off' : '') + '" data-act="stash-take" data-uid="' + it.uid + '" data-tip="stash:' + it.uid + '">' + IC.item(it) + '<span class="c-ilvl">' + it.ilvl + '</span></div>'
+        ? '<div class="cell r' + it.rarity + (ui.card && ui.card.stash && ui.card.uid === it.uid ? ' sel' : '') + (G.offClassItem && G.offClassItem(it) ? ' cls-off' : '') + '" data-act="stash-take" data-uid="' + it.uid + '" data-tip="stash:' + it.uid + '">' + IC.item(it) + '<span class="c-ilvl">' + it.ilvl + '</span></div>'
         : '<div class="cell empty"></div>';
     }
-    return (
-      '<div class="sec-title">共享仓库<span class="sec-note">' + items.length + ' / ' + (P * N) + ' · 所有角色共用</span></div>' +
-      (ok
-        ? '<div class="sh-tabs">' + tabs + '</div><div class="bag sh-grid">' + cells + '</div>' +
-          '<p class="sh-note">点仓库里的物品取进背包；背包里的物品点开后选「放进仓库」。只放物品，通货和宝石不进仓库。</p>'
-        : '<p class="sh-note">现在不能用仓库：另一个标签页在玩，或者存档写不进去。刷新后再试。</p>') +
-      (ui.stashMsg ? '<p class="inv-msg' + (ui.stashBad ? '' : ' ok') + '">' + esc(ui.stashMsg) + '</p>' : '')
-    );
+    return cells;
+  }
+  function renderStash() {
+    const ok = !!(G.stash && G.stash.ok());
+    const items = ok ? G.stash.list() : [];
+    ui.stashCache = items;
+    if (ui.card && !cardItem()) ui.card = null;
+    if (ui.sel && !findItem(ui.sel)) ui.sel = null;
+    const P = G.stash ? G.stash.PAGE : 40, N = G.stash ? G.stash.PAGES : 4;
+    const pg = G.clamp(ui.stashPage | 0, 0, N - 1);
+    const compact = compactUi();
+    const touchV = compact ? ui.stashView || 'stash' : 'both';
+    const total = items.length + ' / ' + P * N;
+    const keepN = compact && !portraitUi();
+    const msg = ui.stashMsg ? pageNote('stash', '<span class="inv-msg' + (ui.stashBad ? '' : ' ok') + '">' + esc(ui.stashMsg) + '</span>', 'res', keepN) : pageNote('stash', '', '', keepN);
+    if (!ok) {
+      el.body.innerHTML =
+        '<div class="stp off"><div class="stp-off"><b>现在不能用仓库</b><span>' + (G.stash ? '另一个标签页在玩，或者存档写不进去。刷新后再试。' : '这个存档还不能用仓库。') + '</span></div></div>';
+      return;
+    }
+    let tabs = '';
+    for (let p = 0; p < N; p++) {
+      const n = items.slice(p * P, (p + 1) * P).length;
+      const on = p === pg && touchV !== 'bag';
+      tabs += '<button type="button" tabindex="-1" class="sh-tab' + (on ? ' on' : '') + '" data-act="stash-page" data-p="' + p + '">' + (compact && p === 0 ? '仓库 ' : '') + (p + 1) + (n ? '<em>' + n + '</em>' : '') + '</button>';
+    }
+    const stashGrid = '<div class="bag sh-grid" data-grid="stash">' + stashCells(items, pg, P) + '</div>';
+    let html;
+    if (compact) {
+      const portrait = portraitUi();
+      html =
+        '<div class="stp cpt' + (portrait ? ' por' : '') + '"><div class="pg-row">' +
+        '<div class="stp-grid">' + (touchV === 'bag' ? bagGrid() : stashGrid) + '</div>' +
+        '<div class="stp-side"><div class="sh-tabs">' + tabs +
+        '<button type="button" tabindex="-1" class="sh-tab bagv' + (touchV === 'bag' ? ' on' : '') + '" data-act="stash-view" data-v="bag">背包<em>' + G.save.bag.length + '</em></button></div>' +
+        '<div class="stp-n">' + (touchV === 'bag' ? '背包 <b>' + G.save.bag.length + '</b> / ' + G.BAG_SIZE : '仓库 <b>' + total + '</b>') + '<span class="stp-all">所有角色共用</span></div>' +
+        (portrait ? helpBtn('in-page') : '') + '</div></div>' +
+        msg + '</div>';
+    } else {
+      html =
+        '<div class="stp wide">' +
+        '<div class="col stp-l"><div class="sec-title">仓库<span class="sec-note">' + total + ' · 所有角色共用</span></div><div class="sh-tabs">' + tabs + '</div>' + stashGrid + '</div>' +
+        '<div class="col stp-r"><div class="sec-title">背包<span class="sec-note">' + G.save.bag.length + ' / ' + G.BAG_SIZE + '</span></div><div class="sh-tabs sp"></div>' + bagGrid() + '</div>' +
+        msg + '</div>';
+    }
+    el.body.innerHTML = html + itemSheet(true) + popHtml();
   }
 
   // ============================================================
-  // 背包页
+  // 属性页：子页签 属性 | 图鉴。顶上一行只读的通货和烛芯；只有下面的内容区滚动
   // ============================================================
-  function renderInv() {
+  function charStrip() {
     const S = G.save;
-    let sel = ui.sel ? findItem(ui.sel) : null;
-    if (!sel) ui.sel = null;
-
-    // 装备栏
-    let eq = '';
-    for (const slot of G.SLOTS) {
-      const it = S.equip[slot];
-      if (it) {
-        eq +=
-          '<div class="eq r' + it.rarity + (ui.sel === it.uid ? ' sel' : '') + '" data-slot="' + slot + '" data-act="sel" data-item="' + it.uid + '" data-tip="item:' + it.uid + '" data-drag="item:' + it.uid + '">' +
-          IC.item(it) + '<span class="c-ilvl">' + it.ilvl + '</span>' +
-          (it.lk ? '<span class="c-lk"><i class="lk-ico"></i></span>' : '') +
-          '<span class="eq-name">' + G.SLOT_NAME[slot] + '</span></div>';
-      } else {
-        eq += '<div class="eq empty" data-slot="' + slot + '">' + IC.slot(slot) + '<span class="eq-name">' + G.SLOT_NAME[slot] + '</span></div>';
-      }
-    }
-
-    // 背包格
-    let bag = '';
-    for (let i = 0; i < G.BAG_SIZE; i++) {
-      const it = S.bag[i];
-      if (it) {
-        bag += bagCell(it, ui.sel === it.uid, i);
-      } else {
-        bag += '<div class="cell empty" data-idx="' + i + '"></div>';
-      }
-    }
-    const withRare = !!S.opts.salvageRare;
-    const withMagic = withRare || !!S.opts.salvageMagic; // 含稀有时魔法也一起分解
-    const plan = bulkPlan();
-    const bulkN = plan.length;
-    const bulkR = plan.filter((it) => it.rarity === 2).length;
-    // 上膛之后要分解的东西变了（捡到 / 锁上 / 换装）：不算数，回到没上膛
-    const armed = !!(ui.bulkArm && ui.bulkArm.key === plan.map((it) => it.uid).join() && performance.now() - ui.bulkArm.t < BULK_ARM_MS);
-    if (ui.bulkArm && !armed) bulkDisarm();
-
-    // 通货
-    let cur = '';
+    let h = '';
     for (const id of G.CUR_IDS) {
       const c = G.CURRENCY[id];
-      const n = S.cur[id] || 0;
-      cur +=
-        '<div class="cur' + (n ? '' : ' zero') + '" data-cur="' + id + '" data-tip="cur:' + id + '"' + (n ? ' data-drag="cur:' + id + '"' : '') + ' style="--c:' + c.color + '">' +
-        IC.cur(id) + '<span class="cur-name">' + c.name + '</span><b>' + n + '</b></div>';
+      h += '<span class="cs-c' + (S.cur[id] ? '' : ' zero') + '" style="--c:' + c.color + '" data-tip="cur:' + id + '" aria-label="' + c.name + '">' + IC.cur(id) + '<b>' + (S.cur[id] || 0) + '</b></span>';
     }
-
-    // 右侧详情
-    let detail;
-    if (sel) {
-      const it = sel.item;
-      let np = 0;
-      let ns = 0;
-      for (const a of it.affixes) {
-        if (G.AFFIX_BY_ID[a.id].type === 'prefix') np++;
-        else ns++;
+    const F = S.frags || {};
+    if (G.FRAG_IDS && G.FRAG_IDS.some((id) => F[id])) {
+      h += '<i class="cs-sep"></i>';
+      for (const id of G.FRAG_IDS) {
+        const f = G.FRAGS[id];
+        h += '<span class="cs-c frag' + (F[id] ? '' : ' zero') + '" style="--c:' + f.color + '" data-tip="frag:' + id + '" aria-label="' + f.name + '">' + IC.frag(id) + '<b>' + (F[id] || 0) + '</b></span>';
       }
-      const cap = it.rarity === 2 ? 3 : it.rarity === 1 ? 1 : 0;
-      let craft = '';
-      for (const id of G.CUR_IDS) {
-        const c = G.CURRENCY[id];
-        const n = S.cur[id] || 0;
-        const ok = n > 0 && G.canCraft(it, id);
-        craft +=
-          '<button type="button" tabindex="-1" class="craft-btn" data-act="craft" data-cur="' + id + '" data-tip="cur:' + id + '" style="--c:' + c.color + '"' +
-          (ok ? '' : ' disabled') + '>' + IC.cur(id) + '<span>' + c.name + '</span><b>' + n + '</b></button>';
-      }
-      const acts =
-        '<div class="act-row' + (it.rarity >= 3 ? ' top' : '') + '">' +
-        (sel.equipped
-          ? '<button type="button" tabindex="-1" class="btn" data-act="unequip">卸下</button>'
-          : '<button type="button" tabindex="-1" class="btn primary" data-act="equip">装备</button>' +
-            '<button type="button" tabindex="-1" class="btn" data-act="salvage">分解</button>' +
-            '<button type="button" tabindex="-1" class="btn" data-act="drop">丢弃</button>' +
-            (G.stash && G.stash.ok() ? '<button type="button" tabindex="-1" class="btn" data-act="stash-put">放进仓库</button>' : '')) +
-        '<button type="button" tabindex="-1" class="btn lk-btn' + (it.lk ? ' on' : '') + '" data-act="lock" aria-pressed="' + !!it.lk + '" data-tip="txt:' +
-        (it.lk ? '已锁定：不会被分解或卖掉。点击或 Ctrl+点击物品解锁' : '锁定后不会被一键分解、自动分解或卖掉。也可以 Ctrl+点击物品') + '"><i class="lk-ico"></i>' + (it.lk ? '已锁' : '锁定') + '</button>' +
-        '</div>' +
-        (ui.invMsg ? '<div class="inv-msg">' + esc(ui.invMsg) + '</div>' : ui.invOk ? '<div class="inv-msg ok">' + esc(ui.invOk) + '</div>' : '');
-      // 烬铸武器 / 渊契的卡片很长（区间、完美度、机制说明）：按钮放到卡片上面，小窗口里也不用往下滚就能点到
-      const fixed = it.rarity >= 3 || touchOn(); // 触屏：按钮一律放在卡片上面（手机上详情栏很矮，不用往下滚就能点「装备」）
-      detail =
-        '<div class="sec-title">' + (sel.equipped ? '已装备' : '背包物品') + '</div>' +
-        (fixed ? acts : '') +
-        '<div class="detail-card' + (ui.flash ? ' flash' : '') + '" data-item="' + it.uid + '">' +
-        itemCard(it, { vd: sel.equipped ? null : verdict(it), affTips: !fixed, compact: fixed, cmp: sel.equipped ? null : S.equip[it.slot] }) + '</div>' +
-        (fixed
-          ? ''
-          : (cap
-            ? '<div class="aff-count">前缀 <b>' + np + '</b>/' + cap + '<i></i>后缀 <b>' + ns + '</b>/' + cap + '<i></i>悬停词缀查看阶级</div>'
-            : '<div class="aff-count">普通物品没有词缀，可以用通货改造</div>') + acts) +
-        '<div class="sec-title sm">通货改造<span class="sec-note">' + (fixed ? lockText(it) : '点击，或把通货拖到物品上') + '</span></div>' +
-        '<div class="craft-grid' + (fixed ? ' locked' : '') + '">' + craft + '</div>';
-    } else if (ui.stashOn) {
-      detail = stashHtml();
-    } else {
-      detail =
-        '<div class="sec-title">物品详情</div>' +
-        '<div class="detail-empty"><div class="de-glyph"><span>鉴</span></div>' +
-        '<p>点击物品看详情，悬停与身上的对比。</p>' +
-        '<p><b>右键</b>或拖到装备栏穿上，<b class="vd-up">▲</b> 表示更强。</p>' +
-        '<p>把<b>通货</b>拖到物品上改造；拖出窗口丢弃。</p>' +
-        (ui.invMsg ? '<p class="inv-msg">' + esc(ui.invMsg) + '</p>' : '') + '</div>' + codexHtml();
     }
-    ui.flash = false;
-
-    const coach = coachBanner('inv');
-    const foot = ui.bagMsg
-      ? '<div class="inv-tips res' + (armed ? ' bulk-on' : '') + '">' + ui.bagMsg + '</div>'
-      : coach
-        ? '<div class="inv-tips coach">' + coach + '</div>'
-        : '<div class="inv-tips"><span>右键 装备 / 卸下</span><i></i><span>拖动 整理 · 换装 · 丢弃</span><i></i><span>Shift+点击 分解</span><i></i><span>通货拖到物品上 改造</span></div>';
-
-    el.body.innerHTML =
-      // 背包列写在前面，装备 + 详情包在 inv-side 里：宽屏 inv-side 是 display: contents，三列照旧摆（CSS 指定列号）；
-      // 手机横屏右半边整列一起滚，竖屏整页一列（见 css 末尾的窄屏规则）
-      '<div class="inv" data-scroll="inv">' +
-      '<div class="col col-m" data-scroll="invbag"><div class="sec-title">背包<span class="sec-note">' + S.bag.length + ' / ' + G.BAG_SIZE + '</span>' +
-      '<button type="button" tabindex="-1" class="btn sm uqb' + (sel || ui.stashOn ? '' : ' on') + '" data-act="codex" data-tip="txt:烬铸与渊契的收集和保底进度">图鉴</button>' +
-      '<button type="button" tabindex="-1" class="btn sm" data-act="sort"' + (S.bag.length > 1 ? '' : ' disabled') + '>整理</button>' +
-      '<button type="button" tabindex="-1" class="chk' + (withMagic ? ' on' : '') + '" data-act="opt" data-opt="salvageMagic"' + (withRare ? ' disabled' : '') + '><i></i>含魔法</button>' +
-      '<button type="button" tabindex="-1" class="chk' + (withRare ? ' on' : '') + '" data-act="opt" data-opt="salvageRare" data-tip="txt:稀有物品也一起分解（魔法也算上）。会留下：已锁定的、装备后更强（▲）的、烬铸和渊契"><i></i>含稀有</button>' +
-      '<button type="button" tabindex="-1" class="btn sm' + (armed ? ' armed' : '') + '" data-act="salvage-all"' + (bulkN ? '' : ' disabled') +
-      (armed ? ' data-tip="txt:' + bulkKeepText() + '"' : '') + '>' +
-      (armed ? '确认分解' : '一键分解') + (bulkN ? '（' + bulkN + '）' : '') + '</button></div>' +
-      '<div class="bag">' + bag + '</div>' +
-      '<div class="sec-title">通货<span class="sec-note">拖到物品上使用</span></div><div class="cur-row">' + cur + '</div>' +
-      fragRow() +
-      foot + '</div>' +
-      '<div class="inv-side" data-scroll="invside">' +
-      '<div class="col col-l"><div class="sec-title">装备' +
-      '<button type="button" tabindex="-1" class="btn sm stb' + (!sel && ui.stashOn ? ' on' : '') + '" data-act="stash" data-tip="txt:所有角色共用的仓库：别的职业的武器、用不上的装备可以留给别的角色">共享仓库</button></div>' +
-      '<div class="eq-grid">' + eq + '</div>' +
-      '<div class="sec-title">属性<span class="sec-note">等级 ' + S.level + '</span></div><div class="stats scroll" data-scroll="stats">' + statSheet() + '</div></div>' +
-      '<div class="col col-r scroll" data-scroll="detail">' + detail + '</div>' +
-      '</div></div>';
+    return '<div class="char-strip">' + h + '</div>';
+  }
+  function renderChar() {
+    const sub = ui.charSub === 'codex' ? 'codex' : 'stats';
+    const S = G.save;
+    const subs =
+      '<div class="subtabs">' +
+      '<button type="button" tabindex="-1" class="subtab' + (sub === 'stats' ? ' on' : '') + '" data-act="sub" data-sub="stats">属性</button>' +
+      '<button type="button" tabindex="-1" class="subtab' + (sub === 'codex' ? ' on' : '') + '" data-act="sub" data-sub="codex">图鉴</button>' +
+      '<span class="sub-note">' + (sub === 'stats' ? '等级 ' + S.level : '拾到过的记录所有角色共用') + '</span>' +
+      (portraitUi() ? helpBtn('in-page') : '') + '</div>';
+    const body = sub === 'stats' ? '<div class="stats char-stats scroll" data-list data-scroll="stats"><div class="st-cols">' + statSheet() + '</div></div>' : '<div class="char-codex scroll" data-list data-scroll="codex">' + codexHtml() + '</div>';
+    el.body.innerHTML = '<div class="charp' + (compactUi() ? ' cpt' : ' wide') + '">' + subs + charStrip() + body + pageNote('char', '') + '</div>' + popHtml();
   }
 
   // ============================================================
@@ -3214,7 +3529,7 @@
   // ============================================================
   // 渲染调度
   // ============================================================
-  const RENDER = { inv: renderInv, skills: renderSkills, tree: renderTree, map: renderMap, help: renderHelp, trader: renderTrader }; // trader：异兆「拾烬客」，不在页签里
+  const RENDER = { inv: renderInv, stash: renderStash, char: renderChar, skills: renderSkills, tree: renderTree, map: renderMap, help: renderHelp, trader: renderTrader }; // trader：异兆「拾烬客」，不在页签里
 
   function render() {
     if (!ui.isOpen) return;
@@ -3235,7 +3550,14 @@
       if (n.scrollTop > 0) ui.restored[n.dataset.scroll] = { node: n, top: n.scrollTop };
     });
     el.body.dataset.tab = ui.tab;
-    for (const t of el.tabBtns) t.classList.toggle('on', t.dataset.tab === ui.tab);
+    for (const t of el.tabBtns) {
+      t.classList.toggle('on', t.dataset.tab === ui.tab);
+      if (t.dataset.tab === 'stash') t.classList.toggle('dim', !(G.stash && G.stash.ok())); // 仓库不能用时页签变灰（点进去看原因）
+    }
+    el.q.hidden = !PAGE_HINTS[ui.tab];
+    el.q.classList.toggle('on', !!(ui.pop && ui.pop.kind === 'hint'));
+    placeCard();
+    placePop();
     renderPicker();
     renderConfirm();
     retip();
@@ -3558,6 +3880,8 @@
   function showTip(target) {
     if (drag.on) return;
     const key = target.dataset.tip;
+    // 卡片开着的那件物品：卡片里已经有全部内容，不再盖一层浮窗
+    if (ui.card && (key === 'item:' + ui.card.uid || key === 'stash:' + ui.card.uid) && !target.closest('.sheet')) return hideTip();
     const cut = key.indexOf(':');
     const kind = key.slice(0, cut);
     const id = key.slice(cut + 1);
@@ -3593,7 +3917,7 @@
   // ============================================================
   // 面板操作
   // ============================================================
-  const selItem = () => (ui.sel ? findItem(ui.sel) : null);
+  const selItem = () => (ui.card && !ui.card.stash ? findItem(ui.card.uid) : ui.sel ? findItem(ui.sel) : null);
   function equipSel(item) {
     if (G.equip(item)) {
       ui.invMsg = '';
@@ -3604,6 +3928,14 @@
       ui.invMsg = '无法装备这件物品';
     }
     render();
+  }
+
+  // 确认框（丢弃稀有、琢刻石）的位置：卡片开着时摆在卡片中间，否则跟着鼠标
+  function cardPoint() {
+    const sh = ui.card && el.body.querySelector('.sheet');
+    if (!sh) return { x: ui.mouseX, y: ui.mouseY };
+    const r = sh.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height * 0.6 };
   }
 
   const ACT = {
@@ -3659,6 +3991,15 @@
         ui.lastSel = { uid: null, t: 0 };
         return;
       }
+      if (e && e.shiftKey && ui.tab === 'stash') {
+        // 仓库页：Shift+点击背包物品直接放进仓库
+        ui.lastSel = { uid: null, t: 0 };
+        if (!f.equipped) {
+          ui.card = { uid: d.item, stash: false, view: 'info', ovf: false };
+          ACT['stash-put']();
+        }
+        return;
+      }
       if (e && e.shiftKey) {
         // Shift+点击：分解背包物品；稀有物品要再点一次确认
         if (f.equipped) {
@@ -3685,40 +4026,101 @@
         render();
         return;
       }
-      if (!f.equipped && ui.lastSel.uid === d.item && now - ui.lastSel.t < 380) {
-        // 双击背包物品 → 装备
+      // 双击背包物品 → 装备（触屏：450 ms 内点同一格算点两下，穿上并收起卡片）
+      if (ui.tab === 'inv' && !f.equipped && ui.lastSel.uid === d.item && now - ui.lastSel.t < (touchOn() ? 450 : 380)) {
         ui.lastSel = { uid: null, t: 0 };
+        closeCard();
         ui.sel = d.item;
         equipSel(f.item);
         return;
       }
       ui.lastSel = { uid: d.item, t: now };
       if (ui.sel !== d.item) {
-        ui.sel = d.item;
         ui.invMsg = '';
         G.sfx('click');
-        render();
       }
+      clickItem(d.item, false); // 开卡（桌面等双击窗口过了才开）
     },
     equip() {
       const f = selItem();
-      if (f) equipSel(f.item);
+      if (!f) return;
+      if (ui.card && G.equip(f.item)) {
+        // 卡片里点「装备」：穿上后收起卡片（物品已经从格子里挪到装备栏）
+        closeCard();
+        ui.invMsg = '';
+        G.sfx('pickup');
+        return render();
+      }
+      equipSel(f.item);
+    },
+    // ---- 卡片和小菜单（docs/ui.md）----
+    'card-close'() {
+      closeCard();
+      G.sfx('click');
+      render();
+    },
+    cmp() {
+      if (!ui.card) return;
+      ui.card.view = ui.card.view === 'cmp' ? 'info' : 'cmp';
+      G.sfx('click');
+      render();
+    },
+    craftview() {
+      if (!ui.card) return;
+      ui.card.view = ui.card.view === 'craft' ? 'info' : 'craft';
+      G.sfx('click');
+      render();
+    },
+    more() {
+      ui.pop = ui.pop && ui.pop.kind === 'more' ? null : { kind: 'more', at: '.sheet [data-act="more"]' };
+      G.sfx('click');
+      render();
+    },
+    filter() {
+      ui.pop = ui.pop && ui.pop.kind === 'filter' ? null : { kind: 'filter', at: '[data-act="filter"]' };
+      closeCard();
+      G.sfx('click');
+      render();
+    },
+    hint() {
+      uiSeenMark(ui.tab);
+      ui.pop = ui.pop && ui.pop.kind === 'hint' ? null : { kind: 'hint', at: portraitUi() ? '#panel-body .ui-q' : '#panel-q' };
+      G.sfx('click');
+      render();
+    },
+    sub(d) {
+      ui.charSub = d.sub === 'codex' ? 'codex' : 'stats';
+      G.sfx('click');
+      render();
+    },
+    'stash-view'(d) {
+      ui.stashView = d.v === 'bag' ? 'bag' : 'stash';
+      closeCard();
+      G.sfx('click');
+      render();
     },
     // ---- 共享仓库（class-d2）----
     stash() {
-      ui.sel = null;
-      ui.stashOn = true;
-      ui.stashMsg = '';
-      ui.invMsg = '';
+      // 旧入口（背包页的「共享仓库」按钮）：现在是单独的「仓库」页签
       G.sfx('click');
-      render();
+      open('stash');
     },
     'stash-page'(d) {
       ui.stashPage = +d.p | 0;
+      ui.stashView = 'stash';
+      closeCard();
       G.sfx('click');
       render();
     },
-    'stash-take'(d) {
+    'stash-take'(d, a) {
+      // 窄屏 / 触屏：点仓库格先出卡片（「取出」在卡片里），免得手一滑就挪了东西；桌面照旧点一下就取
+      if (a && a.classList.contains('cell') && compactUi()) {
+        if (ui.lastSel.uid === d.uid && performance.now() - ui.lastSel.t < 450) return;
+        ui.lastSel = { uid: d.uid, t: performance.now() };
+        G.sfx('click');
+        return clickItem(d.uid, true);
+      }
+      closeCard();
       const it = (ui.stashCache || []).find((x) => x.uid === d.uid);
       const r = G.stash.take(d.uid);
       ui.stashBad = r !== true;
@@ -3733,19 +4135,24 @@
       const f = selItem();
       if (!f || f.equipped) return;
       const ok = G.stash.put(f.item);
-      ui.stashOn = true;
       ui.stashBad = !ok;
+      if (ui.tab !== 'stash') ui.invOk = ok ? '「' + f.item.name + '」放进了仓库' : ''; // 背包页的卡片里放的：结果写在背包页
       ui.stashMsg = ok ? '「' + f.item.name + '」放进了仓库' : G.stash.list().length >= G.stash.MAX ? '仓库满了' : '没放进去';
       if (ok) {
         ui.sel = null;
+        closeCard();
         G.sfx('click');
+      } else if (ui.tab !== 'stash') {
+        ui.invMsg = ui.stashMsg;
       }
       render();
     },
     unequip() {
       const f = selItem();
       if (!f) return;
-      ui.invMsg = G.unequip(f.item.slot) ? '' : '背包已满，无法卸下';
+      const ok = G.unequip(f.item.slot);
+      ui.invMsg = ok ? '' : '背包已满，无法卸下';
+      if (ok) closeCard();
       G.sfx('click');
       render();
     },
@@ -3816,9 +4223,11 @@
     },
     lock() {
       const f = selItem();
+      if (ui.pop && ui.pop.kind === 'more') ui.pop = null;
       if (f) toggleLock(f.item);
     },
     sort() {
+      ui.pop = null;
       G.sortBag();
       G.sfx('click');
       render();
@@ -3852,7 +4261,9 @@
     },
     drop() {
       const f = selItem();
-      if (f && !f.equipped) askDrop(f.item, ui.mouseX, ui.mouseY);
+      if (ui.pop && ui.pop.kind === 'more') ui.pop = null;
+      const p = cardPoint();
+      if (f && !f.equipped) askDrop(f.item, p.x, p.y);
     },
     'chisel-pick'(d) {
       const c = ui.confirm;
@@ -3890,7 +4301,10 @@
     craft(d) {
       const f = selItem();
       if (!f) return;
-      if (d.cur === 'chisel' && G.canCraft(f.item, 'chisel')) return askChisel(f.item, ui.mouseX, ui.mouseY);
+      if (d.cur === 'chisel' && G.canCraft(f.item, 'chisel')) {
+        const p = cardPoint();
+        return askChisel(f.item, p.x, p.y);
+      }
       if (G.applyCurrency(f.item, d.cur)) {
         ui.invMsg = '';
         ui.flash = true;
@@ -3902,13 +4316,10 @@
       render();
     },
     codex() {
-      ui.sel = null;
-      ui.stashOn = false;
-      ui.invMsg = '';
+      // 图鉴在「属性」页签的「图鉴」子页
+      ui.charSub = 'codex';
       G.sfx('click');
-      render();
-      const n = el.body.querySelector('.codex-t');
-      if (n && n.scrollIntoView) n.scrollIntoView({ block: 'nearest' });
+      open('char');
     },
 
     // ---- 技能 ----
@@ -4125,6 +4536,26 @@
   function onPanelClick(e) {
     if (ui.noClick) return; // 拖拽松手带出来的 click：不算点击
     const a = e.target.closest('[data-act]');
+    // 这一页里点了任何东西：一次性提示以后不再自动出（docs/ui.md「说明文字」）
+    if (el.body.contains(e.target) && PAGE_HINTS[ui.tab] && !uiSeen(ui.tab) && (!a || a.dataset.act !== 'hint')) {
+      uiSeenMark(ui.tab);
+      if (!a) render();
+    }
+    // 小菜单、卡片开着时，点到外面就收起（点到另一件物品：卡片直接换内容，见 ACT.sel）
+    const act = a && !a.disabled ? a.dataset.act : '';
+    let shut = false;
+    if (ui.pop && !e.target.closest('.ui-pop') && act !== ui.pop.kind) {
+      ui.pop = null;
+      shut = true;
+    }
+    if (ui.card && !e.target.closest('.sheet') && !e.target.closest('.ui-pop') && act !== 'sel' && !(act === 'stash-take' && a.classList.contains('cell')) && !e.target.closest('#confirm')) {
+      closeCard();
+      shut = true;
+    }
+    if (shut && !act) {
+      render();
+      return;
+    }
     // 选择器 / 确认框开着时，点到别处就先收起
     if (ui.picker && !e.target.closest('#picker') && !(a && a.dataset.act === 'socket')) closePicker();
     if (ui.confirm && !e.target.closest('#confirm')) {
@@ -4698,9 +5129,11 @@
   // ============================================================
   // 打开 / 关闭
   // ============================================================
-  function open(tab) {
+  // sub：属性页的子页签（'stats' / 'codex'）
+  function open(tab, sub) {
     if (menu.title) return; // 标题画面上不开面板
     if (!RENDER[tab]) tab = 'inv';
+    if (tab === 'char' && sub) ui.charSub = sub === 'codex' ? 'codex' : 'stats';
     if (ui.intro) closeIntro();
     closePause();
     const wasOpen = ui.isOpen;
@@ -4721,6 +5154,10 @@
       ui.trdArm = null;
       disarmReset();
       ui.sealPick = null;
+      if (wasOpen) uiSeenMark(ui.tab); // 离开这一页：一次性提示算看过了
+      closeCard();
+      ui.pop = null;
+      ui.stashMsg = '';
       if (tab === 'map') ui.mapTier = G.clamp(G.state.tier || 0, 0, G.save.maxTier);
     }
     ui.tab = tab;
@@ -4740,6 +5177,9 @@
     ui.picker = null;
     ui.confirm = null;
     ui.sealPick = null;
+    uiSeenMark(ui.tab); // 关掉面板：这一页的一次性提示以后不再自动出
+    closeCard();
+    ui.pop = null;
     disarmReset();
     el.panel.classList.remove('on');
     el.picker.classList.remove('on');
@@ -7092,10 +7532,12 @@
     el.pView = $('p-view');
 
     const tabs = $('tabs');
+    // 页签：横屏 / 桌面写两个字，竖屏一个字（css 切换）；有快捷键的带按键角标
     tabs.innerHTML = TABS.map(
-      (t) => '<button type="button" tabindex="-1" class="tab" data-act="tab" data-tab="' + t[0] + '">' + t[1] + '<kbd>' + t[2] + '</kbd></button>'
+      (t) => '<button type="button" tabindex="-1" class="tab" data-act="tab" data-tab="' + t[0] + '"><span class="tl2">' + t[1] + '</span><span class="tl1" aria-hidden="true">' + t[3] + '</span>' + (t[2] ? '<kbd>' + t[2] + '</kbd>' : '') + '</button>'
     ).join('');
     el.tabBtns = Array.from(tabs.children);
+    el.q = $('panel-q');
 
     initHud();
     initEncHud();
@@ -7137,6 +7579,13 @@
           // 择印面板：数字键 1–4 直接选（1 是素印），Esc 只收起面板
           if (dg) pickSeal(+dg[2] - 1);
           else ACT['seal-cancel']();
+          e.stopPropagation();
+          e.preventDefault();
+        } else if (e.code === 'Escape' && ui.isOpen && !drag.on && !ui.confirm && (ui.card || ui.pop)) {
+          // 卡片 / 小菜单开着：Esc 只收起它，不关面板
+          ui.pop = null;
+          closeCard();
+          render();
           e.stopPropagation();
           e.preventDefault();
         } else if (e.code === 'Escape' && (drag.on || ui.confirm)) {
@@ -7241,6 +7690,7 @@
     });
     window.addEventListener('resize', () => {
       if (ui.isOpen) {
+        if (ui.tab === 'inv' || ui.tab === 'stash' || ui.tab === 'char' || ui.card || ui.pop) render(); // 宽屏 / 窄屏 / 竖屏的排法和卡片位置跟着变
         renderPicker();
         hideTip();
         if (ui.tab === 'tree') treeApply(); // 名字字号跟着面板尺寸重算
