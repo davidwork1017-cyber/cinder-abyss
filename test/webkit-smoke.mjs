@@ -124,7 +124,10 @@ await step('新游戏：选职业（点卡片、点确定），重载后进区�
   await tap('#t-new');
   await until(() => G.ui.classView && G.ui.classView());
   await tap('.cl-card[data-cls]');
+  // 点「确定」会重载页面：先等着导航再点（只等 load 的话，旧页面本来就 load 完了，接下来的读取可能落在重载途中）
+  const nav = page.waitForNavigation({ timeout: 120000 }).catch(() => {});
   await tap('[data-tact="cl-ok"]');
+  await nav;
   await page.waitForLoadState('load').catch(() => {});
   await until(() => window.G && G.state && G.state.zone && G.player && G.player.ent, null, 120000);
   // 新角色先放开场故事：点「跳过」
@@ -265,7 +268,10 @@ await step('竖屏（iPhone 竖着拿）：标题画面点「横屏开始」→ 
   await tap('#t-new');
   await until(() => G.ui.classView && G.ui.classView());
   await tap('.cl-card[data-cls]');
+  // 点「确定」会重载页面：先等着导航再点（只等 load 的话，旧页面本来就 load 完了，接下来的读取可能落在重载途中）
+  const nav = page.waitForNavigation({ timeout: 120000 }).catch(() => {});
   await tap('[data-tact="cl-ok"]');
+  await nav;
   await page.waitForLoadState('load').catch(() => {});
   await until(() => window.G && G.state && G.state.zone && G.player && G.player.ent && G.touch, null, 120000);
   // 新角色先放开场故事：「跳过」淡入以后点掉，直到开场卡片出来（机器忙时故事、卡片都晚一点）
