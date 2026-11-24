@@ -1,6 +1,6 @@
 'use strict';
-// 触屏操作（mobile-design M1）：浮动摇杆、右下按钮簇、自动瞄准 / 拖动瞄准、F 情境键、顶栏、竖屏遮罩、首次提示卡。
-// 只写键鼠本来就写的那几个字段（input.keys / input.mouse.b / G.press / G.pressSlot / input.aim），不碰模拟。
+// 触屏操作（mobile-design M1 / M2）：浮动模拟摇杆、右下按钮簇、自动瞄准 / 拖动瞄准、F 情境键、顶栏、竖屏遮罩、首次提示卡。
+// 只写键鼠本来就写的那几个字段（input.mouse.b / G.press / G.pressSlot / input.aim），外加触屏专用的 input.move（模拟摇杆；桌面永远是 null）。
 // 触屏模式关着时什么都不做：不建 DOM、不挂触摸监听，只留一个 matchMedia 的 change 监听（换了主指针再判断一次）。
 (function () {
   const G = window.G;
@@ -256,15 +256,17 @@
     if (!btns.size) aimClearAt = performance.now() + 700;
   }
 
-  // ---------- 摇杆：8 方向，扇区加回差 ----------
+  // ---------- 摇杆：模拟量（任意角度 + 推杆幅度），写 input.move；桌面不碰它 ----------
   const STICK_ON = 12; // 拖过这么远才算移动
   const STICK_OFF = 8; // 回到这么近就停（回差）
   const STICK_R = 54; // 摇杆盘半径：拖得更远时底座跟着手指走
-  const SEC_HYST = 0.14; // 扇区回差（弧度，约 8°）
-  const SEC_KEYS = [['KeyD'], ['KeyD', 'KeyS'], ['KeyS'], ['KeyS', 'KeyA'], ['KeyA'], ['KeyA', 'KeyW'], ['KeyW'], ['KeyW', 'KeyD']]; // 从屏幕右起顺时针（屏幕 y 朝下）
-  function setStickKeys(sec) {
-    input.keys.KeyW = input.keys.KeyA = input.keys.KeyS = input.keys.KeyD = false;
-    if (sec >= 0) for (const k of SEC_KEYS[sec]) input.keys[k] = true;
+  const STICK_FULL = 36; // 推到这么远 = 全速（不用推到盘边）
+  const STICK_MIN = 0.35; // 刚过死区时的速度比例（再慢就像在原地滑步）
+  // 推杆幅度 → 速度比例：死区外从 STICK_MIN 线性涨到 1。走 / 跑的动作由 world.js 按实际速度混合，不另做档位
+  const stickK = (d) => STICK_MIN + (1 - STICK_MIN) * Math.max(0, Math.min(1, (d - STICK_ON) / (STICK_FULL - STICK_ON)));
+  function setStickMove(dx, dy, d) {
+    if (d <= 0) input.move = null;
+    else input.move = { x: dx / d, z: dy / d, k: stickK(d) }; // 镜头没有偏航：屏幕右 = +x，屏幕下 = +z
   }
   function stickMove(x, y) {
     const s = stick;
@@ -278,20 +280,8 @@
       d = STICK_R;
     }
     if (Math.hypot(x - s.x0, y - s.y0) > 10) s.moved = true;
-    let sec = s.sec;
-    if (sec < 0 ? d >= STICK_ON : d > STICK_OFF) {
-      const a = Math.atan2(dy, dx);
-      if (sec >= 0) {
-        let off = a - (sec * Math.PI) / 4;
-        off = Math.atan2(Math.sin(off), Math.cos(off));
-        if (Math.abs(off) > Math.PI / 8 + SEC_HYST) sec = -1;
-      }
-      if (sec < 0) sec = ((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8;
-    } else sec = -1;
-    if (sec !== s.sec) {
-      s.sec = sec;
-      if (live()) setStickKeys(sec);
-    }
+    s.on = s.on ? d > STICK_OFF : d >= STICK_ON;
+    if (live()) setStickMove(dx, dy, s.on ? d : 0);
     if (dom) {
       dom.base.style.transform = 'translate(' + s.ox + 'px,' + s.oy + 'px)';
       dom.knob.style.transform = 'translate(' + (s.ox + dx) + 'px,' + (s.oy + dy) + 'px)';
@@ -300,7 +290,7 @@
   function stickEnd() {
     const s = stick;
     stick = null;
-    setStickKeys(-1);
+    input.move = null;
     if (dom) dom.stickEl.classList.remove('on');
     // 没拖动的轻点：当成点画面（摇杆区里也能点名牌、宝箱）
     if (s && !s.moved && performance.now() - s.t0 < 350 && live()) tapAt(s.x0, s.y0);
@@ -326,7 +316,7 @@
       if (tg && tg.closest('#t-stick')) {
         if (e.cancelable) e.preventDefault();
         if (!stick) {
-          stick = { id: t.identifier, ox: t.clientX, oy: t.clientY, x0: t.clientX, y0: t.clientY, sec: -1, t0: performance.now(), moved: false };
+          stick = { id: t.identifier, ox: t.clientX, oy: t.clientY, x0: t.clientX, y0: t.clientY, on: false, t0: performance.now(), moved: false };
           dom.stickEl.classList.add('on');
           stickMove(t.clientX, t.clientY);
         }
@@ -410,6 +400,7 @@
       stickEnd();
     }
     document.documentElement.classList.remove('t-aiming');
+    input.move = null; // 丢了 touchend 也不能让人物一直走下去
   }
 
   // ============================================================
@@ -667,6 +658,7 @@
     document.addEventListener('visibilitychange', onVis);
     window.addEventListener('pageshow', resumeAudio);
     window.addEventListener('blur', releaseAll);
+    window.addEventListener('pagehide', releaseAll);
     setManifest(true);
     layout();
     if (!raf) raf = requestAnimationFrame(tick);
@@ -696,6 +688,7 @@
     document.removeEventListener('visibilitychange', onVis);
     window.removeEventListener('pageshow', resumeAudio);
     window.removeEventListener('blur', releaseAll);
+    window.removeEventListener('pagehide', releaseAll);
     setManifest(false);
     document.documentElement.style.removeProperty('--app-h');
     W.mmTouch = null;
@@ -858,7 +851,7 @@
     blocked: T.blocked,
     portrait: T.portrait,
     hint: !!T.hintOn,
-    stick: stick ? stick.sec : -1,
+    stick: stick && stick.on && input.move ? { a: Math.atan2(input.move.z, input.move.x), k: input.move.k } : null, // 屏幕坐标里的角度（右 = 0，顺时针为正）和速度比例
     held: Array.from(btns.values()).map((b) => ({ slot: b.slot, drag: b.drag, held: b.held })),
     aim: input.aim ? { x: input.aim.x, z: input.aim.z } : null,
     f: !!(dom && dom.fOn),

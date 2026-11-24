@@ -24896,6 +24896,7 @@ async function touchKit() {
       await frames(1);
     },
     up: () => send('touchEnd', []),
+    cancel: () => send('touchCancel', []),
     async tap(x, y) {
       await send('touchStart', [{ x, y }]);
       await send('touchEnd', []);
@@ -24944,7 +24945,7 @@ async function touchPage(o) {
 const tbRect = (tb) => ev((tb) => T.rect('[data-tb="' + tb + '"]'), tb);
 
 async function touchSteps() {
-  await step('触屏：手机模拟下自动打开触屏模式；摇杆往右拖 → KeyD、玩家往右走，扇区有回差，松手键全清', async () => {
+  await step('触屏：手机模拟下自动打开触屏模式；模拟摇杆任意角度拖 → 同方向、按幅度走，死区内不动，松手清空', async () => {
     await touchPage();
     const s0 = await ev(() => ({ st: G.touch.state(), cls: document.documentElement.className, vp: document.querySelector('meta[name=viewport]').content, q: G.defaultQuality(), coarse: matchMedia('(pointer: coarse)').matches, mtp: navigator.maxTouchPoints, x: G.player.x }));
     assert(s0.st.on && s0.st.mode === 'auto' && /touch-ui/.test(s0.cls) && /viewport-fit=cover/.test(s0.vp), '手机模拟下应自动打开触屏模式：' + JSON.stringify(s0));
@@ -24964,25 +24965,195 @@ async function touchSteps() {
       return { link: true, display: j.display, orient: j.orientation, icons, apple: document.querySelector('meta[name=apple-mobile-web-app-capable]').content };
     });
     assert(mf.link && mf.display === 'fullscreen' && mf.orient === 'landscape' && mf.apple === 'yes' && mf.icons.every((x) => x.split('=')[0] === x.split('=')[1]), '主屏清单 / 图标不对：' + JSON.stringify(mf));
-    // 摇杆盘半径 54 px（拖得更远底座会跟着走），这里都在 45 px 以内拖
-    await touch.drag(150, 300, 195, 300);
-    const k1 = await ev(() => Object.assign({}, G.input.keys));
-    assert(k1.KeyD && !k1.KeyW && !k1.KeyA && !k1.KeyS, '往右拖应只按下 D：' + JSON.stringify(k1));
-    // 26° 往下：刚过 22.5° 的扇区边，回差内仍只按 D；拖到 45° 才变成 D + S
-    await touch.move(150 + 45 * Math.cos(0.454), 300 + 45 * Math.sin(0.454));
-    const k2 = await ev(() => Object.assign({}, G.input.keys));
-    await touch.move(150 + 45 * Math.cos(0.785), 300 + 45 * Math.sin(0.785));
-    const k3 = await ev(() => Object.assign({}, G.input.keys));
-    assert(k2.KeyD && !k2.KeyS, '扇区边上（26°）应有回差，仍只按 D：' + JSON.stringify(k2));
-    assert(k3.KeyD && k3.KeyS, '拖到 45° 应按下 D + S：' + JSON.stringify(k3));
-    await touch.move(195, 300);
-    const x1 = await ev(() => (G.debug.step(0.6), G.player.x));
-    assert(x1 > s0.x + 1.5, '按着摇杆推进 0.6 秒应往右走：' + s0.x + ' → ' + x1);
+    // 模拟摇杆（M2）：任意角度拖 → input.move 的方向和角度一致、推杆幅度换算成速度比例，玩家沿这个方向走；桌面的 WASD 不碰。
+    // 摇杆盘半径 54 px（拖得更远底座会跟着走），全速在 36 px，这里都在 45 px 以内拖
+    const OX = 150, OY = 300;
+    const walk = async (deg, r) => {
+      const a = (deg * Math.PI) / 180;
+      await touch.drag(OX, OY, OX + r * Math.cos(a), OY + r * Math.sin(a), 4);
+      const o = await ev(() => {
+        const P = G.player, x0 = P.x, z0 = P.z;
+        // 每次 1/60 秒、走 6 步：0.1 秒内撞不到墙（全速 0.72 m）
+        for (let i = 0; i < 6; i++) G.debug.step(1 / 60);
+        return { st: G.touch.state().stick, mv: G.input.move && Object.assign({}, G.input.move), keys: Object.keys(G.input.keys).filter((k) => G.input.keys[k]), dx: P.x - x0, dz: P.z - z0, sp: P.moveSpeed };
+      });
+      await touch.up();
+      const angErr = (u, v) => Math.abs(Math.atan2(Math.sin(u - v), Math.cos(u - v))) * (180 / Math.PI);
+      o.err = o.st ? angErr(o.st.a, a) : 99;
+      o.walkErr = angErr(Math.atan2(o.dz, o.dx), a); // 镜头没有偏航：屏幕右 = +x，屏幕下 = +z
+      o.speed = Math.hypot(o.dx, o.dz) / 0.1;
+      return o;
+    };
+    const runs = [];
+    for (const deg of [30, 120, 250, 341]) runs.push(Object.assign({ deg }, await walk(deg, 45)));
+    for (const r of runs) {
+      assert(r.st && r.err < 1 && r.st.k === 1 && !r.keys.length, '摇杆往 ' + r.deg + '° 拖 45 px 应是全速、方向一致、不按 WASD：' + JSON.stringify(r));
+      assert(r.walkErr < 3 && Math.abs(r.speed - r.sp) < 0.25 * r.sp, '往 ' + r.deg + '° 拖时玩家应沿这个方向全速走：' + JSON.stringify(r));
+    }
+    // 推得浅（20 px）：速度比例 0.35 + 0.65 × (20 − 12) / 24 ≈ 0.567，走得也按这个比例慢
+    const sh = await walk(200, 20);
+    const kWant = 0.35 + (0.65 * 8) / 24;
+    assert(sh.st && Math.abs(sh.st.k - kWant) < 0.03 && sh.walkErr < 3 && Math.abs(sh.speed / sh.sp - sh.st.k) < 0.12, '推得浅应按幅度走得慢：' + JSON.stringify(sh));
+    // 死区：拖 9 px 不动
+    await touch.drag(OX, OY, OX + 9, OY, 3);
+    const dz = await ev(() => ({ st: G.touch.state().stick, mv: G.input.move }));
+    assert(!dz.st && !dz.mv, '死区内（9 px）不该走：' + JSON.stringify(dz));
     await touch.up();
-    const k4 = await ev(() => ({ k: Object.keys(G.input.keys).filter((k) => G.input.keys[k]), st: G.touch.state().stick, audio: !!G.audio.ctx() }));
-    assert(!k4.k.length && k4.st === -1, '松手后键应全清：' + JSON.stringify(k4));
+    const k4 = await ev(() => ({ k: Object.keys(G.input.keys).filter((k) => G.input.keys[k]), st: G.touch.state().stick, mv: G.input.move, audio: !!G.audio.ctx() }));
+    assert(!k4.k.length && !k4.st && !k4.mv, '松手后移动向量应清空：' + JSON.stringify(k4));
     assert(k4.audio, '第一次松手后应建好 AudioContext（iOS 只认 touchend）');
-    return '走了 ' + (x1 - s0.x).toFixed(2) + ' m';
+    return runs.map((r) => r.deg + '° 方向差 ' + r.walkErr.toFixed(1) + '° 速度 ' + r.speed.toFixed(2)).join('，') + '；浅推 k ' + sh.st.k.toFixed(3) + ' 速度比 ' + (sh.speed / sh.sp).toFixed(3);
+  });
+
+  await step('确定性（mobile-m2）：触屏模拟摇杆走模拟的同一条路——同一场固定种子的边走边打，WASD 和 input.move（同方向、幅度 1）哈希相同；幅度 0.5 的对照不同', async () => {
+    // 在手机模拟里跑（触屏模式开着也不影响模拟）：先把新存档写进去，每一遍都从它重载
+    await touchPage();
+    const KEY = 'cinder-abyss-save-v1';
+    const save0 = await ev((KEY) => (G.persist(), localStorage.getItem(KEY)), KEY);
+    assert(save0, '存档没写进去');
+    const god0 = await ev(() => !!G.player.god);
+    // 每一遍都重载、重进钉死布局的第 0 区（同一页里重跑会带着上一遍的累计状态）
+    const fresh = async (hold) => {
+      await ev(
+        ([KEY, s, hold]) => {
+          G.holdSave(true);
+          localStorage.setItem(KEY, s);
+          if (hold) sessionStorage.setItem('cinder-test-hold', '1');
+          else sessionStorage.removeItem('cinder-test-hold');
+        },
+        [KEY, save0, hold]
+      );
+      await page.reload({ timeout: 90000 });
+      await install();
+      await until(() => !G.world.assetsPending(), null, 60000);
+      if (!hold) return;
+      await ev(() => {
+        G.debug.zoneSeed(4242);
+        G.enterZone(0, 0);
+      });
+      await until(() => !G.world.assetsPending(), null, 60000);
+    };
+    const run = async (mode) => {
+      await fresh(true);
+      return ev((mode) => {
+        const P = G.player, S = G.state, save = G.save, inp = G.input;
+        window.__testRand.seed('确定性·模拟摇杆');
+        T.arena();
+        P.god = true;
+        const base = Math.random;
+        let calls = 0;
+        Math.random = function () { calls++; return base.call(this); };
+        const es = [[6, 0], [6.9, 1.1], [6.9, -1.1], [7.9, 0.2]].map(([dx, dz]) => {
+          const e = G.spawnMob('husk', P.x + dx, P.z + dz, 10, { awake: true });
+          e.wasAwake = true;
+          e.hp = e.maxHp = 1e6;
+          return e;
+        });
+        save.bar = ['arc', null, null, null];
+        save.skills.arc = 20;
+        G.computeStats();
+        // 走位：右、右下、下、左上、停，每段 0.5 秒，同时按住左键放电弧
+        const PAT = [[1, 0], [1, 1], [0, 1], [-1, -1], [0, 0]];
+        const KEY = { x: { 1: 'KeyD', '-1': 'KeyA' }, z: { 1: 'KeyS', '-1': 'KeyW' } };
+        const st = () => JSON.stringify({ p: [P.x, P.z, P.face, P.life, P.mana], e: S.enemies.map((e) => [e.x, e.z, e.hp, e.dead]), calls });
+        const snaps = [];
+        try {
+          for (let i = 0; i < PAT.length * 30; i++) {
+            const [mx, mz] = PAT[Math.floor(i / 30)];
+            for (const k of ['KeyW', 'KeyA', 'KeyS', 'KeyD']) inp.keys[k] = false;
+            inp.move = null;
+            if (mx || mz) {
+              if (mode === 'keys') {
+                if (mx) inp.keys[KEY.x[mx]] = true;
+                if (mz) inp.keys[KEY.z[mz]] = true;
+              } else {
+                const len = Math.hypot(mx, mz);
+                inp.move = { x: mx / len, z: mz / len, k: mode === 'half' ? 0.5 : 1 };
+              }
+            }
+            T.aim(es[0].x, es[0].z);
+            P.mana = P.maxMana;
+            inp.mouse.b[0] = true;
+            G.tick(1 / 60);
+            if (i % 30 === 29) snaps.push(st());
+          }
+        } finally {
+          Math.random = base;
+          inp.mouse.b[0] = false;
+          inp.move = null;
+          for (const k of ['KeyW', 'KeyA', 'KeyS', 'KeyD']) inp.keys[k] = false;
+        }
+        const all = snaps.join('|');
+        let h = 2166136261;
+        for (let i = 0; i < all.length; i++) h = Math.imul(h ^ all.charCodeAt(i), 16777619);
+        return { hash: (h >>> 0).toString(16), calls, dmg: Math.round(es.reduce((a, e) => a + (e.maxHp - e.hp), 0)), walked: +Math.hypot(P.x, P.z).toFixed(2) };
+      }, mode);
+    };
+    const R = {};
+    try {
+      for (const k of ['keys', 'move', 'keys2', 'half']) R[k] = await run(k === 'keys2' ? 'keys' : k);
+    } finally {
+      await fresh(false);
+      await ev((god0) => {
+        G.debug.hold(true);
+        G.debug.god(god0);
+      }, god0);
+    }
+    const { keys: K, move: M, keys2: K2, half: H } = R;
+    await touchPage(); // 后面的触屏步骤从干净的手机页面开始
+    assert(K.hash === K2.hash && K.calls === K2.calls, '同一场打两遍不一样（测试本身不确定）：' + JSON.stringify({ K, K2 }));
+    assert(K.hash === M.hash && K.calls === M.calls, 'input.move 满幅和 WASD 打出来不一样：' + JSON.stringify({ K, M }));
+    assert(H.hash !== K.hash && K.dmg > 0, '幅度 0.5 的对照应该不一样（走得慢）、电弧应打中：' + JSON.stringify({ K, H }));
+    return '哈希 ' + K.hash + '，Math.random ' + K.calls + ' 次，伤害 ' + K.dmg + '（WASD = 摇杆满幅）；半幅对照 ' + H.hash;
+  });
+
+  await step('触屏：模拟摇杆不会卡住——touchcancel、切到后台、打开面板、竖屏都清掉移动向量；翻滚朝摇杆方向', async () => {
+    const OX = 150, OY = 300;
+    const held = () => ev(() => ({ mv: G.input.move && Object.assign({}, G.input.move), st: G.touch.state().stick }));
+    const out = {};
+    // touchcancel（系统手势、来电）
+    await touch.drag(OX, OY, OX + 40, OY - 10, 3);
+    out.before = await held();
+    await touch.cancel();
+    await frames(1);
+    out.cancel = await held();
+    // 拖着摇杆切到后台（visibilitychange hidden），再回来
+    await touch.drag(OX, OY, OX - 40, OY, 3);
+    out.drag2 = await held();
+    out.hidden = await ev(() => {
+      Object.defineProperty(document, 'hidden', { get: () => true, configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+      const r = { mv: G.input.move, paused: G.ui.isOpen() };
+      delete document.hidden;
+      document.dispatchEvent(new Event('visibilitychange'));
+      return r;
+    });
+    await touch.up();
+    await ev(() => G.ui.close());
+    await frames(2);
+    // 拖着摇杆打开背包（面板开着每帧清输入），关掉后不带着走
+    await touch.drag(OX, OY, OX, OY + 40, 3);
+    out.drag3 = await held();
+    const x0 = await ev(() => (G.ui.open('inv'), G.player.x));
+    await frames(2);
+    out.panel = await held();
+    await touch.up();
+    out.after = await ev((x0) => (G.ui.close(), G.debug.step(0.3), { mv: G.input.move, dx: G.player.x - x0, dz: 0 }), x0);
+    // pagehide 也松开
+    await touch.drag(OX, OY, OX + 40, OY, 3);
+    out.ph = await ev(() => (window.dispatchEvent(new Event('pagehide')), G.input.move));
+    await touch.up();
+    // 翻滚朝摇杆方向（G.dodge 读同一个 moveDir）
+    await touch.drag(OX, OY, OX, OY - 40, 3);
+    out.roll = await ev(() => (G.press('Space'), { t: G.player.roll.t, dx: G.player.roll.dx, dz: G.player.roll.dz }));
+    await touch.up();
+    await ev(() => G.debug.step(1));
+    assert(out.before.mv && !out.cancel.mv && !out.cancel.st, 'touchcancel 后移动向量应清空：' + JSON.stringify(out));
+    assert(out.drag2.mv && !out.hidden.mv && out.hidden.paused, '切到后台应清掉移动向量并停在暂停菜单：' + JSON.stringify(out));
+    assert(out.drag3.mv && !out.panel.mv && !out.after.mv && Math.abs(out.after.dx) < 0.01, '打开面板应清掉移动向量，关掉后不继续走：' + JSON.stringify(out));
+    assert(out.ph === null, 'pagehide 应清掉移动向量：' + JSON.stringify(out));
+    assert(out.roll.t > 0 && Math.abs(out.roll.dx) < 0.02 && out.roll.dz < -0.99, '翻滚应朝摇杆方向（往上 = −z）：' + JSON.stringify(out.roll));
+    return 'cancel / hidden / 面板 / pagehide 都清空；翻滚方向 (' + out.roll.dx.toFixed(2) + ', ' + out.roll.dz.toFixed(2) + ')';
   });
 
   await step('触屏：按住主攻 1 秒连放 ≥ 2 次（mouse.b[0]、自动瞄准最近的敌人）；轻点 Q 记进缓冲', async () => {

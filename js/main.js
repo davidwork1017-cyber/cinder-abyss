@@ -13,6 +13,7 @@
     tapDodge: 0, // 翻滚的输入缓冲：按下时滚不了（冷却、处决途中）就记下，能滚了立刻滚
     tapExec: 0, // 处决的输入缓冲
     alt: false, // 按住 Alt：展开地面掉落的名牌（界面层读取）
+    move: null, // 触屏模拟摇杆的移动向量 { x, z, k }（单位向量 + 幅度 0–1，js/touch.js 写；桌面永远是 null，移动照旧按 WASD 算）
     aim: null, // 触屏的瞄准落点 { x, z }（js/touch.js 写；桌面永远是 null，准星落点照旧按鼠标算）
   });
   // 动作途中按下的输入会缓冲到「能出手」的那一刻：时长由 G.bufferTime 按手上的动作还剩多久来定
@@ -26,6 +27,7 @@
     input.mouse.b[0] = input.mouse.b[1] = input.mouse.b[2] = false;
     input.tap[0] = input.tap[1] = input.tap[2] = input.tap[3] = input.tap[4] = 0;
     input.tapDodge = input.tapExec = 0;
+    input.move = null;
     if (keepAlt !== true) input.alt = false;
   }
 
