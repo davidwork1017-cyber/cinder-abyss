@@ -26665,6 +26665,9 @@ async function touchSteps() {
       G.allocPassive('dm0');
       G.computeStats();
       G.ui.open('tree');
+      // 从全览开始（触屏第一次打开默认放大一档，dev-48）
+      const f = document.querySelector('[data-act="tree-zoom"][data-z="fit"]');
+      if (f && !f.classList.contains('on')) f.click();
     });
     await frames(3);
     const st = () => ev(() => ({ p: G.save.passives.slice().sort().join(','), card: (document.querySelector('.sheet.tnode .sh-name') || {}).textContent || null, sum: !!document.querySelector('.sheet.tsum'), tip: document.getElementById('tip').classList.contains('on'), vb: document.getElementById('tree-svg').getAttribute('viewBox').split(' ').map(Number), free: G.passivePoints().free }));
