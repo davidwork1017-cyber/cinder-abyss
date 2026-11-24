@@ -27539,7 +27539,9 @@ async function uiTreeStyleStep() {
       G.ui.open('tree');
     });
     await panelSettled();
-    await frames(2);
+    // 面板入场的缩放动画在 #panel 上：全部（一直循环的光圈除外）放完再量，不然尺寸小 1%
+    await ev(async () => { for (const n of [document.getElementById('panel'), ...document.querySelectorAll('#panel *')]) for (const a of n.getAnimations()) if (a.effect && a.effect.getComputedTiming().iterations !== Infinity) await a.finished.catch(() => {}); });
+    await sleep(300);
     const got = await ev(uiStyleRead, TREE_STYLE_SPEC);
     got['#tree-svg|viewBox'] = await ev(() => document.getElementById('tree-svg').getAttribute('viewBox'));
     const legend = await ev(() => !!document.querySelector('.tree-legend'));
