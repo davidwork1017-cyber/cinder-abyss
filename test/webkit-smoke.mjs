@@ -519,7 +519,8 @@ await step('竖屏（iPhone 竖着拿）：标题画面点「横屏开始」→ 
       return { story: G.ui.storyOn(), intro: document.getElementById('intro').classList.contains('on'), skip: !!(n && n.getBoundingClientRect().width > 0), title: G.ui.titleOn(), open: G.ui.isOpen(), rot: G.touch.state().rot, cls: document.documentElement.className, view: G.ui.classView && G.ui.classView(), url: location.search };
     });
     if (q.intro) break;
-    if (q.story && q.skip) await tap('.st-skip').catch(() => {});
+    // 已经点过「跳过」、故事在淡出 / 收起：不再点（淡完那一刻点下去会落到游戏里的攻击键上，测试自己挥一下；同 chrome-hunt 的修法）
+    if (q.story && q.skip && !(await ev(() => G.story && G.story.info && G.story.info().ended))) await tap('.st-skip').catch(() => {});
     // 开场故事和开场卡片所有角色共用：前面那一步看过了，第二个角色就直接进游戏
     if (!q.story && !q.title && !q.open && (await ev(() => G.save.seenHelp && G.save.seenStory))) break;
     await page.waitForTimeout(700);
