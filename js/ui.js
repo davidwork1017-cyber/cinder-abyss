@@ -1601,6 +1601,7 @@
   const compactUi = () => !!G.rot || window.matchMedia(COMPACT_MQ).matches; // 旋转横屏（mobile-m2）一定是手机
   const portraitUi = () => compactUi() && fW() <= 600;
   // 每页的说明：once = 第一次打开时底部那一行；list = 点 [?] 看到的全部。触屏、桌面各一套说法
+  const TREE_LEGEND = '<span class="lg alloc"><i></i>已点亮</span><span class="lg avail"><i></i>可点亮</span><span class="lg locked"><i></i>未连接</span>';
   const PAGE_HINTS = {
     inv: {
       touch: { once: '点物品看详情，点两下直接穿上', list: ['点物品：看详情、装备、分解、改造', '同一件物品连点两下：直接穿上', '按住物品：看浮窗；按住拖到装备栏：换装', '「筛选」：一键分解的范围、整理、图鉴', '<b class="vd-up">▲</b> 表示装备后更强'] },
@@ -1609,6 +1610,10 @@
     stash: {
       touch: { once: '点物品取出，或放进仓库', list: ['仓库所有角色共用，4 页共 160 格', '点仓库里的物品：取进背包', '切到「背包」，点物品：放进仓库', '只放物品，通货和宝石不进仓库'] },
       desk: { once: '点仓库物品取进背包，点背包物品放进仓库', list: ['仓库所有角色共用，4 页共 160 格', '点仓库里的物品：取进背包', '点背包里的物品：选「放进仓库」', 'Shift+点击背包物品：直接放进仓库', '只放物品，通货和宝石不进仓库'] },
+    },
+    tree: {
+      touch: { once: '点天赋看详情，按「点亮」才花点数', list: [TREE_LEGEND, '点天赋：看详情，按「点亮」或「退回」', '点亮后卡片不关，接着点下一个', '双指缩放，放大后单指拖动', '左上的点数：各支路进度、已获得的加成、重置'] },
+      desk: { once: '单击点亮，再点一次退回', list: [TREE_LEGEND, '单击：点亮，再点一次退回', '滚轮缩放，按住拖动平移', '鼠标停在天赋上看详情'] },
     },
     char: {
       touch: { once: '属性跟着装备和天赋变', list: ['属性：这个角色现在的全部数值', '图鉴：烬铸和渊契的收集进度与保底', '拾到过的记录所有角色共用，保底按角色算'] },
@@ -2923,7 +2928,7 @@
           '<g transform="translate(' + n1(n.x) + ' ' + n1(n.y) + ')"><text class="tl cls alloc" style="--c:' + G.clsDef().color + '" x="' + n1(lx) + '" y="' + n1(ly) + '" text-anchor="' + (ux > 0.3 ? 'start' : ux < -0.3 ? 'end' : 'middle') + '">' + cn.name + '</text></g>';
       }
       nodes +=
-        '<g class="tn ' + n.kind + ' ' + state + (cn ? ' clsn' : '') + '" data-act="node" data-node="' + id + '" data-tip="node:' + id + '" style="--c:' + (n.color || '#ffb066') + '" transform="translate(' + n1(n.x) + ' ' + n1(n.y) + ')">' +
+        '<g class="tn ' + n.kind + ' ' + state + (cn ? ' clsn' : '') + '" data-act="node" data-node="' + id + '" data-r="' + r + '" data-tip="node:' + id + '" style="--c:' + (n.color || '#ffb066') + '" transform="translate(' + n1(n.x) + ' ' + n1(n.y) + ')">' +
         '<circle class="halo" r="' + (r + (n.kind === 'small' ? 7 : 11)) + '"/>' + shape + '<circle class="hit" r="' + (r + 8) + '"/></g>';
 
       // 核心 / 基石天赋直接标出名字（摆放位置见 treeLabels）
@@ -2962,32 +2967,189 @@
     for (const k in sum) sumHtml += '<div class="ts-line">' + esc(G.fmtStat(k, sum[k])) + '</div>';
     if (!sumHtml) sumHtml = '<div class="ts-none">还没有点亮天赋。<br>从中央起点沿连线向外点亮。</div>';
 
-    el.body.innerHTML =
-      '<div class="tree">' +
-      '<div class="tree-view"><svg id="tree-svg" viewBox="' + vbStr(treeVb()) + '" preserveAspectRatio="xMidYMid meet">' +
+    const svg =
+      '<svg id="tree-svg" data-pan viewBox="' + vbStr(treeVb()) + '" preserveAspectRatio="xMidYMid meet">' +
       '<g class="tdeco"><circle r="81"/><circle r="231"/><circle r="381"/><circle r="462"/><circle r="564"/><circle r="636"/></g>' +
-      '<g>' + edges + '</g><g>' + nodes + '</g><g>' + labels + '</g></svg>' +
-      '<div class="tree-legend"><span class="lg alloc"><i></i>已点亮</span><span class="lg avail"><i></i>可点亮</span><span class="lg locked"><i></i>未连接</span>' +
-      '<span class="lg-sep"></span><span>点击点亮 · 再次点击退回 · 滚轮缩放 · 拖动平移</span></div>' +
-      '<div class="tree-zoom">' +
-      '<button type="button" tabindex="-1" data-act="tree-zoom" data-z="out" title="缩小">－</button>' +
+      '<g>' + edges + '</g><g>' + nodes + '</g><g>' + labels + '</g></svg>';
+    // 缩放按钮：盘面右下角竖排（放大 / 全览 / 缩小），不挡盘面上方
+    const zoom =
+      '<div class="tree-zoom" data-float>' +
+      '<button type="button" tabindex="-1" data-act="tree-zoom" data-z="in" title="放大" aria-label="放大">＋</button>' +
       '<button type="button" tabindex="-1" data-act="tree-zoom" data-z="fit"' + (ui.tv ? '' : ' class="on"') + '>全览</button>' +
-      '<button type="button" tabindex="-1" data-act="tree-zoom" data-z="in" title="放大">＋</button></div></div>' +
-      '<div class="col col-side tree-side">' +
-      '<div class="sec-title">天赋点</div>' +
-      '<div class="pts' + (pts.free > 0 ? ' has' : '') + '"><b>' + pts.free + '</b><div><span>可用天赋点</span><em>已用 ' + pts.used + ' · 共 ' + pts.total + '</em></div></div>' +
-      '<div class="pts-note">每级 1 点；首次击败每个首领 +2 点。' + (G.clsDef && G.clsDef() ? '<br>' + G.clsDef().node.name + '是' + G.clsDef().name + '白送的，不占点数。' : '') + '</div>' +
-      (coachBanner('tree') ? '<div class="side-coach">' + coachBanner('tree') + '</div>' : '') +
-      '<div class="arms">' + arms + '</div>' +
-      '<div class="sec-title">已获得的加成</div>' +
-      '<div class="tree-sum scroll" data-scroll="treesum">' + sumHtml + '</div>' +
-      '<div class="tree-msg' + (ui.treeMsgBad ? ' bad' : '') + '">' + esc(ui.treeMsg) + '</div>' +
-      '<button type="button" tabindex="-1" class="btn' + (ui.resetArmed ? ' danger' : '') + '" data-act="tree-reset"' + (pts.used > 0 ? '' : ' disabled') + '>' +
-      (ui.resetArmed ? '再点一次确认重置' : '重置全部天赋') + '</button>' +
-      '</div></div>';
+      '<button type="button" tabindex="-1" data-act="tree-zoom" data-z="out" title="缩小" aria-label="缩小">－</button></div>';
+    const coach = coachBanner('tree');
+    if (!compactUi()) {
+      // 桌面：盘面 | 侧栏（和以前一样，图例和操作说明挪进页头的 [?]）
+      if (ui.card && ui.card.tree) ui.card = null;
+      el.body.innerHTML =
+        '<div class="tree">' +
+        '<div class="tree-view">' + svg + zoom + '</div>' +
+        '<div class="col col-side tree-side">' +
+        '<div class="sec-title">天赋点</div>' +
+        '<div class="pts' + (pts.free > 0 ? ' has' : '') + '"><b>' + pts.free + '</b><div><span>可用天赋点</span><em>已用 ' + pts.used + ' · 共 ' + pts.total + '</em></div></div>' +
+        '<div class="pts-note">' + ptsNote() + '</div>' +
+        (coach ? '<div class="side-coach">' + coach + '</div>' : '') +
+        '<div class="arms">' + arms + '</div>' +
+        '<div class="sec-title">已获得的加成</div>' +
+        '<div class="tree-sum scroll" data-scroll="treesum" data-list>' + sumHtml + '</div>' +
+        (ui.treeMsg || uiSeen('tree') ? '<div class="tree-msg' + (ui.treeMsgBad ? ' bad' : '') + '">' + esc(ui.treeMsg) + '</div>' : '<div class="tree-msg hint">' + pageHints('tree').once + '</div>') +
+        resetBtn(pts) +
+        '</div></div>' + popHtml();
+      treeApply();
+      return;
+    }
+    // 窄屏 / 触屏：盘面铺满正文。左上「n 点可用」打开汇总卡；右下缩放；触屏点节点出节点卡（tnodeSheet）
+    if (ui.card && ui.card.tree === 'node' && !(touchOn() && T[ui.card.id])) ui.card = null;
+    const portrait = portraitUi();
+    const card = ui.card && ui.card.tree;
+    const chip =
+      '<button type="button" tabindex="-1" class="tree-chip' + (pts.free > 0 ? ' has' : '') + (card === 'sum' ? ' on' : '') + '" data-act="tree-sum"><b>' + pts.free + '</b> 点可用<i class="dd"></i></button>';
+    // 底部一行（浮在盘面左下，不挡点击）：卡片没开时的操作结果 → 新手提示 → 第一次打开的提示
+    const note = ui.treeMsg && !card ? pageNote('tree', '<span class="tree-msg' + (ui.treeMsgBad ? ' bad' : '') + '">' + esc(ui.treeMsg) + '</span>', 'res') : pageNote('tree', coach, coach ? 'coach' : '');
+    el.body.innerHTML =
+      '<div class="tree cpt' + (portrait ? ' por' : '') + '">' +
+      '<div class="tree-view">' + svg +
+      // 卡片开着时不放「n 点可用」：节点卡里写着剩几点，汇总卡就是它打开的那张（盘面让位以后也不会被它挡住）
+      '<div class="tree-top" data-float>' + (card ? '<i></i>' : chip) + (portrait ? helpBtn('in-page') : '') + '</div>' +
+      zoom + note + '</div></div>' +
+      (card === 'sum' ? tsumSheet(pts, arms, sumHtml) : card === 'node' ? tnodeSheet(ui.card.id) : '') +
+      popHtml();
+    treeDock();
+  }
+  const ptsNote = () => '每级 1 点；首次击败每个首领 +2 点。' + (G.clsDef && G.clsDef() ? '<br>' + G.clsDef().node.name + '是' + G.clsDef().name + '白送的，不占点数。' : '');
+  const resetBtn = (pts) =>
+    '<button type="button" tabindex="-1" class="btn' + (ui.resetArmed ? ' danger' : '') + '" data-act="tree-reset"' + (pts.used > 0 ? '' : ' disabled') + '>' +
+    (ui.resetArmed ? '再点一次确认重置' : '重置全部天赋') + '</button>';
+  // 卡片里的一行操作结果（已点亮 / 无法退回…）
+  const treeMsgHtml = () => (ui.treeMsg ? '<div class="inv-msg sh-msg' + (ui.treeMsgBad ? '' : ' ok') + '">' + esc(ui.treeMsg) + '</div>' : '');
+  // 汇总卡（窄屏 / 触屏）：天赋点、各支路进度、已获得的加成（唯一滚动区）、重置
+  function tsumSheet(pts, arms, sumHtml) {
+    return sheetHtml({
+      cls: 'tsum',
+      head: '<div class="sh-ttl"><div class="sh-name">天赋点 <b class="tsum-n' + (pts.free > 0 ? ' has' : '') + '">' + pts.free + '</b> 可用</div><div class="sh-kind">已用 ' + pts.used + ' · 共 ' + pts.total + '</div></div>',
+      body: '<div class="pts-note">' + ptsNote() + '</div><div class="arms">' + arms + '</div><div class="sec-title sm">已获得的加成</div><div class="tree-sum">' + sumHtml + '</div>',
+      msg: treeMsgHtml(),
+      acts: resetBtn(pts),
+    });
+  }
+  // 节点卡（触屏）：名字、类型、属性、能不能点；「点亮」/「退回」之后卡片留着，接着点下一个
+  function tnodeSheet(id) {
+    const T = G.TREE;
+    const n = T[id];
+    const S = G.save;
+    const pts = G.passivePoints();
+    const cn = G.clsNodeOf ? G.clsNodeOf(id) : null;
+    const alloc = S.passives.includes(id);
+    const avail = !alloc && n.links.some((l) => S.passives.includes(l));
+    const color = cn ? G.clsDef().color : n.color || '#ffb066';
+    let lines = '';
+    for (const k in n.stats) lines += '<div class="tnc-stat' + (!cn && G.statBad(k, n.stats[k]) ? ' bad' : '') + '">' + esc(G.fmtStat(k, n.stats[k])) + '</div>';
+    let state, act = '';
+    const B = (label, cls, dis) => '<button type="button" tabindex="-1" class="btn ' + cls + '" data-act="node-go"' + (dis ? ' disabled' : '') + '>' + label + '</button>';
+    if (cn) state = '<div class="tnc-st ok">' + cn.note + '</div><div class="tnc-st ok">职业白送 · 不花点数 · 摘不掉</div>';
+    else if (n.kind === 'start') state = '<div class="tnc-st">所有支路从这里出发</div>';
+    else if (alloc) {
+      state = '<div class="tnc-st ok">已点亮</div>';
+      act = B('退回', '');
+    } else if (avail && pts.free > 0) {
+      state = '<div class="tnc-st">可点亮，花 1 点</div>';
+      act = B('点亮', 'primary');
+    } else {
+      state = '<div class="tnc-st bad">' + (avail ? '没有可用的天赋点' : '还没连上：先点亮相邻的天赋') + '</div>';
+      act = B('点亮', 'primary', true);
+    }
+    const kind = cn ? '职业起步天赋' : KIND_NAME[n.kind] + (ARM_INFO[n.arm] ? ' · ' + ARM_INFO[n.arm].name : '');
+    return sheetHtml({
+      cls: 'tnode' + (alloc || cn ? ' lit' : ''),
+      rc: color,
+      head:
+        '<i class="tnc-ico ' + n.kind + (alloc || cn ? ' alloc' : avail ? ' avail' : '') + '" style="--c:' + color + '"></i>' +
+        '<div class="sh-ttl"><div class="sh-name" style="color:' + color + '">' + (cn ? cn.name : n.name) + '</div><div class="sh-kind">' + kind + '</div></div>' +
+        '<span class="tnc-pts">剩 <b>' + pts.free + '</b> 点</span>',
+      body: '<div class="tnc-body">' + lines + state + '</div>',
+      msg: treeMsgHtml(),
+      acts: act,
+    });
+  }
+  // 卡片开着时盘面让开卡片（横屏让出右边，竖屏让出下面），整个盘面还看得见、点得到
+  function treeDock() {
+    const view = el.body.querySelector('.tree.cpt .tree-view');
+    if (!view) return;
+    view.style.right = view.style.bottom = '';
+    const sh = el.body.querySelector('.sheet.dock');
+    if (sh) {
+      // 按排版位置量（offset*，都相对 #panel-body）：卡片的入场动画带位移，getBoundingClientRect 会差十几像素
+      const t = view.parentElement;
+      if (sh.classList.contains('bottom')) view.style.bottom = Math.max(0, t.offsetTop + t.offsetHeight - sh.offsetTop + 6) + 'px';
+      else view.style.right = Math.max(0, t.offsetLeft + t.offsetWidth - sh.offsetLeft + 6) + 'px';
+    }
+    // 汇总卡下面还有内容（支路、加成）时底边渐隐，看得出能往下滑
+    const lb = el.body.querySelector('.sheet.tsum .sh-body');
+    if (lb) {
+      const more = () => lb.classList.toggle('more', lb.scrollTop + lb.clientHeight < lb.scrollHeight - 2);
+      lb.addEventListener('scroll', more, { passive: true });
+      requestAnimationFrame(more);
+    }
     treeApply();
   }
 
+  // 点亮 / 退回一个节点（桌面单击、触屏节点卡里的按钮），结果写进 ui.treeMsg
+  function treeToggle(id) {
+    const n = G.TREE[id];
+    if (!n || n.kind === 'start') return;
+    if (G.save.passives.includes(id)) {
+      if (G.refundPassive(id)) {
+        ui.treeMsg = '已退回「' + n.name + '」';
+        ui.treeMsgBad = false;
+        G.sfx('click');
+      } else if (G.clsNodeOf && G.clsNodeOf(id)) {
+        ui.treeMsg = '「' + G.clsNodeOf(id).name + '」是职业白送的起步天赋，摘不掉';
+        ui.treeMsgBad = true;
+      } else {
+        ui.treeMsg = '无法退回「' + n.name + '」：它后面的天赋会与起点断开';
+        ui.treeMsgBad = true;
+      }
+    } else if (G.allocPassive(id)) {
+      ui.treeMsg = '已点亮「' + n.name + '」';
+      ui.treeMsgBad = false;
+      G.sfx(n.kind === 'small' ? 'pickup' : 'gem');
+    } else {
+      ui.treeMsg = G.passivePoints().free <= 0 ? '没有可用的天赋点' : '需要先点亮与「' + n.name + '」相邻的天赋';
+      ui.treeMsgBad = true;
+    }
+    disarmReset();
+  }
+  // 天赋页的卡片也放在 ui.card 里（点外面、Esc 收起都和物品卡一样）：{ tree: 'node', id } / { tree: 'sum' }。
+  // ovf: true —— 不走物品卡「按钮放不下收进 ⋯」那一步
+  function treeCard(kind, id) {
+    clearTimeout(ui.cardTimer);
+    ui.cardTimer = 0;
+    ui.card = { tree: kind, id: id || null, ovf: true };
+    ui.pop = null;
+    ui.treeMsg = '';
+    ui.treeMsgBad = false;
+    if (kind === 'sum') disarmReset();
+  }
+  // 触屏点盘面：取离手指最近的节点（点按区 = 屏幕上半径 22 px，放大后不小于节点本身 + 8），不按层叠顺序。没有就是 null
+  function treePick(e) {
+    const svg = document.getElementById('tree-svg');
+    if (!svg) return null;
+    const p = G.toFrame(e.clientX, e.clientY);
+    const k = treeScale(svg, treeVb());
+    let best = null, bd = Infinity;
+    for (const g of svg.querySelectorAll('.tn')) {
+      const b = fRect(g.querySelector('.shape').getBoundingClientRect());
+      const d = Math.hypot(p.x - (b.left + b.right) / 2, p.y - (b.top + b.bottom) / 2);
+      if (d < bd && d <= Math.max(22, (+g.dataset.r + 8) * k)) {
+        bd = d;
+        best = g;
+      }
+    }
+    return best;
+  }
+
+  // 盘面尺寸变了（转屏、触屏的画面变量晚一帧到、卡片让位）就重算缩放：名字字号、触屏的点按圆
+  const treeRO = typeof ResizeObserver === 'function' ? new ResizeObserver(() => treeApply()) : null;
   // ---------- 天赋盘的缩放与平移 ----------
   // ui.tv：当前视口（SVG 用户坐标的 { x, y, w, h }），null 表示「全览」——整个盘缩放到正好放下。
   // 视口的宽高比始终和全览一致（preserveAspectRatio meet 负责留边），缩放范围是全览的 1 倍到 1 / TREE_ZMAX 倍
@@ -3028,11 +3190,24 @@
   function treeApply() {
     const svg = document.getElementById('tree-svg');
     if (!svg) return;
+    if (treeRO && !svg.dataset.ro) {
+      svg.dataset.ro = 1;
+      treeRO.disconnect();
+      treeRO.observe(svg);
+    }
     const v = treeVb();
     svg.setAttribute('viewBox', vbStr(v));
     const k = treeScale(svg, v);
-    svg.style.setProperty('--lk', G.clamp(0.66 / k, 1, 2.2).toFixed(3));
+    const lk = G.clamp(0.66 / k, 1, 2.2);
+    svg.style.setProperty('--lk', lk.toFixed(3));
     svg.classList.toggle('zoomed', !!ui.tv);
+    // 窄屏 / 触屏：名字在屏幕上不到 11 px 时先不画（放大以后就出来）。桌面照旧
+    svg.classList.toggle('nolab', compactUi() && 17 * lk * k < 10.95);
+    // 触屏：节点的点按区是屏幕上直径 44 px 的圆（看得见的部分不变）；挨得近时取离手指最近的那个（treePick）
+    if (touchOn() && svg.dataset.hk !== k.toFixed(4)) {
+      svg.dataset.hk = k.toFixed(4);
+      for (const g of svg.querySelectorAll('.tn')) g.lastChild.setAttribute('r', n1(Math.max(+g.dataset.r + 8, 22 / k)));
+    }
     const fit = el.body.querySelector('.tree-zoom [data-z="fit"]');
     if (fit) fit.classList.toggle('on', !ui.tv);
   }
@@ -3071,7 +3246,7 @@
     tpan.v = Object.assign({}, ui.tv);
   }
   function treePanMove(e) {
-    if (!tpan.armed) return;
+    if (!tpan.armed || tpinch.on) return;
     if (!(e.buttons & 1)) {
       tpan.armed = tpan.on = false;
       return;
@@ -3108,6 +3283,57 @@
     const d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
     const p = G.toFrame(e.clientX, e.clientY);
     treeZoom(Math.exp(G.clamp(d, -240, 240) * 0.0016), p.x, p.y);
+  }
+
+  // 双指缩放（触屏）：两根手指落在盘面上就取消平移（长按由 js/touch.js 取消），按两指距离缩放、两指中点跟着手走
+  const tpinch = { pts: new Map(), on: false, d0: 0, m0: null, v0: null, block: 0 }; // block：这段时间里盘面上的 click 不算（两指手势从第二根手指落下到全部抬起后 400 ms）
+  const pinchMid = () => {
+    const a = Array.from(tpinch.pts.values());
+    return { x: (a[0].x + a[1].x) / 2, y: (a[0].y + a[1].y) / 2, d: Math.max(1, Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y)) };
+  };
+  function treePinchDown(e) {
+    if (e.pointerType !== 'touch' || !ui.isOpen || ui.tab !== 'tree') return;
+    if (!e.target.closest || !e.target.closest('#tree-svg')) return;
+    tpinch.pts.set(e.pointerId, G.toFrame(e.clientX, e.clientY));
+    if (tpinch.pts.size !== 2) return;
+    tpinch.block = Infinity;
+    tpan.armed = tpan.on = false;
+    const view = el.body.querySelector('.tree-view');
+    if (view) view.classList.remove('panning');
+    hideTip();
+    const m = pinchMid();
+    tpinch.on = true;
+    tpinch.d0 = m.d;
+    tpinch.m0 = m;
+    tpinch.v0 = Object.assign({}, treeVb());
+  }
+  function treePinchMove(e) {
+    if (!tpinch.pts.has(e.pointerId)) return;
+    tpinch.pts.set(e.pointerId, G.toFrame(e.clientX, e.clientY));
+    if (!tpinch.on || tpinch.pts.size !== 2) return;
+    const svg = document.getElementById('tree-svg');
+    if (!svg) return;
+    const m = pinchMid();
+    const v0 = tpinch.v0;
+    const r = fRect(svg.getBoundingClientRect());
+    const k0 = treeScale(svg, v0);
+    // 两指刚落下时中点下面的那一点（用户坐标）跟着现在的中点走
+    const ux = v0.x + (tpinch.m0.x - (r.left + (r.width - v0.w * k0) / 2)) / k0;
+    const uy = v0.y + (tpinch.m0.y - (r.top + (r.height - v0.h * k0) / 2)) / k0;
+    const F = treeFit();
+    const w = G.clamp((v0.w * tpinch.d0) / m.d, F.w / TREE_ZMAX, F.w);
+    const h = (w * F.h) / F.w;
+    const k2 = Math.min(r.width / w, r.height / h);
+    ui.tv = treeClamp({ x: ux - (m.x - (r.left + (r.width - w * k2) / 2)) / k2, y: uy - (m.y - (r.top + (r.height - h * k2) / 2)) / k2, w, h });
+    treeApply();
+  }
+  function treePinchUp(e) {
+    if (!tpinch.pts.delete(e.pointerId)) return;
+    if (tpinch.on && tpinch.pts.size < 2) {
+      tpinch.on = false;
+      swallowClick(); // 松手不算点了节点
+    }
+    if (!tpinch.pts.size && tpinch.block === Infinity) tpinch.block = performance.now() + 400;
   }
 
   // ============================================================
@@ -4559,30 +4785,25 @@
 
     // ---- 天赋 ----
     node(d) {
-      const id = d.node;
-      const n = G.TREE[id];
-      if (n.kind === 'start') return;
-      if (G.save.passives.includes(id)) {
-        if (G.refundPassive(id)) {
-          ui.treeMsg = '已退回「' + n.name + '」';
-          ui.treeMsgBad = false;
-          G.sfx('click');
-        } else if (G.clsNodeOf && G.clsNodeOf(id)) {
-          ui.treeMsg = '「' + G.clsNodeOf(id).name + '」是职业白送的起步天赋，摘不掉';
-          ui.treeMsgBad = true;
-        } else {
-          ui.treeMsg = '无法退回「' + n.name + '」：它后面的天赋会与起点断开';
-          ui.treeMsgBad = true;
-        }
-      } else if (G.allocPassive(id)) {
-        ui.treeMsg = '已点亮「' + n.name + '」';
-        ui.treeMsgBad = false;
-        G.sfx(n.kind === 'small' ? 'pickup' : 'gem');
-      } else {
-        ui.treeMsg = G.passivePoints().free <= 0 ? '没有可用的天赋点' : '需要先点亮与「' + n.name + '」相邻的天赋';
-        ui.treeMsgBad = true;
+      // 触屏：先出节点卡，按「点亮」才算（再点同一个收起）；桌面单击直接点亮 / 退回
+      if (touchOn()) {
+        if (ui.card && ui.card.tree === 'node' && ui.card.id === d.node) closeCard();
+        else treeCard('node', d.node);
+        G.sfx('click');
+        return render();
       }
-      disarmReset();
+      treeToggle(d.node);
+      render();
+    },
+    'node-go'() {
+      if (ui.card && ui.card.tree === 'node') treeToggle(ui.card.id);
+      render();
+    },
+    // 窄屏 / 触屏左上的「n 点可用」：汇总卡
+    'tree-sum'() {
+      if (ui.card && ui.card.tree === 'sum') closeCard();
+      else treeCard('sum');
+      G.sfx('click');
       render();
     },
     'tree-zoom'(d) {
@@ -4683,7 +4904,9 @@
 
   function onPanelClick(e) {
     if (ui.noClick) return; // 拖拽松手带出来的 click：不算点击
-    const a = e.target.closest('[data-act]');
+    if (ui.tab === 'tree' && performance.now() < tpinch.block && e.target.closest('#tree-svg')) return; // 两指手势带出来的：不开卡、不点亮
+    let a = e.target.closest('[data-act]');
+    if (ui.tab === 'tree' && touchOn() && e.target.closest('#tree-svg')) a = treePick(e); // 触屏点盘面：离手指最近的节点（treePick）
     // 这一页里点了任何东西：一次性提示以后不再自动出（docs/ui.md「说明文字」）
     if (el.body.contains(e.target) && PAGE_HINTS[ui.tab] && !uiSeen(ui.tab) && (!a || a.dataset.act !== 'hint')) {
       uiSeenMark(ui.tab);
@@ -4696,7 +4919,7 @@
       ui.pop = null;
       shut = true;
     }
-    if (ui.card && !e.target.closest('.sheet') && !e.target.closest('.ui-pop') && act !== 'sel' && !(act === 'stash-take' && a.classList.contains('cell')) && !e.target.closest('#confirm')) {
+    if (ui.card && !e.target.closest('.sheet') && !e.target.closest('.ui-pop') && act !== 'sel' && !(act === 'stash-take' && a.classList.contains('cell')) && !(ui.card.tree && (act === 'node' || act === 'tree-sum' || act === 'tree-zoom')) && !e.target.closest('#confirm')) {
       closeCard();
       shut = true;
     }
@@ -7800,6 +8023,10 @@
     // 天赋盘：滚轮缩放、拖动平移
     el.body.addEventListener('wheel', treeWheel, { passive: false });
     el.body.addEventListener('pointerdown', treePanDown);
+    el.body.addEventListener('pointerdown', treePinchDown);
+    window.addEventListener('pointermove', treePinchMove);
+    window.addEventListener('pointerup', treePinchUp);
+    window.addEventListener('pointercancel', treePinchUp);
     window.addEventListener('pointermove', treePanMove);
     window.addEventListener('pointerup', treePanUp);
     window.addEventListener('pointercancel', treePanUp);
@@ -7927,7 +8154,7 @@
     });
     window.addEventListener('resize', () => {
       if (ui.isOpen) {
-        if (ui.tab === 'inv' || ui.tab === 'stash' || ui.tab === 'char' || ui.card || ui.pop) render(); // 宽屏 / 窄屏 / 竖屏的排法和卡片位置跟着变
+        if (ui.tab === 'inv' || ui.tab === 'stash' || ui.tab === 'char' || ui.tab === 'tree' || ui.card || ui.pop) render(); // 宽屏 / 窄屏 / 竖屏的排法和卡片位置跟着变
         renderPicker();
         hideTip();
         if (ui.tab === 'tree') treeApply(); // 名字字号跟着面板尺寸重算

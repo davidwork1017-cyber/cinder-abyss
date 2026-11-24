@@ -9,6 +9,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { checkArt } from '../tools/check-art.mjs';
 import { checkThree } from '../tools/check-three.mjs';
 import { uiLayoutCheck, uiBlankPoint, UI_SIZES, DESK_STYLE_SPEC, DESK_STYLE_MAIN, DESK_STYLE_B4A_SPEC, DESK_STYLE_B4A_MAIN, uiStyleRead } from './ui-layout.mjs';
+import { TREE_STYLE_SPEC, TREE_STYLE_MAIN } from './ui-style-tree.mjs';
 
 const SAVE_KEY = 'cinder-abyss-save-v1';
 let G_CUR_N = 8, G_UQ_COLOR = '#ff9b3d', G_SOUL_INH = 1.5, G_SOUL_K = 0.2;
@@ -12165,6 +12166,7 @@ async function main() {
     golem: { hash: '4fc99b3d', calls: 112, secs: '9e1090d0,a448b82d,d32dc0c0,cd636106,d1d75655,66e79a53,47bda2f4,c30ac709,617cb6b2,36a0a0ec,5a7ca4f7,f574dfb2,2095a119,b3f4a835,cdbea357'.split(',') },
     lord: { hash: '6bcd5507', calls: 114, secs: '24815422,e21feb3a,ebe73ddb,5d25957d,b63a99b0,8e38a8e6,7dba3ec4,c48bbb94,b7d35d0a,a5d6ea59,63f52b72,e7eac088,98c19b85,e738b0a0,4d2180d1'.split(',') }, // main 25e390e（fx-rng 之后，程序化外观）上量的；fx-rng 之前 main a2831c3 上是 5ed52b42 / 30070 次
     behemoth: { hash: 'f5f43ce4', calls: 123, secs: 'e18ee022,7352cd8d,5b43567a,a2cce81a,1519cee2,75635a63,c5bd0ee2,e0e76dc3,feb8fd4d,1cb6dd7f,f4ae329e,716bf23b,87f57802,31f02c47,44888a78'.split(',') }, // main 25e390e（程序化外观）上量的
+    weaver: { hash: '1109c818', calls: 238, secs: 'f42838b4,e60faab2,2f2c6293,2b60ae61,9216c109,4a88c052,70e6e7b4,f6960b6d,89cbe051,d25d7461,e082eb08,fa573d05,e87f94ef,f0619acf,8658255f'.split(',') }, // main 6fd2e4c（程序化外观）上量的
   };
   // tiers（boss-lord 起）：再按另一档画质打一遍，指纹也要一样（fx-rng 的「高 = 低」规则用在首领战上）
   const bossFpStep = (kind, CN, tiers) => step('首领指纹：' + CN + '固定种子打 15 秒，局面和取随机数次数和换模型之前逐位相同；首领包打到一半才到，也只在招式之间换模型、指纹不变' + (tiers ? '；换一档画质打出来也一样' : ''), async () => {
@@ -12236,6 +12238,7 @@ async function main() {
   await bossFpStep('golem', '熔渣巨像');
   await bossFpStep('lord', '烬渊之主', true);
   await bossFpStep('behemoth', '衔星巨兽', true);
+  await bossFpStep('weaver', '霜织者', true);
 
   // boss-golem：首领模型的三步（模型 / 出手对拍 / 死亡和破防），量的都是新模型（首领包到了以后建的骨架）
   const BOSS_BONES = JSON.parse(readFileSync(new URL('../art/rig.json', import.meta.url), 'utf8')).boss;
@@ -12301,6 +12304,7 @@ async function main() {
   await bossModelStep('golem', '熔渣巨像');
   await bossModelStep('lord', '烬渊之主');
   await bossModelStep('behemoth', '衔星巨兽');
+  await bossModelStep('weaver', '霜织者');
 
   // 每只首领：招式、模拟里的蓄力时长（enemies.js 的 PATTERN_WIND，换模型不动）、接触姿势的量（接触帧应是极值）、出事件的方式、蓄力时挨打用的蓄力动作
   //   量：weaponLow = 武器挂点最低（锤石落地 / 剑插进地里），handsApart = 两只手离得最远，pelvisFwd = 骨盆冲到最前，handFwd = 左手（hand 挂点的关节）甩到最前，
@@ -12311,6 +12315,8 @@ async function main() {
     lord: { CN: '烬渊之主', wind: { slam: 0.95, fan: 0.4, spiral: 0.25, cross: 0.9, barrage: 0.3, summon: 0.5 }, m: { slam: 'weaponLow', fan: 'handFwd', spiral: 'handUp', cross: 'weaponLow', barrage: 'weaponUp', summon: 'weaponLow' }, ev: { barrage: 'time', summon: 'mob' }, steady: ['slam_w', 0.8] },
     // 衔星巨兽：流星犁地 / 践踏 = 前蹄（hand 挂点，左前蹄）踩到最低；坍缩 = 头压到最低；吐息 = 嘴张到最开（下巴尖离头最远）。坍缩和吐息的预警在起手时就出了、没有结算回调：按蓄力到点对
     behemoth: { CN: '衔星巨兽', wind: { starfall: 0.7, gravity: 0.6, sweep: 0.9, slam: 0.95 }, m: { starfall: 'handLow', gravity: 'headLow', sweep: 'jawOpen', slam: 'handLow' }, ev: { gravity: 'time', sweep: 'time' }, steady: ['slam_w', 0.783] },
+    // 霜织者：扇形 = 右手（weapon 挂点那只）甩到最前；落冰 = 左手举到最高（落冰的预警起手就出了：按蓄力到点对）；召唤 = 左前腿的踝点到最低（小怪现身）；冰环 = 头落到最低
+    weaver: { CN: '霜织者', wind: { fan: 0.4, barrage: 0.3, summon: 0.5, ring: 0.45 }, m: { fan: 'handRFwd', barrage: 'handUp', summon: 'flegLow', ring: 'headLow' }, ev: { barrage: 'time', summon: 'mob' }, steady: ['ring_w', 0.317] },
   };
   const bossClipStep = (kind) => step('首领出手对拍：' + BOSS_CLIPS[kind].CN + '每一招的蓄力 / 出手动作都在，出手提前量比蓄力短，伤害 / 起冲 / 弹幕离手的那一帧正好是出手动作的接触帧（误差不到一帧）；蓄力时挨打不晃', async () => {
     await ev((kind) => G.assets.need(['boss-' + kind]), kind);
@@ -12336,6 +12342,8 @@ async function main() {
             if (m === 'handLow') return -hd.y;
             if (m === 'headLow') return -hs.y;
             if (m === 'jawOpen') return Math.hypot(wp.x - hs.x, wp.y - hs.y, wp.z - hs.z);
+            if (m === 'handRFwd') return M[e.rig.JI.hand_r * 12 + 11];
+            if (m === 'flegLow') return -M[e.rig.JI.x_fleg_l_03 * 12 + 7];
             return m === 'weaponLow' ? -wp.y : m === 'handsApart' ? Math.hypot(wp.x - hd.x, wp.z - hd.z) : m === 'pelvisFwd' ? pz : m === 'handFwd' ? M[hj * 12 + 11] : m === 'handUp' ? M[hj * 12 + 7] : wp.y;
           };
           const trace = [];
@@ -12398,6 +12406,7 @@ async function main() {
   await bossClipStep('golem');
   await bossClipStep('lord');
   await bossClipStep('behemoth');
+  await bossClipStep('weaver');
 
   const bossDeathStep = (kind, CN) => step('首领死亡和破防：' + CN + '死亡动作砸到地上的那一刻是 0.90 秒（vfx3 第三段冲击环），破防垮下去以后从跪稳的姿势循环、不重播垮下去那一段', async () => {
     await ev((kind) => G.assets.need(['boss-' + kind]), kind);
@@ -12439,6 +12448,7 @@ async function main() {
   await bossDeathStep('golem', '熔渣巨像');
   await bossDeathStep('lord', '烬渊之主');
   await bossDeathStep('behemoth', '衔星巨兽');
+  await bossDeathStep('weaver', '霜织者');
 
   await step('刷新后仍可正常游玩：移动、施法、面板', async () => {
     await ev(() => {
@@ -26433,6 +26443,26 @@ async function touchSteps() {
     await frames(2);
     assert(await ev(() => !!document.querySelector('#panel .sheet.zs')), '触屏地图：点区域卡片应出区域卡');
     bad = bad.concat(await scan('地图·区域卡'));
+    // UI-R B3：天赋页第一次打开的那一行、[?] 的说明、汇总卡、节点卡（触屏点节点出卡片）
+    await ev(() => {
+      G.ui.close();
+      localStorage.removeItem('cinder-abyss-ui-seen');
+      G.ui.open('tree');
+    });
+    await frames(3);
+    bad = bad.concat(await scan('tree·第一次'));
+    for (const c of ['#panel-q', '[data-act="tree-sum"]']) {
+      await ev((c) => document.querySelector(c).click(), c);
+      await frames(2);
+      bad = bad.concat(await scan('tree·' + c));
+    }
+    await ev(() => document.querySelector('[data-act="card-close"]').click());
+    const tn = await ev(() => T.rect('#tree-svg .tn.avail .shape'));
+    await touch.tap(tn.x, tn.y);
+    await frames(2);
+    assert(await ev(() => !!document.querySelector('.sheet.tnode')), '触屏点天赋应出节点卡');
+    bad = bad.concat(await scan('tree·节点卡'));
+    await ev(() => G.ui.close());
     // 技能页：点一张技能卡（浮窗）
     const card = await ev(() => T.rect('#panel-body [data-tip]'));
     if (card) {
@@ -26467,21 +26497,53 @@ async function touchSteps() {
         const t = document.getElementById('tip');
         return { vis: getComputedStyle(t).display !== 'none' && t.classList.contains('on'), txt: t.textContent.slice(0, 80), alt: G.input.alt, altOn: document.body.classList.contains('alt-on'), lp: G.touch.state().lp, box: T.rect(t) };
       });
+    // 浮窗的 on 和 body 的 alt-on 是 ui.js 每帧的 update 跟着输入状态（G.input.alt）设的，比输入晚一帧：
+    // 读界面之前等到界面跟上了输入（最多 1 秒，按帧轮询），不靠固定的睡眠时长（机器忙的时候 650 ms 里可能一帧都没画）
+    const caughtUp = () => document.body.classList.contains('alt-on') === !!G.input.alt;
+    const uiWait = (fn, ms) => page.waitForFunction(fn, null, { timeout: ms || 1000, polling: 'raf' }).then(() => true, () => false);
     const press = async (sel, ms) => {
       const r = await ev((sel) => T.rect(sel), sel);
       assert(r, '找不到 ' + sel);
       await touch.down(r.x, r.y);
       await sleep(ms || 650);
+      // 还按着：等浮窗出来、alt-on 跟上（长按已经触发的话一两帧就到）
+      if (!(await uiWait(() => document.getElementById('tip').classList.contains('on') && document.body.classList.contains('alt-on') === !!G.input.alt))) {
+        const st = await tipNow();
+        await touch.up();
+        throw new Error('长按 ' + sel + ' 1 秒内界面没跟上（浮窗没出来或 alt-on 没跟着输入）：' + JSON.stringify(st));
+      }
       const a = await tipNow();
       await touch.up();
       await frames(2);
+      await uiWait(caughtUp);
       const b = await tipNow();
       return { r, a, b };
     };
+    // 「碰一下别处」：点面板正文里离所有点按目标（按钮、页签、格子、带浮窗的卡片）最远的一处空白（同 test/ui-layout.mjs 的 uiBlankPoint，再躲开 data-tip 的卡片）。
+    // 原来固定点顶栏 left + 30：B1 / M2 以后那里是「背包」页签，只有 touch.js 在长按松手后 600 ms 内吞掉这一下才没事，机器一忙就切到背包页
+    const tabNow = () => ev(() => { const t = document.querySelector('#panel-head .tab.on'); return t ? t.textContent : null; });
     const dismiss = async () => {
-      const hd = await ev(() => T.rect('#panel-head'));
+      const tab0 = await tabNow();
+      const hd = await ev(() => {
+        const body = document.getElementById('panel-body'), b = body.getBoundingClientRect();
+        const tg = Array.from(document.querySelectorAll('#panel button, #panel [data-act], #panel .cell, #panel .eq, #panel [data-tip], #panel .zone')).filter((n) => n.getClientRects().length).map((n) => n.getBoundingClientRect());
+        const gap = (x, y, r) => Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom));
+        let best = null;
+        for (let y = b.top + 3; y < b.bottom - 3; y += 4)
+          for (let x = b.left + 3; x < b.right - 3; x += 4) {
+            const d = tg.length ? Math.min(...tg.map((r) => gap(x, y, r))) : 99;
+            if (best && d <= best.d) continue;
+            const h = document.elementFromPoint(x, y);
+            if (h && body.contains(h) && !h.closest('button, a, input, select, [data-act], [data-tip], .zone, .cell, .eq')) best = { l: x - 30, y, d };
+          }
+        return best && best.d >= 10 ? best : null;
+      });
+      assert(hd, '面板正文里找不到一处离点按目标 ≥ 10 px 的空白，没法「碰一下别处」');
       await touch.tap(hd.l + 30, hd.y);
       await frames(2);
+      await uiWait(() => !document.getElementById('tip').classList.contains('on') && document.body.classList.contains('alt-on') === !!G.input.alt); // 收不起来的话照样读出来，交给下面的断言报
+      const tab1 = await tabNow();
+      assert(tab1 === tab0, '「碰一下别处」不该换页签：' + tab0 + ' → ' + tab1);
       return tipNow();
     };
     const out = {};
@@ -26508,9 +26570,6 @@ async function touchSteps() {
     const zName = await ev(() => G.ZONES[1].name);
     out.zone = await press('.zone[data-tip="zone:1:0"]');
     out.zoneOff = await dismiss();
-    // 收起浮窗的那一下点在页头左边（第一个页签上）：机器忙、过了长按后 600 ms 的吞点击窗口时会切到背包页。再打开地图，下面的轻点照样点区域卡片
-    await ev(() => G.ui.open('map'));
-    await frames(2);
     // 轻点（不到 450 ms）不出浮窗：按下 120 ms 就松手，松手之后再看（中途去页面里读状态会把按住的时间拖长）
     {
       const r0 = await ev(() => T.rect('.zone[data-tip="zone:0:0"]'));
@@ -26583,6 +26642,124 @@ async function touchSteps() {
     assert(sc.inv === 'auto' && sc.oy === 'auto' && sc.cell === 'none' && sc.room > 50, '竖屏：滚动区（data-list）应保持默认 touch-action、格子才是 none：' + JSON.stringify(sc));
     assert(sc.top1 > sc.top0 + 40, '竖屏：在滚动区里竖着划应能滚动：' + JSON.stringify(sc));
     return '技能 / 天赋 / 区域卡片长按出详情、松手留着；天赋点亮数 ' + n0 + ' → ' + n1 + '；拖拽穿上鞋子；竖屏图鉴列表划动滚了 ' + Math.round(sc.top1 - sc.top0) + ' px';
+  });
+
+  await step('触屏：天赋页（UI-R B3）——点节点出节点卡、按「点亮」才点亮、卡片留着接着点下一个、再点同一个收起；点在节点旁边取最近的节点；单指拖动平移、双指缩放；两指手势（缩放、两指按住）不开卡、不点亮也不退回；左上的点数打开汇总卡', async () => {
+    await touchPage();
+    const cdp = await page.context().newCDPSession(page);
+    const tp = (pts) => pts.map((p, i) => ({ x: p[0], y: p[1], id: 10 + i, radiusX: 3, radiusY: 3, force: 1 }));
+    const two = async (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: tp(pts) });
+    await ev(() => {
+      G.debug.setLevel(20);
+      G.resetPassives();
+      G.allocPassive('sm0');
+      G.allocPassive('dm0');
+      G.computeStats();
+      G.ui.open('tree');
+    });
+    await frames(3);
+    const st = () => ev(() => ({ p: G.save.passives.slice().sort().join(','), card: (document.querySelector('.sheet.tnode .sh-name') || {}).textContent || null, sum: !!document.querySelector('.sheet.tsum'), tip: document.getElementById('tip').classList.contains('on'), vb: document.getElementById('tree-svg').getAttribute('viewBox').split(' ').map(Number), free: G.passivePoints().free }));
+    const ctr = (id) => ev((id) => T.rect('#tree-svg [data-node="' + id + '"] .shape'), id);
+    const tapNode = async (id) => { const r = await ctr(id); await touch.tap(r.x, r.y); await frames(2); };
+    const s0 = await st();
+    // 点 dm1：出卡片，不点亮
+    await tapNode('dm1');
+    const s1 = await st();
+    assert(s1.card === (await ev(() => G.TREE.dm1.name)) && s1.p === s0.p, '轻点节点应只出节点卡、不点亮：' + JSON.stringify({ s0, s1 }));
+    // 按「点亮」：点亮，卡片留着
+    let b = await ev(() => T.rect('.sheet.tnode [data-act="node-go"]'));
+    await touch.tap(b.x, b.y);
+    await frames(2);
+    const s2 = await st();
+    assert(s2.p.split(',').includes('dm1') && s2.free === s0.free - 1 && s2.card === s1.card && (await ev(() => !!document.querySelector('.sheet.tnode.lit'))), '按「点亮」应点亮、卡片留着：' + JSON.stringify(s2));
+    // 接着点下一个（dm1 相邻、还没点的）再点亮
+    const nx = await ev(() => G.TREE.dm1.links.find((l) => !G.save.passives.includes(l)));
+    await tapNode(nx);
+    b = await ev(() => T.rect('.sheet.tnode [data-act="node-go"]'));
+    await touch.tap(b.x, b.y);
+    await frames(2);
+    const s3 = await st();
+    assert(s3.p.split(',').includes(nx) && s3.card === (await ev((id) => G.TREE[id].name, nx)), '卡片开着时点下一个节点应换内容并能接着点亮：' + JSON.stringify({ nx, s3 }));
+    // 再点同一个：收起，不退回
+    await tapNode(nx);
+    const s4 = await st();
+    assert(!s4.card && s4.p === s3.p, '再点同一个节点应收起卡片、不退回：' + JSON.stringify(s4));
+    // 点在节点旁边（离它中心 7 px、比别的节点都近的一点）：出它的卡片
+    const near = await ev(() => {
+      const c = Array.from(document.querySelectorAll('#tree-svg .tn')).map((g) => { const r = g.querySelector('.shape').getBoundingClientRect(); return { id: g.dataset.node, x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+      for (const a of c) {
+        if (a.id !== 'im0') continue;
+        for (let k = 0; k < 16; k++) {
+          const x = a.x + 7 * Math.cos((k * Math.PI) / 8), y = a.y + 7 * Math.sin((k * Math.PI) / 8);
+          const best = c.reduce((m, q) => (Math.hypot(q.x - x, q.y - y) < Math.hypot(m.x - x, m.y - y) ? q : m));
+          if (best === a && c.every((q) => q === a || Math.hypot(q.x - x, q.y - y) > Math.hypot(a.x - x, a.y - y) + 3)) return { id: a.id, x, y };
+        }
+      }
+      return null;
+    });
+    assert(near, '找不到 im0 旁边的点');
+    await touch.tap(near.x, near.y);
+    await frames(2);
+    const s5 = await st();
+    assert(s5.card === (await ev(() => G.TREE.im0.name)) && s5.p === s3.p, '点在节点旁边应取最近的节点：' + JSON.stringify({ near, s5 }));
+    // 卡片开着时双指放大：缩放了，不点亮 / 退回，卡片还是原来那张
+    const sv = await ev(() => T.rect('#tree-svg'));
+    const cx = sv.x, cy = sv.y;
+    await two('touchStart', [[cx - 20, cy], [cx + 20, cy]]);
+    for (let i = 1; i <= 6; i++) {
+      await two('touchMove', [[cx - 20 - i * 12, cy], [cx + 20 + i * 12, cy]]);
+      await frames(1);
+    }
+    await two('touchEnd', []);
+    await frames(2);
+    const s6 = await st();
+    assert(s6.vb[2] < s5.vb[2] * 0.6 && s6.p === s5.p && s6.card === s5.card, '双指张开应放大、不点亮也不退回：' + JSON.stringify({ s5: s5.vb, s6 }));
+    // 两根手指按在两个节点上不动 600 ms 再先后抬起：不出卡片、不出浮窗、不点亮
+    await ev(() => document.querySelector('[data-act="card-close"]').click());
+    await ev(() => document.querySelector('[data-act="tree-zoom"][data-z="fit"]').click());
+    await frames(2);
+    const pa = await ctr('dm1'), pb = await ctr('sm1');
+    await two('touchStart', [[pa.x, pa.y], [pb.x, pb.y]]);
+    await sleep(600);
+    await two('touchMove', [[pa.x, pa.y]]); // 只列还按着的那根：另一根（sm1 上的）抬起
+    await sleep(150);
+    await two('touchEnd', []);
+    await frames(3);
+    const s7 = await st();
+    assert(!s7.card && !s7.tip && s7.p === s5.p, '两指按住再抬起不应开卡、出浮窗或改天赋：' + JSON.stringify(s7));
+    // 放大后单指拖动：平移，不开卡
+    await ev(() => document.querySelector('[data-act="tree-zoom"][data-z="in"]').click());
+    await frames(2);
+    const v8 = (await st()).vb;
+    await touch.drag(cx, cy, cx + 60, cy + 30, 6);
+    await touch.up();
+    await frames(2);
+    const s8 = await st();
+    assert(s8.vb[2] === v8[2] && (s8.vb[0] < v8[0] || s8.vb[1] < v8[1]) && !s8.card && s8.p === s5.p, '放大后单指拖动应平移、不开卡：' + JSON.stringify({ v8, s8 }));
+    // 左上的「n 点可用」：汇总卡（重置按钮在卡片里），再点收起
+    b = await ev(() => T.rect('[data-act="tree-sum"]'));
+    await touch.tap(b.x, b.y);
+    await frames(2);
+    const s9 = await st();
+    const reset = await ev(() => !!document.querySelector('.sheet.tsum [data-act="tree-reset"]:not(:disabled)'));
+    // 汇总卡下面还有支路 / 加成：底边渐隐（能往下滑）
+    const more = await ev(() => { const l = document.querySelector('.sheet.tsum .sh-body'); return { more: l.classList.contains('more'), over: l.scrollHeight > l.clientHeight + 2 }; });
+    assert(more.more === more.over, '汇总卡内容超出时应有渐隐、不超出时没有：' + JSON.stringify(more));
+    // 重置照旧要点两次：第一次只变成「再点一次确认重置」，卡片不关
+    const rb = await ev(() => T.rect('.sheet.tsum [data-act="tree-reset"]'));
+    await touch.tap(rb.x, rb.y);
+    await frames(2);
+    const r1 = await ev(() => ({ p: G.save.passives.length, txt: document.querySelector('.sheet.tsum [data-act="tree-reset"]').textContent, sum: !!document.querySelector('.sheet.tsum') }));
+    await touch.tap(rb.x, rb.y);
+    await frames(2);
+    const r2 = await ev(() => ({ p: G.save.passives.filter((id) => id !== 'start' && !(G.clsNodeOf && G.clsNodeOf(id))).length, sum: !!document.querySelector('.sheet.tsum') }));
+    assert(r1.p === s9.p.split(',').length && r1.txt.includes('再点一次') && r1.sum && r2.p === 0 && r2.sum, '触屏重置应要点两次、卡片留着：' + JSON.stringify({ r1, r2 }));
+    await touch.tap(b.x, b.y);
+    await frames(2);
+    const s10 = await st();
+    assert(s9.sum && reset && !s10.sum, '点数应打开汇总卡（有重置）、点外面收起：' + JSON.stringify({ s9: s9.sum, reset, s10: s10.sum }));
+    await ev(() => { G.resetPassives(); G.ui.close(); });
+    return '点亮 dm1 → ' + nx + '，旁点取 im0，双指放大 ' + Math.round((s5.vb[2] / s6.vb[2]) * 100) + '%';
   });
 
   await step('触屏：M2 设置——左手模式（右下拖摇杆能走、左下的按钮能按）、按钮大小、震动（安卓桩：重击 / 翻滚 / 残血各震一次、120 ms 限频、残血不连震、关掉不震、没有 vibrate 时设置里不显示）、主题色', async () => {
@@ -27301,6 +27478,8 @@ async function touchSteps() {
   await uiLayoutSteps('settings'); // B4a
   await uiDeskStyleB4aStep(); // B4a
   await uiLayoutSteps('char');
+  await uiLayoutSteps('tree');
+  await uiTreeStyleStep();
 }
 
 // ------------------------------------------------------------------ 面板布局（UI-R，docs/ui.md「测试」）
@@ -27384,6 +27563,19 @@ const UI_PANELS = {
       },
     ],
   },
+  // 天赋（B3）：全览另查每个节点都在盘面里、点得到、名字不小于 11 px（treeFitCheck）；触屏点节点出节点卡，窄屏点「n 点可用」出汇总卡
+  tree: {
+    label: '天赋',
+    states: [
+      { id: '全览', go: (D) => treeOpen(D), check: () => ev(treeFitCheck) },
+      { id: '说明', go: async (D) => { await treeOpen(D); await D.tap(D.portrait ? '#panel-body [data-act="hint"]' : '#panel-q', '.ui-pop'); } },
+      { id: '放大', go: async (D) => { await treeOpen(D); await D.tap('[data-act="tree-zoom"][data-z="in"]'); await D.tap('[data-act="tree-zoom"][data-z="in"]'); } },
+      { id: '汇总卡', card: true, only: 'compact', go: async (D) => { await treeOpen(D); await D.tap('[data-act="tree-sum"]', '.sheet.tsum'); }, check: () => ev(treeFitCheck) },
+      { id: '节点卡', card: true, only: 'touch', go: async (D) => { await treeOpen(D); await D.tap('#tree-svg [data-node="dm1"]', '.sheet.tnode [data-act="node-go"]:not(:disabled)'); }, check: () => ev(treeFitCheck) },
+      { id: '点亮后', card: true, only: 'touch', go: async (D) => { await treeOpen(D); await D.tap('#tree-svg [data-node="dm1"]', '.sheet.tnode [data-act="node-go"]:not(:disabled)'); await D.tap('.sheet.tnode [data-act="node-go"]', '.sheet.tnode.lit'); } },
+      { id: '放大后节点卡', card: true, only: 'touch', go: async (D) => { await treeOpen(D); await D.tap('[data-act="tree-zoom"][data-z="in"]'); await D.tap('[data-act="tree-zoom"][data-z="in"]'); await D.tap('#tree-svg [data-node="sm1"]', '.sheet.tnode'); } },
+    ],
+  },
 };
 // 地图：轮回 3 都开了、前四个区在 2 层通关、四种烛芯各一个（余烛殿出现、能点燃）、这次进区带着一枚印（「本次进区」那一行最长的样子）
 async function uiMapLate() {
@@ -27405,6 +27597,44 @@ async function uiPauseOpen() {
     G.ui.pause();
   });
   await frames(2);
+}
+// 天赋页的布局状态：全览、点过体魄（sm0）和敏捷（dm0），迅影的下一个（dm1）可点亮
+async function treeOpen(D) {
+  await D.open('tree');
+  await ev(() => {
+    G.resetPassives();
+    G.allocPassive('sm0');
+    G.allocPassive('dm0');
+    G.ui.refresh();
+    const f = document.querySelector('[data-act="tree-zoom"][data-z="fit"]');
+    if (f && !f.classList.contains('on')) f.click();
+  });
+  await frames(2);
+}
+// 全览（卡片开着时是让开卡片之后的盘面）：每个节点整个在盘面里、节点中心点得到它自己（不被左上的点数、右下的缩放挡住），
+// 画出来的名字在屏幕上不小于 11 px。在页面里跑，返回不合格项
+function treeFitCheck() {
+  const out = [];
+  const svg = document.getElementById('tree-svg');
+  const F = (r) => (G.rectToFrame ? G.rectToFrame(r) : r);
+  const s = F(svg.getBoundingClientRect());
+  const ctm = svg.getScreenCTM();
+  const k = Math.hypot(ctm.a, ctm.b);
+  const lk = parseFloat(getComputedStyle(svg).getPropertyValue('--lk')) || 1;
+  for (const g of svg.querySelectorAll('.tn')) {
+    const sh = g.querySelector('.shape');
+    const b = F(sh.getBoundingClientRect());
+    if (b.left < s.left - 1 || b.right > s.right + 1 || b.top < s.top - 1 || b.bottom > s.bottom + 1) out.push('节点出了盘面 ' + g.dataset.node);
+    const r = sh.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    if (!hit || !g.contains(hit)) out.push('节点 ' + g.dataset.node + ' 被 ' + (hit ? hit.tagName.toLowerCase() + '.' + String(hit.className.baseVal !== undefined ? hit.className.baseVal : hit.className).split(' ')[0] : '空') + ' 挡住');
+  }
+  for (const t of svg.querySelectorAll('text.tl')) {
+    if (getComputedStyle(t).display === 'none') continue;
+    const px = parseFloat(getComputedStyle(t).fontSize) * lk * k;
+    if (px < 10.95) out.push('名字 ' + t.textContent + ' ' + px.toFixed(1) + ' px');
+  }
+  return out.slice(0, 4);
 }
 // 布局检查用的角色：30 级、学会全部技能、背包 29 件、身上有戒指和胸甲、仓库 18 件
 async function uiFixture() {
@@ -27501,6 +27731,41 @@ async function uiDeskStyleB4aStep() {
     return Object.keys(DESK_STYLE_B4A_MAIN).length + ' 项相等';
   });
 }
+// 天赋页的桌面样式不变（UI-R B3）：1366×768 下盘面、侧栏、天赋点、支路、加成、缩放按钮、节点和名字的计算样式，以及全览的 viewBox，和 main 逐项相等（表在 test/ui-style-tree.mjs）
+async function uiTreeStyleStep() {
+  await step('界面布局·天赋桌面样式：1366×768 下盘面和侧栏的尺寸、天赋点 40 px、支路行、加成、缩放按钮、节点和名字的样式、全览的 viewBox 和 main 逐项相等（有意改动：图例挪进 [?]、缩放按钮挪到右下竖排）', async () => {
+    if (browser) await browser.close().catch(() => {});
+    ({ browser, page, errors } = await launch({ width: 1366, height: 768, dpr: null }));
+    await install();
+    await ev(() => {
+      G.save.seenHelp = G.save.seenStory = true;
+      for (const id of G.ui.hints().all) G.save.tut[id] = 1;
+      G.ui.close();
+      G.debug.hold(true);
+      G.debug.setLevel(30);
+      G.resetPassives();
+      G.allocPassive('sm0');
+      localStorage.setItem('cinder-abyss-ui-seen', JSON.stringify({ tree: 1 })); // 和在 main 上量的一样：侧栏结果那一行是空的
+      G.ui.open('tree');
+    });
+    await panelSettled();
+    // 面板入场的缩放动画在 #panel 上：全部（一直循环的光圈除外）放完再量，不然尺寸小 1%
+    await ev(async () => { for (const n of [document.getElementById('panel'), ...document.querySelectorAll('#panel *')]) for (const a of n.getAnimations()) if (a.effect && a.effect.getComputedTiming().iterations !== Infinity) await a.finished.catch(() => {}); });
+    await sleep(300);
+    const got = await ev(uiStyleRead, TREE_STYLE_SPEC);
+    got['#tree-svg|viewBox'] = await ev(() => document.getElementById('tree-svg').getAttribute('viewBox'));
+    const legend = await ev(() => !!document.querySelector('.tree-legend'));
+    await ev(() => {
+      G.ui.close();
+      G.resetPassives();
+      G.debug.hold(false);
+    });
+    const bad = [];
+    for (const k in TREE_STYLE_MAIN) if (got[k] !== TREE_STYLE_MAIN[k]) bad.push(k + '：main ' + TREE_STYLE_MAIN[k] + '，现在 ' + got[k]);
+    assert(Object.keys(TREE_STYLE_MAIN).length > 40 && !bad.length && !legend, bad.length + ' 项和 main 不一样' + (legend ? '（图例还在盘面上）' : '') + '：' + bad.slice(0, 8).join(' ｜ '));
+    return Object.keys(TREE_STYLE_MAIN).length + ' 项相等';
+  });
+}
 let uiPages = null; // { touch: { browser, page, errors, fx }, desk: {…} }：三个面板共用，最后一个面板跑完关掉
 async function uiLayoutSteps(panel) {
   const P = UI_PANELS[panel];
@@ -27563,13 +27828,16 @@ async function uiLayoutSteps(panel) {
         };
         for (const S of P.states) {
           if (S.only === 'compact' && !D.compact) continue;
+          if (S.only === 'touch' && !isTouch) continue;
           nStates++;
           try {
             await S.go(D);
             // 入场动画放完再量
-            await ev(async () => { for (const n of document.querySelectorAll('#panel-win, #panel-win *, #panel .sheet, #pause, #pause *')) for (const a of n.getAnimations()) await a.finished.catch(() => {}); });
+            // 一直循环的动画（天赋盘上可点亮节点的光圈）不等
+            await ev(async () => { for (const n of document.querySelectorAll('#panel-win, #panel-win *, #panel .sheet, #pause, #pause *')) for (const a of n.getAnimations()) if (a.effect && a.effect.getComputedTiming().iterations !== Infinity) await a.finished.catch(() => {}); });
             const r = await ev(uiLayoutCheck, P.roots ? { touch: isTouch, max: 3, roots: P.roots } : { touch: isTouch, max: 3 });
             if (r.n) bad.push(where + ' ' + S.id + '：' + Object.entries(r.res).map(([k, v]) => k + ' ' + v.n + '（' + v.s.join('；') + '）').join(' '));
+            if (S.check) for (const x of await S.check(D)) bad.push(where + ' ' + S.id + '：' + x);
             // g：iPhone 圆角（半径 47 px，test/corner-mask.mjs）。横屏、安全区读出来是 0 的时候（Chrome 标签页里常见）字和按钮都不碰四角
             if (isTouch && w > h && !sa) {
               const c = await ev(cornerCheck, { R: 47 });
@@ -27591,7 +27859,7 @@ async function uiLayoutSteps(panel) {
       }
       await ev(() => G.ui.close());
       assert(!bad.length, bad.length + ' 处不合格：' + bad.slice(0, 8).join(' ｜ '));
-      if (panel === 'char' && mode === 'desk') {
+      if (panel === 'tree' && mode === 'desk') {
         // 最后一个面板跑完：关掉两个浏览器
         for (const k in uiPages) await uiPages[k].browser.close().catch(() => {});
         uiPages = null;
