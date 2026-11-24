@@ -10892,6 +10892,8 @@ async function main() {
       const rare = G.spawnLoot('item', G.rollItem(10, 2, 'ring'), P.x + 2, P.z);
       const uq = G.spawnLoot('item', G.rollUnique(Object.keys(G.UNIQUES)[0], 10), P.x - 2, P.z);
       const cur = G.spawnLoot('cur', Object.keys(G.CURRENCY)[0], P.x, P.z + 2);
+      // 落点在 2.4 米内随机：通货落到离玩家 2.2 米以内会在这 0.5 秒里被自动捡走（少一圈地面环）。三件都先不自动拾取，结果不看落点
+      rare.noAuto = uq.noAuto = cur.noAuto = true;
       G.debug.step(0.5);
       W.render();
       const parts = W.projFxInfo().parts;
@@ -10985,7 +10987,7 @@ async function main() {
     return '件数 ' + Object.entries(r.el).map(([k, v]) => k + ' ' + v).join(' / ') + '，细边环 ' + r.thin + '，砸地 r ' + r.slam.r + ' / ' + r.slam.dur + ' 秒';
   });
 
-  await step('技能打磨第 1 批（skill-b1）：爆燃 / 冻结 / 冰爆画进形状批——高 / 低画质都不多一次 draw；Math.random 取数和换之前一样（爆燃 高 138 / 低 81，冻结 156、首领 216，低画质各多 2，冰爆 133）；一帧里连炸 20 个爆燃，只有前几个画全套', async () => {
+  await step('技能打磨第 1 批（skill-b1）：爆燃 / 冻结 / 冰爆画进形状批——高 / 低画质都不多一次 draw；一次 Math.random 都不取（fx-rng：只取画面随机数）；一帧里连炸 20 个爆燃，只有前几个画全套', async () => {
     const r = await ev(() => {
       const W = G.world, P = G.player, R = W.renderer, out = {}, q0 = W.quality();
       G.clearEnemies();
@@ -11023,12 +11025,12 @@ async function main() {
     });
     const H = r.high, L = r.low;
     assert(H.d1 <= H.d0 && L.d1 <= L.d0, '爆燃 / 冻结 / 冰爆不该多出 draw：' + JSON.stringify(r));
-    assert(H.blast === 138 && L.blast === 81 && H.freeze === 156 && L.freeze === 158 && H.boss === 216 && L.boss === 218 && H.frost === 133 && L.frost === 133, '爆燃 / 冻结 / 冰爆的 Math.random 取数应和换之前一样：' + JSON.stringify(r));
+    assert([H, L].every((o) => o.blast === 0 && o.freeze === 0 && o.boss === 0 && o.frost === 0), '爆燃 / 冻结 / 冰爆不该取 Math.random（画面随机数是 G.vr）：' + JSON.stringify(r));
     assert(H.peak === 20 && H.flood > 20 && H.flood <= H.cap * 24 && L.flood > 0 && L.flood <= L.cap * 12 && L.flood < H.flood, '一帧连炸 20 个爆燃时形状批的件数应有上限（只有前几个画全套）：' + JSON.stringify(r));
     return 'draw 高 ' + H.d0 + '→' + H.d1 + ' / 低 ' + L.d0 + '→' + L.d1 + '，取数 ' + [H.blast, L.blast, H.freeze, H.frost].join(' / ') + '，连炸 20 个：件数 高 ' + H.flood + ' / 低 ' + L.flood;
   });
 
-  await step('技能打磨第 2 批（skill-b2）：瞬断的斩线 / 万魂降临的法阵和光柱改成鬼影 + 形状批，连同爆燃 / 冻结高 / 低画质都不多一次 draw；拿掉的旧件按原次数取 Math.random（魂旗 403、6 位英灵 1320、千刃收刀 333、瞬断冲刺 121、换影暗影 273）；旧电弧换 v2 / 鬼影、重斩命中换细斩线，同一种子下取数不变', async () => {
+  await step('技能打磨第 2 批（skill-b2）：瞬断的斩线 / 万魂降临的法阵和光柱改成鬼影 + 形状批，连同爆燃 / 冻结高 / 低画质都不多一次 draw；这些特效、电弧（旧 / v2）、重斩命中（细斩线）一次 Math.random 都不取（fx-rng：只取画面随机数）', async () => {
     const r = await ev(() => {
       const W = G.world, P = G.player, R = W.renderer, out = {}, q0 = W.quality();
       G.clearEnemies();
@@ -11065,10 +11067,8 @@ async function main() {
         for (let k = 0; k < 3; k++) {
           const v = [];
           sd('b' + k); v.push(cnt(() => W.bolt(p3, 0xc9b4ff)));
-          sd('b' + k); v.push(cnt(() => W.bolt(p3, 0xc9b4ff, false, { v2: true, rn: true })));
-          sd('b' + k); v.push(cnt(() => W.bolt(p3, 0xfffbe6, false, { ghost: true })));
+          sd('b' + k); v.push(cnt(() => W.bolt(p3, 0xc9b4ff, false, { v2: true })));
           sd('m' + k); v.push(cnt(() => W.bolt(p2, 0xfffbe6, true)));
-          sd('m' + k); v.push(cnt(() => W.bolt(p2, 0xfffbe6, true, { ghost: true })));
           W.clearFx();
           o.bolt.push(v);
         }
@@ -11090,12 +11090,11 @@ async function main() {
     assert(H.d1 <= H.d0 && L.d1 <= L.d0 && H.d2 <= H.d0 && L.d2 <= L.d0, '爆燃 / 冻结 / 瞬断斩线 / 万魂降临不该多出 draw：' + JSON.stringify(r));
     assert(H.ghost.ghostStreaks >= 1 && H.ghost.ghostSummons === 6 && L.ghost.ghostSummons === 6, '瞬断的斩线、万魂降临的法阵（池子 6 个）应走鬼影：' + JSON.stringify(r));
     for (const o of [H, L]) {
-      assert(o.cut === 0 && o.host === 403 && o.champ === 1320 && o.ash === 333 && o.dash === 121 && o.shadow === 273, 'Math.random 取数应和换之前一样：' + JSON.stringify(r));
-      assert(o.bolt.every((v) => v[0] === v[1] && v[1] === v[2] && v[3] === v[4]), '同一种子下旧电弧 / v2（rn）/ 鬼影电弧的取数应一样：' + JSON.stringify(o.bolt));
-      assert(o.imp.every((v) => v[0] === v[1] && v[0] > 0), '重斩命中换细斩线取数应一样：' + JSON.stringify(o.imp));
+      assert(o.cut === 0 && o.host === 0 && o.champ === 0 && o.ash === 0 && o.dash === 0 && o.shadow === 0 && o.blast === 0 && o.freeze === 0, '这些特效不该取 Math.random（画面随机数是 G.vr）：' + JSON.stringify(r));
+      assert(o.bolt.every((v) => v.every((c) => c === 0)), '电弧（旧 / v2）不该取 Math.random：' + JSON.stringify(o.bolt));
+      assert(o.imp.every((v) => v[0] === 0 && v[1] === 0), '重斩命中（原样 / 细斩线）不该取 Math.random：' + JSON.stringify(o.imp));
     }
-    assert(H.blast === 138 && L.blast === 81 && H.freeze === 156 && L.freeze === 158, '爆燃 / 冻结取数应和第 1 批一样：' + JSON.stringify(r));
-    return 'draw 高 ' + H.d0 + '→' + H.d1 + '→' + H.d2 + ' / 低 ' + L.d0 + '→' + L.d1 + '→' + L.d2 + '，鬼影法阵 ' + H.ghost.ghostSummons + '，电弧取数 ' + H.bolt.map((v) => v[0] + '/' + v[3]).join(' ');
+    return 'draw 高 ' + H.d0 + '→' + H.d1 + '→' + H.d2 + ' / 低 ' + L.d0 + '→' + L.d1 + '→' + L.d2 + '，鬼影法阵 ' + H.ghost.ghostSummons + '，Math.random 取数全 0';
   });
 
   await step('特效三期第 3 部分（vf-vfx3）：区域氛围——霜骨沼泽 / 雷鸣遗迹 / 烬渊深处 / 坠星裂谷 / 余烛殿各有一个氛围 Points（高画质画、低画质不画）；设置「环境特效」新存档和老存档都默认开，关掉后不画、也不撒全局粒子', async () => {
@@ -11847,12 +11846,143 @@ async function main() {
   });
 
 
+  // fx-rng：特效 / 画面的随机数取 G.vr（按特效取种子），不取 Math.random。画质档、特效上限、火把多少只改画面，不改玩法：
+  // 同一个种子（每遍都重载、重进钉死布局的第 0 区）打三场——铁水弹（炉匠，机炮）、链雷、三相天灾（长杖的烬铸技能），
+  // 高 / 低画质、以及高画质下特效全部静音（W.fxMute 钉死在开）+ 爆燃上限压到 0（全部走超出上限的路）+ 火把只留 1 盏，
+  // 局面哈希和 Math.random 次数逐位相同；画面随机数取的次数各遍不一样（说明特效确实多了 / 少了）。
+  // 反面对照：开打前多取一次 Math.random，哈希就变（这一步测得出差别）
+  await step('确定性（fx-rng）：画质 高 / 低、特效静音 + 爆燃上限压到 0 + 火把只留 1 盏，同一个种子打铁水弹 / 链雷 / 三相天灾，局面和 Math.random 次数逐位相同；画面随机数不取 Math.random', async () => {
+    const KEY = 'cinder-abyss-save-v1';
+    const save0 = await ev((KEY) => localStorage.getItem(KEY), KEY);
+    const god0 = await ev(() => !!G.player.god);
+    const fresh = async (hold) => {
+      await ev(
+        ([KEY, s, hold]) => {
+          G.holdSave(true);
+          localStorage.setItem(KEY, s);
+          if (hold) sessionStorage.setItem('cinder-test-hold', '1');
+          else sessionStorage.removeItem('cinder-test-hold');
+        },
+        [KEY, save0, hold]
+      );
+      await page.reload({ timeout: 90000 });
+      await install();
+      await until(() => !G.world.assetsPending(), null, 60000);
+      if (!hold) return;
+      await ev(() => {
+        G.debug.zoneSeed(4242);
+        G.enterZone(0, 0);
+      });
+      await until(() => !G.world.assetsPending(), null, 60000);
+    };
+    const run = (o) =>
+      ev((o) => {
+        const P = G.player, S = G.state, W = G.world, save = G.save;
+        W.setQuality(o.q);
+        const torches = W.debugTorches(o.torch);
+        window.__testRand.seed('确定性·画质无关');
+        T.arena();
+        P.god = true;
+        if (o.extra) Math.random();
+        const fxMute0 = W.fxMute;
+        if (o.cap) {
+          W.fxMute(true);
+          W.fxMute = () => {}; // 游戏里每次放完会关掉：钉死在开
+          W.b1Cap(0);
+        }
+        const base = Math.random, v0 = G.fxInfo().n;
+        let calls = 0;
+        Math.random = function () { calls++; return base.call(this); };
+        const out = [];
+        const pack = () => [[6, 0], [6.9, 1.1], [6.9, -1.1], [7.9, 0.2], [8.4, -1.6]].map(([dx, dz]) => {
+          const e = G.spawnMob('husk', P.x + dx, P.z + dz, 10, { awake: true });
+          e.wasAwake = true;
+          e.hp = e.maxHp = 1e6;
+          e.atkCd = 1e9;
+          e.speed = 0;
+          return e;
+        });
+        const st = () => JSON.stringify({ p: [P.x, P.z, P.life, P.mana], e: S.enemies.map((e) => [e.x, e.z, e.hp, e.dead]), proj: S.projectiles.map((q) => [q.x, q.z]), calls });
+        try {
+          for (const id of ['molten', 'arc', 'tristorm']) {
+            G.clearEnemies();
+            P.cds = {};
+            save.bar = [null, null, null, null];
+            if (id === 'molten') {
+              save.cls = 'forge';
+              save.clsLock = {};
+              const w = G.rollItem(20, 0, 'weapon', 8);
+              w.wbase = G.weaponBaseDmg(8, 20);
+              w.imp = null;
+              save.equip.weapon = G.refreshWeapon(w);
+              save.skills.molten = 20;
+              save.bar[0] = 'molten';
+            } else if (id === 'arc') {
+              delete save.cls;
+              save.equip.weapon = G.rollItem(20, 0, 'weapon', 1);
+              save.skills.arc = 20;
+              save.bar[2] = 'arc';
+            } else {
+              const U = Object.keys(G.UNIQUES).find((u) => G.UNIQUES[u].uskill === 'tristorm');
+              save.equip.weapon = G.rollUnique(U, 20, 0.5);
+            }
+            G.computeStats();
+            const es = pack();
+            for (let i = 0; i < 150; i++) {
+              const e = es[0];
+              T.aim(e.x, e.z);
+              P.mana = P.maxMana;
+              if (id === 'molten') G.input.mouse.b[0] = i < 100;
+              else if (id === 'arc') { if (i % 20 === 0 && i < 120) G.input.tap[2] = 0.25; }
+              else if (i === 0) G.input.tap[4] = 0.25;
+              G.tick(1 / 60);
+            }
+            G.input.mouse.b[0] = false;
+            G.input.tap.fill(0);
+            out.push({ id, dmg: Math.round(es.reduce((a, e) => a + (e.maxHp - e.hp), 0)), st: st() });
+          }
+        } finally {
+          Math.random = base;
+          G.input.mouse.b[0] = false;
+          W.fxMute = fxMute0;
+          W.fxMute(false);
+          W.b1Cap(null);
+          delete save.cls;
+        }
+        const all = out.map((x) => x.st).join('|');
+        let h = 2166136261;
+        for (let i = 0; i < all.length; i++) h = Math.imul(h ^ all.charCodeAt(i), 16777619);
+        return { hash: (h >>> 0).toString(16), calls, vis: G.fxInfo().n - v0, dmg: out.map((x) => x.id + ' ' + x.dmg).join(' / '), torches, b1: W.b1Info().peak };
+      }, o);
+    const R = {};
+    try {
+      for (const [k, o] of [['high', { q: 'high' }], ['low', { q: 'low' }], ['cap', { q: 'high', cap: true, torch: 1 }], ['ctl', { q: 'high', extra: true }]]) {
+        await fresh(true);
+        R[k] = await run(o);
+      }
+    } finally {
+      await fresh(false);
+      await ev((god0) => {
+        G.debug.hold(true);
+        G.debug.god(god0);
+      }, god0);
+    }
+    const { high: H, low: L, cap: C, ctl: X } = R;
+    assert(H.hash === L.hash && H.calls === L.calls, '高 / 低画质打出来不一样：' + JSON.stringify(R));
+    assert(H.hash === C.hash && H.calls === C.calls, '特效静音 / 爆燃上限 / 火把少了打出来不一样：' + JSON.stringify(R));
+    assert(X.hash !== H.hash, '反面对照没有测出差别（多取一次 Math.random 哈希应该变）：' + JSON.stringify(R));
+    assert(H.vis !== L.vis && H.vis !== C.vis && H.vis > 0, '画面随机数取的次数各遍应该不一样（特效多了 / 少了）：' + JSON.stringify(R));
+    assert(C.torches > 1 && /molten [1-9]/.test(H.dmg) && /arc [1-9]/.test(H.dmg) && /tristorm [1-9]/.test(H.dmg), '三场都应打中、区里应有不止 1 盏火把：' + JSON.stringify(R));
+    return '哈希 ' + H.hash + '，Math.random ' + H.calls + ' 次（三遍一样），伤害 ' + H.dmg + '；画面随机数 高 ' + H.vis + ' / 低 ' + L.vis + ' / 静音 ' + C.vis + '（火把 ' + C.torches + ' → 1）';
+  });
+
 
   // 首领指纹（boss-golem）：固定种子打一场 15 秒的首领战（无敌的玩家按住右键普攻），把局面（玩家、敌人的位置 / 生命 / 状态 / 出招计时、
   // 弹幕、预警圈）和取随机数的次数哈希成一个指纹。期望值在换模型之前的 main 上量好写死：换外观（模型、动作、发光）不许动到模拟的一个比特。
   // 每秒一个分段哈希，对不上时报出从第几秒开始分叉
   const BOSS_FP = {
-    golem: { hash: '12254fc1', calls: 24478, secs: '148ea293,c881c904,75185249,adcad3a0,216be412,0b454798,593b24af,98a43332,2d128b77,d329e6e7,2d4fcadf,5bae6cb2,d82314bd,b85bde0a,edc5dd33'.split(',') }, // main 691ef67（程序化外观）上量的
+    // fx-rng 重定：特效的随机数从 Math.random 分出去以后（画面随机数 G.vr），模拟这一路只剩 112 次。原来 main 691ef67（程序化外观）上量的是 12254fc1 / 24478 次
+    golem: { hash: '4fc99b3d', calls: 112, secs: '9e1090d0,a448b82d,d32dc0c0,cd636106,d1d75655,66e79a53,47bda2f4,c30ac709,617cb6b2,36a0a0ec,5a7ca4f7,f574dfb2,2095a119,b3f4a835,cdbea357'.split(',') },
   };
   await step('首领指纹：熔渣巨像固定种子打 15 秒，局面和取随机数次数和换模型之前逐位相同；首领包打到一半才到，也只在招式之间换模型、指纹不变', async () => {
     const KEY = 'cinder-abyss-save-v1';
@@ -22072,6 +22202,19 @@ async function classSteps() {
       n++;
       return R();
     };
+    // fx-rng：掉落模型（W.makeLoot）转圈的速度 / 相位是画面上的随机：旧版本取 Math.random，新版本取画面随机数（G.vr）。
+    // 两边都让它在自己的一路里取，比的只是模拟的那一路（物品、掉落、货架）
+    const Wd = G.world, mk = Wd.makeLoot;
+    let ms = 7;
+    Wd.makeLoot = function () {
+      const r0 = Math.random;
+      Math.random = () => (ms = (ms * 16807) % 2147483647) / 2147483647;
+      try {
+        return mk.apply(this, arguments);
+      } finally {
+        Math.random = r0;
+      }
+    };
     const items = [];
     const loot = [];
     const L = G.state.loot, l0 = L.length;
@@ -22085,12 +22228,13 @@ async function classSteps() {
       items.push({ stock });
     } finally {
       Math.random = R;
+      Wd.makeLoot = mk;
     }
     for (const l of L.splice(l0)) G.world.removeMesh(l.mesh);
     return { json: JSON.stringify({ items, loot }), n, nLoot: loot.length };
   };
 
-  await step('职业·没有职业的存档：物品 / 怪物掉落 / 拾烬客货架的序列和职业之前的 main（' + CLASS_BASE_BUILD + '）一字不差，Math.random 调用次数一样', async () => {
+  await step('职业·没有职业的存档：物品 / 怪物掉落 / 拾烬客货架的序列和职业之前的 main（' + CLASS_BASE_BUILD + '）一字不差，Math.random 调用次数一样（掉落模型的画面随机数两边都不算）', async () => {
     if (process.env.CINDER_FILE) return 'file:// 下没有同源的旧版本，这一步要 HTTP（默认就是）';
     await fresh({ url: GAME_URL.replace(/index\.html$/, '__old/' + CLASS_BASE_BUILD + '/index.html') });
     await until(() => window.G && G.state && G.state.zone && G.player && G.player.ent && G.debug, null, 90000);

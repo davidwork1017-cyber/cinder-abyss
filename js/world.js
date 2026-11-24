@@ -6,7 +6,9 @@
   const T = THREE;
   const W = (G.world = {});
   const TAU = Math.PI * 2;
-  const rand = G.rand;
+  // 世界层的 rand 是画面随机数（data.js 的 G.vrand）：特效 / 画面用它；建外观期间它照旧取换过的 Math.random（布景摆放不变）。
+  // 模拟要的随机（布局种子、异兆点位）直接写 Math.random，不走 rand
+  const rand = G.vrand, vrnd = G.vr;
 
   let renderer, scene, camera, hemi, sun, fill, lamp, fxLight, portalLight;
   let ocv, octx;
@@ -1584,9 +1586,11 @@
   function vfIso(fn) {
     const orig = Math.random;
     Math.random = () => ((vfRs = (Math.imul(vfRs, 1664525) + 1013904223) >>> 0) / 4294967296);
+    G.look(true);
     try {
       return fn();
     } finally {
+      G.look(false);
       Math.random = orig;
     }
   }
@@ -2677,7 +2681,6 @@
     }
     // 火盆 / 灯：每块空地北侧两个（矮火堆南侧再加一个），紧贴路边
     const fires = [];
-    let keep = 0;
     if (P.fire && G.assets.geo(P.fire.m)) {
       const F = P.fire;
       const shortFire = F.m.indexOf('lantern') < 0; // 矮的火堆在南侧（靠镜头）也放一个，不会挡住战场；立灯只放北侧
@@ -2687,7 +2690,7 @@
         fires.push({ x, y: F.h * (F.m.indexOf('lantern') >= 0 ? F.s : 1), z, ph: rand(0, TAU), acc: 0 });
       };
       const lamps = (zone.feats || []).filter((f) => f.kind === 'lamp');
-      // 内切圆摆法（没有灯位时用）。dry：只走一遍、取同样多的随机数，不摆（见下面的 F.keep），返回本来会摆几盏
+      // 内切圆摆法（没有灯位时用）。dry：只走一遍、取同样多的随机数，不摆（见下面的 F.keep）
       const circ = (dry) => {
         let n0 = 0;
         zone.circles.forEach((c, ci) => {
@@ -2705,8 +2708,8 @@
       // 生成器给了灯位（feats 里的 lamp，房间北边缘外）就用灯位（zones-integrate）；没有的照旧按关键路径房间的内切圆摆
       if (lamps.length && F.keep) {
         // storm-lamps：灯位是后来才给的（雷鸣遗迹）。外观随机序列照旧按内切圆摆法取数（同一段里后面的薄雾不挪）；
-        // 火焰每帧冒火星要取游戏的随机数，按原来会摆的盏数「空取」（keep），真摆的灯用自己的随机序列，进区后的游戏随机序列和改之前一样
-        keep = circ(true);
+        // 真摆的灯冒火星用自己的随机序列（F.rr，按区域种子）
+        circ(true);
         // 灯位在墙身中线上（边外 0.5 m），立在压矮的那段墙顶上（F.top，stormDress 按同一个高度压墙）
         const y0 = F.top || 0;
         for (const f of lamps) {
@@ -2751,7 +2754,7 @@
     const gIM = instanced(gQuad(), gm, gl, false, null);
     if (gIM) gIM.renderOrder = 1;
     const out = { im, list: fires, size: F.size, ar: _c.r, ag: _c.g, ab: _c.b };
-    if (F.keep) Object.assign(out, { keep, kAcc: 0, rr: mulberry32((zone.vseed ^ 0x5f3759df) >>> 0) });
+    if (F.keep) out.rr = mulberry32((zone.vseed ^ 0x5f3759df) >>> 0);
     return out;
   }
   const _fq = new T.Quaternion(), _fe = new T.Euler();
@@ -2774,16 +2777,17 @@
         else spawnP(f.x + rand(-0.2, 0.2) * s, f.y + 0.4 * s, f.z + rand(-0.2, 0.2) * s, rand(-0.3, 0.3), rand(1.2, 2.4), rand(-0.3, 0.3), rand(0.5, 1.1), rand(0.06, 0.12), F.ar, F.ag * 0.8, F.ab * 0.6, -0.6, 0.4);
       }
     }
-    // storm-lamps：灯位换过的区（F.rr）按原来会摆的 keep 盏「空取」游戏随机数：每盏每次冒火星取 7 个（和上面 rand 的个数一样），相位起点一样，节奏一样
-    if (F.rr) {
-      F.kAcc += dt * 6 * s;
-      while (F.kAcc > 1) {
-        F.kAcc -= 1;
-        for (let k = 0; k < F.keep * 7; k++) Math.random();
-      }
-    }
     F.im.instanceMatrix.needsUpdate = true;
   }
+
+  // 测试用（fx-rng）：只留前 k 盏火把（火星是画面随机数，盏数不该动到玩法）；返回原来的盏数
+  W.debugTorches = function (k) {
+    const F = zoneFx && zoneFx.fires;
+    if (!F) return 0;
+    const n = F.list.length;
+    if (k !== undefined && k < n) F.list.length = Math.max(0, k);
+    return n;
+  };
 
   // ---------- 初始化 ----------
   W.zone = null;
@@ -3986,9 +3990,11 @@
     const orig = Math.random;
     Math.random = mulberry32(zone.vseed >>> 0);
     vrZone = zone;
+    G.look(true); // 期间 G.vr / 世界层的 rand 也取这一路（data.js 的「画面随机数」）
     try {
       return fn();
     } finally {
+      G.look(false);
       vrZone = null;
       Math.random = orig;
     }
@@ -5133,7 +5139,7 @@
     const s = enc.site, kind = enc.kind, H = { enc, t: 0, meshes: [] };
     const add = (m) => (H.meshes.push(m), m);
     if (kind === 'guard') {
-      H.rift = add(encMesh(encRiftGeo(), encGlowMat('rift', 0xffffff), s.x, s.z, 0.1, Math.random() * TAU));
+      H.rift = add(encMesh(encRiftGeo(), encGlowMat('rift', 0xffffff), s.x, s.z, 0.1, vrnd() * TAU));
       H.ring = add(encMesh(gQuad(), encOwn(encFlatMat('ring', encRingTex(), ENC_PURPLE, false).clone()), s.x, s.z, 0.07));
       const r = G.ENCOUNTERS.guard.p.r;
       H.ring.scale.set(r, 1, r);
@@ -5148,7 +5154,7 @@
       H.chain = add(encMesh(encChainGeo(enc.anchors.map((a) => a - ang)), encToon(), s.x, s.z, 0, ang));
       H.ang = ang;
     } else if (kind === 'shrine') {
-      H.stone = add(encMesh(encStoneGeo(), encToon(), s.x, s.z, 0, Math.random() * TAU));
+      H.stone = add(encMesh(encStoneGeo(), encToon(), s.x, s.z, 0, vrnd() * TAU));
       H.orb = add(encMesh(encOrbGeo(), encGlowMat('orb', 0xffffff), s.x, s.z, 2.55));
     } else if (kind === 'trial') {
       const R = s.rune;
@@ -5156,7 +5162,7 @@
       H.rune.scale.set(1.3, 1, 1.3);
       H.rune.renderOrder = 2;
     } else if (kind === 'ember') {
-      H.core = add(encMesh(encCoreGeo(), encGlowMat('core', 0xffffff), s.x, s.z, 0, Math.random() * TAU));
+      H.core = add(encMesh(encCoreGeo(), encGlowMat('core', 0xffffff), s.x, s.z, 0, vrnd() * TAU));
     } else if (kind === 'trader') {
       const ent = W.makeMob('husk', 0x7ad08a, false);
       // 躯体提亮一档的暖色（游魂的皮和破袍本来就暗），自发光换成灯笼的暖黄，轮廓光也偏暖：像是被灯照着（只改 uniform）
@@ -8182,7 +8188,7 @@
         pts.push({ x: f.ax + (f.bx - f.ax) * t + (f.bz - f.az) * j * 0.1, z: f.az + (f.bz - f.az) * t - (f.bx - f.ax) * j * 0.1 });
       }
       if (warn) W.bolt(pts, STORM_PAL.bolt, true);
-      else W.bolt(pts.slice(0, 2 + Math.floor(Math.random() * 2)), STORM_PAL.bolt, true); // 闲置时只在一根柱子边上跳一小段
+      else W.bolt(pts.slice(0, 2 + Math.floor(vrnd() * 2)), STORM_PAL.bolt, true); // 闲置时只在一根柱子边上跳一小段
     }
   }
   // ---------- 玩法：雷枢（定时机关，设计稿 §3.3 / §5 第 6 条）----------
@@ -9090,7 +9096,7 @@
         st.glow.setColorAt(st.vents[i].i, _c.copy(lin(ABYSS_PAL.mid)).multiplyScalar(e));
         if (v.fire > 0) v.fire = Math.max(0, v.fire - dt * 1.6);
         // 预警前的烟：少量深色颗粒往上冒
-        if (left < 1.6 && v.t >= 0 && Math.random() < (st.low ? 0.15 : 0.35)) {
+        if (left < 1.6 && v.t >= 0 && vrnd() < (st.low ? 0.15 : 0.35)) {
           spawnP(v.x + rand(-0.6, 0.6), 0.2, v.z + rand(-0.6, 0.6), rand(-0.15, 0.15), rand(0.8, 1.6), rand(-0.15, 0.15), rand(0.9, 1.5), rand(0.18, 0.32), 0.16, 0.12, 0.14, -0.1, 0.4);
         }
       }
@@ -9102,7 +9108,7 @@
       st.emb -= 1;
       const x = camT.x + rand(-16, 16), z = camT.z + CAM_LEAD + rand(-14, 10);
       if (W.matAt(x, z) !== MAT.VOID || W.sdAt(x, z) > -1) continue;
-      const w = Math.random() < 0.25 ? 0.5 : 0;
+      const w = vrnd() < 0.25 ? 0.5 : 0;
       _c.set(ABYSS_PAL.mid);
       spawnP(x, rand(-6, -2), z, rand(-0.2, 0.2), rand(1.2, 2.6), rand(-0.2, 0.2), rand(2.2, 3.6), rand(0.07, 0.15), _c.r + (1 - _c.r) * w, _c.g * 0.85 + w * 0.4, _c.b * 0.6 + w * 0.3, -0.15, 0.1);
     }
@@ -9908,7 +9914,7 @@
       else _crC.set(CROWN_PAL.ember).multiplyScalar(3);
       if (F.setColorAt) F.setColorAt(i, _crC);
       // 熄灭的冒一缕灰烟，亮着的偶尔蹦一颗火星（都走粒子池，不加 draw）
-      if (Math.random() < dt * (on ? 2.2 : 1.4)) {
+      if (vrnd() < dt * (on ? 2.2 : 1.4)) {
         if (on) spawnP(b.x + rand(-0.3, 0.3), 2.4, b.z + rand(-0.3, 0.3), rand(-0.3, 0.3), rand(1.2, 2.2), rand(-0.3, 0.3), rand(0.5, 0.9), rand(0.08, 0.14), 1, 0.7, 0.3, -0.4, 0.5);
         else spawnP(b.x + rand(-0.2, 0.2), 1.9, b.z + rand(-0.2, 0.2), rand(-0.1, 0.1), rand(0.4, 0.8), rand(-0.1, 0.1), rand(1.4, 2.2), rand(0.14, 0.24), 0.32, 0.3, 0.34, -0.15, 0.2);
       }
@@ -12154,7 +12160,7 @@
       group, body, mats: [], parts: {}, kind, own: [], ring: null, flashT: 0, removed: false,
       rig, pose: new Float32Array(n), from: new Float32Array(n), out: new Float32Array(n),
       mdl: new Float32Array(rig.nJ * 12), bones: new Float32Array(rig.NB * 16),
-      phase: Math.random() * TAU, clock: Math.random() * 20, walk: Math.random() * TAU,
+      phase: vrnd() * TAU, clock: vrnd() * 20, walk: vrnd() * TAU,
       mv: 0, spd: 0, mdir: 0, lx: NaN, lz: NaN, k: 1, gnd: 1,
       clip: null, cT: 0, cDur: 1, cLoop: false, cHold: false, cDone: null, cContact: -1, fadeT: 1, fadeDur: 0,
       hitT: 0, hitDur: 0.3, hitX: 0, hitZ: 0, hitS: 0,
@@ -12686,7 +12692,7 @@
         shudders.pop();
       } else {
         const a = e.shAmp * (0.35 + 0.65 * (e.shT / e.shDur));
-        e.body.position.set((Math.random() - 0.5) * 2 * a, 0, (Math.random() - 0.5) * 2 * a);
+        e.body.position.set((vrnd() - 0.5) * 2 * a, 0, (vrnd() - 0.5) * 2 * a);
       }
     }
   }
@@ -12786,7 +12792,7 @@
       fade: (o.fade !== undefined ? o.fade : big ? 0.9 : st ? st.fade : 0.5) * (violent ? 0.6 : 1),
       vx: Math.sin(a) * f, vz: Math.cos(a) * f,
       vy: f > 5 ? Math.min(9, 2 + f * 0.32) : 0, // 力道够大才离地
-      spin: f > 5 ? (Math.random() < 0.5 ? -1 : 1) * Math.min(16, f * 0.9) : 0,
+      spin: f > 5 ? (vrnd() < 0.5 ? -1 : 1) * Math.min(16, f * 0.9) : 0,
     };
     if (o.color !== undefined) _c.set(o.color);
     else if (st) _c.set(st.edge);
@@ -12941,12 +12947,12 @@
       if (d.type === 'cold') rate = 0.25;
       else if (d.type === 'light') {
         ent.body.position.set(rand(-0.06, 0.06), 0, rand(-0.06, 0.06));
-        if (Math.random() < dt * 40) spawnP(g.x + rand(-0.4, 0.4) * h * 0.4, g.y + rand(0.2, 0.8) * h, g.z + rand(-0.4, 0.4) * h * 0.4, rand(-5, 5), rand(-1, 5), rand(-5, 5), rand(0.08, 0.2), 0.13, 1, 0.95, 0.5, 6, 2);
+        if (vrnd() < dt * 40) spawnP(g.x + rand(-0.4, 0.4) * h * 0.4, g.y + rand(0.2, 0.8) * h, g.z + rand(-0.4, 0.4) * h * 0.4, rand(-5, 5), rand(-1, 5), rand(-5, 5), rand(0.08, 0.2), 0.13, 1, 0.95, 0.5, 6, 2);
       } else if (d.type === 'chaos') {
         ent.bodyMat.color.lerp(_c.setRGB(0.05, 0.02, 0.06), Math.min(1, dt * 4));
       } else if (d.type === 'fire') {
         ent.bodyMat.color.lerp(_c.setRGB(0.05, 0.035, 0.03), Math.min(1, dt * 3.5));
-        if (Math.random() < dt * 22) spawnP(g.x + rand(-0.4, 0.4) * h * 0.4, g.y + rand(0.2, 0.8) * h, g.z + rand(-0.4, 0.4) * h * 0.4, rand(-0.6, 0.6), rand(1, 3), rand(-0.6, 0.6), rand(0.3, 0.7), rand(0.1, 0.2), 1, 0.5, 0.12, -1.5, 0.8);
+        if (vrnd() < dt * 22) spawnP(g.x + rand(-0.4, 0.4) * h * 0.4, g.y + rand(0.2, 0.8) * h, g.z + rand(-0.4, 0.4) * h * 0.4, rand(-0.6, 0.6), rand(1, 3), rand(-0.6, 0.6), rand(0.3, 0.7), rand(0.1, 0.2), 1, 0.5, 0.12, -1.5, 0.8);
       }
       if (d.boss) bossBreak(ent, d, g, h);
       advanceEnt(ent, dt * rate, false, 0, 0, 0);
@@ -14935,7 +14941,7 @@
     if (!a || !a.visible) return;
     const s = ent.sock.weapon, M = ent.mdl, m = s.j * 12, z = s.z * (GEAR_AURA[ent.gearType] || GEAR_AURA[0])[0];
     a.position.set(M[m + 2] * z + M[m + 3], M[m + 6] * z + M[m + 7], M[m + 10] * z + M[m + 11]);
-    if (ent.gearRar === 2 && Math.random() < 0.06 && !ent.dying) {
+    if (ent.gearRar === 2 && vrnd() < 0.06 && !ent.dying) {
       W.entSocket(ent, 'weapon', _sk);
       spawnP(_sk.x, _sk.y, _sk.z, rand(-0.3, 0.3), rand(0.2, 0.9), rand(-0.3, 0.3), rand(0.4, 0.8), 0.1, 1, 0.84, 0.37, -0.3, 0.6);
     }
@@ -14947,10 +14953,10 @@
         W.entSocket(ent, 'hand', _sk2);
         while (ent.emberAcc >= 1) {
           ent.emberAcc -= 1;
-          const f = Math.random() * 1.1 - 0.05, w = Math.random() < 0.18;
+          const f = vrnd() * 1.1 - 0.05, w = vrnd() < 0.18;
           spawnP(_sk2.x + (_sk.x - _sk2.x) * f + rand(-0.06, 0.06), _sk2.y + (_sk.y - _sk2.y) * f, _sk2.z + (_sk.z - _sk2.z) * f + rand(-0.06, 0.06),
             rand(-0.15, 0.15), rand(-0.1, 0.25), rand(-0.15, 0.15), rand(0.6, 1.1), w ? rand(0.07, 0.1) : rand(0.04, 0.07),
-            w ? 0.8 : 0.25, w ? 0.93 : 0.62 + 0.15 * Math.random(), 1, 0.35, 1.2);
+            w ? 0.8 : 0.25, w ? 0.93 : 0.62 + 0.15 * vrnd(), 1, 0.35, 1.2);
         }
       }
     }
@@ -14962,9 +14968,9 @@
         W.entSocket(ent, 'hand', _sk2);
         while (ent.emberAcc >= 1) {
           ent.emberAcc -= 1;
-          const f = 0.25 + Math.random() * 0.75, w = Math.random() < 0.2 ? 0.55 : 0;
+          const f = 0.25 + vrnd() * 0.75, w = vrnd() < 0.2 ? 0.55 : 0;
           spawnP(_sk2.x + (_sk.x - _sk2.x) * f, _sk2.y + (_sk.y - _sk2.y) * f, _sk2.z + (_sk.z - _sk2.z) * f, rand(-0.35, 0.35), rand(0.5, 1.5), rand(-0.35, 0.35),
-            rand(0.35, 0.8), rand(0.07, 0.13), 1, 0.45 + 0.3 * Math.random() + w * 0.4, 0.12 + w * 0.6, -0.8, 0.8);
+            rand(0.35, 0.8), rand(0.07, 0.13), 1, 0.45 + 0.3 * vrnd() + w * 0.4, 0.12 + w * 0.6, -0.8, 0.8);
         }
       }
     }
@@ -18940,7 +18946,7 @@
     g.visible = true;
     g.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
     g.lookAt(x1, y1, z1);
-    const fl = 0.85 + Math.random() * 0.3;
+    const fl = 0.85 + vrnd() * 0.3;
     for (const q of u.parts) {
       q.m.scale.z = len / 2;
       q.m.scale.x = (q.white ? 0.3 : 1.0) * fl;
@@ -18953,7 +18959,7 @@
     // 沿射线溅火星，落点扬一把碎光
     _c.set(hex);
     for (let i = 0; i < 3; i++) {
-      const t = Math.random(), px = x0 + (x1 - x0) * t, pz = z0 + (z1 - z0) * t, py = y0 + (y1 - y0) * t;
+      const t = vrnd(), px = x0 + (x1 - x0) * t, pz = z0 + (z1 - z0) * t, py = y0 + (y1 - y0) * t;
       spawnP(px, py, pz, rand(-1.5, 1.5), rand(0, 2.5), rand(-1.5, 1.5), rand(0.2, 0.45), rand(0.1, 0.2), _c.r * 0.85, _c.g * 0.85, _c.b * 0.85, 3, 1.5); // vf-vfx3：不往白混
     }
     spawnP(x1, 0.3, z1, rand(-3, 3), rand(2, 5), rand(-3, 3), rand(0.3, 0.6), rand(0.15, 0.3), _c.r, _c.g, _c.b, 9, 1);
@@ -19004,7 +19010,7 @@
     _c.set(hex);
     let n = dt * 70;
     while (n > 0) {
-      if (n < 1 && Math.random() > n) break;
+      if (n < 1 && vrnd() > n) break;
       n -= 1;
       const a = rand(0, TAU), d = R * rand(0.75, 1.0), px = x + Math.sin(a) * d, pz = z + Math.cos(a) * d, v = rand(4, 7);
       spawnP(px, rand(0.1, 0.9), pz, -Math.sin(a) * v + Math.cos(a) * 1.5, rand(0, 0.6), -Math.cos(a) * v - Math.sin(a) * 1.5, (d / v) * 0.9, rand(0.08, 0.14), _c.r * 0.8, _c.g * 0.8, _c.b * 0.8, 0, 0); // vf-vfx3：不往白混
@@ -19598,7 +19604,7 @@
     if (c) minionClipFx(ent, c);
     else ent.fxClip = null;
     // 平时：魂火偶尔飘出一点余烬
-    if (!ent.dying && Math.random() < (ent.kind === 'colossus' ? 0.07 : 0.035)) {
+    if (!ent.dying && vrnd() < (ent.kind === 'colossus' ? 0.07 : 0.035)) {
       W.entSocket(ent, 'chest', _sk);
       spawnP(_sk.x + rand(-0.1, 0.1), _sk.y, _sk.z + rand(-0.1, 0.1), rand(-0.2, 0.2), rand(0.4, 1.1), rand(-0.2, 0.2), rand(0.5, 0.9), 0.1, ALLY_RGB.r, ALLY_RGB.g, ALLY_RGB.b, -0.4, 0.6);
     }
@@ -19617,7 +19623,7 @@
     const n = c.name;
     if (n === 'rise') {
       // 从地里钻出来：脚下翻起一圈魂火碎屑
-      if (ent.cK < 0.65 && Math.random() < (big ? 0.9 : 0.55)) {
+      if (ent.cK < 0.65 && vrnd() < (big ? 0.9 : 0.55)) {
         const a = rand(0, TAU), d = rand(0.1, big ? 1.0 : 0.5) * k;
         spawnP(g.x + Math.sin(a) * d, 0.1, g.z + Math.cos(a) * d, Math.sin(a) * rand(0.3, 1.2), rand(1.5, 3.5), Math.cos(a) * rand(0.3, 1.2), rand(0.35, 0.7), rand(0.1, 0.2), ALLY_RGB.r * 0.8, ALLY_RGB.g * 0.8, ALLY_RGB.b * 0.8, 6, 1);
       }
@@ -20491,7 +20497,7 @@
       const g = e.group.position;
       while (e.specAcc > 1) {
         e.specAcc -= 1;
-        const warm = Math.random() < 0.22;
+        const warm = vrnd() < 0.22;
         const a = rand(0, TAU), d = rand(0.1, 0.45);
         spawnP(g.x + Math.sin(a) * d, rand(0.2, 2.4), g.z + Math.cos(a) * d, rand(-0.3, 0.3), rand(0.6, 1.8), rand(-0.3, 0.3), rand(0.4, 0.8), rand(0.1, 0.2),
           warm ? 1 : ALLY_RGB.r + 0.2, warm ? 0.62 : ALLY_RGB.g, warm ? 0.3 : ALLY_RGB.b, -0.5, 1.4);
@@ -20871,8 +20877,8 @@
     scene.add(pts);
   }
   // grav > 0 下坠，< 0 上浮；drag 为每秒速度衰减
-  // class-d2b1：静音（W.fxMute）期间各个发射函数什么都不放，但调用处参数里的 rand() 照样取（tChunk 自己那一次也照取），
-  // Math.random 的次数和不静音时一样。只给特殊弹 / 提灯这类新技能「同一下打中一群怪时只放一处」用
+  // class-d2b1：静音（W.fxMute）期间各个发射函数什么都不放（只是画面：特效的随机数是画面随机数，静不静音都不动玩法）。
+  // 只给特殊弹 / 提灯这类新技能「同一下打中一群怪时只放一处」用
   let fxMute = 0;
   W.fxMute = (on) => {
     fxMute = on ? 1 : 0;
@@ -20941,10 +20947,10 @@
     const r = _c.r, g = _c.g, b = _c.b;
     for (let i = 0; i < count; i++) {
       // 球面随机方向，略微偏上
-      const a = Math.random() * TAU, u = Math.random() * 1.6 - 0.6, h = Math.sqrt(Math.max(0, 1 - u * u));
-      const sp = speed * (0.3 + Math.random() * 0.7);
-      const w = Math.random() < 0.25 ? 0.5 : 0; // 少量偏白的亮点
-      spawnP(x, y, z, Math.sin(a) * h * sp, u * sp + speed * 0.25, Math.cos(a) * h * sp, life * (0.55 + Math.random() * 0.45), 0.16 + Math.random() * 0.2 + speed * 0.012,
+      const a = vrnd() * TAU, u = vrnd() * 1.6 - 0.6, h = Math.sqrt(Math.max(0, 1 - u * u));
+      const sp = speed * (0.3 + vrnd() * 0.7);
+      const w = vrnd() < 0.25 ? 0.5 : 0; // 少量偏白的亮点
+      spawnP(x, y, z, Math.sin(a) * h * sp, u * sp + speed * 0.25, Math.cos(a) * h * sp, life * (0.55 + vrnd() * 0.45), 0.16 + vrnd() * 0.2 + speed * 0.012,
         r + (1 - r) * w, g + (1 - g) * w, b + (1 - b) * w, 9, 1.6);
     }
     if (count >= 20) flashLight(x, Math.max(1.5, y + 1), z, hex, Math.min(2.4, count * 0.05));
@@ -21236,7 +21242,7 @@
     _ldc.set(hex);
     ldC[it * 3] = _ldc.r; ldC[it * 3 + 1] = _ldc.g; ldC[it * 3 + 2] = _ldc.b;
     ldKind[it] = kind;
-    LD_SD[it] = Math.random();
+    LD_SD[it] = vrnd();
     ldX[it] = x;
     ldY[it] = kind === 0 ? 0.09 : 0.055;
     ldZ[it] = z;
@@ -21274,7 +21280,7 @@
     f.size = size;
     f.mat.color.set(hex).lerp(_c2.set(0xffffff), 0.3);
     f.mat.opacity = 1;
-    f.mat.rotation = Math.random() * TAU;
+    f.mat.rotation = vrnd() * TAU;
     f.sp.position.set(x, y, z);
     f.sp.scale.setScalar(size * 0.6);
     f.sp.visible = true;
@@ -21750,8 +21756,7 @@
     for (let i = 0; i < b.n - 1; i++) {
       const ax = b.inX[i], az = b.inZ[i], bx = b.inX[i + 1], bz = b.inZ[i + 1];
       const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz) || 0.001;
-      const lc = i === 0 && b.cnt0 ? Math.hypot(bx - b.sx0, bz - b.sz0) || 0.001 : len;
-      const sub = Math.max(2, Math.min(10, Math.ceil(lc / 1.0)));
+      const sub = Math.max(2, Math.min(10, Math.ceil(len / 1.0)));
       const nx = -dz / len, nz = dx / len;
       for (let k = 0; k < sub; k++) {
         if (np >= 120) break;
@@ -21769,15 +21774,15 @@
     np++;
     const main = np;
     // 分叉：从主干上随机一点岔出去，偏开 0.5–1.1 弧度，3–4 折，越往外越细
-    const forks = b.minor ? (Math.random() < 0.5 ? 1 : 0) : Math.min(7, 2 + Math.floor(main / 4));
+    const forks = b.minor ? (vrnd() < 0.5 ? 1 : 0) : Math.min(7, 2 + Math.floor(main / 4));
     for (let f = 0; f < forks; f++) {
       if (np + 8 > BOLT_MAXP) break;
-      const j = 1 + Math.floor(Math.random() * Math.max(1, main - 2));
+      const j = 1 + Math.floor(vrnd() * Math.max(1, main - 2));
       const j1 = Math.min(main - 1, j + 1);
       let tx = path[j1 * 2] - path[j * 2], tz = path[j1 * 2 + 1] - path[j * 2 + 1];
       const tl = Math.hypot(tx, tz) || 1;
-      const ang = Math.atan2(tx / tl, tz / tl) + (Math.random() < 0.5 ? -1 : 1) * rand(0.5, 1.1);
-      const flen = b.minor ? rand(0.4, 0.9) : rand(0.9, 2.4), segs = 3 + (Math.random() < 0.5 ? 1 : 0);
+      const ang = Math.atan2(tx / tl, tz / tl) + (vrnd() < 0.5 ? -1 : 1) * rand(0.5, 1.1);
+      const flen = b.minor ? rand(0.4, 0.9) : rand(0.9, 2.4), segs = 3 + (vrnd() < 0.5 ? 1 : 0);
       let x = path[j * 2], z = path[j * 2 + 1];
       // 零宽的隔断：上一段的末点、这一段的起点
       path[np * 2] = path[(np - 1) * 2]; path[np * 2 + 1] = path[(np - 1) * 2 + 1]; wid[np] = 0; np++;
@@ -21793,7 +21798,6 @@
         np++;
       }
     }
-    if (b.ghost) return;
     const pos = b.pos;
     let seg0 = 0;
     for (let i = 0; i < np; i++) {
@@ -21814,13 +21818,10 @@
     b.mesh.geometry.setDrawRange(0, (np - 1) * 6);
   }
   // o（可选，vf-vfx2）：{ v2: true } 链雷用：落点不再是一团亮星 + 地面闪光，换成折线语言（见 boltV2）
-  // o.ghost（skill-b1）：鬼影电弧——占池子里的一条、按原样取随机数（建锯齿路径、余辉每帧的闪烁），但网格始终隐藏、不画任何落点件：
-  // 闪袭 / 三相天灾换成别的画法以后，玩法里的随机序列和以前一样（fx-random-neutral）。池子和以前完全一样（不另建网格），不多一次 draw
   W.bolt = function (points, hex, minor, o) {
     if (points.length < 2) return;
     const b = boltGet(!!minor);
     if (!b) return;
-    b.ghost = !!(o && o.ghost);
     b.minor = !!minor;
     b.n = Math.min(points.length, BOLT_MAXIN);
     for (let i = 0; i < b.n; i++) {
@@ -21829,11 +21830,6 @@
     }
     // o.emit：玩家用武器放的（疾咒的链雷）——折线从杖头起，不从胸口（只改画面，调用方的点不动）
     const pe = o && o.emit && !W.emitOff ? pEnt() : null;
-    // skill-5a：画面从出手点起时，第一段折线细分几节（取几次随机数）按模拟给的起点算，不按出手点算——
-    // 取随机数的次数不随姿势 / 挂点变（muzzle-socket 之后按出手点算，杖头摆到哪儿会改变后面整场的随机序列）
-    b.cnt0 = pe ? 1 : 0;
-    b.sx0 = b.inX[0];
-    b.sz0 = b.inZ[0];
     if (pe) {
       emitEst(pe, _em);
       b.inX[0] = _em.x;
@@ -21843,12 +21839,6 @@
     b.t = 0;
     b.jit = 0;
     b.hex = hex;
-    if (b.ghost) {
-      boltBuild(b);
-      b.mesh.visible = false;
-      rBurn((b.n - 1) * (minor ? 20 : 37) + (minor ? 0 : 1)); // 每个落点 5 粒火花（各 4 次）；非小电弧另有 flare 1 + 4 粒白火花（各 4 次）、起点 flare 1
-      return;
-    }
     const foe = !!(o && o.foe);
     // vf-vfx3：敌方的电弧（o.foe）：元素色、不往白混、细一些，芯只混一成白；落点不再一个个放星芒 / 闪光 / 近白火花，
     // 换成小号的雷系命中（折线放射），起点（首领身上）一记 ≤ 1.2 米、60 毫秒的亮芯
@@ -21862,7 +21852,6 @@
     b.mesh.visible = true;
     if (o && o.v2 && !minor) {
       boltV2(b, hex);
-      if (o.rn) rBurn((b.n - 1) * 16 + 1); // skill-b2：旧电弧换成 v2 时的随机数差（旧的每个落点 37 次、起点 flare 1 次；v2 每个落点 21 次）
       return;
     }
     if (foe) return boltFoe(b, hex, o.head);
@@ -21891,7 +21880,7 @@
     flashLight(b.inX[b.n - 1], 2.5, b.inZ[b.n - 1], hex, 1.4);
   };
   // 测试用（vf-vfx3）：还亮着的电弧的芯混白量 / 还在播的光带里敌方模式的条数
-  W.boltWhites = () => bolts.filter((b) => b.on && !b.ghost).map((b) => b.u.uWhite.value); // skill-b1：鬼影电弧不画，不算
+  W.boltWhites = () => bolts.filter((b) => b.on).map((b) => b.u.uWhite.value);
   W.streakFoe = () => { let n = 0, all = 0; for (const it of streaks) if (it.on) { all++; if (it.u.uFoe.value > 0.5) n++; } return { foe: n, all }; };
   // vf-vfx3：敌方电弧的落点。隔一个点放一个小号雷系命中（不留环、不留痕）；head（可选 {x, z}）处一记小亮芯
   function boltFoe(b, hex, head) {
@@ -21970,7 +21959,7 @@
       const k = b.t / life;
       if (b.minor || b.t < 0.1) b.u.uOpacity.value = 1 - k * k;
       else {
-        const fl = Math.random();
+        const fl = vrnd();
         b.u.uOpacity.value = Math.pow(1 - k, 1.4) * (fl < 0.2 ? 0.08 : 0.45 + fl * 0.55);
       }
     }
@@ -22092,7 +22081,7 @@
       m.mesh.rotation.z += dt * 3;
       // vf-vfx3：敌方的落石（首领的落点轰炸、烛泪、坠冕）尾迹压暗、变小、两粒（原来每帧 3 粒、最多混四成白的大光点，七颗一起落就是一列列白球）
       for (let j = 0, n = m.quiet ? 1 : m.hostile ? 2 : 3; j < n; j++) {
-        const w = m.quiet ? -0.35 : m.hostile ? -0.3 : Math.random() * 0.4; // quiet（星雨）：尾迹稀一些、压暗，落地时不留一团发白的烟
+        const w = m.quiet ? -0.35 : m.hostile ? -0.3 : vrnd() * 0.4; // quiet（星雨）：尾迹稀一些、压暗，落地时不留一团发白的烟
         spawnP(px + rand(-0.3, 0.3), py + rand(-0.3, 0.3), pz + rand(-0.3, 0.3), rand(-1, 1), rand(0, 2), rand(-1, 1), rand(0.25, 0.55), m.hostile ? rand(0.16, 0.28) : rand(0.3, 0.6), m.r + (1 - m.r) * w, m.g + (1 - m.g) * w, m.b + (1 - m.b) * w, -1, 1);
       }
       if (k >= 1) {
@@ -22100,10 +22089,6 @@
         meteorOff(m);
         if (R > 0) meteorLand2(m, R, old);
         else meteorLand(m);
-        // skill-b1（三相天灾的火）：旧画法 meteorLand 落地时取 173 次：flare 1 + 14 粒火花 70 → 碎岩 debrisBurst 66 → 6 团尘 36。
-        // 碎岩每帧还要取（看寿命 / 位置），所以 old 时 meteorLand2 一开头先空取 71 次、再放同样 11 块碎岩（拿到的随机数和以前完全一样），
-        // 它自己取 25 次，最后补 11 次
-        if (R > 0 && old) rBurn(173 - 71 - 66 - 25);
       }
     }
   }
@@ -22150,10 +22135,7 @@
   // 暗色岩块四溅、落地弹；余波是焦痕里一道道慢慢冷下去的熔岩裂纹 + 一柱烟。不再铺 4.4 米的地面闪光、不再放近白的大星芒
   function meteorLand2(m, R, old) {
     const x = m.x, z = m.z, h = m.hex, lo = qualId === 'low';
-    if (old) {
-      rBurn(71);
-      debrisBurst(x, z, 11, mixHex(h, 0x2a2420, 0.7), 1); // skill-b1：三相天灾的火——碎岩照旧（随机数一样，见 updateMeteors），颜色压成暗岩色
-    }
+    if (old) debrisBurst(x, z, 11, mixHex(h, 0x2a2420, 0.7), 1); // skill-b1：三相天灾的火——碎岩照旧，颜色压成暗岩色
     flashLight(x, 2.2, z, h, 1.5);
     W.fxFlip(VFB.fire, x, 0.8, z, Math.min(2, R * 0.55), 0.38, h, { grow: 1.25, vy: 0.9 });
     tChunk(1, x, 0.9, z, 0, 0, 0, 0.12, 0.8, 0xffe2a0, h, 0);
@@ -22343,8 +22325,7 @@
         // 延迟的斩线落下：沿线炸开一串火花 + 一记闪光
         it.fired = true;
         if (it.ghost) {
-          // skill-b2：鬼影斩线（瞬断）：网格不画，16 粒火花（各 8 次）+ flare 1 次的随机数原地照取，画法换成形状批的细斩线 + 碎屑
-          rBurn(16 * 8 + 1);
+          // skill-b2：鬼影斩线（瞬断）：网格不画，画法换成形状批的细斩线 + 碎屑
           flashLight(it.x, it.y + 1, it.z, it.hex, 1.4);
           it.ghost(it);
           continue;
@@ -22352,7 +22333,7 @@
         _c.set(it.hex);
         const sn = Math.sin(it.ang), cs = Math.cos(it.ang);
         for (let j = 0; j < 16; j++) {
-          const f = rand(-0.45, 0.45) * it.len, side = Math.random() < 0.5 ? -1 : 1, v = rand(3, 8);
+          const f = rand(-0.45, 0.45) * it.len, side = vrnd() < 0.5 ? -1 : 1, v = rand(3, 8);
           spawnP(it.x + sn * f, it.y, it.z + cs * f, cs * side * v + sn * rand(-2, 2), rand(0.5, 4), -sn * side * v + cs * rand(-2, 2), rand(0.18, 0.4), rand(0.12, 0.22), _c.r + (1 - _c.r) * 0.5, _c.g + (1 - _c.g) * 0.5, _c.b + (1 - _c.b) * 0.5, 9, 2.5);
         }
         flare(it.x, it.y, it.z, it.hex, 1.6, 0.12);
@@ -22434,7 +22415,7 @@
   W.smoke = function (x, y, z, r, n, hex) {
     _c.set(hex === undefined ? 0x2a2233 : hex);
     for (let i = 0; i < n; i++) {
-      const a = rand(0, TAU), d = r * Math.sqrt(Math.random()), v = rand(0.6, 2.2);
+      const a = rand(0, TAU), d = r * Math.sqrt(vrnd()), v = rand(0.6, 2.2);
       spawnS(x + Math.sin(a) * d, y + rand(-0.3, 0.6), z + Math.cos(a) * d, Math.sin(a) * v, rand(0.3, 1.4), Math.cos(a) * v, rand(0.5, 0.95), rand(0.8, 1.4) * (0.7 + r * 0.6), _c.r, _c.g, _c.b, rand(0.8, 1));
     }
     smokeLive = 1.2;
@@ -22712,7 +22693,7 @@
       it.acc += dt * (26 + it.r * 6);
       while (it.acc > 1) {
         it.acc -= 1;
-        const a = rand(0, TAU), d = it.r * Math.sqrt(Math.random()) * 0.95;
+        const a = rand(0, TAU), d = it.r * Math.sqrt(vrnd()) * 0.95;
         arrowSpawn(it.x + Math.sin(a) * d, 0, it.z + Math.cos(a) * d, it.dx + rand(-0.15, 0.15), it.dz + rand(-0.15, 0.15), 1, it.hex);
       }
     }
@@ -22825,7 +22806,7 @@
     W.shake(0.3);
   };
   // 双匕「影刺」：起点和落点各一团烟，中间一串往回飘的暗影，落点一记闪光
-  // o.dim（skill-b2，换影用）：一路的暗影粒压暗到三成半（原来七成的浅紫一串亮点），落点不闪光（flare 的 1 次照取）
+  // o.dim（skill-b2，换影用）：一路的暗影粒压暗到三成半（原来七成的浅紫一串亮点），落点不闪光
   W.shadowStep = function (x0, z0, x1, z1, hex, o) {
     W.smoke(x0, 0.7, z0, 0.6, 14, 0x5a4870);
     W.smoke(x1, 0.7, z1, 0.5, 10, 0x5a4870);
@@ -22835,12 +22816,11 @@
       const k = i / n;
       spawnP(x0 + dx * k + rand(-0.2, 0.2), rand(0.4, 1.6), z0 + dz * k + rand(-0.2, 0.2), (-dx / d) * rand(0.3, 1.2), rand(0, 0.6), (-dz / d) * rand(0.3, 1.2), rand(0.25, 0.5), rand(0.18, 0.3), _c.r * dim, _c.g * dim, _c.b * dim, -0.3, 2);
     }
-    if (o && o.dim) rBurn(1);
-    else flare(x1, 1.1, z1, hex, 1.0, 0.08);
+    if (!(o && o.dim)) flare(x1, 1.1, z1, hex, 1.0, 0.08);
   };
   // 太刀「瞬断」的冲刺：沿路径留下几道残影（用 ent 此刻的姿势）、一道光带和地上的擦痕
   // skill-b2：瞬断的颜色是近白（#e8f0ff）：残影改暗蓝灰（加色叠出来只是一层淡影），路径上的光带 / 加色擦痕换成形状批里一道钢蓝的细刀痕 + 暗擦痕，
-  // 火星不再往白里混（随机数照旧：擦痕 W.decal 的 1 次空取）
+  // 火星不再往白里混
   W.dashCut = function (ent, x0, z0, x1, z1, hex) {
     const dx = x1 - x0, dz = z1 - z0, d = Math.hypot(dx, dz);
     const ang = Math.atan2(dx, dz), b2 = !!PF.vShape;
@@ -22851,7 +22831,6 @@
     if (d > 0.2) {
       if (b2) {
         b2DashTrail(x0, z0, x1, z1);
-        rBurn(1); // W.decal 的 1 次
       } else {
         streak(x0, z0, 1.0, ang, d, 0.42, hex, 0.3, 0, 0);
         W.decal(0, x0 + dx * 0.5, z0 + dz * 0.5, d * 0.5, ang, hex, 0.5, 0.2);
@@ -23308,11 +23287,9 @@
   // 带 key 的普通数字（game.js：key = 挨打的怪）在 MERGE_T 秒内再来一个同色的，就加到原来那条上、再弹一下，不新开一条
   const TEXT_MAX = 90, FAINT_MAX = 24, NORMAL_MAX = 40, MERGE_T = 0.25;
   const textRank = (k) => (k === 'faint' ? 0 : k ? 2 : 1);
-  // 飘字的抖动、暴击数字往哪边抛，用飘字自己的随机序列，不取 Math.random：
-  // 一条字出不出来（池满、同怪合并、状态词再弹一下）牵扯到字的寿命，不该挪动游戏的随机序列（掉落、暴击、刷怪）。换区时从头开始
-  const TEXT_SEED = 0x7e57f00d;
-  let textRs = TEXT_SEED;
-  const textRand = (a, b) => a + ((textRs = (Math.imul(textRs, 1664525) + 1013904223) >>> 0) / 4294967296) * (b - a);
+  // 飘字的抖动、暴击数字往哪边抛，取画面随机数（G.fxRand：按这一条字取种子，见文件末尾的 FX_SEEDED），不取 Math.random：
+  // 一条字出不出来（池满、同怪合并、状态词再弹一下）牵扯到字的寿命，不该挪动游戏的随机序列（掉落、暴击、刷怪）
+  const textRand = G.fxRand;
   W.text = function (x, z, str, cssColor, sizePx, style) {
     const kind = (style && style.kind) || '';
     const rank = textRank(kind);
@@ -23399,7 +23376,6 @@
     for (const m of meteors) meteorOff(m);
     clearProjFx();
     for (const t of texts) t.t = t.dur;
-    textRs = TEXT_SEED;
     clearDying();
     ldOn.fill(0);
     ldLive = 0;
@@ -24161,7 +24137,7 @@
       u.acc += dt;
       while (u.acc > 0.02) {
         u.acc -= 0.02;
-        const wh = Math.random();
+        const wh = vrnd();
         // 火星：小而亮，往上飘、往两侧散
         spawnP(x - u.dx * r + rand(-0.12, 0.12), y + rand(-0.1, 0.12), z - u.dz * r + rand(-0.12, 0.12), rand(-1.2, 1.2) - u.dx * 1.5, rand(0.3, 1.8), rand(-1.2, 1.2) - u.dz * 1.5, rand(0.25, 0.5), rand(0.08, 0.14), 1, 0.65 + wh * 0.3, 0.2 + wh * 0.4, -1.5, 1.8);
       }
@@ -24318,7 +24294,7 @@
       if (u.acc > 0.035) {
         u.acc = 0;
         spawnP(x - u.dx * r + rand(-0.15, 0.15), y + rand(-0.1, 0.1), z - u.dz * r + rand(-0.15, 0.15), rand(-0.4, 0.4), rand(-0.2, 0.3), rand(-0.4, 0.4), rand(0.3, 0.5), rand(0.16, 0.26), 0.55, 0.75, 0.9, 0.5, 2.5);
-        if (Math.random() < 0.4) spawnP(x + rand(-0.2, 0.2), y + rand(-0.15, 0.15), z + rand(-0.2, 0.2), 0, 0, 0, 0.18, 0.13, 1, 1, 1, 0, 0);
+        if (vrnd() < 0.4) spawnP(x + rand(-0.2, 0.2), y + rand(-0.15, 0.15), z + rand(-0.2, 0.2), 0, 0, 0, 0.18, 0.13, 1, 1, 1, 0, 0);
       }
     },
     // 雷霆监察者的雷球：暗色的球心，表面三道不停变换方向的电弧，往外乱迸的电火花
@@ -24691,7 +24667,7 @@
     const ang = Math.atan2(dx, dz);
     for (let i = 0, n = Math.round(11 * k); i < n; i++) {
       const a = ang + rand(-1, 1) * (i % 3 === 0 ? 1.8 : 0.8) + (k > 1 ? Math.PI : 0), v = rand(5, 12);
-      const wh = Math.random();
+      const wh = vrnd();
       spawnP(x, y + rand(-0.1, 0.15), z, Math.sin(a) * v, rand(0.5, 4), Math.cos(a) * v, rand(0.1, 0.26), rand(0.07, 0.12), 1, 0.85 + wh * 0.15, 0.55 + wh * 0.4, 16, 3.5);
     }
     if (u && u.tinted) for (let i = 0; i < 5; i++) spawnP(x, y, z, rand(-3, 3), rand(0, 3), rand(-3, 3), rand(0.2, 0.35), 0.16, u.tr, u.tg, u.tb, 4, 3);
@@ -24742,7 +24718,7 @@
       mPose(dbX[k], dbY[k], dbZ[k], _pq, s, s, s);
       pfPut('debris', 0.55, 0.5, 0.48);
       // 刚飞出去的碎块带一点余烬
-      if (f > 0.55 && Math.random() < 0.35) spawnP(dbX[k], dbY[k], dbZ[k], 0, 0.3, 0, rand(0.15, 0.3), 0.12, dbC[k * 3], dbC[k * 3 + 1], dbC[k * 3 + 2], -0.5, 2);
+      if (f > 0.55 && vrnd() < 0.35) spawnP(dbX[k], dbY[k], dbZ[k], 0, 0.3, 0, rand(0.15, 0.3), 0.12, dbC[k * 3], dbC[k * 3 + 1], dbC[k * 3 + 2], -0.5, 2);
     }
   }
   function clearDebris() {
@@ -24759,10 +24735,7 @@
   const ckA = new Float32Array(CK_N * 3), ckB = new Float32Array(CK_N * 3);
   let ckNext = 0, ckLive = 0;
   function tChunk(kind, x, y, z, vx, vy, vz, life, size, hexA, hexB, grav) {
-    if (fxMute) {
-      rand(0, TAU); // 和不静音时取的次数一样（见 W.fxMute）
-      return;
-    }
+    if (fxMute) return;
     const i = ckNext, j = i * 3;
     ckNext = (ckNext + 1) % CK_N;
     ckK[i] = kind;
@@ -25118,8 +25091,8 @@
     vsFoe = 0;
   };
   // ===================================================================== skill-b2：近白长条 / 旧闪电 / 白色残影（技能打磨第 2 批）
-  // 同第 1 批的规则：新件全画进形状批（只用 vr），拿掉的旧件按原来的次数、原来的时刻空取 Math.random（rBurn）；
-  // 占对象池的旧件（光带、电弧、召唤法阵）改成鬼影：照旧占池子、照旧每帧取数，网格 visible = false（不画、不占 draw）。
+  // 同第 1 批的规则：新件全画进形状批（随机数都是画面随机数 vr）；
+  // 占对象池的旧件（光带、召唤法阵）改成鬼影：照旧占池子，网格 visible = false（不画、不占 draw），由新件画。
   // 近白只给 ≤ 1.2 米、≤ 60 毫秒的小芯；余波比地面暗；低画质件数减半
   const B2_CUT = { ghost: 0x4a5670, spark: 0x5a6a88, a: 0x9fb0cc, b: 0x3a4458, dark: 0x262c3a };
   const B2_POP = 0.06;
@@ -25273,22 +25246,18 @@
   W.b2Info = () => ({ ghostStreaks: streaks.filter((it) => it.on && it.ghost).length, ghostSummons: summons.filter((s2) => s2.on && s2.ghost).length });
   // ===================================================================== skill-b1：大面积亮面改成只画边（技能打磨第 1 批）
   // 共同规则：全部画进形状批 / 地面痕迹（不新增 draw）；大范围只画外沿（细环 + 长在环上的件），中心不放亮面；近白只给 ≤ 1.2 米、≤ 60 毫秒的小芯；
-  // 余波比地面暗；低画质件数减半。拿掉的旧件（W.burst 每粒 6 次、W.decal 1 次、flare 1 次……）按原来的次数空取 Math.random（rBurn），
-  // 玩法里的随机序列和以前一样（fx-random-neutral）；新件只用形状批自己的 vr
-  function rBurn(n) {
-    for (let i = 0; i < n; i++) Math.random();
-  }
-  W.rBurn = rBurn;
-  // 爆燃 / 冻结在怪群里一帧能连着炸十几个：每帧只有前几个画全套，多出来的只留地面痕迹（空取照旧，件数不会把形状批的环形缓冲冲掉）
+  // 余波比地面暗；低画质件数减半。随机数全是画面随机数（vr），件数多少不动玩法（fx-rng）
+  // 爆燃 / 冻结在怪群里一帧能连着炸十几个：每帧只有前几个画全套，多出来的只留地面痕迹（件数不会把形状批的环形缓冲冲掉）
   // 另外形状批里活着的件超过 B1_LIVE 时也只画环（环形缓冲 384 件，留给技能本身的件）
   const B1_CAP = { high: 3, mid: 3, low: 2 }, B1_LIVE = 240;
-  let b1N = 0, b1Peak = 0, b1Full = 0, vsFrameAll = 0;
-  W.b1Info = () => ({ n: b1N, peak: b1Peak, full: b1Full, cap: B1_CAP[qualId] || 3 });
+  let b1N = 0, b1Peak = 0, b1Full = 0, vsFrameAll = 0, b1CapT = null;
+  W.b1Info = () => ({ n: b1N, peak: b1Peak, full: b1Full, cap: b1CapT !== null ? b1CapT : B1_CAP[qualId] || 3 });
+  W.b1Cap = (v) => (b1CapT = v === null || v === undefined ? null : v); // 测试用：强行改每帧的上限（0 = 全部走超出上限的那条路）
   W.b1Reset = () => { b1Peak = 0; b1Full = 0; };
   function b1Take() {
     b1N++;
     if (b1N > b1Peak) b1Peak = b1N;
-    if (b1N > (B1_CAP[qualId] || 3)) return false;
+    if (b1N > (b1CapT !== null ? b1CapT : B1_CAP[qualId] || 3)) return false;
     let live = 0;
     for (let i = 0; i < VS_N; i++) if (vsL[i] > 0) live++;
     if (live > B1_LIVE) return false;
@@ -25346,16 +25315,13 @@
     }
   }
   // 爆燃：一道往外推的细环 + 环上往上舔的火舌 + 几粒余烬 + 一颗 0.8 米、60 毫秒的小星；余波是一块暗的焦痕（低画质件数减半）
-  // 空取：高 / 中 = 旧的 9 团火（每团 6 次）+ W.burst 14 粒；低 = W.decal（2 次）+ 1 颗星 + 5 团火 + W.burst 8 粒
   function b1Blast(x, z, R) {
     const lo = qualId === 'low';
-    if (!PF.vShape) return rBurn(lo ? 2 + 1 + 30 + 48 : 54 + 84);
+    if (!PF.vShape) return;
     if (!b1Take()) {
-      rBurn(lo ? 2 + 1 + 30 + 48 : 54 + 84);
       W.vDecal(VVD.scorch, x, z, R * 0.5, 2.2, 0x8a3416); // 超出每帧上限的：只留焦痕（地面痕迹池，不占形状批）
       return;
     }
-    rBurn(lo ? 2 + 30 + 48 : 53 + 84); // 少的那 1 次给下面的小星（tChunk 自己取 1 次）
     tChunk(1, x, 0.9, z, 0, 0, 0, 0.06, 0.8, 0xffe2a0, 0xff8a3a, 0);
     b1Ring(x, z, R, 0xffb050, 0x8a2a10, 0.36, 0.35);
     b1Tongues(x, z, R, lo ? 3 : 6, 0.5 + R * 0.12, 0.42, R * 0.5);
@@ -25367,10 +25333,8 @@
     W.vDecal(VVD.scorch, x, z, R * 0.55, 2.6, 0x8a3416);
   }
   // 冻结：脚边一圈尖朝外的冰晶 + 往下掉的冰碴 + 一道冷色细环；地上一片冻青灰的霜痕（比地面暗；低画质不铺）
-  // 空取：W.burst（16 / 首领 26 粒）+ 10 粒冰屑（每粒 6 次）；低画质另有 W.decal 的 2 次
   function b1Freeze(x, z, r, h, boss) {
-    const lo = qualId === 'low', burn = (boss ? 26 : 16) * 6 + 60 + (lo ? 2 : 0);
-    rBurn(burn);
+    const lo = qualId === 'low';
     if (!PF.vShape) return;
     const R = r + (boss ? 1.6 : 0.7);
     if (!b1Take()) {
@@ -25382,9 +25346,8 @@
     b1Shards(x, Math.min(2, h * 0.6), z, lo ? 3 : 6, r * 0.5, 1.8);
     W.vDecal(VVD.frost, x, z, R * 0.45, boss ? 3 : 2.2, 0x2e4c58, { r1: R, grow: 0.25 });
   }
-  // 冰爆（霜环「冰爆」/ 凛冬的碎尸）：细环 + 外沿一圈冰晶 + 冰碴 + 霜痕。空取：W.decal 2 次 + flare 1 次 + 18 粒冰碴（每粒 5 次）+ 8 团霜雾（每团 5 次）
+  // 冰爆（霜环「冰爆」/ 凛冬的碎尸）：细环 + 外沿一圈冰晶 + 冰碴 + 霜痕
   function b1FrostBlast(x, z, R) {
-    rBurn(2 + 1 + 90 + 40);
     if (!PF.vShape) return;
     const lo = qualId === 'low';
     if (!b1Take()) {
@@ -25397,10 +25360,8 @@
     W.vDecal(VVD.frost, x, z, R * 0.35, 1.6, 0x2e4c58, { r1: R * 0.7, grow: 0.2 });
   }
   // 地脉涌：外沿一道往外推的细冲击环 + 长在环上的一圈火舌（往外窜）；中间不放亮面，余波是焦痕 + 一道道冷下去的熔岩裂纹 + 几块碎石
-  // 空取：W.decal 2 + 起始角 1 + 6 道光带 12 + 26 粒光点（每粒 7 次）+ W.burst 22 粒 + flare 1
   const B1_GB_CRACK = { fire: [0xff9a3a, 0x40201a], cold: [0x8ccbea, 0x1e3440], light: [0xf0d050, 0x2a2410], chaos: [0xd03ca0, 0x1a0814], phys: [0xc8a878, 0x3a3028] };
   function b1GroundBurst(x, z, r, hex, type) {
-    rBurn(2 + 1 + 12 + 182 + 132 + 1);
     if (!PF.vShape) return;
     const lo = qualId === 'low', h = hexOf(hex), cr = B1_GB_CRACK[type] || B1_GB_CRACK.fire;
     const hi = mixHex(h, 0xffe0a0, 0.25), dk = mixHex(h, 0x000000, 0.6);
@@ -25437,13 +25398,8 @@
       vsEmit(x0 + vr(-0.2, 0.2), 0.3, z0 + vr(-0.2, 0.2), Math.sin(a) * v, vr(1.5, 3), Math.cos(a) * v, vr(0.5, 0.8), vr(0.08, 0.14), undefined, vr(0, TAU), vr(-8, 8), 16);
     }
   };
-  // 闪袭的起点：原来的 W.burst 18 粒（空取 108 次）
-  W.blinkOrigin = function () {
-    rBurn(18 * 6);
-  };
-  // 闪袭的落点：一道细环（落点打击范围）+ 碎石四溅 + 一小记 ≤ 0.7 米、60 毫秒的芯；原来的 W.burst 24 粒（空取 144 次）+ W.ring
+  // 闪袭的落点：一道细环（落点打击范围）+ 碎石四溅 + 一小记 ≤ 0.7 米、60 毫秒的芯
   W.blinkLand = function (x, z, R, hex) {
-    rBurn(24 * 6);
     if (!PF.vShape) return;
     const lo = qualId === 'low', h = hexOf(hex);
     b1Ring(x, z, R, mixHex(h, 0x6a5a80, 0.2), mixHex(h, 0x000000, 0.55), 0.3);
@@ -25457,9 +25413,8 @@
     W.vDecal(VVD.scorch, x, z, Math.min(1.4, R * 0.4), 1.8, 0x3a3040);
   };
   // 石誓守像的砸地：物理的碎石语言（往外崩的碎石、落地弹）+ 一道暗土色细环 + 一缕尘 + 暗的地裂痕。
-  // 原来：魂火青的环 + W.burst 14 粒（空取 84）+ 浅薄荷贴花（W.decal：随机角 1 次 + 自己 1 次）
+  // 原来：魂火青的环 + W.burst 14 粒 + 浅薄荷贴花
   W.colossusSlam = function (x, z, R) {
-    rBurn(84 + 2);
     if (!PF.vShape) return;
     const lo = qualId === 'low';
     b1Ring(x, z, R, 0xb8a68c, 0x4a3e34, 0.32, 0.05);
@@ -25468,13 +25423,12 @@
     if (!lo) W.fxFlip(VFB.smoke, x, 0.5, z, 1.5, 1.0, 0x5a4e42, { vy: 0.4, up: 0.2, grow: 1.7, a: 0.75 });
     W.vDecal(VVD.scorch, x, z, Math.min(2.2, R * 0.45), 2.2, 0x4a3e34);
   };
-  // 三相天灾的落点（triStrikeLand 调）：火 → 陨火落地（meteorLand2，triStrike 里已经 meteorMark 过，这里只空取旧的 W.burst 14 粒）；
+  // 三相天灾的落点（triStrikeLand 调）：火 → 陨火落地（meteorLand2，triStrike 里已经 meteorMark 过，这里不用再画）；
   // 冰 → 冻结的冰语言；雷 → v2 折线：一道从云里劈到地上的折线（两帧闪灭）+ 落点往外放射的短折线 + 地上的电灼纹
   function b1StormLand(x, z, t, r, hx) {
     const lo = qualId === 'low';
-    if (t === 'fire') return rBurn(14 * 6);
+    if (t === 'fire') return;
     if (t === 'cold') {
-      rBurn(1 + 18 * 5); // flare + 18 粒近白冰碴
       if (!PF.vShape) return;
       b1Ring(x, z, r, 0x7fbcd8, 0x1f4a66, 0.3, 0.12);
       b1Crystals(x, z, r * 0.7, lo ? 3 : 6, 0.9 + r * 0.2, 0.55);
@@ -25483,12 +25437,6 @@
       flashLight(x, 2, z, hx, 1.2);
       return;
     }
-    // 雷：空取两道天雷（4 + 3）、两道小电弧（W.bolt 鬼影：同样的取数、不显示）、近白 flare 1、W.burst 16 粒
-    rBurn(4 + 3);
-    const a = rand(0, TAU);
-    W.bolt([{ x, z }, { x: x + Math.sin(a) * r * 1.3, z: z + Math.cos(a) * r * 1.3 }], hx, true, { ghost: true });
-    W.bolt([{ x, z }, { x: x - Math.sin(a + 0.6) * r * 1.2, z: z - Math.cos(a + 0.6) * r * 1.2 }], hx, true, { ghost: true });
-    rBurn(1 + 16 * 6);
     if (!PF.vShape) return;
     const core = mixHex(hx, 0xffffff, 0.35);
     // 天雷：5 折，从 6.2 米劈到地面
@@ -25812,9 +25760,9 @@
   const fbK = new Uint8Array(FB_N), fbP = new Float32Array(FB_N * 3), fbV = new Float32Array(FB_N * 3), fbC = new Float32Array(FB_N * 3);
   const fbL = new Float32Array(FB_N), fbM = new Float32Array(FB_N), fbS = new Float32Array(FB_N), fbG = new Float32Array(FB_N), fbU = new Float32Array(FB_N);
   const fbA = new Float32Array(FB_N), fbR = new Float32Array(FB_N), fbSd = new Float32Array(FB_N), fbF = new Uint8Array(FB_N);
-  let fbNext = 0, fbLive = 0, fbRnd = 7;
-  // 序列帧自己的伪随机（不消耗 Math.random：加了这些特效以后，玩法里的随机序列和原来一样）
-  const vr = (a, b) => a + ((fbRnd = (fbRnd * 16807) % 2147483647) / 2147483647) * (b - a);
+  let fbNext = 0, fbLive = 0;
+  // 序列帧 / 形状批的随机数：画面随机数（G.fxRand：按特效取种子，建外观期间也不转给 Math.random——这两样原来就不取它）
+  const vr = G.fxRand;
   // 烟团的预算：同时画着的烟团最多这么多（大方片叠在一起最费填充率），低画质更少；超了新的就不放
   const FB_SMOKE_CAP = { high: 14, mid: 10, low: 6 };
   let fbSmokeLive = 0;
@@ -25936,7 +25884,7 @@
     });
   }
   W.vDecal = function (kind, x, z, r, dur, hex, o) {
-    if (fxMute) return; // 只取特效自己的 vr，不碰 Math.random
+    if (fxMute) return;
     const k = typeof kind === 'string' ? VVD[kind] : kind;
     if (k === undefined || !vdMesh) return;
     if (qualId === 'low' && k !== VVD.scorch) return; // 低画质只留焦痕（闪光 / 霜痕 / 渊痕这些大方片叠起来，软件渲染下最费填充率）
@@ -26101,7 +26049,7 @@
       if (p.y > -10 && u.rib >= 0) ribHead(u.rib, p.x + wx, p.y + u.wisp.position.y, p.z + wz, dt);
       if (u.acc > 0.03 && p.y > -10) {
         u.acc = 0;
-        const wh = Math.random() < 0.3 ? 0.5 : 0;
+        const wh = vrnd() < 0.3 ? 0.5 : 0;
         spawnP(p.x + wx + rand(-0.08, 0.08), p.y + lift + rand(-0.05, 0.1), p.z + wz + rand(-0.08, 0.08), rand(-0.3, 0.3), rand(0.4, 1.4), rand(-0.3, 0.3), rand(0.3, 0.5), rand(0.14, 0.22), u.r + (1 - u.r) * wh, u.g + (1 - u.g) * wh, u.b + (1 - u.b) * wh, -1, 1.5);
       }
       return;
@@ -26291,7 +26239,7 @@
       const big = kind === 'slug';
       muzzleAdd(_rs.x, _rs.y, _rs.z, u.dx, u.dz, big ? 1.35 : 0.9, big ? 0xff9a40 : 0xffc060);
       u.mz = RF.muz[RF.muz.length - 1];
-      if (!big || Math.random() < 0.5) shellAdd(ent, u.dx, u.dz, big);
+      if (!big || vrnd() < 0.5) shellAdd(ent, u.dx, u.dz, big);
     } else if (kind === 'arrow' || kind === 'emberarrow') {
       // 寒冰箭的出手闪光小一号：凛冬一次三支，三团闪光叠在一起会糊成白
       u.fl = flare(_rs.x, _rs.y, _rs.z, kind === 'emberarrow' ? 0x3a9cff : u.tinted ? u.hex : 0xfff0d0, kind === 'emberarrow' ? 0.3 : 0.5, 0.06);
@@ -26438,7 +26386,7 @@
     muzzle: RF.muz.length, puffs: RF.puffs.length, fires: RF.fires.length, shells: RF.shells.length, tracers: RF.tracers.length,
     laser: RF.laser.ext >= wtime || clipNm(pEnt()) === 'r_gatling', buff: RF.buff.type, spin: (pEnt() && pEnt().gunSpin) || 0,
   });
-  // ghost：喷枪的旧火团，只走模拟（随机数、熄灭时的烟）不画，火柱另画（flame-jet）
+  // ghost：喷枪的旧火团，不画，只按原来的节奏飞完、熄灭时冒烟（火柱尾巴上的暗烟），火柱另画（flame-jet）
   function puffAdd(x, y, z, vx, vy, vz, life, s, wave, ghost) {
     if (RF.puffs.length >= 220) RF.puffs.shift();
     RF.puffs.push({ x, y, z, vx, vy, vz, t: 0, life, s, ph: rand(0, TAU), wave: wave || 0, ghost: !!ghost });
@@ -26570,7 +26518,7 @@
     u.acc += dt;
     while (u.acc > 0.025) {
       u.acc -= 0.025;
-      const w = Math.random() < 0.15;
+      const w = vrnd() < 0.15;
       spawnP(hx - u.dx * 0.3 + rand(-0.08, 0.08), p.y + rand(-0.05, 0.1), hz - u.dz * 0.3 + rand(-0.08, 0.08), rand(-0.6, 0.6) - u.dx, rand(-0.3, 0.6), rand(-0.6, 0.6) - u.dz, rand(0.3, 0.55), w ? 0.09 : rand(0.05, 0.09),
         w ? 0.75 : 0.22, w ? 0.9 : 0.58, 1, 2, 1.5);
     }
@@ -26646,7 +26594,7 @@
   //   根部：细而快的加色火线，拖尾连回喷嘴（每片按这一帧里各自的出生时刻摆开，不会一帧一团）；
   //   火身：片片减速、变宽、先往下沉一点再卷起来，画成卡通火团序列帧（各自翻滚、各自的帧），橙 → 红，亮的火舌舔在边上；
   //   尾巴：碎成往上舔的火舌，熄成暗烟；火身最低的地方贴地舔几条小火舌，扇面里的敌人身上偶尔舔一下；喷到墙就顺着墙面摊开。
-  // 形状全由片号的哈希来，不碰 Math.random。旧火团照旧按原来的节奏、次数取随机数（ghost：只走模拟、不画），全局随机序列和以前一模一样。
+  // 形状全由片号的哈希来。旧火团照旧按原来的节奏放（ghost：不画，只留熄灭时的烟）。
   // 都画在原来就有的 glow / flame / flameN 三个零件里，不多 draw call；低画质每秒片数减半。
   const JN = 128, JK = 1.3, JG = 3.5; // 片数上限 / 水平阻尼（每秒）/ 往上浮的加速度
   const jP = new Float32Array(JN * 3), jV = new Float32Array(JN * 3), jO = new Float32Array(JN * 4); // 位置 / 速度 / 出生点 xz + 喷射方向 xz
@@ -26820,7 +26768,7 @@
       W.entSocket(ent, 'weapon', _rs);
       weaponFwd(ent, _rf);
       const rng = flameRange(), sp = 10;
-      // 旧火团照旧按原来的节奏和次数取随机数（只走模拟、不画，熄灭时的烟照旧），全局随机序列不变
+      // 旧火团照旧按原来的节奏放（不画，熄灭时的烟照旧）
       RF.flameAcc += dt * 75;
       while (RF.flameAcc >= 1) {
         RF.flameAcc -= 1;
@@ -26838,7 +26786,7 @@
       // 地上的余烬：game.js 自己没放的话，隔一会儿在火焰尽头落一小片
       if (wtime - RF.groundAt > 1.2) {
         RF.groundAuto = RF.groundAuto || 0;
-        if (Math.random() < dt * 2.2) {
+        if (vrnd() < dt * 2.2) {
           const d = rng * rand(0.6, 0.95);
           fireLite(_rs.x + _rf.x * d, _rs.z + _rf.z * d);
         }
@@ -26926,7 +26874,7 @@
       const f = RF.puffs[i];
       f.t += dt;
       if (f.t >= f.life) {
-        if (Math.random() < 0.25) spawnS(f.x, f.y + 0.2, f.z, rand(-0.2, 0.2), rand(0.5, 1), rand(-0.2, 0.2), rand(0.5, 0.8), rand(0.4, 0.6), 0.12, 0.1, 0.09, 0.35), (smokeLive = 1.2);
+        if (vrnd() < 0.25) spawnS(f.x, f.y + 0.2, f.z, rand(-0.2, 0.2), rand(0.5, 1), rand(-0.2, 0.2), rand(0.5, 0.8), rand(0.4, 0.6), 0.12, 0.1, 0.09, 0.35), (smokeLive = 1.2);
         RF.puffs.splice(i, 1);
         continue;
       }
@@ -27012,7 +26960,7 @@
     F.acc += dt * F.r * 5;
     while (F.acc >= 1) {
       F.acc -= 1;
-      const ang = rand(0, TAU), d = Math.sqrt(Math.random()) * F.r;
+      const ang = rand(0, TAU), d = Math.sqrt(vrnd()) * F.r;
       spawnP(F.x + Math.sin(ang) * d, 0.2, F.z + Math.cos(ang) * d, rand(-0.3, 0.3), rand(1, 2.6), rand(-0.3, 0.3), rand(0.4, 0.9), rand(0.07, 0.13), 1, rand(0.45, 0.75), 0.12, -1, 0.8);
     }
   }
@@ -27043,9 +26991,9 @@
       pfPut('glow', 0.5 + 0.4 * k, 0.17 + 0.2 * k, 0.03 + 0.05 * k);
       mBill(x0, y0, z0, 0.08 + 0.12 * k);
       pfPut('core', 0.9 + 0.3 * k, 0.42 + 0.25 * k, 0.08 + 0.1 * k);
-      if (dt > 0 && Math.random() < dt * (10 + 30 * k)) {
+      if (dt > 0 && vrnd() < dt * (10 + 30 * k)) {
         const a = rand(0, TAU), d = rand(0.8, 1.6);
-        spawnP(x0 + Math.sin(a) * d, y0 + rand(-0.4, 0.6), z0 + Math.cos(a) * d, -Math.sin(a) * d * 3, rand(-0.5, 0.5), -Math.cos(a) * d * 3, 0.3, rand(0.06, 0.1), 1, 0.7 + 0.3 * Math.random(), 0.3, 0, 1);
+        spawnP(x0 + Math.sin(a) * d, y0 + rand(-0.4, 0.6), z0 + Math.cos(a) * d, -Math.sin(a) * d * 3, rand(-0.5, 0.5), -Math.cos(a) * d * 3, 0.3, rand(0.06, 0.1), 1, 0.7 + 0.3 * vrnd(), 0.3, 0, 1);
       }
       if (k >= 1) { mPose(x1, 0.07, z1, _qFlat, 0.6, 0.6, 1); pfPut('glow', 0.7, 0.22, 0.04); }
       return;
@@ -27080,7 +27028,7 @@
     pfPut('glow', 0.7, 0.22, 0.04);
     if (dt > 0) {
       for (let i = 0; i < 3; i++) {
-        const a = rand(0, TAU), v = rand(2, 6), el = Math.random() < 0.4;
+        const a = rand(0, TAU), v = rand(2, 6), el = vrnd() < 0.4;
         spawnP(x1, y1, z1, Math.sin(a) * v - dx * 2, rand(1, 4), Math.cos(a) * v - dz * 2, rand(0.12, 0.3), rand(0.08, 0.14), 1, el ? 0.95 : 0.55, el ? 0.5 : 0.15, 8, 2);
       }
       flashLight(x1, 1.5, z1, 0xff8a3c, 2.2);
@@ -27100,9 +27048,9 @@
       const e = es[i];
       if (e.dead || Math.hypot(e.x - P.x, e.z - P.z) > 9) continue;
       n++;
-      if (Math.random() * n < 1) best = e; // 附近的敌人里随手挑一个
+      if (vrnd() * n < 1) best = e; // 附近的敌人里随手挑一个
     }
-    if (best && Math.random() < 0.8) {
+    if (best && vrnd() < 0.8) {
       tx = best.x + rand(-0.3, 0.3);
       tz = best.z + rand(-0.3, 0.3);
     } else {
@@ -27114,7 +27062,7 @@
     W.gunTracer(_rs.x, _rs.z, tx, tz, _rs.y);
     muzzleAdd(_rs.x, _rs.y, _rs.z, dx / l, dz / l, 1.1, 0xff9a40);
     ent.revTurn = (ent.revTurn || 0) + 1;
-    if (Math.random() < 0.35) shellAdd(ent, dx / l, dz / l, true);
+    if (vrnd() < 0.35) shellAdd(ent, dx / l, dz / l, true);
     for (let i = 0; i < 4; i++) spawnP(tx, 1.0, tz, rand(-3, 3), rand(0.5, 3), rand(-3, 3), rand(0.08, 0.18), 0.08, 1, 0.8, 0.4, 9, 3);
   }
   function drawBuff(ent, dt) {
@@ -27167,7 +27115,7 @@
         pfPut('core', EC[k][0] * 1.3, EC[k][1] * 1.3, EC[k][2] * 1.3);
         mBill(px, py, pz, 0.55);
         pfPut('glow', EC[k][0] * a, EC[k][1] * a, EC[k][2] * a);
-        if (dt > 0 && Math.random() < dt * 20) spawnP(px, py, pz, rand(-0.3, 0.3), rand(0, 0.5), rand(-0.3, 0.3), rand(0.25, 0.45), 0.09, EC[k][0], EC[k][1], EC[k][2], 0, 2);
+        if (dt > 0 && vrnd() < dt * 20) spawnP(px, py, pz, rand(-0.3, 0.3), rand(0, 0.5), rand(-0.3, 0.3), rand(0.25, 0.45), 0.09, EC[k][0], EC[k][1], EC[k][2], 0, 2);
       }
     } else if (B.type === 'emberbow') {
       // 冰弓（凛羽）：脚下一圈冰晶（高矮交错、慢慢绕身转、轻轻起伏），冰晶之间贴地一层淡蓝的霜雾
@@ -27213,7 +27161,7 @@
       m.emissiveIntensity = RF.gaugeFull ? base * (1.25 + 0.55 * Math.abs(Math.sin(wtime * 5))) : base;
     }
     // 热度高：枪口冒一缕青烟；满了还噼啪掉火星
-    if (dt > 0 && ent.gearType >= G_GAT && ent.gearType <= G_REV && RF.gaugeK > 0.7 && Math.random() < dt * (RF.gaugeFull ? 9 : 4)) {
+    if (dt > 0 && ent.gearType >= G_GAT && ent.gearType <= G_REV && RF.gaugeK > 0.7 && vrnd() < dt * (RF.gaugeFull ? 9 : 4)) {
       W.entSocket(ent, 'weapon', _rs);
       spawnS(_rs.x, _rs.y + 0.05, _rs.z, rand(-0.1, 0.1), rand(0.4, 0.8), rand(-0.1, 0.1), rand(0.5, 0.9), rand(0.18, 0.28), 0.16, 0.15, 0.15, 0.3);
       smokeLive = 1.2;
@@ -27414,8 +27362,8 @@
   }
 
   // 召唤时的法阵：x, z 落点；big = 石誓守像（更大、更亮、光柱更高）
-  // ghost（skill-b2，万魂降临用）：法阵照旧占池子、照旧每帧取数放余烬，但法阵 / 光柱网格不画（visible = false）；
-  // 外环换成贴地的尘环，火星 / 余烬是骨尘色，不往白里混（随机数一样）
+  // ghost（skill-b2，万魂降临用）：法阵照旧占池子、照旧每帧放余烬，但法阵 / 光柱网格不画（visible = false）；
+  // 外环换成贴地的尘环，火星 / 余烬是骨尘色，不往白里混
   W.summonFx = function (x, z, big, ghost) {
     let s = null;
     for (let i = 0; i < summons.length; i++) if (!summons[i].on) { s = summons[i]; break; }
@@ -27432,7 +27380,7 @@
     s.z = z;
     s.acc = 0;
     s.rung = false;
-    s.dir = Math.random() < 0.5 ? -1 : 1;
+    s.dir = vrnd() < 0.5 ? -1 : 1;
     s.u.uK.value = 0;
     s.u.uA.value = 0;
     s.bm.opacity = 0;
@@ -27472,7 +27420,7 @@
       s.acc += dt * (s.big ? 110 : 60) * (1 - k);
       while (s.acc > 1) {
         s.acc -= 1;
-        const an = Math.random() * TAU, d = Math.sqrt(Math.random()) * s.r * 0.85, w = Math.random() < 0.3 ? (s.ghost ? 0.15 : 0.6) : 0;
+        const an = vrnd() * TAU, d = Math.sqrt(vrnd()) * s.r * 0.85, w = vrnd() < 0.3 ? (s.ghost ? 0.15 : 0.6) : 0;
         spawnP(s.x + Math.sin(an) * d, 0.1, s.z + Math.cos(an) * d, rand(-0.3, 0.3), rand(1.4, 3.6) * (s.big ? 1.25 : 1), rand(-0.3, 0.3), rand(0.5, 1.0), rand(0.09, 0.2),
           ALLY_RGB.r + (1 - ALLY_RGB.r) * w, ALLY_RGB.g + (1 - ALLY_RGB.g) * w, ALLY_RGB.b + (1 - ALLY_RGB.b) * w, -1.2, 0.9);
       }
@@ -27509,7 +27457,7 @@
     u.acc += dt;
     while (u.acc > 0.025) {
       u.acc -= 0.025;
-      const teal = Math.random() < 0.25;
+      const teal = vrnd() < 0.25;
       spawnP(x - u.dx * r + rand(-0.1, 0.1), y + rand(-0.1, 0.1), z - u.dz * r + rand(-0.1, 0.1), rand(-1, 1) - u.dx * 1.4, rand(0.3, 1.6), rand(-1, 1) - u.dz * 1.4, rand(0.25, 0.45), rand(0.08, 0.13),
         teal ? ALLY_RGB.r : 1, teal ? ALLY_RGB.g : rand(0.55, 0.85), teal ? ALLY_RGB.b : 0.2, -1.4, 1.8);
     }
@@ -27626,11 +27574,11 @@
       pfPut('glow', 1.4, 0.55, 0.12);
       if (dt > 0) {
         for (let k = 0; k < 2; k++) {
-          const f = Math.random();
+          const f = vrnd();
           spawnP(x0 + dx * f, y0 + dy * f, z0 + dz * f, rand(-0.8, 0.8), rand(0.2, 1.6), rand(-0.8, 0.8), rand(0.2, 0.4), rand(0.08, 0.14), 1, rand(0.5, 0.85), 0.15, -1, 2);
         }
         spawnP(x1, y1, z1, rand(-2.5, 2.5), rand(0.5, 3), rand(-2.5, 2.5), rand(0.25, 0.45), rand(0.1, 0.18), 1, 0.6, 0.2, 6, 1.5);
-        if (Math.random() < dt * 12) flashLight(x1, y1 + 0.5, z1, 0xff8a3c, 1.1);
+        if (vrnd() < dt * 12) flashLight(x1, y1 + 0.5, z1, 0xff8a3c, 1.1);
       }
     }
     // 杖头的焰蓄：一团随焰蓄长大的焚火光晕，满了以后一跳一跳地往上蹿火舌
@@ -27651,7 +27599,7 @@
         const h = 0.25 + 0.12 * Math.sin(wtime * 17 + ent.phase);
         mStretch(_rs.x, _rs.y + h * 0.5, _rs.z, 0, 1, 0, 0.22, h * 1.6);
         pfPut('flame', 1, 0.42, 0.08);
-        if (dt > 0 && Math.random() < dt * 20) spawnP(_rs.x + rand(-0.06, 0.06), _rs.y + 0.1, _rs.z + rand(-0.06, 0.06), rand(-0.3, 0.3), rand(1, 2.4), rand(-0.3, 0.3), rand(0.3, 0.5), rand(0.07, 0.12), 1, 0.7, 0.25, -1, 1);
+        if (dt > 0 && vrnd() < dt * 20) spawnP(_rs.x + rand(-0.06, 0.06), _rs.y + 0.1, _rs.z + rand(-0.06, 0.06), rand(-0.3, 0.3), rand(1, 2.4), rand(-0.3, 0.3), rand(0.3, 0.5), rand(0.07, 0.12), 1, 0.7, 0.25, -1, 1);
       }
     }
   }
@@ -27663,8 +27611,8 @@
     const n = c.name, g = ent.group.position;
     if (n === 'rise') {
       // 一团焚火从地里翻上来，夹着几点魂火青
-      if (ent.cK < 0.7 && Math.random() < 0.7) {
-        const a = rand(0, TAU), d = rand(0.05, 0.45), teal = Math.random() < 0.3;
+      if (ent.cK < 0.7 && vrnd() < 0.7) {
+        const a = rand(0, TAU), d = rand(0.05, 0.45), teal = vrnd() < 0.3;
         spawnP(g.x + Math.sin(a) * d, 0.1, g.z + Math.cos(a) * d, Math.sin(a) * rand(0.2, 0.8), rand(1.6, 3.6), Math.cos(a) * rand(0.2, 0.8), rand(0.35, 0.7), rand(0.12, 0.22),
           teal ? ALLY_RGB.r : 1, teal ? ALLY_RGB.g : rand(0.45, 0.7), teal ? ALLY_RGB.b : 0.12, -1.5, 1.2);
       }
@@ -27675,7 +27623,7 @@
       for (let i = 0; i < 6; i++) spawnP(_sk.x, _sk.y, _sk.z, rand(-1.5, 1.5), rand(0.5, 2.5), rand(-1.5, 1.5), rand(0.2, 0.4), rand(0.08, 0.13), 1, 0.7, 0.25, 4, 2);
     } else if (n === 'cast2') {
       W.entSocket(ent, 'weapon', _sk);
-      if (ent.cK > 0.2 && ent.cK < c.k0 && Math.random() < 0.8) spawnP(_sk.x + rand(-0.08, 0.08), _sk.y, _sk.z + rand(-0.08, 0.08), rand(-0.3, 0.3), rand(2.5, 5), rand(-0.3, 0.3), rand(0.3, 0.55), rand(0.12, 0.2), 1, rand(0.45, 0.75), 0.12, -1, 1);
+      if (ent.cK > 0.2 && ent.cK < c.k0 && vrnd() < 0.8) spawnP(_sk.x + rand(-0.08, 0.08), _sk.y, _sk.z + rand(-0.08, 0.08), rand(-0.3, 0.3), rand(2.5, 5), rand(-0.3, 0.3), rand(0.3, 0.55), rand(0.12, 0.2), 1, rand(0.45, 0.75), 0.12, -1, 1);
       if (crossed(ent, c.k0)) {
         flare(_sk.x, _sk.y, _sk.z, 0xffc070, 2.4, 0.2);
         flashLight(_sk.x, _sk.y, _sk.z, 0xff8a3c, 1.8);
@@ -27785,7 +27733,7 @@
     const y = Math.min(2.4, h * 0.55);
     flashLight(x, y + 1, z, 0xffc27a, 2.6);
     flare(x, y, z, 0xffd9a8, 2.6 + (r || 0.6), 0.16);
-    const a0 = Math.random() * TAU;
+    const a0 = vrnd() * TAU;
     for (let i = 0; i < MARK_N; i++) W.slash(x, z, a0 + (i / MARK_N) * TAU, 1.4 + (r || 0.6), 70, i % 2 ? 0xffe2b8 : 0xff9b3d, { y: y * (0.75 + 0.1 * i), dur: 0.2, inner: 0.55, dir: i % 2 ? -1 : 1 });
     W.ring(x, z, (r || 0.6) + (R || 2.0), 0xffb066, 0.32);
     W.burst(x, y, z, 0xfff0d0, 30, 8, 0.4);
@@ -27852,9 +27800,9 @@
     flare(x, 0.9, z, ALLY_HEX, 2.4, 0.16);
     W.ring(x, z, R, ALLY_HEX, 0.42);
     W.ring(x, z, R * 0.65, 0xff9b3d, 0.3);
-    W.decal(1, x, z, R * 0.6, Math.random() * TAU, ALLY_HEX, 2.5);
+    W.decal(1, x, z, R * 0.6, vrnd() * TAU, ALLY_HEX, 2.5);
     for (let i = 0; i < 36; i++) {
-      const a = rand(0, TAU), d = Math.sqrt(Math.random()) * R * 0.8, warm = i % 3 === 0;
+      const a = rand(0, TAU), d = Math.sqrt(vrnd()) * R * 0.8, warm = i % 3 === 0;
       const r = warm ? 1 : ALLY_RGB.r, g = warm ? 0.6 : ALLY_RGB.g, b = warm ? 0.25 : ALLY_RGB.b;
       spawnP(x + Math.sin(a) * d * 0.3, 0.2, z + Math.cos(a) * d * 0.3, Math.sin(a) * rand(2, 5), rand(1.5, 4.5), Math.cos(a) * rand(2, 5), rand(0.45, 0.9), rand(0.16, 0.3), r, g, b, -1.5, 1.4);
     }
@@ -28011,8 +27959,7 @@
   W.ashBurst = function (x, z, h, r, n, mk) {
     const y = Math.min(2.4, (h || 2) * 0.55), rr = r || 0.6, b2 = !!PF.vShape;
     flashLight(x, y + 1.2, z, EMBER, 2.2);
-    if (b2) rBurn(1); // flare 的 1 次
-    else flare(x, y, z, EMBER, 2.2 + rr + Math.min(6, n) * 0.2, 0.16);
+    if (!b2) flare(x, y, z, EMBER, 2.2 + rr + Math.min(6, n) * 0.2, 0.16);
     const cnt = Math.min(8, 2 + n);
     const a0 = rand(0, TAU);
     for (let i = 0; i < cnt; i++) {
@@ -28029,7 +27976,6 @@
       vstreak(x - 0.9, y + 1.6, z, x + 0.9, 0.2, z, 0.18, EMBER, 0.06);
       b2AshDrop(x + 0.8, y + 1.5, z, x - 0.7, 0.2, z);
       b2Ring(x, z, rr + 2.2, EMBER, 0x5a2410, 0.36);
-      rBurn(1 + (12 + Math.min(6, n) * 2) * 6); // 擦痕 W.decal 1 次 + 近白火花 W.burst 每粒 6 次
       b2AshAfter(x, y, z, rr, n);
     } else {
       vstreak(x - 0.9, y + 1.6, z, x + 0.9, 0.2, z, 0.35, EMBER_HI, 0.24);
@@ -28041,8 +27987,7 @@
     }
     W.burst(x, y, z, EMBER, 22 + Math.min(6, n) * 3, 7, 0.6);
     if (mk > 0 && b2) {
-      // skill-b2：吃掉残刃的那圈金色刃光（W.slash 近白的金色月牙 + 粗环）→ 形状批里琥珀色的细弯月 + 细环；W.slash 的碎片每块 7 次照取
-      rBurn(Math.min(5, mk) * (qualId === 'low' ? 2 : 4) * 7);
+      // skill-b2：吃掉残刃的那圈金色刃光（W.slash 近白的金色月牙 + 粗环）→ 形状批里琥珀色的细弯月 + 细环
       b2AshMarks(x, y, z, a0, rr, Math.min(5, mk));
       b2Ring(x, z, rr + 3, 0xffb060, 0x6a3010, 0.42);
     } else if (mk > 0) {
@@ -28130,18 +28075,18 @@
       s.acc += dt;
       while (s.acc > 0.035) {
         s.acc -= 0.035;
-        const a = rand(0, TAU), d = Math.sqrt(Math.random()) * s.R * 1.05;
+        const a = rand(0, TAU), d = Math.sqrt(vrnd()) * s.R * 1.05;
         spawnS(s.x + Math.sin(a) * d, rand(5.6, 6.6), s.z + Math.cos(a) * d * 0.7, rand(-0.6, 0.6), rand(-0.1, 0.2), rand(-0.6, 0.6), rand(1.0, 1.5), rand(2.2, 3.4), 0.24, 0.21, 0.3, 0.8);
         smokeLive = 1.5;
-        const t = (Math.random() * 3) | 0, b = rand(0, TAU), r0 = s.R * rand(0.8, 1.0);
+        const t = (vrnd() * 3) | 0, b = rand(0, TAU), r0 = s.R * rand(0.8, 1.0);
         _c.set(STORM_HEX[t]);
         spawnP(s.x + Math.sin(b) * r0, 0.25, s.z + Math.cos(b) * r0, Math.cos(b) * 3 - Math.sin(b) * 1.5, rand(0.4, 1.4), -Math.sin(b) * 3 - Math.cos(b) * 1.5, rand(0.4, 0.7), rand(0.12, 0.2), _c.r, _c.g, _c.b, -0.3, 1.2);
       }
       s.flash -= dt;
       if (s.flash <= 0) {
         s.flash = rand(0.08, 0.2);
-        const a = rand(0, TAU), d = Math.sqrt(Math.random()) * s.R;
-        const hx = STORM_HEX[(Math.random() * 3) | 0];
+        const a = rand(0, TAU), d = Math.sqrt(vrnd()) * s.R;
+        const hx = STORM_HEX[(vrnd() * 3) | 0];
         flare(s.x + Math.sin(a) * d, rand(5.6, 6.4), s.z + Math.cos(a) * d * 0.7, hx, rand(2.5, 4.5), 0.12);
       }
     }
@@ -28181,7 +28126,7 @@
   // 风暴的一击开始落下：t = 'fire' 陨火 / 'cold' 冰棱 / 'light' 云里先蓄一下光（落雷是瞬间的，在落地那一刻劈下）
   W.triStrike = function (x, z, t, r, fall) {
     if (t === 'fire') {
-      // skill-b1：落地走陨火的新画法（meteorLand2），空取补上旧画法（meteorLand）多取的那些次
+      // skill-b1：落地走陨火的新画法（meteorLand2），碎岩照旧画法压暗（oldRng）
       const tok = W.meteorFall(x, z, fall, STORM_HEX[0]);
       W.meteorMark(tok, r);
       if (tok) tok.m.oldRng = 1;
@@ -28215,7 +28160,6 @@
       b2Ring(x, z, R, mixHex(ALLY_HEX, 0x000000, 0.3), mixHex(ALLY_HEX, 0x0a1a18, 0.65), 0.7);
       b2Ring(x, z, R * 0.7, mixHex(EMBER, 0x000000, 0.35), 0x3a1a10, 0.55);
       b2Ring(fx, fz, 2.6, B2_DUST, B2_DUST_D, 0.45);
-      rBurn(2); // W.decal：rand 角度 1 次 + 自己的 1 次
       W.vDecal(VVD.scorch, fx, fz, 1.2, 2.5, B2_DUST_D);
     } else {
       W.ring(x, z, R, ALLY_HEX, 0.7);
@@ -28230,17 +28174,16 @@
       spawnP(fx + dx * k, 0.4 + Math.sin(k * Math.PI) * 2.2, fz + dz * k, (dx / d) * 4, rand(0.5, 1.5), (dz / d) * 4, rand(0.5, 0.8), rand(0.16, 0.26), warm ? 1 : ALLY_RGB.r, warm ? 0.62 : ALLY_RGB.g, warm ? 0.3 : ALLY_RGB.b, -0.6, 1);
     }
     for (let i = 0; i < 40; i++) {
-      const a = rand(0, TAU), r = Math.sqrt(Math.random()) * R;
+      const a = rand(0, TAU), r = Math.sqrt(vrnd()) * R;
       spawnP(x + Math.sin(a) * r, 0.15, z + Math.cos(a) * r, 0, rand(3, 7), 0, rand(0.6, 1.2), rand(0.14, 0.28), ALLY_RGB.r, ALLY_RGB.g, ALLY_RGB.b, -1.5, 0.8);
     }
   };
   // 一位英灵从天而降：一道魂火青的天光柱直劈到落点，外面裹一层余烬橙，落点亮起召唤法阵
-  // skill-b2：三道加色光带（近白芯、每道一次 draw）换成形状批里压暗的光柱（b2Pillar），法阵走鬼影，flare 的 1 次照取
+  // skill-b2：三道加色光带（近白芯、每道一次 draw）换成形状批里压暗的光柱（b2Pillar），法阵走鬼影（不画大法阵 / 光柱网格）
   W.champFx = function (x, z) {
     if (PF.vShape) {
       b2Pillar(x, z);
       W.summonFx(x, z, false, true);
-      rBurn(1);
       return;
     }
     vstreak(x, 15, z, x, 0, z, 0.9, ALLY_HEX, 0.5);
@@ -28250,13 +28193,11 @@
     flare(x, 0.6, z, ALLY_HI, 2.6, 0.16);
   };
   // 英灵落地一砸：冲击环、地裂、扬尘
-  // skill-b2：粗薄荷环 → 碎骨 + 尘环 + 暗焦痕；薄荷色的火花团照取随机数（W.burst 每粒 6 次）、不画，尘照旧
+  // skill-b2：粗薄荷环 → 碎骨 + 尘环 + 暗焦痕；薄荷色的火花团不画，尘照旧
   W.champLand = function (x, z, R) {
     if (PF.vShape) {
-      rBurn(2); // W.decal：rand 角度 1 次 + 自己的 1 次
       b2BoneLand(x, z, R, false);
       W.burst(x, 0.3, z, 0xcbbba6, 12, 5, 0.45);
-      rBurn(14 * 6);
       W.shake(0.12);
       return;
     }
@@ -28744,7 +28685,7 @@
     // 同一次施放的几团同向、同相位地转：刚出手和一起吸在同一只怪上时重叠在一起，叠成一根更粗的龙卷，不交叉成网格。
     // 只有摆动的相位（种子）各不相同
     v.spin = 0;
-    v.seed = 0.1 + ((k * 0.618 + Math.random()) % 1) * 0.9;
+    v.seed = 0.1 + ((k * 0.618 + vrnd()) % 1) * 0.9;
     v.lat = false;
     v.tg = 0; // 收紧程度（趋向 tgT，没给 tgT 时趋向 lat）
     v.tgT = null;
@@ -28904,7 +28845,7 @@
       flame.acc -= 1;
       const a = rand(0, TAU), d = rand(0.2, 0.55), x = P.x + Math.sin(a) * d, z = P.z + Math.cos(a) * d;
       // 暗紫的烟团垫底（形状），品红转近黑的尖片往上窜（亮芯那一档是特效高光段）
-      if (Math.random() < 0.4) tChunk(2, x, rand(0.4, 1.5), z, 0, 0, 0, rand(0.5, 0.7), rand(0.16, 0.24), CH_DARK, CH_CORE, -1.6);
+      if (vrnd() < 0.4) tChunk(2, x, rand(0.4, 1.5), z, 0, 0, 0, rand(0.5, 0.7), rand(0.16, 0.24), CH_DARK, CH_CORE, -1.6);
       else tChunk(0, x, rand(0.3, 1.2), z, rand(-0.3, 0.3), rand(1.8, 2.8), rand(-0.3, 0.3), rand(0.45, 0.65), rand(0.18, 0.26), CH_HI, CH_RIM, -0.5);
     }
   }
@@ -29840,11 +29781,7 @@
   W.gloomInfo = () => ({ near: scene.fog.near, far: scene.fog.far, lamp: lamp.distance, tag: gloomP ? gloomP.tag : 0 });
 
   // ---------- 每帧更新 ----------
-  // ghost（vf-vfx3）：随机数照取、粒子不放。氛围不论开关 / 画质都按原来的节奏调这个函数，全局随机序列和改版前一样
-  // （高画质有 Points、低画质减半、设置关掉时就是 ghost），否则后面的暴击、怪的行动、掉落都会跟着换一套
-  const noP = () => {}, spawnP0 = spawnP;
-  function spawnAmbient(fx, ghost) {
-    const spawnP = ghost ? noP : spawnP0;
+  function spawnAmbient(fx) {
     const x = camT.x + rand(-26, 26), z = camT.z + CAM_LEAD + rand(-22, 13);
     const mode = fx.st.amb;
     if (mode === 'snow') {
@@ -29853,7 +29790,7 @@
       spawnP(x, rand(0.2, 3.5), z, rand(-2, 2), rand(-1, 2), rand(-2, 2), rand(0.3, 0.8), rand(0.06, 0.12), fx.ar * 0.6, fx.ag * 0.6, fx.ab * 0.6, 0, 0.5);
     } else if (mode === 'mote') {
       // 星尘：从琉璃地面的裂缝里缓缓升起，偶尔一粒偏白
-      const w = Math.random() < 0.3 ? 0.6 : 0;
+      const w = vrnd() < 0.3 ? 0.6 : 0;
       spawnP(x, rand(0.05, 0.6), z, rand(-0.2, 0.2), rand(0.35, 0.95), rand(-0.2, 0.2), rand(3, 5.5), rand(0.06, 0.14), fx.ar + (1 - fx.ar) * w, fx.ag + (1 - fx.ag) * w, fx.ab + (1 - fx.ab) * w, -0.05, 0.25);
     } else {
       spawnP(x, rand(0.1, 1.2), z, rand(-0.2, 0.9), rand(0.5, 1.7), rand(-0.4, 0.4), rand(2.2, 4.5), rand(0.08, 0.2), fx.ar, fx.ag * 0.8, fx.ab * 0.6, -0.25, 0.15);
@@ -29881,8 +29818,8 @@
     icullUpdate(camT.x, camT.z + CAM_LEAD); // 远处的实例不画（zones-polish）
     let sx = 0, sy = 0;
     if (shakeAmt > 0.002) {
-      sx = (Math.random() - 0.5) * shakeAmt * 1.1;
-      sy = (Math.random() - 0.5) * shakeAmt * 1.1;
+      sx = (vrnd() - 0.5) * shakeAmt * 1.1;
+      sy = (vrnd() - 0.5) * shakeAmt * 1.1;
       shakeAmt *= Math.exp(-raw * 10);
     } else shakeAmt = 0;
     if (punchX !== 0 || punchZ !== 0) {
@@ -29935,7 +29872,7 @@
         while (fx.ambAcc > 1) {
           fx.ambAcc -= 1;
           fx.ambOdd = !fx.ambOdd;
-          spawnAmbient(fx, !real || (qualId === 'low' && fx.ambOdd)); // 低画质每两粒只放一粒
+          if (real && !(qualId === 'low' && fx.ambOdd)) spawnAmbient(fx); // 低画质每两粒只放一粒
         }
       }
       fx.crystalMat.emissiveIntensity = 0.95 + Math.sin(wtime * 1.7) * 0.2;
@@ -29978,7 +29915,7 @@
         fx.starIn -= dt;
         if (fx.starIn <= 0) {
           fx.starIn = rand(2.5, 6);
-          const sx = camT.x + rand(-16, 16), sy = rand(5, 8), sz = camT.z - rand(6, 13), dx = rand(0.6, 1) * (Math.random() < 0.5 ? -1 : 1), dy = -0.32, dz = 0.2, v = 24;
+          const sx = camT.x + rand(-16, 16), sy = rand(5, 8), sz = camT.z - rand(6, 13), dx = rand(0.6, 1) * (vrnd() < 0.5 ? -1 : 1), dy = -0.32, dz = 0.2, v = 24;
           for (let i = 0; i < 16; i++) {
             const w = 1 - i / 16;
             spawnP(sx - dx * i * 0.22, sy - dy * i * 0.22, sz - dz * i * 0.22, dx * v, dy * v, dz * v, 0.25 + 0.4 * w, 0.06 + 0.16 * w, fx.ar + (1 - fx.ar) * w, fx.ag + (1 - fx.ag) * w, fx.ab + (1 - fx.ab) * w, 0, 0);
@@ -30048,15 +29985,15 @@
         while (u.ember >= 1 && u.frost) {
           // 霜晶：慢慢升起、一路减速的冷蓝细点，偶尔一粒亮白
           u.ember -= 1;
-          if (Math.random() < 0.4) continue; // 比火星稀一些
-          const a = rand(0, TAU), d = Math.sqrt(Math.random()) * 1.1, w = Math.random() < 0.2;
-          spawnP(p.x + Math.sin(a) * d, 0.1 + Math.random() * 0.5, p.z + Math.cos(a) * d, rand(-0.2, 0.2), rand(0.5, 1.5), rand(-0.2, 0.2), rand(0.8, 1.4), w ? rand(0.08, 0.12) : rand(0.05, 0.1),
+          if (vrnd() < 0.4) continue; // 比火星稀一些
+          const a = rand(0, TAU), d = Math.sqrt(vrnd()) * 1.1, w = vrnd() < 0.2;
+          spawnP(p.x + Math.sin(a) * d, 0.1 + vrnd() * 0.5, p.z + Math.cos(a) * d, rand(-0.2, 0.2), rand(0.5, 1.5), rand(-0.2, 0.2), rand(0.8, 1.4), w ? rand(0.08, 0.12) : rand(0.05, 0.1),
             w ? 0.75 : 0.22, w ? 0.9 : 0.6, 1, 0.25, 1.4);
         }
         while (u.ember >= 1) {
           u.ember -= 1;
-          const a = rand(0, TAU), d = Math.sqrt(Math.random()) * 1.1, w = Math.random() < 0.25 ? 0.5 : 0;
-          spawnP(p.x + Math.sin(a) * d, 0.1 + Math.random() * 0.6, p.z + Math.cos(a) * d, rand(-0.25, 0.25), rand(1.0, 2.8), rand(-0.25, 0.25), rand(0.6, 1.3), rand(0.08, 0.16),
+          const a = rand(0, TAU), d = Math.sqrt(vrnd()) * 1.1, w = vrnd() < 0.25 ? 0.5 : 0;
+          spawnP(p.x + Math.sin(a) * d, 0.1 + vrnd() * 0.6, p.z + Math.cos(a) * d, rand(-0.25, 0.25), rand(1.0, 2.8), rand(-0.25, 0.25), rand(0.6, 1.3), rand(0.08, 0.16),
             u.er + (1 - u.er) * w, u.eg * 0.8 + (1 - u.eg) * w, u.eb * 0.5 + w * 0.6, -0.9, 0.6);
         }
       }
@@ -31110,4 +31047,12 @@
     b1Chips(x, y, z, lo ? 2 : 4, 0.1, 1.5, 3.5, 0x8a7a64, 0x3a3028, 0.05, 0.1);
     return true;
   };
+
+  // ---------- fx-rng：放特效的入口按特效取种子 ----------
+  // 这些入口每调一次，画面随机数（rand / vrnd / vr / textRand）从（名字, 模拟第几步, 这一步里这个名字的第几次）起一路新的（data.js 的 G.fxFn），
+  // 返回后接着走调用处那一路。同一个特效在 高 / 低、特效多的时候少的时候看起来一样，也不牵动玩法的随机序列。
+  // 每帧的更新（updateFires、spawnAmbient、余辉闪烁……）不在这里：它们取这一步自己的一路
+  const FX_SEEDED = 'arrowRain b2Strand ashBurst ashDash ashMark ashSheathe bindFx bleedDrip blinkBand blinkLand bolt breakFx burst cancelMeteor cbBurst cbPop champFade champLand chaosTick chill coreBlast dashCut dashFx decal die dischargeFx elemBurst emberGround emberSpark encProp fireNova flameCone flameHit focusZap foeHit frostLineSeg frostSparkle fxFlip gaugeFull iceRain iceRainFollow icicleLand icicleSlam impact lanceTip lootPick makeHole makeLoot makeProjectile makeVortex makeWisp markBurstFx markJumpFx meteorFall moltenSplash netWedge projImpact pyreBlast pyreCharge pyreMeteorLand relicBridgeOn relicStomp relicTideBurst removeHole rendWave riftBeam riftStrike riftWell rimeFan ring rvTideBurst seekerFx shadowStep shockwave slash smashFx smoke soulFireFx soulHeal soulHost soulTide spark spinBlades spinPulse summonFx sweepFx text thrustFx triFx triStrike updateVortex vDecal voidFx vortexBounce vSpikeRing vSuck wedgeStick wedgeZap wispBurst'.split(' ');
+  for (const k of FX_SEEDED) if (typeof W[k] === 'function') W[k] = G.fxFn(k, W[k]);
+  W.fxSeeded = () => FX_SEEDED.filter((k) => typeof W[k] === 'function' && W[k].length >= 0); // 测试用
 })();

@@ -215,6 +215,7 @@
   let saveT = 0;
   // raw 是真实时间；顿帧 / 慢动作把它缩成游戏时间 dt 后再推进各系统（定格的那几帧只更新镜头和飘字）
   function sim(raw) {
+    G.fxStep(); // 画面随机数：这一步自己的一路（data.js）
     const dt = raw * G.flowStep(raw);
     if (dt > 0) {
       G.state.time += dt;
