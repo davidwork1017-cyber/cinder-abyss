@@ -369,17 +369,39 @@ await step('竖屏（iPhone 竖着拿）：标题画面点「横屏开始」→ 
   assert(rot2 && g0.st.rot === rot2 && !g0.open && !g0.st.blocked, '重载后应接着转、进到游戏里：' + JSON.stringify({ rot2, g0 }));
   // 摇杆：画面里往右 = 屏幕上往下（顺时针）/ 往上（逆时针）
   const sy = g0.st.rot === 'cw' ? 1 : -1;
+  // 位移全按模拟时间量，起点固定：先停住实时模拟（hold 同时清掉残留的输入），手上还有没做完的动作（出手 / 翻滚 / 处决）就不带输入推进到做完（最多 2 秒），
+  // 再按住摇杆、推进 0.3 秒。以前按住后先按墙钟等 300 ms，期间实时循环跑几帧算几帧（机器忙时只有一两帧），量的时候处在什么状态不确定：
+  // 一次 ui-b4b 的运行在 0.3 秒里只走了 1.152 m（满速 2.16 m）
+  const pre = await ev(() => {
+    const P = G.player;
+    G.debug.hold(true);
+    const busy = () => !!(P.cast || P.roll.t > 0 || P.exec);
+    const was = { cast: P.cast ? P.cast.id + '@' + (P.cast.t || 0).toFixed(2) : '', roll: +P.roll.t.toFixed(2), exec: !!P.exec, t: +G.state.time.toFixed(2) };
+    let n = 0;
+    while (busy() && n < 120) {
+      G.debug.step(1 / 60);
+      n++;
+    }
+    return { was, settle: n, busy: busy() };
+  });
+  assert(!pre.busy, '停住模拟后手上的动作 2 秒内应做完：' + JSON.stringify(pre));
   await touch('touchstart', '#t-stick', 0, 0);
   await touch('touchmove', '#t-stick', 0, 50 * sy);
-  await page.waitForTimeout(300);
-  // 按住时按模拟时间推进 0.3 秒量位移（按墙钟等的话，机器忙时一秒只跑几帧，走的距离不定）
   const m = await ev(() => {
-    const x0 = G.player.x;
-    G.debug.step(0.3);
-    return { mv: G.input.move && { x: G.input.move.x, z: G.input.move.z, k: G.input.move.k }, x: G.player.x, dx: G.player.x - x0, sp: G.player.moveSpeed };
+    const P = G.player, inp = G.input, x0 = P.x, z0 = P.z;
+    const mv = inp.move && { x: inp.move.x, z: inp.move.z, k: inp.move.k };
+    const fr = [];
+    for (let i = 0; i < 18; i++) {
+      const xa = P.x;
+      G.debug.step(1 / 60);
+      fr.push(+(P.x - xa).toFixed(3) + (P.cast ? '*' + P.cast.id : '') + (P.roll.t > 0 ? 'R' : ''));
+    }
+    return { mv, x: P.x, dx: P.x - x0, dz: P.z - z0, sp: P.moveSpeed, fr };
   });
   await touch('touchend', '#t-stick', 0, 50 * sy);
-  assert(m.mv && m.mv.x > 0.95 && m.dx > 0.3 * m.sp * 0.7, '转着时摇杆往画面右边拖应往右走：' + JSON.stringify({ g0, m }));
+  await ev(() => G.debug.hold(false));
+  // 满速 0.3 秒走 0.3 × moveSpeed，至少要七成；方向是画面右边（+x），侧向偏不到前进的一成
+  assert(m.mv && m.mv.x > 0.95 && m.mv.k === 1 && m.dx > 0.3 * m.sp * 0.7 && Math.abs(m.dz) < 0.1 * m.dx, '转着时摇杆往画面右边拖应往右走：' + JSON.stringify({ g0, pre, m }));
   // 按住主攻
   await ev(() => {
     window.__casts = 0;
@@ -408,7 +430,7 @@ await step('竖屏（iPhone 竖着拿）：标题画面点「横屏开始」→ 
   });
   await ev(() => G.ui.close());
   assert(pw.open && Math.abs(pw.r.width - 664) < 2 && Math.abs(pw.r.height - 390) < 2, '转着时背包应铺满画面：' + JSON.stringify(pw));
-  return '锁横屏 ' + (t0.lock ? '有' : '无') + ' → 旋转 ' + t1.st.rot + '（' + t1.vw + '×' + t1.vh + '），重载后接着转；走了 ' + (m.x - g0.x).toFixed(2) + ' m，主攻 ' + c.casts + ' 次，背包铺满';
+  return '锁横屏 ' + (t0.lock ? '有' : '无') + ' → 旋转 ' + t1.st.rot + '（' + t1.vw + '×' + t1.vh + '），重载后接着转；走了 ' + (m.x - g0.x).toFixed(2) + ' m，主攻 ' + c.casts + ' 次，背包铺满' + (pre.settle ? '（量位移前先把手上的动作做完：' + pre.settle + ' 帧，' + JSON.stringify(pre.was) + '）' : '');
 });
 
 await step('iPhone 圆角：四角各一块半径 47 px 的遮罩，标题、职业选择、开场故事、HUD（提示卡、旁白卡、首领条、F 键）、背包、技能、暂停菜单、开场卡片的字和按钮都不碰', async () => {
