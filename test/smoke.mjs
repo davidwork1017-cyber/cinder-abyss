@@ -25191,6 +25191,72 @@ async function touchSteps() {
     return '按钮 ' + acts.join(' / ') + '；打 ' + busy.sec + ' 秒文字处理 ' + busy.calls + ' 次，提示卡收成一行';
   });
 
+  await step('旁白卡：帧率掉到约 2 fps 时按真实时间放，长度和正常时一样（约 5 秒）；触屏下不压顶栏、小地图、追踪条、按钮簇和提示卡', async () => {
+    await touchPage();
+    await ev(() => {
+      sessionStorage.setItem('cinder-test-narr', '1');
+      window.__noNarr = false;
+      G.debug.tpBoss();
+      G.debug.step(1); // 第 1 步「走到首领场地门口」
+      G.killEnemy(G.state.boss);
+      G.debug.killAll();
+      G.debug.step(0.5);
+      for (let i = G.state.loot.length - 1; i >= 0; i--) G.state.loot.splice(i, 1);
+      // 把帧率压到约 2 fps：每帧里空转 450 ms
+      window.__thr = true;
+      const blk = () => {
+        if (!window.__thr) return;
+        const t = performance.now();
+        while (performance.now() - t < 450) {}
+        requestAnimationFrame(blk);
+      };
+      requestAnimationFrame(blk);
+      // 每 50 ms 记一次卡片开没开（setTimeout 插在两帧之间跑）
+      window.__nt = { on: 0, off: 0 };
+      const poll = () => {
+        const v = G.ui.narr();
+        if (v.on && !window.__nt.on) window.__nt.on = performance.now(), (window.__nt.dur = v.dur), (window.__nt.id = v.id);
+        if (window.__nt.on && !v.on && !window.__nt.off) window.__nt.off = performance.now();
+        if (!window.__nt.off) setTimeout(poll, 50);
+      };
+      poll();
+      G.debug.hold(false);
+    });
+    await until(() => window.__nt.on > 0, null, 60000);
+    await sleep(800);
+    // 卡片在的时候量一下位置
+    const lay = await ev(() => {
+      const box = (s) => {
+        const n = document.querySelector(s);
+        if (!n || !n.getClientRects().length) return null;
+        const b = n.getBoundingClientRect();
+        return { l: b.left, t: b.top, r: b.right, b: b.bottom };
+      };
+      const mm = G.world.mmTouch;
+      const n = box('#narr');
+      const others = { top: box('#t-top'), tracker: document.getElementById('quest').textContent ? box('#quest') : null, minimap: mm ? { l: mm.x, t: mm.y, r: mm.x + 110, b: mm.y + 110 } : null, coach: document.getElementById('coach').classList.contains('on') ? box('#coach') : null };
+      const tb = Array.from(document.querySelectorAll('[data-tb]')).filter((x) => x.getClientRects().length).map((x) => x.getBoundingClientRect());
+      const hits = [];
+      for (const k in others) {
+        const o = others[k];
+        if (o && n.l < o.r && o.l < n.r && n.t < o.b && o.t < n.b) hits.push(k);
+      }
+      if (tb.some((o) => n.l < o.right && o.left < n.right && n.t < o.bottom && o.top < n.bottom)) hits.push('cluster');
+      return { n, hits };
+    });
+    await until(() => window.__nt.off > 0, null, 90000);
+    const r = await ev(() => {
+      window.__thr = false;
+      G.debug.hold(true);
+      sessionStorage.removeItem('cinder-test-narr');
+      window.__noNarr = true;
+      return { id: window.__nt.id, dur: window.__nt.dur, wall: +((window.__nt.off - window.__nt.on) / 1000).toFixed(2) };
+    });
+    assert(r.id === 'ash_boss' && Math.abs(r.wall - r.dur) < 1.3, '约 2 fps 时旁白卡应按真实时间放完：' + JSON.stringify(r));
+    assert(lay.n && !lay.hits.length, '触屏下旁白卡压到了：' + JSON.stringify(lay));
+    return '设定 ' + r.dur.toFixed(1) + ' 秒，约 2 fps 下实际 ' + r.wall + ' 秒';
+  });
+
   await step('触屏：切到后台 / pagehide 时存档，并遵守「另一个标签页写过就停写」；触屏模式下切回来停在暂停菜单', async () => {
     const r = await ev(() => {
       G.debug.hold(true);

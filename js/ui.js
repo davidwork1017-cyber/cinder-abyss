@@ -4411,7 +4411,9 @@
     return true;
   }
   function updateNarr(now) {
-    const dt = nc.last ? Math.min(0.1, (now - nc.last) / 1000) : 0;
+    // 按真实时间走（只是界面，和模拟无关）：帧率很低时一帧 0.5 秒以上，原来封顶 0.1 秒会把 5 秒的卡拖成 20 秒。
+    // 单帧封顶 1 秒：切到后台再回来（rAF 停了很久）最多跳 1 秒，盖着的时候照旧停住（见下面 blocked）
+    const dt = nc.last ? Math.min(1, (now - nc.last) / 1000) : 0;
     nc.last = now;
     if (G.saveEpoch !== nc.epoch) {
       // 换了角色 / 读档：之前那份存档排着的卡不带过去（换档之后才排上的留着，可能和换档在同一帧），正在放的收起

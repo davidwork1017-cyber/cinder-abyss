@@ -4053,6 +4053,68 @@ body.paused #reticle, body.paused #coach { display: none; }
 .m-view.still { animation: none; }
 
 /* ============================================================
+   主线旁白卡（quest D3，ui.js updateNarr）：和开场故事的字幕框同一个样子（米色底、墨色粗边、硬投影），
+   屏幕中下方居中（角色脚下和技能栏之间，不挡角色和前方的路）；只有卡片本身接点击（点一下跳过），其余地方照常是游戏输入
+   ============================================================ */
+#narr {
+  position: fixed;
+  left: 50%;
+  bottom: max(26%, 200px);
+  z-index: 32;
+  display: none;
+  max-width: calc(100vw - 32px);
+  box-sizing: border-box;
+  padding: 0.5em 0.95em 0.55em;
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: clamp(15px, 1.6vw, 21px);
+  line-height: 1.55;
+  letter-spacing: 0.04em;
+  color: #1d130d;
+  background: #f2e8d2;
+  border: 2.5px solid #120b08;
+  box-shadow: 4px 4px 0 rgba(10, 6, 4, 0.9);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  opacity: 0;
+  transform: translate(-50%, 6px);
+  transition: opacity var(--narr-out, 0.6s) ease, transform var(--narr-out, 0.6s) ease;
+}
+#narr.show { display: block; }
+#narr.on { opacity: 1; transform: translate(-50%, 0); transition-duration: var(--narr-in, 0.4s); }
+#narr.held { visibility: hidden; }
+#narr p { margin: 0; white-space: nowrap; }
+#narr p + p { opacity: 0; transition: opacity 0.4s ease; }
+#narr.l2 p + p { opacity: 1; }
+@media (max-width: 560px) {
+  #narr { bottom: max(24%, 190px); width: calc(100vw - 32px); text-align: center; }
+  #narr p { white-space: normal; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #narr, #narr.on { transform: translate(-50%, 0); }
+}
+
+/* ============================================================
+   开场卡片在矮窗口（桌面小窗、手机横屏）：收紧排版，「开始」一直在屏幕里（最低 360 高）
+   ============================================================ */
+@media (max-height: 600px) {
+  .intro-card { max-height: calc(100vh - 12px); overflow-y: auto; box-sizing: border-box; padding: 14px 24px 12px; }
+  .intro-title { font-size: 30px; letter-spacing: 12px; text-indent: 12px; }
+  .intro-sub { margin-top: 0; }
+  .intro-keys { grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0 10px; }
+  .intro-keys div { padding: 8px 4px 7px; font-size: 12.5px; line-height: 17px; letter-spacing: 1px; }
+  .intro-keys span { margin-bottom: 5px; }
+  .intro-card p { margin-bottom: 10px; line-height: 19px; }
+  #intro-go { height: 36px; }
+  .intro-foot { margin-top: 8px; }
+}
+
+/* 画面丢失（WebGL 上下文被收回）：先存档，存成功了等画面回来就重载（main.js） */
+#ctx-lost { position: fixed; inset: 0; z-index: 95; display: none; place-items: center; padding: 0 24px; text-align: center; font-size: 16px; letter-spacing: 2px; color: #f2dfb8; background: rgba(6, 4, 3, 0.92); }
+#ctx-lost.on { display: grid; }
+
+/* ============================================================
    触屏 HUD（js/touch.js）：全部写在 html.touch-ui 下面，桌面不受影响
    安全区：真机用 env(safe-area-inset-*)，测试用 --t-safe-* 假装
    ============================================================ */
@@ -4239,64 +4301,7 @@ html.touch-ui .hk > span:last-child { flex: 1; min-width: 0; }
 /* 打起来以后提示卡收成一行、变淡（js/touch.js 加 t-min；点一下展开） */
 html.touch-ui #coach.on.t-min:not(.t-open) { opacity: 0.55; }
 html.touch-ui #coach.t-min:not(.t-open) .co-body { -webkit-line-clamp: 1; }
-=======
-   主线旁白卡（quest D3，ui.js updateNarr）：和开场故事的字幕框同一个样子（米色底、墨色粗边、硬投影），
-   屏幕中下方居中（角色脚下和技能栏之间，不挡角色和前方的路）；只有卡片本身接点击（点一下跳过），其余地方照常是游戏输入
-   ============================================================ */
-#narr {
-  position: fixed;
-  left: 50%;
-  bottom: max(26%, 200px);
-  z-index: 32;
-  display: none;
-  max-width: calc(100vw - 32px);
-  box-sizing: border-box;
-  padding: 0.5em 0.95em 0.55em;
-  font-family: var(--sans);
-  font-weight: 600;
-  font-size: clamp(15px, 1.6vw, 21px);
-  line-height: 1.55;
-  letter-spacing: 0.04em;
-  color: #1d130d;
-  background: #f2e8d2;
-  border: 2.5px solid #120b08;
-  box-shadow: 4px 4px 0 rgba(10, 6, 4, 0.9);
-  cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
-  opacity: 0;
-  transform: translate(-50%, 6px);
-  transition: opacity var(--narr-out, 0.6s) ease, transform var(--narr-out, 0.6s) ease;
-}
-#narr.show { display: block; }
-#narr.on { opacity: 1; transform: translate(-50%, 0); transition-duration: var(--narr-in, 0.4s); }
-#narr.held { visibility: hidden; }
-#narr p { margin: 0; white-space: nowrap; }
-#narr p + p { opacity: 0; transition: opacity 0.4s ease; }
-#narr.l2 p + p { opacity: 1; }
-@media (max-width: 560px) {
-  #narr { bottom: max(24%, 190px); width: calc(100vw - 32px); text-align: center; }
-  #narr p { white-space: normal; }
-}
-@media (prefers-reduced-motion: reduce) {
-  #narr, #narr.on { transform: translate(-50%, 0); }
-}
-   开场卡片在矮窗口（桌面小窗、手机横屏）：收紧排版，「开始」一直在屏幕里（最低 360 高）
-   ============================================================ */
-@media (max-height: 600px) {
-  .intro-card { max-height: calc(100vh - 12px); overflow-y: auto; box-sizing: border-box; padding: 14px 24px 12px; }
-  .intro-title { font-size: 30px; letter-spacing: 12px; text-indent: 12px; }
-  .intro-sub { margin-top: 0; }
-  .intro-keys { grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0 10px; }
-  .intro-keys div { padding: 8px 4px 7px; font-size: 12.5px; line-height: 17px; letter-spacing: 1px; }
-  .intro-keys span { margin-bottom: 5px; }
-  .intro-card p { margin-bottom: 10px; line-height: 19px; }
-  #intro-go { height: 36px; }
-  .intro-foot { margin-top: 8px; }
-}
 
-/* 画面丢失（WebGL 上下文被收回）：先存档，存成功了等画面回来就重载（main.js） */
-#ctx-lost { position: fixed; inset: 0; z-index: 95; display: none; place-items: center; padding: 0 24px; text-align: center; font-size: 16px; letter-spacing: 2px; color: #f2dfb8; background: rgba(6, 4, 3, 0.92); }
-#ctx-lost.on { display: grid; }
-
-/* =====================================================
+/* 触屏：旁白卡放在顶栏、提示卡下方居中，字小一号、可以折行，不压小地图 / 追踪条、摇杆区和按钮簇 */
+html.touch-ui #narr { bottom: auto; top: calc(var(--sa-t) + 104px); max-width: calc(100vw - 2 * max(var(--sa-l), var(--sa-r)) - 360px); font-size: 13px; line-height: 1.5; }
+html.touch-ui #narr p { white-space: normal; }
