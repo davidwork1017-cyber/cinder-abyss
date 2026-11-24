@@ -115,6 +115,8 @@ CATALOG = [
     # 生成器在 art/ca/boss/<kind>.py（造型 + 骨架 + 软接缝），动作表在 art/ca/boss/<kind>_clips.py ----
     dict(id='ca/boss_golem', gen='golem', seed=181, cat='boss', zone='boss', home='ash', ship=True, replaces=None,
          bake=dict(ao=0.7, grad=0.9, wear=0.4, grime=0.3, gain=1.15), finish=dict(dust=0.12), cues=dict(second=True, val=0.3, lichen=0.1)),
+    dict(id='ca/boss_lord', gen='lord', seed=191, cat='boss', zone='boss', home='abyss', ship=True, replaces=None,
+         bake=dict(ao=0.6, grad=0.7, wear=0.5, grime=0.2, gain=1.1), finish=dict(dust=0.0), cues=dict(second=False, val=0.22, lichen=0)),
     dict(id='ca/boss_behemoth', gen='behemoth', seed=207, cat='boss', zone='boss', home='rift', ship=True, replaces=None,
          bake=dict(ao=0.6, grad=0.8, wear=0.4, grime=0.25, gain=1.32), finish=dict(dust=0.0), cues=dict(second=False, val=0.24, lichen=0)),
 ]

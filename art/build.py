@@ -15,6 +15,7 @@ from mathutils import Vector  # noqa: E402
 
 from ca import core, gen, rig  # noqa: E402
 import ca.boss.golem  # noqa: E402,F401
+import ca.boss.lord  # noqa: E402,F401
 import ca.boss.behemoth  # noqa: E402,F401
 from catalog import CATALOG, LINEUP_SEEDS  # noqa: E402
 
@@ -43,7 +44,7 @@ def make(item, seed=None, name=None):
     return ob, tris, dt
 
 
-BOSSES = {'golem': ca.boss.golem, 'behemoth': ca.boss.behemoth}
+BOSSES = {'golem': ca.boss.golem, 'lord': ca.boss.lord, 'behemoth': ca.boss.behemoth}
 
 
 def make_boss(item, seed=None, name=None):
