@@ -15,6 +15,8 @@
   const packFails = Object.create(null); // 包名 → 失败次数：前 MAX_TRIES - 1 次失败不记成定局，下次进入用到它的区域时重试
   const MAX_TRIES = 3;
   const imgs = Object.create(null); // 贴图 id → { albedo, normal, arh, avg: [r,g,b]（反照率的线性平均色） }
+  const imgsLo = Object.create(null); // 贴图 id → 低档那一套（有 lo 的贴图才有）
+  let lowQ = false;
   const geos = Object.create(null); // 模型 key → BufferGeometry
   const geoInfo = Object.create(null); // 模型 key → { h, r }（高度、水平半径）
   const geoPack = Object.create(null); // 模型 key → 来自哪个包（测试用来核对第 0 区的布景是不是自产件）
@@ -197,6 +199,8 @@
           imgs[id] = { albedo, normal, arh, avg: avgColor(albedo) };
         })
       );
+      // tex-t1：低档用的半分辨率一套（lo：albedo / arh，没有法线贴图，世界层用平的法线）
+      if (t.lo) jobs.push(Promise.all([loadImage(t.lo.albedo), loadImage(t.lo.arh)]).then(([albedo, arh]) => (imgsLo[id] = { albedo, normal: null, arh, avg: avgColor(albedo), lo: true })));
     }
     for (const key in data.models || {}) jobs.push(parseModel(key, data.models[key]).then((g) => g && (geoPack[key] = name)));
     // 自产布景件（kit-<区> 包）：打包时已经烘焙好（tools/pack-assets.mjs，和上面的 bakeGltf 逐位一致），这里只把数组拷进几何体，不解析、不烘焙
@@ -277,7 +281,8 @@
   A.ready = (names) => names.every((n) => packState[n] && packState[n].ok);
   A.settled = (names) => withDeps(names).every((n) => packState[n] && packState[n].done);
   A.known = (name) => !!(INDEX.packs[name] || STORE[name]);
-  A.tex = (id) => imgs[id] || null;
+  A.setLow = (b) => (lowQ = !!b);
+  A.tex = (id) => (lowQ && imgsLo[id] && imgs[id] ? imgsLo[id] : imgs[id] || null);
   A.geo = (key) => geos[key] || null;
   A.geoInfo = (key) => geoInfo[key] || null;
   A.geoPack = (key) => geoPack[key] || null;

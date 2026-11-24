@@ -1,0 +1,120 @@
+{
+ "paint": {
+  "_comment": "脚本画的平铺贴图（tools/gen-paint-textures.mjs）。px = 原始 RGB 像素的 sha256（node tools/gen-paint-textures.mjs --check 只用 Node 重算核对），jpg = 仓库里 JPEG 的 sha256；JPEG 由下面这个版本的 Chrome 编码（q 0.84），换版本要 --rebase",
+  "encoder": {
+   "chrome": "158.0.8127.36",
+   "q": 0.84,
+   "via": "playwright-core channel chrome, canvas.toDataURL"
+  },
+  "textures": {
+   "p_mud": {
+    "gen": "tools/gen-paint-textures.mjs",
+    "seed": 211,
+    "files": {
+     "albedo.jpg": {
+      "n": 512,
+      "px": "e8e18b07d0dc63957a99c5b098b9a8d19102f7e7a9c06a138b83a793a606eadd",
+      "jpg": "3b120a6d664bf548b4d998112c876567808a707f3be398557c73e0f36e84fefa",
+      "bytes": 18216
+     },
+     "normal.jpg": {
+      "n": 512,
+      "px": "1b07a9ea4fb08a606a2a5ef7b7b99ace682b7c0db95d074a999d9e9dae584637",
+      "jpg": "39f773f0a37ec664d65392304dc7f0edc3ec9f8a21df55e6d7ef6c638449066b",
+      "bytes": 16202
+     },
+     "arh.jpg": {
+      "n": 512,
+      "px": "6b48dae8d8aad05497cbc97b44d8096ac335ba93f4f0bf1669b66d5285109c37",
+      "jpg": "0427139235644f19b447e2ca94ed4ae94a2ef20f9b9d626e825f35615cae8227",
+      "bytes": 19815
+     },
+     "lo/albedo.jpg": {
+      "n": 256,
+      "px": "5a4a00449f1bc2abca9e7eb0c13a03de61fada1b2279b593539058f25fa6e64c",
+      "jpg": "137d9fc39bda7b51587cb24b4b34446edbf313be574eb9464f37afb3d631dd0e",
+      "bytes": 7553
+     },
+     "lo/arh.jpg": {
+      "n": 256,
+      "px": "d2d1fdee3883bf223f3859fb418f0310a2ee6773a36540d9aa32b366c94403ec",
+      "jpg": "47c00accb58ae5835c44ce285fde3da7db9d65d99e1a731923dac342716a7a8a",
+      "bytes": 7911
+     }
+    }
+   },
+   "p_burn": {
+    "gen": "tools/gen-paint-textures.mjs",
+    "seed": 307,
+    "files": {
+     "albedo.jpg": {
+      "n": 512,
+      "px": "0c0729d987d51b521ebbc93c40d9f8cb097c661b3c30e1413159d918d76acb24",
+      "jpg": "11986e31683e29ce6a84ccd67ce712019b2b02c797cb2e621856e5dbc4585188",
+      "bytes": 9483
+     },
+     "normal.jpg": {
+      "n": 512,
+      "px": "047734936ecc6c94dfc38d4a701fbfd0b3c7bafb0157fdede2229a8e336182a4",
+      "jpg": "b7886b99459b1f56a5f788fbe894882f154a0b4349624fe841dd5b8582db18f8",
+      "bytes": 10639
+     },
+     "arh.jpg": {
+      "n": 512,
+      "px": "f646fa4df451eb02dfccd78d043783e35722f1f3b02179290dd10063860bd0ce",
+      "jpg": "f624df4f29c088ee3b44c000e6e2643fcc36579d94868a22cb93972b02d7148d",
+      "bytes": 8686
+     },
+     "lo/albedo.jpg": {
+      "n": 256,
+      "px": "dfeffbc7ef435a4916c04baa5600adc7794c9c85723df9c2139d3caf1d496099",
+      "jpg": "1fda8c9475b064294ce3c5eca2ff99dce4bd5aaac1371599d9a5555e16180616",
+      "bytes": 4369
+     },
+     "lo/arh.jpg": {
+      "n": 256,
+      "px": "c195dae78f3f1238eb3fc01473f1c3f626236025a21a5f619d83a8732da61db5",
+      "jpg": "0ac84608b2af0686c01166220219fad9a3c306de6364611a8df1105e4cb8d3e1",
+      "bytes": 4086
+     }
+    }
+   },
+   "p_rock": {
+    "gen": "tools/gen-paint-textures.mjs",
+    "seed": 101,
+    "files": {
+     "albedo.jpg": {
+      "n": 512,
+      "px": "15012ef8a4cc199ba384dbff72a68c6ad8e31b53ec64f514c22676c493f0ba1f",
+      "jpg": "b0bc0f845fe4a02608bdf5bef15d472d2b2dff6660558234a9ea277ce6a27eda",
+      "bytes": 18468
+     },
+     "normal.jpg": {
+      "n": 512,
+      "px": "2aded28609c120b5903095ba30fca4f759847ce35c16e14e2cb577c0219ebcfc",
+      "jpg": "bf21019686817f9048a0debdce0dfda742cc4da43be1787500cd8571addcc0c7",
+      "bytes": 21991
+     },
+     "arh.jpg": {
+      "n": 512,
+      "px": "f56e0b7a665978e5c583e9f811ca0911089196c7ccf3867d76128ca1235d7be9",
+      "jpg": "42f62549da56707eb118a355d98d9a907f304876df1a8ed284bf301723af75eb",
+      "bytes": 21357
+     },
+     "lo/albedo.jpg": {
+      "n": 256,
+      "px": "ac0b244931ba179dba36d1738fba2602dddc666db6b11dd5f396ef18331c4761",
+      "jpg": "440960b886548e3310ce81781e14af9badf015ab8b9d9c6268b63a45f106df46",
+      "bytes": 7566
+     },
+     "lo/arh.jpg": {
+      "n": 256,
+      "px": "00e5c3c3b99a155ea6ba5fa56883fc97eeb0a0d7bf1c0b96060da76c84b44db3",
+      "jpg": "a4681b1b7ce8fbca583ab64674283b54d0491b0bea138a9dd65ea39846f2d4de",
+      "bytes": 8581
+     }
+    }
+   }
+  }
+ }
+}

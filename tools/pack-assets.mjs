@@ -90,6 +90,8 @@ for (const [name, pk] of Object.entries(manifest.packs)) {
     const dir = path.join(root, 'assets', t.src, id);
     data.tex[id] = {};
     for (const k of ['albedo', 'normal', 'arh']) data.tex[id][k] = fs.readFileSync(path.join(dir, k + '.jpg')).toString('base64');
+    // lo：低档用的半分辨率一套（albedo / arh；低档不传法线贴图），游戏端 assets.js 按画质挑
+    if (t.lo) data.tex[id].lo = { albedo: fs.readFileSync(path.join(dir, 'lo/albedo.jpg')).toString('base64'), arh: fs.readFileSync(path.join(dir, 'lo/arh.jpg')).toString('base64') };
     index.textures[id] = name;
   }
   if (pk.models === '*') for (const [k, buf] of Object.entries(allModels())) data.models[k] = buf.toString('base64');

@@ -862,15 +862,16 @@
   //   ao 岩石 / 布景脚下接触阴影的强度、scorch 焦痕的比例（0 = 不要）、kinds 路外碎斑用哪几格（见 DECAL_CELL）、tint 碎石 / 裂纹的颜色
   const ZONE_GFX = {
     ash: {
-      packs: ['zone-ash', 'rock-dark', 'ground'], // ash-models-drop：布景全是自产件（kit-ash 跟着 zone-ash 加载），不再要 models 包：冷启动 / 存档停在第 0 区时少下载、少解析 1.4 MB
+      packs: ['zone-ash', 'ground'], // tex-t1：地面 / 岩石换成脚本画的贴图（p_mud / p_burn / p_rock，tools/gen-paint-textures.mjs，在 zone-ash 包里），不再要照片的 rock-dark 包。ash-models-drop：布景全是自产件（kit-ash 跟着 zone-ash 加载），不再要 models 包：冷启动 / 存档停在第 0 区时少下载、少解析 1.4 MB
       mats: [
         // 卡通：路面是暗一档的灰褐焦土（不再是粉褐色），贴图的明暗起伏压低，地面不抢角色；路外是更暗、偏灰紫的灰土
-        { tex: 'mud_cracked_dry_03', tile: 4.2, con: 0.45, nrm: 0.5, rough: 1, k: 0.53, sat: 0.8, col: 0x5a5753 }, // 中性灰（zones-ash：0x575358 → 0x5a5753，去掉偏紫的那一点，主光一照是暖灰烬色，不是粉紫褐）
-        { tex: 'burned_ground_01', tile: 4.8, con: 0.7, nrm: 0.9, rough: 1, k: 0.46, sat: 0.85, col: 0x4a4644 }, // zones-ash：0x4a474e → 0x4e4b4a，路上的粗糙斑块不那么脏。vf-ground：成片的烧焦地和路边的碎砂带用它，压暗一点、纹理起伏加大（k 0.52 → 0.46，con 0.55 → 0.7）
-        { tex: 'dark_rock', tile: 6.5, con: 0.8, nrm: 1.0, rough: 1, k: 0.8, col: 0x282224 }, // 岩壁外的虚空地面比路面暗得多，把空地框出来
+        // tex-t1：三套都换成脚本画的平铺贴图（低频、没有像素级颗粒；路面 6.5 m 一张，铺大了看不出重复）
+        { tex: 'p_mud', tile: 6.5, con: 0.45, nrm: 0.5, rough: 1, k: 0.38, sat: 0.5, col: 0x5a5753 }, // tex-t1：k 0.53 → 0.38、sat 0.8 → 0.5（画的贴图对比低，同样的 k 显得亮、偏暖；压到 25–35% 档里、去一点暖，角色和地面拉开）。 // 中性灰（zones-ash：0x575358 → 0x5a5753，去掉偏紫的那一点，主光一照是暖灰烬色，不是粉紫褐）
+        { tex: 'p_burn', tile: 4.8, con: 0.7, nrm: 0.9, rough: 1, k: 0.37, sat: 0.55, col: 0x4a4644 }, // tex-t1：k 0.46 → 0.37、sat 0.85 → 0.55。 // zones-ash：0x4a474e → 0x4e4b4a，路上的粗糙斑块不那么脏。vf-ground：成片的烧焦地和路边的碎砂带用它，压暗一点、纹理起伏加大（k 0.52 → 0.46，con 0.55 → 0.7）
+        { tex: 'p_rock', tile: 6.5, con: 0.8, nrm: 1.0, rough: 1, k: 0.64, col: 0x282224 }, // 岩壁外的虚空地面比路面暗得多，把空地框出来（tex-t1：路面压暗了，虚空跟着 k 0.8 → 0.64，路和虚空的反差不比原来小）
       ],
       lava: { mode: 1, color: 0xff5a1a, k: 1.7, patch: [0, 0.66] }, // 路面裂缝只在成片的几处发光（patch），不再满地一张发光的网
-      rock: { tex: 'dark_rock', tile: 2.6, nrm: 1.2, cap: 0x5e5550, capAll: 0.12 },
+      rock: { tex: 'p_rock', tile: 2.6, nrm: 1.2, cap: 0x5e5550, capAll: 0.12 },
       grade: { sat: 1.12, con: 1.1, lift: 0x0a0414, gain: 0xfff6ee, vig: 0.24, sh: 0x708aa8, hi: 0xffd0a0, tk: 0.14, shS: 0.8 }, // vf-ground：暗部冷紫、去一点饱和（shS），亮部暖（sh / hi / tk）
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x3c2a30, a: 0.3 }, // zones-ash：0x4a2636 → 0x3c2a30，少一点酒红
@@ -879,10 +880,10 @@
       // vf-ground：龟裂的焦土上一片片软的积灰（比路面略亮略冷），墙脚和石头脚下堆得厚；路边沿着裂缝起伏，过渡带是烧过的碎土
       // 第二轮（要求方：在游戏镜头下要看得出层次）：大尺度的明暗 / 冷暖起伏（mv / mh）、成片的烧焦地（scorch：粗糙地面那一套压暗）、
       // 硬一点的路边（edgeW）、墙脚 / 石脚的接触阴影（ao2 烘在顶点色里，低档也有）
-      layer: { tex: 'g_cover_ash', tile: 4.5, con: 0.8, rough: 1, k: 0.62, sat: 0.4, col: 0x625f5c, path: 0.85, pT: 0.53, edge: 1, jag: 2.0, blend: 0.08, edgeW: 0.55, mv: 0.17, mh: 0.12, scorch: 0.6, sT: 0.66, ao2: 0.24 },
+      layer: { tex: 'g_cover_ash', tile: 4.5, con: 0.8, rough: 1, k: 0.53, sat: 0.3, col: 0x625f5c, /* tex-t1：k 0.62 → 0.53、sat 0.4 → 0.3，积灰斑跟着路面压暗、去暖 */ path: 0.85, pT: 0.53, edge: 1, jag: 2.0, blend: 0.08, edgeW: 0.55, mv: 0.17, mh: 0.12, scorch: 0.6, sT: 0.66, ao2: 0.24 },
       deco: { cover: 0x7a7672, floor: 1, wild: 1, ao: 0.85, aoR: 0.9, scorch: 0.6, clusters: 0.6, kinds: [4, 5, 7, 8, 11, 13], tint: 0x55504c },
       pool: { col: 0xff7a2a, k: 1.4, r: 3, gain: 1.6 }, // 熔岩 / 余烬裂缝 / 火盆周围映暖的地面（烘在顶点色里）
-      blots: { k: 0.35, r: 0.65, op: 0.3, tex: 'crack' }, // zones-polish：细裂纹代替软边的暗块（op 0.16 → 0.3：线细，同样的不透明度几乎看不见）。zones-ash：污斑看着像脏印子，少放、放小，路面的细节交给布景里的积灰和余烬裂缝
+      blots: { k: 0.35, r: 0.55, op: 0.2, show: 0.5, tex: 'crack' }, // tex-t1：画的地面干净了，根须一样的暗裂纹块显得扎眼：只画一半（show）、小一圈、淡三分之一（r 0.65 → 0.55，op 0.3 → 0.2）；k 不动（随机数的取用次数不变）。zones-polish：细裂纹代替软边的暗块（op 0.16 → 0.3：线细，同样的不透明度几乎看不见）。zones-ash：污斑看着像脏印子，少放、放小，路面的细节交给布景里的积灰和余烬裂缝
       sigil: { r: 0.52, dark: 0.55, start: false }, // zones-ash：熔渣坑的法阵收小、压暗一半；不要起点法阵（起点布景见 buildAshDress）
       props: {
         // 卡通布景：Kenney 的岩石和树桩去掉（和程序化的倒角岩风格不一致、树桩照片贴图发白），岩石全部是程序化的
@@ -1392,6 +1393,7 @@
     const prev = qual;
     qual = QUALITY[id];
     qualId = id;
+    if (G.assets && G.assets.setLow) G.assets.setLow(id === 'low'); // tex-t1：低档用半分辨率的地面贴图（下次建区时生效）
     if (G.vfx) G.vfx.U.uLo.value = id === 'low' ? 1 : 0; // vf-vfx：特效着色器里低画质收一点大面积的噪声纹理
     if (!renderer) return id;
     if (sun && sun.shadow.mapSize.x !== qual.shadow) {
@@ -1455,12 +1457,24 @@
     const key = id + ':' + kind;
     if (zoneTex[key]) return zoneTex[key];
     const im = G.assets.tex(id);
+    if (!im[kind]) return flatNormalTex(); // tex-t1：低档的半分辨率贴图没有法线贴图，用平的法线
     const t = new T.Texture(im[kind]);
     t.wrapS = t.wrapT = T.RepeatWrapping;
     t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
     t.needsUpdate = true;
     own(t);
     return (zoneTex[key] = t);
+  }
+  // 平的法线（4×4，各区共用、不随区释放）
+  let flatNrm = null;
+  function flatNormalTex() {
+    if (flatNrm) return flatNrm;
+    const d = new Uint8Array(4 * 4 * 4);
+    for (let i = 0; i < 16; i++) d.set([128, 128, 255, 255], i * 4);
+    flatNrm = new T.DataTexture(d, 4, 4, T.RGBAFormat);
+    flatNrm.wrapS = flatNrm.wrapT = T.RepeatWrapping;
+    flatNrm.needsUpdate = true;
+    return flatNrm;
   }
   const gfxBroken = Object.create(null); // 建 PBR 外观时出过错的区域：之后一直用程序化外观
   // 贴图包（除布景模型包以外）都到了就能换 PBR 地面 / 岩壁；模型包单独判断，没有它就只是不摆 CC0 布景
@@ -1942,6 +1956,7 @@
         )
         .replace('#include <normal_fragment_maps>', 'normal = tNv;');
     };
+    mat.userData.triU = U; // tex-t1：测试核对岩石贴图的尺寸
     // 卡通：岩壁 / 布景在三向投影贴图上再叠一层很淡的笔触噪声（世界空间），大块的面不至于是一整片照片纹理
     return toonPatch(mat, { brush: 0.1, brushScale: 0.45 });
   }
@@ -2856,6 +2871,7 @@
       qual = QUALITY[qs];
       qualId = qs;
     }
+    if (G.assets && G.assets.setLow) G.assets.setLow(qualId === 'low');
 
     scene = new T.Scene();
     scene.background = new T.Color(0x100c0a);
@@ -10737,7 +10753,7 @@
 
     vrSection(7); // 外观随机序列按段重新起头（见 withVisualRandom）
     // --- 地面暗斑 ---
-    // 每区可以在 ZONE_GFX.<id>.blots = { k: 块数倍率（默认 1）, r: 大小倍率（默认 1）, op: 不透明度（默认 0.2）, tex: 'crack' } 调污斑（zones-ash 加的旋钮）。
+    // 每区可以在 ZONE_GFX.<id>.blots = { k: 块数倍率（默认 1）, r: 大小倍率（默认 1）, op: 不透明度（默认 0.2）, show: 贴花层里只画的比例（缺省全画）, tex: 'crack' } 调污斑（zones-ash 加的旋钮）。
     // zones-polish：tex: 'crack' 把软边的暗块换成细裂纹（groundCrackTex），读起来是地面的纹路而不是脏印子
     const BL = Object.assign({ k: 1, r: 1, op: 0.2 }, gx && gx.blots);
     const blots = [];
@@ -10769,6 +10785,7 @@
       for (let i = 0; i < blots.length; i += 10) {
         const bx = blots[i], bz = blots[i + 2];
         if (LY && coverW(bx, bz, sd(bx, bz), trailK(bx, bz, sd(bx, bz))) > 0.45) continue; // 盖着积层的地方不画裂纹（像树根）
+        if (BL.show !== undefined && ((i / 10) * 0.6180339887) % 1 >= BL.show) continue; // tex-t1：show = 只画这么大比例（按序号的黄金分割序列挑，不取随机数）
         decalPush(bx, bz, blots[i + 6], blots[i + 8], blots[i + 4], BL.tex === 'crack' ? DECAL_CELL.crack : DECAL_CELL.stain, blotMat.color, BL.op);
       }
       vfBurnMesh(blots);
