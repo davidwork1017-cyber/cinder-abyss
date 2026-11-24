@@ -10315,7 +10315,7 @@
       if (H.wardAt !== state.time) H.ward = Math.min(sk.ward.max, H.ward + 1);
       H.wardAt = state.time;
     }
-    if (!killed || !sk.burst || !(ctx.attack || ctx.heartGen || ctx.proc)) return; // 你的攻击、它引出的异常（爆燃、尸爆）打死的都算
+    if (!killed || !sk.burst || !(ctx.attack || ctx.heartGen) || ctx.proc || inf.proc) return; // 你的攻击、余烬打死的才炸（爆燃 / 尸爆这类异常打死的不炸：高火焰的构筑里它们会一直把连烬从头点着）
     // 第几代：余烬自己的上下文 > 正在炸的那一圈 > 2 秒内被余烬炸过（之后烧死 / 尸爆死的也算那一代）
     const gen = ctx.heartGen || heartCur || (e.heartMkT > state.time - 2 ? e.heartMk : 0);
     if (gen > sk.burst.chain) return;

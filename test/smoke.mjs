@@ -19900,7 +19900,7 @@ async function main() {
         if (id === 'blackflame') G.input.mouse.b[2] = true; // 黑焰是附带在别的命中上：按住右键普攻
         if (i % 30 === 0) G.input.tap[0] = 0.2; // 每 0.5 秒补按一次：再按类（坍缩 / 掷旋）、手动召唤
         // class-d2b2：硬接要挨打才有伤害（反震每挡一下震一圈）：每 0.5 秒让目标打你一下；
-        // 心火自己不打人，余烬要有敌人被你打死：每秒用一下异常触发的伤害（不算余响）打死一只小怪
+        // 心火自己不打人，余烬要有敌人被你打死：每秒用心火的攻击上下文打死一只小怪
         if (id === 'brace' && i % 30 === 15) {
           const g0 = P.god;
           P.god = false;
@@ -19912,7 +19912,7 @@ async function main() {
           const k = smalls.find((e) => e && !e.dead && e !== tgt) || smalls.find((e) => e && !e.dead);
           if (k) {
             k.hp = 1;
-            G.hitEnemy(k, Object.assign({}, G.skillCtx('heartfire'), { id: null, proc: true }), 1, { proc: true });
+            G.hitEnemy(k, G.skillCtx('heartfire'), 1, {}); // 心火自己的攻击上下文打死它（余烬按心火算）
           }
         }
         if (i % 60 === 0) {
