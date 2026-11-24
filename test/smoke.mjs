@@ -21928,7 +21928,7 @@ async function d2b2Steps() {
         // 余烬：贴身 8 只快死的小怪，转一圈
         D2.cast('heartfire', P.x + 3, P.z, 40);
         const s0 = Object.assign({}, S.stats);
-        for (let i = 0; i < 8; i++) T.mob('husk', 1 + (i % 4) * 0.4, (i < 4 ? -0.8 : 0.8), { hp: 1 });
+        for (let i = 0; i < 8; i++) T.mob('husk', 1 + (i % 4) * 0.4, (i < 4 ? -0.8 : 0.8), { hp: 1 }).buTh = 1e15; // 不累积异常：都由旋风斩亲手打死（异常打死的不炸）
         G.save.bar[0] = 'whirl';
         G.input.mouse.b[0] = true;
         D2.run(0.5);
