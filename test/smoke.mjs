@@ -26421,14 +26421,25 @@ async function touchSteps() {
         const t = document.getElementById('tip');
         return { vis: getComputedStyle(t).display !== 'none' && t.classList.contains('on'), txt: t.textContent.slice(0, 80), alt: G.input.alt, altOn: document.body.classList.contains('alt-on'), lp: G.touch.state().lp, box: T.rect(t) };
       });
+    // 浮窗的 on 和 body 的 alt-on 是 ui.js 每帧的 update 跟着输入状态（G.input.alt）设的，比输入晚一帧：
+    // 读界面之前等到界面跟上了输入（最多 1 秒，按帧轮询），不靠固定的睡眠时长（机器忙的时候 650 ms 里可能一帧都没画）
+    const caughtUp = () => document.body.classList.contains('alt-on') === !!G.input.alt;
+    const uiWait = (fn, ms) => page.waitForFunction(fn, null, { timeout: ms || 1000, polling: 'raf' }).then(() => true, () => false);
     const press = async (sel, ms) => {
       const r = await ev((sel) => T.rect(sel), sel);
       assert(r, '找不到 ' + sel);
       await touch.down(r.x, r.y);
       await sleep(ms || 650);
+      // 还按着：等浮窗出来、alt-on 跟上（长按已经触发的话一两帧就到）
+      if (!(await uiWait(() => document.getElementById('tip').classList.contains('on') && document.body.classList.contains('alt-on') === !!G.input.alt))) {
+        const st = await tipNow();
+        await touch.up();
+        throw new Error('长按 ' + sel + ' 1 秒内界面没跟上（浮窗没出来或 alt-on 没跟着输入）：' + JSON.stringify(st));
+      }
       const a = await tipNow();
       await touch.up();
       await frames(2);
+      await uiWait(caughtUp);
       const b = await tipNow();
       return { r, a, b };
     };
@@ -26436,6 +26447,7 @@ async function touchSteps() {
       const hd = await ev(() => T.rect('#panel-head'));
       await touch.tap(hd.l + 30, hd.y);
       await frames(2);
+      await uiWait(() => !document.getElementById('tip').classList.contains('on') && document.body.classList.contains('alt-on') === !!G.input.alt); // 收不起来的话照样读出来，交给下面的断言报
       return tipNow();
     };
     const out = {};
