@@ -1457,6 +1457,73 @@
    "sha256": "da6103b6184a6396294d88c125407d45fe264d764b05be0bfe47b1c8af80a146"
   },
   {
+   "id": "ca/boss_snuffer",
+   "category": "boss",
+   "zone": "boss",
+   "file": "assets/ca/boss/snuffer.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 4304,
+   "verts": 11611,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -1.652,
+     0.02,
+     -1.537
+    ],
+    "max": [
+     1.693,
+     5.37,
+     1.606
+    ]
+   },
+   "h": 5.35,
+   "r": 1.693,
+   "y0": 0.02,
+   "source": {
+    "script": "art/ca/boss/snuffer.py",
+    "clips": "art/ca/boss/snuffer_clips.py",
+    "gen": "snuffer",
+    "catalog": "art/catalog.py",
+    "seed": 229,
+    "args": {},
+    "bake": {
+     "ao": 0.6,
+     "grad": 0.7,
+     "wear": 0.35,
+     "grime": 0.2,
+     "gain": 1.15
+    }
+   },
+   "bones": 35,
+   "clips": [
+    "broken",
+    "brush",
+    "brush_w",
+    "crown",
+    "crown_w",
+    "death",
+    "hit",
+    "idle",
+    "lift",
+    "lift3",
+    "mood",
+    "spiral",
+    "spiral_w",
+    "tears",
+    "tears_w",
+    "tide",
+    "tide_w",
+    "walk",
+    "wick",
+    "wick_w"
+   ],
+   "home": "pin",
+   "sha256": "c4db99c6846bbee48012020c4ae2c91356d8e6b163d906f86040052ba6492224"
+  },
+  {
    "id": "ca/crown_brazier",
    "category": "prop",
    "zone": "crown",

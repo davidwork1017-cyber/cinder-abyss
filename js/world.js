@@ -12564,6 +12564,9 @@
     let c = ent.gearClips && ent.gearClips[name];
     if (c && c.g5 && W.grip5Off) c = null;
     c = c || ent.rig.clips[name];
+    // 按阶段换的动作（boss-snuffer：三阶段的 lift 是冠重燃）：只读外观实体上的 ent.mood
+    const mc = ent.rig.moodClip && ent.rig.moodClip[name];
+    if (mc && (ent.mood || 0) >= mc[0]) c = mc[1];
     if (!c) return false;
     beginFade(ent, opts && opts.fade !== undefined ? opts.fade : c.fade);
     ent.clip = c;
@@ -19352,9 +19355,27 @@
       // 裂谷的主光偏暖白（0xfff2e0）：中性的玄武岩皮甲在里面发土黄。躯体染色往冷里收一点、自发光换成很淡的中性色，进游戏是中性的石墨灰
       emis: [0x3e3a38, 0.12], tint: 0xdce4ec,
     },
+    // boss-snuffer：熄烛者。没有腿（袍子拖地、滑行），不贴地（feet 不写）。冠（x_crown）和原来的程序化外观一样按时钟慢慢转；
+    // 冠上那根还亮着的烛芯冒一缕灰烟（和原来同样的频率、同样取画面随机数的次数，位置跟着烛芯走：挂点 wick）；
+    // 三阶段（ent.mood = 2）冠上另外八根一根一根重新点着（relight：每根一根骨骼，平时缩到看不见），换阶段的 lift 换成冠重燃的 lift3（moodClip）；
+    // 武器挂点 = 右手提灯的灯身，手 = 左手提灯；双拂 / 冠焰螺旋用拂烛 / 螺旋的动作（clipAlias）
+    snuffer: {
+      pack: 'boss-snuffer',
+      alias: { slam: 'brush', charge: 'wick', ring: 'tears', fan: 'brush', barrage: 'tears', summon: 'tide', spiral: 'spiral', cross: 'brush' },
+      clipAlias: { dbrush: 'brush', cspiral: 'spiral' },
+      moodClip: { lift: [2, 'lift3'] },
+      reach: 3.2,
+      sock: { weapon: ['x_lamp_r', 0, -0.45, 0], hand: ['x_lamp_l', 0, -0.45, 0], head: ['head', 0, 0.4, 0.1], chest: ['spine_03', 0, 0, 0.4], wick: ['x_crown', 0.193, 0.64, 0.23] },
+      hitJ: ['spine_03', 'neck_01'],
+      heatW: ['brush_w', 'tears_w', 'wick_w', 'spiral_w', 'crown_w', 'tide_w'], heatS: ['brush', 'tears', 'wick', 'crown', 'tide'], heatH: ['spiral'],
+      spin: ['x_crown', 0.4, null, 0],
+      smoke: 2.2,
+      relight: ['x_wick_01', 'x_wick_02', 'x_wick_03', 'x_wick_04', 'x_wick_05', 'x_wick_06', 'x_wick_07', 'x_wick_08'],
+      emis: [0x3a3c40, 0.14], tint: 0xdce0e6,
+    },
   };
   // 调色板行 → 表面（粗糙度 / 金属度），行号见 art/ca/palette.py
-  const BOSS_ROW_SURF = ['stone', 'stone', 'bone', 'metal', 'glow', 'stone', 'stone', 'leather', 'metal', 'stone', 'stone', 'stone', 'leather', 'stone', 'ice', 'gold', 'stone', 'ice', 'cloth'];
+  const BOSS_ROW_SURF = ['stone', 'stone', 'bone', 'metal', 'glow', 'stone', 'stone', 'leather', 'metal', 'stone', 'stone', 'stone', 'leather', 'stone', 'ice', 'gold', 'stone', 'ice', 'cloth', 'cloth', 'bone', 'ice'];
   const bossS2L = (() => {
     const t = new Float32Array(256);
     for (let i = 0; i < 256; i++) { const c = i / 255; t[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
@@ -19417,8 +19438,9 @@
     rig.skin4 = true;
     rig.bossModel = kind;
     rig.hitJ = sp.hitJ.map((nm) => rig.J[nm]);
-    rig.feet = sp.feet.map((nm) => rig.JI[nm]);
-    rig.ankle = rig.joints[rig.feet[0]].py;
+    // 没有脚的首领（熄烛者：袍子拖地滑行）不写 feet：不贴地，起伏、下沉都在动作里（和原来的程序化外观一样）
+    rig.feet = sp.feet ? sp.feet.map((nm) => rig.JI[nm]) : null;
+    rig.ankle = rig.feet ? rig.joints[rig.feet[0]].py : 0;
     for (const k in sp.sock) sock(rig, k, sp.sock[k][0], sp.sock[k][1], sp.sock[k][2], sp.sock[k][3]);
     // 动作：每个通道 n 帧，k = f / (n − 1)，Int16 / q
     const keysOf = (c) => {
@@ -19442,6 +19464,15 @@
       if (ex.impact !== undefined) rig.clips[name].impact = ex.impact;
     }
     bossAliases(rig, sp.alias);
+    for (const k in sp.clipAlias || {}) {
+      aliasClip(rig, k, sp.clipAlias[k]);
+      aliasClip(rig, k + '_w', sp.clipAlias[k] + '_w');
+    }
+    // 按阶段换的动作（W.play 里按 ent.mood 查）：{ 名字: [从第几阶段起, 换成的动作] }
+    if (sp.moodClip) {
+      rig.moodClip = {};
+      for (const k in sp.moodClip) if (rig.clips[sp.moodClip[k][1]]) rig.moodClip[k] = [sp.moodClip[k][0], rig.clips[sp.moodClip[k][1]]];
+    }
     // 受击：hit 动作相对第一帧的变化量叠在程序化受击上（finishPose 的 hitTrack）
     if (tracks.hit) rig.hitTrack = tracks.hit.tr;
     // 移动姿态：idle 按时钟循环，walk 按走过的距离（一个周期走 cycle 米），按 ent.mv 混合
@@ -19464,6 +19495,7 @@
     const coreJ = sp.core ? rig.J[sp.core] : -1, emb = sp.emb, heatW = sp.heatW || [], heatS = sp.heatS || [];
     const spinJ = sp.spin ? rig.J[sp.spin[0]] : -1;
     const heatP = sp.heatP || [], heatH = sp.heatH || [];
+    const relJ = (sp.relight || []).map((nm) => rig.J[nm]), smk = { x: 0, y: 0, z: 0 };
     rig.post = function (ent, o, t, dt) {
       // 炉芯：随呼吸一明一暗；蓄力时蓄热、出手那一下最亮（heatW / heatS 里的动作）；破防时明灭；死亡先暴涨再熄掉。全是确定性的（不取随机数）
       // heatP：出手以后一明一暗地脉动（坍缩拽人）；heatH：出手以后一直亮着、末尾熄下去（吐息）
@@ -19490,7 +19522,28 @@
         o[coreJ + 6] = o[coreJ + 7] = o[coreJ + 8] = sc;
       }
       setGlow(ent, (0.85 + 0.15 * Math.sin(t * 3) + (heat - 1) * 0.9) * (1 + 0.25 * ent.moodK));
-      if (!ent.dying) bossEmbers(ent, dt, emb[0], emb[1], emb[2]); // 和程序化外观同样的位置和频率：取随机数的次数不变
+      if (!ent.dying && emb) bossEmbers(ent, dt, emb[0], emb[1], emb[2]); // 和程序化外观同样的位置和频率（没有 emb 的首领原来就不放）：取随机数的次数不变
+      if (relJ.length) {
+        // 三阶段的冠重燃：阶段换到 2 以后，每隔 0.14 s 点着一根（0.12 s 弹出来、略冲过头），点着的火苗按时钟轻轻跳；死的时候 0.4 s 熄掉。只看外观实体自己的时间
+        ent.relT = ent.mood >= 2 ? (ent.relT || 0) + dt : 0;
+        ent.relOut = ent.dying ? Math.max(0, (ent.relOut === undefined ? 1 : ent.relOut) - dt / 0.4) : 1;
+        for (let i = 0; i < relJ.length; i++) {
+          const u = (ent.relT - 0.25 - i * 0.14) / 0.12;
+          let sc = u <= 0 ? 0 : u < 1 ? 1.25 * smooth01(u) : u < 2 ? 1.25 - 0.25 * smooth01(u - 1) : 1;
+          sc *= ent.relOut * (1 + 0.08 * Math.sin(t * 13 + i * 1.7));
+          const s = Math.max(0.001, sc);
+          o[relJ[i] + 6] = o[relJ[i] + 7] = o[relJ[i] + 8] = s;
+        }
+      }
+      if (sp.smoke && !ent.dying) {
+        // 冠上那根还亮着的烛芯冒一缕灰烟：和程序化外观同样的频率、同样的画面随机数（rand = G.vrand），位置跟着烛芯（挂点 wick，上一帧的姿态）
+        ent.emb += dt * sp.smoke;
+        while (ent.emb > 1) {
+          ent.emb -= 1;
+          W.entSocket(ent, 'wick', smk);
+          spawnP(smk.x, smk.y, smk.z, rand(-0.1, 0.1), rand(0.5, 0.9), rand(-0.1, 0.1), rand(1.2, 2), rand(0.1, 0.18), 0.42, 0.4, 0.44, -0.2, 0.15);
+        }
+      }
     };
     return rig;
   }

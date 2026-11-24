@@ -12072,6 +12072,7 @@ async function main() {
     golem: { hash: '4fc99b3d', calls: 112, secs: '9e1090d0,a448b82d,d32dc0c0,cd636106,d1d75655,66e79a53,47bda2f4,c30ac709,617cb6b2,36a0a0ec,5a7ca4f7,f574dfb2,2095a119,b3f4a835,cdbea357'.split(',') },
     lord: { hash: '6bcd5507', calls: 114, secs: '24815422,e21feb3a,ebe73ddb,5d25957d,b63a99b0,8e38a8e6,7dba3ec4,c48bbb94,b7d35d0a,a5d6ea59,63f52b72,e7eac088,98c19b85,e738b0a0,4d2180d1'.split(',') }, // main 25e390e（fx-rng 之后，程序化外观）上量的；fx-rng 之前 main a2831c3 上是 5ed52b42 / 30070 次
     behemoth: { hash: 'f5f43ce4', calls: 123, secs: 'e18ee022,7352cd8d,5b43567a,a2cce81a,1519cee2,75635a63,c5bd0ee2,e0e76dc3,feb8fd4d,1cb6dd7f,f4ae329e,716bf23b,87f57802,31f02c47,44888a78'.split(',') }, // main 25e390e（程序化外观）上量的
+    snuffer: { hash: '269b651b', calls: 132, secs: '320133f1,92477020,07f0ab2d,06c27abb,b0877336,f3698880,32c5cd91,8d29fd4b,660eb131,ed0b60af,db361c7a,103d7436,d1d2de83,ae2fe5c4,3d5167b0'.split(',') }, // main 78b6d09（程序化外观）上量的
   };
   // tiers（boss-lord 起）：再按另一档画质打一遍，指纹也要一样（fx-rng 的「高 = 低」规则用在首领战上）
   const bossFpStep = (kind, CN, tiers) => step('首领指纹：' + CN + '固定种子打 15 秒，局面和取随机数次数和换模型之前逐位相同；首领包打到一半才到，也只在招式之间换模型、指纹不变' + (tiers ? '；换一档画质打出来也一样' : ''), async () => {
@@ -12143,12 +12144,14 @@ async function main() {
   await bossFpStep('golem', '熔渣巨像');
   await bossFpStep('lord', '烬渊之主', true);
   await bossFpStep('behemoth', '衔星巨兽', true);
+  await bossFpStep('snuffer', '熄烛者', true);
 
   // boss-golem：首领模型的三步（模型 / 出手对拍 / 死亡和破防），量的都是新模型（首领包到了以后建的骨架）
   const BOSS_BONES = JSON.parse(readFileSync(new URL('../art/rig.json', import.meta.url), 'utf8')).boss;
   const BOSS_BUDGET = JSON.parse(readFileSync(new URL('../art/budgets.json', import.meta.url), 'utf8')).categories.boss;
   const BOSS_MAN = JSON.parse(readFileSync(new URL('../assets/ca/manifest.json', import.meta.url), 'utf8')).assets.filter((a) => a.category === 'boss');
-  const bossModelStep = (kind, CN) => step('首领模型：' + CN + '用脚本生成的蒙皮模型（assets/ca/boss/' + kind + '.glb），骨骼是 art/rig.json 那一组、三角形在预算内、3 个网格 + 本体的阴影、占地半径和身高跟原来的差不多', async () => {
+  // vsDef（boss-snuffer）：占地半径只和碰撞半径比（原来的程序化熄烛者只是一根细圆锥，占地 1.03、比碰撞半径 1.6 小三成多；设计稿要的是贴着 1.6 的宽下摆）
+  const bossModelStep = (kind, CN, vsDef) => step('首领模型：' + CN + '用脚本生成的蒙皮模型（assets/ca/boss/' + kind + '.glb），骨骼是 art/rig.json 那一组、三角形在预算内、3 个网格 + 本体的阴影、占地半径和身高跟原来的差不多', async () => {
     await ev((kind) => G.assets.need(['boss-' + kind]), kind);
     await until((kind) => G.world.bossRig(kind), kind, 60000);
     const r = await ev((kind) => {
@@ -12200,7 +12203,7 @@ async function main() {
     assert(r.bones.slice().sort().join() === want.slice().sort().join() && r.bones.length <= BOSS_BONES.maxBones && r.bones.length <= BOSS_BUDGET.bones, '骨骼和 art/rig.json 的不一致或超过 ' + BOSS_BUDGET.bones + ' 根：' + r.bones.join(','));
     assert(r.tris <= BOSS_BUDGET.tris && man && r.tris === man.tris, '三角形 ' + r.tris + '（预算 ' + BOSS_BUDGET.tris + '，清单 ' + (man && man.tris) + '）');
     assert(r.meshes === 3 && r.shadow === 1 && r.body && r.glow && !r.aux, '应是本体 + 发光 + 地上光晕 3 个网格、只有本体投影：' + JSON.stringify(r));
-    assert(Math.abs(r.r - r.defR) / r.defR <= 0.15 && Math.abs(r.r - r.rOld) / r.rOld <= 0.15, '占地半径 ' + r.r.toFixed(2) + ' 应在碰撞半径 ' + r.defR + ' 和原来 ' + r.rOld.toFixed(2) + ' 的 ±15% 里');
+    assert(Math.abs(r.r - r.defR) / r.defR <= 0.15 && (vsDef || Math.abs(r.r - r.rOld) / r.rOld <= 0.15), '占地半径 ' + r.r.toFixed(2) + ' 应在碰撞半径 ' + r.defR + (vsDef ? '' : ' 和原来 ' + r.rOld.toFixed(2)) + ' 的 ±15% 里');
     assert(Math.abs(r.h - r.hOld) / r.hOld <= 0.1, '身高 ' + r.h + ' 应在原来 ' + r.hOld + ' 的 ±10% 里');
     assert(r.coreGlow[0] > 0 && r.coreGlow[0] / r.coreGlow[1] < 0.25, '发光面里近白的芯应只占一小部分（面积）：' + r.coreGlow.join(' / ') + ' m²');
     return r.bones.length + ' 根骨骼，' + r.tris + ' 个三角形，占地半径 ' + r.r.toFixed(2) + '（原来 ' + r.rOld.toFixed(2) + '，碰撞 ' + r.defR + '），身高 ' + r.h + '（原来 ' + r.hOld + '），近白的芯占发光面积 ' + r.coreGlow.join(' / ') + ' m²';
@@ -12208,6 +12211,7 @@ async function main() {
   await bossModelStep('golem', '熔渣巨像');
   await bossModelStep('lord', '烬渊之主');
   await bossModelStep('behemoth', '衔星巨兽');
+  await bossModelStep('snuffer', '熄烛者', true);
 
   // 每只首领：招式、模拟里的蓄力时长（enemies.js 的 PATTERN_WIND，换模型不动）、接触姿势的量（接触帧应是极值）、出事件的方式、蓄力时挨打用的蓄力动作
   //   量：weaponLow = 武器挂点最低（锤石落地 / 剑插进地里），handsApart = 两只手离得最远，pelvisFwd = 骨盆冲到最前，handFwd = 左手（hand 挂点的关节）甩到最前，
@@ -12218,6 +12222,12 @@ async function main() {
     lord: { CN: '烬渊之主', wind: { slam: 0.95, fan: 0.4, spiral: 0.25, cross: 0.9, barrage: 0.3, summon: 0.5 }, m: { slam: 'weaponLow', fan: 'handFwd', spiral: 'handUp', cross: 'weaponLow', barrage: 'weaponUp', summon: 'weaponLow' }, ev: { barrage: 'time', summon: 'mob' }, steady: ['slam_w', 0.8] },
     // 衔星巨兽：流星犁地 / 践踏 = 前蹄（hand 挂点，左前蹄）踩到最低；坍缩 = 头压到最低；吐息 = 嘴张到最开（下巴尖离头最远）。坍缩和吐息的预警在起手时就出了、没有结算回调：按蓄力到点对
     behemoth: { CN: '衔星巨兽', wind: { starfall: 0.7, gravity: 0.6, sweep: 0.9, slam: 0.95 }, m: { starfall: 'handLow', gravity: 'headLow', sweep: 'jawOpen', slam: 'handLow' }, ev: { gravity: 'time', sweep: 'time' }, steady: ['slam_w', 0.783] },
+    // 熄烛者（boss-snuffer）：不走 def.patterns（snThink 按阶段挑招），三个阶段的七招都用 G.snufferPattern 直接起；引芯要有亮着的火盆：临时放一份四个火盆的场地状态
+    //   （余烛殿的场地函数都先看是不是在余烛殿里，别的区里只有 enemies.js 读 lit / br）。量：拂烛 / 双拂 = 右手的灯甩到最前，烛泪 = 右手的灯举到最高（落蜡的预警起手就出了：按蓄力到点对），
+    //   引芯 = 骨盆冲到最前，螺旋 = 左手举到最高，坠冕 = 左手砸到最低，暗潮 = 骨盆沉到最低（暗潮在模拟里到点结算、没有预警回调：按蓄力到点对）。
+    //   记号：fwd:关节 / up:关节 / low:关节 = 这个关节在模型空间里的 z / y / −y
+    snuffer: { CN: '熄烛者', sn: true, wind: { brush: 1.0, dbrush: 1.0, tears: 0.4, wick: 0.9, spiral: 0.25, crown: 1.4, tide: 1.6 },
+      m: { brush: 'fwd:x_lamp_r', dbrush: 'fwd:x_lamp_r', tears: 'up:x_lamp_r', wick: 'fwd:pelvis', spiral: 'up:hand_l', crown: 'low:hand_l', tide: 'low:pelvis' }, ev: { tears: 'time', tide: 'time' }, steady: ['brush_w', 0.833] },
   };
   const bossClipStep = (kind) => step('首领出手对拍：' + BOSS_CLIPS[kind].CN + '每一招的蓄力 / 出手动作都在，出手提前量比蓄力短，伤害 / 起冲 / 弹幕离手的那一帧正好是出手动作的接触帧（误差不到一帧）；蓄力时挨打不晃', async () => {
     await ev((kind) => G.assets.need(['boss-' + kind]), kind);
@@ -12225,21 +12235,30 @@ async function main() {
     const C = BOSS_CLIPS[kind], WIND = C.wind;
     const r = await ev(([kind, C]) => {
       const WIND = C.wind;
-      const P = G.player, W = G.world, out = { pats: G.BOSSES[kind].patterns.slice() }, tel0 = G.telegraph, sp0 = G.spawnProjectile, sm0 = G.spawnMob;
+      const P = G.player, W = G.world, out = { pats: C.sn ? Object.keys(WIND) : G.BOSSES[kind].patterns.slice() }, tel0 = G.telegraph, sp0 = G.spawnProjectile, sm0 = G.spawnMob, pin0 = G.state.pin;
       try {
         for (const p of out.pats) {
           T.lane();
           G.debug.god(true);
           const b = G.spawnBoss(kind, P.x + 4, P.z, 1);
-          b.def = Object.assign({}, b.def, { patterns: [p] });
-          b.awake = true;
-          b.cd = 0;
+          if (C.sn) {
+            // 熄烛者：火盆在首领前后左右 7 m（引芯冲向离玩家最近的那个）；不让 AI 自己出招，这一招直接起（在第一帧之前起：计帧从 1 开始）
+            G.state.pin = { lit: [1, 1, 1, 1], br: [[7, 0], [0, 7], [-7, 0], [0, -7]].map(([dx, dz]) => ({ x: b.x + dx, z: b.z + dz })), phase: 0, tideK: 0 };
+            b.awake = b.wasAwake = true; // 已经醒着（醒来那一帧会把出招计时清零、让 AI 自己挑招）
+            b.cd = 1e9;
+          } else {
+            b.def = Object.assign({}, b.def, { patterns: [p] });
+            b.awake = true;
+            b.cd = 0;
+          }
           let ev0 = null;
           // 接触姿势的量：砸地 = 锤石（weapon 挂点）的高度（落地时最低），弹幕 = 两只手的距离（张到最开时最大），冲锋 = 骨盆往前冲出去的位移
           const S0 = {}, mt = () => {
             const e = b.ent, wp = W.entSocket(e, 'weapon'), hd = W.entSocket(e, 'hand'), M = e.mdl, pz = M[e.rig.JI.pelvis * 12 + 11], hj = e.rig.JI.hand_l;
             const m = C.m[p];
             const hs = W.entSocket(e, 'head');
+            const jm = /^(fwd|up|low):(.+)$/.exec(m);
+            if (jm) { const q = e.rig.JI[jm[2]] * 12; return jm[1] === 'fwd' ? M[q + 11] : jm[1] === 'up' ? M[q + 7] : -M[q + 7]; }
             if (m === 'handLow') return -hd.y;
             if (m === 'headLow') return -hs.y;
             if (m === 'jawOpen') return Math.hypot(wp.x - hs.x, wp.y - hs.y, wp.z - hs.z);
@@ -12250,7 +12269,8 @@ async function main() {
           G.telegraph = function (t) { if (t.owner === b && t.onFire) { const f = t.onFire; t.onFire = function () { snap('预警结算'); return f.apply(this, arguments); }; } return tel0.apply(this, arguments); };
           G.spawnProjectile = function (q) { if (q.owner !== 'p' && !C.ev[p]) snap('弹幕离手'); return sp0.apply(this, arguments); };
           G.spawnMob = function () { if (C.ev[p] === 'mob') snap('小怪现身'); return sm0.apply(this, arguments); };
-          let since = -1;
+          let since = C.sn ? 0 : -1;
+          if (C.sn) G.snufferPattern(b, p);
           for (let i = 0; i < 400 && (!ev0 || trace.length < ev0.at + 24); i++) {
             G.tick(1 / 60);
             if (b.lastPattern === p) {
@@ -12262,6 +12282,7 @@ async function main() {
           G.telegraph = tel0;
           G.spawnProjectile = sp0;
           G.spawnMob = sm0;
+          G.state.pin = pin0;
           // 接触帧前后 0.4 秒里，这个量在接触帧（出事件的那一帧）是不是已经到了极值（差不到 6 cm：锤石已经落地 / 双臂已经张开 / 已经冲出去）
           let pose = null;
           if (ev0) {
@@ -12288,6 +12309,7 @@ async function main() {
         G.telegraph = tel0;
         G.spawnProjectile = sp0;
         G.spawnMob = sm0;
+        G.state.pin = pin0;
       }
       return out;
     }, [kind, C]);
@@ -12305,6 +12327,7 @@ async function main() {
   await bossClipStep('golem');
   await bossClipStep('lord');
   await bossClipStep('behemoth');
+  await bossClipStep('snuffer');
 
   const bossDeathStep = (kind, CN) => step('首领死亡和破防：' + CN + '死亡动作砸到地上的那一刻是 0.90 秒（vfx3 第三段冲击环），破防垮下去以后从跪稳的姿势循环、不重播垮下去那一段', async () => {
     await ev((kind) => G.assets.need(['boss-' + kind]), kind);
@@ -12346,6 +12369,7 @@ async function main() {
   await bossDeathStep('golem', '熔渣巨像');
   await bossDeathStep('lord', '烬渊之主');
   await bossDeathStep('behemoth', '衔星巨兽');
+  await bossDeathStep('snuffer', '熄烛者');
 
   await step('刷新后仍可正常游玩：移动、施法、面板', async () => {
     await ev(() => {
