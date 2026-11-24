@@ -1464,14 +1464,14 @@
    "ship": true,
    "replaces": null,
    "tris": 4860,
-   "verts": 12237,
+   "verts": 12224,
    "materials": 1,
    "textures": 1,
    "bounds": {
     "min": [
      -2.27,
      0,
-     -1.625
+     -1.605
     ],
     "max": [
      2.27,
@@ -1515,7 +1515,7 @@
     "walk"
    ],
    "home": "storm",
-   "sha256": "f0180f9ea48b2422ba2784c25fc44f488d5ff19b87277a76172d267a4db0eca7"
+   "sha256": "ce4958e683c748f4d226a840ef8554c197b5f777093f04d7837bf12226c5419b"
   },
   {
    "id": "ca/boss_weaver",

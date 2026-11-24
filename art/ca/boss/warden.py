@@ -226,7 +226,7 @@ def _column(k):
         i = int(round(a / (TAU / 12))) % 12
         if p[1] < 1.3:
             return ('obsidian', 0.34, 0.03)
-        return ('pale', 0.58 if i % 2 == 0 else 0.46, 0.03)
+        return ('pale', 0.62 if i % 2 == 0 else 0.5, 0.03)
     retag(k, cv, ctone)
     for i in range(4):
         a = TAU * i / 4 + TAU / 8
@@ -365,9 +365,10 @@ def _head(k):
 
 
 def _rings(k):
-    # ---- 两道环：外环黄铜（半径 1.55，三个暗铁的节点），内环暗铁（半径 1.28，三个黄铜的节点）；静止姿态是水平的，歪斜和转动在动作 / 游戏端加 ----
-    for bone, r, row, tone, nrow, ntone, y in (('x_ring_a', 1.55, 'brass', 0.48, 'obsidian', 0.32, RING_Y[0]), ('x_ring_b', 1.28, 'iron', 0.5, 'brass', 0.48, RING_Y[1])):
-        band_ring(k, bone, (0, y, 0), r, 0.15, 0.07, seg=40, row=row, tone=tone)
+    # ---- 两道环：外环、内环都是暗的旧黄铜（半径 1.55 / 1.28，各三个暗铁的节点）；静止姿态是水平的，歪斜和转动在动作 / 游戏端加 ----
+    # 两道环是旧黄铜（暗、窄）：读得出是绕着柱身的环，不和领环连成一片橙色
+    for bone, r, row, tone, nrow, ntone, y in (('x_ring_a', 1.55, 'brass', 0.27, 'obsidian', 0.3, RING_Y[0]), ('x_ring_b', 1.28, 'brass', 0.22, 'obsidian', 0.34, RING_Y[1])):
+        band_ring(k, bone, (0, y, 0), r, 0.11, 0.06, seg=40, row=row, tone=tone)
         for i in range(3):
             a = TAU * i / 3 + (0.0 if bone == 'x_ring_a' else TAU / 6)
             c = (math.sin(a) * r, y, math.cos(a) * r)
@@ -394,7 +395,7 @@ def _plates(k):
                 P.append(g2b(tuple(C + lat * x + up * y + nrm * (t + bow))))
             P.append(g2b(tuple(C + lat * x * 0.5 + up * y * 0.5 + nrm * (0.07 + 0.1))))
         vs = k.bind(k.hull(P, 'pale', 0.44, 0.03, 0, 0), B[b])
-        retag(k, vs, lambda p, n, nrm=nrm: ('obsidian', 0.32, 0.02) if Vector(n).dot(nrm) < 0.4 else None)
+        retag(k, vs, lambda p, n, nrm=nrm: ('pale', 0.66, 0.02) if Vector(n).dot(nrm) < 0.4 else None)  # 板边亮一档：护盾板在地面上读得出轮廓
         # 顶上一道黄铜
         P = []
         for x in (-0.52, 0.52):
