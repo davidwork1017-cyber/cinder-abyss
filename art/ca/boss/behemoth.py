@@ -325,10 +325,10 @@ def build(k):
             for i in range(n):
                 za, zb = z0 + (z1 - z0) * i / n, z0 + (z1 - z0) * (i + 1) / n
                 zm = (za + zb) / 2
-                hbox(k, bn, (s * 0.2, top(zm) - 0.02, zm), (0.11, 0.05, abs(zb - za) * 0.92), rot=(math.atan2(top(za) - top(zb), za - zb) * -1, s * 0.06, 0),
-                     row='starglass', tone=0.6, bevel=0.0, glow=0.42, dust=0)
+                hbox(k, bn, (s * 0.2, top(zm) - 0.02, zm), (0.13, 0.05, abs(zb - za) * 0.92), rot=(math.atan2(top(za) - top(zb), za - zb) * -1, s * 0.06, 0),
+                     row='starglass', tone=0.6, bevel=0.0, glow=0.48, dust=0)
         for (z, a) in ((1.25, 0.55), (0.35, -0.45)):
-            hbox(k, 'x_plate_01' if z > 0.7 else 'x_plate_02', (s * 0.62, top(z) + 0.04, z), (0.7, 0.05, 0.1), rot=(0, s * a, -s * 0.34), row='starglass', tone=0.6, bevel=0.0, glow=0.4, dust=0)
+            hbox(k, 'x_plate_01' if z > 0.7 else 'x_plate_02', (s * 0.62, top(z) + 0.04, z), (0.7, 0.05, 0.12), rot=(0, s * a, -s * 0.34), row='starglass', tone=0.6, bevel=0.0, glow=0.46, dust=0)
     # 背脊：一排暗的骨刺（grime 行：暗褐的骨，不让俯视发白），肩峰上最高
     for (z, h) in ((1.32, 0.38), (0.8, 0.48), (0.26, 0.42), (-0.3, 0.34), (-0.84, 0.3), (-1.4, 0.28), (-1.92, 0.22)):
         bn = 'x_plate_01' if z > 0.7 else 'x_plate_02' if z > -0.9 else 'x_plate_03'
@@ -405,17 +405,33 @@ def build(k):
 
     # ---- 嘴里的星：一小团近白的芯（唯一近白的地方），外面五片短的元素色光棱（不是一整团亮球），一圈熔合的焦石咬在牙间 ----
     sc = (0, 3.56, 4.46)  # 原来的头上的位置（经 XF 挪到 x_star 的枢轴上）
-    blob(k, 'x_star', sc, (0.14, 0.14, 0.14), n=14, row='starglass', tone=0.98, jitter=0.01, glow=1.0, dust=0)
+    blob(k, 'x_star', sc, (0.21, 0.21, 0.21), n=16, row='starglass', tone=0.98, jitter=0.01, glow=1.0, dust=0)
     for i in range(5):
         a = TAU * i / 5 + 0.3
         d = (math.cos(a) * 0.9, math.sin(a) * 0.9 + 0.25, 0.35)
         u, v, w = _frame(d)
         base = Vector(sc)
-        pts = [tuple(base + v * 0.08 + u * 0.05), tuple(base + v * 0.08 - u * 0.05), tuple(base + v * 0.08 + w * 0.05), tuple(base + v * 0.08 - w * 0.05), tuple(base + v * 0.3)]
+        pts = [tuple(base + v * 0.12 + u * 0.06), tuple(base + v * 0.12 - u * 0.06), tuple(base + v * 0.12 + w * 0.06), tuple(base + v * 0.12 - w * 0.06), tuple(base + v * 0.45)]
         hull_g(k, 'x_star', pts, row='starglass', tone=0.6, jitter=0.02, glow=0.55)
+    # 一圈很淡的暖光：十几根细的光丝从星芯往外（长短不一，最长 0.55 m，朝头里的方向不放），发光面里亮度很低（远不到近白）；
+    # 远看是嘴里一个黄点，不是一整团实心的光球（发光网格是不透明的，实心的壳就会变回原来的大太阳）。在发光网格里，不加 draw
+    ga = math.pi * (3 - math.sqrt(5))
+    n = 0
+    for i in range(26):
+        y = 1 - 2 * (i + 0.5) / 26
+        r = math.sqrt(max(0.0, 1 - y * y))
+        d = Vector((math.cos(ga * i) * r, y, math.sin(ga * i) * r))
+        if d.z < -0.25 or n >= 14:
+            continue
+        n += 1
+        ln = 0.36 + 0.19 * ((i * 7) % 5) / 4
+        u, v, w = _frame(tuple(d))
+        base = Vector(sc)
+        pts = [tuple(base + v * 0.18 + u * 0.025), tuple(base + v * 0.18 - u * 0.025), tuple(base + v * 0.18 + w * 0.025), tuple(base + v * 0.18 - w * 0.025), tuple(base + v * ln)]
+        hull_g(k, 'x_star', pts, row='starglass', tone=0.6, jitter=0.0, glow=0.3)
     for i in range(4):
         a = TAU * i / 4 + 0.78
-        blob(k, 'x_star', (sc[0] + math.cos(a) * 0.17, sc[1] + math.sin(a) * 0.15, sc[2] - 0.06), (0.08, 0.07, 0.08), n=9, row='char', tone=0.18, jitter=0.04)
+        blob(k, 'x_star', (sc[0] + math.cos(a) * 0.23, sc[1] + math.sin(a) * 0.2, sc[2] - 0.1), (0.09, 0.08, 0.09), n=9, row='char', tone=0.18, jitter=0.04)
 
     # ---- 琉璃角：从后脑往上、再往前弯的一整根多棱角（不分叉），角根一圈暗的黄铜箍；星辉的中间调，俯视是头两侧往前的两道青 ----
     for s in (1, -1):
