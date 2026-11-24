@@ -7808,7 +7808,7 @@ async function main() {
       mid = await ev(() => { const own = (sel) => Array.from(document.querySelectorAll(sel)).filter((n) => n.dataset.skill !== G.BASIC_CARD).length; return { lit: own('.sock.drop-ok'), dim: own('.sock.drop-no'), cap: document.querySelector('#drag-ghost em').textContent }; });
     });
     // skill-expand：20 个技能 60 个孔；散钉也是投射物（12 / 30 → 15 / 45）
-    assert(mid.lit === 27 && mid.dim === 45 && mid.cap === '镶进 掷焰', '拖辅助宝石时只有带「投射物」标签的技能的槽应亮起（掷焰、飞刃、焚骨祭司、黑旋风、散钉，class-d2b1 的四种特殊弹）：' + JSON.stringify(mid));
+    assert(mid.lit === 30 && mid.dim === 57 && mid.cap === '镶进 掷焰', '拖辅助宝石时只有带「投射物」标签的技能的槽应亮起（掷焰、飞刃、焚骨祭司、黑旋风、散钉，class-d2b1 的四种特殊弹，class-d2b2 的跳射）：' + JSON.stringify(mid));
     let r = await ev(() => ({ e: G.save.sockets.ember.slice(), proj: G.skillCtx('ember').proj }));
     assert(r.e[0] === 'multi' && r.proj === 3, '宝石没有镶上：' + JSON.stringify(r));
     await dragTo(sup('brutal'), sock('ember', 1), async () => {
@@ -15469,7 +15469,7 @@ async function main() {
       const keep = {};
       for (const id of G.GEM_SKILLS) keep[id] = G.SKILLS[id];
       // 渊式（c）：电桥带持续；随核跟着黑洞带持续；其余渊式不带
-      const want = { blackhole: 'oabc', vortex: 'o', arc: 'ac', blade: 'b', pyre: 'a', icefall: 'ob', molten: 'o', wedge: 'a' }; // class-d2b1：铁水弹原式（铁水）、雷楔 A 雷网带「持续」 // skill-expand：坠凌带「持续」；skill-batch2：随凌（坠凌 B）也带，重凌（A）一根冰凌不带
+      const want = { blackhole: 'oabc', vortex: 'o', arc: 'ac', blade: 'b', pyre: 'a', icefall: 'ob', molten: 'o', wedge: 'a', snare: 'oab', scorch: 'a', heartfire: 'oab' }; // class-d2b2：绊雷（每枚 7 秒、最多 3 枚）、燎原（火地）、心火（16 秒）带「持续」 // class-d2b1：铁水弹原式（铁水）、雷楔 A 雷网带「持续」 // skill-expand：坠凌带「持续」；skill-batch2：随凌（坠凌 B）也带，重凌（A）一根冰凌不带
       const huwoAura = G.skillVariant('vortex', 'a').kind === 'aura'; // 护涡改成光环之后不吃绵延、也镶不上回响
       if (!huwoAura) want.vortex += 'a';
       const bad = [], echoBad = [];
@@ -19899,6 +19899,22 @@ async function main() {
         G.input.mouse.b[0] = true;
         if (id === 'blackflame') G.input.mouse.b[2] = true; // 黑焰是附带在别的命中上：按住右键普攻
         if (i % 30 === 0) G.input.tap[0] = 0.2; // 每 0.5 秒补按一次：再按类（坍缩 / 掷旋）、手动召唤
+        // class-d2b2：硬接要挨打才有伤害（反震每挡一下震一圈）：每 0.5 秒让目标打你一下；
+        // 心火自己不打人，余烬要有敌人被你打死：每秒用一下异常触发的伤害（不算余响）打死一只小怪
+        if (id === 'brace' && i % 30 === 15) {
+          const g0 = P.god;
+          P.god = false;
+          P.iframe = 0;
+          G.hurtPlayer(P.maxLife * 0.05, 'phys', tgt);
+          P.god = g0;
+        }
+        if (id === 'heartfire' && i % 60 === 30) {
+          const k = smalls.find((e) => e && !e.dead && e !== tgt) || smalls.find((e) => e && !e.dead);
+          if (k) {
+            k.hp = 1;
+            G.hitEnemy(k, Object.assign({}, G.skillCtx('heartfire'), { id: null, proc: true }), 1, { proc: true });
+          }
+        }
         if (i % 60 === 0) {
           P.mana = P.maxMana;
           P.life = P.maxLife;
