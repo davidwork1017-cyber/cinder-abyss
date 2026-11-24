@@ -1278,8 +1278,8 @@
    "file": "assets/ca/boss/behemoth.glb",
    "ship": true,
    "replaces": null,
-   "tris": 4154,
-   "verts": 11697,
+   "tris": 4174,
+   "verts": 11734,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -1330,7 +1330,7 @@
     "walk"
    ],
    "home": "rift",
-   "sha256": "29afe2ac0cb8d838ebf2f6d11b9e2d017d30fb3b48a3785f6fd2decc50f203b3"
+   "sha256": "030a6db8f2c35c422016b1bf666d2dfa7458e07bd74a6eab5d216d791c5d2878"
   },
   {
    "id": "ca/boss_golem",

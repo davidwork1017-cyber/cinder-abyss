@@ -41,6 +41,12 @@ def track(frames, chans=None):
     return keys
 
 
+def pre(dur, k0):
+    """k0 前一帧：接触姿势在这一帧就到位、一直钉到 k0 以后（预警结算可能比动作的接触帧早一帧，那一帧也得是接触的姿势）"""
+    N = max(1, round(dur * 30))
+    return round(k0 * N - 1) / N
+
+
 def snap(dur, k):
     """k 落到 30 帧 / 秒的采样帧上（N = round(dur × 30)）"""
     N = max(1, round(dur * 30))
@@ -143,7 +149,7 @@ SQUASH = P(CRASH, L('f', 'l', -0.36, 0.62, -0.2), L('f', 'r', -0.32, 0.6, -0.2),
 STARFALL_W = {'dur': SF_W_DUR, 'hold': True, 'fade': 0.1, 'steady': True,
               'keys': track([(0, STAND, False), (0.22, DIP, False), (0.75, P(REAR, pelvis__rx=-0.38), False), (1, REAR, False)])}
 STARFALL = {'dur': SF_DUR, 'k0': SF_K0, 'fade': 0.03, 'out': 0.35, 'steady': True,
-            'keys': track([(0, REAR, False), (SF_K0, CRASH, True), (snap(SF_DUR, 0.2), SQUASH, False), (snap(SF_DUR, 0.45), P(CRASH, x_jaw__rx=0.2), False), (snap(SF_DUR, 0.85), P(STAND, neck_01__rx=0.04), False), (1, STAND, False)])}
+            'keys': track([(0, REAR, False), (pre(SF_DUR, SF_K0), CRASH, True), (SF_K0, CRASH, False), (snap(SF_DUR, 0.2), SQUASH, False), (snap(SF_DUR, 0.45), P(CRASH, x_jaw__rx=0.2), False), (snap(SF_DUR, 0.85), P(STAND, neck_01__rx=0.04), False), (1, STAND, False)])}
 
 # ---------------------------------------------------------------- 坍缩（gravity）
 # 蓄力 0.465 s：四肢一沉伏低、前腿往外撑，脖子往下压，嘴里的星一明一暗（post）；
@@ -162,7 +168,7 @@ PULL2 = P(PULL, x_plate_01__oy=0.1, x_plate_02__oy=0.07, x_plate_03__oy=0.05, x_
 RECOIL = P(CROUCH, neck_01__rx=-0.32, x_neck_02__rx=-0.08, head__rx=-0.22, x_jaw__rx=0.62, pelvis__oz=-0.22, pelvis__rx=-0.08, x_plate_01__rx=-0.14, x_plate_01__oy=0.1)
 GRAVITY_W = {'dur': GR_W_DUR, 'hold': True, 'fade': 0.1, 'steady': True,
              'keys': track([(0, STAND, False), (0.7, P(CROUCH, neck_01__rx=0.16), False), (1, CROUCH, False)])}
-_gk = [(0, CROUCH, False), (GR_K0, PULL, True)]
+_gk = [(0, CROUCH, False), (pre(GR_DUR, GR_K0), PULL, True), (GR_K0, PULL, False)]
 for _i, _k in enumerate((0.2, 0.32, 0.44, 0.56, 0.68, 0.8)):
     _gk.append((snap(GR_DUR, _k), PULL2 if _i % 2 == 0 else PULL, False))
 _gk += [(snap(GR_DUR, 0.88), PULL, False), (snap(GR_DUR, 0.96), RECOIL, True), (1, P(RECOIL, x_jaw__rx=0.4), False)]
@@ -183,7 +189,7 @@ AIM = P(
 FIRE = P(AIM, x_jaw__rx=0.66, head__rx=-0.24, x_neck_03__rx=-0.14, neck_01__rx=0.34, pelvis__oz=-0.24, spine_03__rx=0.02)
 SWEEP_W = {'dur': SW_W_DUR, 'hold': True, 'fade': 0.1, 'steady': True,
            'keys': track([(0, STAND, False), (0.6, P(AIM, x_jaw__rx=0.2), False), (1, AIM, False)])}
-_sk = [(0, AIM, False), (SW_K0, FIRE, True)]
+_sk = [(0, AIM, False), (pre(SW_DUR, SW_K0), FIRE, True), (SW_K0, FIRE, False)]
 for _i, _k in enumerate((0.16, 0.26, 0.36, 0.46, 0.56, 0.66, 0.76, 0.86)):
     _sk.append((snap(SW_DUR, _k), P(FIRE, x_jaw__rx=0.66 - (0.05 if _i % 2 else 0.0), spine_02__rx=0.015 * (1 if _i % 2 else -1)), False))
 _sk += [(snap(SW_DUR, 0.92), FIRE, False), (1, P(AIM, x_jaw__rx=0.12, pelvis__oz=-0.05), False)]
@@ -209,7 +215,7 @@ STOMP2 = P(STOMP, pelvis__oy=-0.14, spine_03__rz=-0.14, neck_01__rx=0.4, head__r
 SLAM_W = {'dur': SL_W_DUR, 'hold': True, 'fade': 0.12, 'steady': True,
           'keys': track([(0, STAND, False), (0.45, P(LIFT, x_fleg_l_01__rx=-0.6, x_fleg_l_02__rx=0.9, x_fleg_l_03__rx=0.3, pelvis__rx=-0.06), False), (0.85, P(LIFT, x_fleg_l_01__rx=-1.08), False), (1, LIFT, False)])}
 SLAM = {'dur': SL_DUR, 'k0': SL_K0, 'fade': 0.03, 'out': 0.35, 'steady': True,
-        'keys': track([(0, LIFT, False), (SL_K0, STOMP, True), (snap(SL_DUR, 0.38), STOMP2, False), (snap(SL_DUR, 0.62), P(STOMP, pelvis__oy=-0.04), False), (1, STAND, False)])}
+        'keys': track([(0, LIFT, False), (pre(SL_DUR, SL_K0), STOMP, True), (SL_K0, STOMP, False), (snap(SL_DUR, 0.38), STOMP2, False), (snap(SL_DUR, 0.62), P(STOMP, pelvis__oy=-0.04), False), (1, STAND, False)])}
 
 # ---------------------------------------------------------------- 破防：0.5 s 前腿一折跪下（前膝着地）、头垂下来，之后 2 s 一个循环（loopFrom = 0.2）
 # 姿势收得紧：跪在原地、头不往前伸出去（不盖住地上的下一道预警）
