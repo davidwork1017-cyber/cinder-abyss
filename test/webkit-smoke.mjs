@@ -8,7 +8,7 @@ import { webkit, devices } from 'playwright-core';
 import { execSync } from 'node:child_process';
 import { GAME_URL } from './harness.mjs';
 import { uiLayoutCheck, uiBlankPoint } from './ui-layout.mjs';
-import { cornerScenes, cornerHud } from './corner-mask.mjs';
+import { cornerScenes, cornerHud, cornerCheck } from './corner-mask.mjs';
 
 let passed = 0, failed = 0;
 const lines = [];
@@ -539,6 +539,116 @@ await step('iPhone 圆角：四角各一块半径 47 px 的遮罩，标题、职
   } finally {
     await c2.close();
   }
+});
+
+// UI-R B4b：用户的玩法是主屏幕 App、锁着自动旋转横着拿，游戏一直在旋转横屏里（用户截图 notes/user-feedback/iphone-rotated-title-2026-11-24.png）。
+// iOS 主屏幕 App（状态栏 black-translucent）里网页从屏幕最顶上画起，innerHeight 却少算了状态栏那一截：这里照这个样子模拟（navigator.standalone、screen 是整块屏幕、innerHeight 少 59 px）
+await step('旋转横屏 · 主屏幕 App（UI-R B4b）：iPhone 393×852 / 430×932，有没有状态栏 59 px + 底部横条 34 px 的安全区，innerHeight 少算状态栏时——画面盖满整块屏幕（±2 px）；标题画面（有存档，6 个按钮）过 a–f、不碰圆角；HUD 和背包不碰圆角；方向记在设备上，重新打开接着转，⟲ 换过的方向也记住', async () => {
+  const out = [];
+  const bad = [];
+  for (const [W, H] of [[393, 852], [430, 932]]) {
+    for (const ins of [false, true]) {
+      const c = await browser.newContext(Object.assign({}, devices['iPhone 13'], { viewport: { width: W, height: H }, screen: { width: W, height: H } }));
+      await c.addInitScript((short) => {
+        Object.defineProperty(navigator, 'standalone', { get: () => true, configurable: true });
+        const d = Object.getOwnPropertyDescriptor(window, 'innerHeight') || Object.getOwnPropertyDescriptor(Window.prototype, 'innerHeight');
+        window.__ihBug = true; // 量圆角时关掉（圆角按真的屏幕算）
+        Object.defineProperty(window, 'innerHeight', { get() { const v = d.get.call(window); return window.__ihBug ? Math.min(v, short) : v; }, configurable: true });
+      }, H - 59);
+      const where = W + '×' + H + (ins ? ' + 安全区' : '');
+      const errs = [];
+      try {
+        let p = await c.newPage();
+        p.on('pageerror', (e) => errs.push('pageerror: ' + (e.stack || e.message)));
+        const pev = (f, a) => p.evaluate(f, a);
+        await p.goto(GAME_URL);
+        await p.waitForFunction(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, { timeout: 120000 });
+        // 放一个存档（标题画面是 6 个按钮的样子），重新打开
+        await pev(() => {
+          const x = G.newClassSave('hunt');
+          x.level = 7;
+          x.seenHelp = x.seenStory = true;
+          localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(x));
+          localStorage.setItem(G.touch.keys.HINT_KEY, '1');
+        });
+        await p.reload();
+        await p.waitForFunction(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, { timeout: 120000 });
+        const setIns = () => pev((on) => { const st = document.documentElement.style; for (const k of ['t', 'b']) { if (on) st.setProperty('--t-safe-' + k, k === 't' ? '59px' : '34px'); else st.removeProperty('--t-safe-' + k); } }, ins);
+        await setIns();
+        await pev(() => G.touch.setRot('cw'));
+        await p.waitForTimeout(600);
+        const fr = await pev(() => { const b = document.body.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom }; });
+        if (Math.abs(fr.l) > 2 || Math.abs(fr.t) > 2 || Math.abs(fr.r - W) > 2 || Math.abs(fr.b - H) > 2) bad.push(where + ' 画面没盖满屏幕：' + JSON.stringify(fr));
+        const corner = async (what) => {
+          await pev(() => { window.__ihBug = false; });
+          const r = await pev(cornerCheck, { R: 47 });
+          await pev(() => { window.__ihBug = true; });
+          if (r.hits.length) bad.push(where + ' ' + what + ' 碰圆角：' + r.hits.slice(0, 3).map((x) => x.corner + ' ' + x.what).join('；'));
+          // 有安全区时：状态栏（竖着的屏幕顶上 59 px，转过去是画面的左边）和底部横条（底下 34 px，画面的右边）那两条里不能有字和能点的东西
+          if (ins) {
+            const st = await pev(([H]) => {
+              const out = [];
+              const SEL = 'button, [data-act], [data-tact], [data-tb], [data-tt], .cell, .eq, .tab, input, select';
+              for (const e of document.querySelectorAll('body *')) {
+                if (!e.getClientRects().length) continue;
+                const cs = getComputedStyle(e);
+                if (cs.visibility === 'hidden' || cs.display === 'none') continue;
+                let op = 1;
+                for (let x = e; x && x.nodeType === 1; x = x.parentElement) op *= +getComputedStyle(x).opacity;
+                if (op < 0.05) continue;
+                const txt = Array.from(e.childNodes).some((n) => n.nodeType === 3 && n.textContent.trim());
+                if (!txt && !e.matches(SEL)) continue;
+                const r = e.getBoundingClientRect(); // 屏幕坐标（竖着的）
+                if (r.width < 1 || r.height < 1) continue;
+                if (r.top < 59 - 0.5 || r.bottom > H - 34 + 0.5) out.push((e.id ? '#' + e.id : e.tagName.toLowerCase() + (typeof e.className === 'string' && e.className ? '.' + e.className.split(' ')[0] : '')) + '「' + (e.textContent || '').trim().slice(0, 8) + '」 ' + [r.left, r.top, r.right, r.bottom].map(Math.round).join(','));
+              }
+              return out;
+            }, [H]);
+            if (st.length) bad.push(where + ' ' + what + ' 有东西在状态栏 / 底部横条里：' + st.slice(0, 3).join('；'));
+          }
+        };
+        const lay = await pev(uiLayoutCheck, { touch: true, roots: '#title .t-main, #title .t-foot, #t-rot-go, #t-rot-flip', head: '#title .m-head', max: 3 });
+        if (lay.n) bad.push(where + ' 标题画面：' + Object.entries(lay.res).map(([k, v]) => k + ' ' + v.n + '（' + v.s.join('；') + '）').join(' '));
+        const nBtn = await pev(() => Array.from(document.querySelectorAll('#t-menu .m-btn')).filter((n) => n.getClientRects().length).length);
+        if (nBtn !== 6) bad.push(where + ' 标题画面应有 6 个按钮：' + nBtn);
+        await corner('标题画面');
+        // 进游戏：HUD、背包
+        await pev(() => G.ui.hideTitle());
+        await p.waitForTimeout(900);
+        await corner('HUD');
+        await pev(() => G.ui.open('inv'));
+        await p.waitForTimeout(500);
+        const li = await pev(uiLayoutCheck, { touch: true, max: 3 });
+        if (li.n) bad.push(where + ' 背包：' + Object.entries(li.res).map(([k, v]) => k + ' ' + v.n + '（' + v.s.join('；') + '）').join(' '));
+        await corner('背包');
+        await pev(() => G.ui.close());
+        // 方向记在设备上：关掉再打开（同一台设备 = 同一个浏览器配置），手机还竖着就接着按上次的方向转；⟲ 换过的也记住
+        const k1 = await pev(() => localStorage.getItem(G.touch.keys.ROT_KEY));
+        await p.close();
+        p = await c.newPage();
+        await p.goto(GAME_URL);
+        await p.waitForFunction(() => window.G && G.touch && G.ui && G.ui.titleOn && G.ui.titleOn(), null, { timeout: 120000 });
+        await p.waitForTimeout(400);
+        const r1 = await p.evaluate(() => G.touch.state().rot);
+        await p.evaluate(() => document.getElementById('t-rot-flip').click());
+        await p.waitForTimeout(300);
+        await p.close();
+        p = await c.newPage();
+        await p.goto(GAME_URL);
+        await p.waitForFunction(() => window.G && G.touch && G.ui && G.ui.titleOn && G.ui.titleOn(), null, { timeout: 120000 });
+        await p.waitForTimeout(400);
+        const r2 = await p.evaluate(() => G.touch.state().rot);
+        if (k1 !== 'cw' || r1 !== 'cw' || r2 !== 'ccw') bad.push(where + ' 方向没记住：' + JSON.stringify({ k1, r1, r2 }));
+        await p.close();
+        if (errs.length) bad.push(where + ' 页面报错：' + errs.join(' | '));
+        out.push(where);
+      } finally {
+        await c.close();
+      }
+    }
+  }
+  assert(!bad.length, bad.length + ' 处不合格：' + bad.slice(0, 6).join(' ｜ '));
+  return out.join(' / ') + '：画面盖满屏幕、标题 / HUD / 背包都过，方向记得住';
 });
 
 await browser.close();
