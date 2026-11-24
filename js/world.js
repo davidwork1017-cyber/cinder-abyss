@@ -19371,7 +19371,7 @@
       spin: ['x_crown', 0.4, null, 0],
       smoke: 2.2,
       relight: ['x_wick_01', 'x_wick_02', 'x_wick_03', 'x_wick_04', 'x_wick_05', 'x_wick_06', 'x_wick_07', 'x_wick_08'],
-      emis: [0x3a3c40, 0.14], tint: 0xdce0e6,
+      emis: [0x3a3c40, 0.14], tint: 0xf4f4f6,
     },
   };
   // 调色板行 → 表面（粗糙度 / 金属度），行号见 art/ca/palette.py

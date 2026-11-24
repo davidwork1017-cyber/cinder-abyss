@@ -1464,7 +1464,7 @@
    "ship": true,
    "replaces": null,
    "tris": 4304,
-   "verts": 11611,
+   "verts": 11606,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -1521,7 +1521,7 @@
     "wick_w"
    ],
    "home": "pin",
-   "sha256": "c4db99c6846bbee48012020c4ae2c91356d8e6b163d906f86040052ba6492224"
+   "sha256": "1df6b1981fb7a0722dcedeb044fb0441a4772e7905d4b15a9f7d60072f00cb6a"
   },
   {
    "id": "ca/crown_brazier",
