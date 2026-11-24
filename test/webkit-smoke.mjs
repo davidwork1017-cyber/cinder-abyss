@@ -291,7 +291,7 @@ await step('面板布局（UI-R B2）：844×340 / 390×844 下技能页（列�
     const states = [
       ['列表', 'skills', []],
       ['说明', 'skills', [w <= 600 ? '#panel-body [data-act="hint"]' : '#panel-q']],
-      ['技能卡', 'skills', ['.sk-list [data-act="sk-sel"][data-skill="' + k + '"]'], true],
+      ['技能卡', 'skills', ['.barstrip [data-act="sk-sel"][data-skill="' + k + '"]'], true], // 点技能栏那一格（列表里它那一行在 844×340 只露出一半，滚过去以后 uiBlankPoint 会把滚出去的行也当成点按目标）
       ['选辅助', k, ['.sheet .sock[data-skill="' + k + '"]:not(.full)'], true],
       ['武器技卡', 'skills', ['.sk-list [data-act="sk-sel"][data-skill="wskill"]'], true],
       ['辅助', 'sup', []],
@@ -304,8 +304,6 @@ await step('面板布局（UI-R B2）：844×340 / 390×844 下技能页（列�
         await ev((sub) => { G.ui.close(); G.ui.open('skills', sub); }, sub);
         await page.waitForTimeout(150);
         for (const sel of taps) {
-          await ev((sel) => { const n = document.querySelector(sel); if (n) n.scrollIntoView({ block: 'nearest' }); }, sel); // 列表里的那一行可能只露出一半
-          await page.waitForTimeout(100);
           await tap(sel);
           await page.waitForTimeout(200);
         }
