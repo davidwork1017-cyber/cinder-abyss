@@ -4412,3 +4412,5 @@ html.touch-ui.t-rot #title.clsv .m-body .m-acts { position: static; }
 html.touch-ui.t-rot.title-on.t-tsub #t-rot-flip { display: none; }
 /* 左手模式：摇杆区在右下，圆角也换到右下（同 mobile-hotfix 给左下的那个） */
 html.touch-ui.t-mirror #t-stick { border-bottom-left-radius: 0; border-bottom-right-radius: 50px; }
+/* 标题画面竖着时：不叠游戏里那层「横过来玩」（标题画面半透明，会透出来压着菜单），右上角的「横屏开始」就够了 */
+html.touch-ui.title-on #t-portrait { display: none !important; }
