@@ -304,6 +304,8 @@ await step('面板布局（UI-R B2）：844×340 / 390×844 下技能页（列�
         await ev((sub) => { G.ui.close(); G.ui.open('skills', sub); }, sub);
         await page.waitForTimeout(150);
         for (const sel of taps) {
+          await ev((sel) => { const n = document.querySelector(sel); if (n) n.scrollIntoView({ block: 'nearest' }); }, sel); // 列表里的那一行可能只露出一半
+          await page.waitForTimeout(100);
           await tap(sel);
           await page.waitForTimeout(200);
         }
