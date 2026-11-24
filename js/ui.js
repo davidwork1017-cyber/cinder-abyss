@@ -1677,7 +1677,7 @@
   // o：{ head, body, acts, msg, cls }。body 是唯一的滚动区（data-list），acts 是底部固定的操作条
   function sheetHtml(o) {
     return (
-      '<div class="sheet ' + (compactUi() ? (portraitUi() ? 'dock bottom' : 'dock side') : 'pop') + (o.cls ? ' ' + o.cls : '') + '">' +
+      '<div class="sheet ' + (compactUi() ? (portraitUi() ? 'dock bottom' : 'dock side') : 'pop') + (o.cls ? ' ' + o.cls : '') + '"' + (o.rc ? ' style="--rc:' + o.rc + '"' : '') + '>' +
       '<div class="sh-head">' + o.head + '<button type="button" tabindex="-1" class="sh-x" data-act="card-close" aria-label="收起">✕</button></div>' +
       '<div class="sh-body scroll" data-list data-scroll="sheet">' + o.body + '</div>' +
       (o.msg || '') +
@@ -1762,7 +1762,8 @@
     }
     const msg = ui.invMsg ? '<div class="inv-msg sh-msg">' + esc(ui.invMsg) + '</div>' : ui.invOk ? '<div class="inv-msg sh-msg ok">' + esc(ui.invOk) + '</div>' : '';
     const cmpB = dock && eqOf ? '<button type="button" tabindex="-1" class="sh-b' + (view === 'cmp' ? ' on' : '') + '" data-act="cmp">对比</button>' : '';
-    return sheetHtml({ head: sheetHead(view === 'cmp' && eqOf ? eqOf : it, cmpB), body, acts, msg, cls: (f.equipped ? 'eqd' : f.stash ? 'st' : 'bg') + (it.rarity >= 3 ? ' top' : '') });
+    const hd = view === 'cmp' && eqOf ? eqOf : it;
+    return sheetHtml({ head: sheetHead(hd, cmpB), body, acts, msg, cls: (f.equipped ? 'eqd' : f.stash ? 'st' : 'bg') + (hd.rarity >= 3 ? ' top' : ''), rc: G.RARITY_COLOR[hd.rarity] });
   }
   // 桌面卡片里的通货改造（两列小按钮，和以前的详情栏一样）
   function craftGrid(it) {
@@ -1829,13 +1830,14 @@
   }
   // 单击 / 轻点物品：桌面等双击的窗口过了才开卡（双击、拖动都不会闪一下）；触屏马上开
   const CARD_DELAY = 250;
-  function clickItem(uid, stash) {
+  // now：马上开（身上的装备没有双击动作，不用等）
+  function clickItem(uid, stash, now) {
     clearTimeout(ui.cardTimer);
     if (ui.card && ui.card.uid === uid && !stash === !ui.card.stash) {
       closeCard(); // 再点一次同一件：收起
       return render();
     }
-    if (touchOn() || stash || compactUi()) {
+    if (now || touchOn() || stash || compactUi()) {
       openCard(uid, stash);
       return render();
     }
@@ -1912,7 +1914,7 @@
       }
     }
     const coach = coachBanner('inv');
-    const count = '<span class="bag-n">背包 <b>' + S.bag.length + '</b> / ' + G.BAG_SIZE + '</span>';
+    const count = '<span class="bag-n">' + (portrait ? '' : '背包 ') + '<b>' + S.bag.length + '</b> / ' + G.BAG_SIZE + '</span>'; // 竖屏放在工具行里，省掉「背包」两个字
     const keep = compact && !portrait;
     const right = keep ? count : '';
     const msg = ui.bagMsg
@@ -3462,7 +3464,7 @@
     [['1', '2'], '生命 / 魔力药剂'],
     [['F'], '处决破绽中的敌人，否则拾取'],
     [['Alt'], '按住：展开名牌概要和浮窗详情'],
-    [['I', 'G', 'P', 'M'], '背包 / 技能 / 天赋 / 地图'],
+    [['I', 'C', 'G', 'P', 'M'], '背包 / 属性 / 技能 / 天赋 / 地图'],
     [['H', 'Esc'], '打开帮助 / 关闭面板；没有面板时 Esc 暂停'],
   ];
   function renderHelp() {
@@ -4039,7 +4041,9 @@
         ui.invMsg = '';
         G.sfx('click');
       }
-      clickItem(d.item, false); // 开卡（桌面等双击窗口过了才开）
+      // 开卡：桌面上背包页的背包物品等双击窗口过了才开；身上的、仓库页的没有双击动作，马上开；
+      // 键盘 / 脚本触发的点击（detail 为 0）不会是双击的第一下，也马上开
+      clickItem(d.item, false, f.equipped || ui.tab === 'stash' || !e || e.detail === 0);
     },
     equip() {
       const f = selItem();
@@ -5016,19 +5020,6 @@
         encHud.buff.dataset.tip = 'txt:' + BD.desc;
       }
     }
-  }
-  // 背包：烛芯一行（拾到过才显示，新角色的背包页布局不变）
-  function fragRow() {
-    const F = G.save.frags || {};
-    let total = 0;
-    for (const id of G.FRAG_IDS) total += F[id] || 0;
-    if (!total) return '';
-    let h = '';
-    for (const id of G.FRAG_IDS) {
-      const f = G.FRAGS[id], n = F[id] || 0;
-      h += '<div class="cur frag' + (n ? '' : ' zero') + '" data-tip="frag:' + id + '" style="--c:' + f.color + '">' + IC.frag(id) + '<span class="cur-name">' + f.name + '</span><b>' + n + '</b></div>';
-    }
-    return '<div class="sec-title">烛芯<span class="sec-note">熄烛者的开启材料</span></div><div class="cur-row frag-row">' + h + '</div>';
   }
   function fragTip(id) {
     const f = G.FRAGS[id];

@@ -6,6 +6,7 @@
 import { webkit, devices } from 'playwright-core';
 import { execSync } from 'node:child_process';
 import { GAME_URL } from './harness.mjs';
+import { uiLayoutCheck } from './ui-layout.mjs';
 
 let passed = 0, failed = 0;
 const lines = [];
@@ -180,6 +181,72 @@ await step('触屏：按住主攻放出左键技能（每帧记下出手），�
   await touch('touchend', '[data-tb="roll"]');
   assert(r > 0, '点翻滚应翻滚');
   return m1.id + ' 出手 ' + m1.casts + ' 次';
+});
+
+await step('面板布局（UI-R B1）：844×340 / 390×844 下背包（空、筛选、说明、物品卡）、仓库（格子、物品卡）、属性（属性、图鉴）都过 a–f 检查（test/ui-layout.mjs），点卡片外面能收起', async () => {
+  const fx = await ev(() => {
+    G.debug.hold(true);
+    const s = G.save;
+    G.debug.setLevel(30);
+    for (const id of G.CUR_IDS) s.cur[id] = 3;
+    const slots = ['boots', 'belt', 'gloves', 'body', 'amulet', 'helm', 'ring'];
+    for (let i = 0; i < 20; i++) G.debug.giveItem(i % 3, slots[i % slots.length], undefined, 28);
+    const rare = G.debug.giveItem(2, 'ring', undefined, 28).uid;
+    if (G.stash && G.stash.ok()) for (let i = G.stash.list().length; i < 10; i++) G.stash.put(G.rollItem(20, i % 3, slots[i % slots.length]), true);
+    G.computeStats();
+    return { rare: '.cell[data-item="' + rare + '"]' };
+  });
+  const vp0 = page.viewportSize();
+  const bad = [];
+  let n = 0;
+  const settle = () => ev(async () => {
+    for (const x of document.querySelectorAll('#panel-win, #panel-win *, #panel .sheet')) for (const a of x.getAnimations()) await a.finished.catch(() => {});
+  });
+  for (const [w, h] of [[844, 340], [390, 844]]) {
+    await page.setViewportSize({ width: w, height: h });
+    await page.waitForTimeout(300);
+    const states = [
+      ['背包', ['inv'], []],
+      ['筛选', ['inv'], ['[data-act="filter"]']],
+      ['说明', ['inv'], [w <= 600 ? '#panel-body [data-act="hint"]' : '#panel-q']],
+      ['物品卡', ['inv'], [fx.rare], true],
+      ['仓库', ['stash'], []],
+      ['仓库物品卡', ['stash'], ['.stp [data-grid="stash"] .cell[data-uid]'], true],
+      ['属性', ['char', 'stats'], []],
+      ['图鉴', ['char', 'stats'], ['[data-act="sub"][data-sub="codex"]']],
+    ];
+    for (const [id, open, taps, card] of states) {
+      n++;
+      try {
+        await ev(([t, sub]) => { G.ui.close(); G.ui.open(t, sub); }, open);
+        await page.waitForTimeout(150);
+        for (const sel of taps) {
+          await tap(sel);
+          await page.waitForTimeout(200);
+        }
+        await settle();
+        const r = await ev(uiLayoutCheck, { touch: true, max: 3 });
+        if (r.n) bad.push(w + '×' + h + ' ' + id + '：' + Object.entries(r.res).map(([k, v]) => k + ' ' + v.n + '（' + v.s.join('；') + '）').join(' '));
+        if (card) {
+          assert(await ev(() => !!document.querySelector('#panel .sheet')), id + ' 没有打开卡片');
+          const p = await ev(() => {
+            const s = document.querySelector('#panel .sheet').getBoundingClientRect(), b = document.getElementById('panel-body').getBoundingClientRect();
+            return { x: b.left + 3, y: s.top > b.top + 40 ? (b.top + s.top) / 2 : (b.top + b.bottom) / 2 };
+          });
+          await page.touchscreen.tap(p.x, p.y);
+          await page.waitForTimeout(200);
+          if (await ev(() => !!document.querySelector('#panel .sheet'))) bad.push(w + '×' + h + ' ' + id + '：点卡片外面没有收起');
+        }
+      } catch (e) {
+        bad.push(w + '×' + h + ' ' + id + '：' + String(e.message || e).slice(0, 200));
+      }
+    }
+  }
+  await ev(() => G.ui.close());
+  if (vp0) await page.setViewportSize(vp0);
+  await page.waitForTimeout(300);
+  assert(!bad.length, bad.length + ' 处不合格：' + bad.slice(0, 6).join(' ｜ '));
+  return '2 个尺寸 × 8 个状态 = ' + n + ' 次检查';
 });
 
 await step('画面：渲染在跑（时间在走、没有丢失上下文），纹理内存', async () => {

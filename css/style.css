@@ -4299,7 +4299,7 @@ html.touch-ui { --fs-md: 14px; --fs-lg: 16px; --head-h: 36px; --hit: 44px; }
 
 /* ---- 卡片 ---- */
 .sheet {
-  z-index: 30;
+  z-index: 11; /* 和小菜单、窄屏页头同一层（DOM 里靠后的盖住靠前的）；选择器 #picker 12、确认框 #confirm 13 在上面 */
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -4350,7 +4350,8 @@ html.touch-ui { --fs-md: 14px; --fs-lg: 16px; --head-h: 36px; --hit: 44px; }
 .sh-acts .btn.primary { flex: 1.5 1 0; }
 .sh-acts .btn.lk-btn { flex: 1 1 0; justify-content: center; padding: 0 6px; }
 .sh-acts .btn.on:not(.lk-btn) { border-color: var(--ember-2); color: #ffe2b0; }
-.sheet.top .sh-head { background: linear-gradient(180deg, color-mix(in srgb, var(--relic, #d06ad8) 18%, transparent), rgba(20, 13, 9, 0.2)); }
+.sheet .sh-head { background: linear-gradient(180deg, color-mix(in srgb, var(--rc, #6d675c) 16%, transparent), rgba(20, 13, 9, 0.2)); }
+.sheet.top .sh-name { text-shadow: 0 0 8px color-mix(in srgb, var(--rc) 55%, transparent), 0 1px 2px #000; }
 /* 触屏卡片的「改造」：通货一行 44 px */
 .cl-list { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px 0; }
 .cl-row {
@@ -4378,7 +4379,7 @@ html.touch-ui { --fs-md: 14px; --fs-lg: 16px; --head-h: 36px; --hit: 44px; }
 /* ---- 小菜单 ---- */
 .ui-pop {
   position: absolute;
-  z-index: 40;
+  z-index: 11;
   min-width: 190px;
   max-width: min(320px, calc(100vw - 16px));
   padding: 6px;
@@ -4494,7 +4495,7 @@ html.touch-ui { --fs-md: 14px; --fs-lg: 16px; --head-h: 36px; --hit: 44px; }
    窄屏 / 触屏（≤ 900 宽或 ≤ 500 高）：页头一行 36 px（没有品牌字，页签和 [?] / ✕ 的点按区往下伸到 44 px）
    ============================================================ */
 @media (max-width: 900px), (max-height: 500px) {
-  #panel-head { position: relative; z-index: 35; height: 36px; padding: 0 0 0 2px; overflow: visible; }
+  #panel-head { position: relative; z-index: 11; height: 36px; padding: 0 0 0 2px; overflow: visible; }
   .brand { display: none; }
   #tabs { justify-content: flex-start; gap: 0; min-width: 0; }
   .tab { flex: none; justify-content: center; min-width: 44px; height: 44px; margin-bottom: -8px; padding: 0 9px 8px; font-size: 14px; letter-spacing: 1px; white-space: nowrap; }
@@ -4586,9 +4587,9 @@ html.touch-ui { --fs-md: 14px; --fs-lg: 16px; --head-h: 36px; --hit: 44px; }
   .por > .pg-row { flex-direction: column; align-items: center; justify-content: flex-start; gap: 8px; }
   .inv2.por .inv-side { order: -1; width: 100%; align-items: center; gap: 8px; }
   .inv2.por .eq-grid { grid-template-columns: repeat(4, var(--pe)); }
-  .inv2.por .inv-tools { width: calc(4 * var(--pe) + 12px); align-items: center; }
-  .inv2.por .inv-tools .btn.sm { flex: none; width: 96px; }
-  .inv2.por .inv-tools .bag-n { flex: 1; }
+  .inv2.por .inv-tools { width: 100%; max-width: calc(4 * var(--pe) + 12px); align-items: center; }
+  .inv2.por .inv-tools .btn.sm { flex: 1 1 0; max-width: 104px; }
+  .inv2.por .inv-tools .bag-n { flex: 1 1 auto; min-width: 0; }
   .inv2.por .bag, .stp.por .bag { grid-template-columns: repeat(7, var(--pc)); }
   .stp.por .stp-side { order: -1; width: 100%; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: center; }
   .stp.por .sh-tabs { display: flex; flex-wrap: nowrap; }
