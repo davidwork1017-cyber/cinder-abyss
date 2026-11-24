@@ -3157,7 +3157,8 @@
   function fireBlast(x, z, R, dmg) {
     if (!(dmg > 0)) return;
     const ctx = procCtx('fire', dmg);
-    for (const o of enemiesIn(x, z, R)) G.hitEnemy(o, ctx, 1, { ang: Math.atan2(o.x - x, o.z - z), w: 1, kb: 1.2, poise: 0, quiet: true, proc: true, noBuild: true });
+    // skill-b3a：一圈挨炸的只有第一只放命中特效，其余静音只冒暗芯火星（原来每只都甩一把火星 + 余烬 + 烟团）
+    groupHit(enemiesIn(x, z, R), ctx, 1, (o) => ({ ang: Math.atan2(o.x - x, o.z - z), w: 1, kb: 1.2, poise: 0, quiet: true, proc: true, noBuild: true }), true);
   }
   // e 身边 R 以内最近的至多 n 个别的（活着的）敌人
   function nearestOthers(e, R, n) {
@@ -4088,7 +4089,7 @@
     const tgts = nearestOthers(e, BU.shockR, BU.deathBoltN);
     st.deathShocks = (st.deathShocks || 0) + 1;
     W.text(e.x, e.z, '放电', '#fff08a', 22, { kind: 'tag', y: deathTag(e) });
-    W.burst(e.x, (e.height || 2) * 0.6, e.z, 0xffe45e, 22, 6, 0.4);
+    if (!procQuiet(e)) W.burst(e.x, (e.height || 2) * 0.6, e.z, 0xffe45e, 22, 6, 0.4); // skill-b3a：一群里只有第一处放这把电火花
     G.sfx('impact', { type: 'light', w: 1, crit: false });
     if (!tgts.length || !(p.lit > 0)) return;
     shootBolts(e, tgts, p.lit);
@@ -4098,8 +4099,11 @@
     const e = p.e, W = G.world, st = state.stats;
     st.shatters = (st.shatters || 0) + 1;
     const R = BU.shatterR + e.r * 0.5;
-    W.freezeFx(e.x, e.z, e.r, e.height || 2, false);
-    W.ring(e.x, e.z, R, 0xd6f3ff, 0.4);
+    if (!procQuiet(e)) {
+      // skill-b3a：一群里只有第一处放冰晶和环
+      W.freezeFx(e.x, e.z, e.r, e.height || 2, false);
+      W.ring(e.x, e.z, R, 0xd6f3ff, 0.4);
+    }
     W.text(e.x, e.z, '碎冰', '#d6f3ff', 22, { kind: 'tag', y: deathTag(e) });
     G.sfx('impact', { type: 'cold', w: 2, crit: false });
     // 灌的量按死者的阈值折算到对方的阈值：小怪碎在精英 / 首领身上灌得少
@@ -4233,7 +4237,13 @@
       W.hitReact(e.ent, ang, 0.9 + feel * 0.4); // 顺着这一击的方向一仰
       // 持续伤害的跳（黑洞 / 黑旋风，inf.tick）：只甩几片实例化的尖片，不留地面贴花、不打闪光（怪堆里每秒几十跳，贴花每片一次 draw call）
       if (inf.tick && W.chaosTick) W.chaosTick(e.x - sn * e.r * 0.7, h * 0.5, e.z - cs * e.r * 0.7, ang, hit.crit);
-      else if (inf.splash !== 2) W.impact(e.x - sn * e.r * 0.7, h * 0.5, e.z - cs * e.r * 0.7, ang, top, feel, hit.crit); // 溅击：一次溅射只给前 3 个敌人冒火花
+      else if (inf.splash !== 2) {
+        // skill-b3a：召唤物（英灵、骸仆……）的重击命中也换成细斩线：一群召唤物一起砍时满屏的近白弯月（只换画法）
+        const hv = (inf.minion || ctx.minion) && feel >= 1 && W.impactStyleNow && !W.impactStyleNow();
+        if (hv) W.impactStyle('heavy');
+        W.impact(e.x - sn * e.r * 0.7, h * 0.5, e.z - cs * e.r * 0.7, ang, top, feel, hit.crit); // 溅击：一次溅射只给前 3 个敌人冒火花
+        if (hv) W.impactStyle(null);
+      }
       if (ctx.flame > 0 && W.flameHit) W.flameHit(e.x, h * 0.55, e.z, e.r, ang); // 黑焰：命中点甩出几片品红的小火舌
     }
     // vf-vfx2：重击档的法术暴击顿一下、镜头轻震（法术来源每 0.3 秒最多一次；持续伤害 / 光环 / 召唤物 / 异常触发的不算）
@@ -4398,9 +4408,9 @@
       W.ring(e.x, e.z, 9, hex, 0.7);
       W.shake(0.7);
     } else {
-      if (quiet) W.fxMute(true); // class-d2b2：一群里静音着死的，击杀的光点也静音（随机数照取）
-      W.burst(e.x, mid, e.z, hex, e.elite ? 26 : 12, e.elite ? 6 : 4.5, e.elite ? 0.6 : 0.45);
-      if (quiet) W.fxMute(false);
+      // class-d2b2：一群里静音着死的，击杀的光点也静音；skill-b3a：低画质的光点只放几颗、压暗（原来一撒十几颗浅奶油色的圆点）
+      const lo = W.quality && W.quality() === 'low';
+      if (!quiet) W.burst(e.x, mid, e.z, lo ? darkHex(hex, 0.5) : hex, e.elite ? (lo ? 10 : 26) : lo ? 4 : 12, e.elite ? 6 : 4.5, e.elite ? 0.6 : 0.45);
       if (e.elite) W.ring(e.x, e.z, 2.6, hex, 0.35);
     }
 
@@ -6739,6 +6749,9 @@
       let crit = false;
       let top = 'phys';
       let nHit = 0;
+      const heavy = st.w >= 1 && W.impactStyleNow && !W.impactStyleNow(); // skill-b3a：普攻的重击 / 终结：命中的近白弯月换成细斩线（只换画法）
+      if (heavy) W.impactStyle('heavy');
+      try {
       for (const e of hits) {
         // 击退方向：从玩家指向敌人；横斩再带一点顺着刀势的切向，两段的手感因此不同
         let ang = Math.atan2(e.x - P.x, e.z - P.z);
@@ -6756,6 +6769,7 @@
         top = lastHit.type;
         if (!e.dead) W.shudder(e.ent, 0.05 + st.w * 0.03, (st.stop + 50) / 1000);
       }
+      } finally { if (heavy) W.impactStyle(null); }
       // 这一刀砍中了：顿帧、镜头顺势一顶、一声闷响；终结技再加一记推近
       const stop = (st.stop + (crit ? 25 : 0)) * ctx.stopK;
       G.hitStop(stop);
@@ -8944,6 +8958,10 @@
     const use = o.ctx || ctx;
     let crit = false;
     let top = 'phys';
+    // skill-b3a：重斩（w ≥ 1）命中的近白弯月换成细斩线（瞬断 / 千刃 / 换影自己设了样式的不动；只换画法）
+    const heavy = o.w >= 1 && W.impactStyleNow && !W.impactStyleNow();
+    if (heavy) W.impactStyle('heavy');
+    try {
     for (const e of hits) {
       if (e.dead) continue;
       const ang = typeof o.ang === 'function' ? o.ang(e) : o.ang !== undefined ? o.ang : Math.atan2(e.x - P.x, e.z - P.z);
@@ -8953,6 +8971,7 @@
       if (!e.dead && o.w >= 1) W.shudder(e.ent, 0.05 + o.w * 0.03, ((o.stop || 0) + 50) / 1000);
       if (o.knockUp && !e.dead && !e.isBoss) fxOpt('knockUp', e.ent, o.knockUp);
     }
+    } finally { if (heavy) W.impactStyle(null); }
     const stop = ((o.stop || 0) + (crit ? 25 : 0)) * ctx.stopK;
     if (stop > 0) {
       G.hitStop(stop);
@@ -9331,7 +9350,7 @@
         const alive = reached();
         if (!W.cutLine) for (const e of alive) W.slash(e.x, e.z, a + Math.PI / 2, 1.6 + e.r, 30, hex, { dur: 0.18, inner: 0.5, y: 1.1 });
         if (!alive.length) return;
-        if (W.impactStyle) W.impactStyle('cut'); // skill-b2：命中的近白弯月换成细斩线（只换画法）
+        if (W.impactStyle) W.impactStyle('cut', true); // skill-b2：命中的近白弯月换成细斩线（只换画法）；skill-b3a：这是瞬断的最后一下（多一颗小近白芯）
         try { wsStrike(ctx, alive, 1, { ang: a, w: sk.w, kb: sk.kb, poise: sk.poise, stop: sk.stop, dir: a }); } finally { if (W.impactStyle) W.impactStyle(null); }
         G.sfx('finisher');
       });
@@ -9930,9 +9949,24 @@
     rec.t = state.time;
     return false;
   }
+  // skill-b3a：「一群只放一处」推广到所有技能的击杀（原来只在心火 / 燎原期间）：CLUSTER 秒内、CLUSTER_R 米内只有第一具放全套死法，
+  // 其余静音只冒暗芯火星；首领、精英照旧全套。屏幕外的尸体不占这一群的全套（也不放），全套落在玩家看得见的那一具上
   function killQuiet(e) {
-    if (!((P.heart && P.heart.t > 0) || state.time < quietUntil) || e.isBoss) return false;
+    if (e.isBoss || e.elite) return false;
+    if (G.world.inView && !G.world.inView(e.x, e.z)) return true;
     return clusterQuiet(fullDeath, e.x, e.z);
+  }
+  // 死亡触发（放电 / 碎冰）的特效：同样一群只放一处全套
+  const fullProc = { x: 0, z: 0, t: -9 };
+  function procQuiet(e) {
+    if (e.isBoss || e.elite) return false;
+    if (G.world.inView && !G.world.inView(e.x, e.z)) return true;
+    return clusterQuiet(fullProc, e.x, e.z);
+  }
+  // 往暗灰褐里混（低画质的击杀光点：浅奶油色的圆点在低画质上一撒一片）
+  function darkHex(h, k) {
+    const r = (h >> 16) & 255, g = (h >> 8) & 255, b = h & 255;
+    return (Math.round(r + (0x2a - r) * k) << 16) | (Math.round(g + (0x24 - g) * k) << 8) | Math.round(b + (0x20 - b) * k);
   }
   // 位移（燎地往前冲、跳射往后跳）：每帧推一段，撞墙 / 出首领场地就停（起步时在场地里才限制，同反冲弹）；途中不无敌（跳射另给起跳无敌）
   function move2Start(kind, dx, dz, d, dur, ctx, onEnd) {
@@ -10585,7 +10619,10 @@
         fxOpt('ashMark', o.ent, a + Math.PI / 2 + G.vrand(-0.6, 0.6), run.cuts.get(o), o.height || 2);
       }
       G.sfx('swing', { step: run.hops % 2 });
-      if (live.length) wsStrike(ctx, live, sk.pass, { ang: a, w: 0, kb: sk.kb, poise: sk.poise, stop: sk.stop, dir: a });
+      if (live.length) {
+        if (W.impactStyle) W.impactStyle('ash'); // skill-b3a：连闪的每一刀也按千刃的重斩画（轮廓闪 + 暗芯斩痕 + 细斩线，不再是近白弯月；只换画法）
+        try { wsStrike(ctx, live, sk.pass, { ang: a, w: 0, kb: sk.kb, poise: sk.poise, stop: sk.stop, dir: a }); } finally { if (W.impactStyle) W.impactStyle(null); }
+      }
       G.after(gapT, () => cutHop(c, run));
     });
   }
@@ -10626,7 +10663,7 @@
         marks += mk;
       }
       fxOpt('ashBurst', e.x, e.z, e.height || 2, e.r, it.n, mk);
-      if (W.impactStyle) W.impactStyle('ash'); // skill-b2：同上（余烬色）
+      if (W.impactStyle) W.impactStyle('ash', true); // skill-b2：同上（余烬色）；skill-b3a：收刀齐爆是最后一下
       try { total += G.hitEnemy(e, ctx, it.n * sk.cut + mk * sk.mark, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 2, kb: sk.kb * 2, poise: sk.cutPoise, quiet: true }) || 0; } finally { if (W.impactStyle) W.impactStyle(null); }
       crit = crit || lastHit.crit;
       if (!e.dead) W.shudder(e.ent, 0.14, 0.24);

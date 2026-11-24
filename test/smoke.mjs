@@ -11013,7 +11013,8 @@ async function main() {
         G.debug.step(0.02);
         const n0 = W.vShapeLive();
         W.b1Reset();
-        for (let i = 0; i < 20; i++) W.blastFx(x + (i % 5), z + ((i / 5) | 0), 3.25);
+        // skill-b3a：爆燃有了「一群只放一处」（0.3 秒、6 米内只放一个全套），这里测每帧上限，20 个爆燃彼此隔开 7 米
+        for (let i = 0; i < 20; i++) W.blastFx(x + (i % 5) * 7, z + ((i / 5) | 0) * 7, 3.25);
         o.flood = W.vShapeLive() - n0;
         o.peak = W.b1Info().peak;
         o.cap = W.b1Info().cap;
@@ -11098,6 +11099,88 @@ async function main() {
     return 'draw 高 ' + H.d0 + '→' + H.d1 + '→' + H.d2 + ' / 低 ' + L.d0 + '→' + L.d1 + '→' + L.d2 + '，鬼影法阵 ' + H.ghost.ghostSummons + '，Math.random 取数全 0';
   });
 
+  await step('技能打磨第 3a 批（skill-b3a）：重斩命中的轮廓闪（只加在这一只自己的轮廓光上、到时原样扣回；受击闪光关了不放）、暗芯斩痕、其余近战重击的细斩线、铁水弹的余烬闪——高 / 低画质都不多一次 draw，一次 Math.random 都不取', async () => {
+    const r = await ev(() => {
+      const W = G.world, P = G.player, R = W.renderer, out = {}, q0 = W.quality(), hf0 = G.save.opts.hitFlash;
+      G.clearEnemies();
+      const draws = () => { R.info.autoReset = false; R.info.reset(); W.render(); const c = R.info.render.calls; R.info.autoReset = true; return c; };
+      const cnt = (f) => { const r0 = Math.random; let n = 0; Math.random = function () { n++; return r0.apply(this, arguments); }; try { f(); } finally { Math.random = r0; } return n; };
+      const e = G.spawnMob('husk', P.x + 3, P.z, 10, { awake: true });
+      e.atkCd = 1e9; e.speed = 0; e.hp = e.maxHp = 1e6;
+      const rim = () => { const u = e.ent.uRim.value; return [u.r, u.g, u.b]; };
+      for (const q of ['high', 'low']) {
+        W.setQuality(q);
+        W.clearFx();
+        G.save.opts.hitFlash = true;
+        W.breakFx(P.x - 3, 1, P.z, 0.4);
+        W.vDecal('scorch', P.x - 3, P.z, 0.6, 2, 0x4a3e34);
+        W.burst(P.x - 3, 1, P.z, 0x808080, 4, 0.5, 3);
+        G.debug.step(0.02);
+        const o = { d0: draws(), rim0: rim(), st: {} };
+        // 参照：同样的命中不换样式（main 上的画法）多出的 draw；换了样式的不该比它多
+        W.flash(e.ent, 2); W.impact(e.x, 1, e.z, 0.5, 'phys', 2, true); W.impact(e.x, 1, e.z, 0.5, 'fire', 1, false);
+        G.debug.step(0.02);
+        o.dRef = draws();
+        W.clearFx();
+        G.debug.step(0.4);
+        for (const st of ['cut', 'ash', 'blink', 'heavy']) {
+          const v = {};
+          W.impactStyle(st);
+          v.rc = cnt(() => { W.flash(e.ent, 2); W.impact(e.x, 1, e.z, 0.5, 'phys', 2, true); W.impact(e.x, 1, e.z, 0.5, 'fire', 1, false); });
+          W.impactStyle(null);
+          v.n = W.rimFlashInfo();
+          const r1 = rim();
+          v.up = r1[0] - o.rim0[0];
+          G.debug.step(0.02);
+          v.d = draws();
+          G.debug.step(0.3);
+          const r2 = rim();
+          v.back = Math.max(Math.abs(r2[0] - o.rim0[0]), Math.abs(r2[1] - o.rim0[1]), Math.abs(r2[2] - o.rim0[2]));
+          v.n2 = W.rimFlashInfo();
+          o.st[st] = v;
+          W.clearFx();
+          G.debug.step(0.4);
+        }
+        G.save.opts.hitFlash = false;
+        W.impactStyle('cut'); W.flash(e.ent, 2); W.impactStyle(null);
+        o.offN = W.rimFlashInfo();
+        G.save.opts.hitFlash = true;
+        o.molten = cnt(() => W.projImpact({ userData: { vfx: 'rd_molten' } }, P.x + 4, P.z + 1, 'blast', 1.8));
+        // 爆燃 / 尸爆的「一群只放一处」（所有技能）：同一处一帧连炸 5 个，形状批的件数和只炸 1 个一样（其余只留焦痕）
+        W.clearFx(); W.b1Reset();
+        let v0 = W.vShapeLive(); W.blastFx(P.x - 4, P.z, 3); o.blast1 = W.vShapeLive() - v0;
+        W.clearFx(); W.b1Reset();
+        v0 = W.vShapeLive(); for (let i = 0; i < 5; i++) W.blastFx(P.x - 4 + i * 0.5, P.z, 3); o.blast5 = W.vShapeLive() - v0;
+        W.clearFx(); W.b1Reset();
+        G.debug.step(0.02);
+        o.dm = draws();
+        W.clearFx();
+        G.debug.step(0.4);
+        out[q] = o;
+      }
+      G.save.opts.hitFlash = hf0;
+      W.setQuality(q0);
+      G.clearEnemies();
+      W.clearFx();
+      return out;
+    });
+    for (const q of ['high', 'low']) {
+      const o = r[q];
+      for (const st of ['cut', 'ash', 'blink', 'heavy']) {
+        const v = o.st[st];
+        assert(v.rc === 0, q + ' ' + st + '：重斩命中不该取 Math.random：' + JSON.stringify(o));
+        assert(v.d <= o.dRef, q + ' ' + st + '：不该比不换样式的命中多出 draw：' + JSON.stringify(o));
+        assert(v.back < 1e-6 && v.n2 === 0, q + ' ' + st + '：轮廓闪过后轮廓光应原样复原：' + JSON.stringify(o));
+        if (st === 'heavy') assert(v.n === 0 && Math.abs(v.up) < 1e-6, q + '：其余近战重击只换细斩线，不加轮廓闪：' + JSON.stringify(o));
+        else assert(v.n === 1 && v.up > 0.3, q + ' ' + st + '：重斩命中应有轮廓闪：' + JSON.stringify(o));
+      }
+      assert(o.offN === 0, q + '：受击闪光关了不该有轮廓闪：' + JSON.stringify(o));
+      assert(o.molten === 0 && o.dm <= o.d0, q + '：铁水弹炸开不该取 Math.random、不该多出 draw：' + JSON.stringify(o));
+      assert(o.blast1 > 0 && o.blast5 === o.blast1, q + '：同一处连炸 5 个爆燃只该放一个全套：' + JSON.stringify(o));
+    }
+    return 'draw 高 ' + r.high.d0 + '，命中 ' + r.high.dRef + '→' + r.high.st.cut.d + ' / 低 ' + r.low.d0 + '，命中 ' + r.low.dRef + '→' + r.low.st.cut.d + '，铁水弹 ' + r.high.dm + ' / ' + r.low.dm + '，轮廓闪 +' + r.high.st.cut.up.toFixed(2) + ' 复原，Math.random 取数全 0';
+  });
+
   await step('特效三期第 3 部分（vf-vfx3）：区域氛围——霜骨沼泽 / 雷鸣遗迹 / 烬渊深处 / 坠星裂谷 / 余烛殿各有一个氛围 Points（高画质画、低画质不画）；设置「环境特效」新存档和老存档都默认开，关掉后不画、也不撒全局粒子', async () => {
     const r = await ev((KEY) => {
       const W = G.world, S = G.state, save = G.save, out = {};
@@ -11156,6 +11239,7 @@ async function main() {
       W.clearFx();
       W.bolt([{ x: P.x, z: P.z }, { x: P.x + 4, z: P.z }], G.TYPE_HEX.light, false, { v2: true });
       out.playerWhite = W.boltWhites();
+      out.q = W.quality();
       W.clearFx();
       W.riftStrike(P.x + 3, P.z, 1.35, G.TYPE_HEX.light, true);
       out.streak = W.streakFoe();
@@ -11163,7 +11247,9 @@ async function main() {
       return out;
     });
     assert(r.foeWhite.length >= 1 && r.foeWhite.every((v) => Math.abs(v - 0.12) < 1e-6) && r.foeShapes >= 4, '敌方电弧的芯应只混一成白、落点放形状件：' + JSON.stringify(r));
-    assert(r.playerWhite.length >= 1 && r.playerWhite.every((v) => Math.abs(v - 0.7) < 1e-6), '玩家的电弧应照旧（芯混七成白）：' + JSON.stringify(r));
+    // skill-b3a：低画质玩家电弧的芯只混两成白（低画质没有色调压缩，混七成整条成白，审计 #22）；高 / 中照旧七成
+    const pw = r.q === 'low' ? 0.2 : 0.7;
+    assert(r.playerWhite.length >= 1 && r.playerWhite.every((v) => Math.abs(v - pw) < 1e-6), '玩家的电弧应照旧（芯混七成白，低画质两成）：' + JSON.stringify(r));
     assert(r.streak.all >= 2 && r.streak.foe === r.streak.all, '流星犁地的天降光带应全是敌方模式（只有头上一小段亮）：' + JSON.stringify(r));
     return '敌方电弧芯 ' + r.foeWhite[0] + ' / 玩家 ' + r.playerWhite[0] + '，形状件 ' + r.foeShapes + '，光带 ' + r.streak.foe + ' / ' + r.streak.all;
   });
