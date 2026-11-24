@@ -13,6 +13,7 @@
     tapDodge: 0, // 翻滚的输入缓冲：按下时滚不了（冷却、处决途中）就记下，能滚了立刻滚
     tapExec: 0, // 处决的输入缓冲
     alt: false, // 按住 Alt：展开地面掉落的名牌（界面层读取）
+    aim: null, // 触屏的瞄准落点 { x, z }（js/touch.js 写；桌面永远是 null，准星落点照旧按鼠标算）
   });
   // 动作途中按下的输入会缓冲到「能出手」的那一刻：时长由 G.bufferTime 按手上的动作还剩多久来定
   const MOUSE_SLOT = { 0: 0, 2: 1 }; // 鼠标键 → 技能栏格子
@@ -42,10 +43,62 @@
   G.pressSlot = pressSlot;
 
   function refreshMouseWorld() {
+    if (input.aim) {
+      input.mouse.wx = input.aim.x;
+      input.mouse.wz = input.aim.z;
+      return;
+    }
     const g = W.screenToGround(input.mouse.x, input.mouse.y);
     input.mouse.wx = g.x;
     input.mouse.wz = g.z;
   }
+
+  // 按下一个游戏键之后的动作（翻滚缓冲、药瓶、F、Q / E / R）：键盘和触屏（js/touch.js）共用这一份。
+  // 调用方负责守卫（面板开着、开场故事放着时不调）；按住的状态（input.keys）由调用方自己记
+  function press(code, o) {
+    const shift = !!(o && o.shift);
+    if (code === 'Space') {
+      // 能滚就立刻滚（挥砍的起手和收招都可以这样取消）；滚不了就先记下
+      if (!G.dodge() && !G.player.dead) input.tapDodge = G.bufferTime('dodge');
+    } else if (code === 'Digit1' || code === 'Numpad1') G.useFlask('life');
+    else if (code === 'Digit2' || code === 'Numpad2') G.useFlask('mana');
+    else if (code === 'KeyF') {
+      // 够得着露出破绽的敌人就处决，否则拾取
+      if (!G.tryExecute()) G.pickupNearest();
+    }
+    else if (code === 'KeyQ') pressSlot(2, shift);
+    else if (code === 'KeyE') pressSlot(3, shift);
+    else if (code === 'KeyR') pressSlot(4, shift); // 武器技
+  }
+  G.press = press;
+
+  // 点在画面上的 (x, y)：掉落名牌 → 拾取，没打开的宝箱 → 打开（远了提示走近），异兆的互动点 → 互动；点中了返回 true（这一下不再施法）。
+  // 鼠标左键和触屏的轻点都走这里
+  function canvasTap(x, y) {
+    input.mouse.x = x;
+    input.mouse.y = y;
+    refreshMouseWorld();
+    // 点在掉落名牌上：拾取，而不是施法
+    const loot = W.lootLabelAt(x, y);
+    if (loot) {
+      G.pickup(loot);
+      return true;
+    }
+    // 点在没打开的宝箱上：打开（远了提示走近），也不施法（zones-polish）
+    const chest = G.chestAt(input.mouse.wx, input.mouse.wz);
+    if (chest) {
+      G.clickChest(chest);
+      return true;
+    }
+    // 点在异兆的互动点上（祈坛、缚匣、拾烬客、烬核）：同宝箱
+    const enc = G.encAt(input.mouse.wx, input.mouse.wz);
+    if (enc) {
+      G.clickEnc(enc);
+      return true;
+    }
+    return false;
+  }
+  G.canvasTap = canvasTap;
 
   function bindInput() {
     window.addEventListener('keydown', (e) => {
@@ -75,18 +128,7 @@
 
       input.keys[code] = true;
       if (e.repeat) return;
-      if (code === 'Space') {
-        // 能滚就立刻滚（挥砍的起手和收招都可以这样取消）；滚不了就先记下
-        if (!G.dodge() && !G.player.dead) input.tapDodge = G.bufferTime('dodge');
-      } else if (code === 'Digit1' || code === 'Numpad1') G.useFlask('life');
-      else if (code === 'Digit2' || code === 'Numpad2') G.useFlask('mana');
-      else if (code === 'KeyF') {
-        // 够得着露出破绽的敌人就处决，否则拾取
-        if (!G.tryExecute()) G.pickupNearest();
-      }
-      else if (code === 'KeyQ') pressSlot(2, e.shiftKey);
-      else if (code === 'KeyE') pressSlot(3, e.shiftKey);
-      else if (code === 'KeyR') pressSlot(4, e.shiftKey); // 武器技
+      press(code, { shift: e.shiftKey });
     });
 
     window.addEventListener('keyup', (e) => {
@@ -111,26 +153,7 @@
       input.mouse.x = e.clientX;
       input.mouse.y = e.clientY;
       refreshMouseWorld();
-      if (e.button === 0) {
-        // 点在掉落名牌上：拾取，而不是施法
-        const loot = W.lootLabelAt(e.clientX, e.clientY);
-        if (loot) {
-          G.pickup(loot);
-          return;
-        }
-        // 点在没打开的宝箱上：打开（远了提示走近），也不施法（zones-polish）
-        const chest = G.chestAt(input.mouse.wx, input.mouse.wz);
-        if (chest) {
-          G.clickChest(chest);
-          return;
-        }
-        // 点在异兆的互动点上（祈坛、缚匣、拾烬客、烬核）：同宝箱
-        const enc = G.encAt(input.mouse.wx, input.mouse.wz);
-        if (enc) {
-          G.clickEnc(enc);
-          return;
-        }
-      }
+      if (e.button === 0 && canvasTap(e.clientX, e.clientY)) return;
       if (e.button >= 0 && e.button <= 2) input.mouse.b[e.button] = true;
       const slot = MOUSE_SLOT[e.button];
       if (slot !== undefined) pressSlot(slot, e.shiftKey);
@@ -146,7 +169,47 @@
       if (document.hidden) clearInput();
     });
     window.addEventListener('beforeunload', () => G.persist());
+    // 手机切到后台、关标签页不一定触发 beforeunload（iOS）：pagehide / 切走时也存一次。
+    // G.persist 自己守着多存档的规矩：另一个标签页写过这一栏（stale）、角色删了、标题画面还没开新游戏时都不写
+    window.addEventListener('pagehide', () => G.persist());
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) G.persist();
+    });
+    bindContextLoss();
   }
+
+  // ---------- WebGL 上下文丢失 ----------
+  // 手机切后台、显存吃紧时浏览器会收回画布的上下文。先存档，存成功了等上下文回来就重载页面（重建后期链和 AO 的渲染目标比重载风险大）；
+  // 存不进去就不重载，留着提示，不拿进度冒险
+  const ctxLost = { on: false, saved: false };
+  G.reloadPage = () => location.reload(); // 测试会换掉它，看「先存档、再重载」的顺序
+  function lostNote(txt) {
+    let n = document.getElementById('ctx-lost');
+    if (!n) {
+      n = document.createElement('div');
+      n.id = 'ctx-lost';
+      document.body.appendChild(n);
+    }
+    n.textContent = txt;
+    n.classList.add('on');
+  }
+  function bindContextLoss() {
+    const cv = document.getElementById('gl');
+    if (!cv) return;
+    cv.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault(); // 不 preventDefault 的话浏览器不会再还回来
+      if (ctxLost.on) return;
+      ctxLost.on = true;
+      clearInput();
+      ctxLost.saved = !!G.persist();
+      lostNote(ctxLost.saved ? '画面丢失，正在恢复…' : '画面丢失，存档没写进去，先不刷新。请稍后手动刷新页面');
+    });
+    cv.addEventListener('webglcontextrestored', () => {
+      if (!ctxLost.on) return;
+      if (ctxLost.saved) G.reloadPage();
+    });
+  }
+  G.ctxLost = () => ctxLost.on;
 
   // ---------- 模拟一步 ----------
   let saveT = 0;
@@ -182,7 +245,8 @@
     requestAnimationFrame(frame); // 先排下一帧：某一帧抛错时错误照常上报，循环不会悄悄停掉
     const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
     last = now;
-    const open = G.ui.isOpen();
+    // 触屏的竖屏遮罩、画面丢失时也停住模拟（G.touch.blocked 只有 js/touch.js 在触屏模式下会设）
+    const open = G.ui.isOpen() || ctxLost.on || !!(G.touch && G.touch.blocked);
     G.state.paused = open;
     if (open) {
       clearInput(true); // 面板关掉后不会带着按住的键继续跑（Alt 除外）
@@ -219,7 +283,13 @@
     const save = G.loadSave();
     // 首个区域的 CC0 素材包先开始下载（和下面的初始化同时进行），最多等 2.5 秒；等的时候盖一层「正在载入场景…」
     const pre = W.preloadZone(save.lastZone, 2500);
-    W.init();
+    try {
+      W.init();
+    } catch (err) {
+      // 建不了 WebGL2 上下文（老浏览器、显卡被禁用）：说清楚，不留一个报错的空白页
+      lostNote('画面开不了：这个浏览器不支持 WebGL2。请换用较新版本的 Chrome 或 Safari');
+      return;
+    }
     G.ui.init();
     // 老角色还没有职业（class-d2）：换角色重载后跳过了标题画面，也要先盖上标题画面选职业（测试的 __skipTitle、?play 不选）
     // 标题画面本来就开着时不自动弹：点「继续游戏」时再选（见 ui.js 的 continue）

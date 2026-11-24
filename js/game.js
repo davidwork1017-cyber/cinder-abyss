@@ -789,7 +789,7 @@
   }
   G.noteRelic = (it) => noteRelic(it);
 
-  // 画质档位：桌面默认高，手机 / 平板默认中
+  // 画质档位：桌面默认高，手机默认低、平板默认中
   G.QUALITY_IDS = ['high', 'mid', 'low'];
   // 浏览器在用软件渲染（显卡被禁用、SwiftShader / llvmpipe 之类）时默认低：后期处理在 CPU 上太贵
   let softGL = null;
@@ -808,7 +808,17 @@
     }
     return softGL;
   }
-  G.defaultQuality = () => (isSoftGL() ? 'low' : /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') ? 'mid' : 'high');
+  // 触屏设备（主指针是 coarse 且有触点，不只看 UA）：短边不到 500 px 的手机默认低，平板默认中（mobile-design §3）。
+  // 其余照旧：UA 像手机 / 平板但主指针不是 coarse 的默认中，桌面默认高
+  function coarseTouch() {
+    try {
+      return !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches && (navigator.maxTouchPoints > 0 || 'ontouchstart' in window));
+    } catch (e) {
+      return false;
+    }
+  }
+  const shortSide = () => Math.min((window.screen && window.screen.width) || window.innerWidth, (window.screen && window.screen.height) || window.innerHeight);
+  G.defaultQuality = () => (isSoftGL() ? 'low' : coarseTouch() ? (shortSide() < 500 ? 'low' : 'mid') : /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') ? 'mid' : 'high');
 
   // =====================================================================
   // 角色栏位（多存档）
