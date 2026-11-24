@@ -31463,8 +31463,8 @@
   let impactCalm = 0;
   const CAL_T = 0.15, CAL_R = 6, calImp = { x: 0, z: 0, t: -9 }, calBlast = { x: 0, z: 0, t: -9 };
   // 爆燃 / 尸爆（b1Blast）：一群里 0.3 秒内只放一个全套（其余走「超出每帧上限」那条路：只留焦痕，随机数照取）
+  // skill-b3a：爆燃 / 尸爆的「一群只放一处」推广到所有技能（不再只在心火 / 燎原期间）
   function blastCalm(x, z) {
-    if (!impactCalm) return false;
     const now = G.state ? G.state.time : 0;
     if (now - calBlast.t < 0.3 && Math.hypot(x - calBlast.x, z - calBlast.z) < CAL_R) return true;
     calBlast.x = x;

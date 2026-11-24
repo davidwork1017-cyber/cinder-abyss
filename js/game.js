@@ -3157,7 +3157,8 @@
   function fireBlast(x, z, R, dmg) {
     if (!(dmg > 0)) return;
     const ctx = procCtx('fire', dmg);
-    for (const o of enemiesIn(x, z, R)) G.hitEnemy(o, ctx, 1, { ang: Math.atan2(o.x - x, o.z - z), w: 1, kb: 1.2, poise: 0, quiet: true, proc: true, noBuild: true });
+    // skill-b3a：一圈挨炸的只有第一只放命中特效，其余静音只冒暗芯火星（原来每只都甩一把火星 + 余烬 + 烟团）
+    groupHit(enemiesIn(x, z, R), ctx, 1, (o) => ({ ang: Math.atan2(o.x - x, o.z - z), w: 1, kb: 1.2, poise: 0, quiet: true, proc: true, noBuild: true }), true);
   }
   // e 身边 R 以内最近的至多 n 个别的（活着的）敌人
   function nearestOthers(e, R, n) {
@@ -4088,7 +4089,7 @@
     const tgts = nearestOthers(e, BU.shockR, BU.deathBoltN);
     st.deathShocks = (st.deathShocks || 0) + 1;
     W.text(e.x, e.z, '放电', '#fff08a', 22, { kind: 'tag', y: deathTag(e) });
-    W.burst(e.x, (e.height || 2) * 0.6, e.z, 0xffe45e, 22, 6, 0.4);
+    if (!procQuiet(e)) W.burst(e.x, (e.height || 2) * 0.6, e.z, 0xffe45e, 22, 6, 0.4); // skill-b3a：一群里只有第一处放这把电火花
     G.sfx('impact', { type: 'light', w: 1, crit: false });
     if (!tgts.length || !(p.lit > 0)) return;
     shootBolts(e, tgts, p.lit);
@@ -4098,8 +4099,11 @@
     const e = p.e, W = G.world, st = state.stats;
     st.shatters = (st.shatters || 0) + 1;
     const R = BU.shatterR + e.r * 0.5;
-    W.freezeFx(e.x, e.z, e.r, e.height || 2, false);
-    W.ring(e.x, e.z, R, 0xd6f3ff, 0.4);
+    if (!procQuiet(e)) {
+      // skill-b3a：一群里只有第一处放冰晶和环
+      W.freezeFx(e.x, e.z, e.r, e.height || 2, false);
+      W.ring(e.x, e.z, R, 0xd6f3ff, 0.4);
+    }
     W.text(e.x, e.z, '碎冰', '#d6f3ff', 22, { kind: 'tag', y: deathTag(e) });
     G.sfx('impact', { type: 'cold', w: 2, crit: false });
     // 灌的量按死者的阈值折算到对方的阈值：小怪碎在精英 / 首领身上灌得少
@@ -4404,9 +4408,9 @@
       W.ring(e.x, e.z, 9, hex, 0.7);
       W.shake(0.7);
     } else {
-      if (quiet) W.fxMute(true); // class-d2b2：一群里静音着死的，击杀的光点也静音（随机数照取）
-      W.burst(e.x, mid, e.z, hex, e.elite ? 26 : 12, e.elite ? 6 : 4.5, e.elite ? 0.6 : 0.45);
-      if (quiet) W.fxMute(false);
+      // class-d2b2：一群里静音着死的，击杀的光点也静音；skill-b3a：低画质的光点只放几颗、压暗（原来一撒十几颗浅奶油色的圆点）
+      const lo = W.quality && W.quality() === 'low';
+      if (!quiet) W.burst(e.x, mid, e.z, lo ? darkHex(hex, 0.5) : hex, e.elite ? (lo ? 10 : 26) : lo ? 4 : 12, e.elite ? 6 : 4.5, e.elite ? 0.6 : 0.45);
       if (e.elite) W.ring(e.x, e.z, 2.6, hex, 0.35);
     }
 
@@ -9942,9 +9946,24 @@
     rec.t = state.time;
     return false;
   }
+  // skill-b3a：「一群只放一处」推广到所有技能的击杀（原来只在心火 / 燎原期间）：CLUSTER 秒内、CLUSTER_R 米内只有第一具放全套死法，
+  // 其余静音只冒暗芯火星；首领、精英照旧全套。屏幕外的尸体不占这一群的全套（也不放），全套落在玩家看得见的那一具上
   function killQuiet(e) {
-    if (!((P.heart && P.heart.t > 0) || state.time < quietUntil) || e.isBoss) return false;
+    if (e.isBoss || e.elite) return false;
+    if (G.world.inView && !G.world.inView(e.x, e.z)) return true;
     return clusterQuiet(fullDeath, e.x, e.z);
+  }
+  // 死亡触发（放电 / 碎冰）的特效：同样一群只放一处全套
+  const fullProc = { x: 0, z: 0, t: -9 };
+  function procQuiet(e) {
+    if (e.isBoss || e.elite) return false;
+    if (G.world.inView && !G.world.inView(e.x, e.z)) return true;
+    return clusterQuiet(fullProc, e.x, e.z);
+  }
+  // 往暗灰褐里混（低画质的击杀光点：浅奶油色的圆点在低画质上一撒一片）
+  function darkHex(h, k) {
+    const r = (h >> 16) & 255, g = (h >> 8) & 255, b = h & 255;
+    return (Math.round(r + (0x2a - r) * k) << 16) | (Math.round(g + (0x24 - g) * k) << 8) | Math.round(b + (0x20 - b) * k);
   }
   // 位移（燎地往前冲、跳射往后跳）：每帧推一段，撞墙 / 出首领场地就停（起步时在场地里才限制，同反冲弹）；途中不无敌（跳射另给起跳无敌）
   function move2Start(kind, dx, dz, d, dur, ctx, onEnd) {
