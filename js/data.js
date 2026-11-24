@@ -1170,8 +1170,8 @@
   Object.assign(G.VARIANTS.blade, {
     c: {
       name: '回旋', relic: 'huixuan', pack: '一条线来回两遍',
-      desc: '更宽的利刃穿透所有敌人，飞到尽头或撞墙后折返，回程再伤一遍路上的敌人。', alt: '回程朝你飞，飞到你身边为止。同一个敌人去程、回程各挨一下。',
-      set: { mech: 'boom', wm: 0.85, pierce: 99, projR: 0.7, useMult: 1.7, boom: { back: 0.7, range: 1.0 } },
+      desc: '更宽的利刃穿透敌人，飞到尽头或撞墙后折返，回程再伤一遍路上的敌人。去程、回程各最多伤到 8 个。', alt: '回程朝你飞，飞到你身边为止。同一个敌人去程、回程各挨一下。',
+      set: { mech: 'boom', wm: 0.85, pierce: 99, projR: 0.7, useMult: 1.7, boom: { back: 0.7, range: 1.0, cap: 8 } },
     },
   });
   Object.assign(G.VARIANTS.whirl, {
@@ -1198,8 +1198,8 @@
   Object.assign(G.VARIANTS.thrall, {
     c: {
       name: '独骸', relic: 'haiwang', pack: '只有一具，更大更硬',
-      desc: '仆从上限固定为 1：召唤一具骸王，体型更大、更耐打，横斩 270° 扫一大片。', alt: '够得更远；受到的伤害 −15%，同时牵制 5 只小怪。多出的仆从上限（群聚、天赋、护符、万魂旗）每个折成 +35% 伤害、+40% 生命。',
-      set: { mech: 'king', king: { perDmg: 0.35, perLife: 0.4, scale: 1.5, life: 3, dmg: 3.45, cleave: 12, arc: 270, reach: 3.5, hold: 5, dr: 15 } },
+      desc: '仆从上限固定为 1：召唤一具骸王，体型更大、更耐打，横斩 270° 扫一大片，每刀最多砍到 4 个敌人。', alt: '够得更远；受到的伤害 −15%，同时牵制 5 只小怪。多出的仆从上限（群聚、天赋、护符、万魂旗）每个折成 +35% 伤害、+40% 生命。',
+      set: { mech: 'king', king: { perDmg: 0.35, perLife: 0.4, scale: 1.5, life: 3, dmg: 3.45, cleave: 3, arc: 270, reach: 3.5, hold: 5, dr: 15 } },
     },
   });
   Object.assign(G.VARIANTS.blackhole, {
@@ -1842,11 +1842,11 @@
     // 渊式：机制说明是「解锁 技能·渊式名：一句话」，那一句按 G.VARIANTS 的参数拼（技能页、图鉴、提示卡都用它）
     const VC = (id) => G.VARIANTS[id].c, SK = G.SKILLS;
     const bo = VC('blade').set.boom, ti = VC('whirl').set.tide, st = VC('meteor').set.star, br = VC('arc').set.bridge, kg = VC('thrall').set.king, fo = VC('blackhole').set.follow;
-    VC('blade').line = '利刃穿透所有敌人，到尽头或撞墙后飞回你身边，回程伤害 ' + pc(bo.back) + '。';
+    VC('blade').line = '利刃穿透敌人，到尽头或撞墙后飞回你身边，回程伤害 ' + pc(bo.back) + '；去程、回程各最多伤到 ' + bo.cap + ' 个。';
     VC('whirl').line = '每下 ' + pc(ti.pulse) + ' 并攒一层潮势；满 ' + ti.max + ' 层卷起潮涌，拽来 ' + SK.whirl.radius * ti.r + ' 米内的敌人，每层 ' + pc(ti.burst) + ' 一下。';
     VC('meteor').line = '放在技能栏上就自动落星，每 ' + st.iv + ' 秒砸向 ' + st.r + ' 米内敌人最密处，伤害 ' + pc(st.mult) + '；不耗魔力，保留 ' + st.reserve + '% 最大魔力。';
     VC('arc').line = '电弧经过的每一段都留下 ' + br.t + ' 秒电桥，每 ' + br.tick + ' 秒电一下碰到的敌人（' + pc(br.mult) + '）。';
-    VC('thrall').line = '只召唤一具骸王：生命 ×' + kg.life + '、伤害 ×' + kg.dmg + '，横斩 ' + kg.arc + '° 带到 ' + kg.cleave + ' 个敌人。';
+    VC('thrall').line = '只召唤一具骸王：生命 ×' + kg.life + '、伤害 ×' + kg.dmg + '，横斩 ' + kg.arc + '°，每刀最多砍到 ' + (kg.cleave + 1) + ' 个敌人。';
     VC('blackhole').line = '黑洞开在你身上、跟着你走，每跳伤害 ' + pc(fo.dmg) + '，最多伤到离你最近的 ' + VC('blackhole').set.cap + ' 个；每 ' + fo.wave.iv + ' 秒把 ' + Math.round(SK.blackhole.radius * fo.radius * fo.wave.k) + ' 米内的敌人往你身边拽。';
     for (const rq of Object.keys(G.VARIANT_RELIC)) {
       const sid = G.VARIANT_RELIC[rq], V = G.VARIANTS[sid].c;
@@ -2140,20 +2140,21 @@
   // 主线（quest D1，设计稿 notes/quest-design）：第一次打通时一步一步带路，11 步，打完进轮回层级 1 就退场。
   // kind：gate 走到首领场地门口（只在灰烬荒原）/ boss 该区首领倒下（save.cleared）/ in 进入该区 / tier 在层级 ≥ 1 进区。
   // l1 追踪条第 2 行（这一步做什么）；l2 第 3 行（怎么做）。boss 步的 l1、l2 按首领名、区域等级现算，进区步的 l2 看传送门在不在（见 ui.js）。
+  // nar：这一步在这次游戏里真正完成时放一次的旁白卡（quest D3，两行，见 ui.js updateNarr）；读档推算出来的步骤不放。
   // lore：按住 Alt 时最后一行的灰字。rw：完成时直接加进 save.cur 的通货（不走掉落、不取随机数）；首领步不另给
   G.QUEST_BOSS_LV = 3; // 首领等级 = 区域等级 + 3（enemies.js spawnZoneMobs）
   G.QUEST = [
     { id: 'ash_gate', kind: 'gate', zone: 'ash', l1: '沿路走到荒原尽头', l2: '首领在路的尽头', lore: '烧光了的荒地。', rw: { dust: 2, augment: 1 } },
-    { id: 'ash_boss', kind: 'boss', zone: 'ash', lore: '灰里的火，聚到了最凶的东西身上。' },
+    { id: 'ash_boss', kind: 'boss', zone: 'ash', lore: '灰里的火，聚到了最凶的东西身上。', nar: ['巨像倒了，它攒的火落到你手里。', '灰是从底下来的，接着往下走。'] },
     { id: 'frost_in', kind: 'in', zone: 'frost', lore: '冰下全是骨头。', rw: { dust: 1, regal: 1 } },
-    { id: 'frost_boss', kind: 'boss', zone: 'frost', lore: '打倒它们，把它们攒的火铸成你的兵器。' },
+    { id: 'frost_boss', kind: 'boss', zone: 'frost', lore: '打倒它们，把它们攒的火铸成你的兵器。', nar: ['冰里冻着的，全是被灰追上的人。', '再往下，是雷没停过的老遗迹。'] },
     { id: 'storm_in', kind: 'in', zone: 'storm', lore: '老机关还在转，雷没停过。', rw: { dust: 1, regal: 1 } },
-    { id: 'storm_boss', kind: 'boss', zone: 'storm', lore: '熄烛者还在一盏一盏掐灭剩下的火。' },
+    { id: 'storm_boss', kind: 'boss', zone: 'storm', lore: '熄烛者还在一盏一盏掐灭剩下的火。', nar: ['监察者守的那道门开了。', '门后的路一直往下，通到烬渊。'] },
     { id: 'abyss_in', kind: 'in', zone: 'abyss', lore: '灰烬从这里来。', rw: { dust: 1, regal: 1 } },
-    { id: 'abyss_boss', kind: 'boss', zone: 'abyss', lore: '裂口底下压着一颗烧着的星星。' },
+    { id: 'abyss_boss', kind: 'boss', zone: 'abyss', lore: '裂口底下压着一颗烧着的星星。', nar: ['烬渊之主倒了，可灰还在往上冒。', '底下压着一颗烧着的星星，谁拖下来的？'] },
     { id: 'rift_in', kind: 'in', zone: 'rift', l2: '烬渊深处后面还有一区', lore: '天裂了，星星往下掉。', rw: { dust: 1, regal: 1 } },
-    { id: 'rift_boss', kind: 'boss', zone: 'rift', l2: '打赢开启轮回层级 1', lore: '有东西把落下的星星往烬渊里拖。' },
-    { id: 'tier_one', kind: 'tier', l1: '进轮回层级 1', l2: '按 M，在地图上选层级 1', lore: '星星还会落下来，灰还会再冒出来。', rw: { alch: 2 } },
+    { id: 'rift_boss', kind: 'boss', zone: 'rift', l2: '打赢开启轮回层级 1', lore: '有东西把落下的星星往烬渊里拖。', nar: ['巨兽嘴里那颗星，灭了。', '可天上的裂口还在，星星还会落下来。'] },
+    { id: 'tier_one', kind: 'tier', l1: '进轮回层级 1', l2: '按 M，在地图上选层级 1', lore: '星星还会落下来，灰还会再冒出来。', rw: { alch: 2 }, nar: ['灰又冒上来了，比上回更厚。', '余烬未冷，再走一遍。'] },
   ];
   G.QUEST_N = G.QUEST.length;
 

@@ -194,6 +194,8 @@
       wsCap: 1, wsNote: false, // 旋涡斩加「每下最多 9 个」之后的存档；wsNote：选着旋涡斩的老存档，提示还没看过
       bhCap: 1, bhNote: false, // 黑洞加「每跳最多伤到最近的 N 个」之后的存档；bhNote：学了黑洞的老存档，提示还没看过
       stFz: 1, stNote: false, // 魂潮狂热改成 12 秒 +15%（dur-tune）之后的存档；stNote：拿着魂幡（R 是魂潮）的老存档，提示还没看过
+      dhCap: 1, dhNote: false, // 独骸加「每刀最多砍到 N 个」之后的存档；dhNote：选着独骸的老存档，提示还没看过
+      hxCap: 1, hxNote: false, // 回旋加「每程最多伤到 N 个」之后的存档；hxNote：选着回旋的老存档，提示还没看过
       // 渊印：sealSeq 真正进区的次数（择印面板的随机种子，关掉地图再打开还是同样三枚）；
       // run 这一次进区 { zone, tier, seq, seal }（seal 为 null 是素印），读档时区域 / 层级对得上就接着用，倒下重生不动，换区 / 重进清掉
       sealSeq: 0, run: null,
@@ -675,6 +677,13 @@
     s.stNote = !s.tut.stfz && ((raw.stFz === undefined && G.weaponSkillOf(s.equip && s.equip.weapon) === 'soultide') || raw.stNote === true);
     s.stFz = 1;
     G.frenzyNerfed = s.stNote ? 1 : 0;
+    // 渊式独骸 / 回旋加上限（rulea-fix）之前的存档（没有 dhCap / hxCap）：选着这个渊式的提示一次（tut.dhnerf / tut.hxnerf 看过就不再提示）
+    s.dhNote = !s.tut.dhnerf && ((raw.dhCap === undefined && s.variants.thrall === 'c') || raw.dhNote === true);
+    s.dhCap = 1;
+    G.kingNerfed = s.dhNote ? 1 : 0;
+    s.hxNote = !s.tut.hxnerf && ((raw.hxCap === undefined && s.variants.blade === 'c') || raw.hxNote === true);
+    s.hxCap = 1;
+    G.boomNerfed = s.hxNote ? 1 : 0;
     s.variantGen = G.VARIANT_GEN;
     const hadVar = Object.keys(s.variants).length > 0 || Object.keys(G.VARIANTS).some((id) => s.skills[id] >= G.VARIANT_LVL);
     s.varNote = !s.tut.variant2 && ((oldGen && hadVar) || raw.varNote === true);
@@ -780,7 +789,7 @@
   }
   G.noteRelic = (it) => noteRelic(it);
 
-  // 画质档位：桌面默认高，手机 / 平板默认中
+  // 画质档位：桌面默认高，手机默认低、平板默认中
   G.QUALITY_IDS = ['high', 'mid', 'low'];
   // 浏览器在用软件渲染（显卡被禁用、SwiftShader / llvmpipe 之类）时默认低：后期处理在 CPU 上太贵
   let softGL = null;
@@ -799,7 +808,17 @@
     }
     return softGL;
   }
-  G.defaultQuality = () => (isSoftGL() ? 'low' : /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') ? 'mid' : 'high');
+  // 触屏设备（主指针是 coarse 且有触点，不只看 UA）：短边不到 500 px 的手机默认低，平板默认中（mobile-design §3）。
+  // 其余照旧：UA 像手机 / 平板但主指针不是 coarse 的默认中，桌面默认高
+  function coarseTouch() {
+    try {
+      return !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches && (navigator.maxTouchPoints > 0 || 'ontouchstart' in window));
+    } catch (e) {
+      return false;
+    }
+  }
+  const shortSide = () => Math.min((window.screen && window.screen.width) || window.innerWidth, (window.screen && window.screen.height) || window.innerHeight);
+  G.defaultQuality = () => (isSoftGL() ? 'low' : coarseTouch() ? (shortSide() < 500 ? 'low' : 'mid') : /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') ? 'mid' : 'high');
 
   // =====================================================================
   // 角色栏位（多存档）
@@ -3718,6 +3737,8 @@
     if (sk.mech === 'boom') {
       p.boom = 1;
       p.boomBack = sk.boom.back;
+      p.boomCap = sk.boom.cap || 0; // 每程（去程、回程各算）最多伤到几个敌人，多出的照样穿过去、不伤
+      p.boomN = 0;
       p.life *= sk.boom.range;
       return;
     }
@@ -3748,6 +3769,7 @@
     p.home = null;
     p.reseek = 0;
     p.boomK = p.boomBack || RM.huixuan.back;
+    p.boomN = 0; // 回程重新数
     if (G.world.relicProjTurn) G.world.relicProjTurn(p.mesh, p.dx, p.dz);
     if (p.ctx.sk.mech === 'boom') {
       if (p.mesh && p.mesh.userData) p.mesh.userData.boom2 = true; // 丝线回程变亮
@@ -4882,27 +4904,31 @@
             }
             // 同一次施放的多枚投射物不叠加命中同一个敌人（多重投射打单体不会变成数倍伤害）；
             // 后到的那枚照常消耗穿透 / 连锁 / 引爆，只是不再对它结算直击
+            let cut = false; // 渊式「回旋」这一程已经伤满 boomCap 个：照样穿过去（也记进这次施放），不伤、不冒火花
             if (p.capMap ? capTake(p, e) : !p.cast || !p.cast.has(e)) {
               if (p.cast) p.cast.add(e);
-              // 远程武器的箭 / 子弹：multFn 算这一下的倍率（鹰眼的远距离加成），after 接着结算余烬 / 元素爆炸 / 熔芯弹；src 让专注按箭计数
-              const m = (p.multFn ? p.multFn(p, e) : p.mult || 1) * (p.boomK || 1); // boomK：回旋的回程
-              // class-d2b1：铁水弹的命中（连带引出的爆燃、溅到的伤害）特效全部静音，一次施放只放一处：
-              // 有爆炸的由第一枚炸开那一下画（W.projImpact 的 rd_molten），溅铁 / 熔穿在第一处命中画一个小的；其余的怪只冒几颗暗芯火星
-              const mu = !!p.vol, first = mu && !p.vol.shown;
-              if (mu) {
-                p.vol.shown = true;
-                G.world.fxMute(true);
+              if (p.boomCap && ++p.boomN > p.boomCap) cut = true;
+              else {
+                // 远程武器的箭 / 子弹：multFn 算这一下的倍率（鹰眼的远距离加成），after 接着结算余烬 / 元素爆炸 / 熔芯弹；src 让专注按箭计数
+                const m = (p.multFn ? p.multFn(p, e) : p.mult || 1) * (p.boomK || 1); // boomK：回旋的回程
+                // class-d2b1：铁水弹的命中（连带引出的爆燃、溅到的伤害）特效全部静音，一次施放只放一处：
+                // 有爆炸的由第一枚炸开那一下画（W.projImpact 的 rd_molten），溅铁 / 熔穿在第一处命中画一个小的；其余的怪只冒几颗暗芯火星
+                const mu = !!p.vol, first = mu && !p.vol.shown;
+                if (mu) {
+                  p.vol.shown = true;
+                  G.world.fxMute(true);
+                }
+                G.hitEnemy(e, p.ctx, m, { ang: Math.atan2(p.dx, p.dz), src: p, aura: p.aura, minion: p.minion, kb: p.kb, poise: p.poise });
+                if (mu) {
+                  G.world.fxMute(false);
+                  if (first && !(p.explode > 0)) fxOpt('moltenHit', e.x, e.z, Math.atan2(p.dx, p.dz));
+                  else fxOpt('emberSpark', e.x, e.z, e.height);
+                } // 顺着弹道推；aura：霜环「冰棱」的冰棱和光环脉冲一样不算连击；minion：骸弓的骨箭算召唤物的；kb / poise：灵弹的重弹（缺省按技能）
+                if (p.after) p.after(p, e, lastHit.killed, lastHit.crit);
+                if (p.ctx.sk.mech === 'hook' && !e.dead) nailHook(p, e); // 刻式「钩钉」：往你身边拽
               }
-              G.hitEnemy(e, p.ctx, m, { ang: Math.atan2(p.dx, p.dz), src: p, aura: p.aura, minion: p.minion, kb: p.kb, poise: p.poise });
-              if (mu) {
-                G.world.fxMute(false);
-                if (first && !(p.explode > 0)) fxOpt('moltenHit', e.x, e.z, Math.atan2(p.dx, p.dz));
-                else fxOpt('emberSpark', e.x, e.z, e.height);
-              } // 顺着弹道推；aura：霜环「冰棱」的冰棱和光环脉冲一样不算连击；minion：骸弓的骨箭算召唤物的；kb / poise：灵弹的重弹（缺省按技能）
-              if (p.after) p.after(p, e, lastHit.killed, lastHit.crit);
-              if (p.ctx.sk.mech === 'hook' && !e.dead) nailHook(p, e); // 刻式「钩钉」：往你身边拽
             }
-            if (!p.explode) projFx(p, 'hit'); // 飞刃擦过敌人的金属火花（爆炸弹的特效在爆炸那一下）
+            if (!p.explode && !cut) projFx(p, 'hit'); // 飞刃擦过敌人的金属火花（爆炸弹的特效在爆炸那一下）
             if (p.pin) {
               bladePin(p, e); // 刻式「钉刃」：钉住第一个，立在它脚下
               alive = false;
@@ -5637,6 +5663,8 @@
     }
     // 弓：切入过渡不长于拉弓起手的 0.4（攻速很快时第一箭不会还没摆好侧身、手还在半路就开始拉弦）
     else if (sk.draw) playFire(sk.rtype, { dur: Math.max(0.2, first + 0.18), contact: Math.max(0.02, first), fade: Math.min(0.06, Math.max(0.02, first) * 0.4) });
+    // 左轮：按下就开始拔枪，抬到肩高正好赶上第一发（原来第一发出手时动作才开始播，子弹从还垂着的枪口出去）。只动画面：不碰 first / cdT / 模拟
+    else if (sk.rtype === 'revolver' && !G.world.grip5Off) playFire('revolver', { dur: first + 0.28, contact: first, fade: Math.min(0.05, first), raise: true });
     return true;
   }
 
@@ -5950,7 +5978,7 @@
         G.hitEnemy(e, ctx, B.mult, { ang: Math.atan2(e.x - ox, e.z - oz), quiet: true });
         st.cbArcHits = (st.cbArcHits || 0) + 1;
       }
-      if (pts.length > 1) W.bolt(pts, hex);
+      if (pts.length > 1) W.bolt(pts, hex, false, { v2: true }); // skill-b2：旧电弧 → 链雷的折线语言
       st.cbLight = (st.cbLight || 0) + 1;
     }
     fxOpt('cbBurst', ox, oz, R, el, hex); // 元素的形状（world.cbBurst：火舌 / 冰晶 / 电花），没有时只有爆炸本身
@@ -6004,7 +6032,7 @@
       G.hitEnemy(e, ctx, M.mult * k, { ang: Math.atan2(e.x - src.x, e.z - src.z), w: 0, kb: 0.5, poise: 3 * k, quiet: e !== src }); // w 0：几只一起炸时命中的亮星别连成一片
       state.stats.cbPopHits = (state.stats.cbPopHits || 0) + 1;
     }
-    if (pts.length) W.bolt(pts, hex);
+    if (pts.length) W.bolt(pts, hex, false, { v2: true }); // skill-b2：同上
     if (!fxOpt('cbPop', src.x, src.z, src.r, hex, src.height || 2) && W.vShock) W.vShock(src.x, src.z, src.r + 1.0, hex, 0.24, 0.5);
     state.stats.cbPops = (state.stats.cbPops || 0) + 1;
     state.stats.cbJumps = (state.stats.cbJumps || 0) + n;
@@ -7345,10 +7373,16 @@
   // 过载：最后一下折回你身上，n 个敌人各给一份雷盾、回一点魔力；电弧一跳比一跳粗（后面的段多叠一道）
   function arcOverload(ctx, pts, n, hex) {
     const W = G.world, O = ctx.sk.over;
-    for (let i = 2; i < pts.length; i++) W.bolt([pts[i - 1], pts[i]], 0xfffbe6, i < 3);
+    // skill-b2：叠上去的近白电弧（0xfffbe6，第 3 段起带地面闪光 + 白火花）换成形状批里的元素色折线，越往后叠得越多（没有形状批时退回旧电弧）
+    const gz = !!W.b2Strand;
+    for (let i = 2; i < pts.length; i++) {
+      if (gz) W.b2Strand(pts[i - 1], pts[i], hex, i - 1);
+      else W.bolt([pts[i - 1], pts[i]], 0xfffbe6, i < 3);
+    }
     if (!n) return;
     const last = pts[pts.length - 1];
-    W.bolt([last, { x: P.x, z: P.z }], hex, true);
+    if (gz) W.b2Strand(last, { x: P.x, z: P.z }, hex, 0, true);
+    else W.bolt([last, { x: P.x, z: P.z }], hex, true);
     W.burst(P.x, 1.1, P.z, 0xffe45e, 10, 3, 0.3);
     const v = P.maxLife * O.shield * n;
     P.vShield = { v: Math.max(v, (P.vShield && P.vShield.v) || 0), t: O.dur };
@@ -7585,12 +7619,15 @@
       W.blinkBand(ox, oz, px, pz, hex);
       if (!e.isBoss) W.blinkBand(px, pz, e.x, e.z, 0x8a7aa0, { w: 0.6 });
     }
-    if (W.shadowStep) W.shadowStep(ox, oz, px, pz, hex);
-    W.afterimage(P.ent, ox, oz, hex, 0.8, 0.35, 0, P.face);
+    if (W.shadowStep) W.shadowStep(ox, oz, px, pz, hex, { dim: gh }); // skill-b2：一路的暗影粒压暗、落点不闪光
+    W.afterimage(P.ent, ox, oz, gh ? 0x5a4a78 : hex, gh ? 0.55 : 0.8, 0.35, 0, P.face); // skill-b2：残影暗紫灰（加色的浅紫 0.8 叠出来近白）
     W.slash(px, pz, G.vr() * TAU, 1.6, 360, hex, { dur: 0.25, inner: 0.7, y: 1.0 });
-    G.hitEnemy(e, ctx, 1, { ang: Math.atan2(e.x - px, e.z - pz), w: 2, poise: (sk.poise || 0) * (e.isBoss ? S.poise : 1), quiet: true });
-    const R = S.r * Math.sqrt(ctx.area);
-    for (const o of enemiesIn(px, pz, R)) if (o !== e) G.hitEnemy(o, ctx, S.side, { ang: Math.atan2(o.x - px, o.z - pz), quiet: true });
+    if (W.impactStyle) W.impactStyle('blink'); // skill-b2：命中的近白弯月换成细斩线（只换画法）
+    try {
+      G.hitEnemy(e, ctx, 1, { ang: Math.atan2(e.x - px, e.z - pz), w: 2, poise: (sk.poise || 0) * (e.isBoss ? S.poise : 1), quiet: true });
+      const R = S.r * Math.sqrt(ctx.area);
+      for (const o of enemiesIn(px, pz, R)) if (o !== e) G.hitEnemy(o, ctx, S.side, { ang: Math.atan2(o.x - px, o.z - pz), quiet: true });
+    } finally { if (W.impactStyle) W.impactStyle(null); }
     G.hitStop(((sk.stop || 70) + 10) * ctx.stopK);
     W.shake(0.3);
     G.sfx('impact', { type: 'phys', w: 2, crit: lastHit.crit });
@@ -7839,7 +7876,7 @@
     const h1 = addHole(Object.assign({ x: p1.x, z: p1.z }, base, { twinB: true }));
     h0.twin = h1;
     h1.twin = h0;
-    h0.tether = G.world.kv('band', { hex: 0xff6ad2, w: T.w * Math.sqrt(ctx.area), y: 0.35, x0: p0.x, z0: p0.z, x1: p1.x, z1: p1.z });
+    h0.tether = G.world.kv('band', { hex: 0xff6ad2, w: T.w * Math.sqrt(ctx.area), y: 0.35, x0: p0.x, z0: p0.z, x1: p1.x, z1: p1.z, ripple: 1 }); // skill-b2：两条品红波纹带（形状批）
     h1.tether = null;
     state.stats.vTwins = (state.stats.vTwins || 0) + 1;
     return h0;
@@ -9235,7 +9272,8 @@
         const alive = reached();
         if (!W.cutLine) for (const e of alive) W.slash(e.x, e.z, a + Math.PI / 2, 1.6 + e.r, 30, hex, { dur: 0.18, inner: 0.5, y: 1.1 });
         if (!alive.length) return;
-        wsStrike(ctx, alive, 1, { ang: a, w: sk.w, kb: sk.kb, poise: sk.poise, stop: sk.stop, dir: a });
+        if (W.impactStyle) W.impactStyle('cut'); // skill-b2：命中的近白弯月换成细斩线（只换画法）
+        try { wsStrike(ctx, alive, 1, { ang: a, w: sk.w, kb: sk.kb, poise: sk.poise, stop: sk.stop, dir: a }); } finally { if (W.impactStyle) W.impactStyle(null); }
         G.sfx('finisher');
       });
     },
@@ -9935,7 +9973,8 @@
         marks += mk;
       }
       fxOpt('ashBurst', e.x, e.z, e.height || 2, e.r, it.n, mk);
-      total += G.hitEnemy(e, ctx, it.n * sk.cut + mk * sk.mark, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 2, kb: sk.kb * 2, poise: sk.cutPoise, quiet: true }) || 0;
+      if (W.impactStyle) W.impactStyle('ash'); // skill-b2：同上（余烬色）
+      try { total += G.hitEnemy(e, ctx, it.n * sk.cut + mk * sk.mark, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 2, kb: sk.kb * 2, poise: sk.cutPoise, quiet: true }) || 0; } finally { if (W.impactStyle) W.impactStyle(null); }
       crit = crit || lastHit.crit;
       if (!e.dead) W.shudder(e.ent, 0.14, 0.24);
     }
@@ -12886,7 +12925,8 @@
   // 只读现有进度（cleared / lastZone / tier）和「走到首领场地门口」，不加新事件。推进时不取随机数、不改任何模拟用到的状态：
   // 奖励直接加进 save.cur，提示交给界面层排队（G.ui.questDone）。固定种子的仗打出来和没有主线时逐位相同
   const questFns = [];
-  // D3 的挂钩：首领步在这次游戏里真正完成时（不是读档推算出来的）调 fn({ step, id, zone, live: true })。
+  // D3 的挂钩：首领步和进轮回层级 1 那一步在这次游戏里真正完成时（不是读档推算出来的）调 fn({ step, id, zone, live: true })
+  // （层级步没有 zone）。界面层拿它排旁白卡（ui.js updateNarr）。
   // 放过旁白后调 G.questTell(id) 记进 save.quest.told，G.questTold(id) 读
   G.onQuest = (fn) => {
     if (typeof fn === 'function') questFns.push(fn);
@@ -12928,7 +12968,7 @@
     if (G.ui && G.ui.questDone) G.ui.questDone(n, any ? got : null);
     for (let k = from; k < n; k++) {
       const q = G.QUEST[k];
-      if (q.kind !== 'boss') continue;
+      if (q.kind !== 'boss' && q.kind !== 'tier') continue;
       for (const fn of questFns) {
         try {
           fn({ step: k + 1, id: q.id, zone: q.zone, live: true });

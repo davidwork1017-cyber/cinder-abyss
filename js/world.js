@@ -13,6 +13,7 @@
   let renderer, scene, camera, hemi, sun, fill, lamp, fxLight, portalLight;
   let ocv, octx;
   let vw = 1, vh = 1, dpr = 1;
+  W.mmTouch = null; // 触屏 HUD 的小地图摆放（见下面画小地图的地方）
   let wtime = 0;
 
   // 复用的临时对象：热路径里不做任何分配
@@ -11472,6 +11473,8 @@
       hand: spec.hand ? handTrack(spec.hand) : null,
       handL: spec.handL ? handTrack(spec.handL) : null,
       draw: spec.draw || null, arrow: !!spec.arrow, ikL: spec.ikL,
+      // emit：投掷动作的出手点（'hand' 右手挂点 / 'handL' 左手 / 'muzzle' 武器的出手点）；g5：skill-5a 按握法加的版本（W.grip5Off 时不用）
+      emit: spec.emit || null, g5: !!spec.g5,
       // boss-golem：lin = 关键帧是逐帧采样的（线性插值）；steady = 蓄力 / 出手这类要读招的动作，受击只在 hitJ 上小幅一抖（见 finishPose）；
       // loopFrom = 循环从这个归一化时刻开始（破防：垮下去那一段只播一次，之后在跪稳的姿势里循环）
       lin: !!spec.lin, steady: !!spec.steady, loopFrom: spec.loopFrom > 0 && spec.loopFrom < 1 ? spec.loopFrom : 0,
@@ -12535,7 +12538,9 @@
       return true;
     }
     // 玩家拿双手武器 / 长弓时，同名动作换成按这种武器重排的版本（名字不变）
-    const c = (ent.gearClips && ent.gearClips[name]) || ent.rig.clips[name];
+    let c = ent.gearClips && ent.gearClips[name];
+    if (c && c.g5 && W.grip5Off) c = null;
+    c = c || ent.rig.clips[name];
     if (!c) return false;
     beginFade(ent, opts && opts.fade !== undefined ? opts.fade : c.fade);
     ent.clip = c;
@@ -12578,8 +12583,19 @@
 
   // 挂点的世界坐标：weapon（武器尖端）/ hand / head / chest。结果写进 out（不传则新建一个对象返回）；
   // 每帧都要取的地方请传入自己的 out，避免分配。
+  // 测试用：W.sockShift = { x, y, z } 时玩家的每个挂点（武器尖端 / 手 / 出手点……）整体挪开一点，证明姿势 / 挂点不改变模拟和取随机数的次数
+  W.sockShift = null;
+  const sockShift = (ent, o) => {
+    const s = W.sockShift;
+    if (s && ent === pEnt()) { o.x += s.x; o.y += s.y; o.z += s.z; }
+    return o;
+  };
   W.entSocket = function (ent, name, out) {
     const o = out || { x: 0, y: 0, z: 0 };
+    if (W.sockShift) return sockShift(ent, entSocket0(ent, name, o));
+    return entSocket0(ent, name, o);
+  };
+  function entSocket0(ent, name, o) {
     const s = (ent.sock && ent.sock[name]) || ent.rig.sockets[name];
     const g = ent.group, k = g.scale.x * ent.k;
     let x = 0, y = ent.rig.height * 0.6, z = 0;
@@ -12612,7 +12628,7 @@
     o.x = g.position.x + (x * cs + z * sn) * k;
     o.y = g.position.y + y * k;
     o.z = g.position.z + (z * cs - x * sn) * k;
-    return o;
+    return W.sockShift ? sockShift(ent, o) : o;
   };
   // 这一帧打出去的弹丸画面上从哪儿出来：投掷动作（掷焰 / 飞刃 / 散钉……）从投掷的那只手；
   // 远程武器 / 施法武器、或者正在播武器自己的出手动作（fire_ / r_ / w_ / b_）时从武器的出手点；其余（近战武器施法）从左手
@@ -12620,11 +12636,15 @@
   const EMIT_CLIP = /^(fire|r|w|b)_/;
   function emitWorld(ent, out) {
     const c = ent.clip, n = c ? c.name : '';
-    if (n === 'throw') return W.entSocket(ent, ent.gearClips && ent.gearClips.throw === c ? 'hand' : 'handL', out);
+    if (n === 'throw') {
+      const e = c.emit || (ent.gearClips && ent.gearClips.throw === c ? 'hand' : 'handL');
+      return e === 'muzzle' ? W.muzzleWorld(ent, out) : W.entSocket(ent, e, out);
+    }
     if (EMIT_GEAR[ent.gearType] || (ent.gearType >= 0 && EMIT_CLIP.test(n))) return W.muzzleWorld(ent, out);
     return W.entSocket(ent, 'handL', out);
   }
   W.emitWorld = emitWorld;
+  W.grip5Off = false; // 测试用：true 时不用 skill-5a 按握法加的动作版本 / 持枪找平 / 左轮提前抬枪，用来证明它们只动画面
   W.emitOff = false; // 测试用：true 时弹丸画面不从出手点出来（直接画在弹道上），用来证明出手点只动画面
   // 模拟这一步里（还没摆这一帧的姿势）要出手点时：上一帧的姿势 + 玩家这一帧已经走开的那一段
   function emitEst(ent, out) {
@@ -14064,6 +14084,7 @@
       playerClips(rig);
       weaponClips(rig);
       rangedClips(rig);
+      gripClips(rig);
       return rig;
     }));
   }
@@ -14398,6 +14419,23 @@
     if (k >= c.k0 - 0.04 && k <= c.k0 + 0.2) return 1;
     return -1;
   }
+  // 端着机炮 / 喷枪走 / 跑时枪身找平（skill-5a）：跑动的手位在胸口坐标系里给，上身前倾、左右摆的时候枪口跟着抬起 ~6°、左右晃 ±6°；
+  // 按移动的程度把枪的指向（模型空间）拉到一个固定的平端方向（略往左收一点，和站着时的 10° 内扣接上），刃口方向跟着重新正交
+  const GUN_LVL = (() => {
+    const yw = 0.14, pt = -0.035;
+    return [Math.sin(yw) * Math.cos(pt), Math.sin(pt), Math.cos(yw) * Math.cos(pt)];
+  })();
+  function gunLevel(T, k) {
+    let dx = T[3] + (GUN_LVL[0] - T[3]) * k, dy = T[4] + (GUN_LVL[1] - T[4]) * k, dz = T[5] + (GUN_LVL[2] - T[5]) * k;
+    const l = Math.hypot(dx, dy, dz) || 1;
+    dx /= l; dy /= l; dz /= l;
+    let ex = T[6], ey = T[7], ez = T[8];
+    const ed = ex * dx + ey * dy + ez * dz;
+    ex -= ed * dx; ey -= ed * dy; ez -= ed * dz;
+    const le = Math.hypot(ex, ey, ez) || 1;
+    T[3] = dx; T[4] = dy; T[5] = dz;
+    T[6] = ex / le; T[7] = ey / le; T[8] = ez / le;
+  }
   // 撒放后弦往弓背那边弹过头、来回颤两下（0.16 秒内收住）：弓的绑定坐标里，弦中点 → 握把的方向
   const SNAP_X = 0.256, SNAP_Y = -0.967, SNAP_A = 0.035;
   function playerIK(ent, sdt) {
@@ -14425,6 +14463,7 @@
       _hk[1] += br;
       remapHand(rig.armR, 'chest', _hk);
       handToModel(ent, 'chest', _hk, _ikT);
+      if ((g === G_GAT || g === G_FLM) && mv > 0.001 && !W.grip5Off) gunLevel(_ikT, mv);
       want = 1;
     }
     if (src !== ik.src) {
@@ -14461,7 +14500,8 @@
       solveRig(ent);
       re = true;
     } else {
-      const tw = TWO_HAND[g] ? (c ? (c.hand ? (c.ikL === undefined ? 1 : c.ikL) : 0) : g === G_GAT || g === G_FLM ? 1 : 1 - ent.mv) : 0;
+      // ikL：动作里左手握柄的权重，数字或关键帧（skill-5a：施法 / 投掷时左手先松开柄去出手，收招再握回去）
+      const tw = TWO_HAND[g] ? (c ? (c.hand ? (c.ikL === undefined ? 1 : typeof c.ikL === 'number' ? c.ikL : kf(c.ikL, ent.cK)) : 0) : g === G_GAT || g === G_FLM ? 1 : 1 - ent.mv) : 0;
       ik.lw += (tw - ik.lw) * Math.min(1, sdt * 14);
       if (ik.lw > 0.002 && TWO_HAND[g]) {
         // 柄上离左肩最近、又不和右手挤在一起的那一点
@@ -14861,16 +14901,25 @@
     playerIK(ent, sdt || 0);
     bannerSway(ent, sdt || 0);
     // 挥砍的出手段：武器拖出一道刀光
-    const c = ent.clip;
-    if (c && c.trail && ent === trail.ent && !ent.dying && ent.cK >= c.trail[0] && ent.cK <= c.trail[1]) {
+    const c = ent.clip, tb = TRAIL_BASE[ent.gearType];
+    if (c && c.trail && tb !== undefined && ent === trail.ent && !ent.dying && ent.cK >= c.trail[0] && ent.cK <= c.trail[1]) {
+      // 只有带刃的武器拖刀光（skill-5a）：刃 / 双匕 / 太刀从刃身起，战锤只拖锤头，长杖 / 魂幡只拖杖头 / 幡头；枪、弓、短杖、空手不拖
       W.entSocket(ent, 'weapon', _sk);
       W.entSocket(ent, 'hand', _sk2);
-      trailPush(ent, _sk2.x + (_sk.x - _sk2.x) * 0.3, _sk2.y + (_sk.y - _sk2.y) * 0.3, _sk2.z + (_sk.z - _sk2.z) * 0.3, _sk.x, _sk.y, _sk.z);
+      trailMode(0);
+      trailPush(ent, _sk2.x + (_sk.x - _sk2.x) * tb, _sk2.y + (_sk.y - _sk2.y) * tb, _sk2.z + (_sk.z - _sk2.z) * tb, _sk.x, _sk.y, _sk.z);
+    } else if (c && c.spec.dust && ent === trail.ent && !ent.dying) {
+      // 端着枪抡一圈（旋风斩的枪版）：不画刀光，枪口扫过的地方贴地拖一道尘带（同一条带子换成尘土的画法，不加 draw、不取随机数）
+      W.muzzleWorld(ent, _sk);
+      trailMode(1);
+      // 尘带是贴地的一道弧（俯视镜头下看得见）：内沿在枪口半径的一半、贴着地，外沿略出枪口、扬起一点
+      const gp = ent.group.position, ox = _sk.x - gp.x, oz = _sk.z - gp.z;
+      trailPush(ent, gp.x + ox * 0.5, gp.y + 0.05, gp.z + oz * 0.5, gp.x + ox * 1.2, gp.y + 0.36, gp.z + oz * 1.2);
     }
     // 投掷（掷焰 / 飞刃）的蓄力：出手前火星往投掷的那只手里聚，出手那一刻手上一颗星 + 两团实心的烟（颜色见 W.castTint）
     if (c && c.name === 'throw' && ent === trail.ent && !ent.dying && sdt > 0) {
       const kk = ent.cK, cp = castPal;
-      W.entSocket(ent, ent.gearClips && ent.gearClips.throw === c ? 'hand' : 'handL', _sk);
+      emitWorld(ent, _sk);
       if (kk > 0.08 && kk < 0.5) {
         ent.gatherAcc = (ent.gatherAcc || 0) + sdt * (qualId === 'low' ? 30 : 60);
         _c.set(cp[1]);
@@ -16104,6 +16153,141 @@
       alias('r_bow', 'r_eagle');
     }
     for (const t of GUN_TYPES.concat(BOW_TYPES, ['bow'])) if (!rig.clips['w_' + t] && rig.clips['r_' + t]) alias('w_' + t, 'r_' + t);
+  }
+
+  // ===== skill-5a：宝石技能的出手动作按握法出版本（拿着什么都不撒手）=====
+  // 宝石技能不挑武器，出手动作只按技能类型选（throw / cast / attack1 / spin / flicker）。下面给两类握法注册同名的版本：
+  //   双手枪（机炮 / 喷枪）：投掷借枪自己的腰射姿势、从枪口出手；施法时右手把枪端在胸前、左手抬起施法；近战用枪刺 / 枪托；旋风斩端平了枪抡一圈
+  //   长柄（长杖 / 魂幡 / 战锤 / 太刀）：投掷时武器斜扛在右肩、左手扔；施法时武器拄地或横在身前、左手施法
+  // 时长、命中帧 k0 都照搬原动作（W.play 的 contact 按 k0 重映射时间），出手判定的时刻不动；只换关键帧和手的轨迹
+  function gripClips(rig) {
+    const C = (v) => [0, v, 1, v];
+    const base = (n) => rig.clips[n].spec;
+    const R_ARM = { uaR: 1, faR: 1, hR: 1 };
+    const noRight = (keys) => {
+      const o = {};
+      for (const k in keys) if (!R_ARM[k.slice(0, k.indexOf('.'))]) o[k] = keys[k];
+      return o;
+    };
+    const same = (n, extra) => {
+      const s = base(n);
+      return Object.assign({ dur: s.dur, k0: s.k0, loop: s.loop, hold: s.hold, fade: s.fade, out: s.out, lower: s.lower, air: s.air, g5: true }, extra);
+    };
+    // --- 双手枪 ---
+    const HIP = GUN_LOCO[G_GAT].idle, hp = HIP.slice(0, 3), hd = HIP.slice(3, 6), he = HIP.slice(6, 9);
+    const add = (a, b, k) => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
+    const hipTwist = { 'spine.ry': C(GUN_TWIST * 0.55), 'chest.ry': C(GUN_TWIST * 0.55), 'head.ry': C(-GUN_TWIST * 0.9) };
+    const brace = (keys, d) => {
+      keys['thL.rx'] = C(-0.45 * d);
+      keys['shL.rx'] = C(0.6 * d);
+      keys['thR.rx'] = C(0.3 * d);
+      keys['shR.rx'] = C(0.4 * d);
+      keys['ftR.rx'] = C(0.2 * d);
+      keys['thL.rz'] = C(0.12);
+      keys['thR.rz'] = C(-0.18);
+      return keys;
+    };
+    for (const g of [G_GAT, G_FLM]) {
+      // 投掷：腰射的架势，出手（k0）那一下枪身后坐、枪口上跳，弹丸从枪口出去
+      defGearClip(rig, g, 'throw', same('throw', {
+        emit: 'muzzle', fn: gunUpper,
+        hand: {
+          k: [0, 0.3, -0.5, 0.62, 1],
+          p: [hp, add(hp, hd, -0.02), add(hp, hd, -0.07), add(hp, hd, -0.02), hp],
+          d: [hd, hd, [hd[0], hd[1] + 0.14, hd[2]], [hd[0], hd[1] + 0.04, hd[2]], hd],
+          e: [he, he, he, he, he],
+        },
+        keys: brace(Object.assign({ 'chest.rx': [0, 0, 0.3, 0.04, -0.5, -0.1, 0.75, -0.04, 1, 0], 'root.oz': [0, 0, 0.3, 0.03, -0.5, -0.05, 1, 0] }, hipTwist), 0.9),
+      }));
+      // 施法：右手把枪竖着端在胸前（枪口朝左上），左手松开前握把抬起来施法，收招再握回去
+      const cs = base('cast');
+      // 模型空间：施法时上身后仰，胸口坐标里的枪会跟着竖起来、举到头边
+      const portP = [-0.16, 1.12, 0.3], portD = [0.5, 0.26, 0.83], portE = [0.13, -0.97, 0.22];
+      defGearClip(rig, g, 'cast', same('cast', {
+        hand: track(HIP, [[0, 'I'], [0.3, portP, portD, portE], [0.5, [portP[0], portP[1] + 0.03, portP[2]], portD, portE], [0.82, portP, portD, portE], [1, 'I']], 'model'),
+        ikL: [0, 1, 0.22, 1, 0.4, 0, 0.84, 0, 1, 1],
+        keys: noRight(cs.keys),
+      }));
+      // 近战：两手握枪往前一刺（枪刺），不画刀光
+      const thrustKeys = (d) => brace(Object.assign({
+        'root.oz': [0, 0, 0.3, -0.08, -0.5, 0.22, 0.75, 0.16, 1, 0.02],
+        'root.rx': [0, 0.02, 0.3, -0.02, -0.5, 0.14, 0.75, 0.1, 1, 0.02],
+        'chest.rx': [0, 0, 0.3, -0.04, -0.5, 0.1, 1, 0],
+        'root.sx': [0, 1, 0.3, 1.04, -0.5, 0.97, 0.72, 1.01, 1, 1],
+        'root.sy': [0, 1, 0.3, 0.94, -0.5, 1.06, 0.72, 0.99, 1, 1],
+        'root.sz': [0, 1, 0.3, 1.04, -0.5, 0.97, 0.72, 1.01, 1, 1],
+      }, hipTwist), d);
+      const thrust = { k: [0, 0.3, -0.5, 0.7, 1], p: [hp, add(hp, hd, -0.16), add(hp, hd, 0.3), add(hp, hd, 0.2), hp], d: [hd, hd, hd, hd, hd], e: [he, he, he, he, he] };
+      const flickS = (keys) => Object.assign({}, keys, {
+        'root.sx': [0, 0.15, 0.14, 0.3, 0.26, 1.18, 0.36, 1, 1, 1],
+        'root.sz': [0, 0.15, 0.14, 0.3, 0.26, 1.18, 0.36, 1, 1, 1],
+        'root.sy': [0, 1.7, 0.14, 1.5, 0.26, 0.86, 0.36, 1, 1, 1],
+        'root.oy': [0, 0.1, 0.18, -0.16, -0.5, -0.12, 1, -0.04],
+      });
+      defGearClip(rig, g, 'attack1', same('attack1', { trail: null, hand: thrust, keys: thrustKeys(1), fn: gunUpper }));
+      defGearClip(rig, g, 'flicker', same('flicker', { trail: null, hand: thrust, keys: flickS(thrustKeys(1)), fn: gunUpper }));
+      // 影步的反手一刀：枪托横砸——枪身往右后收，然后握把（枪托一端）领着从右往左横扫过身前
+      const bashP0 = [-0.3, -0.08, 0.02], bashD0 = [0.55, 0.12, 0.83], bashP1 = [0.12, -0.06, 0.38], bashD1 = [0.82, 0.1, -0.56], bashE = [0, -1, 0];
+      defGearClip(rig, g, 'flicker2', same('flicker2', {
+        trail: null,
+        hand: { k: [0, 0.3, -0.5, 0.7, 1], p: [hp, bashP0, bashP1, add(bashP1, [-1, 0, 0], 0.06), hp], d: [hd, bashD0, bashD1, bashD1, hd], e: [he, bashE, bashE, bashE, he] },
+        keys: flickS(brace({
+          'root.ry': [0, 0, 0.3, -0.3, -0.5, 0.25, 0.75, 0.2, 1, 0],
+          'spine.ry': [0, GUN_TWIST * 0.55, 0.3, -0.3, -0.5, 0.2, 0.75, 0.15, 1, GUN_TWIST * 0.55],
+          'chest.ry': [0, GUN_TWIST * 0.55, 0.3, -0.45, -0.5, 0.3, 0.75, 0.2, 1, GUN_TWIST * 0.55],
+          'head.ry': [0, -GUN_TWIST * 0.9, 0.3, 0.6, -0.5, -0.4, 1, -GUN_TWIST * 0.9],
+        }, 1)),
+      }));
+      // 旋风斩：两手把枪端平、枪口朝右前伸出去，整个人转（转法同原动作）；拖尾换成贴地的尘带（见 playerLate）
+      const sp = base('spin');
+      const spP = [-0.24, -0.16, 0.34], spD = [-0.72, 0.02, 0.69], spE = [0, -1, 0];
+      defGearClip(rig, g, 'spin', same('spin', {
+        trail: null, dust: true,
+        hand: { k: [0, 1], p: [spP, spP], d: [spD, spD], e: [spE, spE] },
+        keys: noArms(sp.keys), fn: sp.fn,
+      }));
+    }
+    // 原有的腰射 / R 动作也减掉胯的转角（边走边打枪口不偏）
+    for (const n of ['fire_gatling', 'fire_flamer', 'r_gatling', 'r_flamer']) {
+      const c = rig.clips[n], f0 = c.fn;
+      c.fn = f0 ? (ent, p, k, t) => { f0(ent, p, k, t); gunUpper(ent, p); } : gunUpper;
+    }
+    // --- 长柄：长杖 / 魂幡 / 战锤 / 太刀 ---
+    // 扛肩：右手握在右肩前，武器斜着往后上方搭在肩上（胸口坐标系，跟着上身的拧转一起转）
+    const shP = [-0.2, -0.02, 0.18], shD = [-0.12, 0.62, -0.78], shE = [0, 0.78, 0.62];
+    const th = base('throw');
+    // 施法：长杖 / 魂幡竖着拄在身体右侧；战锤锤头朝下拄在右前方；太刀横在身前、刀尖朝左前下（模型空间：上身后仰时武器也不跟着倒）
+    const CAST_HOLD = {
+      1: { p: [-0.34, 1.0, 0.2], d: [0.03, 1, 0.1], e: [0, -0.1, 1] },
+      [G_BAN]: { p: [-0.34, 1.0, 0.2], d: [0.03, 1, 0.1], e: [0, -0.1, 1] },
+      [G_HAM]: { p: [-0.26, 0.98, 0.34], d: [-0.06, -0.95, 0.3], e: [0, 0.3, 0.95] },
+      [G_KAT]: { p: [-0.22, 0.98, 0.3], d: [0.62, -0.3, 0.72], e: [0, -1, 0] },
+    };
+    const cs = base('cast');
+    for (const g of [1, G_BAN, G_HAM, G_KAT]) {
+      const I = LOCO_2H[g] ? LOCO_2H[g].idle : null;
+      const shTrack = I ? track(I, [[0, 'I'], [0.24, shP, shD, shE], [0.8, shP, shD, shE], [1, 'I']]) : { k: [0, 1], p: [shP, shP], d: [shD, shD], e: [shE, shE], w: [1, 1] };
+      if (!I) {
+        // 长杖 / 魂幡平时不走 IK（竖着提在身侧）：手的权重从 0 升上去、收招落回 0
+        shTrack.k = [0, 0.24, 0.8, 1];
+        shTrack.p = [shP, shP, shP, shP]; shTrack.d = [shD, shD, shD, shD]; shTrack.e = [shE, shE, shE, shE];
+        shTrack.w = [0, 1, 1, 0];
+      }
+      defGearClip(rig, g, 'throw', same('throw', { emit: 'handL', ikL: 0, hand: shTrack, keys: noRight(th.keys) }));
+      const H = CAST_HOLD[g];
+      const lift = [H.p[0], H.p[1] + 0.07, H.p[2] - 0.02];
+      const castTrack = I
+        ? track(I, [[0, 'I'], [0.3, lift, H.d, H.e], [-0.5, H.p, H.d, H.e], [0.82, H.p, H.d, H.e], [1, 'I']], 'model')
+        : { f: 'model', k: [0, 0.3, -0.5, 0.82, 1], p: [H.p, lift, H.p, H.p, H.p], d: [H.d, H.d, H.d, H.d, H.d], e: [H.e, H.e, H.e, H.e, H.e], w: [0, 1, 1, 1, 0] };
+      defGearClip(rig, g, 'cast', same('cast', { ikL: 0, hand: castTrack, keys: noRight(cs.keys) }));
+    }
+  }
+  // 端着机炮 / 喷枪的动作：上身的拧转写死在动作里（spine / chest.ry），步态给胯的转角（侧着走、倒退时朝移动方向）就要从脊柱上减回去，
+  // 不然边走边打时上身跟着胯一起转，枪口偏出准星 30° 以上（skill-5a）
+  function gunUpper(ent, p) {
+    if (W.grip5Off) return;
+    const J = ent.rig.J;
+    p[J.spine + 1] -= p[J.root + 1];
   }
 
   // 武器的握法 / 挂点长度 / 稀有度的发光
@@ -20846,6 +21030,18 @@
   // 刀光：一条跟着武器走的带子。采样点按「绕角色的圆弧」补间，60 帧下的快挥也是顺滑的弧。
   // 卡通版：越老的采样内沿越往刃尖收（头粗尾尖的月牙），横向三道硬边色带，不透明度只有三档
   const TRAIL_MAX = 56, TRAIL_LIFE = 0.18;
+  // 刀光从「手 → 武器尖端」的哪一段起拖（比例）；不在表里的武器（短杖、弓、枪、空手）不拖
+  const TRAIL_BASE = { 0: 0.3, 1: 0.8, 3: 0.3, [G_HAM]: 0.66, [G_KAT]: 0.3, [G_BAN]: 0.84 };
+  // 刀光的配色（vf-vfx2：没有近白的亮带）：[刃尖一侧, 主色, 内沿]；物理是暖灰 / 钢色（原来借 FX_PAL 的饱和青绿，像冰或毒）
+  const TRAIL_PAL = {
+    phys: [0xdcd5ca, 0xaaa398, 0x5c564e],
+    fire: [0xffb06a, 0xe46a2a, 0x8a2c16],
+    cold: [0xa8d6f2, 0x5aa2da, 0x24509a],
+    light: [0xf0d47c, 0xd6a936, 0x7c5612],
+    chaos: [0xd47ac2, 0xa6308a, 0x2c0c32],
+  };
+  // 尘带（枪版旋风斩）：暖褐灰，贴地一侧最浓
+  const TRAIL_DUST = [0xd6c8b0, 0xb2a288, 0x7a6c5a];
   const trail = {
     ent: null, n: 0, live: 0, mesh: null, color: null,
     p: new Float32Array(TRAIL_MAX * 6), age: new Float32Array(TRAIL_MAX), mute: new Uint8Array(TRAIL_MAX),
@@ -20876,24 +21072,33 @@
     trail.color = { value: new T.Color(1, 1, 1) };
     trail.c0 = { value: new T.Color(1, 1, 1) };
     trail.c2 = { value: new T.Color(1, 1, 1) };
+    trail.dust = { value: 0 };
+    trailSetPal(TRAIL_PAL.phys);
     const mat = new T.ShaderMaterial({
-      uniforms: G.vfx.uni({ uColor: trail.color, uC0: trail.c0, uC2: trail.c2 }),
+      uniforms: G.vfx.uni({ uColor: trail.color, uC0: trail.c0, uC2: trail.c2, uDust: trail.dust }),
       vertexShader: 'attribute float aA; attribute float aU; varying float vA; varying float vU;\nvoid main(){ vA = aA; vU = aU; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-      // vf-vfx：拼上特效贴图库的 GLSL 工具：顺着刀光走向的刀纹（条纹噪声的快变方向放在横向），老的一截被刀纹撕成一缕缕
+      // skill-5a：前粗后细、半透明、平滑淡出（原来是三道硬边色带 + 三档不透明度，又宽又平像一张纸条）。
+      // 新的采样从握点铺到刃尖、越老内沿越往刃尖收；横向从内沿的深色渐到主色，刃尖一侧只往亮色靠一点（没有近白的亮带）。
+      // uDust = 1：同一条带子画成尘带（枪版旋风斩）——vU 0 贴地、1 是上沿，贴地一侧最浓，往上淡掉，被条纹噪声撕成一缕缕
       fragmentShader: G.vfx.GLSL + '\n' + [
-        'uniform vec3 uColor; uniform vec3 uC0; uniform vec3 uC2; varying float vA; varying float vU;',
+        'uniform vec3 uColor; uniform vec3 uC0; uniform vec3 uC2; uniform float uDust; varying float vA; varying float vU;',
         'void main(){',
         '  if (vA < 0.02) discard;',
-        // 月牙：新的采样从握点铺到刃尖，越老内沿越往刃尖收
-        '  float lo = 1.0 - pow(vA, 0.55);',
+        '  if (uDust > 0.5) {',
+        '    float sd = vfxNB(vec2(vU * 0.6 + 0.2, vA * 0.5)).r;',
+        '    float ad = 0.72 * pow(vA, 0.6) * smoothstep(0.0, 0.3, vU) * (1.0 - smoothstep(0.55, 1.0, vU)) * (0.5 + 0.5 * sd);',
+        '    if (ad < 0.02) discard;',
+        '    gl_FragColor = vec4(mix(uColor, uC0, clamp(vU * 0.6 + sd * 0.5, 0.0, 1.0)), ad);',
+        '    return;',
+        '  }',
+        '  float lo = 1.0 - pow(vA, 0.7);',
         '  float s = (vU - lo) / max(1.0 - lo, 0.001);',
         '  if (s < 0.0) discard;',
         '  float st = vfxNB(vec2(s * 0.85 + 0.3, vA * 0.35)).r;',
-        '  if (vA < 0.32 && st < (0.32 - vA) * 2.6) discard;',
-        // 横向三道硬边色带：刃尖一侧亮芯、中间主色、内沿深色
-        '  vec3 col = s > 0.72 ? uC0 : (s > 0.34 ? (st > 0.82 ? uC0 : uColor) : uC2);',
-        // 阶梯式淡出：三档不透明度
-        '  float a = vA > 0.6 ? 0.96 : (vA > 0.3 ? 0.74 : 0.45);',
+        '  if (vA < 0.3 && st < (0.3 - vA) * 2.2) discard;',
+        '  vec3 col = mix(uC2, uColor, smoothstep(0.0, 0.55, s));',
+        '  col = mix(col, uC0, smoothstep(0.7, 1.0, s) * 0.6);',
+        '  float a = 0.74 * pow(vA, 1.1) * smoothstep(0.0, 0.3, s) * (0.8 + 0.2 * st);',
         '  gl_FragColor = vec4(col, a);',
         '}',
       ].join('\n'),
@@ -20954,9 +21159,10 @@
       return;
     }
     let drop = 0;
+    const life = tr.dust.value ? TRAIL_LIFE * 1.8 : TRAIL_LIFE; // 尘带散得慢一点
     for (let i = 0; i < tr.n; i++) {
       tr.age[i] += dt;
-      if (tr.age[i] >= TRAIL_LIFE && drop === i) drop = i + 1; // 采样按时间先后排列，过期的都在队首
+      if (tr.age[i] >= life && drop === i) drop = i + 1; // 采样按时间先后排列，过期的都在队首
     }
     if (drop > 0) {
       tr.p.copyWithin(0, drop * 6, tr.n * 6);
@@ -20966,7 +21172,7 @@
     }
     const n = tr.n;
     for (let i = 0; i < n; i++) {
-      const k = 1 - tr.age[i] / TRAIL_LIFE, a = tr.mute[i] || k <= 0 ? 0 : k; // 卡通版的形状和阶梯都在着色器里按 k 算
+      const k = 1 - tr.age[i] / life, a = tr.mute[i] || k <= 0 ? 0 : k; // 卡通版的形状和阶梯都在着色器里按 k 算
       tr.al[i * 2] = tr.al[i * 2 + 1] = a;
     }
     tr.pos.set(n === TRAIL_MAX ? tr.p : tr.p.subarray(0, n * 6));
@@ -20976,13 +21182,37 @@
     ge.setDrawRange(0, Math.max(0, n - 1) * 6);
     tr.mesh.visible = n > 1;
   }
-  // 刀光的颜色（一般取这一击里占比最大的伤害类型）
-  W.setTrail = function (hex) {
-    const p = fxPal(hex);
+  // 刀光的颜色（一般取这一击里占比最大的伤害类型）。处决的奶油色（0xfff0c0）也算物理；别的自定义颜色按它自己调出三档，不往白里混
+  const _tpal = [0, 0, 0], tPal = { hex: -1 };
+  function trailSetPal(p) {
     trail.c0.value.set(p[0]);
     trail.color.value.set(p[1]);
     trail.c2.value.set(p[2]);
+  }
+  W.setTrail = function (hex) {
+    tPal.hex = hex;
+    if (trail.dust.value > 0.5) return; // 尘带画着的时候先不换色（换回刀光时再按 tPal 上色）
+    trailSetPal(trailPalOf(hex));
   };
+  function trailPalOf(hex) {
+    if (hex === 0xfff0c0 || hex === undefined || hex < 0) return TRAIL_PAL.phys;
+    const TH = G.TYPE_HEX;
+    for (const k in TRAIL_PAL) if (TH[k] === hex) return TRAIL_PAL[k];
+    _tpal[0] = mixHex(hex, 0xffffff, 0.3);
+    _tpal[1] = hex;
+    _tpal[2] = mixHex(hex, 0x000000, 0.5);
+    return _tpal;
+  }
+  // 刀光 / 尘带切换：换画法时把还没淡完的旧采样清掉（不然旧的一截会被换成另一种画法）
+  // 测试用：刀光 / 尘带现在有几个采样、是哪种画法、画没画出来
+  W.trailInfo = () => ({ n: trail.n, live: trail.live, dust: trail.dust.value, vis: trail.mesh.visible, c: [trail.c0.value.getHex(), trail.color.value.getHex(), trail.c2.value.getHex()] });
+  function trailMode(m) {
+    if (trail.dust.value === m) return;
+    trail.dust.value = m;
+    trail.n = 0;
+    trail.live = 0;
+    trailSetPal(m ? TRAIL_DUST : trailPalOf(tPal.hex));
+  }
 
   // 贴地痕迹。kind：0 擦痕（短促，加色）1 焦痕 2 霜痕 3 电痕 4 灰迹 5 地裂 6 命中印记；r 半径（擦痕为长度的一半），
   // wide 只对擦痕有意义（半宽）。
@@ -21076,11 +21306,16 @@
   const IMPACT_HEX = { phys: 0xfff0d0, fire: 0xff7a2c, cold: 0x9fe0ff, light: 0xffec70, chaos: 0xff6ad2 };
   // 卡通版：命中点一颗硬边的星，顺着打击方向甩出几片实色尖片，脚下扬起实心的烟团，地上留一摊星形的印子；
   // 原来的细火花只留一小半。低画质碎块减半
+  // skill-b2：W.impactStyle('cut' | 'ash' | 'blink' | null)——瞬断 / 千刃归烬 / 换影的重斩命中时临时换画法：物理的近白弯月（重击 + 暴击约 1.5 米）换成一道细斩线，
+  // 星芒缩小一半；只换形状批里的件，随机数一样。调用方在 wsStrike / hitEnemy 前后成对设置
+  let impStyle = null;
+  const IMP_STYLE = { cut: [0xd8e2f4, 0x9fb0cc], ash: [0xffc890, 0xff9b3d], blink: [0xd8c8f4, 0x8a74b8] };
+  W.impactStyle = (s2) => { impStyle = s2 || null; };
   W.impact = function (x, y, z, ang, type, w, crit) {
     const hex = IMPACT_HEX[type] || IMPACT_HEX.phys, pal = HIT_PAL[type] || HIT_PAL.phys, lo = qualId === 'low';
     _c.set(hex);
     const r = _c.r, g = _c.g, b = _c.b, sn = Math.sin(ang), cs = Math.cos(ang);
-    tChunk(1, x - sn * 0.15, y + 0.1, z - cs * 0.15, 0, 0, 0, 0.16 + w * 0.03, 0.46 + w * 0.12 + (crit ? 0.16 : 0), pal[0], pal[1], 0);
+    tChunk(1, x - sn * 0.15, y + 0.1, z - cs * 0.15, 0, 0, 0, 0.16 + w * 0.03, (0.46 + w * 0.12 + (crit ? 0.16 : 0)) * (impStyle ? 0.5 : 1), pal[0], pal[1], 0);
     for (let i = 0, m = (lo ? 2 : 4) + w * 2 + (crit ? 2 : 0); i < m; i++) {
       const a = ang + rand(-0.75, 0.75) * (i % 3 === 0 ? 1.8 : 1), v = (7 + w * 2.5) * rand(0.45, 1);
       tChunk(0, x, y + rand(-0.15, 0.2), z, Math.sin(a) * v, rand(1.5, 5) + w, Math.cos(a) * v, rand(0.2, 0.34) + w * 0.03, rand(0.13, 0.2) + w * 0.03, pal[0], i % 2 ? pal[1] : pal[2], 16);
@@ -21117,10 +21352,20 @@
       // vf-vfx2：一道横过目标的斩痕（弯月，凸面顺着这一击，0.1 秒里往前推、变细、缩没）+ 几块有棱角的碎石（翻滚、落地弹一下）；
       // 暴击是交叉的两道、碎石翻倍。斩痕只是细细一道亮边，不是一片亮面
       const sz = 0.85 + w * 0.22 + (crit ? 0.2 : 0);
-      vsBrush(VSH.crescent, 0, 0, 0xfff4dc, pal[1], 0.7, 0.55, 0.5);
-      for (let c = 0, m = crit ? 2 : 1; c < m; c++) {
-        const a = ang + (m > 1 ? (c ? 0.75 : -0.75) : 0), dx = Math.sin(a), dz = Math.cos(a);
-        vsEmit(x - dx * sz * 0.85, y + 0.05, z - dz * sz * 0.85, dx * 1.6, 0, dz * 1.6, 0.1 + w * 0.02, sz);
+      if (impStyle) {
+        // 细斩线：横过目标、两头尖，亮芯只在头 40 %（≤ 60 毫秒），之后钢蓝 / 余烬色
+        const st = IMP_STYLE[impStyle] || IMP_STYLE.cut;
+        vsBrush(VSH.bar, 4, 3, st[0], st[1], 0.3, 0.35, 0.4);
+        for (let c = 0, m = crit ? 2 : 1; c < m; c++) {
+          const a = ang + Math.PI / 2 + (m > 1 ? (c ? 0.5 : -0.5) : 0), dx = Math.sin(a), dz = Math.cos(a), L = sz * 1.3;
+          vsEmit(x - dx * L * 0.5, y + 0.05, z - dz * L * 0.5, dx * L, 0.1, dz * L, 0.14, 0.05);
+        }
+      } else {
+        vsBrush(VSH.crescent, 0, 0, 0xfff4dc, pal[1], 0.7, 0.55, 0.5);
+        for (let c = 0, m = crit ? 2 : 1; c < m; c++) {
+          const a = ang + (m > 1 ? (c ? 0.75 : -0.75) : 0), dx = Math.sin(a), dz = Math.cos(a);
+          vsEmit(x - dx * sz * 0.85, y + 0.05, z - dz * sz * 0.85, dx * 1.6, 0, dz * 1.6, 0.1 + w * 0.02, sz);
+        }
       }
       vsBrush(VSH.chip, 3, 0, 0x9c8b78, 0x9c8b78, 0.25, 0.55);
       for (let i = 0, m = (lo ? 2 : 3 + (w > 0 ? 1 : 0)) * (crit ? 2 : 1); i < m; i++) {
@@ -21217,6 +21462,8 @@
     '  }',
     '  a *= uFill;', // vf-vfx2：玩家自己放的（友方）预警圈填充减半，外轮廓和前沿亮线不变；敌方的 uFill = 1
     '  a = max(a, max(edge * 0.96, lead * 0.7));',
+    // skill-b2：玩家自己的（友方）预警圈只画边：外轮廓 + 一道细的推进线，填充封顶约一成半（原来是半透明的大片浅色实心盘）；敌方 / 首领不走这里
+    '  if (uFill < 0.99) { float ld = smoothstep(uK - 0.045, uK - 0.015, g) * inner; a = max(0.03 + rim * 0.05 + inner * 0.06 + hot * pulse * 0.03, max(edge * 0.96, ld * 0.6)); col = mix(uColor, uEdge, max(edge, ld * 0.75)) + hot * pulse * 0.12; }',
     // vf-vfx3：敌方的预警圈在亮边里面再压一道深色线（双层边）：亮边在暗地上显眼、深线在亮特效上显眼，玩家的特效叠上来时轮廓仍是连着的
     '  float dl = step(0.99, uFill) * smoothstep(0.17, 0.21, d) * (1.0 - smoothstep(0.3, 0.34, d));',
     '  col = mix(col, uColor * 0.22, dl);',
@@ -21254,7 +21501,7 @@
     const mat = new T.ShaderMaterial({
       uniforms: G.vfx.uni({
         uColor: { value: friendly ? new T.Color(1.0, 0.58, 0.16) : new T.Color(0.96, 0.07, 0.05) },
-        uEdge: { value: friendly ? new T.Color(0.86, 0.95, 1.0) : new T.Color(1.0, 0.8, 0.62) },
+        uEdge: { value: friendly ? new T.Color(1.0, 0.8, 0.52) : new T.Color(1.0, 0.8, 0.62) }, // skill-b2：友方的边改暖橙（原来近白的淡蓝）
         uHalf: { value: new T.Vector2(hx, hz) },
         uK: { value: 0 },
         uShape: { value: rect ? 1 : arc ? 2 : ringS ? 3 : 0 },
@@ -21603,7 +21850,10 @@
     b.hw = foe ? 0.28 : o && o.v2 && !minor ? 0.25 : 0.36; // 敌方：半宽 0.28（看图后：0.22 在游戏镜头下撑不起这一击；加宽不加白）
     boltBuild(b);
     b.mesh.visible = true;
-    if (o && o.v2 && !minor) return boltV2(b, hex);
+    if (o && o.v2 && !minor) {
+      boltV2(b, hex);
+      return;
+    }
     if (foe) return boltFoe(b, hex, o.head);
     // 每个落点：一记亮闪 + 一小撮火花 + 一团慢慢熄掉的余辉
     _c.set(hex);
@@ -22051,6 +22301,7 @@
     it.ang = ang;
     it.hex = hex;
     it.len = len;
+    it.ghost = null;
     it.mesh.position.set(it.x, y, it.z);
     it.mesh.rotation.order = 'XYZ';
     it.mesh.rotation.set(0, ang, 0);
@@ -22073,6 +22324,12 @@
       if (!it.fired && k >= it.u.uD.value) {
         // 延迟的斩线落下：沿线炸开一串火花 + 一记闪光
         it.fired = true;
+        if (it.ghost) {
+          // skill-b2：鬼影斩线（瞬断）：网格不画，画法换成形状批的细斩线 + 碎屑
+          flashLight(it.x, it.y + 1, it.z, it.hex, 1.4);
+          it.ghost(it);
+          continue;
+        }
         _c.set(it.hex);
         const sn = Math.sin(it.ang), cs = Math.cos(it.ang);
         for (let j = 0; j < 16; j++) {
@@ -22549,41 +22806,55 @@
     W.shake(0.3);
   };
   // 双匕「影刺」：起点和落点各一团烟，中间一串往回飘的暗影，落点一记闪光
-  W.shadowStep = function (x0, z0, x1, z1, hex) {
+  // o.dim（skill-b2，换影用）：一路的暗影粒压暗到三成半（原来七成的浅紫一串亮点），落点不闪光
+  W.shadowStep = function (x0, z0, x1, z1, hex, o) {
     W.smoke(x0, 0.7, z0, 0.6, 14, 0x5a4870);
     W.smoke(x1, 0.7, z1, 0.5, 10, 0x5a4870);
-    const dx = x1 - x0, dz = z1 - z0, d = Math.hypot(dx, dz) || 1, n = Math.max(3, Math.ceil(d * 2.5));
+    const dx = x1 - x0, dz = z1 - z0, d = Math.hypot(dx, dz) || 1, n = Math.max(3, Math.ceil(d * 2.5)), dim = o && o.dim ? 0.35 : 0.7;
     _c.set(hex);
     for (let i = 0; i < n; i++) {
       const k = i / n;
-      spawnP(x0 + dx * k + rand(-0.2, 0.2), rand(0.4, 1.6), z0 + dz * k + rand(-0.2, 0.2), (-dx / d) * rand(0.3, 1.2), rand(0, 0.6), (-dz / d) * rand(0.3, 1.2), rand(0.25, 0.5), rand(0.18, 0.3), _c.r * 0.7, _c.g * 0.7, _c.b * 0.7, -0.3, 2);
+      spawnP(x0 + dx * k + rand(-0.2, 0.2), rand(0.4, 1.6), z0 + dz * k + rand(-0.2, 0.2), (-dx / d) * rand(0.3, 1.2), rand(0, 0.6), (-dz / d) * rand(0.3, 1.2), rand(0.25, 0.5), rand(0.18, 0.3), _c.r * dim, _c.g * dim, _c.b * dim, -0.3, 2);
     }
-    flare(x1, 1.1, z1, hex, 1.0, 0.08);
+    if (!(o && o.dim)) flare(x1, 1.1, z1, hex, 1.0, 0.08);
   };
   // 太刀「瞬断」的冲刺：沿路径留下几道残影（用 ent 此刻的姿势）、一道光带和地上的擦痕
+  // skill-b2：瞬断的颜色是近白（#e8f0ff）：残影改暗蓝灰（加色叠出来只是一层淡影），路径上的光带 / 加色擦痕换成形状批里一道钢蓝的细刀痕 + 暗擦痕，
+  // 火星不再往白里混
   W.dashCut = function (ent, x0, z0, x1, z1, hex) {
     const dx = x1 - x0, dz = z1 - z0, d = Math.hypot(dx, dz);
-    const ang = Math.atan2(dx, dz);
+    const ang = Math.atan2(dx, dz), b2 = !!PF.vShape;
     if (ent) for (let i = 0; i < 4; i++) {
       const f = 0.15 + i * 0.22;
-      W.afterimage(ent, x0 + dx * f, z0 + dz * f, hex, 0.35 + i * 0.15, 0.22 + i * 0.05, 0);
+      W.afterimage(ent, x0 + dx * f, z0 + dz * f, b2 ? B2_CUT.ghost : hex, 0.35 + i * 0.15, 0.22 + i * 0.05, 0);
     }
     if (d > 0.2) {
-      streak(x0, z0, 1.0, ang, d, 0.42, hex, 0.3, 0, 0);
-      W.decal(0, x0 + dx * 0.5, z0 + dz * 0.5, d * 0.5, ang, hex, 0.5, 0.2);
+      if (b2) {
+        b2DashTrail(x0, z0, x1, z1);
+      } else {
+        streak(x0, z0, 1.0, ang, d, 0.42, hex, 0.3, 0, 0);
+        W.decal(0, x0 + dx * 0.5, z0 + dz * 0.5, d * 0.5, ang, hex, 0.5, 0.2);
+      }
     }
-    _c.set(hex);
+    _c.set(b2 ? B2_CUT.spark : hex);
+    const wm = b2 ? 0 : 0.5;
     const n = Math.max(3, Math.ceil(d * 3));
     for (let i = 0; i < n; i++) {
       const k = i / n;
-      spawnP(x0 + dx * k + rand(-0.15, 0.15), rand(0.3, 1.6), z0 + dz * k + rand(-0.15, 0.15), (dx / (d || 1)) * rand(1, 3), rand(-0.2, 0.6), (dz / (d || 1)) * rand(1, 3), rand(0.2, 0.4), rand(0.12, 0.22), _c.r + (1 - _c.r) * 0.5, _c.g + (1 - _c.g) * 0.5, _c.b + (1 - _c.b) * 0.5, 0, 2.5);
+      spawnP(x0 + dx * k + rand(-0.15, 0.15), rand(0.3, 1.6), z0 + dz * k + rand(-0.15, 0.15), (dx / (d || 1)) * rand(1, 3), rand(-0.2, 0.6), (dz / (d || 1)) * rand(1, 3), rand(0.2, 0.4), rand(0.12, 0.22), _c.r + (1 - _c.r) * wm, _c.g + (1 - _c.g) * wm, _c.b + (1 - _c.b) * wm, 0, 2.5);
     }
   };
   // 一道延迟落下的斩线：立刻在 (x,z) 横着出现一道细暗线，delay 秒后骤亮、炸开火花再消失
   W.cutLine = function (x, z, ang, len, hex, delay) {
     const dl = delay === undefined ? 0.35 : Math.max(0, delay);
     const sn = Math.sin(ang), cs = Math.cos(ang);
-    streak(x - sn * len * 0.5, z - cs * len * 0.5, 1.0, ang, len, 0.5, hex, dl + 0.24, 1, dl);
+    const it = streak(x - sn * len * 0.5, z - cs * len * 0.5, 1.0, ang, len, 0.5, hex, dl + 0.24, 1, dl);
+    if (!PF.vShape) return;
+    // skill-b2：原来是一道加色的光带骤亮成一团近白闪光；现在光带只占池子、按原时刻取随机数（鬼影），不画（visible = false，不占 draw）。
+    // 画法：先是一道贴着怪身的细暗线（暗蓝灰），到时刻换成一道细斩线 + 往两侧崩的碎屑（b2CutFire）
+    it.mesh.visible = false;
+    it.ghost = b2CutFire;
+    b2CutPre(x, z, ang, len, dl);
   };
   // ----- 魂幡「魂潮」 -----
   // 魂灵出幡：W.soulTide(x, z, ang, hex[, ent])。杆头（ent 缺省是玩家；拿着武器时取它的 weapon 挂点，否则在 (x, 2.3, z)）
@@ -24819,6 +25090,160 @@
     }
     vsFoe = 0;
   };
+  // ===================================================================== skill-b2：近白长条 / 旧闪电 / 白色残影（技能打磨第 2 批）
+  // 同第 1 批的规则：新件全画进形状批（随机数都是画面随机数 vr）；
+  // 占对象池的旧件（光带、召唤法阵）改成鬼影：照旧占池子，网格 visible = false（不画、不占 draw），由新件画。
+  // 近白只给 ≤ 1.2 米、≤ 60 毫秒的小芯；余波比地面暗；低画质件数减半
+  const B2_CUT = { ghost: 0x4a5670, spark: 0x5a6a88, a: 0x9fb0cc, b: 0x3a4458, dark: 0x262c3a };
+  const B2_POP = 0.06;
+  function b2Ring(x, z, R, cA, cB, life) {
+    W.thinRing(x, z, R, cA, cB, life, Math.max(12, Math.min(28, Math.round(R * 5))));
+  }
+  // 瞬断：冲刺路径上一道钢蓝的细刀痕（齐腰高、两头尖、很快收细）+ 贴地一道暗擦痕
+  function b2DashTrail(x0, z0, x1, z1) {
+    if (!PF.vShape) return;
+    const dx = x1 - x0, dz = z1 - z0;
+    vsBrush(VSH.bar, 4, 3, B2_CUT.a, B2_CUT.b, 0.15, 0.35, 0.3);
+    vsEmit(x0, 1.0, z0, dx, -0.05, dz, 0.26, 0.07);
+    vsBrush(VSH.bar, 5, 3, B2_CUT.b, B2_CUT.dark, 0, 0.3, 0.3);
+    vsEmit(x0, 0.07, z0, dx, 0, dz, 0.5, 0.1);
+  }
+  // 斩线落下之前：贴着怪身一道细暗线（原来是加色的淡光线）
+  function b2CutPre(x, z, ang, len, dl) {
+    if (!PF.vShape) return;
+    const sn = Math.sin(ang), cs = Math.cos(ang);
+    vsBrush(VSH.bar, 4, 0, B2_CUT.dark, B2_CUT.dark, 0, 0.2, 1);
+    vsEmit(x - sn * len * 0.5, 1.0, z - cs * len * 0.5, sn * len, 0, cs * len, Math.max(0.05, dl + 0.02), 0.035);
+  }
+  // 斩开：一道细斩线（亮芯 60 毫秒，之后钢蓝收细）+ 往两侧崩的碎屑和几根短火星（原来是一团近白闪光 + 16 粒白火花）
+  function b2CutFire(it) {
+    if (!PF.vShape) return;
+    const lo = qualId === 'low', sn = Math.sin(it.ang), cs = Math.cos(it.ang), len = it.len * 0.9;
+    vsBrush(VSH.bar, 4, 3, 0xd8e2f4, B2_CUT.a, 0.35, 0.3, 0.3);
+    vsEmit(it.x - sn * len * 0.5, it.y, it.z - cs * len * 0.5, sn * len, 0.08, cs * len, 0.2, 0.06);
+    vsBrush(VSH.chip, 3, 0, 0x6a7488, 0x2e3440, 0, 0.45, 0.55);
+    for (let i = 0, n = lo ? 3 : 6; i < n; i++) {
+      const f = vr(-0.4, 0.4) * len, side = i & 1 ? 1 : -1, v = vr(2.5, 5);
+      vsEmit(it.x + sn * f, it.y, it.z + cs * f, cs * side * v + sn * vr(-1, 1), vr(1, 3), -sn * side * v + cs * vr(-1, 1), vr(0.5, 0.8), vr(0.06, 0.12), undefined, vr(0, TAU), vr(-9, 9), 16);
+    }
+    vsBrush(VSH.bar, 0, 0, B2_CUT.a, B2_CUT.b, 0.2, 0.3, 0.4);
+    for (let i = 0, n = lo ? 2 : 4; i < n; i++) {
+      const f = vr(-0.35, 0.35) * len, side = i & 1 ? 1 : -1, v = vr(4, 7);
+      vsEmit(it.x + sn * f, it.y, it.z + cs * f, cs * side * v, vr(0.5, 2), -sn * side * v, vr(0.12, 0.18), 0.035, 0.3);
+    }
+  }
+  // 千刃归烬：每一道交叉的刀路一道余烬色的细刀痕（不透明，很快收细）
+  function b2AshCut(x, y, z, a, len, i) {
+    if (!PF.vShape || (qualId === 'low' && i % 2)) return;
+    const sn = Math.sin(a), cs = Math.cos(a);
+    vsBrush(VSH.bar, 4, 3, EMBER, 0x6a2a10, 0.2, 0.35, 0.35);
+    vsEmit(x - sn * len * 0.5, y, z - cs * len * 0.5, sn * len, 0, cs * len, 0.22, 0.06);
+  }
+  function b2AshDrop(x0, y0, z0, x1, y1, z1) {
+    if (!PF.vShape) return;
+    vsBrush(VSH.bar, 4, 3, EMBER, 0x6a2a10, 0.2, 0.35, 0.35);
+    vsEmit(x0, y0, z0, x1 - x0, y1 - y0, z1 - z0, 0.2, 0.07);
+  }
+  // 千刃归烬的余波：往外崩的余烬碎块（原来是一团近白火花）+ 暗焦痕（原来是加色擦痕）
+  function b2AshAfter(x, y, z, rr, n) {
+    if (!PF.vShape) return;
+    const lo = qualId === 'low';
+    vsBrush(VSH.chip, 3, 0, 0xff9a4a, 0x4a2014, 0.2, 0.4, 0.4);
+    for (let i = 0, m = (lo ? 3 : 6) + Math.min(3, n >> 1); i < m; i++) {
+      const a = vr(0, TAU), v = vr(2.5, 5.5);
+      vsEmit(x + Math.sin(a) * 0.3, y, z + Math.cos(a) * 0.3, Math.sin(a) * v, vr(1.5, 4), Math.cos(a) * v, vr(0.5, 0.8), vr(0.06, 0.12), undefined, vr(0, TAU), vr(-9, 9), 16);
+    }
+    W.vDecal(VVD.scorch, x, z, rr + 0.9, 1.6, 0x3a1a10);
+  }
+  function b2AshMarks(x, y, z, a0, rr, m) {
+    if (!PF.vShape) return;
+    const lo = qualId === 'low', cs = 1.5 + rr;
+    vsBrush(VSH.crescent, 2, 3, 0xffb060, 0x6a3010, 0.2, 0.45, 0.4);
+    for (let i = 0; i < m; i++) {
+      if (lo && i % 2) continue;
+      const a = a0 + (i / 5) * TAU;
+      vsEmit(x + Math.sin(a) * cs * 0.3, Math.max(0.1, y * (0.3 + 0.05 * i)), z + Math.cos(a) * cs * 0.3, Math.sin(a) * 0.8, 0, Math.cos(a) * 0.8, 0.24, cs * 0.5, cs * 0.5, a, i % 2 ? -4 : 4, 0, 2);
+    }
+  }
+  // 过载：一跳的电弧改成形状批里的折线（链雷 v2 的语言）：k 越大（越往后的段）叠的折线越多、越粗；ret = 折回你身上的那道（细、一根）
+  W.b2Strand = function (p0, p1, hex, k, ret) {
+    if (!PF.vShape) return;
+    const lo = qualId === 'low', h = hexOf(hex), dx = p1.x - p0.x, dz = p1.z - p0.z, d = Math.hypot(dx, dz);
+    if (d < 0.2) return;
+    const nx = -dz / d, nz = dx / d, segN = Math.max(2, Math.min(lo ? 5 : 9, Math.ceil(d / 0.8)));
+    const lanes = ret ? 1 : Math.min(lo ? 2 : 3, 1 + (k >> 1));
+    for (let l = 0; l < lanes; l++) {
+      vsBrush(VSH.bar, 4, 2, l ? mixHex(h, 0x000000, 0.3) : h, mixHex(h, 0x000000, 0.5), l ? 0.1 : 0.3, 0.3, 0.5);
+      const w = (ret ? 0.06 : 0.08 + 0.015 * Math.min(4, k)) * (l ? 0.7 : 1);
+      let px = p0.x, pz = p0.z, py = 1.25;
+      for (let i = 1; i <= segN; i++) {
+        const t = i / segN, o = i === segN ? 0 : vr(-0.35, 0.35) * (l ? 1.3 : 1);
+        const qx = p0.x + dx * t + nx * o, qz = p0.z + dz * t + nz * o, qy = i === segN ? 1.2 : 1.25 + vr(-0.15, 0.15);
+        vsEmit(px, py, pz, qx - px, qy - py, qz - pz, vr(0.16, 0.24), w);
+        px = qx; pz = qz; py = qy;
+      }
+    }
+    if (ret) return;
+    vsBrush(VSH.bar, 4, 2, h, mixHex(h, 0x000000, 0.45), 0.25, 0.3, 0.5);
+    for (let i = 0, m = lo ? 2 : 4; i < m; i++) zig(p1.x, 1.2, p1.z, (i / m) * TAU + vr(-0.4, 0.4), vr(-0.6, 0.1), 2, vr(0.35, 0.55), 0.1);
+  };
+  // 黑洞·双极的索：两条贴地的品红波纹带（沿索宽的两边，波纹顺着索往前走），画进形状批（kvFlush 里调）；原来是一条带近白芯的加色光带
+  const _b2c = new T.Color(), _b2d = new T.Color();
+  function b2Ripple(h) {
+    const lo = qualId === 'low', dx = h.x1 - h.x0, dz = h.z1 - h.z0, len = Math.max(0.2, Math.hypot(dx, dz));
+    const ux = dx / len, uz = dz / len, nx = -uz, nz = ux, t = wtime;
+    const n = Math.max(6, Math.min(14, Math.round(len / 0.6))) >> (lo ? 1 : 0), seg = len / n;
+    const ak = h.a > 0.66 ? 1 : h.a > 0.33 ? 0.7 : 0.45;
+    _b2c.setHex(mixHex(hexOf(h.hex), 0x000000, 0.08)).convertSRGBToLinear().multiplyScalar(ak);
+    _b2d.setHex(mixHex(hexOf(h.hex), 0x14060f, 0.35)).convertSRGBToLinear().multiplyScalar(ak);
+    // 两条立着的波纹带（沿索宽的两边、离地半米上下起伏，波纹顺着索往前走），像形状批的固定线段一样绕线段转向镜头：怪被拽到索上时也看得见
+    for (let b = 0; b < 2; b++) {
+      const side = b ? -1 : 1, c = b ? _b2d : _b2c, ph = b * 1.7;
+      let px = 0, py = 0, pz = 0;
+      for (let i = 0; i <= n; i++) {
+        const s = i * seg, wv = s * 2.4 - t * 7 + ph, off = side * h.w * 0.45 + Math.sin(wv) * h.w * 0.08;
+        const qx = h.x0 + ux * s + nx * off, qz = h.z0 + uz * s + nz * off, qy = 0.5 + Math.sin(wv + 1.3) * 0.18;
+        if (i) {
+          const ex = qx - px, ey = qy - py, ez = qz - pz, dd = ex * camB.x + ey * camB.y + ez * camB.z;
+          mStretch(px, py, pz, ex, ey, ez, 0.07, Math.sqrt(Math.max(1e-6, ex * ex + ey * ey + ez * ez - dd * dd)) * 1.04);
+          vsNow(VSH.bar, c.r, c.g, c.b, b ? 0.1 : 0.25, 0.25, 0);
+        }
+        px = qx; py = qy; pz = qz;
+      }
+    }
+  }
+  // 万魂降临：英灵落下的光柱（压暗的魂火青，外面一道暗余烬色，不透明、很快收细；头上一小段往下冲）+ 落点 ≤ 0.6 米、60 毫秒的小芯
+  const B2_BONE = 0xc4b89c, B2_BONE_D = 0x5a5244, B2_DUST = 0x6a5c4c, B2_DUST_D = 0x3a3028;
+  function b2Pillar(x, z) {
+    if (!PF.vShape) return;
+    vsBrush(VSH.bar, 4, 3, mixHex(EMBER, 0x000000, 0.45), 0x3a1a10, 0, 0.35, 1);
+    vsEmit(x + 0.15, 9, z, -0.15, -9, 0, 0.3, 0.32);
+    vsBrush(VSH.bar, 4, 3, mixHex(ALLY_HEX, 0x000000, 0.3), mixHex(ALLY_HEX, 0x0a1a18, 0.6), 0.1, 0.35, 0.5);
+    vsEmit(x, 10, z, 0, -10, 0, 0.36, 0.16);
+    vsBrush(VSH.bar, 0, 0, ALLY_HEX, mixHex(ALLY_HEX, 0x000000, 0.4), 0.3, 0.3, 0.5);
+    vsEmit(x, 6, z, 0, -40, 0, 0.14, 0.12, 1.1);
+    vsBrush(VSH.bar, 4, 2, mixHex(ALLY_HEX, 0xffffff, 0.5), ALLY_HEX, 0.5, 0.3, 0.5);
+    vsEmit(x - 0.3, 0.6, z, 0.6, 0, 0, 0.06, 0.07);
+    vsEmit(x, 0.3, z, 0, 0.6, 0, 0.06, 0.07);
+  }
+  // 英灵落地：碎骨四溅 + 一道贴地的尘环 + 暗焦痕（原来是粗的饱和薄荷环 + 浅薄荷贴花）
+  function b2BoneLand(x, z, R, big) {
+    if (!PF.vShape) return;
+    const lo = qualId === 'low';
+    b2Ring(x, z, R, B2_DUST, B2_DUST_D, 0.4);
+    vsBrush(VSH.chip, 3, 0, B2_BONE, B2_BONE_D, 0, 0.45, 0.5);
+    for (let i = 0, n = (lo ? 3 : 7) + (big ? 2 : 0); i < n; i++) {
+      const a = vr(0, TAU), v = vr(2, 4.5) * Math.min(1.5, 0.6 + R * 0.25);
+      vsEmit(x + Math.sin(a) * R * 0.3, 0.3, z + Math.cos(a) * R * 0.3, Math.sin(a) * v, vr(2.5, 5), Math.cos(a) * v, vr(0.7, 1.0), vr(0.1, 0.18), undefined, vr(0, TAU), vr(-9, 9), 18);
+    }
+    vsBrush(VSH.bar, 1, 0, B2_BONE, B2_BONE_D, 0, 0.45, 0.5);
+    for (let i = 0, n = lo ? 2 : 4; i < n; i++) {
+      const a = vr(0, TAU), d = R * vr(0.3, 0.8);
+      vsEmit(x + Math.sin(a) * d, 0.2, z + Math.cos(a) * d, Math.sin(a) * 1.5, vr(2, 3.5), Math.cos(a) * 1.5, vr(0.5, 0.7), 0.05, 0.28, vr(-0.6, 0.6), vr(-6, 6), 14);
+    }
+    W.vDecal(VVD.scorch, x, z, R * 0.6, 2.2, B2_DUST_D);
+  }
+  W.b2Info = () => ({ ghostStreaks: streaks.filter((it) => it.on && it.ghost).length, ghostSummons: summons.filter((s2) => s2.on && s2.ghost).length });
   // ===================================================================== skill-b1：大面积亮面改成只画边（技能打磨第 1 批）
   // 共同规则：全部画进形状批 / 地面痕迹（不新增 draw）；大范围只画外沿（细环 + 长在环上的件），中心不放亮面；近白只给 ≤ 1.2 米、≤ 60 毫秒的小芯；
   // 余波比地面暗；低画质件数减半。随机数全是画面随机数（vr），件数多少不动玩法（fx-rng）
@@ -25857,11 +26282,15 @@
     const L = RF.laser, l = Math.hypot(dx, dz) || 1;
     L.ext = wtime + 0.12;
     L.x = x; L.z = z; L.dx = dx / l; L.dz = dz / l; L.len = len || 0;
+    const was = L.charge, last = L.last === undefined ? -9 : L.last;
     L.charge = opt && opt.charge !== undefined ? opt.charge : -1;
+    L.last = wtime;
+    if (L.charge < 0 && (was >= 0 || wtime - last > 0.2)) L.rel = wtime; // skill-b2：放出的那一刻（白芯只亮 60 毫秒）
     const w = opt && opt.w !== undefined ? opt.w : 1;
     if (L.charge < 0 && w > 1.5 && !(L.w > 1.5)) {
       // 放出的那一下：枪口一圈冲击 + 终点炸开
-      W.ring(x, z, 1.6 + w * 0.4, 0xffb36a, 0.25);
+      if (PF.vShape) b2Ring(x, z, 1.6 + w * 0.4, 0xff9a40, 0x5a2410, 0.25); // skill-b2：枪口一圈细环（原来的环件放大到 2.6 米成了一条粗带）
+      else W.ring(x, z, 1.6 + w * 0.4, 0xffb36a, 0.25);
       W.fovKick && W.fovKick(2.5);
     }
     L.w = L.charge >= 0 ? 0 : w;
@@ -25967,7 +26396,7 @@
     if (name.indexOf('fire_') === 0) {
       RF.fireAt = wtime;
       if (ent.gearType === G_BOW) ent.bowAt = ent.bowShots | 0; // 这一张弓还没射出箭（见 bowNock）
-      if (name === 'fire_revolver') ent.revTurn = (ent.revTurn || 0) + 1;
+      if (name === 'fire_revolver' && !(opts && opts.raise)) ent.revTurn = (ent.revTurn || 0) + 1; // 提前抬枪（skill-5a）不算一发，转轮不转
       return;
     }
     if (name.indexOf('r_') !== 0 && name.indexOf('w_') !== 0) return;
@@ -26370,6 +26799,16 @@
       W.entSocket(ent, 'weapon', _rs);
       mBill(_rs.x, _rs.y, _rs.z, 0.34 + 0.06 * Math.sin(wtime * 37));
       pfPut('glow', 1.2, 0.9, 0.55);
+      if (qualId === 'low') {
+        // 低画质：每秒片数减半，游戏镜头里火柱头 1.5 米只剩几根细线，看着和枪口断开（skill-5a）。
+        // 从喷嘴往前补一根实色的橙色火芯 + 一道细的加色火线（还是 flameN / flame 两个零件，不加 draw；不偏白），和火身接上
+        const jx = RF.jet.x, jz = RF.jet.z, fl = 0.9 + 0.1 * Math.sin(wtime * 41), L = 1.6;
+        const ax = _rs.x + jx * L, ay = _rs.y - 0.2, az = _rs.z + jz * L;
+        mStretch(ax, ay, az, jx, -0.125, jz, 0.3 * fl, L * 1.05);
+        pfPut('flameN', 1.0, 0.46, 0.09);
+        mStretch(ax, ay + 0.02, az, jx, -0.125, jz, 0.17 * fl, L);
+        pfPut('flame', 0.95, 0.5, 0.12);
+      }
       jetLicks(P.x, P.z, RF.jet.x, RF.jet.z, flameRange(), qualId === 'low');
     }
     // --- 焚天炎爆：出手帧放火浪（game.js 调过 W.fireNova 就不重复） ---
@@ -26547,25 +26986,30 @@
       const k = L.charge, fl = k >= 1 ? 1 : 0.6 + 0.4 * Math.abs(Math.sin(wtime * (20 + k * 30)));
       mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.045 + 0.05 * k, len);
       pfPut('beam', (0.9 + k) * fl, (0.3 + 0.5 * k) * fl, 0.08 * fl);
-      mBill(x0, y0, z0, 0.3 + 0.8 * k);
-      pfPut('glow', 0.6 + 0.6 * k, 0.25 + 0.35 * k, 0.05 + 0.1 * k);
-      mBill(x0, y0, z0, 0.1 + 0.25 * k);
-      pfPut('core', 1 + 0.6 * k, 0.8 + 0.5 * k, 0.4 + 0.4 * k);
+      // skill-b2：枪口的光团收小、改成琥珀色（原来蓄满时是 1.1 米的光晕裹一颗近白的芯）
+      mBill(x0, y0, z0, 0.25 + 0.45 * k);
+      pfPut('glow', 0.5 + 0.4 * k, 0.17 + 0.2 * k, 0.03 + 0.05 * k);
+      mBill(x0, y0, z0, 0.08 + 0.12 * k);
+      pfPut('core', 0.9 + 0.3 * k, 0.42 + 0.25 * k, 0.08 + 0.1 * k);
       if (dt > 0 && vrnd() < dt * (10 + 30 * k)) {
         const a = rand(0, TAU), d = rand(0.8, 1.6);
         spawnP(x0 + Math.sin(a) * d, y0 + rand(-0.4, 0.6), z0 + Math.cos(a) * d, -Math.sin(a) * d * 3, rand(-0.5, 0.5), -Math.cos(a) * d * 3, 0.3, rand(0.06, 0.1), 1, 0.7 + 0.3 * vrnd(), 0.3, 0, 1);
       }
-      if (k >= 1) { mPose(x1, 0.07, z1, _qFlat, 0.8, 0.8, 1); pfPut('glow', 0.9, 0.3, 0.05); }
+      if (k >= 1) { mPose(x1, 0.07, z1, _qFlat, 0.6, 0.6, 1); pfPut('glow', 0.7, 0.22, 0.04); }
       return;
     }
     const pulse = (1 + 0.12 * Math.sin(wtime * 47) + 0.06 * Math.sin(wtime * 83)) * (L.ext >= wtime && L.w > 0 ? L.w : 1);
     // 外焰（火）→ 内焰 → 白热的芯
     mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.75 * pulse, len);
-    pfPut('beam', 0.95, 0.26, 0.05);
+    pfPut('beam', 0.75, 0.2, 0.04); // skill-b2：外焰压一点（原来 0.95 / 0.26 / 0.05）
     mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.34 * pulse, len);
-    pfPut('beam', 1.4, 0.75, 0.22);
-    mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.12, len);
-    pfPut('beam', 2.2, 2.0, 1.6);
+    pfPut('beam', 0.6, 0.24, 0.05); // skill-b2：内焰压两档（原来 1.4 / 0.75 / 0.22，叠在外焰上整条成了近白）
+    // skill-b2：白热的芯只留枪口那一段（≤ 1.2 米）、只在放出后的 60 毫秒里（原来是整条 12 米、0.4 秒的近白粗芯）
+    if (wtime - (L.rel || -9) < 0.06) {
+      const cl = Math.min(1.2, len), cf = cl / len;
+      mStretch(x0 + (x1 - x0) * cf * 0.5, y0 + (y1 - y0) * cf * 0.5, z0 + (z1 - z0) * cf * 0.5, dx, (y1 - y0) / len, dz, 0.12, cl);
+      pfPut('beam', 2.2, 2.0, 1.6);
+    }
     // 缠在光束上的电弧（雷）
     const nArc = Math.max(3, Math.round(len / 1.6));
     for (let i = 0; i < nArc; i++) {
@@ -26573,14 +27017,15 @@
       const f = (i + hash2(Math.floor(wtime * 20), i + 9)) / nArc;
       _pq.copy(camQ).multiply(_pq2.setFromAxisAngle(Z_AXIS, Math.atan2(dz, dx) + rand(-0.5, 0.5)));
       mPose(x0 + dx * len * f, y0 + (y1 - y0) * f, z0 + dz * len * f, _pq, rand(0.9, 1.5), rand(0.3, 0.45), 1);
-      pfPut('arc', 1.1, 1.0, 0.45);
+      pfPut('arc', 0.7, 0.42, 0.12);
     }
-    mBill(x0, y0, z0, 1.4 * pulse);
-    pfPut('glow', 1.3, 0.6, 0.15);
-    mBill(x1, y1, z1, 2.2 * pulse);
-    pfPut('glow', 1.4, 0.55, 0.12);
-    mPose(x1, 0.07, z1, _qFlat, 2.4, 2.4, 1);
-    pfPut('glow', 0.9, 0.3, 0.05);
+    // skill-b2：两头的光晕收小、压暗（原来枪口 1.4 米、终点 2.2 米、地上 2.4 米的亮团）
+    mBill(x0, y0, z0, 0.9 * pulse);
+    pfPut('glow', 1.0, 0.42, 0.08);
+    mBill(x1, y1, z1, 1.2 * pulse);
+    pfPut('glow', 1.0, 0.38, 0.07);
+    mPose(x1, 0.07, z1, _qFlat, 1.4, 1.4, 1);
+    pfPut('glow', 0.7, 0.22, 0.04);
     if (dt > 0) {
       for (let i = 0; i < 3; i++) {
         const a = rand(0, TAU), v = rand(2, 6), el = vrnd() < 0.4;
@@ -26917,7 +27362,9 @@
   }
 
   // 召唤时的法阵：x, z 落点；big = 石誓守像（更大、更亮、光柱更高）
-  W.summonFx = function (x, z, big) {
+  // ghost（skill-b2，万魂降临用）：法阵照旧占池子、照旧每帧放余烬，但法阵 / 光柱网格不画（visible = false）；
+  // 外环换成贴地的尘环，火星 / 余烬是骨尘色，不往白里混
+  W.summonFx = function (x, z, big, ghost) {
     let s = null;
     for (let i = 0; i < summons.length; i++) if (!summons[i].on) { s = summons[i]; break; }
     if (!s) {
@@ -26938,12 +27385,15 @@
     s.u.uA.value = 0;
     s.bm.opacity = 0;
     s.grp.position.set(x, 0, z);
-    s.grp.visible = true;
-    W.ring(x, z, s.r * 1.25, ALLY_HEX, 0.5);
+    s.ghost = !!(ghost && PF.vShape);
+    s.grp.visible = !s.ghost;
+    if (s.ghost) b2Ring(x, z, s.r * 1.25, B2_DUST, B2_DUST_D, 0.5);
+    else W.ring(x, z, s.r * 1.25, ALLY_HEX, 0.5);
     flashLight(x, 1.6, z, ALLY_HEX, big ? 2.2 : 1.2);
+    const sr = s.ghost ? 0.55 : 0.85, sg = s.ghost ? 0.5 : 1, sb = s.ghost ? 0.42 : 0.95;
     for (let i = 0; i < (big ? 22 : 12); i++) {
       const a = rand(0, TAU), sp = rand(2, 5);
-      spawnP(x + Math.sin(a) * 0.2, 0.15, z + Math.cos(a) * 0.2, Math.sin(a) * sp, rand(1, 3), Math.cos(a) * sp, rand(0.3, 0.55), rand(0.12, 0.22), 0.85, 1, 0.95, 6, 2.5);
+      spawnP(x + Math.sin(a) * 0.2, 0.15, z + Math.cos(a) * 0.2, Math.sin(a) * sp, rand(1, 3), Math.cos(a) * sp, rand(0.3, 0.55), rand(0.12, 0.22), sr, sg, sb, 6, 2.5);
     }
   };
   function updateSummons(dt) {
@@ -26954,6 +27404,7 @@
       const k = s.t / s.dur;
       if (k >= 1) {
         s.on = false;
+        s.ghost = false;
         s.grp.visible = false;
         continue;
       }
@@ -26969,13 +27420,14 @@
       s.acc += dt * (s.big ? 110 : 60) * (1 - k);
       while (s.acc > 1) {
         s.acc -= 1;
-        const an = vrnd() * TAU, d = Math.sqrt(vrnd()) * s.r * 0.85, w = vrnd() < 0.3 ? 0.6 : 0;
+        const an = vrnd() * TAU, d = Math.sqrt(vrnd()) * s.r * 0.85, w = vrnd() < 0.3 ? (s.ghost ? 0.15 : 0.6) : 0;
         spawnP(s.x + Math.sin(an) * d, 0.1, s.z + Math.cos(an) * d, rand(-0.3, 0.3), rand(1.4, 3.6) * (s.big ? 1.25 : 1), rand(-0.3, 0.3), rand(0.5, 1.0), rand(0.09, 0.2),
           ALLY_RGB.r + (1 - ALLY_RGB.r) * w, ALLY_RGB.g + (1 - ALLY_RGB.g) * w, ALLY_RGB.b + (1 - ALLY_RGB.b) * w, -1.2, 0.9);
       }
       if (!s.rung && k > 0.42) {
         s.rung = true;
-        W.ring(s.x, s.z, s.r * 0.85, ALLY_HI, 0.35);
+        if (s.ghost) b2Ring(s.x, s.z, s.r * 0.85, mixHex(ALLY_HEX, 0x000000, 0.35), 0x14302a, 0.35);
+        else W.ring(s.x, s.z, s.r * 0.85, ALLY_HI, 0.35);
       }
     }
   }
@@ -27363,6 +27815,7 @@
   // foe（vf-vfx3）：敌方的，只有往下冲的头上一小段是亮芯（见 STREAK_FRAG 的 uFoe）
   function vstreak(x0, y0, z0, x1, y1, z1, hw, hex, dur, foe) {
     const it = streakGet();
+    it.ghost = null;
     it.u.uFoe.value = foe ? 1 : 0;
     const dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy) || 0.01;
     it.on = true;
@@ -27426,7 +27879,7 @@
   function ashGet() {
     for (let i = 0; i < ashMarks.length; i++) if (!ashMarks[i].on) return ashMarks[i];
     if (ashMarks.length >= ASH_N) return null;
-    const mat = new T.SpriteMaterial({ map: ashMarkTex(), color: lin(0xffc890), transparent: true, blending: T.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false });
+    const mat = new T.SpriteMaterial({ map: ashMarkTex(), color: lin(0xe07a30), transparent: true, blending: T.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, fog: false }); // skill-b2：余烬橙（原来 0xffc890 加色叠出来是近白长条）
     const sp = new T.Sprite(mat);
     sp.renderOrder = 7;
     sp.visible = false;
@@ -27460,7 +27913,7 @@
       m.t += dt;
       const e = m.ent;
       if (m.pop > 0) m.pop += dt;
-      if (!e || e.removed || m.t > 4 || m.pop > 0.16) {
+      if (!e || e.removed || m.t > 4 || m.pop > B2_POP) {
         m.on = false;
         m.ent = null;
         m.sp.visible = false;
@@ -27471,9 +27924,10 @@
       // 出现时从一点拉开，挂着的时候微微呼吸；收刀时骤亮变粗
       const open = Math.min(1, m.t / 0.07);
       const breathe = 0.85 + 0.15 * Math.sin(m.t * 18);
-      const pk = m.pop > 0 ? 1 + m.pop * 9 : 1;
-      m.sp.scale.set(m.len * open * (m.pop > 0 ? 1.25 : 1), 0.42 * breathe * pk, 1);
-      m.mat.opacity = m.pop > 0 ? 1 - m.pop / 0.16 : 0.75 + 0.25 * breathe;
+      // skill-b2：收刀时不再骤亮变粗（原来 0.16 秒里粗到 2.4 倍的近白条），只亮 60 毫秒就收
+      const pk = m.pop > 0 ? 1 - m.pop / B2_POP * 0.5 : 1;
+      m.sp.scale.set(m.len * open, 0.3 * breathe * pk, 1); // skill-b2：细一些（0.42 → 0.3）、暗一些
+      m.mat.opacity = m.pop > 0 ? 1 - m.pop / B2_POP : 0.55 + 0.2 * breathe;
     }
   }
   // 一闪的路径：两道余烬色的残影、一条贴地的光带、一路火星
@@ -27503,24 +27957,40 @@
   };
   // 斩痕齐爆：n 道刀光交叉斩过（越多越密），白热的一团火花，地上一道冲击环；吃掉残刃（mk）时再多一圈金色的刃光
   W.ashBurst = function (x, z, h, r, n, mk) {
-    const y = Math.min(2.4, (h || 2) * 0.55), rr = r || 0.6;
+    const y = Math.min(2.4, (h || 2) * 0.55), rr = r || 0.6, b2 = !!PF.vShape;
     flashLight(x, y + 1.2, z, EMBER, 2.2);
-    flare(x, y, z, EMBER, 2.2 + rr + Math.min(6, n) * 0.2, 0.16);
+    if (!b2) flare(x, y, z, EMBER, 2.2 + rr + Math.min(6, n) * 0.2, 0.16);
     const cnt = Math.min(8, 2 + n);
     const a0 = rand(0, TAU);
     for (let i = 0; i < cnt; i++) {
       const a = a0 + (i / cnt) * Math.PI + rand(-0.15, 0.15), len = 2.2 + rr * 2.2;
-      streak(x - Math.sin(a) * len * 0.5, z - Math.cos(a) * len * 0.5, y * (0.6 + 0.5 * (i / cnt)), a, len, 0.42, i % 2 ? EMBER_HI : EMBER, 0.3, 0, 0);
+      // skill-b2：加色的亮光带只留一半（隔一道）、细一半、余烬色、60 毫秒；每一道刀路都由形状批里不透明的余烬色细刀痕撑着（不往白里混）
+      if (!b2) streak(x - Math.sin(a) * len * 0.5, z - Math.cos(a) * len * 0.5, y * (0.6 + 0.5 * (i / cnt)), a, len, 0.42, i % 2 ? EMBER_HI : EMBER, 0.3, 0, 0);
+      else {
+        if (i % 2 === 0) streak(x - Math.sin(a) * len * 0.5, z - Math.cos(a) * len * 0.5, y * (0.6 + 0.5 * (i / cnt)), a, len, 0.2, EMBER, 0.06, 0, 0);
+        b2AshCut(x, y * (0.6 + 0.5 * (i / cnt)), z, a, len, i);
+      }
     }
     // 竖着劈下的两道
-    vstreak(x - 0.9, y + 1.6, z, x + 0.9, 0.2, z, 0.35, EMBER_HI, 0.24);
-    vstreak(x + 0.8, y + 1.5, z, x - 0.7, 0.2, z, 0.3, EMBER, 0.24);
-    W.ring(x, z, rr + 2.2, EMBER, 0.36);
-    W.ring(x, z, rr + 1.2, EMBER_HI, 0.22);
-    W.decal(0, x, z, rr + 1.4, a0, EMBER, 1.6, 0.35);
-    W.burst(x, y, z, 0xfff0d0, 12 + Math.min(6, n) * 2, 9, 0.4);
+    if (b2) {
+      vstreak(x - 0.9, y + 1.6, z, x + 0.9, 0.2, z, 0.18, EMBER, 0.06);
+      b2AshDrop(x + 0.8, y + 1.5, z, x - 0.7, 0.2, z);
+      b2Ring(x, z, rr + 2.2, EMBER, 0x5a2410, 0.36);
+      b2AshAfter(x, y, z, rr, n);
+    } else {
+      vstreak(x - 0.9, y + 1.6, z, x + 0.9, 0.2, z, 0.35, EMBER_HI, 0.24);
+      vstreak(x + 0.8, y + 1.5, z, x - 0.7, 0.2, z, 0.3, EMBER, 0.24);
+      W.ring(x, z, rr + 2.2, EMBER, 0.36);
+      W.ring(x, z, rr + 1.2, EMBER_HI, 0.22);
+      W.decal(0, x, z, rr + 1.4, a0, EMBER, 1.6, 0.35);
+      W.burst(x, y, z, 0xfff0d0, 12 + Math.min(6, n) * 2, 9, 0.4);
+    }
     W.burst(x, y, z, EMBER, 22 + Math.min(6, n) * 3, 7, 0.6);
-    if (mk > 0) {
+    if (mk > 0 && b2) {
+      // skill-b2：吃掉残刃的那圈金色刃光（W.slash 近白的金色月牙 + 粗环）→ 形状批里琥珀色的细弯月 + 细环
+      b2AshMarks(x, y, z, a0, rr, Math.min(5, mk));
+      b2Ring(x, z, rr + 3, 0xffb060, 0x6a3010, 0.42);
+    } else if (mk > 0) {
       for (let i = 0; i < Math.min(5, mk); i++) W.slash(x, z, a0 + (i / 5) * TAU, 1.5 + rr, 80, i % 2 ? 0xffe2b8 : 0xffc27a, { y: y * (0.8 + 0.1 * i), dur: 0.24, inner: 0.5, dir: i % 2 ? -1 : 1 });
       W.ring(x, z, rr + 3, 0xffc27a, 0.42);
     }
@@ -27656,7 +28126,7 @@
   // 风暴的一击开始落下：t = 'fire' 陨火 / 'cold' 冰棱 / 'light' 云里先蓄一下光（落雷是瞬间的，在落地那一刻劈下）
   W.triStrike = function (x, z, t, r, fall) {
     if (t === 'fire') {
-      // skill-b1：落地走陨火的新画法（meteorLand2），空取补上旧画法（meteorLand）多取的那些次
+      // skill-b1：落地走陨火的新画法（meteorLand2），碎岩照旧画法压暗（oldRng）
       const tok = W.meteorFall(x, z, fall, STORM_HEX[0]);
       W.meteorMark(tok, r);
       if (tok) tok.m.oldRng = 1;
@@ -27682,12 +28152,21 @@
 
   // ----- 万魂降临 -----
   // 插旗：准星处一个大的魂火法阵（借召唤的法阵），一圈魂火青 + 余烬橙的冲击环，一道从你的幡头连到法阵的魂流
+  // skill-b2：法阵走鬼影（不画大法阵 / 光柱网格），三道粗环换成贴地的细环（魂火青压暗、暗余烬、尘），浅薄荷贴花换成暗焦痕（随机数照取）
   W.soulHost = function (x, z, R, fx, fz) {
-    W.summonFx(x, z, true);
-    W.ring(x, z, R, ALLY_HEX, 0.7);
-    W.ring(x, z, R * 0.7, EMBER, 0.55);
-    W.ring(fx, fz, 2.6, ALLY_HI, 0.45);
-    W.decal(5, fx, fz, 1.6, rand(0, TAU), 0x9fe8da, 2.5);
+    const b2 = !!PF.vShape;
+    W.summonFx(x, z, true, b2);
+    if (b2) {
+      b2Ring(x, z, R, mixHex(ALLY_HEX, 0x000000, 0.3), mixHex(ALLY_HEX, 0x0a1a18, 0.65), 0.7);
+      b2Ring(x, z, R * 0.7, mixHex(EMBER, 0x000000, 0.35), 0x3a1a10, 0.55);
+      b2Ring(fx, fz, 2.6, B2_DUST, B2_DUST_D, 0.45);
+      W.vDecal(VVD.scorch, fx, fz, 1.2, 2.5, B2_DUST_D);
+    } else {
+      W.ring(x, z, R, ALLY_HEX, 0.7);
+      W.ring(x, z, R * 0.7, EMBER, 0.55);
+      W.ring(fx, fz, 2.6, ALLY_HI, 0.45);
+      W.decal(5, fx, fz, 1.6, rand(0, TAU), 0x9fe8da, 2.5);
+    }
     flashLight(x, 3, z, ALLY_HEX, 2.6);
     const dx = x - fx, dz = z - fz, d = Math.hypot(dx, dz) || 1;
     for (let i = 0; i < 30; i++) {
@@ -27700,7 +28179,13 @@
     }
   };
   // 一位英灵从天而降：一道魂火青的天光柱直劈到落点，外面裹一层余烬橙，落点亮起召唤法阵
+  // skill-b2：三道加色光带（近白芯、每道一次 draw）换成形状批里压暗的光柱（b2Pillar），法阵走鬼影（不画大法阵 / 光柱网格）
   W.champFx = function (x, z) {
+    if (PF.vShape) {
+      b2Pillar(x, z);
+      W.summonFx(x, z, false, true);
+      return;
+    }
     vstreak(x, 15, z, x, 0, z, 0.9, ALLY_HEX, 0.5);
     vstreak(x, 15, z, x, 0, z, 0.3, ALLY_HI, 0.4);
     vstreak(x + 0.25, 13, z, x, 0, z, 1.4, EMBER, 0.35);
@@ -27708,7 +28193,14 @@
     flare(x, 0.6, z, ALLY_HI, 2.6, 0.16);
   };
   // 英灵落地一砸：冲击环、地裂、扬尘
+  // skill-b2：粗薄荷环 → 碎骨 + 尘环 + 暗焦痕；薄荷色的火花团不画，尘照旧
   W.champLand = function (x, z, R) {
+    if (PF.vShape) {
+      b2BoneLand(x, z, R, false);
+      W.burst(x, 0.3, z, 0xcbbba6, 12, 5, 0.45);
+      W.shake(0.12);
+      return;
+    }
     W.ring(x, z, R, ALLY_HEX, 0.38);
     W.ring(x, z, R * 0.6, EMBER, 0.3);
     W.decal(5, x, z, R * 0.75, rand(0, TAU), 0x9fe8da, 2.2);
@@ -28804,6 +29296,10 @@
           edgeShape(h); // skill-b1：只画边的符环（细环 / 虚线 / 外沿的小石碑），画进形状批
           continue;
         }
+        if (h.ripple && PF.vShape) {
+          b2Ripple(h); // skill-b2：双极的索 → 两条品红波纹带（形状批）
+          continue;
+        }
         if (kind === 'band') {
           const dx = h.x1 - h.x0, dz = h.z1 - h.z0, len = Math.max(0.2, Math.hypot(dx, dz));
           _kvp.set((h.x0 + h.x1) / 2, h.y || 1.0, (h.z0 + h.z1) / 2);
@@ -29722,7 +30218,7 @@
 
   // 主线指路（quest D2）：小地图上的金色记号。只在 2D 叠加层上画（WebGL draw 0 增加），不分配、不取随机数。
   // 目标在框里（离框边至少 11 px，整圈画得下）：套一圈半径 9 px 的金色细圈（在传送门紫圈外面，首领本身的红菱形不重复画）；
-  // 出框或贴着框边：从玩家的点朝目标打一条线，在离框边 7 px 处画一个尖朝外的金色小三角。qMark 记下这一帧画在哪（测试取像素用）
+  // 出框或贴着框边：从玩家的点朝目标打一条线，在离框边 10 px 处画一个尖朝外的金色三角（叠在首领 / 传送门标记上时沿边挪开）。qMark 记下这一帧画在哪（测试取像素用）
   const Q_GOLD = '#ffcc4d';
   const qMark = { on: false, edge: false, x: 0, y: 0 };
   W.questMark = () => ({ on: qMark.on, edge: qMark.edge, x: qMark.x, y: qMark.y });
@@ -29746,29 +30242,39 @@
     const L = Math.hypot(dx, dz) || 1;
     dx /= L;
     dz /= L;
-    const x0 = mx + 7, x1 = mx + S - 7, y0 = my + 7, y1 = my + S - 7;
-    let t = 1e9;
-    if (dx > 1e-6) t = Math.min(t, (x1 - px) / dx);
-    else if (dx < -1e-6) t = Math.min(t, (x0 - px) / dx);
-    if (dz > 1e-6) t = Math.min(t, (y1 - pz) / dz);
-    else if (dz < -1e-6) t = Math.min(t, (y0 - pz) / dz);
+    const x0 = mx + 10, x1 = mx + S - 10, y0 = my + 10, y1 = my + S - 10;
+    let t = 1e9, side = 0; // side：落在哪条边上 1 左右边 / 2 上下边
+    if (dx > 1e-6) (t = (x1 - px) / dx), (side = 1);
+    else if (dx < -1e-6) (t = (x0 - px) / dx), (side = 1);
+    if (dz > 1e-6 && (y1 - pz) / dz < t) (t = (y1 - pz) / dz), (side = 2);
+    else if (dz < -1e-6 && (y0 - pz) / dz < t) (t = (y0 - pz) / dz), (side = 2);
     if (!(t > 0) || t >= 1e9) t = 0;
-    const cx = Math.max(x0, Math.min(x1, px + dx * t)), cy = Math.max(y0, Math.min(y1, pz + dz * t));
-    // 尖在外（离框边 1 px），长 10 px、底边宽 11 px（比宝箱的金色小方块大一圈，形状也分得开）；重心在 c − d 处
+    let cx = Math.max(x0, Math.min(x1, px + dx * t)), cy = Math.max(y0, Math.min(y1, pz + dz * t));
+    // 和首领红菱形 / 传送门紫圈叠在一起（常见在框角）：沿着这条边往远离那个标记的方向挪 6 px，三角照旧画在最上面
+    for (let k = 0; k < 2; k++) {
+      const o = k === 0 ? qAvoid.boss : qAvoid.portal;
+      if (!o.on || Math.abs(o.x - cx) > 13 || Math.abs(o.y - cy) > 13 || (k === 1 && Math.abs(o.x - tx) < 1 && Math.abs(o.y - tz) < 1)) continue; // 传送门本身就是目标时不躲
+      if (side === 2) cx = Math.max(x0, Math.min(x1, cx + (o.x > cx || (o.x === cx && cx > mx + S / 2) ? -6 : 6)));
+      else cy = Math.max(y0, Math.min(y1, cy + (o.y > cy || (o.y === cy && cy > my + S / 2) ? -6 : 6)));
+    }
+    // 尖在外（离框边 1 px），长 15.75 px、底边宽 16.5 px（D2 的 1.5 倍），描 1 px 的暗边；重心在 c − 1.5d 处
     qMark.edge = true;
-    qMark.x = cx - dx;
-    qMark.y = cy - dz;
+    qMark.x = cx - dx * 1.5;
+    qMark.y = cy - dz * 1.5;
     g.beginPath();
-    g.moveTo(cx + dx * 6, cy + dz * 6);
-    g.lineTo(cx - dx * 4.5 - dz * 5.5, cy - dz * 4.5 + dx * 5.5);
-    g.lineTo(cx - dx * 4.5 + dz * 5.5, cy - dz * 4.5 - dx * 5.5);
+    g.moveTo(cx + dx * 9, cy + dz * 9);
+    g.lineTo(cx - dx * 6.75 - dz * 8.25, cy - dz * 6.75 + dx * 8.25);
+    g.lineTo(cx - dx * 6.75 + dz * 8.25, cy - dz * 6.75 - dx * 8.25);
     g.closePath();
     g.fillStyle = Q_GOLD;
-    g.strokeStyle = 'rgba(0,0,0,0.85)';
-    g.lineWidth = 1.5;
+    g.strokeStyle = 'rgba(0,0,0,0.9)';
+    g.lineWidth = 2; // 先描后填：露在外面的正好 1 px
+    g.lineJoin = 'round';
     g.stroke();
     g.fill();
   }
+  // 这一帧小地图上首领红菱形、传送门紫圈画在哪（框边三角躲开它们用；每帧重写，不分配）
+  const qAvoid = { boss: { on: false, x: 0, y: 0 }, portal: { on: false, x: 0, y: 0 } };
 
   function drawOverlay() {
     const g = octx, st = G.state, P = G.player;
@@ -30028,7 +30534,14 @@
 
     // --- 小地图 ---
     if (MM.cv) {
-      const S = MM.size, mx = vw - S - 14, my = 14;
+      // 触屏 HUD（js/touch.js）：W.mmTouch = { x, y, k } 把小地图缩到 k 倍、摆在 (x, y)，下面照旧按 172 的框画。桌面永远是 null，走原来的坐标
+      const mt = W.mmTouch;
+      const S = MM.size, mx = mt ? 0 : vw - S - 14, my = mt ? 0 : 14;
+      if (mt) {
+        g.save();
+        g.translate(mt.x, mt.y);
+        g.scale(mt.k, mt.k);
+      }
       if (MM.win) {
         // 截取模式：以玩家为中心截一块底图。截取框动了才把那一块拷进一张固定 172 × 172 的画布（MM.view），
         // 每帧照旧整张 drawImage（和不截取时一样便宜）；标记出了框就不画，不用 clip（2D 画布的 clip / 带源矩形的 drawImage
@@ -30081,9 +30594,13 @@
         }
       }
       const zn = W.zone;
+      qAvoid.boss.on = qAvoid.portal.on = false;
       if (st.boss && !st.boss.dead && inMM(X(st.boss.x), Z(st.boss.z))) {
         // 首领：脉动的红色菱形
         const bx = X(st.boss.x), bz = Z(st.boss.z), r = 5 + Math.sin(wtime * 4) * 0.8;
+        qAvoid.boss.on = true;
+        qAvoid.boss.x = bx;
+        qAvoid.boss.y = bz;
         g.fillStyle = '#ff4a3a';
         g.strokeStyle = 'rgba(0,0,0,0.9)';
         g.lineWidth = 1.5;
@@ -30098,6 +30615,9 @@
       }
       if (st.portal && inMM(X(st.portal.x), Z(st.portal.z))) {
         const px = X(st.portal.x), pz = Z(st.portal.z);
+        qAvoid.portal.on = true;
+        qAvoid.portal.x = px;
+        qAvoid.portal.y = pz;
         g.strokeStyle = '#b9a4ff';
         g.lineWidth = 2;
         g.beginPath();
@@ -30132,6 +30652,7 @@
       g.arc(X(P.x), Z(P.z), 3.2, 0, TAU);
       g.stroke();
       g.fill();
+      if (mt) g.restore();
     }
   }
 
@@ -30531,7 +31052,7 @@
   // 这些入口每调一次，画面随机数（rand / vrnd / vr / textRand）从（名字, 模拟第几步, 这一步里这个名字的第几次）起一路新的（data.js 的 G.fxFn），
   // 返回后接着走调用处那一路。同一个特效在 高 / 低、特效多的时候少的时候看起来一样，也不牵动玩法的随机序列。
   // 每帧的更新（updateFires、spawnAmbient、余辉闪烁……）不在这里：它们取这一步自己的一路
-  const FX_SEEDED = 'arrowRain ashBurst ashDash ashMark ashSheathe bindFx bleedDrip blinkBand blinkLand bolt breakFx burst cancelMeteor cbBurst cbPop champFade champLand chaosTick chill coreBlast dashCut dashFx decal die dischargeFx elemBurst emberGround emberSpark encProp fireNova flameCone flameHit focusZap foeHit frostLineSeg frostSparkle fxFlip gaugeFull iceRain iceRainFollow icicleLand icicleSlam impact lanceTip lootPick makeHole makeLoot makeProjectile makeVortex makeWisp markBurstFx markJumpFx meteorFall moltenSplash netWedge projImpact pyreBlast pyreCharge pyreMeteorLand relicBridgeOn relicStomp relicTideBurst removeHole rendWave riftBeam riftStrike riftWell rimeFan ring rvTideBurst seekerFx shadowStep shockwave slash smashFx smoke soulFireFx soulHeal soulHost soulTide spark spinBlades spinPulse summonFx sweepFx text thrustFx triFx triStrike updateVortex vDecal voidFx vortexBounce vSpikeRing vSuck wedgeStick wedgeZap wispBurst'.split(' ');
+  const FX_SEEDED = 'arrowRain b2Strand ashBurst ashDash ashMark ashSheathe bindFx bleedDrip blinkBand blinkLand bolt breakFx burst cancelMeteor cbBurst cbPop champFade champLand chaosTick chill coreBlast dashCut dashFx decal die dischargeFx elemBurst emberGround emberSpark encProp fireNova flameCone flameHit focusZap foeHit frostLineSeg frostSparkle fxFlip gaugeFull iceRain iceRainFollow icicleLand icicleSlam impact lanceTip lootPick makeHole makeLoot makeProjectile makeVortex makeWisp markBurstFx markJumpFx meteorFall moltenSplash netWedge projImpact pyreBlast pyreCharge pyreMeteorLand relicBridgeOn relicStomp relicTideBurst removeHole rendWave riftBeam riftStrike riftWell rimeFan ring rvTideBurst seekerFx shadowStep shockwave slash smashFx smoke soulFireFx soulHeal soulHost soulTide spark spinBlades spinPulse summonFx sweepFx text thrustFx triFx triStrike updateVortex vDecal voidFx vortexBounce vSpikeRing vSuck wedgeStick wedgeZap wispBurst'.split(' ');
   for (const k of FX_SEEDED) if (typeof W[k] === 'function') W[k] = G.fxFn(k, W[k]);
   W.fxSeeded = () => FX_SEEDED.filter((k) => typeof W[k] === 'function' && W[k].length >= 0); // 测试用
 })();
