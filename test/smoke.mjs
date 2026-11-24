@@ -3,11 +3,12 @@
 // 分两份（见 test/README.md）：main() 是 test:func（不看墙钟，可以和别的 Chrome 一起跑），timedMain() 是 test:timed（要独占机器）。
 // node test/smoke.mjs = 两份都跑（先 func 后 timed）；--func / --timed 只跑一份。
 import { launch as launchFull, GAME_URL } from './harness.mjs';
-import { cornerScenes, cornerHud } from './corner-mask.mjs';
+import { cornerScenes, cornerHud, cornerCheck } from './corner-mask.mjs';
 import { execSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 import { checkArt } from '../tools/check-art.mjs';
 import { checkThree } from '../tools/check-three.mjs';
+import { uiLayoutCheck, uiBlankPoint, UI_SIZES, DESK_STYLE_SPEC, DESK_STYLE_MAIN, uiStyleRead } from './ui-layout.mjs';
 
 const SAVE_KEY = 'cinder-abyss-save-v1';
 let G_CUR_N = 8, G_UQ_COLOR = '#ff9b3d', G_SOUL_INH = 1.5, G_SOUL_K = 0.2;
@@ -552,7 +553,27 @@ async function dragTo(from, to, mid, land) {
   }
 }
 
+// 这件物品的卡片没开着才去点（再点一次同一件会收起卡片，UI-R B1）
+async function ensureCard(sel) {
+  const open = await ev((sel) => { const n = document.querySelector(sel); return !!n && !!document.querySelector('#panel .sheet .detail-card[data-item="' + (n.dataset.item || n.dataset.uid) + '"]'); }, sel);
+  if (!open) await clickCard(sel);
+}
+// 打开背包页的「筛选」菜单（含魔法 / 含稀有 / 整理 / 图鉴都在里面，UI-R B1）；已经开着就不动
+async function openFilter() {
+  if (!(await ev(() => !!document.querySelector('#panel .ui-pop.pop-filter')))) await page.click('[data-act="filter"]');
+  await until(() => !!document.querySelector('#panel .ui-pop.pop-filter'), null, 10000);
+}
+// 单击背包里的物品，等物品卡打开（UI-R B1：桌面单击要等双击窗口过了才开卡，见 docs/ui.md）
+async function clickCard(sel) {
+  const uid = await ev((sel) => { const n = document.querySelector(sel); return n ? n.dataset.item || n.dataset.uid : null; }, sel);
+  await page.click(sel);
+  // 等的是「这一件」的卡片（另一件的卡片开着时，它在双击窗口里还留着）
+  await until((u) => !!document.querySelector('#panel .sheet .detail-card[data-item="' + u + '"]'), uid, 10000);
+}
+
 async function closePanel() {
+  // UI-R B1：物品卡 / 小菜单开着时，第一下 Esc 只收起它（最多两下），再按一下关面板
+  for (let i = 0; i < 2 && (await ev(() => !!document.querySelector('#panel .sheet, #panel .ui-pop'))); i++) await page.keyboard.press('Escape');
   if (await ev(() => G.ui.isOpen())) await page.keyboard.press('Escape');
   assert(!(await ev(() => G.ui.isOpen())), 'Esc 没有关掉面板');
 }
@@ -6828,7 +6849,7 @@ async function main() {
     });
     await page.keyboard.press('KeyI');
     const cell = (uid) => '.cell[data-item="' + uid + '"]';
-    await page.click(cell(ids.a));
+    await clickCard(cell(ids.a));
     assert(await ev(() => !!document.querySelector('.detail-card .icard') && !!document.querySelector('[data-act="equip"]')), '选中后没有出现详情');
     await page.click('[data-act="equip"]');
     let r = await ev((ids) => ({
@@ -6855,7 +6876,7 @@ async function main() {
     r = await ev((ids) => ({ eq: G.save.equip.helm, back: G.save.bag.some((it) => it.uid === ids.b), armour: G.player.armour }), ids);
     assert(!r.eq && r.back && r.armour === ids.armour, '卸下失败：' + JSON.stringify(r));
 
-    await page.click(cell(ids.c));
+    await clickCard(cell(ids.c));
     await page.click('[data-act="salvage"]');
     r = await ev((ids) => ({ gone: !G.save.bag.some((it) => it.uid === ids.c), aug: G.save.cur.augment }), ids);
     assert(r.gone && r.aug === 1, '分解稀有物品应移除物品并得到 1 增幅尘：' + JSON.stringify(r));
@@ -6886,7 +6907,7 @@ async function main() {
       assert(await ev((s) => !document.querySelector(s).disabled, sel), cur + ' 按钮不可用');
       await page.click(sel);
     };
-    await page.click('.cell[data-item="' + uid.ring + '"]');
+    await clickCard('.cell[data-item="' + uid.ring + '"]');
     let s = await state(uid.ring);
     assert(s.btn.dust && s.btn.alch && !s.btn.augment && !s.btn.regal && !s.btn.exalt && !s.btn.chaos && !s.btn.chisel && !s.btn.divine, '普通物品的可用通货不对：' + JSON.stringify(s.btn));
     await use('dust');
@@ -6921,7 +6942,7 @@ async function main() {
     const a0 = ids.split(','), a1 = s.ids.split(',');
     assert(s.cur.chisel === 0 && a1.length === 4 && a1.filter((x, i) => x !== a0[i]).length === 1 && a1[pickIdx] !== a0[pickIdx] && new Set(a1).size === 4, '琢刻石：' + JSON.stringify(s) + ' 之前 ' + ids);
 
-    await page.click('.cell[data-item="' + uid.helm + '"]');
+    await clickCard('.cell[data-item="' + uid.helm + '"]');
     await use('alch');
     s = await state(uid.helm);
     assert(s.rarity === 2 && s.n === 4 && s.cur.alch === 0, '点金石：' + JSON.stringify(s));
@@ -7055,7 +7076,7 @@ async function main() {
     s = await st();
     assert(!s.on && s.tab === 'inv' && s.n === 2 && s.aff.join() === a0.join(), 'Esc 应只取消选择框且不消耗：' + JSON.stringify(s));
     // 改造按钮 → 选择框 → 取消
-    await page.click(cell);
+    await clickCard(cell);
     await page.click('.craft-btn[data-cur="chisel"]');
     s = await st();
     assert(s.on && s.picks === a0.length, '点改造按钮应弹出选择框');
@@ -7078,14 +7099,16 @@ async function main() {
 
   // ------------------------------------------------------------------ v2 界面：图标 / 拖拽 / 换装评估 / 背包整理
   await uiStep('图标：装备各基底各档、通货、技能、辅助宝石都有各不相同的图标，并用在背包 / 装备栏 / 通货 / 改造按钮上', async () => {
-    const r = await ev(() => {
-      const keys = G.icons.keys();
-      const urls = keys.map((k) => G.icons.url(k));
+    await ev(() => {
       G.save.bag.length = 0;
       for (const slot of G.SLOTS) G.debug.giveItem(1, slot);
       G.ui.open('inv');
+    });
+    await clickCard('.cell[data-item]'); // 选中一件，弹出物品卡（详情与改造按钮）
+    const r = await ev(() => {
+      const keys = G.icons.keys();
+      const urls = keys.map((k) => G.icons.url(k));
       const bg = (n) => getComputedStyle(n).backgroundImage;
-      document.querySelector('.cell[data-item]').click(); // 选中一件，右侧出现详情与改造按钮（会重渲染）
       const cells = Array.from(document.querySelectorAll('.cell[data-item] > .ico'));
       const sizes = cells.map((n) => n.getBoundingClientRect().width);
       return {
@@ -7099,7 +7122,7 @@ async function main() {
         eq: Array.from(document.querySelectorAll('.eq > .ico')).filter((n) => bg(n).startsWith('url("data:image/png')).length,
         cur: Array.from(document.querySelectorAll('.cur > .ico')).filter((n) => bg(n).startsWith('url("data:image/png')).length,
         craft: Array.from(document.querySelectorAll('.craft-btn > .ico')).filter((n) => bg(n).startsWith('url("data:image/png')).length,
-        head: !!document.querySelector('.detail-card .ic-head .ibox > .ico'),
+        head: !!document.querySelector('.sheet .sh-head .ibox > .ico'),
         glyphLeft: document.querySelectorAll('.c-glyph, .s-glyph').length,
       };
     });
@@ -7245,10 +7268,11 @@ async function main() {
     await dragTo('.cur[data-cur="dust"]', cell(ids.body));
     r = await ev(() => ({ dust: G.save.cur.dust, msg: (document.querySelector('.inv-msg') || {}).textContent || '' }));
     assert(r.dust === 1 && r.msg.includes('只能用于普通物品'), '不适用的通货不应消耗，并说明原因：' + JSON.stringify(r));
-    await page.click(cell(ids.ring));
+    await clickCard(cell(ids.ring));
     await dragTo('.cur[data-cur="alch"]', '.detail-card');
     r = await ev((u) => ({ rarity: G.save.bag.find((x) => x.uid === u).rarity, alch: G.save.cur.alch }), ids.ring);
     assert(r.rarity === 2 && r.alch === 1, '通货拖到详情卡上没有生效：' + JSON.stringify(r));
+    await page.keyboard.press('Escape'); // 收起物品卡：桌面卡片放在格子外面、盖着装备栏（拖通货时卡片留着当落点）
     await dragTo('.cur[data-cur="divine"]', '.eq[data-slot="weapon"]');
     r = await ev(() => ({ divine: G.save.cur.divine, w: G.save.equip.weapon.rarity }));
     assert(r.divine === (r.w >= 1 ? 1 : 2), '通货拖到装备栏的结果不对：' + JSON.stringify(r));
@@ -7296,6 +7320,44 @@ async function main() {
     }, ids.body);
     assert(r.stay, '刚丢下的稀有物品站着不动就被吸回去了');
     assert(r.back, '走开再回来应能重新自动拾取');
+  });
+
+  await uiStep('拖拽：物品卡开着时（桌面卡片盖在装备栏上）从背包拖到装备栏照样穿上——开始拖就收起卡片；拖通货时卡片留着当落点', async () => {
+    const ids = await ev(() => {
+      G.save.bag.length = 0;
+      delete G.save.equip.boots;
+      G.save.cur.dust = 2;
+      return { a: G.debug.giveItem(1, 'ring').uid, b: G.debug.giveItem(0, 'boots').uid, white: G.debug.giveItem(0, 'gloves').uid };
+    });
+    const cell = (u) => '.cell[data-item="' + u + '"]';
+    await page.keyboard.press('KeyI');
+    // 通货拖到卡片上：卡片一直开着，改造生效
+    await clickCard(cell(ids.white));
+    await dragTo('.cur[data-cur="dust"]', '.sheet .detail-card');
+    let r = await ev((u) => ({ card: !!document.querySelector('#panel .sheet'), rarity: G.save.bag.find((x) => x.uid === u).rarity }), ids.white);
+    assert(r.card && r.rarity === 1, '拖通货到卡片上：卡片应留着、物品变成魔法：' + JSON.stringify(r));
+    // 卡片开着（盖着装备栏），从背包把鞋子拖到鞋子格
+    await clickCard(cell(ids.a));
+    const covered = await ev(() => {
+      const s = document.querySelector('#panel .sheet').getBoundingClientRect(), e = document.querySelector('.eq[data-slot="boots"]').getBoundingClientRect();
+      return s.left < e.right && e.left < s.right && s.top < e.bottom && e.top < s.bottom;
+    });
+    let mid = null;
+    // 终点按坐标给：拖起来之前鞋子格被卡片盖着（dragView 的「两端露在视野里」查的是拖之前），拖起来以后卡片收起
+    const boots = await ev(() => T.rect('.eq[data-slot="boots"]'));
+    await dragTo(cell(ids.b), { x: boots.x, y: boots.y }, async () => {
+      mid = await ev(() => ({ card: !!document.querySelector('#panel .sheet'), ok: !!document.querySelector('.eq[data-slot="boots"].drop-ok') }));
+    });
+    r = await ev((u) => ({ worn: !!G.save.equip.boots && G.save.equip.boots.uid === u, card: !!document.querySelector('#panel .sheet') }), ids.b);
+    assert(!mid.card && mid.ok, '开始拖物品时应收起卡片、鞋子格亮起：' + JSON.stringify(mid));
+    assert(r.worn && !r.card, '卡片开着时拖到装备栏应穿上：' + JSON.stringify(r));
+    await closePanel();
+    await ev(() => {
+      G.save.bag.length = 0;
+      delete G.save.equip.boots;
+      G.computeStats();
+    });
+    return '卡片' + (covered ? '盖着' : '没盖着') + '鞋子格，拖过去照样穿上';
   });
 
   await uiStep('换装评估：提示里的增减与真实换装后的变化一致；评估不改动角色、存档与 localStorage；背包角标与评估一致', async () => {
@@ -7389,6 +7451,7 @@ async function main() {
       G.save.cur.dust = 0;
     });
     await page.keyboard.press('KeyI');
+    await openFilter();
     await page.click('[data-act="sort"]');
     let r = await ev(() => {
       const ord = {};
@@ -7405,6 +7468,7 @@ async function main() {
     });
     assert(r.sorted && r.dom && r.stored, '排序不对或没有存档：' + JSON.stringify(r));
     assert(r.btn.includes('（' + r.n0 + '）'), '一键分解默认只算普通物品：' + r.btn);
+    await openFilter();
     await page.click('[data-act="opt"][data-opt="salvageMagic"]');
     let r2 = await ev(() => ({ btn: document.querySelector('[data-act="salvage-all"]').textContent, opt: G.save.opts.salvageMagic }));
     assert(r2.opt && r2.btn.includes('（' + (r.n0 + r.n1) + '）'), '勾选「含魔法」后数量应包含魔法物品：' + r2.btn);
@@ -7412,7 +7476,7 @@ async function main() {
     r2 = await ev(() => ({ left: G.save.bag.map((i) => i.rarity).join(''), msg: (document.querySelector('.inv-tips.res') || {}).innerText || '', dis: document.querySelector('[data-act="salvage-all"]').disabled, dust: G.save.cur.dust }));
     assert(/^2+$/.test(r2.left) && r2.dis, '一键分解后应只剩稀有物品：' + r2.left);
     assert(r2.msg.includes('分解了 ' + (r.n0 + r.n1) + ' 件') && (r2.dust ? r2.msg.includes('微光尘 ×' + r2.dust) : r2.msg.includes('没有分解出通货')), '分解小结不对：' + r2.msg);
-    await page.click('.cell[data-item]');
+    await clickCard('.cell[data-item]');
     await page.hover('.detail-card .ic-line.aff');
     r2 = await ev(() => ({ on: document.getElementById('tip').classList.contains('on'), rows: document.querySelectorAll('#tip .tr-row').length, now: document.querySelectorAll('#tip .tr-row.now').length, txt: document.getElementById('tip').innerText }));
     assert(r2.on && r2.rows === 10 && r2.now === 1 && r2.txt.includes('本阶范围'), '悬停词缀应说明各阶范围：' + JSON.stringify(r2));
@@ -7492,17 +7556,17 @@ async function main() {
     assert(r.up === 'up' && !/up/.test(r.down), '准备的物品评估不对（头盔应为 ▲，戒指不应为 ▲）：' + JSON.stringify(r));
     const ids = await ev(() => window.__srIds);
     const btn = () => ev(() => { const b = document.querySelector('[data-act="salvage-all"]'); return { txt: b.textContent, armed: b.classList.contains('armed'), dis: b.disabled }; });
-    const chk = () => ev(() => {
+    const chk = async () => (await openFilter(), ev(() => {
       const m = document.querySelector('[data-act="opt"][data-opt="salvageMagic"]'), x = document.querySelector('[data-act="opt"][data-opt="salvageRare"]');
       return { mOn: m.classList.contains('on'), mDis: m.disabled, rOn: x.classList.contains('on'), magic: G.save.opts.salvageMagic, rare: G.save.opts.salvageRare, stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).opts.salvageRare };
-    });
+    }));
     await page.keyboard.press('KeyI');
     // 开关：含稀有默认关；打开后存档、连带「含魔法」（勾上、不能点），关掉后「含魔法」回到原来的状态
     let c = await chk();
     assert(!c.rOn && !c.rare && !c.mOn && !c.mDis, '含稀有默认应关、含魔法可点：' + JSON.stringify(c));
     // 锁定：Ctrl+点击一件稀有戒指，详情栏的锁定按钮锁一件普通物品
     await page.click('.cell[data-item="' + ids.rLock + '"]', { modifiers: ['Control'] });
-    await page.click('.cell[data-item="' + ids.nLock + '"]');
+    await clickCard('.cell[data-item="' + ids.nLock + '"]');
     await page.click('[data-act="lock"]');
     r = await ev((ids) => {
       const it = (u) => G.save.bag.find((i) => i.uid === u);
@@ -7515,6 +7579,7 @@ async function main() {
     }, ids);
     assert(r.lk[0] === 1 && r.lk[1] === 1 && r.stored && r.cells === 2 && r.lockCell, 'Ctrl+点击 / 详情栏锁定没有生效或没有存档：' + JSON.stringify(r));
     assert(r.btn.includes('已锁') && r.card.includes('已锁定 · Ctrl+点击解锁'), '锁定后详情栏应写「已锁定 · Ctrl+点击解锁」：' + JSON.stringify(r));
+    await page.keyboard.press('Escape'); // 收起物品卡（Esc 只收卡片），免得浮卡盖住要悬停的格子
     await page.hover('.cell[data-item="' + ids.rLock + '"]');
     r = await ev(() => ({ on: document.getElementById('tip').classList.contains('on'), txt: document.getElementById('tip').innerText }));
     assert(r.on && r.txt.includes('已锁定 · Ctrl+点击解锁'), '浮窗里应写「已锁定 · Ctrl+点击解锁」：' + JSON.stringify(r));
@@ -7522,6 +7587,7 @@ async function main() {
     // 锁定的物品不能单件分解：Shift+点击两次、详情栏「分解」都只提示先解锁
     await page.click('.cell[data-item="' + ids.rLock + '"]', { modifiers: ['Shift'] });
     await page.click('.cell[data-item="' + ids.rLock + '"]', { modifiers: ['Shift'] });
+    await clickCard('.cell[data-item="' + ids.rLock + '"]');
     await page.click('[data-act="salvage"]');
     r = await ev((u) => ({ inBag: G.save.bag.some((i) => i.uid === u), msg: (document.querySelector('.inv-msg') || {}).textContent || '', api: G.salvage(G.save.bag.find((i) => i.uid === u)) }), ids.rLock);
     assert(r.inBag && r.msg.includes('先解锁') && r.api === false, '锁定的物品不应能单件分解：' + JSON.stringify(r));
@@ -7533,6 +7599,7 @@ async function main() {
 
     let b = await btn();
     assert(b.txt.includes('（3）'), '默认只算没锁的普通物品：' + b.txt);
+    await openFilter();
     await page.click('[data-act="opt"][data-opt="salvageRare"]');
     c = await chk();
     b = await btn();
@@ -7739,7 +7806,7 @@ async function main() {
         const m = await ev(() => {
           const vw = innerWidth, vh = innerHeight, why = [];
           if (document.documentElement.scrollWidth > vw) why.push('页面横向滚动 ' + document.documentElement.scrollWidth);
-          for (const sel of ['#panel-body', '.inv', '.col-m', '.inv-side', '.col-l', '.col-r', '.eq-grid', '.bag', '.cur-row', '.col-m > .sec-title']) {
+          for (const sel of ['#panel-body', '.inv', '.inv-main', '.inv-bag', '.inv-side', '.inv-eq', '.inv-tools', '.eq-grid', '.bag', '.cur-row', '.inv-main > .sec-title']) {
             const n = document.querySelector(sel);
             if (n && n.scrollWidth > n.clientWidth + 1) why.push(sel + ' 横向溢出 ' + n.scrollWidth + '>' + n.clientWidth);
           }
@@ -7748,8 +7815,8 @@ async function main() {
           const cells = Array.from(document.querySelectorAll('.bag .cell')).map((c) => c.getBoundingClientRect());
           const cell = Math.min(...cells.map((r) => Math.min(r.width, r.height)));
           if (cell < 40) why.push('背包格子只有 ' + cell.toFixed(1) + ' px');
-          // 背包标题行的按钮（图鉴 / 整理 / 含魔法 / 含稀有 / 一键分解）和底部提示：滚到能看见以后整个在屏幕里、点得到
-          const reach = Array.from(document.querySelectorAll('.col-m > .sec-title button')).concat(Array.from(document.querySelectorAll('.col-m > .inv-tips')));
+          // 背包的工具按钮（筛选 / 一键分解；UI-R B1 之前是标题行的 图鉴 / 整理 / 含魔法 / 含稀有 / 一键分解）和底部提示：滚到能看见以后整个在屏幕里、点得到
+          const reach = Array.from(document.querySelectorAll('.inv [data-act="filter"], .inv [data-act="salvage-all"]')).concat(Array.from(document.querySelectorAll('.inv > .inv-tips')));
           for (const b of reach) {
             b.scrollIntoView({ block: 'nearest' });
             const r = b.getBoundingClientRect();
@@ -7760,11 +7827,16 @@ async function main() {
               if (!hit || !(hit === b || b.contains(hit))) why.push(name + ' 被挡住');
             }
           }
-          const mg = document.querySelector('[data-opt="salvageMagic"]');
-          const tick = mg ? getComputedStyle(mg.querySelector('i'), '::after') : null;
-          if (!mg || !mg.disabled || !mg.classList.contains('on') || !tick || tick.content === 'none' || tick.display === 'none') why.push('含稀有开着时含魔法没有显示勾');
           return { why, cell: Math.round(cell), cols: new Set(cells.map((r) => Math.round(r.left))).size };
         });
+        // 含魔法 / 含稀有在「筛选」菜单里（UI-R B1）：打开菜单再看暗勾
+        await openFilter();
+        m.why.push(...(await ev(() => {
+          const mg = document.querySelector('[data-opt="salvageMagic"]');
+          const tick = mg ? getComputedStyle(mg.querySelector('i'), '::after') : null;
+          return !mg || !mg.disabled || !mg.classList.contains('on') || !tick || tick.content === 'none' || tick.display === 'none' ? ['含稀有开着时含魔法没有显示勾'] : [];
+        })));
+        await page.click('[data-act="filter"]'); // 收起菜单
         // 物品浮窗（带对比卡）：整块在屏幕里
         await ev((u) => document.querySelector('.cell[data-item="' + u + '"]').scrollIntoView({ block: 'center' }), tipUid);
         await frames(2); // 滚动事件下一帧才到，到了会收起浮窗（ui.js 的 scroll 监听）：等它过去再悬停
@@ -13040,7 +13112,7 @@ async function main() {
     assert(pre.msgs.every((m) => m === '烬铸武器无法改造') && /烬铸武器无法改造/.test(pre.toast), '拒绝的提示不对：' + JSON.stringify(pre.msgs) + ' ' + pre.toast);
     // 界面：选中后详情里有完美度、区间、机制；拖琢刻石过去时这一格变暗并写明原因
     await ev(() => G.ui.open('inv'));
-    await page.click('.cell[data-item="' + pre.uid + '"]');
+    await clickCard('.cell[data-item="' + pre.uid + '"]');
     const card = await ev(() => document.querySelector('.detail-card').innerText + ' | ' + document.querySelector('.detail-card').parentElement.innerText);
     assert(/完美度 \d+%/.test(card) && /（\d+–\d+）/.test(card) && /残刃/.test(card) && /烬铸武器无法改造/.test(card), '详情卡片缺内容：' + card.slice(0, 300));
     let mid = null;
@@ -13050,7 +13122,7 @@ async function main() {
     assert(mid && mid.no && /烬铸武器无法改造/.test(mid.cap), '拖到烬铸武器上应变暗并写明原因：' + JSON.stringify(mid));
     assert(await ev((u) => G.save.cur.chisel >= 2 && !!G.save.bag.find((b) => b.uid === u), pre.uid), '拖放后琢刻石被消耗了');
     // 分解：第一次只上膛，第二次才分解，固定得到 UNIQUE_SALVAGE
-    await page.click('.cell[data-item="' + pre.uid + '"]');
+    await ensureCard('.cell[data-item="' + pre.uid + '"]');
     const c0 = await ev(() => Object.assign({}, G.save.cur));
     await page.click('[data-act="salvage"]');
     const armed = await ev((u) => ({ still: !!G.save.bag.find((b) => b.uid === u), msg: document.querySelector('.inv-msg') ? document.querySelector('.inv-msg').textContent : '' }), pre.uid);
@@ -13850,7 +13922,9 @@ async function main() {
     r = await ev(() => {
       const s = G.save;
       G.ui.open('inv');
-      const t1 = T.bodyText();
+      let t1 = T.bodyText();
+      G.ui.open('char', 'stats'); // 属性表从背包页挪到了「属性」页签（UI-R B1），一起查
+      t1 += T.bodyText();
       G.ui.open('skills');
       G.ui.open('tree');
       G.ui.open('map');
@@ -14866,7 +14940,7 @@ async function main() {
         weapon: s.equip.weapon && s.equip.weapon.uq, pity: s.uniq.pity.behemoth || 0, found: !!s.uniq.found.jinyu, xs: !!s.uniq.found.xingshi,
         chaosLearned: ['blackhole', 'vortex', 'blackflame'].some((id) => s.skills[id]), flame: G.flamePct(),
       };
-      G.ui.open('inv'); // 角色属性表在背包页
+      G.ui.open('char', 'stats'); // 角色属性表在「属性」页签（UI-R B1 之前在背包页）
       out.sheet = /混沌伤害/.test(T.bodyText());
       G.ui.close();
       if (keep) localStorage.setItem('cinder-abyss-save-v1', keep);
@@ -17067,7 +17141,7 @@ async function main() {
       G.ui.open('inv');
       const cell = document.querySelector('.cell.r4[data-item]');
       if (cell) cell.click();
-      const nm = document.querySelector('.detail-card .icard.r4 .ic-name');
+      const nm = document.querySelector('.sheet .sh-name'); // 物品卡的名字在卡片头部（UI-R B1）
       out.nameColor = nm ? getComputedStyle(nm).color : null;
       const txt = T.bodyText();
       const selIt = cell && G.save.bag.find((x) => x.uid === cell.dataset.item);
@@ -18706,8 +18780,8 @@ async function main() {
       localStorage.setItem(KEY, JSON.stringify(raw));
       G.loadSave();
       out.old = T.canon(G.save.relic);
-      // 背包页：13 + 巅峰 2 = 15 行（D5 把熄烛冠 / 双生坠接进图鉴）、拾到 0
-      G.ui.open('inv');
+      // 图鉴（UI-R B1 起在「属性·图鉴」，之前在背包页）：13 + 巅峰 2 = 15 行（D5 把熄烛冠 / 双生坠接进图鉴）、拾到 0
+      G.ui.open('char', 'codex');
       out.rows = document.querySelectorAll('.cx-row.rq').length;
       // multisave-d1：图鉴显示所有角色合起来的（全局那份 + 当前角色），这个旧角色自己的图鉴是空的（上面 out.old），
       // 显示的数按存储里的全局图鉴另算（原来断言「已拾到 0 / 15」：那时图鉴只看当前角色）
@@ -21125,7 +21199,7 @@ async function main() {
       G.loadSave();
       out.kept = G.save.bag.filter((it) => it.rarity === 4).length;
       G.save.bag.length = 0;
-      G.ui.open('inv');
+      G.ui.open('char', 'codex'); // 图鉴在「属性·图鉴」（UI-R B1）
       const rows = Array.from(document.querySelectorAll('.cx-row.rq'));
       out.rows = rows.length + ' ' + rows.slice(-2).map((n) => n.dataset.rq).join() + ' ' + /熄烛者/.test(rows[rows.length - 1].textContent);
       G.ui.close();
@@ -25679,9 +25753,12 @@ async function touchKit() {
     },
     up: () => send('touchEnd', []),
     cancel: () => send('touchCancel', []),
+    // 轻点：两个事件带上相隔 50 ms 的时间戳。机器忙时 touchStart 和 touchEnd 之间可能真隔了半秒以上，
+    // 页面按事件时间戳判长按（js/touch.js 的 lpEnd），不带时间戳就会把这一下当成长按、吞掉 click
     async tap(x, y) {
-      await send('touchStart', [{ x, y }]);
-      await send('touchEnd', []);
+      const t = Date.now() / 1000;
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [pt({ x, y })], timestamp: t });
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], timestamp: t + 0.05 });
     },
     // 从 (x0, y0) 分几步拖到 (x1, y1)，不松手
     async drag(x0, y0, x1, y1, n) {
@@ -26285,6 +26362,17 @@ async function touchSteps() {
     await frames(2);
     const worn = await ev(() => G.save.equip.helm && G.save.equip.helm.uid === window.__helm.uid);
     assert(worn, '点「装备」应穿上');
+    // UI-R B1：仓库、属性 / 图鉴两页，背包页的「筛选」菜单和每页 [?] 的说明（新加的提示文字也过一遍）
+    for (const [tab, sub, clicks] of [['inv', null, ['[data-act="filter"]']], ['inv', null, ['#panel-q']], ['stash', null, []], ['stash', null, ['#panel-q']], ['char', 'stats', []], ['char', 'codex', ['#panel-q']]]) {
+      await ev(([tab, sub]) => {
+        G.ui.close();
+        localStorage.removeItem('cinder-abyss-ui-seen'); // 第一次打开时底部那一行也扫到
+        G.ui.open(tab, sub);
+      }, [tab, sub]);
+      for (const c of clicks) await ev((c) => document.querySelector(c).click(), c);
+      await frames(3);
+      bad = bad.concat(await scan(tab + (sub ? '·' + sub : '') + (clicks.length ? '·' + clicks.join('') : '')));
+    }
     for (const tab of ['skills', 'tree', 'map', 'help']) {
       await ev((tab) => G.ui.open(tab), tab);
       await frames(3);
@@ -26312,7 +26400,7 @@ async function touchSteps() {
     return '按钮 ' + acts.join(' / ') + '；打 ' + busy.sec + ' 秒文字处理 ' + busy.calls + ' 次，提示卡收成一行';
   });
 
-  await step('触屏：长按看详情——技能、天赋、地图的区域卡片（450 ms 出浮窗和详情，松手留着，下一次碰屏幕收起）；长按天赋不会点亮；背包里挪过 8 px 是拖拽（拖到装备栏穿上），不到 8 px 是长按；竖屏背包从格子以外竖着划照常滚动', async () => {
+  await step('触屏：长按看详情——技能、天赋、地图的区域卡片（450 ms 出浮窗和详情，松手留着，下一次碰屏幕收起）；长按天赋不会点亮；背包里挪过 8 px 是拖拽（拖到装备栏穿上），不到 8 px 是长按；竖屏滚动区（图鉴列表）竖着划照常滚动', async () => {
     await touchPage();
     await ev(() => {
       G.debug.learnAll();
@@ -26410,28 +26498,33 @@ async function touchSteps() {
     await ev(() => G.ui.close());
     assert(!out.still.drag && out.still.lp === 'on', '挪 5 px 按住应是长按、不是拖拽：' + JSON.stringify(out.still));
     assert(out.mid.drag && !out.mid.lp && out.worn, '挪过 8 px 应是拖拽，拖到装备栏应穿上：' + JSON.stringify(out));
-    // 竖屏的背包整页滚动：只有拖拽源（格子）是 touch-action: none，滚动容器不是；从格子以外的地方竖着划能滚
+    // 竖屏：只有拖拽源（格子）是 touch-action: none，滚动区不是；在滚动区里竖着划能滚。
+    // UI-R B1 起竖屏背包一屏放下、不再整页滚动（一个页面只有 data-list 能滚），滚动区换成「属性·图鉴」的列表（data-list）
     await page.setViewportSize({ width: 390, height: 844 });
     await ev(() => {
-      for (let i = 0; i < 10; i++) G.debug.giveItem(i % 3, null, null, 20); // 背包放满一点，整页要能滚
+      for (let i = 0; i < 10; i++) G.debug.giveItem(i % 3, null, null, 20);
       G.ui.open('inv');
     });
     await frames(3);
+    const cellTa = await ev(() => getComputedStyle(document.querySelector('.cell[data-item]')).touchAction);
+    await ev(() => G.ui.open('char', 'codex'));
+    await frames(3);
     const sc = await ev(() => {
-      const inv = document.querySelector('.inv'), cell = document.querySelector('.cell[data-item]');
-      const t = T.rect(document.querySelector('.col-m > .sec-title')); // 背包标题行（格子上面），从它的左端开始划
-      return { inv: getComputedStyle(inv).touchAction, oy: getComputedStyle(inv).overflowY, cell: getComputedStyle(cell).touchAction, room: inv.scrollHeight - inv.clientHeight, x: t.l + 16, y: t.y, top0: inv.scrollTop };
+      const inv = document.querySelector('#panel-body [data-list]');
+      const t = T.rect(inv);
+      return { inv: getComputedStyle(inv).touchAction, oy: getComputedStyle(inv).overflowY, cell: null, room: inv.scrollHeight - inv.clientHeight, x: t.l + 16, y: t.b - 30, top0: inv.scrollTop };
     });
+    sc.cell = cellTa;
     await touch.drag(sc.x, sc.y, sc.x, Math.max(12, sc.y - 180), 8);
     await touch.up();
     await sleep(400);
-    sc.top1 = await ev(() => document.querySelector('.inv').scrollTop);
+    sc.top1 = await ev(() => document.querySelector('#panel-body [data-list]').scrollTop);
     await ev(() => G.ui.close());
     await page.setViewportSize({ width: 844, height: 390 });
     await frames(2);
-    assert(sc.inv === 'auto' && sc.oy === 'auto' && sc.cell === 'none' && sc.room > 50, '竖屏背包：滚动容器应保持默认 touch-action、格子才是 none：' + JSON.stringify(sc));
-    assert(sc.top1 > sc.top0 + 40, '竖屏背包从格子以外竖着划应能滚动：' + JSON.stringify(sc));
-    return '技能 / 天赋 / 区域卡片长按出详情、松手留着；天赋点亮数 ' + n0 + ' → ' + n1 + '；拖拽穿上鞋子；竖屏背包划动滚了 ' + Math.round(sc.top1 - sc.top0) + ' px';
+    assert(sc.inv === 'auto' && sc.oy === 'auto' && sc.cell === 'none' && sc.room > 50, '竖屏：滚动区（data-list）应保持默认 touch-action、格子才是 none：' + JSON.stringify(sc));
+    assert(sc.top1 > sc.top0 + 40, '竖屏：在滚动区里竖着划应能滚动：' + JSON.stringify(sc));
+    return '技能 / 天赋 / 区域卡片长按出详情、松手留着；天赋点亮数 ' + n0 + ' → ' + n1 + '；拖拽穿上鞋子；竖屏图鉴列表划动滚了 ' + Math.round(sc.top1 - sc.top0) + ' px';
   });
 
   await step('触屏：M2 设置——左手模式（右下拖摇杆能走、左下的按钮能按）、按钮大小、震动（安卓桩：重击 / 翻滚 / 残血各震一次、120 ms 限频、残血不连震、关掉不震、没有 vibrate 时设置里不显示）、主题色', async () => {
@@ -27141,6 +27234,201 @@ async function touchSteps() {
     await ev(() => G.ui.close());
     return out.map((r) => r.size).join(' / ');
   });
+
+  await uiLayoutSteps('bag');
+  await uiDeskStyleStep();
+  await uiLayoutSteps('stash');
+  await uiLayoutSteps('char');
+}
+
+// ------------------------------------------------------------------ 面板布局（UI-R，docs/ui.md「测试」）
+// 每个面板的每个状态，在 UI_SIZES 的每个尺寸下跑 test/ui-layout.mjs 的 a–f 检查；卡片状态还要点卡片外面、确认收起。
+// 触屏尺寸用一个手机模拟的浏览器（DPR 2）改视口，安全区用 --t-safe-* 假装（横屏左右 59 px，竖屏上下 59 px）；桌面尺寸另开一个桌面浏览器
+// D（驱动）：open(页, 子页)、tap(选择器)、rare / eqRing（准备好的物品选择器）、compact / portrait
+const UI_PANELS = {
+  bag: {
+    label: '背包',
+    states: [
+      { id: '空', go: (D) => D.open('inv') },
+      { id: '说明', go: async (D) => { await D.open('inv'); await D.tap(D.portrait ? '#panel-body [data-act="hint"]' : '#panel-q', '.ui-pop'); } },
+      { id: '筛选', go: async (D) => { await D.open('inv'); await D.tap('[data-act="filter"]', '.ui-pop'); } },
+      { id: '物品卡', card: true, go: async (D) => { await D.open('inv'); await D.tap(D.rare, '.sheet'); } },
+      { id: '对比', card: true, only: 'compact', go: async (D) => { await D.open('inv'); await D.tap(D.rare, '.sheet'); await D.tap('.sheet [data-act="cmp"]', '.sheet .detail-card.cmp'); } },
+      { id: '改造', card: true, only: 'compact', go: async (D) => { await D.open('inv'); await D.tap(D.rare, '.sheet'); await D.tap('.sheet [data-act="craftview"]', '.sheet .cl-list'); } },
+      { id: '身上的物品', card: true, go: async (D) => { await D.open('inv'); await D.tap(D.eqRing, '.sheet.eqd'); } },
+    ],
+  },
+  stash: {
+    label: '仓库',
+    states: [
+      { id: '仓库', go: (D) => D.open('stash') },
+      { id: '背包', only: 'compact', go: async (D) => { await D.open('stash'); await D.tap('[data-act="stash-view"][data-v="bag"]', '.stp [data-grid="bag"]'); } },
+      { id: '仓库物品卡', card: true, only: 'compact', go: async (D) => { await D.open('stash'); await D.tap('.stp [data-grid="stash"] .cell[data-uid]', '.sheet.st'); } },
+      { id: '背包物品卡', card: true, go: async (D) => { await D.open('stash'); if (D.compact) await D.tap('[data-act="stash-view"][data-v="bag"]', '.stp [data-grid="bag"]'); await D.tap('.stp ' + D.rare, '.sheet.bg'); } },
+    ],
+  },
+  char: {
+    label: '属性',
+    states: [
+      { id: '属性', go: (D) => D.open('char', 'stats') },
+      { id: '图鉴', go: async (D) => { await D.open('char', 'stats'); await D.tap('[data-act="sub"][data-sub="codex"]', '.char-codex'); } },
+    ],
+  },
+};
+// 布局检查用的角色：30 级、学会全部技能、背包 29 件、身上有戒指和胸甲、仓库 18 件
+async function uiFixture() {
+  await install();
+  return ev((k) => {
+    localStorage.setItem(k, '1');
+    G.save.seenHelp = G.save.seenStory = true;
+    for (const id of G.ui.hints().all) G.save.tut[id] = 1;
+    G.ui.close();
+    G.debug.hold(true);
+    const s = G.save;
+    if (!s.cls && G.CLASSES) s.cls = 'star';
+    G.debug.setLevel(30);
+    G.debug.learnAll();
+    for (const id of G.CUR_IDS) s.cur[id] = 3 + (id.length % 7);
+    const slots = ['boots', 'belt', 'gloves', 'body', 'amulet', 'helm', 'ring'];
+    s.bag.length = 0;
+    for (let i = 0; i < 26; i++) G.debug.giveItem(i % 3, slots[i % slots.length], undefined, 28);
+    G.debug.giveItem(0, 'weapon', 1, 28);
+    G.debug.giveItem(2, 'weapon', 1, 28);
+    const rare = G.debug.giveItem(2, 'ring', undefined, 28).uid;
+    if (!s.equip.ring) s.equip.ring = G.rollItem(26, 2, 'ring');
+    if (!s.equip.body) s.equip.body = G.rollItem(26, 1, 'body');
+    if (G.stash && G.stash.ok()) for (let i = G.stash.list().length; i < 18; i++) G.stash.put(G.rollItem(20, i % 3, slots[i % slots.length]), true);
+    G.computeStats();
+    G.persist();
+    return { rare: '.cell[data-item="' + rare + '"]', eqRing: '.eq[data-item="' + s.equip.ring.uid + '"]' };
+  }, TOUCH_HINT_KEY);
+}
+// 桌面样式不变：1366×768 下页头、页签、小标题、格子、通货、按钮、属性行的计算样式和 main 逐项相等（表在 test/ui-layout.mjs）
+async function uiDeskStyleStep() {
+  await step('界面布局·桌面样式：1366×768 下页头 50 px、品牌字、页签 17 px、小标题 15.5 px、装备格 / 背包格 / 通货的尺寸和颜色、属性行和 main 逐项相等（有意改动的只有 .c-ilvl 10.5 → 11 px）', async () => {
+    assert(uiPages && uiPages.desk, '要先跑「界面布局·背包（桌面）」');
+    ({ browser, page, errors } = uiPages.desk);
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await ev(() => {
+      G.ui.close();
+      localStorage.removeItem('cinder-abyss-ui-seen'); // 和在 main 上量的一样：第一次打开，底部那一行是一次性提示（main 上是常驻的操作说明）
+      G.ui.open('inv');
+    });
+    await panelSettled();
+    const got = await ev(uiStyleRead, DESK_STYLE_SPEC);
+    await ev(() => G.ui.open('char', 'stats'));
+    await frames(2);
+    const got2 = await ev(uiStyleRead, DESK_STYLE_SPEC);
+    await ev(() => G.ui.close());
+    const bad = [];
+    for (const k in DESK_STYLE_MAIN) {
+      const v = k.startsWith('char ') ? got2[k] : got[k];
+      if (v !== DESK_STYLE_MAIN[k]) bad.push(k + '：main ' + DESK_STYLE_MAIN[k] + '，现在 ' + v);
+    }
+    assert(!bad.length, bad.length + ' 项和 main 不一样：' + bad.slice(0, 8).join(' ｜ '));
+    return Object.keys(DESK_STYLE_MAIN).length + ' 项相等';
+  });
+}
+let uiPages = null; // { touch: { browser, page, errors, fx }, desk: {…} }：三个面板共用，最后一个面板跑完关掉
+async function uiLayoutSteps(panel) {
+  const P = UI_PANELS[panel];
+  for (const mode of ['touch', 'desk']) {
+    const sizes = UI_SIZES.filter((z) => z[2] === (mode === 'touch'));
+    const names = sizes.map((z) => z[0] + '×' + z[1] + (z[3] ? '+' + z[3] : '') + (z[4] ? '（转）' : '')).filter((v, i, a) => a.indexOf(v) === i);
+    await step('界面布局·' + P.label + '（' + (mode === 'touch' ? '触屏' : '桌面') + '）：' + names.join(' / ') + ' 下每个状态都在屏内、只有 data-list 滚动、不横向溢出、页头 ≤ 36 / 字号 ≥ 11 / 点按区 ≥ 44（触屏）、按钮点得到、点卡片外面能收起、横屏不碰 iPhone 圆角', async () => {
+      uiPages = uiPages || {};
+      if (!uiPages[mode]) {
+        if (browser && !Object.values(uiPages).some((u) => u.browser === browser)) await browser.close().catch(() => {}); // 前面步骤留下的浏览器（布局步骤自己的两个留着，三个面板共用）
+        ({ browser, page, errors } = await launch(mode === 'touch' ? { width: 844, height: 340, mobile: { scale: 2 }, dpr: null } : { width: 1366, height: 768, dpr: null }));
+        const fx = await uiFixture();
+        if (mode === 'touch') touch = await touchKit();
+        uiPages[mode] = { browser, page, errors, fx };
+      }
+      ({ browser, page, errors } = uiPages[mode]);
+      const fx = uiPages[mode].fx;
+      const bad = [];
+      let nStates = 0;
+      for (const [w, h, isTouch, sa, rot] of sizes) {
+        await page.setViewportSize({ width: w, height: h });
+        if (isTouch) await ev((rot) => G.touch.setRot && G.touch.setRot(rot || null), rot);
+        await ev((sa) => {
+          const st = document.documentElement.style;
+          for (const k of ['l', 'r', 't', 'b']) st.removeProperty('--t-safe-' + k);
+          if (sa) for (const k of innerWidth > innerHeight ? ['l', 'r'] : ['t', 'b']) st.setProperty('--t-safe-' + k, sa + 'px');
+        }, sa);
+        const where = w + '×' + h + (sa ? '+' + sa : '') + (rot ? '（转）' : '');
+        const D = {
+          compact: w <= 900 || h <= 500,
+          portrait: w <= 600 && !rot, // 旋转横屏的画面是横的
+          rare: fx.rare,
+          eqRing: fx.eqRing,
+          async open(tab, sub) {
+            await ev(([tab, sub]) => {
+              G.ui.close();
+              localStorage.removeItem('cinder-abyss-ui-seen'); // 一次性提示也算进布局（第一次打开的样子）
+              G.ui.open(tab, sub);
+            }, [tab, sub]);
+            await frames(2);
+          },
+          // 点一下（触屏发真实触摸，桌面用鼠标），等 want 出现
+          async tap(sel, want) {
+            const r = await ev((sel) => {
+              const e = document.querySelector(sel);
+              if (!e) return null;
+              e.scrollIntoView({ block: 'nearest' });
+              const b = e.getBoundingClientRect();
+              return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+            }, sel);
+            if (!r) throw new Error(where + ' 找不到 ' + sel);
+            if (isTouch) await touch.tap(r.x, r.y);
+            else {
+              await page.mouse.click(r.x, r.y);
+              await page.mouse.move(2, 2);
+            }
+            if (want) await until((want) => !!document.querySelector(want), want, 10000).catch(() => { throw new Error(where + ' 点 ' + sel + ' 之后没有出现 ' + want); });
+            await frames(2);
+          },
+        };
+        for (const S of P.states) {
+          if (S.only === 'compact' && !D.compact) continue;
+          nStates++;
+          try {
+            await S.go(D);
+            // 入场动画放完再量
+            await ev(async () => { for (const n of document.querySelectorAll('#panel-win, #panel-win *, #panel .sheet')) for (const a of n.getAnimations()) await a.finished.catch(() => {}); });
+            const r = await ev(uiLayoutCheck, { touch: isTouch, max: 3 });
+            if (r.n) bad.push(where + ' ' + S.id + '：' + Object.entries(r.res).map(([k, v]) => k + ' ' + v.n + '（' + v.s.join('；') + '）').join(' '));
+            // g：iPhone 圆角（半径 47 px，test/corner-mask.mjs）。横屏、安全区读出来是 0 的时候（Chrome 标签页里常见）字和按钮都不碰四角
+            if (isTouch && w > h && !sa) {
+              const c = await ev(cornerCheck, { R: 47 });
+              if (c.hits.length) bad.push(where + ' ' + S.id + '：圆角 ' + c.hits.slice(0, 3).map((x) => x.corner + ' ' + x.what).join('；'));
+            }
+            if (S.card) {
+              // f：点卡片外面的空白处收起卡片（离格子、按钮都远一点，手机不会把这一下吸到格子上）
+              const p = await ev(uiBlankPoint);
+              if (!p) throw new Error(where + ' 卡片外面找不到空白处');
+              if (isTouch) await touch.tap(p.x, p.y);
+              else await page.mouse.click(p.x, p.y);
+              await frames(2);
+              if (await ev(() => !!document.querySelector('#panel .sheet'))) bad.push(where + ' ' + S.id + '：点卡片外面没有收起');
+            }
+          } catch (e) {
+            bad.push(where + ' ' + S.id + '：' + String(e.message || e).slice(0, 200));
+          }
+        }
+      }
+      await ev(() => G.ui.close());
+      assert(!bad.length, bad.length + ' 处不合格：' + bad.slice(0, 8).join(' ｜ '));
+      if (panel === 'char' && mode === 'desk') {
+        // 最后一个面板跑完：关掉两个浏览器
+        for (const k in uiPages) await uiPages[k].browser.close().catch(() => {});
+        uiPages = null;
+        browser = page = null; // 后面的步骤自己开浏览器；step() 收尾时看到 page 为空就不再等
+        errors = [];
+      }
+      return sizes.length + ' 组尺寸，共 ' + nStates + ' 个状态';
+    });
+  }
 }
 
 // 跑哪几份：默认两份都跑（先 func 后 timed，各用一个新浏览器）；--func / --timed 只跑一份。
