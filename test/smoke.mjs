@@ -11985,6 +11985,7 @@ async function main() {
     // fx-rng 重定：特效的随机数从 Math.random 分出去以后（画面随机数 G.vr），模拟这一路只剩 112 次。原来 main 691ef67（程序化外观）上量的是 12254fc1 / 24478 次
     golem: { hash: '4fc99b3d', calls: 112, secs: '9e1090d0,a448b82d,d32dc0c0,cd636106,d1d75655,66e79a53,47bda2f4,c30ac709,617cb6b2,36a0a0ec,5a7ca4f7,f574dfb2,2095a119,b3f4a835,cdbea357'.split(',') },
     lord: { hash: '6bcd5507', calls: 114, secs: '24815422,e21feb3a,ebe73ddb,5d25957d,b63a99b0,8e38a8e6,7dba3ec4,c48bbb94,b7d35d0a,a5d6ea59,63f52b72,e7eac088,98c19b85,e738b0a0,4d2180d1'.split(',') }, // main 25e390e（fx-rng 之后，程序化外观）上量的；fx-rng 之前 main a2831c3 上是 5ed52b42 / 30070 次
+    behemoth: { hash: 'f5f43ce4', calls: 123, secs: 'e18ee022,7352cd8d,5b43567a,a2cce81a,1519cee2,75635a63,c5bd0ee2,e0e76dc3,feb8fd4d,1cb6dd7f,f4ae329e,716bf23b,87f57802,31f02c47,44888a78'.split(',') }, // main 25e390e（程序化外观）上量的
   };
   // tiers（boss-lord 起）：再按另一档画质打一遍，指纹也要一样（fx-rng 的「高 = 低」规则用在首领战上）
   const bossFpStep = (kind, CN, tiers) => step('首领指纹：' + CN + '固定种子打 15 秒，局面和取随机数次数和换模型之前逐位相同；首领包打到一半才到，也只在招式之间换模型、指纹不变' + (tiers ? '；换一档画质打出来也一样' : ''), async () => {
@@ -12055,6 +12056,7 @@ async function main() {
   });
   await bossFpStep('golem', '熔渣巨像');
   await bossFpStep('lord', '烬渊之主', true);
+  await bossFpStep('behemoth', '衔星巨兽', true);
 
   // boss-golem：首领模型的三步（模型 / 出手对拍 / 死亡和破防），量的都是新模型（首领包到了以后建的骨架）
   const BOSS_BONES = JSON.parse(readFileSync(new URL('../art/rig.json', import.meta.url), 'utf8')).boss;
@@ -12119,6 +12121,7 @@ async function main() {
   });
   await bossModelStep('golem', '熔渣巨像');
   await bossModelStep('lord', '烬渊之主');
+  await bossModelStep('behemoth', '衔星巨兽');
 
   // 每只首领：招式、模拟里的蓄力时长（enemies.js 的 PATTERN_WIND，换模型不动）、接触姿势的量（接触帧应是极值）、出事件的方式、蓄力时挨打用的蓄力动作
   //   量：weaponLow = 武器挂点最低（锤石落地 / 剑插进地里），handsApart = 两只手离得最远，pelvisFwd = 骨盆冲到最前，handFwd = 左手（hand 挂点的关节）甩到最前，
@@ -12127,6 +12130,8 @@ async function main() {
   const BOSS_CLIPS = {
     golem: { CN: '熔渣巨像', wind: { slam: 0.95, charge: 0.75, ring: 0.45 }, m: { slam: 'weaponLow', ring: 'handsApart', charge: 'pelvisFwd' }, ev: {}, steady: ['slam_w', 0.8] },
     lord: { CN: '烬渊之主', wind: { slam: 0.95, fan: 0.4, spiral: 0.25, cross: 0.9, barrage: 0.3, summon: 0.5 }, m: { slam: 'weaponLow', fan: 'handFwd', spiral: 'handUp', cross: 'weaponLow', barrage: 'weaponUp', summon: 'weaponLow' }, ev: { barrage: 'time', summon: 'mob' }, steady: ['slam_w', 0.8] },
+    // 衔星巨兽：流星犁地 / 践踏 = 前蹄（hand 挂点，左前蹄）踩到最低；坍缩 = 头压到最低；吐息 = 嘴张到最开（下巴尖离头最远）。坍缩和吐息的预警在起手时就出了、没有结算回调：按蓄力到点对
+    behemoth: { CN: '衔星巨兽', wind: { starfall: 0.7, gravity: 0.6, sweep: 0.9, slam: 0.95 }, m: { starfall: 'handLow', gravity: 'headLow', sweep: 'jawOpen', slam: 'handLow' }, ev: { gravity: 'time', sweep: 'time' }, steady: ['slam_w', 0.783] },
   };
   const bossClipStep = (kind) => step('首领出手对拍：' + BOSS_CLIPS[kind].CN + '每一招的蓄力 / 出手动作都在，出手提前量比蓄力短，伤害 / 起冲 / 弹幕离手的那一帧正好是出手动作的接触帧（误差不到一帧）；蓄力时挨打不晃', async () => {
     await ev((kind) => G.assets.need(['boss-' + kind]), kind);
@@ -12148,6 +12153,10 @@ async function main() {
           const S0 = {}, mt = () => {
             const e = b.ent, wp = W.entSocket(e, 'weapon'), hd = W.entSocket(e, 'hand'), M = e.mdl, pz = M[e.rig.JI.pelvis * 12 + 11], hj = e.rig.JI.hand_l;
             const m = C.m[p];
+            const hs = W.entSocket(e, 'head');
+            if (m === 'handLow') return -hd.y;
+            if (m === 'headLow') return -hs.y;
+            if (m === 'jawOpen') return Math.hypot(wp.x - hs.x, wp.y - hs.y, wp.z - hs.z);
             return m === 'weaponLow' ? -wp.y : m === 'handsApart' ? Math.hypot(wp.x - hd.x, wp.z - hd.z) : m === 'pelvisFwd' ? pz : m === 'handFwd' ? M[hj * 12 + 11] : m === 'handUp' ? M[hj * 12 + 7] : wp.y;
           };
           const trace = [];
@@ -12209,6 +12218,7 @@ async function main() {
   });
   await bossClipStep('golem');
   await bossClipStep('lord');
+  await bossClipStep('behemoth');
 
   const bossDeathStep = (kind, CN) => step('首领死亡和破防：' + CN + '死亡动作砸到地上的那一刻是 0.90 秒（vfx3 第三段冲击环），破防垮下去以后从跪稳的姿势循环、不重播垮下去那一段', async () => {
     await ev((kind) => G.assets.need(['boss-' + kind]), kind);
@@ -12249,6 +12259,7 @@ async function main() {
   });
   await bossDeathStep('golem', '熔渣巨像');
   await bossDeathStep('lord', '烬渊之主');
+  await bossDeathStep('behemoth', '衔星巨兽');
 
   await step('刷新后仍可正常游玩：移动、施法、面板', async () => {
     await ev(() => {
