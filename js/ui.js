@@ -1591,9 +1591,13 @@
     } catch (e) {}
   }
   // 窄屏 / 触屏的排法（和 css 里「手机」那组媒体查询同一个条件）；竖屏另算
+  // 量位置：mobile-m2 的旋转横屏把画面转了 90°，有 G.rectToFrame / G.viewW 时换到画面坐标（没有时就是原样）
+  const fRect = (r) => (G.rectToFrame ? G.rectToFrame(r) : r);
+  const fW = () => (G.viewW ? G.viewW() : window.innerWidth);
+  const fH = () => (G.viewH ? G.viewH() : window.innerHeight);
   const COMPACT_MQ = '(max-width: 900px), (max-height: 500px)';
-  const compactUi = () => window.matchMedia(COMPACT_MQ).matches;
-  const portraitUi = () => compactUi() && window.innerWidth <= 600;
+  const compactUi = () => !!G.rot || window.matchMedia(COMPACT_MQ).matches; // 旋转横屏（mobile-m2）一定是手机
+  const portraitUi = () => compactUi() && fW() <= 600;
   // 每页的说明：once = 第一次打开时底部那一行；list = 点 [?] 看到的全部。触屏、桌面各一套说法
   const PAGE_HINTS = {
     inv: {
@@ -1657,11 +1661,11 @@
     const pop = el.body.querySelector('.ui-pop');
     if (!pop || !ui.pop) return;
     const at = el.panel.querySelector(ui.pop.at);
-    const br = el.body.getBoundingClientRect();
+    const br = fRect(el.body.getBoundingClientRect());
     if (!at) return;
-    const r = at.getBoundingClientRect();
+    const r = fRect(at.getBoundingClientRect());
     const w = pop.offsetWidth, h = pop.offsetHeight;
-    const vh = window.innerHeight;
+    const vh = fH();
     // 左右夹在页面正文里（触屏上正文已经让开了安全区和圆角）
     const lo = br.left + 2, hi = br.right - 2;
     let x = r.right - w;
@@ -1811,13 +1815,20 @@
     if (!sh) return;
     if (sh.classList.contains('pop')) {
       const src = ui.card && el.body.querySelector('[data-item="' + ui.card.uid + '"].cell, [data-item="' + ui.card.uid + '"].eq, .cell[data-uid="' + ui.card.uid + '"]');
-      const br = el.body.getBoundingClientRect();
-      const vw = window.innerWidth, vh = window.innerHeight;
+      const br = fRect(el.body.getBoundingClientRect());
+      const vw = fW(), vh = fH();
       const w = sh.offsetWidth, h = sh.offsetHeight;
-      const r = src ? src.getBoundingClientRect() : { left: vw / 2, right: vw / 2, top: vh / 2 - h / 2, bottom: vh / 2 };
-      let x = r.right + 10;
-      if (x + w > vw - 8) x = r.left - 10 - w;
-      if (x < 8) x = G.clamp(r.left, 8, Math.max(8, vw - w - 8));
+      const r = src ? fRect(src.getBoundingClientRect()) : { left: vw / 2, right: vw / 2, top: vh / 2 - h / 2, bottom: vh / 2 };
+      // 背包格里的物品：卡片放在整块格子外面（先左后右），别的格子和下面的通货照样点得到、拖得到；放不下才贴着这一格
+      const grid = src && src.closest('.bag');
+      const g = grid ? fRect(grid.getBoundingClientRect()) : r;
+      let x = g.left - 12 - w;
+      if (x < 8) x = g.right + 12;
+      if (x + w > vw - 8) {
+        x = r.right + 10;
+        if (x + w > vw - 8) x = r.left - 10 - w;
+        if (x < 8) x = G.clamp(r.left, 8, Math.max(8, vw - w - 8));
+      }
       const y = G.clamp(r.top - 40, 8, Math.max(8, vh - h - 8));
       sh.style.left = Math.round(x - br.left) + 'px';
       sh.style.top = Math.round(y - br.top) + 'px';
@@ -1845,7 +1856,7 @@
     render();
     ui.cardTimer = setTimeout(() => {
       ui.cardTimer = 0;
-      if (!ui.isOpen || ui.sel !== uid || !findItem(uid)) return;
+      if (!ui.isOpen || ui.sel !== uid || !findItem(uid) || drag.on || drag.armed) return; // 这段时间里开始拖了：不开卡
       openCard(uid, false);
       render();
     }, CARD_DELAY);

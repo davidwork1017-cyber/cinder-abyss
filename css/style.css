@@ -4307,7 +4307,7 @@ html.touch-ui { --fs-md: 14px; --fs-lg: 16px; --head-h: 36px; --hit: 44px; }
   border: 1px solid var(--line-2);
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.85);
 }
-.sheet.pop { position: absolute; width: 330px; max-height: calc(100vh - 16px); animation: sheet-in 0.12s ease-out; }
+.sheet.pop { position: absolute; width: 330px; max-height: calc(100 * var(--vh, 1vh) - 16px); animation: sheet-in 0.12s ease-out; }
 @keyframes sheet-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .sh-head {
   flex: none;
@@ -4381,7 +4381,7 @@ html.touch-ui { --fs-md: 14px; --fs-lg: 16px; --head-h: 36px; --hit: 44px; }
   position: absolute;
   z-index: 11;
   min-width: 190px;
-  max-width: min(320px, calc(100vw - 16px));
+  max-width: min(320px, calc(100 * var(--vw, 1vw) - 16px));
   padding: 6px;
   background: linear-gradient(180deg, #211710, #110b08);
   border: 1px solid var(--line-2);
@@ -4423,7 +4423,7 @@ html.touch-ui { --fs-md: 14px; --fs-lg: 16px; --head-h: 36px; --hit: 44px; }
 
 /* ---- 背包页（桌面）：装备 | 背包 + 通货，整块居中 ---- */
 .inv2.wide {
-  --inv-w: min(582px, calc((min(736px, 92vh) - 284px) * 1.6 + 42px));
+  --inv-w: min(582px, calc((min(736px, 92 * var(--vh, 1vh)) - 284px) * 1.6 + 42px));
   height: 100%;
   display: grid;
   grid-template-columns: 300px minmax(0, var(--inv-w));
@@ -4442,7 +4442,7 @@ html.touch-ui { --fs-md: 14px; --fs-lg: 16px; --head-h: 36px; --hit: 44px; }
 
 /* ---- 仓库页（桌面）：仓库 | 背包，两边一样大 ---- */
 .stp.wide {
-  --inv-w: min(560px, calc((min(736px, 92vh) - 230px) * 1.6 + 42px));
+  --inv-w: min(560px, calc((min(736px, 92 * var(--vh, 1vh)) - 230px) * 1.6 + 42px));
   height: 100%;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, var(--inv-w)));
@@ -4511,7 +4511,7 @@ html.touch-ui { --fs-md: 14px; --fs-lg: 16px; --head-h: 36px; --hit: 44px; }
 
   /* 物品卡：横屏从右侧滑出，竖屏从底部升起；盖在页面上，左边的格子照样能点 */
   .sheet.dock { position: absolute; animation: sheet-side 0.14s ease-out; }
-  .sheet.dock.side { top: 0; right: 0; bottom: 0; width: min(340px, 48vw); border-right: none; border-top: none; border-bottom: none; }
+  .sheet.dock.side { top: 0; right: 0; bottom: 0; width: min(340px, 48 * var(--vw, 1vw)); border-right: none; border-top: none; border-bottom: none; }
   .sheet.dock.bottom { left: 0; right: 0; bottom: 0; max-height: 70%; border-left: none; border-right: none; border-bottom: none; animation-name: sheet-up; }
   @keyframes sheet-side { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
   @keyframes sheet-up { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
@@ -4531,8 +4531,9 @@ html.touch-ui { --fs-md: 14px; --fs-lg: 16px; --head-h: 36px; --hit: 44px; }
 
   /* 背包页（横屏）：背包格 | 装备 2×4 + 工具；格子边长按可用高度和宽度算（44–56 px），一屏放下不滚动 */
   .inv2.cpt, .stp.cpt {
-    --H: calc(var(--app-h, 100vh) - var(--sa-t, 0px) - var(--sa-b, 0px) - 50px - 26px); /* 去掉页头、上下内边距和底部那一行 */
-    --W: calc(100vw - var(--sa-l, 0px) - var(--sa-r, 0px) - 16px);
+    /* 画面高宽（mobile-m2 的旋转横屏下 --vh / --vw 是转过来的画面单位；没有时就是 1vh / 1vw） */
+    --H: calc(var(--app-h, calc(100 * var(--vh, 1vh))) - var(--sa-t, 0px) - var(--sa-b, 0px) - 50px - 26px); /* 去掉页头、上下内边距和底部那一行 */
+    --W: calc(100 * var(--vw, 1vw) - var(--sa-l, 0px) - var(--sa-r, 0px) - 16px);
     --ec: clamp(44px, calc((var(--H) - 64px) / 4), 54px);
     --c: clamp(44px, min(calc((var(--H) - 16px) / 5), calc((var(--W) - 2 * var(--ec) - 44px) / 8)), 56px);
     position: relative;

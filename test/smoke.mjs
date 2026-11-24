@@ -564,6 +564,8 @@ async function clickCard(sel) {
 }
 
 async function closePanel() {
+  // UI-R B1：物品卡 / 小菜单开着时，第一下 Esc 只收起它（最多两下），再按一下关面板
+  for (let i = 0; i < 2 && (await ev(() => !!document.querySelector('#panel .sheet, #panel .ui-pop'))); i++) await page.keyboard.press('Escape');
   if (await ev(() => G.ui.isOpen())) await page.keyboard.press('Escape');
   assert(!(await ev(() => G.ui.isOpen())), 'Esc 没有关掉面板');
 }
