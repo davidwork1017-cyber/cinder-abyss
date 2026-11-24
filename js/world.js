@@ -19263,6 +19263,19 @@
       reach: 3.2, emb: [3.2, 0.9, 7],
       sock: { weapon: ['x_hammer', 0, -0.62, 0], hand: ['x_finger_l_02', 0, -0.6, 0.12], head: ['head', 0, 0.4, 0], chest: ['x_core', 0, 0, 0.2] },
       hitJ: ['spine_03', 'head'], feet: ['foot_l', 'foot_r'], core: 'x_core',
+      heatW: ['ring_w'], heatS: ['ring'],
+    },
+    // boss-behemoth：衔星巨兽。嘴里的星（x_star）就是芯：流星犁地 / 坍缩 / 吐息蓄力时越烧越亮，犁地落蹄那一下最亮，
+    // 坍缩拽的时候一明一暗（heatP），吐息喷的时候一直亮着（heatH）；武器挂点 = 下巴尖（吐息的口），手 = 左前蹄
+    behemoth: {
+      pack: 'boss-behemoth',
+      alias: { slam: 'slam', charge: 'slam', ring: 'starfall', spiral: 'starfall', fan: 'sweep', barrage: 'starfall', summon: 'gravity', cross: 'slam' },
+      reach: 3.6, emb: [4.0, 1.0, 6],
+      sock: { weapon: ['x_jaw', 0, -0.2, 0.85], hand: ['x_fleg_l_03', 0, -0.1, 0.1], head: ['head', 0, 0.5, 0.3], chest: ['x_star', 0, 0, 0] },
+      hitJ: ['spine_03', 'head'], feet: ['x_fleg_l_03', 'x_fleg_r_03', 'x_hleg_l_03', 'x_hleg_r_03'], core: 'x_star',
+      heatW: ['starfall_w', 'gravity_w', 'sweep_w', 'slam_w'], heatS: ['starfall', 'slam'], heatP: ['gravity'], heatH: ['sweep'],
+      // 裂谷的主光偏暖白（0xfff2e0）：中性的玄武岩皮甲在里面发土黄。躯体染色往冷里收一点、自发光换成很淡的中性色，进游戏是中性的石墨灰
+      emis: [0x3e3a38, 0.12], tint: 0xdce4ec,
     },
   };
   // 调色板行 → 表面（粗糙度 / 金属度），行号见 art/ca/palette.py
@@ -19373,13 +19386,17 @@
       }
     };
     rig.moodTrack = tracks.mood ? tracks.mood.tr : null;
-    const coreJ = sp.core ? rig.J[sp.core] : -1, emb = sp.emb;
+    const coreJ = sp.core ? rig.J[sp.core] : -1, emb = sp.emb, heatW = sp.heatW || [], heatS = sp.heatS || [];
+    const heatP = sp.heatP || [], heatH = sp.heatH || [];
     rig.post = function (ent, o, t, dt) {
-      // 炉芯：随呼吸一明一暗；弹幕蓄力时蓄热、出手那一下最亮；破防时明灭；死亡先暴涨再熄掉。全是确定性的（不取随机数）
+      // 炉芯：随呼吸一明一暗；蓄力时蓄热、出手那一下最亮（heatW / heatS 里的动作）；破防时明灭；死亡先暴涨再熄掉。全是确定性的（不取随机数）
+      // heatP：出手以后一明一暗地脉动（坍缩拽人）；heatH：出手以后一直亮着、末尾熄下去（吐息）
       const c = ent.clip, n = c ? c.name : '', k = ent.cK;
       let heat = 1;
-      if (n === 'ring_w') heat = 1 + 0.7 * k;
-      else if (n === 'ring') heat = 1 + 0.9 * hump(k, 0, c.k0, c.k0 + 0.05, 0.6);
+      if (heatW.indexOf(n) >= 0) heat = 1 + 0.7 * k;
+      else if (heatS.indexOf(n) >= 0) heat = 1 + 0.9 * hump(k, 0, c.k0, c.k0 + 0.05, 0.6);
+      else if (heatP.indexOf(n) >= 0) heat = 1.5 + 0.4 * Math.sin(k * TAU * 6) * Math.min(1, k * 8);
+      else if (heatH.indexOf(n) >= 0) heat = 1 + 0.9 * hump(k, 0, c.k0, 0.9, 1);
       else if (n === 'broken') heat = 0.7 + 0.25 * Math.max(0, Math.sin(k * TAU * 5));
       else if (n === 'death') heat = k < 0.5 ? 1 + k * 2 : Math.max(0.15, 2 - (k - 0.5) * 4);
       ent.moodK = (ent.moodK || 0) + ((ent.mood ? 1 : 0) - (ent.moodK || 0)) * Math.min(1, dt * 3);
@@ -19458,10 +19475,10 @@
   // 背光面压回中性偏暖；亮度只抬一点点（灰度检查照样量）
   const BOSS_EMIS = [0x6e4c38, 0.18];
   function bossLook(ent) {
-    const m = ent.bodyMat;
-    m.color.copy(lin(0xf4ece4));
-    m.userData.e0 = lin(BOSS_EMIS[0]);
-    m.userData.ei0 = BOSS_EMIS[1];
+    const m = ent.bodyMat, sp = BOSS_SPEC[ent.rig.bossModel], em = (sp && sp.emis) || BOSS_EMIS;
+    m.color.copy(lin((sp && sp.tint) || 0xf4ece4));
+    m.userData.e0 = lin(em[0]);
+    m.userData.ei0 = em[1];
     m.emissive.copy(m.userData.e0);
     m.emissiveIntensity = m.userData.ei0;
     ent.uRim.value.setRGB(0.07, 0.065, 0.06);

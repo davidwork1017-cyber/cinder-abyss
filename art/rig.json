@@ -60,6 +60,37 @@
     "thigh_r",
     "calf_r",
     "foot_r"
+   ],
+   "behemoth": [
+    "pelvis",
+    "spine_01",
+    "spine_02",
+    "spine_03",
+    "neck_01",
+    "x_neck_02",
+    "x_neck_03",
+    "head",
+    "x_jaw",
+    "x_star",
+    "x_plate_01",
+    "x_plate_02",
+    "x_plate_03",
+    "x_tail_01",
+    "x_tail_02",
+    "x_tail_03",
+    "x_tail_04",
+    "x_fleg_l_01",
+    "x_fleg_l_02",
+    "x_fleg_l_03",
+    "x_fleg_r_01",
+    "x_fleg_r_02",
+    "x_fleg_r_03",
+    "x_hleg_l_01",
+    "x_hleg_l_02",
+    "x_hleg_l_03",
+    "x_hleg_r_01",
+    "x_hleg_r_02",
+    "x_hleg_r_03"
    ]
   }
  }

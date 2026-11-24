@@ -15,6 +15,7 @@ from mathutils import Vector  # noqa: E402
 
 from ca import core, gen, rig  # noqa: E402
 import ca.boss.golem  # noqa: E402,F401
+import ca.boss.behemoth  # noqa: E402,F401
 from catalog import CATALOG, LINEUP_SEEDS  # noqa: E402
 
 
@@ -42,7 +43,7 @@ def make(item, seed=None, name=None):
     return ob, tris, dt
 
 
-BOSSES = {'golem': ca.boss.golem}
+BOSSES = {'golem': ca.boss.golem, 'behemoth': ca.boss.behemoth}
 
 
 def make_boss(item, seed=None, name=None):
@@ -277,7 +278,7 @@ def turn(o):
     bg.inputs['Strength'].default_value = 0.7
     cam = bpy.data.cameras.new('cam')
     cam.type = 'ORTHO'
-    cam.ortho_scale = 7.2
+    cam.ortho_scale = float(o.get('scale', 7.2))  # --scale：取景宽度（米），身子长的首领（衔星巨兽）放大
     co = bpy.data.objects.new('cam', cam)
     sc.collection.objects.link(co)
     sc.camera = co
