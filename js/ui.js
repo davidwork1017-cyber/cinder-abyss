@@ -2960,10 +2960,11 @@
     const shown = compact ? ui.card && ui.card.sk : ui.skSel;
     if (ui.picker && ui.picker.skill !== shown) ui.picker = null;
     const coach = coachBanner('skills');
-    const note = (cls0) =>
+    const keep = compact && !portrait; // 横屏底部那一行一直占着（列表不贴到 iPhone 的圆角上，内容换了页面不跳）
+    const note = () =>
       ui.blankMsg && compact && !ui.card && ui.skSub !== 'learn'
-        ? pageNote('skills', '<span class="bk-msg">' + ui.blankMsg + '</span>', 'res')
-        : coach ? pageNote('skills', coach, 'coach') : pageNote('skills', '', cls0 || '');
+        ? pageNote('skills', '<span class="bk-msg">' + ui.blankMsg + '</span>', 'res', keep)
+        : coach ? pageNote('skills', coach, 'coach', keep) : pageNote('skills', '', '', keep);
     let html;
     if (compact) {
       const sub = ui.skSub === 'sup' || ui.skSub === 'learn' ? ui.skSub : 'skills';

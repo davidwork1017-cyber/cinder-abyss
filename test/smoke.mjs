@@ -10364,6 +10364,7 @@ async function main() {
     await closePanel();
     // 技能页：最上面的武器普攻卡（拿着刃）列出连招每一段的倍率
     await page.keyboard.press('KeyG');
+    await ev(() => G.ui.open('skills', G.BASIC_CARD)); // UI-R B2：一次一张卡，先选中武器普攻卡
     const card = await ev(() => { const n = document.querySelector('.sk-combo'); return n ? n.innerText.replace(/\s+/g, ' ') : ''; });
     assert(/第 1 段 ×0\.85/.test(card) && /终结 ×1\.85/.test(card), '武器普攻卡没有列出连击倍率：' + card);
     await closePanel();

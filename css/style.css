@@ -4818,6 +4818,7 @@ html.touch-ui { --fs-md: 14px; --fs-lg: 16px; --head-h: 36px; --hit: 44px; }
   .sheet.skc .wsk-row { gap: 2px; }
   .sheet.skc .sk-nums .sk-num b { font-size: 16px; }
   .sheet.skc .sh-acts .btn.sk-bind { flex: 1 1 0; letter-spacing: 0; }
+  .sheet.dock.skc .sh-body:last-child { margin-bottom: 20px; } /* 没有操作条的卡（武器普攻、武器技）：最后一行字不碰右下的圆角 */
 }
 /* 竖屏：技能栏五个 64 px 的方块（图标 + 键名），卡片从底部升起。旋转横屏（html.t-rot）不套这一段 */
 @media (max-width: 600px) {
