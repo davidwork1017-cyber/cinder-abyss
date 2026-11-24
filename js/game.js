@@ -10341,7 +10341,7 @@
       o.heartMkT = state.time;
     }
     try {
-      groupHit(list, ctx, B.k * (gen >= 2 ? B.chainK || 1 : 1), (o) => ({ ang: Math.atan2(o.x - x, o.z - z), w: 0, kb: 0, poise: 6, quiet: true }), true); // 不推人：怪群不被炸散；接着炸的那一圈 × chainK
+      groupHit(list, ctx, B.k * (gen >= 2 ? B.chainK || 1 : 1), (o) => ({ ang: Math.atan2(o.x - x, o.z - z), w: 0, kb: 0, poise: 6, quiet: true, noBuild: true }), true); // 不推人：怪群不被炸散；不累积异常值（同尸爆：不会引出一整群爆燃 / 尸爆连环）；接着炸的那一圈 × chainK
     } finally {
       heartCur = 0;
       heartCurAt = null;
