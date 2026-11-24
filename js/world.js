@@ -11466,6 +11466,8 @@
       hand: spec.hand ? handTrack(spec.hand) : null,
       handL: spec.handL ? handTrack(spec.handL) : null,
       draw: spec.draw || null, arrow: !!spec.arrow, ikL: spec.ikL,
+      // emit：投掷动作的出手点（'hand' 右手挂点 / 'handL' 左手 / 'muzzle' 武器的出手点）；g5：skill-5a 按握法加的版本（W.grip5Off 时不用）
+      emit: spec.emit || null, g5: !!spec.g5,
       // boss-golem：lin = 关键帧是逐帧采样的（线性插值）；steady = 蓄力 / 出手这类要读招的动作，受击只在 hitJ 上小幅一抖（见 finishPose）；
       // loopFrom = 循环从这个归一化时刻开始（破防：垮下去那一段只播一次，之后在跪稳的姿势里循环）
       lin: !!spec.lin, steady: !!spec.steady, loopFrom: spec.loopFrom > 0 && spec.loopFrom < 1 ? spec.loopFrom : 0,
@@ -12529,7 +12531,9 @@
       return true;
     }
     // 玩家拿双手武器 / 长弓时，同名动作换成按这种武器重排的版本（名字不变）
-    const c = (ent.gearClips && ent.gearClips[name]) || ent.rig.clips[name];
+    let c = ent.gearClips && ent.gearClips[name];
+    if (c && c.g5 && W.grip5Off) c = null;
+    c = c || ent.rig.clips[name];
     if (!c) return false;
     beginFade(ent, opts && opts.fade !== undefined ? opts.fade : c.fade);
     ent.clip = c;
@@ -12572,8 +12576,19 @@
 
   // 挂点的世界坐标：weapon（武器尖端）/ hand / head / chest。结果写进 out（不传则新建一个对象返回）；
   // 每帧都要取的地方请传入自己的 out，避免分配。
+  // 测试用：W.sockShift = { x, y, z } 时玩家的每个挂点（武器尖端 / 手 / 出手点……）整体挪开一点，证明姿势 / 挂点不改变模拟和取随机数的次数
+  W.sockShift = null;
+  const sockShift = (ent, o) => {
+    const s = W.sockShift;
+    if (s && ent === pEnt()) { o.x += s.x; o.y += s.y; o.z += s.z; }
+    return o;
+  };
   W.entSocket = function (ent, name, out) {
     const o = out || { x: 0, y: 0, z: 0 };
+    if (W.sockShift) return sockShift(ent, entSocket0(ent, name, o));
+    return entSocket0(ent, name, o);
+  };
+  function entSocket0(ent, name, o) {
     const s = (ent.sock && ent.sock[name]) || ent.rig.sockets[name];
     const g = ent.group, k = g.scale.x * ent.k;
     let x = 0, y = ent.rig.height * 0.6, z = 0;
@@ -12606,7 +12621,7 @@
     o.x = g.position.x + (x * cs + z * sn) * k;
     o.y = g.position.y + y * k;
     o.z = g.position.z + (z * cs - x * sn) * k;
-    return o;
+    return W.sockShift ? sockShift(ent, o) : o;
   };
   // 这一帧打出去的弹丸画面上从哪儿出来：投掷动作（掷焰 / 飞刃 / 散钉……）从投掷的那只手；
   // 远程武器 / 施法武器、或者正在播武器自己的出手动作（fire_ / r_ / w_ / b_）时从武器的出手点；其余（近战武器施法）从左手
@@ -12614,11 +12629,15 @@
   const EMIT_CLIP = /^(fire|r|w|b)_/;
   function emitWorld(ent, out) {
     const c = ent.clip, n = c ? c.name : '';
-    if (n === 'throw') return W.entSocket(ent, ent.gearClips && ent.gearClips.throw === c ? 'hand' : 'handL', out);
+    if (n === 'throw') {
+      const e = c.emit || (ent.gearClips && ent.gearClips.throw === c ? 'hand' : 'handL');
+      return e === 'muzzle' ? W.muzzleWorld(ent, out) : W.entSocket(ent, e, out);
+    }
     if (EMIT_GEAR[ent.gearType] || (ent.gearType >= 0 && EMIT_CLIP.test(n))) return W.muzzleWorld(ent, out);
     return W.entSocket(ent, 'handL', out);
   }
   W.emitWorld = emitWorld;
+  W.grip5Off = false; // 测试用：true 时不用 skill-5a 按握法加的动作版本 / 持枪找平 / 左轮提前抬枪，用来证明它们只动画面
   W.emitOff = false; // 测试用：true 时弹丸画面不从出手点出来（直接画在弹道上），用来证明出手点只动画面
   // 模拟这一步里（还没摆这一帧的姿势）要出手点时：上一帧的姿势 + 玩家这一帧已经走开的那一段
   function emitEst(ent, out) {
@@ -14058,6 +14077,7 @@
       playerClips(rig);
       weaponClips(rig);
       rangedClips(rig);
+      gripClips(rig);
       return rig;
     }));
   }
@@ -14392,6 +14412,23 @@
     if (k >= c.k0 - 0.04 && k <= c.k0 + 0.2) return 1;
     return -1;
   }
+  // 端着机炮 / 喷枪走 / 跑时枪身找平（skill-5a）：跑动的手位在胸口坐标系里给，上身前倾、左右摆的时候枪口跟着抬起 ~6°、左右晃 ±6°；
+  // 按移动的程度把枪的指向（模型空间）拉到一个固定的平端方向（略往左收一点，和站着时的 10° 内扣接上），刃口方向跟着重新正交
+  const GUN_LVL = (() => {
+    const yw = 0.14, pt = -0.035;
+    return [Math.sin(yw) * Math.cos(pt), Math.sin(pt), Math.cos(yw) * Math.cos(pt)];
+  })();
+  function gunLevel(T, k) {
+    let dx = T[3] + (GUN_LVL[0] - T[3]) * k, dy = T[4] + (GUN_LVL[1] - T[4]) * k, dz = T[5] + (GUN_LVL[2] - T[5]) * k;
+    const l = Math.hypot(dx, dy, dz) || 1;
+    dx /= l; dy /= l; dz /= l;
+    let ex = T[6], ey = T[7], ez = T[8];
+    const ed = ex * dx + ey * dy + ez * dz;
+    ex -= ed * dx; ey -= ed * dy; ez -= ed * dz;
+    const le = Math.hypot(ex, ey, ez) || 1;
+    T[3] = dx; T[4] = dy; T[5] = dz;
+    T[6] = ex / le; T[7] = ey / le; T[8] = ez / le;
+  }
   // 撒放后弦往弓背那边弹过头、来回颤两下（0.16 秒内收住）：弓的绑定坐标里，弦中点 → 握把的方向
   const SNAP_X = 0.256, SNAP_Y = -0.967, SNAP_A = 0.035;
   function playerIK(ent, sdt) {
@@ -14419,6 +14456,7 @@
       _hk[1] += br;
       remapHand(rig.armR, 'chest', _hk);
       handToModel(ent, 'chest', _hk, _ikT);
+      if ((g === G_GAT || g === G_FLM) && mv > 0.001 && !W.grip5Off) gunLevel(_ikT, mv);
       want = 1;
     }
     if (src !== ik.src) {
@@ -14455,7 +14493,8 @@
       solveRig(ent);
       re = true;
     } else {
-      const tw = TWO_HAND[g] ? (c ? (c.hand ? (c.ikL === undefined ? 1 : c.ikL) : 0) : g === G_GAT || g === G_FLM ? 1 : 1 - ent.mv) : 0;
+      // ikL：动作里左手握柄的权重，数字或关键帧（skill-5a：施法 / 投掷时左手先松开柄去出手，收招再握回去）
+      const tw = TWO_HAND[g] ? (c ? (c.hand ? (c.ikL === undefined ? 1 : typeof c.ikL === 'number' ? c.ikL : kf(c.ikL, ent.cK)) : 0) : g === G_GAT || g === G_FLM ? 1 : 1 - ent.mv) : 0;
       ik.lw += (tw - ik.lw) * Math.min(1, sdt * 14);
       if (ik.lw > 0.002 && TWO_HAND[g]) {
         // 柄上离左肩最近、又不和右手挤在一起的那一点
@@ -14855,16 +14894,25 @@
     playerIK(ent, sdt || 0);
     bannerSway(ent, sdt || 0);
     // 挥砍的出手段：武器拖出一道刀光
-    const c = ent.clip;
-    if (c && c.trail && ent === trail.ent && !ent.dying && ent.cK >= c.trail[0] && ent.cK <= c.trail[1]) {
+    const c = ent.clip, tb = TRAIL_BASE[ent.gearType];
+    if (c && c.trail && tb !== undefined && ent === trail.ent && !ent.dying && ent.cK >= c.trail[0] && ent.cK <= c.trail[1]) {
+      // 只有带刃的武器拖刀光（skill-5a）：刃 / 双匕 / 太刀从刃身起，战锤只拖锤头，长杖 / 魂幡只拖杖头 / 幡头；枪、弓、短杖、空手不拖
       W.entSocket(ent, 'weapon', _sk);
       W.entSocket(ent, 'hand', _sk2);
-      trailPush(ent, _sk2.x + (_sk.x - _sk2.x) * 0.3, _sk2.y + (_sk.y - _sk2.y) * 0.3, _sk2.z + (_sk.z - _sk2.z) * 0.3, _sk.x, _sk.y, _sk.z);
+      trailMode(0);
+      trailPush(ent, _sk2.x + (_sk.x - _sk2.x) * tb, _sk2.y + (_sk.y - _sk2.y) * tb, _sk2.z + (_sk.z - _sk2.z) * tb, _sk.x, _sk.y, _sk.z);
+    } else if (c && c.spec.dust && ent === trail.ent && !ent.dying) {
+      // 端着枪抡一圈（旋风斩的枪版）：不画刀光，枪口扫过的地方贴地拖一道尘带（同一条带子换成尘土的画法，不加 draw、不取随机数）
+      W.muzzleWorld(ent, _sk);
+      trailMode(1);
+      // 尘带是贴地的一道弧（俯视镜头下看得见）：内沿在枪口半径的一半、贴着地，外沿略出枪口、扬起一点
+      const gp = ent.group.position, ox = _sk.x - gp.x, oz = _sk.z - gp.z;
+      trailPush(ent, gp.x + ox * 0.5, gp.y + 0.05, gp.z + oz * 0.5, gp.x + ox * 1.2, gp.y + 0.36, gp.z + oz * 1.2);
     }
     // 投掷（掷焰 / 飞刃）的蓄力：出手前火星往投掷的那只手里聚，出手那一刻手上一颗星 + 两团实心的烟（颜色见 W.castTint）
     if (c && c.name === 'throw' && ent === trail.ent && !ent.dying && sdt > 0) {
       const kk = ent.cK, cp = castPal;
-      W.entSocket(ent, ent.gearClips && ent.gearClips.throw === c ? 'hand' : 'handL', _sk);
+      emitWorld(ent, _sk);
       if (kk > 0.08 && kk < 0.5) {
         ent.gatherAcc = (ent.gatherAcc || 0) + sdt * (qualId === 'low' ? 30 : 60);
         _c.set(cp[1]);
@@ -16098,6 +16146,141 @@
       alias('r_bow', 'r_eagle');
     }
     for (const t of GUN_TYPES.concat(BOW_TYPES, ['bow'])) if (!rig.clips['w_' + t] && rig.clips['r_' + t]) alias('w_' + t, 'r_' + t);
+  }
+
+  // ===== skill-5a：宝石技能的出手动作按握法出版本（拿着什么都不撒手）=====
+  // 宝石技能不挑武器，出手动作只按技能类型选（throw / cast / attack1 / spin / flicker）。下面给两类握法注册同名的版本：
+  //   双手枪（机炮 / 喷枪）：投掷借枪自己的腰射姿势、从枪口出手；施法时右手把枪端在胸前、左手抬起施法；近战用枪刺 / 枪托；旋风斩端平了枪抡一圈
+  //   长柄（长杖 / 魂幡 / 战锤 / 太刀）：投掷时武器斜扛在右肩、左手扔；施法时武器拄地或横在身前、左手施法
+  // 时长、命中帧 k0 都照搬原动作（W.play 的 contact 按 k0 重映射时间），出手判定的时刻不动；只换关键帧和手的轨迹
+  function gripClips(rig) {
+    const C = (v) => [0, v, 1, v];
+    const base = (n) => rig.clips[n].spec;
+    const R_ARM = { uaR: 1, faR: 1, hR: 1 };
+    const noRight = (keys) => {
+      const o = {};
+      for (const k in keys) if (!R_ARM[k.slice(0, k.indexOf('.'))]) o[k] = keys[k];
+      return o;
+    };
+    const same = (n, extra) => {
+      const s = base(n);
+      return Object.assign({ dur: s.dur, k0: s.k0, loop: s.loop, hold: s.hold, fade: s.fade, out: s.out, lower: s.lower, air: s.air, g5: true }, extra);
+    };
+    // --- 双手枪 ---
+    const HIP = GUN_LOCO[G_GAT].idle, hp = HIP.slice(0, 3), hd = HIP.slice(3, 6), he = HIP.slice(6, 9);
+    const add = (a, b, k) => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
+    const hipTwist = { 'spine.ry': C(GUN_TWIST * 0.55), 'chest.ry': C(GUN_TWIST * 0.55), 'head.ry': C(-GUN_TWIST * 0.9) };
+    const brace = (keys, d) => {
+      keys['thL.rx'] = C(-0.45 * d);
+      keys['shL.rx'] = C(0.6 * d);
+      keys['thR.rx'] = C(0.3 * d);
+      keys['shR.rx'] = C(0.4 * d);
+      keys['ftR.rx'] = C(0.2 * d);
+      keys['thL.rz'] = C(0.12);
+      keys['thR.rz'] = C(-0.18);
+      return keys;
+    };
+    for (const g of [G_GAT, G_FLM]) {
+      // 投掷：腰射的架势，出手（k0）那一下枪身后坐、枪口上跳，弹丸从枪口出去
+      defGearClip(rig, g, 'throw', same('throw', {
+        emit: 'muzzle', fn: gunUpper,
+        hand: {
+          k: [0, 0.3, -0.5, 0.62, 1],
+          p: [hp, add(hp, hd, -0.02), add(hp, hd, -0.07), add(hp, hd, -0.02), hp],
+          d: [hd, hd, [hd[0], hd[1] + 0.14, hd[2]], [hd[0], hd[1] + 0.04, hd[2]], hd],
+          e: [he, he, he, he, he],
+        },
+        keys: brace(Object.assign({ 'chest.rx': [0, 0, 0.3, 0.04, -0.5, -0.1, 0.75, -0.04, 1, 0], 'root.oz': [0, 0, 0.3, 0.03, -0.5, -0.05, 1, 0] }, hipTwist), 0.9),
+      }));
+      // 施法：右手把枪竖着端在胸前（枪口朝左上），左手松开前握把抬起来施法，收招再握回去
+      const cs = base('cast');
+      // 模型空间：施法时上身后仰，胸口坐标里的枪会跟着竖起来、举到头边
+      const portP = [-0.16, 1.12, 0.3], portD = [0.5, 0.26, 0.83], portE = [0.13, -0.97, 0.22];
+      defGearClip(rig, g, 'cast', same('cast', {
+        hand: track(HIP, [[0, 'I'], [0.3, portP, portD, portE], [0.5, [portP[0], portP[1] + 0.03, portP[2]], portD, portE], [0.82, portP, portD, portE], [1, 'I']], 'model'),
+        ikL: [0, 1, 0.22, 1, 0.4, 0, 0.84, 0, 1, 1],
+        keys: noRight(cs.keys),
+      }));
+      // 近战：两手握枪往前一刺（枪刺），不画刀光
+      const thrustKeys = (d) => brace(Object.assign({
+        'root.oz': [0, 0, 0.3, -0.08, -0.5, 0.22, 0.75, 0.16, 1, 0.02],
+        'root.rx': [0, 0.02, 0.3, -0.02, -0.5, 0.14, 0.75, 0.1, 1, 0.02],
+        'chest.rx': [0, 0, 0.3, -0.04, -0.5, 0.1, 1, 0],
+        'root.sx': [0, 1, 0.3, 1.04, -0.5, 0.97, 0.72, 1.01, 1, 1],
+        'root.sy': [0, 1, 0.3, 0.94, -0.5, 1.06, 0.72, 0.99, 1, 1],
+        'root.sz': [0, 1, 0.3, 1.04, -0.5, 0.97, 0.72, 1.01, 1, 1],
+      }, hipTwist), d);
+      const thrust = { k: [0, 0.3, -0.5, 0.7, 1], p: [hp, add(hp, hd, -0.16), add(hp, hd, 0.3), add(hp, hd, 0.2), hp], d: [hd, hd, hd, hd, hd], e: [he, he, he, he, he] };
+      const flickS = (keys) => Object.assign({}, keys, {
+        'root.sx': [0, 0.15, 0.14, 0.3, 0.26, 1.18, 0.36, 1, 1, 1],
+        'root.sz': [0, 0.15, 0.14, 0.3, 0.26, 1.18, 0.36, 1, 1, 1],
+        'root.sy': [0, 1.7, 0.14, 1.5, 0.26, 0.86, 0.36, 1, 1, 1],
+        'root.oy': [0, 0.1, 0.18, -0.16, -0.5, -0.12, 1, -0.04],
+      });
+      defGearClip(rig, g, 'attack1', same('attack1', { trail: null, hand: thrust, keys: thrustKeys(1), fn: gunUpper }));
+      defGearClip(rig, g, 'flicker', same('flicker', { trail: null, hand: thrust, keys: flickS(thrustKeys(1)), fn: gunUpper }));
+      // 影步的反手一刀：枪托横砸——枪身往右后收，然后握把（枪托一端）领着从右往左横扫过身前
+      const bashP0 = [-0.3, -0.08, 0.02], bashD0 = [0.55, 0.12, 0.83], bashP1 = [0.12, -0.06, 0.38], bashD1 = [0.82, 0.1, -0.56], bashE = [0, -1, 0];
+      defGearClip(rig, g, 'flicker2', same('flicker2', {
+        trail: null,
+        hand: { k: [0, 0.3, -0.5, 0.7, 1], p: [hp, bashP0, bashP1, add(bashP1, [-1, 0, 0], 0.06), hp], d: [hd, bashD0, bashD1, bashD1, hd], e: [he, bashE, bashE, bashE, he] },
+        keys: flickS(brace({
+          'root.ry': [0, 0, 0.3, -0.3, -0.5, 0.25, 0.75, 0.2, 1, 0],
+          'spine.ry': [0, GUN_TWIST * 0.55, 0.3, -0.3, -0.5, 0.2, 0.75, 0.15, 1, GUN_TWIST * 0.55],
+          'chest.ry': [0, GUN_TWIST * 0.55, 0.3, -0.45, -0.5, 0.3, 0.75, 0.2, 1, GUN_TWIST * 0.55],
+          'head.ry': [0, -GUN_TWIST * 0.9, 0.3, 0.6, -0.5, -0.4, 1, -GUN_TWIST * 0.9],
+        }, 1)),
+      }));
+      // 旋风斩：两手把枪端平、枪口朝右前伸出去，整个人转（转法同原动作）；拖尾换成贴地的尘带（见 playerLate）
+      const sp = base('spin');
+      const spP = [-0.24, -0.16, 0.34], spD = [-0.72, 0.02, 0.69], spE = [0, -1, 0];
+      defGearClip(rig, g, 'spin', same('spin', {
+        trail: null, dust: true,
+        hand: { k: [0, 1], p: [spP, spP], d: [spD, spD], e: [spE, spE] },
+        keys: noArms(sp.keys), fn: sp.fn,
+      }));
+    }
+    // 原有的腰射 / R 动作也减掉胯的转角（边走边打枪口不偏）
+    for (const n of ['fire_gatling', 'fire_flamer', 'r_gatling', 'r_flamer']) {
+      const c = rig.clips[n], f0 = c.fn;
+      c.fn = f0 ? (ent, p, k, t) => { f0(ent, p, k, t); gunUpper(ent, p); } : gunUpper;
+    }
+    // --- 长柄：长杖 / 魂幡 / 战锤 / 太刀 ---
+    // 扛肩：右手握在右肩前，武器斜着往后上方搭在肩上（胸口坐标系，跟着上身的拧转一起转）
+    const shP = [-0.2, -0.02, 0.18], shD = [-0.12, 0.62, -0.78], shE = [0, 0.78, 0.62];
+    const th = base('throw');
+    // 施法：长杖 / 魂幡竖着拄在身体右侧；战锤锤头朝下拄在右前方；太刀横在身前、刀尖朝左前下（模型空间：上身后仰时武器也不跟着倒）
+    const CAST_HOLD = {
+      1: { p: [-0.34, 1.0, 0.2], d: [0.03, 1, 0.1], e: [0, -0.1, 1] },
+      [G_BAN]: { p: [-0.34, 1.0, 0.2], d: [0.03, 1, 0.1], e: [0, -0.1, 1] },
+      [G_HAM]: { p: [-0.26, 0.98, 0.34], d: [-0.06, -0.95, 0.3], e: [0, 0.3, 0.95] },
+      [G_KAT]: { p: [-0.22, 0.98, 0.3], d: [0.62, -0.3, 0.72], e: [0, -1, 0] },
+    };
+    const cs = base('cast');
+    for (const g of [1, G_BAN, G_HAM, G_KAT]) {
+      const I = LOCO_2H[g] ? LOCO_2H[g].idle : null;
+      const shTrack = I ? track(I, [[0, 'I'], [0.24, shP, shD, shE], [0.8, shP, shD, shE], [1, 'I']]) : { k: [0, 1], p: [shP, shP], d: [shD, shD], e: [shE, shE], w: [1, 1] };
+      if (!I) {
+        // 长杖 / 魂幡平时不走 IK（竖着提在身侧）：手的权重从 0 升上去、收招落回 0
+        shTrack.k = [0, 0.24, 0.8, 1];
+        shTrack.p = [shP, shP, shP, shP]; shTrack.d = [shD, shD, shD, shD]; shTrack.e = [shE, shE, shE, shE];
+        shTrack.w = [0, 1, 1, 0];
+      }
+      defGearClip(rig, g, 'throw', same('throw', { emit: 'handL', ikL: 0, hand: shTrack, keys: noRight(th.keys) }));
+      const H = CAST_HOLD[g];
+      const lift = [H.p[0], H.p[1] + 0.07, H.p[2] - 0.02];
+      const castTrack = I
+        ? track(I, [[0, 'I'], [0.3, lift, H.d, H.e], [-0.5, H.p, H.d, H.e], [0.82, H.p, H.d, H.e], [1, 'I']], 'model')
+        : { f: 'model', k: [0, 0.3, -0.5, 0.82, 1], p: [H.p, lift, H.p, H.p, H.p], d: [H.d, H.d, H.d, H.d, H.d], e: [H.e, H.e, H.e, H.e, H.e], w: [0, 1, 1, 1, 0] };
+      defGearClip(rig, g, 'cast', same('cast', { ikL: 0, hand: castTrack, keys: noRight(cs.keys) }));
+    }
+  }
+  // 端着机炮 / 喷枪的动作：上身的拧转写死在动作里（spine / chest.ry），步态给胯的转角（侧着走、倒退时朝移动方向）就要从脊柱上减回去，
+  // 不然边走边打时上身跟着胯一起转，枪口偏出准星 30° 以上（skill-5a）
+  function gunUpper(ent, p) {
+    if (W.grip5Off) return;
+    const J = ent.rig.J;
+    p[J.spine + 1] -= p[J.root + 1];
   }
 
   // 武器的握法 / 挂点长度 / 稀有度的发光
@@ -20840,6 +21023,18 @@
   // 刀光：一条跟着武器走的带子。采样点按「绕角色的圆弧」补间，60 帧下的快挥也是顺滑的弧。
   // 卡通版：越老的采样内沿越往刃尖收（头粗尾尖的月牙），横向三道硬边色带，不透明度只有三档
   const TRAIL_MAX = 56, TRAIL_LIFE = 0.18;
+  // 刀光从「手 → 武器尖端」的哪一段起拖（比例）；不在表里的武器（短杖、弓、枪、空手）不拖
+  const TRAIL_BASE = { 0: 0.3, 1: 0.8, 3: 0.3, [G_HAM]: 0.66, [G_KAT]: 0.3, [G_BAN]: 0.84 };
+  // 刀光的配色（vf-vfx2：没有近白的亮带）：[刃尖一侧, 主色, 内沿]；物理是暖灰 / 钢色（原来借 FX_PAL 的饱和青绿，像冰或毒）
+  const TRAIL_PAL = {
+    phys: [0xdcd5ca, 0xaaa398, 0x5c564e],
+    fire: [0xffb06a, 0xe46a2a, 0x8a2c16],
+    cold: [0xa8d6f2, 0x5aa2da, 0x24509a],
+    light: [0xf0d47c, 0xd6a936, 0x7c5612],
+    chaos: [0xd47ac2, 0xa6308a, 0x2c0c32],
+  };
+  // 尘带（枪版旋风斩）：暖褐灰，贴地一侧最浓
+  const TRAIL_DUST = [0xd6c8b0, 0xb2a288, 0x7a6c5a];
   const trail = {
     ent: null, n: 0, live: 0, mesh: null, color: null,
     p: new Float32Array(TRAIL_MAX * 6), age: new Float32Array(TRAIL_MAX), mute: new Uint8Array(TRAIL_MAX),
@@ -20870,24 +21065,33 @@
     trail.color = { value: new T.Color(1, 1, 1) };
     trail.c0 = { value: new T.Color(1, 1, 1) };
     trail.c2 = { value: new T.Color(1, 1, 1) };
+    trail.dust = { value: 0 };
+    trailSetPal(TRAIL_PAL.phys);
     const mat = new T.ShaderMaterial({
-      uniforms: G.vfx.uni({ uColor: trail.color, uC0: trail.c0, uC2: trail.c2 }),
+      uniforms: G.vfx.uni({ uColor: trail.color, uC0: trail.c0, uC2: trail.c2, uDust: trail.dust }),
       vertexShader: 'attribute float aA; attribute float aU; varying float vA; varying float vU;\nvoid main(){ vA = aA; vU = aU; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-      // vf-vfx：拼上特效贴图库的 GLSL 工具：顺着刀光走向的刀纹（条纹噪声的快变方向放在横向），老的一截被刀纹撕成一缕缕
+      // skill-5a：前粗后细、半透明、平滑淡出（原来是三道硬边色带 + 三档不透明度，又宽又平像一张纸条）。
+      // 新的采样从握点铺到刃尖、越老内沿越往刃尖收；横向从内沿的深色渐到主色，刃尖一侧只往亮色靠一点（没有近白的亮带）。
+      // uDust = 1：同一条带子画成尘带（枪版旋风斩）——vU 0 贴地、1 是上沿，贴地一侧最浓，往上淡掉，被条纹噪声撕成一缕缕
       fragmentShader: G.vfx.GLSL + '\n' + [
-        'uniform vec3 uColor; uniform vec3 uC0; uniform vec3 uC2; varying float vA; varying float vU;',
+        'uniform vec3 uColor; uniform vec3 uC0; uniform vec3 uC2; uniform float uDust; varying float vA; varying float vU;',
         'void main(){',
         '  if (vA < 0.02) discard;',
-        // 月牙：新的采样从握点铺到刃尖，越老内沿越往刃尖收
-        '  float lo = 1.0 - pow(vA, 0.55);',
+        '  if (uDust > 0.5) {',
+        '    float sd = vfxNB(vec2(vU * 0.6 + 0.2, vA * 0.5)).r;',
+        '    float ad = 0.72 * pow(vA, 0.6) * smoothstep(0.0, 0.3, vU) * (1.0 - smoothstep(0.55, 1.0, vU)) * (0.5 + 0.5 * sd);',
+        '    if (ad < 0.02) discard;',
+        '    gl_FragColor = vec4(mix(uColor, uC0, clamp(vU * 0.6 + sd * 0.5, 0.0, 1.0)), ad);',
+        '    return;',
+        '  }',
+        '  float lo = 1.0 - pow(vA, 0.7);',
         '  float s = (vU - lo) / max(1.0 - lo, 0.001);',
         '  if (s < 0.0) discard;',
         '  float st = vfxNB(vec2(s * 0.85 + 0.3, vA * 0.35)).r;',
-        '  if (vA < 0.32 && st < (0.32 - vA) * 2.6) discard;',
-        // 横向三道硬边色带：刃尖一侧亮芯、中间主色、内沿深色
-        '  vec3 col = s > 0.72 ? uC0 : (s > 0.34 ? (st > 0.82 ? uC0 : uColor) : uC2);',
-        // 阶梯式淡出：三档不透明度
-        '  float a = vA > 0.6 ? 0.96 : (vA > 0.3 ? 0.74 : 0.45);',
+        '  if (vA < 0.3 && st < (0.3 - vA) * 2.2) discard;',
+        '  vec3 col = mix(uC2, uColor, smoothstep(0.0, 0.55, s));',
+        '  col = mix(col, uC0, smoothstep(0.7, 1.0, s) * 0.6);',
+        '  float a = 0.74 * pow(vA, 1.1) * smoothstep(0.0, 0.3, s) * (0.8 + 0.2 * st);',
         '  gl_FragColor = vec4(col, a);',
         '}',
       ].join('\n'),
@@ -20948,9 +21152,10 @@
       return;
     }
     let drop = 0;
+    const life = tr.dust.value ? TRAIL_LIFE * 1.8 : TRAIL_LIFE; // 尘带散得慢一点
     for (let i = 0; i < tr.n; i++) {
       tr.age[i] += dt;
-      if (tr.age[i] >= TRAIL_LIFE && drop === i) drop = i + 1; // 采样按时间先后排列，过期的都在队首
+      if (tr.age[i] >= life && drop === i) drop = i + 1; // 采样按时间先后排列，过期的都在队首
     }
     if (drop > 0) {
       tr.p.copyWithin(0, drop * 6, tr.n * 6);
@@ -20960,7 +21165,7 @@
     }
     const n = tr.n;
     for (let i = 0; i < n; i++) {
-      const k = 1 - tr.age[i] / TRAIL_LIFE, a = tr.mute[i] || k <= 0 ? 0 : k; // 卡通版的形状和阶梯都在着色器里按 k 算
+      const k = 1 - tr.age[i] / life, a = tr.mute[i] || k <= 0 ? 0 : k; // 卡通版的形状和阶梯都在着色器里按 k 算
       tr.al[i * 2] = tr.al[i * 2 + 1] = a;
     }
     tr.pos.set(n === TRAIL_MAX ? tr.p : tr.p.subarray(0, n * 6));
@@ -20970,13 +21175,37 @@
     ge.setDrawRange(0, Math.max(0, n - 1) * 6);
     tr.mesh.visible = n > 1;
   }
-  // 刀光的颜色（一般取这一击里占比最大的伤害类型）
-  W.setTrail = function (hex) {
-    const p = fxPal(hex);
+  // 刀光的颜色（一般取这一击里占比最大的伤害类型）。处决的奶油色（0xfff0c0）也算物理；别的自定义颜色按它自己调出三档，不往白里混
+  const _tpal = [0, 0, 0], tPal = { hex: -1 };
+  function trailSetPal(p) {
     trail.c0.value.set(p[0]);
     trail.color.value.set(p[1]);
     trail.c2.value.set(p[2]);
+  }
+  W.setTrail = function (hex) {
+    tPal.hex = hex;
+    if (trail.dust.value > 0.5) return; // 尘带画着的时候先不换色（换回刀光时再按 tPal 上色）
+    trailSetPal(trailPalOf(hex));
   };
+  function trailPalOf(hex) {
+    if (hex === 0xfff0c0 || hex === undefined || hex < 0) return TRAIL_PAL.phys;
+    const TH = G.TYPE_HEX;
+    for (const k in TRAIL_PAL) if (TH[k] === hex) return TRAIL_PAL[k];
+    _tpal[0] = mixHex(hex, 0xffffff, 0.3);
+    _tpal[1] = hex;
+    _tpal[2] = mixHex(hex, 0x000000, 0.5);
+    return _tpal;
+  }
+  // 刀光 / 尘带切换：换画法时把还没淡完的旧采样清掉（不然旧的一截会被换成另一种画法）
+  // 测试用：刀光 / 尘带现在有几个采样、是哪种画法、画没画出来
+  W.trailInfo = () => ({ n: trail.n, live: trail.live, dust: trail.dust.value, vis: trail.mesh.visible, c: [trail.c0.value.getHex(), trail.color.value.getHex(), trail.c2.value.getHex()] });
+  function trailMode(m) {
+    if (trail.dust.value === m) return;
+    trail.dust.value = m;
+    trail.n = 0;
+    trail.live = 0;
+    trailSetPal(m ? TRAIL_DUST : trailPalOf(tPal.hex));
+  }
 
   // 贴地痕迹。kind：0 擦痕（短促，加色）1 焦痕 2 霜痕 3 电痕 4 灰迹 5 地裂 6 命中印记；r 半径（擦痕为长度的一半），
   // wide 只对擦痕有意义（半宽）。
@@ -21520,7 +21749,8 @@
     for (let i = 0; i < b.n - 1; i++) {
       const ax = b.inX[i], az = b.inZ[i], bx = b.inX[i + 1], bz = b.inZ[i + 1];
       const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz) || 0.001;
-      const sub = Math.max(2, Math.min(10, Math.ceil(len / 1.0)));
+      const lc = i === 0 && b.cnt0 ? Math.hypot(bx - b.sx0, bz - b.sz0) || 0.001 : len;
+      const sub = Math.max(2, Math.min(10, Math.ceil(lc / 1.0)));
       const nx = -dz / len, nz = dx / len;
       for (let k = 0; k < sub; k++) {
         if (np >= 120) break;
@@ -21598,6 +21828,11 @@
     }
     // o.emit：玩家用武器放的（疾咒的链雷）——折线从杖头起，不从胸口（只改画面，调用方的点不动）
     const pe = o && o.emit && !W.emitOff ? pEnt() : null;
+    // skill-5a：画面从出手点起时，第一段折线细分几节（取几次随机数）按模拟给的起点算，不按出手点算——
+    // 取随机数的次数不随姿势 / 挂点变（muzzle-socket 之后按出手点算，杖头摆到哪儿会改变后面整场的随机序列）
+    b.cnt0 = pe ? 1 : 0;
+    b.sx0 = b.inX[0];
+    b.sz0 = b.inZ[0];
     if (pe) {
       emitEst(pe, _em);
       b.inX[0] = _em.x;
@@ -26212,7 +26447,7 @@
     if (name.indexOf('fire_') === 0) {
       RF.fireAt = wtime;
       if (ent.gearType === G_BOW) ent.bowAt = ent.bowShots | 0; // 这一张弓还没射出箭（见 bowNock）
-      if (name === 'fire_revolver') ent.revTurn = (ent.revTurn || 0) + 1;
+      if (name === 'fire_revolver' && !(opts && opts.raise)) ent.revTurn = (ent.revTurn || 0) + 1; // 提前抬枪（skill-5a）不算一发，转轮不转
       return;
     }
     if (name.indexOf('r_') !== 0 && name.indexOf('w_') !== 0) return;
@@ -26615,6 +26850,16 @@
       W.entSocket(ent, 'weapon', _rs);
       mBill(_rs.x, _rs.y, _rs.z, 0.34 + 0.06 * Math.sin(wtime * 37));
       pfPut('glow', 1.2, 0.9, 0.55);
+      if (qualId === 'low') {
+        // 低画质：每秒片数减半，游戏镜头里火柱头 1.5 米只剩几根细线，看着和枪口断开（skill-5a）。
+        // 从喷嘴往前补一根实色的橙色火芯 + 一道细的加色火线（还是 flameN / flame 两个零件，不加 draw；不偏白），和火身接上
+        const jx = RF.jet.x, jz = RF.jet.z, fl = 0.9 + 0.1 * Math.sin(wtime * 41), L = 1.6;
+        const ax = _rs.x + jx * L, ay = _rs.y - 0.2, az = _rs.z + jz * L;
+        mStretch(ax, ay, az, jx, -0.125, jz, 0.3 * fl, L * 1.05);
+        pfPut('flameN', 1.0, 0.46, 0.09);
+        mStretch(ax, ay + 0.02, az, jx, -0.125, jz, 0.17 * fl, L);
+        pfPut('flame', 0.95, 0.5, 0.12);
+      }
       jetLicks(P.x, P.z, RF.jet.x, RF.jet.z, flameRange(), qualId === 'low');
     }
     // --- 焚天炎爆：出手帧放火浪（game.js 调过 W.fireNova 就不重复） ---
