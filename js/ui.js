@@ -5439,7 +5439,8 @@
   // 第二次确认的话：回收位里已经有一个角色时，写明它会被彻底删掉
   function delFinalText() {
     const tr = G.slots ? G.slots.trash() : null;
-    return '删了就找不回来了。真的删除？' + (tr ? '回收位里的 ' + esc(charLabel(tr.sum)) + ' 会被彻底删除。' : '');
+    // 删掉的角色先进回收位（能恢复）；只有回收位里原来那个会被顶掉、找不回来
+    return tr ? '回收位里的 ' + esc(charLabel(tr.sum)) + ' 会被彻底删除，找不回来。确定删除？' : '删掉后先放进回收位，在角色页可以恢复。确定删除？';
   }
   const DEL_ALT = '删掉的角色先放进回收位，在角色页可以恢复。回收位只放最近删掉的一个，再删一个，原来那个就彻底没了。';
   const slotList = () => (G.slots ? G.slots.list() : { active: 0, slots: [] });

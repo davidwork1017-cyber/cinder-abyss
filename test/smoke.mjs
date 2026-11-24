@@ -10326,6 +10326,7 @@ async function main() {
     await ev(() => { T.arena(); T.hintsSeen(); });
     // 帮助页
     await page.keyboard.press('KeyH');
+    await page.click('[data-act="topic"][data-topic="combo"]'); // B4a：帮助页一次只显示一个话题，这几条在「连击」
     const help = await ev(() => T.bodyText());
     cleanText(help, '帮助页');
     for (const w of ['连击', '终结技', '架势', '破绽', '处决', '翻滚可以取消挥砍']) assert(help.includes(w), '帮助页缺少「' + w + '」的说明');
@@ -12465,6 +12466,8 @@ async function main() {
       await page.keyboard.press(k);
       cleanText(await ev(() => T.bodyText()), k + ' 页（满配角色）');
     }
+    // B4a：帮助页一次只显示一个话题，每个话题都查一遍
+    for (const id of await ev(() => Array.from(document.querySelectorAll('[data-act="topic"]')).map((b) => b.dataset.topic))) cleanText(await ev((id) => (G.ui.open('help', id), T.bodyText()), id), 'help·' + id + ' 页（满配角色）');
     await closePanel();
     await ev(() => G.debug.hold(true));
   });
@@ -13884,7 +13887,7 @@ async function main() {
     return fixed.uniq;
   });
 
-  // multisave-d1：删除要确认两次（「删除 未定 · N 级？」→「删了就找不回来了。真的删除？」），删掉的角色先进回收位；
+  // multisave-d1：删除要确认两次（「删除 未定 · N 级？」→「删掉后先放进回收位，在角色页可以恢复。确定删除？」，回收位有人时写明那个会被彻底删除），删掉的角色先进回收位；
   // 开场卡片改成所有角色共用一份「看过」，所以删完的新角色不再弹（原来断言「全新存档应再次弹出开场卡片」）
   await step('删除存档：确认两次后换成全新角色，原来的进回收位', async () => {
     await openSettings(); // B4a：「删除这个角色」从地图页挪进设置的最下面（data-act → data-tact，流程和文字不变）
@@ -13896,7 +13899,7 @@ async function main() {
     await page.click('#p-view [data-tact="del-save"]');
     await page.click('#p-view [data-tact="del-confirm"]');
     const ask2 = await ev(() => ({ final: !!document.querySelector('#p-view [data-tact="del-final"]'), txt: (document.querySelector('#p-view .del-warn') || {}).innerText || '' }));
-    assert(ask2.final && ask2.txt.startsWith('删了就找不回来了。真的删除？'), '第一次确认后应再问一次：' + JSON.stringify(ask2));
+    assert(ask2.final && /^(删掉后先放进回收位，在角色页可以恢复。|回收位里的 .+ 会被彻底删除，找不回来。)确定删除？$/.test(ask2.txt), '第一次确认后应再问一次：' + JSON.stringify(ask2));
     const keep = await ev(() => localStorage.getItem('cinder-abyss-save-v1'));
     // 防卡死的超时（不是行为断言）：15 → 30 秒。实测（188deef 之后，池里）这次重载 8.4–12.2 秒（10 次），四个 Chrome 一起跑的 test:func 里整步 13.9–15.0 秒、
     // 一次超过 15 秒失败；按最慢的约 2 倍定
@@ -24006,7 +24009,7 @@ async function slotSteps() {
     assert((await ev(() => localStorage.getItem('cinder-abyss-save-v1-s4'))) === k4, '第一次确认前不该删');
     await page.click('[data-tact="ch-del2"]');
     t = await view();
-    assert(t.includes('删了就找不回来了。真的删除？') && !t.includes('会被彻底删除') && t.includes('按住 Alt'), '第二次确认的话不对：' + t);
+    assert(t.includes('删掉后先放进回收位，在角色页可以恢复。确定删除？') && !t.includes('会被彻底删除') && t.includes('按住 Alt'), '第二次确认的话不对：' + t);
     await page.keyboard.down('Alt');
     const alt = await ev(() => { const d = document.querySelector('#title .alt-d'); return d && getComputedStyle(d).display !== 'none' ? d.innerText : ''; });
     await page.keyboard.up('Alt');
@@ -24031,7 +24034,7 @@ async function slotSteps() {
       await page.click('[data-tact="ch-del"][data-slot="' + k + '"]');
       await page.click('[data-tact="ch-del2"]');
       t = await view();
-      if (k === 4) assert(t.includes('回收位里的 未定 · 12 级 会被彻底删除'), '回收位有人时第二次确认应写明会被顶掉：' + t);
+      if (k === 4) assert(t.includes('回收位里的 未定 · 12 级 会被彻底删除，找不回来。确定删除？'), '回收位有人时第二次确认应写明会被顶掉：' + t);
       await page.click('[data-tact="ch-del3"]');
     }
     r = await ev(() => ({ s4: localStorage.getItem('cinder-abyss-save-v1-s4'), s5: localStorage.getItem('cinder-abyss-save-v1-s5'), tr: JSON.parse(localStorage.getItem('cinder-abyss-trash') || 'null') }));
@@ -26505,6 +26508,9 @@ async function touchSteps() {
     const zName = await ev(() => G.ZONES[1].name);
     out.zone = await press('.zone[data-tip="zone:1:0"]');
     out.zoneOff = await dismiss();
+    // 收起浮窗的那一下点在页头左边（第一个页签上）：机器忙、过了长按后 600 ms 的吞点击窗口时会切到背包页。再打开地图，下面的轻点照样点区域卡片
+    await ev(() => G.ui.open('map'));
+    await frames(2);
     // 轻点（不到 450 ms）不出浮窗：按下 120 ms 就松手，松手之后再看（中途去页面里读状态会把按住的时间拖长）
     {
       const r0 = await ev(() => T.rect('.zone[data-tip="zone:0:0"]'));
