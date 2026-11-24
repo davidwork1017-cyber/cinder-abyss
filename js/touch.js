@@ -86,6 +86,34 @@
     if (on) layout();
   }
 
+  // ---------- 只弹一张教程：触屏版开场卡片弹过，「触屏操作」提示卡就不再弹 ----------
+  // 开场卡片一打开就记下（不等点「开始」，开着卡片刷新页面也不补弹）。原来只在每帧的 tick 里看卡片在不在：
+  // 机器忙、一帧几百毫秒时，卡片可能在两帧之间开了又关（点得快），没记上，关掉以后提示卡又弹出来，等于第二张教程。
+  // 现在用 MutationObserver 盯着卡片的 class（微任务，不等下一帧；同一个任务里开了又关也能从 oldValue 看出来），tick 里的检查只是兜底
+  T.introSeen = false;
+  function markIntro() {
+    T.introSeen = true;
+    lsSet(HINT_KEY, '1');
+    if (T.hintOn && dom) {
+      // 提示卡已经先弹出来了（开场卡片晚到）：收起，不让它在开场卡片之后再露出来
+      T.hintOn = false;
+      dom.hint.classList.remove('on');
+    }
+  }
+  let introObs = null;
+  function watchIntro(on) {
+    if (on && !introObs && window.MutationObserver && dom && dom.intro) {
+      introObs = new MutationObserver((list) => {
+        if (T.introSeen) return;
+        for (const m of list) if (/(^|\s)on(\s|$)/.test(m.oldValue || '') || m.target.classList.contains('on')) return markIntro();
+      });
+      introObs.observe(dom.intro, { attributes: true, attributeFilter: ['class'], attributeOldValue: true });
+    } else if (!on && introObs) {
+      introObs.disconnect();
+      introObs = null;
+    }
+  }
+
   // ---------- 震动（安卓）：重击、翻滚、残血时短震。只读玩家状态，不碰模拟；两次之间至少隔 120 ms，残血每 6 秒最多一次 ----------
   const BUZZ = { hit: 35, roll: 12, exec: 28, low: [40, 70, 40] };
   const BUZZ_GAP = 120;
@@ -169,7 +197,6 @@
   let labelsOn = false;
   let raf = 0;
   let introSaved = null;
-  let introSeen = false; // 这台设备上触屏版的开场卡片弹过了
 
   const live = () => T.on && !T.blocked && !G.ui.isOpen() && !!G.state.zone;
   const onCanvas = (t) => !t || t === document.body || t === document.documentElement || t.tagName === 'CANVAS';
@@ -781,6 +808,7 @@
     window.addEventListener('blur', releaseAll);
     window.addEventListener('pagehide', releaseAll);
     watchTilt(true);
+    watchIntro(true);
     setManifest(true);
     setThemeColor(true);
     applyPrefs();
@@ -792,6 +820,7 @@
   function disable() {
     setRot(null);
     watchTilt(false);
+    watchIntro(false);
     T.on = false;
     releaseAll();
     input.aim = null;
@@ -1063,13 +1092,11 @@
     dom.portrait.classList.toggle('on', T.portrait);
     // 触屏下开场卡片讲的就是触屏操作（swapIntro）：它弹过，首次提示卡就不再弹，不然同一套操作连讲两遍。
     // 卡片一打开就记下（不等点「开始」）：开着卡片刷新页面，回来也不会补弹提示卡
-    if (!introSeen && dom.intro && dom.intro.classList.contains('on')) {
-      introSeen = true;
-      lsSet(HINT_KEY, '1');
-    }
+    if (!T.introSeen && dom.intro && dom.intro.classList.contains('on')) markIntro(); // 兜底：主要靠 watchIntro 的 MutationObserver
     // 首次提示卡：第一次真正进到游戏画面（开场卡片、故事、标题都收起）时弹一次，每台设备一次；
     // 只给没弹开场卡片的人（这台设备上的老角色、别的角色看过开场卡片的新角色）
-    if (!T.hintOn && !introSeen && G.state.zone && !G.ui.isOpen() && !T.portrait && lsGet(HINT_KEY) !== '1') {
+    // 这个角色的开场卡片还没弹（新角色刚进区、开场故事还没开始放）时也不弹，等它先来
+    if (!T.hintOn && !T.introSeen && G.state.zone && G.save && G.save.seenHelp && !G.ui.isOpen() && !T.portrait && lsGet(HINT_KEY) !== '1') {
       T.hintOn = true;
       dom.hint.classList.add('on');
     }

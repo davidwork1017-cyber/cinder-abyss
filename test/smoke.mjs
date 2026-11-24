@@ -26295,6 +26295,54 @@ async function touchSteps() {
     return r.lines.length + ' 个画面，共量 ' + r.lines.reduce((n, l) => n + +l.split(' ').pop(), 0) + ' 个框';
   });
 
+  await step('触屏：只弹一张教程（确定性）——开场卡片在两帧之间开了又关（机器忙、点得快）也记得上；提示卡先弹出来、开场卡片后到时收起提示卡；新角色的开场卡片还没来时不先弹提示卡', async () => {
+    await touchPage();
+    const K = TOUCH_HINT_KEY;
+    const st = () => ev((K) => ({ key: localStorage.getItem(K), seen: G.touch.introSeen, hint: G.touch.state().hint, hintCls: document.getElementById('t-hint').className }), K);
+    // 1) 同一个任务里打开再关掉开场卡片（中间没有一帧）：原来每帧看一眼的写法记不上
+    await ev((K) => {
+      localStorage.removeItem(K);
+      G.touch.introSeen = false;
+      G.ui.showIntro();
+      document.getElementById('intro-go').click();
+    }, K);
+    await frames(3);
+    const a = await st();
+    assert(a.key === '1' && a.seen && !a.hint, '两帧之间开了又关的开场卡片应记上、不弹提示卡：' + JSON.stringify(a));
+    // 2) 提示卡先弹出来（老角色、键没记），开场卡片后到：提示卡收起，关掉开场卡片以后也不再露出来
+    await ev((K) => {
+      localStorage.removeItem(K);
+      G.touch.introSeen = false;
+      G.ui.close();
+    }, K);
+    await until(() => G.touch.state().hint, null, 10000);
+    const b0 = await st();
+    await ev(() => G.ui.showIntro());
+    await frames(2);
+    const b1 = await st();
+    await ev(() => document.getElementById('intro-go').click());
+    await frames(3);
+    const b2 = await st();
+    // 3) 新角色（seenHelp 为假）：开场卡片还没来，提示卡不先弹
+    await ev((K) => {
+      localStorage.removeItem(K);
+      G.touch.introSeen = false;
+      G.save.seenHelp = false;
+    }, K);
+    await frames(6);
+    const c = await st();
+    await ev(() => {
+      G.ui.showIntro();
+    });
+    await frames(2);
+    await ev(() => document.getElementById('intro-go').click());
+    await frames(4);
+    const c2 = await st();
+    assert(b0.hint && b1.key === '1' && !b1.hint && !/on/.test(b1.hintCls) && !b2.hint, '开场卡片后到时应收起提示卡、之后不再露出来：' + JSON.stringify({ b0, b1, b2 }));
+    assert(!c.hint && c2.key === '1' && !c2.hint, '新角色的开场卡片还没来时不该先弹提示卡：' + JSON.stringify({ c, c2 }));
+    return '同一任务开关 → 记上；提示卡先到 → 被收起；开场卡片未到 → 不弹';
+  });
+
   await step('触屏：圆角（M2）——按钮大小「大」、左手模式、旋转横屏（顺 / 逆时针）下 HUD 和背包的字和按钮也不碰 iPhone 圆角', async () => {
     await touchPage();
     const r = await cornerHud(page, [
