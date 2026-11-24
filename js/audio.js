@@ -595,9 +595,62 @@
     execstart: ['sfx', 4, 0.1], execute: ['sfx', 4, 0.3, 1.58], markburst: ['sfx', 3, 0.15], ashcuts: ['sfx', 4, 0.3, 1.41],
     tristorm: ['sfx', 4, 0.3, 1.41], soulhost: ['sfx', 4, 0.35, 1.41], soulfire: ['sfx', 3, 0.15],
     round: ['sfx', 2, 0.05], lamp: ['sfx', 2, 0.08], // 特殊弹 / 提灯（class-d2b1）
+    cls2: ['sfx', 2, 0.05], // 绊雷 / 硬接 / 燎地 / 心火 / 跳射（class-d2b2）
   };
 
   const SFX = {
+    // class-d2b2：p.type。绊雷咔哒布雷 / 短的爆炸 / 铁索哗啦；硬接起架一声轻擦、挡下是金属相撞的铛、反砍嗖一下、拆招清亮的一声；
+    // 燎地刀刮地的拖拽 / 呼地起火；心火低沉的一声点燃 / 余烬噗地炸开；跳射起跳一声、弓弦响
+    cls2(t, p) {
+      const v = jit(0.05);
+      const ty = p.type;
+      if (ty === 'snare') {
+        tick(t, 1900 * v, 0.2, 0.01);
+        tick(t + 0.05, 1400 * v, 0.16, 0.012);
+        noise('bandpass', 1200 * v, 800, t, 0.1, 0.08, 1.2, 0.002);
+      } else if (ty === 'boom') {
+        noise('lowpass', 2000 * v, 160, t, 0.28, 0.5, 0.8, 0.002);
+        tone('sine', 82 * v, 36, t, 0.22, 0.34, 0.003);
+        crackle(t + 0.04, 0.2, 6, 2400, 0.06);
+      } else if (ty === 'tether') {
+        crackle(t, 0.22, 10, 1800, 0.1);
+        noise('bandpass', 900 * v, 1400, t, 0.24, 0.12, 2, 0.01);
+        tick(t + 0.2, 1200, 0.16, 0.02);
+      } else if (ty === 'brace') {
+        noise('bandpass', 2400 * v, 1600, t, 0.08, 0.07, 1.6, 0.004);
+      } else if (ty === 'clang') {
+        fm(820 * v, 3.1, 2.2, t, 0.34, 0.16, 0.001);
+        fm(1310 * v, 2.4, 1.4, t, 0.22, 0.08, 0.001);
+        noise('highpass', 3200, 2600, t, 0.05, 0.16, 0.8, 0.001);
+      } else if (ty === 'counter') {
+        noise('bandpass', 900 * v, 3200, t, 0.16, 0.2, 1.4, 0.01);
+      } else if (ty === 'parry') {
+        fm(1500 * v, 2.0, 1.8, t, 0.42, 0.14, 0.001);
+        tone('sine', 2990 * v, 2980 * v, t, 0.3, 0.05, 0.002);
+        noise('bandpass', 1100 * v, 3600, t + 0.05, 0.14, 0.14, 1.4, 0.01);
+      } else if (ty === 'drag') {
+        noise('bandpass', 1500 * v, 900, t, 0.26, 0.12, 2.5, 0.02);
+        crackle(t, 0.24, 8, 3000, 0.05);
+      } else if (ty === 'ignite') {
+        noise('lowpass', 500 * v, 1600, t, 0.3, 0.18, 0.8, 0.03);
+        crackle(t + 0.05, 0.3, 6, 2400, 0.05);
+      } else if (ty === 'heart') {
+        tone('sine', 66 * v, 110, t, 0.5, 0.18, 0.06);
+        noise('lowpass', 240 * v, 900, t, 0.55, 0.2, 0.9, 0.18);
+        crackle(t + 0.15, 0.35, 6, 2200, 0.05);
+      } else if (ty === 'burst') {
+        trim(0.85);
+        noise('lowpass', 1200 * v, 200, t, 0.16, 0.24, 0.8, 0.003);
+        crackle(t + 0.02, 0.14, 4, 2600, 0.05);
+      } else if (ty === 'leap') {
+        noise('bandpass', 600 * v, 300, t, 0.14, 0.1, 0.9, 0.01);
+        noise('lowpass', 900 * v, 200, t + 0.33, 0.1, 0.14, 0.8, 0.003);
+      } else {
+        // 弓弦（跳射每一箭）
+        tone('triangle', 210 * v, 140, t, 0.12, 0.14, 0.002, 2200);
+        noise('bandpass', 2200 * v, 1200, t, 0.05, 0.08, 1.6, 0.001);
+      }
+    },
     // 特殊弹（class-d2b1）：p.type 弹种（zap = 雷楔放电）。铁水弹闷响一枪接滋滋声；雷楔叮地钉进去；霜霰弹一枪清脆的接碎冰声；反冲弹很重的一声炮响接靴底刮地
     round(t, p) {
       const v = jit(0.05);
@@ -993,7 +1046,7 @@
   };
 
   // 同名音效限流（毫秒）：避免同帧叠成一声巨响
-  const MIN_GAP = { round: 40, lamp: 50, shot: 40, hit: 55, crit: 70, cast: 60, hurt: 120, pickup: 60, click: 30, roll: 100, heart: 300, deny: 160, ready: 120, drop: 80, impact: 40, swing: 70, finisher: 150, ashcuts: 300, tristorm: 300, soulhost: 300, break: 200, execute: 200, execstart: 200, kill: 70 };
+  const MIN_GAP = { cls2: 40, round: 40, lamp: 50, shot: 40, hit: 55, crit: 70, cast: 60, hurt: 120, pickup: 60, click: 30, roll: 100, heart: 300, deny: 160, ready: 120, drop: 80, impact: 40, swing: 70, finisher: 150, ashcuts: 300, tristorm: 300, soulhost: 300, break: 200, execute: 200, execstart: 200, kill: 70 };
   const NO_P = {};
 
   // 排一次音效：nowMs 限流用的时钟，t 开始时间（AudioContext 时间）

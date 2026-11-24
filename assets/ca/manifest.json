@@ -1272,6 +1272,67 @@
    "sha256": "fffa181a305128081f8e4dc7463ffc13d915c5194dcf71964076b255da330fbf"
   },
   {
+   "id": "ca/boss_behemoth",
+   "category": "boss",
+   "zone": "boss",
+   "file": "assets/ca/boss/behemoth.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 4240,
+   "verts": 11916,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -1.53,
+     0,
+     -4.244
+    ],
+    "max": [
+     1.53,
+     5.998,
+     5.441
+    ]
+   },
+   "h": 5.998,
+   "r": 5.441,
+   "y0": 0,
+   "source": {
+    "script": "art/ca/boss/behemoth.py",
+    "clips": "art/ca/boss/behemoth_clips.py",
+    "gen": "behemoth",
+    "catalog": "art/catalog.py",
+    "seed": 207,
+    "args": {},
+    "bake": {
+     "ao": 0.6,
+     "grad": 0.8,
+     "wear": 0.4,
+     "grime": 0.25,
+     "gain": 1.32
+    }
+   },
+   "bones": 29,
+   "clips": [
+    "broken",
+    "death",
+    "gravity",
+    "gravity_w",
+    "hit",
+    "idle",
+    "mood",
+    "slam",
+    "slam_w",
+    "starfall",
+    "starfall_w",
+    "sweep",
+    "sweep_w",
+    "walk"
+   ],
+   "home": "rift",
+   "sha256": "7769b8bdf80d4412d80ca14528500fecc55c3ff42ea03b4e28f77e7f2a607a24"
+  },
+  {
    "id": "ca/boss_golem",
    "category": "boss",
    "zone": "boss",

@@ -3,7 +3,7 @@
 // 分两份（见 test/README.md）：main() 是 test:func（不看墙钟，可以和别的 Chrome 一起跑），timedMain() 是 test:timed（要独占机器）。
 // node test/smoke.mjs = 两份都跑（先 func 后 timed）；--func / --timed 只跑一份。
 import { launch as launchFull, GAME_URL } from './harness.mjs';
-import { cornerScenes, cornerCheck } from './corner-mask.mjs';
+import { cornerScenes, cornerHud, cornerCheck } from './corner-mask.mjs';
 import { execSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 import { checkArt } from '../tools/check-art.mjs';
@@ -1877,7 +1877,7 @@ async function main() {
       G.debug.learnAll();
       return { skills: Object.keys(G.save.skills).length, sups: G.save.supports.length, bar: G.save.bar.slice(), cleave: !!G.SKILLS.cleave || G.GEM_SKILLS.indexOf('cleave') >= 0 };
     });
-    assert(r.skills === 24 && r.sups === 34 && [0, 2, 3].every((i) => r.bar[i]) && r.bar[1] === null && !r.cleave, JSON.stringify(r));
+    assert(r.skills === 29 && r.sups === 34 && [0, 2, 3].every((i) => r.bar[i]) && r.bar[1] === null && !r.cleave, JSON.stringify(r));
   });
 
   for (let i = 0; i < SKILL_IDS.length; i++) {
@@ -7958,7 +7958,7 @@ async function main() {
     cleanText(await ev(() => T.bodyText()), '技能页');
     // 武器普攻卡（.basic-card，拿着远程武器时才生效）另算
     const cards = await ev(() => ({ n: document.querySelectorAll('.skill-card:not(.wsk-card):not(.basic-card)').length, ws: document.querySelectorAll('.wsk-card').length }));
-    assert(cards.n === 24 && cards.ws === 1, '技能卡数量不对（24 张技能卡（裂石击已删除，skill-expand 加了 6 张，class-d2b1 加了 4 种特殊弹）+ 1 张武器技卡）：' + JSON.stringify(cards));
+    assert(cards.n === 29 && cards.ws === 1, '技能卡数量不对（29 张技能卡（裂石击已删除，skill-expand 加了 6 张，class-d2b1 加了 4 种特殊弹，class-d2b2 加了 5 张）+ 1 张武器技卡）：' + JSON.stringify(cards));
     await page.click('[data-act="bind"][data-skill="nova"][data-slot="2"]');
     let r = await ev(() => ({ bar: G.save.bar.slice(), on: document.querySelector('[data-act="bind"][data-skill="nova"][data-slot="2"]').classList.contains('on') }));
     assert(r.bar[2] === 'nova' && r.on && r.bar.filter((b) => b === 'nova').length === 1, '界面绑定失败：' + r.bar);
@@ -8079,7 +8079,7 @@ async function main() {
       mid = await ev(() => { const own = (sel) => Array.from(document.querySelectorAll(sel)).filter((n) => n.dataset.skill !== G.BASIC_CARD).length; return { lit: own('.sock.drop-ok'), dim: own('.sock.drop-no'), cap: document.querySelector('#drag-ghost em').textContent }; });
     });
     // skill-expand：20 个技能 60 个孔；散钉也是投射物（12 / 30 → 15 / 45）
-    assert(mid.lit === 27 && mid.dim === 45 && mid.cap === '镶进 掷焰', '拖辅助宝石时只有带「投射物」标签的技能的槽应亮起（掷焰、飞刃、焚骨祭司、黑旋风、散钉，class-d2b1 的四种特殊弹）：' + JSON.stringify(mid));
+    assert(mid.lit === 30 && mid.dim === 57 && mid.cap === '镶进 掷焰', '拖辅助宝石时只有带「投射物」标签的技能的槽应亮起（掷焰、飞刃、焚骨祭司、黑旋风、散钉，class-d2b1 的四种特殊弹，class-d2b2 的跳射）：' + JSON.stringify(mid));
     let r = await ev(() => ({ e: G.save.sockets.ember.slice(), proj: G.skillCtx('ember').proj }));
     assert(r.e[0] === 'multi' && r.proj === 3, '宝石没有镶上：' + JSON.stringify(r));
     await dragTo(sup('brutal'), sock('ember', 1), async () => {
@@ -12057,6 +12057,7 @@ async function main() {
     // fx-rng 重定：特效的随机数从 Math.random 分出去以后（画面随机数 G.vr），模拟这一路只剩 112 次。原来 main 691ef67（程序化外观）上量的是 12254fc1 / 24478 次
     golem: { hash: '4fc99b3d', calls: 112, secs: '9e1090d0,a448b82d,d32dc0c0,cd636106,d1d75655,66e79a53,47bda2f4,c30ac709,617cb6b2,36a0a0ec,5a7ca4f7,f574dfb2,2095a119,b3f4a835,cdbea357'.split(',') },
     lord: { hash: '6bcd5507', calls: 114, secs: '24815422,e21feb3a,ebe73ddb,5d25957d,b63a99b0,8e38a8e6,7dba3ec4,c48bbb94,b7d35d0a,a5d6ea59,63f52b72,e7eac088,98c19b85,e738b0a0,4d2180d1'.split(',') }, // main 25e390e（fx-rng 之后，程序化外观）上量的；fx-rng 之前 main a2831c3 上是 5ed52b42 / 30070 次
+    behemoth: { hash: 'f5f43ce4', calls: 123, secs: 'e18ee022,7352cd8d,5b43567a,a2cce81a,1519cee2,75635a63,c5bd0ee2,e0e76dc3,feb8fd4d,1cb6dd7f,f4ae329e,716bf23b,87f57802,31f02c47,44888a78'.split(',') }, // main 25e390e（程序化外观）上量的
   };
   // tiers（boss-lord 起）：再按另一档画质打一遍，指纹也要一样（fx-rng 的「高 = 低」规则用在首领战上）
   const bossFpStep = (kind, CN, tiers) => step('首领指纹：' + CN + '固定种子打 15 秒，局面和取随机数次数和换模型之前逐位相同；首领包打到一半才到，也只在招式之间换模型、指纹不变' + (tiers ? '；换一档画质打出来也一样' : ''), async () => {
@@ -12127,6 +12128,7 @@ async function main() {
   });
   await bossFpStep('golem', '熔渣巨像');
   await bossFpStep('lord', '烬渊之主', true);
+  await bossFpStep('behemoth', '衔星巨兽', true);
 
   // boss-golem：首领模型的三步（模型 / 出手对拍 / 死亡和破防），量的都是新模型（首领包到了以后建的骨架）
   const BOSS_BONES = JSON.parse(readFileSync(new URL('../art/rig.json', import.meta.url), 'utf8')).boss;
@@ -12191,6 +12193,7 @@ async function main() {
   });
   await bossModelStep('golem', '熔渣巨像');
   await bossModelStep('lord', '烬渊之主');
+  await bossModelStep('behemoth', '衔星巨兽');
 
   // 每只首领：招式、模拟里的蓄力时长（enemies.js 的 PATTERN_WIND，换模型不动）、接触姿势的量（接触帧应是极值）、出事件的方式、蓄力时挨打用的蓄力动作
   //   量：weaponLow = 武器挂点最低（锤石落地 / 剑插进地里），handsApart = 两只手离得最远，pelvisFwd = 骨盆冲到最前，handFwd = 左手（hand 挂点的关节）甩到最前，
@@ -12199,6 +12202,8 @@ async function main() {
   const BOSS_CLIPS = {
     golem: { CN: '熔渣巨像', wind: { slam: 0.95, charge: 0.75, ring: 0.45 }, m: { slam: 'weaponLow', ring: 'handsApart', charge: 'pelvisFwd' }, ev: {}, steady: ['slam_w', 0.8] },
     lord: { CN: '烬渊之主', wind: { slam: 0.95, fan: 0.4, spiral: 0.25, cross: 0.9, barrage: 0.3, summon: 0.5 }, m: { slam: 'weaponLow', fan: 'handFwd', spiral: 'handUp', cross: 'weaponLow', barrage: 'weaponUp', summon: 'weaponLow' }, ev: { barrage: 'time', summon: 'mob' }, steady: ['slam_w', 0.8] },
+    // 衔星巨兽：流星犁地 / 践踏 = 前蹄（hand 挂点，左前蹄）踩到最低；坍缩 = 头压到最低；吐息 = 嘴张到最开（下巴尖离头最远）。坍缩和吐息的预警在起手时就出了、没有结算回调：按蓄力到点对
+    behemoth: { CN: '衔星巨兽', wind: { starfall: 0.7, gravity: 0.6, sweep: 0.9, slam: 0.95 }, m: { starfall: 'handLow', gravity: 'headLow', sweep: 'jawOpen', slam: 'handLow' }, ev: { gravity: 'time', sweep: 'time' }, steady: ['slam_w', 0.783] },
   };
   const bossClipStep = (kind) => step('首领出手对拍：' + BOSS_CLIPS[kind].CN + '每一招的蓄力 / 出手动作都在，出手提前量比蓄力短，伤害 / 起冲 / 弹幕离手的那一帧正好是出手动作的接触帧（误差不到一帧）；蓄力时挨打不晃', async () => {
     await ev((kind) => G.assets.need(['boss-' + kind]), kind);
@@ -12220,6 +12225,10 @@ async function main() {
           const S0 = {}, mt = () => {
             const e = b.ent, wp = W.entSocket(e, 'weapon'), hd = W.entSocket(e, 'hand'), M = e.mdl, pz = M[e.rig.JI.pelvis * 12 + 11], hj = e.rig.JI.hand_l;
             const m = C.m[p];
+            const hs = W.entSocket(e, 'head');
+            if (m === 'handLow') return -hd.y;
+            if (m === 'headLow') return -hs.y;
+            if (m === 'jawOpen') return Math.hypot(wp.x - hs.x, wp.y - hs.y, wp.z - hs.z);
             return m === 'weaponLow' ? -wp.y : m === 'handsApart' ? Math.hypot(wp.x - hd.x, wp.z - hd.z) : m === 'pelvisFwd' ? pz : m === 'handFwd' ? M[hj * 12 + 11] : m === 'handUp' ? M[hj * 12 + 7] : wp.y;
           };
           const trace = [];
@@ -12281,6 +12290,7 @@ async function main() {
   });
   await bossClipStep('golem');
   await bossClipStep('lord');
+  await bossClipStep('behemoth');
 
   const bossDeathStep = (kind, CN) => step('首领死亡和破防：' + CN + '死亡动作砸到地上的那一刻是 0.90 秒（vfx3 第三段冲击环），破防垮下去以后从跪稳的姿势循环、不重播垮下去那一段', async () => {
     await ev((kind) => G.assets.need(['boss-' + kind]), kind);
@@ -12321,6 +12331,7 @@ async function main() {
   });
   await bossDeathStep('golem', '熔渣巨像');
   await bossDeathStep('lord', '烬渊之主');
+  await bossDeathStep('behemoth', '衔星巨兽');
 
   await step('刷新后仍可正常游玩：移动、施法、面板', async () => {
     await ev(() => {
@@ -14895,7 +14906,7 @@ async function main() {
         nails: !F('nails', 'chain') && F('nails', 'multi') && F('nails', 'pierce') && F('nails', 'farshot') && F('nails', 'serrate') && F('nails', 'brutal'),
         serrate: F('rend', 'serrate') && F('whirl', 'serrate') && F('blade', 'serrate') && F('thrall', 'serrate') && F('colossus', 'serrate') && F(G.BASIC_CARD, 'serrate') && !F('ember', 'serrate') && !F('nova', 'serrate') && !F('frostline', 'serrate'),
       };
-      out.drop = Math.abs(G.SKILL_DROP.elite - 0.075 * 20 / 14) < 1e-9 && Math.abs(G.SKILL_DROP.mob - 0.012 * 20 / 14) < 1e-9 && G.GEM_SKILLS.length === 24; // class-d2b1：+ 四种特殊弹（掉率常数不变，有职业时另乘 G.gemDropK）
+      out.drop = Math.abs(G.SKILL_DROP.elite - 0.075 * 20 / 14) < 1e-9 && Math.abs(G.SKILL_DROP.mob - 0.012 * 20 / 14) < 1e-9 && G.GEM_SKILLS.length === 29; // class-d2b1：+ 四种特殊弹；class-d2b2：+ 5 个（掉率常数不变，有职业时另乘 G.gemDropK）
       return out;
     }, NEW_SKILLS);
     assert(!r.bad.length && r.sup, '新技能 / 开刃的数据不全：' + JSON.stringify(r));
@@ -15295,7 +15306,7 @@ async function main() {
       out.n = Object.keys(G.VARIANTS).length;
       out.missing = G.GEM_SKILLS.filter((id) => id !== 'cleave').filter((id) => !(G.VARIANTS[id] && G.VARIANTS[id].a && G.VARIANTS[id].b && G.VARIANTS[id].a.name && G.VARIANTS[id].b.name && G.VARIANTS[id].a.desc && G.VARIANTS[id].b.desc));
       // 第一批的 6 个新技能都在表里（第二批 skill-batch2 补齐），宝石技能一共 20 个
-      out.pend = NEW.every((id) => G.GEM_SKILLS.indexOf(id) >= 0 && !!G.VARIANTS[id]) && G.GEM_SKILLS.length === 24;
+      out.pend = NEW.every((id) => G.GEM_SKILLS.indexOf(id) >= 0 && !!G.VARIANTS[id]) && G.GEM_SKILLS.length === 29;
       out.extra = Object.keys(G.VARIANTS).filter((id) => G.GEM_SKILLS.indexOf(id) < 0 || id === 'cleave');
       out.price = G.VARIANT_LVL === 10 && G.VARIANT_COST.cur === 'chaos' && G.VARIANT_COST.n === 1 && G.CURRENCY.chaos.name === '乱流石';
       s.variants = {};
@@ -15333,7 +15344,7 @@ async function main() {
       G.ui.close();
       return out;
     }, NEW_SKILLS);
-    assert(r.n === 24 && !r.missing.length && !r.extra.length && r.price && r.pend, '刻式表不全（class-d2b1 的四种特殊弹也要有 A / B）：' + JSON.stringify(r));
+    assert(r.n === 29 && !r.missing.length && !r.extra.length && r.price && r.pend, '刻式表不全（class-d2b1 的四种特殊弹、class-d2b2 的 5 个也要有 A / B）：' + JSON.stringify(r));
     assert(!r.lv9 && r.btn9 === 0 && r.lock9, '宝石 9 级不该能选刻式：' + JSON.stringify(r));
     assert(r.free && r.refuse && r.paid, '价格不对（第一次免费、之后 1 乱流石、不够拒绝）：' + JSON.stringify(r));
     assert(r.combat && r.asleep, '战斗中应拒绝换刻式：' + JSON.stringify(r));
@@ -15369,7 +15380,7 @@ async function main() {
     return '40 个刻式选一遍再改回，G.SKILLS 深比较不变';
   });
 
-  await step('刻式：单体对等——游戏内 avgHit / useMult / time 算出 48 个比值都在 [0.9, 1.1]（霜环、黑焰按总秒伤 [0.95, 1.05]）', async () => {
+  await step('刻式：单体对等——游戏内 avgHit / useMult / time 算出 58 个比值都在 [0.9, 1.1]（霜环、黑焰按总秒伤 [0.95, 1.05]）', async () => {
     const r = await ev(() => {
       T.arena();
       const s = G.save;
@@ -15390,7 +15401,7 @@ async function main() {
       return rows;
     });
     const bad = r.filter((x) => (x.total ? x.r < 0.95 || x.r > 1.05 : x.r < 0.9 || x.r > 1.1));
-    assert(r.length === 48 && !bad.length, '比值超出范围：' + JSON.stringify(bad)); // class-d2b1：+ 四种特殊弹 × A / B
+    assert(r.length === 58 && !bad.length, '比值超出范围：' + JSON.stringify(bad)); // class-d2b1：+ 四种特殊弹 × A / B；class-d2b2：+ 5 个 × A / B
     return r.map((x) => x.name + ' ' + x.r).join(' / ');
   });
 
@@ -16185,7 +16196,7 @@ async function main() {
       const keep = {};
       for (const id of G.GEM_SKILLS) keep[id] = G.SKILLS[id];
       // 渊式（c）：电桥带持续；随核跟着黑洞带持续；其余渊式不带
-      const want = { blackhole: 'oabc', vortex: 'o', arc: 'ac', blade: 'b', pyre: 'a', icefall: 'ob', molten: 'o', wedge: 'a' }; // class-d2b1：铁水弹原式（铁水）、雷楔 A 雷网带「持续」 // skill-expand：坠凌带「持续」；skill-batch2：随凌（坠凌 B）也带，重凌（A）一根冰凌不带
+      const want = { blackhole: 'oabc', vortex: 'o', arc: 'ac', blade: 'b', pyre: 'a', icefall: 'ob', molten: 'o', wedge: 'a', snare: 'oab', scorch: 'a', heartfire: 'oab' }; // class-d2b2：绊雷（每枚 7 秒、最多 3 枚）、燎原（火地）、心火（16 秒）带「持续」 // class-d2b1：铁水弹原式（铁水）、雷楔 A 雷网带「持续」 // skill-expand：坠凌带「持续」；skill-batch2：随凌（坠凌 B）也带，重凌（A）一根冰凌不带
       const huwoAura = G.skillVariant('vortex', 'a').kind === 'aura'; // 护涡改成光环之后不吃绵延、也镶不上回响
       if (!huwoAura) want.vortex += 'a';
       const bad = [], echoBad = [];
@@ -20773,6 +20784,22 @@ async function main() {
         G.input.mouse.b[0] = true;
         if (id === 'blackflame') G.input.mouse.b[2] = true; // 黑焰是附带在别的命中上：按住右键普攻
         if (i % 30 === 0) G.input.tap[0] = 0.2; // 每 0.5 秒补按一次：再按类（坍缩 / 掷旋）、手动召唤
+        // class-d2b2：硬接要挨打才有伤害（反震每挡一下震一圈）：每 0.5 秒让目标打你一下；
+        // 心火自己不打人，余烬要有敌人被你打死：每秒用心火的攻击上下文打死一只小怪
+        if (id === 'brace' && i % 30 === 15) {
+          const g0 = P.god;
+          P.god = false;
+          P.iframe = 0;
+          G.hurtPlayer(P.maxLife * 0.05, 'phys', tgt);
+          P.god = g0;
+        }
+        if (id === 'heartfire' && i % 60 === 30) {
+          const k = smalls.find((e) => e && !e.dead && e !== tgt) || smalls.find((e) => e && !e.dead);
+          if (k) {
+            k.hp = 1;
+            G.hitEnemy(k, G.skillCtx('heartfire'), 1, {}); // 心火自己的攻击上下文打死它（余烬按心火算）
+          }
+        }
         if (i % 60 === 0) {
           P.mana = P.maxMana;
           P.life = P.maxLife;
@@ -21892,6 +21919,7 @@ async function main() {
   await slotSteps();
   await classSteps();
   await d2bSteps(); // 职业 D2b-1（class-d2b1）
+  await d2b2Steps(); // 职业 D2b-2（class-d2b2）
 }
 
 // ------------------------------------------------------------------ 职业（class-d2）
@@ -21928,7 +21956,7 @@ async function d2bSteps() {
     }
   };
 
-  await step('D2b-1·数据：提灯是第 15 种武器（下标 14，单手法器，没有职业时随机掉落权重 0）、词缀 baseW 补到 15 位；特殊弹只在有职业时掉（宝石池 20 / 24、掉率 ×24/20）；各职业能用的宝石数', async () => {
+  await step('D2b-1·数据：提灯是第 15 种武器（下标 14，单手法器，没有职业时随机掉落权重 0）、词缀 baseW 补到 15 位；特殊弹只在有职业时掉（宝石池 20 / 24、掉率 ×24/20；D2b-2 起 20 / 29、×29/20）；各职业能用的宝石数', async () => {
     const r = await ev((RD) => {
       const B = G.BASES.weapon, L = B[14];
       const bw = G.AFFIXES.filter((a) => a.baseW && a.baseW.weapon).map((a) => a.id + ':' + a.baseW.weapon.length);
@@ -21948,10 +21976,10 @@ async function d2bSteps() {
     assert(r.w0 === 0 && r.wC > 0 && r.imp === 'incFire/minionDmg', '提灯的掉落权重 / 隐含不对：' + JSON.stringify(r));
     assert(r.bw.every((s) => s.endsWith(':15')), '词缀 baseW 应补到 15 位：' + r.bw.join(' '));
     assert(r.lamp === 'banner,wand,lantern' && r.focus, '掌灯人应有三种武器、提灯算法器：' + JSON.stringify(r));
-    assert(r.gems === 24 && r.pool0 === 20 && r.old && r.poolC === 24 && r.k0 === 1 && Math.abs(r.kC - 1.2) < 1e-9, '宝石池 / 掉率不对：' + JSON.stringify(r));
+    assert(r.gems === 29 && r.pool0 === 20 && r.old && r.poolC === 29 && r.k0 === 1 && Math.abs(r.kC - 1.45) < 1e-9, '宝石池 / 掉率不对：' + JSON.stringify(r));
     assert(r.need === 'gun,gun,gun,gun' && r.clsOnly, '特殊弹应只能装在枪上、只在有职业时掉：' + JSON.stringify(r));
-    assert(JSON.stringify(r.cnt) === JSON.stringify({ guard: 11, hunt: 12, star: 15, lamp: 14, forge: 12 }), '各职业能用的宝石数不对：' + JSON.stringify(r.cnt));
-    assert(r.per.lamp === 'banner:14,wand:14,lantern:14' && r.per.forge === 'gatling:12,flamer:12,revolver:12', '每把武器能用的宝石数不对：' + JSON.stringify(r.per));
+    assert(JSON.stringify(r.cnt) === JSON.stringify({ guard: 14, hunt: 15, star: 15, lamp: 14, forge: 13 }), '各职业能用的宝石数不对（class-d2b2 之后）：' + JSON.stringify(r.cnt));
+    assert(r.per.lamp === 'banner:14,wand:14,lantern:14' && r.per.forge === 'gatling:13,flamer:13,revolver:13', '每把武器能用的宝石数不对：' + JSON.stringify(r.per));
     return JSON.stringify(r.cnt) + ' · 掌灯人 ' + r.per.lamp;
   });
 
@@ -22202,7 +22230,7 @@ async function d2bSteps() {
     return '空地 ' + r.open + ' 米；' + r.rooms.join(' ');
   });
 
-  await step('D2b-1·点灯 / 借火 / 灯海：小灯 7 秒、灯光里召唤物攻速 +15%；借火 12 秒（小灯半径 2 → 3、召唤物每击附带火焰），结束时小灯炸开；灯海 8 盏 6 秒、死在阵里的必定续火', async () => {
+  await step('D2b-1·点灯 / 借火 / 灯海：小灯 7 秒、灯光里召唤物攻速 +25%；借火 12 秒（小灯半径 2 → 3、召唤物每击附带火焰），结束时小灯炸开；灯海 8 盏 6 秒、死在阵里的必定续火', async () => {
     const r = await withCls('lamp', () =>
       ev(() => {
         T.arena();
@@ -22254,8 +22282,8 @@ async function d2bSteps() {
         return out;
       })
     );
-    assert(r.r0 === 2 && r.burn && r.haste === 1.15 && r.haste0 === 1, '小灯：半径 2、灼烧、灯光里召唤物攻速 +15%：' + JSON.stringify(r));
-    assert(r.lend === 15 && r.r1 === 3 && r.lendT >= 11, '借火：12 秒，半径 3，召唤物附带 15% 火焰：' + JSON.stringify(r));
+    assert(r.r0 === 2 && r.burn && r.haste === 1.25 && r.haste0 === 1, '小灯：半径 2、灼烧、灯光里召唤物攻速 +25%（class-d2b2 调整，原来 +15%）：' + JSON.stringify(r));
+    assert(r.lend === 25 && r.r1 === 3 && r.lendT >= 11, '借火：12 秒，半径 3，召唤物附带 25% 火焰（class-d2b2 调整，原来 15%）：' + JSON.stringify(r));
     assert(r.lamp7 === 0 && r.after.lend === 0 && r.after.lamps === 0, '小灯 7 秒灭；借火结束时剩下的小灯炸掉：' + JSON.stringify(r));
     assert(r.ws === 'lampsea' && r.sea && r.sea.n === 8 && r.sea.dur === 6 && r.seaHaste === 1.3, '灯海：8 盏、6 秒、阵里攻速 +30%：' + JSON.stringify(r));
     assert(r.relit === 3 && r.seaGone, '死在灯海里的必定续火、6 秒后灯海收起：' + JSON.stringify(r));
@@ -22285,6 +22313,637 @@ async function d2bSteps() {
     assert(r.round && r.lamp, '缺声音配方：' + JSON.stringify(r));
     assert(r.packKnown && r.st1 === 2 && r.var === 'lanternT3' && r.var1 === 'lantern', '提灯的自产模型应在装备后加载并换上（物品等级 30 是第三阶）：' + JSON.stringify(r));
     return '模型包 ' + r.st0 + ' → ' + r.st1 + '（' + r.var + '）';
+  });
+}
+
+// =====================================================================
+// 职业 D2b-2（class-d2b2）：绊雷 / 硬接 / 燎地 / 心火 / 跳射（各带刻式 A / B），都是职业专属（没有职业的存档不掉）
+// 每一步都只在这一步里给存档套上职业，结束时摘掉
+// =====================================================================
+const D2B2_GEMS = ['snare', 'brace', 'scorch', 'heartfire', 'leapshot'];
+async function d2b2Steps() {
+  const clsOn = (c) => ev((c) => {
+    window.__d2b2Save = { cls: G.save.cls, lock: G.save.clsLock, variants: JSON.stringify(G.save.variants || {}) };
+    G.save.cls = c;
+    G.save.clsLock = {};
+  }, c);
+  const clsOff = () => ev(() => {
+    const o = window.__d2b2Save || {};
+    if (o.cls === undefined) delete G.save.cls;
+    else G.save.cls = o.cls;
+    if (o.lock === undefined) delete G.save.clsLock;
+    else G.save.clsLock = o.lock;
+    G.save.variants = JSON.parse(o.variants || '{}');
+    G.applyVariants();
+    G.player.god = false;
+    G.player.cast = null;
+    G.input.mouse.b[0] = false;
+    G.resetRanged();
+    G.save.equip.weapon = T.std;
+    G.computeStats();
+    G.world.setPlayerGear(G.save.equip);
+  });
+  const withCls = async (c, fn) => {
+    await clsOn(c);
+    await ev(D2DEF);
+    try {
+      return await fn();
+    } finally {
+      await clsOff();
+    }
+  };
+  // 页面里的小工具：按类型拿一把 20 级普通武器、选刻式、朝某点放一次、按住
+  const D2DEF = () => {
+    const P = G.player;
+    window.D2 = {
+      bi: (t) => G.BASES.weapon.findIndex((b) => b.type === t),
+      wield(t, ilvl) {
+        const w = G.rollItem(ilvl || 20, 0, 'weapon', D2.bi(t));
+        G.save.equip.weapon = w;
+        G.computeStats();
+        return w;
+      },
+      v(id, v) {
+        G.save.variants = G.save.variants || {};
+        if (v === 'o') delete G.save.variants[id];
+        else G.save.variants[id] = v;
+        G.applyVariants();
+      },
+      cast(id, x, z, frames) {
+        P.cds = {};
+        P.mana = P.maxMana;
+        G.save.skills[id] = Math.max(20, G.save.skills[id] || 0);
+        G.save.bar[0] = id;
+        T.aim(x, z);
+        G.input.tap[0] = 1;
+        G.tick(1 / 60);
+        G.input.tap[0] = 0;
+        for (let i = 0; i < (frames || 0); i++) G.tick(1 / 60);
+      },
+      run(sec) {
+        for (let i = 0, n = Math.round(sec * 60); i < n; i++) G.tick(1 / 60);
+      },
+    };
+  };
+
+  await step('D2b-2·数据：5 个新宝石（各带刻式 A / B）只在有职业时掉（宝石池 20 / 29、掉率 ×29/20）；能用的宝石数 烬卫 14 / 夜猎 15 / 引星人 15 / 掌灯人 14 / 炉匠 13；每把武器 双匕 12、猎弓 10、重兵 14、枪 13', async () => {
+    const r = await ev((NG) => {
+      const cnt = {};
+      for (const c of G.CLASS_IDS) cnt[c] = G.classGems(c).length;
+      const per = {};
+      for (const c of G.CLASS_IDS) per[c] = G.CLASSES[c].weapons.map((t) => t + ':' + G.GEM_SKILLS.filter((id) => G.typeFitsNeed(t, G.GEM_NEED[id] || null)).length).join(',');
+      const pool0 = G.gemDropPool(undefined);
+      return {
+        gems: G.GEM_SKILLS.length, pool0: pool0.length, old: pool0.join() === G.GEM_SKILLS.slice(0, 20).join(), poolC: G.gemDropPool('guard').length, k0: G.gemDropK(undefined), kC: G.gemDropK('hunt'),
+        cls: NG.every((id) => G.SKILL_BASE[id].clsOnly), vars: NG.every((id) => G.VARIANTS[id] && G.VARIANTS[id].a && G.VARIANTS[id].b), need: NG.map((id) => G.GEM_NEED[id]).join(),
+        heavy: G.WGROUPS.heavy.join(), cnt, per,
+        who: NG.map((id) => id + ':' + G.CLASS_IDS.filter((c) => G.classCanUse(c, id)).join('/')).join(' '),
+        dur: [G.SKILL_BASE.snare.mine.dur, G.SKILL_BASE.snare.mine.max, G.SKILL_BASE.heartfire.hbuff.dur].join(),
+      };
+    }, D2B2_GEMS);
+    assert(r.gems === 29 && r.pool0 === 20 && r.old && r.poolC === 29 && r.k0 === 1 && Math.abs(r.kC - 1.45) < 1e-9, '宝石池 / 掉率不对：' + JSON.stringify(r));
+    assert(r.cls && r.vars && r.need === 'huntgun,melee,heavy,heavy,hunt' && r.heavy === 'blade,hammer,katana', '新宝石应职业专属、带 A / B、按武器分组：' + JSON.stringify(r));
+    assert(JSON.stringify(r.cnt) === JSON.stringify({ guard: 14, hunt: 15, star: 15, lamp: 14, forge: 13 }), '各职业能用的宝石数不对：' + JSON.stringify(r.cnt));
+    assert(r.per.guard === 'blade:14,hammer:14,katana:14' && r.per.hunt === 'daggers:12,huntbow:10,emberbow:10' && r.per.forge === 'gatling:13,flamer:13,revolver:13', '每把武器能用的宝石数不对：' + JSON.stringify(r.per));
+    assert(r.who === 'snare:hunt/forge brace:guard/hunt scorch:guard heartfire:guard leapshot:hunt', '谁能用不对：' + r.who);
+    assert(r.dur === '7,3,16', '持续时间不对（绊雷 7 秒最多 3 枚、心火 16 秒）：' + r.dur);
+    return JSON.stringify(r.cnt) + ' · ' + r.who;
+  });
+
+  await step('D2b-2·没有职业的存档：精英掉 600 多颗技能宝石都在职业之前的 20 种里（新宝石一颗不掉）；有职业时 29 种都掉得出来', async () => {
+    const r = await ev(() => {
+      const S = G.save, L = G.state.loot, l0 = L.length;
+      const lvl0 = S.level;
+      S.level = 30;
+      const seen = (cls) => {
+        if (cls) S.cls = cls;
+        else delete S.cls;
+        const got = new Set();
+        let n = 0;
+        for (let i = 0; i < 6000; i++) {
+          G.dropLoot({ x: G.player.x, z: G.player.z, level: 20, elite: true, horde: false, hordeK: 1 });
+          for (const l of L.splice(l0)) {
+            // 有职业时本职业用不了的宝石落地就是无铭宝石（data.from 记着原来是哪颗）
+            const id = l.kind === 'skill' ? l.data.id : l.kind === 'blank' && l.data.from ? l.data.from : null;
+            if (id) {
+              got.add(id);
+              n++;
+            }
+            G.world.removeMesh(l.mesh);
+          }
+        }
+        return { n, ids: [...got].sort() };
+      };
+      const a = seen(null), b = seen('hunt'), c = seen('guard'), d = seen('forge');
+      delete S.cls;
+      S.level = lvl0;
+      const old = new Set(G.gemDropPool(undefined));
+      const NEW = ['molten', 'wedge', 'rime', 'recoil', 'snare', 'brace', 'scorch', 'heartfire', 'leapshot'];
+      const all = new Set([...b.ids, ...c.ids, ...d.ids]);
+      return { n0: a.n, ids0: a.ids.length, bad0: a.ids.filter((id) => !old.has(id) || NEW.indexOf(id) >= 0), all: all.size, miss: G.GEM_SKILLS.filter((id) => !all.has(id)) };
+    });
+    assert(r.n0 >= 600 && !r.bad0.length && r.ids0 === 20, '没有职业时掉了职业专属的宝石：' + JSON.stringify(r));
+    assert(r.all === 29 && !r.miss.length, '有职业时有的宝石掉不出来：' + JSON.stringify(r));
+    return '没有职业 ' + r.n0 + ' 颗（' + r.ids0 + ' 种）；有职业 29 种都掉过';
+  });
+
+  await step('D2b-2·绑定：烬卫拿重兵能放硬接 / 燎地 / 心火；夜猎拿双匕能放硬接，拿猎弓能放绊雷 / 跳射；炉匠拿枪能放绊雷；武器不对时放不出来', async () => {
+    const r = await withCls('guard', () =>
+      ev(() => {
+        T.arena();
+        const ok = (ids) => ids.map((id) => (G.canCast(id) ? 1 : 0)).join('');
+        const out = {};
+        G.save.cls = 'guard';
+        for (const t of ['blade', 'hammer', 'katana']) {
+          D2.wield(t);
+          out['g_' + t] = ok(['brace', 'scorch', 'heartfire', 'snare', 'leapshot']);
+        }
+        G.save.cls = 'hunt';
+        D2.wield('daggers');
+        out.h_daggers = ok(['brace', 'scorch', 'heartfire', 'snare', 'leapshot']);
+        for (const t of ['huntbow', 'emberbow']) {
+          D2.wield(t);
+          out['h_' + t] = ok(['brace', 'snare', 'leapshot']);
+        }
+        G.save.cls = 'forge';
+        for (const t of ['gatling', 'flamer', 'revolver']) {
+          D2.wield(t);
+          out['f_' + t] = ok(['snare', 'leapshot', 'brace']);
+        }
+        G.save.cls = 'star';
+        D2.wield('runebow');
+        out.s_runebow = ok(['snare', 'leapshot']);
+        return out;
+      })
+    );
+    const want = { g_blade: '11100', g_hammer: '11100', g_katana: '11100', h_daggers: '10000', h_huntbow: '011', h_emberbow: '011', f_gatling: '100', f_flamer: '100', f_revolver: '100', s_runebow: '00' };
+    assert(JSON.stringify(r) === JSON.stringify(want), '绑定不对：' + JSON.stringify(r));
+    return '重兵 3 / 双匕 1 / 猎弓 2 / 枪 1；引星人的符文弓都不行';
+  });
+
+  await step('D2b-2·绊雷：射到准星落地，0.35 秒后上膛，敌人走进 1.6 米才炸（2.4 米外不炸）；最多 3 枚（多的顶掉最早的）、每枚 7 秒；连环弹出 2 枚小雷；钉索拴最近 3 个（普通怪钉 1.5 秒、精英减半、首领只减速）', async () => {
+    const r = await withCls('hunt', () =>
+      ev(() => {
+        T.lane();
+        const P = G.player, S = G.state, out = {};
+        D2.wield('huntbow');
+        G.debug.god(true);
+        const st = () => Object.assign({}, S.stats);
+        // 上限 3：4 枚射在空地上，顶掉最早那枚
+        for (let i = 0; i < 4; i++) D2.cast('snare', P.x + 3 + i * 1.5, P.z, 60);
+        out.cap = G.mineState().length;
+        out.capX = G.mineState().map((m) => +(m.x - P.x).toFixed(1)).join();
+        D2.run(7.2);
+        out.left = G.mineState().length; // 7 秒后都没了
+        // 触发距离：2.4 米外的不炸，走到 1.4 米炸
+        const s0 = st();
+        D2.cast('snare', P.x + 4, P.z, 60);
+        const m = G.mineState()[0];
+        const e = T.mob('husk', 4, 2.4 + 0.5);
+        D2.run(0.5);
+        out.far = (S.stats.mineBooms || 0) - (s0.mineBooms || 0);
+        e.x = m.x;
+        e.z = m.z + 1.4;
+        D2.run(0.2);
+        out.near = (S.stats.mineBooms || 0) - (s0.mineBooms || 0);
+        out.hurt = e.maxHp - e.hp > 0;
+        G.clearEnemies();
+        // 连环：炸开后弹出 2 枚小雷
+        D2.v('snare', 'a');
+        const s1 = st();
+        T.mob('husk', 4, 0);
+        D2.cast('snare', P.x + 4, P.z, 110);
+        out.bomblets = (S.stats.bomblets || 0) - (s1.bomblets || 0);
+        G.clearEnemies();
+        // 钉索：拴最近的 3 个；普通怪 1.5 秒、精英 0.75 秒、首领只减速
+        D2.v('snare', 'b');
+        const ms = [T.mob('husk', 4, 0.6), T.mob('husk', 4, -0.6), T.mob('brute', 4.8, 0, { elite: true }), T.mob('husk', 6.5, 0)];
+        D2.cast('snare', P.x + 4, P.z, 0);
+        const mx = ms.map(() => 0);
+        for (let i = 0; i < 60; i++) {
+          G.tick(1 / 60);
+          ms.forEach((x, k) => (mx[k] = Math.max(mx[k], x.stunT || 0)));
+        }
+        out.stun = mx.map((v) => +v.toFixed(2));
+        out.hit = ms.map((x) => (x.maxHp - x.hp > 0 ? 1 : 0)).join('');
+        G.clearEnemies();
+        G.enterZone(0, 1);
+        D2.wield('huntbow');
+        G.debug.god(true);
+        const b = S.boss;
+        T.tp(b.x - 4, b.z);
+        D2.cast('snare', b.x - 0.5, b.z, 50);
+        out.boss = { stun: b.stunT || 0, snare: +(b.snareT || 0).toFixed(2), k: b.snareK };
+        D2.v('snare', 'o');
+        G.enterZone(0, 1);
+        G.debug.god(true);
+        return out;
+      })
+    );
+    assert(r.cap === 3 && r.capX === '4.5,6,7.5', '绊雷最多 3 枚、顶掉最早的：' + JSON.stringify(r));
+    assert(r.left === 0, '7 秒后绊雷应消失：' + JSON.stringify(r));
+    assert(r.far === 0 && r.near === 1 && r.hurt, '2.4 米外不该炸、1.4 米该炸：' + JSON.stringify(r));
+    assert(r.bomblets === 2, '连环应弹出 2 枚小雷：' + JSON.stringify(r));
+    assert(r.hit === '1110' && Math.abs(r.stun[0] - 1.5) < 0.1 && Math.abs(r.stun[1] - 1.5) < 0.1 && Math.abs(r.stun[2] - 0.75) < 0.1 && r.stun[3] === 0, '钉索应拴最近 3 个、精英减半：' + JSON.stringify(r));
+    assert(r.boss.stun === 0 && r.boss.snare > 0.5 && r.boss.k === 0.4, '首领只减速不钉住：' + JSON.stringify(r.boss));
+    return '上限 3、7 秒、触发 1.6 米；小雷 ' + r.bomblets + '；钉索 ' + r.stun.join('/') + '；首领减速 ' + r.boss.k;
+  });
+
+  await step('D2b-2·硬接：对着带预警的重击——格挡正面减伤 50%（背后不挡），松手反砍按挡下的伤害加倍；拆招在 0.3 秒窗口里挨打完全免伤、闪到对方身后反刺，按早了照常挨打、之后 1.2 秒不能再招架；首领的预警重击也一样', async () => {
+    const r = await withCls('guard', () =>
+      ev(() => {
+        T.lane();
+        const P = G.player, S = G.state, out = {};
+        D2.wield('blade');
+        G.debug.god(false);
+        P.god = false;
+        G.save.skills.brace = 20;
+        G.save.bar[0] = 'brace';
+        const slam = (e, dmg, lead) => G.telegraph({ shape: 'circle', x: P.x, z: P.z, r: 2.5, dur: lead, dmg, dtype: 'phys', owner: e, cancelIfOwnerDead: true });
+        // 一下重击（预警 0.6 秒）挨了多少：mode = 'none' 不挡 / 'block' 按住格挡（face 朝它 / 背对）/ 'parry' 提前 early 秒按招架
+        // 站位：对方身边 2.2 米、站得住（首领场地里还要在场地内）、离墙远一点的那一侧
+        const spotBy = (e) => {
+          const W = G.world, inA = W.zone.arena && W.inArena(e.x, e.z);
+          for (let k = 0; k < 16; k++) {
+            const a = -Math.PI / 2 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (Math.PI / 8);
+            const x = e.x + Math.sin(a) * ((e.r || 0.5) + 1.7), z = e.z + Math.cos(a) * ((e.r || 0.5) + 1.7);
+            if (W.walkable(x, z, 0.9) && (!inA || W.inArena(x, z)) && !W.hazardAt(x, z)) return { x, z };
+          }
+          return { x: e.x - 2.2, z: e.z };
+        };
+        const hitTaken = (e, mode, face, early) => {
+          P.cast = null;
+          P.cds = {};
+          P.iframe = 0;
+          P.life = P.maxLife = 5000;
+          P.mana = P.maxMana = 1e4;
+          const sp = spotBy(e);
+          T.tp(sp.x, sp.z);
+          T.aim(face ? e.x : 2 * P.x - e.x, face ? e.z : 2 * P.z - e.z);
+          const tele = slam(e, 1000, 0.6);
+          // 只算这一下预警重击扣的血（首领醒过来自己出手的不算）
+          let taken = 0;
+          const h0 = G.hurtPlayer;
+          G.hurtPlayer = function (amt, dt, src) {
+            const l0 = P.life, r = h0.apply(this, arguments);
+            if (src === tele) taken += l0 - P.life;
+            return r;
+          };
+          let held = false;
+          const hx = e.x, hz = e.z;
+          for (let i = 0; i < 60; i++) {
+            const t = i / 60;
+            if (e.isBoss) {
+              // 首领钉在原地、不醒（只看这一下预警重击）
+              e.x = hx;
+              e.z = hz;
+              e.awake = false;
+            }
+            if (mode === 'block' && !held) {
+              G.input.tap[0] = 1;
+              G.input.mouse.b[0] = true;
+              held = true;
+            }
+            if (mode === 'parry' && !held && t >= 0.6 - early) {
+              G.input.tap[0] = 1;
+              held = true;
+            }
+            G.tick(1 / 60);
+            G.input.tap[0] = 0;
+          }
+          G.hurtPlayer = h0;
+          G.input.mouse.b[0] = false;
+          const c = G.braceState();
+          D2.run(0.8);
+          // behind：闪过去之后站在对方的另一侧（和起点隔着它）
+          const behind = (P.x - e.x) * (sp.x - e.x) + (P.z - e.z) * (sp.z - e.z) < 0;
+          return { taken: Math.round(taken), moved: +Math.hypot(P.x - sp.x, P.z - sp.z).toFixed(2), behind, k: S.stats.braceCounter, cd: +(P.cds.brace || 0).toFixed(2), wasBrace: !!c };
+        };
+        const e = T.mob('brute', 3, 0);
+        out.none = hitTaken(e, 'none');
+        out.front = hitTaken(e, 'block', true);
+        out.back = hitTaken(e, 'block', false);
+        S.stats.braceCounter = 0;
+        const c0 = e.maxHp - e.hp;
+        out.counter = hitTaken(e, 'block', true);
+        out.cdmg = e.maxHp - e.hp - c0;
+        D2.v('brace', 'b');
+        const s0 = Object.assign({}, S.stats);
+        out.parry = hitTaken(e, 'parry', true, 0.15);
+        out.parries = (S.stats.parries || 0) - (s0.parries || 0);
+        out.blink = (S.stats.parryBlink || 0) - (s0.parryBlink || 0);
+        out.early = hitTaken(e, 'parry', true, 0.55); // 按早了：窗口已经关了才落下
+        out.whiff = (S.stats.parryWhiff || 0) - (s0.parryWhiff || 0);
+        // 招架后 1.2 秒内再按不起手
+        P.cds.brace = 0;
+        D2.cast('brace', e.x, e.z, 40);
+        const cd1 = P.cds.brace, n1 = S.stats.braceStarts;
+        G.input.tap[0] = 1;
+        G.tick(1 / 60);
+        G.input.tap[0] = 0;
+        out.lock = cd1 > 0.6 && S.stats.braceStarts === n1;
+        D2.run(1.2);
+        G.clearEnemies();
+        // 首领的预警重击：熔渣巨像当施放者
+        G.enterZone(0, 1);
+        D2.wield('blade');
+        P.god = false;
+        G.debug.god(false);
+        const b = S.boss;
+        b.awake = false; // 只挨这一下预警重击：首领自己不出手
+        b.atkCd = 1e9;
+        b.speed = 0;
+        P.graceT = 999;
+        D2.v('brace', 'o');
+        out.bossNone = hitTaken(b, 'none');
+        out.bossBlock = hitTaken(b, 'block', true);
+        D2.v('brace', 'b');
+        out.bossParry = hitTaken(b, 'parry', true, 0.15);
+        out.bossIn = G.world.inArena(P.x, P.z) && G.world.walkable(P.x, P.z, 0.4);
+        D2.v('brace', 'o');
+        G.enterZone(0, 1);
+        G.debug.god(true);
+        return out;
+      })
+    );
+    const half = (a, b) => Math.abs(a.taken / b.taken - 0.5) < 0.03;
+    assert(r.none.taken > 100 && half(r.front, r.none) && r.back.taken === r.none.taken, '格挡应只挡正面、减伤 50%：' + JSON.stringify([r.none, r.front, r.back]));
+    assert(r.counter.k > 1.7 && r.cdmg > 0, '松手应反砍、倍率按挡下的伤害加：' + JSON.stringify(r.counter) + ' ' + r.cdmg);
+    assert(r.parry.taken === 0 && r.parries === 1 && r.blink === 1 && r.parry.behind, '拆招应免伤并闪到身后：' + JSON.stringify(r.parry));
+    assert(r.early.taken === r.none.taken && r.whiff === 1 && r.lock, '按早了应照常挨打，之后 1.2 秒不能再招架：' + JSON.stringify(r.early) + ' lock ' + r.lock);
+    assert(half(r.bossBlock, r.bossNone) && r.bossParry.taken === 0 && r.bossIn, '首领的预警重击也应能挡 / 招架，闪过去不出场地：' + JSON.stringify([r.bossNone, r.bossBlock, r.bossParry, r.bossIn]));
+    return '不挡 ' + r.none.taken + ' / 正面 ' + r.front.taken + ' / 背后 ' + r.back.taken + '；反砍 ×' + r.counter.k.toFixed(2) + '；拆招 0（身后），按早 ' + r.early.taken + '；首领 ' + r.bossNone.taken + ' / ' + r.bossBlock.taken + ' / ' + r.bossParry.taken;
+  });
+
+  await step('D2b-2·位移：跳射往后跳 4 米、燎地往前冲 5 米，撞墙 / 场地边就停（五个首领场地 + 余烛殿，每个场地 8 个方向 × 贴着边 / 离边 2.2 米）；坠星裂谷的虚空边上也停；拆招闪到对方身后，站不住或出了场地就原地', async () => {
+    const r = await withCls('hunt', () =>
+      ev(() => {
+        const W = G.world, P = G.player, S = G.state, out = { rooms: [], bad: [], blinkN: 0, stayN: 0 };
+        const edgeFrom = (c, ang, back) => {
+          let d = 0;
+          const ok = (dd) => W.inArena(c.x + Math.sin(ang) * dd, c.z + Math.cos(ang) * dd) && W.walkable(c.x + Math.sin(ang) * dd, c.z + Math.cos(ang) * dd, 0.5);
+          while (d < 40 && ok(d + 0.3)) d += 0.3;
+          d = Math.max(0, d - back);
+          return { x: c.x + Math.sin(ang) * d, z: c.z + Math.cos(ang) * d };
+        };
+        const check = (tag, kind, x0, z0) => {
+          const moved = Math.hypot(P.x - x0, P.z - z0), lim = kind === 'leap' ? 4.05 : 5.05;
+          if (!W.inArena(P.x, P.z) || !W.walkable(P.x, P.z, 0.45) || moved > lim) out.bad.push(tag + ' ' + kind + '：' + JSON.stringify({ moved: +moved.toFixed(2), inA: W.inArena(P.x, P.z), walk: W.walkable(P.x, P.z, 0.45) }));
+          return moved;
+        };
+        const room = (tag) => {
+          G.clearEnemies();
+          const a = W.zone.arena, c = a.round ? { x: a.x, z: a.z } : S.zone.bossPos;
+          let n = 0, maxL = 0, maxS = 0;
+          for (let k = 0; k < 16; k++) {
+            const ang = ((k % 8) / 8) * Math.PI * 2 + 0.2, back = k < 8 ? 0.6 : 2.2;
+            const p = edgeFrom(c, ang, back);
+            if (!W.walkable(p.x, p.z, 0.5) || !W.inArena(p.x, p.z)) continue;
+            // 跳射：朝场地中心射，往外跳
+            G.save.cls = 'hunt';
+            D2.wield('huntbow');
+            T.tp(p.x, p.z);
+            D2.cast('leapshot', c.x, c.z, 40);
+            maxL = Math.max(maxL, check(tag + ' 方向 ' + k, 'leap', p.x, p.z));
+            // 燎地：朝场地外冲
+            G.save.cls = 'guard';
+            D2.wield('blade');
+            T.tp(p.x, p.z);
+            D2.cast('scorch', p.x + Math.sin(ang) * 6, p.z + Math.cos(ang) * 6, 50);
+            maxS = Math.max(maxS, check(tag + ' 方向 ' + k, 'scorch', p.x, p.z));
+            // 拆招：对方站在边上（离边 0.6 米），你在里面 2 米；闪到它身后不能出场地 / 进墙
+            if (k < 8) {
+              D2.v('brace', 'b');
+              const q = edgeFrom(c, ang, 0.6), e = T.mob('brute', 0, 0);
+              e.x = q.x;
+              e.z = q.z;
+              T.tp(q.x - Math.sin(ang) * 2, q.z - Math.cos(ang) * 2);
+              P.cds = {};
+              P.iframe = 0;
+              D2.cast('brace', e.x, e.z, 3);
+              const b0 = S.stats.parryBlink || 0, s0 = S.stats.parryStay || 0;
+              P.god = false;
+              G.hurtPlayer(10, 'phys', e);
+              P.god = true;
+              if ((S.stats.parryBlink || 0) > b0) out.blinkN++;
+              if ((S.stats.parryStay || 0) > s0) out.stayN++;
+              if (!W.inArena(P.x, P.z) || !W.walkable(P.x, P.z, 0.45)) out.bad.push(tag + ' 拆招 ' + k + '：' + JSON.stringify({ inA: W.inArena(P.x, P.z), walk: W.walkable(P.x, P.z, 0.45) }));
+              D2.run(0.6);
+              G.clearEnemies();
+              D2.v('brace', 'o');
+            }
+            n++;
+          }
+          out.rooms.push(tag + ':' + n + '/' + maxL.toFixed(2) + '/' + maxS.toFixed(2));
+        };
+        G.debug.god(true);
+        // 空地上：跳满 4 米、冲满 5 米；拆招闪到身后
+        T.lane();
+        D2.wield('huntbow');
+        let x0 = P.x;
+        D2.cast('leapshot', P.x - 6, P.z, 40); // 朝 -x 射，往 +x 跳
+        out.openLeap = +(P.x - x0).toFixed(2);
+        T.lane();
+        G.save.cls = 'guard';
+        D2.wield('blade');
+        x0 = P.x;
+        D2.cast('scorch', P.x + 8, P.z, 50);
+        out.openDash = +(P.x - x0).toFixed(2);
+        for (let i = 0; i < G.ZONES.length; i++) {
+          G.enterZone(i, 1);
+          G.debug.god(true);
+          room(G.ZONES[i].id);
+        }
+        G.enterPinnacle(2);
+        G.debug.god(true);
+        room('crown');
+        // 坠星裂谷的虚空边：从入口往 24 个方向走到站不住的地方（虚空 / 墙），贴着边朝里射，往外跳
+        G.enterZone(4, 1);
+        G.debug.god(true);
+        G.save.cls = 'hunt';
+        const st = S.zone.start, rift = { n: 0, max: 0 };
+        for (let k = 0; k < 24; k++) {
+          const ang = (k / 24) * Math.PI * 2;
+          let d = 0;
+          while (d < 60 && W.walkable(st.x + Math.sin(ang) * (d + 0.3), st.z + Math.cos(ang) * (d + 0.3), 0.5)) d += 0.3;
+          const x = st.x + Math.sin(ang) * Math.max(0, d - 0.6), z = st.z + Math.cos(ang) * Math.max(0, d - 0.6);
+          if (!W.walkable(x, z, 0.5)) continue;
+          D2.wield('huntbow');
+          T.tp(x, z);
+          D2.cast('leapshot', st.x, st.z, 40);
+          const mv = Math.hypot(P.x - x, P.z - z);
+          rift.max = Math.max(rift.max, mv);
+          rift.n++;
+          if (!W.walkable(P.x, P.z, 0.45) || mv > 4.05) out.bad.push('rift 方向 ' + k + '：' + JSON.stringify({ moved: +mv.toFixed(2) }));
+        }
+        out.rift = rift.n + '/' + rift.max.toFixed(2) + '/' + (W.zone.map.pr.outsideShot ? 'void' : 'wall');
+        G.enterZone(0, 1);
+        G.debug.god(true);
+        return out;
+      })
+    );
+    assert(Math.abs(r.openLeap - 4) < 0.12 && Math.abs(r.openDash - 5) < 0.12, '空地上应跳满 4 米、冲满 5 米：' + JSON.stringify(r));
+    assert(!r.bad.length, '跳出 / 冲出场地或进了墙：' + r.bad.slice(0, 4).join(' ｜ '));
+    assert(r.rooms.length === 6 && r.rooms.every((s) => +s.split(':')[1].split('/')[0] >= 12), '每个场地至少测到 12 次：' + r.rooms.join(' '));
+    assert(r.blinkN + r.stayN >= 40 && r.stayN > 0, '拆招在场地边上应有站不住原地反刺的情况：' + JSON.stringify({ b: r.blinkN, s: r.stayN }));
+    assert(+r.rift.split('/')[0] >= 12, '坠星裂谷的边测得太少：' + r.rift);
+    return '空地 ' + r.openLeap + ' / ' + r.openDash + ' 米；' + r.rooms.join(' ') + '；裂谷 ' + r.rift + '；拆招 闪 ' + r.blinkN + ' / 原地 ' + r.stayN;
+  });
+
+  await step('D2b-2·心火：持续 16 秒（再按从头计时），40% 物理转火（和化元不叠：已经是火的算在里面）；打死的敌人炸成余烬（每秒最多 6 次）；护火每次近战命中叠一层减伤（最多 8 层）；连烬接着炸一代；换下重兵就灭', async () => {
+    const r = await withCls('guard', () =>
+      ev(() => {
+        T.lane();
+        const P = G.player, S = G.state, out = {};
+        D2.wield('katana');
+        G.debug.god(true);
+        G.save.skills.whirl = 20;
+        D2.cast('heartfire', P.x + 3, P.z, 40);
+        const h0 = G.heartState();
+        out.dur = h0 && +h0.dur.toFixed(2);
+        const base = G.skillCtx('whirl').base;
+        out.fire = base.fire ? +(base.fire[0] / (base.fire[0] + base.phys[0])).toFixed(3) : 0;
+        // 镶着化元（60% 转火）：心火不再叠，还是 60%
+        if (G.save.supports.indexOf('convert') < 0) G.save.supports.push('convert');
+        const sk0 = (G.save.sockets.whirl || [null, null, null]).slice();
+        G.save.sockets.whirl = ['convert', null, null];
+        const b2 = G.skillCtx('whirl').base;
+        out.fireConv = b2.fire ? +(b2.fire[0] / (b2.fire[0] + (b2.phys ? b2.phys[0] : 0))).toFixed(3) : 0;
+        G.save.sockets.whirl = sk0;
+        D2.run(15);
+        out.at15 = !!G.heartState();
+        D2.cast('heartfire', P.x + 3, P.z, 10); // 再按从头计时
+        D2.run(8);
+        out.refresh = !!G.heartState() && G.heartState().t > 7;
+        D2.run(8.6);
+        out.after = !!G.heartState();
+        // 余烬：贴身 8 只快死的小怪，转一圈
+        D2.cast('heartfire', P.x + 3, P.z, 40);
+        const s0 = Object.assign({}, S.stats);
+        for (let i = 0; i < 8; i++) T.mob('husk', 1 + (i % 4) * 0.4, (i < 4 ? -0.8 : 0.8), { hp: 1 }).buTh = 1e15; // 不累积异常：都由旋风斩亲手打死（异常打死的不炸）
+        G.save.bar[0] = 'whirl';
+        G.input.mouse.b[0] = true;
+        D2.run(0.5);
+        G.input.mouse.b[0] = false;
+        D2.run(0.5);
+        out.bursts = (S.stats.heartBursts || 0) - (s0.heartBursts || 0);
+        G.clearEnemies();
+        // 护火：近战命中叠层（最多 8），受到的伤害按层数降低
+        D2.v('heartfire', 'a');
+        D2.cast('heartfire', P.x + 3, P.z, 40);
+        out.convA = !G.skillCtx('whirl').base.fire;
+        T.mob('husk', 1.5, 0);
+        G.save.bar[0] = 'whirl';
+        G.input.mouse.b[0] = true;
+        D2.run(4);
+        G.input.mouse.b[0] = false;
+        out.ward = G.heartState().ward;
+        out.taken = +G.heartTaken().toFixed(3);
+        G.clearEnemies();
+        // 连烬：余烬炸死的接着炸（一排间隔 2.5 米的残血小怪，只砍第一只）
+        D2.v('heartfire', 'b');
+        D2.cast('heartfire', P.x + 3, P.z, 40);
+        const s1 = Object.assign({}, S.stats);
+        const row = [];
+        for (let i = 0; i < 4; i++) row.push(T.mob('husk', 1.4 + i * 2.9, 0, { hp: 1 })); // 隔 2.9 米：一圈余烬（半径 3）只够得着下一只
+        for (const e of row) e.buTh = 1e15; // 不累积异常（爆燃 / 尸爆打死的不算进这一条链）
+        G.hitEnemy(row[0], G.skillCtx('whirl'), 1, {});
+        D2.run(1);
+        out.chain = (S.stats.heartBursts || 0) - (s1.heartBursts || 0);
+        out.chainDead = row.filter((e) => e.dead).length;
+        G.clearEnemies();
+        // 换成弓：心火灭了
+        G.save.cls = 'hunt';
+        D2.wield('huntbow');
+        D2.run(0.1);
+        out.bow = !!G.heartState();
+        D2.v('heartfire', 'o');
+        return out;
+      })
+    );
+    assert(r.dur === 16 && r.at15 && r.refresh && !r.after, '心火应持续 16 秒、再按从头计时：' + JSON.stringify(r));
+    assert(Math.abs(r.fire - 0.4) < 0.01 && Math.abs(r.fireConv - 0.6) < 0.01, '心火期间应有 40% 物理转成火，和化元（60%）不叠加：' + JSON.stringify(r));
+    assert(r.bursts >= 6, '打死的敌人应炸成余烬：' + JSON.stringify(r));
+    assert(r.convA && r.ward === 8 && Math.abs(r.taken - 0.76) < 1e-6, '护火：不转火、叠满 8 层、受到的伤害 −24%：' + JSON.stringify(r));
+    assert(r.chain === 2 && r.chainDead === 3, '连烬：余烬炸死的应接着炸一代（第 4 只炸不到）：' + JSON.stringify(r));
+    assert(!r.bow, '换下重兵心火应灭：' + JSON.stringify(r));
+    return '16 秒、转火 ' + r.fire + '、余烬 ' + r.bursts + ' 次、护火 ' + r.ward + ' 层（受伤 ×' + r.taken + '）、连烬 ' + r.chain + ' 次';
+  });
+
+  await step('D2b-2·燎地：冲到头上挑、身后留火痕 6 秒（最多 2 道，叠着只烧一份）；燎原原地扇面火地；爆痕上挑时整条炸开、不留火痕', async () => {
+    const r = await withCls('guard', () =>
+      ev(() => {
+        T.lane();
+        const P = G.player, S = G.state, out = {};
+        D2.wield('hammer');
+        G.debug.god(true);
+        const L0 = { x: P.x, z: P.z };
+        for (let i = 0; i < 3; i++) {
+          T.tp(L0.x, L0.z + (i - 1) * 0.8);
+          D2.cast('scorch', P.x + 8, P.z, 50);
+        }
+        out.trails = G.burnState().filter((b) => b.kind === 'trail').length;
+        out.dur = +G.burnState()[0].dur.toFixed(2);
+        // 站在两道火痕交叉处的木桩：每 0.5 秒只挨一跳
+        G.clearEnemies();
+        const b0 = G.burnState()[1], e = T.mob('husk', 0, 0);
+        e.x = (b0.ax + b0.bx) / 2;
+        e.z = (b0.az + b0.bz) / 2;
+        let n = 0;
+        const orig = G.hitEnemy;
+        G.hitEnemy = function (x, ctx) {
+          if (x === e && ctx && ctx.id === 'scorch') n++;
+          return orig.apply(this, arguments);
+        };
+        const hx = e.x, hz = e.z;
+        for (let i = 0; i < 120; i++) {
+          G.tick(1 / 60);
+          e.x = hx; // 钉在两道火痕叠着的地方
+          e.z = hz;
+        }
+        G.hitEnemy = orig;
+        out.ticks2s = n;
+        D2.run(6);
+        out.gone = G.burnState().length;
+        G.clearEnemies();
+        D2.v('scorch', 'a');
+        T.lane();
+        D2.wield('hammer');
+        const x0 = P.x;
+        D2.cast('scorch', P.x + 8, P.z, 50);
+        out.fan = G.burnState().filter((b) => b.kind === 'fan').length;
+        out.fanMove = +(P.x - x0).toFixed(2);
+        G.debug.step(7);
+        D2.v('scorch', 'b');
+        T.lane();
+        D2.wield('hammer');
+        const s0 = S.stats.scorchBooms || 0;
+        const row = [T.mob('husk', 1.2, 0.4), T.mob('husk', 2.2, -0.4)];
+        // 冲过去的路上有两只：冲到第一只身前就停，上挑；火痕炸开打到路上的
+        D2.cast('scorch', P.x + 8, P.z, 50);
+        out.booms = (S.stats.scorchBooms || 0) - s0;
+        out.bTrail = G.burnState().length;
+        out.bHit = row.filter((x) => x.maxHp - x.hp > 0).length;
+        D2.v('scorch', 'o');
+        return out;
+      })
+    );
+    assert(r.trails === 2 && r.dur === 6 && r.gone === 0, '火痕最多 2 道、6 秒：' + JSON.stringify(r));
+    assert(r.ticks2s >= 3 && r.ticks2s <= 5, '叠着的火痕只烧一份（2 秒约 4 跳）：' + JSON.stringify(r));
+    assert(r.fan === 1 && Math.abs(r.fanMove) < 0.3, '燎原原地扇面火地：' + JSON.stringify(r));
+    assert(r.booms === 1 && r.bTrail === 0 && r.bHit === 2, '爆痕：上挑时炸开、不留火痕：' + JSON.stringify(r));
+    return '火痕 ' + r.trails + ' 道 ' + r.dur + ' 秒（叠着 2 秒 ' + r.ticks2s + ' 跳）；燎原 1 片；爆痕炸到 ' + r.bHit;
+  });
+
+  await step('D2b-2·图标和声音：5 个新宝石都有图标（不是字）和声音配方', async () => {
+    const r = await ev((NG) => {
+      const names = G.audio.names();
+      const keys = G.icons.keys();
+      return { snd: names.indexOf('cls2') >= 0, ic: NG.map((id) => id + ':' + (keys.indexOf('sk-' + id) >= 0 && /^(data|blob):/.test(G.icons.url('sk-' + id)) ? 1 : 0)).join(' ') };
+    }, D2B2_GEMS);
+    assert(r.snd, '缺声音配方：' + JSON.stringify(r));
+    assert(!/:0/.test(r.ic), '缺图标：' + r.ic);
+    return r.ic;
   });
 }
 
@@ -22392,7 +23051,7 @@ async function classSteps() {
       assert(o.stable, c + '：读档再读一遍存档变了');
       gems[c] = o.gems;
     }
-    assert(JSON.stringify(gems) === JSON.stringify({ guard: 11, hunt: 12, star: 15, lamp: 14, forge: 12 }), '各职业能用的宝石数不对（散钉不给引星人；class-d2b1：炉匠 + 四种特殊弹）：' + JSON.stringify(gems));
+    assert(JSON.stringify(gems) === JSON.stringify({ guard: 14, hunt: 15, star: 15, lamp: 14, forge: 13 }), '各职业能用的宝石数不对（散钉不给引星人；class-d2b1：炉匠 + 四种特殊弹；class-d2b2：烬卫 + 3、夜猎 + 3、炉匠 + 绊雷）：' + JSON.stringify(gems));
     return JSON.stringify(gems);
   });
 
@@ -25007,6 +25666,7 @@ async function touchKit() {
       await frames(1);
     },
     up: () => send('touchEnd', []),
+    cancel: () => send('touchCancel', []),
     async tap(x, y) {
       await send('touchStart', [{ x, y }]);
       await send('touchEnd', []);
@@ -25055,7 +25715,7 @@ async function touchPage(o) {
 const tbRect = (tb) => ev((tb) => T.rect('[data-tb="' + tb + '"]'), tb);
 
 async function touchSteps() {
-  await step('触屏：手机模拟下自动打开触屏模式；摇杆往右拖 → KeyD、玩家往右走，扇区有回差，松手键全清', async () => {
+  await step('触屏：手机模拟下自动打开触屏模式；模拟摇杆任意角度拖 → 同方向、按幅度走，死区内不动，松手清空', async () => {
     await touchPage();
     const s0 = await ev(() => ({ st: G.touch.state(), cls: document.documentElement.className, vp: document.querySelector('meta[name=viewport]').content, q: G.defaultQuality(), coarse: matchMedia('(pointer: coarse)').matches, mtp: navigator.maxTouchPoints, x: G.player.x }));
     assert(s0.st.on && s0.st.mode === 'auto' && /touch-ui/.test(s0.cls) && /viewport-fit=cover/.test(s0.vp), '手机模拟下应自动打开触屏模式：' + JSON.stringify(s0));
@@ -25075,25 +25735,195 @@ async function touchSteps() {
       return { link: true, display: j.display, orient: j.orientation, icons, apple: document.querySelector('meta[name=apple-mobile-web-app-capable]').content };
     });
     assert(mf.link && mf.display === 'fullscreen' && mf.orient === 'landscape' && mf.apple === 'yes' && mf.icons.every((x) => x.split('=')[0] === x.split('=')[1]), '主屏清单 / 图标不对：' + JSON.stringify(mf));
-    // 摇杆盘半径 54 px（拖得更远底座会跟着走），这里都在 45 px 以内拖
-    await touch.drag(150, 300, 195, 300);
-    const k1 = await ev(() => Object.assign({}, G.input.keys));
-    assert(k1.KeyD && !k1.KeyW && !k1.KeyA && !k1.KeyS, '往右拖应只按下 D：' + JSON.stringify(k1));
-    // 26° 往下：刚过 22.5° 的扇区边，回差内仍只按 D；拖到 45° 才变成 D + S
-    await touch.move(150 + 45 * Math.cos(0.454), 300 + 45 * Math.sin(0.454));
-    const k2 = await ev(() => Object.assign({}, G.input.keys));
-    await touch.move(150 + 45 * Math.cos(0.785), 300 + 45 * Math.sin(0.785));
-    const k3 = await ev(() => Object.assign({}, G.input.keys));
-    assert(k2.KeyD && !k2.KeyS, '扇区边上（26°）应有回差，仍只按 D：' + JSON.stringify(k2));
-    assert(k3.KeyD && k3.KeyS, '拖到 45° 应按下 D + S：' + JSON.stringify(k3));
-    await touch.move(195, 300);
-    const x1 = await ev(() => (G.debug.step(0.6), G.player.x));
-    assert(x1 > s0.x + 1.5, '按着摇杆推进 0.6 秒应往右走：' + s0.x + ' → ' + x1);
+    // 模拟摇杆（M2）：任意角度拖 → input.move 的方向和角度一致、推杆幅度换算成速度比例，玩家沿这个方向走；桌面的 WASD 不碰。
+    // 摇杆盘半径 54 px（拖得更远底座会跟着走），全速在 36 px，这里都在 45 px 以内拖
+    const OX = 150, OY = 300;
+    const walk = async (deg, r) => {
+      const a = (deg * Math.PI) / 180;
+      await touch.drag(OX, OY, OX + r * Math.cos(a), OY + r * Math.sin(a), 4);
+      const o = await ev(() => {
+        const P = G.player, x0 = P.x, z0 = P.z;
+        // 每次 1/60 秒、走 6 步：0.1 秒内撞不到墙（全速 0.72 m）
+        for (let i = 0; i < 6; i++) G.debug.step(1 / 60);
+        return { st: G.touch.state().stick, mv: G.input.move && Object.assign({}, G.input.move), keys: Object.keys(G.input.keys).filter((k) => G.input.keys[k]), dx: P.x - x0, dz: P.z - z0, sp: P.moveSpeed };
+      });
+      await touch.up();
+      const angErr = (u, v) => Math.abs(Math.atan2(Math.sin(u - v), Math.cos(u - v))) * (180 / Math.PI);
+      o.err = o.st ? angErr(o.st.a, a) : 99;
+      o.walkErr = angErr(Math.atan2(o.dz, o.dx), a); // 镜头没有偏航：屏幕右 = +x，屏幕下 = +z
+      o.speed = Math.hypot(o.dx, o.dz) / 0.1;
+      return o;
+    };
+    const runs = [];
+    for (const deg of [30, 120, 250, 341]) runs.push(Object.assign({ deg }, await walk(deg, 45)));
+    for (const r of runs) {
+      assert(r.st && r.err < 1 && r.st.k === 1 && !r.keys.length, '摇杆往 ' + r.deg + '° 拖 45 px 应是全速、方向一致、不按 WASD：' + JSON.stringify(r));
+      assert(r.walkErr < 3 && Math.abs(r.speed - r.sp) < 0.25 * r.sp, '往 ' + r.deg + '° 拖时玩家应沿这个方向全速走：' + JSON.stringify(r));
+    }
+    // 推得浅（20 px）：速度比例 0.35 + 0.65 × (20 − 12) / 24 ≈ 0.567，走得也按这个比例慢
+    const sh = await walk(200, 20);
+    const kWant = 0.35 + (0.65 * 8) / 24;
+    assert(sh.st && Math.abs(sh.st.k - kWant) < 0.03 && sh.walkErr < 3 && Math.abs(sh.speed / sh.sp - sh.st.k) < 0.12, '推得浅应按幅度走得慢：' + JSON.stringify(sh));
+    // 死区：拖 9 px 不动
+    await touch.drag(OX, OY, OX + 9, OY, 3);
+    const dz = await ev(() => ({ st: G.touch.state().stick, mv: G.input.move }));
+    assert(!dz.st && !dz.mv, '死区内（9 px）不该走：' + JSON.stringify(dz));
     await touch.up();
-    const k4 = await ev(() => ({ k: Object.keys(G.input.keys).filter((k) => G.input.keys[k]), st: G.touch.state().stick, audio: !!G.audio.ctx() }));
-    assert(!k4.k.length && k4.st === -1, '松手后键应全清：' + JSON.stringify(k4));
+    const k4 = await ev(() => ({ k: Object.keys(G.input.keys).filter((k) => G.input.keys[k]), st: G.touch.state().stick, mv: G.input.move, audio: !!G.audio.ctx() }));
+    assert(!k4.k.length && !k4.st && !k4.mv, '松手后移动向量应清空：' + JSON.stringify(k4));
     assert(k4.audio, '第一次松手后应建好 AudioContext（iOS 只认 touchend）');
-    return '走了 ' + (x1 - s0.x).toFixed(2) + ' m';
+    return runs.map((r) => r.deg + '° 方向差 ' + r.walkErr.toFixed(1) + '° 速度 ' + r.speed.toFixed(2)).join('，') + '；浅推 k ' + sh.st.k.toFixed(3) + ' 速度比 ' + (sh.speed / sh.sp).toFixed(3);
+  });
+
+  await step('确定性（mobile-m2）：触屏模拟摇杆走模拟的同一条路——同一场固定种子的边走边打，WASD 和 input.move（同方向、幅度 1）哈希相同；幅度 0.5 的对照不同', async () => {
+    // 在手机模拟里跑（触屏模式开着也不影响模拟）：先把新存档写进去，每一遍都从它重载
+    await touchPage();
+    const KEY = 'cinder-abyss-save-v1';
+    const save0 = await ev((KEY) => (G.persist(), localStorage.getItem(KEY)), KEY);
+    assert(save0, '存档没写进去');
+    const god0 = await ev(() => !!G.player.god);
+    // 每一遍都重载、重进钉死布局的第 0 区（同一页里重跑会带着上一遍的累计状态）
+    const fresh = async (hold) => {
+      await ev(
+        ([KEY, s, hold]) => {
+          G.holdSave(true);
+          localStorage.setItem(KEY, s);
+          if (hold) sessionStorage.setItem('cinder-test-hold', '1');
+          else sessionStorage.removeItem('cinder-test-hold');
+        },
+        [KEY, save0, hold]
+      );
+      await page.reload({ timeout: 90000 });
+      await install();
+      await until(() => !G.world.assetsPending(), null, 60000);
+      if (!hold) return;
+      await ev(() => {
+        G.debug.zoneSeed(4242);
+        G.enterZone(0, 0);
+      });
+      await until(() => !G.world.assetsPending(), null, 60000);
+    };
+    const run = async (mode) => {
+      await fresh(true);
+      return ev((mode) => {
+        const P = G.player, S = G.state, save = G.save, inp = G.input;
+        window.__testRand.seed('确定性·模拟摇杆');
+        T.arena();
+        P.god = true;
+        const base = Math.random;
+        let calls = 0;
+        Math.random = function () { calls++; return base.call(this); };
+        const es = [[6, 0], [6.9, 1.1], [6.9, -1.1], [7.9, 0.2]].map(([dx, dz]) => {
+          const e = G.spawnMob('husk', P.x + dx, P.z + dz, 10, { awake: true });
+          e.wasAwake = true;
+          e.hp = e.maxHp = 1e6;
+          return e;
+        });
+        save.bar = ['arc', null, null, null];
+        save.skills.arc = 20;
+        G.computeStats();
+        // 走位：右、右下、下、左上、停，每段 0.5 秒，同时按住左键放电弧
+        const PAT = [[1, 0], [1, 1], [0, 1], [-1, -1], [0, 0]];
+        const KEY = { x: { 1: 'KeyD', '-1': 'KeyA' }, z: { 1: 'KeyS', '-1': 'KeyW' } };
+        const st = () => JSON.stringify({ p: [P.x, P.z, P.face, P.life, P.mana], e: S.enemies.map((e) => [e.x, e.z, e.hp, e.dead]), calls });
+        const snaps = [];
+        try {
+          for (let i = 0; i < PAT.length * 30; i++) {
+            const [mx, mz] = PAT[Math.floor(i / 30)];
+            for (const k of ['KeyW', 'KeyA', 'KeyS', 'KeyD']) inp.keys[k] = false;
+            inp.move = null;
+            if (mx || mz) {
+              if (mode === 'keys') {
+                if (mx) inp.keys[KEY.x[mx]] = true;
+                if (mz) inp.keys[KEY.z[mz]] = true;
+              } else {
+                const len = Math.hypot(mx, mz);
+                inp.move = { x: mx / len, z: mz / len, k: mode === 'half' ? 0.5 : 1 };
+              }
+            }
+            T.aim(es[0].x, es[0].z);
+            P.mana = P.maxMana;
+            inp.mouse.b[0] = true;
+            G.tick(1 / 60);
+            if (i % 30 === 29) snaps.push(st());
+          }
+        } finally {
+          Math.random = base;
+          inp.mouse.b[0] = false;
+          inp.move = null;
+          for (const k of ['KeyW', 'KeyA', 'KeyS', 'KeyD']) inp.keys[k] = false;
+        }
+        const all = snaps.join('|');
+        let h = 2166136261;
+        for (let i = 0; i < all.length; i++) h = Math.imul(h ^ all.charCodeAt(i), 16777619);
+        return { hash: (h >>> 0).toString(16), calls, dmg: Math.round(es.reduce((a, e) => a + (e.maxHp - e.hp), 0)), walked: +Math.hypot(P.x, P.z).toFixed(2) };
+      }, mode);
+    };
+    const R = {};
+    try {
+      for (const k of ['keys', 'move', 'keys2', 'half']) R[k] = await run(k === 'keys2' ? 'keys' : k);
+    } finally {
+      await fresh(false);
+      await ev((god0) => {
+        G.debug.hold(true);
+        G.debug.god(god0);
+      }, god0);
+    }
+    const { keys: K, move: M, keys2: K2, half: H } = R;
+    await touchPage(); // 后面的触屏步骤从干净的手机页面开始
+    assert(K.hash === K2.hash && K.calls === K2.calls, '同一场打两遍不一样（测试本身不确定）：' + JSON.stringify({ K, K2 }));
+    assert(K.hash === M.hash && K.calls === M.calls, 'input.move 满幅和 WASD 打出来不一样：' + JSON.stringify({ K, M }));
+    assert(H.hash !== K.hash && K.dmg > 0, '幅度 0.5 的对照应该不一样（走得慢）、电弧应打中：' + JSON.stringify({ K, H }));
+    return '哈希 ' + K.hash + '，Math.random ' + K.calls + ' 次，伤害 ' + K.dmg + '（WASD = 摇杆满幅）；半幅对照 ' + H.hash;
+  });
+
+  await step('触屏：模拟摇杆不会卡住——touchcancel、切到后台、打开面板、竖屏都清掉移动向量；翻滚朝摇杆方向', async () => {
+    const OX = 150, OY = 300;
+    const held = () => ev(() => ({ mv: G.input.move && Object.assign({}, G.input.move), st: G.touch.state().stick }));
+    const out = {};
+    // touchcancel（系统手势、来电）
+    await touch.drag(OX, OY, OX + 40, OY - 10, 3);
+    out.before = await held();
+    await touch.cancel();
+    await frames(1);
+    out.cancel = await held();
+    // 拖着摇杆切到后台（visibilitychange hidden），再回来
+    await touch.drag(OX, OY, OX - 40, OY, 3);
+    out.drag2 = await held();
+    out.hidden = await ev(() => {
+      Object.defineProperty(document, 'hidden', { get: () => true, configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+      const r = { mv: G.input.move, paused: G.ui.isOpen() };
+      delete document.hidden;
+      document.dispatchEvent(new Event('visibilitychange'));
+      return r;
+    });
+    await touch.up();
+    await ev(() => G.ui.close());
+    await frames(2);
+    // 拖着摇杆打开背包（面板开着每帧清输入），关掉后不带着走
+    await touch.drag(OX, OY, OX, OY + 40, 3);
+    out.drag3 = await held();
+    const x0 = await ev(() => (G.ui.open('inv'), G.player.x));
+    await frames(2);
+    out.panel = await held();
+    await touch.up();
+    out.after = await ev((x0) => (G.ui.close(), G.debug.step(0.3), { mv: G.input.move, dx: G.player.x - x0, dz: 0 }), x0);
+    // pagehide 也松开
+    await touch.drag(OX, OY, OX + 40, OY, 3);
+    out.ph = await ev(() => (window.dispatchEvent(new Event('pagehide')), G.input.move));
+    await touch.up();
+    // 翻滚朝摇杆方向（G.dodge 读同一个 moveDir）
+    await touch.drag(OX, OY, OX, OY - 40, 3);
+    out.roll = await ev(() => (G.press('Space'), { t: G.player.roll.t, dx: G.player.roll.dx, dz: G.player.roll.dz }));
+    await touch.up();
+    await ev(() => G.debug.step(1));
+    assert(out.before.mv && !out.cancel.mv && !out.cancel.st, 'touchcancel 后移动向量应清空：' + JSON.stringify(out));
+    assert(out.drag2.mv && !out.hidden.mv && out.hidden.paused, '切到后台应清掉移动向量并停在暂停菜单：' + JSON.stringify(out));
+    assert(out.drag3.mv && !out.panel.mv && !out.after.mv && Math.abs(out.after.dx) < 0.01, '打开面板应清掉移动向量，关掉后不继续走：' + JSON.stringify(out));
+    assert(out.ph === null, 'pagehide 应清掉移动向量：' + JSON.stringify(out));
+    assert(out.roll.t > 0 && Math.abs(out.roll.dx) < 0.02 && out.roll.dz < -0.99, '翻滚应朝摇杆方向（往上 = −z）：' + JSON.stringify(out.roll));
+    return 'cancel / hidden / 面板 / pagehide 都清空；翻滚方向 (' + out.roll.dx.toFixed(2) + ', ' + out.roll.dz.toFixed(2) + ')';
   });
 
   await step('触屏：按住主攻 1 秒连放 ≥ 2 次（mouse.b[0]、自动瞄准最近的敌人）；轻点 Q 记进缓冲', async () => {
@@ -25415,9 +26245,15 @@ async function touchSteps() {
     });
     await touch.up();
     await frames(2);
+    // M2：松手后浮窗留着（手指挡着时也能看完），下一次碰屏幕才收起
     const lp2 = await ev(() => G.input.alt);
     const tip2 = await ev(() => getComputedStyle(document.getElementById('tip')).display);
-    assert(lp.alt && lp.tip && !lp2 && tip2 === 'none', '长按应出浮窗并展开详情、松手收起：' + JSON.stringify({ lp, lp2, tip2 }));
+    const hd = await ev(() => T.rect('#panel-head'));
+    await touch.tap(hd.l + 30, hd.y);
+    await frames(2);
+    const lp3 = await ev(() => ({ alt: G.input.alt, tip: getComputedStyle(document.getElementById('tip')).display }));
+    assert(lp.alt && lp.tip && lp2 && tip2 !== 'none', '长按应出浮窗并展开详情，松手后留着：' + JSON.stringify({ lp, lp2, tip2 }));
+    assert(!lp3.alt && lp3.tip === 'none', '下一次碰屏幕应收起长按的浮窗：' + JSON.stringify(lp3));
     assert(!lp.worn, '长按（contextmenu）不应把物品穿上');
     // 点一下物品：详情里有「装备」等按钮（浮窗也会出来）
     const cell = await ev(() => T.rect('.cell[data-item="' + window.__helm.uid + '"]'));
@@ -25473,6 +26309,348 @@ async function touchSteps() {
     await ev(() => G.ui.close());
     assert(!bad.length, '触屏下还有鼠标 / 键盘说法：' + Array.from(new Set(bad)).slice(0, 12).join(' ｜ '));
     return '按钮 ' + acts.join(' / ') + '；打 ' + busy.sec + ' 秒文字处理 ' + busy.calls + ' 次，提示卡收成一行';
+  });
+
+  await step('触屏：长按看详情——技能、天赋、地图的区域卡片（450 ms 出浮窗和详情，松手留着，下一次碰屏幕收起）；长按天赋不会点亮；背包里挪过 8 px 是拖拽（拖到装备栏穿上），不到 8 px 是长按；竖屏背包从格子以外竖着划照常滚动', async () => {
+    await touchPage();
+    await ev(() => {
+      G.debug.learnAll();
+      G.debug.setLevel(20);
+      G.computeStats();
+    });
+    const tipNow = () =>
+      ev(() => {
+        const t = document.getElementById('tip');
+        return { vis: getComputedStyle(t).display !== 'none' && t.classList.contains('on'), txt: t.textContent.slice(0, 80), alt: G.input.alt, altOn: document.body.classList.contains('alt-on'), lp: G.touch.state().lp, box: T.rect(t) };
+      });
+    const press = async (sel, ms) => {
+      const r = await ev((sel) => T.rect(sel), sel);
+      assert(r, '找不到 ' + sel);
+      await touch.down(r.x, r.y);
+      await sleep(ms || 650);
+      const a = await tipNow();
+      await touch.up();
+      await frames(2);
+      const b = await tipNow();
+      return { r, a, b };
+    };
+    const dismiss = async () => {
+      const hd = await ev(() => T.rect('#panel-head'));
+      await touch.tap(hd.l + 30, hd.y);
+      await frames(2);
+      return tipNow();
+    };
+    const out = {};
+    // 技能：技能栏里的一格
+    await ev(() => G.ui.open('skills'));
+    await frames(3);
+    const skName = await ev(() => G.SKILLS[document.querySelector('.barslot[data-tip^="skdrag:"]').dataset.tip.slice(7)].name);
+    out.skill = await press('.barslot[data-tip^="skdrag:"]');
+    out.skillOff = await dismiss();
+    // 天赋：一个能点亮的点，长按只看不点
+    await ev(() => G.ui.open('tree'));
+    await frames(3);
+    const n0 = await ev(() => document.querySelectorAll('.tn.alloc').length);
+    const node = await ev(() => {
+      const n = document.querySelector('.tn.avail');
+      return n ? n.dataset.node : null;
+    });
+    out.tree = await press('.tn[data-node="' + node + '"]');
+    const n1 = await ev(() => document.querySelectorAll('.tn.alloc').length);
+    out.treeOff = await dismiss();
+    // 地图：区域卡片（手机上卡片收成一块，简介和首领在长按的浮窗里）
+    await ev(() => G.ui.open('map'));
+    await frames(3);
+    const zName = await ev(() => G.ZONES[1].name);
+    out.zone = await press('.zone[data-tip="zone:1:0"]');
+    out.zoneOff = await dismiss();
+    // 轻点（不到 450 ms）不出浮窗：按下 120 ms 就松手，松手之后再看（中途去页面里读状态会把按住的时间拖长）
+    {
+      const r0 = await ev(() => T.rect('.zone[data-tip="zone:0:0"]'));
+      await touch.down(r0.x, r0.y);
+      await sleep(120);
+      await touch.up();
+      await frames(2);
+      await sleep(600); // 计时器要是还在跑，这时候早该弹出来了
+      out.tap = { r: r0, a: { vis: false }, b: await tipNow() };
+    }
+    assert(out.skill.a.vis && out.skill.a.altOn && out.skill.a.txt.includes(skName) && out.skill.b.vis && out.skill.b.lp === 'stuck', '长按技能栏的格子应出浮窗和详情、松手留着：' + JSON.stringify(out.skill));
+    assert(!out.skillOff.vis && !out.skillOff.alt, '碰一下别处应收起：' + JSON.stringify(out.skillOff));
+    assert(node && out.tree.a.vis && out.tree.b.vis && n1 === n0, '长按天赋应出浮窗、不点亮：' + JSON.stringify({ node, n0, n1, a: out.tree.a }));
+    assert(!out.treeOff.vis, '天赋浮窗应能收起：' + JSON.stringify(out.treeOff));
+    assert(out.zone.a.vis && out.zone.a.txt.includes(zName) && /首领/.test(out.zone.a.txt) && out.zone.b.vis, '长按区域卡片应出区域详情：' + JSON.stringify(out.zone));
+    assert(!out.tap.a.vis && !out.tap.b.vis, '轻点不该出浮窗：' + JSON.stringify(out.tap));
+    const inBox = (b) => b && b.l >= 0 && b.t >= 0 && b.r <= 844 && b.b <= 390;
+    assert(inBox(out.skill.a.box) && inBox(out.tree.a.box) && inBox(out.zone.a.box), '浮窗应在屏幕里：' + JSON.stringify([out.skill.a.box, out.tree.a.box, out.zone.a.box]));
+    // 背包：挪 5 px 再按住 = 长按（不拖）；挪过 8 px = 拖拽，拖到装备栏穿上
+    await ev(() => {
+      G.ui.close();
+      const old = G.save.equip.boots;
+      if (old) G.unequip('boots');
+      window.__boots = G.debug.giveItem(1, 'boots');
+      G.ui.open('inv');
+    });
+    await frames(3);
+    const c = await ev(() => T.rect('.cell[data-item="' + window.__boots.uid + '"]'));
+    await touch.down(c.x, c.y);
+    await touch.move(c.x + 5, c.y);
+    await sleep(650);
+    out.still = await ev(() => ({ drag: document.body.classList.contains('dragging'), lp: G.touch.state().lp }));
+    await touch.up();
+    await frames(2);
+    await dismiss();
+    const eq = await ev(() => T.rect('.eq[data-slot="boots"]'));
+    await touch.down(c.x, c.y);
+    for (let i = 1; i <= 8; i++) await touch.move(c.x + ((eq.x - c.x) * i) / 8, c.y + ((eq.y - c.y) * i) / 8);
+    out.mid = await ev(() => ({ drag: document.body.classList.contains('dragging'), lp: G.touch.state().lp }));
+    await touch.up();
+    await frames(2);
+    out.worn = await ev(() => !!(G.save.equip.boots && G.save.equip.boots.uid === window.__boots.uid));
+    await ev(() => G.ui.close());
+    assert(!out.still.drag && out.still.lp === 'on', '挪 5 px 按住应是长按、不是拖拽：' + JSON.stringify(out.still));
+    assert(out.mid.drag && !out.mid.lp && out.worn, '挪过 8 px 应是拖拽，拖到装备栏应穿上：' + JSON.stringify(out));
+    // 竖屏的背包整页滚动：只有拖拽源（格子）是 touch-action: none，滚动容器不是；从格子以外的地方竖着划能滚
+    await page.setViewportSize({ width: 390, height: 844 });
+    await ev(() => {
+      for (let i = 0; i < 10; i++) G.debug.giveItem(i % 3, null, null, 20); // 背包放满一点，整页要能滚
+      G.ui.open('inv');
+    });
+    await frames(3);
+    const sc = await ev(() => {
+      const inv = document.querySelector('.inv'), cell = document.querySelector('.cell[data-item]');
+      const t = T.rect(document.querySelector('.col-m > .sec-title')); // 背包标题行（格子上面），从它的左端开始划
+      return { inv: getComputedStyle(inv).touchAction, oy: getComputedStyle(inv).overflowY, cell: getComputedStyle(cell).touchAction, room: inv.scrollHeight - inv.clientHeight, x: t.l + 16, y: t.y, top0: inv.scrollTop };
+    });
+    await touch.drag(sc.x, sc.y, sc.x, Math.max(12, sc.y - 180), 8);
+    await touch.up();
+    await sleep(400);
+    sc.top1 = await ev(() => document.querySelector('.inv').scrollTop);
+    await ev(() => G.ui.close());
+    await page.setViewportSize({ width: 844, height: 390 });
+    await frames(2);
+    assert(sc.inv === 'auto' && sc.oy === 'auto' && sc.cell === 'none' && sc.room > 50, '竖屏背包：滚动容器应保持默认 touch-action、格子才是 none：' + JSON.stringify(sc));
+    assert(sc.top1 > sc.top0 + 40, '竖屏背包从格子以外竖着划应能滚动：' + JSON.stringify(sc));
+    return '技能 / 天赋 / 区域卡片长按出详情、松手留着；天赋点亮数 ' + n0 + ' → ' + n1 + '；拖拽穿上鞋子；竖屏背包划动滚了 ' + Math.round(sc.top1 - sc.top0) + ' px';
+  });
+
+  await step('触屏：M2 设置——左手模式（右下拖摇杆能走、左下的按钮能按）、按钮大小、震动（安卓桩：重击 / 翻滚 / 残血各震一次、120 ms 限频、残血不连震、关掉不震、没有 vibrate 时设置里不显示）、主题色', async () => {
+    await touchPage();
+    const out = {};
+    // 震动桩：记下每次调用
+    await ev(() => {
+      window.__vib = [];
+      navigator.vibrate = (p) => (window.__vib.push(p), true);
+    });
+    // 主题色：触屏模式挂上 theme-color
+    out.theme = await ev(() => (document.querySelector('meta[name="theme-color"]') || {}).content || null);
+    // 左手模式：摇杆区在右下，按钮簇在左下
+    await ev(() => G.touch.setPref('mirror', true));
+    await frames(2);
+    const x0 = await ev(() => G.player.x);
+    await touch.drag(844 - 150, 300, 844 - 150 + 40, 300, 4);
+    out.mStick = await ev(() => G.touch.state().stick);
+    const x1 = await ev(() => (G.debug.step(0.3), G.player.x));
+    await touch.up();
+    const roll = await tbRect('roll');
+    out.mRoll = roll.x < 422;
+    await touch.tap(roll.x, roll.y);
+    out.mRolled = await ev(() => G.player.roll.t > 0);
+    await ev(() => (G.debug.step(1.2), G.touch.setPref('mirror', false)));
+    await frames(2);
+    out.unMirror = await tbRect('roll');
+    assert(out.theme === '#0a0706', '触屏模式应挂上主题色：' + out.theme);
+    assert(out.mStick && Math.abs(out.mStick.a) < 0.05 && x1 > x0 + 1, '左手模式下在右下拖摇杆应能往右走：' + JSON.stringify({ out, x0, x1 }));
+    assert(out.mRoll && out.mRolled && out.unMirror.x > 422, '左手模式下翻滚键在左边、点了能滚，关掉后回到右边：' + JSON.stringify(out));
+    // 震动：翻滚、重击、残血
+    const vib = async (fn) => {
+      await ev(fn);
+      await frames(3);
+      return ev(() => G.touch.state().vibe.log.slice());
+    };
+    await ev(() => {
+      G.player.life = G.player.maxLife;
+      G.debug.step(1);
+    });
+    await frames(3);
+    const n0 = (await ev(() => G.touch.state().vibe.log)).length;
+    const l1 = await vib(() => G.press('Space'));
+    await sleep(200);
+    const l2 = await vib(() => (G.player.life -= G.player.maxLife * 0.2));
+    await sleep(200);
+    const l2b = await vib(() => (G.player.life = G.player.maxLife * 0.33)); // 又一次重击，还没到残血
+    await sleep(200);
+    const l3 = await vib(() => (G.player.life = G.player.maxLife * 0.25)); // 掉得不多（< 12%），但跌破三成：残血
+    await sleep(1000); // 一直残血：6 秒内不再震
+    const l4 = await ev(() => G.touch.state().vibe.log.slice());
+    // 限频：同一帧里翻滚 + 重击，只震一次
+    await ev(() => {
+      G.player.life = G.player.maxLife;
+      G.debug.step(1.2);
+    });
+    await sleep(200);
+    await frames(2);
+    const c0 = await ev(() => G.touch.state().vibe.n);
+    await ev(() => {
+      G.press('Space');
+      G.player.life -= G.player.maxLife * 0.2;
+    });
+    await frames(3);
+    const c1 = await ev(() => G.touch.state().vibe.n);
+    out.vib = { n0, l1: l1.slice(n0), l2: l2.slice(n0), l2b: l2b.slice(n0), l3: l3.slice(n0), l4: l4.slice(n0), burst: c1 - c0, calls: await ev(() => window.__vib.length) };
+    assert(out.vib.l1.join() === 'roll' && out.vib.l2.join() === 'roll,hit' && out.vib.l2b.join() === 'roll,hit,hit' && out.vib.l3.join() === 'roll,hit,hit,low' && out.vib.l4.join() === 'roll,hit,hit,low', '翻滚 / 重击 / 残血应各震一次、残血不连震：' + JSON.stringify(out.vib));
+    assert(out.vib.burst === 1, '同一帧里翻滚加重击应只震一次（120 ms 限频）：' + JSON.stringify(out.vib));
+    // 设置：关掉震动后不再震；没有 vibrate 时这一项不显示
+    await ev(() => {
+      G.player.life = G.player.maxLife;
+      G.debug.step(1.2);
+      G.ui.pause();
+    });
+    await page.click('#p-menu [data-tact="settings"]');
+    await frames(1);
+    out.rows = await ev(() => Array.from(document.querySelectorAll('#p-view .m-row .opt-text b')).map((b) => b.textContent));
+    await page.click('#p-view [data-tact="tvibe"]');
+    await page.click('#p-view [data-tact="tsize"][data-v="l"]');
+    out.prefs = await ev(() => ({ p: G.touch.state().prefs, k: [localStorage.getItem('cinder-abyss-touch-vibe'), localStorage.getItem('cinder-abyss-touch-size')], cls: document.documentElement.className }));
+    await ev(() => G.ui.close());
+    await sleep(200);
+    const c2 = await ev(() => G.touch.state().vibe.n);
+    await ev(() => G.press('Space'));
+    await frames(3);
+    const c3 = await ev(() => G.touch.state().vibe.n);
+    await ev(() => {
+      G.touch.setPref('vibe', true);
+      G.touch.setPref('size', 'm');
+      delete navigator.vibrate;
+      const had = 'vibrate' in Navigator.prototype;
+      if (had) Object.defineProperty(Navigator.prototype, 'vibrate', { value: undefined, configurable: true, writable: true });
+      G.ui.pause();
+    });
+    await page.click('#p-menu [data-tact="settings"]');
+    await frames(1);
+    out.rowsNoVib = await ev(() => Array.from(document.querySelectorAll('#p-view .m-row .opt-text b')).map((b) => b.textContent));
+    await ev(() => G.ui.close());
+    assert(['按钮大小', '左手模式', '震动'].every((k) => out.rows.includes(k)), '设置里应有触屏几项：' + out.rows.join(','));
+    assert(!out.prefs.p.vibe && out.prefs.p.size === 'l' && out.prefs.k[0] === '0' && out.prefs.k[1] === 'l' && /t-size-l/.test(out.prefs.cls), '设置应改到偏好并存在设备上：' + JSON.stringify(out.prefs));
+    assert(c3 === c2, '关掉震动后翻滚不该震：' + JSON.stringify({ c2, c3 }));
+    assert(!out.rowsNoVib.includes('震动') && out.rowsNoVib.includes('按钮大小'), '没有 vibrate（iPhone）时不显示震动这一项：' + out.rowsNoVib.join(','));
+    return '左手模式能走能滚；震动 ' + out.vib.l4.join(' / ') + '、限频 ' + out.vib.burst + ' 次、关掉 0 次';
+  });
+
+  await step('触屏：横屏开始——竖着拿手机，竖屏提示里点「横屏开始」，锁不了横屏就把画面转 90°（html.t-rot）；转着时摇杆方向、按钮、拖动瞄准（< 0.3 m）、面板都按转过的画面算；⟲ 换方向；手机真横过来自动退出；标题画面也有这个按钮', async () => {
+    await touchPage({ width: 390, height: 844 });
+    // 画面坐标 ↔ 屏幕坐标（CDP 发的触摸是屏幕坐标）
+    const scr = (x, y) => ev(([x, y]) => G.toScreen(x, y), [x, y]);
+    const fdrag = async (sx, sy, dx, dy, n) => {
+      // 从屏幕上的 (sx, sy) 按下，沿画面里的 (dx, dy) 拖 n 步，不松手
+      const f = await ev(([x, y]) => G.toFrame(x, y), [sx, sy]);
+      await touch.down(sx, sy);
+      for (let i = 1; i <= n; i++) {
+        const q = await scr(f.x + (dx * i) / n, f.y + (dy * i) / n);
+        await touch.move(q.x, q.y);
+      }
+    };
+    const s0 = await ev(() => ({ st: G.touch.state(), mask: getComputedStyle(document.getElementById('t-portrait')).display, txt: document.getElementById('t-portrait').innerText, btn: T.rect('#t-portrait [data-trot]') }));
+    assert(s0.st.portrait && s0.st.blocked && s0.mask !== 'none' && /横过来玩/.test(s0.txt) && s0.btn && s0.btn.h >= 44, '竖屏提示里应有「横屏开始」：' + JSON.stringify(s0));
+    await touch.tap(s0.btn.x, s0.btn.y);
+    await until(() => G.touch.state().rot, null, 8000);
+    await frames(3);
+    const s1 = await ev(() => {
+      const gl = document.getElementById('gl');
+      return { st: G.touch.state(), cls: document.documentElement.className, gl: [gl.style.width, gl.style.height], body: document.body.style.transform, paused: G.state.paused, vw: G.viewW(), vh: G.viewH(), try: G.touch.rotTry, mask: getComputedStyle(document.getElementById('t-portrait')).display };
+    });
+    assert(s1.st.rot === 'cw' && /t-rot/.test(s1.cls) && /t-land/.test(s1.cls) && !/t-portrait/.test(s1.cls) && !s1.st.portrait && !s1.st.blocked && s1.mask === 'none', '应进旋转横屏（顺时针）：' + JSON.stringify(s1));
+    assert(s1.vw === 844 && s1.vh === 390 && s1.gl[0] === '844px' && s1.gl[1] === '390px' && /rotate\(90deg\)/.test(s1.body), '画面应是 844×390、画布跟着转：' + JSON.stringify(s1));
+    // 摇杆：画面里往右拖 → 往右走（+x），往上拖 → input.move.z ≈ −1
+    const x0 = await ev(() => G.player.x);
+    const p0 = await scr(150, 300);
+    await fdrag(p0.x, p0.y, 45, 0, 4);
+    const k1 = await ev(() => ({ st: G.touch.state().stick, mv: G.input.move && Object.assign({}, G.input.move) }));
+    const x1 = await ev(() => (G.debug.step(0.3), G.player.x));
+    await touch.up();
+    await fdrag(p0.x, p0.y, 0, -45, 4);
+    const k2 = await ev(() => ({ st: G.touch.state().stick, mv: G.input.move && Object.assign({}, G.input.move) }));
+    await touch.up();
+    assert(k1.st && Math.abs(k1.st.a) < 0.02 && k1.mv.x > 0.99 && x1 > x0 + 1.5, '转着时摇杆往画面右边拖应往右走：' + JSON.stringify({ k1, x0, x1 }));
+    assert(k2.mv && k2.mv.z < -0.99, '往画面上方拖应往 −z 走：' + JSON.stringify(k2));
+    // 按钮：点翻滚
+    await ev(() => G.debug.step(0.5));
+    const rb = await tbRect('roll');
+    await touch.tap(rb.x, rb.y);
+    const rolled = await ev(() => G.player.roll.t > 0);
+    assert(rolled, '转着时点翻滚应翻滚');
+    // 拖动瞄准：从 E 往画面左上拖，准星落点和 input.aim 差不到 0.3 m，松手陨火落在那里
+    await ev(() => {
+      G.debug.step(1.5);
+      G.debug.learnAll();
+      G.save.bar[3] = 'meteor';
+      G.computeStats();
+      G.player.mana = G.player.maxMana = 9999;
+      G.player.cds = {};
+      window.__fall = [];
+      const W = G.world;
+      if (!window.__fallOrig) {
+        window.__fallOrig = W.meteorFall;
+        W.meteorFall = function (x, z) {
+          window.__fall.push({ x, z });
+          return window.__fallOrig.apply(this, arguments);
+        };
+      }
+    });
+    await frames(2);
+    const e = await tbRect('s3');
+    const dx = -100, dy = -30;
+    await fdrag(e.x, e.y, dx, dy, 4);
+    await frames(2);
+    const a = await ev(() => {
+      const r = document.getElementById('reticle');
+      const m = /translate\(([-\d.]+)px,\s*([-\d.]+)px\)/.exec(r.style.transform);
+      const g = m ? G.world.screenToGround(+m[1], +m[2]) : null;
+      return { aim: G.input.aim, ret: g, vis: getComputedStyle(r).display !== 'none', P: { x: G.player.x, z: G.player.z } };
+    });
+    const L = Math.hypot(dx, dy), f = Math.min(1, (L - 20) / 110), rr = 14 * f;
+    const want = { x: a.P.x + (dx / L) * rr, z: a.P.z + (dy / L) * rr };
+    await touch.up();
+    const c = await ev(() => (G.debug.step(1.5), { fall: window.__fall.slice(), cd: G.player.cds.meteor || 0 }));
+    assert(a.vis && a.aim && a.ret, '转着时拖动应显示准星：' + JSON.stringify(a));
+    assert(Math.hypot(a.aim.x - want.x, a.aim.z - want.z) < 0.05 && Math.hypot(a.ret.x - a.aim.x, a.ret.z - a.aim.z) < 0.3, '转着时拖动瞄准的落点不对：' + JSON.stringify({ a, want }));
+    assert(c.cd > 0 && c.fall.length === 1 && Math.hypot(c.fall[0].x - want.x, c.fall[0].z - want.z) < 0.3, '松手应在拖到的地方放出陨火：' + JSON.stringify({ c, want }));
+    // 顶栏「包」打开背包：面板铺满转过的画面
+    const ib = await ev(() => T.rect('[data-tt="inv"]'));
+    await touch.tap(ib.x, ib.y);
+    await frames(3);
+    const pw = await ev(() => ({ open: G.ui.isOpen(), r: G.rectToFrame(document.getElementById('panel-win').getBoundingClientRect()) }));
+    await ev(() => G.ui.close());
+    await frames(2);
+    assert(pw.open && Math.abs(pw.r.width - 844) < 2 && Math.abs(pw.r.height - 390) < 2 && Math.abs(pw.r.left) < 1, '转着时背包应铺满 844×390 的画面：' + JSON.stringify(pw));
+    // ⟲：换成逆时针，摇杆照样按画面方向走
+    const fb = await ev(() => T.rect('[data-tt="rot"]'));
+    await touch.tap(fb.x, fb.y);
+    await frames(2);
+    const s2 = await ev(() => ({ rot: G.touch.state().rot, body: document.body.style.transform }));
+    const p1 = await scr(150, 300);
+    await fdrag(p1.x, p1.y, 45, 0, 4);
+    const k3 = await ev(() => ({ st: G.touch.state().stick, mv: G.input.move && Object.assign({}, G.input.move) }));
+    await touch.up();
+    assert(fb && s2.rot === 'ccw' && /rotate\(-90deg\)/.test(s2.body) && k3.mv && k3.mv.x > 0.99, '⟲ 应换成逆时针、摇杆方向照旧：' + JSON.stringify({ s2, k3 }));
+    // 手机真横过来：自动退出
+    await page.setViewportSize({ width: 844, height: 390 });
+    await frames(3);
+    const s3 = await ev(() => ({ rot: G.touch.state().rot, cls: document.documentElement.className, body: document.body.style.transform, vw: G.viewW(), sa: document.documentElement.style.getPropertyValue('--sa-l') }));
+    assert(!s3.rot && !/t-rot/.test(s3.cls) && /t-land/.test(s3.cls) && !s3.body && s3.vw === 844 && !s3.sa, '真横屏时应退出旋转横屏、恢复原样：' + JSON.stringify(s3));
+    // 标题画面竖着时右上角也有「横屏开始」，点了在标题画面上就转过来，⟲ 也在
+    await page.setViewportSize({ width: 390, height: 844 });
+    await frames(2);
+    await ev(() => G.ui.showTitle(true));
+    await frames(3);
+    const tb = await ev(() => T.rect('#t-rot-go'));
+    assert(tb && tb.w >= 44 && tb.h >= 44, '标题画面竖着时应有「横屏开始」：' + JSON.stringify(tb));
+    await touch.tap(tb.x, tb.y);
+    await until(() => G.touch.state().rot, null, 8000);
+    await frames(2);
+    const s4 = await ev(() => ({ rot: G.touch.state().rot, flip: T.rect('#t-rot-flip'), go: getComputedStyle(document.getElementById('t-rot-go')).display, menu: G.rectToFrame(document.querySelector('#t-menu').getBoundingClientRect()) }));
+    assert(s4.rot && s4.flip && s4.flip.w >= 44 && s4.go === 'none' && s4.menu.left >= 0 && s4.menu.bottom <= 390, '标题画面应转过来、菜单在画面里：' + JSON.stringify(s4));
+    await ev(() => G.touch.setRot(null));
+    return '「横屏开始」→ ' + s1.try + ' → 旋转 ' + s1.st.rot + '，画面 ' + s1.vw + '×' + s1.vh + '；摇杆 / 翻滚 / 拖动瞄准 / 背包都对；⟲ → ' + s2.rot + '；真横屏自动退出';
   });
 
   await step('旁白卡：帧率掉到约 2 fps 时按真实时间放，长度和正常时一样（约 5 秒）；触屏下不压顶栏、小地图、追踪条、按钮簇和提示卡', async () => {
@@ -25608,7 +26786,7 @@ async function touchSteps() {
     return ok.log.join(' → ') + '；存档失败：' + bad.log.join(' → ');
   });
 
-  await step('触屏：布局——844×390 / 667×375 / 932×430（含安全区）/ 390×844 / 1024×768 下摇杆区、按钮簇、小地图、追踪、顶栏、首领条互不重叠，按钮 ≥ 44 px 且在屏内，「开始」在屏内', async () => {
+  await step('触屏：布局——844×390 / 667×375 / 932×430（含安全区）/ 390×844 / 1024×768 下摇杆区、按钮簇、小地图、追踪、顶栏、首领条互不重叠，按钮 ≥ 44 px 且在屏内，「开始」在屏内；按钮大小 小 / 中 / 大、左手模式在横屏各尺寸下同样成立；旋转横屏（390×844 顺 / 逆时针、375×667）按转过的画面同样成立', async () => {
     await touchPage();
     const SIZES = [
       [844, 340, null], // iOS 横屏：地址栏 / 工具栏占掉一截的可见高度
@@ -25620,10 +26798,15 @@ async function touchSteps() {
       [932, 430, { l: 47, r: 47, b: 21 }],
       [390, 844, { t: 47, b: 34 }],
       [1024, 768, { b: 20 }],
+      // 旋转横屏（竖着拿手机点「横屏开始」、锁不了横屏时）：画面转 90°，按转过的画面量
+      [390, 844, { t: 47, b: 34 }, 'cw'],
+      [390, 844, { t: 47, b: 34 }, 'ccw'],
+      [375, 667, null, 'cw'],
     ];
     const out = [];
-    for (const [w, h, sa] of SIZES) {
+    for (const [w, h, sa, rot] of SIZES) {
       await page.setViewportSize({ width: w, height: h });
+      await ev((rot) => G.touch.setRot(rot || null), rot);
       await ev((sa) => {
         const s = document.documentElement.style;
         for (const k of ['t', 'r', 'b', 'l']) s.setProperty('--t-safe-' + k, sa && sa[k] ? sa[k] + 'px' : '0px');
@@ -25636,11 +26819,11 @@ async function touchSteps() {
         co.className = 'on';
       }, sa);
       await frames(3);
-      const r = await ev((sa) => {
-        const W = innerWidth, H = innerHeight;
+      const measure = () => ev((sa) => {
+        const W = G.viewW(), H = G.viewH(); // 旋转横屏时是转过的画面（平时 = innerWidth / innerHeight）
         const vis = (n) => n && n.getClientRects().length && getComputedStyle(n).display !== 'none' && getComputedStyle(n).visibility !== 'hidden';
         const box = (n) => {
-          const b = n.getBoundingClientRect();
+          const b = G.rectToFrame(n.getBoundingClientRect());
           return { l: b.left, t: b.top, r: b.right, b: b.bottom, w: b.width, h: b.height };
         };
         const union = (list) => list.reduce((u, b) => (u ? { l: Math.min(u.l, b.l), t: Math.min(u.t, b.t), r: Math.max(u.r, b.r), b: Math.max(u.b, b.b) } : b), null);
@@ -25663,12 +26846,38 @@ async function touchSteps() {
             const a = areas[ks[i]], b = areas[ks[j]];
             if (a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b) hits.push(ks[i] + '×' + ks[j]);
           }
-        const sl = (sa && sa.l) || 0, sr = (sa && sa.r) || 0, st = (sa && sa.t) || 0, sb = (sa && sa.b) || 0;
+        // 安全区（屏幕的四边）换到画面的四边：转着的时候竖屏的刘海 / 底部横条在画面的左右
+        const SIDE = G.rot ? (G.rot.dir === 'cw' ? { t: 'r', r: 'b', b: 'l', l: 't' } : { t: 'l', r: 't', b: 'r', l: 'b' }) : { t: 't', r: 'r', b: 'b', l: 'l' };
+        const ins = (k) => (sa && sa[SIDE[k]]) || 0;
+        const sl = ins('l'), sr = ins('r'), st = ins('t'), sb = ins('b');
         const allBtns = btns.concat(Array.from(document.querySelectorAll('#t-top button')).filter(vis).map(box));
         const small = allBtns.filter((b) => b.w < 44 || b.h < 44).length;
         const off = allBtns.filter((b) => b.l < sl || b.t < st || b.r > W - sr || b.b > H - sb).length;
-        return { size: W + '×' + H, sa: !!sa, n: allBtns.length, hits, small, off, portrait: G.touch.state().portrait, ks: ks.join('/') };
+        const P = G.touch.state().prefs;
+        // 左手模式：按钮簇的中心在左半边、摇杆区的中心在右半边；不是左手模式时反过来
+        const cx = (b) => (b.l + b.r) / 2;
+        const side = !areas.cluster || !areas.stick ? 'ok' : P.mirror ? (cx(areas.cluster) < W / 2 && cx(areas.stick) > W / 2 ? 'ok' : 'bad') : cx(areas.cluster) > W / 2 && cx(areas.stick) < W / 2 ? 'ok' : 'bad';
+        const big = document.querySelector('[data-tb="s0"]');
+        return { size: W + '×' + H, rot: G.rot ? G.rot.dir : '', sa: !!sa, pref: P.size + (P.mirror ? '+左手' : ''), n: allBtns.length, hits, small, off, side, s0: vis(big) ? Math.round(box(big).w) : 0, portrait: G.touch.state().portrait, ks: ks.join('/') };
       }, sa);
+      // 按钮大小（小 / 中 / 大）和左手模式：横屏每个尺寸都量一遍
+      const PREFS = (w > h || rot) && w < 1000 ? [['m', false], ['s', false], ['l', false], ['m', true], ['l', true]] : [['m', false]];
+      let r = null;
+      for (const [size, mirror] of PREFS) {
+        await ev(([size, mirror]) => {
+          G.touch.setPref('size', size);
+          G.touch.setPref('mirror', mirror);
+        }, [size, mirror]);
+        await frames(2);
+        const m = await measure();
+        if (!r) r = m;
+        else out.push(m);
+      }
+      await ev(() => {
+        G.touch.setPref('size', 'm');
+        G.touch.setPref('mirror', false);
+      });
+      await frames(1);
       // 开场卡片有入场动画：打开后等它停下来再量「开始」
       await ev(() => G.ui.showIntro());
       await sleep(700);
@@ -25678,21 +26887,25 @@ async function touchSteps() {
       Object.assign(
         r,
         await ev(() => {
-          const go = document.getElementById('intro-go').getBoundingClientRect();
+          const go = G.rectToFrame(document.getElementById('intro-go').getBoundingClientRect());
           G.ui.close();
-          return { goOk: go.top >= 0 && go.bottom <= innerHeight && go.left >= 0 && go.right <= innerWidth && go.height >= 44, go: [go.left, go.top, go.width, go.height].map(Math.round) };
+          return { goOk: go.top >= 0 && go.bottom <= G.viewH() && go.left >= 0 && go.right <= G.viewW() && go.height >= 44, go: [go.left, go.top, go.width, go.height].map(Math.round) };
         })
       );
       out.push(r);
+      await ev(() => G.touch.setRot(null));
     }
-    const bad = out.filter((r) => r.hits.length || r.small || r.off || !r.goOk || (r.portrait ? r.n !== 0 : r.n < 15) || (r.portrait !== (r.size === '390×844')));
+    const bad = out.filter((r) => r.hits.length || r.small || r.off || r.side !== 'ok' || (r.goOk === false) || (r.goOk === undefined && r.pref === 'm') || (r.portrait ? r.n !== 0 : r.n < 15) || (r.portrait !== (r.size === '390×844' && !r.rot)));
     assert(!bad.length, '布局有问题：' + JSON.stringify(bad));
+    // 按钮大小确实变了：主攻键 小 < 中 < 大
+    const s0 = (pref) => (out.find((r) => r.size === '844×390' && !r.sa && r.pref === pref) || {}).s0;
+    assert(s0('s') < s0('m') && s0('m') < s0('l'), '按钮大小没变：' + JSON.stringify({ s: s0('s'), m: s0('m'), l: s0('l') }));
     await ev(() => {
       document.getElementById('boss-box').classList.remove('on');
       document.getElementById('t-f').classList.remove('on');
       document.getElementById('coach').className = '';
     });
-    return out.map((r) => r.size + (r.sa ? '+安全区' : '') + ' ' + r.n + ' 键').join('，');
+    return out.filter((r) => r.pref === 'm').map((r) => r.size + (r.rot ? '（旋转 ' + r.rot + '）' : '') + (r.sa ? '+安全区' : '') + ' ' + r.n + ' 键').join('，') + '；按钮大小 / 左手模式另量 ' + out.filter((r) => r.pref !== 'm').length + ' 次，主攻键 ' + s0('s') + ' / ' + s0('m') + ' / ' + s0('l') + ' px';
   });
 
   await step('触屏：iOS 工具栏占掉高度（844×340 / 667×320）时标题画面、职业选择、开场卡片、背包和暂停菜单都放得下', async () => {
@@ -25834,7 +27047,66 @@ async function touchSteps() {
     return r.lines.length + ' 个画面，共量 ' + r.lines.reduce((n, l) => n + +l.split(' ').pop(), 0) + ' 个框';
   });
 
-  await step('触屏：桌面窗口不开触屏模式（没有 html.touch-ui、没有触屏 DOM、G.touch.on 为假），开场卡片的「开始」在 1280×360 / 1024×360 里也在屏内', async () => {
+  await step('触屏：只弹一张教程（确定性）——开场卡片在两帧之间开了又关（机器忙、点得快）也记得上；提示卡先弹出来、开场卡片后到时收起提示卡；新角色的开场卡片还没来时不先弹提示卡', async () => {
+    await touchPage();
+    const K = TOUCH_HINT_KEY;
+    const st = () => ev((K) => ({ key: localStorage.getItem(K), seen: G.touch.introSeen, hint: G.touch.state().hint, hintCls: document.getElementById('t-hint').className }), K);
+    // 1) 同一个任务里打开再关掉开场卡片（中间没有一帧）：原来每帧看一眼的写法记不上
+    await ev((K) => {
+      localStorage.removeItem(K);
+      G.touch.introSeen = false;
+      G.ui.showIntro();
+      document.getElementById('intro-go').click();
+    }, K);
+    await frames(3);
+    const a = await st();
+    assert(a.key === '1' && a.seen && !a.hint, '两帧之间开了又关的开场卡片应记上、不弹提示卡：' + JSON.stringify(a));
+    // 2) 提示卡先弹出来（老角色、键没记），开场卡片后到：提示卡收起，关掉开场卡片以后也不再露出来
+    await ev((K) => {
+      localStorage.removeItem(K);
+      G.touch.introSeen = false;
+      G.ui.close();
+    }, K);
+    await until(() => G.touch.state().hint, null, 10000);
+    const b0 = await st();
+    await ev(() => G.ui.showIntro());
+    await frames(2);
+    const b1 = await st();
+    await ev(() => document.getElementById('intro-go').click());
+    await frames(3);
+    const b2 = await st();
+    // 3) 新角色（seenHelp 为假）：开场卡片还没来，提示卡不先弹
+    await ev((K) => {
+      localStorage.removeItem(K);
+      G.touch.introSeen = false;
+      G.save.seenHelp = false;
+    }, K);
+    await frames(6);
+    const c = await st();
+    await ev(() => {
+      G.ui.showIntro();
+    });
+    await frames(2);
+    await ev(() => document.getElementById('intro-go').click());
+    await frames(4);
+    const c2 = await st();
+    assert(b0.hint && b1.key === '1' && !b1.hint && !/on/.test(b1.hintCls) && !b2.hint, '开场卡片后到时应收起提示卡、之后不再露出来：' + JSON.stringify({ b0, b1, b2 }));
+    assert(!c.hint && c2.key === '1' && !c2.hint, '新角色的开场卡片还没来时不该先弹提示卡：' + JSON.stringify({ c, c2 }));
+    return '同一任务开关 → 记上；提示卡先到 → 被收起；开场卡片未到 → 不弹';
+  });
+
+  await step('触屏：圆角（M2）——按钮大小「大」、左手模式、旋转横屏（顺 / 逆时针）下 HUD 和背包的字和按钮也不碰 iPhone 圆角', async () => {
+    await touchPage();
+    const r = await cornerHud(page, [
+      [844, 390, 'l', false], [844, 390, 'l', true], [844, 390, 'm', true], [667, 320, 'l', true], [844, 340, 'l', false],
+      [390, 844, 'm', false, 'cw'], [390, 844, 'l', true, 'ccw'], [375, 667, 'l', false, 'cw'],
+    ]);
+    await page.setViewportSize({ width: 844, height: 390 });
+    assert(!r.bad.length, '有字或按钮碰到圆角：' + r.bad.join(' ｜ '));
+    return r.lines.length + ' 个画面，共量 ' + r.lines.reduce((n, l) => n + +l.split(' ').pop(), 0) + ' 个框';
+  });
+
+  await step('触屏：桌面窗口不开触屏模式（没有 html.touch-ui / t-land / t-rot、没有触屏 DOM、G.touch.on 为假，G.viewW / viewH 就是窗口尺寸），开场卡片的「开始」在 1280×360 / 1024×360 里也在屏内', async () => {
     if (browser) await browser.close().catch(() => {});
     ({ browser, page, errors } = await launch({ width: 1280, height: 360 }));
     await install();
@@ -25852,6 +27124,8 @@ async function touchSteps() {
             on: G.touch.on,
             mode: G.touch.mode,
             cls: document.documentElement.classList.contains('touch-ui'),
+            land: ['t-land', 't-rot', 't-portrait'].some((c) => document.documentElement.classList.contains(c)),
+            view: G.rot === null && G.viewW() === innerWidth && G.viewH() === innerHeight && G.toFrame(3, 4).x === 3 && G.toFrame(3, 4).y === 4 && G.toScreen(5, 6).y === 6,
             dom: !!document.getElementById('touch') || document.querySelectorAll('[data-tb]').length,
             mf: !!document.querySelector('link[rel=manifest]'),
             vp: document.querySelector('meta[name=viewport]').content,
@@ -25861,7 +27135,7 @@ async function touchSteps() {
         })
       );
     }
-    const bad = out.filter((r) => r.on || r.cls || r.dom || r.mf || r.aim !== null || r.vp !== 'width=device-width, initial-scale=1' || !r.go);
+    const bad = out.filter((r) => r.on || r.cls || r.land || !r.view || r.dom || r.mf || r.aim !== null || r.vp !== 'width=device-width, initial-scale=1' || !r.go);
     assert(!bad.length, '桌面不应开触屏、「开始」应在屏内：' + JSON.stringify(bad));
     await ev(() => G.ui.close());
     return out.map((r) => r.size).join(' / ');
@@ -25966,7 +27240,7 @@ async function uiLayoutSteps(panel) {
   const P = UI_PANELS[panel];
   for (const mode of ['touch', 'desk']) {
     const sizes = UI_SIZES.filter((z) => z[2] === (mode === 'touch'));
-    const names = sizes.map((z) => z[0] + '×' + z[1] + (z[3] ? '+' + z[3] : '')).filter((v, i, a) => a.indexOf(v) === i);
+    const names = sizes.map((z) => z[0] + '×' + z[1] + (z[3] ? '+' + z[3] : '') + (z[4] ? '（转）' : '')).filter((v, i, a) => a.indexOf(v) === i);
     await step('界面布局·' + P.label + '（' + (mode === 'touch' ? '触屏' : '桌面') + '）：' + names.join(' / ') + ' 下每个状态都在屏内、只有 data-list 滚动、不横向溢出、页头 ≤ 36 / 字号 ≥ 11 / 点按区 ≥ 44（触屏）、按钮点得到、点卡片外面能收起、横屏不碰 iPhone 圆角', async () => {
       uiPages = uiPages || {};
       if (!uiPages[mode]) {
@@ -25980,17 +27254,18 @@ async function uiLayoutSteps(panel) {
       const fx = uiPages[mode].fx;
       const bad = [];
       let nStates = 0;
-      for (const [w, h, isTouch, sa] of sizes) {
+      for (const [w, h, isTouch, sa, rot] of sizes) {
         await page.setViewportSize({ width: w, height: h });
+        if (isTouch) await ev((rot) => G.touch.setRot && G.touch.setRot(rot || null), rot);
         await ev((sa) => {
           const st = document.documentElement.style;
           for (const k of ['l', 'r', 't', 'b']) st.removeProperty('--t-safe-' + k);
           if (sa) for (const k of innerWidth > innerHeight ? ['l', 'r'] : ['t', 'b']) st.setProperty('--t-safe-' + k, sa + 'px');
         }, sa);
-        const where = w + '×' + h + (sa ? '+' + sa : '');
+        const where = w + '×' + h + (sa ? '+' + sa : '') + (rot ? '（转）' : '');
         const D = {
           compact: w <= 900 || h <= 500,
-          portrait: w <= 600,
+          portrait: w <= 600 && !rot, // 旋转横屏的画面是横的
           rare: fx.rare,
           eqRing: fx.eqRing,
           async open(tab, sub) {
