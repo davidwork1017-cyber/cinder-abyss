@@ -16113,8 +16113,8 @@ async function main() {
       fill.a = 0.7;
       G.state.telegraphs.splice(G.state.telegraphs.indexOf(tg), 1);
       W.removeTelegraph(tg.handle);
-      const red = (p) => p[0] > p[1] + 20 && p[0] > p[2] + 20;
-      out.px = { g1, g0, r1, r0, ground: Math.max(...g1.map((v, j) => Math.abs(v - g0[j]))), red: red(r1) && red(r0), keep: r1[0] >= r0[0] - 10 };
+      // 地面颜色随场地变（测试场地偏青），所以比「预警圈的边比地面红多少」：铺底开着和关着都要明显（≥ 30），铺底也不该让它变暗
+      out.px = { g1, g0, r1, r0, ground: Math.max(...g1.map((v, j) => Math.abs(v - g0[j]))), red: r1[0] - g1[0] >= 30 && r0[0] - g0[0] >= 30, keep: r1[0] >= r0[0] - 10 };
       TV.done();
       return out;
     });
