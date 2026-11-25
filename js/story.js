@@ -226,6 +226,8 @@
   // ---------- 输入 ----------
   const HOLD_MS = 600, TAP_MS = 280;
   function onDown(e) {
+    // 跳过 / 放完以后淡出的 1 秒里：这一层照样接住点击（不漏到下面的 HUD 上，连点两下「跳过」不会挥一下），只是什么也不做
+    if (st.ended) return e.preventDefault();
     if (e.target === st.skipEl || (e.button !== undefined && e.button > 0 && e.pointerType === 'mouse')) return;
     e.preventDefault();
     const p = G.toFrame ? G.toFrame(e.clientX, e.clientY) : { x: e.clientX, y: e.clientY };
@@ -235,7 +237,7 @@
     r.top = p.y + 'px';
   }
   function onUp(e) {
-    const hd = st.hold;
+    const hd = st.ended ? null : st.hold;
     st.hold = null;
     st.holdEl.classList.remove('on');
     if (!hd) return;

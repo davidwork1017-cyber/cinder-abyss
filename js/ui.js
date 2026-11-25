@@ -1611,6 +1611,10 @@
       touch: { once: '点物品取出，或放进仓库', list: ['仓库所有角色共用，4 页共 160 格', '点仓库里的物品：取进背包', '切到「背包」，点物品：放进仓库', '只放物品，通货和宝石不进仓库'] },
       desk: { once: '点仓库物品取进背包，点背包物品放进仓库', list: ['仓库所有角色共用，4 页共 160 格', '点仓库里的物品：取进背包', '点背包里的物品：选「放进仓库」', 'Shift+点击背包物品：直接放进仓库', '只放物品，通货和宝石不进仓库'] },
     },
+    trader: {
+      touch: { once: '点一行看详情和对比，按钮直接买卖', list: ['货架：这次带来的货，通货够就能买', '卖出：按分解价收，魔法以上多给 1 颗微光尘', '稀有以上要点两次才卖，锁定的不卖', '烛芯：轮回 2 起，任意 2 个换 1 个指定种类'] },
+      desk: { once: '点「买下」「卖」直接成交，悬停看详情', list: ['货架：这次带来的货，通货够就能买', '卖出：按分解价收，魔法以上多给 1 颗微光尘', '稀有以上要点两次才卖，锁定的不卖', '烛芯：轮回 2 起，任意 2 个换 1 个指定种类'] },
+    },
     tree: {
       touch: { once: '点天赋看详情，按「点亮」才花点数', list: [TREE_LEGEND, '点天赋：看详情，按「点亮」或「退回」', '点亮后卡片不关，接着点下一个', '双指缩放，放大后单指拖动', '左上的点数：各支路进度、已获得的加成、重置'] },
       desk: { once: '单击点亮，再点一次退回', list: [TREE_LEGEND, '单击：点亮，再点一次退回', '滚轮缩放，按住拖动平移', '鼠标停在天赋上看详情'] },
@@ -4342,6 +4346,28 @@
       ui.trdMsg = res ? '卖掉了「' + f.item.name + '」' : '';
       render();
     },
+    // 窄屏：子页签 货架 / 卖出 / 烛芯
+    'trd-view'(d) {
+      G.sfx('click');
+      ui.trdView = d.v;
+      ui.trdMsg = '';
+      ui.trdArm = null;
+      closeCard();
+      render();
+    },
+    // 窄屏：点一行出卡片；再点同一行收起，点另一行换内容
+    'trd-card'(d) {
+      const k = d.i !== undefined ? { trd: 'stock', i: +d.i } : { trd: 'sell', uid: d.item };
+      const same = ui.card && ui.card.trd === k.trd && (k.trd === 'stock' ? ui.card.i === k.i : ui.card.uid === k.uid);
+      ui.trdMsg = '';
+      if (same) closeCard();
+      else {
+        closeCard();
+        ui.card = Object.assign({ uid: k.uid || 'trd:' + k.i, stash: false, view: 'info', ovf: false }, k);
+        ui.pop = null;
+      }
+      render();
+    },
     'trd-swap'(d) {
       const r = G.traderSwap(d.frag);
       ui.trdMsg = r ? '换得 1 个' + G.FRAGS[d.frag].name : '烛芯不够（要 ' + G.TRADER.swap + ' 个其它种类的）';
@@ -4919,7 +4945,7 @@
       ui.pop = null;
       shut = true;
     }
-    if (ui.card && !e.target.closest('.sheet') && !e.target.closest('.ui-pop') && act !== 'sel' && !(act === 'stash-take' && a.classList.contains('cell')) && !(ui.card.tree && (act === 'node' || act === 'tree-sum' || act === 'tree-zoom')) && !e.target.closest('#confirm')) {
+    if (ui.card && !e.target.closest('.sheet') && !e.target.closest('.ui-pop') && act !== 'sel' && act !== 'trd-card' && !(act === 'stash-take' && a.classList.contains('cell')) && !(ui.card.tree && (act === 'node' || act === 'tree-sum' || act === 'tree-zoom')) && !e.target.closest('#confirm')) {
       closeCard();
       shut = true;
     }
@@ -5430,46 +5456,48 @@
       '<p><b>魂灯</b>：倒下熄一盏并在门外重生，首领保留进度；' + G.PIN_LIVES + ' 盏熄灭即失败，退还 ' + G.PIN_REFUND + ' 个烛芯。首次击败必掉一件巅峰' + G.RELIC_NAME + '。</p>'
     );
   }
+  // 拾烬客（异兆，B4b）：桌面两列（货架 + 烛芯换取 | 卖出）不变；窄屏 / 触屏分成子页签 货架 | 卖出 | 烛芯，一行 44 px，
+  // 点一行出卡片（详情、对比、价格），行尾的按钮直接买卖。只有列表那一块滚动（data-list）
+  const trdPrice = (pr) =>
+    Object.keys(pr).map((id) => '<span class="tp' + ((G.save.cur[id] || 0) >= pr[id] ? '' : ' short') + '" data-tip="cur:' + id + '" style="--c:' + G.CURRENCY[id].color + '">' + IC.cur(id) + '<b>' + pr[id] + '</b></span>').join('');
+  // 卖掉一件得到什么：分解价，魔法以上多 1 颗微光尘
+  function trdGot(it) {
+    const res = G.salvageResult(it);
+    if (it.rarity >= 1) res.dust = (res.dust || 0) + 1;
+    return Object.keys(res).map((id) => '<span class="tp" style="--c:' + G.CURRENCY[id].color + '">' + IC.cur(id) + '<b>' + res[id] + '</b></span>').join('') || '<span class="tp dim">—</span>';
+  }
+  // 货架一格的图标、名字、颜色
+  function trdWare(o) {
+    if (o.kind === 'item') return { icon: IC.item(o.item), name: o.item.name, color: G.RARITY_COLOR[o.item.rarity] };
+    if (o.kind === 'skill') return { icon: IC.skill(o.data.id), name: '技能宝石 · ' + G.SKILLS[o.data.id].name + ' Lv ' + o.data.lvl, color: '#3fe0c8' };
+    return { icon: IC.sup(o.data), name: '辅助宝石 · ' + G.SUPPORTS[o.data].name, color: '#f0f0f4' };
+  }
   function renderTrader() {
     const enc = G.state.trader, S = G.save;
+    const compact = compactUi();
     if (!enc || !enc.stock) {
       el.body.innerHTML = '<div class="trader"><div class="sec-title">拾烬客</div><p class="trd-none">拾烬客不在这里。</p></div>';
       return;
     }
-    const price = (pr) =>
-      Object.keys(pr).map((id) => '<span class="tp' + ((S.cur[id] || 0) >= pr[id] ? '' : ' short') + '" data-tip="cur:' + id + '" style="--c:' + G.CURRENCY[id].color + '">' + IC.cur(id) + '<b>' + pr[id] + '</b></span>').join('');
+    const card = (attrs) => (compact ? ' data-act="trd-card"' + attrs : ''); // 窄屏：整行能点（出卡片）
+    const on = (attrs) => (ui.card && ui.card.trd && attrs === (ui.card.trd === 'stock' ? ' data-i="' + ui.card.i + '"' : ' data-item="' + ui.card.uid + '"') ? ' sel' : '');
     let stock = '';
     enc.stock.forEach((o, i) => {
-      let icon, name, color, tip = '';
-      if (o.kind === 'item') {
-        icon = IC.item(o.item);
-        name = o.item.name;
-        color = G.RARITY_COLOR[o.item.rarity];
-        tip = ' data-tip="trd:' + i + '"';
-      } else if (o.kind === 'skill') {
-        const sk = G.SKILLS[o.data.id];
-        icon = IC.skill(o.data.id);
-        name = '技能宝石 · ' + sk.name + ' Lv ' + o.data.lvl;
-        color = '#3fe0c8';
-      } else {
-        icon = IC.sup(o.data);
-        name = '辅助宝石 · ' + G.SUPPORTS[o.data].name;
-        color = '#f0f0f4';
-      }
+      const w = trdWare(o);
+      const tip = o.kind === 'item' && !compact ? ' data-tip="trd:' + i + '"' : '';
       const ok = !o.sold && G.traderCanPay(o.price);
+      const at = ' data-i="' + i + '"';
       stock +=
-        '<div class="trd-row' + (o.sold ? ' sold' : '') + (o.relic ? ' relic' : '') + '"' + tip + '>' + ibox(icon) + '<span class="trd-name" style="color:' + color + '">' + esc(name) + '</span>' +
-        '<span class="trd-price">' + price(o.price) + '</span>' +
+        '<div class="trd-row' + (o.sold ? ' sold' : '') + (o.relic ? ' relic' : '') + on(at) + '"' + tip + card(at) + '>' + ibox(w.icon) + '<span class="trd-name" style="color:' + w.color + '">' + esc(w.name) + '</span>' +
+        '<span class="trd-price">' + trdPrice(o.price) + '</span>' +
         '<button type="button" tabindex="-1" class="btn sm" data-act="trd-buy" data-i="' + i + '"' + (ok ? '' : ' disabled') + '>' + (o.sold ? '已售' : '买下') + '</button></div>';
     });
     let sell = '';
     for (const it of S.bag) {
-      const res = G.salvageResult(it);
-      if (it.rarity >= 1) res.dust = (res.dust || 0) + 1;
-      const got = Object.keys(res).map((id) => '<span class="tp" style="--c:' + G.CURRENCY[id].color + '">' + IC.cur(id) + '<b>' + res[id] + '</b></span>').join('') || '<span class="tp dim">—</span>';
+      const at = ' data-item="' + it.uid + '"';
       sell +=
-        '<div class="trd-row" data-tip="item:' + it.uid + '">' + ibox(IC.item(it)) + '<span class="trd-name" style="color:' + G.RARITY_COLOR[it.rarity] + '">' + esc(it.name) + '</span>' +
-        '<span class="trd-price">' + got + '</span><button type="button" tabindex="-1" class="btn sm" data-act="trd-sell" data-item="' + it.uid + '"' + (it.lk ? ' disabled>已锁' : '>卖') + '</button></div>';
+        '<div class="trd-row' + on(at) + '"' + (compact ? '' : ' data-tip="item:' + it.uid + '"') + card(at) + '>' + ibox(IC.item(it)) + '<span class="trd-name" style="color:' + G.RARITY_COLOR[it.rarity] + '">' + esc(it.name) + '</span>' +
+        '<span class="trd-price">' + trdGot(it) + '</span><button type="button" tabindex="-1" class="btn sm" data-act="trd-sell" data-item="' + it.uid + '"' + (it.lk ? ' disabled>已锁' : '>卖') + '</button></div>';
     }
     const F = S.frags || {}, swapOn = (G.state.tier || 0) >= G.TRADER.fragTier;
     let frags = '';
@@ -5481,13 +5509,74 @@
         '<div class="trd-frag" data-tip="frag:' + id + '" style="--c:' + f.color + '">' + ibox(IC.frag(id), 'curb') + '<span>' + f.name + ' <b>' + (F[id] || 0) + '</b></span>' +
         '<button type="button" tabindex="-1" class="btn sm" data-act="trd-swap" data-frag="' + id + '"' + (swapOn && other >= G.TRADER.swap ? '' : ' disabled') + '>换 1 个</button></div>';
     }
+    const swapNote = swapOn ? '任意 ' + G.TRADER.swap + ' 个换 1 个指定种类，不收钱' : '轮回 ' + G.TRADER.fragTier + ' 起开放';
+    const sellNote = '按分解价，魔法以上多 1 颗微光尘';
+    if (!compact) {
+      // 桌面：两列不变（各自是一个列表）；一次性提示在最下面占一行
+      el.body.innerHTML =
+        '<div class="trader">' +
+        '<div class="col scroll" data-list data-scroll="trd1"><div class="sec-title">拾烬客的货架<span class="sec-note">物品等级 ' + enc.level + '</span></div>' + stock +
+        '<div class="sec-title">烛芯换取<span class="sec-note">' + swapNote + '</span></div><div class="trd-frags">' + frags + '</div>' +
+        '<p class="trd-msg">' + esc(ui.trdMsg || '') + '</p></div>' +
+        '<div class="col scroll" data-list data-scroll="trd2"><div class="sec-title">卖给拾烬客<span class="sec-note">' + sellNote + '</span></div>' + (sell || '<p class="trd-none">背包是空的</p>') + '</div>' +
+        pageNote('trader', '') +
+        '</div>' + popHtml();
+      return;
+    }
+    const v = ui.trdView === 'sell' || ui.trdView === 'frag' ? ui.trdView : 'stock';
+    const portrait = portraitUi();
+    const note = v === 'stock' ? '物品等级 ' + enc.level : v === 'sell' ? sellNote : swapNote;
+    const sub = (k, label, n) => '<button type="button" tabindex="-1" class="subtab' + (v === k ? ' on' : '') + '" data-act="trd-view" data-v="' + k + '">' + label + (n !== undefined ? '<em>' + n + '</em>' : '') + '</button>';
+    const subs = '<div class="subtabs">' + sub('stock', '货架') + sub('sell', '卖出', S.bag.length) + sub('frag', '烛芯') + (portrait ? helpBtn('in-page') : '<span class="sub-note">' + note + '</span>') + '</div>';
+    const list = v === 'stock' ? stock : v === 'sell' ? sell || '<p class="trd-none">背包是空的</p>' : '<div class="trd-frags">' + frags + '</div>';
+    const msg = ui.trdMsg && !ui.card ? pageNote('trader', '<span class="inv-msg ok">' + esc(ui.trdMsg) + '</span>', 'res', true) : pageNote('trader', '', '', true);
     el.body.innerHTML =
-      '<div class="trader">' +
-      '<div class="col scroll" data-scroll="trd1"><div class="sec-title">拾烬客的货架<span class="sec-note">物品等级 ' + enc.level + '</span></div>' + stock +
-      '<div class="sec-title">烛芯换取<span class="sec-note">' + (swapOn ? '任意 ' + G.TRADER.swap + ' 个换 1 个指定种类，不收钱' : '轮回 ' + G.TRADER.fragTier + ' 起开放') + '</span></div><div class="trd-frags">' + frags + '</div>' +
-      '<p class="trd-msg">' + esc(ui.trdMsg || '') + '</p></div>' +
-      '<div class="col scroll" data-scroll="trd2"><div class="sec-title">卖给拾烬客<span class="sec-note">按分解价，魔法以上多 1 颗微光尘</span></div>' + (sell || '<p class="trd-none">背包是空的</p>') + '</div>' +
-      '</div>';
+      '<div class="trp cpt' + (portrait ? ' por' : '') + '" data-v="' + v + '">' + subs +
+      '<div class="trd-list scroll" data-list data-scroll="trd-' + v + '">' + (portrait ? '<p class="trd-lead">' + note + '</p>' : '') + list + '</div>' +
+      msg + '</div>' + traderSheet() + popHtml();
+  }
+  // 拾烬客的卡片（窄屏）：货架上的一格（ui.card = { trd: 'stock', i }）或背包里要卖的一件（{ trd: 'sell', uid }）
+  function traderSheet() {
+    const c = ui.card;
+    if (!c || !c.trd) return '';
+    const S = G.save, enc = G.state.trader;
+    const B = (act, label, extra) => '<button type="button" tabindex="-1" class="btn primary" data-act="' + act + '"' + (extra || '') + '>' + label + '</button>';
+    const msg = ui.trdMsg ? '<div class="inv-msg sh-msg ok">' + esc(ui.trdMsg) + '</div>' : '';
+    if (c.trd === 'stock') {
+      const o = enc && enc.stock && enc.stock[c.i];
+      if (!o) {
+        ui.card = null;
+        return '';
+      }
+      const cost = '<div class="trd-cost"><span>价格</span>' + trdPrice(o.price) + '</div>';
+      const acts = B('trd-buy', o.sold ? '已售' : '买下', ' data-i="' + c.i + '"' + (!o.sold && G.traderCanPay(o.price) ? '' : ' disabled'));
+      if (o.kind === 'item') {
+        const it = o.item, eqOf = S.equip[it.slot];
+        const body = cost + '<div class="detail-card">' + itemCard(it, { noHead: true, vd: verdict(it), affTips: false, compact: true, cmp: eqOf }) + '</div>';
+        return sheetHtml({ head: sheetHead(it), body, acts, msg, cls: 'trd' + (it.rarity >= 3 ? ' top' : ''), rc: G.RARITY_COLOR[it.rarity] });
+      }
+      const w = trdWare(o);
+      let desc;
+      if (o.kind === 'skill') {
+        const sk = G.SKILLS[o.data.id], have = S.skills[o.data.id] || 0;
+        const off = G.save.cls && G.classCanUse && !G.classCanUse(G.save.cls, o.data.id);
+        desc = '<p class="tc-desc">' + sk.desc + '</p><p class="trd-gem">' + (have ? '已学会 Lv ' + have + (o.data.lvl > have ? '，买下升到 Lv ' + o.data.lvl : '') : '还没学会') + (off ? '。这个职业用不上' : '') + '</p>';
+      } else {
+        const sp = G.SUPPORTS[o.data];
+        desc = '<p class="tc-desc">' + sp.desc + '</p><p class="trd-gem">魔力消耗 ×' + sp.cost + (sp.req || sp.no ? ' · 适用：' + scopeText(sp) : '') + '</p>';
+      }
+      const head = ibox(w.icon, 'gemb') + '<div class="sh-ttl"><div class="sh-name" style="color:' + w.color + '">' + esc(w.name.replace(/^.*? · /, '')) + '</div><div class="sh-kind">' + (o.kind === 'skill' ? '技能宝石 · Lv ' + o.data.lvl : '辅助宝石') + '</div></div>';
+      return sheetHtml({ head, body: cost + '<div class="trd-gemd">' + desc + '</div>', acts, msg, cls: 'trd', rc: w.color });
+    }
+    const f = findItem(c.uid);
+    if (!f || f.equipped) {
+      ui.card = null;
+      return '';
+    }
+    const it = f.item;
+    const body = '<div class="trd-cost"><span>卖出得到</span>' + trdGot(it) + '</div><div class="detail-card">' + itemCard(it, { noHead: true, vd: verdict(it), affTips: false, compact: true, cmp: S.equip[it.slot] }) + '</div>';
+    const acts = B('trd-sell', it.lk ? '已锁' : '卖', ' data-item="' + it.uid + '"' + (it.lk ? ' disabled' : ''));
+    return sheetHtml({ head: sheetHead(it), body, acts, msg, cls: 'trd' + (it.rarity >= 3 ? ' top' : ''), rc: G.RARITY_COLOR[it.rarity] });
   }
 
   // ============================================================
@@ -5516,6 +5605,7 @@
       ui.blankMsg = '';
       ui.trdMsg = '';
       ui.trdArm = null;
+      ui.trdView = 'stock'; // 拾烬客每次打开先看货架
       disarmReset();
       ui.sealPick = null;
       if (wasOpen) uiSeenMark(ui.tab); // 离开这一页：一次性提示算看过了
@@ -5669,6 +5759,15 @@
   const slotList = () => (G.slots ? G.slots.list() : { active: 0, slots: [] });
   const slotsFull = () => !!G.slots && hasSave() && G.slots.firstEmpty() < 0;
   function charCard(sum, k, active) {
+    // 窄屏 / 矮屏（B4b）：紧凑卡片 64 px，整张点一下就是「进入」，右边一个「删除」；「改选职业」挪到底下那一行
+    if (sum && compactUi())
+      return (
+        '<div class="ch-card cpt' + (active ? ' ch-on' : '') + '" role="button" data-tact="ch-play" data-slot="' + k + '"' + (sum.cls && G.CLASSES[sum.cls] ? ' data-cls="' + sum.cls + '" style="--cc:' + G.CLASSES[sum.cls].color + '"' : '') + '>' +
+        '<div class="ch-txt"><div class="ch-top"><b>' + esc(charLabel(sum)) + '</b></div>' +
+        '<div class="ch-sub">' + esc(zoneName(sum)) + ' · ' + (sum.tier > 0 ? '轮回 ' + sum.tier : '初入') + '</div>' +
+        '<div class="ch-t">' + agoText(sum.t) + (active ? '<em>上次玩的</em>' : '') + '</div></div>' +
+        '<button type="button" tabindex="-1" class="btn sm ghost ch-x" data-tact="ch-del" data-slot="' + k + '">删除</button></div>'
+      );
     if (!sum)
       return (
         '<button type="button" tabindex="-1" class="ch-card empty" data-tact="ch-new" data-slot="' + k + '">' +
@@ -5706,13 +5805,16 @@
     menu.del = null;
     const tr = G.slots ? G.slots.trash() : null;
     const room = L.slots.some((s) => !s);
+    const cpt = compactUi();
+    // 窄屏：卡片区是唯一的滚动区；载入着的角色还能免费改选一次时，「改选职业」放在底下那一行
+    const re = cpt && G.slots && G.slots.loaded(G.slots.cur()) && G.save.cls && G.save.clsRe ? '<button type="button" tabindex="-1" class="btn sm" data-tact="cl-re">改选职业</button>' : '';
     return (
-      '<div class="ch-grid">' + L.slots.map((s, k) => charCard(s, k, !!s && k === L.active)).join('') + '</div>' +
+      '<div class="ch-grid' + (cpt ? ' cpt scroll" data-list data-scroll="chars"' : '"') + '>' + L.slots.map((s, k) => charCard(s, k, !!s && k === L.active)).join('') + '</div>' +
       (tr
         ? '<div class="ch-trash"><span>回收位：<b>' + esc(charLabel(tr.sum)) + '</b> · ' + agoText(tr.t) + '删除' + '</span>' +
           (room ? '<button type="button" tabindex="-1" class="btn sm" data-tact="ch-restore">恢复</button>' : '<em>栏位满了，先腾出一栏</em>') + '</div>'
         : '') +
-      '<div class="ch-foot"><p class="m-note">最多 6 个角色。设置、图鉴、新手提示和共享仓库所有角色共用。</p>' +
+      '<div class="ch-foot"><p class="m-note">最多 6 个角色。设置、图鉴、新手提示和共享仓库所有角色共用。</p>' + re +
       '<button type="button" tabindex="-1" class="btn sm" data-tact="story">重看开场</button></div>'
     );
   }
@@ -5754,11 +5856,12 @@
     menu.cls = null;
     clsPreview(null);
   }
-  function clsCard(c, sel, rec) {
+  // one：窄屏只显示选中的这一张（不是按钮，职业在上面那排标签里换）
+  function clsCard(c, sel, rec, one) {
     const C = G.CLASSES[c], sk = G.SKILLS[C.start.skill];
     const cur = menu.cls.mode === 'repick' && c === G.save.cls;
     return (
-      '<button type="button" tabindex="-1" class="cl-card' + (sel ? ' on' : '') + (cur ? ' cl-now' : '') + '" data-tact="cl-sel" data-cls="' + c + '" style="--c:' + C.color + '">' +
+      (one ? '<div class="cl-card on cl-one-card" style="--c:' + C.color + '">' : '<button type="button" tabindex="-1" class="cl-card' + (sel ? ' on' : '') + (cur ? ' cl-now' : '') + '" data-tact="cl-sel" data-cls="' + c + '" style="--c:' + C.color + '">') +
       '<div class="cl-top"><b>' + C.name + '</b>' + C.tags.map((t) => '<i>' + t + '</i>').join('') + (rec ? '<em>推荐</em>' : cur ? '<em class="dim">现在</em>' : '') + '</div>' +
       '<div class="cl-line">' + C.line + '</div>' +
       '<div class="cl-row"><span class="cl-k">武器</span>' + C.weapons.map(clsWIcon).join('') + '<span class="cl-v">' + C.weapons.map(G.wTypeLabel).join(' · ') + '</span></div>' +
@@ -5766,7 +5869,7 @@
         ? '<div class="cl-row"><span class="cl-k">起手</span><span class="tc-skico sm" style="--c:' + sk.color + '">' + IC.skill(C.start.skill) + '</span><span class="cl-v">' + G.wTypeLabel(C.start.type) + ' + ' + sk.name + '：' + C.skLine + '</span></div>'
         : '<div class="cl-row"><span class="cl-k">保留</span><span class="cl-v">' + clsKeep(c) + '</span></div>') + // 老角色：手里的东西不会被换掉，写留下的
 
-      '</button>'
+      (one ? '</div>' : '</button>')
     );
   }
   // 老角色选这个职业时留着能用的：手里会拿的那把武器的类型 · 技能栏上这个职业能用的宝石
@@ -5811,12 +5914,21 @@
     const fx = M.mode === 'new' ? '' : '<div class="cl-fx">' + clsEffect(M.sel).map((t) => '<div>' + t + '</div>').join('') + '</div>';
     const ok = M.mode === 'new' ? '以' + G.CLASSES[M.sel].name + '开始' : M.mode === 'pick' ? '选定' + G.CLASSES[M.sel].name : '改成' + G.CLASSES[M.sel].name;
     const same = M.mode === 'repick' && M.sel === G.save.cls;
+    const acts =
+      '<div class="m-acts"><button type="button" tabindex="-1" class="btn primary' + (same ? ' off' : '') + '" data-tact="cl-ok">' + ok + '</button>' +
+      (touchOn() || compactUi() ? '<button type="button" tabindex="-1" class="btn" data-tact="back">返回</button>' : '') + '</div>'; // 触屏 / 矮屏：底栏里放「返回」，右上那个不再重复
+    if (compactUi()) {
+      // 窄屏 / 矮屏（B4b）：顶上一排五个职业标签，下面只放选中的这一张（唯一的滚动区），底栏 开始 / 返回
+      const tabs = G.CLASS_IDS.map((c) => {
+        const C = G.CLASSES[c];
+        return '<button type="button" tabindex="-1" class="cl-tab' + (c === M.sel ? ' on' : '') + (rec && rec.cls === c ? ' rec' : '') + '" data-tact="cl-sel" data-cls="' + c + '" style="--c:' + C.color + '">' + C.name + '</button>';
+      }).join('');
+      return '<div class="cl-tabs">' + tabs + '</div><div class="cl-one scroll" data-list data-scroll="cls">' + head + clsCard(M.sel, true, !!rec && rec.cls === M.sel, true) + fx + altBox(clsAlt(M.sel)) + '</div>' + acts;
+    }
     return (
       head +
       '<div class="cl-list">' + G.CLASS_IDS.map((c) => clsCard(c, c === M.sel, !!rec && rec.cls === c)).join('') + '</div>' +
-      fx + altBox(clsAlt(M.sel)) +
-      '<div class="m-acts"><button type="button" tabindex="-1" class="btn primary' + (same ? ' off' : '') + '" data-tact="cl-ok">' + ok + '</button>' +
-      (touchOn() ? '<button type="button" tabindex="-1" class="btn" data-tact="back">返回</button>' : '') + '</div>' // 触屏：底栏里也放一个返回，矮屏上不用回到顶上找
+      fx + altBox(clsAlt(M.sel)) + acts
     );
   }
   // 选定之后的一条提示：职业、卸下 / 换上的武器
@@ -5988,6 +6100,7 @@
       el.tChars.classList.toggle('has', has && !lock);
       el.tNew.classList.toggle('off', full || lock);
       el.tNewHint.textContent = lock ? '存档写不进去，暂时不能新建' : full ? '6 栏都满了，先删一个' : '';
+      el.tNew.classList.toggle('wide', !!el.tNewHint.textContent); // 矮屏两列时有说明的那个占一整行
       el.title.classList.toggle('ready', menu.ready);
     }
     const host = menu.title ? el.tView : el.pView;
@@ -5996,9 +6109,11 @@
     list.style.display = v ? 'none' : '';
     // 同一个子页里重画（点职业卡、删除确认的下一步）：不再播一遍弹出动画，免得每点一下闪一次
     const still = !!v && host.firstElementChild && host.firstElementChild.dataset && host.firstElementChild.dataset.view === menu.view;
+    // 职业选择在窄屏 / 矮屏上底栏已经有「返回」：右上不再放第二个（Esc 照常返回）。m-body 是子页的滚动区；职业选择和角色页窄屏时滚的是里面的列表
+    const cpt = compactUi() && (menu.view === 'cls' || menu.view === 'chars');
     host.innerHTML = v
-      ? '<div class="m-view' + (still ? ' still' : '') + '" data-view="' + menu.view + '"><div class="m-head"><b>' + (typeof v[0] === 'function' ? v[0]() : v[0]) + '</b>' +
-        '<button type="button" tabindex="-1" class="btn sm" data-tact="back">返回<kbd>Esc</kbd></button></div>' +
+      ? '<div class="m-view' + (still ? ' still' : '') + (cpt ? ' cpt' : '') + '" data-view="' + menu.view + '"><div class="m-head"><b>' + (typeof v[0] === 'function' ? v[0]() : v[0]) + '</b>' +
+        (cpt && menu.view === 'cls' ? '' : '<button type="button" tabindex="-1" class="btn sm" data-tact="back">返回<kbd>Esc</kbd></button>') + '</div>' +
         '<div class="m-body" data-list data-scroll="menu">' + v[1]() + '</div></div>'
       : '';
     (menu.title ? el.title : el.pause).classList.toggle('sub', !!v);
@@ -8181,6 +8296,7 @@
     pause: openPause, // 暂停菜单（没有面板开着时才打开，返回是否打开了）
     paused: () => menu.pause,
     showTitle,
+    hideTitle, // 测试用：离开标题画面（不经「继续游戏」）
     titleReady,
     titleOn: () => menu.title,
     titleFrame,
