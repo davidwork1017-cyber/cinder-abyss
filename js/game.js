@@ -9465,7 +9465,7 @@
     if (!r.ok) G.world.text(P.x, P.z, r.msg, '#c9c2b4', 14);
     else G.world.text(P.x, P.z, (r.on ? '装上' : '卸下') + sk.name, sk.color, 15);
     fxOpt('imbueOn', P.ent, G.imbueOn() ? G.SKILLS[G.imbueOn()].elem : null);
-    G.sfx('cast', { id: ctx.id });
+    G.sfx('imbue', { type: r.ok && r.on ? 'on' : 'off', elem: sk.elem });
     state.stats.imbueSets = (state.stats.imbueSets || 0) + 1;
   };
   // 每帧：从技能栏上拿掉 / 宝石没学 / 不是装填了就当场卸下（不然放回技能栏会悄悄又装上）
@@ -9554,6 +9554,7 @@
       if (lastHit.killed) dead.push(o);
     }
     fxOpt('imbSplash', x, z, R);
+    G.sfx('imbue', { type: 'splash' });
     state.stats.imbSplash = (state.stats.imbSplash || 0) + 1;
     if (S.chain) for (const o of dead) if (st.sp < S.chain && imbRateOk('splash', S.perSec)) {
       st.sp++;
@@ -9608,6 +9609,7 @@
       }
       fxOpt('imbShards', e.x, e.z, dir, S0.arc, L);
     }
+    G.sfx('imbue', { type: 'shard' });
     state.stats.imbShard = (state.stats.imbShard || 0) + 1;
   }
 
