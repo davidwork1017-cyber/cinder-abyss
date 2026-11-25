@@ -1434,7 +1434,7 @@
     quality: qualId, post: !!(post.ok && qual.post), bloom: !!(post.ok && qual.post && qual.bloom), dpr, scale: qual.scale || 1,
     smaa: !!(post.ok && qual.post && post.smaa && post.smaa.enabled), fxaa: !!(!(post.ok && qual.post) && post.fx && qual.fxaa),
     decals: !!(zoneGroup && zoneGroup.getObjectByName('groundDecals')), decalsOn: !!(zoneGroup && zoneGroup.getObjectByName('groundDecals') && zoneGroup.getObjectByName('groundDecals').visible), layer: !!(zoneFx && zoneFx.layer),
-    hd: !!(zoneFx && zoneFx.hd), fires: zoneFx && zoneFx.fires ? zoneFx.fires.list.length : 0, mist: !!(zoneFx && zoneFx.mist && zoneFx.mist.visible),
+    hd: !!(zoneFx && zoneFx.hd) && !staleZone, fires: zoneFx && zoneFx.fires ? zoneFx.fires.list.length : 0, mist: !!(zoneFx && zoneFx.mist && zoneFx.mist.visible),
   });
   // 测试用（asset-lib）：当前区域摆放表里每个布景模型 key → 来自哪个素材包、实际摆了几个（场景里用这个几何体的实例数）
   W.propSources = () => {
@@ -2689,13 +2689,8 @@
     if (zone.upPending) return;
     zone.upPending = true;
     const t0 = performance.now(), f0 = zoneFrames;
-    const go = () => {
-      zone.upPending = false;
-      if (!zoneUpgrade(zone, gx)) return;
-      upInfo = { zone: zone.def.id, frames: zoneFrames - (zone.frame0 || 0), waitMs: Math.round(performance.now() - t0) };
-      disposeZone();
-      safeBuildVisuals(zone);
-      // 换外观时画面先压暗一下再淡入，不是生硬地一跳
+    // 换外观时画面先压暗一下再淡入，不是生硬地一跳
+    const fade = () => {
       try {
         const cv = renderer.domElement;
         cv.style.transition = 'none';
@@ -2704,6 +2699,46 @@
         cv.style.transition = 'opacity 0.45s ease-out';
         cv.style.opacity = '1';
       } catch (e) { /* 忽略 */ }
+    };
+    const go = () => {
+      zone.upPending = false;
+      if (!zoneUpgrade(zone, gx)) return;
+      upInfo = { zone: zone.def.id, frames: zoneFrames - (zone.frame0 || 0), waitMs: Math.round(performance.now() - t0), async: false };
+      // 有并行编译（KHR_parallel_shader_compile，iPhone 的 WebKit 有，软件渲染的 Chrome 没有）：新外观先藏着建好、旧外观照常显示，
+      // 新材质在后台编好（compileAsync）、贴图传上去以后再换，换的那一帧不用等编译。没有的话照原样当场换（第一帧现编）
+      if (renderer.extensions.has('KHR_parallel_shader_compile') && renderer.compileAsync && zoneGroup) {
+        dropStale();
+        staleZone = { g: zoneGroup, disp: zoneDisp };
+        icull = null;
+        zoneGroup = null;
+        zoneDisp = [];
+        zoneFx = null;
+        safeBuildVisuals(zone);
+        const g = zoneGroup;
+        if (!g) return void dropStale();
+        g.visible = false;
+        upInfo.async = true;
+        const ta = performance.now();
+        const swap = () => {
+          if (zoneGroup !== g) return; // 期间又换了区 / 重建了：disposeZone 已经收掉旧外观
+          const seen = new Set();
+          g.traverse((o) => {
+            for (const m of o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : []) {
+              for (const k of ['map', 'normalMap', 'emissiveMap', 'bumpMap', 'roughnessMap', 'aoMap', 'alphaMap']) if (m[k] && m[k].isTexture && m[k].image && !seen.has(m[k])) seen.add(m[k]), renderer.initTexture(m[k]);
+              if (m.uniforms) for (const u in m.uniforms) { const t = m.uniforms[u] && m.uniforms[u].value; if (t && t.isTexture && t.image && !seen.has(t)) seen.add(t), renderer.initTexture(t); }
+            }
+          });
+          dropStale();
+          g.visible = true;
+          if (upInfo) upInfo.compileMs = Math.round(performance.now() - ta);
+          fade();
+        };
+        renderer.compileAsync(g, camera, scene).then(swap, swap);
+        return;
+      }
+      disposeZone();
+      safeBuildVisuals(zone);
+      fade();
     };
     const wait = () => {
       if (W.zone !== zone) return void (zone.upPending = false);
@@ -10326,8 +10361,17 @@
     keptMats.clear();
     progKeep.clear();
   };
+  // 原地重建时还在显示的旧外观（有并行编译时新外观的材质编好才换，见 upgradeLater）
+  let staleZone = null;
+  function dropStale() {
+    if (!staleZone) return;
+    scene.remove(staleZone.g);
+    for (const d of staleZone.disp) retire(d);
+    staleZone = null;
+  }
   function disposeZone() {
     icull = null;
+    dropStale();
     if (!zoneGroup) return;
     scene.remove(zoneGroup);
     for (const d of zoneDisp) retire(d);

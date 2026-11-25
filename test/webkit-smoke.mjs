@@ -593,6 +593,7 @@ await step('内存：低档连走五个区三圈（每区打首领、清怪）�
   const st0 = await ev(() => ({ zi: G.state.zoneIdx, tier: G.state.tier, q: G.world.quality(), god: !!G.player.god }));
   const laps = [];
   let deep = null;
+  const ups = []; // zone-ready：每次进区等到 PBR 外观以后，上一次原地重建的记录
   try {
     await ev(() => {
       G.debug.hold(true);
@@ -622,6 +623,7 @@ await step('内存：低档连走五个区三圈（每区打首领、清怪）�
         await ev((zi) => G.enterZone(zi, 0), zi);
         await until(() => !G.world.assetsPending() && G.world.gfxInfo().hd, null, 60000);
         if (zi === 3 && !deep) deep = await ev(() => G.world.abyssDeepProbe());
+        ups.push(await ev(() => (G.world.zoneUpInfo ? G.world.zoneUpInfo() : null)));
         await ev(() => {
           const S = G.state;
           G.debug.step(0.1);
@@ -662,6 +664,10 @@ await step('内存：低档连走五个区三圈（每区打首领、清怪）�
     await until(() => !G.world.assetsPending(), null, 60000).catch(() => {});
   }
   const [l1, l2, l3] = laps;
+  // zone-ready：WebKit 有并行编译，素材晚到的区（释放过贴图、再进来）原地换 PBR 外观时走后台编译（compileAsync）再换
+  const ext = await ev(() => G.world.renderer.extensions.has('KHR_parallel_shader_compile'));
+  const asyncUps = ups.filter((u) => u && u.async);
+  if (ext) assert(asyncUps.length > 0, '有并行编译时原地重建应先在后台编好新材质再换：' + JSON.stringify(ups.filter(Boolean).slice(-3)));
   // 贴图留 6 张余量：有些全局贴图第一次用到才建、建了就一直留着（异兆道具的环 / 符文这类随机出现的东西可能第二圈才第一次碰到）；漏掉整区的贴图一圈是几十张
   for (const l of [l2, l3]) assert(l.geo - l1.geo <= 3 && l.tex - l1.tex <= 6 && l.prog - l1.prog <= 3, '后两圈没回到第一圈的水平：' + JSON.stringify(laps));
   for (const l of [l2, l3]) assert(l.upMs <= UPLOAD_MAX_MS, '再进区有一次贴图上传 ' + l.upMs + ' ms（' + l.upAt + '）');
@@ -669,7 +675,7 @@ await step('内存：低档连走五个区三圈（每区打首领、清怪）�
   const hw = l1.rss != null && l2.rss != null && l3.rss != null ? l3.rss - Math.max(l1.rss, l2.rss) : null;
   if (hw != null) assert(hw <= RSS_LAP2_MB, '回收后第三圈 WebProcess 比前两圈的高水位还高 ' + hw.toFixed(0) + ' MB：' + JSON.stringify(laps));
   const rss = hw != null ? 'WebProcess 每圈末 ' + l1.rss.toFixed(0) + ' / ' + l2.rss.toFixed(0) + ' / ' + l3.rss.toFixed(0) + ' MB（第三圈 − 高水位 ' + (hw >= 0 ? '+' : '') + hw.toFixed(0) + '）' : 'RSS 量不到（不是 Linux）';
-  return rss + ' ｜ 几何体 ' + l1.geo + ' → ' + l2.geo + ' → ' + l3.geo + '，贴图 ' + l1.tex + ' → ' + l2.tex + ' → ' + l3.tex + '，程序 ' + l1.prog + ' → ' + l2.prog + ' → ' + l3.prog + ' ｜ 最长一次贴图上传 第一圈 ' + l1.upMs + ' ms（' + l1.upAt + '）/ 第二、三圈 ' + Math.max(l2.upMs, l3.upMs) + ' ms ｜ 深渊底传像素 ' + deep.dataMs + ' ms / 传画布 ' + deep.canvasMs + ' ms';
+  return rss + ' ｜ 几何体 ' + l1.geo + ' → ' + l2.geo + ' → ' + l3.geo + '，贴图 ' + l1.tex + ' → ' + l2.tex + ' → ' + l3.tex + '，程序 ' + l1.prog + ' → ' + l2.prog + ' → ' + l3.prog + ' ｜ 最长一次贴图上传 第一圈 ' + l1.upMs + ' ms（' + l1.upAt + '）/ 第二、三圈 ' + Math.max(l2.upMs, l3.upMs) + ' ms ｜ 深渊底传像素 ' + deep.dataMs + ' ms / 传画布 ' + deep.canvasMs + ' ms ｜ 原地换外观走后台编译 ' + asyncUps.length + ' 次';
 });
 
 await step('M2：iPhone 没有震动接口，设置里不显示「震动」；长按地图上的区域卡片出详情，松手留着', async () => {
