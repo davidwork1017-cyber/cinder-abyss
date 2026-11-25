@@ -1046,7 +1046,7 @@ async function main() {
   }
 
   // ash-models-drop / models-drop：第 0 区的布景全是自产件（kit-ash）；所有区都不再用 CC0 模型包，models.js 不再打包，冷启动（含之后预取第 1 区）一次都不该请求它
-  await step('素材：冷启动进第 0 区要齐第 0 区的包、不请求 CC0 模型包 models.js，第 0 区布景全部来自 kit-ash、都摆出来了', async () => {
+  await step('素材：冷启动进第 0 区要齐第 0 区的包、不请求 CC0 模型包 models.js 和照片岩石包 rock-dark.js，第 0 区布景全部来自 kit-ash、都摆出来了', async () => {
     const r = await ev(async () => {
       const W = G.world, t = performance.now();
       while (W.assetsPending() && performance.now() - t < 40000) await new Promise((res) => setTimeout(res, 50));
@@ -1054,7 +1054,9 @@ async function main() {
       return { pending: W.assetsPending(), hd: W.gfxInfo().hd, fires: W.gfxInfo().fires, src: W.propSources(), res };
     });
     const at = (f) => r.res.filter((x) => x.f === f);
-    assert(['zone-ash.js', 'kit-ash.js', 'rock-dark.js', 'ground.js'].every((f) => at(f).length), '冷启动缺第 0 区的包：' + r.res.map((x) => x.f).join(' '));
+    assert(['zone-ash.js', 'kit-ash.js', 'ground.js'].every((f) => at(f).length), '冷启动缺第 0 区的包：' + r.res.map((x) => x.f).join(' '));
+    // tex-t1：第 0 区的地面 / 岩石换成脚本画的贴图（在 zone-ash 包里），冷启动不再要照片的 rock-dark 包（深渊还用它）
+    assert(!at('rock-dark.js').length, '冷启动请求了第 0 区已经不用的 rock-dark.js：' + r.res.map((x) => x.f).join(' '));
     assert(!at('models.js').length, '冷启动请求了 CC0 模型包 models.js：' + r.res.map((x) => x.f).join(' '));
     const fmt = r.src.map((s) => s.key + '@' + s.pack + '×' + s.placed).join(' ');
     assert(!r.pending && r.hd, '第 0 区没换上 PBR 外观：' + JSON.stringify({ pending: r.pending, hd: r.hd }));
@@ -1062,6 +1064,53 @@ async function main() {
     const placed = (re) => r.src.filter((s) => re.test(s.key)).reduce((a, s) => a + s.placed, 0);
     assert(placed(/ash_tree_dead_/) >= 3 && placed(/ash_(skull|bones|blade|marker)$/) >= 3 && placed(/firepit/) === r.fires && r.fires > 0 && placed(/./) >= 20, '第 0 区布景没摆全（枯树 ≥ 3、路边小物 ≥ 3、火坑数 = 火焰数、总数 ≥ 20）：' + fmt + ' 火 ' + r.fires);
     return '请求顺序 ' + r.res.map((x) => x.f.replace(/\.js$/, '')).join(' → ') + ' ｜ 布景 ' + placed(/./) + ' 个';
+  });
+
+  // tex-t1：第 0 区的路面 / 粗糙地面 / 虚空地面 / 岩石三向投影都是脚本画的贴图；高 / 中档 512² 带法线贴图，低档换 256² 的一套、不传法线贴图（平的法线）
+  await step('贴图：第 0 区地面和岩石用脚本画的贴图，高档 512² 带法线贴图，低档 256²、不传法线贴图（进区和原地换档都对）', async () => {
+    const r = await ev(async () => {
+      const W = G.world, S = G.state, zk = { zi: S.zoneIdx, tier: S.tier }, q0 = W.quality();
+      const look = () => {
+        let gm = null, rm = null;
+        W.scene.traverse((o) => {
+          const m = o.material;
+          if (!m || Array.isArray(m) || !m.userData) return;
+          if (m.userData.U && m.userData.U.tA0 && !gm) gm = m.userData.U;
+          if (m.userData.triU && !rm) rm = m.userData.triU;
+        });
+        const sz = (t) => (t && t.value && t.value.image ? t.value.image.width : 0);
+        return { gfx: W.gfxInfo().hd, g: gm ? [sz(gm.tA0), sz(gm.tN0), sz(gm.tR0), sz(gm.tA1), sz(gm.tN1), sz(gm.tA2), sz(gm.tN2)] : null, rock: rm ? [sz(rm.tRA), sz(rm.tRN)] : null };
+      };
+      const wait = async () => { const t = performance.now(); while ((W.assetsPending() || !W.gfxInfo().hd) && performance.now() - t < 20000) await new Promise((res) => setTimeout(res, 50)); };
+      // 换档以后这一档的图像在后台解码、到了再原地换（tex-t2 的 retierZone）：等到地面的路面贴图换成这一档要的尺寸（最多 20 秒）
+      const until = async (px) => { const t = performance.now(); let r = look(); while (!(r.g && r.g[0] === px) && performance.now() - t < 20000) { await new Promise((res) => setTimeout(res, 50)); r = look(); } return r; };
+      const out = { ids: ['p_mud', 'p_burn', 'p_rock'].map((id) => G.assets.packOfTex(id)), old: ['mud_cracked_dry_03', 'burned_ground_01'].map((id) => G.assets.packOfTex(id)) };
+      W.setQuality('high');
+      G.enterZone(0, 0);
+      await wait();
+      out.high = await until(512);
+      W.setQuality('low');
+      G.enterZone(0, 0);
+      await wait();
+      out.low = await until(256);
+      // 不重新进区、原地换档（retierZone → swapZoneTex）：高档换回 512² 和真的法线贴图，再回低档换回 256² 和平的法线；岩石跟着换
+      W.setQuality('high');
+      out.swapHigh = await until(512);
+      W.setQuality('low');
+      out.swapLow = await until(256);
+      W.setQuality(q0);
+      G.enterZone(zk.zi, zk.tier);
+      await wait();
+      return out;
+    });
+    assert(r.ids.every((p) => p === 'zone-ash') && r.old.every((p) => !p), '第 0 区贴图应是 zone-ash 包里的 p_mud / p_burn / p_rock，照片贴图不再打包：' + JSON.stringify(r));
+    assert(r.high.gfx && r.high.g && r.high.g.every((w) => w === 512) && r.high.rock && r.high.rock.every((w) => w === 512), '高档：地面三套和岩石应是 512² 带法线贴图：' + JSON.stringify(r.high));
+    const L = r.low.g;
+    assert(r.low.gfx && L && [L[0], L[2], L[3], L[5]].every((w) => w === 256) && [L[1], L[4], L[6]].every((w) => w === 4) && r.low.rock && r.low.rock[0] === 256 && r.low.rock[1] === 4, '低档：地面三套和岩石应是 256²、法线贴图是平的 4×4：' + JSON.stringify(r.low));
+    const okHi = (x) => x && x.g && x.g.every((w) => w === 512) && x.rock && x.rock.every((w) => w === 512);
+    const okLo = (x) => x && x.g && [x.g[0], x.g[2], x.g[3], x.g[5]].every((w) => w === 256) && [x.g[1], x.g[4], x.g[6]].every((w) => w === 4) && x.rock && x.rock[0] === 256 && x.rock[1] === 4;
+    assert(okHi(r.swapHigh) && okLo(r.swapLow), '原地换档：高档应换回 512² 带法线、低档换回 256² 平法线：' + JSON.stringify({ hi: r.swapHigh, lo: r.swapLow }));
+    return '高 ' + r.high.g.join('/') + ' ｜ 低 ' + L.join('/') + ' ｜ 岩石 ' + r.high.rock.join('/') + ' → ' + r.low.rock.join('/') + ' ｜ 原地换档 ' + r.swapHigh.g.join('/') + ' → ' + r.swapLow.g.join('/');
   });
 
   await step('首屏：场景、玩家、HUD、小地图都画出来了', async () => {
