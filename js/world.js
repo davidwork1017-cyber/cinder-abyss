@@ -19355,6 +19355,18 @@
       // 裂谷的主光偏暖白（0xfff2e0）：中性的玄武岩皮甲在里面发土黄。躯体染色往冷里收一点、自发光换成很淡的中性色，进游戏是中性的石墨灰
       emis: [0x3e3a38, 0.12], tint: 0xdce4ec,
     },
+    // boss-weaver：霜织者。胸口的霜结（x_core）是芯：四招蓄力时越来越亮，扇形 / 召唤 / 冰环出手那一下最亮，落冰指挥的时候一直亮着（heatH）；
+    // 武器挂点 = 右手指尖（扇形甩出去的那只手），手 = 左手指尖。原来的程序化外观没有火星（bossEmbers），这里也不放（emb 不写）
+    weaver: {
+      pack: 'boss-weaver',
+      alias: { fan: 'fan', barrage: 'barrage', summon: 'summon', ring: 'ring', slam: 'summon', charge: 'ring', spiral: 'ring', cross: 'barrage' },
+      reach: 3.2,
+      sock: { weapon: ['hand_r', 0, -0.3, 0.06], hand: ['hand_l', 0, -0.3, 0.06], head: ['head', 0, 0.3, 0.05], chest: ['x_core', 0, 0, 0.05] },
+      hitJ: ['spine_03', 'head'], feet: ['x_fleg_l_03', 'x_fleg_r_03', 'x_mleg_l_03', 'x_mleg_r_03', 'x_hleg_l_03', 'x_hleg_r_03'], core: 'x_core',
+      heatW: ['fan_w', 'barrage_w', 'summon_w', 'ring_w'], heatS: ['fan', 'summon', 'ring'], heatH: ['barrage'],
+      // 首领缺省的暖色自发光在冰原上把暖灰的甲壳烧成橙褐、霜丝袍子烧成米色：换成很淡的中性色，染色收到中性（甲壳是暖灰、袍子是冷灰蓝，两种冷暖靠调色板本身分开）
+      emis: [0x3a3c40, 0.16], tint: 0xc2ceda,
+    },
     // boss-snuffer：熄烛者。没有腿（袍子拖地、滑行），不贴地（feet 不写）。冠（x_crown）和原来的程序化外观一样按时钟慢慢转；
     // 冠上那根还亮着的烛芯冒一缕灰烟（和原来同样的频率、同样取画面随机数的次数，位置跟着烛芯走：挂点 wick）；
     // 三阶段（ent.mood = 2）冠上另外八根一根一根重新点着（relight：每根一根骨骼，平时缩到看不见），换阶段的 lift 换成冠重燃的 lift3（moodClip）；
@@ -19374,8 +19386,8 @@
       emis: [0x343e46, 0.16], tint: 0xd0eaf6,
     },
   };
-  // 调色板行 → 表面（粗糙度 / 金属度），行号见 art/ca/palette.py
-  const BOSS_ROW_SURF = ['stone', 'stone', 'bone', 'metal', 'glow', 'stone', 'stone', 'leather', 'metal', 'stone', 'stone', 'stone', 'leather', 'stone', 'ice', 'gold', 'stone', 'ice', 'cloth', 'cloth', 'bone', 'ice'];
+  // 调色板行 → 表面（粗糙度 / 金属度），行号见 art/ca/palette.py（13 板岩在首领身上只有霜织者的霜丝袍子 / 霜纱用：按布；19–21 是熄烛者的灰烬袍 / 蜡 / 熏黑的玻璃）
+  const BOSS_ROW_SURF = ['stone', 'stone', 'bone', 'metal', 'glow', 'stone', 'stone', 'leather', 'metal', 'stone', 'stone', 'stone', 'leather', 'cloth', 'ice', 'gold', 'stone', 'ice', 'cloth', 'cloth', 'bone', 'ice'];
   const bossS2L = (() => {
     const t = new Float32Array(256);
     for (let i = 0; i < 256; i++) { const c = i / 255; t[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }

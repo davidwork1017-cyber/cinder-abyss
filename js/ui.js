@@ -19,7 +19,9 @@
   const itemIcon = (item, cls) => ibox(IC.item(item), 'r' + item.rarity + (cls ? ' ' + cls : ''));
   // 按住 Alt 才展开的详情（触发规则、边界情况）：数据里的 alt / mechAlt。没有详情就什么都不加，提示行也不出；
   // 展开与否由 body 的 alt-on 类切换（见 update），所以浮窗、技能卡都不用重渲染
-  const altBox = (d) => (d ? '<div class="alt-box"><div class="alt-d">' + d + '</div><div class="alt-h">' + (G.touch && G.touch.on ? '长按查看详情' : '按住 <kbd>Alt</kbd> 查看详情') + '</div></div>' : '');
+  const altBox = (d) => (d && ui.foldAlt ? altFold(d) : d ? '<div class="alt-box"><div class="alt-d">' + d + '</div><div class="alt-h">' + (G.touch && G.touch.on ? '长按查看详情' : '按住 <kbd>Alt</kbd> 查看详情') + '</div></div>' : '');
+  // 窄屏的技能卡 / 辅助卡里（ui.foldAlt）：详情做成点开的折叠「详情」，不用长按
+  const altFold = (d) => '<details class="alt-fold"><summary>详情</summary><div class="alt-fd">' + d + '</div></details>';
 
   const KEY_LABEL = ['左键', '右键', 'Q', 'E'];
   const W_SLOT = 4; // 施放系统里武器技的格子号（R 键）；技能栏存档只有前 4 格，这一格由手里的武器决定
@@ -93,12 +95,15 @@
   const fmtDmg = (v) => (v < 10 ? fmt1(v) : fmtInt(v));
   // 卡片上的标签行：「召唤」紧挨着「召唤物」是重复的说法（1280 宽时还会把标签行挤成两行），卡片上不显示
   const cardTags = (sk) => (sk.tags.indexOf('minion') >= 0 ? sk.tags.filter((t) => t !== 'summon') : sk.tags);
+  // 面板页签：[页名, 名字, 按键, 竖屏的一个字]。仓库没有快捷键
   const TABS = [
-    ['inv', '背包', 'I'],
-    ['skills', '技能', 'G'],
-    ['tree', '天赋', 'P'],
-    ['map', '地图', 'M'],
-    ['help', '帮助', 'H'],
+    ['inv', '背包', 'I', '包'],
+    ['stash', '仓库', '', '仓'],
+    ['char', '属性', 'C', '属'],
+    ['skills', '技能', 'G', '技'],
+    ['tree', '天赋', 'P', '赋'],
+    ['map', '地图', 'M', '图'],
+    ['help', '帮助', 'H', '帮'],
   ];
   const ARM_INFO = {
     s: { name: '铸躯', hint: '生命 · 护甲 · 物理' },
@@ -139,8 +144,9 @@
     blankTimer: 0,
     blankMsg: '', // 技能页顶部的一行结果（刚用无铭宝石学会 / 升级了什么）
     mapTier: 0,
+    zcard: null, // 地图页（窄屏）开着的区域卡：区域序号的字符串，或 'pin'（余烛殿）
+    helpTopic: 'keys', // 帮助页当前的话题
     sealPick: null, // 择印面板（层级 ≥ 1 点「进入」后叠在地图页上）：{ zone, tier, seals: [浅印, 深印, 烬印] }
-    delArmed: false,
     tipEl: null,
     mouseX: -1,
     mouseY: -1,
@@ -156,6 +162,15 @@
     groundLoot: null, // 鼠标正指着的地面掉落
     groundSig: '',
     hoverEnemy: null,
+    card: null, // 打开着的物品卡 { uid, stash, view: 'info' | 'cmp' | 'craft', ovf }（docs/ui.md）
+    cardTimer: 0, // 桌面单击：等双击窗口过了再开卡
+    pop: null, // 打开着的小菜单 { kind: 'filter' | 'more' | 'hint', at: 锚点选择器 }
+    stashPage: 0,
+    stashView: 'stash', // 窄屏仓库页现在显示的格子：'stash' / 'bag'
+    charSub: 'stats', // 属性页的子页签：'stats' / 'codex'
+    skSub: 'skills', // 技能页（窄屏）的子页签：'skills' / 'sup' / 'learn'
+    skSel: null, // 技能页（桌面）中间那张卡片是哪一行：技能 id / 武器普攻卡 / 'wskill'
+    foldAlt: false, // 正在画窄屏的技能卡：Alt 详情做成折叠
   };
 
   const el = {}; // 常用 DOM 引用
@@ -1241,9 +1256,11 @@
     const L = G.itemLines(item);
     let h = '<div class="icard r' + item.rarity + '">';
     if (o.tag) h += '<div class="ic-tag">' + o.tag + '</div>';
-    h += '<div class="ic-head">' + itemIcon(item) + '<div class="ic-ttl"><div class="ic-name">' + esc(item.name) + '</div>';
-    if (item.name !== item.baseName) h += '<div class="ic-base">' + esc(item.baseName) + '</div>';
-    h += '</div></div>';
+    if (!o.noHead) {
+      h += '<div class="ic-head">' + itemIcon(item) + '<div class="ic-ttl"><div class="ic-name">' + esc(item.name) + '</div>';
+      if (item.name !== item.baseName) h += '<div class="ic-base">' + esc(item.baseName) + '</div>';
+      h += '</div></div>';
+    } else if (item.name !== item.baseName) h += '<div class="ic-base sh">' + esc(item.baseName) + '</div>'; // 卡片头部已经有名字和图标：只补一行基底名
     const isW = item.slot === 'weapon';
     h += '<div class="ic-meta"><span>' + G.RARITY_NAME[item.rarity] + ' · ' + (isW ? G.SLOT_NAME.weapon + ' · ' + wTypeName(item.baseIdx | 0) : G.SLOT_NAME[item.slot]) + '</span><span>物品等级 ' + item.ilvl + '</span></div>';
     // 职业（class-d2）：有职业的角色看武器时多一行「职业：X」，别的职业的标红（装不上）
@@ -1479,7 +1496,8 @@
     if (s('moreLife')) h += row('生命总量', pct(s('moreLife')), s('moreLife') > 0 ? '#9fdc8a' : '#ff7a6a');
     if (s('bloodMagic')) h += row('技能消耗', '生命', '#ff7a6a');
     h += '</div>';
-    return h;
+    // 每组（小标题 + 两列数值）包成一块：宽屏按列排开时一组不拆到两列
+    return '<div class="st-sec">' + h.replace(/<\/div><div class="st-group/g, '</div></div><div class="st-sec"><div class="st-group') + '</div>';
   }
 
   // 烬铸图鉴：三把烬铸武器（拾到过没有、见过的最高完美度）和各首领的保底进度
@@ -1551,176 +1569,519 @@
     );
   }
 
-  // 共享仓库（class-d2）：右栏的一页，4 页 × 40 格，所有角色共用；点仓库里的物品取进背包，背包物品详情里有「放进仓库」
-  function stashHtml() {
-    const ok = G.stash && G.stash.ok();
-    const items = ok ? G.stash.list() : [];
-    ui.stashCache = items;
-    const P = G.stash ? G.stash.PAGE : 40, N = G.stash ? G.stash.PAGES : 4;
-    const pg = G.clamp(ui.stashPage | 0, 0, N - 1);
-    let tabs = '';
-    for (let p = 0; p < N; p++) {
-      const n = items.slice(p * P, (p + 1) * P).length;
-      tabs += '<button type="button" tabindex="-1" class="sh-tab' + (p === pg ? ' on' : '') + '" data-act="stash-page" data-p="' + p + '">' + (p + 1) + (n ? '<em>' + n + '</em>' : '') + '</button>';
+  // ============================================================
+  // UI-R 共用组件（B1，说明见 docs/ui.md）
+  //   面板外壳：页签（TABS）、页头的 [?]、每页第一次打开时的一行提示（本地记「看过了」，不进存档）
+  //   .sheet：物品卡等「点了才出现」的卡片。头部固定 / 中间唯一的滚动区（data-list）/ 底部操作条（.sh-acts）
+  //     宽屏桌面：锚在格子旁边的浮卡；窄屏和触屏（compactUi()）：横屏从右侧滑出，竖屏从底部升起
+  //   .ui-pop：锚在按钮下面的小菜单（筛选、「⋯」、[?] 的说明）。点外面就关
+  //   data-list：一个页面状态里只有它能纵向滚动（test/ui-layout.mjs 按这个标记检查）
+  // ============================================================
+  const UI_SEEN_KEY = 'cinder-abyss-ui-seen'; // 设备本地：哪些页的一次性提示看过了（{ inv: 1, … }）。不进存档
+  // 每次都读 localStorage（只有几个字节）：别的标签页、清掉浏览器数据之后都跟着变。存储不能用时退回内存里的一份
+  let uiSeenMem = {};
+  function uiSeenMap() {
+    try {
+      return JSON.parse(localStorage.getItem(UI_SEEN_KEY) || '{}') || {};
+    } catch (e) {
+      return uiSeenMem;
     }
+  }
+  const uiSeen = (tab) => !!uiSeenMap()[tab];
+  function uiSeenMark(tab) {
+    if (!PAGE_HINTS[tab] || uiSeen(tab)) return;
+    const m = uiSeenMap();
+    m[tab] = 1;
+    uiSeenMem = m;
+    try {
+      localStorage.setItem(UI_SEEN_KEY, JSON.stringify(m));
+    } catch (e) {}
+  }
+  // 窄屏 / 触屏的排法（和 css 里「手机」那组媒体查询同一个条件）；竖屏另算
+  // 量位置：mobile-m2 的旋转横屏把画面转了 90°，有 G.rectToFrame / G.viewW 时换到画面坐标（没有时就是原样）
+  const fRect = (r) => (G.rectToFrame ? G.rectToFrame(r) : r);
+  const fW = () => (G.viewW ? G.viewW() : window.innerWidth);
+  const fH = () => (G.viewH ? G.viewH() : window.innerHeight);
+  const COMPACT_MQ = '(max-width: 900px), (max-height: 500px)';
+  const compactUi = () => !!G.rot || window.matchMedia(COMPACT_MQ).matches; // 旋转横屏（mobile-m2）一定是手机
+  const portraitUi = () => compactUi() && fW() <= 600;
+  // 每页的说明：once = 第一次打开时底部那一行；list = 点 [?] 看到的全部。触屏、桌面各一套说法
+  const TREE_LEGEND = '<span class="lg alloc"><i></i>已点亮</span><span class="lg avail"><i></i>可点亮</span><span class="lg locked"><i></i>未连接</span>';
+  const PAGE_HINTS = {
+    inv: {
+      touch: { once: '点物品看详情，点两下直接穿上', list: ['点物品：看详情、装备、分解、改造', '同一件物品连点两下：直接穿上', '按住物品：看浮窗；按住拖到装备栏：换装', '「筛选」：一键分解的范围、整理、图鉴', '<b class="vd-up">▲</b> 表示装备后更强'] },
+      desk: { once: '单击物品打开操作，双击或右键穿上', list: ['单击物品：装备、分解、丢弃、锁定和通货改造', '双击或右键：穿上 / 卸下', '拖动：整理、换装，拖出窗口丢弃', '把通货拖到物品上改造', 'Shift+点击 分解 · Ctrl+点击 锁定', '<b class="vd-up">▲</b> 表示装备后更强'] },
+    },
+    stash: {
+      touch: { once: '点物品取出，或放进仓库', list: ['仓库所有角色共用，4 页共 160 格', '点仓库里的物品：取进背包', '切到「背包」，点物品：放进仓库', '只放物品，通货和宝石不进仓库'] },
+      desk: { once: '点仓库物品取进背包，点背包物品放进仓库', list: ['仓库所有角色共用，4 页共 160 格', '点仓库里的物品：取进背包', '点背包里的物品：选「放进仓库」', 'Shift+点击背包物品：直接放进仓库', '只放物品，通货和宝石不进仓库'] },
+    },
+    skills: {
+      touch: { once: '点技能看详情、放到技能键上、镶辅助', list: ['点技能：看数值，放到技能键上，镶辅助宝石', '卡片里点空的辅助槽：选一颗镶上；点镶着的：取下', '辅助：看每颗辅助宝石镶在哪，点它换个技能镶', '学习：用无铭宝石学新技能', '最上面一排是技能键上现在放的技能'] },
+      desk: { once: '点技能看详情，把图标拖进技能栏', list: ['点列表里的技能：中间显示它的卡片', '把技能图标拖进技能栏，或点卡上的按键标签', '点空的辅助槽选宝石，或把右边的辅助宝石拖进槽里', '点镶着的辅助宝石：取下', '按住 Alt：看详细说明'] },
+    },
+    trader: {
+      touch: { once: '点一行看详情和对比，按钮直接买卖', list: ['货架：这次带来的货，通货够就能买', '卖出：按分解价收，魔法以上多给 1 颗微光尘', '稀有以上要点两次才卖，锁定的不卖', '烛芯：轮回 2 起，任意 2 个换 1 个指定种类'] },
+      desk: { once: '点「买下」「卖」直接成交，悬停看详情', list: ['货架：这次带来的货，通货够就能买', '卖出：按分解价收，魔法以上多给 1 颗微光尘', '稀有以上要点两次才卖，锁定的不卖', '烛芯：轮回 2 起，任意 2 个换 1 个指定种类'] },
+    },
+    tree: {
+      touch: { once: '点天赋看详情，按「点亮」才花点数', list: [TREE_LEGEND, '点天赋：看详情，按「点亮」或「退回」', '点亮后卡片不关，接着点下一个', '双指缩放，放大后单指拖动', '左上的点数：各支路进度、已获得的加成、重置'] },
+      desk: { once: '单击点亮，再点一次退回', list: [TREE_LEGEND, '单击：点亮，再点一次退回', '滚轮缩放，按住拖动平移', '鼠标停在天赋上看详情'] },
+    },
+    char: {
+      touch: { once: '属性跟着装备和天赋变', list: ['属性：这个角色现在的全部数值', '图鉴：烬铸和渊契的收集进度与保底', '拾到过的记录所有角色共用，保底按角色算'] },
+      desk: { once: '属性跟着装备和天赋变', list: ['属性：这个角色现在的全部数值', '图鉴：烬铸和渊契的收集进度与保底', '拾到过的记录所有角色共用，保底按角色算'] },
+    },
+    // B4a：地图、帮助。渊印的图例放在地图的 [?] 里
+    map: {
+      touch: { once: '点区域卡片看详情，再点「进入」', list: ['点区域卡片：怪物等级、首领和「进入」', '按住卡片：看浮窗', '轮回层级越高，怪物和物品等级越高', '<i class="sc mob">戾</i> 怪物侧印纹，强化怪物', '<i class="sc player">竭</i> 玩家侧印纹，削弱你', '<i class="lg-ring"></i> 小地图上的领群者', '拾取、画质、删除角色：≡ → 设置'] },
+      desk: { once: '选好轮回层级，点区域卡片上的「进入」', list: ['选好轮回层级，点区域卡片上的「进入」', '轮回层级越高，怪物和物品等级越高', '<i class="sc mob">戾</i> 怪物侧印纹，强化怪物', '<i class="sc player">竭</i> 玩家侧印纹，削弱你', '<i class="lg-ring"></i> 小地图上的领群者', '拾取、画质、删除角色：Esc → 设置'] },
+    },
+    help: {
+      touch: { once: '选一个话题看说明', list: ['选一个话题，旁边只显示这一节', '「操作」最下面可以重新显示新手提示'] },
+      desk: { once: '选一个话题看说明', list: ['选一个话题，右边只显示这一节', '「操作」最下面可以重新显示新手提示'] },
+    },
+  };
+  const pageHints = (tab) => (PAGE_HINTS[tab] ? PAGE_HINTS[tab][touchOn() ? 'touch' : 'desk'] : null);
+  // 页面底部的一行：一次性提示 / 新手提示 / 操作结果。触屏上浮在页面底部（不占格子的高度），桌面在页面最下面占一行
+  // keep：窄屏上这一行一直占着位置（右边放 right，比如背包的件数），内容换了页面不跳
+  function pageNote(tab, html, cls, keep, right) {
+    if (!html && PAGE_HINTS[tab] && !uiSeen(tab)) {
+      html = '<span>' + pageHints(tab).once + '</span>';
+      cls = 'hint';
+    }
+    if (!html && !keep) return '';
+    return '<div class="pg-note inv-tips ' + (cls || '') + '"><div class="pg-msg">' + (html || '') + '</div>' + (right ? '<div class="pg-r">' + right + '</div>' : '') + '</div>';
+  }
+  // [?] 按钮（页头里；竖屏放进页面的工具栏）
+  const helpBtn = (cls) => '<button type="button" tabindex="-1" class="ui-q' + (cls ? ' ' + cls : '') + (ui.pop && ui.pop.kind === 'hint' ? ' on' : '') + '" data-act="hint" aria-label="这一页的说明">?</button>';
+
+  // 小菜单：ui.pop = { kind, at }（at：锚点按钮的选择器）。内容按 kind 现做
+  function popHtml() {
+    const p = ui.pop;
+    if (!p) return '';
+    let rows = '';
+    if (p.kind === 'hint') {
+      const H = pageHints(ui.tab);
+      if (!H) return '';
+      rows = '<div class="pop-t">这一页怎么用</div>' + H.list.map((t) => '<div class="pop-line">' + t + '</div>').join('');
+    } else if (p.kind === 'filter') {
+      const S = G.save;
+      const withRare = !!S.opts.salvageRare;
+      const withMagic = withRare || !!S.opts.salvageMagic;
+      rows =
+        '<div class="pop-t">一键分解的范围</div>' +
+        '<button type="button" tabindex="-1" class="pop-row chk' + (withMagic ? ' on' : '') + '" data-act="opt" data-opt="salvageMagic"' + (withRare ? ' disabled' : '') + '><i></i>含魔法</button>' +
+        '<button type="button" tabindex="-1" class="pop-row chk' + (withRare ? ' on' : '') + '" data-act="opt" data-opt="salvageRare"><i></i>含稀有<em>留下锁定的、更强的</em></button>' +
+        '<div class="pop-sep"></div>' +
+        '<button type="button" tabindex="-1" class="pop-row" data-act="sort"' + (S.bag.length > 1 ? '' : ' disabled') + '>整理背包</button>' +
+        '<button type="button" tabindex="-1" class="pop-row" data-act="codex">图鉴<em>烬铸和渊契</em></button>';
+    } else if (p.kind === 'more') {
+      const f = cardItem();
+      if (!f) return '';
+      rows =
+        (f.equipped ? '' : '<button type="button" tabindex="-1" class="pop-row" data-act="drop">丢弃</button>') +
+        '<button type="button" tabindex="-1" class="pop-row lk-btn' + (f.item.lk ? ' on' : '') + '" data-act="lock" aria-pressed="' + !!f.item.lk + '"><i class="lk-ico"></i>' + (f.item.lk ? '解锁' : '锁定') + '</button>';
+    }
+    return '<div class="ui-pop pop-' + p.kind + '" data-pop="' + p.kind + '">' + rows + '</div>';
+  }
+  // 小菜单贴在锚点按钮下面（放不下就放上面），左右夹在面板里
+  function placePop() {
+    const pop = el.body.querySelector('.ui-pop');
+    if (!pop || !ui.pop) return;
+    const at = el.panel.querySelector(ui.pop.at);
+    const br = fRect(el.body.getBoundingClientRect());
+    if (!at) return;
+    const r = fRect(at.getBoundingClientRect());
+    const w = pop.offsetWidth, h = pop.offsetHeight;
+    const vh = fH();
+    // 左右夹在页面正文里（触屏上正文已经让开了安全区和圆角）
+    const lo = br.left + 2, hi = br.right - 2;
+    let x = r.right - w;
+    if (x < lo) x = r.left;
+    x = G.clamp(x, lo, Math.max(lo, hi - w));
+    let y = r.bottom + 4;
+    if (y + h > vh - 8) y = Math.max(8, r.top - 4 - h);
+    pop.style.left = Math.round(x - br.left) + 'px';
+    pop.style.top = Math.round(y - br.top) + 'px';
+  }
+
+  // ---------- 卡片（.sheet） ----------
+  // o：{ head, body, acts, msg, cls }。body 是唯一的滚动区（data-list），acts 是底部固定的操作条
+  function sheetHtml(o) {
+    return (
+      '<div class="sheet ' + (compactUi() ? (portraitUi() ? 'dock bottom' : 'dock side') : 'pop') + (o.cls ? ' ' + o.cls : '') + '"' + (o.rc ? ' style="--rc:' + o.rc + '"' : '') + '>' +
+      '<div class="sh-head">' + o.head + '<button type="button" tabindex="-1" class="sh-x" data-act="card-close" aria-label="收起">✕</button></div>' +
+      '<div class="sh-body scroll" data-list data-scroll="sheet">' + o.body + '</div>' +
+      (o.msg || '') +
+      (o.acts ? '<div class="sh-acts act-row">' + o.acts + '</div>' : '') +
+      '</div>'
+    );
+  }
+  // 卡片的头部：图标、名字、类型（固定不滚）
+  const sheetHead = (item, extra) =>
+    itemIcon(item) + '<div class="sh-ttl"><div class="sh-name" style="color:' + G.RARITY_COLOR[item.rarity] + '">' + esc(item.name) + '</div>' +
+    '<div class="sh-kind">' + G.RARITY_NAME[item.rarity] + ' · ' + (item.slot === 'weapon' ? wTypeName(item.baseIdx | 0) : G.SLOT_NAME[item.slot]) + ' · ' + item.ilvl + ' 级</div></div>' + (extra || '');
+  // 卡片里现在是哪件物品：背包 / 身上（findItem），或仓库里的（ui.card.stash）
+  function cardItem() {
+    if (!ui.card) return null;
+    if (ui.card.stash) {
+      const it = (ui.stashCache || []).find((x) => x.uid === ui.card.uid);
+      return it ? { item: it, stash: true } : null;
+    }
+    return findItem(ui.card.uid);
+  }
+  function openCard(uid, stash) {
+    clearTimeout(ui.cardTimer);
+    ui.cardTimer = 0;
+    ui.card = { uid, stash: !!stash, view: 'info', ovf: false };
+    ui.pop = null;
+    ui.confirm = null;
+    if (!stash) ui.sel = uid;
+  }
+  function closeCard() {
+    clearTimeout(ui.cardTimer);
+    ui.cardTimer = 0;
+    const had = !!ui.card;
+    ui.card = null;
+    if (ui.pop && ui.pop.kind === 'more') ui.pop = null;
+    return had;
+  }
+  // 物品卡：背包页和仓库页共用。stashTab：在仓库页（操作条换成 放进仓库 / 取出）
+  function itemSheet(stashTab) {
+    const f = cardItem();
+    if (!f) {
+      ui.card = null;
+      return '';
+    }
+    const S = G.save;
+    const it = f.item;
+    const touch = touchOn();
+    const dock = compactUi();
+    const view = ui.card.view;
+    const eqOf = !f.equipped && !f.stash ? S.equip[it.slot] : null;
+    const stashOk = !!(G.stash && G.stash.ok());
+    // 中间：物品卡 / 对比（身上那件） / 改造（通货列表）
+    let body;
+    if (view === 'cmp' && eqOf) {
+      body = '<div class="detail-card cmp" data-item="' + eqOf.uid + '">' + itemCard(eqOf, { tag: '当前装备', compact: true }) + '</div>';
+    } else if (view === 'craft' && !f.stash) {
+      body = craftList(it);
+    } else {
+      body =
+        '<div class="detail-card' + (ui.flash ? ' flash' : '') + '" data-item="' + it.uid + '">' +
+        itemCard(it, { noHead: true, vd: f.equipped || f.stash ? null : verdict(it), affTips: !touch, compact: true, cmp: f.equipped || f.stash ? null : eqOf }) + '</div>';
+      // 桌面：通货改造直接放在卡片里（点击，或把通货拖到物品上）
+      if (!dock && !f.stash) body += craftGrid(it);
+    }
+    ui.flash = false;
+    const B = (act, label, cls, extra) => '<button type="button" tabindex="-1" class="btn' + (cls ? ' ' + cls : '') + '" data-act="' + act + '"' + (extra || '') + '>' + label + '</button>';
+    const lockB = (cls) => B('lock', '<i class="lk-ico"></i>' + (it.lk ? '已锁' : '锁定'), 'lk-btn' + (it.lk ? ' on' : '') + (cls ? ' ' + cls : ''), ' aria-pressed="' + !!it.lk + '"' + (touch ? '' : ' data-tip="txt:' + (it.lk ? '已锁定：不会被分解或卖掉。点击或 Ctrl+点击物品解锁' : '锁定后不会被一键分解、自动分解或卖掉。也可以 Ctrl+点击物品') + '"'));
+    const craftB = dock && !f.stash ? B('craftview', view === 'craft' ? '详情' : '改造', view === 'craft' ? 'on' : '') : '';
+    const ovf = ui.card.ovf; // 触屏：按钮放不下（有一个窄过 44 px）时，丢弃 / 锁定收进「⋯」
+    const moreB = B('more', '⋯', ui.pop && ui.pop.kind === 'more' ? 'on' : '', ' aria-label="更多"');
+    let acts;
+    if (f.stash) {
+      acts = B('stash-take', '取出', 'primary', ' data-uid="' + it.uid + '"');
+    } else if (stashTab) {
+      acts = (f.equipped ? '' : B('stash-put', '放进仓库', 'primary', stashOk ? '' : ' disabled')) + lockB();
+    } else if (f.equipped) {
+      acts = B('unequip', '卸下', 'primary') + craftB + lockB();
+    } else {
+      acts =
+        B('equip', '装备', 'primary') + B('salvage', '分解') +
+        (stashOk ? B('stash-put', '仓库', '', touch ? '' : ' data-tip="txt:放进所有角色共用的仓库"') : '') + craftB +
+        (ovf ? moreB : B('drop', '丢弃') + lockB());
+    }
+    const msg = ui.invMsg ? '<div class="inv-msg sh-msg">' + esc(ui.invMsg) + '</div>' : ui.invOk ? '<div class="inv-msg sh-msg ok">' + esc(ui.invOk) + '</div>' : '';
+    const cmpB = dock && eqOf ? '<button type="button" tabindex="-1" class="sh-b' + (view === 'cmp' ? ' on' : '') + '" data-act="cmp">对比</button>' : '';
+    const hd = view === 'cmp' && eqOf ? eqOf : it;
+    return sheetHtml({ head: sheetHead(hd, cmpB), body, acts, msg, cls: (f.equipped ? 'eqd' : f.stash ? 'st' : 'bg') + (hd.rarity >= 3 ? ' top' : ''), rc: G.RARITY_COLOR[hd.rarity] });
+  }
+  // 桌面卡片里的通货改造（两列小按钮，和以前的详情栏一样）
+  function craftGrid(it) {
+    const S = G.save;
+    const fixed = it.rarity >= 3;
+    let np = 0, ns = 0;
+    for (const a of it.affixes) {
+      if (G.AFFIX_BY_ID[a.id].type === 'prefix') np++;
+      else ns++;
+    }
+    const cap = it.rarity === 2 ? 3 : it.rarity === 1 ? 1 : 0;
+    let craft = '';
+    for (const id of G.CUR_IDS) {
+      const c = G.CURRENCY[id];
+      const n = S.cur[id] || 0;
+      const ok = n > 0 && G.canCraft(it, id);
+      craft +=
+        '<button type="button" tabindex="-1" class="craft-btn" data-act="craft" data-cur="' + id + '" data-tip="cur:' + id + '" style="--c:' + c.color + '"' +
+        (ok ? '' : ' disabled') + '>' + IC.cur(id) + '<span>' + c.name + '</span><b>' + n + '</b></button>';
+    }
+    return (
+      (fixed ? '' : cap ? '<div class="aff-count">前缀 <b>' + np + '</b>/' + cap + '<i></i>后缀 <b>' + ns + '</b>/' + cap + '<i></i>悬停词缀查看阶级</div>' : '<div class="aff-count">普通物品没有词缀，可以用通货改造</div>') +
+      '<div class="sec-title sm">通货改造<span class="sec-note">' + (fixed ? lockText(it) : '点击，或把通货拖到物品上') + '</span></div>' +
+      '<div class="craft-grid' + (fixed ? ' locked' : '') + '">' + craft + '</div>'
+    );
+  }
+  // 触屏卡片的「改造」：通货列表，一行 44 px（名字、持有、这次会做什么）
+  function craftList(it) {
+    const S = G.save;
+    if (it.rarity >= 3) return '<div class="cl-none">' + lockText(it) + '</div>';
+    let rows = '';
+    for (const id of G.CUR_IDS) {
+      const c = G.CURRENCY[id];
+      const n = S.cur[id] || 0;
+      const ok = n > 0 && G.canCraft(it, id);
+      rows +=
+        '<button type="button" tabindex="-1" class="cl-row" data-act="craft" data-cur="' + id + '" style="--c:' + c.color + '"' + (ok ? '' : ' disabled') + '>' +
+        IC.cur(id) + '<span class="cl-name">' + c.name + '<em>' + c.desc + '</em></span><b>' + n + '</b></button>';
+    }
+    return '<div class="cl-list">' + rows + '</div>';
+  }
+  // 卡片放好位置：桌面浮卡锚在格子旁边（复用浮窗的摆法），窄屏的侧滑卡 / 底部卡由 css 定位
+  function placeCard() {
+    const sh = el.body.querySelector('.sheet');
+    if (!sh) return;
+    if (sh.classList.contains('pop')) {
+      const src = ui.card && el.body.querySelector('[data-item="' + ui.card.uid + '"].cell, [data-item="' + ui.card.uid + '"].eq, .cell[data-uid="' + ui.card.uid + '"]');
+      const br = fRect(el.body.getBoundingClientRect());
+      const pw = fRect(el.win.getBoundingClientRect());
+      const vw = fW(), vh = fH();
+      // 卡片整个在页面正文里：不盖页头和页签，太高就让中间那段滚动（data-list）
+      sh.style.maxHeight = Math.max(160, Math.floor(br.height)) + 'px';
+      const w = sh.offsetWidth, h = sh.offsetHeight;
+      const r = src ? fRect(src.getBoundingClientRect()) : { left: vw / 2, right: vw / 2, top: vh / 2 - h / 2, bottom: vh / 2 };
+      // 背包格里的物品：卡片放在整块格子外面（先左后右），别的格子和下面的通货照样点得到、拖得到；放不下才贴着这一格
+      const grid = src && src.closest('.bag');
+      const g = grid ? fRect(grid.getBoundingClientRect()) : r;
+      let x = g.left - 12 - w;
+      if (x < 8) x = g.right + 12;
+      if (x + w > vw - 8) {
+        x = r.right + 10;
+        if (x + w > vw - 8) x = r.left - 10 - w;
+        if (x < 8) x = G.clamp(r.left, 8, Math.max(8, vw - w - 8));
+      }
+      x = G.clamp(x, pw.left + 8, Math.max(pw.left + 8, pw.right - w - 8));
+      const y = G.clamp(r.top - 40, br.top, Math.max(br.top, br.bottom - h));
+      sh.style.left = Math.round(x - br.left) + 'px';
+      sh.style.top = Math.round(y - br.top) + 'px';
+    }
+    // 触屏：按钮放不下就把丢弃 / 锁定收进「⋯」，再排一次（每次开卡最多一次）
+    if (touchOn() && ui.card && !ui.card.ovf && Array.from(sh.querySelectorAll('.sh-acts .btn')).some((b) => b.getBoundingClientRect().width < 43.5)) {
+      ui.card.ovf = true;
+      render();
+    }
+  }
+  // 单击 / 轻点物品：桌面等双击的窗口过了才开卡（双击、拖动都不会闪一下）；触屏马上开
+  const CARD_DELAY = 250;
+  // now：马上开（身上的装备没有双击动作，不用等）
+  function clickItem(uid, stash, now) {
+    clearTimeout(ui.cardTimer);
+    if (ui.card && ui.card.uid === uid && !stash === !ui.card.stash) {
+      closeCard(); // 再点一次同一件：收起
+      return render();
+    }
+    if (now || touchOn() || stash || compactUi()) {
+      openCard(uid, stash);
+      return render();
+    }
+    ui.sel = uid;
+    render();
+    ui.cardTimer = setTimeout(() => {
+      ui.cardTimer = 0;
+      if (!ui.isOpen || ui.sel !== uid || !findItem(uid) || drag.on || drag.armed) return; // 这段时间里开始拖了：不开卡
+      openCard(uid, false);
+      render();
+    }, CARD_DELAY);
+  }
+
+  // ---------- 格子 ----------
+  function eqCell(slot, cls) {
+    const it = G.save.equip[slot];
+    if (it)
+      return (
+        '<div class="eq r' + it.rarity + (ui.sel === it.uid ? ' sel' : '') + (cls || '') + '" data-slot="' + slot + '" data-act="sel" data-item="' + it.uid + '" data-tip="item:' + it.uid + '" data-drag="item:' + it.uid + '">' +
+        IC.item(it) + '<span class="c-ilvl">' + it.ilvl + '</span>' +
+        (it.lk ? '<span class="c-lk"><i class="lk-ico"></i></span>' : '') +
+        '<span class="eq-name">' + G.SLOT_NAME[slot] + '</span></div>'
+      );
+    return '<div class="eq empty' + (cls || '') + '" data-slot="' + slot + '">' + IC.slot(slot) + '<span class="eq-name">' + G.SLOT_NAME[slot] + '</span></div>';
+  }
+  // 背包格（40 格）；竖屏 7 列时补两格空位，最后一行不缺角
+  function bagGrid() {
+    const S = G.save;
+    let bag = '';
+    for (let i = 0; i < G.BAG_SIZE; i++) {
+      const it = S.bag[i];
+      bag += it ? bagCell(it, ui.sel === it.uid, i) : '<div class="cell empty" data-idx="' + i + '"></div>';
+    }
+    if (portraitUi()) bag += '<div class="cell empty pad"></div>'.repeat((7 - (G.BAG_SIZE % 7)) % 7);
+    return '<div class="bag" data-grid="bag">' + bag + '</div>';
+  }
+  // 一键分解：按钮上的件数和上膛状态（上膛后要分解的东西变了就不算数）
+  function bulkState() {
+    const plan = bulkPlan();
+    const armed = !!(ui.bulkArm && ui.bulkArm.key === plan.map((it) => it.uid).join() && performance.now() - ui.bulkArm.t < BULK_ARM_MS);
+    if (ui.bulkArm && !armed) bulkDisarm();
+    return { n: plan.length, armed };
+  }
+  function bulkBtn(b, cls) {
+    return (
+      '<button type="button" tabindex="-1" class="btn sm bulk' + (b.armed ? ' armed' : '') + (cls ? ' ' + cls : '') + '" data-act="salvage-all"' + (b.n ? '' : ' disabled') +
+      (b.armed && !touchOn() ? ' data-tip="txt:' + bulkKeepText() + '"' : '') + '>' +
+      (b.armed ? '确认分解' : compactUi() ? '分解' : '一键分解') + (b.n ? '<em>（' + b.n + '）</em>' : '') + '</button>'
+    );
+  }
+  const filterBtn = (cls) => '<button type="button" tabindex="-1" class="btn sm flt' + (ui.pop && ui.pop.kind === 'filter' ? ' on' : '') + (cls ? ' ' + cls : '') + '" data-act="filter">筛选<i class="dd"></i></button>';
+
+  // ============================================================
+  // 背包页：背包格 + 装备栏 + 工具（筛选 / 一键分解 / ?）；桌面多一排通货（拖到物品上改造）。物品详情是点了才出现的卡片
+  // ============================================================
+  function renderInv() {
+    const S = G.save;
+    if (ui.sel && !findItem(ui.sel)) ui.sel = null;
+    if (ui.card && !cardItem()) ui.card = null;
+    const b = bulkState();
+    const compact = compactUi();
+    const portrait = portraitUi();
+    let eq = '';
+    for (const slot of G.SLOTS) eq += eqCell(slot);
+    // 通货（桌面）：拖到物品上改造的来源
+    let cur = '';
+    if (!compact) {
+      for (const id of G.CUR_IDS) {
+        const c = G.CURRENCY[id];
+        const n = S.cur[id] || 0;
+        cur +=
+          '<div class="cur' + (n ? '' : ' zero') + '" data-cur="' + id + '" data-tip="cur:' + id + '"' + (n ? ' data-drag="cur:' + id + '"' : '') + ' style="--c:' + c.color + '">' +
+          IC.cur(id) + '<span class="cur-name">' + c.name + '</span><b>' + n + '</b></div>';
+      }
+    }
+    const coach = coachBanner('inv');
+    const count = '<span class="bag-n">' + (portrait ? '' : '背包 ') + '<b>' + S.bag.length + '</b> / ' + G.BAG_SIZE + '</span>'; // 竖屏放在工具行里，省掉「背包」两个字
+    const keep = compact && !portrait;
+    const right = keep ? count : '';
+    const msg = ui.bagMsg
+      ? pageNote('inv', ui.bagMsg, 'res' + (b.armed ? ' bulk-on' : ''), keep, right)
+      : ui.invMsg && !ui.card
+        ? pageNote('inv', '<span class="inv-msg">' + esc(ui.invMsg) + '</span>', 'res', keep, right)
+        : ui.invOk && !ui.card
+          ? pageNote('inv', '<span class="inv-msg ok">' + esc(ui.invOk) + '</span>', 'res', keep, right)
+          : coach
+            ? pageNote('inv', coach, 'coach', keep, right)
+            : pageNote('inv', '', '', keep, right);
+    let html;
+    if (compact) {
+      // 窄屏 / 触屏：横屏 背包格 | 装备 2×4 + 工具；竖屏一列：装备 4×2、工具行、背包 7 列
+      html =
+        '<div class="inv inv2 cpt' + (portrait ? ' por' : '') + '"><div class="pg-row">' +
+        '<div class="inv-bag">' + bagGrid() + '</div>' +
+        '<div class="inv-side"><div class="eq-grid">' + eq + '</div>' +
+        '<div class="inv-tools">' + filterBtn() + bulkBtn(b) + (portrait ? count + helpBtn('in-page') : '') + '</div></div></div>' +
+        msg + '</div>';
+    } else {
+      html =
+        '<div class="inv inv2 wide">' +
+        '<div class="col inv-eq"><div class="sec-title">装备</div><div class="eq-grid">' + eq + '</div></div>' +
+        '<div class="col inv-main"><div class="sec-title">背包<span class="sec-note">' + S.bag.length + ' / ' + G.BAG_SIZE + '</span>' + filterBtn() + bulkBtn(b) + '</div>' +
+        bagGrid() +
+        '<div class="sec-title">通货<span class="sec-note">拖到物品上使用</span></div><div class="cur-row">' + cur + '</div></div>' +
+        msg + '</div>';
+    }
+    el.body.innerHTML = html + itemSheet(false) + popHtml();
+  }
+
+  // ============================================================
+  // 仓库页（class-d2 的共享仓库，独立一页）：桌面 仓库格 | 背包格 并排；触屏一个格子区，旁边切换 仓库 1–4 / 背包
+  // 写入守卫（另一个标签页在写、存档写不进去、老角色没选职业）照旧在 G.stash 里
+  // ============================================================
+  function stashCells(items, pg, P) {
     let cells = '';
     for (let i = pg * P; i < (pg + 1) * P; i++) {
       const it = items[i];
       cells += it
-        ? '<div class="cell r' + it.rarity + (G.offClassItem && G.offClassItem(it) ? ' cls-off' : '') + '" data-act="stash-take" data-uid="' + it.uid + '" data-tip="stash:' + it.uid + '">' + IC.item(it) + '<span class="c-ilvl">' + it.ilvl + '</span></div>'
+        ? '<div class="cell r' + it.rarity + (ui.card && ui.card.stash && ui.card.uid === it.uid ? ' sel' : '') + (G.offClassItem && G.offClassItem(it) ? ' cls-off' : '') + '" data-act="stash-take" data-uid="' + it.uid + '" data-tip="stash:' + it.uid + '">' + IC.item(it) + '<span class="c-ilvl">' + it.ilvl + '</span></div>'
         : '<div class="cell empty"></div>';
     }
-    return (
-      '<div class="sec-title">共享仓库<span class="sec-note">' + items.length + ' / ' + (P * N) + ' · 所有角色共用</span></div>' +
-      (ok
-        ? '<div class="sh-tabs">' + tabs + '</div><div class="bag sh-grid">' + cells + '</div>' +
-          '<p class="sh-note">点仓库里的物品取进背包；背包里的物品点开后选「放进仓库」。只放物品，通货和宝石不进仓库。</p>'
-        : '<p class="sh-note">现在不能用仓库：另一个标签页在玩，或者存档写不进去。刷新后再试。</p>') +
-      (ui.stashMsg ? '<p class="inv-msg' + (ui.stashBad ? '' : ' ok') + '">' + esc(ui.stashMsg) + '</p>' : '')
-    );
+    return cells;
+  }
+  function renderStash() {
+    const ok = !!(G.stash && G.stash.ok());
+    const items = ok ? G.stash.list() : [];
+    ui.stashCache = items;
+    if (ui.card && !cardItem()) ui.card = null;
+    if (ui.sel && !findItem(ui.sel)) ui.sel = null;
+    const P = G.stash ? G.stash.PAGE : 40, N = G.stash ? G.stash.PAGES : 4;
+    const pg = G.clamp(ui.stashPage | 0, 0, N - 1);
+    const compact = compactUi();
+    const touchV = compact ? ui.stashView || 'stash' : 'both';
+    const total = items.length + ' / ' + P * N;
+    const keepN = compact && !portraitUi();
+    const msg = ui.stashMsg ? pageNote('stash', '<span class="inv-msg' + (ui.stashBad ? '' : ' ok') + '">' + esc(ui.stashMsg) + '</span>', 'res', keepN) : pageNote('stash', '', '', keepN);
+    if (!ok) {
+      el.body.innerHTML =
+        '<div class="stp off"><div class="stp-off"><b>现在不能用仓库</b><span>' + (G.stash ? '另一个标签页在玩，或者存档写不进去。刷新后再试。' : '这个存档还不能用仓库。') + '</span></div></div>';
+      return;
+    }
+    let tabs = '';
+    for (let p = 0; p < N; p++) {
+      const n = items.slice(p * P, (p + 1) * P).length;
+      const on = p === pg && touchV !== 'bag';
+      tabs += '<button type="button" tabindex="-1" class="sh-tab' + (on ? ' on' : '') + '" data-act="stash-page" data-p="' + p + '">' + (compact && p === 0 ? '仓库 ' : '') + (p + 1) + (n ? '<em>' + n + '</em>' : '') + '</button>';
+    }
+    const stashGrid = '<div class="bag sh-grid" data-grid="stash">' + stashCells(items, pg, P) + '</div>';
+    let html;
+    if (compact) {
+      const portrait = portraitUi();
+      html =
+        '<div class="stp cpt' + (portrait ? ' por' : '') + '"><div class="pg-row">' +
+        '<div class="stp-grid">' + (touchV === 'bag' ? bagGrid() : stashGrid) + '</div>' +
+        '<div class="stp-side"><div class="sh-tabs">' + tabs +
+        '<button type="button" tabindex="-1" class="sh-tab bagv' + (touchV === 'bag' ? ' on' : '') + '" data-act="stash-view" data-v="bag">背包<em>' + G.save.bag.length + '</em></button></div>' +
+        '<div class="stp-n">' + (touchV === 'bag' ? '背包 <b>' + G.save.bag.length + '</b> / ' + G.BAG_SIZE : '仓库 <b>' + total + '</b>') + (touchV === 'bag' ? '' : '<span class="stp-all">所有角色共用</span>') + '</div>' + // 背包不是共用的，只在仓库页写
+        (portrait ? helpBtn('in-page') : '') + '</div></div>' +
+        msg + '</div>';
+    } else {
+      html =
+        '<div class="stp wide">' +
+        '<div class="col stp-l"><div class="sec-title">仓库<span class="sec-note">' + total + ' · 所有角色共用</span></div><div class="sh-tabs">' + tabs + '</div>' + stashGrid + '</div>' +
+        '<div class="col stp-r"><div class="sec-title">背包<span class="sec-note">' + G.save.bag.length + ' / ' + G.BAG_SIZE + '</span></div><div class="sh-tabs sp"></div>' + bagGrid() + '</div>' +
+        msg + '</div>';
+    }
+    el.body.innerHTML = html + itemSheet(true) + popHtml();
   }
 
   // ============================================================
-  // 背包页
+  // 属性页：子页签 属性 | 图鉴。顶上一行只读的通货和烛芯；只有下面的内容区滚动
   // ============================================================
-  function renderInv() {
+  function charStrip() {
     const S = G.save;
-    let sel = ui.sel ? findItem(ui.sel) : null;
-    if (!sel) ui.sel = null;
-
-    // 装备栏
-    let eq = '';
-    for (const slot of G.SLOTS) {
-      const it = S.equip[slot];
-      if (it) {
-        eq +=
-          '<div class="eq r' + it.rarity + (ui.sel === it.uid ? ' sel' : '') + '" data-slot="' + slot + '" data-act="sel" data-item="' + it.uid + '" data-tip="item:' + it.uid + '" data-drag="item:' + it.uid + '">' +
-          IC.item(it) + '<span class="c-ilvl">' + it.ilvl + '</span>' +
-          (it.lk ? '<span class="c-lk"><i class="lk-ico"></i></span>' : '') +
-          '<span class="eq-name">' + G.SLOT_NAME[slot] + '</span></div>';
-      } else {
-        eq += '<div class="eq empty" data-slot="' + slot + '">' + IC.slot(slot) + '<span class="eq-name">' + G.SLOT_NAME[slot] + '</span></div>';
-      }
-    }
-
-    // 背包格
-    let bag = '';
-    for (let i = 0; i < G.BAG_SIZE; i++) {
-      const it = S.bag[i];
-      if (it) {
-        bag += bagCell(it, ui.sel === it.uid, i);
-      } else {
-        bag += '<div class="cell empty" data-idx="' + i + '"></div>';
-      }
-    }
-    const withRare = !!S.opts.salvageRare;
-    const withMagic = withRare || !!S.opts.salvageMagic; // 含稀有时魔法也一起分解
-    const plan = bulkPlan();
-    const bulkN = plan.length;
-    const bulkR = plan.filter((it) => it.rarity === 2).length;
-    // 上膛之后要分解的东西变了（捡到 / 锁上 / 换装）：不算数，回到没上膛
-    const armed = !!(ui.bulkArm && ui.bulkArm.key === plan.map((it) => it.uid).join() && performance.now() - ui.bulkArm.t < BULK_ARM_MS);
-    if (ui.bulkArm && !armed) bulkDisarm();
-
-    // 通货
-    let cur = '';
+    let h = '';
     for (const id of G.CUR_IDS) {
       const c = G.CURRENCY[id];
-      const n = S.cur[id] || 0;
-      cur +=
-        '<div class="cur' + (n ? '' : ' zero') + '" data-cur="' + id + '" data-tip="cur:' + id + '"' + (n ? ' data-drag="cur:' + id + '"' : '') + ' style="--c:' + c.color + '">' +
-        IC.cur(id) + '<span class="cur-name">' + c.name + '</span><b>' + n + '</b></div>';
+      h += '<span class="cs-c' + (S.cur[id] ? '' : ' zero') + '" style="--c:' + c.color + '" data-tip="cur:' + id + '" aria-label="' + c.name + '">' + IC.cur(id) + '<b>' + (S.cur[id] || 0) + '</b></span>';
     }
-
-    // 右侧详情
-    let detail;
-    if (sel) {
-      const it = sel.item;
-      let np = 0;
-      let ns = 0;
-      for (const a of it.affixes) {
-        if (G.AFFIX_BY_ID[a.id].type === 'prefix') np++;
-        else ns++;
+    const F = S.frags || {};
+    if (G.FRAG_IDS && G.FRAG_IDS.some((id) => F[id])) {
+      h += '<i class="cs-sep"></i>';
+      for (const id of G.FRAG_IDS) {
+        const f = G.FRAGS[id];
+        h += '<span class="cs-c frag' + (F[id] ? '' : ' zero') + '" style="--c:' + f.color + '" data-tip="frag:' + id + '" aria-label="' + f.name + '">' + IC.frag(id) + '<b>' + (F[id] || 0) + '</b></span>';
       }
-      const cap = it.rarity === 2 ? 3 : it.rarity === 1 ? 1 : 0;
-      let craft = '';
-      for (const id of G.CUR_IDS) {
-        const c = G.CURRENCY[id];
-        const n = S.cur[id] || 0;
-        const ok = n > 0 && G.canCraft(it, id);
-        craft +=
-          '<button type="button" tabindex="-1" class="craft-btn" data-act="craft" data-cur="' + id + '" data-tip="cur:' + id + '" style="--c:' + c.color + '"' +
-          (ok ? '' : ' disabled') + '>' + IC.cur(id) + '<span>' + c.name + '</span><b>' + n + '</b></button>';
-      }
-      const acts =
-        '<div class="act-row' + (it.rarity >= 3 ? ' top' : '') + '">' +
-        (sel.equipped
-          ? '<button type="button" tabindex="-1" class="btn" data-act="unequip">卸下</button>'
-          : '<button type="button" tabindex="-1" class="btn primary" data-act="equip">装备</button>' +
-            '<button type="button" tabindex="-1" class="btn" data-act="salvage">分解</button>' +
-            '<button type="button" tabindex="-1" class="btn" data-act="drop">丢弃</button>' +
-            (G.stash && G.stash.ok() ? '<button type="button" tabindex="-1" class="btn" data-act="stash-put">放进仓库</button>' : '')) +
-        '<button type="button" tabindex="-1" class="btn lk-btn' + (it.lk ? ' on' : '') + '" data-act="lock" aria-pressed="' + !!it.lk + '" data-tip="txt:' +
-        (it.lk ? '已锁定：不会被分解或卖掉。点击或 Ctrl+点击物品解锁' : '锁定后不会被一键分解、自动分解或卖掉。也可以 Ctrl+点击物品') + '"><i class="lk-ico"></i>' + (it.lk ? '已锁' : '锁定') + '</button>' +
-        '</div>' +
-        (ui.invMsg ? '<div class="inv-msg">' + esc(ui.invMsg) + '</div>' : ui.invOk ? '<div class="inv-msg ok">' + esc(ui.invOk) + '</div>' : '');
-      // 烬铸武器 / 渊契的卡片很长（区间、完美度、机制说明）：按钮放到卡片上面，小窗口里也不用往下滚就能点到
-      const fixed = it.rarity >= 3 || touchOn(); // 触屏：按钮一律放在卡片上面（手机上详情栏很矮，不用往下滚就能点「装备」）
-      detail =
-        '<div class="sec-title">' + (sel.equipped ? '已装备' : '背包物品') + '</div>' +
-        (fixed ? acts : '') +
-        '<div class="detail-card' + (ui.flash ? ' flash' : '') + '" data-item="' + it.uid + '">' +
-        itemCard(it, { vd: sel.equipped ? null : verdict(it), affTips: !fixed, compact: fixed, cmp: sel.equipped ? null : S.equip[it.slot] }) + '</div>' +
-        (fixed
-          ? ''
-          : (cap
-            ? '<div class="aff-count">前缀 <b>' + np + '</b>/' + cap + '<i></i>后缀 <b>' + ns + '</b>/' + cap + '<i></i>悬停词缀查看阶级</div>'
-            : '<div class="aff-count">普通物品没有词缀，可以用通货改造</div>') + acts) +
-        '<div class="sec-title sm">通货改造<span class="sec-note">' + (fixed ? lockText(it) : '点击，或把通货拖到物品上') + '</span></div>' +
-        '<div class="craft-grid' + (fixed ? ' locked' : '') + '">' + craft + '</div>';
-    } else if (ui.stashOn) {
-      detail = stashHtml();
-    } else {
-      detail =
-        '<div class="sec-title">物品详情</div>' +
-        '<div class="detail-empty"><div class="de-glyph"><span>鉴</span></div>' +
-        '<p>点击物品看详情，悬停与身上的对比。</p>' +
-        '<p><b>右键</b>或拖到装备栏穿上，<b class="vd-up">▲</b> 表示更强。</p>' +
-        '<p>把<b>通货</b>拖到物品上改造；拖出窗口丢弃。</p>' +
-        (ui.invMsg ? '<p class="inv-msg">' + esc(ui.invMsg) + '</p>' : '') + '</div>' + codexHtml();
     }
-    ui.flash = false;
-
-    const coach = coachBanner('inv');
-    const foot = ui.bagMsg
-      ? '<div class="inv-tips res' + (armed ? ' bulk-on' : '') + '">' + ui.bagMsg + '</div>'
-      : coach
-        ? '<div class="inv-tips coach">' + coach + '</div>'
-        : '<div class="inv-tips"><span>右键 装备 / 卸下</span><i></i><span>拖动 整理 · 换装 · 丢弃</span><i></i><span>Shift+点击 分解</span><i></i><span>通货拖到物品上 改造</span></div>';
-
-    el.body.innerHTML =
-      // 背包列写在前面，装备 + 详情包在 inv-side 里：宽屏 inv-side 是 display: contents，三列照旧摆（CSS 指定列号）；
-      // 手机横屏右半边整列一起滚，竖屏整页一列（见 css 末尾的窄屏规则）
-      '<div class="inv" data-scroll="inv">' +
-      '<div class="col col-m" data-scroll="invbag"><div class="sec-title">背包<span class="sec-note">' + S.bag.length + ' / ' + G.BAG_SIZE + '</span>' +
-      '<button type="button" tabindex="-1" class="btn sm uqb' + (sel || ui.stashOn ? '' : ' on') + '" data-act="codex" data-tip="txt:烬铸与渊契的收集和保底进度">图鉴</button>' +
-      '<button type="button" tabindex="-1" class="btn sm" data-act="sort"' + (S.bag.length > 1 ? '' : ' disabled') + '>整理</button>' +
-      '<button type="button" tabindex="-1" class="chk' + (withMagic ? ' on' : '') + '" data-act="opt" data-opt="salvageMagic"' + (withRare ? ' disabled' : '') + '><i></i>含魔法</button>' +
-      '<button type="button" tabindex="-1" class="chk' + (withRare ? ' on' : '') + '" data-act="opt" data-opt="salvageRare" data-tip="txt:稀有物品也一起分解（魔法也算上）。会留下：已锁定的、装备后更强（▲）的、烬铸和渊契"><i></i>含稀有</button>' +
-      '<button type="button" tabindex="-1" class="btn sm' + (armed ? ' armed' : '') + '" data-act="salvage-all"' + (bulkN ? '' : ' disabled') +
-      (armed ? ' data-tip="txt:' + bulkKeepText() + '"' : '') + '>' +
-      (armed ? '确认分解' : '一键分解') + (bulkN ? '（' + bulkN + '）' : '') + '</button></div>' +
-      '<div class="bag">' + bag + '</div>' +
-      '<div class="sec-title">通货<span class="sec-note">拖到物品上使用</span></div><div class="cur-row">' + cur + '</div>' +
-      fragRow() +
-      foot + '</div>' +
-      '<div class="inv-side" data-scroll="invside">' +
-      '<div class="col col-l"><div class="sec-title">装备' +
-      '<button type="button" tabindex="-1" class="btn sm stb' + (!sel && ui.stashOn ? ' on' : '') + '" data-act="stash" data-tip="txt:所有角色共用的仓库：别的职业的武器、用不上的装备可以留给别的角色">共享仓库</button></div>' +
-      '<div class="eq-grid">' + eq + '</div>' +
-      '<div class="sec-title">属性<span class="sec-note">等级 ' + S.level + '</span></div><div class="stats scroll" data-scroll="stats">' + statSheet() + '</div></div>' +
-      '<div class="col col-r scroll" data-scroll="detail">' + detail + '</div>' +
-      '</div></div>';
+    return '<div class="char-strip">' + h + '</div>';
+  }
+  function renderChar() {
+    const sub = ui.charSub === 'codex' ? 'codex' : 'stats';
+    const S = G.save;
+    const subs =
+      '<div class="subtabs">' +
+      '<button type="button" tabindex="-1" class="subtab' + (sub === 'stats' ? ' on' : '') + '" data-act="sub" data-sub="stats">属性</button>' +
+      '<button type="button" tabindex="-1" class="subtab' + (sub === 'codex' ? ' on' : '') + '" data-act="sub" data-sub="codex">图鉴</button>' +
+      '<span class="sub-note">' + (sub === 'stats' ? '等级 ' + S.level : '拾到过的记录所有角色共用') + '</span>' +
+      (portraitUi() ? helpBtn('in-page') : '') + '</div>';
+    const body = sub === 'stats' ? '<div class="stats char-stats scroll" data-list data-scroll="stats"><div class="st-cols">' + statSheet() + '</div></div>' : '<div class="char-codex scroll" data-list data-scroll="codex">' + codexHtml() + '</div>';
+    el.body.innerHTML = '<div class="charp' + (compactUi() ? ' cpt' : ' wide') + '">' + subs + charStrip() + body + pageNote('char', '') + '</div>' + popHtml();
   }
 
   // ============================================================
@@ -1866,7 +2227,7 @@
   };
   // 技能名（辅助孔的主人可能是武器普攻卡，它不是一个技能）
   const skName = (id) => (id === BASIC_KEY() ? '武器普攻' : G.SKILLS[id] ? G.SKILLS[id].name : String(id));
-  function basicCard() {
+  function basicCard(parts) {
     const S = G.save, key = BASIC_KEY(), rw = rangedNow();
     const id = G.weaponBasic ? G.weaponBasic() : null;
     const sk = id ? G.SKILLS[id] : null;
@@ -1937,21 +2298,25 @@
         '<div class="sk-anote"><i></i><span>辅助孔属于这张卡，换武器不用取下</span></div>';
     }
     const item = S.equip.weapon;
-    return (
-      '<div class="skill-card basic-card' + (sk ? '' : ' off') + (sk && /revolver|emberbow/.test(sk.rtype) ? ' uq' : '') + '" style="--c:' + (sk ? sk.color : '#a08868') + '">' +
-      '<div class="sk-top"><div class="sk-icon"' + (id ? ' data-tip="wsk:' + id + '"' : '') + '>' + (id ? IC.skill(id) : IC.basicBlank ? IC.basicBlank() : '') + '</div>' +
-      '<div class="sk-title"><div class="sk-name">武器普攻' + (sk ? '<em class="bc-name">' + sk.name + '</em>' : '') + '</div>' +
-      '<div class="wsk-src">' + (item ? '来自 ' + esc(item.name) + ' · ' + wTypeName(item.baseIdx | 0) : '空手') + '</div></div>' +
-      '<div class="sk-binds"><span class="bind lock' + (sk ? ' on' : '') + '">右键</span></div></div>' +
-      body +
-      '<div class="wsk-row">' + row + '</div>' +
-      '<div class="sk-socks"><span class="sk-socks-label">辅助</span>' + sockets + '</div>' +
-      '</div>'
-    );
+    const src = item ? '来自 ' + esc(item.name) + ' · ' + wTypeName(item.baseIdx | 0) : '空手';
+    const P = {
+      cls: 'skill-card basic-card' + (sk ? '' : ' off') + (sk && /revolver|emberbow/.test(sk.rtype) ? ' uq' : ''),
+      c: sk ? sk.color : '#a08868',
+      lock: '',
+      icon: '<div class="sk-icon"' + (id ? ' data-tip="wsk:' + id + '"' : '') + '>' + (id ? IC.skill(id) : IC.basicBlank ? IC.basicBlank() : '') + '</div>',
+      title: '<div class="sk-name">武器普攻' + (sk ? '<em class="bc-name">' + sk.name + '</em>' : '') + '</div>' + '<div class="wsk-src">' + src + '</div>',
+      binds: '<span class="bind lock' + (sk ? ' on' : '') + '">右键</span>',
+      name: '武器普攻' + (sk ? '<em class="bc-name">' + sk.name + '</em>' : ''),
+      kind: src,
+      up: '',
+      body: body + '<div class="wsk-row">' + row + '</div>',
+      socks: '<div class="sk-socks"><span class="sk-socks-label">辅助</span>' + sockets + '</div>',
+    };
+    return parts ? P : cardFull(P, key);
   }
 
   // 技能页右栏顶上的武器技一节：当前武器技的卡片（数值、成长方式；不能镶辅助），下面一排是每种武器各自的武器技
-  function wskillSection() {
+  function wskillSection(parts) {
     const S = G.save;
     const item = S.equip.weapon;
     const id = curWSkill();
@@ -1966,7 +2331,7 @@
         );
       })
       .join('');
-    let main;
+    let main, icon = '', title = '', wname = '', wsrc = '';
     if (!id) {
       main =
         '<div class="wsk-empty"><div class="wsk-slot">R</div><div><b>' + (item ? '这把武器没有武器技' : '没有装备武器') + '</b>' +
@@ -2042,11 +2407,13 @@
         : gk === 'minion'
           ? '召唤型：' + (sk.champ ? '英灵' : '魂火') + '按召唤物计算，等级随武器物品等级' + (lvl ? '（Lv ' + lvl + '）' : '') + '，吃召唤物伤害加成' + (sk.champ ? '、生命加成与继承' : '') + '（辅助宝石不算）'
           : '法术型：等级 = 武器物品等级 × 0.75' + (lvl ? '（Lv ' + lvl + '）' : '') + (sk.kind === 'wwand' && G.player.uMech === 'void' ? '，属性固定为混沌' : '，吃元素伤害加成');
-      main =
-        '<div class="sk-top"><div class="sk-icon">' + IC.skill(id) + '</div>' +
-        '<div class="sk-title"><div class="sk-name">' + sk.name + (sk.uskill ? '<em class="usk-tag">烬铸技</em>' : '') + '</div><div class="wsk-src">来自 ' + esc(item ? item.name : '') + ' · ' + wTypeName(item ? item.baseIdx | 0 : 0) +
+      icon = '<div class="sk-icon">' + IC.skill(id) + '</div>';
+      wname = sk.name + (sk.uskill ? '<em class="usk-tag">烬铸技</em>' : '');
+      wsrc = '来自 ' + esc(item ? item.name : '') + ' · ' + wTypeName(item ? item.baseIdx | 0 : 0) +
         (sk.uskill && sk.replaces && G.SKILLS[sk.replaces] ? ' · 替换「' + G.SKILLS[sk.replaces].name + '」' : '') +
-        (sk.kind === 'wwand' && G.player.uMech === 'void' ? ' · 属性固定为混沌' : '') + '</div></div></div>' +
+        (sk.kind === 'wwand' && G.player.uMech === 'void' ? ' · 属性固定为混沌' : '');
+      title = '<div class="sk-name">' + wname + '</div><div class="wsk-src">' + wsrc + '</div>';
+      main =
         '<div class="sk-desc">' + sk.desc + altBox(sk.alt) + '</div>' +
         (nums ? '<div class="sk-nums">' + nums + '</div>' : '') +
         '<div class="sk-anote wpn"><i></i><span>' + grow + '</span></div>' +
@@ -2057,8 +2424,22 @@
     // 第二排：三把烬铸武器各自的烬铸技（拿着的那把亮起）
     const urow = Object.keys(G.SKILLS).filter(isUSkill).map((u) =>
       '<span class="usl' + (u === id ? ' on' : '') + '" style="--c:' + G.SKILLS[u].color + '" data-tip="wsk:' + u + '">' + IC.skill(u) + '<em>' + esc((uOfSkill(u) || {}).name || '') + '</em></span>').join('');
-    return '<div class="wsk-card' + (isUSkill(id) ? ' uskill' : '') + '" style="--c:' + (id ? G.SKILLS[id].color : '#8c7f6d') + '">' + main + '<div class="wsk-row">' + row + '</div>' +
-      (urow ? '<div class="wsk-row urow"><b>烬铸技</b>' + urow + '</div>' : '') + '</div>';
+    const rows = '<div class="wsk-row">' + row + '</div>' + (urow ? '<div class="wsk-row urow"><b>烬铸技</b>' + urow + '</div>' : '');
+    const P = {
+      cls: 'wsk-card' + (isUSkill(id) ? ' uskill' : ''),
+      c: id ? G.SKILLS[id].color : '#8c7f6d',
+      lock: '',
+      icon: icon || '<div class="sk-icon"><span class="wsk-slot">R</span></div>',
+      title: title,
+      binds: '',
+      name: id ? wname : '武器技',
+      kind: id ? wsrc : item ? '这把武器没有武器技' : '没有装备武器',
+      up: '',
+      body: main + rows,
+      socks: '',
+    };
+    if (parts) return P;
+    return '<div class="' + P.cls + '" style="--c:' + P.c + '">' + (id ? '<div class="sk-top">' + icon + '<div class="sk-title">' + title + '</div></div>' : '') + main + rows + '</div>';
   }
 
   // 召唤技能卡上的「自动召唤」开关：点它切换；写明在技能栏上按哪个键也能切换、Shift 是手动召唤
@@ -2076,7 +2457,7 @@
     );
   }
 
-  function skillCard(id) {
+  function skillCard(id, parts) {
     const S = G.save;
     const sk = G.SKILLS[id];
     const ctx = G.skillCtx(id);
@@ -2280,66 +2661,158 @@
     // 职业（class-d2）：放不出来的宝石变灰，写明原因（别的职业的：改选到能用的职业就恢复）
     const blk = G.castBlock ? G.castBlock(id) : null;
     const lockLine = blk ? '<div class="sk-lock"><i></i>' + blk.text + (blk.why === 'cls' ? ' · 还学着，换到能用的职业就恢复' : ' · 换上合适的武器就能放') + '</div>' : '';
+    const vn = sk.vname ? '<i class="sk-vn">' + sk.vname + '</i>' : '';
+    const P = {
+      cls: 'skill-card' + (blk ? ' cls-off' : ''),
+      c: sk.color,
+      lock: lockLine,
+      icon: '<div class="sk-icon" data-drag="skill:' + id + '" data-tip="skdrag:' + id + '">' + IC.skill(id) + '</div>',
+      title: '<div class="sk-name">' + sk.name + vn + '<em>Lv ' + S.skills[id] + '</em>' + blankUp + '</div>' +
+        '<div class="sk-tags">' + cardTags(sk).map((t) => '<span>' + G.TAG_NAME[t] + '</span>').join('') + '</div>',
+      binds,
+      name: sk.name + vn + '<em>Lv ' + S.skills[id] + '</em>',
+      kind: cardTags(sk).map((t) => G.TAG_NAME[t]).join(' · '),
+      up: blankUp,
+      body:
+        '<div class="sk-desc"><span class="sk-dt">' + sk.desc + '</span>' + altBox(sk.alt) + '</div>' + variantRow(id) +
+        (sk.combo ? '<div class="sk-combo">' + sk.combo.map((c, i) => '<span' + (c.w >= 2 ? ' class="fin"' : '') + '>' + (c.w >= 2 ? '终结 ' : '第 ' + (i + 1) + ' 段 ') + '×' + c.mult + '</span>').join('<i></i>') + '</div>' : '') +
+        '<div class="sk-nums' + (mi ? ' ally' : '') + '">' + nums + '</div>' + note,
+      socks: '<div class="sk-socks"><span class="sk-socks-label">辅助</span>' + sockets + '</div>',
+    };
+    return parts ? P : cardFull(P, id);
+  }
+  // 桌面上的大卡片（技能页中间那一栏，一次一张）。正在给它选辅助时，说明以下那一段换成辅助宝石列表
+  function cardFull(P, id) {
     return (
-      '<div class="skill-card' + (blk ? ' cls-off' : '') + '" style="--c:' + sk.color + '">' + lockLine +
-      '<div class="sk-top"><div class="sk-icon" data-drag="skill:' + id + '" data-tip="skdrag:' + id + '">' + IC.skill(id) + '</div>' +
-      '<div class="sk-title"><div class="sk-name">' + sk.name + (sk.vname ? '<i class="sk-vn">' + sk.vname + '</i>' : '') + '<em>Lv ' + S.skills[id] + '</em>' + blankUp + '</div>' +
-      '<div class="sk-tags">' + cardTags(sk).map((t) => '<span>' + G.TAG_NAME[t] + '</span>').join('') + '</div></div>' +
-      '<div class="sk-binds">' + binds + '</div></div>' +
-      '<div class="sk-desc"><span class="sk-dt">' + sk.desc + '</span>' + altBox(sk.alt) + '</div>' + variantRow(id) +
-      (sk.combo ? '<div class="sk-combo">' + sk.combo.map((c, i) => '<span' + (c.w >= 2 ? ' class="fin"' : '') + '>' + (c.w >= 2 ? '终结 ' : '第 ' + (i + 1) + ' 段 ') + '×' + c.mult + '</span>').join('<i></i>') + '</div>' : '') +
-      '<div class="sk-nums' + (mi ? ' ally' : '') + '">' + nums + '</div>' + note +
-      '<div class="sk-socks"><span class="sk-socks-label">辅助</span>' + sockets + '</div>' +
+      '<div class="' + P.cls + '" style="--c:' + P.c + '">' + P.lock +
+      '<div class="sk-top">' + P.icon + '<div class="sk-title">' + P.title + '</div>' + (P.binds ? '<div class="sk-binds">' + P.binds + '</div>' : '') + '</div>' +
+      (ui.picker && ui.picker.skill === id ? pickerHtml() : P.body + (P.socks || '')) +
       '</div>'
     );
   }
 
-  function renderSkills() {
+  // ============================================================
+  // 技能页（UI-R B2，docs/ui.md「技能页」）
+  //   桌面：技能栏在上；下面三栏 技能列表 | 选中的那张大卡片（一次一张，跟着列表的选中项）| 辅助宝石（拖到槽里）
+  //   窄屏 / 触屏：技能栏、子页签 技能 | 辅助 | 学习、44 px 一行的列表（唯一滚动区）；点一行出卡片（.sheet，状态在 ui.card：{ sk } / { sup }）
+  //   选辅助：卡片中间那段换成辅助宝石列表（#picker），不另开浮层
+  // ============================================================
+  const SK_W = 'wskill'; // 列表里武器技那一行的键（武器技跟着手里的武器换）
+  const SLOT_TOUCH = ['大按钮', '普攻键', '技能 1', '技能 2', '武器技'];
+  const slotName = (i) => (touchOn() ? SLOT_TOUCH[i] : i === 4 ? 'R' : KEY_LABEL[i]);
+  // 这个职业学会的 / 别的职业的（还学着）/ 没学会、这个职业能用的。武器技不算，它跟着武器走
+  function skGroups() {
     const S = G.save;
-    // 武器技不进技能列表：它们跟着武器走，在最上面单独一节
-    // 职业（class-d2）：别的职业的宝石收进最后「其他职业」一组；没学会的列表只列这个职业能用的（无铭宝石也只能学这些）
     const C = G.clsDef ? G.clsDef() : null;
     const canUse = (id) => !C || G.classCanUse(S.cls, id);
-    const known = Object.keys(G.SKILLS).filter((id) => S.skills[id] && !isWSkill(id) && canUse(id));
-    const offCls = Object.keys(G.SKILLS).filter((id) => S.skills[id] && !isWSkill(id) && !canUse(id));
-    const unknown = Object.keys(G.SKILLS).filter((id) => !S.skills[id] && !isWSkill(id) && canUse(id));
+    const all = Object.keys(G.SKILLS).filter((id) => !isWSkill(id));
+    return {
+      C,
+      known: all.filter((id) => S.skills[id] && canUse(id)),
+      off: all.filter((id) => S.skills[id] && !canUse(id)),
+      unknown: all.filter((id) => !S.skills[id] && canUse(id)),
+    };
+  }
+  // 列表里能选的一行：武器普攻、武器技一直都在；技能要学会了
+  const skValid = (k) => k === BASIC_KEY() || k === SK_W || !!(G.SKILLS[k] && G.save.skills[k] && !isWSkill(k));
+  const skDefault = () => (G.save.bar[0] && skValid(G.save.bar[0]) ? G.save.bar[0] : BASIC_KEY()); // 桌面默认选中技能栏第一格
+  // G.ui.open('skills', x)：x 是子页签（skills / sup / learn），或者一行的键（技能 id / 武器普攻卡 / 'wskill'：桌面选中它，窄屏开它的卡片）
+  function skOpen(x) {
+    ui.picker = null;
+    if (x === 'skills' || x === 'sup' || x === 'learn') {
+      ui.skSub = x;
+      closeCard();
+    } else if (skValid(x)) {
+      ui.skSub = 'skills';
+      closeCard();
+      if (compactUi()) ui.card = { sk: x };
+      else ui.skSel = x;
+    }
+  }
+  const skParts = (k) => (k === BASIC_KEY() ? basicCard(true) : k === SK_W ? wskillSection(true) : skillCard(k, true));
+
+  // 列表的一行（44 px）：图标、名字和等级、类型、3 个辅助槽小点、在哪个键上。桌面上拖图标进技能栏
+  function skRow(k, on) {
+    const S = G.save;
+    let c, icon, name, sub, key = '', socks = null, off = false, drag = '';
+    if (k === BASIC_KEY()) {
+      const id = G.weaponBasic ? G.weaponBasic() : null;
+      c = id ? G.SKILLS[id].color : '#a08868';
+      icon = id ? IC.skill(id) : IC.basicBlank ? IC.basicBlank() : '';
+      name = '武器普攻';
+      sub = id ? G.SKILLS[id].name + ' · 随武器' : '空手';
+      key = slotName(1);
+      socks = S.sockets[k] || [];
+    } else if (k === SK_W) {
+      const id = curWSkill();
+      c = id ? G.SKILLS[id].color : '#8c7f6d';
+      icon = id ? IC.skill(id) : '';
+      name = id ? G.SKILLS[id].name : '武器技';
+      sub = (isUSkill(id) ? '烬铸技' : '武器技') + ' · 随武器';
+      key = slotName(4);
+      off = !id;
+    } else {
+      const sk = G.SKILLS[k];
+      c = sk.color;
+      icon = IC.skill(k);
+      name = sk.name + '<em>Lv ' + S.skills[k] + '</em>';
+      sub = cardTags(sk).slice(0, 3).map((t) => G.TAG_NAME[t]).join(' · ');
+      const slot = S.bar.indexOf(k);
+      key = slot >= 0 ? slotName(slot) : S.rmbKeep === k ? '收起' : '';
+      socks = S.sockets[k] || [];
+      off = !!(G.castBlock && G.castBlock(k));
+      drag = ' data-drag="skill:' + k + '"';
+    }
+    const dots = '<span class="skr-dots">' + (socks ? [0, 1, 2].map((i) => '<i' + (socks[i] ? ' class="on"' : '') + '></i>').join('') : '') + '</span>';
+    return (
+      '<button type="button" tabindex="-1" class="sk-row' + (on ? ' on' : '') + (off ? ' cls-off' : '') + '" data-act="sk-sel" data-skill="' + k + '" style="--c:' + c + '">' +
+      '<span class="skr-ic"' + drag + '>' + icon + '</span><span class="skr-t"><b>' + name + '</b><span>' + sub + '</span></span>' + dots +
+      '<span class="skr-k' + (key ? '' : ' none') + '">' + key + '</span></button>'
+    );
+  }
+  function skListHtml(k, g) {
+    let h = skRow(BASIC_KEY(), k === BASIC_KEY()) + skRow(SK_W, k === SK_W) + g.known.map((id) => skRow(id, id === k)).join('');
+    if (g.off.length) h += '<div class="sm-title cls-group">其他职业<span>' + g.C.name + '用不了，还学着、辅助也还镶着，改选到能用的职业就恢复</span></div>' + g.off.map((id) => skRow(id, id === k)).join('');
+    return h;
+  }
+  // 没学会的技能宝石：有无铭宝石时每个都能点（第一下选中，再点一次才用掉）
+  function learnHtml(g) {
     const B = G.BLANK_GEM;
     const best = G.blankBest();
-    let cards = basicCard() + known.map(skillCard).join('');
-    if (offCls.length) cards += '<div class="sm-title cls-group">其他职业<span>' + C.name + '用不了，还学着、辅助也还镶着，改选到能用的职业就恢复</span></div>' + offCls.map(skillCard).join('');
-    if (unknown.length) {
-      // 有无铭宝石时，每个没学会的技能都能点：第一下只是选中，再点一次才用掉
-      const item = (id) => {
-        const c = G.SKILLS[id];
-        if (!best) return '<span style="--c:' + c.color + '">' + IC.skill(id) + c.name + '</span>';
-        const armed = ui.blankArm === id;
-        return (
-          '<button type="button" tabindex="-1" class="sm-learn' + (armed ? ' armed' : '') + '" style="--c:' + c.color + '" data-act="blank" data-skill="' + id + '" data-tip="blank:' + id + '">' +
-          IC.skill(id) + c.name + '<em>' + (armed ? '确认学会？再点一次' : '学会 · Lv ' + best) + '</em></button>'
-        );
-      };
-      cards +=
-        '<div class="skill-more' + (best ? ' can-learn' : '') + '"><div class="sm-title">尚未获得的技能宝石' + (best ? '<span>点一个技能，用 Lv ' + best + ' 的' + B.short + '学会它</span>' : '') + '</div>' +
-        '<div class="sm-list">' + unknown.map(item).join('') + '</div>' +
-        '<div class="sm-note">怪物掉落技能宝石，首领必掉一颗。' + B.name + '可在这里换成任意技能' + (C ? '（' + C.name + '能用的）。掉下来用不上的技能宝石会变成' + B.name : '') + '。</div></div>';
-    }
-    // 顶部：手里的无铭宝石（数量、最高等级、怎么用），以及刚才用掉一颗的结果
-    let blank = '';
-    const gems = S.blankGems;
-    if (gems.length || ui.blankMsg) {
-      const lv = gems.length
-        ? '<b>' + B.name + ' ×' + gems.length + '</b><span class="bk-lv">最高 Lv ' + best + '</span>' +
-          (gems.length > 1 ? '<span class="bk-all">' + gems.slice(0, 8).map((v) => 'Lv ' + v).join(' · ') + (gems.length > 8 ? ' …' : '') + '</span>' : '')
-        : '<b>' + B.name + '已用完</b>';
-      const how = gems.length
-        ? '点「尚未获得」里的技能学会，或点卡上的「升至 Lv ' + best + '」，点两下确认'
-        : '';
-      blank =
-        '<div class="blank-bar" style="--c:' + B.color + '">' + ibox(IC.blank(), 'gemb') + '<div class="bk-txt"><div class="bk-top">' + lv + '</div>' +
-        (ui.blankMsg ? '<div class="bk-msg">' + ui.blankMsg + '</div>' : how ? '<div class="bk-how">' + how + '</div>' : '') + '</div></div>';
-    }
-
-    // 技能栏：四个格子，可以把技能图标拖进来
+    const C = g.C;
+    if (!g.unknown.length) return compactUi() ? '<div class="sup-none">这个职业能用的技能都学会了。</div>' : '';
+    const item = (id) => {
+      const c = G.SKILLS[id];
+      if (!best) return '<span style="--c:' + c.color + '">' + IC.skill(id) + c.name + '</span>';
+      const armed = ui.blankArm === id;
+      return (
+        '<button type="button" tabindex="-1" class="sm-learn' + (armed ? ' armed' : '') + '" style="--c:' + c.color + '" data-act="blank" data-skill="' + id + '" data-tip="blank:' + id + '">' +
+        IC.skill(id) + c.name + '<em>' + (armed ? '确认学会？再点一次' : '学会 · Lv ' + best) + '</em></button>'
+      );
+    };
+    return (
+      '<div class="skill-more' + (best ? ' can-learn' : '') + '"><div class="sm-title">尚未获得的技能宝石' + (best ? '<span>点一个技能，用 Lv ' + best + ' 的' + B.short + '学会它</span>' : '') + '</div>' +
+      '<div class="sm-list">' + g.unknown.map(item).join('') + '</div>' +
+      '<div class="sm-note">怪物掉落技能宝石，首领必掉一颗。' + B.name + '可在这里换成任意技能' + (C ? '（' + C.name + '能用的）。掉下来用不上的技能宝石会变成' + B.name : '') + '。</div></div>'
+    );
+  }
+  // 手里的无铭宝石（数量、最高等级、怎么用），以及刚才用掉一颗的结果
+  function blankBarHtml() {
+    const S = G.save, B = G.BLANK_GEM, best = G.blankBest(), gems = S.blankGems;
+    if (!gems.length && !ui.blankMsg) return '';
+    const lv = gems.length
+      ? '<b>' + B.name + ' ×' + gems.length + '</b><span class="bk-lv">最高 Lv ' + best + '</span>' +
+        (gems.length > 1 ? '<span class="bk-all">' + gems.slice(0, 8).map((v) => 'Lv ' + v).join(' · ') + (gems.length > 8 ? ' …' : '') + '</span>' : '')
+      : '<b>' + B.name + '已用完</b>';
+    const how = gems.length ? (compactUi() ? '点下面的技能学会，或在技能卡上点「升至 Lv ' + best + '」，点两下确认' : '点「尚未获得」里的技能学会，或点卡上的「升至 Lv ' + best + '」，点两下确认') : '';
+    return (
+      '<div class="blank-bar" style="--c:' + B.color + '">' + ibox(IC.blank(), 'gemb') + '<div class="bk-txt"><div class="bk-top">' + lv + '</div>' +
+      (ui.blankMsg ? '<div class="bk-msg">' + ui.blankMsg + '</div>' : how ? '<div class="bk-how">' + how + '</div>' : '') + '</div></div>'
+    );
+  }
+  // 技能栏：四个格子（技能图标可以拖进来）+ 第五格武器技。点一格看它的卡片
+  function barStripHtml() {
+    const S = G.save;
     let bar = '';
     const bidB = G.weaponBasic ? G.weaponBasic() : null;
     for (let i = 0; i < 4; i++) {
@@ -2347,22 +2820,26 @@
         // 右键固定是武器普攻：不能拖进拖出
         const bk = G.SKILLS[bidB];
         bar +=
-          '<div class="barslot basic" data-tip="txt:右键固定是武器普攻' + (S.rmbKeep && G.SKILLS[S.rmbKeep] ? '；收起的「' + G.SKILLS[S.rmbKeep].name + '」在下面列表里，点按键标签绑上' : '') + '" style="--c:' + bk.color + '">' +
-          '<div class="bs-icon">' + IC.skill(bidB) + '</div><div class="bs-txt"><span>右键 · <i class="bs-long">武器</i>普攻</span><b>' + bk.name + '</b></div></div>';
+          '<div class="barslot basic" data-act="sk-sel" data-skill="' + BASIC_KEY() + '" data-tip="txt:右键固定是武器普攻' + (S.rmbKeep && G.SKILLS[S.rmbKeep] ? '；收起的「' + G.SKILLS[S.rmbKeep].name + '」在下面列表里，点按键标签绑上' : '') + '" style="--c:' + bk.color + '">' +
+          '<div class="bs-icon">' + IC.skill(bidB) + '</div><div class="bs-txt"><span>' + (touchOn() ? slotName(1) : '右键 · <i class="bs-long">武器</i>普攻') + '</span><b>' + bk.name + '</b></div></div>';
         continue;
       }
       const id = S.bar[i];
       const off = id && G.castBlock && G.castBlock(id);
       bar +=
-        '<div class="barslot' + (id ? '' : ' empty') + (off ? ' cls-off' : '') + '" data-slot="' + i + '"' + (id ? ' data-drag="skill:' + id + '" data-tip="skdrag:' + id + '" style="--c:' + G.SKILLS[id].color + '"' : '') + '>' +
-        '<div class="bs-icon">' + (id ? IC.skill(id) : '') + '</div><div class="bs-txt"><span>' + KEY_LABEL[i] + '</span><b>' + (id ? G.SKILLS[id].name : '空') + '</b></div></div>';
+        '<div class="barslot' + (id ? '' : ' empty') + (off ? ' cls-off' : '') + '" data-slot="' + i + '"' + (id ? ' data-act="sk-sel" data-skill="' + id + '" data-drag="skill:' + id + '" data-tip="skdrag:' + id + '" style="--c:' + G.SKILLS[id].color + '"' : '') + '>' +
+        '<div class="bs-icon">' + (id ? IC.skill(id) : '') + '</div><div class="bs-txt"><span>' + slotName(i) + '</span><b>' + (id ? G.SKILLS[id].name : '空') + '</b></div></div>';
     }
     // 第五格：武器技，跟着武器走，不能拖放
     const wid = curWSkill();
     bar +=
-      '<div class="wbarslot' + (wid ? '' : ' empty') + (isUSkill(wid) ? ' uskill' : '') + '"' + (wid ? ' data-tip="wsk:' + wid + '" style="--c:' + G.SKILLS[wid].color + '"' : ' data-tip="txt:' + (S.equip.weapon ? '这把武器没有武器技' : '装备武器后 R 是它的武器技') + '"') + '>' +
-      '<div class="bs-icon">' + (wid ? IC.skill(wid) : '') + '</div><div class="bs-txt"><span>R · ' + (isUSkill(wid) ? '烬铸技' : '武器技') + '</span><b>' + (wid ? G.SKILLS[wid].name : S.equip.weapon ? '无' : '无武器') + '</b></div></div>';
-
+      '<div class="wbarslot' + (wid ? '' : ' empty') + (isUSkill(wid) ? ' uskill' : '') + '" data-act="sk-sel" data-skill="' + SK_W + '"' + (wid ? ' data-tip="wsk:' + wid + '" style="--c:' + G.SKILLS[wid].color + '"' : ' data-tip="txt:' + (S.equip.weapon ? '这把武器没有武器技' : '装备武器后 R 是它的武器技') + '"') + '>' +
+      '<div class="bs-icon">' + (wid ? IC.skill(wid) : '') + '</div><div class="bs-txt"><span>' + (touchOn() ? slotName(4) : 'R · ' + (isUSkill(wid) ? '烬铸技' : '武器技')) + '</span><b>' + (wid ? G.SKILLS[wid].name : S.equip.weapon ? '无' : '无武器') + '</b></div></div>';
+    return '<div class="barstrip">' + bar + '</div>';
+  }
+  // 桌面右栏的辅助宝石卡（拖到槽里）
+  function supCards() {
+    const S = G.save;
     let sups = '';
     for (const id of Object.keys(G.SUPPORTS)) {
       if (!S.supports.includes(id)) continue;
@@ -2376,38 +2853,27 @@
         (loc ? '<span class="sup-loc">镶于 ' + skName(loc.skill) + '</span>' : '<span class="sup-free">未使用</span>') +
         '</div></div>';
     }
-    if (!sups) {
-      sups = '<div class="sup-none">还没有辅助宝石。<br>精英和首领会掉落。</div>';
-    }
-    const coach = coachBanner('skills');
-
-    el.body.innerHTML =
-      '<div class="skills">' +
-      '<div class="col col-main">' + blank + '<div class="sec-title">技能栏<span class="sec-note">拖进格子，或点卡上的按键标签</span></div>' +
-      '<div class="barstrip">' + bar + '</div>' +
-      '<div class="sec-title">技能<span class="sec-note">点辅助槽，或把宝石拖进来</span></div>' +
-      '<div class="skill-list scroll" data-scroll="skills">' + cards + '</div></div>' +
-      '<div class="col col-side"><div class="sec-title">武器技<span class="sec-note"><kbd>R</kbd> 随武器更换</span></div>' + wskillSection() +
-      '<div class="sec-title">辅助宝石<span class="sec-note">' + S.supports.length + ' / ' + Object.keys(G.SUPPORTS).length + '</span></div>' +
-      (coach ? '<div class="side-coach">' + coach + '</div>' : '') +
-      '<div class="sup-list scroll" data-scroll="sups">' + sups + '</div></div>' +
-      '</div>';
+    return sups || '<div class="sup-none">还没有辅助宝石。<br>精英和首领会掉落。</div>';
   }
-
-  // 辅助宝石选择器
-  function renderPicker() {
+  // 窄屏「辅助」子页签：一行一颗（44 px），点开看卡片
+  function supRows() {
+    const S = G.save;
+    let h = '';
+    for (const id of Object.keys(G.SUPPORTS)) {
+      if (!S.supports.includes(id)) continue;
+      const sp = G.SUPPORTS[id];
+      const loc = supLocation(id);
+      const on = ui.card && ui.card.sup === id;
+      h +=
+        '<button type="button" tabindex="-1" class="sup-row' + (loc ? ' used' : '') + (on ? ' on' : '') + '" data-act="sup-sel" data-sup="' + id + '" style="--c:' + IC.supColor(id) + '">' +
+        '<span class="skr-ic">' + IC.sup(id) + '</span><span class="skr-t"><b>' + sp.name + '</b><span>' + scopeText(sp) + '</span></span>' +
+        '<span class="spr-loc">' + (loc ? '镶于 ' + skName(loc.skill) : '未使用') + '</span></button>';
+    }
+    return h || '<div class="sup-none">还没有辅助宝石。<br>精英和首领会掉落。</div>';
+  }
+  // 选辅助宝石：给 ui.picker 那个槽列出能镶的（能镶的在前，已镶在别处的写明会移过来）
+  function pickerHtml() {
     const pk = ui.picker;
-    const box = el.picker;
-    if (!pk || ui.tab !== 'skills' || !ui.isOpen) {
-      box.classList.remove('on');
-      return;
-    }
-    const anchor = el.body.querySelector('[data-act="socket"][data-skill="' + pk.skill + '"][data-idx="' + pk.idx + '"]');
-    if (!anchor) {
-      ui.picker = null;
-      box.classList.remove('on');
-      return;
-    }
     const S = G.save;
     const rows = [];
     for (const id of Object.keys(G.SUPPORTS)) {
@@ -2437,40 +2903,127 @@
       rows.push({ rank, html });
     }
     rows.sort((a, b) => a.rank - b.rank);
-    box.innerHTML =
-      '<div class="pk-title">为「' + skName(pk.skill) + '」选择辅助宝石</div>' +
-      (rows.length
-        ? '<div class="pk-list scroll">' + rows.map((r) => r.html).join('') + '</div>'
-        : '<div class="pk-empty">还没有辅助宝石。精英怪和首领会掉落。</div>');
-    box.classList.add('on');
-    // 贴着插槽放在下方；放不下就放上方；两边都不够就选宽裕的一边并压缩列表高度，始终不盖住插槽
-    const list = box.querySelector('.pk-list');
-    const r = G.rectToFrame(anchor.getBoundingClientRect());
-    const vw = G.viewW();
-    const vh = G.viewH();
-    const below = vh - r.bottom - 14;
-    const above = r.top - 14;
-    let h = box.offsetHeight;
-    let up = false;
-    if (h > below) {
-      if (h <= above) {
-        up = true;
-      } else {
-        up = above > below;
-        if (list) list.style.maxHeight = Math.max(80, (up ? above : below) - (h - list.offsetHeight)) + 'px';
-        h = box.offsetHeight;
-      }
+    return (
+      '<div id="picker" class="on"><div class="pk-title"><span>为「' + skName(pk.skill) + '」选择辅助宝石</span>' +
+      '<button type="button" tabindex="-1" class="btn sm pk-back" data-act="pick-back">返回</button></div>' +
+      (rows.length ? '<div class="pk-list">' + rows.map((r) => r.html).join('') + '</div>' : '<div class="pk-empty">还没有辅助宝石。精英怪和首领会掉落。</div>') +
+      '</div>'
+    );
+  }
+  // 窄屏的技能卡：头部（图标、名字、类型）/ 中间唯一滚动（辅助槽在最上面，选辅助时换成列表）/ 操作条（放到哪个技能键）
+  function skSheet(k) {
+    const S = G.save;
+    ui.foldAlt = true; // 卡片里的「详情」做成折叠（altBox）
+    const P = skParts(k);
+    const pick = ui.picker && ui.picker.skill === k;
+    const head = P.icon + '<div class="sh-ttl"><div class="sh-name">' + P.name + '</div><div class="sh-kind">' + P.kind + '</div></div>';
+    let body;
+    if (pick) body = pickerHtml();
+    else {
+      const keep = S.rmbKeep === k ? '<div class="sk-anote"><i></i><span>武器普攻改版时收起的技能：放到' + slotName(0) + ' / ' + slotName(2) + ' / ' + slotName(3) + '就取出来</span></div>' : '';
+      body = P.lock + (P.up ? '<div class="sk-up">' + P.up + '</div>' : '') + keep + P.socks + P.body;
     }
-    box.style.left = G.clamp(r.left, 8, vw - box.offsetWidth - 8) + 'px';
-    box.style.top = Math.max(8, up ? r.top - h - 6 : r.bottom + 6) + 'px';
+    ui.foldAlt = false;
+    let acts = '';
+    if (G.SKILLS[k] && k !== SK_W) {
+      for (const i of [0, 2, 3]) {
+        acts += '<button type="button" tabindex="-1" class="btn sk-bind' + (S.bar[i] === k ? ' on' : '') + '" data-act="bind" data-skill="' + k + '" data-slot="' + i + '">' + slotName(i) + '</button>';
+      }
+      acts = '<span class="sh-al">放到</span>' + acts;
+    }
+    const msg = ui.blankMsg ? '<div class="sh-msg bk-msg">' + ui.blankMsg + '</div>' : '';
+    return sheetHtml({ head, body: '<div class="skc-in ' + P.cls + '">' + body + '</div>', acts, msg, cls: 'skc', rc: P.c });
   }
+  // 窄屏的辅助宝石卡：说明、镶在哪；「镶到」列出用得上它、还有空槽的技能；镶着时操作条是「取下」
+  function supSheet(id) {
+    const S = G.save;
+    const sp = G.SUPPORTS[id];
+    const loc = supLocation(id);
+    ui.foldAlt = true;
+    const desc = '<div class="sup-desc">' + sp.desc + altBox(sp.alt) + '</div>';
+    ui.foldAlt = false;
+    const g = skGroups();
+    let rows = '';
+    for (const t of [BASIC_KEY()].concat(g.known)) {
+      if (!G.supportFits(t, id)) continue;
+      const socks = S.sockets[t] || [];
+      let free = 0;
+      for (let i = 0; i < 3; i++) if (!socks[i]) free++;
+      const ic = t === BASIC_KEY() ? (G.weaponBasic && G.weaponBasic() ? IC.skill(G.weaponBasic()) : '') : IC.skill(t);
+      if (loc && loc.skill === t) rows += '<div class="pk-row off"><div class="pk-top">' + ic + '<b>' + skName(t) + '</b><span class="pk-note">镶在这里</span></div></div>';
+      else if (!free) rows += '<div class="pk-row off"><div class="pk-top">' + ic + '<b>' + skName(t) + '</b><span class="pk-note">三个槽都满了</span></div></div>';
+      else rows += '<button type="button" tabindex="-1" class="pk-row" data-act="sup-put" data-sup="' + id + '" data-skill="' + t + '"><div class="pk-top">' + ic + '<b>' + skName(t) + '</b><span class="pk-note">空槽 ' + free + (loc ? ' · 从「' + skName(loc.skill) + '」移过来' : '') + '</span></div></button>';
+    }
+    const body =
+      desc + '<div class="spc-at">' + (loc ? '镶在「' + skName(loc.skill) + '」上' : '还没镶') + ' · 消耗 ×' + sp.cost + '</div>' +
+      '<div class="pk-title"><span>镶到</span></div>' + (rows ? '<div class="pk-list">' + rows + '</div>' : '<div class="pk-empty">学会的技能都用不上它</div>');
+    const head = ibox(IC.sup(id), 'gemb') + '<div class="sh-ttl"><div class="sh-name">' + sp.name + '</div><div class="sh-kind">' + scopeText(sp) + '</div></div>';
+    const acts = loc ? '<button type="button" tabindex="-1" class="btn" data-act="sup-take" data-sup="' + id + '">取下</button>' : '';
+    return sheetHtml({ head, body: '<div class="skc-in">' + body + '</div>', acts, cls: 'skc supc', rc: IC.supColor(id) });
+  }
+
+  function renderSkills() {
+    const S = G.save;
+    const compact = compactUi();
+    const portrait = portraitUi();
+    const g = skGroups();
+    // 卡片 / 选中项跟着排法换：窄屏用卡片（ui.card.sk），桌面用 ui.skSel
+    if (ui.card && !ui.card.sk && !ui.card.sup) ui.card = null;
+    if (ui.card && ui.card.sk && !skValid(ui.card.sk)) ui.card = null;
+    if (ui.card && ui.card.sup && !S.supports.includes(ui.card.sup)) ui.card = null;
+    if (!compact) {
+      if (ui.card && ui.card.sk) ui.skSel = ui.card.sk;
+      if (ui.card) ui.card = null;
+      if (!ui.skSel || !skValid(ui.skSel)) ui.skSel = skDefault();
+    }
+    const shown = compact ? ui.card && ui.card.sk : ui.skSel;
+    if (ui.picker && ui.picker.skill !== shown) ui.picker = null;
+    const coach = coachBanner('skills');
+    const keep = compact && !portrait; // 横屏底部那一行一直占着（列表不贴到 iPhone 的圆角上，内容换了页面不跳）
+    const note = () =>
+      ui.blankMsg && compact && !ui.card && ui.skSub !== 'learn'
+        ? pageNote('skills', '<span class="bk-msg">' + ui.blankMsg + '</span>', 'res', keep)
+        : coach ? pageNote('skills', coach, 'coach', keep) : pageNote('skills', '', '', keep);
+    let html;
+    if (compact) {
+      const sub = ui.skSub === 'sup' || ui.skSub === 'learn' ? ui.skSub : 'skills';
+      const best = G.blankBest();
+      const st = (id, label, cls) => '<button type="button" tabindex="-1" class="subtab' + (sub === id ? ' on' : '') + (cls ? ' ' + cls : '') + '" data-act="sub" data-sub="' + id + '">' + label + '</button>';
+      const subNote = sub === 'sup' ? '辅助宝石 ' + S.supports.length + ' / ' + Object.keys(G.SUPPORTS).length : sub === 'learn' ? (best ? G.BLANK_GEM.short + ' ×' + S.blankGems.length : '') : '';
+      const subs =
+        '<div class="subtabs">' + st('skills', '技能') + st('sup', '辅助') + st('learn', '学习', best ? '' : 'dim') +
+        (subNote ? '<span class="sub-note">' + subNote + '</span>' : '') + (portrait ? helpBtn('in-page') : '') + '</div>';
+      const list =
+        sub === 'sup'
+          ? '<div class="sk-list sup-rows scroll" data-list data-scroll="sups">' + supRows() + '</div>'
+          : sub === 'learn'
+            ? '<div class="sk-list learn scroll" data-list data-scroll="learn">' + blankBarHtml() + learnHtml(g) + '</div>'
+            : '<div class="sk-list scroll" data-list data-scroll="skills">' + skListHtml(shown, g) + '</div>';
+      html = '<div class="skp cpt' + (portrait ? ' por' : '') + '">' + barStripHtml() + subs + list + note() + '</div>';
+      const sheet = ui.card ? (ui.card.sk ? skSheet(ui.card.sk) : supSheet(ui.card.sup)) : '';
+      el.body.innerHTML = html + sheet + popHtml();
+      return;
+    }
+    const card = shown === SK_W ? wskillSection() : shown === BASIC_KEY() ? basicCard() : skillCard(shown);
+    html =
+      '<div class="skills skp wide">' +
+      '<div class="skb-top"><div class="sec-title">技能栏<span class="sec-note">拖进格子，或点卡上的按键标签</span></div>' + barStripHtml() + '</div>' +
+      '<div class="sk-cols"><div class="col sk-l">' + blankBarHtml() + '<div class="sec-title">技能<span class="sec-note">点一个看详情，拖图标进技能栏</span></div>' +
+      '<div class="sk-list scroll" data-list data-scroll="skills">' + skListHtml(shown, g) + learnHtml(g) + '</div></div>' +
+      '<div class="col sk-m"><div class="sec-title">详情<span class="sec-note">' + (shown === SK_W ? '<kbd>R</kbd> 随武器更换' : '点辅助槽，或把宝石拖进来') + '</span></div>' +
+      '<div class="sk-detail scroll" data-list data-scroll="skcard">' + card + '</div></div>' +
+      '<div class="col sk-r"><div class="sec-title">辅助宝石<span class="sec-note">' + S.supports.length + ' / ' + Object.keys(G.SUPPORTS).length + '</span></div>' +
+      '<div class="sup-list scroll" data-list data-scroll="sups">' + supCards() + '</div></div></div>' +
+      note() + '</div>';
+    el.body.innerHTML = html + popHtml();
+  }
+  // 收起选辅助的列表（卡片中间换回原来的内容）。返回原来是不是开着的，调用方决定要不要重画
   function closePicker() {
-    if (!ui.picker) return;
+    if (!ui.picker) return false;
     ui.picker = null;
-    el.picker.classList.remove('on');
-    const p = el.body.querySelector('.sock.picking');
-    if (p) p.classList.remove('picking');
+    return true;
   }
+
 
   // ============================================================
   // 天赋页（SVG）
@@ -2580,7 +3133,7 @@
           '<g transform="translate(' + n1(n.x) + ' ' + n1(n.y) + ')"><text class="tl cls alloc" style="--c:' + G.clsDef().color + '" x="' + n1(lx) + '" y="' + n1(ly) + '" text-anchor="' + (ux > 0.3 ? 'start' : ux < -0.3 ? 'end' : 'middle') + '">' + cn.name + '</text></g>';
       }
       nodes +=
-        '<g class="tn ' + n.kind + ' ' + state + (cn ? ' clsn' : '') + '" data-act="node" data-node="' + id + '" data-tip="node:' + id + '" style="--c:' + (n.color || '#ffb066') + '" transform="translate(' + n1(n.x) + ' ' + n1(n.y) + ')">' +
+        '<g class="tn ' + n.kind + ' ' + state + (cn ? ' clsn' : '') + '" data-act="node" data-node="' + id + '" data-r="' + r + '" data-tip="node:' + id + '" style="--c:' + (n.color || '#ffb066') + '" transform="translate(' + n1(n.x) + ' ' + n1(n.y) + ')">' +
         '<circle class="halo" r="' + (r + (n.kind === 'small' ? 7 : 11)) + '"/>' + shape + '<circle class="hit" r="' + (r + 8) + '"/></g>';
 
       // 核心 / 基石天赋直接标出名字（摆放位置见 treeLabels）
@@ -2619,32 +3172,189 @@
     for (const k in sum) sumHtml += '<div class="ts-line">' + esc(G.fmtStat(k, sum[k])) + '</div>';
     if (!sumHtml) sumHtml = '<div class="ts-none">还没有点亮天赋。<br>从中央起点沿连线向外点亮。</div>';
 
-    el.body.innerHTML =
-      '<div class="tree">' +
-      '<div class="tree-view"><svg id="tree-svg" viewBox="' + vbStr(treeVb()) + '" preserveAspectRatio="xMidYMid meet">' +
+    const svg =
+      '<svg id="tree-svg" data-pan viewBox="' + vbStr(treeVb()) + '" preserveAspectRatio="xMidYMid meet">' +
       '<g class="tdeco"><circle r="81"/><circle r="231"/><circle r="381"/><circle r="462"/><circle r="564"/><circle r="636"/></g>' +
-      '<g>' + edges + '</g><g>' + nodes + '</g><g>' + labels + '</g></svg>' +
-      '<div class="tree-legend"><span class="lg alloc"><i></i>已点亮</span><span class="lg avail"><i></i>可点亮</span><span class="lg locked"><i></i>未连接</span>' +
-      '<span class="lg-sep"></span><span>点击点亮 · 再次点击退回 · 滚轮缩放 · 拖动平移</span></div>' +
-      '<div class="tree-zoom">' +
-      '<button type="button" tabindex="-1" data-act="tree-zoom" data-z="out" title="缩小">－</button>' +
+      '<g>' + edges + '</g><g>' + nodes + '</g><g>' + labels + '</g></svg>';
+    // 缩放按钮：盘面右下角竖排（放大 / 全览 / 缩小），不挡盘面上方
+    const zoom =
+      '<div class="tree-zoom" data-float>' +
+      '<button type="button" tabindex="-1" data-act="tree-zoom" data-z="in" title="放大" aria-label="放大">＋</button>' +
       '<button type="button" tabindex="-1" data-act="tree-zoom" data-z="fit"' + (ui.tv ? '' : ' class="on"') + '>全览</button>' +
-      '<button type="button" tabindex="-1" data-act="tree-zoom" data-z="in" title="放大">＋</button></div></div>' +
-      '<div class="col col-side tree-side">' +
-      '<div class="sec-title">天赋点</div>' +
-      '<div class="pts' + (pts.free > 0 ? ' has' : '') + '"><b>' + pts.free + '</b><div><span>可用天赋点</span><em>已用 ' + pts.used + ' · 共 ' + pts.total + '</em></div></div>' +
-      '<div class="pts-note">每级 1 点；首次击败每个首领 +2 点。' + (G.clsDef && G.clsDef() ? '<br>' + G.clsDef().node.name + '是' + G.clsDef().name + '白送的，不占点数。' : '') + '</div>' +
-      (coachBanner('tree') ? '<div class="side-coach">' + coachBanner('tree') + '</div>' : '') +
-      '<div class="arms">' + arms + '</div>' +
-      '<div class="sec-title">已获得的加成</div>' +
-      '<div class="tree-sum scroll" data-scroll="treesum">' + sumHtml + '</div>' +
-      '<div class="tree-msg' + (ui.treeMsgBad ? ' bad' : '') + '">' + esc(ui.treeMsg) + '</div>' +
-      '<button type="button" tabindex="-1" class="btn' + (ui.resetArmed ? ' danger' : '') + '" data-act="tree-reset"' + (pts.used > 0 ? '' : ' disabled') + '>' +
-      (ui.resetArmed ? '再点一次确认重置' : '重置全部天赋') + '</button>' +
-      '</div></div>';
+      '<button type="button" tabindex="-1" data-act="tree-zoom" data-z="out" title="缩小" aria-label="缩小">－</button></div>';
+    const coach = coachBanner('tree');
+    if (!compactUi()) {
+      // 桌面：盘面 | 侧栏（和以前一样，图例和操作说明挪进页头的 [?]）
+      if (ui.card && ui.card.tree) ui.card = null;
+      el.body.innerHTML =
+        '<div class="tree">' +
+        '<div class="tree-view">' + svg + zoom + '</div>' +
+        '<div class="col col-side tree-side">' +
+        '<div class="sec-title">天赋点</div>' +
+        '<div class="pts' + (pts.free > 0 ? ' has' : '') + '"><b>' + pts.free + '</b><div><span>可用天赋点</span><em>已用 ' + pts.used + ' · 共 ' + pts.total + '</em></div></div>' +
+        '<div class="pts-note">' + ptsNote() + '</div>' +
+        (coach ? '<div class="side-coach">' + coach + '</div>' : '') +
+        '<div class="arms">' + arms + '</div>' +
+        '<div class="sec-title">已获得的加成</div>' +
+        '<div class="tree-sum scroll" data-scroll="treesum" data-list>' + sumHtml + '</div>' +
+        (ui.treeMsg || uiSeen('tree') ? '<div class="tree-msg' + (ui.treeMsgBad ? ' bad' : '') + '">' + esc(ui.treeMsg) + '</div>' : '<div class="tree-msg hint">' + pageHints('tree').once + '</div>') +
+        resetBtn(pts) +
+        '</div></div>' + popHtml();
+      treeApply();
+      return;
+    }
+    // 窄屏 / 触屏：盘面铺满正文。左上「n 点可用」打开汇总卡；右下缩放；触屏点节点出节点卡（tnodeSheet）
+    if (ui.card && ui.card.tree === 'node' && !(touchOn() && T[ui.card.id])) ui.card = null;
+    const portrait = portraitUi();
+    const card = ui.card && ui.card.tree;
+    const chip =
+      '<button type="button" tabindex="-1" class="tree-chip' + (pts.free > 0 ? ' has' : '') + (card === 'sum' ? ' on' : '') + '" data-act="tree-sum"><b>' + pts.free + '</b> 点可用<i class="dd"></i></button>';
+    // 底部一行（浮在盘面左下，不挡点击）：卡片没开时的操作结果 → 新手提示 → 第一次打开的提示
+    const note = ui.treeMsg && !card ? pageNote('tree', '<span class="tree-msg' + (ui.treeMsgBad ? ' bad' : '') + '">' + esc(ui.treeMsg) + '</span>', 'res') : pageNote('tree', coach, coach ? 'coach' : '');
+    el.body.innerHTML =
+      '<div class="tree cpt' + (portrait ? ' por' : '') + '">' +
+      '<div class="tree-view">' + svg +
+      // 卡片开着时不放「n 点可用」：节点卡里写着剩几点，汇总卡就是它打开的那张（盘面让位以后也不会被它挡住）
+      '<div class="tree-top" data-float>' + (card ? '<i></i>' : chip) + (portrait ? helpBtn('in-page') : '') + '</div>' +
+      zoom + note + '</div></div>' +
+      (card === 'sum' ? tsumSheet(pts, arms, sumHtml) : card === 'node' ? tnodeSheet(ui.card.id) : '') +
+      popHtml();
+    treeDock();
+  }
+  const ptsNote = () => '每级 1 点；首次击败每个首领 +2 点。' + (G.clsDef && G.clsDef() ? '<br>' + G.clsDef().node.name + '是' + G.clsDef().name + '白送的，不占点数。' : '');
+  const resetBtn = (pts) =>
+    '<button type="button" tabindex="-1" class="btn' + (ui.resetArmed ? ' danger' : '') + '" data-act="tree-reset"' + (pts.used > 0 ? '' : ' disabled') + '>' +
+    (ui.resetArmed ? '再点一次确认重置' : '重置全部天赋') + '</button>';
+  // 卡片里的一行操作结果（已点亮 / 无法退回…）
+  const treeMsgHtml = () => (ui.treeMsg ? '<div class="inv-msg sh-msg' + (ui.treeMsgBad ? '' : ' ok') + '">' + esc(ui.treeMsg) + '</div>' : '');
+  // 汇总卡（窄屏 / 触屏）：天赋点、各支路进度、已获得的加成（唯一滚动区）、重置
+  function tsumSheet(pts, arms, sumHtml) {
+    return sheetHtml({
+      cls: 'tsum',
+      head: '<div class="sh-ttl"><div class="sh-name">天赋点 <b class="tsum-n' + (pts.free > 0 ? ' has' : '') + '">' + pts.free + '</b> 可用</div><div class="sh-kind">已用 ' + pts.used + ' · 共 ' + pts.total + '</div></div>',
+      body: '<div class="pts-note">' + ptsNote() + '</div><div class="arms">' + arms + '</div><div class="sec-title sm">已获得的加成</div><div class="tree-sum">' + sumHtml + '</div>',
+      msg: treeMsgHtml(),
+      acts: resetBtn(pts),
+    });
+  }
+  // 节点卡（触屏）：名字、类型、属性、能不能点；「点亮」/「退回」之后卡片留着，接着点下一个
+  function tnodeSheet(id) {
+    const T = G.TREE;
+    const n = T[id];
+    const S = G.save;
+    const pts = G.passivePoints();
+    const cn = G.clsNodeOf ? G.clsNodeOf(id) : null;
+    const alloc = S.passives.includes(id);
+    const avail = !alloc && n.links.some((l) => S.passives.includes(l));
+    const color = cn ? G.clsDef().color : n.color || '#ffb066';
+    let lines = '';
+    for (const k in n.stats) lines += '<div class="tnc-stat' + (!cn && G.statBad(k, n.stats[k]) ? ' bad' : '') + '">' + esc(G.fmtStat(k, n.stats[k])) + '</div>';
+    let state, act = '';
+    const B = (label, cls, dis) => '<button type="button" tabindex="-1" class="btn ' + cls + '" data-act="node-go"' + (dis ? ' disabled' : '') + '>' + label + '</button>';
+    if (cn) state = '<div class="tnc-st ok">' + cn.note + '</div><div class="tnc-st ok">职业白送 · 不花点数 · 摘不掉</div>';
+    else if (n.kind === 'start') state = '<div class="tnc-st">所有支路从这里出发</div>';
+    else if (alloc) {
+      state = '<div class="tnc-st ok">已点亮</div>';
+      act = B('退回', '');
+    } else if (avail && pts.free > 0) {
+      state = '<div class="tnc-st">可点亮，花 1 点</div>';
+      act = B('点亮', 'primary');
+    } else {
+      state = '<div class="tnc-st bad">' + (avail ? '没有可用的天赋点' : '还没连上：先点亮相邻的天赋') + '</div>';
+      act = B('点亮', 'primary', true);
+    }
+    const kind = cn ? '职业起步天赋' : KIND_NAME[n.kind] + (ARM_INFO[n.arm] ? ' · ' + ARM_INFO[n.arm].name : '');
+    return sheetHtml({
+      cls: 'tnode' + (alloc || cn ? ' lit' : ''),
+      rc: color,
+      head:
+        '<i class="tnc-ico ' + n.kind + (alloc || cn ? ' alloc' : avail ? ' avail' : '') + '" style="--c:' + color + '"></i>' +
+        '<div class="sh-ttl"><div class="sh-name" style="color:' + color + '">' + (cn ? cn.name : n.name) + '</div><div class="sh-kind">' + kind + '</div></div>' +
+        '<span class="tnc-pts">剩 <b>' + pts.free + '</b> 点</span>',
+      body: '<div class="tnc-body">' + lines + state + '</div>',
+      msg: treeMsgHtml(),
+      acts: act,
+    });
+  }
+  // 卡片开着时盘面让开卡片（横屏让出右边，竖屏让出下面），整个盘面还看得见、点得到
+  function treeDock() {
+    const view = el.body.querySelector('.tree.cpt .tree-view');
+    if (!view) return;
+    view.style.right = view.style.bottom = '';
+    const sh = el.body.querySelector('.sheet.dock');
+    if (sh) {
+      // 按排版位置量（offset*，都相对 #panel-body）：卡片的入场动画带位移，getBoundingClientRect 会差十几像素
+      const t = view.parentElement;
+      if (sh.classList.contains('bottom')) view.style.bottom = Math.max(0, t.offsetTop + t.offsetHeight - sh.offsetTop + 6) + 'px';
+      else view.style.right = Math.max(0, t.offsetLeft + t.offsetWidth - sh.offsetLeft + 6) + 'px';
+    }
+    // 汇总卡下面还有内容（支路、加成）时底边渐隐，看得出能往下滑
+    const lb = el.body.querySelector('.sheet.tsum .sh-body');
+    if (lb) {
+      const more = () => lb.classList.toggle('more', lb.scrollTop + lb.clientHeight < lb.scrollHeight - 2);
+      lb.addEventListener('scroll', more, { passive: true });
+      requestAnimationFrame(more);
+    }
     treeApply();
   }
 
+  // 点亮 / 退回一个节点（桌面单击、触屏节点卡里的按钮），结果写进 ui.treeMsg
+  function treeToggle(id) {
+    const n = G.TREE[id];
+    if (!n || n.kind === 'start') return;
+    if (G.save.passives.includes(id)) {
+      if (G.refundPassive(id)) {
+        ui.treeMsg = '已退回「' + n.name + '」';
+        ui.treeMsgBad = false;
+        G.sfx('click');
+      } else if (G.clsNodeOf && G.clsNodeOf(id)) {
+        ui.treeMsg = '「' + G.clsNodeOf(id).name + '」是职业白送的起步天赋，摘不掉';
+        ui.treeMsgBad = true;
+      } else {
+        ui.treeMsg = '无法退回「' + n.name + '」：它后面的天赋会与起点断开';
+        ui.treeMsgBad = true;
+      }
+    } else if (G.allocPassive(id)) {
+      ui.treeMsg = '已点亮「' + n.name + '」';
+      ui.treeMsgBad = false;
+      G.sfx(n.kind === 'small' ? 'pickup' : 'gem');
+    } else {
+      ui.treeMsg = G.passivePoints().free <= 0 ? '没有可用的天赋点' : '需要先点亮与「' + n.name + '」相邻的天赋';
+      ui.treeMsgBad = true;
+    }
+    disarmReset();
+  }
+  // 天赋页的卡片也放在 ui.card 里（点外面、Esc 收起都和物品卡一样）：{ tree: 'node', id } / { tree: 'sum' }。
+  // ovf: true —— 不走物品卡「按钮放不下收进 ⋯」那一步
+  function treeCard(kind, id) {
+    clearTimeout(ui.cardTimer);
+    ui.cardTimer = 0;
+    ui.card = { tree: kind, id: id || null, ovf: true };
+    ui.pop = null;
+    ui.treeMsg = '';
+    ui.treeMsgBad = false;
+    if (kind === 'sum') disarmReset();
+  }
+  // 触屏点盘面：取离手指最近的节点（点按区 = 屏幕上半径 22 px，放大后不小于节点本身 + 8），不按层叠顺序。没有就是 null
+  function treePick(e) {
+    const svg = document.getElementById('tree-svg');
+    if (!svg) return null;
+    const p = G.toFrame(e.clientX, e.clientY);
+    const k = treeScale(svg, treeVb());
+    let best = null, bd = Infinity;
+    for (const g of svg.querySelectorAll('.tn')) {
+      const b = fRect(g.querySelector('.shape').getBoundingClientRect());
+      const d = Math.hypot(p.x - (b.left + b.right) / 2, p.y - (b.top + b.bottom) / 2);
+      if (d < bd && d <= Math.max(22, (+g.dataset.r + 8) * k)) {
+        bd = d;
+        best = g;
+      }
+    }
+    return best;
+  }
+
+  // 盘面尺寸变了（转屏、触屏的画面变量晚一帧到、卡片让位）就重算缩放：名字字号、触屏的点按圆
+  const treeRO = typeof ResizeObserver === 'function' ? new ResizeObserver(() => treeApply()) : null;
   // ---------- 天赋盘的缩放与平移 ----------
   // ui.tv：当前视口（SVG 用户坐标的 { x, y, w, h }），null 表示「全览」——整个盘缩放到正好放下。
   // 视口的宽高比始终和全览一致（preserveAspectRatio meet 负责留边），缩放范围是全览的 1 倍到 1 / TREE_ZMAX 倍
@@ -2685,13 +3395,85 @@
   function treeApply() {
     const svg = document.getElementById('tree-svg');
     if (!svg) return;
+    if (treeRO && !svg.dataset.ro) {
+      svg.dataset.ro = 1;
+      treeRO.disconnect();
+      treeRO.observe(svg);
+    }
+    // 触屏：这次打开游戏以后第一次看天赋盘（ui.tv 还没定过）：放大一档、对准前沿（treeFront）。之后记住玩家自己的缩放和平移，「全览」照旧一下回去
+    if (ui.tv === undefined && touchOn() && compactUi() && svg.clientWidth > 0) ui.tv = treeFront(svg).v;
     const v = treeVb();
     svg.setAttribute('viewBox', vbStr(v));
     const k = treeScale(svg, v);
-    svg.style.setProperty('--lk', G.clamp(0.66 / k, 1, 2.2).toFixed(3));
+    const lk = G.clamp(0.66 / k, 1, 2.2);
+    svg.style.setProperty('--lk', lk.toFixed(3));
     svg.classList.toggle('zoomed', !!ui.tv);
+    // 窄屏 / 触屏：名字在屏幕上不到 11 px 时先不画（放大以后就出来）。桌面照旧
+    svg.classList.toggle('nolab', compactUi() && 17 * lk * k < 10.95);
+    // 触屏：节点的点按区是屏幕上直径 44 px 的圆（看得见的部分不变）；挨得近时取离手指最近的那个（treePick）
+    if (touchOn() && svg.dataset.hk !== k.toFixed(4)) {
+      svg.dataset.hk = k.toFixed(4);
+      for (const g of svg.querySelectorAll('.tn')) g.lastChild.setAttribute('r', n1(Math.max(+g.dataset.r + 8, 22 / k)));
+    }
     const fit = el.body.querySelector('.tree-zoom [data-z="fit"]');
     if (fit) fit.classList.toggle('on', !ui.tv);
+  }
+  // 前沿：已点亮的天赋和现在能点亮的。触屏默认的视口：以前沿的外框中心为准放大一档（和「＋」一样 0.7 倍）；
+  // 能点亮的每一个都要整个在盘面里、不压在左上的点数 / 右下的缩放 / 底部那一行下面，放不下就少放大一点（最多退回全览）；
+  // 能点亮的彼此挨得太近（屏幕上不到 44 px）而盘面还放得下时，再放大，直到 44 px 或放不下为止。
+  // 返回 { v: 视口（null = 全览）, close: 不到 44 px 的对数, av: 能点亮的个数 }（测试也读）
+  function treeFront(svg) {
+    const T = G.TREE, alloc = new Set(G.save.passives), F = treeFit();
+    const fr = [], av = [];
+    for (const id in T) {
+      const n = T[id];
+      const a = alloc.has(id), can = !a && n.links.some((l) => alloc.has(l));
+      if (a || can) fr.push(n);
+      if (can) av.push(n);
+    }
+    if (!fr.length) return { v: null, close: 0, av: 0 };
+    const r = fRect(svg.getBoundingClientRect());
+    const cw = svg.clientWidth, ch = svg.clientHeight;
+    const blocks = Array.from(el.body.querySelectorAll('.tree-view [data-float], .tree-view > .pg-note')).map((n) => fRect(n.getBoundingClientRect())).filter((b) => b.width > 0 && b.height > 0);
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const n of fr) {
+      x0 = Math.min(x0, n.x); x1 = Math.max(x1, n.x);
+      y0 = Math.min(y0, n.y); y1 = Math.max(y1, n.y);
+    }
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    // 按宽度 w 摆出来的视口和每个能点亮的天赋在屏幕上的位置
+    const lay = (w) => {
+      const h = (w * F.h) / F.w;
+      const v = treeClamp({ x: cx - w / 2, y: cy - h / 2, w, h });
+      const u = v || F;
+      const k = Math.min(cw / u.w, ch / u.h);
+      const ox = r.left + (cw - u.w * k) / 2, oy = r.top + (ch - u.h * k) / 2;
+      const pts = av.map((n) => ({ x: ox + (n.x - u.x) * k, y: oy + (n.y - u.y) * k, rr: NODE_R[n.kind] * k + 3 }));
+      const ok = pts.every((p) => p.x - p.rr >= r.left && p.x + p.rr <= r.left + cw && p.y - p.rr >= r.top && p.y + p.rr <= r.top + ch && !blocks.some((b) => p.x + p.rr > b.left && p.x - p.rr < b.right && p.y + p.rr > b.top && p.y - p.rr < b.bottom));
+      // 挨着的一对 = 每个天赋和离它最近的那个；同一对只算一次
+      const near = new Set();
+      for (let i = 0; i < pts.length; i++) {
+        let d = Infinity, j0 = -1;
+        for (let j = 0; j < pts.length; j++) if (j !== i) { const dd = Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y); if (dd < d) (d = dd), (j0 = j); }
+        if (d < 44) near.add(Math.min(i, j0) + '-' + Math.max(i, j0));
+      }
+      return { v, ok, close: near.size };
+    };
+    let best = null;
+    for (const f of [0.7, 0.8, 0.9]) {
+      const L = lay(F.w * f);
+      if (L.ok) {
+        best = L;
+        break;
+      }
+    }
+    if (!best) return Object.assign(lay(F.w), { v: null, av: av.length });
+    for (let w = (best.v ? best.v.w : F.w) * 0.85; best.close && w >= F.w / TREE_ZMAX; w *= 0.85) {
+      const L = lay(w);
+      if (!L.ok) break;
+      best = L;
+    }
+    return Object.assign(best, { av: av.length });
   }
   // 以屏幕点 (sx, sy) 为中心缩放 f 倍（f < 1 放大）；不给点就以视口中心
   function treeZoom(f, sx, sy) {
@@ -2728,7 +3510,7 @@
     tpan.v = Object.assign({}, ui.tv);
   }
   function treePanMove(e) {
-    if (!tpan.armed) return;
+    if (!tpan.armed || tpinch.on) return;
     if (!(e.buttons & 1)) {
       tpan.armed = tpan.on = false;
       return;
@@ -2765,6 +3547,57 @@
     const d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
     const p = G.toFrame(e.clientX, e.clientY);
     treeZoom(Math.exp(G.clamp(d, -240, 240) * 0.0016), p.x, p.y);
+  }
+
+  // 双指缩放（触屏）：两根手指落在盘面上就取消平移（长按由 js/touch.js 取消），按两指距离缩放、两指中点跟着手走
+  const tpinch = { pts: new Map(), on: false, d0: 0, m0: null, v0: null, block: 0 }; // block：这段时间里盘面上的 click 不算（两指手势从第二根手指落下到全部抬起后 400 ms）
+  const pinchMid = () => {
+    const a = Array.from(tpinch.pts.values());
+    return { x: (a[0].x + a[1].x) / 2, y: (a[0].y + a[1].y) / 2, d: Math.max(1, Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y)) };
+  };
+  function treePinchDown(e) {
+    if (e.pointerType !== 'touch' || !ui.isOpen || ui.tab !== 'tree') return;
+    if (!e.target.closest || !e.target.closest('#tree-svg')) return;
+    tpinch.pts.set(e.pointerId, G.toFrame(e.clientX, e.clientY));
+    if (tpinch.pts.size !== 2) return;
+    tpinch.block = Infinity;
+    tpan.armed = tpan.on = false;
+    const view = el.body.querySelector('.tree-view');
+    if (view) view.classList.remove('panning');
+    hideTip();
+    const m = pinchMid();
+    tpinch.on = true;
+    tpinch.d0 = m.d;
+    tpinch.m0 = m;
+    tpinch.v0 = Object.assign({}, treeVb());
+  }
+  function treePinchMove(e) {
+    if (!tpinch.pts.has(e.pointerId)) return;
+    tpinch.pts.set(e.pointerId, G.toFrame(e.clientX, e.clientY));
+    if (!tpinch.on || tpinch.pts.size !== 2) return;
+    const svg = document.getElementById('tree-svg');
+    if (!svg) return;
+    const m = pinchMid();
+    const v0 = tpinch.v0;
+    const r = fRect(svg.getBoundingClientRect());
+    const k0 = treeScale(svg, v0);
+    // 两指刚落下时中点下面的那一点（用户坐标）跟着现在的中点走
+    const ux = v0.x + (tpinch.m0.x - (r.left + (r.width - v0.w * k0) / 2)) / k0;
+    const uy = v0.y + (tpinch.m0.y - (r.top + (r.height - v0.h * k0) / 2)) / k0;
+    const F = treeFit();
+    const w = G.clamp((v0.w * tpinch.d0) / m.d, F.w / TREE_ZMAX, F.w);
+    const h = (w * F.h) / F.w;
+    const k2 = Math.min(r.width / w, r.height / h);
+    ui.tv = treeClamp({ x: ux - (m.x - (r.left + (r.width - w * k2) / 2)) / k2, y: uy - (m.y - (r.top + (r.height - h * k2) / 2)) / k2, w, h });
+    treeApply();
+  }
+  function treePinchUp(e) {
+    if (!tpinch.pts.delete(e.pointerId)) return;
+    if (tpinch.on && tpinch.pts.size < 2) {
+      tpinch.on = false;
+      swallowClick(); // 松手不算点了节点
+    }
+    if (!tpinch.pts.size && tpinch.block === Infinity) tpinch.block = performance.now() + 400;
   }
 
   // ============================================================
@@ -2863,11 +3696,13 @@
     const z = G.ZONES[sp.zone], T = G.sealTierDef(sp.tier);
     let cards = sealCardHtml(null, 0, T);
     sp.seals.forEach((s, i) => (cards += sealCardHtml(s, i + 1, T)));
-    return '<div class="seal-pick"><div class="sp-box">' +
+    // 窄屏 / 触屏（B4a）：铺满页面正文的一层，头部固定，几张印并排，印的这一排是唯一的滚动区
+    const cpt = compactUi();
+    return '<div class="seal-pick' + (cpt ? ' cpt' : '') + (portraitUi() ? ' por' : '') + '"><div class="sp-box">' +
       '<div class="sp-head"><div class="sec-title">择印 · ' + z.name + ' · 轮回 ' + sp.tier + '</div>' +
-      '<span class="sp-note">词缀越凶，掉落和经验越多。数字键 1–4 选择，Esc 返回</span>' +
+      '<span class="sp-note">词缀越凶，掉落和经验越多。' + (touchOn() ? '点一张印进区' : '数字键 1–4 选择，Esc 返回') + '</span>' +
       '<button type="button" tabindex="-1" class="btn sm" data-act="seal-cancel">返回</button></div>' +
-      '<div class="sp-cards">' + cards + '</div></div></div>';
+      '<div class="sp-cards' + (cpt ? ' scroll" data-list data-scroll="seals' : '') + '">' + cards + '</div></div></div>';
   }
   function pickSeal(i) {
     const sp = ui.sealPick;
@@ -2902,100 +3737,153 @@
     );
   }
 
+  // 第 i 个区域在层级 tier 上的状态（桌面卡片、触屏卡片、区域卡共用）
+  function zoneState(i, tier) {
+    const S = G.save, st = G.state, z = G.ZONES[i];
+    const clearedAt = (q) => S.cleared[q.id] !== undefined && S.cleared[q.id] >= tier;
+    // 主线（quest D2）：这一步要去的区域卡片上一个金色「主线」角标。关了「显示主线」不画
+    const Q = S.quest, qs = Q && !Q.off && Q.n < G.QUEST_N ? G.QUEST[Q.n] : null;
+    return {
+      z,
+      locked: i > 0 && !clearedAt(G.ZONES[i - 1]),
+      cleared: clearedAt(z),
+      here: st.zoneIdx === i && st.tier === tier && !st.pin, // 在余烛殿里时不算在哪个区域
+      lvl: z.level + tier * G.TIER_LEVELS,
+      boss: G.BOSSES[z.boss],
+      quest: !!(qs && qs.zone && qs.zone === z.id),
+    };
+  }
+  const zoneVars = (z) => '--fog:' + hexCss(z.fog) + ';--acc:' + hexCss(z.accent) + ';--path:' + hexCss(z.path) + ';--rock:' + hexCss(z.rock) + ';--sky:' + hexCss(z.sky);
+  const zoneCls = (s) => (s.locked ? ' locked' : '') + (s.here ? ' here' : '') + (s.cleared ? ' cleared' : '');
+  function zoneArt(s, i) {
+    const z = s.z;
+    return (
+      '<div class="z-art"><div class="z-ridge b"></div><div class="z-ridge a"></div><span class="z-glyph">' + (ZONE_GLYPH[z.id] || z.name[0]) + '</span>' +
+      '<span class="z-ord">' + (ZONE_ORD[i] || '') + '</span>' +
+      (s.cleared ? '<span class="z-badge ok">已通关</span>' : s.locked ? '<span class="z-badge lock">未解锁</span>' : s.quest ? '<span class="z-badge quest">主线</span>' : '') +
+      (s.here ? '<span class="z-here">当前所在</span>' : '') +
+      '</div>'
+    );
+  }
+  const zoneMeta = (s) => '<div class="z-meta"><span>怪物等级 <b>' + s.lvl + '</b></span><span style="color:' + G.TYPE_COLOR[s.z.elem] + '">' + G.TYPE_NAME[s.z.elem] + '</span></div>';
+  const zoneBoss = (s) => '<div class="z-boss"><span>首领</span><b>' + s.boss.name + '</b>' + (G.save.bossKills[s.z.boss] ? '<em>曾击败</em>' : '') + '</div>';
+  const zoneLock = (i) => '<div class="z-lock">先在本层级击败「' + G.ZONES[i - 1].name + '」的首领</div>';
+  const zoneEnter = (s, i) => '<button type="button" tabindex="-1" class="btn primary" data-act="enter" data-zone="' + i + '">' + (s.here ? '重新进入' : '进入') + '</button>';
+  // 余烛殿有几种烛芯在手里
+  const pinFragN = () => G.FRAG_IDS.filter((id) => G.save.frags && G.save.frags[id] > 0).length;
+
+  // 区域卡（窄屏 / 触屏，B4a）：点区域卡片从右侧滑出（竖屏从底部升起），里面是区域的全部信息和「进入」；余烛殿的卡片里是烛芯、层级和「点燃」
+  function zoneSheet(tier) {
+    const k = ui.zcard;
+    if (k === null || k === undefined) return '';
+    if (k === 'pin') {
+      if (!G.pinOpen || !G.pinOpen()) return (ui.zcard = null), '';
+      const S = G.save, PN = G.PIN, ready = G.pinReady();
+      const t = (ui.pinTier = G.clamp(ui.pinTier || PN.minTier, PN.minTier, S.maxTier));
+      const kills = (S.pinnacle && S.pinnacle.kills) || 0;
+      let slots = '', tiers = '';
+      for (const id of G.FRAG_IDS) {
+        const f = G.FRAGS[id], n = (S.frags && S.frags[id]) || 0;
+        slots += '<div class="pn-slot' + (n ? ' ok' : '') + '" data-tip="frag:' + id + '" style="--c:' + f.color + '">' + ibox(IC.frag(id), 'curb') + '<span>' + f.name + '</span><b>' + n + '</b></div>';
+      }
+      for (let j = PN.minTier; j <= S.maxTier; j++) tiers += '<button type="button" tabindex="-1" class="tier' + (j === t ? ' on' : '') + '" data-act="pin-tier" data-tier="' + j + '">' + j + '</button>';
+      return sheetHtml({
+        cls: 'zs pin' + (ready ? ' ready' : ''),
+        rc: '#b08650',
+        head: '<span class="zs-g pn">烛</span><div class="sh-ttl"><div class="sh-name">' + G.PINNACLE.name + '</div><div class="sh-kind">首领 ' + G.BOSSES.snuffer.name + (S.bossKills.snuffer ? ' · 已击败 ' + kills + ' 次' : '') + (G.state.pin ? ' · 当前所在' : '') + '</div></div>',
+        body:
+          '<div class="zs-in"><div class="pn-desc">' + G.PINNACLE.desc + '四种烛芯各献 1 个进场；倒下 ' + G.PIN_LIVES + ' 次失败，退还 ' + G.PIN_REFUND + ' 个。</div>' +
+          '<div class="pn-slots">' + slots + '</div>' +
+          '<div class="pn-row"><span class="pn-k">层级</span><div class="tiers">' + tiers + '</div><span class="pn-lv">首领等级 <b>' + G.pinLevel(t) + '</b></span></div>' +
+          (ready ? '' : '<div class="pn-need">四种烛芯各需 1 个：轮回 ' + G.FRAG_DROP.minTier + ' 起的首领和异兆会掉（' + fragRates() + '），拾烬客 2 换 1</div>') +
+          (ui.pinMsg ? '<div class="pn-need bad">' + esc(ui.pinMsg) + '</div>' : '') + '</div>',
+        acts: '<button type="button" tabindex="-1" class="btn primary pn-go" data-act="pin-light"' + (ready ? '' : ' disabled') + '>点燃</button>',
+      });
+    }
+    const i = +k, s = zoneState(i, tier), z = s.z;
+    if (!z) return (ui.zcard = null), '';
+    const st = s.locked ? '' : s.cleared ? '本层级已通关' : '还没通关';
+    return sheetHtml({
+      cls: 'zs',
+      rc: hexCss(z.accent),
+      head: '<span class="zs-g" style="' + zoneVars(z) + '">' + (ZONE_GLYPH[z.id] || z.name[0]) + '</span><div class="sh-ttl"><div class="sh-name">' + z.name + '</div><div class="sh-kind">' + (ZONE_ORD[i] || '') + ' · 轮回 ' + tier + (s.here ? ' · 当前所在' : '') + '</div></div>',
+      body: '<div class="zs-in">' + zoneMeta(s) + '<div class="z-desc">' + z.desc + '</div>' + zoneBoss(s) + (st ? '<div class="zs-st">' + st + (s.quest ? ' · 主线要去这里' : '') + '</div>' : '') + '</div>',
+      acts: s.locked ? zoneLock(i) : zoneEnter(s, i),
+    });
+  }
+
   function renderMap() {
     const S = G.save;
     const st = G.state;
     const tier = (ui.mapTier = G.clamp(ui.mapTier, 0, S.maxTier));
-    const clearedAt = (z) => S.cleared[z.id] !== undefined && S.cleared[z.id] >= tier;
-    // 主线（quest D2）：这一步要去的区域卡片上一个金色「主线」角标；第 11 步（进轮回层级 1）在层级「1」的按钮上点一个金点。关了「显示主线」都不画
+    const cpt = compactUi(), por = portraitUi();
+    const ine = ui.sealPick ? ' inert' : ''; // 择印那一层盖着时，下面的地图点不到（.map-in 是 display: contents，不影响排法）
+    // 主线（quest D2）：第 11 步（进轮回层级 1）在层级「1」的按钮上点一个金点。关了「显示主线」不画
     const Q = S.quest, qOn = !!(Q && !Q.off && Q.n < G.QUEST_N), qs = qOn ? G.QUEST[Q.n] : null;
-    const qZone = qs && qs.zone ? qs.zone : '', qTier = !!(qs && qs.kind === 'tier');
+    const qTier = !!(qs && qs.kind === 'tier');
 
     let tiers = '';
     for (let t = 0; t <= S.maxTier; t++) {
       tiers += '<button type="button" tabindex="-1" class="tier' + (t === tier ? ' on' : '') + (qTier && t === 1 ? ' q-dot' : '') + '" data-act="tier" data-tier="' + t + '"' + (qTier && t === 1 ? ' data-tip="txt:主线：进轮回层级 1"' : '') + '>' + t + '</button>';
     }
+    const run = st.run && st.run.seal;
+    // 本次进区的印（层级 ≥ 1 才有）：一行。图例在 [?] 里
+    const sealNow = S.maxTier >= 1
+      ? '<div class="seal-now"><span class="sn-k">本次进区</span>' +
+        (run ? '<b class="sn-name g' + run.g + '">' + G.sealName(run) + '</b>' + sealChips(run, 'map') + '<span class="sn-rw">' + sealRewardText(run.W) + '</span>' : '<b class="sn-name plain">素印</b><span class="sn-rw">没有词缀</span>') + '</div>'
+      : '';
 
+    if (!cpt) {
+      // 桌面：层级 + 五张区域卡（卡片里直接「进入」）+ 余烛殿。拾取、画质、删除角色挪进了设置
+      let cards = '';
+      G.ZONES.forEach((z, i) => {
+        const s = zoneState(i, tier);
+        cards +=
+          '<div class="zone' + zoneCls(s) + '"' + (touchOn() ? ' data-tip="zone:' + i + ':' + tier + '"' : '') + ' style="' + zoneVars(z) + '">' + zoneArt(s, i) +
+          '<div class="z-body"><div class="z-name">' + z.name + '</div>' + zoneMeta(s) + '<div class="z-desc">' + z.desc + '</div>' + zoneBoss(s) +
+          (s.locked ? zoneLock(i) : zoneEnter(s, i)) + '</div></div>';
+      });
+      el.body.innerHTML =
+        '<div class="map wide">' +
+        '<div class="map-in"' + ine + '>' +
+        '<div class="map-top"><div class="sec-title">轮回层级</div>' +
+        '<div class="tier-row"><div class="tiers">' + tiers + '</div>' +
+        '<div class="tier-note">每高一层，怪物等级 +' + G.TIER_LEVELS + '，物品等级随之提高。' +
+        (S.maxTier === 0 ? '击败最后一个区域的首领后开启下一层。' : '在最高层级击败最后一个区域的首领开启下一层。') + '</div></div>' +
+        sealNow + '</div>' +
+        '<div class="zones" style="--nz:' + G.ZONES.length + '">' + cards + '</div>' +
+        pinNodeHtml() +
+        pageNote('map', '') +
+        '</div>' +
+        sealPickHtml() +
+        '</div>' + popHtml();
+      return;
+    }
+    // 窄屏 / 触屏：层级一行 + 区域卡片一排（横屏横着滑，竖屏竖着滚，这是唯一的滚动区）；点卡片出区域卡
+    if (ui.sealPick) ui.zcard = null;
     let cards = '';
     G.ZONES.forEach((z, i) => {
-      const locked = i > 0 && !clearedAt(G.ZONES[i - 1]);
-      const cleared = clearedAt(z);
-      const here = st.zoneIdx === i && st.tier === tier && !st.pin; // 在余烛殿里时不算在哪个区域
-      const lvl = z.level + tier * G.TIER_LEVELS;
-      const boss = G.BOSSES[z.boss];
+      const s = zoneState(i, tier);
       cards +=
-        '<div class="zone' + (locked ? ' locked' : '') + (here ? ' here' : '') + (cleared ? ' cleared' : '') + '"' + (touchOn() ? ' data-tip="zone:' + i + ':' + tier + '"' : '') + ' style="--fog:' + hexCss(z.fog) + ';--acc:' + hexCss(z.accent) + ';--path:' + hexCss(z.path) + ';--rock:' + hexCss(z.rock) + ';--sky:' + hexCss(z.sky) + '">' +
-        '<div class="z-art"><div class="z-ridge b"></div><div class="z-ridge a"></div><span class="z-glyph">' + (ZONE_GLYPH[z.id] || z.name[0]) + '</span>' +
-        '<span class="z-ord">' + (ZONE_ORD[i] || '') + '</span>' +
-        (cleared ? '<span class="z-badge ok">已通关</span>' : locked ? '<span class="z-badge lock">未解锁</span>' : z.id === qZone ? '<span class="z-badge quest">主线</span>' : '') +
-        (here ? '<span class="z-here">当前所在</span>' : '') +
-        '</div>' +
-        '<div class="z-body"><div class="z-name">' + z.name + '</div>' +
-        '<div class="z-meta"><span>怪物等级 <b>' + lvl + '</b></span><span style="color:' + G.TYPE_COLOR[z.elem] + '">' + G.TYPE_NAME[z.elem] + '</span></div>' +
-        '<div class="z-desc">' + z.desc + '</div>' +
-        '<div class="z-boss"><span>首领</span><b>' + boss.name + '</b>' + (S.bossKills[z.boss] ? '<em>曾击败</em>' : '') + '</div>' +
-        (locked
-          ? '<div class="z-lock">先在本层级击败「' + G.ZONES[i - 1].name + '」的首领</div>'
-          : '<button type="button" tabindex="-1" class="btn primary" data-act="enter" data-zone="' + i + '">' + (here ? '重新进入' : '进入') + '</button>') +
-        '</div></div>';
+        '<button type="button" tabindex="-1" class="zone zc' + zoneCls(s) + (ui.zcard === String(i) ? ' sel' : '') + '" data-act="zone" data-zone="' + i + '"' + (touchOn() ? ' data-tip="zone:' + i + ':' + tier + '"' : '') + ' style="' + zoneVars(z) + '">' + zoneArt(s, i) +
+        '<div class="z-body"><div class="z-name">' + z.name + '</div>' + zoneMeta(s) + '</div></button>';
     });
-
-    const run = st.run && st.run.seal;
+    if (G.pinOpen && G.pinOpen()) {
+      const ready = G.pinReady();
+      cards +=
+        '<button type="button" tabindex="-1" class="zone zc pin' + (ready ? ' ready' : '') + (st.pin ? ' here' : '') + (ui.zcard === 'pin' ? ' sel' : '') + '" data-act="zone" data-zone="pin">' +
+        '<div class="z-art pn-art"><span class="z-glyph">烛</span>' + (ready ? '<span class="z-badge ok">可点燃</span>' : '') + (st.pin ? '<span class="z-here">当前所在</span>' : '') + '</div>' +
+        '<div class="z-body"><div class="z-name">' + G.PINNACLE.name + '</div><div class="z-meta"><span>烛芯 <b>' + pinFragN() + ' / ' + G.FRAG_IDS.length + '</b></span></div></div></button>';
+    }
     el.body.innerHTML =
-      '<div class="map">' +
-      '<div class="map-top"><div class="sec-title">轮回层级</div>' +
-      '<div class="tier-row"><div class="tiers">' + tiers + '</div>' +
-      '<div class="tier-note">每高一层，怪物等级 +' + G.TIER_LEVELS + '，物品等级随之提高。' +
-      (S.maxTier === 0 ? '击败最后一个区域的首领后开启下一层。' : '在最高层级击败最后一个区域的首领开启下一层。') + '</div></div>' +
-      // 渊印：这次进区的印（层级 ≥ 1 才有）和图例
-      (S.maxTier >= 1
-        ? '<div class="seal-now"><span class="sn-k">本次进区</span>' +
-          (run ? '<b class="sn-name g' + run.g + '">' + G.sealName(run) + '</b>' + sealChips(run, 'map') + '<span class="sn-rw">' + sealRewardText(run.W) + '</span>' : '<b class="sn-name plain">素印</b><span class="sn-rw">没有词缀</span>') +
-          '<span class="seal-legend"><i class="sc mob">戾</i>怪物侧印纹<i class="sc player">竭</i>玩家侧印纹<i class="lg-ring"></i>小地图上的领群者</span></div>'
-        : '') +
+      '<div class="map cpt' + (por ? ' por' : '') + '">' +
+      '<div class="map-in"' + ine + '>' +
+      '<div class="map-bar"><span class="mb-k">轮回</span><div class="tiers">' + tiers + '</div>' + sealNow + (por ? helpBtn('in-page') : '') + '</div>' +
+      '<div class="zrow scroll" data-list data-scroll="zones">' + cards + '</div>' +
+      pageNote('map', '') +
       '</div>' +
-      '<div class="zones" style="--nz:' + G.ZONES.length + '">' + cards + '</div>' +
-      pinNodeHtml() +
       sealPickHtml() +
-      '<div class="map-opts">' +
-      '<div class="opt-text"><b>普通物品</b><span>魔法、稀有物品总是自动拾取</span></div>' +
-      '<div class="seg">' +
-      [['manual', '手动拾取', '走过不捡，按 F 或点击名牌拾取'], ['auto', '自动拾取', '走过就捡进背包'], ['scrap', '自动丢弃', '走过就地丢弃']]
-        .map((o) => '<button type="button" tabindex="-1" class="seg-b' + (normMode() === o[0] ? ' on' : '') + '" data-act="normmode" data-mode="' + o[0] + '" data-tip="txt:' + o[2] + '">' + o[1] + '</button>')
-        .join('') +
-      '</div>' +
-      '<div class="opt-sep"></div>' +
-      // 两个开关上下叠成一列（quest D2 加了「显示主线」，并排时 1024 宽的窗口放不下）；「折叠」的说明挪进悬停提示
-      '<div class="opt-stack">' +
-      '<div class="opt-line" data-tip="txt:地上只留一个小点，悬停或按住 Alt 展开">' +
-      '<button type="button" tabindex="-1" class="switch' + (S.opts.hideNormal ? ' on' : '') + '" data-act="opt" data-opt="hideNormal"><i></i></button>' +
-      '<div class="opt-text"><b>折叠普通物品的名牌</b></div></div>' +
-      // 主线（quest D2）：关了只藏追踪条、小地图上的金色记号和地图上的角标，进度和奖励照常记。主线走完以后不再显示这个开关
-      (Q && Q.n < G.QUEST_N
-        ? '<div class="opt-line" data-tip="txt:右上的主线提示、小地图上的金色箭头和区域卡片上的「主线」角标。关了进度照常记">' +
-          '<button type="button" tabindex="-1" class="switch' + (Q.off ? '' : ' on') + '" data-act="quest"><i></i></button>' +
-          '<div class="opt-text"><b>显示主线</b></div></div>'
-        : '') +
-      '</div>' +
-      '<div class="opt-sep"></div>' +
-      '<div class="opt-text"><b>画质</b><span>' + (S.opts.quality === 'auto' ? '自动选择，明显掉帧时会自动调低' : '电脑吃力时调低') + '</span></div>' +
-      '<div class="seg">' +
-      [['high', '高', '泛光、调色与暗角，4 倍多重采样抗锯齿，高分屏最高按 1.5 倍像素渲染'], ['mid', '中', '保留泛光与调色；泛光按一半分辨率计算，不画贴地薄雾，阴影精度减半，抗锯齿降为 2 倍，高分屏最高 1.25 倍像素'], ['low', '低', '关闭泛光、调色等后期效果和贴地薄雾，阴影精度减半，适合老旧电脑']]
-        .map((o) => '<button type="button" tabindex="-1" class="seg-b' + ((G.world.quality ? G.world.quality() : S.opts.quality) === o[0] ? ' on' : '') + '" data-act="quality" data-q="' + o[0] + '" data-tip="txt:' + o[2] + '">' + o[1] + '</button>')
-        .join('') +
-      '</div>' +
-      '<div class="opt-gap"></div>' +
-      // 删除这个角色：确认两次（角色页同一套话）。删掉的进回收位，换成一个新角色
-      (ui.delArmed === 2
-        ? '<span class="del-warn">' + delFinalText() + '</span>' +
-          '<button type="button" tabindex="-1" class="btn danger" data-act="del-final">真的删除</button>' +
-          '<button type="button" tabindex="-1" class="btn" data-act="del-cancel">取消</button>'
-        : ui.delArmed
-        ? '<span class="del-warn">删除 ' + esc(charLabel(curSummary())) + '？</span>' +
-          '<button type="button" tabindex="-1" class="btn danger" data-act="del-confirm">确认删除</button>' +
-          '<button type="button" tabindex="-1" class="btn" data-act="del-cancel">取消</button>'
-        : '<button type="button" tabindex="-1" class="btn ghost" data-act="del-save">删除这个角色</button>') +
-      '</div></div>';
+      '</div>' + zoneSheet(tier) + popHtml();
   }
 
   // ============================================================
@@ -3181,20 +4069,20 @@
     [['1', '2'], '生命 / 魔力药剂'],
     [['F'], '处决破绽中的敌人，否则拾取'],
     [['Alt'], '按住：展开名牌概要和浮窗详情'],
-    [['I', 'G', 'P', 'M'], '背包 / 技能 / 天赋 / 地图'],
+    [['I', 'C', 'G', 'P', 'M'], '背包 / 属性 / 技能 / 天赋 / 地图'],
     [['H', 'Esc'], '打开帮助 / 关闭面板；没有面板时 Esc 暂停'],
   ];
-  function renderHelp() {
-    const key = (k, t) => '<div class="hk"><span class="hk-keys">' + k.map((x) => '<kbd>' + x + '</kbd>').join('') + '</span><span>' + t + '</span></div>';
-    let curs = '';
-    for (const id of G.CUR_IDS) {
-      const c = G.CURRENCY[id];
-      curs += '<div class="hc" style="--c:' + c.color + '">' + IC.cur(id) + '<b>' + c.name + '</b><span>' + c.desc + '</span></div>';
-    }
-    el.body.innerHTML =
-      '<div class="help">' +
-      '<div class="col scroll" data-scroll="help1"><div class="sec-title">操作</div>' +
-      (touchOn() ? HELP_TOUCH : HELP_KEYS).map((k) => key(k[0], k[1])).join('') +
+  // 帮助页（B4a）：左边一列话题，右边只显示一个话题（唯一的滚动区）；竖屏话题是顶上一排横滑的标签。
+  // 暂停菜单的「操作说明」直接打开「操作」这一节，只留一份文字
+  const helpKey = (k, t) => '<div class="hk"><span class="hk-keys">' + k.map((x) => '<kbd>' + x + '</kbd>').join('') + '</span><span>' + t + '</span></div>';
+  const HELP_TOPICS = [
+    ['keys', '操作', () =>
+      '<div class="sec-title">操作</div>' +
+      (touchOn() ? HELP_TOUCH : HELP_KEYS).map((k) => helpKey(k[0], k[1])).join('') +
+      '<div class="help-foot"><button type="button" tabindex="-1" class="btn sm" data-act="tut-reset">重新显示新手提示</button>' +
+      '<span>' + (ui.tutMsg || '已看过 ' + Object.keys(G.save.tut).length + ' / ' + HINTS.length + ' 条') + '</span></div>'
+    ],
+    ['fight', '战斗', () =>
       '<div class="sec-title">战斗须知</div>' +
       '<p>地上的<b class="c-red">红色区域</b>是即将落下的攻击，填满前走出去或翻滚穿过。</p>' +
       '<p>护甲减少物理伤害，抗性减少对应元素伤害（上限 75%）。</p>' +
@@ -3202,53 +4090,84 @@
       '<p><b>敌人的抗性</b>：每个区的敌人抗本区的元素' + (G.ENEMY_RES.boss === G.ENEMY_RES.mob ? ' ' + G.ENEMY_RES.mob + '%（首领也是）' : '，小怪和精英 ' + G.ENEMY_RES.mob + '%，首领 ' + G.ENEMY_RES.boss + '%') + '，名牌和首领血条上写着「抗火」这类小签。物理、混沌不受抗性影响。' +
       '感电让三种元素抗性各降 ' + G.ENEMY_RES.shock + '%（不会降到 0 以下）；辅助<b>破障</b>和装备上的<b>元素穿透</b>能把抗性压到负数，最低 −' + Math.abs(G.ENEMY_RES.floor) + '%。</p>' +
       helpBuildUp() +
+      '<p>屏幕边缘的箭头指向画面外的精英、首领和传送门。</p>' +
+      '<p><b>重燃</b>：你心口的余烬还亮着，倒下后在区域入口重燃（首领战则在竞技场门外），不损失经验和物品。怪物回到原位，首领回满生命。</p>'
+    ],
+    ['combo', '连击', () =>
       '<div class="sec-title">连击、架势与处决</div>' +
       '<p><b>连击</b>：近战普攻按住逐段打出（双匕四段，其余三段），末段<b>终结技</b>伤害最高、打飞敌人。停手、翻滚或换技能会从头开始。</p>' +
       '<p>动作中的按键会被记住，能出手时立刻放出。<b>翻滚可以取消挥砍</b>。</p>' +
       '<p><b>架势</b>：精英和首领血条下的白条，命中削减，几秒不挨打回复。打空后露出<b class="c-gold">破绽</b>：停止出招，受到的伤害 +25%。</p>' +
-      '<p><b>处决</b>：对破绽中的敌人按 <kbd>F</kbd>，无敌重创，回复生命、魔力和药剂。首领每被击破一次，架势更难打空。</p>' +
-      '<p>屏幕边缘的箭头指向画面外的精英、首领和传送门。</p>' +
-      '<p><b>重燃</b>：你心口的余烬还亮着，倒下后在区域入口重燃（首领战则在竞技场门外），不损失经验和物品。怪物回到原位，首领回满生命。</p>' +
-      '</div>' +
-      '<div class="col scroll" data-scroll="help2"><div class="sec-title">技能与辅助宝石</div>' +
+      '<p><b>处决</b>：对破绽中的敌人按 <kbd>F</kbd>，无敌重创，回复生命、魔力和药剂。首领每被击破一次，架势更难打空。</p>'
+    ],
+    ['skill', '技能', () =>
+      '<div class="sec-title">技能与辅助宝石</div>' +
       '<p>怪物掉落<b class="c-teal">技能宝石</b>，更高等级的同名宝石直接升级。在技能页把技能拖到技能栏。</p>' +
       '<p><b class="c-blank">无铭技能宝石</b>可学会任一技能，或把更低等级的已学技能升到它的等级，先用最高的那颗。每个首领首次倒下必掉一颗。</p>' +
       '<p>每个技能有 3 个辅助槽。<b>辅助宝石</b>改变所镶的技能，代价是更高的魔力消耗。一颗只能镶一个技能，技能要带它要求的标签。</p>' +
       '<p><b>刻式</b>：宝石 ' + G.VARIANT_LVL + ' 级后可选 A / B 两种刻式，各加一条新规则。首次免费，之后每换一次 ' + G.VARIANT_COST.n + ' 颗' + G.CURRENCY[G.VARIANT_COST.cur].name + '；' + G.VARIANT_SAFE_R + ' 米内有醒着的敌人时不能换。</p>' +
       '<p><b>光环</b>（' + (G.SKILLS.nova ? G.SKILLS.nova.name : '霜环') + '）放进技能栏即常驻生效，<b>保留</b>一部分最大魔力（以血为引时保留生命）。</p>' +
-      helpSummon() +
+      helpSummon()
+    ],
+    ['weapon', '武器', () => helpWeapons()],
+    ['tree', '天赋', () =>
       '<div class="sec-title">天赋盘</div>' +
       '<p>每升一级得 1 点天赋，首次击败每个首领再得 2 点。五条支路：<b style="color:#e2705a">铸躯</b>（生命与物理）、<b style="color:#7ed67a">迅影</b>（速度与暴击）、<b style="color:#6fb2ff">秘识</b>（魔力与元素）、<b class="c-ally">统御</b>（召唤物）、<b style="color:#ff6ad2">噬渊</b>（混沌、渊缚与黑洞）；相邻支路间有<b style="color:#e0be6e">交汇</b>天赋。满级也点不满，要有取舍。</p>' +
-      '<p>每条支路有两个<b>基石天赋</b>，效果强但有代价。天赋可随时免费退回。</p>' +
-      helpEnc() +
+      '<p>每条支路有两个<b>基石天赋</b>，效果强但有代价。天赋可随时免费退回。</p>'
+    ],
+    ['enc', '异兆', () => helpEnc()],
+    ['zone', '区域', () =>
       '<div class="sec-title">区域与轮回</div>' +
       '<p>每个区域尽头有一名首领，击败后出现通往地图的传送门。</p>' +
       '<p>击败最后一个区域（' + G.ZONES[G.ZONES.length - 1].name + '）的首领开启<b>轮回层级</b>：每高一层，怪物等级 +' + G.TIER_LEVELS + '，物品等级随之提高。</p>' +
       '<p><b>渊印</b>：轮回 1 起进区前选印。印纹越多越凶（<b class="c-red">橙红</b>签强化怪物，<b style="color:#c49cff">紫色</b>签削弱你），物品数量、稀有度和经验加得越多。总权重 ' + G.SEAL.lieW + ' 以上为<b>烈印</b>，首领可掉两件渊契。轮回 ' + G.FRAG_DROP.minTier + ' 起，印还决定<b>烛芯</b>几率：' + fragRates() + '。</p>' +
-      '<p>游戏会自动存档。</p>' +
-      '<div class="sec-title">素材来源</div>' +
-      '<p class="credits">地面与岩壁贴图来自 <b>Poly Haven</b>、<b>ambientCG</b>，布景模型来自 <b>KayKit</b>（Kay Lousberg）与 <b>Kenney</b>，主角、游魂、烬骸仆从与喷吐者的模型和人形角色的部分动作来自 <b>Quaternius</b>，均以 CC0 授权公开，在此致谢。</p>' +
-      '<div class="help-foot"><button type="button" tabindex="-1" class="btn sm" data-act="tut-reset">重新显示新手提示</button>' +
-      '<span>' + (ui.tutMsg || '已看过 ' + Object.keys(G.save.tut).length + ' / ' + HINTS.length + ' 条') + '</span></div>' +
-      '</div>' +
-      '<div class="col scroll" data-scroll="help3">' + helpWeapons() + '<div class="sec-title">装备与词缀</div>' +
+      '<p>游戏会自动存档。</p>'
+    ],
+    ['gear', '装备', () =>
+      '<div class="sec-title">装备与词缀</div>' +
       '<p>装备分<b style="color:' + G.RARITY_COLOR[0] + '">普通</b>、<b style="color:' + G.RARITY_COLOR[1] + '">魔法</b>（最多 2 条词缀）和<b style="color:' + G.RARITY_COLOR[2] + '">稀有</b>（最多 6 条）。词缀分前缀与后缀，各占一半。</p>' +
       '<p><span class="ic-tier t4">T4</span> 是词缀阶级，物品等级决定最高阶。</p>' +
       '<p><b class="vd-up">▲</b> <b class="vd-down">▼</b> 是与身上同部位的比较。悬停背包格子或<b>地上的名牌</b>看完整属性。</p>' +
       '<p><b style="color:' + G.RARITY_COLOR[3] + '">烬铸</b>武器由轮回层级的首领掉落：词缀行固定、数值在区间内掷出（<b>完美度</b>），带独有机制并把 <kbd>R</kbd> 换成<b>烬铸技</b>。无法改造。「烬铸图鉴」记录收集和保底。</p>' +
-      '<p><b>背包操作</b>：右键装备 / 卸下；拖动换装、整理，拖出窗口丢弃；Shift+点击分解（稀有需再点一次）。</p>' +
+      '<p><b>背包操作</b>：右键装备 / 卸下；拖动换装、整理，拖出窗口丢弃；Shift+点击分解（稀有需再点一次）。</p>'
+    ],
+    ['cur', '通货', () => {
+      let curs = '';
+      for (const id of G.CUR_IDS) {
+        const c = G.CURRENCY[id];
+        curs += '<div class="hc" style="--c:' + c.color + '">' + IC.cur(id) + '<b>' + c.name + '</b><span>' + c.desc + '</span></div>';
+      }
+      return (
       '<div class="sec-title">通货</div>' +
       '<p>通货用来改造装备：<b>拖到一件物品上</b>，或选中物品后点右侧的通货按钮。</p>' +
       '<div class="hc-list">' + curs + '</div>' +
       '<p><b style="color:' + G.CURRENCY.chisel.color + '">' + G.CURRENCY.chisel.name + '</b>：拖到物品上后点选一条词缀，只重洗这一条。取消或 <kbd>Esc</kbd> 不消耗。</p>' +
-      '<p>分解魔法物品可能得微光尘，稀有物品必得增幅尘。首领首次被击败保底掉升华石和乱流石各一颗。</p>' +
-      '</div></div>';
+      '<p>分解魔法物品可能得微光尘，稀有物品必得增幅尘。首领首次被击败保底掉升华石和乱流石各一颗。</p>'
+      );
+    }],
+    ['credits', '致谢', () =>
+      '<div class="sec-title">素材来源</div>' +
+      '<p class="credits">地面与岩壁贴图来自 <b>Poly Haven</b>、<b>ambientCG</b>，布景模型来自 <b>KayKit</b>（Kay Lousberg）与 <b>Kenney</b>，主角、游魂、烬骸仆从与喷吐者的模型和人形角色的部分动作来自 <b>Quaternius</b>，均以 CC0 授权公开，在此致谢。</p>'
+    ],
+  ];
+  function renderHelp() {
+    const id = HELP_TOPICS.some((t) => t[0] === ui.helpTopic) ? ui.helpTopic : (ui.helpTopic = 'keys');
+    const T = HELP_TOPICS.find((t) => t[0] === id);
+    const por = portraitUi();
+    const topics = HELP_TOPICS.map((t) => '<button type="button" tabindex="-1" class="ht' + (t[0] === id ? ' on' : '') + '" data-act="topic" data-topic="' + t[0] + '">' + t[1] + '</button>').join('');
+    el.body.innerHTML =
+      '<div class="help2' + (compactUi() ? ' cpt' : ' wide') + (por ? ' por' : '') + '">' +
+      // 竖屏：话题是顶上一排横滑的标签，[?] 在这一排的右边（不跟着滑）
+      (por ? '<div class="h-tbar">' : '') + '<div class="h-topics scroll" data-list data-scroll="help-topics">' + topics + '</div>' + (por ? helpBtn('in-page') + '</div>' : '') +
+      '<div class="h-body scroll" data-list data-scroll="help-' + id + '"><div class="help h-in">' + T[2]() + '</div></div>' +
+      pageNote('help', '') +
+      '</div>' + popHtml();
   }
 
   // ============================================================
   // 渲染调度
   // ============================================================
-  const RENDER = { inv: renderInv, skills: renderSkills, tree: renderTree, map: renderMap, help: renderHelp, trader: renderTrader }; // trader：异兆「拾烬客」，不在页签里
+  const RENDER = { inv: renderInv, stash: renderStash, char: renderChar, skills: renderSkills, tree: renderTree, map: renderMap, help: renderHelp, trader: renderTrader }; // trader：异兆「拾烬客」，不在页签里
 
   function render() {
     if (!ui.isOpen) return;
@@ -3269,8 +4188,14 @@
       if (n.scrollTop > 0) ui.restored[n.dataset.scroll] = { node: n, top: n.scrollTop };
     });
     el.body.dataset.tab = ui.tab;
-    for (const t of el.tabBtns) t.classList.toggle('on', t.dataset.tab === ui.tab);
-    renderPicker();
+    for (const t of el.tabBtns) {
+      t.classList.toggle('on', t.dataset.tab === ui.tab);
+      if (t.dataset.tab === 'stash') t.classList.toggle('dim', !(G.stash && G.stash.ok())); // 仓库不能用时页签变灰（点进去看原因）
+    }
+    el.q.hidden = !PAGE_HINTS[ui.tab];
+    el.q.classList.toggle('on', !!(ui.pop && ui.pop.kind === 'hint'));
+    placeCard();
+    placePop();
     renderConfirm();
     retip();
     hud.costT = -1e9; // 构筑可能变了，HUD 下一帧重新算消耗与天赋点
@@ -3593,6 +4518,8 @@
   function showTip(target) {
     if (drag.on) return;
     const key = target.dataset.tip;
+    // 卡片开着的那件物品：卡片里已经有全部内容，不再盖一层浮窗
+    if (ui.card && (key === 'item:' + ui.card.uid || key === 'stash:' + ui.card.uid) && !target.closest('.sheet')) return hideTip();
     const cut = key.indexOf(':');
     const kind = key.slice(0, cut);
     const id = key.slice(cut + 1);
@@ -3629,7 +4556,7 @@
   // ============================================================
   // 面板操作
   // ============================================================
-  const selItem = () => (ui.sel ? findItem(ui.sel) : null);
+  const selItem = () => (ui.card && !ui.card.stash ? findItem(ui.card.uid) : ui.sel ? findItem(ui.sel) : null);
   function equipSel(item) {
     if (G.equip(item)) {
       ui.invMsg = '';
@@ -3640,6 +4567,14 @@
       ui.invMsg = '无法装备这件物品';
     }
     render();
+  }
+
+  // 确认框（丢弃稀有、琢刻石）的位置：卡片开着时摆在卡片中间，否则跟着鼠标
+  function cardPoint() {
+    const sh = ui.card && el.body.querySelector('.sheet');
+    if (!sh) return { x: ui.mouseX, y: ui.mouseY };
+    const r = sh.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height * 0.6 };
   }
 
   const ACT = {
@@ -3670,6 +4605,28 @@
       ui.trdMsg = res ? '卖掉了「' + f.item.name + '」' : '';
       render();
     },
+    // 窄屏：子页签 货架 / 卖出 / 烛芯
+    'trd-view'(d) {
+      G.sfx('click');
+      ui.trdView = d.v;
+      ui.trdMsg = '';
+      ui.trdArm = null;
+      closeCard();
+      render();
+    },
+    // 窄屏：点一行出卡片；再点同一行收起，点另一行换内容
+    'trd-card'(d) {
+      const k = d.i !== undefined ? { trd: 'stock', i: +d.i } : { trd: 'sell', uid: d.item };
+      const same = ui.card && ui.card.trd === k.trd && (k.trd === 'stock' ? ui.card.i === k.i : ui.card.uid === k.uid);
+      ui.trdMsg = '';
+      if (same) closeCard();
+      else {
+        closeCard();
+        ui.card = Object.assign({ uid: k.uid || 'trd:' + k.i, stash: false, view: 'info', ovf: false }, k);
+        ui.pop = null;
+      }
+      render();
+    },
     'trd-swap'(d) {
       const r = G.traderSwap(d.frag);
       ui.trdMsg = r ? '换得 1 个' + G.FRAGS[d.frag].name : '烛芯不够（要 ' + G.TRADER.swap + ' 个其它种类的）';
@@ -3688,11 +4645,22 @@
     sel(d, a, e) {
       const f = findItem(d.item);
       if (!f) return;
+      clearTimeout(ui.cardTimer); // 上一下单击还在等双击窗口：这一下（Shift / Ctrl / 另一件）说了算
+      ui.cardTimer = 0;
       const now = performance.now();
       if (e && (e.ctrlKey || e.metaKey)) {
         // Ctrl+点击：锁定 / 解锁（Mac 上 Ctrl+点击走右键菜单，见 onPanelContext）
         toggleLock(f.item);
         ui.lastSel = { uid: null, t: 0 };
+        return;
+      }
+      if (e && e.shiftKey && ui.tab === 'stash') {
+        // 仓库页：Shift+点击背包物品直接放进仓库
+        ui.lastSel = { uid: null, t: 0 };
+        if (!f.equipped) {
+          ui.card = { uid: d.item, stash: false, view: 'info', ovf: false };
+          ACT['stash-put']();
+        }
         return;
       }
       if (e && e.shiftKey) {
@@ -3721,40 +4689,113 @@
         render();
         return;
       }
-      if (!f.equipped && ui.lastSel.uid === d.item && now - ui.lastSel.t < 380) {
-        // 双击背包物品 → 装备
+      // 双击背包物品 → 装备（触屏：450 ms 内点同一格算点两下，穿上并收起卡片）
+      if (ui.tab === 'inv' && !f.equipped && ui.lastSel.uid === d.item && now - ui.lastSel.t < (touchOn() ? 450 : 380)) {
         ui.lastSel = { uid: null, t: 0 };
+        closeCard();
         ui.sel = d.item;
         equipSel(f.item);
         return;
       }
       ui.lastSel = { uid: d.item, t: now };
       if (ui.sel !== d.item) {
-        ui.sel = d.item;
         ui.invMsg = '';
         G.sfx('click');
-        render();
       }
+      // 开卡：桌面上背包页的背包物品等双击窗口过了才开；身上的、仓库页的没有双击动作，马上开；
+      // 键盘 / 脚本触发的点击（detail 为 0）不会是双击的第一下，也马上开
+      clickItem(d.item, false, f.equipped || ui.tab === 'stash' || !e || e.detail === 0);
     },
     equip() {
       const f = selItem();
-      if (f) equipSel(f.item);
+      if (!f) return;
+      if (ui.card && G.equip(f.item)) {
+        // 卡片里点「装备」：穿上后收起卡片（物品已经从格子里挪到装备栏）
+        closeCard();
+        ui.invMsg = '';
+        G.sfx('pickup');
+        return render();
+      }
+      equipSel(f.item);
+    },
+    // ---- 卡片和小菜单（docs/ui.md）----
+    'card-close'() {
+      closeCard();
+      G.sfx('click');
+      render();
+    },
+    cmp() {
+      if (!ui.card) return;
+      ui.card.view = ui.card.view === 'cmp' ? 'info' : 'cmp';
+      G.sfx('click');
+      render();
+    },
+    craftview() {
+      if (!ui.card) return;
+      ui.card.view = ui.card.view === 'craft' ? 'info' : 'craft';
+      G.sfx('click');
+      render();
+    },
+    more() {
+      ui.pop = ui.pop && ui.pop.kind === 'more' ? null : { kind: 'more', at: '.sheet [data-act="more"]' };
+      G.sfx('click');
+      render();
+    },
+    filter() {
+      ui.pop = ui.pop && ui.pop.kind === 'filter' ? null : { kind: 'filter', at: '[data-act="filter"]' };
+      closeCard();
+      G.sfx('click');
+      render();
+    },
+    hint() {
+      uiSeenMark(ui.tab);
+      ui.pop = ui.pop && ui.pop.kind === 'hint' ? null : { kind: 'hint', at: portraitUi() ? '#panel-body .ui-q' : '#panel-q' };
+      G.sfx('click');
+      render();
+    },
+    // 帮助页：换话题
+    topic(d) {
+      ui.helpTopic = d.topic;
+      G.sfx('click');
+      render();
+    },
+    sub(d) {
+      if (ui.tab === 'skills') {
+        ui.skSub = d.sub === 'sup' || d.sub === 'learn' ? d.sub : 'skills';
+        closeCard();
+        ui.picker = null;
+      } else ui.charSub = d.sub === 'codex' ? 'codex' : 'stats';
+      G.sfx('click');
+      render();
+    },
+    'stash-view'(d) {
+      ui.stashView = d.v === 'bag' ? 'bag' : 'stash';
+      closeCard();
+      G.sfx('click');
+      render();
     },
     // ---- 共享仓库（class-d2）----
     stash() {
-      ui.sel = null;
-      ui.stashOn = true;
-      ui.stashMsg = '';
-      ui.invMsg = '';
+      // 旧入口（背包页的「共享仓库」按钮）：现在是单独的「仓库」页签
       G.sfx('click');
-      render();
+      open('stash');
     },
     'stash-page'(d) {
       ui.stashPage = +d.p | 0;
+      ui.stashView = 'stash';
+      closeCard();
       G.sfx('click');
       render();
     },
-    'stash-take'(d) {
+    'stash-take'(d, a) {
+      // 窄屏 / 触屏：点仓库格先出卡片（「取出」在卡片里），免得手一滑就挪了东西；桌面照旧点一下就取
+      if (a && a.classList.contains('cell') && compactUi()) {
+        if (ui.lastSel.uid === d.uid && performance.now() - ui.lastSel.t < 450) return;
+        ui.lastSel = { uid: d.uid, t: performance.now() };
+        G.sfx('click');
+        return clickItem(d.uid, true);
+      }
+      closeCard();
       const it = (ui.stashCache || []).find((x) => x.uid === d.uid);
       const r = G.stash.take(d.uid);
       ui.stashBad = r !== true;
@@ -3769,19 +4810,24 @@
       const f = selItem();
       if (!f || f.equipped) return;
       const ok = G.stash.put(f.item);
-      ui.stashOn = true;
       ui.stashBad = !ok;
+      if (ui.tab !== 'stash') ui.invOk = ok ? '「' + f.item.name + '」放进了仓库' : ''; // 背包页的卡片里放的：结果写在背包页
       ui.stashMsg = ok ? '「' + f.item.name + '」放进了仓库' : G.stash.list().length >= G.stash.MAX ? '仓库满了' : '没放进去';
       if (ok) {
         ui.sel = null;
+        closeCard();
         G.sfx('click');
+      } else if (ui.tab !== 'stash') {
+        ui.invMsg = ui.stashMsg;
       }
       render();
     },
     unequip() {
       const f = selItem();
       if (!f) return;
-      ui.invMsg = G.unequip(f.item.slot) ? '' : '背包已满，无法卸下';
+      const ok = G.unequip(f.item.slot);
+      ui.invMsg = ok ? '' : '背包已满，无法卸下';
+      if (ok) closeCard();
       G.sfx('click');
       render();
     },
@@ -3852,9 +4898,11 @@
     },
     lock() {
       const f = selItem();
+      if (ui.pop && ui.pop.kind === 'more') ui.pop = null;
       if (f) toggleLock(f.item);
     },
     sort() {
+      ui.pop = null;
       G.sortBag();
       G.sfx('click');
       render();
@@ -3888,7 +4936,9 @@
     },
     drop() {
       const f = selItem();
-      if (f && !f.equipped) askDrop(f.item, ui.mouseX, ui.mouseY);
+      if (ui.pop && ui.pop.kind === 'more') ui.pop = null;
+      const p = cardPoint();
+      if (f && !f.equipped) askDrop(f.item, p.x, p.y);
     },
     'chisel-pick'(d) {
       const c = ui.confirm;
@@ -3926,7 +4976,10 @@
     craft(d) {
       const f = selItem();
       if (!f) return;
-      if (d.cur === 'chisel' && G.canCraft(f.item, 'chisel')) return askChisel(f.item, ui.mouseX, ui.mouseY);
+      if (d.cur === 'chisel' && G.canCraft(f.item, 'chisel')) {
+        const p = cardPoint();
+        return askChisel(f.item, p.x, p.y);
+      }
       if (G.applyCurrency(f.item, d.cur)) {
         ui.invMsg = '';
         ui.flash = true;
@@ -3938,16 +4991,56 @@
       render();
     },
     codex() {
-      ui.sel = null;
-      ui.stashOn = false;
-      ui.invMsg = '';
+      // 图鉴在「属性」页签的「图鉴」子页
+      ui.charSub = 'codex';
       G.sfx('click');
-      render();
-      const n = el.body.querySelector('.codex-t');
-      if (n && n.scrollIntoView) n.scrollIntoView({ block: 'nearest' });
+      open('char');
     },
 
     // ---- 技能 ----
+    // 点列表的一行 / 技能栏的一格：桌面换中间那张卡片；窄屏开它的卡片（再点一次收起）
+    'sk-sel'(d) {
+      const k = d.skill;
+      if (!skValid(k)) return;
+      ui.picker = null;
+      if (compactUi()) {
+        const same = ui.card && ui.card.sk === k;
+        closeCard();
+        if (!same) ui.card = { sk: k };
+      } else ui.skSel = k;
+      G.sfx('click');
+      render();
+    },
+    'sup-sel'(d) {
+      const same = ui.card && ui.card.sup === d.sup;
+      closeCard();
+      if (!same && G.SUPPORTS[d.sup]) ui.card = { sup: d.sup };
+      G.sfx('click');
+      render();
+    },
+    'pick-back'() {
+      ui.picker = null;
+      G.sfx('click');
+      render();
+    },
+    // 辅助卡的「镶到」：镶进那个技能的第一个空槽（镶在别处的先取下来）
+    'sup-put'(d) {
+      const socks = G.save.sockets[d.skill] || [];
+      let idx = -1;
+      for (let i = 0; i < 3 && idx < 0; i++) if (!socks[i]) idx = i;
+      if (idx < 0 || !G.supportFits(d.skill, d.sup)) return G.sfx('deny');
+      const loc = supLocation(d.sup);
+      if (loc) G.socketSupport(loc.skill, loc.idx, null);
+      if (G.socketSupport(d.skill, idx, d.sup)) G.sfx('gem');
+      else if (loc) G.socketSupport(loc.skill, loc.idx, d.sup); // 没镶上：放回原处
+      render();
+    },
+    'sup-take'(d) {
+      const loc = supLocation(d.sup);
+      if (loc) G.socketSupport(loc.skill, loc.idx, null);
+      G.sfx('click');
+      render();
+    },
     autosum(d) {
       G.toggleAutoSummon(d.skill, undefined, true);
       render();
@@ -4024,30 +5117,25 @@
 
     // ---- 天赋 ----
     node(d) {
-      const id = d.node;
-      const n = G.TREE[id];
-      if (n.kind === 'start') return;
-      if (G.save.passives.includes(id)) {
-        if (G.refundPassive(id)) {
-          ui.treeMsg = '已退回「' + n.name + '」';
-          ui.treeMsgBad = false;
-          G.sfx('click');
-        } else if (G.clsNodeOf && G.clsNodeOf(id)) {
-          ui.treeMsg = '「' + G.clsNodeOf(id).name + '」是职业白送的起步天赋，摘不掉';
-          ui.treeMsgBad = true;
-        } else {
-          ui.treeMsg = '无法退回「' + n.name + '」：它后面的天赋会与起点断开';
-          ui.treeMsgBad = true;
-        }
-      } else if (G.allocPassive(id)) {
-        ui.treeMsg = '已点亮「' + n.name + '」';
-        ui.treeMsgBad = false;
-        G.sfx(n.kind === 'small' ? 'pickup' : 'gem');
-      } else {
-        ui.treeMsg = G.passivePoints().free <= 0 ? '没有可用的天赋点' : '需要先点亮与「' + n.name + '」相邻的天赋';
-        ui.treeMsgBad = true;
+      // 触屏：先出节点卡，按「点亮」才算（再点同一个收起）；桌面单击直接点亮 / 退回
+      if (touchOn()) {
+        if (ui.card && ui.card.tree === 'node' && ui.card.id === d.node) closeCard();
+        else treeCard('node', d.node);
+        G.sfx('click');
+        return render();
       }
-      disarmReset();
+      treeToggle(d.node);
+      render();
+    },
+    'node-go'() {
+      if (ui.card && ui.card.tree === 'node') treeToggle(ui.card.id);
+      render();
+    },
+    // 窄屏 / 触屏左上的「n 点可用」：汇总卡
+    'tree-sum'() {
+      if (ui.card && ui.card.tree === 'sum') closeCard();
+      else treeCard('sum');
+      G.sfx('click');
       render();
     },
     'tree-zoom'(d) {
@@ -4085,6 +5173,13 @@
       render();
     },
     // ---- 地图 ----
+    // 窄屏：点区域卡片开区域卡，再点同一张收起
+    zone(d) {
+      ui.zcard = ui.zcard === d.zone ? null : d.zone;
+      ui.pinMsg = '';
+      G.sfx('click');
+      render();
+    },
     tier(d) {
       ui.mapTier = +d.tier;
       G.sfx('click');
@@ -4094,6 +5189,7 @@
       G.sfx('click');
       // 渊印：轮回层级 ≥ 1 先弹择印面板（三枚印由 sealSeq 定，关掉再开还是这三枚），层级 0 直接进
       if (ui.mapTier >= 1) {
+        ui.zcard = null;
         ui.sealPick = { zone: +d.zone, tier: ui.mapTier, seals: G.rollSeals(+d.zone, ui.mapTier) };
         render();
         return;
@@ -4128,26 +5224,6 @@
       G.sfx('click');
       render();
     },
-    'del-save'() {
-      ui.delArmed = true;
-      G.sfx('click');
-      render();
-    },
-    'del-cancel'() {
-      ui.delArmed = false;
-      G.sfx('click');
-      render();
-    },
-    'del-confirm'() {
-      ui.delArmed = 2;
-      G.sfx('click');
-      render();
-    },
-    'del-final'() {
-      ui.delArmed = false;
-      if (G.resetSave()) location.reload(); // 回收位写不进去时什么都不删（提示条已经亮了）
-      else render();
-    },
   };
 
   const BLANK_ARM_MS = 4000; // 无铭宝石的「再点一次确认」保持多久
@@ -4160,9 +5236,35 @@
 
   function onPanelClick(e) {
     if (ui.noClick) return; // 拖拽松手带出来的 click：不算点击
-    const a = e.target.closest('[data-act]');
+    if (ui.tab === 'tree' && performance.now() < tpinch.block && e.target.closest('#tree-svg')) return; // 两指手势带出来的：不开卡、不点亮
+    let a = e.target.closest('[data-act]');
+    if (ui.tab === 'tree' && touchOn() && e.target.closest('#tree-svg')) a = treePick(e); // 触屏点盘面：离手指最近的节点（treePick）
+    // 这一页里点了任何东西：一次性提示以后不再自动出（docs/ui.md「说明文字」）
+    if (el.body.contains(e.target) && PAGE_HINTS[ui.tab] && !uiSeen(ui.tab) && (!a || a.dataset.act !== 'hint')) {
+      uiSeenMark(ui.tab);
+      if (!a) render();
+    }
+    // 小菜单、卡片开着时，点到外面就收起（点到另一件物品：卡片直接换内容，见 ACT.sel）
+    const act = a && !a.disabled ? a.dataset.act : '';
+    let shut = false;
+    if (ui.pop && !e.target.closest('.ui-pop') && act !== ui.pop.kind) {
+      ui.pop = null;
+      shut = true;
+    }
+    if (ui.card && !e.target.closest('.sheet') && !e.target.closest('.ui-pop') && act !== 'sel' && act !== 'sk-sel' && act !== 'sup-sel' && act !== 'trd-card' && !(act === 'stash-take' && a.classList.contains('cell')) && !(ui.card.tree && (act === 'node' || act === 'tree-sum' || act === 'tree-zoom')) && !e.target.closest('#confirm')) {
+      closeCard();
+      shut = true;
+    }
+    if (ui.zcard !== null && !e.target.closest('.sheet') && !e.target.closest('.ui-pop') && act !== 'zone') {
+      ui.zcard = null;
+      shut = true;
+    }
+    if (shut && !act) {
+      render();
+      return;
+    }
     // 选择器 / 确认框开着时，点到别处就先收起
-    if (ui.picker && !e.target.closest('#picker') && !(a && a.dataset.act === 'socket')) closePicker();
+    if (ui.picker && !e.target.closest('#picker') && !(a && a.dataset.act === 'socket') && closePicker() && !(a && !a.disabled)) render();
     if (ui.confirm && !e.target.closest('#confirm')) {
       ui.confirm = null;
       renderConfirm();
@@ -4180,6 +5282,8 @@
   // 右键：背包物品 → 装备；身上的装备 → 卸下
   function onPanelContext(e) {
     e.preventDefault();
+    clearTimeout(ui.cardTimer); // 单击后马上右键：不再弹出卡片
+    ui.cardTimer = 0;
     if (drag.on) return cancelDrag();
     const c = e.target.closest('[data-item]');
     if (!c || !c.dataset.act) return;
@@ -4622,19 +5726,6 @@
       }
     }
   }
-  // 背包：烛芯一行（拾到过才显示，新角色的背包页布局不变）
-  function fragRow() {
-    const F = G.save.frags || {};
-    let total = 0;
-    for (const id of G.FRAG_IDS) total += F[id] || 0;
-    if (!total) return '';
-    let h = '';
-    for (const id of G.FRAG_IDS) {
-      const f = G.FRAGS[id], n = F[id] || 0;
-      h += '<div class="cur frag' + (n ? '' : ' zero') + '" data-tip="frag:' + id + '" style="--c:' + f.color + '">' + IC.frag(id) + '<span class="cur-name">' + f.name + '</span><b>' + n + '</b></div>';
-    }
-    return '<div class="sec-title">烛芯<span class="sec-note">熄烛者的开启材料</span></div><div class="cur-row frag-row">' + h + '</div>';
-  }
   function fragTip(id) {
     const f = G.FRAGS[id];
     if (!f) return '';
@@ -4671,46 +5762,48 @@
       '<p><b>魂灯</b>：倒下熄一盏并在门外重生，首领保留进度；' + G.PIN_LIVES + ' 盏熄灭即失败，退还 ' + G.PIN_REFUND + ' 个烛芯。首次击败必掉一件巅峰' + G.RELIC_NAME + '。</p>'
     );
   }
+  // 拾烬客（异兆，B4b）：桌面两列（货架 + 烛芯换取 | 卖出）不变；窄屏 / 触屏分成子页签 货架 | 卖出 | 烛芯，一行 44 px，
+  // 点一行出卡片（详情、对比、价格），行尾的按钮直接买卖。只有列表那一块滚动（data-list）
+  const trdPrice = (pr) =>
+    Object.keys(pr).map((id) => '<span class="tp' + ((G.save.cur[id] || 0) >= pr[id] ? '' : ' short') + '" data-tip="cur:' + id + '" style="--c:' + G.CURRENCY[id].color + '">' + IC.cur(id) + '<b>' + pr[id] + '</b></span>').join('');
+  // 卖掉一件得到什么：分解价，魔法以上多 1 颗微光尘
+  function trdGot(it) {
+    const res = G.salvageResult(it);
+    if (it.rarity >= 1) res.dust = (res.dust || 0) + 1;
+    return Object.keys(res).map((id) => '<span class="tp" style="--c:' + G.CURRENCY[id].color + '">' + IC.cur(id) + '<b>' + res[id] + '</b></span>').join('') || '<span class="tp dim">—</span>';
+  }
+  // 货架一格的图标、名字、颜色
+  function trdWare(o) {
+    if (o.kind === 'item') return { icon: IC.item(o.item), name: o.item.name, color: G.RARITY_COLOR[o.item.rarity] };
+    if (o.kind === 'skill') return { icon: IC.skill(o.data.id), name: '技能宝石 · ' + G.SKILLS[o.data.id].name + ' Lv ' + o.data.lvl, color: '#3fe0c8' };
+    return { icon: IC.sup(o.data), name: '辅助宝石 · ' + G.SUPPORTS[o.data].name, color: '#f0f0f4' };
+  }
   function renderTrader() {
     const enc = G.state.trader, S = G.save;
+    const compact = compactUi();
     if (!enc || !enc.stock) {
       el.body.innerHTML = '<div class="trader"><div class="sec-title">拾烬客</div><p class="trd-none">拾烬客不在这里。</p></div>';
       return;
     }
-    const price = (pr) =>
-      Object.keys(pr).map((id) => '<span class="tp' + ((S.cur[id] || 0) >= pr[id] ? '' : ' short') + '" data-tip="cur:' + id + '" style="--c:' + G.CURRENCY[id].color + '">' + IC.cur(id) + '<b>' + pr[id] + '</b></span>').join('');
+    const card = (attrs) => (compact ? ' data-act="trd-card"' + attrs : ''); // 窄屏：整行能点（出卡片）
+    const on = (attrs) => (ui.card && ui.card.trd && attrs === (ui.card.trd === 'stock' ? ' data-i="' + ui.card.i + '"' : ' data-item="' + ui.card.uid + '"') ? ' sel' : '');
     let stock = '';
     enc.stock.forEach((o, i) => {
-      let icon, name, color, tip = '';
-      if (o.kind === 'item') {
-        icon = IC.item(o.item);
-        name = o.item.name;
-        color = G.RARITY_COLOR[o.item.rarity];
-        tip = ' data-tip="trd:' + i + '"';
-      } else if (o.kind === 'skill') {
-        const sk = G.SKILLS[o.data.id];
-        icon = IC.skill(o.data.id);
-        name = '技能宝石 · ' + sk.name + ' Lv ' + o.data.lvl;
-        color = '#3fe0c8';
-      } else {
-        icon = IC.sup(o.data);
-        name = '辅助宝石 · ' + G.SUPPORTS[o.data].name;
-        color = '#f0f0f4';
-      }
+      const w = trdWare(o);
+      const tip = o.kind === 'item' && !compact ? ' data-tip="trd:' + i + '"' : '';
       const ok = !o.sold && G.traderCanPay(o.price);
+      const at = ' data-i="' + i + '"';
       stock +=
-        '<div class="trd-row' + (o.sold ? ' sold' : '') + (o.relic ? ' relic' : '') + '"' + tip + '>' + ibox(icon) + '<span class="trd-name" style="color:' + color + '">' + esc(name) + '</span>' +
-        '<span class="trd-price">' + price(o.price) + '</span>' +
+        '<div class="trd-row' + (o.sold ? ' sold' : '') + (o.relic ? ' relic' : '') + on(at) + '"' + tip + card(at) + '>' + ibox(w.icon) + '<span class="trd-name" style="color:' + w.color + '">' + esc(w.name) + '</span>' +
+        '<span class="trd-price">' + trdPrice(o.price) + '</span>' +
         '<button type="button" tabindex="-1" class="btn sm" data-act="trd-buy" data-i="' + i + '"' + (ok ? '' : ' disabled') + '>' + (o.sold ? '已售' : '买下') + '</button></div>';
     });
     let sell = '';
     for (const it of S.bag) {
-      const res = G.salvageResult(it);
-      if (it.rarity >= 1) res.dust = (res.dust || 0) + 1;
-      const got = Object.keys(res).map((id) => '<span class="tp" style="--c:' + G.CURRENCY[id].color + '">' + IC.cur(id) + '<b>' + res[id] + '</b></span>').join('') || '<span class="tp dim">—</span>';
+      const at = ' data-item="' + it.uid + '"';
       sell +=
-        '<div class="trd-row" data-tip="item:' + it.uid + '">' + ibox(IC.item(it)) + '<span class="trd-name" style="color:' + G.RARITY_COLOR[it.rarity] + '">' + esc(it.name) + '</span>' +
-        '<span class="trd-price">' + got + '</span><button type="button" tabindex="-1" class="btn sm" data-act="trd-sell" data-item="' + it.uid + '"' + (it.lk ? ' disabled>已锁' : '>卖') + '</button></div>';
+        '<div class="trd-row' + on(at) + '"' + (compact ? '' : ' data-tip="item:' + it.uid + '"') + card(at) + '>' + ibox(IC.item(it)) + '<span class="trd-name" style="color:' + G.RARITY_COLOR[it.rarity] + '">' + esc(it.name) + '</span>' +
+        '<span class="trd-price">' + trdGot(it) + '</span><button type="button" tabindex="-1" class="btn sm" data-act="trd-sell" data-item="' + it.uid + '"' + (it.lk ? ' disabled>已锁' : '>卖') + '</button></div>';
     }
     const F = S.frags || {}, swapOn = (G.state.tier || 0) >= G.TRADER.fragTier;
     let frags = '';
@@ -4722,21 +5815,85 @@
         '<div class="trd-frag" data-tip="frag:' + id + '" style="--c:' + f.color + '">' + ibox(IC.frag(id), 'curb') + '<span>' + f.name + ' <b>' + (F[id] || 0) + '</b></span>' +
         '<button type="button" tabindex="-1" class="btn sm" data-act="trd-swap" data-frag="' + id + '"' + (swapOn && other >= G.TRADER.swap ? '' : ' disabled') + '>换 1 个</button></div>';
     }
+    const swapNote = swapOn ? '任意 ' + G.TRADER.swap + ' 个换 1 个指定种类，不收钱' : '轮回 ' + G.TRADER.fragTier + ' 起开放';
+    const sellNote = '按分解价，魔法以上多 1 颗微光尘';
+    if (!compact) {
+      // 桌面：两列不变（各自是一个列表）；一次性提示在最下面占一行
+      el.body.innerHTML =
+        '<div class="trader">' +
+        '<div class="col scroll" data-list data-scroll="trd1"><div class="sec-title">拾烬客的货架<span class="sec-note">物品等级 ' + enc.level + '</span></div>' + stock +
+        '<div class="sec-title">烛芯换取<span class="sec-note">' + swapNote + '</span></div><div class="trd-frags">' + frags + '</div>' +
+        '<p class="trd-msg">' + esc(ui.trdMsg || '') + '</p></div>' +
+        '<div class="col scroll" data-list data-scroll="trd2"><div class="sec-title">卖给拾烬客<span class="sec-note">' + sellNote + '</span></div>' + (sell || '<p class="trd-none">背包是空的</p>') + '</div>' +
+        pageNote('trader', '') +
+        '</div>' + popHtml();
+      return;
+    }
+    const v = ui.trdView === 'sell' || ui.trdView === 'frag' ? ui.trdView : 'stock';
+    const portrait = portraitUi();
+    const note = v === 'stock' ? '物品等级 ' + enc.level : v === 'sell' ? sellNote : swapNote;
+    const sub = (k, label, n) => '<button type="button" tabindex="-1" class="subtab' + (v === k ? ' on' : '') + '" data-act="trd-view" data-v="' + k + '">' + label + (n !== undefined ? '<em>' + n + '</em>' : '') + '</button>';
+    const subs = '<div class="subtabs">' + sub('stock', '货架') + sub('sell', '卖出', S.bag.length) + sub('frag', '烛芯') + (portrait ? helpBtn('in-page') : '<span class="sub-note">' + note + '</span>') + '</div>';
+    const list = v === 'stock' ? stock : v === 'sell' ? sell || '<p class="trd-none">背包是空的</p>' : '<div class="trd-frags">' + frags + '</div>';
+    const msg = ui.trdMsg && !ui.card ? pageNote('trader', '<span class="inv-msg ok">' + esc(ui.trdMsg) + '</span>', 'res', true) : pageNote('trader', '', '', true);
     el.body.innerHTML =
-      '<div class="trader">' +
-      '<div class="col scroll" data-scroll="trd1"><div class="sec-title">拾烬客的货架<span class="sec-note">物品等级 ' + enc.level + '</span></div>' + stock +
-      '<div class="sec-title">烛芯换取<span class="sec-note">' + (swapOn ? '任意 ' + G.TRADER.swap + ' 个换 1 个指定种类，不收钱' : '轮回 ' + G.TRADER.fragTier + ' 起开放') + '</span></div><div class="trd-frags">' + frags + '</div>' +
-      '<p class="trd-msg">' + esc(ui.trdMsg || '') + '</p></div>' +
-      '<div class="col scroll" data-scroll="trd2"><div class="sec-title">卖给拾烬客<span class="sec-note">按分解价，魔法以上多 1 颗微光尘</span></div>' + (sell || '<p class="trd-none">背包是空的</p>') + '</div>' +
-      '</div>';
+      '<div class="trp cpt' + (portrait ? ' por' : '') + '" data-v="' + v + '">' + subs +
+      '<div class="trd-list scroll" data-list data-scroll="trd-' + v + '">' + (portrait ? '<p class="trd-lead">' + note + '</p>' : '') + list + '</div>' +
+      msg + '</div>' + traderSheet() + popHtml();
+  }
+  // 拾烬客的卡片（窄屏）：货架上的一格（ui.card = { trd: 'stock', i }）或背包里要卖的一件（{ trd: 'sell', uid }）
+  function traderSheet() {
+    const c = ui.card;
+    if (!c || !c.trd) return '';
+    const S = G.save, enc = G.state.trader;
+    const B = (act, label, extra) => '<button type="button" tabindex="-1" class="btn primary" data-act="' + act + '"' + (extra || '') + '>' + label + '</button>';
+    const msg = ui.trdMsg ? '<div class="inv-msg sh-msg ok">' + esc(ui.trdMsg) + '</div>' : '';
+    if (c.trd === 'stock') {
+      const o = enc && enc.stock && enc.stock[c.i];
+      if (!o) {
+        ui.card = null;
+        return '';
+      }
+      const cost = '<div class="trd-cost"><span>价格</span>' + trdPrice(o.price) + '</div>';
+      const acts = B('trd-buy', o.sold ? '已售' : '买下', ' data-i="' + c.i + '"' + (!o.sold && G.traderCanPay(o.price) ? '' : ' disabled'));
+      if (o.kind === 'item') {
+        const it = o.item, eqOf = S.equip[it.slot];
+        const body = cost + '<div class="detail-card">' + itemCard(it, { noHead: true, vd: verdict(it), affTips: false, compact: true, cmp: eqOf }) + '</div>';
+        return sheetHtml({ head: sheetHead(it), body, acts, msg, cls: 'trd' + (it.rarity >= 3 ? ' top' : ''), rc: G.RARITY_COLOR[it.rarity] });
+      }
+      const w = trdWare(o);
+      let desc;
+      if (o.kind === 'skill') {
+        const sk = G.SKILLS[o.data.id], have = S.skills[o.data.id] || 0;
+        const off = G.save.cls && G.classCanUse && !G.classCanUse(G.save.cls, o.data.id);
+        desc = '<p class="tc-desc">' + sk.desc + '</p><p class="trd-gem">' + (have ? '已学会 Lv ' + have + (o.data.lvl > have ? '，买下升到 Lv ' + o.data.lvl : '') : '还没学会') + (off ? '。这个职业用不上' : '') + '</p>';
+      } else {
+        const sp = G.SUPPORTS[o.data];
+        desc = '<p class="tc-desc">' + sp.desc + '</p><p class="trd-gem">魔力消耗 ×' + sp.cost + (sp.req || sp.no ? ' · 适用：' + scopeText(sp) : '') + '</p>';
+      }
+      const head = ibox(w.icon, 'gemb') + '<div class="sh-ttl"><div class="sh-name" style="color:' + w.color + '">' + esc(w.name.replace(/^.*? · /, '')) + '</div><div class="sh-kind">' + (o.kind === 'skill' ? '技能宝石 · Lv ' + o.data.lvl : '辅助宝石') + '</div></div>';
+      return sheetHtml({ head, body: cost + '<div class="trd-gemd">' + desc + '</div>', acts, msg, cls: 'trd', rc: w.color });
+    }
+    const f = findItem(c.uid);
+    if (!f || f.equipped) {
+      ui.card = null;
+      return '';
+    }
+    const it = f.item;
+    const body = '<div class="trd-cost"><span>卖出得到</span>' + trdGot(it) + '</div><div class="detail-card">' + itemCard(it, { noHead: true, vd: verdict(it), affTips: false, compact: true, cmp: S.equip[it.slot] }) + '</div>';
+    const acts = B('trd-sell', it.lk ? '已锁' : '卖', ' data-item="' + it.uid + '"' + (it.lk ? ' disabled' : ''));
+    return sheetHtml({ head: sheetHead(it), body, acts, msg, cls: 'trd' + (it.rarity >= 3 ? ' top' : ''), rc: G.RARITY_COLOR[it.rarity] });
   }
 
   // ============================================================
   // 打开 / 关闭
   // ============================================================
-  function open(tab) {
+  // sub：属性页的子页签（'stats' / 'codex'）
+  function open(tab, sub) {
     if (menu.title) return; // 标题画面上不开面板
     if (!RENDER[tab]) tab = 'inv';
+    if (tab === 'char' && sub) ui.charSub = sub === 'codex' ? 'codex' : 'stats';
+    if (tab === 'help' && sub) ui.helpTopic = sub; // 帮助页的话题（暂停菜单的「操作说明」打开「操作」）
     if (ui.intro) closeIntro();
     closePause();
     const wasOpen = ui.isOpen;
@@ -4745,7 +5902,6 @@
       cancelDrag();
       ui.picker = null;
       ui.confirm = null;
-      ui.delArmed = false;
       ui.invMsg = '';
       ui.invOk = '';
       ui.bagMsg = '';
@@ -4755,10 +5911,18 @@
       ui.blankMsg = '';
       ui.trdMsg = '';
       ui.trdArm = null;
+      ui.trdView = 'stock'; // 拾烬客每次打开先看货架
       disarmReset();
       ui.sealPick = null;
+      if (wasOpen) uiSeenMark(ui.tab); // 离开这一页：一次性提示算看过了
+      closeCard();
+      ui.pop = null;
+      ui.zcard = null;
+      ui.stashMsg = '';
+      ui.stashView = 'stash'; // 仓库页每次打开先看仓库
       if (tab === 'map') ui.mapTier = G.clamp(G.state.tier || 0, 0, G.save.maxTier);
     }
+    if (tab === 'skills' && sub) skOpen(sub);
     ui.tab = tab;
     ui.isOpen = true;
     el.panel.classList.add('on');
@@ -4776,9 +5940,12 @@
     ui.picker = null;
     ui.confirm = null;
     ui.sealPick = null;
+    uiSeenMark(ui.tab); // 关掉面板：这一页的一次性提示以后不再自动出
+    closeCard();
+    ui.pop = null;
+    ui.zcard = null;
     disarmReset();
     el.panel.classList.remove('on');
-    el.picker.classList.remove('on');
     el.confirm.classList.remove('on');
     document.body.classList.remove('panel-open');
     hideTip();
@@ -4862,6 +6029,7 @@
     ready: false, // 区域建好了（main.js 调 titleReady）：继续 / 新游戏才能点
     view: null, // 菜单里打开的子页：settings / help / credits / chars
     del: null, // 角色页里正在删的栏位 { k, step: 1 | 2 }（确认两次）
+    delSelf: 0, // 暂停菜单的设置里删当前角色：0 没在删 / 1 第一次确认 / 2 第二次确认
     hidden: [], // 标题画面期间藏起来的敌人 / 召唤物模型
     after: null, // 离开标题画面后要做的事（首次运行的开场卡片）
     t: 0, // 标题画面开了多久（秒，镜头漂移的相位）
@@ -4890,12 +6058,22 @@
   // 第二次确认的话：回收位里已经有一个角色时，写明它会被彻底删掉
   function delFinalText() {
     const tr = G.slots ? G.slots.trash() : null;
-    return '删了就找不回来了。真的删除？' + (tr ? '回收位里的 ' + esc(charLabel(tr.sum)) + ' 会被彻底删除。' : '');
+    // 删掉的角色先进回收位（能恢复）；只有回收位里原来那个会被顶掉、找不回来
+    return tr ? '回收位里的 ' + esc(charLabel(tr.sum)) + ' 会被彻底删除，找不回来。确定删除？' : '删掉后先放进回收位，在角色页可以恢复。确定删除？';
   }
   const DEL_ALT = '删掉的角色先放进回收位，在角色页可以恢复。回收位只放最近删掉的一个，再删一个，原来那个就彻底没了。';
   const slotList = () => (G.slots ? G.slots.list() : { active: 0, slots: [] });
   const slotsFull = () => !!G.slots && hasSave() && G.slots.firstEmpty() < 0;
   function charCard(sum, k, active) {
+    // 窄屏 / 矮屏（B4b）：紧凑卡片 64 px，整张点一下就是「进入」，右边一个「删除」；「改选职业」挪到底下那一行
+    if (sum && compactUi())
+      return (
+        '<div class="ch-card cpt' + (active ? ' ch-on' : '') + '" role="button" data-tact="ch-play" data-slot="' + k + '"' + (sum.cls && G.CLASSES[sum.cls] ? ' data-cls="' + sum.cls + '" style="--cc:' + G.CLASSES[sum.cls].color + '"' : '') + '>' +
+        '<div class="ch-txt"><div class="ch-top"><b>' + esc(charLabel(sum)) + '</b></div>' +
+        '<div class="ch-sub">' + esc(zoneName(sum)) + ' · ' + (sum.tier > 0 ? '轮回 ' + sum.tier : '初入') + '</div>' +
+        '<div class="ch-t">' + agoText(sum.t) + (active ? '<em>上次玩的</em>' : '') + '</div></div>' +
+        '<button type="button" tabindex="-1" class="btn sm ghost ch-x" data-tact="ch-del" data-slot="' + k + '">删除</button></div>'
+      );
     if (!sum)
       return (
         '<button type="button" tabindex="-1" class="ch-card empty" data-tact="ch-new" data-slot="' + k + '">' +
@@ -4933,13 +6111,16 @@
     menu.del = null;
     const tr = G.slots ? G.slots.trash() : null;
     const room = L.slots.some((s) => !s);
+    const cpt = compactUi();
+    // 窄屏：卡片区是唯一的滚动区；载入着的角色还能免费改选一次时，「改选职业」放在底下那一行
+    const re = cpt && G.slots && G.slots.loaded(G.slots.cur()) && G.save.cls && G.save.clsRe ? '<button type="button" tabindex="-1" class="btn sm" data-tact="cl-re">改选职业</button>' : '';
     return (
-      '<div class="ch-grid">' + L.slots.map((s, k) => charCard(s, k, !!s && k === L.active)).join('') + '</div>' +
+      '<div class="ch-grid' + (cpt ? ' cpt scroll" data-list data-scroll="chars"' : '"') + '>' + L.slots.map((s, k) => charCard(s, k, !!s && k === L.active)).join('') + '</div>' +
       (tr
         ? '<div class="ch-trash"><span>回收位：<b>' + esc(charLabel(tr.sum)) + '</b> · ' + agoText(tr.t) + '删除' + '</span>' +
           (room ? '<button type="button" tabindex="-1" class="btn sm" data-tact="ch-restore">恢复</button>' : '<em>栏位满了，先腾出一栏</em>') + '</div>'
         : '') +
-      '<div class="ch-foot"><p class="m-note">最多 6 个角色。设置、图鉴、新手提示和共享仓库所有角色共用。</p>' +
+      '<div class="ch-foot"><p class="m-note">最多 6 个角色。设置、图鉴、新手提示和共享仓库所有角色共用。</p>' + re +
       '<button type="button" tabindex="-1" class="btn sm" data-tact="story">重看开场</button></div>'
     );
   }
@@ -4981,11 +6162,12 @@
     menu.cls = null;
     clsPreview(null);
   }
-  function clsCard(c, sel, rec) {
+  // one：窄屏只显示选中的这一张（不是按钮，职业在上面那排标签里换）
+  function clsCard(c, sel, rec, one) {
     const C = G.CLASSES[c], sk = G.SKILLS[C.start.skill];
     const cur = menu.cls.mode === 'repick' && c === G.save.cls;
     return (
-      '<button type="button" tabindex="-1" class="cl-card' + (sel ? ' on' : '') + (cur ? ' cl-now' : '') + '" data-tact="cl-sel" data-cls="' + c + '" style="--c:' + C.color + '">' +
+      (one ? '<div class="cl-card on cl-one-card" style="--c:' + C.color + '">' : '<button type="button" tabindex="-1" class="cl-card' + (sel ? ' on' : '') + (cur ? ' cl-now' : '') + '" data-tact="cl-sel" data-cls="' + c + '" style="--c:' + C.color + '">') +
       '<div class="cl-top"><b>' + C.name + '</b>' + C.tags.map((t) => '<i>' + t + '</i>').join('') + (rec ? '<em>推荐</em>' : cur ? '<em class="dim">现在</em>' : '') + '</div>' +
       '<div class="cl-line">' + C.line + '</div>' +
       '<div class="cl-row"><span class="cl-k">武器</span>' + C.weapons.map(clsWIcon).join('') + '<span class="cl-v">' + C.weapons.map(G.wTypeLabel).join(' · ') + '</span></div>' +
@@ -4993,7 +6175,7 @@
         ? '<div class="cl-row"><span class="cl-k">起手</span><span class="tc-skico sm" style="--c:' + sk.color + '">' + IC.skill(C.start.skill) + '</span><span class="cl-v">' + G.wTypeLabel(C.start.type) + ' + ' + sk.name + '：' + C.skLine + '</span></div>'
         : '<div class="cl-row"><span class="cl-k">保留</span><span class="cl-v">' + clsKeep(c) + '</span></div>') + // 老角色：手里的东西不会被换掉，写留下的
 
-      '</button>'
+      (one ? '</div>' : '</button>')
     );
   }
   // 老角色选这个职业时留着能用的：手里会拿的那把武器的类型 · 技能栏上这个职业能用的宝石
@@ -5038,12 +6220,21 @@
     const fx = M.mode === 'new' ? '' : '<div class="cl-fx">' + clsEffect(M.sel).map((t) => '<div>' + t + '</div>').join('') + '</div>';
     const ok = M.mode === 'new' ? '以' + G.CLASSES[M.sel].name + '开始' : M.mode === 'pick' ? '选定' + G.CLASSES[M.sel].name : '改成' + G.CLASSES[M.sel].name;
     const same = M.mode === 'repick' && M.sel === G.save.cls;
+    const acts =
+      '<div class="m-acts"><button type="button" tabindex="-1" class="btn primary' + (same ? ' off' : '') + '" data-tact="cl-ok">' + ok + '</button>' +
+      (touchOn() || compactUi() ? '<button type="button" tabindex="-1" class="btn" data-tact="back">返回</button>' : '') + '</div>'; // 触屏 / 矮屏：底栏里放「返回」，右上那个不再重复
+    if (compactUi()) {
+      // 窄屏 / 矮屏（B4b）：顶上一排五个职业标签，下面只放选中的这一张（唯一的滚动区），底栏 开始 / 返回
+      const tabs = G.CLASS_IDS.map((c) => {
+        const C = G.CLASSES[c];
+        return '<button type="button" tabindex="-1" class="cl-tab' + (c === M.sel ? ' on' : '') + (rec && rec.cls === c ? ' rec' : '') + '" data-tact="cl-sel" data-cls="' + c + '" style="--c:' + C.color + '">' + C.name + '</button>';
+      }).join('');
+      return '<div class="cl-tabs">' + tabs + '</div><div class="cl-one scroll" data-list data-scroll="cls">' + head + clsCard(M.sel, true, !!rec && rec.cls === M.sel, true) + fx + altBox(clsAlt(M.sel)) + '</div>' + acts;
+    }
     return (
       head +
       '<div class="cl-list">' + G.CLASS_IDS.map((c) => clsCard(c, c === M.sel, !!rec && rec.cls === c)).join('') + '</div>' +
-      fx + altBox(clsAlt(M.sel)) +
-      '<div class="m-acts"><button type="button" tabindex="-1" class="btn primary' + (same ? ' off' : '') + '" data-tact="cl-ok">' + ok + '</button>' +
-      (touchOn() ? '<button type="button" tabindex="-1" class="btn" data-tact="back">返回</button>' : '') + '</div>' // 触屏：底栏里也放一个返回，矮屏上不用回到顶上找
+      fx + altBox(clsAlt(M.sel)) + acts
     );
   }
   // 选定之后的一条提示：职业、卸下 / 换上的武器
@@ -5115,51 +6306,61 @@
   }
   // 手机版 M2 的触屏设置（只在触屏模式下显示；存在这台设备上）：按钮大小、左手模式、震动（没有震动接口的设备不显示）
   const SET_TS = [['s', '小'], ['m', '中'], ['l', '大']];
-  function touchSettings(row) {
+  // 设置（B4a）：分组（画面 / 操作 / 拾取 / 打击手感 / 声音 / 角色），放得下时两列；开关整行都能点，行高 44 px（触屏）
+  const setSeg = (list, cur, tact, key) => '<div class="seg">' + list.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (cur === o[0] ? ' on' : '') + '" data-tact="' + tact + '" data-' + key + '="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>';
+  const setRow = (name, note, ctrl) => '<div class="m-row"><div class="opt-text"><b>' + name + '</b><span>' + note + '</span></div>' + ctrl + '</div>';
+  // 开关行：整行是一个按钮（data-tact 在行上，on 也在行上），右边画一个开关
+  const setSw = (name, note, on, attrs) => '<button type="button" tabindex="-1" class="m-row sw' + (on ? ' on' : '') + '" ' + attrs + '><span class="opt-text"><b>' + name + '</b><span>' + note + '</span></span><span class="switch' + (on ? ' on' : '') + '"><i></i></span></button>';
+  const setGrp = (name, rows) => (rows ? '<div class="m-grp"><div class="m-gt">' + name + '</div>' + rows + '</div>' : '');
+  function touchSettings() {
     const P = G.touch.prefs;
     return (
-      row('按钮大小', '右下的攻击、技能、翻滚键',
-        '<div class="seg">' + SET_TS.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (P.size === o[0] ? ' on' : '') + '" data-tact="tsize" data-v="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') +
-      row('左手模式', '摇杆放右边，按钮放左边',
-        '<button type="button" tabindex="-1" class="switch' + (P.mirror ? ' on' : '') + '" data-tact="tmirror"><i></i></button>') +
-      (G.touch.canVibe()
-        ? row('震动', '挨重击、翻滚、残血时短震一下',
-            '<button type="button" tabindex="-1" class="switch' + (P.vibe ? ' on' : '') + '" data-tact="tvibe"><i></i></button>')
-        : '')
+      setRow('按钮大小', '右下的攻击、技能、翻滚键', setSeg(SET_TS, P.size, 'tsize', 'v')) +
+      setSw('左手模式', '摇杆放右边，按钮放左边', P.mirror, 'data-tact="tmirror"') +
+      (G.touch.canVibe() ? setSw('震动', '挨重击、翻滚、残血时短震一下', P.vibe, 'data-tact="tvibe"') : '')
+    );
+  }
+  // 删除这个角色（从地图页挪过来，只在游戏里的暂停菜单有；标题画面的角色页另有删除）：确认两次，话和以前一样
+  function setDelRow() {
+    const d = menu.delSelf;
+    return (
+      '<div class="m-row del">' +
+      (d === 2
+        ? '<span class="del-warn">' + delFinalText() + '</span><span class="m-dacts"><button type="button" tabindex="-1" class="btn danger" data-tact="del-final">真的删除</button>' +
+          '<button type="button" tabindex="-1" class="btn" data-tact="del-cancel">取消</button></span>'
+        : d
+        ? '<span class="del-warn">删除 ' + esc(charLabel(curSummary())) + '？</span><span class="m-dacts"><button type="button" tabindex="-1" class="btn danger" data-tact="del-confirm">确认删除</button>' +
+          '<button type="button" tabindex="-1" class="btn" data-tact="del-cancel">取消</button></span>'
+        : '<span class="opt-text"><b>删除这个角色</b><span>删掉的先放进回收位，在角色页可以恢复</span></span><button type="button" tabindex="-1" class="btn ghost" data-tact="del-save">删除</button>') +
+      '</div>'
     );
   }
   function menuSettings() {
-    const S = G.save;
-    const q = G.world.quality ? G.world.quality() : S.opts.quality;
-    const row = (name, note, ctrl) => '<div class="m-row"><div class="opt-text"><b>' + name + '</b><span>' + note + '</span></div>' + ctrl + '</div>';
+    const S = G.save, o = S.opts, Q = S.quest;
+    const q = G.world.quality ? G.world.quality() : o.quality;
     return (
-      row('画质', S.opts.quality === 'auto' ? '自动选择，明显掉帧时会自动调低' : '电脑吃力时调低',
-        '<div class="seg">' + SET_Q.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (q === o[0] ? ' on' : '') + '" data-tact="quality" data-q="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') +
-      // 触屏操作（mobile M1）：自动 = 手机、平板上打开；存在这台设备上（不进存档）
-      (G.touch ? row('触屏操作', '自动：手机、平板上打开',
-        '<div class="seg">' + SET_T.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (G.touch.mode === o[0] ? ' on' : '') + '" data-tact="touchmode" data-m="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') : '') +
-      (touchOn() ? touchSettings(row) : '') +
-      row('普通物品', '魔法、稀有物品总是自动拾取',
-        '<div class="seg">' + SET_N.map((o) => '<button type="button" tabindex="-1" class="seg-b' + (normMode() === o[0] ? ' on' : '') + '" data-tact="normmode" data-mode="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>') +
-      row('折叠普通物品的名牌', '地上只留一个小点，悬停或按住 Alt 展开',
-        '<button type="button" tabindex="-1" class="switch' + (S.opts.hideNormal ? ' on' : '') + '" data-tact="opt" data-opt="hideNormal"><i></i></button>') +
+      '<div class="m-grps">' +
+      setGrp('画面',
+        setRow('画质', o.quality === 'auto' ? '自动选择，明显掉帧时会自动调低' : '电脑吃力时调低', setSeg(SET_Q, q, 'quality', 'q')) +
+        // vf-vfx3：区域氛围（飘雪、余烬、远处的雷……），默认开
+        setSw('环境特效', '各区飘雪、余烬、远雷这类背景效果', o.ambience !== false, 'data-tact="opt" data-opt="ambience"')) +
+      // 触屏操作（mobile M1）：自动 = 手机、平板上打开；存在这台设备上（不进存档）。手机版 M2 的几项只在触屏模式下显示
+      setGrp('操作', (G.touch ? setRow('触屏操作', '自动：手机、平板上打开', setSeg(SET_T, G.touch.mode, 'touchmode', 'm')) : '') + (touchOn() ? touchSettings() : '')) +
+      setGrp('拾取',
+        setRow('普通物品', '魔法、稀有物品总是自动拾取', setSeg(SET_N, normMode(), 'normmode', 'mode')) +
+        setSw('折叠普通物品的名牌', '地上只留一个小点，悬停或按住 Alt 展开', !!o.hideNormal, 'data-tact="opt" data-opt="hideNormal"') +
+        // 主线（quest D2）：关了只藏追踪条、小地图上的金色记号和地图上的角标，进度和奖励照常记。主线走完以后不再显示这个开关
+        (Q && Q.n < G.QUEST_N ? setSw('显示主线', '追踪条、小地图上的金色箭头和区域卡片上的角标。关了进度照常记', !Q.off, 'data-tact="quest"') : '')) +
       // 打击手感（vf-vfx2）：三个开关，默认都开
-      row('受击闪光', '敌人挨打时闪一下亮光',
-        '<button type="button" tabindex="-1" class="switch' + (S.opts.hitFlash !== false ? ' on' : '') + '" data-tact="opt" data-opt="hitFlash"><i></i></button>') +
-      row('顿帧', '重击、暴击时画面停顿一瞬',
-        '<button type="button" tabindex="-1" class="switch' + (S.opts.hitStop !== false ? ' on' : '') + '" data-tact="opt" data-opt="hitStop"><i></i></button>') +
-      row('镜头震动', '大招落地、挨重击时镜头晃一下',
-        '<button type="button" tabindex="-1" class="switch' + (S.opts.shake !== false ? ' on' : '') + '" data-tact="opt" data-opt="shake"><i></i></button>') +
-      // vf-vfx3：区域氛围（飘雪、余烬、远处的雷……），默认开
-      row('环境特效', '各区飘雪、余烬、远雷这类背景效果',
-        '<button type="button" tabindex="-1" class="switch' + (S.opts.ambience !== false ? ' on' : '') + '" data-tact="opt" data-opt="ambience"><i></i></button>') +
+      setGrp('打击手感',
+        setSw('受击闪光', '敌人挨打时闪一下亮光', o.hitFlash !== false, 'data-tact="opt" data-opt="hitFlash"') +
+        setSw('顿帧', '重击、暴击时画面停顿一瞬', o.hitStop !== false, 'data-tact="opt" data-opt="hitStop"') +
+        setSw('镜头震动', '大招落地、挨重击时镜头晃一下', o.shake !== false, 'data-tact="opt" data-opt="shake"')) +
       // sfx-synth：声音。滑条拖动时立即生效（onMenuInput），松手才存档
-      row('静音', '关掉所有声音',
-        '<button type="button" tabindex="-1" class="switch' + (S.opts.mute ? ' on' : '') + '" data-tact="opt" data-opt="mute"><i></i></button>') +
-      SET_VOL.map((o) => row(o[1], o[2], volSlider(o[0]))).join('') +
-      (touchOn()
-        ? '<p class="m-note">画质、普通物品和名牌折叠在游戏里的地图页也能改。触屏的几项只存在这台设备上，不进存档。</p>'
-        : '<p class="m-note">设置会存进存档，前三项在游戏里的地图页也能改。</p>')
+      setGrp('声音', setSw('静音', '关掉所有声音', !!o.mute, 'data-tact="opt" data-opt="mute"') + SET_VOL.map((v) => setRow(v[1], v[2], volSlider(v[0]))).join('')) +
+      (menu.title ? '' : setGrp('角色', setDelRow())) +
+      '</div>' +
+      (touchOn() ? '<p class="m-note">设置会存进存档；触屏的几项只存在这台设备上。</p>' : '<p class="m-note">设置会存进存档。</p>')
     );
   }
   function menuHelp() {
@@ -5205,6 +6406,7 @@
       el.tChars.classList.toggle('has', has && !lock);
       el.tNew.classList.toggle('off', full || lock);
       el.tNewHint.textContent = lock ? '存档写不进去，暂时不能新建' : full ? '6 栏都满了，先删一个' : '';
+      el.tNew.classList.toggle('wide', !!el.tNewHint.textContent); // 矮屏两列时有说明的那个占一整行
       el.title.classList.toggle('ready', menu.ready);
     }
     const host = menu.title ? el.tView : el.pView;
@@ -5213,12 +6415,15 @@
     list.style.display = v ? 'none' : '';
     // 同一个子页里重画（点职业卡、删除确认的下一步）：不再播一遍弹出动画，免得每点一下闪一次
     const still = !!v && host.firstElementChild && host.firstElementChild.dataset && host.firstElementChild.dataset.view === menu.view;
+    // 职业选择在窄屏 / 矮屏上底栏已经有「返回」：右上不再放第二个（Esc 照常返回）。m-body 是子页的滚动区；职业选择和角色页窄屏时滚的是里面的列表
+    const cpt = compactUi() && (menu.view === 'cls' || menu.view === 'chars');
     host.innerHTML = v
-      ? '<div class="m-view' + (still ? ' still' : '') + '" data-view="' + menu.view + '"><div class="m-head"><b>' + (typeof v[0] === 'function' ? v[0]() : v[0]) + '</b>' +
-        '<button type="button" tabindex="-1" class="btn sm" data-tact="back">返回<kbd>Esc</kbd></button></div>' +
-        '<div class="m-body">' + v[1]() + '</div></div>'
+      ? '<div class="m-view' + (still ? ' still' : '') + (cpt ? ' cpt' : '') + '" data-view="' + menu.view + '"><div class="m-head"><b>' + (typeof v[0] === 'function' ? v[0]() : v[0]) + '</b>' +
+        (cpt && menu.view === 'cls' ? '' : '<button type="button" tabindex="-1" class="btn sm" data-tact="back">返回<kbd>Esc</kbd></button>') + '</div>' +
+        '<div class="m-body" data-list data-scroll="menu">' + v[1]() + '</div></div>'
       : '';
     (menu.title ? el.title : el.pause).classList.toggle('sub', !!v);
+    if (!menu.title) el.pause.classList.toggle('set', menu.view === 'settings'); // 设置：卡片放宽，放得下时两列
     if (menu.title) {
       el.title.classList.toggle('chars', menu.view === 'chars' || menu.view === 'cls');
       el.title.classList.toggle('clsv', menu.view === 'cls'); // 职业选择：藏起标志，手机上改成底部一栏、上面露出主角
@@ -5334,6 +6539,7 @@
     if (!menu.pause) return;
     menu.pause = false;
     menu.view = null;
+    menu.delSelf = 0;
     el.pause.classList.remove('on', 'sub');
     document.body.classList.remove('paused');
     el.pView.innerHTML = '';
@@ -5375,6 +6581,27 @@
     hideTitle();
   }
   const MENU_ACT = {
+    // 设置里的「删除这个角色」（B4a 从地图页挪过来）：确认两次，删掉的进回收位，换成一个新角色
+    'del-save'() {
+      menu.delSelf = 1;
+      G.sfx('click');
+      renderMenu();
+    },
+    'del-cancel'() {
+      menu.delSelf = 0;
+      G.sfx('click');
+      renderMenu();
+    },
+    'del-confirm'() {
+      menu.delSelf = 2;
+      G.sfx('click');
+      renderMenu();
+    },
+    'del-final'() {
+      menu.delSelf = 0;
+      if (G.resetSave()) location.reload(); // 回收位写不进去时什么都不删（提示条已经亮了）
+      else renderMenu();
+    },
     touchmode(d) {
       if (G.touch) G.touch.setMode(d.m);
       G.sfx('click');
@@ -5489,7 +6716,8 @@
       showTitle(true);
     },
     back() {
-      if (menu.del) menu.del = null;
+      if (menu.delSelf) menu.delSelf = 0;
+      else if (menu.del) menu.del = null;
       else if (menu.view === 'cls') {
         const re = menu.cls && menu.cls.mode === 'repick';
         closeClass();
@@ -5506,14 +6734,19 @@
     const k = d.tact;
     if ((k === 'continue' || k === 'new' || k === 'chars' || k.startsWith('ch-') || k.startsWith('cl-')) && !menu.ready) return;
     if (k === 'new' && el.tNew.classList.contains('off')) return G.sfx('click');
-    if (MENU_VIEW[k] && k !== 'cls') {
+    if (k === 'help' && menu.pause && !menu.title) {
+      // 游戏里的「操作说明」直接打开帮助页的「操作」（只留一份文字）；标题画面上帮助页打不开，照旧是只读的一页
+      G.sfx('click');
+      open('help', 'keys');
+    } else if (MENU_VIEW[k] && k !== 'cls') {
       closeClass();
       menu.view = k;
       menu.del = null;
+      menu.delSelf = 0;
       G.sfx('click');
       renderMenu();
-    } else if (k === 'quality' || k === 'opt' || k === 'normmode') {
-      ACT[k](d); // 和地图页的选项走同一套：立即生效并存档
+    } else if (k === 'quality' || k === 'opt' || k === 'normmode' || k === 'quest') {
+      ACT[k](d); // 和存档选项走同一套：立即生效并存档
       renderMenu();
     } else if (MENU_ACT[k]) MENU_ACT[k](d);
   }
@@ -5637,7 +6870,13 @@
     drag.src = a.src;
     drag.hover = null;
     drag.info = NO_DROP;
-    closePicker();
+    if (closePicker()) render(); // 选辅助的列表盖着辅助槽：换回卡片，让出落点
+    // 拖物品时收起物品卡和小菜单（桌面上卡片盖在装备栏上，得让出落点）；拖通货时卡片留着，它本身就是落点
+    if (a.kind === 'item' && (ui.card || ui.pop)) {
+      closeCard();
+      ui.pop = null;
+      for (const n of el.body.querySelectorAll('.sheet, .ui-pop')) n.remove();
+    }
     if (ui.confirm) {
       ui.confirm = null;
       renderConfirm();
@@ -5801,7 +7040,7 @@
         if (!G.supportFits(skill, drag.id)) return { el: sock, ok: false, label: unfitText(skill, G.SUPPORTS[drag.id]), run: null };
         return { el: sock, ok: true, label: '镶进 ' + skName(skill), run: () => socketDrop(skill, idx) };
       }
-      if (drag.from && inWin && q('.col-side')) {
+      if (drag.from && inWin && q('.sk-r')) {
         const from = drag.from;
         return {
           el: el.body.querySelector('.sup-list'), ok: true, label: '取下',
@@ -5859,7 +7098,7 @@
     el.ghost.classList.toggle('bad', !info.ok && !!info.label);
   }
 
-  // 技能页拖宝石 / 技能时，指针贴近技能列表的上下边（EDGE_SCROLL 像素内）就自动滚动，越贴边越快，
+  // 技能页拖宝石 / 技能时，指针贴近指针下那个滚动区（data-list：技能列表、卡片、辅助列表）的上下边（EDGE_SCROLL 像素内）就自动滚动，越贴边越快，
   // 远处的孔不用松手再滚。滚轮照常能滚（拖拽不拦 wheel）；列表一滚，scroll 监听会按指针位置重算落点。
   // 进了边带先停 EDGE_DELAY 再滚：从贴边的孔拖起、或松手落在贴边的孔上时，列表不会被顺手带走
   const EDGE_SCROLL = 40, EDGE_SPEED = 900, EDGE_DELAY = 250; // 边带宽度；贴到边上时每秒滚多少像素；进边带后等多少毫秒
@@ -5870,10 +7109,16 @@
     edge.raf = requestAnimationFrame(edgeScroll);
     const dt = edge.t ? Math.min(0.25, (now - edge.t) / 1000) : 0; // 按真实时间滚，帧率低时速度不变；一帧最多按 250 毫秒算，卡顿后不会一下跳很远
     edge.t = now;
-    const list = el.body.querySelector('.skill-list');
-    if (!list || !dt) return;
-    const r = G.rectToFrame(list.getBoundingClientRect());
     const x = drag.x, y = drag.y;
+    let list = null, r = null;
+    for (const n of el.body.querySelectorAll('[data-list]')) {
+      const b = G.rectToFrame(n.getBoundingClientRect());
+      if (x >= b.left && x <= b.right && y >= b.top && y <= b.bottom) (list = n), (r = b);
+    }
+    if (!list || !dt) {
+      edge.acc = edge.inAt = 0;
+      return;
+    }
     let k = 0;
     if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
       if (y < r.top + EDGE_SCROLL) k = -(1 - (y - r.top) / EDGE_SCROLL);
@@ -7139,7 +8384,7 @@
   function init() {
     el.panel = $('panel');
     el.body = $('panel-body');
-    el.picker = $('picker');
+    el.win = $('panel-win');
     el.tip = $('tip');
     el.toasts = $('toasts');
     el.intro = $('intro');
@@ -7170,10 +8415,12 @@
     el.pView = $('p-view');
 
     const tabs = $('tabs');
+    // 页签：横屏 / 桌面写两个字，竖屏一个字（css 切换）；有快捷键的带按键角标
     tabs.innerHTML = TABS.map(
-      (t) => '<button type="button" tabindex="-1" class="tab" data-act="tab" data-tab="' + t[0] + '">' + t[1] + '<kbd>' + t[2] + '</kbd></button>'
+      (t) => '<button type="button" tabindex="-1" class="tab" data-act="tab" data-tab="' + t[0] + '"><span class="tl2">' + t[1] + '</span><span class="tl1" aria-hidden="true">' + t[3] + '</span>' + (t[2] ? '<kbd>' + t[2] + '</kbd>' : '') + '</button>'
     ).join('');
     el.tabBtns = Array.from(tabs.children);
+    el.q = $('panel-q');
 
     initHud();
     initEncHud();
@@ -7202,6 +8449,10 @@
     // 天赋盘：滚轮缩放、拖动平移
     el.body.addEventListener('wheel', treeWheel, { passive: false });
     el.body.addEventListener('pointerdown', treePanDown);
+    el.body.addEventListener('pointerdown', treePinchDown);
+    window.addEventListener('pointermove', treePinchMove);
+    window.addEventListener('pointerup', treePinchUp);
+    window.addEventListener('pointercancel', treePinchUp);
     window.addEventListener('pointermove', treePanMove);
     window.addEventListener('pointerup', treePanUp);
     window.addEventListener('pointercancel', treePanUp);
@@ -7215,6 +8466,14 @@
           // 择印面板：数字键 1–4 直接选（1 是素印），Esc 只收起面板
           if (dg) pickSeal(+dg[2] - 1);
           else ACT['seal-cancel']();
+          e.stopPropagation();
+          e.preventDefault();
+        } else if (e.code === 'Escape' && ui.isOpen && !drag.on && !ui.confirm && (ui.card || ui.pop || ui.zcard !== null)) {
+          // 卡片 / 小菜单开着：Esc 只收起它，不关面板
+          ui.pop = null;
+          ui.zcard = null;
+          closeCard();
+          render();
           e.stopPropagation();
           e.preventDefault();
         } else if (e.code === 'Escape' && (drag.on || ui.confirm)) {
@@ -7262,7 +8521,7 @@
     el.intro.addEventListener('click', (e) => {
       if (e.target === el.intro || e.target.closest('#intro-go')) closeIntro();
     });
-    // 列表滚动后选择器的位置就不对了，直接收起
+    // 滚动时收起悬浮提示（选辅助的列表在卡片里面，跟着滚，不用收）
     el.body.addEventListener(
       'scroll',
       (e) => {
@@ -7274,7 +8533,6 @@
           delete ui.restored[key];
           if (rec.node === n && rec.top === n.scrollTop) return;
         }
-        closePicker();
         hideTip();
         if (drag.on) dragTrack(drag.x, drag.y); // 拖拽中滚动（滚轮 / 贴边自动滚）：指针没动，底下的东西换了
       },
@@ -7321,7 +8579,7 @@
     });
     window.addEventListener('resize', () => {
       if (ui.isOpen) {
-        renderPicker();
+        if (ui.tab === 'inv' || ui.tab === 'stash' || ui.tab === 'char' || ui.tab === 'skills' || ui.tab === 'tree' || ui.card || ui.pop) render(); // 宽屏 / 窄屏 / 竖屏的排法和卡片位置跟着变
         hideTip();
         if (ui.tab === 'tree') treeApply(); // 名字字号跟着面板尺寸重算
       }
@@ -7347,6 +8605,7 @@
     pause: openPause, // 暂停菜单（没有面板开着时才打开，返回是否打开了）
     paused: () => menu.pause,
     showTitle,
+    hideTitle, // 测试用：离开标题画面（不经「继续游戏」）
     titleReady,
     titleOn: () => menu.title,
     titleFrame,
@@ -7365,6 +8624,14 @@
     narr: () => ({ on: !!nc.cur, id: nc.cur ? nc.cur.id : '', out: !!(nc.cur && nc.cur.out), t: nc.cur ? nc.cur.t : 0, dur: nc.cur ? nc.cur.dur : 0, lines: nc.cur ? [nc.l1.textContent, nc.l2.textContent] : [], queued: nc.q.map((x) => x.id), held: nc.root.classList.contains('held') }),
     narrSkip,
     quest: () => ({ on: !!qh.vis, k: qh.k.textContent, goal: qh.goal.textContent, how: qh.how.textContent, alt: qh.alt.textContent, queued: qh.toastQ.slice() }),
+    // 测试用：天赋盘回到「这次还没看过」（下次在触屏上打开按前沿放大一档）；treeFront() 读默认视口的结果
+    treeViewReset: () => {
+      ui.tv = undefined;
+    },
+    treeFront: () => {
+      const svg = document.getElementById('tree-svg');
+      return svg ? Object.assign({}, treeFront(svg), { tv: ui.tv }) : null;
+    },
     hints: () => ({ current: coach.cur ? coach.cur.id : null, state: coach.state, all: HINTS.map((h) => h.id), veteran: coach.vet, minShow: coach.minT, shownFor: coach.t }),
   };
 })();

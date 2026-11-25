@@ -17,6 +17,7 @@ from ca import core, gen, rig  # noqa: E402
 import ca.boss.golem  # noqa: E402,F401
 import ca.boss.lord  # noqa: E402,F401
 import ca.boss.behemoth  # noqa: E402,F401
+import ca.boss.weaver  # noqa: E402,F401
 import ca.boss.snuffer  # noqa: E402,F401
 from catalog import CATALOG, LINEUP_SEEDS  # noqa: E402
 
@@ -45,7 +46,7 @@ def make(item, seed=None, name=None):
     return ob, tris, dt
 
 
-BOSSES = {'golem': ca.boss.golem, 'lord': ca.boss.lord, 'behemoth': ca.boss.behemoth, 'snuffer': ca.boss.snuffer}
+BOSSES = {'golem': ca.boss.golem, 'lord': ca.boss.lord, 'behemoth': ca.boss.behemoth, 'weaver': ca.boss.weaver, 'snuffer': ca.boss.snuffer}
 
 
 def make_boss(item, seed=None, name=None):

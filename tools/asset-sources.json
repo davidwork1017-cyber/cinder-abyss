@@ -38,6 +38,7 @@
     "boss-golem": { "boss": "golem" },
     "boss-lord": { "boss": "lord" },
     "boss-behemoth": { "boss": "behemoth" },
+    "boss-weaver": { "boss": "weaver" },
     "boss-snuffer": { "boss": "snuffer" },
     "zone-ash": { "textures": ["mud_cracked_dry_03", "burned_ground_01", "g_cover_ash"], "with": ["kit-ash"] },
     "kit-frost": { "kit": "frost" },

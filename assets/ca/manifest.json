@@ -1524,6 +1524,67 @@
    "sha256": "74406548a1fb6bdabfe5551b0bfedeea4f68310a9a567904b7119c4f4177a11b"
   },
   {
+   "id": "ca/boss_weaver",
+   "category": "boss",
+   "zone": "boss",
+   "file": "assets/ca/boss/weaver.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 4446,
+   "verts": 12094,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -2.634,
+     0,
+     -2.64
+    ],
+    "max": [
+     2.634,
+     4.985,
+     2.345
+    ]
+   },
+   "h": 4.985,
+   "r": 2.64,
+   "y0": 0,
+   "source": {
+    "script": "art/ca/boss/weaver.py",
+    "clips": "art/ca/boss/weaver_clips.py",
+    "gen": "weaver",
+    "catalog": "art/catalog.py",
+    "seed": 229,
+    "args": {},
+    "bake": {
+     "ao": 0.6,
+     "grad": 0.8,
+     "wear": 0.4,
+     "grime": 0.2,
+     "gain": 1.25
+    }
+   },
+   "bones": 37,
+   "clips": [
+    "barrage",
+    "barrage_w",
+    "broken",
+    "death",
+    "fan",
+    "fan_w",
+    "hit",
+    "idle",
+    "mood",
+    "ring",
+    "ring_w",
+    "summon",
+    "summon_w",
+    "walk"
+   ],
+   "home": "frost",
+   "sha256": "2059b73c00906fa57284c0acb9b593239d276120ed014d0c81619d22663120df"
+  },
+  {
    "id": "ca/crown_brazier",
    "category": "prop",
    "zone": "crown",
