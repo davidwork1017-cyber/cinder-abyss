@@ -28052,6 +28052,7 @@ async function touchSteps() {
   await uiLayoutDone();
   await uiTreeStyleStep();
   await uiTreeTouchZoomStep();
+  await uiTipClampStep();
 }
 
 // ------------------------------------------------------------------ 面板布局（UI-R，docs/ui.md「测试」）
@@ -28359,6 +28360,99 @@ async function uiDeskStyleSkillsStep() {
     for (const k in DESK_STYLE_SK_MAIN) if (got[k] !== DESK_STYLE_SK_MAIN[k]) bad.push(k + '：main ' + DESK_STYLE_SK_MAIN[k] + '，现在 ' + got[k]);
     assert(!bad.length, bad.length + ' 项和 main 不一样：' + bad.slice(0, 8).join(' ｜ '));
     return Object.keys(DESK_STYLE_SK_MAIN).length + ' 项相等';
+  });
+}
+// 桌面浮窗夹在面板正文里（tip-clamp）：1280×720 / 1366×768 / 1920×1080 下，技能页每张卡的每个辅助槽、天赋盘、背包、仓库、地图上的浮窗都整个在 #panel-body 里。
+// 比正文还大的浮窗照旧只夹在视口里（#tip 上 data-fb），这种放行，并在结果里报出来
+async function uiTipClampStep() {
+  await step('桌面浮窗：1280×720 / 1366×768 / 1920×1080 下技能页每个辅助槽、天赋盘、背包、仓库、地图的浮窗都整个在面板正文里（不出面板、不盖页头）；放不进正文的照旧夹在视口里并记下', async () => {
+    if (browser) await browser.close().catch(() => {});
+    ({ browser, page, errors } = await launch({ width: 1280, height: 720, dpr: null }));
+    await install();
+    await ev(() => {
+      G.save.seenHelp = G.save.seenStory = true;
+      for (const id of G.ui.hints().all) G.save.tut[id] = 1;
+      localStorage.setItem('cinder-abyss-ui-seen', JSON.stringify({ inv: 1, stash: 1, char: 1, skills: 1, tree: 1, map: 1, help: 1 }));
+      G.ui.close();
+      G.debug.hold(true);
+      const s = G.save;
+      if (!s.cls && G.CLASSES) s.cls = 'star';
+      G.debug.setLevel(30);
+      G.debug.learnAll();
+      for (const id of Object.keys(G.SUPPORTS)) if (!s.supports.includes(id)) s.supports.push(id);
+      // 每个学会的技能（和武器普攻卡）镶上能镶的辅助：每颗只镶一处
+      const used = new Set();
+      for (const sid of Object.keys(s.skills).concat([G.BASIC_CARD])) {
+        if (sid !== G.BASIC_CARD && !(s.skills[sid] && G.SKILLS[sid])) continue;
+        for (let i = 0; i < 3; i++) {
+          const sup = s.supports.find((x) => !used.has(x) && G.supportFits(sid, x));
+          if (sup && G.socketSupport(sid, i, sup)) used.add(sup);
+        }
+      }
+      const slots = ['boots', 'belt', 'gloves', 'body', 'amulet', 'helm', 'ring'];
+      s.bag.length = 0;
+      for (let i = 0; i < 30; i++) G.debug.giveItem(i % 3, slots[i % slots.length], undefined, 28);
+      if (G.stash && G.stash.ok()) for (let i = G.stash.list().length; i < 30; i++) G.stash.put(G.rollItem(20, i % 3, slots[i % slots.length]), true);
+      G.resetPassives();
+      for (let i = 0; i < 20; i++) {
+        const can = Object.keys(G.TREE).filter((id) => !s.passives.includes(id) && G.TREE[id].links.some((l) => s.passives.includes(l))).sort();
+        if (!can.length || !G.allocPassive(can[0])) break;
+      }
+      G.computeStats();
+    });
+    const bad = [], fb = [], counts = {};
+    for (const [w, h] of [[1280, 720], [1366, 768], [1920, 1080]]) {
+      await page.setViewportSize({ width: w, height: h });
+      // 每一页：[页签, 要选中的那些行（技能页逐张卡）, 浮窗目标的选择器]
+      const pages = [['skills', await ev(() => [G.BASIC_CARD].concat(Object.keys(G.save.skills).filter((id) => G.save.skills[id] && G.SKILLS[id] && !G.SKILLS[id].weaponOnly && G.SKILLS[id].tags.indexOf('weapon') < 0))), '.sock[data-tip]'], ['tree', [null], '[data-tip]'], ['inv', [null], '[data-tip]'], ['stash', [null], '[data-tip]'], ['map', [null], '[data-tip]']];
+      for (const [tab, subs, sel] of pages) {
+        let n = 0;
+        for (const sub of subs) {
+          await ev(([tab, sub]) => { G.ui.close(); G.ui.open(tab, sub || undefined); }, [tab, sub]);
+          await frames(2);
+          // 看得见、没被挡住的目标；多的时候按位置抽样（四边的都要）
+          const ts = await ev((sel) => {
+            const all = Array.from(document.querySelectorAll('#panel-body ' + sel)).filter((n) => {
+              const r = n.getBoundingClientRect();
+              if (r.width < 2 || r.height < 2) return false;
+              const c = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+              return c && (c === n || n.contains(c));
+            });
+            let pick = all;
+            if (all.length > 40) {
+              const by = (f) => all.slice().sort((a, b) => f(a.getBoundingClientRect()) - f(b.getBoundingClientRect()));
+              const set = new Set([...by((r) => -r.right).slice(0, 8), ...by((r) => -r.bottom).slice(0, 8), ...by((r) => r.left).slice(0, 4), ...by((r) => r.top).slice(0, 4)]);
+              for (let i = 0; i < all.length; i += Math.ceil(all.length / 16)) set.add(all[i]);
+              pick = Array.from(set);
+            }
+            return pick.map((n) => { const r = n.getBoundingClientRect(); return { k: n.dataset.tip, x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+          }, sel);
+          for (const t of ts) {
+            await page.mouse.move(2, 2);
+            await page.mouse.move(t.x, t.y);
+            await frames(1);
+            const m = await ev(() => {
+              const tip = document.getElementById('tip');
+              if (!tip.classList.contains('on')) return null;
+              const r = tip.getBoundingClientRect(), b = document.getElementById('panel-body').getBoundingClientRect(), hd = document.getElementById('panel-head').getBoundingClientRect();
+              const R = (a) => [a.left, a.top, a.right, a.bottom].map(Math.round).join(',');
+              return { fb: !!tip.dataset.fb, out: r.left < b.left - 1 || r.top < b.top - 1 || r.right > b.right + 1 || r.bottom > b.bottom + 1, head: r.top < hd.bottom - 1, vp: r.left < 0 || r.top < 0 || r.right > innerWidth || r.bottom > innerHeight, tip: R(r), body: R(b) };
+            });
+            n++;
+            if (!m) continue;
+            const where = w + '×' + h + ' ' + tab + ' ' + t.k;
+            if (m.fb) fb.push(where);
+            if (m.vp) bad.push(where + ' 出了屏幕 ' + m.tip);
+            else if (!m.fb && (m.out || m.head)) bad.push(where + ' 出了正文 ' + m.tip + ' / ' + m.body);
+          }
+        }
+        counts[tab] = (counts[tab] || 0) + n;
+      }
+    }
+    await page.mouse.move(2, 2);
+    await ev(() => G.ui.close());
+    assert(!bad.length, bad.length + ' 个浮窗出了面板正文：' + bad.slice(0, 6).join(' ｜ '));
+    return Object.entries(counts).map(([k, v]) => k + ' ' + v).join('、') + ' 次悬停（三个尺寸合计）；放不进正文、照旧夹在视口里 ' + fb.length + ' 个' + (fb.length ? '：' + fb.slice(0, 4).join('；') : '');
   });
 }
 // 天赋盘的触屏默认视口（dev-48，随 UI-R B2）：这次打开游戏后第一次看天赋盘，放大一档、对准前沿（已点亮 + 能点亮）。
