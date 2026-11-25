@@ -553,7 +553,8 @@ await step('画面：渲染在跑（时间在走、没有丢失上下文），�
 
 // mem-hunt：内存。WebKit 的垃圾回收很懒，不先回收的话每次换区的垃圾（旧区的几何体数组等）堆着，看起来像在涨；量之前先 page.requestGC()（WebKit 的 Heap.gc）。
 // 这台机器上 WebKit 用 Mesa llvmpipe 软件渲染，显存那份也算在 WebProcess 里（iPhone 上在 GPU 进程），所以第一圈涨一截是正常的（缓存、分配器的高水位）；
-// 第二圈就该平了：再涨就是有东西没释放。实测第二圈相对第一圈 −60…+40 MB（噪声），没释放整区的东西时一圈要多出好几百 MB
+// 之后就该平了。回收以后每圈末的 RSS 还会上下跳 ±200 MB（软件 GL 和 glibc 什么时候把内存还给系统说不准，不是单调的），所以不拿第二圈比第一圈，
+// 走三圈、拿第三圈比前两圈里高的那一圈（高水位）：真在漏的话每圈都把高水位往上推。实测第三圈 − max(第一、二圈) = −10…−107 MB，没释放整区的东西时一圈要多出好几百 MB
 const RSS_LAP2_MB = 100;
 function webProcRssMB() {
   // 这个 node 进程底下最大的 WebKit 进程（WPEWebProcess / WebKitWebProcess）的 RSS；不是 Linux 就返回 null
@@ -588,7 +589,7 @@ function webProcRssMB() {
 // 换区卡顿（mem-hunt）：一次贴图上传（texImage2D / texSubImage2D）超过 100 ms 就算卡。这里软件渲染一帧本来就 0.5–1 秒，没法按「长任务」判断，只量上传；
 // 原来每次进烬渊，深渊底那张画布贴图一次传 0.8–0.9 秒（WebKit 的画布 → GL 拷贝），现在传像素
 const UPLOAD_MAX_MS = 100;
-await step('内存：低档连走五个区两圈（每区打首领、清怪），回收后第二圈 WebProcess 的 RSS 涨不过 ' + RSS_LAP2_MB + ' MB，几何体 / 贴图 / 程序回到第一圈的水平；第二圈再进区没有一次贴图上传超过 ' + UPLOAD_MAX_MS + ' ms，烬渊深渊底的贴图传像素、和传画布逐像素相同', async () => {
+await step('内存：低档连走五个区三圈（每区打首领、清怪），回收后第三圈 WebProcess 的 RSS 不比前两圈高 ' + RSS_LAP2_MB + ' MB 以上，几何体 / 贴图 / 程序回到第一圈的水平；第二、三圈再进区没有一次贴图上传超过 ' + UPLOAD_MAX_MS + ' ms，烬渊深渊底的贴图传像素、和传画布逐像素相同', async () => {
   const st0 = await ev(() => ({ zi: G.state.zoneIdx, tier: G.state.tier, q: G.world.quality(), god: !!G.player.god }));
   const laps = [];
   let deep = null;
@@ -612,7 +613,7 @@ await step('内存：低档连走五个区两圈（每区打首领、清怪）�
         };
       }
     });
-    for (let lap = 0; lap < 2; lap++) {
+    for (let lap = 0; lap < 3; lap++) {
       await ev(() => {
         __upl.max = 0;
         __upl.at = '';
@@ -660,14 +661,15 @@ await step('内存：低档连走五个区两圈（每区打首领、清怪）�
     }, st0);
     await until(() => !G.world.assetsPending(), null, 60000).catch(() => {});
   }
-  const [l1, l2] = laps;
+  const [l1, l2, l3] = laps;
   // 贴图留 6 张余量：有些全局贴图第一次用到才建、建了就一直留着（异兆道具的环 / 符文这类随机出现的东西可能第二圈才第一次碰到）；漏掉整区的贴图一圈是几十张
-  assert(l2.geo - l1.geo <= 3 && l2.tex - l1.tex <= 6 && l2.prog - l1.prog <= 3, '第二圈没回到第一圈的水平：' + JSON.stringify(laps));
-  assert(l2.upMs <= UPLOAD_MAX_MS, '第二圈有一次贴图上传 ' + l2.upMs + ' ms（' + l2.upAt + '）');
+  for (const l of [l2, l3]) assert(l.geo - l1.geo <= 3 && l.tex - l1.tex <= 6 && l.prog - l1.prog <= 3, '后两圈没回到第一圈的水平：' + JSON.stringify(laps));
+  for (const l of [l2, l3]) assert(l.upMs <= UPLOAD_MAX_MS, '再进区有一次贴图上传 ' + l.upMs + ' ms（' + l.upAt + '）');
   assert(deep && deep.via === 'data' && deep.data === deep.canvas, '烬渊深渊底的贴图应传像素、和传画布逐像素相同：' + JSON.stringify(deep));
-  if (l1.rss != null && l2.rss != null) assert(l2.rss - l1.rss <= RSS_LAP2_MB, '回收后第二圈 WebProcess 涨了 ' + (l2.rss - l1.rss).toFixed(0) + ' MB：' + JSON.stringify(laps));
-  const rss = l1.rss != null ? 'WebProcess ' + l1.rss.toFixed(0) + ' → ' + l2.rss.toFixed(0) + ' MB（' + (l2.rss - l1.rss >= 0 ? '+' : '') + (l2.rss - l1.rss).toFixed(0) + '）' : 'RSS 量不到（不是 Linux）';
-  return rss + ' ｜ 几何体 ' + l1.geo + ' → ' + l2.geo + '，贴图 ' + l1.tex + ' → ' + l2.tex + '，程序 ' + l1.prog + ' → ' + l2.prog + ' ｜ 最长一次贴图上传 第一圈 ' + l1.upMs + ' ms（' + l1.upAt + '）/ 第二圈 ' + l2.upMs + ' ms（' + l2.upAt + '） ｜ 深渊底传像素 ' + deep.dataMs + ' ms / 传画布 ' + deep.canvasMs + ' ms';
+  const hw = l1.rss != null && l2.rss != null && l3.rss != null ? l3.rss - Math.max(l1.rss, l2.rss) : null;
+  if (hw != null) assert(hw <= RSS_LAP2_MB, '回收后第三圈 WebProcess 比前两圈的高水位还高 ' + hw.toFixed(0) + ' MB：' + JSON.stringify(laps));
+  const rss = hw != null ? 'WebProcess 每圈末 ' + l1.rss.toFixed(0) + ' / ' + l2.rss.toFixed(0) + ' / ' + l3.rss.toFixed(0) + ' MB（第三圈 − 高水位 ' + (hw >= 0 ? '+' : '') + hw.toFixed(0) + '）' : 'RSS 量不到（不是 Linux）';
+  return rss + ' ｜ 几何体 ' + l1.geo + ' → ' + l2.geo + ' → ' + l3.geo + '，贴图 ' + l1.tex + ' → ' + l2.tex + ' → ' + l3.tex + '，程序 ' + l1.prog + ' → ' + l2.prog + ' → ' + l3.prog + ' ｜ 最长一次贴图上传 第一圈 ' + l1.upMs + ' ms（' + l1.upAt + '）/ 第二、三圈 ' + Math.max(l2.upMs, l3.upMs) + ' ms ｜ 深渊底传像素 ' + deep.dataMs + ' ms / 传画布 ' + deep.canvasMs + ' ms';
 });
 
 await step('M2：iPhone 没有震动接口，设置里不显示「震动」；长按地图上的区域卡片出详情，松手留着', async () => {
