@@ -55,7 +55,13 @@ export async function launch({ width = 1440, height = 900, url = GAME_URL, title
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push('console.error: ' + m.text());
   });
-  await page.goto(url);
+  try {
+    await page.goto(url);
+  } catch (e) {
+    // 载入超时（机器忙）时调用方拿不到 browser，不关就一直开着跑游戏、占核，后面的步骤跟着超时
+    await browser.close().catch(() => {});
+    throw e;
+  }
   return { browser, page, errors };
 }
 

@@ -321,7 +321,7 @@
     nails: {
       name: '散钉', icon: '钉', color: '#b9c0cc', tags: ['attack', 'projectile', 'phys'], kind: 'proj', noSup: ['chain'],
       wm: 0.66, gunSec: 0.225, time: 0.5, mana: 5, cd: 0, count: 7, spread: 8, speed: 30, life: 0.27, projR: 0.22, pierce: 0, hitCap: 3, useMult: 3, w: 0, kb: 0.3, poise: 6, vk: 'nail', bclip: 'nails', // vk：细长的钢钉（world.js PF_DRAW.nail）
-      desc: '扇形掷出 5 枚铁钉，射程 8 米，贴近时最多 3 枚打中同一个敌人。', alt: '每枚都会击退、削架势。多重投射加钉子、扇面变宽，单体上限不变。',
+      desc: '扇形掷出 7 枚铁钉，射程 8 米，贴近时最多 3 枚打中同一个敌人。', alt: '拿枪时从枪口打出去，一枚的伤害按这把枪右键连射 0.225 秒算。每枚都会击退、削架势。多重投射加钉子、扇面变宽，单体上限不变。',
     },
     // 放血：身前 arc° 的交叉两刀（一次结算），bleed：让敌人流血，4 秒内再受到这一击物理伤害的 bleed%（规则见 G.BLEED）
     rend: {
@@ -1149,13 +1149,13 @@
     nails: {
       a: {
         name: '环钉', pack: '被围时最强；远处单体只中一枚',
-        desc: '朝四周掷出一圈 12 枚铁钉，射程约 6.5 米，同一个敌人最多中 2 枚。', alt: '每枚都会击退、削架势。多重投射加钉子。',
-        set: { mech: 'ring', wm: 0.6, count: 12, hitCap: 2, useMult: 2, life: 0.22 },
+        desc: '朝四周掷出一圈 8 枚铁钉，射程约 4.4 米，同一个敌人最多中 2 枚。', alt: '每枚都会击退、削架势。多重投射加钉子。',
+        set: { mech: 'ring', wm: 0.943, count: 8, hitCap: 2, useMult: 2, life: 0.15 }, // imbue 批：原式 wm 0.42 → 0.66 之后按比例补上（单体对等 0.95），一圈 12 → 8 枚、射程 6.5 → 4.4 米（被围时最强；散开的怪群不超规则 (a)）
       },
       b: {
         name: '钩钉', pack: '每枚略轻；把怪拽到身前',
-        desc: '扇形掷出 5 枚带钩铁钉，每中一枚把敌人往你身边拽 0.5 米。', alt: '不再击退。精英只拽一半，首领拽不动。贴近时最多 3 枚打中同一个敌人。',
-        set: { mech: 'hook', wm: 0.4, kb: 0, hook: { d: 0.53, elite: 0.5 } },
+        desc: '扇形掷出 4 枚带钩铁钉，每中一枚把敌人往你身边拽 0.5 米。', alt: '不再击退。精英只拽一半，首领拽不动。贴近时最多 3 枚打中同一个敌人。',
+        set: { mech: 'hook', wm: 0.629, count: 4, kb: 0, hook: { d: 0.53, elite: 0.5 } }, // imbue 批：wm 按原式比例补上（单体对等 0.95），7 → 4 枚（散开的怪群不超规则 (a)；贴脸单体照样中 3 枚）
       },
     },
     // 放血 A 血镰：交叉两刀化成一道往前飞的血镰（6.5 × 1.5 米的直线，撞墙截断），流血 60%
@@ -2629,7 +2629,7 @@
     forge: {
       name: '炉匠', color: '#ffb35a', tags: ['枪械', '远程'], weapons: ['gatling', 'flamer', 'revolver'],
       line: '把首领剩下的火塞进铁膛，打成连发的火。',
-      start: { type: 'gatling', skill: 'nails' }, skLine: '扇形打出 5 枚铁钉',
+      start: { type: 'gatling', skill: 'nails' }, skLine: '扇形打出 7 枚铁钉',
       node: { id: 'sm0', name: '炉匠 · 铁膂', note: '炉匠的起步天赋：扛得住铁膛的后坐力。' },
     },
   };

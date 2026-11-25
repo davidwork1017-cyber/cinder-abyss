@@ -15323,7 +15323,7 @@ async function main() {
     return '1 秒 ' + r.zaps1 + ' 跳，加成 ' + r.k1 + ' → ' + r.k25;
   })));
 
-  await step('散钉：扇形 5 枚（多重投射 7 枚），贴脸单体最多中 3 枚；扇面里的 5 只至少 4 只中、5 枚全中', noRes(() => seKeep(async () => {
+  await step('散钉：扇形 7 枚（多重投射 9 枚；imbue 批 5 → 7），贴脸单体最多中 3 枚；扇面里的 5 只至少 4 只中、7 枚全中', noRes(() => seKeep(async () => {
     const r = await ev(() => {
       T.lane();
       G.save.bar = [null, null, null, null];
@@ -15361,10 +15361,10 @@ async function main() {
       out.fanHit = fan.filter((m) => m.hp < m.maxHp).length;
       return out;
     });
-    assert(r.shot === 5 && r.shot2 === 7, '枚数不对：' + JSON.stringify(r));
+    assert(r.shot === 7 && r.shot2 === 9, '枚数不对（imbue 批起 7 枚）：' + JSON.stringify(r));
     assert(Math.abs(r.k - 3) < 0.05 && Math.abs(r.k2 - 3) < 0.05, '贴脸单体应正好中 3 枚：' + JSON.stringify(r));
     // 靶子有体型：相邻两只可能被同一枚钉子先碰到，按「5 只里至少 4 只中」算扇面覆盖
-    assert(r.fanHit >= 4 && r.fan.reduce((a, b) => a + b, 0) === 5, '扇面应覆盖 5 个方向（至少 4 只中、5 枚全中）：' + JSON.stringify(r));
+    assert(r.fanHit >= 4 && r.fan.reduce((a, b) => a + b, 0) === 7, '扇面应覆盖 5 个方向（至少 4 只中、7 枚全中）：' + JSON.stringify(r));
     return '贴脸 ' + r.k + ' 枚，扇面 ' + r.fan.join('/');
   })));
 
@@ -16950,7 +16950,7 @@ async function main() {
     assert(r.carry >= 1 && r.b2 > 0 && r.kAfter >= 2.4 && !r.chainFit, '目标倒下后加成应转到身边的敌人；连锁镶不上：' + JSON.stringify(r));
     return '2 秒 ×' + r.k2 + '，4 秒 ×' + r.k4 + '，转移后 ×' + r.kAfter;
   });
-  await step('刻式 b2·散钉「环钉」：一圈 12 枚朝四周飞，身边一圈 8 只都挨到，同一只最多中 2 枚', async () => {
+  await step('刻式 b2·散钉「环钉」：一圈 8 枚朝四周飞（imbue 批 12 → 8），身边一圈 8 只都挨到，同一只最多中 2 枚', async () => {
     await ev(TVDEF);
     const r = await ev(() => {
       TV.setup('nails', 'a');
@@ -16968,7 +16968,7 @@ async function main() {
       TV.done();
       return out;
     });
-    assert(r.proj === 12 && r.n.every((x) => x >= 1 && x <= 2) && r.rings === 1, '环钉应 12 枚四散、每只 1–2 枚：' + JSON.stringify(r));
+    assert(r.proj === 8 && r.n.every((x) => x >= 1 && x <= 2) && r.rings === 1, '环钉应 8 枚四散、每只 1–2 枚：' + JSON.stringify(r));
     return '8 只各中 ' + r.n.join('/');
   });
   await step('刻式 b2·散钉「钩钉」：每中一枚把敌人往你身边拽（不击退），首领拽不动；原式把它往外推', async () => {
@@ -22505,7 +22505,6 @@ async function d2bSteps() {
 // 每一步都只在这一步里给存档套上职业，结束时摘掉
 // =====================================================================
 const D2B2_GEMS = ['snare', 'brace', 'scorch', 'heartfire', 'leapshot'];
-const IMB_IDS = ['molten', 'wedge', 'rime']; // 装填（imbue 批）
 async function d2b2Steps() {
   const clsOn = (c) => ev((c) => {
     window.__d2b2Save = { cls: G.save.cls, lock: G.save.clsLock, variants: JSON.stringify(G.save.variants || {}) };
@@ -23216,7 +23215,7 @@ async function imbueSteps() {
         out.json1 = JSON.stringify(S).indexOf('"imbue":"wedge"') >= 0;
         IM.ticks(70);
         IM.tap(3); // 卸下：当场生效
-        out.offNow = [G.imbueOn(), !!P.cast, P.cds.wedge > 0].join();
+        out.offNow = [String(G.imbueOn()), !!P.cast, P.cds.wedge > 0].join(); // String：[null].join() 是空串
         out.json0 = JSON.stringify(S).indexOf('"imbue"') < 0;
         // 按住不放：只认轻点，不会来回切
         G.input.keys.KeyQ = true;
@@ -23233,7 +23232,7 @@ async function imbueSteps() {
         // 近战武器：不生效、不占保留；换回枪又生效
         G.save.equip.weapon = T.std;
         G.computeStats();
-        out.melee = [G.imbueOn(), P.reservePct, S.imbue].join();
+        out.melee = [String(G.imbueOn()), P.reservePct, S.imbue].join();
         IM.wield('gatling');
         out.back = G.imbueOn();
         // 拿下技能栏：当场卸下
@@ -23266,7 +23265,7 @@ async function imbueSteps() {
       ev(() => {
         const P = G.player, S = G.save, St = G.state.stats, out = {};
         IM.wield('gatling');
-        for (const id of IMB_IDS) S.skills[id] = 20;
+        for (const id of ['molten', 'wedge', 'rime']) S.skills[id] = 20;
         const run = (id, mk, secs) => {
           G.clearEnemies();
           G.resetRanged();
@@ -23314,7 +23313,8 @@ async function imbueSteps() {
         IM.tap(0);
         IM.ticks(40);
         out.nailsZap = (St.imbZap || 0) - z0;
-        out.nailsLeft = es.filter((e) => e.imbW && e.imbW.n === 3).length;
+        out.nailsLeft = es.filter((e) => e.imbW && e.imbW.n === 3).length; // 钉满了、等下一把
+        out.nailsGone = es.filter((e) => !e.imbW).length; // 放过电（清空）
         delete S.imbue;
         return out;
       })
@@ -23323,7 +23323,7 @@ async function imbueSteps() {
     assert(r.wedge.zp >= 2 && r.wedge.dmg > 0, '雷楔：钉满 3 枚就放电：' + JSON.stringify(r.wedge));
     assert(r.rime.sh >= 2, '霜霰：机炮的子弹穿过第一只时炸冰屑：' + JSON.stringify(r.rime));
     assert(Math.abs(r.add1 - 11) < 1e-9 && Math.abs(r.add20 - 16.13) < 1e-9, '铁水附带的火焰 = 11% + 每级 0.27：' + JSON.stringify(r));
-    assert(r.nailsZap === 1 && r.nailsLeft >= 3, '散钉一把钉进一群钉满的怪，只放 1 次电，别的留到下一把：' + JSON.stringify(r));
+    assert(r.nailsZap === 1 && r.nailsGone === 1 && r.nailsLeft >= 2, '散钉一把钉进一群钉满的怪，只放 1 次电，别的留到下一把：' + JSON.stringify(r));
     return '铁水 ' + r.molten.sp + ' 摊 / 雷楔放电 ' + r.wedge.zp + ' 次 / 冰屑 ' + r.rime.sh + ' 次，散钉放电 ' + r.nailsZap + '（留着 ' + r.nailsLeft + '）';
   });
 
@@ -23332,26 +23332,32 @@ async function imbueSteps() {
       const out = {};
       const load = (mut) => {
         G.persist();
-        const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+        const key = G.slotKey(G.slots.cur()); // 存档分栏以后当前栏不一定是第 1 栏
+        const raw = JSON.parse(localStorage.getItem(key));
         mut(raw);
-        localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+        localStorage.setItem(key, JSON.stringify(raw));
         G.loadSave();
         return [G.imbueRedone || 0, G.save.imbNote, G.save.imbGen, (G.save.variants || {}).wedge || '-', !!(G.save.variantFree || {}).wedge, G.save.imbue || '-'].join();
       };
       const keep = JSON.stringify({ skills: G.save.skills, variants: G.save.variants, variantFree: G.save.variantFree, tut: G.save.tut.imbnote });
-      const old = (raw) => {
+      const old = (raw, seen) => {
         delete raw.imbGen;
         delete raw.imbNote;
         raw.skills = Object.assign({}, raw.skills, { wedge: 12 });
         raw.variants = Object.assign({}, raw.variants, { wedge: 'a' });
         raw.variantFree = Object.assign({}, raw.variantFree, { wedge: true });
-        if (raw.tut) delete raw.tut.imbnote;
+        if (raw.tut && !seen) delete raw.tut.imbnote;
       };
       out.old = load(old);
       out.round = load(() => {});
+      // 用掉还回来的那一次（不花钱），之后读档算用过、imbFree 清掉
+      G.clearEnemies();
+      G.save.skills.wedge = Math.max(G.save.skills.wedge, G.VARIANT_LVL);
+      const sv = G.setVariant('wedge', 'b');
+      out.used = [sv.ok, sv.cost || 0, G.save.imbFree ? 1 : 0].join() + '|' + load(() => {});
       G.save.tut.imbnote = 1;
       G.save.imbNote = false;
-      out.seen = load(old);
+      out.seen = load((raw) => old(raw, true)); // 看过（tut.imbnote）的老存档
       if (G.save.tut) delete G.save.tut.imbnote;
       out.none = load((raw) => {
         delete raw.imbGen;
@@ -23376,7 +23382,8 @@ async function imbueSteps() {
       return out;
     });
     assert(r.old === '1,true,1,a,false,-', '学过雷楔的老存档：提示、刻式留着、免费换刻式还回来：' + JSON.stringify(r));
-    assert(r.round === '1,true,1,a,false,-', '存档往返仍提示：' + JSON.stringify(r));
+    assert(r.round === '1,true,1,a,false,-', '存档往返仍提示、还回来的免费换刻式还在（imbFree）：' + JSON.stringify(r));
+    assert(r.used === 'true,0,0|1,true,1,b,true,-', '用掉还回来的那一次不花钱，之后读档算用过：' + JSON.stringify(r));
     assert(r.seen.startsWith('0,false,1,a'), '看过就不再提示：' + JSON.stringify(r));
     assert(r.none.startsWith('0,false,1'), '没学过的老存档不提示：' + JSON.stringify(r));
     assert(r.on.endsWith(',rime') && r.bad.endsWith(',-'), '存档里的 imbue：认识的读回来、不认识的丢掉：' + JSON.stringify(r));
@@ -23475,7 +23482,7 @@ async function imbueSteps() {
         S.cls = 'hunt';
         out.snd = G.audio.names().indexOf('imbue') >= 0;
         const keys = G.icons.keys();
-        out.ic = IMB_IDS.every((id) => keys.indexOf('sk-' + id) >= 0);
+        out.ic = ['molten', 'wedge', 'rime'].every((id) => keys.indexOf('sk-' + id) >= 0);
         // 新特效不取 Math.random
         const cnt = (f) => { const r0 = Math.random; let n = 0; Math.random = function () { n++; return r0.apply(this, arguments); }; try { f(); } finally { Math.random = r0; } return n; };
         const e = T.mob('husk', 3, 0);

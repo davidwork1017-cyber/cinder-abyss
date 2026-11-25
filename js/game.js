@@ -687,7 +687,13 @@
     G.boomNerfed = s.hxNote ? 1 : 0;
     // 装填（imbue，2026-11-25）之前的存档（没有 imbGen）：铁水弹 / 雷楔 / 霜霰弹改成了装填。学过其中任何一个的提示一次（tut.imbnote 看过就不再提示）；
     // 宝石、等级、选过的刻式都按原样留着（a 还是 a、b 还是 b），这三个技能免费换刻式的那一次还给玩家
-    if (raw.imbGen === undefined) for (const id of ['molten', 'wedge', 'rime']) delete s.variantFree[id];
+    // imbFree（可选字段）：还回来的那一次还没用（选着刻式的技能，上面会按「选过就算用过」把它记成用过，所以要单独记着，读档往返不丢）
+    const rif = isObj(raw.imbFree) ? raw.imbFree : {};
+    for (const id of ['molten', 'wedge', 'rime']) {
+      if (raw.imbGen !== undefined && rif[id] !== true) continue;
+      delete s.variantFree[id];
+      if (s.variants[id]) (s.imbFree || (s.imbFree = {}))[id] = true;
+    }
     s.imbNote = !s.tut.imbnote && ((raw.imbGen === undefined && ['molten', 'wedge', 'rime'].some((id) => s.skills[id] > 0)) || raw.imbNote === true);
     s.imbGen = 1;
     G.imbueRedone = s.imbNote ? 1 : 0;
@@ -1579,6 +1585,10 @@
       if ((save.cur[VC.cur] || 0) < cost) return { ok: false, msg: '需要 ' + cost + ' 颗' + G.CURRENCY[VC.cur].name };
       save.cur[VC.cur] -= cost;
       save.variantFree[id] = true;
+      if (save.imbFree && save.imbFree[id]) {
+        delete save.imbFree[id]; // 装填之前的存档还回来的那一次用掉了
+        if (!Object.keys(save.imbFree).length) delete save.imbFree;
+      }
       if (cur === 'c' && !G.variantRelicOn(id)) {
         if (v === 'o') delete save.variantPrev[id];
         else save.variantPrev[id] = v;
@@ -9681,7 +9691,7 @@
     const range = (line ? line.len : sk.range) * (sh.rangeK || 1);
     const pk = sh.k / 1.1; // 击退、架势按这一枚的份数摊（机炮三枚加起来和左轮一发差不多）
     const W0 = sk.wedge;
-    const rcb = { done: false };
+    const rcb = vol ? vol.rcb || (vol.rcb = { done: false }) : { done: false }; // 反冲弹：一次出手只炸一次（机炮一次出手打三枚弹壳，共用 vol）
     for (let j = 0; j < n; j++) {
       const ang = a0 + (n > 1 ? -fan / 2 + (fan * j) / (n - 1) : 0);
       const p = shootProj(ctx, ang, { cast, vk: 'rd_' + sk.round, mult: W0 ? k * W0.hit : k, range, speed: line ? 70 : sk.speed, r: sk.projR, after: roundAfter });
