@@ -11634,6 +11634,10 @@ async function main() {
       const dm = decalIdx();
       const bail = { n: dm.length, idx: dm[0] || 0, zone: G.state.zone.def.id };
       G.enterZone(0, 0);
+      // tex-t2 起换区会释放旧区解码出来的贴图：0 → 1 → 0 这么跳回来，第 0 区先是程序化外观，贴图重新解码好了才原地重建成 PBR 外观（带薄雾）。
+      // 等它重建好（有上限）再量画质档；到不了 PBR 外观照样算失败（retHd）
+      await wait(() => W.gfxInfo().hd && !W.assetsPending(), 40000);
+      const retHd = !!W.gfxInfo().hd;
       const qs = [], aa = [];
       for (const q of ['high', 'mid', 'low']) {
         W.setQuality(q);
@@ -11644,10 +11648,11 @@ async function main() {
         aa.push(q + ':' + (g.smaa ? 'smaa' : g.fxaa ? 'fxaa' : 'none') + (g.decalsOn ? '+decals' : ''));
       }
       W.setQuality(q0);
-      return { zones, layers, aa, bail, qs, q0, eff: W.quality(), valid: q0 === 'auto' || G.QUALITY_IDS.indexOf(q0) >= 0 };
+      return { zones, layers, aa, bail, qs, q0, retHd, eff: W.quality(), valid: q0 === 'auto' || G.QUALITY_IDS.indexOf(q0) >= 0 };
     });
     assert(r.valid, '存档里的画质无效：' + r.q0);
     assert(r.zones.every((z) => z.includes(':hd')), '有区域没换上 PBR 外观（素材没加载到？）：' + r.zones.join(' '));
+    assert(r.retHd, '换区跳回第 0 区以后，贴图重新解码完也没换回 PBR 外观');
     assert(r.qs.join() === 'high:post+bloom+mist,mid:post+bloom,low:direct', '画质档位不对：' + r.qs.join());
     // vf-ground：五个区都有地面覆盖层和贴花层；贴花层高 / 中档画、低档不画（低档的接触阴影 / 光池在地面顶点色里），抗锯齿按 QUALITY 的开关（SMAA / FXAA 默认关时都是 none）
     assert(r.layers.every((z) => z.endsWith(':layer+decals')), '有区域没有地面覆盖层或贴花层：' + r.layers.join(' '));
