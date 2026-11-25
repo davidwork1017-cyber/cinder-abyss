@@ -1,7 +1,9 @@
 'use strict';
 // assets.js —— 外部 CC0 素材（地面 / 岩壁贴图、布景模型）的按需加载。
 // 素材由 tools/pack-assets.mjs 打成 js/assets/*.js（base64），这里按包名插入 <script> 加载：从 file:// 双击打开也能用。
-// 贴图解码成 Image 后常驻（换区时世界层只释放显存里的纹理）；模型用 r128 的 GLTFLoader 解析，
+// 贴图（tex-t2）：包里的 JPEG 原文（base64）一直留着，解码出来的 Image 只留世界层要的那几个包（当前区 + 下一区，见 A.release）；
+// 离开的区释放 Image，再进来时从留着的原文重新解码（不用再下载）。低档可以用每套贴图的 lo 变体（更小的一份），或者整套不解码（skipLow，
+// 给一张 1×1 的透明占位图，比如低档不画的贴花图集），见 A.setLow。模型用 r128 的 GLTFLoader 解析，
 // 再烘焙成一个只带 位置 / 法线 / 顶点色（线性）/ aCap 的几何体（KayKit 的调色板贴图按 UV 取色进顶点色），
 // 这样所有布景都能用同一个按区域着色的材质、实例化绘制。任何一步失败都只是返回 null，世界层退回程序化外观。
 (function () {
@@ -14,11 +16,17 @@
   const packState = Object.create(null); // 包名 → { p: Promise, ok: bool, done: bool }
   const packFails = Object.create(null); // 包名 → 失败次数：前 MAX_TRIES - 1 次失败不记成定局，下次进入用到它的区域时重试
   const MAX_TRIES = 3;
-  const imgs = Object.create(null); // 贴图 id → { albedo, normal, arh, avg: [r,g,b]（反照率的线性平均色） }
+  // 贴图 id → { full / lo / none: { albedo, normal, arh, avg: [r,g,b]（反照率的线性平均色） } }：按变体各存一份，只存解码过的
+  const imgs = Object.create(null);
+  const texEntry = Object.create(null); // 贴图 id → 包里的条目（{ albedo, normal, arh 原文, lo?: {...}, skipLow?: 1 }）
+  const texOfPack = Object.create(null); // 包名 → 这个包里的贴图 id
+  const texState = Object.create(null); // 包名 → 当前这一档的解码 { mode: 'full' | 'low', p, done, ok }
+  let lowMode = false; // 低档：有 lo 变体的贴图用 lo、标了 skipLow 的不解码
   const geos = Object.create(null); // 模型 key → BufferGeometry
   const geoInfo = Object.create(null); // 模型 key → { h, r }（高度、水平半径）
   const geoPack = Object.create(null); // 模型 key → 来自哪个包（测试用来核对第 0 区的布景是不是自产件）
 
+  const KINDS = ['albedo', 'normal', 'arh']; // 一套贴图的三张图
   const s2l = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
 
   function loadScript(src) {
@@ -190,14 +198,10 @@
     const data = STORE[name];
     if (!data) throw new Error('素材包内容缺失：' + name);
     const jobs = [];
-    for (const id in data.tex || {}) {
-      const t = data.tex[id];
-      jobs.push(
-        Promise.all([loadImage(t.albedo), loadImage(t.normal), loadImage(t.arh)]).then(([albedo, normal, arh]) => {
-          imgs[id] = { albedo, normal, arh, avg: avgColor(albedo) };
-        })
-      );
-    }
+    // 贴图：原文（base64）留在条目里（释放以后还能重新解码，不用再下载）；解码按画质档另做（decodeTex）。
+    // 探针（WebKit，五个区走三圈）：留 base64 字符串比换成 Blob 少占 10 MB 左右（Blob 在网络进程里还有一份），两者都不随走过的区增长
+    const ids = Object.keys(data.tex || {});
+    for (const id of ids) texEntry[id] = data.tex[id];
     for (const key in data.models || {}) jobs.push(parseModel(key, data.models[key]).then((g) => g && (geoPack[key] = name)));
     // 自产布景件（kit-<区> 包）：打包时已经烘焙好（tools/pack-assets.mjs，和上面的 bakeGltf 逐位一致），这里只把数组拷进几何体，不解析、不烘焙
     for (const key in data.geo || {}) {
@@ -220,9 +224,79 @@
     }
     data.geo = null;
     await Promise.all(jobs);
-    // 解码完就丢掉 base64 原文（图像和几何体已经各自留了一份），省几 MB 内存
+    texOfPack[name] = ids; // 模型都解析完才登记：decodeTex 只在这之后才会看到这个包的贴图
+    // 模型解析完就丢掉 base64 原文（几何体已经留了一份）；贴图的原文已经挪进 texEntry
     data.tex = null;
     data.models = null;
+  }
+
+  // ---------- 贴图：按画质档解码，离开的区释放 ----------
+  // 这张贴图在当前画质档用哪一份：'full'（原图）/ 'lo'（低档的小图）/ 'none'（低档不解码，用透明占位图）
+  const variantOf = (e) => (lowMode && e ? (e.lo ? 'lo' : e.skipLow ? 'none' : 'full') : 'full');
+  const packMode = (name) => (lowMode && (texOfPack[name] || []).some((id) => variantOf(texEntry[id]) !== 'full') ? 'low' : 'full');
+  let ph = null; // 1×1 占位图：反照率中灰、arh 的 G（不透明度）为 0，画出来是全透明
+  function placeholder() {
+    if (ph) return ph;
+    const one = (r, g, b) => {
+      const c = document.createElement('canvas');
+      c.width = c.height = 1;
+      const x = c.getContext('2d');
+      x.fillStyle = 'rgb(' + r + ',' + g + ',' + b + ')';
+      x.fillRect(0, 0, 1, 1);
+      return c;
+    };
+    const a = one(89, 89, 89), f = one(128, 128, 255), z = one(255, 0, 128);
+    return (ph = { albedo: a, normal: f, arh: z, avg: [0.1, 0.1, 0.1], placeholder: true });
+  }
+  function decodeTex(name) {
+    const ids = texOfPack[name];
+    if (!ids || !ids.length) return Promise.resolve(true);
+    const mode = packMode(name);
+    let st = texState[name];
+    if (st && st.mode === mode) return st.p;
+    st = texState[name] = { mode, p: null, done: false, ok: false };
+    const jobs = [];
+    for (const id of ids) {
+      const e = texEntry[id], v = variantOf(e), have = imgs[id] || (imgs[id] = {});
+      if (have[v]) continue;
+      if (v === 'none') {
+        have.none = placeholder();
+        continue;
+      }
+      const src = v === 'lo' ? e.lo : e, kinds = KINDS.filter((k) => src[k]);
+      jobs.push(
+        Promise.all(kinds.map((k) => loadImage(src[k]))).then((ims) => {
+          if (texState[name] !== st) return; // 解码期间这个包被释放了 / 换了画质档：结果不要
+          const set = {};
+          kinds.forEach((k, i) => (set[k] = ims[i]));
+          set.avg = avgColor(set.albedo);
+          (imgs[id] || (imgs[id] = {}))[v] = set;
+        })
+      );
+    }
+    st.p = Promise.all(jobs).then(
+      () => {
+        st.ok = true;
+        st.done = true;
+        return true;
+      },
+      (err) => {
+        st.done = true;
+        if (window.console) console.warn('[素材] ' + name + ' 的贴图解码失败，改用程序化外观', err);
+        return false;
+      }
+    );
+    return st.p;
+  }
+  // 解码到当前画质档为止：解码期间换了档就接着解新档；包被释放了就算没成
+  function texFor(name) {
+    if (!(texOfPack[name] && texOfPack[name].length)) return Promise.resolve(true);
+    return decodeTex(name).then(() => {
+      const st = texState[name];
+      if (!st) return false;
+      if (st.mode !== packMode(name) || !st.done) return texFor(name);
+      return st.ok;
+    });
   }
   function loadPack(name) {
     let st = packState[name];
@@ -270,14 +344,95 @@
   }
   // 一组包都加载完（不论成败）后 resolve 为「是否全部成功」
   A.need = function (names) {
-    return Promise.all(withDeps(names).map(loadPack)).then((r) => r.every(Boolean));
+    return Promise.all(withDeps(names).map((n) => loadPack(n).then((ok) => (ok ? texFor(n) : false)))).then((r) => r.every(Boolean));
   };
   // 同步查询：这组包是否已经全部加载成功 / 是否已经有了结果（成功或失败）
   // ready 不展开依赖：布景件包坏了不该拖累地面贴图（世界层按 G.assets.geo 有没有模型单独判断布景）；settled 展开，等依赖也有了结果
-  A.ready = (names) => names.every((n) => packState[n] && packState[n].ok);
-  A.settled = (names) => withDeps(names).every((n) => packState[n] && packState[n].done);
+  // 贴图包：ready 只要每张贴图有任意一份解码好的（刚换画质档、新的一份还在解码时先用旧的）；settled 要当前这一档解码完
+  const anyTex = (n) => (texOfPack[n] || []).every((id) => !!A.tex(id));
+  const texDone = (n) => !(texOfPack[n] && texOfPack[n].length) || (texState[n] && texState[n].done && texState[n].mode === packMode(n));
+  A.ready = (names) => names.every((n) => packState[n] && packState[n].ok && anyTex(n));
+  A.settled = (names) => withDeps(names).every((n) => packState[n] && packState[n].done && (!packState[n].ok || texDone(n)));
   A.known = (name) => !!(INDEX.packs[name] || STORE[name]);
-  A.tex = (id) => imgs[id] || null;
+  // 当前画质档该用的那一份；还没解码好时先给别的已经解码的那份（none 占位图排最后），都没有就是 null
+  A.tex = (id) => {
+    const s = imgs[id];
+    if (!s) return null;
+    return s[variantOf(texEntry[id])] || s.full || s.lo || s.none || null;
+  };
+  A.texVariant = (id) => {
+    const s = imgs[id], v = variantOf(texEntry[id]);
+    return !s ? null : s[v] ? v : s.full ? 'full' : s.lo ? 'lo' : s.none ? 'none' : null;
+  };
+  A.texWant = (id) => variantOf(texEntry[id]); // 当前画质档想要的那一份
+  // 画质档：低档有变化就返回 true（世界层接着 need 当前区的包、换掉区里纹理的图像，见 world.js 的 retierZone）
+  A.setLow = function (on) {
+    on = !!on;
+    if (on === lowMode) return false;
+    lowMode = on;
+    return true;
+  };
+  A.isLow = () => lowMode;
+  // 放掉一张解码过的图：src 换成 1×1 的 GIF，浏览器马上丢掉这张图的数据（不用等垃圾回收；WebKit 不这样做会一直留着）。
+  // 只对已经不用的图做（离开的区的纹理在 disposeZone 里已经释放了显存）
+  const GIF1 = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+  function freeImg(im) {
+    try {
+      if (im && im.tagName === 'IMG') {
+        im.onload = im.onerror = null;
+        im.src = GIF1;
+      } else if (im && im.close) im.close();
+    } catch (e) { /* 忽略 */ }
+  }
+  // 释放：只留 keep 这几个包（连同依赖）的 Image；留下的包里不是当前画质档的那一份（新的一份已经解码好了的话）也释放。
+  // 返回释放了几张图。原文还在，之后 need 会重新解码
+  A.release = function (keep) {
+    const ks = new Set(withDeps(keep || []));
+    let n = 0;
+    const drop = (id, v) => {
+      const s = imgs[id];
+      if (!s || !s[v]) return;
+      if (v !== 'none')
+        for (const k of KINDS)
+          if (s[v][k]) {
+            freeImg(s[v][k]);
+            n++;
+          }
+      delete s[v];
+    };
+    for (const name in texOfPack) {
+      const ids = texOfPack[name];
+      if (!ids.length) continue;
+      if (!ks.has(name)) {
+        for (const id of ids) for (const v of ['full', 'lo', 'none']) drop(id, v);
+        delete texState[name];
+        continue;
+      }
+      for (const id of ids) {
+        const want = variantOf(texEntry[id]);
+        if (imgs[id] && imgs[id][want]) for (const v of ['full', 'lo', 'none']) if (v !== want) drop(id, v);
+      }
+    }
+    return n;
+  };
+  // 测试 / 探针用：现在留着的解码图像（占位图不算）：张数、按 RGBA8 算的 MB、每张 id:变体:通道:边长
+  A.texStats = function () {
+    let n = 0, bytes = 0;
+    const list = [];
+    for (const id in imgs)
+      for (const v in imgs[id]) {
+        if (v === 'none') continue;
+        for (const k of KINDS) {
+          const im = imgs[id][v][k];
+          if (!im) continue;
+          n++;
+          bytes += im.width * im.height * 4;
+          list.push(id + ':' + v + ':' + k + ':' + im.width);
+        }
+      }
+    const packs = Object.keys(texState).filter((k) => texState[k].done && texState[k].ok);
+    return { images: n, mb: bytes / 1048576, list: list.sort(), packs: packs.sort(), low: lowMode };
+  };
   A.geo = (key) => geos[key] || null;
   A.geoInfo = (key) => geoInfo[key] || null;
   A.geoPack = (key) => geoPack[key] || null;
