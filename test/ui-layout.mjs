@@ -82,9 +82,10 @@ export function uiLayoutCheck(opts) {
         }
       }
       if (outVp || outClip) {
-        // data-list 里：滚过去就看得见（列表本身在视口里、元素宽度放得下）
+        // data-list 里：滚过去就看得见（列表本身在视口里、元素宽度放得下）。横着滑的 data-list（B4a 地图的区域卡片一排）：列表整个在视口里、元素高度放得下
         const lr = inList && BR(inList);
-        const reach = inList && lr.top >= -1 && lr.bottom <= vh + 1 && r.left >= lr.left - 1 && r.right <= lr.right + 1;
+        const hz = inList && /(auto|scroll)/.test(getComputedStyle(inList).overflowX) && /(hidden|clip)/.test(getComputedStyle(inList).overflowY);
+        const reach = inList && lr.top >= -1 && lr.bottom <= vh + 1 && (hz ? lr.left >= -1 && lr.right <= vw + 1 && r.top >= lr.top - 1 && r.bottom <= lr.bottom + 1 : r.left >= lr.left - 1 && r.right <= lr.right + 1);
         if (!reach) out.a.push(nm(e) + ' ' + R(r) + (outVp ? ' 视口外' : ' 被裁'));
         continue;
       }
@@ -186,7 +187,7 @@ export const DESK_STYLE_MAIN = {"#panel-win|width": "1280px", "#panel-win|height
 export function uiStyleRead(spec) {
   const r = {};
   for (const key in spec) {
-    const sel = key.replace(/^char /, '');
+    const sel = key.replace(/^(char|map|helpf|help|set) /, ''); // 前缀只是说在哪一页量（B1 的 char、B4a 的 map / help / set）
     const e = document.querySelector('#panel ' + sel) || document.querySelector(sel);
     for (const p of spec[key]) {
       if (!e) {
@@ -198,6 +199,44 @@ export function uiStyleRead(spec) {
   }
   return r;
 }
+
+// 桌面样式不变（UI-R B2，技能页）：1366×768 下技能栏格、技能卡、辅助宝石卡、小标题的计算样式和 main（4484d08）逐项相等。数值在 main 上量（vf-shots/ui-b2/styles-main.json）。
+// 有意改动：.sk-num span 10.5 → 11 px（最小字号 11）。卡片和各栏的宽度跟着三栏排法变了，不在表里
+export const DESK_STYLE_SK_SPEC = {".barslot": ["height", "padding-left", "border-top-color", "background-color", "border-radius"], ".bs-icon": ["width", "height"], ".bs-txt span": ["font-size", "color", "letter-spacing"], ".bs-txt b": ["font-size", "color", "font-family"], ".skill-card:not(.basic-card)": ["padding-top", "padding-left", "border-top-color", "border-radius", "background-image"], ".skill-card:not(.basic-card) .sk-icon": ["width", "height"], ".skill-card:not(.basic-card) .sk-name": ["font-size", "letter-spacing", "color", "font-family"], ".skill-card:not(.basic-card) .sk-tags span": ["font-size", "color", "background-color"], ".skill-card:not(.basic-card) .bind": ["height", "font-size", "color"], ".skill-card:not(.basic-card) .sk-desc": ["font-size", "line-height", "color"], ".skill-card:not(.basic-card) .sk-num span": ["font-size", "color"], ".skill-card:not(.basic-card) .sk-num b": ["font-size", "color"], ".skill-card:not(.basic-card) .sock": ["height", "font-size", "border-radius"], ".sup": ["padding-top", "padding-left", "border-left-color", "background-color"], ".sup-top b": ["font-size", "color"], ".sup-desc": ["font-size", "line-height", "color"], ".sup-foot": ["font-size", "color"], ".sec-title": ["height", "font-size", "letter-spacing", "color"]};
+export const DESK_STYLE_SK_MAIN = {".barslot|height": "54px", ".barslot|padding-left": "3px", ".barslot|border-top-color": "rgb(46, 34, 25)", ".barslot|background-color": "rgb(16, 11, 8)", ".barslot|border-radius": "3px", ".bs-icon|width": "46px", ".bs-icon|height": "46px", ".bs-txt span|font-size": "11px", ".bs-txt span|color": "rgb(179, 164, 139)", ".bs-txt span|letter-spacing": "1px", ".bs-txt b|font-size": "15px", ".bs-txt b|color": "color(srgb 1 0.747647 0.579412)", ".bs-txt b|font-family": "\"Songti SC\", STSong, \"Noto Serif SC\", serif", ".skill-card:not(.basic-card)|padding-top": "12px", ".skill-card:not(.basic-card)|padding-left": "14px", ".skill-card:not(.basic-card)|border-top-color": "color(srgb 0.56 0.32549 0.164118)", ".skill-card:not(.basic-card)|border-radius": "3px", ".skill-card:not(.basic-card)|background-image": "radial-gradient(60% 90% at 0% 0%, color(srgb 1 0.541176 0.235294 / 0.11), rgba(0, 0, 0, 0) 70%), linear-gradient(rgb(26, 19, 14), rgb(16, 11, 8))", ".skill-card:not(.basic-card) .sk-icon|width": "52px", ".skill-card:not(.basic-card) .sk-icon|height": "52px", ".skill-card:not(.basic-card) .sk-name|font-size": "18px", ".skill-card:not(.basic-card) .sk-name|letter-spacing": "2px", ".skill-card:not(.basic-card) .sk-name|color": "rgb(233, 220, 196)", ".skill-card:not(.basic-card) .sk-name|font-family": "\"Songti SC\", STSong, \"Noto Serif SC\", serif", ".skill-card:not(.basic-card) .sk-tags span|font-size": "11px", ".skill-card:not(.basic-card) .sk-tags span|color": "rgb(179, 164, 139)", ".skill-card:not(.basic-card) .sk-tags span|background-color": "rgb(32, 23, 15)", ".skill-card:not(.basic-card) .bind|height": "26px", ".skill-card:not(.basic-card) .bind|font-size": "12px", ".skill-card:not(.basic-card) .bind|color": "rgb(255, 243, 220)", ".skill-card:not(.basic-card) .sk-desc|font-size": "12.5px", ".skill-card:not(.basic-card) .sk-desc|line-height": "19px", ".skill-card:not(.basic-card) .sk-desc|color": "rgb(185, 172, 150)", ".skill-card:not(.basic-card) .sk-num span|font-size": "11px", ".skill-card:not(.basic-card) .sk-num span|color": "rgb(140, 127, 109)", ".skill-card:not(.basic-card) .sk-num b|font-size": "14px", ".skill-card:not(.basic-card) .sk-num b|color": "color(srgb 1 0.701765 0.502941)", ".skill-card:not(.basic-card) .sock|height": "30px", ".skill-card:not(.basic-card) .sock|font-size": "12.5px", ".skill-card:not(.basic-card) .sock|border-radius": "15px", ".sup|padding-top": "8px", ".sup|padding-left": "11px", ".sup|border-left-color": "rgb(63, 224, 200)", ".sup|background-color": "rgb(17, 12, 9)", ".sup-top b|font-size": "13.5px", ".sup-top b|color": "rgb(244, 244, 244)", ".sup-desc|font-size": "12px", ".sup-desc|line-height": "18px", ".sup-desc|color": "rgb(185, 172, 150)", ".sup-foot|font-size": "11px", ".sup-foot|color": "rgb(109, 97, 82)", ".sec-title|height": "26px", ".sec-title|font-size": "15.5px", ".sec-title|letter-spacing": "3px", ".sec-title|color": "rgb(230, 197, 138)"};
+
+// 桌面样式不变（UI-R B4a）：1366×768 下地图、帮助、设置的关键元素和 main（4484d08）逐项相等。前缀说明在哪一页量（map / help 是页签，set 是暂停菜单 → 设置）。
+// 有意改动的不在表里：地图拿掉了底部的设置条，区域卡片更高（.zone 的高度、.z-art 的最小高度）；渊印图例挪进 [?]；帮助页从三列改成话题 + 一节；设置分组、两列、卡片放宽
+export const DESK_STYLE_B4A_SPEC = {
+  'map .map .sec-title': ['height', 'font-size', 'letter-spacing', 'color', 'font-family'],
+  'map .tier': ['width', 'height', 'font-size', 'color', 'background-color', 'border-top-color'],
+  'map .tier.on': ['color', 'background-image'],
+  'map .zone': ['width', 'border-top-color', 'background-image', 'border-radius'],
+  'map .z-glyph': ['font-size', 'color'],
+  'map .z-ord': ['font-size', 'letter-spacing'],
+  'map .z-badge': ['font-size', 'line-height'],
+  'map .z-name': ['font-size', 'letter-spacing', 'color', 'font-family'],
+  'map .z-meta': ['font-size', 'color'],
+  'map .z-desc': ['font-size', 'line-height', 'color'],
+  'map .z-boss': ['font-size'],
+  'map .z-body .btn': ['height', 'font-size'],
+  'map .tier-note': ['font-size', 'color'],
+  'helpf .help p': ['font-size', 'line-height', 'color'], // helpf：在「战斗」这一节量（「操作」里没有段落）
+  'help .help .sec-title': ['font-size', 'letter-spacing', 'color'],
+  'help .hk': ['font-size', 'min-height', 'color'],
+  'help .hk kbd': ['font-size'],
+  'help .help-foot': ['font-size', 'color'],
+  'set #pause .m-head b': ['font-size', 'letter-spacing', 'color'],
+  'set #pause .m-row': ['padding-top', 'padding-bottom', 'border-bottom-style'],
+  'set #pause .opt-text b': ['font-size', 'color', 'letter-spacing', 'font-weight'],
+  'set #pause .opt-text span': ['font-size', 'color'],
+  'set #pause .seg-b': ['height', 'font-size', 'padding-left', 'color'],
+  'set #pause .seg-b.on': ['color', 'background-image'],
+  'set #pause .switch': ['width', 'height', 'border-radius'],
+  'set #pause .vol input': ['width', 'height'],
+  'set #pause .m-note': ['font-size', 'color'],
+};
+export const DESK_STYLE_B4A_MAIN = {"map .map .sec-title|height": "26px", "map .map .sec-title|font-size": "15.5px", "map .map .sec-title|letter-spacing": "3px", "map .map .sec-title|color": "rgb(230, 197, 138)", "map .map .sec-title|font-family": "\"Songti SC\", STSong, \"Noto Serif SC\", serif", "map .tier|width": "34px", "map .tier|height": "30px", "map .tier|font-size": "14px", "map .tier|color": "rgb(255, 243, 220)", "map .tier|background-color": "rgba(0, 0, 0, 0)", "map .tier|border-top-color": "rgb(255, 176, 102)", "map .tier.on|color": "rgb(255, 243, 220)", "map .tier.on|background-image": "linear-gradient(rgb(180, 85, 28), rgb(111, 44, 11))", "map .zone|width": "238.8px", "map .zone|border-top-color": "rgb(176, 134, 80)", "map .zone|background-image": "linear-gradient(rgb(23, 16, 12), rgb(14, 10, 8))", "map .zone|border-radius": "3px", "map .z-glyph|font-size": "70px", "map .z-glyph|color": "color(srgb 1 0.579294 0.398588)", "map .z-ord|font-size": "11.5px", "map .z-ord|letter-spacing": "3px", "map .z-badge|font-size": "11.5px", "map .z-badge|line-height": "20px", "map .z-name|font-size": "18px", "map .z-name|letter-spacing": "3px", "map .z-name|color": "rgb(242, 223, 184)", "map .z-name|font-family": "\"Songti SC\", STSong, \"Noto Serif SC\", serif", "map .z-meta|font-size": "12px", "map .z-meta|color": "rgb(154, 139, 118)", "map .z-desc|font-size": "12px", "map .z-desc|line-height": "19px", "map .z-desc|color": "rgb(185, 172, 150)", "map .z-boss|font-size": "12px", "map .z-body .btn|height": "34px", "map .z-body .btn|font-size": "13px", "map .tier-note|font-size": "12.5px", "map .tier-note|color": "rgb(154, 139, 118)", "help .help .sec-title|font-size": "15.5px", "help .help .sec-title|letter-spacing": "3px", "help .help .sec-title|color": "rgb(230, 197, 138)", "help .hk|font-size": "13px", "help .hk|min-height": "30px", "help .hk|color": "rgb(196, 184, 163)", "help .hk kbd|font-size": "11.5px", "help .help-foot|font-size": "12px", "help .help-foot|color": "rgb(109, 97, 82)", "helpf .help p|font-size": "13px", "helpf .help p|line-height": "21px", "helpf .help p|color": "rgb(196, 184, 163)", "set #pause .m-head b|font-size": "17px", "set #pause .m-head b|letter-spacing": "4px", "set #pause .m-head b|color": "rgb(230, 197, 138)", "set #pause .m-row|padding-top": "10px", "set #pause .m-row|padding-bottom": "10px", "set #pause .m-row|border-bottom-style": "dotted", "set #pause .opt-text b|font-size": "13px", "set #pause .opt-text b|color": "rgb(230, 215, 189)", "set #pause .opt-text b|letter-spacing": "1px", "set #pause .opt-text b|font-weight": "600", "set #pause .opt-text span|font-size": "11.5px", "set #pause .opt-text span|color": "rgb(109, 97, 82)", "set #pause .seg-b|height": "30px", "set #pause .seg-b|font-size": "12.5px", "set #pause .seg-b|padding-left": "14px", "set #pause .seg-b|color": "rgb(154, 139, 118)", "set #pause .seg-b.on|color": "rgb(255, 243, 220)", "set #pause .seg-b.on|background-image": "linear-gradient(rgb(180, 85, 28), rgb(111, 44, 11))", "set #pause .switch|width": "42px", "set #pause .switch|height": "22px", "set #pause .switch|border-radius": "11px", "set #pause .vol input|width": "150px", "set #pause .vol input|height": "22px", "set #pause .m-note|font-size": "12px", "set #pause .m-note|color": "rgb(109, 97, 82)"};
 
 // 桌面样式不变（UI-R B4b）：1366×768 下标题画面、角色页、职业选择、拾烬客的计算样式和 main（4484d08）逐项相等。按状态分组，
 // 键是「状态|选择器|属性」，读法同 uiStyleRead（宽高用 getBoundingClientRect）。数值在 main 上量（vf-shots/ui-b4b/styles-main.json），
