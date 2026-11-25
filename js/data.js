@@ -93,7 +93,7 @@
   G.TAG_NAME = {
     attack: '攻击', spell: '法术', melee: '近战', projectile: '投射物', area: '范围',
     chaining: '连锁', phys: '物理', fire: '火焰', cold: '冰霜', light: '闪电', movement: '位移',
-    minion: '召唤物', summon: '召唤', aura: '光环', weapon: '武器技', chaos: '混沌', duration: '持续',
+    minion: '召唤物', summon: '召唤', aura: '光环', weapon: '武器技', chaos: '混沌', duration: '持续', imbue: '装填',
   };
 
   // ---------- 武器伤害 ----------

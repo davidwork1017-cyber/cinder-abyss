@@ -3953,7 +3953,13 @@
     const keep = G.useVariant(id, v);
     const sk = G.SKILLS[id], ctx = G.skillCtx(id);
     let nums = '';
-    if (sk.buff) {
+    if (sk.kind === 'imbue') {
+      // 装填（imbue）：附带的元素伤害和这一种的效果（自己不打人，没有秒伤）
+      const I = sk.imbue, EN = { fire: '火焰', cold: '冰霜', light: '闪电' };
+      nums = '附带' + EN[sk.elem] + ' ' + fmt1(I.add + I.addLv * ((S.skills[id] || 1) - 1)) + '% · 保留 ' + fmt1(G.auraReserve(id)) + '%' +
+        (I.splash ? ' · 打死炸铁水' + (I.splash.chain ? '（连溅 ' + I.splash.chain + ' 摊）' : '') : '') + (I.wedge ? ' · ' + I.wedge.n + ' 枚放电 ' + Math.round(I.wedge.zap * 100) + '%' : '') +
+        (I.chilled ? ' · 打冰缓 +' + I.chilled + '%' : '') + (I.shard ? ' · 冰屑 ' + Math.round(I.shard.k * 100) + '%' : '');
+    } else if (sk.buff) {
       const F = Math.min(sk.flame.cap, sk.flame.k0 + sk.flame.k1 * ((S.skills[id] || 1) - 1)) * (1 + Math.max(0, G.player.S.flameEff || 0) / 100);
       nums = (sk.flameDot ? '黑焰灼烧 ' : '额外混沌 ') + fmt1(F) + '%' + (sk.brand ? ' + 蚀印 ' + fmt1(F) + '%' : '') + ' · 保留 ' + fmt1(ctx.reserve) + '%';
     } else if (sk.kind === 'aura' && sk.mech === 'guard') {
