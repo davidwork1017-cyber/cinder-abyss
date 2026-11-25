@@ -209,8 +209,7 @@ export async function cornerScenes(page, sizes, o) {
     await page.waitForFunction(() => G.ui.classView && G.ui.classView(), null, { timeout: 30000 });
     await check('职业选择');
     await ev(() => {
-      const v = document.querySelector('#title .m-body');
-      if (v) v.scrollTop = 1e5;
+      for (const v of document.querySelectorAll('#title .m-body, #title .cl-one')) v.scrollTop = 1e5; // B4b：窄屏的职业选择滚的是卡片区（.cl-one）
     });
     await check('职业选择底栏');
     await ev(() => document.querySelector('#title [data-tact="back"]').click());
