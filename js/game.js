@@ -4234,7 +4234,8 @@
       // 流血的跳：不闪白、不后仰、不甩命中火花（掉落的暗红碎屑在 tickBleed 里另放）
     } else {
       if (!inf.splash && !inf.noFlash) W.flash(e.ent, 1 + feel * 0.7 + (hit.crit ? 0.5 : 0)); // 溅击的溅射不闪白（一下溅到一群时整群闪白会糊成一片，闪白有下限、调不淡）；vf-vfx2：暴击再亮一点
-      W.hitReact(e.ent, ang, 0.9 + feel * 0.4); // 顺着这一击的方向一仰
+      // 顺着这一击的方向一仰；boss-flinch：首领 / 精英按这一击占最大生命的比例、是不是重技能暴击、是不是在出招，决定抖不抖（外观只读这些值）
+      W.hitReact(e.ent, ang, 0.9 + feel * 0.4, { frac: hit.total / Math.max(1, e.maxHp), heavyCrit: !!hit.crit && w >= 2, busy: e.busy > 0 || !!e.dash || e.brokenT > 0 });
       // 持续伤害的跳（黑洞 / 黑旋风，inf.tick）：只甩几片实例化的尖片，不留地面贴花、不打闪光（怪堆里每秒几十跳，贴花每片一次 draw call）
       if (inf.tick && W.chaosTick) W.chaosTick(e.x - sn * e.r * 0.7, h * 0.5, e.z - cs * e.r * 0.7, ang, hit.crit);
       else if (inf.splash !== 2) {

@@ -12539,8 +12539,25 @@
   function finishPose(ent, t, sdt) {
     const rig = ent.rig, o = ent.out;
     if (rig.post) rig.post(ent, o, t, sdt);
+    if (ent.flinchCd > 0) ent.flinchCd -= sdt;
     // 受击：朝攻击行进的方向一仰，同时先压扁再回弹
-    if (ent.hitT > 0 && ent.clip && ent.clip.steady) {
+    if (ent.hitT > 0 && ent.flinch) {
+      // boss-flinch：首领 / 精英的小抖动，只叠在 hitJ（躯干、头）上；一起动作（蓄力 / 出手 / 破防 / 死亡）立刻停掉
+      ent.hitT -= sdt;
+      if (ent.clip) ent.hitT = 0;
+      else {
+        const u = 1 - Math.max(0, ent.hitT) / ent.hitDur, env = u < 0.3 ? smooth01(u / 0.3) : 1 - smooth01((u - 0.3) / 0.7);
+        const hj = rig.hitJ, k = ent.hitS * env;
+        if (hj) for (let i = 0; i < hj.length; i++) {
+          o[hj[i]] += ent.hitZ * k * (i ? 1.3 : 1);
+          o[hj[i] + 2] -= ent.hitX * k * (i ? 1.3 : 1);
+        }
+        else {
+          o[0] += ent.hitZ * k;
+          o[2] -= ent.hitX * k;
+        }
+      }
+    } else if (ent.hitT > 0 && ent.clip && ent.clip.steady) {
       // boss-golem：蓄力 / 出手（steady）期间不仰、不压扁、不叠受击动作，只在 hitJ 上朝攻击方向抖一下（最多 0.12 弧度），读招的姿势不晃
       ent.hitT -= sdt;
       const u = 1 - Math.max(0, ent.hitT) / ent.hitDur, hj = rig.hitJ;
@@ -12682,14 +12699,37 @@
     return c ? c.k0 * c.dur : 0;
   };
   // 受击反应：ang 是这一击行进的方向（世界朝向角），strength 约 0.5（轻）~ 2（终结技）
-  W.hitReact = function (ent, ang, strength) {
+  // boss-flinch：首领 / 精英（ent.hitTier）挨打只有一下小的叠加抖动（躯干 / 头几度、约 0.14 s），不再整个人一仰 + 压扁 + 受击动作：
+  //   - 小的一下只闪白、不动；大的一下才抖：这一击 ≥ 最大生命的 FLINCH_BIG，或重技能（手感 ≥ 2）的暴击（o.frac / o.heavyCrit，没传 o 时按 strength ≥ 2 算大）；
+  //   - 每只每 FLINCH_GAP 秒最多抖一次，窗口里再挨打不续；
+  //   - 蓄力 / 出手 / 收招（o.busy：模拟里在出招、冲刺、破防）和任何在播的动作（蓄力、出手、破防、死亡）里一律不动，读招的姿势不晃；破防有自己的 broken 动作。
+  //   只动外观：模拟、架势、时序都不读这些值，也不取随机数
+  const FLINCH_BIG = 0.02, FLINCH_GAP = 0.5, FLINCH_DUR = 0.14;
+  const FLINCH_AMP = { boss: 0.05, elite: 0.08 }; // 弧度：首领约 3°，精英约 4.5°（头再多三成）
+  W.FLINCH = { big: FLINCH_BIG, gap: FLINCH_GAP, dur: FLINCH_DUR, amp: FLINCH_AMP }; // 测试读
+  W.hitReact = function (ent, ang, strength, o) {
     if (!ent || ent.removed) return;
     const a = ang - ent.group.rotation.y, s = strength === undefined ? 1 : strength;
+    const tier = ent.hitTier;
+    if (tier) {
+      if (ent.clip || ent.dying || (o && o.busy)) return;
+      const big = o ? o.frac >= FLINCH_BIG || !!o.heavyCrit : s >= 2;
+      if (!big || ent.flinchCd > 0) return;
+      ent.flinchCd = FLINCH_GAP;
+      ent.hitX = Math.sin(a);
+      ent.hitZ = Math.cos(a);
+      ent.hitS = FLINCH_AMP[tier] || FLINCH_AMP.boss;
+      ent.hitDur = ent.hitT = FLINCH_DUR;
+      ent.flinch = true;
+      ent.flinchN = (ent.flinchN || 0) + 1;
+      return;
+    }
     ent.hitX = Math.sin(a);
     ent.hitZ = Math.cos(a);
     ent.hitS = Math.min(2.2, s);
     ent.hitDur = 0.24 + 0.08 * Math.min(2, s);
     ent.hitT = ent.hitDur;
+    ent.flinch = false;
   };
 
   // 挂点的世界坐标：weapon（武器尖端）/ hand / head / chest。结果写进 out（不传则新建一个对象返回）；
@@ -17769,6 +17809,7 @@
     else ent.uRim.value.setRGB(0.2, 0.15, 0.1);
     // （旧：暗色的 C 模型轮廓光 ×1.5。卡通配色下角色不再是暗色，靠 TOON 的轮廓光分开，不再加强）
     if (elite) {
+      ent.hitTier = 'elite'; // boss-flinch：挨打只有小的叠加抖动（见 W.hitReact）
       // 精英：更大、发光更强，轮廓上镀一圈金
       ent.k = 1.35;
       ent.body.scale.setScalar(1.35);
@@ -19706,6 +19747,7 @@
     // boss-golem：首领包已经在就直接用脚本生成的新模型，否则先用程序化外观、等包到了在闲着的时候原地换（newEnt 取随机数的次数两边一样）
     const glb = bossGlbRig(kind);
     const ent = newEnt(kind, glb || BOSS_RIG[kind](), warmGround ? 0xe6e9f6 : 0xf2ece6, eh, 1.15); // 卡通：染色收轻，同小怪
+    ent.hitTier = 'boss'; // boss-flinch：挨打只有小的叠加抖动（见 W.hitReact）
     ent.bossWarm = warmGround;
     if (glb) bossLook(ent);
     if (!glb && BOSS_SPEC[kind] && !bossPackOff && !window.CA_PROCEDURAL_CHARS) {

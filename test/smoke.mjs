@@ -12460,7 +12460,7 @@ async function main() {
           out[p] = Object.assign({ has: !!(cp && b.ent.rig.clips[p + '_w']), wind: WIND[p], k0: cp ? cp.k0 : null, model: b.ent.rig.bossModel, pose }, ev0);
           G.clearEnemies();
         }
-        // 蓄力时挨打：骨盆（根关节）和挨打的另一只一模一样，只有 hitJ 抖一点（steady）。两只同时起同一个蓄力，只打其中一只
+        // 蓄力时挨打：和没挨打的另一只一模一样（boss-flinch 起蓄力 / 出手里一点不动，只闪白；原来 hitJ 会抖一下 ≤ 0.12 弧度）。两只同时起同一个蓄力，只打其中一只
         T.lane();
         const b = G.spawnBoss(kind, P.x + 4, P.z, 1), c = G.spawnBoss(kind, P.x + 4, P.z + 6, 1);
         c.ent.phase = b.ent.phase; c.ent.clock = b.ent.clock; c.ent.walk = b.ent.walk; // 移动姿态（呼吸）的相位一样，两只只差挨不挨打
@@ -12487,7 +12487,7 @@ async function main() {
       assert(x.same && Math.abs(x.cT - x.contact) <= 1 / 60 + 1e-6 && Math.abs(x.contact - x.lead) < 1e-6, p + '：' + x.kind + '的那一帧应正好是出手动作的接触帧：' + JSON.stringify(x));
       assert(x.pose && x.pose.near, p + '：接触帧应是接触的姿势（' + C.m[p] + ' 到了极值），差了 ' + (x.pose && x.pose.bestAt) + ' 帧：' + JSON.stringify(x.pose));
     }
-    assert(r.steady.root < 1e-6 && r.steady.hitJ > 0.005 && r.steady.hitJ <= 0.121, '蓄力时挨打，骨盆不该仰 / 压扁，只在 hitJ 上抖一下（≤ 0.12 弧度）：' + JSON.stringify(r.steady));
+    assert(r.steady.root < 1e-6 && r.steady.hitJ < 1e-6, '蓄力时挨打，姿势应一点不动（boss-flinch：只闪白）：' + JSON.stringify(r.steady));
     return r.pats.map((p) => p + ' 提前 ' + r[p].lead.toFixed(2) + ' s，' + r[p].kind + '时 cT − 接触 = ' + ((r[p].cT - r[p].contact) * 1000).toFixed(1) + ' ms').join('；');
   });
   await bossClipStep('golem');
@@ -12536,6 +12536,92 @@ async function main() {
   await bossDeathStep('lord', '烬渊之主');
   await bossDeathStep('behemoth', '衔星巨兽');
   await bossDeathStep('weaver', '霜织者');
+
+  // boss-flinch：首领 / 精英挨打只有一下小的叠加抖动（只在 hitJ 上，几度、0.14 s），小的一下不动（只闪白），每 0.5 s 最多一次、窗口里不续，
+  // 出招（模拟忙）/ 在播动作时不动；普通小怪照旧整个人一仰。两只同相位的一起推进动画，只打其中一只，比两只的姿态差
+  await step('首领受击：六只首领挨小的一下不动（只闪白）；大的一下（≥ 最大生命的 2% 或重技能暴击）只在躯干 / 头上抖几度、根关节不动，0.5 秒里最多一次；出招中 / 蓄力动作里不动；精英同样规矩、幅度稍大；普通小怪照旧', async () => {
+    // 有首领包的用脚本生成的新模型（包里有哪几只就测哪几只的新模型，其余是程序化外观；规矩两种一样）
+    await ev(async () => { for (const k of ['golem', 'weaver', 'warden', 'lord', 'behemoth', 'snuffer']) if (G.assets.known('boss-' + k)) { await G.assets.need(['boss-' + k]); G.world.bossRig(k); } });
+    const r = await ev(() => {
+      const W = G.world, P = G.player, F = W.FLINCH, out = {};
+      const twin = (mk) => {
+        T.lane();
+        const a = mk(P.x + 6, P.z), b = mk(P.x + 6, P.z + 7);
+        for (const x of [a, b]) { x.cd = x.busy = 1e9; x.awake = false; x.speed = 0; x.atkCd = 1e9; W.stop(x.ent, 0); x.ent.hitT = 0; }
+        b.ent.phase = a.ent.phase; b.ent.clock = a.ent.clock; b.ent.walk = a.ent.walk;
+        const st = (n) => { let root = 0, hj = 0, any = 0; for (let f = 0; f < n; f++) { for (const x of [a, b]) W.animEnt(x.ent, 1 / 60, false);
+          const o1 = a.ent.out, o2 = b.ent.out, J = a.ent.rig.hitJ || [];
+          for (const i of [0, 1, 2, 6, 7, 8]) root = Math.max(root, Math.abs(o1[i] - o2[i])); // 根关节的转角和压扁（贴地会按脚抬落骨盆，不算）
+          for (const j of J) hj = Math.max(hj, Math.abs(o1[j] - o2[j]), Math.abs(o1[j + 2] - o2[j + 2]));
+          for (let i = 0; i < o1.length; i++) any = Math.max(any, Math.abs(o1[i] - o2[i])); }
+          return { root: +root.toFixed(4), hj: +hj.toFixed(4), any: +any.toFixed(4) }; };
+        st(20);
+        return { a, b, st };
+      };
+      for (const kind of ['golem', 'weaver', 'warden', 'lord', 'behemoth', 'snuffer']) {
+        const { a, st } = twin((x, z) => G.spawnBoss(kind, x, z, 1)), e = a.ent, o = {};
+        for (let i = 0; i < 20; i++) W.hitReact(e, 0, 1.3, { frac: 0.003 });
+        o.tiny = st(20);
+        W.hitReact(e, 0, 1.3, { frac: 0.05 });
+        const n1 = e.flinchN;
+        o.big = st(12);
+        W.hitReact(e, 0, 1.3, { frac: 0.05 }); // 0.2 s 后：窗口里，不续
+        o.inWin = e.flinchN - n1;
+        o.after = st(24);
+        W.hitReact(e, 0, 1.3, { frac: 0.001, heavyCrit: true }); // 0.6 s 后：重技能暴击照样抖
+        o.crit = e.flinchN - n1;
+        st(40);
+        W.hitReact(e, 0, 1.3, { frac: 0.05, busy: true }); // 模拟在出招 / 收招 / 破防
+        o.busy = e.flinchN - n1 - 1;
+        const w0 = Object.keys(e.rig.clips).find((k) => /_w$/.test(k) && e.rig.clips[k].steady) || Object.keys(e.rig.clips).find((k) => /_w$/.test(k));
+        W.play(e, w0, { dur: 0.8 });
+        W.hitReact(e, 0, 1.3, { frac: 0.05 }); // 在播蓄力动作
+        o.clip = e.flinchN - n1 - 1;
+        o.tier = e.hitTier; o.model = e.rig.bossModel || 'proc';
+        // 走真的命中路径（G.hitEnemy → 外观）：零碎的一下不抖，大的一下抖
+        W.stop(e, 0); st(40);
+        const ctx = (v) => ({ sk: { w: 0, kb: 0, poise: 0 }, base: { phys: [v, v] }, inc: {}, moreType: {}, more: 1, extra: {}, crit: 0, critMulti: 100, ailment: 0, stun: 0, leech: 0 });
+        a.hp = a.maxHp = 1e5; a.busy = 0;
+        const n2 = e.flinchN;
+        G.hitEnemy(a, ctx(20), 1, {});
+        o.realTiny = e.flinchN - n2;
+        G.hitEnemy(a, ctx(9000), 1, {});
+        o.realBig = e.flinchN - n2;
+        out[kind] = o;
+        G.clearEnemies();
+      }
+      { // 精英：同样的规矩，幅度上限稍大
+        const { a, st } = twin((x, z) => T.mob('husk', x - P.x, z - P.z, { elite: true })), e = a.ent, o = {};
+        for (let i = 0; i < 20; i++) W.hitReact(e, 0, 1.3, { frac: 0.003 });
+        o.tiny = st(20);
+        W.hitReact(e, 0, 1.3, { frac: 0.05 });
+        o.big = st(12); o.tier = e.hitTier;
+        out.elite = o;
+        G.clearEnemies();
+      }
+      { // 普通小怪：照旧整个人一仰
+        const { a, st } = twin((x, z) => T.mob('husk', x - P.x, z - P.z)), e = a.ent;
+        W.hitReact(e, 0, 1.3, { frac: 0.003 });
+        out.mob = Object.assign(st(10), { tier: e.hitTier || null });
+        G.clearEnemies();
+      }
+      out.F = F;
+      return out;
+    });
+    const A = r.F.amp;
+    for (const k of ['golem', 'weaver', 'warden', 'lord', 'behemoth', 'snuffer']) {
+      const o = r[k];
+      assert(o.tier === 'boss' && o.tiny.any < 1e-6, k + '：小的一下应一点不动（只闪白）：' + JSON.stringify(o));
+      assert(o.big.root < 1e-6 && o.big.hj > A.boss * 0.5 && o.big.hj <= A.boss * 1.31, k + '：大的一下只在躯干 / 头上抖几度、根关节不动：' + JSON.stringify(o));
+      assert(o.inWin === 0 && o.after.any < 1e-6 && o.crit === 1, k + '：0.5 秒里最多抖一次、窗口里不续；重技能暴击照样抖：' + JSON.stringify(o));
+      assert(o.busy === 0 && o.clip === 0, k + '：出招中 / 在播动作时不该抖：' + JSON.stringify(o));
+      assert(o.realTiny === 0 && o.realBig === 1, k + '：真的命中路径：零碎的一下不抖、大的一下抖：' + JSON.stringify(o));
+    }
+    const E = r.elite, M = r.mob;
+    assert(E.tier === 'elite' && E.tiny.any < 1e-6 && Math.max(E.big.hj, E.big.root) > A.boss * 1.31 && Math.max(E.big.hj, E.big.root) <= A.elite * 1.31, '精英：同样的规矩、幅度上限稍大：' + JSON.stringify(E));
+    assert(M.tier === null && M.root > 0.05, '普通小怪照旧整个人一仰：' + JSON.stringify(M));
+    return ['golem', 'weaver', 'warden', 'lord', 'behemoth', 'snuffer'].map((k) => k + '（' + r[k].model + '）' + r[k].big.hj.toFixed(3)).join('、') + ' 弧度；精英 ' + E.big.any.toFixed(3) + '；小怪根关节 ' + M.root.toFixed(2);
+  });
 
   await step('刷新后仍可正常游玩：移动、施法、面板', async () => {
     await ev(() => {
