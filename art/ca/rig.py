@@ -96,9 +96,11 @@ def armature(skel, name):
     return ob
 
 
-def skin(ob, arm, skel, bind, soft):
+def skin(ob, arm, skel, bind, soft, custom=None):
     """蒙皮：bind = 顶点索引 → (骨骼名, 是否软接缝)（零件标签，刚性权重 1）；soft = [(子骨骼, 父骨骼, 枢轴（游戏坐标）, 轴（游戏坐标，从父指向子）, 带宽 m), ...]：
     标了软接缝、属于子骨骼或父骨骼的顶点，在关节枢轴沿轴 ±带宽/2 的范围里按 smoothstep 在两根骨骼之间渐变（接缝弯折时不开口）；没标的零件一律刚性。
+    custom（可选，boss-snuffer 起）：custom(顶点的游戏坐标, 骨骼名) → {骨骼名: 权重} 或 None。标了软接缝的顶点先问它
+    （袍子这种一圈按角度、一段按高度跨好几根骨骼渐变的件），返回 None 的照软接缝算；权重同样量化、补差额。
     返回每根骨骼的顶点数（查漏标用）"""
     me = ob.data
     groups = {n: ob.vertex_groups.new(name=n) for n in skel.names()}
@@ -118,6 +120,10 @@ def skin(ob, arm, skel, bind, soft):
             d = (v.co - piv).dot(a)
             if best is None or abs(d) < abs(best[0]):
                 best = (d, c, p, band)
+        cw = custom((v.co.x, v.co.z, -v.co.y), b) if (custom and sf) else None
+        if cw:
+            ws = dict(cw)
+            best = None
         if best is not None:
             d, c, p, band = best
             t = min(1.0, max(0.0, d / band + 0.5))
