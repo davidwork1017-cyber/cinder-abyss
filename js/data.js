@@ -320,7 +320,7 @@
     //   hitCap：同一次施放对同一个敌人最多中几枚（贴脸的霰弹；中满的敌人后面的钉子直接穿过去，打后面的）；每枚都击退、削架势。连锁镶不上。useMult：技能卡 / 秒伤按贴近时中 3 枚算
     nails: {
       name: '散钉', icon: '钉', color: '#b9c0cc', tags: ['attack', 'projectile', 'phys'], kind: 'proj', noSup: ['chain'],
-      wm: 0.62, gunSec: 0.225, time: 0.5, mana: 5, cd: 0, count: 7, spread: 8, speed: 30, life: 0.27, projR: 0.22, pierce: 0, hitCap: 3, useMult: 3, w: 0, kb: 0.3, poise: 6, vk: 'nail', bclip: 'nails', // vk：细长的钢钉（world.js PF_DRAW.nail）
+      wm: 0.66, gunSec: 0.225, time: 0.5, mana: 5, cd: 0, count: 7, spread: 8, speed: 30, life: 0.27, projR: 0.22, pierce: 0, hitCap: 3, useMult: 3, w: 0, kb: 0.3, poise: 6, vk: 'nail', bclip: 'nails', // vk：细长的钢钉（world.js PF_DRAW.nail）
       desc: '扇形掷出 5 枚铁钉，射程 8 米，贴近时最多 3 枚打中同一个敌人。', alt: '每枚都会击退、削架势。多重投射加钉子、扇面变宽，单体上限不变。',
     },
     // 放血：身前 arc° 的交叉两刀（一次结算），bleed：让敌人流血，4 秒内再受到这一击物理伤害的 bleed%（规则见 G.BLEED）
@@ -356,9 +356,9 @@
       mana: 0, reserve: 15, cd: 0, time: 0.3, lock: 1, w: 0, kb: 0, poise: 0,
       // wedge：每一击在敌人身上钉一枚雷楔（同一次出手对同一个敌人只钉 1 枚），钉满 n 枚当场放电：它挨 zap × 这几枚的伤害之和（闪电），
       //   再连到 r 米内最近的 chain 个敌人（各 chainK 份），然后清零；keep 秒没再钉就散掉
-      imbue: { add: 6, addLv: 0.15, ailment: 20, wedge: { n: 3, zap: 0.18, r: 4, chain: 2, chainK: 0.1, keep: 4 } },
+      imbue: { add: 6, addLv: 0.15, ailment: 20, wedge: { n: 3, zap: 0.2, r: 4, chain: 2, chainK: 0.1, keep: 4 } },
       desc: '开关：装上后，你的子弹、箭、钉子都附带闪电伤害，每一击在敌人身上钉一枚雷楔，钉满 3 枚就放电，再连到附近 2 个敌人。保留 15% 魔力。',
-      alt: '放电造成这 3 枚伤害之和的 18%，连到的敌人各受放电的 10%。一次出手对同一个敌人只钉 1 枚、最多放 1 次电，4 秒没再钉就散掉。同一时间只能装一种装填，切换后 1 秒内不能再换。',
+      alt: '放电造成这 3 枚伤害之和的 20%，连到的敌人各受放电的 10%。一次出手对同一个敌人只钉 1 枚、最多放 1 次电，4 秒没再钉就散掉。同一时间只能装一种装填，切换后 1 秒内不能再换。',
     },
     rime: {
       name: '霜霰装填', icon: '霰', color: '#a8e4ff', tags: ['imbue', 'cold'], kind: 'imbue', elem: 'cold', clsOnly: true,
@@ -2653,12 +2653,12 @@
   G.GEM_NEED = {
     whirl: 'melee', rend: 'melee', blink: 'melee', shadestep: 'melee',
     blade: 'shot', nails: 'huntgun',
-    molten: 'gunbow', wedge: 'gunbow', rime: 'gunbow', recoil: 'gun', // 装填（imbue，2026-11-25：枪或弓）/ 反冲弹（class-d2b1）
+    molten: 'huntgun', wedge: 'huntgun', rime: 'huntgun', recoil: 'gun', // 装填（imbue，2026-11-25，dev-48 定：枪 + 猎弓，炉匠和夜猎）/ 反冲弹（class-d2b1）
     snare: 'huntgun', brace: 'melee', scorch: 'heavy', heartfire: 'heavy', leapshot: 'hunt', // class-d2b2
     arc: 'focus', meteor: 'focus', frostline: 'focus', icefall: 'focus', discharge: 'focus', tether: 'focus', blackhole: 'focus', vortex: 'focus',
   };
-  G.NEED_GROUPS = { gun: ['gun'], heavy: ['heavy'], hunt: ['hunt'], melee: ['melee'], shot: ['melee', 'bow', 'gun'], huntgun: ['hunt', 'gun'], gunbow: ['gun', 'bow'], focus: ['focus'] };
-  G.NEED_NAME = { gun: '枪（机炮、喷枪、左轮）', heavy: '重兵（刃、战锤、太刀）', hunt: '猎弓（追猎弓、冰弓）', melee: '近战武器', shot: '近战武器、弓或枪', huntgun: '猎弓或枪', gunbow: '枪或弓', focus: '法器（杖、魂幡、提灯、符文弓、鹰眼长弓）' };
+  G.NEED_GROUPS = { gun: ['gun'], heavy: ['heavy'], hunt: ['hunt'], melee: ['melee'], shot: ['melee', 'bow', 'gun'], huntgun: ['hunt', 'gun'], focus: ['focus'] };
+  G.NEED_NAME = { gun: '枪（机炮、喷枪、左轮）', heavy: '重兵（刃、战锤、太刀）', hunt: '猎弓（追猎弓、冰弓）', melee: '近战武器', shot: '近战武器、弓或枪', huntgun: '猎弓或枪', focus: '法器（杖、魂幡、提灯、符文弓、鹰眼长弓）' };
   // 某种武器类型能不能放某个宝石
   G.typeFitsNeed = function (type, need) {
     if (!need) return true;
