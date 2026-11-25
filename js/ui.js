@@ -2465,16 +2465,20 @@
     const mi = sk.kind === 'summon' ? minionStats(id, ctx) : null;
     if (mi) {
       // 召唤技能：卡片上是召唤物自己的数值（每一击、出手频率、生命、现存数量 / 上限）
+      const tank = !!(ctx.minion && ctx.minion.mech === 'bastion'); // 刻式「磐垒」：只扛不打，卡片上不写伤害
       nums =
-        num('每击伤害', mi.dmgMin === mi.dmgMax ? fmtInt(mi.dmgMin) : fmtInt(mi.dmgMin) + '–' + fmtInt(mi.dmgMax), 'hl') +
-        num('每秒攻击', mi.rate > 0 ? mi.rate.toFixed(2) : '—') +
+        (tank ? num('伤害', '无', 'hl') : num('每击伤害', mi.dmgMin === mi.dmgMax ? fmtInt(mi.dmgMin) : fmtInt(mi.dmgMin) + '–' + fmtInt(mi.dmgMax), 'hl')) +
+        num('每秒攻击', mi.rate > 0 && !tank ? mi.rate.toFixed(2) : '—') +
         num('召唤物生命', fmtInt(mi.life)) +
         num('数量', mi.count + ' / ' + mi.cap, mi.count >= mi.cap ? 'full' : '') +
         num(blood ? '生命消耗' : '魔力消耗', ctx.cost > 0 ? fmt1(ctx.cost) : '无') +
         num('冷却', ctx.cd > 0 ? fmt1(ctx.cd) + ' 秒' : '无');
       const bits = ['施放 ' + fmt1(ctx.time) + ' 秒'];
       if (mi.dr > 0) bits.push('减伤 ' + Math.round(mi.dr) + '%');
-      if (mi.radius > 0) bits.push('砸地半径 ' + fmt1(mi.radius));
+      if (tank) {
+        const B = ctx.minion.vx;
+        bits.push('护域 ' + B.r + ' 米：减伤 ' + B.dr + '% · 敌人减速 ' + Math.round(B.slow * 100) + '%');
+      } else if (mi.radius > 0) bits.push('砸地半径 ' + fmt1(mi.radius));
       if (mi.taunt) bits.push('嘲讽 ' + fmt1(mi.taunt.cd) + ' 秒 / 半径 ' + fmt1(mi.taunt.r));
       const pm = ctx.minion && ctx.minion.charge ? ctx.minion : null;
       if (pm) {

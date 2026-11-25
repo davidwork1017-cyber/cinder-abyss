@@ -29451,6 +29451,7 @@
       'void main(){ vec2 p = vUv * 2.0 - 1.0; float r = length(p); if (r > 1.0) discard;',
       '  float t = atan(p.x, p.y) / 6.28318 + 0.5; float a = 0.0;',
       '  if (vK > 1.5) { if (r < 0.955) discard; gl_FragColor = vec4(mix(vC, vec3(1.0), 0.1), vA > 0.66 ? 0.9 : (vA > 0.33 ? 0.55 : 0.25)); return; }', // 冲击环：只有一道细环（k = 2）
+      '  if (vK < -0.5) { if (r > 0.97) discard; gl_FragColor = vec4(vC, 0.06 * (vA > 0.66 ? 1.0 : (vA > 0.33 ? 0.62 : 0.3))); return; }', // 磐垒的护域铺底（k = -1）：整片很淡的加色，没有花样
       '  if (r > 0.9) a = (t <= vK || vK >= 0.999) ? 1.0 : 0.25;',
       '  else if (r > 0.7 && r < 0.78) { float s = fract(t * 6.0 + uTime * 0.25); a = s < 0.6 ? 0.75 : 0.0; }',
       '  if (a <= 0.0) discard; float k = vA > 0.66 ? 1.0 : (vA > 0.33 ? 0.62 : 0.3);',

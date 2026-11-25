@@ -2346,6 +2346,7 @@
   // 冷却技能按冷却折算（单独循环施放时的秒伤）；光环是每秒脉冲次数 × 每跳伤害（单体）
   G.skillDps = function (ctx) {
     const mi = ctx.minion;
+    if (mi && mi.mech === 'bastion') return 0; // 刻式「磐垒」只扛不打
     if (mi && mi.mech === 'link') return G.avgHit(ctx) * mi.cap * (mi.vx.k1 / (mi.vx.tick * Math.min(1, mi.interval / ctx.sk.rate))); // 刻式「魂链」：烧满之后的灼链
     if (mi && mi.mech === 'field') {
       // 刻式「焰田」打单体：火弹（每秒 r 枚）+ 脚下火地（几片共用一个计时，每 tick 秒一跳）+ 燎原（每 charge.max 枚一次，引爆这期间留下、还没灭的火地）
@@ -3572,7 +3573,7 @@
       let d = P.roll.t > 0 ? P.moveSpeed * 2.6 * P.roll.t : 0;
       while (d > 0 && !W.walkable(P.x + P.roll.dx * d, P.z + P.roll.dz * d, 0.6)) d -= 0.4;
       const lx = P.x + P.roll.dx * Math.max(0, d), lz = P.z + P.roll.dz * Math.max(0, d);
-      const ms = state.minions.filter((m) => !m.dead && !(m.rising > 0) && !(m.ctx && m.ctx.minion && m.ctx.minion.mech === 'bastion')); // 刻式「磐垒」扎根不动，不跟着闪
+      const ms = state.minions.filter((m) => !m.dead && !(m.rising > 0));
       const n = ms.length;
       ms.forEach((m, i) => {
         const a = P.face + Math.PI + (i - (n - 1) / 2) * (TAU / Math.max(3, n + 1));

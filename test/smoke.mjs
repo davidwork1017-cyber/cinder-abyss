@@ -16048,23 +16048,69 @@ async function main() {
     assert(r.back === 1 && r.alive2 === 1, '骸爆 3 秒后应拼回来：' + JSON.stringify(r));
     return '炸开打中 ' + r.hit + '，3 秒后拼回';
   });
-  await step('刻式 v2·石誓守像「磐垒」：扎根不动；护域里你少受 20% 伤害、敌人变慢', async () => {
+  // 磐垒改版（2026-11-25，用户：「不能跟着我动吗？……嘲讽加回来吧，就加减伤光环但是不输出」）：原来扎根不动、不嘲讽、只砸走进来的敌人
+  await step('刻式 v2·石誓守像「磐垒」：跟着你走、嘲讽周围的敌人（含首领）；6 米护域跟着守像，里面你少受 20% 伤害、敌人变慢，外面不算；守像不造成伤害；护域的淡青铺底不盖掉预警圈的红', async () => {
     await ev(TVDEF);
     const r = await ev(() => {
       TV.setup('colossus', 'a');
-      const P = G.player;
-      const c = G.summonMinion('colossus', P.x + 2, P.z, G.skillCtx('colossus'));
-      const m = TV.mob(10, 0);
-      TV.run(2.5);
-      const c0 = { x: c.x, z: c.z };
-      TV.run(2.0);
-      const inside = T.mob('husk', c.x - P.x + 2, c.z - P.z);
-      const out = { still: Math.hypot(c.x - c0.x, c.z - c0.z) < 0.05, k: +G.bastionK(c.x + 1, c.z).toFixed(3), kOut: G.bastionK(c.x + 9, c.z), slow: G.bastionSlow(inside), slowOut: G.bastionSlow(m), fx: G.world.kvCount('glyph') }; // skill-b1：护域只画边（符环的 edge 画法），不再有罩子
+      const P = G.player, W = G.world, D = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+      const ctx = G.skillCtx('colossus');
+      const c = G.summonMinion('colossus', P.x + 2, P.z, ctx);
+      TV.run(1.5);
+      const out = { mech: c.ctx.minion.mech, move: c.ctx.minion.move, taunt: !!c.ctx.minion.taunt, dps: G.skillDps(ctx) };
+      // 跟着走：玩家往前挪 12 米，5 秒后守像跟到身边
+      const c0 = { x: c.x, z: c.z }, dest = TV.at(12);
+      P.x = dest.x;
+      P.z = dest.z;
+      TV.run(5);
+      out.follow = { moved: +D(c, c0).toFixed(1), dP: +D(c, P).toFixed(1) };
+      // 嘲讽：前面 3 米一只小怪、5 米一个首领（不动不还手），守像顶上去嘲讽两个；一下都不打
+      const mob = TV.mob(3, 0.5);
+      mob.atkCd = 1e9;
+      const boss = TV.boss(5);
+      TV.run(6);
+      out.taunt2 = { mob: mob.taunter === c, boss: boss.taunter === c, hitMob: TV.n(mob), hitBoss: TV.n(boss), mobHp: mob.hp === mob.maxHp, bossHp: boss.hp === boss.maxHp, dP: +D(c, P).toFixed(1) };
+      // 护域：以守像为圆心 6 米，里面你受到的伤害 ×0.8、敌人减速 25%，外面不算
+      const inside = TV.mob(0, 0);
+      inside.x = c.x + 2;
+      inside.z = c.z;
+      const outer = TV.mob(0, 0);
+      outer.x = c.x + 9;
+      outer.z = c.z;
+      out.aura = { k: +G.bastionK(c.x + 1, c.z).toFixed(3), kOut: G.bastionK(c.x + 7, c.z), slow: G.bastionSlow(inside), slowOut: G.bastionSlow(outer), fill: !!(c.vfx && c.vfx.some((h) => h.k < 0)) };
+      // 预警圈的红：在护域里放一个敌方预警圈，量它中心的颜色，铺底开 / 关各一次（渲染完同一个任务里读）
+      G.clearEnemies();
+      const tp = { x: c.x + 1.5, z: c.z + 1.5 };
+      const tg = G.telegraph({ x: tp.x, z: tp.z, r: 1.4, dur: 30, dmg: 0, owner: null });
+      tg.handle.setProgress(0.5);
+      const gl = W.renderer.getContext();
+      const px = () => {
+        G.debug.step(0);
+        W.render();
+        const s = W.project(tp.x, 0.05, tp.z), k = gl.drawingBufferWidth / innerWidth;
+        const x = Math.round(s.x * k), y = Math.round(gl.drawingBufferHeight - s.y * k), b = new Uint8Array(8 * 8 * 4);
+        gl.readPixels(x - 4, y - 4, 8, 8, gl.RGBA, gl.UNSIGNED_BYTE, b);
+        const m = [0, 0, 0];
+        for (let i = 0; i < b.length; i += 4) for (let j = 0; j < 3; j++) m[j] += b[i + j] / 64;
+        return m.map(Math.round);
+      };
+      const on = px();
+      const fill = c.vfx.find((h) => h.k < 0), a0 = fill.a;
+      fill.a = 0;
+      const off = px();
+      fill.a = a0;
+      G.state.telegraphs.splice(G.state.telegraphs.indexOf(tg), 1);
+      W.removeTelegraph(tg.handle);
+      out.px = { on, off, red: on[0] > on[1] + 20 && on[0] > on[2] + 20, diff: Math.max(...on.map((v, j) => Math.abs(v - off[j]))) };
       TV.done();
       return out;
     });
-    assert(r.still && r.k === 0.8 && r.kOut === 1 && r.slow === 0.25 && r.slowOut === 0 && r.fx >= 1, '磐垒的护域不对：' + JSON.stringify(r));
-    return '扎根不动，护域里受伤 ×' + r.k + '、敌人减速 ' + r.slow;
+    assert(r.mech === 'bastion' && r.move > 0 && r.taunt && r.dps === 0, '磐垒的数据不对（应能走、会嘲讽、估算秒伤 0）：' + JSON.stringify(r));
+    assert(r.follow.moved > 8 && r.follow.dP < 6, '磐垒应跟着你走：' + JSON.stringify(r.follow));
+    assert(r.taunt2.mob && r.taunt2.boss && r.taunt2.hitMob === 0 && r.taunt2.hitBoss === 0 && r.taunt2.mobHp && r.taunt2.bossHp && r.taunt2.dP <= 6, '磐垒应嘲讽小怪和首领、一下都不打、不离开你：' + JSON.stringify(r.taunt2));
+    assert(r.aura.k === 0.8 && r.aura.kOut === 1 && r.aura.slow === 0.25 && r.aura.slowOut === 0 && r.aura.fill, '磐垒的护域不对：' + JSON.stringify(r.aura));
+    assert(r.px.red && r.px.diff <= 12, '护域的铺底不该盖掉预警圈的红：' + JSON.stringify(r.px));
+    return '跟上 ' + r.follow.moved + ' 米，嘲讽小怪 + 首领、命中 0；护域里受伤 ×' + r.aura.k + '、减速 ' + r.aura.slow + '；预警圈中心 ' + r.px.on.join('/') + '（铺底关 ' + r.px.off.join('/') + '）';
   });
   await step('刻式 v2·石誓守像「掷岩」：朝远处的怪抛巨石，落地砸开', async () => {
     await ev(TVDEF);
