@@ -28042,19 +28042,31 @@ async function touchSteps() {
     return out.map((r) => r.size).join(' / ');
   });
 
-  await uiLayoutSteps('bag');
+  await uiSteps();
+}
+// 界面布局那一组（各面板的触屏 / 桌面布局、桌面样式、天赋页）：触屏组末尾跑；node test/smoke.mjs --ui 单独跑这一组
+async function uiSteps() {
+  // 先把所有面板的触屏布局跑完、关掉触屏浏览器，再跑桌面（桌面那几步和桌面样式的先后不变）。以前触屏 / 桌面一对一对交替，两个浏览器从头开到尾，
+  // 闲着的那个 GPU 进程照样空转（SwiftShader 下一个浏览器的 GPU 进程不管页面在不在动都吃 3 个核左右，冻结页面也不降），机器满载时拖慢别人。
+  // 种子：每一步开始时 step() 给「当前的 page」播种，以前那个 page 是上一步的（另一个浏览器）；这里在换到这一步的浏览器之后，
+  // 按以前实际落到它身上的那个名字再播一次（触屏步骤用上一个面板桌面那一步的名字，桌面步骤用同一面板触屏那一步的名字），每个浏览器拿到的随机序列和以前一样
+  const PANELS = ['bag', 'stash', 'map', 'help', 'settings', 'char', 'skills', 'trader', 'title', 'tree'];
+  for (let i = 0; i < PANELS.length; i++) await uiLayoutSteps(PANELS[i], 'touch', i ? uiStepName(PANELS[i - 1], 'desk') : null);
+  await uiLayoutClose('touch');
+  const desk = (p) => uiLayoutSteps(p, 'desk', p === 'bag' ? null : uiStepName(p, 'touch'));
+  await desk('bag');
   await uiDeskStyleStep();
-  await uiLayoutSteps('stash');
-  await uiLayoutSteps('map'); // B4a
-  await uiLayoutSteps('help'); // B4a
-  await uiLayoutSteps('settings'); // B4a
+  await desk('stash');
+  await desk('map'); // B4a
+  await desk('help'); // B4a
+  await desk('settings'); // B4a
   await uiDeskStyleB4aStep(); // B4a
-  await uiLayoutSteps('char');
+  await desk('char');
   await uiDeskStyleSkillsStep();
-  await uiLayoutSteps('skills');
-  await uiLayoutSteps('trader');
-  await uiLayoutSteps('title');
-  await uiLayoutSteps('tree');
+  await desk('skills');
+  await desk('trader');
+  await desk('title');
+  await desk('tree');
   await uiDeskStyleB4b();
   await uiLayoutDone();
   await uiTreeStyleStep();
@@ -28329,7 +28341,7 @@ async function uiFixture() {
 async function uiDeskStyleStep() {
   await step('界面布局·桌面样式：1366×768 下页头 50 px、品牌字、页签 17 px、小标题 15.5 px、装备格 / 背包格 / 通货的尺寸和颜色、属性行和 main 逐项相等（有意改动的只有 .c-ilvl 10.5 → 11 px）', async () => {
     assert(uiPages && uiPages.desk, '要先跑「界面布局·背包（桌面）」');
-    ({ browser, page, errors } = uiPages.desk);
+    await uiUse('desk');
     await page.setViewportSize({ width: 1366, height: 768 });
     await ev(() => {
       G.ui.close();
@@ -28355,7 +28367,7 @@ async function uiDeskStyleStep() {
 async function uiDeskStyleSkillsStep() {
   await step('界面布局·桌面样式（技能页）：1366×768 下技能栏格、技能卡（卡框、卡名、标签、按键标签、说明、数值、辅助槽）、辅助宝石卡、小标题和 main 逐项相等（有意改动的只有 .sk-num span 10.5 → 11 px）', async () => {
     assert(uiPages && uiPages.desk, '要先跑「界面布局·背包（桌面）」');
-    ({ browser, page, errors } = uiPages.desk);
+    await uiUse('desk');
     await page.setViewportSize({ width: 1366, height: 768 });
     await skOpen({ open: (tab, sub) => ev(([tab, sub]) => { G.ui.close(); localStorage.removeItem('cinder-abyss-ui-seen'); G.ui.open(tab, sub); }, [tab, sub]) }, 'skills');
     await ev(() => G.ui.open('skills', G.save.bar[0])); // 和在 main 上量的一样：中间是技能栏第一格的卡（main 上是列表里第一张技能卡）
@@ -28466,7 +28478,7 @@ async function uiTreeTouchZoomStep() {
 async function uiDeskStyleB4aStep() {
   await step('界面布局·桌面样式（地图 / 帮助 / 设置）：1366×768 下层级按钮、区域卡片的字和颜色、帮助的段落 / 按键表、设置行的字 / 分段按钮 / 开关 / 滑条和 main 逐项相等', async () => {
     assert(uiPages && uiPages.desk, '要先跑「界面布局」的桌面那几步');
-    ({ browser, page, errors } = uiPages.desk);
+    await uiUse('desk');
     await page.setViewportSize({ width: 1366, height: 768 });
     const settle = () => ev(async () => { for (const n of document.querySelectorAll('#panel-win, #panel-win *, #pause, #pause *')) for (const a of n.getAnimations()) await a.finished.catch(() => {}); });
     const pick = (pre) => Object.fromEntries(Object.entries(DESK_STYLE_B4A_SPEC).filter(([k]) => k.startsWith(pre + ' ')));
@@ -28507,7 +28519,7 @@ async function uiDeskStyleB4aStep() {
 async function uiDeskStyleB4b() {
   await step('界面布局·桌面样式（标题画面 / 角色页 / 职业选择 / 拾烬客）：1366×768 下标志、菜单按钮、页脚、角色卡、职业卡、货架行和 main 逐项相等（有意改动：职业卡回到 B1 之前的样子、标题画面的按键角标 10.5 → 11 px）', async () => {
     assert(uiPages && uiPages.desk, '要先跑「界面布局·标题画面（桌面）」');
-    ({ browser, page, errors } = uiPages.desk);
+    await uiUse('desk');
     await page.setViewportSize({ width: 1366, height: 768 });
     const settle = () => ev(async () => {
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -28594,13 +28606,34 @@ async function uiTreeStyleStep() {
   });
 }
 let uiPages = null; // { touch: { browser, page, errors, fx }, desk: {…} }：几个面板共用，uiLayoutDone 关掉
-async function uiLayoutSteps(panel) {
+// 换到界面布局的某个浏览器（'touch' / 'desk'）
+async function uiUse(mode) {
+  ({ browser, page, errors } = uiPages[mode]);
+}
+// 界面布局的某个浏览器用完了：关掉（触屏那几步跑完以后关触屏浏览器）
+async function uiLayoutClose(mode) {
+  if (!uiPages || !uiPages[mode]) return;
+  const u = uiPages[mode];
+  delete uiPages[mode];
+  if (browser === u.browser) browser = page = null;
+  await u.browser.close().catch(() => {});
+  runNote('界面布局：关掉 ' + mode + ' 浏览器');
+}
+// 界面布局那一步的名字（种子、日志都用它）
+function uiStepName(panel, mode) {
+  const sizes = UI_SIZES.filter((z) => z[2] === (mode === 'touch'));
+  const names = sizes.map((z) => z[0] + '×' + z[1] + (z[3] ? '+' + z[3] : '') + (z[4] ? '（转）' : '')).filter((v, i, a) => a.indexOf(v) === i);
+  return '界面布局·' + UI_PANELS[panel].label + '（' + (mode === 'touch' ? '触屏' : '桌面') + '）：' + names.join(' / ') + UI_STEP_TAIL;
+}
+const UI_STEP_TAIL = ' 下每个状态都在屏内、只有 data-list 滚动、不横向溢出、页头 ≤ 36 / 字号 ≥ 11 / 点按区 ≥ 44（触屏）、按钮点得到、点卡片外面能收起、横屏不碰 iPhone 圆角';
+// panel 的某一种（mode：'touch' / 'desk'）布局那一步。key：换到这一步的浏览器之后按哪个名字再播一次种子（见 uiSteps；null = 不播，比如这一步刚开的浏览器）
+async function uiLayoutSteps(panel, mode, key) {
   const P = UI_PANELS[panel];
-  for (const mode of ['touch', 'desk']) {
+  {
     const sizes = UI_SIZES.filter((z) => z[2] === (mode === 'touch'));
-    const names = sizes.map((z) => z[0] + '×' + z[1] + (z[3] ? '+' + z[3] : '') + (z[4] ? '（转）' : '')).filter((v, i, a) => a.indexOf(v) === i);
-    await step('界面布局·' + P.label + '（' + (mode === 'touch' ? '触屏' : '桌面') + '）：' + names.join(' / ') + ' 下每个状态都在屏内、只有 data-list 滚动、不横向溢出、页头 ≤ 36 / 字号 ≥ 11 / 点按区 ≥ 44（触屏）、按钮点得到、点卡片外面能收起、横屏不碰 iPhone 圆角', async () => {
+    await step(uiStepName(panel, mode), async () => {
       uiPages = uiPages || {};
+      const fresh = !uiPages[mode];
       if (!uiPages[mode]) {
         if (browser && !Object.values(uiPages).some((u) => u.browser === browser)) await browser.close().catch(() => {}); // 前面步骤留下的浏览器（布局步骤自己的两个留着，三个面板共用）
         ({ browser, page, errors } = await launch(mode === 'touch' ? { width: 844, height: 340, mobile: { scale: 2 }, dpr: null } : { width: 1366, height: 768, dpr: null }));
@@ -28608,7 +28641,8 @@ async function uiLayoutSteps(panel) {
         if (mode === 'touch') touch = await touchKit();
         uiPages[mode] = { browser, page, errors, fx };
       }
-      ({ browser, page, errors } = uiPages[mode]);
+      await uiUse(mode);
+      if (key && !fresh) await reseed(key);
       const fx = uiPages[mode].fx;
       const bad = [];
       let nStates = 0;
@@ -28723,7 +28757,7 @@ async function uiLayoutSteps(panel) {
 
 // 跑哪几份：默认两份都跑（先 func 后 timed，各用一个新浏览器）；--func / --timed 只跑一份。
 // 只跑 func，或在 cc-slot 的池里跑（CC_SLOT_HELD=pool:…，或手动设 CC_POOL=1）时，每行的耗时和 ms 数字标成不可比
-const PARTS = process.argv.includes('--func') ? ['func'] : process.argv.includes('--timed') ? ['timed'] : process.argv.includes('--touch') ? ['touch'] : ['func', 'timed'];
+const PARTS = process.argv.includes('--func') ? ['func'] : process.argv.includes('--timed') ? ['timed'] : process.argv.includes('--touch') ? ['touch'] : process.argv.includes('--ui') ? ['ui'] : ['func', 'timed'];
 const POOL = !!process.env.CC_POOL || /^pool:/.test(process.env.CC_SLOT_HELD || '');
 const sum = (p, f) => (f ? '失败 ' + f + ' 项，' : '') + '通过 ' + p + ' 项';
 (async () => {
@@ -28734,14 +28768,14 @@ const sum = (p, f) => (f ? '失败 ' + f + ' 项，' : '') + '通过 ' + p + ' �
   const per = [];
   for (const part of PARTS) {
     NC_TAG = POOL || (part === 'func' && PARTS.length === 1) ? ' [pool, not comparable]' : '';
-    cheap = (part === 'func' || part === 'touch') && !process.env.CINDER_FULL;
+    cheap = (part === 'func' || part === 'touch' || part === 'ui') && !process.env.CINDER_FULL;
     console.log('== test:' + part + ' · HEAD ' + head + ' · ' + new Date().toISOString() + ' · 槽位 ' + (process.env.CC_SLOT_HELD || '无') + (cheap ? ' · 省渲染 dpr ' + CHEAP_DPR + '（' + FULL_RES.length + ' 类步骤按 1）' : '') + (NC_TAG ? ' · 耗时数字不可比' + NC_TAG : '') + ' · Chrome 日志 ' + LOG_DIR.replace(/^.*\/(test-logs\/)/, '$1') + (part === 'timed' && POOL ? ' · 警告：计时步骤在池里跑，结果不作数' : ''));
     // 外层 timeout 剩的时间不到正常耗时的两倍左右（池里 test:func 45–56 分钟）就先警告一行
-    const tw = outerTimeoutWarning(part === 'func' ? 100 : part === 'touch' ? 30 : 15);
+    const tw = outerTimeoutWarning(part === 'func' ? 100 : part === 'touch' || part === 'ui' ? 30 : 15);
     if (tw) console.log(tw);
     const p0 = passed, f0 = failed;
     try {
-      await (part === 'func' ? main() : part === 'touch' ? touchSteps() : timedMain());
+      await (part === 'func' ? main() : part === 'touch' ? touchSteps() : part === 'ui' ? uiSteps() : timedMain());
     } catch (e) {
       failed++;
       console.log('FAIL 测试脚本自身出错 — ' + (e && e.stack ? e.stack : e));
