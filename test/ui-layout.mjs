@@ -6,9 +6,10 @@
 //   d. 触屏：页头 ≤ 36 px；字号 ≥ 11 px；button / [data-act] / .cell / .tab 的盒子 ≥ 44×44（桌面只查字号）
 //   e. elementFromPoint 打到每个点按目标的中心，打到的是它自己（或它里面的东西）
 //   f. 卡片整个在页面正文里、不盖页头和页签；卡片 / 弹出菜单打开时，里面的操作条整个在视口里（「点外面关掉」由调用方去点）
-// opts：{ touch: bool, roots: '#panel-win, …'（默认 #panel-win 和面板里的浮层）, max: 每类最多列几条 }
+// 可平移的画布（[data-pan]，比如天赋盘，B3）：被画布边裁掉的内容拖过去就看得见，a 不算；画布上浮着的按钮（[data-float]）盖住的画布内容，e 不算
+// opts：{ touch: bool, roots: '#panel-win, …'（默认 #panel-win 和面板里的浮层）, head: 量高度的页头（默认 #panel-head；标题画面的子页传 #title .m-head）, max: 每类最多列几条 }
 export function uiLayoutCheck(opts) {
-  const o = Object.assign({ touch: false, roots: '#panel-win, #panel .sheet, #panel .ui-pop, #confirm.on', max: 6 }, opts || {});
+  const o = Object.assign({ touch: false, roots: '#panel-win, #panel .sheet, #panel .ui-pop, #confirm.on', head: '#panel-head', max: 6 }, opts || {});
   // 旋转横屏（mobile-m2）：位置换到画面坐标（G.rectToFrame / viewW / viewH）；elementFromPoint 用屏幕坐标。没有这几个函数时就是原样
   const G0 = window.G || {};
   const F = (r) => (G0.rectToFrame ? G0.rectToFrame(r) : r);
@@ -58,17 +59,33 @@ export function uiLayoutCheck(opts) {
       // a：在视口里（data-list 里滚得到的除外；被别的祖先裁掉也算出界）
       let clip = { l: 0, t: 0, r: vw, b: vh };
       let inList = null;
+      const pan = e.closest('[data-pan]');
       for (let p = scrollerOf(e); p; p = scrollerOf(p)) {
         const pr = BR(p);
+        if (pan && pan.contains(p)) continue; // 画布自己和它里面的裁切不算（平移过去就看得见），只看画布外面的祖先
         if (p.hasAttribute('data-list') && !inList) inList = p;
         clip = { l: Math.max(clip.l, pr.left), t: Math.max(clip.t, pr.top), r: Math.min(clip.r, pr.right), b: Math.min(clip.b, pr.bottom) };
       }
       const outVp = r.left < -1 || r.top < -1 || r.right > vw + 1 || r.bottom > vh + 1;
       const outClip = r.left < clip.l - 1 || r.top < clip.t - 1 || r.right > clip.r + 1 || r.bottom > clip.b + 1;
+      const cr = pan && e !== pan ? BR(pan) : null;
+      const outPan = !!cr && (r.left < cr.left - 1 || r.top < cr.top - 1 || r.right > cr.right + 1 || r.bottom > cr.bottom + 1);
+      if (cr && (outVp || outClip || outPan)) {
+        // 画布里的东西：画布本身在视口里、没被外面裁掉就行；露在画布外面的那部分不检查（e 也只查露出来的）
+        if (cr.left >= Math.max(-1, clip.l - 1) && cr.top >= Math.max(-1, clip.t - 1) && cr.right <= Math.min(vw + 1, clip.r + 1) && cr.bottom <= Math.min(vh + 1, clip.b + 1)) {
+          const ix = Math.max(r.left, cr.left) < Math.min(r.right, cr.right) && Math.max(r.top, cr.top) < Math.min(r.bottom, cr.bottom);
+          if (isT && ix) {
+            const cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
+            if (cx >= cr.left && cx <= cr.right && cy >= cr.top && cy <= cr.bottom) targets.push(e); // 中心露在画布里的才打 elementFromPoint
+          }
+          continue;
+        }
+      }
       if (outVp || outClip) {
-        // data-list 里：滚过去就看得见（列表本身在视口里、元素宽度放得下）
+        // data-list 里：滚过去就看得见（列表本身在视口里、元素宽度放得下）。横着滑的 data-list（B4a 地图的区域卡片一排）：列表整个在视口里、元素高度放得下
         const lr = inList && BR(inList);
-        const reach = inList && lr.top >= -1 && lr.bottom <= vh + 1 && r.left >= lr.left - 1 && r.right <= lr.right + 1;
+        const hz = inList && /(auto|scroll)/.test(getComputedStyle(inList).overflowX) && /(hidden|clip)/.test(getComputedStyle(inList).overflowY);
+        const reach = inList && lr.top >= -1 && lr.bottom <= vh + 1 && (hz ? lr.left >= -1 && lr.right <= vw + 1 && r.top >= lr.top - 1 && r.bottom <= lr.bottom + 1 : r.left >= lr.left - 1 && r.right <= lr.right + 1);
         if (!reach) out.a.push(nm(e) + ' ' + R(r) + (outVp ? ' 视口外' : ' 被裁'));
         continue;
       }
@@ -79,8 +96,7 @@ export function uiLayoutCheck(opts) {
   if (document.documentElement.scrollWidth > innerWidth + 0.5) out.c.push('页面横向 ' + document.documentElement.scrollWidth + ' > ' + vw);
   // d：页头、点按区
   if (o.touch) {
-    const head = document.getElementById('panel-head');
-    if (head && vis(head) && BR(head).height > 36.5) out.d.push('页头 ' + Math.round(BR(head).height) + ' px');
+    for (const head of document.querySelectorAll(o.head)) if (vis(head) && BR(head).height > 36.5) out.d.push('页头 ' + Math.round(BR(head).height) + ' px');
     for (const e of targets) {
       const r = BR(e);
       if (r.width < 43.5 || r.height < 43.5) out.d.push('点按区 ' + Math.round(r.width) + '×' + Math.round(r.height) + ' ' + nm(e));
@@ -96,6 +112,8 @@ export function uiLayoutCheck(opts) {
     // 打开着的卡片 / 小菜单 / 确认框本来就盖在页面上：被它们盖住的格子不算（它们自己里面的按钮照查）
     const ov = hit && hit.closest('#panel .sheet, #panel .ui-pop, #confirm');
     if (ov && !ov.contains(e)) continue;
+    // 画布上浮着的按钮盖住的画布内容：拖开就点得到
+    if (hit && e.closest('[data-pan]') && hit.closest('[data-float]')) continue;
     out.e.push(nm(e) + ' 被 ' + (hit ? nm(hit) : '空') + ' 挡住');
   }
   // f：卡片整个在页面正文里（不盖页头 / 页签、不出面板），操作条在视口里
@@ -138,7 +156,15 @@ export function uiBlankPoint() {
   const body = document.getElementById('panel-body');
   const b = body.getBoundingClientRect();
   const over = Array.from(document.querySelectorAll('#panel .sheet, #panel .ui-pop')).map((n) => n.getBoundingClientRect());
-  const tg = Array.from(document.querySelectorAll('#panel button, #panel [data-act], #panel .cell, #panel .eq')).filter((n) => n.getClientRects().length).map((n) => n.getBoundingClientRect());
+  // 画布（[data-pan]）里的目标只算露在画布里的那一块，拖到画布外面的不算
+  const tg = Array.from(document.querySelectorAll('#panel button, #panel [data-act], #panel .cell, #panel .eq')).filter((n) => n.getClientRects().length).map((n) => {
+    const r = n.getBoundingClientRect();
+    const pan = n.closest('[data-pan]');
+    if (!pan || pan === n) return r;
+    const c = pan.getBoundingClientRect();
+    const q = { left: Math.max(r.left, c.left), top: Math.max(r.top, c.top), right: Math.min(r.right, c.right), bottom: Math.min(r.bottom, c.bottom) };
+    return q.left < q.right && q.top < q.bottom ? q : null;
+  }).filter(Boolean);
   const gap = (x, y, r) => Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom));
   let best = null;
   for (let y = b.top + 3; y < b.bottom - 3; y += 4)
@@ -161,7 +187,7 @@ export const DESK_STYLE_MAIN = {"#panel-win|width": "1280px", "#panel-win|height
 export function uiStyleRead(spec) {
   const r = {};
   for (const key in spec) {
-    const sel = key.replace(/^char /, '');
+    const sel = key.replace(/^(char|map|helpf|help|set) /, ''); // 前缀只是说在哪一页量（B1 的 char、B4a 的 map / help / set）
     const e = document.querySelector('#panel ' + sel) || document.querySelector(sel);
     for (const p of spec[key]) {
       if (!e) {
@@ -173,3 +199,95 @@ export function uiStyleRead(spec) {
   }
   return r;
 }
+
+// 桌面样式不变（UI-R B2，技能页）：1366×768 下技能栏格、技能卡、辅助宝石卡、小标题的计算样式和 main（4484d08）逐项相等。数值在 main 上量（vf-shots/ui-b2/styles-main.json）。
+// 有意改动：.sk-num span 10.5 → 11 px（最小字号 11）。卡片和各栏的宽度跟着三栏排法变了，不在表里
+export const DESK_STYLE_SK_SPEC = {".barslot": ["height", "padding-left", "border-top-color", "background-color", "border-radius"], ".bs-icon": ["width", "height"], ".bs-txt span": ["font-size", "color", "letter-spacing"], ".bs-txt b": ["font-size", "color", "font-family"], ".skill-card:not(.basic-card)": ["padding-top", "padding-left", "border-top-color", "border-radius", "background-image"], ".skill-card:not(.basic-card) .sk-icon": ["width", "height"], ".skill-card:not(.basic-card) .sk-name": ["font-size", "letter-spacing", "color", "font-family"], ".skill-card:not(.basic-card) .sk-tags span": ["font-size", "color", "background-color"], ".skill-card:not(.basic-card) .bind": ["height", "font-size", "color"], ".skill-card:not(.basic-card) .sk-desc": ["font-size", "line-height", "color"], ".skill-card:not(.basic-card) .sk-num span": ["font-size", "color"], ".skill-card:not(.basic-card) .sk-num b": ["font-size", "color"], ".skill-card:not(.basic-card) .sock": ["height", "font-size", "border-radius"], ".sup": ["padding-top", "padding-left", "border-left-color", "background-color"], ".sup-top b": ["font-size", "color"], ".sup-desc": ["font-size", "line-height", "color"], ".sup-foot": ["font-size", "color"], ".sec-title": ["height", "font-size", "letter-spacing", "color"]};
+export const DESK_STYLE_SK_MAIN = {".barslot|height": "54px", ".barslot|padding-left": "3px", ".barslot|border-top-color": "rgb(46, 34, 25)", ".barslot|background-color": "rgb(16, 11, 8)", ".barslot|border-radius": "3px", ".bs-icon|width": "46px", ".bs-icon|height": "46px", ".bs-txt span|font-size": "11px", ".bs-txt span|color": "rgb(179, 164, 139)", ".bs-txt span|letter-spacing": "1px", ".bs-txt b|font-size": "15px", ".bs-txt b|color": "color(srgb 1 0.747647 0.579412)", ".bs-txt b|font-family": "\"Songti SC\", STSong, \"Noto Serif SC\", serif", ".skill-card:not(.basic-card)|padding-top": "12px", ".skill-card:not(.basic-card)|padding-left": "14px", ".skill-card:not(.basic-card)|border-top-color": "color(srgb 0.56 0.32549 0.164118)", ".skill-card:not(.basic-card)|border-radius": "3px", ".skill-card:not(.basic-card)|background-image": "radial-gradient(60% 90% at 0% 0%, color(srgb 1 0.541176 0.235294 / 0.11), rgba(0, 0, 0, 0) 70%), linear-gradient(rgb(26, 19, 14), rgb(16, 11, 8))", ".skill-card:not(.basic-card) .sk-icon|width": "52px", ".skill-card:not(.basic-card) .sk-icon|height": "52px", ".skill-card:not(.basic-card) .sk-name|font-size": "18px", ".skill-card:not(.basic-card) .sk-name|letter-spacing": "2px", ".skill-card:not(.basic-card) .sk-name|color": "rgb(233, 220, 196)", ".skill-card:not(.basic-card) .sk-name|font-family": "\"Songti SC\", STSong, \"Noto Serif SC\", serif", ".skill-card:not(.basic-card) .sk-tags span|font-size": "11px", ".skill-card:not(.basic-card) .sk-tags span|color": "rgb(179, 164, 139)", ".skill-card:not(.basic-card) .sk-tags span|background-color": "rgb(32, 23, 15)", ".skill-card:not(.basic-card) .bind|height": "26px", ".skill-card:not(.basic-card) .bind|font-size": "12px", ".skill-card:not(.basic-card) .bind|color": "rgb(255, 243, 220)", ".skill-card:not(.basic-card) .sk-desc|font-size": "12.5px", ".skill-card:not(.basic-card) .sk-desc|line-height": "19px", ".skill-card:not(.basic-card) .sk-desc|color": "rgb(185, 172, 150)", ".skill-card:not(.basic-card) .sk-num span|font-size": "11px", ".skill-card:not(.basic-card) .sk-num span|color": "rgb(140, 127, 109)", ".skill-card:not(.basic-card) .sk-num b|font-size": "14px", ".skill-card:not(.basic-card) .sk-num b|color": "color(srgb 1 0.701765 0.502941)", ".skill-card:not(.basic-card) .sock|height": "30px", ".skill-card:not(.basic-card) .sock|font-size": "12.5px", ".skill-card:not(.basic-card) .sock|border-radius": "15px", ".sup|padding-top": "8px", ".sup|padding-left": "11px", ".sup|border-left-color": "rgb(63, 224, 200)", ".sup|background-color": "rgb(17, 12, 9)", ".sup-top b|font-size": "13.5px", ".sup-top b|color": "rgb(244, 244, 244)", ".sup-desc|font-size": "12px", ".sup-desc|line-height": "18px", ".sup-desc|color": "rgb(185, 172, 150)", ".sup-foot|font-size": "11px", ".sup-foot|color": "rgb(109, 97, 82)", ".sec-title|height": "26px", ".sec-title|font-size": "15.5px", ".sec-title|letter-spacing": "3px", ".sec-title|color": "rgb(230, 197, 138)"};
+
+// 桌面样式不变（UI-R B4a）：1366×768 下地图、帮助、设置的关键元素和 main（4484d08）逐项相等。前缀说明在哪一页量（map / help 是页签，set 是暂停菜单 → 设置）。
+// 有意改动的不在表里：地图拿掉了底部的设置条，区域卡片更高（.zone 的高度、.z-art 的最小高度）；渊印图例挪进 [?]；帮助页从三列改成话题 + 一节；设置分组、两列、卡片放宽
+export const DESK_STYLE_B4A_SPEC = {
+  'map .map .sec-title': ['height', 'font-size', 'letter-spacing', 'color', 'font-family'],
+  'map .tier': ['width', 'height', 'font-size', 'color', 'background-color', 'border-top-color'],
+  'map .tier.on': ['color', 'background-image'],
+  'map .zone': ['width', 'border-top-color', 'background-image', 'border-radius'],
+  'map .z-glyph': ['font-size', 'color'],
+  'map .z-ord': ['font-size', 'letter-spacing'],
+  'map .z-badge': ['font-size', 'line-height'],
+  'map .z-name': ['font-size', 'letter-spacing', 'color', 'font-family'],
+  'map .z-meta': ['font-size', 'color'],
+  'map .z-desc': ['font-size', 'line-height', 'color'],
+  'map .z-boss': ['font-size'],
+  'map .z-body .btn': ['height', 'font-size'],
+  'map .tier-note': ['font-size', 'color'],
+  'helpf .help p': ['font-size', 'line-height', 'color'], // helpf：在「战斗」这一节量（「操作」里没有段落）
+  'help .help .sec-title': ['font-size', 'letter-spacing', 'color'],
+  'help .hk': ['font-size', 'min-height', 'color'],
+  'help .hk kbd': ['font-size'],
+  'help .help-foot': ['font-size', 'color'],
+  'set #pause .m-head b': ['font-size', 'letter-spacing', 'color'],
+  'set #pause .m-row': ['padding-top', 'padding-bottom', 'border-bottom-style'],
+  'set #pause .opt-text b': ['font-size', 'color', 'letter-spacing', 'font-weight'],
+  'set #pause .opt-text span': ['font-size', 'color'],
+  'set #pause .seg-b': ['height', 'font-size', 'padding-left', 'color'],
+  'set #pause .seg-b.on': ['color', 'background-image'],
+  'set #pause .switch': ['width', 'height', 'border-radius'],
+  'set #pause .vol input': ['width', 'height'],
+  'set #pause .m-note': ['font-size', 'color'],
+};
+export const DESK_STYLE_B4A_MAIN = {"map .map .sec-title|height": "26px", "map .map .sec-title|font-size": "15.5px", "map .map .sec-title|letter-spacing": "3px", "map .map .sec-title|color": "rgb(230, 197, 138)", "map .map .sec-title|font-family": "\"Songti SC\", STSong, \"Noto Serif SC\", serif", "map .tier|width": "34px", "map .tier|height": "30px", "map .tier|font-size": "14px", "map .tier|color": "rgb(255, 243, 220)", "map .tier|background-color": "rgba(0, 0, 0, 0)", "map .tier|border-top-color": "rgb(255, 176, 102)", "map .tier.on|color": "rgb(255, 243, 220)", "map .tier.on|background-image": "linear-gradient(rgb(180, 85, 28), rgb(111, 44, 11))", "map .zone|width": "238.8px", "map .zone|border-top-color": "rgb(176, 134, 80)", "map .zone|background-image": "linear-gradient(rgb(23, 16, 12), rgb(14, 10, 8))", "map .zone|border-radius": "3px", "map .z-glyph|font-size": "70px", "map .z-glyph|color": "color(srgb 1 0.579294 0.398588)", "map .z-ord|font-size": "11.5px", "map .z-ord|letter-spacing": "3px", "map .z-badge|font-size": "11.5px", "map .z-badge|line-height": "20px", "map .z-name|font-size": "18px", "map .z-name|letter-spacing": "3px", "map .z-name|color": "rgb(242, 223, 184)", "map .z-name|font-family": "\"Songti SC\", STSong, \"Noto Serif SC\", serif", "map .z-meta|font-size": "12px", "map .z-meta|color": "rgb(154, 139, 118)", "map .z-desc|font-size": "12px", "map .z-desc|line-height": "19px", "map .z-desc|color": "rgb(185, 172, 150)", "map .z-boss|font-size": "12px", "map .z-body .btn|height": "34px", "map .z-body .btn|font-size": "13px", "map .tier-note|font-size": "12.5px", "map .tier-note|color": "rgb(154, 139, 118)", "help .help .sec-title|font-size": "15.5px", "help .help .sec-title|letter-spacing": "3px", "help .help .sec-title|color": "rgb(230, 197, 138)", "help .hk|font-size": "13px", "help .hk|min-height": "30px", "help .hk|color": "rgb(196, 184, 163)", "help .hk kbd|font-size": "11.5px", "help .help-foot|font-size": "12px", "help .help-foot|color": "rgb(109, 97, 82)", "helpf .help p|font-size": "13px", "helpf .help p|line-height": "21px", "helpf .help p|color": "rgb(196, 184, 163)", "set #pause .m-head b|font-size": "17px", "set #pause .m-head b|letter-spacing": "4px", "set #pause .m-head b|color": "rgb(230, 197, 138)", "set #pause .m-row|padding-top": "10px", "set #pause .m-row|padding-bottom": "10px", "set #pause .m-row|border-bottom-style": "dotted", "set #pause .opt-text b|font-size": "13px", "set #pause .opt-text b|color": "rgb(230, 215, 189)", "set #pause .opt-text b|letter-spacing": "1px", "set #pause .opt-text b|font-weight": "600", "set #pause .opt-text span|font-size": "11.5px", "set #pause .opt-text span|color": "rgb(109, 97, 82)", "set #pause .seg-b|height": "30px", "set #pause .seg-b|font-size": "12.5px", "set #pause .seg-b|padding-left": "14px", "set #pause .seg-b|color": "rgb(154, 139, 118)", "set #pause .seg-b.on|color": "rgb(255, 243, 220)", "set #pause .seg-b.on|background-image": "linear-gradient(rgb(180, 85, 28), rgb(111, 44, 11))", "set #pause .switch|width": "42px", "set #pause .switch|height": "22px", "set #pause .switch|border-radius": "11px", "set #pause .vol input|width": "150px", "set #pause .vol input|height": "22px", "set #pause .m-note|font-size": "12px", "set #pause .m-note|color": "rgb(109, 97, 82)"};
+
+// 桌面样式不变（UI-R B4b）：1366×768 下标题画面、角色页、职业选择、拾烬客的计算样式和 main（4484d08）逐项相等。按状态分组，
+// 键是「状态|选择器|属性」，读法同 uiStyleRead（宽高用 getBoundingClientRect）。数值在 main 上量（vf-shots/ui-b4b/styles-main.json），
+// 有意改动的几项见 B4B_STYLE_CHANGED
+export const B4B_STYLE_SPEC = {
+  title: {
+    '#title .t-main': ['width', 'left'],
+    '#title .t-name': ['font-size', 'letter-spacing', 'font-family'],
+    '#title .t-emblem': ['width'],
+    '#title .m-menu': ['width', 'row-gap', 'margin-top'],
+    '#title .m-btn': ['height', 'font-size', 'letter-spacing', 'padding-left', 'color', 'border-left-color', 'background-image'],
+    '#title #t-continue': ['height', 'padding-top'],
+    '#title .t-foot': ['font-size', 'left', 'bottom', 'color'],
+    '#title .t-link': ['font-size', 'height', 'border-bottom-style'],
+  },
+  chars: {
+    '#title .m-view': ['width', 'padding-top', 'padding-left', 'background-image'],
+    '#title .m-head b': ['font-size', 'letter-spacing', 'color'],
+    '#title .m-head .btn': ['height', 'font-size'],
+    '#title .ch-card': ['height', 'padding-left', 'border-left-color', 'background-image'],
+    '#title .ch-top b': ['font-size', 'letter-spacing'],
+    '#title .ch-sub': ['font-size', 'color'],
+    '#title .ch-acts .btn': ['height', 'font-size'],
+    '#title .ch-card.empty': ['height', 'border-top-style'],
+    '#title .ch-trash': ['height', 'font-size'],
+    '#title .ch-foot .m-note': ['font-size', 'color'],
+  },
+  cls: {
+    '#title .m-view': ['width', 'padding-top'],
+    '#title .cl-card': ['width', 'padding-top', 'border-left-color'],
+    '#title .cl-card.on': ['height', 'background-image', 'border-top-color'],
+    '#title .cl-top b': ['font-size', 'letter-spacing'],
+    '#title .cl-line': ['font-size', 'line-height', 'color'],
+    '#title .cl-card.on .cl-row': ['min-height', 'font-size', 'color', 'padding-left', 'background-image', 'border-top-width'],
+    '#title .m-acts .btn': ['height', 'font-size'],
+    '#title .alt-h kbd': ['font-size'],
+  },
+  trader: {
+    '.trader': ['column-gap'],
+    '.trader .sec-title': ['font-size', 'letter-spacing', 'color'],
+    '.trd-row': ['height', 'padding-top', 'margin-bottom', 'background-color', 'border-top-color'],
+    '.trd-name': ['font-size'],
+    '.trd-row .btn.sm': ['height', 'width', 'font-size'],
+    '.trd-frag': ['height', 'font-size'],
+    '.tp': ['font-size'],
+    '.trd-msg': ['font-size', 'color'],
+  },
+};
+
+// main 上的值；B4B_STYLE_CHANGED 里的几项是有意改动（值是 main 的，期望值已换成新的）：
+//   职业卡 .cl-card 宽 578 → 594、.cl-row 22 px 一行的样子：B1 的「改造」通货列表（.cl-list / .cl-row）样式漏到了职业选择上，B4b 把它收进 .sheet，职业卡回到 B1 之前的样子
+//   .alt-h kbd 10.5 → 11 px（只在标题画面里）：最小字号 11
+export const B4B_STYLE_MAIN = {"title|#title .t-main|width":"400px","title|#title .t-main|left":"95.62px","title|#title .t-name|font-size":"84.48px","title|#title .t-name|letter-spacing":"23.6544px","title|#title .t-name|font-family":"\"Songti SC\", STSong, \"Noto Serif SC\", serif","title|#title .t-emblem|width":"115.2px","title|#title .m-menu|width":"300px","title|#title .m-menu|row-gap":"8px","title|#title .m-menu|margin-top":"34.56px","title|#title .m-btn|height":"61px","title|#title .m-btn|font-size":"17px","title|#title .m-btn|letter-spacing":"4px","title|#title .m-btn|padding-left":"18px","title|#title .m-btn|color":"rgb(230, 215, 189)","title|#title .m-btn|border-left-color":"rgb(255, 122, 44)","title|#title .m-btn|background-image":"linear-gradient(90deg, rgba(122, 48, 14, 0.94), rgba(44, 20, 9, 0.62))","title|#title #t-continue|height":"61px","title|#title #t-continue|padding-top":"7px","title|#title .t-foot|font-size":"11.5px","title|#title .t-foot|left":"95.62px","title|#title .t-foot|bottom":"14px","title|#title .t-foot|color":"rgb(109, 97, 82)","title|#title .t-link|font-size":"11.5px","title|#title .t-link|height":"17px","title|#title .t-link|border-bottom-style":"dotted","chars|#title .m-view|width":"640px","chars|#title .m-view|padding-top":"14px","chars|#title .m-view|padding-left":"20px","chars|#title .m-view|background-image":"radial-gradient(70% 40% at 50% 0%, rgba(255, 120, 40, 0.08), rgba(0, 0, 0, 0) 70%), linear-gradient(rgba(26, 18, 13, 0.97), rgba(13, 9, 7, 0.97))","chars|#title .m-head b|font-size":"17px","chars|#title .m-head b|letter-spacing":"4px","chars|#title .m-head b|color":"rgb(230, 197, 138)","chars|#title .m-head .btn|height":"24px","chars|#title .m-head .btn|font-size":"12px","chars|#title .ch-card|height":"149px","chars|#title .ch-card|padding-left":"12px","chars|#title .ch-card|border-left-color":"rgb(111, 178, 255)","chars|#title .ch-card|background-image":"linear-gradient(rgba(36, 26, 19, 0.94), rgba(18, 12, 9, 0.9))","chars|#title .ch-top b|font-size":"15px","chars|#title .ch-top b|letter-spacing":"1px","chars|#title .ch-sub|font-size":"12.5px","chars|#title .ch-sub|color":"rgb(217, 185, 138)","chars|#title .ch-acts .btn|height":"24px","chars|#title .ch-acts .btn|font-size":"12px","chars|#title .ch-card.empty|height":"117px","chars|#title .ch-card.empty|border-top-style":"dashed","chars|#title .ch-trash|height":"42px","chars|#title .ch-trash|font-size":"12.5px","chars|#title .ch-foot .m-note|font-size":"12px","chars|#title .ch-foot .m-note|color":"rgb(109, 97, 82)","cls|#title .m-view|width":"640px","cls|#title .m-view|padding-top":"14px","cls|#title .cl-card|width":"594px","cls|#title .cl-card|padding-top":"7px","cls|#title .cl-card|border-left-color":"rgb(226, 112, 90)","cls|#title .cl-card.on|height":"111.8px","cls|#title .cl-card.on|background-image":"linear-gradient(90deg, rgba(60, 38, 22, 0.96), rgba(24, 16, 11, 0.9))","cls|#title .cl-card.on|border-top-color":"rgb(226, 112, 90)","cls|#title .cl-top b|font-size":"16px","cls|#title .cl-top b|letter-spacing":"2px","cls|#title .cl-line|font-size":"12.5px","cls|#title .cl-line|line-height":"18.75px","cls|#title .cl-line|color":"rgb(217, 199, 168)","cls|#title .cl-card.on .cl-row|min-height":"22px","cls|#title .cl-card.on .cl-row|font-size":"12px","cls|#title .cl-card.on .cl-row|color":"rgb(154, 139, 118)","cls|#title .cl-card.on .cl-row|padding-left":"0px","cls|#title .cl-card.on .cl-row|background-image":"none","cls|#title .cl-card.on .cl-row|border-top-width":"0px","cls|#title .m-acts .btn|height":"32px","cls|#title .m-acts .btn|font-size":"13px","cls|#title .alt-h kbd|font-size":"11px","trader|.trader|column-gap":"26px","trader|.trader .sec-title|font-size":"15.5px","trader|.trader .sec-title|letter-spacing":"3px","trader|.trader .sec-title|color":"rgb(230, 197, 138)","trader|.trd-row|height":"52px","trader|.trd-row|padding-top":"5px","trader|.trd-row|margin-bottom":"5px","trader|.trd-row|background-color":"rgb(16, 11, 8)","trader|.trd-row|border-top-color":"rgb(46, 34, 25)","trader|.trd-name|font-size":"13px","trader|.trd-row .btn.sm|height":"24px","trader|.trd-row .btn.sm|width":"48px","trader|.trd-row .btn.sm|font-size":"12px","trader|.trd-frag|height":"44px","trader|.trd-frag|font-size":"12.5px","trader|.tp|font-size":"12.5px","trader|.trd-msg|font-size":"13px","trader|.trd-msg|color":"rgb(255, 210, 138)"};
+export const B4B_STYLE_CHANGED = {"cls|#title .cl-card|width":"578px","cls|#title .cl-card.on|height":"155.8px","cls|#title .cl-card.on .cl-row|min-height":"44px","cls|#title .cl-card.on .cl-row|color":"color(srgb 0.918118 0.596235 0.534118)","cls|#title .cl-card.on .cl-row|padding-left":"6px","cls|#title .cl-card.on .cl-row|background-image":"linear-gradient(rgb(42, 30, 21), rgb(23, 16, 11))","cls|#title .cl-card.on .cl-row|border-top-width":"1px","cls|#title .alt-h kbd|font-size":"10.5px"};

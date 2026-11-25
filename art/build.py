@@ -18,6 +18,7 @@ import ca.boss.golem  # noqa: E402,F401
 import ca.boss.lord  # noqa: E402,F401
 import ca.boss.behemoth  # noqa: E402,F401
 import ca.boss.weaver  # noqa: E402,F401
+import ca.boss.snuffer  # noqa: E402,F401
 import ca.boss.warden  # noqa: E402,F401
 from catalog import CATALOG, LINEUP_SEEDS  # noqa: E402
 
@@ -46,7 +47,7 @@ def make(item, seed=None, name=None):
     return ob, tris, dt
 
 
-BOSSES = {'golem': ca.boss.golem, 'lord': ca.boss.lord, 'behemoth': ca.boss.behemoth, 'weaver': ca.boss.weaver, 'warden': ca.boss.warden}
+BOSSES = {'golem': ca.boss.golem, 'lord': ca.boss.lord, 'behemoth': ca.boss.behemoth, 'weaver': ca.boss.weaver, 'snuffer': ca.boss.snuffer, 'warden': ca.boss.warden}
 
 
 def make_boss(item, seed=None, name=None):
@@ -92,7 +93,7 @@ def make_boss(item, seed=None, name=None):
     elif 'bone' in ob.data.attributes:
         ob.data.attributes.remove(ob.data.attributes['bone'])
     arm = rig.armature(skel, name)
-    count = rig.skin(ob, arm, skel, bind, spec.get('soft', []))
+    count = rig.skin(ob, arm, skel, bind, spec.get('soft', []), spec.get('custom'))
     missing = [n for n in names if n not in count]
     meta = rig.key_clips(arm, skel, spec['clips'])
     return ob, arm, tris, dt, dict(meta=meta, bones=len(names), missing=missing)

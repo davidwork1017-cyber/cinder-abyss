@@ -440,6 +440,11 @@
         if (e.cancelable) e.preventDefault();
         taps.set(t.identifier, { x: t.clientX, y: t.clientY, t0: performance.now(), moved: false });
       }
+      // 天赋盘上第二根手指落下是双指缩放（ui.js 的 treePinch）：不算长按，前一根手指的长按也取消
+      if (tg && tg.closest('.tree-view') && e.touches.length > 1) {
+        lpCancel();
+        continue;
+      }
       // 其余（面板、菜单、顶栏的按钮）照常：滚动、点击都交给浏览器；按住不动是长按看详情
       lpStart(t, e.timeStamp);
     }
@@ -716,6 +721,13 @@
     // 提示卡在触屏下只显示两行，点一下展开 / 收起
     const coach = document.getElementById('coach');
     if (coach) coach.addEventListener('click', () => T.on && coach.classList.toggle('t-open'));
+    // 收成一行的主线追踪条：点一下展开 3 秒（UI-R B4b）
+    const quest = document.getElementById('quest');
+    if (quest)
+      quest.addEventListener('click', () => {
+        if (!T.on || !dom) return;
+        dom.qOpen = performance.now() + 3000;
+      });
     root.addEventListener('click', (e) => {
       const rb = e.target.closest('[data-trot]');
       if (rb) return rb.dataset.trot === 'flip' ? flipRot() : goLandscape();
@@ -829,6 +841,7 @@
     if (dom) dom.labels.classList.remove('on');
     document.documentElement.classList.remove('touch-ui', 't-portrait', 't-land', 't-boss', 't-aiming');
     if (dom) dom.bossOn = null;
+    if (dom) dom.qOne = null; // 主线追踪条收成一行的状态：下次打开触屏模式重新算
     setViewportFit(false);
     tagCluster(false);
     swapIntro(false);
@@ -931,8 +944,16 @@
   const SAFE_ENV = { t: 'top', r: 'right', b: 'bottom', l: 'left' };
   // 画面的四边对应屏幕的哪一边（安全区跟着换：竖着时的刘海、底部横条转过去以后在画面的左右）
   const ROT_SIDE = { cw: { t: 'r', r: 'b', b: 'l', l: 't' }, ccw: { t: 'l', r: 't', b: 'r', l: 'b' } };
+  // 竖着的屏幕有多高（旋转横屏按它摆画面）。iPhone 主屏幕 App（navigator.standalone，状态栏 black-translucent）里网页从屏幕最顶上画起，
+  // innerHeight 却少算了状态栏那一截（约 47–59 px），按它摆画面底下会留一条黑边（用户截图 2026-11-24）：这时取 screen.height
+  // （竖着时 screen.width / height 就是屏幕的宽高，只在网页正好占满屏幕宽的时候用）。浏览器标签页里照旧用 innerHeight，工具栏伸缩时 layout() 重新摆
+  function screenH() {
+    const h = window.innerHeight, sc = window.screen;
+    if (navigator.standalone === true && sc && Math.abs(sc.width - window.innerWidth) <= 1 && sc.height > h) return sc.height;
+    return h;
+  }
   function placeRot() {
-    const R = G.rot, Ws = window.innerWidth, Hs = window.innerHeight, b = document.body.style, de = document.documentElement;
+    const R = G.rot, Ws = window.innerWidth, Hs = screenH(), b = document.body.style, de = document.documentElement;
     b.position = 'fixed';
     b.left = b.top = '0px';
     b.width = Hs + 'px';
@@ -948,25 +969,28 @@
       // 左右照样至少 12 px（屏幕四角是圆的，转过去以后画面的四角还是那几个圆角；同 style.css 的 --sa-l / --sa-r）
       de.style.setProperty('--sa-' + k, 'max(env(safe-area-inset-' + SAFE_ENV[sk] + ', 0px), var(--t-safe-' + sk + ', 0px)' + (k === 'l' || k === 'r' ? ', 12px)' : ')'));
     }
-    // 按画面尺寸的那几段（max-height 780 / 600 / 360 / 345、max-width 720）：style.css 里有 t-rh* / t-rw720 的副本
+    // 按画面尺寸的那几段（max-height 780 / 600 / 500 / 360 / 345、max-width 720）：style.css 里有 t-rh* / t-rw720 的副本
     const fw = Hs, fh = Ws, c = de.classList;
     c.toggle('t-rh780', fh <= 780);
     c.toggle('t-rh600', fh <= 600);
+    c.toggle('t-rh500', fh <= 500); // UI-R B4b：矮屏的标题画面 / 角色页 / 职业选择
     c.toggle('t-rh360', fh <= 360);
     c.toggle('t-rh345', fh <= 345);
     c.toggle('t-rw720', fw <= 720);
   }
-  const ROT_KEY = 'cinder-abyss-rot'; // sessionStorage：这个标签页里转着的方向
+  // 转着的方向记在设备上（localStorage，不进存档）：横着拿、锁了自动旋转的人每次从主屏幕打开都接着按上次的方向转，不用再点「横屏开始」和 ⟲。
+  // 手机真横过来时退出旋转横屏并清掉（UI-R B4b；原来记在 sessionStorage，关掉 App 就忘了）
+  const ROT_KEY = 'cinder-abyss-rot';
   function restoreRot() {
-    let d = null;
+    let d = lsGet(ROT_KEY);
     try {
-      d = sessionStorage.getItem(ROT_KEY);
+      if (!d) d = sessionStorage.getItem(ROT_KEY); // 旧版本记在这个标签页里的
     } catch (e) {
-      d = null;
+      /* 隐私模式 */
     }
     if ((d === 'cw' || d === 'ccw') && window.innerHeight > window.innerWidth) setRot(d);
   }
-  const ROT_CLS = ['t-rot', 't-rot-cw', 't-rot-ccw', 't-tsub', 't-rh780', 't-rh600', 't-rh360', 't-rh345', 't-rw720'];
+  const ROT_CLS = ['t-rot', 't-rot-cw', 't-rot-ccw', 't-tsub', 't-rh780', 't-rh600', 't-rh500', 't-rh360', 't-rh345', 't-rw720'];
   function setRot(dir) {
     if (dir && !T.on) return false;
     const was = G.rot ? G.rot.dir : null;
@@ -975,7 +999,7 @@
     releaseAll();
     lpCancel();
     if (dir) {
-      G.rot = { dir, get W() { return window.innerWidth; }, get H() { return window.innerHeight; } };
+      G.rot = { dir, get W() { return window.innerWidth; }, get H() { return screenH(); } };
       c.add('t-rot');
       c.toggle('t-rot-cw', dir === 'cw');
       c.toggle('t-rot-ccw', dir === 'ccw');
@@ -988,10 +1012,11 @@
       for (const k of ['--vw', '--vh', '--dvh', '--sa-t', '--sa-r', '--sa-b', '--sa-l']) de.style.removeProperty(k);
     }
     T.rotN = (T.rotN || 0) + 1;
-    // 这次会话里记住（选完职业、读档会重载页面，重载后手机还竖着就接着转）；真横过来退出时清掉
+    // 记在设备上（选完职业、读档会重载页面，下次从主屏幕打开，手机还竖着就接着转）；真横过来退出时清掉
     try {
-      if (dir) sessionStorage.setItem(ROT_KEY, dir);
-      else sessionStorage.removeItem(ROT_KEY);
+      if (dir) localStorage.setItem(ROT_KEY, dir);
+      else localStorage.removeItem(ROT_KEY);
+      sessionStorage.removeItem(ROT_KEY);
     } catch (e) {
       /* 隐私模式 */
     }
@@ -1154,6 +1179,24 @@
         if (dom.coT >= 4) co.classList.add('t-min');
       }
     }
+    // 主线追踪条（UI-R B4b）：画面矮（< 360）又用 L 档按钮，或者打起来了，收成一行（只留目标，不压按钮簇）；
+    // 点一下展开 3 秒；目标换成新的一步时也先展开 3 秒（打着也一样），再收起。打完停 2 秒才展开回来
+    const qe = document.getElementById('quest');
+    if (qe) {
+      const g = qe.querySelector('.q-goal');
+      const goal = g ? g.textContent : '';
+      if (goal !== dom.qGoal) {
+        dom.qGoal = goal;
+        dom.qOpen = now + 3000;
+      }
+      const fight = fighting();
+      dom.qCalm = fight ? 0 : (dom.qCalm || 0) + dt;
+      const one = ((G.viewH() < 360 && T.prefs.size === 'l') || fight || dom.qCalm < 2) && now >= (dom.qOpen || 0);
+      if (one !== dom.qOne) {
+        dom.qOne = one;
+        qe.classList.toggle('t-q1', one);
+      }
+    }
     // 首领条出来时提示卡往下让（两者都在顶栏下方居中）
     const boss = document.getElementById('boss-box');
     const bon = !!(boss && boss.classList.contains('on'));
@@ -1183,7 +1226,7 @@
     lpCount: T.lpCount || 0,
     txt: { calls: txtStats.calls, ms: +txtStats.ms.toFixed(2) },
   });
-  T.keys = { MODE_KEY, HINT_KEY, SIZE_KEY, MIRROR_KEY, VIBE_KEY };
+  T.keys = { MODE_KEY, HINT_KEY, SIZE_KEY, MIRROR_KEY, VIBE_KEY, ROT_KEY };
   T.setRot = setRot; // 测试用
   T.goLandscape = goLandscape;
 
