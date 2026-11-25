@@ -1276,7 +1276,7 @@ def field_mine(k, claws=4):
     k.hull(ring(0.036, 0.066) + ring(0.028, 0.072), row='iron', tone=0.42, jitter=0.0)
     k.hull(ring(0.024, 0.058) + ring(0.022, 0.071), row='char', tone=0.05, jitter=0.0, dust=0)
     # 夹箍：盘腰一道细箍，箍上 claws 个铰座
-    _ring_y(k, 0.172, 0.007, 0.022, n=14, s=3, row='iron', tone=0.5)
+    _ring_y(k, 0.172, 0.009, 0.024, n=14, s=3, row='iron', tone=0.75)
     for i in range(claws):
         a = TAU * (i + 0.5) / claws
         c, s = math.cos(a), math.sin(a)
@@ -1284,5 +1284,7 @@ def field_mine(k, claws=4):
         # 铰座：盘沿外一个小方块
         k.hull([p(0.16, 0.012, -0.018), p(0.16, 0.012, 0.018), p(0.16, 0.042, -0.018), p(0.16, 0.042, 0.018),
                 p(0.185, 0.016, -0.014), p(0.185, 0.016, 0.014), p(0.185, 0.04, -0.014), p(0.185, 0.04, 0.014)], row='iron', tone=0.36, jitter=0.02)
-        # 爪：从铰座往外上方折出去，再往下弯成尖，扎到地面
-        k.tube([p(0.18, 0.03), p(0.23, 0.058), p(0.275, 0.045), p(0.3, 0.012)], [0.011, 0.01, 0.008, 0.0], sides=4, row='iron', tone=0.44, jitter=0.03, tip=True, cap0=True)
+        # 爪：从铰座往外上方折出去（膝弯拱起），再往下弯成尖扎到地面。粗一点、比盘身亮两档，游戏镜头下才认得出爪子（imbue 批复审）
+        k.tube([p(0.17, 0.03), p(0.235, 0.085), p(0.3, 0.075), p(0.345, 0.03), p(0.36, 0.004)], [0.022, 0.02, 0.017, 0.011, 0.0], sides=5, row='iron', tone=0.72, jitter=0.03, tip=True, cap0=True)
+        # 爪背一道亮棱（受光的那一面）
+        k.tube([p(0.2, 0.07, 0.0), p(0.29, 0.096, 0.0)], [0.008, 0.007], sides=3, row='iron', tone=0.9, jitter=0.0, tip=False, cap0=False, cap1=False)

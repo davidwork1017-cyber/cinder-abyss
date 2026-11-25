@@ -31470,8 +31470,8 @@
   const _bs = { x: 0, y: 0, z: 0 };
   // 一盏绊雷：暗铁的三脚小件 + 一点红灯（上膛后才亮，快到时间闪得更快），触发半径只画 6 个暗点
   // ---------- 绊雷的自产模型（imbue 批，用户：「雷的建模有点粗糙」）----------
-  // ca/gear_mine 在 kit-gear 包里（和提灯同一个包，第一次放绊雷时才要：W.mineNeed）。高 / 中画质画模型（一个实例化网格，
-  // 地上所有的雷一次 draw，没有雷时 count = 0 不画）；低画质和包没到之前照旧画一块暗色碎块（形状批里，不加 draw、低档面数不加）
+  // ca/gear_mine 在 kit-gear 包里（和提灯同一个包，第一次放绊雷时才要：W.mineNeed）。高 / 中 / 低画质都画同一个模型（一个实例化网格，
+  // 地上所有的雷一次 draw，没有雷时 count = 0 不画；一枚约 500 面，最多 8 枚）；包没到之前画一块暗色碎块顶着
   let mineSt = 0, mineGeo = null, mineMesh = null;
   const MINE_MAX = 8;
   W.mineNeed = function () {
@@ -31484,9 +31484,9 @@
   };
   W.mineModelState = () => mineSt;
   function mineModels(ms, lo) {
-    const on = !lo && mineSt === 2 && !!scene;
+    const on = mineSt === 2 && !!scene;
     if (on && !mineMesh) {
-      mineMesh = new T.InstancedMesh(mineGeo, new T.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.55, metalness: 0.25, color: 0x6a6870 }), MINE_MAX); // color：调色板的锈铁偏浅，压成暗铁（游戏镜头下比地面暗一档，靠琥珀小灯认）
+      mineMesh = new T.InstancedMesh(mineGeo, new T.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.55, metalness: 0.25, color: 0xa8a6ac }), MINE_MAX); // color：调色板的锈铁偏浅，稍压一点（盘身暗、爪子和夹箍比盘身亮两档，游戏镜头下认得出爪子）
       mineMesh.frustumCulled = false;
       mineMesh.count = 0;
       scene.add(mineMesh);
@@ -31499,7 +31499,7 @@
         _kvp.set(m.x, -0.01 - (1 - k) * 0.06, m.z);
         _kve.set(0, m.id * 1.3, 0, 'YXZ');
         _kvq.setFromEuler(_kve);
-        _kvs.set(1.8, 1.8, 1.8); // 模型半径约 0.17 米：游戏镜头下要放大才认得出（爪尖伸到约 0.55 米，和原来的碎块一样大）
+        _kvs.set(2, 2, 2); // 模型半径约 0.17 米：游戏镜头下要放大才认得出（爪尖伸到约 0.7 米）
         _pm.compose(_kvp, _kvq, _kvs);
         mineMesh.setMatrixAt(n++, _pm);
       }
@@ -31515,17 +31515,18 @@
     if (model) {
       // 模型上的琥珀小灯：上膛前暗（灯窝里一点暗橙），上膛那一下闪一次，之后一直亮着一点（不闪个不停）
       const armK = m.arm > 0 ? 0 : Math.max(0, 1 - (-m.arm) / 0.25);
-      mPose(m.x, 0.14, m.z, _pqI, 0.06, 0.035, 0.06);
+      mPose(m.x, 0.155, m.z, _pqI, 0.065, 0.04, 0.065);
       d2bLin(m.arm > 0 ? 0x6a3010 : 0xffb040, (m.arm > 0 ? 0.6 : 0.85 + armK * 0.15) * fade);
       vsNow(VSH.chip, _dc.r, _dc.g, _dc.b, m.arm > 0 ? 0 : 0.5 + armK * 0.5, 0, 0);
       if (m.arm <= 0) {
         // 绊线反光：触发半径上一圈很淡的细边（玩家的暖色，不是敌方预警的红），只画边、不铺面
-        const R = (m.ctx && m.ctx.sk.mine ? m.ctx.sk.mine.trig : 1.6), n = 16, seg = ((TAU * R) / n) * 0.55;
-        d2bLin(0xd8b880, 0.5 * fade);
+        // 一整圈细边（不铺面），玩家的暖色；一道很淡的反光慢慢绕着走，看得出是「上了膛的线」
+        const R = (m.ctx && m.ctx.sk.mine ? m.ctx.sk.mine.trig : 1.6), n = lo ? 24 : 36, seg = ((TAU * R) / n) * 1.04;
         for (let i = 0; i < n; i++) {
-          const a = (i / n) * TAU + m.id;
-          mFlat(m.x + Math.sin(a) * R, 0.05, m.z + Math.cos(a) * R, a + Math.PI / 2, 0.035, seg);
-          vsNow(VSH.bar, _dc.r, _dc.g, _dc.b, 0.05, 0.2, 0);
+          const a = (i / n) * TAU, glint = Math.max(0, Math.cos(a - t * 1.6 - m.id)) ** 6;
+          d2bLin(0xffd08a, (0.42 + 0.4 * glint) * fade);
+          mFlat(m.x + Math.sin(a) * R, 0.05, m.z + Math.cos(a) * R, a + Math.PI / 2, 0.05, seg);
+          vsNow(VSH.bar, _dc.r, _dc.g, _dc.b, 0.12 + 0.3 * glint, 0.15, 0);
         }
       }
       return;

@@ -1811,24 +1811,24 @@
    "file": "assets/ca/gear/gear_mine.glb",
    "ship": true,
    "replaces": null,
-   "tris": 420,
-   "verts": 1008,
+   "tris": 508,
+   "verts": 1236,
    "materials": 1,
    "textures": 1,
    "bounds": {
     "min": [
-     -0.212,
+     -0.255,
      0,
-     -0.212
+     -0.255
     ],
     "max": [
-     0.212,
-     0.072,
-     0.212
+     0.255,
+     0.103,
+     0.255
     ]
    },
-   "h": 0.072,
-   "r": 0.212,
+   "h": 0.103,
+   "r": 0.255,
    "y0": 0,
    "source": {
     "script": "art/ca/gen.py",
@@ -1843,7 +1843,7 @@
      "grime": 0.25
     }
    },
-   "sha256": "081f05755b4019c2886f4408ea96147380d376c83b5a52d88886b0b0a1804295"
+   "sha256": "4411450f0d37a0eab59ba77e24c3285b9627001155b6e2b5437555c83e62adf3"
   },
   {
    "id": "ca/rift_boulder",

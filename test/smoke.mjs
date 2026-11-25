@@ -23460,7 +23460,7 @@ async function imbueSteps() {
     return '散钉 wm ' + r.wm + '，反冲弹炸 ' + r.blast + ' 次打到 ' + r.hitAll + ' 只，绊雷连爆 ' + r.chain + ' 枚 = ' + r.k + ' 枚，到时炸 ' + r.expire;
   });
 
-  await step('imbue 批·画面：散钉的出手动作按武器换（机炮 / 喷枪 / 左轮从枪口、猎弓从右手侧甩，时长和出手帧照搬投掷）；装填的格子亮边、拖尾 / 枪口焰按装填的颜色；装填的图标和声音；绊雷的自产模型（kit-gear 包）高画质画、低画质不画；新特效一次 Math.random 都不取', async () => {
+  await step('imbue 批·画面：散钉的出手动作按武器换（机炮 / 喷枪 / 左轮从枪口、猎弓从右手侧甩，时长和出手帧照搬投掷）；装填的格子亮边、拖尾 / 枪口焰按装填的颜色；装填的图标和声音；绊雷的自产模型（kit-gear 包，高 / 低画质都画同一个）；新特效一次 Math.random 都不取', async () => {
     const r = await withImb('hunt', () =>
       ev(async () => {
         const P = G.player, W = G.world, S = G.save, out = { clip: {} };
