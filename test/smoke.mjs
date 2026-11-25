@@ -16087,30 +16087,34 @@ async function main() {
       outer.x = c.x + 9;
       outer.z = c.z;
       out.aura = { k: +G.bastionK(c.x + 1, c.z).toFixed(3), kOut: G.bastionK(c.x + 7, c.z), slow: G.bastionSlow(inside), slowOut: G.bastionSlow(outer), fill: !!(c.vfx && c.vfx.some((h) => h.k < 0)) };
-      // 预警圈的红：在护域里放一个敌方预警圈，量它中心的颜色，铺底开 / 关各一次（渲染完同一个任务里读）
+      // 预警圈的红：在护域里放一个敌方预警圈，量它的边（亮的那一圈；中心本来就很淡、还在动），铺底开 / 关各一次；再量没有预警圈时铺底让地面变了多少（渲染完同一个任务里读）
       G.clearEnemies();
-      const tp = { x: c.x + 1.5, z: c.z + 1.5 };
-      const tg = G.telegraph({ x: tp.x, z: tp.z, r: 1.4, dur: 30, dmg: 0, owner: null });
-      tg.handle.setProgress(0.5);
-      const gl = W.renderer.getContext();
-      const px = () => {
-        G.debug.step(0);
+      const gl = W.renderer.getContext(), fill = c.vfx.find((h) => h.k < 0), cx = c.x + 1.5, cz = c.z + 1.5;
+      const px = (x, z) => {
+        G.debug.step(1 / 60);
         W.render();
-        const s = W.project(tp.x, 0.05, tp.z), k = gl.drawingBufferWidth / innerWidth;
-        const x = Math.round(s.x * k), y = Math.round(gl.drawingBufferHeight - s.y * k), b = new Uint8Array(8 * 8 * 4);
-        gl.readPixels(x - 4, y - 4, 8, 8, gl.RGBA, gl.UNSIGNED_BYTE, b);
+        const sp = W.project(x, 0.05, z), k = gl.drawingBufferWidth / innerWidth;
+        const bx = Math.round(sp.x * k), by = Math.round(gl.drawingBufferHeight - sp.y * k), b = new Uint8Array(8 * 8 * 4);
+        gl.readPixels(bx - 4, by - 4, 8, 8, gl.RGBA, gl.UNSIGNED_BYTE, b);
         const m = [0, 0, 0];
         for (let i = 0; i < b.length; i += 4) for (let j = 0; j < 3; j++) m[j] += b[i + j] / 64;
         return m.map(Math.round);
       };
-      const on = px();
-      const fill = c.vfx.find((h) => h.k < 0), a0 = fill.a;
+      fill.a = 0.7;
+      const g1 = px(cx + 1.3, cz);
       fill.a = 0;
-      const off = px();
-      fill.a = a0;
+      const g0 = px(cx + 1.3, cz);
+      const tg = G.telegraph({ x: cx, z: cz, r: 1.4, dur: 30, dmg: 0, owner: null });
+      tg.handle.setProgress(0.5);
+      fill.a = 0.7;
+      const r1 = px(cx + 1.3, cz);
+      fill.a = 0;
+      const r0 = px(cx + 1.3, cz);
+      fill.a = 0.7;
       G.state.telegraphs.splice(G.state.telegraphs.indexOf(tg), 1);
       W.removeTelegraph(tg.handle);
-      out.px = { on, off, red: on[0] > on[1] + 20 && on[0] > on[2] + 20, diff: Math.max(...on.map((v, j) => Math.abs(v - off[j]))) };
+      const red = (p) => p[0] > p[1] + 20 && p[0] > p[2] + 20;
+      out.px = { g1, g0, r1, r0, ground: Math.max(...g1.map((v, j) => Math.abs(v - g0[j]))), red: red(r1) && red(r0), keep: r1[0] >= r0[0] - 10 };
       TV.done();
       return out;
     });
@@ -16118,8 +16122,8 @@ async function main() {
     assert(r.follow.moved > 8 && r.follow.dP < 6, '磐垒应跟着你走：' + JSON.stringify(r.follow));
     assert(r.taunt2.mob && r.taunt2.boss && r.taunt2.hitMob === 0 && r.taunt2.hitBoss === 0 && r.taunt2.mobHp && r.taunt2.bossHp, '磐垒应嘲讽小怪和首领、一下都不打：' + JSON.stringify(r.taunt2));
     assert(r.aura.k === 0.8 && r.aura.kOut === 1 && r.aura.slow === 0.25 && r.aura.slowOut === 0 && r.aura.fill, '磐垒的护域不对：' + JSON.stringify(r.aura));
-    assert(r.px.red && r.px.diff <= 12, '护域的铺底不该盖掉预警圈的红：' + JSON.stringify(r.px));
-    return '跟上 ' + r.follow.moved + ' 米，嘲讽小怪 + 首领、命中 0；护域里受伤 ×' + r.aura.k + '、减速 ' + r.aura.slow + '；预警圈中心 ' + r.px.on.join('/') + '（铺底关 ' + r.px.off.join('/') + '）';
+    assert(r.px.ground <= 6 && r.px.red && r.px.keep, '护域的铺底应很淡、不盖掉预警圈的红：' + JSON.stringify(r.px));
+    return '跟上 ' + r.follow.moved + ' 米，嘲讽小怪 + 首领、命中 0；护域里受伤 ×' + r.aura.k + '、减速 ' + r.aura.slow + '；铺底让地面变 ' + r.px.ground + '，预警圈边 ' + r.px.r1.join('/') + '（铺底关 ' + r.px.r0.join('/') + '）';
   });
   await step('刻式 v2·石誓守像「掷岩」：朝远处的怪抛巨石，落地砸开', async () => {
     await ev(TVDEF);
