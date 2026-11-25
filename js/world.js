@@ -1513,14 +1513,25 @@
     return out;
   }
   // 换画质档（或者建区时有纹理用的不是这一档的图像）：解码当前区这一档的图像，到了以后换上，再释放用不着的那一份
+  // tex-t1：换档要解码的那一份还没到时算「素材没齐」（W.assetsPending）：第 0 区的地面有低档的 lo 一套，换档以后要再解码一回（约 1 秒），
+  // 等素材齐的地方（测试、测性能的脚本）看到的就是这一档的图像
+  let retierN = 0;
   function retierZone() {
     const z = W.zone, gx = z && ZONE_GFX[z.def.id];
     if (!gx || !G.assets || !G.assets.release) return;
-    G.assets.need(texPacks(gx)).then(() => {
-      if (W.zone !== z) return;
-      swapZoneTex();
-      G.assets.release(keepPacks(z.def));
-    });
+    retierN++;
+    const done = () => retierN--;
+    G.assets
+      .need(texPacks(gx))
+      .then(() => {
+        if (W.zone !== z) return;
+        swapZoneTex();
+        G.assets.release(keepPacks(z.def));
+      })
+      .then(done, (e) => {
+        done();
+        if (window.console) console.warn('[素材] 换画质档换贴图失败', e);
+      });
   }
   // 测试 / 探针用：显存里的贴图（场景里所有材质和 uniform 引用、已经上传了的），按 RGBA8 + mipmap（4/3）算；zone = 区域纹理（zoneTexture 建的）
   W.texInfo = function () {
@@ -2703,7 +2714,7 @@
     };
     setTimeout(tick, 1500);
   }
-  W.assetsPending = () => !!pendingZone;
+  W.assetsPending = () => !!pendingZone || retierN > 0;
   W.zonePacks = (id) => (ZONE_GFX[id] ? ZONE_GFX[id].packs.slice() : null); // 测试用（tex-t2）：区要的素材包
   // 启动时先等首个区域的素材（最多 maxMs 毫秒），开场就是完整画面；等待期间整屏盖一层「正在载入场景…」
   W.preloadZone = function (idx, maxMs) {
