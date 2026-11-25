@@ -21082,7 +21082,8 @@ async function main() {
     return out;
   };
   await step('余响测试矩阵：每个刻式技能 × 原式 / A / B / 渊式 × 戴着双生坠，各 20 秒模拟：不报错、不卡施放 / 冷却 / 光环、数量有界、伤害记到来源、摘下当场作废', async () => {
-    const cells = await ev(() => Object.keys(G.VARIANTS).flatMap((id) => ['o', 'a', 'b'].concat(G.VARIANTS[id].c ? ['c'] : []).map((v) => ({ id, v }))));
+    // 装填（imbue 批）自己不打人（伤害记在投射物技能上），不进这张矩阵；它的刻式由「装填·效果和上限」那一步管
+    const cells = await ev(() => Object.keys(G.VARIANTS).filter((id) => G.SKILL_BASE[id].kind !== 'imbue').flatMap((id) => ['o', 'a', 'b'].concat(G.VARIANTS[id].c ? ['c'] : []).map((v) => ({ id, v }))));
     const bad = [];
     let n = 0;
     for (const c of cells) {
