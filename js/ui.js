@@ -542,6 +542,13 @@
         s.el.classList.toggle('imb-on', ion);
         if (ion) s.el.style.setProperty('--imb', G.SKILLS[id].color);
       }
+      // 装填的格子：悬停 / 触屏长按出详情（名字、做什么、Alt 里的细节）
+      const itip = id && G.SKILLS[id] && G.SKILLS[id].kind === 'imbue' ? 'txt:' + G.SKILLS[id].name + '：' + String(G.SKILLS[id].desc).replace(/<[^>]+>/g, '') + (G.SKILLS[id].alt ? ' ' + G.SKILLS[id].alt : '') : '';
+      if (itip !== (s.itip || '')) {
+        s.itip = itip;
+        if (itip) s.el.dataset.tip = itip;
+        else delete s.el.dataset.tip;
+      }
       if (s.fx && now - s.fxT > 620) {
         s.el.classList.remove(s.fx);
         s.fx = '';
@@ -8198,6 +8205,8 @@
     openClass, // 职业选择子页（class-d2）：'new' / 'pick' / 'repick'
     classView: () => (menu.view === 'cls' && menu.cls ? { mode: menu.cls.mode, sel: menu.cls.sel, rec: menu.cls.rec } : null),
     loadingOff, // 「正在载入角色…」：main.js 在区域建好时揭开
+    tipAt: (elx) => elx && elx.dataset && elx.dataset.tip && showTip(elx), // 触屏长按技能格（装填）出详情
+    hideTip: () => hideTip(),
     onPickup,
     bigToast,
     bigToastReset,

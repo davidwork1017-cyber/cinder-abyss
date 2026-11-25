@@ -12119,7 +12119,7 @@ async function main() {
   // 高 / 低画质、以及高画质下特效全部静音（W.fxMute 钉死在开）+ 爆燃上限压到 0（全部走超出上限的路）+ 火把只留 1 盏，
   // 局面哈希和 Math.random 次数逐位相同；画面随机数取的次数各遍不一样（说明特效确实多了 / 少了）。
   // 反面对照：开打前多取一次 Math.random，哈希就变（这一步测得出差别）
-  await step('确定性（fx-rng）：画质 高 / 低、特效静音 + 爆燃上限压到 0 + 火把只留 1 盏，同一个种子打铁水弹 / 链雷 / 三相天灾，局面和 Math.random 次数逐位相同；画面随机数不取 Math.random', async () => {
+  await step('确定性（fx-rng）：画质 高 / 低、特效静音 + 爆燃上限压到 0 + 火把只留 1 盏，同一个种子打机炮 + 铁水装填 / 链雷 / 三相天灾，局面和 Math.random 次数逐位相同；画面随机数不取 Math.random', async () => {
     const KEY = 'cinder-abyss-save-v1';
     const save0 = await ev((KEY) => localStorage.getItem(KEY), KEY);
     const god0 = await ev(() => !!G.player.god);
@@ -12184,8 +12184,10 @@ async function main() {
               w.imp = null;
               save.equip.weapon = G.refreshWeapon(w);
               save.skills.molten = 20;
-              save.bar[0] = 'molten';
+              save.bar[2] = 'molten';
+              save.imbue = 'molten'; // imbue 批：铁水弹改成装填——开着铁水装填，按住右键用机炮打
             } else if (id === 'arc') {
+              delete save.imbue;
               delete save.cls;
               save.equip.weapon = G.rollItem(20, 0, 'weapon', 1);
               save.skills.arc = 20;
@@ -12200,12 +12202,13 @@ async function main() {
               const e = es[0];
               T.aim(e.x, e.z);
               P.mana = P.maxMana;
-              if (id === 'molten') G.input.mouse.b[0] = i < 100;
+              if (id === 'molten') G.input.mouse.b[2] = i < 100;
               else if (id === 'arc') { if (i % 20 === 0 && i < 120) G.input.tap[2] = 0.25; }
               else if (i === 0) G.input.tap[4] = 0.25;
               G.tick(1 / 60);
             }
             G.input.mouse.b[0] = false;
+            G.input.mouse.b[2] = false;
             G.input.tap.fill(0);
             out.push({ id, dmg: Math.round(es.reduce((a, e) => a + (e.maxHp - e.hp), 0)), st: st() });
           }
@@ -12216,6 +12219,7 @@ async function main() {
           W.fxMute(false);
           W.b1Cap(null);
           delete save.cls;
+          delete save.imbue;
         }
         const all = out.map((x) => x.st).join('|');
         let h = 2166136261;
@@ -22124,6 +22128,7 @@ async function main() {
   await classSteps();
   await d2bSteps(); // 职业 D2b-1（class-d2b1）
   await d2b2Steps(); // 职业 D2b-2（class-d2b2）
+  await imbueSteps(); // 装填 / 散钉 / 反冲弹 / 绊雷（imbue 批）
 }
 
 // ------------------------------------------------------------------ 职业（class-d2）
@@ -22181,8 +22186,8 @@ async function d2bSteps() {
     assert(r.bw.every((s) => s.endsWith(':15')), '词缀 baseW 应补到 15 位：' + r.bw.join(' '));
     assert(r.lamp === 'banner,wand,lantern' && r.focus, '掌灯人应有三种武器、提灯算法器：' + JSON.stringify(r));
     assert(r.gems === 29 && r.pool0 === 20 && r.old && r.poolC === 29 && r.k0 === 1 && Math.abs(r.kC - 1.45) < 1e-9, '宝石池 / 掉率不对：' + JSON.stringify(r));
-    assert(r.need === 'gun,gun,gun,gun' && r.clsOnly, '特殊弹应只能装在枪上、只在有职业时掉：' + JSON.stringify(r));
-    assert(JSON.stringify(r.cnt) === JSON.stringify({ guard: 14, hunt: 15, star: 15, lamp: 14, forge: 13 }), '各职业能用的宝石数不对（class-d2b2 之后）：' + JSON.stringify(r.cnt));
+    assert(r.need === 'huntgun,huntgun,huntgun,gun' && r.clsOnly, '装填（铁水 / 雷楔 / 霜霰，imbue 批）枪 + 猎弓能用、反冲弹只能装在枪上，都只在有职业时掉：' + JSON.stringify(r));
+    assert(JSON.stringify(r.cnt) === JSON.stringify({ guard: 14, hunt: 18, star: 15, lamp: 14, forge: 13 }), '各职业能用的宝石数不对（imbue 批：装填给枪 + 猎弓，夜猎 +3）：' + JSON.stringify(r.cnt));
     assert(r.per.lamp === 'banner:14,wand:14,lantern:14' && r.per.forge === 'gatling:13,flamer:13,revolver:13', '每把武器能用的宝石数不对：' + JSON.stringify(r.per));
     return JSON.stringify(r.cnt) + ' · 掌灯人 ' + r.per.lamp;
   });
@@ -22258,7 +22263,7 @@ async function d2bSteps() {
     return '保底 001001，没有职业时随机数 0 次';
   });
 
-  await step('D2b-1·特殊弹：形状跟着枪走（机炮连发 3 枚 ×0.4、左轮 1 发 ×1.1 可以边走边打、喷枪近程扇面 3 枚 ×0.4），每发加热度，伤害按这把枪的右键折算', async () => {
+  await step('D2b-1·特殊弹（imbue 批起只剩反冲弹）：形状跟着枪走（机炮连发 3 枚 ×0.4、左轮 1 发 ×1.1 可以边走边打、喷枪近程扇面 3 枚 ×0.4），每发加热度，伤害按这把枪的右键折算', async () => {
     const r = await withCls('forge', () =>
       ev(() => {
         T.arena();
@@ -22270,8 +22275,9 @@ async function d2bSteps() {
           w.imp = null;
           G.save.equip.weapon = G.refreshWeapon(w);
           G.computeStats();
-          G.save.skills.molten = 20;
-          G.save.bar[0] = 'molten';
+          G.save.skills.recoil = 20;
+          G.save.bar[0] = 'recoil';
+          P.cds = {};
           P.gauge.heat = 0;
           P.gun.hitT = 99;
           const n0 = S.projectiles.length;
@@ -22280,15 +22286,16 @@ async function d2bSteps() {
           let mv = null, k = 0, seen = 0;
           for (; k < 60; k++) {
             G.tick(1 / 60);
-            if (P.cast && P.cast.id === 'molten' && mv === null) mv = P.cast.mv === undefined ? 0.4 : P.cast.mv;
+            if (P.cast && P.cast.id === 'recoil' && mv === null) mv = P.cast.mv === undefined ? 0.4 : P.cast.mv;
             G.input.mouse.b[0] = false;
-            seen = Math.max(seen, S.projectiles.filter((p) => p.vk === 'rd_molten').length);
+            seen = Math.max(seen, S.projectiles.filter((p) => p.vk === 'rd_recoil').length);
           }
-          const ctx = G.skillCtx('molten'), b = G.SKILLS['basic_' + t];
-          const want = b.wm * ((G.SKILLS.molten.basicSec * P.speedMult * G.weaponStats(G.save.equip.weapon).aps) / b.time);
+          const ctx = G.skillCtx('recoil'), b = G.SKILLS['basic_' + t];
+          const want = b.wm * ((G.SKILLS.recoil.basicSec * P.speedMult * G.weaponStats(G.save.equip.weapon).aps) / b.time);
           out[t] = { n: seen, mv, heat: +P.gauge.heat.toFixed(2), wm: +ctx.wm.toFixed(3), want: +want.toFixed(3), sh: G.roundShape() };
-          for (let i = S.projectiles.length - 1; i >= 0; i--) if (S.projectiles[i].vk === 'rd_molten') G.world.removeMesh(S.projectiles.splice(i, 1)[0].mesh);
-          G.debug.step(3);
+          for (let i = S.projectiles.length - 1; i >= 0; i--) if (S.projectiles[i].vk === 'rd_recoil') G.world.removeMesh(S.projectiles.splice(i, 1)[0].mesh);
+          G.debug.step(3.2);
+          P.cds = {};
         }
         return out;
       })
@@ -22303,7 +22310,7 @@ async function d2bSteps() {
     return '机炮 3 / 左轮 1（移动 0.8）/ 喷枪 3 枚，热度 ' + r.gatling.heat + ' / ' + r.revolver.heat + ' / ' + r.flamer.heat;
   });
 
-  await step('D2b-1·同时存在的上限：小灯 3 盏（多的顶掉最早的）、铁水 4 摊、雷网 3 根线、续火的骸骨 4 具（不占仆从上限）', async () => {
+  await step('D2b-1·同时存在的上限：小灯 3 盏（多的顶掉最早的）、续火的骸骨 4 具（不占仆从上限）（铁水、雷网 imbue 批改成装填后没有了）', async () => {
     const r = await withCls('lamp', () =>
       ev(() => {
         T.arena();
@@ -22325,32 +22332,6 @@ async function d2bSteps() {
         out.relit = G.relitCount();
         out.thrallCap = G.minionCount('thrall');
         G.clearMinions();
-        // 铁水 / 雷网：炉匠拿左轮
-        G.save.cls = 'forge';
-        const w = G.rollItem(20, 0, 'weapon', 12);
-        G.save.equip.weapon = w;
-        G.computeStats();
-        G.save.skills.molten = G.save.skills.wedge = 20;
-        const shoot = (id, x, z) => {
-          P.cds = {};
-          P.mana = P.maxMana;
-          G.save.bar[0] = id;
-          T.aim(x, z);
-          G.input.tap[0] = 1;
-          for (let k = 0; k < 50; k++) G.tick(1 / 60);
-          G.input.tap[0] = 0;
-        };
-        for (let i = 0; i < 6; i++) shoot('molten', P.x + 3 + i, P.z + (i % 2 ? 2 : -2));
-        out.pools = G.d2bState().pools;
-        G.save.variants = G.save.variants || {};
-        G.save.variants.wedge = 'a';
-        G.applyVariants();
-        const pts = [[3, 0], [4, 2], [5, 0], [4, -2], [3, 1.5], [5, 1.5]];
-        for (const [dx, dz] of pts) shoot('wedge', P.x + dx, P.z + dz);
-        out.wedges = G.d2bState().wedges;
-        out.lines = G.d2bState().lines;
-        delete G.save.variants.wedge;
-        G.applyVariants();
         G.debug.step(9);
         out.after = G.d2bState();
         return out;
@@ -22358,10 +22339,8 @@ async function d2bSteps() {
     );
     assert(r.lamps === 3 && r.lampX === '3.5,4,4.5', '小灯最多 3 盏、顶掉最早的：' + JSON.stringify(r));
     assert(r.relit === 4 && r.thrallCap === 0, '续火最多 4 具、不算进烬骸仆从的数量：' + JSON.stringify(r));
-    assert(r.pools === 4, '铁水最多 4 摊：' + JSON.stringify(r));
-    assert(r.wedges >= 4 && r.lines === 3, '雷网最多 3 根线：' + JSON.stringify(r));
-    assert(r.after.pools === 0 && r.after.wedges === 0 && r.after.lamps === 0, '到时间应全部消失：' + JSON.stringify(r.after));
-    return '小灯 3 / 续火 4 / 铁水 4 / 雷网 ' + r.lines + ' 根线（' + r.wedges + ' 枚楔子）';
+    assert(r.after.lamps === 0, '到时间应全部消失：' + JSON.stringify(r.after));
+    return '小灯 3 / 续火 4';
   });
 
   await step('D2b-1·反冲弹：往后推 3.5 米，撞墙就停、不出首领场地（五个区域的首领场地 + 余烛殿，每个场地 8 个方向，贴着边 / 离边 2.2 米各打一遍）', async () => {
@@ -22525,6 +22504,7 @@ async function d2bSteps() {
 // 每一步都只在这一步里给存档套上职业，结束时摘掉
 // =====================================================================
 const D2B2_GEMS = ['snare', 'brace', 'scorch', 'heartfire', 'leapshot'];
+const IMB_IDS = ['molten', 'wedge', 'rime']; // 装填（imbue 批）
 async function d2b2Steps() {
   const clsOn = (c) => ev((c) => {
     window.__d2b2Save = { cls: G.save.cls, lock: G.save.clsLock, variants: JSON.stringify(G.save.variants || {}) };
@@ -22590,7 +22570,7 @@ async function d2b2Steps() {
     };
   };
 
-  await step('D2b-2·数据：5 个新宝石（各带刻式 A / B）只在有职业时掉（宝石池 20 / 29、掉率 ×29/20）；能用的宝石数 烬卫 14 / 夜猎 15 / 引星人 15 / 掌灯人 14 / 炉匠 13；每把武器 双匕 12、猎弓 10、重兵 14、枪 13', async () => {
+  await step('D2b-2·数据：5 个新宝石（各带刻式 A / B）只在有职业时掉（宝石池 20 / 29、掉率 ×29/20）；能用的宝石数 烬卫 14 / 夜猎 18 / 引星人 15 / 掌灯人 14 / 炉匠 13；每把武器 双匕 12、猎弓 13、重兵 14、枪 13（imbue 批：装填给猎弓）', async () => {
     const r = await ev((NG) => {
       const cnt = {};
       for (const c of G.CLASS_IDS) cnt[c] = G.classGems(c).length;
@@ -22607,8 +22587,8 @@ async function d2b2Steps() {
     }, D2B2_GEMS);
     assert(r.gems === 29 && r.pool0 === 20 && r.old && r.poolC === 29 && r.k0 === 1 && Math.abs(r.kC - 1.45) < 1e-9, '宝石池 / 掉率不对：' + JSON.stringify(r));
     assert(r.cls && r.vars && r.need === 'huntgun,melee,heavy,heavy,hunt' && r.heavy === 'blade,hammer,katana', '新宝石应职业专属、带 A / B、按武器分组：' + JSON.stringify(r));
-    assert(JSON.stringify(r.cnt) === JSON.stringify({ guard: 14, hunt: 15, star: 15, lamp: 14, forge: 13 }), '各职业能用的宝石数不对：' + JSON.stringify(r.cnt));
-    assert(r.per.guard === 'blade:14,hammer:14,katana:14' && r.per.hunt === 'daggers:12,huntbow:10,emberbow:10' && r.per.forge === 'gatling:13,flamer:13,revolver:13', '每把武器能用的宝石数不对：' + JSON.stringify(r.per));
+    assert(JSON.stringify(r.cnt) === JSON.stringify({ guard: 14, hunt: 18, star: 15, lamp: 14, forge: 13 }), '各职业能用的宝石数不对（imbue 批：装填给枪 + 猎弓，夜猎 +3）：' + JSON.stringify(r.cnt));
+    assert(r.per.guard === 'blade:14,hammer:14,katana:14' && r.per.hunt === 'daggers:12,huntbow:13,emberbow:13' && r.per.forge === 'gatling:13,flamer:13,revolver:13', '每把武器能用的宝石数不对：' + JSON.stringify(r.per));
     assert(r.who === 'snare:hunt/forge brace:guard/hunt scorch:guard heartfire:guard leapshot:hunt', '谁能用不对：' + r.who);
     assert(r.dur === '7,3,16', '持续时间不对（绊雷 7 秒最多 3 枚、心火 16 秒）：' + r.dur);
     return JSON.stringify(r.cnt) + ' · ' + r.who;
@@ -23151,6 +23131,401 @@ async function d2b2Steps() {
   });
 }
 
+// ------------------------------------------------------------------ 装填（imbue 批，2026-11-25）
+// 铁水弹 / 雷楔 / 霜霰弹改成开关式的装填；散钉拿枪按右键折算、7 枚；反冲弹命中炸开；绊雷连爆 / 到时炸。设计稿 game-workspace/notes/imbue/design-note.md
+async function imbueSteps() {
+  const IMB = ['molten', 'wedge', 'rime'];
+  const on = (c) => ev((c) => {
+    window.__imbSave = { cls: G.save.cls, lock: G.save.clsLock, bar: G.save.bar.slice(), variants: JSON.stringify(G.save.variants || {}), skills: JSON.stringify(G.save.skills) };
+    G.save.cls = c;
+    G.save.clsLock = {};
+    delete G.save.imbue;
+    T.arena();
+    const P = G.player;
+    P.god = true;
+    P.cds = {};
+    window.IM = {
+      wield(t, ilvl) {
+        const bi = G.BASES.weapon.findIndex((b) => b.type === t);
+        const w = G.rollItem(ilvl || 20, 0, 'weapon', bi);
+        w.wbase = G.weaponBaseDmg(bi, ilvl || 20);
+        w.imp = null;
+        G.save.equip.weapon = G.refreshWeapon(w);
+        G.computeStats();
+        return w;
+      },
+      ticks(n) { for (let i = 0; i < n; i++) G.tick(1 / 60); },
+      tap(slot) { G.input.tap[slot] = 1; G.tick(1 / 60); G.input.tap[slot] = 0; },
+    };
+  }, c);
+  const off = () => ev(() => {
+    const o = window.__imbSave || {};
+    if (o.cls === undefined) delete G.save.cls;
+    else G.save.cls = o.cls;
+    if (o.lock === undefined) delete G.save.clsLock;
+    else G.save.clsLock = o.lock;
+    G.save.bar = o.bar || [null, null, null, null];
+    G.save.skills = JSON.parse(o.skills || '{}');
+    G.save.variants = JSON.parse(o.variants || '{}');
+    delete G.save.imbue;
+    G.applyVariants();
+    const P = G.player;
+    P.god = false;
+    P.cast = null;
+    P.cds = {};
+    G.input.mouse.b[0] = G.input.mouse.b[2] = false;
+    G.input.tap.fill(0);
+    G.resetRanged();
+    G.clearEnemies();
+    G.save.equip.weapon = T.std;
+    G.computeStats();
+    G.world.setPlayerGear(G.save.equip);
+  });
+  const withImb = async (c, fn) => {
+    await on(c);
+    try {
+      return await fn();
+    } finally {
+      await off();
+    }
+  };
+
+  await step('装填·开关：轻点装上（0.3 秒出手）、再点卸下（当场、不锁）；装另一种直接换过去（同一时间只有一种），装上 / 换完三颗都锁 1 秒；保留 15% 魔力，和两个光环放得下；拿下技能栏就卸下；拿近战武器不生效也不占保留；存档里只在装着时有 imbue', async () => {
+    const r = await withImb('forge', () =>
+      ev(() => {
+        const P = G.player, S = G.save, out = {};
+        IM.wield('gatling');
+        for (const id of ['molten', 'wedge', 'rime', 'blackflame', 'nova']) S.skills[id] = 20;
+        S.bar = [null, null, 'molten', 'wedge'];
+        G.computeStats();
+        out.r0 = P.reservePct;
+        IM.tap(2);
+        out.cast = !!(P.cast && P.cast.id === 'molten');
+        IM.ticks(30);
+        out.on1 = G.imbueOn();
+        out.r1 = P.reservePct;
+        out.lock = [P.cds.molten > 0, P.cds.wedge > 0, P.cds.rime > 0].join();
+        IM.tap(3);
+        IM.ticks(10);
+        out.locked = G.imbueOn();
+        IM.ticks(70);
+        IM.tap(3);
+        IM.ticks(30);
+        out.sw = G.imbueOn();
+        out.json1 = JSON.stringify(S).indexOf('"imbue":"wedge"') >= 0;
+        IM.ticks(70);
+        IM.tap(3); // 卸下：当场生效
+        out.offNow = [G.imbueOn(), !!P.cast, P.cds.wedge > 0].join();
+        out.json0 = JSON.stringify(S).indexOf('"imbue"') < 0;
+        // 按住不放：只认轻点，不会来回切
+        G.input.keys.KeyQ = true;
+        IM.ticks(60);
+        G.input.keys.KeyQ = false;
+        out.hold = G.imbueOn();
+        // 保留：黑焰 + 霜环 + 装填
+        S.bar = ['blackflame', 'nova', 'molten', null];
+        P.cds = {};
+        IM.tap(2);
+        IM.ticks(30);
+        G.computeStats();
+        out.aura = [P.reservePct, G.imbueOn(), G.auraOn('blackflame'), G.auraOn('nova')].join();
+        // 近战武器：不生效、不占保留；换回枪又生效
+        G.save.equip.weapon = T.std;
+        G.computeStats();
+        out.melee = [G.imbueOn(), P.reservePct, S.imbue].join();
+        IM.wield('gatling');
+        out.back = G.imbueOn();
+        // 拿下技能栏：当场卸下
+        S.bar = ['blackflame', 'nova', null, null];
+        IM.ticks(2);
+        out.unslot = [S.imbue === undefined, P.reservePct].join();
+        // 喷枪的火舌、绊雷不装填；散钉、飞刃、机炮开火装填
+        S.bar = [null, null, 'rime', null];
+        S.imbue = 'rime';
+        G.computeStats();
+        out.fits = ['basic_gatling', 'nails', 'blade', 'snare', 'recoil', 'basic_flamer', 'arc'].map((id) => id + ':' + (G.skillCtx(id).imb ? 1 : 0)).join(' ');
+        delete S.imbue;
+        return out;
+      })
+    );
+    assert(r.r0 === 0 && r.cast && r.on1 === 'molten' && r.r1 === 15, '轻点装上：0.3 秒出手、保留 15%：' + JSON.stringify(r));
+    assert(r.lock === 'true,true,true' && r.locked === 'molten', '装上后三颗装填一起锁 1 秒，锁着时换不了：' + JSON.stringify(r));
+    assert(r.sw === 'wedge' && r.json1, '装另一种直接换过去，存档里记着：' + JSON.stringify(r));
+    assert(r.offNow === 'null,false,false' && r.json0, '再点一下当场卸下、不出手、不锁，存档里没有 imbue：' + JSON.stringify(r));
+    assert(r.hold === null, '按住不放不该来回切：' + JSON.stringify(r));
+    assert(r.aura === '58,molten,true,true', '黑焰 25% + 霜环 18% + 装填 15% 放得下：' + JSON.stringify(r));
+    assert(r.melee === 'null,43,molten' && r.back === 'molten', '拿近战武器时不生效、不占保留（存档里还记着），换回枪恢复：' + JSON.stringify(r));
+    assert(r.unslot === 'true,43', '从技能栏拿下就卸下：' + JSON.stringify(r));
+    assert(r.fits === 'basic_gatling:1 nails:1 blade:1 snare:0 recoil:1 basic_flamer:0 arc:0', '物理投射物才装填（喷枪的火舌、绊雷、法术不算）：' + r.fits);
+    return '装上 / 换 / 卸下 / 锁都对，保留 ' + r.aura + '，' + r.fits;
+  });
+
+  await step('装填·效果和上限：铁水打死炸铁水（一次出手 1 摊、每秒最多 3 摊）；雷楔钉满 3 枚放电（同一次出手对同一个敌人只钉 1 枚、最多放 1 次电）；霜霰穿过 / 打死炸冰屑（一次出手 1 次）、打冰缓的更痛；附带的伤害按等级；触发不再触发装填', async () => {
+    const r = await withImb('forge', () =>
+      ev(() => {
+        const P = G.player, S = G.save, St = G.state.stats, out = {};
+        IM.wield('gatling');
+        for (const id of IMB_IDS) S.skills[id] = 20;
+        const run = (id, mk, secs) => {
+          G.clearEnemies();
+          G.resetRanged();
+          S.bar = [null, null, id, null];
+          S.imbue = id;
+          P.cds = {};
+          G.computeStats();
+          const es = mk();
+          const k0 = { sp: St.imbSplash || 0, zp: St.imbZap || 0, sh: St.imbShard || 0 };
+          G.input.mouse.b[2] = true;
+          for (let i = 0; i < secs * 60; i++) {
+            const e = es.find((q) => !q.dead) || es[0];
+            T.aim(e.x, e.z);
+            G.tick(1 / 60);
+          }
+          G.input.mouse.b[2] = false;
+          IM.ticks(30);
+          const o = { sp: (St.imbSplash || 0) - k0.sp, zp: (St.imbZap || 0) - k0.zp, sh: (St.imbShard || 0) - k0.sh, dmg: Math.round(es.reduce((a, e) => a + (e.maxHp - Math.max(0, e.hp)), 0)) };
+          delete S.imbue;
+          return o;
+        };
+        const pack = (hp) => [[5, 0], [5.6, 0.8], [5.6, -0.8], [6.3, 0], [6.6, 0.9], [6.6, -0.9]].map(([dx, dz]) => T.mob('husk', dx, dz, { hp }));
+        out.molten = run('molten', () => pack(40), 2);
+        out.wedge = run('wedge', () => [T.mob('brute', 6, 0, { elite: true })], 2);
+        out.rime = run('rime', () => [0, 1, 2, 3].map((i) => T.mob('husk', 4 + i * 0.9, 0)), 2);
+        // 附带伤害按宝石等级
+        S.imbue = 'molten';
+        S.bar = [null, null, 'molten', null];
+        S.skills.molten = 1;
+        out.add1 = G.skillCtx('basic_gatling').extra.fire;
+        S.skills.molten = 20;
+        out.add20 = G.skillCtx('basic_gatling').extra.fire;
+        delete S.imbue;
+        // 散钉一把钉进一群：最多放 1 次电
+        S.skills.nails = 20;
+        S.bar = ['nails', null, 'wedge', null];
+        S.imbue = 'wedge';
+        G.computeStats();
+        G.clearEnemies();
+        const es = [[3, 0], [3.3, 0.6], [3.3, -0.6], [3.7, 0.3], [3.7, -0.3]].map(([dx, dz]) => T.mob('husk', dx, dz));
+        for (const e of es) e.imbW = { n: 2, sum: 1, at: G.state.time };
+        const z0 = St.imbZap || 0;
+        T.aim(P.x + 3.4, P.z);
+        P.cds = {};
+        IM.tap(0);
+        IM.ticks(40);
+        out.nailsZap = (St.imbZap || 0) - z0;
+        out.nailsLeft = es.filter((e) => e.imbW && e.imbW.n === 3).length;
+        delete S.imbue;
+        return out;
+      })
+    );
+    assert(r.molten.sp >= 1 && r.molten.sp <= 6, '铁水：打死的怪炸开铁水，每秒最多 3 摊：' + JSON.stringify(r.molten));
+    assert(r.wedge.zp >= 2 && r.wedge.dmg > 0, '雷楔：钉满 3 枚就放电：' + JSON.stringify(r.wedge));
+    assert(r.rime.sh >= 2, '霜霰：机炮的子弹穿过第一只时炸冰屑：' + JSON.stringify(r.rime));
+    assert(Math.abs(r.add1 - 12) < 1e-9 && Math.abs(r.add20 - 17.7) < 1e-9, '铁水附带的火焰 = 12% + 每级 0.3：' + JSON.stringify(r));
+    assert(r.nailsZap === 1 && r.nailsLeft >= 3, '散钉一把钉进一群钉满的怪，只放 1 次电，别的留到下一把：' + JSON.stringify(r));
+    return '铁水 ' + r.molten.sp + ' 摊 / 雷楔放电 ' + r.wedge.zp + ' 次 / 冰屑 ' + r.rime.sh + ' 次，散钉放电 ' + r.nailsZap + '（留着 ' + r.nailsLeft + '）';
+  });
+
+  await step('装填·老存档：学过铁水弹 / 雷楔 / 霜霰弹的老存档（没有 imbGen）提示一次，免费换刻式还回来、刻式按位置留着；往返仍提示，看过不再提示；没学过的、新存档不提示；存档里的 imbue 读回来照旧、不认识的值丢掉', async () => {
+    const r = await ev(() => {
+      const out = {};
+      const load = (mut) => {
+        G.persist();
+        const raw = JSON.parse(localStorage.getItem('cinder-abyss-save-v1'));
+        mut(raw);
+        localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(raw));
+        G.loadSave();
+        return [G.imbueRedone || 0, G.save.imbNote, G.save.imbGen, (G.save.variants || {}).wedge || '-', !!(G.save.variantFree || {}).wedge, G.save.imbue || '-'].join();
+      };
+      const keep = JSON.stringify({ skills: G.save.skills, variants: G.save.variants, variantFree: G.save.variantFree, tut: G.save.tut.imbnote });
+      const old = (raw) => {
+        delete raw.imbGen;
+        delete raw.imbNote;
+        raw.skills = Object.assign({}, raw.skills, { wedge: 12 });
+        raw.variants = Object.assign({}, raw.variants, { wedge: 'a' });
+        raw.variantFree = Object.assign({}, raw.variantFree, { wedge: true });
+        if (raw.tut) delete raw.tut.imbnote;
+      };
+      out.old = load(old);
+      out.round = load(() => {});
+      G.save.tut.imbnote = 1;
+      G.save.imbNote = false;
+      out.seen = load(old);
+      if (G.save.tut) delete G.save.tut.imbnote;
+      out.none = load((raw) => {
+        delete raw.imbGen;
+        delete raw.imbNote;
+        raw.skills = { ember: 3 };
+        raw.variants = {};
+      });
+      out.on = load((raw) => { raw.imbue = 'rime'; });
+      out.bad = load((raw) => { raw.imbue = 'arc'; });
+      const k = JSON.parse(keep);
+      G.save.skills = k.skills;
+      G.save.variants = k.variants || {};
+      G.save.variantFree = k.variantFree || {};
+      if (k.tut) G.save.tut.imbnote = k.tut;
+      else delete G.save.tut.imbnote;
+      G.save.imbNote = false;
+      G.imbueRedone = 0;
+      delete G.save.imbue;
+      G.applyVariants();
+      G.computeStats();
+      G.persist();
+      return out;
+    });
+    assert(r.old === '1,true,1,a,false,-', '学过雷楔的老存档：提示、刻式留着、免费换刻式还回来：' + JSON.stringify(r));
+    assert(r.round === '1,true,1,a,false,-', '存档往返仍提示：' + JSON.stringify(r));
+    assert(r.seen.startsWith('0,false,1,a'), '看过就不再提示：' + JSON.stringify(r));
+    assert(r.none.startsWith('0,false,1'), '没学过的老存档不提示：' + JSON.stringify(r));
+    assert(r.on.endsWith(',rime') && r.bad.endsWith(',-'), '存档里的 imbue：认识的读回来、不认识的丢掉：' + JSON.stringify(r));
+    return JSON.stringify(r);
+  });
+
+  await step('imbue 批·散钉 / 反冲弹 / 绊雷：散钉 7 枚、拿枪一枚 = 右键连射 0.225 秒；反冲弹命中炸开一次（2.5 米，四周的都挨到）；绊雷连爆（同一串每个敌人额外最多 +50%）、到时半径里有敌人就炸（没有就熄）', async () => {
+    const r = await withImb('forge', () =>
+      ev(() => {
+        const P = G.player, S = G.save, St = G.state.stats, out = {};
+        IM.wield('gatling');
+        S.skills.nails = S.skills.recoil = S.skills.snare = 20;
+        // 散钉
+        S.bar = ['nails', null, null, null];
+        G.computeStats();
+        const n0 = G.state.projectiles.length;
+        T.aim(P.x + 6, P.z);
+        IM.tap(0);
+        IM.ticks(20);
+        out.nails = G.state.projectiles.filter((p) => p.vk === 'nail').length || St.nailsShot || 0;
+        const b = G.SKILLS.basic_gatling;
+        out.wm = +G.skillWm(G.SKILLS.nails).toFixed(4);
+        out.want = +(b.wm * ((0.225 * P.speedMult * G.weaponStats(S.equip.weapon).aps) / b.time)).toFixed(4);
+        G.debug.step(1);
+        // 反冲弹：一发打进一小堆，命中处炸一次
+        G.clearEnemies();
+        const es = [[6, 0], [6.8, 1], [6.8, -1], [7.6, 0]].map(([dx, dz]) => T.mob('husk', dx, dz));
+        const b0 = St.recoilBlast || 0;
+        S.bar = ['recoil', null, null, null];
+        P.cds = {};
+        T.aim(P.x + 6, P.z);
+        IM.tap(0);
+        IM.ticks(40);
+        out.blast = (St.recoilBlast || 0) - b0;
+        out.hitAll = es.filter((e) => e.hp < e.maxHp).length;
+        // 绊雷：三枚挨着，一只首领级的靶子站在三枚的半径里，连爆只多 50%
+        G.clearEnemies();
+        G.resetRanged();
+        const x0 = P.x + 4, z0 = P.z;
+        G.minePlant(x0, z0); G.minePlant(x0 + 1, z0); G.minePlant(x0 + 0.5, z0 + 0.8);
+        IM.ticks(30);
+        const one = G.skillCtx('snare');
+        const e = T.mob('brute', 4.4, 0.3, { elite: true });
+        e.buTh = 1e15;
+        T.fix(0.5);
+        const c0 = St.mineChain || 0;
+        IM.ticks(60);
+        out.chain = (St.mineChain || 0) - c0;
+        out.mines = G.mineState().length;
+        const got = e.maxHp - e.hp;
+        // 同一只靶子单独吃一枚
+        e.hp = e.maxHp;
+        G.minePlant(x0, z0);
+        IM.ticks(60);
+        out.k = +(got / Math.max(1, e.maxHp - e.hp)).toFixed(3);
+        T.unfix();
+        // 到时：雷在触发距离外、炸开半径内有敌人 → 炸；没有 → 熄
+        G.clearEnemies();
+        G.minePlant(x0, z0);
+        IM.ticks(30);
+        const f = T.mob('husk', 4 + 2.9, 0);
+        f.r = 0.5;
+        const ex0 = St.mineExpire || 0;
+        G.mineState()[0].t = 0.05;
+        IM.ticks(10);
+        out.expire = (St.mineExpire || 0) - ex0;
+        out.expHit = f.hp < f.maxHp;
+        G.clearEnemies();
+        G.minePlant(x0, z0);
+        IM.ticks(30);
+        G.mineState()[0].t = 0.05;
+        IM.ticks(10);
+        out.fizzle = (St.mineExpire || 0) - ex0;
+        return out;
+      })
+    );
+    assert(Math.abs(r.wm - r.want) < 1e-3, '散钉拿枪：一枚按右键连射 0.225 秒折算：' + JSON.stringify(r));
+    assert(r.blast === 1 && r.hitAll === 4, '反冲弹命中炸开一次，四周的都挨到：' + JSON.stringify(r));
+    assert(r.chain === 2 && r.mines === 0 && r.k > 1.45 && r.k < 1.55, '三枚挨着的绊雷一起连爆，同一个敌人一共 1.5 枚的伤害：' + JSON.stringify(r));
+    assert(r.expire === 1 && r.expHit && r.fizzle === 1, '到时半径里有敌人就炸，没有就熄：' + JSON.stringify(r));
+    return '散钉 wm ' + r.wm + '，反冲弹炸 ' + r.blast + ' 次打到 ' + r.hitAll + ' 只，绊雷连爆 ' + r.chain + ' 枚 = ' + r.k + ' 枚，到时炸 ' + r.expire;
+  });
+
+  await step('imbue 批·画面：散钉的出手动作按武器换（机炮 / 喷枪 / 左轮从枪口、猎弓从右手侧甩，时长和出手帧照搬投掷）；装填的格子亮边、拖尾 / 枪口焰按装填的颜色；装填的图标和声音；绊雷的自产模型（kit-gear 包）高画质画、低画质不画；新特效一次 Math.random 都不取', async () => {
+    const r = await withImb('hunt', () =>
+      ev(async () => {
+        const P = G.player, W = G.world, S = G.save, out = { clip: {} };
+        for (const t of ['gatling', 'flamer', 'revolver', 'huntbow']) {
+          S.cls = t === 'huntbow' ? 'hunt' : 'forge';
+          IM.wield(t);
+          W.setPlayerGear(S.equip);
+          const c = (P.ent.gearClips && P.ent.gearClips.nails) || P.ent.rig.clips.nails;
+          const th = P.ent.rig.clips.throw;
+          out.clip[t] = [!!(P.ent.gearClips && P.ent.gearClips.nails), c.emit || '-', c.dur === th.dur && c.k0 === th.k0].join(':');
+        }
+        S.cls = 'hunt';
+        out.snd = G.audio.names().indexOf('imbue') >= 0;
+        const keys = G.icons.keys();
+        out.ic = IMB_IDS.every((id) => keys.indexOf('sk-' + id) >= 0);
+        // 新特效不取 Math.random
+        const cnt = (f) => { const r0 = Math.random; let n = 0; Math.random = function () { n++; return r0.apply(this, arguments); }; try { f(); } finally { Math.random = r0; } return n; };
+        const e = T.mob('husk', 3, 0);
+        out.rnd = cnt(() => { W.imbSplash(P.x + 3, P.z, 1.6); W.imbZap(e, []); W.imbShards(P.x + 3, P.z, 0, 50, 3.2); W.recoilBlast(P.x + 3, P.z, 2.5, 0); W.mineBoom(P.x + 3, P.z, 3.2, false); W.mineBoom(P.x + 3, P.z, 3.2, true); W.imbueOn(P.ent, 'fire'); });
+        // 绊雷模型
+        W.mineNeed();
+        for (let i = 0; i < 80 && W.mineModelState() < 2; i++) await new Promise((res) => setTimeout(res, 100));
+        out.mine = W.mineModelState();
+        return out;
+      })
+    );
+    assert(r.clip.gatling === 'true:muzzle:true' && r.clip.flamer === 'true:muzzle:true' && r.clip.revolver === 'true:muzzle:true' && r.clip.huntbow === 'true:handR:true', '散钉的出手动作按武器换、时长和出手帧不变：' + JSON.stringify(r.clip));
+    assert(r.snd && r.ic, '装填的声音配方 / 图标：' + JSON.stringify(r));
+    assert(r.rnd === 0, '新特效不该取 Math.random：' + JSON.stringify(r));
+    assert(r.mine === 2, '绊雷的自产模型应能从 kit-gear 包里加载：' + JSON.stringify(r));
+    return JSON.stringify(r.clip) + '，模型 ' + r.mine;
+  });
+
+  await step('imbue 批·触屏：装填的格子轻点切换（松手时）、长按 450 ms 弹出详情不切换；主攻格上的装填按下不放', async () => {
+    const r = await withImb('forge', () =>
+      ev(async () => {
+        const S = G.save, P = G.player, out = {};
+        IM.wield('gatling');
+        S.skills.rime = 20;
+        S.bar = [null, null, 'rime', null];
+        G.computeStats();
+        const slotEl = document.querySelectorAll('#slots > .slot')[2];
+        G.ui.update && G.ui.update(0);
+        out.tip = (slotEl && slotEl.dataset.tip) || '';
+        // 直接走 touch.js 的松手逻辑：用 G.pressSlot 模拟轻点、用 tipAt 模拟长按
+        G.pressSlot(2, false);
+        for (let i = 0; i < 30; i++) G.tick(1 / 60);
+        out.tapOn = G.imbueOn();
+        if (G.ui.tipAt) G.ui.tipAt(slotEl);
+        out.tipOn = document.getElementById('tip') ? document.getElementById('tip').classList.contains('on') : null;
+        if (G.ui.hideTip) G.ui.hideTip();
+        for (let i = 0; i < 70; i++) G.tick(1 / 60);
+        G.pressSlot(2, false);
+        G.tick(1 / 60);
+        out.tapOff = G.imbueOn();
+        delete S.imbue;
+        return out;
+      })
+    );
+    assert(/^txt:霜霰装填：/.test(r.tip), '装填的格子应有详情（悬停 / 长按）：' + JSON.stringify(r));
+    assert(r.tapOn === 'rime' && r.tapOff === null, '轻点装上、再点卸下：' + JSON.stringify(r));
+    assert(r.tipOn !== false, '长按应弹出详情：' + JSON.stringify(r));
+    return r.tip.slice(0, 40) + '…';
+  });
+}
+
 const CLASS_BASE_BUILD = '2065634'; // 合进来的 main（职业之前）
 let MS_SAMPLES = null; // 多存档那几步拼的老存档样本（slotSteps 里赋值），职业迁移再用一遍
 async function classSteps() {
@@ -23255,7 +23630,7 @@ async function classSteps() {
       assert(o.stable, c + '：读档再读一遍存档变了');
       gems[c] = o.gems;
     }
-    assert(JSON.stringify(gems) === JSON.stringify({ guard: 14, hunt: 15, star: 15, lamp: 14, forge: 13 }), '各职业能用的宝石数不对（散钉不给引星人；class-d2b1：炉匠 + 四种特殊弹；class-d2b2：烬卫 + 3、夜猎 + 3、炉匠 + 绊雷）：' + JSON.stringify(gems));
+    assert(JSON.stringify(gems) === JSON.stringify({ guard: 14, hunt: 18, star: 15, lamp: 14, forge: 13 }), '各职业能用的宝石数不对（散钉不给引星人；class-d2b1：炉匠 + 四种特殊弹；class-d2b2：烬卫 + 3、夜猎 + 3、炉匠 + 绊雷；imbue：装填给猎弓，夜猎 + 3）：' + JSON.stringify(gems));
     return JSON.stringify(gems);
   });
 

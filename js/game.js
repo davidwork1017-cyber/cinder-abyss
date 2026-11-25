@@ -1630,6 +1630,11 @@
       G.SKILLS[id] = G.skillVariant(id, w);
       const sk = G.SKILLS[id];
       if (sk.kind === 'heart') return heartRatioVal(sk);
+      if (sk.kind === 'imbue') {
+        // 装填（imbue）：单体对等按「主力投射物 × 开着这种装填」算——附带的元素伤害、打冰缓的加成、雷楔放电（钉满 n 枚放 zap 份，平均每一击 +zap）
+        const I = sk.imbue, add = I.add + I.addLv * ((G.save.skills[id] || 1) - 1);
+        return (1 + add / 100) * (1 + (I.chilled || 0) / 100) + (I.wedge ? I.wedge.zap : 0);
+      }
       if (sk.buff) return 1 + (sk.brand ? 2 : 1) * Math.min(sk.flame.cap, sk.flame.k0 + sk.flame.k1 * ((G.save.skills[id] || 1) - 1)) * (1 + Math.max(0, P.S.flameEff || 0) / 100) / 100; // 蚀印：攒进去的那一份和附带的一样多
       return G.variantDps(id);
     };
