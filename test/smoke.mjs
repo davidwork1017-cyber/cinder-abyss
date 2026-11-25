@@ -10922,6 +10922,48 @@ async function main() {
     return '几何体 ' + l1.geo + ' → ' + l2.geo + '，贴图 ' + l1.tex + ' → ' + l2.tex + '，程序 ' + l1.prog + ' → ' + l2.prog + '，布景对象 ' + l1.objs + ' → ' + l2.objs + ' ｜ 第二圈新编 ' + r.fresh.length + ' 个 ｜ 程序键 ' + r.keys + '、占位材质 ' + r.keep.mats + ' / ' + r.keep.max;
   });
 
+  // mem-hunt：tex-t2 的释放要是在解码还在路上的时候发生，原来下载 / 解析完照样解码、存进已经释放的包里（释放就不算数了），解码完被丢下的图也要等垃圾回收
+  await step('贴图：解码还在路上时释放这个包——要的时候还没开始解码的不再解码，正在解码的解完直接放掉；之后包里没有解码图像，留着的只有当前区和下一区的', async () => {
+    const r = await ev(async () => {
+      const W = G.world, A = G.assets, cur = G.state.zone.def, i = G.ZONES.indexOf(cur), nx = G.ZONES[i + 1];
+      const texPacks = (id) => W.zonePacks(id).filter((p) => Object.values(CA_ASSET_INDEX.textures).indexOf(p) >= 0);
+      const keep = W.zonePacks(cur.id).concat(nx ? W.zonePacks(nx.id) : []);
+      const keepIds = Object.keys(CA_ASSET_INDEX.textures).filter((id) => keep.indexOf(CA_ASSET_INDEX.textures[id]) >= 0);
+      const others = G.ZONES.filter((z, k) => k !== i && k !== i + 1).map((z) => z.id);
+      // 只拿当前区和下一区都不用的包（地面 / 岩石这类共用包可能正好被当前区留着）
+      const [pA, pB] = [texPacks(others[others.length - 1]), texPacks(others[others.length - 2])].map((l) => l.filter((p) => keep.indexOf(p) < 0));
+      const idsOf = (packs) => Object.keys(CA_ASSET_INDEX.textures).filter((id) => packs.indexOf(CA_ASSET_INDEX.textures[id]) >= 0);
+      const held = (packs) => A.texStats().list.filter((e) => idsOf(packs).indexOf(e.split(':')[0]) >= 0).length;
+      A.release(keep);
+      const out = { pA, pB, late0: A.texStats().late };
+      // ① 要了以后同一个任务里就释放（下载 / 解析的回调还没跑，解码还没开始）：结果是没成，也不解码
+      const qA = A.need(pA);
+      A.release(keep);
+      out.okA = await qA;
+      out.heldA = held(pA);
+      // ② 等解码开始了再释放：解完的图直接放掉，不存
+      const qB = A.need(pB);
+      const t0 = performance.now();
+      while (!pB.some((p) => A.texPending(p)) && performance.now() - t0 < 10000) await new Promise((res) => setTimeout(res, 0));
+      out.caught = pB.some((p) => A.texPending(p));
+      A.release(keep);
+      out.okB = await qB;
+      await new Promise((res) => setTimeout(res, 50));
+      out.heldB = held(pB);
+      out.late = A.texStats().late - out.late0;
+      out.stray = A.texStats().list.filter((e) => keepIds.indexOf(e.split(':')[0]) < 0);
+      // 当前区照常：再要一次当前区的包，贴图都在
+      out.curOk = await A.need(W.zonePacks(cur.id));
+      return out;
+    });
+    assert(r.pA.length && r.pB.length, '没找到可以拿来试的贴图包：' + JSON.stringify(r));
+    assert(r.okA === false && r.heldA === 0, '要了以后马上释放：不该解码、包里不该有图：' + JSON.stringify(r));
+    assert(r.caught, '没等到解码开始（测试本身的问题）：' + JSON.stringify(r));
+    assert(r.okB === false && r.heldB === 0 && r.late > 0, '解码途中释放：解完的图应直接放掉、包里不该有图：' + JSON.stringify(r));
+    assert(!r.stray.length && r.curOk, '留着的图应只有当前区和下一区的：' + r.stray.slice(0, 6).join(' '));
+    return '先释放：' + r.pA.join('+') + ' 没解码 ｜ 解码途中释放：' + r.pB.join('+') + ' 解完放掉 ' + r.late + ' 张、包里 0 张 ｜ 留着的都是当前区 + 下一区的';
+  });
+
     // 步骤名里的 vendor/three.min.js 是 r128 时的文件名，保留原名：步骤名是这一步随机数的种子（test/README.md「随机数」）；现在补丁在 vendor/three.bundle.js 里（tools/build-three.mjs）
   await step('确定性：three 的 uuid 不取 Math.random（vendor/three.min.js 的本地改动还在）；同一个区原地重建三次（高 → 低 → 高）布景逐位相同', async () => {
     const r = await ev(() => {
