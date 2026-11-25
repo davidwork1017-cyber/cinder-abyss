@@ -4130,8 +4130,40 @@
   }
 
   // 把提示框摆到矩形 r 旁边：优先右侧，放不下就左侧，再不行就贴边并躲到上 / 下方
+  // 桌面上面板里的浮窗：整个放在页面正文里（和 B1 的桌面物品卡同一条规矩：不盖页头和页签，先放右边、放不下放左边、上下夹在正文里）。
+  // 不缩小（桌面字不能变小）：比正文还宽先去掉对比卡，还放不下（比正文高或宽）这一个就照旧只夹在视口里，tip.dataset.fb = 1（测试按这个放行并记下来）
+  function placeTipIn(r, preferLeft) {
+    const tip = el.tip;
+    const b0 = fRect(el.body.getBoundingClientRect());
+    const B = { l: b0.left + 4, t: b0.top + 4, r: b0.right - 4, b: b0.bottom - 4 };
+    if (tip.classList.contains('one')) tip.classList.remove('one');
+    if (tip.style.transform) tip.style.transform = '';
+    let w = tip.offsetWidth;
+    const h = tip.offsetHeight;
+    if (w > B.r - B.l && tip.querySelector('.tip-pair')) {
+      tip.classList.add('one');
+      w = tip.offsetWidth;
+    }
+    if (w > B.r - B.l || h > B.b - B.t) return false;
+    let x = r.right + 12;
+    if (x + w > B.r || (preferLeft && r.left - 12 - w >= B.l)) x = r.left - 12 - w;
+    if (x < B.l) x = G.clamp(r.left, B.l, B.r - w);
+    let y = G.clamp(r.top - 6, B.t, B.b - h);
+    if (x < r.right && x + w > r.left && y < r.bottom && y + h > r.top) {
+      if (r.bottom + 10 + h <= B.b) y = r.bottom + 10;
+      else if (r.top - 10 - h >= B.t) y = r.top - 10 - h;
+    }
+    tip.style.left = Math.round(x) + 'px';
+    tip.style.top = Math.round(y) + 'px';
+    delete tip.dataset.fb;
+    return true;
+  }
   function placeTip(r, preferLeft) {
     const tip = el.tip;
+    if (ui.isOpen && !compactUi() && ui.tipEl && el.body.contains(ui.tipEl)) {
+      if (placeTipIn(r, preferLeft)) return;
+      tip.dataset.fb = 1; // 放不进正文：照旧夹在视口里
+    } else delete tip.dataset.fb;
     const vw = G.viewW();
     const vh = G.viewH();
     // 手机（尤其横屏）上浮窗可能比屏幕还大：先去掉右边那张「当前装备」对比卡，还放不下就整体缩小（最多缩到 0.7）
