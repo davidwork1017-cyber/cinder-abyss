@@ -31301,7 +31301,7 @@
       vsEmit(x + Math.sin(a) * 0.2, 0.7, z + Math.cos(a) * 0.2, Math.sin(a) * v, vr(2.5, 4.5), Math.cos(a) * v, vr(0.55, 0.75), vr(0.06, 0.1), vr(0.1, 0.16), vr(0, TAU), 0, 20);
     }
     // 地上的铁水裂纹：几道从中心往外的折线，亮橙慢慢冷成暗红（只画线、不铺面；低画质道数减半）
-    vsBrush(VSH.bar, 5, 3, 0xffa040, 0x8a2a0c, 0.55, 0.15, 0.6); // 前六成是亮橙（看得见是铁水裂纹），后面冷成暗红
+    vsBrush(VSH.bar, 5, 3, 0xff8a2a, 0x8a2a0c, 0.18, 0.15, 0.6); // 前六成是亮橙（看得见是铁水裂纹，亮芯压低：不发白），后面冷成暗红
     for (let i = 0, n = lo ? 4 : 7; i < n; i++) {
       let a = (i / n) * TAU + vr(-0.3, 0.3), px = x, pz = z;
       for (let k = 0; k < 2; k++) {
@@ -31654,12 +31654,12 @@
       const e = es[i], w = e.imbW;
       if (!w || !w.n || e.dead || t - w.at > 5) continue;
       // 头顶一排蓝紫的小楔（钉了几枚就几颗，满 3 颗放电），竖着的细长菱形，亮芯蓝白；身上再插几根细钉
-      const h = (e.height || 2) + 0.35, r = (e.r || 0.5) * 0.85, N = w.n;
+      const h = (e.height || 2) * 0.92 + 0.25, r = (e.r || 0.5) * 0.85, N = w.n;
       for (let k = 0; k < N; k++) {
         const ox = (k - (N - 1) / 2) * 0.26;
-        mStretch(e.x + ox, h, e.z, 0, 1, 0, 0.07, 0.26);
-        d2bLin(0x9a88ff, 1);
-        vsNow(VSH.bar, _dc.r, _dc.g, _dc.b, 0.45, 0.35, 0);
+        mStretch(e.x + ox, h, e.z, 0, 1, 0, 0.1, 0.34);
+        d2bLin(0xa898ff, 1);
+        vsNow(VSH.bar, _dc.r, _dc.g, _dc.b, 0.55, 0.45, 0);
       }
       if (!lo) for (let k = 0; k < N; k++) {
         const a = k * 2.2 + (e.x * 1.7 + e.z) * 0.3, sx = Math.sin(a), sz = Math.cos(a);
