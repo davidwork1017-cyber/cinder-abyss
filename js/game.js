@@ -230,12 +230,24 @@
     return G.save;
   }
 
-  // 已学会的技能宝石随角色成长：等级不低于「角色等级 × 0.75」（和掉落宝石的等级曲线一致）。
-  // 否则宝石只能靠捡到更高等级的同名宝石来升，十几个技能里很难刷到想要的那个；召唤物不吃装备伤害，更依赖宝石等级。
-  // 返回这次被抬高的技能 id 列表
+  // 技能等级随角色成长：round(角色等级 × 0.75)，封顶 MAX_GEM_LEVEL。
+  // 技能宝石没有等级（gem-nolvl）：学会了的技能一律按这个等级算（G.skillLvl），和捡到的是哪颗宝石无关
   G.gemFloor = function () {
     return G.clamp(Math.round((G.save.level || 1) * 0.75), 1, MAX_GEM_LEVEL);
   };
+  // 已学技能此刻的等级：学会了 = G.gemFloor()，没学会 = 0。凡是要「技能等级」的地方都用它，别直接读 save.skills 的数。
+  // save.skills 里的数只当「学会了」用：只升不降（syncGemLevels 抬到下限，新学的记下限），改版前捡到的高于下限的旧值原样留着、不再起作用，
+  // 旧版本读这份存档时还是原来的等级（无损、可回退）。
+  // gemPin：测试 / 平衡工具按「宝石等级」量数值时（改版前直接改 save.skills），用 G.debug.pinGems(true) 让这里改回读存档里的数
+  G.gemPin = false;
+  G.skillLvl = function (id) {
+    const v = G.save && G.save.skills && G.save.skills[id];
+    if (!v) return 0;
+    return G.gemPin ? v : G.gemFloor();
+  };
+  // 刻式（A / B）要技能到 G.VARIANT_LVL 级，也就是角色到 G.VARIANT_CHAR_LVL 级（data.js；界面一律按角色等级说）
+  G.variantOpen = (id) => G.skillLvl(id) >= G.VARIANT_LVL;
+  // 存档里记的等级抬到下限（只升不降）。返回这次被抬高的技能 id 列表
   G.syncGemLevels = function () {
     const save = G.save;
     const up = [];
@@ -1511,7 +1523,7 @@
     const s = G.save;
     let v = s && s.variants && s.variants[id];
     if (v === 'c') v = s.variantPrev && s.variantPrev[id];
-    return (v === 'a' || v === 'b') && G.VARIANTS[id] && s.skills && s.skills[id] >= G.VARIANT_LVL ? v : 'o';
+    return (v === 'a' || v === 'b') && G.VARIANTS[id] && s.skills && G.variantOpen(id) ? v : 'o';
   };
   // 这个技能的渊式此刻能不能用：身上那个部位戴着解锁它的渊契（直接看存档的装备，不等 computeStats）
   G.variantRelicOn = function (id) {
@@ -1563,7 +1575,7 @@
       if (v === 'o') delete save.variants[id];
       else save.variants[id] = v;
     } else {
-      if (!(save.skills[id] >= G.VARIANT_LVL)) return { ok: false, msg: '宝石 ' + G.VARIANT_LVL + ' 级才能选刻式' };
+      if (!G.variantOpen(id)) return { ok: false, msg: '角色 ' + G.VARIANT_CHAR_LVL + ' 级才能选刻式' };
       if (cur !== 'c' && cur === v) return { ok: true, cost: 0, same: true };
       if (G.variantBusy()) return { ok: false, msg: '战斗中不能换刻式（' + G.VARIANT_SAFE_R + ' 米内还有醒着的敌人）' };
       cost = G.variantCost(id);
@@ -1621,7 +1633,7 @@
       G.SKILLS[id] = G.skillVariant(id, w);
       const sk = G.SKILLS[id];
       if (sk.kind === 'heart') return heartRatioVal(sk);
-      if (sk.buff) return 1 + (sk.brand ? 2 : 1) * Math.min(sk.flame.cap, sk.flame.k0 + sk.flame.k1 * ((G.save.skills[id] || 1) - 1)) * (1 + Math.max(0, P.S.flameEff || 0) / 100) / 100; // 蚀印：攒进去的那一份和附带的一样多
+      if (sk.buff) return 1 + (sk.brand ? 2 : 1) * Math.min(sk.flame.cap, sk.flame.k0 + sk.flame.k1 * ((G.skillLvl(id) || 1) - 1)) * (1 + Math.max(0, P.S.flameEff || 0) / 100) / 100; // 蚀印：攒进去的那一份和附带的一样多
       return G.variantDps(id);
     };
     let ref = 0;
@@ -2042,7 +2054,7 @@
   G.skillBase = function (id, lvl) {
     const sk = G.SKILLS[id];
     if (!sk) return {};
-    if (lvl === undefined) lvl = sk.weaponOnly ? G.weaponSkillLevel(id) : G.save.skills[id] || 1;
+    if (lvl === undefined) lvl = sk.weaponOnly ? G.weaponSkillLevel(id) : G.skillLvl(id) || 1;
     const out = {};
     if (sk.wm && sk.kind !== 'summon') {
       const wp = G.weaponStats(G.save.equip.weapon);
@@ -2073,7 +2085,7 @@
     const S = P.S;
     const sk = G.SKILLS[id];
     const isWs = !!sk.weaponOnly;
-    const lvl = isWs ? G.weaponSkillLevel(id) : save.skills[id] || 1;
+    const lvl = isWs ? G.weaponSkillLevel(id) : G.skillLvl(id) || 1;
     // champ：万魂降临的英灵——数值按召唤物算（ctx.minion），但它是武器技，不吃辅助宝石
     const isMinion = sk.kind === 'summon' || !!sk.champ;
     // mScale：伤害按召唤物算（召唤技能，以及魂潮这种 asMinion 的武器技）——只吃召唤物类属性
@@ -3382,7 +3394,7 @@
   // 同一个敌人身上的累加成一记（每个敌人最多一记待发）；双生一击只扣生命：不暴击、不累积异常值、不削架势、不吸血、不触发命中效果，
   // 也不攒层数（蓄潮、影印、坍缩的质量、蚀印都不吃）。只看命中，不碰技能自己的状态，所以原式 / A / B / 渊式、持续施放、再按、召唤、光环都一样
   const TW = RM.shuangsheng;
-  G.twinOn = (id) => !!(id && G.SKILL_V[id]) && ((G.save.skills[id] || 0) >= G.VARIANT_LVL || G.variantOf(id) === 'c');
+  G.twinOn = (id) => !!(id && G.SKILL_V[id]) && (G.variantOpen(id) || G.variantOf(id) === 'c');
   G.relicTwinHit = function (e, ctx, hit, inf) {
     if (inf.proc || inf.twin || ctx.proc || !(hit.total > 0 || hit.flame > 0)) return;
     const own = G.twinOn(ctx.id);
@@ -11551,8 +11563,14 @@
   // =====================================================================
   // 掉落与拾取
   // =====================================================================
-  function gemLevel() {
-    return G.clamp(Math.round(state.zone.level * 0.75) + G.randInt(0, 1), 1, MAX_GEM_LEVEL);
+  // 技能宝石 / 无铭宝石没有等级（gem-nolvl）。改版前这里掷等级（round(区域等级 × 0.75) + 0 或 1）要抽一次随机数：
+  // 照抽不用，掉落序列的其余部分（物品、通货、拾烬客货架）和战斗指纹都和改版前一字不差
+  function gemDraw() {
+    Math.random();
+  }
+  function blankData() {
+    gemDraw();
+    return {};
   }
   // 无铭技能宝石的掉落几率（首领首杀另外必掉）：普通怪比随机技能宝石的 1.2% 略低
   const BLANK_DROP = (G.BLANK_DROP = { boss: 0.2, elite: 0.04, mob: 0.008 });
@@ -11562,17 +11580,21 @@
   // 随机技能宝石（首领另有一颗必掉）：技能宝石从 14 种加到 20 种（skill-expand），精英 / 普通怪的几率 × 20/14（原来 0.075 / 0.012），每一种老宝石的掉率不变
   // 有职业的存档再乘 G.gemDropK（宝石总数 / 20：特殊弹加到 24 种，class-d2b1）；没有职业时池子还是那 20 种，几率不变
   const SKILL_DROP = (G.SKILL_DROP = { elite: (0.075 * 20) / 14, mob: (0.012 * 20) / 14 });
-  // preferNew：挑玩家还没有的宝石的概率
-  // 有职业时（class-d2）：最后那一下 G.pick 换成一次 G.weighted，本职业能用的宝石合起来占 G.CLASS_LOOT.gem（75%），
-  // 随机数次数和没有职业时一样；用不上的那 25% 由 G.spawnLoot 变成同等级的无铭宝石。usable：只挑能用的（拾烬客的货架）
+  // 挑一颗技能宝石：池子里还有没学会的，就一定挑没学会的（gem-nolvl：宝石没有等级，学会了的再掉一颗没用）。
+  // 有职业时先挑这个职业能用、还没学会的；都学会了再挑别的职业的（G.spawnLoot 把它变成无铭宝石）；全都学会了才是重复的，拾取时再换成别的（见 G.pickup）。
+  // 有职业时（class-d2）最后那一下是一次 G.weighted（本职业能用的宝石合起来占 G.CLASS_LOOT.gem），没有职业时是 G.pick。usable：只挑能用的（拾烬客的货架）。
+  // 随机数次数和改版前一样：改版前「挑没有的宝石的概率 preferNew」那一次照抽不用（现在总是挑没有的），等级那一次见 gemDraw
   function pickSkillGem(preferNew, usable) {
     const C = G.clsDef();
     // 武器技不掉落；没有职业时不掉 clsOnly 的宝石（特殊弹，class-d2b1），池子和随机数次数都和以前一样
     const all = C && usable ? G.classGems(G.save.cls) : G.gemDropPool(G.save.cls);
     const fresh = all.filter((id) => !G.save.skills[id]);
-    const pool = fresh.length && Math.random() < preferNew ? fresh : all;
+    if (fresh.length) Math.random();
+    const own = C ? fresh.filter((id) => G.classCanUse(G.save.cls, id)) : fresh;
+    const pool = own.length ? own : fresh.length ? fresh : all;
     const id = C ? classGemPick(pool) : G.pick(pool);
-    return { id, lvl: gemLevel() };
+    gemDraw();
+    return { id };
   }
   function classGemPick(pool) {
     const cls = G.save.cls;
@@ -11609,7 +11631,7 @@
       G.spawnLoot('skill', pickSkillGem(1), x, z);
       for (let i = 0; i < SUPPORT_DROP.boss; i++) G.spawnLoot('support', pickSupportGem(i ? 0.7 : 1), x, z);
       // 无铭技能宝石：每个首领第一次倒下必掉一颗（第一个区域的首领就是新角色的保底），之后再打有小几率
-      if ((e.bossKind && !save.bossKills[e.bossKind]) || Math.random() < BLANK_DROP.boss) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
+      if ((e.bossKind && !save.bossKills[e.bossKind]) || Math.random() < BLANK_DROP.boss) G.spawnLoot('blank', blankData(), x, z);
       uniqueDrop(e, ilvl);
       G.relicBossDrop(e, ilvl); // 渊契：和烬铸分开掷
       // 击杀区域首领：印烛芯（任何印下都掷，几率按这次进区的印，见 G.fragChance）
@@ -11623,7 +11645,7 @@
       const needFirst = save.supports.length === 0 && !state.loot.some((l) => l.kind === 'support');
       if (needFirst || Math.random() < SUPPORT_DROP.elite) G.spawnLoot('support', pickSupportGem(needFirst ? 1 : 0.7), x, z);
       if (Math.random() < SKILL_DROP.elite * G.gemDropK(save.cls)) G.spawnLoot('skill', pickSkillGem(0.7), x, z);
-      if (Math.random() < BLANK_DROP.elite) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
+      if (Math.random() < BLANK_DROP.elite) G.spawnLoot('blank', blankData(), x, z);
       return;
     }
     // 区域刷的普通怪（horde）掉落几率按 G.BALANCE.loot 打折：怪多了一倍，一整区合计约 ×1.15
@@ -11633,7 +11655,7 @@
     if (Math.random() < 0.09 * kCur * qk) G.spawnLoot('cur', G.rollCurrency(), x, z);
     if (Math.random() < SKILL_DROP.mob * kGem * G.gemDropK(save.cls)) G.spawnLoot('skill', pickSkillGem(0.7), x, z);
     if (Math.random() < SUPPORT_DROP.mob * kGem) G.spawnLoot('support', pickSupportGem(0.7), x, z);
-    if (Math.random() < BLANK_DROP.mob * kGem) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
+    if (Math.random() < BLANK_DROP.mob * kGem) G.spawnLoot('blank', blankData(), x, z);
   };
 
   // 烬铸武器：五个首领都会掉（层级 1 起），各掉各的那一把；连续 pity 次没掉，下一次必掉（计数存档，掉了清零）
@@ -11684,7 +11706,7 @@
     // 有职业时（class-d2）：这个职业用不上的技能宝石掉下来就是同等级的无铭技能宝石（不浪费）。没有职业时不动
     if (kind === 'skill' && G.clsDef() && !G.classCanUse(G.save.cls, data.id)) {
       kind = 'blank';
-      data = { lvl: data.lvl, from: data.id };
+      data = { from: data.id };
     }
     // 在落点周围找一个可走、且尽量不与其他掉落重叠的位置
     let bx = x;
@@ -11716,11 +11738,11 @@
       color = G.CURRENCY[data].color;
       beam = false;
     } else if (kind === 'skill') {
-      label = '技能宝石：' + G.SKILLS[data.id].name + ' Lv ' + data.lvl;
+      label = '技能宝石：' + G.SKILLS[data.id].name;
       color = GEM_COLOR;
       beam = true;
     } else if (kind === 'blank') {
-      label = G.BLANK_GEM.name + ' Lv ' + data.lvl;
+      label = G.BLANK_GEM.name;
       color = G.BLANK_GEM.color;
       beam = true;
     } else if (kind === 'frag') {
@@ -11738,9 +11760,9 @@
   };
 
   // 学会一个新技能：开好 3 个辅助槽，技能栏有空格就放进去；返回放进的格子（没有空格时 -1）
-  function learnSkill(id, lvl) {
+  function learnSkill(id) {
     const save = G.save;
-    save.skills[id] = Math.max(lvl, G.gemFloor()); // 新学的技能也不低于随角色成长的等级
+    save.skills[id] = G.gemFloor(); // 存档里记下限（技能等级一律按 G.skillLvl 算，这个数只当「学会了」，旧版本读档时也是这个等级）
     save.sockets[id] = [null, null, null];
     const free = G.freeBarSlot();
     if (free >= 0) save.bar[free] = id;
@@ -11749,37 +11771,48 @@
   }
 
   // ---------- 无铭技能宝石 ----------
-  // 手里最高的一颗（没有时 0）
-  G.blankBest = () => G.save.blankGems[0] || 0;
-  // 某个等级的无铭宝石还有没有用处：有没学会的技能，或有低于这个等级的已学技能
-  G.blankUseful = function (lvl) {
+  // 手里有几颗。宝石没有等级（gem-nolvl）；save.blankGems 还是一串数（从高到低），新捡到的记当时的下限，旧版本读档时照常是一颗颗有等级的宝石
+  G.blankCount = () => G.save.blankGems.length;
+  // 无铭宝石还有没有用处：还有能学、没学会的技能
+  G.blankUseful = function () {
     const sk = G.save.skills;
-    return G.blankTargets().some((id) => !sk[id] || sk[id] < lvl);
+    return G.blankTargets().some((id) => !sk[id]);
   };
+  // 收下一颗无铭宝石（满 BLANK_MAX 颗时不收），返回收没收下
+  function addBlank() {
+    const save = G.save;
+    if (save.blankGems.length >= BLANK_MAX) return false;
+    save.blankGems.push(G.gemFloor());
+    save.blankGems.sort((a, b) => b - a);
+    return true;
+  }
+  // 用不上的宝石（学会了的技能宝石、再也学不到新技能的无铭宝石）：还有能学的技能就化成一颗无铭宝石，否则化成一个随机通货（按普通通货的掉落权重）。
+  // 返回 { blank: true } 或 { cur: 通货 id }，并弹一行提示（what：开头那半句）
+  function convertGem(what, allowBlank) {
+    if (allowBlank && G.blankUseful() && addBlank()) {
+      toast(what + '，化为 1 颗' + G.BLANK_GEM.name + '（共 ' + G.save.blankGems.length + ' 颗）', G.BLANK_GEM.color);
+      return { blank: true };
+    }
+    const cur = G.rollCurrency();
+    grantCurrency(cur, 1);
+    toast(what + '，化为 1 个' + G.CURRENCY[cur].name, G.CURRENCY[cur].color);
+    return { cur };
+  }
   // 无铭宝石能学 / 能升的技能：有职业时只限这个职业能用的
   G.blankTargets = () => (G.clsDef() ? G.classGems(G.save.cls) : G.GEM_SKILLS);
-  // 对某个技能用一颗无铭宝石：没学会就学会，学会了就升到宝石的等级。总是用手里等级最高的那颗；
-  // 已学技能的等级不低于它时不能用。成功返回 { id, lvl, from（原等级，新学为 0）, slot（新学时放进的技能栏格子，-1 为没有空格） }
+  // 用一颗无铭宝石学会一个还没学会的技能（学会了的不能用）。用掉手里记的数最低的那颗（几颗都一样，高的留给可能读这份存档的旧版本）。
+  // 成功返回 { id, slot（放进的技能栏格子，-1 为没有空格） }
   G.useBlankGem = function (id) {
     const save = G.save;
     const sk = G.SKILLS[id];
-    const lvl = G.blankBest();
-    const have = save.skills[id] || 0;
-    if (!sk || sk.weaponOnly || !lvl || lvl <= have) return null;
+    if (!sk || sk.weaponOnly || !save.blankGems.length || save.skills[id]) return null;
     if (G.clsDef() && !G.classCanUse(save.cls, id)) return null; // 别的职业的技能：学不了
-    save.blankGems.shift();
-    const B = G.BLANK_GEM;
-    let slot = -1;
-    if (!have) {
-      slot = learnSkill(id, lvl);
-      toast('习得技能：' + sk.name + ' Lv ' + save.skills[id] + (slot >= 0 ? '' : '（去技能页绑定）') + ' · 用掉一颗' + B.short, GEM_COLOR);
-    } else {
-      save.skills[id] = lvl;
-      toast(sk.name + ' 升至 Lv ' + lvl + ' · 用掉一颗' + B.short, GEM_COLOR);
-    }
+    save.blankGems.pop();
+    const slot = learnSkill(id);
+    toast('习得技能：' + sk.name + (slot >= 0 ? '' : '（去技能页绑定）') + ' · 用掉一颗' + G.BLANK_GEM.short, GEM_COLOR);
     G.sfx('gem');
     G.persist();
-    return { id, lvl, from: have, slot };
+    return { id, slot };
   };
 
   function grantCurrency(id, n) {
@@ -11825,19 +11858,11 @@
       G.sfx('pickup', { cur: 1 });
     } else if (loot.kind === 'skill') {
       const id = loot.data.id;
-      const lvl = loot.data.lvl;
       const name = G.SKILLS[id].name;
-      const have = save.skills[id];
-      if (!have) {
-        const free = learnSkill(id, lvl);
-        toast('习得技能：' + name + ' Lv ' + save.skills[id] + (free >= 0 ? '' : '（按 G 绑定）'), GEM_COLOR);
-      } else if (lvl > have) {
-        save.skills[id] = lvl;
-        toast(name + ' 升至 Lv ' + lvl, GEM_COLOR);
-      } else {
-        grantCurrency('dust', 1);
-        toast('重复的技能宝石化为 1 ' + G.CURRENCY.dust.name, G.CURRENCY.dust.color);
-      }
+      if (!save.skills[id]) {
+        const free = learnSkill(id);
+        toast('习得技能：' + name + (free >= 0 ? '' : '（按 G 绑定）'), GEM_COLOR);
+      } else loot.conv = convertGem('已学会「' + name + '」', true); // 学会了的：化成无铭宝石或通货（界面的拾取记录看 loot.conv）
       G.sfx('gem');
       G.persist();
     } else if (loot.kind === 'frag') {
@@ -11848,17 +11873,9 @@
       G.sfx('gem');
       G.persist();
     } else if (loot.kind === 'blank') {
-      const lvl = loot.data.lvl;
       const B = G.BLANK_GEM;
-      if (!G.blankUseful(lvl) || save.blankGems.length >= BLANK_MAX) {
-        // 所有技能都已学会且都不低于这个等级：这颗再也用不上，和重复的技能宝石一样化成尘
-        grantCurrency('dust', 1);
-        toast('用不上的' + B.name + '化为 1 ' + G.CURRENCY.dust.name, G.CURRENCY.dust.color);
-      } else {
-        save.blankGems.push(lvl);
-        save.blankGems.sort((a, b) => b - a);
-        toast('获得' + B.name + ' Lv ' + lvl + '（共 ' + save.blankGems.length + ' 颗，按 G 使用）', B.color);
-      }
+      if (G.blankUseful() && addBlank()) toast('获得' + B.name + '（共 ' + save.blankGems.length + ' 颗，按 G 使用）', B.color);
+      else loot.conv = convertGem('用不上的' + B.name, false); // 能学的技能都学会了（或已攒满）：化成通货
       G.sfx('gem');
       G.persist();
     } else {
@@ -11942,14 +11959,13 @@
     }
     if (save.level >= MAX_LEVEL) save.xp = 0;
     if (!gained) return;
-    const gemsUp = G.syncGemLevels();
+    G.syncGemLevels(); // 存档里记的等级跟着抬（技能等级本来就按角色等级算，不另外提示）
     G.computeStats();
     if (!P.dead) {
       P.life = P.maxLife;
       P.mana = P.maxMana;
     }
     toast('等级提升：Lv ' + save.level + '（获得 ' + gained + ' 点天赋点）', '#ffd75e');
-    if (gemsUp.length) toast('技能宝石随之成长到 Lv ' + G.gemFloor() + '：' + gemsUp.map((id) => G.SKILLS[id].name).join('、'), GEM_COLOR);
     if (G.world.levelUpFx) G.world.levelUpFx(P.x, P.z); // vf-vfx3：金色的环往外画开 + 竖直的细光痕（原来 4.5 米环 + 30 粒金光点）
     else G.world.ring(P.x, P.z, 4.5, 0xffd75e, 0.6);
     G.sfx('level');
@@ -12610,7 +12626,7 @@
     for (let i = 0, n = sealCount(2); i < n; i++) G.spawnLoot('item', G.rollItem(lvl, G.rollRarity(rm * 2)), x, z);
     for (let i = 0, n = sealCount(1); i < n; i++) G.spawnLoot('cur', G.rollCurrency(), x, z);
     if (Math.random() < SUPPORT_DROP.elite) G.spawnLoot('support', pickSupportGem(0.7), x, z);
-    if (Math.random() < BLANK_DROP.elite) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
+    if (Math.random() < BLANK_DROP.elite) G.spawnLoot('blank', blankData(), x, z);
   }
   G.encReward = function (R, lvl, x, z) {
     const rm = encRm();
@@ -13227,7 +13243,10 @@
       const item = G.rollItem(lvl, rar, want[i % want.length]);
       out.push({ kind: 'item', item, price: item.rarity >= 2 ? T.price.rare : T.price.magic });
     }
-    out.push(Math.random() < 0.5 ? { kind: 'skill', data: pickSkillGem(0.7, true), price: T.price.gem } : { kind: 'support', data: pickSupportGem(0.7), price: T.price.gem }); // 有职业时只摆能用的宝石
+    // 有职业时只摆能用的宝石；能用的技能都学会了（挑出来的是学会了的）就换成一颗辅助宝石，不摆没用的
+    let gem = Math.random() < 0.5 ? { kind: 'skill', data: pickSkillGem(0.7, true), price: T.price.gem } : null;
+    if (!gem || save.skills[gem.data.id]) gem = { kind: 'support', data: pickSupportGem(0.7), price: T.price.gem };
+    out.push(gem);
     // 另外固定一格辅助宝石（辅助种类多了，support-expand）：和上一格不重样
     let sid = pickSupportGem(0.7);
     for (let k = 0; k < 6 && out[out.length - 1].data === sid; k++) sid = pickSupportGem(0.7);
@@ -13576,7 +13595,7 @@
     for (let i = 0; i < 3; i++) G.spawnLoot('item', G.rollItem(ilvl, 2), x, z);
     for (const id of ['exalt', 'exalt', 'divine']) G.spawnLoot('cur', id, x, z);
     for (let i = 0; i < 3; i++) G.spawnLoot('cur', G.rollCurrency(), x, z);
-    G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
+    G.spawnLoot('blank', blankData(), x, z);
     for (let i = 0; i < 2; i++) G.spawnLoot('support', pickSupportGem(i ? 0.7 : 1), x, z);
     // 巅峰渊契：首杀必掉；之后 chance、连续 pity 次没掉下一次必掉。两件里还没拾到过的优先，都拾到过就各半
     let pid = null;

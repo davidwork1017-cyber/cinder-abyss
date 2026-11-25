@@ -71,6 +71,17 @@ const reseed = (key) =>
         }, seedKey(key))
         .catch(() => {})
     : null;
+// 技能宝石没有等级（gem-nolvl）：游戏里已学技能的等级一律是成长下限（G.skillLvl）。老步骤按「宝石 N 级」量数值时直接改 save.skills，
+// 所以每一步开始时（和每次装测试工具时）都打开 G.debug.pinGems：技能等级读存档里记的数，和改版前一样。
+// 要看真实规则（等级 = 成长下限、刻式按角色等级解锁……）的步骤自己先调 G.debug.pinGems(false)，见「技能宝石没有等级」那几步
+const gemPin = () =>
+  page
+    ? page
+        .evaluate(() => {
+          if (window.G && G.debug && G.debug.pinGems) G.debug.pinGems(true);
+        })
+        .catch(() => {})
+    : null;
 const setDpr = (d) =>
   page &&
   page
@@ -117,6 +128,7 @@ async function step(name, fn) {
   if (full) await setDpr(1);
   curStep = name;
   await reseed(name);
+  await gemPin();
   const t0 = Date.now();
   try {
     const info = await fn();
@@ -145,6 +157,7 @@ async function auditFlush(name) {
 async function install() {
   await timed('install', 30000, page.waitForFunction(() => window.G && G.debug && G.state && G.state.zone && G.player && G.player.ent, null, { timeout: 30000 }));
   if (AUDIT) await ev(() => { window.__audit = true; });
+  await gemPin();
   await ev(() => {
     try {
       window.__noNarr = !sessionStorage.getItem('cinder-test-narr'); // 主线旁白卡默认关（见 launch）
@@ -1656,7 +1669,7 @@ async function main() {
     assert(e.full && e.t2.includes('背包已满'), '背包已满时应保留掉落并提示');
   });
 
-  await step('无铭技能宝石：首领首杀必掉（再打靠几率），精英 / 普通怪小几率；拾取进存档并按等级排好，拾取记录写数量；用不上时化为微光尘；旧存档补默认值，畸形数据被修正', async () => {
+  await step('无铭技能宝石：首领首杀必掉（再打靠几率），精英 / 普通怪小几率；没有等级（名牌、提示、拾取记录都不写 Lv）；拾取进存档（记当时的成长下限），拾取记录写数量；能学的都学会了时化为 1 个随机通货；旧存档补默认值，畸形数据被修正', async () => {
     const r = await ev((KEY) => {
       const S = G.state, save = G.save, P = G.player;
       T.arena();
@@ -1670,7 +1683,7 @@ async function main() {
         Math.random = () => 0.999; // 只看保底：靠几率的掉落一律不出
         save.bossKills = {};
         G.dropLoot(fake({ isBoss: true, bossKind: kind }));
-        out.first = blanks().map((l) => ({ lvl: l.data.lvl, label: l.label, color: l.color }));
+        out.first = blanks().map((l) => ({ lvl: 'lvl' in l.data, label: l.label, color: l.color }));
         T.clearLoot();
         save.bossKills = { [kind]: true };
         G.dropLoot(fake({ isBoss: true, bossKind: kind }));
@@ -1696,30 +1709,37 @@ async function main() {
       }
       out.rates = Object.assign({}, G.BLANK_DROP);
 
-      // 拾取：走过去自动捡起，存进存档（从高到低排），提示与拾取记录里写数量
+      // 拾取：走过去自动捡起，存进存档（记当时的成长下限：角色 8 级 → 6，旧版本读档照常是一颗 6 级的），提示与拾取记录里写数量
       save.blankGems = [];
-      const dust0 = save.cur.dust;
-      const pick = (lvl) => {
-        const l = G.spawnLoot('blank', { lvl }, P.x, P.z);
+      const lv0 = save.level;
+      save.level = 8;
+      const curSum = () => G.CUR_IDS.reduce((a, id) => a + (save.cur[id] || 0), 0);
+      const cur0 = curSum();
+      const pick = () => {
+        const l = G.spawnLoot('blank', {}, P.x, P.z);
         T.tp(l.x, l.z);
         G.debug.step(0.5);
         return S.loot.indexOf(l) < 0;
       };
-      out.picked = pick(4);
+      out.picked = pick();
       out.toast1 = T.toasts();
       out.feed = document.getElementById('feed').innerText;
-      out.picked2 = pick(2) && pick(6);
+      out.picked2 = pick() && pick();
       out.gems = save.blankGems.join();
       out.stored = (JSON.parse(localStorage.getItem(KEY)).blankGems || []).join();
-      // 所有技能都学会了、而且都不低于这颗的等级：用不上，化为 1 微光尘
+      // 能学的技能都学会了：用不上，化为 1 个随机通货
       const sk0 = save.skills;
       save.skills = {};
-      for (const id of G.GEM_SKILLS) save.skills[id] = 9; // 武器技跟着武器走，不算在内
-      out.useful9 = G.blankUseful(9);
-      out.useful10 = G.blankUseful(10);
-      out.uselessPicked = pick(5);
-      out.useless = { gems: save.blankGems.join(), dust: save.cur.dust - dust0, toast: T.toasts() };
+      for (const id of G.GEM_SKILLS.slice(1)) save.skills[id] = 9; // 武器技跟着武器走，不算在内
+      out.usefulMissing1 = G.blankUseful();
+      save.skills[G.GEM_SKILLS[0]] = 9;
+      out.usefulAll = G.blankUseful();
+      const cur1 = curSum();
+      out.uselessPicked = pick();
+      out.useless = { gems: save.blankGems.join(), cur: curSum() - cur1, toast: T.toasts(), feed: document.getElementById('feed').innerText };
+      out.curPick = cur1 - cur0;
       save.skills = sk0;
+      save.level = lv0;
       G.persist();
 
       // 旧存档没有这个字段：补成空数组；畸形数据被修正（取整、夹在 1–20、丢掉非数字、从高到低排）
@@ -1746,16 +1766,101 @@ async function main() {
       G.persist();
       return out;
     }, SAVE_KEY);
-    assert(r.first.length === 1 && r.first[0].lvl >= 1 && r.first[0].label.startsWith('无铭技能宝石 Lv ') && r.first[0].color !== '#3fe0c8', '首领首杀应必掉一颗无铭技能宝石，名牌颜色和技能宝石不同：' + JSON.stringify(r.first));
+    assert(r.first.length === 1 && r.first[0].lvl === false && r.first[0].label === '无铭技能宝石' && r.first[0].color !== '#3fe0c8', '首领首杀应必掉一颗无铭技能宝石（没有等级），名牌颜色和技能宝石不同：' + JSON.stringify(r.first));
     assert(r.again === 0 && r.unlucky === 0, '首领再打 / 精英 / 普通怪没有中几率时不应掉：' + JSON.stringify(r));
     assert(r.bossLucky === 1 && r.eliteLucky === 1 && r.mobLucky === 1, '几率掉落没有生效：' + JSON.stringify(r));
     assert(r.rates.elite > 0 && r.rates.elite <= 0.1 && r.rates.mob > 0 && r.rates.mob < 0.012 && r.rates.boss < 1, '掉落几率不对：' + JSON.stringify(r.rates));
-    assert(r.picked && r.picked2 && r.gems === '6,4,2' && r.stored === '6,4,2', '拾取后应按等级从高到低存进存档：' + JSON.stringify(r));
-    assert(r.toast1.includes('无铭技能宝石 Lv 4') && r.toast1.includes('共 1 颗') && r.feed.includes('无铭技能宝石 Lv 4') && r.feed.includes('共 1 颗'), '拾取提示 / 拾取记录没有写数量：' + r.toast1 + ' | ' + r.feed);
-    assert(r.useful9 === false && r.useful10 === true, 'blankUseful 判断不对');
-    assert(r.uselessPicked && r.useless.gems === '6,4,2' && r.useless.dust === 1 && r.useless.toast.includes('用不上'), '用不上的无铭宝石应化为 1 微光尘：' + JSON.stringify(r.useless));
-    assert(r.old === '[]' && r.bad === '45,5,3,1' && r.bad2 === '[]' && r.back === '6,4,2' && r.fresh === '[]', '旧存档 / 畸形存档没有修好：' + JSON.stringify(r));
-    return '首杀掉 Lv ' + r.first[0].lvl + '，几率 ' + JSON.stringify(r.rates);
+    assert(r.picked && r.picked2 && r.gems === '6,6,6' && r.stored === '6,6,6' && r.curPick === 0, '拾取后应存进存档、记当时的成长下限（6）：' + JSON.stringify(r));
+    assert(r.toast1.includes('获得无铭技能宝石（共 1 颗') && !/Lv/.test(r.toast1) && r.feed.includes('无铭技能宝石') && r.feed.includes('共 1 颗') && !/Lv/.test(r.feed), '拾取提示 / 拾取记录应写数量、不写等级：' + r.toast1 + ' | ' + r.feed);
+    assert(r.usefulMissing1 === true && r.usefulAll === false, 'blankUseful 判断不对：' + JSON.stringify(r));
+    assert(r.uselessPicked && r.useless.gems === '6,6,6' && r.useless.cur === 1 && /用不上的无铭技能宝石，化为 1 个\S+/.test(r.useless.toast) && r.useless.feed.includes('化为'), '用不上的无铭宝石应化为 1 个随机通货：' + JSON.stringify(r.useless));
+    assert(r.old === '[]' && r.bad === '45,5,3,1' && r.bad2 === '[]' && r.back === '6,6,6' && r.fresh === '[]', '旧存档 / 畸形存档没有修好：' + JSON.stringify(r));
+    return '首杀掉一颗（无等级），几率 ' + JSON.stringify(r.rates);
+  });
+
+  await step('技能宝石没有等级（gem-nolvl）：已学技能的等级一律是成长下限（法术、召唤物、黑焰、刻式都按它）；存档里记的数只升不降（高于下限的旧值原样留着、读档往返不变，低于的抬到下限，升级时也只抬不压）；学会了的宝石再捡到：还有能学的就化成无铭宝石，否则化成 1 个随机通货；名牌 / 提示 / 拾取记录 / 技能卡都不写等级', async () => {
+    const r = await ev((KEY) => {
+      T.arena();
+      const S = G.state, save = G.save, P = G.player, out = {};
+      G.persist();
+      const keep = localStorage.getItem(KEY);
+      const lv0 = save.level;
+      const avg = (o) => Object.values(o).reduce((a, v) => a + (v[0] + v[1]) / 2, 0);
+      const pick = (kind, data) => {
+        const l = G.spawnLoot(kind, data, P.x, P.z);
+        T.tp(l.x, l.z);
+        G.debug.step(0.5);
+        return S.loot.indexOf(l) < 0;
+      };
+      const curSum = () => G.CUR_IDS.reduce((a, id) => a + (save.cur[id] || 0), 0);
+      G.debug.pinGems(false);
+      try {
+        save.level = 20; // 成长下限 15
+        G.debug.learnAll();
+        save.skills.ember = 30; // 改版前捡到的高等级宝石
+        save.skills.thrall = 30;
+        save.skills.blackflame = 40;
+        save.skills.nova = 2; // 低于下限（旧存档）
+        delete save.skills.icefall;
+        G.computeStats();
+        out.floor = G.gemFloor();
+        out.lv = ['ember', 'thrall', 'blackflame', 'nova', 'icefall'].map(G.skillLvl).join();
+        out.ember = Math.abs(avg(G.skillBase('ember')) - avg(G.skillBase('ember', 15))) < 1e-9 && avg(G.skillBase('ember', 30)) > avg(G.skillBase('ember')) * 1.4;
+        out.thrall = Math.abs(avg(G.skillBase('thrall')) - avg(G.skillBase('thrall', 15))) < 1e-9 && avg(G.skillBase('thrall', 30)) > avg(G.skillBase('thrall')) * 1.4;
+        out.open = G.variantOpen('ember') && !G.variantOpen('icefall');
+        // 存档：读档往返，存的数只升不降
+        G.persist();
+        G.loadSave();
+        G.computeStats();
+        out.stored = ['ember', 'thrall', 'blackflame', 'nova'].map((id) => save.skills[id]).join();
+        G.persist();
+        const raw = JSON.parse(localStorage.getItem(KEY)).skills;
+        out.raw = [raw.ember, raw.thrall, raw.blackflame, raw.nova].join();
+        // 升一级：存的数跟着抬到新下限（16），高于下限的不动，不再弹「技能宝石随之成长」
+        T.toasts();
+        G.gainXp(G.xpNeed(save.level) - save.xp + 1);
+        out.up = { level: save.level, floor: G.gemFloor(), nova: save.skills.nova, ember: save.skills.ember, lvl: G.skillLvl('ember'), toast: T.toasts() };
+        // 地上的技能宝石：名牌不写等级
+        S.loot.length = 0;
+        const l = G.spawnLoot('skill', { id: 'icefall' }, P.x + 3, P.z);
+        out.label = l.label;
+        out.data = JSON.stringify(l.data);
+        T.clearLoot();
+        // 学会了的再捡到：还有没学会的（坠凌）→ 化成一颗无铭宝石
+        save.blankGems = [];
+        const c0 = curSum();
+        out.dup1 = { picked: pick('skill', { id: 'nova' }), gems: save.blankGems.join(), cur: curSum() - c0, toast: T.toasts(), feed: document.getElementById('feed').innerText };
+        // 全都学会了 → 化成 1 个随机通货，无铭宝石不动
+        save.skills.icefall = G.gemFloor();
+        const c1 = curSum();
+        out.dup2 = { picked: pick('skill', { id: 'nova' }), gems: save.blankGems.join(), cur: curSum() - c1, toast: T.toasts(), feed: document.getElementById('feed').innerText };
+        // 没学会的照常学会，存档里记下限
+        delete save.skills.icefall;
+        out.learn = { picked: pick('skill', { id: 'icefall' }), lvl: save.skills.icefall, floor: G.gemFloor(), toast: T.toasts() };
+        // 技能页：宝石技能卡不写等级（武器技在上面单独一节，它的等级随武器，不算宝石）
+        G.ui.open('skills');
+        out.cards = Array.from(document.querySelectorAll('.skill-card')).map((c) => c.innerText).join(' || ');
+        out.ncards = document.querySelectorAll('.skill-card').length;
+        G.ui.close();
+      } finally {
+        G.debug.pinGems(true);
+        save.level = lv0;
+        localStorage.setItem(KEY, keep);
+        G.loadSave();
+        G.computeStats();
+        T.clearLoot();
+      }
+      return out;
+    }, SAVE_KEY);
+    assert(r.floor === 15 && r.lv === '15,15,15,15,0' && r.ember && r.thrall && r.open, '已学技能的等级应一律是成长下限 15（存档里记着 30 / 40 的也一样）：' + JSON.stringify(r));
+    assert(r.stored === '30,30,40,15' && r.raw === '30,30,40,15', '存档里的数只升不降：高于下限的原样留着，低于的抬到下限：' + JSON.stringify(r));
+    assert(r.up.level === 21 && r.up.floor === 16 && r.up.nova === 16 && r.up.ember === 30 && r.up.lvl === 16 && !r.up.toast.includes('技能宝石随之成长') && !/Lv 1[56]：/.test(r.up.toast), '升级：存的数只抬不压、不再提示宝石成长：' + JSON.stringify(r.up));
+    assert(r.label === '技能宝石：坠凌' && r.data === '{"id":"icefall"}', '地上的技能宝石不该有等级：' + JSON.stringify(r));
+    assert(r.dup1.picked && r.dup1.gems === '16' && r.dup1.cur === 0 && r.dup1.toast.includes('已学会「霜环」，化为 1 颗无铭技能宝石（共 1 颗）') && r.dup1.feed.includes('化为无铭宝石'), '学会了的宝石（还有能学的）应化成无铭宝石：' + JSON.stringify(r.dup1));
+    assert(r.dup2.picked && r.dup2.gems === '16' && r.dup2.cur === 1 && /已学会「霜环」，化为 1 个\S+/.test(r.dup2.toast) && !r.dup2.toast.includes('无铭') && /技能宝石 · 霜环[\s\S]*化为/.test(r.dup2.feed), '全都学会了：应化成 1 个随机通货：' + JSON.stringify(r.dup2));
+    assert(r.learn.picked && r.learn.lvl === r.learn.floor && r.learn.toast.includes('习得技能：坠凌') && !/坠凌 Lv/.test(r.learn.toast), '没学会的照常学会、记下限、提示不写等级：' + JSON.stringify(r.learn));
+    assert(r.ncards > 10 && !/Lv\b|Lv /.test(r.cards) && !r.cards.includes('升至'), '技能卡不该写等级：' + r.cards.slice(0, 300));
+    return '下限 ' + r.floor + ' · 存的 ' + r.stored + ' · 重复 → 无铭 / 通货';
   });
 
   await step('掉落：升华石 / 乱流石 / 重铸石权重提高，琢刻石介于其间；首领首杀保底升华石和乱流石各一颗；分解稀有物品有几率给其一；辅助宝石掉率提高、首领掉三颗；重复的辅助宝石照旧化为增幅尘', async () => {
@@ -8169,7 +8274,7 @@ async function main() {
     r = await hover('cur');
     assert(r.txt.includes('点金石') && r.txt.includes('把普通物品升为稀有物品') && r.txt.includes('拖到一件物品上'), '通货的地面提示不对');
     r = await hover('skill');
-    assert(r.txt.includes('霜环') && r.txt.includes('光环') && r.txt.includes('魔力保留 18%') && r.txt.includes('新技能') && r.txt.includes('每跳基础伤害'), '技能宝石的地面提示应说明它做什么：' + r.txt.slice(0, 200));
+    assert(r.txt.includes('霜环') && r.txt.includes('光环') && r.txt.includes('魔力保留 18%') && r.txt.includes('新技能') && r.txt.includes('每跳基础伤害') && r.txt.includes('技能随角色等级成长') && !/Lv|宝石等级/.test(r.txt), '技能宝石的地面提示应说明它做什么、不写等级：' + r.txt.slice(0, 200));
     r = await hover('sup');
     assert(r.txt.includes('多重投射') && r.txt.includes('额外发射 2 个投射物') && r.txt.includes('可镶嵌') && r.txt.includes('掷焰'), '辅助宝石的地面提示应说明它做什么');
     await page.mouse.move(1000, 620);
@@ -8177,7 +8282,7 @@ async function main() {
       throw new Error('鼠标移开后提示没有消失');
     });
     r = await ev(() => Object.keys(window.__L).map((k) => window.__L[k].label));
-    assert(/ ▲$/.test(r[0]) === (/▲/.test(r[0])) && r[1].endsWith(' ▲') && r[2] === '点金石' && r[3].endsWith(' ▲') && r[4].endsWith(' ▲'), '名牌上的升降标记不对：' + JSON.stringify(r));
+    assert(/ ▲$/.test(r[0]) === (/▲/.test(r[0])) && r[1].endsWith(' ▲') && r[2] === '点金石' && r[3] === '技能宝石：霜环 ▲' && r[4].endsWith(' ▲'), '名牌上的升降标记不对（技能宝石不写等级）：' + JSON.stringify(r));
     await page.keyboard.down('Alt');
     try {
       await until(() => /稀有 腰带 · 物品等级 3 · [▲▼＝]$/.test(window.__L.rare.label)).catch(() => {
@@ -8453,7 +8558,7 @@ async function main() {
     });
   });
 
-  await uiStep('无铭技能宝石：技能页顶部写数量和最高等级；点两下才用掉；学会新技能自动上技能栏；给已学技能升级；总是用最高的那颗；等级不够不能升；第一次捡到有新手提示', async () => {
+  await uiStep('无铭技能宝石：技能页顶部写数量（不写等级）；点两下才用掉；学会新技能自动上技能栏、等级是成长下限；已学的技能没有升级入口、接口也拒绝；第一次捡到有新手提示', async () => {
     // 先让两个技能变回「没学会」，技能栏腾出一格
     await ev(() => {
       const s = G.save;
@@ -8474,56 +8579,45 @@ async function main() {
       bar: (document.querySelector('.blank-bar') || {}).innerText || '',
       learn: Array.from(document.querySelectorAll('.sm-learn')).map((b) => b.dataset.skill).sort().join(),
       learnTxt: (document.querySelector('.sm-learn') || {}).innerText || '',
-      upNova: (document.querySelector('.blank-up[data-skill="nova"]') || {}).innerText || '',
-      upBlade: !!document.querySelector('.blank-up[data-skill="blade"]'),
+      more: (document.querySelector('.skill-more .sm-title') || {}).innerText || '',
+      ups: document.querySelectorAll('.blank-up').length,
+      names: Array.from(document.querySelectorAll('.skill-card .sk-name')).map((n) => n.innerText).join(' | '),
       icon: getComputedStyle(document.querySelector('.blank-bar .ico')).backgroundImage.startsWith('url("data:image/png'),
     }));
-    assert(r.bar.includes('无铭技能宝石') && r.bar.includes('×3') && r.bar.includes('最高 Lv 7') && r.icon, '技能页顶部应写数量和最高等级：' + JSON.stringify(r));
-    assert(r.learn === 'arc,meteor' && r.learnTxt.includes('Lv 7'), '「尚未获得」里每个技能都应能点、写明用哪一颗：' + JSON.stringify(r));
-    assert(r.upNova.includes('Lv 7') && !r.upBlade, '已学技能卡上：等级更低的给升级入口，等级更高的不给：' + JSON.stringify(r));
+    assert(r.bar.includes('无铭技能宝石') && r.bar.includes('×3') && !/Lv|最高/.test(r.bar) && r.icon, '技能页顶部应写数量、不写等级：' + JSON.stringify(r));
+    assert(r.learn === 'arc,meteor' && r.learnTxt.includes('学会') && !/Lv/.test(r.learnTxt + r.more), '「尚未获得」里每个技能都应能点、不写等级：' + JSON.stringify(r));
+    assert(r.ups === 0 && r.names && !/Lv/.test(r.names), '已学技能卡上不应有等级、也不应有升级入口：' + JSON.stringify(r));
     cleanText(await ev(() => T.bodyText()), '带无铭宝石的技能页');
 
-    // 防误点：点一下只是选中；点别的就换成选中别的；悬停写清楚会用哪一颗
+    // 防误点：点一下只是选中；点别的就换成选中别的；悬停写清楚会发生什么
     await page.locator('.sm-learn[data-skill="arc"]').scrollIntoViewIfNeeded();
     await page.click('.sm-learn[data-skill="arc"]');
     r = await ev(() => ({ gems: G.save.blankGems.join(), arc: !!G.save.skills.arc, armed: document.querySelector('.sm-learn[data-skill="arc"]').classList.contains('armed'), txt: document.querySelector('.sm-learn[data-skill="arc"]').innerText, tip: document.getElementById('tip').innerText }));
     assert(r.gems === '7,5,2' && !r.arc && r.armed && r.txt.includes('再点一次'), '点第一下不应用掉宝石，而是等着确认：' + JSON.stringify(r));
-    assert(r.tip.includes('Lv 7') && r.tip.includes('链雷'), '悬停提示应写明会用 Lv 7 的那颗学会链雷：' + r.tip);
+    assert(r.tip.includes('用掉一颗') && r.tip.includes('链雷') && r.tip.includes('技能随角色等级成长') && !/Lv|宝石等级/.test(r.tip), '悬停提示应写明用掉一颗学会链雷、不写等级：' + r.tip);
     await page.click('.sm-learn[data-skill="meteor"]');
     r = await ev(() => ({ gems: G.save.blankGems.join(), arcArmed: document.querySelector('.sm-learn[data-skill="arc"]').classList.contains('armed'), metArmed: document.querySelector('.sm-learn[data-skill="meteor"]').classList.contains('armed') }));
     assert(r.gems === '7,5,2' && !r.arcArmed && r.metArmed, '点另一个技能应改为选中它，仍不用掉宝石：' + JSON.stringify(r));
-    // 再点一次：学会，用的是最高的 Lv 7，自动放进技能栏的空格
+    // 再点一次：学会（存档里记成长下限），用掉记的数最低的那颗（高的留给可能读档的旧版本），自动放进技能栏的空格
     await page.click('.sm-learn[data-skill="meteor"]');
-    r = await ev(() => ({ gems: G.save.blankGems.join(), lvl: G.save.skills.meteor, sock: JSON.stringify(G.save.sockets.meteor), bar: G.save.bar.join(), msg: (document.querySelector('.bk-msg') || {}).innerText || '', toast: T.toasts(), card: !!document.querySelector('.skill-card [data-act="bind"][data-skill="meteor"]'), stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).blankGems.join() }));
-    assert(r.lvl === 7 && r.gems === '5,2' && r.stored === '5,2', '应用掉最高的 Lv 7 那颗学会陨火：' + JSON.stringify(r));
+    r = await ev(() => ({ gems: G.save.blankGems.join(), lvl: G.save.skills.meteor, floor: G.gemFloor(), sock: JSON.stringify(G.save.sockets.meteor), bar: G.save.bar.join(), msg: (document.querySelector('.bk-msg') || {}).innerText || '', toast: T.toasts(), card: !!document.querySelector('.skill-card [data-act="bind"][data-skill="meteor"]'), stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).blankGems.join() }));
+    assert(r.lvl === r.floor && r.gems === '7,5' && r.stored === '7,5', '学会陨火应记成长下限、用掉最低的那颗：' + JSON.stringify(r));
     assert(r.sock === '[null,null,null]' && r.bar === 'ember,,nova,meteor' && r.card, '学会后应开好辅助槽并自动放进技能栏的空格（右键不算空格）：' + JSON.stringify(r));
-    assert(r.msg.includes('陨火') && r.msg.includes('Lv 7') && r.toast.includes('习得技能：陨火 Lv 7'), '学会后应给出提示：' + JSON.stringify(r));
+    assert(r.msg.includes('陨火') && !/Lv/.test(r.msg) && r.toast.includes('习得技能：陨火') && !/陨火 Lv/.test(r.toast), '学会后应给出提示（不写等级）：' + JSON.stringify(r));
     await until(() => document.querySelectorAll('#slots .slot')[3].dataset.skill === 'meteor').catch(() => {
       throw new Error('HUD 技能栏没有同步');
     });
 
-    // 升级已学技能：用当前最高的 Lv 5；同样要点两下
-    await page.locator('.blank-up[data-skill="nova"]').scrollIntoViewIfNeeded();
-    r = await ev(() => document.querySelector('.blank-up[data-skill="nova"]').innerText);
-    assert(r.includes('Lv 5'), '升级按钮应写明会升到 Lv 5：' + r);
-    await page.click('.blank-up[data-skill="nova"]');
-    r = await ev(() => ({ lvl: G.save.skills.nova, gems: G.save.blankGems.join(), txt: document.querySelector('.blank-up[data-skill="nova"]').innerText }));
-    assert(r.lvl === 3 && r.gems === '5,2' && r.txt.includes('再点一次'), '升级也要点两下：' + JSON.stringify(r));
-    await page.click('.blank-up[data-skill="nova"]');
-    r = await ev(() => ({ lvl: G.save.skills.nova, gems: G.save.blankGems.join(), msg: (document.querySelector('.bk-msg') || {}).innerText || '', btn: !!document.querySelector('.blank-up[data-skill="nova"]'), toast: T.toasts() }));
-    assert(r.lvl === 5 && r.gems === '2' && r.msg.includes('Lv 3') && r.msg.includes('Lv 5') && r.toast.includes('霜环 升至 Lv 5'), '应用掉 Lv 5 那颗把霜环升到 Lv 5：' + JSON.stringify(r));
-    assert(!r.btn, '剩下的 Lv 2 不高于霜环的 Lv 5，卡上不应再有升级入口');
-
-    // 等级不够：不能升级（接口直接拒绝，界面上不给入口）
-    r = await ev(() => ({ api: G.useBlankGem('nova'), gems: G.save.blankGems.join(), lvl: G.save.skills.nova, ups: document.querySelectorAll('.blank-up').length }));
-    assert(r.api === null && r.gems === '2' && r.lvl === 5, '等级不高于当前时不应能升级：' + JSON.stringify(r));
+    // 已学的技能：接口拒绝，宝石不动
+    r = await ev(() => ({ api: G.useBlankGem('nova'), gems: G.save.blankGems.join(), lvl: G.save.skills.nova }));
+    assert(r.api === null && r.gems === '7,5' && r.lvl === 3, '已学会的技能不应能用无铭宝石：' + JSON.stringify(r));
     // 用完最后一颗：顶部写「已用完」，「尚未获得」变回不可点的列表
     r = await ev(() => {
       G.save.blankGems = [];
       G.ui.refresh();
-      return { bar: (document.querySelector('.blank-bar') || {}).innerText || '', learn: document.querySelectorAll('.sm-learn').length, ups: document.querySelectorAll('.blank-up').length, api: G.useBlankGem('arc') };
+      return { bar: (document.querySelector('.blank-bar') || {}).innerText || '', learn: document.querySelectorAll('.sm-learn').length, api: G.useBlankGem('arc') };
     });
-    assert(r.learn === 0 && r.ups === 0 && r.api === null, '没有无铭宝石时不应有使用入口：' + JSON.stringify(r));
+    assert(r.learn === 0 && r.api === null, '没有无铭宝石时不应有使用入口：' + JSON.stringify(r));
     await closePanel();
     r = await ev(() => { G.ui.open('skills'); const b = !!document.querySelector('.blank-bar'); G.ui.close(); return b; });
     assert(!r, '手里没有无铭宝石时技能页顶部不应显示持有条');
@@ -8535,7 +8629,7 @@ async function main() {
       delete G.save.tut.blank;
       G.save.blankGems = [];
       const P = G.player;
-      const l = G.spawnLoot('blank', { lvl: 6 }, P.x, P.z);
+      const l = G.spawnLoot('blank', {}, P.x, P.z);
       T.tp(l.x, l.z);
       G.debug.step(0.5);
       G.debug.hold(false);
@@ -8544,18 +8638,18 @@ async function main() {
       throw new Error('第一次捡到无铭宝石时没有出现新手提示');
     });
     r = await ev(() => document.getElementById('coach').innerText);
-    assert(r.includes('无铭技能宝石') && r.includes('G') && r.includes('技能页'), '新手提示没有说清楚去技能页用：' + r);
+    assert(r.includes('无铭技能宝石') && r.includes('G') && r.includes('技能页') && !r.includes('升级'), '新手提示没有说清楚去技能页用：' + r);
     await page.keyboard.press('KeyG');
     r = await ev(() => (document.querySelector('.side-coach') || {}).innerText || '');
-    assert(r.includes('再点一次'), '技能页里应接着提示怎么用：' + r);
+    assert(r.includes('再点一次') && !/Lv/.test(r), '技能页里应接着提示怎么用：' + r);
     await page.locator('.sm-learn[data-skill="arc"]').scrollIntoViewIfNeeded();
     await page.click('.sm-learn[data-skill="arc"]');
     await page.click('.sm-learn[data-skill="arc"]');
     await until(() => !!G.save.tut.blank).catch(() => {
       throw new Error('用掉一颗之后新手提示没有标记为看过');
     });
-    r = await ev(() => G.save.skills.arc);
-    assert(r === 6, '通过提示引导学会的链雷应是 Lv 6：' + r);
+    r = await ev(() => ({ arc: G.save.skills.arc, floor: G.gemFloor() }));
+    assert(r.arc === r.floor, '通过提示引导学会的链雷应记成长下限：' + JSON.stringify(r));
     await closePanel();
     await ev(() => {
       G.debug.hold(true);
@@ -15501,7 +15595,7 @@ async function main() {
   // ------------------------------------------------------------------ D1 刻式（设计稿 §10）
   // 五步共用：进来时把存档存一份，最后一步结束时原样放回（刻式、宝石等级、通货都不带进后面的步骤）
   let varKeep = null;
-  await step('刻式：裂石击以外的 20 个宝石技能都有 A / B（含第一批新技能，没有例外表）；宝石 9 级不能选、10 级能选；第一次免费，第二次扣 1 乱流石、不够时拒绝；战斗中拒绝；技能页 10 级才有三个按钮', async () => {
+  await step('刻式：裂石击以外的 20 个宝石技能都有 A / B（含第一批新技能，没有例外表）；角色 12 级不能选、13 级能选（技能宝石没有等级，存档里记着 30 级也不算）；第一次免费，第二次扣 1 乱流石、不够时拒绝；战斗中拒绝；技能页 13 级才有三个按钮', async () => {
     varKeep = await ev(() => { G.persist(); return localStorage.getItem('cinder-abyss-save-v1'); });
     const r = await ev((NEW) => {
       T.arena();
@@ -15512,18 +15606,23 @@ async function main() {
       // 第一批的 6 个新技能都在表里（第二批 skill-batch2 补齐），宝石技能一共 20 个
       out.pend = NEW.every((id) => G.GEM_SKILLS.indexOf(id) >= 0 && !!G.VARIANTS[id]) && G.GEM_SKILLS.length === 29;
       out.extra = Object.keys(G.VARIANTS).filter((id) => G.GEM_SKILLS.indexOf(id) < 0 || id === 'cleave');
-      out.price = G.VARIANT_LVL === 10 && G.VARIANT_COST.cur === 'chaos' && G.VARIANT_COST.n === 1 && G.CURRENCY.chaos.name === '乱流石';
+      out.price = G.VARIANT_LVL === 10 && G.VARIANT_CHAR_LVL === 13 && G.VARIANT_COST.cur === 'chaos' && G.VARIANT_COST.n === 1 && G.CURRENCY.chaos.name === '乱流石';
+      G.debug.pinGems(false); // 真实规则：技能等级 = 成长下限
+      const lv0 = s.level;
       s.variants = {};
       s.variantFree = {};
-      s.skills.ember = 9;
+      s.skills.ember = 30; // 改版前捡到的 30 级宝石：存档里原样留着，但不算数
+      s.level = 12;
       s.cur.chaos = 0;
-      out.lv9 = G.setVariant('ember', 'a').ok;
-      // 技能页：9 级只有一行灰字，没有按钮
+      const r0 = G.setVariant('ember', 'a');
+      out.lv9 = r0.ok;
+      out.msg9 = r0.msg;
+      // 技能页：12 级只有一行灰字，没有按钮
       G.ui.open('skills');
       out.btn9 = document.querySelectorAll('[data-act="variant"][data-skill="ember"]').length;
-      out.lock9 = /宝石 Lv 10 解锁/.test(T.bodyText());
+      out.lock9 = /角色 13 级解锁 A \/ B 两种刻式/.test(T.bodyText()) && !/宝石 Lv/.test(T.bodyText());
       G.ui.close();
-      s.skills.ember = 10;
+      s.level = 13;
       const r1 = G.setVariant('ember', 'a');
       out.free = r1.ok && r1.cost === 0 && s.cur.chaos === 0 && G.SKILLS.ember.vname === '跳焰' && s.variants.ember === 'a';
       const r2 = G.setVariant('ember', 'b');
@@ -15546,10 +15645,13 @@ async function main() {
       btns[0].click();
       out.clicked = s.cur.chaos === 0 && !s.variants.ember && G.SKILLS.ember === G.SKILL_V.ember.o && /换成了「原式」/.test(T.bodyText());
       G.ui.close();
+      out.stored = s.skills.ember; // 存档里的 30 没被改写
+      s.level = lv0;
+      G.debug.pinGems(true);
       return out;
     }, NEW_SKILLS);
     assert(r.n === 29 && !r.missing.length && !r.extra.length && r.price && r.pend, '刻式表不全（class-d2b1 的四种特殊弹、class-d2b2 的 5 个也要有 A / B）：' + JSON.stringify(r));
-    assert(!r.lv9 && r.btn9 === 0 && r.lock9, '宝石 9 级不该能选刻式：' + JSON.stringify(r));
+    assert(!r.lv9 && r.msg9 === '角色 13 级才能选刻式' && r.btn9 === 0 && r.lock9 && r.stored === 30, '角色 12 级不该能选刻式（存档里记着 30 级也不算，且不被改写）：' + JSON.stringify(r));
     assert(r.free && r.refuse && r.paid, '价格不对（第一次免费、之后 1 乱流石、不够拒绝）：' + JSON.stringify(r));
     assert(r.combat && r.asleep, '战斗中应拒绝换刻式：' + JSON.stringify(r));
     assert(r.btn10 === 3 && r.on === 'b' && r.clicked, '技能页的刻式按钮不对：' + JSON.stringify(r));
@@ -23158,11 +23260,13 @@ async function classSteps() {
     if (browser) await browser.close().catch(() => {});
     ({ browser, page, errors } = await launch(Object.assign({ width: 1280, height: 800 }, o || {})));
   };
-  // 没有职业的存档：一串物品、怪物掉落（精英 / 普通 / 区域刷的怪）、拾烬客的货架，去掉 uid（带时间戳）后的 JSON 和随机数调用次数
+  // 没有职业的存档：一串物品、怪物掉落（精英 / 普通 / 区域刷的怪）、拾烬客的货架，去掉 uid（带时间戳）后的 JSON 和随机数调用次数。
+  // gem-nolvl：技能宝石 / 无铭宝石没有等级了（掷等级的那次随机数照抽），比的时候两边都去掉 lvl；
+  // 起手一个技能都没学：宝石总是挑没学会的（改版前怪物 70%），什么都没学时两边挑到的是同一颗，随机数次数也一样
   const dropSeq = () => {
     window.__testRand.seed('class-nocls-drops');
     const S = G.save;
-    S.skills = { ember: 1 };
+    S.skills = {};
     S.supports = [];
     S.level = 20;
     const strip = (it) => {
@@ -23195,9 +23299,15 @@ async function classSteps() {
     try {
       for (let i = 0; i < 400; i++) items.push(strip(G.rollItem(5 + (i % 40), i % 3)));
       for (let i = 0; i < 400; i++) G.dropLoot({ x: G.player.x, z: G.player.z, level: 8 + (i % 30), elite: i % 6 === 0, horde: i % 3 === 1, hordeK: 1 });
-      for (const l of L.slice(l0)) loot.push({ k: l.kind, d: l.kind === 'item' ? strip(l.data) : l.data });
+      const noLvl = (d) => {
+        if (!d || typeof d !== 'object') return d;
+        const o = Object.assign({}, d);
+        delete o.lvl;
+        return o;
+      };
+      for (const l of L.slice(l0)) loot.push({ k: l.kind, d: l.kind === 'item' ? strip(l.data) : noLvl(l.data) });
       const stock = [];
-      for (let i = 0; i < 30; i++) stock.push(G.traderOpen({ level: 10 + i }).map((o) => ({ k: o.kind, d: o.item ? strip(o.item) : o.data })));
+      for (let i = 0; i < 30; i++) stock.push(G.traderOpen({ level: 10 + i }).map((o) => ({ k: o.kind, d: o.item ? strip(o.item) : noLvl(o.data) })));
       if (G.ui && G.ui.close) G.ui.close();
       items.push({ stock });
     } finally {
@@ -23433,27 +23543,80 @@ async function classSteps() {
     return ['guard', 'hunt', 'star', 'lamp', 'forge'].map((c) => c + ' 武器 ' + r[c].w + '% 宝石 ' + r[c].g + '% M ' + r[c].M).join('；');
   });
 
-  await step('职业·无铭：有职业时用不上的技能宝石掉下来是同等级的无铭宝石，能用的照旧；无铭宝石学不了别的职业的技能；没有职业时照旧掉技能宝石', async () => {
+  await step('职业·无铭：有职业时用不上的技能宝石掉下来是无铭宝石（没有等级），能用的照旧；无铭宝石学不了别的职业的技能；没有职业时照旧掉技能宝石', async () => {
     const r = await ev(() => {
       localStorage.clear();
       localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(G.newClassSave('guard')));
       G.loadSave();
       G.holdSave(true);
       const L = G.state.loot, P = G.player, l0 = L.length;
-      const a = G.spawnLoot('skill', { id: 'arc', lvl: 7 }, P.x, P.z);
-      const b = G.spawnLoot('skill', { id: 'whirl', lvl: 7 }, P.x, P.z);
+      const a = G.spawnLoot('skill', { id: 'arc' }, P.x, P.z);
+      const b = G.spawnLoot('skill', { id: 'whirl' }, P.x, P.z);
       G.save.blankGems = [9];
       const learnArc = G.useBlankGem('arc'), learnWhirl = !!G.useBlankGem('whirl');
       delete G.save.cls;
-      const c = G.spawnLoot('skill', { id: 'arc', lvl: 7 }, P.x, P.z);
+      const c = G.spawnLoot('skill', { id: 'arc' }, P.x, P.z);
       for (const l of L.splice(l0)) G.world.removeMesh(l.mesh);
       localStorage.clear();
-      return { a: a.kind + ':' + a.data.lvl, b: b.kind + ':' + b.data.id, learnArc, learnWhirl, c: c.kind + ':' + c.data.id };
+      return { a: a.kind + ':' + a.data.from + ':' + ('lvl' in a.data) + ':' + a.label, b: b.kind + ':' + b.data.id, learnArc, learnWhirl, c: c.kind + ':' + c.data.id };
     });
-    assert(r.a === 'blank:7' && r.b === 'skill:whirl', '烬卫：链雷应掉成 7 级无铭宝石、旋风斩照旧：' + JSON.stringify(r));
+    assert(r.a === 'blank:arc:false:无铭技能宝石' && r.b === 'skill:whirl', '烬卫：链雷应掉成无铭宝石（没有等级）、旋风斩照旧：' + JSON.stringify(r));
     assert(r.learnArc === null && r.learnWhirl, '无铭宝石不该学得了别的职业的技能：' + JSON.stringify(r));
     assert(r.c === 'skill:arc', '没有职业时应照旧掉技能宝石：' + JSON.stringify(r));
     return JSON.stringify(r);
+  });
+
+  await step('职业·挑宝石（gem-nolvl）：掉落总是挑没学会的——先挑本职业能用的，都学会了再挑别的职业的（掉下来是无铭宝石），全学会了才重复；每次挑的随机数次数和改版前一样（没学完 3 次、全学完 2 次）', async () => {
+    const r = await ev(() => {
+      localStorage.clear();
+      localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(G.newClassSave('hunt')));
+      G.loadSave();
+      G.holdSave(true);
+      const own = G.classGems('hunt'), all = G.gemDropPool('hunt');
+      const R = Math.random;
+      let n = 0;
+      const picks = (k) => {
+        const ids = new Set();
+        n = 0;
+        Math.random = function () { n++; return R(); };
+        try {
+          for (let i = 0; i < k; i++) ids.add(G.pickSkillGem(0.7).id);
+        } finally {
+          Math.random = R;
+        }
+        return { ids: Array.from(ids).sort(), draws: n / k };
+      };
+      const out = { own: own.length, all: all.length };
+      const learn = (ids) => { G.save.skills = {}; for (const id of ids) G.save.skills[id] = 1; };
+      // 本职业还差一颗：只挑它
+      learn(own.slice(1));
+      out.lastOwn = picks(200);
+      out.lastOwnWant = own[0];
+      // 本职业全学会了：挑别的职业没学会的，掉下来是无铭宝石
+      learn(own);
+      out.other = picks(300);
+      out.otherOk = out.other.ids.length > 1 && out.other.ids.every((id) => own.indexOf(id) < 0 && !G.save.skills[id]);
+      const L = G.state.loot, P = G.player, l0 = L.length;
+      const d = G.spawnLoot('skill', G.pickSkillGem(0.7), P.x, P.z);
+      out.otherDrop = d.kind + ':' + ('lvl' in d.data);
+      for (const l of L.splice(l0)) G.world.removeMesh(l.mesh);
+      // 全学会了：重复的（拾取时再换成无铭宝石 / 通货）
+      learn(all);
+      out.dup = picks(200);
+      out.dupOk = out.dup.ids.length > 5 && out.dup.ids.every((id) => G.save.skills[id]);
+      // 没有职业：同样总是挑没学会的
+      delete G.save.cls;
+      learn(G.gemDropPool(undefined).slice(2));
+      out.nocls = picks(200);
+      out.noclsWant = G.gemDropPool(undefined).slice(0, 2).sort().join();
+      localStorage.clear();
+      return out;
+    });
+    assert(r.lastOwn.ids.join() === r.lastOwnWant && r.lastOwn.draws === 3, '本职业还差一颗时应只挑它（随机数 3 次）：' + JSON.stringify(r.lastOwn));
+    assert(r.otherOk && r.other.draws === 3 && r.otherDrop === 'blank:false', '本职业都学会了：应挑别的职业没学会的、掉成无铭宝石：' + JSON.stringify(r));
+    assert(r.dupOk && r.dup.draws === 2, '全学会了：挑到的是重复的（随机数 2 次）：' + JSON.stringify(r.dup));
+    assert(r.nocls.ids.join() === r.noclsWant && r.nocls.draws === 3, '没有职业：应只挑没学会的那两颗：' + JSON.stringify(r.nocls));
+    return '本职业 ' + r.own + ' / 池子 ' + r.all + ' · 别的职业挑到 ' + r.other.ids.length + ' 种';
   });
 
   await step('共享仓库：一个角色放进去、另一个角色取出来（uid 不变，两边存档各自对）；同一个 uid 既在仓库又在角色身上时读档只留仓库那份；另一个标签页让这边停写后仓库也不写', async () => {
