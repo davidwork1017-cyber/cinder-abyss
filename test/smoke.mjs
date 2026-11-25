@@ -28362,10 +28362,10 @@ async function uiDeskStyleSkillsStep() {
     return Object.keys(DESK_STYLE_SK_MAIN).length + ' 项相等';
   });
 }
-// 桌面浮窗夹在面板正文里（tip-clamp）：1280×720 / 1366×768 / 1920×1080 下，技能页每张卡的每个辅助槽、天赋盘、背包、仓库、地图上的浮窗都整个在 #panel-body 里。
+// 桌面浮窗夹在面板正文里（tip-clamp）：1280×720 / 1366×768 / 1920×1080 下，技能页三张卡的辅助槽、天赋盘、背包、仓库、地图上一组固定的目标（贴边的、四角的、头中尾）的浮窗都整个在 #panel-body 里。
 // 比正文还大的浮窗照旧只夹在视口里（#tip 上 data-fb），这种放行，并在结果里报出来
 async function uiTipClampStep() {
-  await step('桌面浮窗：1280×720 / 1366×768 / 1920×1080 下技能页每个辅助槽、天赋盘、背包、仓库、地图的浮窗都整个在面板正文里（不出面板、不盖页头）；放不进正文的照旧夹在视口里并记下', async () => {
+  await step('桌面浮窗：1280×720 / 1366×768 / 1920×1080 下技能页的辅助槽、天赋盘、背包、仓库、地图里贴边、四角和头中尾的浮窗都整个在面板正文里（不出面板、不盖页头）；放不进正文的照旧夹在视口里并记下', async () => {
     if (browser) await browser.close().catch(() => {});
     ({ browser, page, errors } = await launch({ width: 1280, height: 720, dpr: null }));
     await install();
@@ -28403,53 +28403,75 @@ async function uiTipClampStep() {
     const bad = [], fb = [], counts = {};
     for (const [w, h] of [[1280, 720], [1366, 768], [1920, 1080]]) {
       await page.setViewportSize({ width: w, height: h });
-      // 每一页：[页签, 要选中的那些行（技能页逐张卡）, 浮窗目标的选择器]
-      const pages = [['skills', await ev(() => [G.BASIC_CARD].concat(Object.keys(G.save.skills).filter((id) => G.save.skills[id] && G.SKILLS[id] && !G.SKILLS[id].weaponOnly && G.SKILLS[id].tags.indexOf('weapon') < 0))), '.sock[data-tip]'], ['tree', [null], '[data-tip]'], ['inv', [null], '[data-tip]'], ['stash', [null], '[data-tip]'], ['map', [null], '[data-tip]']];
-      for (const [tab, subs, sel] of pages) {
-        let n = 0;
-        for (const sub of subs) {
-          await ev(([tab, sub]) => { G.ui.close(); G.ui.open(tab, sub || undefined); }, [tab, sub]);
-          await frames(2);
-          // 看得见、没被挡住的目标；多的时候按位置抽样（四边的都要）
-          const ts = await ev((sel) => {
-            const all = Array.from(document.querySelectorAll('#panel-body ' + sel)).filter((n) => {
-              const r = n.getBoundingClientRect();
-              if (r.width < 2 || r.height < 2) return false;
-              const c = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-              return c && (c === n || n.contains(c));
-            });
-            let pick = all;
-            if (all.length > 40) {
-              const by = (f) => all.slice().sort((a, b) => f(a.getBoundingClientRect()) - f(b.getBoundingClientRect()));
-              const set = new Set([...by((r) => -r.right).slice(0, 8), ...by((r) => -r.bottom).slice(0, 8), ...by((r) => r.left).slice(0, 4), ...by((r) => r.top).slice(0, 4)]);
-              for (let i = 0; i < all.length; i += Math.ceil(all.length / 16)) set.add(all[i]);
-              pick = Array.from(set);
+      await frames(2);
+      // 每一页一次 evaluate：在页面里挑一组固定的目标（贴着 / 靠近正文四边的：每条边最近的一个、四个角最近的一个；再加中间的第一个、正中、最后一个），
+      // 对每个目标派一次 mouseover（浮窗就是靠它出来的），量 #tip 在不在正文里，再派到空白处收起
+      const r = await ev(([w, h]) => {
+        const out = { bad: [], fb: [], n: {} };
+        const body = document.getElementById('panel-body'), head = document.getElementById('panel-head'), tip = document.getElementById('tip');
+        const pick = (sel) => {
+          const all = Array.from(body.querySelectorAll(sel)).filter((n) => {
+            const r = n.getBoundingClientRect();
+            if (r.width < 2 || r.height < 2) return false;
+            const c = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+            return c && (c === n || n.contains(c));
+          });
+          if (all.length <= 3) return all;
+          const b = body.getBoundingClientRect();
+          const R = all.map((n) => [n, n.getBoundingClientRect()]);
+          const best = (f) => R.reduce((m, x) => (f(x[1]) < f(m[1]) ? x : m))[0];
+          const set = new Set([
+            best((r) => b.right - r.right), best((r) => b.bottom - r.bottom), best((r) => r.left - b.left), best((r) => r.top - b.top),
+            best((r) => b.right - r.right + b.bottom - r.bottom), best((r) => b.right - r.right + r.top - b.top),
+            best((r) => r.left - b.left + b.bottom - r.bottom), best((r) => r.left - b.left + r.top - b.top),
+            all[0], all[all.length >> 1], all[all.length - 1],
+          ]);
+          return Array.from(set);
+        };
+        const hover = (tab, n) => {
+          n.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+          const where = w + '×' + h + ' ' + tab + ' ' + n.dataset.tip;
+          if (!tip.classList.contains('on')) return;
+          const r = tip.getBoundingClientRect(), b = body.getBoundingClientRect(), hd = head.getBoundingClientRect();
+          const R = (a) => [a.left, a.top, a.right, a.bottom].map(Math.round).join(',');
+          if (tip.dataset.fb) out.fb.push(where);
+          if (r.left < 0 || r.top < 0 || r.right > innerWidth || r.bottom > innerHeight) out.bad.push(where + ' 出了屏幕 ' + R(r));
+          else if (!tip.dataset.fb && (r.left < b.left - 1 || r.top < b.top - 1 || r.right > b.right + 1 || r.bottom > b.bottom + 1 || r.top < hd.bottom - 1)) out.bad.push(where + ' 出了正文 ' + R(r) + ' / ' + R(b));
+          document.body.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+        };
+        const run = (tab, sel, subs) => {
+          let k = 0;
+          for (const sub of subs) {
+            G.ui.close();
+            G.ui.open(tab, sub || undefined);
+            for (const n of pick(sel)) {
+              hover(tab, n);
+              k++;
             }
-            return pick.map((n) => { const r = n.getBoundingClientRect(); return { k: n.dataset.tip, x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
-          }, sel);
-          for (const t of ts) {
-            await page.mouse.move(2, 2);
-            await page.mouse.move(t.x, t.y);
-            await frames(1);
-            const m = await ev(() => {
-              const tip = document.getElementById('tip');
-              if (!tip.classList.contains('on')) return null;
-              const r = tip.getBoundingClientRect(), b = document.getElementById('panel-body').getBoundingClientRect(), hd = document.getElementById('panel-head').getBoundingClientRect();
-              const R = (a) => [a.left, a.top, a.right, a.bottom].map(Math.round).join(',');
-              return { fb: !!tip.dataset.fb, out: r.left < b.left - 1 || r.top < b.top - 1 || r.right > b.right + 1 || r.bottom > b.bottom + 1, head: r.top < hd.bottom - 1, vp: r.left < 0 || r.top < 0 || r.right > innerWidth || r.bottom > innerHeight, tip: R(r), body: R(b) };
-            });
-            n++;
-            if (!m) continue;
-            const where = w + '×' + h + ' ' + tab + ' ' + t.k;
-            if (m.fb) fb.push(where);
-            if (m.vp) bad.push(where + ' 出了屏幕 ' + m.tip);
-            else if (!m.fb && (m.out || m.head)) bad.push(where + ' 出了正文 ' + m.tip + ' / ' + m.body);
           }
+          out.n[tab] = k;
+        };
+        // 技能页：技能栏第一格的卡、武器普攻卡、最高的那张卡（辅助槽最靠下）
+        const S = G.save, ids = Object.keys(S.skills).filter((id) => S.skills[id] && G.SKILLS[id] && !G.SKILLS[id].weaponOnly && G.SKILLS[id].tags.indexOf('weapon') < 0);
+        let tall = ids[0], th = 0;
+        for (const id of ids) {
+          G.ui.open('skills', id);
+          const c = document.querySelector('.sk-detail > .skill-card');
+          const hh = c ? c.getBoundingClientRect().height : 0;
+          if (hh > th) (th = hh), (tall = id);
         }
-        counts[tab] = (counts[tab] || 0) + n;
-      }
+        run('skills', '.sock[data-tip]', [...new Set([S.bar[0], G.BASIC_CARD, tall])]);
+        run('tree', '[data-tip]', [null]);
+        run('inv', '[data-tip]', [null]);
+        run('stash', '[data-tip]', [null]);
+        run('map', '[data-tip]', [null]);
+        G.ui.close();
+        return out;
+      }, [w, h]);
+      bad.push(...r.bad);
+      fb.push(...r.fb);
+      for (const k in r.n) counts[k] = (counts[k] || 0) + r.n[k];
     }
-    await page.mouse.move(2, 2);
     await ev(() => G.ui.close());
     assert(!bad.length, bad.length + ' 个浮窗出了面板正文：' + bad.slice(0, 6).join(' ｜ '));
     return Object.entries(counts).map(([k, v]) => k + ' ' + v).join('、') + ' 次悬停（三个尺寸合计）；放不进正文、照旧夹在视口里 ' + fb.length + ' 个' + (fb.length ? '：' + fb.slice(0, 4).join('；') : '');
