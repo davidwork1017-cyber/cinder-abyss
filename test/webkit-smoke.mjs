@@ -9,6 +9,8 @@ import { execSync } from 'node:child_process';
 import { GAME_URL, diagStep, outerTimeoutWarning } from './harness.mjs'; // 引入 harness 也就装上了它的信号处理：SIGTERM 时打 KILLED、立即退出
 import { uiLayoutCheck, uiBlankPoint } from './ui-layout.mjs';
 import { cornerScenes, cornerHud, cornerCheck } from './corner-mask.mjs';
+import { STANDALONE_DEVICES, MOBILE_DEFAULT, standaloneContext } from './devices.mjs';
+import { HUD_PARTS, PAINT_SRC, rotFrameProbe, rotFrameJudge } from './rot-standalone.mjs';
 
 let passed = 0, failed = 0;
 const lines = [];
@@ -83,7 +85,10 @@ const touch = (type, s, dx, dy) =>
     return 'Event';
   }, [type, s, dx, dy]);
 
+// WEBKIT_ONLY=<名字里的一段>：只跑名字里有这段的步骤（自己开浏览器配置的那几步能单独跑，比如「可见区（rot-safe）」）
+const ONLY = process.env.WEBKIT_ONLY || '';
 async function step(name, fn) {
+  if (ONLY && !name.includes(ONLY)) return;
   diagStep('webkit：' + name);
   const t0 = Date.now();
   try {
@@ -727,18 +732,14 @@ await step('iPhone 圆角：四角各一块半径 47 px 的遮罩，标题、职
 
 // UI-R B4b：用户的玩法是主屏幕 App、锁着自动旋转横着拿，游戏一直在旋转横屏里（用户截图 notes/user-feedback/iphone-rotated-title-2026-11-24.png）。
 // iOS 主屏幕 App（状态栏 black-translucent）里网页从屏幕最顶上画起，innerHeight 却少算了状态栏那一截：这里照这个样子模拟（navigator.standalone、screen 是整块屏幕、innerHeight 少 59 px）
-await step('旋转横屏 · 主屏幕 App（UI-R B4b）：iPhone 393×852 / 430×932，有没有状态栏 59 px + 底部横条 34 px 的安全区，innerHeight 少算状态栏时——画面盖满整块屏幕（±2 px）；标题画面（有存档，6 个按钮）过 a–f、不碰圆角；HUD 和背包不碰圆角；方向记在设备上，重新打开接着转，⟲ 换过的方向也记住', async () => {
+await step('旋转横屏 · 主屏幕 App（UI-R B4b）：iPhone 393×852 / 430×932，有没有状态栏 59 px + 底部横条 34 px 的安全区，布局视口少算状态栏时（test/devices.mjs 的模型）——画面盖满整块屏幕（±2 px）、画到屏幕底；标题画面（有存档，6 个按钮）过 a–f、不碰圆角；HUD 和背包不碰圆角；方向记在设备上，重新打开接着转，⟲ 换过的方向也记住', async () => {
   const out = [];
   const bad = [];
   for (const [W, H] of [[393, 852], [430, 932]]) {
     for (const ins of [false, true]) {
-      const c = await browser.newContext(Object.assign({}, devices['iPhone 13'], { viewport: { width: W, height: H }, screen: { width: W, height: H } }));
-      await c.addInitScript((short) => {
-        Object.defineProperty(navigator, 'standalone', { get: () => true, configurable: true });
-        const d = Object.getOwnPropertyDescriptor(window, 'innerHeight') || Object.getOwnPropertyDescriptor(Window.prototype, 'innerHeight');
-        window.__ihBug = true; // 量圆角时关掉（圆角按真的屏幕算）
-        Object.defineProperty(window, 'innerHeight', { get() { const v = d.get.call(window); return window.__ihBug ? Math.min(v, short) : v; }, configurable: true });
-      }, H - 59);
+      // rot-safe：换成 test/devices.mjs 的主屏幕 App 模型（原来只让 innerHeight 少 59 px，网页照样画满整块屏幕，查不出 2026-11-25 的黑边和被裁的 HUD）。
+      // 安全区仍由下面的 setIns 按 ins 设；量圆角时 __ihBug 关掉（圆角按真的屏幕算）
+      const c = await standaloneContext(browser, { width: W, height: H, dpr: 3, sb: 59, hb: 34 }, { safe: false });
       const where = W + '×' + H + (ins ? ' + 安全区' : '');
       const errs = [];
       try {
@@ -763,6 +764,8 @@ await step('旋转横屏 · 主屏幕 App（UI-R B4b）：iPhone 393×852 / 430�
         await p.waitForTimeout(600);
         const fr = await pev(() => { const b = document.body.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom }; });
         if (Math.abs(fr.l) > 2 || Math.abs(fr.t) > 2 || Math.abs(fr.r - W) > 2 || Math.abs(fr.b - H) > 2) bad.push(where + ' 画面没盖满屏幕：' + JSON.stringify(fr));
+        const pb = (await pev(rotFrameProbe, [[], PAINT_SRC])).paint.bottom;
+        if (pb < H - 2) bad.push(where + ' 屏幕底下 ' + Math.round(H - pb) + ' px 没画到');
         const corner = async (what) => {
           await pev(() => { window.__ihBug = false; });
           const r = await pev(cornerCheck, { R: 47 });
@@ -833,6 +836,69 @@ await step('旋转横屏 · 主屏幕 App（UI-R B4b）：iPhone 393×852 / 430�
   }
   assert(!bad.length, bad.length + ' 处不合格：' + bad.slice(0, 6).join(' ｜ '));
   return out.join(' / ') + '：画面盖满屏幕、标题 / HUD / 背包都过，方向记得住';
+});
+
+// rot-safe（2026-11-25）：用户在真机（iPhone 17 Pro 主屏幕 App、旋转横屏）上截到的是画面右边一条约 62 px 的黑边，小地图、主线追踪条、主攻键摆进黑边里被裁掉
+// （notes/user-feedback/iphone-rotated-hud-clip-2026-11-25.png）。设备模型见 test/devices.mjs：布局视口比屏幕少状态栏，网页只画到文档盒子的底边。
+// 打开时方向已经记在设备上（和真机一样走 restoreRot）；两个方向、三种屏幕
+await step('旋转横屏 · 主屏幕 App · 可见区（rot-safe）：iPhone 17 Pro 402×874（默认）/ 393×852 / 375×812，cw / ccw，布局视口少状态栏、只画到文档盒子底边——屏幕底下没有没画到的条、画面盖满；小地图、主线追踪条、主攻键、技能键、翻滚、药瓶、顶栏整个在可见区里；状态栏和底部横条里没有字和按钮；设置里的「设备信息」点得开、字段齐', async () => {
+  const out = [];
+  const bad = [];
+  for (const dev of STANDALONE_DEVICES) {
+    for (const dir of ['cw', 'ccw']) {
+      const where = dev.width + '×' + dev.height + ' ' + dir;
+      const c = await standaloneContext(browser, dev, { rot: dir });
+      const errs = [];
+      try {
+        const p = await c.newPage();
+        p.on('pageerror', (e) => errs.push('pageerror: ' + (e.stack || e.message)));
+        p.on('response', (r) => {
+          if (r.status() >= 400) errs.push('HTTP ' + r.status() + ' ' + r.url());
+        });
+        const pev = (f, a) => p.evaluate(f, a);
+        const ready = () => p.waitForFunction(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, { timeout: 120000 });
+        await p.goto(GAME_URL);
+        await ready();
+        await pev(() => {
+          const x = G.newClassSave('hunt');
+          x.level = 7;
+          x.seenHelp = x.seenStory = true;
+          localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(x));
+          localStorage.setItem(G.touch.keys.HINT_KEY, '1');
+        });
+        await p.reload();
+        await ready();
+        const rot = await pev(() => G.rot && G.rot.dir);
+        if (rot !== dir) bad.push(where + ' 打开时没接着转：' + rot);
+        await pev(() => G.ui.hideTitle());
+        await p.waitForFunction(() => { const q = document.getElementById('quest'); return q && q.classList.contains('on'); }, null, { timeout: 15000 }).catch(() => {});
+        await p.waitForTimeout(600);
+        const o = await pev(rotFrameProbe, [HUD_PARTS, PAINT_SRC]);
+        const j = rotFrameJudge(o, dev, where);
+        bad.push(...j.bad);
+        if (!o.parts.find((x) => x.name === '主线追踪条').boxes.length) bad.push(where + ' 主线追踪条没出来');
+        // 设备信息（只在默认设备上点一次）：设置里收着，点开是一块等宽字，字段齐
+        if (dev === MOBILE_DEFAULT && dir === 'cw') {
+          await pev(() => G.ui.pause());
+          await p.waitForTimeout(300);
+          await pev(() => document.querySelector('#p-menu [data-tact="settings"]').click());
+          await p.waitForTimeout(300);
+          const shut = await pev(() => !!document.querySelector('[data-tact="devinfo"]') && !document.getElementById('m-dev'));
+          await pev(() => document.querySelector('[data-tact="devinfo"]').click());
+          await p.waitForTimeout(300);
+          const txt = await pev(() => { const e = document.getElementById('m-dev'); return e && e.getClientRects().length ? e.textContent : ''; });
+          const miss = ['屏幕 402×874', '窗口 402×812', '可视区', '像素比 3', '安全区', '主屏幕', '旋转  开 cw', '方向', '画面', '画到', 'html', 'clientHeight 812', '版本 v'].filter((k) => !txt.replace(/ {2}/g, '  ').includes(k));
+          if (!shut || miss.length) bad.push(where + ' 设备信息：' + (shut ? '' : '一开始没收着 ') + (miss.length ? '缺 ' + miss.join('、') : ''));
+        }
+        if (errs.length) bad.push(where + ' 页面报错：' + errs.join(' | '));
+        out.push(where + ' 画到 ' + Math.round(o.paint.bottom) + '/' + dev.height);
+      } finally {
+        await c.close();
+      }
+    }
+  }
+  assert(!bad.length, bad.length + ' 处不合格：' + bad.slice(0, 6).join(' ｜ '));
+  return out.join('，') + '；HUD 都在可见区里，设备信息点得开';
 });
 
 await browser.close();
