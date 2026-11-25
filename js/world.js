@@ -31358,7 +31358,7 @@
   W.recoilBlast = function (x, z, R, ang) {
     if (!PF.vShape) return;
     const lo = qualId === 'low';
-    W.thinRing(x, z, R, 0xffa050, 0x6a2a10, 0.26, 18); // 暖橙的贴地细边推到真正的半径（2.5 米）
+    W.thinRing(x, z, R, 0xffc070, 0xe07a30, 0.26, 18); // 暖橙的贴地细边推到真正的半径（2.5 米）；后半段也保持橙色，暗地上看得见
     vsBrush(VSH.ring, 0, 0, 0xffe0b0, 0xff8a3a, 1, 0, 0.3);
     vsEmit(x, 0.5, z, 0, 0, 0, 0.05, 0.4); // 亮芯 0.4 米、50 毫秒
     // 弹片：暗铁色的碎块往外平着崩
