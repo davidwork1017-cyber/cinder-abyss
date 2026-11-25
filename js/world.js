@@ -31301,14 +31301,14 @@
       vsEmit(x + Math.sin(a) * 0.2, 0.7, z + Math.cos(a) * 0.2, Math.sin(a) * v, vr(2.5, 4.5), Math.cos(a) * v, vr(0.55, 0.75), vr(0.06, 0.1), vr(0.1, 0.16), vr(0, TAU), 0, 20);
     }
     // 地上的铁水裂纹：几道从中心往外的折线，亮橙慢慢冷成暗红（只画线、不铺面；低画质道数减半）
-    vsBrush(VSH.bar, 5, 3, 0xffa040, 0x6a1a08, 0.5, 0.25, 0.35);
+    vsBrush(VSH.bar, 5, 3, 0xffa040, 0x8a2a0c, 0.55, 0.15, 0.6); // 前六成是亮橙（看得见是铁水裂纹），后面冷成暗红
     for (let i = 0, n = lo ? 4 : 7; i < n; i++) {
       let a = (i / n) * TAU + vr(-0.3, 0.3), px = x, pz = z;
       for (let k = 0; k < 2; k++) {
         const L = R * vr(0.35, 0.55);
         a += vr(-0.45, 0.45);
         const dx = Math.sin(a) * L, dz = Math.cos(a) * L;
-        vsEmit(px, 0.06, pz, dx, 0, dz, vr(1.0, 1.4), 0.06);
+        vsEmit(px, 0.06, pz, dx, 0, dz, vr(1.1, 1.5), 0.08);
         px += dx;
         pz += dz;
       }
@@ -31323,7 +31323,7 @@
   W.imbZap = function (e, tg) {
     if (!PF.vShape || !e) return;
     const lo = qualId === 'low', y = (e.height || 2) * 0.55;
-    W.thinRing(e.x, e.z, (e.r || 0.5) + 0.8, 0xc8bcff, 0x3a2a8a, 0.24, 10); // 放电那一下：脚下一道蓝紫细边往外推（只画边）
+    W.thinRing(e.x, e.z, Math.max(1.7, (e.r || 0.5) + 1.2), 0xd8ccff, 0x7a6aff, 0.24, 14); // 放电那一下：脚下一道蓝紫细边往外推（半径 > 1.6 米走细线段，不是实心环带）
     vsBrush(VSH.bar, 4, 2, 0xe8e2ff, 0x7a68ff, 0.6, 0.35);
     for (let k = 0, m = lo ? 3 : 5; k < m; k++) zig(e.x, y, e.z, vr(0, TAU), vr(-0.5, 0.2), 1, vr(0.3, 0.5), 0.06);
     for (const o of tg) {
