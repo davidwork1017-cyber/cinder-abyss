@@ -11161,6 +11161,32 @@ async function main() {
     }
   });
 
+  // zone-ready：进区时素材还没到（程序化外观），到了以后的原地重建要等这个区先画出来（画满 2 帧、再等空闲），不紧挨着进区
+  await step('进区：素材晚到时先用程序化外观进区，原地换成 PBR 外观要在这个区画满 2 帧以后，最后照样换上 PBR 外观', async () => {
+    const r = await ev(async () => {
+      const W = G.world, A = G.assets, i = 2, def = G.ZONES[i];
+      const wait = async (f, ms) => {
+        const t = performance.now();
+        while (!f() && performance.now() - t < ms) await new Promise((res) => setTimeout(res, 50));
+        return f();
+      };
+      // 先放掉第 2 区的贴图（当前区不是它），再进去：建区时贴图还在解码，先是程序化外观
+      if (G.state.zoneIdx === i || G.state.zoneIdx === i - 1) { G.enterZone(0, 1); await wait(() => !W.assetsPending(), 40000); }
+      A.release(W.zonePacks(G.state.zone.def.id));
+      G.enterZone(i, 0);
+      const hd0 = W.gfxInfo().hd;
+      const hd = await wait(() => !W.assetsPending() && W.gfxInfo().hd, 40000); // 防卡死的上限，不是计时断言
+      const up = W.zoneUpInfo();
+      G.enterZone(0, 1);
+      G.debug.god(true);
+      return { hd0, hd, up, zone: def.id };
+    });
+    assert(r.hd0 === false, '放掉贴图以后进区应先是程序化外观（测试本身的前提）：' + JSON.stringify(r));
+    assert(r.hd && r.up && r.up.zone === r.zone, '素材到了以后应换上 PBR 外观：' + JSON.stringify(r));
+    assert(r.up.frames >= 2, '原地重建应在这个区画满 2 帧以后：' + JSON.stringify(r));
+    return r.zone + '：进区时程序化外观，画了 ' + r.up.frames + ' 帧、等了 ' + r.up.waitMs + ' ms 后换成 PBR';
+  });
+
     // 步骤名里的 vendor/three.min.js 是 r128 时的文件名，保留原名：步骤名是这一步随机数的种子（test/README.md「随机数」）；现在补丁在 vendor/three.bundle.js 里（tools/build-three.mjs）
   await step('确定性：three 的 uuid 不取 Math.random（vendor/three.min.js 的本地改动还在）；同一个区原地重建三次（高 → 低 → 高）布景逐位相同', async () => {
     const r = await ev(() => {

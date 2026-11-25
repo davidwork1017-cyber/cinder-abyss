@@ -2673,22 +2673,45 @@
         pendingZone = null;
         showLoading(false);
       }
-      // 贴图到了而当前是程序化外观，或者模型包后到了而当前没摆布景：原地重建一次
-      const up = gfxReady(gx) && (!zoneFx || !zoneFx.hd || (!zoneFx.props && propsReady(gx)));
-      if (up && W.zone === zone && zoneGroup) {
-        disposeZone();
-        safeBuildVisuals(zone);
-        // 换外观时画面先压暗一下再淡入，不是生硬地一跳
-        try {
-          const cv = renderer.domElement;
-          cv.style.transition = 'none';
-          cv.style.opacity = '0.25';
-          void cv.offsetWidth;
-          cv.style.transition = 'opacity 0.45s ease-out';
-          cv.style.opacity = '1';
-        } catch (e) { /* 忽略 */ }
-      }
+      // 贴图到了而当前是程序化外观，或者模型包后到了而当前没摆布景：原地重建一次（等这个区先画出来，见 upgradeLater）
+      if (zoneUpgrade(zone, gx)) upgradeLater(zone, gx);
     });
+  }
+  const zoneUpgrade = (zone, gx) => W.zone === zone && !!zoneGroup && gfxReady(gx) && (!zoneFx || !zoneFx.hd || (!zoneFx.props && propsReady(gx)));
+  // zone-ready：原地重建（程序化 → PBR，或者布景模型后到）要等这个区先画出来再做——先画 2 帧（画面没在画的时候最多等 1.5 秒），
+  // 再等一个空闲的时刻（最多 0.8 秒）。重建以后的第一帧要编新材质（布景、PBR 地面），软件渲染下一下 2–2.5 秒；原来素材包一到就重建，
+  // 贴图解码变快以后（tex-t1）首区的布景包常常在进区后半秒内到，这一帧就紧挨着进区，进区就绪看起来慢了 2.5 秒（一半次数），玩家也是一进区就卡。
+  // 外观、重建本身都不变，只是什么时候做
+  let zoneFrames = 0; // W.render 每画一帧 +1（只看差值）
+  let upInfo = null;
+  W.zoneUpInfo = () => upInfo; // 测试用：上一次原地重建时这个区建好以后已经画了几帧、等了多久
+  function upgradeLater(zone, gx) {
+    if (zone.upPending) return;
+    zone.upPending = true;
+    const t0 = performance.now(), f0 = zoneFrames;
+    const go = () => {
+      zone.upPending = false;
+      if (!zoneUpgrade(zone, gx)) return;
+      upInfo = { zone: zone.def.id, frames: zoneFrames - (zone.frame0 || 0), waitMs: Math.round(performance.now() - t0) };
+      disposeZone();
+      safeBuildVisuals(zone);
+      // 换外观时画面先压暗一下再淡入，不是生硬地一跳
+      try {
+        const cv = renderer.domElement;
+        cv.style.transition = 'none';
+        cv.style.opacity = '0.25';
+        void cv.offsetWidth;
+        cv.style.transition = 'opacity 0.45s ease-out';
+        cv.style.opacity = '1';
+      } catch (e) { /* 忽略 */ }
+    };
+    const wait = () => {
+      if (W.zone !== zone) return void (zone.upPending = false);
+      if (zoneFrames - f0 < 2 && performance.now() - t0 < 1500) return void setTimeout(wait, 50);
+      if (window.requestIdleCallback) requestIdleCallback(go, { timeout: 800 });
+      else setTimeout(go, 200);
+    };
+    wait();
   }
   // 空闲时预取下一个区域的素材包，走到那里时不用再等
   // mem-hunt：首领包按区加载。当前区的首领进区刷首领时就要（W.makeBoss → bossPackLater），下一区的首领跟下一区的素材一起在这里预取，
@@ -11233,6 +11256,7 @@
     zone.map = L.map || rasterize(zone.spec); // 不消耗 Math.random，放在外观前面：建外观时 W.walkable 就能用（新生成器在 makeLayout 里校验时已经建好）
     zone.ms = { layout: t1 - t0 - (L.map ? L.map.ms : 0), raster: zone.map.ms };
     W.zone = zone;
+    zone.frame0 = zoneFrames;
     // tex-t2：解码好的贴图图像只留当前区和下一区的（离开的区释放，再进来时从包里留着的原文重新解码）
     if (G.assets && G.assets.release) zone.ms.released = G.assets.release(keepPacks(def));
     const t2 = performance.now();
@@ -31180,6 +31204,7 @@
     }
   }
   W.render = function () {
+    zoneFrames++;
     autoQualityWatch();
     ldFill();
     if (post.ok && qual.post) post.composer.render();
