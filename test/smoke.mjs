@@ -25878,6 +25878,14 @@ async function touchKit() {
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [pt({ x, y })], timestamp: t });
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], timestamp: t + 0.05 });
     },
+    // 按住 ms 毫秒再松手（不到 450 ms 的短按）：和 tap 一样给两个事件带上时间戳，正好相隔 ms。页面按事件时间戳判长按（js/touch.js 的 lpEnd），
+    // 机器忙时 touchEnd 真到得晚（中间隔了半秒以上）也照样按 ms 算；真等的这段时间里页面的 450 ms 计时器先跑了，lpEnd 看时间戳不够长会收回浮窗
+    async press(x, y, ms) {
+      const t = Date.now() / 1000;
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [pt({ x, y })], timestamp: t });
+      await sleep(ms);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], timestamp: t + ms / 1000 });
+    },
     // 从 (x0, y0) 分几步拖到 (x1, y1)，不松手
     async drag(x0, y0, x1, y1, n) {
       await send('touchStart', [{ x: x0, y: y0 }]);
@@ -26649,9 +26657,7 @@ async function touchSteps() {
     // 轻点（不到 450 ms）不出浮窗：按下 120 ms 就松手，松手之后再看（中途去页面里读状态会把按住的时间拖长）
     {
       const r0 = await ev(() => T.rect('.zone[data-tip="zone:0:0"]'));
-      await touch.down(r0.x, r0.y);
-      await sleep(120);
-      await touch.up();
+      await touch.press(r0.x, r0.y, 120); // 两个事件的时间戳正好隔 120 ms：机器忙时松手的事件到得再晚也是 120 ms 的轻点
       await frames(2);
       await sleep(600); // 计时器要是还在跑，这时候早该弹出来了
       out.tap = { r: r0, a: { vis: false }, b: await tipNow() };
