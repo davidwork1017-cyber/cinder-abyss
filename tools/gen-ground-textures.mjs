@@ -30,6 +30,7 @@ if (!manifestOnly) {
 let total = 0;
 for (const [id, job] of Object.entries(JOBS)) {
   if (only.length && !only.includes(id)) continue;
+  if (job.own) continue; // tex-t1：p_* 由 tools/gen-paint-textures.mjs 编码（带 lo、钉住 Chrome 版本）
   const t0 = Date.now();
   const set3 = job.make();
   const kinds = (sources.textures[id] && sources.textures[id].kinds) || ['albedo', 'normal', 'arh'];
