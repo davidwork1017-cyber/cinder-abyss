@@ -8879,7 +8879,9 @@
   };
   const ABYSS_DEEP = 7.2; // 深渊底的深度（只是视觉）
   // 深渊底：整个网格范围一张平面，贴图按材质网格烘：虚空处暗紫，沿深渊中线一道发亮的熔岩缝（远处被雾压暗），零星的火星点
-  function abyssDeepTex(zone) {
+  const DEEP_VIA_DATA = /Apple/.test(navigator.vendor || ''); // WebKit 内核（navigator.vendor 是 Apple）：深渊底贴图传像素，见下
+  // asCanvas：测试用，true = 传画布、false = 传像素（用来逐像素比）；不传就按内核选
+  function abyssDeepTex(zone, asCanvas) {
     // 1 m 一个像素（深渊底在雾里，0.5 m 的精度看不出来，烘贴图的时间少四分之三）；S = 每个 0.5 m 小格占几个像素
     const m = zone.map, mat = matGrid(m), w = m.mx, h = m.mz, S = 0.5, cw = Math.ceil(w * S), ch = Math.ceil(h * S);
     const c = makeCanvas(cw, ch), g = c.getContext('2d'), im = g.createImageData(cw, ch), d = im.data;
@@ -8925,12 +8927,42 @@
       g.fillRect(Math.floor(i * S), Math.floor(j * S), 1, 1);
     }
     g.globalAlpha = 1;
-    const t = own(new T.CanvasTexture(c));
+    // mem-hunt：WebKit（Safari、iPhone 上的所有浏览器）里贴图源用画好的像素（getImageData），不直接用画布。WebKit 把 2D 画布传成 WebGL 贴图
+    // 走的是画布 → GL 的拷贝，测试机上一次 0.8–0.9 秒（每次进烬渊都是新画布，卡在进区后的那一帧）；读像素只要几毫秒，传 ImageData 和传图片一样快。
+    // Chrome 反过来：画布直接传是 GPU 里的拷贝，很快，读像素却要等 GPU 进程（软件渲染下进区多 0.5 秒），所以照旧传画布。
+    // 画布不透明（底色 alpha 全是 255），读出来的就是画布上的像素，两种传法显存里的贴图逐像素相同（func 查）。画法本身不变，还是同一张 2D 画布
+    const viaData = asCanvas === undefined ? DEEP_VIA_DATA : !asCanvas;
+    const t = own(viaData ? new T.Texture(g.getImageData(0, 0, cw, ch)) : new T.CanvasTexture(c));
+    t.needsUpdate = true;
     t.flipY = false;
     // 画布按 sRGB 写，但贴图不标 SRGBColorSpace：标了的话 r186 用硬件 sRGB 格式，先解码再过滤，2 m 一个像素的火星放大后光晕更软更大（和 r128 比 ΔE 1.4）。
     // 改成和 r128 一样先过滤、再在着色器里解码：材质用 deepMat()（map_fragment 里 DECODE_VIDEO_TEXTURE 那一段就是采样后的 sRGB 解码）
     return t;
   }
+  // 测试用：当前区（烬渊）的深渊底贴图按 ImageData 源 / 画布源各建一份、传上去，从显存读回来比（返回两份的指纹和各自上传的毫秒数）
+  W.abyssDeepProbe = function () {
+    const z = W.zone;
+    if (!z || z.def.id !== 'abyss') return null;
+    const gl = renderer.getContext(), P = renderer.properties, n = zoneDisp.length, out = {};
+    for (const [k, asCanvas] of [['data', false], ['canvas', true]]) {
+      const t = abyssDeepTex(z, asCanvas), t0 = performance.now();
+      renderer.initTexture(t);
+      out[k + 'Ms'] = +(performance.now() - t0).toFixed(1);
+      const w = t.image.width, h = t.image.height, fb = gl.createFramebuffer(), px = new Uint8Array(w * h * 4);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, P.get(t).__webglTexture, 0);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.deleteFramebuffer(fb);
+      renderer.resetState();
+      let x = 2166136261;
+      for (let i = 0; i < px.length; i++) x = Math.imul(x ^ px[i], 16777619) >>> 0;
+      out[k] = x.toString(16) + ':' + w + 'x' + h;
+    }
+    zoneDisp.splice(n).forEach((d) => d.dispose());
+    out.via = DEEP_VIA_DATA ? 'data' : 'canvas';
+    return out;
+  };
   function deepMat(zone) {
     const m = own(new T.MeshBasicMaterial({ map: abyssDeepTex(zone) }));
     m.defines = { DECODE_VIDEO_TEXTURE: '' }; // 内置材质的构造参数里不收 defines（setValues 会跳过），建好以后再设

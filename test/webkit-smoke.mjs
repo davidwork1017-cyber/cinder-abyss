@@ -498,19 +498,42 @@ function webProcRssMB() {
     return null;
   }
 }
-await step('内存：低档连走五个区两圈（每区打首领、清怪），回收后第二圈 WebProcess 的 RSS 涨不过 ' + RSS_LAP2_MB + ' MB，几何体 / 贴图 / 程序回到第一圈的水平', async () => {
+// 换区卡顿（mem-hunt）：一次贴图上传（texImage2D / texSubImage2D）超过 100 ms 就算卡。这里软件渲染一帧本来就 0.5–1 秒，没法按「长任务」判断，只量上传；
+// 原来每次进烬渊，深渊底那张画布贴图一次传 0.8–0.9 秒（WebKit 的画布 → GL 拷贝），现在传像素
+const UPLOAD_MAX_MS = 100;
+await step('内存：低档连走五个区两圈（每区打首领、清怪），回收后第二圈 WebProcess 的 RSS 涨不过 ' + RSS_LAP2_MB + ' MB，几何体 / 贴图 / 程序回到第一圈的水平；第二圈再进区没有一次贴图上传超过 ' + UPLOAD_MAX_MS + ' ms，烬渊深渊底的贴图传像素、和传画布逐像素相同', async () => {
   const st0 = await ev(() => ({ zi: G.state.zoneIdx, tier: G.state.tier, q: G.world.quality(), god: !!G.player.god }));
   const laps = [];
+  let deep = null;
   try {
     await ev(() => {
       G.debug.hold(true);
       G.debug.god(true);
       G.world.setQuality('low');
+      // 记下每次贴图上传的耗时（只包一层原型方法，测完换回去）
+      const P = WebGL2RenderingContext.prototype, U = (window.__upl = { max: 0, at: '', orig: {} });
+      for (const k of ['texImage2D', 'texSubImage2D']) {
+        const f = (U.orig[k] = P[k]);
+        P[k] = function () {
+          const t = performance.now();
+          try {
+            return f.apply(this, arguments);
+          } finally {
+            const ms = performance.now() - t, src = arguments[arguments.length - 1];
+            if (ms > U.max) (U.max = ms), (U.at = (G.state.zone ? G.state.zone.def.id : '?') + ' ' + (src && src.constructor ? src.constructor.name : typeof src) + ' ' + (src && src.width) + '×' + (src && src.height));
+          }
+        };
+      }
     });
     for (let lap = 0; lap < 2; lap++) {
+      await ev(() => {
+        __upl.max = 0;
+        __upl.at = '';
+      });
       for (const zi of [0, 1, 2, 3, 4, 0]) {
         await ev((zi) => G.enterZone(zi, 0), zi);
         await until(() => !G.world.assetsPending() && G.world.gfxInfo().hd, null, 60000);
+        if (zi === 3 && !deep) deep = await ev(() => G.world.abyssDeepProbe());
         await ev(() => {
           const S = G.state;
           G.debug.step(0.1);
@@ -535,13 +558,14 @@ await step('内存：低档连走五个区两圈（每区打首领、清怪）�
       await page.waitForTimeout(500);
       const m = await ev(() => {
         const R = G.world.renderer;
-        return { geo: R.info.memory.geometries, tex: R.info.memory.textures, prog: R.info.programs.length };
+        return { geo: R.info.memory.geometries, tex: R.info.memory.textures, prog: R.info.programs.length, upMs: Math.round(__upl.max), upAt: __upl.at };
       });
       m.rss = webProcRssMB();
       laps.push(m);
     }
   } finally {
     await ev((s) => {
+      if (window.__upl) for (const k in __upl.orig) WebGL2RenderingContext.prototype[k] = __upl.orig[k];
       G.world.setQuality(s.q);
       G.enterZone(s.zi, s.tier);
       G.debug.god(s.god);
@@ -552,9 +576,11 @@ await step('内存：低档连走五个区两圈（每区打首领、清怪）�
   const [l1, l2] = laps;
   // 贴图留 6 张余量：有些全局贴图第一次用到才建、建了就一直留着（异兆道具的环 / 符文这类随机出现的东西可能第二圈才第一次碰到）；漏掉整区的贴图一圈是几十张
   assert(l2.geo - l1.geo <= 3 && l2.tex - l1.tex <= 6 && l2.prog - l1.prog <= 3, '第二圈没回到第一圈的水平：' + JSON.stringify(laps));
+  assert(l2.upMs <= UPLOAD_MAX_MS, '第二圈有一次贴图上传 ' + l2.upMs + ' ms（' + l2.upAt + '）');
+  assert(deep && deep.via === 'data' && deep.data === deep.canvas, '烬渊深渊底的贴图应传像素、和传画布逐像素相同：' + JSON.stringify(deep));
   if (l1.rss != null && l2.rss != null) assert(l2.rss - l1.rss <= RSS_LAP2_MB, '回收后第二圈 WebProcess 涨了 ' + (l2.rss - l1.rss).toFixed(0) + ' MB：' + JSON.stringify(laps));
   const rss = l1.rss != null ? 'WebProcess ' + l1.rss.toFixed(0) + ' → ' + l2.rss.toFixed(0) + ' MB（' + (l2.rss - l1.rss >= 0 ? '+' : '') + (l2.rss - l1.rss).toFixed(0) + '）' : 'RSS 量不到（不是 Linux）';
-  return rss + ' ｜ 几何体 ' + l1.geo + ' → ' + l2.geo + '，贴图 ' + l1.tex + ' → ' + l2.tex + '，程序 ' + l1.prog + ' → ' + l2.prog;
+  return rss + ' ｜ 几何体 ' + l1.geo + ' → ' + l2.geo + '，贴图 ' + l1.tex + ' → ' + l2.tex + '，程序 ' + l1.prog + ' → ' + l2.prog + ' ｜ 最长一次贴图上传 第一圈 ' + l1.upMs + ' ms（' + l1.upAt + '）/ 第二圈 ' + l2.upMs + ' ms（' + l2.upAt + '） ｜ 深渊底传像素 ' + deep.dataMs + ' ms / 传画布 ' + deep.canvasMs + ' ms';
 });
 
 await step('M2：iPhone 没有震动接口，设置里不显示「震动」；长按地图上的区域卡片出详情，松手留着', async () => {

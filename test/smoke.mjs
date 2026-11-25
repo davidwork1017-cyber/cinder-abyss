@@ -10803,7 +10803,7 @@ async function main() {
 
   // mem-hunt：换区时整区的材质 dispose，原来再进同一个区（或别的区、下一只同类怪、下一个预警圈）要把同样的着色器程序重新编译（WebKit 低档每次进区 70–190 ms，
   // Chrome 高档 1–2 s，落在进区后的头几帧）。world.js retireMat 每个程序键留一个去掉引用的占位材质，程序留着复用（最多 KEEP_MAX 个）
-  await step('内存：高档连走五个区两圈（每区打首领、清怪、掉落），第二圈几何体 / 贴图 / 程序 / 布景对象回到第一圈的水平、再进区几乎不编新程序；同一个程序键只对应一份着色器源码；留着的程序和重新编译的画面逐像素相同', async () => {
+  await step('内存：高档连走五个区两圈（每区打首领、清怪、掉落），第二圈几何体 / 贴图 / 程序 / 布景对象回到第一圈的水平、再进区几乎不编新程序；同一个程序键只对应一份着色器源码；留着的程序和重新编译的画面逐像素相同；烬渊深渊底贴图传像素 / 传画布逐像素相同', async () => {
     const r = await ev(async () => {
       const W = G.world, R = W.renderer, gl = R.getContext(), S = G.state, q0 = W.quality();
       const wait = async (f, ms) => {
@@ -10862,12 +10862,14 @@ async function main() {
       G.debug.hold(true);
       W.setQuality('high');
       const laps = [], fresh = [];
+      let deep = null;
       let hdAll = true;
       try {
         for (let lap = 0; lap < 2; lap++) {
           for (let zi = 0; zi < 5; zi++) {
             const id0 = maxId();
             hdAll = (await enter(zi)) && hdAll;
+            if (zi === 3 && !deep) deep = W.abyssDeepProbe(); // 烬渊：深渊底贴图传像素 / 传画布，显存里逐像素相同
             fight();
             W.render();
             noteSrc();
@@ -10897,7 +10899,7 @@ async function main() {
         });
         for (const m of mats) m.dispose();
         const b = frame();
-        return { laps, fresh, clash, keys: src.size, keep, hdAll, a, a2, b };
+        return { laps, fresh, clash, keys: src.size, keep, hdAll, a, a2, b, deep };
       } finally {
         W.setQuality(q0);
         G.enterZone(0, 1);
@@ -10916,6 +10918,7 @@ async function main() {
     assert(r.keep.mats <= r.keep.max, '占位材质超过上限：' + JSON.stringify(r.keep));
     assert(r.a === r.a2, '模拟暂停时同一帧画两次不一样（这一帧不确定，比不了）');
     assert(r.a === r.b, '留着的程序和重新编译的程序画出来不一样');
+    assert(r.deep && r.deep.data === r.deep.canvas && r.deep.via === 'canvas', '烬渊深渊底的贴图：传像素和传画布应逐像素相同，Chrome 照旧传画布：' + JSON.stringify(r.deep));
     return '几何体 ' + l1.geo + ' → ' + l2.geo + '，贴图 ' + l1.tex + ' → ' + l2.tex + '，程序 ' + l1.prog + ' → ' + l2.prog + '，布景对象 ' + l1.objs + ' → ' + l2.objs + ' ｜ 第二圈新编 ' + r.fresh.length + ' 个 ｜ 程序键 ' + r.keys + '、占位材质 ' + r.keep.mats + ' / ' + r.keep.max;
   });
 
