@@ -6370,7 +6370,9 @@
     const on = !!menu.devInfo;
     return (
       '<div class="m-dev-box"><button type="button" tabindex="-1" class="m-row m-dev-row' + (on ? ' on' : '') + '" data-tact="devinfo"><span class="opt-text"><b>设备信息</b><span>屏幕和视口的数值，反馈画面问题时截图用</span></span><span class="m-dev-t">' + (on ? '收起' : '展开') + '</span></button>' +
-      (on ? '<pre id="m-dev" class="m-dev">' + esc(G.touch.devText()) + '</pre>' + (canCopy() ? '<button type="button" tabindex="-1" class="btn ghost m-dev-copy" data-tact="devcopy">复制</button>' : '') : '') +
+      (on ? '<pre id="m-dev" class="m-dev">' + esc(G.touch.devText()) + '</pre>' + (canCopy() ? '<button type="button" tabindex="-1" class="btn ghost m-dev-copy" data-tact="devcopy">复制</button>' : '') +
+        // 画面测试（rot-safe2）：屏幕底边涂几条色带，截图看哪一层画到了底；不存，刷新就关
+        setSw('画面测试', '在屏幕底边涂几条色带，截图发回来', G.touch.probeOn(), 'data-tact="devprobe"') : '') +
       '</div>'
     );
   }
@@ -6594,6 +6596,11 @@
   const MENU_ACT = {
     devinfo() {
       menu.devInfo = !menu.devInfo;
+      G.sfx('click');
+      renderMenu();
+    },
+    devprobe() {
+      G.touch.probe(!G.touch.probeOn());
       G.sfx('click');
       renderMenu();
     },

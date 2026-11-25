@@ -3102,6 +3102,9 @@
     pMat.uniforms.uScale.value = (vh * glDpr) / (2 * Math.tan((BASE_FOV * Math.PI) / 360));
     if (W.zone) buildMinimap(W.zone);
   };
+  // 画布现在按多大摆的（rot-safe2）：renderer.setSize 用的画面尺寸、3D 画布和叠加层的像素尺寸。
+  // touch.js 每帧拿它和 G.viewW / G.viewH 对：旋转横屏量出来的画面变了而这里还是旧的，就补一次 resize（iOS 主屏幕 App 2026-11-25 画布只到 812 的原因）
+  W.viewSize = () => ({ w: vw, h: vh, gl: renderer ? [renderer.domElement.width, renderer.domElement.height] : [0, 0], ov: ocv ? [ocv.width, ocv.height] : [0, 0] });
 
   // ===== 区域地形（terrain）=====
   // 每个区由生成器（GEN.*）输出一份纯数据的布局说明 spec：房间 / 连接 / 挖空 / 危险区 / 地标 / 怪群槽位 / 宝箱，
@@ -31077,7 +31080,34 @@
     else if (post.fx && qual.fxaa) post.fx.render();
     else renderer.render(scene, camera);
     drawOverlay();
+    if (W.probe) drawProbe(W.probe);
   };
+  // 设置 → 设备信息 → 「画面测试」（rot-safe2，js/touch.js 的 probe()）：在 3D 画布和叠加层上各涂一条色带，看真机上画布画到哪。
+  // W.probe = { gl: [x, y, w, h], ov: [x, y, w, h] }，画面坐标（CSS px）；平时是 null，什么都不做
+  W.probe = null;
+  const _probeC = new T.Color();
+  function drawProbe(pr) {
+    if (pr.gl) {
+      const [x, y, w, h] = pr.gl;
+      renderer.getClearColor(_probeC);
+      const a = renderer.getClearAlpha();
+      renderer.setRenderTarget(null);
+      renderer.setScissor(x, vh - y - h, w, h); // GL 的原点在左下
+      renderer.setScissorTest(true);
+      renderer.setClearColor(0x30ff30, 1);
+      renderer.clear(true, false, false);
+      renderer.setScissorTest(false);
+      renderer.setClearColor(_probeC, a);
+    }
+    if (pr.ov) {
+      const [x, y, w, h] = pr.ov, g = octx;
+      g.save();
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      g.fillStyle = '#3b6cff';
+      g.fillRect(x, y, w, h);
+      g.restore();
+    }
+  }
 
   // =====================================================================
   // class-d2b1：提灯（点灯 / 借火 / 灯海 / 续火）和特殊弹（铁水弹 / 雷楔 / 霜霰弹 / 反冲弹）的特效。
