@@ -2,7 +2,7 @@
 // 每一步打印一行 ok / FAIL；任何一步失败或页面出现报错，进程以非 0 退出。
 // 分两份（见 test/README.md）：main() 是 test:func（不看墙钟，可以和别的 Chrome 一起跑），timedMain() 是 test:timed（要独占机器）。
 // node test/smoke.mjs = 两份都跑（先 func 后 timed）；--func / --timed 只跑一份。
-import { launch as launchFull, GAME_URL, diagStep, deathNote, browserDeaths, LOG_DIR, outerTimeoutWarning } from './harness.mjs';
+import { launch as launchFull, GAME_URL, diagStep, deathNote, browserDeaths, LOG_DIR, outerTimeoutWarning, runNote } from './harness.mjs';
 import { cornerScenes, cornerHud, cornerCheck } from './corner-mask.mjs';
 import { execSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -44,9 +44,26 @@ const timed = async (kind, guard, p) => {
   auditWait(kind, Date.now() - t0, guard);
   return r;
 };
+// 开浏览器失败（导航超时 / 连不上，harness 已经把那个浏览器关了）：记下是哪一步、怎么重开。这一步照常 FAIL、不重跑；
+// step() 收尾时要是全局的 page 已经用不了（null / 关掉了），按同样的方式重开一次，后面的步骤在活着的页面上跑，
+// 不再因为 page 是 null 一路连着挂（tex-t1 那次 9 次导航超时后面跟了 29 个「null.evaluate」）。重开记进 run.log
+let launchFail = null; // { step, again }
 const launch = async (o) => {
   diagStep(curStep);
-  const r = await launchFull(Object.assign({ dpr: cheap ? CHEAP_DPR : null, seed: SEEDED ? seedKey(curStep) : null }, o));
+  let r;
+  try {
+    r = await launchFull(Object.assign({ dpr: cheap ? CHEAP_DPR : null, seed: SEEDED ? seedKey(curStep) : null }, o));
+  } catch (e) {
+    if (!launchFail)
+      launchFail = {
+        step: curStep,
+        again: async () => {
+          ({ browser, page, errors } = await launch(o));
+          await install();
+        },
+      };
+    throw e;
+  }
   // 主线旁白卡（quest D3）：放的时机按真实时间（打完仗、飘字出完），会在别的步骤中途弹出来接走 Esc / 回车，所以测试默认关掉；
   // 测旁白的那几步在 sessionStorage 里设 cinder-test-narr 再打开（install 和每次导航前都按它设 window.__noNarr）
   await r.page.addInitScript(() => {
@@ -118,6 +135,7 @@ async function step(name, fn) {
   if (full) await setDpr(1);
   curStep = name;
   diagStep(name);
+  launchFail = null;
   await reseed(name);
   const t0 = Date.now();
   try {
@@ -132,8 +150,27 @@ async function step(name, fn) {
     failed++;
     const extra = errors && errors.length ? ' ｜页面报错：' + errors.splice(0).join(' | ').slice(0, 600) : '';
     console.log('FAIL ' + name + ' — ' + String(e && e.message ? e.message : e).split('\n').slice(0, 6).join(' / ') + extra + deathNote(e && e.message ? e.message : e));
+    await relaunchAfterFail(name);
   }
+  launchFail = null;
   if (full) await setDpr(CHEAP_DPR);
+}
+
+// 这一步开浏览器失败、而且全局的 page 已经用不了：按这一步原来的方式重开一次（这一步的结果不变，照样是 FAIL）。见 launch 上面的说明
+async function relaunchAfterFail(name) {
+  const lf = launchFail;
+  launchFail = null;
+  if (!lf || lf.step !== name) return;
+  const dead = !page || page.isClosed() || !browser || !browser.isConnected();
+  if (!dead) return runNote('开浏览器失败「' + name.slice(0, 60) + '」，全局的 page 还能用，不重开');
+  try {
+    await lf.again();
+    runNote('重开浏览器「' + name.slice(0, 60) + '」：这一步照样算 FAIL，后面的步骤用新开的页面');
+    console.log('note 「' + name.slice(0, 40) + '」开浏览器失败，已经按同样的方式重开（这一步仍算失败，见 run.log）');
+  } catch (e) {
+    runNote('重开浏览器也失败「' + name.slice(0, 60) + '」：' + String(e && e.message ? e.message : e).split('\n')[0].slice(0, 160));
+  }
+  launchFail = null;
 }
 
 async function auditFlush(name) {
@@ -26024,7 +26061,12 @@ async function touchKit() {
 // 新开一个手机模拟的浏览器：新存档，关掉开场卡片、新手提示和首次提示卡，无敌，按模拟时间推进
 async function touchPage(o) {
   if (browser) await browser.close().catch(() => {});
-  ({ browser, page, errors } = await launch(Object.assign({ width: 844, height: 390, mobile: { scale: 3 } }, o || {})));
+  try {
+    ({ browser, page, errors } = await launch(Object.assign({ width: 844, height: 390, mobile: { scale: 3 } }, o || {})));
+  } catch (e) {
+    if (launchFail && launchFail.step === curStep) launchFail.again = () => touchPage(o); // 重开时连同下面的准备（存档、无敌、touchKit）一起做
+    throw e;
+  }
   await install();
   await ev((k) => {
     localStorage.setItem(k, '1');
