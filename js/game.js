@@ -195,6 +195,7 @@
       bhCap: 1, bhNote: false, // 黑洞加「每跳最多伤到最近的 N 个」之后的存档；bhNote：学了黑洞的老存档，提示还没看过
       stFz: 1, stNote: false, // 魂潮狂热改成 12 秒 +15%（dur-tune）之后的存档；stNote：拿着魂幡（R 是魂潮）的老存档，提示还没看过
       dhCap: 1, dhNote: false, // 独骸加「每刀最多砍到 N 个」之后的存档；dhNote：选着独骸的老存档，提示还没看过
+      imbGen: 1, imbNote: false, // 装填（imbue）之后的存档；imbNote：学过铁水弹 / 雷楔 / 霜霰弹的老存档，提示还没看过
       hxCap: 1, hxNote: false, // 回旋加「每程最多伤到 N 个」之后的存档；hxNote：选着回旋的老存档，提示还没看过
       // 渊印：sealSeq 真正进区的次数（择印面板的随机种子，关掉地图再打开还是同样三枚）；
       // run 这一次进区 { zone, tier, seq, seal }（seal 为 null 是素印），读档时区域 / 层级对得上就接着用，倒下重生不动，换区 / 重进清掉
@@ -684,6 +685,12 @@
     s.hxNote = !s.tut.hxnerf && ((raw.hxCap === undefined && s.variants.blade === 'c') || raw.hxNote === true);
     s.hxCap = 1;
     G.boomNerfed = s.hxNote ? 1 : 0;
+    // 装填（imbue，2026-11-25）之前的存档（没有 imbGen）：铁水弹 / 雷楔 / 霜霰弹改成了装填。学过其中任何一个的提示一次（tut.imbnote 看过就不再提示）；
+    // 宝石、等级、选过的刻式都按原样留着（a 还是 a、b 还是 b），这三个技能免费换刻式的那一次还给玩家
+    if (raw.imbGen === undefined) for (const id of ['molten', 'wedge', 'rime']) delete s.variantFree[id];
+    s.imbNote = !s.tut.imbnote && ((raw.imbGen === undefined && ['molten', 'wedge', 'rime'].some((id) => s.skills[id] > 0)) || raw.imbNote === true);
+    s.imbGen = 1;
+    G.imbueRedone = s.imbNote ? 1 : 0;
     s.variantGen = G.VARIANT_GEN;
     const hadVar = Object.keys(s.variants).length > 0 || Object.keys(G.VARIANTS).some((id) => s.skills[id] >= G.VARIANT_LVL);
     s.varNote = !s.tut.variant2 && ((oldGen && hadVar) || raw.varNote === true);
@@ -722,6 +729,8 @@
     const rpk = isObj(raw.pinnacle) ? raw.pinnacle : {};
     s.pinnacle = { kills: toInt(rpk.kills, 0, 1e6, 0), pity: toInt(rpk.pity, 0, G.RELIC_DROP.pinnacle.pity, 0) };
     // 长明（class-d2b1）的保底计数：只在不为 0 时才有这个字段（没打过熄烛者 / 刚掉过的存档和以前一字不差，旧版本读到也不认识、照常丢掉）
+    // 装填（imbue，2026-11-25）：装着哪一种（没装时不写；老存档没有这个字段 = 没装）
+    if (typeof raw.imbue === 'string' && G.SKILL_BASE[raw.imbue] && G.SKILL_BASE[raw.imbue].kind === 'imbue') s.imbue = raw.imbue;
     const lp = toInt(raw.lampPity, 0, G.RELIGHT.pity, 0);
     if (lp > 0) s.lampPity = lp;
     // 烛芯：旧存档没有（全 0）；只认 G.FRAGS 的种类，个数 0–max。旧存档的保底计数 fragPity 不再读，也不再存
@@ -1829,7 +1838,7 @@
     const bar = G.save.bar;
     for (let i = 0; i < bar.length; i++) {
       const b = bar[i];
-      if (!b || bar.indexOf(b) !== i || !G.auraSlotted(b)) continue;
+      if (!b || bar.indexOf(b) !== i || !(G.auraSlotted(b) || (b === G.save.imbue && G.SKILLS[b] && G.SKILLS[b].kind === 'imbue'))) continue; // 装着的装填（imbue）和光环一起排保留
       const r = G.auraReserve(b);
       if (pct + r > RESERVE_CAP + 1e-9) {
         if (b === id) return false;
@@ -1865,6 +1874,8 @@
     let pct = 0;
     for (const id of Object.keys(G.SKILLS)) if (G.auraOn(id)) pct += G.auraReserve(id);
     pct += G.relicReserve(); // 渊式「星雨」：自动落星改为保留魔力
+    const im = G.save && G.save.imbue ? G.imbueOn() : null;
+    if (im) pct += G.auraReserve(im); // 装填（imbue）：装着时保留
     return Math.min(90, pct);
   };
 
@@ -1880,6 +1891,7 @@
     const sup = G.SUPPORTS[supId];
     if (!sk || !sup || (sk.weaponOnly && !sk.basic)) return false; // 武器技镶不了辅助（远程普攻例外：镶在武器普攻卡上）
     if (sk.noSup && sk.noSup.indexOf(supId) >= 0) return false; // 技能自己排除的辅助
+    if (sk.kind === 'imbue') return sup.cost < 1; // 装填（imbue）：只认降低保留的（节流）
     if (sk.buff) return sup.cost < 1 || !!(sup.auraUp && sk.kind === 'aura'); // 黑焰这类增益光环：只认降低消耗（保留）的辅助，和加强光环效果的盛环
     if (sup.needCd && !(sk.cd > 0)) return false; // 储能：只能镶在有冷却的技能上
     if (sup.noId && sup.noId.indexOf(skillId) >= 0) return false; // 标签对得上、机制用不上的技能
@@ -2272,6 +2284,7 @@
     }
     G.supXCtx(ctx, sups, isAura); // 取舍型 / 改玩法的辅助（support-expand）：ctx.x、冷却、穿透、光环效果
     if (P.heart) G.heartCtx(ctx); // 心火（class-d2b2）：火不到 40% 的补到 40%（和化元不叠加）
+    if (G.save.imbue) G.imbueCtx(ctx); // 装填（imbue）：物理投射物多带一份元素伤害
     if (P.relic.any || ctx.sk.mech === 'king') G.relicCtx(ctx); // 渊契：必然、同殇等改上下文；渊式「独骸」
     G.sealCtx(ctx); // 渊印的玩家侧印纹（迟滞 / 蚀环 / 孤影）
     return ctx;
@@ -4721,6 +4734,7 @@
       if (p.dmg === undefined) p.dmg = 0;
     }
     if (p.color === undefined) p.color = p.owner === 'p' ? 0xffffff : G.TYPE_HEX[p.dtype];
+    if (p.owner === 'p' && p.ctx && p.ctx.imb && !p.minion) p.tint = hexOf(G.SKILLS[p.ctx.imb.id].color); // 装填：拖尾按这种装填的颜色（雷楔是蓝紫，不是闪电的黄）
     p.trailT = 0;
     // 敌方弹丸换一套外形，和玩家的投射物分得开；秘弹连射的追踪弹有自己的样子（朝着飞行方向）
     // 魂潮的魂火（p.wisp）优先用 world.makeWisp，没有时借追踪弹的样子。
@@ -4957,7 +4971,9 @@
               if (p.boomCap && ++p.boomN > p.boomCap) cut = true;
               else {
                 // 远程武器的箭 / 子弹：multFn 算这一下的倍率（鹰眼的远距离加成），after 接着结算余烬 / 元素爆炸 / 熔芯弹；src 让专注按箭计数
-                const m = (p.multFn ? p.multFn(p, e) : p.mult || 1) * (p.boomK || 1); // boomK：回旋的回程
+                let m = (p.multFn ? p.multFn(p, e) : p.mult || 1) * (p.boomK || 1); // boomK：回旋的回程
+                const IM = p.ctx.imb; // 装填（imbue）
+                if (IM) m = imbueMult(p.ctx, e, m);
                 // class-d2b1：铁水弹的命中（连带引出的爆燃、溅到的伤害）特效全部静音，一次施放只放一处：
                 // 有爆炸的由第一枚炸开那一下画（W.projImpact 的 rd_molten），溅铁 / 熔穿在第一处命中画一个小的；其余的怪只冒几颗暗芯火星
                 const mu = !!p.vol, first = mu && !p.vol.shown;
@@ -4971,7 +4987,9 @@
                   if (first && !(p.explode > 0)) fxOpt('moltenHit', e.x, e.z, Math.atan2(p.dx, p.dz));
                   else fxOpt('emberSpark', e.x, e.z, e.height);
                 } // 顺着弹道推；aura：霜环「冰棱」的冰棱和光环脉冲一样不算连击；minion：骸弓的骨箭算召唤物的；kb / poise：灵弹的重弹（缺省按技能）
+                const kill0 = lastHit.killed;
                 if (p.after) p.after(p, e, lastHit.killed, lastHit.crit);
+                if (IM) imbueAfter(p.ctx, p.cast || p.capMap || p, e, m, kill0, p.pierce > 0, Math.atan2(p.dx, p.dz)); // 穿过去 = 还有贯穿（连锁弹开不算）
                 if (p.ctx.sk.mech === 'hook' && !e.dead) nailHook(p, e); // 刻式「钩钉」：往你身边拽
               }
             }
@@ -5238,6 +5256,15 @@
       // 召唤技能：按键本身是「自动召唤」开关（main.js 里直接切换，不进缓冲）；
       // 只有 Shift + 按键留下的缓冲才是在准星处手动召唤一次，按住不放也不会连着召唤
       if (G.SKILLS[id].kind === 'summon' && !(G.input.tap[slot] > 0)) continue;
+      // 装填（imbue）：开关，只认轻点（按住不放不会来回切）。卸下自己装着的那种当场生效、不锁；装上 / 换一种要出手 time 秒，之后所有装填锁 lock 秒
+      if (G.SKILLS[id].kind === 'imbue') {
+        if (!(G.input.tap[slot] > 0)) continue;
+        G.input.tap[slot] = 0;
+        if (save.imbue === id) {
+          SKILL_FX.imbue(G.skillCtx(id));
+          continue;
+        }
+      }
       const ctx = G.skillCtx(id);
       if (!G.canAfford(ctx.cost)) {
         if (hintDue('noCost', 1.2)) {
@@ -8741,6 +8768,7 @@
   function updateAuras(dt) {
     const W = G.world;
     let shown = 0;
+    tickImbue(); // 装填：拿下技能栏就卸下
     // 兜底：技能栏变了却没人重算属性时，保留比例对不上就当场重算（不然光环生效了却没扣保留）
     if (G.reservePct() !== P.reservePct) G.computeStats();
     for (const id of Object.keys(G.SKILLS)) {
@@ -9402,6 +9430,184 @@
     G.world.fxMute(false);
     if (spark) fxOpt('emberSpark', e.x, e.z, e.height);
   }
+  // ---------- 装填（imbue，2026-11-25）：铁水 / 雷楔 / 霜霰 ----------
+  // 开关：存档里的 save.imbue（没装时不写这个字段，老存档读进来就是没装）。同一时间只有一种：这里是唯一改它的地方（G.imbueSet），
+  // 以后的天赋 / 辅助 / 新装填也只走这里。生效要：宝石学会、在技能栏上、职业和手里的武器用得了、保留放得下（和光环一起排，见 G.auraFits）
+  G.imbueOn = function () {
+    const s = G.save, id = s && s.imbue;
+    if (!id) return null;
+    const sk = G.SKILLS[id];
+    if (!sk || sk.kind !== 'imbue' || !s.skills || !s.skills[id] || !s.bar || s.bar.indexOf(id) < 0 || G.castBlock(id)) return null;
+    return G.auraFits(id) ? id : null;
+  };
+  // 装填的物理投射物：攻击 + 投射物（机炮 / 左轮 / 弓的普攻、散钉、飞刃、跳射、反冲弹、乱射）。喷枪的火舌不是投射物（本来就是火、打怪群已经最强），不算；绊雷（埋地）、召唤物、法术不算
+  G.imbueFits = (sk) => !!(sk && sk.tags && !sk.asMinion && sk.kind !== 'summon' && sk.kind !== 'snare' && sk.kind !== 'imbue' && sk.tags.indexOf('attack') >= 0 && sk.tags.indexOf('projectile') >= 0);
+  // 装上 / 卸下 / 换一种（id 为空 = 卸下）。返回 { ok, msg }
+  G.imbueSet = function (id) {
+    const s = G.save, prev = s.imbue || null;
+    if (id && prev === id) id = null; // 再按一次：卸下
+    if (id) {
+      s.imbue = id;
+      if (!G.auraFits(id)) {
+        if (prev) s.imbue = prev;
+        else delete s.imbue;
+        return { ok: false, msg: '保留不足' };
+      }
+    } else delete s.imbue;
+    // 装上 / 换一种之后所有装填锁一会儿（卸下不锁）
+    if (id) for (const k in G.SKILLS) if (G.SKILLS[k].kind === 'imbue') P.cds[k] = Math.max(P.cds[k] || 0, G.SKILLS[k].lock || 0);
+    G.computeStats();
+    return { ok: true, on: s.imbue || null, prev };
+  };
+  SKILL_FX.imbue = function (ctx) {
+    const r = G.imbueSet(ctx.id);
+    const sk = ctx.sk;
+    if (!r.ok) G.world.text(P.x, P.z, r.msg, '#c9c2b4', 14);
+    else G.world.text(P.x, P.z, (r.on ? '装上' : '卸下') + sk.name, sk.color, 15);
+    fxOpt('imbueOn', P.ent, G.imbueOn() ? G.SKILLS[G.imbueOn()].elem : null);
+    G.sfx('cast', { id: ctx.id });
+    state.stats.imbueSets = (state.stats.imbueSets || 0) + 1;
+  };
+  // 每帧：从技能栏上拿掉 / 宝石没学 / 不是装填了就当场卸下（不然放回技能栏会悄悄又装上）
+  function tickImbue() {
+    const s = G.save, id = s && s.imbue;
+    if (!id) return;
+    const sk = G.SKILLS[id];
+    if (!sk || sk.kind !== 'imbue' || !s.skills[id] || !s.bar || s.bar.indexOf(id) < 0) {
+      delete s.imbue;
+      G.computeStats();
+      fxOpt('imbueOn', P.ent, null);
+    }
+  }
+  G.tickImbue = tickImbue;
+  // skillCtx 末尾调：装着时，装填的物理投射物多带一份元素伤害、多累积一点异常值，ctx.imb 交给命中时的效果
+  G.imbueCtx = function (ctx) {
+    const id = G.imbueOn();
+    if (!id || ctx.minion || !G.imbueFits(ctx.sk)) return;
+    const sk = G.SKILLS[id], I = sk.imbue, lvl = G.save.skills[id] || 1;
+    ctx.extra[sk.elem] = (ctx.extra[sk.elem] || 0) + I.add + I.addLv * (lvl - 1);
+    ctx.ailment += I.ailment || 0;
+    ctx.imb = { id, elem: sk.elem, I };
+  };
+  // 触发出来的伤害（铁水 / 放电 / 冰屑）：全部换成这种元素，不再带装填的额外伤害，也不再触发装填
+  const imbProcCache = new WeakMap();
+  function imbProcCtx(ctx) {
+    let c = imbProcCache.get(ctx);
+    if (!c) {
+      c = elemCtx(ctx, ctx.imb.elem);
+      c.extra = {};
+      c.imb = null;
+      c.ailment = ctx.sk.ailment || 0;
+      imbProcCache.set(ctx, c);
+    }
+    return c;
+  }
+  // 冰缓 / 冻住 / 首领深寒
+  const imbChilled = (e) => e.freeze > 0 || e.bossChill > 0 || !!(e.bu && e.bu.cold > 0);
+  G.imbChilled = imbChilled;
+  // 这一击的倍率修正（霜霰：打冰缓的敌人更痛）
+  function imbueMult(ctx, e, m) {
+    const I = ctx.imb.I;
+    return I.chilled && imbChilled(e) ? m * (1 + I.chilled / 100) : m;
+  }
+  G.imbueMult = imbueMult;
+  // 每次出手的触发计数（同一次出手共用：散钉 5 枚、多重投射、机炮一发）、每秒上限
+  const imbCast = new WeakMap();
+  const imbRate = { splash: [], shard: [] };
+  function imbRateOk(kind, perSec) {
+    const L = imbRate[kind], t = state.time;
+    while (L.length && t - L[0] >= 1) L.shift();
+    if (L.length >= perSec) return false;
+    L.push(t);
+    return true;
+  }
+  // 投射物（或喷枪的一跳）打中 e 之后：key 是这次出手（p.cast / p.capMap / 自己），pass 是穿过去了（还有贯穿）
+  function imbueAfter(ctx, key, e, m, killed, pass, dir) {
+    const I = ctx.imb.I;
+    let st = imbCast.get(key);
+    if (!st) imbCast.set(key, (st = { sp: 0, sh: 0, wd: null }));
+    if (I.splash && killed && st.sp < (I.splash.chain || 1) && imbRateOk('splash', I.splash.perSec)) {
+      st.sp++;
+      imbSplash(ctx, e.x, e.z, m, I.splash, st);
+    }
+    if (I.wedge && !e.dead) {
+      if (!st.wd) st.wd = new Set();
+      if (!st.wd.has(e)) {
+        st.wd.add(e);
+        imbWedge(ctx, e, m, I.wedge);
+      }
+    }
+    if (I.shard && (killed || pass) && st.sh < 1 && imbRateOk('shard', I.shard.perSec)) {
+      st.sh++;
+      imbShards(ctx, e, m, I.shard, dir);
+    }
+  }
+  G.imbueAfter = imbueAfter;
+  // 铁水：打死的敌人身上炸开一小摊（连溅：铁水炸死的接着炸，一次出手一共最多 chain 摊）
+  function imbSplash(ctx, x, z, m, S, st) {
+    const pc = imbProcCtx(ctx), R = S.r * Math.sqrt(ctx.area);
+    const dead = [];
+    for (const o of enemiesIn(x, z, R)) {
+      G.world.fxMute(true);
+      G.hitEnemy(o, pc, m * S.k, { ang: Math.atan2(o.x - x, o.z - z), w: 0, kb: 0.4, poise: 4, quiet: true, extra: true });
+      G.world.fxMute(false);
+      if (lastHit.killed) dead.push(o);
+    }
+    fxOpt('imbSplash', x, z, R);
+    state.stats.imbSplash = (state.stats.imbSplash || 0) + 1;
+    if (S.chain) for (const o of dead) if (st.sp < S.chain && imbRateOk('splash', S.perSec)) {
+      st.sp++;
+      imbSplash(ctx, o.x, o.z, m, S, st);
+    }
+  }
+  // 雷楔：钉一枚，钉满 n 枚放电（这几枚伤害之和 × zap），再连到附近 chain 个
+  function imbWedge(ctx, e, m, W0) {
+    let s = e.imbW;
+    if (!s || state.time - s.at > W0.keep) s = e.imbW = { n: 0, sum: 0, at: 0 };
+    s.n++;
+    s.sum += m;
+    s.at = state.time;
+    if (s.n < W0.n) {
+      fxOpt('imbWedge', e, s.n, W0.n);
+      return;
+    }
+    const tot = s.sum * W0.zap;
+    e.imbW = null;
+    fxOpt('imbWedge', e, 0, W0.n);
+    const pc = imbProcCtx(ctx);
+    G.hitEnemy(e, pc, tot, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 1, kb: 0, poise: 4, extra: true });
+    const tg = W0.chain > 0 ? nearestOthers(e, W0.r * Math.sqrt(ctx.area), W0.chain) : [];
+    for (const o of tg) G.hitEnemy(o, pc, tot * W0.chainK, { ang: Math.atan2(o.x - e.x, o.z - e.z), w: 0, kb: 0, poise: 2, quiet: true, extra: true });
+    fxOpt('imbZap', e, tg);
+    G.sfx('round', { type: 'zap' });
+    state.stats.imbZap = (state.stats.imbZap || 0) + 1;
+  }
+  // 霜霰：从敌人背后炸出冰屑（冰环：四周一圈）；不打被命中的那个
+  function imbShards(ctx, e, m, S0, dir) {
+    const pc = imbProcCtx(ctx), ak = Math.sqrt(ctx.area);
+    const hitIt = (o) => {
+      G.world.fxMute(true);
+      G.hitEnemy(o, pc, m * S0.k, { ang: Math.atan2(o.x - e.x, o.z - e.z), w: 0, kb: 0.3, poise: 3, quiet: true, extra: true });
+      G.world.fxMute(false);
+    };
+    if (S0.r) {
+      const R = S0.r * ak;
+      for (const o of enemiesIn(e.x, e.z, R)) if (o !== e) hitIt(o);
+      fxOpt('imbShards', e.x, e.z, dir, 360, R);
+    } else {
+      const L = S0.len * ak, half = (S0.arc / 2) * DEG;
+      for (const o of enemiesIn(e.x, e.z, L)) {
+        if (o === e) continue;
+        const d = dist(o.x, o.z, e.x, e.z);
+        if (d > o.r + 0.3 && Math.abs(angDiff(Math.atan2(o.x - e.x, o.z - e.z), dir)) > half + Math.asin(Math.min(1, o.r / Math.max(0.01, d)))) continue;
+        if (!losClear(e.x, e.z, o.x, o.z)) continue;
+        hitIt(o);
+      }
+      fxOpt('imbShards', e.x, e.z, dir, S0.arc, L);
+    }
+    state.stats.imbShard = (state.stats.imbShard || 0) + 1;
+  }
+
   // ---------- 特殊弹 ----------
   // 手里这把枪（机炮 / 喷枪 / 左轮）；不是枪返回 null
   function roundGun() {
@@ -9465,6 +9671,7 @@
     const range = (line ? line.len : sk.range) * (sh.rangeK || 1);
     const pk = sh.k / 1.1; // 击退、架势按这一枚的份数摊（机炮三枚加起来和左轮一发差不多）
     const W0 = sk.wedge;
+    const rcb = { done: false };
     for (let j = 0; j < n; j++) {
       const ang = a0 + (n > 1 ? -fan / 2 + (fan * j) / (n - 1) : 0);
       const p = shootProj(ctx, ang, { cast, vk: 'rd_' + sk.round, mult: W0 ? k * W0.hit : k, range, speed: line ? 70 : sk.speed, r: sk.projR, after: roundAfter });
@@ -9487,6 +9694,7 @@
           p.multFn = (q) => q.rk * (1 + Math.min(B.max, B.step * Math.max(0, q.hit.size - 1)));
         }
       } else if (line) p.pierce = 999;
+      if (sk.round === 'recoil' && sk.blast) p.rcBlast = rcb; // 反冲弹（imbue 批）：命中炸开，一次出手只炸一次
       else if (sk.round === 'wedge' && sk.mech === 'net') {
         const ai = aimInfo();
         p.life = Math.max(0.05, (G.clamp(ai.dist + 1.5, 2, range) - 0.8) / p.speed); // 打空的楔子钉在准星稍过去一点（准星上站着的敌人照样打得到）
@@ -9511,6 +9719,10 @@
       if (sk.mech === 'splash') moltenSplash(p, e);
       else if (sk.pool) moltenPool(p.ctx, e.x, e.z);
     } else if (sk.round === 'wedge') wedgeStick(p, e);
+    else if (sk.round === 'recoil' && p.rcBlast && !p.rcBlast.done) {
+      p.rcBlast.done = true;
+      recoilBlast(p, e);
+    }
     else if (sk.round === 'rime') {
       if (sk.mech === 'deep') {
         if (p.frz) {
@@ -9520,6 +9732,17 @@
         }
       } else rimeShards(p, e);
     }
+  }
+  // 反冲弹：命中处炸开（半径 r，k 份这一发的伤害，物理），把四周的敌人往外推；被直击的那个也在里面
+  function recoilBlast(p, e) {
+    const B = p.ctx.sk.blast, R = B.r * Math.sqrt(p.ctx.area), x = e.x, z = e.z;
+    for (const o of enemiesIn(x, z, R)) {
+      G.world.fxMute(true);
+      G.hitEnemy(o, p.ctx, p.rk * B.k, { ang: o === e ? Math.atan2(p.dx, p.dz) : Math.atan2(o.x - x, o.z - z), w: 1, kb: B.kb, poise: B.poise || 10, quiet: true });
+      G.world.fxMute(false);
+    }
+    fxOpt('recoilBlast', x, z, R, Math.atan2(p.dx, p.dz));
+    state.stats.recoilBlast = (state.stats.recoilBlast || 0) + 1;
   }
   // 铁水弹没打中敌人（撞墙 / 飞到尽头炸开）：照样留一摊铁水
   function moltenEnd(p) {
@@ -10063,11 +10286,39 @@
       return;
     }
     const R = sk.radius * ak, list = [];
-    for (const e of enemiesIn(m.x, m.z, R)) if (losClear(m.x, m.z, e.x, e.z)) list.push(e);
-    groupHit(list, ctx, 1, (e) => ({ ang: Math.atan2(e.x - m.x, e.z - m.z), quiet: true }), true);
-    if (list.length) G.hitStop((sk.stop || 30) * ctx.stopK);
-    fxOpt('mineBoom', m.x, m.z, R, false);
-    G.sfx('cls2', { type: 'boom' });
+    // 连爆（imbue 批）：炸开时把半径内别的绊雷也引爆（每枚隔 chain.gap 秒）。同一串里每个敌人只吃一次全额，
+    // 后面再炸到它只按 chain.k 份，额外的一共最多 chain.cap 份（3 枚叠在一起打首领 ≤ 1 + cap 倍，不是 3 倍）
+    const CH = sk.chain, ch = m.chain || (m.chain = { got: new Map(), n: 0 });
+    const full = [], part = [];
+    for (const e of enemiesIn(m.x, m.z, R)) {
+      if (!losClear(m.x, m.z, e.x, e.z)) continue;
+      const g = ch.got.get(e);
+      if (g === undefined) {
+        ch.got.set(e, 0);
+        full.push(e);
+      } else if (CH && g + CH.k <= CH.cap + 1e-9) {
+        ch.got.set(e, g + CH.k);
+        part.push(e);
+      }
+      list.push(e);
+    }
+    groupHit(full, ctx, 1, (e) => ({ ang: Math.atan2(e.x - m.x, e.z - m.z), quiet: true }), ch.n === 0);
+    if (part.length) groupHit(part, ctx, CH.k, (e) => ({ ang: Math.atan2(e.x - m.x, e.z - m.z), quiet: true, kb: 0.3 }), false);
+    if (list.length && ch.n === 0) G.hitStop((sk.stop || 30) * ctx.stopK);
+    fxOpt('mineBoom', m.x, m.z, R, ch.n > 0); // 连爆的第二枚起：一圈暗色碎片（cluster calm）
+    if (ch.n === 0) G.sfx('cls2', { type: 'boom' });
+    if (CH) {
+      let k = 0;
+      for (const o of mines.slice()) {
+        if (o === m || o.chain || dist(o.x, o.z, m.x, m.z) > R) continue;
+        o.chain = ch;
+        ch.n++;
+        mines.splice(mines.indexOf(o), 1);
+        fxOpt('mineSet', o, false);
+        state.stats.mineChain = (state.stats.mineChain || 0) + 1;
+        G.after(CH.gap * ++k, () => mineBoom(o));
+      }
+    }
     if (sk.mech === 'cluster') {
       const C = sk.cluster;
       const px = Math.cos(m.ang), pz = -Math.sin(m.ang); // 垂直于射出的方向
@@ -10094,6 +10345,15 @@
       if (m.t <= 0) {
         mines.splice(i, 1);
         fxOpt('mineSet', m, false);
+        // 到时（imbue 批）：上了膛、炸开的半径里有敌人就炸，不然熄掉
+        const sk = m.ctx.sk;
+        if (sk.mine.expire && m.arm <= 0) {
+          const R = (sk.mech === 'tether' ? sk.root.r : sk.radius) * Math.sqrt(m.ctx.area);
+          if (state.enemies.some((e) => !e.dead && !e.friendly && Math.hypot(e.x - m.x, e.z - m.z) - (e.r || 0.5) <= R && losClear(m.x, m.z, e.x, e.z))) {
+            state.stats.mineExpire = (state.stats.mineExpire || 0) + 1;
+            mineBoom(m);
+          }
+        }
         continue;
       }
       if (m.arm > 0) continue;

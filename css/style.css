@@ -2262,6 +2262,9 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .slot.ready .s-icon { animation: slot-ready 0.6s ease-out; }
 /* 光环：常驻生效，图标外一圈缓缓呼吸的光 */
 .slot.aura .s-icon { animation: slot-aura 2.4s ease-in-out infinite; }
+/* 装填（imbue）开着：一圈元素色的亮边 + 图标底色偏到元素色（开关状态，静止不闪） */
+.slot.imb-on { box-shadow: inset 0 0 0 2px var(--imb), 0 0 7px 1px color-mix(in srgb, var(--imb) 55%, transparent); }
+.slot.imb-on .s-icon { background-color: color-mix(in srgb, var(--imb) 22%, transparent); }
 @keyframes slot-aura {
   0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 45%, transparent), 0 0 6px color-mix(in srgb, var(--c) 30%, transparent); }
   50% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 80%, transparent), 0 0 12px color-mix(in srgb, var(--c) 55%, transparent); }

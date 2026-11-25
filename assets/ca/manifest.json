@@ -1805,6 +1805,47 @@
    "sha256": "326116b1b654fb7e69e18b6e102bbe39e1a46600151da0d72fd0658a6d8c4b73"
   },
   {
+   "id": "ca/gear_mine",
+   "category": "prop",
+   "zone": "gear",
+   "file": "assets/ca/gear/gear_mine.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 420,
+   "verts": 1008,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.212,
+     0,
+     -0.212
+    ],
+    "max": [
+     0.212,
+     0.072,
+     0.212
+    ]
+   },
+   "h": 0.072,
+   "r": 0.212,
+   "y0": 0,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "field_mine",
+    "catalog": "art/catalog.py",
+    "seed": 233,
+    "args": {},
+    "bake": {
+     "ao": 0.3,
+     "grad": 0.2,
+     "wear": 0.45,
+     "grime": 0.25
+    }
+   },
+   "sha256": "081f05755b4019c2886f4408ea96147380d376c83b5a52d88886b0b0a1804295"
+  },
+  {
    "id": "ca/rift_boulder",
    "category": "prop",
    "zone": "rift",

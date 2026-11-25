@@ -535,6 +535,13 @@
         const tag = s.el.querySelector('.s-auto');
         if (tag) tag.textContent = aoff ? '保留不足' : '自动';
       }
+      // 装填（imbue）开着：格子亮一圈元素色的边（开关的状态；世界里看投射物的拖尾）
+      const ion = !!(id && G.SKILLS[id] && G.SKILLS[id].kind === 'imbue' && G.imbueOn && G.imbueOn() === id);
+      if (ion !== !!s.ion) {
+        s.ion = ion;
+        s.el.classList.toggle('imb-on', ion);
+        if (ion) s.el.style.setProperty('--imb', G.SKILLS[id].color);
+      }
       if (s.fx && now - s.fxT > 620) {
         s.el.classList.remove(s.fx);
         s.fx = '';
@@ -2484,6 +2491,18 @@
       }
       if (mi.dps > 0) bits.push((mi.cap > 1 ? '满员秒伤约 ' : '秒伤约 ') + fmtInt(mi.dps) + (pm ? '（单体）' : ''));
       note = '<div class="sk-mnote"><i></i>' + bits.join(' · ') + '</div>' + inheritNote(ctx) + autoRow(id);
+    } else if (sk.kind === 'imbue') {
+      // 装填（imbue）：开关，不打人；卡片上是附带的元素伤害、保留和这种装填的效果
+      const I = sk.imbue, add = I.add + I.addLv * ((S.skills[id] || 1) - 1), on = G.imbueOn && G.imbueOn() === id;
+      const EN = { fire: '火焰', cold: '冰霜', light: '闪电' };
+      nums =
+        num('附带' + EN[sk.elem], fmt1(add) + '%', 'hl') +
+        num(blood ? '生命保留' : '魔力保留', fmt1(G.auraReserve(id)) + '%') +
+        (I.splash ? num('铁水', '半径 ' + fmt1(I.splash.r) + ' 米') : '') +
+        (I.wedge ? num('放电', I.wedge.n + ' 枚 · ' + Math.round(I.wedge.zap * 100) + '%') : '') +
+        (I.chilled ? num('打冰缓的敌人', '+' + I.chilled + '%') : '') +
+        (I.shard ? num('冰屑', Math.round(I.shard.k * 100) + '%') : '');
+      note = '<div class="sk-anote"><i></i>' + (on ? '装着' : S.imbue === id ? '保留不足 / 武器不对，没生效' : '按一下装上，再按卸下') + ' · 只对物理投射物（枪、弓、散钉、飞刃、跳射、反冲弹）</div>';
     } else if (sk.buff) {
       // 黑焰：不脉冲、自己没有伤害；卡片上是每一击额外的混沌伤害比例和保留
       const F = G.auraOn(id) ? G.flamePct() : Math.min(sk.flame.cap, sk.flame.k0 + sk.flame.k1 * (S.skills[id] - 1)) * (1 + Math.max(0, G.player.S.flameEff || 0) / 100);
@@ -7592,6 +7611,13 @@
       done: () => false,
     },
     {
+      // 铁水弹 / 雷楔 / 霜霰弹改成装填（imbue）之前学过它们的老存档：提示一次（见 game.js 的 imbNote）
+      id: 'imbnote', calm: true, max: 14,
+      html: '<b>铁水弹、雷楔、霜霰弹</b>改成了装填：按一下开着，枪和弓打出的子弹、箭都带上这种元素。宝石和等级都留着，换刻式免费一次',
+      when: () => G.imbueRedone > 0,
+      done: () => false,
+    },
+    {
       // 渊式独骸加了「每刀最多砍到 N 个」之前、选着独骸的老存档：提示一次（见 game.js 的 dhNote）；个数读数据，百分比是同装备实测（16 只挤成一团）
       id: 'dhnerf', calm: true, max: 14,
       get html() {
@@ -7779,6 +7805,10 @@
     if (id === 'dhnerf') {
       G.save.dhNote = false;
       G.kingNerfed = 0;
+    }
+    if (id === 'imbnote') {
+      G.save.imbNote = false;
+      G.imbueRedone = 0;
     }
     if (id === 'hxnerf') {
       G.save.hxNote = false;
