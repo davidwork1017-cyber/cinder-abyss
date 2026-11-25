@@ -17,7 +17,9 @@
 | `ual/` | Quaternius Universal Animation Library [Standard]（https://opengameart.org/content/universal-animation-library ，`universal_animation_librarystandard.zip`）和 Universal Animation Library 2 [Standard]（https://opengameart.org/content/universal-animation-library-2 ，`universal_animation_library_2standard.zip`），作者本人在 OpenGameArt 的上传；sha256 记在 `tools/asset-sources.json` 的 `sources.ual` | CC0（下载包里的许可证文件原样复制：`License_UAL1.txt`、`License_UAL2.txt`） |
 
 - 贴图：`node tools/prep-textures.mjs` 下载 1k 原图（缓存在 `.asset-cache/`，不进仓库），压成每套三张 JPEG：`albedo.jpg`、`normal.jpg`（OpenGL 法线）、`arh.jpg`（R 遮蔽 / G 粗糙度 / B 高度；Lava001 的 R 放自发光）。清单在 `tools/asset-sources.json`。
-- 程序化贴图：`node tools/gen-ground-textures.mjs` 重新生成 `generated/` 下的贴图（同样的代码出同样的像素，JPEG 编码借 playwright-core 的 Chrome），格式同上；贴花图集的 `arh.jpg` 的 G 通道是不透明度。
+- 程序化贴图：`node tools/gen-ground-textures.mjs` 重新生成 `generated/` 下的贴图（像素在 `tools/ground-tex.mjs` 里只用 Node 按固定种子算，同样的代码出同样的像素；JPEG 编码借 playwright-core 的 Chrome），格式同上，但只出 `tools/asset-sources.json` 里 `kinds` 列的通道（贴花图集和覆盖层的法线游戏里不采样，不出）；贴花图集的 `arh.jpg` 的 G 通道是不透明度。每张图的生成函数、原始像素和 JPEG 的 sha256 记在 `generated/manifest.json`，`npm run check:art` 重新算像素核对（tex-t2）。
+- 贴图的画质档（tex-t2）：`tools/asset-sources.json` 的贴图条目可以写 `lo: true`（低档用 `<id>/lo/` 下的小图）或 `skipLow: true`（低档整套不解码，游戏给透明占位图，比如低档不画的贴花图集 `g_decals`）。贴图预算在 `art/budgets.json` 的 `textures`，check-art 按每区、每档算显存。
+- `ambientcg/Lava001` 从 zones-polish 起游戏里不用了，tex-t2 起不再打包（文件和许可证留着）。
 - 模型：原样从各素材包复制（KayKit 的 `.gltf.glb` 改名为 `.glb`）。KayKit / Kenney 这三个包从 2026-11-22 起不再打包（`tools/asset-sources.json` 里没有 `models` 包了，布景全是 `ca/` 自产件）。`ca/` 下的自产件是生成物，不要手改：改 `art/` 下的脚本或 `art/catalog.py` 再重新生成，`npm run check:art`（也是 test:func 的第一步）核对预算、命名、原点和清单。
 - 人形标准骨架的动作（`ual/ual-clips.glb`）：`node tools/ual-pack.mjs <UAL1 的 AnimationLibrary_Godot_Standard.glb> <UAL2 的 UAL2_Standard.glb>` 从两个下载包里只挑用到的动作
   （Zombie_Idle_Loop / Zombie_Walk_Fwd_Loop / Hit_Chest / Death01 的前 1.6 秒），骨架是 UAL2 的 65 骨骼去掉手指和末端骨骼（23 根），没有网格；

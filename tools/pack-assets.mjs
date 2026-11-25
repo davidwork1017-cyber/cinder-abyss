@@ -88,8 +88,16 @@ for (const [name, pk] of Object.entries(manifest.packs)) {
   for (const id of pk.textures || []) {
     const t = manifest.textures[id];
     const dir = path.join(root, 'assets', t.src, id);
+    // kinds：打进包的通道（缺省三张都打；贴花图集和覆盖层的法线游戏里不采样，不打，游戏端也就不解码）。
+    // lo：低档用的小图，assets/<src>/<id>/lo/<通道>.jpg（通道同 kinds）；skipLow：低档整套不解码（游戏端给透明占位图，见 js/assets.js）
+    const kinds = t.kinds || ['albedo', 'normal', 'arh'];
     data.tex[id] = {};
-    for (const k of ['albedo', 'normal', 'arh']) data.tex[id][k] = fs.readFileSync(path.join(dir, k + '.jpg')).toString('base64');
+    for (const k of kinds) data.tex[id][k] = fs.readFileSync(path.join(dir, k + '.jpg')).toString('base64');
+    if (t.lo) {
+      data.tex[id].lo = {};
+      for (const k of t.loKinds || kinds) data.tex[id].lo[k] = fs.readFileSync(path.join(dir, 'lo', k + '.jpg')).toString('base64');
+    }
+    if (t.skipLow) data.tex[id].skipLow = 1;
     index.textures[id] = name;
   }
   if (pk.models === '*') for (const [k, buf] of Object.entries(allModels())) data.models[k] = buf.toString('base64');

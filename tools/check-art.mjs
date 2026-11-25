@@ -1,6 +1,6 @@
 // 自产素材检查（只用 Node，不需要 Blender）：assets/ca/manifest.json 里的每个 GLB 都要符合 docs/art-style.md 的规矩。
 //   node tools/check-art.mjs        → 逐件打印，有问题以非 0 退出（每条问题都带件的 id）
-// npm test 的第一步也会调用 checkArt()（test/smoke.mjs）。预算在 art/budgets.json，骨骼名表在 art/rig.json。
+// npm test 的第一步也会调用 checkArt()（test/smoke.mjs）；贴图的检查在 tools/check-textures.mjs（tex-t2），命令行和 test:func 的下一步都会跑。预算在 art/budgets.json，骨骼名表在 art/rig.json。
 // 查的项目：文件在、和清单的 sha256 一致（防止改了生成器忘了提交生成物 / 清单）；三角形数在类别预算内；材质 / 贴图数；
 // 只用共享调色板图集；高度在类别的合理范围（抓单位错）；原点在底面中心；没有未应用的节点变换；命名；必备的顶点属性；
 // 带蒙皮的件骨骼名都在标准骨架表里（占位：表还是空的）；清单里的尺寸和 GLB 实测一致；打包进游戏的件确实在对应的包里。
@@ -164,6 +164,11 @@ export function checkArt() {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { fails, rows } = checkArt();
+  // tex-t2：贴图（程序化贴图的像素清单、尺寸、值域、频率、每区每档的显存，见 tools/check-textures.mjs）
+  const { checkTextures } = await import('./check-textures.mjs');
+  const tx = await checkTextures();
+  for (const z of tx.zones) console.log('贴图显存 ' + z.zone.padEnd(6), '高 ' + z.mb.high.toFixed(1), '中 ' + z.mb.mid.toFixed(1), '低 ' + z.mb.low.toFixed(1) + ' MB' + (z.legacy ? '（legacy 封顶）' : ''));
+  fails.push(...tx.fails);
   for (const r of rows)
     console.log(r.id.padEnd(22), (r.cat + (r.ship ? '' : '*')).padEnd(9), String(r.tris).padStart(5) + ' / ' + String(r.budget).padEnd(6), 'h ' + r.h.toFixed(2).padStart(5), 'r ' + r.r.toFixed(2).padStart(5), 'mat ' + r.mats, 'tex ' + r.tex, '亮度 ' + r.lum.toFixed(3));
   console.log('（* = 备选件，没打进游戏；亮度 = 烘焙后的面积加权平均线性亮度，口径见 docs/art-style.md 的调色板一节）');
@@ -171,5 +176,5 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     for (const f of fails) console.error('check-art FAIL ' + f);
     process.exit(1);
   }
-  console.log('check-art ok：' + rows.length + ' 件');
+  console.log('check-art ok：' + rows.length + ' 件，贴图 ' + tx.rows.length + ' 套');
 }
