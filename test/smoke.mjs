@@ -8088,7 +8088,7 @@ async function main() {
       mid = await ev(() => { const own = (sel) => Array.from(document.querySelectorAll(sel)).filter((n) => n.dataset.skill !== G.BASIC_CARD).length; return { lit: own('.sock.drop-ok'), dim: own('.sock.drop-no'), cap: document.querySelector('#drag-ghost em').textContent }; });
     });
     // skill-expand：20 个技能 60 个孔；散钉也是投射物（12 / 30 → 15 / 45）
-    assert(mid.lit === 30 && mid.dim === 57 && mid.cap === '镶进 掷焰', '拖辅助宝石时只有带「投射物」标签的技能的槽应亮起（掷焰、飞刃、焚骨祭司、黑旋风、散钉，class-d2b1 的四种特殊弹，class-d2b2 的跳射）：' + JSON.stringify(mid));
+    assert(mid.lit === 21 && mid.dim === 66 && mid.cap === '镶进 掷焰', '拖辅助宝石时只有带「投射物」标签的技能的槽应亮起（掷焰、飞刃、焚骨祭司、黑旋风、散钉，class-d2b1 的反冲弹，class-d2b2 的跳射；imbue 批起铁水 / 雷楔 / 霜霰是装填，不带「投射物」）：' + JSON.stringify(mid));
     let r = await ev(() => ({ e: G.save.sockets.ember.slice(), proj: G.skillCtx('ember').proj }));
     assert(r.e[0] === 'multi' && r.proj === 3, '宝石没有镶上：' + JSON.stringify(r));
     await dragTo(sup('brutal'), sock('ember', 1), async () => {
@@ -16404,7 +16404,7 @@ async function main() {
       const keep = {};
       for (const id of G.GEM_SKILLS) keep[id] = G.SKILLS[id];
       // 渊式（c）：电桥带持续；随核跟着黑洞带持续；其余渊式不带
-      const want = { blackhole: 'oabc', vortex: 'o', arc: 'ac', blade: 'b', pyre: 'a', icefall: 'ob', molten: 'o', wedge: 'a', snare: 'oab', scorch: 'a', heartfire: 'oab' }; // class-d2b2：绊雷（每枚 7 秒、最多 3 枚）、燎原（火地）、心火（16 秒）带「持续」 // class-d2b1：铁水弹原式（铁水）、雷楔 A 雷网带「持续」 // skill-expand：坠凌带「持续」；skill-batch2：随凌（坠凌 B）也带，重凌（A）一根冰凌不带
+      const want = { blackhole: 'oabc', vortex: 'o', arc: 'ac', blade: 'b', pyre: 'a', icefall: 'ob', snare: 'oab', scorch: 'a', heartfire: 'oab' }; // class-d2b2：绊雷（每枚 7 秒、最多 3 枚）、燎原（火地）、心火（16 秒）带「持续」 // class-d2b1：铁水弹原式（铁水）、雷楔 A 雷网带「持续」（imbue 批改成装填后不带了） // skill-expand：坠凌带「持续」；skill-batch2：随凌（坠凌 B）也带，重凌（A）一根冰凌不带
       const huwoAura = G.skillVariant('vortex', 'a').kind === 'aura'; // 护涡改成光环之后不吃绵延、也镶不上回响
       if (!huwoAura) want.vortex += 'a';
       const bad = [], echoBad = [];
