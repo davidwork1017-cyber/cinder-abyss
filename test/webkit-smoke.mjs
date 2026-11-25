@@ -883,12 +883,16 @@ await step('旋转横屏 · 主屏幕 App · 可见区（rot-safe）：iPhone 17
           await p.waitForTimeout(300);
           await pev(() => document.querySelector('#p-menu [data-tact="settings"]').click());
           await p.waitForTimeout(300);
-          const shut = await pev(() => !!document.querySelector('[data-tact="devinfo"]') && !document.getElementById('m-dev'));
-          await pev(() => document.querySelector('[data-tact="devinfo"]').click());
-          await p.waitForTimeout(300);
-          const txt = await pev(() => { const e = document.getElementById('m-dev'); return e && e.getClientRects().length ? e.textContent : ''; });
-          const miss = ['屏幕 402×874', '窗口 402×812', '可视区', '像素比 3', '安全区', '主屏幕', '旋转  开 cw', '方向', '画面', '画到', 'html', 'clientHeight 812', '版本 v'].filter((k) => !txt.replace(/ {2}/g, '  ').includes(k));
-          if (!shut || miss.length) bad.push(where + ' 设备信息：' + (shut ? '' : '一开始没收着 ') + (miss.length ? '缺 ' + miss.join('、') : ''));
+          const row = await pev(() => !!document.querySelector('[data-tact="devinfo"]'));
+          if (!row) bad.push(where + ' 设置里没有「设备信息」');
+          else {
+            const shut = await pev(() => !document.getElementById('m-dev'));
+            await pev(() => document.querySelector('[data-tact="devinfo"]').click());
+            await p.waitForTimeout(300);
+            const txt = await pev(() => { const e = document.getElementById('m-dev'); return e && e.getClientRects().length ? e.textContent.replace(/ +/g, ' ') : ''; });
+            const miss = ['屏幕 402×874', '窗口 402×812', '可视区 402×812', '像素比 3', '安全区', '主屏幕 standalone true', '旋转 开 cw', '方向', '画面 874×402', '画到', 'html', 'clientHeight 812', '版本 v'].filter((k) => !txt.includes(k));
+            if (!shut || miss.length) bad.push(where + ' 设备信息：' + (shut ? '' : '一开始没收着 ') + (miss.length ? '缺 ' + miss.join('、') : ''));
+          }
         }
         if (errs.length) bad.push(where + ' 页面报错：' + errs.join(' | '));
         out.push(where + ' 画到 ' + Math.round(o.paint.bottom) + '/' + dev.height);
