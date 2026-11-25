@@ -23507,6 +23507,54 @@ async function classSteps() {
     return 'put / take / 去重 1 件 / 停写时不写';
   });
 
+  // T47：桌面仓库页拖动存取（和「放进仓库」「取出」走同一条路）。拖进去 / 拖回来以后读一次档，三处（仓库、背包、身上）合起来正好一份，去重不用动手
+  await step('共享仓库·拖动（T47）：桌面仓库页把背包物品拖进仓库格、把仓库物品拖回背包格；拖着时落点亮起、标签写清楚；读档后每件只有一份（去重 0 件）', async () => {
+    const uid = await ev(() => {
+      localStorage.clear();
+      localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(G.newClassSave('guard')));
+      G.loadSave();
+      G.holdSave(false);
+      G.save.seenHelp = G.save.seenStory = true;
+      for (const id of G.ui.hints().all) G.save.tut[id] = 1;
+      const it = G.rollItem(12, 2, 'ring');
+      G.save.bag.push(it);
+      G.persist();
+      G.ui.close();
+      G.ui.open('stash');
+      return it.uid;
+    });
+    const copies = (uid) => ev((uid) => {
+      G.ui.close();
+      G.loadSave();
+      const st = G.stash.list().filter((x) => x.uid === uid).length;
+      const bag = G.save.bag.filter((x) => x.uid === uid).length;
+      const eq = Object.values(G.save.equip).filter((x) => x && x.uid === uid).length;
+      const o = { st, bag, eq, dedupe: G.stashDeduped || 0 };
+      G.ui.open('stash');
+      return o;
+    }, uid);
+    let mid = null;
+    await dragTo('.stp [data-grid="bag"] .cell[data-item="' + uid + '"]', '.stp [data-grid="stash"]', async () => {
+      mid = await ev(() => ({ cap: document.querySelector('#drag-ghost em').textContent, zone: document.querySelector('[data-grid="stash"]').classList.contains('drop-zone') }));
+    });
+    const a = await ev((uid) => ({ st: G.stash.list().some((x) => x.uid === uid), bag: G.save.bag.some((x) => x.uid === uid) }), uid);
+    assert(mid && mid.cap === '放进仓库' && mid.zone && a.st && !a.bag, '背包物品拖进仓库格应放进仓库：' + JSON.stringify({ mid, a }));
+    const c1 = await copies(uid);
+    assert(c1.st === 1 && c1.bag === 0 && c1.eq === 0 && c1.dedupe === 0, '拖进仓库、读档后应只有仓库里一份：' + JSON.stringify(c1));
+    await dragTo('.stp [data-grid="stash"] .cell[data-uid="' + uid + '"]', '.stp [data-grid="bag"]', async () => {
+      mid = await ev(() => ({ cap: document.querySelector('#drag-ghost em').textContent, zone: document.querySelector('.stp [data-grid="bag"]').classList.contains('drop-zone'), no: document.querySelector('[data-grid="stash"]').classList.contains('drop-no') }));
+    });
+    const b = await ev((uid) => ({ st: G.stash.list().some((x) => x.uid === uid), bag: G.save.bag.some((x) => x.uid === uid) }), uid);
+    assert(mid && mid.cap === '取进背包' && mid.zone && mid.no && !b.st && b.bag, '仓库物品拖回背包格应取进背包：' + JSON.stringify({ mid, b }));
+    const c2 = await copies(uid);
+    assert(c2.st === 0 && c2.bag === 1 && c2.eq === 0 && c2.dedupe === 0, '拖回背包、读档后应只有背包里一份：' + JSON.stringify(c2));
+    await ev(() => G.ui.close());
+    await page.reload({ timeout: 90000 });
+    await install();
+    await ev(() => { localStorage.clear(); G.holdSave(true); });
+    return '拖进仓库 → 1 份 · 拖回背包 → 1 份';
+  });
+
   // 界面：标题画面「新游戏」先选职业；老角色（没有职业）进游戏前选一次（带推荐）；角色页卡片显示职业、重看开场、改选一次；载入角色的遮罩；起步天赋的名字；变灰宝石的提示
   await step('职业·界面：新游戏先选职业（5 张卡：一句话、武器、起手；主角换上起手武器；Alt 列出能用的宝石，不写个数）→ 开场故事 → 引星人起手', async () => {
     await fresh({ title: true });

@@ -1608,7 +1608,7 @@
     },
     stash: {
       touch: { once: '点物品取出，或放进仓库', list: ['仓库所有角色共用，4 页共 160 格', '点仓库里的物品：取进背包', '切到「背包」，点物品：放进仓库', '只放物品，通货和宝石不进仓库'] },
-      desk: { once: '点仓库物品取进背包，点背包物品放进仓库', list: ['仓库所有角色共用，4 页共 160 格', '点仓库里的物品：取进背包', '点背包里的物品：选「放进仓库」', 'Shift+点击背包物品：直接放进仓库', '只放物品，通货和宝石不进仓库'] },
+      desk: { once: '点仓库物品取进背包，点背包物品放进仓库', list: ['仓库所有角色共用，4 页共 160 格', '点仓库里的物品：取进背包', '点背包里的物品：选「放进仓库」', 'Shift+点击背包物品：直接放进仓库', '拖动：背包物品拖进仓库，仓库物品拖回背包', '只放物品，通货和宝石不进仓库'] },
     },
     trader: {
       touch: { once: '点一行看详情和对比，按钮直接买卖', list: ['货架：这次带来的货，通货够就能买', '卖出：按分解价收，魔法以上多给 1 颗微光尘', '稀有以上要点两次才卖，锁定的不卖', '烛芯：轮回 2 起，任意 2 个换 1 个指定种类'] },
@@ -1981,10 +1981,36 @@
     for (let i = pg * P; i < (pg + 1) * P; i++) {
       const it = items[i];
       cells += it
-        ? '<div class="cell r' + it.rarity + (ui.card && ui.card.stash && ui.card.uid === it.uid ? ' sel' : '') + (G.offClassItem && G.offClassItem(it) ? ' cls-off' : '') + '" data-act="stash-take" data-uid="' + it.uid + '" data-tip="stash:' + it.uid + '">' + IC.item(it) + '<span class="c-ilvl">' + it.ilvl + '</span></div>'
+        ? '<div class="cell r' + it.rarity + (ui.card && ui.card.stash && ui.card.uid === it.uid ? ' sel' : '') + (G.offClassItem && G.offClassItem(it) ? ' cls-off' : '') + '" data-act="stash-take" data-uid="' + it.uid + '" data-tip="stash:' + it.uid + '"' + (compactUi() ? '' : ' data-drag="stash:' + it.uid + '"') + '>' + IC.item(it) + '<span class="c-ilvl">' + it.ilvl + '</span></div>'
         : '<div class="cell empty"></div>';
     }
     return cells;
+  }
+  // 取出 / 放进仓库（点按、卡片、拖动共用一条路；写的顺序在 G.stash 里：先写收的那一边）
+  function stashTake(uid) {
+    const it = (ui.stashCache || []).find((x) => x.uid === uid);
+    const r = G.stash.take(uid);
+    ui.stashBad = r !== true;
+    ui.stashMsg = r === true ? '「' + (it ? it.name : '物品') + '」取进了背包' : r === 'bag' ? '背包满了' : '没取出来';
+    if (r === true) {
+      ui.fresh.add(uid);
+      G.sfx('pickup', { r: it ? it.rarity : 0 });
+    }
+    return r === true;
+  }
+  function stashPut(item) {
+    const ok = G.stash.put(item);
+    ui.stashBad = !ok;
+    if (ui.tab !== 'stash') ui.invOk = ok ? '「' + item.name + '」放进了仓库' : ''; // 背包页的卡片里放的：结果写在背包页
+    ui.stashMsg = ok ? '「' + item.name + '」放进了仓库' : G.stash.list().length >= G.stash.MAX ? '仓库满了' : '没放进去';
+    if (ok) {
+      if (ui.sel === item.uid) ui.sel = null;
+      closeCard();
+      G.sfx('click');
+    } else if (ui.tab !== 'stash') {
+      ui.invMsg = ui.stashMsg;
+    }
+    return ok;
   }
   function renderStash() {
     const ok = !!(G.stash && G.stash.ok());
@@ -4463,30 +4489,13 @@
         return clickItem(d.uid, true);
       }
       closeCard();
-      const it = (ui.stashCache || []).find((x) => x.uid === d.uid);
-      const r = G.stash.take(d.uid);
-      ui.stashBad = r !== true;
-      ui.stashMsg = r === true ? '「' + (it ? it.name : '物品') + '」取进了背包' : r === 'bag' ? '背包满了' : '没取出来';
-      if (r === true) {
-        ui.fresh.add(d.uid);
-        G.sfx('pickup', { r: it ? it.rarity : 0 });
-      }
+      stashTake(d.uid);
       render();
     },
     'stash-put'() {
       const f = selItem();
       if (!f || f.equipped) return;
-      const ok = G.stash.put(f.item);
-      ui.stashBad = !ok;
-      if (ui.tab !== 'stash') ui.invOk = ok ? '「' + f.item.name + '」放进了仓库' : ''; // 背包页的卡片里放的：结果写在背包页
-      ui.stashMsg = ok ? '「' + f.item.name + '」放进了仓库' : G.stash.list().length >= G.stash.MAX ? '仓库满了' : '没放进去';
-      if (ok) {
-        ui.sel = null;
-        closeCard();
-        G.sfx('click');
-      } else if (ui.tab !== 'stash') {
-        ui.invMsg = ui.stashMsg;
-      }
+      stashPut(f.item);
       render();
     },
     unequip() {
@@ -6439,6 +6448,12 @@
       drag.item = f.item;
       drag.equipped = f.equipped;
       icon = itemIcon(f.item);
+    } else if (a.kind === 'stash') {
+      // 仓库里的一件（桌面仓库页）：拖回背包 = 取出
+      const it = (ui.stashCache || []).find((x) => x.uid === a.id);
+      if (!it) return;
+      drag.item = it;
+      icon = itemIcon(it);
     } else if (a.kind === 'cur') {
       if (!G.CURRENCY[a.id] || !(G.save.cur[a.id] > 0)) return;
       icon = ibox(IC.cur(a.id), 'curb');
@@ -6461,7 +6476,7 @@
     drag.info = NO_DROP;
     closePicker();
     // 拖物品时收起物品卡和小菜单（桌面上卡片盖在装备栏上，得让出落点）；拖通货时卡片留着，它本身就是落点
-    if (a.kind === 'item' && (ui.card || ui.pop)) {
+    if ((a.kind === 'item' || a.kind === 'stash') && (ui.card || ui.pop)) {
       closeCard();
       ui.pop = null;
       for (const n of el.body.querySelectorAll('.sheet, .ui-pop')) n.remove();
@@ -6485,6 +6500,16 @@
   // 拖起来的瞬间把所有落点标出来：能放的亮，不能放的暗
   function markTargets() {
     const body = el.body;
+    // 仓库页：背包的物品能放进仓库，仓库的物品能拖回背包；通货、宝石不进仓库
+    const sg = body.querySelector('[data-grid="stash"]');
+    if (sg) {
+      if (drag.kind === 'item') sg.classList.add(drag.equipped ? 'drop-no' : 'drop-zone');
+      else if (drag.kind === 'stash') {
+        const bg = body.querySelector('.stp [data-grid="bag"]');
+        if (bg) bg.classList.add('drop-zone');
+        sg.classList.add('drop-no');
+      } else sg.classList.add('drop-no');
+    }
     if (drag.kind === 'item') {
       if (!drag.equipped) {
         body.querySelectorAll('.eq').forEach((n) => n.classList.add(n.dataset.slot === drag.item.slot ? 'drop-ok' : 'drop-no'));
@@ -6528,6 +6553,24 @@
     const q = (sel) => (under && under.closest ? under.closest(sel) : null);
     const inWin = !!q('#panel-win');
     const save = G.save;
+    // 仓库页（桌面）：拖动存取，和点按走同一条路（stashPut / stashTake）
+    const sgEl = inWin ? q('[data-grid="stash"]') : null;
+    if (drag.kind === 'stash') {
+      const bg = inWin ? q('.stp [data-grid="bag"]') : null;
+      if (!bg) return NO_DROP; // 仓库里的东西不能丢到地上；仓库里不能挪位置
+      if (save.bag.length >= G.BAG_SIZE) return { el: bg, ok: false, label: '背包满了', run: null };
+      const uid = drag.id;
+      return { el: bg, ok: true, label: '取进背包', run: () => stashTake(uid) };
+    }
+    if (sgEl && drag.kind !== 'item') return { el: sgEl, ok: false, label: '只放物品，通货和宝石不进仓库', run: null };
+    if (sgEl) {
+      const item = drag.item;
+      if (drag.equipped) return { el: sgEl, ok: false, label: '先卸下，再放进仓库', run: null };
+      if (!(G.stash && G.stash.ok())) return { el: sgEl, ok: false, label: '现在不能用仓库', run: null };
+      if (G.stash.list().length >= G.stash.MAX) return { el: sgEl, ok: false, label: '仓库满了', run: null };
+      // 仓库是紧凑排列的：放进去 = 排到最后（这一页有空格时亮那一格）
+      return { el: sgEl.querySelector('.cell.empty') || sgEl, ok: true, label: '放进仓库', run: () => stashPut(item) };
+    }
     if (drag.kind === 'item') {
       const item = drag.item;
       if (!inWin) {
