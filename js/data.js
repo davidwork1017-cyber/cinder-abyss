@@ -347,7 +347,7 @@
       name: '铁水装填', icon: '铁', color: '#ff7a3a', tags: ['imbue', 'fire'], kind: 'imbue', elem: 'fire', clsOnly: true,
       mana: 0, reserve: 15, cd: 0, time: 0.3, lock: 1, w: 0, kb: 0, poise: 0,
       // splash：装填的投射物打死敌人时，在它身上炸开一小摊铁水（半径 r，k 份这一枚的伤害，全部火焰）；每次出手最多 1 摊，每秒最多 perSec 摊；铁水炸死的不再炸
-      imbue: { add: 11, addLv: 0.27, ailment: 40, splash: { r: 1.6, k: 0.9, perSec: 3 } },
+      imbue: { add: 11, addLv: 0.27, ailment: 15, splash: { r: 1.6, k: 0.9, perSec: 3 } },
       desc: '开关：装上后，你的子弹、箭、钉子都附带火焰伤害，容易点燃；打死敌人时炸开一小摊铁水（半径 1.6 米）。保留 15% 魔力。',
       alt: '铁水造成那一枚 90% 的火焰伤害。一次出手最多炸 1 摊，每秒最多 3 摊，铁水炸死的不再炸。同一时间只能装一种装填，切换后 1 秒内不能再换。',
     },
@@ -1184,7 +1184,7 @@
       b: {
         name: '连溅', pack: '铁水炸死的接着炸',
         desc: '开关：装上后，你的子弹、箭、钉子都附带火焰伤害；打死敌人时炸开一小摊铁水，铁水炸死的也接着炸。保留 15% 魔力。', alt: '一次出手最多炸 2 摊，每秒最多 3 摊。铁水造成那一枚 70% 的火焰伤害。同一时间只能装一种装填，切换后 1 秒内不能再换。',
-        set: { imbue: { add: 11, addLv: 0.27, ailment: 40, splash: { r: 1.6, k: 0.7, perSec: 3, chain: 2 } } },
+        set: { imbue: { add: 11, addLv: 0.27, ailment: 15, splash: { r: 1.6, k: 0.7, perSec: 3, chain: 2 } } },
       },
     },
     // 雷楔 A 速放：钉满 2 枚就放电，不连锁（放得勤）；B 重钉：钉满 4 枚才放电，更痛，连到 3 个

@@ -9584,7 +9584,7 @@
     e.imbW = null;
     fxOpt('imbWedge', e, 0, W0.n);
     const pc = imbProcCtx(ctx);
-    G.hitEnemy(e, pc, tot, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 1, kb: 0, poise: 4, extra: true });
+    G.hitEnemy(e, pc, tot, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 1, kb: 0, poise: 4, extra: true, splash: 2, quiet: true }); // 不放通用的命中星芒（放电有自己的蓝紫折线和细边，免得和暴击一个样）
     const tg = W0.chain > 0 ? nearestOthers(e, W0.r * Math.sqrt(ctx.area), W0.chain) : [];
     for (const o of tg) G.hitEnemy(o, pc, tot * W0.chainK, { ang: Math.atan2(o.x - e.x, o.z - e.z), w: 0, kb: 0, poise: 2, quiet: true, extra: true });
     fxOpt('imbZap', e, tg);

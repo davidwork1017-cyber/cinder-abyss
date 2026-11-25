@@ -24343,6 +24343,7 @@
     const rd = RIB_DEF[kind];
     u.rib = ribForKind(kind, u, rd);
     if (RANGED_PF[kind]) rangedOnSpawn(kind, u);
+    else if (kind === 'nail') nailOnSpawn(u);
     grp.position.set(0, -50, 0); // 调用方下一行就会设置位置；先藏到地下
     scene.add(grp);
     projObjs.push(grp);
@@ -26542,6 +26543,15 @@
     weaponFwd(ent, _rf);
     muzzleAdd(_rs.x, _rs.y, _rs.z, _rf.x, _rf.z, s || 1, hex === undefined ? 0xffc060 : hexOf(hex));
   };
+  // 散钉拿枪（imbue 批，dev-48）：一把钉子只放一下小小的暖色枪口焰（灰色的钉子扇面在暗地上不显眼）。不取随机数
+  let nailMzAt = -1;
+  function nailOnSpawn(u) {
+    const ent = pEnt();
+    if (!ent || u.hostile || !(ent.gearType >= G_GAT && ent.gearType <= G_REV) || nailMzAt === wtime) return;
+    nailMzAt = wtime;
+    emitEst(ent, _rs);
+    muzzleAdd(_rs.x, _rs.y, _rs.z, u.dx, u.dz, 0.7, u.tinted ? u.thex : 0xffb060);
+  }
   function rangedOnSpawn(kind, u) {
     RF.projAt = wtime;
     const ent = pEnt();
@@ -31290,7 +31300,19 @@
       const a = vr(0, TAU), v = vr(1, R * 1.6);
       vsEmit(x + Math.sin(a) * 0.2, 0.7, z + Math.cos(a) * 0.2, Math.sin(a) * v, vr(2.5, 4.5), Math.cos(a) * v, vr(0.55, 0.75), vr(0.06, 0.1), vr(0.1, 0.16), vr(0, TAU), 0, 20);
     }
-    if (!lo) W.vDecal('scorch', x, z, R * 0.5, 2, 0x2a120a, { a: 0.7 });
+    // 地上的铁水裂纹：几道从中心往外的折线，亮橙慢慢冷成暗红（只画线、不铺面；低画质道数减半）
+    vsBrush(VSH.bar, 5, 3, 0xffa040, 0x6a1a08, 0.5, 0.25, 0.35);
+    for (let i = 0, n = lo ? 4 : 7; i < n; i++) {
+      let a = (i / n) * TAU + vr(-0.3, 0.3), px = x, pz = z;
+      for (let k = 0; k < 2; k++) {
+        const L = R * vr(0.35, 0.55);
+        a += vr(-0.45, 0.45);
+        const dx = Math.sin(a) * L, dz = Math.cos(a) * L;
+        vsEmit(px, 0.06, pz, dx, 0, dz, vr(1.0, 1.4), 0.06);
+        px += dx;
+        pz += dz;
+      }
+    }
   };
   // 雷楔：钉上一枚（n = 身上第几枚，0 = 刚放完电）——一颗蓝紫的小火花；身上留着的楔子由 W.d2bDraw 每帧画（imbPins）
   W.imbWedge = function (e, n) {
@@ -31301,6 +31323,7 @@
   W.imbZap = function (e, tg) {
     if (!PF.vShape || !e) return;
     const lo = qualId === 'low', y = (e.height || 2) * 0.55;
+    W.thinRing(e.x, e.z, (e.r || 0.5) + 0.8, 0xc8bcff, 0x3a2a8a, 0.24, 10); // 放电那一下：脚下一道蓝紫细边往外推（只画边）
     vsBrush(VSH.bar, 4, 2, 0xe8e2ff, 0x7a68ff, 0.6, 0.35);
     for (let k = 0, m = lo ? 3 : 5; k < m; k++) zig(e.x, y, e.z, vr(0, TAU), vr(-0.5, 0.2), 1, vr(0.3, 0.5), 0.06);
     for (const o of tg) {
@@ -31308,7 +31331,7 @@
       let px = e.x, py = y, pz = e.z;
       for (let k = 1; k <= n; k++) {
         const qx = e.x + (dx * k) / n + (k < n ? vr(-0.25, 0.25) : 0), qz = e.z + (dz * k) / n + (k < n ? vr(-0.25, 0.25) : 0), qy = k < n ? y + vr(-0.2, 0.2) : 1.1;
-        vsEmit(px, py, pz, qx - px, qy - py, qz - pz, 0.07, 0.05); // 闪 2 帧左右就灭
+        vsEmit(px, py, pz, qx - px, qy - py, qz - pz, 0.14, 0.07); // 折线电弧连到每个被连到的敌人，闪 0.14 秒
         px = qx; py = qy; pz = qz;
       }
     }
@@ -31335,7 +31358,9 @@
   W.recoilBlast = function (x, z, R, ang) {
     if (!PF.vShape) return;
     const lo = qualId === 'low';
-    W.thinRing(x, z, R, 0xc8b490, 0x3a3026, 0.32, 14);
+    W.thinRing(x, z, R, 0xffa050, 0x6a2a10, 0.26, 18); // 暖橙的贴地细边推到真正的半径（2.5 米）
+    vsBrush(VSH.ring, 0, 0, 0xffe0b0, 0xff8a3a, 1, 0, 0.3);
+    vsEmit(x, 0.5, z, 0, 0, 0, 0.05, 0.4); // 亮芯 0.4 米、50 毫秒
     // 弹片：暗铁色的碎块往外平着崩
     vsBrush(VSH.chip, 3, 0, 0x7a6a58, 0x2a221c, 0.05, 0.5, 0.5);
     for (let i = 0, n = lo ? 4 : 8; i < n; i++) {
@@ -31628,11 +31653,18 @@
     if (es) for (let i = 0; i < es.length; i++) {
       const e = es[i], w = e.imbW;
       if (!w || !w.n || e.dead || t - w.at > 5) continue;
-      const h = (e.height || 2) * 0.58, r = (e.r || 0.5) * 0.85;
-      d2bLin(0xa69cff, 0.95);
-      for (let k = 0, n = lo ? Math.min(2, w.n) : w.n; k < n; k++) {
+      // 头顶一排蓝紫的小楔（钉了几枚就几颗，满 3 颗放电），竖着的细长菱形，亮芯蓝白；身上再插几根细钉
+      const h = (e.height || 2) + 0.35, r = (e.r || 0.5) * 0.85, N = w.n;
+      for (let k = 0; k < N; k++) {
+        const ox = (k - (N - 1) / 2) * 0.26;
+        mStretch(e.x + ox, h, e.z, 0, 1, 0, 0.07, 0.26);
+        d2bLin(0x9a88ff, 1);
+        vsNow(VSH.bar, _dc.r, _dc.g, _dc.b, 0.45, 0.35, 0);
+      }
+      if (!lo) for (let k = 0; k < N; k++) {
         const a = k * 2.2 + (e.x * 1.7 + e.z) * 0.3, sx = Math.sin(a), sz = Math.cos(a);
-        mStretch(e.x + sx * r, h + k * 0.12, e.z + sz * r, sx, 0.45, sz, 0.035, 0.32);
+        mStretch(e.x + sx * r, (e.height || 2) * 0.58, e.z + sz * r, sx, 0.45, sz, 0.04, 0.34);
+        d2bLin(0xa69cff, 0.95);
         vsNow(VSH.bar, _dc.r, _dc.g, _dc.b, 0.35, 0.35, 0);
       }
     }
