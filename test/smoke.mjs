@@ -25382,20 +25382,27 @@ async function titleSteps() {
   await step('主线：第一次进区素材还在载入时（右上「正在载入场景…」那一条）不显示追踪条，就绪后 0.3 秒淡入', async () => {
     await qSet({ n: 2, cleared: { ash: 0 } });
     await frames(2);
-    // 让霜骨沼泽的素材包挂起（need 返回一个由测试放行的 promise），模拟第一次进区
+    // 模拟第一次进霜骨沼泽：进区这一下里素材层一律当成「还没载」（settled / ready 为假、geo 拿不到），need 返回由测试放行的 promise。
+    // 只挂起 need 不够：第 0 区空闲时会预取下一区的包（world.js 的 prefetchNext，等安静 3 秒、图标画完），前面的步骤要是正好让它载完了，
+    // 建区时看到布景件已经在手（withProps）就不再请求素材，「载入中」根本不出现（guard-root 的树上出过一次）。
+    // 放行时每个挂起的 need 都去调真正的 need（同样的参数），结果原样交回去
     const a = await ev(() => {
-      const A = G.assets, keep = { need: A.need, settled: A.settled };
-      let rel = null;
-      window.__qRel = () => rel && rel();
+      const A = G.assets, keep = { need: A.need, settled: A.settled, ready: A.ready, geo: A.geo };
+      const held = [];
+      window.__qRel = () => held.splice(0).forEach((go) => go());
       A.settled = () => false;
-      A.need = () => new Promise((res) => (rel = res));
+      A.ready = () => false;
+      A.geo = () => null;
+      A.need = (names) => new Promise((res, rej) => held.push(() => keep.need(names).then(res, rej)));
       try {
         G.enterZone(1, 0);
       } finally {
         A.need = keep.need;
         A.settled = keep.settled;
+        A.ready = keep.ready;
+        A.geo = keep.geo;
       }
-      return { pending: G.world.assetsPending(), n: G.questStep() };
+      return { pending: G.world.assetsPending(), n: G.questStep(), held: held.length };
     });
     await frames(3);
     const b = await ev(() => {
