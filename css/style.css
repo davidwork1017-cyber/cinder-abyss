@@ -4294,6 +4294,9 @@ html.touch-ui #gl { cursor: default; }
 html.touch-ui #touch { display: block; }
 html.touch-ui.title-on #t-top, html.touch-ui.title-on #t-stick, html.touch-ui.title-on #t-f { display: none; }
 #t-safe { position: fixed; top: var(--sa-t); right: var(--sa-r); bottom: var(--sa-b); left: var(--sa-l); visibility: hidden; pointer-events: none; }
+/* 主屏幕 App 的旋转横屏（rot-safe，js/touch.js 的 measure()）：iOS 的布局视口比屏幕少状态栏那一截，网页只画到文档盒子的底边。
+   html 撑到 100lvh（整块屏幕高），画面按 html 量出来的高摆，底下就不留黑边 */
+html.t-rot.t-stand { min-height: 100vh; min-height: 100lvh; }
 
 /* 左上：生命 / 法力横条 + 面板入口 */
 #t-top { position: fixed; left: calc(var(--sa-l) + 8px); top: calc(var(--sa-t4) + 6px); z-index: 6; display: flex; align-items: flex-start; gap: 8px; }
@@ -5152,6 +5155,10 @@ html.touch-ui .seal-card > kbd { display: none; }
 .m-gt { padding: 6px 0 4px; font-family: var(--serif); font-weight: 700; font-size: 13px; letter-spacing: 3px; color: var(--bronze); border-bottom: 1px solid var(--line); }
 button.m-row { width: 100%; font: inherit; color: inherit; text-align: left; background: none; border: none; border-bottom: 1px dotted #2a1f17; cursor: pointer; }
 button.m-row:hover .switch { border-color: var(--ember-2); }
+.m-dev-box { margin-top: 10px; }
+.m-dev-t { flex: none; font-size: 12px; color: var(--dim); }
+.m-dev { margin: 6px 0 0; padding: 8px 10px; font: 11px/16px ui-monospace, Menlo, monospace; white-space: pre-wrap; word-break: break-all; color: var(--dim); background: rgba(0, 0, 0, 0.35); border: 1px solid #2a1f17; border-radius: 3px; user-select: text; -webkit-user-select: text; }
+.m-dev-copy { margin-top: 6px; }
 .m-row.del { flex-wrap: wrap; }
 .m-dacts { display: flex; gap: 8px; margin-left: auto; }
 .m-row.del .del-warn { flex: 1 1 180px; }

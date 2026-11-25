@@ -862,15 +862,16 @@
   //   ao 岩石 / 布景脚下接触阴影的强度、scorch 焦痕的比例（0 = 不要）、kinds 路外碎斑用哪几格（见 DECAL_CELL）、tint 碎石 / 裂纹的颜色
   const ZONE_GFX = {
     ash: {
-      packs: ['zone-ash', 'rock-dark', 'ground'], // ash-models-drop：布景全是自产件（kit-ash 跟着 zone-ash 加载），不再要 models 包：冷启动 / 存档停在第 0 区时少下载、少解析 1.4 MB
+      packs: ['zone-ash', 'ground'], // tex-t1：地面 / 岩石换成脚本画的贴图（p_mud / p_burn / p_rock，tools/gen-paint-textures.mjs，在 zone-ash 包里），不再要照片的 rock-dark 包。ash-models-drop：布景全是自产件（kit-ash 跟着 zone-ash 加载），不再要 models 包：冷启动 / 存档停在第 0 区时少下载、少解析 1.4 MB
       mats: [
         // 卡通：路面是暗一档的灰褐焦土（不再是粉褐色），贴图的明暗起伏压低，地面不抢角色；路外是更暗、偏灰紫的灰土
-        { tex: 'mud_cracked_dry_03', tile: 4.2, con: 0.45, nrm: 0.5, rough: 1, k: 0.53, sat: 0.8, col: 0x5a5753 }, // 中性灰（zones-ash：0x575358 → 0x5a5753，去掉偏紫的那一点，主光一照是暖灰烬色，不是粉紫褐）
-        { tex: 'burned_ground_01', tile: 4.8, con: 0.7, nrm: 0.9, rough: 1, k: 0.46, sat: 0.85, col: 0x4a4644 }, // zones-ash：0x4a474e → 0x4e4b4a，路上的粗糙斑块不那么脏。vf-ground：成片的烧焦地和路边的碎砂带用它，压暗一点、纹理起伏加大（k 0.52 → 0.46，con 0.55 → 0.7）
-        { tex: 'dark_rock', tile: 6.5, con: 0.8, nrm: 1.0, rough: 1, k: 0.8, col: 0x282224 }, // 岩壁外的虚空地面比路面暗得多，把空地框出来
+        // tex-t1：三套都换成脚本画的平铺贴图（低频、没有像素级颗粒；路面 6.5 m 一张，铺大了看不出重复）
+        { tex: 'p_mud', tile: 6.5, con: 0.45, nrm: 0.5, rough: 1, k: 0.41, sat: 0.5, col: 0x5a5753 }, // tex-t1：k 0.53 → 0.41、sat 0.8 → 0.5（画的贴图对比低，同样的 k 显得亮、偏暖；压到 25–35% 档里、去一点暖，角色和地面拉开）。 // 中性灰（zones-ash：0x575358 → 0x5a5753，去掉偏紫的那一点，主光一照是暖灰烬色，不是粉紫褐）
+        { tex: 'p_burn', tile: 4.8, con: 0.7, nrm: 0.9, rough: 1, k: 0.39, sat: 0.55, col: 0x4a4644 }, // tex-t1：k 0.46 → 0.39、sat 0.85 → 0.55。 // zones-ash：0x4a474e → 0x4e4b4a，路上的粗糙斑块不那么脏。vf-ground：成片的烧焦地和路边的碎砂带用它，压暗一点、纹理起伏加大（k 0.52 → 0.46，con 0.55 → 0.7）
+        { tex: 'p_rock', tile: 6.5, con: 0.8, nrm: 1.0, rough: 1, k: 0.64, col: 0x282224 }, // 岩壁外的虚空地面比路面暗得多，把空地框出来（tex-t1：路面压暗了，虚空跟着 k 0.8 → 0.64，路和虚空的反差不比原来小）
       ],
       lava: { mode: 1, color: 0xff5a1a, k: 1.7, patch: [0, 0.66] }, // 路面裂缝只在成片的几处发光（patch），不再满地一张发光的网
-      rock: { tex: 'dark_rock', tile: 2.6, nrm: 1.2, cap: 0x5e5550, capAll: 0.12 },
+      rock: { tex: 'p_rock', tile: 2.6, nrm: 1.2, cap: 0x5e5550, capAll: 0.12 },
       grade: { sat: 1.12, con: 1.1, lift: 0x0a0414, gain: 0xfff6ee, vig: 0.24, sh: 0x708aa8, hi: 0xffd0a0, tk: 0.14, shS: 0.8 }, // vf-ground：暗部冷紫、去一点饱和（shS），亮部暖（sh / hi / tk）
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x3c2a30, a: 0.3 }, // zones-ash：0x4a2636 → 0x3c2a30，少一点酒红
@@ -879,10 +880,10 @@
       // vf-ground：龟裂的焦土上一片片软的积灰（比路面略亮略冷），墙脚和石头脚下堆得厚；路边沿着裂缝起伏，过渡带是烧过的碎土
       // 第二轮（要求方：在游戏镜头下要看得出层次）：大尺度的明暗 / 冷暖起伏（mv / mh）、成片的烧焦地（scorch：粗糙地面那一套压暗）、
       // 硬一点的路边（edgeW）、墙脚 / 石脚的接触阴影（ao2 烘在顶点色里，低档也有）
-      layer: { tex: 'g_cover_ash', tile: 4.5, con: 0.8, rough: 1, k: 0.62, sat: 0.4, col: 0x625f5c, path: 0.85, pT: 0.53, edge: 1, jag: 2.0, blend: 0.08, edgeW: 0.55, mv: 0.17, mh: 0.12, scorch: 0.6, sT: 0.66, ao2: 0.24 },
+      layer: { tex: 'g_cover_ash', tile: 4.5, con: 0.8, rough: 1, k: 0.53, sat: 0.3, col: 0x625f5c, /* tex-t1：k 0.62 → 0.53、sat 0.4 → 0.3，积灰斑跟着路面压暗、去暖 */ path: 0.85, pT: 0.53, edge: 1, jag: 2.0, blend: 0.08, edgeW: 0.55, mv: 0.17, mh: 0.12, scorch: 0.6, sT: 0.66, ao2: 0.24 },
       deco: { cover: 0x7a7672, floor: 1, wild: 1, ao: 0.85, aoR: 0.9, scorch: 0.6, clusters: 0.6, kinds: [4, 5, 7, 8, 11, 13], tint: 0x55504c },
       pool: { col: 0xff7a2a, k: 1.4, r: 3, gain: 1.6 }, // 熔岩 / 余烬裂缝 / 火盆周围映暖的地面（烘在顶点色里）
-      blots: { k: 0.35, r: 0.65, op: 0.3, tex: 'crack' }, // zones-polish：细裂纹代替软边的暗块（op 0.16 → 0.3：线细，同样的不透明度几乎看不见）。zones-ash：污斑看着像脏印子，少放、放小，路面的细节交给布景里的积灰和余烬裂缝
+      blots: { k: 0.35, r: 0.55, op: 0.2, show: 0.5, tex: 'crack' }, // tex-t1：画的地面干净了，根须一样的暗裂纹块显得扎眼：只画一半（show）、小一圈、淡三分之一（r 0.65 → 0.55，op 0.3 → 0.2）；k 不动（随机数的取用次数不变）。zones-polish：细裂纹代替软边的暗块（op 0.16 → 0.3：线细，同样的不透明度几乎看不见）。zones-ash：污斑看着像脏印子，少放、放小，路面的细节交给布景里的积灰和余烬裂缝
       sigil: { r: 0.52, dark: 0.55, start: false }, // zones-ash：熔渣坑的法阵收小、压暗一半；不要起点法阵（起点布景见 buildAshDress）
       props: {
         // 卡通布景：Kenney 的岩石和树桩去掉（和程序化的倒角岩风格不一致、树桩照片贴图发白），岩石全部是程序化的
@@ -1460,7 +1461,7 @@
     const key = id + ':' + kind;
     if (zoneTex[key]) return zoneTex[key];
     const im = G.assets.tex(id);
-    const t = new T.Texture(im[kind]);
+    const t = new T.Texture(texImg(im, kind)); // tex-t1：低档的 lo 一套没有法线贴图，用平的法线（texImg）
     if (!o || o.wrap !== false) t.wrapS = t.wrapT = T.RepeatWrapping;
     t.anisotropy = Math.min((o && o.aniso) || 8, renderer.capabilities.getMaxAnisotropy());
     t.needsUpdate = true;
@@ -1468,16 +1469,29 @@
     own(t);
     return (zoneTex[key] = t);
   }
+  // tex-t1：这一档的图像里没有这张（低档的 lo 一套不带法线贴图）时，法线用一张平的 4×4（各区共用这张图，纹理照常跟着区释放、换档时照常换）
+  let flatNrm = null;
+  function texImg(im, kind) {
+    if (im[kind] || kind !== 'normal') return im[kind];
+    if (!flatNrm) {
+      flatNrm = document.createElement('canvas');
+      flatNrm.width = flatNrm.height = 4;
+      const g = flatNrm.getContext('2d');
+      g.fillStyle = 'rgb(128,128,255)';
+      g.fillRect(0, 0, 4, 4);
+    }
+    return flatNrm;
+  }
   // 区里纹理的图像换成当前画质档那一份（解码好了的才换）：先 dispose 掉显存里的旧纹理，下次画的时候按新图像的尺寸重新上传
   function swapZoneTex() {
     let n = 0;
     for (const key in zoneTex) {
       const t = zoneTex[key], u = t.userData.tex;
       if (!u) continue;
-      const v = G.assets.texVariant(u.id), im = G.assets.tex(u.id);
-      if (v === u.v || !im || !im[u.kind]) continue;
+      const v = G.assets.texVariant(u.id), im = G.assets.tex(u.id), img = im && texImg(im, u.kind);
+      if (v === u.v || !img) continue;
       t.dispose();
-      t.image = im[u.kind];
+      t.image = img;
       t.needsUpdate = true;
       u.v = v;
       n++;
@@ -1499,14 +1513,25 @@
     return out;
   }
   // 换画质档（或者建区时有纹理用的不是这一档的图像）：解码当前区这一档的图像，到了以后换上，再释放用不着的那一份
+  // tex-t1：换档要解码的那一份还没到时算「素材没齐」（W.assetsPending）：第 0 区的地面有低档的 lo 一套，换档以后要再解码一回（约 1 秒），
+  // 等素材齐的地方（测试、测性能的脚本）看到的就是这一档的图像
+  let retierN = 0;
   function retierZone() {
     const z = W.zone, gx = z && ZONE_GFX[z.def.id];
     if (!gx || !G.assets || !G.assets.release) return;
-    G.assets.need(texPacks(gx)).then(() => {
-      if (W.zone !== z) return;
-      swapZoneTex();
-      G.assets.release(keepPacks(z.def));
-    });
+    retierN++;
+    const done = () => retierN--;
+    G.assets
+      .need(texPacks(gx))
+      .then(() => {
+        if (W.zone !== z) return;
+        swapZoneTex();
+        G.assets.release(keepPacks(z.def));
+      })
+      .then(done, (e) => {
+        done();
+        if (window.console) console.warn('[素材] 换画质档换贴图失败', e);
+      });
   }
   // 测试 / 探针用：显存里的贴图（场景里所有材质和 uniform 引用、已经上传了的），按 RGBA8 + mipmap（4/3）算；zone = 区域纹理（zoneTexture 建的）
   W.texInfo = function () {
@@ -1649,6 +1674,12 @@
       const avg = G.assets.tex(m.tex).avg;
       U['uV' + i] = { value: new T.Vector3(1 / avg[0], 1 / avg[1], 1 / avg[2]) };
       U['uK' + i] = { value: new T.Vector4(m.con, m.rough, m.nrm, m.sat === undefined ? 1 : m.sat) };
+    });
+    // tex-t1：换画质档换了图像（512² ↔ 低档 256²）以后，按新图像的平均色重新归一（每份图像的 avg 各算各的）
+    zoneRetier.push(() => {
+      const inv = (id, v) => { const a = G.assets.tex(id).avg; v.set(1 / a[0], 1 / a[1], 1 / a[2]); };
+      gx.mats.forEach((m, i) => inv(m.tex, U['uV' + i].value));
+      inv(m3.tex, U.uV3.value);
     });
     if (gx.lava) {
       _c.set(gx.lava.color).convertSRGBToLinear();
@@ -2017,6 +2048,8 @@
         )
         .replace('#include <normal_fragment_maps>', 'normal = tNv;');
     };
+    mat.userData.triU = U; // tex-t1：测试核对岩石贴图的尺寸
+    zoneRetier.push(() => { const a = G.assets.tex(r.tex).avg; U.uRV.value.set(1 / a[0], 1 / a[1], 1 / a[2]); }); // tex-t1：换档换了图像以后按新的平均色归一
     // 卡通：岩壁 / 布景在三向投影贴图上再叠一层很淡的笔触噪声（世界空间），大块的面不至于是一整片照片纹理
     return toonPatch(mat, { brush: 0.1, brushScale: 0.45 });
   }
@@ -2658,12 +2691,24 @@
     });
   }
   // 空闲时预取下一个区域的素材包，走到那里时不用再等
+  // mem-hunt：首领包按区加载。当前区的首领进区刷首领时就要（W.makeBoss → bossPackLater），下一区的首领跟下一区的素材一起在这里预取，
+  // 余烛殿能进了（G.pinReady：钥匙碎片都有了）就把熄烛者也带上。原来启动时的预热（warmEntities）把六个首领都建一遍，图标画完以后六个包全加载
+  const bossPackOf = (d) => {
+    const sp = d && BOSS_SPEC[d.boss];
+    return sp && G.assets.known(sp.pack) ? sp.pack : null;
+  };
   function prefetchNext(def) {
     if (!G.assets) return;
     const i = G.ZONES.indexOf(def);
     if (i < 0) return; // 余烛殿：不在区域序列里，没有「下一个区域」
-    const nx = G.ZONES[i + 1] && ZONE_GFX[G.ZONES[i + 1].id];
-    if (!nx) return;
+    const nd = G.ZONES[i + 1], gx = nd && ZONE_GFX[nd.id];
+    const packs = gx ? gx.packs.slice() : [];
+    for (const d of [nd, G.pinOpen && G.pinOpen() && G.pinReady && G.pinReady() ? G.PINNACLE : null]) {
+      const bp = bossPackOf(d);
+      if (bp && packs.indexOf(bp) < 0) packs.push(bp);
+    }
+    if (!packs.length) return;
+    const nx = { packs };
     // 等一个安静的时刻再预取（25 m 内没有醒着的怪、玩家 3 秒没出手），最多等 60 秒。原来固定在进区 1.5 秒后，
     // 正好是第一场仗：解码下一区的贴图在软件渲染下会让那一帧卡 1 秒多（main 上就有，zones-integrate 改）
     const zone0 = W.zone;
@@ -2681,7 +2726,7 @@
     };
     setTimeout(tick, 1500);
   }
-  W.assetsPending = () => !!pendingZone;
+  W.assetsPending = () => !!pendingZone || retierN > 0;
   W.zonePacks = (id) => (ZONE_GFX[id] ? ZONE_GFX[id].packs.slice() : null); // 测试用（tex-t2）：区要的素材包
   // 启动时先等首个区域的素材（最多 maxMs 毫秒），开场就是完整画面；等待期间整屏盖一层「正在载入场景…」
   W.preloadZone = function (idx, maxMs) {
@@ -5091,7 +5136,7 @@
     encProps.length = 0;
     for (const e of encNpcs) W.removeEnt(e);
     encNpcs.length = 0;
-    for (const m of encDisp) m.dispose();
+    for (const m of encDisp) retire(m);
     encDisp.length = 0;
   };
   // 贴地的圆环（守隙的圈）：一道硬边亮环 + 很淡的内圈
@@ -8879,7 +8924,9 @@
   };
   const ABYSS_DEEP = 7.2; // 深渊底的深度（只是视觉）
   // 深渊底：整个网格范围一张平面，贴图按材质网格烘：虚空处暗紫，沿深渊中线一道发亮的熔岩缝（远处被雾压暗），零星的火星点
-  function abyssDeepTex(zone) {
+  const DEEP_VIA_DATA = /Apple/.test(navigator.vendor || ''); // WebKit 内核（navigator.vendor 是 Apple）：深渊底贴图传像素，见下
+  // asCanvas：测试用，true = 传画布、false = 传像素（用来逐像素比）；不传就按内核选
+  function abyssDeepTex(zone, asCanvas) {
     // 1 m 一个像素（深渊底在雾里，0.5 m 的精度看不出来，烘贴图的时间少四分之三）；S = 每个 0.5 m 小格占几个像素
     const m = zone.map, mat = matGrid(m), w = m.mx, h = m.mz, S = 0.5, cw = Math.ceil(w * S), ch = Math.ceil(h * S);
     const c = makeCanvas(cw, ch), g = c.getContext('2d'), im = g.createImageData(cw, ch), d = im.data;
@@ -8925,12 +8972,42 @@
       g.fillRect(Math.floor(i * S), Math.floor(j * S), 1, 1);
     }
     g.globalAlpha = 1;
-    const t = own(new T.CanvasTexture(c));
+    // mem-hunt：WebKit（Safari、iPhone 上的所有浏览器）里贴图源用画好的像素（getImageData），不直接用画布。WebKit 把 2D 画布传成 WebGL 贴图
+    // 走的是画布 → GL 的拷贝，测试机上一次 0.8–0.9 秒（每次进烬渊都是新画布，卡在进区后的那一帧）；读像素只要几毫秒，传 ImageData 和传图片一样快。
+    // Chrome 反过来：画布直接传是 GPU 里的拷贝，很快，读像素却要等 GPU 进程（软件渲染下进区多 0.5 秒），所以照旧传画布。
+    // 画布不透明（底色 alpha 全是 255），读出来的就是画布上的像素，两种传法显存里的贴图逐像素相同（func 查）。画法本身不变，还是同一张 2D 画布
+    const viaData = asCanvas === undefined ? DEEP_VIA_DATA : !asCanvas;
+    const t = own(viaData ? new T.Texture(g.getImageData(0, 0, cw, ch)) : new T.CanvasTexture(c));
+    t.needsUpdate = true;
     t.flipY = false;
     // 画布按 sRGB 写，但贴图不标 SRGBColorSpace：标了的话 r186 用硬件 sRGB 格式，先解码再过滤，2 m 一个像素的火星放大后光晕更软更大（和 r128 比 ΔE 1.4）。
     // 改成和 r128 一样先过滤、再在着色器里解码：材质用 deepMat()（map_fragment 里 DECODE_VIDEO_TEXTURE 那一段就是采样后的 sRGB 解码）
     return t;
   }
+  // 测试用：当前区（烬渊）的深渊底贴图按 ImageData 源 / 画布源各建一份、传上去，从显存读回来比（返回两份的指纹和各自上传的毫秒数）
+  W.abyssDeepProbe = function () {
+    const z = W.zone;
+    if (!z || z.def.id !== 'abyss') return null;
+    const gl = renderer.getContext(), P = renderer.properties, n = zoneDisp.length, out = {};
+    for (const [k, asCanvas] of [['data', false], ['canvas', true]]) {
+      const t = abyssDeepTex(z, asCanvas), t0 = performance.now();
+      renderer.initTexture(t);
+      out[k + 'Ms'] = +(performance.now() - t0).toFixed(1);
+      const w = t.image.width, h = t.image.height, fb = gl.createFramebuffer(), px = new Uint8Array(w * h * 4);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, P.get(t).__webglTexture, 0);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.deleteFramebuffer(fb);
+      renderer.resetState();
+      let x = 2166136261;
+      for (let i = 0; i < px.length; i++) x = Math.imul(x ^ px[i], 16777619) >>> 0;
+      out[k] = x.toString(16) + ':' + w + 'x' + h;
+    }
+    zoneDisp.splice(n).forEach((d) => d.dispose());
+    out.via = DEEP_VIA_DATA ? 'data' : 'canvas';
+    return out;
+  };
   function deepMat(zone) {
     const m = own(new T.MeshBasicMaterial({ map: abyssDeepTex(zone) }));
     m.defines = { DECODE_VIDEO_TEXTURE: '' }; // 内置材质的构造参数里不收 defines（setValues 会跳过），建好以后再设
@@ -10183,11 +10260,54 @@
     }
     return { hash: h.toString(16), n };
   };
+  // ----- 着色器程序留用（mem-hunt） -----
+  // three 在一个程序的最后一个材质 dispose 时把程序删掉。换区时整区的材质一起 dispose，再进同一个区（或者别的区、下一只同类怪用到同一个程序）时
+  // 同样的程序要重新编译；W.precompile 原来每个区只预热一次，再进来时这些编译就落在进区后的头几帧（WebKit 低档每次进区 70–190 ms，Chrome 高档 1–2 s）。
+  // 首领传送门、异兆道具、预警圈也一样（预警圈每个用完就 dispose，同类的最后一个收掉以后，下一个要在战斗中现编）。
+  // 这里每个程序键留一个「占位」材质先不 dispose：程序一直在，再用到时直接复用，不再编译。同一个键一定是同一份着色器源码（func「内存」一步查）。
+  // ShaderMaterial 的程序键里是着色器源码的编号（WebGLShaderCache），源码还被占位材质用着，编号就不变，下一个同样源码的材质照样命中。
+  // 占位材质去掉贴图、uniform、onBeforeCompile 闭包的引用，不留住旧区的数据：只换掉占位材质自己身上的引用（uniforms 对象可能和别的材质共用，不改它的内容）。
+  // 最多留 KEEP_MAX 个，满了先进先出：最早的那个 dispose 掉，它的程序照常释放
+  const KEEP_MAX = 96;
+  const progKeep = new Map(); // 程序 cacheKey → 占位材质
+  const keptMats = new Set();
+  function retireMat(m) {
+    if (keptMats.has(m)) return;
+    const P = renderer && renderer.properties;
+    const mp = P && P.has(m) ? P.get(m) : null;
+    let fresh = false;
+    if (mp && mp.programs) for (const k of mp.programs.keys()) if (!progKeep.has(k)) fresh = true;
+    if (!fresh) return m.dispose();
+    for (const k in m) if (m[k] && m[k].isTexture) m[k] = null;
+    if (m.uniforms) m.uniforms = {};
+    mp.uniforms = {};
+    mp.uniformsList = null;
+    mp.envMap = null;
+    m.userData = {};
+    delete m.onBeforeCompile;
+    delete m.customProgramCacheKey;
+    for (const k of mp.programs.keys()) if (!progKeep.has(k)) progKeep.set(k, m);
+    keptMats.add(m);
+    while (keptMats.size > KEEP_MAX) {
+      const old = keptMats.values().next().value;
+      keptMats.delete(old);
+      for (const [k, v] of progKeep) if (v === old) progKeep.delete(k);
+      old.dispose();
+    }
+  }
+  const retire = (d) => (d.isMaterial ? retireMat(d) : d.dispose());
+  W.progKeep = () => ({ keys: progKeep.size, mats: keptMats.size, max: KEEP_MAX }); // 测试用
+  // 测试用：把留着的占位材质全部 dispose（没有别的材质在用的程序随之释放）
+  W.progKeepFlush = () => {
+    for (const m of keptMats) m.dispose();
+    keptMats.clear();
+    progKeep.clear();
+  };
   function disposeZone() {
     icull = null;
     if (!zoneGroup) return;
     scene.remove(zoneGroup);
-    for (const d of zoneDisp) d.dispose();
+    for (const d of zoneDisp) retire(d);
     zoneDisp = [];
     zoneGroup = null;
     zoneFx = null;
@@ -10821,7 +10941,7 @@
 
     vrSection(7); // 外观随机序列按段重新起头（见 withVisualRandom）
     // --- 地面暗斑 ---
-    // 每区可以在 ZONE_GFX.<id>.blots = { k: 块数倍率（默认 1）, r: 大小倍率（默认 1）, op: 不透明度（默认 0.2）, tex: 'crack' } 调污斑（zones-ash 加的旋钮）。
+    // 每区可以在 ZONE_GFX.<id>.blots = { k: 块数倍率（默认 1）, r: 大小倍率（默认 1）, op: 不透明度（默认 0.2）, show: 贴花层里只画的比例（缺省全画）, tex: 'crack' } 调污斑（zones-ash 加的旋钮）。
     // zones-polish：tex: 'crack' 把软边的暗块换成细裂纹（groundCrackTex），读起来是地面的纹路而不是脏印子
     const BL = Object.assign({ k: 1, r: 1, op: 0.2 }, gx && gx.blots);
     const blots = [];
@@ -10853,6 +10973,7 @@
       for (let i = 0; i < blots.length; i += 10) {
         const bx = blots[i], bz = blots[i + 2];
         if (LY && coverW(bx, bz, sd(bx, bz), trailK(bx, bz, sd(bx, bz))) > 0.45) continue; // 盖着积层的地方不画裂纹（像树根）
+        if (BL.show !== undefined && ((i / 10) * 0.6180339887) % 1 >= BL.show) continue; // tex-t1：show = 只画这么大比例（按序号的黄金分割序列挑，不取随机数）
         decalPush(bx, bz, blots[i + 6], blots[i + 8], blots[i + 4], BL.tex === 'crack' ? DECAL_CELL.crack : DECAL_CELL.stain, blotMat.color, BL.op);
       }
       vfBurnMesh(blots);
@@ -11067,12 +11188,11 @@
 
   // 第一次进某个区时把整个场景预热一遍（zones-integrate）：renderer.compile 不管视锥，把还没看到的布景、睡着的怪的材质都编好，
   // 场景里用到的贴图也先传上去（initTexture）。不做的话这些留到第一次进视野的那一帧现做，软件渲染下正好卡在走到第一群怪、开打的时候。
-  // 每个区每次会话只做一次（G.enterZone 刷完怪以后调）：再进同一个区时着色器和贴图都已经在了，不再花时间
-  const warmed = new Set();
+  // 每次进区都做（G.enterZone 刷完怪以后调）。原来每个区每次会话只做一次，但换区时整区的材质和贴图都 dispose 了，再进来时程序和贴图都得重来，
+  // 落在进区后的头几帧（mem-hunt）。现在程序由 retireMat 留着，再进同一个区时 compile 几乎不花时间；贴图是新建的，在这里传上去
   W.precompile = function () {
     const z = W.zone;
-    if (!z || warmed.has(z.def.id)) return;
-    warmed.add(z.def.id);
+    if (!z) return;
     const t0 = performance.now();
     const ew = encWarm(); // 异兆道具的材质一起编好：异兆第一次出现时不现编着色器
     scene.add(ew);
@@ -13192,8 +13312,8 @@
   function disposeEnt(ent) {
     if (ent.removed) return;
     if (ent.group.parent) ent.group.parent.remove(ent.group);
-    for (const m of ent.mats) m.dispose();
-    for (const m of ent.own) m.dispose();
+    for (const m of ent.mats) retire(m);
+    for (const m of ent.own) retire(m);
     ent.removed = true;
   }
   W.removeEnt = function (ent) {
@@ -19765,8 +19885,28 @@
     for (let i = bossEnts.length - 1; i >= 0; i--) {
       const e = bossEnts[i];
       if (e.removed || e.rig.bossModel) bossEnts.splice(i, 1);
-      else if (e.kind === kind) e.swapTo = r;
+      else if (e.kind === kind) {
+        e.swapTo = r;
+        // mem-hunt：还睡着的首领（离玩家远、不在 near 里，animEnt 不跑）包一到就换，换完把新材质编好：
+        // 原来要等玩家走到首领房、首领开始动的那一帧才换、才现编着色器，第一场首领战一开场卡一下
+        if (bossAsleep(e) && bossSwapReady(e)) {
+          const t0 = performance.now();
+          bossSwap(e);
+          bossEnts.splice(i, 1);
+          const t1 = performance.now();
+          try {
+            renderer.compile(e.group, camera, scene);
+            for (const p of renderer.info.programs) if (p.getUniforms) p.getUniforms(); // r186 第一次用到才等编译，和 W.precompile 一样在这里等完
+          } catch (err) { /* 编不了就留到第一次画的时候 */ }
+          W.bossSwapInfo = { kind, buildMs: +(r.buildMs || 0).toFixed(1), swapMs: +(t1 - t0).toFixed(1), compileMs: +(performance.now() - t1).toFixed(1) }; // 测试 / 探针用
+        }
+      }
     }
+  }
+  function bossAsleep(ent) {
+    const list = G.state && G.state.enemies;
+    if (list) for (let i = 0; i < list.length; i++) if (list[i].ent === ent) return !list[i].awake && !list[i].dead;
+    return false;
   }
   // 原地换模型：只在首领闲着的时候（没在播动作；醒着的要在招式之间的空当：不在出招、冲刺、破防里），不调 newEnt、不取随机数
   function bossSwapReady(ent) {
@@ -19821,13 +19961,16 @@
     if (on) for (const k in BOSS_SPEC) if (bossData(k)) bossQueueSwap(k);
   };
   W.bossRig = (kind) => bossGlbRig(kind);
+  // 测试用（mem-hunt）：已经载好 / 正在载的首领包
+  W.bossPacks = () => Object.keys(BOSS_SPEC).map((k) => BOSS_SPEC[k].pack).filter((p) => G.assets && (G.assets.settled([p]) || G.assets.loading(p)));
   W.bossOldRig = (kind) => (BOSS_RIG[kind] ? BOSS_RIG[kind]() : null); // 测试用：原来的程序化骨架（对比尺寸）
   // 狂暴 / 阶段（enemies.js 在原有的狂暴提示和熄烛者换阶段那里调一次）：只记在外观实体上，不读模拟、不取随机数
   W.bossMood = function (ent, n) {
     if (ent && !ent.removed) ent.mood = n || 0;
   };
 
-  W.makeBoss = function (kind, elemHex) {
+  // warm：启动时的预热建的（warmEntities）——只为编着色器，不去要首领包（首领包按区加载，见 prefetchNext）
+  W.makeBoss = function (kind, elemHex, warm) {
     const eh = hexOf(elemHex);
     _c.set(eh); // 和小怪一样：暖色地面上的首领偏冷，冷色地面上的偏暖
     const warmGround = _c.r > 0.8 && _c.g < 0.6;
@@ -19837,7 +19980,7 @@
     ent.hitTier = 'boss'; // boss-flinch：挨打只有小的叠加抖动（见 W.hitReact）
     ent.bossWarm = warmGround;
     if (glb) bossLook(ent);
-    if (!glb && BOSS_SPEC[kind] && !bossPackOff && !window.CA_PROCEDURAL_CHARS) {
+    if (!glb && BOSS_SPEC[kind] && !bossPackOff && !window.CA_PROCEDURAL_CHARS && !warm) {
       bossEnts.push(ent);
       if (bossData(kind)) bossQueueSwap(kind);
       else bossPackLater(kind);
@@ -20860,7 +21003,7 @@
       if (!MOB_RIG[t]().clips.broken) aliasClip(MOB_RIG[t](), 'broken', 'stagger');
       made.push(W.makeMob(t, 0xff8a3c, false));
     }
-    for (const k in BOSS_RIG) made.push(W.makeBoss(k, 0xff8a3c));
+    for (const k in BOSS_RIG) made.push(W.makeBoss(k, 0xff8a3c, true));
     for (const k in MINION_RIG) made.push(W.makeMinion(k));
     made.forEach((e, i) => e.group.position.set(((i % 3) - 1) * 5, 0, -Math.floor(i / 3) * 4));
     const loots = [];
@@ -21910,7 +22053,7 @@
       handle.reg = null;
     }
     scene.remove(handle.mesh);
-    handle.mat.dispose();
+    retire(handle.mat);
   };
 
   // 冲击环 / 斩击弧用对象池，稳定后不再分配
@@ -27651,7 +27794,7 @@
       const i = lootObjs.indexOf(mesh);
       if (i >= 0) lootObjs.splice(i, 1);
     } else if (kind === 'portal') {
-      for (const m of mesh.userData.mats) m.dispose();
+      for (const m of mesh.userData.mats) retire(m);
       if (portalObj === mesh) {
         portalObj = null;
         portalLight.intensity = 0;
@@ -29580,6 +29723,7 @@
       'void main(){ vec2 p = vUv * 2.0 - 1.0; float r = length(p); if (r > 1.0) discard;',
       '  float t = atan(p.x, p.y) / 6.28318 + 0.5; float a = 0.0;',
       '  if (vK > 1.5) { if (r < 0.955) discard; gl_FragColor = vec4(mix(vC, vec3(1.0), 0.1), vA > 0.66 ? 0.9 : (vA > 0.33 ? 0.55 : 0.25)); return; }', // 冲击环：只有一道细环（k = 2）
+      '  if (vK < -0.5) { if (r > 0.97) discard; gl_FragColor = vec4(vC, 0.06 * (vA > 0.66 ? 1.0 : (vA > 0.33 ? 0.62 : 0.3))); return; }', // 磐垒的护域铺底（k = -1）：整片很淡的加色，没有花样
       '  if (r > 0.9) a = (t <= vK || vK >= 0.999) ? 1.0 : 0.25;',
       '  else if (r > 0.7 && r < 0.78) { float s = fract(t * 6.0 + uTime * 0.25); a = s < 0.6 ? 0.75 : 0.0; }',
       '  if (a <= 0.0) discard; float k = vA > 0.66 ? 1.0 : (vA > 0.33 ? 0.62 : 0.3);',

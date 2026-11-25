@@ -1252,6 +1252,11 @@
         if (e.dead || e.execLock || dist(e.x, e.z, r.tx, r.tz) - e.r > R) continue;
         G.hitEnemy(e, r.ctx, 1, { ang: Math.atan2(e.x - r.tx, e.z - r.tz), w: 1, kb: 1.1, poise: 9, quiet: true, minion: r.m });
         n++;
+        // 砸中嘲讽（守像还在时）：同一个敌人每 tauntCd 秒最多一次
+        if (B.taunt > 0 && r.m && !r.m.dead && !e.dead && !(S.time - (e.rockTauntAt === undefined ? -1e9 : e.rockTauntAt) < B.tauntCd) && G.tauntEnemy && G.tauntEnemy(e, r.m, B.taunt, B.tauntBoss)) {
+          e.rockTauntAt = S.time;
+          S.stats.vRockTaunts = (S.stats.vRockTaunts || 0) + 1;
+        }
       }
       W.smashFx(r.tx, r.tz, R, G.vr() * TAU);
       W.decal(5, r.tx, r.tz, R * 0.8, G.vr() * TAU, 0x9fe8da, 2.2);
@@ -1278,13 +1283,16 @@
     const W = G.world, B = m.ctx.minion.vx;
     if (!W.kv) return;
     // skill-b1：护域只画边——一圈魂火青的细线 + 外沿一圈小石碑（画进形状批）；原来是半透明的罩子 + 6 米的浅色宽符环
-    if (!m.vfx) m.vfx = [W.kv('glyph', { hex: ALLY_HEX, y: 0.06, k: 1, edge: 1, stones: 8, ew: 0.08 })];
-    const g = m.vfx[0];
-    g.x = m.x;
-    g.z = m.z;
-    g.s = B.r * 2;
-    g.a = m.rising > 0 ? 0.35 : 0.7;
-    g.ry += 0.004;
+    // 磐垒改版（2026-11-25）：再铺一层很淡的友方青色（加色 6%，符环着色器的「铺底」，k < 0），跟着守像走；预警圈的红照样看得清
+    if (!m.vfx) m.vfx = [W.kv('glyph', { hex: ALLY_HEX, y: 0.06, k: 1, edge: 1, stones: 8, ew: 0.06 }), W.kv('glyph', { hex: ALLY_HEX, y: 0.03, k: -1 })];
+    const a = m.rising > 0 ? 0.35 : 0.7;
+    for (const g of m.vfx) {
+      g.x = m.x;
+      g.z = m.z;
+      g.s = B.r * 2;
+      g.a = a;
+    }
+    m.vfx[0].ry += 0.004;
   }
   // 骸弓：射一支骨箭（贯穿 archer.pierce 个），箭归这具仆从（命中算召唤物的）
   function shootArrow(m, e) {
@@ -1531,8 +1539,7 @@
           if (!m.riseClip) W.setEntScale(m.ent, m.size || 1);
         }
       } else if (!P.dead) {
-        // 磐垒扎根不动：你走开 30 米以上才在你身边重铸
-        if (dist(m.x, m.z, P.x, P.z) > (mi.mech === 'bastion' ? 30 : LEASH)) {
+        if (dist(m.x, m.z, P.x, P.z) > LEASH) {
           regroup(m, i, list.length);
           continue;
         }
@@ -1578,11 +1585,20 @@
             m.moving = true;
           } else if (m.kind === 'colossus' && canTaunt(m)) startTaunt(m);
           else if (mi.mech === 'bastion') {
-            // 刻式「磐垒」：不走动，只砸走进砸地范围的敌人
-            if (e && dist(e.x, e.z, m.x, m.z) - e.r - m.r <= Math.max(mi.reach, mi.radius * 0.7) + 0.45) {
-              turn(m, Math.atan2(e.x - m.x, e.z - m.z), 6, dt);
-              if (m.atkT <= 0) startAttack(m, e);
-            } else if (e) m.seekT = Math.min(m.seekT, 0.1);
+            // 刻式「磐垒」：和原式一样走到敌人身边扛着（嘲讽在上面），只是从不出手，伤害 0；没有敌人就跟着你。
+            // 召唤师机器人（衔星巨兽，层级 2）：落脚点限在你身边 4 米时，被嘲讽的首领连招砸在你身上，倒下 2.67 次；走过去扛 0 次（原式 0.67）
+            if (e) {
+              if (moveTo(m, e.x, e.z, mi.move * fz, e.r + m.r + Math.max(mi.reach, mi.radius * 0.7) * 0.85, dt, 0.45)) {
+                m.stuckT = 0;
+                turn(m, Math.atan2(e.x - m.x, e.z - m.z), 6, dt);
+              } else if (m.stuckT > STUCK_T) {
+                m.ignore = e;
+                m.ignoreT = 2.5;
+                m.target = null;
+                m.seekT = 1;
+                m.stuckT = 0;
+              }
+            } else if (followIdle(m, i, dt, mi, fz, 0, 1)) continue;
           } else if ((mi.mech === 'archer' || mi.mech === 'boulder') && e) {
             // 刻式「骸弓」/「掷岩」：保持距离；射程内看得见就出手，否则走近到射程的八成
             const d = dist(e.x, e.z, m.x, m.z) - e.r;
@@ -1622,10 +1638,10 @@
         }
         if (blade(m)) ti++;
         else if (m.kind === 'pyre') pi++;
-        if (mi.mech !== 'bastion') separate(m, dt); // 磐垒扎根：不被挤开
+        separate(m, dt);
       }
       m.moving0 = m.moving;
-      if (mi.mech === 'bastion') bastionFx(m); // 刻式「磐垒」的护域跟着守像（扎根了也照样画）
+      if (mi.mech === 'bastion') bastionFx(m); // 刻式「磐垒」的护域跟着守像走
       // 站在玩家和镜头之间（镜头在 +z 一侧俯视）、身子正好盖住玩家：镂空显示，玩家不会被挡没
       if (W.allyOcclude) {
         const oz = m.z - P.z;

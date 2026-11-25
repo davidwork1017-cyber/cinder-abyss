@@ -815,6 +815,10 @@
     watchText(true);
     window.addEventListener('resize', layout);
     if (window.visualViewport) window.visualViewport.addEventListener('resize', layout);
+    window.addEventListener('orientationchange', layout);
+    window.addEventListener('pageshow', layout);
+    window.addEventListener('load', layout);
+    window.addEventListener('scroll', onScroll);
     document.addEventListener('visibilitychange', onVis);
     window.addEventListener('pageshow', resumeAudio);
     window.addEventListener('blur', releaseAll);
@@ -856,6 +860,10 @@
     lpCancel();
     window.removeEventListener('resize', layout);
     if (window.visualViewport) window.visualViewport.removeEventListener('resize', layout);
+    window.removeEventListener('orientationchange', layout);
+    window.removeEventListener('pageshow', layout);
+    window.removeEventListener('load', layout);
+    window.removeEventListener('scroll', onScroll);
     document.removeEventListener('visibilitychange', onVis);
     window.removeEventListener('pageshow', resumeAudio);
     window.removeEventListener('blur', releaseAll);
@@ -873,6 +881,11 @@
     if (!document.hidden) return resumeAudio();
     releaseAll();
     if (!G.ui.isOpen() && G.state.zone) G.ui.pause();
+  }
+
+  // 主屏幕 App 的旋转横屏里 html 比布局视口高（measure()）：页面万一被拖动滚开，拉回原位
+  function onScroll() {
+    if (G.rot && (window.scrollX || window.scrollY)) window.scrollTo(0, 0);
   }
 
   // 从后台回来：试着唤醒被系统挂起的 AudioContext（不行的话下一次松手时 G.audio.unlock 再唤醒）
@@ -944,17 +957,38 @@
   const SAFE_ENV = { t: 'top', r: 'right', b: 'bottom', l: 'left' };
   // 画面的四边对应屏幕的哪一边（安全区跟着换：竖着时的刘海、底部横条转过去以后在画面的左右）
   const ROT_SIDE = { cw: { t: 'r', r: 'b', b: 'l', l: 't' }, ccw: { t: 'l', r: 't', b: 'r', l: 'b' } };
-  // 竖着的屏幕有多高（旋转横屏按它摆画面）。iPhone 主屏幕 App（navigator.standalone，状态栏 black-translucent）里网页从屏幕最顶上画起，
-  // innerHeight 却少算了状态栏那一截（约 47–59 px），按它摆画面底下会留一条黑边（用户截图 2026-11-24）：这时取 screen.height
-  // （竖着时 screen.width / height 就是屏幕的宽高，只在网页正好占满屏幕宽的时候用）。浏览器标签页里照旧用 innerHeight，工具栏伸缩时 layout() 重新摆
+  // 旋转横屏的画面尺寸只在 measure() 这一处量（rot-safe），结果放在 view 里；layout() 在载入、resize、visualViewport resize、orientationchange、pageshow 时调它。
+  // iPhone 主屏幕 App（navigator.standalone，状态栏 black-translucent）：网页从屏幕最顶上画起，布局视口（innerHeight、visualViewport、html 的 100% 高）
+  // 却少了状态栏那一截，真正画出来的只到文档盒子的底边，再往下是黑的。2026-11-24 画面按 innerHeight 摆：底下一条黑边；
+  // 2026-11-25 改按 screen.height 摆：同一条黑边，HUD 摆进黑边里被裁掉（用户截图 notes/user-feedback/iphone-rotated-hud-clip-2026-11-25.png）。
+  // 现在：html 撑到 100lvh（html.t-stand，style.css），body 改成 absolute（跟着文档画），画面按 html 实际量出来的高摆（h，最多到屏幕高）；
+  // HUD 只放进 visualViewport 那一块（vis，布局视口，一定画得出来），多出来的 cut = h − vis 算进竖着的屏幕底边的安全区（--t-cut）。
+  // 100lvh 不比布局视口高的老系统上 h = vis：黑边还在，但 HUD 不会被裁。浏览器标签页里照旧按 innerHeight（工具栏伸缩时 layout() 重新量）
+  const view = { h: 0, vis: 0, cut: 0, stand: false };
+  function measure() {
+    const de = document.documentElement, ih = window.innerHeight, sc = window.screen, vv = window.visualViewport;
+    const stand = !!G.rot && navigator.standalone === true && !!sc && Math.abs(sc.width - window.innerWidth) <= 1;
+    de.classList.toggle('t-stand', stand);
+    view.stand = stand;
+    if (!stand) {
+      view.h = view.vis = ih;
+      view.cut = 0;
+    } else {
+      view.vis = Math.round(vv && vv.height > 0 ? vv.height : ih);
+      view.h = Math.max(view.vis, Math.min(sc.height, Math.round(de.getBoundingClientRect().height)));
+      view.cut = view.h - view.vis;
+    }
+    de.style.setProperty('--t-cut', view.cut + 'px');
+    return view;
+  }
+  // 竖着的屏幕有多高（旋转横屏按它摆画面）：measure() 量过的值
   function screenH() {
-    const h = window.innerHeight, sc = window.screen;
-    if (navigator.standalone === true && sc && Math.abs(sc.width - window.innerWidth) <= 1 && sc.height > h) return sc.height;
-    return h;
+    return view.h || window.innerHeight;
   }
   function placeRot() {
+    measure();
     const R = G.rot, Ws = window.innerWidth, Hs = screenH(), b = document.body.style, de = document.documentElement;
-    b.position = 'fixed';
+    b.position = view.stand ? 'absolute' : 'fixed';
     b.left = b.top = '0px';
     b.width = Hs + 'px';
     b.height = Ws + 'px';
@@ -967,7 +1001,8 @@
     for (const k of SAFE) {
       const sk = ROT_SIDE[R.dir][k];
       // 左右照样至少 12 px（屏幕四角是圆的，转过去以后画面的四角还是那几个圆角；同 style.css 的 --sa-l / --sa-r）
-      de.style.setProperty('--sa-' + k, 'max(env(safe-area-inset-' + SAFE_ENV[sk] + ', 0px), var(--t-safe-' + sk + ', 0px)' + (k === 'l' || k === 'r' ? ', 12px)' : ')'));
+      // 竖着的屏幕底边再加上画不出来的那一截（--t-cut，见 measure()）
+      de.style.setProperty('--sa-' + k, 'max(env(safe-area-inset-' + SAFE_ENV[sk] + ', 0px), var(--t-safe-' + sk + ', 0px)' + (sk === 'b' ? ', var(--t-cut, 0px)' : '') + (k === 'l' || k === 'r' ? ', 12px)' : ')'));
     }
     // 按画面尺寸的那几段（max-height 780 / 600 / 500 / 360 / 345、max-width 720）：style.css 里有 t-rh* / t-rw720 的副本
     const fw = Hs, fh = Ws, c = de.classList;
@@ -990,7 +1025,7 @@
     }
     if ((d === 'cw' || d === 'ccw') && window.innerHeight > window.innerWidth) setRot(d);
   }
-  const ROT_CLS = ['t-rot', 't-rot-cw', 't-rot-ccw', 't-tsub', 't-rh780', 't-rh600', 't-rh500', 't-rh360', 't-rh345', 't-rw720'];
+  const ROT_CLS = ['t-rot', 't-rot-cw', 't-rot-ccw', 't-stand', 't-tsub', 't-rh780', 't-rh600', 't-rh500', 't-rh360', 't-rh345', 't-rw720'];
   function setRot(dir) {
     if (dir && !T.on) return false;
     const was = G.rot ? G.rot.dir : null;
@@ -1009,7 +1044,9 @@
       for (const k of ROT_CLS) c.remove(k);
       const b = document.body.style;
       for (const k of ['position', 'left', 'top', 'width', 'height', 'transform', 'transform-origin']) b.removeProperty(k);
-      for (const k of ['--vw', '--vh', '--dvh', '--sa-t', '--sa-r', '--sa-b', '--sa-l']) de.style.removeProperty(k);
+      for (const k of ['--vw', '--vh', '--dvh', '--sa-t', '--sa-r', '--sa-b', '--sa-l', '--t-cut']) de.style.removeProperty(k);
+      view.h = view.vis = view.cut = 0;
+      view.stand = false;
     }
     T.rotN = (T.rotN || 0) + 1;
     // 记在设备上（选完职业、读档会重载页面，下次从主屏幕打开，手机还竖着就接着转）；真横过来退出时清掉
@@ -1074,6 +1111,7 @@
     const c = document.documentElement.classList;
     c.toggle('t-portrait', T.portrait);
     c.toggle('t-land', !T.portrait); // 画面是横的：真横屏或者旋转横屏（给面板布局用）
+    devRefresh();
   }
 
   // ---------- 每帧：竖屏遮罩、提示卡、按住时重新选目标、F 显隐、血条 ----------
@@ -1206,6 +1244,45 @@
     }
   }
 
+  // 设置里的「设备信息」（rot-safe）：真机上截图核对视口模型用。只在本机显示，不往外发
+  let saProbe = null;
+  function devInfo() {
+    if (!saProbe) {
+      saProbe = document.createElement('div');
+      saProbe.style.cssText = 'position:fixed;left:0;top:0;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px)';
+      (dom ? dom.root : document.body).appendChild(saProbe);
+    }
+    const cs = getComputedStyle(saProbe), px = (k) => Math.round(parseFloat(cs[k]) || 0);
+    const sc = window.screen, vv = window.visualViewport, de = document.documentElement;
+    const so = sc && sc.orientation;
+    const r1 = (v) => Math.round(v * 10) / 10;
+    const htmlH = r1(de.getBoundingClientRect().height);
+    const bodyH = getComputedStyle(document.body).position === 'fixed' ? 0 : document.body.getBoundingClientRect().bottom;
+    const ver = ((document.querySelector('#title .t-foot span') || {}).textContent || '').match(/v\d+(\.\d+)*/);
+    const lm = new Date(document.lastModified);
+    const two = (n) => (n < 10 ? '0' : '') + n;
+    const when = isNaN(lm) ? '?' : lm.getFullYear() + '-' + two(lm.getMonth() + 1) + '-' + two(lm.getDate()) + ' ' + two(lm.getHours()) + ':' + two(lm.getMinutes());
+    return [
+      ['屏幕', sc.width + '×' + sc.height],
+      ['窗口', window.innerWidth + '×' + window.innerHeight],
+      ['可视区', vv ? r1(vv.width) + '×' + r1(vv.height) + ' 上偏 ' + r1(vv.offsetTop) : '无'],
+      ['像素比', window.devicePixelRatio],
+      ['安全区', '上 ' + px('paddingTop') + ' 右 ' + px('paddingRight') + ' 下 ' + px('paddingBottom') + ' 左 ' + px('paddingLeft')],
+      ['主屏幕', 'standalone ' + navigator.standalone + ' · ' + (matchMedia('(display-mode: standalone)').matches ? 'display-mode standalone' : 'display-mode 其他')],
+      ['旋转', G.rot ? '开 ' + G.rot.dir : '关'],
+      ['方向', (so && so.type ? so.type : '?') + ' · ' + (window.orientation !== undefined ? window.orientation : '?')],
+      ['画面', Math.round(G.viewW()) + '×' + Math.round(G.viewH()) + (G.rot ? ' · 按 ' + (view.stand ? 'html 高' : 'innerHeight') : '')],
+      ['画到', '竖着的屏幕 y ' + Math.round(Math.max(window.innerHeight, htmlH, bodyH)) + (G.rot ? ' · 可见 ' + view.vis + ' · 底边让出 ' + view.cut : '')],
+      ['html', '高 ' + htmlH + ' · clientHeight ' + de.clientHeight],
+      ['版本', (ver ? ver[0] : '?') + ' · 页面 ' + when],
+    ];
+  }
+  const devText = () => devInfo().map((x) => x[0] + '  ' + x[1]).join('\n');
+  function devRefresh() {
+    const pre = document.getElementById('m-dev');
+    if (pre) pre.textContent = devText();
+  }
+
   // 调试 / 测试读
   T.state = () => ({
     on: T.on,
@@ -1227,6 +1304,8 @@
     txt: { calls: txtStats.calls, ms: +txtStats.ms.toFixed(2) },
   });
   T.keys = { MODE_KEY, HINT_KEY, SIZE_KEY, MIRROR_KEY, VIBE_KEY, ROT_KEY };
+  T.devText = devText;
+  T.view = () => Object.assign({}, view);
   T.setRot = setRot; // 测试用
   T.goLandscape = goLandscape;
 

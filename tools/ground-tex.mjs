@@ -5,6 +5,7 @@
 //   g_cover_<区>   每区一张地面覆盖层（灰烬 / 霜壳 / 砂砾 / 腐壳 / 苔尘）512×512，四方连续：albedo / arh（R 遮蔽 G 粗糙度 B 高度），
 //                  地面材质按高度和别的三套混合。法线游戏里不采样（覆盖层按平的法线算），只在这里留着算法。
 import crypto from 'node:crypto';
+import { PAINT_JOBS } from './paint-tex.mjs';
 
 // ---------- 噪声（全部可平铺：坐标按周期 P 取模） ----------
 function hashI(x, y, s) {
@@ -346,6 +347,9 @@ function genDecals() {
 // id → { fn: 生成函数的说明（种子写在代码里）, make: () => { albedo, normal, arh }（Float32 RGB 0..1 的画布） }
 export const JOBS = { g_decals: { fn: 'genDecals()', make: () => genDecals() } };
 for (const k of Object.keys(COVERS)) JOBS['g_cover_' + k] = { fn: "genCover('" + k + "')", make: () => genCover(k) };
+// tex-t1：脚本画的平铺贴图（p_mud / p_burn / p_rock，像素在 tools/paint-tex.mjs，带低档的 lo()）也登记在这里，check-textures 一起核对；
+// 它们由 tools/gen-paint-textures.mjs 编码（own：钉住 Chrome 版本、连 lo 一起出），gen-ground-textures.mjs 跳过
+Object.assign(JOBS, PAINT_JOBS);
 // 画布 → RGBA8（和编码 JPEG 时交给 canvas 的字节一样：四舍五入、α = 255）
 export function rgba8(im) {
   const u = new Uint8Array(im.N * im.N * 4);
