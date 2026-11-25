@@ -31486,7 +31486,7 @@
   function mineModels(ms, lo) {
     const on = !lo && mineSt === 2 && !!scene;
     if (on && !mineMesh) {
-      mineMesh = new T.InstancedMesh(mineGeo, new T.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.55, metalness: 0.25 }), MINE_MAX);
+      mineMesh = new T.InstancedMesh(mineGeo, new T.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.55, metalness: 0.25, color: 0x6a6870 }), MINE_MAX); // color：调色板的锈铁偏浅，压成暗铁（游戏镜头下比地面暗一档，靠琥珀小灯认）
       mineMesh.frustumCulled = false;
       mineMesh.count = 0;
       scene.add(mineMesh);
@@ -31499,7 +31499,7 @@
         _kvp.set(m.x, -0.01 - (1 - k) * 0.06, m.z);
         _kve.set(0, m.id * 1.3, 0, 'YXZ');
         _kvq.setFromEuler(_kve);
-        _kvs.set(1.15, 1.15, 1.15);
+        _kvs.set(1.8, 1.8, 1.8); // 模型半径约 0.17 米：游戏镜头下要放大才认得出（爪尖伸到约 0.55 米，和原来的碎块一样大）
         _pm.compose(_kvp, _kvq, _kvs);
         mineMesh.setMatrixAt(n++, _pm);
       }
@@ -31515,16 +31515,16 @@
     if (model) {
       // 模型上的琥珀小灯：上膛前暗（灯窝里一点暗橙），上膛那一下闪一次，之后一直亮着一点（不闪个不停）
       const armK = m.arm > 0 ? 0 : Math.max(0, 1 - (-m.arm) / 0.25);
-      mPose(m.x, 0.085, m.z, _pqI, 0.035, 0.02, 0.035);
+      mPose(m.x, 0.14, m.z, _pqI, 0.06, 0.035, 0.06);
       d2bLin(m.arm > 0 ? 0x6a3010 : 0xffb040, (m.arm > 0 ? 0.6 : 0.85 + armK * 0.15) * fade);
       vsNow(VSH.chip, _dc.r, _dc.g, _dc.b, m.arm > 0 ? 0 : 0.5 + armK * 0.5, 0, 0);
       if (m.arm <= 0) {
         // 绊线反光：触发半径上一圈很淡的细边（玩家的暖色，不是敌方预警的红），只画边、不铺面
         const R = (m.ctx && m.ctx.sk.mine ? m.ctx.sk.mine.trig : 1.6), n = 16, seg = ((TAU * R) / n) * 0.55;
-        d2bLin(0xc8a878, 0.32 * fade);
+        d2bLin(0xd8b880, 0.5 * fade);
         for (let i = 0; i < n; i++) {
           const a = (i / n) * TAU + m.id;
-          mFlat(m.x + Math.sin(a) * R, 0.05, m.z + Math.cos(a) * R, a + Math.PI / 2, 0.025, seg);
+          mFlat(m.x + Math.sin(a) * R, 0.05, m.z + Math.cos(a) * R, a + Math.PI / 2, 0.035, seg);
           vsNow(VSH.bar, _dc.r, _dc.g, _dc.b, 0.05, 0.2, 0);
         }
       }
