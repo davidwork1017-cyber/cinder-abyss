@@ -86,6 +86,26 @@
 
 尺寸表是 `UI_SIZES`：触屏 844×340、667×320、734×338（用户真机）、1000×450、390×844，各跑一组 59 px 安全区和一组 0，再加一组旋转横屏 390×844；桌面 1920×1080、1366×768、1280×720。触屏横屏、安全区为 0 的那几组还查 iPhone 圆角（`test/corner-mask.mjs`）。
 
+## 手机设备预设和主屏幕 App 视口（rot-safe）
+
+用户在 iPhone 17 Pro 上玩：从主屏幕打开（standalone，状态栏 black-translucent），手机横着拿、锁着自动旋转，游戏在旋转横屏里。以后的手机检查默认按这台来，预设在 `test/devices.mjs`：
+
+| 预设 | 竖着的屏幕 | 状态栏 | 底部横条 |
+| --- | --- | --- | --- |
+| `IPHONE_17_PRO`（默认，`MOBILE_DEFAULT`） | 402×874，@3x | 62 | 34 |
+| `IPHONE_16` | 393×852 | 59 | 34 |
+| `IPHONE_X` | 375×812 | 44 | 34 |
+
+`standaloneContext(browser, 预设, { rot })` 开一个按真机模型模拟的 WebKit 配置。模型是两张用户截图（2026-11-24、2026-11-25）对出来的：
+
+- 网页从屏幕最顶上画起，状态栏盖在上面；
+- 布局视口少了状态栏那一截：`innerHeight`、`visualViewport.height`、`documentElement.clientHeight`、html 和 body 的 100% 高都是屏幕高减状态栏，`100vh` / `100lvh` 是整块屏幕高；
+- 真正画出来的只到文档盒子的底边，再往下是黑的，fixed 的东西伸过去也会被裁掉。
+
+所以旋转横屏在主屏幕 App 里这样摆（`js/touch.js` 的 `measure()`，只在这一处量）：html 撑到 `100lvh`（`html.t-stand`），body 改成 absolute，画面按 html 量出来的高摆；HUD 只放进 `visualViewport` 那一块，多出来的部分算进竖着的屏幕底边的安全区（`--t-cut`）。系统要是不让 html 长过布局视口，画面就按布局视口摆，底下留黑边，但 HUD 不会被裁。浏览器标签页里的旋转横屏照旧按 `innerHeight`。
+
+真机上的数值在 设置 → 设备信息（只在触屏模式下有），截图就能对模型。检查在 `test/rot-standalone.mjs`，webkit 冒烟的「旋转横屏 · 主屏幕 App · 可见区」一步用它。
+
 ## 天赋页（B3）
 
 - 桌面：盘面加侧栏，和以前一样；单击直接点亮、退回。图例和操作说明挪进 `[?]`，缩放按钮在盘面右下角竖排。
