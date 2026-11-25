@@ -112,6 +112,8 @@ npm run build:art && git status --short assets/ca js/assets   # 没有输出 = �
 
 衔星巨兽（`ca/boss_behemoth`，四足）：骨架是四足模板（29 根：骨盆、三节脊椎、`neck_01` + `x_neck_02 / 03`、头、`x_jaw`、嘴里的星 `x_star`、三块背甲 `x_plate_01..03`、四节尾、四条腿各三节 `x_fleg_* / x_hleg_*`）。身子、颈、尾是跨好几根骨骼的一根管子，按圈绑骨骼、软接缝渐变（`body` / `loft(rings=…)`）。没有新增调色板行（皮和背甲都是玄武岩行，裂谷暖白的主光下靠 `BOSS_SPEC` 的 `tint` 往冷里收一点，进游戏是中性的石墨灰）。
 
+霜织者（`ca/boss_weaver`，六足 + 人形上身）：骨架 37 根：根骨骼 `pelvis` 是蛛头胸，蛛腹 `x_abd_01 / 02`，人形上身 `spine_01..03`、`neck_01`、`head`、两臂（`upperarm / lowerarm / hand`，没有锁骨，挂在 `spine_03` 上），胸口的霜结 `x_core`、冰冠 `x_crown`、霜纱 `x_veil_01..03`，六条腿各三节 `x_fleg / x_mleg / x_hleg_{l,r}_01..03`（`x_leg_f_l_01` 这种写法不合 rig.json 的 `x_` 规则，所以前 / 中 / 后写进部位名里）。腿朝外的方向各不一样，动作表（`weaver_clips.py`）里腿的姿态按「抬 / 屈 / 摆」写，换算成欧拉角（`leg()`）。贴地按六个踝（`_03` 的枢轴，离地 0.42 m）。没有新增调色板行：甲壳是玄武岩行，霜丝袍子和霜纱是板岩行（首领身上按布），冰是星辉行；冰原的光下靠 `BOSS_SPEC.weaver` 的 `tint` / `emis` 收到中性（缺省的暖色自发光会把甲壳烧成橙褐）。
+
 | 路径 | 内容 |
 | --- | --- |
 | `art/ca/boss/<kind>.py` | 造型（游戏坐标写，进 Kit 前经 `rig.g2b` 换成 Blender 坐标）、骨架 `BONES`（名字 / 父骨骼 / 枢轴）、软接缝 |
