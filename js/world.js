@@ -1393,8 +1393,9 @@
     const prev = qual;
     qual = QUALITY[id];
     qualId = id;
-    if (G.assets && G.assets.setLow) G.assets.setLow(id === 'low'); // tex-t1：低档用半分辨率的地面贴图（下次建区时生效）
     if (G.vfx) G.vfx.U.uLo.value = id === 'low' ? 1 : 0; // vf-vfx：特效着色器里低画质收一点大面积的噪声纹理
+    // tex-t2：低档的贴图变体（lo / 不解码）：档位跨过低档就换当前区纹理的图像
+    if (G.assets && G.assets.setLow && G.assets.setLow(id === 'low') && renderer) retierZone();
     if (!renderer) return id;
     if (sun && sun.shadow.mapSize.x !== qual.shadow) {
       sun.shadow.mapSize.set(qual.shadow, qual.shadow);
@@ -1452,30 +1453,106 @@
   };
 
   // ----- 贴图（每个区域进入时从解码好的图像建纹理，离开时释放显存） -----
+  // tex-t2：每张纹理记下用的是哪一份图像（G.assets.texVariant：full / lo / none），换画质档以后 retierZone 原地换图像（不重建区域）。
+  // o：{ wrap: false（不平铺，默认平铺）, aniso: 各向异性上限（默认 8） }
   let zoneTex = Object.create(null);
-  function zoneTexture(id, kind) {
+  let zoneRetier = []; // 换完图像以后要跟着改的东西（比如按反照率平均色归一的 uniform），每区重新收集
+  function zoneTexture(id, kind, o) {
     const key = id + ':' + kind;
     if (zoneTex[key]) return zoneTex[key];
     const im = G.assets.tex(id);
-    if (!im[kind]) return flatNormalTex(); // tex-t1：低档的半分辨率贴图没有法线贴图，用平的法线
-    const t = new T.Texture(im[kind]);
-    t.wrapS = t.wrapT = T.RepeatWrapping;
-    t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    const t = new T.Texture(texImg(im, kind)); // tex-t1：低档的 lo 一套没有法线贴图，用平的法线（texImg）
+    if (!o || o.wrap !== false) t.wrapS = t.wrapT = T.RepeatWrapping;
+    t.anisotropy = Math.min((o && o.aniso) || 8, renderer.capabilities.getMaxAnisotropy());
     t.needsUpdate = true;
+    t.userData.tex = { id, kind, v: G.assets.texVariant(id) };
     own(t);
     return (zoneTex[key] = t);
   }
-  // 平的法线（4×4，各区共用、不随区释放）
+  // tex-t1：这一档的图像里没有这张（低档的 lo 一套不带法线贴图）时，法线用一张平的 4×4（各区共用这张图，纹理照常跟着区释放、换档时照常换）
   let flatNrm = null;
-  function flatNormalTex() {
-    if (flatNrm) return flatNrm;
-    const d = new Uint8Array(4 * 4 * 4);
-    for (let i = 0; i < 16; i++) d.set([128, 128, 255, 255], i * 4);
-    flatNrm = new T.DataTexture(d, 4, 4, T.RGBAFormat);
-    flatNrm.wrapS = flatNrm.wrapT = T.RepeatWrapping;
-    flatNrm.needsUpdate = true;
+  function texImg(im, kind) {
+    if (im[kind] || kind !== 'normal') return im[kind];
+    if (!flatNrm) {
+      flatNrm = document.createElement('canvas');
+      flatNrm.width = flatNrm.height = 4;
+      const g = flatNrm.getContext('2d');
+      g.fillStyle = 'rgb(128,128,255)';
+      g.fillRect(0, 0, 4, 4);
+    }
     return flatNrm;
   }
+  // 区里纹理的图像换成当前画质档那一份（解码好了的才换）：先 dispose 掉显存里的旧纹理，下次画的时候按新图像的尺寸重新上传
+  function swapZoneTex() {
+    let n = 0;
+    for (const key in zoneTex) {
+      const t = zoneTex[key], u = t.userData.tex;
+      if (!u) continue;
+      const v = G.assets.texVariant(u.id), im = G.assets.tex(u.id), img = im && texImg(im, u.kind);
+      if (v === u.v || !img) continue;
+      t.dispose();
+      t.image = img;
+      t.needsUpdate = true;
+      u.v = v;
+      n++;
+    }
+    if (n) for (const f of zoneRetier) f();
+    return n;
+  }
+  // 留着解码图像的包：当前区 + 下一区（空闲时预取的那个）；余烛殿不在区域序列里，留出来以后回去的那个区
+  function keepPacks(def) {
+    const out = [];
+    const add = (d) => {
+      const g = d && ZONE_GFX[d.id];
+      if (g) for (const p of g.packs) if (out.indexOf(p) < 0) out.push(p);
+    };
+    add(def);
+    const i = G.ZONES.indexOf(def);
+    if (i >= 0) add(G.ZONES[i + 1]);
+    else if (G.state && G.ZONES[G.state.zoneIdx]) add(G.ZONES[G.state.zoneIdx]);
+    return out;
+  }
+  // 换画质档（或者建区时有纹理用的不是这一档的图像）：解码当前区这一档的图像，到了以后换上，再释放用不着的那一份
+  function retierZone() {
+    const z = W.zone, gx = z && ZONE_GFX[z.def.id];
+    if (!gx || !G.assets || !G.assets.release) return;
+    G.assets.need(texPacks(gx)).then(() => {
+      if (W.zone !== z) return;
+      swapZoneTex();
+      G.assets.release(keepPacks(z.def));
+    });
+  }
+  // 测试 / 探针用：显存里的贴图（场景里所有材质和 uniform 引用、已经上传了的），按 RGBA8 + mipmap（4/3）算；zone = 区域纹理（zoneTexture 建的）
+  W.texInfo = function () {
+    const seen = new Set();
+    const all = { n: 0, mb: 0 }, zone = { n: 0, mb: 0, list: [] };
+    const props = renderer.properties;
+    const add = (t) => {
+      if (!t || !t.isTexture || t.isRenderTargetTexture || t.isDepthTexture || seen.has(t)) return; // 渲染目标 / 深度不算贴图预算
+      seen.add(t);
+      if (props.has && !props.has(t)) return; // 没上传过（get 会顺手建一个空条目）
+      const p = props.get(t), im = t.image;
+      if (!p || !p.__webglTexture || !im || !im.width) return;
+      const mb = (im.width * im.height * 4 * (t.generateMipmaps !== false ? 4 / 3 : 1)) / 1048576;
+      all.n++;
+      all.mb += mb;
+      if (t.userData && t.userData.tex) {
+        zone.n++;
+        zone.mb += mb;
+        zone.list.push(t.userData.tex.id + ':' + t.userData.tex.kind + ':' + t.userData.tex.v + ':' + im.width);
+      }
+    };
+    scene.traverse((o) => {
+      if (!o.material) return;
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+        for (const k in m) if (m[k] && m[k].isTexture) add(m[k]);
+        if (m.uniforms) for (const u in m.uniforms) add(m.uniforms[u] && m.uniforms[u].value);
+        if (m.userData && m.userData.U) for (const u in m.userData.U) add(m.userData.U[u] && m.userData.U[u].value);
+      }
+    });
+    zone.list.sort();
+    return { all, zone, quality: qualId, img: G.assets && G.assets.texStats ? G.assets.texStats() : null };
+  };
   const gfxBroken = Object.create(null); // 建 PBR 外观时出过错的区域：之后一直用程序化外观
   // 贴图包（除布景模型包以外）都到了就能换 PBR 地面 / 岩壁；模型包单独判断，没有它就只是不摆 CC0 布景
   const texPacks = (gx) => gx.packs.filter((p) => p !== 'models');
@@ -1586,6 +1663,12 @@
       const avg = G.assets.tex(m.tex).avg;
       U['uV' + i] = { value: new T.Vector3(1 / avg[0], 1 / avg[1], 1 / avg[2]) };
       U['uK' + i] = { value: new T.Vector4(m.con, m.rough, m.nrm, m.sat === undefined ? 1 : m.sat) };
+    });
+    // tex-t1：换画质档换了图像（512² ↔ 低档 256²）以后，按新图像的平均色重新归一（每份图像的 avg 各算各的）
+    zoneRetier.push(() => {
+      const inv = (id, v) => { const a = G.assets.tex(id).avg; v.set(1 / a[0], 1 / a[1], 1 / a[2]); };
+      gx.mats.forEach((m, i) => inv(m.tex, U['uV' + i].value));
+      inv(m3.tex, U.uV3.value);
     });
     if (gx.lava) {
       _c.set(gx.lava.color).convertSRGBToLinear();
@@ -1705,12 +1788,10 @@
     return { g, nLo };
   }
   function decalMeshOf(g, nLo) {
-    const im = G.assets.tex('g_decals');
-    const map = own(new T.Texture(im.albedo));
+    // tex-t2：低档贴花层不画，图集也不解码（G.assets 给透明的 1×1 占位图，skipLow）；切到高 / 中档时 retierZone 换上真图
+    const map = zoneTexture('g_decals', 'albedo', { wrap: false, aniso: 4 });
     // 反照率是 sRGB，但不标 SRGBColorSpace：标了 r186 会用硬件 sRGB 格式，在线性空间里生成 mipmap、过滤，细碎的深色碎石 / 污渍会整片变浅（和 r128 比 ΔE 5 以上）。
     // 和 r128 一样按原始数据过滤，采样后在着色器里解码（材质设 DECODE_VIDEO_TEXTURE，见下面的 patch）
-    map.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
-    map.needsUpdate = true;
     const opt = { map, alphaMap: zoneTexture('g_decals', 'arh'), vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 };
     const patch = (m) => {
       m.defines = { DECODE_VIDEO_TEXTURE: '' }; // map_fragment 里采样后的 sRGB 解码（内置材质的构造参数不收 defines，建好以后设）
@@ -1957,6 +2038,7 @@
         .replace('#include <normal_fragment_maps>', 'normal = tNv;');
     };
     mat.userData.triU = U; // tex-t1：测试核对岩石贴图的尺寸
+    zoneRetier.push(() => { const a = G.assets.tex(r.tex).avg; U.uRV.value.set(1 / a[0], 1 / a[1], 1 / a[2]); }); // tex-t1：换档换了图像以后按新的平均色归一
     // 卡通：岩壁 / 布景在三向投影贴图上再叠一层很淡的笔触噪声（世界空间），大块的面不至于是一整片照片纹理
     return toonPatch(mat, { brush: 0.1, brushScale: 0.45 });
   }
@@ -2622,10 +2704,17 @@
     setTimeout(tick, 1500);
   }
   W.assetsPending = () => !!pendingZone;
+  W.zonePacks = (id) => (ZONE_GFX[id] ? ZONE_GFX[id].packs.slice() : null); // 测试用（tex-t2）：区要的素材包
   // 启动时先等首个区域的素材（最多 maxMs 毫秒），开场就是完整画面；等待期间整屏盖一层「正在载入场景…」
   W.preloadZone = function (idx, maxMs) {
     const def = G.ZONES[Math.max(0, Math.min(G.ZONES.length - 1, idx | 0))];
     const gx = def && ZONE_GFX[def.id];
+    // tex-t2：启动时还没建渲染器，先按存档 / 设备定下的画质档告诉素材层要不要低档变体（和 W.init 里取的同一个档）
+    if (G.assets && G.assets.setLow) {
+      let qs = G.save && G.save.opts && G.save.opts.quality;
+      if (!QUALITY[qs] && G.defaultQuality) qs = G.defaultQuality();
+      G.assets.setLow(qs === 'low');
+    }
     if (!gx || !G.assets || G.assets.settled(gx.packs)) return Promise.resolve(!!(gx && G.assets && G.assets.ready(gx.packs)));
     let boot = null;
     try {
@@ -10369,6 +10458,7 @@
     // 区域的 CC0 素材已经就绪就用 PBR 外观（hd），否则先用程序化外观，同时去加载素材
     const gx = ZONE_GFX[def.id] || null;
     zoneTex = Object.create(null);
+    zoneRetier = [];
     zoneGroup = new T.Group();
     scene.add(zoneGroup);
     const hd = gfxReady(gx);
@@ -10961,6 +11051,7 @@
       ambAcc: 0, boltIn: rand(3, 7), boltT: 0,
       isles: rp ? rp.isles : null, skyMat: rp ? rp.skyMat : null, starIn: rand(1.5, 4),
       fires, mist, gU: hd ? gmat.userData.U : null, hd, props: withProps, dress, layer: !!LY,
+      retier: zoneRetier, // tex-t2：换画质档换完纹理图像以后调（见 swapZoneTex）
     };
     zoneShadowPolicy();
   }
@@ -11045,8 +11136,11 @@
     zone.map = L.map || rasterize(zone.spec); // 不消耗 Math.random，放在外观前面：建外观时 W.walkable 就能用（新生成器在 makeLayout 里校验时已经建好）
     zone.ms = { layout: t1 - t0 - (L.map ? L.map.ms : 0), raster: zone.map.ms };
     W.zone = zone;
+    // tex-t2：解码好的贴图图像只留当前区和下一区的（离开的区释放，再进来时从包里留着的原文重新解码）
+    if (G.assets && G.assets.release) zone.ms.released = G.assets.release(keepPacks(def));
     const t2 = performance.now();
     safeBuildVisuals(zone);
+    if (zoneFx && zoneFx.hd && Object.keys(zoneTex).some((k) => zoneTex[k].userData.tex && zoneTex[k].userData.tex.v !== G.assets.texWant(zoneTex[k].userData.tex.id))) retierZone();
     const t3 = performance.now();
     buildMinimap(zone);
     zone.ms.visuals = t3 - t2;

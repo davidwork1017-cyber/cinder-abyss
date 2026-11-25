@@ -950,22 +950,18 @@ async function main() {
     assert(!fails.length, fails.length + ' 条问题：' + fails.slice(0, 8).join(' ｜ '));
     return count + ' 件';
   });
+  // tex-t2：贴图的检查（tools/check-textures.mjs，只用 Node）：程序化贴图重新算像素对清单、尺寸 / 值域 / 频率按类、每区每档的显存在预算（照片区按 legacy 封顶）里
+  await step('素材：贴图（程序化贴图的像素和 JPEG 对得上 assets/generated/manifest.json，边长 / 亮度 / 高频按类不超限，每区每档的贴图显存在 art/budgets.json 的预算或 legacy 封顶里，区域包里没有用不到的贴图）', async () => {
+    const { checkTextures } = await import('../tools/check-textures.mjs');
+    const r = await checkTextures();
+    assert(r.rows.length >= 17 && r.zones.length >= 5, '贴图 / 区数不对：' + r.rows.length + ' 套、' + r.zones.length + ' 区');
+    assert(!r.fails.length, r.fails.length + ' 条问题：' + r.fails.slice(0, 8).join(' ｜ '));
+    return r.zones.map((z) => z.zone + ' ' + z.mb.high.toFixed(1) + '/' + z.mb.low.toFixed(1)).join('，') + ' MB（高 / 低）';
+  });
   await step('three：vendor/three.bundle.js 里有游戏用到的每个 THREE 名字、本地设置和 uuid 改动都在、js/ 里没有 r128 写法（tools/check-three.mjs）', async () => {
     const { problems, rev, used } = checkThree();
     assert(!problems.length, problems.length + ' 处问题：' + problems.slice(0, 6).join(' ｜ '));
     return 'r' + rev + '，' + used + ' 个名字';
-  });
-  // tex-t1：脚本画的平铺贴图（tools/gen-paint-textures.mjs）只用 Node 重算像素，核对 assets/generated/manifest.json 里像素和 JPEG 的 sha256
-  await step('素材：脚本画的地面贴图（p_mud / p_burn / p_rock）重算像素和清单一致，仓库里的 JPEG 就是清单里那一份（gen-paint-textures.mjs --check）', async () => {
-    const root = new URL('..', import.meta.url).pathname;
-    let txt = '';
-    try {
-      txt = execSync('node tools/gen-paint-textures.mjs --check', { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
-    } catch (e) {
-      throw new Error(((e.stdout || '') + ' ' + (e.stderr || '')).toString().trim().slice(0, 600));
-    }
-    assert(/核对通过/.test(txt), txt);
-    return txt;
   });
 
   // ------------------------------------------------------------------ 启动
@@ -1040,15 +1036,17 @@ async function main() {
         return { gfx: W.gfxInfo().hd, g: gm ? [sz(gm.tA0), sz(gm.tN0), sz(gm.tR0), sz(gm.tA1), sz(gm.tN1), sz(gm.tA2), sz(gm.tN2)] : null, rock: rm ? [sz(rm.tRA), sz(rm.tRN)] : null };
       };
       const wait = async () => { const t = performance.now(); while ((W.assetsPending() || !W.gfxInfo().hd) && performance.now() - t < 20000) await new Promise((res) => setTimeout(res, 50)); };
+      // 换档以后这一档的图像在后台解码、到了再原地换（tex-t2 的 retierZone）：等到地面的路面贴图换成这一档要的尺寸（最多 20 秒）
+      const until = async (px) => { const t = performance.now(); let r = look(); while (!(r.g && r.g[0] === px) && performance.now() - t < 20000) { await new Promise((res) => setTimeout(res, 50)); r = look(); } return r; };
       const out = { ids: ['p_mud', 'p_burn', 'p_rock'].map((id) => G.assets.packOfTex(id)), old: ['mud_cracked_dry_03', 'burned_ground_01'].map((id) => G.assets.packOfTex(id)) };
       W.setQuality('high');
       G.enterZone(0, 0);
       await wait();
-      out.high = look();
+      out.high = await until(512);
       W.setQuality('low');
       G.enterZone(0, 0);
       await wait();
-      out.low = look();
+      out.low = await until(256);
       W.setQuality(q0);
       G.enterZone(zk.zi, zk.tier);
       await wait();
@@ -10717,6 +10715,106 @@ async function main() {
     assert(c2.dead && !c2.door && c2.alive && c2.at < 0.01 && c2.full, '首领没醒时倒下应回到区域入口：' + JSON.stringify(c2));
     await ev(() => G.debug.god(true));
     return a.dieT.toFixed(1) + ' 秒后被首领打倒';
+  });
+
+  // tex-t2：解码好的贴图图像只留当前区 + 下一区（离开的区释放，回来时从包里留着的原文重新解码）；低档不解码 / 不上传贴花图集（低档不画贴花层）
+  await step('贴图：高 / 低档各连走五个区再回第 0 区，解码图像只留当前区和下一区的包、区域贴图显存等于 check-art 的实算且在预算里；低档贴花图集不解码（1×1 占位）、换档原地换图；lo 变体按档解码', async () => {
+    const { checkTextures } = await import('../tools/check-textures.mjs');
+    const tx = await checkTextures();
+    const budgets = JSON.parse(readFileSync(new URL('../art/budgets.json', import.meta.url), 'utf8')).textures;
+    const stat = {};
+    for (const z of tx.zones) stat[z.zone] = z.mb;
+    const r = await ev(async ([stat, budgets]) => {
+      const W = G.world, A = G.assets;
+      const wait = async (f, ms) => {
+        const t = performance.now();
+        while (!f() && performance.now() - t < ms) await new Promise((res) => setTimeout(res, 50));
+        return f();
+      };
+      const q0 = G.save.opts.quality, out = { stops: [], bad: [] };
+      const texIds = (packs) => {
+        const ids = [];
+        for (const p of packs) for (const id in CA_ASSET_INDEX.textures) if (CA_ASSET_INDEX.textures[id] === p) ids.push(id);
+        return ids;
+      };
+      for (const q of ['high', 'low']) {
+        W.setQuality(q);
+        for (const zi of [0, 1, 2, 3, 4, 0]) {
+          const def = G.ZONES[zi], nx = G.ZONES[zi + 1];
+          G.enterZone(zi, 0);
+          const hd = await wait(() => !W.assetsPending() && W.gfxInfo().hd, 40000); // 防卡死的上限，不是计时断言
+          if (nx) await A.need(W.zonePacks(nx.id)); // 等同于空闲时预取下一区（游戏里要等安静的时刻，这里直接要）
+          G.debug.step(0.1);
+          W.render();
+          const ti = W.texInfo(), keep = W.zonePacks(def.id).concat(nx ? W.zonePacks(nx.id) : []);
+          const ids = texIds(keep);
+          const s = { q, zone: def.id, hd, packs: ti.img.packs, images: ti.img.images, decMB: +ti.img.mb.toFixed(1), zoneMB: +ti.zone.mb.toFixed(2), allMB: +ti.all.mb.toFixed(2), decals: ti.zone.list.filter((x) => x.startsWith('g_decals')) };
+          out.stops.push(s);
+          const cap = budgets.legacy && budgets.legacy[def.id] ? budgets.legacy[def.id][q] : budgets.zoneGpuMB[q];
+          const say = (m) => out.bad.push(q + ' ' + def.id + '：' + m);
+          if (!hd) say('没换上 PBR 外观');
+          for (const p of ti.img.packs) if (keep.indexOf(p) < 0) say('留着不该留的包 ' + p);
+          for (const e of ti.img.list) if (ids.indexOf(e.split(':')[0]) < 0) say('留着不该留的图 ' + e);
+          if (Math.abs(ti.zone.mb - stat[def.id][q]) > 0.05) say('区域贴图显存 ' + ti.zone.mb.toFixed(2) + ' MB ≠ check-art 实算 ' + stat[def.id][q].toFixed(2));
+          if (ti.zone.mb > cap + 1e-6) say('区域贴图显存 ' + ti.zone.mb.toFixed(1) + ' 超过 ' + cap);
+          if (ti.all.mb - ti.zone.mb > budgets.sharedGpuMB[q]) say('共用贴图 ' + (ti.all.mb - ti.zone.mb).toFixed(1) + ' MB 超过 ' + budgets.sharedGpuMB[q]);
+          if (q === 'low') {
+            if (ti.img.list.some((e) => e.startsWith('g_decals:'))) say('低档解码了贴花图集');
+            if (s.decals.some((e) => !/:none:1$/.test(e))) say('低档上传了贴花图集 ' + s.decals.join(' '));
+          } else if (s.decals.join(' ') !== 'g_decals:albedo:full:1024 g_decals:arh:full:1024') say('高档贴花图集不对 ' + s.decals.join(' '));
+        }
+      }
+      // 原地换档：高 → 低，贴花图集换成占位图、1024² 的那份释放；低 → 高，换回 1024²，贴花层照常画
+      W.setQuality('high');
+      await wait(() => W.texInfo().zone.list.join(' ').includes('g_decals:arh:full:1024'), 20000);
+      W.render();
+      const sw = { hi: W.texInfo().zone.list.filter((x) => x.startsWith('g_decals')).join(' ') };
+      W.setQuality('low');
+      await wait(() => !A.texStats().list.some((e) => e.startsWith('g_decals:')), 20000);
+      W.render();
+      sw.lo = W.texInfo().zone.list.filter((x) => x.startsWith('g_decals')).join(' ');
+      sw.loImg = A.texStats().list.filter((e) => e.startsWith('g_decals')).length;
+      W.setQuality('high');
+      await wait(() => W.texInfo().zone.list.join(' ').includes('g_decals:arh:full:1024'), 20000);
+      G.debug.step(0.1);
+      W.render();
+      sw.hi2 = W.texInfo().zone.list.filter((x) => x.startsWith('g_decals')).join(' ');
+      sw.on = W.gfxInfo().decalsOn;
+      out.sw = sw;
+      // lo 变体（给 tex-t1 的地面贴图用）：一个只在测试里塞进去的包，原图 8²、lo 4²，按档解码，释放后不留
+      const jpg = (n) => {
+        const c = document.createElement('canvas');
+        c.width = c.height = n;
+        const g = c.getContext('2d');
+        g.fillStyle = '#806040';
+        g.fillRect(0, 0, n, n);
+        return c.toDataURL('image/jpeg', 0.9).split(',')[1];
+      };
+      window.CA_ASSETS['t2-lo'] = { tex: { t2probe: { albedo: jpg(8), arh: jpg(8), lo: { albedo: jpg(4), arh: jpg(4) } } } };
+      A.setLow(true);
+      await A.need(['t2-lo']);
+      const lo = { w: A.tex('t2probe').albedo.width, v: A.texVariant('t2probe'), n: A.texStats().list.filter((e) => e.startsWith('t2probe')).length };
+      A.setLow(false);
+      await A.need(['t2-lo']);
+      const full = { w: A.tex('t2probe').albedo.width, v: A.texVariant('t2probe') };
+      A.release(W.zonePacks(G.state.zone.def.id));
+      const gone = A.texStats().list.filter((e) => e.startsWith('t2probe')).length;
+      out.lov = { lo, full, gone };
+      G.save.opts.quality = q0;
+      W.setQuality(q0);
+      G.enterZone(0, 1);
+      G.debug.god(true);
+      return out;
+    }, [stat, budgets]);
+    assert(!r.bad.length, r.bad.length + ' 条问题：' + r.bad.slice(0, 6).join(' ｜ '));
+    assert(r.stops.length === 12, '没走完：' + r.stops.length);
+    const back = r.stops.filter((s) => s.zone === 'ash');
+    assert(back.every((s) => s.hd), '回到第 0 区没有重新解码出 PBR 外观');
+    const maxImg = Math.max(...r.stops.map((s) => s.images));
+    assert(r.sw.hi === 'g_decals:albedo:full:1024 g_decals:arh:full:1024' && /^(|g_decals:albedo:none:1 g_decals:arh:none:1)$/.test(r.sw.lo) && r.sw.loImg === 0 && r.sw.hi2 === r.sw.hi && r.sw.on, '原地换档没换贴花图集：' + JSON.stringify(r.sw));
+    assert(r.lov.lo.w === 4 && r.lov.lo.v === 'lo' && r.lov.lo.n === 2 && r.lov.full.w === 8 && r.lov.full.v === 'full' && r.lov.gone === 0, 'lo 变体不对：' + JSON.stringify(r.lov));
+    const f = (q) => r.stops.filter((s) => s.q === q).map((s) => s.zone + ' ' + s.images + '张/' + s.decMB + '+' + s.zoneMB).join('，');
+    return '解码图像最多 ' + maxImg + ' 张 ｜ 高：' + f('high') + ' ｜ 低：' + f('low') + '（张 / 解码 MB + 区域显存 MB）';
   });
 
   await step('资源：反复切换全部五个区域，几何体 / 贴图 / 场景对象不增长', async () => {

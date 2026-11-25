@@ -1,6 +1,108 @@
 {
- "_comment": "程序化贴图清单：gen = 生成脚本，fn = 生成函数（种子写在代码里），px = 边长，maps 每个通道：pix = 原始像素 RGBA8 的 sha256，jpg / bytes = 仓库里 JPEG 的 sha256 和字节数；lo = 低档用的小图（同样格式），enc = 编码 JPEG 用的 Chrome 版本（gen-paint-textures.mjs 钉住）",
+ "_comment": "程序化贴图清单（tools/gen-ground-textures.mjs 写，tools/check-art.mjs 核对）：fn = tools/ground-tex.mjs 里的生成函数（种子写在代码里），px = 边长，maps 每个通道：pix = 原始像素 RGBA8 的 sha256，jpg / bytes = 仓库里 JPEG 的 sha256 和字节数；gen 是 tools/gen-paint-textures.mjs 的几张（p_*）另有 lo（低档的小图，同样格式）和 enc（编码 JPEG 的 Chrome 版本，钉住）",
  "textures": {
+  "g_cover_abyss": {
+   "gen": "tools/gen-ground-textures.mjs",
+   "fn": "genCover('abyss')",
+   "px": 512,
+   "maps": {
+    "albedo": {
+     "pix": "f0e7ea64baa8636a9debf4605bd4fc6055431b5906a5ed936ea80b93ad2df4e7",
+     "jpg": "2031372931e8fa0a6efdb378430bfc8356364fd7160c090c1f17040189fc71ee",
+     "bytes": 26987
+    },
+    "arh": {
+     "pix": "ab59e706c90c817db4cb6c25dbcdd25116ee4da26b459c4872e6d297b47286e7",
+     "jpg": "75c7c6fc7d01d438be70df95b5cdb52ef91b9e91707d17e265a8d732bedb0bb7",
+     "bytes": 15478
+    }
+   }
+  },
+  "g_cover_ash": {
+   "gen": "tools/gen-ground-textures.mjs",
+   "fn": "genCover('ash')",
+   "px": 512,
+   "maps": {
+    "albedo": {
+     "pix": "77f952a1581565480629bc1fe3778abe20a5f55abc5f91929b68c78b37133fcb",
+     "jpg": "c18030edc24b647b9c518d8d891add618dec4789eb8e0dad6db58f1f986a121e",
+     "bytes": 33887
+    },
+    "arh": {
+     "pix": "61cf35f57415e6e5e31d0d5e2f8dbf068f072096cbe07c2701c650389be4c71a",
+     "jpg": "7e11ff6690ef23b8f24cff49105bd98cea2d6409ce942f42944a1a73b28a8a71",
+     "bytes": 5065
+    }
+   }
+  },
+  "g_cover_frost": {
+   "gen": "tools/gen-ground-textures.mjs",
+   "fn": "genCover('frost')",
+   "px": 512,
+   "maps": {
+    "albedo": {
+     "pix": "27ea5fec0427f9cd9170bc66d6a8aab844635da6291832ce949d893d6a3f11fb",
+     "jpg": "0202b032e4142fc7bc51e91a08ead820d828ef321ed427c0a7d1cc36f7c5b100",
+     "bytes": 38649
+    },
+    "arh": {
+     "pix": "f343ca8fbb37449bf7243b5a2c20cd77e184e5b5c81f2248e858b623bf6d4ca8",
+     "jpg": "e8cd93e26c7de55a9ca9a398335ba4a710d705c1bf09a63c8fb6eb736d0d5307",
+     "bytes": 17536
+    }
+   }
+  },
+  "g_cover_rift": {
+   "gen": "tools/gen-ground-textures.mjs",
+   "fn": "genCover('rift')",
+   "px": 512,
+   "maps": {
+    "albedo": {
+     "pix": "b7a821302fbe33b39924cb6967e562d3a289bb2953fef760ccf0597a7bfd878a",
+     "jpg": "ed5d73edc04e5019b1401a518260e145d55766dc211f5c382376ae2a87805f56",
+     "bytes": 38686
+    },
+    "arh": {
+     "pix": "417913717b5fff0e8b1d3515ca8b52d350ee9b8546e5a28641fe81c19ed215b7",
+     "jpg": "ecd1b3faa0478fde0c663e3c24f2489d6f23e60456410ff129df4153f422b23f",
+     "bytes": 13843
+    }
+   }
+  },
+  "g_cover_storm": {
+   "gen": "tools/gen-ground-textures.mjs",
+   "fn": "genCover('storm')",
+   "px": 512,
+   "maps": {
+    "albedo": {
+     "pix": "5ea85dacca659ec2581d5354244c14172877dfedf93ac05628f1d5c0e5786c4c",
+     "jpg": "15feb1a23878798dbc7e5f3c3e0bf4204848414abe6513d0cf7b0e1f9c461103",
+     "bytes": 67000
+    },
+    "arh": {
+     "pix": "de56dd0948368feb6a1ca19531e0a439d84815faadf2d18926946d2e4e7899a3",
+     "jpg": "e3f052156102b6536d80f0268029268c2c51ff18be063a73be3b96656648ea86",
+     "bytes": 61253
+    }
+   }
+  },
+  "g_decals": {
+   "gen": "tools/gen-ground-textures.mjs",
+   "fn": "genDecals()",
+   "px": 1024,
+   "maps": {
+    "albedo": {
+     "pix": "fc283e76fd44f53f1491dae0d71e577b2b6c1d591b66522c4ee226f7f1bcf888",
+     "jpg": "795341f624b61f6f9a3e0861e0dc4ce5b211ea36b6ffe8d237beb8194b0bf9b6",
+     "bytes": 111529
+    },
+    "arh": {
+     "pix": "6217a06d8f7072900b9ef1871a3e772709d98db6c5f412528b19052afdb17308",
+     "jpg": "c83ba22ef077977dfc60de15080d9914dbe6c7fd3a69d85b61ede69fef748b37",
+     "bytes": 129447
+    }
+   }
+  },
   "p_burn": {
    "gen": "tools/gen-paint-textures.mjs",
    "fn": "paint('p_burn') 种子 307",

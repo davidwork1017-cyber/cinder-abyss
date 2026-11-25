@@ -10,5 +10,26 @@
     "boss":    { "tris": 8000,  "materials": 2, "textures": 1, "h": [3.5, 7.0], "rigged": true, "bones": 40, "weights": 4 }
   },
   "requiredAttributes": ["POSITION", "NORMAL", "TEXCOORD_0", "COLOR_0"],
-  "material": "ca_palette"
+  "material": "ca_palette",
+  "textures": {
+    "_comment": "贴图预算（tex-t2，设计稿 tex-design §3.4；tools/check-art.mjs 按这里检查，test:func 的「贴图：连走五个区」在页面里再量一遍）。显存只算贴图，按 RGBA8 + mipmap（宽 × 高 × 4 × 4/3）算，不算渲染目标和阴影贴图。classes：每类贴图的上限，maxPx = 边长上限、lowPx = 低档实际上传的边长上限（有 lo 变体看 lo，skipLow 算 0）、lowNormal = 低档的 lo 变体能不能带法线；value = 反照率亮度（显示值 0–1，Rec.709）的平均下限、上限和 p5–p95 的最大跨度；hf = 反照率亮度减去「2×2 平均」的残差均方根（0–255）上限，游戏镜头下闪不闪的离线代理（tex-design 的 P1 最多 7.7，照片 9.4–23.9）。value / hf 只查有像素清单的程序化贴图（assets/generated/manifest.json）。贴图的类在 tools/asset-sources.json 的 class（缺省：程序化 tile、下载的 photo）。",
+    "classes": {
+      "tile":   { "maxPx": 512,  "lowPx": 256,  "lowNormal": false, "value": [0.35, 0.6, 0.35], "hf": 8 },
+      "cover":  { "maxPx": 512,  "lowPx": 512,  "value": [0.35, 0.7, 0.45], "hf": 10 },
+      "decals": { "maxPx": 1024, "lowPx": 512,  "hf": 10 },
+      "detail": { "maxPx": 256,  "lowPx": 0 },
+      "bake":   { "maxPx": 512,  "lowPx": 0 },
+      "photo":  { "maxPx": 1024, "lowPx": 1024 }
+    },
+    "zoneGpuMB":   { "high": 32, "mid": 32, "low": 12 },
+    "totalGpuMB":  { "high": 48, "mid": 48, "low": 16 },
+    "sharedGpuMB": { "high": 6,  "mid": 6,  "low": 6 },
+    "_legacy": "legacy：还在用照片贴图（photo 类）的区，先按 tex-t2 时的实测封顶（只许降、不许升）；区里的照片都换成脚本画的以后删掉这一行，改按 zoneGpuMB / totalGpuMB 查。sharedGpuMB：共用贴图（角色 / 特效 / 天空等，页面里量：全部贴图 − 区域贴图）的上限，tex-t2 时约 3 MB；legacy 区的整体上限 = 区域封顶 + sharedGpuMB",
+    "legacy": {
+      "frost": { "high": 61.4, "mid": 61.4, "low": 50.7 },
+      "storm": { "high": 61.4, "mid": 61.4, "low": 50.7 },
+      "abyss": { "high": 45.4, "mid": 45.4, "low": 34.7 },
+      "rift":  { "high": 61.4, "mid": 61.4, "low": 50.7 }
+    }
+  }
 }
