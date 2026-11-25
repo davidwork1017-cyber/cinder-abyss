@@ -7313,8 +7313,8 @@
     } else if (loot.kind === 'skill') {
       const sk = G.SKILLS[loot.data.id];
       if (isSummon(loot.data.id)) summonPing();
-      const cv = loot.conv; // 学会了的宝石化成了别的（G.pickup）
-      feedPush('s' + loot.data.id, '<span class="ibox sk" style="--c:' + sk.color + '">' + IC.skill(loot.data.id) + '</span>', '技能宝石 · ' + sk.name, '#3fe0c8',
+      const cv = loot.conv; // 学会了的宝石化成了别的（G.pickup）；化成的东西不一样就另起一行（同一行合并时只加 ×N，后面的说明不会变）
+      feedPush('s' + loot.data.id + (cv ? (cv.blank ? '>b' : '>' + cv.cur) : ''), '<span class="ibox sk" style="--c:' + sk.color + '">' + IC.skill(loot.data.id) + '</span>', '技能宝石 · ' + sk.name, '#3fe0c8',
         cv ? '<em class="fd-note">化为' + (cv.blank ? G.BLANK_GEM.short : G.CURRENCY[cv.cur].name) + '</em>' : '');
     } else if (loot.kind === 'frag') {
       const F = G.FRAGS[loot.data];
@@ -7322,7 +7322,7 @@
     } else if (loot.kind === 'blank') {
       const B = G.BLANK_GEM;
       const cv = loot.conv;
-      feedPush('b', ibox(IC.blank(), 'gemb'), B.name, B.color, '<em class="fd-note">' + (cv ? '化为' + G.CURRENCY[cv.cur].name : '共 ' + G.save.blankGems.length + ' 颗') + '</em>');
+      feedPush('b' + (cv ? '>' + cv.cur : G.save.blankGems.length), ibox(IC.blank(), 'gemb'), B.name, B.color, '<em class="fd-note">' + (cv ? '化为' + G.CURRENCY[cv.cur].name : '共 ' + G.save.blankGems.length + ' 颗') + '</em>');
     } else {
       feedPush('p' + loot.data, ibox(IC.sup(loot.data), 'gemb'), '辅助宝石 · ' + G.SUPPORTS[loot.data].name, '#f0f0f4');
     }

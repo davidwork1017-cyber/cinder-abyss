@@ -1832,8 +1832,10 @@ async function main() {
         out.dup1 = { picked: pick('skill', { id: 'nova' }), gems: save.blankGems.join(), cur: curSum() - c0, toast: T.toasts(), feed: document.getElementById('feed').innerText };
         // 全都学会了 → 化成 1 个随机通货，无铭宝石不动
         save.skills.icefall = G.gemFloor();
-        const c1 = curSum();
+        const c1 = curSum(), each = Object.assign({}, save.cur);
         out.dup2 = { picked: pick('skill', { id: 'nova' }), gems: save.blankGems.join(), cur: curSum() - c1, toast: T.toasts(), feed: document.getElementById('feed').innerText };
+        const got = G.CUR_IDS.find((id) => (save.cur[id] || 0) > (each[id] || 0));
+        out.dup2.name = got ? G.CURRENCY[got].name : '';
         // 没学会的照常学会，存档里记下限
         delete save.skills.icefall;
         out.learn = { picked: pick('skill', { id: 'icefall' }), lvl: save.skills.icefall, floor: G.gemFloor(), toast: T.toasts() };
@@ -1857,7 +1859,7 @@ async function main() {
     assert(r.up.level === 21 && r.up.floor === 16 && r.up.nova === 16 && r.up.ember === 30 && r.up.lvl === 16 && !r.up.toast.includes('技能宝石随之成长') && !/Lv 1[56]：/.test(r.up.toast), '升级：存的数只抬不压、不再提示宝石成长：' + JSON.stringify(r.up));
     assert(r.label === '技能宝石：坠凌' && r.data === '{"id":"icefall"}', '地上的技能宝石不该有等级：' + JSON.stringify(r));
     assert(r.dup1.picked && r.dup1.gems === '16' && r.dup1.cur === 0 && r.dup1.toast.includes('已学会「霜环」，化为 1 颗无铭技能宝石（共 1 颗）') && r.dup1.feed.includes('化为无铭宝石'), '学会了的宝石（还有能学的）应化成无铭宝石：' + JSON.stringify(r.dup1));
-    assert(r.dup2.picked && r.dup2.gems === '16' && r.dup2.cur === 1 && /已学会「霜环」，化为 1 个\S+/.test(r.dup2.toast) && !r.dup2.toast.includes('无铭') && /技能宝石 · 霜环[\s\S]*化为/.test(r.dup2.feed), '全都学会了：应化成 1 个随机通货：' + JSON.stringify(r.dup2));
+    assert(r.dup2.picked && r.dup2.gems === '16' && r.dup2.cur === 1 && r.dup2.name && r.dup2.toast.includes('已学会「霜环」，化为 1 个' + r.dup2.name) && r.dup2.feed.includes('化为' + r.dup2.name), '全都学会了：应化成 1 个随机通货：' + JSON.stringify(r.dup2));
     assert(r.learn.picked && r.learn.lvl === r.learn.floor && r.learn.toast.includes('习得技能：坠凌') && !/坠凌 Lv/.test(r.learn.toast), '没学会的照常学会、记下限、提示不写等级：' + JSON.stringify(r.learn));
     assert(r.ncards > 10 && !/Lv\b|Lv /.test(r.cards) && !r.cards.includes('升至'), '技能卡不该写等级：' + r.cards.slice(0, 300));
     return '下限 ' + r.floor + ' · 存的 ' + r.stored + ' · 重复 → 无铭 / 通货';
@@ -22721,6 +22723,10 @@ async function d2b2Steps() {
       const S = G.save, L = G.state.loot, l0 = L.length;
       const lvl0 = S.level;
       S.level = 30;
+      // gem-nolvl：掉落总是先挑没学会的，这里又不拾取——要看池子里有哪些，就让全部技能都学会（挑到的是重复的，从整个池子里按职业加权挑）
+      const sk0 = S.skills;
+      S.skills = {};
+      for (const id of G.GEM_SKILLS) S.skills[id] = 5;
       const seen = (cls) => {
         if (cls) S.cls = cls;
         else delete S.cls;
@@ -22743,6 +22749,7 @@ async function d2b2Steps() {
       const a = seen(null), b = seen('hunt'), c = seen('guard'), d = seen('forge');
       delete S.cls;
       S.level = lvl0;
+      S.skills = sk0;
       const old = new Set(G.gemDropPool(undefined));
       const NEW = ['molten', 'wedge', 'rime', 'recoil', 'snare', 'brace', 'scorch', 'heartfire', 'leapshot'];
       const all = new Set([...b.ids, ...c.ids, ...d.ids]);
@@ -23514,7 +23521,7 @@ async function classSteps() {
     return Object.keys(r).map((k) => k + '→' + r[k].cls + '「' + r[k].why + '」').join('；');
   });
 
-  await step('职业·掉落加权：抽 1 万次，本职业武器占武器掉落 65% ± 2%、本职业能用的技能宝石占 75% ± 2%；炉匠的货架宝石格总挑得出能用的', async () => {
+  await step('职业·掉落加权：抽 1 万次，本职业武器占武器掉落 65% ± 2%；技能宝石全学会以后（重复的）本职业能用的占 75% ± 2%，本职业还有没学会的时候 100% 挑本职业的（gem-nolvl）；炉匠的货架宝石格总挑得出能用的', async () => {
     const r = await ev(() => {
       const S = G.save, out = {};
       localStorage.clear();
@@ -23524,8 +23531,15 @@ async function classSteps() {
         S.cls = c;
         let w = 0, g = 0;
         for (let i = 0; i < 10000; i++) if (G.WTYPE_CLS[G.BASES.weapon[G.rollItem(20, 0, 'weapon').baseIdx].type] === c) w++;
+        // 全学会了：挑到的都是重复的，按 G.CLASS_LOOT.gem 加权
+        S.skills = {};
+        for (const id of G.gemDropPool(c)) S.skills[id] = 5;
         for (let i = 0; i < 10000; i++) if (G.classCanUse(c, G.pickSkillGem(0).id)) g++;
-        out[c] = { w: w / 100, g: g / 100, M: +G.CLASS_WM[c].toFixed(3) };
+        // 什么都没学：总是先挑本职业能用的
+        S.skills = {};
+        let g0 = 0;
+        for (let i = 0; i < 2000; i++) if (G.classCanUse(c, G.pickSkillGem(0).id)) g0++;
+        out[c] = { w: w / 100, g: g / 100, gNew: g0 / 20, M: +G.CLASS_WM[c].toFixed(3) };
       }
       S.cls = 'forge';
       S.skills = {};
@@ -23537,7 +23551,7 @@ async function classSteps() {
       return out;
     });
     for (const c of ['guard', 'hunt', 'star', 'lamp', 'forge']) {
-      assert(Math.abs(r[c].w - 65) <= 2 && Math.abs(r[c].g - 75) <= 2, c + '：加权不对：' + JSON.stringify(r[c]));
+      assert(Math.abs(r[c].w - 65) <= 2 && Math.abs(r[c].g - 75) <= 2 && r[c].gNew === 100, c + '：加权不对：' + JSON.stringify(r[c]));
     }
     assert(r.trader === 0, '炉匠的货架宝石格挑出了用不了的：' + r.trader);
     return ['guard', 'hunt', 'star', 'lamp', 'forge'].map((c) => c + ' 武器 ' + r[c].w + '% 宝石 ' + r[c].g + '% M ' + r[c].M).join('；');
