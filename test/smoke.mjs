@@ -16950,13 +16950,13 @@ async function main() {
     assert(r.carry >= 1 && r.b2 > 0 && r.kAfter >= 2.4 && !r.chainFit, '目标倒下后加成应转到身边的敌人；连锁镶不上：' + JSON.stringify(r));
     return '2 秒 ×' + r.k2 + '，4 秒 ×' + r.k4 + '，转移后 ×' + r.kAfter;
   });
-  await step('刻式 b2·散钉「环钉」：一圈 8 枚朝四周飞（imbue 批 12 → 8），身边一圈 8 只都挨到，同一只最多中 2 枚', async () => {
+  await step('刻式 b2·散钉「环钉」：一圈 6 枚朝四周飞（imbue 批 12 → 6），身边一圈 6 只都挨到，同一只最多中 2 枚', async () => {
     await ev(TVDEF);
     const r = await ev(() => {
       TV.setup('nails', 'a');
       const ms = [];
-      for (let i = 0; i < 8; i++) {
-        const a = (i / 8) * Math.PI * 2;
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
         ms.push(TV.mob(Math.cos(a) * 2.5, Math.sin(a) * 2.5));
       }
       for (const e of ms) TV.pin(e);
@@ -16968,8 +16968,8 @@ async function main() {
       TV.done();
       return out;
     });
-    assert(r.proj === 8 && r.n.every((x) => x >= 1 && x <= 2) && r.rings === 1, '环钉应 8 枚四散、每只 1–2 枚：' + JSON.stringify(r));
-    return '8 只各中 ' + r.n.join('/');
+    assert(r.proj === 6 && r.n.every((x) => x >= 1 && x <= 2) && r.rings === 1, '环钉应 6 枚四散、每只 1–2 枚：' + JSON.stringify(r));
+    return '6 只各中 ' + r.n.join('/');
   });
   await step('刻式 b2·散钉「钩钉」：每中一枚把敌人往你身边拽（不击退），首领拽不动；原式把它往外推', async () => {
     await ev(TVDEF);
