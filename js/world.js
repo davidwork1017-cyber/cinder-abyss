@@ -25798,15 +25798,17 @@
       vsEmit(x + Math.sin(a) * r0, y, z + Math.cos(a) * r0, Math.sin(a) * s, vr(0.5, 2.5), Math.cos(a) * s, vr(0.55, 0.85), vr(0.07, 0.13), undefined, vr(0, TAU), vr(-8, 8), 14);
     }
   }
-  // 爆燃：一道往外推的细环 + 环上往上舔的火舌 + 几粒余烬 + 一颗 0.8 米、60 毫秒的小星；余波是一块暗的焦痕（低画质件数减半）
+  // 爆燃：一道往外推的细环 + 环上往上舔的火舌 + 几粒余烬 + 一颗 0.8 米、60 毫秒的暖色小星；余波是一块淡的小焦痕（低画质件数减半）
+  // scorch-thin（dev-48 的「一群只放一处」）：一群里只有放全套的那一处留一块焦痕（比原来小、淡一半，低画质换成几块暗碎痕），
+  // 同一群里别的爆燃只留两三块暗碎痕，不再一块块大圆盘摞起来；伤害、判定一点不动（这里全是画面，随机数都是 vr）
   function b1Blast(x, z, R) {
     const lo = qualId === 'low';
     if (!PF.vShape) return;
     if (blastCalm(x, z) || !b1Take()) { // class-d2b2：心火 / 燎原的「一群只放一处」：同一群里第二个起只留焦痕
-      W.vDecal(VVD.scorch, x, z, R * 0.5, 2.2, 0x8a3416); // 超出每帧上限的：只留焦痕（地面痕迹池，不占形状批）
+      b1ScorchChips(x, z, R, lo ? 1 : 2); // 超出每帧上限 / 同一群的第二处起：只留暗碎痕（打击痕迹池，不占形状批、不加 draw）
       return;
     }
-    tChunk(1, x, 0.9, z, 0, 0, 0, 0.06, lo ? 0.5 : 0.8, 0xffe2a0, 0xff8a3a, 0); // class-d2b2：低画质的小星收小（低画质不该比高画质显得重）
+    tChunk(1, x, 0.9, z, 0, 0, 0, 0.06, lo ? 0.5 : 0.8, 0xffb86a, 0xff7a2a, 0); // scorch-thin：小星不再近白 // class-d2b2：低画质的小星收小（低画质不该比高画质显得重）
     b1Ring(x, z, R, 0xffb050, 0x8a2a10, 0.36, 0.35);
     b1RimTongues(x, z, R, lo ? 2 : 3, 0.5 + R * 0.12, 0.42); // skill-b3a：火舌钉在环上、尖朝外，件数减半（原来 6 / 3 片往外飞，像一把纸屑）
     vsBrush(VSH.chip, 0, 0, 0xff9a4a, 0x5a1e10, 0.3, 0.2, 0.4);
@@ -25814,7 +25816,15 @@
       const a = vr(0, TAU), d = R * vr(0.2, 0.8);
       vsEmit(x + Math.sin(a) * d, 0.4, z + Math.cos(a) * d, vr(-0.4, 0.4), vr(1.5, 3), vr(-0.4, 0.4), vr(0.5, 0.85), 0.06, 0.06, 0, 0, -1, 0.6);
     }
-    W.vDecal(VVD.scorch, x, z, R * 0.55, 2.6, 0x8a3416);
+    if (lo) b1ScorchChips(x, z, R, 3); // 低画质：不铺圆盘，只留几块暗碎痕
+    else W.vDecal(VVD.scorch, x, z, R * 0.4, 2.2, 0x7a2e14, { a: 0.5 }); // 原来 R × 0.55、满浓度：淡一半、半径小三成
+  }
+  // 暗碎痕：爆燃中心附近几块小灰迹（W.decal 的灰迹，0.3–0.5 米，暗褐、软边、不发光；焦痕那种实心黑点像地上的洞）
+  function b1ScorchChips(x, z, R, n) {
+    for (let i = 0; i < n; i++) {
+      const a = vr(0, TAU), d = R * vr(0.1, 0.45);
+      W.decal(4, x + Math.sin(a) * d, z + Math.cos(a) * d, vr(0.3, 0.5), vr(0, TAU), 0x6a3420, vr(1.3, 1.9));
+    }
   }
   // 冻结：脚边一圈尖朝外的冰晶 + 往下掉的冰碴 + 一道冷色细环；地上一片冻青灰的霜痕（比地面暗；低画质不铺）
   function b1Freeze(x, z, r, h, boss) {
