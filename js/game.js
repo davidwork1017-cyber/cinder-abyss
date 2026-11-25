@@ -9525,7 +9525,7 @@
   function imbueAfter(ctx, key, e, m, killed, pass, dir) {
     const I = ctx.imb.I;
     let st = imbCast.get(key);
-    if (!st) imbCast.set(key, (st = { sp: 0, sh: 0, wd: null }));
+    if (!st) imbCast.set(key, (st = { sp: 0, sh: 0, wd: null, zp: 0 }));
     if (I.splash && killed && st.sp < (I.splash.chain || 1) && imbRateOk('splash', I.splash.perSec)) {
       st.sp++;
       imbSplash(ctx, e.x, e.z, m, I.splash, st);
@@ -9534,7 +9534,7 @@
       if (!st.wd) st.wd = new Set();
       if (!st.wd.has(e)) {
         st.wd.add(e);
-        imbWedge(ctx, e, m, I.wedge);
+        if (imbWedge(ctx, e, m, I.wedge, st.zp < 1)) st.zp++;
       }
     }
     if (I.shard && (killed || pass) && st.sh < 1 && imbRateOk('shard', I.shard.perSec)) {
@@ -9560,16 +9560,19 @@
       imbSplash(ctx, o.x, o.z, m, S, st);
     }
   }
-  // 雷楔：钉一枚，钉满 n 枚放电（这几枚伤害之和 × zap），再连到附近 chain 个
-  function imbWedge(ctx, e, m, W0) {
+  // 雷楔：钉一枚，钉满 n 枚放电（这几枚伤害之和 × zap），再连到附近 chain 个。
+  // can：这次出手还能不能放电（每次出手最多放 1 次：散钉一把钉进一群怪，只有一个放电，其余的留到下一把）。放了电返回 true
+  function imbWedge(ctx, e, m, W0, can) {
     let s = e.imbW;
     if (!s || state.time - s.at > W0.keep) s = e.imbW = { n: 0, sum: 0, at: 0 };
-    s.n++;
-    s.sum += m;
-    s.at = state.time;
     if (s.n < W0.n) {
+      s.n++;
+      s.sum += m;
+    }
+    s.at = state.time;
+    if (s.n < W0.n || !can) {
       fxOpt('imbWedge', e, s.n, W0.n);
-      return;
+      return false;
     }
     const tot = s.sum * W0.zap;
     e.imbW = null;
@@ -9580,7 +9583,7 @@
     for (const o of tg) G.hitEnemy(o, pc, tot * W0.chainK, { ang: Math.atan2(o.x - e.x, o.z - e.z), w: 0, kb: 0, poise: 2, quiet: true, extra: true });
     fxOpt('imbZap', e, tg);
     G.sfx('round', { type: 'zap' });
-    state.stats.imbZap = (state.stats.imbZap || 0) + 1;
+    state.stats.imbZap = (state.stats.imbZap || 0) + 1;    return true;
   }
   // 霜霰：从敌人背后炸出冰屑（冰环：四周一圈）；不打被命中的那个
   function imbShards(ctx, e, m, S0, dir) {
@@ -10338,8 +10341,10 @@
     }
   }
   function tickMines(dt) {
-    for (let i = mines.length - 1; i >= 0; i--) {
-      const m = mines[i];
+    // 连爆 / 到时炸开会在循环里把别的雷从 mines 里拿掉（imbue 批）：按开头的那一份走，已经被拿掉的跳过
+    for (const m of mines.slice().reverse()) {
+      const i = mines.indexOf(m);
+      if (i < 0) continue;
       m.t -= dt;
       m.arm -= dt;
       if (m.t <= 0) {
