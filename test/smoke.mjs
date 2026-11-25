@@ -16064,12 +16064,12 @@ async function main() {
       P.z = dest.z;
       TV.run(5);
       out.follow = { moved: +D(c, c0).toFixed(1), dP: +D(c, P).toFixed(1) };
-      // 嘲讽：前面 3 米一只小怪、5 米一个首领（不动不还手），守像顶上去嘲讽两个；一下都不打
+      // 嘲讽：前面 3 米一只小怪、5 米一个首领（不动不还手），守像走过去嘲讽两个；一下都不打
       const mob = TV.mob(3, 0.5);
       mob.atkCd = 1e9;
       const boss = TV.boss(5);
       TV.run(6);
-      out.taunt2 = { mob: mob.taunter === c, boss: boss.taunter === c, hitMob: TV.n(mob), hitBoss: TV.n(boss), mobHp: mob.hp === mob.maxHp, bossHp: boss.hp === boss.maxHp, dP: +D(c, P).toFixed(1) };
+      out.taunt2 = { mob: mob.taunter === c, boss: boss.taunter === c, hitMob: TV.n(mob), hitBoss: TV.n(boss), mobHp: mob.hp === mob.maxHp, bossHp: boss.hp === boss.maxHp };
       // 护域：以守像为圆心 6 米，里面你受到的伤害 ×0.8、敌人减速 25%，外面不算
       const inside = TV.mob(0, 0);
       inside.x = c.x + 2;
@@ -16107,7 +16107,7 @@ async function main() {
     });
     assert(r.mech === 'bastion' && r.move > 0 && r.taunt && r.dps === 0, '磐垒的数据不对（应能走、会嘲讽、估算秒伤 0）：' + JSON.stringify(r));
     assert(r.follow.moved > 8 && r.follow.dP < 6, '磐垒应跟着你走：' + JSON.stringify(r.follow));
-    assert(r.taunt2.mob && r.taunt2.boss && r.taunt2.hitMob === 0 && r.taunt2.hitBoss === 0 && r.taunt2.mobHp && r.taunt2.bossHp && r.taunt2.dP <= 6, '磐垒应嘲讽小怪和首领、一下都不打、不离开你：' + JSON.stringify(r.taunt2));
+    assert(r.taunt2.mob && r.taunt2.boss && r.taunt2.hitMob === 0 && r.taunt2.hitBoss === 0 && r.taunt2.mobHp && r.taunt2.bossHp, '磐垒应嘲讽小怪和首领、一下都不打：' + JSON.stringify(r.taunt2));
     assert(r.aura.k === 0.8 && r.aura.kOut === 1 && r.aura.slow === 0.25 && r.aura.slowOut === 0 && r.aura.fill, '磐垒的护域不对：' + JSON.stringify(r.aura));
     assert(r.px.red && r.px.diff <= 12, '护域的铺底不该盖掉预警圈的红：' + JSON.stringify(r.px));
     return '跟上 ' + r.follow.moved + ' 米，嘲讽小怪 + 首领、命中 0；护域里受伤 ×' + r.aura.k + '、减速 ' + r.aura.slow + '；预警圈中心 ' + r.px.on.join('/') + '（铺底关 ' + r.px.off.join('/') + '）';

@@ -1580,12 +1580,10 @@
             m.moving = true;
           } else if (m.kind === 'colossus' && canTaunt(m)) startTaunt(m);
           else if (mi.mech === 'bastion') {
-            // 刻式「磐垒」：只扛不打（从不出手，伤害 0）。有敌人时朝它顶上去，但落脚点离你不超过 keep 米，你一直在护域里；没有敌人就跟着你
+            // 刻式「磐垒」：和原式一样走到敌人身边扛着（嘲讽在上面），只是从不出手，伤害 0；没有敌人就跟着你。
+            // 召唤师机器人（衔星巨兽，层级 2）：落脚点限在你身边 4 米时，被嘲讽的首领连招砸在你身上，倒下 2.67 次；走过去扛 0 次（原式 0.67）
             if (e) {
-              const K = mi.vx.keep, dx = e.x - P.x, dz = e.z - P.z, d = Math.hypot(dx, dz);
-              const clip = d > K;
-              const tx = clip ? P.x + (dx / d) * K : e.x, tz = clip ? P.z + (dz / d) * K : e.z;
-              if (moveTo(m, tx, tz, mi.move * fz, clip ? 0.6 : e.r + m.r + 0.3, dt, 0.45)) {
+              if (moveTo(m, e.x, e.z, mi.move * fz, e.r + m.r + Math.max(mi.reach, mi.radius * 0.7) * 0.85, dt, 0.45)) {
                 m.stuckT = 0;
                 turn(m, Math.atan2(e.x - m.x, e.z - m.z), 6, dt);
               } else if (m.stuckT > STUCK_T) {
