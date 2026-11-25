@@ -1021,7 +1021,7 @@ async function main() {
   });
 
   // tex-t1：第 0 区的路面 / 粗糙地面 / 虚空地面 / 岩石三向投影都是脚本画的贴图；高 / 中档 512² 带法线贴图，低档换 256² 的一套、不传法线贴图（平的法线）
-  await step('贴图：第 0 区地面和岩石用脚本画的贴图，高档 512² 带法线贴图，低档 256²、不传法线贴图', async () => {
+  await step('贴图：第 0 区地面和岩石用脚本画的贴图，高档 512² 带法线贴图，低档 256²、不传法线贴图（进区和原地换档都对）', async () => {
     const r = await ev(async () => {
       const W = G.world, S = G.state, zk = { zi: S.zoneIdx, tier: S.tier }, q0 = W.quality();
       const look = () => {
@@ -1047,6 +1047,11 @@ async function main() {
       G.enterZone(0, 0);
       await wait();
       out.low = await until(256);
+      // 不重新进区、原地换档（retierZone → swapZoneTex）：高档换回 512² 和真的法线贴图，再回低档换回 256² 和平的法线；岩石跟着换
+      W.setQuality('high');
+      out.swapHigh = await until(512);
+      W.setQuality('low');
+      out.swapLow = await until(256);
       W.setQuality(q0);
       G.enterZone(zk.zi, zk.tier);
       await wait();
@@ -1056,7 +1061,10 @@ async function main() {
     assert(r.high.gfx && r.high.g && r.high.g.every((w) => w === 512) && r.high.rock && r.high.rock.every((w) => w === 512), '高档：地面三套和岩石应是 512² 带法线贴图：' + JSON.stringify(r.high));
     const L = r.low.g;
     assert(r.low.gfx && L && [L[0], L[2], L[3], L[5]].every((w) => w === 256) && [L[1], L[4], L[6]].every((w) => w === 4) && r.low.rock && r.low.rock[0] === 256 && r.low.rock[1] === 4, '低档：地面三套和岩石应是 256²、法线贴图是平的 4×4：' + JSON.stringify(r.low));
-    return '高 ' + r.high.g.join('/') + ' ｜ 低 ' + L.join('/') + ' ｜ 岩石 ' + r.high.rock.join('/') + ' → ' + r.low.rock.join('/');
+    const okHi = (x) => x && x.g && x.g.every((w) => w === 512) && x.rock && x.rock.every((w) => w === 512);
+    const okLo = (x) => x && x.g && [x.g[0], x.g[2], x.g[3], x.g[5]].every((w) => w === 256) && [x.g[1], x.g[4], x.g[6]].every((w) => w === 4) && x.rock && x.rock[0] === 256 && x.rock[1] === 4;
+    assert(okHi(r.swapHigh) && okLo(r.swapLow), '原地换档：高档应换回 512² 带法线、低档换回 256² 平法线：' + JSON.stringify({ hi: r.swapHigh, lo: r.swapLow }));
+    return '高 ' + r.high.g.join('/') + ' ｜ 低 ' + L.join('/') + ' ｜ 岩石 ' + r.high.rock.join('/') + ' → ' + r.low.rock.join('/') + ' ｜ 原地换档 ' + r.swapHigh.g.join('/') + ' → ' + r.swapLow.g.join('/');
   });
 
   await step('首屏：场景、玩家、HUD、小地图都画出来了', async () => {
