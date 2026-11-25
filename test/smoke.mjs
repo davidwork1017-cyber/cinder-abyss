@@ -16070,9 +16070,10 @@ async function main() {
       const mob = TV.mob(3, 0.5);
       mob.atkCd = 1e9;
       const boss = TV.boss(5);
-      // 嘲讽 3 秒、冷却 7 秒：边推进边记「被它嘲讽过」（只看最后一刻会落在两次嘲讽之间）
+      TV.pin(boss); // 首领离开竞技场会被拉回去：钉在原地
+      // 嘲讽 3 秒、冷却 7 秒：边推进边记「被它嘲讽过」（只看最后一刻会落在两次嘲讽之间）；9 秒里有两次嘲讽，第一次时首领可能还在 6 米外
       let tm = false, tb = false;
-      for (let k = 0; k < 60; k++) {
+      for (let k = 0; k < 90; k++) {
         TV.run(0.1);
         tm = tm || mob.taunter === c;
         tb = tb || boss.taunter === c;
