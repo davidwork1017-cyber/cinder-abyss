@@ -23322,7 +23322,7 @@ async function imbueSteps() {
     assert(r.molten.sp >= 1 && r.molten.sp <= 6, '铁水：打死的怪炸开铁水，每秒最多 3 摊：' + JSON.stringify(r.molten));
     assert(r.wedge.zp >= 2 && r.wedge.dmg > 0, '雷楔：钉满 3 枚就放电：' + JSON.stringify(r.wedge));
     assert(r.rime.sh >= 2, '霜霰：机炮的子弹穿过第一只时炸冰屑：' + JSON.stringify(r.rime));
-    assert(Math.abs(r.add1 - 12) < 1e-9 && Math.abs(r.add20 - 17.7) < 1e-9, '铁水附带的火焰 = 12% + 每级 0.3：' + JSON.stringify(r));
+    assert(Math.abs(r.add1 - 11) < 1e-9 && Math.abs(r.add20 - 16.13) < 1e-9, '铁水附带的火焰 = 11% + 每级 0.27：' + JSON.stringify(r));
     assert(r.nailsZap === 1 && r.nailsLeft >= 3, '散钉一把钉进一群钉满的怪，只放 1 次电，别的留到下一把：' + JSON.stringify(r));
     return '铁水 ' + r.molten.sp + ' 摊 / 雷楔放电 ' + r.wedge.zp + ' 次 / 冰屑 ' + r.rime.sh + ' 次，散钉放电 ' + r.nailsZap + '（留着 ' + r.nailsLeft + '）';
   });
