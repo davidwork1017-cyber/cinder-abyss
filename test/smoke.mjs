@@ -15584,7 +15584,7 @@ async function main() {
     return '40 个刻式选一遍再改回，G.SKILLS 深比较不变';
   });
 
-  await step('刻式：单体对等——游戏内 avgHit / useMult / time 算出 58 个比值都在 [0.9, 1.1]（霜环、黑焰按总秒伤 [0.95, 1.05]）', async () => {
+  await step('刻式：单体对等——游戏内 avgHit / useMult / time 算出 58 个比值都在 [0.9, 1.1]（霜环、黑焰按总秒伤 [0.95, 1.05]；磐垒不造成伤害，比值 0）', async () => {
     const r = await ev(() => {
       T.arena();
       const s = G.save;
@@ -15604,7 +15604,9 @@ async function main() {
       }
       return rows;
     });
-    const bad = r.filter((x) => (x.total ? x.r < 0.95 || x.r > 1.05 : x.r < 0.9 || x.r > 1.1));
+    // 磐垒（2026-11-25 改版，用户定）：守像只扛不打，没有伤害可比，比值应正好是 0（规则 a 不适用）；其余照旧
+    const tank = (x) => x.id === 'colossus' && x.v === 'a';
+    const bad = r.filter((x) => (tank(x) ? x.r !== 0 : x.total ? x.r < 0.95 || x.r > 1.05 : x.r < 0.9 || x.r > 1.1));
     assert(r.length === 58 && !bad.length, '比值超出范围：' + JSON.stringify(bad)); // class-d2b1：+ 四种特殊弹 × A / B；class-d2b2：+ 5 个 × A / B
     return r.map((x) => x.name + ' ' + x.r).join(' / ');
   });
@@ -16068,8 +16070,14 @@ async function main() {
       const mob = TV.mob(3, 0.5);
       mob.atkCd = 1e9;
       const boss = TV.boss(5);
-      TV.run(6);
-      out.taunt2 = { mob: mob.taunter === c, boss: boss.taunter === c, hitMob: TV.n(mob), hitBoss: TV.n(boss), mobHp: mob.hp === mob.maxHp, bossHp: boss.hp === boss.maxHp };
+      // 嘲讽 3 秒、冷却 7 秒：边推进边记「被它嘲讽过」（只看最后一刻会落在两次嘲讽之间）
+      let tm = false, tb = false;
+      for (let k = 0; k < 60; k++) {
+        TV.run(0.1);
+        tm = tm || mob.taunter === c;
+        tb = tb || boss.taunter === c;
+      }
+      out.taunt2 = { mob: tm, boss: tb, hitMob: TV.n(mob), hitBoss: TV.n(boss), mobHp: mob.hp === mob.maxHp, bossHp: boss.hp === boss.maxHp };
       // 护域：以守像为圆心 6 米，里面你受到的伤害 ×0.8、敌人减速 25%，外面不算
       const inside = TV.mob(0, 0);
       inside.x = c.x + 2;
@@ -21097,7 +21105,10 @@ async function main() {
     if (out.qOff !== 0) out.bad.push('摘下时还挂着 ' + out.qOff);
     if (out.offGain !== 0) out.bad.push('摘着时还在余响 ' + out.offGain);
     const src = id === 'blackflame' ? 'blackflame' : id;
-    if (!(by[src] > 0)) out.bad.push('没有余响记到 ' + src);
+    // 磐垒（2026-11-25 改版）：守像只扛不打，没有命中就没有余响，应正好是 0
+    if (id === 'colossus' && v === 'a') {
+      if (by[src] > 0) out.bad.push('磐垒不造成伤害，不该有余响 ' + Math.round(by[src]));
+    } else if (!(by[src] > 0)) out.bad.push('没有余响记到 ' + src);
     for (const k in by) if (k !== id && k !== 'blackflame') out.bad.push('记到了别的技能 ' + k + '（' + (out.foreign || '?') + '）');
     if (id !== 'blackflame' && !(out.mine <= elig * 0.6 * 1.001 + 1)) out.bad.push('余响超过够格命中的 60%：' + out.mine + ' / ' + Math.round(elig));
     if (mx.enemies > 11 || mx.minions > 8 || mx.proj > 300 || mx.kv > 400 || mx.q > mx.enemies) out.bad.push('数量越界 ' + JSON.stringify(mx));
