@@ -31324,7 +31324,7 @@
     if (!PF.vShape || !e) return;
     const lo = qualId === 'low', y = (e.height || 2) * 0.55;
     W.thinRing(e.x, e.z, Math.max(1.7, (e.r || 0.5) + 1.2), 0xd8ccff, 0x7a6aff, 0.24, 14); // 放电那一下：脚下一道蓝紫细边往外推（半径 > 1.6 米走细线段，不是实心环带）
-    vsBrush(VSH.bar, 4, 2, 0xe8e2ff, 0x7a68ff, 0.6, 0.35);
+    vsBrush(VSH.bar, 4, 2, 0xc4b4ff, 0x7a66ff, 0.35, 0.35, 0.25); // 蓝紫的折线（亮芯压低，不发白）
     for (let k = 0, m = lo ? 3 : 5; k < m; k++) zig(e.x, y, e.z, vr(0, TAU), vr(-0.5, 0.2), 1, vr(0.3, 0.5), 0.06);
     for (const o of tg) {
       const dx = o.x - e.x, dz = o.z - e.z, d = Math.hypot(dx, dz) || 1, n = Math.max(2, Math.round(d / (lo ? 1.6 : 0.8)));
