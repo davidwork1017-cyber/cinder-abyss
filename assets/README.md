@@ -4,7 +4,7 @@
 | --- | --- | --- |
 | `polyhaven/` | Poly Haven 贴图，https://polyhaven.com | CC0（`polyhaven/LICENSE.txt`） |
 | `ambientcg/` | ambientCG 贴图，https://ambientcg.com | CC0（`ambientcg/LICENSE.txt`） |
-| `generated/` | `tools/gen-ground-textures.mjs` 按固定种子程序化生成的地面覆盖层（`g_cover_*`）和贴花图集（`g_decals`） | 原创（我们自己画的，不是第三方素材） |
+| `generated/` | `tools/gen-ground-textures.mjs` 按固定种子程序化生成的地面覆盖层（`g_cover_*`）和贴花图集（`g_decals`）；`tools/gen-paint-textures.mjs` 按固定种子画的平铺贴图（`p_mud` 龟裂焦土、`p_burn` 焦痕碎石、`p_rock` 棱面石头，第 0 区的路面 / 粗糙地面 / 虚空地面和岩石三向投影），清单 `generated/manifest.json` 记着生成器、种子、原始像素和 JPEG 的 sha256 | 原创（我们自己画的，不是第三方素材） |
 | `ca/` | 自产布景件：`art/` 下的 Blender 生成脚本按固定种子生成（`npm run build:art`，见 `docs/art-pipeline.md`），清单 `ca/manifest.json` 记着每件的生成器、参数、种子和 sha256；`ship` 为 true 的件打进 `js/assets/kit-<区>.js` | 原创（我们自己的脚本生成，不是第三方素材） |
 | `story/` | 开场故事的画格（`js/story.js` 放的时候才加载）：`tools/story/bake.mjs` 用游戏自己的引擎摆拍（角色、区域、首领都是游戏里现成的，用到的第三方模型和贴图就是上面这些 CC0 包），再加墨线 / 平涂分阶 / 网点烘成分层 webp，见 `tools/story/README.md` | 原创（游戏画面的渲染图，不是第三方素材） |
 | `kaykit-dungeon-remastered/` | KayKit Dungeon Remastered 1.0，Kay Lousberg，https://kaylousberg.itch.io/kaykit-dungeon-remastered | CC0（`LICENSE.txt`）；2026-11-22（models-drop）起不再打进游戏，源文件和许可证留作记录 |
@@ -20,6 +20,7 @@
 - 程序化贴图：`node tools/gen-ground-textures.mjs` 重新生成 `generated/` 下的贴图（像素在 `tools/ground-tex.mjs` 里只用 Node 按固定种子算，同样的代码出同样的像素；JPEG 编码借 playwright-core 的 Chrome），格式同上，但只出 `tools/asset-sources.json` 里 `kinds` 列的通道（贴花图集和覆盖层的法线游戏里不采样，不出）；贴花图集的 `arh.jpg` 的 G 通道是不透明度。每张图的生成函数、原始像素和 JPEG 的 sha256 记在 `generated/manifest.json`，`npm run check:art` 重新算像素核对（tex-t2）。
 - 贴图的画质档（tex-t2）：`tools/asset-sources.json` 的贴图条目可以写 `lo: true`（低档用 `<id>/lo/` 下的小图）或 `skipLow: true`（低档整套不解码，游戏给透明占位图，比如低档不画的贴花图集 `g_decals`）。贴图预算在 `art/budgets.json` 的 `textures`，check-art 按每区、每档算显存。
 - `ambientcg/Lava001` 从 zones-polish 起游戏里不用了，tex-t2 起不再打包（文件和许可证留着）。
+- 画的平铺贴图：像素在 `tools/paint-tex.mjs`（只用 Node），`node tools/gen-paint-textures.mjs` 重新生成 `generated/p_*/`（512² 的 albedo / normal / arh，另有低档用的 256² `lo/albedo.jpg`、`lo/arh.jpg`，低档不传法线贴图）。JPEG 由清单里钉住的 Chrome 版本编码，版本不同会拒绝（换版本加 `--rebase`）；`node tools/gen-paint-textures.mjs --check` 只用 Node 重算像素、核对清单里的 sha256。2026-11-24（tex-t1）起第 0 区不再用照片贴图，只有第 0 区用过的 `mud_cracked_dry_03`、`burned_ground_01` 从 `polyhaven/` 删掉了（`dark_rock` 深渊还在用）。
 - 模型：原样从各素材包复制（KayKit 的 `.gltf.glb` 改名为 `.glb`）。KayKit / Kenney 这三个包从 2026-11-22 起不再打包（`tools/asset-sources.json` 里没有 `models` 包了，布景全是 `ca/` 自产件）。`ca/` 下的自产件是生成物，不要手改：改 `art/` 下的脚本或 `art/catalog.py` 再重新生成，`npm run check:art`（也是 test:func 的第一步）核对预算、命名、原点和清单。
 - 人形标准骨架的动作（`ual/ual-clips.glb`）：`node tools/ual-pack.mjs <UAL1 的 AnimationLibrary_Godot_Standard.glb> <UAL2 的 UAL2_Standard.glb>` 从两个下载包里只挑用到的动作
   （Zombie_Idle_Loop / Zombie_Walk_Fwd_Loop / Hit_Chest / Death01 的前 1.6 秒），骨架是 UAL2 的 65 骨骼去掉手指和末端骨骼（23 根），没有网格；
