@@ -16140,6 +16140,38 @@ async function main() {
     assert(r.rocks >= 1 && r.hits >= 1 && r.n >= 1, '掷岩应抛石砸中远处的怪：' + JSON.stringify(r));
     return '抛石 ' + r.rocks + '，砸中 ' + r.hits;
   });
+  // 2026-11-25（dev-48）：掷岩砸中嘲讽——小怪和首领都是 1.5 秒，同一个敌人每 7 秒最多一次
+  await step('刻式 v2·石誓守像「掷岩」：巨石砸中就嘲讽（小怪、首领都是 1.5 秒），同一个敌人 7 秒内只嘲讽一次', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('colossus', 'b');
+      const P = G.player, S = G.state;
+      const c = G.summonMinion('colossus', P.x - 1, P.z, G.skillCtx('colossus'));
+      const m = TV.mob(9, 0);
+      const boss = TV.boss(9.5);
+      TV.pin(boss);
+      // 推进到第一块巨石落地：记下小怪 / 首领被嘲讽的时刻和时长
+      const seen = { m: [], b: [] };
+      let last = { m: null, b: null };
+      for (let k = 0; k < 160; k++) {
+        TV.run(0.05);
+        for (const [key, e] of [['m', m], ['b', boss]]) {
+          if (e.taunter === c && e.rockTauntAt !== last[key]) {
+            last[key] = e.rockTauntAt;
+            seen[key].push({ at: +e.rockTauntAt.toFixed(2), t: +e.tauntT.toFixed(2) });
+          }
+        }
+      }
+      const out = { rocks: TV.st('vRocks'), hits: TV.st('vRockHits'), taunts: TV.st('vRockTaunts'), m: seen.m, b: seen.b, card: c.ctx.minion.vx.taunt };
+      TV.done();
+      return out;
+    });
+    const gap = (L) => L.every((x, i) => i === 0 || x.at - L[i - 1].at >= 6.95);
+    assert(r.m.length >= 1 && r.m[0].t > 1.3 && r.m[0].t <= 1.5 && gap(r.m), '巨石砸中小怪应嘲讽 1.5 秒、7 秒最多一次：' + JSON.stringify(r));
+    assert(r.b.length >= 1 && r.b[0].t > 1.3 && r.b[0].t <= 1.5 && gap(r.b), '巨石砸中首领应嘲讽 1.5 秒、7 秒最多一次：' + JSON.stringify(r));
+    assert(r.taunts <= r.hits && r.card === 1.5, '嘲讽次数不该多于砸中次数：' + JSON.stringify(r));
+    return '8 秒里抛石 ' + r.rocks + '、砸中 ' + r.hits + '、嘲讽 ' + r.taunts + '（小怪 ' + r.m.map((x) => x.at).join(' / ') + ' 秒，首领 ' + r.b.map((x) => x.at).join(' / ') + ' 秒）';
+  });
   await step('刻式 v2·焚骨祭司「焰田」：火弹落地留火地，焰蓄满时燎原——所有火地一齐爆燃', async () => {
     await ev(TVDEF);
     const r = await ev(() => {

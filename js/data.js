@@ -1015,9 +1015,10 @@
         set: { mech: 'bastion', bastion: { r: 6, dr: 20, slow: 0.25 } },
       },
       b: {
-        name: '掷岩', pack: '11 米远程；不嘲讽',
-        desc: '守像跟着你，朝 11 米内的敌人抛掷巨石，落地砸开一圈。不嘲讽，减伤降到 15%。',
-        set: { mech: 'boulder', taunt: null, dr: 15, reach: 11, boulder: { keep: 6, r: 2.6, flight: 0.8 } },
+        name: '掷岩', pack: '11 米远程；砸中就嘲讽',
+        desc: '守像跟着你，朝 11 米内的敌人抛掷巨石，落地砸开一圈，砸中的敌人转去打它。减伤降到 15%。', alt: '同一个敌人 7 秒内只被嘲讽一次。',
+        // 2026-11-25（dev-48）：召唤师机器人里掷岩没有嘲讽，倒下 3.3 次、受伤 13.3 倍生命（原式 0.4 次 / 3.4 倍）。砸中嘲讽：小怪和首领都是 1.5 秒（首领原来想给 1 秒，dev-48 定 1.5），同一个敌人每 7 秒最多一次
+        set: { mech: 'boulder', taunt: null, dr: 15, reach: 11, boulder: { keep: 6, r: 2.6, flight: 0.8, taunt: 1.5, tauntBoss: 1.5, tauntCd: 7 } },
       },
     },
     pyre: {

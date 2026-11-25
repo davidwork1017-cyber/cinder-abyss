@@ -1252,6 +1252,11 @@
         if (e.dead || e.execLock || dist(e.x, e.z, r.tx, r.tz) - e.r > R) continue;
         G.hitEnemy(e, r.ctx, 1, { ang: Math.atan2(e.x - r.tx, e.z - r.tz), w: 1, kb: 1.1, poise: 9, quiet: true, minion: r.m });
         n++;
+        // 砸中嘲讽（守像还在时）：同一个敌人每 tauntCd 秒最多一次
+        if (B.taunt > 0 && r.m && !r.m.dead && !e.dead && !(S.time - (e.rockTauntAt === undefined ? -1e9 : e.rockTauntAt) < B.tauntCd) && G.tauntEnemy && G.tauntEnemy(e, r.m, B.taunt, B.tauntBoss)) {
+          e.rockTauntAt = S.time;
+          S.stats.vRockTaunts = (S.stats.vRockTaunts || 0) + 1;
+        }
       }
       W.smashFx(r.tx, r.tz, R, G.vr() * TAU);
       W.decal(5, r.tx, r.tz, R * 0.8, G.vr() * TAU, 0x9fe8da, 2.2);

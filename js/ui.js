@@ -2475,6 +2475,7 @@
         num('冷却', ctx.cd > 0 ? fmt1(ctx.cd) + ' 秒' : '无');
       const bits = ['施放 ' + fmt1(ctx.time) + ' 秒'];
       if (mi.dr > 0) bits.push('减伤 ' + Math.round(mi.dr) + '%');
+      if (ctx.minion && ctx.minion.mech === 'boulder' && ctx.minion.vx.taunt > 0) bits.push('命中嘲讽 ' + fmt1(ctx.minion.vx.taunt) + ' 秒'); // 刻式「掷岩」：砸中就嘲讽
       if (tank) {
         const B = ctx.minion.vx;
         bits.push('护域 ' + B.r + ' 米：减伤 ' + B.dr + '% · 敌人减速 ' + Math.round(B.slow * 100) + '%');
