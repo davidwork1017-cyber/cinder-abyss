@@ -369,6 +369,7 @@
   A.ready = (names) => names.every((n) => packState[n] && packState[n].ok && anyTex(n));
   A.settled = (names) => withDeps(names).every((n) => packState[n] && packState[n].done && (!packState[n].ok || texDone(n)));
   A.known = (name) => !!(INDEX.packs[name] || STORE[name]);
+  A.loading = (name) => !!(packState[name] && !packState[name].done); // 测试用：这个包要过、还在下载 / 解析
   // 当前画质档该用的那一份；还没解码好时先给别的已经解码的那份（none 占位图排最后），都没有就是 null
   A.tex = (id) => {
     const s = imgs[id];

@@ -2658,12 +2658,24 @@
     });
   }
   // 空闲时预取下一个区域的素材包，走到那里时不用再等
+  // mem-hunt：首领包按区加载。当前区的首领进区刷首领时就要（W.makeBoss → bossPackLater），下一区的首领跟下一区的素材一起在这里预取，
+  // 余烛殿能进了（G.pinReady：钥匙碎片都有了）就把熄烛者也带上。原来启动时的预热（warmEntities）把六个首领都建一遍，图标画完以后六个包全加载
+  const bossPackOf = (d) => {
+    const sp = d && BOSS_SPEC[d.boss];
+    return sp && G.assets.known(sp.pack) ? sp.pack : null;
+  };
   function prefetchNext(def) {
     if (!G.assets) return;
     const i = G.ZONES.indexOf(def);
     if (i < 0) return; // 余烛殿：不在区域序列里，没有「下一个区域」
-    const nx = G.ZONES[i + 1] && ZONE_GFX[G.ZONES[i + 1].id];
-    if (!nx) return;
+    const nd = G.ZONES[i + 1], gx = nd && ZONE_GFX[nd.id];
+    const packs = gx ? gx.packs.slice() : [];
+    for (const d of [nd, G.pinOpen && G.pinOpen() && G.pinReady && G.pinReady() ? G.PINNACLE : null]) {
+      const bp = bossPackOf(d);
+      if (bp && packs.indexOf(bp) < 0) packs.push(bp);
+    }
+    if (!packs.length) return;
+    const nx = { packs };
     // 等一个安静的时刻再预取（25 m 内没有醒着的怪、玩家 3 秒没出手），最多等 60 秒。原来固定在进区 1.5 秒后，
     // 正好是第一场仗：解码下一区的贴图在软件渲染下会让那一帧卡 1 秒多（main 上就有，zones-integrate 改）
     const zone0 = W.zone;
@@ -19798,8 +19810,28 @@
     for (let i = bossEnts.length - 1; i >= 0; i--) {
       const e = bossEnts[i];
       if (e.removed || e.rig.bossModel) bossEnts.splice(i, 1);
-      else if (e.kind === kind) e.swapTo = r;
+      else if (e.kind === kind) {
+        e.swapTo = r;
+        // mem-hunt：还睡着的首领（离玩家远、不在 near 里，animEnt 不跑）包一到就换，换完把新材质编好：
+        // 原来要等玩家走到首领房、首领开始动的那一帧才换、才现编着色器，第一场首领战一开场卡一下
+        if (bossAsleep(e) && bossSwapReady(e)) {
+          const t0 = performance.now();
+          bossSwap(e);
+          bossEnts.splice(i, 1);
+          const t1 = performance.now();
+          try {
+            renderer.compile(e.group, camera, scene);
+            for (const p of renderer.info.programs) if (p.getUniforms) p.getUniforms(); // r186 第一次用到才等编译，和 W.precompile 一样在这里等完
+          } catch (err) { /* 编不了就留到第一次画的时候 */ }
+          W.bossSwapInfo = { kind, buildMs: +(r.buildMs || 0).toFixed(1), swapMs: +(t1 - t0).toFixed(1), compileMs: +(performance.now() - t1).toFixed(1) }; // 测试 / 探针用
+        }
+      }
     }
+  }
+  function bossAsleep(ent) {
+    const list = G.state && G.state.enemies;
+    if (list) for (let i = 0; i < list.length; i++) if (list[i].ent === ent) return !list[i].awake && !list[i].dead;
+    return false;
   }
   // 原地换模型：只在首领闲着的时候（没在播动作；醒着的要在招式之间的空当：不在出招、冲刺、破防里），不调 newEnt、不取随机数
   function bossSwapReady(ent) {
@@ -19854,13 +19886,16 @@
     if (on) for (const k in BOSS_SPEC) if (bossData(k)) bossQueueSwap(k);
   };
   W.bossRig = (kind) => bossGlbRig(kind);
+  // 测试用（mem-hunt）：已经载好 / 正在载的首领包
+  W.bossPacks = () => Object.keys(BOSS_SPEC).map((k) => BOSS_SPEC[k].pack).filter((p) => G.assets && (G.assets.settled([p]) || G.assets.loading(p)));
   W.bossOldRig = (kind) => (BOSS_RIG[kind] ? BOSS_RIG[kind]() : null); // 测试用：原来的程序化骨架（对比尺寸）
   // 狂暴 / 阶段（enemies.js 在原有的狂暴提示和熄烛者换阶段那里调一次）：只记在外观实体上，不读模拟、不取随机数
   W.bossMood = function (ent, n) {
     if (ent && !ent.removed) ent.mood = n || 0;
   };
 
-  W.makeBoss = function (kind, elemHex) {
+  // warm：启动时的预热建的（warmEntities）——只为编着色器，不去要首领包（首领包按区加载，见 prefetchNext）
+  W.makeBoss = function (kind, elemHex, warm) {
     const eh = hexOf(elemHex);
     _c.set(eh); // 和小怪一样：暖色地面上的首领偏冷，冷色地面上的偏暖
     const warmGround = _c.r > 0.8 && _c.g < 0.6;
@@ -19869,7 +19904,7 @@
     const ent = newEnt(kind, glb || BOSS_RIG[kind](), warmGround ? 0xe6e9f6 : 0xf2ece6, eh, 1.15); // 卡通：染色收轻，同小怪
     ent.bossWarm = warmGround;
     if (glb) bossLook(ent);
-    if (!glb && BOSS_SPEC[kind] && !bossPackOff && !window.CA_PROCEDURAL_CHARS) {
+    if (!glb && BOSS_SPEC[kind] && !bossPackOff && !window.CA_PROCEDURAL_CHARS && !warm) {
       bossEnts.push(ent);
       if (bossData(kind)) bossQueueSwap(kind);
       else bossPackLater(kind);
@@ -20892,7 +20927,7 @@
       if (!MOB_RIG[t]().clips.broken) aliasClip(MOB_RIG[t](), 'broken', 'stagger');
       made.push(W.makeMob(t, 0xff8a3c, false));
     }
-    for (const k in BOSS_RIG) made.push(W.makeBoss(k, 0xff8a3c));
+    for (const k in BOSS_RIG) made.push(W.makeBoss(k, 0xff8a3c, true));
     for (const k in MINION_RIG) made.push(W.makeMinion(k));
     made.forEach((e, i) => e.group.position.set(((i % 3) - 1) * 5, 0, -Math.floor(i / 3) * 4));
     const loots = [];
