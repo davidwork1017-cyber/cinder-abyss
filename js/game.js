@@ -9516,7 +9516,7 @@
   const imbRate = { splash: [], shard: [] };
   function imbRateOk(kind, perSec) {
     const L = imbRate[kind], t = state.time;
-    while (L.length && t - L[0] >= 1) L.shift();
+    while (L.length && (t - L[0] >= 1 || L[0] > t)) L.shift(); // 时钟倒回去（换区 / 重开）时旧的记录作废
     if (L.length >= perSec) return false;
     L.push(t);
     return true;
