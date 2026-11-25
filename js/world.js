@@ -5091,7 +5091,7 @@
     encProps.length = 0;
     for (const e of encNpcs) W.removeEnt(e);
     encNpcs.length = 0;
-    for (const m of encDisp) m.dispose();
+    for (const m of encDisp) retire(m);
     encDisp.length = 0;
   };
   // 贴地的圆环（守隙的圈）：一道硬边亮环 + 很淡的内圈
@@ -10183,11 +10183,54 @@
     }
     return { hash: h.toString(16), n };
   };
+  // ----- 着色器程序留用（mem-hunt） -----
+  // three 在一个程序的最后一个材质 dispose 时把程序删掉。换区时整区的材质一起 dispose，再进同一个区（或者别的区、下一只同类怪用到同一个程序）时
+  // 同样的程序要重新编译；W.precompile 原来每个区只预热一次，再进来时这些编译就落在进区后的头几帧（WebKit 低档每次进区 70–190 ms，Chrome 高档 1–2 s）。
+  // 首领传送门、异兆道具、预警圈也一样（预警圈每个用完就 dispose，同类的最后一个收掉以后，下一个要在战斗中现编）。
+  // 这里每个程序键留一个「占位」材质先不 dispose：程序一直在，再用到时直接复用，不再编译。同一个键一定是同一份着色器源码（func「内存」一步查）。
+  // ShaderMaterial 的程序键里是着色器源码的编号（WebGLShaderCache），源码还被占位材质用着，编号就不变，下一个同样源码的材质照样命中。
+  // 占位材质去掉贴图、uniform、onBeforeCompile 闭包的引用，不留住旧区的数据：只换掉占位材质自己身上的引用（uniforms 对象可能和别的材质共用，不改它的内容）。
+  // 最多留 KEEP_MAX 个，满了先进先出：最早的那个 dispose 掉，它的程序照常释放
+  const KEEP_MAX = 96;
+  const progKeep = new Map(); // 程序 cacheKey → 占位材质
+  const keptMats = new Set();
+  function retireMat(m) {
+    if (keptMats.has(m)) return;
+    const P = renderer && renderer.properties;
+    const mp = P && P.has(m) ? P.get(m) : null;
+    let fresh = false;
+    if (mp && mp.programs) for (const k of mp.programs.keys()) if (!progKeep.has(k)) fresh = true;
+    if (!fresh) return m.dispose();
+    for (const k in m) if (m[k] && m[k].isTexture) m[k] = null;
+    if (m.uniforms) m.uniforms = {};
+    mp.uniforms = {};
+    mp.uniformsList = null;
+    mp.envMap = null;
+    m.userData = {};
+    delete m.onBeforeCompile;
+    delete m.customProgramCacheKey;
+    for (const k of mp.programs.keys()) if (!progKeep.has(k)) progKeep.set(k, m);
+    keptMats.add(m);
+    while (keptMats.size > KEEP_MAX) {
+      const old = keptMats.values().next().value;
+      keptMats.delete(old);
+      for (const [k, v] of progKeep) if (v === old) progKeep.delete(k);
+      old.dispose();
+    }
+  }
+  const retire = (d) => (d.isMaterial ? retireMat(d) : d.dispose());
+  W.progKeep = () => ({ keys: progKeep.size, mats: keptMats.size, max: KEEP_MAX }); // 测试用
+  // 测试用：把留着的占位材质全部 dispose（没有别的材质在用的程序随之释放）
+  W.progKeepFlush = () => {
+    for (const m of keptMats) m.dispose();
+    keptMats.clear();
+    progKeep.clear();
+  };
   function disposeZone() {
     icull = null;
     if (!zoneGroup) return;
     scene.remove(zoneGroup);
-    for (const d of zoneDisp) d.dispose();
+    for (const d of zoneDisp) retire(d);
     zoneDisp = [];
     zoneGroup = null;
     zoneFx = null;
@@ -11067,12 +11110,11 @@
 
   // 第一次进某个区时把整个场景预热一遍（zones-integrate）：renderer.compile 不管视锥，把还没看到的布景、睡着的怪的材质都编好，
   // 场景里用到的贴图也先传上去（initTexture）。不做的话这些留到第一次进视野的那一帧现做，软件渲染下正好卡在走到第一群怪、开打的时候。
-  // 每个区每次会话只做一次（G.enterZone 刷完怪以后调）：再进同一个区时着色器和贴图都已经在了，不再花时间
-  const warmed = new Set();
+  // 每次进区都做（G.enterZone 刷完怪以后调）。原来每个区每次会话只做一次，但换区时整区的材质和贴图都 dispose 了，再进来时程序和贴图都得重来，
+  // 落在进区后的头几帧（mem-hunt）。现在程序由 retireMat 留着，再进同一个区时 compile 几乎不花时间；贴图是新建的，在这里传上去
   W.precompile = function () {
     const z = W.zone;
-    if (!z || warmed.has(z.def.id)) return;
-    warmed.add(z.def.id);
+    if (!z) return;
     const t0 = performance.now();
     const ew = encWarm(); // 异兆道具的材质一起编好：异兆第一次出现时不现编着色器
     scene.add(ew);
@@ -13149,8 +13191,8 @@
   function disposeEnt(ent) {
     if (ent.removed) return;
     if (ent.group.parent) ent.group.parent.remove(ent.group);
-    for (const m of ent.mats) m.dispose();
-    for (const m of ent.own) m.dispose();
+    for (const m of ent.mats) retire(m);
+    for (const m of ent.own) retire(m);
     ent.removed = true;
   }
   W.removeEnt = function (ent) {
@@ -21781,7 +21823,7 @@
       handle.reg = null;
     }
     scene.remove(handle.mesh);
-    handle.mat.dispose();
+    retire(handle.mat);
   };
 
   // 冲击环 / 斩击弧用对象池，稳定后不再分配
@@ -27522,7 +27564,7 @@
       const i = lootObjs.indexOf(mesh);
       if (i >= 0) lootObjs.splice(i, 1);
     } else if (kind === 'portal') {
-      for (const m of mesh.userData.mats) m.dispose();
+      for (const m of mesh.userData.mats) retire(m);
       if (portalObj === mesh) {
         portalObj = null;
         portalLight.intensity = 0;

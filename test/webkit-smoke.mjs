@@ -6,6 +6,7 @@
 // 最后换一个新的浏览器配置量 iPhone 圆角：标题、职业选择、开场故事、HUD、背包、技能、暂停菜单、开场卡片的字和按钮都不碰四角的圆角（test/corner-mask.mjs）
 import { webkit, devices } from 'playwright-core';
 import { execSync } from 'node:child_process';
+import { readFileSync, readdirSync } from 'node:fs';
 import { GAME_URL } from './harness.mjs';
 import { uiLayoutCheck, uiBlankPoint } from './ui-layout.mjs';
 import { cornerScenes, cornerHud, cornerCheck } from './corner-mask.mjs';
@@ -461,6 +462,99 @@ await step('画面：渲染在跑（时间在走、没有丢失上下文），�
   assert(g.t > t0 && !g.lost, '游戏没在跑：' + JSON.stringify({ t0, g }));
   if (process.env.WEBKIT_SHOT) await page.screenshot({ path: process.env.WEBKIT_SHOT });
   return '画质 ' + g.quality + '（后期 ' + g.post + '，DPR ' + g.dpr + ' × ' + g.scale + '），GPU 纹理 ' + g.tex + ' 张、场景材质约 ' + g.texMB + ' MB，draws ' + g.draws;
+});
+
+// mem-hunt：内存。WebKit 的垃圾回收很懒，不先回收的话每次换区的垃圾（旧区的几何体数组等）堆着，看起来像在涨；量之前先 page.requestGC()（WebKit 的 Heap.gc）。
+// 这台机器上 WebKit 用 Mesa llvmpipe 软件渲染，显存那份也算在 WebProcess 里（iPhone 上在 GPU 进程），所以第一圈涨一截是正常的（缓存、分配器的高水位）；
+// 第二圈就该平了：再涨就是有东西没释放。实测第二圈相对第一圈 −60…+40 MB（噪声），没释放整区的东西时一圈要多出好几百 MB
+const RSS_LAP2_MB = 100;
+function webProcRssMB() {
+  // 这个 node 进程底下最大的 WebKit 进程（WPEWebProcess / WebKitWebProcess）的 RSS；不是 Linux 就返回 null
+  try {
+    const kids = {};
+    for (const d of readdirSync('/proc')) {
+      if (!/^\d+$/.test(d)) continue;
+      try {
+        const st = readFileSync('/proc/' + d + '/stat', 'utf8');
+        const pp = +st.slice(st.lastIndexOf(')') + 2).split(' ')[1];
+        (kids[pp] || (kids[pp] = [])).push(+d);
+      } catch (e) {}
+    }
+    let best = null;
+    const stack = [process.pid];
+    while (stack.length) {
+      for (const k of kids[stack.pop()] || []) {
+        stack.push(k);
+        try {
+          const cmd = readFileSync('/proc/' + k + '/cmdline', 'utf8');
+          if (!/WebProcess/.test(cmd)) continue;
+          const rss = +(readFileSync('/proc/' + k + '/status', 'utf8').match(/^VmRSS:\s+(\d+)/m) || [0, 0])[1] / 1024;
+          if (!best || rss > best) best = rss;
+        } catch (e) {}
+      }
+    }
+    return best ? +best.toFixed(1) : null;
+  } catch (e) {
+    return null;
+  }
+}
+await step('内存：低档连走五个区两圈（每区打首领、清怪），回收后第二圈 WebProcess 的 RSS 涨不过 ' + RSS_LAP2_MB + ' MB，几何体 / 贴图 / 程序回到第一圈的水平', async () => {
+  const st0 = await ev(() => ({ zi: G.state.zoneIdx, tier: G.state.tier, q: G.world.quality(), god: !!G.player.god }));
+  const laps = [];
+  try {
+    await ev(() => {
+      G.debug.hold(true);
+      G.debug.god(true);
+      G.world.setQuality('low');
+    });
+    for (let lap = 0; lap < 2; lap++) {
+      for (const zi of [0, 1, 2, 3, 4, 0]) {
+        await ev((zi) => G.enterZone(zi, 0), zi);
+        await until(() => !G.world.assetsPending() && G.world.gfxInfo().hd, null, 60000);
+        await ev(() => {
+          const S = G.state;
+          G.debug.step(0.1);
+          G.debug.tpBoss();
+          const b = S.enemies.find((e) => e.isBoss && !e.dead);
+          G.input.aim = b ? { x: b.x, z: b.z } : null;
+          G.input.mouse.b[0] = true;
+          G.debug.step(2);
+          G.debug.killAll();
+          const b2 = S.enemies.find((e) => e.isBoss && !e.dead);
+          if (b2) G.killEnemy(b2);
+          G.input.mouse.b[0] = false;
+          G.input.aim = null;
+          G.debug.step(2);
+          G.world.render();
+        });
+      }
+      await page.waitForTimeout(500);
+      await page.requestGC();
+      await page.waitForTimeout(300);
+      await page.requestGC();
+      await page.waitForTimeout(500);
+      const m = await ev(() => {
+        const R = G.world.renderer;
+        return { geo: R.info.memory.geometries, tex: R.info.memory.textures, prog: R.info.programs.length };
+      });
+      m.rss = webProcRssMB();
+      laps.push(m);
+    }
+  } finally {
+    await ev((s) => {
+      G.world.setQuality(s.q);
+      G.enterZone(s.zi, s.tier);
+      G.debug.god(s.god);
+      G.debug.hold(false);
+    }, st0);
+    await until(() => !G.world.assetsPending(), null, 60000).catch(() => {});
+  }
+  const [l1, l2] = laps;
+  // 贴图留 6 张余量：有些全局贴图第一次用到才建、建了就一直留着（异兆道具的环 / 符文这类随机出现的东西可能第二圈才第一次碰到）；漏掉整区的贴图一圈是几十张
+  assert(l2.geo - l1.geo <= 3 && l2.tex - l1.tex <= 6 && l2.prog - l1.prog <= 3, '第二圈没回到第一圈的水平：' + JSON.stringify(laps));
+  if (l1.rss != null && l2.rss != null) assert(l2.rss - l1.rss <= RSS_LAP2_MB, '回收后第二圈 WebProcess 涨了 ' + (l2.rss - l1.rss).toFixed(0) + ' MB：' + JSON.stringify(laps));
+  const rss = l1.rss != null ? 'WebProcess ' + l1.rss.toFixed(0) + ' → ' + l2.rss.toFixed(0) + ' MB（' + (l2.rss - l1.rss >= 0 ? '+' : '') + (l2.rss - l1.rss).toFixed(0) + '）' : 'RSS 量不到（不是 Linux）';
+  return rss + ' ｜ 几何体 ' + l1.geo + ' → ' + l2.geo + '，贴图 ' + l1.tex + ' → ' + l2.tex + '，程序 ' + l1.prog + ' → ' + l2.prog;
 });
 
 await step('M2：iPhone 没有震动接口，设置里不显示「震动」；长按地图上的区域卡片出详情，松手留着', async () => {
