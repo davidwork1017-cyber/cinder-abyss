@@ -4345,6 +4345,8 @@ html.touch-ui #coach.on { pointer-events: auto; }
 html.touch-ui.t-boss #coach { top: calc(var(--sa-t) + 112px); }
 html.touch-ui #coach .co-tag, html.touch-ui #coach .co-ok { display: none; }
 html.touch-ui .co-body { margin-top: 0; font-size: 12px; line-height: 17px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
+/* 首领条出来时卡片排在它下面、离摇杆区和按钮簇近：只留两行（打首领时只出紧急提示，都是一两行的短句） */
+html.touch-ui.t-boss .co-body { -webkit-line-clamp: 2; }
 html.touch-ui #feed { left: calc(var(--sa-l) + 8px); bottom: auto; top: calc(var(--sa-t) + 100px); }
 html.touch-ui #toasts { top: calc(var(--sa-t) + 116px); }
 html.touch-ui #big-toast { top: 30%; }

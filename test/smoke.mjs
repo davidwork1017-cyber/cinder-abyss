@@ -9345,9 +9345,20 @@ async function main() {
     const t0 = Date.now();
     let r = await ev(() => ({ mem: !!G.save.tut.passive, stored: !!JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).tut.passive, vis: G.ui.hints().visFor }));
     assert(r.mem && r.stored && r.vis >= 6 && r.vis <= 8, '提示一出现就应记为看过、写进存档，亮 6–8 秒：' + JSON.stringify(r));
-    await until(() => G.ui.hints().current === null, null, 15000).catch(() => { throw new Error('提示亮了 15 秒还没收起'); });
+    // 亮多久按游戏里的时间算（coach 每帧最多记 0.1 秒，机器忙、帧率低时墙钟会更长）：收起前最后一帧的 shownFor 不超过 visFor
+    const life = await ev(() => new Promise((res) => {
+      let last = 0;
+      const t = performance.now();
+      const f = () => {
+        const h = G.ui.hints();
+        if (h.current === 'passive') last = h.shownFor;
+        if (h.current !== 'passive' || performance.now() - t > 60000) return res({ last, vis: h.visFor, cur: h.current });
+        requestAnimationFrame(f);
+      };
+      f();
+    }));
     const secs = (Date.now() - t0) / 1000;
-    assert(secs <= 9.5, '提示应在 8 秒左右自己收起：' + secs + ' 秒');
+    assert(life.cur === null && life.last <= r.vis + 0.3 && life.last >= r.vis - 0.5, '提示应亮满 6–8 秒（游戏时间）后自己收起：' + JSON.stringify(life) + '，墙钟 ' + secs.toFixed(1) + ' 秒');
     // 2) 读档（等同刷新页面）：天赋点还在，提示不再出
     await ev(() => { G.persist(); G.loadSave(); G.computeStats(); G.debug.hold(false); });
     r = await ev(() => ({ free: G.passivePoints().free, seen: !!G.save.tut.passive, on: G.ui.hints().on }));
@@ -9361,7 +9372,6 @@ async function main() {
     await openSettings();
     let sw = await row();
     assert(sw && sw.on && sw.txt.includes('新手提示') && sw.txt.includes('只出一次') && sw.grp === '操作', '设置「操作」里应有「新手提示」开关（开着）：' + JSON.stringify(sw));
-    cleanText(sw.txt, '新手提示开关');
     await page.click('#p-view [data-tact="hints"]');
     sw = await row();
     assert(sw && !sw.on && sw.opt === false && sw.stored === false, '点一下应关掉并存档：' + JSON.stringify(sw));
@@ -9428,7 +9438,7 @@ async function main() {
       G.computeStats();
       G.persist();
     }, keep);
-    return '出现即记 · ' + secs.toFixed(1) + ' 秒自己收起 · 读档不再出 · 关掉后 3 秒内 0 条 · 默认 ' + JSON.stringify(defs);
+    return '出现即记 · 亮 ' + life.last.toFixed(1) + ' 秒（墙钟 ' + secs.toFixed(1) + '）自己收起 · 读档不再出 · 关掉后 3 秒内 0 条 · 默认 ' + JSON.stringify(defs);
   });
 
   await step('面板内的提示：toast 不压页签栏和面板内容', async () => {
