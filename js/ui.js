@@ -6015,6 +6015,7 @@
     view: null, // 菜单里打开的子页：settings / help / credits / chars
     del: null, // 角色页里正在删的栏位 { k, step: 1 | 2 }（确认两次）
     delSelf: 0, // 暂停菜单的设置里删当前角色：0 没在删 / 1 第一次确认 / 2 第二次确认
+    devInfo: false, // 设置里的「设备信息」点开了没有（rot-safe）
     hidden: [], // 标题画面期间藏起来的敌人 / 召唤物模型
     after: null, // 离开标题画面后要做的事（首次运行的开场卡片）
     t: 0, // 标题画面开了多久（秒，镜头漂移的相位）
@@ -6345,7 +6346,17 @@
       setGrp('声音', setSw('静音', '关掉所有声音', !!o.mute, 'data-tact="opt" data-opt="mute"') + SET_VOL.map((v) => setRow(v[1], v[2], volSlider(v[0]))).join('')) +
       (menu.title ? '' : setGrp('角色', setDelRow())) +
       '</div>' +
-      (touchOn() ? '<p class="m-note">设置会存进存档；触屏的几项只存在这台设备上。</p>' : '<p class="m-note">设置会存进存档。</p>')
+      (touchOn() ? '<p class="m-note">设置会存进存档；触屏的几项只存在这台设备上。</p>' + setDevRow() : '<p class="m-note">设置会存进存档。</p>')
+    );
+  }
+  // 设备信息（rot-safe，只在触屏模式下）：收着，点开是一小块等宽字（屏幕、视口、安全区……），反馈画面问题时截图用；数值由 touch.js 实时刷新
+  const canCopy = () => !!(window.isSecureContext && navigator.clipboard && navigator.clipboard.writeText);
+  function setDevRow() {
+    const on = !!menu.devInfo;
+    return (
+      '<div class="m-dev-box"><button type="button" tabindex="-1" class="m-row m-dev-row' + (on ? ' on' : '') + '" data-tact="devinfo"><span class="opt-text"><b>设备信息</b><span>屏幕和视口的数值，反馈画面问题时截图用</span></span><span class="m-dev-t">' + (on ? '收起' : '展开') + '</span></button>' +
+      (on ? '<pre id="m-dev" class="m-dev">' + esc(G.touch.devText()) + '</pre>' + (canCopy() ? '<button type="button" tabindex="-1" class="btn ghost m-dev-copy" data-tact="devcopy">复制</button>' : '') : '') +
+      '</div>'
     );
   }
   function menuHelp() {
@@ -6566,6 +6577,20 @@
     hideTitle();
   }
   const MENU_ACT = {
+    devinfo() {
+      menu.devInfo = !menu.devInfo;
+      G.sfx('click');
+      renderMenu();
+    },
+    devcopy() {
+      const b = document.querySelector('.m-dev-copy');
+      const say = (t) => b && (b.textContent = t);
+      try {
+        navigator.clipboard.writeText(G.touch.devText()).then(() => say('已复制'), () => say('复制失败'));
+      } catch (e) {
+        say('复制失败');
+      }
+    },
     // 设置里的「删除这个角色」（B4a 从地图页挪过来）：确认两次，删掉的进回收位，换成一个新角色
     'del-save'() {
       menu.delSelf = 1;
@@ -6728,6 +6753,7 @@
       menu.view = k;
       menu.del = null;
       menu.delSelf = 0;
+      menu.devInfo = false;
       G.sfx('click');
       renderMenu();
     } else if (k === 'quality' || k === 'opt' || k === 'normmode' || k === 'quest') {

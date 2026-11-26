@@ -1059,7 +1059,7 @@ async function main() {
   }
 
   // ash-models-drop / models-drop：第 0 区的布景全是自产件（kit-ash）；所有区都不再用 CC0 模型包，models.js 不再打包，冷启动（含之后预取第 1 区）一次都不该请求它
-  await step('素材：冷启动进第 0 区要齐第 0 区的包、不请求 CC0 模型包 models.js，第 0 区布景全部来自 kit-ash、都摆出来了', async () => {
+  await step('素材：冷启动进第 0 区要齐第 0 区的包、不请求 CC0 模型包 models.js 和照片岩石包 rock-dark.js，第 0 区布景全部来自 kit-ash、都摆出来了', async () => {
     const r = await ev(async () => {
       const W = G.world, t = performance.now();
       while (W.assetsPending() && performance.now() - t < 40000) await new Promise((res) => setTimeout(res, 50));
@@ -1067,7 +1067,9 @@ async function main() {
       return { pending: W.assetsPending(), hd: W.gfxInfo().hd, fires: W.gfxInfo().fires, src: W.propSources(), res };
     });
     const at = (f) => r.res.filter((x) => x.f === f);
-    assert(['zone-ash.js', 'kit-ash.js', 'rock-dark.js', 'ground.js'].every((f) => at(f).length), '冷启动缺第 0 区的包：' + r.res.map((x) => x.f).join(' '));
+    assert(['zone-ash.js', 'kit-ash.js', 'ground.js'].every((f) => at(f).length), '冷启动缺第 0 区的包：' + r.res.map((x) => x.f).join(' '));
+    // tex-t1：第 0 区的地面 / 岩石换成脚本画的贴图（在 zone-ash 包里），冷启动不再要照片的 rock-dark 包（深渊还用它）
+    assert(!at('rock-dark.js').length, '冷启动请求了第 0 区已经不用的 rock-dark.js：' + r.res.map((x) => x.f).join(' '));
     assert(!at('models.js').length, '冷启动请求了 CC0 模型包 models.js：' + r.res.map((x) => x.f).join(' '));
     const fmt = r.src.map((s) => s.key + '@' + s.pack + '×' + s.placed).join(' ');
     assert(!r.pending && r.hd, '第 0 区没换上 PBR 外观：' + JSON.stringify({ pending: r.pending, hd: r.hd }));
@@ -1075,6 +1077,53 @@ async function main() {
     const placed = (re) => r.src.filter((s) => re.test(s.key)).reduce((a, s) => a + s.placed, 0);
     assert(placed(/ash_tree_dead_/) >= 3 && placed(/ash_(skull|bones|blade|marker)$/) >= 3 && placed(/firepit/) === r.fires && r.fires > 0 && placed(/./) >= 20, '第 0 区布景没摆全（枯树 ≥ 3、路边小物 ≥ 3、火坑数 = 火焰数、总数 ≥ 20）：' + fmt + ' 火 ' + r.fires);
     return '请求顺序 ' + r.res.map((x) => x.f.replace(/\.js$/, '')).join(' → ') + ' ｜ 布景 ' + placed(/./) + ' 个';
+  });
+
+  // tex-t1：第 0 区的路面 / 粗糙地面 / 虚空地面 / 岩石三向投影都是脚本画的贴图；高 / 中档 512² 带法线贴图，低档换 256² 的一套、不传法线贴图（平的法线）
+  await step('贴图：第 0 区地面和岩石用脚本画的贴图，高档 512² 带法线贴图，低档 256²、不传法线贴图（进区和原地换档都对）', async () => {
+    const r = await ev(async () => {
+      const W = G.world, S = G.state, zk = { zi: S.zoneIdx, tier: S.tier }, q0 = W.quality();
+      const look = () => {
+        let gm = null, rm = null;
+        W.scene.traverse((o) => {
+          const m = o.material;
+          if (!m || Array.isArray(m) || !m.userData) return;
+          if (m.userData.U && m.userData.U.tA0 && !gm) gm = m.userData.U;
+          if (m.userData.triU && !rm) rm = m.userData.triU;
+        });
+        const sz = (t) => (t && t.value && t.value.image ? t.value.image.width : 0);
+        return { gfx: W.gfxInfo().hd, g: gm ? [sz(gm.tA0), sz(gm.tN0), sz(gm.tR0), sz(gm.tA1), sz(gm.tN1), sz(gm.tA2), sz(gm.tN2)] : null, rock: rm ? [sz(rm.tRA), sz(rm.tRN)] : null };
+      };
+      const wait = async () => { const t = performance.now(); while ((W.assetsPending() || !W.gfxInfo().hd) && performance.now() - t < 20000) await new Promise((res) => setTimeout(res, 50)); };
+      // 换档以后这一档的图像在后台解码、到了再原地换（tex-t2 的 retierZone）：等到地面的路面贴图换成这一档要的尺寸（最多 20 秒）
+      const until = async (px) => { const t = performance.now(); let r = look(); while (!(r.g && r.g[0] === px) && performance.now() - t < 20000) { await new Promise((res) => setTimeout(res, 50)); r = look(); } return r; };
+      const out = { ids: ['p_mud', 'p_burn', 'p_rock'].map((id) => G.assets.packOfTex(id)), old: ['mud_cracked_dry_03', 'burned_ground_01'].map((id) => G.assets.packOfTex(id)) };
+      W.setQuality('high');
+      G.enterZone(0, 0);
+      await wait();
+      out.high = await until(512);
+      W.setQuality('low');
+      G.enterZone(0, 0);
+      await wait();
+      out.low = await until(256);
+      // 不重新进区、原地换档（retierZone → swapZoneTex）：高档换回 512² 和真的法线贴图，再回低档换回 256² 和平的法线；岩石跟着换
+      W.setQuality('high');
+      out.swapHigh = await until(512);
+      W.setQuality('low');
+      out.swapLow = await until(256);
+      W.setQuality(q0);
+      G.enterZone(zk.zi, zk.tier);
+      await wait();
+      return out;
+    });
+    assert(r.ids.every((p) => p === 'zone-ash') && r.old.every((p) => !p), '第 0 区贴图应是 zone-ash 包里的 p_mud / p_burn / p_rock，照片贴图不再打包：' + JSON.stringify(r));
+    assert(r.high.gfx && r.high.g && r.high.g.every((w) => w === 512) && r.high.rock && r.high.rock.every((w) => w === 512), '高档：地面三套和岩石应是 512² 带法线贴图：' + JSON.stringify(r.high));
+    const L = r.low.g;
+    assert(r.low.gfx && L && [L[0], L[2], L[3], L[5]].every((w) => w === 256) && [L[1], L[4], L[6]].every((w) => w === 4) && r.low.rock && r.low.rock[0] === 256 && r.low.rock[1] === 4, '低档：地面三套和岩石应是 256²、法线贴图是平的 4×4：' + JSON.stringify(r.low));
+    const okHi = (x) => x && x.g && x.g.every((w) => w === 512) && x.rock && x.rock.every((w) => w === 512);
+    const okLo = (x) => x && x.g && [x.g[0], x.g[2], x.g[3], x.g[5]].every((w) => w === 256) && [x.g[1], x.g[4], x.g[6]].every((w) => w === 4) && x.rock && x.rock[0] === 256 && x.rock[1] === 4;
+    assert(okHi(r.swapHigh) && okLo(r.swapLow), '原地换档：高档应换回 512² 带法线、低档换回 256² 平法线：' + JSON.stringify({ hi: r.swapHigh, lo: r.swapLow }));
+    return '高 ' + r.high.g.join('/') + ' ｜ 低 ' + L.join('/') + ' ｜ 岩石 ' + r.high.rock.join('/') + ' → ' + r.low.rock.join('/') + ' ｜ 原地换档 ' + r.swapHigh.g.join('/') + ' → ' + r.swapLow.g.join('/');
   });
 
   await step('首屏：场景、玩家、HUD、小地图都画出来了', async () => {
@@ -10974,6 +11023,241 @@ async function main() {
     assert(r.n === 0, '场景对象数变化 ' + r.n);
     assert(r.geo <= 3 && r.tex <= 1, '切换 10 次区域后几何体 +' + r.geo + '，贴图 +' + r.tex);
     return '几何体 ' + r.g + '（+' + r.geo + '），贴图 ' + r.t + '（+' + r.tex + '）';
+  });
+
+  // mem-hunt：换区时整区的材质 dispose，原来再进同一个区（或别的区、下一只同类怪、下一个预警圈）要把同样的着色器程序重新编译（WebKit 低档每次进区 70–190 ms，
+  // Chrome 高档 1–2 s，落在进区后的头几帧）。world.js retireMat 每个程序键留一个去掉引用的占位材质，程序留着复用（最多 KEEP_MAX 个）
+  await step('内存：高档连走五个区两圈（每区打首领、清怪、掉落），第二圈几何体 / 贴图 / 程序 / 布景对象回到第一圈的水平、再进区几乎不编新程序；同一个程序键只对应一份着色器源码；留着的程序和重新编译的画面逐像素相同；烬渊深渊底贴图传像素 / 传画布逐像素相同', async () => {
+    const r = await ev(async () => {
+      const W = G.world, R = W.renderer, gl = R.getContext(), S = G.state, q0 = W.quality();
+      const wait = async (f, ms) => {
+        const t = performance.now();
+        while (!f() && performance.now() - t < ms) await new Promise((res) => setTimeout(res, 50));
+        return f();
+      };
+      const fnv = (s) => {
+        let x = 2166136261;
+        for (let i = 0; i < s.length; i++) x = Math.imul(x ^ s.charCodeAt(i), 16777619) >>> 0;
+        return x;
+      };
+      const src = new Map(), clash = [];
+      const noteSrc = () => {
+        for (const p of R.info.programs) {
+          const h = fnv(gl.getShaderSource(p.vertexShader) + '\n' + gl.getShaderSource(p.fragmentShader));
+          const o = src.get(p.cacheKey);
+          if (o === undefined) src.set(p.cacheKey, h);
+          else if (o !== h && clash.indexOf(p.name) < 0) clash.push(p.name);
+        }
+      };
+      // 布景对象：整个场景减去怪（刷怪数量随随机数变），进区后、开打前数
+      const objs = () => {
+        const skip = new Set(S.enemies.map((e) => e.ent && e.ent.group).filter(Boolean));
+        let n = 0;
+        const walk = (o) => {
+          if (skip.has(o)) return;
+          n++;
+          for (const c of o.children) walk(c);
+        };
+        walk(W.scene);
+        return n;
+      };
+      const fight = () => {
+        G.debug.tpBoss();
+        const b = S.enemies.find((e) => e.isBoss && !e.dead);
+        G.input.aim = b ? { x: b.x, z: b.z } : null;
+        G.input.mouse.b[0] = true;
+        G.debug.step(2);
+        G.debug.killAll();
+        G.debug.step(1);
+        const b2 = S.enemies.find((e) => e.isBoss && !e.dead);
+        if (b2) G.killEnemy(b2);
+        G.input.mouse.b[0] = false;
+        G.input.aim = null;
+        G.debug.step(3);
+      };
+      const enter = async (zi) => {
+        G.enterZone(zi, 0);
+        const hd = await wait(() => !W.assetsPending() && W.gfxInfo().hd, 40000); // 防卡死的上限，不是计时断言
+        G.debug.step(0.1);
+        W.render();
+        return hd;
+      };
+      const maxId = () => R.info.programs.reduce((m, p) => Math.max(m, p.id), -1);
+      // 首领包按区加载、到了以后才建新模型（几何体进缓存）：先把六个首领的包和骨架都备好，不然第二圈才第一次见到新模型的首领会多出几何体
+      for (const k of G.ZONES.map((z) => z.boss).concat([G.PINNACLE.boss])) {
+        if (!G.assets.known('boss-' + k)) continue;
+        await G.assets.need(['boss-' + k]);
+        W.bossRig(k);
+      }
+      G.debug.hold(true);
+      W.setQuality('high');
+      const laps = [], fresh = [];
+      let deep = null;
+      let hdAll = true;
+      try {
+        for (let lap = 0; lap < 2; lap++) {
+          for (let zi = 0; zi < 5; zi++) {
+            const id0 = maxId();
+            hdAll = (await enter(zi)) && hdAll;
+            if (zi === 3 && !deep) deep = W.abyssDeepProbe(); // 烬渊：深渊底贴图传像素 / 传画布，显存里逐像素相同
+            fight();
+            W.render();
+            noteSrc();
+            if (lap === 1) for (const p of R.info.programs) if (p.id > id0) fresh.push(G.ZONES[zi].id + ':' + p.name);
+          }
+          hdAll = (await enter(0)) && hdAll;
+          noteSrc();
+          const m = R.info.memory;
+          laps.push({ geo: m.geometries, tex: m.textures, prog: R.info.programs.length, objs: objs() });
+        }
+        // 逐像素：同一帧（模拟暂停）先用留着的程序画，再把占位材质和场景里的材质全部 dispose、重新编译后画，两次应完全相同
+        const frame = () => {
+          W.render();
+          const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
+          gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px); // 渲染完同一个任务里读
+          let x = 2166136261;
+          for (let i = 0; i < px.length; i++) x = Math.imul(x ^ px[i], 16777619) >>> 0;
+          return x;
+        };
+        const keep = W.progKeep();
+        const a = frame(), a2 = frame();
+        W.progKeepFlush();
+        const mats = new Set();
+        W.scene.traverse((o) => {
+          for (const m of o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : []) mats.add(m);
+          if (o.customDepthMaterial) mats.add(o.customDepthMaterial);
+        });
+        for (const m of mats) m.dispose();
+        const b = frame();
+        return { laps, fresh, clash, keys: src.size, keep, hdAll, a, a2, b, deep };
+      } finally {
+        W.setQuality(q0);
+        G.enterZone(0, 1);
+        G.debug.god(true);
+        G.debug.hold(false);
+      }
+    });
+    const [l1, l2] = r.laps;
+    assert(r.hdAll, '有区域没换上 PBR 外观');
+    // 贴图留 6 张余量：有些全局贴图第一次用到才建、建了就一直留着（异兆道具的环 / 符文这类随机出现的东西可能第二圈才第一次碰到）；漏掉整区的贴图一圈是几十张。
+    // 布景对象留 8 个：特效池按同时用到的最多件数长、长了不缩，异兆道具走近才建；整区没收掉一圈是几百个
+    assert(l2.geo - l1.geo <= 3 && l2.tex - l1.tex <= 6 && l2.prog - l1.prog <= 3 && Math.abs(l2.objs - l1.objs) <= 8, '第二圈没回到第一圈的水平：' + JSON.stringify(r.laps));
+    // 没有留用时第二圈每区要重编 6–16 个程序（共 60–80 个）；留着以后只剩个别（低档第 0 区的贴花 / 雾罩各 1 个）
+    assert(r.fresh.length <= 3, '第二圈再进区编了 ' + r.fresh.length + ' 个新程序：' + r.fresh.slice(0, 8).join(' '));
+    assert(!r.clash.length, '同一个程序键对应了不同的着色器源码（留用的程序会画错）：' + r.clash.join(' '));
+    assert(r.keep.mats <= r.keep.max, '占位材质超过上限：' + JSON.stringify(r.keep));
+    assert(r.a === r.a2, '模拟暂停时同一帧画两次不一样（这一帧不确定，比不了）');
+    assert(r.a === r.b, '留着的程序和重新编译的程序画出来不一样');
+    assert(r.deep && r.deep.data === r.deep.canvas && r.deep.via === 'canvas', '烬渊深渊底的贴图：传像素和传画布应逐像素相同，Chrome 照旧传画布：' + JSON.stringify(r.deep));
+    return '几何体 ' + l1.geo + ' → ' + l2.geo + '，贴图 ' + l1.tex + ' → ' + l2.tex + '，程序 ' + l1.prog + ' → ' + l2.prog + '，布景对象 ' + l1.objs + ' → ' + l2.objs + ' ｜ 第二圈新编 ' + r.fresh.length + ' 个 ｜ 程序键 ' + r.keys + '、占位材质 ' + r.keep.mats + ' / ' + r.keep.max;
+  });
+
+  // mem-hunt：tex-t2 的释放要是在解码还在路上的时候发生，原来下载 / 解析完照样解码、存进已经释放的包里（释放就不算数了），解码完被丢下的图也要等垃圾回收
+  await step('贴图：解码还在路上时释放这个包——要的时候还没开始解码的不再解码，正在解码的解完直接放掉；之后包里没有解码图像，留着的只有当前区和下一区的', async () => {
+    const r = await ev(async () => {
+      const W = G.world, A = G.assets, cur = G.state.zone.def, i = G.ZONES.indexOf(cur), nx = G.ZONES[i + 1];
+      const texPacks = (id) => W.zonePacks(id).filter((p) => Object.values(CA_ASSET_INDEX.textures).indexOf(p) >= 0);
+      const keep = W.zonePacks(cur.id).concat(nx ? W.zonePacks(nx.id) : []);
+      const keepIds = Object.keys(CA_ASSET_INDEX.textures).filter((id) => keep.indexOf(CA_ASSET_INDEX.textures[id]) >= 0);
+      const others = G.ZONES.filter((z, k) => k !== i && k !== i + 1).map((z) => z.id);
+      // 只拿当前区和下一区都不用的包（地面 / 岩石这类共用包可能正好被当前区留着）
+      const [pA, pB] = [texPacks(others[others.length - 1]), texPacks(others[others.length - 2])].map((l) => l.filter((p) => keep.indexOf(p) < 0));
+      const idsOf = (packs) => Object.keys(CA_ASSET_INDEX.textures).filter((id) => packs.indexOf(CA_ASSET_INDEX.textures[id]) >= 0);
+      const held = (packs) => A.texStats().list.filter((e) => idsOf(packs).indexOf(e.split(':')[0]) >= 0).length;
+      A.release(keep);
+      const out = { pA, pB, late0: A.texStats().late };
+      // ① 要了以后同一个任务里就释放（下载 / 解析的回调还没跑，解码还没开始）：结果是没成，也不解码
+      const qA = A.need(pA);
+      A.release(keep);
+      out.okA = await qA;
+      out.heldA = held(pA);
+      // ② 等解码开始了再释放：解完的图直接放掉，不存
+      const qB = A.need(pB);
+      const t0 = performance.now();
+      while (!pB.some((p) => A.texPending(p)) && performance.now() - t0 < 10000) await new Promise((res) => setTimeout(res, 0));
+      out.caught = pB.some((p) => A.texPending(p));
+      A.release(keep);
+      out.okB = await qB;
+      await new Promise((res) => setTimeout(res, 50));
+      out.heldB = held(pB);
+      out.late = A.texStats().late - out.late0;
+      out.stray = A.texStats().list.filter((e) => keepIds.indexOf(e.split(':')[0]) < 0);
+      // 当前区照常：再要一次当前区的包，贴图都在
+      out.curOk = await A.need(W.zonePacks(cur.id));
+      return out;
+    });
+    assert(r.pA.length && r.pB.length, '没找到可以拿来试的贴图包：' + JSON.stringify(r));
+    assert(r.okA === false && r.heldA === 0, '要了以后马上释放：不该解码、包里不该有图：' + JSON.stringify(r));
+    assert(r.caught, '没等到解码开始（测试本身的问题）：' + JSON.stringify(r));
+    assert(r.okB === false && r.heldB === 0 && r.late > 0, '解码途中释放：解完的图应直接放掉、包里不该有图：' + JSON.stringify(r));
+    assert(!r.stray.length && r.curOk, '留着的图应只有当前区和下一区的：' + r.stray.slice(0, 6).join(' '));
+    return '先释放：' + r.pA.join('+') + ' 没解码 ｜ 解码途中释放：' + r.pB.join('+') + ' 解完放掉 ' + r.late + ' 张、包里 0 张 ｜ 留着的都是当前区 + 下一区的';
+  });
+
+  // mem-hunt：首领包按区加载。原来启动时的预热把六个首领都建一遍，图标画完以后六个包全加载；现在只要当前区的首领（进区刷首领时）、
+  // 下一区的首领（跟下一区的素材一起预取）、余烛殿能进时的熄烛者。重载一次看启动后的样子，再进一个首领包还没载的区，走到首领房之前包就到、首领已经是新模型
+  await step('首领包：重载后只载当前区和下一区的首领包（余烛殿能进时加熄烛者），进一个首领包还没载的区，走到首领房之前就载好、首领已经换成新模型', async () => {
+    await ev(() => G.persist());
+    await page.reload({ timeout: 90000 });
+    await install();
+    // 模拟暂停：预取（空闲计时器）、首领包、睡着的首领换模型都不靠模拟推进
+    await ev(() => {
+      G.debug.hold(true);
+      G.debug.god(true);
+    });
+    try {
+      const info = () =>
+        ev(() => {
+          const z = G.state.zoneIdx, nd = G.ZONES[z + 1], pin = !!(G.pinOpen() && G.pinReady());
+          const want = [G.ZONES[z].boss].concat(nd ? [nd.boss] : []).map((k) => 'boss-' + k);
+          const allow = want.concat(pin ? ['boss-' + G.PINNACLE.boss] : []);
+          return { z, want, allow, have: G.world.bossPacks(), pin };
+        });
+      await until(() => G.icons && G.icons.ready && G.icons.ready(), null, 120000);
+      // 当前区的首领包、空闲时预取的下一区首领包都到了（预取要等安静 3 秒，最多 60 秒）
+      await until(() => {
+        const z = G.state.zoneIdx, nd = G.ZONES[z + 1];
+        return [G.ZONES[z].boss].concat(nd ? [nd.boss] : []).every((k) => G.assets.settled(['boss-' + k]));
+      }, null, 90000);
+      await sleep(3000); // 原来图标画完以后六个包一起要：多等一会儿，有不该要的也该出现了
+      const boot = await info();
+      // 进一个首领包还没载的区：玩家留在起点，等首领包到、首领换成新模型
+      const k = await ev(() => {
+        const have = G.world.bossPacks();
+        const i = G.ZONES.findIndex((z) => have.indexOf('boss-' + z.boss) < 0);
+        if (i < 0) return -1;
+        G.enterZone(i, 0);
+        return i;
+      });
+      let entry = null;
+      if (k >= 0) {
+        await until(() => !G.world.assetsPending() && G.world.gfxInfo().hd, null, 60000);
+        const t0 = Date.now();
+        await until(() => {
+          const b = G.state.enemies.find((e) => e.isBoss);
+          return b && b.ent.rig.bossModel === b.type;
+        }, null, 60000);
+        entry = await ev((k) => {
+          const P = G.player, z = G.state.zone, b = G.state.enemies.find((e) => e.isBoss);
+          const d = Math.hypot(P.x - z.bossPos.x, P.z - z.bossPos.z);
+          G.debug.tpBoss();
+          return { zone: G.ZONES[k].id, boss: b.type, model: b.ent.rig.bossModel, dist: Math.round(d), awake: !!b.awake };
+        }, k);
+        entry.s = +((Date.now() - t0) / 1000).toFixed(1);
+      }
+      const extra = boot.have.filter((p) => boot.allow.indexOf(p) < 0);
+      assert(boot.want.every((p) => boot.have.indexOf(p) >= 0), '当前区 / 下一区的首领包没载：' + JSON.stringify(boot));
+      assert(!extra.length, '启动后载了别的区的首领包 ' + extra.join(' ') + '：' + JSON.stringify(boot));
+      assert(k >= 0 && entry && entry.model === entry.boss && entry.dist > 30, '进首领包还没载的区，走到首领房之前首领应已换成新模型：' + JSON.stringify({ k, entry }));
+      return '启动在第 ' + boot.z + ' 区：载了 ' + boot.have.join(' ') + (boot.pin ? '（余烛殿能进）' : '') + ' ｜ 进 ' + entry.zone + '：' + entry.s + ' 秒后首领已是新模型（睡着时包一到就换），玩家离首领房 ' + entry.dist + ' m';
+    } finally {
+      await ev(() => {
+        G.enterZone(0, 1);
+        G.debug.god(true);
+        G.debug.hold(false);
+      });
+      await until(() => !G.world.assetsPending(), null, 60000).catch(() => {});
+    }
   });
 
     // 步骤名里的 vendor/three.min.js 是 r128 时的文件名，保留原名：步骤名是这一步随机数的种子（test/README.md「随机数」）；现在补丁在 vendor/three.bundle.js 里（tools/build-three.mjs）

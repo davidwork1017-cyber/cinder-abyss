@@ -21,6 +21,8 @@
   const texEntry = Object.create(null); // 贴图 id → 包里的条目（{ albedo, normal, arh 原文, lo?: {...}, skipLow?: 1 }）
   const texOfPack = Object.create(null); // 包名 → 这个包里的贴图 id
   const texState = Object.create(null); // 包名 → 当前这一档的解码 { mode: 'full' | 'low', p, done, ok }
+  const relGen = Object.create(null); // 包名 → 被 A.release 释放过几次（mem-hunt：释放之前发出的 need 结果出来时作废）
+  let lateDropped = 0; // 测试用：包释放以后才解码完、直接放掉的图张数
   let lowMode = false; // 低档：有 lo 变体的贴图用 lo、标了 skipLow 的不解码
   const geos = Object.create(null); // 模型 key → BufferGeometry
   const geoInfo = Object.create(null); // 模型 key → { h, r }（高度、水平半径）
@@ -266,7 +268,12 @@
       const src = v === 'lo' ? e.lo : e, kinds = KINDS.filter((k) => src[k]);
       jobs.push(
         Promise.all(kinds.map((k) => loadImage(src[k]))).then((ims) => {
-          if (texState[name] !== st) return; // 解码期间这个包被释放了 / 换了画质档：结果不要
+          if (texState[name] !== st) {
+            // 解码期间这个包被释放了 / 换了画质档：结果不要，图也马上放掉（mem-hunt：原来只是不存，WebKit 里解码出来的数据要等垃圾回收才走）
+            ims.forEach(freeImg);
+            lateDropped += ims.length;
+            return;
+          }
           const set = {};
           kinds.forEach((k, i) => (set[k] = ims[i]));
           set.avg = avgColor(set.albedo);
@@ -288,13 +295,15 @@
     );
     return st.p;
   }
-  // 解码到当前画质档为止：解码期间换了档就接着解新档；包被释放了就算没成
-  function texFor(name) {
+  // 解码到当前画质档为止：解码期间换了档就接着解新档；包被释放了就算没成。
+  // g：要这个包时它的释放代数（relGen）。mem-hunt：包还在下载 / 解析时被释放了（换了区），下载完不再解码（原来照样解码、存进已经释放的包里）
+  function texFor(name, g) {
     if (!(texOfPack[name] && texOfPack[name].length)) return Promise.resolve(true);
+    if (g !== undefined && (relGen[name] || 0) !== g) return Promise.resolve(false);
     return decodeTex(name).then(() => {
       const st = texState[name];
       if (!st) return false;
-      if (st.mode !== packMode(name) || !st.done) return texFor(name);
+      if (st.mode !== packMode(name) || !st.done) return texFor(name, g);
       return st.ok;
     });
   }
@@ -343,8 +352,14 @@
     return out;
   }
   // 一组包都加载完（不论成败）后 resolve 为「是否全部成功」
+  // 要的时候记下每个包的释放代数：结果出来之前包被释放了（A.release 没留它），这次就算没成、也不解码（再要一次会重新解码）
   A.need = function (names) {
-    return Promise.all(withDeps(names).map((n) => loadPack(n).then((ok) => (ok ? texFor(n) : false)))).then((r) => r.every(Boolean));
+    return Promise.all(
+      withDeps(names).map((n) => {
+        const g = relGen[n] || 0;
+        return loadPack(n).then((ok) => (ok ? texFor(n, g) : false));
+      })
+    ).then((r) => r.every(Boolean));
   };
   // 同步查询：这组包是否已经全部加载成功 / 是否已经有了结果（成功或失败）
   // ready 不展开依赖：布景件包坏了不该拖累地面贴图（世界层按 G.assets.geo 有没有模型单独判断布景）；settled 展开，等依赖也有了结果
@@ -354,6 +369,7 @@
   A.ready = (names) => names.every((n) => packState[n] && packState[n].ok && anyTex(n));
   A.settled = (names) => withDeps(names).every((n) => packState[n] && packState[n].done && (!packState[n].ok || texDone(n)));
   A.known = (name) => !!(INDEX.packs[name] || STORE[name]);
+  A.loading = (name) => !!(packState[name] && !packState[name].done); // 测试用：这个包要过、还在下载 / 解析
   // 当前画质档该用的那一份；还没解码好时先给别的已经解码的那份（none 占位图排最后），都没有就是 null
   A.tex = (id) => {
     const s = imgs[id];
@@ -389,6 +405,8 @@
   A.release = function (keep) {
     const ks = new Set(withDeps(keep || []));
     let n = 0;
+    // 没留的包（已经载好的、还在下载 / 解析的都算）释放代数 +1：还在路上的 need 作废，下载完不再解码
+    for (const name in packState) if (!ks.has(name)) relGen[name] = (relGen[name] || 0) + 1;
     const drop = (id, v) => {
       const s = imgs[id];
       if (!s || !s[v]) return;
@@ -431,8 +449,9 @@
         }
       }
     const packs = Object.keys(texState).filter((k) => texState[k].done && texState[k].ok);
-    return { images: n, mb: bytes / 1048576, list: list.sort(), packs: packs.sort(), low: lowMode };
+    return { images: n, mb: bytes / 1048576, list: list.sort(), packs: packs.sort(), low: lowMode, late: lateDropped };
   };
+  A.texPending = (name) => !!(texState[name] && !texState[name].done); // 测试用：这个包这一档的解码还在路上
   A.geo = (key) => geos[key] || null;
   A.geoInfo = (key) => geoInfo[key] || null;
   A.geoPack = (key) => geoPack[key] || null;

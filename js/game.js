@@ -13789,7 +13789,7 @@
     state.focusT = 0;
     if (G.regroupMinions) G.regroupMinions(); // 召唤物跟着进入新区域，在入口处重新现身
     G.autoSummonDelay(); // 数量没变，不会重复召唤；缺的等它们现身之后再补
-    if (W.precompile) W.precompile(); // 第一次进这个区：着色器 / 贴图在进区时就准备好，不留到第一场仗（zones-integrate）
+    if (W.precompile) W.precompile(); // 着色器 / 贴图在进区时就准备好，不留到第一场仗（zones-integrate；mem-hunt 起每次进区都做，留着的程序不再编译）
 
     save.lastZone = idx;
     save.tier = tier;
