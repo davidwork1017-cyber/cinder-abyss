@@ -31921,7 +31921,11 @@
     if (post.ok && qual.post) post.composer.render();
     else if (post.fx && qual.fxaa) post.fx.render();
     else renderer.render(scene, camera);
-    drawOverlay();
+    // 画面测试开着、标题画面盖着时（t45，style.css 的 html.title-on.t-probe-on）叠加层只画色带：小地图、血条这些标题画面本来就不显示
+    if (W.probe && document.documentElement.classList.contains('title-on')) {
+      octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      octx.clearRect(0, 0, vw, vh);
+    } else drawOverlay();
     if (W.probe) drawProbe(W.probe);
   };
   // 设置 → 设备信息 → 「画面测试」（rot-safe2，js/touch.js 的 probe()）：在 3D 画布和叠加层上各涂一条色带，看真机上画布画到哪。
