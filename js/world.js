@@ -2784,8 +2784,10 @@
     };
     setTimeout(tick, 1500);
   }
-  // zone-ready：素材到了、原地换外观还在排队（upgradeLater）或者新外观还在后台编译（staleZone）也算没齐：外观要换完才算就绪
-  W.assetsPending = () => !!pendingZone || retierN > 0 || !!(W.zone && W.zone.upPending) || !!staleZone;
+  // zone-ready：素材到了、原地换外观还在排队（upgradeLater）或者新外观还在后台编译（staleZone）也算没齐：外观要换完才算就绪（测试 / 工具等它）。
+  // 界面（主线追踪条、旁白的「打完了」）只看素材包本身（W.assetsLoading），和原来一样：不因为换外观排队多等
+  W.assetsLoading = () => !!pendingZone || retierN > 0;
+  W.assetsPending = () => W.assetsLoading() || !!(W.zone && W.zone.upPending) || !!staleZone;
   W.zonePacks = (id) => (ZONE_GFX[id] ? ZONE_GFX[id].packs.slice() : null); // 测试用（tex-t2）：区要的素材包
   // 启动时先等首个区域的素材（最多 maxMs 毫秒），开场就是完整画面；等待期间整屏盖一层「正在载入场景…」
   W.preloadZone = function (idx, maxMs) {

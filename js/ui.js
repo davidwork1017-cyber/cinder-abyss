@@ -5454,7 +5454,7 @@
     const Q = G.save.quest, st = G.state;
     const n = Q ? Q.n : G.QUEST_N;
     // 第一次进区时右上「正在载入场景…」那一条正好压在追踪条上：素材就绪前先不显示，就绪后淡入（quest D2）
-    const vis = !!(Q && n < G.QUEST_N && !Q.off && !ui.intro && !story.on && !menu.title && !menu.pause && !(G.world.assetsPending && G.world.assetsPending()));
+    const vis = !!(Q && n < G.QUEST_N && !Q.off && !ui.intro && !story.on && !menu.title && !menu.pause && !(G.world.assetsLoading && G.world.assetsLoading()));
     if (vis !== qh.vis) {
       qh.vis = vis;
       qh.root.classList.toggle('on', vis);
@@ -5532,7 +5532,7 @@
   // 战斗结束了没有：玩家活着、在区域里、素材载好了，没有醒着的敌人，也没有敌方的预警圈
   function narrCalm() {
     const st = G.state;
-    if (G.player.dead || !st.zone || (G.world.assetsPending && G.world.assetsPending())) return false;
+    if (G.player.dead || !st.zone || (G.world.assetsLoading && G.world.assetsLoading())) return false;
     if (narrAwake()) return false;
     for (const t of st.telegraphs) if (!t.friendly) return false;
     return true;
