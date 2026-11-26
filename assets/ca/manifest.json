@@ -1847,6 +1847,57 @@
    "sha256": "285b1c58a953935568ba8b7024b8cd5ce2abe3125af0366eaf1dcd46257dd7b8"
   },
   {
+   "id": "ca/frost_waystone",
+   "category": "aiprop",
+   "zone": "frost",
+   "file": "assets/ca/frost/frost_waystone.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 1500,
+   "verts": 4500,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.599,
+     -0.041,
+     -0.592
+    ],
+    "max": [
+     0.596,
+     1.309,
+     0.593
+    ]
+   },
+   "h": 1.351,
+   "r": 0.599,
+   "y0": -0.041,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 1126,
+    "args": {
+     "prov": "assets/ai/frost_waystone/provenance.json",
+     "lod": "hi",
+     "mode": "albedo"
+    },
+    "bake": {
+     "ao": 0.25,
+     "grad": 0.01,
+     "wear": 0,
+     "grime": 0,
+     "gtint": 0
+    },
+    "provenance": "assets/ai/frost_waystone/provenance.json",
+    "sourceSha256": "6f30359fe6c4b05a003707d80d64eec65af636b410857f1062d35fffca25fe9d"
+   },
+   "lod": "hi",
+   "mode": "albedo",
+   "tex": "frost_waystone",
+   "sha256": "8fdb375a086214b44edd2247bca4225ac9fb0ff08216fc4ed307f0f02b7ee314"
+  },
+  {
    "id": "ca/gear_lantern",
    "category": "weapon",
    "zone": "gear",
