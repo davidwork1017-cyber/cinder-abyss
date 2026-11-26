@@ -40,7 +40,7 @@
 | `ca/boss_golem`（熔渣巨像：玄武岩块拼成的巨像，胸口是拱形铁栅炉膛，肩上两根短烟囱）、`ca/boss_golem_lo`（低画质的减面版） | 第 0 区首领，`js/assets/boss-golem.js`；低画质用减面版 | `ca/boss/golem.provenance.json` |
 
 - **生成流程**：ComfyUI 0.43.0，只用内置节点。Z-Image Turbo 文生图，TRELLIS.2 图生 3D，另外用到 BiRefNet、DINOv3、MoGe-2。蒙皮用 UniRig（只算权重，骨架是我们自己拟合的巨像骨架）。提示词、种子、每个组件的版本都在来源记录里。
-- **处理**：`art/ai/golem_rig.py`（无头 Blender，`npm run build:art` 调用）把源模型对到巨像骨架上：减面到首领预算以内（高 7716、低 3786 个三角形），四肢和关节用 UniRig 的权重，头、烟囱、肩甲这些整块的地方按几何区域改成刚性，反照率贴图 512，按游戏镜头的灰度调亮。源文件不在的机器上保留已提交的 GLB。
+- **处理**：`art/ai/golem_rig.py`（无头 Blender，`npm run build:art` 调用）把源模型对到巨像骨架上：减面到首领预算以内（高 7845、低 3837 个三角形），四肢和关节用 UniRig 的权重，头、烟囱、肩甲这些整块的地方按几何区域改成刚性，反照率贴图 512，按游戏镜头的灰度调亮。源文件不在的机器上保留已提交的 GLB。
 - **许可证**：生成时用到的每个组件都读过许可证原文：
   - ComfyUI：GPL-3.0，只是工具，输出不受约束；
   - Z-Image Turbo、Qwen3-4B 文本编码器、VAE：Apache-2.0；
