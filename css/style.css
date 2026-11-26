@@ -3671,6 +3671,8 @@ html.title-on #title { display: block; }
 /* 标题画面盖着的时候 HUD、世界层名牌、提示一律不显示 */
 html.title-on #hud, html.title-on #wui, html.title-on #overlay, html.title-on #toasts, html.title-on #coach,
 html.title-on #reticle, html.title-on #vignette, html.title-on #lowlife, html.title-on #death, html.title-on #tip { display: none; }
+/* 设置 → 设备信息 → 「画面测试」开着时标题画面也放出叠加层（t45）：上面只画测试色带（world.js 的 W.render），不然标题画面截图里叠加层那条永远是空的 */
+html.title-on.t-probe-on #overlay { display: block; }
 .t-shade {
   position: absolute;
   inset: 0;

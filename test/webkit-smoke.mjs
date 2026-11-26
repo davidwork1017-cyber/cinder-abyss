@@ -11,7 +11,7 @@ import { GAME_URL, diagStep, outerTimeoutWarning } from './harness.mjs'; // 引�
 import { uiLayoutCheck, uiBlankPoint } from './ui-layout.mjs';
 import { cornerScenes, cornerHud, cornerCheck } from './corner-mask.mjs';
 import { STANDALONE_DEVICES, MOBILE_DEFAULT, standaloneContext, launch, questReady, lateGrow, converged } from './devices.mjs';
-import { HUD_PARTS, PAINT_SRC, rotFrameProbe, rotFrameJudge, rotCanvasProbe, rotCanvasJudge } from './rot-standalone.mjs';
+import { HUD_PARTS, PAINT_SRC, rotFrameProbe, rotFrameJudge, rotCanvasProbe, rotCanvasJudge, probeBand, probeBandJudge } from './rot-standalone.mjs';
 
 let passed = 0, failed = 0;
 const lines = [];
@@ -1033,7 +1033,8 @@ await step('旋转横屏 · 主屏幕 App · 可见区（rot-safe）：iPhone 17
             await p.waitForTimeout(300);
             const txt = await pev(() => { const e = document.getElementById('m-dev'); return e && e.getClientRects().length ? e.textContent.replace(/ +/g, ' ') : ''; });
             // rot-safe2：真机上窗口、可视区是整块屏幕（874），只有 clientHeight 少状态栏；画到 / 画布 / 高度按新读数
-            const miss = ['屏幕 402×874', '窗口 402×874', '可视区 402×874', '像素比 3', '安全区', '主屏幕 standalone true', '旋转 开 cw', '方向', '画面 874×402', '画布 874×402 · 缓冲', '渲染 874×402', '画到 画布到竖着的屏幕 y 874 · HUD 到 812 · 底边让出 62', '高度 clientHeight 812 · innerHeight 874 · 可视区 874 · 100lvh 874', 'html', 'clientHeight 812', '版本 v'].filter((k) => !txt.includes(k));
+            // t45：HUD 到 屏幕 − 底部横条（874 − 34 = 840，原来到 clientHeight 812、让出 62）；新的一行「叠加层」（盒子、缓冲、底边）
+            const miss = ['屏幕 402×874', '窗口 402×874', '可视区 402×874', '像素比 3', '安全区', '主屏幕 standalone true', '旋转 开 cw', '方向', '画面 874×402', '画布 874×402 · 缓冲', '渲染 874×402', '叠加层 874×402 · 缓冲', '画到 画布到竖着的屏幕 y 874 · HUD 到 840 · 底边让出 34', '高度 clientHeight 812 · innerHeight 874 · 可视区 874 · 100lvh 874', 'html', 'clientHeight 812', '版本 v'].filter((k) => !txt.includes(k));
             if (!shut || miss.length) bad.push(where + ' 设备信息：' + (shut ? '' : '一开始没收着 ') + (miss.length ? '缺 ' + miss.join('、') : ''));
           }
         }
@@ -1052,7 +1053,10 @@ await step('旋转横屏 · 主屏幕 App · 可见区（rot-safe）：iPhone 17
 // 主攻键、主线追踪条却画过了 812（notes/user-feedback/iphone-rotated-after-rotsafe-2026-11-25.png；设备信息：窗口 402×874、可视区 874、clientHeight 812）。
 // 原因：刚打开时视口是 812，之后变成 874，world.js 的 resize 先跑、读到旧尺寸，画布停在 812；HUD 按 874 摆。
 // 模型见 test/devices.mjs（standaloneContext + launch / settle）。在 be309c4 上这一步不过（画布到 812、小地图被切、主攻键伸出 812）
-await step('旋转横屏 · 主屏幕 App · 画布铺满、HUD 在 clientHeight 以内（rot-safe2）：真机读数的模型（刚打开时视口少状态栏，随后 innerHeight / 可视区 / 100lvh 变成整块屏幕、clientHeight 不变），iPhone 17 Pro 402×874 cw / ccw、393×852 cw、375×812 cw——3D 画布和叠加层盖满整块屏幕、按画面尺寸渲染，小地图整个在叠加层里，HUD 和字都在 clientHeight 以内；「画面测试」打得开、七条色带和顶部对照齐、刷新就关', async () => {
+// t45（2026-11-26）：真机「画面测试」截图（标题画面）里七条有六条画到了屏幕底，3D 画布也是；叠加层那条是空的，因为标题画面本来就把叠加层藏了
+// （style.css 的 html.title-on #overlay；模拟里同样如此，叠加层在游戏里和 3D 画布一样大）。所以：HUD 不再停在 clientHeight，到 屏幕 − 底部横条；
+// 画面测试开着时标题画面也放出叠加层（只画色带）。这一步新查：标题画面和游戏里七条色带都在屏幕底那一截画出来（截图取色），叠加层和 3D 画布同一个盒子
+await step('旋转横屏 · 主屏幕 App · 画布铺满、HUD 到屏幕底减横条（rot-safe2 / t45）：真机读数的模型（刚打开时视口少状态栏，随后 innerHeight / 可视区 / 100lvh 变成整块屏幕、clientHeight 不变），iPhone 17 Pro 402×874 cw / ccw、393×852 cw、375×812 cw——3D 画布和叠加层盖满整块屏幕、同一个盒子、按画面尺寸渲染，小地图整个在叠加层里，HUD 和字都在 屏幕 − 底部横条 以内；「画面测试」打得开、七条色带和顶部对照齐，标题画面和游戏里七条都画到屏幕底（截图取色）、刷新就关', async () => {
   const out = [];
   const bad = [];
   const runs = [[STANDALONE_DEVICES[0], 'cw'], [STANDALONE_DEVICES[0], 'ccw'], [STANDALONE_DEVICES[1], 'cw'], [STANDALONE_DEVICES[2], 'cw']];
@@ -1084,12 +1088,27 @@ await step('旋转横屏 · 主屏幕 App · 画布铺满、HUD 在 clientHeight
         await p.reload();
         await ready();
       });
+      // t45：标题画面开着画面测试，七条都画到屏幕底（真机截图里叠加层那条是空的）；只在 cw 上取色（ccw 时竖着的屏幕底边是标题暗色渐变最深的一头）
+      if (dir === 'cw') {
+        await pev(() => G.touch.probe(true));
+        await p.waitForTimeout(400);
+        const tb = await probeBand(p, dev);
+        bad.push(...probeBandJudge(tb, where + ' 标题画面'));
+        const leg = await pev(() => Array.from(document.querySelectorAll('.t-probe')).map((e) => e.textContent).join('|'));
+        if (/隐藏/.test(leg)) bad.push(where + ' 标题画面画面测试：叠加层还是藏着（' + leg + '）');
+        await pev(() => G.touch.probe(false));
+        await p.waitForTimeout(200);
+        const tOv = await pev(() => getComputedStyle(document.getElementById('overlay')).display);
+        if (tOv !== 'none') bad.push(where + ' 画面测试关了以后标题画面的叠加层没藏回去：' + tOv);
+      }
       await pev(() => G.ui.hideTitle());
       const qw = await questReady(p); // 先等素材包、再按帧等追踪条（HUD 检查要它在）
       if (qw) bad.push(where + ' ' + qw);
       await p.waitForTimeout(600);
       const o = await pev(rotCanvasProbe);
       bad.push(...rotCanvasJudge(o, where));
+      // t45：叠加层和 3D 画布同一个盒子、缓冲按同一个画面尺寸（world.js 的 W.resize）
+      if (JSON.stringify(o.ov) !== JSON.stringify(o.gl)) bad.push(where + ' 叠加层和 3D 画布不是同一个盒子：' + JSON.stringify(o.ov) + ' / ' + JSON.stringify(o.gl));
       const f = await pev(rotFrameProbe, [HUD_PARTS, PAINT_SRC]);
       bad.push(...rotFrameJudge(f, dev, where).bad);
       if (o.ch !== dev.height - dev.sb || o.ih !== dev.height) bad.push(where + ' 模型没生效：clientHeight ' + o.ch + ' innerHeight ' + o.ih);
@@ -1116,6 +1135,10 @@ await step('旋转横屏 · 主屏幕 App · 画布铺满、HUD 在 clientHeight
           // 3D 画布上那条在 clientHeight 以下（竖着的屏幕坐标）
           const gy = await pev((r) => { const a = G.toScreen(r[0], r[1]), b = G.toScreen(r[0] + r[2], r[1] + r[3]); return [Math.min(a.y, b.y), Math.max(a.y, b.y)]; }, pr.gl);
           if (!(gy[0] >= dev.height - dev.sb - 1 && gy[1] <= dev.height + 1)) bad.push(where + ' 画面测试的画布色带不在屏幕底那一截：' + gy.join('–'));
+          // t45：关掉菜单（菜单的底色会压暗画布那几条），游戏里七条都画到屏幕底
+          await pev(() => G.ui.close());
+          await p.waitForTimeout(400);
+          bad.push(...probeBandJudge(await probeBand(p, dev), where + ' 游戏里'));
           await launch(p, dev, async () => {
             await p.reload();
             await ready();
@@ -1139,7 +1162,7 @@ await step('旋转横屏 · 主屏幕 App · 画布铺满、HUD 在 clientHeight
     }
   }
   assert(!bad.length, bad.length + ' 处不合格：' + bad.slice(0, 6).join(' ｜ '));
-  return out.join('，') + '；HUD 在 clientHeight 以内，画面测试开得了、刷新就关' + lateInfo;
+  return out.join('，') + '；HUD 在 屏幕 − 底部横条 以内，画面测试开得了、标题画面和游戏里七条都画到屏幕底、刷新就关' + lateInfo;
 });
 
 await browser.close();
