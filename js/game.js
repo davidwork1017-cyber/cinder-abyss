@@ -5022,6 +5022,7 @@
         // 跳焰：每一跳一道抛物线（落地 0.3，最高 1.9）
         const k = Math.min(1, p.skip.d / p.skip.seg);
         py = 0.3 + 1.6 * 4 * k * (1 - k);
+        if (p.mesh.userData) p.mesh.userData.hop = 1; // skill-b3b：画面上脚下画影子
       } else if (p.y0 !== undefined) {
         p.yT = (p.yT || 0) + dt;
         const k = Math.min(1, p.yT / 0.22);
@@ -6970,7 +6971,8 @@
       const n = c && c.channel ? c.pulses : 0;
       const rk = sk.mech === 'tide' ? G.relicSpinPulse(ctx) : 1; // 渊式「蓄潮」：每跳打得轻、攒层
       if (sk.mech === 'pull') whirlPull(ctx); // 刻式「旋涡斩」：先把一圈敌人往身边吸
-      W.slash(P.x, P.z, G.vr() * TAU, R, 360, hex, sk.mech === 'pull' ? { dur: 0.2, inner: 0.35, y: 0.6, dir: -1 } : { dur: 0.2, inner: 0.6, y: 0.9 });
+      // skill-b3b：360° 的刀光只留外沿一道细边（原来内沿 0.6 / 旋涡斩 0.35：一整圈 1 米多宽的奶油色实心带）
+      W.slash(P.x, P.z, G.vr() * TAU, R, 360, hex, sk.mech === 'pull' ? { dur: 0.2, inner: 0.86, y: 0.6, dir: -1 } : { dur: 0.2, inner: 0.9, y: 0.9 });
       if (W.spinPulse) W.spinPulse(P.ent, R, hex, ctx.time * 1.6, n === 1, sk.mech === 'pull' ? -1 : 1); // vf-vfx2：绕身的风刃、脚下的风纹、起手的尘环；刻式「旋涡斩」风刃反着转、往里收
       if (n % 2 === 1) W.burst(P.x, 0.25, P.z, 0xbfb3a0, 4, R * 0.9, 0.3); // 脚下扬起的尘
       G.sfx('swing', { step: n % 2 });
@@ -7076,8 +7078,11 @@
     for (const e of enemiesIn(p.x, p.z, R)) G.hitEnemy(e, p.ctx, 1, { ang: Math.atan2(e.x - p.x, e.z - p.z), kb: 0.15, poise: sk.poise, quiet: true }); // 推得很轻：留在火地里
     const F = S.field;
     addField({ kind: 'burn', x: p.x, z: p.z, r: F.r * ak, dur: F.dur, tick: F.tick, mult: F.mult, ctx: p.ctx, key: 'vSkipT', hex: 0xff7a2c, noDecal: true });
-    W.ring(p.x, p.z, R, 0xff8a3c, 0.25);
-    W.burst(p.x, 0.4, p.z, 0xffb050, 12, 5, 0.35);
+    // skill-b3b：落地 = 火色细环 + 压扁的尘环 + 矮尘 + 小火舌（原来加色的环 + 12 粒亮火星）
+    if (!(W.b3SkipLand && W.b3SkipLand(p.x, p.z, R))) {
+      W.ring(p.x, p.z, R, 0xff8a3c, 0.25);
+      W.burst(p.x, 0.4, p.z, 0xffb050, 12, 5, 0.35);
+    }
     G.sfx('impact', { type: 'fire', w: 0, crit: false });
     state.stats.vSkipLands = (state.stats.vSkipLands || 0) + 1;
     p.skip.left--;
@@ -7109,7 +7114,8 @@
     e.vStick = (e.vStick || 0) + 1;
     VS.sticks.push({
       e, ctx, gen, k, t: S.fuse, fuse: S.fuse, x: e.x, z: e.z,
-      fx: W.kv('orb', { hex: 0xffa040, s: 0.34 }), ring: W.kv('glyph', { hex: 0xff7a2c, s: (e.r + 0.7) * 2, y: 0.06 }),
+      // skill-b3b：火核 → 胸口一小簇越烧越快的火苗（stick）；脚下 2 米的浅色虚线引信圈不画了（hide）
+      fx: W.kv('orb', { hex: 0xffa040, s: 0.34, stick: 1 }), ring: W.kv('glyph', { hex: 0xff7a2c, s: (e.r + 0.7) * 2, y: 0.06, hide: 1 }),
     });
     W.burst(e.x, (e.height || 2) * 0.6, e.z, 0xffb050, 6, 2, 0.25);
     vCount();
@@ -7124,7 +7130,9 @@
     const x = st.e && !st.e.dead ? st.e.x : st.x, z = st.e && !st.e.dead ? st.e.z : st.z;
     const hits = enemiesIn(x, z, R);
     for (const o of hits) G.hitEnemy(o, ctx, st.k, { ang: Math.atan2(o.x - x, o.z - z), kb: 0.6, poise: 10, quiet: true });
-    if (W.blastFx) W.blastFx(x, z, R);
+    // skill-b3b：黏焰自己的引爆（从身上往上窜的火舌 + 细环，形状批），不再借爆燃的样子
+    if (W.b3StickBoom && W.b3StickBoom(x, z, R, st.e ? (st.e.height || 2) : 2)) {}
+    else if (W.blastFx) W.blastFx(x, z, R);
     else W.ring(x, z, R, 0xff8a3c, 0.3);
     G.sfx('impact', { type: 'fire', w: 1, crit: false });
     state.stats.vStickBooms = (state.stats.vStickBooms || 0) + 1;
@@ -7162,6 +7170,7 @@
       st.fx.y = h;
       st.fx.k = Math.sin(state.time * (6 + f * 26)) > 0 ? 0.85 : 0.15;
       st.fx.s = 0.3 + f * 0.14;
+      st.fx.f = f;
       st.ring.x = e.x;
       st.ring.z = e.z;
       st.ring.k = f;
@@ -7187,10 +7196,13 @@
     const R = S.r * Math.sqrt(p.ctx.area);
     VS.traps.push({
       x, z, ctx: p.ctx, t: S.dur, tt: 0.05, ph: Math.atan2(p.dx, p.dz), R,
-      fx: W.kv('blade', { hex: 0xdfe6f2, s: 0.75, y: 0.7 }), ring: W.kv('glyph', { hex: 0xcfd6e6, s: R * 2, y: 0.05 }),
+      // skill-b3b：锯刃是共用的「旋转刃」件；地上原来的 2.5 米白色粗环 → 一圈暗色锯痕（只画边的虚线，亮着的段数 = 剩下的时间），
+      // 比地面亮的浅色擦痕 → 暗色的锯口；钉下去的白色火花 → 暖灰的碎屑
+      fx: W.kv('blade', { hex: 0xdfe6f2, s: 0.75, y: 0.7 }), ring: W.kv('glyph', { hex: 0x2c2622, s: R * 2, y: 0.05, edge: 1, dash: 20, ew: 0.09, k: 1 }),
     });
-    W.decal(0, x, z, 0.8, Math.atan2(p.dx, p.dz), 0xcfd6e6, S.dur, 0.12);
-    W.burst(x, 0.6, z, 0xffffff, 10, 4, 0.25);
+    if (W.b3PinScar) W.b3PinScar(x, z, Math.atan2(p.dx, p.dz), R, S.dur);
+    else W.decal(0, x, z, 0.8, Math.atan2(p.dx, p.dz), 0xcfd6e6, S.dur, 0.12);
+    W.burst(x, 0.6, z, 0x9a8c7a, 6, 3, 0.25);
     state.stats.vPins = (state.stats.vPins || 0) + 1;
     vCount();
   }
@@ -7199,7 +7211,7 @@
     if (i >= 0) VS.traps.splice(i, 1);
     kvOff(tr.fx);
     kvOff(tr.ring);
-    G.world.burst(tr.x, 0.6, tr.z, 0xcfd6e6, 6, 2, 0.25);
+    G.world.burst(tr.x, 0.6, tr.z, 0x8a8478, 6, 2, 0.25);
     vCount();
   }
   function tickTraps(dt) {
@@ -7231,7 +7243,7 @@
         n++;
       }
       if (n) {
-        G.world.burst(tr.x, 0.7, tr.z, 0xfff0d0, 3, 3, 0.15);
+        G.world.burst(tr.x, 0.7, tr.z, 0xb0a08a, 3, 3, 0.15); // skill-b3b：锯的火花压到暖灰
         state.stats.vTrapHits = (state.stats.vTrapHits || 0) + n;
       }
     }
@@ -7244,7 +7256,7 @@
       while (VS.orbits.length >= max) orbitOff(VS.orbits[0]);
       VS.orbits.push({ ctx, t: O.dur * ctx.durK, fx: W.kv('blade', { hex: 0xdfe6f2, s: 0.55, rx: Math.PI / 2 - 0.25, y: 1.0 }), hitAt: new Map() });
     }
-    W.burst(P.x, 1.0, P.z, 0xcfd6e6, 8, 3, 0.25);
+    W.burst(P.x, 1.0, P.z, 0x8a94a6, 8, 3, 0.25);
     G.sfx('swing', { step: 0 });
     vCount();
   }
@@ -7278,7 +7290,7 @@
         if (state.time - (o.hitAt.get(e) || -99) < S.gap) continue;
         o.hitAt.set(e, state.time);
         G.hitEnemy(e, o.ctx, 1, { ang: a + Math.PI / 2, kb: 0.15, quiet: true });
-        G.world.burst(x, 1.0, z, 0xfff0d0, 3, 3, 0.15);
+        G.world.burst(x, 1.0, z, 0xb0a08a, 3, 3, 0.15);
         state.stats.vOrbitHits = (state.stats.vOrbitHits || 0) + 1;
       }
     }
@@ -7350,13 +7362,16 @@
     while (VS.pylons.length >= S.max + ctx.durCap) pylonOff(VS.pylons[0]); // 绵延：上限 +1
     const py = {
       x, z, ctx, t: S.dur * ctx.durK, tt: 0,
-      fx: W.kv('spike', { hex: 0xc9a83a, x, z, sx: 1, sz: 1, sy: 2.3 }), top: W.kv('orb', { hex: 0xffe45e, x, z, y: 2.35, s: 0.42, k: 0.6 }),
+      // skill-b3b：桩画成有底座的晶柱（pylon：形状批），柱头的小球照旧（放电时闪）
+      fx: W.kv('spike', { hex: 0xc9a83a, x, z, sx: 1, sz: 1, sy: 2.3, pylon: 1 }), top: W.kv('orb', { hex: 0xffe45e, x, z, y: 2.35, s: 0.3, k: 0.6 }),
     };
     VS.pylons.push(py);
     W.bolt([{ x: P.x, z: P.z }, { x, z }], 0xffe45e, true);
-    if (W.vShock) W.vShock(x, z, S.r * Math.sqrt(ctx.area), 0xffe45e, 0.3, 0); // 电桩的范围：一道往外推的细环
-    else W.ring(x, z, S.r * Math.sqrt(ctx.area), 0xffe45e, 0.3);
-    W.decal(3, x, z, 0.9, G.vr() * TAU, 0xffe45e, py.t);
+    // skill-b3b：原来两道 6 米的亮金大环铺满半屏 → 桩脚下一圈贴地的折线 + 三条往外窜的短电灼纹；脚下的亮色贴花 → 暗焦痕
+    if (W.b3PylonZig) W.b3PylonZig(x, z, 0xffe45e, true);
+    else if (W.vShock) W.vShock(x, z, S.r * Math.sqrt(ctx.area), 0xffe45e, 0.3, 0);
+    if (W.b3PylonZig) W.vDecal('scorch', x, z, 0.8, Math.min(py.t, 6), 0x2a2410, { a: 0.7 });
+    else W.decal(3, x, z, 0.9, G.vr() * TAU, 0xffe45e, py.t);
     py.tt = S.tick * 0.6; // 插下去之后很快电第一下（不当帧电：按住连插也不会多电）
     state.stats.vPylons = (state.stats.vPylons || 0) + 1;
     vCount();
@@ -7384,6 +7399,7 @@
     if (!best) return null;
     G.hitEnemy(best, py.ctx, S.mult, { ang: Math.atan2(best.x - py.x, best.z - py.z), quiet: true });
     G.world.bolt([{ x: py.x, z: py.z }, { x: best.x, z: best.z }], 0xffe45e, true);
+    if (G.world.b3PylonZig) G.world.b3PylonZig(py.x, py.z, 0xffe45e, false); // skill-b3b：放电时桩脚下的折线一闪
     py.top.k = 1;
     state.stats.vZaps = (state.stats.vZaps || 0) + 1;
     return best;
@@ -7492,7 +7508,8 @@
     VS.cores.push({
       x, z, ctx, t: C.dur, n: 0, gap: 0.3, R: C.r * Math.sqrt(ctx.area),
       fx: W.kv('rock', { hex: 0x3a1a10, x, z, y: 0.25, s: 1.25, ry: G.vr() * TAU }), glow: W.kv('orb', { hex: 0xff5a1c, x, z, y: 0.45, s: 0.8, k: 0.4 }),
-      ring: W.kv('glyph', { hex: 0xff5a2c, x, z, y: 0.05, s: C.r * Math.sqrt(ctx.area) * 2, k: 1 }),
+      // skill-b3b：地上的符环 → 只画边的暗余烬色虚线（亮着的段数 = 还能引爆的次数），原来是近白的粗双环（加色）
+      ring: W.kv('glyph', { hex: 0xb04a1c, x, z, y: 0.05, s: C.r * Math.sqrt(ctx.area) * 2, k: 1, edge: 1, dash: 16, ew: 0.08 }),
     });
     state.stats.vCores = (state.stats.vCores || 0) + 1;
     vCount();
@@ -7537,7 +7554,7 @@
         continue;
       }
       // 裂纹一明一暗；刚被点爆时整团发白，慢慢暗回去；用掉的次数在地上的符环里少一段
-      c.glow.k = Math.max(0.2 + 0.25 * (Math.sin(state.time * 5 + i) > 0 ? 1 : 0), c.glow.k - dt * 2);
+      c.glow.k = Math.min(0.55, Math.max(0.2 + 0.25 * (Math.sin(state.time * 5 + i) > 0 ? 1 : 0), c.glow.k - dt * 2)); // skill-b3b：刚点爆时不再整团发白（封顶 0.55）
       c.glow.s = 0.75 + 0.1 * c.glow.k;
       c.ring.k = 1 - c.n / c.ctx.sk.core.n;
       c.ring.a = c.t < 0.5 ? 0.3 : 1;
@@ -7548,10 +7565,11 @@
     const len = Math.max(0.5, rayLen(x, z, Math.atan2(dx, dz), S.len, 0.3));
     VS.ploughs.push({
       x, z, x0: x, z0: z, dx, dz, d: 0, len, sp: S.len / S.t, ctx, hit: new Set(), fd: -9, // fd：上一片火的位置（落点那一片第一帧就铺）
-      fx: W.kv('rock', { hex: 0x5a2a14, x, z, y: 0.55, s: 1.3 }), glow: W.kv('orb', { hex: 0xff6a20, x, z, y: 0.6, s: 0.95, k: 0.7 }),
+      // skill-b3b：滚动的岩块提亮成看得见的岩色（原来暗红褐在焦地上看不见），里面的火光球缩小、不发白，岩块盖在它外面
+      fx: W.kv('rock', { hex: 0x7a6450, x, z, y: 0.6, s: 1.35 }), glow: W.kv('orb', { hex: 0xff6a20, x, z, y: 0.55, s: 0.6, k: 0.35 }),
     });
-    // 长条的犁痕一次铺好（贴地擦痕，长度的一半 = len / 2）
-    W.decal(0, x + (dx * len) / 2, z + (dz * len) / 2, len / 2, Math.atan2(dx, dz), 0xff6a2c, S.field.dur + 0.5, S.w * 0.45);
+    // 长条的犁痕一次铺好（贴地擦痕，长度的一半 = len / 2）；skill-b3b：改成跟着岩块一段段铺的暗色焦沟（W.b3PloughStep），不再是一条加色的细橙线
+    if (!W.b3PloughStep) W.decal(0, x + (dx * len) / 2, z + (dz * len) / 2, len / 2, Math.atan2(dx, dz), 0xff6a2c, S.field.dur + 0.5, S.w * 0.45);
     state.stats.vPloughs = (state.stats.vPloughs || 0) + 1;
     vCount();
   }
@@ -7575,7 +7593,7 @@
         G.hitEnemy(e, p.ctx, S.mult, { ang: ang + (side * Math.PI) / 2, w: 1, kb: 1.8, poise: 14, quiet: true, core: true });
         if (!e.isBoss && W.knockUp) W.knockUp(e.ent, 0.5);
       }
-      if (G.vr() < 0.6) W.burst(p.x, 0.4, p.z, 0xffa040, 3, 3, 0.3);
+      if (!(W.b3PloughStep && W.b3PloughStep(p, S.w * ak, S.field.dur + 0.5)) && G.vr() < 0.6) W.burst(p.x, 0.4, p.z, 0xffa040, 3, 3, 0.3);
       // 每 2.6 米留一片火（沟里的火）
       if (p.d - p.fd >= 2.6 || (p.d >= p.len && p.fd < p.len - 0.5)) {
         p.fd = p.d;
@@ -7717,7 +7735,8 @@
     VS.disc = {
       x: P.x + ai.dx * 0.8, z: P.z + ai.dz * 0.8, tx: P.x + ai.dx * len, tz: P.z + ai.dz * len, ph: 'out', t: 0,
       hover: Math.max(S.hover, S.trip - 2 * flight), ctx, hits: new Map(),
-      fx: W.kv('blade', { hex: 0xe8c9a0, s: 1.3, rx: Math.PI / 2, y: 1.0 }), ring: W.kv('glyph', { hex: 0xe8c9a0, s: S.r * Math.sqrt(ctx.area) * 2, y: 0.05, k: 1 }),
+      // skill-b3b：扔出去的是共用的「旋转刃」件（大一号、偏武器的铜色）；脚下原来的奶油色圈 → 一圈很淡的暗色尘痕虚线
+      fx: W.kv('blade', { hex: 0xe8c9a0, tint: 0xc8a478, s: 1.3, rx: Math.PI / 2, y: 1.0 }), ring: W.kv('glyph', { hex: 0x4a4038, s: S.r * Math.sqrt(ctx.area) * 2, y: 0.05, k: 1, edge: 1, dash: 14, ew: 0.07 }),
     };
     G.sfx('swing', { step: 1 });
     state.stats.vThrows = (state.stats.vThrows || 0) + 1;
@@ -7768,7 +7787,7 @@
     c.fx.rz += dt * 26;
     c.fx.y = c.ph === 'hover' ? 0.9 + Math.sin(state.time * 12) * 0.05 : 1.0;
     c.ring.a = c.ph === 'hover' ? 1 : 0.3;
-    if (G.vr() < 0.5) W.burst(c.x, 0.9, c.z, 0xe8c9a0, 1, 1.5, 0.2);
+    if (G.vr() < 0.5) W.burst(c.x, 0.9, c.z, 0xa89478, 1, 1.5, 0.2);
     const R = S.r * Math.sqrt(c.ctx.area);
     let n = 0;
     for (const e of enemiesIn(c.x, c.z, R)) {
@@ -7781,7 +7800,8 @@
       n++;
     }
     if (n) {
-      W.slash(c.x, c.z, G.vr() * TAU, R, 360, 0xe8c9a0, { dur: 0.14, inner: 0.7, y: 0.95 });
+      if (W.thinRing) W.thinRing(c.x, c.z, R, 0xb8a080, 0x6a5a48, 0.16, 12); // skill-b3b：打中一圈细边（原来 360° 的奶油色实心弯月）
+      else W.slash(c.x, c.z, G.vr() * TAU, R, 360, 0xe8c9a0, { dur: 0.14, inner: 0.7, y: 0.95 });
       G.sfx('impact', { type: 'phys', w: 0, crit: lastHit.crit });
       state.stats.vDiscHits = (state.stats.vDiscHits || 0) + n;
     }

@@ -11722,6 +11722,82 @@ async function main() {
     return 'draw 高 ' + r.high.d0 + '，命中 ' + r.high.dRef + '→' + r.high.st.cut.d + ' / 低 ' + r.low.d0 + '，命中 ' + r.low.dRef + '→' + r.low.st.cut.d + '，铁水弹 ' + r.high.dm + ' / ' + r.low.dm + '，轮廓闪 +' + r.high.st.cut.up.toFixed(2) + ' 复原，Math.random 取数全 0';
   });
 
+  await step('技能打磨第 3b 批（skill-b3b）：共用的「旋转刃」（钉刃 / 环刃 / 掷旋）、雷桩晶柱、黏焰火苗、黏焰引爆、跳焰落地、犁焰焦沟、钉刃锯痕、雷桩折线都画进形状批 / 飞刃零件——高 / 低画质不比 main 多 draw（旋转刃只占飞刃零件那一次），一次 Math.random 都不取；千刃收刀齐爆 5 只合起来只画 6 道斩痕', async () => {
+    const r = await ev(() => {
+      const W = G.world, P = G.player, R = W.renderer, out = {}, q0 = W.quality();
+      G.clearEnemies();
+      const draws = () => { R.info.autoReset = false; R.info.reset(); W.render(); const c = R.info.render.calls; R.info.autoReset = true; return c; };
+      const cnt = (f) => { const r0 = Math.random; let n = 0; Math.random = function () { n++; return r0.apply(this, arguments); }; try { f(); } finally { Math.random = r0; } return n; };
+      for (const q of ['high', 'low']) {
+        W.setQuality(q);
+        W.clearFx();
+        W.kvClear();
+        // 形状批先有东西在画（实战里几乎总是这样），量的是这些件自己多出来的 draw
+        W.breakFx(P.x - 3, 1, P.z, 0.4);
+        W.vDecal('scorch', P.x - 3, P.z, 0.6, 2, 0x4a3e34);
+        W.burst(P.x - 3, 1, P.z, 0x808080, 4, 0.5, 3);
+        G.debug.step(0.02);
+        const o = { d0: draws() };
+        for (const k of ['blade', 'spike', 'orb', 'glyph']) W.kvOff(W.kv(k, {})); // 第一次用到才建实例网格（建的时候取 uuid），先建好再数
+        let hs = [];
+        o.rcKv = cnt(() => {
+          hs = [
+            W.kv('blade', { x: P.x + 2, y: 0.7, z: P.z, s: 0.75 }), W.kv('blade', { x: P.x - 2, y: 1, z: P.z, s: 0.55, rx: Math.PI / 2 - 0.25 }),
+            W.kv('blade', { x: P.x, y: 1, z: P.z + 2, s: 1.3, rx: Math.PI / 2, tint: 0xc8a478 }),
+            W.kv('spike', { x: P.x + 3, z: P.z + 2, sx: 1, sz: 1, sy: 2.3, pylon: 1 }),
+            W.kv('orb', { x: P.x + 1, y: 1.2, z: P.z - 2, s: 0.34, stick: 1, f: 0.5 }), W.kv('glyph', { x: P.x + 1, z: P.z - 2, s: 2.4, hide: 1 }),
+            W.kv('glyph', { x: P.x + 2, z: P.z, s: 2.6, edge: 1, dash: 20, ew: 0.09, k: 0.6, hex: 0x2c2622 }),
+          ];
+          for (let i = 0; i < 5; i++) G.debug.step(0.02);
+        });
+        o.d1 = draws();
+        o.kvMesh = W.projFxInfo().parts.blade;
+        for (const h of hs) W.kvOff(h);
+        W.clearFx();
+        G.debug.step(0.4);
+        W.breakFx(P.x - 3, 1, P.z, 0.4);
+        W.vDecal('scorch', P.x - 3, P.z, 0.6, 2, 0x4a3e34);
+        W.burst(P.x - 3, 1, P.z, 0x808080, 4, 0.5, 3);
+        W.spinPulse(P.ent, 3, 0xe8c9a0, 0.3, true, 1); // 旋风斩起手的尘团（main 上就有）：尘团零件先亮着
+        G.debug.step(0.02);
+        o.d2 = draws();
+        o.rcFx = cnt(() => {
+          W.b3PinScar(P.x + 2, P.z, 0.3, 1.3, 3);
+          W.b3PylonZig(P.x + 3, P.z + 2, 0xffe45e, true);
+          W.b3PylonZig(P.x + 3, P.z + 2, 0xffe45e, false);
+          W.b3SkipLand(P.x + 4, P.z, 1.7);
+          W.b3StickBoom(P.x + 1, P.z - 2, 1.9, 2);
+          const pl = { x: P.x + 1, z: P.z + 3, x0: P.x, z0: P.z + 3, d: 1, len: 8 };
+          W.b3PloughStep(pl, 1.6, 6.5);
+          W.spinPulse(P.ent, 3, 0xe8c9a0, 0.3, true, 1);
+          for (let i = 0; i < 3; i++) G.debug.step(0.02);
+        });
+        o.d3 = draws();
+        W.clearFx();
+        G.debug.step(0.4);
+        G.debug.step(0.2);
+        o.rcAsh = cnt(() => { for (let i = 0; i < 5; i++) W.ashBurst(P.x + 3 + i * 0.6, P.z + (i % 2), 2, 0.6, 4, 0); });
+        o.ash = W.b3AshInfo();
+        W.clearFx();
+        G.debug.step(0.4);
+        out[q] = o;
+      }
+      W.setQuality(q0);
+      W.kvClear();
+      W.clearFx();
+      return out;
+    });
+    for (const q of ['high', 'low']) {
+      const o = r[q];
+      assert(o.rcKv === 0 && o.rcFx === 0 && o.rcAsh === 0, q + '：这些件不该取 Math.random：' + JSON.stringify(o));
+      // main 上这些句柄是刻式件自己的实例网格：刃、电桩、火核、符环各一次 draw；现在旋转刃只占飞刃零件一次，其余都在形状批里
+      assert(o.d1 <= o.d0 + 1 && o.kvMesh >= 3, q + '：旋转刃 / 晶柱 / 火苗 / 锯痕不该多出飞刃零件以外的 draw：' + JSON.stringify(o));
+      assert(o.d3 <= o.d2, q + '：锯痕 / 折线 / 落地 / 引爆 / 焦沟 / 风纹不该多出 draw：' + JSON.stringify(o));
+      assert(o.ash === 6, q + '：齐爆 5 只合起来应只画 6 道斩痕：' + JSON.stringify(o));
+    }
+    return 'draw 高 ' + r.high.d0 + '→' + r.high.d1 + ' / ' + r.high.d2 + '→' + r.high.d3 + '，低 ' + r.low.d0 + '→' + r.low.d1 + ' / ' + r.low.d2 + '→' + r.low.d3 + '，齐爆斩痕 ' + r.high.ash + '，Math.random 取数全 0';
+  });
+
   await step('特效三期第 3 部分（vf-vfx3）：区域氛围——霜骨沼泽 / 雷鸣遗迹 / 烬渊深处 / 坠星裂谷 / 余烛殿各有一个氛围 Points（高画质画、低画质不画）；设置「环境特效」新存档和老存档都默认开，关掉后不画、也不撒全局粒子', async () => {
     const r = await ev((KEY) => {
       const W = G.world, S = G.state, save = G.save, out = {};
