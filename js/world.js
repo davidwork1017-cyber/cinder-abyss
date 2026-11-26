@@ -902,8 +902,8 @@
       mats: [
         // zones-frost：冻土岛，冷青灰（不按 def.path 推），贴图起伏压低；粗糙地面是带雪的冻泥，略亮略暖一点，把大片的冰面打散
         // tex-t3：三套都换成脚本画的平铺贴图（大块冰板 + 几道压裂缝、风吹的积雪、层状岩；低频，没有照片那种细碎的裂网）
-        { tex: 'p_ice', tile: 7.5, con: 1.0, nrm: 0.5, rough: 0.7, k: 0.29, sat: 0.8, col: 0x4c6e8e }, // tex-t3：k 0.36 → 0.29（画的贴图对比低，同样的 k 显得亮；压回 25–35% 档里，角色、怪和地面拉开）；画的冰面没有照片那种高光纹，颜色换成更蓝的冰色（0x55707c → 0x4c6e8e、sat 0.7 → 0.8），冰下的深浅起伏放满（con 0.34 → 1），读得出是冰
-        { tex: 'p_snow', tile: 4.5, con: 0.9, nrm: 1.2, rough: 1, k: 0.3, sat: 0.45, col: 0x5e6c78 }, // tex-t3：k 0.38 → 0.3、sat 0.6 → 0.45（蓝的冰面旁边，雪地别显得发褐）
+        { tex: 'p_ice', tile: 7.5, con: 1.0, nrm: 0.5, rough: 0.7, k: 0.25, sat: 0.8, col: 0x4c6e8e }, // tex-t3：k 0.36 → 0.25（画的贴图对比低，同样的 k 显得亮；压回 25–35% 档里，角色、怪和地面拉开）；画的冰面没有照片那种高光纹，颜色换成更蓝的冰色（0x55707c → 0x4c6e8e、sat 0.7 → 0.8），冰下的深浅起伏放满（con 0.34 → 1），读得出是冰
+        { tex: 'p_snow', tile: 4.5, con: 0.9, nrm: 1.2, rough: 1, k: 0.26, sat: 0.45, col: 0x5e6c78 }, // tex-t3：k 0.38 → 0.26、sat 0.6 → 0.45（蓝的冰面旁边，雪地别显得发褐）
         { tex: 'p_frock', tile: 6.5, con: 1.0, nrm: 1.0, rough: 1, k: 1.0 },
       ],
       lava: null,
@@ -912,7 +912,7 @@
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       patch: 0.15, // zones-polish：岛上的粗糙地面斑块像泥印子，0.55 → 0.15
       // vf-ground：冻土上一片片霜壳（略亮略冷），岸边和石头脚下结得厚；路外撒霜点、结晶和碎石
-      layer: { tex: 'g_cover_frost', tile: 6, con: 0.6, rough: 0.8, k: 0.3, sat: 0.5, col: 0x6e8490, /* tex-t3：k 0.37 → 0.3，霜壳跟着冰面压暗 */ path: 0.7, pT: 0.6, edge: 0.9, jag: 1.6, blend: 0.08, edgeW: 0.6, mv: 0.14, mh: 0.1, scorch: 0.5, sT: 0.62, ao2: 0.22 }, // scorch 在这一区是成片的积雪（粗糙地面那一套是雪）
+      layer: { tex: 'g_cover_frost', tile: 6, con: 0.6, rough: 0.8, k: 0.26, sat: 0.5, col: 0x6e8490, /* tex-t3：k 0.37 → 0.26，霜壳跟着冰面压暗 */ path: 0.7, pT: 0.6, edge: 0.9, jag: 1.6, blend: 0.08, edgeW: 0.6, mv: 0.14, mh: 0.1, scorch: 0.5, sT: 0.62, ao2: 0.22 }, // scorch 在这一区是成片的积雪（粗糙地面那一套是雪）
       deco: { cover: 0x8aa0ac, floor: 0.8, wild: 1, ao: 0.8, aoR: 0.9, scorch: 0, clusters: 0.6, kinds: [14, 13, 7, 8, 4], tint: 0x56646e },
       blots: { k: 0.35, r: 0.58, op: 0.18, show: 0.5, tex: 'crack' }, // tex-t3：画的冰面干净了，根须一样的暗裂纹块显得扎眼：只画一半、小一圈、淡三分之一（r 0.7 → 0.58，op 0.28 → 0.18；k 不动，随机数的取用次数不变）。zones-polish：冻土上的细冰裂，不是暗块。zones-frost：岛上的污斑少一半多、小一圈（zones-ash 加的旋钮）
       sigil: { k: 0.4 }, // zones-frost：冰湖上的法阵颜色压到 4 成（加色混合，等于淡一半多），不那么像界面
