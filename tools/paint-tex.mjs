@@ -167,37 +167,38 @@ const TEX = {
     seed: 401,
     nrm: 0.9,
     fn(u0, v0, S) {
-      // 分区：clM = 碎裂的簇（约三成），calm = 不裂的平冰（约四分之一，大裂缝也在这里断开）
-      const clM = sstep(0.5, 0.62, fbm(u0, v0, 3, 3, S + 1));
-      const calm = sstep(0.52, 0.64, fbm(u0, v0, 2, 3, S + 3)) * (1 - clM);
+      // 分区：clM = 碎裂的簇（约四分之一），calm = 不裂的平冰（约三成，大裂缝也在这里断开）
+      const clM = sstep(0.52, 0.64, fbm(u0, v0, 3, 3, S + 1));
+      const calm = sstep(0.54, 0.66, fbm(u0, v0, 2, 3, S + 3)) * (1 - clM);
       // 冰下的深浅：低频的成片明暗（两个周期叠起来，块的大小不一），软分档成 4 档
       const deep = fbm(u0, v0, 2, 3, S + 20) * 0.6 + fbm(u0, v0, 5, 2, S + 21) * 0.4;
       const dq = poster(clamp01((deep - 0.3) / 0.45), 4, 0.4);
       // 霜斑：一小片一小片发白，边缘软（频率高一点，不出一块特别显眼、一眼看出重复的大白斑）；在深冰上少
       const fr = sstep(0.5, 0.72, fbm(u0, v0, 6, 3, S + 22)) * (0.55 + 0.45 * dq);
-      // 压裂缝：3 个胞一个周期（7.5 m 一张 → 约 2.5 m 一块），扭曲得厉害（不读成格子），粗细沿线变化、断开
-      let [u, v] = warp(u0, v0, 3, 0.18, S + 4);
+      // 压裂缝：2 个胞一个周期（7.5 m 一张 → 约 3.7 m 一块，冻住的湖面是几大块），扭曲得厉害（不读成格子），粗细沿线变化、常常断开
+      let [u, v] = warp(u0, v0, 3, 0.22, S + 4);
       [u, v] = warp(u, v, 12, 0.014, S + 5);
-      const A = worley(u, v, 3, S + 6, 0.95);
-      const wA = 1.7 * sstep(0.32, 0.6, fbm(u0, v0, 7, 2, S + 7)) * (1 - calm) * (0.6 + 0.7 * fbm(u0, v0, 18, 1, S + 8));
-      const eA = edgePx(A[1] - A[0], 3), cA = line(eA, wA);
-      // 碎裂：8 个胞一个周期，只在簇里，扭得少（冰的裂是直一点的），更细
-      const [u2, v2] = warp(u0, v0, 6, 0.04, S + 9);
-      const B = worley(u2, v2, 8, S + 11, 0.9);
-      const wB = 1.0 * clM * sstep(0.35, 0.55, fbm(u0, v0, 6, 2, S + 12)) * (0.6 + 0.7 * fbm(u0, v0, 20, 1, S + 18));
-      const cB = line(edgePx(B[1] - B[0], 8), wB);
+      const A = worley(u, v, 2, S + 6, 0.95);
+      const wA = 1.8 * sstep(0.28, 0.52, fbm(u0, v0, 7, 2, S + 7)) * (1 - calm) * (0.6 + 0.7 * fbm(u0, v0, 18, 1, S + 8));
+      const eA = edgePx(A[1] - A[0], 2), cA = line(eA, wA);
+      // 碎裂：5 个胞一个周期，只在簇里，扭得少（冰的裂是直一点的），更细
+      const [u2, v2] = warp(u0, v0, 6, 0.05, S + 9);
+      const B = worley(u2, v2, 5, S + 11, 0.9);
+      const wB = 1.1 * clM * sstep(0.3, 0.5, fbm(u0, v0, 6, 2, S + 12)) * (0.6 + 0.7 * fbm(u0, v0, 20, 1, S + 18));
+      const cB = line(edgePx(B[1] - B[0], 5), wB);
       const crack = Math.max(cA, cB * 0.8);
       // 粗缝两边一圈软的发白（冰里的应力霜），很淡
-      const halo = (1 - sstep(0, 9, eA)) * sm(clamp01(wA / 1.4)) * 0.5;
+      const halo = (1 - sstep(0, 10, eA)) * sm(clamp01(wA / 1.4)) * 0.6;
       // 冰板之间的色调差很小（±2.5%）
       const plate = (A[2] - 0.5) * 0.05;
-      let t = 0.86 + 0.15 * dq + plate + 0.03 * calm;
+      let t = 0.8 + 0.28 * dq + plate + 0.03 * calm;
       t = t * (1 - 0.2 * fr) + 1.12 * 0.2 * fr;
-      t = t * (1 + 0.08 * halo) * (1 + 0.22 * crack);
+      t = t * (1 + 0.1 * halo) * (1 + 0.24 * crack);
       // 颜色：深处偏青，霜和裂缝是中性的白（平均色在游戏里会被归一掉，这里只留冷暖的起伏）
-      const cool = clamp01(1 - dq) * (1 - fr) * (1 - crack) * 0.08;
-      const h = clamp01(0.55 + 0.1 * fr + 0.05 * (dq - 0.5) - 0.3 * crack);
-      return { c: [t * 0.5 * (1 - cool), t * 0.5 * (1 - cool * 0.35), t * 0.5 * (1 + cool * 0.25)], h, ao: 1 - 0.12 * crack, rough: clamp01(0.55 + 0.4 * fr + 0.3 * crack) };
+      const cool = clamp01(1 - dq) * (1 - fr) * (1 - crack) * 0.22;
+      // 高度：缝只浅浅地低一点（法线别把亮的霜缝画成暗槽），霜斑略高
+      const h = clamp01(0.55 + 0.1 * fr + 0.05 * (dq - 0.5) - 0.1 * crack);
+      return { c: [t * 0.5 * (1 - cool), t * 0.5 * (1 - cool * 0.35), t * 0.5 * (1 + cool * 0.25)], h, ao: 1 - 0.05 * crack, rough: clamp01(0.55 + 0.4 * fr + 0.3 * crack) };
     },
   },
   // 带雪的冻泥（种子 503，顶替 Snow013）：被风吹成一条条的积雪（低频、斜着拉长，三档、边缘软），
@@ -208,9 +209,9 @@ const TEX = {
     fn(u, v, S) {
       // 斜着拉长的积雪（坐标系数都是整数，照样四方连续）
       const dr = fbm(u + v, 2 * (v - u), 2, 4, S) * 0.45 + fbm(u, v, 3, 3, S + 5) * 0.35 + fbm(2 * u - v, u + v, 2, 2, S + 7) * 0.2;
-      const snow = poster(clamp01((dr - 0.32) / 0.4), 3, 0.35);
+      const snow = poster(clamp01((dr - 0.32) / 0.4), 3, 0.2);
       // 冻土：雪薄的地方，色调略暗、带一点低频的斑
-      const soil = 0.74 + 0.1 * fbm(u, v, 6, 2, S + 9);
+      const soil = 0.7 + 0.1 * fbm(u, v, 6, 2, S + 9);
       // 碎石：只在冻土上，少、软边
       const [f1, , id] = worley(u, v, 18, S + 24, 0.75);
       const peb = id > 0.9 ? (1 - sstep(0.14, 0.24, f1)) * (1 - snow) : 0;

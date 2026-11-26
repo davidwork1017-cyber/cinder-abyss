@@ -1,5 +1,5 @@
 {
- "_comment": "程序化贴图清单（tools/gen-ground-textures.mjs 写，tools/check-art.mjs 核对）：fn = tools/ground-tex.mjs 里的生成函数（种子写在代码里），px = 边长，maps 每个通道：pix = 原始像素 RGBA8 的 sha256，jpg / bytes = 仓库里 JPEG 的 sha256 和字节数；gen 是 tools/gen-paint-textures.mjs 的几张（p_*）另有 lo（低档的小图，同样格式）和 enc（编码 JPEG 的 Chrome 版本，钉住）",
+ "_comment": "程序化贴图清单（tools/gen-ground-textures.mjs 写，tools/check-art.mjs 核对）：fn = tools/ground-tex.mjs 里的生成函数（种子写在代码里），px = 边长，maps 每个通道：pix = 原始像素 RGBA8 的 sha256，jpg / bytes = 仓库里 JPEG 的 sha256 和字节数",
  "textures": {
   "g_cover_abyss": {
    "gen": "tools/gen-ground-textures.mjs",
@@ -41,14 +41,14 @@
    "px": 512,
    "maps": {
     "albedo": {
-     "pix": "27ea5fec0427f9cd9170bc66d6a8aab844635da6291832ce949d893d6a3f11fb",
-     "jpg": "0202b032e4142fc7bc51e91a08ead820d828ef321ed427c0a7d1cc36f7c5b100",
-     "bytes": 38649
+     "pix": "5e53d97cafa648848d6d9f8382353699e4379145ad55a9c30eb21c34eb1b95fd",
+     "jpg": "4d69143d7b31b7ec33c911d4806fc0d3f291cdd4ba24f5445309d41e99027322",
+     "bytes": 7923
     },
     "arh": {
-     "pix": "f343ca8fbb37449bf7243b5a2c20cd77e184e5b5c81f2248e858b623bf6d4ca8",
-     "jpg": "e8cd93e26c7de55a9ca9a398335ba4a710d705c1bf09a63c8fb6eb736d0d5307",
-     "bytes": 17536
+     "pix": "639fc8a98e3fe498d87185f6410f9604ea336a2b429f6cbae5ae932112b834eb",
+     "jpg": "dd0b9822f64cfba72487a76fd2cabedbc42e305356692dd6dda84edc44014cd6",
+     "bytes": 6881
     }
    }
   },
@@ -195,33 +195,33 @@
    },
    "maps": {
     "albedo": {
-     "pix": "da0b6356fae3f3749689f79acb460223b60e750317ba75bc193d8a17ca3d21ef",
-     "jpg": "caaa1c46ce22fa3c0b25d9d29531d4fddc881fc997f4c3f74039ef3bcffb99f7",
-     "bytes": 10862
+     "pix": "0e1ba5481cc32274368b619420fe2edd93e1d4df656e697ffcbf3c5ce34413f6",
+     "jpg": "3951e0817d7008dac593decae8feb6bd66bfcfdd940e2bbeeb9e5f7676606393",
+     "bytes": 12164
     },
     "normal": {
-     "pix": "41bb2cf43d382a18d1537d674816e405ca98e16334672d2747396de245c23e8f",
-     "jpg": "2d5671e4daeaa57f3261a756c614bfcf5b0a77915482736e985af054acc06c39",
-     "bytes": 8514
+     "pix": "f3768a573eac16c5985d3c75b1ca599eb3a1b63d1ac3252dfa1c3aafcc3042ca",
+     "jpg": "0b893ec443c302bc7c1be535399e0da5e02242de86936f8f806a7027a47824ba",
+     "bytes": 4386
     },
     "arh": {
-     "pix": "6677c2c4abe5fb9276aba9c937a71a2225d330120f977025e4e99ef4b309f2fc",
-     "jpg": "7acaac04459ae90916fbe0e3026ddc7496ecc8e432d4cd249959cf5564fd9c6c",
-     "bytes": 19012
+     "pix": "ea8c409f4c033285a9f63c3b45803b72a5da4cc0be729c911ef0f34b4fb33057",
+     "jpg": "c810809f33d5ba7dedcd5a739a3009ec1e92bc9a4b0b64282f313598015cc712",
+     "bytes": 17873
     }
    },
    "lo": {
     "px": 256,
     "maps": {
      "albedo": {
-      "pix": "14725b7b3e947c983c1223f7aeffbccac66f78e7a4c5d5842672be89fb27f08a",
-      "jpg": "fd10632b3dc5575406f8f86346a1da1747d2f1cee8547658046a721f52dd2835",
-      "bytes": 4600
+      "pix": "ebc0fe83c18425e4003fbc1d71bd8be5f6587f6eaf06f1357f473fed4bb49459",
+      "jpg": "6ae90e18fe14a4e330cd5fd3eb667c6641098999ea60a2a27f4a0a18bb002689",
+      "bytes": 5131
      },
      "arh": {
-      "pix": "103233b6f182d1974eb79f29e1003d9231f9f616a749ee1ac45a650f86ae02fb",
-      "jpg": "73ce25272cd9a11068a5a9546a3db6d1013ec0da690ad7d6f2cc25df965e8696",
-      "bytes": 7778
+      "pix": "95c9aa427e86f5306430fd7b31ae2e3225b8742c6febd7ef9a4fb8686a897d26",
+      "jpg": "88adffa1135a630d5ff7441365b1dfeff81e7344c693d1d6d853f64e7fe48d83",
+      "bytes": 7366
      }
     }
    }
@@ -318,33 +318,33 @@
    },
    "maps": {
     "albedo": {
-     "pix": "3a58e375b09920487593986654fa315f04424e07a88913f5847d611befb98147",
-     "jpg": "b3435feb17f601c2406b028fd260f463264a2fb5b08ec8b6a3ff00cd88e76663",
-     "bytes": 5934
+     "pix": "d78bed5b026f69508246b1d3f9e462806be5c166f1a28cc908a554807fbc4ce1",
+     "jpg": "102846f3585d3b7c48d0493f50eb48d6144d83cd60d6dcf2b87b055da601f20c",
+     "bytes": 6603
     },
     "normal": {
-     "pix": "59bee5d00058e09ff79a4daf7e4ef9aead4fde10cb887f06d82555353f2030b8",
-     "jpg": "507566c1d8a8540505903825910cd23f07b9cf2dac2c382dc735de4dbeeea790",
-     "bytes": 4799
+     "pix": "4d7037a5ed9101b3f650374c7c18d09caadce734fe863743a82569cc3e3d49fc",
+     "jpg": "f23c91f3c095c748d2caa4e99c3bbdf17c0bada30f281abc2b4c69998af9ee30",
+     "bytes": 5557
     },
     "arh": {
-     "pix": "d46a61211e27273696428e6cb3fe28fad31666b08bc34a26a2f3b7d853070528",
-     "jpg": "fb31f6f1265548fad22b82f478e2a58116540a5e422764a5a2f2c44805375d2a",
-     "bytes": 6869
+     "pix": "7fb6380be6881d2b0a59dd67dd410613ed553c36744b2242e80722cda7c1ecb6",
+     "jpg": "089cf6194c7627105a42cf329ccd3966b2489338f31a2359ea725110ef585581",
+     "bytes": 6953
     }
    },
    "lo": {
     "px": 256,
     "maps": {
      "albedo": {
-      "pix": "1b0c3c98e0f9378f2f746fca775936ce5c0277020ce88c6334e19b136eee69d2",
-      "jpg": "dc14d5182d18d6a8baa45bb6833bb617cb82f244d87ad902aa7551ed3b39e50f",
-      "bytes": 2911
+      "pix": "93ddaf7e0f2b8e42f5c44f7843eaae445fa334df8e09e5d750c7b88e853aec2c",
+      "jpg": "413f2d4504acfb1bb53c5a04dc6b6b2e2ba47e2d02e99f475107168f4ea68617",
+      "bytes": 3224
      },
      "arh": {
-      "pix": "030cf8afb925b34fdd16cdc16bd1dbd1a186a064378ac248584082218ee29c13",
-      "jpg": "85fa0d73cb2e541723d6d55b29c35af0a6e04389667b74554ae4a6b7907a1dc8",
-      "bytes": 3235
+      "pix": "dbe4cde2654712ed50e595a75599f472aeeda3f03efcf7020ae282b33b6390c2",
+      "jpg": "8a1faf5198a8e51ed71fe3b933d42ee51d7d12fa39399ca135324ede3eab2729",
+      "bytes": 3378
      }
     }
    }
