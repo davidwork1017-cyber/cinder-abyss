@@ -45,7 +45,29 @@ try {
       pe.group.visible = true;
       if (pe.ring) pe.ring.visible = false;
     });
-    await S.ev(P.setup);
+    // 画格里有首领：先把脚本生成的首领包载进来（游戏里是进区、图标预热完以后才懒加载的；不等的话拍到的是原来的程序化外观）
+    if (P.bosses) {
+      const ok = await S.ev(async (ks) => {
+        const r = {};
+        for (const k of ks) { const p = 'boss-' + k; if (G.assets.known(p)) await G.assets.need([p]); r[k] = !!(G.world.bossRig && G.world.bossRig(k)); }
+        return r;
+      }, P.bosses);
+      console.log(id, 'boss packs', JSON.stringify(ok));
+      if (Object.values(ok).some((v) => !v)) throw new Error(id + ': boss pack missing ' + JSON.stringify(ok));
+    }
+    // 首领格：摆拍和「随机序列从固定种子重新开始」在同一次同步执行里（中间不让主循环插帧：渲染的帧里也有取 Math.random 的，
+    // 等包的那一下和插进来的帧数每次不一样，首领出生时取的相位 / 时钟 / 步态跟着变，姿势就差一点）。其它格照旧
+    if (P.bosses) {
+      const run = new Function('key', [
+        'let a = 20261121;',
+        'for (let i = 0; i < key.length; i++) a = Math.imul(a ^ key.charCodeAt(i), 16777619) >>> 0;',
+        'Math.random = function () { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };',
+        'return ({ ' + P.setup.toString() + ' }).setup();',
+      ].join('\n'));
+      await S.page.evaluate(run, 'story:' + id);
+    } else await S.ev(P.setup);
+    // 画面时钟定住（发光圈 / 水面 / 火光的相位和打开页面花了多久无关）：两次烘出来一样
+    await S.ev(() => { if (G.world.debugTime) G.world.debugTime(10); });
     // ready：场景里关键的东西建好了没有（比如深渊的崖口：换区后地形有一部分是在空档里补算的）
     if (P.ready) {
       const t1 = Date.now();

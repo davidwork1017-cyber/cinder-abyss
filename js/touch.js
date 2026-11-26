@@ -313,7 +313,7 @@
     b.play = slot >= 0 ? playArea() : null;
     btns.set(t.identifier, b);
     el.classList.add('t-down');
-    if (slot <= 1) {
+    if (slot <= 1 && !imbueSlot(slot)) {
       // 主攻 / 普攻：按下就放、按住连放（同按住鼠标键），自动瞄准
       autoAim(b);
       b.held = true;
@@ -321,6 +321,11 @@
       G.pressSlot(slot, false);
     }
   }
+  // 装填（imbue）：开关。轻点（松手时）切换，长按（450 ms 不拖）弹出详情、不切换；主攻格上的装填也一样（不按下就放）
+  const imbueSlot = (slot) => {
+    const id = G.slotSkill && G.slotSkill(slot);
+    return !!(id && G.SKILLS[id] && G.SKILLS[id].kind === 'imbue');
+  };
   function autoAim(b) {
     const a = autoTarget(b.range);
     b.target = a.e;
@@ -340,6 +345,15 @@
     if (b.drag && !anyDrag()) document.documentElement.classList.remove('t-aiming');
     if (b.held) SLOT_HOLD[slot](false);
     if (cancel || !live()) return armAimClear();
+    if (imbueSlot(slot) && !b.drag) {
+      if (performance.now() - b.t0 >= LONG_MS) {
+        if (G.ui.tipAt) {
+          G.ui.tipAt(b.el);
+          setTimeout(() => G.ui.hideTip(), 3500); // 详情留 3.5 秒（手指挡着时也看得完），下一次碰屏幕也会收起
+        }
+      } else G.pressSlot(slot, false);
+      return armAimClear();
+    }
     if (slot >= 2 && !b.held) {
       // Q / E / R：松手才放。拖动的落在准星处（拖回按钮上 = 取消），轻点的自动瞄准
       if (b.drag) {
@@ -966,19 +980,31 @@
   // HUD 只放进 visualViewport 那一块（vis，布局视口，一定画得出来），多出来的 cut = h − vis 算进竖着的屏幕底边的安全区（--t-cut）。
   // 100lvh 不比布局视口高的老系统上 h = vis：黑边还在，但 HUD 不会被裁。浏览器标签页里照旧按 innerHeight（工具栏伸缩时 layout() 重新量）
   // rot-safe2（真机读数 2026-11-25）：innerHeight、visualViewport 后来都是 874，只有 documentElement.clientHeight（初始包含块）还是 812。
-  // 所以 vis 取三者最小：HUD 只摆在 clientHeight 那一块里，不管系统往下画到哪都不会被裁；画布照旧铺满 h（html 量出来的整块屏幕）
+  // 所以 vis 取三者最小：HUD 只摆在 clientHeight 那一块里，不管系统往下画到哪都不会被裁；画布照旧铺满 h（html 量出来的整块屏幕）。
+  // t45 改了：真机截图证明那一截画得出来，HUD 到 h 减底部横条（measureCalc）
   // inp：量的时候窗口和屏幕多大（每帧对一下，只读不会触发排版的这几样）；html：当时 html 盒子的高
-  const view = { h: 0, vis: 0, cut: 0, stand: false, inp: '', html: 0 };
+  const view = { h: 0, vis: 0, cut: 0, lay: 0, stand: false, inp: '', html: 0 };
   const viewInp = () => {
     const sc = window.screen;
     return window.innerWidth + ',' + window.innerHeight + ',' + (sc ? sc.width + 'x' + sc.height : '');
   };
   // 不改任何东西，照 measure() 的算法再算一遍画面高和 HUD 高（每 30 帧的兜底用；会读 html 盒子、visualViewport，触发一次排版）
+  // t45（真机「画面测试」截图 2026-11-26）：clientHeight 以下那一截真机上画得出来——fixed 贴底、html 里 absolute、body 里 100lvh、两种底色、3D 画布都画到了屏幕底
+  // （叠加层那条没出来是因为截图在标题画面，标题画面本来就把叠加层藏了，见 style.css 的 html.title-on #overlay）。
+  // 所以 HUD 不再停在 clientHeight，跟画面一样到屏幕底，只让出竖着的屏幕底边的横条（HOME_INSET；env(safe-area-inset-bottom) 报得出来时取两者大的，见 placeRot 的 --sa-*）。
+  // 没有那一截（h = 布局视口）时 cut = 0，和以前一样只靠 env()
+  const HOME_INSET = 34;
+  function measureCalc(de, ih, sc, vv) {
+    const lay = Math.round(Math.min(vv && vv.height > 0 ? vv.height : ih, ih, de.clientHeight || ih)); // 布局视口里最小的那个（真机 812）
+    const html = Math.round(de.getBoundingClientRect().height);
+    const h = Math.max(lay, Math.min(sc.height, html));
+    const cut = h > lay ? HOME_INSET : 0;
+    return { h, vis: h - cut, cut, lay, html };
+  }
   function measureNow() {
-    const de = document.documentElement, ih = window.innerHeight, sc = window.screen, vv = window.visualViewport;
+    const ih = window.innerHeight;
     if (!view.stand) return { h: ih, vis: ih };
-    const vis = Math.round(Math.min(vv && vv.height > 0 ? vv.height : ih, ih, de.clientHeight || ih));
-    return { h: Math.max(vis, Math.min(sc.height, Math.round(de.getBoundingClientRect().height))), vis };
+    return measureCalc(document.documentElement, ih, window.screen, window.visualViewport);
   }
   function measure() {
     const de = document.documentElement, ih = window.innerHeight, sc = window.screen, vv = window.visualViewport;
@@ -990,10 +1016,12 @@
       view.h = view.vis = ih;
       view.cut = 0;
     } else {
-      view.vis = Math.round(Math.min(vv && vv.height > 0 ? vv.height : ih, ih, de.clientHeight || ih));
-      view.html = Math.round(de.getBoundingClientRect().height);
-      view.h = Math.max(view.vis, Math.min(sc.height, view.html));
-      view.cut = view.h - view.vis;
+      const m = measureCalc(de, ih, sc, vv);
+      view.h = m.h;
+      view.vis = m.vis;
+      view.cut = m.cut;
+      view.lay = m.lay;
+      view.html = m.html;
     }
     de.style.setProperty('--t-cut', view.cut + 'px');
     return view;
@@ -1327,6 +1355,8 @@
       // rot-safe2：画布、叠加层实际多大（CSS 尺寸 = 画面坐标，缓冲 = 像素），renderer 按多大画
       ['画布', cvs.css + ' · 缓冲 ' + cvs.gl + ' · 渲染 ' + cvs.rd + ' · 叠加层 ' + cvs.ov],
       // 画到：竖着的屏幕上，画布的底边到哪、HUD 摆到哪（HUD 只摆在 clientHeight / 可视区 / innerHeight 最小的那一块里）
+      // t45：叠加层自己的盒子和缓冲（标题画面藏着它，画面测试那条就看不到；截图时一看这行就知道）
+      ['叠加层', cvs.ovLine],
       ['画到', '画布到竖着的屏幕 y ' + cvs.bottom + ' · HUD 到 ' + (G.rot ? view.vis : Math.round(Math.min(window.innerHeight, de.clientHeight))) + (G.rot ? ' · 底边让出 ' + view.cut : '') + ' · 页面 ' + Math.round(Math.max(de.clientHeight, htmlH, bodyH))],
       ['高度', 'clientHeight ' + de.clientHeight + ' · innerHeight ' + window.innerHeight + ' · 可视区 ' + (vv ? r1(vv.height) : '无') + ' · 100lvh ' + (lvhProbe ? lvhProbe.offsetHeight : '?') + ' · html ' + htmlH],
       ['html', '高 ' + htmlH + ' · clientHeight ' + de.clientHeight],
@@ -1339,7 +1369,17 @@
     const vs = W.viewSize ? W.viewSize() : null;
     const fr = gl ? G.rectToFrame(gl.getBoundingClientRect()) : null;
     const sb = gl ? gl.getBoundingClientRect().bottom : 0;
+    let ovLine = '?';
+    if (ov) {
+      const buf = ' · 缓冲 ' + ov.width + '×' + ov.height;
+      if (getComputedStyle(ov).display === 'none') ovLine = (document.documentElement.classList.contains('title-on') ? '标题页隐藏' : '隐藏') + buf;
+      else {
+        const ob = G.rectToFrame(ov.getBoundingClientRect());
+        ovLine = Math.round(ob.width) + '×' + Math.round(ob.height) + buf + ' · 到 y ' + Math.round(ov.getBoundingClientRect().bottom);
+      }
+    }
     return {
+      ovLine,
       css: fr ? Math.round(fr.width) + '×' + Math.round(fr.height) : '?',
       gl: gl ? gl.width + '×' + gl.height : '?',
       ov: ov ? ov.width + '×' + ov.height : '?',
@@ -1374,10 +1414,14 @@
   }
   function probePlace() {
     const g = probeGeom(), de = document.documentElement, b = document.body;
-    const key = [G.rot ? G.rot.dir : '', g.sw, g.sh, g.top, G.viewW(), G.viewH()].join(',');
+    const key = [G.rot ? G.rot.dir : '', g.sw, g.sh, g.top, G.viewW(), G.viewH(), de.classList.contains('title-on')].join(',');
     if (key === probeKey && probeEls) return;
     probeKey = key;
     probeOff(true);
+    // t45：标题画面平时把叠加层藏着（style.css 的 html.title-on #overlay），画面测试开着时放出来（只画色带，见 world.js 的 W.render）；
+    // 万一还是藏着，说明行写上「隐藏」，截图不会看错
+    de.classList.add('t-probe-on');
+    const ovHidden = (() => { const o = document.getElementById('overlay'); return !!o && getComputedStyle(o).display === 'none'; })();
     const col = (i) => [g.x0 + i * g.cw, g.top, g.cw - 2, g.bh];
     const el = (host, css, txt) => {
       const d = document.createElement('div');
@@ -1392,7 +1436,7 @@
     // 顶部对照：fixed，顶上同样高的一条
     els.push(el(de, 'position:fixed;left:0;top:0;width:' + g.sw + 'px;height:' + g.bh + 'px;background:rgba(255,255,255,.85);padding-top:' + Math.max(0, g.bh - 14) + 'px', '顶部对照'));
     // 说明行：色带上面一行，写每条是什么（这一截一定画得出来）
-    PROBE_COLS.forEach((c, i) => els.push(el(de, 'position:absolute;' + pos([col(i)[0], g.top - 26, g.cw - 2, 24]) + 'background:' + c[1] + ';color:#000', c[0])));
+    PROBE_COLS.forEach((c, i) => els.push(el(de, 'position:absolute;' + pos([col(i)[0], g.top - 26, g.cw - 2, 24]) + 'background:' + c[1] + ';color:#000', c[0] + (i === 6 && ovHidden ? ' 隐藏' : ''))));
     // 1 固定底（html 里，不跟 body 转）
     els.push(el(de, 'position:fixed;bottom:0;left:' + col(0)[0] + 'px;width:' + (g.cw - 2) + 'px;height:' + g.bh + 'px;background:' + PROBE_COLS[0][1], PROBE_COLS[0][0]));
     // 2 html 里 absolute，top = clientHeight
@@ -1432,6 +1476,7 @@
       const c = document.getElementById(id);
       if (c) c.style.clipPath = c.style.webkitClipPath = '';
     }
+    if (!keep) document.documentElement.classList.remove('t-probe-on');
     W.probe = null;
     if (!keep) probeKey = '';
   }

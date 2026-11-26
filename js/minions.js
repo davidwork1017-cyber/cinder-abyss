@@ -51,10 +51,11 @@
   }
 
   // ---------- 模型（world 的召唤物骨架还没好时，先借小怪的骨架染成青色） ----------
-  function makeEnt(kind) {
+  // bow：刻式「骸弓」的仆从换成持弓、背箭袋的那副骨架（world 的 thrallBow：同一副骷髅，剑盾换成弓）
+  function makeEnt(kind, bow) {
     const W = G.world;
     // 点缀色：英灵是烬铸的余烬橙，祭司的杖头 / 掌心 / 袍角是焚火橙，其余是魂火青
-    if (typeof W.makeMinion === 'function') return W.makeMinion(kind, kind === 'wraith' ? 0xffa050 : kind === 'pyre' ? 0xff8a3c : ALLY_HEX);
+    if (typeof W.makeMinion === 'function') return W.makeMinion(kind === 'thrall' && bow ? 'thrallBow' : kind, kind === 'wraith' ? 0xffa050 : kind === 'pyre' ? 0xff8a3c : ALLY_HEX);
     return W.makeMob(KIND[kind].fallback, ALLY_HEX, false);
   }
   function riseFx(x, z, big) {
@@ -219,7 +220,7 @@
       dismissMinion(w);
     }
     const m = {
-      kind, skill: skillId, name: K.name, ent: makeEnt(kind),
+      kind, skill: skillId, name: K.name, ent: makeEnt(kind, mi.mech === 'archer'),
       x, z, ang: Math.atan2(x - P.x, z - P.z), r: K.r * (mi.size || 1), height: K.height * (mi.size || 1), size: mi.size, // size：体型倍率（缺省 1）
       hp: mi.life, maxHp: mi.life, dr: mi.dr, armour: mi.armour || 0, res: mi.res || null, dead: false,
       target: null, atkT: 0.25, tauntCd: mi.taunt ? 1.5 : 0, tauntCdMax: mi.taunt ? mi.taunt.cd : 0,
@@ -277,7 +278,7 @@
     let at = { x, z };
     if (!W.walkable(x, z, K.r + 0.1)) at = spotToward(x, z, 6, K.r + 0.1);
     const m = {
-      kind: 'thrall', skill: 'thrall', relit: true, name: K.name, ent: makeEnt('thrall'),
+      kind: 'thrall', skill: 'thrall', relit: true, name: K.name, ent: makeEnt('thrall', mi.mech === 'archer'),
       x: at.x, z: at.z, ang: Math.atan2(at.x - P.x, at.z - P.z), r: K.r, height: K.height,
       hp: mi.life, maxHp: mi.life, dr: mi.dr, armour: mi.armour || 0, res: mi.res || null, dead: false,
       target: null, atkT: 0.1, tauntCd: 0, tauntCdMax: 0,
@@ -435,6 +436,7 @@
       const ctx = G.skillCtx(m.skill);
       const mi = ctx.minion;
       m.ctx = ctx;
+      if (m.kind === 'thrall' && !!(m.ent && m.ent.rig && m.ent.rig.bowRig) !== (mi.mech === 'archer')) swapGear(m);
       m.dr = mi.dr;
       m.armour = mi.armour || 0;
       m.res = mi.res || null;
@@ -460,6 +462,25 @@
     }
   }
 
+  // 刻式在召唤物活着时换了（技能页；戴上 / 摘下渊契也会换）：仆从的剑盾 ↔ 弓箭袋跟着换。只换画面的实体：
+  // 位置、朝向、生命、目标、出手计时都在 m 上不动；血条 / 脚环 / 遮挡镂空跟着 m.ent 走；骸王冠和体型下一次 relicKings 重新套上
+  function swapGear(m) {
+    const W = G.world, old = m.ent;
+    if (m.king) {
+      if (W.rvCrown) W.rvCrown(old, false);
+      m.king = false;
+      if (m.r0 !== undefined) {
+        m.r = m.r0;
+        m.height = m.h0;
+      }
+    }
+    m.ent = makeEnt('thrall', m.ctx.minion.mech === 'archer');
+    if (m.size && m.size !== 1) W.setEntScale(m.ent, m.size);
+    W.setEnt(m.ent, m.x, m.z, m.ang);
+    if (m.rising > 0) W.play(m.ent, 'rise', { dur: m.rising });
+    W.removeEnt(old);
+    S.stats.minionGearSwaps = (S.stats.minionGearSwaps || 0) + 1;
+  }
   G.refreshMinions = refreshAll; // 换刻式、换技能栏 / 装备之后立刻刷新（来源、上限、数值、体型）
 
   // ---------- 移动 ----------
@@ -1220,8 +1241,11 @@
   const rocks = [];
   function throwRock(m, e) {
     const B = m.ctx.minion.vx, W = G.world;
-    const h = W.kv ? W.kv('rock', { hex: 0x7a6a58, s: 0.9, x: m.x, z: m.z, y: 2.4 }) : null;
-    rocks.push({ m, ctx: m.ctx, x0: m.x, z0: m.z, tx: e.x, tz: e.z, tg: e, t: 0, T: B.flight, h });
+    // 画面：巨石从守像的右拳出来（砸地那一下从地里掀起来，出手这一帧的姿势；只是画面，命中只看落点）。原来从身体中心 2.4 米高处出来
+    const hs = W.entSocket && m.ent ? W.entSocket(m.ent, 'weapon') : { x: m.x, y: 2.4, z: m.z };
+    const hy = Math.max(0.5, hs.y);
+    const h = W.kv ? W.kv('rock', { hex: 0x7a6a58, s: 0.9, x: hs.x, z: hs.z, y: hy }) : null;
+    rocks.push({ m, ctx: m.ctx, x0: hs.x, z0: hs.z, y0: hy, tx: e.x, tz: e.z, tg: e, t: 0, T: B.flight, h });
     G.sfx('swing', { step: 1 });
     S.stats.vRocks = (S.stats.vRocks || 0) + 1;
   }
@@ -1239,7 +1263,7 @@
       if (r.h) {
         r.h.x = r.x0 + (r.tx - r.x0) * k;
         r.h.z = r.z0 + (r.tz - r.z0) * k;
-        r.h.y = 2.4 * (1 - k) + 0.4 + Math.sin(k * Math.PI) * 3.2;
+        r.h.y = r.y0 * (1 - k) + 0.4 * k + Math.sin(k * Math.PI) * 3.2;
         r.h.rx += dt * 6;
         r.h.rz += dt * 4;
       }
@@ -1304,6 +1328,7 @@
     });
     // 出手的一小撮骨屑放在射手的出手点（W.muzzleWorld，只是画面）；箭的画面也从那里出来再并到弹道上
     const mp = W.muzzleWorld && m.ent ? W.muzzleWorld(m.ent) : { x: m.x + dx * 0.6, y: 1.3, z: m.z + dz * 0.6 };
+    if (m.ent) m.ent.bowShots = (m.ent.bowShots | 0) + 1; // 画面：弦在这一帧撒放（world 的 thrallBowPost 数这个）
     W.burst(mp.x, mp.y, mp.z, 0xe8e0c8, 3, 2, 0.15);
     S.stats.vArrows = (S.stats.vArrows || 0) + 1;
   }
