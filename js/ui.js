@@ -6624,10 +6624,10 @@
         say('复制失败');
       }
     },
-    // 自动分解其他职业武器（T36）：开着就关；没开过（tut.ascls 没有）先在行里问一次，问过的直接开
+    // 自动分解其他职业武器（T36）：开着就关（关着时存档里不留这个键）；没开过（tut.ascls 没有）先在行里问一次，问过的直接开
     offcls() {
       const S = G.save, o = S.opts;
-      if (o.salvageOffCls) o.salvageOffCls = false;
+      if (o.salvageOffCls) delete o.salvageOffCls;
       else if (S.tut.ascls) o.salvageOffCls = true;
       else menu.offAsk = true;
       if (!menu.offAsk) G.persist();

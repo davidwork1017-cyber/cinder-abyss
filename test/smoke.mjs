@@ -7895,28 +7895,31 @@ async function main() {
   await uiStep('自动分解其他职业武器（T36）：新存档 / 老存档默认关、开关随存档往返；没有职业时设置里不显示；第一次打开先在行里确认（取消不开、确认过以后再开不问）；开着时捡到别的职业的武器按 G.salvageResult 化成通货（同种子收获一样，拾取记录一件一行、几件并成一行按通货合计、背包满了也分），本职业的、锁定的、烬铸、自己丢下的、拾烬客买的照常进背包，仓库 / 身上 / 背包里已有的不动；关着时和原来一样（不调 salvageResult）', async () => {
     // 存档：新存档、有职业的新存档、老存档（没有这一项）都是关；存档里是开就读成开
     let r = await ev((KEY) => {
-      const out = { fresh: G.newSave().opts.salvageOffCls, freshCls: G.newClassSave('guard').opts.salvageOffCls, now: G.save.opts.salvageOffCls };
+      // 关着时存档里没有这个键（从没打开过的存档和以前一字不差，见 game.js 的 opts）
+      const out = { fresh: 'salvageOffCls' in G.newSave().opts, freshCls: 'salvageOffCls' in G.newClassSave('guard').opts, now: 'salvageOffCls' in G.save.opts };
       const epoch = G.saveEpoch;
       G.persist();
       const keep = localStorage.getItem(KEY);
       const raw = JSON.parse(keep);
       out.had = 'salvageOffCls' in raw.opts;
-      delete raw.opts.salvageOffCls;
+      raw.opts.salvageOffCls = 'yes'; // 不是 true 的值都当关
       localStorage.setItem(KEY, JSON.stringify(raw));
       G.loadSave();
-      out.old = G.save.opts.salvageOffCls;
+      out.old = 'salvageOffCls' in G.save.opts;
       raw.opts.salvageOffCls = true;
       localStorage.setItem(KEY, JSON.stringify(raw));
       G.loadSave();
       out.round = G.save.opts.salvageOffCls;
+      G.persist();
+      out.roundStored = JSON.parse(localStorage.getItem(KEY)).opts.salvageOffCls;
       localStorage.setItem(KEY, keep);
       G.loadSave();
       G.saveEpoch = epoch;
       G.computeStats();
-      out.back = G.save.opts.salvageOffCls;
+      out.back = 'salvageOffCls' in G.save.opts;
       return out;
     }, SAVE_KEY);
-    assert(r.fresh === false && r.freshCls === false && r.now === false && r.had && r.old === false && r.round === true && r.back === false, '新存档 / 老存档应默认关、开关随存档往返：' + JSON.stringify(r));
+    assert(r.fresh === false && r.freshCls === false && r.now === false && r.had === false && r.old === false && r.round === true && r.roundStored === true && r.back === false, '新存档 / 老存档应默认关（存档里没有这个键）、开关随存档往返：' + JSON.stringify(r));
 
     // 设置：没有职业的存档不显示这一行
     await openSettings();
@@ -7928,7 +7931,7 @@ async function main() {
       S.cls = 'star'; // 引星人：长杖 / 符文弓 / 鹰眼长弓。烬铸「烬断」（太刀）对它是别的职业的武器，前面的步骤已经拾到过（图鉴不多出新的一项）
       S.clsLock = {};
       delete S.tut.ascls;
-      S.opts.salvageOffCls = false;
+      delete S.opts.salvageOffCls;
       G.persist();
     });
     const row = () =>
@@ -7937,7 +7940,7 @@ async function main() {
         const ask = document.querySelector('#p-view .m-row.ask.offcls');
         const box = (sw || ask).getBoundingClientRect();
         const fits = Array.from((sw || ask).children).every((n) => { const k = n.getBoundingClientRect(); return k.left >= box.left - 1 && k.right <= box.right + 1 && k.bottom <= box.bottom + 1; });
-        return { sw: !!sw, on: sw ? sw.classList.contains('on') : null, ask: ask ? ask.innerText : '', grp: (sw || ask).closest('.m-grp').querySelector('.m-gt').textContent, txt: sw ? sw.innerText : '', fits, opt: G.save.opts.salvageOffCls, seen: !!G.save.tut.ascls, stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).opts.salvageOffCls };
+        return { sw: !!sw, on: sw ? sw.classList.contains('on') : null, ask: ask ? ask.innerText : '', grp: (sw || ask).closest('.m-grp').querySelector('.m-gt').textContent, txt: sw ? sw.innerText : '', fits, opt: !!G.save.opts.salvageOffCls, seen: !!G.save.tut.ascls, stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).opts.salvageOffCls === true, key: 'salvageOffCls' in G.save.opts };
       });
     await openSettings();
     const s0 = await row();
@@ -7951,7 +7954,7 @@ async function main() {
     assert(s2.sw && s2.on === false && s2.opt === false && !s2.seen && s2.stored === false, '取消后应还是关着、下次还问：' + JSON.stringify(s2));
     await page.click('#p-view [data-tact="offcls"]');
     await page.keyboard.press('Escape'); // Esc 先收起确认，不打开
-    const s2b = await ev(() => ({ ask: !!document.querySelector('#p-view .m-row.ask.offcls'), opt: G.save.opts.salvageOffCls, view: !!document.querySelector('#p-view [data-tact="offcls"]') }));
+    const s2b = await ev(() => ({ ask: !!document.querySelector('#p-view .m-row.ask.offcls'), opt: !!G.save.opts.salvageOffCls, view: !!document.querySelector('#p-view [data-tact="offcls"]') }));
     assert(!s2b.ask && s2b.opt === false && s2b.view, 'Esc 应先收起确认、留在设置里：' + JSON.stringify(s2b));
     await page.click('#p-view [data-tact="offcls"]');
     await page.click('#p-view [data-tact="offcls-yes"]');
@@ -7961,7 +7964,7 @@ async function main() {
     const s4 = await row();
     await page.click('#p-view [data-tact="offcls"]');
     const s5 = await row();
-    assert(s4.sw && !s4.on && s4.stored === false && s5.sw && s5.on && s5.stored === true && !s5.ask, '确认过以后关掉再打开不该再问：' + JSON.stringify([s4, s5]));
+    assert(s4.sw && !s4.on && s4.stored === false && !s4.key && s5.sw && s5.on && s5.stored === true && !s5.ask, '确认过以后关掉（存档里不留这个键）再打开不该再问：' + JSON.stringify([s4, s5]));
     await closeSettings();
 
     // 拾取：开着
@@ -8062,7 +8065,7 @@ async function main() {
     // 关着：别的职业的武器照常进背包，不调 salvageResult（Math.random 的调用和原来一样）
     r = await ev(() => {
       const save = G.save;
-      save.opts.salvageOffCls = false;
+      delete save.opts.salvageOffCls;
       T.clearLoot();
       T.tp(0, 0);
       const bi = (t) => G.BASES.weapon.findIndex((b) => b.type === t);
@@ -8092,6 +8095,7 @@ async function main() {
       else delete S.tut.ascls;
       for (const s of G.SLOTS) delete S.equip[s];
       Object.assign(S.equip, k.equip);
+      delete S.opts.salvageOffCls;
       Object.assign(S.opts, k.opts);
       S.cur = Object.assign({}, k.cur);
       S.uniq = JSON.parse(k.uniq);
@@ -28598,7 +28602,7 @@ const UI_PANELS = {
         go: async (D) => {
           await ev(() => {
             delete G.save.tut.ascls;
-            G.save.opts.salvageOffCls = false;
+            delete G.save.opts.salvageOffCls;
           });
           await uiPauseOpen();
           await D.tap('#p-menu [data-tact="settings"]', '#pause .m-view[data-view="settings"]');

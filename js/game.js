@@ -173,8 +173,9 @@
       // salvageRare 开着时魔法物品也一起分解（界面上「含魔法」显示为勾上且不能点），salvageMagic 本身不改，关掉「含稀有」就回到原来的状态
       // quality：画质档位 high / mid / low（世界层读取，见 G.world.setQuality）；auto = 玩家还没选过，每次启动按设备推断，掉帧时自动降档
       // hitFlash / hitStop / shake：打击手感的三个开关（受击闪光、顿帧、镜头震动），默认都开（vf-vfx2）
-      // salvageOffCls：拾取时自动分解本职业用不了的武器（T36），默认关；第一次打开要确认，确认过记在 tut.ascls
-      opts: { autoWhite: false, hideNormal: false, autoSalvage: false, salvageMagic: false, salvageRare: false, salvageOffCls: false, quality: 'auto', hitFlash: true, hitStop: true, shake: true, ambience: true,
+      // salvageOffCls（T36，不在这里）：拾取时自动分解本职业用不了的武器。只在打开时写进 opts（true），关着就没有这个键，
+      // 从没打开过的存档一个新键都不多（和 cls 一样，退回旧代码时整份存档一字不差）；第一次打开要确认，确认过记在 tut.ascls
+      opts: { autoWhite: false, hideNormal: false, autoSalvage: false, salvageMagic: false, salvageRare: false, quality: 'auto', hitFlash: true, hitStop: true, shake: true, ambience: true,
         volMaster: 80, volSfx: 80, volAmb: 60, volMusic: 50, mute: false }, // 音量（0–100，见 js/audio.js 的 G.audio.DEFAULTS）和静音
       seenHelp: false,
       seenStory: false, // 开场故事放过（或跳过）了；只有新角色（seenHelp 为假）才会放，老存档没有这一项也不会看到
@@ -580,7 +581,6 @@
     s.opts = {
       autoWhite: !!ro.autoWhite, hideNormal: !!ro.hideNormal, autoSalvage: !!ro.autoSalvage, salvageMagic: !!ro.salvageMagic,
       salvageRare: !!ro.salvageRare, // 一键分解含稀有：老存档没有 = 关
-      salvageOffCls: !!ro.salvageOffCls, // 自动分解其他职业武器（T36）：老存档没有 = 关
       quality: G.QUALITY_IDS.indexOf(ro.quality) >= 0 ? ro.quality : 'auto',
       hitFlash: ro.hitFlash !== false, hitStop: ro.hitStop !== false, shake: ro.shake !== false, // 老存档没有这三项：按默认开
       ambience: ro.ambience !== false, // vf-vfx3：环境特效（区域氛围），老存档没有 = 开
@@ -588,6 +588,7 @@
       volMaster: toInt(ro.volMaster, 0, 100, 80), volSfx: toInt(ro.volSfx, 0, 100, 80),
       volAmb: toInt(ro.volAmb, 0, 100, 60), volMusic: toInt(ro.volMusic, 0, 100, 50), mute: !!ro.mute,
     };
+    if (ro.salvageOffCls === true) s.opts.salvageOffCls = true; // 自动分解其他职业武器（T36）：只有打开时才有这个键，老存档没有 = 关
     s.seenHelp = !!raw.seenHelp;
     s.seenStory = !!raw.seenStory;
     s.tut = {};
