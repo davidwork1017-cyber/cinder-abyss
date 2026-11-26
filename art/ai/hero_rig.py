@@ -402,6 +402,15 @@ def grade(lin, g):
         a = g['lift']
         sv = l2s(lin)
         lin = s2l(a * sv / (1 + (a - 1) * sv))
+    # 按颜色定点改色（remap）：离 src（sRGB 0–255）近的颜色往 dst 拉，权重 = smoothstep(1 − 距离 / r)，线性空间里按通道乘 (dst / src)^权重
+    for rm in g.get('remap', []):
+        sv = l2s(np.clip(lin, 0, 1)) * 255
+        dd = float(np.linalg.norm(sv - np.array(rm['src'])))
+        w = max(0.0, 1 - dd / rm.get('r', 40))
+        if w > 0:
+            w = w * w * (3 - 2 * w)
+            k = s2l(np.array(rm['dst']) / 255) / np.maximum(s2l(np.array(rm['src']) / 255), 1e-6)
+            lin = lin * k ** w
     return np.clip(lin, 0, 1)
 
 
