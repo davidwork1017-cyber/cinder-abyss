@@ -1,4 +1,4 @@
-# 外部素材（全部 CC0）
+# 外部素材（CC0，另有 AI 生成的首领外观）
 
 | 目录 | 来源 | 许可证 |
 | --- | --- | --- |
@@ -30,3 +30,25 @@
   `node tools/convert-chars.mjs`（无头 Chrome + three r128 的 FBXLoader / GLTFLoader，`tools/vendor/` 里是转换用的 r128 原版文件）转成同目录下精简的 `.glb`
   （只留骨骼、蒙皮网格、要用的动作；Adventurer 的背包不转），再由 `pack-assets.mjs` 打进 `js/assets/chars.js`。游戏端在 `js/world.js` 的「C 模型」一节同步解析，
   把网格重新摆到程序化骨架的静止姿态、蒙皮到程序化关节上，原有动作照常驱动；`chars.js` 缺失或解析失败时用程序化角色。
+
+## AI 生成
+
+2026-11-26 起，熔渣巨像的外观换成 AI 生成的模型（用户批准）。骨架、动作和招式都没动，只换了网格和贴图。
+
+| 件 | 用在哪 | 来源记录 |
+| --- | --- | --- |
+| `ca/boss_golem`（熔渣巨像：玄武岩块拼成的巨像，胸口是拱形铁栅炉膛，肩上两根短烟囱）、`ca/boss_golem_lo`（低画质的减面版） | 第 0 区首领，`js/assets/boss-golem.js`；低画质用减面版 | `ca/boss/golem.provenance.json` |
+
+- **生成流程**：ComfyUI 0.43.0，只用内置节点。Z-Image Turbo 文生图，TRELLIS.2 图生 3D，另外用到 BiRefNet、DINOv3、MoGe-2。蒙皮用 UniRig（只算权重，骨架是我们自己拟合的巨像骨架）。提示词、种子、每个组件的版本都在来源记录里。
+- **处理**：`art/ai/golem_rig.py`（无头 Blender，`npm run build:art` 调用）把源模型对到巨像骨架上：减面到首领预算以内（高 7716、低 3786 个三角形），四肢和关节用 UniRig 的权重，头、烟囱、肩甲这些整块的地方按几何区域改成刚性，反照率贴图 512，按游戏镜头的灰度调亮。源文件不在的机器上保留已提交的 GLB。
+- **许可证**：生成时用到的每个组件都读过许可证原文：
+  - ComfyUI：GPL-3.0，只是工具，输出不受约束；
+  - Z-Image Turbo、Qwen3-4B 文本编码器、VAE：Apache-2.0；
+  - TRELLIS.2、BiRefNet、MoGe-2：MIT；
+  - DINOv3：DINOv3 License；
+  - UniRig：代码和权重都是 MIT（里面带的 michelangelo 是 GPL-3.0，只在本地当工具跑）；训练数据 Articulation-XL2.0 是 CC-BY-4.0，对我们的输出没有义务。
+
+  这些组件都不限制输出、不禁止商用，也不要求在输出上署名。换生成流程、换权重或者商业发行之前，要重新审一遍。Puppeteer 的蒙皮用到 NVIDIA PartField（只许非商业研究用途），不用。
+- **凭据**：许可证审查表和每份许可证原文在编排者的笔记 `notes/ai3d/` 里，不进仓库；来源记录里记着结论。
+- **不进仓库的东西**：源 GLB、概念图、UniRig 的权重 GLB（都只记 sha256）。仓库里只有处理后的首领模型（`ca/boss/golem.glb`、`golem_lo.glb`）和来源记录。
+- **审核**：和脚本首领一样看灰度、风格、预算和出手帧（挂点落在预警里），另外做了一次相似度检查：不像任何已有游戏的素材或 IP，提示词里也不提别的游戏或 IP。

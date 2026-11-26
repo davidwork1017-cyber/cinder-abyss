@@ -1339,39 +1339,37 @@
    "file": "assets/ca/boss/golem.glb",
    "ship": true,
    "replaces": null,
-   "tris": 4096,
-   "verts": 11821,
+   "tris": 7716,
+   "verts": 23148,
    "materials": 1,
    "textures": 1,
    "bounds": {
     "min": [
-     -3.008,
-     -0.02,
-     -1.191
+     -2.372,
+     0.002,
+     -1.167
     ],
     "max": [
-     2.577,
-     4.875,
-     1.088
+     2.372,
+     5.032,
+     0.969
     ]
    },
-   "h": 4.895,
-   "r": 3.008,
-   "y0": -0.02,
+   "h": 5.031,
+   "r": 2.372,
+   "y0": 0.002,
    "source": {
-    "script": "art/ca/boss/golem.py",
+    "script": "art/ai/golem_rig.py",
+    "fit": "art/ai/golem_fit.py",
     "clips": "art/ca/boss/golem_clips.py",
-    "gen": "golem",
+    "gen": "golem_ai",
     "catalog": "art/catalog.py",
-    "seed": 181,
-    "args": {},
-    "bake": {
-     "ao": 0.7,
-     "grad": 0.9,
-     "wear": 0.4,
-     "grime": 0.3,
-     "gain": 1.15
-    }
+    "seed": 501,
+    "args": {
+     "spec": "art/ai/golem/a01.json",
+     "texpx": 512
+    },
+    "provenance": "assets/ca/boss/golem.provenance.json"
    },
    "bones": 28,
    "clips": [
@@ -1389,7 +1387,65 @@
     "walk"
    ],
    "home": "ash",
-   "sha256": "625d4945cb94a097cb4afe4f33b131f9ea137db3b94476b0a75a65977fe95273"
+   "sha256": "edce1ce402d96cee5f5c8b8f5ad126504b418efb7c7c58b2a7e77ed50ca34cfe"
+  },
+  {
+   "id": "ca/boss_golem_lo",
+   "category": "boss",
+   "zone": "boss",
+   "file": "assets/ca/boss/golem_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 3786,
+   "verts": 11358,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -2.369,
+     0.002,
+     -1.171
+    ],
+    "max": [
+     2.374,
+     5.033,
+     0.971
+    ]
+   },
+   "h": 5.031,
+   "r": 2.374,
+   "y0": 0.002,
+   "source": {
+    "script": "art/ai/golem_rig.py",
+    "fit": "art/ai/golem_fit.py",
+    "clips": "art/ca/boss/golem_clips.py",
+    "gen": "golem_ai",
+    "catalog": "art/catalog.py",
+    "seed": 501,
+    "args": {
+     "spec": "art/ai/golem/a01.json",
+     "texpx": 512,
+     "tris": 4096
+    },
+    "provenance": "assets/ca/boss/golem.provenance.json"
+   },
+   "bones": 28,
+   "clips": [
+    "broken",
+    "charge",
+    "charge_w",
+    "death",
+    "hit",
+    "idle",
+    "mood",
+    "ring",
+    "ring_w",
+    "slam",
+    "slam_w",
+    "walk"
+   ],
+   "home": "ash",
+   "sha256": "c4acedce888f530a585d8bab21008adb3c5f18aeb6dbab6d27073b16fabd29a9"
   },
   {
    "id": "ca/boss_lord",
