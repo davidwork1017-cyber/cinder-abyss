@@ -93,7 +93,7 @@
   G.TAG_NAME = {
     attack: '攻击', spell: '法术', melee: '近战', projectile: '投射物', area: '范围',
     chaining: '连锁', phys: '物理', fire: '火焰', cold: '冰霜', light: '闪电', movement: '位移',
-    minion: '召唤物', summon: '召唤', aura: '光环', weapon: '武器技', chaos: '混沌', duration: '持续',
+    minion: '召唤物', summon: '召唤', aura: '光环', weapon: '武器技', chaos: '混沌', duration: '持续', imbue: '装填',
   };
 
   // ---------- 武器伤害 ----------
@@ -266,13 +266,13 @@
       desc: '放出三团飘忽的小黑旋风：吸附在敌人身上片刻，把周围小怪拽来一起绞，持续造成混沌伤害；撞墙反弹。',
     },
     // 黑焰：光环（buff：不脉冲、自己不造成伤害）。你和召唤物的每一击额外造成 F% 的混沌伤害，
-    //   F = min(cap, k0 + k1 × (宝石等级 − 1)) × (1 + 黑焰效果%)，40 级（宝石 30）约 13%，37 级宝石封顶 15%；和注入一样按加成之后、暴击之前的伤害折算（相加，不再吃混沌加成）。
-    //   爆燃 / 电弧这类触发伤害与霜环的脉冲不带黑焰。只能镶节流
+    //   F = min(cap, k0 + k1 × (技能等级 − 1)) × (1 + 黑焰效果%)，技能等级 = round(角色等级 × 0.75)：角色 40 级约 13%，49 级（技能 37）封顶 15%（蚀印同样 49 级封顶）；和注入一样按加成之后、暴击之前的伤害折算（相加，不再吃混沌加成）。
+    //   爆燃 / 电弧这类触发伤害与霜环的脉冲不带黑焰。
     blackflame: {
       name: '黑焰', icon: '冥', color: '#e04cc0', tags: ['spell', 'aura', 'chaos'], kind: 'aura', buff: true,
       mana: 0, reserve: 25, cd: 0, time: 1, w: 0, kb: 0, poise: 0, // 保留 35 → 25（同上）
       flame: { k0: 6, k1: 0.25, cap: 15 },
-      desc: '光环：你和召唤物的每一击附带一缕黑焰，造成该击一定比例的额外混沌伤害。只能镶节流。',
+      desc: '光环：你和召唤物的每一击附带一缕黑焰，造成该击一定比例的额外混沌伤害。',
     },
 
     // ---------- 第一批新技能（skill-expand；设计稿 game-workspace/tasks/skill-expand/design-note.md） ----------
@@ -320,8 +320,8 @@
     //   hitCap：同一次施放对同一个敌人最多中几枚（贴脸的霰弹；中满的敌人后面的钉子直接穿过去，打后面的）；每枚都击退、削架势。连锁镶不上。useMult：技能卡 / 秒伤按贴近时中 3 枚算
     nails: {
       name: '散钉', icon: '钉', color: '#b9c0cc', tags: ['attack', 'projectile', 'phys'], kind: 'proj', noSup: ['chain'],
-      wm: 0.42, time: 0.5, mana: 5, cd: 0, count: 5, spread: 9, speed: 30, life: 0.27, projR: 0.22, pierce: 0, hitCap: 3, useMult: 3, w: 0, kb: 0.6, poise: 6, vk: 'nail', // vk：细长的钢钉（world.js PF_DRAW.nail）
-      desc: '扇形掷出 5 枚铁钉，射程 8 米，贴近时最多 3 枚打中同一个敌人。', alt: '每枚都会击退、削架势。多重投射加钉子、扇面变宽，单体上限不变。',
+      wm: 0.66, gunSec: 0.225, time: 0.5, mana: 5, cd: 0, count: 7, spread: 8, speed: 30, life: 0.27, projR: 0.22, pierce: 0, hitCap: 3, useMult: 3, w: 0, kb: 0.3, poise: 6, vk: 'nail', bclip: 'nails', // vk：细长的钢钉（world.js PF_DRAW.nail）
+      desc: '扇形掷出 7 枚铁钉，射程 8 米，贴近时最多 3 枚打中同一个敌人。', alt: '拿枪时从枪口打出去，一枚的伤害按这把枪右键连射 0.225 秒算。每枚都会击退、削架势。多重投射加钉子、扇面变宽，单体上限不变。',
     },
     // 放血：身前 arc° 的交叉两刀（一次结算），bleed：让敌人流血，4 秒内再受到这一击物理伤害的 bleed%（规则见 G.BLEED）
     rend: {
@@ -337,38 +337,45 @@
     // 全部转成弹本身的元素（elem）。弹的形状跟枪走（G.ROUND_GUN）：机炮连发 3 枚各 ×0.4、左轮一发 ×1.1（可以边走边打）、喷枪近程扇面 3 枚各 ×0.4（射程 ×0.6），
     // 三种枪一次施放的总伤害一样。每发加的热度 = 这把枪开火 basicSec 秒的热度 × 这一枚的倍率，打中算「最近打中过」，照样喂 R。
     // 没拿着枪时（只有没有职业的存档放得出来）按左轮的形状、用 wm 乘手里武器的伤害。useMult：一次施放对单体的倍率总和（以一份为 1）
+    // ---------- 装填（imbue，2026-11-25 用户反馈 + dev-48：原来的铁水弹 / 雷楔 / 霜霰弹改成装填，宝石 id 不变）----------
+    // 开关：按一下装上，再按一下卸下，装另一种就换过去（同一时间只有一种，见 G.imbueSet）。装着时保留 reserve% 最大魔力（和光环走同一条保留，G.reservePct）。
+    // 切换要 time 秒出手，之后所有装填锁 lock 秒（不能见一只怪换一种元素）。
+    // 装着时你打出的每一枚物理投射物（枪 / 弓的普攻、散钉、飞刃、跳射、反冲弹、乱射……，见 G.imbueFits）都带上这种元素：
+    //   add：额外造成这一击（暴击前）add% 的元素伤害（和注入同一条 ctx.extra），每级 +addLv，ailment：这一枚的异常值累积提高；
+    //   各自的效果见下（触发都有上限：同一次出手（散钉 5 枚 / 多重投射算一次出手）、同一个敌人、每秒）
     molten: {
-      name: '铁水弹', icon: '铁', color: '#ff7a3a', tags: ['attack', 'projectile', 'area', 'fire', 'duration'], kind: 'round', round: 'molten', elem: 'fire', clsOnly: true,
-      wm: 1.0, basicSec: 0.36, time: 0.6, mana: 7, cd: 0, speed: 30, projR: 0.26, range: 16, explode: 1.8, ailment: 20, w: 1, kb: 0.5, poise: 10,
-      // pool：命中处留一摊铁水（r 半径、dur 秒、每 tick 秒对里面的敌人造成 mult 份伤害；同一个敌人站在几摊里也只按一摊算），同时最多 max 摊
-      pool: { r: 1.5, dur: 7, tick: 0.5, mult: 0.07, max: 4 },
-      useMult: 1.08, // 单体：弹头 1 + 铁水每秒 2 × 0.07 摊到每次施放（0.6 秒）约 0.08
-      desc: '打出铁水弹，命中炸开（半径 1.8 米），地上留一摊铁水烧 7 秒。',
-      alt: '伤害按手里枪的右键开火折算，全部转成火焰。铁水最多同时 4 摊，站在几摊里也只烧一份。',
+      name: '铁水装填', icon: '铁', color: '#ff7a3a', tags: ['imbue', 'fire'], kind: 'imbue', elem: 'fire', clsOnly: true,
+      mana: 0, reserve: 15, cd: 0, time: 0.3, lock: 1, w: 0, kb: 0, poise: 0,
+      // splash：装填的投射物打死敌人时，在它身上炸开一小摊铁水（半径 r，k 份这一枚的伤害，全部火焰）；每次出手最多 1 摊，每秒最多 perSec 摊；铁水炸死的不再炸
+      imbue: { add: 11, addLv: 0.27, ailment: 15, splash: { r: 1.6, k: 0.9, perSec: 3 } },
+      desc: '开关：装上后，你的子弹、箭、钉子都附带火焰伤害，容易点燃；打死敌人时炸开一小摊铁水（半径 1.6 米）。保留 15% 魔力。',
+      alt: '铁水造成那一枚 90% 的火焰伤害。一次出手最多炸 1 摊，每秒最多 3 摊，铁水炸死的不再炸。同一时间只能装一种装填，切换后 1 秒内不能再换。',
     },
     wedge: {
-      name: '雷楔', icon: '楔', color: '#9fc8ff', tags: ['attack', 'projectile', 'chaining', 'light'], kind: 'round', round: 'wedge', elem: 'light', clsOnly: true,
-      wm: 1.0, basicSec: 0.36, time: 0.6, mana: 7, cd: 0, speed: 32, projR: 0.24, range: 16, ailment: 20, w: 0, kb: 0.2, poise: 6,
-      // 命中先打 hit 份，楔子钉在敌人身上，delay 秒后放电：目标挨 zap 份（它身上每多一枚楔子 +stack，最多算 maxStack 枚），再连到 r 米内最多 n 个别的敌人（各 chainK 份）
-      wedge: { hit: 0.35, zap: 0.65, delay: 1, stack: 0.15, maxStack: 4, r: 4, n: 2, chainK: 0.2 },
-      useMult: 1.07, // 单体：0.35 + 0.65 ×（平均身上约 1.7 枚 → +10%）
-      desc: '雷楔钉进敌人，1 秒后放电，再连到 4 米内最多 2 个敌人。同一个敌人身上楔子越多，放电越痛。',
-      alt: '伤害按手里枪的右键开火折算，全部转成闪电。每多一枚楔子放电 +15%（最多算 4 枚）。连锁的每个敌人受到 20% 伤害。',
+      name: '雷楔装填', icon: '楔', color: '#a69cff', tags: ['imbue', 'light'], kind: 'imbue', elem: 'light', clsOnly: true,
+      mana: 0, reserve: 15, cd: 0, time: 0.3, lock: 1, w: 0, kb: 0, poise: 0,
+      // wedge：每一击在敌人身上钉一枚雷楔（同一次出手对同一个敌人只钉 1 枚），钉满 n 枚当场放电：它挨 zap × 这几枚的伤害之和（闪电），
+      //   再连到 r 米内最近的 chain 个敌人（各 chainK 份），然后清零；keep 秒没再钉就散掉
+      imbue: { add: 6, addLv: 0.15, ailment: 20, wedge: { n: 3, zap: 0.2, r: 4, chain: 2, chainK: 0.1, keep: 4 } },
+      desc: '开关：装上后，你的子弹、箭、钉子都附带闪电伤害，每一击在敌人身上钉一枚雷楔，钉满 3 枚就放电，再连到附近 2 个敌人。保留 15% 魔力。',
+      alt: '放电造成这 3 枚伤害之和的 20%，连到的敌人各受放电的 10%。一次出手对同一个敌人只钉 1 枚、最多放 1 次电，4 秒没再钉就散掉。同一时间只能装一种装填，切换后 1 秒内不能再换。',
     },
     rime: {
-      name: '霜霰弹', icon: '霰', color: '#a8e4ff', tags: ['attack', 'projectile', 'area', 'cold'], kind: 'round', round: 'rime', elem: 'cold', clsOnly: true,
-      wm: 1.0, basicSec: 0.36, time: 0.6, mana: 7, cd: 0, speed: 32, projR: 0.24, range: 16, ailment: 40, w: 0, kb: 0.3, poise: 8,
-      // shard：命中后从敌人背后炸出 arc° × len 米的冰屑扇面，打中的别的敌人各挨 k 份（冰缓靠冰霜异常值）
-      shard: { arc: 70, len: 5, k: 0.6 },
-      useMult: 1,
-      desc: '命中后从敌人背后炸出一片冰屑（70° 扇面，5 米），打中的敌人被冰缓。',
-      alt: '伤害按手里枪的右键开火折算，全部转成冰霜。冰屑不打被命中的那个敌人，每个敌人受到 60% 伤害。',
+      name: '霜霰装填', icon: '霰', color: '#a8e4ff', tags: ['imbue', 'cold'], kind: 'imbue', elem: 'cold', clsOnly: true,
+      mana: 0, reserve: 15, cd: 0, time: 0.3, lock: 1, w: 0, kb: 0, poise: 0,
+      // chilled：打中正被冰缓 / 冻住的敌人，这一击的伤害 ×(1 + chilled%)；shard：穿过或打死敌人时，从它背后炸出 arc° × len 米的冰屑（各 k 份），
+      //   每次出手最多 1 次，每秒最多 perSec 次
+      imbue: { add: 8, addLv: 0.2, ailment: 60, chilled: 4, shard: { arc: 50, len: 3.2, k: 0.3, perSec: 4 } },
+      desc: '开关：装上后，你的子弹、箭、钉子都附带冰霜伤害，大幅累积冰缓，打被冰缓的敌人伤害 +4%；穿过或打死敌人时从它背后炸出冰屑。保留 15% 魔力。',
+      alt: '冰屑是 50° 扇面、3.2 米，每个敌人受到那一枚 30% 的伤害。「穿过」只算贯穿，弹开（连锁）不算。一次出手最多炸 1 次，每秒最多 4 次。同一时间只能装一种装填，切换后 1 秒内不能再换。',
     },
     recoil: {
       name: '反冲弹', icon: '冲', color: '#e0c8a0', tags: ['attack', 'projectile', 'phys', 'movement'], kind: 'round', round: 'recoil', elem: 'phys', clsOnly: true,
       wm: 1.0, basicSec: 0.36, time: 0.5, mana: 8, cd: 3, speed: 40, projR: 0.3, range: 18, heavy: 1.8, w: 2, kb: 2.6, poise: 45, stop: 60,
       // heavy：这一发的倍率（× 每份）；push：后坐力把你往后推的距离（米，dur 秒推完，撞墙即停，不出首领场地）
       push: { d: 3.5, dur: 0.22 },
+      // blast（imbue 批，用户：「反冲弹能不能命中就炸」）：命中处炸开，半径 r、k 份这一发的伤害（物理），把四周的敌人往外推 kb；一次出手只炸一次
+      blast: { r: 2.5, k: 0.6, kb: 2.2, poise: 12 },
       useMult: 1.8,
       desc: '打出一发重弹（×1.8，强力击退、大量削架势），后坐力把你往后推 3.5 米。冷却 3 秒。',
       alt: '伤害按手里枪的右键开火折算，保持物理。往后推遇墙就停，不会推出首领场地，途中不无敌。',
@@ -382,8 +389,10 @@
     //   机炮 / 喷枪的单发伤害低、攻速高，按 wm 算只有弓的三分之一）
     snare: {
       name: '绊雷', icon: '绊', color: '#d8a070', tags: ['attack', 'area', 'phys', 'duration'], kind: 'snare', clsOnly: true, bclip: 'throw',
-      wm: 2.6, gunSec: 0.8, time: 0.45, mana: 8, cd: 1, speed: 24, projR: 0.2, range: 14, radius: 2.4, w: 1, kb: 0.5, poise: 18, stop: 30,
-      mine: { arm: 0.35, trig: 1.6, dur: 7, max: 3 },
+      wm: 2.6, gunSec: 0.8, time: 0.45, mana: 8, cd: 1, speed: 24, projR: 0.2, range: 14, radius: 3.2, w: 1, kb: 0.5, poise: 18, stop: 30,
+      // imbue 批（用户：「绊雷也好弱」）：半径 2.4 → 3.2、触发 1.6 → 2.2；expire：到时半径里有敌人就炸；chain：连爆（见 game.js 的 mineBoom）
+      mine: { arm: 0.35, trig: 2.2, dur: 7, max: 3, expire: true },
+      chain: { gap: 0.1, k: 0.25, cap: 0.5 },
       useMult: 1,
       desc: '朝准星射一枚绊雷钉在地上，敌人走进 1.6 米就炸开（半径 2.4 米）。最多 3 枚，每枚存在 7 秒。',
       alt: '射出 0.35 秒后才会触发。多出来的绊雷顶掉最早那枚。飞行途中不打怪。冷却 1 秒。拿枪时一枚的伤害按这把枪右键连射 0.8 秒算。',
@@ -890,7 +899,13 @@
   // name 刻式名，desc 换掉技能说明，pack 怪群 / 首领上的取舍（技能页悬停显示）。对等表见 endgame-notes/variants-v2.md（单体 ±10%，光环按总秒伤 ±5%）。
   // 裂石击不做刻式（用户定：它要从可学技能里拿掉，近战的右键连段接替），所以是 14 个技能；G.VARIANTS 里没有的技能照常是原式（第一批新技能 skill-expand 的 6 个技能的刻式在第二批 skill-batch2 补齐，20 个宝石技能 × A / B）
   G.SKILL_BASE = JSON.parse(JSON.stringify(G.SKILLS));
-  G.VARIANT_LVL = 10; // 宝石等级到这一级才能选
+  G.VARIANT_LVL = 10; // 技能等级到这一级才能选（技能等级 = round(角色等级 × 0.75)，见 game.js 的 G.gemFloor / G.skillLvl）
+  // 对应的角色等级（= 13）：界面、提示一律按角色等级说，技能宝石没有等级了（gem-nolvl）
+  G.VARIANT_CHAR_LVL = (function () {
+    let L = 1;
+    while (Math.round(L * 0.75) < G.VARIANT_LVL) L++;
+    return L;
+  })();
   G.VARIANT_COST = { cur: 'chaos', n: 1 }; // 每个技能第一次选免费，之后每换一次（含改回原式）付 1 颗乱流石
   G.VARIANT_SAFE_R = 25; // 这么远以内有醒着的怪就算在战斗中，不能换
   G.VARIANT_NAME = { o: '原式', a: 'A', b: 'B' };
@@ -1065,12 +1080,12 @@
     blackflame: {
       a: {
         name: '蚀印', pack: '没叠满就死的层数浪费',
-        desc: '光环：附带的黑焰减半，另一半给敌人叠蚀印；满 6 层炸开，对它和身边敌人造成攒下的混沌伤害。只能镶节流。',
+        desc: '光环：附带的黑焰减半，另一半给敌人叠蚀印；满 6 层炸开，对它和身边敌人造成攒下的混沌伤害。',
         set: { mech: 'brand', flame: { k0: 3, k1: 0.125, cap: 7.5 }, brand: { n: 6, r: 2 } },
       },
       b: {
         name: '传焰', pack: '慢一点到；越跳越旺',
-        desc: '光环：每一击改为点上黑焰，2 秒内烧完同样多的混沌伤害；宿主死时余焰跳到 6 米内最近的敌人，每跳 +25%（最多 3 跳）。只能镶节流。',
+        desc: '光环：每一击改为点上黑焰，2 秒内烧完同样多的混沌伤害；宿主死时余焰跳到 6 米内最近的敌人，每跳 +25%（最多 3 跳）。',
         set: { mech: 'dot', flameDot: true, dot: { dur: 2, jump: 6, k: 1.25, max: 3 } },
       },
     },
@@ -1140,13 +1155,13 @@
     nails: {
       a: {
         name: '环钉', pack: '被围时最强；远处单体只中一枚',
-        desc: '朝四周掷出一圈 12 枚铁钉，射程约 6.5 米，同一个敌人最多中 2 枚。', alt: '每枚都会击退、削架势。多重投射加钉子。',
-        set: { mech: 'ring', wm: 0.6, count: 12, hitCap: 2, useMult: 2, life: 0.22 },
+        desc: '朝四周掷出一圈 6 枚铁钉，射程约 6.5 米，同一个敌人最多中 2 枚。', alt: '每枚都会击退、削架势。多重投射加钉子。',
+        set: { mech: 'ring', wm: 0.943, count: 6, hitCap: 2, useMult: 2, life: 0.22 }, // imbue 批：原式 wm 0.42 → 0.66 之后按比例补上（单体对等 0.95），一圈 12 → 6 枚、射程不变（怪群 / 散开 / 单体都不比改之前弱，规则 (a) ≤ 1.12）
       },
       b: {
         name: '钩钉', pack: '每枚略轻；把怪拽到身前',
-        desc: '扇形掷出 5 枚带钩铁钉，每中一枚把敌人往你身边拽 0.5 米。', alt: '不再击退。精英只拽一半，首领拽不动。贴近时最多 3 枚打中同一个敌人。',
-        set: { mech: 'hook', wm: 0.4, kb: 0, hook: { d: 0.53, elite: 0.5 } },
+        desc: '扇形掷出 4 枚带钩铁钉，每中一枚把敌人往你身边拽 0.5 米。', alt: '不再击退。精英只拽一半，首领拽不动。贴近时最多 3 枚打中同一个敌人。',
+        set: { mech: 'hook', wm: 0.629, count: 4, kb: 0, hook: { d: 0.53, elite: 0.5 } }, // imbue 批：wm 按原式比例补上（单体对等 0.95），7 → 4 枚（散开的怪群不超规则 (a)；贴脸单体照样中 3 枚）
       },
     },
     // 放血 A 血镰：交叉两刀化成一道往前飞的血镰（6.5 × 1.5 米的直线，撞墙截断），流血 60%
@@ -1164,48 +1179,44 @@
       },
     },
     // ---------- 特殊弹的刻式（class-d2b1）----------
-    // 铁水弹 A 溅铁：不炸、不留铁水，命中后朝前方溅出 n 道铁水（len 米、arc° 扇面），每道打中一条线上的敌人（每个敌人一次施放只挨一道），各 k 份
-    //        （A / B 都没有铁水：溅铁的弹头和原式一样（单体 0.93），熔穿一份按 basicSec 0.355 / wm 0.98 算（单体 0.91，机炮三枚都穿同一条线，再高打怪堆就超标））
-    //        B 熔穿：不炸，贯穿敌人（每枚最多打中 cap 个：机炮三枚都穿同一条线，不封顶时打怪堆超标），每穿过一个，后面的伤害 +step（最多 +max）
+    // ---------- 装填的刻式（imbue，2026-11-25）：老存档里选过的 A / B 按位置留着（a 还是 a、b 还是 b），免费换一次还给玩家（G.IMBUE_VAR_FREE）----------
+    // 铁水 A 余温：不炸铁水，点燃累积 ×3（打单体 / 精英靠烧）；B 连溅：铁水炸死的也接着炸（一次出手最多 2 摊）
     molten: {
       a: {
-        name: '溅铁', pack: '不留铁水；专打怪堆后排',
-        desc: '命中后朝前方溅出 5 道铁水（6 米扇面），打中后排的敌人。不留铁水。', alt: '每个敌人一次只挨一道。被命中的那个先挨弹头。',
-        set: { mech: 'splash', explode: 0, pool: null, splash: { n: 5, len: 6, arc: 60, w: 0.7, k: 0.75 }, useMult: 1, tags: ['attack', 'projectile', 'area', 'fire'] },
+        name: '余温', pack: '不炸铁水；烧得更快',
+        desc: '开关：装上后，你的子弹、箭、钉子都附带火焰伤害，非常容易点燃。不炸铁水。保留 15% 魔力。', alt: '同一时间只能装一种装填，切换后 1 秒内不能再换。',
+        set: { imbue: { add: 11, addLv: 0.27, ailment: 140, splash: null } },
       },
       b: {
-        name: '熔穿', pack: '排成一条线最痛；不炸不留铁水',
-        desc: '铁水弹贯穿敌人（每枚最多打中 4 个），每穿过一个，后面的伤害 +5%（最多 +15%）。', alt: '不炸开，也不留铁水。',
-        set: { mech: 'bore', explode: 0, pool: null, basicSec: 0.355, bore: { step: 0.05, max: 0.15, cap: 4 }, wm: 0.98, useMult: 1, tags: ['attack', 'projectile', 'fire'] },
+        name: '连溅', pack: '铁水炸死的接着炸',
+        desc: '开关：装上后，你的子弹、箭、钉子都附带火焰伤害；打死敌人时炸开一小摊铁水，铁水炸死的也接着炸。保留 15% 魔力。', alt: '一次出手最多炸 2 摊，每秒最多 3 摊。铁水造成那一枚 70% 的火焰伤害。同一时间只能装一种装填，切换后 1 秒内不能再换。',
+        set: { imbue: { add: 11, addLv: 0.27, ailment: 15, splash: { r: 1.6, k: 0.7, perSec: 3, chain: 2 } } },
       },
     },
-    // 雷楔 A 雷网：打空的楔子钉在准星附近的地上、放完电的楔子掉在敌人脚下（存在 dur 秒），link 米内的楔子两两拉出电线（最多 lines 根，新的顶掉旧的），线上的敌人每 tick 秒挨 k 份；
-    //            打中敌人的照原式放电
-    //      B 闷雷：delay 秒后才放电（身上同时留着的楔子更多），每一下 zap 更高，大量累积感电（ailment），不再连锁。单体按 useMult 和原式对等（+8%）
+    // 雷楔 A 速放：钉满 2 枚就放电，不连锁（放得勤）；B 重钉：钉满 4 枚才放电，更痛，连到 3 个
     wedge: {
       a: {
-        name: '雷网', pack: '朝地上打布网；单体照原式',
-        desc: '打空的楔子钉在准星附近的地上，放完电的楔子掉在敌人脚下；4 米内的楔子两两拉出电线，线上的敌人持续挨电。', alt: '地上的楔子存在 7 秒、最多 6 枚，电线最多 3 根，每 0.25 秒电一下。打中敌人的楔子照原式放电。',
-        set: { mech: 'net', net: { dur: 7, link: 4, lines: 3, tick: 0.25, k: 0.12, w: 0.6 }, useMult: 1.07, tags: ['attack', 'projectile', 'chaining', 'light', 'duration'] },
+        name: '速放', pack: '2 枚就放电；不连锁',
+        desc: '开关：装上后，你的子弹、箭、钉子都附带闪电伤害，每一击钉一枚雷楔，钉满 2 枚就放电。保留 15% 魔力。', alt: '放电造成这 2 枚伤害之和的 16%，不连锁。一次出手最多放 1 次电。同一时间只能装一种装填，切换后 1 秒内不能再换。',
+        set: { imbue: { add: 6, addLv: 0.15, ailment: 20, wedge: { n: 2, zap: 0.16, r: 0, chain: 0, chainK: 0, keep: 4 } } },
       },
       b: {
-        name: '闷雷', pack: '单体更痛；不连锁',
-        desc: '楔子 1.5 秒后才放电，放电更痛，大量累积感电。不再连锁。', alt: '每多一枚楔子放电 +15%（最多算 4 枚）。连锁镶不上。',
-        set: { mech: 'dull', noSup: ['chain'], ailment: 200, wedge: { hit: 0.2, zap: 0.78, delay: 1.5, stack: 0.15, maxStack: 4, r: 0, n: 0, chainK: 0 }, useMult: 1.15, tags: ['attack', 'projectile', 'light'] },
+        name: '重钉', pack: '4 枚才放电；连到 3 个',
+        desc: '开关：装上后，你的子弹、箭、钉子都附带闪电伤害，每一击钉一枚雷楔，钉满 4 枚放电，再连到附近 3 个敌人。保留 15% 魔力。', alt: '放电造成这 4 枚伤害之和的 15%，连到的敌人各受放电的 15%。一次出手最多放 1 次电。同一时间只能装一种装填，切换后 1 秒内不能再换。',
+        set: { imbue: { add: 6, addLv: 0.15, ailment: 20, wedge: { n: 4, zap: 0.15, r: 4, chain: 3, chainK: 0.15, keep: 5 } } },
       },
     },
-    // 霜霰弹 A 散霜：冰屑改成朝四周炸开一圈（半径 r）
-    //        B 凝霜：不出冰屑，冰霜异常值 × 3；打中冻住（首领：深寒）的敌人伤害 × frozen，并溅到它身边 r 米内（各 k 份）
+    // 霜霰 A 冰环：冰屑朝四周炸开一圈；B 凝寒：不出冰屑，冰缓更快，被冰缓的敌人受到的伤害 +25%
     rime: {
       a: {
-        name: '散霜', pack: '贴脸打一圈；远处后排打不到',
-        desc: '冰屑改成朝四周炸开一圈（半径 3 米），适合贴脸打怪群。', alt: '冰屑不打被命中的那个敌人，每个敌人受到 60% 伤害。',
-        set: { mech: 'burst', shard: { r: 3, k: 0.6 } },
+        name: '冰环', pack: '冰屑炸一圈；贴脸打群',
+        desc: '开关：装上后，你的子弹、箭、钉子都附带冰霜伤害，穿过或打死敌人时冰屑朝四周炸开一圈（半径 2.2 米）。保留 15% 魔力。', alt: '每个敌人受到那一枚 28% 的伤害。一次出手最多炸 1 次，每秒最多 4 次。同一时间只能装一种装填，切换后 1 秒内不能再换。',
+        set: { imbue: { add: 8, addLv: 0.2, ailment: 60, chilled: 4, shard: { r: 2.2, k: 0.28, perSec: 4 } } },
       },
       b: {
-        name: '凝霜', pack: '不打群；冻住的敌人更痛',
-        desc: '不出冰屑，冰霜异常值 ×3；打中冻住的敌人伤害 ×2，并溅到它身边。', alt: '首领进入深寒也算冻住。溅射半径 2.5 米，每个敌人受到 60% 伤害。',
-        set: { mech: 'deep', shard: null, ailment: 240, deep: { frozen: 2, r: 2.5, k: 0.6 }, useMult: 1.05 },
+        name: '凝寒', pack: '不出冰屑；冰缓的更痛',
+        desc: '开关：装上后，你的子弹、箭、钉子都附带少量冰霜伤害，冰缓累积很快，打被冰缓的敌人伤害 +10%。不出冰屑。保留 15% 魔力。', alt: '同一时间只能装一种装填，切换后 1 秒内不能再换。',
+        set: { imbue: { add: 5, addLv: 0.1, ailment: 140, chilled: 10, shard: null } },
       },
     },
     // 反冲弹 A 压膛：不后退，蓄 0.5 秒（time 1.0 的一半，出手在 time × 0.5）后贯穿一条直线（len × width，撞墙截断），一发 ×2.0
@@ -1230,7 +1241,7 @@
       a: {
         name: '连环', pack: '怪多时多炸两下；单体照原式',
         desc: '绊雷炸开时朝两侧弹出 2 枚小雷，落地就炸（各 ×0.5）。绊雷本身炸得小一点（半径 1.8 米）。', alt: '小雷离绊雷 2.6 米、半径 1.6 米。',
-        set: { mech: 'cluster', radius: 1.8, cluster: { n: 2, d: 2.6, r: 1.6, k: 0.5, delay: 0.3 } },
+        set: { mech: 'cluster', radius: 2.4, cluster: { n: 2, d: 2.6, r: 1.6, k: 0.5, delay: 0.3 } },
       },
       b: {
         name: '钉索', pack: '控住最近的 3 个；怪多时打得少',
@@ -2005,7 +2016,7 @@
     R.xizhu.mechAlt = '召唤物身周 ' + x.mr + ' 米也算暗域。首领在域内只降低 ' + pc(x.weakBoss) + '，熄烛者不受影响。' + x.far + ' 米外的怪不会因距离醒来；已醒的怪在 ' + x.far +
       ' 米外连续 ' + x.lose + ' 秒看不到你就失去目标（首领不会）。对没发现你的敌人第一击必定暴击。暖光半径缩小 ' + pc(x.lamp) + '。';
     R.shuangsheng.mechDesc = '刻式技能每次命中，' + s2.delay + ' 秒后余响一次，造成该次伤害的 ' + pc(s2.k) + '。';
-    R.shuangsheng.mechAlt = '宝石 ' + G.VARIANT_LVL + ' 级起算刻式技能（原式也算）。召唤物、光环的命中和黑焰都算，和辅助宝石「回响」叠加。余响不暴击、不累积异常值、不触发命中效果、不攒层数；同一目标同时只挂一次，期间的命中累加进去。';
+    R.shuangsheng.mechAlt = '角色 ' + G.VARIANT_CHAR_LVL + ' 级起算刻式技能（原式也算）。召唤物、光环的命中和黑焰都算，和辅助宝石「回响」叠加。余响不暴击、不累积异常值、不触发命中效果、不攒层数；同一目标同时只挂一次，期间的命中累加进去。';
   };
   G.relicDescs();
   // 分解渊契固定得到的通货（同烬铸）
@@ -2031,11 +2042,11 @@
   G.SALVAGE_RARE_HI = 0.2;
   G.CUR_IDS = Object.keys(G.CURRENCY);
 
-  // ---------- 无铭技能宝石：没有刻下技能的空白宝石，带等级；在技能页挑一个技能学会，或给等级更低的已学技能升级 ----------
+  // ---------- 无铭技能宝石：没有刻下技能的空白宝石；在技能页挑一个还没学会的技能学会它（宝石没有等级，gem-nolvl） ----------
   // color 是名牌 / 界面里的珍珠色（和青色的技能宝石、白色的辅助宝石区分开）；crystal 是地上那枚晶体本身的素银色
   G.BLANK_GEM = {
     name: '无铭技能宝石', short: '无铭宝石', color: '#e2ccff', crystal: '#dfe6f0',
-    desc: '在技能页（G）用它学会任一技能，或把更低等级的已学技能升到它的等级',
+    desc: '在技能页（G）用它学会任一还没学会的技能',
   };
 
   // ---------- 天赋盘 ----------
@@ -2624,7 +2635,7 @@
     forge: {
       name: '炉匠', color: '#ffb35a', tags: ['枪械', '远程'], weapons: ['gatling', 'flamer', 'revolver'],
       line: '把首领剩下的火塞进铁膛，打成连发的火。',
-      start: { type: 'gatling', skill: 'nails' }, skLine: '扇形打出 5 枚铁钉',
+      start: { type: 'gatling', skill: 'nails' }, skLine: '扇形打出 7 枚铁钉',
       node: { id: 'sm0', name: '炉匠 · 铁膂', note: '炉匠的起步天赋：扛得住铁膛的后坐力。' },
     },
   };
@@ -2648,7 +2659,7 @@
   G.GEM_NEED = {
     whirl: 'melee', rend: 'melee', blink: 'melee', shadestep: 'melee',
     blade: 'shot', nails: 'huntgun',
-    molten: 'gun', wedge: 'gun', rime: 'gun', recoil: 'gun', // 特殊弹（class-d2b1）
+    molten: 'huntgun', wedge: 'huntgun', rime: 'huntgun', recoil: 'gun', // 装填（imbue，2026-11-25，dev-48 定：枪 + 猎弓，炉匠和夜猎）/ 反冲弹（class-d2b1）
     snare: 'huntgun', brace: 'melee', scorch: 'heavy', heartfire: 'heavy', leapshot: 'hunt', // class-d2b2
     arc: 'focus', meteor: 'focus', frostline: 'focus', icefall: 'focus', discharge: 'focus', tether: 'focus', blackhole: 'focus', vortex: 'focus',
   };
