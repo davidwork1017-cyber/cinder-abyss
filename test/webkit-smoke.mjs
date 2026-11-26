@@ -1018,14 +1018,7 @@ await step('旋转横屏 · 主屏幕 App · 可见区（rot-safe）：iPhone 17
         const o = await pev(rotFrameProbe, [HUD_PARTS, PAINT_SRC]);
         const j = rotFrameJudge(o, dev, where);
         bad.push(...j.bad);
-        if (!qw && !o.parts.find((x) => x.name === '主线追踪条').boxes.length) {
-          // 追踪条刚才出来过（questReady），量的时候又不见了：把它当时的状态带上（t45 诊断）
-          const qs = await pev(() => {
-            const q = document.getElementById('quest'), cs = q ? getComputedStyle(q) : null, w = G.world;
-            return { cls: q ? q.className : '无', op: cs && cs.opacity, disp: cs && cs.display, vis: cs && cs.visibility, rects: q ? q.getClientRects().length : 0, loading: !!(w.assetsLoading && w.assetsLoading()), pending: !!(w.assetsPending && w.assetsPending()), body: document.body.className, html: document.documentElement.className, paused: G.ui.paused(), ui: G.ui.quest() };
-          });
-          bad.push(where + ' 主线追踪条没出来：' + JSON.stringify(qs));
-        }
+        if (!qw && !o.parts.find((x) => x.name === '主线追踪条').boxes.length) bad.push(where + ' 主线追踪条没出来');
         // 设备信息（只在默认设备上点一次）：设置里收着，点开是一块等宽字，字段齐
         if (dev === MOBILE_DEFAULT && dir === 'cw') {
           await pev(() => G.ui.pause());

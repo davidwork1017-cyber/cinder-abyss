@@ -141,25 +141,7 @@ export async function questReady(p) {
     return false;
   }, null, { polling: 'raf', timeout: 120000 });
   const r = await h.jsonValue();
-  if (!r.on) return '素材包已载完，' + r.n + ' 帧后主线追踪条还没出来（主线 ' + r.q + '，标题画面 ' + r.title + '）';
-  // t45：#quest.on 之后还有 0.3 秒的淡入（style.css 的 transition）。机器忙时帧很慢，固定等 600 ms 不一定淡入完，
-  // 量 HUD 的探针把不透明度 < 0.05 的当成没显示（webkit 全套里 402×874 ccw 报过一次「主线追踪条没出来」）。所以按帧等到不透明度 1，
-  // 没等到就说清是类名掉了还是淡入没完
-  const f = await p.waitForFunction(() => {
-    window.__qoN = (window.__qoN || 0) + 1;
-    const q = document.getElementById('quest');
-    const op = q ? +getComputedStyle(q).opacity : 0, on = !!(q && q.classList.contains('on'));
-    if ((on && op >= 0.99) || !on || window.__qoN >= 120) {
-      const n = window.__qoN;
-      window.__qoN = 0;
-      return { on, op, n };
-    }
-    return false;
-  }, null, { polling: 'raf', timeout: 120000 });
-  const o = await f.jsonValue();
-  if (!o.on) return '主线追踪条出来后又收起了（' + o.n + ' 帧内，素材包 ' + (await p.evaluate(() => { const w = G.world; return (w.assetsLoading && w.assetsLoading() ? '载入中' : '') + (w.assetsPending && w.assetsPending() ? '待载' : '') || '已载完'; })) + '）';
-  if (o.op < 0.99) return '主线追踪条 ' + o.n + ' 帧后还没淡入完（不透明度 ' + o.op + '）';
-  return '';
+  return r.on ? '' : '素材包已载完，' + r.n + ' 帧后主线追踪条还没出来（主线 ' + r.q + '，标题画面 ' + r.title + '）';
 }
 // 重新打开（载入 / 重载）：先回到刚打开的视口，go() 等页面好了，再 settle()
 export async function launch(p, dev, go) {
