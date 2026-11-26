@@ -236,9 +236,9 @@ def _column(k):
             for t in (-1, 1):
                 for o in (0.0, 0.045):
                     pts.append((d[0] * (r + o) + d[2] * 0.05 * t, y, d[2] * (r + o) - d[0] * 0.05 * t))
-        hull_g(k, 'x_column', pts, row='brass', tone=0.46, jitter=0.03)
+        hull_g(k, 'x_column', pts, row='obsidian', tone=0.42, jitter=0.03)  # T35：竖箍原来是黄铜，整身太暖：换成暗铁
     for (y, r) in ((1.42, 0.45), (2.12, 0.51)):
-        band_ring(k, 'x_column', (0, y, 0), r + 0.025, 0.07, 0.09, seg=24, row='brass', tone=0.48)
+        band_ring(k, 'x_column', (0, y, 0), r + 0.025, 0.07, 0.09, seg=24, row='slate', tone=0.36)  # T35：冷的板岩灰（原来黄铜）
     # 底下的收口：暗铁的短锥 + 一圈细的黄铜
     lathe(k, 'x_column', [(0.96, 0.08), (1.04, 0.16), (1.13, 0.22)], sides=10, row='obsidian', tone=0.2, cap1=False)
 
@@ -249,7 +249,7 @@ def _base(k):
     prof_o = [(0.0, 0.92), (0.1, 1.1), (0.26, 1.12), (0.34, 1.02)]
     vs, _ = lathe(k, 'x_base', prof_o + [(0.34, 0.58), (0.0, 0.6)], sides=20, row='iron', tone=0.32, cap0=False, cap1=False)
     # 上面那条（外→内）的面是顶面：黄铜
-    retag(k, vs, lambda p, n: ('brass', 0.44, 0.03) if n[1] > 0.6 else ('obsidian', 0.24, 0.02) if n[1] < -0.6 else None)
+    retag(k, vs, lambda p, n: ('slate', 0.34, 0.03) if n[1] > 0.6 else ('obsidian', 0.24, 0.02) if n[1] < -0.6 else None)  # T35：顶面一圈冷灰（原来黄铜）
     for i in range(8):
         a = TAU * i / 8 + TAU / 16
         c = (math.sin(a) * 1.1, 0.16, math.cos(a) * 1.1)
@@ -367,7 +367,8 @@ def _head(k):
 def _rings(k):
     # ---- 两道环：外环、内环都是暗的旧黄铜（半径 1.55 / 1.28，各三个暗铁的节点）；静止姿态是水平的，歪斜和转动在动作 / 游戏端加 ----
     # 两道环是旧黄铜（暗、窄）：读得出是绕着柱身的环，不和领环连成一片橙色
-    for bone, r, row, tone, nrow, ntone, y in (('x_ring_a', 1.55, 'brass', 0.27, 'obsidian', 0.3, RING_Y[0]), ('x_ring_b', 1.28, 'brass', 0.22, 'obsidian', 0.34, RING_Y[1])):
+    # T35：两道环原来是旧黄铜，加上领环，俯视整只偏橙。换成冷的板岩灰（比雷鸣遗迹的地面亮一档，环照样读得出），饱和的黄铜只留在领环、眼匣和两根短杆上
+    for bone, r, row, tone, nrow, ntone, y in (('x_ring_a', 1.55, 'slate', 0.16, 'obsidian', 0.3, RING_Y[0]), ('x_ring_b', 1.28, 'slate', 0.1, 'obsidian', 0.34, RING_Y[1])):
         band_ring(k, bone, (0, y, 0), r, 0.11, 0.06, seg=40, row=row, tone=tone)
         for i in range(3):
             a = TAU * i / 3 + (0.0 if bone == 'x_ring_a' else TAU / 6)
@@ -402,7 +403,7 @@ def _plates(k):
             for y in (0.66, 0.8):
                 for t in (-0.08, 0.1):
                     P.append(g2b(tuple(C + lat * x + up * y + nrm * t)))
-        k.bind(k.hull(P, 'brass', 0.46, 0.03, 0, 0), B[b])
+        k.bind(k.hull(P, 'slate', 0.38, 0.03, 0, 0), B[b])  # T35：原来黄铜
         # 雷光缝：细的一道（0.04 m 宽），从顶往下到尖，比板面凸出一点点
         P = []
         for (y, wd) in ((0.56, 0.022), (-0.66, 0.016)):
@@ -438,17 +439,17 @@ def _hands(k):
             for i in range(10):
                 th = TAU * i / 10
                 band_ring_pts.append(g2b((hx + math.cos(th) * 0.32, HAND_Y + math.sin(th) * 0.32 * 0.82, HAND_Z + z)))
-        k.bind(k.hull(band_ring_pts, 'brass', 0.46, 0.03, 0, 0), B[hd])
+        k.bind(k.hull(band_ring_pts, 'slate', 0.36, 0.03, 0, 0), B[hd])  # T35：护腕那道箍原来黄铜
         # 手掌：扁的一块（宽 0.52、厚 0.2），手背拱起一块甲
         palm = [(-0.26, -0.08, 0.12), (0.26, -0.08, 0.12), (-0.27, -0.08, 0.5), (0.27, -0.08, 0.5), (-0.24, 0.1, 0.12), (0.24, 0.1, 0.12), (-0.25, 0.1, 0.5), (0.25, 0.1, 0.5), (0, -0.11, 0.3)]
         hull_g(k, hd, [(hx + x, HAND_Y + y, HAND_Z + z) for x, y, z in palm], row='obsidian', tone=0.32)
         back = [(-0.22, 0.08, 0.14), (0.22, 0.08, 0.14), (-0.24, 0.08, 0.5), (0.24, 0.08, 0.5), (-0.16, 0.2, 0.2), (0.16, 0.2, 0.2), (-0.17, 0.19, 0.44), (0.17, 0.19, 0.44), (0, 0.23, 0.32)]
         hv = hull_g(k, hd, [(hx + x, HAND_Y + y, HAND_Z + z) for x, y, z in back], row='pale', tone=0.38)
-        retag(k, hv, lambda p, n: ('pale', 0.42, 0.02) if n[1] > 0.8 else None)
+        retag(k, hv, lambda p, n: ('pale', 0.33, 0.02) if n[1] > 0.8 else None)  # T35：手背甲朝上的几面原来亮一档（0.42），低画质下成了几块发白的高光面：压到比甲面暗一点
         # 指根的指节护（一排三块）
         for fx in FING_X:
             x = hx + s * fx
-            hbox(k, hd, (x, HAND_Y + 0.08, KN_Z - 0.03), (0.15, 0.1, 0.12), row='brass', tone=0.44, bevel=0.025)
+            hbox(k, hd, (x, HAND_Y + 0.08, KN_Z - 0.03), (0.15, 0.1, 0.12), row='obsidian', tone=0.36, bevel=0.025)  # T35：指节护原来黄铜
         # 三根三节的指头：每节一个暗铁的关节球 + 一截淡青铜的指甲片，越往外越细
         z0 = KN_Z
         for j, (bone, ln) in enumerate(zip(('x_finger_%s_01' % sd, 'x_finger_%s_02' % sd, 'x_finger_%s_03' % sd), SEG)):
@@ -466,7 +467,7 @@ def _hands(k):
                 if j == 2:
                     seg.append(g2b((x, y - 0.01, z0 + L + 0.04)))  # 指尖收成钝的尖
                 sv = k.bind(k.hull(seg, 'pale', 0.36, 0.03, 0, 0), B[bone])
-                retag(k, sv, lambda p, n: ('pale', 0.42, 0.02) if n[1] > 0.6 else ('obsidian', 0.3, 0.02) if n[1] < -0.5 else None)
+                retag(k, sv, lambda p, n: ('pale', 0.33, 0.02) if n[1] > 0.6 else ('obsidian', 0.3, 0.02) if n[1] < -0.5 else None)  # T35：指甲片朝上的面原来 0.42，乘上烘焙增益接近纯白（手套上的高光面）
             z0 += ln
         # 拇指：在里侧（朝柱身），两节，往前、往里斜
         tb = 'x_thumb_' + sd

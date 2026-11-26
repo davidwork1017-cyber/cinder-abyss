@@ -1,4 +1,4 @@
-// 脚本画的地面 / 岩石平铺贴图（p_mud / p_burn / p_rock，像素在 tools/paint-tex.mjs）的编码：JPEG q 0.84，借 playwright-core 起的 Chrome 的 canvas
+// 脚本画的地面 / 岩石平铺贴图（第 0 区 p_mud / p_burn / p_rock，第 1 区 p_ice / p_snow / p_frock，像素在 tools/paint-tex.mjs）的编码：JPEG q 0.84，借 playwright-core 起的 Chrome 的 canvas
 // （和 gen-ground-textures.mjs 一样）。原始像素（RGBA8）和 JPEG 的 sha256 写进 assets/generated/manifest.json（格式同 gen-ground-textures.mjs，另有 lo 和 enc）。
 // Chrome 版本钉在每条的 enc 里：版本不同就拒绝重新编码（JPEG 字节会变），确实要换版本时加 --rebase，重新生成并提交所有 JPEG。
 // 用法：

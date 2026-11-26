@@ -178,7 +178,7 @@ export const PANELS = {
   },
   // ---------- 4 熄烛者：余烛殿，高瘦的长袍身影举着提灯，身边的火盆刚灭，冒着烟 ----------
   p4: {
-    pin: 2, fog: [18, 60],
+    pin: 2, fog: [18, 60], bosses: ['snuffer'],
     setup() {
       TT.clear();
       const P = G.player, A = G.PIN.arena, B = G.PIN.braziers;
@@ -251,9 +251,10 @@ export const PANELS = {
       { name: 'actors', mode: 'actors', fx: false, hide: ['points', 'normalfx'] },
     ],
   },
+  // 首领包（新模型）没有 taunt / call / howl：按格子退到一个蓄力的定格姿势（巨像举锤、霜织者举手、监察者张开双手（眼不被挡住）、烬渊之主张翼持剑），0.6 s 播完、40 帧后停在收尾
   // ---------- 7 守关的（一页四格）：熔渣巨像 / 霜织者 / 雷霆监察者，下面一整条：拿着烬铸武器的主角对着烬渊之主 ----------
   p7a: {
-    zone: 0, aspect: 1.05, fog: [16, 60],
+    zone: 0, aspect: 1.05, fog: [16, 60], bosses: ['golem'],
     setup() {
       TT.clear();
       const P = G.player, s = G.state.zone.start;
@@ -265,7 +266,7 @@ export const PANELS = {
       b.awake = false;
       b.ang = 0.25;
       G.world.setEnt(b.ent, b.x, b.z, b.ang);
-      if (G.world.play(b.ent, 'taunt', { hold: true }) || G.world.play(b.ent, 'call', { hold: true }) || G.world.play(b.ent, 'howl', { hold: true }));
+      if (G.world.play(b.ent, 'taunt', { hold: true }) || G.world.play(b.ent, 'call', { hold: true }) || G.world.play(b.ent, 'howl', { hold: true }) || G.world.play(b.ent, 'slam_w', { hold: true, dur: 0.6 }));
       for (let i = 0; i < 40; i++) G.world.animEnt(b.ent, 1 / 60, false);
       window.__actors = [b.ent.group];
       window.__focus = [b.x, b.z];
@@ -280,7 +281,7 @@ export const PANELS = {
     ],
   },
   p7b: {
-    zone: 1, aspect: 1.05, fog: [16, 60],
+    zone: 1, aspect: 1.05, fog: [16, 60], bosses: ['weaver'],
     setup() {
       TT.clear();
       const P = G.player, s = G.state.zone.start;
@@ -292,7 +293,7 @@ export const PANELS = {
       b.awake = false;
       b.ang = -0.2;
       G.world.setEnt(b.ent, b.x, b.z, b.ang);
-      if (G.world.play(b.ent, 'taunt', { hold: true }) || G.world.play(b.ent, 'call', { hold: true }));
+      if (G.world.play(b.ent, 'taunt', { hold: true }) || G.world.play(b.ent, 'call', { hold: true }) || G.world.play(b.ent, 'barrage_w', { hold: true, dur: 0.6 }));
       for (let i = 0; i < 40; i++) G.world.animEnt(b.ent, 1 / 60, false);
       window.__actors = [b.ent.group];
       window.__focus = [b.x, b.z];
@@ -307,7 +308,7 @@ export const PANELS = {
     ],
   },
   p7c: {
-    zone: 2, aspect: 1.05, fog: [16, 60],
+    zone: 2, aspect: 1.05, fog: [16, 60], bosses: ['warden'],
     setup() {
       TT.clear();
       const P = G.player, s = G.state.zone.start;
@@ -319,7 +320,7 @@ export const PANELS = {
       b.awake = false;
       b.ang = 0.3;
       G.world.setEnt(b.ent, b.x, b.z, b.ang);
-      if (G.world.play(b.ent, 'taunt', { hold: true }) || G.world.play(b.ent, 'call', { hold: true }));
+      if (G.world.play(b.ent, 'taunt', { hold: true }) || G.world.play(b.ent, 'call', { hold: true }) || G.world.play(b.ent, 'barrage_w', { hold: true, dur: 0.6 }));
       for (let i = 0; i < 40; i++) G.world.animEnt(b.ent, 1 / 60, false);
       window.__actors = [b.ent.group];
       window.__focus = [b.x, b.z];
@@ -334,7 +335,7 @@ export const PANELS = {
     ],
   },
   p7d: {
-    zone: 3, aspect: 3.1, fog: [18, 70],
+    zone: 3, aspect: 3.1, fog: [18, 70], bosses: ['lord'],
     setup() {
       TT.clear();
       const P = G.player, s = G.state.zone.start;
@@ -349,7 +350,7 @@ export const PANELS = {
       b.awake = false;
       b.ang = 0;
       G.world.setEnt(b.ent, b.x, b.z, b.ang);
-      if (G.world.play(b.ent, 'taunt', { hold: true }) || G.world.play(b.ent, 'call', { hold: true }));
+      if (G.world.play(b.ent, 'taunt', { hold: true }) || G.world.play(b.ent, 'call', { hold: true }) || G.world.play(b.ent, 'fan_w', { hold: true, dur: 0.6 }));
       for (let i = 0; i < 40; i++) G.world.animEnt(b.ent, 1 / 60, false);
       for (let i = 0; i < 30; i++) G.world.animEnt(P.ent, 1 / 60, false);
       window.__actors = [P.ent.group, b.ent.group];

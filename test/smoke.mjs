@@ -1117,51 +1117,59 @@ async function main() {
   });
 
   // tex-t1：第 0 区的路面 / 粗糙地面 / 虚空地面 / 岩石三向投影都是脚本画的贴图；高 / 中档 512² 带法线贴图，低档换 256² 的一套、不传法线贴图（平的法线）
-  await step('贴图：第 0 区地面和岩石用脚本画的贴图，高档 512² 带法线贴图，低档 256²、不传法线贴图（进区和原地换档都对）', async () => {
-    const r = await ev(async () => {
-      const W = G.world, S = G.state, zk = { zi: S.zoneIdx, tier: S.tier }, q0 = W.quality();
-      const look = () => {
-        let gm = null, rm = null;
-        W.scene.traverse((o) => {
-          const m = o.material;
-          if (!m || Array.isArray(m) || !m.userData) return;
-          if (m.userData.U && m.userData.U.tA0 && !gm) gm = m.userData.U;
-          if (m.userData.triU && !rm) rm = m.userData.triU;
-        });
-        const sz = (t) => (t && t.value && t.value.image ? t.value.image.width : 0);
-        return { gfx: W.gfxInfo().hd, g: gm ? [sz(gm.tA0), sz(gm.tN0), sz(gm.tR0), sz(gm.tA1), sz(gm.tN1), sz(gm.tA2), sz(gm.tN2)] : null, rock: rm ? [sz(rm.tRA), sz(rm.tRN)] : null };
-      };
-      const wait = async () => { const t = performance.now(); while ((W.assetsPending() || !W.gfxInfo().hd) && performance.now() - t < 20000) await new Promise((res) => setTimeout(res, 50)); };
-      // 换档以后这一档的图像在后台解码、到了再原地换（tex-t2 的 retierZone）：等到地面的路面贴图换成这一档要的尺寸（最多 20 秒）
-      const until = async (px) => { const t = performance.now(); let r = look(); while (!(r.g && r.g[0] === px) && performance.now() - t < 20000) { await new Promise((res) => setTimeout(res, 50)); r = look(); } return r; };
-      const out = { ids: ['p_mud', 'p_burn', 'p_rock'].map((id) => G.assets.packOfTex(id)), old: ['mud_cracked_dry_03', 'burned_ground_01'].map((id) => G.assets.packOfTex(id)) };
-      W.setQuality('high');
-      G.enterZone(0, 0);
-      await wait();
-      out.high = await until(512);
-      W.setQuality('low');
-      G.enterZone(0, 0);
-      await wait();
-      out.low = await until(256);
-      // 不重新进区、原地换档（retierZone → swapZoneTex）：高档换回 512² 和真的法线贴图，再回低档换回 256² 和平的法线；岩石跟着换
-      W.setQuality('high');
-      out.swapHigh = await until(512);
-      W.setQuality('low');
-      out.swapLow = await until(256);
-      W.setQuality(q0);
-      G.enterZone(zk.zi, zk.tier);
-      await wait();
-      return out;
+  // tex-t3：第 1 区（霜骨沼泽）也换成脚本画的贴图，两个区各查一遍；第 1 区不再要照片的 rock-grey 包
+  const PAINT_ZONES = [
+    { zi: 0, pack: 'zone-ash', ids: ['p_mud', 'p_burn', 'p_rock'], old: ['mud_cracked_dry_03', 'burned_ground_01'], noPack: 'rock-dark' },
+    { zi: 1, pack: 'zone-frost', ids: ['p_ice', 'p_snow', 'p_frock'], old: ['Ice002', 'Snow013'], noPack: 'rock-grey' },
+  ];
+  for (const PZ of PAINT_ZONES) {
+    await step('贴图：第 ' + PZ.zi + ' 区地面和岩石用脚本画的贴图，高档 512² 带法线贴图，低档 256²、不传法线贴图（进区和原地换档都对）', async () => {
+      const r = await ev(async (PZ) => {
+        const W = G.world, S = G.state, zk = { zi: S.zoneIdx, tier: S.tier }, q0 = W.quality();
+        const look = () => {
+          let gm = null, rm = null;
+          W.scene.traverse((o) => {
+            const m = o.material;
+            if (!m || Array.isArray(m) || !m.userData) return;
+            if (m.userData.U && m.userData.U.tA0 && !gm) gm = m.userData.U;
+            if (m.userData.triU && !rm) rm = m.userData.triU;
+          });
+          const sz = (t) => (t && t.value && t.value.image ? t.value.image.width : 0);
+          return { gfx: W.gfxInfo().hd, g: gm ? [sz(gm.tA0), sz(gm.tN0), sz(gm.tR0), sz(gm.tA1), sz(gm.tN1), sz(gm.tA2), sz(gm.tN2)] : null, rock: rm ? [sz(rm.tRA), sz(rm.tRN)] : null };
+        };
+        const wait = async () => { const t = performance.now(); while ((W.assetsPending() || !W.gfxInfo().hd) && performance.now() - t < 20000) await new Promise((res) => setTimeout(res, 50)); };
+        // 换档以后这一档的图像在后台解码、到了再原地换（tex-t2 的 retierZone）：等到地面的路面贴图换成这一档要的尺寸（最多 20 秒）
+        const until = async (px) => { const t = performance.now(); let r = look(); while (!(r.g && r.g[0] === px) && performance.now() - t < 20000) { await new Promise((res) => setTimeout(res, 50)); r = look(); } return r; };
+        const out = { ids: PZ.ids.map((id) => G.assets.packOfTex(id)), old: PZ.old.map((id) => G.assets.packOfTex(id)), packs: W.zonePacks(G.ZONES[PZ.zi].id) };
+        W.setQuality('high');
+        G.enterZone(PZ.zi, 0);
+        await wait();
+        out.high = await until(512);
+        W.setQuality('low');
+        G.enterZone(PZ.zi, 0);
+        await wait();
+        out.low = await until(256);
+        // 不重新进区、原地换档（retierZone → swapZoneTex）：高档换回 512² 和真的法线贴图，再回低档换回 256² 和平的法线；岩石跟着换
+        W.setQuality('high');
+        out.swapHigh = await until(512);
+        W.setQuality('low');
+        out.swapLow = await until(256);
+        W.setQuality(q0);
+        G.enterZone(zk.zi, zk.tier);
+        await wait();
+        return out;
+      }, PZ);
+      assert(r.ids.every((p) => p === PZ.pack) && r.old.every((p) => !p), '第 ' + PZ.zi + ' 区贴图应是 ' + PZ.pack + ' 包里的 ' + PZ.ids.join(' / ') + '，照片贴图不再打包：' + JSON.stringify(r));
+      assert(r.packs && !r.packs.includes(PZ.noPack), '第 ' + PZ.zi + ' 区不该再要照片岩石包 ' + PZ.noPack + '：' + JSON.stringify(r.packs));
+      assert(r.high.gfx && r.high.g && r.high.g.every((w) => w === 512) && r.high.rock && r.high.rock.every((w) => w === 512), '高档：地面三套和岩石应是 512² 带法线贴图：' + JSON.stringify(r.high));
+      const L = r.low.g;
+      assert(r.low.gfx && L && [L[0], L[2], L[3], L[5]].every((w) => w === 256) && [L[1], L[4], L[6]].every((w) => w === 4) && r.low.rock && r.low.rock[0] === 256 && r.low.rock[1] === 4, '低档：地面三套和岩石应是 256²、法线贴图是平的 4×4：' + JSON.stringify(r.low));
+      const okHi = (x) => x && x.g && x.g.every((w) => w === 512) && x.rock && x.rock.every((w) => w === 512);
+      const okLo = (x) => x && x.g && [x.g[0], x.g[2], x.g[3], x.g[5]].every((w) => w === 256) && [x.g[1], x.g[4], x.g[6]].every((w) => w === 4) && x.rock && x.rock[0] === 256 && x.rock[1] === 4;
+      assert(okHi(r.swapHigh) && okLo(r.swapLow), '原地换档：高档应换回 512² 带法线、低档换回 256² 平法线：' + JSON.stringify({ hi: r.swapHigh, lo: r.swapLow }));
+      return '高 ' + r.high.g.join('/') + ' ｜ 低 ' + L.join('/') + ' ｜ 岩石 ' + r.high.rock.join('/') + ' → ' + r.low.rock.join('/') + ' ｜ 原地换档 ' + r.swapHigh.g.join('/') + ' → ' + r.swapLow.g.join('/');
     });
-    assert(r.ids.every((p) => p === 'zone-ash') && r.old.every((p) => !p), '第 0 区贴图应是 zone-ash 包里的 p_mud / p_burn / p_rock，照片贴图不再打包：' + JSON.stringify(r));
-    assert(r.high.gfx && r.high.g && r.high.g.every((w) => w === 512) && r.high.rock && r.high.rock.every((w) => w === 512), '高档：地面三套和岩石应是 512² 带法线贴图：' + JSON.stringify(r.high));
-    const L = r.low.g;
-    assert(r.low.gfx && L && [L[0], L[2], L[3], L[5]].every((w) => w === 256) && [L[1], L[4], L[6]].every((w) => w === 4) && r.low.rock && r.low.rock[0] === 256 && r.low.rock[1] === 4, '低档：地面三套和岩石应是 256²、法线贴图是平的 4×4：' + JSON.stringify(r.low));
-    const okHi = (x) => x && x.g && x.g.every((w) => w === 512) && x.rock && x.rock.every((w) => w === 512);
-    const okLo = (x) => x && x.g && [x.g[0], x.g[2], x.g[3], x.g[5]].every((w) => w === 256) && [x.g[1], x.g[4], x.g[6]].every((w) => w === 4) && x.rock && x.rock[0] === 256 && x.rock[1] === 4;
-    assert(okHi(r.swapHigh) && okLo(r.swapLow), '原地换档：高档应换回 512² 带法线、低档换回 256² 平法线：' + JSON.stringify({ hi: r.swapHigh, lo: r.swapLow }));
-    return '高 ' + r.high.g.join('/') + ' ｜ 低 ' + L.join('/') + ' ｜ 岩石 ' + r.high.rock.join('/') + ' → ' + r.low.rock.join('/') + ' ｜ 原地换档 ' + r.swapHigh.g.join('/') + ' → ' + r.swapLow.g.join('/');
-  });
+  }
 
   await step('首屏：场景、玩家、HUD、小地图都画出来了', async () => {
     await frames(2);
@@ -3898,6 +3906,97 @@ async function main() {
     assert(r.shots >= 9, '拉弓没射出几箭：' + JSON.stringify(r));
     assert(!r.bad.length, r.bad.slice(0, 6).join(' ｜ ') + ' 共 ' + r.bad.length + ' 例');
     return r.shots + ' 箭：出手那一帧都已撒放，前一帧都拉满搭着箭';
+  });
+
+  // thrall-gear（T36）：刻式「骸弓」的仆从拿弓、背箭袋（和剑盾仆从同一副骷髅、同样几块网格，不加 draw call）；拉弓 / 撒放跟着它真正射出的那一箭；
+  // 刻式在召唤物活着时换了（技能页、戴上 / 摘下渊契），剑盾 ↔ 弓跟着换；只动画面
+  await step('骸弓：仆从拿弓、背箭袋（网格块数和剑盾仆从一样、关节 ≤ 24、有搭箭的 muzzle 挂点）；出手那一帧弦已回直、弦上没箭，前一帧拉满搭着箭；战斗中换刻式，剑盾 ↔ 弓跟着换，血条 / 脚环 / 生命不丢不重', async () => {
+    const r = await ev((code) => {
+      eval(code);
+      const P = G.player, W = G.world, S = G.state, save = G.save, out = { shots: 0, bad: [], swaps: [] };
+      const keepVar = Object.assign({}, save.variants), keepBuild = T.buildSnap(), keepAuto = JSON.stringify(save.autoSummon || {});
+      const meshes = (e) => {
+        let n = 0;
+        e.group.traverse((o) => { if (o.isMesh) n++; });
+        return n;
+      };
+      const isBow = (m) => !!(m.ent && m.ent.rig && m.ent.rig.bowRig);
+      try {
+        const a = W.makeMinion('thrallBow'), t = W.makeMinion('thrall');
+        out.rig = { bowJ: a.rig.joints.length, swordJ: t.rig.joints.length, bowM: meshes(a), swordM: meshes(t), bowTris: a.rig.tris, swordTris: t.rig.tris, muzzle: !!a.rig.sockets.muzzle };
+        W.removeEnt(a);
+        W.removeEnt(t);
+        save.skills.thrall = Math.max(30, save.skills.thrall || 0); // 刻式要宝石等级够才生效
+        save.sockets.thrall = save.sockets.thrall || [null, null, null];
+        save.bar = ['thrall', null, null, null];
+        for (const k in save.autoSummon) save.autoSummon[k] = false;
+        save.variants.thrall = 'a';
+        G.applyVariants();
+        G.computeStats();
+        T.lane();
+        const od = T.openDir(10), F = Math.atan2(od.x, od.z);
+        const m = G.summonMinion('thrall', P.x + Math.sin(F) * 0.5 - Math.cos(F) * 1.5, P.z + Math.cos(F) * 0.5 + Math.sin(F) * 1.5, G.skillCtx('thrall'));
+        out.kind = m.ent.kind;
+        const sp = T.spotNear(m.x, m.z, 6, F);
+        const e = G.spawnMob('husk', sp.x, sp.z, 1, { awake: true });
+        e.wasAwake = true;
+        e.hp = e.maxHp = 1e7;
+        e.atkCd = 1e9;
+        e.speed = 0;
+        let prev = null;
+        for (let i = 0; i < 480 && out.shots < 6; i++) {
+          const s0 = S.stats.vArrows | 0;
+          G.tick(1 / 60);
+          const J = m.ent.rig.J, cur = { nock: m.ent.out[J.wA + 6], draw: m.ent.tbDk || 0 };
+          if ((S.stats.vArrows | 0) > s0) {
+            out.shots++;
+            if (cur.nock !== 0 || cur.draw !== 0) out.bad.push('第 ' + i + ' 帧出手时弦上还有箭 / 弦没回直 ' + JSON.stringify(cur));
+            if (prev && (prev.nock < 0.99 || prev.draw < 0.9)) out.bad.push('第 ' + i + ' 帧出手前一帧没拉满 / 弦上没箭 ' + JSON.stringify(prev));
+          }
+          prev = cur;
+        }
+        // 战斗中换刻式（敌人醒着、仆从正在射）：骸弓 → 骸爆（剑盾）→ 骸弓。实体换掉，召唤物本身（生命、位置、目标）不动；场景里的实体数不变
+        G.summonMinion('thrall', m.x + 1, m.z, G.skillCtx('thrall'));
+        for (let i = 0; i < 60; i++) G.tick(1 / 60);
+        for (const v of ['b', 'a']) {
+          const ms = S.minions.filter((x) => !x.dead && x.kind === 'thrall'), old = ms.map((x) => x.ent), hp = ms.map((x) => x.hp / x.maxHp);
+          const n0 = S.minions.length, c0 = W.scene.children.length, sw0 = S.stats.minionGearSwaps | 0;
+          save.variants.thrall = v;
+          G.applyVariants();
+          G.computeStats();
+          G.refreshMinions();
+          const row = { v, n: ms.length, swaps: (S.stats.minionGearSwaps | 0) - sw0, list: S.minions.length - n0, scene: W.scene.children.length - c0 };
+          out.swaps.push(row);
+          ms.forEach((x, i) => {
+            const want = v === 'a';
+            if (isBow(x) !== want) out.bad.push('换成 ' + v + ' 后第 ' + i + ' 具仍拿着' + (want ? '剑盾' : '弓'));
+            if (x.ent === old[i] || !old[i].removed || old[i].group.parent) out.bad.push('换成 ' + v + ' 后第 ' + i + ' 具的旧实体没拿掉');
+            if (x.ent.removed || !x.ent.group.parent || !x.ent.ring || !x.ent.ring.visible) out.bad.push('换成 ' + v + ' 后第 ' + i + ' 具的新实体不在场景里 / 没有脚环');
+            if (Math.abs(x.hp / x.maxHp - hp[i]) > 1e-9) out.bad.push('换成 ' + v + ' 后第 ' + i + ' 具的生命比例变了');
+            const gp = x.ent.group.position;
+            if (Math.hypot(gp.x - x.x, gp.z - x.z) > 1e-6) out.bad.push('换成 ' + v + ' 后第 ' + i + ' 具的实体不在它的位置上');
+          });
+          if (row.swaps !== ms.length || row.list !== 0 || row.scene !== 0) out.bad.push('换成 ' + v + '：换了 ' + row.swaps + ' 具（应 ' + ms.length + '）、召唤物数 ' + row.list + '、场景实体数 ' + row.scene + '（都应不变）');
+          for (let i = 0; i < 40; i++) G.tick(1 / 60);
+          if (S.minions.filter((x) => !x.dead && x.kind === 'thrall').length !== ms.length) out.bad.push('换成 ' + v + ' 后过了 40 帧召唤物少了');
+        }
+      } finally {
+        save.variants = keepVar;
+        save.autoSummon = JSON.parse(keepAuto);
+        G.applyVariants();
+        T.buildRestore(keepBuild);
+        G.clearMinions();
+        T.arena();
+      }
+      return out;
+    }, rangedSetup);
+    const g = r.rig;
+    assert(g.bowM === g.swordM && g.bowJ <= 24 && g.muzzle, '骸弓的骨架：网格 ' + g.bowM + ' 块（剑盾 ' + g.swordM + '）、关节 ' + g.bowJ + '、muzzle ' + g.muzzle);
+    assert(r.kind === 'thrallBow', '刻式「骸弓」召出来的不是持弓的骨架：' + r.kind);
+    assert(r.shots >= 6, '骸弓没射出几箭：' + JSON.stringify(r));
+    assert(r.swaps.length === 2 && r.swaps.every((s) => s.n >= 2), '换刻式的场景没跑起来：' + JSON.stringify(r.swaps));
+    assert(!r.bad.length, r.bad.slice(0, 6).join(' ｜ ') + ' 共 ' + r.bad.length + ' 例');
+    return '网格 ' + g.bowM + ' 块（同剑盾）、关节 ' + g.bowJ + '、面 ' + g.bowTris + '（剑盾 ' + g.swordTris + '）· ' + r.shots + ' 箭出手那一帧都已撒放、前一帧拉满 · 战斗中换刻式 ' + r.swaps.map((s) => s.v + ' 换 ' + s.swaps + ' 具').join('、') + '，召唤物 / 场景实体数不变';
   });
 
   // skill-5a：宝石技能的出手动作按握法出版本（长柄 / 双手枪拿着什么都不撒手），拖尾只给有刃的武器；只动画面

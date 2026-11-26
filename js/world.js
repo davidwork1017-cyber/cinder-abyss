@@ -898,22 +898,23 @@
       },
     },
     frost: {
-      packs: ['zone-frost', 'rock-grey', 'ground'], // models-drop：摆放表里的 CC0 模型在这一区一个都摆不出来（多种子实测 0 个），不再加载 models 包
+      packs: ['zone-frost', 'ground'], // tex-t3：冰面 / 雪地 / 岩石换成脚本画的贴图（p_ice / p_snow / p_frock，tools/gen-paint-textures.mjs，在 zone-frost 包里），不再要照片的 rock-grey 包（雷鸣遗迹、坠星裂谷还在用）。models-drop：摆放表里的 CC0 模型在这一区一个都摆不出来（多种子实测 0 个），不再加载 models 包
       mats: [
         // zones-frost：冻土岛，冷青灰（不按 def.path 推），贴图起伏压低；粗糙地面是带雪的冻泥，略亮略暖一点，把大片的冰面打散
-        { tex: 'Ice002', tile: 7.5, con: 0.34, nrm: 0.5, rough: 0.7, k: 0.36, sat: 0.7, col: 0x55707c },
-        { tex: 'Snow013', tile: 4.5, con: 0.7, nrm: 1.2, rough: 1, k: 0.38, sat: 0.6, col: 0x5e6c78 },
-        { tex: 'Rock035', tile: 6.5, con: 1.0, nrm: 1.0, rough: 1, k: 1.0 },
+        // tex-t3：三套都换成脚本画的平铺贴图（大块冰板 + 几道压裂缝、风吹的积雪、层状岩；低频，没有照片那种细碎的裂网）
+        { tex: 'p_ice', tile: 7.5, con: 1.0, nrm: 0.5, rough: 0.7, k: 0.25, sat: 0.8, col: 0x4c6e8e }, // tex-t3：k 0.36 → 0.25（画的贴图对比低，同样的 k 显得亮；压回 25–35% 档里，角色、怪和地面拉开）；画的冰面没有照片那种高光纹，颜色换成更蓝的冰色（0x55707c → 0x4c6e8e、sat 0.7 → 0.8），冰下的深浅起伏放满（con 0.34 → 1），读得出是冰
+        { tex: 'p_snow', tile: 4.5, con: 0.9, nrm: 1.2, rough: 1, k: 0.26, sat: 0.45, col: 0x5e6c78 }, // tex-t3：k 0.38 → 0.26、sat 0.6 → 0.45（蓝的冰面旁边，雪地别显得发褐）
+        { tex: 'p_frock', tile: 6.5, con: 1.0, nrm: 1.0, rough: 1, k: 1.0 },
       ],
       lava: null,
-      rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0x6a7a8a, capAll: 0.3 }, // phase 3：雪盖 0xb4c8d6 / 0.6 → 0x8296aa / 0.45；zones-frost：再压一档（水边的石头是这一区的「岩壁」）
+      rock: { tex: 'p_frock', tile: 2.8, nrm: 1.1, cap: 0x6a7a8a, capAll: 0.3 }, // tex-t3：Rock035 → p_frock。phase 3：雪盖 0xb4c8d6 / 0.6 → 0x8296aa / 0.45；zones-frost：再压一档（水边的石头是这一区的「岩壁」）
       grade: { sat: 1.12, con: 1.1, lift: 0x04081a, gain: 0xf4faff, vig: 0.22, sh: 0x5a70c0, hi: 0xfff0e0, tk: 0.1, shS: 0.85 },
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       patch: 0.15, // zones-polish：岛上的粗糙地面斑块像泥印子，0.55 → 0.15
       // vf-ground：冻土上一片片霜壳（略亮略冷），岸边和石头脚下结得厚；路外撒霜点、结晶和碎石
-      layer: { tex: 'g_cover_frost', tile: 6, con: 0.6, rough: 0.8, k: 0.37, sat: 0.5, col: 0x6e8490, path: 0.7, pT: 0.6, edge: 0.9, jag: 1.6, blend: 0.08, edgeW: 0.6, mv: 0.14, mh: 0.1, scorch: 0.5, sT: 0.62, ao2: 0.22 }, // scorch 在这一区是成片的积雪（粗糙地面那一套是雪）
+      layer: { tex: 'g_cover_frost', tile: 6, con: 0.6, rough: 0.8, k: 0.26, sat: 0.5, col: 0x6e8490, /* tex-t3：k 0.37 → 0.26，霜壳跟着冰面压暗 */ path: 0.7, pT: 0.6, edge: 0.9, jag: 1.6, blend: 0.08, edgeW: 0.6, mv: 0.14, mh: 0.1, scorch: 0.5, sT: 0.62, ao2: 0.22 }, // scorch 在这一区是成片的积雪（粗糙地面那一套是雪）
       deco: { cover: 0x8aa0ac, floor: 0.8, wild: 1, ao: 0.8, aoR: 0.9, scorch: 0, clusters: 0.6, kinds: [14, 13, 7, 8, 4], tint: 0x56646e },
-      blots: { k: 0.35, r: 0.7, op: 0.28, tex: 'crack' }, // zones-polish：冻土上的细冰裂，不是暗块。zones-frost：岛上的污斑少一半多、小一圈（zones-ash 加的旋钮）
+      blots: { k: 0.35, r: 0.58, op: 0.18, show: 0.5, tex: 'crack' }, // tex-t3：画的冰面干净了，根须一样的暗裂纹块显得扎眼：只画一半、小一圈、淡三分之一（r 0.7 → 0.58，op 0.28 → 0.18；k 不动，随机数的取用次数不变）。zones-polish：冻土上的细冰裂，不是暗块。zones-frost：岛上的污斑少一半多、小一圈（zones-ash 加的旋钮）
       sigil: { k: 0.4 }, // zones-frost：冰湖上的法阵颜色压到 4 成（加色混合，等于淡一半多），不那么像界面
       mist: null, // zones-frost：路外整片是水（dress 画），贴地薄雾在水面上是一块块的亮斑，去掉（高 / 低画质也就一致了）
       prop: { tint: 0x8aa0b0, sat: 0.2 },
@@ -11341,6 +11342,7 @@
     cloth: [0.96, 0, 0.07], leather: [0.74, 0.03, 0.05], hide: [0.82, 0, 0.07], bone: [0.52, 0.02, 0.05],
     stone: [0.9, 0.03, 0.1], chitin: [0.34, 0.25, 0.05], metal: [0.4, 0.8, 0.04], gold: [0.32, 0.9, 0.03],
     dark: [0.5, 0.55, 0.04], ice: [0.14, 0.2, 0.05], glow: [0.4, 0, 0],
+    wstone: [0.62, 0.25, 0.04], // 风化的淡石 / 淡青铜（雷霆监察者的柱身、手、护盾板：T35，金属感压到四分之一，不再反射出暖色和发白的高光面）
   };
 
   // ----- 造型用的几何体（都走缓存） -----
@@ -12338,7 +12340,7 @@
   const RIG_SKIN_PARS = '#ifdef SKIN4\nattribute vec4 aSkin;\nattribute vec4 aSkinW;\n#else\nattribute float aBone;\n#endif\nuniform mat4 uBones[ NB ];\n';
   const RIG_BONE = '#ifdef SKIN4\nmat4 boneM = uBones[ int( aSkin.x + 0.5 ) ] * aSkinW.x + uBones[ int( aSkin.y + 0.5 ) ] * aSkinW.y + uBones[ int( aSkin.z + 0.5 ) ] * aSkinW.z + uBones[ int( aSkin.w + 0.5 ) ] * aSkinW.w;\n#else\nmat4 boneM = uBones[ int( aBone + 0.5 ) ];\n#endif\n';
   const RIG_VERT_PARS = RIG_SKIN_PARS + 'attribute vec2 aSurf;\nvarying vec2 vSurf;\nvarying vec3 vBP;\n';
-  const RIG_FRAG_PARS = 'varying vec2 vSurf;\nvarying vec3 vBP;\nuniform vec3 uRim;\nuniform vec4 uDis;\nuniform float uDisH;\nuniform float uChill;\n';
+  const RIG_FRAG_PARS = 'varying vec2 vSurf;\nvarying vec3 vBP;\nuniform vec3 uRim;\nuniform vec4 uDis;\nuniform float uDisH;\nuniform float uChill;\nuniform float uTRim;\n';
   const RIG_FRAG = [
     '#include <emissivemap_fragment>',
     'roughnessFactor = vSurf.x;',
@@ -12368,7 +12370,8 @@
     '{',
     '  float tRb = smoothstep( ' + fNum(TOON.rimLo) + ', ' + fNum(TOON.rimHi) + ', rigRim );',
     '  float tRm = smoothstep( -0.25, 0.45, dot( normal, directionalLights[ 1 ].direction ) );',
-    '  totalEmissiveRadiance += directionalLights[ 1 ].color * ( diffuseColor.rgb * 0.6 + 0.4 ) * tRb * ( 0.15 + 0.85 * tRm ) * ' + fNum(TOON.rimK) + ';',
+    // uTRim：每个实体自己的倍数（缺省 1；T35：熄烛者从正上方看，袍子大半是掠射角，这道冷色光把披肩 / 背上打成发亮的蓝紫，按 BOSS_SPEC.trim 收一点）
+    '  totalEmissiveRadiance += directionalLights[ 1 ].color * ( diffuseColor.rgb * 0.6 + 0.4 ) * tRb * ( 0.15 + 0.85 * tRm ) * ' + fNum(TOON.rimK) + ' * uTRim;',
     '}',
     '#endif',
     // 死亡消散：按绑定姿态下的小方格逐块烧掉，边缘发亮
@@ -12393,6 +12396,7 @@
     sh.uniforms.uDis = ent.uDis;
     sh.uniforms.uDisH = ent.uDisH;
     sh.uniforms.uChill = ent.uChill;
+    sh.uniforms.uTRim = ent.uTRim;
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\n' + RIG_VERT_PARS)
       .replace('#include <beginnormal_vertex>', RIG_BONE + 'vec3 objectNormal = mat3( boneM ) * normal;')
@@ -12475,6 +12479,7 @@
       elemC: new T.Color(elemHex), glowBase: glowI, glowK: 1, bodyMat: null, glowMat: null, depthMat: null,
       uBones: null, uRim: { value: new T.Color(0) }, uDis: { value: new T.Vector4(1, 1, 1, 0) }, uDisH: { value: 0 },
       uChill: { value: 0 }, chillB: 0, chillAcc: 0, // 冰缓的档位与霜屑的发射累积（见 W.chill）
+      uTRim: { value: 1 }, // 卡通轮廓光的倍数（RIG_FRAG；首领按 BOSS_SPEC.trim）
     };
     ent.uBones = { value: ent.bones };
     ent.pose.set(rig.rest);
@@ -19715,6 +19720,9 @@
       sock: { weapon: ['x_hammer', 0, -0.62, 0], hand: ['x_finger_l_02', 0, -0.6, 0.12], head: ['head', 0, 0.4, 0], chest: ['x_core', 0, 0, 0.2] },
       hitJ: ['spine_03', 'head'], feet: ['foot_l', 'foot_r'], core: 'x_core',
       heatW: ['ring_w'], heatS: ['ring'],
+      // T35（全首领明暗）：缺省的暖色染色 + 暖色自发光在灰烬荒原的暖主光下把玄武岩烧成砂岩色（饱和度 0.54，六只首领里最高）、读着发亮。
+      // 染色往冷灰里收、自发光换成很淡的中性暖灰：整身压暗一档（灰度均值 42 → ~39），还是暖的暗玄武岩，余烬缝不动
+      emis: [0x443e3a, 0.14], tint: 0xd8dce4,
     },
     // boss-lord：烬渊之主。剑尖的挂点 = 静止姿态的剑尖（相对 x_sword 枢轴）；冠环（x_crown）在 post 里按时钟转（螺旋时转得快），和原来的程序化外观一样不进动作表
     lord: {
@@ -19725,8 +19733,9 @@
       hitJ: ['spine_03', 'head'], feet: ['foot_l', 'foot_r'], core: 'x_core',
       heatW: ['fan_w', 'spiral_w', 'barrage_w', 'summon_w'], heatS: ['fan', 'spiral', 'barrage', 'summon'],
       spin: ['x_crown', 1.2, 'spiral', 4.5],
-      // 黑曜石的背光面在烬渊的品红补光下压得太黑（灰度中位数比地面还低）：躯体的暖色自发光比熔渣巨像强一点（甲缝里透出的熔炉热）
-      emis: [0x4e4844, 0.54],
+      // 黑曜石的背光面在烬渊的品红补光下压得太黑（灰度中位数比地面还低）：躯体的暖色自发光比熔渣巨像强一点（甲缝里透出的熔炉热）。
+      // T35（全首领明暗）：低画质站着读着发黄、偏亮（灰度均值 47.8，超出六只首领共同的范围）：染色从缺省的暖白收成中性灰、自发光略收，均值压回范围里
+      emis: [0x4a4644, 0.5], tint: 0xdcdcdc,
     },
     // boss-behemoth：衔星巨兽。嘴里的星（x_star）就是芯：流星犁地 / 坍缩 / 吐息蓄力时越烧越亮，犁地落蹄那一下最亮，
     // 坍缩拽的时候一明一暗（heatP），吐息喷的时候一直亮着（heatH）；武器挂点 = 下巴尖（吐息的口），手 = 左前蹄
@@ -19768,7 +19777,10 @@
       spin: ['x_crown', 0.4, null, 0],
       smoke: 2.2,
       relight: ['x_wick_01', 'x_wick_02', 'x_wick_03', 'x_wick_04', 'x_wick_05', 'x_wick_06', 'x_wick_07', 'x_wick_08'],
-      emis: [0x343e46, 0.16], tint: 0xd0eaf6,
+      // T35（全首领明暗）：游戏镜头里披肩 / 袍子背光那一侧被补光的卡通轮廓光（冷紫）打成发亮的蓝紫（从上往下看袍子大半是掠射角）：
+      // 轮廓光收到 0.15（trim，只这只首领，RIG_FRAG 的 uTRim）；自发光从冷灰换成同样亮度的中性暖灰（提灯不因此变亮），背光面不再泛蓝。
+      // 朝上的面另在生成器里换成玄武岩行（art/ca/boss/snuffer.py 的 _top_neutral）
+      emis: [0x443c38, 0.16], tint: 0xd0eaf6, trim: 0.15,
     },
     // boss-warden：雷霆监察者。悬浮的立柱，没有脚（不贴地：悬浮的起伏、破防坠到底环上、死亡砸地都在动作里，和原来的程序化外观一样）。
     // 眼（x_eye）就是芯：四招蓄力时越来越亮，十字 / 冲锋 / 雷环出手那一下最亮，轰炸的时候一直亮着；
@@ -19785,10 +19797,12 @@
       ringK: { cross_w: 3.2, cross: 2.6, barrage_w: 2.4, barrage: 2.2, charge_w: 2.4, charge: 1.8, ring_w: 0.04, ring: 4.2, broken: 0.05, death: 0 },
       ringS: ['x_ring_a', 'x_ring_b'],
       // 柱身 / 手 / 护盾板的风化淡青铜（10 灰白石）和眼匣、护腕、指节的暗铁（17 黑曜石）在这只首领身上按金属
-      rowSurf: { 10: 'metal', 17: 'metal' },
-      // 缺省的暖色自发光把灰白石烧成粉橙：换成很淡的中性色；染色只略暖（灰白石进游戏是风化的淡青铜 / 石色，比雷鸣遗迹的靛蓝墙亮、偏暖，
-      // 饱和的黄铜色只留在领环和箍上）
-      emis: [0x3c3a36, 0.14], tint: 0xf2eee6,
+      // T35（全首领明暗）：灰白石原来按金属（0.8）：首领共用的环境图是暖色渐变，柱身反射成粉橙，低画质的手背甲有几面镜面高光发白。
+      // 换成风化的淡石（wstone：粗糙度 0.62、金属度 0.25）；暗铁照旧按金属。只影响这只首领（rowSurf 只在 rigFromGlb 里按 BOSS_SPEC[kind] 读）
+      rowSurf: { 10: 'wstone', 17: 'metal' },
+      // 缺省的暖色自发光把灰白石烧成粉橙：换成很淡的中性色。T35：染色和自发光都往冷里收（柱身读成雷鸣遗迹立柱那种淡石色）；
+      // 饱和的黄铜只留在领环、眼匣、两根短杆上（两道环、柱身的箍、护盾板顶、护腕和指节改成冷灰 / 暗铁，见 art/ca/boss/warden.py）
+      emis: [0x383c40, 0.14], tint: 0xd8dee6,
     },
   };
   // 调色板行 → 表面（粗糙度 / 金属度），行号见 art/ca/palette.py（13 板岩在首领身上只有霜织者的霜丝袍子 / 霜纱用：按布；19–21 是熄烛者的灰烬袍 / 蜡 / 熏黑的玻璃）
@@ -20067,6 +20081,7 @@
     m.emissive.copy(m.userData.e0);
     m.emissiveIntensity = m.userData.ei0;
     ent.uRim.value.setRGB(0.07, 0.065, 0.06);
+    ent.uTRim.value = sp && sp.trim !== undefined ? sp.trim : 1;
   }
   function bossSwap(ent) {
     const r = ent.swapTo;
@@ -20092,6 +20107,12 @@
     if (!ent.echo) bossLook(ent);
     if (W.onBossSwap) W.onBossSwap(ent);
   }
+  // 工具用（tools/story 的烘焙）：把画面时钟（着色器的 uTime：发光圈的呼吸、水面、火光闪烁）定到给定值。
+  // 页面刚打开、模拟还没停住之前跑过的实时帧数每次不一样，不定住的话两次烘出来的发光强度不同。游戏本身不调用
+  W.debugTime = function (t) {
+    wtime = t;
+    uTime.value = t;
+  };
   W.debugBossPack = function (on) {
     bossPackOff = !on;
     if (on) for (const k in BOSS_SPEC) if (bossData(k)) bossQueueSwap(k);
@@ -20241,8 +20262,8 @@
           spawnP(_sk.x, _sk.y, _sk.z, Math.sin(a) * sp, rand(0.5, 3), Math.cos(a) * sp, rand(0.35, 0.7), rand(0.12, 0.24), ALLY_RGB.r, ALLY_RGB.g, ALLY_RGB.b, 2, 1.5);
         }
       }
-    } else if (n === 'attack' && crossed(ent, c.k0)) {
-      // 命中帧：拳 / 刃落点扬起一点尘
+    } else if (n === 'attack' && !ent.rig.bowRig && crossed(ent, c.k0)) {
+      // 命中帧：拳 / 刃落点扬起一点尘（骸弓没有落点：出手的骨屑在 minions 的 shootArrow 里，放在搭箭点）
       W.entSocket(ent, 'weapon', _sk);
       const cnt = big ? 14 : 4;
       for (let i = 0; i < cnt; i++) {
@@ -20289,11 +20310,236 @@
   }
 
   // ---------------------------------------------------------------------
+  // 骸弓（T36 thrall-gear）：骨梢暗木反曲弓 + 背上的箭袋 + 右手的骨箭，全部烘进仆从自己的蒙皮网格（不加 draw call）。
+  // 弓的绑定坐标和玩家的长弓一样：握把在左手，两片弓臂沿 ±z，弓弦在 +y 一侧（手心那边）、弓背朝 -y。
+  // 拉弓：动作只管身子（侧身、转头），两只手由 thrallBowLate 的解析 IK 摆：左手把弓举到身前、弓身竖直，右手在弦上往回拉；
+  // 撒放跟着模拟真正射出的那一箭（ent.bowShots，minions 的 shootArrow 里数），同一帧弦回直、弦上没箭，弦往弓背弹过头再收住（0.16 秒）
+  // ---------------------------------------------------------------------
+  const TB_G = [0.31, 0.85, 0.03]; // 握把（左手），右手搭箭点按 x 镜像
+  const TB_TIP = [0.145, 0.49]; // 弓弦挂点：比握把高 / 前后多少（弦靠在反曲梢的弯里，梢头再往前卷一点）
+  const TB_REST = 0.025; // 搭箭点在握把靠弦一侧多少（muzzle 挂点）
+  const TB_DRAW = 0.42; // 拉满时右手离弦的静止位置多远（程序化骨架的臂长；C 模型按 armR.k 换算）
+  const TB_SNAP = 0.035; // 撒放后弦往弓背弹的幅度
+  function thrallBowGear(b, C) {
+    const [gx, gy, gz] = TB_G;
+    const WOOD_D = 0x3a2618, WOOD = 0x7a5236; // 和玩家的鹰眼长弓同一档木色：游戏镜头里压在暗地面上也看得出弓臂
+    // 弓臂：暗木的主段 + 骨质的反曲梢（梢头往前卷）
+    for (const s of [1, -1]) {
+      const k = s > 0 ? 'U' : 'L';
+      b.at('wBo').surf(SURF.leather);
+      b.p(gSweep('th/bowW' + k, [[0, 0, s * 0.07], [0, -0.028, s * 0.2], [0, 0.005, s * 0.32], [0, 0.075, s * 0.41]], [0.031, 0.028, 0.023, 0.017], 6), [WOOD_D, WOOD], gx, gy, gz);
+      b.surf(SURF.bone).p(gSweep('th/bowB' + k, [[0, 0.075, s * 0.41], [0, 0.128, s * 0.455], [0, 0.15, s * 0.5], [0, 0.118, s * 0.55]], [0.018, 0.016, 0.013, 0.008], 5), [C.BONE_D, C.BONE], gx, gy, gz);
+      // 木臂和骨梢接口的一道青铜箍
+      b.surf(SURF.gold).p(gCyl(0.021, 0.021, 0.024, 6), C.BRONZE, gx, gy + 0.07, gz + s * 0.405, HALF_PI - s * 0.75);
+      // 弓背上一道刻槽里的光（随元素变色，和剑的血槽一样走 auxMat）
+      b.x(gBox(0.009, 0.009, 0.11), 1, gx, gy - 0.034, gz + s * 0.25, s * -0.27);
+    }
+    // 握把：缠皮，上下各一节椎骨
+    b.surf(SURF.leather).p(gCyl(0.035, 0.035, 0.15, 7), C.LEATHER_D, gx, gy, gz, HALF_PI);
+    b.surf(SURF.bone);
+    for (const s of [1, -1]) b.p(gSph(0.034, 7, 5), [C.BONE_D, C.BONE], gx, gy - 0.004, gz + s * 0.088, 0, 0, 0, 1, 0.8, 0.6);
+    // 弓弦：两段，各从挂点指向弦的中点（拉弓时转向右手，见 thrallBowLate）
+    const half = TB_TIP[1];
+    b.at('bsU').surf(SURF.cloth).p(gCyl(0.0045, 0.0045, half, 4), 0xd8cfb4, gx, gy + TB_TIP[0], gz + half / 2, HALF_PI);
+    b.at('bsL').p(gCyl(0.0045, 0.0045, half, 4), 0xd8cfb4, gx, gy + TB_TIP[0], gz - half / 2, HALF_PI);
+    // 骨箭：箭尾在右手里，沿 +z 指出去（不搭箭时 post 把这个关节缩成 0）
+    const ax = -gx;
+    b.at('wA').surf(SURF.leather).p(gCyl(0.0065, 0.0065, 0.6, 4), 0x4a3526, ax, gy, gz + 0.27, HALF_PI);
+    b.surf(SURF.bone).p(gCone(0.017, 0.07, 4), C.BONE, ax, gy, gz + 0.605, HALF_PI);
+    b.surf(SURF.cloth).p(gBox(0.003, 0.034, 0.075), 0xbfb498, ax, gy, gz + 0.015).p(gBox(0.034, 0.003, 0.075), 0xbfb498, ax, gy, gz + 0.015);
+    // 箭袋：斜背在背上，口朝右肩；皮筒、青铜口沿与底箍，露出三支箭的尾羽；一条皮带从箭袋口绕过右肩
+    const QX = -0.06, QY = 1.37, QZ = -0.14, QR = 0.32, sn = Math.sin(QR), cs = Math.cos(QR);
+    const at = (lx, ly) => [QX + lx * cs - ly * sn, QY + lx * sn + ly * cs]; // 箭袋的局部 (x, y) 绕 z 转 QR
+    b.at('chest').surf(SURF.leather).p(gCyl(0.062, 0.052, 0.46, 8), [C.LEATHER_D, C.LEATHER], QX, QY, QZ, 0, 0, QR);
+    let q = at(0, 0.225);
+    b.surf(SURF.gold).p(gTorus(0.062, 0.011, 4, 10), C.BRONZE, q[0], q[1], QZ, HALF_PI, 0, QR);
+    q = at(0, -0.215);
+    b.p(gCyl(0.054, 0.05, 0.03, 8), C.BRONZE_D, q[0], q[1], QZ, 0, 0, QR);
+    b.surf(SURF.cloth);
+    for (const [dx, dz, h] of [[-0.022, 0.012, 0.3], [0.02, -0.014, 0.27], [0.004, 0.022, 0.285]]) {
+      q = at(dx, h);
+      b.p(gBox(0.004, 0.08, 0.03), 0xbfb498, q[0], q[1], QZ + dz, 0, 0, QR).p(gBox(0.03, 0.08, 0.004), 0xa89c80, q[0], q[1], QZ + dz, 0, 0, QR);
+    }
+    q = at(0, 0.2);
+    b.surf(SURF.leather).p(gSweep('th/qstrap', [[q[0], q[1], QZ + 0.03], [-0.2, 1.53, -0.1], [-0.2, 1.5, 0.03], [-0.13, 1.42, 0.1]], [0.016, 0.016, 0.016, 0.014], 4), C.LEATHER_D, 0, 0, 0);
+  }
+  // 手臂两节的绑定数据（和玩家的 armData 同一套，握点 = 弓把 / 搭箭点；C 模型按离肩多远等比换算，见 remapHand）
+  function thArm(rig, ua, fa, h, w) {
+    const pv = (n) => rig.joints[rig.JI[n]];
+    const a = pv(ua), f = pv(fa), c = pv(h), wj = pv(w);
+    const U = [f.px - a.px, f.py - a.py, f.pz - a.pz], F = [c.px - f.px, c.py - f.py, c.pz - f.pz];
+    const ex = (k) => (wj[k] - wj[k + '0']) - (c[k] - c[k + '0']);
+    const A = {
+      ua: rig.J[ua], fa: rig.J[fa], h: rig.J[h], uaI: rig.JI[ua], faI: rig.JI[fa], hI: rig.JI[h], par: a.parent, U, F,
+      grip: [wj.px0 - c.px0 + ex('px'), wj.py0 - c.py0 + ex('py'), wj.pz0 - c.pz0 + ex('pz')],
+      k: 1,
+    };
+    if (rig.skin4) {
+      const ch = pv('chest'), len = (P) => Math.hypot(P[0], P[1], P[2]);
+      const U0 = [f.px0 - a.px0, f.py0 - a.py0, f.pz0 - a.pz0], F0 = [c.px0 - f.px0, c.py0 - f.py0, c.pz0 - f.pz0];
+      A.k = (len(U) + len(F)) / (len(U0) + len(F0));
+      A.rm = { c0: [a.px0 - ch.px0, a.py0 - ch.py0, a.pz0 - ch.pz0], c1: [a.px - ch.px, a.py - ch.py, a.pz - ch.pz], m0: [a.px0, a.py0, a.pz0], m1: [a.px, a.py, a.pz] };
+    }
+    return A;
+  }
+  // 每帧（姿态解算之前）：撒放 / 搭箭的状态，箭显不显示。只看画面这边的东西（动作进度、ent.bowShots），不碰模拟和随机数
+  function thrallBowPost(ent, o, t, sdt) {
+    minionPost(ent, o, t, sdt);
+    const dt = sdt || 0, c = ent.clip, atk = c && c.name === 'attack' && !ent.dying ? c : null;
+    if (ent.tbW === undefined) { ent.tbW = 0; ent.tbRW = 0; ent.tbHold = 0; ent.tbST = 1e9; ent.tbAt = 0; ent.tbK = 0; ent.tbDk = 0; ent.snapT = -1; }
+    if (atk) {
+      if (ent.tbC !== atk || ent.cK < ent.tbK - 1e-6) ent.tbAt = ent.bowShots | 0; // 新的一箭
+      ent.tbK = ent.cK;
+      ent.tbHold = 0.6; // 射完弓再举一会儿：连射时不放下
+    } else ent.tbHold -= dt;
+    ent.tbC = atk;
+    const shot = !!atk && (ent.bowShots | 0) > ent.tbAt;
+    if (shot && !ent.tbWas) ent.tbST = 0;
+    else ent.tbST += dt;
+    ent.tbWas = shot;
+    let dk = 0;
+    if (atk && !shot && ent.cK <= atk.k0 + 0.2) dk = smooth01(ent.cK / (atk.k0 - 0.05));
+    if (ent.tbDk > 0.5 && dk < 0.1) ent.snapT = 0;
+    else if (ent.snapT >= 0) ent.snapT = ent.snapT + dt > 0.16 ? -1 : ent.snapT + dt;
+    ent.tbDk = dk;
+    const up = !ent.dying && (atk || ent.tbHold > 0);
+    ent.tbW += ((up ? 1 : 0) - ent.tbW) * Math.min(1, dt * (up ? 16 : 5));
+    if (ent.tbW < 1e-3) ent.tbW = 0;
+    // 右手：举弓时搭在弦上（射出后先顺势往后带一下，0.1 秒后回到弦上搭下一支）
+    ent.tbRW += ((up ? 1 : 0) - ent.tbRW) * Math.min(1, dt * (up ? 12 : 6));
+    if (ent.tbRW < 1e-3) ent.tbRW = 0;
+    const vis = ent.tbW > 0.3 && ent.tbRW > 0.5 && !shot && ent.tbST > 0.28 && (!atk || ent.cK <= atk.k0 + 0.2) ? 1 : 0;
+    const J = ent.rig.J;
+    o[J.wA + 6] = o[J.wA + 7] = o[J.wA + 8] = vis;
+  }
+  const _tbT = new Float32Array(9);
+  // 解析 IK 摆一只手：T = 模型空间的（握点位置、指向、刃口）；pole = 胸口坐标系里肘尖的朝向
+  function thReach(ent, A, T, w, px, py, pz) {
+    handFrame(T[3], T[4], T[5], T[6], T[7], T[8], _Rh);
+    const gp = A.grip;
+    const wx = T[0] - (_Rh[0] * gp[0] + _Rh[1] * gp[1] + _Rh[2] * gp[2]);
+    const wy = T[1] - (_Rh[3] * gp[0] + _Rh[4] * gp[1] + _Rh[5] * gp[2]);
+    const wz = T[2] - (_Rh[6] * gp[0] + _Rh[7] * gp[1] + _Rh[8] * gp[2]);
+    ikPole(ent, px, py, pz);
+    solveArm(ent, A, wx, wy, wz, _hm[0], _hm[1], _hm[2], w, _Rh);
+  }
+  // 模型空间里弓上一点（弓的绑定坐标 bx, by, bz）
+  function thBowPt(ent, bx, by, bz, out) {
+    const rig = ent.rig, bj = rig.JI.wBo, bp = rig.joints[bj], M = ent.mdl, m = bj * 12;
+    const lx = bx - bp.px0, ly = by - bp.py0, lz = bz - bp.pz0;
+    out[0] = M[m] * lx + M[m + 1] * ly + M[m + 2] * lz + M[m + 3];
+    out[1] = M[m + 4] * lx + M[m + 5] * ly + M[m + 6] * lz + M[m + 7];
+    out[2] = M[m + 8] * lx + M[m + 9] * ly + M[m + 10] * lz + M[m + 11];
+    return out;
+  }
+  const _tbA = new Float32Array(3), _tbB = new Float32Array(3);
+  function thrallBowLate(ent, sdt) {
+    minionLate(ent);
+    const rig = ent.rig, J = rig.J, o = ent.out, M = ent.mdl, w = ent.tbW || 0;
+    const [gx, gy, gz] = TB_G, TY = gy + TB_TIP[0];
+    if (w <= 0 && !(ent.snapT >= 0)) return;
+    if (w > 0) {
+      // 左手：弓举到身前、略低于肩，弓背朝前；上梢往右手那边斜 ~23°（俯视的游戏镜头里竖直的弓只剩一条线，斜一点才看得出弓臂）
+      const T = _tbT;
+      T[0] = 0.05; T[1] = 1.4; T[2] = 0.5;
+      remapHand(rig.armL, 'model', T, true);
+      T[3] = -0.42; T[4] = 1; T[5] = 0.05; T[6] = 0; T[7] = 0; T[8] = 1;
+      thReach(ent, rig.armL, T, w, 0.4, -1, -0.2);
+      solveRig(ent);
+      const rw = w * (ent.tbRW || 0);
+      if (rw > 1e-3) {
+        // 右手：弦的静止位置 → 往回拉 TB_DRAW（按臂长换算）；射出后顺势往后带一点，再回到弦上
+        const S = thBowPt(ent, gx, TY, gz, _tbA), D = TB_DRAW * rig.armR.k, dk = ent.tbDk || 0;
+        let x = S[0], y = S[1], z = S[2] - D * dk;
+        const st = ent.tbST;
+        if (st < 0.3) {
+          const f = smooth01((st - 0.1) / 0.2), ff = Math.min(1, st / 0.08);
+          const fx = S[0] - 0.07 * ff, fy = S[1] + 0.02 * ff, fz = S[2] - D - 0.05 * ff;
+          x = fx + (S[0] - fx) * f; y = fy + (S[1] - fy) * f; z = fz + (S[2] - fz) * f;
+        }
+        T[0] = x; T[1] = y; T[2] = z;
+        T[3] = 0; T[4] = 0; T[5] = 1; T[6] = 0; T[7] = -1; T[8] = 0;
+        thReach(ent, rig.armR, T, rw, -1, 0.15, -0.5);
+        solveRig(ent);
+      }
+    }
+    // 弓弦：两段转向搭箭点（拉弓时是右手的握点），撒放后往弓背弹两下
+    const bj = rig.JI.wBo, bm = bj * 12, bp = rig.joints[bj], hm = rig.JI.hR * 12, gp = rig.armR.grip;
+    let nx = gx, ny = TY, nz = gz;
+    const hx = M[hm] * gp[0] + M[hm + 1] * gp[1] + M[hm + 2] * gp[2] + M[hm + 3];
+    const hy = M[hm + 4] * gp[0] + M[hm + 5] * gp[1] + M[hm + 6] * gp[2] + M[hm + 7];
+    const hz = M[hm + 8] * gp[0] + M[hm + 9] * gp[1] + M[hm + 10] * gp[2] + M[hm + 11];
+    const dk = (ent.tbDk || 0) * w * (ent.tbRW || 0);
+    if (dk > 0.001) {
+      rotOf(M, bj, _Rh);
+      const ks = o[J.wBo + 6] || 1, qx = (hx - M[bm + 3]) / ks, qy = (hy - M[bm + 7]) / ks, qz = (hz - M[bm + 11]) / ks;
+      const lx = _Rh[0] * qx + _Rh[3] * qy + _Rh[6] * qz + bp.px0;
+      const ly = _Rh[1] * qx + _Rh[4] * qy + _Rh[7] * qz + bp.py0;
+      const lz = _Rh[2] * qx + _Rh[5] * qy + _Rh[8] * qz + bp.pz0;
+      nx += (lx - nx) * dk; ny += (ly - ny) * dk; nz += (lz - nz) * dk;
+    }
+    if (ent.snapT >= 0 && dk < 0.1) {
+      const t = ent.snapT;
+      ny -= TB_SNAP * Math.exp(-t / 0.045) * Math.sin(t * 88);
+    }
+    const half = TB_TIP[1];
+    let vx = nx - gx, vy = ny - TY, vz = nz - (gz + half), vl = Math.hypot(vx, vy, vz) || 1;
+    o[J.bsU] = Math.atan2(vy, -vz);
+    o[J.bsU + 1] = Math.asin(G.clamp(-vx / vl, -1, 1));
+    o[J.bsU + 2] = 0;
+    o[J.bsU + 8] = vl / half;
+    vz = nz - (gz - half);
+    vl = Math.hypot(vx, vy, vz) || 1;
+    o[J.bsL] = Math.atan2(-vy, vz);
+    o[J.bsL + 1] = Math.asin(G.clamp(vx / vl, -1, 1));
+    o[J.bsL + 2] = 0;
+    o[J.bsL + 8] = vl / half;
+    solveJoint(ent, rig.JI.bsU);
+    solveJoint(ent, rig.JI.bsL);
+    if (o[J.wA + 6] > 0) {
+      // 箭：右手 → 弓把上的搭箭点
+      const B = thBowPt(ent, gx, gy + TB_REST, gz, _tbB);
+      rotOf(M, rig.JI.hR, _Rh);
+      const qx = B[0] - hx, qy = B[1] - hy, qz = B[2] - hz, ql = Math.hypot(qx, qy, qz) || 1;
+      const lx = (_Rh[0] * qx + _Rh[3] * qy + _Rh[6] * qz) / ql;
+      const ly = (_Rh[1] * qx + _Rh[4] * qy + _Rh[7] * qz) / ql;
+      const lz = (_Rh[2] * qx + _Rh[5] * qy + _Rh[8] * qz) / ql;
+      o[J.wA] = Math.atan2(-ly, lz);
+      o[J.wA + 1] = Math.asin(G.clamp(lx, -1, 1));
+      o[J.wA + 2] = 0;
+      solveJoint(ent, rig.JI.wA);
+    }
+  }
+  // 骸弓的出手：侧身（左肩朝目标）、转头看着目标；两只手交给 thrallBowLate。k0 = 撒放（对到模拟出箭的那一刻）
+  function thrallBowClips(rig) {
+    rig.bowRig = true;
+    defClip(rig, 'attack', {
+      dur: 0.5, k0: 0.45, lower: ['thL', 'shL', 'ftL', 'thR', 'shR', 'ftR'], fade: 0.06, out: 0.22,
+      keys: {
+        'root.ry': [0, 0, 0.25, -0.35, 0.8, -0.35, 1, 0],
+        'chest.ry': [0, -0.12, 0.25, -0.38, 0.8, -0.38, 1, -0.12],
+        'spine.rx': [0, 0.1, 0.25, 0.02, 0.8, 0.02, 1, 0.1],
+        'chest.rx': [0, 0.06, 0.25, -0.03, -0.45, -0.05, 0.62, 0.02, 1, 0.06],
+        'head.ry': [0, 0.1, 0.25, 0.62, 0.8, 0.62, 1, 0.1],
+        'head.rx': [0, -0.12, 0.25, 0.04, 1, -0.12],
+        'jaw.rx': [0, 0.05, -0.45, 0.22, 0.7, 0.1, 1, 0.05],
+      },
+    });
+  }
+
+  // ---------------------------------------------------------------------
   // 烬骸仆从：精瘦的骷髅剑士，套着几片残甲——左肩暗铁肩甲、歪戴的半盔、一截胫甲；
   // 右手一把豁了口的剑，左臂绑着一面青铜包边的小圆盾；胸腔里烧着一团魂火
   // ---------------------------------------------------------------------
   function thrallRig() {
-    return rigOf('thrall', () => cTry('thrall', (cs) => {
+    return thrallMake(false);
+  }
+  // 骸弓（烬骸仆从的刻式「骸弓」）：同一副骷髅，剑和盾换成骨梢暗木反曲弓 + 背上的箭袋，右手搭一支骨箭（T36 thrall-gear）
+  function thrallBowRig() {
+    return thrallMake(true);
+  }
+  function thrallMake(bow) {
+    return rigOf(bow ? 'thrallBow' : 'thrall', () => cTry('thrall', (cs) => {
       const BONE = 0xece3cc, BONE_D = 0xa69c86, IRON = 0x7a828e, IRON_D = 0x3d434d, BRONZE = 0xbb8e4c, BRONZE_D = 0x6f5329;
       const LEATHER = 0x5c4432, LEATHER_D = 0x35271c, WOOD = 0x6e5038, CLOTH = 0x2c4a47, CLOTH_L = 0x3f655f, CLOTH_IN = 0x132220, HOLE = 0x0a0c0c;
       const b = rigBuilder('thrall', NB_SMALL, cs);
@@ -20303,6 +20549,12 @@
       b.j('thL', 'root', 0.11, 0.92, 0).j('shL', 'thL', 0.12, 0.51, 0.01).j('ftL', 'shL', 0.12, 0.09, 0);
       b.j('thR', 'root', -0.11, 0.92, 0).j('shR', 'thR', -0.12, 0.51, 0.01).j('ftR', 'shR', -0.12, 0.09, 0);
       b.j('rag', 'root', 0, 0.99, 0.13).j('ragB', 'root', 0, 0.99, -0.13);
+      // 骸弓：弓（左手握把）、上下两段弓弦（拉弓时转向右手）、右手捏着的骨箭。共 23 个关节，仍在 NB_SMALL（24）以内
+      if (bow) {
+        const [gx, gy, gz] = TB_G;
+        b.j('wBo', 'hL', gx, gy, gz).j('bsU', 'wBo', gx, gy + TB_TIP[0], gz + TB_TIP[1]).j('bsL', 'wBo', gx, gy + TB_TIP[0], gz - TB_TIP[1]);
+        b.j('wA', 'hR', -gx, gy, gz);
+      }
 
       // --- 骨盆：两片髂骨、骶骨、髋臼；皮腰带 + 青铜扣；左胯一片残破的铁甲裙 ---
       b.at('root').surf(SURF.bone);
@@ -20371,22 +20623,26 @@
       b.at('faR').surf(SURF.gold).p(gCyl(0.044, 0.05, 0.1, 8), [BRONZE_D, BRONZE], -0.305, 1.0, -0.012);
       b.surf(SURF.leather).p(gCyl(0.038, 0.04, 0.04, 8), LEATHER_D, -0.3, 1.075, -0.02);
 
-      // --- 豁口剑：握把沿 +z，刃面竖着；血槽里一道光（随元素变色，见 W.minionElem） ---
-      b.tag('gear'); // 剑和盾：换成 C 模型时留下
-      const WX = -0.31, WY = 0.85, WZ = 0.03;
-      b.at('hR').surf(SURF.leather).p(gCyl(0.021, 0.023, 0.2, 6), LEATHER_D, WX, WY, WZ + 0.02, HALF_PI);
-      b.surf(SURF.metal).p(gSph(0.03, 6, 4), IRON, WX, WY, WZ - 0.095);
-      b.p(gRBox(0.04, 0.2, 0.045, 0.012), [IRON_D, IRON], WX, WY, WZ + 0.13);
-      b.p(gPlate('th/blade', [[-0.045, 0], [0.045, 0], [0.05, 0.16], [0.03, 0.2], [0.052, 0.26], [0.055, 0.5], [0.034, 0.55], [0.05, 0.6], [0.042, 0.7], [0, 0.8], [-0.05, 0.68], [-0.056, 0.42], [-0.033, 0.37], [-0.054, 0.32], [-0.05, 0.1]], 0.012, 0.01), [0x6a7078, 0xb4b9be], WX, WY, WZ + 0.15, HALF_PI, HALF_PI, 0);
-      b.x(gBox(0.038, 0.014, 0.44), 1, WX, WY, WZ + 0.44);
+      b.tag('gear'); // 剑和盾 / 弓和箭袋：换成 C 模型时留下
+      if (!bow) {
+        // --- 豁口剑：握把沿 +z，刃面竖着；血槽里一道光（随元素变色，见 W.minionElem） ---
+        const WX = -0.31, WY = 0.85, WZ = 0.03;
+        b.at('hR').surf(SURF.leather).p(gCyl(0.021, 0.023, 0.2, 6), LEATHER_D, WX, WY, WZ + 0.02, HALF_PI);
+        b.surf(SURF.metal).p(gSph(0.03, 6, 4), IRON, WX, WY, WZ - 0.095);
+        b.p(gRBox(0.04, 0.2, 0.045, 0.012), [IRON_D, IRON], WX, WY, WZ + 0.13);
+        b.p(gPlate('th/blade', [[-0.045, 0], [0.045, 0], [0.05, 0.16], [0.03, 0.2], [0.052, 0.26], [0.055, 0.5], [0.034, 0.55], [0.05, 0.6], [0.042, 0.7], [0, 0.8], [-0.05, 0.68], [-0.056, 0.42], [-0.033, 0.37], [-0.054, 0.32], [-0.05, 0.1]], 0.012, 0.01), [0x6a7078, 0xb4b9be], WX, WY, WZ + 0.15, HALF_PI, HALF_PI, 0);
+        b.x(gBox(0.038, 0.014, 0.44), 1, WX, WY, WZ + 0.44);
 
-      // --- 小圆盾：绑在左前臂外侧，盾面朝 +x；木面、两道铁箍、青铜包边与盾心，盾面上一圈魂火誓印 ---
-      b.at('faL').surf(SURF.leather).p(gCyl(0.215, 0.215, 0.03, 14), [LEATHER_D, WOOD], 0.365, 1.03, 0, 0, 0, HALF_PI);
-      b.surf(SURF.metal).p(gBox(0.012, 0.4, 0.035), IRON, 0.383, 1.03, 0.085).p(gBox(0.012, 0.4, 0.035), IRON, 0.383, 1.03, -0.085);
-      b.surf(SURF.gold).p(gTorus(0.215, 0.022, 4, 18), BRONZE, 0.38, 1.03, 0, 0, HALF_PI, 0);
-      b.p(gDome(0.06, 8, 3), BRONZE, 0.38, 1.03, 0, 0, 0, -HALF_PI);
-      b.g(gTorus(0.12, 0.016, 3, 16), 1.3, 0.388, 1.03, 0, 0, HALF_PI, 0);
-      b.g(gTorus(0.226, 0.01, 3, 18), 0.9, 0.392, 1.03, 0, 0, HALF_PI, 0); // 盾沿一圈魂火描边
+        // --- 小圆盾：绑在左前臂外侧，盾面朝 +x；木面、两道铁箍、青铜包边与盾心，盾面上一圈魂火誓印 ---
+        b.at('faL').surf(SURF.leather).p(gCyl(0.215, 0.215, 0.03, 14), [LEATHER_D, WOOD], 0.365, 1.03, 0, 0, 0, HALF_PI);
+        b.surf(SURF.metal).p(gBox(0.012, 0.4, 0.035), IRON, 0.383, 1.03, 0.085).p(gBox(0.012, 0.4, 0.035), IRON, 0.383, 1.03, -0.085);
+        b.surf(SURF.gold).p(gTorus(0.215, 0.022, 4, 18), BRONZE, 0.38, 1.03, 0, 0, HALF_PI, 0);
+        b.p(gDome(0.06, 8, 3), BRONZE, 0.38, 1.03, 0, 0, 0, -HALF_PI);
+        b.g(gTorus(0.12, 0.016, 3, 16), 1.3, 0.388, 1.03, 0, 0, HALF_PI, 0);
+        b.g(gTorus(0.226, 0.01, 3, 18), 0.9, 0.392, 1.03, 0, 0, HALF_PI, 0); // 盾沿一圈魂火描边
+      } else {
+        thrallBowGear(b, { BONE, BONE_D, LEATHER, LEATHER_D, BRONZE, BRONZE_D });
+      }
       b.tag(null);
 
       // --- 腿：股骨、髌骨、胫腓骨、骨脚；右小腿一截暗铁胫甲，左膝青铜护膝 ---
@@ -20412,9 +20668,19 @@
       sock(rig, 'handL', 'hL', 0, -0.05, 0.02);
       sock(rig, 'head', 'head', 0, 0.13, 0.02);
       sock(rig, 'chest', 'chest', 0, 0.06, 0.06);
+      if (bow) sock(rig, 'muzzle', 'wBo', 0, TB_REST, 0); // 搭箭点：弓把靠弦的一侧（W.muzzleWorld 按它出箭）
       cApply(rig, cs);
-      rig.post = minionPost;
-      rig.late = minionLate;
+      rig.post = bow ? thrallBowPost : minionPost;
+      rig.late = bow ? thrallBowLate : minionLate;
+      if (bow) {
+        rig.armL = thArm(rig, 'uaL', 'faL', 'hL', 'wBo');
+        rig.armR = thArm(rig, 'uaR', 'faR', 'hR', 'wA');
+        if (rig.armL.rm && rig.armR.rm) {
+          const L = rig.armL.rm, R = rig.armR.rm, mid = (a, c) => [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2, (a[2] + c[2]) / 2];
+          L.u0 = R.u0 = mid(L.m0, R.m0);
+          L.u1 = R.u1 = mid(L.m1, R.m1);
+        }
+      }
       rig.loco = function (ent, p, t) {
         const J = rig.J, mv = ent.mv, s = Math.sin(ent.walk), c = Math.cos(ent.walk), id = 1 - mv;
         const run = Math.min(1.25, ent.spd / 5.5) * mv;
@@ -20441,21 +20707,35 @@
         const ga = rig.gait || 0.78; // 腿摆幅（C 模型的骷髅腿短，摆得大一点、步频也高一点，脚才不打滑）
         legCycle(p, J.thL, J.shL, J.ftL, s, c, run, ga, 1.15);
         legCycle(p, J.thR, J.shR, J.ftR, -s, -c, run, ga, 1.15);
-        // 左臂：小臂横在身前举着盾
-        p[J.uaL] = -0.5 - 0.15 * run + 0.03 * br;
-        p[J.uaL + 1] = -0.55;
-        p[J.uaL + 2] = 0.18;
-        p[J.faL] = -1.25 - 0.1 * run;
-        // 右臂：剑尖斜指前下方，跑起来随步子前后摆
-        p[J.uaR] = -0.15 - 0.45 * s * run + 0.03 * br2;
-        p[J.uaR + 2] = -0.14 - 0.05 * run;
-        p[J.faR] = -0.75 - 0.25 * run;
-        p[J.hR] = 0.45 - 0.15 * run;
-        p[J.hR + 1] = 0.2;
+        if (bow) {
+          // 骸弓：左手提弓垂在身侧，弓身竖直、上梢略向前倾，弓弦朝后；右手空着，随步子摆
+          p[J.uaL] = 0.35 * s * run - 0.04 * id + 0.02 * br;
+          p[J.uaL + 2] = 0.16 + 0.04 * run;
+          p[J.faL] = -0.45 * run - 0.35 * id;
+          p[J.hL] = -1.3 - p[J.uaL] - p[J.faL];
+          p[J.hL + 2] = 0.1;
+          p[J.uaR] = -0.5 * s * run + 0.04 * id + 0.02 * br2;
+          p[J.uaR + 2] = -0.12 - 0.04 * run;
+          p[J.faR] = -(0.7 - 0.2 * s) * run - 0.3 * id;
+          p[J.hR] = 0.2;
+        } else {
+          // 左臂：小臂横在身前举着盾
+          p[J.uaL] = -0.5 - 0.15 * run + 0.03 * br;
+          p[J.uaL + 1] = -0.55;
+          p[J.uaL + 2] = 0.18;
+          p[J.faL] = -1.25 - 0.1 * run;
+          // 右臂：剑尖斜指前下方，跑起来随步子前后摆
+          p[J.uaR] = -0.15 - 0.45 * s * run + 0.03 * br2;
+          p[J.uaR + 2] = -0.14 - 0.05 * run;
+          p[J.faR] = -0.75 - 0.25 * run;
+          p[J.hR] = 0.45 - 0.15 * run;
+          p[J.hR + 1] = 0.2;
+        }
         p[J.rag] = -0.06 - 0.32 * run * Math.max(Math.abs(s), 0.4) + 0.04 * br;
         p[J.ragB] = 0.08 + 0.3 * run + 0.05 * Math.sin(t * 2.7 + ent.phase);
       };
       thrallClips(rig);
+      if (bow) thrallBowClips(rig);
       // 人形标准骨架：受击叠一层 UAL 的 Hit_Chest（上身）；持盾的步态和散架的死法是这个角色自己的，保留程序化
       if (cs) stdAnim(rig, cs, { hit: 'Hit_Chest' });
       return rig;
@@ -21043,8 +21323,8 @@
     });
   }
 
-  const MINION_RIG = { thrall: thrallRig, colossus: colossusRig, pyre: pyreRig };
-  const MINION_RING_R = { thrall: 0.82, colossus: 1.6, pyre: 0.75 };
+  const MINION_RIG = { thrall: thrallRig, thrallBow: thrallBowRig, colossus: colossusRig, pyre: pyreRig };
+  const MINION_RING_R = { thrall: 0.82, thrallBow: 0.82, colossus: 1.6, pyre: 0.75 };
   // 召唤物实体。kind：'thrall' | 'colossus'。elemHex（可选）：剑刃血槽 / 拳上符石这些点缀的颜色，
   // 默认魂火青；魂火（眼、胸腔、誓印）、脚环与血条永远是魂火青。之后可用 W.minionElem 改点缀色。
   W.makeMinion = function (kind, elemHex) {
