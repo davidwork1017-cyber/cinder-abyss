@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { readGlb, stats, isIdentity, bakedMean, bakeGeo, packAi, packBoss, bossEntry, accessor, bossRows } from './glb.mjs';
+import { readGlb, stats, isIdentity, bakedMean, bakeGeo, packAi, packFc, packBoss, bossEntry, accessor, bossRows } from './glb.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const rd = (p) => JSON.parse(fs.readFileSync(path.join(root, p), 'utf8'));
@@ -133,8 +133,11 @@ export function checkArt() {
     // 只用共享调色板：材质名固定、图集和 assets/ca/palette.png 同一份字节
     // AI 件的 albedo 外观：材质 ai_albedo、GLB 里不带图（反照率贴图在 tools/asset-sources.json 的 textures 里，见下面的 checkAi）
     const aiAlbedo = a.source && a.source.gen === 'ai' && a.mode === 'albedo';
-    for (const m of g.json.materials || []) if (m.name !== (aiAlbedo ? 'ai_albedo' : budgets.material)) bad(id, '材质名 ' + m.name + '，应为' + (aiAlbedo ? ' ai_albedo（AI 件的反照率外观）' : '共享的 ' + budgets.material));
-    if (aiAlbedo && (g.json.images || []).length) bad(id, 'AI 件的 albedo 外观 GLB 里不该带图（贴图走 tools/asset-sources.json 的 textures）');
+    // AI 武器的 fc 外观（ai3d-weapons，art/ai/weapon.py）：材质 ai_fc、GLB 里不带图，颜色全在 COLOR_0（UV 全 0，不采样调色板）
+    const aiFc = a.source && a.source.gen === 'ai' && a.mode === 'fc';
+    const wantMat = aiAlbedo ? 'ai_albedo' : aiFc ? 'ai_fc' : budgets.material;
+    for (const m of g.json.materials || []) if (m.name !== wantMat) bad(id, '材质名 ' + m.name + '，应为' + (aiAlbedo ? ' ai_albedo（AI 件的反照率外观）' : aiFc ? ' ai_fc（AI 武器的逐面颜色）' : '共享的 ' + budgets.material));
+    if ((aiAlbedo || aiFc) && (g.json.images || []).length) bad(id, 'AI 件的 ' + a.mode + ' 外观 GLB 里不该带图');
     if (a.source && a.source.gen === 'ai') checkAi(a, bad);
     for (const im of g.json.images || []) {
       const bv = g.json.bufferViews[im.bufferView];
@@ -144,12 +147,18 @@ export function checkArt() {
     // 单位 / 尺度：高度在类别的合理范围里（按厘米导出会大 100 倍）
     if (!(h >= cat.h[0] && h <= cat.h[1])) bad(id, '高度 ' + h.toFixed(3) + ' m 不在 ' + a.category + ' 的合理范围 ' + cat.h.join('–') + ' m（单位错了？）');
     // 原点在底面中心：最低点在地面附近（允许根 / 埋入部分到 -15% 高度），原点落在水平包围盒里且靠近中心
-    if (s.min[1] > 0.02) bad(id, '最低点 y = ' + s.min[1].toFixed(3) + '，悬空：原点应在底面（y = 0 是地面）');
-    if (s.min[1] < -(0.15 * h + 0.05)) bad(id, '最低点 y = ' + s.min[1].toFixed(3) + '，埋得太深（> 15% 高度）：原点不在底面？');
-    const ext = Math.max(s.max[0] - s.min[0], s.max[2] - s.min[2]);
-    const cx = (s.max[0] + s.min[0]) / 2, cz = (s.max[2] + s.min[2]) / 2;
-    if (s.min[0] > 0 || s.max[0] < 0 || s.min[2] > 0 || s.max[2] < 0 || Math.hypot(cx, cz) > 0.35 * ext + 0.05)
-      bad(id, '原点不在水平中心附近（包围盒中心 ' + cx.toFixed(2) + ', ' + cz.toFixed(2) + '，宽 ' + ext.toFixed(2) + '）');
+    if (cat.origin === 'grip') {
+      // 武器（aiweapon）：原点在握把中心，不在底面。原点要落在件的包围盒里（单独成件的前段，比如机炮的枪管束，原点在握把那边，不查）
+      if (!a.part || a.part === 'body')
+        for (let q = 0; q < 3; q++) if (s.min[q] > 0 || s.max[q] < 0) bad(id, '原点（握把）不在包围盒里：第 ' + q + ' 轴 ' + s.min[q].toFixed(3) + '–' + s.max[q].toFixed(3));
+    } else {
+      if (s.min[1] > 0.02) bad(id, '最低点 y = ' + s.min[1].toFixed(3) + '，悬空：原点应在底面（y = 0 是地面）');
+      if (s.min[1] < -(0.15 * h + 0.05)) bad(id, '最低点 y = ' + s.min[1].toFixed(3) + '，埋得太深（> 15% 高度）：原点不在底面？');
+      const ext = Math.max(s.max[0] - s.min[0], s.max[2] - s.min[2]);
+      const cx = (s.max[0] + s.min[0]) / 2, cz = (s.max[2] + s.min[2]) / 2;
+      if (s.min[0] > 0 || s.max[0] < 0 || s.min[2] > 0 || s.max[2] < 0 || Math.hypot(cx, cz) > 0.35 * ext + 0.05)
+        bad(id, '原点不在水平中心附近（包围盒中心 ' + cx.toFixed(2) + ', ' + cz.toFixed(2) + '，宽 ' + ext.toFixed(2) + '）');
+    }
     // 没有未应用的变换：只有一个网格节点、本身和父级都是单位矩阵
     if (s.meshNodes.length !== 1) bad(id, '网格节点 ' + s.meshNodes.length + ' 个，应为 1 个');
     for (const n of s.meshNodes) {
@@ -209,6 +218,10 @@ export function checkArt() {
           // AI 件的紧凑包（packAi）：重新打一遍逐字节相同、贴图 id 和清单一致
           const q = packAi(g);
           if (e.n !== q.n || e.p !== b64(q.p) || e.u !== b64(q.u) || e.c !== b64(q.c) || e.i !== b64(q.i) || e.t !== a.tex) bad(id, 'js/assets/kit-' + a.zone + '.js 里的 AI 件和重新打包的不一致（重新打包）');
+        } else if (aiFc) {
+          // AI 武器的紧凑包（packFc）：重新打一遍逐字节相同
+          const q = packFc(g);
+          if (e.n !== q.n || e.p !== b64(q.p) || e.c !== b64(q.c) || e.g !== (q.g ? b64(q.g) : undefined) || e.i !== b64(q.i) || e.fc !== 1) bad(id, 'js/assets/kit-' + a.zone + '.js 里的 AI 武器和重新打包的不一致（重新打包）');
         } else {
           const b = bakeGeo(g);
           if (e.n !== b.count || e.p !== b64(b.pos) || e.nn !== b64(b.nor) || e.c !== b64(b.col) || e.g !== b64(b.glow) || e.u !== undefined || e.t !== undefined) bad(id, 'js/assets/kit-' + a.zone + '.js 里的几何体和重新烘焙的不一致（重新打包）');

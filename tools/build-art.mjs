@@ -88,7 +88,7 @@ export function manifestEntry(st) {
         : { script: 'art/ca/gen.py', gen: st.gen, catalog: 'art/catalog.py', seed: st.seed, args: st.args, bake: st.bake },
     ...(st.cat === 'boss' ? { bones: st.bones, clips: st.clips, home: st.home } : {}),
     // AI 件（gen='ai'，art/ai/importer.py）：哪一档（hi / lo）、外观（albedo 带贴图 / vc 调色板顶点色）、贴图 id（albedo 才有，tools/asset-sources.json 的 textures 里）
-    ...(st.gen === 'ai' ? { lod: st.ai.lod, mode: st.ai.mode, ...(st.ai.mode === 'albedo' ? { tex: aiProv(st.ai.prov).processing.tex.id } : {}) } : {}),
+    ...(st.gen === 'ai' ? { lod: st.ai.lod, mode: st.ai.mode, ...(st.ai.part ? { part: st.ai.part } : {}), ...(st.ai.mode === 'albedo' ? { tex: aiProv(st.ai.prov).processing.tex.id } : {}) } : {}),
     sha256: crypto.createHash('sha256').update(buf).digest('hex'),
   };
 }

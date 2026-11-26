@@ -108,6 +108,20 @@ CATALOG = [
     # 顶点色只烘 AO（明暗渐变压到最小、不加磨损 / 污垢：生成的贴图里已经画了）。按面量化到调色板的 vc 外观试过（审核时对照），读成一根黑柱子，没用 ----
     dict(id='ca/frost_waystone', gen='ai', seed=1126, cat='aiprop', zone='frost', ship=True, replaces=None, args=dict(prov='assets/ai/frost_waystone/provenance.json', lod='hi', mode='albedo'),
          bake=dict(ao=0.25, grad=0.01, wear=0.0, grime=0.0, gtint=0.0), finish=dict(dust=0.0, cues=False)),
+    # ---- AI 生成的武器（ai3d-weapons，试点 4 种）：gen='ai'、外观 fc（art/ai/weapon.py：逐面取色、发光面拆出来按稀有度着色，不带贴图），参数和来源在 assets/ai/wpn_<种>/provenance.json。
+    # 坐标：长轴 +y（glTF）、刃宽 / 枪背 +x、原点在握把中心，按主角手里的尺寸；游戏端换算到手的武器关节和掉落模型（world.js 的 AIW_FIT）。
+    # lod=hi 给掉落模型（高 / 中画质），lod=lo 给手里（所有画质，烘进主角骨架）和低画质的掉落，不比原来的脚本件重。机炮的枪管束（part=barrel）单独一件，挂在会转的关节上。
+    # 打进 kit-aiwpn 包；试验开关 &aiwpn=1 时 index.html 同步引入（主角骨架开场就要建），默认不加载 ----
+    dict(id='ca/aiwpn_blade', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_blade/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_blade_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_blade/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_staff', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_staff/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_staff_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_staff/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_hammer', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_hammer/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_hammer_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_hammer/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_gatling', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_gatling/provenance.json', lod='hi', mode='fc', part='body'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_gatling_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_gatling/provenance.json', lod='lo', mode='fc', part='body'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_gatling_barrel', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_gatling/provenance.json', lod='hi', mode='fc', part='barrel'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_gatling_barrel_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_gatling/provenance.json', lod='lo', mode='fc', part='barrel'), finish=dict(dust=0.0, cues=False)),
     # ---- 余烛殿：4 个火盆台（玩法件），尺寸逐项照原来的程序化 crown/brazier，火苗另一个网格、碰撞不变 ----
     dict(id='ca/crown_brazier', gen='crown_brazier', seed=173, cat='prop', zone='crown', ship=True, replaces=None,
          bake=dict(ao=0.25, grad=0.4, wear=0.4), finish=dict(dust=0.0), cues=dict(second=False, val=0.2, lichen=0)),

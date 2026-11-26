@@ -40,6 +40,12 @@ def make(item, seed=None, name=None):
         k.fit(**item['fit'])  # 清单里的 fit：包围盒对齐被顶替的旧件（r / top / bottom）
     k.finish(cue_args=item.get('cues'), **item.get('finish', {}))  # cues：材质线索参数（val / second / lichen，缺省见 docs/art-style.md）；finish：收尾参数（dust / dust_row）
     tris = sum(len(f.verts) - 2 for f in k.bm.faces)
+    if getattr(k, 'ai_fc', False):
+        # AI 武器（fc 外观，art/ai/weapon.py）：颜色已经逐面取好写进 COLOR_0，不再烘焙 AO / 磨损（游戏里的光照给明暗）
+        from ai import weapon
+        ob = weapon.to_object(k, name)
+        k.bm.free()
+        return ob, tris, 0.0
     ob = importer.to_object(k, name) if getattr(k, 'ai_albedo', False) else core.to_object(k, name)  # albedo 模式保留源 UV（材质 ai_albedo）
     k.bm.free()
     if DRY:
@@ -123,7 +129,7 @@ def build(o):
             if item['gen'] == 'ai':
                 # AI 件：源 GLB 不在仓库里（CA_AI_INBOX）。没有源文件的机器上保留已经提交的 GLB 和贴图（全量构建照样逐字节一致）；源文件和 provenance 的 sha256 对不上就报错
                 stt = importer.source_state(item['args'])
-                extra = dict(ai=dict(prov=item['args']['prov'], lod=item['args'].get('lod', 'hi'), mode=item['args'].get('mode', 'albedo')))
+                extra = dict(ai=dict(prov=item['args']['prov'], lod=item['args'].get('lod', 'hi'), mode=item['args'].get('mode', 'albedo'), **({'part': item['args']['part']} if item['args'].get('part') else {})))
                 if stt == 'mismatch':
                     raise RuntimeError(item['id'] + '：源 GLB 的 sha256 和 provenance 里记的不一样（' + importer.source_path(item['args']) + '）')
                 if stt == 'missing':

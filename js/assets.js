@@ -210,6 +210,28 @@
       try {
         const e = data.geo[key], f32 = (b) => new Float32Array(b64ToBuf(b));
         const g = new T.BufferGeometry();
+        if (e.fc) {
+          // AI 武器（ai3d-weapons，外观 fc）：带索引的紧凑包（tools/glb.mjs 的 packFc），展开成不带索引的三角形、按面算法线（平直），发光进 aGlow
+          const idx = e.i32 ? new Uint32Array(b64ToBuf(e.i)) : new Uint16Array(b64ToBuf(e.i)), P0 = f32(e.p), C0 = f32(e.c), G0 = e.g ? f32(e.g) : null;
+          const P = new Float32Array(idx.length * 3), C = new Float32Array(idx.length * 3), GL = G0 ? new Float32Array(idx.length) : null;
+          for (let k = 0; k < idx.length; k++) {
+            const v = idx[k];
+            P[k * 3] = P0[v * 3]; P[k * 3 + 1] = P0[v * 3 + 1]; P[k * 3 + 2] = P0[v * 3 + 2];
+            C[k * 3] = C0[v * 3]; C[k * 3 + 1] = C0[v * 3 + 1]; C[k * 3 + 2] = C0[v * 3 + 2];
+            if (GL) GL[k] = G0[v];
+          }
+          g.setAttribute('position', new T.BufferAttribute(P, 3));
+          g.setAttribute('color', new T.BufferAttribute(C, 3));
+          if (GL) g.setAttribute('aGlow', new T.BufferAttribute(GL, 1));
+          g.computeVertexNormals();
+          g.computeBoundingBox();
+          g.computeBoundingSphere();
+          const bb = g.boundingBox;
+          geos[key] = g;
+          geoInfo[key] = { h: bb.max.y - bb.min.y, r: Math.max(-bb.min.x, bb.max.x, -bb.min.z, bb.max.z), y0: bb.min.y };
+          geoPack[key] = name;
+          continue;
+        }
         g.setAttribute('position', new T.BufferAttribute(f32(e.p), 3));
         g.setAttribute('color', new T.BufferAttribute(f32(e.c), 3));
         if (e.i) {

@@ -552,6 +552,454 @@
    "sha256": "547a75dd84511feb18273e0e7501f3d9156e11521d6b27d298b54d75d7f18f4f"
   },
   {
+   "id": "ca/aiwpn_blade",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_blade.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 500,
+   "verts": 1500,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.144,
+     -0.202,
+     -0.067
+    ],
+    "max": [
+     0.144,
+     1.1,
+     0.067
+    ]
+   },
+   "h": 1.302,
+   "r": 0.144,
+   "y0": -0.202,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_blade/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_blade/provenance.json",
+    "sourceSha256": "a0eaf4e7b495e453dad46f20beffa82b6d5defc8830cc64593e4ae4a30bd3bde"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "a0c414ad6f78ab0b4a75c9a4a711d2476e84287457be4e828832c02e1fdc1a82"
+  },
+  {
+   "id": "ca/aiwpn_blade_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_blade_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 120,
+   "verts": 360,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.149,
+     -0.201,
+     -0.074
+    ],
+    "max": [
+     0.149,
+     1.098,
+     0.069
+    ]
+   },
+   "h": 1.299,
+   "r": 0.149,
+   "y0": -0.201,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_blade/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_blade/provenance.json",
+    "sourceSha256": "a0eaf4e7b495e453dad46f20beffa82b6d5defc8830cc64593e4ae4a30bd3bde"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "27309441ef4b85a035e822dec330819fd5882c708ea480e5df072a3a05b08d66"
+  },
+  {
+   "id": "ca/aiwpn_gatling",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_gatling.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 750,
+   "verts": 2248,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.259,
+     -0.185,
+     -0.165
+    ],
+    "max": [
+     0.419,
+     0.626,
+     0.164
+    ]
+   },
+   "h": 0.811,
+   "r": 0.419,
+   "y0": -0.185,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_gatling/provenance.json",
+     "lod": "hi",
+     "mode": "fc",
+     "part": "body"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_gatling/provenance.json",
+    "sourceSha256": "7a8ba4e9895312f6299a1b81426403aaf505f038e30176ab6a9161fb3212f9f1"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "part": "body",
+   "sha256": "2546416cb94217244a7a365f05891718b5e120e96de3e5e09321b4ba15040d11"
+  },
+  {
+   "id": "ca/aiwpn_gatling_barrel",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_gatling_barrel.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 239,
+   "verts": 717,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     0.075,
+     0.617,
+     -0.136
+    ],
+    "max": [
+     0.41,
+     0.916,
+     0.131
+    ]
+   },
+   "h": 0.299,
+   "r": 0.41,
+   "y0": 0.617,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_gatling/provenance.json",
+     "lod": "hi",
+     "mode": "fc",
+     "part": "barrel"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_gatling/provenance.json",
+    "sourceSha256": "7a8ba4e9895312f6299a1b81426403aaf505f038e30176ab6a9161fb3212f9f1"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "part": "barrel",
+   "sha256": "04cdad4fb523c06f7049acb72f71e79484e5de7a6b9f3299dcacfb3af91c4831"
+  },
+  {
+   "id": "ca/aiwpn_gatling_barrel_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_gatling_barrel_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 89,
+   "verts": 267,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     0.084,
+     0.611,
+     -0.125
+    ],
+    "max": [
+     0.4,
+     0.917,
+     0.124
+    ]
+   },
+   "h": 0.306,
+   "r": 0.4,
+   "y0": 0.611,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_gatling/provenance.json",
+     "lod": "lo",
+     "mode": "fc",
+     "part": "barrel"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_gatling/provenance.json",
+    "sourceSha256": "7a8ba4e9895312f6299a1b81426403aaf505f038e30176ab6a9161fb3212f9f1"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "part": "barrel",
+   "sha256": "7f0897054277c257d4a425af94f6fc895f961f63e41e06c2f8c9749985f62044"
+  },
+  {
+   "id": "ca/aiwpn_gatling_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_gatling_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 272,
+   "verts": 816,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.258,
+     -0.178,
+     -0.168
+    ],
+    "max": [
+     0.419,
+     0.627,
+     0.171
+    ]
+   },
+   "h": 0.805,
+   "r": 0.419,
+   "y0": -0.178,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_gatling/provenance.json",
+     "lod": "lo",
+     "mode": "fc",
+     "part": "body"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_gatling/provenance.json",
+    "sourceSha256": "7a8ba4e9895312f6299a1b81426403aaf505f038e30176ab6a9161fb3212f9f1"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "part": "body",
+   "sha256": "1bb88de2ec853c546aa611cf82f4c149021bb5f740c78dcb9ea848ad7e1c8b88"
+  },
+  {
+   "id": "ca/aiwpn_hammer",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_hammer.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 880,
+   "verts": 2638,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.427,
+     -0.268,
+     -0.123
+    ],
+    "max": [
+     0.427,
+     1.454,
+     0.123
+    ]
+   },
+   "h": 1.722,
+   "r": 0.427,
+   "y0": -0.268,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_hammer/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_hammer/provenance.json",
+    "sourceSha256": "8cdec134776f399681fb7f008c8cf0c3d838721ab86e6bd5bb34848eb0d34383"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "b0f7404ab63aecc4fcb582e0e6a38d3062a173b822520672c04fd336b0f07cd3"
+  },
+  {
+   "id": "ca/aiwpn_hammer_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_hammer_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 294,
+   "verts": 882,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.442,
+     -0.263,
+     -0.117
+    ],
+    "max": [
+     0.43,
+     1.472,
+     0.121
+    ]
+   },
+   "h": 1.734,
+   "r": 0.442,
+   "y0": -0.263,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_hammer/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_hammer/provenance.json",
+    "sourceSha256": "8cdec134776f399681fb7f008c8cf0c3d838721ab86e6bd5bb34848eb0d34383"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "3b2e03b138ff667fe35890d7eecf53d2f48bffc6c4d82f001ef4578df1a67869"
+  },
+  {
+   "id": "ca/aiwpn_staff",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_staff.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 599,
+   "verts": 1797,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.205,
+     -0.482,
+     -0.081
+    ],
+    "max": [
+     0.205,
+     1.526,
+     0.081
+    ]
+   },
+   "h": 2.007,
+   "r": 0.205,
+   "y0": -0.482,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_staff/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_staff/provenance.json",
+    "sourceSha256": "8152a0ffdc9735e2d22abc7bf76c7e3060674ebdfae0dfbd42773ebaa03b0956"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "758080df8ddee2036fadc31f247bd71a0938b414e8f25975d0fc1d398c667d50"
+  },
+  {
+   "id": "ca/aiwpn_staff_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_staff_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 150,
+   "verts": 450,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.195,
+     -0.482,
+     -0.08
+    ],
+    "max": [
+     0.205,
+     1.51,
+     0.078
+    ]
+   },
+   "h": 1.991,
+   "r": 0.205,
+   "y0": -0.482,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_staff/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_staff/provenance.json",
+    "sourceSha256": "8152a0ffdc9735e2d22abc7bf76c7e3060674ebdfae0dfbd42773ebaa03b0956"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "e10f11d9a2b15c3705ffcd6190bcef41f3fc3d5f1f1f6614908e49653fa0cb77"
+  },
+  {
    "id": "ca/ash_arch_a",
    "category": "kit",
    "zone": "ash",

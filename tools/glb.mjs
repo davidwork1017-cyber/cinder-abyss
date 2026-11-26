@@ -253,6 +253,29 @@ export function packAi(g) {
   return { n: I.length, verts, p: Float32Array.from(P), u: Float32Array.from(U), c: Float32Array.from(C), i: verts < 65536 ? Uint16Array.from(I) : Uint32Array.from(I) };
 }
 
+// ---------- AI 武器（ai3d-weapons，外观 fc）的紧凑包：bakeGeo 的结果按 (位置, 颜色, 发光) 焊接成带索引的网格 ----------
+// 颜色是逐面的（按件聚成几种色块），同一色块里的角大多能共用顶点；法线不存（游戏端展开成不带索引的三角形、按面重算，平直着色）。
+// 输出 { n: 索引数, p: 位置 Float32 × 3, c: 颜色 Float32 × 3, g: 发光 Float32 × 1（没有发光面时为 null）, i: 索引 Uint16 / Uint32 }，顺序 = 第一次出现的顺序（固定）
+export function packFc(g) {
+  const b = bakeGeo(g), map = new Map(), P = [], C = [], GL = [], I = [];
+  const f = new Float32Array(1), u32 = new Uint32Array(f.buffer), bits = (x) => ((f[0] = x), u32[0]);
+  for (let k = 0; k < b.count; k++) {
+    const gl = b.glow ? b.glow[k] : 0;
+    const key = [b.pos[k * 3], b.pos[k * 3 + 1], b.pos[k * 3 + 2], b.col[k * 3], b.col[k * 3 + 1], b.col[k * 3 + 2], gl].map(bits).join(',');
+    let v = map.get(key);
+    if (v === undefined) {
+      v = P.length / 3;
+      map.set(key, v);
+      P.push(b.pos[k * 3], b.pos[k * 3 + 1], b.pos[k * 3 + 2]);
+      C.push(b.col[k * 3], b.col[k * 3 + 1], b.col[k * 3 + 2]);
+      GL.push(gl);
+    }
+    I.push(v);
+  }
+  const verts = P.length / 3;
+  return { n: I.length, verts, p: Float32Array.from(P), c: Float32Array.from(C), g: b.glow ? Float32Array.from(GL) : null, i: verts < 65536 ? Uint16Array.from(I) : Uint32Array.from(I) };
+}
+
 // ---------- 首领包（boss-golem）：带蒙皮和动作的首领 GLB → 游戏直接用的数组（和布景件的预烘焙一样，游戏端不解析 GLB、不解码调色板） ----------
 // 输出一个 JSON 对象（pack-assets 写进 js/assets/boss-<kind>.js，check-art 重新打包一遍逐字节核对）：
 //   bones：[[名字, 父骨骼序号, 枢轴 x, y, z], ...]，枢轴 = 绑定姿态里骨骼的位置（glTF 的 Y 朝上 = 游戏的模型空间），父骨骼在前；

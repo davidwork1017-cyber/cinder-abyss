@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readGlb, bakeGeo, packAi, packBoss, bossEntry, bossRows } from './glb.mjs';
+import { readGlb, bakeGeo, packAi, packFc, packBoss, bossEntry, bossRows } from './glb.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'tools/asset-sources.json'), 'utf8'));
@@ -112,6 +112,12 @@ for (const [name, pk] of Object.entries(manifest.packs)) {
           // AI 件（ai3d-pilot，外观 albedo）：带索引的紧凑包（tools/glb.mjs 的 packAi：位置 + UV + AO 色 + 索引，不存法线，游戏端平直着色）；t = 反照率贴图的 id（贴图在 zone-<区> 包里）
           const q = packAi(readGlb(buf));
           (data.geo || (data.geo = {}))[a.id] = { sha: a.sha256, n: q.n, p: b64(q.p), u: b64(q.u), c: b64(q.c), i: b64(q.i), i32: q.i instanceof Uint32Array ? 1 : 0, t: a.tex };
+          continue;
+        }
+        if (a.mode === 'fc') {
+          // AI 武器（ai3d-weapons，外观 fc）：带索引的紧凑包（tools/glb.mjs 的 packFc：位置 + 颜色 + 发光 + 索引，不存法线、不带 UV）
+          const q = packFc(readGlb(buf));
+          (data.geo || (data.geo = {}))[a.id] = { sha: a.sha256, n: q.n, p: b64(q.p), c: b64(q.c), ...(q.g ? { g: b64(q.g) } : {}), i: b64(q.i), i32: q.i instanceof Uint32Array ? 1 : 0, fc: 1 };
           continue;
         }
         const b = bakeGeo(readGlb(buf));
