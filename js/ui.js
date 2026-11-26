@@ -8553,11 +8553,16 @@
       coach.summonPing = false;
       if (coach.cur) coachHide(now);
     }
-    // 看过的记录换了一份（读档、「重新显示新手提示」，测试里直接换 save.tut）：「已经会了」从头记，也不用等间隔
+    // 看过的记录换了一份（读档、「重新显示新手提示」，测试里直接换 save.tut）：从头来——亮着的那条收起，「已经会了」从头记，也不用等间隔
     if (coach.tutRef !== G.save.tut) {
       coach.tutRef = G.save.tut;
       coach.ever = { moved: 0, cast: [false, false, false, false, false], rolled: false };
-      if (!coach.cur) coach.gapT = 0;
+      if (coach.cur) {
+        coach.cur = null;
+        coach.state = '';
+        el.coach.className = '';
+      }
+      coach.gapT = 0;
     }
 
     // 累计：走了多远、用过哪几个键、有没有翻滚过（这一条亮着时的 / 读档以来的）
