@@ -7891,37 +7891,80 @@
     const fl = wui.feedList;
     for (let i = fl.length - 1; i >= 0; i--) {
       const f = fl[i];
+      if (!f.die) f.die = now + f.life; // 第一次画出来：从这一帧开始算
       if (now > f.die) {
         f.el.remove();
         fl.splice(i, 1);
-      } else if (!f.out && now > f.die - 350) {
+      } else if (!f.out && now > f.die - FEED_FADE_MS) {
         f.out = true;
         f.el.classList.add('out');
       }
     }
   }
 
-  // ---------- 拾取记录（左下角，带图标） ----------
-  function feedPush(key, icon, name, color, extra) {
+  // ---------- 拾取记录（带图标；pickup-feed：拾取不弹 toast，一切拾取结果都只在这里，一件事最多一行） ----------
+  // 一行一条、小图标小字；桌面最多 4 行、触屏 3 行；一行亮 2.2 秒，有同类并进来就再续 2.2 秒，到点淡出。
+  // 合并：同一种通货 / 烛芯 / 重复宝石化成的通货按 key 合计 ×N；没有 ▲ 的普通、魔法物品各并成「普通物品 ×N」「魔法物品 ×N」（只有一件时写名字）；
+  // 稀有以上、带 ▲ 的、技能和辅助宝石各占一行。不写「共 N 个」：背包里看得到
+  const FEED_MS = 2200;
+  const FEED_WARN_MS = 3000; // 警告（背包满了 / 走近一点）：game.js 每 2.5 秒最多再报一次，亮 3 秒，站在掉落上时一直是同一行
+  const FEED_FADE_MS = 400;
+  const feedMax = () => (touchOn() ? 3 : 4);
+  // 行数满了先挤掉最不要紧的（同样要紧挤掉最早的）：pr 4 新技能 / 宝石 / 烬铸以上 / 警告，3 稀有和 ▲，2 烛芯 / 自动分解 / 重复宝石，1 通货和并起来的普通、魔法物品
+  function feedTrim() {
+    const fl = wui.feedList;
+    while (fl.length > feedMax()) {
+      let k = 0;
+      for (let i = 1; i < fl.length; i++) if ((fl[i].pr || 1) < (fl[k].pr || 1)) k = i;
+      fl.splice(k, 1)[0].el.remove();
+    }
+  }
+  // 一行的寿命从它第一次画出来的那一帧算起（die 为 0 时由每帧的更新补上）：主线程忙的时候不会还没看到就过期
+  const feedLife = (f, now) => (f.die = f.die ? now + f.life : 0);
+  function feedPaint(f) {
+    const many = f.cnt > 1 && f.group;
+    const n = f.n > 1 || f.showN ? '×' + f.n : '';
+    f.el.innerHTML = (f.icon || '') + '<span class="fd-t">' + esc(many ? f.group : f.name) + '</span>' + '<b>' + n + '</b>' +
+      (f.up ? '<em class="fd-up">▲</em>' : '') + (f.note ? '<em class="fd-note">' + esc(f.note) + '</em>' : '');
+  }
+  // o：{ key, icon, name, color, group（并了两件以上时的名字）, n（这次加几，缺省 1）, showN（只有 1 时也写 ×1）, up（▲）, note, cls }
+  function feedPush(o) {
     const now = performance.now();
     const fl = wui.feedList;
     let f = null;
-    for (const o of fl) if (o.key === key && !o.out) f = o;
+    for (const x of fl) if (x.key === o.key && !x.out) f = x;
     if (f) {
-      f.n++;
-      f.cnt.textContent = '×' + f.n;
-      f.die = now + 3400;
-      return;
+      f.n += o.n || 1;
+      f.cnt++;
+      if (o.up) f.up = true;
+      feedLife(f, now);
+      feedPaint(f);
+      return f;
     }
     const d = document.createElement('div');
-    d.className = 'fd';
-    d.style.setProperty('--c', color);
-    d.innerHTML = icon + '<span>' + esc(name) + '</span>' + (extra || '') + '<b></b>';
+    d.className = 'fd' + (o.cls ? ' ' + o.cls : '');
+    d.style.setProperty('--c', o.color);
+    f = Object.assign({}, o, { el: d, n: o.n || 1, cnt: 1, die: 0, life: o.cls === 'warn' ? FEED_WARN_MS : FEED_MS, out: false });
+    feedPaint(f);
     wui.feed.appendChild(d);
-    fl.push({ key, el: d, cnt: d.lastChild, n: 1, die: now + 3400, out: false });
-    while (fl.length > 5) fl.shift().el.remove();
+    fl.push(f);
+    feedTrim();
+    return f;
   }
-  // game.js 每成功拾取一件掉落就调一次
+  // 清空拾取记录（测试用；新开一场景前）
+  function feedClear() {
+    for (const f of wui.feedList) f.el.remove();
+    wui.feedList.length = 0;
+  }
+  // game.js：拾取时的警告（背包满了 / 走近一点），game.js 已经按 key 节流；同一个 key 还亮着时只续时间
+  function feedWarn(msg, key) {
+    feedPush({ key: 'warn:' + (key || msg), name: msg, color: '#ff8a6a', cls: 'warn', pr: 4 });
+  }
+  // game.js：手动分解的结果写在背包页的绿色小字里（面板开着就马上重画）
+  function salvNote(msg) {
+    ui.invOk = msg;
+    if (ui.isOpen && ui.tab === 'inv') render();
+  }
   // 自动分解其他职业武器（T36）的拾取记录：一件一行「自动分解 · 名字 → 通货 ×n」（写法和手动分解的结果一样）；
   // 上一行还亮着时再来一件就并成一行「自动分解 N 件 → …」，按通货合计
   const curText = (sum) => Object.keys(sum).map((id) => G.CURRENCY[id].name + ' ×' + sum[id]).join('、');
@@ -7935,20 +7978,27 @@
       d.className = 'fd offcls';
       d.style.setProperty('--c', '#7fe0c0');
       wui.feed.appendChild(d);
-      f = { key: 'offcls', el: d, cnt: null, n: 0, sum: {}, name: '', die: 0, out: false };
+      f = { key: 'offcls', el: d, n: 0, cnt: 0, sum: {}, die: 0, life: FEED_MS, out: false, pr: 2 };
       fl.push(f);
-      while (fl.length > 5) fl.shift().el.remove();
+      feedTrim();
     }
     f.n++;
     for (const id in res) f.sum[id] = (f.sum[id] || 0) + res[id];
     const got = curText(f.sum);
     const txt = (f.n > 1 ? '自动分解 ' + f.n + ' 件' : '自动分解 · ' + it.name) + (got ? ' → ' + got : '，没有分出东西');
-    f.el.innerHTML = (f.n > 1 ? '' : itemIcon(it)) + '<span>' + esc(txt) + '</span>';
+    f.el.innerHTML = (f.n > 1 ? '' : itemIcon(it)) + '<span class="fd-t">' + esc(txt) + '</span>';
     f.el.classList.toggle('noic', f.n > 1);
     f.el.dataset.n = f.n;
-    f.die = now + 3400;
+    feedLife(f, now);
   }
-  function onPickup(loot, scrapped, offRes) {
+  const curIcon = (id) => ibox(IC.cur(id), 'curb');
+  // 重复的宝石化成了通货：「重复宝石 → 微光尘 ×1」，同一种并成一行合计
+  function feedDup(key, what, how) {
+    const C = G.CURRENCY[how.cur];
+    feedPush({ key, icon: curIcon(how.cur), name: what + ' → ' + C.name, color: C.color, n: how.n || 1, showN: true, pr: 2 });
+  }
+  // game.js 每成功拾取一件掉落就调一次；how 见 G.pickup（宝石的结果：新学会 / 升级 / 重复化成通货）
+  function onPickup(loot, scrapped, offRes, how) {
     if (loot.kind === 'item') {
       const it = loot.data;
       if (offRes) {
@@ -7956,26 +8006,34 @@
         return;
       }
       if (scrapped) {
-        feedPush('x' + it.uid, itemIcon(it), it.name, '#8c7f6d', '<em class="fd-note">已丢弃</em>');
+        feedPush({ key: 'x0', icon: itemIcon(it), name: it.name, group: '普通物品', note: '已丢弃', color: '#8c7f6d' });
         return;
       }
       ui.fresh.add(it.uid);
       const v = verdict(it);
-      feedPush('i' + it.uid, itemIcon(it), it.name, G.RARITY_COLOR[it.rarity], v && v.badge === 'up' ? '<em class="fd-up">▲</em>' : '');
+      const up = !!(v && v.badge === 'up');
+      if (it.rarity >= 2 || up) feedPush({ key: 'i' + it.uid, icon: itemIcon(it), name: it.name, color: G.RARITY_COLOR[it.rarity], up, pr: it.rarity >= 3 ? 4 : 3 });
+      else feedPush({ key: 'r' + it.rarity, icon: itemIcon(it), name: it.name, group: it.rarity ? '魔法物品' : '普通物品', color: G.RARITY_COLOR[it.rarity] });
     } else if (loot.kind === 'cur') {
-      feedPush('c' + loot.data, ibox(IC.cur(loot.data), 'curb'), G.CURRENCY[loot.data].name, G.CURRENCY[loot.data].color);
+      feedPush({ key: 'c' + loot.data, icon: curIcon(loot.data), name: G.CURRENCY[loot.data].name, color: G.CURRENCY[loot.data].color });
     } else if (loot.kind === 'skill') {
       const sk = G.SKILLS[loot.data.id];
       if (isSummon(loot.data.id)) summonPing();
-      feedPush('s' + loot.data.id + loot.data.lvl, '<span class="ibox sk" style="--c:' + sk.color + '">' + IC.skill(loot.data.id) + '</span>', '技能宝石 · ' + sk.name + ' Lv ' + loot.data.lvl, '#3fe0c8');
+      if (how && how.t === 'dup') return feedDup('dup:' + how.cur, '重复宝石', how);
+      const icon = '<span class="ibox sk" style="--c:' + sk.color + '">' + IC.skill(loot.data.id) + '</span>';
+      const lvl = (how && how.lvl) || loot.data.lvl;
+      if (how && how.t === 'up') feedPush({ key: 'su' + loot.data.id + '-' + lvl, icon, name: sk.name + ' 升到 Lv ' + lvl, color: '#3fe0c8', pr: 4 });
+      else feedPush({ key: 'sn' + loot.data.id, icon, name: '新技能 · ' + sk.name + ' Lv ' + lvl, color: '#3fe0c8', note: how && !how.bar ? '技能栏满了' : '', pr: 4 });
     } else if (loot.kind === 'frag') {
       const F = G.FRAGS[loot.data];
-      feedPush('f' + loot.data, ibox(IC.frag(loot.data), 'curb'), F.name, F.color, '<em class="fd-note">共 ' + (G.save.frags[loot.data] || 0) + ' 个</em>');
+      feedPush({ key: 'f' + loot.data, icon: ibox(IC.frag(loot.data), 'curb'), name: F.name, color: F.color, pr: 2 });
     } else if (loot.kind === 'blank') {
       const B = G.BLANK_GEM;
-      feedPush('b' + loot.data.lvl, ibox(IC.blank(), 'gemb'), B.name + ' Lv ' + loot.data.lvl, B.color, '<em class="fd-note">共 ' + G.save.blankGems.length + ' 颗</em>');
+      if (how && how.t === 'dup') return feedDup('dup:blank', '用不上的' + B.short, how);
+      feedPush({ key: 'b' + loot.data.lvl, icon: ibox(IC.blank(), 'gemb'), name: B.name + ' Lv ' + loot.data.lvl, color: B.color, pr: 4 });
     } else {
-      feedPush('p' + loot.data, ibox(IC.sup(loot.data), 'gemb'), '辅助宝石 · ' + G.SUPPORTS[loot.data].name, '#f0f0f4');
+      if (how && how.t === 'dup') return feedDup('dup:sup', '重复辅助宝石', how);
+      feedPush({ key: 'p' + loot.data, icon: ibox(IC.sup(loot.data), 'gemb'), name: '辅助宝石 · ' + G.SUPPORTS[loot.data].name, color: '#f0f0f4', pr: 4 });
     }
   }
 
@@ -8803,6 +8861,9 @@
     classView: () => (menu.view === 'cls' && menu.cls ? { mode: menu.cls.mode, sel: menu.cls.sel, rec: menu.cls.rec } : null),
     loadingOff, // 「正在载入角色…」：main.js 在区域建好时揭开
     onPickup,
+    feedWarn, // 拾取时的警告（game.js）
+    salvNote, // 手动分解的结果（game.js）
+    feedClear, // 清空拾取记录（测试用）
     bigToast,
     bigToastReset,
     verdict, // 换装评估（只读）：{ badge, score, empty, lines } | null
