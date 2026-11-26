@@ -2743,7 +2743,8 @@
     const wait = () => {
       if (W.zone !== zone) return void (zone.upPending = false);
       if (zoneFrames - f0 < 2 && performance.now() - t0 < 1500) return void setTimeout(wait, 50);
-      if (window.requestIdleCallback) requestIdleCallback(go, { timeout: 800 });
+      // 空闲回调只拿来等「空闲了」，重建本身另起一个任务做：重建 50–70 ms，放在空闲回调里会超过它的时限（也算进图标预热的空闲切片）
+      if (window.requestIdleCallback) requestIdleCallback(() => setTimeout(go, 0), { timeout: 800 });
       else setTimeout(go, 200);
     };
     wait();
