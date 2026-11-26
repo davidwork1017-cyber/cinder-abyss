@@ -13928,6 +13928,93 @@
     };
     return { md, s, cp: { G, Gi, P: cPose(md, { aim }, Bg, Bgi, piv0) } };
   }
+  // AI 主角试验（ai3d-hero）：Kimodo 生成的试验动作（lab-only：网址再带 &aimotion=1，动作文件不进仓库，由试验脚本按路由送进来，
+  // 见 js/lab-aihero.js）。只换外观：正手 / 反手横砍顶替 attack1 / attack2 的上半身关键帧（时长、命中帧、刀光窗口照旧，蓄力顶点 → 命中 → 收回
+  // 按 0.135 / 0.225 / 0.45 秒重排时间），待机叠在躯干和腿上，跑步只换腿（相位跟着走过的距离，周期按游戏的步幅拉伸）
+  const AIM = { slash: { as: 'attack1', mark: [0.7, 0.867, 1.8] }, backhand: { as: 'attack2', mark: [1.4, 1.667, 2.2] }, run: { from: 19 / 30, cycle: 0.733 } };
+  // 按时间映射 tmap（游戏时刻 → 源动作时刻）重新采样一段动作（fps 帧 / 秒，时长 dur）
+  function aiResample(clip, tmap, dur, fps) {
+    const n = Math.max(2, Math.round(dur * fps) + 1), ch = [], qa = new T.Quaternion(), qb = new T.Quaternion();
+    for (const c of clip.ch) {
+      const k = c.path === 'rotation' ? 4 : 3, v = new Float32Array(n * k);
+      for (let f = 0; f < n; f++) {
+        const ts = Math.min(clip.dur, Math.max(0, tmap((dur * f) / (n - 1))));
+        const u = (ts / clip.dur) * (clip.n - 1), i0 = Math.min(clip.n - 2, Math.floor(u)), fr = u - i0;
+        if (k === 4) {
+          qa.fromArray(c.v, i0 * 4); qb.fromArray(c.v, (i0 + 1) * 4); qa.slerp(qb, fr);
+          v[f * 4] = qa.x; v[f * 4 + 1] = qa.y; v[f * 4 + 2] = qa.z; v[f * 4 + 3] = qa.w;
+        } else for (let d = 0; d < 3; d++) v[f * 3 + d] = c.v[i0 * 3 + d] + (c.v[(i0 + 1) * 3 + d] - c.v[i0 * 3 + d]) * fr;
+      }
+      ch.push({ b: c.b, path: c.path, v });
+    }
+    return { n, dur, ch, ex: null };
+  }
+  // 动作文件的骨架（hero-a-01 源坐标的 A 字站姿）摆到这副骨架的静止姿态上：骨盆对准、按骨盆 → 头顶的高度等比缩放，四肢按 playerAI 的 aim 摆（同 stdSrc）
+  function aiSrc(rig, cs, md) {
+    const Jn = rig.joints, cp = rig.cPose, mm = cp.md;
+    const piv0 = (n) => {
+      const j = Jn[rig.JI[n]];
+      return [j.px0 === undefined ? j.px : j.px0, j.py0 === undefined ? j.py : j.py0, j.pz0 === undefined ? j.pz : j.pz0];
+    };
+    const at = (M, m, n) => new T.Vector3().setFromMatrixPosition(M ? M.clone().multiply(m.B[m.bi[n]]) : m.B[m.bi[n]]);
+    const b0 = at(cp.G, mm, 'pelvis'), b1 = at(cp.G, mm, 'head_leaf'), a0 = at(null, md, 'pelvis'), a1 = at(null, md, 'head_leaf');
+    const s = (b1.y - b0.y) / (a1.y - a0.y);
+    const G = new T.Matrix4().makeTranslation(b0.x - a0.x * s, b0.y - a0.y * s, b0.z - a0.z * s).multiply(new T.Matrix4().makeScale(s, s, s));
+    const Gi = new T.Matrix4().makeScale(1 / s, 1 / s, 1 / s);
+    const Bg = md.B.map((m) => G.clone().multiply(m).multiply(Gi)), Bgi = Bg.map((m) => m.clone().invert());
+    const aim = (n) => {
+      const a = cs.aim && cs.aim(n);
+      return a && md.bi[a[0]] !== undefined ? a : null;
+    };
+    return { md, s, cp: { G, Gi, P: cPose(md, { aim }, Bg, Bgi, piv0) } };
+  }
+  function aiMotion(rig, cs) {
+    const drive = {
+      root: 'pelvis', spine: 'spine_02', chest: 'spine_03', head: 'Head', uaL: 'upperarm_l', faL: 'lowerarm_l', hL: 'hand_l', uaR: 'upperarm_r', faR: 'lowerarm_r', hR: 'hand_r',
+      thL: 'thigh_l', shL: 'calf_l', ftL: 'foot_l', thR: 'thigh_r', shR: 'calf_r', ftR: 'foot_r',
+    };
+    const UP = ['root', 'spine', 'chest', 'head', 'uaL', 'faL', 'hL', 'uaR', 'faR', 'hR'], LEG = ['thL', 'shL', 'ftL', 'thR', 'shR', 'ftR'];
+    const get = (n) => {
+      const md = cModel('aim_' + n), a = md && Object.keys(md.clips)[0];
+      return a ? { md, a, src: aiSrc(rig, cs, md) } : null;
+    };
+    const done = [];
+    for (const n of ['slash', 'backhand']) {
+      const g = get(n);
+      if (!g) continue;
+      const [w, c, r] = AIM[n].mark, t0 = Math.max(0, w - (0.135 * (c - w)) / 0.09);
+      const tmap = (t) => (t < 0.135 ? t0 + ((w - t0) * t) / 0.135 : t < 0.225 ? w + ((c - w) * (t - 0.135)) / 0.09 : c + (r - c) * Math.min(1, (t - 0.225) / 0.225));
+      g.md.clips.__rt = aiResample(g.md.clips[g.a], tmap, 0.45, 60);
+      const kk = cClipKeys(rig, cs, '__rt', { src: g.src, drive, fps: 60, joints: UP, trans: [] }).keys;
+      const old = rig.clips[AIM[n].as].spec, keys = {};
+      for (const k in old.keys) if (UP.indexOf(k.slice(0, k.indexOf('.'))) < 0 || /\.(s[xyz]?|o[xyz])$/.test(k)) keys[k] = old.keys[k];
+      Object.assign(keys, kk);
+      defClip(rig, AIM[n].as, Object.assign({}, old, { keys, lin: true }));
+      done.push(n);
+    }
+    const gi = get('idle'), gr = get('run');
+    let idleT = null, idleDur = 1, runT = null;
+    if (gi) {
+      const k = cClipKeys(rig, cs, gi.a, { src: gi.src, drive, fps: 20, joints: ['root', 'spine', 'chest', 'head'].concat(LEG), trans: [] });
+      idleT = cTrack(rig, k.keys);
+      idleDur = k.dur;
+      done.push('idle');
+    }
+    if (gr) {
+      gr.md.clips.__rt = aiResample(gr.md.clips[gr.a], (t) => AIM.run.from + t * AIM.run.cycle, 1, 60);
+      runT = cTrack(rig, cClipKeys(rig, cs, '__rt', { src: gr.src, drive, fps: 60, joints: LEG, trans: [] }).keys);
+      done.push('run');
+    }
+    if (idleT || runT) {
+      const proc = rig.loco;
+      rig.loco = function (ent, p, t, sdt) {
+        proc(ent, p, t, sdt);
+        if (idleT) cTrackEval(idleT, p, ((t / idleDur) % 1 + 1) % 1, 1 - Math.min(1, ent.mv * 1.5));
+        if (runT && ent.mv > 0.01) cTrackEval(runT, p, (((ent.walk / TAU) % 1) + 1) % 1, Math.min(1, ent.mv * 1.2));
+      };
+    }
+    rig.aiMotion = done;
+  }
   // 把动作包里的动作装到骨架上。use：{ loco: [站立, 走], hit: 受击, death: [死亡, 起, 止（秒）] }
   //   站立 / 走：盖在程序化的移动姿态上（没有骨骼带动的关节——下颌、破布——仍是程序化的）；走路的相位来自走过的距离
   //     （rig.stride = 2π / 一个周期走多远，按动作包里记的周期距离 × 缩放），减速、冰缓时脚步跟着地面走，不打滑；
@@ -14535,6 +14622,14 @@
       weaponClips(rig);
       rangedClips(rig);
       gripClips(rig);
+      // AI 主角试验（ai3d-hero）：Kimodo 试验动作，只有网址带 &aimotion=1、动作文件送到了才换（见 aiMotion）
+      if (cs && window.CA_AI_MOTION && /^aihero/.test(cs.model)) {
+        try {
+          aiMotion(rig, cs);
+        } catch (e) {
+          if (window.console) console.warn('[角色] AI 试验动作套用失败，用程序化动作', e);
+        }
+      }
       return rig;
     }));
   }

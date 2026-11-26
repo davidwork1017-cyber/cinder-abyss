@@ -33,4 +33,13 @@
   st.models.aihero_hi = hi;
   st.models.aihero_lo = lo || hi;
   window.CA_AI_HERO = { cand, mode };
+  // Kimodo 试验动作（&aimotion=1）：文件不在仓库里，只有试验脚本把 lab-motion/<动作>.glb 路由到私有源目录时才取得到
+  if (q.get('aimotion')) {
+    let n = 0;
+    for (const m of ['idle', 'run', 'slash', 'backhand']) {
+      const b = get('lab-motion/' + m + '.glb');
+      if (b) { st.models['aim_' + m] = b; n++; }
+    }
+    if (n) window.CA_AI_MOTION = true;
+  }
 })();
