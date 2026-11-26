@@ -431,6 +431,14 @@
       refreshUi();
       return true;
     },
+    // 测试 / 平衡工具：on = true 时已学技能的等级读存档里记的数（改版前的口径，按「宝石 N 级」量数值用），false 时按游戏规则取成长下限（G.skillLvl）
+    pinGems(on) {
+      if (G.gemPin === !!on) return G.gemPin; // 没变就什么都不动（测试每一步开头都调一次）
+      G.gemPin = !!on;
+      if (G.applyVariants) G.applyVariants();
+      if (G.computeStats) G.computeStats();
+      return G.gemPin;
+    },
     setLevel(n) {
       const P = G.player;
       G.save.level = G.clamp(Math.floor(n) || 1, 1, G.MAX_LEVEL);

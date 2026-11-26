@@ -51,6 +51,12 @@ test:func 默认让游戏看到的 `window.devicePixelRatio` 是 0.5：3D 画面
 - `CINDER_SEED=<任意字符串>`：换一套种子（每步的种子 = 它 + 步骤名），查某一步是不是只在这一套随机数下碰巧能过。`CINDER_RANDOM=1`：不播种，照旧用浏览器自己的随机数。
 - 步骤名改了，这一步的随机序列就换了：改名后整套跑一遍再提交。
 
+## 技能等级（gem-nolvl）
+
+技能宝石没有等级：游戏里已学技能的等级一律是成长下限 round(角色等级 × 0.75)（`G.skillLvl`），存档 `skills` 里的数只当「学会了」，只升不降。
+老步骤按「宝石 N 级」量数值时直接改 `save.skills`，所以 `step()` 开头和 `install()` 都调 `G.debug.pinGems(true)`：技能等级读存档里记的数，和改版前一样。
+要看真实规则（等级 = 成长下限、刻式按角色 13 级解锁、重复宝石转换……）的步骤自己先调 `G.debug.pinGems(false)`，见「技能宝石没有等级」「刻式：…角色 12 级不能选」「职业·挑宝石」这几步。平衡工具（rv-abs 等）不装测试工具，跑的就是真实规则。
+
 ## 体检（CINDER_AUDIT=1）
 
 不改结果，每一步结束时多打几行 `audit`：`T.tp` 传送到 0.4 米余量下不能走的地方；`until` / 页面加载 / 导航 / `install` 的等待用掉了防卡死超时的一半以上。最后列出全程最接近超时的 12 次等待。加新步骤、或者池里跑得特别慢时用它看有没有离超时太近的等待。
@@ -88,6 +94,28 @@ test:func 最后一组「触屏：」步骤用手机模拟开新浏览器（`lau
 - 要先装 WebKit 浏览器和它的系统库，所以不在 `npm test` 里。开发机上已经装好（见 game-workspace/notes/mobile-design.md「已安装」），在池里跑：`cc-slot pool <名字> smoke -- npm run test:webkit`。
 - 这个 WebKit 构建里 `new Touch()` 不能用、`navigator.maxTouchPoints` 是 0：脚本发合成触摸事件，触屏判定靠 `ontouchstart` 兜底。
 - 能查出 JS / CSS / WebGL2 的兼容问题；iOS 特有的 GPU、音频策略、工具栏伸缩查不出来，要在真机上看。
+
+## Chrome 中途退出（浏览器体检）
+
+每次运行把浏览器的情况记到 `test-logs/<UTC 时间>-<pid>/`（已在 .gitignore；只留最近 3 天；`CINDER_CHROME_LOG=<目录>` 可改位置）。test:func / test:timed 开头那行 `== test:…` 末尾写着这一次的目录。
+
+- `run.log`：每开 / 关一个浏览器一行（第几个、Chrome 主进程 pid、在哪一步开的），意外退出、页面渲染进程崩溃、收到的信号也各记一行，都带 UTC 时间。
+- `chrome-NNN.log`：第 N 个浏览器在哪一步开的、`<chrome pid=…>`、Chrome 自己的 stderr（`--enable-logging=stderr --v=0`，GPU 进程、SwiftShader 的报错都在这里）、最后的 `<chrome exit rc=…>`（128 + n = 被信号 n 杀掉）。Chrome 经 `test/chrome-log.sh` 起（Linux 上找 `/opt/google/chrome/chrome`，`CINDER_CHROME_BIN` 可改；找不到就照旧 `channel: 'chrome'`，没有 stderr 日志）。
+- `crash/`：Chrome 的崩溃转储目录（`--crash-dumps-dir`；无头 Chrome 默认不写转储，多半是空的）。
+
+两种情况会在控制台上直接看到：
+
+- **`CHROME-DIED`**：浏览器不是测试自己关的却断开了。打出第几个浏览器、开在哪一步、死在哪一步、时间、退出码 / 信号、stderr 最后 12 行和日志文件名；之后因为它报「Target page, context or browser has been closed」的 FAIL 行末尾会补一句「浏览器 #N … 已意外退出」。最后合计上面再列一遍。怎么读退出原因：「被信号 9 杀掉」而 stderr 最后几行没有报错 = 被外面杀的（OOM、别人的清理脚本），去查系统日志 / atop（`atop -r /var/log/atop/atop_<日期> -b HH:MM -P PRG` 里状态 E 的进程带退出码）；「被信号 5 / 6 / 11 杀掉」或 stderr 里有 `FATAL` / `Check failed` = Chrome 自己崩的；「没有退出码（整个进程组被杀）」= 连启动壳一起被杀，也是外面的事。
+- **`KILLED 收到 SIGTERM …`**：测试进程自己被叫停（外层 `timeout` 到点、cc-slot 被杀、tmux 关掉 = SIGHUP）。打一行后立即退出（143 / 129 / 130），Playwright 把它开的 Chrome 一起杀掉。这一次的结果作废，不是 Chrome 的问题。
+
+以前 Playwright 自己接 SIGTERM：只关掉浏览器，Node 进程照跑。后面自己开浏览器的步骤照样通过，共用浏览器的步骤（界面布局、主线那一串）全报「browser has been closed」，最后照样打合计，看起来像 Chrome 中途崩了；而且槽位已经放掉了，这个进程还在池外继续开 Chrome。2026-11-24 的三次「Chrome 中途死掉」都是这个：外层 `timeout 1500 / 3000 / 3600 cc-slot pool … --wait 360 -- npm run test:func` 把排队时间也算进去，池里一次 test:func 要 45–56 分钟，到点就是 SIGTERM。
+
+**外层超时的写法**：限时放在 cc-slot 里面，只算跑的时间，并且至少给正常耗时的两倍：
+
+```bash
+cc-slot pool <名字> func --wait 360 -- timeout 7200 npm run test:func   # 对：排队不算，跑 2 小时才叫停
+timeout 3600 cc-slot pool <名字> func --wait 360 -- npm run test:func   # 错：排队 20 分钟就只剩 40 分钟
+```
 
 ## 其它
 

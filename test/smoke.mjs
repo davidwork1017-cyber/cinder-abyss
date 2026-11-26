@@ -2,13 +2,13 @@
 // 每一步打印一行 ok / FAIL；任何一步失败或页面出现报错，进程以非 0 退出。
 // 分两份（见 test/README.md）：main() 是 test:func（不看墙钟，可以和别的 Chrome 一起跑），timedMain() 是 test:timed（要独占机器）。
 // node test/smoke.mjs = 两份都跑（先 func 后 timed）；--func / --timed 只跑一份。
-import { launch as launchFull, GAME_URL } from './harness.mjs';
+import { launch as launchFull, GAME_URL, diagStep, deathNote, browserDeaths, LOG_DIR, outerTimeoutWarning } from './harness.mjs';
 import { cornerScenes, cornerHud, cornerCheck } from './corner-mask.mjs';
 import { execSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 import { checkArt } from '../tools/check-art.mjs';
 import { checkThree } from '../tools/check-three.mjs';
-import { uiLayoutCheck, uiBlankPoint, UI_SIZES, DESK_STYLE_SPEC, DESK_STYLE_MAIN, uiStyleRead, B4B_STYLE_SPEC, B4B_STYLE_MAIN } from './ui-layout.mjs';
+import { uiLayoutCheck, uiBlankPoint, UI_SIZES, DESK_STYLE_SPEC, DESK_STYLE_MAIN, DESK_STYLE_B4A_SPEC, DESK_STYLE_B4A_MAIN, uiStyleRead, B4B_STYLE_SPEC, B4B_STYLE_MAIN, DESK_STYLE_SK_SPEC, DESK_STYLE_SK_MAIN } from './ui-layout.mjs';
 import { TREE_STYLE_SPEC, TREE_STYLE_MAIN } from './ui-style-tree.mjs';
 
 const SAVE_KEY = 'cinder-abyss-save-v1';
@@ -45,6 +45,7 @@ const timed = async (kind, guard, p) => {
   return r;
 };
 const launch = async (o) => {
+  diagStep(curStep);
   const r = await launchFull(Object.assign({ dpr: cheap ? CHEAP_DPR : null, seed: SEEDED ? seedKey(curStep) : null }, o));
   // 主线旁白卡（quest D3）：放的时机按真实时间（打完仗、飘字出完），会在别的步骤中途弹出来接走 Esc / 回车，所以测试默认关掉；
   // 测旁白的那几步在 sessionStorage 里设 cinder-test-narr 再打开（install 和每次导航前都按它设 window.__noNarr）
@@ -69,6 +70,17 @@ const reseed = (key) =>
           if (window.T) T._rand = null; // 上一步没还原的 T.fix
           return window.__testRand ? window.__testRand.seed(k) : null;
         }, seedKey(key))
+        .catch(() => {})
+    : null;
+// 技能宝石没有等级（gem-nolvl）：游戏里已学技能的等级一律是成长下限（G.skillLvl）。老步骤按「宝石 N 级」量数值时直接改 save.skills，
+// 所以每一步开始时（和每次装测试工具时）都打开 G.debug.pinGems：技能等级读存档里记的数，和改版前一样。
+// 要看真实规则（等级 = 成长下限、刻式按角色等级解锁……）的步骤自己先调 G.debug.pinGems(false)，见「技能宝石没有等级」那几步
+const gemPin = () =>
+  page
+    ? page
+        .evaluate(() => {
+          if (window.G && G.debug && G.debug.pinGems) G.debug.pinGems(true);
+        })
         .catch(() => {})
     : null;
 const setDpr = (d) =>
@@ -116,7 +128,9 @@ async function step(name, fn) {
   const full = cheap && FULL_RES.some((p) => name.startsWith(p));
   if (full) await setDpr(1);
   curStep = name;
+  diagStep(name);
   await reseed(name);
+  await gemPin();
   const t0 = Date.now();
   try {
     const info = await fn();
@@ -129,7 +143,7 @@ async function step(name, fn) {
     await auditFlush(name);
     failed++;
     const extra = errors && errors.length ? ' ｜页面报错：' + errors.splice(0).join(' | ').slice(0, 600) : '';
-    console.log('FAIL ' + name + ' — ' + String(e && e.message ? e.message : e).split('\n').slice(0, 6).join(' / ') + extra);
+    console.log('FAIL ' + name + ' — ' + String(e && e.message ? e.message : e).split('\n').slice(0, 6).join(' / ') + extra + deathNote(e && e.message ? e.message : e));
   }
   if (full) await setDpr(CHEAP_DPR);
 }
@@ -145,6 +159,7 @@ async function auditFlush(name) {
 async function install() {
   await timed('install', 30000, page.waitForFunction(() => window.G && G.debug && G.state && G.state.zone && G.player && G.player.ent, null, { timeout: 30000 }));
   if (AUDIT) await ev(() => { window.__audit = true; });
+  await gemPin();
   await ev(() => {
     try {
       window.__noNarr = !sessionStorage.getItem('cinder-test-narr'); // 主线旁白卡默认关（见 launch）
@@ -266,6 +281,22 @@ async function install() {
       },
       tab() {
         return document.getElementById('panel').classList.contains('on') ? document.getElementById('panel-body').dataset.tab : null;
+      },
+      // UI-R B2：技能页一次只显示一张技能卡。打开技能页并选中这一行（技能 id / G.BASIC_CARD / 'wskill'），返回那张卡片（桌面：中间那一栏；窄屏：卡片）
+      skCard(id) {
+        G.ui.open('skills', id);
+        return document.querySelector('.sk-detail > .skill-card, .sk-detail > .wsk-card, #panel .sheet .skc-in');
+      },
+      // 每张学会的技能卡（不含武器普攻、武器技）各跑一次 f(卡片, id)，返回结果的数组（原来是一页里所有的 .skill-card）
+      skCards(f) {
+        const out = [];
+        for (const id of Object.keys(G.SKILLS)) {
+          const sk = G.SKILLS[id];
+          if (!G.save.skills[id] || sk.weaponOnly || sk.tags.indexOf('weapon') >= 0) continue;
+          const c = T.skCard(id);
+          if (c) out.push(f(c, id));
+        }
+        return out;
       },
       introOpen() {
         return document.getElementById('intro').classList.contains('on');
@@ -487,7 +518,7 @@ async function dragView(from, to) {
     const clips = (n) => { const out = []; for (let p = n.parentElement; p && p !== document.body; p = p.parentElement) { const cs = getComputedStyle(p); if (cs.overflowY !== 'visible' || cs.overflowX !== 'visible') out.push(p); } return out; };
     const scroller = (n) => clips(n).find((p) => /auto|scroll/.test(getComputedStyle(p).overflowY) && p.scrollHeight > p.clientHeight + 1) || null;
     // 技能列表的自动滚动带：已经滚到顶 / 底的那一边不会再滚，不用避
-    const inset = (p, end) => (p.classList.contains('skill-list') && (end ? p.scrollTop < p.scrollHeight - p.clientHeight - 1 : p.scrollTop > 0) ? edge : 0);
+    const inset = (p, end) => (p.hasAttribute('data-list') && p.closest('.skp') && (end ? p.scrollTop < p.scrollHeight - p.clientHeight - 1 : p.scrollTop > 0) ? edge : 0);
     // 中心是否落在容器 p 的内容区里（不含滚动条）；band：再避开技能列表的自动滚动带
     const inside = (n, p, band) => { const b = n.getBoundingClientRect(), r = p.getBoundingClientRect(), y = b.top + b.height / 2, x = b.left + b.width / 2, top = r.top + p.clientTop, k0 = band ? inset(p, 0) : 0, k1 = band ? inset(p, 1) : 0; return x >= r.left + p.clientLeft && x <= r.left + p.clientLeft + p.clientWidth && y >= top + k0 && y <= top + p.clientHeight - k1; };
     const sc = els.map((n) => (n ? scroller(n) : null));
@@ -577,6 +608,19 @@ async function closePanel() {
   for (let i = 0; i < 2 && (await ev(() => !!document.querySelector('#panel .sheet, #panel .ui-pop'))); i++) await page.keyboard.press('Escape');
   if (await ev(() => G.ui.isOpen())) await page.keyboard.press('Escape');
   assert(!(await ev(() => G.ui.isOpen())), 'Esc 没有关掉面板');
+}
+
+// UI-R B4a：拾取、画质、显示主线、删除这个角色从地图页挪进了设置（暂停菜单 → 设置）
+async function openSettings() {
+  await ev(() => {
+    G.ui.close();
+    G.ui.pause();
+  });
+  await page.click('#p-menu [data-tact="settings"]');
+}
+async function closeSettings() {
+  await ev(() => G.ui.close()); // 连暂停菜单一起关
+  assert(!(await ev(() => G.ui.paused())), '设置没有关掉');
 }
 
 // 面板打开时有 0.16 秒的入场动画（缩放 0.99 → 1），getBoundingClientRect 量到的宽高跟着变；机器忙时这段动画会拖到一两秒。
@@ -873,70 +917,85 @@ async function timedMain() {
     G.computeStats();
   });
   await uiStep('计时｜技能页拖拽贴边自动滚动：拖着宝石时滚轮照常能滚；指针离列表下边 40 像素以外不滚，贴到下边就往下滚；滚到开拖时看不见的远处孔上松手能镶上', async () => {
-    await ev(() => {
-      for (const id of Object.keys(G.save.sockets)) G.save.sockets[id] = [null, null, null];
-      G.socketSupport('ember', 0, 'multi');
-      G.computeStats();
-    });
-    await page.keyboard.press('KeyG');
-    await panelSettled();
-    const src = '.skill-list .sock[data-skill="ember"][data-idx="0"]';
-    // 把起点的孔滚到列表顶下 80 像素（单列时掷焰卡排在武器普攻卡下面，滚到顶它不在视野里）；
-    // 远处的孔 = 列表里能镶多重投射、离顶最远的那个孔（武器普攻卡除外）
-    const g = await ev((src) => {
-      const L = document.querySelector('.skill-list');
-      L.scrollTop += T.rect(src).y - (L.getBoundingClientRect().top + L.clientTop + 80);
-      const lr = L.getBoundingClientRect();
-      const far = Array.from(L.querySelectorAll('.sock')).filter((n) => n.dataset.skill !== G.BASIC_CARD && n.dataset.skill !== 'ember' && G.supportFits(n.dataset.skill, 'multi')).sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top)[0];
-      return { far: far ? '.skill-list .sock[data-skill="' + far.dataset.skill + '"][data-idx="' + far.dataset.idx + '"]' : null, skill: far && far.dataset.skill, idx: far && +far.dataset.idx, farY: far && T.rect(far).y, a: T.rect(src), top: lr.top, bottom: lr.top + L.clientHeight, x: lr.left + L.clientWidth / 2, s0: L.scrollTop, max: L.scrollHeight - L.clientHeight };
-    }, src);
-    assert(g.far && g.farY > g.bottom && g.s0 < g.max, '远处的孔开拖时应在列表可见区下面：' + JSON.stringify(g));
-    assert(g.a.y > g.top + 40 && g.a.y < g.bottom - 40, '起点的孔应在列表上部、贴边带以外：' + JSON.stringify(g));
-    const top = () => ev(() => document.querySelector('.skill-list').scrollTop);
-    await page.mouse.move(g.a.x, g.a.y);
-    await page.mouse.down();
-    await page.mouse.move(g.a.x + 9, g.a.y + 6, { steps: 2 });
-    assert(await ev(() => document.getElementById('drag-ghost').classList.contains('on')), '没有拖起来');
-    // 拖着的时候滚轮照常能滚
-    await page.mouse.wheel(0, 120);
-    await until((s0) => document.querySelector('.skill-list').scrollTop > s0, g.s0).catch(() => {
-      throw new Error('拖拽中滚轮滚不动技能列表');
-    });
-    // 离下边 60 像素（贴边带外）：等滚轮的平滑滚动停下，再停 10 帧，不滚
-    await page.mouse.move(g.x, g.bottom - 60, { steps: 3 });
-    let s1 = await top();
-    for (let i = 0; i < 60; i++) {
-      await frames(3);
-      const s = await top();
-      if (s === s1) break;
-      s1 = s;
+    // UI-R B2：插槽只在中间那张卡上（一次一张）。窗口压到 1100×520，选卡片最高的那个技能（比中间那一栏高得多），
+    // 从右边的辅助宝石列表拖起一颗能镶上去的宝石，在卡片那一栏里滚（原来是在一长串卡片的列表里，从掷焰的孔拖到远处别的技能的孔）
+    await page.setViewportSize({ width: 1100, height: 520 });
+    try {
+      const pk = await ev(() => {
+        for (const id of Object.keys(G.save.sockets)) G.save.sockets[id] = [null, null, null];
+        G.computeStats();
+        let best = null;
+        for (const h of T.skCards((c, id) => ({ id, h: c.getBoundingClientRect().height }))) if (!best || h.h > best.h) best = h;
+        const sup = G.save.supports.find((x) => G.supportFits(best.id, x));
+        G.ui.close();
+        return { id: best.id, sup };
+      });
+      assert(pk.id && pk.sup, '找不到能镶的技能和宝石：' + JSON.stringify(pk));
+      await page.keyboard.press('KeyG');
+      await ev((id) => G.ui.open('skills', id), pk.id);
+      await panelSettled();
+      const src = '.sup-list .sup[data-drag="sup:' + pk.sup + '"]';
+      // 远处的孔 = 这张卡的第一个孔（在卡片最下面，开拖时在卡片那一栏可见区下面）
+      const g = await ev(([src, id]) => {
+        const S = document.querySelector('.sup-list');
+        S.scrollTop += T.rect(src).y - (S.getBoundingClientRect().top + S.clientTop + 80);
+        const L = document.querySelector('.sk-detail');
+        L.scrollTop = 0;
+        const sr = S.getBoundingClientRect(), lr = L.getBoundingClientRect();
+        const far = '.sk-detail .sock[data-skill="' + id + '"][data-idx="0"]';
+        return { far, skill: id, idx: 0, farY: T.rect(far).y, a: T.rect(src), stop: sr.top, sbottom: sr.top + S.clientHeight, top: lr.top, bottom: lr.top + L.clientHeight, x: lr.left + L.clientWidth / 2, s0: L.scrollTop, max: L.scrollHeight - L.clientHeight };
+      }, [src, pk.id]);
+      assert(g.far && g.farY > g.bottom && g.s0 < g.max, '远处的孔开拖时应在卡片那一栏可见区下面：' + JSON.stringify(g));
+      assert(g.a.y > g.stop + 40 && g.a.y < g.sbottom - 40, '起点的宝石应在辅助列表上部、贴边带以外：' + JSON.stringify(g));
+      const top = () => ev(() => document.querySelector('.sk-detail').scrollTop);
+      await page.mouse.move(g.a.x, g.a.y);
+      await page.mouse.down();
+      await page.mouse.move(g.a.x + 9, g.a.y + 6, { steps: 2 });
+      assert(await ev(() => document.getElementById('drag-ghost').classList.contains('on')), '没有拖起来');
+      // 拖着的时候滚轮照常能滚（挪到卡片那一栏中间再滚）
+      await page.mouse.move(g.x, (g.top + g.bottom) / 2, { steps: 3 });
+      await page.mouse.wheel(0, 120);
+      await until((s0) => document.querySelector('.sk-detail').scrollTop > s0, g.s0).catch(() => {
+        throw new Error('拖拽中滚轮滚不动卡片那一栏');
+      });
+      // 离下边 60 像素（贴边带外）：等滚轮的平滑滚动停下，再停 10 帧，不滚
+      await page.mouse.move(g.x, g.bottom - 60, { steps: 3 });
+      let s1 = await top();
+      for (let i = 0; i < 60; i++) {
+        await frames(3);
+        const s = await top();
+        if (s === s1) break;
+        s1 = s;
+      }
+      await frames(10);
+      const s2 = await top();
+      assert(s2 === s1, '指针在贴边带以外时列表不应自己滚：' + s1 + ' → ' + s2);
+      // 贴到下边：往下滚，直到远处的孔进了可见区、离开贴边带（或者滚到了底）
+      await page.mouse.move(g.x, g.bottom - 6, { steps: 2 });
+      await until((s2) => document.querySelector('.sk-detail').scrollTop > s2 + 40, s2).catch(async () => {
+        throw new Error('指针贴到列表下边没有自动往下滚：scrollTop ' + s2 + ' → ' + (await top()));
+      });
+      await until(([far, edge]) => {
+        const L = document.querySelector('.sk-detail'), r = L.getBoundingClientRect(), y = T.rect(far).y;
+        return L.scrollTop >= L.scrollHeight - L.clientHeight - 1 || (y > r.top + edge && y < r.top + L.clientHeight - edge - 60);
+      }, [g.far, 40]).catch(async () => {
+        const d = await ev((far) => new Promise((res) => { const L = document.querySelector('.sk-detail'), r = L.getBoundingClientRect(), g = document.getElementById('drag-ghost'), t0 = performance.now(), s0 = L.scrollTop; let n = 0; const f = () => (++n, performance.now() - t0 < 1000 ? requestAnimationFrame(f) : res({ fps: n, moved1s: L.scrollTop - s0, top: L.scrollTop, max: L.scrollHeight - L.clientHeight, list: [Math.round(r.top), Math.round(r.top + L.clientHeight)], farY: Math.round(T.rect(far).y), ghost: g.className, cap: g.textContent })); requestAnimationFrame(f); }), g.far);
+        throw new Error('贴边自动滚动没有把远处的孔带进视野：' + JSON.stringify({ far: g.far, ptr: [Math.round(g.x), Math.round(g.bottom - 6)], ...d }));
+      });
+      // 先挪进来（离开贴边带就不再滚），再对准孔的中心
+      let b = await ev((s) => T.rect(s), g.far);
+      await page.mouse.move(b.x, b.y, { steps: 4 });
+      b = await ev((s) => T.rect(s), g.far);
+      await page.mouse.move(b.x, b.y);
+      await frames(2);
+      const mid = await ev((far) => ({ cap: document.querySelector('#drag-ghost em').textContent, hover: document.querySelector(far).classList.contains('drop-hover'), top: document.querySelector('.sk-detail').scrollTop }), g.far);
+      await page.mouse.up();
+      const r = await ev(([g, sup]) => ({ t: G.save.sockets[g.skill].slice(), n: Object.values(G.save.sockets).filter((a) => a && a.includes(sup)).length }), [g, pk.sup]);
+      assert(mid.hover && mid.cap.startsWith('镶进 ') && r.n === 1 && r.t[g.idx] === pk.sup, '自动滚到远处的孔上松手应把宝石镶上：' + JSON.stringify({ g, mid, r }));
+      await closePanel();
+    } finally {
+      await page.setViewportSize({ width: 1440, height: 900 });
     }
-    await frames(10);
-    const s2 = await top();
-    assert(s2 === s1, '指针在贴边带以外时列表不应自己滚：' + s1 + ' → ' + s2);
-    // 贴到下边：往下滚，直到远处的孔进了可见区、离开贴边带（或者滚到了底）
-    await page.mouse.move(g.x, g.bottom - 6, { steps: 2 });
-    await until((s2) => document.querySelector('.skill-list').scrollTop > s2 + 40, s2).catch(async () => {
-      throw new Error('指针贴到列表下边没有自动往下滚：scrollTop ' + s2 + ' → ' + (await top()));
-    });
-    await until(([far, edge]) => {
-      const L = document.querySelector('.skill-list'), r = L.getBoundingClientRect(), y = T.rect(far).y;
-      return L.scrollTop >= L.scrollHeight - L.clientHeight - 1 || (y > r.top + edge && y < r.top + L.clientHeight - edge - 60);
-    }, [g.far, 40]).catch(async () => {
-      const d = await ev((far) => new Promise((res) => { const L = document.querySelector('.skill-list'), r = L.getBoundingClientRect(), g = document.getElementById('drag-ghost'), t0 = performance.now(), s0 = L.scrollTop; let n = 0; const f = () => (++n, performance.now() - t0 < 1000 ? requestAnimationFrame(f) : res({ fps: n, moved1s: L.scrollTop - s0, top: L.scrollTop, max: L.scrollHeight - L.clientHeight, list: [Math.round(r.top), Math.round(r.top + L.clientHeight)], farY: Math.round(T.rect(far).y), ghost: g.className, cap: g.textContent, lists: document.querySelectorAll('.skill-list').length, weapon: G.weaponBasic() })); requestAnimationFrame(f); }), g.far);
-      throw new Error('贴边自动滚动没有把远处的孔带进视野：' + JSON.stringify({ far: g.far, ptr: [Math.round(g.x), Math.round(g.bottom - 6)], ...d }));
-    });
-    // 先挪进来（离开贴边带就不再滚），再对准孔的中心
-    let b = await ev((s) => T.rect(s), g.far);
-    await page.mouse.move(b.x, b.y, { steps: 4 });
-    b = await ev((s) => T.rect(s), g.far);
-    await page.mouse.move(b.x, b.y);
-    await frames(2);
-    const mid = await ev((far) => ({ cap: document.querySelector('#drag-ghost em').textContent, hover: document.querySelector(far).classList.contains('drop-hover'), top: document.querySelector('.skill-list').scrollTop }), g.far);
-    await page.mouse.up();
-    const r = await ev((g) => ({ e: G.save.sockets.ember.slice(), t: G.save.sockets[g.skill].slice() }), g);
-    assert(mid.hover && mid.cap.startsWith('镶进 ') && r.e[0] === null && r.t[g.idx] === 'multi', '自动滚到远处的孔上松手应把宝石挪过去：' + JSON.stringify({ g, mid, r }));
-    await closePanel();
   });
 }
 
@@ -1000,7 +1059,7 @@ async function main() {
   }
 
   // ash-models-drop / models-drop：第 0 区的布景全是自产件（kit-ash）；所有区都不再用 CC0 模型包，models.js 不再打包，冷启动（含之后预取第 1 区）一次都不该请求它
-  await step('素材：冷启动进第 0 区要齐第 0 区的包、不请求 CC0 模型包 models.js，第 0 区布景全部来自 kit-ash、都摆出来了', async () => {
+  await step('素材：冷启动进第 0 区要齐第 0 区的包、不请求 CC0 模型包 models.js 和照片岩石包 rock-dark.js，第 0 区布景全部来自 kit-ash、都摆出来了', async () => {
     const r = await ev(async () => {
       const W = G.world, t = performance.now();
       while (W.assetsPending() && performance.now() - t < 40000) await new Promise((res) => setTimeout(res, 50));
@@ -1008,7 +1067,9 @@ async function main() {
       return { pending: W.assetsPending(), hd: W.gfxInfo().hd, fires: W.gfxInfo().fires, src: W.propSources(), res };
     });
     const at = (f) => r.res.filter((x) => x.f === f);
-    assert(['zone-ash.js', 'kit-ash.js', 'rock-dark.js', 'ground.js'].every((f) => at(f).length), '冷启动缺第 0 区的包：' + r.res.map((x) => x.f).join(' '));
+    assert(['zone-ash.js', 'kit-ash.js', 'ground.js'].every((f) => at(f).length), '冷启动缺第 0 区的包：' + r.res.map((x) => x.f).join(' '));
+    // tex-t1：第 0 区的地面 / 岩石换成脚本画的贴图（在 zone-ash 包里），冷启动不再要照片的 rock-dark 包（深渊还用它）
+    assert(!at('rock-dark.js').length, '冷启动请求了第 0 区已经不用的 rock-dark.js：' + r.res.map((x) => x.f).join(' '));
     assert(!at('models.js').length, '冷启动请求了 CC0 模型包 models.js：' + r.res.map((x) => x.f).join(' '));
     const fmt = r.src.map((s) => s.key + '@' + s.pack + '×' + s.placed).join(' ');
     assert(!r.pending && r.hd, '第 0 区没换上 PBR 外观：' + JSON.stringify({ pending: r.pending, hd: r.hd }));
@@ -1016,6 +1077,53 @@ async function main() {
     const placed = (re) => r.src.filter((s) => re.test(s.key)).reduce((a, s) => a + s.placed, 0);
     assert(placed(/ash_tree_dead_/) >= 3 && placed(/ash_(skull|bones|blade|marker)$/) >= 3 && placed(/firepit/) === r.fires && r.fires > 0 && placed(/./) >= 20, '第 0 区布景没摆全（枯树 ≥ 3、路边小物 ≥ 3、火坑数 = 火焰数、总数 ≥ 20）：' + fmt + ' 火 ' + r.fires);
     return '请求顺序 ' + r.res.map((x) => x.f.replace(/\.js$/, '')).join(' → ') + ' ｜ 布景 ' + placed(/./) + ' 个';
+  });
+
+  // tex-t1：第 0 区的路面 / 粗糙地面 / 虚空地面 / 岩石三向投影都是脚本画的贴图；高 / 中档 512² 带法线贴图，低档换 256² 的一套、不传法线贴图（平的法线）
+  await step('贴图：第 0 区地面和岩石用脚本画的贴图，高档 512² 带法线贴图，低档 256²、不传法线贴图（进区和原地换档都对）', async () => {
+    const r = await ev(async () => {
+      const W = G.world, S = G.state, zk = { zi: S.zoneIdx, tier: S.tier }, q0 = W.quality();
+      const look = () => {
+        let gm = null, rm = null;
+        W.scene.traverse((o) => {
+          const m = o.material;
+          if (!m || Array.isArray(m) || !m.userData) return;
+          if (m.userData.U && m.userData.U.tA0 && !gm) gm = m.userData.U;
+          if (m.userData.triU && !rm) rm = m.userData.triU;
+        });
+        const sz = (t) => (t && t.value && t.value.image ? t.value.image.width : 0);
+        return { gfx: W.gfxInfo().hd, g: gm ? [sz(gm.tA0), sz(gm.tN0), sz(gm.tR0), sz(gm.tA1), sz(gm.tN1), sz(gm.tA2), sz(gm.tN2)] : null, rock: rm ? [sz(rm.tRA), sz(rm.tRN)] : null };
+      };
+      const wait = async () => { const t = performance.now(); while ((W.assetsPending() || !W.gfxInfo().hd) && performance.now() - t < 20000) await new Promise((res) => setTimeout(res, 50)); };
+      // 换档以后这一档的图像在后台解码、到了再原地换（tex-t2 的 retierZone）：等到地面的路面贴图换成这一档要的尺寸（最多 20 秒）
+      const until = async (px) => { const t = performance.now(); let r = look(); while (!(r.g && r.g[0] === px) && performance.now() - t < 20000) { await new Promise((res) => setTimeout(res, 50)); r = look(); } return r; };
+      const out = { ids: ['p_mud', 'p_burn', 'p_rock'].map((id) => G.assets.packOfTex(id)), old: ['mud_cracked_dry_03', 'burned_ground_01'].map((id) => G.assets.packOfTex(id)) };
+      W.setQuality('high');
+      G.enterZone(0, 0);
+      await wait();
+      out.high = await until(512);
+      W.setQuality('low');
+      G.enterZone(0, 0);
+      await wait();
+      out.low = await until(256);
+      // 不重新进区、原地换档（retierZone → swapZoneTex）：高档换回 512² 和真的法线贴图，再回低档换回 256² 和平的法线；岩石跟着换
+      W.setQuality('high');
+      out.swapHigh = await until(512);
+      W.setQuality('low');
+      out.swapLow = await until(256);
+      W.setQuality(q0);
+      G.enterZone(zk.zi, zk.tier);
+      await wait();
+      return out;
+    });
+    assert(r.ids.every((p) => p === 'zone-ash') && r.old.every((p) => !p), '第 0 区贴图应是 zone-ash 包里的 p_mud / p_burn / p_rock，照片贴图不再打包：' + JSON.stringify(r));
+    assert(r.high.gfx && r.high.g && r.high.g.every((w) => w === 512) && r.high.rock && r.high.rock.every((w) => w === 512), '高档：地面三套和岩石应是 512² 带法线贴图：' + JSON.stringify(r.high));
+    const L = r.low.g;
+    assert(r.low.gfx && L && [L[0], L[2], L[3], L[5]].every((w) => w === 256) && [L[1], L[4], L[6]].every((w) => w === 4) && r.low.rock && r.low.rock[0] === 256 && r.low.rock[1] === 4, '低档：地面三套和岩石应是 256²、法线贴图是平的 4×4：' + JSON.stringify(r.low));
+    const okHi = (x) => x && x.g && x.g.every((w) => w === 512) && x.rock && x.rock.every((w) => w === 512);
+    const okLo = (x) => x && x.g && [x.g[0], x.g[2], x.g[3], x.g[5]].every((w) => w === 256) && [x.g[1], x.g[4], x.g[6]].every((w) => w === 4) && x.rock && x.rock[0] === 256 && x.rock[1] === 4;
+    assert(okHi(r.swapHigh) && okLo(r.swapLow), '原地换档：高档应换回 512² 带法线、低档换回 256² 平法线：' + JSON.stringify({ hi: r.swapHigh, lo: r.swapLow }));
+    return '高 ' + r.high.g.join('/') + ' ｜ 低 ' + L.join('/') + ' ｜ 岩石 ' + r.high.rock.join('/') + ' → ' + r.low.rock.join('/') + ' ｜ 原地换档 ' + r.swapHigh.g.join('/') + ' → ' + r.swapLow.g.join('/');
   });
 
   await step('首屏：场景、玩家、HUD、小地图都画出来了', async () => {
@@ -1656,7 +1764,7 @@ async function main() {
     assert(e.full && e.t2.includes('背包已满'), '背包已满时应保留掉落并提示');
   });
 
-  await step('无铭技能宝石：首领首杀必掉（再打靠几率），精英 / 普通怪小几率；拾取进存档并按等级排好，拾取记录写数量；用不上时化为微光尘；旧存档补默认值，畸形数据被修正', async () => {
+  await step('无铭技能宝石：首领首杀必掉（再打靠几率），精英 / 普通怪小几率；没有等级（名牌、提示、拾取记录都不写 Lv）；拾取进存档（记当时的成长下限），拾取记录写数量；能学的都学会了时化为 1 个随机通货；旧存档补默认值，畸形数据被修正', async () => {
     const r = await ev((KEY) => {
       const S = G.state, save = G.save, P = G.player;
       T.arena();
@@ -1670,7 +1778,7 @@ async function main() {
         Math.random = () => 0.999; // 只看保底：靠几率的掉落一律不出
         save.bossKills = {};
         G.dropLoot(fake({ isBoss: true, bossKind: kind }));
-        out.first = blanks().map((l) => ({ lvl: l.data.lvl, label: l.label, color: l.color }));
+        out.first = blanks().map((l) => ({ lvl: 'lvl' in l.data, label: l.label, color: l.color }));
         T.clearLoot();
         save.bossKills = { [kind]: true };
         G.dropLoot(fake({ isBoss: true, bossKind: kind }));
@@ -1696,30 +1804,37 @@ async function main() {
       }
       out.rates = Object.assign({}, G.BLANK_DROP);
 
-      // 拾取：走过去自动捡起，存进存档（从高到低排），提示与拾取记录里写数量
+      // 拾取：走过去自动捡起，存进存档（记当时的成长下限：角色 8 级 → 6，旧版本读档照常是一颗 6 级的），提示与拾取记录里写数量
       save.blankGems = [];
-      const dust0 = save.cur.dust;
-      const pick = (lvl) => {
-        const l = G.spawnLoot('blank', { lvl }, P.x, P.z);
+      const lv0 = save.level;
+      save.level = 8;
+      const curSum = () => G.CUR_IDS.reduce((a, id) => a + (save.cur[id] || 0), 0);
+      const cur0 = curSum();
+      const pick = () => {
+        const l = G.spawnLoot('blank', {}, P.x, P.z);
         T.tp(l.x, l.z);
         G.debug.step(0.5);
         return S.loot.indexOf(l) < 0;
       };
-      out.picked = pick(4);
+      out.picked = pick();
       out.toast1 = T.toasts();
       out.feed = document.getElementById('feed').innerText;
-      out.picked2 = pick(2) && pick(6);
+      out.picked2 = pick() && pick();
       out.gems = save.blankGems.join();
       out.stored = (JSON.parse(localStorage.getItem(KEY)).blankGems || []).join();
-      // 所有技能都学会了、而且都不低于这颗的等级：用不上，化为 1 微光尘
+      // 能学的技能都学会了：用不上，化为 1 个随机通货
       const sk0 = save.skills;
       save.skills = {};
-      for (const id of G.GEM_SKILLS) save.skills[id] = 9; // 武器技跟着武器走，不算在内
-      out.useful9 = G.blankUseful(9);
-      out.useful10 = G.blankUseful(10);
-      out.uselessPicked = pick(5);
-      out.useless = { gems: save.blankGems.join(), dust: save.cur.dust - dust0, toast: T.toasts() };
+      for (const id of G.GEM_SKILLS.slice(1)) save.skills[id] = 9; // 武器技跟着武器走，不算在内
+      out.usefulMissing1 = G.blankUseful();
+      save.skills[G.GEM_SKILLS[0]] = 9;
+      out.usefulAll = G.blankUseful();
+      const cur1 = curSum();
+      out.uselessPicked = pick();
+      out.useless = { gems: save.blankGems.join(), cur: curSum() - cur1, toast: T.toasts(), feed: document.getElementById('feed').innerText };
+      out.curPick = cur1 - cur0;
       save.skills = sk0;
+      save.level = lv0;
       G.persist();
 
       // 旧存档没有这个字段：补成空数组；畸形数据被修正（取整、夹在 1–20、丢掉非数字、从高到低排）
@@ -1746,16 +1861,105 @@ async function main() {
       G.persist();
       return out;
     }, SAVE_KEY);
-    assert(r.first.length === 1 && r.first[0].lvl >= 1 && r.first[0].label.startsWith('无铭技能宝石 Lv ') && r.first[0].color !== '#3fe0c8', '首领首杀应必掉一颗无铭技能宝石，名牌颜色和技能宝石不同：' + JSON.stringify(r.first));
+    assert(r.first.length === 1 && r.first[0].lvl === false && r.first[0].label === '无铭技能宝石' && r.first[0].color !== '#3fe0c8', '首领首杀应必掉一颗无铭技能宝石（没有等级），名牌颜色和技能宝石不同：' + JSON.stringify(r.first));
     assert(r.again === 0 && r.unlucky === 0, '首领再打 / 精英 / 普通怪没有中几率时不应掉：' + JSON.stringify(r));
     assert(r.bossLucky === 1 && r.eliteLucky === 1 && r.mobLucky === 1, '几率掉落没有生效：' + JSON.stringify(r));
     assert(r.rates.elite > 0 && r.rates.elite <= 0.1 && r.rates.mob > 0 && r.rates.mob < 0.012 && r.rates.boss < 1, '掉落几率不对：' + JSON.stringify(r.rates));
-    assert(r.picked && r.picked2 && r.gems === '6,4,2' && r.stored === '6,4,2', '拾取后应按等级从高到低存进存档：' + JSON.stringify(r));
-    assert(r.toast1.includes('无铭技能宝石 Lv 4') && r.toast1.includes('共 1 颗') && r.feed.includes('无铭技能宝石 Lv 4') && r.feed.includes('共 1 颗'), '拾取提示 / 拾取记录没有写数量：' + r.toast1 + ' | ' + r.feed);
-    assert(r.useful9 === false && r.useful10 === true, 'blankUseful 判断不对');
-    assert(r.uselessPicked && r.useless.gems === '6,4,2' && r.useless.dust === 1 && r.useless.toast.includes('用不上'), '用不上的无铭宝石应化为 1 微光尘：' + JSON.stringify(r.useless));
-    assert(r.old === '[]' && r.bad === '45,5,3,1' && r.bad2 === '[]' && r.back === '6,4,2' && r.fresh === '[]', '旧存档 / 畸形存档没有修好：' + JSON.stringify(r));
-    return '首杀掉 Lv ' + r.first[0].lvl + '，几率 ' + JSON.stringify(r.rates);
+    assert(r.picked && r.picked2 && r.gems === '6,6,6' && r.stored === '6,6,6' && r.curPick === 0, '拾取后应存进存档、记当时的成长下限（6）：' + JSON.stringify(r));
+    assert(r.toast1.includes('获得无铭技能宝石（共 1 颗') && !/Lv/.test(r.toast1) && r.feed.includes('无铭技能宝石') && r.feed.includes('共 1 颗') && !/Lv/.test(r.feed), '拾取提示 / 拾取记录应写数量、不写等级：' + r.toast1 + ' | ' + r.feed);
+    assert(r.usefulMissing1 === true && r.usefulAll === false, 'blankUseful 判断不对：' + JSON.stringify(r));
+    assert(r.uselessPicked && r.useless.gems === '6,6,6' && r.useless.cur === 1 && /用不上的无铭技能宝石，化为 1 个\S+/.test(r.useless.toast) && r.useless.feed.includes('化为'), '用不上的无铭宝石应化为 1 个随机通货：' + JSON.stringify(r.useless));
+    assert(r.old === '[]' && r.bad === '45,5,3,1' && r.bad2 === '[]' && r.back === '6,6,6' && r.fresh === '[]', '旧存档 / 畸形存档没有修好：' + JSON.stringify(r));
+    return '首杀掉一颗（无等级），几率 ' + JSON.stringify(r.rates);
+  });
+
+  await step('技能宝石没有等级（gem-nolvl）：已学技能的等级一律是成长下限（法术、召唤物、黑焰、刻式都按它）；存档里记的数只升不降（高于下限的旧值原样留着、读档往返不变，低于的抬到下限，升级时也只抬不压）；学会了的宝石再捡到：还有能学的就化成无铭宝石，否则化成 1 个随机通货；名牌 / 提示 / 拾取记录 / 技能卡都不写等级', async () => {
+    const r = await ev((KEY) => {
+      T.arena();
+      const S = G.state, save = G.save, P = G.player, out = {};
+      G.persist();
+      const keep = localStorage.getItem(KEY);
+      const lv0 = save.level;
+      const avg = (o) => Object.values(o).reduce((a, v) => a + (v[0] + v[1]) / 2, 0);
+      const pick = (kind, data) => {
+        const l = G.spawnLoot(kind, data, P.x, P.z);
+        T.tp(l.x, l.z);
+        G.debug.step(0.5);
+        return S.loot.indexOf(l) < 0;
+      };
+      const curSum = () => G.CUR_IDS.reduce((a, id) => a + (save.cur[id] || 0), 0);
+      G.debug.pinGems(false);
+      try {
+        save.level = 20; // 成长下限 15
+        G.debug.learnAll();
+        save.skills.ember = 30; // 改版前捡到的高等级宝石
+        save.skills.thrall = 30;
+        save.skills.blackflame = 40;
+        save.skills.nova = 2; // 低于下限（旧存档）
+        delete save.skills.icefall;
+        G.computeStats();
+        out.floor = G.gemFloor();
+        out.lv = ['ember', 'thrall', 'blackflame', 'nova', 'icefall'].map(G.skillLvl).join();
+        out.ember = Math.abs(avg(G.skillBase('ember')) - avg(G.skillBase('ember', 15))) < 1e-9 && avg(G.skillBase('ember', 30)) > avg(G.skillBase('ember')) * 1.4;
+        out.thrall = Math.abs(avg(G.skillBase('thrall')) - avg(G.skillBase('thrall', 15))) < 1e-9 && avg(G.skillBase('thrall', 30)) > avg(G.skillBase('thrall')) * 1.4;
+        out.open = G.variantOpen('ember') && !G.variantOpen('icefall');
+        // 存档：读档往返，存的数只升不降
+        G.persist();
+        G.loadSave();
+        G.computeStats();
+        out.stored = ['ember', 'thrall', 'blackflame', 'nova'].map((id) => save.skills[id]).join();
+        G.persist();
+        const raw = JSON.parse(localStorage.getItem(KEY)).skills;
+        out.raw = [raw.ember, raw.thrall, raw.blackflame, raw.nova].join();
+        // 升一级：存的数跟着抬到新下限（16），高于下限的不动，不再弹「技能宝石随之成长」
+        T.toasts();
+        G.gainXp(G.xpNeed(save.level) - save.xp + 1);
+        out.up = { level: save.level, floor: G.gemFloor(), nova: save.skills.nova, ember: save.skills.ember, lvl: G.skillLvl('ember'), toast: T.toasts() };
+        // 地上的技能宝石：名牌不写等级
+        S.loot.length = 0;
+        const l = G.spawnLoot('skill', { id: 'icefall' }, P.x + 3, P.z);
+        out.label = l.label;
+        out.data = JSON.stringify(l.data);
+        T.clearLoot();
+        // 学会了的再捡到：还有没学会的（坠凌）→ 化成一颗无铭宝石
+        save.blankGems = [];
+        const c0 = curSum();
+        out.dup1 = { picked: pick('skill', { id: 'nova' }), gems: save.blankGems.join(), cur: curSum() - c0, toast: T.toasts(), feed: document.getElementById('feed').innerText };
+        // 全都学会了 → 化成 1 个随机通货，无铭宝石不动
+        save.skills.icefall = G.gemFloor();
+        const c1 = curSum(), each = Object.assign({}, save.cur);
+        out.dup2 = { picked: pick('skill', { id: 'nova' }), gems: save.blankGems.join(), cur: curSum() - c1, toast: T.toasts(), feed: document.getElementById('feed').innerText };
+        const got = G.CUR_IDS.find((id) => (save.cur[id] || 0) > (each[id] || 0));
+        out.dup2.name = got ? G.CURRENCY[got].name : '';
+        // 没学会的照常学会，存档里记下限
+        delete save.skills.icefall;
+        out.learn = { picked: pick('skill', { id: 'icefall' }), lvl: save.skills.icefall, floor: G.gemFloor(), toast: T.toasts() };
+        // 技能页：宝石技能卡不写等级（武器技在上面单独一节，它的等级随武器，不算宝石）
+        G.ui.open('skills');
+        out.rows = Array.from(document.querySelectorAll('.sk-row')).map((n) => n.innerText).join(' || ');
+        const cards = T.skCards((c) => c.innerText); // UI-R B2：一次一张卡，每张学会的技能卡各看一遍
+        out.cards = cards.join(' || ');
+        out.ncards = cards.length;
+        G.ui.close();
+      } finally {
+        G.debug.pinGems(true);
+        save.level = lv0;
+        localStorage.setItem(KEY, keep);
+        G.loadSave();
+        G.computeStats();
+        T.clearLoot();
+      }
+      return out;
+    }, SAVE_KEY);
+    assert(r.floor === 15 && r.lv === '15,15,15,15,0' && r.ember && r.thrall && r.open, '已学技能的等级应一律是成长下限 15（存档里记着 30 / 40 的也一样）：' + JSON.stringify(r));
+    assert(r.stored === '30,30,40,15' && r.raw === '30,30,40,15', '存档里的数只升不降：高于下限的原样留着，低于的抬到下限：' + JSON.stringify(r));
+    assert(r.up.level === 21 && r.up.floor === 16 && r.up.nova === 16 && r.up.ember === 30 && r.up.lvl === 16 && !r.up.toast.includes('技能宝石随之成长') && !/Lv 1[56]：/.test(r.up.toast), '升级：存的数只抬不压、不再提示宝石成长：' + JSON.stringify(r.up));
+    assert(r.label === '技能宝石：坠凌' && r.data === '{"id":"icefall"}', '地上的技能宝石不该有等级：' + JSON.stringify(r));
+    assert(r.dup1.picked && r.dup1.gems === '16' && r.dup1.cur === 0 && r.dup1.toast.includes('已学会「霜环」，化为 1 颗无铭技能宝石（共 1 颗）') && r.dup1.feed.includes('化为无铭宝石'), '学会了的宝石（还有能学的）应化成无铭宝石：' + JSON.stringify(r.dup1));
+    assert(r.dup2.picked && r.dup2.gems === '16' && r.dup2.cur === 1 && r.dup2.name && r.dup2.toast.includes('已学会「霜环」，化为 1 个' + r.dup2.name) && r.dup2.feed.includes('化为' + r.dup2.name), '全都学会了：应化成 1 个随机通货：' + JSON.stringify(r.dup2));
+    assert(r.learn.picked && r.learn.lvl === r.learn.floor && r.learn.toast.includes('习得技能：坠凌') && !/坠凌 Lv/.test(r.learn.toast), '没学会的照常学会、记下限、提示不写等级：' + JSON.stringify(r.learn));
+    assert(r.ncards > 10 && !/Lv\b|Lv /.test(r.cards + r.rows) && !r.cards.includes('升至') && r.rows, '技能卡 / 技能列表不该写等级：' + (r.cards + r.rows).slice(0, 300));
+    return '下限 ' + r.floor + ' · 存的 ' + r.stored + ' · 重复 → 无铭 / 通货';
   });
 
   await step('掉落：升华石 / 乱流石 / 重铸石权重提高，琢刻石介于其间；首领首杀保底升华石和乱流石各一颗；分解稀有物品有几率给其一；辅助宝石掉率提高、首领掉三颗；重复的辅助宝石照旧化为增幅尘', async () => {
@@ -4723,7 +4927,7 @@ async function main() {
       const bm = Object.keys(G.TREE).find((id) => G.TREE[id].stats && G.TREE[id].stats.bloodMagic);
       G.save.passives.push(bm);
       G.computeStats();
-      out.blood = { res: P.reserved, life: P.maxLife, lifeRaw: P.maxLifeRaw, max: P.maxMana, raw: P.maxManaRaw, card: (G.ui.open('skills'), document.getElementById('panel').innerText.includes('生命保留')) };
+      out.blood = { res: P.reserved, life: P.maxLife, lifeRaw: P.maxLifeRaw, max: P.maxMana, raw: P.maxManaRaw, card: (G.ui.open('skills', 'nova'), document.getElementById('panel').innerText.includes('生命保留')) };
       G.ui.close();
       G.save.passives.pop();
       G.computeStats();
@@ -4745,8 +4949,8 @@ async function main() {
     assert(r.pick.regen < r.after.regen, '保留的魔力不应再回复（回复按保留后的上限算）：' + JSON.stringify([r.pick, r.after]));
     assert(r.blood.res === Math.round(r.blood.lifeRaw * 0.18) && r.blood.life === r.blood.lifeRaw - r.blood.res && r.blood.max === r.blood.raw && r.blood.card, '以血为引时光环应改为保留生命：' + JSON.stringify(r.blood));
     // 技能卡：保留、每跳伤害、秒伤
-    await ev(() => { G.bindSkill(2, 'nova'); G.ui.open('skills'); });
-    const txt = await ev(() => { const c = Array.from(document.querySelectorAll('.skill-card')).find((n) => n.querySelector('.sk-name').textContent.startsWith('霜环')); return c ? c.innerText : ''; });
+    await ev(() => G.bindSkill(2, 'nova'));
+    const txt = await ev(() => { const c = T.skCard('nova'); return c ? c.innerText : ''; });
     await ev(() => G.ui.close());
     assert(txt.includes('魔力保留') && txt.includes('18%') && txt.includes('每跳伤害') && txt.includes('每秒脉冲') && txt.includes('估算秒伤') && txt.includes('生效中') && !txt.includes('魔力消耗'), '霜环的技能卡应写魔力保留和每跳伤害：' + txt);
     return '两秒脉冲 ' + r.pulses.toFixed(1) + ' 次，半径 ' + r.R[0].toFixed(1) + '，保留 ' + r.on.res + ' 魔力';
@@ -5314,7 +5518,7 @@ async function main() {
     await ev(() => G.clearEnemies());
     // 帮助页那一段：数字从 G.ENEMY_RES 读
     u = await ev(() => {
-      G.ui.open('help');
+      G.ui.open('help', 'fight'); // B4a：帮助页一次只显示一个话题
       const p = Array.from(document.querySelectorAll('p')).find((n) => /敌人的抗性/.test(n.innerText));
       const t = p ? p.innerText : '';
       G.ui.close();
@@ -5333,9 +5537,8 @@ async function main() {
       out.ember = one('ember');
       out.melee = one('basic_blade'); // 近战的主力：刃的右键连招「挥斩」（裂石击已删除）
       out.arc = one('arc');
-      G.ui.open('skills');
-      const card = (name) => { const c = Array.from(document.querySelectorAll('.skill-card')).find((n) => n.querySelector('.sk-name').textContent.startsWith(name)); return c ? c.innerText : ''; };
-      out.card = card('陨火');
+      const card = (id) => { const c = T.skCard(id); return c ? c.innerText : ''; };
+      out.card = card('meteor');
       G.ui.close();
       return out;
     });
@@ -5803,8 +6006,10 @@ async function main() {
     await page.keyboard.press('KeyG');
     await until(() => T.tab() === 'skills');
     const card = await ev(() => {
+      const other = T.skCards((c) => c.querySelectorAll('.sk-auto-btn').length).reduce((a, b) => a + b, 0); // 每张召唤技能卡各一个
+      T.skCard('thrall');
       const b = document.querySelector('.sk-auto-btn[data-skill="thrall"]');
-      return { has: !!b, on: b && b.closest('.sk-auto').classList.contains('on'), txt: b ? b.closest('.sk-auto').innerText : '', other: document.querySelectorAll('.sk-auto-btn').length };
+      return { has: !!b, on: b && b.closest('.sk-auto').classList.contains('on'), txt: b ? b.closest('.sk-auto').innerText : '', other };
     });
     await page.click('.sk-auto-btn[data-skill="thrall"]');
     const card2 = await ev((KEY) => {
@@ -6364,7 +6569,7 @@ async function main() {
     // 技能卡：火弹半径、焰蓄与两种大招
     await page.keyboard.press('KeyG');
     const card = await ev(() => {
-      const c = Array.from(document.querySelectorAll('.skill-card')).find((n) => n.textContent.includes('焚骨祭司'));
+      const c = T.skCard(Object.keys(G.SKILLS).find((id) => G.SKILLS[id].name === '焚骨祭司'));
       const ico = c && c.querySelector('.ico');
       return { txt: c ? c.textContent : '', ico: ico ? getComputedStyle(ico).backgroundImage.length > 30 : false };
     });
@@ -6822,6 +7027,12 @@ async function main() {
       const r = await ev(() => ({ tab: T.tab(), txt: T.bodyText(), on: document.querySelector('.tab.on') && document.querySelector('.tab.on').dataset.tab }));
       assert(r.tab === tab && r.on === tab, key + ' 没有打开 ' + tab + '（实际 ' + r.tab + '）');
       cleanText(r.txt, tab + ' 页');
+      // B4a：帮助页一次只显示一个话题，每个话题都查一遍
+      if (tab === 'help') {
+        const ids = await ev(() => Array.from(document.querySelectorAll('[data-act="topic"]')).map((b) => b.dataset.topic));
+        assert(ids.length >= 9, '帮助页的话题不全：' + ids.join());
+        for (const id of ids) cleanText(await ev((id) => (G.ui.open('help', id), T.bodyText()), id), 'help·' + id + ' 页');
+      }
       const t0 = await ev(() => G.state.time);
       await page.keyboard.down('KeyD');
       await frames(2);
@@ -7490,18 +7701,18 @@ async function main() {
     r2 = await ev(() => ({ on: document.getElementById('tip').classList.contains('on'), rows: document.querySelectorAll('#tip .tr-row').length, now: document.querySelectorAll('#tip .tr-row.now').length, txt: document.getElementById('tip').innerText }));
     assert(r2.on && r2.rows === 10 && r2.now === 1 && r2.txt.includes('本阶范围'), '悬停词缀应说明各阶范围：' + JSON.stringify(r2));
     cleanText(r2.txt, '词缀提示');
-    // 地图页的筛选选项
-    await page.keyboard.press('KeyM');
-    await page.click('[data-act="normmode"][data-mode="scrap"]');
-    await page.click('[data-act="opt"][data-opt="hideNormal"]');
+    // 拾取选项（B4a：从地图页挪进设置的「拾取」一组）
+    await openSettings();
+    await page.click('#p-view [data-tact="normmode"][data-mode="scrap"]');
+    await page.click('#p-view [data-tact="opt"][data-opt="hideNormal"]');
     r2 = await ev(() => {
-      const row = document.querySelector('.map-opts').getBoundingClientRect();
-      const kids = Array.from(document.querySelector('.map-opts').children).map((n) => n.getBoundingClientRect());
-      return { o: G.save.opts, stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).opts, fits: kids.every((k) => k.left >= row.left - 1 && k.right <= row.right + 1), on: document.querySelector('.seg-b.on').dataset.mode };
+      const rows = Array.from(document.querySelector('#p-view [data-tact="normmode"]').closest('.m-grp').querySelectorAll('.m-row'));
+      const fits = rows.length > 0 && rows.every((row) => { const b = row.getBoundingClientRect(); return Array.from(row.children).every((n) => { const k = n.getBoundingClientRect(); return k.left >= b.left - 1 && k.right <= b.right + 1; }); });
+      return { o: G.save.opts, stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).opts, fits, on: document.querySelector('#p-view .seg-b.on[data-tact="normmode"]').dataset.mode };
     });
     assert(r2.o.autoWhite && r2.o.autoSalvage && r2.o.hideNormal && r2.o.salvageMagic && JSON.stringify(r2.o) === JSON.stringify(r2.stored) && r2.on === 'scrap', '筛选选项没有生效或没有存档：' + JSON.stringify(r2));
     assert(r2.fits, '选项一行放不下');
-    await closePanel();
+    await closeSettings();
     r2 = await ev(() => {
       T.clearLoot();
       G.save.bag.length = 0;
@@ -7928,11 +8139,11 @@ async function main() {
           names: [G.SKILLS[G.BASES.weapon[3].wskill].name, G.SKILLS[G.BASES.weapon[0].wskill].name],
         };
         G.ui.close();
-        G.ui.open('skills');
-        const wc = document.querySelector('.wsk-card');
-        out.skills = { card: !!wc, name: wc ? wc.innerText.includes(G.SKILLS[G.weaponSkill()].name) : false, row: wc ? wc.querySelectorAll('.wsl').length : 0, atk: document.querySelectorAll('.sk-anote.wpn').length };
+        const wc = T.skCard('wskill');
+        out.skills = { card: !!wc, name: wc ? wc.innerText.includes(G.SKILLS[G.weaponSkill()].name) : false, row: wc ? wc.querySelectorAll('.wsl').length : 0 };
+        out.skills.atk = T.skCards((c) => c.querySelectorAll('.sk-anote.wpn').length).reduce((a, b) => a + b, 0); // 攻击技能卡上的武器伤害说明
         G.ui.close();
-        G.ui.open('help');
+        G.ui.open('help', 'weapon'); // B4a：帮助页一次只显示一个话题
         out.help = document.getElementById('panel-body').innerText.includes('武器与武器技');
         G.ui.close();
       } finally {
@@ -7966,8 +8177,9 @@ async function main() {
     await page.keyboard.press('KeyG');
     cleanText(await ev(() => T.bodyText()), '技能页');
     // 武器普攻卡（.basic-card，拿着远程武器时才生效）另算
-    const cards = await ev(() => ({ n: document.querySelectorAll('.skill-card:not(.wsk-card):not(.basic-card)').length, ws: document.querySelectorAll('.wsk-card').length }));
+    const cards = await ev(() => ({ n: T.skCards(() => 1).length, ws: T.skCard('wskill') && document.querySelectorAll('.wsk-card').length })); // UI-R B2：一次一张卡，逐张选中来数
     assert(cards.n === 29 && cards.ws === 1, '技能卡数量不对（29 张技能卡（裂石击已删除，skill-expand 加了 6 张，class-d2b1 加了 4 种特殊弹，class-d2b2 加了 5 张）+ 1 张武器技卡）：' + JSON.stringify(cards));
+    await ev(() => G.ui.open('skills', 'nova'));
     await page.click('[data-act="bind"][data-skill="nova"][data-slot="2"]');
     let r = await ev(() => ({ bar: G.save.bar.slice(), on: document.querySelector('[data-act="bind"][data-skill="nova"][data-slot="2"]').classList.contains('on') }));
     assert(r.bar[2] === 'nova' && r.on && r.bar.filter((b) => b === 'nova').length === 1, '界面绑定失败：' + r.bar);
@@ -7983,10 +8195,11 @@ async function main() {
 
     const base = await ev(() => { const c = G.skillCtx('ember'); return { proj: c.proj, cost: c.cost, more: c.more }; });
     const sock = (i) => '[data-act="socket"][data-skill="ember"][data-idx="' + i + '"]';
+    await ev(() => G.ui.open('skills', 'ember'));
     await page.locator(sock(0)).scrollIntoViewIfNeeded();
     await page.click(sock(0));
     r = await ev(() => ({
-      on: document.getElementById('picker').classList.contains('on'),
+      on: !!document.querySelector('#picker.on'),
       can: !!document.querySelector('#picker [data-act="pick"][data-sup="multi"]'),
       unfit: !document.querySelector('#picker [data-act="pick"][data-sup="brutal"]'),
       txt: document.getElementById('picker').innerText,
@@ -7999,6 +8212,7 @@ async function main() {
 
     // 把同一颗宝石挪到另一个技能上：原来的孔自动空出
     const sock2 = '[data-act="socket"][data-skill="blade"][data-idx="1"]';
+    await ev(() => G.ui.open('skills', 'blade'));
     await page.locator(sock2).scrollIntoViewIfNeeded();
     await page.click(sock2);
     await page.click('#picker [data-act="pick"][data-sup="multi"]');
@@ -8019,55 +8233,51 @@ async function main() {
     await ev(() => G.ui.refresh());
     cleanText(await ev(() => T.bodyText()), '镶嵌后的技能页');
 
-    // 用真滚轮把列表滚到底，再给排在最后的闪袭镶宝石：重渲染恢复滚动位置时不能把选择器关掉
-    const lr = await ev(() => { const b = document.querySelector('.skill-list').getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; });
+    // 用真滚轮把列表滚到底，再选中闪袭、给它镶宝石：重渲染恢复滚动位置时不能把选择器关掉、列表不能跳回顶部
+    // （UI-R B2：插槽在中间那张卡上，先点列表里闪袭那一行；选择器在卡片里面，跟着卡片，不再是浮层）
+    const lr = await ev(() => { const b = document.querySelector('.sk-list').getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; });
     await page.mouse.move(lr.x, lr.y);
     await page.mouse.wheel(0, 3000);
-    await until(() => document.querySelector('.skill-list').scrollTop > 100).catch(() => {
+    await until(() => document.querySelector('.sk-list').scrollTop > 100).catch(() => {
       throw new Error('技能列表滚不动');
     });
     await frames(4);
-    const sock3 = '[data-act="socket"][data-skill="blink"][data-idx="0"]';
-    // 技能多了以后闪袭不一定排在最后：滚到底之后再把它的插槽带进视野（列表仍处在滚动过的状态）
-    await ev((sel) => document.querySelector(sel).scrollIntoView({ block: 'nearest' }), sock3);
+    const row3 = '.sk-list [data-act="sk-sel"][data-skill="blink"]';
+    // 技能多了以后闪袭不一定排在最后：滚到底之后再把它那一行带进视野（列表仍处在滚动过的状态）
+    await ev((sel) => document.querySelector(sel).scrollIntoView({ block: 'nearest' }), row3);
     await frames(4);
+    await page.click(row3);
+    await frames(4);
+    const sock3 = '[data-act="socket"][data-skill="blink"][data-idx="0"]';
     const sr = await ev((sel) => { const b = document.querySelector(sel).getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; }, sock3);
     await page.mouse.click(sr.x, sr.y);
     await frames(6);
     await sleep(400);
     await frames(6);
     r = await ev(() => ({
-      on: document.getElementById('picker').classList.contains('on'),
-      top: document.querySelector('.skill-list').scrollTop,
-      picking: !!document.querySelector('.sock.picking[data-skill="blink"]'),
+      on: !!document.querySelector('#picker.on'),
+      top: document.querySelector('.sk-list').scrollTop,
+      picking: /闪袭/.test((document.querySelector('#picker .pk-title') || {}).textContent || ''),
     }));
     assert(r.top > 100, '点击插槽后技能列表的滚动位置丢了');
     assert(r.on && r.picking, '技能列表滚动后，辅助宝石选择器一闪即关：' + JSON.stringify(r));
     await page.click('#picker [data-act="pick"][data-sup="stagger"]');
     await frames(4);
-    r = await ev(() => ({ s: G.save.sockets.blink.slice(), stun: G.skillCtx('blink').stun, top: document.querySelector('.skill-list').scrollTop, on: document.getElementById('picker').classList.contains('on') }));
+    r = await ev(() => ({ s: G.save.sockets.blink.slice(), stun: G.skillCtx('blink').stun, top: document.querySelector('.sk-list').scrollTop, on: !!document.querySelector('#picker.on') }));
     assert(r.s[0] === 'stagger' && Math.abs(r.stun - 0.7) < 1e-9 && !r.on, '滚动后给闪袭镶嵌震慑失败：' + JSON.stringify(r));
     assert(r.top > 100, '镶嵌后技能列表跳回了顶部');
-    // 选择器开着时玩家自己滚动列表：照旧收起
+    // 选择器开着时玩家滚动左边的列表：选择器在卡片里，不受影响（UI-R B2 有意改动：原来是浮层，滚动就收起）；点「返回」收起
     const sr2 = await ev(() => { const b = document.querySelector('[data-act="socket"][data-skill="blink"][data-idx="1"]').getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; });
     await page.mouse.click(sr2.x, sr2.y);
     await frames(4);
-    assert(await ev(() => document.getElementById('picker').classList.contains('on')), '第二个插槽的选择器没有打开');
-    // 选择器会盖住列表的一部分：把鼠标放到列表里没被它盖住的地方再滚
-    const free = await ev(() => {
-      const b = document.querySelector('.skill-list').getBoundingClientRect();
-      for (const fx of [0.5, 0.08, 0.92, 0.25, 0.75]) for (const fy of [0.5, 0.15, 0.85]) {
-        const x = b.left + b.width * fx, y = b.top + b.height * fy;
-        const n = document.elementFromPoint(x, y);
-        if (n && n.closest('.skill-list') && !n.closest('#picker')) return { x, y };
-      }
-      return null;
-    });
-    assert(free, '列表被选择器完全盖住了');
-    await page.mouse.move(free.x, free.y);
+    assert(await ev(() => !!document.querySelector('#picker.on')), '第二个插槽的选择器没有打开');
+    await page.mouse.move(lr.x, lr.y);
     await page.mouse.wheel(0, -200);
-    await until(() => !document.getElementById('picker').classList.contains('on'), null, 5000).catch(() => {
-      throw new Error('玩家滚动列表后选择器应收起');
+    await frames(6);
+    assert(await ev(() => !!document.querySelector('#picker.on')), '滚动技能列表不应收起卡片里的选择器');
+    await page.click('#picker [data-act="pick-back"]');
+    await until(() => !document.querySelector('#picker') && !!document.querySelector('.sk-detail [data-act="socket"][data-skill="blink"]'), null, 5000).catch(() => {
+      throw new Error('点「返回」后选择器应收起、卡片换回辅助槽');
     });
     await ev(() => G.socketSupport('blink', 0, null));
     await closePanel();
@@ -8083,10 +8293,22 @@ async function main() {
     const sock = (sk, i) => '.sock[data-skill="' + sk + '"][data-idx="' + i + '"]';
     const sup = (id) => '.sup[data-drag="sup:' + id + '"]';
     let mid = null;
+    // UI-R B2：一次只显示一张卡。逐张选中、拖着多重投射看这张卡的 3 个孔亮不亮，加起来（武器普攻卡的孔照旧不算）
+    const lit = { lit: 0, dim: 0 };
+    for (const id of await ev(() => T.skCards((c, id) => id))) {
+      await ev((id) => G.ui.open('skills', id), id);
+      await dragTo(sup('multi'), '.sk-detail .sk-name', async () => { // 松手在卡名上：不是落点，什么都不改
+        const m = await ev(() => ({ lit: document.querySelectorAll('.sk-detail .sock.drop-ok').length, dim: document.querySelectorAll('.sk-detail .sock.drop-no').length }));
+        lit.lit += m.lit;
+        lit.dim += m.dim;
+      });
+    }
+    await ev(() => G.ui.open('skills', 'ember'));
     await dragTo(sup('multi'), sock('ember', 0), async () => {
-      // 武器普攻卡的 3 个孔（data-skill = G.BASIC_CARD）不算在内：它能镶投射物类的辅助，亮不亮看界面
-      mid = await ev(() => { const own = (sel) => Array.from(document.querySelectorAll(sel)).filter((n) => n.dataset.skill !== G.BASIC_CARD).length; return { lit: own('.sock.drop-ok'), dim: own('.sock.drop-no'), cap: document.querySelector('#drag-ghost em').textContent }; });
+      mid = await ev(() => ({ cap: document.querySelector('#drag-ghost em').textContent }));
     });
+    mid.lit = lit.lit;
+    mid.dim = lit.dim;
     // skill-expand：20 个技能 60 个孔；散钉也是投射物（12 / 30 → 15 / 45）
     assert(mid.lit === 21 && mid.dim === 66 && mid.cap === '镶进 掷焰', '拖辅助宝石时只有带「投射物」标签的技能的槽应亮起（掷焰、飞刃、焚骨祭司、黑旋风、散钉，class-d2b1 的反冲弹，class-d2b2 的跳射；imbue 批起铁水 / 雷楔 / 霜霰是装填，不带「投射物」）：' + JSON.stringify(mid));
     let r = await ev(() => ({ e: G.save.sockets.ember.slice(), proj: G.skillCtx('ember').proj }));
@@ -8095,21 +8317,22 @@ async function main() {
       mid = await ev(() => document.querySelector('#drag-ghost em').textContent);
     });
     assert(mid.includes('需要标签') && (await ev(() => G.save.sockets.ember[1])) === null, '不适配的宝石不应镶上：' + mid);
-    await dragTo(sock('ember', 0), sock('blade', 2), null, true);
-    r = await ev(() => ({ e: G.save.sockets.ember.slice(), b: G.save.sockets.blade.slice() }));
-    assert(r.e[0] === null && r.b[2] === 'multi', '孔间拖动应移动宝石：' + JSON.stringify(r));
+    // 孔间移动 / 对调：UI-R B2 一次只显示一张卡，在同一张卡（掷焰）的孔之间拖（原来是掷焰 → 旋风斩）
+    await dragTo(sock('ember', 0), sock('ember', 2), null, true);
+    r = await ev(() => ({ e: G.save.sockets.ember.slice() }));
+    assert(r.e[0] === null && r.e[2] === 'multi', '孔间拖动应移动宝石：' + JSON.stringify(r));
     await ev(() => { G.socketSupport('ember', 0, 'haste'); G.ui.refresh(); });
-    await dragTo(sock('blade', 2), sock('ember', 0), null, true);
-    r = await ev(() => ({ e: G.save.sockets.ember.slice(), b: G.save.sockets.blade.slice() }));
-    assert(r.e[0] === 'multi' && r.b[2] === 'haste', '拖到有宝石的孔应对调：' + JSON.stringify(r));
+    await dragTo(sock('ember', 2), sock('ember', 0), null, true);
+    r = await ev(() => ({ e: G.save.sockets.ember.slice() }));
+    assert(r.e[0] === 'multi' && r.e[2] === 'haste', '拖到有宝石的孔应对调：' + JSON.stringify(r));
     await dragTo(sock('ember', 0), '.sup-list', null, true);
     assert((await ev(() => G.save.sockets.ember[0])) === null, '拖回宝石列表应取下');
-    await page.click(sock('blade', 2));
-    assert((await ev(() => G.save.sockets.blade[2])) === null, '点击已镶嵌的孔仍应取下');
+    await page.click(sock('ember', 2));
+    assert((await ev(() => G.save.sockets.ember[2])) === null, '点击已镶嵌的孔仍应取下');
 
     // 技能 → 技能栏
     const free = SKILL_IDS.find((id) => !bar0.includes(id));
-    await dragTo('.sk-icon[data-drag="skill:' + free + '"]', '.barslot[data-slot="2"]', async () => {
+    await dragTo('.sk-list .skr-ic[data-drag="skill:' + free + '"]', '.barslot[data-slot="2"]', async () => { // UI-R B2：从列表那一行的图标拖（中间卡片的图标也能拖，见下）
       mid = await ev(() => ({ cap: document.querySelector('#drag-ghost em').textContent, lit: document.querySelectorAll('.barslot.drop-ok').length }));
     });
     r = await ev(() => G.save.bar.slice());
@@ -8117,6 +8340,11 @@ async function main() {
     await dragTo('.barslot[data-slot="2"]', '.barslot[data-slot="0"]');
     const r2 = await ev(() => G.save.bar.slice());
     assert(r2[0] === free && r2[2] === r[0], '技能栏内拖动应互换：' + r2);
+    // 中间那张大卡片的图标照样能拖进技能栏（新加，不是改）
+    const free2 = SKILL_IDS.find((id) => !r2.includes(id) && id !== free);
+    await ev((id) => G.ui.open('skills', id), free2);
+    await dragTo('.sk-detail .sk-icon[data-drag="skill:' + free2 + '"]', '.barslot[data-slot="3"]');
+    assert((await ev(() => G.save.bar[3])) === free2, '从中间卡片的图标拖到技能栏失败：' + (await ev(() => G.save.bar.join())));
     await ev((bar) => { bar.forEach((id, i) => G.bindSkill(i, id)); G.ui.refresh(); }, bar0);
     await closePanel();
     await until((want) => T.barHud() === want, bar0.map((x) => x || '').join()).catch(() => {
@@ -8169,7 +8397,7 @@ async function main() {
     r = await hover('cur');
     assert(r.txt.includes('点金石') && r.txt.includes('把普通物品升为稀有物品') && r.txt.includes('拖到一件物品上'), '通货的地面提示不对');
     r = await hover('skill');
-    assert(r.txt.includes('霜环') && r.txt.includes('光环') && r.txt.includes('魔力保留 18%') && r.txt.includes('新技能') && r.txt.includes('每跳基础伤害'), '技能宝石的地面提示应说明它做什么：' + r.txt.slice(0, 200));
+    assert(r.txt.includes('霜环') && r.txt.includes('光环') && r.txt.includes('魔力保留 18%') && r.txt.includes('新技能') && r.txt.includes('每跳基础伤害') && r.txt.includes('技能随角色等级成长') && !/Lv|宝石等级/.test(r.txt), '技能宝石的地面提示应说明它做什么、不写等级：' + r.txt.slice(0, 200));
     r = await hover('sup');
     assert(r.txt.includes('多重投射') && r.txt.includes('额外发射 2 个投射物') && r.txt.includes('可镶嵌') && r.txt.includes('掷焰'), '辅助宝石的地面提示应说明它做什么');
     await page.mouse.move(1000, 620);
@@ -8177,7 +8405,7 @@ async function main() {
       throw new Error('鼠标移开后提示没有消失');
     });
     r = await ev(() => Object.keys(window.__L).map((k) => window.__L[k].label));
-    assert(/ ▲$/.test(r[0]) === (/▲/.test(r[0])) && r[1].endsWith(' ▲') && r[2] === '点金石' && r[3].endsWith(' ▲') && r[4].endsWith(' ▲'), '名牌上的升降标记不对：' + JSON.stringify(r));
+    assert(/ ▲$/.test(r[0]) === (/▲/.test(r[0])) && r[1].endsWith(' ▲') && r[2] === '点金石' && r[3] === '技能宝石：霜环 ▲' && r[4].endsWith(' ▲'), '名牌上的升降标记不对（技能宝石不写等级）：' + JSON.stringify(r));
     await page.keyboard.down('Alt');
     try {
       await until(() => /稀有 腰带 · 物品等级 3 · [▲▼＝]$/.test(window.__L.rare.label)).catch(() => {
@@ -8453,7 +8681,7 @@ async function main() {
     });
   });
 
-  await uiStep('无铭技能宝石：技能页顶部写数量和最高等级；点两下才用掉；学会新技能自动上技能栏；给已学技能升级；总是用最高的那颗；等级不够不能升；第一次捡到有新手提示', async () => {
+  await uiStep('无铭技能宝石：技能页顶部写数量（不写等级）；点两下才用掉；学会新技能自动上技能栏、等级是成长下限；已学的技能没有升级入口、接口也拒绝；第一次捡到有新手提示', async () => {
     // 先让两个技能变回「没学会」，技能栏腾出一格
     await ev(() => {
       const s = G.save;
@@ -8474,56 +8702,47 @@ async function main() {
       bar: (document.querySelector('.blank-bar') || {}).innerText || '',
       learn: Array.from(document.querySelectorAll('.sm-learn')).map((b) => b.dataset.skill).sort().join(),
       learnTxt: (document.querySelector('.sm-learn') || {}).innerText || '',
-      upNova: (document.querySelector('.blank-up[data-skill="nova"]') || {}).innerText || '',
-      upBlade: !!document.querySelector('.blank-up[data-skill="blade"]'),
+      more: (document.querySelector('.skill-more .sm-title') || {}).innerText || '',
       icon: getComputedStyle(document.querySelector('.blank-bar .ico')).backgroundImage.startsWith('url("data:image/png'),
+      rows: Array.from(document.querySelectorAll('.sk-row')).map((n) => n.innerText).join(' | '),
+      // UI-R B2：一次一张卡，每张学会的技能卡各看一遍
+      ups: T.skCards((c) => c.querySelectorAll('.blank-up').length).reduce((x, y) => x + y, 0),
+      names: T.skCards((c) => (c.querySelector('.sk-name') || {}).innerText || '').join(' | '),
     }));
-    assert(r.bar.includes('无铭技能宝石') && r.bar.includes('×3') && r.bar.includes('最高 Lv 7') && r.icon, '技能页顶部应写数量和最高等级：' + JSON.stringify(r));
-    assert(r.learn === 'arc,meteor' && r.learnTxt.includes('Lv 7'), '「尚未获得」里每个技能都应能点、写明用哪一颗：' + JSON.stringify(r));
-    assert(r.upNova.includes('Lv 7') && !r.upBlade, '已学技能卡上：等级更低的给升级入口，等级更高的不给：' + JSON.stringify(r));
+    assert(r.bar.includes('无铭技能宝石') && r.bar.includes('×3') && !/Lv|最高/.test(r.bar) && r.icon, '技能页顶部应写数量、不写等级：' + JSON.stringify(r));
+    assert(r.learn === 'arc,meteor' && r.learnTxt.includes('学会') && !/Lv/.test(r.learnTxt + r.more), '「尚未获得」里每个技能都应能点、不写等级：' + JSON.stringify(r));
+    assert(r.ups === 0 && r.names && !/Lv/.test(r.names) && !/Lv /.test(r.rows), '已学技能卡 / 技能列表上不应有等级、也不应有升级入口：' + JSON.stringify(r));
     cleanText(await ev(() => T.bodyText()), '带无铭宝石的技能页');
 
-    // 防误点：点一下只是选中；点别的就换成选中别的；悬停写清楚会用哪一颗
+    // 防误点：点一下只是选中；点别的就换成选中别的；悬停写清楚会发生什么
     await page.locator('.sm-learn[data-skill="arc"]').scrollIntoViewIfNeeded();
     await page.click('.sm-learn[data-skill="arc"]');
     r = await ev(() => ({ gems: G.save.blankGems.join(), arc: !!G.save.skills.arc, armed: document.querySelector('.sm-learn[data-skill="arc"]').classList.contains('armed'), txt: document.querySelector('.sm-learn[data-skill="arc"]').innerText, tip: document.getElementById('tip').innerText }));
     assert(r.gems === '7,5,2' && !r.arc && r.armed && r.txt.includes('再点一次'), '点第一下不应用掉宝石，而是等着确认：' + JSON.stringify(r));
-    assert(r.tip.includes('Lv 7') && r.tip.includes('链雷'), '悬停提示应写明会用 Lv 7 的那颗学会链雷：' + r.tip);
+    assert(r.tip.includes('用掉一颗') && r.tip.includes('链雷') && r.tip.includes('技能随角色等级成长') && !/Lv|宝石等级/.test(r.tip), '悬停提示应写明用掉一颗学会链雷、不写等级：' + r.tip);
     await page.click('.sm-learn[data-skill="meteor"]');
     r = await ev(() => ({ gems: G.save.blankGems.join(), arcArmed: document.querySelector('.sm-learn[data-skill="arc"]').classList.contains('armed'), metArmed: document.querySelector('.sm-learn[data-skill="meteor"]').classList.contains('armed') }));
     assert(r.gems === '7,5,2' && !r.arcArmed && r.metArmed, '点另一个技能应改为选中它，仍不用掉宝石：' + JSON.stringify(r));
-    // 再点一次：学会，用的是最高的 Lv 7，自动放进技能栏的空格
+    // 再点一次：学会（存档里记成长下限），用掉记的数最低的那颗（高的留给可能读档的旧版本），自动放进技能栏的空格
     await page.click('.sm-learn[data-skill="meteor"]');
-    r = await ev(() => ({ gems: G.save.blankGems.join(), lvl: G.save.skills.meteor, sock: JSON.stringify(G.save.sockets.meteor), bar: G.save.bar.join(), msg: (document.querySelector('.bk-msg') || {}).innerText || '', toast: T.toasts(), card: !!document.querySelector('.skill-card [data-act="bind"][data-skill="meteor"]'), stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).blankGems.join() }));
-    assert(r.lvl === 7 && r.gems === '5,2' && r.stored === '5,2', '应用掉最高的 Lv 7 那颗学会陨火：' + JSON.stringify(r));
+    r = await ev(() => ({ gems: G.save.blankGems.join(), lvl: G.save.skills.meteor, floor: G.gemFloor(), sock: JSON.stringify(G.save.sockets.meteor), bar: G.save.bar.join(), msg: (document.querySelector('.bk-msg') || {}).innerText || '', toast: T.toasts(), card: !!(T.skCard('meteor') && document.querySelector('.skill-card [data-act="bind"][data-skill="meteor"]')), stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).blankGems.join() }));
+    assert(r.lvl === r.floor && r.gems === '7,5' && r.stored === '7,5', '学会陨火应记成长下限、用掉最低的那颗：' + JSON.stringify(r));
     assert(r.sock === '[null,null,null]' && r.bar === 'ember,,nova,meteor' && r.card, '学会后应开好辅助槽并自动放进技能栏的空格（右键不算空格）：' + JSON.stringify(r));
-    assert(r.msg.includes('陨火') && r.msg.includes('Lv 7') && r.toast.includes('习得技能：陨火 Lv 7'), '学会后应给出提示：' + JSON.stringify(r));
+    assert(r.msg.includes('陨火') && !/Lv/.test(r.msg) && r.toast.includes('习得技能：陨火') && !/陨火 Lv/.test(r.toast), '学会后应给出提示（不写等级）：' + JSON.stringify(r));
     await until(() => document.querySelectorAll('#slots .slot')[3].dataset.skill === 'meteor').catch(() => {
       throw new Error('HUD 技能栏没有同步');
     });
 
-    // 升级已学技能：用当前最高的 Lv 5；同样要点两下
-    await page.locator('.blank-up[data-skill="nova"]').scrollIntoViewIfNeeded();
-    r = await ev(() => document.querySelector('.blank-up[data-skill="nova"]').innerText);
-    assert(r.includes('Lv 5'), '升级按钮应写明会升到 Lv 5：' + r);
-    await page.click('.blank-up[data-skill="nova"]');
-    r = await ev(() => ({ lvl: G.save.skills.nova, gems: G.save.blankGems.join(), txt: document.querySelector('.blank-up[data-skill="nova"]').innerText }));
-    assert(r.lvl === 3 && r.gems === '5,2' && r.txt.includes('再点一次'), '升级也要点两下：' + JSON.stringify(r));
-    await page.click('.blank-up[data-skill="nova"]');
-    r = await ev(() => ({ lvl: G.save.skills.nova, gems: G.save.blankGems.join(), msg: (document.querySelector('.bk-msg') || {}).innerText || '', btn: !!document.querySelector('.blank-up[data-skill="nova"]'), toast: T.toasts() }));
-    assert(r.lvl === 5 && r.gems === '2' && r.msg.includes('Lv 3') && r.msg.includes('Lv 5') && r.toast.includes('霜环 升至 Lv 5'), '应用掉 Lv 5 那颗把霜环升到 Lv 5：' + JSON.stringify(r));
-    assert(!r.btn, '剩下的 Lv 2 不高于霜环的 Lv 5，卡上不应再有升级入口');
-
-    // 等级不够：不能升级（接口直接拒绝，界面上不给入口）
-    r = await ev(() => ({ api: G.useBlankGem('nova'), gems: G.save.blankGems.join(), lvl: G.save.skills.nova, ups: document.querySelectorAll('.blank-up').length }));
-    assert(r.api === null && r.gems === '2' && r.lvl === 5, '等级不高于当前时不应能升级：' + JSON.stringify(r));
+    // 已学的技能：接口拒绝，宝石不动
+    r = await ev(() => ({ api: G.useBlankGem('nova'), gems: G.save.blankGems.join(), lvl: G.save.skills.nova }));
+    assert(r.api === null && r.gems === '7,5' && r.lvl === 3, '已学会的技能不应能用无铭宝石：' + JSON.stringify(r));
     // 用完最后一颗：顶部写「已用完」，「尚未获得」变回不可点的列表
     r = await ev(() => {
       G.save.blankGems = [];
       G.ui.refresh();
-      return { bar: (document.querySelector('.blank-bar') || {}).innerText || '', learn: document.querySelectorAll('.sm-learn').length, ups: document.querySelectorAll('.blank-up').length, api: G.useBlankGem('arc') };
+      return { bar: (document.querySelector('.blank-bar') || {}).innerText || '', learn: document.querySelectorAll('.sm-learn').length, api: G.useBlankGem('arc') };
     });
-    assert(r.learn === 0 && r.ups === 0 && r.api === null, '没有无铭宝石时不应有使用入口：' + JSON.stringify(r));
+    assert(r.learn === 0 && r.api === null, '没有无铭宝石时不应有使用入口：' + JSON.stringify(r));
     await closePanel();
     r = await ev(() => { G.ui.open('skills'); const b = !!document.querySelector('.blank-bar'); G.ui.close(); return b; });
     assert(!r, '手里没有无铭宝石时技能页顶部不应显示持有条');
@@ -8535,7 +8754,7 @@ async function main() {
       delete G.save.tut.blank;
       G.save.blankGems = [];
       const P = G.player;
-      const l = G.spawnLoot('blank', { lvl: 6 }, P.x, P.z);
+      const l = G.spawnLoot('blank', {}, P.x, P.z);
       T.tp(l.x, l.z);
       G.debug.step(0.5);
       G.debug.hold(false);
@@ -8544,18 +8763,18 @@ async function main() {
       throw new Error('第一次捡到无铭宝石时没有出现新手提示');
     });
     r = await ev(() => document.getElementById('coach').innerText);
-    assert(r.includes('无铭技能宝石') && r.includes('G') && r.includes('技能页'), '新手提示没有说清楚去技能页用：' + r);
+    assert(r.includes('无铭技能宝石') && r.includes('G') && r.includes('技能页') && !r.includes('升级'), '新手提示没有说清楚去技能页用：' + r);
     await page.keyboard.press('KeyG');
-    r = await ev(() => (document.querySelector('.side-coach') || {}).innerText || '');
-    assert(r.includes('再点一次'), '技能页里应接着提示怎么用：' + r);
+    r = await ev(() => (document.querySelector('#panel-body .pg-note.coach') || {}).innerText || ''); // UI-R B2：新手提示在页面底部那一行
+    assert(r.includes('再点一次') && !/Lv/.test(r), '技能页里应接着提示怎么用：' + r);
     await page.locator('.sm-learn[data-skill="arc"]').scrollIntoViewIfNeeded();
     await page.click('.sm-learn[data-skill="arc"]');
     await page.click('.sm-learn[data-skill="arc"]');
     await until(() => !!G.save.tut.blank).catch(() => {
       throw new Error('用掉一颗之后新手提示没有标记为看过');
     });
-    r = await ev(() => G.save.skills.arc);
-    assert(r === 6, '通过提示引导学会的链雷应是 Lv 6：' + r);
+    r = await ev(() => ({ arc: G.save.skills.arc, floor: G.gemFloor() }));
+    assert(r.arc === r.floor, '通过提示引导学会的链雷应记成长下限：' + JSON.stringify(r));
     await closePanel();
     await ev(() => {
       G.debug.hold(true);
@@ -8686,6 +8905,7 @@ async function main() {
     await shown('passive');
     // 帮助页可以重置
     await page.keyboard.press('KeyH');
+    await page.click('[data-act="topic"][data-topic="keys"]'); // B4a：按钮在「操作」这一节的最下面（帮助页记着上次看的话题）
     await page.click('[data-act="tut-reset"]');
     r = await ev(() => ({ n: Object.keys(G.save.tut).length, txt: document.querySelector('.help-foot').innerText }));
     assert(r.n === 0 && r.txt.includes('已重置'), '帮助页的「重新显示新手提示」无效');
@@ -8745,8 +8965,8 @@ async function main() {
       await until(() => G.ui.isOpen() && document.querySelectorAll('.skill-card').length > 0);
       await panelSettled();
       const look = () => ev(() => {
-        const card = (id) => Array.from(document.querySelectorAll('.skill-card')).find((n) => n.querySelector('.sk-name') && n.querySelector('.sk-name').textContent.includes(G.SKILLS[id].name));
-        const sh = card('shadestep'), bl = card('blade');
+        const card = (id) => T.skCard(id); // UI-R B2：一次一张，最后选中的影步连斩留在中间量
+        const bl = card('blade'), sh = card('shadestep');
         const d = sh && sh.querySelector('.alt-d'), h = sh && sh.querySelector('.alt-h');
         return { sh: !!sh, bl: !!bl, blBox: bl ? bl.querySelectorAll('.alt-box').length : -1, d: d ? (getComputedStyle(d).display !== 'none' && getComputedStyle(d).visibility === 'visible' ? 'shown' : 'hidden') : '', h: h ? getComputedStyle(h).visibility : '', hgt: sh ? Math.round(sh.getBoundingClientRect().height) : 0, ht: h ? h.textContent : '', dt: d ? d.textContent : '', alt: G.SKILLS.shadestep.alt, on: document.body.classList.contains('alt-on') };
       });
@@ -8785,11 +9005,12 @@ async function main() {
     await page.setViewportSize({ width: 1280, height: 720 });
     try {
       await page.keyboard.press('KeyG');
-      await until(() => G.ui.isOpen() && document.querySelectorAll('.skill-list > .skill-card').length > 2);
+      await until(() => G.ui.isOpen() && !!document.querySelector('.sk-detail > .skill-card'));
       await panelSettled();
+      // UI-R B2：卡片一次一张，放在中间那一栏（.sk-detail）。逐张选中来量
       const lay = await ev(() => {
-        const list = document.querySelector('.skill-list'), lr = list.getBoundingClientRect();
-        return Array.from(list.querySelectorAll(':scope > .skill-card')).map((c) => {
+        return T.skCards((c) => {
+          const list = c.parentElement, lr = list.getBoundingClientRect();
           const nm = c.querySelector('.sk-name'), cr = c.getBoundingClientRect();
           // 单行高度：同样式的一个字
           const one = nm.cloneNode(false);
@@ -8803,13 +9024,14 @@ async function main() {
           return { n: nm.firstChild.textContent, w: Math.round(cr.width), out: cr.right > lr.right - 6 + 1 || cr.left < lr.left - 1, ox: c.scrollWidth > c.clientWidth + 1, nameH: Math.round(nm.getBoundingClientRect().height), lh: Math.round(lh), chips: chips.length, rows: tops.size, dir: tags ? getComputedStyle(tags).flexDirection : '' };
         });
       });
-      const ws = lay.map((c) => c.w).filter((w) => w < 500);
-      assert(lay.length > 2 && lay.every((c) => !c.out && !c.ox), '技能卡不应溢出列表、卡内也不应横向溢出：' + JSON.stringify(lay));
-      assert(ws.length > 1 && Math.max(...ws) - Math.min(...ws) <= 1, '1280×720 下两列应等宽：' + JSON.stringify(lay));
+      const ws = lay.map((c) => c.w);
+      assert(lay.length > 2 && lay.every((c) => !c.out && !c.ox), '技能卡不应溢出中间那一栏、卡内也不应横向溢出：' + JSON.stringify(lay));
+      assert(ws.length > 1 && Math.max(...ws) - Math.min(...ws) <= 1, '1280×720 下每张卡都应和中间那一栏一样宽：' + JSON.stringify(lay));
       assert(lay.every((c) => c.nameH <= 1.5 * c.lh), '卡名应只占一行：' + JSON.stringify(lay));
       assert(lay.every((c) => c.chips < 2 || (c.dir === 'row' && c.rows <= 2 && c.rows < c.chips)), '标签应横排（最多两行）：' + JSON.stringify(lay));
       // 悬停影步连斩的刻式 B，再按住 Alt
-      const card = '.skill-list > .skill-card:has([data-act="variant"][data-skill="shadestep"])';
+      const card = '.sk-detail > .skill-card:has([data-act="variant"][data-skill="shadestep"])';
+      await ev(() => G.ui.open('skills', 'shadestep'));
       await page.locator(card).scrollIntoViewIfNeeded();
       await page.locator(card + ' .sv-btn[data-v="b"]').hover();
       await until(() => document.getElementById('tip').classList.contains('on'), null, 5000);
@@ -10315,12 +10537,14 @@ async function main() {
     await ev(() => { T.arena(); T.hintsSeen(); });
     // 帮助页
     await page.keyboard.press('KeyH');
+    await page.click('[data-act="topic"][data-topic="combo"]'); // B4a：帮助页一次只显示一个话题，这几条在「连击」
     const help = await ev(() => T.bodyText());
     cleanText(help, '帮助页');
     for (const w of ['连击', '终结技', '架势', '破绽', '处决', '翻滚可以取消挥砍']) assert(help.includes(w), '帮助页缺少「' + w + '」的说明');
     await closePanel();
     // 技能页：最上面的武器普攻卡（拿着刃）列出连招每一段的倍率
     await page.keyboard.press('KeyG');
+    await ev(() => G.ui.open('skills', G.BASIC_CARD)); // UI-R B2：一次一张卡，先选中武器普攻卡
     const card = await ev(() => { const n = document.querySelector('.sk-combo'); return n ? n.innerText.replace(/\s+/g, ' ') : ''; });
     assert(/第 1 段 ×0\.85/.test(card) && /终结 ×1\.85/.test(card), '武器普攻卡没有列出连击倍率：' + card);
     await closePanel();
@@ -10799,6 +11023,241 @@ async function main() {
     assert(r.n === 0, '场景对象数变化 ' + r.n);
     assert(r.geo <= 3 && r.tex <= 1, '切换 10 次区域后几何体 +' + r.geo + '，贴图 +' + r.tex);
     return '几何体 ' + r.g + '（+' + r.geo + '），贴图 ' + r.t + '（+' + r.tex + '）';
+  });
+
+  // mem-hunt：换区时整区的材质 dispose，原来再进同一个区（或别的区、下一只同类怪、下一个预警圈）要把同样的着色器程序重新编译（WebKit 低档每次进区 70–190 ms，
+  // Chrome 高档 1–2 s，落在进区后的头几帧）。world.js retireMat 每个程序键留一个去掉引用的占位材质，程序留着复用（最多 KEEP_MAX 个）
+  await step('内存：高档连走五个区两圈（每区打首领、清怪、掉落），第二圈几何体 / 贴图 / 程序 / 布景对象回到第一圈的水平、再进区几乎不编新程序；同一个程序键只对应一份着色器源码；留着的程序和重新编译的画面逐像素相同；烬渊深渊底贴图传像素 / 传画布逐像素相同', async () => {
+    const r = await ev(async () => {
+      const W = G.world, R = W.renderer, gl = R.getContext(), S = G.state, q0 = W.quality();
+      const wait = async (f, ms) => {
+        const t = performance.now();
+        while (!f() && performance.now() - t < ms) await new Promise((res) => setTimeout(res, 50));
+        return f();
+      };
+      const fnv = (s) => {
+        let x = 2166136261;
+        for (let i = 0; i < s.length; i++) x = Math.imul(x ^ s.charCodeAt(i), 16777619) >>> 0;
+        return x;
+      };
+      const src = new Map(), clash = [];
+      const noteSrc = () => {
+        for (const p of R.info.programs) {
+          const h = fnv(gl.getShaderSource(p.vertexShader) + '\n' + gl.getShaderSource(p.fragmentShader));
+          const o = src.get(p.cacheKey);
+          if (o === undefined) src.set(p.cacheKey, h);
+          else if (o !== h && clash.indexOf(p.name) < 0) clash.push(p.name);
+        }
+      };
+      // 布景对象：整个场景减去怪（刷怪数量随随机数变），进区后、开打前数
+      const objs = () => {
+        const skip = new Set(S.enemies.map((e) => e.ent && e.ent.group).filter(Boolean));
+        let n = 0;
+        const walk = (o) => {
+          if (skip.has(o)) return;
+          n++;
+          for (const c of o.children) walk(c);
+        };
+        walk(W.scene);
+        return n;
+      };
+      const fight = () => {
+        G.debug.tpBoss();
+        const b = S.enemies.find((e) => e.isBoss && !e.dead);
+        G.input.aim = b ? { x: b.x, z: b.z } : null;
+        G.input.mouse.b[0] = true;
+        G.debug.step(2);
+        G.debug.killAll();
+        G.debug.step(1);
+        const b2 = S.enemies.find((e) => e.isBoss && !e.dead);
+        if (b2) G.killEnemy(b2);
+        G.input.mouse.b[0] = false;
+        G.input.aim = null;
+        G.debug.step(3);
+      };
+      const enter = async (zi) => {
+        G.enterZone(zi, 0);
+        const hd = await wait(() => !W.assetsPending() && W.gfxInfo().hd, 40000); // 防卡死的上限，不是计时断言
+        G.debug.step(0.1);
+        W.render();
+        return hd;
+      };
+      const maxId = () => R.info.programs.reduce((m, p) => Math.max(m, p.id), -1);
+      // 首领包按区加载、到了以后才建新模型（几何体进缓存）：先把六个首领的包和骨架都备好，不然第二圈才第一次见到新模型的首领会多出几何体
+      for (const k of G.ZONES.map((z) => z.boss).concat([G.PINNACLE.boss])) {
+        if (!G.assets.known('boss-' + k)) continue;
+        await G.assets.need(['boss-' + k]);
+        W.bossRig(k);
+      }
+      G.debug.hold(true);
+      W.setQuality('high');
+      const laps = [], fresh = [];
+      let deep = null;
+      let hdAll = true;
+      try {
+        for (let lap = 0; lap < 2; lap++) {
+          for (let zi = 0; zi < 5; zi++) {
+            const id0 = maxId();
+            hdAll = (await enter(zi)) && hdAll;
+            if (zi === 3 && !deep) deep = W.abyssDeepProbe(); // 烬渊：深渊底贴图传像素 / 传画布，显存里逐像素相同
+            fight();
+            W.render();
+            noteSrc();
+            if (lap === 1) for (const p of R.info.programs) if (p.id > id0) fresh.push(G.ZONES[zi].id + ':' + p.name);
+          }
+          hdAll = (await enter(0)) && hdAll;
+          noteSrc();
+          const m = R.info.memory;
+          laps.push({ geo: m.geometries, tex: m.textures, prog: R.info.programs.length, objs: objs() });
+        }
+        // 逐像素：同一帧（模拟暂停）先用留着的程序画，再把占位材质和场景里的材质全部 dispose、重新编译后画，两次应完全相同
+        const frame = () => {
+          W.render();
+          const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
+          gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px); // 渲染完同一个任务里读
+          let x = 2166136261;
+          for (let i = 0; i < px.length; i++) x = Math.imul(x ^ px[i], 16777619) >>> 0;
+          return x;
+        };
+        const keep = W.progKeep();
+        const a = frame(), a2 = frame();
+        W.progKeepFlush();
+        const mats = new Set();
+        W.scene.traverse((o) => {
+          for (const m of o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : []) mats.add(m);
+          if (o.customDepthMaterial) mats.add(o.customDepthMaterial);
+        });
+        for (const m of mats) m.dispose();
+        const b = frame();
+        return { laps, fresh, clash, keys: src.size, keep, hdAll, a, a2, b, deep };
+      } finally {
+        W.setQuality(q0);
+        G.enterZone(0, 1);
+        G.debug.god(true);
+        G.debug.hold(false);
+      }
+    });
+    const [l1, l2] = r.laps;
+    assert(r.hdAll, '有区域没换上 PBR 外观');
+    // 贴图留 6 张余量：有些全局贴图第一次用到才建、建了就一直留着（异兆道具的环 / 符文这类随机出现的东西可能第二圈才第一次碰到）；漏掉整区的贴图一圈是几十张。
+    // 布景对象留 8 个：特效池按同时用到的最多件数长、长了不缩，异兆道具走近才建；整区没收掉一圈是几百个
+    assert(l2.geo - l1.geo <= 3 && l2.tex - l1.tex <= 6 && l2.prog - l1.prog <= 3 && Math.abs(l2.objs - l1.objs) <= 8, '第二圈没回到第一圈的水平：' + JSON.stringify(r.laps));
+    // 没有留用时第二圈每区要重编 6–16 个程序（共 60–80 个）；留着以后只剩个别（低档第 0 区的贴花 / 雾罩各 1 个）
+    assert(r.fresh.length <= 3, '第二圈再进区编了 ' + r.fresh.length + ' 个新程序：' + r.fresh.slice(0, 8).join(' '));
+    assert(!r.clash.length, '同一个程序键对应了不同的着色器源码（留用的程序会画错）：' + r.clash.join(' '));
+    assert(r.keep.mats <= r.keep.max, '占位材质超过上限：' + JSON.stringify(r.keep));
+    assert(r.a === r.a2, '模拟暂停时同一帧画两次不一样（这一帧不确定，比不了）');
+    assert(r.a === r.b, '留着的程序和重新编译的程序画出来不一样');
+    assert(r.deep && r.deep.data === r.deep.canvas && r.deep.via === 'canvas', '烬渊深渊底的贴图：传像素和传画布应逐像素相同，Chrome 照旧传画布：' + JSON.stringify(r.deep));
+    return '几何体 ' + l1.geo + ' → ' + l2.geo + '，贴图 ' + l1.tex + ' → ' + l2.tex + '，程序 ' + l1.prog + ' → ' + l2.prog + '，布景对象 ' + l1.objs + ' → ' + l2.objs + ' ｜ 第二圈新编 ' + r.fresh.length + ' 个 ｜ 程序键 ' + r.keys + '、占位材质 ' + r.keep.mats + ' / ' + r.keep.max;
+  });
+
+  // mem-hunt：tex-t2 的释放要是在解码还在路上的时候发生，原来下载 / 解析完照样解码、存进已经释放的包里（释放就不算数了），解码完被丢下的图也要等垃圾回收
+  await step('贴图：解码还在路上时释放这个包——要的时候还没开始解码的不再解码，正在解码的解完直接放掉；之后包里没有解码图像，留着的只有当前区和下一区的', async () => {
+    const r = await ev(async () => {
+      const W = G.world, A = G.assets, cur = G.state.zone.def, i = G.ZONES.indexOf(cur), nx = G.ZONES[i + 1];
+      const texPacks = (id) => W.zonePacks(id).filter((p) => Object.values(CA_ASSET_INDEX.textures).indexOf(p) >= 0);
+      const keep = W.zonePacks(cur.id).concat(nx ? W.zonePacks(nx.id) : []);
+      const keepIds = Object.keys(CA_ASSET_INDEX.textures).filter((id) => keep.indexOf(CA_ASSET_INDEX.textures[id]) >= 0);
+      const others = G.ZONES.filter((z, k) => k !== i && k !== i + 1).map((z) => z.id);
+      // 只拿当前区和下一区都不用的包（地面 / 岩石这类共用包可能正好被当前区留着）
+      const [pA, pB] = [texPacks(others[others.length - 1]), texPacks(others[others.length - 2])].map((l) => l.filter((p) => keep.indexOf(p) < 0));
+      const idsOf = (packs) => Object.keys(CA_ASSET_INDEX.textures).filter((id) => packs.indexOf(CA_ASSET_INDEX.textures[id]) >= 0);
+      const held = (packs) => A.texStats().list.filter((e) => idsOf(packs).indexOf(e.split(':')[0]) >= 0).length;
+      A.release(keep);
+      const out = { pA, pB, late0: A.texStats().late };
+      // ① 要了以后同一个任务里就释放（下载 / 解析的回调还没跑，解码还没开始）：结果是没成，也不解码
+      const qA = A.need(pA);
+      A.release(keep);
+      out.okA = await qA;
+      out.heldA = held(pA);
+      // ② 等解码开始了再释放：解完的图直接放掉，不存
+      const qB = A.need(pB);
+      const t0 = performance.now();
+      while (!pB.some((p) => A.texPending(p)) && performance.now() - t0 < 10000) await new Promise((res) => setTimeout(res, 0));
+      out.caught = pB.some((p) => A.texPending(p));
+      A.release(keep);
+      out.okB = await qB;
+      await new Promise((res) => setTimeout(res, 50));
+      out.heldB = held(pB);
+      out.late = A.texStats().late - out.late0;
+      out.stray = A.texStats().list.filter((e) => keepIds.indexOf(e.split(':')[0]) < 0);
+      // 当前区照常：再要一次当前区的包，贴图都在
+      out.curOk = await A.need(W.zonePacks(cur.id));
+      return out;
+    });
+    assert(r.pA.length && r.pB.length, '没找到可以拿来试的贴图包：' + JSON.stringify(r));
+    assert(r.okA === false && r.heldA === 0, '要了以后马上释放：不该解码、包里不该有图：' + JSON.stringify(r));
+    assert(r.caught, '没等到解码开始（测试本身的问题）：' + JSON.stringify(r));
+    assert(r.okB === false && r.heldB === 0 && r.late > 0, '解码途中释放：解完的图应直接放掉、包里不该有图：' + JSON.stringify(r));
+    assert(!r.stray.length && r.curOk, '留着的图应只有当前区和下一区的：' + r.stray.slice(0, 6).join(' '));
+    return '先释放：' + r.pA.join('+') + ' 没解码 ｜ 解码途中释放：' + r.pB.join('+') + ' 解完放掉 ' + r.late + ' 张、包里 0 张 ｜ 留着的都是当前区 + 下一区的';
+  });
+
+  // mem-hunt：首领包按区加载。原来启动时的预热把六个首领都建一遍，图标画完以后六个包全加载；现在只要当前区的首领（进区刷首领时）、
+  // 下一区的首领（跟下一区的素材一起预取）、余烛殿能进时的熄烛者。重载一次看启动后的样子，再进一个首领包还没载的区，走到首领房之前包就到、首领已经是新模型
+  await step('首领包：重载后只载当前区和下一区的首领包（余烛殿能进时加熄烛者），进一个首领包还没载的区，走到首领房之前就载好、首领已经换成新模型', async () => {
+    await ev(() => G.persist());
+    await page.reload({ timeout: 90000 });
+    await install();
+    // 模拟暂停：预取（空闲计时器）、首领包、睡着的首领换模型都不靠模拟推进
+    await ev(() => {
+      G.debug.hold(true);
+      G.debug.god(true);
+    });
+    try {
+      const info = () =>
+        ev(() => {
+          const z = G.state.zoneIdx, nd = G.ZONES[z + 1], pin = !!(G.pinOpen() && G.pinReady());
+          const want = [G.ZONES[z].boss].concat(nd ? [nd.boss] : []).map((k) => 'boss-' + k);
+          const allow = want.concat(pin ? ['boss-' + G.PINNACLE.boss] : []);
+          return { z, want, allow, have: G.world.bossPacks(), pin };
+        });
+      await until(() => G.icons && G.icons.ready && G.icons.ready(), null, 120000);
+      // 当前区的首领包、空闲时预取的下一区首领包都到了（预取要等安静 3 秒，最多 60 秒）
+      await until(() => {
+        const z = G.state.zoneIdx, nd = G.ZONES[z + 1];
+        return [G.ZONES[z].boss].concat(nd ? [nd.boss] : []).every((k) => G.assets.settled(['boss-' + k]));
+      }, null, 90000);
+      await sleep(3000); // 原来图标画完以后六个包一起要：多等一会儿，有不该要的也该出现了
+      const boot = await info();
+      // 进一个首领包还没载的区：玩家留在起点，等首领包到、首领换成新模型
+      const k = await ev(() => {
+        const have = G.world.bossPacks();
+        const i = G.ZONES.findIndex((z) => have.indexOf('boss-' + z.boss) < 0);
+        if (i < 0) return -1;
+        G.enterZone(i, 0);
+        return i;
+      });
+      let entry = null;
+      if (k >= 0) {
+        await until(() => !G.world.assetsPending() && G.world.gfxInfo().hd, null, 60000);
+        const t0 = Date.now();
+        await until(() => {
+          const b = G.state.enemies.find((e) => e.isBoss);
+          return b && b.ent.rig.bossModel === b.type;
+        }, null, 60000);
+        entry = await ev((k) => {
+          const P = G.player, z = G.state.zone, b = G.state.enemies.find((e) => e.isBoss);
+          const d = Math.hypot(P.x - z.bossPos.x, P.z - z.bossPos.z);
+          G.debug.tpBoss();
+          return { zone: G.ZONES[k].id, boss: b.type, model: b.ent.rig.bossModel, dist: Math.round(d), awake: !!b.awake };
+        }, k);
+        entry.s = +((Date.now() - t0) / 1000).toFixed(1);
+      }
+      const extra = boot.have.filter((p) => boot.allow.indexOf(p) < 0);
+      assert(boot.want.every((p) => boot.have.indexOf(p) >= 0), '当前区 / 下一区的首领包没载：' + JSON.stringify(boot));
+      assert(!extra.length, '启动后载了别的区的首领包 ' + extra.join(' ') + '：' + JSON.stringify(boot));
+      assert(k >= 0 && entry && entry.model === entry.boss && entry.dist > 30, '进首领包还没载的区，走到首领房之前首领应已换成新模型：' + JSON.stringify({ k, entry }));
+      return '启动在第 ' + boot.z + ' 区：载了 ' + boot.have.join(' ') + (boot.pin ? '（余烛殿能进）' : '') + ' ｜ 进 ' + entry.zone + '：' + entry.s + ' 秒后首领已是新模型（睡着时包一到就换），玩家离首领房 ' + entry.dist + ' m';
+    } finally {
+      await ev(() => {
+        G.enterZone(0, 1);
+        G.debug.god(true);
+        G.debug.hold(false);
+      });
+      await until(() => !G.world.assetsPending(), null, 60000).catch(() => {});
+    }
   });
 
     // 步骤名里的 vendor/three.min.js 是 r128 时的文件名，保留原名：步骤名是这一步随机数的种子（test/README.md「随机数」）；现在补丁在 vendor/three.bundle.js 里（tools/build-three.mjs）
@@ -11558,6 +12017,10 @@ async function main() {
       const dm = decalIdx();
       const bail = { n: dm.length, idx: dm[0] || 0, zone: G.state.zone.def.id };
       G.enterZone(0, 0);
+      // tex-t2 起换区会释放旧区解码出来的贴图：0 → 1 → 0 这么跳回来，第 0 区先是程序化外观，贴图重新解码好了才原地重建成 PBR 外观（带薄雾）。
+      // 等它重建好（有上限）再量画质档；到不了 PBR 外观照样算失败（retHd）
+      await wait(() => W.gfxInfo().hd && !W.assetsPending(), 40000);
+      const retHd = !!W.gfxInfo().hd;
       const qs = [], aa = [];
       for (const q of ['high', 'mid', 'low']) {
         W.setQuality(q);
@@ -11568,21 +12031,22 @@ async function main() {
         aa.push(q + ':' + (g.smaa ? 'smaa' : g.fxaa ? 'fxaa' : 'none') + (g.decalsOn ? '+decals' : ''));
       }
       W.setQuality(q0);
-      return { zones, layers, aa, bail, qs, q0, eff: W.quality(), valid: q0 === 'auto' || G.QUALITY_IDS.indexOf(q0) >= 0 };
+      return { zones, layers, aa, bail, qs, q0, retHd, eff: W.quality(), valid: q0 === 'auto' || G.QUALITY_IDS.indexOf(q0) >= 0 };
     });
     assert(r.valid, '存档里的画质无效：' + r.q0);
     assert(r.zones.every((z) => z.includes(':hd')), '有区域没换上 PBR 外观（素材没加载到？）：' + r.zones.join(' '));
+    assert(r.retHd, '换区跳回第 0 区以后，贴图重新解码完也没换回 PBR 外观');
     assert(r.qs.join() === 'high:post+bloom+mist,mid:post+bloom,low:direct', '画质档位不对：' + r.qs.join());
     // vf-ground：五个区都有地面覆盖层和贴花层；贴花层高 / 中档画、低档不画（低档的接触阴影 / 光池在地面顶点色里），抗锯齿按 QUALITY 的开关（SMAA / FXAA 默认关时都是 none）
     assert(r.layers.every((z) => z.endsWith(':layer+decals')), '有区域没有地面覆盖层或贴花层：' + r.layers.join(' '));
     assert(r.aa.join() === 'high:none+decals,mid:none+decals,low:none', '贴花层 / 抗锯齿的画质档位不对：' + r.aa.join(' '));
     assert(r.bail.n === 1 && r.bail.idx > 6 && r.bail.zone === 'frost', '进区后马上换区：贴花层没有按新区填好（或旧区的留下来了）：' + JSON.stringify(r.bail));
-    // 地图页的画质按钮：点了立即生效并写进存档
-    await page.keyboard.press('KeyM');
-    await page.click('[data-act="quality"][data-q="mid"]');
-    const u = await ev(() => ({ q: G.world.quality(), o: G.save.opts.quality, st: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).opts.quality, on: document.querySelector('[data-act="quality"].on').dataset.q }));
-    await page.click('[data-act="quality"][data-q="' + r.eff + '"]');
-    await closePanel();
+    // 设置里的画质按钮（B4a：从地图页挪进设置）：点了立即生效并写进存档
+    await openSettings();
+    await page.click('#p-view [data-tact="quality"][data-q="mid"]');
+    const u = await ev(() => ({ q: G.world.quality(), o: G.save.opts.quality, st: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).opts.quality, on: document.querySelector('#p-view [data-tact="quality"].on').dataset.q }));
+    await page.click('#p-view [data-tact="quality"][data-q="' + r.eff + '"]');
+    await closeSettings();
     assert(u.q === 'mid' && u.o === 'mid' && u.st === 'mid' && u.on === 'mid', '画质按钮没有生效或没有存档：' + JSON.stringify(u));
     const back = await ev((q0) => {
       G.save.opts.quality = q0; // 恢复成测试开始时的设置（可能是 auto）
@@ -12258,6 +12722,8 @@ async function main() {
     lord: { hash: '6bcd5507', calls: 114, secs: '24815422,e21feb3a,ebe73ddb,5d25957d,b63a99b0,8e38a8e6,7dba3ec4,c48bbb94,b7d35d0a,a5d6ea59,63f52b72,e7eac088,98c19b85,e738b0a0,4d2180d1'.split(',') }, // main 25e390e（fx-rng 之后，程序化外观）上量的；fx-rng 之前 main a2831c3 上是 5ed52b42 / 30070 次
     behemoth: { hash: 'f5f43ce4', calls: 123, secs: 'e18ee022,7352cd8d,5b43567a,a2cce81a,1519cee2,75635a63,c5bd0ee2,e0e76dc3,feb8fd4d,1cb6dd7f,f4ae329e,716bf23b,87f57802,31f02c47,44888a78'.split(',') }, // main 25e390e（程序化外观）上量的
     weaver: { hash: '1109c818', calls: 238, secs: 'f42838b4,e60faab2,2f2c6293,2b60ae61,9216c109,4a88c052,70e6e7b4,f6960b6d,89cbe051,d25d7461,e082eb08,fa573d05,e87f94ef,f0619acf,8658255f'.split(',') }, // main 6fd2e4c（程序化外观）上量的
+    snuffer: { hash: '269b651b', calls: 132, secs: '320133f1,92477020,07f0ab2d,06c27abb,b0877336,f3698880,32c5cd91,8d29fd4b,660eb131,ed0b60af,db361c7a,103d7436,d1d2de83,ae2fe5c4,3d5167b0'.split(',') }, // main 78b6d09（程序化外观）上量的
+    warden: { hash: '1149e1ef', calls: 124, secs: '9931cac1,1038154c,3f0a6ad0,ab2d858e,b816b37d,b73dfd9f,9cd78f4f,a396ad03,fa5fa5af,dd2bb8be,4fe5ad95,61b11e2a,d60c2ecd,8487480b,4c9a2b14'.split(',') }, // main 37701d1（程序化外观）上量的
   };
   // tiers（boss-lord 起）：再按另一档画质打一遍，指纹也要一样（fx-rng 的「高 = 低」规则用在首领战上）
   const bossFpStep = (kind, CN, tiers) => step('首领指纹：' + CN + '固定种子打 15 秒，局面和取随机数次数和换模型之前逐位相同；首领包打到一半才到，也只在招式之间换模型、指纹不变' + (tiers ? '；换一档画质打出来也一样' : ''), async () => {
@@ -12330,12 +12796,15 @@ async function main() {
   await bossFpStep('lord', '烬渊之主', true);
   await bossFpStep('behemoth', '衔星巨兽', true);
   await bossFpStep('weaver', '霜织者', true);
+  await bossFpStep('snuffer', '熄烛者', true);
+  await bossFpStep('warden', '雷霆监察者', true);
 
   // boss-golem：首领模型的三步（模型 / 出手对拍 / 死亡和破防），量的都是新模型（首领包到了以后建的骨架）
   const BOSS_BONES = JSON.parse(readFileSync(new URL('../art/rig.json', import.meta.url), 'utf8')).boss;
   const BOSS_BUDGET = JSON.parse(readFileSync(new URL('../art/budgets.json', import.meta.url), 'utf8')).categories.boss;
   const BOSS_MAN = JSON.parse(readFileSync(new URL('../assets/ca/manifest.json', import.meta.url), 'utf8')).assets.filter((a) => a.category === 'boss');
-  const bossModelStep = (kind, CN) => step('首领模型：' + CN + '用脚本生成的蒙皮模型（assets/ca/boss/' + kind + '.glb），骨骼是 art/rig.json 那一组、三角形在预算内、3 个网格 + 本体的阴影、占地半径和身高跟原来的差不多', async () => {
+  // vsDef（boss-snuffer）：占地半径只和碰撞半径比（原来的程序化熄烛者只是一根细圆锥，占地 1.03、比碰撞半径 1.6 小三成多；设计稿要的是贴着 1.6 的宽下摆）
+  const bossModelStep = (kind, CN, vsDef) => step('首领模型：' + CN + '用脚本生成的蒙皮模型（assets/ca/boss/' + kind + '.glb），骨骼是 art/rig.json 那一组、三角形在预算内、3 个网格 + 本体的阴影、占地半径和身高跟原来的差不多', async () => {
     await ev((kind) => G.assets.need(['boss-' + kind]), kind);
     await until((kind) => G.world.bossRig(kind), kind, 60000);
     const r = await ev((kind) => {
@@ -12387,7 +12856,7 @@ async function main() {
     assert(r.bones.slice().sort().join() === want.slice().sort().join() && r.bones.length <= BOSS_BONES.maxBones && r.bones.length <= BOSS_BUDGET.bones, '骨骼和 art/rig.json 的不一致或超过 ' + BOSS_BUDGET.bones + ' 根：' + r.bones.join(','));
     assert(r.tris <= BOSS_BUDGET.tris && man && r.tris === man.tris, '三角形 ' + r.tris + '（预算 ' + BOSS_BUDGET.tris + '，清单 ' + (man && man.tris) + '）');
     assert(r.meshes === 3 && r.shadow === 1 && r.body && r.glow && !r.aux, '应是本体 + 发光 + 地上光晕 3 个网格、只有本体投影：' + JSON.stringify(r));
-    assert(Math.abs(r.r - r.defR) / r.defR <= 0.15 && Math.abs(r.r - r.rOld) / r.rOld <= 0.15, '占地半径 ' + r.r.toFixed(2) + ' 应在碰撞半径 ' + r.defR + ' 和原来 ' + r.rOld.toFixed(2) + ' 的 ±15% 里');
+    assert(Math.abs(r.r - r.defR) / r.defR <= 0.15 && (vsDef || Math.abs(r.r - r.rOld) / r.rOld <= 0.15), '占地半径 ' + r.r.toFixed(2) + ' 应在碰撞半径 ' + r.defR + (vsDef ? '' : ' 和原来 ' + r.rOld.toFixed(2)) + ' 的 ±15% 里');
     assert(Math.abs(r.h - r.hOld) / r.hOld <= 0.1, '身高 ' + r.h + ' 应在原来 ' + r.hOld + ' 的 ±10% 里');
     assert(r.coreGlow[0] > 0 && r.coreGlow[0] / r.coreGlow[1] < 0.25, '发光面里近白的芯应只占一小部分（面积）：' + r.coreGlow.join(' / ') + ' m²');
     return r.bones.length + ' 根骨骼，' + r.tris + ' 个三角形，占地半径 ' + r.r.toFixed(2) + '（原来 ' + r.rOld.toFixed(2) + '，碰撞 ' + r.defR + '），身高 ' + r.h + '（原来 ' + r.hOld + '），近白的芯占发光面积 ' + r.coreGlow.join(' / ') + ' m²';
@@ -12396,6 +12865,8 @@ async function main() {
   await bossModelStep('lord', '烬渊之主');
   await bossModelStep('behemoth', '衔星巨兽');
   await bossModelStep('weaver', '霜织者');
+  await bossModelStep('snuffer', '熄烛者', true);
+  await bossModelStep('warden', '雷霆监察者');
 
   // 每只首领：招式、模拟里的蓄力时长（enemies.js 的 PATTERN_WIND，换模型不动）、接触姿势的量（接触帧应是极值）、出事件的方式、蓄力时挨打用的蓄力动作
   //   量：weaponLow = 武器挂点最低（锤石落地 / 剑插进地里），handsApart = 两只手离得最远，pelvisFwd = 骨盆冲到最前，handFwd = 左手（hand 挂点的关节）甩到最前，
@@ -12408,6 +12879,14 @@ async function main() {
     behemoth: { CN: '衔星巨兽', wind: { starfall: 0.7, gravity: 0.6, sweep: 0.9, slam: 0.95 }, m: { starfall: 'handLow', gravity: 'headLow', sweep: 'jawOpen', slam: 'handLow' }, ev: { gravity: 'time', sweep: 'time' }, steady: ['slam_w', 0.783] },
     // 霜织者：扇形 = 右手（weapon 挂点那只）甩到最前；落冰 = 左手举到最高（落冰的预警起手就出了：按蓄力到点对）；召唤 = 左前腿的踝点到最低（小怪现身）；冰环 = 头落到最低
     weaver: { CN: '霜织者', wind: { fan: 0.4, barrage: 0.3, summon: 0.5, ring: 0.45 }, m: { fan: 'handRFwd', barrage: 'handUp', summon: 'flegLow', ring: 'headLow' }, ev: { barrage: 'time', summon: 'mob' }, steady: ['ring_w', 0.317] },
+    // 熄烛者（boss-snuffer）：不走 def.patterns（snThink 按阶段挑招），三个阶段的七招都用 G.snufferPattern 直接起；引芯要有亮着的火盆：临时放一份四个火盆的场地状态
+    //   （余烛殿的场地函数都先看是不是在余烛殿里，别的区里只有 enemies.js 读 lit / br）。量：拂烛 / 双拂 = 右手的灯甩到最前，烛泪 = 右手的灯举到最高（落蜡的预警起手就出了：按蓄力到点对），
+    //   引芯 = 骨盆冲到最前，螺旋 = 左手举到最高，坠冕 = 左手砸到最低，暗潮 = 骨盆沉到最低（暗潮在模拟里到点结算、没有预警回调：按蓄力到点对）。
+    //   记号：fwd:关节 / up:关节 / low:关节 = 这个关节在模型空间里的 z / y / −y
+    snuffer: { CN: '熄烛者', sn: true, wind: { brush: 1.0, dbrush: 1.0, tears: 0.4, wick: 0.9, spiral: 0.25, crown: 1.4, tide: 1.6 },
+      m: { brush: 'fwd:x_lamp_r', dbrush: 'fwd:x_lamp_r', tears: 'up:x_lamp_r', wick: 'fwd:pelvis', spiral: 'up:hand_l', crown: 'low:hand_l', tide: 'low:pelvis' }, ev: { tears: 'time', tide: 'time' }, steady: ['brush_w', 0.833] },
+    // 雷霆监察者：十字 = 两只手从 X 锁劈开到最开；轰炸 = 左手举到最高（轰炸的预警起手就出了：按蓄力到点对）；冲锋 = 骨盆冲到最前；雷环 = 两只手甩开到最开
+    warden: { CN: '雷霆监察者', wind: { cross: 0.9, barrage: 0.3, charge: 0.75, ring: 0.45 }, m: { cross: 'handsApart', barrage: 'handUp', charge: 'pelvisFwd', ring: 'handsApart' }, ev: { barrage: 'time' }, steady: ['cross_w', 0.767] },
   };
   const bossClipStep = (kind) => step('首领出手对拍：' + BOSS_CLIPS[kind].CN + '每一招的蓄力 / 出手动作都在，出手提前量比蓄力短，伤害 / 起冲 / 弹幕离手的那一帧正好是出手动作的接触帧（误差不到一帧）；蓄力时挨打不晃', async () => {
     await ev((kind) => G.assets.need(['boss-' + kind]), kind);
@@ -12415,21 +12894,30 @@ async function main() {
     const C = BOSS_CLIPS[kind], WIND = C.wind;
     const r = await ev(([kind, C]) => {
       const WIND = C.wind;
-      const P = G.player, W = G.world, out = { pats: G.BOSSES[kind].patterns.slice() }, tel0 = G.telegraph, sp0 = G.spawnProjectile, sm0 = G.spawnMob;
+      const P = G.player, W = G.world, out = { pats: C.sn ? Object.keys(WIND) : G.BOSSES[kind].patterns.slice() }, tel0 = G.telegraph, sp0 = G.spawnProjectile, sm0 = G.spawnMob, pin0 = G.state.pin;
       try {
         for (const p of out.pats) {
           T.lane();
           G.debug.god(true);
           const b = G.spawnBoss(kind, P.x + 4, P.z, 1);
-          b.def = Object.assign({}, b.def, { patterns: [p] });
-          b.awake = true;
-          b.cd = 0;
+          if (C.sn) {
+            // 熄烛者：火盆在首领前后左右 7 m（引芯冲向离玩家最近的那个）；不让 AI 自己出招，这一招直接起（在第一帧之前起：计帧从 1 开始）
+            G.state.pin = { lit: [1, 1, 1, 1], br: [[7, 0], [0, 7], [-7, 0], [0, -7]].map(([dx, dz]) => ({ x: b.x + dx, z: b.z + dz })), phase: 0, tideK: 0 };
+            b.awake = b.wasAwake = true; // 已经醒着（醒来那一帧会把出招计时清零、让 AI 自己挑招）
+            b.cd = 1e9;
+          } else {
+            b.def = Object.assign({}, b.def, { patterns: [p] });
+            b.awake = true;
+            b.cd = 0;
+          }
           let ev0 = null;
           // 接触姿势的量：砸地 = 锤石（weapon 挂点）的高度（落地时最低），弹幕 = 两只手的距离（张到最开时最大），冲锋 = 骨盆往前冲出去的位移
           const S0 = {}, mt = () => {
             const e = b.ent, wp = W.entSocket(e, 'weapon'), hd = W.entSocket(e, 'hand'), M = e.mdl, pz = M[e.rig.JI.pelvis * 12 + 11], hj = e.rig.JI.hand_l;
             const m = C.m[p];
             const hs = W.entSocket(e, 'head');
+            const jm = /^(fwd|up|low):(.+)$/.exec(m);
+            if (jm) { const q = e.rig.JI[jm[2]] * 12; return jm[1] === 'fwd' ? M[q + 11] : jm[1] === 'up' ? M[q + 7] : -M[q + 7]; }
             if (m === 'handLow') return -hd.y;
             if (m === 'headLow') return -hs.y;
             if (m === 'jawOpen') return Math.hypot(wp.x - hs.x, wp.y - hs.y, wp.z - hs.z);
@@ -12442,7 +12930,8 @@ async function main() {
           G.telegraph = function (t) { if (t.owner === b && t.onFire) { const f = t.onFire; t.onFire = function () { snap('预警结算'); return f.apply(this, arguments); }; } return tel0.apply(this, arguments); };
           G.spawnProjectile = function (q) { if (q.owner !== 'p' && !C.ev[p]) snap('弹幕离手'); return sp0.apply(this, arguments); };
           G.spawnMob = function () { if (C.ev[p] === 'mob') snap('小怪现身'); return sm0.apply(this, arguments); };
-          let since = -1;
+          let since = C.sn ? 0 : -1;
+          if (C.sn) G.snufferPattern(b, p);
           for (let i = 0; i < 400 && (!ev0 || trace.length < ev0.at + 24); i++) {
             G.tick(1 / 60);
             if (b.lastPattern === p) {
@@ -12454,6 +12943,7 @@ async function main() {
           G.telegraph = tel0;
           G.spawnProjectile = sp0;
           G.spawnMob = sm0;
+          G.state.pin = pin0;
           // 接触帧前后 0.4 秒里，这个量在接触帧（出事件的那一帧）是不是已经到了极值（差不到 6 cm：锤石已经落地 / 双臂已经张开 / 已经冲出去）
           let pose = null;
           if (ev0) {
@@ -12480,6 +12970,7 @@ async function main() {
         G.telegraph = tel0;
         G.spawnProjectile = sp0;
         G.spawnMob = sm0;
+        G.state.pin = pin0;
       }
       return out;
     }, [kind, C]);
@@ -12498,6 +12989,8 @@ async function main() {
   await bossClipStep('lord');
   await bossClipStep('behemoth');
   await bossClipStep('weaver');
+  await bossClipStep('snuffer');
+  await bossClipStep('warden');
 
   const bossDeathStep = (kind, CN) => step('首领死亡和破防：' + CN + '死亡动作砸到地上的那一刻是 0.90 秒（vfx3 第三段冲击环），破防垮下去以后从跪稳的姿势循环、不重播垮下去那一段', async () => {
     await ev((kind) => G.assets.need(['boss-' + kind]), kind);
@@ -12540,6 +13033,8 @@ async function main() {
   await bossDeathStep('lord', '烬渊之主');
   await bossDeathStep('behemoth', '衔星巨兽');
   await bossDeathStep('weaver', '霜织者');
+  await bossDeathStep('snuffer', '熄烛者');
+  await bossDeathStep('warden', '雷霆监察者');
 
   await step('刷新后仍可正常游玩：移动、施法、面板', async () => {
     await ev(() => {
@@ -12567,6 +13062,8 @@ async function main() {
       await page.keyboard.press(k);
       cleanText(await ev(() => T.bodyText()), k + ' 页（满配角色）');
     }
+    // B4a：帮助页一次只显示一个话题，每个话题都查一遍
+    for (const id of await ev(() => Array.from(document.querySelectorAll('[data-act="topic"]')).map((b) => b.dataset.topic))) cleanText(await ev((id) => (G.ui.open('help', id), T.bodyText()), id), 'help·' + id + ' 页（满配角色）');
     await closePanel();
     await ev(() => G.debug.hold(true));
   });
@@ -13114,8 +13611,7 @@ async function main() {
       for (const sl in ilvl0) save.equip[sl].ilvl = 50;
       G.computeStats();
       // 技能卡
-      G.ui.open('skills');
-      const card = Array.from(document.querySelectorAll('.skill-card')).find((q) => q.querySelector('.sk-name') && q.querySelector('.sk-name').textContent.includes('烬骸仆从'));
+      const card = T.skCard(Object.keys(G.SKILLS).find((id) => G.SKILLS[id].name === '烬骸仆从'));
       out.card = card ? card.querySelector('.sk-inh') && card.querySelector('.sk-inh').innerText : null;
       G.ui.close();
       G.clearMinions();
@@ -13610,7 +14106,7 @@ async function main() {
       await page.mouse.move(5, 5);
     }
     assert(/烬铸技/.test(tip) && /千刃归烬/.test(tip) && /瞬断/.test(tip), '武器提示应写明烬铸技替换了瞬断：' + tip.slice(0, 300));
-    await ev(() => G.ui.open('skills'));
+    await ev(() => G.ui.open('skills', 'wskill'));
     await frames(2);
     const sk = await ev(() => { const c = document.querySelector('.wsk-card'); return { cls: c.className, text: c.innerText, bar: document.querySelector('.wbarslot').innerText }; });
     assert(/uskill/.test(sk.cls) && /烬铸技/.test(sk.text) && /替换「瞬断」/.test(sk.text) && /烬铸技/.test(sk.bar), '技能页的武器技一节应换成烬铸技卡片：' + JSON.stringify(sk).slice(0, 300));
@@ -13986,23 +14482,23 @@ async function main() {
     return fixed.uniq;
   });
 
-  // multisave-d1：删除要确认两次（「删除 未定 · N 级？」→「删了就找不回来了。真的删除？」），删掉的角色先进回收位；
+  // multisave-d1：删除要确认两次（「删除 未定 · N 级？」→「删掉后先放进回收位，在角色页可以恢复。确定删除？」，回收位有人时写明那个会被彻底删除），删掉的角色先进回收位；
   // 开场卡片改成所有角色共用一份「看过」，所以删完的新角色不再弹（原来断言「全新存档应再次弹出开场卡片」）
   await step('删除存档：确认两次后换成全新角色，原来的进回收位', async () => {
-    await page.keyboard.press('KeyM');
-    await page.click('[data-act="del-save"]');
-    const ask = await ev(() => ({ confirm: !!document.querySelector('[data-act="del-confirm"]'), lvl: G.save.level, txt: (document.querySelector('.del-warn') || {}).innerText || '' }));
+    await openSettings(); // B4a：「删除这个角色」从地图页挪进设置的最下面（data-act → data-tact，流程和文字不变）
+    await page.click('#p-view [data-tact="del-save"]');
+    const ask = await ev(() => ({ confirm: !!document.querySelector('#p-view [data-tact="del-confirm"]'), lvl: G.save.level, txt: (document.querySelector('#p-view .del-warn') || {}).innerText || '' }));
     assert(ask.confirm && ask.lvl > 1 && ask.txt === '删除 未定 · ' + ask.lvl + ' 级？', '删除存档应先要求确认：' + JSON.stringify(ask));
-    await page.click('[data-act="del-cancel"]');
-    assert(await ev(() => !document.querySelector('[data-act="del-confirm"]')), '取消无效');
-    await page.click('[data-act="del-save"]');
-    await page.click('[data-act="del-confirm"]');
-    const ask2 = await ev(() => ({ final: !!document.querySelector('[data-act="del-final"]'), txt: (document.querySelector('.del-warn') || {}).innerText || '' }));
-    assert(ask2.final && ask2.txt.startsWith('删了就找不回来了。真的删除？'), '第一次确认后应再问一次：' + JSON.stringify(ask2));
+    await page.click('#p-view [data-tact="del-cancel"]');
+    assert(await ev(() => !document.querySelector('#p-view [data-tact="del-confirm"]')), '取消无效');
+    await page.click('#p-view [data-tact="del-save"]');
+    await page.click('#p-view [data-tact="del-confirm"]');
+    const ask2 = await ev(() => ({ final: !!document.querySelector('#p-view [data-tact="del-final"]'), txt: (document.querySelector('#p-view .del-warn') || {}).innerText || '' }));
+    assert(ask2.final && /^(删掉后先放进回收位，在角色页可以恢复。|回收位里的 .+ 会被彻底删除，找不回来。)确定删除？$/.test(ask2.txt), '第一次确认后应再问一次：' + JSON.stringify(ask2));
     const keep = await ev(() => localStorage.getItem('cinder-abyss-save-v1'));
     // 防卡死的超时（不是行为断言）：15 → 30 秒。实测（188deef 之后，池里）这次重载 8.4–12.2 秒（10 次），四个 Chrome 一起跑的 test:func 里整步 13.9–15.0 秒、
     // 一次超过 15 秒失败；按最慢的约 2 倍定
-    await Promise.all([page.waitForNavigation({ timeout: 30000 }), page.click('[data-act="del-final"]')]);
+    await Promise.all([page.waitForNavigation({ timeout: 30000 }), page.click('#p-view [data-tact="del-final"]')]);
     await install();
     await frames(2);
     const r = await ev(() => ({ sum: G.debug.summary(), open: T.introOpen(), equip: Object.keys(G.save.equip).join(), maxTier: G.save.maxTier, seenHelp: G.save.seenHelp, trash: JSON.parse(localStorage.getItem('cinder-abyss-trash') || 'null'), cur: G.slots.cur() }));
@@ -14459,10 +14955,10 @@ async function main() {
       for (const id of ['charge', 'swell']) if (save.supports.indexOf(id) < 0) save.supports.push(id);
       save.skills.ember = save.skills.ember || 1;
       save.sockets.ember = [null, null, null]; // 空槽：点满的槽是取下宝石
-      G.ui.open('skills');
+      G.ui.open('skills', 'ember');
       const btn = document.querySelector('[data-act="socket"][data-skill="ember"][data-idx="0"]');
       if (btn) btn.click();
-      const txt = document.getElementById('picker').innerText;
+      const txt = (document.getElementById('picker') || {}).innerText || '';
       G.ui.close();
       T.buildRestore(snap);
       return txt;
@@ -14742,8 +15238,7 @@ async function main() {
       G.ui.update(); // 技能栏在渲染循环里刷新：这里手动刷一次
       const slots = document.querySelectorAll('#slots .slot');
       out.hud = { dim: slots[3].classList.contains('aoff'), tag: slots[3].innerText.includes('保留不足'), novaDim: slots[2].classList.contains('aoff') };
-      G.ui.open('skills');
-      const card = Array.from(document.querySelectorAll('.skill-card')).find((n) => n.querySelector('.sk-name').textContent.startsWith('黑焰'));
+      const card = T.skCard('blackflame');
       out.card = card ? card.innerText.includes('保留不足，未生效') : false;
       G.ui.close();
       // 换个顺序：黑焰在左 → 黑焰生效、霜环不生效
@@ -15449,6 +15944,7 @@ async function main() {
       G.computeStats();
       G.ui.open('skills');
       const card = (id) => {
+        T.skCard(id); // UI-R B2：一次一张，先选中
         const b = document.querySelector('[data-act="bind"][data-skill="' + id + '"]');
         return b ? b.closest('.skill-card') : null;
       };
@@ -15505,7 +16001,7 @@ async function main() {
   // ------------------------------------------------------------------ D1 刻式（设计稿 §10）
   // 五步共用：进来时把存档存一份，最后一步结束时原样放回（刻式、宝石等级、通货都不带进后面的步骤）
   let varKeep = null;
-  await step('刻式：裂石击以外的 20 个宝石技能都有 A / B（含第一批新技能，没有例外表）；宝石 9 级不能选、10 级能选；第一次免费，第二次扣 1 乱流石、不够时拒绝；战斗中拒绝；技能页 10 级才有三个按钮', async () => {
+  await step('刻式：裂石击以外的 20 个宝石技能都有 A / B（含第一批新技能，没有例外表）；角色 12 级不能选、13 级能选（技能宝石没有等级，存档里记着 30 级也不算）；第一次免费，第二次扣 1 乱流石、不够时拒绝；战斗中拒绝；技能页 13 级才有三个按钮', async () => {
     varKeep = await ev(() => { G.persist(); return localStorage.getItem('cinder-abyss-save-v1'); });
     const r = await ev((NEW) => {
       T.arena();
@@ -15516,18 +16012,23 @@ async function main() {
       // 第一批的 6 个新技能都在表里（第二批 skill-batch2 补齐），宝石技能一共 20 个
       out.pend = NEW.every((id) => G.GEM_SKILLS.indexOf(id) >= 0 && !!G.VARIANTS[id]) && G.GEM_SKILLS.length === 29;
       out.extra = Object.keys(G.VARIANTS).filter((id) => G.GEM_SKILLS.indexOf(id) < 0 || id === 'cleave');
-      out.price = G.VARIANT_LVL === 10 && G.VARIANT_COST.cur === 'chaos' && G.VARIANT_COST.n === 1 && G.CURRENCY.chaos.name === '乱流石';
+      out.price = G.VARIANT_LVL === 10 && G.VARIANT_CHAR_LVL === 13 && G.VARIANT_COST.cur === 'chaos' && G.VARIANT_COST.n === 1 && G.CURRENCY.chaos.name === '乱流石';
+      G.debug.pinGems(false); // 真实规则：技能等级 = 成长下限
+      const lv0 = s.level;
       s.variants = {};
       s.variantFree = {};
-      s.skills.ember = 9;
+      s.skills.ember = 30; // 改版前捡到的 30 级宝石：存档里原样留着，但不算数
+      s.level = 12;
       s.cur.chaos = 0;
-      out.lv9 = G.setVariant('ember', 'a').ok;
-      // 技能页：9 级只有一行灰字，没有按钮
-      G.ui.open('skills');
+      const r0 = G.setVariant('ember', 'a');
+      out.lv9 = r0.ok;
+      out.msg9 = r0.msg;
+      // 技能页：12 级只有一行灰字，没有按钮
+      G.ui.open('skills', 'ember');
       out.btn9 = document.querySelectorAll('[data-act="variant"][data-skill="ember"]').length;
-      out.lock9 = /宝石 Lv 10 解锁/.test(T.bodyText());
+      out.lock9 = /角色 13 级解锁 A \/ B 两种刻式/.test(T.bodyText()) && !/宝石 Lv/.test(T.bodyText());
       G.ui.close();
-      s.skills.ember = 10;
+      s.level = 13;
       const r1 = G.setVariant('ember', 'a');
       out.free = r1.ok && r1.cost === 0 && s.cur.chaos === 0 && G.SKILLS.ember.vname === '跳焰' && s.variants.ember === 'a';
       const r2 = G.setVariant('ember', 'b');
@@ -15543,17 +16044,20 @@ async function main() {
       out.asleep = G.variantBusy() === false; // 睡着的怪不算
       G.clearEnemies();
       // 技能页：10 级三个按钮，当前的那个亮着；点一下（钱够）就换
-      G.ui.open('skills');
+      G.ui.open('skills', 'ember');
       const btns = document.querySelectorAll('[data-act="variant"][data-skill="ember"]');
       out.btn10 = btns.length;
       out.on = Array.from(btns).map((b) => (b.classList.contains('on') ? b.dataset.v : '')).join('');
       btns[0].click();
       out.clicked = s.cur.chaos === 0 && !s.variants.ember && G.SKILLS.ember === G.SKILL_V.ember.o && /换成了「原式」/.test(T.bodyText());
       G.ui.close();
+      out.stored = s.skills.ember; // 存档里的 30 没被改写
+      s.level = lv0;
+      G.debug.pinGems(true);
       return out;
     }, NEW_SKILLS);
     assert(r.n === 29 && !r.missing.length && !r.extra.length && r.price && r.pend, '刻式表不全（class-d2b1 的四种特殊弹、class-d2b2 的 5 个也要有 A / B）：' + JSON.stringify(r));
-    assert(!r.lv9 && r.btn9 === 0 && r.lock9, '宝石 9 级不该能选刻式：' + JSON.stringify(r));
+    assert(!r.lv9 && r.msg9 === '角色 13 级才能选刻式' && r.btn9 === 0 && r.lock9 && r.stored === 30, '角色 12 级不该能选刻式（存档里记着 30 级也不算，且不被改写）：' + JSON.stringify(r));
     assert(r.free && r.refuse && r.paid, '价格不对（第一次免费、之后 1 乱流石、不够拒绝）：' + JSON.stringify(r));
     assert(r.combat && r.asleep, '战斗中应拒绝换刻式：' + JSON.stringify(r));
     assert(r.btn10 === 3 && r.on === 'b' && r.clicked, '技能页的刻式按钮不对：' + JSON.stringify(r));
@@ -16545,7 +17049,7 @@ async function main() {
       out.off.cost = off.cost;
       out.costO = G.skillCtx('arc').cost;
       s.sockets.arc[0] = 'lasting';
-      G.ui.open('skills');
+      G.ui.open('skills', 'arc');
       const sock = document.querySelector('.sock[data-skill="arc"][data-idx="0"]');
       out.card = sock ? { idle: sock.classList.contains('idle'), txt: sock.innerText } : null;
       return out;
@@ -18183,27 +18687,27 @@ async function main() {
       const card = () => document.querySelector('.sv-btn.sv-rq[data-skill="blade"]');
       const row = (id) => { const b = document.querySelector('.sv-btn.sv-rq[data-skill="' + id + '"]'); return b ? b.closest('.sk-var').textContent : ''; };
       const on = (id) => { const b = document.querySelector('.sk-var:not(.sk-rq) .sv-btn.on[data-skill="' + id + '"]'); return b ? b.dataset.v : ''; };
-      G.ui.open('skills');
+      G.ui.open('skills', 'blade');
       out.lock = [!!card(), card() && card().classList.contains('lock'), row('blade')];
       card().click();
       out.lockClick = [s.variants.blade, (document.querySelector('.sv-msg.bad') || {}).textContent || ''];
       s.equip.amulet = G.rollRelic('huixuan', 50, 0.5);
       G.computeStats();
       G.ui.close();
-      G.ui.open('skills');
+      G.ui.open('skills', 'blade');
       out.free = [card().classList.contains('lock'), row('blade')];
       card().click();
       out.picked = [s.variants.blade, card().classList.contains('on'), row('blade'), (document.querySelector('.sv-msg') || {}).textContent || ''];
       s.equip.amulet = null;
       G.computeStats();
       G.ui.close();
-      G.ui.open('skills');
+      G.ui.open('skills', 'blade');
       out.kept = [card().classList.contains('lock'), on('blade'), row('blade')];
       // 宝石 6 级的旋风斩：A / B 灰字，渊式一行照样在（怒潮戴上能选）
       s.equip.gloves = G.rollRelic('nuchao', 50, 0.5);
       G.computeStats();
       G.ui.close();
-      G.ui.open('skills');
+      G.ui.open('skills', 'whirl');
       const wcard = document.querySelector('.sv-btn.sv-rq[data-skill="whirl"]');
       out.low = [!!document.querySelector('.sk-var.lock') , !!wcard, wcard && wcard.classList.contains('lock')];
       if (wcard) wcard.click();
@@ -22599,6 +23103,10 @@ async function d2b2Steps() {
       const S = G.save, L = G.state.loot, l0 = L.length;
       const lvl0 = S.level;
       S.level = 30;
+      // gem-nolvl：掉落总是先挑没学会的，这里又不拾取——要看池子里有哪些，就让全部技能都学会（挑到的是重复的，从整个池子里按职业加权挑）
+      const sk0 = S.skills;
+      S.skills = {};
+      for (const id of G.GEM_SKILLS) S.skills[id] = 5;
       const seen = (cls) => {
         if (cls) S.cls = cls;
         else delete S.cls;
@@ -22621,6 +23129,7 @@ async function d2b2Steps() {
       const a = seen(null), b = seen('hunt'), c = seen('guard'), d = seen('forge');
       delete S.cls;
       S.level = lvl0;
+      S.skills = sk0;
       const old = new Set(G.gemDropPool(undefined));
       const NEW = ['molten', 'wedge', 'rime', 'recoil', 'snare', 'brace', 'scorch', 'heartfire', 'leapshot'];
       const all = new Set([...b.ids, ...c.ids, ...d.ids]);
@@ -23541,11 +24050,13 @@ async function classSteps() {
     if (browser) await browser.close().catch(() => {});
     ({ browser, page, errors } = await launch(Object.assign({ width: 1280, height: 800 }, o || {})));
   };
-  // 没有职业的存档：一串物品、怪物掉落（精英 / 普通 / 区域刷的怪）、拾烬客的货架，去掉 uid（带时间戳）后的 JSON 和随机数调用次数
+  // 没有职业的存档：一串物品、怪物掉落（精英 / 普通 / 区域刷的怪）、拾烬客的货架，去掉 uid（带时间戳）后的 JSON 和随机数调用次数。
+  // gem-nolvl：技能宝石 / 无铭宝石没有等级了（掷等级的那次随机数照抽），比的时候两边都去掉 lvl；
+  // 起手一个技能都没学：宝石总是挑没学会的（改版前怪物 70%），什么都没学时两边挑到的是同一颗，随机数次数也一样
   const dropSeq = () => {
     window.__testRand.seed('class-nocls-drops');
     const S = G.save;
-    S.skills = { ember: 1 };
+    S.skills = {};
     S.supports = [];
     S.level = 20;
     const strip = (it) => {
@@ -23578,9 +24089,15 @@ async function classSteps() {
     try {
       for (let i = 0; i < 400; i++) items.push(strip(G.rollItem(5 + (i % 40), i % 3)));
       for (let i = 0; i < 400; i++) G.dropLoot({ x: G.player.x, z: G.player.z, level: 8 + (i % 30), elite: i % 6 === 0, horde: i % 3 === 1, hordeK: 1 });
-      for (const l of L.slice(l0)) loot.push({ k: l.kind, d: l.kind === 'item' ? strip(l.data) : l.data });
+      const noLvl = (d) => {
+        if (!d || typeof d !== 'object') return d;
+        const o = Object.assign({}, d);
+        delete o.lvl;
+        return o;
+      };
+      for (const l of L.slice(l0)) loot.push({ k: l.kind, d: l.kind === 'item' ? strip(l.data) : noLvl(l.data) });
       const stock = [];
-      for (let i = 0; i < 30; i++) stock.push(G.traderOpen({ level: 10 + i }).map((o) => ({ k: o.kind, d: o.item ? strip(o.item) : o.data })));
+      for (let i = 0; i < 30; i++) stock.push(G.traderOpen({ level: 10 + i }).map((o) => ({ k: o.kind, d: o.item ? strip(o.item) : noLvl(o.data) })));
       if (G.ui && G.ui.close) G.ui.close();
       items.push({ stock });
     } finally {
@@ -23787,7 +24304,7 @@ async function classSteps() {
     return Object.keys(r).map((k) => k + '→' + r[k].cls + '「' + r[k].why + '」').join('；');
   });
 
-  await step('职业·掉落加权：抽 1 万次，本职业武器占武器掉落 65% ± 2%、本职业能用的技能宝石占 75% ± 2%；炉匠的货架宝石格总挑得出能用的', async () => {
+  await step('职业·掉落加权：抽 1 万次，本职业武器占武器掉落 65% ± 2%；技能宝石全学会以后（重复的）本职业能用的占 75% ± 2%，本职业还有没学会的时候 100% 挑本职业的（gem-nolvl）；炉匠的货架宝石格总挑得出能用的', async () => {
     const r = await ev(() => {
       const S = G.save, out = {};
       localStorage.clear();
@@ -23797,8 +24314,15 @@ async function classSteps() {
         S.cls = c;
         let w = 0, g = 0;
         for (let i = 0; i < 10000; i++) if (G.WTYPE_CLS[G.BASES.weapon[G.rollItem(20, 0, 'weapon').baseIdx].type] === c) w++;
+        // 全学会了：挑到的都是重复的，按 G.CLASS_LOOT.gem 加权
+        S.skills = {};
+        for (const id of G.gemDropPool(c)) S.skills[id] = 5;
         for (let i = 0; i < 10000; i++) if (G.classCanUse(c, G.pickSkillGem(0).id)) g++;
-        out[c] = { w: w / 100, g: g / 100, M: +G.CLASS_WM[c].toFixed(3) };
+        // 什么都没学：总是先挑本职业能用的
+        S.skills = {};
+        let g0 = 0;
+        for (let i = 0; i < 2000; i++) if (G.classCanUse(c, G.pickSkillGem(0).id)) g0++;
+        out[c] = { w: w / 100, g: g / 100, gNew: g0 / 20, M: +G.CLASS_WM[c].toFixed(3) };
       }
       S.cls = 'forge';
       S.skills = {};
@@ -23810,33 +24334,86 @@ async function classSteps() {
       return out;
     });
     for (const c of ['guard', 'hunt', 'star', 'lamp', 'forge']) {
-      assert(Math.abs(r[c].w - 65) <= 2 && Math.abs(r[c].g - 75) <= 2, c + '：加权不对：' + JSON.stringify(r[c]));
+      assert(Math.abs(r[c].w - 65) <= 2 && Math.abs(r[c].g - 75) <= 2 && r[c].gNew === 100, c + '：加权不对：' + JSON.stringify(r[c]));
     }
     assert(r.trader === 0, '炉匠的货架宝石格挑出了用不了的：' + r.trader);
     return ['guard', 'hunt', 'star', 'lamp', 'forge'].map((c) => c + ' 武器 ' + r[c].w + '% 宝石 ' + r[c].g + '% M ' + r[c].M).join('；');
   });
 
-  await step('职业·无铭：有职业时用不上的技能宝石掉下来是同等级的无铭宝石，能用的照旧；无铭宝石学不了别的职业的技能；没有职业时照旧掉技能宝石', async () => {
+  await step('职业·无铭：有职业时用不上的技能宝石掉下来是无铭宝石（没有等级），能用的照旧；无铭宝石学不了别的职业的技能；没有职业时照旧掉技能宝石', async () => {
     const r = await ev(() => {
       localStorage.clear();
       localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(G.newClassSave('guard')));
       G.loadSave();
       G.holdSave(true);
       const L = G.state.loot, P = G.player, l0 = L.length;
-      const a = G.spawnLoot('skill', { id: 'arc', lvl: 7 }, P.x, P.z);
-      const b = G.spawnLoot('skill', { id: 'whirl', lvl: 7 }, P.x, P.z);
+      const a = G.spawnLoot('skill', { id: 'arc' }, P.x, P.z);
+      const b = G.spawnLoot('skill', { id: 'whirl' }, P.x, P.z);
       G.save.blankGems = [9];
       const learnArc = G.useBlankGem('arc'), learnWhirl = !!G.useBlankGem('whirl');
       delete G.save.cls;
-      const c = G.spawnLoot('skill', { id: 'arc', lvl: 7 }, P.x, P.z);
+      const c = G.spawnLoot('skill', { id: 'arc' }, P.x, P.z);
       for (const l of L.splice(l0)) G.world.removeMesh(l.mesh);
       localStorage.clear();
-      return { a: a.kind + ':' + a.data.lvl, b: b.kind + ':' + b.data.id, learnArc, learnWhirl, c: c.kind + ':' + c.data.id };
+      return { a: a.kind + ':' + a.data.from + ':' + ('lvl' in a.data) + ':' + a.label, b: b.kind + ':' + b.data.id, learnArc, learnWhirl, c: c.kind + ':' + c.data.id };
     });
-    assert(r.a === 'blank:7' && r.b === 'skill:whirl', '烬卫：链雷应掉成 7 级无铭宝石、旋风斩照旧：' + JSON.stringify(r));
+    assert(r.a === 'blank:arc:false:无铭技能宝石' && r.b === 'skill:whirl', '烬卫：链雷应掉成无铭宝石（没有等级）、旋风斩照旧：' + JSON.stringify(r));
     assert(r.learnArc === null && r.learnWhirl, '无铭宝石不该学得了别的职业的技能：' + JSON.stringify(r));
     assert(r.c === 'skill:arc', '没有职业时应照旧掉技能宝石：' + JSON.stringify(r));
     return JSON.stringify(r);
+  });
+
+  await step('职业·挑宝石（gem-nolvl）：掉落总是挑没学会的——先挑本职业能用的，都学会了再挑别的职业的（掉下来是无铭宝石），全学会了才重复；每次挑的随机数次数和改版前一样（没学完 3 次、全学完 2 次）', async () => {
+    const r = await ev(() => {
+      localStorage.clear();
+      localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(G.newClassSave('hunt')));
+      G.loadSave();
+      G.holdSave(true);
+      const own = G.classGems('hunt'), all = G.gemDropPool('hunt');
+      const R = Math.random;
+      let n = 0;
+      const picks = (k) => {
+        const ids = new Set();
+        n = 0;
+        Math.random = function () { n++; return R(); };
+        try {
+          for (let i = 0; i < k; i++) ids.add(G.pickSkillGem(0.7).id);
+        } finally {
+          Math.random = R;
+        }
+        return { ids: Array.from(ids).sort(), draws: n / k };
+      };
+      const out = { own: own.length, all: all.length };
+      const learn = (ids) => { G.save.skills = {}; for (const id of ids) G.save.skills[id] = 1; };
+      // 本职业还差一颗：只挑它
+      learn(own.slice(1));
+      out.lastOwn = picks(200);
+      out.lastOwnWant = own[0];
+      // 本职业全学会了：挑别的职业没学会的，掉下来是无铭宝石
+      learn(own);
+      out.other = picks(300);
+      out.otherOk = out.other.ids.length > 1 && out.other.ids.every((id) => own.indexOf(id) < 0 && !G.save.skills[id]);
+      const L = G.state.loot, P = G.player, l0 = L.length;
+      const d = G.spawnLoot('skill', G.pickSkillGem(0.7), P.x, P.z);
+      out.otherDrop = d.kind + ':' + ('lvl' in d.data);
+      for (const l of L.splice(l0)) G.world.removeMesh(l.mesh);
+      // 全学会了：重复的（拾取时再换成无铭宝石 / 通货）
+      learn(all);
+      out.dup = picks(200);
+      out.dupOk = out.dup.ids.length > 5 && out.dup.ids.every((id) => G.save.skills[id]);
+      // 没有职业：同样总是挑没学会的
+      delete G.save.cls;
+      learn(G.gemDropPool(undefined).slice(2));
+      out.nocls = picks(200);
+      out.noclsWant = G.gemDropPool(undefined).slice(0, 2).sort().join();
+      localStorage.clear();
+      return out;
+    });
+    assert(r.lastOwn.ids.join() === r.lastOwnWant && r.lastOwn.draws === 3, '本职业还差一颗时应只挑它（随机数 3 次）：' + JSON.stringify(r.lastOwn));
+    assert(r.otherOk && r.other.draws === 3 && r.otherDrop === 'blank:false', '本职业都学会了：应挑别的职业没学会的、掉成无铭宝石：' + JSON.stringify(r));
+    assert(r.dupOk && r.dup.draws === 2, '全学会了：挑到的是重复的（随机数 2 次）：' + JSON.stringify(r.dup));
+    assert(r.nocls.ids.join() === r.noclsWant && r.nocls.draws === 3, '没有职业：应只挑没学会的那两颗：' + JSON.stringify(r.nocls));
+    return '本职业 ' + r.own + ' / 池子 ' + r.all + ' · 别的职业挑到 ' + r.other.ids.length + ' 种';
   });
 
   await step('共享仓库：一个角色放进去、另一个角色取出来（uid 不变，两边存档各自对）；同一个 uid 既在仓库又在角色身上时读档只留仓库那份；另一个标签页让这边停写后仓库也不写', async () => {
@@ -23964,8 +24541,8 @@ async function classSteps() {
 
   await step('职业·界面：技能页「其他职业」一组变灰、悬停写明原因；天赋页的起步天赋按职业起名、白送摘不掉；角色页改选一次（变灰的恢复），用掉后按钮消失', async () => {
     await ev(() => G.debug.hold(true));
-    await ev(() => G.ui.open('skills'));
-    const sk = await ev(() => ({ grp: !!document.querySelector('.sm-title.cls-group'), off: [...document.querySelectorAll('.skill-card.cls-off .sk-name')].map((n) => n.innerText), lock: (document.querySelector('.skill-card.cls-off .sk-lock') || {}).innerText }));
+    await ev(() => G.ui.open('skills', 'arc')); // UI-R B2：链雷那张卡要先选中
+    const sk = await ev(() => ({ grp: !!document.querySelector('.sm-title.cls-group'), off: [...document.querySelectorAll('.sk-list .sk-row.cls-off .skr-t b')].map((n) => n.innerText), lock: (document.querySelector('.skill-card.cls-off .sk-lock') || {}).innerText }));
     assert(sk.grp && sk.off.length === 1 && /链雷/.test(sk.off[0]) && /烬卫用不了/.test(sk.lock || ''), '技能页应把链雷收进「其他职业」并写原因：' + JSON.stringify(sk));
     await page.hover('.skill-card.cls-off .sk-icon');
     await until(() => document.getElementById('tip').innerText.includes('用不了'), null, 5000);
@@ -24487,7 +25064,7 @@ async function slotSteps() {
     assert((await ev(() => localStorage.getItem('cinder-abyss-save-v1-s4'))) === k4, '第一次确认前不该删');
     await page.click('[data-tact="ch-del2"]');
     t = await view();
-    assert(t.includes('删了就找不回来了。真的删除？') && !t.includes('会被彻底删除') && t.includes('按住 Alt'), '第二次确认的话不对：' + t);
+    assert(t.includes('删掉后先放进回收位，在角色页可以恢复。确定删除？') && !t.includes('会被彻底删除') && t.includes('按住 Alt'), '第二次确认的话不对：' + t);
     await page.keyboard.down('Alt');
     const alt = await ev(() => { const d = document.querySelector('#title .alt-d'); return d && getComputedStyle(d).display !== 'none' ? d.innerText : ''; });
     await page.keyboard.up('Alt');
@@ -24512,7 +25089,7 @@ async function slotSteps() {
       await page.click('[data-tact="ch-del"][data-slot="' + k + '"]');
       await page.click('[data-tact="ch-del2"]');
       t = await view();
-      if (k === 4) assert(t.includes('回收位里的 未定 · 12 级 会被彻底删除'), '回收位有人时第二次确认应写明会被顶掉：' + t);
+      if (k === 4) assert(t.includes('回收位里的 未定 · 12 级 会被彻底删除，找不回来。确定删除？'), '回收位有人时第二次确认应写明会被顶掉：' + t);
       await page.click('[data-tact="ch-del3"]');
     }
     r = await ev(() => ({ s4: localStorage.getItem('cinder-abyss-save-v1-s4'), s5: localStorage.getItem('cinder-abyss-save-v1-s5'), tr: JSON.parse(localStorage.getItem('cinder-abyss-trash') || 'null') }));
@@ -24761,9 +25338,14 @@ async function titleSteps() {
     await page.keyboard.press('Escape');
     r = await ev(() => ({ pause: G.ui.paused(), view: !!document.querySelector('#pause .m-view'), menu: getComputedStyle(document.getElementById('p-menu')).display }));
     assert(r.pause && !r.view && r.menu !== 'none', '子页里 Esc 应回到暂停菜单：' + JSON.stringify(r));
+    // B4a：暂停菜单的「操作说明」直接打开帮助页的「操作」（只留一份文字）；Esc 关掉帮助页回到游戏，再按 Esc 回到暂停菜单
     await page.click('#p-menu [data-tact="help"]');
-    cleanText(await ev(() => document.querySelector('#pause .m-view').innerText), '暂停菜单的操作说明');
+    r = await ev(() => ({ tab: T.tab(), topic: (document.querySelector('#panel [data-act="topic"].on') || { dataset: {} }).dataset.topic, txt: document.getElementById('panel-body').innerText }));
+    assert(r.tab === 'help' && r.topic === 'keys', '暂停菜单的「操作说明」应打开帮助页的「操作」：' + JSON.stringify({ tab: r.tab, topic: r.topic }));
+    cleanText(r.txt, '暂停菜单的操作说明');
     await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    assert(await ev(() => G.ui.paused()), 'Esc 关掉帮助页后再按一次 Esc 应回到暂停菜单');
     await page.keyboard.press('KeyI');
     r = await ev(() => ({ pause: G.ui.paused(), tab: T.tab() }));
     assert(!r.pause && r.tab === 'inv', '暂停时按 I 应换成背包：' + JSON.stringify(r));
@@ -24866,10 +25448,10 @@ async function titleSteps() {
     assert(r.hide === !h0 && r.stored.hideNormal === !h0, '标题画面上的开关应存档：' + JSON.stringify(r));
     await page.keyboard.press('Escape');
     await page.click('#t-continue');
-    await page.keyboard.press('KeyM');
-    r = await ev(() => ({ live: G.world.quality(), on: (document.querySelector('#panel-body .seg-b.on[data-act="quality"]') || { dataset: {} }).dataset.q }));
+    await openSettings(); // B4a：画质按钮从地图页挪进了设置
+    r = await ev(() => ({ live: G.world.quality(), on: (document.querySelector('#p-view .seg-b.on[data-tact="quality"]') || { dataset: {} }).dataset.q }));
     assert(r.live === q && r.on === q, '进游戏后画质应还是标题画面上选的那一档：' + JSON.stringify(r));
-    await closePanel();
+    await closeSettings();
     await page.reload({ timeout: 90000 });
     await install();
     await waitReady();
@@ -25204,8 +25786,7 @@ async function titleSteps() {
     await page.keyboard.press('Escape');
     assert(await fit('.pause-card, #p-menu .m-btn'), '1024×640 下暂停菜单跑出了窗口');
     await page.click('#p-menu [data-tact="help"]');
-    assert(await fit('.pause-card'), '1024×640 下暂停菜单的操作说明跑出了窗口');
-    await page.keyboard.press('Escape');
+    assert(await fit('#panel-win, .pause-card'), '1024×640 下暂停菜单的操作说明跑出了窗口'); // B4a：操作说明是帮助页的「操作」
     await page.keyboard.press('Escape');
     assert(!(await ev(() => G.ui.isOpen())), '收尾：暂停菜单没关掉');
   });
@@ -25613,20 +26194,18 @@ async function titleSteps() {
     assert(isGold(a.px), '框边小三角的像素应是金色：' + JSON.stringify(a.px));
     const dot = (a.m.x - a.pp.x) * (a.tp.x - a.pp.x) + (a.m.y - a.pp.y) * (a.tp.y - a.pp.y);
     assert(dot > 0, '小三角应在玩家朝目标的那一侧：' + JSON.stringify(a));
-    // 地图页的开关：点掉
-    await ev(() => G.ui.open('map'));
-    await frames(2);
-    await page.click('#panel [data-act="quest"]');
-    const off = await ev(() => ({ off: G.save.quest.off, sw: document.querySelector('#panel [data-act="quest"]').classList.contains('on') }));
+    // 设置里的开关（B4a：从地图页挪进设置的「拾取」一组）：点掉
+    await openSettings();
+    await page.click('#p-view [data-tact="quest"]');
+    const off = await ev(() => ({ off: G.save.quest.off, sw: document.querySelector('#p-view [data-tact="quest"]').classList.contains('on') }));
     await ev(() => G.ui.close());
     await frames(3);
     const b = await ev((m) => ({ m: G.world.questMark(), px: G.world.minimapPixel(m.x, m.y), q: G.ui.quest().on, tgt: G.questTarget() }), a.m);
     assert(off.off === true && off.sw === false, '点开关应把 save.quest.off 设成 true：' + JSON.stringify(off));
     assert(!b.m.on && !b.tgt && !isGold(b.px) && b.q === false, '关掉后小地图上不应再有金色记号、追踪条收起：' + JSON.stringify(b));
     // 再点开：回来
-    await ev(() => G.ui.open('map'));
-    await frames(2);
-    await page.click('#panel [data-act="quest"]');
+    await openSettings();
+    await page.click('#p-view [data-tact="quest"]');
     await ev(() => G.ui.close());
     await frames(3);
     const c = await ev(() => ({ off: G.save.quest.off, m: G.world.questMark(), q: G.ui.quest().on }));
@@ -25689,8 +26268,13 @@ async function titleSteps() {
           badge: cards.map((c, i) => (c.querySelector('.z-badge.quest') ? i : -1)).filter((i) => i >= 0),
           txt: (document.querySelector('#panel .z-badge.quest') || {}).textContent || '',
           dot: [...document.querySelectorAll('#panel .tier.q-dot')].map((b) => b.dataset.tier),
-          sw: !!document.querySelector('#panel [data-act="quest"]'),
+          sw: false,
         };
+        // B4a：「显示主线」开关在设置里
+        G.ui.close();
+        G.ui.pause();
+        document.querySelector('#p-menu [data-tact="settings"]').click();
+        r.sw = !!document.querySelector('#p-view [data-tact="quest"]');
         G.ui.close();
         return r;
       }, o);
@@ -25716,9 +26300,8 @@ async function titleSteps() {
 
   await step('主线：「显示主线」开关存档后刷新页面还是关着、再打开也存下；老存档（没有 quest，或 quest 里没有 off）默认开', async () => {
     await qSet({ n: 2, cleared: { ash: 0 } });
-    await ev(() => G.ui.open('map'));
-    await frames(2);
-    await page.click('#panel [data-act="quest"]');
+    await openSettings(); // B4a：开关在设置里
+    await page.click('#p-view [data-tact="quest"]');
     await ev(() => G.ui.close());
     const stored = await ev(() => JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).quest);
     await page.reload({ timeout: 90000 });
@@ -25731,9 +26314,8 @@ async function titleSteps() {
     await frames(3);
     const a = await ev(() => ({ off: G.save.quest.off, n: G.save.quest.n, q: G.ui.quest().on, m: G.world.questMark().on }));
     assert(stored.off === true && a.off === true && a.n === 2 && !a.q && !a.m, '关掉后应马上存下，刷新后还是关着：' + JSON.stringify({ stored, a }));
-    await ev(() => G.ui.open('map'));
-    await frames(2);
-    await page.click('#panel [data-act="quest"]');
+    await openSettings();
+    await page.click('#p-view [data-tact="quest"]');
     await ev(() => G.ui.close());
     const b = await ev(() => {
       G.loadSave();
@@ -26874,6 +27456,18 @@ async function touchSteps() {
       await frames(3);
       bad = bad.concat(await scan(tab + (sub ? '·' + sub : '') + (clicks.length ? '·' + clicks.join('') : '')));
     }
+    // UI-R B2：技能页的子页签、技能卡 / 辅助卡 / 武器普攻卡 / 武器技卡、卡片里选辅助、[?] 说明（新加的提示文字也过一遍）
+    await ev(() => { for (const id of Object.keys(G.SUPPORTS).slice(0, 6)) if (!G.save.supports.includes(id)) G.save.supports.push(id); G.save.blankGems = [12]; });
+    for (const [sub, clicks] of [['skills', []], ['skills', ['#panel-q']], ['@bar0', []], ['@bar0', ['.sheet .sock:not(.full)']], ['@basic', []], ['wskill', []], ['sup', ['.sup-row']], ['learn', []]]) {
+      await ev((sub) => {
+        G.ui.close();
+        localStorage.removeItem('cinder-abyss-ui-seen');
+        G.ui.open('skills', sub === '@bar0' ? G.save.bar[0] : sub === '@basic' ? G.BASIC_CARD : sub);
+      }, sub);
+      for (const c of clicks) await ev((c) => document.querySelector(c).click(), c);
+      await frames(3);
+      bad = bad.concat(await scan('skills·' + sub + clicks.join('')));
+    }
     // UI-R B4b：拾烬客三个子页签、[?] 的说明、货架上一件的卡片，标题画面的角色页和职业选择
     await ev(() => {
       G.ui.close();
@@ -26902,6 +27496,33 @@ async function touchSteps() {
       await frames(3);
       bad = bad.concat(await scan(tab));
     }
+    // UI-R B4a：帮助页的每个话题，地图 / 帮助页的 [?] 说明和第一次打开时底部那一行，地图的区域卡（新加的提示文字也过一遍）
+    const topics = await ev(() => Array.from(document.querySelectorAll('[data-act="topic"]')).map((b) => b.dataset.topic));
+    assert(topics.length >= 9, '帮助页的话题不全：' + topics.join());
+    for (const id of topics) {
+      await ev((id) => G.ui.open('help', id), id);
+      await frames(2);
+      bad = bad.concat(await scan('help·' + id));
+    }
+    for (const tab of ['map', 'help']) {
+      await ev((tab) => {
+        G.ui.close();
+        localStorage.removeItem('cinder-abyss-ui-seen');
+        G.ui.open(tab);
+      }, tab);
+      await frames(2);
+      bad = bad.concat(await scan(tab + '·第一次'));
+      await ev(() => document.querySelector('#panel-q').click());
+      await frames(2);
+      bad = bad.concat(await scan(tab + '·[?]'));
+    }
+    await ev(() => {
+      G.ui.open('map');
+      document.querySelector('#panel .zone.zc[data-zone="0"]').click();
+    });
+    await frames(2);
+    assert(await ev(() => !!document.querySelector('#panel .sheet.zs')), '触屏地图：点区域卡片应出区域卡');
+    bad = bad.concat(await scan('地图·区域卡'));
     // UI-R B3：天赋页第一次打开的那一行、[?] 的说明、汇总卡、节点卡（触屏点节点出卡片）
     await ev(() => {
       G.ui.close();
@@ -27115,6 +27736,9 @@ async function touchSteps() {
       G.allocPassive('dm0');
       G.computeStats();
       G.ui.open('tree');
+      // 从全览开始（触屏第一次打开默认放大一档，dev-48）
+      const f = document.querySelector('[data-act="tree-zoom"][data-z="fit"]');
+      if (f && !f.classList.contains('on')) f.click();
     });
     await frames(3);
     const st = () => ev(() => ({ p: G.save.passives.slice().sort().join(','), card: (document.querySelector('.sheet.tnode .sh-name') || {}).textContent || null, sum: !!document.querySelector('.sheet.tsum'), tip: document.getElementById('tip').classList.contains('on'), vb: document.getElementById('tree-svg').getAttribute('viewBox').split(' ').map(Number), free: G.passivePoints().free }));
@@ -28213,13 +28837,20 @@ async function touchSteps() {
   await uiLayoutSteps('bag');
   await uiDeskStyleStep();
   await uiLayoutSteps('stash');
+  await uiLayoutSteps('map'); // B4a
+  await uiLayoutSteps('help'); // B4a
+  await uiLayoutSteps('settings'); // B4a
+  await uiDeskStyleB4aStep(); // B4a
   await uiLayoutSteps('char');
+  await uiDeskStyleSkillsStep();
+  await uiLayoutSteps('skills');
   await uiLayoutSteps('trader');
   await uiLayoutSteps('title');
   await uiLayoutSteps('tree');
   await uiDeskStyleB4b();
   await uiLayoutDone();
   await uiTreeStyleStep();
+  await uiTreeTouchZoomStep();
 }
 
 // ------------------------------------------------------------------ 面板布局（UI-R，docs/ui.md「测试」）
@@ -28253,6 +28884,69 @@ const UI_PANELS = {
     states: [
       { id: '属性', go: (D) => D.open('char', 'stats') },
       { id: '图鉴', go: async (D) => { await D.open('char', 'stats'); await D.tap('[data-act="sub"][data-sub="codex"]', '.char-codex'); } },
+    ],
+  },
+  // UI-R B2：技能页。skOpen 先补上技能页要的构筑（10 颗辅助、两颗无铭宝石、忘掉两个技能让「学习」有东西），再打开
+  skills: {
+    label: '技能',
+    states: [
+      { id: '列表', go: (D) => skOpen(D, 'skills') },
+      { id: '说明', go: async (D) => { await skOpen(D, 'skills'); await D.tap(D.portrait ? '#panel-body [data-act="hint"]' : '#panel-q', '.ui-pop'); } },
+      { id: '技能卡', card: true, go: async (D) => { const k = await skOpen(D, 'skills'); await D.tap('.sk-list [data-act="sk-sel"][data-skill="' + k + '"]', D.compact ? '.sheet.skc' : '.sk-detail [data-act="socket"][data-skill="' + k + '"]'); } },
+      { id: '选辅助', card: true, go: async (D) => { const k = await skOpen(D, 'skills'); await ev((k) => G.ui.open('skills', k), k); await frames(2); await D.tap('.sock[data-skill="' + k + '"]:not(.full)', '#picker.on'); } },
+      { id: '武器普攻卡', card: true, go: async (D) => { await skOpen(D, 'skills'); await D.tap('.sk-list [data-act="sk-sel"][data-skill="' + (await ev(() => G.BASIC_CARD)) + '"]', D.compact ? '.sheet.skc' : '.sk-detail .basic-card'); } },
+      { id: '武器技卡', card: true, go: async (D) => { await skOpen(D, 'skills'); await D.tap('.sk-list [data-act="sk-sel"][data-skill="wskill"]', D.compact ? '.sheet.skc' : '.sk-detail .wsk-card'); } },
+      { id: '辅助', only: 'compact', go: (D) => skOpen(D, 'sup') },
+      { id: '辅助卡', card: true, only: 'compact', go: async (D) => { await skOpen(D, 'sup'); await D.tap('.sup-row', '.sheet.supc'); } },
+      { id: '学习', only: 'compact', go: (D) => skOpen(D, 'learn') },
+    ],
+  },
+  // UI-R B4a：地图（区域卡片一排、区域卡、余烛殿、择印）、帮助（话题）、暂停菜单和设置
+  map: {
+    label: '地图',
+    states: [
+      { id: '地图', go: (D) => D.open('map') },
+      { id: '轮回 3', go: async (D) => { await uiMapLate(); await D.open('map'); } },
+      { id: '说明', go: async (D) => { await uiMapLate(); await D.open('map'); await D.tap(D.portrait ? '#panel-body [data-act="hint"]' : '#panel-q', '.ui-pop'); } },
+      { id: '区域卡', card: true, only: 'compact', go: async (D) => { await uiMapLate(); await D.open('map'); await D.tap('.zone.zc[data-zone="1"]', '.sheet.zs'); } },
+      { id: '余烛殿', card: true, only: 'compact', go: async (D) => { await uiMapLate(); await D.open('map'); await D.tap('.zone.zc[data-zone="pin"]', '.sheet.zs.pin'); } },
+      {
+        id: '择印',
+        go: async (D) => {
+          await uiMapLate();
+          await D.open('map');
+          await D.tap('[data-act="tier"][data-tier="1"]', '[data-act="tier"][data-tier="1"].on');
+          if (D.compact) {
+            await D.tap('.zone.zc[data-zone="0"]', '.sheet.zs');
+            await D.tap('.sheet [data-act="enter"]', '.seal-pick');
+          } else await D.tap('[data-act="enter"][data-zone="0"]', '.seal-pick');
+        },
+      },
+    ],
+  },
+  help: {
+    label: '帮助',
+    states: [
+      { id: '操作', go: (D) => D.open('help', 'keys') },
+      { id: '武器', go: async (D) => { await D.open('help', 'keys'); await D.tap('[data-act="topic"][data-topic="weapon"]', '[data-act="topic"][data-topic="weapon"].on'); } },
+      { id: '说明', go: async (D) => { await D.open('help', 'keys'); await D.tap(D.portrait ? '#panel-body [data-act="hint"]' : '#panel-q', '.ui-pop'); } },
+    ],
+  },
+  settings: {
+    label: '暂停和设置',
+    check: { roots: '#pause .pause-card' }, // 暂停菜单不在 #panel 里
+    states: [
+      { id: '暂停菜单', go: () => uiPauseOpen() },
+      { id: '设置', go: async (D) => { await uiPauseOpen(); await D.tap('#p-menu [data-tact="settings"]', '#pause .m-view[data-view="settings"]'); } },
+      {
+        id: '删除确认',
+        go: async (D) => {
+          await uiPauseOpen();
+          await D.tap('#p-menu [data-tact="settings"]', '#pause .m-view[data-view="settings"]');
+          await D.tap('#pause [data-tact="del-save"]', '#pause [data-tact="del-confirm"]');
+          await D.tap('#pause [data-tact="del-confirm"]', '#pause [data-tact="del-final"]'); // 只到第二次确认，不点「真的删除」
+        },
+      },
     ],
   },
   // UI-R B4b：拾烬客（窄屏子页签 货架 / 卖出 / 烛芯，点一行出卡片）、标题画面（主菜单、角色页、删除确认、职业选择）
@@ -28295,6 +28989,53 @@ const UI_PANELS = {
     ],
   },
 };
+// 技能页布局检查用的构筑（只补一次）：10 颗辅助宝石，在技能栏第一、三格的技能上镶 4 颗；两颗无铭宝石；忘掉两个不在技能栏上的技能。
+// 打开技能页的子页签 sub，返回技能栏第一格的技能 id（它的卡片有空槽）
+async function skOpen(D, sub) {
+  const k = await ev(() => {
+    const s = G.save;
+    if (!window.__uiSk) {
+      window.__uiSk = 1;
+      for (const id of Object.keys(G.SUPPORTS).slice(0, 10)) if (!s.supports.includes(id)) s.supports.push(id);
+      const known = Object.keys(s.skills).filter((id) => s.skills[id] && G.SKILLS[id] && !G.SKILLS[id].weaponOnly && G.SKILLS[id].tags.indexOf('weapon') < 0 && (!s.cls || G.classCanUse(s.cls, id)));
+      for (const id of known.filter((id) => s.bar.indexOf(id) < 0).slice(-2)) delete s.skills[id];
+      s.blankGems = [22, 18];
+      let n = 0;
+      for (const sid of [s.bar[0], s.bar[2]].filter(Boolean))
+        for (const sup of s.supports) {
+          if (n >= 4 || !G.supportFits(sid, sup) || Object.values(s.sockets).some((a) => a && a.includes(sup))) continue;
+          const arr = s.sockets[sid] || (s.sockets[sid] = [null, null, null]);
+          const i = arr.indexOf(null);
+          if (i >= 0 && i < 2 && G.socketSupport(sid, i, sup)) n++;
+        }
+      G.computeStats();
+    }
+    return s.bar[0];
+  });
+  await D.open('skills', sub);
+  return k;
+}
+// 地图：轮回 3 都开了、前四个区在 2 层通关、四种烛芯各一个（余烛殿出现、能点燃）、这次进区带着一枚印（「本次进区」那一行最长的样子）
+async function uiMapLate() {
+  await ev(() => {
+    const s = G.save;
+    s.maxTier = 3;
+    s.cleared = { ash: 3, frost: 3, storm: 2, abyss: 2 };
+    s.frags = s.frags || {};
+    for (const id of G.FRAG_IDS) s.frags[id] = 1;
+    if (G.state.run && !G.state.run.seal) {
+      const seals = G.rollSeals(0, 3);
+      G.state.run.seal = seals[seals.length - 1];
+    }
+  });
+}
+async function uiPauseOpen() {
+  await ev(() => {
+    G.ui.close();
+    G.ui.pause();
+  });
+  await frames(2);
+}
 // 天赋页的布局状态：全览、点过体魄（sm0）和敏捷（dm0），迅影的下一个（dm1）可点亮
 async function treeOpen(D) {
   await D.open('tree');
@@ -28400,6 +29141,158 @@ async function uiDeskStyleStep() {
     }
     assert(!bad.length, bad.length + ' 项和 main 不一样：' + bad.slice(0, 8).join(' ｜ '));
     return Object.keys(DESK_STYLE_MAIN).length + ' 项相等';
+  });
+}
+// UI-R B2：技能页的桌面样式不变：1366×768 下技能栏格、技能卡、辅助宝石卡、小标题的计算样式和 main 4484d08 逐项相等（表在 test/ui-layout.mjs）
+async function uiDeskStyleSkillsStep() {
+  await step('界面布局·桌面样式（技能页）：1366×768 下技能栏格、技能卡（卡框、卡名、标签、按键标签、说明、数值、辅助槽）、辅助宝石卡、小标题和 main 逐项相等（有意改动的只有 .sk-num span 10.5 → 11 px）', async () => {
+    assert(uiPages && uiPages.desk, '要先跑「界面布局·背包（桌面）」');
+    ({ browser, page, errors } = uiPages.desk);
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await skOpen({ open: (tab, sub) => ev(([tab, sub]) => { G.ui.close(); localStorage.removeItem('cinder-abyss-ui-seen'); G.ui.open(tab, sub); }, [tab, sub]) }, 'skills');
+    await ev(() => G.ui.open('skills', G.save.bar[0])); // 和在 main 上量的一样：中间是技能栏第一格的卡（main 上是列表里第一张技能卡）
+    await panelSettled();
+    const got = await ev(uiStyleRead, DESK_STYLE_SK_SPEC);
+    await ev(() => G.ui.close());
+    const bad = [];
+    for (const k in DESK_STYLE_SK_MAIN) if (got[k] !== DESK_STYLE_SK_MAIN[k]) bad.push(k + '：main ' + DESK_STYLE_SK_MAIN[k] + '，现在 ' + got[k]);
+    assert(!bad.length, bad.length + ' 项和 main 不一样：' + bad.slice(0, 8).join(' ｜ '));
+    return Object.keys(DESK_STYLE_SK_MAIN).length + ' 项相等';
+  });
+}
+// 天赋盘的触屏默认视口（dev-48，随 UI-R B2）：这次打开游戏后第一次看天赋盘，放大一档、对准前沿（已点亮 + 能点亮）。
+// 每个能点亮的天赋都整个在盘面里、点得到（不被点数 / 缩放 / 底部那一行挡住）；挨着的两个能点亮的天赋屏幕上不到 44 px 的对数报出来。
+// 「全览」一下回去；关掉再开记住上次的缩放和平移（不进存档）。新角色和中期角色（约 20 点），734×338 / 667×320 / 390×844 / 旋转横屏
+async function uiTreeTouchZoomStep() {
+  await step('天赋盘触屏默认视口：新角色和点了约 20 点的角色在 734×338 / 667×320 / 390×844 / 旋转横屏下第一次打开放大一档、对准前沿，能点亮的都在盘面里点得到；「全览」一下回去；关掉再开记住缩放和平移', async () => {
+    if (browser) await browser.close().catch(() => {});
+    ({ browser, page, errors } = await launch({ width: 734, height: 338, mobile: { scale: 2 }, dpr: null }));
+    await install();
+    await ev(() => {
+      G.save.seenHelp = G.save.seenStory = true;
+      for (const id of G.ui.hints().all) G.save.tut[id] = 1;
+      localStorage.setItem('cinder-abyss-ui-seen', JSON.stringify({ tree: 1 }));
+      G.ui.close();
+      G.debug.hold(true);
+      G.debug.setLevel(40);
+    });
+    const bad = [], rep = [];
+    for (const [w, h, rot] of [[734, 338], [667, 320], [390, 844], [390, 844, 'cw']]) {
+      await page.setViewportSize({ width: w, height: h });
+      await ev((rot) => G.touch.setRot && G.touch.setRot(rot || null), rot);
+      for (const who of ['新角色', '中期']) {
+        const where = w + '×' + h + (rot ? '（转）' : '') + ' ' + who;
+        const r = await ev(async (mid) => {
+          G.ui.close();
+          G.resetPassives();
+          if (mid) {
+            // 约 20 点：每次点亮能点亮的里 id 最小的那个（固定的一条路）
+            for (let i = 0; i < 20; i++) {
+              const can = Object.keys(G.TREE).filter((id) => !G.save.passives.includes(id) && G.TREE[id].links.some((l) => G.save.passives.includes(l))).sort();
+              if (!can.length || !G.allocPassive(can[0])) break;
+            }
+          }
+          G.computeStats();
+          G.ui.treeViewReset();
+          G.ui.open('tree');
+          for (let i = 0; i < 3; i++) await new Promise((res) => requestAnimationFrame(res));
+          for (const n of [document.getElementById('panel'), ...document.querySelectorAll('#panel *')]) for (const a of n.getAnimations()) if (a.effect && a.effect.getComputedTiming().iterations !== Infinity) await a.finished.catch(() => {});
+          for (let i = 0; i < 2; i++) await new Promise((res) => requestAnimationFrame(res));
+          const svg = document.getElementById('tree-svg');
+          const F = (b) => (G.rectToFrame ? G.rectToFrame(b) : b);
+          const sr = F(svg.getBoundingClientRect());
+          const out = { used: G.passivePoints().used, vb: svg.getAttribute('viewBox'), zoomed: svg.classList.contains('zoomed'), off: [], hid: [] };
+          for (const g of svg.querySelectorAll('.tn.avail')) {
+            const sh = g.querySelector('.shape'), b = F(sh.getBoundingClientRect());
+            if (b.left < sr.left - 1 || b.right > sr.right + 1 || b.top < sr.top - 1 || b.bottom > sr.bottom + 1) out.off.push(g.dataset.node);
+            const q = sh.getBoundingClientRect(), hit = document.elementFromPoint(q.left + q.width / 2, q.top + q.height / 2);
+            if (!hit || !g.contains(hit)) out.hid.push(g.dataset.node);
+          }
+          out.n = svg.querySelectorAll('.tn.avail').length;
+          const fr = G.ui.treeFront();
+          out.close = fr.close;
+          return out;
+        }, who === '中期');
+        rep.push(where + '：' + (r.zoomed ? '放大' : '全览') + '，能点亮 ' + r.n + ' 个，不到 44 px ' + r.close + ' 对');
+        if (!r.zoomed) bad.push(where + ' 第一次打开没有放大（' + r.vb + '）');
+        if (r.off.length || r.hid.length) bad.push(where + ' 能点亮的天赋出了盘面 ' + r.off.join(',') + ' / 被挡住 ' + r.hid.join(','));
+        if (who === '中期' && !(r.used >= 18)) bad.push(where + ' 只点了 ' + r.used + ' 点');
+      }
+    }
+    // 记住缩放和平移：放大一档后关掉再开，视口不变；「全览」一下回去，关掉再开还是全览；桌面不受影响（B3 的桌面样式那一步量的是全览的 viewBox）
+    const mem = await ev(async () => {
+      const raf = () => new Promise((res) => requestAnimationFrame(res));
+      const vb = () => document.getElementById('tree-svg').getAttribute('viewBox');
+      document.querySelector('[data-act="tree-zoom"][data-z="in"]').click();
+      await raf();
+      const a = vb();
+      G.ui.close();
+      G.ui.open('tree');
+      await raf();
+      await raf();
+      const b = vb();
+      document.querySelector('[data-act="tree-zoom"][data-z="fit"]').click();
+      await raf();
+      const c = { vb: vb(), zoomed: document.getElementById('tree-svg').classList.contains('zoomed') };
+      G.ui.close();
+      G.ui.open('tree');
+      await raf();
+      await raf();
+      const d = { vb: vb(), zoomed: document.getElementById('tree-svg').classList.contains('zoomed') };
+      G.ui.close();
+      return { a, b, c, d, saveKeys: Object.keys(G.save).some((k) => /^tv$|tree.*view/i.test(k)) };
+    });
+    if (mem.a !== mem.b) bad.push('关掉再开没有记住缩放：' + mem.a + ' → ' + mem.b);
+    if (mem.c.zoomed || mem.d.zoomed || mem.c.vb !== mem.d.vb) bad.push('「全览」之后关掉再开应还是全览：' + JSON.stringify([mem.c, mem.d]));
+    if (mem.saveKeys) bad.push('视口不该进存档');
+    await ev(() => {
+      G.touch.setRot && G.touch.setRot(null);
+      G.resetPassives();
+      G.debug.hold(false);
+    });
+    assert(!bad.length, bad.length + ' 处不合格：' + bad.slice(0, 6).join(' ｜ '));
+    return rep.join('；');
+  });
+}
+// 桌面样式不变（B4a）：1366×768 下地图、帮助、设置的关键元素和 main 4484d08 逐项相等（表在 test/ui-layout.mjs，有意改动的不在表里）
+async function uiDeskStyleB4aStep() {
+  await step('界面布局·桌面样式（地图 / 帮助 / 设置）：1366×768 下层级按钮、区域卡片的字和颜色、帮助的段落 / 按键表、设置行的字 / 分段按钮 / 开关 / 滑条和 main 逐项相等', async () => {
+    assert(uiPages && uiPages.desk, '要先跑「界面布局」的桌面那几步');
+    ({ browser, page, errors } = uiPages.desk);
+    await page.setViewportSize({ width: 1366, height: 768 });
+    const settle = () => ev(async () => { for (const n of document.querySelectorAll('#panel-win, #panel-win *, #pause, #pause *')) for (const a of n.getAnimations()) await a.finished.catch(() => {}); });
+    const pick = (pre) => Object.fromEntries(Object.entries(DESK_STYLE_B4A_SPEC).filter(([k]) => k.startsWith(pre + ' ')));
+    // 和 main 一样的地图：轮回 0、没有余烛殿（布局步骤里改过的进度先放回去）
+    const keep = await ev(() => JSON.stringify({ maxTier: G.save.maxTier, cleared: G.save.cleared }));
+    await ev(() => {
+      G.ui.close();
+      G.save.maxTier = 0;
+      G.save.cleared = {};
+      G.ui.open('map');
+    });
+    await settle();
+    const got = await ev(uiStyleRead, pick('map'));
+    await ev(() => G.ui.open('help', 'keys'));
+    await settle();
+    Object.assign(got, await ev(uiStyleRead, pick('help')));
+    await ev(() => G.ui.open('help', 'fight'));
+    await settle();
+    Object.assign(got, await ev(uiStyleRead, pick('helpf')));
+    await ev(() => {
+      G.ui.close();
+      G.ui.pause();
+      document.querySelector('#p-menu [data-tact="settings"]').click();
+    });
+    await settle();
+    Object.assign(got, await ev(uiStyleRead, pick('set')));
+    await ev((k) => {
+      G.ui.close();
+      Object.assign(G.save, JSON.parse(k));
+    }, keep);
+    const bad = [];
+    for (const k in DESK_STYLE_B4A_MAIN) if (got[k] !== DESK_STYLE_B4A_MAIN[k]) bad.push(k + '：main ' + DESK_STYLE_B4A_MAIN[k] + '，现在 ' + got[k]);
+    assert(!bad.length, bad.length + ' 项和 main 不一样：' + bad.slice(0, 8).join(' ｜ '));
+    return Object.keys(DESK_STYLE_B4A_MAIN).length + ' 项相等';
   });
 }
 // 桌面样式不变（B4b）：1366×768 下标题画面、角色页、职业选择、拾烬客和 main 逐项相等（表在 test/ui-layout.mjs，有意改动的见 B4B_STYLE_CHANGED）
@@ -28585,7 +29478,7 @@ async function uiLayoutSteps(panel) {
             await S.go(D);
             // 入场动画放完再量
             // 一直循环的动画（天赋盘上可点亮节点的光圈）不等
-            await ev(async () => { for (const n of document.querySelectorAll('#panel-win, #panel-win *, #panel .sheet')) for (const a of n.getAnimations()) if (a.effect && a.effect.getComputedTiming().iterations !== Infinity) await a.finished.catch(() => {}); });
+            await ev(async () => { for (const n of document.querySelectorAll('#panel-win, #panel-win *, #panel .sheet, #pause, #pause *')) for (const a of n.getAnimations()) if (a.effect && a.effect.getComputedTiming().iterations !== Infinity) await a.finished.catch(() => {}); });
             const r = await ev(uiLayoutCheck, Object.assign({ touch: isTouch, max: 3 }, P.check || {}));
             if (r.n) bad.push(where + ' ' + S.id + '：' + Object.entries(r.res).map(([k, v]) => k + ' ' + v.n + '（' + v.s.join('；') + '）').join(' '));
             if (S.check) for (const x of await S.check(D)) bad.push(where + ' ' + S.id + '：' + x);
@@ -28634,7 +29527,10 @@ const sum = (p, f) => (f ? '失败 ' + f + ' 项，' : '') + '通过 ' + p + ' �
   for (const part of PARTS) {
     NC_TAG = POOL || (part === 'func' && PARTS.length === 1) ? ' [pool, not comparable]' : '';
     cheap = (part === 'func' || part === 'touch') && !process.env.CINDER_FULL;
-    console.log('== test:' + part + ' · HEAD ' + head + ' · ' + new Date().toISOString() + ' · 槽位 ' + (process.env.CC_SLOT_HELD || '无') + (cheap ? ' · 省渲染 dpr ' + CHEAP_DPR + '（' + FULL_RES.length + ' 类步骤按 1）' : '') + (NC_TAG ? ' · 耗时数字不可比' + NC_TAG : '') + (part === 'timed' && POOL ? ' · 警告：计时步骤在池里跑，结果不作数' : ''));
+    console.log('== test:' + part + ' · HEAD ' + head + ' · ' + new Date().toISOString() + ' · 槽位 ' + (process.env.CC_SLOT_HELD || '无') + (cheap ? ' · 省渲染 dpr ' + CHEAP_DPR + '（' + FULL_RES.length + ' 类步骤按 1）' : '') + (NC_TAG ? ' · 耗时数字不可比' + NC_TAG : '') + ' · Chrome 日志 ' + LOG_DIR.replace(/^.*\/(test-logs\/)/, '$1') + (part === 'timed' && POOL ? ' · 警告：计时步骤在池里跑，结果不作数' : ''));
+    // 外层 timeout 剩的时间不到正常耗时的两倍左右（池里 test:func 45–56 分钟）就先警告一行
+    const tw = outerTimeoutWarning(part === 'func' ? 100 : part === 'touch' ? 30 : 15);
+    if (tw) console.log(tw);
     const p0 = passed, f0 = failed;
     try {
       await (part === 'func' ? main() : part === 'touch' ? touchSteps() : timedMain());
@@ -28651,6 +29547,8 @@ const sum = (p, f) => (f ? '失败 ' + f + ' 项，' : '') + '通过 ' + p + ' �
     console.log('\naudit 最接近超时的等待：');
     for (const w of top) console.log('audit   ' + Math.round((100 * w.ms) / w.guard) + '%  ' + w.kind + ' ' + w.ms + 'ms / ' + w.guard + 'ms  ' + w.step.slice(0, 60));
   }
+  // Chrome 中途意外退出（不是测试关的）：列在合计上面，详情在 Chrome 日志目录的 run.log（test/README.md「Chrome 中途退出」）
+  if (browserDeaths.length) console.log('\nCHROME-DIED 本次有 ' + browserDeaths.length + ' 个浏览器意外退出：' + browserDeaths.map((d) => '#' + d.id + ' ' + d.at.slice(11, 19) + 'Z「' + d.step.slice(0, 30) + '」' + (d.exit || '')).join(' ｜ ') + '，日志 ' + LOG_DIR.replace(/^.*\/(test-logs\/)/, '$1'));
   console.log('\n' + per.join(' · '));
   console.log(sum(passed, failed));
   process.exit(failed ? 1 : 0);
