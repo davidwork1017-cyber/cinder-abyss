@@ -11266,6 +11266,7 @@
     cloth: [0.96, 0, 0.07], leather: [0.74, 0.03, 0.05], hide: [0.82, 0, 0.07], bone: [0.52, 0.02, 0.05],
     stone: [0.9, 0.03, 0.1], chitin: [0.34, 0.25, 0.05], metal: [0.4, 0.8, 0.04], gold: [0.32, 0.9, 0.03],
     dark: [0.5, 0.55, 0.04], ice: [0.14, 0.2, 0.05], glow: [0.4, 0, 0],
+    wstone: [0.62, 0.25, 0.04], // 风化的淡石 / 淡青铜（雷霆监察者的柱身、手、护盾板：T35，金属感压到四分之一，不再反射出暖色和发白的高光面）
   };
 
   // ----- 造型用的几何体（都走缓存） -----
@@ -12263,7 +12264,7 @@
   const RIG_SKIN_PARS = '#ifdef SKIN4\nattribute vec4 aSkin;\nattribute vec4 aSkinW;\n#else\nattribute float aBone;\n#endif\nuniform mat4 uBones[ NB ];\n';
   const RIG_BONE = '#ifdef SKIN4\nmat4 boneM = uBones[ int( aSkin.x + 0.5 ) ] * aSkinW.x + uBones[ int( aSkin.y + 0.5 ) ] * aSkinW.y + uBones[ int( aSkin.z + 0.5 ) ] * aSkinW.z + uBones[ int( aSkin.w + 0.5 ) ] * aSkinW.w;\n#else\nmat4 boneM = uBones[ int( aBone + 0.5 ) ];\n#endif\n';
   const RIG_VERT_PARS = RIG_SKIN_PARS + 'attribute vec2 aSurf;\nvarying vec2 vSurf;\nvarying vec3 vBP;\n';
-  const RIG_FRAG_PARS = 'varying vec2 vSurf;\nvarying vec3 vBP;\nuniform vec3 uRim;\nuniform vec4 uDis;\nuniform float uDisH;\nuniform float uChill;\n';
+  const RIG_FRAG_PARS = 'varying vec2 vSurf;\nvarying vec3 vBP;\nuniform vec3 uRim;\nuniform vec4 uDis;\nuniform float uDisH;\nuniform float uChill;\nuniform float uTRim;\n';
   const RIG_FRAG = [
     '#include <emissivemap_fragment>',
     'roughnessFactor = vSurf.x;',
@@ -12293,7 +12294,8 @@
     '{',
     '  float tRb = smoothstep( ' + fNum(TOON.rimLo) + ', ' + fNum(TOON.rimHi) + ', rigRim );',
     '  float tRm = smoothstep( -0.25, 0.45, dot( normal, directionalLights[ 1 ].direction ) );',
-    '  totalEmissiveRadiance += directionalLights[ 1 ].color * ( diffuseColor.rgb * 0.6 + 0.4 ) * tRb * ( 0.15 + 0.85 * tRm ) * ' + fNum(TOON.rimK) + ';',
+    // uTRim：每个实体自己的倍数（缺省 1；T35：熄烛者从正上方看，袍子大半是掠射角，这道冷色光把披肩 / 背上打成发亮的蓝紫，按 BOSS_SPEC.trim 收一点）
+    '  totalEmissiveRadiance += directionalLights[ 1 ].color * ( diffuseColor.rgb * 0.6 + 0.4 ) * tRb * ( 0.15 + 0.85 * tRm ) * ' + fNum(TOON.rimK) + ' * uTRim;',
     '}',
     '#endif',
     // 死亡消散：按绑定姿态下的小方格逐块烧掉，边缘发亮
@@ -12318,6 +12320,7 @@
     sh.uniforms.uDis = ent.uDis;
     sh.uniforms.uDisH = ent.uDisH;
     sh.uniforms.uChill = ent.uChill;
+    sh.uniforms.uTRim = ent.uTRim;
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\n' + RIG_VERT_PARS)
       .replace('#include <beginnormal_vertex>', RIG_BONE + 'vec3 objectNormal = mat3( boneM ) * normal;')
@@ -12400,6 +12403,7 @@
       elemC: new T.Color(elemHex), glowBase: glowI, glowK: 1, bodyMat: null, glowMat: null, depthMat: null,
       uBones: null, uRim: { value: new T.Color(0) }, uDis: { value: new T.Vector4(1, 1, 1, 0) }, uDisH: { value: 0 },
       uChill: { value: 0 }, chillB: 0, chillAcc: 0, // 冰缓的档位与霜屑的发射累积（见 W.chill）
+      uTRim: { value: 1 }, // 卡通轮廓光的倍数（RIG_FRAG；首领按 BOSS_SPEC.trim）
     };
     ent.uBones = { value: ent.bones };
     ent.pose.set(rig.rest);
@@ -19538,6 +19542,9 @@
       sock: { weapon: ['x_hammer', 0, -0.62, 0], hand: ['x_finger_l_02', 0, -0.6, 0.12], head: ['head', 0, 0.4, 0], chest: ['x_core', 0, 0, 0.2] },
       hitJ: ['spine_03', 'head'], feet: ['foot_l', 'foot_r'], core: 'x_core',
       heatW: ['ring_w'], heatS: ['ring'],
+      // T35（全首领明暗）：缺省的暖色染色 + 暖色自发光在灰烬荒原的暖主光下把玄武岩烧成砂岩色（饱和度 0.54，六只首领里最高）、读着发亮。
+      // 染色往冷灰里收、自发光换成很淡的中性暖灰：整身压暗一档（灰度均值 42 → ~39），还是暖的暗玄武岩，余烬缝不动
+      emis: [0x443e3a, 0.14], tint: 0xd8dce4,
     },
     // boss-lord：烬渊之主。剑尖的挂点 = 静止姿态的剑尖（相对 x_sword 枢轴）；冠环（x_crown）在 post 里按时钟转（螺旋时转得快），和原来的程序化外观一样不进动作表
     lord: {
@@ -19548,8 +19555,9 @@
       hitJ: ['spine_03', 'head'], feet: ['foot_l', 'foot_r'], core: 'x_core',
       heatW: ['fan_w', 'spiral_w', 'barrage_w', 'summon_w'], heatS: ['fan', 'spiral', 'barrage', 'summon'],
       spin: ['x_crown', 1.2, 'spiral', 4.5],
-      // 黑曜石的背光面在烬渊的品红补光下压得太黑（灰度中位数比地面还低）：躯体的暖色自发光比熔渣巨像强一点（甲缝里透出的熔炉热）
-      emis: [0x4e4844, 0.54],
+      // 黑曜石的背光面在烬渊的品红补光下压得太黑（灰度中位数比地面还低）：躯体的暖色自发光比熔渣巨像强一点（甲缝里透出的熔炉热）。
+      // T35（全首领明暗）：低画质站着读着发黄、偏亮（灰度均值 47.8，超出六只首领共同的范围）：染色从缺省的暖白收成中性灰、自发光略收，均值压回范围里
+      emis: [0x4a4644, 0.5], tint: 0xdcdcdc,
     },
     // boss-behemoth：衔星巨兽。嘴里的星（x_star）就是芯：流星犁地 / 坍缩 / 吐息蓄力时越烧越亮，犁地落蹄那一下最亮，
     // 坍缩拽的时候一明一暗（heatP），吐息喷的时候一直亮着（heatH）；武器挂点 = 下巴尖（吐息的口），手 = 左前蹄
@@ -19591,7 +19599,10 @@
       spin: ['x_crown', 0.4, null, 0],
       smoke: 2.2,
       relight: ['x_wick_01', 'x_wick_02', 'x_wick_03', 'x_wick_04', 'x_wick_05', 'x_wick_06', 'x_wick_07', 'x_wick_08'],
-      emis: [0x343e46, 0.16], tint: 0xd0eaf6,
+      // T35（全首领明暗）：游戏镜头里披肩 / 袍子背光那一侧被补光的卡通轮廓光（冷紫）打成发亮的蓝紫（从上往下看袍子大半是掠射角）：
+      // 轮廓光收到 0.15（trim，只这只首领，RIG_FRAG 的 uTRim）；自发光从冷灰换成同样亮度的中性暖灰（提灯不因此变亮），背光面不再泛蓝。
+      // 朝上的面另在生成器里换成玄武岩行（art/ca/boss/snuffer.py 的 _top_neutral）
+      emis: [0x443c38, 0.16], tint: 0xd0eaf6, trim: 0.15,
     },
     // boss-warden：雷霆监察者。悬浮的立柱，没有脚（不贴地：悬浮的起伏、破防坠到底环上、死亡砸地都在动作里，和原来的程序化外观一样）。
     // 眼（x_eye）就是芯：四招蓄力时越来越亮，十字 / 冲锋 / 雷环出手那一下最亮，轰炸的时候一直亮着；
@@ -19608,10 +19619,12 @@
       ringK: { cross_w: 3.2, cross: 2.6, barrage_w: 2.4, barrage: 2.2, charge_w: 2.4, charge: 1.8, ring_w: 0.04, ring: 4.2, broken: 0.05, death: 0 },
       ringS: ['x_ring_a', 'x_ring_b'],
       // 柱身 / 手 / 护盾板的风化淡青铜（10 灰白石）和眼匣、护腕、指节的暗铁（17 黑曜石）在这只首领身上按金属
-      rowSurf: { 10: 'metal', 17: 'metal' },
-      // 缺省的暖色自发光把灰白石烧成粉橙：换成很淡的中性色；染色只略暖（灰白石进游戏是风化的淡青铜 / 石色，比雷鸣遗迹的靛蓝墙亮、偏暖，
-      // 饱和的黄铜色只留在领环和箍上）
-      emis: [0x3c3a36, 0.14], tint: 0xf2eee6,
+      // T35（全首领明暗）：灰白石原来按金属（0.8）：首领共用的环境图是暖色渐变，柱身反射成粉橙，低画质的手背甲有几面镜面高光发白。
+      // 换成风化的淡石（wstone：粗糙度 0.62、金属度 0.25）；暗铁照旧按金属。只影响这只首领（rowSurf 只在 rigFromGlb 里按 BOSS_SPEC[kind] 读）
+      rowSurf: { 10: 'wstone', 17: 'metal' },
+      // 缺省的暖色自发光把灰白石烧成粉橙：换成很淡的中性色。T35：染色和自发光都往冷里收（柱身读成雷鸣遗迹立柱那种淡石色）；
+      // 饱和的黄铜只留在领环、眼匣、两根短杆上（两道环、柱身的箍、护盾板顶、护腕和指节改成冷灰 / 暗铁，见 art/ca/boss/warden.py）
+      emis: [0x383c40, 0.14], tint: 0xe2e8ee,
     },
   };
   // 调色板行 → 表面（粗糙度 / 金属度），行号见 art/ca/palette.py（13 板岩在首领身上只有霜织者的霜丝袍子 / 霜纱用：按布；19–21 是熄烛者的灰烬袍 / 蜡 / 熏黑的玻璃）
@@ -19890,6 +19903,7 @@
     m.emissive.copy(m.userData.e0);
     m.emissiveIntensity = m.userData.ei0;
     ent.uRim.value.setRGB(0.07, 0.065, 0.06);
+    ent.uTRim.value = sp && sp.trim !== undefined ? sp.trim : 1;
   }
   function bossSwap(ent) {
     const r = ent.swapTo;
