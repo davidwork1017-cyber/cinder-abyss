@@ -6093,6 +6093,7 @@
     view: null, // 菜单里打开的子页：settings / help / credits / chars
     del: null, // 角色页里正在删的栏位 { k, step: 1 | 2 }（确认两次）
     delSelf: 0, // 暂停菜单的设置里删当前角色：0 没在删 / 1 第一次确认 / 2 第二次确认
+    offAsk: false, // 设置里第一次打开「自动分解其他职业武器」：行里正在问确认（T36）
     devInfo: false, // 设置里的「设备信息」点开了没有（rot-safe）
     hidden: [], // 标题画面期间藏起来的敌人 / 召唤物模型
     after: null, // 离开标题画面后要做的事（首次运行的开场卡片）
@@ -6399,6 +6400,21 @@
       '</div>'
     );
   }
+  // 自动分解其他职业武器（T36）：只有有职业的角色才显示（没有职业时什么武器都能用）。设置所有角色共用（存在全局那份里）。
+  // 第一次打开时不直接打开，行里换成一段说明和「打开 / 取消」（和「删除这个角色」同一种行内确认）；确认过记在 tut.ascls，以后点了就开
+  const OFFCLS_NAME = '自动分解其他职业武器';
+  function setOffClsRow(o) {
+    const C = G.clsDef && G.clsDef();
+    if (!C) return '';
+    if (menu.offAsk && !o.salvageOffCls)
+      return (
+        '<div class="m-row ask offcls"><span class="opt-text"><b>' + OFFCLS_NAME + '？</b><span>捡到' + C.name + '用不了的武器时直接分解成通货，所得和手动分解一样。' +
+        '仓库、身上和背包里已有的不动；锁定的、烬铸和' + G.RELIC_NAME + '不分解。以后在这里随时能关。</span></span>' +
+        '<span class="m-dacts"><button type="button" tabindex="-1" class="btn primary" data-tact="offcls-yes">打开</button>' +
+        '<button type="button" tabindex="-1" class="btn" data-tact="offcls-no">取消</button></span></div>'
+      );
+    return setSw(OFFCLS_NAME, '捡到本职业用不了的武器时直接分解（不动仓库和身上的装备）', !!o.salvageOffCls, 'data-tact="offcls"');
+  }
   function menuSettings() {
     const S = G.save, o = S.opts, Q = S.quest;
     const q = G.world.quality ? G.world.quality() : o.quality;
@@ -6413,6 +6429,7 @@
       setGrp('拾取',
         setRow('普通物品', '魔法、稀有物品总是自动拾取', setSeg(SET_N, normMode(), 'normmode', 'mode')) +
         setSw('折叠普通物品的名牌', '地上只留一个小点，悬停或按住 Alt 展开', !!o.hideNormal, 'data-tact="opt" data-opt="hideNormal"') +
+        setOffClsRow(o) +
         // 主线（quest D2）：关了只藏追踪条、小地图上的金色记号和地图上的角标，进度和奖励照常记。主线走完以后不再显示这个开关
         (Q && Q.n < G.QUEST_N ? setSw('显示主线', '追踪条、小地图上的金色箭头和区域卡片上的角标。关了进度照常记', !Q.off, 'data-tact="quest"') : '')) +
       // 打击手感（vf-vfx2）：三个开关，默认都开
@@ -6616,6 +6633,7 @@
     menu.pause = false;
     menu.view = null;
     menu.delSelf = 0;
+    menu.offAsk = false;
     el.pause.classList.remove('on', 'sub');
     document.body.classList.remove('paused');
     el.pView.innerHTML = '';
@@ -6675,6 +6693,30 @@
       } catch (e) {
         say('复制失败');
       }
+    },
+    // 自动分解其他职业武器（T36）：开着就关（关着时存档里不留这个键）；没开过（tut.ascls 没有）先在行里问一次，问过的直接开
+    offcls() {
+      const S = G.save, o = S.opts;
+      if (o.salvageOffCls) delete o.salvageOffCls;
+      else if (S.tut.ascls) o.salvageOffCls = true;
+      else menu.offAsk = true;
+      if (!menu.offAsk) G.persist();
+      G.sfx('click');
+      renderMenu();
+    },
+    'offcls-yes'() {
+      const S = G.save;
+      S.tut.ascls = 1;
+      S.opts.salvageOffCls = true;
+      menu.offAsk = false;
+      G.persist();
+      G.sfx('click');
+      renderMenu();
+    },
+    'offcls-no'() {
+      menu.offAsk = false;
+      G.sfx('click');
+      renderMenu();
     },
     // 设置里的「删除这个角色」（B4a 从地图页挪过来）：确认两次，删掉的进回收位，换成一个新角色
     'del-save'() {
@@ -6811,7 +6853,8 @@
       showTitle(true);
     },
     back() {
-      if (menu.delSelf) menu.delSelf = 0;
+      if (menu.offAsk) menu.offAsk = false;
+      else if (menu.delSelf) menu.delSelf = 0;
       else if (menu.del) menu.del = null;
       else if (menu.view === 'cls') {
         const re = menu.cls && menu.cls.mode === 'repick';
@@ -6838,6 +6881,7 @@
       menu.view = k;
       menu.del = null;
       menu.delSelf = 0;
+      menu.offAsk = false;
       menu.devInfo = false;
       G.sfx('click');
       renderMenu();
@@ -7894,9 +7938,39 @@
     while (fl.length > 5) fl.shift().el.remove();
   }
   // game.js 每成功拾取一件掉落就调一次
-  function onPickup(loot, scrapped) {
+  // 自动分解其他职业武器（T36）的拾取记录：一件一行「自动分解 · 名字 → 通货 ×n」（写法和手动分解的结果一样）；
+  // 上一行还亮着时再来一件就并成一行「自动分解 N 件 → …」，按通货合计
+  const curText = (sum) => Object.keys(sum).map((id) => G.CURRENCY[id].name + ' ×' + sum[id]).join('、');
+  function feedOffCls(it, res) {
+    const now = performance.now();
+    const fl = wui.feedList;
+    let f = null;
+    for (const o of fl) if (o.key === 'offcls' && !o.out) f = o;
+    if (!f) {
+      const d = document.createElement('div');
+      d.className = 'fd offcls';
+      d.style.setProperty('--c', '#7fe0c0');
+      wui.feed.appendChild(d);
+      f = { key: 'offcls', el: d, cnt: null, n: 0, sum: {}, name: '', die: 0, out: false };
+      fl.push(f);
+      while (fl.length > 5) fl.shift().el.remove();
+    }
+    f.n++;
+    for (const id in res) f.sum[id] = (f.sum[id] || 0) + res[id];
+    const got = curText(f.sum);
+    const txt = (f.n > 1 ? '自动分解 ' + f.n + ' 件' : '自动分解 · ' + it.name) + (got ? ' → ' + got : '，没有分出东西');
+    f.el.innerHTML = (f.n > 1 ? '' : itemIcon(it)) + '<span>' + esc(txt) + '</span>';
+    f.el.classList.toggle('noic', f.n > 1);
+    f.el.dataset.n = f.n;
+    f.die = now + 3400;
+  }
+  function onPickup(loot, scrapped, offRes) {
     if (loot.kind === 'item') {
       const it = loot.data;
+      if (offRes) {
+        feedOffCls(it, offRes);
+        return;
+      }
       if (scrapped) {
         feedPush('x' + it.uid, itemIcon(it), it.name, '#8c7f6d', '<em class="fd-note">已丢弃</em>');
         return;
