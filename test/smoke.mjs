@@ -22877,6 +22877,7 @@ async function main() {
   await d2bSteps(); // 职业 D2b-1（class-d2b1）
   await d2b2Steps(); // 职业 D2b-2（class-d2b2）
   await imbueSteps(); // 装填 / 散钉 / 反冲弹 / 绊雷（imbue 批）
+  await lootWarmStep(); // 掉落模型都在启动预热里建好（列车 2）
 }
 
 // ------------------------------------------------------------------ 职业（class-d2）
@@ -23885,6 +23886,38 @@ async function d2b2Steps() {
 
 // ------------------------------------------------------------------ 装填（imbue 批，2026-11-25）
 // 铁水弹 / 雷楔 / 霜霰弹改成开关式的装填；散钉拿枪按右键折算、7 枚；反冲弹命中炸开；绊雷连爆 / 到时炸。设计稿 game-workspace/notes/imbue/design-note.md
+// 列车 2：webkit 内存一步（三圈后几何体数不比第一圈多 3 个以上）偶尔不过——追猎弓 / 冰弓 / 符文弓 / 提灯的掉落模型不在启动预热里，
+// 第一次掉落时才烘焙、从此一直留着，第几圈第一次掉到就在第几圈多出来。现在 warmEntities 把每一种掉落模型都建好画过一帧
+async function lootWarmStep() {
+  await step('掉落模型（列车 2）：启动预热就建好每一种掉落的模型（含追猎弓 / 冰弓 / 符文弓 / 提灯）——每种掉一次再画，几何体数不涨；换区以后再掉一遍也不涨', async () => {
+    const drop = () =>
+      ev(() => {
+        const W = G.world, R = W.renderer, P = G.player;
+        const types = [...new Set(G.BASES.weapon.map((b) => b.type))];
+        W.render();
+        const g0 = R.info.memory.geometries;
+        const ms = types.map((t) => W.makeLoot('item', 0xffffff, false, P.x + 2, P.z, { slot: 'weapon', type: t }));
+        for (const sl of G.SLOTS) ms.push(W.makeLoot('item', 0xffffff, false, P.x + 2, P.z, sl));
+        for (const k of ['cur', 'skill', 'blank', 'support']) ms.push(W.makeLoot(k, 0xffffff, false, P.x + 2, P.z));
+        W.render();
+        const g1 = R.info.memory.geometries;
+        for (const m of ms) W.removeMesh(m);
+        W.render();
+        return { g0, g1, n: ms.length, types: types.join(',') };
+      });
+    const zi0 = await ev(() => G.state.zoneIdx);
+    const a = await drop();
+    await ev((z) => G.enterZone(z, 0), zi0 === 1 ? 0 : 1);
+    await page.waitForFunction(() => !G.world.assetsPending(), null, { timeout: 60000 });
+    const b = await drop();
+    await ev((z) => G.enterZone(z, 0), zi0);
+    await page.waitForFunction(() => !G.world.assetsPending(), null, { timeout: 60000 });
+    assert(a.types.includes('huntbow') && a.types.includes('emberbow') && a.types.includes('runebow') && a.types.includes('lantern'), '武器种类里应有追猎弓 / 冰弓 / 符文弓 / 提灯：' + a.types);
+    assert(a.g1 === a.g0 && b.g1 === b.g0, '掉落模型应都在启动预热里建好（掉一次几何体数不涨）：' + JSON.stringify({ a, b }));
+    return a.n + ' 种掉落：几何体 ' + a.g0 + ' → ' + a.g1 + '，换区后 ' + b.g0 + ' → ' + b.g1;
+  });
+}
+
 async function imbueSteps() {
   const IMB = ['molten', 'wedge', 'rime'];
   const on = (c) => ev((c) => {

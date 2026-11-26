@@ -21147,6 +21147,11 @@
     for (let i = 1; i < GEAR_KEYS.length; i++) if (GEAR_KEYS[i] !== 'lantern') loots.push(W.makeLoot('item', 0xffffff, false, 0, 2, { slot: 'weapon', type: GEAR_KEYS[i] })); // 提灯只有掌灯人掉，不预热
     for (const k of ['item', 'cur', 'skill', 'blank', 'support']) loots.push(W.makeLoot(k, 0xffffff, false, 0, 2));
     loots.push(W.makeLoot('item', 0xff9b3d, true, 0, 2, { slot: 'weapon', type: 'katana', rarity: 3 })); // 烬铸的本体材质与双层光柱
+    // 列车 2：GEAR_KEYS 之外后来加的掉落模型（追猎弓 / 冰弓 / 符文弓的 bowLoot，还有提灯）也在这里建好、画一帧。原来它们第一次掉落时才烘焙，
+    // 几何体从此一直留着（缓存），哪一圈第一次掉到就在哪一圈多出来（webkit 内存一步按掉落顺序时过时不过）。提灯预热时不去要手持模型的包
+    lootWarm = true;
+    for (const k of Object.keys(LOOT_MODEL)) if (!lootModels[k]) loots.push(W.makeLoot('item', 0xffffff, false, 0, 2, { slot: 'weapon', type: k }));
+    lootWarm = false;
     allyFxVisible(true); // 召唤法阵 / 聚焦标记平时是隐藏的：预热这一帧让它们露个面，着色器一并编译
     warmWeaponFx(true);
     if (ghosts.length) ghosts[0].mesh.visible = true; // 残影（亮度 0）：第一次冲刺 / 一闪时不再现编译着色器
@@ -21371,6 +21376,7 @@
     ]);
   }
   const lootModels = Object.create(null);
+  let lootWarm = false; // warmEntities 正在预热掉落模型
   const WEAPON_MODEL = GEAR_KEYS; // 掉落模型的名字和武器种类同名
   let lootBody = null;
   let lootBodyU = null; // 烬铸武器掉在地上时的本体：带一点余烬自发光
@@ -21395,7 +21401,7 @@
       else if (sl && LOOT_MODEL[sl]) key = sl;
     }
     if (!LOOT_MODEL[key]) key = 'item';
-    if (key === 'lantern' && W.lanternNeed) W.lanternNeed(); // 地上掉了提灯：先把手持的自产模型要过来（class-d2b1）
+    if (key === 'lantern' && W.lanternNeed && !lootWarm) W.lanternNeed(); // 地上掉了提灯：先把手持的自产模型要过来（class-d2b1）；启动预热时不要
     const mdl = lootModels[key] || (lootModels[key] = LOOT_MODEL[key]());
     if (!lootBody) lootBody = new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.45, envMap: rigEnvMap(), envMapIntensity: 0.9, flatShading: true });
     const grp = new T.Group();
