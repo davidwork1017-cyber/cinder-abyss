@@ -11,9 +11,9 @@
   "lo": 7600
  },
  "weights": {
-  "mode": "band",
+  "mode": "hybrid",
   "glb": "rigtest/unirig/hero-b-02/model_rigged.glb",
-  "sha256": ""
+  "sha256": "b6f43a70c5bd792df3b94028066e1655351106fe53f283d361dad41a59755702"
  },
  "colour": {
   "grade": {
