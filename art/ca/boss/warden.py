@@ -467,7 +467,7 @@ def _hands(k):
                 if j == 2:
                     seg.append(g2b((x, y - 0.01, z0 + L + 0.04)))  # 指尖收成钝的尖
                 sv = k.bind(k.hull(seg, 'pale', 0.36, 0.03, 0, 0), B[bone])
-                retag(k, sv, lambda p, n: ('pale', 0.42, 0.02) if n[1] > 0.6 else ('obsidian', 0.3, 0.02) if n[1] < -0.5 else None)
+                retag(k, sv, lambda p, n: ('pale', 0.33, 0.02) if n[1] > 0.6 else ('obsidian', 0.3, 0.02) if n[1] < -0.5 else None)  # T35：指甲片朝上的面原来 0.42，乘上烘焙增益接近纯白（手套上的高光面）
             z0 += ln
         # 拇指：在里侧（朝柱身），两节，往前、往里斜
         tb = 'x_thumb_' + sd
