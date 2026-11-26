@@ -105,11 +105,9 @@ CATALOG = [
     # ---- AI 生成的布景件（ai3d-pilot，试点一件）：gen='ai' 从源 GLB 导入（art/ai/importer.py），参数和来源都在 assets/ai/<slug>/provenance.json。
     # 类别 aiprop（art/budgets.json）：lod=hi 给高 / 中画质（预算 tris），lod=lo 是低画质要显示时的减面档（预算 lodTris，同一张贴图的 UV）；
     # 路标石低画质不显示（摆放一样、visible = false，和冰芦苇一样），所以只打 hi。反照率贴图 512，在 assets/ai/<slug>/，打进 zone-<区> 包（低档不解码）。
-    # 顶点色只烘 AO（明暗渐变压到最小、不加磨损 / 污垢：生成的贴图里已经画了）。_vc 是按面量化到调色板的对照版本（不打进游戏） ----
+    # 顶点色只烘 AO（明暗渐变压到最小、不加磨损 / 污垢：生成的贴图里已经画了）。按面量化到调色板的 vc 外观试过（审核时对照），读成一根黑柱子，没用 ----
     dict(id='ca/frost_waystone', gen='ai', seed=1126, cat='aiprop', zone='frost', ship=True, replaces=None, args=dict(prov='assets/ai/frost_waystone/provenance.json', lod='hi', mode='albedo'),
          bake=dict(ao=0.25, grad=0.01, wear=0.0, grime=0.0, gtint=0.0), finish=dict(dust=0.0, cues=False)),
-    dict(id='ca/frost_waystone_vc', gen='ai', seed=1126, cat='aiprop', zone='frost', ship=False, replaces=None, args=dict(prov='assets/ai/frost_waystone/provenance.json', lod='hi', mode='vc'),
-         bake=dict(ao=0.25, grad=0.3, wear=0.3, grime=0.2, gtint=0.5), finish=dict(dust=0.0, cues=False)),
     # ---- 余烛殿：4 个火盆台（玩法件），尺寸逐项照原来的程序化 crown/brazier，火苗另一个网格、碰撞不变 ----
     dict(id='ca/crown_brazier', gen='crown_brazier', seed=173, cat='prop', zone='crown', ship=True, replaces=None,
          bake=dict(ao=0.25, grad=0.4, wear=0.4), finish=dict(dust=0.0), cues=dict(second=False, val=0.2, lichen=0)),

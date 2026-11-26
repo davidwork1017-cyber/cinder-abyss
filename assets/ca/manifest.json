@@ -1853,24 +1853,24 @@
    "file": "assets/ca/frost/frost_waystone.glb",
    "ship": true,
    "replaces": null,
-   "tris": 3000,
-   "verts": 8998,
+   "tris": 1500,
+   "verts": 4500,
    "materials": 1,
    "textures": 0,
    "bounds": {
     "min": [
-     -0.598,
+     -0.599,
      -0.041,
-     -0.593
+     -0.592
     ],
     "max": [
-     0.597,
-     1.31,
+     0.596,
+     1.309,
      0.593
     ]
    },
    "h": 1.351,
-   "r": 0.598,
+   "r": 0.599,
    "y0": -0.041,
    "source": {
     "script": "art/ai/importer.py",
@@ -1895,57 +1895,7 @@
    "lod": "hi",
    "mode": "albedo",
    "tex": "frost_waystone",
-   "sha256": "175a55f8140e5b95f988f73122138eec4c29bfe09bf6081f1e80e74e5030b8d7"
-  },
-  {
-   "id": "ca/frost_waystone_vc",
-   "category": "aiprop",
-   "zone": "frost",
-   "file": "assets/ca/frost/frost_waystone_vc.glb",
-   "ship": false,
-   "replaces": null,
-   "tris": 3000,
-   "verts": 9000,
-   "materials": 1,
-   "textures": 1,
-   "bounds": {
-    "min": [
-     -0.598,
-     -0.041,
-     -0.593
-    ],
-    "max": [
-     0.597,
-     1.31,
-     0.593
-    ]
-   },
-   "h": 1.351,
-   "r": 0.598,
-   "y0": -0.041,
-   "source": {
-    "script": "art/ai/importer.py",
-    "gen": "ai",
-    "catalog": "art/catalog.py",
-    "seed": 1126,
-    "args": {
-     "prov": "assets/ai/frost_waystone/provenance.json",
-     "lod": "hi",
-     "mode": "vc"
-    },
-    "bake": {
-     "ao": 0.25,
-     "grad": 0.3,
-     "wear": 0.3,
-     "grime": 0.2,
-     "gtint": 0.5
-    },
-    "provenance": "assets/ai/frost_waystone/provenance.json",
-    "sourceSha256": "6f30359fe6c4b05a003707d80d64eec65af636b410857f1062d35fffca25fe9d"
-   },
-   "lod": "hi",
-   "mode": "vc",
-   "sha256": "d1404beaed960e1c13113e2d8759a06919caccf1dcac8398310211622d3587bc"
+   "sha256": "8fdb375a086214b44edd2247bca4225ac9fb0ff08216fc4ed307f0f02b7ee314"
   },
   {
    "id": "ca/gear_lantern",
