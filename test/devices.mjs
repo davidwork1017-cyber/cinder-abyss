@@ -73,10 +73,75 @@ export async function standaloneContext(browser, dev = MOBILE_DEFAULT, { rot = n
   }, [dev.sb, dev.hb, dev.height, rot, safe]);
   return c;
 }
-// 「过一会儿」：视口变成整块屏幕（innerHeight、visualViewport、100lvh = 屏幕高，发 resize），clientHeight 不变
+// 「过一会儿」：视口变成整块屏幕（innerHeight、visualViewport、100lvh = 屏幕高，发 resize），clientHeight 不变。
+// 然后按帧等页面跟上（rot-safe2）：innerHeight 是整块屏幕；旋转横屏的主屏幕 App 里画面高 = 视口高（html 撑到 100lvh）；3D 画布 = 画面。
+// 最多等 120 帧（touch.js 每 30 帧兜底重量一次，够 4 轮）；没跟上就报哪一条没满足（不靠固定时长，也不重试）
 export async function settle(p, dev = MOBILE_DEFAULT) {
   await p.setViewportSize({ width: dev.width, height: dev.height });
-  await p.waitForTimeout(500);
+  const why = await converged(p, dev);
+  if (why) throw new Error(why);
+}
+// 按帧等页面跟上整块屏幕（见 settle）；返回空串 = 跟上了，否则是哪一条没满足
+export async function converged(p, dev = MOBILE_DEFAULT) {
+  const h = await p.waitForFunction(([H]) => {
+    window.__settleN = (window.__settleN || 0) + 1;
+    let why = '';
+    if (window.innerHeight !== H) why = 'innerHeight ' + window.innerHeight + ' ≠ ' + H;
+    else if (window.G && G.viewW && G.world && document.getElementById('gl')) {
+      const v = G.touch && G.touch.view ? G.touch.view() : null;
+      const fw = Math.round(G.viewW()), fh = Math.round(G.viewH());
+      if (G.rot && v && v.stand && fw !== H) why = '画面高 ' + fw + ' ≠ 视口 ' + H + '（上次量时 html ' + v.html + '，现在 html ' + Math.round(document.documentElement.getBoundingClientRect().height) + '、innerHeight ' + window.innerHeight + '）';
+      else {
+        const r = G.rectToFrame(document.getElementById('gl').getBoundingClientRect());
+        if (Math.abs(r.width - fw) > 1 || Math.abs(r.height - fh) > 1) why = '3D 画布 ' + Math.round(r.width) + '×' + Math.round(r.height) + ' ≠ 画面 ' + fw + '×' + fh;
+      }
+    }
+    if (!why || window.__settleN >= 120) {
+      const n = window.__settleN;
+      window.__settleN = 0;
+      return { why, n };
+    }
+    return false;
+  }, [dev.height], { polling: 'raf', timeout: 300000 });
+  const r = await h.jsonValue();
+  return r.why ? '视口变成整块屏幕后 ' + r.n + ' 帧还没跟上：' + r.why : '';
+}
+// 晚长高（rot-safe2，zone-ready 的 webkit 全套里 375×812 画面停在 768 的那种情况）：视口变大、resize 事件处理完的时候 html 盒子还没长高，
+// 之后 html 才长高、不再有事件。用一条样式把 html 先按在刚打开的高（拿掉 min-height 100lvh），视口变大后过几帧再拿掉（拿掉不发事件），看页面自己跟不跟得上
+export async function lateGrow(p, dev = MOBILE_DEFAULT) {
+  await p.evaluate((h) => {
+    const s = document.createElement('style');
+    s.id = '__late-grow';
+    s.textContent = 'html.t-stand { min-height: 0 !important; height: ' + h + 'px !important; }'; // min-height 比 max-height 优先，只能把 min-height 拿掉
+    document.head.appendChild(s);
+  }, dev.height - dev.sb);
+  await p.setViewportSize({ width: dev.width, height: dev.height });
+  await p.waitForFunction(() => { window.__lgN = (window.__lgN || 0) + 1; if (window.__lgN < 10) return false; window.__lgN = 0; return true; }, null, { polling: 'raf', timeout: 120000 });
+  const stuck = await p.evaluate(() => Math.round(G.viewW()));
+  await p.evaluate(() => document.getElementById('__late-grow').remove());
+  const why = await converged(p, dev);
+  return { stuck, why };
+}
+// 主线追踪条（rot-safe2）：它要等区域的素材包载完才淡入（ui.js：assetsLoading / assetsPending 为假），所以先等素材包，再按帧等 #quest.on。
+// 返回空串 = 出来了；否则说清是哪一步没到（不靠固定时长）
+export async function questReady(p) {
+  const loaded = await p
+    .waitForFunction(() => { const w = G.world, f = w.assetsLoading || w.assetsPending; return !(f && f.call(w)); }, null, { timeout: 120000 })
+    .then(() => true, () => false);
+  if (!loaded) return '素材包 120 秒还没载完（主线追踪条要等它）';
+  const h = await p.waitForFunction(() => {
+    window.__qN = (window.__qN || 0) + 1;
+    const q = document.getElementById('quest');
+    const on = !!(q && q.classList.contains('on'));
+    if (on || window.__qN >= 60) {
+      const n = window.__qN, Q = G.save && G.save.quest;
+      window.__qN = 0;
+      return { on, n, q: Q ? 'n ' + Q.n + (Q.off ? ' off' : '') : '无', title: !!(G.ui.titleOn && G.ui.titleOn()) };
+    }
+    return false;
+  }, null, { polling: 'raf', timeout: 120000 });
+  const r = await h.jsonValue();
+  return r.on ? '' : '素材包已载完，' + r.n + ' 帧后主线追踪条还没出来（主线 ' + r.q + '，标题画面 ' + r.title + '）';
 }
 // 重新打开（载入 / 重载）：先回到刚打开的视口，go() 等页面好了，再 settle()
 export async function launch(p, dev, go) {

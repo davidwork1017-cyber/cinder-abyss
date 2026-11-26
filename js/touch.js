@@ -967,18 +967,32 @@
   // 100lvh 不比布局视口高的老系统上 h = vis：黑边还在，但 HUD 不会被裁。浏览器标签页里照旧按 innerHeight（工具栏伸缩时 layout() 重新量）
   // rot-safe2（真机读数 2026-11-25）：innerHeight、visualViewport 后来都是 874，只有 documentElement.clientHeight（初始包含块）还是 812。
   // 所以 vis 取三者最小：HUD 只摆在 clientHeight 那一块里，不管系统往下画到哪都不会被裁；画布照旧铺满 h（html 量出来的整块屏幕）
-  const view = { h: 0, vis: 0, cut: 0, stand: false };
+  // inp：量的时候窗口和屏幕多大（每帧对一下，只读不会触发排版的这几样）；html：当时 html 盒子的高
+  const view = { h: 0, vis: 0, cut: 0, stand: false, inp: '', html: 0 };
+  const viewInp = () => {
+    const sc = window.screen;
+    return window.innerWidth + ',' + window.innerHeight + ',' + (sc ? sc.width + 'x' + sc.height : '');
+  };
+  // 不改任何东西，照 measure() 的算法再算一遍画面高和 HUD 高（每 30 帧的兜底用；会读 html 盒子、visualViewport，触发一次排版）
+  function measureNow() {
+    const de = document.documentElement, ih = window.innerHeight, sc = window.screen, vv = window.visualViewport;
+    if (!view.stand) return { h: ih, vis: ih };
+    const vis = Math.round(Math.min(vv && vv.height > 0 ? vv.height : ih, ih, de.clientHeight || ih));
+    return { h: Math.max(vis, Math.min(sc.height, Math.round(de.getBoundingClientRect().height))), vis };
+  }
   function measure() {
     const de = document.documentElement, ih = window.innerHeight, sc = window.screen, vv = window.visualViewport;
     const stand = !!G.rot && navigator.standalone === true && !!sc && Math.abs(sc.width - window.innerWidth) <= 1;
     de.classList.toggle('t-stand', stand);
     view.stand = stand;
+    view.inp = viewInp();
     if (!stand) {
       view.h = view.vis = ih;
       view.cut = 0;
     } else {
       view.vis = Math.round(Math.min(vv && vv.height > 0 ? vv.height : ih, ih, de.clientHeight || ih));
-      view.h = Math.max(view.vis, Math.min(sc.height, Math.round(de.getBoundingClientRect().height)));
+      view.html = Math.round(de.getBoundingClientRect().height);
+      view.h = Math.max(view.vis, Math.min(sc.height, view.html));
       view.cut = view.h - view.vis;
     }
     de.style.setProperty('--t-cut', view.cut + 'px');
@@ -1154,7 +1168,7 @@
     o.fill.style.transform = 'scaleX(' + (max > 0 ? Math.max(0, Math.min(1, v / max)) : 0) + ')';
     o.num.textContent = key;
   }
-  let lastT = 0;
+  let lastT = 0, rotN = 0;
   function tick(now) {
     if (!T.on) {
       raf = 0;
@@ -1169,7 +1183,17 @@
       document.documentElement.classList.toggle('t-tsub', !!(ti && ti.classList.contains('sub'))); // 标题画面在子页上：右上角让给「返回」
     }
     if (T.portrait !== G.viewH() > G.viewW()) layout();
-    // 兜底（rot-safe2）：旋转横屏里画布的尺寸和画面对不上（漏了哪次 resize），补一次
+    // 兜底（rot-safe2）：画面尺寸只靠事件重量不够——resize 事件处理完以后 html 盒子（min-height 100lvh）才长高的话，就再没有事件来了，
+    // 画面一直停在刚打开时的高（zone-ready 的 webkit 全套里 375×812 停在 768）。所以每帧对一下 measure() 用的输入，变了就重量；
+    // 每 30 帧再照 measure() 完整算一遍（html 盒子、visualViewport、clientHeight），和现在的不一样也重量。之后画布的尺寸和画面对不上就补一次 resize
+    if (G.rot) {
+      rotN++;
+      if (viewInp() !== view.inp) layout();
+      else if (rotN % 30 === 0) {
+        const m = measureNow();
+        if (m.h !== view.h || m.vis !== view.vis) layout();
+      }
+    }
     if (G.rot && W.viewSize) {
       const vs = W.viewSize();
       if (vs.w !== Math.max(1, G.viewW()) || vs.h !== Math.max(1, G.viewH())) window.dispatchEvent(new Event('resize'));
