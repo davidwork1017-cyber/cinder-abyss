@@ -1205,38 +1205,46 @@
       }
       spark(g, 18, -20, 4.6, '#ffffff');
     },
-    // ---------- 特殊弹（class-d2b1）：弹头斜朝右上，各自的记号 ----------
-    // 铁水弹：一颗冒红光的铁弹，下面挂一滴铁水
+    // ---------- 装填（imbue，2026-11-25）：左边一颗子弹、右边一支箭，斜朝右上，元素「装」在弹头 / 箭头上（三颗共用底子，记号各不相同）----------
+    // ---------- 反冲弹（class-d2b1）：弹头斜朝右上 ----------
+    _imbBase(g, col) {
+      const mb = rot(45, 1.05, -10, 8), ma = rot(45, 1.05, 9, -6);
+      // 子弹：铁色弹头 + 铜壳
+      solid(g, (p) => p.M(-4.2, 12).L(-4.2, -2).Q(-4.2, -11, 0, -14).Q(4.2, -11, 4.2, -2).L(4.2, 12).Z(), '#6a5c56', { m: mb, hi: 0.4, lo: 0.5, lw: 1.9 });
+      solid(g, (p) => p.R(-5, 9.5, 10, 3.6, 1), C.copper, { m: mb, bevel: 0.9, lw: 1.5 });
+      // 箭：细杆 + 尾羽 + 箭头
+      line(g, (p) => p.M(0, 18).L(0, -8), C.wood || '#8a6a48', 2.2, ma);
+      solid(g, (p) => p.P([0, 18, -4, 22, -4, 15, 0, 12]).P([0, 18, 4, 22, 4, 15, 0, 12]), '#c8c0b0', { m: ma, hi: 0.5, lw: 1.2, bevel: 0.5 });
+      solid(g, (p) => p.P([-4, -6, 0, -18, 4, -6, 0, -8]), C.iron, { m: ma, hi: 0.55, lo: 0.4, lw: 1.6, bevel: 0.8 });
+      return { mb, ma };
+    },
+    // 铁水装填：两个尖上都裹着发红的铁水，往下挂着滴
     molten(g, col) {
-      const m = rot(45, 1.3, -3, 1);
-      glow(g, (p) => p.M(-4, -6).Q(0, -20, 4, -6).Z(), col, { m, blur: 8, core: rgba(lite(col, 0.3), 0.5) });
-      solid(g, (p) => p.M(-5, 12).L(-5, -4).Q(-5, -14, 0, -18).Q(5, -14, 5, -4).L(5, 12).Z(), '#5a4a46', { m, hi: 0.35, lo: 0.5, lw: 2 });
-      glow(g, (p) => p.M(-3.4, -5).Q(0, -15, 3.4, -5).Q(0, -8, -3.4, -5).Z(), col, { m, blur: 5, core: lite(col, 0.5) });
-      solid(g, (p) => p.R(-5.6, 9, 11.2, 4, 1), C.copper, { m, bevel: 0.9, lw: 1.6 });
-      const dx = 3, dy = 20;
-      glow(g, (p) => p.M(dx, dy - 6).C(dx + 3.6, dy - 1, dx + 3.6, dy + 3, dx, dy + 4.4).C(dx - 3.6, dy + 3, dx - 3.6, dy - 1, dx, dy - 6).Z(), col, { blur: 6, core: lite(col, 0.35) });
-      solid(g, (p) => p.E(dx - 0.8, dy + 1.4, 1.2), '#ffd8a0', { bevel: 0, lw: 0 });
+      const { mb, ma } = SKILL_DRAW._imbBase(g, col);
+      glow(g, (p) => p.M(-3.4, -4).Q(0, -14, 3.4, -4).Q(0, -7, -3.4, -4).Z(), col, { m: mb, blur: 6, core: lite(col, 0.5) });
+      glow(g, (p) => p.P([-3, -7, 0, -16, 3, -7, 0, -9]), col, { m: ma, blur: 6, core: lite(col, 0.5) });
+      const drop = (x, y, k) => (p) => p.M(x, y - 5 * k).C(x + 3.4 * k, y - 0.4 * k, x + 3.4 * k, y + 3 * k, x, y + 4.4 * k).C(x - 3.4 * k, y + 3 * k, x - 3.4 * k, y - 0.4 * k, x, y - 5 * k).Z();
+      solid(g, drop(-3, 13, 1.1), dark(col, 0.1), { hi: 0.6, lo: 0.3, lw: 1.5, bevel: 0.7 });
+      solid(g, drop(17, 4, 0.9), dark(col, 0.1), { hi: 0.6, lo: 0.3, lw: 1.4, bevel: 0.6 });
+      spark(g, -2, -12, 4, '#ffd8a0');
     },
-    // 雷楔：一枚楔形铁钉，外面缠着折线电弧
+    // 雷楔装填：箭头上钉着一枚蓝紫小楔，楔子和子弹头之间拉一道折线电弧
     wedge(g, col) {
-      const m = rot(40, 1.3, -2, 2);
-      solid(g, (p) => p.P([-5, 14, 5, 14, 3.4, -6, 0, -22, -3.4, -6]), C.ironD, { m, hi: 0.5, lo: 0.4, lw: 2 });
-      solid(g, (p) => p.R(-6.4, 12, 12.8, 4, 1), C.iron, { m, bevel: 0.9, lw: 1.6 });
-      line(g, (p) => p.M(0, 12).L(0, -18), rgba('#ffffff', 0.3), 1, m);
-      glow(g, (p) => p.M(-10, 10).L(-4, 4).L(-8, 0).L(-1, -8).L(-5, -11).L(3, -20), col, { m, stroke: 1.5, blur: 5, core: lite(col, 0.6) });
-      glow(g, (p) => p.M(10, 6).L(5, 1).L(9, -3).L(4, -10), col, { m, stroke: 1.2, blur: 4, core: lite(col, 0.6) });
-      spark(g, 15, -17, 4.6, '#ffffff');
+      const { mb, ma } = SKILL_DRAW._imbBase(g, col);
+      solid(g, (p) => p.P([-2, -10, 2, -10, 0, -22]), lite(col, 0.2), { m: ma, hi: 0.7, lo: 0.3, lw: 1.4, bevel: 0.6 });
+      solid(g, (p) => p.P([-1.6, -6, 1.6, -6, 0, -16]), lite(col, 0.2), { m: mb, hi: 0.7, lo: 0.3, lw: 1.3, bevel: 0.6 });
+      glow(g, (p) => p.M(-6, -10).L(-1, -14).L(-3, -18).L(4, -20).L(2, -24).L(9, -25), col, { stroke: 1.6, blur: 5, core: lite(col, 0.6) });
+      spark(g, 18, -20, 4.4, '#ffffff');
     },
-    // 霜霰弹：一颗弹壳，前头炸出三道冰屑
+    // 霜霰装填：两个尖后头各迸出几道淡青的冰屑
     rime(g, col) {
-      const m = rot(45, 1.25, -7, 7);
-      solid(g, (p) => p.M(-4.6, 14).L(-4.6, 0).Q(-4.6, -8, 0, -11).Q(4.6, -8, 4.6, 0).L(4.6, 14).Z(), C.silver, { m, hi: 0.45, lo: 0.45, lw: 2 });
-      solid(g, (p) => p.R(-5.4, 11, 10.8, 3.6, 1), C.copper, { m, bevel: 0.9, lw: 1.6 });
-      for (const [a, l] of [[-28, 13], [0, 16], [28, 13]]) {
-        const mm = rot(45 + a, 1.25, 3, -3);
-        glow(g, (p) => p.P([-1.8, -8, 0, -8 - l, 1.8, -8]), col, { m: mm, blur: 5, core: lite(col, 0.55) });
-        solid(g, (p) => p.P([-1.8, -8, 0, -8 - l, 1.8, -8]), lite(col, 0.35), { m: mm, hi: 0.7, lo: 0.3, lw: 1.4, bevel: 0.6 });
+      const { mb, ma } = SKILL_DRAW._imbBase(g, col);
+      for (const [m, l] of [[mb, 11], [ma, 13]]) {
+        for (const a of [-24, 0, 24]) {
+          glow(g, (p) => p.P([-1.4, -13, 0, -13 - l * (a ? 0.75 : 1), 1.4, -13]), col, { m: rot(45 + a, 1.05, m === mb ? -10 : 9, m === mb ? 8 : -6), blur: 4, core: lite(col, 0.55) });
+        }
       }
+      solid(g, (p) => p.P([-22, 24, -18, 18, -14, 24]).P([20, 26, 24, 21, 27, 27]), lite(col, 0.35), { hi: 0.6, lw: 1.2, bevel: 0.6 });
     },
     // 反冲弹：粗弹头加一道往后指的弧形箭头
     recoil(g, col) {

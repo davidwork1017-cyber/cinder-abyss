@@ -541,6 +541,20 @@
         const tag = s.el.querySelector('.s-auto');
         if (tag) tag.textContent = aoff ? '保留不足' : '自动';
       }
+      // 装填（imbue）开着：格子亮一圈元素色的边（开关的状态；世界里看投射物的拖尾）
+      const ion = !!(id && G.SKILLS[id] && G.SKILLS[id].kind === 'imbue' && G.imbueOn && G.imbueOn() === id);
+      if (ion !== !!s.ion) {
+        s.ion = ion;
+        s.el.classList.toggle('imb-on', ion);
+        if (ion) s.el.style.setProperty('--imb', G.SKILLS[id].color);
+      }
+      // 装填的格子：悬停 / 触屏长按出详情（名字、做什么、Alt 里的细节）
+      const itip = id && G.SKILLS[id] && G.SKILLS[id].kind === 'imbue' ? 'txt:' + G.SKILLS[id].name + '：' + String(G.SKILLS[id].desc).replace(/<[^>]+>/g, '') + (G.SKILLS[id].alt ? ' ' + G.SKILLS[id].alt : '') : '';
+      if (itip !== (s.itip || '')) {
+        s.itip = itip;
+        if (itip) s.el.dataset.tip = itip;
+        else delete s.el.dataset.tip;
+      }
       if (s.fx && now - s.fxT > 620) {
         s.el.classList.remove(s.fx);
         s.fx = '';
@@ -2224,13 +2238,13 @@
     return '<div class="sk-inh"><i></i><span>继承装备：' + parts.join(' · ') + '</span></div>';
   }
 
-  // 攻击技能卡上的一行：每一击 = 武器伤害 × 武器倍率 × 宝石等级加成，出手速度随武器攻速
+  // 攻击技能卡上的一行：每一击 = 武器伤害 × 武器倍率 × 技能等级加成，出手速度随武器攻速
   function attackNote(ctx) {
     const w = ctx.weapon || G.FISTS || null;
     if (!w || !(ctx.wm > 0)) return '';
     const item = G.save.equip.weapon;
     const src = item ? wTypeName(item.baseIdx | 0) : '空手';
-    const lk = ctx.levelK > 1.0005 ? '<span class="wn-op">×</span>宝石 <b>+' + Math.round((ctx.levelK - 1) * 100) + '%</b>' : '';
+    const lk = ctx.levelK > 1.0005 ? '<span class="wn-op">×</span>等级 <b>+' + Math.round((ctx.levelK - 1) * 100) + '%</b>' : '';
     return (
       '<div class="sk-anote wpn"><i></i><span>伤害取自武器：' + src + ' <b>' + Math.round(w.min) + '–' + Math.round(w.max) + '</b><span class="wn-op">×</span>倍率 <b>' + Math.round(ctx.wm * 100) + '%</b>' + lk +
       ' · 攻速 <b>×' + (w.aps > 0 ? w.aps : 1).toFixed(2) + '</b>' + (G.cdAps && G.cdAps(ctx.sk) ? '（攻速折进伤害）' : '') + (item ? '' : '（空手很弱）') + '</span></div>'
@@ -2517,13 +2531,6 @@
           '<button type="button" tabindex="-1" class="sock' + (picking ? ' picking' : '') + '" data-act="socket" data-skill="' + id + '" data-idx="' + i + '"><i></i>空槽</button>';
       }
     }
-    // 手里有比当前等级高的无铭宝石：卡上给一个升级入口（点两下才用掉）
-    const best = G.blankBest();
-    const armed = ui.blankArm === id;
-    const blankUp = best > S.skills[id]
-      ? '<button type="button" tabindex="-1" class="blank-up' + (armed ? ' armed' : '') + '" data-act="blank" data-skill="' + id + '" data-tip="blank:' + id + '">' +
-        IC.blank() + (armed ? '确认升至 Lv ' + best + '？再点一次' : '升至 Lv ' + best) + '</button>'
-      : '';
     const num = (label, val, cls) => '<div class="sk-num' + (cls ? ' ' + cls : '') + '"><span>' + label + '</span><b>' + val + '</b></div>';
     let nums;
     let note = '';
@@ -2554,9 +2561,21 @@
       }
       if (mi.dps > 0) bits.push((mi.cap > 1 ? '满员秒伤约 ' : '秒伤约 ') + fmtInt(mi.dps) + (pm ? '（单体）' : ''));
       note = '<div class="sk-mnote"><i></i>' + bits.join(' · ') + '</div>' + inheritNote(ctx) + autoRow(id);
+    } else if (sk.kind === 'imbue') {
+      // 装填（imbue）：开关，不打人；卡片上是附带的元素伤害、保留和这种装填的效果
+      const I = sk.imbue, add = I.add + I.addLv * ((G.skillLvl(id) || 1) - 1), on = G.imbueOn && G.imbueOn() === id;
+      const EN = { fire: '火焰', cold: '冰霜', light: '闪电' };
+      nums =
+        num('附带' + EN[sk.elem], fmt1(add) + '%', 'hl') +
+        num(blood ? '生命保留' : '魔力保留', fmt1(G.auraReserve(id)) + '%') +
+        (I.splash ? num('铁水', '半径 ' + fmt1(I.splash.r) + ' 米') : '') +
+        (I.wedge ? num('放电', I.wedge.n + ' 枚 · ' + Math.round(I.wedge.zap * 100) + '%') : '') +
+        (I.chilled ? num('打冰缓的敌人', '+' + I.chilled + '%') : '') +
+        (I.shard ? num('冰屑', Math.round(I.shard.k * 100) + '%') : '');
+      note = '<div class="sk-anote"><i></i>' + (on ? '装着' : S.imbue === id ? '保留不足 / 武器不对，没生效' : '按一下装上，再按卸下') + ' · 只对物理投射物（枪、弓、散钉、飞刃、跳射、反冲弹）</div>';
     } else if (sk.buff) {
       // 黑焰：不脉冲、自己没有伤害；卡片上是每一击额外的混沌伤害比例和保留
-      const F = G.auraOn(id) ? G.flamePct() : Math.min(sk.flame.cap, sk.flame.k0 + sk.flame.k1 * (S.skills[id] - 1)) * (1 + Math.max(0, G.player.S.flameEff || 0) / 100);
+      const F = G.auraOn(id) ? G.flamePct() : Math.min(sk.flame.cap, sk.flame.k0 + sk.flame.k1 * ((G.skillLvl(id) || 1) - 1)) * (1 + Math.max(0, G.player.S.flameEff || 0) / 100);
       nums =
         num('额外混沌', fmt1(F) + '%', 'hl') +
         num(blood ? '生命保留' : '魔力保留', fmt1(ctx.reserve) + '%') +
@@ -2698,12 +2717,12 @@
       c: sk.color,
       lock: lockLine,
       icon: '<div class="sk-icon" data-drag="skill:' + id + '" data-tip="skdrag:' + id + '">' + IC.skill(id) + '</div>',
-      title: '<div class="sk-name">' + sk.name + vn + '<em>Lv ' + S.skills[id] + '</em>' + blankUp + '</div>' +
+      title: '<div class="sk-name">' + sk.name + vn + '</div>' +
         '<div class="sk-tags">' + cardTags(sk).map((t) => '<span>' + G.TAG_NAME[t] + '</span>').join('') + '</div>',
       binds,
-      name: sk.name + vn + '<em>Lv ' + S.skills[id] + '</em>',
+      name: sk.name + vn,
       kind: cardTags(sk).map((t) => G.TAG_NAME[t]).join(' · '),
-      up: blankUp,
+      up: '', // 技能宝石没有等级（gem-nolvl）：卡上不再有「升至 Lv」入口
       body:
         '<div class="sk-desc"><span class="sk-dt">' + sk.desc + '</span>' + altBox(sk.alt) + '</div>' + variantRow(id) +
         (sk.combo ? '<div class="sk-combo">' + sk.combo.map((c, i) => '<span' + (c.w >= 2 ? ' class="fin"' : '') + '>' + (c.w >= 2 ? '终结 ' : '第 ' + (i + 1) + ' 段 ') + '×' + c.mult + '</span>').join('<i></i>') + '</div>' : '') +
@@ -2786,7 +2805,7 @@
       const sk = G.SKILLS[k];
       c = sk.color;
       icon = IC.skill(k);
-      name = sk.name + '<em>Lv ' + S.skills[k] + '</em>';
+      name = sk.name;
       sub = cardTags(sk).slice(0, 3).map((t) => G.TAG_NAME[t]).join(' · ');
       const slot = S.bar.indexOf(k);
       key = slot >= 0 ? slotName(slot) : S.rmbKeep === k ? '收起' : '';
@@ -2809,7 +2828,7 @@
   // 没学会的技能宝石：有无铭宝石时每个都能点（第一下选中，再点一次才用掉）
   function learnHtml(g) {
     const B = G.BLANK_GEM;
-    const best = G.blankBest();
+    const best = G.blankCount();
     const C = g.C;
     if (!g.unknown.length) return compactUi() ? '<div class="sup-none">这个职业能用的技能都学会了。</div>' : '';
     const item = (id) => {
@@ -2818,24 +2837,21 @@
       const armed = ui.blankArm === id;
       return (
         '<button type="button" tabindex="-1" class="sm-learn' + (armed ? ' armed' : '') + '" style="--c:' + c.color + '" data-act="blank" data-skill="' + id + '" data-tip="blank:' + id + '">' +
-        IC.skill(id) + c.name + '<em>' + (armed ? '确认学会？再点一次' : '学会 · Lv ' + best) + '</em></button>'
+        IC.skill(id) + c.name + '<em>' + (armed ? '确认学会？再点一次' : '学会') + '</em></button>'
       );
     };
     return (
-      '<div class="skill-more' + (best ? ' can-learn' : '') + '"><div class="sm-title">尚未获得的技能宝石' + (best ? '<span>点一个技能，用 Lv ' + best + ' 的' + B.short + '学会它</span>' : '') + '</div>' +
+      '<div class="skill-more' + (best ? ' can-learn' : '') + '"><div class="sm-title">尚未获得的技能宝石' + (best ? '<span>点一个技能，用一颗' + B.short + '学会它</span>' : '') + '</div>' +
       '<div class="sm-list">' + g.unknown.map(item).join('') + '</div>' +
       '<div class="sm-note">怪物掉落技能宝石，首领必掉一颗。' + B.name + '可在这里换成任意技能' + (C ? '（' + C.name + '能用的）。掉下来用不上的技能宝石会变成' + B.name : '') + '。</div></div>'
     );
   }
-  // 手里的无铭宝石（数量、最高等级、怎么用），以及刚才用掉一颗的结果
+  // 手里的无铭宝石（数量、怎么用），以及刚才用掉一颗的结果。宝石没有等级（gem-nolvl）
   function blankBarHtml() {
-    const S = G.save, B = G.BLANK_GEM, best = G.blankBest(), gems = S.blankGems;
+    const S = G.save, B = G.BLANK_GEM, gems = S.blankGems;
     if (!gems.length && !ui.blankMsg) return '';
-    const lv = gems.length
-      ? '<b>' + B.name + ' ×' + gems.length + '</b><span class="bk-lv">最高 Lv ' + best + '</span>' +
-        (gems.length > 1 ? '<span class="bk-all">' + gems.slice(0, 8).map((v) => 'Lv ' + v).join(' · ') + (gems.length > 8 ? ' …' : '') + '</span>' : '')
-      : '<b>' + B.name + '已用完</b>';
-    const how = gems.length ? (compactUi() ? '点下面的技能学会，或在技能卡上点「升至 Lv ' + best + '」，点两下确认' : '点「尚未获得」里的技能学会，或点卡上的「升至 Lv ' + best + '」，点两下确认') : '';
+    const lv = gems.length ? '<b>' + B.name + ' ×' + gems.length + '</b>' : '<b>' + B.name + '已用完</b>';
+    const how = !gems.length ? '' : !G.blankUseful() ? '技能都学会了，用不上' : compactUi() ? '点下面的技能学会它，点两下确认' : '点「尚未获得」里的技能学会它，点两下确认';
     return (
       '<div class="blank-bar" style="--c:' + B.color + '">' + ibox(IC.blank(), 'gemb') + '<div class="bk-txt"><div class="bk-top">' + lv + '</div>' +
       (ui.blankMsg ? '<div class="bk-msg">' + ui.blankMsg + '</div>' : how ? '<div class="bk-how">' + how + '</div>' : '') + '</div></div>'
@@ -3018,7 +3034,7 @@
     let html;
     if (compact) {
       const sub = ui.skSub === 'sup' || ui.skSub === 'learn' ? ui.skSub : 'skills';
-      const best = G.blankBest();
+      const best = G.blankCount();
       const st = (id, label, cls) => '<button type="button" tabindex="-1" class="subtab' + (sub === id ? ' on' : '') + (cls ? ' ' + cls : '') + '" data-act="sub" data-sub="' + id + '">' + label + '</button>';
       const subNote = sub === 'sup' ? '辅助宝石 ' + S.supports.length + ' / ' + Object.keys(G.SUPPORTS).length : sub === 'learn' ? (best ? G.BLANK_GEM.short + ' ×' + S.blankGems.length : '') : '';
       const subs =
@@ -3941,7 +3957,7 @@
       '<p><b class="c-ally">' + name('thrall', '烬骸仆从') + '</b>满了再召唤会替换伤得最重的那具；<b class="c-ally">' + name('colossus', '石誓守像') + '</b>只有一尊，会<b>嘲讽</b>周围的敌人（含首领）。</p>' +
       '<p><b class="c-ally">' + name('pyre', '焚骨祭司') + '</b>是清怪主力：在后排掷火弹、攒<b>焰蓄</b>放大招，很脆。上限 2 位，只有镶在它身上的群聚能多唤一位；多重投射让它分头掷；拿杖或魂幡时继承更多武器伤害。</p>' +
       '<p>召唤物优先<b>集火</b>你<b>亲手打中</b>的敌人。仆从最多缠住两只怪、守像四只。</p>' +
-      '<p>召唤物<b>不吃你自己的伤害属性</b>，只随宝石等级、「召唤物」属性和辅助成长；<b class="c-ally">统御</b>外圈天赋让它们<b>继承武器伤害、护甲与抗性、装备生命</b>。</p>' +
+      '<p>召唤物<b>不吃你自己的伤害属性</b>，只随角色等级、「召唤物」属性和辅助成长；<b class="c-ally">统御</b>外圈天赋让它们<b>继承武器伤害、护甲与抗性、装备生命</b>。</p>' +
       (gems ? '<div class="hc-list">' + gems + '</div>' : '') +
       '<p>通用辅助也能镶：迅捷、注入、蛮力、致命、震慑、蚀染作用于召唤物，扩域放大守像砸地和祭司火弹。' + (blocked ? blocked + '镶不上召唤技能。' : '') + '</p>'
     );
@@ -4010,7 +4026,7 @@
     }).join('');
     return (
       '<div class="sec-title">武器与武器技</div>' +
-      '<p>武器决定<b>攻击</b>技能' + (atk.length ? '（' + atk.join('、') + '）' : '') + '的伤害：每一击 = 武器物理伤害 × 技能<b>武器倍率</b>，宝石每级再 +' + gl + '%，出手速度乘武器<b>攻击速度</b>。法术和召唤不看武器。空手只有 ' + F.min + '–' + F.max + ' 的拳头伤害。</p>' +
+      '<p>武器决定<b>攻击</b>技能' + (atk.length ? '（' + atk.join('、') + '）' : '') + '的伤害：每一击 = 武器物理伤害 × 技能<b>武器倍率</b>，技能每级再 +' + gl + '%，出手速度乘武器<b>攻击速度</b>。法术和召唤不看武器。空手只有 ' + F.min + '–' + F.max + ' 的拳头伤害。</p>' +
       '<p><b>本地词缀</b>（如「附加物理伤害」）已算进武器伤害。</p>' +
       '<p>每种武器自带 <kbd>R</kbd> 键<b>武器技</b>，换武器就换招，不能镶辅助。</p>' +
       helpBasics() +
@@ -4133,10 +4149,10 @@
     ],
     ['skill', '技能', () =>
       '<div class="sec-title">技能与辅助宝石</div>' +
-      '<p>怪物掉落<b class="c-teal">技能宝石</b>，更高等级的同名宝石直接升级。在技能页把技能拖到技能栏。</p>' +
-      '<p><b class="c-blank">无铭技能宝石</b>可学会任一技能，或把更低等级的已学技能升到它的等级，先用最高的那颗。每个首领首次倒下必掉一颗。</p>' +
+      '<p>怪物掉落<b class="c-teal">技能宝石</b>，捡起来就学会。技能随角色等级成长，学会了的宝石再捡到会化成无铭宝石或通货。在技能页把技能拖到技能栏。</p>' +
+      '<p><b class="c-blank">无铭技能宝石</b>可学会任一还没学会的技能。每个首领首次倒下必掉一颗。</p>' +
       '<p>每个技能有 3 个辅助槽。<b>辅助宝石</b>改变所镶的技能，代价是更高的魔力消耗。一颗只能镶一个技能，技能要带它要求的标签。</p>' +
-      '<p><b>刻式</b>：宝石 ' + G.VARIANT_LVL + ' 级后可选 A / B 两种刻式，各加一条新规则。首次免费，之后每换一次 ' + G.VARIANT_COST.n + ' 颗' + G.CURRENCY[G.VARIANT_COST.cur].name + '；' + G.VARIANT_SAFE_R + ' 米内有醒着的敌人时不能换。</p>' +
+      '<p><b>刻式</b>：角色 ' + G.VARIANT_CHAR_LVL + ' 级起可选 A / B 两种刻式，各加一条新规则。首次免费，之后每换一次 ' + G.VARIANT_COST.n + ' 颗' + G.CURRENCY[G.VARIANT_COST.cur].name + '；' + G.VARIANT_SAFE_R + ' 米内有醒着的敌人时不能换。</p>' +
       '<p><b>光环</b>（' + (G.SKILLS.nova ? G.SKILLS.nova.name : '霜环') + '）放进技能栏即常驻生效，<b>保留</b>一部分最大魔力（以血为引时保留生命）。</p>' +
       helpSummon()
     ],
@@ -4238,42 +4254,38 @@
   const tcHead = (icon, name, kind) =>
     '<div class="tc-head">' + icon + '<div><div class="tc-name">' + name + '</div>' + (kind ? '<div class="tc-kind">' + kind + '</div>' : '') + '</div></div>';
 
-  // 无铭技能宝石的说明卡；skillId 给出时说清楚对这个技能会发生什么、用的是哪一颗
-  function blankTip(skillId, lootLvl) {
+  // 无铭技能宝石的说明卡；skillId 给出时说清楚对这个技能会发生什么。宝石没有等级（gem-nolvl）
+  function blankTip(skillId, onGround) {
     const B = G.BLANK_GEM;
     const S = G.save;
     const gems = S.blankGems;
     let state = '';
     if (skillId && G.SKILLS[skillId]) {
       const sk = G.SKILLS[skillId];
-      const best = G.blankBest();
-      const have = S.skills[skillId] || 0;
-      state = !best
+      state = !gems.length
         ? '<div class="tc-state dup">手里没有' + B.short + '</div>'
-        : !have
-          ? '<div class="tc-state new">用掉 Lv ' + best + ' 的那颗，学会「' + sk.name + '」' + (S.bar.indexOf(null) >= 0 ? '，并放进技能栏的空格' : '') + '</div>'
-          : best > have
-            ? '<div class="tc-state new">用掉 Lv ' + best + ' 的那颗，「' + sk.name + '」Lv ' + have + ' → Lv ' + best + '</div>'
-            : '<div class="tc-state dup">最高的一颗是 Lv ' + best + '，不高于当前的 Lv ' + have + '</div>';
+        : !S.skills[skillId]
+          ? '<div class="tc-state new">用掉一颗，学会「' + sk.name + '」' + (S.bar.indexOf(null) >= 0 ? '，并放进技能栏的空格' : '') + '</div>'
+          : '<div class="tc-state dup">已经学会了</div>';
       state += '<div class="tc-hint">点一下选中，再点一次确认</div>';
     }
-    const kind = (lootLvl ? '技能宝石 · Lv ' + lootLvl + ' · ' : '') + '持有 ' + gems.length + ' 颗' + (gems.length ? ' · 最高 Lv ' + gems[0] : '');
+    const kind = (onGround ? '技能宝石 · ' : '') + '持有 ' + gems.length + ' 颗';
     return (
       '<div class="tcard" style="--c:' + B.color + '">' + tcHead(ibox(IC.blank(), 'gemb'), B.name, kind) +
       '<div class="tc-desc">' + B.desc + '。</div>' +
-      '<div class="tc-foot">技能等级 = 宝石等级；先用最高的那颗</div>' + state + '</div>'
+      '<div class="tc-foot">技能随角色等级成长</div>' + state + '</div>'
     );
   }
 
   // ---------- 刻式 ----------
-  // 技能卡上的刻式一行：宝石 ≥ 解锁等级时「原式 / A 名 / B 名」三个按钮 + 价格；没到时一行灰字。
+  // 技能卡上的刻式一行：角色到 G.VARIANT_CHAR_LVL 级（技能 ≥ G.VARIANT_LVL）时「原式 / A 名 / B 名」三个按钮 + 价格；没到时一行灰字。
   // 有渊式的技能下面再一行「渊式」按钮（不看宝石等级）：没戴渊契时灰着、写「装备某某解锁」；选着渊式时亮的是渊式，渊契没戴时亮替下的那种
   function variantRow(id) {
     const V = G.VARIANTS[id];
     if (!V) return '';
     const S = G.save;
     const m0 = ui.varMsg && ui.varMsg.id === id ? '<div class="sv-msg' + (ui.varMsg.bad ? ' bad' : '') + '">' + ui.varMsg.text + '</div>' : '';
-    if (!(S.skills[id] >= G.VARIANT_LVL)) return '<div class="sk-var lock"><span class="sv-label">刻式</span><span class="sv-lock">宝石 Lv ' + G.VARIANT_LVL + ' 解锁 A / B 两种刻式</span></div>' + (V.c ? rqRow(id) + m0 : '');
+    if (!G.variantOpen(id)) return '<div class="sk-var lock"><span class="sv-label">刻式</span><span class="sv-lock">角色 ' + G.VARIANT_CHAR_LVL + ' 级解锁 A / B 两种刻式</span></div>' + (V.c ? rqRow(id) + m0 : '');
     const sel = S.variants[id] || 'o', cur = sel === 'c' ? (G.variantRelicOn(id) ? 'c' : S.variantPrev[id] || 'o') : sel;
     const VC = G.VARIANT_COST, cost = G.variantCost(id), have = S.cur[VC.cur] || 0;
     let btns = '';
@@ -4313,8 +4325,14 @@
     const keep = G.useVariant(id, v);
     const sk = G.SKILLS[id], ctx = G.skillCtx(id);
     let nums = '';
-    if (sk.buff) {
-      const F = Math.min(sk.flame.cap, sk.flame.k0 + sk.flame.k1 * ((S.skills[id] || 1) - 1)) * (1 + Math.max(0, G.player.S.flameEff || 0) / 100);
+    if (sk.kind === 'imbue') {
+      // 装填（imbue）：附带的元素伤害和这一种的效果（自己不打人，没有秒伤）
+      const I = sk.imbue, EN = { fire: '火焰', cold: '冰霜', light: '闪电' };
+      nums = '附带' + EN[sk.elem] + ' ' + fmt1(I.add + I.addLv * ((G.skillLvl(id) || 1) - 1)) + '% · 保留 ' + fmt1(G.auraReserve(id)) + '%' +
+        (I.splash ? ' · 打死炸铁水' + (I.splash.chain ? '（连溅 ' + I.splash.chain + ' 摊）' : '') : '') + (I.wedge ? ' · ' + I.wedge.n + ' 枚放电 ' + Math.round(I.wedge.zap * 100) + '%' : '') +
+        (I.chilled ? ' · 打冰缓 +' + I.chilled + '%' : '') + (I.shard ? ' · 冰屑 ' + Math.round(I.shard.k * 100) + '%' : '');
+    } else if (sk.buff) {
+      const F = Math.min(sk.flame.cap, sk.flame.k0 + sk.flame.k1 * ((G.skillLvl(id) || 1) - 1)) * (1 + Math.max(0, G.player.S.flameEff || 0) / 100);
       nums = (sk.flameDot ? '黑焰灼烧 ' : '额外混沌 ') + fmt1(F) + '%' + (sk.brand ? ' + 蚀印 ' + fmt1(F) + '%' : '') + ' · 保留 ' + fmt1(ctx.reserve) + '%';
     } else if (sk.kind === 'aura' && sk.mech === 'guard') {
       nums = '每跳 ' + fmt1(G.avgHit(ctx) / sk.useMult) + ' · 贴身秒伤约 ' + fmtInt(G.skillDps(ctx)) + ' · 保留 ' + fmt1(ctx.reserve) + '%'; // 刻式「护涡」光环
@@ -5145,9 +5163,8 @@
       }
       ui.blankArm = null;
       const r = G.useBlankGem(id);
-      if (!r) ui.blankMsg = '<span class="bad">' + sk.name + '现在不能用' + G.BLANK_GEM.short + '：需要比当前等级更高的那颗</span>';
-      else if (r.from) ui.blankMsg = '「' + sk.name + '」从 Lv ' + r.from + ' 升到了 Lv ' + r.lvl;
-      else ui.blankMsg = '学会了「' + sk.name + '」Lv ' + r.lvl + (r.slot >= 0 ? '，已放进技能栏的 <kbd>' + KEY_LABEL[r.slot] + '</kbd>' : '，技能栏满了：点它卡片上的按键标签绑定');
+      if (!r) ui.blankMsg = '<span class="bad">' + sk.name + '已经学会了，不用' + G.BLANK_GEM.short + '</span>';
+      else ui.blankMsg = '学会了「' + sk.name + '」' + (r.slot >= 0 ? '，已放进技能栏的 <kbd>' + KEY_LABEL[r.slot] + '</kbd>' : '，技能栏满了：点它卡片上的按键标签绑定');
       render();
     },
     pick(d) {
@@ -5821,7 +5838,7 @@
   // 货架一格的图标、名字、颜色
   function trdWare(o) {
     if (o.kind === 'item') return { icon: IC.item(o.item), name: o.item.name, color: G.RARITY_COLOR[o.item.rarity] };
-    if (o.kind === 'skill') return { icon: IC.skill(o.data.id), name: '技能宝石 · ' + G.SKILLS[o.data.id].name + ' Lv ' + o.data.lvl, color: '#3fe0c8' };
+    if (o.kind === 'skill') return { icon: IC.skill(o.data.id), name: '技能宝石 · ' + G.SKILLS[o.data.id].name, color: '#3fe0c8' };
     return { icon: IC.sup(o.data), name: '辅助宝石 · ' + G.SUPPORTS[o.data].name, color: '#f0f0f4' };
   }
   function renderTrader() {
@@ -5912,12 +5929,12 @@
       if (o.kind === 'skill') {
         const sk = G.SKILLS[o.data.id], have = S.skills[o.data.id] || 0;
         const off = G.save.cls && G.classCanUse && !G.classCanUse(G.save.cls, o.data.id);
-        desc = '<p class="tc-desc">' + sk.desc + '</p><p class="trd-gem">' + (have ? '已学会 Lv ' + have + (o.data.lvl > have ? '，买下升到 Lv ' + o.data.lvl : '') : '还没学会') + (off ? '。这个职业用不上' : '') + '</p>';
+        desc = '<p class="tc-desc">' + sk.desc + '</p><p class="trd-gem">' + (have ? '已学会' : '还没学会') + (off ? '。这个职业用不上' : '') + '</p>';
       } else {
         const sp = G.SUPPORTS[o.data];
         desc = '<p class="tc-desc">' + sp.desc + '</p><p class="trd-gem">魔力消耗 ×' + sp.cost + (sp.req || sp.no ? ' · 适用：' + scopeText(sp) : '') + '</p>';
       }
-      const head = ibox(w.icon, 'gemb') + '<div class="sh-ttl"><div class="sh-name" style="color:' + w.color + '">' + esc(w.name.replace(/^.*? · /, '')) + '</div><div class="sh-kind">' + (o.kind === 'skill' ? '技能宝石 · Lv ' + o.data.lvl : '辅助宝石') + '</div></div>';
+      const head = ibox(w.icon, 'gemb') + '<div class="sh-ttl"><div class="sh-name" style="color:' + w.color + '">' + esc(w.name.replace(/^.*? · /, '')) + '</div><div class="sh-kind">' + (o.kind === 'skill' ? '技能宝石' : '辅助宝石') + '</div></div>';
       return sheetHtml({ head, body: cost + '<div class="trd-gemd">' + desc + '</div>', acts, msg, cls: 'trd', rc: w.color });
     }
     const f = findItem(c.uid);
@@ -6076,6 +6093,7 @@
     view: null, // 菜单里打开的子页：settings / help / credits / chars
     del: null, // 角色页里正在删的栏位 { k, step: 1 | 2 }（确认两次）
     delSelf: 0, // 暂停菜单的设置里删当前角色：0 没在删 / 1 第一次确认 / 2 第二次确认
+    offAsk: false, // 设置里第一次打开「自动分解其他职业武器」：行里正在问确认（T36）
     devInfo: false, // 设置里的「设备信息」点开了没有（rot-safe）
     hidden: [], // 标题画面期间藏起来的敌人 / 召唤物模型
     after: null, // 离开标题画面后要做的事（首次运行的开场卡片）
@@ -6382,6 +6400,21 @@
       '</div>'
     );
   }
+  // 自动分解其他职业武器（T36）：只有有职业的角色才显示（没有职业时什么武器都能用）。设置所有角色共用（存在全局那份里）。
+  // 第一次打开时不直接打开，行里换成一段说明和「打开 / 取消」（和「删除这个角色」同一种行内确认）；确认过记在 tut.ascls，以后点了就开
+  const OFFCLS_NAME = '自动分解其他职业武器';
+  function setOffClsRow(o) {
+    const C = G.clsDef && G.clsDef();
+    if (!C) return '';
+    if (menu.offAsk && !o.salvageOffCls)
+      return (
+        '<div class="m-row ask offcls"><span class="opt-text"><b>' + OFFCLS_NAME + '？</b><span>捡到' + C.name + '用不了的武器时直接分解成通货，所得和手动分解一样。' +
+        '仓库、身上和背包里已有的不动；锁定的、烬铸和' + G.RELIC_NAME + '不分解。以后在这里随时能关。</span></span>' +
+        '<span class="m-dacts"><button type="button" tabindex="-1" class="btn primary" data-tact="offcls-yes">打开</button>' +
+        '<button type="button" tabindex="-1" class="btn" data-tact="offcls-no">取消</button></span></div>'
+      );
+    return setSw(OFFCLS_NAME, '捡到本职业用不了的武器时直接分解（不动仓库和身上的装备）', !!o.salvageOffCls, 'data-tact="offcls"');
+  }
   function menuSettings() {
     const S = G.save, o = S.opts, Q = S.quest;
     const q = G.world.quality ? G.world.quality() : o.quality;
@@ -6396,6 +6429,7 @@
       setGrp('拾取',
         setRow('普通物品', '魔法、稀有物品总是自动拾取', setSeg(SET_N, normMode(), 'normmode', 'mode')) +
         setSw('折叠普通物品的名牌', '地上只留一个小点，悬停或按住 Alt 展开', !!o.hideNormal, 'data-tact="opt" data-opt="hideNormal"') +
+        setOffClsRow(o) +
         // 主线（quest D2）：关了只藏追踪条、小地图上的金色记号和地图上的角标，进度和奖励照常记。主线走完以后不再显示这个开关
         (Q && Q.n < G.QUEST_N ? setSw('显示主线', '追踪条、小地图上的金色箭头和区域卡片上的角标。关了进度照常记', !Q.off, 'data-tact="quest"') : '')) +
       // 打击手感（vf-vfx2）：三个开关，默认都开
@@ -6599,6 +6633,7 @@
     menu.pause = false;
     menu.view = null;
     menu.delSelf = 0;
+    menu.offAsk = false;
     el.pause.classList.remove('on', 'sub');
     document.body.classList.remove('paused');
     el.pView.innerHTML = '';
@@ -6658,6 +6693,30 @@
       } catch (e) {
         say('复制失败');
       }
+    },
+    // 自动分解其他职业武器（T36）：开着就关（关着时存档里不留这个键）；没开过（tut.ascls 没有）先在行里问一次，问过的直接开
+    offcls() {
+      const S = G.save, o = S.opts;
+      if (o.salvageOffCls) delete o.salvageOffCls;
+      else if (S.tut.ascls) o.salvageOffCls = true;
+      else menu.offAsk = true;
+      if (!menu.offAsk) G.persist();
+      G.sfx('click');
+      renderMenu();
+    },
+    'offcls-yes'() {
+      const S = G.save;
+      S.tut.ascls = 1;
+      S.opts.salvageOffCls = true;
+      menu.offAsk = false;
+      G.persist();
+      G.sfx('click');
+      renderMenu();
+    },
+    'offcls-no'() {
+      menu.offAsk = false;
+      G.sfx('click');
+      renderMenu();
     },
     // 设置里的「删除这个角色」（B4a 从地图页挪过来）：确认两次，删掉的进回收位，换成一个新角色
     'del-save'() {
@@ -6794,7 +6853,8 @@
       showTitle(true);
     },
     back() {
-      if (menu.delSelf) menu.delSelf = 0;
+      if (menu.offAsk) menu.offAsk = false;
+      else if (menu.delSelf) menu.delSelf = 0;
       else if (menu.del) menu.del = null;
       else if (menu.view === 'cls') {
         const re = menu.cls && menu.cls.mode === 'repick';
@@ -6821,6 +6881,7 @@
       menu.view = k;
       menu.del = null;
       menu.delSelf = 0;
+      menu.offAsk = false;
       menu.devInfo = false;
       G.sfx('click');
       renderMenu();
@@ -7466,12 +7527,12 @@
       u.alt = '通货 · 已有 ' + (save.cur[l.data] || 0);
     } else if (l.kind === 'skill') {
       const have = save.skills[l.data.id];
-      u.badge = !have || l.data.lvl > have ? '▲' : '';
-      u.alt = !have ? '新技能' : l.data.lvl > have ? '升级 Lv ' + have + ' → ' + l.data.lvl : '已学会 · 化为微光尘';
+      u.badge = !have ? '▲' : '';
+      u.alt = !have ? '新技能' : '已学会 · ' + (G.blankUseful() ? '化为无铭宝石' : '化为通货');
     } else if (l.kind === 'blank') {
-      const ok = G.blankUseful(l.data.lvl);
+      const ok = G.blankUseful();
       u.badge = ok ? '▲' : '';
-      u.alt = ok ? '任选一个技能 · 已有 ' + save.blankGems.length + ' 颗' : '用不上 · 化为微光尘';
+      u.alt = ok ? '学会一个新技能 · 已有 ' + save.blankGems.length + ' 颗' : '用不上 · 化为通货';
     } else {
       const have = save.supports.indexOf(l.data) >= 0;
       u.badge = have ? '' : '▲';
@@ -7515,48 +7576,47 @@
       const id = l.data.id;
       const sk = G.SKILLS[id];
       const have = save.skills[id];
-      const k = (sk.kind === 'summon' ? G.minionDmgK(l.data.lvl) : 1 + 0.2 * (l.data.lvl - 1)) * (sk.chaosEarly && G.chaosEarlyK ? G.chaosEarlyK(l.data.lvl) : 1);
+      const lv = G.gemFloor(); // 学会了就是这个等级（技能随角色等级成长，gem-nolvl）
+      const k = (sk.kind === 'summon' ? G.minionDmgK(lv) : 1 + 0.2 * (lv - 1)) * (sk.chaosEarly && G.chaosEarlyK ? G.chaosEarlyK(lv) : 1);
       const dmgs = sk.dmg || {};
       let dmg = Object.keys(dmgs).map((t) => '<b style="color:' + G.TYPE_COLOR[t] + '">' + Math.round(dmgs[t][0] * k) + '–' + Math.round(dmgs[t][1] * k) + ' ' + G.TYPE_NAME[t] + '</b>').join(' + ') || '无';
       if (sk.wm && sk.kind !== 'summon') {
         // 攻击技能：伤害取自武器，写倍率和按当前武器算出的数
-        const wb = (G.skillBase && G.skillBase(id, l.data.lvl).phys) || null;
+        const wb = (G.skillBase && G.skillBase(id, lv).phys) || null;
         // 有冷却的攻击技能（闪袭）把武器攻速折进每一击（G.cdAps）：倍率后面也写上，和括号里的数对得上
         const cdA = !!(G.cdAps && G.cdAps(sk));
         const aps = cdA ? G.weaponStats(save.equip.weapon).aps : 1;
-        dmg = '武器伤害 × ' + Math.round(sk.wm * (1 + (G.ATTACK_GEM_LVL || 0.03) * (l.data.lvl - 1)) * 100) + '%' +
+        dmg = '武器伤害 × ' + Math.round(sk.wm * (1 + (G.ATTACK_GEM_LVL || 0.03) * (lv - 1)) * 100) + '%' +
           (cdA ? ' × 攻速 ' + aps.toFixed(2) : '') +
           (wb ? '（当前武器 <b style="color:' + G.TYPE_COLOR.phys + '">' + Math.round(wb[0]) + '–' + Math.round(wb[1]) + ' ' + G.TYPE_NAME.phys + '</b>）' : '');
       }
       if (sk.kind === 'summon') {
         // 召唤宝石：写召唤物自己的基础数值（还没算召唤物属性和辅助）
-        dmg = '<span class="c-ally">召唤物</span>每击 ' + dmg + (sk.life ? '<br>召唤物生命 ' + Math.round(sk.life * G.minionLifeK(l.data.lvl)) : '') + (sk.cap ? (sk.cap > 1 ? ' · 基础上限 ' + sk.cap + ' 具' : ' · 只有 1 尊') : '');
+        dmg = '<span class="c-ally">召唤物</span>每击 ' + dmg + (sk.life ? '<br>召唤物生命 ' + Math.round(sk.life * G.minionLifeK(lv)) : '') + (sk.cap ? (sk.cap > 1 ? ' · 基础上限 ' + sk.cap + ' 具' : ' · 只有 1 尊') : '');
       }
       const state = !have
         ? '<div class="tc-state new">新技能 · 拾取后学会' + (save.bar.indexOf(null) >= 0 ? '，并放进技能栏的空格' : '，在技能页绑定按键') + '</div>'
-        : l.data.lvl > have
-          ? '<div class="tc-state new">升级 · 当前 Lv ' + have + ' → Lv ' + l.data.lvl + '</div>'
-          : '<div class="tc-state dup">等级不高于已学会的 Lv ' + have + ' · 拾取后化为 1 ' + G.CURRENCY.dust.name + '</div>';
+        : '<div class="tc-state dup">已学会 · 拾取后化为' + (G.blankUseful() ? ' 1 颗' + G.BLANK_GEM.short : ' 1 个随机通货') + '</div>';
       return (
-        '<div class="tcard" style="--c:' + sk.color + '">' + tcHead('<span class="ibox sk" style="--c:' + sk.color + '">' + IC.skill(id) + '</span>', sk.name, '技能宝石 · Lv ' + l.data.lvl) +
+        '<div class="tcard" style="--c:' + sk.color + '">' + tcHead('<span class="ibox sk" style="--c:' + sk.color + '">' + IC.skill(id) + '</span>', sk.name, '技能宝石') +
         '<div class="tc-tags">' + cardTags(sk).map((t) => '<span>' + G.TAG_NAME[t] + '</span>').join('') + '</div>' +
         '<div class="tc-desc">' + sk.desc + '</div>' + altBox(sk.alt) +
-        '<div class="tc-foot">' + (sk.buff ? '额外混沌 ' + fmt1(Math.min(sk.flame.cap, sk.flame.k0 + sk.flame.k1 * (l.data.lvl - 1))) + '%（每一击）' : (sk.kind === 'summon' ? '' : sk.kind === 'aura' ? '每跳基础伤害 ' : sk.useMult > 1 && !sk.weaponOnly ? '每跳基础伤害 ' : '基础伤害 ') + dmg) + '<br>' +
+        '<div class="tc-foot">' + (sk.buff ? '额外混沌 ' + fmt1(Math.min(sk.flame.cap, sk.flame.k0 + sk.flame.k1 * (lv - 1))) + '%（每一击）' : (sk.kind === 'summon' ? '' : sk.kind === 'aura' ? '每跳基础伤害 ' : sk.useMult > 1 && !sk.weaponOnly ? '每跳基础伤害 ' : '基础伤害 ') + dmg) + '<br>' +
         (sk.buff
           ? '魔力保留 ' + sk.reserve + '%'
           : sk.kind === 'aura'
           ? '魔力保留 ' + sk.reserve + '% · ' + (sk.mech === 'guard' ? '旋风绕身 · 每 ' + sk.tick + ' 秒一跳' : '每 ' + sk.time + ' 秒一跳 · 半径 ' + sk.radius)
-          : '魔力 ' + (sk.mana ? Math.round(sk.mana * (1 + 0.05 * (l.data.lvl - 1))) : '无') + ' · 施放 ' + sk.time + ' 秒' + (sk.cd ? ' · 冷却 ' + sk.cd + ' 秒' : '')) +
-        '</div>' +
+          : '魔力 ' + (sk.mana ? Math.round(sk.mana * (1 + 0.05 * (lv - 1))) : '无') + ' · 施放 ' + sk.time + ' 秒' + (sk.cd ? ' · 冷却 ' + sk.cd + ' 秒' : '')) +
+        '<br>技能随角色等级成长</div>' +
         state + foot + '</div>'
       );
     }
     if (l.kind === 'blank') {
-      const ok = G.blankUseful(l.data.lvl);
-      return blankTip(null, l.data.lvl).replace(/<\/div>$/, '') +
+      const ok = G.blankUseful();
+      return blankTip(null, true).replace(/<\/div>$/, '') +
         (ok
-          ? '<div class="tc-state new">到技能页（<kbd>G</kbd>）学会任一技能，或升级 Lv ' + l.data.lvl + ' 以下的技能</div>'
-          : '<div class="tc-state dup">所有技能都已学会且不低于 Lv ' + l.data.lvl + ' · 拾取后化为 1 ' + G.CURRENCY.dust.name + '</div>') +
+          ? '<div class="tc-state new">到技能页（<kbd>G</kbd>）学会任一还没学会的技能</div>'
+          : '<div class="tc-state dup">能学的技能都学会了 · 拾取后化为 1 个随机通货</div>') +
         foot + '</div>';
     }
     const sp = G.SUPPORTS[l.data];
@@ -7878,9 +7938,39 @@
     while (fl.length > 5) fl.shift().el.remove();
   }
   // game.js 每成功拾取一件掉落就调一次
-  function onPickup(loot, scrapped) {
+  // 自动分解其他职业武器（T36）的拾取记录：一件一行「自动分解 · 名字 → 通货 ×n」（写法和手动分解的结果一样）；
+  // 上一行还亮着时再来一件就并成一行「自动分解 N 件 → …」，按通货合计
+  const curText = (sum) => Object.keys(sum).map((id) => G.CURRENCY[id].name + ' ×' + sum[id]).join('、');
+  function feedOffCls(it, res) {
+    const now = performance.now();
+    const fl = wui.feedList;
+    let f = null;
+    for (const o of fl) if (o.key === 'offcls' && !o.out) f = o;
+    if (!f) {
+      const d = document.createElement('div');
+      d.className = 'fd offcls';
+      d.style.setProperty('--c', '#7fe0c0');
+      wui.feed.appendChild(d);
+      f = { key: 'offcls', el: d, cnt: null, n: 0, sum: {}, name: '', die: 0, out: false };
+      fl.push(f);
+      while (fl.length > 5) fl.shift().el.remove();
+    }
+    f.n++;
+    for (const id in res) f.sum[id] = (f.sum[id] || 0) + res[id];
+    const got = curText(f.sum);
+    const txt = (f.n > 1 ? '自动分解 ' + f.n + ' 件' : '自动分解 · ' + it.name) + (got ? ' → ' + got : '，没有分出东西');
+    f.el.innerHTML = (f.n > 1 ? '' : itemIcon(it)) + '<span>' + esc(txt) + '</span>';
+    f.el.classList.toggle('noic', f.n > 1);
+    f.el.dataset.n = f.n;
+    f.die = now + 3400;
+  }
+  function onPickup(loot, scrapped, offRes) {
     if (loot.kind === 'item') {
       const it = loot.data;
+      if (offRes) {
+        feedOffCls(it, offRes);
+        return;
+      }
       if (scrapped) {
         feedPush('x' + it.uid, itemIcon(it), it.name, '#8c7f6d', '<em class="fd-note">已丢弃</em>');
         return;
@@ -7893,13 +7983,16 @@
     } else if (loot.kind === 'skill') {
       const sk = G.SKILLS[loot.data.id];
       if (isSummon(loot.data.id)) summonPing();
-      feedPush('s' + loot.data.id + loot.data.lvl, '<span class="ibox sk" style="--c:' + sk.color + '">' + IC.skill(loot.data.id) + '</span>', '技能宝石 · ' + sk.name + ' Lv ' + loot.data.lvl, '#3fe0c8');
+      const cv = loot.conv; // 学会了的宝石化成了别的（G.pickup）；化成的东西不一样就另起一行（同一行合并时只加 ×N，后面的说明不会变）
+      feedPush('s' + loot.data.id + (cv ? (cv.blank ? '>b' : '>' + cv.cur) : ''), '<span class="ibox sk" style="--c:' + sk.color + '">' + IC.skill(loot.data.id) + '</span>', '技能宝石 · ' + sk.name, '#3fe0c8',
+        cv ? '<em class="fd-note">化为' + (cv.blank ? G.BLANK_GEM.short : G.CURRENCY[cv.cur].name) + '</em>' : '');
     } else if (loot.kind === 'frag') {
       const F = G.FRAGS[loot.data];
       feedPush('f' + loot.data, ibox(IC.frag(loot.data), 'curb'), F.name, F.color, '<em class="fd-note">共 ' + (G.save.frags[loot.data] || 0) + ' 个</em>');
     } else if (loot.kind === 'blank') {
       const B = G.BLANK_GEM;
-      feedPush('b' + loot.data.lvl, ibox(IC.blank(), 'gemb'), B.name + ' Lv ' + loot.data.lvl, B.color, '<em class="fd-note">共 ' + G.save.blankGems.length + ' 颗</em>');
+      const cv = loot.conv;
+      feedPush('b' + (cv ? '>' + cv.cur : G.save.blankGems.length), ibox(IC.blank(), 'gemb'), B.name, B.color, '<em class="fd-note">' + (cv ? '化为' + G.CURRENCY[cv.cur].name : '共 ' + G.save.blankGems.length + ' 颗') + '</em>');
     } else {
       feedPush('p' + loot.data, ibox(IC.sup(loot.data), 'gemb'), '辅助宝石 · ' + G.SUPPORTS[loot.data].name, '#f0f0f4');
     }
@@ -7983,7 +8076,7 @@
         const free = G.passivePoints().free;
         const n = Object.keys(G.TREE).length - 1;
         return '<b>成长改版</b>：天赋盘扩大到 <b>' + n + '</b> 个节点，原有天赋全部保留' + (free > 0 ? '，还有 <b class="c-gold">' + free + '</b> 点可用（<kbd>P</kbd>）' : '') +
-          '。宝石上限提到 Lv ' + G.MAX_GEM_LEVEL + '，武器伤害随物品等级成长，物品等级 31 起出现更高阶词缀。' +
+          '。技能等级上限提到 ' + G.MAX_GEM_LEVEL + ' 级，武器伤害随物品等级成长，物品等级 31 起出现更高阶词缀。' +
           '比怪物高 3 级以上时经验迅速减少，经验条已折算';
       },
       when: () => !!G.growthMigrated,
@@ -8006,7 +8099,7 @@
         const kn = ['左键', '右键', 'Q', 'E'];
         let h = '<b>武器普攻改版</b>：<kbd>右键</kbd>固定为武器自己的普攻（近战是连招，不耗魔力）。';
         const cr = G.cleaveRefund;
-        if (cr) h += '<b>裂石击</b>已移除，退还一颗 <b class="c-teal">Lv ' + cr.lvl + ' 无铭技能宝石</b>' + (cr.sups && cr.sups.length ? '，辅助已取下' : '') + '。';
+        if (cr) h += '<b>裂石击</b>已移除，退还一颗 <b class="c-teal">无铭技能宝石</b>' + (cr.sups && cr.sups.length ? '，辅助已取下' : '') + '。';
         for (const m of G.rmbMigrated || []) {
           const sk = G.SKILLS[m.id];
           if (!sk) continue;
@@ -8154,6 +8247,13 @@
       done: () => false,
     },
     {
+      // 铁水弹 / 雷楔 / 霜霰弹改成装填（imbue）之前学过它们的老存档：提示一次（见 game.js 的 imbNote）
+      id: 'imbnote', calm: true, max: 14,
+      html: '<b>铁水弹、雷楔、霜霰弹</b>改成了装填：按一下开着，枪和弓打出的子弹、箭都带上这种元素。宝石和等级都留着，换刻式免费一次',
+      when: () => G.imbueRedone > 0,
+      done: () => false,
+    },
+    {
       // 渊式独骸加了「每刀最多砍到 N 个」之前、选着独骸的老存档：提示一次（见 game.js 的 dhNote）；个数读数据，百分比是同装备实测（16 只挤成一团）
       id: 'dhnerf', calm: true, max: 14,
       get html() {
@@ -8257,10 +8357,10 @@
     },
     {
       id: 'blank', calm: true, max: 45,
-      html: '捡到<b class="c-blank">无铭技能宝石</b>：按 <kbd>G</kbd> 在技能页<b>任选一个技能</b>学会或升级',
+      html: '捡到<b class="c-blank">无铭技能宝石</b>：按 <kbd>G</kbd> 在技能页<b>任选一个技能</b>学会',
       when: () => G.save.blankGems.length > 0,
       done: (b) => G.save.blankGems.length < b.blank,
-      panel: { tab: 'skills', html: '点「尚未获得」里的技能（或卡上的「升至 Lv」），<b>再点一次</b>确认，用掉最高等级的那颗' },
+      panel: { tab: 'skills', html: '点「尚未获得」里的技能，<b>再点一次</b>确认' },
     },
     {
       id: 'passive', calm: true, max: 45,
@@ -8341,6 +8441,10 @@
     if (id === 'dhnerf') {
       G.save.dhNote = false;
       G.kingNerfed = 0;
+    }
+    if (id === 'imbnote') {
+      G.save.imbNote = false;
+      G.imbueRedone = 0;
     }
     if (id === 'hxnerf') {
       G.save.hxNote = false;
@@ -8728,6 +8832,8 @@
     openClass, // 职业选择子页（class-d2）：'new' / 'pick' / 'repick'
     classView: () => (menu.view === 'cls' && menu.cls ? { mode: menu.cls.mode, sel: menu.cls.sel, rec: menu.cls.rec } : null),
     loadingOff, // 「正在载入角色…」：main.js 在区域建好时揭开
+    tipAt: (elx) => elx && elx.dataset && elx.dataset.tip && showTip(elx), // 触屏长按技能格（装填）出详情
+    hideTip: () => hideTip(),
     onPickup,
     bigToast,
     bigToastReset,
