@@ -313,7 +313,7 @@
     b.play = slot >= 0 ? playArea() : null;
     btns.set(t.identifier, b);
     el.classList.add('t-down');
-    if (slot <= 1) {
+    if (slot <= 1 && !imbueSlot(slot)) {
       // 主攻 / 普攻：按下就放、按住连放（同按住鼠标键），自动瞄准
       autoAim(b);
       b.held = true;
@@ -321,6 +321,11 @@
       G.pressSlot(slot, false);
     }
   }
+  // 装填（imbue）：开关。轻点（松手时）切换，长按（450 ms 不拖）弹出详情、不切换；主攻格上的装填也一样（不按下就放）
+  const imbueSlot = (slot) => {
+    const id = G.slotSkill && G.slotSkill(slot);
+    return !!(id && G.SKILLS[id] && G.SKILLS[id].kind === 'imbue');
+  };
   function autoAim(b) {
     const a = autoTarget(b.range);
     b.target = a.e;
@@ -340,6 +345,15 @@
     if (b.drag && !anyDrag()) document.documentElement.classList.remove('t-aiming');
     if (b.held) SLOT_HOLD[slot](false);
     if (cancel || !live()) return armAimClear();
+    if (imbueSlot(slot) && !b.drag) {
+      if (performance.now() - b.t0 >= LONG_MS) {
+        if (G.ui.tipAt) {
+          G.ui.tipAt(b.el);
+          setTimeout(() => G.ui.hideTip(), 3500); // 详情留 3.5 秒（手指挡着时也看得完），下一次碰屏幕也会收起
+        }
+      } else G.pressSlot(slot, false);
+      return armAimClear();
+    }
     if (slot >= 2 && !b.held) {
       // Q / E / R：松手才放。拖动的落在准星处（拖回按钮上 = 取消），轻点的自动瞄准
       if (b.drag) {

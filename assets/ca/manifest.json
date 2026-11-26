@@ -1464,7 +1464,7 @@
    "ship": true,
    "replaces": null,
    "tris": 4304,
-   "verts": 11616,
+   "verts": 11606,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -1521,7 +1521,7 @@
     "wick_w"
    ],
    "home": "pin",
-   "sha256": "74406548a1fb6bdabfe5551b0bfedeea4f68310a9a567904b7119c4f4177a11b"
+   "sha256": "539a44dc47e8ddfebed5ce10af83884b3c75201d8304a82dac6e47343909ec0a"
   },
   {
    "id": "ca/boss_warden",
@@ -1531,7 +1531,7 @@
    "ship": true,
    "replaces": null,
    "tris": 4860,
-   "verts": 12224,
+   "verts": 12213,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -1582,7 +1582,7 @@
     "walk"
    ],
    "home": "storm",
-   "sha256": "4191cda4c0ea78d67cabc49ab3556494ec4a91a51205f84035c867679ab6daae"
+   "sha256": "adaeaf639005cabe4c99836a6f86147b9d52f42bfc047deb1f5fe791ffbbaa69"
   },
   {
    "id": "ca/boss_weaver",
@@ -1592,7 +1592,7 @@
    "ship": true,
    "replaces": null,
    "tris": 4446,
-   "verts": 12094,
+   "verts": 12174,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -1643,7 +1643,7 @@
     "walk"
    ],
    "home": "frost",
-   "sha256": "2059b73c00906fa57284c0acb9b593239d276120ed014d0c81619d22663120df"
+   "sha256": "890956b7f981f83481d92c4ab156760f80232a97c35aea8e7eff10dd2e1852b7"
   },
   {
    "id": "ca/crown_brazier",
@@ -1931,6 +1931,47 @@
     }
    },
    "sha256": "9817e1fcc10837b1cb9262c51e6fa7ba81fb0b0e2d574bdfcf5d8a344dd4429e"
+  },
+  {
+   "id": "ca/gear_mine",
+   "category": "prop",
+   "zone": "gear",
+   "file": "assets/ca/gear/gear_mine.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 508,
+   "verts": 1236,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -0.255,
+     0,
+     -0.255
+    ],
+    "max": [
+     0.255,
+     0.103,
+     0.255
+    ]
+   },
+   "h": 0.103,
+   "r": 0.255,
+   "y0": 0,
+   "source": {
+    "script": "art/ca/gen.py",
+    "gen": "field_mine",
+    "catalog": "art/catalog.py",
+    "seed": 233,
+    "args": {},
+    "bake": {
+     "ao": 0.3,
+     "grad": 0.2,
+     "wear": 0.45,
+     "grime": 0.25
+    }
+   },
+   "sha256": "203dba0abce23c4e08c16138e158956caf61d78434530a0e8520df7510d4724b"
   },
   {
    "id": "ca/rift_boulder",
