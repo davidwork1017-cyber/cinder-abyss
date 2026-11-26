@@ -179,10 +179,12 @@ def rules(f, spec):
     S = f['src']
     s = spec.get('split', {})
     H = f['height']
-    gap_m = {k: 0.5 * sum(f['lm'][k]['gap']) * H for k in ('l', 'r')}
-    arm_x = s.get('arm_x', None)
-    head_w = s.get('head_halfwidth', 0.66)
-    chim = s.get('chimney_box', [0.55, 1.4, 4.2, -0.75, 0.15])  # |x| 下限 / 上限、y 下限、z 下限 / 上限
+    kx = f.get('k', 1.0)  # 水平放大（fit.xz_scale）：下面按等比坐标量的 x / z 都乘上它
+    gap_m = {k: 0.5 * sum(f['lm'][k]['gap']) * H * kx for k in ('l', 'r')}
+    arm_x = s['arm_x'] * kx if s.get('arm_x') is not None else None
+    head_w = s.get('head_halfwidth', 0.66) * kx
+    chim = list(s.get('chimney_box', [0.55, 1.4, 4.2, -0.75, 0.15]))  # |x| 下限 / 上限、y 下限、z 下限 / 上限
+    chim = [chim[0] * kx, chim[1] * kx, chim[2], chim[3] * kx, chim[4] * kx]
     right_fist = s.get('right_fist', 'x_hammer')
     left_fist = s.get('left_fist', 'hand_l')
     n_up = np.array([0.0, 1.0, 0.0])
@@ -217,7 +219,7 @@ def rules(f, spec):
             return 'x_chimney_l' if c[0] > 0 else 'x_chimney_r'
         if c[1] > S['neck_01'][1] and abs(c[0]) < head_w:
             return 'head'
-        if c[1] < S['thigh_l'][1] and abs(c[0]) > s.get('leg_x', 0.12):
+        if c[1] < S['thigh_l'][1] and abs(c[0]) > s.get('leg_x', 0.12) * kx:
             k = 'l' if c[0] > 0 else 'r'
             if c[1] > S['calf_' + k][1]:
                 return 'thigh_' + k
@@ -240,7 +242,7 @@ def rules(f, spec):
         cuts.append(('spine_03', 'upperarm_' + k, np.array([sg * xa, 0, 0]), np.array([sg, 0, 0]), lambda c: c[1] > S['lowerarm_l'][1] - 0.3))
         cuts.append(('upperarm_' + k, 'lowerarm_' + k, S['lowerarm_' + k], -_seg_dir(S, 'upperarm_' + k, 'lowerarm_' + k) * -1, lambda c, sg=sg, xa=xa: sg * c[0] > xa - 0.05))
         cuts.append(('lowerarm_' + k, fist, S['hand_' + k], -_seg_dir(S, 'lowerarm_' + k, 'hand_' + k) * -1, lambda c, sg=sg, xa=xa: sg * c[0] > xa - 0.05))
-        cuts.append(('pelvis', 'thigh_' + k, S['thigh_' + k], -n_up, lambda c, sg=sg: sg * c[0] > s.get('leg_x', 0.12) - 0.05 and c[1] < S['spine_01'][1]))
+        cuts.append(('pelvis', 'thigh_' + k, S['thigh_' + k], -n_up, lambda c, sg=sg: sg * c[0] > s.get('leg_x', 0.12) * kx - 0.05 and c[1] < S['spine_01'][1]))
         cuts.append(('thigh_' + k, 'calf_' + k, S['calf_' + k], -n_up, lambda c, sg=sg: sg * c[0] > 0.05))
         cuts.append(('calf_' + k, 'foot_' + k, np.array([0, foot_cut, 0]), -n_up, lambda c, sg=sg: sg * c[0] > 0.05))
         cuts.append(('spine_03', 'x_chimney_' + k, np.array([0, chim[2], 0]), n_up, lambda c, sg=sg: chim[0] - 0.05 < sg * c[0] < chim[1] + 0.05 and chim[3] - 0.05 < c[2] < chim[4] + 0.05))
@@ -704,7 +706,7 @@ def build_object(bm, L, Lc, cc, name, mode, f, spec, log, tex_path=None):
     cs = c.get('core')
     core_f = set()
     if cs:
-        cc0 = Vector(cs['c'])
+        cc0 = Vector((cs['c'][0] * f.get('k', 1.0), cs['c'][1], cs['c'][2] * f.get('k', 1.0)))
         gl = [(round((fc.calc_center_median() - cc0).length, 6), fc.index, fc.calc_area()) for fc in bm.faces if all(cc[(fc.index, k)][1] > 0.5 for k in range(3))]
         tot = sum(a for _, _, a in gl)
         acc = 0.0
@@ -922,7 +924,7 @@ def run(o):
     d = load(src)
     f = gf.fit(d['V'], d['F'], spec)
     G = d['V'] * f['scale'] + f['offset']  # 源网格（游戏坐标，米）
-    log['fit'] = dict(height=round(f['height'], 5), scale=round(f['scale'], 6), offset=[round(x, 6) for x in f['offset']],
+    log['fit'] = dict(height=round(f['height'], 5), scale=[round(float(x), 6) for x in np.atleast_1d(f['scale'])], xz_scale=f.get('k', 1.0), offset=[round(x, 6) for x in f['offset']],
                       src={n: [round(float(x), 5) for x in f['src'][n]] for n in gf.NAMES})
     smp = Sampler(G, d['F'], d['UV'], d['img'])
     co = spec.get('concept')

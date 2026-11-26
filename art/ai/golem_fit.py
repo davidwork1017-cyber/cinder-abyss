@@ -200,10 +200,12 @@ def fit(V, F, spec=None):
         lm = landmarks(U, o2, W, WF)
     # 前后：两胯的 z 对到骨盆（z = 0）
     zoff = o.get('z', -0.5 * (lm['l']['hip'][2] + lm['r']['hip'][2]) * H)
-    scale = H / h
-    offset = np.array([-cx * scale, -y0 * scale, zoff - 0.0])
+    # xz_scale：水平方向（x / z）另乘的倍数，高度不变（游戏里俯视的占地要贴着碰撞半径：golem-a-01 手臂和躯干之间有空隙，等比的话占地比碰撞半径小两成）
+    k = o.get('xz_scale', 1.0)
+    scale = np.array([H / h * k, H / h, H / h * k])
+    offset = np.array([-cx * scale[0], -y0 * scale[1], zoff * k])
     # 源姿态下的枢轴（游戏坐标）
-    g = lambda u: np.array([u[0] * H, u[1] * H, u[2] * H + zoff])
+    g = lambda u: np.array([u[0] * H * k, u[1] * H, (u[2] * H + zoff) * k])
     src = {n: TGT[n].copy() for n in NAMES}  # 躯干、头、挂件：静止位置
     for side in ('l', 'r'):
         L = lm[side]
@@ -221,8 +223,8 @@ def fit(V, F, spec=None):
     for n, p in o.get('pivots', {}).items():
         if n not in src:
             raise RuntimeError('fit.pivots：没有骨骼 ' + n)
-        src[n] = np.array(p, dtype=np.float64)
-    return dict(scale=scale, offset=offset, height=H, src=src, lm=lm, unit=dict(cx=cx, y0=y0, h=h))
+        src[n] = np.array(p, dtype=np.float64) * [k, 1.0, k]  # 参数里的枢轴按等比的坐标量的，水平方向一起放大
+    return dict(scale=scale, offset=offset, height=H, src=src, lm=lm, unit=dict(cx=cx, y0=y0, h=h), k=k)
 
 
 def to_source(p, f):

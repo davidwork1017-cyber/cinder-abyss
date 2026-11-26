@@ -1339,24 +1339,24 @@
    "file": "assets/ca/boss/golem.glb",
    "ship": true,
    "replaces": null,
-   "tris": 7716,
-   "verts": 23148,
+   "tris": 7845,
+   "verts": 23531,
    "materials": 1,
    "textures": 1,
    "bounds": {
     "min": [
-     -2.372,
+     -2.609,
      0.002,
-     -1.167
+     -1.284
     ],
     "max": [
-     2.372,
+     2.61,
      5.032,
-     0.969
+     1.066
     ]
    },
    "h": 5.031,
-   "r": 2.372,
+   "r": 2.61,
    "y0": 0.002,
    "source": {
     "script": "art/ai/golem_rig.py",
@@ -1387,7 +1387,7 @@
     "walk"
    ],
    "home": "ash",
-   "sha256": "edce1ce402d96cee5f5c8b8f5ad126504b418efb7c7c58b2a7e77ed50ca34cfe"
+   "sha256": "cfd6f6287232288bcf1bc767232895890dab119fdab984e00ebebb3260a68f5d"
   },
   {
    "id": "ca/boss_golem_lo",
@@ -1396,24 +1396,24 @@
    "file": "assets/ca/boss/golem_lo.glb",
    "ship": true,
    "replaces": null,
-   "tris": 3786,
-   "verts": 11358,
+   "tris": 3837,
+   "verts": 11505,
    "materials": 1,
    "textures": 1,
    "bounds": {
     "min": [
-     -2.369,
+     -2.606,
      0.002,
-     -1.171
+     -1.288
     ],
     "max": [
-     2.374,
+     2.611,
      5.033,
-     0.971
+     1.068
     ]
    },
    "h": 5.031,
-   "r": 2.374,
+   "r": 2.611,
    "y0": 0.002,
    "source": {
     "script": "art/ai/golem_rig.py",
@@ -1445,7 +1445,7 @@
     "walk"
    ],
    "home": "ash",
-   "sha256": "c4acedce888f530a585d8bab21008adb3c5f18aeb6dbab6d27073b16fabd29a9"
+   "sha256": "0183c6ba4565357dd75df49747d2bda94dfc378c940001c64a0b9dea2360104f"
   },
   {
    "id": "ca/boss_lord",
