@@ -1614,7 +1614,7 @@
     },
     stash: {
       touch: { once: '点物品取出，或放进仓库', list: ['仓库所有角色共用，4 页共 160 格', '点仓库里的物品：取进背包', '切到「背包」，点物品：放进仓库', '只放物品，通货和宝石不进仓库'] },
-      desk: { once: '点仓库物品取进背包，点背包物品放进仓库', list: ['仓库所有角色共用，4 页共 160 格', '点仓库里的物品：取进背包', '点背包里的物品：选「放进仓库」', 'Shift+点击背包物品：直接放进仓库', '只放物品，通货和宝石不进仓库'] },
+      desk: { once: '点仓库物品取进背包，点背包物品放进仓库', list: ['仓库所有角色共用，4 页共 160 格', '点仓库里的物品：取进背包', '点背包里的物品：选「放进仓库」', 'Shift+点击背包物品：直接放进仓库', '拖动：背包物品拖进仓库，仓库物品拖回背包', '只放物品，通货和宝石不进仓库'] },
     },
     skills: {
       touch: { once: '点技能看详情、放到技能键上、镶辅助', list: ['点技能：看数值，放到技能键上，镶辅助宝石', '卡片里点空的辅助槽：选一颗镶上；点镶着的：取下', '辅助：看每颗辅助宝石镶在哪，点它换个技能镶', '学习：用无铭宝石学新技能', '最上面一排是技能键上现在放的技能'] },
@@ -2000,10 +2000,36 @@
     for (let i = pg * P; i < (pg + 1) * P; i++) {
       const it = items[i];
       cells += it
-        ? '<div class="cell r' + it.rarity + (ui.card && ui.card.stash && ui.card.uid === it.uid ? ' sel' : '') + (G.offClassItem && G.offClassItem(it) ? ' cls-off' : '') + '" data-act="stash-take" data-uid="' + it.uid + '" data-tip="stash:' + it.uid + '">' + IC.item(it) + '<span class="c-ilvl">' + it.ilvl + '</span></div>'
+        ? '<div class="cell r' + it.rarity + (ui.card && ui.card.stash && ui.card.uid === it.uid ? ' sel' : '') + (G.offClassItem && G.offClassItem(it) ? ' cls-off' : '') + '" data-act="stash-take" data-uid="' + it.uid + '" data-tip="stash:' + it.uid + '"' + (compactUi() ? '' : ' data-drag="stash:' + it.uid + '"') + '>' + IC.item(it) + '<span class="c-ilvl">' + it.ilvl + '</span></div>'
         : '<div class="cell empty"></div>';
     }
     return cells;
+  }
+  // 取出 / 放进仓库（点按、卡片、拖动共用一条路；写的顺序在 G.stash 里：先写收的那一边）
+  function stashTake(uid) {
+    const it = (ui.stashCache || []).find((x) => x.uid === uid);
+    const r = G.stash.take(uid);
+    ui.stashBad = r !== true;
+    ui.stashMsg = r === true ? '「' + (it ? it.name : '物品') + '」取进了背包' : r === 'bag' ? '背包满了' : '没取出来';
+    if (r === true) {
+      ui.fresh.add(uid);
+      G.sfx('pickup', { r: it ? it.rarity : 0 });
+    }
+    return r === true;
+  }
+  function stashPut(item) {
+    const ok = G.stash.put(item);
+    ui.stashBad = !ok;
+    if (ui.tab !== 'stash') ui.invOk = ok ? '「' + item.name + '」放进了仓库' : ''; // 背包页的卡片里放的：结果写在背包页
+    ui.stashMsg = ok ? '「' + item.name + '」放进了仓库' : G.stash.list().length >= G.stash.MAX ? '仓库满了' : '没放进去';
+    if (ok) {
+      if (ui.sel === item.uid) ui.sel = null;
+      closeCard();
+      G.sfx('click');
+    } else if (ui.tab !== 'stash') {
+      ui.invMsg = ui.stashMsg;
+    }
+    return ok;
   }
   function renderStash() {
     const ok = !!(G.stash && G.stash.ok());
@@ -2504,16 +2530,21 @@
     const mi = sk.kind === 'summon' ? minionStats(id, ctx) : null;
     if (mi) {
       // 召唤技能：卡片上是召唤物自己的数值（每一击、出手频率、生命、现存数量 / 上限）
+      const tank = !!(ctx.minion && ctx.minion.mech === 'bastion'); // 刻式「磐垒」：只扛不打，卡片上不写伤害
       nums =
-        num('每击伤害', mi.dmgMin === mi.dmgMax ? fmtInt(mi.dmgMin) : fmtInt(mi.dmgMin) + '–' + fmtInt(mi.dmgMax), 'hl') +
-        num('每秒攻击', mi.rate > 0 ? mi.rate.toFixed(2) : '—') +
+        (tank ? num('伤害', '无', 'hl') : num('每击伤害', mi.dmgMin === mi.dmgMax ? fmtInt(mi.dmgMin) : fmtInt(mi.dmgMin) + '–' + fmtInt(mi.dmgMax), 'hl')) +
+        num('每秒攻击', mi.rate > 0 && !tank ? mi.rate.toFixed(2) : '—') +
         num('召唤物生命', fmtInt(mi.life)) +
         num('数量', mi.count + ' / ' + mi.cap, mi.count >= mi.cap ? 'full' : '') +
         num(blood ? '生命消耗' : '魔力消耗', ctx.cost > 0 ? fmt1(ctx.cost) : '无') +
         num('冷却', ctx.cd > 0 ? fmt1(ctx.cd) + ' 秒' : '无');
       const bits = ['施放 ' + fmt1(ctx.time) + ' 秒'];
       if (mi.dr > 0) bits.push('减伤 ' + Math.round(mi.dr) + '%');
-      if (mi.radius > 0) bits.push('砸地半径 ' + fmt1(mi.radius));
+      if (ctx.minion && ctx.minion.mech === 'boulder' && ctx.minion.vx.taunt > 0) bits.push('命中嘲讽 ' + fmt1(ctx.minion.vx.taunt) + ' 秒'); // 刻式「掷岩」：砸中就嘲讽
+      if (tank) {
+        const B = ctx.minion.vx;
+        bits.push('护域 ' + B.r + ' 米：减伤 ' + B.dr + '% · 敌人减速 ' + Math.round(B.slow * 100) + '%');
+      } else if (mi.radius > 0) bits.push('砸地半径 ' + fmt1(mi.radius));
       if (mi.taunt) bits.push('嘲讽 ' + fmt1(mi.taunt.cd) + ' 秒 / 半径 ' + fmt1(mi.taunt.r));
       const pm = ctx.minion && ctx.minion.charge ? ctx.minion : null;
       if (pm) {
@@ -4485,8 +4516,40 @@
   }
 
   // 把提示框摆到矩形 r 旁边：优先右侧，放不下就左侧，再不行就贴边并躲到上 / 下方
+  // 桌面上面板里的浮窗：整个放在页面正文里（和 B1 的桌面物品卡同一条规矩：不盖页头和页签，先放右边、放不下放左边、上下夹在正文里）。
+  // 不缩小（桌面字不能变小）：比正文还宽先去掉对比卡，还放不下（比正文高或宽）这一个就照旧只夹在视口里，tip.dataset.fb = 1（测试按这个放行并记下来）
+  function placeTipIn(r, preferLeft) {
+    const tip = el.tip;
+    const b0 = fRect(el.body.getBoundingClientRect());
+    const B = { l: b0.left + 4, t: b0.top + 4, r: b0.right - 4, b: b0.bottom - 4 };
+    if (tip.classList.contains('one')) tip.classList.remove('one');
+    if (tip.style.transform) tip.style.transform = '';
+    let w = tip.offsetWidth;
+    const h = tip.offsetHeight;
+    if (w > B.r - B.l && tip.querySelector('.tip-pair')) {
+      tip.classList.add('one');
+      w = tip.offsetWidth;
+    }
+    if (w > B.r - B.l || h > B.b - B.t) return false;
+    let x = r.right + 12;
+    if (x + w > B.r || (preferLeft && r.left - 12 - w >= B.l)) x = r.left - 12 - w;
+    if (x < B.l) x = G.clamp(r.left, B.l, B.r - w);
+    let y = G.clamp(r.top - 6, B.t, B.b - h);
+    if (x < r.right && x + w > r.left && y < r.bottom && y + h > r.top) {
+      if (r.bottom + 10 + h <= B.b) y = r.bottom + 10;
+      else if (r.top - 10 - h >= B.t) y = r.top - 10 - h;
+    }
+    tip.style.left = Math.round(x) + 'px';
+    tip.style.top = Math.round(y) + 'px';
+    delete tip.dataset.fb;
+    return true;
+  }
   function placeTip(r, preferLeft) {
     const tip = el.tip;
+    if (ui.isOpen && !compactUi() && ui.tipEl && el.body.contains(ui.tipEl)) {
+      if (placeTipIn(r, preferLeft)) return;
+      tip.dataset.fb = 1; // 放不进正文：照旧夹在视口里
+    } else delete tip.dataset.fb;
     const vw = G.viewW();
     const vh = G.viewH();
     // 手机（尤其横屏）上浮窗可能比屏幕还大：先去掉右边那张「当前装备」对比卡，还放不下就整体缩小（最多缩到 0.7）
@@ -4796,30 +4859,13 @@
         return clickItem(d.uid, true);
       }
       closeCard();
-      const it = (ui.stashCache || []).find((x) => x.uid === d.uid);
-      const r = G.stash.take(d.uid);
-      ui.stashBad = r !== true;
-      ui.stashMsg = r === true ? '「' + (it ? it.name : '物品') + '」取进了背包' : r === 'bag' ? '背包满了' : '没取出来';
-      if (r === true) {
-        ui.fresh.add(d.uid);
-        G.sfx('pickup', { r: it ? it.rarity : 0 });
-      }
+      stashTake(d.uid);
       render();
     },
     'stash-put'() {
       const f = selItem();
       if (!f || f.equipped) return;
-      const ok = G.stash.put(f.item);
-      ui.stashBad = !ok;
-      if (ui.tab !== 'stash') ui.invOk = ok ? '「' + f.item.name + '」放进了仓库' : ''; // 背包页的卡片里放的：结果写在背包页
-      ui.stashMsg = ok ? '「' + f.item.name + '」放进了仓库' : G.stash.list().length >= G.stash.MAX ? '仓库满了' : '没放进去';
-      if (ok) {
-        ui.sel = null;
-        closeCard();
-        G.sfx('click');
-      } else if (ui.tab !== 'stash') {
-        ui.invMsg = ui.stashMsg;
-      }
+      stashPut(f.item);
       render();
     },
     unequip() {
@@ -5454,7 +5500,7 @@
     const Q = G.save.quest, st = G.state;
     const n = Q ? Q.n : G.QUEST_N;
     // 第一次进区时右上「正在载入场景…」那一条正好压在追踪条上：素材就绪前先不显示，就绪后淡入（quest D2）
-    const vis = !!(Q && n < G.QUEST_N && !Q.off && !ui.intro && !story.on && !menu.title && !menu.pause && !(G.world.assetsPending && G.world.assetsPending()));
+    const vis = !!(Q && n < G.QUEST_N && !Q.off && !ui.intro && !story.on && !menu.title && !menu.pause && !(G.world.assetsLoading && G.world.assetsLoading()));
     if (vis !== qh.vis) {
       qh.vis = vis;
       qh.root.classList.toggle('on', vis);
@@ -5532,7 +5578,7 @@
   // 战斗结束了没有：玩家活着、在区域里、素材载好了，没有醒着的敌人，也没有敌方的预警圈
   function narrCalm() {
     const st = G.state;
-    if (G.player.dead || !st.zone || (G.world.assetsPending && G.world.assetsPending())) return false;
+    if (G.player.dead || !st.zone || (G.world.assetsLoading && G.world.assetsLoading())) return false;
     if (narrAwake()) return false;
     for (const t of st.telegraphs) if (!t.friendly) return false;
     return true;
@@ -6387,7 +6433,9 @@
     const on = !!menu.devInfo;
     return (
       '<div class="m-dev-box"><button type="button" tabindex="-1" class="m-row m-dev-row' + (on ? ' on' : '') + '" data-tact="devinfo"><span class="opt-text"><b>设备信息</b><span>屏幕和视口的数值，反馈画面问题时截图用</span></span><span class="m-dev-t">' + (on ? '收起' : '展开') + '</span></button>' +
-      (on ? '<pre id="m-dev" class="m-dev">' + esc(G.touch.devText()) + '</pre>' + (canCopy() ? '<button type="button" tabindex="-1" class="btn ghost m-dev-copy" data-tact="devcopy">复制</button>' : '') : '') +
+      (on ? '<pre id="m-dev" class="m-dev">' + esc(G.touch.devText()) + '</pre>' + (canCopy() ? '<button type="button" tabindex="-1" class="btn ghost m-dev-copy" data-tact="devcopy">复制</button>' : '') +
+        // 画面测试（rot-safe2）：屏幕底边涂几条色带，截图看哪一层画到了底；不存，刷新就关
+        setSw('画面测试', '在屏幕底边涂几条色带，截图发回来', G.touch.probeOn(), 'data-tact="devprobe"') : '') +
       '</div>'
     );
   }
@@ -6612,6 +6660,11 @@
   const MENU_ACT = {
     devinfo() {
       menu.devInfo = !menu.devInfo;
+      G.sfx('click');
+      renderMenu();
+    },
+    devprobe() {
+      G.touch.probe(!G.touch.probeOn());
       G.sfx('click');
       renderMenu();
     },
@@ -6920,6 +6973,12 @@
       drag.item = f.item;
       drag.equipped = f.equipped;
       icon = itemIcon(f.item);
+    } else if (a.kind === 'stash') {
+      // 仓库里的一件（桌面仓库页）：拖回背包 = 取出
+      const it = (ui.stashCache || []).find((x) => x.uid === a.id);
+      if (!it) return;
+      drag.item = it;
+      icon = itemIcon(it);
     } else if (a.kind === 'cur') {
       if (!G.CURRENCY[a.id] || !(G.save.cur[a.id] > 0)) return;
       icon = ibox(IC.cur(a.id), 'curb');
@@ -6942,7 +7001,7 @@
     drag.info = NO_DROP;
     if (closePicker()) render(); // 选辅助的列表盖着辅助槽：换回卡片，让出落点
     // 拖物品时收起物品卡和小菜单（桌面上卡片盖在装备栏上，得让出落点）；拖通货时卡片留着，它本身就是落点
-    if (a.kind === 'item' && (ui.card || ui.pop)) {
+    if ((a.kind === 'item' || a.kind === 'stash') && (ui.card || ui.pop)) {
       closeCard();
       ui.pop = null;
       for (const n of el.body.querySelectorAll('.sheet, .ui-pop')) n.remove();
@@ -6966,6 +7025,16 @@
   // 拖起来的瞬间把所有落点标出来：能放的亮，不能放的暗
   function markTargets() {
     const body = el.body;
+    // 仓库页：背包的物品能放进仓库，仓库的物品能拖回背包；通货、宝石不进仓库
+    const sg = body.querySelector('[data-grid="stash"]');
+    if (sg) {
+      if (drag.kind === 'item') sg.classList.add(drag.equipped ? 'drop-no' : 'drop-zone');
+      else if (drag.kind === 'stash') {
+        const bg = body.querySelector('.stp [data-grid="bag"]');
+        if (bg) bg.classList.add('drop-zone');
+        sg.classList.add('drop-no');
+      } else sg.classList.add('drop-no');
+    }
     if (drag.kind === 'item') {
       if (!drag.equipped) {
         body.querySelectorAll('.eq').forEach((n) => n.classList.add(n.dataset.slot === drag.item.slot ? 'drop-ok' : 'drop-no'));
@@ -7009,6 +7078,24 @@
     const q = (sel) => (under && under.closest ? under.closest(sel) : null);
     const inWin = !!q('#panel-win');
     const save = G.save;
+    // 仓库页（桌面）：拖动存取，和点按走同一条路（stashPut / stashTake）
+    const sgEl = inWin ? q('[data-grid="stash"]') : null;
+    if (drag.kind === 'stash') {
+      const bg = inWin ? q('.stp [data-grid="bag"]') : null;
+      if (!bg) return NO_DROP; // 仓库里的东西不能丢到地上；仓库里不能挪位置
+      if (save.bag.length >= G.BAG_SIZE) return { el: bg, ok: false, label: '背包满了', run: null };
+      const uid = drag.id;
+      return { el: bg, ok: true, label: '取进背包', run: () => stashTake(uid) };
+    }
+    if (sgEl && drag.kind !== 'item') return { el: sgEl, ok: false, label: '只放物品，通货和宝石不进仓库', run: null };
+    if (sgEl) {
+      const item = drag.item;
+      if (drag.equipped) return { el: sgEl, ok: false, label: '先卸下，再放进仓库', run: null };
+      if (!(G.stash && G.stash.ok())) return { el: sgEl, ok: false, label: '现在不能用仓库', run: null };
+      if (G.stash.list().length >= G.stash.MAX) return { el: sgEl, ok: false, label: '仓库满了', run: null };
+      // 仓库是紧凑排列的：放进去 = 排到最后（这一页有空格时亮那一格）
+      return { el: sgEl.querySelector('.cell.empty') || sgEl, ok: true, label: '放进仓库', run: () => stashPut(item) };
+    }
     if (drag.kind === 'item') {
       const item = drag.item;
       if (!inWin) {
